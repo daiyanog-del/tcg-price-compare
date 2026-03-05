@@ -78,6 +78,8 @@ header h1{font-size:1.5rem;font-weight:900;letter-spacing:.04em;color:var(--text
 .scard.best::before{content:'BEST';position:absolute;top:10px;right:12px;font-size:.6rem;font-weight:700;color:var(--gold);letter-spacing:.08em;padding:2px 6px;border:1px solid var(--gold-d);border-radius:3px}
 .scard .slabel{font-size:.68rem;font-weight:600;color:var(--text-m);text-transform:uppercase;letter-spacing:.1em}
 .scard .sprice{font:600 1.5rem var(--mono);color:var(--gold);margin:5px 0 3px}
+.scard .sprice a{color:var(--gold);text-decoration:none}
+.scard .sprice a:hover{text-decoration:underline}
 .scard .sdetail{font-size:.76rem;color:var(--text-m);line-height:1.5}
 .scard .sdetail a{color:var(--text-m)}
 .scard .sdetail a:hover{color:var(--accent-l)}
@@ -358,16 +360,18 @@ function renderAll(d){
   let h='';
   if(inStock.length>0){
     const best=inStock.reduce((a,b)=>a.price<b.price?a:b);
-    const link=best.url?`<a href="${esc(best.url)}" target="_blank" rel="noopener">${esc(best.name)}</a>`:esc(best.name);
+    const nameLink=best.url?`<a href="${esc(best.url)}" target="_blank" rel="noopener">${esc(best.name)}</a>`:esc(best.name);
+    const priceLink=best.url?`<a href="${esc(best.url)}" target="_blank" rel="noopener">¥${best.price.toLocaleString()}</a>`:`¥${best.price.toLocaleString()}`;
     h+=`<div class="scard best fin"><div class="slabel">最安値</div>
-      <div class="sprice">¥${best.price.toLocaleString()}</div>
-      <div class="sdetail">${best.shop} / ${best.rarity||'-'}<br>${link}</div></div>`;
+      <div class="sprice">${priceLink}</div>
+      <div class="sdetail">${best.shop} / ${best.rarity||'-'}<br>${nameLink}</div></div>`;
   }
   for(const[shop,item]of Object.entries(d.by_shop)){
-    const link=item.url?`<a href="${esc(item.url)}" target="_blank" rel="noopener">${esc(item.name)}</a>`:esc(item.name);
+    const nameLink=item.url?`<a href="${esc(item.url)}" target="_blank" rel="noopener">${esc(item.name)}</a>`:esc(item.name);
+    const priceLink=item.url?`<a href="${esc(item.url)}" target="_blank" rel="noopener">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
     h+=`<div class="scard fin"><div class="slabel">${shop}</div>
-      <div class="sprice">¥${item.price.toLocaleString()}</div>
-      <div class="sdetail">${item.rarity||'-'}<br>${link}</div></div>`;
+      <div class="sprice">${priceLink}</div>
+      <div class="sdetail">${item.rarity||'-'}<br>${nameLink}</div></div>`;
   }
   h+=`<div class="scard fin"><div class="slabel">検索結果</div>
     <div class="sprice" style="color:var(--text)">${d.in_stock_count}<span style="font-size:.75rem;color:var(--text-m)">件</span></div>
