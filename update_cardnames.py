@@ -1,13 +1,16 @@
 """
 カード名データベース更新スクリプト
 ==================================
-YGOProDeck API から全遊戯王カードの日本語名を取得し、
-data/cardnames_ja.json に保存する。
+遊戯王OCGの全カード日本語名を取得し、data/cardnames_ja.json に保存する。
+
+データソース:
+  1. YGOrganization DB (優先) — /data/idx/card/name/ja
+  2. YGOProDeck API (フォールバック) — /api/v7/cardinfo.php?language=ja
 
 使い方:
     python update_cardnames.py
 
-GitHub Actions から自動実行される。手動でも実行可能。
+GitHub Actions から毎週自動実行。手動でも実行可能。
 """
 
 import json
@@ -15,32 +18,55 @@ import sys
 import requests
 from pathlib import Path
 
-API_URL = "https://db.ygoprodeck.com/api/v7/cardinfo.php"
 OUTPUT_FILE = Path(__file__).parent / "data" / "cardnames_ja.json"
+MIN_EXPECTED_CARDS = 1000  # これ未満なら異常とみなす
 
 
-def fetch_all_cards_ja() -> list[str]:
-    """YGOProDeck API から日本語カード名を全件取得"""
-    print("YGOProDeck API からカードデータを取得中...")
+def fetch_from_ygorganization() -> list[str]:
+    """YGOrganization DB からカード名一覧を取得（推奨）"""
+    print("[1] YGOrganization DB から取得中...")
+    url = "https://db.ygorganization.com/data/idx/card/name/ja"
     resp = requests.get(
-        API_URL,
+        url,
+        headers={"User-Agent": "TCGPriceCompare/1.0"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    # レスポンス形式: { "カード名": cardId, ... } の辞書
+    if isinstance(data, dict):
+        names = sorted(data.keys())
+    elif isinstance(data, list):
+        # 万が一リスト形式の場合
+        names = sorted(set(str(item) for item in data if item))
+    else:
+        raise ValueError(f"予期しないレスポンス形式: {type(data)}")
+
+    print(f"  → {len(names)} 件取得")
+    return names
+
+
+def fetch_from_ygoprodeck() -> list[str]:
+    """YGOProDeck API からカード名を取得（フォールバック）"""
+    print("[2] YGOProDeck API から取得中 (フォールバック)...")
+    url = "https://db.ygoprodeck.com/api/v7/cardinfo.php"
+    resp = requests.get(
+        url,
         params={"language": "ja"},
         headers={"User-Agent": "TCGPriceCompare/1.0"},
         timeout=60,
     )
     resp.raise_for_status()
-    data = resp.json().get("data", [])
-    print(f"  {len(data)} 件のカードデータを取得")
+    cards = resp.json().get("data", [])
 
-    names = set()
-    for card in data:
-        name = card.get("name", "").strip()
-        if name:
-            names.add(name)
-
-    sorted_names = sorted(names)
-    print(f"  ユニークなカード名: {len(sorted_names)} 件")
-    return sorted_names
+    names = sorted(set(
+        card["name"].strip()
+        for card in cards
+        if card.get("name", "").strip()
+    ))
+    print(f"  → {len(names)} 件取得")
+    return names
 
 
 def save_names(names: list[str]):
@@ -55,16 +81,28 @@ def save_names(names: list[str]):
 
 
 def main():
+    names = None
+
+    # ソース1: YGOrganization DB
     try:
-        names = fetch_all_cards_ja()
-        if len(names) < 1000:
-            print(f"⚠️  取得件数が少なすぎます ({len(names)} 件)。API に問題がある可能性。")
-            sys.exit(1)
-        save_names(names)
-        print("✅ 更新完了")
+        names = fetch_from_ygorganization()
     except Exception as e:
-        print(f"❌ エラー: {e}")
+        print(f"  ⚠️  YGOrganization 失敗: {e}")
+
+    # ソース2: YGOProDeck (フォールバック)
+    if not names or len(names) < MIN_EXPECTED_CARDS:
+        try:
+            names = fetch_from_ygoprodeck()
+        except Exception as e:
+            print(f"  ⚠️  YGOProDeck 失敗: {e}")
+
+    # 結果チェック
+    if not names or len(names) < MIN_EXPECTED_CARDS:
+        print(f"❌ 取得件数不足 ({len(names) if names else 0} 件)")
         sys.exit(1)
+
+    save_names(names)
+    print("✅ 更新完了")
 
 
 if __name__ == "__main__":
