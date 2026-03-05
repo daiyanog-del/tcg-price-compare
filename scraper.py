@@ -350,7 +350,6 @@ def scrape_torecolo(card_name: str) -> list[dict]:
         for item in items:
             name_el = item.select_one("a.js-enhanced-ecommerce-goods-name")
             price_el = item.select_one("div.block-thumbnail-t--price")
-            stock_el = item.select_one("select.block-products--product-sale-cart-quantity-select")
 
             if not name_el or not price_el:
                 continue
@@ -362,7 +361,13 @@ def scrape_torecolo(card_name: str) -> list[dict]:
                 continue
 
             price = parse_price(price_text)
-            has_stock = stock_el is not None
+
+            # 在庫判定: btn-sold-out があれば売切、カートボタンがあれば在庫あり
+            sold_btn = item.select_one(".btn-sold-out")
+            cart_btn = item.select_one("a.block-products--product-sale-cart-button")
+            sold_out = sold_btn is not None
+            has_stock = cart_btn is not None and not sold_out
+
             href = name_el.get("href", "")
             product_url = f"{TORECOLO_BASE}{href}" if href.startswith("/") else href
 
