@@ -6,6 +6,7 @@ import json
 import time
 import os
 import logging
+import requests as http_requests
 from flask import Flask, render_template, request, jsonify, Response
 
 from scraper import (
@@ -32,6 +33,52 @@ HEALTH_CHECK_KEY = os.environ.get("HEALTH_CHECK_KEY", "")
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+# ── カード名サジェスト ──
+
+_suggest_cache: dict[str, tuple[float, list]] = {}
+SUGGEST_CACHE_TTL = 3600  # 1時間
+
+@app.route("/api/suggest")
+def api_suggest():
+    """カード名の入力補完候補を返す（YGOProDeck API 経由）"""
+    q = request.args.get("q", "").strip()
+    if not q or len(q) < 2:
+        return jsonify([])
+
+    # キャッシュ確認
+    now = time.time()
+    if q in _suggest_cache:
+        ts, data = _suggest_cache[q]
+        if now - ts < SUGGEST_CACHE_TTL:
+            return jsonify(data)
+
+    try:
+        resp = http_requests.get(
+            "https://db.ygoprodeck.com/api/v7/cardinfo.php",
+            params={"fname": q, "language": "ja", "num": 12, "offset": 0},
+            headers={"User-Agent": "TCGPriceCompare/1.0"},
+            timeout=5,
+        )
+        if resp.status_code != 200:
+            return jsonify([])
+
+        cards = resp.json().get("data", [])
+        # 日本語名を抽出してユニーク化
+        names = []
+        seen = set()
+        for card in cards:
+            name = card.get("name", "")
+            if name and name not in seen:
+                seen.add(name)
+                names.append(name)
+
+        _suggest_cache[q] = (now, names[:10])
+        return jsonify(names[:10])
+
+    except Exception:
+        return jsonify([])
 
 
 @app.route("/api/search")
