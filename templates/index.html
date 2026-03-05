@@ -129,6 +129,11 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .sob{font:.65rem var(--font);padding:1px 5px;border-radius:3px;background:var(--sold-out);color:var(--red)}
 
 /* Rarity grid */
+.rarity-filter{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:12px;padding:10px 0}
+.rf-label{font-size:.72rem;color:var(--text-d);margin-right:4px;white-space:nowrap}
+.rf-btn{padding:3px 10px;font:.72rem var(--font);font-weight:600;color:var(--text-d);background:var(--bg-card);border:1px solid var(--border);border-radius:14px;cursor:pointer;transition:all .15s;white-space:nowrap}
+.rf-btn:hover{border-color:var(--text-m);color:var(--text-m)}
+.rf-btn.active{color:var(--text);border-color:var(--accent);background:rgba(74,124,255,.08)}
 .rgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
 .ritem{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px;display:flex;justify-content:space-between;align-items:center;transition:border-color .2s}
 .ritem:hover{border-color:var(--border-hl);background:var(--bg-hover)}
@@ -195,6 +200,12 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
       </label>
     </div>
 
+    <div class="rarity-filter hidden" id="rarityFilter">
+      <span class="rf-label">レアリティ:</span>
+      <button class="rf-btn active" data-r="" onclick="setRarityFilter('')">すべて</button>
+      <!-- 動的に追加される -->
+    </div>
+
     <div class="tpanel active" id="p-all">
       <div class="tbl-wrap">
         <table class="res" id="tbl">
@@ -223,7 +234,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 </div>
 
 <script>
-let D=[],sort={k:'price',a:true};
+let D=[],sort={k:'price',a:true},rarityFilter='';
 
 // Shop toggle logic
 document.querySelectorAll('.shop-toggle').forEach(label=>{
@@ -378,6 +389,22 @@ function renderAll(d){
     <div class="sdetail">在庫あり ${d.in_stock_count} / 売切 ${d.sold_out_count} / 計 ${d.total}</div></div>`;
   document.getElementById('sumCards').innerHTML=h;
 
+  // Build rarity filter buttons
+  rarityFilter='';
+  const rarities=[...new Set(D.map(r=>r.rarity).filter(Boolean))].sort();
+  const rfEl=document.getElementById('rarityFilter');
+  if(rarities.length>1){
+    rfEl.classList.remove('hidden');
+    let btns='<span class="rf-label">レアリティ:</span><button class="rf-btn active" data-r="" onclick="setRarityFilter(\'\')">すべて</button>';
+    for(const r of rarities){
+      const cnt=D.filter(x=>x.rarity===r).length;
+      btns+=`<button class="rf-btn" data-r="${esc(r)}" onclick="setRarityFilter('${r.replace(/'/g,"\\'")}')"><span class="rb rb-${r}" style="background:none;padding:0">${esc(r)}</span> <span style="color:var(--text-d)">${cnt}</span></button>`;
+    }
+    rfEl.innerHTML=btns;
+  }else{
+    rfEl.classList.add('hidden');
+  }
+
   renderTable();
 
   // Rarity grid
@@ -391,7 +418,8 @@ function renderAll(d){
 
 function renderTable(){
   const showSO=document.getElementById('soCheck').checked;
-  const data=showSO?D:D.filter(r=>!r.sold_out);
+  let data=showSO?D:D.filter(r=>!r.sold_out);
+  if(rarityFilter) data=data.filter(r=>r.rarity===rarityFilter);
   const sorted=[...data].sort((a,b)=>{
     let va=a[sort.k]??'',vb=b[sort.k]??'';
     if(typeof va==='number'&&typeof vb==='number')return sort.a?va-vb:vb-va;
@@ -434,6 +462,12 @@ document.querySelectorAll('#tbl th[data-s]').forEach(th=>{
 function tab(id){
   document.querySelectorAll('.tbtn').forEach(b=>b.classList.toggle('active',b.dataset.t===id));
   document.querySelectorAll('.tpanel').forEach(p=>p.classList.toggle('active',p.id==='p-'+id));
+}
+
+function setRarityFilter(r){
+  rarityFilter=r;
+  document.querySelectorAll('.rf-btn').forEach(b=>b.classList.toggle('active',b.dataset.r===r));
+  renderTable();
 }
 
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}

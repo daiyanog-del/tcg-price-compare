@@ -162,6 +162,24 @@ _RUSH_MAP = {
     "エクストラシークレット": "エクシク", "ラッシュレア": "ラッシュレア",
     "オーバーラッシュレア": "オーバーラッシュ", "コレクターズ": "コレクターズ",
     "OFウルトラ": "OFウルトラ",
+    # トレコロCB の表記（「〜レア」形式）
+    "ノーマルレア": "ノーマル", "スーパーレア": "スーパー",
+    "ウルトラレア": "ウルトラ", "シークレットレア": "シークレット",
+    "アルティメットレア": "アルティメット",
+    "プリズマティックシークレットレア": "プリシク",
+    "クォーターセンチュリーシークレットレア": "25thシークレット",
+    "20thシークレットレア": "20thシークレット",
+    "ホログラフィックレア": "ホログラフィック",
+    "ホログラフィックパラレルレア": "ホログラフィック",
+    "ミレニアムレア": "ミレニアム",
+    "ゴールドレア": "ゴールド", "ゴールドシークレットレア": "ゴールドシークレット",
+    "エクストラシークレットレア": "エクシク",
+    "コレクターズレア": "コレクターズ",
+    "グランドマスターレア": "グランドマスター",
+    "ノーマルパラレルレア": "ノーマルパラレル",
+    "ウルトラパラレルレア": "ウルトラパラレル",
+    "プレミアムゴールドレア": "ゴールド",
+    "KCレア": "KC",
 }
 
 def normalize_rarity(raw: str) -> str:
@@ -309,59 +327,80 @@ def scrape_cardrush(card_name: str) -> list[dict]:
 TORECOLO_BASE = "https://www.torecolo.jp"
 
 def scrape_torecolo(card_name: str) -> list[dict]:
-    page_url = (
+    """トレコロCB — 複数ページ対応、レアリティ取得"""
+    base_url = (
         f"{TORECOLO_BASE}/shop/goods/search.aspx"
         f"?search=x&keyword={requests.utils.quote(card_name)}&category=&oshiire_code="
     )
-    soup = safe_get(page_url)
-    if not soup:
-        return []
-    dump_html("torecolo", soup)
+    all_results = []
+    max_pages = 5  # 最大5ページまで取得（負荷軽減）
 
-    results = []
-    for item in soup.select("dl.block-thumbnail-t--goods"):
-        name_el = item.select_one("a.js-enhanced-ecommerce-goods-name")
-        price_el = item.select_one("div.block-thumbnail-t--price")
-        stock_el = item.select_one("select.block-products--product-sale-cart-quantity-select")
+    for page in range(1, max_pages + 1):
+        page_url = base_url if page == 1 else f"{base_url}&p={page}"
+        soup = safe_get(page_url)
+        if not soup:
+            break
+        if page == 1:
+            dump_html("torecolo", soup)
 
-        if not name_el or not price_el:
-            continue
+        items = soup.select("dl.block-thumbnail-t--goods")
+        if not items:
+            break
 
-        name = name_el.get_text(strip=True)
-        price_text = price_el.get_text(strip=True)
+        for item in items:
+            name_el = item.select_one("a.js-enhanced-ecommerce-goods-name")
+            price_el = item.select_one("div.block-thumbnail-t--price")
+            stock_el = item.select_one("select.block-products--product-sale-cart-quantity-select")
 
-        if "買取" in price_text or "参考" in price_text:
-            continue
+            if not name_el or not price_el:
+                continue
 
-        price = parse_price(price_text)
-        has_stock = stock_el is not None
-        href = name_el.get("href", "")
-        product_url = f"{TORECOLO_BASE}{href}" if href.startswith("/") else href
+            name = name_el.get_text(strip=True)
+            price_text = price_el.get_text(strip=True)
 
-        rarity = ""
-        img_el = item.select_one("img")
-        if img_el:
-            alt = img_el.get("alt", "")
-            m = re.search(r"([\w\s]+)◇", alt)
-            if m:
-                rarity = m.group(1).strip()
+            if "買取" in price_text or "参考" in price_text:
+                continue
 
-        code = ""
-        code_match = re.search(r"/g/g([^/]+)/", href)
-        if code_match:
-            code = code_match.group(1)
+            price = parse_price(price_text)
+            has_stock = stock_el is not None
+            href = name_el.get("href", "")
+            product_url = f"{TORECOLO_BASE}{href}" if href.startswith("/") else href
 
-        if not price or not is_target_card(card_name, name):
-            continue
+            # レアリティ: div.block-thumbnail-t--goods-category から取得
+            rarity = ""
+            cat_el = item.select_one("div.block-thumbnail-t--goods-category")
+            if cat_el:
+                rarity = cat_el.get_text(strip=True)
+                # 全角英数を半角に変換
+                rarity = rarity.translate(str.maketrans(
+                    'ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ０１２３４５６７８９',
+                    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+                ))
 
-        results.append({
-            "shop": "トレコロCB", "name": name,
-            "rarity": normalize_rarity(rarity), "code": code,
-            "condition": "-", "price": price,
-            "stock": 1 if has_stock else 0,
-            "sold_out": not has_stock, "url": product_url,
-        })
-    return results
+            # カードコード: URLから抽出
+            code = ""
+            code_match = re.search(r"/g/g([^/]+?)(-[SK])?/", href)
+            if code_match:
+                code = code_match.group(1)
+
+            if not price or not is_target_card(card_name, name):
+                continue
+
+            all_results.append({
+                "shop": "トレコロCB", "name": name,
+                "rarity": normalize_rarity(rarity), "code": code,
+                "condition": "-", "price": price,
+                "stock": 1 if has_stock else 0,
+                "sold_out": not has_stock, "url": product_url,
+            })
+
+        # 次のページがあるか確認
+        next_link = soup.select_one("a[href*='p=%d']" % (page + 1))
+        if not next_link:
+            break
+        time.sleep(0.5)
+
+    return all_results
 
 
 # ── 全店舗検索 ──
