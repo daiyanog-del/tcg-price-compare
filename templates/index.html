@@ -39,7 +39,7 @@ header{padding:40px 0 28px;text-align:center}
 header h1{font-size:1.5rem;font-weight:900;letter-spacing:.04em;color:var(--text)}
 
 /* ── Search ── */
-.search{display:flex;gap:8px;max-width:540px;margin:0 auto 36px}
+.search{display:flex;gap:8px;max-width:540px;margin:0 auto 36px;position:relative}
 .search input{flex:1;padding:13px 18px;font:1rem var(--font);background:var(--bg-input);border:1.5px solid var(--border);border-radius:var(--radius);color:var(--text);outline:0;transition:border .2s}
 .search input:focus{border-color:var(--border-hl)}
 .search input::placeholder{color:var(--text-d)}
@@ -47,6 +47,12 @@ header h1{font-size:1.5rem;font-weight:900;letter-spacing:.04em;color:var(--text
 .search button:hover{background:#5a88ff}
 .search button:active{transform:scale(.97)}
 .search button:disabled{background:var(--border);cursor:not-allowed}
+.suggest-dropdown{position:absolute;top:100%;left:0;right:72px;background:var(--bg-card);border:1px solid var(--border);border-radius:0 0 var(--radius) var(--radius);max-height:280px;overflow-y:auto;z-index:100;display:none}
+.suggest-dropdown.open{display:block}
+.suggest-item{padding:10px 16px;font-size:.88rem;cursor:pointer;transition:background .1s;border-bottom:1px solid rgba(38,40,56,.5)}
+.suggest-item:last-child{border-bottom:0}
+.suggest-item:hover,.suggest-item.active{background:var(--bg-hover);color:var(--accent-l)}
+.suggest-hint{padding:8px 16px;font-size:.72rem;color:var(--text-d);text-align:center}
 
 /* ── Progress ── */
 .shop-toggles{display:flex;gap:6px;max-width:540px;margin:-20px auto 20px;justify-content:center;flex-wrap:wrap}
@@ -155,6 +161,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   <div class="search">
     <input type="text" id="q" placeholder="カード名を入力（例: ブラック・マジシャン）" autofocus autocomplete="off">
     <button id="btn" onclick="doSearch()">検索</button>
+    <div class="suggest-dropdown" id="suggestDrop"></div>
   </div>
 
   <div class="shop-toggles" id="shopToggles">
@@ -282,7 +289,61 @@ function doSearch(){
     document.getElementById('empty').innerHTML='<p>エラーが発生しました。再度お試しください。</p>';
   };
 }
-document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')doSearch()});
+// ── Autocomplete ──
+const qInput=document.getElementById('q');
+const sugDrop=document.getElementById('suggestDrop');
+let sugTimer=null, sugIdx=-1, sugItems=[];
+
+qInput.addEventListener('input',()=>{
+  clearTimeout(sugTimer);
+  const v=qInput.value.trim();
+  if(v.length<2){closeSuggest();return;}
+  sugTimer=setTimeout(()=>fetchSuggest(v),250);
+});
+
+qInput.addEventListener('keydown',e=>{
+  if(sugDrop.classList.contains('open')&&sugItems.length>0){
+    if(e.key==='ArrowDown'){e.preventDefault();sugIdx=Math.min(sugIdx+1,sugItems.length-1);highlightSug();return;}
+    if(e.key==='ArrowUp'){e.preventDefault();sugIdx=Math.max(sugIdx-1,-1);highlightSug();return;}
+    if(e.key==='Enter'&&sugIdx>=0){e.preventDefault();selectSug(sugItems[sugIdx]);return;}
+    if(e.key==='Escape'){closeSuggest();return;}
+  }
+  if(e.key==='Enter')doSearch();
+});
+
+qInput.addEventListener('blur',()=>{setTimeout(closeSuggest,150)});
+
+function fetchSuggest(q){
+  fetch('/api/suggest?q='+encodeURIComponent(q))
+    .then(r=>r.json())
+    .then(names=>{
+      if(!names.length){closeSuggest();return;}
+      sugItems=names;sugIdx=-1;
+      sugDrop.innerHTML=names.map((n,i)=>
+        `<div class="suggest-item" data-i="${i}" onmousedown="selectSug('${n.replace(/'/g,"\\'")}')">${esc(n)}</div>`
+      ).join('');
+      sugDrop.classList.add('open');
+    })
+    .catch(()=>closeSuggest());
+}
+
+function highlightSug(){
+  sugDrop.querySelectorAll('.suggest-item').forEach((el,i)=>{
+    el.classList.toggle('active',i===sugIdx);
+  });
+  if(sugIdx>=0){
+    const el=sugDrop.children[sugIdx];
+    if(el)el.scrollIntoView({block:'nearest'});
+  }
+}
+
+function selectSug(name){
+  qInput.value=name;
+  closeSuggest();
+  doSearch();
+}
+
+function closeSuggest(){sugDrop.classList.remove('open');sugIdx=-1;sugItems=[];}
 
 function renderAll(d){
   document.getElementById('results').classList.remove('hidden');
