@@ -6,7 +6,6 @@ import json
 import time
 import os
 import logging
-import requests as http_requests
 from flask import Flask, render_template, request, jsonify, Response
 
 from scraper import (
@@ -35,50 +34,49 @@ def index():
     return render_template("index.html")
 
 
-# ── カード名サジェスト ──
+# ── カード名サジェスト（ローカルファイル参照）──
 
-_suggest_cache: dict[str, tuple[float, list]] = {}
-SUGGEST_CACHE_TTL = 3600  # 1時間
+_cardnames: list[str] = []
+_cardnames_loaded = False
+
+def _load_cardnames():
+    """data/cardnames_ja.json をメモリに読み込む"""
+    global _cardnames, _cardnames_loaded
+    if _cardnames_loaded:
+        return
+    cardnames_path = os.path.join(os.path.dirname(__file__), "data", "cardnames_ja.json")
+    try:
+        with open(cardnames_path, "r", encoding="utf-8") as f:
+            _cardnames = json.loads(f.read())
+        logger.info(f"カード名データベース読込: {len(_cardnames)} 件")
+    except FileNotFoundError:
+        logger.warning("data/cardnames_ja.json が見つかりません。update_cardnames.py を実行してください。")
+        _cardnames = []
+    _cardnames_loaded = True
 
 @app.route("/api/suggest")
 def api_suggest():
-    """カード名の入力補完候補を返す（YGOProDeck API 経由）"""
+    """カード名の入力補完候補を返す（ローカルファイル参照、外部API不使用）"""
+    _load_cardnames()
     q = request.args.get("q", "").strip()
-    if not q or len(q) < 2:
+    if not q or len(q) < 1:
         return jsonify([])
 
-    # キャッシュ確認
-    now = time.time()
-    if q in _suggest_cache:
-        ts, data = _suggest_cache[q]
-        if now - ts < SUGGEST_CACHE_TTL:
-            return jsonify(data)
+    q_lower = q.lower()
+    # 前方一致を優先、次に部分一致
+    prefix_matches = []
+    contains_matches = []
+    for name in _cardnames:
+        name_lower = name.lower()
+        if name_lower.startswith(q_lower):
+            prefix_matches.append(name)
+        elif q_lower in name_lower:
+            contains_matches.append(name)
+        if len(prefix_matches) + len(contains_matches) >= 15:
+            break
 
-    try:
-        resp = http_requests.get(
-            "https://db.ygoprodeck.com/api/v7/cardinfo.php",
-            params={"fname": q, "language": "ja", "num": 12, "offset": 0},
-            headers={"User-Agent": "TCGPriceCompare/1.0"},
-            timeout=5,
-        )
-        if resp.status_code != 200:
-            return jsonify([])
-
-        cards = resp.json().get("data", [])
-        # 日本語名を抽出してユニーク化
-        names = []
-        seen = set()
-        for card in cards:
-            name = card.get("name", "")
-            if name and name not in seen:
-                seen.add(name)
-                names.append(name)
-
-        _suggest_cache[q] = (now, names[:10])
-        return jsonify(names[:10])
-
-    except Exception:
-        return jsonify([])
+    results = (prefix_matches + contains_matches)[:10]
+    return jsonify(results)
 
 
 @app.route("/api/search")
