@@ -5,17 +5,28 @@ TCG 価格比較 Web サーバー
 import json
 import time
 import os
+import logging
 from flask import Flask, render_template, request, jsonify, Response
 
 from scraper import (
     SHOPS, WAIT_SEC, cache_get, cache_set, is_target_card, normalize_rarity,
 )
+from monitor import tracker, run_health_check
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
 # 同時検索の簡易レートリミット (メモリ内)
 _last_search: dict[str, float] = {}
 RATE_LIMIT_SEC = 3
+
+# ヘルスチェック用シークレットキー（環境変数で設定、未設定なら誰でもアクセス可能）
+HEALTH_CHECK_KEY = os.environ.get("HEALTH_CHECK_KEY", "")
 
 
 @app.route("/")
@@ -64,9 +75,15 @@ def api_search():
             yield _sse({"type": "progress", "shop": shop_name})
             try:
                 results = scraper(card_name)
+                if results:
+                    tracker.record_success(shop_name, len(results))
+                else:
+                    tracker.record_failure(shop_name, f"0件取得 (検索: {card_name})")
             except Exception as e:
                 results = []
+                tracker.record_failure(shop_name, str(e))
                 yield _sse({"type": "shop_error", "shop": shop_name, "error": str(e)})
+                logger.error(f"{shop_name} エラー: {e}")
             yield _sse({"type": "shop_done", "shop": shop_name, "count": len(results)})
             all_results.extend(results)
             time.sleep(WAIT_SEC)
@@ -75,6 +92,40 @@ def api_search():
         yield _sse(_build_done(all_results))
 
     return Response(generate(), mimetype="text/event-stream")
+
+
+# ── ヘルスチェック・ステータス ──
+
+@app.route("/api/health")
+def api_health():
+    """全店舗のスクレイパーをテスト実行して結果を返す
+
+    UptimeRobot 等の外部監視サービスからこのURLを定期的に叩く。
+    200以外が返ったらアラート、という設定にする。
+
+    環境変数 HEALTH_CHECK_KEY を設定した場合、
+    ?key=XXXXX パラメータが必要。
+    """
+    if HEALTH_CHECK_KEY:
+        if request.args.get("key") != HEALTH_CHECK_KEY:
+            return jsonify({"error": "unauthorized"}), 403
+
+    result = run_health_check()
+    status_code = 200 if result["status"] == "ok" else 503
+    return jsonify(result), status_code
+
+
+@app.route("/api/status")
+def api_status():
+    """エラー追跡状態を返す（テスト実行なし、軽量）"""
+    if HEALTH_CHECK_KEY:
+        if request.args.get("key") != HEALTH_CHECK_KEY:
+            return jsonify({"error": "unauthorized"}), 403
+
+    return jsonify({
+        "status": "ok",
+        "tracker": tracker.get_status(),
+    })
 
 
 def _sse(data: dict) -> str:
