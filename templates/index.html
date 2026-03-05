@@ -3,42 +3,40 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TCG 価格比較</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎴</text></svg>">
+<title>遊戯王OCG 価格比較</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚔</text></svg>">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg:         #08080e;
-  --bg-card:    #111119;
-  --bg-hover:   #1a1a28;
-  --bg-input:   #14142a;
-  --border:     #252540;
-  --border-hl:  #4a4ae8;
-  --text:       #ddddf0;
-  --text-m:     #7878a0;
-  --text-d:     #4a4a68;
-  --accent:     #6c5ce7;
-  --accent-l:   #a29bfe;
-  --gold:       #f0c040;
-  --gold-d:     #a08020;
-  --green:      #00e676;
-  --red:        #ff5252;
-  --cyan:       #22d3ee;
-  --sold-out:   rgba(255,82,82,0.12);
+  --bg:         #0c0e14;
+  --bg-card:    #141620;
+  --bg-hover:   #1a1d2a;
+  --bg-input:   #161824;
+  --border:     #262838;
+  --border-hl:  #4a7cff;
+  --text:       #d8dae0;
+  --text-m:     #8a8ca0;
+  --text-d:     #555670;
+  --accent:     #4a7cff;
+  --accent-l:   #7da0ff;
+  --gold:       #e8c848;
+  --gold-d:     #a08820;
+  --green:      #34d399;
+  --red:        #f87171;
+  --cyan:       #67e8f9;
+  --sold-out:   rgba(248,113,113,0.1);
   --font:       'Noto Sans JP', system-ui, sans-serif;
   --mono:       'JetBrains Mono', monospace;
-  --radius:     10px;
+  --radius:     8px;
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh}
-body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse at 20% 10%,rgba(108,92,231,.04),transparent 60%),radial-gradient(ellipse at 80% 90%,rgba(34,211,238,.03),transparent 60%);pointer-events:none}
 a{color:var(--accent-l);text-decoration:none}a:hover{text-decoration:underline}
 .wrap{max-width:1140px;margin:0 auto;padding:0 20px;position:relative;z-index:1}
 
 /* ── Header ── */
-header{padding:44px 0 28px;text-align:center}
-header h1{font-size:1.7rem;font-weight:900;letter-spacing:.06em;background:linear-gradient(135deg,var(--accent-l),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-header p{color:var(--text-m);margin-top:4px;font-size:.82rem}
+header{padding:40px 0 28px;text-align:center}
+header h1{font-size:1.5rem;font-weight:900;letter-spacing:.04em;color:var(--text)}
 
 /* ── Search ── */
 .search{display:flex;gap:8px;max-width:540px;margin:0 auto 36px}
@@ -46,7 +44,7 @@ header p{color:var(--text-m);margin-top:4px;font-size:.82rem}
 .search input:focus{border-color:var(--border-hl)}
 .search input::placeholder{color:var(--text-d)}
 .search button{padding:13px 26px;font:.92rem var(--font);font-weight:700;background:var(--accent);color:#fff;border:0;border-radius:var(--radius);cursor:pointer;transition:background .15s,transform .1s;white-space:nowrap}
-.search button:hover{background:#7b6ef0}
+.search button:hover{background:#5a88ff}
 .search button:active{transform:scale(.97)}
 .search button:disabled{background:var(--border);cursor:not-allowed}
 
@@ -54,14 +52,14 @@ header p{color:var(--text-m);margin-top:4px;font-size:.82rem}
 .shop-toggles{display:flex;gap:6px;max-width:540px;margin:-20px auto 20px;justify-content:center;flex-wrap:wrap}
 .shop-toggle{display:flex;align-items:center;gap:5px;padding:6px 14px;font-size:.78rem;font-weight:600;color:var(--text-d);background:var(--bg-card);border:1.5px solid var(--border);border-radius:20px;cursor:pointer;transition:all .2s;user-select:none}
 .shop-toggle input{display:none}
-.shop-toggle.active{color:var(--text);border-color:var(--accent);background:rgba(108,92,231,.1)}
+.shop-toggle.active{color:var(--text);border-color:var(--accent);background:rgba(74,124,255,.08)}
 .shop-toggle:hover{border-color:var(--text-m)}
 .progress{max-width:540px;margin:0 auto 28px;display:none;gap:8px}
 .progress.on{display:flex}
 .pstep{flex:1;padding:10px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;font-size:.78rem;text-align:center;transition:all .25s}
 .pstep .pname{font-weight:700;display:block}
 .pstep .pstat{font-size:.68rem;color:var(--text-d);margin-top:2px}
-.pstep.searching{border-color:var(--accent);box-shadow:0 0 10px rgba(108,92,231,.18)}
+.pstep.searching{border-color:var(--accent);box-shadow:0 0 8px rgba(74,124,255,.12)}
 .pstep.searching .pstat{color:var(--accent-l);animation:pulse 1.2s infinite}
 .pstep.done{border-color:var(--green)}.pstep.done .pstat{color:var(--green)}
 .pstep.error{border-color:var(--red)}.pstep.error .pstat{color:var(--red)}
@@ -70,8 +68,8 @@ header p{color:var(--text-m);margin-top:4px;font-size:.82rem}
 /* ── Summary ── */
 .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:28px}
 .scard{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:18px 20px;position:relative;overflow:hidden}
-.scard.best{border-color:var(--gold-d);background:linear-gradient(135deg,rgba(240,192,64,.05),transparent)}
-.scard.best::before{content:'🏆';position:absolute;top:10px;right:12px;font-size:1.3rem}
+.scard.best{border-color:var(--gold-d);background:rgba(232,200,72,.04)}
+.scard.best::before{content:'BEST';position:absolute;top:10px;right:12px;font-size:.6rem;font-weight:700;color:var(--gold);letter-spacing:.08em;padding:2px 6px;border:1px solid var(--gold-d);border-radius:3px}
 .scard .slabel{font-size:.68rem;font-weight:600;color:var(--text-m);text-transform:uppercase;letter-spacing:.1em}
 .scard .sprice{font:600 1.5rem var(--mono);color:var(--gold);margin:5px 0 3px}
 .scard .sdetail{font-size:.76rem;color:var(--text-m);line-height:1.5}
@@ -106,18 +104,18 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .col-name a:hover{color:var(--accent-l)}
 
 /* Rarity badge */
-.rb{display:inline-block;padding:2px 7px;border-radius:4px;font-size:.7rem;font-weight:700;white-space:nowrap;background:rgba(108,92,231,.13);color:var(--accent-l)}
-.rb-ウルトラ,.rb-OFウルトラ{background:rgba(240,192,64,.13);color:var(--gold)}
-.rb-スーパー{background:rgba(34,211,238,.12);color:var(--cyan)}
-.rb-シークレット{background:rgba(200,180,255,.1);color:#c8b4ff}
-.rb-プリシク{background:rgba(255,100,200,.1);color:#ff90d0}
-.rb-25thシークレット{background:rgba(64,200,240,.1);color:#60d0f0}
-.rb-20thシークレット{background:rgba(200,150,50,.13);color:#d0a040}
-.rb-アルティメット,.rb-エクシク{background:rgba(180,200,255,.1);color:#b0c8ff}
-.rb-レア{background:rgba(100,200,100,.1);color:#80d080}
-.rb-ノーマル,.rb-ノーマルパラレル{background:rgba(120,120,160,.13);color:var(--text-m)}
-.rb-ミレニアム{background:rgba(220,180,100,.1);color:#dcb464}
-.rb-ホログラフィック{background:linear-gradient(135deg,rgba(255,200,200,.1),rgba(200,200,255,.1));color:#ddc0ff}
+.rb{display:inline-block;padding:2px 7px;border-radius:4px;font-size:.7rem;font-weight:700;white-space:nowrap;background:rgba(74,124,255,.1);color:var(--accent-l)}
+.rb-ウルトラ,.rb-OFウルトラ{background:rgba(232,200,72,.1);color:var(--gold)}
+.rb-スーパー{background:rgba(103,232,249,.08);color:#7dd4e8}
+.rb-シークレット{background:rgba(180,170,230,.08);color:#b0a8e0}
+.rb-プリシク{background:rgba(240,140,200,.08);color:#e8a0c8}
+.rb-25thシークレット{background:rgba(100,200,240,.08);color:#70c8e8}
+.rb-20thシークレット{background:rgba(200,160,80,.1);color:#c8a850}
+.rb-アルティメット,.rb-エクシク{background:rgba(160,180,230,.08);color:#a0b8e0}
+.rb-レア{background:rgba(100,190,120,.08);color:#78c088}
+.rb-ノーマル,.rb-ノーマルパラレル{background:rgba(120,120,150,.1);color:var(--text-m)}
+.rb-ミレニアム{background:rgba(200,170,100,.08);color:#c8a868}
+.rb-ホログラフィック{background:rgba(180,180,220,.08);color:#b8b8e0}
 
 /* Sold-out badge */
 .sob{font:.65rem var(--font);padding:1px 5px;border-radius:3px;background:var(--sold-out);color:var(--red)}
@@ -125,13 +123,12 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 /* Rarity grid */
 .rgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
 .ritem{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px;display:flex;justify-content:space-between;align-items:center;transition:border-color .2s}
-.ritem:hover{border-color:var(--border-hl)}
+.ritem:hover{border-color:var(--border-hl);background:var(--bg-hover)}
 .ritem .rshop{font-size:.68rem;color:var(--text-m);margin-top:3px}
 .ritem .rprice{font:600 .95rem var(--mono);color:var(--gold)}
 
 /* Empty */
-.empty{text-align:center;padding:56px 20px;color:var(--text-d)}
-.empty .eicon{font-size:2.8rem;margin-bottom:10px}
+.empty{text-align:center;padding:48px 20px;color:var(--text-d);font-size:.88rem}
 
 /* Fade */
 @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
@@ -152,8 +149,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 <body>
 <div class="wrap">
   <header>
-    <h1>TCG 価格比較</h1>
-    <p>遊々亭 / カードラッシュ / トレコロCB — 3店舗同時検索</p>
+    <h1>遊戯王OCG 価格比較</h1>
   </header>
 
   <div class="search">
@@ -213,7 +209,6 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   </div>
 
   <div id="empty" class="empty">
-    <div class="eicon">🎴</div>
     <p>カード名を入力して検索</p>
   </div>
 </div>
@@ -284,7 +279,7 @@ function doSearch(){
     es.close();btn.disabled=false;btn.textContent='検索';
     prog.style.display='none';
     document.getElementById('empty').classList.remove('hidden');
-    document.getElementById('empty').innerHTML='<div class="eicon">⚠️</div><p>エラーが発生しました。再度お試しください。</p>';
+    document.getElementById('empty').innerHTML='<p>エラーが発生しました。再度お試しください。</p>';
   };
 }
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')doSearch()});
@@ -292,7 +287,7 @@ document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')d
 function renderAll(d){
   document.getElementById('results').classList.remove('hidden');
   if(d.total===0){
-    document.getElementById('results').innerHTML='<div class="empty"><div class="eicon">🔍</div><p>該当するカードが見つかりませんでした</p></div>';
+    document.getElementById('results').innerHTML='<div class="empty"><p>該当するカードが見つかりませんでした</p></div>';
     return;
   }
   document.getElementById('soCount').textContent=d.sold_out_count;
@@ -345,7 +340,7 @@ function renderTable(){
     const nameLink=r.url
       ?`<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.name)}</a>`
       :esc(r.name);
-    const cond=r.condition==='セール'?'<span style="color:var(--red)">セール</span>':esc(r.condition);
+    const cond=r.condition==='セール'?'<span style="color:var(--gold)">セール</span>':esc(r.condition);
     return`<tr class="${so}">
       <td><span class="rb ${rc}">${r.rarity||'-'}</span></td>
       <td class="col-name">${nameLink}</td>
