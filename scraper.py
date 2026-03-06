@@ -500,8 +500,8 @@ _KANABELL_CONDITION_MAP = {
 def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
     """カーナベル — 遊戯王専門の大手通販サイト（状態別価格対応）"""
     base_url = (
-        f"{KANABELL_BASE}/?act=sell_search&genre=1&type=4"
-        f"&keyword={requests.utils.quote(card_name)}"
+        f"{KANABELL_BASE}/?act=sell_search&genre=1"
+        f"&key_word={requests.utils.quote(card_name)}"
     )
     all_results = []
 
