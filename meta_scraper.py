@@ -104,6 +104,12 @@ def fetch_tier_list(force: bool = False) -> list[dict]:
 
         rank += 1
 
+        # 代表カード画像
+        image_url = ""
+        img_el = block.select_one("img[src]")
+        if img_el:
+            image_url = img_el.get("src", "")
+
         # Tier 値
         tier = 0
         tier_text = block.get_text()
@@ -129,6 +135,7 @@ def fetch_tier_list(force: bool = False) -> list[dict]:
             "share": share,
             "tops": tops,
             "rank": rank,
+            "image": image_url,
         })
 
     if tiers:
@@ -194,6 +201,12 @@ def fetch_deck_cards(theme_name: str, force: bool = False) -> dict:
         if not card_name or card_name in seen:
             continue
 
+        # カード画像: リンク内の img[src]
+        image_url = ""
+        img_el = card_link.select_one("img[src]")
+        if img_el:
+            image_url = img_el.get("src", "")
+
         # 親ブロックのテキストから採用率・平均枚数を取得
         # カードリンクの親要素を遡って数値を探す
         parent = card_link.parent
@@ -223,6 +236,7 @@ def fetch_deck_cards(theme_name: str, force: bool = False) -> dict:
                 "name": card_name,
                 "adoption": adoption,
                 "avg": avg,
+                "image": image_url,
             })
 
     result = {

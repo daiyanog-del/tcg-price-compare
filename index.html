@@ -757,8 +757,9 @@ function renderMetaTiers(){
       <div class="meta-tier-label"><span class="tier-badge ${cls}">${label}</span></div>
       <div class="meta-deck-list">`;
     for(const d of groups[tier]){
+      const imgHtml=d.image?`<img src="${esc(d.image)}" alt="" style="width:22px;height:32px;border-radius:2px;object-fit:cover">`:'';
       html+=`<button class="meta-deck-btn" onclick="loadMetaDeck('${esc(d.name)}')" id="meta-btn-${esc(d.name)}">
-        ${esc(d.name)} <span class="meta-share">${d.share}%</span>
+        ${imgHtml} ${esc(d.name)} <span class="meta-share">${d.share}%</span>
       </button>`;
     }
     html+=`</div></div>`;
@@ -769,7 +770,6 @@ function renderMetaTiers(){
 
 async function loadMetaDeck(theme){
   const detailEl=document.getElementById('metaDeckDetail');
-  // ボタンにローディング表示
   const btn=document.getElementById('meta-btn-'+theme);
   if(btn) btn.classList.add('loading');
 
@@ -781,25 +781,28 @@ async function loadMetaDeck(theme){
     const data=await res.json();
 
     if(!data.cards||!data.cards.length){
-      detailEl.innerHTML=`<div class="meta-loading">「${esc(theme)}」の主要カードデータがありません</div>`;
+      detailEl.innerHTML='<div class="meta-loading">「'+esc(theme)+'」の主要カードデータがありません</div>';
       return;
     }
 
-    // カードチップ表示
+    // デッキテキストを変数に保存
+    _lastMetaDeckText=data.deck_text||'';
+
+    // カードチップ表示（画像付き）
     let chips='';
     for(const c of data.cards){
       const qty=Math.round(c.avg)||1;
-      chips+=`<span class="meta-card-chip"><span class="chip-qty">${qty}x</span>${esc(c.name)}</span>`;
+      const imgTag=c.image?'<img src="'+esc(c.image)+'" alt="" style="width:16px;height:23px;border-radius:1px;object-fit:cover;vertical-align:middle;margin-right:3px">':'';
+      chips+='<span class="meta-card-chip">'+imgTag+'<span class="chip-qty">'+qty+'x</span>'+esc(c.name)+'</span>';
     }
 
-    detailEl.innerHTML=`
-      <h4>${esc(theme)} — 主要カード（${data.cards.length}種）</h4>
-      <div class="meta-card-list">${chips}</div>
-      <div class="meta-actions">
-        <button class="deck-btn deck-btn-primary" onclick="applyMetaDeck(\`${esc(data.deck_text)}\`)">この構成で価格計算</button>
-        <button class="deck-btn deck-btn-secondary" onclick="applyMetaDeckToTextarea(\`${esc(data.deck_text)}\`)">テキストに反映</button>
-      </div>
-      <div class="meta-note">採用率60%以上のカードを平均枚数で表示 / 手札誘発・汎用カード含む</div>`;
+    detailEl.innerHTML='<h4>'+esc(theme)+' — 主要カード（'+data.cards.length+'種）</h4>'
+      +'<div class="meta-card-list">'+chips+'</div>'
+      +'<div class="meta-actions">'
+      +'<button class="deck-btn deck-btn-primary" onclick="applyMetaDeck()">この構成で価格計算</button>'
+      +'<button class="deck-btn deck-btn-secondary" onclick="applyMetaDeckToTextarea()">テキストに反映</button>'
+      +'</div>'
+      +'<div class="meta-note">採用率60%以上のカードを平均枚数で表示 / 手札誘発・汎用カード含む</div>';
   }catch(e){
     detailEl.innerHTML='<div class="meta-loading">読込に失敗しました</div>';
   }finally{
@@ -807,14 +810,16 @@ async function loadMetaDeck(theme){
   }
 }
 
-function applyMetaDeck(deckText){
-  document.getElementById('deckTextarea').value=deckText;
+let _lastMetaDeckText='';
+
+function applyMetaDeck(){
+  document.getElementById('deckTextarea').value=_lastMetaDeckText;
   deckInputTab('paste');
   calcDeck();
 }
 
-function applyMetaDeckToTextarea(deckText){
-  document.getElementById('deckTextarea').value=deckText;
+function applyMetaDeckToTextarea(){
+  document.getElementById('deckTextarea').value=_lastMetaDeckText;
   deckInputTab('paste');
 }
 
