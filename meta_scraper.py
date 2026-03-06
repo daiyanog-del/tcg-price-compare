@@ -89,8 +89,10 @@ def fetch_tier_list(force: bool = False) -> list[dict]:
 
     tiers = []
     rank = 0
+    seen_names = set()
 
     # 各デッキエントリは /yugioh/deck-guides/XXXX へのリンクを持つブロック
+    # ※ページ内に同一リストが2回出現するため重複排除が必要
     for link_el in soup.select("a[href*='/yugioh/deck-guides/']"):
         block = link_el
 
@@ -99,8 +101,9 @@ def fetch_tier_list(force: bool = False) -> list[dict]:
         if not name_el:
             continue
         name = name_el.get_text(strip=True)
-        if not name:
+        if not name or name in seen_names:
             continue
+        seen_names.add(name)
 
         rank += 1
 
