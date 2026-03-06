@@ -204,6 +204,25 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .deck-card-row.error .deck-card-name{color:var(--red)}
 .deck-progress{font:.78rem var(--font);color:var(--text-m);margin-bottom:10px}
 
+/* ── 環境デッキ プリセット ── */
+.meta-loading{padding:24px;text-align:center;color:var(--text-d);font-size:.85rem}
+.meta-tier-group{margin-bottom:16px}
+.meta-tier-label{font:.7rem var(--font);font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-d);margin-bottom:6px;padding-left:2px}
+.meta-tier-label .tier-badge{display:inline-block;padding:1px 7px;border-radius:3px;color:#fff;font-weight:800;margin-right:6px;font-size:.7rem}
+.tier-1{background:#e8444a}.tier-2{background:#e89844}.tier-3{background:#5898d8}.tier-4{background:#666}
+.meta-deck-list{display:flex;flex-wrap:wrap;gap:6px}
+.meta-deck-btn{padding:6px 14px;font:.78rem var(--font);font-weight:600;color:var(--text);background:var(--bg-card);border:1px solid var(--border);border-radius:6px;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:6px}
+.meta-deck-btn:hover{border-color:var(--accent);background:var(--bg-hover)}
+.meta-deck-btn.loading{opacity:.6;pointer-events:none}
+.meta-deck-btn .meta-share{font:.65rem var(--mono);color:var(--text-d)}
+.meta-deck-detail{margin-top:12px;padding:14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius)}
+.meta-deck-detail h4{font-size:.85rem;margin-bottom:8px;color:var(--text)}
+.meta-card-list{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px}
+.meta-card-chip{font:.72rem var(--font);padding:3px 8px;background:var(--bg-hover);border:1px solid var(--border);border-radius:4px;color:var(--text-m)}
+.meta-card-chip .chip-qty{font-weight:700;color:var(--accent-l);margin-right:3px}
+.meta-actions{display:flex;gap:8px;align-items:center}
+.meta-note{font:.7rem var(--font);color:var(--text-d);margin-top:8px}
+
 /* Mobile */
 @media(max-width:640px){
   header h1{font-size:1.25rem}
@@ -319,7 +338,13 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 
       <div class="deck-input-area">
 
-        <!-- テキスト入力（現時点で唯一の入力方法） -->
+        <!-- 入力方法タブ -->
+        <div class="deck-input-tabs">
+          <button class="deck-input-tab active" onclick="deckInputTab('paste')">テキスト</button>
+          <button class="deck-input-tab" onclick="deckInputTab('preset')">環境デッキ</button>
+        </div>
+
+        <!-- テキスト入力 -->
         <div id="deckInput-paste">
           <textarea class="deck-textarea" id="deckTextarea" placeholder="カード名を入力（1行1枚、枚数指定も可）&#10;&#10;例:&#10;3 灰流うらら&#10;2 増殖するG&#10;1 サンダー・ボルト&#10;ブラック・マジシャン"></textarea>
         </div>
@@ -329,8 +354,11 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
           <textarea class="deck-textarea" id="neuronInput" placeholder="遊戯王ニューロンのデッキURLを貼り付け" disabled></textarea>
         </div>
 
-        <!-- プリセット（未実装・非表示） -->
-        <div id="deckInput-preset" class="hidden"></div>
+        <!-- 環境デッキ（TCG PORTAL連携） -->
+        <div id="deckInput-preset" class="hidden">
+          <div id="metaTierList" class="meta-loading">環境データを読込中...</div>
+          <div id="metaDeckDetail" class="meta-deck-detail hidden"></div>
+        </div>
 
         <div class="deck-actions">
           <button class="deck-btn deck-btn-primary" onclick="calcDeck()">価格を計算</button>
@@ -675,8 +703,9 @@ function switchMode(mode){
 // ── Deck Builder ──
 function deckInputTab(id){
   document.querySelectorAll('.deck-input-tab').forEach(b=>b.classList.toggle('active',b.textContent.includes(
-    id==='paste'?'テキスト':id==='neuron'?'ニューロン':'プリセット')));
+    id==='paste'?'テキスト':id==='neuron'?'ニューロン':'環境デッキ')));
   ['paste','neuron','preset'].forEach(t=>document.getElementById('deckInput-'+t).classList.toggle('hidden',t!==id));
+  if(id==='preset') loadMetaTiers();
 }
 
 function parseDeckList(text){
@@ -690,94 +719,112 @@ function parseDeckList(text){
   return cards;
 }
 
-const PRESETS={
-  blackmagician:`3 ブラック・マジシャン
-2 マジシャンズ・ソウルズ
-3 イリュージョン・オブ・カオス
-1 マジシャンズ・ロッド
-3 灰流うらら
-2 増殖するG
-1 屋敷わらし
-3 黒の魔導陣
-2 魂のしもべ
-1 ティマイオスの眼
-2 マジシャンズ・サルベーション
-1 死者蘇生
-1 ハーピィの羽根帚
-1 墓穴の指名者
-2 抹殺の指名者
-1 永遠の魂
-3 マジシャンズ・ナビゲーション
-2 神の宣告
-1 無限泡影`,
-  blueyes:`3 青眼の白龍
-3 青眼の亜白龍
-2 白き霊龍
-3 太古の白石
-2 伝説の白石
-3 灰流うらら
-2 増殖するG
-3 復活の福音
-2 トレード・イン
-1 死者蘇生
-1 ハーピィの羽根帚
-3 ドラゴン・目覚めの旋律
-2 墓穴の指名者
-1 抹殺の指名者
-2 リターン・オブ・ザ・ドラゴンロード
-2 神の宣告
-1 無限泡影`,
-  tearalaments:`3 ティアラメンツ・レイノハート
-3 ティアラメンツ・シェイレーン
-2 ティアラメンツ・メイルゥ
-2 ティアラメンツ・ハゥフニス
-1 ティアラメンツ・カレイドハート
-3 灰流うらら
-2 増殖するG
-1 壊獣カグヤ
-3 ティアラメンツ・サリーク
-2 ティアラメンツ・ペルレイノ
-2 墓穴の指名者
-1 抹殺の指名者
-1 ハーピィの羽根帚
-1 死者蘇生
-2 超融合
-1 テラ・フォーミング
-2 ティアラメンツ・メタノイズ
-2 無限泡影`,
-  labrynth:`3 白銀の城のラビュリンス
-2 白銀の城の召使い アリアーヌ
-2 白銀の城の火吹き アリアンナ
-1 迷宮城の白銀姫
-3 灰流うらら
-2 増殖するG
-3 ビッグウェルカム・ラビュリンス
-2 ウェルカム・ラビュリンス
-2 白銀の迷宮城
-1 テラ・フォーミング
-1 強欲で金満な壺
-2 墓穴の指名者
-2 無限泡影
-3 狡猾な落とし穴
-3 神の宣告
-2 拮抗勝負`,
-  kashtira:`3 クシャトリラ・ユニコーン
-3 クシャトリラ・フェンリル
-3 クシャトリラ・ライズハート
-2 クシャトリラ・オーガ
-3 灰流うらら
-2 増殖するG
-3 クシャトリラ・バース
-2 クシャトリラ・プリペア
-2 六世壊他
-1 テラ・フォーミング
-2 墓穴の指名者
-1 抹殺の指名者
-1 ハーピィの羽根帚
-3 無限泡影
-2 クシャトリラ・ディザスター
-1 神の宣告`,
-};
+// ── 環境デッキ（TCG PORTAL連携）──
+let _metaLoaded=false;
+let _metaTiers=[];
+
+async function loadMetaTiers(){
+  if(_metaLoaded) return;
+  const el=document.getElementById('metaTierList');
+  el.innerHTML='<div class="meta-loading">環境データを読込中...</div>';
+  try{
+    const res=await fetch('/api/meta');
+    _metaTiers=await res.json();
+    _metaLoaded=true;
+    renderMetaTiers();
+  }catch(e){
+    el.innerHTML='<div class="meta-loading">環境データの取得に失敗しました</div>';
+  }
+}
+
+function renderMetaTiers(){
+  const el=document.getElementById('metaTierList');
+  if(!_metaTiers.length){el.innerHTML='<div class="meta-loading">データがありません</div>';return;}
+
+  // グループ by tier
+  const groups={};
+  for(const t of _metaTiers){
+    const key=t.tier||99;
+    if(!groups[key]) groups[key]=[];
+    groups[key].push(t);
+  }
+
+  let html='';
+  for(const tier of Object.keys(groups).sort((a,b)=>a-b)){
+    const label=tier<=4?`Tier ${tier}`:'Other';
+    const cls=tier<=4?`tier-${tier}`:'tier-4';
+    html+=`<div class="meta-tier-group">
+      <div class="meta-tier-label"><span class="tier-badge ${cls}">${label}</span></div>
+      <div class="meta-deck-list">`;
+    for(const d of groups[tier]){
+      const imgHtml=d.image?`<img src="${esc(d.image)}" alt="" style="width:22px;height:32px;border-radius:2px;object-fit:cover">`:'';
+      html+=`<button class="meta-deck-btn" onclick="loadMetaDeck('${esc(d.name)}')" id="meta-btn-${esc(d.name)}">
+        ${imgHtml} ${esc(d.name)} <span class="meta-share">${d.share}%</span>
+      </button>`;
+    }
+    html+=`</div></div>`;
+  }
+  html+=`<div class="meta-note">データ: TCG PORTAL 大会入賞データより（直近1ヶ月）</div>`;
+  el.innerHTML=html;
+}
+
+async function loadMetaDeck(theme){
+  const detailEl=document.getElementById('metaDeckDetail');
+  const btn=document.getElementById('meta-btn-'+theme);
+  if(btn) btn.classList.add('loading');
+
+  detailEl.classList.remove('hidden');
+  detailEl.innerHTML='<div class="meta-loading">主要カードを読込中...</div>';
+
+  try{
+    const res=await fetch('/api/meta/deck?theme='+encodeURIComponent(theme));
+    const data=await res.json();
+
+    if(!data.cards||!data.cards.length){
+      detailEl.innerHTML='<div class="meta-loading">「'+esc(theme)+'」の主要カードデータがありません</div>';
+      return;
+    }
+
+    // デッキテキストを変数に保存
+    _lastMetaDeckText=data.deck_text||'';
+
+    // カードチップ表示（画像付き）
+    let chips='';
+    for(const c of data.cards){
+      const qty=Math.round(c.avg)||1;
+      const imgTag=c.image?'<img src="'+esc(c.image)+'" alt="" style="width:16px;height:23px;border-radius:1px;object-fit:cover;vertical-align:middle;margin-right:3px">':'';
+      chips+='<span class="meta-card-chip">'+imgTag+'<span class="chip-qty">'+qty+'x</span>'+esc(c.name)+'</span>';
+    }
+
+    detailEl.innerHTML='<h4>'+esc(theme)+' — 主要カード（'+data.cards.length+'種）</h4>'
+      +'<div class="meta-card-list">'+chips+'</div>'
+      +'<div class="meta-actions">'
+      +'<button class="deck-btn deck-btn-primary" onclick="applyMetaDeck()">この構成で価格計算</button>'
+      +'<button class="deck-btn deck-btn-secondary" onclick="applyMetaDeckToTextarea()">テキストに反映</button>'
+      +'</div>'
+      +'<div class="meta-note">採用率60%以上のカードを平均枚数で表示 / 手札誘発・汎用カード含む</div>';
+  }catch(e){
+    detailEl.innerHTML='<div class="meta-loading">読込に失敗しました</div>';
+  }finally{
+    if(btn) btn.classList.remove('loading');
+  }
+}
+
+let _lastMetaDeckText='';
+
+function applyMetaDeck(){
+  document.getElementById('deckTextarea').value=_lastMetaDeckText;
+  deckInputTab('paste');
+  calcDeck();
+}
+
+function applyMetaDeckToTextarea(){
+  document.getElementById('deckTextarea').value=_lastMetaDeckText;
+  deckInputTab('paste');
+}
+
+// ── 旧プリセット（後方互換用・非表示）──
+const PRESETS={};
 
 function loadPreset(key){
   if(PRESETS[key]){
