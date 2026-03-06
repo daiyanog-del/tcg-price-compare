@@ -6,6 +6,7 @@ import json
 import time
 import os
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Flask, render_template, request, jsonify, Response
 
 from scraper import (
@@ -271,11 +272,18 @@ def api_config():
 
 # ── 環境データ（TCG PORTAL） ──
 
+_meta_executor = ThreadPoolExecutor(max_workers=2)
+
 @app.route("/api/meta")
 def api_meta():
-    """環境Tier表を返す"""
+    """環境Tier表を返す（キャッシュヒットなら即座、ミスならスレッドプール経由）"""
     force = request.args.get("force") == "1"
-    tiers = fetch_tier_list(force=force)
+    future = _meta_executor.submit(fetch_tier_list, force)
+    try:
+        tiers = future.result(timeout=25)
+    except Exception as e:
+        logger.error(f"Tier表取得エラー: {e}")
+        tiers = []
     return jsonify(tiers)
 
 @app.route("/api/meta/deck")
@@ -285,10 +293,34 @@ def api_meta_deck():
     if not theme:
         return jsonify({"error": "テーマ名を指定してください"}), 400
     force = request.args.get("force") == "1"
-    data = fetch_deck_cards(theme, force=force)
-    # デッキテキストも生成して返す
+    future = _meta_executor.submit(fetch_deck_cards, theme, force)
+    try:
+        data = future.result(timeout=25)
+    except Exception as e:
+        logger.error(f"デッキデータ取得エラー ({theme}): {e}")
+        data = {"theme": theme, "tier": 0, "share": 0, "cards": []}
     data["deck_text"] = build_deck_text(data.get("cards", []))
     return jsonify(data)
+
+
+# ── バックグラウンド環境データ プリフェッチ ──
+
+def _prefetch_meta():
+    """サーバー起動時にTier表をバックグラウンドで取得"""
+    import threading
+    def _run():
+        time.sleep(3)  # 起動完了を待つ
+        try:
+            tiers = fetch_tier_list()
+            logger.info(f"環境データ プリフェッチ完了: {len(tiers)} テーマ")
+        except Exception as e:
+            logger.warning(f"環境データ プリフェッチ失敗: {e}")
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+# Flask debugモードのreloaderで二重起動を防ぐ
+if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not os.environ.get("FLASK_DEBUG"):
+    _prefetch_meta()
 
 
 # ── ヘルスチェック・ステータス ──
