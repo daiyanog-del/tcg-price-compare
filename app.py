@@ -9,8 +9,10 @@ import logging
 from flask import Flask, render_template, request, jsonify, Response
 
 from scraper import (
-    SHOPS, WAIT_SEC, cache_get, cache_set, is_target_card, normalize_rarity,
+    SHOPS, DEFAULT_SHOPS, WAIT_SEC, cache_get, cache_set,
+    is_target_card, normalize_rarity,
 )
+from meta_scraper import fetch_tier_list, fetch_deck_cards, build_deck_text
 from monitor import tracker, run_health_check
 
 logging.basicConfig(
@@ -25,8 +27,41 @@ app = Flask(__name__)
 _last_search: dict[str, float] = {}
 RATE_LIMIT_SEC = 3
 
-# ヘルスチェック用シークレットキー（環境変数で設定、未設定なら誰でもアクセス可能）
+# ヘルスチェック用シークレットキー
 HEALTH_CHECK_KEY = os.environ.get("HEALTH_CHECK_KEY", "")
+
+
+# ── 検索ランキング（メモリ内、再起動でリセット） ──
+
+from collections import defaultdict
+from threading import Lock
+
+_ranking_lock = Lock()
+_search_counts: dict[str, int] = defaultdict(int)  # カード名 → 検索回数
+_search_recent: list[tuple[float, str]] = []         # (timestamp, card_name)
+RANKING_RECENT_HOURS = 24
+
+def _record_search(card_name: str):
+    """検索をランキングに記録"""
+    with _ranking_lock:
+        _search_counts[card_name] += 1
+        now = time.time()
+        _search_recent.append((now, card_name))
+        # 古いエントリを削除
+        cutoff = now - RANKING_RECENT_HOURS * 3600
+        while _search_recent and _search_recent[0][0] < cutoff:
+            _search_recent.pop(0)
+
+def _get_trending(limit: int = 10) -> list[dict]:
+    """直近24時間の検索ランキングを返す"""
+    with _ranking_lock:
+        cutoff = time.time() - RANKING_RECENT_HOURS * 3600
+        recent_counts: dict[str, int] = defaultdict(int)
+        for ts, name in _search_recent:
+            if ts >= cutoff:
+                recent_counts[name] += 1
+        ranked = sorted(recent_counts.items(), key=lambda x: -x[1])
+        return [{"name": name, "count": count} for name, count in ranked[:limit]]
 
 
 @app.route("/")
@@ -87,9 +122,8 @@ def api_search():
     if len(card_name) > 50:
         return jsonify({"error": "カード名が長すぎます"}), 400
 
-    # 検索対象店舗（指定がなければ全店舗）
     ALL_SHOP_NAMES = [name for name, _ in SHOPS]
-    selected = request.args.getlist("shops") or ALL_SHOP_NAMES
+    selected = request.args.getlist("shops") or DEFAULT_SHOPS
     selected = [s for s in selected if s in ALL_SHOP_NAMES]
     if not selected:
         return jsonify({"error": "有効な店舗を選択してください"}), 400
@@ -103,7 +137,10 @@ def api_search():
         return jsonify({"error": "しばらく待ってから再度検索してください"}), 429
     _last_search[client_ip] = now
 
-    # キャッシュヒットなら即座に返す（選択店舗でフィルタ）
+    # ランキング記録
+    _record_search(card_name)
+
+    # キャッシュヒット
     cached = cache_get(card_name)
     if cached is not None:
         filtered = [r for r in cached if r["shop"] in selected]
@@ -115,28 +152,143 @@ def api_search():
         return Response(cached_stream(), mimetype="text/event-stream")
 
     def generate():
-        all_results = []
-        for shop_name, scraper in active_shops:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import queue
+
+        # 全店舗を「検索中」に
+        for shop_name, _ in active_shops:
             yield _sse({"type": "progress", "shop": shop_name})
+
+        all_results = []
+        result_queue = queue.Queue()
+
+        def scrape_shop(name, fn):
             try:
-                results = scraper(card_name)
-                if results:
-                    tracker.record_success(shop_name, len(results))
+                items = fn(card_name)
+                if items:
+                    tracker.record_success(name, len(items))
                 else:
-                    tracker.record_failure(shop_name, f"0件取得 (検索: {card_name})")
+                    tracker.record_failure(name, f"0件取得 (検索: {card_name})")
+                return name, items, None
             except Exception as e:
-                results = []
-                tracker.record_failure(shop_name, str(e))
-                yield _sse({"type": "shop_error", "shop": shop_name, "error": str(e)})
-                logger.error(f"{shop_name} エラー: {e}")
-            yield _sse({"type": "shop_done", "shop": shop_name, "count": len(results)})
-            all_results.extend(results)
-            time.sleep(WAIT_SEC)
+                tracker.record_failure(name, str(e))
+                logger.error(f"{name} エラー: {e}")
+                return name, [], str(e)
+
+        with ThreadPoolExecutor(max_workers=len(active_shops)) as executor:
+            futures = {
+                executor.submit(scrape_shop, name, fn): name
+                for name, fn in active_shops
+            }
+            for future in as_completed(futures):
+                shop_name, results, error = future.result()
+                if error:
+                    yield _sse({"type": "shop_error", "shop": shop_name, "error": error})
+                yield _sse({"type": "shop_done", "shop": shop_name, "count": len(results)})
+                all_results.extend(results)
 
         cache_set(card_name, all_results)
         yield _sse(_build_done(all_results))
 
     return Response(generate(), mimetype="text/event-stream")
+
+
+# ── ランキング・設定 ──
+
+@app.route("/api/deck")
+def api_deck():
+    """デッキ一括検索 — 複数カード名を受け取り、各カードの最安値をSSEで返す"""
+    names_raw = request.args.get("cards", "")
+    shops_raw = request.args.getlist("shops") or DEFAULT_SHOPS
+    if not names_raw:
+        return jsonify({"error": "カード名がありません"}), 400
+
+    ALL_SHOP_NAMES = [name for name, _ in SHOPS]
+    selected = [s for s in shops_raw if s in ALL_SHOP_NAMES]
+    active_shops = [(name, fn) for name, fn in SHOPS if name in selected]
+
+    card_entries = []
+    for line in names_raw.split("|"):
+        line = line.strip()
+        if not line:
+            continue
+        import re as _re
+        m = _re.match(r"^(\d+)\s+(.+)$", line)
+        if m:
+            card_entries.append({"qty": int(m.group(1)), "name": m.group(2).strip()})
+        else:
+            card_entries.append({"qty": 1, "name": line})
+
+    def generate():
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        for i, entry in enumerate(card_entries):
+            card_name = entry["name"]
+            yield _sse({"type": "card_start", "index": i, "name": card_name})
+
+            # Check cache first
+            cached = cache_get(card_name)
+            if cached is not None:
+                items = [r for r in cached if r["shop"] in selected and not r.get("sold_out")]
+                best = min(items, key=lambda x: x["price"]) if items else None
+                yield _sse({"type": "card_done", "index": i, "name": card_name,
+                           "best": best, "count": len(items), "cached": True})
+                continue
+
+            # Search in parallel across shops
+            all_items = []
+            with ThreadPoolExecutor(max_workers=len(active_shops)) as executor:
+                futures = {executor.submit(fn, card_name): name for name, fn in active_shops}
+                for future in as_completed(futures):
+                    try:
+                        all_items.extend(future.result())
+                    except Exception:
+                        pass
+
+            cache_set(card_name, all_items)
+            in_stock = [r for r in all_items if not r.get("sold_out")]
+            best = min(in_stock, key=lambda x: x["price"]) if in_stock else None
+            yield _sse({"type": "card_done", "index": i, "name": card_name,
+                       "best": best, "count": len(in_stock)})
+
+        yield _sse({"type": "done"})
+
+    return Response(generate(), mimetype="text/event-stream")
+
+@app.route("/api/trending")
+def api_trending():
+    """直近24時間の検索ランキングを返す"""
+    limit = min(int(request.args.get("limit", 10)), 30)
+    return jsonify(_get_trending(limit))
+
+@app.route("/api/config")
+def api_config():
+    """フロントエンド用の設定情報"""
+    return jsonify({
+        "shops": [{"name": name, "default": name in DEFAULT_SHOPS} for name, _ in SHOPS],
+    })
+
+
+# ── 環境データ（TCG PORTAL） ──
+
+@app.route("/api/meta")
+def api_meta():
+    """環境Tier表を返す"""
+    force = request.args.get("force") == "1"
+    tiers = fetch_tier_list(force=force)
+    return jsonify(tiers)
+
+@app.route("/api/meta/deck")
+def api_meta_deck():
+    """テーマ別の主要カードを返す"""
+    theme = request.args.get("theme", "").strip()
+    if not theme:
+        return jsonify({"error": "テーマ名を指定してください"}), 400
+    force = request.args.get("force") == "1"
+    data = fetch_deck_cards(theme, force=force)
+    # デッキテキストも生成して返す
+    data["deck_text"] = build_deck_text(data.get("cards", []))
+    return jsonify(data)
 
 
 # ── ヘルスチェック・ステータス ──
