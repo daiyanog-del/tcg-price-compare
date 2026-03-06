@@ -268,8 +268,8 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
     <label class="shop-toggle active" data-shop="トレコロCB">
       <input type="checkbox" checked> トレコロCB
     </label>
-    <label class="shop-toggle" data-shop="カーナベル">
-      <input type="checkbox"> カーナベル
+    <label class="shop-toggle active" data-shop="カーナベル">
+      <input type="checkbox" checked> カーナベル
     </label>
   </div>
 
@@ -796,12 +796,26 @@ async function loadMetaDeck(theme){
       chips+='<span class="meta-card-chip">'+imgTag+'<span class="chip-qty">'+qty+'x</span>'+esc(c.name)+'</span>';
     }
 
+    // レシピリンク
+    let recipeHtml='';
+    if(data.recipes&&data.recipes.length>0){
+      recipeHtml='<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">'
+        +'<div style="font:.72rem var(--font);color:var(--text-d);margin-bottom:6px">入賞デッキレシピ:</div>';
+      for(const r of data.recipes){
+        const label=r.title||'レシピを見る';
+        const date=r.date?' ('+r.date+')':'';
+        recipeHtml+='<a href="'+esc(r.url)+'" target="_blank" rel="noopener" style="display:inline-block;margin:2px 4px 2px 0;padding:3px 8px;font:.7rem var(--font);color:var(--accent-l);border:1px solid var(--border);border-radius:4px;text-decoration:none">'+esc(label)+date+'</a>';
+      }
+      recipeHtml+='</div>';
+    }
+
     detailEl.innerHTML='<h4>'+esc(theme)+' — 主要カード（'+data.cards.length+'種）</h4>'
       +'<div class="meta-card-list">'+chips+'</div>'
       +'<div class="meta-actions">'
       +'<button class="deck-btn deck-btn-primary" onclick="applyMetaDeck()">この構成で価格計算</button>'
       +'<button class="deck-btn deck-btn-secondary" onclick="applyMetaDeckToTextarea()">テキストに反映</button>'
       +'</div>'
+      +recipeHtml
       +'<div class="meta-note">採用率60%以上のカードを平均枚数で表示 / 手札誘発・汎用カード含む</div>';
   }catch(e){
     detailEl.innerHTML='<div class="meta-loading">読込に失敗しました</div>';

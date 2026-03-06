@@ -198,7 +198,10 @@ def api_search():
 
 @app.route("/api/deck")
 def api_deck():
-    """デッキ一括検索 — 複数カード名を受け取り、各カードの最安値をSSEで返す"""
+    """デッキ一括検索 — 複数カード名を受け取り、各カードの最安値をSSEで返す
+
+    v2: カード単位でも並列化（最大3カード同時検索）
+    """
     names_raw = request.args.get("cards", "")
     shops_raw = request.args.getlist("shops") or DEFAULT_SHOPS
     if not names_raw:
@@ -220,37 +223,59 @@ def api_deck():
         else:
             card_entries.append({"qty": 1, "name": line})
 
+    def _search_one_card(i, card_name):
+        """1枚のカードを全店舗で検索して結果を返す"""
+        # キャッシュチェック
+        cached = cache_get(card_name)
+        if cached is not None:
+            items = [r for r in cached if r["shop"] in selected and not r.get("sold_out")]
+            best = min(items, key=lambda x: x["price"]) if items else None
+            return {"type": "card_done", "index": i, "name": card_name,
+                    "best": best, "count": len(items), "cached": True}
+
+        # 全店舗を並列スクレイピング
+        all_items = []
+        with ThreadPoolExecutor(max_workers=len(active_shops)) as shop_executor:
+            futures = {shop_executor.submit(fn, card_name): name
+                       for name, fn in active_shops}
+            for future in as_completed(futures):
+                try:
+                    all_items.extend(future.result())
+                except Exception:
+                    pass
+
+        cache_set(card_name, all_items)
+        in_stock = [r for r in all_items if not r.get("sold_out")]
+        best = min(in_stock, key=lambda x: x["price"]) if in_stock else None
+        return {"type": "card_done", "index": i, "name": card_name,
+                "best": best, "count": len(in_stock)}
+
     def generate():
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import queue
+        result_q = queue.Queue()
 
+        # カード単位で並列検索（最大3カード同時）
+        CARD_PARALLEL = 3
+
+        # まず全カードの card_start を送出
         for i, entry in enumerate(card_entries):
-            card_name = entry["name"]
-            yield _sse({"type": "card_start", "index": i, "name": card_name})
+            yield _sse({"type": "card_start", "index": i, "name": entry["name"]})
 
-            # Check cache first
-            cached = cache_get(card_name)
-            if cached is not None:
-                items = [r for r in cached if r["shop"] in selected and not r.get("sold_out")]
-                best = min(items, key=lambda x: x["price"]) if items else None
-                yield _sse({"type": "card_done", "index": i, "name": card_name,
-                           "best": best, "count": len(items), "cached": True})
-                continue
-
-            # Search in parallel across shops
-            all_items = []
-            with ThreadPoolExecutor(max_workers=len(active_shops)) as executor:
-                futures = {executor.submit(fn, card_name): name for name, fn in active_shops}
-                for future in as_completed(futures):
-                    try:
-                        all_items.extend(future.result())
-                    except Exception:
-                        pass
-
-            cache_set(card_name, all_items)
-            in_stock = [r for r in all_items if not r.get("sold_out")]
-            best = min(in_stock, key=lambda x: x["price"]) if in_stock else None
-            yield _sse({"type": "card_done", "index": i, "name": card_name,
-                       "best": best, "count": len(in_stock)})
+        # 並列でカードを検索
+        with ThreadPoolExecutor(max_workers=CARD_PARALLEL) as card_executor:
+            futures = {
+                card_executor.submit(_search_one_card, i, entry["name"]): i
+                for i, entry in enumerate(card_entries)
+            }
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                    yield _sse(result)
+                except Exception as e:
+                    idx = futures[future]
+                    yield _sse({"type": "card_done", "index": idx,
+                                "name": card_entries[idx]["name"],
+                                "best": None, "count": 0})
 
         yield _sse({"type": "done"})
 
