@@ -200,8 +200,11 @@ def api_search():
 def api_deck():
     """デッキ一括検索 — 複数カード名を受け取り、各カードの最安値をSSEで返す
 
-    v2: カード単位でも並列化（最大3カード同時検索）
+    v3: 高速化 — 各店舗1ページ目のみ取得 + カード5枚同時並列
     """
+    from functools import partial
+    from scraper import scrape_torecolo, scrape_kanabell
+
     names_raw = request.args.get("cards", "")
     shops_raw = request.args.getlist("shops") or DEFAULT_SHOPS
     if not names_raw:
@@ -209,7 +212,16 @@ def api_deck():
 
     ALL_SHOP_NAMES = [name for name, _ in SHOPS]
     selected = [s for s in shops_raw if s in ALL_SHOP_NAMES]
-    active_shops = [(name, fn) for name, fn in SHOPS if name in selected]
+
+    # デッキ検索用: 複数ページ巡回する店舗は1ページ目のみに制限
+    _FAST_OVERRIDES = {
+        "トレコロCB": partial(scrape_torecolo, max_pages=1),
+        "カーナベル": partial(scrape_kanabell, max_pages=1),
+    }
+    active_shops = [
+        (name, _FAST_OVERRIDES.get(name, fn))
+        for name, fn in SHOPS if name in selected
+    ]
 
     card_entries = []
     for line in names_raw.split("|"):
@@ -251,11 +263,8 @@ def api_deck():
                 "best": best, "count": len(in_stock)}
 
     def generate():
-        import queue
-        result_q = queue.Queue()
-
-        # カード単位で並列検索（最大3カード同時）
-        CARD_PARALLEL = 3
+        # カード単位で並列検索（最大5カード同時）
+        CARD_PARALLEL = 5
 
         # まず全カードの card_start を送出
         for i, entry in enumerate(card_entries):

@@ -359,14 +359,13 @@ def scrape_cardrush(card_name: str) -> list[dict]:
 
 TORECOLO_BASE = "https://www.torecolo.jp"
 
-def scrape_torecolo(card_name: str) -> list[dict]:
+def scrape_torecolo(card_name: str, max_pages: int = 5) -> list[dict]:
     """トレコロCB — 複数ページ対応、レアリティ取得"""
     base_url = (
         f"{TORECOLO_BASE}/shop/goods/search.aspx"
         f"?search=x&keyword={requests.utils.quote(card_name)}&category=&oshiire_code="
     )
     all_results = []
-    max_pages = 5  # 最大5ページまで取得（負荷軽減）
 
     for page in range(1, max_pages + 1):
         page_url = base_url if page == 1 else f"{base_url}&p={page}"
@@ -480,14 +479,13 @@ _KANABELL_CONDITION_MAP = {
     "大傷品": "状態:D",
 }
 
-def scrape_kanabell(card_name: str) -> list[dict]:
+def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
     """カーナベル — 遊戯王専門の大手通販サイト（状態別価格対応）"""
     base_url = (
         f"{KANABELL_BASE}/?act=sell_search&genre=1&type=4"
         f"&keyword={requests.utils.quote(card_name)}"
     )
     all_results = []
-    max_pages = 5
 
     for page in range(1, max_pages + 1):
         page_url = base_url if page == 1 else f"{base_url}&page={page}"
