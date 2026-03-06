@@ -180,6 +180,20 @@ _RUSH_MAP = {
     "ウルトラパラレルレア": "ウルトラパラレル",
     "プレミアムゴールドレア": "ゴールド",
     "KCレア": "KC",
+    # カーナベルの短縮表記
+    "シク": "シークレット",
+    "プリシク": "プリシク",
+    "ウルトラ": "ウルトラ",
+    "スーパー": "スーパー",
+    "ノーマル": "ノーマル",
+    "レア": "レア",
+    "25thシク": "25thシークレット",
+    "20thシク": "20thシークレット",
+    "ホロ": "ホログラフィック",
+    "レリ": "アルティメット",
+    "ゴルシク": "ゴールドシークレット",
+    "エクシク": "エクシク",
+    "コレクターズ": "コレクターズ",
 }
 
 def normalize_rarity(raw: str) -> str:
@@ -408,21 +422,190 @@ def scrape_torecolo(card_name: str) -> list[dict]:
     return all_results
 
 
+# ── カーナベル ──
+
+KANABELL_BASE = "https://www.ka-nabell.com"
+
+# カーナベルの状態ランク対応表 (img alt → 表示用)
+_KANABELL_CONDITION_MAP = {
+    "完美品": "状態:S",
+    "超～美": "状態:SA",
+    "美品":   "状態:A",
+    "少傷品": "状態:B",
+    "傷あり": "状態:C",
+    "大傷品": "状態:D",
+}
+
+def scrape_kanabell(card_name: str) -> list[dict]:
+    """カーナベル — 遊戯王専門の大手通販サイト（状態別価格対応）"""
+    base_url = (
+        f"{KANABELL_BASE}/?act=sell_search&genre=1&type=4"
+        f"&keyword={requests.utils.quote(card_name)}"
+    )
+    all_results = []
+    max_pages = 5
+
+    for page in range(1, max_pages + 1):
+        page_url = base_url if page == 1 else f"{base_url}&page={page}"
+        soup = safe_get(page_url)
+        if not soup:
+            break
+        if page == 1:
+            dump_html("kanabell", soup)
+
+        # 各カードは div[id^="card_"] に格納
+        card_divs = soup.select('div[id^="card_"]')
+        if not card_divs:
+            break
+
+        for card_div in card_divs:
+            # ── カード名 & URL ──
+            name_el = card_div.select_one("thead th div a")
+            if not name_el:
+                continue
+            card_name_text = name_el.get_text(strip=True)
+            href = name_el.get("href", "")
+            product_url = (
+                f"{KANABELL_BASE}/{href}" if href and not href.startswith("http")
+                else href
+            )
+
+            # ── レアリティ: td.ListSellHeadRar 内の span ──
+            rarity = ""
+            rar_span = card_div.select_one("td.ListSellHeadRar span")
+            if rar_span:
+                rarity = rar_span.get_text(strip=True)
+
+            # ── カードコード: ヘッダーのパック情報から抽出を試行 ──
+            code = ""
+            rar_p = card_div.select_one("td.ListSellHeadRar p")
+            if rar_p:
+                pack_text = rar_p.get_text(strip=True)
+                # "プリシク13期 > BLZD(1304)" → "BLZD" を抽出
+                # ※ \xa0 (non-breaking space) が使われている場合がある
+                code_match = re.search(r">\s*([A-Z0-9\-]+)", pack_text)
+                if code_match:
+                    code = code_match.group(1)
+
+            # ── 名前フィルタ ──
+            if not is_target_card(card_name, card_name_text):
+                continue
+
+            # ── 状態別の価格・在庫: td.Detail 内の内部テーブル行 ──
+            detail_table = card_div.select_one("td.Detail table")
+            if not detail_table:
+                # テーブルが無い = 全状態売切
+                all_results.append({
+                    "shop": "カーナベル", "name": card_name_text,
+                    "rarity": normalize_rarity(rarity), "code": code,
+                    "condition": "-", "price": 0,
+                    "stock": 0, "sold_out": True, "url": product_url,
+                })
+                continue
+
+            rows = detail_table.select("tr")
+            has_any_stock = False
+
+            for row in rows:
+                # 状態画像の alt で判別
+                cond_img = row.select_one("img[alt]")
+                if not cond_img or not cond_img.get("alt"):
+                    continue
+                cond_alt = cond_img["alt"].strip()
+                if cond_alt not in _KANABELL_CONDITION_MAP:
+                    continue
+
+                condition = _KANABELL_CONDITION_MAP[cond_alt]
+
+                # 価格
+                price_span = row.select_one("span[style*='color']")
+                if not price_span:
+                    continue
+                price = parse_price(price_span.get_text())
+                if not price:
+                    continue
+
+                # 在庫: select.pieceNum の option 数 (0枚 を除く)
+                sel = row.select_one("select.pieceNum")
+                stock = 0
+                if sel:
+                    options = sel.select("option")
+                    stock = max(0, len(options) - 1)  # "0枚" を除く
+
+                sold_out = stock == 0
+                if not sold_out:
+                    has_any_stock = True
+
+                all_results.append({
+                    "shop": "カーナベル", "name": card_name_text,
+                    "rarity": normalize_rarity(rarity), "code": code,
+                    "condition": condition, "price": price,
+                    "stock": stock, "sold_out": sold_out,
+                    "url": product_url,
+                })
+
+            # 状態行が一つもなかった場合（全売切）
+            if not rows or not has_any_stock:
+                # 在庫ありの行が既に追加されている場合はスキップ
+                if not any(
+                    r["url"] == product_url and not r["sold_out"]
+                    for r in all_results
+                ):
+                    # 価格情報すらない場合のフォールバック
+                    if not any(r["url"] == product_url for r in all_results):
+                        all_results.append({
+                            "shop": "カーナベル", "name": card_name_text,
+                            "rarity": normalize_rarity(rarity), "code": code,
+                            "condition": "-", "price": 0,
+                            "stock": 0, "sold_out": True,
+                            "url": product_url,
+                        })
+
+        # 次のページがあるか確認
+        next_link = soup.select_one("a[href*='page=%d']" % (page + 1))
+        if not next_link:
+            break
+        time.sleep(0.5)
+
+    return all_results
+
+
 # ── 全店舗検索 ──
 
 SHOPS = [
     ("遊々亭", scrape_yuyu),
     ("カードラッシュ", scrape_cardrush),
     ("トレコロCB", scrape_torecolo),
+    ("カーナベル", scrape_kanabell),
 ]
 
-def compare_prices(card_name: str) -> list[dict]:
+# デフォルトで検索する店舗（カーナベルは任意ON）
+DEFAULT_SHOPS = ["遊々亭", "カードラッシュ", "トレコロCB", "カーナベル"]
+
+
+def compare_prices(card_name: str, shop_names: list[str] | None = None) -> list[dict]:
+    """指定された店舗を並列にスクレイピング"""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    target = shop_names or DEFAULT_SHOPS
+    active = [(name, fn) for name, fn in SHOPS if name in target]
+
     all_results = []
-    for shop_name, scraper in SHOPS:
-        results = scraper(card_name)
-        all_results.extend(results)
-        time.sleep(WAIT_SEC)
+    with ThreadPoolExecutor(max_workers=len(active)) as executor:
+        futures = {
+            executor.submit(fn, card_name): name
+            for name, fn in active
+        }
+        for future in as_completed(futures):
+            shop_name = futures[future]
+            try:
+                results = future.result()
+                all_results.extend(results)
+            except Exception as e:
+                print(f"  ❌ {shop_name}: {e}")
+
     return all_results
+
 
 def compare_prices_with_cache(card_name: str) -> list[dict]:
     cached = cache_get(card_name)
