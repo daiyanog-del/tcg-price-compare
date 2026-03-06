@@ -242,11 +242,50 @@ def fetch_deck_cards(theme_name: str, force: bool = False) -> dict:
                 "image": image_url,
             })
 
+    # ── 入賞デッキレシピリンク ──
+    # /yugioh/tournament-results/XXX へのリンクで「デッキレシピ」テキストを含むもの
+    recipes = []
+    for recipe_link in soup.select("a[href*='/yugioh/tournament-results/']"):
+        link_text = recipe_link.get_text(strip=True)
+        if "デッキレシピ" not in link_text:
+            continue
+        href = recipe_link.get("href", "")
+        full_url = f"{TCG_PORTAL_BASE}{href}" if href.startswith("/") else href
+
+        # 親要素から大会情報を取得
+        parent = recipe_link.parent
+        while parent and parent.name not in ("div", "li", "section", "body"):
+            parent = parent.parent
+        context_text = parent.get_text(" ", strip=True) if parent else ""
+
+        # 日付を抽出
+        date = ""
+        date_m = re.search(r"(\d{4}/\d{1,2}/\d{1,2})", context_text)
+        if date_m:
+            date = date_m.group(1)
+
+        # 大会名を抽出 (h3 タグ等)
+        title = ""
+        if parent:
+            h3 = parent.select_one("h3")
+            if h3:
+                title = h3.get_text(strip=True)
+
+        recipes.append({
+            "url": full_url,
+            "date": date,
+            "title": title,
+        })
+
+    # 最新5件に限定
+    recipes = recipes[:5]
+
     result = {
         "theme": theme_name,
         "tier": tier,
         "share": share,
         "cards": cards,
+        "recipes": recipes,
     }
 
     if cards:
