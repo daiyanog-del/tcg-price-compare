@@ -483,160 +483,159 @@ def scrape_torecolo(card_name: str, max_pages: int = 5) -> list[dict]:
     return all_results
 
 
-# ── カーナベル ──
+# ── カーナベル (Elasticsearch API) ──
 
 KANABELL_BASE = "https://www.ka-nabell.com"
 
-# カーナベルの状態ランク対応表 (img alt → 表示用)
-_KANABELL_CONDITION_MAP = {
-    "完美品": "状態:S",
-    "超～美": "状態:SA",
-    "美品":   "状態:A",
-    "少傷品": "状態:B",
-    "傷あり": "状態:C",
-    "大傷品": "状態:D",
-}
+import base64 as _b64
+_KANABELL_CLOUD_ID = "ecommerce-prod:YXNpYS1ub3J0aGVhc3QxLmdjcC5jbG91ZC5lcy5pbzo0NDMkN2Y2MzMzNjk0ODQ3NGNiNjg2NjVlMjQyNjM2OWNkMjUkNDcwODJlOTMwM2JlNGMyNzkyMzNhMDYyNWEzYWI5M2U="
+_KANABELL_API_KEY = "Wm1GUWM0NEI2eTRkcTdNLW5OZm46Wmppc3luc2VRem1tMnllSFpYUVp3Zw=="
+_KANABELL_INDEX = "ec-cards"
+
+def _kanabell_es_host():
+    """Cloud IDからElasticsearchホストURLを構築"""
+    encoded = _KANABELL_CLOUD_ID.split(":")[1]
+    decoded = _b64.b64decode(encoded).decode()
+    parts = decoded.split("$")
+    return f"https://{parts[1]}.{parts[0]}"
+
+_KANABELL_ES_URL = None  # lazy init
+
+# 状態ランク: ESフィールド名 → 表示名
+_KANABELL_CONDITIONS = [
+    ("sa", "状態:SA"),
+    ("b",  "状態:B"),
+    ("c",  "状態:C"),
+    ("d",  "状態:D"),
+]
 
 def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
-    """カーナベル — 遊戯王専門の大手通販サイト（状態別価格対応）"""
-    base_url = (
-        f"{KANABELL_BASE}/?act=sell_search&genre=1"
-        f"&key_word={requests.utils.quote(card_name)}"
-    )
+    """カーナベル — Elasticsearch API経由で検索（状態別価格対応）"""
+    global _KANABELL_ES_URL
+    if _KANABELL_ES_URL is None:
+        _KANABELL_ES_URL = _kanabell_es_host()
+
+    search_url = f"{_KANABELL_ES_URL}/{_KANABELL_INDEX}/_search"
+
+    # ページあたり件数 (ESの1リクエストで取得)
+    page_size = 30 * max_pages  # max_pages=1なら30件、5なら150件
+
+    # Elasticsearch クエリ (build.js の postProcessRequestBodyFn を再現)
+    query_body = {
+        "size": page_size,
+        "_source": [
+            "name", "id", "category1_id",
+            "sa_selling_price", "b_selling_price", "c_selling_price", "d_selling_price",
+            "sa_stock", "b_stock", "c_stock", "d_stock",
+            "rarity_abbreviation", "category2_abbr", "category3_abbr",
+            "card_image_name1",
+        ],
+        "query": {
+            "bool": {
+                "must": [
+                    {"bool": {"should": [
+                        {"match_phrase_prefix": {"card_name": {"query": card_name, "slop": 2}}},
+                        {"match_phrase_prefix": {"replace_card_name": {"query": card_name, "slop": 2}}},
+                        {"wildcard": {"card_name": {"value": f"*{card_name}*"}}},
+                        {"wildcard": {"replace_card_name": {"value": f"*{card_name}*"}}},
+                    ], "minimum_should_match": 1}}
+                ],
+                "filter": [
+                    {"term": {"category1_id": 1}},   # 遊戯王
+                    {"term": {"public_status": 1}},
+                    {"term": {"del_flag": False}},
+                ]
+            }
+        },
+        "sort": [
+            {"category2_sort": "asc"},
+            {"category3_sort": "asc"},
+            {"rarity_sort": "asc"},
+            {"sort": "asc"},
+        ]
+    }
+
+    try:
+        res = requests.post(
+            search_url,
+            json=query_body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"ApiKey {_KANABELL_API_KEY}",
+            },
+            timeout=15,
+        )
+        res.raise_for_status()
+        data = res.json()
+    except requests.RequestException as e:
+        print(f"  ❌ カーナベルES検索失敗: {e}")
+        return []
+
+    hits = data.get("hits", {}).get("hits", [])
     all_results = []
 
-    for page in range(1, max_pages + 1):
-        page_url = base_url if page == 1 else f"{base_url}&page={page}"
-        soup = safe_get(page_url)
-        if not soup:
-            break
-        if page == 1:
-            dump_html("kanabell", soup)
+    for hit in hits:
+        src = hit.get("_source", {})
+        name_text = src.get("name", "")
+        card_id = src.get("id") or hit.get("_id", "")
 
-        # 各カードは div[id^="card_"] に格納
-        card_divs = soup.select('div[id^="card_"]')
-        if not card_divs:
-            break
+        if not name_text or not is_target_card(card_name, name_text):
+            continue
 
-        for card_div in card_divs:
-            # ── カード名 & URL ──
-            name_el = card_div.select_one("thead th div a")
-            if not name_el:
-                continue
-            card_name_text = name_el.get_text(strip=True)
-            href = name_el.get("href", "")
-            product_url = (
-                f"{KANABELL_BASE}/{href}" if href and not href.startswith("http")
-                else href
-            )
+        # レアリティ
+        rarity = src.get("rarity_abbreviation", "")
 
-            # ── レアリティ: td.ListSellHeadRar 内の span ──
-            rarity = ""
-            rar_span = card_div.select_one("td.ListSellHeadRar span")
-            if rar_span:
-                rarity = rar_span.get_text(strip=True)
+        # カードコード (カテゴリ略称から組み立て)
+        code = ""
+        cat3 = src.get("category3_abbr", "")
+        if cat3:
+            code = cat3
 
-            # ── カードコード: ヘッダーのパック情報から抽出を試行 ──
-            code = ""
-            rar_p = card_div.select_one("td.ListSellHeadRar p")
-            if rar_p:
-                pack_text = rar_p.get_text(strip=True)
-                # "プリシク13期 > BLZD(1304)" → "BLZD" を抽出
-                # ※ \xa0 (non-breaking space) が使われている場合がある
-                code_match = re.search(r">\s*([A-Z0-9\-]+)", pack_text)
-                if code_match:
-                    code = code_match.group(1)
+        # 商品URL
+        product_url = f"{KANABELL_BASE}/?act=sell_detail&genre=1&id={card_id}"
 
-            # ── 名前フィルタ ──
-            if not is_target_card(card_name, card_name_text):
+        # 画像URL
+        img_name = src.get("card_image_name1", "")
+        image_url = ""
+        if img_name:
+            image_url = f"{KANABELL_BASE}/img/s/{img_name}"
+
+        # 各状態の価格・在庫を展開
+        has_any = False
+        for rank_key, cond_label in _KANABELL_CONDITIONS:
+            price = src.get(f"{rank_key}_selling_price", 0)
+            stock = src.get(f"{rank_key}_stock", 0)
+
+            if not price and not stock:
                 continue
 
-            # ── 商品画像 ──
-            image_url = ""
-            card_img = card_div.select_one("a.CardImg img")
-            if card_img:
-                img_src = card_img.get("src", "")
-                if img_src:
-                    image_url = f"{KANABELL_BASE}{img_src}" if img_src.startswith("/") else img_src
+            sold_out = stock <= 0
+            if not sold_out:
+                has_any = True
 
-            # ── 状態別の価格・在庫: td.Detail 内の内部テーブル行 ──
-            detail_table = card_div.select_one("td.Detail table")
-            if not detail_table:
-                # テーブルが無い = 全状態売切
+            if price and price > 0:
                 all_results.append({
-                    "shop": "カーナベル", "name": card_name_text,
+                    "shop": "カーナベル", "name": name_text,
                     "rarity": normalize_rarity(rarity), "code": code,
-                    "condition": "-", "price": 0,
-                    "stock": 0, "sold_out": True, "url": product_url,
-                    "image": image_url,
-                })
-                continue
-
-            rows = detail_table.select("tr")
-            has_any_stock = False
-
-            for row in rows:
-                # 状態画像の alt で判別
-                cond_img = row.select_one("img[alt]")
-                if not cond_img or not cond_img.get("alt"):
-                    continue
-                cond_alt = cond_img["alt"].strip()
-                if cond_alt not in _KANABELL_CONDITION_MAP:
-                    continue
-
-                condition = _KANABELL_CONDITION_MAP[cond_alt]
-
-                # 価格
-                price_span = row.select_one("span[style*='color']")
-                if not price_span:
-                    continue
-                price = parse_price(price_span.get_text())
-                if not price:
-                    continue
-
-                # 在庫: select.pieceNum の option 数 (0枚 を除く)
-                sel = row.select_one("select.pieceNum")
-                stock = 0
-                if sel:
-                    options = sel.select("option")
-                    stock = max(0, len(options) - 1)  # "0枚" を除く
-
-                sold_out = stock == 0
-                if not sold_out:
-                    has_any_stock = True
-
-                all_results.append({
-                    "shop": "カーナベル", "name": card_name_text,
-                    "rarity": normalize_rarity(rarity), "code": code,
-                    "condition": condition, "price": price,
-                    "stock": stock, "sold_out": sold_out,
+                    "condition": cond_label, "price": int(price),
+                    "stock": int(stock), "sold_out": sold_out,
                     "url": product_url,
                     "image": image_url,
                 })
 
-            # 状態行が一つもなかった場合（全売切）
-            if not rows or not has_any_stock:
-                # 在庫ありの行が既に追加されている場合はスキップ
-                if not any(
-                    r["url"] == product_url and not r["sold_out"]
-                    for r in all_results
-                ):
-                    # 価格情報すらない場合のフォールバック
-                    if not any(r["url"] == product_url for r in all_results):
-                        all_results.append({
-                            "shop": "カーナベル", "name": card_name_text,
-                            "rarity": normalize_rarity(rarity), "code": code,
-                            "condition": "-", "price": 0,
-                            "stock": 0, "sold_out": True,
-                            "url": product_url,
-                            "image": image_url,
-                        })
-
-        # 次のページがあるか確認
-        next_link = soup.select_one("a[href*='page=%d']" % (page + 1))
-        if not next_link:
-            break
-        time.sleep(0.5)
+        # どの状態にも在庫/価格がない場合
+        if not has_any and not any(r["url"] == product_url for r in all_results):
+            # SA価格があれば売切として記録
+            sa_price = src.get("sa_selling_price", 0)
+            if sa_price and sa_price > 0:
+                all_results.append({
+                    "shop": "カーナベル", "name": name_text,
+                    "rarity": normalize_rarity(rarity), "code": code,
+                    "condition": "状態:SA", "price": int(sa_price),
+                    "stock": 0, "sold_out": True,
+                    "url": product_url,
+                    "image": image_url,
+                })
 
     return all_results
 
