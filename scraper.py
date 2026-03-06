@@ -277,11 +277,14 @@ def scrape_yuyu(card_name: str) -> list[dict]:
             continue
 
         rarity, code = "", ""
+        image_url = ""
         img_el = card.select_one("img.card")
-        if img_el and img_el.get("alt"):
-            parts = img_el["alt"].split(" ", 2)
-            if len(parts) >= 2:
-                code, rarity = parts[0], parts[1]
+        if img_el:
+            image_url = img_el.get("src", "")
+            if img_el.get("alt"):
+                parts = img_el["alt"].split(" ", 2)
+                if len(parts) >= 2:
+                    code, rarity = parts[0], parts[1]
         if not code:
             code_el = card.select_one("span.d-block.border")
             code = code_el.get_text(strip=True) if code_el else ""
@@ -305,6 +308,7 @@ def scrape_yuyu(card_name: str) -> list[dict]:
             "condition": "セール" if is_sale else "-",
             "price": price, "stock": stock,
             "sold_out": sold_out, "url": product_url,
+            "image": image_url,
         })
     return results
 
@@ -343,6 +347,10 @@ def scrape_cardrush(card_name: str) -> list[dict]:
         condition = _extract_condition(raw_name)
         display_name = _clean_display_name(raw_name)
 
+        # 商品画像
+        img_el = item.select_one("img")
+        image_url = img_el.get("src", "") if img_el else ""
+
         if not price or not is_target_card(card_name, raw_name):
             continue
 
@@ -351,6 +359,7 @@ def scrape_cardrush(card_name: str) -> list[dict]:
             "rarity": normalize_rarity(rarity), "code": code,
             "condition": condition, "price": price, "stock": stock,
             "sold_out": sold_out, "url": product_url,
+            "image": image_url,
         })
     return results
 
@@ -442,6 +451,14 @@ def scrape_torecolo(card_name: str, max_pages: int = 5) -> list[dict]:
             if code_match:
                 code = code_match.group(1)
 
+            # 商品画像
+            img_el = item.select_one("img")
+            image_url = ""
+            if img_el:
+                image_url = img_el.get("src", "") or img_el.get("data-src", "")
+                if image_url and not image_url.startswith("http"):
+                    image_url = f"{TORECOLO_BASE}{image_url}"
+
             if not price or not is_target_card(card_name, match_name):
                 continue
 
@@ -454,6 +471,7 @@ def scrape_torecolo(card_name: str, max_pages: int = 5) -> list[dict]:
                 "condition": condition, "price": price,
                 "stock": 1 if has_stock else 0,
                 "sold_out": not has_stock, "url": product_url,
+                "image": image_url,
             })
 
         # 次のページがあるか確認
@@ -533,6 +551,14 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
             if not is_target_card(card_name, card_name_text):
                 continue
 
+            # ── 商品画像 ──
+            image_url = ""
+            card_img = card_div.select_one("a.CardImg img")
+            if card_img:
+                img_src = card_img.get("src", "")
+                if img_src:
+                    image_url = f"{KANABELL_BASE}{img_src}" if img_src.startswith("/") else img_src
+
             # ── 状態別の価格・在庫: td.Detail 内の内部テーブル行 ──
             detail_table = card_div.select_one("td.Detail table")
             if not detail_table:
@@ -542,6 +568,7 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
                     "rarity": normalize_rarity(rarity), "code": code,
                     "condition": "-", "price": 0,
                     "stock": 0, "sold_out": True, "url": product_url,
+                    "image": image_url,
                 })
                 continue
 
@@ -584,6 +611,7 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
                     "condition": condition, "price": price,
                     "stock": stock, "sold_out": sold_out,
                     "url": product_url,
+                    "image": image_url,
                 })
 
             # 状態行が一つもなかった場合（全売切）
@@ -601,6 +629,7 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
                             "condition": "-", "price": 0,
                             "stock": 0, "sold_out": True,
                             "url": product_url,
+                            "image": image_url,
                         })
 
         # 次のページがあるか確認
