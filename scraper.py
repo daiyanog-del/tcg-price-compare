@@ -36,6 +36,22 @@ CACHE_DIR = Path(__file__).parent / ".cache"
 
 # ── ユーティリティ ──
 
+# 全角英数記号 → 半角 変換テーブル
+_ZEN2HAN = str.maketrans(
+    'ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺ'
+    'ａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ'
+    '０１２３４５６７８９'
+    '：．／＃＋＝＆＠！？',
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+    'abcdefghijklmnopqrstuvwxyz'
+    '0123456789'
+    ':./#+=&@!?',
+)
+
+def normalize_width(text: str) -> str:
+    """全角英数字を半角に統一"""
+    return text.translate(_ZEN2HAN)
+
 def parse_price(text: str) -> int | None:
     digits = re.sub(r"[^\d]", "", text)
     return int(digits) if digits else None
@@ -110,9 +126,9 @@ def _has_japanese_outside_brackets(text: str) -> bool:
     return any(_is_japanese_char(c) for c in stripped)
 
 def _build_flex_pattern(card_name: str) -> str:
-    parts = re.split(r"[・\s　－\-ー]", card_name)
+    parts = re.split(r"[・\s　－\-]", card_name)
     parts = [p for p in parts if p]
-    return r"[・\s　－\x2dー]*".join(re.escape(p) for p in parts)
+    return r"[・\s　－\x2d]*".join(re.escape(p) for p in parts)
 
 def is_target_card(card_name: str, product_name: str) -> bool:
     if not STRICT_NAME_FILTER:
@@ -121,17 +137,20 @@ def is_target_card(card_name: str, product_name: str) -> bool:
         for kw in SUPPLY_KEYWORDS:
             if kw in product_name:
                 return False
-    flex_pattern = _build_flex_pattern(card_name)
-    for match in re.finditer(flex_pattern, product_name):
+    # 全角英数を半角に統一してからマッチング
+    norm_card = normalize_width(card_name)
+    norm_product = normalize_width(product_name)
+    flex_pattern = _build_flex_pattern(norm_card)
+    for match in re.finditer(flex_pattern, norm_product):
         start, end = match.start(), match.end()
-        if start > 0 and _has_japanese_outside_brackets(product_name[:start]):
+        if start > 0 and _has_japanese_outside_brackets(norm_product[:start]):
             continue
-        if end < len(product_name):
-            nc = product_name[end]
+        if end < len(norm_product):
+            nc = norm_product[end]
             if _is_japanese_char(nc):
                 continue
-            if nc in "・－-ー、,&" and end + 1 < len(product_name):
-                if _is_japanese_char(product_name[end + 1]):
+            if nc in "・－-ー、,&" and end + 1 < len(norm_product):
+                if _is_japanese_char(norm_product[end + 1]):
                     continue
         return True
     return False
