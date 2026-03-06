@@ -404,6 +404,28 @@ def scrape_torecolo(card_name: str) -> list[dict]:
             href = name_el.get("href", "")
             product_url = f"{TORECOLO_BASE}{href}" if href.startswith("/") else href
 
+            # ── コンディション判定 ──
+            # URLの -K サフィックスまたは商品名の「キズあり」で判定
+            is_kizu = "-K/" in href or href.endswith("-K")
+            condition = "中古キズあり" if is_kizu else "-"
+            if not is_kizu and ("キズあり" in name or "★キズあり★" in name):
+                is_kizu = True
+                condition = "中古キズあり"
+
+            # ── 商品名の正規化（名前マッチング用） ──
+            # トレコロの商品名は "キズあり【遊戯王】レアリティ◇カード名" 形式の場合がある
+            match_name = name
+            # 「キズあり」プレフィックスを除去
+            match_name = re.sub(r"^キズあり", "", match_name).strip()
+            # 「★キズあり★」を除去
+            match_name = re.sub(r"★キズあり★", "", match_name).strip()
+            # 【遊戯王】等のゲーム名タグを除去
+            match_name = re.sub(r"【[^】]*】", "", match_name).strip()
+            # レアリティ◇ プレフィックスを除去 (例: "ウルトラレア◇")
+            match_name = re.sub(r"^[^◇]*◇", "", match_name).strip()
+            # （商品状態・XXX）を除去
+            match_name = re.sub(r"（[^）]*）", "", match_name).strip()
+
             # レアリティ: div.block-thumbnail-t--goods-category から取得
             rarity = ""
             cat_el = item.select_one("div.block-thumbnail-t--goods-category")
@@ -421,13 +443,16 @@ def scrape_torecolo(card_name: str) -> list[dict]:
             if code_match:
                 code = code_match.group(1)
 
-            if not price or not is_target_card(card_name, name):
+            if not price or not is_target_card(card_name, match_name):
                 continue
 
+            # 表示名: match_name が空でなければそちらを使用
+            display_name = match_name if match_name else name
+
             all_results.append({
-                "shop": "トレコロCB", "name": name,
+                "shop": "トレコロCB", "name": display_name,
                 "rarity": normalize_rarity(rarity), "code": code,
-                "condition": "-", "price": price,
+                "condition": condition, "price": price,
                 "stock": 1 if has_stock else 0,
                 "sold_out": not has_stock, "url": product_url,
             })
