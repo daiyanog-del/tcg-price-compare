@@ -364,6 +364,22 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
           <button class="deck-btn deck-btn-primary" onclick="calcDeck()">価格を計算</button>
           <button class="deck-btn deck-btn-secondary" onclick="clearDeck()">クリア</button>
         </div>
+
+        <!-- デッキモード用 店舗フィルタ -->
+        <div class="shop-toggles" id="deckShopToggles" style="margin:10px 0 0;justify-content:flex-start">
+          <label class="shop-toggle active" data-shop="遊々亭">
+            <input type="checkbox" checked> 遊々亭
+          </label>
+          <label class="shop-toggle active" data-shop="カードラッシュ">
+            <input type="checkbox" checked> カードラッシュ
+          </label>
+          <label class="shop-toggle active" data-shop="トレコロCB">
+            <input type="checkbox" checked> トレコロCB
+          </label>
+          <label class="shop-toggle active" data-shop="カーナベル">
+            <input type="checkbox" checked> カーナベル
+          </label>
+        </div>
       </div>
 
       <!-- 計算結果 -->
@@ -947,7 +963,9 @@ async function calcDeck(){
     </div>`).join('');
 
   // Build request
-  const shops=getSelectedShops();
+  const shops=[...document.querySelectorAll('#deckShopToggles .shop-toggle')]
+    .filter(l=>l.querySelector('input').checked)
+    .map(l=>l.dataset.shop);
   const cardsParam=cards.map(c=>c.qty>1?`${c.qty} ${c.name}`:c.name).join('|');
   const params=new URLSearchParams({cards:cardsParam});
   shops.forEach(s=>params.append('shops',s));
