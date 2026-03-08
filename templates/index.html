@@ -473,7 +473,7 @@ document.querySelectorAll('.shop-toggle').forEach(label=>{
 });
 
 function getSelectedShops(){
-  return [...document.querySelectorAll('.shop-toggle')]
+  return [...document.querySelectorAll('#shopToggles .shop-toggle')]
     .filter(l=>l.querySelector('input').checked)
     .map(l=>l.dataset.shop);
 }
