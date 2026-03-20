@@ -212,7 +212,8 @@ def _fetch_from_wiki(pack_name: str, wiki_page: str) -> list[str]:
             # 《》「」で囲まれたカード名を抽出
             m = re.match(r'[\u300A\u300C\u300E\u3008](.+?)[\u300B\u300D\u300F\u3009]', a_text)
             if m:
-                card_name = m.group(1)
+                # Wiki特有の特殊文字を正規化（U+2212→通常ハイフン等）
+                card_name = m.group(1).replace('\u2212', '-').replace('\u2015', '-').replace('\u2014', '-').replace('\u2013', '-')
                 if card_name not in seen:
                     seen.add(card_name)
                     cards.append(card_name)
