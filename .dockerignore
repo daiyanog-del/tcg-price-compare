@@ -1,0 +1,12 @@
+.cache/
+__pycache__/
+*.pyc
+debug_*.html
+.git/
+.github/
+.gitignore
+.env
+.env.*
+!.env.example
+README.md
+update_cardnames.py

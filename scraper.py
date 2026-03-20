@@ -503,9 +503,12 @@ def scrape_torecolo(card_name: str, max_pages: int = 5) -> list[dict]:
 KANABELL_BASE = "https://www.ka-nabell.com"
 
 import base64 as _b64
-_KANABELL_CLOUD_ID = os.environ.get("KANABELL_CLOUD_ID", "")
-_KANABELL_API_KEY = os.environ.get("KANABELL_API_KEY", "")
-_KANABELL_INDEX = "ec-cards"
+import os as _os
+
+# カーナベル接続情報（環境変数から取得）
+_KANABELL_CLOUD_ID = _os.environ.get("KANABELL_CLOUD_ID", "")
+_KANABELL_API_KEY = _os.environ.get("KANABELL_API_KEY", "")
+_KANABELL_INDEX = _os.environ.get("KANABELL_INDEX", "ec-cards")
 
 def _kanabell_es_host():
     """Cloud IDからElasticsearchホストURLを構築"""
@@ -526,6 +529,10 @@ _KANABELL_CONDITIONS = [
 
 def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
     """カーナベル — Elasticsearch API経由で検索（状態別価格対応）"""
+    if not _KANABELL_CLOUD_ID or not _KANABELL_API_KEY:
+        print("  ⚠️  カーナベル: KANABELL_CLOUD_ID / KANABELL_API_KEY が未設定です")
+        return []
+
     global _KANABELL_ES_URL
     if _KANABELL_ES_URL is None:
         _KANABELL_ES_URL = _kanabell_es_host()

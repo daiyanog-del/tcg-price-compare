@@ -35,7 +35,9 @@ def add_no_cache(response):
 
 # 同時検索の簡易レートリミット (メモリ内)
 _last_search: dict[str, float] = {}
+_rate_limit_lock = __import__('threading').Lock()
 RATE_LIMIT_SEC = 3
+RATE_LIMIT_MAX_ENTRIES = 10000  # これ以上溜まったら古い記録を一括削除
 
 # ヘルスチェック用シークレットキー
 HEALTH_CHECK_KEY = os.environ.get("HEALTH_CHECK_KEY", "")
@@ -143,9 +145,16 @@ def api_search():
     # レートリミット
     client_ip = request.remote_addr or "unknown"
     now = time.time()
-    if client_ip in _last_search and now - _last_search[client_ip] < RATE_LIMIT_SEC:
-        return jsonify({"error": "しばらく待ってから再度検索してください"}), 429
-    _last_search[client_ip] = now
+    with _rate_limit_lock:
+        if client_ip in _last_search and now - _last_search[client_ip] < RATE_LIMIT_SEC:
+            return jsonify({"error": "しばらく待ってから再度検索してください"}), 429
+        _last_search[client_ip] = now
+        # 古い記録を定期的に掃除（メモリリーク防止）
+        if len(_last_search) > RATE_LIMIT_MAX_ENTRIES:
+            cutoff = now - RATE_LIMIT_SEC
+            stale = [ip for ip, ts in _last_search.items() if ts < cutoff]
+            for ip in stale:
+                del _last_search[ip]
 
     # ランキング記録
     _record_search(card_name)
