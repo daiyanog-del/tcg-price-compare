@@ -3,9 +3,57 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>遊戯王OCG 価格比較</title>
+{% if card_name and page_mode == 'search' %}
+<title>{{ card_name }} の価格比較 | 遊戯王OCG 価格比較</title>
+<meta name="description" content="{{ card_name }}の最安値を遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボの5店舗から一括比較。{% if best_price %}現在の最安値は¥{{ '{:,}'.format(best_price) }}。{% endif %}リアルタイム価格検索。">
+<meta property="og:title" content="{{ card_name }} の価格比較 | 遊戯王OCG 価格比較">
+<meta property="og:description" content="{{ card_name }}の最安値を5店舗で比較{% if best_price %}。最安¥{{ '{:,}'.format(best_price) }}{% endif %}">
+<link rel="canonical" href="{{ request.url_root.rstrip('/') }}/card/{{ card_name | urlencode }}">
+{% elif card_name and page_mode == 'buyback' %}
+<title>{{ card_name }} の買取価格比較 | 遊戯王OCG 価格比較</title>
+<meta name="description" content="{{ card_name }}の買取価格をカードラッシュ・カーナベル・遊々亭の3店舗で一括比較。{% if best_price %}最高買取額¥{{ '{:,}'.format(best_price) }}。{% endif %}一番高く売れるお店が見つかります。">
+<meta property="og:title" content="{{ card_name }} の買取価格比較 | 遊戯王OCG 価格比較">
+<meta property="og:description" content="{{ card_name }}の買取価格を3店舗で比較{% if best_price %}。最高¥{{ '{:,}'.format(best_price) }}{% endif %}">
+<link rel="canonical" href="{{ request.url_root.rstrip('/') }}/buy/{{ card_name | urlencode }}">
+{% else %}
+<title>遊戯王OCG 価格比較 — 5店舗の最安値を一括検索</title>
+<meta name="description" content="遊戯王OCGカードの価格を遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボの5店舗から一括比較。買取価格比較・デッキ一括見積もりにも対応。">
+<meta property="og:title" content="遊戯王OCG 価格比較 — 5店舗の最安値を一括検索">
+<meta property="og:description" content="遊戯王OCGカードの価格を5店舗から一括比較。買取価格・デッキ見積もり対応。">
+<link rel="canonical" href="{{ request.url_root.rstrip('/') }}/">
+{% endif %}
+<meta property="og:type" content="website">
+<meta property="og:locale" content="ja_JP">
+<meta property="og:site_name" content="遊戯王OCG 価格比較">
+<meta name="robots" content="index, follow">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚔</text></svg>">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+{% if card_name %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  "name": "{{ card_name }} の{% if page_mode == 'buyback' %}買取{% endif %}価格比較",
+  "description": "{{ card_name }}の{% if page_mode == 'buyback' %}買取価格を3店舗{% else %}販売価格を5店舗{% endif %}で比較",
+  "mainEntity": {
+    "@type": "Product",
+    "name": "{{ card_name }}",
+    "category": "遊戯王OCG トレーディングカード"
+    {% if best_price %}
+    ,"offers": {
+      "@type": "AggregateOffer",
+      "priceCurrency": "JPY",
+      {% if page_mode == 'buyback' %}
+      "highPrice": {{ best_price }}
+      {% else %}
+      "lowPrice": {{ best_price }}
+      {% endif %}
+    }
+    {% endif %}
+  }
+}
+</script>
+{% endif %}
 <style>
 :root {
   --bg:         #0c0e14;
@@ -274,7 +322,17 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 <body>
 <div class="wrap">
   <header>
-    <h1>遊戯王OCG 価格比較</h1>
+    <h1><a href="/" style="color:var(--text);text-decoration:none">遊戯王OCG 価格比較</a></h1>
+    {% if card_name %}
+    <nav style="font-size:.75rem;color:var(--text-d);margin-top:6px">
+      <a href="/" style="color:var(--text-m)">トップ</a> &gt;
+      {% if page_mode == 'buyback' %}
+      <a href="/buy/{{ card_name | urlencode }}" style="color:var(--text-m)">{{ card_name }} の買取価格比較</a>
+      {% else %}
+      <a href="/card/{{ card_name | urlencode }}" style="color:var(--text-m)">{{ card_name }} の価格比較</a>
+      {% endif %}
+    </nav>
+    {% endif %}
   </header>
 
   <div class="mode-tabs">
@@ -607,6 +665,10 @@ document.addEventListener('keydown',function(e){
 <script>
 let D=[],sort={k:'price',a:true},rarityFilter='',cardImgUrl='',cardImgSmall='',_konamiDbUrl='';
 
+// SEO: カード個別ページの自動検索 & URL書き換え
+const _pageCardName={{ card_name | tojson }};
+const _pageMode={{ page_mode | tojson }};
+
 // ── アフィリエイトリンク変換 ──
 let _affConfig={};
 
@@ -839,6 +901,8 @@ function closeSuggest(){sugDrop.classList.remove('open');sugIdx=-1;sugItems=[];}
 
 function renderAll(d){
   document.getElementById('results').classList.remove('hidden');
+  const searchTerm0=document.getElementById('q').value.trim();
+  if(d.total>0) _updateUrl(searchTerm0,'search');
   if(d.total===0){
     document.getElementById('results').innerHTML='<div class="empty"><p>該当するカードが見つかりませんでした</p></div>';
     return;
@@ -1024,6 +1088,46 @@ function searchCard(name){
 
 // 初期ロード
 loadTrending();
+
+// SEO: カード個別ページの場合、自動検索を実行
+if(_pageCardName){
+  if(_pageMode==='buyback'){
+    switchMode('buyback');
+    buyQInput.value=_pageCardName;
+    setTimeout(()=>doBuySearch(),300);
+  }else{
+    document.getElementById('q').value=_pageCardName;
+    setTimeout(()=>doSearch(),300);
+  }
+}
+
+// SEO: 検索完了時にURLをpushStateで書き換え（ブラウザ履歴対応）
+function _updateUrl(cardName, mode){
+  if(!cardName)return;
+  const prefix=mode==='buyback'?'/buy/':'/card/';
+  const newUrl=prefix+encodeURIComponent(cardName);
+  if(window.location.pathname!==newUrl){
+    history.pushState({card:cardName,mode:mode},'',newUrl);
+  }
+  // ページタイトルも更新
+  const suffix=mode==='buyback'?' の買取価格比較':' の価格比較';
+  document.title=cardName+suffix+' | 遊戯王OCG 価格比較';
+}
+
+// ブラウザの戻る/進むボタン対応
+window.addEventListener('popstate',function(e){
+  if(e.state&&e.state.card){
+    if(e.state.mode==='buyback'){
+      switchMode('buyback');
+      buyQInput.value=e.state.card;
+      doBuySearch();
+    }else{
+      switchMode('search');
+      document.getElementById('q').value=e.state.card;
+      doSearch();
+    }
+  }
+});
 
 // ── Mode switch ──
 function switchMode(mode){
@@ -1412,6 +1516,8 @@ function doBuySearch(){
 function renderBuyAll(d){
   const wrap=document.getElementById('buyResults');
   wrap.classList.remove('hidden');
+  const buySearchTerm0=buyQInput.value.trim();
+  if(d.total>0) _updateUrl(buySearchTerm0,'buyback');
   if(d.total===0){
     wrap.innerHTML='<div class="empty"><p>買取情報が見つかりませんでした</p></div>';
     return;

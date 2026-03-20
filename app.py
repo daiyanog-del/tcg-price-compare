@@ -88,7 +88,90 @@ def _get_trending(limit: int = 10) -> list[dict]:
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", card_name="", page_mode="search")
+
+
+@app.route("/card/<path:card_name>")
+def card_page(card_name):
+    """カード個別ページ — SEO用"""
+    card_name = card_name.strip()
+    if not card_name or len(card_name) > 50:
+        return render_template("index.html", card_name="", page_mode="search"), 404
+
+    # キャッシュに価格データがあれば meta 用に渡す
+    cached = cache_get(card_name)
+    best_price = None
+    shop_count = 0
+    if cached:
+        in_stock = [r for r in cached if not r.get("sold_out")]
+        if in_stock:
+            best = min(in_stock, key=lambda x: x["price"])
+            best_price = best["price"]
+        shop_count = len(set(r["shop"] for r in cached))
+
+    return render_template("index.html",
+                           card_name=card_name,
+                           page_mode="search",
+                           best_price=best_price,
+                           shop_count=shop_count)
+
+
+@app.route("/buy/<path:card_name>")
+def buy_page(card_name):
+    """買取個別ページ — SEO用"""
+    card_name = card_name.strip()
+    if not card_name or len(card_name) > 50:
+        return render_template("index.html", card_name="", page_mode="buyback"), 404
+
+    cached = buyback_cache_get(card_name)
+    best_price = None
+    if cached:
+        prices = [r["price"] for r in cached if r.get("price")]
+        if prices:
+            best_price = max(prices)
+
+    return render_template("index.html",
+                           card_name=card_name,
+                           page_mode="buyback",
+                           best_price=best_price,
+                           shop_count=0)
+
+
+@app.route("/sitemap.xml")
+def sitemap():
+    """動的サイトマップ — 検索されたカードを自動収集"""
+    from flask import make_response
+    base_url = request.url_root.rstrip("/")
+
+    # ランキングからカード名を取得
+    cards = _get_trending(limit=30)
+    card_names = [c["name"] for c in cards]
+
+    xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
+    xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+    # トップページ
+    xml += f'  <url><loc>{base_url}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>\n'
+    # カード個別ページ
+    for name in card_names:
+        from urllib.parse import quote
+        xml += f'  <url><loc>{base_url}/card/{quote(name)}</loc><changefreq>daily</changefreq><priority>0.8</priority></url>\n'
+        xml += f'  <url><loc>{base_url}/buy/{quote(name)}</loc><changefreq>daily</changefreq><priority>0.7</priority></url>\n'
+    xml += '</urlset>'
+
+    resp = make_response(xml)
+    resp.headers["Content-Type"] = "application/xml"
+    return resp
+
+
+@app.route("/robots.txt")
+def robots():
+    """robots.txt"""
+    from flask import make_response
+    base_url = request.url_root.rstrip("/")
+    txt = f"User-agent: *\nAllow: /\nDisallow: /api/\n\nSitemap: {base_url}/sitemap.xml\n"
+    resp = make_response(txt)
+    resp.headers["Content-Type"] = "text/plain"
+    return resp
 
 
 # ── カード名サジェスト（ローカルファイル参照）──
