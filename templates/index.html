@@ -503,7 +503,19 @@ function doSearch(){
   shops.forEach(s=>params.append('shops',s));
 
   const es=new EventSource('/api/search?'+params.toString());
+  // 60秒で応答がなければタイムアウト
+  let sseTimeout=setTimeout(()=>{
+    es.close();btn.disabled=false;btn.textContent='検索';
+    prog.style.display='none';
+    document.getElementById('empty').classList.remove('hidden');
+    document.getElementById('empty').innerHTML='<p>検索がタイムアウトしました。再度お試しください。</p>';
+  },60000);
   es.onmessage=e=>{
+    clearTimeout(sseTimeout);
+    sseTimeout=setTimeout(()=>{
+      es.close();btn.disabled=false;btn.textContent='検索';
+      prog.style.display='none';
+    },60000);
     const d=JSON.parse(e.data);
     if(d.type==='progress'){
       const el=document.getElementById('s-'+d.shop);
@@ -515,6 +527,7 @@ function doSearch(){
       const el=document.getElementById('s-'+d.shop);
       if(el){el.className='pstep error';el.querySelector('.pstat').textContent='エラー';}
     }else if(d.type==='done'){
+      clearTimeout(sseTimeout);
       es.close();D=d.results;
       renderAll(d);
       btn.disabled=false;btn.textContent='検索';
@@ -522,6 +535,7 @@ function doSearch(){
     }
   };
   es.onerror=()=>{
+    clearTimeout(sseTimeout);
     es.close();btn.disabled=false;btn.textContent='検索';
     prog.style.display='none';
     document.getElementById('empty').classList.remove('hidden');

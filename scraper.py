@@ -78,6 +78,10 @@ def dump_html(name: str, soup: BeautifulSoup):
 
 # ── キャッシュ ──
 
+import tempfile
+from threading import Lock as _Lock
+_cache_lock = _Lock()
+
 def _cache_key(card_name: str) -> str:
     return hashlib.md5(card_name.encode()).hexdigest()
 
@@ -102,7 +106,12 @@ def cache_set(card_name: str, results: list[dict]):
     CACHE_DIR.mkdir(exist_ok=True)
     fp = CACHE_DIR / f"{_cache_key(card_name)}.json"
     data = {"timestamp": datetime.now().isoformat(), "results": results}
-    fp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    content = json.dumps(data, ensure_ascii=False)
+    # 一時ファイルに書いてからリネームすることで、書き込み途中のファイルを読まれるのを防ぐ
+    with _cache_lock:
+        tmp_fp = fp.with_suffix(".tmp")
+        tmp_fp.write_text(content, encoding="utf-8")
+        tmp_fp.replace(fp)
 
 
 # ── 名前フィルタ ──

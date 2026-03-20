@@ -172,14 +172,12 @@ def api_search():
 
     def generate():
         from concurrent.futures import ThreadPoolExecutor, as_completed
-        import queue
 
         # 全店舗を「検索中」に
         for shop_name, _ in active_shops:
             yield _sse({"type": "progress", "shop": shop_name})
 
         all_results = []
-        result_queue = queue.Queue()
 
         def scrape_shop(name, fn):
             try:
@@ -194,20 +192,25 @@ def api_search():
                 logger.error(f"{name} エラー: {e}")
                 return name, [], str(e)
 
-        with ThreadPoolExecutor(max_workers=len(active_shops)) as executor:
-            futures = {
-                executor.submit(scrape_shop, name, fn): name
-                for name, fn in active_shops
-            }
-            for future in as_completed(futures):
-                shop_name, results, error = future.result()
-                if error:
-                    yield _sse({"type": "shop_error", "shop": shop_name, "error": error})
-                yield _sse({"type": "shop_done", "shop": shop_name, "count": len(results)})
-                all_results.extend(results)
+        try:
+            with ThreadPoolExecutor(max_workers=len(active_shops)) as executor:
+                futures = {
+                    executor.submit(scrape_shop, name, fn): name
+                    for name, fn in active_shops
+                }
+                for future in as_completed(futures):
+                    shop_name, results, error = future.result()
+                    if error:
+                        yield _sse({"type": "shop_error", "shop": shop_name, "error": error})
+                    yield _sse({"type": "shop_done", "shop": shop_name, "count": len(results)})
+                    all_results.extend(results)
 
-        cache_set(card_name, all_results)
-        yield _sse(_build_done(all_results))
+            cache_set(card_name, all_results)
+        except Exception as e:
+            logger.error(f"検索処理で予期しないエラー: {e}")
+        finally:
+            # エラーが起きても必ず完了メッセージを送る
+            yield _sse(_build_done(all_results))
 
     return Response(generate(), mimetype="text/event-stream")
 
