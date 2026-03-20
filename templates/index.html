@@ -282,18 +282,106 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .meta-actions{display:flex;gap:8px;align-items:center}
 .meta-note{font:.7rem var(--font);color:var(--text-d);margin-top:8px}
 
-/* Mobile */
+/* Mobile — タブレット */
+@media(max-width:768px){
+  .wrap{padding:0 12px}
+  .rgrid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
+  .meta-deck-list{gap:5px}
+  .meta-deck-btn{padding:8px 12px;font-size:.75rem}
+}
+
+/* Mobile — スマホ */
 @media(max-width:640px){
-  header h1{font-size:1.25rem}
-  .search{flex-direction:column}.search button{width:100%}
+  header{padding:24px 0 16px}
+  header h1{font-size:1.2rem}
+
+  /* 検索 */
+  .search{flex-direction:column;gap:6px}
+  .search input{padding:14px 16px;font-size:1rem}
+  .search button{width:100%;padding:14px;font-size:.95rem;min-height:48px}
+  .suggest-dropdown{right:0}
+
+  /* モードタブ — 横幅に収まるよう */
+  .mode-tabs{gap:3px;margin:0 auto 14px}
+  .mode-tab{padding:10px 14px;font-size:.78rem;min-height:44px}
+
+  /* 店舗トグル */
+  .shop-toggles{gap:4px;margin:-12px auto 14px}
+  .shop-toggle{padding:8px 12px;font-size:.75rem;min-height:40px}
+
+  /* プログレス */
+  .progress{flex-wrap:wrap}
+  .pstep{min-width:0;padding:8px 6px;font-size:.72rem}
+  .pstep .pname{font-size:.68rem}
+
+  /* サマリーカード */
   .summary{grid-template-columns:1fr}
-  table.res{font-size:.72rem}
-  table.res th,table.res td{padding:6px 7px}
-  .controls{gap:8px}
-  .card-hero{flex-direction:column;align-items:center;text-align:center}
-  .card-hero-img{width:100px}
+  .scard{padding:14px 16px}
+  .scard .sprice{font-size:1.3rem}
+
+  /* コントロール・タブ */
+  .controls{gap:6px;flex-direction:column;align-items:stretch}
+  .tabs{justify-content:center}
+  .tbtn{padding:10px 14px;font-size:.8rem;min-height:44px}
+  .toggle{justify-content:center;margin-left:0;min-height:44px}
+
+  /* レアリティフィルター */
+  .rarity-filter{gap:4px;padding:8px 0}
+  .rf-btn{padding:6px 10px;font-size:.72rem;min-height:36px}
+
+  /* テーブル — 横スクロール対応 + 不要列非表示 */
+  .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table.res{font-size:.72rem;min-width:520px}
+  table.res th,table.res td{padding:8px 6px}
+  table.res .col-code{display:none}
+  table.res th[data-s="code"],table.res th[data-bs="code"]{display:none}
+  .col-stock{font-size:.68rem}
   .tbl-img{width:22px;height:32px}
-  .deck-card-row{font-size:.75rem;gap:6px}
+
+  /* カードヒーロー */
+  .card-hero{flex-direction:column;align-items:center;text-align:center;gap:12px}
+  .card-hero-img{width:100px}
+  .card-hero-name{font-size:1rem}
+
+  /* レアリティ別グリッド */
+  .rgrid{grid-template-columns:1fr}
+  .ritem{padding:10px}
+
+  /* シェアボタン */
+  .share-btns{flex-wrap:wrap;justify-content:center}
+  .share-btn{padding:8px 14px;font-size:.75rem;min-height:40px}
+
+  /* デッキビルダー */
+  .deck-builder{padding:0}
+  .deck-input-tabs{flex-wrap:wrap}
+  .deck-input-tab{padding:8px 12px;min-height:40px}
+  .deck-textarea{min-height:100px;font-size:.9rem}
+  .deck-actions{flex-direction:column}
+  .deck-btn{width:100%;padding:14px;font-size:.9rem;min-height:48px;text-align:center}
+  .deck-presets{gap:5px}
+  .deck-preset{padding:8px 12px;font-size:.75rem;min-height:40px}
+  .deck-total{flex-direction:column;gap:6px;text-align:center}
+  .deck-card-row{font-size:.75rem;gap:6px;flex-wrap:wrap}
+  .deck-card-name{white-space:normal}
+
+  /* 環境デッキ */
+  .meta-deck-list{gap:4px}
+  .meta-deck-btn{padding:8px 12px;font-size:.75rem;min-height:44px;flex:1 1 auto;justify-content:center}
+  .meta-deck-detail{padding:10px}
+  .meta-card-list{gap:3px}
+  .meta-card-chip{font-size:.68rem;padding:4px 7px}
+  .meta-actions{flex-wrap:wrap}
+
+  /* モーダル */
+  .legal-overlay{padding:10px}
+  .legal-modal{max-height:90vh;border-radius:8px}
+  .legal-modal-head{padding:14px 16px}
+  .legal-modal-head h2{font-size:.95rem}
+  .legal-modal-body{padding:16px;font-size:.84rem}
+
+  /* フッター */
+  .site-footer{padding:24px 12px 20px}
+  .site-footer a{display:inline-block;margin:4px 8px}
 }
 
 /* ── フッター ── */
@@ -1602,7 +1690,7 @@ function renderBuyTable(){
       <td>${esc(r.shop)}</td>
       <td>${esc(r.condition||'-')}</td>
       <td class="price" style="color:var(--green)">${link}</td>
-      <td>${esc(r.code||'-')}</td>
+      <td class="col-code">${esc(r.code||'-')}</td>
     </tr>`;
   }).join('');
 }
