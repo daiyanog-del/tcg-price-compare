@@ -469,6 +469,30 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 <script>
 let D=[],sort={k:'price',a:true},rarityFilter='',cardImgUrl='',cardImgSmall='',_konamiDbUrl='';
 
+// ── アフィリエイトリンク変換 ──
+let _affConfig={};
+
+// 起動時にアフィリエイト設定を取得
+fetch('/api/config').then(r=>r.json()).then(c=>{
+  _affConfig=c.affiliate||{};
+}).catch(()=>{});
+
+function affLink(url, shop, mode){
+  // mode: 'sell'(販売) or 'buy'(買取)
+  if(!url||!_affConfig[shop]) return url;
+  const a8mat=_affConfig[shop][mode];
+  if(!a8mat) return url;
+  return 'https://px.a8.net/svt/ejp?a8mat='+a8mat+'&a8ejpredirect='+encodeURIComponent(url);
+}
+
+function affPixel(shop, mode){
+  // A8.netのトラッキングピクセル
+  if(!_affConfig[shop]) return '';
+  const a8mat=_affConfig[shop][mode];
+  if(!a8mat) return '';
+  return '<img src="https://www17.a8.net/0.gif?a8mat='+a8mat+'" width="1" height="1" alt="" style="position:absolute">';
+}
+
 // ── シェア機能 ──
 function copyShareText(text){
   navigator.clipboard.writeText(text).then(()=>{
@@ -724,20 +748,22 @@ function renderAll(d){
   // Summary
   let h='';
   if(best){
-    const nameLink=best.url?`<a href="${esc(best.url)}" target="_blank" rel="noopener">${esc(best.name)}</a>`:esc(best.name);
-    const priceLink=best.url?`<a href="${esc(best.url)}" target="_blank" rel="noopener">¥${best.price.toLocaleString()}</a>`:`¥${best.price.toLocaleString()}`;
+    const bestUrl=affLink(best.url, best.shop, 'sell');
+    const nameLink=best.url?`<a href="${esc(bestUrl)}" target="_blank" rel="noopener nofollow">${esc(best.name)}</a>`:esc(best.name);
+    const priceLink=best.url?`<a href="${esc(bestUrl)}" target="_blank" rel="noopener nofollow">¥${best.price.toLocaleString()}</a>`:`¥${best.price.toLocaleString()}`;
     h+=`<div class="scard best fin"><div class="slabel">最安値</div>
       <div class="sprice">${priceLink}</div>
       <div class="sdetail">${best.shop} / ${best.rarity||'-'}<br>${nameLink}</div></div>`;
   }
   for(const[shop,item]of Object.entries(d.by_shop)){
-    const nameLink=item.url?`<a href="${esc(item.url)}" target="_blank" rel="noopener">${esc(item.name)}</a>`:esc(item.name);
-    const priceLink=item.url?`<a href="${esc(item.url)}" target="_blank" rel="noopener">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
+    const itemUrl=affLink(item.url, item.shop, 'sell');
+    const nameLink=item.url?`<a href="${esc(itemUrl)}" target="_blank" rel="noopener nofollow">${esc(item.name)}</a>`:esc(item.name);
+    const priceLink=item.url?`<a href="${esc(itemUrl)}" target="_blank" rel="noopener nofollow">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
     h+=`<div class="scard fin"><div class="slabel">${shop}</div>
       <div class="sprice">${priceLink}</div>
       <div class="sdetail">${item.rarity||'-'}<br>${nameLink}</div></div>`;
   }
-  document.getElementById('sumCards').innerHTML=h;
+  document.getElementById('sumCards').innerHTML=h+affPixel('カーナベル','sell');
 
   // Build rarity filter buttons
   rarityFilter='';
@@ -782,8 +808,9 @@ function renderTable(){
     const rc=r.rarity?'rb-'+r.rarity:'';
     const so=r.sold_out?'sold-out':'';
     const stockStr=r.sold_out?'<span class="sob">売切</span>':(r.stock>0?r.stock:'-');
+    const linkUrl=affLink(r.url, r.shop, 'sell');
     const nameLink=r.url
-      ?`<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.name)}</a>`
+      ?`<a href="${esc(linkUrl)}" target="_blank" rel="noopener nofollow">${esc(r.name)}</a>`
       :esc(r.name);
     const cond=r.condition==='セール'?'<span style="color:var(--gold)">セール</span>':esc(r.condition);
     return`<tr class="${so}">
@@ -1288,7 +1315,8 @@ function renderBuyAll(d){
   // サマリーカード（店舗別最高額）
   let h='';
   if(best){
-    const priceLink=best.url?`<a href="${esc(best.url)}" target="_blank" rel="noopener">¥${best.price.toLocaleString()}</a>`:`¥${best.price.toLocaleString()}`;
+    const bestBuyUrl=affLink(best.url, best.shop, 'buy');
+    const priceLink=best.url?`<a href="${esc(bestBuyUrl)}" target="_blank" rel="noopener nofollow">¥${best.price.toLocaleString()}</a>`:`¥${best.price.toLocaleString()}`;
     h+=`<div class="scard best fin"><div class="slabel">最高買取額</div>
       <div class="sprice" style="color:var(--green)">${priceLink}</div>
       <div class="sdetail">${best.shop} / ${best.rarity||'-'}<br>${esc(best.name)}</div></div>`;
@@ -1297,12 +1325,14 @@ function renderBuyAll(d){
   for(const s of shopNames){
     const shopBest=buyD.filter(r=>r.shop===s).reduce((a,b)=>a.price>b.price?a:b,{price:0});
     if(shopBest.price>0&&shopBest!==best){
+      const sBuyUrl=affLink(shopBest.url, s, 'buy');
+      const sPriceLink=shopBest.url?`<a href="${esc(sBuyUrl)}" target="_blank" rel="noopener nofollow">¥${shopBest.price.toLocaleString()}</a>`:`¥${shopBest.price.toLocaleString()}`;
       h+=`<div class="scard fin"><div class="slabel">${s}</div>
-        <div class="sprice" style="color:var(--green)">¥${shopBest.price.toLocaleString()}</div>
+        <div class="sprice" style="color:var(--green)">${sPriceLink}</div>
         <div class="sdetail">${shopBest.rarity||'-'}<br>${esc(shopBest.name)}</div></div>`;
     }
   }
-  document.getElementById('buySumCards').innerHTML=h;
+  document.getElementById('buySumCards').innerHTML=h+affPixel('カーナベル','buy');
 
   // テーブル描画
   renderBuyTable();
@@ -1320,7 +1350,8 @@ function renderBuyTable(){
   const tbody=document.getElementById('buyTbody');
   tbody.innerHTML=sorted.map(r=>{
     const priceStr='¥'+r.price.toLocaleString();
-    const link=r.url?`<a href="${esc(r.url)}" target="_blank" rel="noopener">${priceStr}</a>`:priceStr;
+    const buyUrl=affLink(r.url, r.shop, 'buy');
+    const link=r.url?`<a href="${esc(buyUrl)}" target="_blank" rel="noopener nofollow">${priceStr}</a>`:priceStr;
     return `<tr>
       <td>${esc(r.rarity||'-')}</td>
       <td>${esc(r.name)}</td>
