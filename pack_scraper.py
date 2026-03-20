@@ -1,9 +1,9 @@
 """
 遊戯王 パックカードリスト スクレイパー
 ========================================
+・公式サイトから最新パック一覧を自動取得
 ・遊戯王Wikiからパックの収録カードリストを取得（メイン）
 ・YGOPRODeck APIでTCGセット名から日本語カード名を取得（フォールバック）
-・パック一覧はJSONファイルで管理
 """
 
 import re
@@ -54,18 +54,132 @@ def _cache_write(key: str, data: dict):
     fp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
 
-# ── パック一覧（JSONファイルから読み込み）──
+# ── 公式サイトから最新パック一覧を自動取得 ──
 
-_PACKS_FILE = Path(__file__).parent / "data" / "packs.json"
+_KONAMI_PRODUCTS_URL = "https://www.yugioh-card.com/japan/products/"
+_PACK_CATEGORIES = ["basic", "special", "concept"]
+_MAX_PACKS = 2  # 表示するパック数
+
+
+def _fetch_latest_packs_from_official() -> list[dict]:
+    """
+    公式サイトの商品ページからパック情報を取得。
+    JS内の p[N]={...} 形式のデータを解析する。
+    """
+    all_packs = []
+
+    for cat in _PACK_CATEGORIES:
+        try:
+            url = f"{_KONAMI_PRODUCTS_URL}?{cat}"
+            res = requests.get(url, headers=HEADERS, timeout=15)
+            # p[N]={...} パターンを抽出
+            for m in re.finditer(r'p\[\d+\]\s*=\s*\{([^}]+)\}', res.text):
+                content = m.group(1)
+                title_m = re.search(r'"title":"([^"]+)"', content)
+                date_m = re.search(r'"release-date":"([^"]+)"', content)
+                if not title_m or not date_m:
+                    continue
+
+                title = title_m.group(1)
+                raw_date = date_m.group(1)
+
+                # 日付を解析（例: "2025年3月22日(土)"）
+                date_match = re.search(r'(\d{4})\D+(\d{1,2})\D+(\d{1,2})', raw_date)
+                if not date_match:
+                    continue
+                y, mo, d = date_match.groups()
+                iso_date = f"{y}-{int(mo):02d}-{int(d):02d}"
+
+                # 未来すぎるパック（発売前でカードリスト未公開）を除外
+                try:
+                    release = datetime.strptime(iso_date, "%Y-%m-%d")
+                    if release > datetime.now() + timedelta(days=7):
+                        continue
+                except ValueError:
+                    continue
+
+                # パック名の正規化（公式サイトのダッシュを統一）
+                # 公式は半角ハイフン+スペースだが、Wikiは特殊ダッシュ(U+2212)の場合がある
+                wiki_page = title.strip()
+
+                all_packs.append({
+                    "name": title.strip(),
+                    "wiki_page": wiki_page,
+                    "tcg_name": "",
+                    "date": iso_date,
+                    "category": cat,
+                })
+        except Exception as e:
+            print(f"  pack_scraper 公式サイト取得失敗 ({cat}): {e}")
+
+    # 発売日順（新しい順）にソート
+    all_packs.sort(key=lambda x: x["date"], reverse=True)
+    return all_packs
+
+
+def _try_wiki_page_variants(pack_name: str) -> str:
+    """
+    Wikiページ名のバリエーションを試してカードリストが取れるものを返す。
+    公式サイトのダッシュ表記とWikiの表記が異なる場合がある。
+    """
+    # ダッシュのバリエーション
+    variants = [
+        pack_name,  # そのまま
+        pack_name.replace(" - ", " \u2212").replace(" -", "\u2212").replace("- ", "\u2212"),  # 半角→数学マイナス
+        re.sub(r'\s*-\s*', ' \u2212', pack_name),  # ハイフンを全てU+2212に
+        re.sub(r'\s*-\s*', '\u2212', pack_name),  # スペースなしU+2212
+    ]
+
+    seen = set()
+    for v in variants:
+        v = v.strip()
+        if v in seen:
+            continue
+        seen.add(v)
+        cards = _fetch_from_wiki(v, v)
+        if cards:
+            return v
+
+    return pack_name  # どれも取れなければ元の名前を返す
+
 
 def get_pack_list() -> list[dict]:
-    """パック一覧を返す"""
-    if not _PACKS_FILE.exists():
+    """
+    最新パック一覧を返す。
+    公式サイトから自動取得し、Wikiでカード取得可能なパックを返す。
+    結果はキャッシュする（24時間）。
+    """
+    cache_key = "pack_list_auto"
+    cached = _cache_read(cache_key, timedelta(hours=24))
+    if cached and "packs" in cached and len(cached["packs"]) > 0:
+        return cached["packs"]
+
+    official_packs = _fetch_latest_packs_from_official()
+    if not official_packs:
+        # フォールバック: キャッシュがあれば古くても返す
+        old = _cache_read(cache_key, timedelta(days=30))
+        if old and "packs" in old:
+            return old["packs"]
         return []
-    try:
-        return json.loads(_PACKS_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return []
+
+    # 直近パックのうち、Wikiでカードリストが取れるものを_MAX_PACKS個選ぶ
+    valid_packs = []
+    for pack in official_packs:
+        if len(valid_packs) >= _MAX_PACKS:
+            break
+
+        wiki_page = _try_wiki_page_variants(pack["name"])
+        valid_packs.append({
+            "name": pack["name"],
+            "wiki_page": wiki_page,
+            "tcg_name": pack.get("tcg_name", ""),
+            "date": pack["date"],
+        })
+
+    if valid_packs:
+        _cache_write(cache_key, {"packs": valid_packs})
+
+    return valid_packs
 
 
 # ── 方法1: 遊戯王Wikiからカードリスト取得 ──

@@ -286,7 +286,8 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .meta-deck-detail{margin-top:12px;padding:14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius)}
 .meta-deck-detail h4{font-size:.85rem;margin-bottom:8px;color:var(--text)}
 .meta-card-list{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px}
-.meta-card-chip{font:.72rem var(--font);padding:3px 8px;background:var(--bg-hover);border:1px solid var(--border);border-radius:4px;color:var(--text-m)}
+.meta-card-chip{font:.72rem var(--font);padding:3px 8px;background:var(--bg-hover);border:1px solid var(--border);border-radius:4px;color:var(--text-m);transition:all .15s}
+.meta-card-chip.clickable{cursor:pointer}.meta-card-chip.clickable:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
 .meta-card-chip .chip-qty{font-weight:700;color:var(--accent-l);margin-right:3px}
 .meta-actions{display:flex;gap:8px;align-items:center}
 .meta-note{font:.7rem var(--font);color:var(--text-d);margin-top:8px}
@@ -447,9 +448,10 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   </header>
 
   <div class="mode-tabs">
-    <button class="mode-tab active" onclick="switchMode('search')">カード検索</button>
-    <button class="mode-tab" onclick="switchMode('buyback')">買取比較</button>
-    <button class="mode-tab" onclick="switchMode('deck')">デッキ価格計算</button>
+    <button class="mode-tab active" onclick="switchMode('search')">販売価格</button>
+    <button class="mode-tab" onclick="switchMode('buyback')">買取価格</button>
+    <button class="mode-tab" onclick="switchMode('deck')">デッキ計算</button>
+    <button class="mode-tab" onclick="switchMode('packs')">最新弾</button>
   </div>
 
   <!-- ===== 検索モード ===== -->
@@ -601,7 +603,6 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
         <div class="deck-input-tabs">
           <button class="deck-input-tab active" onclick="deckInputTab('paste')">テキスト</button>
           <button class="deck-input-tab" onclick="deckInputTab('preset')">環境デッキ</button>
-          <button class="deck-input-tab" onclick="deckInputTab('packs')">最新弾</button>
         </div>
 
         <!-- テキスト入力 -->
@@ -620,11 +621,6 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
           <div id="metaDeckDetail" class="meta-deck-detail hidden"></div>
         </div>
 
-        <!-- 最新弾パック -->
-        <div id="deckInput-packs" class="hidden">
-          <div id="packList" class="meta-loading">パック情報を読込中...</div>
-          <div id="packDetail" class="meta-deck-detail hidden"></div>
-        </div>
 
         <div class="deck-actions">
           <button class="deck-btn deck-btn-primary" onclick="calcDeck()">価格を計算</button>
@@ -663,6 +659,16 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 
     </div>
   </div><!-- /mode-deck -->
+
+  <!-- ===== 最新弾モード ===== -->
+  <div id="mode-packs" class="hidden">
+    <div class="deck-builder">
+      <div class="deck-input-area">
+        <div id="packList" class="meta-loading">パック情報を読込中...</div>
+        <div id="packDetail" class="meta-deck-detail hidden"></div>
+      </div>
+    </div>
+  </div><!-- /mode-packs -->
 
 </div>
 
@@ -1203,7 +1209,9 @@ function loadTrending(){
 }
 
 function searchCard(name){
+  switchMode('search');
   document.getElementById('q').value=name;
+  document.getElementById('q').scrollIntoView({behavior:'smooth',block:'center'});
   doSearch();
 }
 
@@ -1252,23 +1260,23 @@ window.addEventListener('popstate',function(e){
 
 // ── Mode switch ──
 function switchMode(mode){
-  const labels={search:'カード検索',buyback:'買取比較',deck:'デッキ価格計算'};
+  const labels={search:'販売価格',buyback:'買取価格',deck:'デッキ計算',packs:'最新弾'};
   document.querySelectorAll('.mode-tab').forEach(b=>b.classList.toggle('active',b.textContent===labels[mode]));
-  document.getElementById('mode-search').classList.toggle('hidden',mode!=='search');
-  document.getElementById('mode-buyback').classList.toggle('hidden',mode!=='buyback');
-  document.getElementById('mode-deck').classList.toggle('hidden',mode!=='deck');
+  ['search','buyback','deck','packs'].forEach(m=>{
+    document.getElementById('mode-'+m).classList.toggle('hidden',m!==mode);
+  });
+  if(mode==='packs') loadPacks();
 }
 
 // ── Deck Builder ──
 function deckInputTab(id){
-  const labels={paste:'テキスト',neuron:'ニューロン',preset:'環境デッキ',packs:'最新弾'};
+  const labels={paste:'テキスト',neuron:'ニューロン',preset:'環境デッキ'};
   document.querySelectorAll('.deck-input-tab').forEach(b=>b.classList.toggle('active',b.textContent.includes(labels[id]||'')));
-  ['paste','neuron','preset','packs'].forEach(t=>{
+  ['paste','neuron','preset'].forEach(t=>{
     const el=document.getElementById('deckInput-'+t);
     if(el) el.classList.toggle('hidden',t!==id);
   });
   if(id==='preset') loadMetaTiers();
-  if(id==='packs') loadPacks();
 }
 
 function parseDeckList(text){
@@ -1453,41 +1461,20 @@ async function loadPackCards(packName, wikiPage, tcgName){
       return;
     }
 
-    // カードチップ表示
+    // カードチップ表示（クリックで個別検索）
     let chips='';
     for(const name of data.cards){
-      chips+='<span class="meta-card-chip">'+esc(name)+'</span>';
+      chips+='<span class="meta-card-chip clickable" onclick="searchCard(\''+esc(name).replace(/'/g,"\\'")+'\')">'+esc(name)+'</span>';
     }
 
-    // テキスト用: 全カード各1枚
-    const deckText=data.cards.map(n=>'1 '+n).join('\n');
-    _lastPackDeckText=deckText;
-
     detailEl.innerHTML='<h4>'+esc(packName)+' — 収録カード（'+data.count+'種）</h4>'
-      +'<div class="meta-card-list" style="max-height:300px;overflow-y:auto">'+chips+'</div>'
-      +'<div class="meta-actions" style="margin-top:12px">'
-      +'<button class="deck-btn deck-btn-primary" onclick="applyPackDeck(false)">販売価格を検索</button>'
-      +'<button class="deck-btn deck-btn-primary" onclick="applyPackDeck(true)" style="background:linear-gradient(135deg,var(--green),#059669)">買取価格を検索</button>'
-      +'<button class="deck-btn deck-btn-secondary" onclick="applyPackToTextarea()">テキストに反映</button>'
-      +'</div>'
-      +'<div class="meta-note">各カード1枚ずつで価格を検索します</div>';
+      +'<div class="meta-note" style="margin-bottom:8px">カード名をタップすると価格を検索します</div>'
+      +'<div class="meta-card-list" style="max-height:400px;overflow-y:auto">'+chips+'</div>';
   }catch(e){
     detailEl.innerHTML='<div class="meta-loading">読込に失敗しました</div>';
   }
 }
 
-let _lastPackDeckText='';
-
-function applyPackDeck(buyMode){
-  document.getElementById('deckTextarea').value=_lastPackDeckText;
-  deckInputTab('paste');
-  calcDeck(buyMode||false);
-}
-
-function applyPackToTextarea(){
-  document.getElementById('deckTextarea').value=_lastPackDeckText;
-  deckInputTab('paste');
-}
 
 // ── 旧プリセット（後方互換用・非表示）──
 const PRESETS={};
