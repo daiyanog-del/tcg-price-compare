@@ -410,6 +410,78 @@ def api_deck():
 
     return Response(generate(), mimetype="text/event-stream")
 
+@app.route("/api/deck-buy")
+def api_deck_buy():
+    """デッキ一括買取検索 — 複数カード名の買取最高値をSSEで返す"""
+    names_raw = request.args.get("cards", "")
+    shops_raw = request.args.getlist("shops") or DEFAULT_BUYBACK_SHOPS
+    if not names_raw:
+        return jsonify({"error": "カード名がありません"}), 400
+
+    ALL_BUY_NAMES = [name for name, _ in BUYBACK_SHOPS]
+    selected = [s for s in shops_raw if s in ALL_BUY_NAMES]
+    active_shops = [(name, fn) for name, fn in BUYBACK_SHOPS if name in selected]
+
+    card_entries = []
+    for line in names_raw.split("|"):
+        line = line.strip()
+        if not line:
+            continue
+        import re as _re
+        m = _re.match(r"^(\d+)\s+(.+)$", line)
+        if m:
+            card_entries.append({"qty": int(m.group(1)), "name": m.group(2).strip()})
+        else:
+            card_entries.append({"qty": 1, "name": line})
+
+    def _search_one_card_buy(i, card_name):
+        """1枚のカードを全買取店舗で検索して最高値を返す"""
+        cached = buyback_cache_get(card_name)
+        if cached is not None:
+            items = [r for r in cached if r["shop"] in selected]
+            best = max(items, key=lambda x: x["price"]) if items else None
+            return {"type": "card_done", "index": i, "name": card_name,
+                    "best": best, "count": len(items), "cached": True}
+
+        all_items = []
+        with ThreadPoolExecutor(max_workers=len(active_shops)) as shop_executor:
+            futures = {shop_executor.submit(fn, card_name): name
+                       for name, fn in active_shops}
+            for future in as_completed(futures):
+                try:
+                    all_items.extend(future.result())
+                except Exception:
+                    pass
+
+        buyback_cache_set(card_name, all_items)
+        best = max(all_items, key=lambda x: x["price"]) if all_items else None
+        return {"type": "card_done", "index": i, "name": card_name,
+                "best": best, "count": len(all_items)}
+
+    def generate():
+        CARD_PARALLEL = 5
+        for i, entry in enumerate(card_entries):
+            yield _sse({"type": "card_start", "index": i, "name": entry["name"]})
+
+        with ThreadPoolExecutor(max_workers=CARD_PARALLEL) as card_executor:
+            futures = {
+                card_executor.submit(_search_one_card_buy, i, entry["name"]): i
+                for i, entry in enumerate(card_entries)
+            }
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                    yield _sse(result)
+                except Exception as e:
+                    idx = futures[future]
+                    yield _sse({"type": "card_done", "index": idx,
+                                "name": card_entries[idx]["name"],
+                                "best": None, "count": 0})
+
+        yield _sse({"type": "done"})
+
+    return Response(generate(), mimetype="text/event-stream")
+
 @app.route("/api/trending")
 def api_trending():
     """直近24時間の検索ランキングを返す"""

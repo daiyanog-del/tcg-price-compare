@@ -1392,7 +1392,7 @@ let _lastMetaDeckText='';
 function applyMetaDeck(){
   document.getElementById('deckTextarea').value=_lastMetaDeckText;
   deckInputTab('paste');
-  calcDeck();
+  calcDeck(false);
 }
 
 function applyMetaDeckToTextarea(){
@@ -1464,10 +1464,11 @@ async function loadPackCards(packName, wikiPage){
     detailEl.innerHTML='<h4>'+esc(packName)+' — 収録カード（'+data.count+'種）</h4>'
       +'<div class="meta-card-list" style="max-height:300px;overflow-y:auto">'+chips+'</div>'
       +'<div class="meta-actions" style="margin-top:12px">'
-      +'<button class="deck-btn deck-btn-primary" onclick="applyPackDeck()">全カードの価格を検索</button>'
+      +'<button class="deck-btn deck-btn-primary" onclick="applyPackDeck(false)">販売価格を検索</button>'
+      +'<button class="deck-btn deck-btn-primary" onclick="applyPackDeck(true)" style="background:linear-gradient(135deg,var(--green),#059669)">買取価格を検索</button>'
       +'<button class="deck-btn deck-btn-secondary" onclick="applyPackToTextarea()">テキストに反映</button>'
       +'</div>'
-      +'<div class="meta-note">各カード1枚ずつで最安値を検索します</div>';
+      +'<div class="meta-note">各カード1枚ずつで価格を検索します</div>';
   }catch(e){
     detailEl.innerHTML='<div class="meta-loading">読込に失敗しました</div>';
   }
@@ -1475,10 +1476,10 @@ async function loadPackCards(packName, wikiPage){
 
 let _lastPackDeckText='';
 
-function applyPackDeck(){
+function applyPackDeck(buyMode){
   document.getElementById('deckTextarea').value=_lastPackDeckText;
   deckInputTab('paste');
-  calcDeck();
+  calcDeck(buyMode||false);
 }
 
 function applyPackToTextarea(){
@@ -1525,7 +1526,12 @@ function addToDeck(name){
   switchMode('deck');
 }
 
-async function calcDeck(){
+let _deckBuyMode=false;
+
+async function calcDeck(buyMode){
+  if(buyMode!==undefined) _deckBuyMode=buyMode;
+  const isBuy=_deckBuyMode;
+
   const text=document.getElementById('deckTextarea').value;
   const cards=parseDeckList(text);
   if(!cards.length) return;
@@ -1534,8 +1540,10 @@ async function calcDeck(){
   const listEl=document.getElementById('deckCardList');
   const totalEl=document.getElementById('deckTotalPrice');
   const progEl=document.getElementById('deckProgress');
+  const totalLabel=document.querySelector('.deck-total-label');
   resultsEl.classList.remove('hidden');
   totalEl.textContent='計算中...';
+  totalLabel.textContent=isBuy?'買取合計（推定）':'デッキ合計最安値（推定）';
 
   listEl.innerHTML=cards.map((c,i)=>`
     <div class="deck-card-row loading" id="deck-row-${i}">
@@ -1547,17 +1555,19 @@ async function calcDeck(){
     </div>`).join('');
 
   // Build request
-  const shops=[...document.querySelectorAll('#deckShopToggles .shop-toggle')]
+  const shopSelector=isBuy?'#buyShopToggles .shop-toggle':'#deckShopToggles .shop-toggle';
+  const shops=[...document.querySelectorAll(shopSelector)]
     .filter(l=>l.querySelector('input').checked)
     .map(l=>l.dataset.shop);
   const cardsParam=cards.map(c=>c.qty>1?`${c.qty} ${c.name}`:c.name).join('|');
   const params=new URLSearchParams({cards:cardsParam});
   shops.forEach(s=>params.append('shops',s));
 
+  const apiUrl=isBuy?'/api/deck-buy?':'/api/deck?';
   let total=0,found=0,notFound=0;
 
   try{
-    const res=await fetch('/api/deck?'+params.toString());
+    const res=await fetch(apiUrl+params.toString());
     const reader=res.body.getReader();
     const decoder=new TextDecoder();
     let buffer='';
@@ -1589,7 +1599,8 @@ async function calcDeck(){
             total+=lineTotal;
             found++;
             row.className='deck-card-row';
-            row.querySelector('.deck-card-price').textContent=`¥${lineTotal.toLocaleString()}`;
+            const priceColor=isBuy?'color:var(--green)':'';
+            row.querySelector('.deck-card-price').innerHTML=`<span style="${priceColor}">¥${lineTotal.toLocaleString()}</span>`;
             row.querySelector('.deck-card-shop').textContent=d.best.shop;
             row.querySelector('.deck-card-status').textContent=c.qty>1?`@¥${unitPrice.toLocaleString()}`:'';
             row.querySelector('.deck-card-name').innerHTML=d.best.url
@@ -1603,9 +1614,11 @@ async function calcDeck(){
           totalEl.textContent=`¥${total.toLocaleString()}`;
         }
         else if(d.type==='done'){
-          progEl.textContent=`完了 — ${found}/${cards.length}枚の価格を取得${notFound>0?` (${notFound}枚未取得)`:''}`;
-          // デッキシェアボタン
-          const deckShareText=`デッキ合計 ¥${total.toLocaleString()}（${cards.length}枚）！ 5店舗最安値で見積もりました`;
+          const modeLabel=isBuy?'買取価格':'販売価格';
+          progEl.textContent=`完了 — ${found}/${cards.length}枚の${modeLabel}を取得${notFound>0?` (${notFound}枚未取得)`:''}`;
+          const deckShareText=isBuy
+            ?`買取合計 ¥${total.toLocaleString()}（${cards.length}枚）！ 3店舗最高値で見積もりました`
+            :`デッキ合計 ¥${total.toLocaleString()}（${cards.length}枚）！ 5店舗最安値で見積もりました`;
           const deckShareUrl=location.origin;
           progEl.innerHTML+=`<div class="share-btns" style="margin-top:8px">
             <a class="share-btn share-btn-x" href="https://x.com/intent/tweet?text=${encodeURIComponent(deckShareText)}&url=${encodeURIComponent(deckShareUrl)}" target="_blank" rel="noopener">𝕏 シェア</a>
