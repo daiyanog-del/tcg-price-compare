@@ -82,21 +82,22 @@
   --radius:     8px;
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh}
+body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;background-image:radial-gradient(ellipse at 50% 0%,rgba(74,124,255,.06) 0%,transparent 60%)}
 a{color:var(--accent-l);text-decoration:none}a:hover{text-decoration:underline}
 .wrap{max-width:1140px;margin:0 auto;padding:0 20px;position:relative;z-index:1}
 
 /* ── Header ── */
-header{padding:40px 0 28px;text-align:center}
-header h1{font-size:1.5rem;font-weight:900;letter-spacing:.04em;color:var(--text)}
+header{padding:40px 0 12px;text-align:center}
+header h1{font-size:1.5rem;font-weight:900;letter-spacing:.04em;background:linear-gradient(135deg,var(--text) 0%,var(--accent-l) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+header .subtitle{font-size:.78rem;color:var(--text-d);margin-top:6px;letter-spacing:.02em}
 
 /* ── Search ── */
 .search{display:flex;gap:8px;max-width:540px;margin:0 auto 36px;position:relative}
-.search input{flex:1;padding:13px 18px;font:1rem var(--font);background:var(--bg-input);border:1.5px solid var(--border);border-radius:var(--radius);color:var(--text);outline:0;transition:border .2s}
-.search input:focus{border-color:var(--border-hl)}
+.search input{flex:1;padding:13px 18px;font:1rem var(--font);background:var(--bg-input);border:1.5px solid var(--border);border-radius:var(--radius);color:var(--text);outline:0;transition:border .2s,box-shadow .2s}
+.search input:focus{border-color:var(--border-hl);box-shadow:0 0 0 3px rgba(74,124,255,.12)}
 .search input::placeholder{color:var(--text-d)}
-.search button{padding:13px 26px;font:.92rem var(--font);font-weight:700;background:var(--accent);color:#fff;border:0;border-radius:var(--radius);cursor:pointer;transition:background .15s,transform .1s;white-space:nowrap}
-.search button:hover{background:#5a88ff}
+.search button{padding:13px 26px;font:.92rem var(--font);font-weight:700;background:linear-gradient(135deg,var(--accent),#6366f1);color:#fff;border:0;border-radius:var(--radius);cursor:pointer;transition:background .15s,transform .1s,box-shadow .15s;white-space:nowrap;box-shadow:0 2px 8px rgba(74,124,255,.25)}
+.search button:hover{background:linear-gradient(135deg,#5a88ff,#7c7cf1);box-shadow:0 4px 12px rgba(74,124,255,.35)}
 .search button:active{transform:scale(.97)}
 .search button:disabled{background:var(--border);cursor:not-allowed}
 .suggest-dropdown{position:absolute;top:100%;left:0;right:72px;background:var(--bg-card);border:1px solid var(--border);border-radius:0 0 var(--radius) var(--radius);max-height:280px;overflow-y:auto;z-index:100;display:none}
@@ -125,9 +126,10 @@ header h1{font-size:1.5rem;font-weight:900;letter-spacing:.04em;color:var(--text
 
 /* ── Summary ── */
 .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:28px}
-.scard{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:18px 20px;position:relative;overflow:hidden}
-.scard.best{border-color:var(--gold-d);background:rgba(232,200,72,.04)}
-.scard.best::before{content:'BEST';position:absolute;top:10px;right:12px;font-size:.6rem;font-weight:700;color:var(--gold);letter-spacing:.08em;padding:2px 6px;border:1px solid var(--gold-d);border-radius:3px}
+.scard{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:18px 20px;position:relative;overflow:hidden;transition:border-color .2s,transform .15s}
+.scard:hover{border-color:var(--text-d);transform:translateY(-2px)}
+.scard.best{border-color:var(--gold-d);background:linear-gradient(135deg,rgba(232,200,72,.06),rgba(232,200,72,.02))}
+.scard.best::before{content:'BEST PRICE';position:absolute;top:10px;right:12px;font-size:.58rem;font-weight:800;color:var(--bg);background:linear-gradient(135deg,var(--gold),#f0d860);letter-spacing:.08em;padding:3px 8px;border-radius:4px}
 .scard .slabel{font-size:.68rem;font-weight:600;color:var(--text-m);text-transform:uppercase;letter-spacing:.1em}
 .scard .sprice{font:600 1.5rem var(--mono);color:var(--gold);margin:5px 0 3px}
 .scard .sprice a{color:var(--gold);text-decoration:none}
@@ -199,9 +201,12 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .trending{max-width:480px;margin:0 auto;text-align:left}
 .trending-title{font-size:.82rem;font-weight:700;color:var(--text-m);margin-bottom:12px;text-align:center;letter-spacing:.05em}
 .trending-list{display:flex;flex-direction:column;gap:4px}
-.trending-item{display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:border-color .15s,background .15s}
-.trending-item:hover{border-color:var(--accent);background:var(--bg-hover)}
+.trending-item{display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:border-color .15s,background .15s,transform .15s}
+.trending-item:hover{border-color:var(--accent);background:var(--bg-hover);transform:translateX(4px)}
 .trending-rank{font:700 .82rem var(--mono);color:var(--text-d);min-width:20px}
+.trending-item:nth-child(1) .trending-rank{color:var(--gold)}
+.trending-item:nth-child(2) .trending-rank{color:#c0c0c0}
+.trending-item:nth-child(3) .trending-rank{color:#cd7f32}
 .trending-name{flex:1;font-size:.88rem;font-weight:500}
 .trending-count{font:.72rem var(--mono);color:var(--text-d)}
 
@@ -237,7 +242,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .mode-tabs{display:flex;gap:4px;max-width:540px;margin:0 auto 20px;justify-content:center}
 .mode-tab{padding:8px 20px;font:.82rem var(--font);font-weight:700;color:var(--text-d);background:var(--bg-card);border:1px solid var(--border);border-radius:20px;cursor:pointer;transition:all .15s}
 .mode-tab:hover{border-color:var(--text-m);color:var(--text-m)}
-.mode-tab.active{color:var(--text);border-color:var(--accent);background:rgba(74,124,255,.08)}
+.mode-tab.active{color:#fff;border-color:var(--accent);background:linear-gradient(135deg,var(--accent),#6366f1);box-shadow:0 2px 8px rgba(74,124,255,.2)}
 .deck-builder{max-width:800px;margin:0 auto}
 .deck-input-area{margin-bottom:20px}
 .deck-input-tabs{display:flex;gap:4px;margin-bottom:10px}
@@ -427,7 +432,8 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 <body>
 <div class="wrap">
   <header>
-    <h1><a href="/" style="color:var(--text);text-decoration:none">遊戯王OCG 価格比較</a></h1>
+    <h1><a href="/" style="text-decoration:none;-webkit-text-fill-color:inherit;background:inherit;-webkit-background-clip:inherit;background-clip:inherit">遊戯王OCG 価格比較</a></h1>
+    <p class="subtitle">5店舗の販売価格・買取価格をリアルタイム一括比較</p>
     {% if card_name %}
     <nav style="font-size:.75rem;color:var(--text-d);margin-top:6px">
       <a href="/" style="color:var(--text-m)">トップ</a> &gt;
@@ -524,7 +530,9 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   </div>
 
   <div id="empty" class="empty">
-    <p style="margin-bottom:24px">カード名を入力して検索</p>
+    <div style="font-size:2.2rem;margin-bottom:12px;opacity:.4">&#x2694;</div>
+    <p style="font-size:1rem;font-weight:600;color:var(--text-m);margin-bottom:6px">カード名を入力して検索</p>
+    <p style="font-size:.78rem;color:var(--text-d);margin-bottom:28px">遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボの最安値を一括表示</p>
     <div id="trendingSection" class="trending hidden">
       <h2 class="trending-title">注目カード</h2>
       <div class="trending-list" id="trendingList"></div>
@@ -653,6 +661,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 
 <!-- フッター -->
 <footer class="site-footer">
+  <p style="font-size:.75rem;color:var(--text-d);margin-bottom:10px">遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボの価格を一括比較</p>
   <a onclick="openLegalModal('privacy')">プライバシーポリシー</a>｜<a onclick="openLegalModal('terms')">利用規約</a>
   <div class="footer-copy">&copy; 2025 遊戯王OCG 価格比較</div>
 </footer>
