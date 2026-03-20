@@ -20,6 +20,16 @@ from meta_scraper import fetch_tier_list, fetch_deck_cards, build_deck_text
 from pack_scraper import get_pack_list, fetch_pack_cards
 from monitor import tracker, run_health_check
 
+import re as _re
+
+# 検索クエリの表記ゆれ正規化
+_DASH_CHARS = _re.compile(r'[\u2012\u2013\u2014\u2015\u2212\uFF0D\uFF70]')  # 各種ダッシュ・ハイフン
+def _normalize_query(q: str) -> str:
+    """ユーザー入力のカード名を正規化（ダッシュ統一・全角スペース変換）"""
+    q = _DASH_CHARS.sub('-', q)       # 各種ダッシュ → 通常ハイフン
+    q = q.replace('\u3000', ' ')      # 全角スペース → 半角
+    return q.strip()
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -204,7 +214,7 @@ def _load_cardnames():
 def api_suggest():
     """カード名の入力補完候補を返す（ローカルファイル参照、外部API不使用）"""
     _load_cardnames()
-    q = request.args.get("q", "").strip()
+    q = _normalize_query(request.args.get("q", ""))
     if not q or len(q) < 1:
         return jsonify([])
 
@@ -227,7 +237,7 @@ def api_suggest():
 
 @app.route("/api/search")
 def api_search():
-    card_name = request.args.get("q", "").strip()
+    card_name = _normalize_query(request.args.get("q", ""))
     if not card_name:
         return jsonify({"error": "カード名を入力してください"}), 400
     if len(card_name) > 50:
@@ -348,12 +358,11 @@ def api_deck():
         line = line.strip()
         if not line:
             continue
-        import re as _re
         m = _re.match(r"^(\d+)\s+(.+)$", line)
         if m:
-            card_entries.append({"qty": int(m.group(1)), "name": m.group(2).strip()})
+            card_entries.append({"qty": int(m.group(1)), "name": _normalize_query(m.group(2))})
         else:
-            card_entries.append({"qty": 1, "name": line})
+            card_entries.append({"qty": 1, "name": _normalize_query(line)})
 
     def _search_one_card(i, card_name):
         """1枚のカードを全店舗で検索して結果を返す"""
@@ -427,12 +436,11 @@ def api_deck_buy():
         line = line.strip()
         if not line:
             continue
-        import re as _re
         m = _re.match(r"^(\d+)\s+(.+)$", line)
         if m:
-            card_entries.append({"qty": int(m.group(1)), "name": m.group(2).strip()})
+            card_entries.append({"qty": int(m.group(1)), "name": _normalize_query(m.group(2))})
         else:
-            card_entries.append({"qty": 1, "name": line})
+            card_entries.append({"qty": 1, "name": _normalize_query(line)})
 
     def _search_one_card_buy(i, card_name):
         """1枚のカードを全買取店舗で検索して最高値を返す"""
@@ -491,7 +499,7 @@ def api_trending():
 @app.route("/api/buyback")
 def api_buyback():
     """買取価格比較 — 各店舗の買取価格をSSEで返す"""
-    card_name = request.args.get("q", "").strip()
+    card_name = _normalize_query(request.args.get("q", ""))
     if not card_name:
         return jsonify({"error": "カード名を入力してください"}), 400
     if len(card_name) > 50:
