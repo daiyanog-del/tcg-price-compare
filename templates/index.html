@@ -1093,7 +1093,7 @@ loadTrending();
 if(_pageCardName){
   if(_pageMode==='buyback'){
     switchMode('buyback');
-    buyQInput.value=_pageCardName;
+    document.getElementById('buyQ').value=_pageCardName;
     setTimeout(()=>doBuySearch(),300);
   }else{
     document.getElementById('q').value=_pageCardName;
