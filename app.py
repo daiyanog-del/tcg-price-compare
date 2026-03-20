@@ -17,6 +17,7 @@ from scraper import (
     buyback_cache_get, buyback_cache_set,
 )
 from meta_scraper import fetch_tier_list, fetch_deck_cards, build_deck_text
+from pack_scraper import get_pack_list, fetch_pack_cards
 from monitor import tracker, run_health_check
 
 logging.basicConfig(
@@ -538,6 +539,30 @@ def api_meta_deck():
         logger.error(f"デッキデータ取得エラー ({theme}): {e}")
         data = {"theme": theme, "tier": 0, "share": 0, "cards": []}
     data["deck_text"] = build_deck_text(data.get("cards", []))
+    return jsonify(data)
+
+
+# ── パック（最新弾）API ──
+
+@app.route("/api/packs")
+def api_packs():
+    """パック一覧を返す"""
+    packs = get_pack_list()
+    return jsonify(packs)
+
+@app.route("/api/packs/cards")
+def api_pack_cards():
+    """パックのカードリストを返す"""
+    pack_name = request.args.get("name", "").strip()
+    wiki_page = request.args.get("wiki", "").strip()
+    if not pack_name:
+        return jsonify({"error": "パック名を指定してください"}), 400
+    future = _meta_executor.submit(fetch_pack_cards, pack_name, wiki_page)
+    try:
+        data = future.result(timeout=25)
+    except Exception as e:
+        logger.error(f"パックカード取得エラー ({pack_name}): {e}")
+        data = {"pack": pack_name, "cards": [], "count": 0}
     return jsonify(data)
 
 

@@ -601,6 +601,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
         <div class="deck-input-tabs">
           <button class="deck-input-tab active" onclick="deckInputTab('paste')">テキスト</button>
           <button class="deck-input-tab" onclick="deckInputTab('preset')">環境デッキ</button>
+          <button class="deck-input-tab" onclick="deckInputTab('packs')">最新弾</button>
         </div>
 
         <!-- テキスト入力 -->
@@ -617,6 +618,12 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
         <div id="deckInput-preset" class="hidden">
           <div id="metaTierList" class="meta-loading">環境データを読込中...</div>
           <div id="metaDeckDetail" class="meta-deck-detail hidden"></div>
+        </div>
+
+        <!-- 最新弾パック -->
+        <div id="deckInput-packs" class="hidden">
+          <div id="packList" class="meta-loading">パック情報を読込中...</div>
+          <div id="packDetail" class="meta-deck-detail hidden"></div>
         </div>
 
         <div class="deck-actions">
@@ -1254,10 +1261,14 @@ function switchMode(mode){
 
 // ── Deck Builder ──
 function deckInputTab(id){
-  document.querySelectorAll('.deck-input-tab').forEach(b=>b.classList.toggle('active',b.textContent.includes(
-    id==='paste'?'テキスト':id==='neuron'?'ニューロン':'環境デッキ')));
-  ['paste','neuron','preset'].forEach(t=>document.getElementById('deckInput-'+t).classList.toggle('hidden',t!==id));
+  const labels={paste:'テキスト',neuron:'ニューロン',preset:'環境デッキ',packs:'最新弾'};
+  document.querySelectorAll('.deck-input-tab').forEach(b=>b.classList.toggle('active',b.textContent.includes(labels[id]||'')));
+  ['paste','neuron','preset','packs'].forEach(t=>{
+    const el=document.getElementById('deckInput-'+t);
+    if(el) el.classList.toggle('hidden',t!==id);
+  });
   if(id==='preset') loadMetaTiers();
+  if(id==='packs') loadPacks();
 }
 
 function parseDeckList(text){
@@ -1386,6 +1397,92 @@ function applyMetaDeck(){
 
 function applyMetaDeckToTextarea(){
   document.getElementById('deckTextarea').value=_lastMetaDeckText;
+  deckInputTab('paste');
+}
+
+// ── 最新弾パック ──
+let _packsLoaded=false;
+let _packData=[];
+
+async function loadPacks(){
+  if(_packsLoaded) return;
+  const el=document.getElementById('packList');
+  el.innerHTML='<div class="meta-loading">パック情報を読込中...</div>';
+  try{
+    const res=await fetch('/api/packs');
+    _packData=await res.json();
+    _packsLoaded=true;
+    renderPacks();
+  }catch(e){
+    el.innerHTML='<div class="meta-loading">パック情報の取得に失敗しました</div>';
+  }
+}
+
+function renderPacks(){
+  const el=document.getElementById('packList');
+  if(!_packData.length){el.innerHTML='<div class="meta-loading">パックデータがありません</div>';return;}
+
+  // 日付で降順ソート
+  const sorted=[..._packData].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+
+  let html='<div class="meta-deck-list" style="margin-bottom:12px">';
+  for(const p of sorted){
+    const dateStr=p.date?p.date.replace(/-/g,'/'):'';
+    html+=`<button class="meta-deck-btn" onclick="loadPackCards('${esc(p.name)}','${esc(p.wiki_page||p.name)}')" id="pack-btn-${esc(p.code||p.name)}">
+      ${esc(p.name)} <span class="meta-share">${dateStr}</span>
+    </button>`;
+  }
+  html+='</div>';
+  html+='<div class="meta-note">遊戯王Wikiより収録カードリストを取得</div>';
+  el.innerHTML=html;
+}
+
+async function loadPackCards(packName, wikiPage){
+  const detailEl=document.getElementById('packDetail');
+  detailEl.classList.remove('hidden');
+  detailEl.innerHTML='<div class="meta-loading">カードリストを読込中...</div>';
+
+  try{
+    const res=await fetch('/api/packs/cards?name='+encodeURIComponent(packName)+'&wiki='+encodeURIComponent(wikiPage));
+    const data=await res.json();
+
+    if(!data.cards||!data.cards.length){
+      detailEl.innerHTML='<div class="meta-loading">「'+esc(packName)+'」のカードリストが取得できませんでした</div>';
+      return;
+    }
+
+    // カードチップ表示
+    let chips='';
+    for(const name of data.cards){
+      chips+='<span class="meta-card-chip">'+esc(name)+'</span>';
+    }
+
+    // テキスト用: 全カード各1枚
+    const deckText=data.cards.map(n=>'1 '+n).join('\n');
+    _lastPackDeckText=deckText;
+
+    detailEl.innerHTML='<h4>'+esc(packName)+' — 収録カード（'+data.count+'種）</h4>'
+      +'<div class="meta-card-list" style="max-height:300px;overflow-y:auto">'+chips+'</div>'
+      +'<div class="meta-actions" style="margin-top:12px">'
+      +'<button class="deck-btn deck-btn-primary" onclick="applyPackDeck()">全カードの価格を検索</button>'
+      +'<button class="deck-btn deck-btn-secondary" onclick="applyPackToTextarea()">テキストに反映</button>'
+      +'</div>'
+      +'<div class="meta-note">各カード1枚ずつで最安値を検索します</div>';
+  }catch(e){
+    detailEl.innerHTML='<div class="meta-loading">読込に失敗しました</div>';
+  }
+}
+
+let _lastPackDeckText='';
+
+function applyPackDeck(){
+  document.getElementById('deckTextarea').value=_lastPackDeckText;
+  deckInputTab('paste');
+  calcDeck();
+}
+
+function applyPackToTextarea(){
+  document.getElementById('deckTextarea').value=_lastPackDeckText;
   deckInputTab('paste');
 }
 
