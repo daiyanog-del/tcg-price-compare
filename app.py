@@ -8,6 +8,7 @@ import os
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Flask, render_template, request, jsonify, Response
+from flask_compress import Compress
 
 from scraper import (
     SHOPS, DEFAULT_SHOPS, WAIT_SEC, cache_get, cache_set,
@@ -25,14 +26,18 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+Compress(app)
 
 @app.after_request
-def add_no_cache(response):
-    """HTMLレスポンスのブラウザキャッシュを無効化"""
-    if 'text/html' in response.content_type:
-        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-        response.headers['Pragma'] = 'no-cache'
-        response.headers['Expires'] = '0'
+def add_cache_headers(response):
+    """レスポンスタイプに応じたキャッシュ制御"""
+    ct = response.content_type
+    if 'text/html' in ct:
+        # HTMLは短いキャッシュ（価格データは変動するため）
+        response.headers['Cache-Control'] = 'public, max-age=60, stale-while-revalidate=300'
+    elif 'application/xml' in ct or 'text/plain' in ct:
+        # sitemap.xml, robots.txt
+        response.headers['Cache-Control'] = 'public, max-age=3600'
     return response
 
 # 同時検索の簡易レートリミット (メモリ内)
