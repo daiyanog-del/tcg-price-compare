@@ -886,42 +886,82 @@ def scrape_kanabell_buy(card_name: str) -> list[dict]:
         return []
 
     results = []
-    # CardListPrice 要素から買取価格を取得
-    for price_el in soup.select(".CardListPrice"):
-        price_text = price_el.get_text(strip=True)
-        if "買取終了" in price_text:
+    # 画像URL（ES検索結果から取得）
+    img_name = cards_to_check[0].get("card_image_name1", "")
+    image_url = f"{KANABELL_BASE}/img/s/{img_name}" if img_name else ""
+
+    # 「取扱一覧」セクションのリンクから全バリアントの買取価格・レアリティを取得
+    # 各リンクは "¥xxxx円～ 【レアリティ】 シリーズ > セット" の形式
+    for a_tag in soup.select("a[href*='act=buy_detail']"):
+        link_text = a_tag.get_text(strip=True)
+        # 買取終了は除外
+        if "買取終了" in link_text:
             continue
-        price_match = re.search(r"(\d[\d,]+)", price_text.replace("¥", ""))
+        # 価格を抽出（¥xxxx円～ の部分）
+        price_match = re.search(r"[¥￥]?\s*(\d[\d,]+)\s*円", link_text)
         if not price_match:
             continue
         price = int(price_match.group(1).replace(",", ""))
         if price <= 0:
             continue
-
-        # 親要素からレアリティ情報を取得
-        parent = price_el.parent
-        parent_text = parent.get_text(" ", strip=True) if parent else ""
+        # レアリティを抽出（【xxx】の部分）
         rarity = ""
-        rarity_match = re.search(r"【([^】]+)】", parent_text)
+        rarity_match = re.search(r"【([^】]+)】", link_text)
         if rarity_match:
             rarity = rarity_match.group(1)
-
-        # 画像
-        img_name = cards_to_check[0].get("card_image_name1", "")
-        image_url = f"{KANABELL_BASE}/img/s/{img_name}" if img_name else ""
+        # hrefから個別の買取詳細URLを構築
+        href = a_tag.get("href", "")
+        variant_url = f"{KANABELL_BASE}/{href.lstrip('/')}" if href else buy_url
+        # シリーズコード抽出（レアリティの後ろの文字列からセット名を取得）
+        code = ""
+        code_match = re.search(r">\s*(\S+)\s*$", link_text)
+        if code_match:
+            code = code_match.group(1)
 
         results.append({
             "shop": "カーナベル",
             "name": cards_to_check[0].get("name", card_name),
             "rarity": normalize_rarity(rarity),
-            "code": "",
+            "code": code,
             "condition": "-",
             "price": price,
             "stock": 1,
             "sold_out": False,
-            "url": buy_url,
+            "url": variant_url,
             "image": image_url,
         })
+
+    # 取扱一覧からの取得が0件の場合、メインカードのパンくずからレアリティを取得してフォールバック
+    if not results:
+        # パンくず等からメインカードのレアリティを取得
+        page_text = soup.get_text(" ", strip=True)
+        main_rarity = ""
+        main_rarity_match = re.search(r"【([^】]+)】", page_text)
+        if main_rarity_match:
+            main_rarity = main_rarity_match.group(1)
+        # CardListPrice要素から買取価格を取得（フォールバック）
+        for price_el in soup.select(".CardListPrice"):
+            price_text = price_el.get_text(strip=True)
+            if "買取終了" in price_text:
+                continue
+            pm = re.search(r"(\d[\d,]+)", price_text.replace("¥", ""))
+            if not pm:
+                continue
+            price = int(pm.group(1).replace(",", ""))
+            if price <= 0:
+                continue
+            results.append({
+                "shop": "カーナベル",
+                "name": cards_to_check[0].get("name", card_name),
+                "rarity": normalize_rarity(main_rarity),
+                "code": "",
+                "condition": "-",
+                "price": price,
+                "stock": 1,
+                "sold_out": False,
+                "url": buy_url,
+                "image": image_url,
+            })
     return results
 
 

@@ -247,6 +247,28 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   .tbl-img{width:22px;height:32px}
   .deck-card-row{font-size:.75rem;gap:6px}
 }
+
+/* ── フッター ── */
+.site-footer{text-align:center;padding:32px 20px 24px;margin-top:48px;border-top:1px solid var(--border);color:var(--text-d);font-size:.82rem}
+.site-footer a{color:var(--text-m);margin:0 10px;cursor:pointer;transition:color .2s}
+.site-footer a:hover{color:var(--accent-l);text-decoration:underline}
+.site-footer .footer-copy{margin-top:8px;font-size:.75rem}
+
+/* ── モーダル（プライバシーポリシー・利用規約） ── */
+.legal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:none;align-items:center;justify-content:center;padding:20px}
+.legal-overlay.active{display:flex}
+.legal-modal{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;max-width:680px;width:100%;max-height:82vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.5)}
+.legal-modal-head{display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid var(--border)}
+.legal-modal-head h2{font-size:1.08rem;font-weight:700;color:var(--text)}
+.legal-modal-close{background:none;border:none;color:var(--text-m);font-size:1.4rem;cursor:pointer;padding:4px 8px;border-radius:4px;transition:color .2s,background .2s}
+.legal-modal-close:hover{color:var(--text);background:var(--bg-hover)}
+.legal-modal-body{padding:24px;overflow-y:auto;line-height:1.75;font-size:.88rem;color:var(--text-m)}
+.legal-modal-body h3{color:var(--text);font-size:.95rem;font-weight:700;margin:20px 0 8px;padding-bottom:4px;border-bottom:1px solid var(--border)}
+.legal-modal-body h3:first-child{margin-top:0}
+.legal-modal-body p{margin:6px 0}
+.legal-modal-body ul{margin:6px 0 6px 20px}
+.legal-modal-body li{margin:3px 0}
+.legal-modal-body a{color:var(--accent-l)}
 </style>
 </head>
 <body>
@@ -465,6 +487,122 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   </div><!-- /mode-deck -->
 
 </div>
+
+<!-- フッター -->
+<footer class="site-footer">
+  <a onclick="openLegalModal('privacy')">プライバシーポリシー</a>｜<a onclick="openLegalModal('terms')">利用規約</a>
+  <div class="footer-copy">&copy; 2025 遊戯王OCG 価格比較</div>
+</footer>
+
+<!-- プライバシーポリシー モーダル -->
+<div class="legal-overlay" id="privacyOverlay" onclick="if(event.target===this)closeLegalModal('privacy')">
+  <div class="legal-modal">
+    <div class="legal-modal-head">
+      <h2>プライバシーポリシー</h2>
+      <button class="legal-modal-close" onclick="closeLegalModal('privacy')">&times;</button>
+    </div>
+    <div class="legal-modal-body">
+      <p>遊戯王OCG 価格比較（以下「本サービス」）は、個人が運営するWebサービスです。本サービスにおけるユーザー情報の取扱いについて、以下のとおり定めます。</p>
+
+      <h3>1. 収集する情報</h3>
+      <p>本サービスでは、以下の情報を取得する場合があります。</p>
+      <ul>
+        <li><strong>IPアドレス:</strong> サーバーへの過度なアクセスを防止するレートリミット機能のために一時的に取得します。永続的な保存は行いません。</li>
+        <li><strong>Cookie:</strong> アフィリエイトプログラム（後述）の計測のために使用されます。</li>
+      </ul>
+
+      <h3>2. 利用目的</h3>
+      <ul>
+        <li>サービスの正常な運営およびアクセス制御（レートリミット）</li>
+        <li>アフィリエイトプログラムにおける成果計測</li>
+        <li>サービスの改善および品質向上</li>
+      </ul>
+
+      <h3>3. アフィリエイトについて</h3>
+      <p>本サービスは、A8.net（株式会社ファンコミュニケーションズ）が提供するアフィリエイトプログラムを利用しており、カーナベルとの提携を行っています。ユーザーが本サービス経由で提携ショップのリンクをクリックした際、Cookieが設定される場合があります。</p>
+
+      <h3>4. Cookieの使用について</h3>
+      <p>本サービスでは、アフィリエイトの成果計測を目的としてCookieを使用します。ブラウザの設定によりCookieの受け入れを拒否することが可能ですが、その場合もサービスの基本機能に影響はありません。</p>
+
+      <h3>5. 第三者提供</h3>
+      <p>本サービスが取得した情報を、上記のアフィリエイトASP以外の第三者に提供することはありません。ただし、法令に基づく場合を除きます。</p>
+
+      <h3>6. アクセス解析</h3>
+      <p>現在、本サービスではアクセス解析ツールを使用していません。将来的にGoogle Analytics等を導入する場合は、本ポリシーを更新してお知らせします。</p>
+
+      <h3>7. ポリシーの変更</h3>
+      <p>本ポリシーは予告なく変更される場合があります。変更後のポリシーは本ページに掲載した時点で効力を生じるものとします。</p>
+
+      <p style="margin-top:16px;font-size:.8rem;color:var(--text-d)">最終更新日: 2025年6月1日</p>
+    </div>
+  </div>
+</div>
+
+<!-- 利用規約 モーダル -->
+<div class="legal-overlay" id="termsOverlay" onclick="if(event.target===this)closeLegalModal('terms')">
+  <div class="legal-modal">
+    <div class="legal-modal-head">
+      <h2>利用規約</h2>
+      <button class="legal-modal-close" onclick="closeLegalModal('terms')">&times;</button>
+    </div>
+    <div class="legal-modal-body">
+      <p>本利用規約（以下「本規約」）は、遊戯王OCG 価格比較（以下「本サービス」）の利用条件を定めるものです。本サービスを利用された時点で、本規約に同意したものとみなします。</p>
+
+      <h3>1. サービスの概要</h3>
+      <p>本サービスは、遊戯王OCGカードの販売価格および買取価格を複数のショップ（遊々亭、カードラッシュ、トレコロCB、カーナベル、カードラボ）から取得し、比較表示する個人運営のWebサービスです。</p>
+
+      <h3>2. 各ショップとの関係</h3>
+      <p>本サービスは各カードショップとは独立した非公式の価格比較サービスであり、各ショップの公式サービスではありません。各ショップでの購入・買取に関するお問い合わせは、各ショップへ直接お願いいたします。</p>
+
+      <h3>3. 免責事項</h3>
+      <ul>
+        <li>本サービスで表示される価格情報は、各ショップのWebサイトから取得した時点のものであり、最新性・正確性・完全性を保証するものではありません。</li>
+        <li>実際の価格は各ショップの公式サイトにてご確認ください。</li>
+        <li>本サービスの利用に起因して生じたいかなる損害についても、運営者は一切の責任を負いません。</li>
+        <li>本サービスは予告なくメンテナンスや内容の変更、サービスの停止・終了を行う場合があります。</li>
+      </ul>
+
+      <h3>4. 禁止事項</h3>
+      <p>本サービスの利用にあたり、以下の行為を禁止します。</p>
+      <ul>
+        <li>スクレイピング、ボット等による過度な自動アクセス</li>
+        <li>サーバーに過大な負荷をかける行為</li>
+        <li>本サービスの運営を妨害する行為</li>
+        <li>本サービスのコンテンツを無断で複製・転載する行為</li>
+        <li>その他、運営者が不適切と判断する行為</li>
+      </ul>
+
+      <h3>5. 知的財産権</h3>
+      <p>カード名、カード画像等の知的財産権は、株式会社コナミデジタルエンタテインメントおよび各権利者に帰属します。本サービスは情報の比較表示を目的として利用しています。</p>
+
+      <h3>6. 規約の変更</h3>
+      <p>本規約は予告なく変更される場合があります。変更後の規約は本ページに掲載した時点で効力を生じるものとします。重大な変更がある場合は、本サービス上で告知するよう努めます。</p>
+
+      <p style="margin-top:16px;font-size:.8rem;color:var(--text-d)">最終更新日: 2025年6月1日</p>
+    </div>
+  </div>
+</div>
+
+<script>
+/* モーダル開閉 */
+function openLegalModal(type){
+  const id=type==='privacy'?'privacyOverlay':'termsOverlay';
+  document.getElementById(id).classList.add('active');
+  document.body.style.overflow='hidden';
+}
+function closeLegalModal(type){
+  const id=type==='privacy'?'privacyOverlay':'termsOverlay';
+  document.getElementById(id).classList.remove('active');
+  document.body.style.overflow='';
+}
+/* Escキーでモーダルを閉じる */
+document.addEventListener('keydown',function(e){
+  if(e.key==='Escape'){
+    closeLegalModal('privacy');
+    closeLegalModal('terms');
+  }
+});
+</script>
 
 <script>
 let D=[],sort={k:'price',a:true},rarityFilter='',cardImgUrl='',cardImgSmall='',_konamiDbUrl='';
