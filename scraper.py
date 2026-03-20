@@ -671,6 +671,93 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
     return all_results
 
 
+# ── カードラボ ──
+
+CLABO_BASE = "https://www.c-labo-online.jp"
+
+def scrape_clabo(card_name: str) -> list[dict]:
+    """カードラボ — 商品検索ページをスクレイピング"""
+    page_url = (
+        f"{CLABO_BASE}/product-list"
+        f"?keyword={requests.utils.quote(card_name)}"
+    )
+    soup = safe_get(page_url)
+    if not soup:
+        return []
+    dump_html("clabo", soup)
+
+    results = []
+    # 各商品は div.inner_item_data 内にリンク・画像・商品情報がまとまっている
+    # 親の a タグ (product/XXXXX) からリンクを取得
+    for container in soup.select("li:has(div.inner_item_data)"):
+        inner = container.select_one("div.inner_item_data")
+        if not inner:
+            continue
+
+        # 商品名
+        name_el = inner.select_one("span.goods_name")
+        if not name_el:
+            continue
+        raw_name = name_el.get_text(strip=True)
+
+        # レアリティとコードを商品名から抽出
+        # 形式: 【遊戯】カード名【レアリティ/種類】コード
+        rarity = ""
+        code = ""
+        rarity_match = re.search(r"【([^】]+/[^】]+)】(\S+)$", raw_name)
+        if rarity_match:
+            rarity_raw = rarity_match.group(1).split("/")[0]
+            code = rarity_match.group(2)
+            rarity = rarity_raw
+        # 【遊戯】を除去してカード名を抽出
+        display_name = re.sub(r"【[^】]*】", "", raw_name).strip()
+        # 末尾のコードを除去
+        if code:
+            display_name = display_name.replace(code, "").strip()
+
+        if not is_target_card(card_name, display_name):
+            continue
+
+        # 価格
+        price_el = inner.select_one("span.figure")
+        if not price_el:
+            continue
+        price = parse_price(price_el.get_text())
+        if not price:
+            continue
+
+        # 在庫
+        stock_el = inner.select_one("p.stock")
+        sold_out = False
+        stock = 0
+        if stock_el:
+            if "soldout" in stock_el.get("class", []):
+                sold_out = True
+            else:
+                stock_match = re.search(r"(\d+)", stock_el.get_text())
+                stock = int(stock_match.group(1)) if stock_match else 1
+
+        # 商品リンク
+        link_el = container.select_one("a[href*='/product/']")
+        product_url = link_el.get("href", "") if link_el else ""
+
+        # 画像（data-src に実際の画像URLが入っている）
+        image_url = ""
+        img_box = inner.select_one("div.async_image_box")
+        if img_box:
+            image_url = img_box.get("data-src", "")
+
+        results.append({
+            "shop": "カードラボ", "name": display_name,
+            "rarity": normalize_rarity(rarity), "code": code,
+            "condition": "-", "price": price, "stock": stock,
+            "sold_out": sold_out, "url": product_url,
+            "image": image_url,
+        })
+
+    return results
+
+
 # ── 全店舗検索 ──
 
 SHOPS = [
@@ -678,10 +765,11 @@ SHOPS = [
     ("カードラッシュ", scrape_cardrush),
     ("トレコロCB", scrape_torecolo),
     ("カーナベル", scrape_kanabell),
+    ("カードラボ", scrape_clabo),
 ]
 
-# デフォルトで検索する店舗（カーナベルは任意ON）
-DEFAULT_SHOPS = ["遊々亭", "カードラッシュ", "トレコロCB", "カーナベル"]
+# デフォルトで検索する店舗
+DEFAULT_SHOPS = ["遊々亭", "カードラッシュ", "トレコロCB", "カーナベル", "カードラボ"]
 
 
 def compare_prices(card_name: str, shop_names: list[str] | None = None) -> list[dict]:
