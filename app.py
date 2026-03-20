@@ -12,6 +12,8 @@ from flask import Flask, render_template, request, jsonify, Response
 from scraper import (
     SHOPS, DEFAULT_SHOPS, WAIT_SEC, cache_get, cache_set,
     is_target_card, normalize_rarity,
+    BUYBACK_SHOPS, DEFAULT_BUYBACK_SHOPS,
+    buyback_cache_get, buyback_cache_set,
 )
 from meta_scraper import fetch_tier_list, fetch_deck_cards, build_deck_text
 from monitor import tracker, run_health_check
@@ -317,11 +319,87 @@ def api_trending():
     limit = min(int(request.args.get("limit", 10)), 30)
     return jsonify(_get_trending(limit))
 
+@app.route("/api/buyback")
+def api_buyback():
+    """買取価格比較 — 各店舗の買取価格をSSEで返す"""
+    card_name = request.args.get("q", "").strip()
+    if not card_name:
+        return jsonify({"error": "カード名を入力してください"}), 400
+    if len(card_name) > 50:
+        return jsonify({"error": "カード名が長すぎます"}), 400
+
+    ALL_BUY_NAMES = [name for name, _ in BUYBACK_SHOPS]
+    selected = request.args.getlist("shops") or DEFAULT_BUYBACK_SHOPS
+    selected = [s for s in selected if s in ALL_BUY_NAMES]
+    if not selected:
+        return jsonify({"error": "有効な店舗を選択してください"}), 400
+
+    active_shops = [(name, fn) for name, fn in BUYBACK_SHOPS if name in selected]
+
+    # レートリミット
+    client_ip = request.remote_addr or "unknown"
+    now = time.time()
+    with _rate_limit_lock:
+        if client_ip in _last_search and now - _last_search[client_ip] < RATE_LIMIT_SEC:
+            return jsonify({"error": "しばらく待ってから再度検索してください"}), 429
+        _last_search[client_ip] = now
+
+    # ランキング記録
+    _record_search(card_name)
+
+    # キャッシュヒット
+    cached = buyback_cache_get(card_name)
+    if cached is not None:
+        filtered = [r for r in cached if r["shop"] in selected]
+        def cached_stream():
+            for shop_name, _ in active_shops:
+                count = sum(1 for r in filtered if r["shop"] == shop_name)
+                yield _sse({"type": "shop_done", "shop": shop_name, "count": count, "cached": True})
+            yield _sse(_build_buyback_done(filtered))
+        return Response(cached_stream(), mimetype="text/event-stream")
+
+    def generate():
+        for shop_name, _ in active_shops:
+            yield _sse({"type": "progress", "shop": shop_name})
+
+        all_results = []
+
+        def scrape_shop(name, fn):
+            try:
+                items = fn(card_name)
+                return name, items, None
+            except Exception as e:
+                logger.error(f"買取 {name} エラー: {e}")
+                return name, [], str(e)
+
+        try:
+            with ThreadPoolExecutor(max_workers=len(active_shops)) as executor:
+                futures = {
+                    executor.submit(scrape_shop, name, fn): name
+                    for name, fn in active_shops
+                }
+                for future in as_completed(futures):
+                    shop_name, results, error = future.result()
+                    if error:
+                        yield _sse({"type": "shop_error", "shop": shop_name, "error": error})
+                    yield _sse({"type": "shop_done", "shop": shop_name, "count": len(results)})
+                    all_results.extend(results)
+
+            buyback_cache_set(card_name, all_results)
+        except Exception as e:
+            logger.error(f"買取検索で予期しないエラー: {e}")
+        finally:
+            yield _sse(_build_buyback_done(all_results))
+
+    return Response(generate(), mimetype="text/event-stream")
+
+
 @app.route("/api/config")
 def api_config():
     """フロントエンド用の設定情報"""
     return jsonify({
         "shops": [{"name": name, "default": name in DEFAULT_SHOPS} for name, _ in SHOPS],
+        "buyback_shops": [{"name": name, "default": name in DEFAULT_BUYBACK_SHOPS} for name, _ in BUYBACK_SHOPS],
     })
 
 
@@ -414,6 +492,28 @@ def api_status():
 
 def _sse(data: dict) -> str:
     return f"data: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
+
+
+def _build_buyback_done(results: list[dict]) -> dict:
+    """買取価格比較用の完了メッセージ（高い順）"""
+    by_rarity = {}
+    for r in results:
+        key = r.get("rarity") or "(不明)"
+        if key not in by_rarity or r["price"] > by_rarity[key]["price"]:
+            by_rarity[key] = r
+    by_shop = {}
+    for r in results:
+        key = r["shop"]
+        if key not in by_shop or r["price"] > by_shop[key]["price"]:
+            by_shop[key] = r
+
+    return {
+        "type": "done",
+        "results": results,
+        "by_rarity": by_rarity,
+        "by_shop": by_shop,
+        "total": len(results),
+    }
 
 
 def _build_done(results: list[dict]) -> dict:

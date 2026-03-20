@@ -257,6 +257,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 
   <div class="mode-tabs">
     <button class="mode-tab active" onclick="switchMode('search')">カード検索</button>
+    <button class="mode-tab" onclick="switchMode('buyback')">買取比較</button>
     <button class="mode-tab" onclick="switchMode('deck')">デッキ価格計算</button>
   </div>
 
@@ -345,6 +346,57 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
     </div>
   </div>
   </div><!-- /mode-search -->
+
+  <!-- ===== 買取比較モード ===== -->
+  <div id="mode-buyback" class="hidden">
+
+  <div class="search">
+    <input type="text" id="buyQ" placeholder="売りたいカード名を入力（例: 灰流うらら）" autocomplete="off">
+    <button id="buyBtn" onclick="doBuySearch()">買取検索</button>
+    <div class="suggest-dropdown" id="buySuggestDrop"></div>
+  </div>
+
+  <div class="shop-toggles" id="buyShopToggles">
+    <label class="shop-toggle active" data-shop="カードラッシュ">
+      <input type="checkbox" checked> カードラッシュ
+    </label>
+    <label class="shop-toggle active" data-shop="カーナベル">
+      <input type="checkbox" checked> カーナベル
+    </label>
+    <label class="shop-toggle active" data-shop="遊々亭">
+      <input type="checkbox" checked> 遊々亭
+    </label>
+  </div>
+
+  <div class="progress" id="buyProg"></div>
+
+  <div id="buyResults" class="hidden">
+    <div class="card-hero hidden" id="buyHero">
+      <div class="card-hero-img" id="buyHeroImgWrap"></div>
+      <div class="card-hero-info" id="buyHeroInfo"></div>
+    </div>
+    <div class="summary" id="buySumCards"></div>
+
+    <div class="tbl-wrap">
+      <table class="res" id="buyTbl">
+        <thead><tr>
+          <th data-bs="rarity">レアリティ<span class="arr"></span></th>
+          <th data-bs="name">カード名<span class="arr"></span></th>
+          <th data-bs="shop">店舗<span class="arr"></span></th>
+          <th data-bs="condition">備考<span class="arr"></span></th>
+          <th data-bs="price">買取価格<span class="arr">▼</span></th>
+          <th data-bs="code">コード<span class="arr"></span></th>
+        </tr></thead>
+        <tbody id="buyTbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="buyEmpty" class="empty">
+    <p>売りたいカード名を入力して買取価格を比較</p>
+    <p style="font-size:.78rem;color:var(--text-d);margin-top:12px">各ショップの買取価格を一括比較して、最も高く売れるお店が見つかります</p>
+  </div>
+  </div><!-- /mode-buyback -->
 
   <!-- ===== デッキ価格計算モード ===== -->
   <div id="mode-deck" class="hidden">
@@ -810,8 +862,10 @@ loadTrending();
 
 // ── Mode switch ──
 function switchMode(mode){
-  document.querySelectorAll('.mode-tab').forEach(b=>b.classList.toggle('active',b.textContent.includes(mode==='search'?'カード':'デッキ')));
+  const labels={search:'カード検索',buyback:'買取比較',deck:'デッキ価格計算'};
+  document.querySelectorAll('.mode-tab').forEach(b=>b.classList.toggle('active',b.textContent===labels[mode]));
   document.getElementById('mode-search').classList.toggle('hidden',mode!=='search');
+  document.getElementById('mode-buyback').classList.toggle('hidden',mode!=='buyback');
   document.getElementById('mode-deck').classList.toggle('hidden',mode!=='deck');
 }
 
@@ -1085,6 +1139,211 @@ async function calcDeck(){
     progEl.textContent='エラーが発生しました。再度お試しください。';
   }
 }
+
+// ══════════════════════════════════════
+// 買取比較モード
+// ══════════════════════════════════════
+
+let buyD=[],buySort={k:'price',a:false}; // 買取は高い順がデフォルト
+
+function getBuySelectedShops(){
+  return [...document.querySelectorAll('#buyShopToggles .shop-toggle')]
+    .filter(l=>l.querySelector('input').checked)
+    .map(l=>l.dataset.shop);
+}
+
+// 買取用サジェスト
+const buyQInput=document.getElementById('buyQ');
+const buySugDrop=document.getElementById('buySuggestDrop');
+let buySugTimer=null;
+
+buyQInput.addEventListener('input',()=>{
+  clearTimeout(buySugTimer);
+  const v=buyQInput.value.trim();
+  if(v.length<2){buySugDrop.classList.remove('open');return;}
+  buySugTimer=setTimeout(()=>{
+    fetch('/api/suggest?q='+encodeURIComponent(v))
+      .then(r=>r.json())
+      .then(items=>{
+        if(!items.length){buySugDrop.classList.remove('open');return;}
+        buySugDrop.innerHTML=items.map(n=>`<div class="suggest-item" onclick="buyQInput.value='${n.replace(/'/g,"\\'")}';buySugDrop.classList.remove('open');doBuySearch()">${esc(n)}</div>`).join('');
+        buySugDrop.classList.add('open');
+      }).catch(()=>{});
+  },250);
+});
+buyQInput.addEventListener('keydown',e=>{
+  if(e.key==='Enter'){buySugDrop.classList.remove('open');doBuySearch();}
+});
+
+// 買取店舗トグル
+document.querySelectorAll('#buyShopToggles .shop-toggle').forEach(label=>{
+  label.addEventListener('click',e=>{
+    e.preventDefault();
+    const cb=label.querySelector('input');
+    cb.checked=!cb.checked;
+    label.classList.toggle('active',cb.checked);
+  });
+});
+
+function doBuySearch(){
+  const q=buyQInput.value.trim();
+  if(!q)return;
+  const shops=getBuySelectedShops();
+  if(shops.length===0){alert('検索する店舗を1つ以上選択してください');return;}
+
+  const btn=document.getElementById('buyBtn');
+  btn.disabled=true;btn.textContent='検索中...';
+  document.getElementById('buyResults').classList.add('hidden');
+  document.getElementById('buyEmpty').classList.add('hidden');
+
+  const prog=document.getElementById('buyProg');
+  prog.innerHTML=shops.map(s=>
+    `<div class="pstep" id="bs-${s}"><span class="pname">${s}</span><span class="pstat">待機中</span></div>`
+  ).join('');
+  prog.style.display='flex';
+
+  buyD=[];
+  const params=new URLSearchParams({q});
+  shops.forEach(s=>params.append('shops',s));
+
+  const es=new EventSource('/api/buyback?'+params.toString());
+  let sseTimeout=setTimeout(()=>{
+    es.close();btn.disabled=false;btn.textContent='買取検索';
+    prog.style.display='none';
+    document.getElementById('buyEmpty').classList.remove('hidden');
+    document.getElementById('buyEmpty').innerHTML='<p>検索がタイムアウトしました。再度お試しください。</p>';
+  },60000);
+
+  es.onmessage=e=>{
+    clearTimeout(sseTimeout);
+    sseTimeout=setTimeout(()=>{es.close();btn.disabled=false;btn.textContent='買取検索';prog.style.display='none';},60000);
+    const d=JSON.parse(e.data);
+    if(d.type==='progress'){
+      const el=document.getElementById('bs-'+d.shop);
+      if(el){el.className='pstep searching';el.querySelector('.pstat').textContent='検索中...';}
+    }else if(d.type==='shop_done'){
+      const el=document.getElementById('bs-'+d.shop);
+      if(el){el.className='pstep done';el.querySelector('.pstat').textContent=d.count+'件'+(d.cached?' (cache)':'');}
+    }else if(d.type==='shop_error'){
+      const el=document.getElementById('bs-'+d.shop);
+      if(el){el.className='pstep error';el.querySelector('.pstat').textContent='エラー';}
+    }else if(d.type==='done'){
+      clearTimeout(sseTimeout);
+      es.close();buyD=d.results;
+      renderBuyAll(d);
+      btn.disabled=false;btn.textContent='買取検索';
+      setTimeout(()=>{prog.style.display='none';},1200);
+    }
+  };
+  es.onerror=()=>{
+    clearTimeout(sseTimeout);
+    es.close();btn.disabled=false;btn.textContent='買取検索';
+    prog.style.display='none';
+    document.getElementById('buyEmpty').classList.remove('hidden');
+    document.getElementById('buyEmpty').innerHTML='<p>エラーが発生しました。再度お試しください。</p>';
+  };
+}
+
+function renderBuyAll(d){
+  const wrap=document.getElementById('buyResults');
+  wrap.classList.remove('hidden');
+  if(d.total===0){
+    wrap.innerHTML='<div class="empty"><p>買取情報が見つかりませんでした</p></div>';
+    return;
+  }
+
+  const searchTerm=buyQInput.value.trim();
+  const hero=document.getElementById('buyHero');
+  const heroInfo=document.getElementById('buyHeroInfo');
+  hero.classList.remove('hidden');
+
+  // 最高買取額を算出
+  const best=buyD.length>0?buyD.reduce((a,b)=>a.price>b.price?a:b):null;
+  const bestPrice=best?`¥${best.price.toLocaleString()}`:'価格不明';
+  const bestShop=best?best.shop:'';
+  const shareText=best
+    ?`${searchTerm} 最高買取 ${bestPrice}（${bestShop}）！ 3店舗比較で見つけました`
+    :`${searchTerm} の買取価格を3店舗で比較しました`;
+  const shareUrl=location.origin;
+
+  // 画像
+  const shopImg=buyD.find(r=>r.image&&r.image.length>5);
+  if(shopImg){
+    document.getElementById('buyHeroImgWrap').innerHTML='<img src="'+esc(shopImg.image)+'" alt="" loading="lazy">';
+  }else{
+    document.getElementById('buyHeroImgWrap').innerHTML='<div style="width:140px;height:204px;background:var(--bg-card)"></div>';
+  }
+
+  heroInfo.innerHTML=`<div class="card-hero-name">${esc(searchTerm)}</div>
+    <div class="card-hero-meta">
+      ${best?`最高買取額: <strong style="color:var(--green);font-size:1.1rem">${bestPrice}</strong> (${bestShop})`:'買取情報なし'}<br>
+      全 ${d.total}件の買取情報
+    </div>
+    <div class="share-btns">
+      <a class="share-btn share-btn-x" href="https://x.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}" target="_blank" rel="noopener">𝕏 シェア</a>
+      <a class="share-btn share-btn-line" href="https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareText)}" target="_blank" rel="noopener">LINE</a>
+      <button class="share-btn share-btn-copy" onclick="copyShareText('${shareText.replace(/'/g,"\\'")} ${shareUrl}')">コピー</button>
+    </div>`;
+
+  // サマリーカード（店舗別最高額）
+  let h='';
+  if(best){
+    const priceLink=best.url?`<a href="${esc(best.url)}" target="_blank" rel="noopener">¥${best.price.toLocaleString()}</a>`:`¥${best.price.toLocaleString()}`;
+    h+=`<div class="scard best fin"><div class="slabel">最高買取額</div>
+      <div class="sprice" style="color:var(--green)">${priceLink}</div>
+      <div class="sdetail">${best.shop} / ${best.rarity||'-'}<br>${esc(best.name)}</div></div>`;
+  }
+  const shopNames=[...new Set(buyD.map(r=>r.shop))];
+  for(const s of shopNames){
+    const shopBest=buyD.filter(r=>r.shop===s).reduce((a,b)=>a.price>b.price?a:b,{price:0});
+    if(shopBest.price>0&&shopBest!==best){
+      h+=`<div class="scard fin"><div class="slabel">${s}</div>
+        <div class="sprice" style="color:var(--green)">¥${shopBest.price.toLocaleString()}</div>
+        <div class="sdetail">${shopBest.rarity||'-'}<br>${esc(shopBest.name)}</div></div>`;
+    }
+  }
+  document.getElementById('buySumCards').innerHTML=h;
+
+  // テーブル描画
+  renderBuyTable();
+}
+
+function renderBuyTable(){
+  const sorted=[...buyD].sort((a,b)=>{
+    let va=a[buySort.k],vb=b[buySort.k];
+    if(typeof va==='string') va=va.toLowerCase();
+    if(typeof vb==='string') vb=vb.toLowerCase();
+    if(va<vb) return buySort.a?-1:1;
+    if(va>vb) return buySort.a?1:-1;
+    return 0;
+  });
+  const tbody=document.getElementById('buyTbody');
+  tbody.innerHTML=sorted.map(r=>{
+    const priceStr='¥'+r.price.toLocaleString();
+    const link=r.url?`<a href="${esc(r.url)}" target="_blank" rel="noopener">${priceStr}</a>`:priceStr;
+    return `<tr>
+      <td>${esc(r.rarity||'-')}</td>
+      <td>${esc(r.name)}</td>
+      <td>${esc(r.shop)}</td>
+      <td>${esc(r.condition||'-')}</td>
+      <td class="price" style="color:var(--green)">${link}</td>
+      <td>${esc(r.code||'-')}</td>
+    </tr>`;
+  }).join('');
+}
+
+// 買取テーブルのソート
+document.querySelectorAll('#buyTbl th[data-bs]').forEach(th=>{
+  th.style.cursor='pointer';
+  th.addEventListener('click',()=>{
+    const k=th.dataset.bs;
+    if(buySort.k===k) buySort.a=!buySort.a;
+    else{buySort={k,a:k==='price'?false:true};}
+    document.querySelectorAll('#buyTbl th[data-bs] .arr').forEach(s=>s.textContent='');
+    th.querySelector('.arr').textContent=buySort.a?'▲':'▼';
+    renderBuyTable();
+  });
+});
 </script>
 </body>
 </html>

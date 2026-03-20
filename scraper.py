@@ -758,6 +758,279 @@ def scrape_clabo(card_name: str) -> list[dict]:
     return results
 
 
+# ══════════════════════════════════════════════════
+# 買取価格スクレイパー
+# ══════════════════════════════════════════════════
+
+# ── カードラッシュ買取 (Next.js __NEXT_DATA__) ──
+
+CARDRUSH_MEDIA_BASE = "https://cardrush.media"
+
+def scrape_cardrush_buy(card_name: str) -> list[dict]:
+    """カードラッシュ — ラッシュメディアの買取価格を取得"""
+    page_url = (
+        f"{CARDRUSH_MEDIA_BASE}/yugioh/buying_prices"
+        f"?name={requests.utils.quote(card_name)}"
+    )
+    soup = safe_get(page_url, timeout=20)
+    if not soup:
+        return []
+
+    # __NEXT_DATA__ からJSONデータを取得
+    script_el = soup.select_one("script#__NEXT_DATA__")
+    if not script_el:
+        return []
+
+    try:
+        next_data = json.loads(script_el.string)
+        buying_prices = next_data["props"]["pageProps"]["buyingPrices"]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return []
+
+    results = []
+    for item in buying_prices:
+        name = item.get("name", "")
+        if not name or not is_target_card(card_name, name):
+            continue
+        price = item.get("amount")
+        if not price or price <= 0:
+            continue
+
+        rarity = item.get("rarity", "")
+        model_number = item.get("model_number", "")
+        is_hot = item.get("is_hot", False)
+
+        results.append({
+            "shop": "カードラッシュ",
+            "name": name,
+            "rarity": normalize_rarity(rarity),
+            "code": model_number,
+            "condition": "強化買取中" if is_hot else "-",
+            "price": int(price),
+            "stock": 1,  # 買取は常に受付中
+            "sold_out": False,
+            "url": page_url,
+            "image": "",
+        })
+    return results
+
+
+# ── カーナベル買取 ──
+
+def scrape_kanabell_buy(card_name: str) -> list[dict]:
+    """カーナベル — ES APIでカードIDを取得し、買取詳細ページから買取価格を取得"""
+    if not _KANABELL_CLOUD_ID or not _KANABELL_API_KEY:
+        print("  ⚠️  カーナベル買取: KANABELL_CLOUD_ID / KANABELL_API_KEY が未設定です")
+        return []
+
+    global _KANABELL_ES_URL
+    if _KANABELL_ES_URL is None:
+        _KANABELL_ES_URL = _kanabell_es_host()
+
+    # ES APIでカード名を検索してIDを取得
+    search_url = f"{_KANABELL_ES_URL}/{_KANABELL_INDEX}/_search"
+    query_body = {
+        "size": 30,
+        "_source": ["name", "id", "rarity_abbreviation", "category3_abbr", "card_image_name1"],
+        "query": {
+            "bool": {
+                "must": [
+                    {"bool": {"should": [
+                        {"match_phrase_prefix": {"card_name": {"query": card_name, "slop": 2}}},
+                        {"wildcard": {"card_name": {"value": f"*{card_name}*"}}},
+                    ], "minimum_should_match": 1}}
+                ],
+                "filter": [
+                    {"term": {"category1_id": 1}},
+                    {"term": {"public_status": 1}},
+                    {"term": {"del_flag": False}},
+                ]
+            }
+        }
+    }
+
+    try:
+        res = requests.post(
+            search_url, json=query_body,
+            headers={"Content-Type": "application/json", "Authorization": f"ApiKey {_KANABELL_API_KEY}"},
+            timeout=15,
+        )
+        res.raise_for_status()
+        hits = res.json().get("hits", {}).get("hits", [])
+    except requests.RequestException as e:
+        print(f"  ❌ カーナベル買取ES検索失敗: {e}")
+        return []
+
+    # ユニークなカードIDだけ取得（同名カードを1つにまとめる）
+    seen_ids = set()
+    cards_to_check = []
+    for hit in hits:
+        src = hit.get("_source", {})
+        name_text = src.get("name", "")
+        card_id = src.get("id") or hit.get("_id", "")
+        if not name_text or not card_id or card_id in seen_ids:
+            continue
+        if not is_target_card(card_name, name_text):
+            continue
+        seen_ids.add(card_id)
+        cards_to_check.append(src)
+
+    if not cards_to_check:
+        return []
+
+    # 最初のカードの買取詳細ページを取得（1回のアクセスで同名全レアリティの買取価格が見れる）
+    first_id = cards_to_check[0].get("id", "")
+    buy_url = f"{KANABELL_BASE}/?act=buy_detail&id={first_id}&genre=1"
+    soup = safe_get(buy_url, timeout=20)
+    if not soup:
+        return []
+
+    results = []
+    # CardListPrice 要素から買取価格を取得
+    for price_el in soup.select(".CardListPrice"):
+        price_text = price_el.get_text(strip=True)
+        if "買取終了" in price_text:
+            continue
+        price_match = re.search(r"(\d[\d,]+)", price_text.replace("¥", ""))
+        if not price_match:
+            continue
+        price = int(price_match.group(1).replace(",", ""))
+        if price <= 0:
+            continue
+
+        # 親要素からレアリティ情報を取得
+        parent = price_el.parent
+        parent_text = parent.get_text(" ", strip=True) if parent else ""
+        rarity = ""
+        rarity_match = re.search(r"【([^】]+)】", parent_text)
+        if rarity_match:
+            rarity = rarity_match.group(1)
+
+        # 画像
+        img_name = cards_to_check[0].get("card_image_name1", "")
+        image_url = f"{KANABELL_BASE}/img/s/{img_name}" if img_name else ""
+
+        results.append({
+            "shop": "カーナベル",
+            "name": cards_to_check[0].get("name", card_name),
+            "rarity": normalize_rarity(rarity),
+            "code": "",
+            "condition": "-",
+            "price": price,
+            "stock": 1,
+            "sold_out": False,
+            "url": buy_url,
+            "image": image_url,
+        })
+    return results
+
+
+# ── 遊々亭買取 ──
+
+def scrape_yuyu_buy(card_name: str) -> list[dict]:
+    """遊々亭 — 買取検索ページをスクレイピング"""
+    page_url = (
+        f"https://yuyu-tei.jp/buy/ygo/s/search"
+        f"?search_word={requests.utils.quote(card_name)}"
+    )
+    soup = safe_get(page_url, timeout=25, retries=2)
+    if not soup:
+        return []
+
+    results = []
+    # 販売ページと同様の card-product 構造を想定
+    for card in soup.select("div.card-product"):
+        name, product_url = "", ""
+        for a_tag in card.select("a"):
+            text = a_tag.get_text(strip=True)
+            href = a_tag.get("href", "")
+            if text and "カート" not in text and "買取" not in text and len(text) > 1 and not a_tag.select_one("img.card"):
+                name = text
+                product_url = href
+                break
+            elif not product_url and href and "yuyu-tei.jp" in href:
+                product_url = href
+
+        if not name or not is_target_card(card_name, name):
+            continue
+
+        rarity, code = "", ""
+        image_url = ""
+        img_el = card.select_one("img.card")
+        if img_el:
+            image_url = img_el.get("src", "")
+            if img_el.get("alt"):
+                parts = img_el["alt"].split(" ", 2)
+                if len(parts) >= 2:
+                    code, rarity = parts[0], parts[1]
+
+        # 買取価格
+        price_el = card.select_one("strong.d-block")
+        price = parse_price(price_el.get_text()) if price_el else None
+        if not price:
+            continue
+
+        results.append({
+            "shop": "遊々亭",
+            "name": name,
+            "rarity": normalize_rarity(rarity),
+            "code": code,
+            "condition": "-",
+            "price": price,
+            "stock": 1,
+            "sold_out": False,
+            "url": product_url,
+            "image": image_url,
+        })
+    return results
+
+
+# ── 買取店舗リスト ──
+
+BUYBACK_SHOPS = [
+    ("カードラッシュ", scrape_cardrush_buy),
+    ("カーナベル", scrape_kanabell_buy),
+    ("遊々亭", scrape_yuyu_buy),
+]
+
+DEFAULT_BUYBACK_SHOPS = ["カードラッシュ", "カーナベル", "遊々亭"]
+
+
+# ── 買取キャッシュ（販売と分離）──
+
+BUYBACK_CACHE_DIR = Path(__file__).parent / ".cache_buy"
+
+def _buyback_cache_key(card_name: str) -> str:
+    return hashlib.md5(f"buy_{card_name}".encode()).hexdigest()
+
+def buyback_cache_get(card_name: str) -> list[dict] | None:
+    if not CACHE_ENABLED:
+        return None
+    fp = BUYBACK_CACHE_DIR / f"{_buyback_cache_key(card_name)}.json"
+    if not fp.exists():
+        return None
+    try:
+        data = json.loads(fp.read_text(encoding="utf-8"))
+        ts = datetime.fromisoformat(data["timestamp"])
+        if datetime.now() - ts > timedelta(minutes=CACHE_TTL_MINUTES):
+            return None
+        return data["results"]
+    except Exception:
+        return None
+
+def buyback_cache_set(card_name: str, results: list[dict]):
+    if not CACHE_ENABLED:
+        return
+    BUYBACK_CACHE_DIR.mkdir(exist_ok=True)
+    fp = BUYBACK_CACHE_DIR / f"{_buyback_cache_key(card_name)}.json"
+    data = {"timestamp": datetime.now().isoformat(), "results": results}
+    content = json.dumps(data, ensure_ascii=False)
+    with _cache_lock:
+        tmp_fp = fp.with_suffix(".tmp")
+        tmp_fp.write_text(content, encoding="utf-8")
+        tmp_fp.replace(fp)
+
+
 # ── 全店舗検索 ──
 
 SHOPS = [
