@@ -627,11 +627,12 @@ def api_pack_cards():
     """パックのカードリストを返す"""
     pack_name = request.args.get("name", "").strip()
     wiki_page = request.args.get("wiki", "").strip()
+    tcg_name = request.args.get("tcg", "").strip()
     if not pack_name:
         return jsonify({"error": "パック名を指定してください"}), 400
-    future = _meta_executor.submit(fetch_pack_cards, pack_name, wiki_page)
+    future = _meta_executor.submit(fetch_pack_cards, pack_name, wiki_page, tcg_name)
     try:
-        data = future.result(timeout=25)
+        data = future.result(timeout=30)
     except Exception as e:
         logger.error(f"パックカード取得エラー ({pack_name}): {e}")
         data = {"pack": pack_name, "cards": [], "count": 0}

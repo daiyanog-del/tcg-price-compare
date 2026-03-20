@@ -2,31 +2,29 @@
   {
     "name": "ALLIANCE INSIGHT",
     "wiki_page": "ALLIANCE INSIGHT",
+    "tcg_name": "Alliance Insight",
     "date": "2025-01-25",
     "code": "ALIN"
   },
   {
-    "name": "INFINITY TRANSCENDENCE",
-    "wiki_page": "INFINITY TRANSCENDENCE",
-    "date": "2024-10-26",
-    "code": "INTC"
-  },
-  {
     "name": "RAGE OF THE ABYSS",
     "wiki_page": "RAGE OF THE ABYSS",
+    "tcg_name": "Rage of the Abyss",
     "date": "2024-07-27",
     "code": "ROTA"
   },
   {
-    "name": "THE DESTINED POWER",
-    "wiki_page": "THE DESTINED POWER",
-    "date": "2024-04-27",
-    "code": "TDPO"
+    "name": "LEGACY OF DESTRUCTION",
+    "wiki_page": "LEGACY OF DESTRUCTION",
+    "tcg_name": "Legacy of Destruction",
+    "date": "2024-01-27",
+    "code": "LEDE"
   },
   {
-    "name": "CROSSOVER BREAKERS",
-    "wiki_page": "CROSSOVER BREAKERS",
-    "date": "2025-04-19",
-    "code": "CROB"
+    "name": "AGE OF OVERLORD",
+    "wiki_page": "AGE OF OVERLORD",
+    "tcg_name": "Age of Overlord",
+    "date": "2023-10-28",
+    "code": "AGOV"
   }
 ]

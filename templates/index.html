@@ -1428,7 +1428,7 @@ function renderPacks(){
   let html='<div class="meta-deck-list" style="margin-bottom:12px">';
   for(const p of sorted){
     const dateStr=p.date?p.date.replace(/-/g,'/'):'';
-    html+=`<button class="meta-deck-btn" onclick="loadPackCards('${esc(p.name)}','${esc(p.wiki_page||p.name)}')" id="pack-btn-${esc(p.code||p.name)}">
+    html+=`<button class="meta-deck-btn" onclick="loadPackCards('${esc(p.name)}','${esc(p.wiki_page||p.name)}','${esc(p.tcg_name||'')}')" id="pack-btn-${esc(p.code||p.name)}">
       ${esc(p.name)} <span class="meta-share">${dateStr}</span>
     </button>`;
   }
@@ -1437,13 +1437,15 @@ function renderPacks(){
   el.innerHTML=html;
 }
 
-async function loadPackCards(packName, wikiPage){
+async function loadPackCards(packName, wikiPage, tcgName){
   const detailEl=document.getElementById('packDetail');
   detailEl.classList.remove('hidden');
   detailEl.innerHTML='<div class="meta-loading">カードリストを読込中...</div>';
 
   try{
-    const res=await fetch('/api/packs/cards?name='+encodeURIComponent(packName)+'&wiki='+encodeURIComponent(wikiPage));
+    let apiUrl='/api/packs/cards?name='+encodeURIComponent(packName)+'&wiki='+encodeURIComponent(wikiPage);
+    if(tcgName) apiUrl+='&tcg='+encodeURIComponent(tcgName);
+    const res=await fetch(apiUrl);
     const data=await res.json();
 
     if(!data.cards||!data.cards.length){
