@@ -273,6 +273,64 @@ def sync_regulation(sb: Client):
         print("  新規カードなし")
 
 
+def sync_searched_cards(sb: Client):
+    """検索ログから頻繁に検索されたカードを監視対象に自動追加"""
+    print("\n--- 検索ログからカード同期 ---")
+
+    # 直近7日間で2回以上検索されたカードを取得
+    from datetime import timedelta
+    since = (date.today() - timedelta(days=7)).isoformat()
+
+    try:
+        resp = sb.table("search_logs") \
+            .select("card_name") \
+            .gte("searched_at", since) \
+            .execute()
+    except Exception as e:
+        print(f"  検索ログ取得失敗: {e}")
+        return
+
+    if not resp.data:
+        print("  検索ログなし")
+        return
+
+    # カード名ごとの検索回数を集計
+    counts: dict[str, int] = {}
+    for row in resp.data:
+        name = row["card_name"]
+        counts[name] = counts.get(name, 0) + 1
+
+    # 2回以上検索されたカードを抽出
+    popular = [name for name, cnt in counts.items() if cnt >= 2]
+    print(f"  直近7日間の検索カード: {len(counts)}種, うち2回以上: {len(popular)}種")
+
+    if not popular:
+        return
+
+    # 現在の監視対象と比較
+    resp = sb.table("tracked_cards").select("card_name").execute()
+    existing = {row["card_name"] for row in resp.data}
+
+    new_cards = []
+    for name in popular:
+        normalized = normalize_card_name(name)
+        if normalized not in existing and normalized not in [c["card_name"] for c in new_cards]:
+            new_cards.append({"card_name": normalized, "active": True})
+
+    if new_cards:
+        try:
+            sb.table("tracked_cards").insert(new_cards).execute()
+            print(f"  新規追加: {len(new_cards)}枚")
+            for c in new_cards[:10]:
+                print(f"    + {c['card_name']}")
+            if len(new_cards) > 10:
+                print(f"    ... 他{len(new_cards) - 10}枚")
+        except Exception as e:
+            print(f"  カード追加失敗: {e}")
+    else:
+        print("  新規カードなし")
+
+
 def cleanup_old_data(sb: Client):
     """保持期間を超えた古いデータを削除"""
     from datetime import timedelta
@@ -298,6 +356,7 @@ def main():
     sync_latest_packs(sb)
     sync_meta_decks(sb)
     sync_regulation(sb)
+    sync_searched_cards(sb)
 
     cards = fetch_tracked_cards(sb)
 
