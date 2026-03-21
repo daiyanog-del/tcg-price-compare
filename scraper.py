@@ -760,6 +760,127 @@ def scrape_clabo(card_name: str) -> list[dict]:
     return results
 
 
+# ── まんぞく屋 ──
+
+# レアリティ表記のマッピング（まんぞく屋独自の括弧表記 → 統一表記）
+_MANZOKU_RARITY_MAP = {
+    "SE": "シークレット",
+    "UR": "ウルトラ",
+    "SR": "スーパー",
+    "R": "レア",
+    "N": "ノーマル",
+    "NR": "ノーマルレア",
+    "NPR": "ノーマルパラレル",
+    "PR": "パラレル",
+    "GL": "ゴールド",
+    "GS": "ゴールドシークレット",
+    "UL": "アルティメット",
+    "HR": "ホログラフィック",
+    "20SE": "20thシークレット",
+    "QCSE": "クォーターセンチュリーシークレット",
+    "PSE": "プリズマティックシークレット",
+    "PG": "プレミアムゴールド",
+    "KC": "KC",
+    "ML": "ミレニアム",
+    "EX": "エクストラシークレット",
+    "10000SE": "10000シークレット",
+}
+
+def _parse_manzoku_rarity(text: str) -> str:
+    """まんぞく屋の括弧付きレアリティ表記を抽出"""
+    # [SE], 〈UR〉, 〔N〕, 【R】 などの形式に対応
+    m = re.search(r'[\[〈〔【\(]([A-Z0-9]+)[\]〉〕】\)]', text)
+    if m:
+        code = m.group(1)
+        return _MANZOKU_RARITY_MAP.get(code, code)
+    return ""
+
+def scrape_manzoku(card_name: str) -> list[dict]:
+    """まんぞく屋 — EC-CUBEベースの遊戯王カード通販"""
+    page_url = (
+        f"https://shopmanzokuya.com/products/list"
+        f"?category_id=1&name={requests.utils.quote(card_name)}"
+        f"&orderby=price_l&disp_number=100"
+    )
+    soup = safe_get(page_url)
+    if not soup:
+        return []
+    dump_html("manzoku", soup)
+
+    results = []
+    for li in soup.select("li"):
+        # 商品リンクを探す
+        link = li.select_one("a[href*='/products/detail/']")
+        if not link:
+            continue
+
+        text = link.get_text(separator=" ", strip=True)
+        if not text:
+            continue
+
+        # 価格を抽出（￥1,234 形式）
+        price_match = re.search(r'￥([\d,]+)', text)
+        if not price_match:
+            continue
+        price = parse_price(price_match.group(0))
+        if not price:
+            continue
+
+        # カード番号とカード名を抽出（《カード名》形式）
+        name_match = re.search(r'《(.+?)》', text)
+        if not name_match:
+            continue
+        display_name = name_match.group(1).strip()
+
+        if not is_target_card(card_name, display_name):
+            continue
+
+        # レアリティ
+        rarity = _parse_manzoku_rarity(text)
+
+        # カード番号
+        code = ""
+        code_match = re.search(r'([A-Z0-9]+-JP[A-Z]?\d+)', text)
+        if code_match:
+            code = code_match.group(1)
+
+        # 在庫（リンクの外にあるテキストを確認）
+        sold_out = False
+        stock = 0
+        li_text = li.get_text()
+        if '品切れ' in li_text or '売り切れ' in li_text:
+            sold_out = True
+        else:
+            stock_match = re.search(r'在庫[:\s]*(\d+)', li_text)
+            if stock_match:
+                stock = int(stock_match.group(1))
+            elif '在庫' in li_text and '◯' in li_text:
+                stock = 1
+
+        # 商品URL
+        product_url = link.get("href", "")
+        if product_url and not product_url.startswith("http"):
+            product_url = "https://shopmanzokuya.com" + product_url
+
+        # 画像
+        image_url = ""
+        img = link.select_one("img")
+        if img:
+            image_url = img.get("src", "") or img.get("data-src", "")
+            if image_url and not image_url.startswith("http"):
+                image_url = "https://shopmanzokuya.com" + image_url
+
+        results.append({
+            "shop": "まんぞく屋", "name": display_name,
+            "rarity": normalize_rarity(rarity), "code": code,
+            "condition": "-", "price": price, "stock": stock,
+            "sold_out": sold_out, "url": product_url,
+            "image": image_url,
+        })
+
+    return results
+
+
 # ══════════════════════════════════════════════════
 # 買取価格スクレイパー
 # ══════════════════════════════════════════════════
@@ -1081,10 +1202,11 @@ SHOPS = [
     ("トレコロCB", scrape_torecolo),
     ("カーナベル", scrape_kanabell),
     ("カードラボ", scrape_clabo),
+    ("まんぞく屋", scrape_manzoku),
 ]
 
 # デフォルトで検索する店舗
-DEFAULT_SHOPS = ["遊々亭", "カードラッシュ", "トレコロCB", "カーナベル", "カードラボ"]
+DEFAULT_SHOPS = ["遊々亭", "カードラッシュ", "トレコロCB", "カーナベル", "カードラボ", "まんぞく屋"]
 
 
 def compare_prices(card_name: str, shop_names: list[str] | None = None) -> list[dict]:
