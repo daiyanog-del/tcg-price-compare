@@ -173,17 +173,17 @@ def sync_meta_decks(sb: Client):
     existing = {row["card_name"] for row in resp.data}
 
     new_cards = []
-    # Tier1〜3のデッキを対象
-    target_themes = [t for t in tiers if t.get("tier", 99) <= 3]
-    print(f"  対象テーマ: {len(target_themes)}件（Tier1〜3）")
+    # Tier1〜4のデッキを対象
+    target_themes = [t for t in tiers if t.get("tier", 99) <= 4]
+    print(f"  対象テーマ: {len(target_themes)}件（Tier1〜4）")
 
     for theme in target_themes:
         deck = fetch_deck_cards(theme["name"], force=True)
         cards = deck.get("cards", [])
-        # 採用率50%以上のカードを対象
+        # 採用率30%以上のカードを対象
         for card in cards:
             name = normalize_card_name(card["name"])
-            if card.get("adoption", 0) >= 50.0 and name not in existing and name not in [c["card_name"] for c in new_cards]:
+            if card.get("adoption", 0) >= 30.0 and name not in existing and name not in [c["card_name"] for c in new_cards]:
                 new_cards.append({"card_name": name, "active": True})
 
     if new_cards:
