@@ -785,14 +785,18 @@ _MANZOKU_RARITY_MAP = {
     "ML": "ミレニアム",
     "EX": "エクストラシークレット",
     "10000SE": "10000シークレット",
+    "O-UR": "オーバーフレームウルトラ",
+    "O-SE": "オーバーフレームシークレット",
+    "O-PSE": "オーバーフレームプリズマティック",
+    "O-SR": "オーバーフレームスーパー",
 }
 
 def _parse_manzoku_rarity(text: str) -> str:
     """まんぞく屋の括弧付きレアリティ表記を抽出"""
     # カード名《》より前の部分からレアリティを探す
     before_card = text.split('《')[0] if '《' in text else text
-    # [SE], 〈 UR 〉, 〔N〕, 【R】 などの形式に対応（括弧内のスペースも許容）
-    m = re.search(r'[\[〈〔【\(]\s*([A-Z0-9]+)\s*[\]〉〕】\)]', before_card)
+    # [SE], 〈 UR 〉, 〔N〕, 【R】, (O-UR) などの形式に対応
+    m = re.search(r'[\[〈〔【\(]\s*([A-Z0-9]+(?:-[A-Z0-9]+)?)\s*[\]〉〕】\)]', before_card)
     if m:
         code = m.group(1)
         return _MANZOKU_RARITY_MAP.get(code, code)
@@ -914,6 +918,10 @@ _SURUGAYA_RARITY_MAP = {
     "ML": "ミレニアム",
     "20SE": "20thシークレット",
     "10000SE": "10000シークレット",
+    "O-UR": "オーバーフレームウルトラ",
+    "O-SE": "オーバーフレームシークレット",
+    "O-PSE": "オーバーフレームプリズマティック",
+    "O-SR": "オーバーフレームスーパー",
 }
 
 def scrape_surugaya(card_name: str) -> list[dict]:
