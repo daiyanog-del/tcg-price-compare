@@ -2125,6 +2125,18 @@ document.querySelectorAll('#buyTbl th[data-bs]').forEach(th=>{
     renderBuyTable();
   });
 });
+// ── 初回ロード: URLにカード名がある場合は自動検索 ──
+if(_pageCardName){
+  if(_pageMode==='buyback'){
+    switchMode('buyback');
+    buyQInput.value=_pageCardName;
+    doBuySearch();
+  }else{
+    switchMode('search');
+    document.getElementById('q').value=_pageCardName;
+    doSearch();
+  }
+}
 </script>
 </body>
 </html>
