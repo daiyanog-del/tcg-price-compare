@@ -66,6 +66,9 @@ AFFILIATE_CONFIG = {
         "sell_a8mat": os.environ.get("A8_KANABELL_SELL", ""),
         "buy_a8mat": os.environ.get("A8_KANABELL_BUY", ""),
     },
+    "駿河屋": {
+        "user_id": os.environ.get("SURUGAYA_AFF_USER_ID", ""),
+    },
 }
 
 
@@ -677,7 +680,7 @@ def api_buyback():
 @app.route("/api/config")
 def api_config():
     """フロントエンド用の設定情報"""
-    # アフィリエイト設定をフロントエンドに渡す（a8matのみ、秘密情報なし）
+    # アフィリエイト設定をフロントエンドに渡す
     aff = {}
     for shop, conf in AFFILIATE_CONFIG.items():
         if conf.get("sell_a8mat") or conf.get("buy_a8mat"):
@@ -685,6 +688,8 @@ def api_config():
                 "sell": conf.get("sell_a8mat", ""),
                 "buy": conf.get("buy_a8mat", ""),
             }
+        elif conf.get("user_id"):
+            aff[shop] = {"user_id": conf["user_id"]}
     return jsonify({
         "shops": [{"name": name, "default": name in DEFAULT_SHOPS} for name, _ in SHOPS],
         "buyback_shops": [{"name": name, "default": name in DEFAULT_BUYBACK_SHOPS} for name, _ in BUYBACK_SHOPS],

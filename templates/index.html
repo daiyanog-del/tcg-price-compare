@@ -896,8 +896,14 @@ fetch('/api/config').then(r=>r.json()).then(c=>{
 }).catch(()=>{});
 
 function affLink(url, shop, mode){
-  // mode: 'sell'(販売) or 'buy'(買取)
-  if(!url||!_affConfig[shop]) return url;
+  if(!url) return url;
+  // 駿河屋: 独自アフィリエイトリダイレクト
+  if(shop==='駿河屋'&&_affConfig[shop]){
+    const uid=_affConfig[shop].user_id;
+    if(uid) return 'https://affiliate.suruga-ya.jp/modules/af/af_jump.php?user_id='+uid+'&goods_url='+encodeURIComponent(url);
+  }
+  // A8.net形式（カーナベル等）
+  if(!_affConfig[shop]) return url;
   const a8mat=_affConfig[shop][mode];
   if(!a8mat) return url;
   return 'https://px.a8.net/svt/ejp?a8mat='+a8mat+'&a8ejpredirect='+encodeURIComponent(url);
