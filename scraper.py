@@ -770,6 +770,7 @@ _MANZOKU_RARITY_MAP = {
     "R": "レア",
     "N": "ノーマル",
     "NR": "ノーマルレア",
+    "NP": "ノーマルパラレル",
     "NPR": "ノーマルパラレル",
     "PR": "パラレル",
     "GL": "ゴールド",
@@ -788,10 +789,17 @@ _MANZOKU_RARITY_MAP = {
 
 def _parse_manzoku_rarity(text: str) -> str:
     """まんぞく屋の括弧付きレアリティ表記を抽出"""
+    # カード名《》より前の部分からレアリティを探す
+    before_card = text.split('《')[0] if '《' in text else text
     # [SE], 〈 UR 〉, 〔N〕, 【R】 などの形式に対応（括弧内のスペースも許容）
-    m = re.search(r'[\[〈〔【\(]\s*([A-Z0-9]+)\s*[\]〉〕】\)]', text)
+    m = re.search(r'[\[〈〔【\(]\s*([A-Z0-9]+)\s*[\]〉〕】\)]', before_card)
     if m:
         code = m.group(1)
+        return _MANZOKU_RARITY_MAP.get(code, code)
+    # 《NP》のような形式（カード名の前にある場合のみ）
+    m2 = re.match(r'^《\s*([A-Z0-9]+)\s*》', text.strip())
+    if m2:
+        code = m2.group(1)
         return _MANZOKU_RARITY_MAP.get(code, code)
     return ""
 
