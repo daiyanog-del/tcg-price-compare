@@ -93,13 +93,9 @@ a{color:var(--accent-l);text-decoration:none}a:hover{text-decoration:underline}
 
 /* ── Header ── */
 header{padding:24px 0 8px;text-align:center}
-.logo-link{display:inline-flex;align-items:center;gap:10px;text-decoration:none}
-.logo-icon{width:auto;height:40px;flex-shrink:0;object-fit:contain}
-.logo-text{display:flex;flex-direction:column;align-items:flex-start;line-height:1.1}
-.logo-main{font-size:1.4rem;font-weight:900;letter-spacing:.04em;color:rgba(255,255,255,.7);-webkit-text-fill-color:rgba(255,255,255,.7)}
-.logo-hl{-webkit-text-fill-color:#fff;color:#fff}
-.logo-sub{font-size:.7rem;font-weight:700;color:var(--accent-l);letter-spacing:.12em;margin-top:2px}
-header .subtitle{font-size:.78rem;color:var(--text-d);margin-top:8px;letter-spacing:.02em}
+.logo-link{display:inline-block;text-decoration:none}
+.logo-banner{height:56px;width:auto;object-fit:contain}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}
 
 /* ── Search ── */
 .search{display:flex;gap:8px;max-width:540px;margin:0 auto 20px;position:relative}
@@ -355,9 +351,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 /* Mobile — スマホ */
 @media(max-width:640px){
   header{padding:16px 0 8px}
-  .logo-main{font-size:1.15rem}
-  .logo-sub{font-size:.6rem}
-  .logo-icon{width:auto;height:32px}
+  .logo-banner{height:40px}
 
   /* 検索 */
   .search{flex-direction:column;gap:6px}
@@ -490,14 +484,10 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   <header>
     <h1>
       <a href="/" class="logo-link">
-        <img class="logo-icon" src="/static/logo_icon.png" alt="CardPrice is?" width="32" height="32">
-        <span class="logo-text">
-          <span class="logo-main"><span class="logo-hl">Ca</span>rd<span class="logo-hl" style="margin-left:-0.04em">Pri</span>ce i<span class="logo-hl">s</span>?</span>
-          <span class="logo-sub">遊戯王OCG 価格比較</span>
-        </span>
+        <img class="logo-banner" src="/static/logo_text.png" alt="CardPrice is? — 遊戯王OCG 価格比較">
+        <span class="sr-only">CardPrice is? — 遊戯王OCG 価格比較 6店舗の販売・買取価格をリアルタイム比較</span>
       </a>
     </h1>
-    <p class="subtitle">6店舗の販売・買取価格をリアルタイム比較</p>
     {% if card_name %}
     <nav style="font-size:.75rem;color:var(--text-d);margin-top:6px">
       <a href="/" style="color:var(--text-m)">トップ</a> &gt;
