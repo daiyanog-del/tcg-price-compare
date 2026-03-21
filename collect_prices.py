@@ -26,7 +26,7 @@ WAIT_BETWEEN_CARDS = 2.0
 RETENTION_DAYS = 90
 
 # GitHub Actionsからアクセスできない店舗をスキップ
-SKIP_SHOPS_IN_CI = {"遊々亭"}
+SKIP_SHOPS_IN_CI = {"遊々亭", "駿河屋"}
 
 
 def get_supabase() -> Client:

@@ -1358,7 +1358,7 @@ SHOPS = [
 ]
 
 # デフォルトで検索する店舗
-DEFAULT_SHOPS = ["遊々亭", "カードラッシュ", "トレコロCB", "カーナベル", "カードラボ", "まんぞく屋", "駿河屋"]
+DEFAULT_SHOPS = ["遊々亭", "カードラッシュ", "トレコロCB", "カーナベル", "カードラボ", "まんぞく屋"]
 
 
 def compare_prices(card_name: str, shop_names: list[str] | None = None) -> list[dict]:

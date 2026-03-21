@@ -6,7 +6,7 @@
 <meta name="google-site-verification" content="7SBMfipn1AANFZK-55AZRO3tvCcB5j9iZ9h3sm7r5r0">
 {% if card_name and page_mode == 'search' %}
 <title>{{ card_name }} の価格比較 | 遊戯王OCG 価格比較</title>
-<meta name="description" content="{{ card_name }}の最安値を遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボ・まんぞく屋・駿河屋の7店舗から一括比較。{% if best_price %}現在の最安値は¥{{ '{:,}'.format(best_price) }}。{% endif %}リアルタイム価格検索。">
+<meta name="description" content="{{ card_name }}の最安値を遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボ・まんぞく屋の6店舗から一括比較。{% if best_price %}現在の最安値は¥{{ '{:,}'.format(best_price) }}。{% endif %}リアルタイム価格検索。">
 <meta property="og:title" content="{{ card_name }} の価格比較 | 遊戯王OCG 価格比較">
 <meta property="og:description" content="{{ card_name }}の最安値を7店舗で比較{% if best_price %}。最安¥{{ '{:,}'.format(best_price) }}{% endif %}">
 <link rel="canonical" href="{{ request.url_root.rstrip('/') }}/card/{{ card_name | urlencode }}">
@@ -18,7 +18,7 @@
 <link rel="canonical" href="{{ request.url_root.rstrip('/') }}/buy/{{ card_name | urlencode }}">
 {% else %}
 <title>遊戯王OCG 価格比較 — 7店舗の最安値を一括検索</title>
-<meta name="description" content="遊戯王OCGカードの価格を遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボ・まんぞく屋・駿河屋の7店舗から一括比較。買取価格比較・デッキ一括見積もりにも対応。">
+<meta name="description" content="遊戯王OCGカードの価格を遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボ・まんぞく屋の6店舗から一括比較。買取価格比較・デッキ一括見積もりにも対応。">
 <meta property="og:title" content="遊戯王OCG 価格比較 — 7店舗の最安値を一括検索">
 <meta property="og:description" content="遊戯王OCGカードの価格を7店舗から一括比較。買取価格・デッキ見積もり対応。">
 <link rel="canonical" href="{{ request.url_root.rstrip('/') }}/">
@@ -524,8 +524,8 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
     <label class="shop-toggle active" data-shop="まんぞく屋">
       <input type="checkbox" checked> まんぞく屋
     </label>
-    <label class="shop-toggle active" data-shop="駿河屋">
-      <input type="checkbox" checked> 駿河屋
+    <label class="shop-toggle" data-shop="駿河屋" title="現在メンテナンス中">
+      <input type="checkbox" disabled> 駿河屋 (停止中)
     </label>
   </div>
 
