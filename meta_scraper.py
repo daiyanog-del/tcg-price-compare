@@ -294,7 +294,7 @@ def fetch_deck_cards(theme_name: str, force: bool = False) -> dict:
     return result
 
 
-def build_deck_text(cards: list[dict], min_adoption: float = 60.0) -> str:
+def build_deck_text(cards: list[dict], min_adoption: float = 40.0) -> str:
     """
     主要カードリストからデッキ計算用のテキストを生成。
 
