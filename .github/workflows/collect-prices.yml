@@ -30,4 +30,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          KANABELL_CLOUD_ID: ${{ secrets.KANABELL_CLOUD_ID }}
+          KANABELL_API_KEY: ${{ secrets.KANABELL_API_KEY }}
+          KANABELL_INDEX: ${{ secrets.KANABELL_INDEX }}
         run: python collect_prices.py
