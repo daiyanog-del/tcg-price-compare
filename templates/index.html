@@ -197,6 +197,17 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 /* Empty */
 .empty{text-align:center;padding:48px 20px;color:var(--text-d);font-size:.88rem}
 
+/* 信頼シグナル */
+.trust-signals{display:flex;justify-content:center;gap:16px;flex-wrap:wrap;margin-bottom:28px;max-width:520px;margin-left:auto;margin-right:auto}
+.trust-item{display:flex;align-items:center;gap:6px;padding:8px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;font-size:.78rem;color:var(--text-m);transition:border-color .2s}
+.trust-item:hover{border-color:var(--accent)}
+.trust-icon{font-size:1rem;line-height:1}
+.trust-text{white-space:nowrap}
+.trust-text strong{color:var(--text);font-weight:600}
+
+/* フッター統計 */
+.footer-stats{display:flex;justify-content:center;gap:20px;flex-wrap:wrap;margin-bottom:10px;font-size:.75rem;color:var(--text-d)}
+
 /* Trending */
 .trending{max-width:480px;margin:0 auto;text-align:left}
 .trending-title{font-size:.82rem;font-weight:700;color:var(--text-m);margin-bottom:12px;text-align:center;letter-spacing:.05em}
@@ -534,7 +545,16 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   <div id="empty" class="empty">
     <div style="font-size:2.2rem;margin-bottom:12px;opacity:.4">🔍</div>
     <p style="font-size:1rem;font-weight:600;color:var(--text-m);margin-bottom:6px">カード名を入力して検索</p>
-    <p style="font-size:.78rem;color:var(--text-d);margin-bottom:28px">遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボの最安値を一括表示</p>
+    <p style="font-size:.78rem;color:var(--text-d);margin-bottom:20px">遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボの最安値を一括表示</p>
+
+    <!-- 信頼シグナル -->
+    <div class="trust-signals">
+      <div class="trust-item"><span class="trust-icon">🏪</span><span class="trust-text">対応ショップ <strong>5店舗</strong></span></div>
+      <div class="trust-item"><span class="trust-icon">⚡</span><span class="trust-text"><strong>リアルタイム</strong>価格取得</span></div>
+      <div class="trust-item"><span class="trust-icon">💰</span><span class="trust-text">販売・買取 <strong>両対応</strong></span></div>
+      <div class="trust-item"><span class="trust-icon">🆓</span><span class="trust-text">完全無料・登録不要</span></div>
+    </div>
+
     <div id="trendingSection" class="trending hidden">
       <h2 class="trending-title">🔥 みんなが検索中</h2>
       <div class="trending-list" id="trendingList"></div>
@@ -674,8 +694,11 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 
 <!-- フッター -->
 <footer class="site-footer">
-  <p style="font-size:.75rem;color:var(--text-d);margin-bottom:10px">遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボの価格を一括比較</p>
-  <a onclick="openLegalModal('privacy')">プライバシーポリシー</a>｜<a onclick="openLegalModal('terms')">利用規約</a>｜<a onclick="openLegalModal('shop')">ショップ運営者様へ</a>
+  <div class="footer-stats">
+    <span>対応ショップ: 販売5店舗 / 買取3店舗</span>
+    <span>価格データ: 毎日自動更新</span>
+  </div>
+  <a onclick="openLegalModal('privacy')">プライバシーポリシー</a>｜<a onclick="openLegalModal('terms')">利用規約</a>｜<a onclick="openLegalModal('shop')">ショップ運営者様へ</a>｜<a href="mailto:tcg.price.compare@gmail.com">お問い合わせ</a>
   <div class="footer-copy">&copy; 2025 遊戯王OCG 価格比較</div>
 </footer>
 
