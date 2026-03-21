@@ -10,7 +10,7 @@ import time
 from datetime import datetime, date
 
 from supabase import create_client, Client
-from scraper import compare_prices
+from scraper import compare_prices, SHOPS
 
 # ── Supabase接続 ──
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -21,6 +21,9 @@ WAIT_BETWEEN_CARDS = 2.0
 
 # 古いデータの保持日数
 RETENTION_DAYS = 90
+
+# GitHub Actionsからアクセスできない店舗をスキップ
+SKIP_SHOPS_IN_CI = {"遊々亭"}
 
 
 def get_supabase() -> Client:
@@ -44,8 +47,11 @@ def fetch_tracked_cards(sb: Client) -> list[str]:
 
 def collect_and_save(sb: Client, card_name: str, today: str) -> int:
     """1枚のカードの価格を取得してSupabaseに保存。保存した行数を返す"""
+    # GitHub Actions環境ではブロックされる店舗をスキップ
+    available_shops = [name for name, _ in SHOPS if name not in SKIP_SHOPS_IN_CI]
+
     try:
-        results = compare_prices(card_name)
+        results = compare_prices(card_name, shop_names=available_shops)
     except Exception as e:
         print(f"  スクレイピング失敗 [{card_name}]: {e}")
         return 0
