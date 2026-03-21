@@ -259,6 +259,12 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .share-btn-line:hover{background:rgba(6,199,85,.15)}
 .share-btn-copy{color:var(--accent-l);border-color:var(--accent);background:rgba(74,124,255,.06)}
 .share-btn-copy:hover{background:rgba(74,124,255,.15)}
+.share-menu-wrap{position:relative;display:inline-block}
+.share-menu{display:none;position:absolute;bottom:calc(100% + 6px);left:0;min-width:280px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,.4);z-index:100;padding:6px 0}
+.share-menu.open{display:block}
+.share-menu-item{display:block;width:100%;padding:8px 14px;font:.75rem var(--font);color:var(--text);background:none;border:none;cursor:pointer;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.share-menu-item:hover{background:rgba(255,255,255,.06)}
+.share-menu-label{padding:6px 14px 2px;font:.65rem var(--font);color:var(--text-d);font-weight:600;letter-spacing:.05em}
 
 /* Card image */
 .card-hero{display:flex;gap:20px;margin-bottom:20px;align-items:flex-start}
@@ -415,6 +421,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   /* シェアボタン */
   .share-btns{flex-wrap:wrap;justify-content:center}
   .share-btn{padding:8px 14px;font-size:.75rem;min-height:40px}
+  .share-menu{left:auto;right:0;min-width:260px}
 
   /* デッキビルダー */
   .deck-builder{padding:0}
@@ -937,6 +944,89 @@ function copyShareText(text){
   }).catch(()=>{});
 }
 
+// シェアメニュー用: 検索結果からシェア選択肢を生成
+function _buildShareOptions(cardName, data, results){
+  const url=location.origin;
+  const opts=[];
+  const inStock=results.filter(r=>!r.sold_out);
+  const best=inStock.length>0?inStock.reduce((a,b)=>a.price<b.price?a:b):null;
+  // 1. 最安値
+  if(best){
+    opts.push({label:`最安値: ¥${best.price.toLocaleString()}（${best.shop}）`,
+      text:`${cardName} 最安値 ¥${best.price.toLocaleString()}（${best.shop}）`});
+  }
+  // 2. レアリティ別の最高額（高い順に最大3つ）
+  const rarities=[...new Set(results.filter(r=>r.rarity&&!r.sold_out).map(r=>r.rarity))];
+  const byRarity=rarities.map(r=>{
+    const items=inStock.filter(x=>x.rarity===r);
+    const hi=items.reduce((a,b)=>a.price>b.price?a:b,{price:0});
+    return {rarity:r, price:hi.price, shop:hi.shop};
+  }).filter(x=>x.price>0).sort((a,b)=>b.price-a.price);
+  for(const r of byRarity.slice(0,3)){
+    opts.push({label:`${r.rarity}: ¥${r.price.toLocaleString()}（${r.shop}）`,
+      text:`${cardName}【${r.rarity}】¥${r.price.toLocaleString()}（${r.shop}）`});
+  }
+  // 3. 在庫状況
+  const stockCount=inStock.length;
+  const shopCount=[...new Set(inStock.map(r=>r.shop))].length;
+  if(stockCount>0){
+    opts.push({label:`在庫あり ${stockCount}件（${shopCount}店舗）`,
+      text:`${cardName} 在庫あり${stockCount}件！ ${shopCount}店舗で見つかりました`});
+  }
+  return opts;
+}
+
+function _shareToX(text){
+  window.open('https://x.com/intent/tweet?text='+encodeURIComponent(text+' '+location.origin),'_blank');
+}
+function _shareToLine(text){
+  window.open('https://social-plugins.line.me/lineit/share?url='+encodeURIComponent(location.origin)+'&text='+encodeURIComponent(text),'_blank');
+}
+function _shareCopy(text,btnEl){
+  navigator.clipboard.writeText(text+' '+location.origin).then(()=>{
+    if(btnEl){const orig=btnEl.textContent;btnEl.textContent='コピーしました!';setTimeout(()=>{btnEl.textContent=orig;},1500);}
+  }).catch(()=>{});
+}
+
+// 買取用シェア選択肢
+function _buildBuyShareOptions(cardName, data, results){
+  const opts=[];
+  const best=results.length>0?results.reduce((a,b)=>a.price>b.price?a:b):null;
+  // 1. 最高買取額
+  if(best){
+    opts.push({label:`最高買取額: ¥${best.price.toLocaleString()}（${best.shop}）`,
+      text:`${cardName} 最高買取 ¥${best.price.toLocaleString()}（${best.shop}）`});
+  }
+  // 2. レアリティ別の最高額（高い順に最大3つ）
+  const rarities=[...new Set(results.filter(r=>r.rarity).map(r=>r.rarity))];
+  const byRarity=rarities.map(r=>{
+    const items=results.filter(x=>x.rarity===r);
+    const hi=items.reduce((a,b)=>a.price>b.price?a:b,{price:0});
+    return {rarity:r, price:hi.price, shop:hi.shop};
+  }).filter(x=>x.price>0).sort((a,b)=>b.price-a.price);
+  for(const r of byRarity.slice(0,3)){
+    opts.push({label:`${r.rarity}: ¥${r.price.toLocaleString()}（${r.shop}）`,
+      text:`${cardName}【${r.rarity}】買取 ¥${r.price.toLocaleString()}（${r.shop}）`});
+  }
+  return opts;
+}
+
+function toggleShareMenu(menuId){
+  const menu=document.getElementById(menuId);
+  if(!menu)return;
+  const isOpen=menu.classList.contains('open');
+  // 全メニューを閉じる
+  document.querySelectorAll('.share-menu.open').forEach(m=>m.classList.remove('open'));
+  if(!isOpen) menu.classList.toggle('open');
+}
+
+// メニュー外クリックで閉じる
+document.addEventListener('click',e=>{
+  if(!e.target.closest('.share-menu-wrap')){
+    document.querySelectorAll('.share-menu.open').forEach(m=>m.classList.remove('open'));
+  }
+});
+
 // ── KONAMI公式DBリンク取得（画像は店舗から取得済み）──
 function fetchCardImage(cardName){
   _konamiDbUrl='';
@@ -1175,10 +1265,6 @@ function renderAll(d){
   const best=inStock.length>0?inStock.reduce((a,b)=>a.price<b.price?a:b):null;
   const bestPrice=best?`¥${best.price.toLocaleString()}`:'価格不明';
   const bestShop=best?best.shop:'';
-  const shareText=best
-    ?`${searchTerm} 最安値 ${bestPrice}（${bestShop}）！ 7店舗比較で見つけました`
-    :`${searchTerm} の価格を7店舗で比較しました`;
-  const shareUrl=location.origin;
   heroInfo.innerHTML=`<div class="card-hero-name">${esc(searchTerm)}</div>
     <div class="card-hero-meta">
       ${best?`最安値: <strong style="color:var(--gold);font-size:1.1rem">${bestPrice}</strong> (${bestShop})`:'在庫なし'}<br>
@@ -1187,10 +1273,25 @@ function renderAll(d){
     </div>
     <div class="share-btns">
       <button onclick="addToDeck('${searchTerm.replace(/'/g,"\\'")}')" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ デッキに追加</button>
-      <a class="share-btn share-btn-x" href="https://x.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}" target="_blank" rel="noopener" title="Xでシェア">𝕏 シェア</a>
-      <a class="share-btn share-btn-line" href="https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareText)}" target="_blank" rel="noopener" title="LINEで送る">LINE</a>
-      <button class="share-btn share-btn-copy" onclick="copyShareText('${shareText.replace(/'/g,"\\'")} ${shareUrl}')" title="テキストをコピー">コピー</button>
+      <div class="share-menu-wrap">
+        <button class="share-btn share-btn-x" onclick="toggleShareMenu('shareMenuSell')">シェア</button>
+        <div class="share-menu" id="shareMenuSell"></div>
+      </div>
     </div>`;
+  // シェアメニュー構築
+  const shareOpts=_buildShareOptions(searchTerm,d,D);
+  const smEl=document.getElementById('shareMenuSell');
+  if(smEl&&shareOpts.length>0){
+    let sm='<div class="share-menu-label">シェアする内容を選択</div>';
+    shareOpts.forEach((o,i)=>{
+      const t=o.text.replace(/'/g,"\\'");
+      sm+=`<div class="share-menu-label" style="padding-top:${i?8:4}px">${esc(o.label)}</div>`;
+      sm+=`<button class="share-menu-item" onclick="_shareToX('${t}')">𝕏 でポスト</button>`;
+      sm+=`<button class="share-menu-item" onclick="_shareToLine('${t}')">LINE で送る</button>`;
+      sm+=`<button class="share-menu-item" onclick="_shareCopy('${t}',this)">テキストをコピー</button>`;
+    });
+    smEl.innerHTML=sm;
+  }
 
   // カーナベル（アフィリエイト提携先）の画像を優先使用
   const shopImg=D.find(r=>r.shop==='カーナベル'&&r.image&&r.image.length>5)||D.find(r=>r.image&&r.image.length>5);
@@ -1933,11 +2034,6 @@ function renderBuyAll(d){
   const best=buyD.length>0?buyD.reduce((a,b)=>a.price>b.price?a:b):null;
   const bestPrice=best?`¥${best.price.toLocaleString()}`:'価格不明';
   const bestShop=best?best.shop:'';
-  const shareText=best
-    ?`${searchTerm} 最高買取 ${bestPrice}（${bestShop}）！ 3店舗比較で見つけました`
-    :`${searchTerm} の買取価格を3店舗で比較しました`;
-  const shareUrl=location.origin;
-
   // カーナベル（アフィリエイト提携先）の画像を優先使用
   const shopImg=buyD.find(r=>r.shop==='カーナベル'&&r.image&&r.image.length>5)||buyD.find(r=>r.image&&r.image.length>5);
   if(shopImg){
@@ -1952,10 +2048,25 @@ function renderBuyAll(d){
       全 ${d.total}件の買取情報
     </div>
     <div class="share-btns">
-      <a class="share-btn share-btn-x" href="https://x.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}" target="_blank" rel="noopener">𝕏 シェア</a>
-      <a class="share-btn share-btn-line" href="https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareText)}" target="_blank" rel="noopener">LINE</a>
-      <button class="share-btn share-btn-copy" onclick="copyShareText('${shareText.replace(/'/g,"\\'")} ${shareUrl}')">コピー</button>
+      <div class="share-menu-wrap">
+        <button class="share-btn share-btn-x" onclick="toggleShareMenu('shareMenuBuy')">シェア</button>
+        <div class="share-menu" id="shareMenuBuy"></div>
+      </div>
     </div>`;
+  // 買取シェアメニュー構築
+  const buyShareOpts=_buildBuyShareOptions(searchTerm,d,buyD);
+  const bsmEl=document.getElementById('shareMenuBuy');
+  if(bsmEl&&buyShareOpts.length>0){
+    let bsm='<div class="share-menu-label">シェアする内容を選択</div>';
+    buyShareOpts.forEach((o,i)=>{
+      const t=o.text.replace(/'/g,"\\'");
+      bsm+=`<div class="share-menu-label" style="padding-top:${i?8:4}px">${esc(o.label)}</div>`;
+      bsm+=`<button class="share-menu-item" onclick="_shareToX('${t}')">𝕏 でポスト</button>`;
+      bsm+=`<button class="share-menu-item" onclick="_shareToLine('${t}')">LINE で送る</button>`;
+      bsm+=`<button class="share-menu-item" onclick="_shareCopy('${t}',this)">テキストをコピー</button>`;
+    });
+    bsmEl.innerHTML=bsm;
+  }
 
   // サマリーカード — 店舗別最高額（全体最高の店舗をハイライト）
   let h='';
