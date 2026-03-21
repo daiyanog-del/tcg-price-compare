@@ -216,6 +216,24 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .trending-name{flex:1;font-size:.88rem;font-weight:500}
 .trending-count{font:.72rem var(--mono);color:var(--text-d)}
 
+/* 値上がり/値下がり */
+.movers{max-width:520px;margin:24px auto 0;text-align:left}
+.movers-tabs{display:flex;gap:0;margin-bottom:12px;justify-content:center}
+.movers-tab{padding:6px 18px;font-size:.78rem;font-weight:600;border:1px solid var(--border);background:var(--bg-card);color:var(--text-m);cursor:pointer;transition:all .15s}
+.movers-tab:first-child{border-radius:6px 0 0 6px}
+.movers-tab:last-child{border-radius:0 6px 6px 0}
+.movers-tab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.movers-list{display:flex;flex-direction:column;gap:4px}
+.movers-item{display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:border-color .15s,background .15s}
+.movers-item:hover{border-color:var(--accent);background:var(--bg-hover)}
+.movers-rank{font:700 .82rem var(--mono);color:var(--text-d);min-width:20px}
+.movers-name{flex:1;font-size:.85rem;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.movers-price{text-align:right;font-size:.78rem;line-height:1.4}
+.movers-price-now{font:600 .85rem var(--mono)}
+.movers-diff{font:600 .75rem var(--mono)}
+.movers-diff.up{color:#ef4444}
+.movers-diff.down{color:#22c55e}
+
 /* Fade */
 @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 .fin{animation:fadeIn .3s ease-out both}
@@ -544,6 +562,14 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
     <div id="trendingSection" class="trending hidden">
       <h2 class="trending-title">みんなが検索中</h2>
       <div class="trending-list" id="trendingList"></div>
+    </div>
+
+    <div id="moversSection" class="movers hidden">
+      <div class="movers-tabs">
+        <button class="movers-tab active" onclick="switchMovers('up')">値上がり</button>
+        <button class="movers-tab" onclick="switchMovers('down')">値下がり</button>
+      </div>
+      <div class="movers-list" id="moversList"></div>
     </div>
   </div>
   </div><!-- /mode-search -->
@@ -1256,8 +1282,41 @@ function searchCard(name){
   doSearch();
 }
 
+// ── 値上がり/値下がり ──
+let _moversDir='up';
+function switchMovers(dir){
+  _moversDir=dir;
+  document.querySelectorAll('.movers-tab').forEach(b=>b.classList.toggle('active',b.textContent.includes(dir==='up'?'上がり':'下がり')));
+  loadMovers(dir);
+}
+function loadMovers(dir){
+  fetch(`/api/movers?direction=${dir||_moversDir}&limit=10`)
+    .then(r=>r.json())
+    .then(items=>{
+      const sec=document.getElementById('moversSection');
+      const list=document.getElementById('moversList');
+      if(!items.length){sec.classList.add('hidden');return;}
+      sec.classList.remove('hidden');
+      list.innerHTML=items.map((item,i)=>{
+        const isUp=item.diff>0;
+        const sign=isUp?'+':'';
+        const cls=isUp?'up':'down';
+        return `<div class="movers-item" onclick="searchCard('${item.name.replace(/'/g,"\\'")}')">
+          <span class="movers-rank">${i+1}</span>
+          <span class="movers-name">${esc(item.name)}</span>
+          <span class="movers-price">
+            <span class="movers-price-now">&yen;${item.today.toLocaleString()}</span>
+            <span class="movers-diff ${cls}">${sign}${item.diff.toLocaleString()} (${sign}${item.pct}%)</span>
+          </span>
+        </div>`;
+      }).join('');
+    })
+    .catch(()=>{});
+}
+
 // 初期ロード
 loadTrending();
+loadMovers('up');
 
 // SEO: カード個別ページの場合、自動検索を実行
 if(_pageCardName){

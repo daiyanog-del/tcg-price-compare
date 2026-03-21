@@ -551,6 +551,53 @@ def api_trending():
     limit = min(int(request.args.get("limit", 10)), 30)
     return jsonify(_get_trending(limit))
 
+# ── 値上がり/値下がりランキング（キャッシュ付き） ──
+_movers_cache: dict[str, list] = {}
+_movers_cache_time: float = 0
+_MOVERS_CACHE_SEC = 600  # 10分キャッシュ
+
+def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
+    """Supabaseから値上がり/値下がりランキングを取得"""
+    global _movers_cache, _movers_cache_time
+
+    now = time.time()
+    if _movers_cache and now - _movers_cache_time < _MOVERS_CACHE_SEC:
+        return _movers_cache.get(direction, [])[:limit]
+
+    if not _supabase_client:
+        return []
+
+    try:
+        up_resp = _supabase_client.rpc("get_price_movers", {
+            "direction": "up", "max_results": 20
+        }).execute()
+        down_resp = _supabase_client.rpc("get_price_movers", {
+            "direction": "down", "max_results": 20
+        }).execute()
+
+        _movers_cache = {
+            "up": [{"name": r["card_name"], "today": r["today_price"],
+                     "yesterday": r["yesterday_price"], "diff": r["price_diff"],
+                     "pct": float(r["change_pct"])} for r in (up_resp.data or [])],
+            "down": [{"name": r["card_name"], "today": r["today_price"],
+                       "yesterday": r["yesterday_price"], "diff": r["price_diff"],
+                       "pct": float(r["change_pct"])} for r in (down_resp.data or [])],
+        }
+        _movers_cache_time = now
+        return _movers_cache.get(direction, [])[:limit]
+    except Exception as e:
+        logger.warning(f"価格変動ランキング取得失敗: {e}")
+        return []
+
+@app.route("/api/movers")
+def api_movers():
+    """値上がり/値下がりランキングを返す"""
+    direction = request.args.get("direction", "up")
+    if direction not in ("up", "down"):
+        return jsonify({"error": "direction は up または down"}), 400
+    limit = min(int(request.args.get("limit", 10)), 20)
+    return jsonify(_get_price_movers(direction, limit))
+
 @app.route("/api/buyback")
 def api_buyback():
     """買取価格比較 — 各店舗の買取価格をSSEで返す"""
