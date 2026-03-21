@@ -87,7 +87,7 @@ a{color:var(--accent-l);text-decoration:none}a:hover{text-decoration:underline}
 .wrap{max-width:1140px;margin:0 auto;padding:0 20px;position:relative;z-index:1}
 
 /* ── Header ── */
-header{padding:40px 0 12px;text-align:center}
+header{padding:24px 0 8px;text-align:center}
 .logo-link{display:inline-flex;align-items:center;gap:10px;text-decoration:none}
 .logo-icon{width:32px;height:32px;flex-shrink:0}
 .logo-text{display:flex;flex-direction:column;align-items:flex-start;line-height:1.1}
@@ -96,7 +96,7 @@ header{padding:40px 0 12px;text-align:center}
 header .subtitle{font-size:.78rem;color:var(--text-d);margin-top:8px;letter-spacing:.02em}
 
 /* ── Search ── */
-.search{display:flex;gap:8px;max-width:540px;margin:0 auto 36px;position:relative}
+.search{display:flex;gap:8px;max-width:540px;margin:0 auto 20px;position:relative}
 .search input{flex:1;padding:13px 18px;font:1rem var(--font);background:var(--bg-input);border:1.5px solid var(--border);border-radius:var(--radius);color:var(--text);outline:0;transition:border .2s,box-shadow .2s}
 .search input:focus{border-color:var(--border-hl);box-shadow:0 0 0 3px rgba(74,124,255,.12)}
 .search input::placeholder{color:var(--text-d)}
@@ -112,8 +112,14 @@ header .subtitle{font-size:.78rem;color:var(--text-d);margin-top:8px;letter-spac
 .suggest-hint{padding:8px 16px;font-size:.72rem;color:var(--text-d);text-align:center}
 
 /* ── Progress ── */
-.shop-toggles{display:flex;gap:6px;max-width:540px;margin:-20px auto 20px;justify-content:center;flex-wrap:wrap}
-.shop-toggle{display:flex;align-items:center;gap:5px;padding:6px 14px;font-size:.78rem;font-weight:600;color:var(--text-d);background:var(--bg-card);border:1.5px solid var(--border);border-radius:20px;cursor:pointer;transition:all .2s;user-select:none}
+.shop-toggles-wrap{max-width:540px;margin:-12px auto 16px;text-align:center}
+.shop-toggles-btn{font:.75rem var(--font);color:var(--text-d);background:none;border:none;cursor:pointer;padding:4px 8px;transition:color .15s}
+.shop-toggles-btn:hover{color:var(--text-m)}
+.shop-toggles-btn::after{content:'▼';font-size:.6rem;margin-left:4px;display:inline-block;transition:transform .2s}
+.shop-toggles-btn.open::after{transform:rotate(180deg)}
+.shop-toggles{display:none;gap:6px;max-width:540px;margin:8px auto 0;justify-content:center;flex-wrap:wrap}
+.shop-toggles.open{display:flex}
+.shop-toggle{display:flex;align-items:center;gap:5px;padding:5px 12px;font-size:.75rem;font-weight:600;color:var(--text-d);background:var(--bg-card);border:1.5px solid var(--border);border-radius:20px;cursor:pointer;transition:all .2s;user-select:none}
 .shop-toggle input{display:none}
 .shop-toggle.active{color:var(--text);border-color:var(--accent);background:rgba(74,124,255,.08)}
 .shop-toggle:hover{border-color:var(--text-m)}
@@ -330,7 +336,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 
 /* Mobile — スマホ */
 @media(max-width:640px){
-  header{padding:24px 0 16px}
+  header{padding:16px 0 8px}
   .logo-main{font-size:1.15rem}
   .logo-sub{font-size:.6rem}
   .logo-icon{width:26px;height:26px}
@@ -346,7 +352,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   .mode-tab{padding:10px 14px;font-size:.78rem;min-height:44px}
 
   /* 店舗トグル */
-  .shop-toggles{gap:4px;margin:-12px auto 14px}
+  .shop-toggles-wrap{margin:-8px auto 12px}
   .shop-toggle{padding:8px 12px;font-size:.75rem;min-height:40px}
 
   /* プログレス */
@@ -476,7 +482,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
         </span>
       </a>
     </h1>
-    <p class="subtitle">7店舗の販売価格・買取価格をリアルタイム一括比較</p>
+    <p class="subtitle">6店舗の販売・買取価格をリアルタイム比較</p>
     {% if card_name %}
     <nav style="font-size:.75rem;color:var(--text-d);margin-top:6px">
       <a href="/" style="color:var(--text-m)">トップ</a> &gt;
@@ -505,28 +511,28 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
     <div class="suggest-dropdown" id="suggestDrop"></div>
   </div>
 
-  <div class="shop-toggles" id="shopToggles">
-    <label class="shop-toggle active" data-shop="遊々亭">
-      <input type="checkbox" checked> 遊々亭
-    </label>
-    <label class="shop-toggle active" data-shop="カードラッシュ">
-      <input type="checkbox" checked> カードラッシュ
-    </label>
-    <label class="shop-toggle active" data-shop="トレコロCB">
-      <input type="checkbox" checked> トレコロCB
-    </label>
-    <label class="shop-toggle active" data-shop="カーナベル">
-      <input type="checkbox" checked> カーナベル
-    </label>
-    <label class="shop-toggle active" data-shop="カードラボ">
-      <input type="checkbox" checked> カードラボ
-    </label>
-    <label class="shop-toggle active" data-shop="まんぞく屋">
-      <input type="checkbox" checked> まんぞく屋
-    </label>
-    <label class="shop-toggle" data-shop="駿河屋" title="現在メンテナンス中">
-      <input type="checkbox" disabled> 駿河屋 (停止中)
-    </label>
+  <div class="shop-toggles-wrap">
+    <button class="shop-toggles-btn" onclick="this.classList.toggle('open');document.getElementById('shopToggles').classList.toggle('open')">検索する店舗を選ぶ（6店舗）</button>
+    <div class="shop-toggles" id="shopToggles">
+      <label class="shop-toggle active" data-shop="遊々亭">
+        <input type="checkbox" checked> 遊々亭
+      </label>
+      <label class="shop-toggle active" data-shop="カードラッシュ">
+        <input type="checkbox" checked> カードラッシュ
+      </label>
+      <label class="shop-toggle active" data-shop="トレコロCB">
+        <input type="checkbox" checked> トレコロCB
+      </label>
+      <label class="shop-toggle active" data-shop="カーナベル">
+        <input type="checkbox" checked> カーナベル
+      </label>
+      <label class="shop-toggle active" data-shop="カードラボ">
+        <input type="checkbox" checked> カードラボ
+      </label>
+      <label class="shop-toggle active" data-shop="まんぞく屋">
+        <input type="checkbox" checked> まんぞく屋
+      </label>
+    </div>
   </div>
 
   <div class="progress" id="prog"></div>
