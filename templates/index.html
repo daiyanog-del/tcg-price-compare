@@ -5,27 +5,27 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="google-site-verification" content="7SBMfipn1AANFZK-55AZRO3tvCcB5j9iZ9h3sm7r5r0">
 {% if card_name and page_mode == 'search' %}
-<title>{{ card_name }} の価格比較 | Cardex</title>
+<title>{{ card_name }} の価格比較 | CardPrice</title>
 <meta name="description" content="{{ card_name }}の最安値を遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボ・まんぞく屋の6店舗から一括比較。{% if best_price %}現在の最安値は¥{{ '{:,}'.format(best_price) }}。{% endif %}リアルタイム価格検索。">
-<meta property="og:title" content="{{ card_name }} の価格比較 | Cardex">
+<meta property="og:title" content="{{ card_name }} の価格比較 | CardPrice">
 <meta property="og:description" content="{{ card_name }}の最安値を7店舗で比較{% if best_price %}。最安¥{{ '{:,}'.format(best_price) }}{% endif %}">
 <link rel="canonical" href="{{ request.url_root.rstrip('/') }}/card/{{ card_name | urlencode }}">
 {% elif card_name and page_mode == 'buyback' %}
-<title>{{ card_name }} の買取価格比較 | Cardex</title>
+<title>{{ card_name }} の買取価格比較 | CardPrice</title>
 <meta name="description" content="{{ card_name }}の買取価格をカードラッシュ・カーナベル・遊々亭の3店舗で一括比較。{% if best_price %}最高買取額¥{{ '{:,}'.format(best_price) }}。{% endif %}一番高く売れるお店が見つかります。">
-<meta property="og:title" content="{{ card_name }} の買取価格比較 | Cardex">
+<meta property="og:title" content="{{ card_name }} の買取価格比較 | CardPrice">
 <meta property="og:description" content="{{ card_name }}の買取価格を3店舗で比較{% if best_price %}。最高¥{{ '{:,}'.format(best_price) }}{% endif %}">
 <link rel="canonical" href="{{ request.url_root.rstrip('/') }}/buy/{{ card_name | urlencode }}">
 {% else %}
-<title>Cardex — 遊戯王OCG 価格比較</title>
+<title>CardPrice is? — 遊戯王OCG 価格比較</title>
 <meta name="description" content="遊戯王OCGカードの価格を遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボ・まんぞく屋の6店舗から一括比較。買取価格比較・デッキ一括見積もりにも対応。">
-<meta property="og:title" content="Cardex — 遊戯王OCG 価格比較">
+<meta property="og:title" content="CardPrice is? — 遊戯王OCG 価格比較">
 <meta property="og:description" content="遊戯王OCGカードの価格を7店舗から一括比較。買取価格・デッキ見積もり対応。">
 <link rel="canonical" href="{{ request.url_root.rstrip('/') }}/">
 {% endif %}
 <meta property="og:type" content="website">
 <meta property="og:locale" content="ja_JP">
-<meta property="og:site_name" content="Cardex">
+<meta property="og:site_name" content="CardPrice is?">
 <meta name="robots" content="index, follow">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='8' y='12' width='50' height='72' rx='5' fill='%234a7cff' stroke='%23fff' stroke-width='3'/><rect x='42' y='16' width='50' height='72' rx='5' fill='%23e8c848' stroke='%23fff' stroke-width='3'/><text x='67' y='62' font-size='28' font-weight='bold' fill='%23fff' text-anchor='middle' font-family='Arial'>¥</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -490,7 +490,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
           <text x="67" y="62" font-size="28" font-weight="bold" fill="#fff" text-anchor="middle" font-family="Arial">¥</text>
         </svg>
         <span class="logo-text">
-          <span class="logo-main">Cardex</span>
+          <span class="logo-main">Card<span style="margin-left:-0.04em">P</span>rice</span>
           <span class="logo-sub">遊戯王OCG 価格比較</span>
         </span>
       </a>
@@ -750,7 +750,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 <!-- フッター -->
 <footer class="site-footer">
   <a onclick="openLegalModal('privacy')">プライバシーポリシー</a>｜<a onclick="openLegalModal('terms')">利用規約</a>｜<a onclick="openLegalModal('shop')">ショップ運営者様へ</a>｜<a href="mailto:tcg.price.compare@gmail.com">お問い合わせ</a>
-  <div class="footer-copy">&copy; 2025 Cardex</div>
+  <div class="footer-copy">&copy; 2025 CardPrice</div>
 </footer>
 
 <!-- プライバシーポリシー モーダル -->
@@ -761,7 +761,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
       <button class="legal-modal-close" onclick="closeLegalModal('privacy')">&times;</button>
     </div>
     <div class="legal-modal-body">
-      <p>Cardex（以下「本サービス」）は、個人が運営するWebサービスです。本サービスにおけるユーザー情報の取扱いについて、以下のとおり定めます。</p>
+      <p>CardPrice（以下「本サービス」）は、個人が運営するWebサービスです。本サービスにおけるユーザー情報の取扱いについて、以下のとおり定めます。</p>
 
       <h3>1. 収集する情報</h3>
       <p>本サービスでは、以下の情報を取得する場合があります。</p>
@@ -805,7 +805,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
       <button class="legal-modal-close" onclick="closeLegalModal('terms')">&times;</button>
     </div>
     <div class="legal-modal-body">
-      <p>本利用規約（以下「本規約」）は、Cardex（以下「本サービス」）の利用条件を定めるものです。本サービスを利用された時点で、本規約に同意したものとみなします。</p>
+      <p>本利用規約（以下「本規約」）は、CardPrice（以下「本サービス」）の利用条件を定めるものです。本サービスを利用された時点で、本規約に同意したものとみなします。</p>
 
       <h3>1. サービスの概要</h3>
       <p>本サービスは、遊戯王OCGカードの販売価格および買取価格を複数のショップ（遊々亭、カードラッシュ、トレコロCB、カーナベル、カードラボ）から取得し、比較表示する個人運営のWebサービスです。</p>
@@ -977,7 +977,7 @@ function _buildShareOptions(cardName, data, results){
 }
 
 function _shareToX(text){
-  window.open('https://x.com/intent/tweet?text='+encodeURIComponent(text+' #Cardex '+location.origin),'_blank');
+  window.open('https://x.com/intent/tweet?text='+encodeURIComponent(text+' #CardPriceis '+location.origin),'_blank');
 }
 function _shareToLine(text){
   window.open('https://social-plugins.line.me/lineit/share?url='+encodeURIComponent(location.origin)+'&text='+encodeURIComponent(text),'_blank');
@@ -1497,7 +1497,7 @@ function _updateUrl(cardName, mode){
   }
   // ページタイトルも更新
   const suffix=mode==='buyback'?' の買取価格比較':' の価格比較';
-  document.title=cardName+suffix+' | Cardex';
+  document.title=cardName+suffix+' | CardPrice';
 }
 
 // ブラウザの戻る/進むボタン対応
