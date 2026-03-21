@@ -25,6 +25,21 @@ HEADERS = {
 }
 WAIT_SEC = 1.0
 DEBUG_DUMP_HTML = False
+
+def _normalize_fullwidth(text: str) -> str:
+    """全角英数字・一部記号を半角に変換"""
+    result = []
+    for ch in text:
+        cp = ord(ch)
+        # 全角英数字（Ａ-Ｚ, ａ-ｚ, ０-９）→ 半角
+        if 0xFF21 <= cp <= 0xFF3A or 0xFF41 <= cp <= 0xFF5A or 0xFF10 <= cp <= 0xFF19:
+            result.append(chr(cp - 0xFEE0))
+        # 全角スペース → 半角
+        elif cp == 0x3000:
+            result.append(' ')
+        else:
+            result.append(ch)
+    return ''.join(result)
 STRICT_NAME_FILTER = True
 EXCLUDE_SUPPLY = True
 
@@ -555,6 +570,9 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
     if not _KANABELL_CLOUD_ID or not _KANABELL_API_KEY:
         print("  ⚠️  カーナベル: KANABELL_CLOUD_ID / KANABELL_API_KEY が未設定です")
         return []
+
+    # カーナベルのESは半角で格納されているため、全角英数字を半角に正規化
+    card_name = _normalize_fullwidth(card_name)
 
     global _KANABELL_ES_URL
     if _KANABELL_ES_URL is None:
@@ -1097,6 +1115,9 @@ def scrape_kanabell_buy(card_name: str) -> list[dict]:
     if not _KANABELL_CLOUD_ID or not _KANABELL_API_KEY:
         print("  ⚠️  カーナベル買取: KANABELL_CLOUD_ID / KANABELL_API_KEY が未設定です")
         return []
+
+    # 全角英数字を半角に正規化
+    card_name = _normalize_fullwidth(card_name)
 
     global _KANABELL_ES_URL
     if _KANABELL_ES_URL is None:
