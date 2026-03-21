@@ -312,11 +312,12 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .meta-tier-label{font:.7rem var(--font);font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-d);margin-bottom:6px;padding-left:2px}
 .meta-tier-label .tier-badge{display:inline-block;padding:1px 7px;border-radius:3px;color:#fff;font-weight:800;margin-right:6px;font-size:.7rem}
 .tier-1{background:#e8444a}.tier-2{background:#e89844}.tier-3{background:#5898d8}.tier-4{background:#666}
-.meta-deck-list{display:flex;flex-wrap:wrap;gap:6px}
-.meta-deck-btn{padding:6px 14px;font:.78rem var(--font);font-weight:600;color:var(--text);background:var(--bg-card);border:1px solid var(--border);border-radius:6px;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:6px}
+.meta-deck-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px}
+.meta-deck-btn{padding:8px 12px;font:.78rem var(--font);font-weight:600;color:var(--text);background:var(--bg-card);border:1px solid var(--border);border-radius:6px;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:6px}
 .meta-deck-btn:hover{border-color:var(--accent);background:var(--bg-hover)}
+.meta-deck-btn.selected{border-color:var(--accent);background:rgba(74,124,255,.12)}
 .meta-deck-btn.loading{opacity:.6;pointer-events:none}
-.meta-deck-btn .meta-share{font:.65rem var(--mono);color:var(--text-d)}
+.meta-deck-btn .meta-share{font:.65rem var(--mono);color:var(--text-d);margin-left:auto}
 .meta-deck-detail{margin-top:12px;padding:14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius)}
 .meta-deck-detail h4{font-size:.85rem;margin-bottom:8px;color:var(--text)}
 .meta-card-list{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px}
@@ -1491,6 +1492,10 @@ async function loadMetaDeck(theme){
   const btn=document.getElementById('meta-btn-'+theme);
   if(btn) btn.classList.add('loading');
 
+  // 選択状態を更新
+  document.querySelectorAll('.meta-deck-btn').forEach(b=>b.classList.remove('selected'));
+  if(btn) btn.classList.add('selected');
+
   detailEl.classList.remove('hidden');
   detailEl.innerHTML='<div class="meta-loading">主要カードを読込中...</div>';
 
@@ -1534,7 +1539,7 @@ async function loadMetaDeck(theme){
       +'<button class="deck-btn deck-btn-secondary" onclick="applyMetaDeckToTextarea()">テキストに反映</button>'
       +'</div>'
       +recipeHtml
-      +'<div class="meta-note">採用率60%以上のカードを平均枚数で表示 / 手札誘発・汎用カード含む</div>';
+      +'<div class="meta-note">採用率40%以上のカードを平均枚数で表示 / 手札誘発・汎用カード含む</div>';
   }catch(e){
     detailEl.innerHTML='<div class="meta-loading">読込に失敗しました</div>';
   }finally{
@@ -1547,12 +1552,23 @@ let _lastMetaDeckText='';
 function applyMetaDeck(){
   document.getElementById('deckTextarea').value=_lastMetaDeckText;
   deckInputTab('paste');
+  // テキストエリアをハイライトして変化を伝える
+  const ta=document.getElementById('deckTextarea');
+  ta.style.borderColor='var(--accent)';
+  ta.style.boxShadow='0 0 0 3px rgba(74,124,255,.2)';
+  setTimeout(()=>{ta.style.borderColor='';ta.style.boxShadow='';},1500);
   calcDeck(false);
 }
 
 function applyMetaDeckToTextarea(){
   document.getElementById('deckTextarea').value=_lastMetaDeckText;
   deckInputTab('paste');
+  // テキストエリアをハイライトして変化を伝える
+  const ta=document.getElementById('deckTextarea');
+  ta.style.borderColor='var(--accent)';
+  ta.style.boxShadow='0 0 0 3px rgba(74,124,255,.2)';
+  ta.scrollIntoView({behavior:'smooth',block:'center'});
+  setTimeout(()=>{ta.style.borderColor='';ta.style.boxShadow='';},1500);
 }
 
 // ── 最新弾パック ──
