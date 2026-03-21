@@ -6,9 +6,9 @@
 <meta name="google-site-verification" content="7SBMfipn1AANFZK-55AZRO3tvCcB5j9iZ9h3sm7r5r0">
 {% if card_name and page_mode == 'search' %}
 <title>{{ card_name }} の価格比較 | 遊戯王OCG 価格比較</title>
-<meta name="description" content="{{ card_name }}の最安値を遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボ・まんぞく屋の6店舗から一括比較。{% if best_price %}現在の最安値は¥{{ '{:,}'.format(best_price) }}。{% endif %}リアルタイム価格検索。">
+<meta name="description" content="{{ card_name }}の最安値を遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボ・まんぞく屋・駿河屋の7店舗から一括比較。{% if best_price %}現在の最安値は¥{{ '{:,}'.format(best_price) }}。{% endif %}リアルタイム価格検索。">
 <meta property="og:title" content="{{ card_name }} の価格比較 | 遊戯王OCG 価格比較">
-<meta property="og:description" content="{{ card_name }}の最安値を6店舗で比較{% if best_price %}。最安¥{{ '{:,}'.format(best_price) }}{% endif %}">
+<meta property="og:description" content="{{ card_name }}の最安値を7店舗で比較{% if best_price %}。最安¥{{ '{:,}'.format(best_price) }}{% endif %}">
 <link rel="canonical" href="{{ request.url_root.rstrip('/') }}/card/{{ card_name | urlencode }}">
 {% elif card_name and page_mode == 'buyback' %}
 <title>{{ card_name }} の買取価格比較 | 遊戯王OCG 価格比較</title>
@@ -17,10 +17,10 @@
 <meta property="og:description" content="{{ card_name }}の買取価格を3店舗で比較{% if best_price %}。最高¥{{ '{:,}'.format(best_price) }}{% endif %}">
 <link rel="canonical" href="{{ request.url_root.rstrip('/') }}/buy/{{ card_name | urlencode }}">
 {% else %}
-<title>遊戯王OCG 価格比較 — 6店舗の最安値を一括検索</title>
-<meta name="description" content="遊戯王OCGカードの価格を遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボ・まんぞく屋の6店舗から一括比較。買取価格比較・デッキ一括見積もりにも対応。">
-<meta property="og:title" content="遊戯王OCG 価格比較 — 6店舗の最安値を一括検索">
-<meta property="og:description" content="遊戯王OCGカードの価格を6店舗から一括比較。買取価格・デッキ見積もり対応。">
+<title>遊戯王OCG 価格比較 — 7店舗の最安値を一括検索</title>
+<meta name="description" content="遊戯王OCGカードの価格を遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボ・まんぞく屋・駿河屋の7店舗から一括比較。買取価格比較・デッキ一括見積もりにも対応。">
+<meta property="og:title" content="遊戯王OCG 価格比較 — 7店舗の最安値を一括検索">
+<meta property="og:description" content="遊戯王OCGカードの価格を7店舗から一括比較。買取価格・デッキ見積もり対応。">
 <link rel="canonical" href="{{ request.url_root.rstrip('/') }}/">
 {% endif %}
 <meta property="og:type" content="website">
@@ -38,7 +38,7 @@
   "@context": "https://schema.org",
   "@type": "WebPage",
   "name": "{{ card_name }} の{% if page_mode == 'buyback' %}買取{% endif %}価格比較",
-  "description": "{{ card_name }}の{% if page_mode == 'buyback' %}買取価格を3店舗{% else %}販売価格を6店舗{% endif %}で比較",
+  "description": "{{ card_name }}の{% if page_mode == 'buyback' %}買取価格を3店舗{% else %}販売価格を7店舗{% endif %}で比較",
   "mainEntity": {
     "@type": "Product",
     "name": "{{ card_name }}",
@@ -476,7 +476,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
         </span>
       </a>
     </h1>
-    <p class="subtitle">6店舗の販売価格・買取価格をリアルタイム一括比較</p>
+    <p class="subtitle">7店舗の販売価格・買取価格をリアルタイム一括比較</p>
     {% if card_name %}
     <nav style="font-size:.75rem;color:var(--text-d);margin-top:6px">
       <a href="/" style="color:var(--text-m)">トップ</a> &gt;
@@ -523,6 +523,9 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
     </label>
     <label class="shop-toggle active" data-shop="まんぞく屋">
       <input type="checkbox" checked> まんぞく屋
+    </label>
+    <label class="shop-toggle active" data-shop="駿河屋">
+      <input type="checkbox" checked> 駿河屋
     </label>
   </div>
 
@@ -1146,8 +1149,8 @@ function renderAll(d){
   const bestPrice=best?`¥${best.price.toLocaleString()}`:'価格不明';
   const bestShop=best?best.shop:'';
   const shareText=best
-    ?`${searchTerm} 最安値 ${bestPrice}（${bestShop}）！ 6店舗比較で見つけました`
-    :`${searchTerm} の価格を6店舗で比較しました`;
+    ?`${searchTerm} 最安値 ${bestPrice}（${bestShop}）！ 7店舗比較で見つけました`
+    :`${searchTerm} の価格を7店舗で比較しました`;
   const shareUrl=location.origin;
   heroInfo.innerHTML=`<div class="card-hero-name">${esc(searchTerm)}</div>
     <div class="card-hero-meta">
@@ -1739,7 +1742,7 @@ async function calcDeck(buyMode){
           progEl.textContent=`完了 — ${found}/${cards.length}枚の${modeLabel}を取得${notFound>0?` (${notFound}枚未取得)`:''}`;
           const deckShareText=isBuy
             ?`買取合計 ¥${total.toLocaleString()}（${cards.length}枚）！ 3店舗最高値で見積もりました`
-            :`デッキ合計 ¥${total.toLocaleString()}（${cards.length}枚）！ 6店舗最安値で見積もりました`;
+            :`デッキ合計 ¥${total.toLocaleString()}（${cards.length}枚）！ 7店舗最安値で見積もりました`;
           const deckShareUrl=location.origin;
           progEl.innerHTML+=`<div class="share-btns" style="margin-top:8px">
             <a class="share-btn share-btn-x" href="https://x.com/intent/tweet?text=${encodeURIComponent(deckShareText)}&url=${encodeURIComponent(deckShareUrl)}" target="_blank" rel="noopener">𝕏 シェア</a>

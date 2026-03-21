@@ -881,6 +881,117 @@ def scrape_manzoku(card_name: str) -> list[dict]:
     return results
 
 
+# ── 駿河屋 ──
+
+SURUGAYA_BASE = "https://www.suruga-ya.jp"
+
+# 駿河屋のレアリティ表記マッピング
+_SURUGAYA_RARITY_MAP = {
+    "SE": "シークレット",
+    "UR": "ウルトラ",
+    "SR": "スーパー",
+    "R": "レア",
+    "N": "ノーマル",
+    "NR": "ノーマルレア",
+    "NPR": "ノーマルパラレル",
+    "HR": "ホログラフィック",
+    "QCSE": "クォーターセンチュリーシークレット",
+    "PSE": "プリズマティックシークレット",
+    "EXSE": "エクストラシークレット",
+    "UL": "アルティメット",
+    "GL": "ゴールド",
+    "GS": "ゴールドシークレット",
+    "PG": "プレミアムゴールド",
+    "KC": "KC",
+    "ML": "ミレニアム",
+    "20SE": "20thシークレット",
+    "10000SE": "10000シークレット",
+}
+
+def scrape_surugaya(card_name: str) -> list[dict]:
+    """駿河屋 — 遊戯王カード検索（カテゴリ5）"""
+    page_url = (
+        f"{SURUGAYA_BASE}/search"
+        f"?category=5&search_word={requests.utils.quote(card_name)}"
+    )
+    soup = safe_get(page_url, timeout=20)
+    if not soup:
+        return []
+    dump_html("surugaya", soup)
+
+    results = []
+    for box in soup.select(".item_box"):
+        # カード名（h3内のテキスト）
+        h3 = box.select_one("h3")
+        if not h3:
+            continue
+        raw_title = h3.get_text(strip=True)
+        if not raw_title:
+            continue
+
+        # カード番号とレアリティを抽出（例: LPST-JP009[SE]：灰流うらら）
+        code = ""
+        rarity = ""
+        code_match = re.search(r'([A-Z0-9]+-JP[A-Z]?\d+)', raw_title)
+        if code_match:
+            code = code_match.group(1)
+        rarity_match = re.search(r'\[([A-Z0-9]+)\]', raw_title)
+        if rarity_match:
+            rarity_code = rarity_match.group(1)
+            rarity = _SURUGAYA_RARITY_MAP.get(rarity_code, rarity_code)
+
+        # カード名を抽出（「：」以降）
+        display_name = raw_title
+        if '：' in raw_title:
+            display_name = raw_title.split('：', 1)[1].strip()
+        elif '　' in raw_title:
+            display_name = raw_title.split('　', 1)[1].strip()
+
+        if not is_target_card(card_name, display_name):
+            continue
+
+        # 価格
+        box_text = box.get_text()
+        price = None
+        # strong内の価格を優先（セール価格）
+        price_el = box.select_one("strong")
+        if price_el:
+            price = parse_price(price_el.get_text())
+        if not price:
+            price_match = re.search(r'￥([\d,]+)', box_text)
+            if price_match:
+                price = parse_price(price_match.group(0))
+        if not price:
+            continue
+
+        # 品切れ判定
+        sold_out = '品切れ' in box_text
+
+        # 商品URL
+        product_url = ""
+        link = h3.select_one("a") or box.select_one("a[href*='/product/']")
+        if link:
+            href = link.get("href", "")
+            product_url = href if href.startswith("http") else SURUGAYA_BASE + href
+
+        # 画像
+        image_url = ""
+        img = box.select_one("img")
+        if img:
+            src = img.get("src", "") or img.get("data-src", "")
+            image_url = src if src.startswith("http") else SURUGAYA_BASE + src if src else ""
+
+        results.append({
+            "shop": "駿河屋", "name": display_name,
+            "rarity": normalize_rarity(rarity), "code": code,
+            "condition": "-", "price": price, "stock": 0 if sold_out else 1,
+            "sold_out": sold_out, "url": product_url,
+            "image": image_url,
+        })
+
+    return results
+
+
 # ══════════════════════════════════════════════════
 # 買取価格スクレイパー
 # ══════════════════════════════════════════════════
@@ -1203,10 +1314,11 @@ SHOPS = [
     ("カーナベル", scrape_kanabell),
     ("カードラボ", scrape_clabo),
     ("まんぞく屋", scrape_manzoku),
+    ("駿河屋", scrape_surugaya),
 ]
 
 # デフォルトで検索する店舗
-DEFAULT_SHOPS = ["遊々亭", "カードラッシュ", "トレコロCB", "カーナベル", "カードラボ", "まんぞく屋"]
+DEFAULT_SHOPS = ["遊々亭", "カードラッシュ", "トレコロCB", "カーナベル", "カードラボ", "まんぞく屋", "駿河屋"]
 
 
 def compare_prices(card_name: str, shop_names: list[str] | None = None) -> list[dict]:
