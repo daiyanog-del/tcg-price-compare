@@ -945,8 +945,27 @@ def scrape_surugaya(card_name: str) -> list[dict]:
         f"{SURUGAYA_BASE}/search"
         f"?category=501&search_word={requests.utils.quote(card_name)}"
     )
+    # 駿河屋はBot判定が厳しいため、ブラウザに近いヘッダーを送る
+    surugaya_headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/131.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "ja,en-US;q=0.7,en;q=0.3",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Referer": "https://www.suruga-ya.jp/",
+        "DNT": "1",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin",
+        "Sec-Fetch-User": "?1",
+    }
     try:
-        res = requests.get(page_url, headers=HEADERS, timeout=20)
+        res = requests.get(page_url, headers=surugaya_headers, timeout=20)
         res.raise_for_status()
         html_text = res.text
     except requests.RequestException as e:
