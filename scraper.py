@@ -909,10 +909,10 @@ _SURUGAYA_RARITY_MAP = {
 }
 
 def scrape_surugaya(card_name: str) -> list[dict]:
-    """駿河屋 — 遊戯王カード検索（カテゴリ5）"""
+    """駿河屋 — 遊戯王シングルカード検索（カテゴリ501）"""
     page_url = (
         f"{SURUGAYA_BASE}/search"
-        f"?category=5&search_word={requests.utils.quote(card_name)}"
+        f"?category=501&search_word={requests.utils.quote(card_name)}"
     )
     soup = safe_get(page_url, timeout=20)
     if not soup:
@@ -940,10 +940,12 @@ def scrape_surugaya(card_name: str) -> list[dict]:
             rarity_code = rarity_match.group(1)
             rarity = _SURUGAYA_RARITY_MAP.get(rarity_code, rarity_code)
 
-        # カード名を抽出（「：」以降）
+        # カード名を抽出（「：」または「:」以降）
         display_name = raw_title
         if '：' in raw_title:
             display_name = raw_title.split('：', 1)[1].strip()
+        elif ':' in raw_title:
+            display_name = raw_title.split(':', 1)[1].strip()
         elif '　' in raw_title:
             display_name = raw_title.split('　', 1)[1].strip()
 
