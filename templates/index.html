@@ -326,6 +326,11 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .meta-card-chip .chip-qty{font-weight:700;color:var(--accent-l);margin-right:3px}
 .meta-actions{display:flex;gap:8px;align-items:center}
 .meta-note{font:.7rem var(--font);color:var(--text-d);margin-top:8px}
+.pack-card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:4px}
+.pack-card-item{display:flex;align-items:center;gap:8px;padding:6px 10px;font:.78rem var(--font);color:var(--text-m);background:var(--bg-card);border:1px solid var(--border);border-radius:4px;cursor:pointer;transition:all .15s}
+.pack-card-item:hover{border-color:var(--accent);background:var(--bg-hover);color:var(--text)}
+.pack-card-num{font:.68rem var(--mono);color:var(--text-d);min-width:22px;text-align:right}
+.pack-card-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* Mobile — タブレット */
 @media(max-width:768px){
@@ -1610,6 +1615,11 @@ function renderPacks(){
 
 async function loadPackCards(packName, wikiPage, tcgName){
   const detailEl=document.getElementById('packDetail');
+  // 選択状態を更新
+  document.querySelectorAll('#packList .meta-deck-btn').forEach(b=>b.classList.remove('selected'));
+  const packBtn=document.getElementById('pack-btn-'+(packName));
+  if(packBtn) packBtn.classList.add('selected');
+
   detailEl.classList.remove('hidden');
   detailEl.innerHTML='<div class="meta-loading">カードリストを読込中...</div>';
 
@@ -1624,15 +1634,18 @@ async function loadPackCards(packName, wikiPage, tcgName){
       return;
     }
 
-    // カードチップ表示（クリックで個別検索）
-    let chips='';
-    for(const name of data.cards){
-      chips+='<span class="meta-card-chip clickable" onclick="searchCard(\''+esc(name).replace(/'/g,"\\'")+'\')">'+esc(name)+'</span>';
-    }
+    // カードチップ表示（クリックで個別検索、リスト形式）
+    let listHtml='';
+    data.cards.forEach((name,i)=>{
+      listHtml+=`<div class="pack-card-item clickable" onclick="searchCard('${esc(name).replace(/'/g,"\\'")}')">`
+        +`<span class="pack-card-num">${i+1}</span>`
+        +`<span class="pack-card-name">${esc(name)}</span>`
+        +`</div>`;
+    });
 
     detailEl.innerHTML='<h4>'+esc(packName)+' — 収録カード（'+data.count+'種）</h4>'
       +'<div class="meta-note" style="margin-bottom:8px">カード名をタップすると価格を検索します</div>'
-      +'<div class="meta-card-list" style="max-height:400px;overflow-y:auto">'+chips+'</div>';
+      +'<div class="pack-card-grid" style="max-height:400px;overflow-y:auto">'+listHtml+'</div>';
   }catch(e){
     detailEl.innerHTML='<div class="meta-loading">読込に失敗しました</div>';
   }
