@@ -260,9 +260,9 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .share-btn-copy{color:var(--accent-l);border-color:var(--accent);background:rgba(74,124,255,.06)}
 .share-btn-copy:hover{background:rgba(74,124,255,.15)}
 .share-menu-wrap{position:relative;display:inline-block}
-.share-menu{display:none;position:absolute;bottom:calc(100% + 6px);left:0;min-width:280px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,.4);z-index:100;padding:6px 0}
+.share-menu{display:none;position:absolute;top:calc(100% + 6px);left:0;min-width:280px;max-height:70vh;overflow-y:auto;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,.4);z-index:100;padding:6px 0}
 .share-menu.open{display:block}
-.share-menu-item{display:block;width:100%;padding:8px 14px;font:.75rem var(--font);color:var(--text);background:none;border:none;cursor:pointer;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.share-menu-item{display:block;width:100%;padding:8px 14px;font:.75rem var(--font);color:var(--text);background:none;border:none;cursor:pointer;text-align:left}
 .share-menu-item:hover{background:rgba(255,255,255,.06)}
 .share-menu-label{padding:6px 14px 2px;font:.65rem var(--font);color:var(--text-d);font-weight:600;letter-spacing:.05em}
 
@@ -421,7 +421,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   /* シェアボタン */
   .share-btns{flex-wrap:wrap;justify-content:center}
   .share-btn{padding:8px 14px;font-size:.75rem;min-height:40px}
-  .share-menu{left:auto;right:0;min-width:260px}
+  .share-menu{left:50%;right:auto;transform:translateX(-50%);min-width:260px;max-width:90vw}
 
   /* デッキビルダー */
   .deck-builder{padding:0}
