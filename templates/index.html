@@ -1538,13 +1538,14 @@ async function loadMetaDeck(theme){
     }
 
     detailEl.innerHTML='<h4>'+esc(theme)+' — 主要カード（'+data.cards.length+'種）</h4>'
-      +'<div class="meta-card-list">'+chips+'</div>'
-      +'<div class="meta-actions">'
+      +'<div class="meta-actions" style="margin-bottom:10px">'
       +'<button class="deck-btn deck-btn-primary" onclick="applyMetaDeck()">この構成で価格計算</button>'
       +'<button class="deck-btn deck-btn-secondary" onclick="applyMetaDeckToTextarea()">テキストに反映</button>'
       +'</div>'
+      +'<div class="meta-card-list">'+chips+'</div>'
       +recipeHtml
       +'<div class="meta-note">採用率40%以上のカードを平均枚数で表示 / 手札誘発・汎用カード含む</div>';
+    detailEl.scrollIntoView({behavior:'smooth',block:'start'});
   }catch(e){
     detailEl.innerHTML='<div class="meta-loading">読込に失敗しました</div>';
   }finally{
