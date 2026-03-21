@@ -369,7 +369,7 @@ def scrape_yuyu(card_name: str) -> list[dict]:
 # ── カードラッシュ ──
 
 def scrape_cardrush(card_name: str) -> list[dict]:
-    search_name = card_name.replace("・", "").replace("　", " ")
+    search_name = card_name.replace("・", "").replace("　", " ").replace("-", " ").replace("－", " ").replace("―", " ").replace("‐", " ")
     page_url = f"https://www.cardrush.jp/product-list?keyword={requests.utils.quote(search_name)}"
     soup = safe_get(page_url)
     if not soup:
