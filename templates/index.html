@@ -1028,6 +1028,13 @@ function doSearch(){
   document.getElementById('results').classList.add('hidden');
   document.getElementById('empty').classList.add('hidden');
 
+  // 前回の画像をクリア
+  cardImgUrl='';cardImgSmall='';
+  const heroWrap=document.getElementById('heroImgWrap');
+  if(heroWrap) heroWrap.innerHTML='';
+  const cardHero=document.getElementById('cardHero');
+  if(cardHero) cardHero.classList.add('hidden');
+
   // Build dynamic progress bar
   const prog=document.getElementById('prog');
   prog.innerHTML=shops.map(s=>
@@ -1854,6 +1861,12 @@ function doBuySearch(){
   btn.disabled=true;btn.textContent='検索中...';
   document.getElementById('buyResults').classList.add('hidden');
   document.getElementById('buyEmpty').classList.add('hidden');
+
+  // 前回の画像をクリア
+  const buyHeroWrap=document.getElementById('buyHeroImgWrap');
+  if(buyHeroWrap) buyHeroWrap.innerHTML='';
+  const buyCardHero=document.getElementById('buyCardHero');
+  if(buyCardHero) buyCardHero.classList.add('hidden');
 
   const prog=document.getElementById('buyProg');
   prog.innerHTML=shops.map(s=>
