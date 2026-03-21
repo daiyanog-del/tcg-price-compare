@@ -69,37 +69,92 @@ AFFILIATE_CONFIG = {
 }
 
 
-# ── 検索ランキング（メモリ内、再起動でリセット） ──
+# ── 検索ランキング（Supabase永続化 + メモリフォールバック） ──
 
 from collections import defaultdict
-from threading import Lock
+from threading import Lock, Thread
 
 _ranking_lock = Lock()
-_search_counts: dict[str, int] = defaultdict(int)  # カード名 → 検索回数
-_search_recent: list[tuple[float, str]] = []         # (timestamp, card_name)
+_search_recent: list[tuple[float, str]] = []  # メモリフォールバック用
 RANKING_RECENT_HOURS = 24
 
+# Supabaseクライアント（環境変数が設定されていれば有効）
+_supabase_client = None
+_SUPABASE_URL = os.environ.get("SUPABASE_URL")
+_SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+
+if _SUPABASE_URL and _SUPABASE_KEY:
+    try:
+        from supabase import create_client
+        _supabase_client = create_client(_SUPABASE_URL, _SUPABASE_KEY)
+        logger.info("Supabase接続成功 — 検索ランキングを永続化します")
+    except Exception as e:
+        logger.warning(f"Supabase接続失敗（メモリモードで動作）: {e}")
+
+# トレンドキャッシュ（Supabaseへのクエリを減らす）
+_trending_cache: list[dict] = []
+_trending_cache_time: float = 0
+_TRENDING_CACHE_SEC = 300  # 5分キャッシュ
+
 def _record_search(card_name: str):
-    """検索をランキングに記録"""
+    """検索をランキングに記録（Supabase or メモリ）"""
+    # メモリにも記録（フォールバック用）
     with _ranking_lock:
-        _search_counts[card_name] += 1
         now = time.time()
         _search_recent.append((now, card_name))
-        # 古いエントリを削除
         cutoff = now - RANKING_RECENT_HOURS * 3600
         while _search_recent and _search_recent[0][0] < cutoff:
             _search_recent.pop(0)
 
+    # Supabaseへの書き込みはバックグラウンドで（レスポンスを遅延させない）
+    if _supabase_client:
+        Thread(target=_save_search_to_supabase, args=(card_name,), daemon=True).start()
+
+def _save_search_to_supabase(card_name: str):
+    """Supabaseにログを非同期で保存"""
+    try:
+        _supabase_client.table("search_logs").insert({"card_name": card_name}).execute()
+    except Exception as e:
+        logger.warning(f"検索ログ保存失敗: {e}")
+
 def _get_trending(limit: int = 10) -> list[dict]:
     """直近24時間の検索ランキングを返す"""
+    global _trending_cache, _trending_cache_time
+
+    # キャッシュが有効ならそれを返す
+    now = time.time()
+    if _trending_cache and now - _trending_cache_time < _TRENDING_CACHE_SEC:
+        return _trending_cache[:limit]
+
+    # Supabaseから取得を試みる
+    if _supabase_client:
+        try:
+            from datetime import datetime, timedelta, timezone
+            cutoff = (datetime.now(timezone.utc) - timedelta(hours=RANKING_RECENT_HOURS)).isoformat()
+            resp = _supabase_client.rpc("get_search_ranking", {
+                "since_ts": cutoff,
+                "max_results": 30
+            }).execute()
+            if resp.data:
+                result = [{"name": r["card_name"], "count": r["search_count"]} for r in resp.data]
+                _trending_cache = result
+                _trending_cache_time = now
+                return result[:limit]
+        except Exception as e:
+            logger.warning(f"ランキング取得失敗（メモリにフォールバック）: {e}")
+
+    # メモリフォールバック
     with _ranking_lock:
-        cutoff = time.time() - RANKING_RECENT_HOURS * 3600
+        cutoff_ts = now - RANKING_RECENT_HOURS * 3600
         recent_counts: dict[str, int] = defaultdict(int)
         for ts, name in _search_recent:
-            if ts >= cutoff:
+            if ts >= cutoff_ts:
                 recent_counts[name] += 1
         ranked = sorted(recent_counts.items(), key=lambda x: -x[1])
-        return [{"name": name, "count": count} for name, count in ranked[:limit]]
+        result = [{"name": name, "count": count} for name, count in ranked[:30]]
+        _trending_cache = result
+        _trending_cache_time = now
+        return result[:limit]
 
 
 @app.route("/")
