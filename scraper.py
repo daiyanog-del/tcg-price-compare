@@ -40,6 +40,15 @@ def _normalize_fullwidth(text: str) -> str:
         else:
             result.append(ch)
     return ''.join(result)
+
+
+def _normalize_search_query(card_name: str) -> str:
+    """検索クエリ用にカード名を正規化（中黒・ハイフン系をスペースに）"""
+    name = card_name.replace("・", " ").replace("　", " ")
+    # ハイフン系記号をスペースに置換
+    for ch in "-－―‐—–":
+        name = name.replace(ch, " ")
+    return name
 STRICT_NAME_FILTER = True
 EXCLUDE_SUPPLY = True
 
@@ -304,7 +313,8 @@ def _clean_display_name(raw: str) -> str:
 # ── 遊々亭 ──
 
 def scrape_yuyu(card_name: str) -> list[dict]:
-    page_url = f"https://yuyu-tei.jp/sell/ygo/s/search?search_word={requests.utils.quote(card_name)}"
+    search_name = _normalize_search_query(card_name)
+    page_url = f"https://yuyu-tei.jp/sell/ygo/s/search?search_word={requests.utils.quote(search_name)}"
     soup = safe_get(page_url, timeout=25, retries=2)
     if not soup:
         return []
@@ -369,7 +379,7 @@ def scrape_yuyu(card_name: str) -> list[dict]:
 # ── カードラッシュ ──
 
 def scrape_cardrush(card_name: str) -> list[dict]:
-    search_name = card_name.replace("・", "").replace("　", " ").replace("-", " ").replace("－", " ").replace("―", " ").replace("‐", " ")
+    search_name = _normalize_search_query(card_name)
     page_url = f"https://www.cardrush.jp/product-list?keyword={requests.utils.quote(search_name)}"
     soup = safe_get(page_url)
     if not soup:
@@ -423,9 +433,10 @@ TORECOLO_BASE = "https://www.torecolo.jp"
 
 def scrape_torecolo(card_name: str, max_pages: int = 5) -> list[dict]:
     """トレコロCB — 複数ページ対応、レアリティ取得"""
+    search_name = _normalize_search_query(card_name)
     base_url = (
         f"{TORECOLO_BASE}/shop/goods/search.aspx"
-        f"?search=x&keyword={requests.utils.quote(card_name)}&category=&oshiire_code="
+        f"?search=x&keyword={requests.utils.quote(search_name)}&category=&oshiire_code="
     )
     all_results = []
 
@@ -709,9 +720,10 @@ CLABO_BASE = "https://www.c-labo-online.jp"
 
 def scrape_clabo(card_name: str) -> list[dict]:
     """カードラボ — 商品検索ページをスクレイピング"""
+    search_name = _normalize_search_query(card_name)
     page_url = (
         f"{CLABO_BASE}/product-list"
-        f"?keyword={requests.utils.quote(card_name)}"
+        f"?keyword={requests.utils.quote(search_name)}"
     )
     soup = safe_get(page_url)
     if not soup:
@@ -840,9 +852,10 @@ def _parse_manzoku_rarity(text: str) -> str:
 
 def scrape_manzoku(card_name: str) -> list[dict]:
     """まんぞく屋 — EC-CUBEベースの遊戯王カード通販"""
+    search_name = _normalize_search_query(card_name)
     page_url = (
         f"https://shopmanzokuya.com/products/list"
-        f"?category_id=1&name={requests.utils.quote(card_name)}"
+        f"?category_id=1&name={requests.utils.quote(search_name)}"
         f"&orderby=price_l&disp_number=100"
     )
     soup = safe_get(page_url)
@@ -1061,9 +1074,10 @@ CARDRUSH_MEDIA_BASE = "https://cardrush.media"
 
 def scrape_cardrush_buy(card_name: str) -> list[dict]:
     """カードラッシュ — ラッシュメディアの買取価格を取得"""
+    search_name = _normalize_search_query(card_name)
     page_url = (
         f"{CARDRUSH_MEDIA_BASE}/yugioh/buying_prices"
-        f"?name={requests.utils.quote(card_name)}"
+        f"?name={requests.utils.quote(search_name)}"
     )
     soup = safe_get(page_url, timeout=20)
     if not soup:
@@ -1265,9 +1279,10 @@ def scrape_kanabell_buy(card_name: str) -> list[dict]:
 
 def scrape_yuyu_buy(card_name: str) -> list[dict]:
     """遊々亭 — 買取検索ページをスクレイピング"""
+    search_name = _normalize_search_query(card_name)
     page_url = (
         f"https://yuyu-tei.jp/buy/ygo/s/search"
-        f"?search_word={requests.utils.quote(card_name)}"
+        f"?search_word={requests.utils.quote(search_name)}"
     )
     soup = safe_get(page_url, timeout=25, retries=2)
     if not soup:
