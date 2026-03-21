@@ -323,12 +323,11 @@ def api_search():
             for ip in stale:
                 del _last_search[ip]
 
-    # ランキング記録
-    _record_search(card_name)
-
     # キャッシュヒット
     cached = cache_get(card_name)
     if cached is not None:
+        if cached:
+            _record_search(card_name)
         filtered = [r for r in cached if r["shop"] in selected]
         def cached_stream():
             for shop_name, _ in active_shops:
@@ -374,6 +373,8 @@ def api_search():
                     all_results.extend(results)
 
             cache_set(card_name, all_results)
+            if all_results:
+                _record_search(card_name)
         except Exception as e:
             logger.error(f"検索処理で予期しないエラー: {e}")
         finally:
@@ -627,12 +628,11 @@ def api_buyback():
             return jsonify({"error": "しばらく待ってから再度検索してください"}), 429
         _last_search[client_ip] = now
 
-    # ランキング記録
-    _record_search(card_name)
-
     # キャッシュヒット
     cached = buyback_cache_get(card_name)
     if cached is not None:
+        if cached:
+            _record_search(card_name)
         filtered = [r for r in cached if r["shop"] in selected]
         def cached_stream():
             for shop_name, _ in active_shops:
@@ -669,6 +669,8 @@ def api_buyback():
                     all_results.extend(results)
 
             buyback_cache_set(card_name, all_results)
+            if all_results:
+                _record_search(card_name)
         except Exception as e:
             logger.error(f"買取検索で予期しないエラー: {e}")
         finally:
