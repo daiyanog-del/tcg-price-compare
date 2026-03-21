@@ -1203,21 +1203,15 @@ function renderAll(d){
   // KONAMI公式DBリンク取得（画像は店舗から取得済み）
   fetchCardImage(searchTerm);
 
-  // Summary
+  // Summary — 店舗別最安値（全体最安の店舗をハイライト）
   let h='';
-  if(best){
-    const bestUrl=affLink(best.url, best.shop, 'sell');
-    const nameLink=best.url?`<a href="${esc(bestUrl)}" target="_blank" rel="noopener nofollow">${esc(best.name)}</a>`:esc(best.name);
-    const priceLink=best.url?`<a href="${esc(bestUrl)}" target="_blank" rel="noopener nofollow">¥${best.price.toLocaleString()}</a>`:`¥${best.price.toLocaleString()}`;
-    h+=`<div class="scard best fin"><div class="slabel">最安値</div>
-      <div class="sprice">${priceLink}</div>
-      <div class="sdetail">${best.shop} / ${best.rarity||'-'}<br>${nameLink}</div></div>`;
-  }
+  const bestShopName=best?best.shop:'';
   for(const[shop,item]of Object.entries(d.by_shop)){
+    const isBest=(shop===bestShopName);
     const itemUrl=affLink(item.url, item.shop, 'sell');
     const nameLink=item.url?`<a href="${esc(itemUrl)}" target="_blank" rel="noopener nofollow">${esc(item.name)}</a>`:esc(item.name);
     const priceLink=item.url?`<a href="${esc(itemUrl)}" target="_blank" rel="noopener nofollow">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
-    h+=`<div class="scard fin"><div class="slabel">${shop}</div>
+    h+=`<div class="scard${isBest?' best':''} fin"><div class="slabel">${shop}</div>
       <div class="sprice">${priceLink}</div>
       <div class="sdetail">${item.rarity||'-'}<br>${nameLink}</div></div>`;
   }
@@ -1963,25 +1957,19 @@ function renderBuyAll(d){
       <button class="share-btn share-btn-copy" onclick="copyShareText('${shareText.replace(/'/g,"\\'")} ${shareUrl}')">コピー</button>
     </div>`;
 
-  // サマリーカード（店舗別最高額）
+  // サマリーカード — 店舗別最高額（全体最高の店舗をハイライト）
   let h='';
-  if(best){
-    const bestBuyUrl=affLink(best.url, best.shop, 'buy');
-    const priceLink=best.url?`<a href="${esc(bestBuyUrl)}" target="_blank" rel="noopener nofollow">¥${best.price.toLocaleString()}</a>`:`¥${best.price.toLocaleString()}`;
-    h+=`<div class="scard best fin"><div class="slabel">最高買取額</div>
-      <div class="sprice" style="color:var(--green)">${priceLink}</div>
-      <div class="sdetail">${best.shop} / ${best.rarity||'-'}<br>${esc(best.name)}</div></div>`;
-  }
+  const bestBuyShopName=best?best.shop:'';
   const shopNames=[...new Set(buyD.map(r=>r.shop))];
   for(const s of shopNames){
     const shopBest=buyD.filter(r=>r.shop===s).reduce((a,b)=>a.price>b.price?a:b,{price:0});
-    if(shopBest.price>0&&shopBest!==best){
-      const sBuyUrl=affLink(shopBest.url, s, 'buy');
-      const sPriceLink=shopBest.url?`<a href="${esc(sBuyUrl)}" target="_blank" rel="noopener nofollow">¥${shopBest.price.toLocaleString()}</a>`:`¥${shopBest.price.toLocaleString()}`;
-      h+=`<div class="scard fin"><div class="slabel">${s}</div>
-        <div class="sprice" style="color:var(--green)">${sPriceLink}</div>
-        <div class="sdetail">${shopBest.rarity||'-'}<br>${esc(shopBest.name)}</div></div>`;
-    }
+    if(shopBest.price<=0) continue;
+    const isBest=(s===bestBuyShopName);
+    const sBuyUrl=affLink(shopBest.url, s, 'buy');
+    const sPriceLink=shopBest.url?`<a href="${esc(sBuyUrl)}" target="_blank" rel="noopener nofollow">¥${shopBest.price.toLocaleString()}</a>`:`¥${shopBest.price.toLocaleString()}`;
+    h+=`<div class="scard${isBest?' best':''} fin"><div class="slabel">${s}</div>
+      <div class="sprice" style="color:var(--green)">${sPriceLink}</div>
+      <div class="sdetail">${shopBest.rarity||'-'}<br>${esc(shopBest.name)}</div></div>`;
   }
   document.getElementById('buySumCards').innerHTML=h+affPixel('カーナベル','buy');
 
