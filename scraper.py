@@ -788,8 +788,8 @@ _MANZOKU_RARITY_MAP = {
 
 def _parse_manzoku_rarity(text: str) -> str:
     """まんぞく屋の括弧付きレアリティ表記を抽出"""
-    # [SE], 〈UR〉, 〔N〕, 【R】 などの形式に対応
-    m = re.search(r'[\[〈〔【\(]([A-Z0-9]+)[\]〉〕】\)]', text)
+    # [SE], 〈 UR 〉, 〔N〕, 【R】 などの形式に対応（括弧内のスペースも許容）
+    m = re.search(r'[\[〈〔【\(]\s*([A-Z0-9]+)\s*[\]〉〕】\)]', text)
     if m:
         code = m.group(1)
         return _MANZOKU_RARITY_MAP.get(code, code)
