@@ -910,8 +910,10 @@ _SURUGAYA_RARITY_MAP = {
     "HR": "ホログラフィック",
     "CR": "コレクターズ",
     "QCSE": "25thシークレット",
+    "QC": "25thシークレット",
     "PSE": "プリシク",
     "EXSE": "エクシク",
+    "EX": "エクシク",
     "UL": "アルティメット",
     "GL": "ゴールド",
     "GS": "ゴールドシークレット",
@@ -927,86 +929,62 @@ _SURUGAYA_RARITY_MAP = {
 }
 
 def scrape_surugaya(card_name: str) -> list[dict]:
-    """駿河屋 — 遊戯王シングルカード検索（カテゴリ501）"""
+    """駿河屋 — ecommerce_items JSデータから価格を取得（カテゴリ501）"""
     page_url = (
         f"{SURUGAYA_BASE}/search"
         f"?category=501&search_word={requests.utils.quote(card_name)}"
     )
-    soup = safe_get(page_url, timeout=20)
-    if not soup:
+    try:
+        res = requests.get(page_url, headers=HEADERS, timeout=20)
+        res.raise_for_status()
+        html_text = res.text
+    except requests.RequestException as e:
+        print(f"  ❌ 駿河屋取得失敗: {e}")
         return []
-    dump_html("surugaya", soup)
 
+    # ecommerce_items 内の各商品データを抽出
+    # item_name はカードコードのみ（例: RC04-JP009[QC）、]が欠落する場合あり
     results = []
-    for box in soup.select(".item_box"):
-        # カード名（h3内のテキスト）
-        h3 = box.select_one("h3")
-        if not h3:
+    seen_ids = set()
+
+    for m in re.finditer(
+        r"item_id:\s*common\.htmlDecode\('([^']+)'\).*?"
+        r"item_name:\s*common\.htmlDecode\('([^']+)'\).*?"
+        r"price:\s*(\d+)",
+        html_text, re.DOTALL
+    ):
+        item_id = m.group(1)
+        raw_name = m.group(2)
+        price = int(m.group(3))
+
+        if item_id in seen_ids:
             continue
-        raw_title = h3.get_text(strip=True)
-        if not raw_title:
+        seen_ids.add(item_id)
+
+        if price <= 0:
             continue
 
-        # カード番号とレアリティを抽出（例: LPST-JP009[SE]：灰流うらら）
+        # カード番号を抽出（例: RC04-JP009）
         code = ""
-        rarity = ""
-        code_match = re.search(r'([A-Z0-9]+-JP[A-Z]?\d+)', raw_title)
+        code_match = re.search(r'([A-Z0-9]+-JP[A-Z]?\d+)', raw_name)
         if code_match:
             code = code_match.group(1)
-        rarity_match = re.search(r'\[([A-Z0-9]+)\]', raw_title)
+
+        # レアリティを抽出（]が欠落する場合にも対応）
+        rarity = ""
+        rarity_match = re.search(r'\[([A-Z0-9-]+)\]?', raw_name)
         if rarity_match:
             rarity_code = rarity_match.group(1)
             rarity = _SURUGAYA_RARITY_MAP.get(rarity_code, rarity_code)
 
-        # カード名を抽出（「：」または「:」以降）
-        display_name = raw_title
-        if '：' in raw_title:
-            display_name = raw_title.split('：', 1)[1].strip()
-        elif ':' in raw_title:
-            display_name = raw_title.split(':', 1)[1].strip()
-        elif '　' in raw_title:
-            display_name = raw_title.split('　', 1)[1].strip()
-
-        if not is_target_card(card_name, display_name):
-            continue
-
-        # 価格
-        box_text = box.get_text()
-        price = None
-        # strong内の価格を優先（セール価格）
-        price_el = box.select_one("strong")
-        if price_el:
-            price = parse_price(price_el.get_text())
-        if not price:
-            price_match = re.search(r'￥([\d,]+)', box_text)
-            if price_match:
-                price = parse_price(price_match.group(0))
-        if not price:
-            continue
-
-        # 品切れ判定
-        sold_out = '品切れ' in box_text
-
-        # 商品URL
-        product_url = ""
-        link = h3.select_one("a") or box.select_one("a[href*='/product/']")
-        if link:
-            href = link.get("href", "")
-            product_url = href if href.startswith("http") else SURUGAYA_BASE + href
-
-        # 画像
-        image_url = ""
-        img = box.select_one("img")
-        if img:
-            src = img.get("src", "") or img.get("data-src", "")
-            image_url = src if src.startswith("http") else SURUGAYA_BASE + src if src else ""
+        product_url = f"{SURUGAYA_BASE}/product/detail/{item_id}"
 
         results.append({
-            "shop": "駿河屋", "name": display_name,
+            "shop": "駿河屋", "name": card_name,
             "rarity": normalize_rarity(rarity), "code": code,
-            "condition": "-", "price": price, "stock": 0 if sold_out else 1,
-            "sold_out": sold_out, "url": product_url,
-            "image": image_url,
+            "condition": "-", "price": price, "stock": 1,
+            "sold_out": False, "url": product_url,
+            "image": "",
         })
 
     return results
