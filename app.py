@@ -366,7 +366,8 @@ def api_search():
                     shop_name, results, error = future.result()
                     if error:
                         yield _sse({"type": "shop_error", "shop": shop_name, "error": error})
-                    yield _sse({"type": "shop_done", "shop": shop_name, "count": len(results)})
+                    # 店舗完了時に結果データも送信（逐次表示用）
+                    yield _sse({"type": "shop_done", "shop": shop_name, "count": len(results), "results": results})
                     all_results.extend(results)
 
             cache_set(card_name, all_results)

@@ -1005,6 +1005,7 @@ function doSearch(){
     document.getElementById('empty').classList.remove('hidden');
     document.getElementById('empty').innerHTML='<p>検索がタイムアウトしました。再度お試しください。</p>';
   },60000);
+  let partialShown=false;
   es.onmessage=e=>{
     clearTimeout(sseTimeout);
     sseTimeout=setTimeout(()=>{
@@ -1018,6 +1019,16 @@ function doSearch(){
     }else if(d.type==='shop_done'){
       const el=document.getElementById('s-'+d.shop);
       if(el){el.className='pstep done';el.querySelector('.pstat').textContent=d.count+'件'+(d.cached?' (cache)':'');}
+      // 逐次表示: 結果が届いたらテーブルに追加
+      if(d.results&&d.results.length>0){
+        D=D.concat(d.results);
+        if(!partialShown){
+          document.getElementById('results').classList.remove('hidden');
+          document.getElementById('empty').classList.add('hidden');
+          partialShown=true;
+        }
+        renderTable();
+      }
     }else if(d.type==='shop_error'){
       const el=document.getElementById('s-'+d.shop);
       if(el){el.className='pstep error';el.querySelector('.pstat').textContent='エラー';}
