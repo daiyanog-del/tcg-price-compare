@@ -1,0 +1,33 @@
+# 価格履歴データ収集
+# 毎日 UTC 15:00 = 日本時間 0:00 に実行
+# 手動実行も可能 (Actions タブ → Run workflow)
+
+name: Collect Price History
+
+on:
+  schedule:
+    - cron: '0 15 * * *'  # 毎日 UTC 15:00
+  workflow_dispatch:       # 手動実行ボタン
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4 supabase
+
+      - name: Collect prices
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python collect_prices.py

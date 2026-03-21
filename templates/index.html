@@ -675,7 +675,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 <!-- フッター -->
 <footer class="site-footer">
   <p style="font-size:.75rem;color:var(--text-d);margin-bottom:10px">遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボの価格を一括比較</p>
-  <a onclick="openLegalModal('privacy')">プライバシーポリシー</a>｜<a onclick="openLegalModal('terms')">利用規約</a>
+  <a onclick="openLegalModal('privacy')">プライバシーポリシー</a>｜<a onclick="openLegalModal('terms')">利用規約</a>｜<a onclick="openLegalModal('shop')">ショップ運営者様へ</a>
   <div class="footer-copy">&copy; 2025 遊戯王OCG 価格比較</div>
 </footer>
 
@@ -768,16 +768,51 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   </div>
 </div>
 
+<!-- ショップ運営者様へ モーダル -->
+<div class="legal-overlay" id="shopOverlay" onclick="if(event.target===this)closeLegalModal('shop')">
+  <div class="legal-modal">
+    <div class="legal-modal-head">
+      <h2>ショップ運営者様へ</h2>
+      <button class="legal-modal-close" onclick="closeLegalModal('shop')">&times;</button>
+    </div>
+    <div class="legal-modal-body">
+      <p>本サービスをご覧いただきありがとうございます。当サイトは、遊戯王OCGプレイヤーが複数ショップの価格を比較し、<strong>各ショップ様の販売ページへ直接アクセスできる</strong>ことを目的とした個人運営の価格比較サービスです。</p>
+
+      <h3>当サイトの仕組み</h3>
+      <ul>
+        <li>ユーザーがカード名で検索した際に、各ショップ様の販売ページから価格情報を取得し、比較表示しています</li>
+        <li>事前に全商品データを収集・保存することはなく、検索のつどリアルタイムで取得しています</li>
+        <li>サーバーへの負荷を最小限に抑えるため、キャッシュによるアクセス頻度の制御を行っています</li>
+      </ul>
+
+      <h3>ショップ様へのメリット</h3>
+      <ul>
+        <li><strong>送客効果:</strong> 価格比較の結果から、ユーザーを貴社の商品ページへ直接誘導しています</li>
+        <li><strong>購入意欲の高いユーザー:</strong> 当サイトを利用するユーザーは具体的なカード名で検索しており、購入意欲の高い層です</li>
+        <li><strong>アフィリエイト連携:</strong> ご希望のショップ様とはアフィリエイト提携を通じて、成果報酬型の送客が可能です</li>
+      </ul>
+
+      <h3>提携・連携のご相談</h3>
+      <p>アフィリエイト提携や掲載方法のご要望など、お気軽にご連絡ください。貴社のご要望に合わせた掲載対応をいたします。</p>
+      <p>また、掲載内容に関するご要望（情報の修正・掲載方法の変更等）がございましたら、迅速に対応いたします。</p>
+
+      <p style="margin-top:16px"><strong>お問い合わせ:</strong> <a href="mailto:tcg.price.compare@gmail.com" style="color:var(--accent)">tcg.price.compare@gmail.com</a></p>
+
+      <p style="margin-top:16px;font-size:.8rem;color:var(--text-d)">最終更新日: 2026年3月21日</p>
+    </div>
+  </div>
+</div>
+
 <script>
 /* モーダル開閉 */
 function openLegalModal(type){
-  const id=type==='privacy'?'privacyOverlay':'termsOverlay';
-  document.getElementById(id).classList.add('active');
+  const map={privacy:'privacyOverlay',terms:'termsOverlay',shop:'shopOverlay'};
+  document.getElementById(map[type]).classList.add('active');
   document.body.style.overflow='hidden';
 }
 function closeLegalModal(type){
-  const id=type==='privacy'?'privacyOverlay':'termsOverlay';
-  document.getElementById(id).classList.remove('active');
+  const map={privacy:'privacyOverlay',terms:'termsOverlay',shop:'shopOverlay'};
+  document.getElementById(map[type]).classList.remove('active');
   document.body.style.overflow='';
 }
 /* Escキーでモーダルを閉じる */
@@ -785,6 +820,7 @@ document.addEventListener('keydown',function(e){
   if(e.key==='Escape'){
     closeLegalModal('privacy');
     closeLegalModal('terms');
+    closeLegalModal('shop');
   }
 });
 </script>
