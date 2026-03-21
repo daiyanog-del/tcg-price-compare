@@ -32,7 +32,7 @@
 <meta property="og:locale" content="ja_JP">
 <meta property="og:site_name" content="CardPrice is?">
 <meta name="robots" content="index, follow">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='8' y='12' width='50' height='72' rx='5' fill='%234a7cff' stroke='%23fff' stroke-width='3'/><rect x='42' y='16' width='50' height='72' rx='5' fill='%23e8c848' stroke='%23fff' stroke-width='3'/><text x='67' y='62' font-size='28' font-weight='bold' fill='%23fff' text-anchor='middle' font-family='Arial'>¥</text></svg>">
+<link rel="icon" href="/static/favicon.png" type="image/png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
@@ -94,7 +94,7 @@ a{color:var(--accent-l);text-decoration:none}a:hover{text-decoration:underline}
 /* ── Header ── */
 header{padding:24px 0 8px;text-align:center}
 .logo-link{display:inline-flex;align-items:center;gap:10px;text-decoration:none}
-.logo-icon{width:32px;height:32px;flex-shrink:0}
+.logo-icon{width:36px;height:36px;flex-shrink:0;object-fit:contain;border-radius:4px}
 .logo-text{display:flex;flex-direction:column;align-items:flex-start;line-height:1.1}
 .logo-main{font-size:1.4rem;font-weight:900;letter-spacing:.04em;color:rgba(255,255,255,.7);-webkit-text-fill-color:rgba(255,255,255,.7)}
 .logo-hl{-webkit-text-fill-color:#fff;color:#fff}
@@ -490,11 +490,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   <header>
     <h1>
       <a href="/" class="logo-link">
-        <svg class="logo-icon" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-          <rect x="8" y="12" width="50" height="72" rx="5" fill="#4a7cff" stroke="#fff" stroke-width="3"/>
-          <rect x="42" y="16" width="50" height="72" rx="5" fill="#e8c848" stroke="#fff" stroke-width="3"/>
-          <text x="67" y="62" font-size="28" font-weight="bold" fill="#fff" text-anchor="middle" font-family="Arial">¥</text>
-        </svg>
+        <img class="logo-icon" src="/static/logo_icon.png" alt="CardPrice is?" width="32" height="32">
         <span class="logo-text">
           <span class="logo-main"><span class="logo-hl">Ca</span>rd<span class="logo-hl" style="margin-left:-0.04em">Pri</span>ce i<span class="logo-hl">s</span>?</span>
           <span class="logo-sub">遊戯王OCG 価格比較</span>
