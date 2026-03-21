@@ -953,6 +953,13 @@ def scrape_surugaya(card_name: str) -> list[dict]:
         print(f"  ❌ 駿河屋取得失敗: {e}")
         return []
 
+    # Cloudflareブロック検知
+    if 'challenge-platform' in html_text and 'ecommerce_items' not in html_text:
+        print("  ⚠ 駿河屋: Cloudflareにブロックされた可能性")
+        return []
+
+    print(f"  駿河屋: HTML {len(html_text)}文字, ecommerce_items={'あり' if 'ecommerce_items' in html_text else 'なし'}")
+
     # ecommerce_items 内の各商品データを抽出
     # item_name はカードコードのみ（例: RC04-JP009[QC）、]が欠落する場合あり
     results = []
