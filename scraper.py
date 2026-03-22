@@ -681,14 +681,10 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
         cat3 = src.get("category3_abbr", "")
         all_text = " ".join(str(v) for v in src.values() if isinstance(v, str))
         if _is_rush_duel(all_text):
-            print(f"  🔍 カーナベルRD除外: name={name_text}, cat2_id={src.get('category2_id')}, cat3={cat3}, all_text={all_text[:100]}")
             continue
 
         if not name_text or not is_target_card(card_name, name_text):
             continue
-
-        # デバッグ: RDフィルタを通過したカードの情報を出力
-        print(f"  ✅ カーナベル通過: name={name_text}, cat2_id={src.get('category2_id')}, cat2={src.get('category2_abbr')}, cat3={cat3}")
 
         # レアリティ
         rarity = src.get("rarity_abbreviation", "")
