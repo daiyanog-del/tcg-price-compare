@@ -677,14 +677,18 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
         name_text = src.get("name", "")
         card_id = src.get("id") or hit.get("_id", "")
 
-        # ラッシュデュエルのカードを除外（カテゴリ略称・カード名で判定）
-        cat2 = src.get("category2_abbr", "")
+        # ラッシュデュエルのカードを除外（全フィールドで判定）
         cat3 = src.get("category3_abbr", "")
-        if _is_rush_duel(name_text) or _is_rush_duel(cat2) or _is_rush_duel(cat3):
+        all_text = " ".join(str(v) for v in src.values() if isinstance(v, str))
+        if _is_rush_duel(all_text):
+            print(f"  🔍 カーナベルRD除外: name={name_text}, cat2_id={src.get('category2_id')}, cat3={cat3}, all_text={all_text[:100]}")
             continue
 
         if not name_text or not is_target_card(card_name, name_text):
             continue
+
+        # デバッグ: RDフィルタを通過したカードの情報を出力
+        print(f"  ✅ カーナベル通過: name={name_text}, cat2_id={src.get('category2_id')}, cat2={src.get('category2_abbr')}, cat3={cat3}")
 
         # レアリティ
         rarity = src.get("rarity_abbreviation", "")
@@ -1220,10 +1224,9 @@ def scrape_kanabell_buy(card_name: str) -> list[dict]:
         card_id = src.get("id") or hit.get("_id", "")
         if not name_text or not card_id or card_id in seen_ids:
             continue
-        # ラッシュデュエルのカードを除外
-        cat2 = src.get("category2_abbr", "")
-        cat3 = src.get("category3_abbr", "")
-        if _is_rush_duel(name_text) or _is_rush_duel(cat2) or _is_rush_duel(cat3):
+        # ラッシュデュエルのカードを除外（全フィールドで判定）
+        all_text = " ".join(str(v) for v in src.values() if isinstance(v, str))
+        if _is_rush_duel(all_text):
             continue
         if not is_target_card(card_name, name_text):
             continue
