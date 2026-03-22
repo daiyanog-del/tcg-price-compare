@@ -622,7 +622,7 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
     query_body = {
         "size": page_size,
         "_source": [
-            "name", "id", "category1_id",
+            "name", "id", "category1_id", "category2_id",
             "sa_selling_price", "b_selling_price", "c_selling_price", "d_selling_price",
             "sa_stock", "b_stock", "c_stock", "d_stock",
             "rarity_abbreviation", "category2_abbr", "category3_abbr",
@@ -677,6 +677,12 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
         name_text = src.get("name", "")
         card_id = src.get("id") or hit.get("_id", "")
 
+        # ラッシュデュエルのカードを除外（カテゴリ略称・カード名で判定）
+        cat2 = src.get("category2_abbr", "")
+        cat3 = src.get("category3_abbr", "")
+        if _is_rush_duel(name_text) or _is_rush_duel(cat2) or _is_rush_duel(cat3):
+            continue
+
         if not name_text or not is_target_card(card_name, name_text):
             continue
 
@@ -685,7 +691,6 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
 
         # カードコード (カテゴリ略称から組み立て)
         code = ""
-        cat3 = src.get("category3_abbr", "")
         if cat3:
             code = cat3
 
@@ -1176,7 +1181,7 @@ def scrape_kanabell_buy(card_name: str) -> list[dict]:
     search_url = f"{_KANABELL_ES_URL}/{_KANABELL_INDEX}/_search"
     query_body = {
         "size": 30,
-        "_source": ["name", "id", "rarity_abbreviation", "category3_abbr", "card_image_name1"],
+        "_source": ["name", "id", "rarity_abbreviation", "category2_abbr", "category3_abbr", "card_image_name1"],
         "query": {
             "bool": {
                 "must": [
@@ -1214,6 +1219,11 @@ def scrape_kanabell_buy(card_name: str) -> list[dict]:
         name_text = src.get("name", "")
         card_id = src.get("id") or hit.get("_id", "")
         if not name_text or not card_id or card_id in seen_ids:
+            continue
+        # ラッシュデュエルのカードを除外
+        cat2 = src.get("category2_abbr", "")
+        cat3 = src.get("category3_abbr", "")
+        if _is_rush_duel(name_text) or _is_rush_duel(cat2) or _is_rush_duel(cat3):
             continue
         if not is_target_card(card_name, name_text):
             continue
