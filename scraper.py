@@ -146,6 +146,11 @@ SUPPLY_KEYWORDS = [
     "PSA", "BGS", "CGC", "ステンレス製",
 ]
 
+# ラッシュデュエル除外用キーワード（遊戯王OCG専用サービスのため）
+RUSH_DUEL_KEYWORDS = [
+    "ラッシュデュエル", "RUSH DUEL", "RD/",
+]
+
 def _is_japanese_char(c: str) -> bool:
     cp = ord(c)
     return (0x3040 <= cp <= 0x309F or 0x30A0 <= cp <= 0x30FF
@@ -170,6 +175,11 @@ def is_target_card(card_name: str, product_name: str) -> bool:
         for kw in SUPPLY_KEYWORDS:
             if kw in product_name:
                 return False
+    # ラッシュデュエル（別ゲーム）のカードを除外
+    norm_upper = product_name.upper()
+    for kw in RUSH_DUEL_KEYWORDS:
+        if kw.upper() in norm_upper:
+            return False
     # 全角英数を半角に統一してからマッチング
     norm_card = normalize_width(card_name)
     norm_product = normalize_width(product_name)
