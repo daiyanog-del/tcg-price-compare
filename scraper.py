@@ -148,8 +148,20 @@ SUPPLY_KEYWORDS = [
 
 # ラッシュデュエル除外用キーワード（遊戯王OCG専用サービスのため）
 RUSH_DUEL_KEYWORDS = [
-    "ラッシュデュエル", "RUSH DUEL", "RD/",
+    "ラッシュデュエル", "RUSH DUEL",
 ]
+# RDカードコードのパターン（RD/XX や RD-XX 形式）
+_RD_CODE_PATTERN = re.compile(r"(?:^|[\s{（(])RD[/\-]", re.IGNORECASE)
+
+def _is_rush_duel(text: str) -> bool:
+    """テキストにラッシュデュエル関連の識別子が含まれるか判定"""
+    upper = text.upper()
+    for kw in RUSH_DUEL_KEYWORDS:
+        if kw.upper() in upper:
+            return True
+    if _RD_CODE_PATTERN.search(text):
+        return True
+    return False
 
 def _is_japanese_char(c: str) -> bool:
     cp = ord(c)
@@ -176,10 +188,8 @@ def is_target_card(card_name: str, product_name: str) -> bool:
             if kw in product_name:
                 return False
     # ラッシュデュエル（別ゲーム）のカードを除外
-    norm_upper = product_name.upper()
-    for kw in RUSH_DUEL_KEYWORDS:
-        if kw.upper() in norm_upper:
-            return False
+    if _is_rush_duel(product_name):
+        return False
     # 全角英数を半角に統一してからマッチング
     norm_card = normalize_width(card_name)
     norm_product = normalize_width(product_name)
@@ -533,6 +543,10 @@ def scrape_torecolo(card_name: str, max_pages: int = 5) -> list[dict]:
                 if image_url and not image_url.startswith("http"):
                     image_url = f"{TORECOLO_BASE}{image_url}"
 
+            # ラッシュデュエルのカードを除外（元の商品名・URL・カードコードで判定）
+            if _is_rush_duel(name) or _is_rush_duel(href) or _is_rush_duel(code):
+                continue
+
             if not price or not is_target_card(card_name, match_name):
                 continue
 
@@ -769,6 +783,10 @@ def scrape_clabo(card_name: str) -> list[dict]:
         if code:
             display_name = display_name.replace(code, "").strip()
 
+        # ラッシュデュエルのカードを除外（元の商品名・カードコードで判定）
+        if _is_rush_duel(raw_name) or _is_rush_duel(code):
+            continue
+
         if not is_target_card(card_name, display_name):
             continue
 
@@ -897,6 +915,10 @@ def scrape_manzoku(card_name: str) -> list[dict]:
         if not name_match:
             continue
         display_name = name_match.group(1).strip()
+
+        # ラッシュデュエルのカードを除外（テキスト全体で判定）
+        if _is_rush_duel(text):
+            continue
 
         if not is_target_card(card_name, display_name):
             continue
@@ -1107,6 +1129,10 @@ def scrape_cardrush_buy(card_name: str) -> list[dict]:
     results = []
     for item in buying_prices:
         name = item.get("name", "")
+        model_number = item.get("model_number", "")
+        # ラッシュデュエルのカードを除外
+        if _is_rush_duel(name) or _is_rush_duel(model_number):
+            continue
         if not name or not is_target_card(card_name, name):
             continue
         price = item.get("amount")
@@ -1114,7 +1140,6 @@ def scrape_cardrush_buy(card_name: str) -> list[dict]:
             continue
 
         rarity = item.get("rarity", "")
-        model_number = item.get("model_number", "")
         is_hot = item.get("is_hot", False)
 
         results.append({
@@ -1312,7 +1337,7 @@ def scrape_yuyu_buy(card_name: str) -> list[dict]:
             elif not product_url and href and "yuyu-tei.jp" in href:
                 product_url = href
 
-        if not name or not is_target_card(card_name, name):
+        if not name or _is_rush_duel(name) or not is_target_card(card_name, name):
             continue
 
         rarity, code = "", ""
