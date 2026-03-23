@@ -572,25 +572,31 @@ def api_deck_estimate():
 
     card_names = [e["name"] for e in card_entries]
 
-    import json as _json
+    from datetime import datetime, timedelta
     try:
-        # jsonb型パラメータにはJSON文字列で渡す
-        resp = _supabase_client.rpc("get_deck_estimate", {"card_names": _json.dumps(card_names, ensure_ascii=False)}).execute()
+        cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        resp = (_supabase_client.table("price_history")
+                .select("card_name, shop, rarity, min_price, recorded_at")
+                .in_("card_name", card_names)
+                .gte("recorded_at", cutoff)
+                .order("min_price", desc=False)
+                .execute())
         rows = resp.data or []
-        logger.info(f"deck-estimate: query={card_names}, rows={len(rows)}, raw={rows[:3]}")
     except Exception as e:
-        logger.error(f"deck-estimate RPCエラー: {e}")
+        logger.error(f"deck-estimate エラー: {e}")
         return jsonify({"error": "データベースの取得に失敗しました"}), 500
 
-    # カード名 → 最安値のマッピング
+    # カードごとに最安値を抽出（最初に見つかった=最安値）
     card_best = {}
     for row in rows:
-        card_best[row["card_name"]] = {
-            "shop": row["shop"],
-            "price": row["min_price"],
-            "rarity": row.get("rarity", ""),
-            "recorded_at": row["recorded_at"],
-        }
+        name = row["card_name"]
+        if name not in card_best:
+            card_best[name] = {
+                "shop": row["shop"],
+                "price": row["min_price"],
+                "rarity": row.get("rarity", ""),
+                "recorded_at": row["recorded_at"],
+            }
 
     results = []
     total = 0
@@ -602,7 +608,7 @@ def api_deck_estimate():
             total += best["price"] * qty
         results.append({"name": name, "qty": qty, "best": best})
 
-    return jsonify({"results": results, "total": total, "_debug_query": card_names, "_debug_rows": len(rows)})
+    return jsonify({"results": results, "total": total})
 
 @app.route("/api/trending")
 def api_trending():
