@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ロゴフォント比較</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@900&family=Inter:wght@800;900&family=Outfit:wght@700;800&family=Space+Grotesk:wght@700&family=Montserrat:wght@800;900&family=Raleway:wght@800&family=Orbitron:wght@700;800&family=Rajdhani:wght@700&family=Chakra+Petch:wght@700&family=Oxanium:wght@700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0c0e14;--bg-card:#141620;--border:#262838;--text:rgba(255,255,255,.7);--hl:#fff;--accent-l:#7da0ff;--gold:#e8c848}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);color:#d8dae0;min-height:100vh;padding:32px 20px;background-image:radial-gradient(ellipse at 50% 0%,rgba(74,124,255,.06) 0%,transparent 60%)}
+h1{text-align:center;font-size:1.2rem;font-weight:700;color:var(--accent-l);margin-bottom:8px}
+.desc{text-align:center;font-size:.8rem;color:#555670;margin-bottom:32px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px;max-width:1000px;margin:0 auto}
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:24px 20px;cursor:pointer;transition:border-color .2s,box-shadow .2s}
+.card:hover{border-color:var(--accent-l);box-shadow:0 0 0 2px rgba(74,124,255,.15)}
+.card.selected{border-color:var(--gold);box-shadow:0 0 0 2px rgba(232,200,72,.2)}
+.font-name{font-size:.72rem;color:#8a8ca0;margin-bottom:10px;font-family:'Noto Sans JP',sans-serif;letter-spacing:.04em}
+.font-tag{display:inline-block;font-size:.6rem;color:#555670;background:rgba(255,255,255,.05);padding:2px 8px;border-radius:10px;margin-left:6px}
+.logo-preview{display:flex;align-items:center;gap:10px}
+.logo-preview svg{width:38px;height:38px;flex-shrink:0}
+.logo-text{display:flex;flex-direction:column;align-items:flex-start;line-height:1.1}
+.logo-main{font-size:1.7rem;letter-spacing:.04em;color:var(--text)}
+.logo-main .hl{color:var(--hl)}
+.logo-sub{font-size:.7rem;font-weight:700;color:var(--accent-l);letter-spacing:.12em;margin-top:2px;font-family:'Noto Sans JP',sans-serif}
+.current{position:relative}
+.current::after{content:'現在';position:absolute;top:8px;right:12px;font-size:.65rem;color:var(--gold);border:1px solid var(--gold);padding:1px 8px;border-radius:10px;font-family:'Noto Sans JP',sans-serif}
+</style>
+</head>
+<body>
+<h1>ロゴフォント比較</h1>
+<p class="desc">クリックで枠が光ります。スマホでも確認してみてください。</p>
+<div class="grid" id="grid"></div>
+
+<script>
+var fonts=[
+  {name:'Noto Sans JP',weight:900,tag:'現在',current:true},
+  {name:'Montserrat',weight:900,tag:'力強い・ブランド感'},
+  {name:'Inter',weight:800,tag:'モダン・すっきり'},
+  {name:'Outfit',weight:800,tag:'丸みのあるモダン'},
+  {name:'Space Grotesk',weight:700,tag:'テック・知的'},
+  {name:'Raleway',weight:800,tag:'洗練・上品'},
+  {name:'Orbitron',weight:700,tag:'SF・近未来'},
+  {name:'Rajdhani',weight:700,tag:'シャープ・スピード感'},
+  {name:'Chakra Petch',weight:700,tag:'ゲーム・デジタル'},
+  {name:'Oxanium',weight:700,tag:'メカ・サイバー'},
+];
+
+var grid=document.getElementById('grid');
+fonts.forEach(function(f){
+  var card=document.createElement('div');
+  card.className='card'+(f.current?' current':'');
+  card.innerHTML='<div class="font-name">'+f.name+'<span class="font-tag">'+f.tag+'</span></div>'
+    +'<div class="logo-preview">'
+    +'<svg viewBox="0 0 100 100"><rect x="8" y="12" width="50" height="72" rx="5" fill="#4a7cff" stroke="#fff" stroke-width="3"/><rect x="42" y="16" width="50" height="72" rx="5" fill="#e8c848" stroke="#fff" stroke-width="3"/><text x="67" y="62" font-size="28" font-weight="bold" fill="#fff" text-anchor="middle" font-family="Arial">¥</text></svg>'
+    +'<span class="logo-text">'
+    +'<span class="logo-main" style="font-family:\''+f.name+'\',sans-serif;font-weight:'+f.weight+'"><span class="hl">Ca</span>rd<span class="hl">Pri</span>ce i<span class="hl">s</span>?</span>'
+    +'<span class="logo-sub">遊戯王OCG 価格比較</span>'
+    +'</span></div>';
+  card.addEventListener('click',function(){
+    document.querySelectorAll('.card').forEach(function(c){c.classList.remove('selected')});
+    card.classList.add('selected');
+  });
+  grid.appendChild(card);
+});
+</script>
+</body>
+</html>

@@ -777,6 +777,12 @@ if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not os.environ.get("FLASK_DE
     _prefetch_meta()
 
 
+# ── フォント比較プレビュー（一時的） ──
+
+@app.route("/font-preview")
+def font_preview():
+    return render_template("font_preview.html")
+
 # ── ヘルスチェック・ステータス ──
 
 @app.route("/api/health")
