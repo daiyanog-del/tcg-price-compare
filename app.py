@@ -550,6 +550,72 @@ def api_deck_buy():
 
     return Response(generate(), mimetype="text/event-stream")
 
+@app.route("/api/deck-estimate")
+def api_deck_estimate():
+    """デッキ相場見積もり — Supabaseの価格履歴から直近の最安値を一括返却"""
+    names_raw = request.args.get("cards", "")
+    if not names_raw:
+        return jsonify({"error": "カード名がありません"}), 400
+    if not _supabase_client:
+        return jsonify({"error": "価格データベースに接続できません"}), 503
+
+    card_entries = []
+    for line in names_raw.split("|"):
+        line = line.strip()
+        if not line:
+            continue
+        m = _re.match(r"^(\d+)\s+(.+)$", line)
+        if m:
+            card_entries.append({"qty": int(m.group(1)), "name": _normalize_query(m.group(2))})
+        else:
+            card_entries.append({"qty": 1, "name": _normalize_query(line)})
+
+    card_names = [e["name"] for e in card_entries]
+
+    # Supabaseから直近7日以内の最安値を一括取得
+    from datetime import datetime, timedelta
+    try:
+        cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        resp = (_supabase_client.table("price_history")
+                .select("card_name, shop, rarity, min_price, recorded_at")
+                .in_("card_name", card_names)
+                .gte("recorded_at", cutoff)
+                .execute())
+        rows = resp.data or []
+    except Exception as e:
+        logger.error(f"deck-estimate Supabaseエラー: {e}")
+        return jsonify({"error": "データベースの取得に失敗しました"}), 500
+
+    # カードごとに最安値を抽出（直近の記録で最も安い行）
+    card_prices = defaultdict(list)
+    for row in rows:
+        card_prices[row["card_name"]].append(row)
+
+    results = []
+    total = 0
+    for entry in card_entries:
+        name = entry["name"]
+        qty = entry["qty"]
+        price_rows = card_prices.get(name, [])
+        best = None
+        if price_rows:
+            # 最安値の行を取得
+            cheapest = min(price_rows, key=lambda r: r["min_price"])
+            best = {
+                "shop": cheapest["shop"],
+                "price": cheapest["min_price"],
+                "rarity": cheapest.get("rarity", ""),
+                "recorded_at": cheapest["recorded_at"],
+            }
+            total += cheapest["min_price"] * qty
+        results.append({
+            "name": name,
+            "qty": qty,
+            "best": best,
+        })
+
+    return jsonify({"results": results, "total": total})
+
 @app.route("/api/trending")
 def api_trending():
     """直近24時間の検索ランキングを返す"""

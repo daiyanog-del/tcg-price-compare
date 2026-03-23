@@ -726,9 +726,11 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 
 
         <div class="deck-actions">
-          <button class="deck-btn deck-btn-primary" onclick="calcDeck()">価格を計算</button>
+          <button class="deck-btn deck-btn-primary" onclick="calcDeckEstimate()">相場で見積もり</button>
+          <button class="deck-btn deck-btn-secondary" onclick="calcDeck()">リアルタイム価格</button>
           <button class="deck-btn deck-btn-secondary" onclick="clearDeck()">クリア</button>
         </div>
+        <div style="font-size:.7rem;color:var(--text-d);margin-top:4px">「相場で見積もり」は直近の収集データから即時表示。「リアルタイム価格」は各店舗を検索するため時間がかかります。</div>
 
         <!-- デッキモード用 店舗フィルタ -->
         <div class="shop-toggles" id="deckShopToggles" style="margin:10px 0 0;justify-content:flex-start">
@@ -1840,6 +1842,61 @@ function addToDeck(name){
 }
 
 let _deckBuyMode=false;
+
+async function calcDeckEstimate(){
+  const text=document.getElementById('deckTextarea').value;
+  const cards=parseDeckList(text);
+  if(!cards.length) return;
+
+  const resultsEl=document.getElementById('deckResults');
+  const listEl=document.getElementById('deckCardList');
+  const totalEl=document.getElementById('deckTotalPrice');
+  const progEl=document.getElementById('deckProgress');
+  const totalLabel=document.querySelector('.deck-total-label');
+  resultsEl.classList.remove('hidden');
+  totalEl.textContent='取得中...';
+  totalLabel.textContent='デッキ相場（直近データ）';
+
+  listEl.innerHTML=cards.map((c,i)=>`
+    <div class="deck-card-row loading" id="deck-row-${i}">
+      <span class="deck-card-qty">${c.qty}x</span>
+      <span class="deck-card-name">${esc(c.name)}</span>
+      <span class="deck-card-price">-</span>
+      <span class="deck-card-shop"></span>
+      <span class="deck-card-status">取得中</span>
+    </div>`).join('');
+
+  const cardsParam=cards.map(c=>c.qty>1?`${c.qty} ${c.name}`:c.name).join('|');
+  try{
+    const res=await fetch('/api/deck-estimate?cards='+encodeURIComponent(cardsParam));
+    const data=await res.json();
+    if(data.error){progEl.textContent=data.error;return;}
+
+    let total=0,found=0,notFound=0;
+    data.results.forEach((r,i)=>{
+      const c=cards[i];
+      const row=document.getElementById('deck-row-'+i);
+      if(!row)return;
+      if(r.best){
+        const lineTotal=r.best.price*c.qty;
+        total+=lineTotal;
+        found++;
+        row.className='deck-card-row';
+        row.querySelector('.deck-card-price').innerHTML=`<span>¥${lineTotal.toLocaleString()}</span>`;
+        row.querySelector('.deck-card-shop').textContent=r.best.shop;
+        row.querySelector('.deck-card-status').textContent=c.qty>1?`@¥${r.best.price.toLocaleString()}`:'';
+      }else{
+        notFound++;
+        row.className='deck-card-row error';
+        row.querySelector('.deck-card-status').textContent='データなし';
+      }
+    });
+    totalEl.textContent=`¥${total.toLocaleString()}`;
+    progEl.textContent=`完了 — ${found}/${cards.length}枚の相場を取得${notFound>0?` (${notFound}枚はデータなし — リアルタイム検索をお試しください)`:''}`;
+  }catch(e){
+    progEl.textContent='エラーが発生しました。再度お試しください。';
+  }
+}
 
 async function calcDeck(buyMode){
   if(buyMode!==undefined) _deckBuyMode=buyMode;
