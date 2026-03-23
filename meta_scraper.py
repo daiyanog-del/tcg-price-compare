@@ -55,14 +55,18 @@ def _cache_write(key: str, data: dict):
     fp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
 
-def _fetch_soup(url: str, timeout: int = 20) -> BeautifulSoup | None:
-    try:
-        res = requests.get(url, headers=HEADERS, timeout=timeout)
-        res.raise_for_status()
-        return BeautifulSoup(res.text, "html.parser")
-    except requests.RequestException as e:
-        print(f"  ❌ meta_scraper 取得失敗: {url} — {e}")
-        return None
+def _fetch_soup(url: str, timeout: int = 20, retries: int = 2) -> BeautifulSoup | None:
+    for attempt in range(retries + 1):
+        try:
+            res = requests.get(url, headers=HEADERS, timeout=timeout)
+            res.raise_for_status()
+            return BeautifulSoup(res.text, "html.parser")
+        except requests.RequestException as e:
+            if attempt < retries:
+                time.sleep(1)
+                continue
+            print(f"  meta_scraper 取得失敗: {url} — {e}")
+            return None
 
 
 # ── Tier表 ──

@@ -16,7 +16,7 @@ from scraper import (
     BUYBACK_SHOPS, DEFAULT_BUYBACK_SHOPS,
     buyback_cache_get, buyback_cache_set,
 )
-from meta_scraper import fetch_tier_list, fetch_deck_cards, build_deck_text
+from meta_scraper import fetch_tier_list, fetch_deck_cards, build_deck_text, _cache_read, _DECK_CACHE_TTL, _TIER_CACHE_TTL
 from pack_scraper import get_pack_list, fetch_pack_cards
 from monitor import tracker, run_health_check
 
@@ -784,12 +784,19 @@ def api_config():
 
 # ── 環境データ（TCG PORTAL） ──
 
-_meta_executor = ThreadPoolExecutor(max_workers=2)
+_meta_executor = ThreadPoolExecutor(max_workers=4)
 
 @app.route("/api/meta")
 def api_meta():
     """環境Tier表を返す（キャッシュヒットなら即座、ミスならスレッドプール経由）"""
     force = request.args.get("force") == "1"
+
+    # キャッシュがあればExecutorを通さず即返却
+    if not force:
+        cached = _cache_read("tier_list", _TIER_CACHE_TTL)
+        if cached and "tiers" in cached:
+            return jsonify(cached["tiers"])
+
     future = _meta_executor.submit(fetch_tier_list, force)
     try:
         tiers = future.result(timeout=25)
@@ -805,6 +812,15 @@ def api_meta_deck():
     if not theme:
         return jsonify({"error": "テーマ名を指定してください"}), 400
     force = request.args.get("force") == "1"
+
+    # キャッシュがあればExecutorを通さず即返却（ワーカー待ちを回避）
+    if not force:
+        cached = _cache_read(f"deck_{theme}", _DECK_CACHE_TTL)
+        if cached and "cards" in cached:
+            cached.pop("_ts", None)
+            cached["deck_text"] = build_deck_text(cached.get("cards", []))
+            return jsonify(cached)
+
     future = _meta_executor.submit(fetch_deck_cards, theme, force)
     try:
         data = future.result(timeout=25)
