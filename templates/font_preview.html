@@ -37,7 +37,7 @@ h2:first-of-type{margin-top:0}
 <div class="grid" id="fontGrid"></div>
 
 <h2>SVGアイコン配色比較</h2>
-<p class="desc">フォントは Montserrat ExtraBold で統一</p>
+<p class="desc">フォントは Outfit ExtraBold で統一。遊戯王カード裏面モチーフ + 旧デザイン比較用</p>
 <div class="grid" id="colorGrid"></div>
 
 <script>
@@ -83,25 +83,51 @@ fonts.forEach(function(f){
   makeCard(fontGrid,f.name,f.tag,defaultSvg,f.name,f.weight,f.current);
 });
 
-// 配色比較
+// 遊戯王カード裏面モチーフのSVG生成
+// カード型 + 中央に縦長楕円（渦）+ ¥マーク
+function makeYugiohSvg(bg,border,oval,ovalStroke,txt){
+  return '<svg viewBox="0 0 100 100">'
+    // 左カード（裏面モチーフ）
+    +'<rect x="6" y="10" width="52" height="76" rx="4" fill="'+bg+'" stroke="'+(border||'#2a1a0a')+'" stroke-width="2"/>'
+    +'<rect x="11" y="15" width="42" height="66" rx="2" fill="none" stroke="'+(border||'#2a1a0a')+'" stroke-width="1" opacity=".5"/>'
+    +'<ellipse cx="32" cy="48" rx="14" ry="22" fill="'+(oval||'#1a0e04')+'" stroke="'+(ovalStroke||'#8B6914')+'" stroke-width="1.5"/>'
+    +'<ellipse cx="32" cy="48" rx="8" ry="15" fill="none" stroke="'+(ovalStroke||'#8B6914')+'" stroke-width="1" opacity=".6"/>'
+    // 右カード（¥マーク）
+    +'<rect x="42" y="14" width="52" height="76" rx="4" fill="'+bg+'" stroke="'+(border||'#2a1a0a')+'" stroke-width="2"/>'
+    +'<text x="68" y="62" font-size="28" font-weight="bold" fill="'+(txt||'#fff')+'" text-anchor="middle" font-family="Arial">¥</text>'
+    +'</svg>';
+}
+
+// 配色比較（遊戯王カード裏面モチーフ）
 var colorGrid=document.getElementById('colorGrid');
-var colors=[
-  {name:'現在',tag:'青+金',c1:'#4a7cff',c2:'#e8c848',current:true},
-  {name:'ダークネイビー+ゴールド',tag:'重厚感',c1:'#1e3a5f',c2:'#d4a932'},
-  {name:'インディゴ+アンバー',tag:'深み',c1:'#3949ab',c2:'#ffb300'},
-  {name:'ティール+コーラル',tag:'鮮やか',c1:'#00897b',c2:'#ff7043'},
-  {name:'パープル+ゴールド',tag:'高級感',c1:'#7c4dff',c2:'#ffd740'},
-  {name:'スレート+シアン',tag:'クール',c1:'#455a64',c2:'#26c6da'},
-  {name:'ダークブルー+シルバー',tag:'洗練',c1:'#283593',c2:'#b0bec5',s1:'#90a4ae',s2:'#90a4ae',txt:'#fff'},
-  {name:'ブラック+ゴールド',tag:'格調',c1:'#212121',c2:'#c9a832',s1:'#c9a832',s2:'#c9a832'},
-  {name:'ネイビー+ライトブルー',tag:'爽やか',c1:'#1a237e',c2:'#4fc3f7'},
-  {name:'ワイン+ゴールド',tag:'華やか',c1:'#880e4f',c2:'#ffd54f'},
-  {name:'グリーン+ゴールド',tag:'自然・信頼',c1:'#2e7d32',c2:'#ffc107'},
-  {name:'グラデ青+白金',tag:'先進的',c1:'#4a7cff',c2:'#e0e0e0',s1:'#7da0ff',s2:'#bdbdbd',txt:'#333'},
+var yugiColors=[
+  {name:'ダークブラウン+金渦',tag:'裏面に忠実',bg:'#5C3317',border:'#3a1e0a',oval:'#1a0e04',ovalS:'#8B6914',txt:'#d4a932'},
+  {name:'レッドブラウン+金渦',tag:'やや赤み',bg:'#6B2C1A',border:'#3a1510',oval:'#1a0a06',ovalS:'#C49B2A',txt:'#C49B2A'},
+  {name:'マホガニー+銅渦',tag:'落ち着き',bg:'#4E2318',border:'#2a1008',oval:'#150a04',ovalS:'#B87333',txt:'#ddc8a0'},
+  {name:'チョコレート+金渦',tag:'温かみ',bg:'#3E1F0E',border:'#1e0e04',oval:'#0e0604',ovalS:'#DAA520',txt:'#DAA520'},
+  {name:'ダークブラウン+シアン渦',tag:'クール寄せ',bg:'#4A2A14',border:'#2a1608',oval:'#0c1418',ovalS:'#26c6da',txt:'#26c6da'},
+  {name:'ダークブラウン+ブルー渦',tag:'サイトと統一',bg:'#4A2A14',border:'#2a1608',oval:'#0a0e1a',ovalS:'#4a7cff',txt:'#7da0ff'},
+  {name:'ダークパープル+金渦',tag:'ミスティック',bg:'#2E1A3E',border:'#1a0e28',oval:'#0e0618',ovalS:'#C49B2A',txt:'#ddc8a0'},
+  {name:'ネイビー+金渦',tag:'品格',bg:'#1a2744',border:'#0e1830',oval:'#060e1a',ovalS:'#C49B2A',txt:'#C49B2A'},
 ];
-colors.forEach(function(c){
-  var svg=makeSvg(c.c1,c.c2,c.s1||'#fff',c.s2||'#fff',c.txt||'#fff');
-  makeCard(colorGrid,c.name,c.tag,svg,'Montserrat',800,c.current);
+yugiColors.forEach(function(c){
+  var svg=makeYugiohSvg(c.bg,c.border,c.oval,c.ovalS,c.txt);
+  makeCard(colorGrid,c.name,c.tag,svg,'Outfit',800,false);
+});
+
+// 前回の配色（比較用）
+var prevColors=[
+  {name:'現在',tag:'青+金',current:true},
+  {name:'スレート+シアン',tag:'クール'},
+  {name:'ダークブルー+シルバー',tag:'洗練'},
+];
+var prevSvgs=[
+  makeSvg('#4a7cff','#e8c848','#fff','#fff','#fff'),
+  makeSvg('#455a64','#26c6da','#fff','#fff','#fff'),
+  makeSvg('#283593','#b0bec5','#90a4ae','#90a4ae','#fff'),
+];
+prevColors.forEach(function(c,i){
+  makeCard(colorGrid,c.name,c.tag+' (旧デザイン)',prevSvgs[i],'Outfit',800,c.current);
 });
 </script>
 </body>
