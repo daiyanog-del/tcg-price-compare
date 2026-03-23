@@ -1894,7 +1894,8 @@ async function calcDeckEstimate(){
         row.querySelector('.deck-card-status').textContent='リアルタイム検索中...';
       }
     });
-    totalEl.textContent=`¥${total.toLocaleString()}`;
+    const dbTotal=total;
+    totalEl.textContent=`¥${dbTotal.toLocaleString()}`;
 
     if(!missing.length){
       progEl.textContent=`完了 — ${found}/${cards.length}枚の相場を取得`;
@@ -1902,6 +1903,7 @@ async function calcDeckEstimate(){
     }
 
     // Phase 2: データなしカードだけリアルタイム検索
+    totalEl.innerHTML=`¥${dbTotal.toLocaleString()} <span style="font-size:.7em;color:var(--text-d)">+ ${missing.length}枚検索中</span>`;
     progEl.textContent=`${found}枚を即時取得 / 残り${missing.length}枚をリアルタイム検索中...`;
 
     const shops=[...document.querySelectorAll('#deckShopToggles .shop-toggle')]
@@ -1953,10 +1955,17 @@ async function calcDeckEstimate(){
             row.className='deck-card-row error';
             row.querySelector('.deck-card-status').textContent='見つかりません';
           }
-          totalEl.textContent=`¥${total.toLocaleString()}`;
+          const sseExtra=total-dbTotal;
+          const remaining=missing.length-(sseFound+sseNotFound);
+          if(remaining>0){
+            totalEl.innerHTML=`¥${total.toLocaleString()} <span style="font-size:.7em;color:var(--text-d)">+ ${remaining}枚検索中</span>`;
+          }else{
+            totalEl.textContent=`¥${total.toLocaleString()}`;
+          }
           progEl.textContent=`${found}枚を即時取得 / 残り${missing.length}枚中${sseFound+sseNotFound}枚完了`;
         }
         else if(d.type==='done'){
+          totalEl.textContent=`¥${total.toLocaleString()}`;
           const totalFound=found+sseFound;
           const totalMissing=sseNotFound;
           progEl.textContent=`完了 — ${totalFound}/${cards.length}枚の価格を取得${totalMissing>0?` (${totalMissing}枚未取得)`:''}`;
