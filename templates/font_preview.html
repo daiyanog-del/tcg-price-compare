@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ロゴフォント比較</title>
+<title>ロゴ比較</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@900&family=Outfit:wght@600;700;800&family=Montserrat:wght@700;800;900&family=Oxanium:wght@600;700;800&display=swap" rel="stylesheet">
@@ -11,14 +11,15 @@
 :root{--bg:#0c0e14;--bg-card:#141620;--border:#262838;--text:rgba(255,255,255,.7);--hl:#fff;--accent-l:#7da0ff;--gold:#e8c848}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);color:#d8dae0;min-height:100vh;padding:32px 20px;background-image:radial-gradient(ellipse at 50% 0%,rgba(74,124,255,.06) 0%,transparent 60%)}
-h1{text-align:center;font-size:1.2rem;font-weight:700;color:var(--accent-l);margin-bottom:8px}
-.desc{text-align:center;font-size:.8rem;color:#555670;margin-bottom:32px}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px;max-width:1000px;margin:0 auto}
+h2{font-size:1rem;font-weight:700;color:var(--accent-l);margin:32px 0 8px;text-align:center}
+h2:first-of-type{margin-top:0}
+.desc{text-align:center;font-size:.8rem;color:#555670;margin-bottom:24px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px;max-width:1000px;margin:0 auto 24px}
 .card{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:24px 20px;cursor:pointer;transition:border-color .2s,box-shadow .2s}
 .card:hover{border-color:var(--accent-l);box-shadow:0 0 0 2px rgba(74,124,255,.15)}
 .card.selected{border-color:var(--gold);box-shadow:0 0 0 2px rgba(232,200,72,.2)}
-.font-name{font-size:.72rem;color:#8a8ca0;margin-bottom:10px;font-family:'Noto Sans JP',sans-serif;letter-spacing:.04em}
-.font-tag{display:inline-block;font-size:.6rem;color:#555670;background:rgba(255,255,255,.05);padding:2px 8px;border-radius:10px;margin-left:6px}
+.label{font-size:.72rem;color:#8a8ca0;margin-bottom:10px;font-family:'Noto Sans JP',sans-serif;letter-spacing:.04em}
+.tag{display:inline-block;font-size:.6rem;color:#555670;background:rgba(255,255,255,.05);padding:2px 8px;border-radius:10px;margin-left:6px}
 .logo-preview{display:flex;align-items:center;gap:10px}
 .logo-preview svg{width:38px;height:38px;flex-shrink:0}
 .logo-text{display:flex;flex-direction:column;align-items:flex-start;line-height:1.1}
@@ -30,11 +31,42 @@ h1{text-align:center;font-size:1.2rem;font-weight:700;color:var(--accent-l);marg
 </style>
 </head>
 <body>
-<h1>ロゴフォント比較</h1>
-<p class="desc">クリックで枠が光ります。スマホでも確認してみてください。</p>
-<div class="grid" id="grid"></div>
+
+<h2>フォント比較</h2>
+<p class="desc">クリックで枠が光ります</p>
+<div class="grid" id="fontGrid"></div>
+
+<h2>SVGアイコン配色比較</h2>
+<p class="desc">フォントは Montserrat ExtraBold で統一</p>
+<div class="grid" id="colorGrid"></div>
 
 <script>
+var SVG_BASE='<svg viewBox="0 0 100 100"><rect x="8" y="12" width="50" height="72" rx="5" fill="C1" stroke="S1" stroke-width="3"/><rect x="42" y="16" width="50" height="72" rx="5" fill="C2" stroke="S2" stroke-width="3"/><text x="67" y="62" font-size="28" font-weight="bold" fill="TXT" text-anchor="middle" font-family="Arial">¥</text></svg>';
+
+function makeSvg(c1,c2,s1,s2,txt){
+  return SVG_BASE.replace('C1',c1).replace('C2',c2).replace('S1',s1||'#fff').replace('S2',s2||'#fff').replace('TXT',txt||'#fff');
+}
+
+function makeCard(parent,label,tag,svg,fontFamily,fontWeight,isCurrent){
+  var card=document.createElement('div');
+  card.className='card'+(isCurrent?' current':'');
+  card.innerHTML='<div class="label">'+label+'<span class="tag">'+tag+'</span></div>'
+    +'<div class="logo-preview">'+svg
+    +'<span class="logo-text">'
+    +'<span class="logo-main" style="font-family:\''+fontFamily+'\',sans-serif;font-weight:'+fontWeight+'"><span class="hl">Ca</span>rd<span class="hl">Pri</span>ce i<span class="hl">s</span>?</span>'
+    +'<span class="logo-sub">遊戯王OCG 価格比較</span>'
+    +'</span></div>';
+  card.addEventListener('click',function(){
+    var cards=parent.querySelectorAll('.card');
+    cards.forEach(function(c){c.classList.remove('selected')});
+    card.classList.add('selected');
+  });
+  parent.appendChild(card);
+}
+
+// フォント比較
+var fontGrid=document.getElementById('fontGrid');
+var defaultSvg=makeSvg('#4a7cff','#e8c848');
 var fonts=[
   {name:'Noto Sans JP',weight:900,tag:'現在',current:true},
   {name:'Outfit',weight:800,tag:'ExtraBold'},
@@ -47,23 +79,29 @@ var fonts=[
   {name:'Oxanium',weight:700,tag:'Bold'},
   {name:'Oxanium',weight:600,tag:'SemiBold'},
 ];
-
-var grid=document.getElementById('grid');
 fonts.forEach(function(f){
-  var card=document.createElement('div');
-  card.className='card'+(f.current?' current':'');
-  card.innerHTML='<div class="font-name">'+f.name+'<span class="font-tag">'+f.tag+'</span></div>'
-    +'<div class="logo-preview">'
-    +'<svg viewBox="0 0 100 100"><rect x="8" y="12" width="50" height="72" rx="5" fill="#4a7cff" stroke="#fff" stroke-width="3"/><rect x="42" y="16" width="50" height="72" rx="5" fill="#e8c848" stroke="#fff" stroke-width="3"/><text x="67" y="62" font-size="28" font-weight="bold" fill="#fff" text-anchor="middle" font-family="Arial">¥</text></svg>'
-    +'<span class="logo-text">'
-    +'<span class="logo-main" style="font-family:\''+f.name+'\',sans-serif;font-weight:'+f.weight+'"><span class="hl">Ca</span>rd<span class="hl">Pri</span>ce i<span class="hl">s</span>?</span>'
-    +'<span class="logo-sub">遊戯王OCG 価格比較</span>'
-    +'</span></div>';
-  card.addEventListener('click',function(){
-    document.querySelectorAll('.card').forEach(function(c){c.classList.remove('selected')});
-    card.classList.add('selected');
-  });
-  grid.appendChild(card);
+  makeCard(fontGrid,f.name,f.tag,defaultSvg,f.name,f.weight,f.current);
+});
+
+// 配色比較
+var colorGrid=document.getElementById('colorGrid');
+var colors=[
+  {name:'現在',tag:'青+金',c1:'#4a7cff',c2:'#e8c848',current:true},
+  {name:'ダークネイビー+ゴールド',tag:'重厚感',c1:'#1e3a5f',c2:'#d4a932'},
+  {name:'インディゴ+アンバー',tag:'深み',c1:'#3949ab',c2:'#ffb300'},
+  {name:'ティール+コーラル',tag:'鮮やか',c1:'#00897b',c2:'#ff7043'},
+  {name:'パープル+ゴールド',tag:'高級感',c1:'#7c4dff',c2:'#ffd740'},
+  {name:'スレート+シアン',tag:'クール',c1:'#455a64',c2:'#26c6da'},
+  {name:'ダークブルー+シルバー',tag:'洗練',c1:'#283593',c2:'#b0bec5',s1:'#90a4ae',s2:'#90a4ae',txt:'#fff'},
+  {name:'ブラック+ゴールド',tag:'格調',c1:'#212121',c2:'#c9a832',s1:'#c9a832',s2:'#c9a832'},
+  {name:'ネイビー+ライトブルー',tag:'爽やか',c1:'#1a237e',c2:'#4fc3f7'},
+  {name:'ワイン+ゴールド',tag:'華やか',c1:'#880e4f',c2:'#ffd54f'},
+  {name:'グリーン+ゴールド',tag:'自然・信頼',c1:'#2e7d32',c2:'#ffc107'},
+  {name:'グラデ青+白金',tag:'先進的',c1:'#4a7cff',c2:'#e0e0e0',s1:'#7da0ff',s2:'#bdbdbd',txt:'#333'},
+];
+colors.forEach(function(c){
+  var svg=makeSvg(c.c1,c.c2,c.s1||'#fff',c.s2||'#fff',c.txt||'#fff');
+  makeCard(colorGrid,c.name,c.tag,svg,'Montserrat',800,c.current);
 });
 </script>
 </body>
