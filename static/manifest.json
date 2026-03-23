@@ -1,6 +1,6 @@
 {
   "name": "CardPrice is? — 遊戯王OCG 価格比較",
-  "short_name": "CardPrice",
+  "short_name": "CardPrice is?",
   "description": "遊戯王OCGカードの価格を6店舗から一括比較",
   "start_url": "/",
   "display": "standalone",
