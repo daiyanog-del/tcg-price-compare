@@ -471,6 +471,22 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .site-footer a:hover{color:var(--accent-l);text-decoration:underline}
 .site-footer .footer-copy{margin-top:8px;font-size:.75rem}
 
+/* ── PWAインストールバナー ── */
+.pwa-banner{position:fixed;bottom:0;left:0;right:0;background:var(--bg-card);border-top:1px solid var(--border);padding:14px 20px;display:none;align-items:center;justify-content:center;gap:14px;z-index:200;font-size:.85rem;color:var(--text);animation:pwaSlideUp .3s ease}
+@keyframes pwaSlideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.pwa-banner.show{display:flex}
+.pwa-banner-text{color:var(--text-m);font-size:.82rem}
+.pwa-banner-btn{padding:8px 18px;font:.82rem var(--font);font-weight:700;background:var(--accent);color:#fff;border:0;border-radius:var(--radius);cursor:pointer;transition:background .15s;white-space:nowrap}
+.pwa-banner-btn:hover{background:var(--accent-l)}
+.pwa-banner-close{background:none;border:none;color:var(--text-d);font-size:1.1rem;cursor:pointer;padding:4px 8px;line-height:1}
+.pwa-banner-close:hover{color:var(--text-m)}
+.pwa-ios-guide{position:fixed;bottom:0;left:0;right:0;background:var(--bg-card);border-top:1px solid var(--border);padding:20px;display:none;z-index:201;animation:pwaSlideUp .3s ease;max-width:400px;margin:0 auto;border-radius:var(--radius) var(--radius) 0 0}
+.pwa-ios-guide.show{display:block}
+.pwa-ios-guide-title{font-weight:700;font-size:.9rem;margin-bottom:12px}
+.pwa-ios-guide ol{padding-left:1.4em;font-size:.82rem;color:var(--text-m);line-height:1.8}
+.pwa-ios-guide-close{position:absolute;top:12px;right:12px;background:none;border:none;color:var(--text-d);font-size:1.1rem;cursor:pointer}
+@media(max-width:600px){.pwa-banner{flex-wrap:wrap;gap:8px;padding:12px 16px}.pwa-banner-text{width:100%;text-align:center}}
+
 /* ── モーダル（プライバシーポリシー・利用規約） ── */
 .legal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:none;align-items:center;justify-content:center;padding:20px}
 .legal-overlay.active{display:flex}
@@ -761,6 +777,21 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   <a onclick="openLegalModal('privacy')">プライバシーポリシー</a>｜<a onclick="openLegalModal('terms')">利用規約</a>｜<a onclick="openLegalModal('shop')">ショップ運営者様へ</a>｜<a href="mailto:tcg.price.compare@gmail.com">お問い合わせ</a>
   <div class="footer-copy">&copy; 2025 CardPrice</div>
 </footer>
+
+<!-- PWAインストールバナー -->
+<div class="pwa-banner" id="pwaBanner">
+  <span class="pwa-banner-text">ホーム画面に追加すると次回からすぐ開けます</span>
+  <button class="pwa-banner-btn" id="pwaBannerBtn">追加する</button>
+  <button class="pwa-banner-close" id="pwaBannerClose" aria-label="閉じる">&times;</button>
+</div>
+<div class="pwa-ios-guide" id="pwaIosGuide">
+  <button class="pwa-ios-guide-close" id="pwaIosGuideClose" aria-label="閉じる">&times;</button>
+  <div class="pwa-ios-guide-title">ホーム画面への追加方法</div>
+  <ol>
+    <li>画面下の共有ボタン（□に↑）をタップ</li>
+    <li>「ホーム画面に追加」を選択</li>
+  </ol>
+</div>
 
 <!-- プライバシーポリシー モーダル -->
 <div class="legal-overlay" id="privacyOverlay" onclick="if(event.target===this)closeLegalModal('privacy')">
@@ -2147,6 +2178,68 @@ if(_pageCardName){
   }
 }
 </script>
-<script>if('serviceWorker' in navigator){navigator.serviceWorker.register('/static/sw.js')}</script>
+<script>
+// Service Worker登録
+if('serviceWorker' in navigator){navigator.serviceWorker.register('/static/sw.js')}
+
+// PWAインストールバナー
+(function(){
+  var STORAGE_KEY='pwa_banner_dismissed';
+  var VISIT_KEY='pwa_visit_count';
+  var DISMISS_DAYS=30;
+  var MIN_VISITS=2;
+
+  // PWAとして起動中なら表示しない
+  if(window.matchMedia('(display-mode:standalone)').matches||navigator.standalone)return;
+
+  // 訪問回数カウント
+  var visits=parseInt(localStorage.getItem(VISIT_KEY)||'0',10)+1;
+  localStorage.setItem(VISIT_KEY,String(visits));
+  if(visits<MIN_VISITS)return;
+
+  // 非表示期間中なら出さない
+  var dismissed=localStorage.getItem(STORAGE_KEY);
+  if(dismissed&&Date.now()-parseInt(dismissed,10)<DISMISS_DAYS*86400000)return;
+
+  var banner=document.getElementById('pwaBanner');
+  var btn=document.getElementById('pwaBannerBtn');
+  var closeBtn=document.getElementById('pwaBannerClose');
+  var iosGuide=document.getElementById('pwaIosGuide');
+  var iosClose=document.getElementById('pwaIosGuideClose');
+  var deferredPrompt=null;
+
+  function dismiss(){
+    localStorage.setItem(STORAGE_KEY,String(Date.now()));
+    banner.classList.remove('show');
+    iosGuide.classList.remove('show');
+  }
+  closeBtn.addEventListener('click',dismiss);
+  iosClose.addEventListener('click',function(){iosGuide.classList.remove('show')});
+
+  // Android/Chrome: beforeinstallpromptをキャッチ
+  window.addEventListener('beforeinstallprompt',function(e){
+    e.preventDefault();
+    deferredPrompt=e;
+    banner.classList.add('show');
+  });
+
+  btn.addEventListener('click',function(){
+    if(deferredPrompt){
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then(function(){deferredPrompt=null;dismiss()});
+    }else if(/iPad|iPhone|iPod/.test(navigator.userAgent)){
+      // iOS: 手順ガイドを表示
+      banner.classList.remove('show');
+      iosGuide.classList.add('show');
+    }
+  });
+
+  // iOS Safari: beforeinstallpromptが来ないので手動でバナー表示
+  if(/iPad|iPhone|iPod/.test(navigator.userAgent)&&!navigator.standalone){
+    // Safariかどうか判定（Chrome on iOSなどは除外しない、どれもSafariエンジン）
+    banner.classList.add('show');
+  }
+})();
+</script>
 </body>
 </html>
