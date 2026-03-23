@@ -85,7 +85,7 @@ fonts.forEach(function(f){
 
 // 遊戯王カード裏面モチーフのSVG生成
 // カード型 + 中央に縦長楕円（渦）+ ¥マーク
-function makeYugiohSvg(bg,border,oval,ovalStroke,txt){
+function makeYugiohSvg(bg,border,oval,ovalStroke,txt,rbg,rborder){
   return '<svg viewBox="0 0 100 100">'
     // 左カード（裏面モチーフ）
     +'<rect x="6" y="10" width="52" height="76" rx="4" fill="'+bg+'" stroke="'+(border||'#2a1a0a')+'" stroke-width="2"/>'
@@ -93,7 +93,7 @@ function makeYugiohSvg(bg,border,oval,ovalStroke,txt){
     +'<ellipse cx="32" cy="48" rx="14" ry="22" fill="'+(oval||'#1a0e04')+'" stroke="'+(ovalStroke||'#8B6914')+'" stroke-width="1.5"/>'
     +'<ellipse cx="32" cy="48" rx="8" ry="15" fill="none" stroke="'+(ovalStroke||'#8B6914')+'" stroke-width="1" opacity=".6"/>'
     // 右カード（¥マーク）
-    +'<rect x="42" y="14" width="52" height="76" rx="4" fill="'+bg+'" stroke="'+(border||'#2a1a0a')+'" stroke-width="2"/>'
+    +'<rect x="42" y="14" width="52" height="76" rx="4" fill="'+(rbg||bg)+'" stroke="'+(rborder||border||'#2a1a0a')+'" stroke-width="2"/>'
     +'<text x="68" y="62" font-size="28" font-weight="bold" fill="'+(txt||'#fff')+'" text-anchor="middle" font-family="Arial">¥</text>'
     +'</svg>';
 }
@@ -101,33 +101,36 @@ function makeYugiohSvg(bg,border,oval,ovalStroke,txt){
 // 配色比較（遊戯王カード裏面モチーフ）
 var colorGrid=document.getElementById('colorGrid');
 var yugiColors=[
-  {name:'ダークブラウン+金渦',tag:'裏面に忠実',bg:'#5C3317',border:'#3a1e0a',oval:'#1a0e04',ovalS:'#8B6914',txt:'#d4a932'},
-  {name:'レッドブラウン+金渦',tag:'やや赤み',bg:'#6B2C1A',border:'#3a1510',oval:'#1a0a06',ovalS:'#C49B2A',txt:'#C49B2A'},
-  {name:'マホガニー+銅渦',tag:'落ち着き',bg:'#4E2318',border:'#2a1008',oval:'#150a04',ovalS:'#B87333',txt:'#ddc8a0'},
-  {name:'チョコレート+金渦',tag:'温かみ',bg:'#3E1F0E',border:'#1e0e04',oval:'#0e0604',ovalS:'#DAA520',txt:'#DAA520'},
-  {name:'ダークブラウン+シアン渦',tag:'クール寄せ',bg:'#4A2A14',border:'#2a1608',oval:'#0c1418',ovalS:'#26c6da',txt:'#26c6da'},
-  {name:'ダークブラウン+ブルー渦',tag:'サイトと統一',bg:'#4A2A14',border:'#2a1608',oval:'#0a0e1a',ovalS:'#4a7cff',txt:'#7da0ff'},
-  {name:'ダークパープル+金渦',tag:'ミスティック',bg:'#2E1A3E',border:'#1a0e28',oval:'#0e0618',ovalS:'#C49B2A',txt:'#ddc8a0'},
-  {name:'ネイビー+金渦',tag:'品格',bg:'#1a2744',border:'#0e1830',oval:'#060e1a',ovalS:'#C49B2A',txt:'#C49B2A'},
+  // 左右同色（前回のもの）
+  {name:'左右同色: ダークブラウン+金渦',tag:'裏面に忠実',bg:'#5C3317',border:'#3a1e0a',oval:'#1a0e04',ovalS:'#8B6914',txt:'#d4a932'},
+  {name:'左右同色: ダークブラウン+ブルー渦',tag:'サイトと統一',bg:'#4A2A14',border:'#2a1608',oval:'#0a0e1a',ovalS:'#4a7cff',txt:'#7da0ff'},
+
+  // 右カード: ネイビー系
+  {name:'右ネイビー',tag:'知的・信頼',bg:'#5C3317',border:'#3a1e0a',oval:'#1a0e04',ovalS:'#8B6914',txt:'#c0cfe0',rbg:'#1a2744',rb:'#0e1830'},
+  {name:'右ダークネイビー',tag:'深み',bg:'#5C3317',border:'#3a1e0a',oval:'#1a0e04',ovalS:'#8B6914',txt:'#8aacd0',rbg:'#0f1b33',rb:'#1a2744'},
+
+  // 右カード: ブルー系
+  {name:'右インディゴ',tag:'サイト色と統一',bg:'#5C3317',border:'#3a1e0a',oval:'#1a0e04',ovalS:'#8B6914',txt:'#7da0ff',rbg:'#1a2550',rb:'#283593'},
+  {name:'右スレート',tag:'落ち着き',bg:'#5C3317',border:'#3a1e0a',oval:'#1a0e04',ovalS:'#8B6914',txt:'#b0c4d8',rbg:'#37474f',rb:'#263238'},
+
+  // 右カード: ダーク系
+  {name:'右チャコール',tag:'モダン',bg:'#5C3317',border:'#3a1e0a',oval:'#1a0e04',ovalS:'#8B6914',txt:'#d4a932',rbg:'#1e1e1e',rb:'#333'},
+  {name:'右ダークグレー',tag:'シンプル',bg:'#5C3317',border:'#3a1e0a',oval:'#1a0e04',ovalS:'#8B6914',txt:'#e0e0e0',rbg:'#2a2a2a',rb:'#444'},
+
+  // 右カード: ティール・シアン系
+  {name:'右ダークティール',tag:'クール',bg:'#5C3317',border:'#3a1e0a',oval:'#1a0e04',ovalS:'#8B6914',txt:'#4dd0c8',rbg:'#1a3a38',rb:'#0e2826'},
+  {name:'右ディープシアン',tag:'爽やか',bg:'#5C3317',border:'#3a1e0a',oval:'#1a0e04',ovalS:'#8B6914',txt:'#26c6da',rbg:'#0e2a30',rb:'#164550'},
+
+  // 右カード: パープル系
+  {name:'右ダークパープル',tag:'ミスティック',bg:'#5C3317',border:'#3a1e0a',oval:'#1a0e04',ovalS:'#8B6914',txt:'#c8a0e8',rbg:'#2a1840',rb:'#1a0e28'},
+
+  // 右カード: 同系の別トーン
+  {name:'右ダークブラウン(濃)',tag:'統一感',bg:'#5C3317',border:'#3a1e0a',oval:'#1a0e04',ovalS:'#8B6914',txt:'#d4a932',rbg:'#3a1e0a',rb:'#2a1408'},
+  {name:'右ボルドー',tag:'高級感',bg:'#5C3317',border:'#3a1e0a',oval:'#1a0e04',ovalS:'#8B6914',txt:'#e0c0a0',rbg:'#4a1020',rb:'#2a0810'},
 ];
 yugiColors.forEach(function(c){
-  var svg=makeYugiohSvg(c.bg,c.border,c.oval,c.ovalS,c.txt);
+  var svg=makeYugiohSvg(c.bg,c.border,c.oval,c.ovalS,c.txt,c.rbg,c.rb);
   makeCard(colorGrid,c.name,c.tag,svg,'Outfit',800,false);
-});
-
-// 前回の配色（比較用）
-var prevColors=[
-  {name:'現在',tag:'青+金',current:true},
-  {name:'スレート+シアン',tag:'クール'},
-  {name:'ダークブルー+シルバー',tag:'洗練'},
-];
-var prevSvgs=[
-  makeSvg('#4a7cff','#e8c848','#fff','#fff','#fff'),
-  makeSvg('#455a64','#26c6da','#fff','#fff','#fff'),
-  makeSvg('#283593','#b0bec5','#90a4ae','#90a4ae','#fff'),
-];
-prevColors.forEach(function(c,i){
-  makeCard(colorGrid,c.name,c.tag+' (旧デザイン)',prevSvgs[i],'Outfit',800,c.current);
 });
 </script>
 </body>
