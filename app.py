@@ -550,64 +550,14 @@ def api_deck_buy():
 
     return Response(generate(), mimetype="text/event-stream")
 
-# 相場キャッシュ（カード名 → {shop, price, rarity, recorded_at}）
-_estimate_cache: dict[str, dict | None] = {}
-_estimate_cache_time: float = 0
-_ESTIMATE_CACHE_SEC = 600  # 10分キャッシュ
-
-def _refresh_estimate_cache():
-    """Supabaseから全tracked_cardsの直近最安値をまとめて取得しキャッシュ"""
-    global _estimate_cache, _estimate_cache_time
-    if not _supabase_client:
-        return
-    from datetime import datetime, timedelta
-    try:
-        cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-        # ページネーションで全件取得
-        all_rows = []
-        page_size = 1000
-        offset = 0
-        while True:
-            resp = (_supabase_client.table("price_history")
-                    .select("card_name, shop, rarity, min_price, recorded_at")
-                    .gte("recorded_at", cutoff)
-                    .range(offset, offset + page_size - 1)
-                    .execute())
-            rows = resp.data or []
-            all_rows.extend(rows)
-            if len(rows) < page_size:
-                break
-            offset += page_size
-
-        # カードごとに最安値を抽出
-        card_best: dict[str, dict] = {}
-        for row in all_rows:
-            name = row["card_name"]
-            if name not in card_best or row["min_price"] < card_best[name]["price"]:
-                card_best[name] = {
-                    "shop": row["shop"],
-                    "price": row["min_price"],
-                    "rarity": row.get("rarity", ""),
-                    "recorded_at": row["recorded_at"],
-                }
-        _estimate_cache = card_best
-        _estimate_cache_time = time.time()
-        logger.info(f"相場キャッシュ更新: {len(card_best)}カード")
-    except Exception as e:
-        logger.error(f"相場キャッシュ更新失敗: {e}")
-
 @app.route("/api/deck-estimate")
 def api_deck_estimate():
-    """デッキ相場見積もり — キャッシュ済み価格データから即時返却"""
+    """デッキ相場見積もり — SupabaseのRPC関数で各カードの最安値を一括取得"""
     names_raw = request.args.get("cards", "")
     if not names_raw:
         return jsonify({"error": "カード名がありません"}), 400
     if not _supabase_client:
         return jsonify({"error": "価格データベースに接続できません"}), 503
-
-    # キャッシュが古ければ更新
-    if time.time() - _estimate_cache_time > _ESTIMATE_CACHE_SEC:
-        _refresh_estimate_cache()
 
     card_entries = []
     for line in names_raw.split("|"):
@@ -620,12 +570,31 @@ def api_deck_estimate():
         else:
             card_entries.append({"qty": 1, "name": _normalize_query(line)})
 
+    card_names = [e["name"] for e in card_entries]
+
+    try:
+        resp = _supabase_client.rpc("get_deck_estimate", {"card_names": card_names}).execute()
+        rows = resp.data or []
+    except Exception as e:
+        logger.error(f"deck-estimate RPCエラー: {e}")
+        return jsonify({"error": "データベースの取得に失敗しました"}), 500
+
+    # カード名 → 最安値のマッピング
+    card_best = {}
+    for row in rows:
+        card_best[row["card_name"]] = {
+            "shop": row["shop"],
+            "price": row["min_price"],
+            "rarity": row.get("rarity", ""),
+            "recorded_at": row["recorded_at"],
+        }
+
     results = []
     total = 0
     for entry in card_entries:
         name = entry["name"]
         qty = entry["qty"]
-        best = _estimate_cache.get(name)
+        best = card_best.get(name)
         if best:
             total += best["price"] * qty
         results.append({"name": name, "qty": qty, "best": best})
