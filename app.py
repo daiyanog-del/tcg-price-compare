@@ -575,6 +575,7 @@ def api_deck_estimate():
     try:
         resp = _supabase_client.rpc("get_deck_estimate", {"card_names": card_names}).execute()
         rows = resp.data or []
+        logger.info(f"deck-estimate: query={card_names}, rows={len(rows)}, raw={rows[:3]}")
     except Exception as e:
         logger.error(f"deck-estimate RPCエラー: {e}")
         return jsonify({"error": "データベースの取得に失敗しました"}), 500
@@ -599,7 +600,7 @@ def api_deck_estimate():
             total += best["price"] * qty
         results.append({"name": name, "qty": qty, "best": best})
 
-    return jsonify({"results": results, "total": total})
+    return jsonify({"results": results, "total": total, "_debug_query": card_names, "_debug_rows": len(rows)})
 
 @app.route("/api/trending")
 def api_trending():
