@@ -572,16 +572,16 @@ def api_deck_estimate():
 
     card_names = [e["name"] for e in card_entries]
 
+    from datetime import datetime, timedelta
     try:
-        # まず日付フィルタなしで試す
+        cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
         resp = (_supabase_client.table("price_history")
                 .select("card_name, shop, rarity, min_price, recorded_at")
                 .in_("card_name", card_names)
+                .gte("recorded_at", cutoff)
                 .order("min_price", desc=False)
-                .limit(200)
                 .execute())
         rows = resp.data or []
-        logger.info(f"deck-estimate: names={card_names}, rows={len(rows)}")
     except Exception as e:
         logger.error(f"deck-estimate エラー: {e}")
         return jsonify({"error": "データベースの取得に失敗しました"}), 500
