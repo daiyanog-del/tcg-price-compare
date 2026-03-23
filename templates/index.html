@@ -1867,12 +1867,15 @@ async function calcDeckEstimate(){
     </div>`).join('');
 
   const cardsParam=cards.map(c=>c.qty>1?`${c.qty} ${c.name}`:c.name).join('|');
+  let total=0,found=0;
+  const missing=[];// DBにデータがなかったカードのインデックス
+
   try{
+    // Phase 1: DBから一括取得
     const res=await fetch('/api/deck-estimate?cards='+encodeURIComponent(cardsParam));
     const data=await res.json();
     if(data.error){progEl.textContent=data.error;return;}
 
-    let total=0,found=0,notFound=0;
     data.results.forEach((r,i)=>{
       const c=cards[i];
       const row=document.getElementById('deck-row-'+i);
@@ -1886,13 +1889,79 @@ async function calcDeckEstimate(){
         row.querySelector('.deck-card-shop').textContent=r.best.shop;
         row.querySelector('.deck-card-status').textContent=c.qty>1?`@¥${r.best.price.toLocaleString()}`:'';
       }else{
-        notFound++;
-        row.className='deck-card-row error';
-        row.querySelector('.deck-card-status').textContent='データなし';
+        missing.push(i);
+        row.querySelector('.deck-card-status').textContent='リアルタイム検索中...';
       }
     });
     totalEl.textContent=`¥${total.toLocaleString()}`;
-    progEl.textContent=`完了 — ${found}/${cards.length}枚の相場を取得${notFound>0?` (${notFound}枚はデータなし — リアルタイム検索をお試しください)`:''}`;
+
+    if(!missing.length){
+      progEl.textContent=`完了 — ${found}/${cards.length}枚の相場を取得`;
+      return;
+    }
+
+    // Phase 2: データなしカードだけリアルタイム検索
+    progEl.textContent=`${found}枚を即時取得 / 残り${missing.length}枚をリアルタイム検索中...`;
+
+    const shops=[...document.querySelectorAll('#deckShopToggles .shop-toggle')]
+      .filter(l=>l.querySelector('input').checked).map(l=>l.dataset.shop);
+    const missingParam=missing.map(i=>{const c=cards[i];return c.qty>1?`${c.qty} ${c.name}`:c.name}).join('|');
+    const params=new URLSearchParams({cards:missingParam});
+    shops.forEach(s=>params.append('shops',s));
+
+    const sseRes=await fetch('/api/deck?'+params.toString());
+    const reader=sseRes.body.getReader();
+    const decoder=new TextDecoder();
+    let buffer='',sseFound=0,sseNotFound=0;
+
+    while(true){
+      const{done,value}=await reader.read();
+      if(done)break;
+      buffer+=decoder.decode(value,{stream:true});
+      const chunks=buffer.split('\n\n');
+      buffer=chunks.pop()||'';
+
+      for(const chunk of chunks){
+        if(!chunk.startsWith('data: '))continue;
+        const d=JSON.parse(chunk.slice(6));
+
+        if(d.type==='card_start'){
+          // SSE indexをUI indexにマッピング
+          const uiIdx=missing[d.index];
+          const row=document.getElementById('deck-row-'+uiIdx);
+          if(row)row.querySelector('.deck-card-status').textContent='検索中...';
+        }
+        else if(d.type==='card_done'){
+          const uiIdx=missing[d.index];
+          const c=cards[uiIdx];
+          const row=document.getElementById('deck-row-'+uiIdx);
+          if(!row)continue;
+
+          if(d.best){
+            const lineTotal=d.best.price*c.qty;
+            total+=lineTotal;
+            sseFound++;
+            row.className='deck-card-row';
+            row.querySelector('.deck-card-price').innerHTML=`<span>¥${lineTotal.toLocaleString()}</span>`;
+            row.querySelector('.deck-card-shop').textContent=d.best.shop;
+            row.querySelector('.deck-card-status').textContent=c.qty>1?`@¥${d.best.price.toLocaleString()}`:'';
+            row.querySelector('.deck-card-name').innerHTML=d.best.url
+              ?`<a href="${esc(d.best.url)}" target="_blank" rel="noopener">${esc(c.name)}</a>`:esc(c.name);
+          }else{
+            sseNotFound++;
+            row.className='deck-card-row error';
+            row.querySelector('.deck-card-status').textContent='見つかりません';
+          }
+          totalEl.textContent=`¥${total.toLocaleString()}`;
+          progEl.textContent=`${found}枚を即時取得 / 残り${missing.length}枚中${sseFound+sseNotFound}枚完了`;
+        }
+        else if(d.type==='done'){
+          const totalFound=found+sseFound;
+          const totalMissing=sseNotFound;
+          progEl.textContent=`完了 — ${totalFound}/${cards.length}枚の価格を取得${totalMissing>0?` (${totalMissing}枚未取得)`:''}`;
+        }
+      }
+    }
   }catch(e){
     progEl.textContent='エラーが発生しました。再度お試しください。';
   }
