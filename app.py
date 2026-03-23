@@ -572,8 +572,10 @@ def api_deck_estimate():
 
     card_names = [e["name"] for e in card_entries]
 
+    import json as _json
     try:
-        resp = _supabase_client.rpc("get_deck_estimate", {"card_names": card_names}).execute()
+        # jsonb型パラメータにはJSON文字列で渡す
+        resp = _supabase_client.rpc("get_deck_estimate", {"card_names": _json.dumps(card_names, ensure_ascii=False)}).execute()
         rows = resp.data or []
         logger.info(f"deck-estimate: query={card_names}, rows={len(rows)}, raw={rows[:3]}")
     except Exception as e:
