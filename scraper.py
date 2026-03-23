@@ -453,7 +453,10 @@ TORECOLO_BASE = "https://www.torecolo.jp"
 
 def scrape_torecolo(card_name: str, max_pages: int = 5) -> list[dict]:
     """トレコロCB — 複数ページ対応、レアリティ取得"""
-    search_name = _normalize_search_query(card_name)
+    # トレコロは中黒（・）を残さないと検索ヒットしないため専用の正規化を使う
+    search_name = card_name.replace("　", " ")
+    for ch in "-－―‐—–":
+        search_name = search_name.replace(ch, " ")
     base_url = (
         f"{TORECOLO_BASE}/shop/goods/search.aspx"
         f"?search=x&keyword={requests.utils.quote(search_name)}&category=&oshiire_code="
