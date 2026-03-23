@@ -728,8 +728,8 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 
 
         <div class="deck-actions">
-          <button class="deck-btn deck-btn-primary" onclick="calcDeckEstimate()">相場で見積もり<span style="display:block;font-size:.65rem;font-weight:400;opacity:.7;margin-top:2px">直近データから即時表示</span></button>
-          <button class="deck-btn deck-btn-outline" onclick="calcDeck()">リアルタイム価格<span style="display:block;font-size:.65rem;font-weight:400;opacity:.7;margin-top:2px">各店舗を検索（時間がかかります）</span></button>
+          <button class="deck-btn deck-btn-primary" onclick="calcDeckEstimate()">見積もり<span style="display:block;font-size:.65rem;font-weight:400;opacity:.7;margin-top:2px">直近データから即時表示 / データがないカードは自動で店舗検索</span></button>
+          <button class="deck-btn deck-btn-outline" onclick="calcDeck()">全て店舗検索<span style="display:block;font-size:.65rem;font-weight:400;opacity:.7;margin-top:2px">全カードをリアルタイムで検索（時間がかかります）</span></button>
         </div>
         <div style="text-align:right;margin-top:4px"><button class="deck-btn-text" onclick="clearDeck()">入力をクリア</button></div>
 
@@ -1689,7 +1689,7 @@ async function loadMetaDeck(theme){
 
     detailEl.innerHTML='<h4>'+esc(theme)+' — 主要カード（'+data.cards.length+'種）</h4>'
       +'<div class="meta-actions" style="margin-bottom:10px">'
-      +'<button class="deck-btn deck-btn-primary" onclick="applyMetaDeck()">この構成で価格計算</button>'
+      +'<button class="deck-btn deck-btn-primary" onclick="applyMetaDeck()">この構成で見積もり</button>'
       +'<button class="deck-btn deck-btn-secondary" onclick="applyMetaDeckToTextarea()">テキストに反映</button>'
       +'</div>'
       +'<div class="meta-card-list">'+chips+'</div>'
@@ -1713,7 +1713,7 @@ function applyMetaDeck(){
   ta.style.borderColor='var(--accent)';
   ta.style.boxShadow='0 0 0 3px rgba(74,124,255,.2)';
   setTimeout(()=>{ta.style.borderColor='';ta.style.boxShadow='';},1500);
-  calcDeck(false);
+  calcDeckEstimate();
 }
 
 function applyMetaDeckToTextarea(){
