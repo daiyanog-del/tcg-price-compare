@@ -651,6 +651,37 @@ def api_deck_estimate():
 
     return jsonify({"results": results, "total": total})
 
+@app.route("/api/price-history")
+def api_price_history():
+    """カードの価格推移データを返す"""
+    card_name = request.args.get("card", "").strip()
+    if not card_name:
+        return jsonify({"card_name": "", "data": []})
+    card_name = _normalize_query(card_name)
+
+    if not _supabase_client:
+        return jsonify({"card_name": card_name, "data": []})
+
+    try:
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
+        resp = (_supabase_client.table("price_history")
+                .select("shop, rarity, min_price, recorded_at")
+                .eq("card_name", card_name)
+                .gte("recorded_at", cutoff)
+                .order("recorded_at", desc=False)
+                .limit(2000)
+                .execute())
+        data = [
+            {"date": r["recorded_at"][:10], "shop": r["shop"],
+             "rarity": r.get("rarity", ""), "price": r["min_price"]}
+            for r in (resp.data or [])
+        ]
+        return jsonify({"card_name": card_name, "data": data})
+    except Exception as e:
+        logger.error(f"価格推移取得失敗: {e}")
+        return jsonify({"card_name": card_name, "data": []})
+
 @app.route("/api/trending")
 def api_trending():
     """直近24時間の検索ランキングを返す"""

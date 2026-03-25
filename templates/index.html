@@ -287,6 +287,12 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .tbl-img{width:28px;height:40px;border-radius:2px;overflow:hidden;vertical-align:middle}
 .tbl-img img{width:100%;height:100%;object-fit:cover}
 
+/* ── 価格推移グラフ ── */
+.price-chart{margin-bottom:20px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px}
+.chart-title{font-size:.85rem;font-weight:600;margin-bottom:12px;color:var(--text-m)}
+.chart-wrap{position:relative;height:280px}
+@media(max-width:600px){.chart-wrap{height:220px}}
+
 /* Deck Builder */
 .mode-tabs{display:flex;gap:4px;max-width:540px;margin:0 auto 20px;justify-content:center}
 .mode-tab{padding:8px 20px;font:.82rem var(--font);font-weight:700;color:var(--text-d);background:var(--bg-card);border:1px solid var(--border);border-radius:20px;cursor:pointer;transition:all .15s}
@@ -604,6 +610,13 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
       <div class="card-hero-img" id="heroImgWrap"></div>
       <div class="card-hero-info" id="heroInfo"></div>
     </div>
+    <div id="priceChart" class="price-chart hidden">
+      <h3 class="chart-title">価格推移（最大90日）</h3>
+      <div class="chart-wrap">
+        <canvas id="priceCanvas"></canvas>
+      </div>
+    </div>
+
     <div class="summary" id="sumCards"></div>
 
     <div class="controls">
@@ -1415,6 +1428,7 @@ function renderAll(d){
   }
 
   renderTable();
+  loadPriceHistory(searchTerm);
 
   // Rarity grid
   const entries=Object.entries(d.by_rarity).sort((a,b)=>a[1].price-b[1].price);
@@ -2444,6 +2458,74 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/static/sw.js
     banner.classList.add('show');
   }
 })();
+</script>
+
+<script>
+// ── 価格推移グラフ ──
+const SHOP_COLORS={'遊々亭':'#2ecc71','カードラッシュ':'#e74c3c','トレコロCB':'#3498db','カーナベル':'#f39c12','カードラボ':'#9b59b6','まんぞく屋':'#1abc9c','駿河屋':'#e67e22'};
+let _chartInstance=null;
+
+function _loadChartJs(cb){
+  if(window.Chart){cb();return;}
+  const s=document.createElement('script');
+  s.src='https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js';
+  s.onload=()=>{
+    const a=document.createElement('script');
+    a.src='https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js';
+    a.onload=cb;
+    document.head.appendChild(a);
+  };
+  document.head.appendChild(s);
+}
+
+function loadPriceHistory(cardName){
+  const container=document.getElementById('priceChart');
+  container.classList.add('hidden');
+  fetch('/api/price-history?card='+encodeURIComponent(cardName))
+    .then(r=>r.json())
+    .then(json=>{
+      if(!json.data||!json.data.length)return;
+      container.classList.remove('hidden');
+      _loadChartJs(()=>_drawPriceChart(json.data));
+    })
+    .catch(()=>{});
+}
+
+function _drawPriceChart(data){
+  if(_chartInstance){_chartInstance.destroy();_chartInstance=null;}
+  // 店舗+レアリティでグループ化
+  const groups={};
+  data.forEach(r=>{
+    const key=r.rarity?r.shop+'('+r.rarity+')':r.shop;
+    if(!groups[key])groups[key]={shop:r.shop,points:[]};
+    groups[key].points.push({x:r.date,y:r.price});
+  });
+  const datasets=Object.entries(groups).map(([label,g])=>({
+    label,data:g.points,
+    borderColor:SHOP_COLORS[g.shop]||'#888',
+    backgroundColor:'transparent',
+    tension:0.3,pointRadius:2,borderWidth:2,fill:false
+  }));
+  const ctx=document.getElementById('priceCanvas');
+  _chartInstance=new Chart(ctx,{
+    type:'line',
+    data:{datasets},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      scales:{
+        x:{type:'time',time:{unit:'day',tooltipFormat:'yyyy/MM/dd'},
+           grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#8a8ca0',font:{size:10}}},
+        y:{beginAtZero:false,
+           ticks:{color:'#8a8ca0',font:{size:10},callback:v=>'\u00a5'+v.toLocaleString()},
+           grid:{color:'rgba(255,255,255,.05)'}}
+      },
+      plugins:{
+        legend:{position:'bottom',labels:{color:'#d8dae0',font:{size:11},boxWidth:12,padding:10}},
+        tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': \u00a5'+ctx.parsed.y.toLocaleString()}}
+      }
+    }
+  });
+}
 </script>
 
 <script>
