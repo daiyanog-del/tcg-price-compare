@@ -708,22 +708,31 @@ def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
         from datetime import datetime, timedelta
         from collections import defaultdict
 
-        # 直近7日分のデータを取得（2日分だけだとデータ欠損に弱い）
-        cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-        resp = (_supabase_client.table("price_history")
-                .select("card_name, min_price, recorded_at")
-                .gte("recorded_at", cutoff)
-                .order("recorded_at", desc=False)
-                .limit(10000)
-                .execute())
+        # 直近3日分のデータをページングで全件取得
+        cutoff = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
+        all_rows = []
+        page_size = 1000
+        offset = 0
+        while True:
+            resp = (_supabase_client.table("price_history")
+                    .select("card_name, min_price, recorded_at")
+                    .gte("recorded_at", cutoff)
+                    .order("recorded_at", desc=False)
+                    .range(offset, offset + page_size - 1)
+                    .execute())
+            batch = resp.data or []
+            all_rows.extend(batch)
+            if len(batch) < page_size:
+                break
+            offset += page_size
 
-        if not resp.data:
+        logger.info(f"値動きランキング: {len(all_rows)}行取得")
+        if not all_rows:
             return []
 
         # 日付ごと・カードごとの最安値を集計
-        # {card_name: {date: min_price}}
         card_dates = defaultdict(dict)
-        for r in resp.data:
+        for r in all_rows:
             name = r["card_name"]
             date = r["recorded_at"][:10]
             price = r["min_price"]
