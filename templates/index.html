@@ -1909,6 +1909,8 @@ async function calcDeckEstimate(){
         row.querySelector('.deck-card-price').innerHTML=`<span>¥${lineTotal.toLocaleString()}</span>`;
         row.querySelector('.deck-card-shop').textContent=r.best.shop;
         row.querySelector('.deck-card-status').textContent=c.qty>1?`@¥${r.best.price.toLocaleString()}`:'';
+        row.querySelector('.deck-card-name').innerHTML=r.best.url
+          ?`<a href="${esc(r.best.url)}" target="_blank" rel="noopener">${esc(c.name)}</a>`:esc(c.name);
       }else{
         missing.push(i);
         row.querySelector('.deck-card-status').textContent='リアルタイム検索中...';
