@@ -940,8 +940,21 @@ def api_meta_deck():
 
 @app.route("/api/packs")
 def api_packs():
-    """パック一覧を返す"""
+    """パック一覧を返す（スクレイピング失敗時はSupabaseから取得）"""
     packs = get_pack_list()
+    if not packs and _supabase_client:
+        try:
+            resp = (_supabase_client.table("pack_list")
+                    .select("name, wiki_page, tcg_name, release_date")
+                    .order("release_date", desc=True)
+                    .limit(10)
+                    .execute())
+            packs = [{"name": r["name"], "wiki_page": r.get("wiki_page", ""),
+                      "tcg_name": r.get("tcg_name", ""), "date": r.get("release_date", "")}
+                     for r in (resp.data or [])]
+            logger.info(f"パック一覧をSupabaseから取得: {len(packs)}件")
+        except Exception as e:
+            logger.error(f"Supabaseパック一覧取得失敗: {e}")
     return jsonify(packs)
 
 @app.route("/api/packs/cards")

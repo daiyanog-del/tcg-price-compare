@@ -331,6 +331,28 @@ def sync_searched_cards(sb: Client):
         print("  新規カードなし")
 
 
+def save_pack_list(sb: Client):
+    """パック一覧をSupabaseに保存（Webアプリのフォールバック用）"""
+    print("\n--- パック一覧保存 ---")
+    packs = get_pack_list()
+    if not packs:
+        print("  パック一覧が空のためスキップ")
+        return
+
+    try:
+        # 既存データを削除して最新に置き換え
+        sb.table("pack_list").delete().neq("id", 0).execute()
+        rows = [{"name": p["name"], "wiki_page": p.get("wiki_page", ""),
+                 "tcg_name": p.get("tcg_name", ""), "release_date": p.get("date", "")}
+                for p in packs]
+        sb.table("pack_list").insert(rows).execute()
+        print(f"  保存完了: {len(rows)}件")
+        for p in packs:
+            print(f"    {p['name']}")
+    except Exception as e:
+        print(f"  パック一覧保存失敗: {e}")
+
+
 def cleanup_old_data(sb: Client):
     """保持期間を超えた古いデータを削除"""
     from datetime import timedelta
@@ -357,6 +379,9 @@ def main():
     sync_meta_decks(sb)
     sync_regulation(sb)
     sync_searched_cards(sb)
+
+    # パック一覧をSupabaseに保存（Webアプリからのフォールバック用）
+    save_pack_list(sb)
 
     cards = fetch_tracked_cards(sb)
 
