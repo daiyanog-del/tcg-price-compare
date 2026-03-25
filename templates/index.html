@@ -611,7 +611,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
       <div class="card-hero-info" id="heroInfo"></div>
     </div>
     <div id="priceChart" class="price-chart hidden">
-      <h3 class="chart-title">価格推移（最大90日）</h3>
+      <h3 class="chart-title">価格推移 ― レアリティ別平均（最大90日）</h3>
       <div class="chart-wrap">
         <canvas id="priceCanvas"></canvas>
       </div>
@@ -2462,7 +2462,7 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/static/sw.js
 
 <script>
 // ── 価格推移グラフ ──
-const SHOP_COLORS={'遊々亭':'#2ecc71','カードラッシュ':'#e74c3c','トレコロCB':'#3498db','カーナベル':'#f39c12','カードラボ':'#9b59b6','まんぞく屋':'#1abc9c','駿河屋':'#e67e22'};
+const RARITY_COLORS={'UR':'#e8c848','SE':'#e74c3c','SR':'#c0c0c0','R':'#cd7f32','N':'#888','25thSE':'#e74c3c','QSE':'#d63384','PSE':'#ff6b9d'};
 let _chartInstance=null;
 
 function _loadChartJs(cb){
@@ -2493,19 +2493,25 @@ function loadPriceHistory(cardName){
 
 function _drawPriceChart(data){
   if(_chartInstance){_chartInstance.destroy();_chartInstance=null;}
-  // 店舗+レアリティでグループ化
-  const groups={};
+  // レアリティ×日付ごとに全店舗の平均価格を算出
+  const byRarityDate={};
   data.forEach(r=>{
-    const key=r.rarity?r.shop+'('+r.rarity+')':r.shop;
-    if(!groups[key])groups[key]={shop:r.shop,points:[]};
-    groups[key].points.push({x:r.date,y:r.price});
+    const rar=r.rarity||'不明';
+    if(!byRarityDate[rar])byRarityDate[rar]={};
+    if(!byRarityDate[rar][r.date])byRarityDate[rar][r.date]=[];
+    byRarityDate[rar][r.date].push(r.price);
   });
-  const datasets=Object.entries(groups).map(([label,g])=>({
-    label,data:g.points,
-    borderColor:SHOP_COLORS[g.shop]||'#888',
-    backgroundColor:'transparent',
-    tension:0.3,pointRadius:2,borderWidth:2,fill:false
-  }));
+  const datasets=Object.entries(byRarityDate).map(([rar,dates])=>{
+    const points=Object.entries(dates).map(([d,prices])=>({
+      x:d,y:Math.round(prices.reduce((a,b)=>a+b,0)/prices.length)
+    })).sort((a,b)=>a.x.localeCompare(b.x));
+    return{
+      label:rar,data:points,
+      borderColor:RARITY_COLORS[rar]||'#888',
+      backgroundColor:'transparent',
+      tension:0.3,pointRadius:2,borderWidth:2,fill:false
+    };
+  });
   const ctx=document.getElementById('priceCanvas');
   _chartInstance=new Chart(ctx,{
     type:'line',
