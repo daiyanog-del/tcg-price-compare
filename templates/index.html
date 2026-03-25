@@ -2476,12 +2476,14 @@ const RARITY_COLORS={
   'ゴールド':'#DAA520','GR':'#DAA520',
   'EXシークレット':'#2ecc71','EXSE':'#2ecc71','エクシク':'#2ecc71',
   'プリズマティック':'#ff6b9d','プリズマ':'#ff6b9d',
+  'OFプリシク':'#ff1493','OFシークレット':'#dc143c','OFスーパー':'#4169e1','OFウルトラ':'#ffd700',
   'プレミアムゴールド':'#DAA520','PG':'#DAA520',
   '20thシークレット':'#d63384','20thSE':'#d63384',
   'ノーマルパラレル':'#7f8c8d','NP':'#7f8c8d',
   'ミレニアム':'#8e44ad','ML':'#8e44ad',
   'スーパーパラレル':'#5dade2','ウルトラパラレル':'#f4d03f',
   'ゴールドシークレット':'#b8860b','GSE':'#b8860b',
+  'グランドマスター':'#00ced1','10000シークレット':'#ff4500',
 };
 let _chartInstance=null;
 
@@ -2511,12 +2513,27 @@ function loadPriceHistory(cardName){
     .catch(()=>{});
 }
 
+// グラフ用レアリティ正規化（店舗間の表記ゆれを統合）
+const _RARITY_NORMALIZE={
+  'クォーターセンチュリー':'25thシークレット','QCシク':'25thシークレット','QCSE':'25thシークレット',
+  '25thシク':'25thシークレット','クォーターセンチュリーシークレット':'25thシークレット',
+  '20thシク':'20thシークレット',
+  'プリズマティック':'プリシク','プリズマティックシークレット':'プリシク','PSE':'プリシク',
+  'OFプリズマティックシークレット':'OFプリシク',
+  'エクストラシークレット':'EXシークレット','エクシク':'EXシークレット','ESE':'EXシークレット',
+  'レリーフ':'アルティメット','レリ':'アルティメット',
+  'ホロ':'ホログラフィック',
+  'ゴルシク':'ゴールドシークレット',
+  'コレ':'コレクターズ',
+};
+function _normalizeRarity(r){return _RARITY_NORMALIZE[r]||r;}
+
 function _drawPriceChart(data){
   if(_chartInstance){_chartInstance.destroy();_chartInstance=null;}
   // レアリティ×日付ごとに全店舗の平均価格を算出
   const byRarityDate={};
   data.forEach(r=>{
-    const rar=r.rarity||'不明';
+    const rar=_normalizeRarity(r.rarity||'不明');
     if(!byRarityDate[rar])byRarityDate[rar]={};
     if(!byRarityDate[rar][r.date])byRarityDate[rar][r.date]=[];
     byRarityDate[rar][r.date].push(r.price);
