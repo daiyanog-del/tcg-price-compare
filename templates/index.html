@@ -349,6 +349,23 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .pack-card-num{font:.68rem var(--mono);color:var(--text-d);min-width:22px;text-align:right}
 .pack-card-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
+/* ── 購入候補 ── */
+.wish-add{background:none;border:1px solid var(--border);color:var(--text-d);width:26px;height:26px;border-radius:50%;cursor:pointer;font-size:.85rem;line-height:1;display:inline-flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;padding:0}
+.wish-add:hover{border-color:var(--accent);color:var(--accent)}
+.wish-add.added{border-color:var(--green);color:var(--green);pointer-events:none}
+.wish-empty{text-align:center;padding:40px 20px;color:var(--text-d);font-size:.9rem}
+.wish-actions{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.wish-action-btn{padding:8px 16px;font:.78rem var(--font);font-weight:600;border-radius:6px;cursor:pointer;transition:all .15s;border:1px solid var(--border);background:var(--bg-card);color:var(--text-m)}
+.wish-action-btn:hover{border-color:var(--accent);color:var(--accent)}
+.wish-action-btn.danger{color:var(--red);border-color:transparent}
+.wish-action-btn.danger:hover{border-color:var(--red)}
+.wish-card-row{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;margin-bottom:4px;font-size:.82rem}
+.wish-card-qty{font:700 .82rem var(--mono);color:var(--accent-l);min-width:24px}
+.wish-card-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wish-card-remove{background:none;border:none;color:var(--text-d);cursor:pointer;font-size:.9rem;padding:4px;line-height:1;transition:color .15s}
+.wish-card-remove:hover{color:var(--red)}
+.wish-badge{background:var(--accent);color:#fff;font:.6rem var(--mono);font-weight:700;min-width:16px;height:16px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;margin-left:4px;padding:0 4px}
+
 /* Mobile — タブレット */
 @media(max-width:768px){
   .wrap{padding:0 12px}
@@ -446,6 +463,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   .deck-total{flex-direction:column;gap:6px;text-align:center}
   .deck-card-row{font-size:.75rem;gap:6px;flex-wrap:wrap}
   .deck-card-name{white-space:normal}
+  .wish-card-row{font-size:.75rem;gap:6px;flex-wrap:wrap}
 
   /* 環境デッキ */
   .meta-deck-list{gap:4px}
@@ -543,6 +561,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
     <button class="mode-tab" onclick="switchMode('buyback')">買取価格</button>
     <button class="mode-tab" onclick="switchMode('deck')">デッキ計算</button>
     <button class="mode-tab" onclick="switchMode('packs')">最新弾</button>
+    <button class="mode-tab" onclick="switchMode('wishlist')">購入候補<span class="wish-badge" id="wishTabBadge" style="display:none">0</span></button>
   </div>
 
   <!-- ===== 検索モード ===== -->
@@ -617,6 +636,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
             <th data-s="price">価格<span class="arr">▲</span></th>
             <th data-s="stock">在庫<span class="arr"></span></th>
             <th data-s="code">コード<span class="arr"></span></th>
+            <th style="width:32px"></th>
           </tr></thead>
           <tbody id="tbody"></tbody>
         </table>
@@ -686,6 +706,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
           <th data-bs="condition">備考<span class="arr"></span></th>
           <th data-bs="price">買取価格<span class="arr">▼</span></th>
           <th data-bs="code">コード<span class="arr"></span></th>
+          <th style="width:32px"></th>
         </tr></thead>
         <tbody id="buyTbody"></tbody>
       </table>
@@ -775,6 +796,19 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
       </div>
     </div>
   </div><!-- /mode-packs -->
+
+  <!-- ===== 購入候補モード ===== -->
+  <div id="mode-wishlist" class="hidden">
+    <div class="deck-builder">
+      <div class="deck-input-area">
+        <div class="wish-actions" id="wishActions" style="display:none">
+          <button class="wish-action-btn" onclick="wishToEstimate()">このリストで見積もり</button>
+          <button class="wish-action-btn danger" onclick="wishClearAll()">すべて削除</button>
+        </div>
+        <div id="wishList"></div>
+      </div>
+    </div>
+  </div><!-- /mode-wishlist -->
 
 </div>
 
@@ -1420,7 +1454,8 @@ function renderTable(){
       <td data-label="状態">${cond}</td>
       <td data-label="価格" class="col-price">¥${r.price.toLocaleString()}</td>
       <td data-label="在庫" class="col-stock">${stockStr}</td>
-      <td data-label="コード" class="col-code">${r.code||''}</td></tr>`;
+      <td data-label="コード" class="col-code">${r.code||''}</td>
+      <td>${wishBtnHtml(r.name,1)}</td></tr>`;
   }).join('');
 
   document.querySelectorAll('#tbl th').forEach(th=>{
@@ -1564,11 +1599,16 @@ window.addEventListener('popstate',function(e){
 // ── Mode switch ──
 function switchMode(mode){
   const labels={search:'販売価格',buyback:'買取価格',deck:'デッキ計算',packs:'最新弾'};
-  document.querySelectorAll('.mode-tab').forEach(b=>b.classList.toggle('active',b.textContent===labels[mode]));
-  ['search','buyback','deck','packs'].forEach(m=>{
+  document.querySelectorAll('.mode-tab').forEach(b=>{
+    // 購入候補タブはテキスト先頭で判定（バッジspanが含まれるため）
+    if(mode==='wishlist') b.classList.toggle('active',b.textContent.startsWith('購入候補'));
+    else b.classList.toggle('active',b.textContent===labels[mode]);
+  });
+  ['search','buyback','deck','packs','wishlist'].forEach(m=>{
     document.getElementById('mode-'+m).classList.toggle('hidden',m!==mode);
   });
   if(mode==='packs') loadPacks();
+  if(mode==='wishlist') renderWishlist();
 }
 
 // ── Deck Builder ──
@@ -1885,6 +1925,7 @@ async function calcDeckEstimate(){
       <span class="deck-card-price">-</span>
       <span class="deck-card-shop"></span>
       <span class="deck-card-status">取得中</span>
+      ${wishBtnHtml(c.name,c.qty)}
     </div>`).join('');
 
   const cardsParam=cards.map(c=>c.qty>1?`${c.qty} ${c.name}`:c.name).join('|');
@@ -2023,6 +2064,7 @@ async function calcDeck(buyMode){
       <span class="deck-card-price">-</span>
       <span class="deck-card-shop"></span>
       <span class="deck-card-status">待機中</span>
+      ${wishBtnHtml(c.name,c.qty)}
     </div>`).join('');
 
   // Build request
@@ -2310,6 +2352,7 @@ function renderBuyTable(){
       <td data-label="備考">${esc(r.condition||'-')}</td>
       <td data-label="買取価格" class="price" style="color:var(--green)">${link}</td>
       <td data-label="コード" class="col-code">${esc(r.code||'-')}</td>
+      <td>${wishBtnHtml(r.name,1)}</td>
     </tr>`;
   }).join('');
 }
@@ -2401,6 +2444,94 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/static/sw.js
     banner.classList.add('show');
   }
 })();
+</script>
+
+<script>
+// ── 購入候補（localStorage） ──
+const WISH_KEY='cardprice_wishlist';
+
+function wishGet(){
+  try{return JSON.parse(localStorage.getItem(WISH_KEY))||[];}catch{return[];}
+}
+function wishSave(list){
+  localStorage.setItem(WISH_KEY,JSON.stringify(list));
+  wishUpdateBadge();
+}
+function wishAdd(name,qty){
+  const list=wishGet();
+  const existing=list.find(c=>c.name===name);
+  if(existing){existing.qty+=qty||1;}
+  else{list.push({name:name,qty:qty||1});}
+  wishSave(list);
+}
+function wishRemove(name){
+  const list=wishGet().filter(c=>c.name!==name);
+  wishSave(list);
+  renderWishlist();
+}
+function wishClearAll(){
+  if(!confirm('購入候補をすべて削除しますか？'))return;
+  wishSave([]);
+  renderWishlist();
+}
+function wishUpdateBadge(){
+  const list=wishGet();
+  const badge=document.getElementById('wishTabBadge');
+  if(!badge)return;
+  if(list.length>0){badge.textContent=list.length;badge.style.display='inline-flex';}
+  else{badge.style.display='none';}
+}
+function wishUpdateQty(name,newQty){
+  if(newQty<1)return wishRemove(name);
+  const list=wishGet();
+  const item=list.find(c=>c.name===name);
+  if(item){item.qty=newQty;wishSave(list);renderWishlist();}
+}
+
+function renderWishlist(){
+  const list=wishGet();
+  const el=document.getElementById('wishList');
+  const actions=document.getElementById('wishActions');
+  if(!list.length){
+    el.innerHTML='<div class="wish-empty">購入候補はまだありません<br><span style="font-size:.78rem;margin-top:8px;display:block">検索結果やデッキ計算の結果から + ボタンで追加できます</span></div>';
+    actions.style.display='none';
+    return;
+  }
+  actions.style.display='flex';
+  el.innerHTML=list.map(c=>`
+    <div class="wish-card-row">
+      <span class="wish-card-qty">
+        <button class="wish-card-remove" onclick="wishUpdateQty('${esc(c.name).replace(/'/g,"\\'")}',${c.qty-1})" title="1枚減らす" style="font-size:.7rem">-</button>
+        ${c.qty}x
+        <button class="wish-card-remove" onclick="wishUpdateQty('${esc(c.name).replace(/'/g,"\\'")}',${c.qty+1})" title="1枚増やす" style="font-size:.7rem">+</button>
+      </span>
+      <span class="wish-card-name">${esc(c.name)}</span>
+      <button class="wish-card-remove" onclick="wishRemove('${esc(c.name).replace(/'/g,"\\'")}')" title="削除">&times;</button>
+    </div>`).join('');
+}
+
+function wishToEstimate(){
+  const list=wishGet();
+  if(!list.length)return;
+  const text=list.map(c=>`${c.qty} ${c.name}`).join('\n');
+  document.getElementById('deckTextarea').value=text;
+  switchMode('deck');
+  calcDeckEstimate();
+}
+
+// 追加ボタンのHTMLを生成するヘルパー
+function wishBtnHtml(name,qty){
+  return `<button class="wish-add" onclick="event.stopPropagation();wishAddFromBtn(this,'${esc(name).replace(/'/g,"\\'")}',${qty||1})" title="購入候補に追加">+</button>`;
+}
+function wishAddFromBtn(btn,name,qty){
+  wishAdd(name,qty);
+  btn.classList.add('added');
+  btn.textContent='\u2713';
+  setTimeout(()=>{btn.classList.remove('added');btn.textContent='+';},1200);
+}
+
+// 起動時にバッジ更新
+wishUpdateBadge();
 </script>
 </body>
 </html>
