@@ -694,7 +694,7 @@ _movers_cache_time: float = 0
 _MOVERS_CACHE_SEC = 600  # 10分キャッシュ
 
 def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
-    """Supabaseから値上がり/値下がりランキングを取得"""
+    """Supabaseから値上がり/値下がりランキングを取得（直接クエリ版）"""
     global _movers_cache, _movers_cache_time
 
     now = time.time()
@@ -705,21 +705,56 @@ def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
         return []
 
     try:
-        up_resp = _supabase_client.rpc("get_price_movers", {
-            "direction": "up", "max_results": 20
-        }).execute()
-        down_resp = _supabase_client.rpc("get_price_movers", {
-            "direction": "down", "max_results": 20
-        }).execute()
+        from datetime import datetime, timedelta
+        from collections import defaultdict
 
-        _movers_cache = {
-            "up": [{"name": r["card_name"], "today": r["today_price"],
-                     "yesterday": r["yesterday_price"], "diff": r["price_diff"],
-                     "pct": float(r["change_pct"])} for r in (up_resp.data or [])],
-            "down": [{"name": r["card_name"], "today": r["today_price"],
-                       "yesterday": r["yesterday_price"], "diff": r["price_diff"],
-                       "pct": float(r["change_pct"])} for r in (down_resp.data or [])],
-        }
+        # 直近7日分のデータを取得（2日分だけだとデータ欠損に弱い）
+        cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        resp = (_supabase_client.table("price_history")
+                .select("card_name, min_price, recorded_at")
+                .gte("recorded_at", cutoff)
+                .order("recorded_at", desc=False)
+                .limit(10000)
+                .execute())
+
+        if not resp.data:
+            return []
+
+        # 日付ごと・カードごとの最安値を集計
+        # {card_name: {date: min_price}}
+        card_dates = defaultdict(dict)
+        for r in resp.data:
+            name = r["card_name"]
+            date = r["recorded_at"][:10]
+            price = r["min_price"]
+            if date not in card_dates[name] or price < card_dates[name][date]:
+                card_dates[name][date] = price
+
+        # 各カードの最新日と前回日を比較
+        movers = []
+        for name, dates in card_dates.items():
+            sorted_dates = sorted(dates.keys())
+            if len(sorted_dates) < 2:
+                continue
+            today_date = sorted_dates[-1]
+            yesterday_date = sorted_dates[-2]
+            today_price = dates[today_date]
+            yesterday_price = dates[yesterday_date]
+            if yesterday_price == 0:
+                continue
+            diff = today_price - yesterday_price
+            pct = round((diff / yesterday_price) * 100, 1)
+            if diff == 0:
+                continue
+            movers.append({
+                "name": name, "today": today_price,
+                "yesterday": yesterday_price, "diff": diff, "pct": pct
+            })
+
+        up = sorted([m for m in movers if m["diff"] > 0], key=lambda x: -x["pct"])[:20]
+        down = sorted([m for m in movers if m["diff"] < 0], key=lambda x: x["pct"])[:20]
+
+        _movers_cache = {"up": up, "down": down}
         _movers_cache_time = now
         return _movers_cache.get(direction, [])[:limit]
     except Exception as e:
