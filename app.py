@@ -730,12 +730,14 @@ def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
         if not all_rows:
             return []
 
-        # 日付ごと・カードごとの最安値を集計
+        # 日付ごと・カードごとの最安値を集計（10円以下の異常値は除外）
         card_dates = defaultdict(dict)
         for r in all_rows:
             name = r["card_name"]
             date = r["recorded_at"][:10]
             price = r["min_price"]
+            if price <= 10:
+                continue
             if date not in card_dates[name] or price < card_dates[name][date]:
                 card_dates[name][date] = price
 

@@ -69,7 +69,7 @@ def collect_and_save(sb: Client, card_name: str, today: str) -> int:
         if item.get("sold_out"):
             continue
         price = item.get("price", 0)
-        if price <= 0:
+        if price <= 10:
             continue
 
         key = (item.get("shop", ""), item.get("rarity", ""))
