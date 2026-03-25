@@ -2462,7 +2462,22 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/static/sw.js
 
 <script>
 // ── 価格推移グラフ ──
-const RARITY_COLORS={'UR':'#e8c848','SE':'#e74c3c','SR':'#c0c0c0','R':'#cd7f32','N':'#888','25thSE':'#e74c3c','QSE':'#d63384','PSE':'#ff6b9d'};
+const RARITY_COLORS={
+  'ウルトラ':'#e8c848','UR':'#e8c848',
+  'シークレット':'#e74c3c','SE':'#e74c3c',
+  'スーパー':'#3498db','SR':'#3498db',
+  'レア':'#cd7f32','R':'#cd7f32',
+  'ノーマル':'#888','N':'#888',
+  '25thシークレット':'#9b59b6','25thSE':'#9b59b6','クォーターセンチュリー':'#9b59b6','QCシク':'#9b59b6',
+  'プリシク':'#ff6b9d','PSE':'#ff6b9d','OFプリシク':'#ff6b9d',
+  'コレクターズ':'#1abc9c','CR':'#1abc9c',
+  'ホログラフィック':'#f39c12','HR':'#f39c12',
+  'アルティメット':'#e67e22','UL':'#e67e22',
+  'ゴールド':'#DAA520','GR':'#DAA520',
+  'EXシークレット':'#2ecc71','EXSE':'#2ecc71','エクシク':'#2ecc71',
+  'ノーマルパラレル':'#7f8c8d','NP':'#7f8c8d',
+  'ミレニアム':'#8e44ad','ML':'#8e44ad',
+};
 let _chartInstance=null;
 
 function _loadChartJs(cb){
