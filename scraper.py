@@ -179,10 +179,19 @@ def _has_japanese_outside_brackets(text: str) -> bool:
     )
     return any(_is_japanese_char(c) for c in stripped)
 
+_FLEX_SEP = r"[・\s　－\x2d:：]*"
+
 def _build_flex_pattern(card_name: str) -> str:
     parts = re.split(r"[・\s　－\-:：]", card_name)
     parts = [p for p in parts if p]
-    return r"[・\s　－\x2d:：]*".join(re.escape(p) for p in parts)
+    # 各パーツをさらに英字/数字と日本語の境界で分割してflex区切りを挿入
+    expanded = []
+    for p in parts:
+        # 英数→日本語、日本語→英数 の境界で分割
+        sub = re.split(r'(?<=[A-Za-z0-9])(?=[^\x00-\x7F])|(?<=[^\x00-\x7F])(?=[A-Za-z0-9])', p)
+        expanded.extend(sub)
+    expanded = [s for s in expanded if s]
+    return _FLEX_SEP.join(re.escape(p) for p in expanded)
 
 def is_target_card(card_name: str, product_name: str) -> bool:
     if not STRICT_NAME_FILTER:
