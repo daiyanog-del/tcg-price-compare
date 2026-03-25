@@ -1399,9 +1399,9 @@ function renderAll(d){
 
   // Summary — 店舗別最安値（全体最安の店舗をハイライト）
   let h='';
-  const bestShopName=best?best.shop:'';
+  const bestSellPrice=best?best.price:null;
   for(const[shop,item]of Object.entries(d.by_shop)){
-    const isBest=(shop===bestShopName);
+    const isBest=(bestSellPrice!==null&&item.price===bestSellPrice);
     const itemUrl=affLink(item.url, item.shop, 'sell');
     const nameLink=item.url?`<a href="${esc(itemUrl)}" target="_blank" rel="noopener nofollow">${esc(item.name)}</a>`:esc(item.name);
     const priceLink=item.url?`<a href="${esc(itemUrl)}" target="_blank" rel="noopener nofollow">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
@@ -2327,12 +2327,12 @@ function renderBuyAll(d){
 
   // サマリーカード — 店舗別最高額（全体最高の店舗をハイライト）
   let h='';
-  const bestBuyShopName=best?best.shop:'';
+  const bestBuyPrice=best?best.price:null;
   const shopNames=[...new Set(buyD.map(r=>r.shop))];
   for(const s of shopNames){
     const shopBest=buyD.filter(r=>r.shop===s).reduce((a,b)=>a.price>b.price?a:b,{price:0});
     if(shopBest.price<=0) continue;
-    const isBest=(s===bestBuyShopName);
+    const isBest=(bestBuyPrice!==null&&shopBest.price===bestBuyPrice);
     const sBuyUrl=affLink(shopBest.url, s, 'buy');
     const sPriceLink=shopBest.url?`<a href="${esc(sBuyUrl)}" target="_blank" rel="noopener nofollow">¥${shopBest.price.toLocaleString()}</a>`:`¥${shopBest.price.toLocaleString()}`;
     h+=`<div class="scard${isBest?' best':''} fin"><div class="slabel">${s}</div>
