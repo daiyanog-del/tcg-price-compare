@@ -16,11 +16,12 @@ from scraper import (
     BUYBACK_SHOPS, DEFAULT_BUYBACK_SHOPS,
     buyback_cache_get, buyback_cache_set,
 )
-from meta_scraper import fetch_tier_list, fetch_deck_cards, build_deck_text, _cache_read, _DECK_CACHE_TTL, _TIER_CACHE_TTL
+from meta_scraper import fetch_tier_list, fetch_deck_cards, build_deck_text, build_recipe_text, _cache_read, _DECK_CACHE_TTL, _TIER_CACHE_TTL
 from pack_scraper import get_pack_list, fetch_pack_cards
 from monitor import tracker, run_health_check
 
 import re as _re
+from urllib.parse import quote as _url_quote
 
 # 検索クエリの表記ゆれ正規化
 _DASH_CHARS = _re.compile(r'[\u2012\u2013\u2014\u2015\u2212\uFF0D\uFF70]')  # 各種ダッシュ・ハイフン
@@ -550,6 +551,21 @@ def api_deck_buy():
 
     return Response(generate(), mimetype="text/event-stream")
 
+# ショップ名からカード検索URLを生成
+def _shop_search_url(shop: str, card_name: str) -> str:
+    """ショップ名とカード名から検索ページのURLを生成"""
+    q = _url_quote(card_name)
+    urls = {
+        "遊々亭": f"https://yuyu-tei.jp/sell/ygo/s/search?search_word={q}",
+        "カードラッシュ": f"https://www.cardrush.jp/product-list?keyword={q}",
+        "トレコロCB": f"https://www.torecolo.jp/shop/goods/search.aspx?search=x&keyword={q}&category=&oshiire_code=",
+        "カーナベル": f"https://www.ka-nabell.com/?act=sell_search&genre=1&keyword={q}",
+        "カードラボ": f"https://www.c-labo-online.jp/product-list?keyword={q}",
+        "まんぞく屋": f"https://shopmanzokuya.com/products/list?category_id=1&name={q}&orderby=price_l&disp_number=100",
+        "駿河屋": f"https://www.suruga-ya.jp/search?category=501&search_word={q}",
+    }
+    return urls.get(shop, "")
+
 # 相場キャッシュ — サーバー起動時にSupabaseから全件ロードし、10分ごとに更新
 _estimate_cache: dict[str, dict] = {}
 _estimate_cache_time: float = 0
@@ -629,6 +645,8 @@ def api_deck_estimate():
         best = _estimate_cache.get(name)
         if best:
             total += best["price"] * qty
+            # DBデータにはURLが無いため、ショップ名から検索URLを生成
+            best = {**best, "url": _shop_search_url(best["shop"], name)}
         results.append({"name": name, "qty": qty, "best": best})
 
     return jsonify({"results": results, "total": total})
@@ -818,7 +836,12 @@ def api_meta_deck():
         cached = _cache_read(f"deck_{theme}", _DECK_CACHE_TTL)
         if cached and "cards" in cached:
             cached.pop("_ts", None)
-            cached["deck_text"] = build_deck_text(cached.get("cards", []))
+            # フルデッキがあればそちらを優先
+            full_deck = cached.get("full_deck", [])
+            if full_deck:
+                cached["deck_text"] = build_recipe_text(full_deck)
+            else:
+                cached["deck_text"] = build_deck_text(cached.get("cards", []))
             return jsonify(cached)
 
     future = _meta_executor.submit(fetch_deck_cards, theme, force)
@@ -826,8 +849,13 @@ def api_meta_deck():
         data = future.result(timeout=25)
     except Exception as e:
         logger.error(f"デッキデータ取得エラー ({theme}): {e}")
-        data = {"theme": theme, "tier": 0, "share": 0, "cards": []}
-    data["deck_text"] = build_deck_text(data.get("cards", []))
+        data = {"theme": theme, "tier": 0, "share": 0, "cards": [], "full_deck": []}
+    # フルデッキがあればそちらを優先
+    full_deck = data.get("full_deck", [])
+    if full_deck:
+        data["deck_text"] = build_recipe_text(full_deck)
+    else:
+        data["deck_text"] = build_deck_text(data.get("cards", []))
     return jsonify(data)
 
 

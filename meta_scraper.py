@@ -284,18 +284,60 @@ def fetch_deck_cards(theme_name: str, force: bool = False) -> dict:
     # 最新5件に限定
     recipes = recipes[:5]
 
+    # ── 最新レシピからフルデッキリストを取得 ──
+    full_deck = []
+    if recipes:
+        full_deck = fetch_recipe_deck(recipes[0]["url"])
+
     result = {
         "theme": theme_name,
         "tier": tier,
         "share": share,
         "cards": cards,
         "recipes": recipes,
+        "full_deck": full_deck,
     }
 
-    if cards:
+    if cards or full_deck:
         _cache_write(cache_key, result)
 
     return result
+
+
+def fetch_recipe_deck(recipe_url: str) -> list[dict]:
+    """
+    入賞デッキレシピページからフルデッキリスト（メイン+EX）を取得。
+
+    Returns:
+        [{"name": "カード名", "qty": 3}, ...]
+    """
+    soup = _fetch_soup(recipe_url)
+    if not soup:
+        return []
+
+    cards = []
+    for h3 in soup.select("h3"):
+        section = h3.get_text(strip=True)
+        if section not in ("メインデッキ", "EXデッキ"):
+            continue
+        table = h3.find_next("table")
+        if not table:
+            continue
+        for tr in table.select("tbody tr"):
+            tds = tr.select("td")
+            if len(tds) < 2:
+                continue
+            qty_text = tds[0].get_text(strip=True)
+            card_link = tds[1].select_one("a[href*='/yugioh/cards/']")
+            if not card_link:
+                continue
+            name = card_link.get_text(strip=True)
+            if not name:
+                continue
+            qty = int(qty_text) if qty_text.isdigit() else 1
+            cards.append({"name": name, "qty": qty})
+
+    return cards
 
 
 def build_deck_text(cards: list[dict], min_adoption: float = 40.0) -> str:
@@ -310,4 +352,12 @@ def build_deck_text(cards: list[dict], min_adoption: float = 40.0) -> str:
             continue
         qty = round(c["avg"]) or 1
         lines.append(f"{qty} {c['name']}")
+    return "\n".join(lines)
+
+
+def build_recipe_text(recipe_cards: list[dict]) -> str:
+    """フルデッキリストからデッキ計算用のテキストを生成。"""
+    lines = []
+    for c in recipe_cards:
+        lines.append(f"{c['qty']} {c['name']}")
     return "\n".join(lines)

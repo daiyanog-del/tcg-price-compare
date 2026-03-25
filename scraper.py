@@ -37,14 +37,18 @@ def _normalize_fullwidth(text: str) -> str:
         # 全角スペース → 半角
         elif cp == 0x3000:
             result.append(' ')
+        # 全角コロン → 半角
+        elif cp == 0xFF1A:
+            result.append(':')
         else:
             result.append(ch)
     return ''.join(result)
 
 
 def _normalize_search_query(card_name: str) -> str:
-    """検索クエリ用にカード名を正規化（中黒・ハイフン系をスペースに）"""
-    name = card_name.replace("・", " ").replace("　", " ")
+    """検索クエリ用にカード名を正規化（全角英数→半角、中黒・ハイフン系→スペース）"""
+    name = normalize_width(card_name)
+    name = name.replace("・", " ").replace("　", " ")
     # ハイフン系記号をスペースに置換
     for ch in "-－―‐—–":
         name = name.replace(ch, " ")
@@ -176,9 +180,9 @@ def _has_japanese_outside_brackets(text: str) -> bool:
     return any(_is_japanese_char(c) for c in stripped)
 
 def _build_flex_pattern(card_name: str) -> str:
-    parts = re.split(r"[・\s　－\-]", card_name)
+    parts = re.split(r"[・\s　－\-:：]", card_name)
     parts = [p for p in parts if p]
-    return r"[・\s　－\x2d]*".join(re.escape(p) for p in parts)
+    return r"[・\s　－\x2d:：]*".join(re.escape(p) for p in parts)
 
 def is_target_card(card_name: str, product_name: str) -> bool:
     if not STRICT_NAME_FILTER:
@@ -454,7 +458,8 @@ TORECOLO_BASE = "https://www.torecolo.jp"
 def scrape_torecolo(card_name: str, max_pages: int = 5) -> list[dict]:
     """トレコロCB — 複数ページ対応、レアリティ取得"""
     # トレコロは中黒（・）を残さないと検索ヒットしないため専用の正規化を使う
-    search_name = card_name.replace("　", " ")
+    search_name = normalize_width(card_name)
+    search_name = search_name.replace("　", " ")
     for ch in "-－―‐—–":
         search_name = search_name.replace(ch, " ")
     base_url = (
