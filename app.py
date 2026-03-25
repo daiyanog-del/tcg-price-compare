@@ -611,8 +611,8 @@ def _load_estimate_cache():
     except Exception as e:
         logger.error(f"相場キャッシュロード失敗: {e}")
 
-# サーバー起動時にキャッシュをロード
-_load_estimate_cache()
+# サーバー起動時にキャッシュをバックグラウンドでロード（ヘルスチェックをブロックしない）
+Thread(target=_load_estimate_cache, daemon=True).start()
 
 @app.route("/api/deck-estimate")
 def api_deck_estimate():
