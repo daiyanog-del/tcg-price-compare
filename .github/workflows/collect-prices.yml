@@ -24,7 +24,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4 supabase
+        run: pip install requests beautifulsoup4 supabase tweepy
 
       - name: Collect prices
         env:
@@ -33,4 +33,8 @@ jobs:
           KANABELL_CLOUD_ID: ${{ secrets.KANABELL_CLOUD_ID }}
           KANABELL_API_KEY: ${{ secrets.KANABELL_API_KEY }}
           KANABELL_INDEX: ${{ secrets.KANABELL_INDEX }}
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
         run: python collect_prices.py

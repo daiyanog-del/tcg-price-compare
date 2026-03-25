@@ -385,6 +385,13 @@ def main():
     # 古いデータの削除
     cleanup_old_data(sb)
 
+    # X（Twitter）に値動きランキングを自動投稿
+    try:
+        from x_poster import post_daily_movers
+        post_daily_movers(sb)
+    except Exception as e:
+        print(f"X投稿処理でエラー（価格収集には影響なし）: {e}")
+
     print(f"\n=== 完了 ===")
     print(f"成功: {success_count}件 / 失敗: {fail_count}件 / 保存行数: {total_saved}")
 
