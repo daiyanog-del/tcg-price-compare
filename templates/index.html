@@ -1547,7 +1547,8 @@ function switchMovers(dir){
   loadMovers(dir);
 }
 function _fmtDate(s){if(!s)return'';const d=new Date(s+'T00:00:00');return (d.getMonth()+1)+'/'+d.getDate();}
-function loadMovers(dir){
+function loadMovers(dir,retry){
+  retry=retry||0;
   fetch(`/api/movers?direction=${dir||_moversDir}&limit=10`)
     .then(r=>r.json())
     .then(data=>{
@@ -1572,7 +1573,7 @@ function loadMovers(dir){
         </div>`;
       }).join('');
     })
-    .catch(()=>{});
+    .catch(()=>{if(retry<2)setTimeout(()=>loadMovers(dir,retry+1),2000);});
 }
 
 // 初期ロード
