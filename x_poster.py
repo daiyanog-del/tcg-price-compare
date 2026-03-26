@@ -102,7 +102,7 @@ def format_tweet(movers, direction, date_old, date_new):
         )
 
     lines.append(f"\n{SITE_URL}")
-    lines.append("#遊戯王 #CardPriceis")
+    lines.append("#遊戯王 #遊戯王OCG #遊戯王相場 #遊戯王高騰 #CardPriceis")
     return "\n".join(lines)
 
 
