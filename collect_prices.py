@@ -26,7 +26,7 @@ WAIT_BETWEEN_CARDS = 2.0
 RETENTION_DAYS = 90
 
 # GitHub Actionsからアクセスできない店舗をスキップ
-SKIP_SHOPS_IN_CI = {"遊々亭", "駿河屋"}
+SKIP_SHOPS_IN_CI = {"遊々亭", "駿河屋", "カードラボ"}
 
 
 def get_supabase() -> Client:
@@ -409,6 +409,9 @@ def main():
 
     # 古いデータの削除
     cleanup_old_data(sb)
+
+    elapsed = (datetime.now() - datetime.strptime(today, "%Y-%m-%d")).total_seconds()
+    print(f"価格収集完了（{elapsed/60:.0f}分）")
 
     # X（Twitter）に値動きランキングを自動投稿
     try:
