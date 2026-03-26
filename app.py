@@ -741,16 +741,23 @@ def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
             if date not in card_dates[name] or price < card_dates[name][date]:
                 card_dates[name][date] = price
 
-        # 各カードの最新日と前回日を比較
+        # 全カード共通で比較に使う2日分を特定
+        all_dates_set = set()
+        for dates in card_dates.values():
+            all_dates_set.update(dates.keys())
+        all_dates_sorted = sorted(all_dates_set)
+        if len(all_dates_sorted) < 2:
+            return []
+        date_new = all_dates_sorted[-1]
+        date_old = all_dates_sorted[-2]
+
+        # 各カードの比較
         movers = []
         for name, dates in card_dates.items():
-            sorted_dates = sorted(dates.keys())
-            if len(sorted_dates) < 2:
+            if date_new not in dates or date_old not in dates:
                 continue
-            today_date = sorted_dates[-1]
-            yesterday_date = sorted_dates[-2]
-            today_price = dates[today_date]
-            yesterday_price = dates[yesterday_date]
+            today_price = dates[date_new]
+            yesterday_price = dates[date_old]
             if yesterday_price == 0:
                 continue
             diff = today_price - yesterday_price
@@ -765,7 +772,7 @@ def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
         up = sorted([m for m in movers if m["diff"] > 0], key=lambda x: -x["pct"])[:20]
         down = sorted([m for m in movers if m["diff"] < 0], key=lambda x: x["pct"])[:20]
 
-        _movers_cache = {"up": up, "down": down}
+        _movers_cache = {"up": up, "down": down, "date_old": date_old, "date_new": date_new}
         _movers_cache_time = now
         return _movers_cache.get(direction, [])[:limit]
     except Exception as e:
@@ -779,7 +786,10 @@ def api_movers():
     if direction not in ("up", "down"):
         return jsonify({"error": "direction は up または down"}), 400
     limit = min(int(request.args.get("limit", 10)), 20)
-    return jsonify(_get_price_movers(direction, limit))
+    items = _get_price_movers(direction, limit)
+    date_old = _movers_cache.get("date_old") if _movers_cache else None
+    date_new = _movers_cache.get("date_new") if _movers_cache else None
+    return jsonify({"items": items, "date_old": date_old, "date_new": date_new})
 
 @app.route("/api/buyback")
 def api_buyback():

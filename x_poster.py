@@ -29,7 +29,7 @@ def get_price_movers(sb, direction="up", limit=5):
         offset += page_size
 
     if not all_rows:
-        return []
+        return [], None, None
 
     # 日付ごと・カードごとの最安値（10円以下は除外）
     card_dates = defaultdict(dict)
@@ -42,13 +42,22 @@ def get_price_movers(sb, direction="up", limit=5):
         if d not in card_dates[name] or price < card_dates[name][d]:
             card_dates[name][d] = price
 
+    # 全カード共通で比較に使う2日分を特定
+    all_dates_set = set()
+    for dates in card_dates.values():
+        all_dates_set.update(dates.keys())
+    all_dates_sorted = sorted(all_dates_set)
+    if len(all_dates_sorted) < 2:
+        return [], None, None
+    date_new = all_dates_sorted[-1]
+    date_old = all_dates_sorted[-2]
+
     movers = []
     for name, dates in card_dates.items():
-        sorted_dates = sorted(dates.keys())
-        if len(sorted_dates) < 2:
+        if date_new not in dates or date_old not in dates:
             continue
-        today_price = dates[sorted_dates[-1]]
-        yesterday_price = dates[sorted_dates[-2]]
+        today_price = dates[date_new]
+        yesterday_price = dates[date_old]
         if yesterday_price == 0:
             continue
         diff = today_price - yesterday_price
@@ -61,9 +70,10 @@ def get_price_movers(sb, direction="up", limit=5):
         })
 
     if direction == "up":
-        return sorted([m for m in movers if m["diff"] > 0], key=lambda x: -x["pct"])[:limit]
+        result = sorted([m for m in movers if m["diff"] > 0], key=lambda x: -x["pct"])[:limit]
     else:
-        return sorted([m for m in movers if m["diff"] < 0], key=lambda x: x["pct"])[:limit]
+        result = sorted([m for m in movers if m["diff"] < 0], key=lambda x: x["pct"])[:limit]
+    return result, date_old, date_new
 
 
 def _truncate(name, max_len=18):
@@ -71,10 +81,17 @@ def _truncate(name, max_len=18):
     return name if len(name) <= max_len else name[:max_len] + "..."
 
 
-def format_tweet(movers, direction, today_str):
+def _format_date(date_str):
+    """'2026-03-25' → '3/25' 形式に変換"""
+    d = datetime.strptime(date_str, "%Y-%m-%d")
+    return f"{d.month}/{d.day}"
+
+
+def format_tweet(movers, direction, date_old, date_new):
     """投稿テキストを生成"""
     label = "値上がり" if direction == "up" else "値下がり"
-    lines = [f"【{label}カード】{today_str}\n"]
+    period = f"{_format_date(date_old)}→{_format_date(date_new)}"
+    lines = [f"【{label}カード】{period}\n"]
 
     for i, m in enumerate(movers):
         sign = "+" if m["diff"] > 0 else ""
@@ -119,16 +136,15 @@ def post_tweet(text):
 def post_daily_movers(sb):
     """毎日の値動きランキングをXに投稿"""
     print("\n=== X自動投稿 ===")
-    today_str = date.today().strftime("%-m/%-d")
 
     for direction in ("up", "down"):
-        movers = get_price_movers(sb, direction, limit=5)
+        movers, date_old, date_new = get_price_movers(sb, direction, limit=5)
         if not movers:
             label = "値上がり" if direction == "up" else "値下がり"
             print(f"  {label}データなし — スキップ")
             continue
 
-        text = format_tweet(movers, direction, today_str)
+        text = format_tweet(movers, direction, date_old, date_new)
         print(f"\n--- {direction} ---")
         print(text)
         post_tweet(text)
