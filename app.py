@@ -761,9 +761,9 @@ def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
             if yesterday_price == 0:
                 continue
             diff = today_price - yesterday_price
-            pct = round((diff / yesterday_price) * 100, 1)
-            if diff == 0:
+            if abs(diff) < 100:
                 continue
+            pct = round((diff / yesterday_price) * 100, 1)
             movers.append({
                 "name": name, "today": today_price,
                 "yesterday": yesterday_price, "diff": diff, "pct": pct
