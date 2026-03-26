@@ -761,7 +761,7 @@ def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
             if yesterday_price == 0:
                 continue
             diff = today_price - yesterday_price
-            if abs(diff) < 100:
+            if diff == 0:
                 continue
             pct = round((diff / yesterday_price) * 100, 1)
             movers.append({
@@ -769,8 +769,11 @@ def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
                 "yesterday": yesterday_price, "diff": diff, "pct": pct
             })
 
-        up = sorted([m for m in movers if m["diff"] > 0], key=lambda x: -x["pct"])[:20]
-        down = sorted([m for m in movers if m["diff"] < 0], key=lambda x: x["pct"])[:20]
+        up_all = sorted([m for m in movers if m["diff"] > 0], key=lambda x: -x["pct"])
+        down_all = sorted([m for m in movers if m["diff"] < 0], key=lambda x: x["pct"])
+        # 100円以上の変動を優先、なければ全件からフォールバック
+        up = [m for m in up_all if abs(m["diff"]) >= 100][:20] or up_all[:20]
+        down = [m for m in down_all if abs(m["diff"]) >= 100][:20] or down_all[:20]
 
         _movers_cache = {"up": up, "down": down, "date_old": date_old, "date_new": date_new}
         _movers_cache_time = now
