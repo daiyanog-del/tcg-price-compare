@@ -1,12 +1,12 @@
 # 価格履歴データ収集
-# 毎日 UTC 15:00 = 日本時間 0:00 に実行
+# 毎日 UTC 22:00 = 日本時間 7:00 に実行
 # 手動実行も可能 (Actions タブ → Run workflow)
 
 name: Collect Price History
 
 on:
   schedule:
-    - cron: '0 15 * * *'  # 毎日 UTC 15:00
+    - cron: '0 22 * * *'  # 毎日 UTC 22:00
   workflow_dispatch:       # 手動実行ボタン
 
 jobs:
