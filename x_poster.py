@@ -103,7 +103,24 @@ def format_tweet(movers, direction, date_old, date_new):
 
     lines.append(f"\n{SITE_URL}")
     lines.append("#遊戯王 #遊戯王OCG #遊戯王相場 #遊戯王高騰 #CardPriceis")
-    return "\n".join(lines)
+    text = "\n".join(lines)
+
+    # 280文字を超える場合、末尾のカードから削って収める
+    while len(text) > 280 and len(movers) > 1:
+        movers.pop()
+        lines = [f"【{label}カード】{period}\n"]
+        for i, m in enumerate(movers):
+            sign = "+" if m["diff"] > 0 else ""
+            name = _truncate(m["name"])
+            lines.append(
+                f"{i+1}. {name} {sign}{m['pct']}%"
+                f"({m['yesterday']:,}→{m['today']:,}円)"
+            )
+        lines.append(f"\n{SITE_URL}")
+        lines.append("#遊戯王 #遊戯王OCG #遊戯王相場 #遊戯王高騰 #CardPriceis")
+        text = "\n".join(lines)
+
+    return text
 
 
 def post_tweet(text):

@@ -410,6 +410,10 @@ def main():
     # 古いデータの削除
     cleanup_old_data(sb)
 
+    # X（Twitter）に値動きランキングを自動投稿
+    from x_poster import post_daily_movers
+    post_daily_movers(sb)
+
     elapsed = (datetime.now() - datetime.strptime(today, "%Y-%m-%d")).total_seconds()
     print(f"価格収集完了（{elapsed/60:.0f}分）")
 
