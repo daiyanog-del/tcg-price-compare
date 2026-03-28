@@ -140,7 +140,7 @@ def _get_trending(limit: int = 10) -> list[dict]:
                 "max_results": 30
             }).execute()
             if resp.data:
-                result = [{"name": r["card_name"], "count": r["search_count"]} for r in resp.data]
+                result = [{"name": r.get("card_name", ""), "count": r.get("search_count", 0)} for r in resp.data if r.get("card_name")]
                 _trending_cache = result
                 _trending_cache_time = now
                 return result[:limit]
@@ -319,7 +319,7 @@ def api_search():
         _last_search[client_ip] = now
         # 古い記録を定期的に掃除（メモリリーク防止）
         if len(_last_search) > RATE_LIMIT_MAX_ENTRIES:
-            cutoff = now - RATE_LIMIT_SEC
+            cutoff = now - 3600
             stale = [ip for ip, ts in _last_search.items() if ts < cutoff]
             for ip in stale:
                 del _last_search[ip]
@@ -597,14 +597,15 @@ def _load_estimate_cache():
 
         card_best = {}
         for row in all_rows:
-            name = row["card_name"]
-            if name not in card_best:
-                card_best[name] = {
-                    "shop": row["shop"],
-                    "price": row["min_price"],
-                    "rarity": row.get("rarity", ""),
-                    "recorded_at": row["recorded_at"],
-                }
+            name = row.get("card_name", "")
+            if not name or name in card_best:
+                continue
+            card_best[name] = {
+                "shop": row.get("shop", ""),
+                "price": row.get("min_price", 0),
+                "rarity": row.get("rarity", ""),
+                "recorded_at": row.get("recorded_at", ""),
+            }
         _estimate_cache = card_best
         _estimate_cache_time = time.time()
         logger.info(f"相場キャッシュロード完了: {len(card_best)}カード")
@@ -673,8 +674,8 @@ def api_price_history():
                 .limit(2000)
                 .execute())
         data = [
-            {"date": r["recorded_at"][:10], "shop": r["shop"],
-             "rarity": r.get("rarity", ""), "price": r["min_price"]}
+            {"date": r.get("recorded_at", "")[:10], "shop": r.get("shop", ""),
+             "rarity": r.get("rarity", ""), "price": r.get("min_price", 0)}
             for r in (resp.data or [])
         ]
         return jsonify({"card_name": card_name, "data": data})
@@ -733,9 +734,11 @@ def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
         # 日付ごと・カードごとの最安値を集計（10円以下の異常値は除外）
         card_dates = defaultdict(dict)
         for r in all_rows:
-            name = r["card_name"]
-            date = r["recorded_at"][:10]
-            price = r["min_price"]
+            name = r.get("card_name", "")
+            date = r.get("recorded_at", "")[:10]
+            price = r.get("min_price", 0)
+            if not name or not date:
+                continue
             if price <= 10:
                 continue
             if date not in card_dates[name] or price < card_dates[name][date]:
@@ -962,7 +965,7 @@ def api_packs():
                     .order("release_date", desc=True)
                     .limit(10)
                     .execute())
-            packs = [{"name": r["name"], "wiki_page": r.get("wiki_page", ""),
+            packs = [{"name": r.get("name", ""), "wiki_page": r.get("wiki_page", ""),
                       "tcg_name": r.get("tcg_name", ""), "date": r.get("release_date", "")}
                      for r in (resp.data or [])]
             logger.info(f"パック一覧をSupabaseから取得: {len(packs)}件")

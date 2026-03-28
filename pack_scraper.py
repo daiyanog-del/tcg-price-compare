@@ -73,7 +73,7 @@ def _fetch_latest_packs_from_official() -> list[dict]:
             url = f"{_KONAMI_PRODUCTS_URL}?{cat}"
             res = requests.get(url, headers=HEADERS, timeout=15)
             # p[N]={...} パターンを抽出
-            for m in re.finditer(r'p\[\d+\]\s*=\s*\{([^}]+)\}', res.text):
+            for m in re.finditer(r'p\[\d+\]\s*=\s*\{([^}]+)\}', res.text, re.DOTALL):
                 content = m.group(1)
                 title_m = re.search(r'"title":"([^"]+)"', content)
                 date_m = re.search(r'"release-date":"([^"]+)"', content)

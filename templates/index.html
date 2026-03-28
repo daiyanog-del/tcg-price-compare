@@ -1318,7 +1318,7 @@ function fetchSuggest(q){
       if(!names.length){closeSuggest();return;}
       sugItems=names;sugIdx=-1;
       sugDrop.innerHTML=names.map((n,i)=>
-        `<div class="suggest-item" data-i="${i}" onmousedown="selectSug('${n.replace(/'/g,"\\'")}')">${esc(n)}</div>`
+        `<div class="suggest-item" data-i="${i}" onmousedown="selectSug('${escJs(n)}')">${esc(n)}</div>`
       ).join('');
       sugDrop.classList.add('open');
     })
@@ -1370,7 +1370,7 @@ function renderAll(d){
       レアリティ: ${[...new Set(D.map(r=>r.rarity).filter(Boolean))].length}種類
     </div>
     <div class="share-btns">
-      <button onclick="addToDeck('${searchTerm.replace(/'/g,"\\'")}')" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ デッキに追加</button>
+      <button onclick="addToDeck('${escJs(searchTerm)}')" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ デッキに追加</button>
       <div class="share-menu-wrap">
         <button class="share-btn share-btn-x" onclick="toggleShareMenu('shareMenuSell')">シェア</button>
         <div class="share-menu" id="shareMenuSell"></div>
@@ -1425,7 +1425,7 @@ function renderAll(d){
     let btns='<span class="rf-label">レアリティ:</span><button class="rf-btn active" data-r="" onclick="setRarityFilter(\'\')">すべて</button>';
     for(const r of rarities){
       const cnt=D.filter(x=>x.rarity===r).length;
-      btns+=`<button class="rf-btn" data-r="${esc(r)}" onclick="setRarityFilter('${r.replace(/'/g,"\\'")}')"><span class="rb rb-${r}" style="background:none;padding:0">${esc(r)}</span> <span style="color:var(--text-d)">${cnt}</span></button>`;
+      btns+=`<button class="rf-btn" data-r="${esc(r)}" onclick="setRarityFilter('${escJs(r)}')"><span class="rb rb-${r}" style="background:none;padding:0">${esc(r)}</span> <span style="color:var(--text-d)">${cnt}</span></button>`;
     }
     rfEl.innerHTML=btns;
   }else{
@@ -1511,6 +1511,7 @@ function setRarityFilter(r){
 }
 
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
+function escJs(s){return(s+'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/</g,'\\x3c')}
 
 // ── Trending ──
 function loadTrending(){
@@ -1522,7 +1523,7 @@ function loadTrending(){
       if(!items.length){sec.classList.add('hidden');return;}
       sec.classList.remove('hidden');
       list.innerHTML=items.map((item,i)=>
-        `<div class="trending-item" onclick="searchCard('${item.name.replace(/'/g,"\\'")}')">
+        `<div class="trending-item" onclick="searchCard('${escJs(item.name)}')">
           <span class="trending-rank">${i+1}</span>
           <span class="trending-name">${esc(item.name)}</span>
           <span class="trending-count">${item.count}回</span>
@@ -1563,7 +1564,7 @@ function loadMovers(dir,retry){
         const isUp=item.diff>0;
         const sign=isUp?'+':'';
         const cls=isUp?'up':'down';
-        return `<div class="movers-item" onclick="searchCard('${item.name.replace(/'/g,"\\'")}')">
+        return `<div class="movers-item" onclick="searchCard('${escJs(item.name)}')">
           <span class="movers-rank">${i+1}</span>
           <span class="movers-name">${esc(item.name)}</span>
           <span class="movers-price">
@@ -1610,8 +1611,8 @@ window.addEventListener('popstate',function(e){
   if(e.state&&e.state.card){
     if(e.state.mode==='buyback'){
       switchMode('buyback');
-      buyQInput.value=e.state.card;
-      doBuySearch();
+      const _bq=document.getElementById('buyQ');
+      if(_bq){_bq.value=e.state.card;doBuySearch();}
     }else{
       switchMode('search');
       document.getElementById('q').value=e.state.card;
@@ -1872,7 +1873,7 @@ async function loadPackCards(packName, wikiPage, tcgName){
     // カードチップ表示（クリックで個別検索、リスト形式）
     let listHtml='';
     data.cards.forEach((name,i)=>{
-      listHtml+=`<div class="pack-card-item clickable" onclick="searchCard('${esc(name).replace(/'/g,"\\'")}')">`
+      listHtml+=`<div class="pack-card-item clickable" onclick="searchCard('${escJs(name)}')">`
         +`<span class="pack-card-num">${i+1}</span>`
         +`<span class="pack-card-name">${esc(name)}</span>`
         +`</div>`;
@@ -2160,7 +2161,7 @@ async function calcDeck(buyMode){
           progEl.innerHTML+=`<div class="share-btns" style="margin-top:8px">
             <a class="share-btn share-btn-x" href="https://x.com/intent/tweet?text=${encodeURIComponent(deckShareText)}&url=${encodeURIComponent(deckShareUrl)}" target="_blank" rel="noopener">𝕏 シェア</a>
             <a class="share-btn share-btn-line" href="https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(deckShareUrl)}&text=${encodeURIComponent(deckShareText)}" target="_blank" rel="noopener">LINE</a>
-            <button class="share-btn share-btn-copy" onclick="copyShareText('${deckShareText.replace(/'/g,"\\'")} ${deckShareUrl}')">コピー</button>
+            <button class="share-btn share-btn-copy" onclick="copyShareText('${escJs(deckShareText)} ${escJs(deckShareUrl)}')">コピー</button>
           </div>`;
         }
       }
@@ -2196,7 +2197,7 @@ buyQInput.addEventListener('input',()=>{
       .then(r=>r.json())
       .then(items=>{
         if(!items.length){buySugDrop.classList.remove('open');return;}
-        buySugDrop.innerHTML=items.map(n=>`<div class="suggest-item" onclick="buyQInput.value='${n.replace(/'/g,"\\'")}';buySugDrop.classList.remove('open');doBuySearch()">${esc(n)}</div>`).join('');
+        buySugDrop.innerHTML=items.map(n=>`<div class="suggest-item" onclick="buyQInput.value='${escJs(n)}';buySugDrop.classList.remove('open');doBuySearch()">${esc(n)}</div>`).join('');
         buySugDrop.classList.add('open');
       }).catch(()=>{});
   },250);
@@ -2640,12 +2641,12 @@ function renderWishlist(){
   el.innerHTML=list.map(c=>`
     <div class="wish-card-row">
       <span class="wish-card-qty">
-        <button class="wish-card-remove" onclick="wishUpdateQty('${esc(c.name).replace(/'/g,"\\'")}',${c.qty-1})" title="1枚減らす" style="font-size:.7rem">-</button>
+        <button class="wish-card-remove" onclick="wishUpdateQty('${escJs(c.name)}',${c.qty-1})" title="1枚減らす" style="font-size:.7rem">-</button>
         ${c.qty}x
-        <button class="wish-card-remove" onclick="wishUpdateQty('${esc(c.name).replace(/'/g,"\\'")}',${c.qty+1})" title="1枚増やす" style="font-size:.7rem">+</button>
+        <button class="wish-card-remove" onclick="wishUpdateQty('${escJs(c.name)}',${c.qty+1})" title="1枚増やす" style="font-size:.7rem">+</button>
       </span>
       <span class="wish-card-name">${esc(c.name)}</span>
-      <button class="wish-card-remove" onclick="wishRemove('${esc(c.name).replace(/'/g,"\\'")}')" title="削除">&times;</button>
+      <button class="wish-card-remove" onclick="wishRemove('${escJs(c.name)}')" title="削除">&times;</button>
     </div>`).join('');
 }
 
@@ -2660,7 +2661,7 @@ function wishToEstimate(){
 
 // 追加ボタンのHTMLを生成するヘルパー
 function wishBtnHtml(name,qty){
-  return `<button class="wish-add" onclick="event.stopPropagation();wishAddFromBtn(this,'${esc(name).replace(/'/g,"\\'")}',${qty||1})" title="購入候補に追加">+</button>`;
+  return `<button class="wish-add" onclick="event.stopPropagation();wishAddFromBtn(this,'${escJs(name)}',${qty||1})" title="購入候補に追加">+</button>`;
 }
 function wishAddFromBtn(btn,name,qty){
   wishAdd(name,qty);
