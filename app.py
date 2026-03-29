@@ -25,11 +25,33 @@ from urllib.parse import quote as _url_quote
 
 # 検索クエリの表記ゆれ正規化
 _DASH_CHARS = _re.compile(r'[\u2012\u2013\u2014\u2015\u2212\uFF0D\uFF70]')  # 各種ダッシュ・ハイフン
+# あいまい検索用: 中黒・ハイフン・スペース等を除去して比較するための正規化
+_FUZZY_STRIP = _re.compile(r'[\s\u3000・\-\u2012\u2013\u2014\u2015\u2212\uFF0D\uFF70\u30FB\uFF65.,()（）「」\u300C\u300D]')
 def _normalize_query(q: str) -> str:
     """ユーザー入力のカード名を正規化（ダッシュ統一・全角スペース変換）"""
     q = _DASH_CHARS.sub('-', q)       # 各種ダッシュ → 通常ハイフン
     q = q.replace('\u3000', ' ')      # 全角スペース → 半角
     return q.strip()
+
+def _fuzzy_key(s: str) -> str:
+    """あいまい検索用に記号・スペースを除去した比較キーを返す"""
+    return _FUZZY_STRIP.sub('', s).lower()
+
+def _correct_cardname(name: str) -> str:
+    """カード名をDBと照合し、補正が必要なら正式名称を返す。不要ならそのまま返す"""
+    if not _cardnames or name in _cardnames:
+        return name
+    q_fuzzy = _fuzzy_key(name)
+    # 記号除去で一致
+    if q_fuzzy in _cardnames_fuzzy:
+        return _cardnames_fuzzy[q_fuzzy][0]
+    # 読み仮名の完全一致
+    if name in _cardnames_reading:
+        return _cardnames_reading[name]
+    # 読み仮名の記号除去版で一致
+    if q_fuzzy in _cardnames_reading_fuzzy:
+        return _cardnames_reading_fuzzy[q_fuzzy]
+    return name
 
 logging.basicConfig(
     level=logging.INFO,
@@ -252,55 +274,132 @@ def robots():
 # ── カード名サジェスト（ローカルファイル参照）──
 
 _cardnames: list[str] = []
+_cardnames_set: set[str] = set()               # 存在チェック用（O(1)）
+_cardnames_fuzzy: dict[str, list[str]] = {}   # fuzzy_key → [正式カード名]
+_cardnames_reading: dict[str, str] = {}       # 読み仮名 → 正式カード名
+_cardnames_reading_fuzzy: dict[str, str] = {} # 読み仮名(fuzzy_key) → 正式カード名
 _cardnames_loaded = False
 
 def _load_cardnames():
-    """data/cardnames_ja.json をメモリに読み込む"""
-    global _cardnames, _cardnames_loaded
+    """data/cardnames_ja.json と reading マップをメモリに読み込む"""
+    global _cardnames, _cardnames_set, _cardnames_fuzzy, _cardnames_reading, _cardnames_reading_fuzzy, _cardnames_loaded
     if _cardnames_loaded:
         return
-    cardnames_path = os.path.join(os.path.dirname(__file__), "data", "cardnames_ja.json")
+    base = os.path.dirname(__file__)
+    cardnames_path = os.path.join(base, "data", "cardnames_ja.json")
+    reading_path = os.path.join(base, "data", "cardnames_reading.json")
     try:
         with open(cardnames_path, "r", encoding="utf-8") as f:
             _cardnames = json.loads(f.read())
+        # あいまい検索用のインデックスを構築
+        fuzzy = {}
+        for name in _cardnames:
+            key = _fuzzy_key(name)
+            fuzzy.setdefault(key, []).append(name)
+        _cardnames_set = set(_cardnames)
+        _cardnames_fuzzy = fuzzy
         logger.info(f"カード名データベース読込: {len(_cardnames)} 件")
     except FileNotFoundError:
         logger.warning("data/cardnames_ja.json が見つかりません。update_cardnames.py を実行してください。")
         _cardnames = []
+        _cardnames_set = set()
+    # 読み仮名→正式名称マップ
+    try:
+        with open(reading_path, "r", encoding="utf-8") as f:
+            _cardnames_reading = json.loads(f.read())
+        # 読み仮名のfuzzyキーマップも構築（記号除去版で引けるように）
+        _cardnames_reading_fuzzy = {_fuzzy_key(r): formal for r, formal in _cardnames_reading.items()}
+        logger.info(f"読み仮名マップ読込: {len(_cardnames_reading)} 件")
+    except FileNotFoundError:
+        _cardnames_reading = {}
+        _cardnames_reading_fuzzy = {}
     _cardnames_loaded = True
 
 @app.route("/api/suggest")
 def api_suggest():
-    """カード名の入力補完候補を返す（ローカルファイル参照、外部API不使用）"""
+    """カード名の入力補完候補を返す（あいまい検索対応）"""
     _load_cardnames()
     q = _normalize_query(request.args.get("q", ""))
     if not q or len(q) < 1:
         return jsonify([])
 
     q_lower = q.lower()
-    # 前方一致を優先、次に部分一致
+    q_fuzzy = _fuzzy_key(q)
+
+    # 前方一致を優先、次に部分一致、最後にあいまい一致
     prefix_matches = []
     contains_matches = []
+    fuzzy_matches = []
+    seen = set()
     for name in _cardnames:
         name_lower = name.lower()
         if name_lower.startswith(q_lower):
             prefix_matches.append(name)
+            seen.add(name)
         elif q_lower in name_lower:
             contains_matches.append(name)
+            seen.add(name)
         if len(prefix_matches) + len(contains_matches) >= 15:
             break
 
-    results = (prefix_matches + contains_matches)[:10]
+    # あいまい検索（記号除去して比較）: 通常一致が少ない場合のみ
+    if len(prefix_matches) + len(contains_matches) < 10 and q_fuzzy:
+        for name in _cardnames:
+            if name in seen:
+                continue
+            name_fuzzy = _fuzzy_key(name)
+            if name_fuzzy.startswith(q_fuzzy) or q_fuzzy in name_fuzzy:
+                fuzzy_matches.append(name)
+                seen.add(name)
+                if len(prefix_matches) + len(contains_matches) + len(fuzzy_matches) >= 15:
+                    break
+
+    # 読み仮名検索: まだ候補が少ない場合、読み仮名から正式名称を引く
+    reading_matches = []
+    total = len(prefix_matches) + len(contains_matches) + len(fuzzy_matches)
+    if total < 10 and _cardnames_reading:
+        for reading, formal in _cardnames_reading.items():
+            if formal in seen:
+                continue
+            if reading.startswith(q_lower) or q_lower in reading:
+                reading_matches.append(formal)
+                seen.add(formal)
+                if total + len(reading_matches) >= 15:
+                    break
+
+    results = (prefix_matches + contains_matches + fuzzy_matches + reading_matches)[:10]
     return jsonify(results)
+
+
+@app.route("/api/validate")
+def api_validate():
+    """カード名の存在チェック — 補正候補があれば suggestion として返す"""
+    _load_cardnames()
+    q = _normalize_query(request.args.get("q", ""))
+    if not q:
+        return jsonify({"valid": False, "suggestion": None})
+    # DB上の正式名称に補正を試みる
+    corrected = _correct_cardname(q)
+    if corrected in _cardnames_set:
+        # 補正成功、またはそのまま一致
+        return jsonify({"valid": True, "name": corrected})
+    # 補正できなかった（corrected == q のまま、かつDBに存在しない）
+    # TODO: _correct_cardname()が部分一致候補を返せるようになったらsuggestionを活用
+    return jsonify({"valid": False, "suggestion": None})
 
 
 @app.route("/api/search")
 def api_search():
-    card_name = _normalize_query(request.args.get("q", ""))
-    if not card_name:
+    original_name = _normalize_query(request.args.get("q", ""))
+    if not original_name:
         return jsonify({"error": "カード名を入力してください"}), 400
-    if len(card_name) > 50:
+    if len(original_name) > 50:
         return jsonify({"error": "カード名が長すぎます"}), 400
+
+    # カード名の存在チェック — DBに無い場合はあいまい検索・読み仮名で自動補正
+    _load_cardnames()
+    card_name = _correct_cardname(original_name)
+    corrected = card_name if card_name != original_name else ""
 
     ALL_SHOP_NAMES = [name for name, _ in SHOPS]
     selected = request.args.getlist("shops") or DEFAULT_SHOPS
@@ -310,7 +409,7 @@ def api_search():
 
     active_shops = [(name, fn) for name, fn in SHOPS if name in selected]
 
-    # レートリミット
+    # レートリミット（DB非存在の探索もレートを消費させる）
     client_ip = request.remote_addr or "unknown"
     now = time.time()
     with _rate_limit_lock:
@@ -324,6 +423,11 @@ def api_search():
             for ip in stale:
                 del _last_search[ip]
 
+    # 第1層: DB非存在のカード名はconfirmedフラグなしでは拒否（API防御）
+    confirmed = request.args.get("confirmed", "").lower() == "true"
+    if not confirmed and card_name not in _cardnames_set:
+        return jsonify({"error": "該当するカード名が見つかりません"}), 404
+
     # キャッシュヒット
     cached = cache_get(card_name)
     if cached is not None:
@@ -334,11 +438,15 @@ def api_search():
             for shop_name, _ in active_shops:
                 count = sum(1 for r in filtered if r["shop"] == shop_name)
                 yield _sse({"type": "shop_done", "shop": shop_name, "count": count, "cached": True})
-            yield _sse(_build_done(filtered))
+            yield _sse(_build_done(filtered, corrected))
         return Response(cached_stream(), mimetype="text/event-stream")
 
     def generate():
         from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        # 補正があった場合、補正通知を最初に送信
+        if corrected:
+            yield _sse({"type": "corrected", "original": original_name, "corrected": corrected})
 
         # 全店舗を「検索中」に
         for shop_name, _ in active_shops:
@@ -380,7 +488,7 @@ def api_search():
             logger.error(f"検索処理で予期しないエラー: {e}")
         finally:
             # エラーが起きても必ず完了メッセージを送る
-            yield _sse(_build_done(all_results))
+            yield _sse(_build_done(all_results, corrected))
 
     return Response(generate(), mimetype="text/event-stream")
 
@@ -414,16 +522,16 @@ def api_deck():
         for name, fn in SHOPS if name in selected
     ]
 
+    _load_cardnames()
     card_entries = []
     for line in names_raw.split("|"):
         line = line.strip()
         if not line:
             continue
         m = _re.match(r"^(\d+)\s+(.+)$", line)
-        if m:
-            card_entries.append({"qty": int(m.group(1)), "name": _normalize_query(m.group(2))})
-        else:
-            card_entries.append({"qty": 1, "name": _normalize_query(line)})
+        raw_name = _correct_cardname(_normalize_query(m.group(2)) if m else _normalize_query(line))
+        qty = int(m.group(1)) if m else 1
+        card_entries.append({"qty": qty, "name": raw_name})
 
     def _search_one_card(i, card_name):
         """1枚のカードを全店舗で検索して結果を返す"""
@@ -492,16 +600,16 @@ def api_deck_buy():
     selected = [s for s in shops_raw if s in ALL_BUY_NAMES]
     active_shops = [(name, fn) for name, fn in BUYBACK_SHOPS if name in selected]
 
+    _load_cardnames()
     card_entries = []
     for line in names_raw.split("|"):
         line = line.strip()
         if not line:
             continue
         m = _re.match(r"^(\d+)\s+(.+)$", line)
-        if m:
-            card_entries.append({"qty": int(m.group(1)), "name": _normalize_query(m.group(2))})
-        else:
-            card_entries.append({"qty": 1, "name": _normalize_query(line)})
+        raw_name = _correct_cardname(_normalize_query(m.group(2)) if m else _normalize_query(line))
+        qty = int(m.group(1)) if m else 1
+        card_entries.append({"qty": qty, "name": raw_name})
 
     def _search_one_card_buy(i, card_name):
         """1枚のカードを全買取店舗で検索して最高値を返す"""
@@ -660,6 +768,10 @@ def api_price_history():
         return jsonify({"card_name": "", "data": []})
     card_name = _normalize_query(card_name)
 
+    # カード名の自動補正
+    _load_cardnames()
+    card_name = _correct_cardname(card_name)
+
     if not _supabase_client:
         return jsonify({"card_name": card_name, "data": []})
 
@@ -806,6 +918,10 @@ def api_buyback():
     if len(card_name) > 50:
         return jsonify({"error": "カード名が長すぎます"}), 400
 
+    # カード名の自動補正
+    _load_cardnames()
+    card_name = _correct_cardname(card_name)
+
     ALL_BUY_NAMES = [name for name, _ in BUYBACK_SHOPS]
     selected = request.args.getlist("shops") or DEFAULT_BUYBACK_SHOPS
     selected = [s for s in selected if s in ALL_BUY_NAMES]
@@ -814,13 +930,18 @@ def api_buyback():
 
     active_shops = [(name, fn) for name, fn in BUYBACK_SHOPS if name in selected]
 
-    # レートリミット
+    # レートリミット（DB非存在の探索もレートを消費させる）
     client_ip = request.remote_addr or "unknown"
     now = time.time()
     with _rate_limit_lock:
         if client_ip in _last_search and now - _last_search[client_ip] < RATE_LIMIT_SEC:
             return jsonify({"error": "しばらく待ってから再度検索してください"}), 429
         _last_search[client_ip] = now
+
+    # 第1層: DB非存在のカード名はconfirmedフラグなしでは拒否（API防御）
+    confirmed = request.args.get("confirmed", "").lower() == "true"
+    if not confirmed and card_name not in _cardnames_set:
+        return jsonify({"error": "該当するカード名が見つかりません"}), 404
 
     # キャッシュヒット
     cached = buyback_cache_get(card_name)
@@ -1076,7 +1197,7 @@ def _build_buyback_done(results: list[dict]) -> dict:
     }
 
 
-def _build_done(results: list[dict]) -> dict:
+def _build_done(results: list[dict], corrected_name: str = "") -> dict:
     in_stock = [r for r in results if not r.get("sold_out")]
     by_rarity = {}
     for r in in_stock:
@@ -1089,7 +1210,7 @@ def _build_done(results: list[dict]) -> dict:
         if key not in by_shop or r["price"] < by_shop[key]["price"]:
             by_shop[key] = r
 
-    return {
+    d = {
         "type": "done",
         "results": results,
         "by_rarity": by_rarity,
@@ -1098,6 +1219,9 @@ def _build_done(results: list[dict]) -> dict:
         "in_stock_count": len(in_stock),
         "sold_out_count": len(results) - len(in_stock),
     }
+    if corrected_name:
+        d["corrected_name"] = corrected_name
+    return d
 
 
 if __name__ == "__main__":

@@ -142,6 +142,8 @@ header .subtitle{font-size:.78rem;color:var(--text-d);margin-top:8px;letter-spac
 .pstep.done{border-color:var(--green)}.pstep.done .pstat{color:var(--green)}
 .pstep.error{border-color:var(--red)}.pstep.error .pstat{color:var(--red)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.correct-notice{background:var(--bg-card);border:1px solid var(--accent);border-radius:8px;padding:10px 16px;margin-bottom:12px;font-size:.82rem;color:var(--accent-l);text-align:center;animation:fadeIn .3s}
+@keyframes fadeIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
 
 /* ── Summary ── */
 .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:28px}
@@ -1203,9 +1205,41 @@ function getSelectedShops(){
     .map(l=>l.dataset.shop);
 }
 
-function doSearch(){
+function doSearch(opts){
+  // opts: {validated:true} サジェスト選択やvalidate済み, {confirmed:true} DB未登録を承認済み
+  opts=opts||{};
   const q=document.getElementById('q').value.trim();
   if(!q)return;
+  if(q.length<2){
+    alert('カード名を2文字以上入力してください');
+    return;
+  }
+  // validate済み・confirmed済みでなければ、まず /api/validate でカード名を確認
+  if(!opts.validated&&!opts.confirmed){
+    const btn=document.getElementById('btn');
+    btn.disabled=true;btn.textContent='確認中...';
+    fetch('/api/validate?q='+encodeURIComponent(q))
+      .then(r=>r.json())
+      .then(d=>{
+        btn.disabled=false;btn.textContent='検索';
+        if(d.valid){
+          document.getElementById('q').value=d.name;
+          doSearch({validated:true});
+        }else if(d.suggestion){
+          if(confirm('もしかして: '+d.suggestion+'\n\nこのカード名で検索しますか?')){
+            document.getElementById('q').value=d.suggestion;
+            doSearch({validated:true});
+          }
+        }else{
+          // TODO: _correct_cardname()が部分一致候補を返せるようになったらsuggestion分岐が有効になる
+          if(confirm('該当するカード名が見つかりません。\nそのまま検索しますか?')){
+            doSearch({confirmed:true});
+          }
+        }
+      })
+      .catch(()=>{btn.disabled=false;btn.textContent='検索';});
+    return;
+  }
   const shops=getSelectedShops();
   if(shops.length===0){
     alert('検索する店舗を1つ以上選択してください');
@@ -1235,6 +1269,7 @@ function doSearch(){
   D=[];
   const params=new URLSearchParams({q});
   shops.forEach(s=>params.append('shops',s));
+  if(opts.confirmed)params.append('confirmed','true');
 
   const es=new EventSource('/api/search?'+params.toString());
   // 60秒で応答がなければタイムアウト
@@ -1252,7 +1287,16 @@ function doSearch(){
       prog.style.display='none';
     },60000);
     const d=JSON.parse(e.data);
-    if(d.type==='progress'){
+    if(d.type==='corrected'){
+      // カード名が自動補正された場合、検索欄を更新して通知
+      document.getElementById('q').value=d.corrected;
+      const notice=document.createElement('div');
+      notice.className='correct-notice';
+      notice.textContent='「'+d.original+'」→「'+d.corrected+'」に補正して検索しました';
+      const prog=document.getElementById('prog');
+      prog.parentNode.insertBefore(notice,prog);
+      setTimeout(()=>notice.remove(),8000);
+    }else if(d.type==='progress'){
       const el=document.getElementById('s-'+d.shop);
       if(el){el.className='pstep searching';el.querySelector('.pstat').textContent='検索中...';}
     }else if(d.type==='shop_done'){
@@ -1274,6 +1318,8 @@ function doSearch(){
     }else if(d.type==='done'){
       clearTimeout(sseTimeout);
       es.close();D=d.results;
+      // 補正後のカード名で検索欄を更新
+      if(d.corrected_name) document.getElementById('q').value=d.corrected_name;
       renderAll(d);
       btn.disabled=false;btn.textContent='検索';
       setTimeout(()=>{prog.style.display='none';},1200);
@@ -1338,7 +1384,7 @@ function highlightSug(){
 function selectSug(name){
   qInput.value=name;
   closeSuggest();
-  doSearch();
+  doSearch({validated:true});
 }
 
 function closeSuggest(){sugDrop.classList.remove('open');sugIdx=-1;sugItems=[];}
@@ -1581,15 +1627,15 @@ function loadMovers(dir,retry){
 loadTrending();
 loadMovers('up');
 
-// SEO: カード個別ページの場合、自動検索を実行
+// SEO: カード個別ページの場合、自動検索を実行（サーバーが渡したカード名なのでvalidateスキップ）
 if(_pageCardName){
   if(_pageMode==='buyback'){
     switchMode('buyback');
     document.getElementById('buyQ').value=_pageCardName;
-    setTimeout(()=>doBuySearch(),300);
+    setTimeout(()=>doBuySearch({validated:true}),300);
   }else{
     document.getElementById('q').value=_pageCardName;
-    setTimeout(()=>doSearch(),300);
+    setTimeout(()=>doSearch({validated:true}),300);
   }
 }
 
@@ -1612,11 +1658,11 @@ window.addEventListener('popstate',function(e){
     if(e.state.mode==='buyback'){
       switchMode('buyback');
       const _bq=document.getElementById('buyQ');
-      if(_bq){_bq.value=e.state.card;doBuySearch();}
+      if(_bq){_bq.value=e.state.card;doBuySearch({validated:true});}
     }else{
       switchMode('search');
       document.getElementById('q').value=e.state.card;
-      doSearch();
+      doSearch({validated:true});
     }
   }
 });
@@ -2197,7 +2243,7 @@ buyQInput.addEventListener('input',()=>{
       .then(r=>r.json())
       .then(items=>{
         if(!items.length){buySugDrop.classList.remove('open');return;}
-        buySugDrop.innerHTML=items.map(n=>`<div class="suggest-item" onclick="buyQInput.value='${escJs(n)}';buySugDrop.classList.remove('open');doBuySearch()">${esc(n)}</div>`).join('');
+        buySugDrop.innerHTML=items.map(n=>`<div class="suggest-item" onclick="buyQInput.value='${escJs(n)}';buySugDrop.classList.remove('open');doBuySearch({validated:true})">${esc(n)}</div>`).join('');
         buySugDrop.classList.add('open');
       }).catch(()=>{});
   },250);
@@ -2216,9 +2262,39 @@ document.querySelectorAll('#buyShopToggles .shop-toggle').forEach(label=>{
   });
 });
 
-function doBuySearch(){
+function doBuySearch(opts){
+  opts=opts||{};
   const q=buyQInput.value.trim();
   if(!q)return;
+  if(q.length<2){
+    alert('カード名を2文字以上入力してください');
+    return;
+  }
+  if(!opts.validated&&!opts.confirmed){
+    const btn=document.getElementById('buyBtn');
+    btn.disabled=true;btn.textContent='確認中...';
+    fetch('/api/validate?q='+encodeURIComponent(q))
+      .then(r=>r.json())
+      .then(d=>{
+        btn.disabled=false;btn.textContent='買取検索';
+        if(d.valid){
+          buyQInput.value=d.name;
+          doBuySearch({validated:true});
+        }else if(d.suggestion){
+          if(confirm('もしかして: '+d.suggestion+'\n\nこのカード名で検索しますか?')){
+            buyQInput.value=d.suggestion;
+            doBuySearch({validated:true});
+          }
+        }else{
+          // TODO: _correct_cardname()が部分一致候補を返せるようになったらsuggestion分岐が有効になる
+          if(confirm('該当するカード名が見つかりません。\nそのまま検索しますか?')){
+            doBuySearch({confirmed:true});
+          }
+        }
+      })
+      .catch(()=>{btn.disabled=false;btn.textContent='買取検索';});
+    return;
+  }
   const shops=getBuySelectedShops();
   if(shops.length===0){alert('検索する店舗を1つ以上選択してください');return;}
 
@@ -2244,6 +2320,7 @@ function doBuySearch(){
   buyD=[];
   const params=new URLSearchParams({q});
   shops.forEach(s=>params.append('shops',s));
+  if(opts.confirmed)params.append('confirmed','true');
 
   const es=new EventSource('/api/buyback?'+params.toString());
   let sseTimeout=setTimeout(()=>{
@@ -2394,18 +2471,6 @@ document.querySelectorAll('#buyTbl th[data-bs]').forEach(th=>{
     renderBuyTable();
   });
 });
-// ── 初回ロード: URLにカード名がある場合は自動検索 ──
-if(_pageCardName){
-  if(_pageMode==='buyback'){
-    switchMode('buyback');
-    buyQInput.value=_pageCardName;
-    doBuySearch();
-  }else{
-    switchMode('search');
-    document.getElementById('q').value=_pageCardName;
-    doSearch();
-  }
-}
 </script>
 <script>
 // Service Worker登録
