@@ -236,6 +236,8 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .trending-item:nth-child(3) .trending-rank{color:#cd7f32}
 .trending-name{flex:1;font-size:.88rem;font-weight:500}
 .trending-count{font:.72rem var(--mono);color:var(--text-d)}
+.trending-thumb{width:28px;height:40px;border-radius:3px;overflow:hidden;flex-shrink:0;background:var(--bg)}
+.trending-thumb img{width:100%;height:100%;object-fit:cover}
 
 /* 値上がり/値下がり */
 .movers{max-width:500px;margin:24px auto 0;text-align:left}
@@ -252,6 +254,8 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .movers-item:nth-child(1) .movers-rank{color:var(--gold)}
 .movers-item:nth-child(2) .movers-rank{color:#c0c0c0}
 .movers-item:nth-child(3) .movers-rank{color:#cd7f32}
+.movers-thumb{width:28px;height:40px;border-radius:3px;overflow:hidden;flex-shrink:0;background:var(--bg)}
+.movers-thumb img{width:100%;height:100%;object-fit:cover}
 .movers-name{flex:1;font-size:.85rem;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .movers-price{text-align:right;font-size:.78rem;line-height:1.4}
 .movers-price-now{font:600 .85rem var(--mono)}
@@ -1569,12 +1573,14 @@ function loadTrending(){
       if(!items.length){sec.classList.add('hidden');return;}
       sec.classList.remove('hidden');
       list.innerHTML=items.map((item,i)=>
-        `<div class="trending-item" onclick="searchCard('${escJs(item.name)}')">
+        `<div class="trending-item" onclick="searchCard('${escJs(item.name)}')" data-card="${escJs(item.name)}">
           <span class="trending-rank">${i+1}</span>
+          <span class="trending-thumb"></span>
           <span class="trending-name">${esc(item.name)}</span>
           <span class="trending-count">${item.count}回</span>
         </div>`
       ).join('');
+      loadRankingImages('#trendingList .trending-item','trending-thumb');
     })
     .catch(()=>{});
 }
@@ -1610,8 +1616,9 @@ function loadMovers(dir,retry){
         const isUp=item.diff>0;
         const sign=isUp?'+':'';
         const cls=isUp?'up':'down';
-        return `<div class="movers-item" onclick="searchCard('${escJs(item.name)}')">
+        return `<div class="movers-item" onclick="searchCard('${escJs(item.name)}')" data-card="${escJs(item.name)}">
           <span class="movers-rank">${i+1}</span>
+          <span class="movers-thumb"></span>
           <span class="movers-name">${esc(item.name)}</span>
           <span class="movers-price">
             <span class="movers-price-now">&yen;${item.today.toLocaleString()}</span>
@@ -1619,8 +1626,28 @@ function loadMovers(dir,retry){
           </span>
         </div>`;
       }).join('');
+      loadRankingImages('#moversList .movers-item','movers-thumb');
     })
     .catch(()=>{if(retry<2)setTimeout(()=>loadMovers(dir,retry+1),2000);});
+}
+
+// ── ランキング用カード画像の遅延取得 ──
+function loadRankingImages(itemSelector, thumbClass){
+  document.querySelectorAll(itemSelector+'[data-card]').forEach((el,i)=>{
+    const name=el.dataset.card;
+    setTimeout(()=>{
+      fetch('https://db.ygoprodeck.com/api/v7/cardinfo.php?fname='+encodeURIComponent(name))
+        .then(r=>r.json())
+        .then(data=>{
+          const card=data.data&&data.data[0];
+          if(!card)return;
+          const src=card.card_images[0].image_url_small;
+          const thumb=el.querySelector('.'+thumbClass);
+          if(thumb)thumb.innerHTML='<img src="'+src+'" alt="" loading="lazy">';
+        })
+        .catch(()=>{});
+    },i*200);
+  });
 }
 
 // 初期ロード
