@@ -804,7 +804,7 @@ def api_trending():
 # ── 値上がり/値下がりランキング（キャッシュ付き） ──
 _movers_cache: dict[str, list] = {}
 _movers_cache_time: float = 0
-_MOVERS_CACHE_SEC = 600  # 10分キャッシュ
+_MOVERS_CACHE_SEC = 3600  # 1時間キャッシュ（データは1日1回のみ更新）
 
 def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
     """Supabaseから値上がり/値下がりランキングを取得（直接クエリ版）"""
@@ -907,7 +907,10 @@ def api_movers():
     items = _get_price_movers(direction, limit)
     date_old = _movers_cache.get("date_old") if _movers_cache else None
     date_new = _movers_cache.get("date_new") if _movers_cache else None
-    return jsonify({"items": items, "date_old": date_old, "date_new": date_new})
+    from datetime import timezone, timedelta
+    JST = timezone(timedelta(hours=9))
+    updated_at = datetime.fromtimestamp(_movers_cache_time, JST).strftime("%-H:%M") if _movers_cache_time else None
+    return jsonify({"items": items, "date_old": date_old, "date_new": date_new, "updated_at": updated_at})
 
 @app.route("/api/buyback")
 def api_buyback():

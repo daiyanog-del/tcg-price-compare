@@ -1611,7 +1611,10 @@ function loadMovers(dir,retry){
       const period=document.getElementById('moversPeriod');
       if(!items.length){sec.classList.add('hidden');return;}
       sec.classList.remove('hidden');
-      if(data.date_old&&data.date_new){period.textContent=_fmtDate(data.date_old)+' → '+_fmtDate(data.date_new)+' の価格変動';}
+      if(data.date_old&&data.date_new){
+        const upd=data.updated_at?` · ${data.updated_at}収集`:'';
+        period.textContent=_fmtDate(data.date_old)+' → '+_fmtDate(data.date_new)+' の価格変動'+upd;
+      }
       list.innerHTML=items.map((item,i)=>{
         const isUp=item.diff>0;
         const sign=isUp?'+':'';
