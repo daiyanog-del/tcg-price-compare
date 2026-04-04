@@ -896,9 +896,11 @@ def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
         up = [m for m in up_all if abs(m["diff"]) >= 100][:20] or up_all[:20]
         down = [m for m in down_all if abs(m["diff"]) >= 100][:20] or down_all[:20]
 
-        _movers_cache = {"up": up, "down": down, "date_old": date_old, "date_new": date_new}
-        _movers_cache_time = now
-        return _movers_cache.get(direction, [])[:limit]
+        # 空データはキャッシュしない（プリロード時点でデータが揃っていなかった場合に24時間空を返し続けるバグを防ぐ）
+        if up or down:
+            _movers_cache = {"up": up, "down": down, "date_old": date_old, "date_new": date_new}
+            _movers_cache_time = now
+        return (up if direction == "up" else down)[:limit]
     except Exception as e:
         logger.warning(f"価格変動ランキング取得失敗: {e}")
         return []
