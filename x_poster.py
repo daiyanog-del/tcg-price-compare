@@ -99,7 +99,7 @@ def get_card_image_path(card_name):
         api_url = "https://db.ygoprodeck.com/api/v7/cardinfo.php"
         resp = _requests.get(
             api_url,
-            params={"fname": card_name},
+            params={"name": card_name, "language": "ja"},
             timeout=10,
             headers={"User-Agent": "CardPriceBot/1.0"},
         )
@@ -163,7 +163,7 @@ def format_tweet(movers, direction, date_old, date_new):
     return text
 
 
-def post_tweet(text, image_path=None, reply_to_id=None):
+def post_tweet(text, image_path=None):
     """X API v2でツイートを投稿。成功時はtweet_idを返す、失敗時はNone"""
     api_key = os.environ.get("X_API_KEY")
     api_secret = os.environ.get("X_API_SECRET")
@@ -195,8 +195,6 @@ def post_tweet(text, image_path=None, reply_to_id=None):
         kwargs = {"text": text}
         if media_ids:
             kwargs["media_ids"] = media_ids
-        if reply_to_id:
-            kwargs["in_reply_to_tweet_id"] = reply_to_id
 
         response = client.create_tweet(**kwargs)
         tweet_id = response.data["id"] if response.data else None
@@ -208,10 +206,8 @@ def post_tweet(text, image_path=None, reply_to_id=None):
 
 
 def post_daily_movers(sb):
-    """毎日の値動きランキングをXに投稿（値上がり→値下がりのスレッド形式）"""
+    """毎日の値動きランキングをXに投稿（値上がり・値下がりを独立投稿）"""
     print("\n=== X自動投稿 ===")
-
-    up_tweet_id = None
 
     for direction in ("up", "down"):
         movers, date_old, date_new = get_price_movers(sb, direction, limit=5)
@@ -227,10 +223,7 @@ def post_daily_movers(sb):
         # NO.1カードの画像を取得
         image_path = get_card_image_path(movers[0]["name"])
 
-        # 値下がりは値上がりへのリプライとして投稿（値上がりが存在する場合のみ）
-        reply_to = up_tweet_id if direction == "down" else None
-
-        tweet_id = post_tweet(text, image_path=image_path, reply_to_id=reply_to)
+        post_tweet(text, image_path=image_path)
 
         # 一時ファイルを削除
         if image_path:
@@ -238,6 +231,3 @@ def post_daily_movers(sb):
                 os.unlink(image_path)
             except Exception:
                 pass
-
-        if direction == "up":
-            up_tweet_id = tweet_id
