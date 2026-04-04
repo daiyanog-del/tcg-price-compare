@@ -7,6 +7,7 @@ import time
 import os
 import logging
 import threading
+from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Flask, render_template, request, jsonify, Response
 from flask_compress import Compress
@@ -156,7 +157,6 @@ def _get_trending(limit: int = 10) -> list[dict]:
     # Supabaseから取得を試みる
     if _supabase_client:
         try:
-            from datetime import datetime, timedelta, timezone
             cutoff = (datetime.now(timezone.utc) - timedelta(hours=RANKING_RECENT_HOURS)).isoformat()
             resp = _supabase_client.rpc("get_search_ranking", {
                 "since_ts": cutoff,
@@ -685,7 +685,6 @@ def _load_estimate_cache():
     global _estimate_cache, _estimate_cache_time
     if not _supabase_client:
         return
-    from datetime import datetime, timedelta
     try:
         cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
         all_rows = []
@@ -777,7 +776,6 @@ def api_price_history():
         return jsonify({"card_name": card_name, "data": []})
 
     try:
-        from datetime import datetime, timedelta
         cutoff = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
         resp = (_supabase_client.table("price_history")
                 .select("shop, rarity, min_price, recorded_at")
@@ -824,7 +822,6 @@ def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
         return []
 
     try:
-        from datetime import datetime, timedelta
         from collections import defaultdict
 
         # 直近3日分のデータをページングで全件取得
@@ -915,7 +912,6 @@ def api_movers():
     items = _get_price_movers(direction, limit)
     date_old = _movers_cache.get("date_old") if _movers_cache else None
     date_new = _movers_cache.get("date_new") if _movers_cache else None
-    from datetime import datetime, timezone, timedelta
     JST = timezone(timedelta(hours=9))
     updated_at = datetime.fromtimestamp(_movers_cache_time, JST).strftime("%-H:%M") if _movers_cache_time else None
     return jsonify({"items": items, "date_old": date_old, "date_new": date_new, "updated_at": updated_at})
