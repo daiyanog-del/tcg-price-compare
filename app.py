@@ -915,7 +915,7 @@ def api_movers():
     items = _get_price_movers(direction, limit)
     date_old = _movers_cache.get("date_old") if _movers_cache else None
     date_new = _movers_cache.get("date_new") if _movers_cache else None
-    from datetime import timezone, timedelta
+    from datetime import datetime, timezone, timedelta
     JST = timezone(timedelta(hours=9))
     updated_at = datetime.fromtimestamp(_movers_cache_time, JST).strftime("%-H:%M") if _movers_cache_time else None
     return jsonify({"items": items, "date_old": date_old, "date_new": date_new, "updated_at": updated_at})
