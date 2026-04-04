@@ -6,6 +6,7 @@ import json
 import time
 import os
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Flask, render_template, request, jsonify, Response
 from flask_compress import Compress
@@ -804,7 +805,7 @@ def api_trending():
 # ── 値上がり/値下がりランキング（キャッシュ付き） ──
 _movers_cache: dict[str, list] = {}
 _movers_cache_time: float = 0
-_MOVERS_CACHE_SEC = 3600  # 1時間キャッシュ（データは1日1回のみ更新）
+_MOVERS_CACHE_SEC = 86400  # 24時間キャッシュ（データは1日1回のみ更新）
 
 def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
     """Supabaseから値上がり/値下がりランキングを取得（直接クエリ版）"""
@@ -1226,6 +1227,18 @@ def _build_done(results: list[dict], corrected_name: str = "") -> dict:
         d["corrected_name"] = corrected_name
     return d
 
+
+# ── 起動時プリロード ──
+def _preload_movers():
+    """サーバー起動直後にバックグラウンドでmoversキャッシュを作成"""
+    time.sleep(5)  # Supabase接続が確立するのを待つ
+    try:
+        _get_price_movers("up")
+        logger.info("値動きランキングをプリロードしました")
+    except Exception as e:
+        logger.warning(f"プリロード失敗: {e}")
+
+threading.Thread(target=_preload_movers, daemon=True).start()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
