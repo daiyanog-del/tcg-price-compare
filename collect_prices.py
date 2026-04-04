@@ -355,6 +355,57 @@ def save_pack_list(sb: Client):
         print(f"  パック一覧保存失敗: {e}")
 
 
+def send_daily_report(sb: Client, today: str, success_count: int, fail_count: int):
+    """前日の利用状況をDiscordに日次レポートとして送信"""
+    import requests as _req
+    webhook_url = os.environ.get("DISCORD_WEBHOOK_URL", "")
+    if not webhook_url:
+        print("DISCORD_WEBHOOK_URL未設定 — 日次レポートをスキップ")
+        return
+
+    print("\n=== 日次レポート送信 ===")
+
+    # 前日（JST）の検索ログを集計
+    yesterday = (datetime.now(JST).date() - timedelta(days=1)).isoformat()
+    try:
+        resp = sb.table("search_logs") \
+            .select("card_name") \
+            .gte("searched_at", yesterday) \
+            .lt("searched_at", today) \
+            .execute()
+        logs = resp.data or []
+    except Exception as e:
+        print(f"検索ログ取得失敗: {e}")
+        logs = []
+
+    total = len(logs)
+    from collections import Counter
+    counts = Counter(r["card_name"] for r in logs)
+    unique = len(counts)
+    top5 = counts.most_common(5)
+
+    top5_lines = "\n".join(f"  {i+1}. {name}（{cnt}回）" for i, (name, cnt) in enumerate(top5)) or "  （なし）"
+
+    message = (
+        f"**CardPrice is? 日次レポート {today}**\n"
+        f"\n"
+        f"**前日の検索状況**\n"
+        f"検索回数: {total}回 / カード種類: {unique}種\n"
+        f"\n"
+        f"**検索TOP5**\n"
+        f"{top5_lines}\n"
+        f"\n"
+        f"**収集結果**\n"
+        f"成功: {success_count}件 / 失敗: {fail_count}件"
+    )
+
+    try:
+        _req.post(webhook_url, json={"content": message}, timeout=10)
+        print("日次レポート送信完了")
+    except Exception as e:
+        print(f"日次レポート送信失敗: {e}")
+
+
 def cleanup_old_data(sb: Client):
     """保持期間を超えた古いデータを削除"""
     cutoff = (datetime.now(JST).date() - timedelta(days=RETENTION_DAYS)).isoformat()
@@ -415,7 +466,10 @@ def main():
     from x_poster import post_daily_movers
     post_daily_movers(sb)
 
-    elapsed = (datetime.now() - datetime.strptime(today, "%Y-%m-%d")).total_seconds()
+    # 日次レポートをDiscordに送信
+    send_daily_report(sb, today, success_count, fail_count)
+
+    elapsed = (datetime.now(JST) - datetime.now(JST).replace(hour=0, minute=0, second=0, microsecond=0)).total_seconds()
     print(f"価格収集完了（{elapsed/60:.0f}分）")
 
     print(f"\n=== 完了 ===")
