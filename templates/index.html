@@ -1636,7 +1636,7 @@ function loadRankingImages(itemSelector, thumbClass){
   document.querySelectorAll(itemSelector+'[data-card]').forEach((el,i)=>{
     const name=el.dataset.card;
     setTimeout(()=>{
-      fetch('https://db.ygoprodeck.com/api/v7/cardinfo.php?fname='+encodeURIComponent(name))
+      fetch('https://db.ygoprodeck.com/api/v7/cardinfo.php?name='+encodeURIComponent(name)+'&language=ja')
         .then(r=>r.json())
         .then(data=>{
           const card=data.data&&data.data[0];
