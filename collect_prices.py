@@ -8,7 +8,7 @@ import os
 import re
 import sys
 import time
-from datetime import datetime, date
+from datetime import datetime, date, timezone, timedelta
 
 from supabase import create_client, Client
 from scraper import compare_prices, SHOPS
@@ -19,8 +19,11 @@ from meta_scraper import fetch_tier_list, fetch_deck_cards
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
+# 日本標準時
+JST = timezone(timedelta(hours=9))
+
 # カード間の待機秒数（店舗への負荷軽減）
-WAIT_BETWEEN_CARDS = 2.0
+WAIT_BETWEEN_CARDS = 1.0
 
 # 古いデータの保持日数
 RETENTION_DAYS = 90
@@ -278,8 +281,7 @@ def sync_searched_cards(sb: Client):
     print("\n--- 検索ログからカード同期 ---")
 
     # 直近7日間で2回以上検索されたカードを取得
-    from datetime import timedelta
-    since = (date.today() - timedelta(days=7)).isoformat()
+    since = (datetime.now(JST).date() - timedelta(days=7)).isoformat()
 
     try:
         resp = sb.table("search_logs") \
@@ -355,8 +357,7 @@ def save_pack_list(sb: Client):
 
 def cleanup_old_data(sb: Client):
     """保持期間を超えた古いデータを削除"""
-    from datetime import timedelta
-    cutoff = (date.today() - timedelta(days=RETENTION_DAYS)).isoformat()
+    cutoff = (datetime.now(JST).date() - timedelta(days=RETENTION_DAYS)).isoformat()
     try:
         resp = sb.table("price_history") \
             .delete() \
@@ -389,7 +390,7 @@ def main():
         print("監視対象カードが登録されていません。Supabaseの tracked_cards テーブルにカードを追加してください。")
         return
 
-    today = date.today().isoformat()
+    today = datetime.now(JST).date().isoformat()
     total_saved = 0
     success_count = 0
     fail_count = 0

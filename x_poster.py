@@ -1,16 +1,17 @@
 """X（Twitter）自動投稿モジュール — 値動きランキングを毎日投稿"""
 
 import os
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from collections import defaultdict
 
 
 SITE_URL = "https://tcg-price-compare.onrender.com"
+JST = timezone(timedelta(hours=9))
 
 
 def get_price_movers(sb, direction="up", limit=5):
     """Supabaseから値上がり/値下がりランキングを取得"""
-    cutoff = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
+    cutoff = (datetime.now(JST) - timedelta(days=3)).strftime("%Y-%m-%d")
 
     all_rows = []
     page_size = 1000
