@@ -17,6 +17,7 @@ from scraper import (
     is_target_card, normalize_rarity,
     BUYBACK_SHOPS, DEFAULT_BUYBACK_SHOPS,
     buyback_cache_get, buyback_cache_set,
+    kanabell_card_image_url,
 )
 from meta_scraper import fetch_tier_list, fetch_deck_cards, build_deck_text, build_recipe_text, _cache_read, _DECK_CACHE_TTL, _TIER_CACHE_TTL
 from pack_scraper import get_pack_list, fetch_pack_cards
@@ -1163,6 +1164,18 @@ def api_health():
     result = run_health_check()
     status_code = 200 if result["status"] == "ok" else 503
     return jsonify(result), status_code
+
+
+@app.route("/api/card-image")
+def api_card_image():
+    """カード名からカーナベルの画像URLを返す"""
+    name = request.args.get("name", "").strip()
+    if not name:
+        return jsonify({"error": "name required"}), 400
+    url = kanabell_card_image_url(name)
+    if not url:
+        return jsonify({"url": None}), 200
+    return jsonify({"url": url})
 
 
 @app.route("/api/status")

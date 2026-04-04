@@ -1640,14 +1640,12 @@ function loadRankingImages(itemSelector, thumbClass){
   document.querySelectorAll(itemSelector+'[data-card]').forEach((el,i)=>{
     const name=el.dataset.card;
     setTimeout(()=>{
-      fetch('https://db.ygoprodeck.com/api/v7/cardinfo.php?name='+encodeURIComponent(name)+'&language=ja')
+      fetch('/api/card-image?name='+encodeURIComponent(name))
         .then(r=>r.json())
         .then(data=>{
-          const card=data.data&&data.data[0];
-          if(!card)return;
-          const src=card.card_images[0].image_url_small;
+          if(!data.url)return;
           const thumb=el.querySelector('.'+thumbClass);
-          if(thumb)thumb.innerHTML='<img src="'+src+'" alt="" loading="lazy">';
+          if(thumb)thumb.innerHTML='<img src="'+data.url+'" alt="" loading="lazy">';
         })
         .catch(()=>{});
     },i*200);

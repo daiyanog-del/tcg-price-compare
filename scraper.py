@@ -760,6 +760,61 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
     return all_results
 
 
+def kanabell_card_image_url(card_name: str) -> str:
+    """カーナベルESから最初にヒットしたカードの画像URLを返す。失敗時は空文字"""
+    if not _KANABELL_CLOUD_ID or not _KANABELL_API_KEY:
+        return ""
+
+    card_name = _normalize_fullwidth(card_name)
+
+    global _KANABELL_ES_URL
+    if _KANABELL_ES_URL is None:
+        _KANABELL_ES_URL = _kanabell_es_host()
+
+    search_url = f"{_KANABELL_ES_URL}/{_KANABELL_INDEX}/_search"
+    query_body = {
+        "size": 1,
+        "_source": ["card_image_name1"],
+        "query": {
+            "bool": {
+                "must": [
+                    {"bool": {"should": [
+                        {"match_phrase_prefix": {"card_name": {"query": card_name, "slop": 2}}},
+                        {"match_phrase_prefix": {"replace_card_name": {"query": card_name, "slop": 2}}},
+                        {"wildcard": {"card_name": {"value": f"*{card_name}*"}}},
+                        {"wildcard": {"replace_card_name": {"value": f"*{card_name}*"}}},
+                    ], "minimum_should_match": 1}}
+                ],
+                "filter": [
+                    {"term": {"category1_id": 1}},
+                    {"term": {"public_status": 1}},
+                    {"term": {"del_flag": False}},
+                ]
+            }
+        },
+    }
+
+    try:
+        res = requests.post(
+            search_url,
+            json=query_body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"ApiKey {_KANABELL_API_KEY}",
+            },
+            timeout=8,
+        )
+        res.raise_for_status()
+        hits = res.json().get("hits", {}).get("hits", [])
+        if not hits:
+            return ""
+        img_name = hits[0].get("_source", {}).get("card_image_name1", "")
+        return f"{KANABELL_BASE}/img/s/{img_name}" if img_name else ""
+    except Exception as e:
+        print(f"  カーナベル画像取得失敗 [{card_name}]: {e}")
+        return ""
+
+
 # ── カードラボ ──
 
 CLABO_BASE = "https://www.c-labo-online.jp"
