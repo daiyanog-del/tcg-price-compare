@@ -796,11 +796,16 @@ def api_price_history():
         logger.error(f"価格推移取得失敗: {e}")
         return jsonify({"card_name": card_name, "data": []})
 
+TRENDING_MIN_ITEMS = 10  # この件数未満は「利用者が少ない」と見なし非表示
+
 @app.route("/api/trending")
 def api_trending():
     """直近24時間の検索ランキングを返す"""
     limit = min(int(request.args.get("limit", 10)), 30)
-    return jsonify(_get_trending(limit))
+    items = _get_trending(limit)
+    if len(items) < TRENDING_MIN_ITEMS:
+        return jsonify([])
+    return jsonify(items)
 
 # ── 値上がり/値下がりランキング（キャッシュ付き） ──
 _movers_cache: dict[str, list] = {}
