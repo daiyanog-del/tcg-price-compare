@@ -773,7 +773,7 @@ def kanabell_card_image_url(card_name: str) -> str:
 
     search_url = f"{_KANABELL_ES_URL}/{_KANABELL_INDEX}/_search"
     query_body = {
-        "size": 1,
+        "size": 5,
         "_source": ["card_image_name1"],
         "query": {
             "bool": {
@@ -808,8 +808,13 @@ def kanabell_card_image_url(card_name: str) -> str:
         hits = res.json().get("hits", {}).get("hits", [])
         if not hits:
             return ""
-        img_name = hits[0].get("_source", {}).get("card_image_name1", "")
-        return f"{KANABELL_BASE}/img/s/{img_name}" if img_name else ""
+        # card_image_name1 が設定されている最初のドキュメントを使用
+        # （レアリティによっては画像未登録のドキュメントが先頭に来ることがあるため）
+        for hit in hits:
+            img_name = hit.get("_source", {}).get("card_image_name1") or ""
+            if img_name:
+                return f"{KANABELL_BASE}/img/s/{img_name}"
+        return ""
     except Exception as e:
         print(f"  カーナベル画像取得失敗 [{card_name}]: {e}")
         return ""
