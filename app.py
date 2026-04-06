@@ -890,9 +890,9 @@ def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
 
         up_all = sorted([m for m in movers if m["diff"] > 0], key=lambda x: -x["pct"])
         down_all = sorted([m for m in movers if m["diff"] < 0], key=lambda x: x["pct"])
-        # 100円以上の変動を優先、なければ全件からフォールバック
-        up = [m for m in up_all if abs(m["diff"]) >= 100][:20] or up_all[:20]
-        down = [m for m in down_all if abs(m["diff"]) >= 100][:20] or down_all[:20]
+        # 50円以上の変動を優先、なければ全件からフォールバック
+        up = [m for m in up_all if abs(m["diff"]) >= 50][:20] or up_all[:20]
+        down = [m for m in down_all if abs(m["diff"]) >= 50][:20] or down_all[:20]
 
         # 空データはキャッシュしない（プリロード時点でデータが揃っていなかった場合に24時間空を返し続けるバグを防ぐ）
         if up or down:
