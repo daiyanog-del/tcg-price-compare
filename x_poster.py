@@ -178,12 +178,12 @@ def post_tweet(text, image_path=None, reply_to_id=None):
         import tweepy
 
         # メディアアップロード（v1.1 API経由）
-        media_ids = []
+        media_id_str = None
         if image_path:
             auth = tweepy.OAuth1UserHandler(api_key, api_secret, access_token, access_token_secret)
             api_v1 = tweepy.API(auth)
             media = api_v1.media_upload(image_path)
-            media_ids.append(media.media_id)
+            media_id_str = str(media.media_id)  # v2 APIは文字列IDを要求
 
         # ツイート投稿（v2 API）
         client = tweepy.Client(
@@ -193,8 +193,8 @@ def post_tweet(text, image_path=None, reply_to_id=None):
             access_token_secret=access_token_secret,
         )
         kwargs = {"text": text}
-        if media_ids:
-            kwargs["media_ids"] = media_ids
+        if media_id_str:
+            kwargs["media"] = {"media_ids": [media_id_str]}  # v4の正しいパラメータ形式
         if reply_to_id:
             kwargs["reply"] = {"in_reply_to_tweet_id": str(reply_to_id)}
 
