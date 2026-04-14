@@ -2,6 +2,7 @@
 
 import os
 import tempfile
+import urllib.parse
 from datetime import date, datetime, timedelta, timezone
 from collections import defaultdict
 
@@ -131,8 +132,12 @@ def format_tweet(movers, direction, date_old, date_new):
     label = "値上がり" if direction == "up" else "値下がり"
     period = f"{_format_date(date_old)}→{_format_date(date_new)}"
     tags = "#遊戯王 #遊戯王高騰" if direction == "up" else "#遊戯王 #遊戯王相場"
-    lines = [f"【{label}カード】{period}\n"]
 
+    # No.1カードの個別ページへ直リンク（末尾固定）
+    encoded_name = urllib.parse.quote(movers[0]["name"])
+    cta = f"\n▶ 最安値を比較する\n{SITE_URL}/card/{encoded_name}"
+
+    lines = [f"【{label}カード】{period}\n"]
     for i, m in enumerate(movers):
         sign = "+" if m["diff"] > 0 else ""
         name = _truncate(m["name"])
@@ -140,8 +145,7 @@ def format_tweet(movers, direction, date_old, date_new):
             f"{i+1}. {name} {sign}{m['pct']}%"
             f"({m['yesterday']:,}→{m['today']:,}円)"
         )
-
-    lines.append(f"\n{SITE_URL}")
+    lines.append(cta)
     lines.append(tags)
     text = "\n".join(lines)
 
@@ -156,7 +160,7 @@ def format_tweet(movers, direction, date_old, date_new):
                 f"{i+1}. {name} {sign}{m['pct']}%"
                 f"({m['yesterday']:,}→{m['today']:,}円)"
             )
-        lines.append(f"\n{SITE_URL}")
+        lines.append(cta)
         lines.append(tags)
         text = "\n".join(lines)
 
