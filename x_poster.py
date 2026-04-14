@@ -194,7 +194,7 @@ def post_tweet(text, image_path=None, reply_to_id=None):
         )
         kwargs = {"text": text}
         if media_id_str:
-            kwargs["media"] = {"media_ids": [media_id_str]}  # v4の正しいパラメータ形式
+            kwargs["media_ids"] = [media_id_str]
         if reply_to_id:
             kwargs["reply"] = {"in_reply_to_tweet_id": str(reply_to_id)}
 
