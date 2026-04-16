@@ -31,6 +31,35 @@ RETENTION_DAYS = 90
 # GitHub Actionsからアクセスできない店舗をスキップ
 SKIP_SHOPS_IN_CI = {"遊々亭", "駿河屋", "カードラボ"}
 
+# 店舗ヘルスチェック用URL（トップページ）
+SHOP_HEALTH_URLS = {
+    "カードラッシュ": "https://www.cardrush-yugioh.jp/",
+    "トレコロCB": "https://torecolo.jp/",
+    "カーナベル": "https://www.ka-nabell.com/",
+    "まんぞく屋": "https://shopmanzokuya.com/",
+}
+
+
+def check_shop_availability(shop_names: list[str]) -> list[str]:
+    """各店舗に接続確認し、応答した店舗名のリストを返す（失敗店舗は当日スキップ）"""
+    import requests as _req
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; CardPriceBot/1.0)"}
+    available = []
+    for name in shop_names:
+        url = SHOP_HEALTH_URLS.get(name)
+        if not url:
+            # ヘルスチェックURLが未定義の場合はスキップせず続行
+            available.append(name)
+            continue
+        try:
+            resp = _req.get(url, timeout=5, headers=headers, stream=True)
+            resp.close()
+            available.append(name)
+            print(f"  OK: {name}")
+        except Exception as e:
+            print(f"  NG: {name} — 当日スキップ（{type(e).__name__}）")
+    return available
+
 
 def get_supabase() -> Client:
     """Supabaseクライアントを取得"""
@@ -51,13 +80,10 @@ def fetch_tracked_cards(sb: Client) -> list[str]:
     return cards
 
 
-def collect_and_save(sb: Client, card_name: str, today: str) -> int:
+def collect_and_save(sb: Client, card_name: str, today: str, shop_names: list[str]) -> int:
     """1枚のカードの価格を取得してSupabaseに保存。保存した行数を返す"""
-    # GitHub Actions環境ではブロックされる店舗をスキップ
-    available_shops = [name for name, _ in SHOPS if name not in SKIP_SHOPS_IN_CI]
-
     try:
-        results = compare_prices(card_name, shop_names=available_shops)
+        results = compare_prices(card_name, shop_names=shop_names)
     except Exception as e:
         print(f"  スクレイピング失敗 [{card_name}]: {e}")
         return 0
@@ -441,6 +467,15 @@ def main():
         print("監視対象カードが登録されていません。Supabaseの tracked_cards テーブルにカードを追加してください。")
         return
 
+    # ヘルスチェック: 当日アクセスできる店舗のみを収集対象とする
+    ci_shops = [name for name, _ in SHOPS if name not in SKIP_SHOPS_IN_CI]
+    print("\n--- 店舗ヘルスチェック ---")
+    available_shops = check_shop_availability(ci_shops)
+    if not available_shops:
+        print("全店舗が応答しないため収集を中止します")
+        return
+    print(f"収集対象店舗: {available_shops}")
+
     today = datetime.now(JST).date().isoformat()
     total_saved = 0
     success_count = 0
@@ -448,7 +483,7 @@ def main():
 
     for i, card_name in enumerate(cards):
         print(f"[{i+1}/{len(cards)}] {card_name}")
-        saved = collect_and_save(sb, card_name, today)
+        saved = collect_and_save(sb, card_name, today, available_shops)
         if saved > 0:
             total_saved += saved
             success_count += 1
