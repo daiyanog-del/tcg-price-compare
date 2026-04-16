@@ -184,10 +184,15 @@ def post_tweet(text, image_path=None, reply_to_id=None):
         # メディアアップロード（v1.1 API経由）
         media_id_str = None
         if image_path:
-            auth = tweepy.OAuth1UserHandler(api_key, api_secret, access_token, access_token_secret)
-            api_v1 = tweepy.API(auth)
-            media = api_v1.media_upload(image_path)
-            media_id_str = str(media.media_id)  # v2 APIは文字列IDを要求
+            try:
+                auth = tweepy.OAuth1UserHandler(api_key, api_secret, access_token, access_token_secret)
+                api_v1 = tweepy.API(auth)
+                media = api_v1.media_upload(image_path)
+                media_id_str = str(media.media_id)  # v2 APIは文字列IDを要求
+                print(f"  メディアアップロード成功 (media_id={media_id_str})")
+            except Exception as e:
+                print(f"  メディアアップロード失敗: {e}")
+                # 画像なしで投稿続行
 
         # ツイート投稿（v2 API）
         client = tweepy.Client(
@@ -207,7 +212,7 @@ def post_tweet(text, image_path=None, reply_to_id=None):
         print(f"  投稿成功 (id={tweet_id}): {text[:50]}...")
         return tweet_id
     except Exception as e:
-        print(f"  X投稿失敗: {e}")
+        print(f"  ツイート投稿失敗: {e}")
         return None
 
 
