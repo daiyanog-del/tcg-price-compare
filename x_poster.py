@@ -112,9 +112,21 @@ def _download_image(image_url, label):
 
 def get_card_image_path(card_name):
     """カード画像を取得し一時ファイルパスを返す。失敗時はNone。
-    取得元の優先順位: YGOPRODECK → カーナベル
+    取得元の優先順位: カーナベル → YGOPRODECK
     """
-    # 1. YGOPRODECKを試みる
+    # 1. カーナベルを試みる
+    try:
+        from scraper import kanabell_card_image_url
+        image_url = kanabell_card_image_url(card_name)
+        if image_url:
+            path = _download_image(image_url, card_name)
+            if path:
+                return path
+        print(f"  カーナベル画像なし [{card_name}] — YGOPRODECKで再試行")
+    except Exception as e:
+        print(f"  カーナベル画像取得失敗 [{card_name}]: {e} — YGOPRODECKで再試行")
+
+    # 2. YGOPRODECKにフォールバック
     try:
         api_url = "https://db.ygoprodeck.com/api/v7/cardinfo.php"
         resp = _requests.get(
@@ -127,22 +139,10 @@ def get_card_image_path(card_name):
             cards = resp.json().get("data", [])
             if cards:
                 image_url = cards[0]["card_images"][0]["image_url"]
-                path = _download_image(image_url, card_name)
-                if path:
-                    return path
-        print(f"  YGOPRODECK失敗 [{card_name}]: HTTP {resp.status_code} — カーナベルで再試行")
+                return _download_image(image_url, card_name)
+        print(f"  YGOPRODECK失敗 [{card_name}]: HTTP {resp.status_code}")
     except Exception as e:
-        print(f"  YGOPRODECK失敗 [{card_name}]: {e} — カーナベルで再試行")
-
-    # 2. カーナベルにフォールバック
-    try:
-        from scraper import kanabell_card_image_url
-        image_url = kanabell_card_image_url(card_name)
-        if image_url:
-            return _download_image(image_url, card_name)
-        print(f"  カーナベルにも画像なし [{card_name}]")
-    except Exception as e:
-        print(f"  カーナベル画像取得失敗 [{card_name}]: {e}")
+        print(f"  YGOPRODECK失敗 [{card_name}]: {e}")
 
     return None
 
