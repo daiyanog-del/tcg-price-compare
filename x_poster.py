@@ -205,7 +205,7 @@ def post_tweet(text, image_path=None, reply_to_id=None):
         if media_id_str:
             kwargs["media_ids"] = [media_id_str]
         if reply_to_id:
-            kwargs["reply"] = {"in_reply_to_tweet_id": str(reply_to_id)}
+            kwargs["in_reply_to_tweet_id"] = str(reply_to_id)
 
         response = client.create_tweet(**kwargs)
         tweet_id = response.data["id"] if response.data else None
