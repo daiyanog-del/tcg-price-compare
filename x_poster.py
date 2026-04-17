@@ -94,8 +94,27 @@ def _format_date(date_str):
     return f"{d.month}/{d.day}"
 
 
+def _download_image(image_url, label):
+    """画像URLをダウンロードして一時ファイルパスを返す。失敗時はNone"""
+    try:
+        img_resp = _requests.get(image_url, timeout=15, headers={"User-Agent": "CardPriceBot/1.0"})
+        if img_resp.status_code != 200:
+            return None
+        tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+        tmp.write(img_resp.content)
+        tmp.close()
+        print(f"  カード画像取得成功 [{label}]")
+        return tmp.name
+    except Exception as e:
+        print(f"  カード画像ダウンロード失敗 [{label}]: {e}")
+        return None
+
+
 def get_card_image_path(card_name):
-    """YGOPRODECKのAPIでカード画像を取得し、一時ファイルパスを返す。失敗時はNone"""
+    """カード画像を取得し一時ファイルパスを返す。失敗時はNone。
+    取得元の優先順位: YGOPRODECK → カーナベル
+    """
+    # 1. YGOPRODECKを試みる
     try:
         api_url = "https://db.ygoprodeck.com/api/v7/cardinfo.php"
         resp = _requests.get(
@@ -104,27 +123,28 @@ def get_card_image_path(card_name):
             timeout=10,
             headers={"User-Agent": "CardPriceBot/1.0"},
         )
-        if resp.status_code != 200:
-            print(f"  カード画像API失敗 [{card_name}]: HTTP {resp.status_code}")
-            return None
-        cards = resp.json().get("data", [])
-        if not cards:
-            print(f"  カード画像なし [{card_name}]")
-            return None
-
-        image_url = cards[0]["card_images"][0]["image_url"]
-        img_resp = _requests.get(image_url, timeout=15)
-        if img_resp.status_code != 200:
-            return None
-
-        tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
-        tmp.write(img_resp.content)
-        tmp.close()
-        print(f"  カード画像取得成功 [{card_name}]")
-        return tmp.name
+        if resp.status_code == 200:
+            cards = resp.json().get("data", [])
+            if cards:
+                image_url = cards[0]["card_images"][0]["image_url"]
+                path = _download_image(image_url, card_name)
+                if path:
+                    return path
+        print(f"  YGOPRODECK失敗 [{card_name}]: HTTP {resp.status_code} — カーナベルで再試行")
     except Exception as e:
-        print(f"  カード画像取得失敗 [{card_name}]: {e}")
-        return None
+        print(f"  YGOPRODECK失敗 [{card_name}]: {e} — カーナベルで再試行")
+
+    # 2. カーナベルにフォールバック
+    try:
+        from scraper import kanabell_card_image_url
+        image_url = kanabell_card_image_url(card_name)
+        if image_url:
+            return _download_image(image_url, card_name)
+        print(f"  カーナベルにも画像なし [{card_name}]")
+    except Exception as e:
+        print(f"  カーナベル画像取得失敗 [{card_name}]: {e}")
+
+    return None
 
 
 def format_tweet(movers, direction, date_old, date_new):
