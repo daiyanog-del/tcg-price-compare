@@ -773,7 +773,7 @@ def kanabell_card_image_url(card_name: str) -> str:
 
     search_url = f"{_KANABELL_ES_URL}/{_KANABELL_INDEX}/_search"
     query_body = {
-        "size": 5,
+        "size": 20,
         "_source": ["card_image_name1"],
         "query": {
             "bool": {
@@ -789,6 +789,7 @@ def kanabell_card_image_url(card_name: str) -> str:
                     {"term": {"category1_id": 1}},
                     {"term": {"public_status": 1}},
                     {"term": {"del_flag": False}},
+                    {"exists": {"field": "card_image_name1"}},
                 ]
             }
         },
