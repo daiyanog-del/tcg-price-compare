@@ -73,13 +73,15 @@ def get_price_movers(sb, direction="up", limit=5):
             "yesterday": yesterday_price, "diff": diff, "pct": pct,
         })
 
-    # 50円以上の変動を優先、なければ全件からフォールバック（app.pyと同じ方針）
+    # 50円以上の変動を優先、なければ最大変動の1枚のみ投稿
     up_all = sorted([m for m in movers if m["diff"] > 0], key=lambda x: -x["pct"])
     down_all = sorted([m for m in movers if m["diff"] < 0], key=lambda x: x["pct"])
     if direction == "up":
-        result = ([m for m in up_all if abs(m["diff"]) >= 50] or up_all)[:limit]
+        filtered = [m for m in up_all if abs(m["diff"]) >= 50]
+        result = filtered[:limit] if filtered else up_all[:1]
     else:
-        result = ([m for m in down_all if abs(m["diff"]) >= 50] or down_all)[:limit]
+        filtered = [m for m in down_all if abs(m["diff"]) >= 50]
+        result = filtered[:limit] if filtered else down_all[:1]
     return result, date_old, date_new
 
 
