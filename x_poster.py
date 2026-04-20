@@ -110,9 +110,39 @@ def _download_image(image_url, label):
         return None
 
 
+def _get_yugipedia_image_url(card_name):
+    """Yugipedia MediaWiki APIでカード画像URLを取得。失敗時はNone"""
+    try:
+        resp = _requests.get(
+            "https://yugipedia.com/api.php",
+            params={
+                "action": "query",
+                "titles": card_name,
+                "prop": "pageimages",
+                "pithumbsize": 400,
+                "redirects": 1,
+                "format": "json",
+            },
+            timeout=10,
+            headers={"User-Agent": "CardPriceBot/1.0"},
+        )
+        if resp.status_code != 200:
+            print(f"  Yugipedia失敗 [{card_name}]: HTTP {resp.status_code}")
+            return None
+        pages = resp.json().get("query", {}).get("pages", {})
+        for page in pages.values():
+            src = page.get("thumbnail", {}).get("source")
+            if src:
+                return src
+        print(f"  Yugipedia画像なし [{card_name}]")
+    except Exception as e:
+        print(f"  Yugipedia失敗 [{card_name}]: {e}")
+    return None
+
+
 def get_card_image_path(card_name):
     """カード画像を取得し一時ファイルパスを返す。失敗時はNone。
-    取得元の優先順位: カーナベル → YGOPRODECK
+    取得元の優先順位: カーナベル → YGOPRODECK → Yugipedia
     """
     # 1. カーナベルを試みる
     try:
@@ -140,9 +170,14 @@ def get_card_image_path(card_name):
             if cards:
                 image_url = cards[0]["card_images"][0]["image_url"]
                 return _download_image(image_url, card_name)
-        print(f"  YGOPRODECK失敗 [{card_name}]: HTTP {resp.status_code}")
+        print(f"  YGOPRODECK失敗 [{card_name}]: HTTP {resp.status_code} — Yugipediaで再試行")
     except Exception as e:
-        print(f"  YGOPRODECK失敗 [{card_name}]: {e}")
+        print(f"  YGOPRODECK失敗 [{card_name}]: {e} — Yugipediaで再試行")
+
+    # 3. Yugipediaにフォールバック（新カードや日本語名対応）
+    image_url = _get_yugipedia_image_url(card_name)
+    if image_url:
+        return _download_image(image_url, card_name)
 
     return None
 
