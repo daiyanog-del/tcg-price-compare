@@ -5,6 +5,7 @@ TCG 価格比較 Web サーバー
 import json
 import time
 import os
+import random
 import logging
 import threading
 from datetime import datetime, timezone, timedelta
@@ -681,48 +682,63 @@ _estimate_cache: dict[str, dict] = {}
 _estimate_cache_time: float = 0
 _ESTIMATE_CACHE_SEC = 600
 
-def _load_estimate_cache():
-    """Supabaseから直近7日の全カード最安値をメモリにロード"""
+def _load_estimate_cache(startup: bool = False):
+    """Supabaseから直近7日の全カード最安値をメモリにロード。
+    startup=True のときはジッターを入れてワーカー間の同時アクセスを分散させる。
+    """
     global _estimate_cache, _estimate_cache_time
     if not _supabase_client:
         return
-    try:
-        cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-        all_rows = []
-        page_size = 1000
-        offset = 0
-        while True:
-            resp = (_supabase_client.table("price_history")
-                    .select("card_name, shop, rarity, min_price, recorded_at")
-                    .gte("recorded_at", cutoff)
-                    .order("min_price", desc=False)
-                    .range(offset, offset + page_size - 1)
-                    .execute())
-            rows = resp.data or []
-            all_rows.extend(rows)
-            if len(rows) < page_size:
-                break
-            offset += page_size
 
-        card_best = {}
-        for row in all_rows:
-            name = row.get("card_name", "")
-            if not name or name in card_best:
-                continue
-            card_best[name] = {
-                "shop": row.get("shop", ""),
-                "price": row.get("min_price", 0),
-                "rarity": row.get("rarity", ""),
-                "recorded_at": row.get("recorded_at", ""),
-            }
-        _estimate_cache = card_best
-        _estimate_cache_time = time.time()
-        logger.info(f"相場キャッシュロード完了: {len(card_best)}カード")
-    except Exception as e:
-        logger.error(f"相場キャッシュロード失敗: {e}")
+    if startup:
+        jitter = random.uniform(0, 6)
+        logger.info(f"相場キャッシュ: {jitter:.1f}秒後に開始")
+        time.sleep(jitter)
+
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+            all_rows = []
+            page_size = 1000
+            offset = 0
+            while True:
+                resp = (_supabase_client.table("price_history")
+                        .select("card_name, shop, rarity, min_price, recorded_at")
+                        .gte("recorded_at", cutoff)
+                        .order("min_price", desc=False)
+                        .range(offset, offset + page_size - 1)
+                        .execute())
+                rows = resp.data or []
+                all_rows.extend(rows)
+                if len(rows) < page_size:
+                    break
+                offset += page_size
+
+            card_best = {}
+            for row in all_rows:
+                name = row.get("card_name", "")
+                if not name or name in card_best:
+                    continue
+                card_best[name] = {
+                    "shop": row.get("shop", ""),
+                    "price": row.get("min_price", 0),
+                    "rarity": row.get("rarity", ""),
+                    "recorded_at": row.get("recorded_at", ""),
+                }
+            _estimate_cache = card_best
+            _estimate_cache_time = time.time()
+            logger.info(f"相場キャッシュロード完了: {len(card_best)}カード")
+            return
+        except Exception as e:
+            wait = 5 * attempt
+            logger.error(f"相場キャッシュロード失敗 (試行{attempt}/{max_retries}): {e}")
+            if attempt < max_retries:
+                logger.info(f"  {wait}秒後にリトライします")
+                time.sleep(wait)
 
 # サーバー起動時にキャッシュをバックグラウンドでロード（ヘルスチェックをブロックしない）
-Thread(target=_load_estimate_cache, daemon=True).start()
+Thread(target=_load_estimate_cache, kwargs={"startup": True}, daemon=True).start()
 
 @app.route("/api/deck-estimate")
 def api_deck_estimate():
