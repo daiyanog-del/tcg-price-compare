@@ -602,10 +602,23 @@ _KANABELL_INDEX = _os.environ.get("KANABELL_INDEX", "ec-cards")
 
 def _kanabell_es_host():
     """Cloud IDからElasticsearchホストURLを構築"""
-    encoded = _KANABELL_CLOUD_ID.split(":")[1]
-    decoded = _b64.b64decode(encoded).decode()
-    parts = decoded.split("$")
-    return f"https://{parts[1]}.{parts[0]}"
+    try:
+        parts_colon = _KANABELL_CLOUD_ID.split(":")
+        if len(parts_colon) < 2:
+            print(f"  [KANABELL] CLOUD_ID形式エラー: コロンがありません (値={_KANABELL_CLOUD_ID[:20]!r})")
+            return None
+        encoded = parts_colon[1]
+        decoded = _b64.b64decode(encoded).decode()
+        parts = decoded.split("$")
+        if len(parts) < 2:
+            print(f"  [KANABELL] CLOUD_IDデコード結果が不正: parts={parts}")
+            return None
+        url = f"https://{parts[1]}.{parts[0]}"
+        print(f"  [KANABELL] ESホストURL構築成功: {url}")
+        return url
+    except Exception as e:
+        print(f"  [KANABELL] ESホストURL構築失敗: {e} (CLOUD_ID={_KANABELL_CLOUD_ID[:20]!r})")
+        return None
 
 _KANABELL_ES_URL = None  # lazy init
 
@@ -629,6 +642,9 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
     global _KANABELL_ES_URL
     if _KANABELL_ES_URL is None:
         _KANABELL_ES_URL = _kanabell_es_host()
+    if _KANABELL_ES_URL is None:
+        print("  [KANABELL] ESホストURLの構築に失敗したため検索をスキップします")
+        return []
 
     search_url = f"{_KANABELL_ES_URL}/{_KANABELL_INDEX}/_search"
 
@@ -680,6 +696,7 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
             },
             timeout=15,
         )
+        print(f"  [KANABELL] 価格検索レスポンス: HTTP {res.status_code} [{card_name}]")
         res.raise_for_status()
         data = res.json()
     except requests.RequestException as e:
@@ -770,6 +787,9 @@ def kanabell_card_image_url(card_name: str) -> str:
     global _KANABELL_ES_URL
     if _KANABELL_ES_URL is None:
         _KANABELL_ES_URL = _kanabell_es_host()
+    if _KANABELL_ES_URL is None:
+        print(f"  [KANABELL] ESホストURLの構築に失敗したため画像取得をスキップします [{card_name}]")
+        return ""
 
     search_url = f"{_KANABELL_ES_URL}/{_KANABELL_INDEX}/_search"
     query_body = {
@@ -805,6 +825,7 @@ def kanabell_card_image_url(card_name: str) -> str:
             },
             timeout=8,
         )
+        print(f"  [KANABELL] 画像検索レスポンス: HTTP {res.status_code} [{card_name}]")
         res.raise_for_status()
         hits = res.json().get("hits", {}).get("hits", [])
         if not hits:
