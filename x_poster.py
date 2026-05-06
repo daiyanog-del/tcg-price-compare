@@ -100,12 +100,18 @@ def _download_image(image_url, label):
     """画像URLをダウンロードして一時ファイルパスを返す。失敗時はNone"""
     try:
         img_resp = _requests.get(image_url, timeout=15, headers={"User-Agent": "CardPriceBot/1.0"})
+        ct = img_resp.headers.get("Content-Type", "不明")
+        cl = img_resp.headers.get("Content-Length", "不明")
+        print(f"  [DL] {label}: HTTP {img_resp.status_code} Content-Type={ct} Content-Length={cl}")
         if img_resp.status_code != 200:
+            print(f"  カード画像ダウンロード失敗 [{label}]: HTTP {img_resp.status_code}")
             return None
+        magic = img_resp.content[:4].hex() if img_resp.content else "空"
+        print(f"  [DL] {label}: 先頭バイト={magic} 実サイズ={len(img_resp.content)}B")
         tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
         tmp.write(img_resp.content)
         tmp.close()
-        print(f"  カード画像取得成功 [{label}]")
+        print(f"  カード画像取得成功 [{label}] 保存先={tmp.name}")
         return tmp.name
     except Exception as e:
         print(f"  カード画像ダウンロード失敗 [{label}]: {e}")
@@ -237,19 +243,39 @@ def post_tweet(text, image_path=None, reply_to_id=None):
 
     try:
         import tweepy
+        print(f"  [X] tweepyバージョン: {tweepy.__version__}")
 
         # メディアアップロード（v1.1 API経由）
         media_id_str = None
+        media_status = "なし"  # "添付済" / "アップロード失敗" / "なし"
         if image_path:
             try:
+                import os as _os
+                file_size = _os.path.getsize(image_path)
+                with open(image_path, "rb") as f:
+                    file_magic = f.read(4).hex()
+                print(f"  [X] 画像ファイル確認: size={file_size}B magic={file_magic}")
                 auth = tweepy.OAuth1UserHandler(api_key, api_secret, access_token, access_token_secret)
                 api_v1 = tweepy.API(auth)
                 media = api_v1.media_upload(image_path)
                 media_id_str = str(media.media_id)  # v2 APIは文字列IDを要求
+                media_status = "添付済"
                 print(f"  メディアアップロード成功 (media_id={media_id_str})")
             except Exception as e:
-                print(f"  メディアアップロード失敗: {e}")
+                media_status = "アップロード失敗"
+                print(f"  メディアアップロード失敗: {type(e).__name__}: {e}")
+                if hasattr(e, "response") and e.response is not None:
+                    print(f"    HTTPステータス={e.response.status_code}")
+                    print(f"    レスポンス本文={e.response.text[:500]}")
+                if hasattr(e, "api_codes"):
+                    print(f"    api_codes={e.api_codes} api_messages={e.api_messages}")
                 # 画像なしで投稿続行
+
+        # DRY_RUNモード: 投稿直前でスキップ（ログのみ出力）
+        if os.environ.get("X_POST_DRY_RUN") == "1":
+            print(f"  [DRY_RUN] 投稿スキップ (画像={media_status}) text_len={len(text)}")
+            print(f"  [DRY_RUN] 本文先頭: {text[:80]}")
+            return None
 
         # ツイート投稿（v2 API）
         client = tweepy.Client(
@@ -266,10 +292,13 @@ def post_tweet(text, image_path=None, reply_to_id=None):
 
         response = client.create_tweet(**kwargs)
         tweet_id = response.data["id"] if response.data else None
-        print(f"  投稿成功 (id={tweet_id}): {text[:50]}...")
+        print(f"  投稿成功（画像{media_status}） (id={tweet_id}): {text[:50]}...")
         return tweet_id
     except Exception as e:
-        print(f"  ツイート投稿失敗: {e}")
+        print(f"  ツイート投稿失敗: {type(e).__name__}: {e}")
+        if hasattr(e, "response") and e.response is not None:
+            print(f"    HTTPステータス={e.response.status_code}")
+            print(f"    レスポンス本文={e.response.text[:500]}")
         return None
 
 

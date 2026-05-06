@@ -8,6 +8,11 @@ on:
   schedule:
     - cron: '0 20 * * *'  # 毎日 UTC 20:00 = JST 5:00
   workflow_dispatch:       # 手動実行ボタン
+    inputs:
+      dry_run:
+        description: 'X投稿をスキップしてログのみ確認（チェックを入れると本番Twitterに投稿しない）'
+        type: boolean
+        default: false
 
 jobs:
   collect:
@@ -38,4 +43,5 @@ jobs:
           X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          X_POST_DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
         run: python collect_prices.py
