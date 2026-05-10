@@ -99,15 +99,24 @@ def _ygores_image_url(card_name):
     path = f"/{cid // 10000}/{(cid % 10000) // 100}/{cid % 100}_1.png"
     return f"https://artworks-jp-n.ygoresources.com{path}"
 
+FAVICON_FILES = {
+    'favicon.svg', 'favicon-16.svg', 'favicon-32.png', 'favicon-16.png',
+    'apple-touch-icon.png', 'icon-192.png', 'icon-512.png', 'manifest.json',
+}
+
 @app.after_request
 def add_cache_headers(response):
     """レスポンスタイプに応じたキャッシュ制御"""
     ct = response.content_type
-    if 'text/html' in ct:
-        # HTMLは短いキャッシュ（価格データは変動するため）
+    path = request.path.lstrip('/')
+    filename = path.split('/')[-1]
+    if filename in FAVICON_FILES:
+        # ファビコン・アイコン類はキャッシュさせない
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+    elif 'text/html' in ct:
         response.headers['Cache-Control'] = 'public, max-age=60, stale-while-revalidate=300'
     elif 'application/xml' in ct or 'text/plain' in ct:
-        # sitemap.xml, robots.txt
         response.headers['Cache-Control'] = 'public, max-age=3600'
     return response
 
