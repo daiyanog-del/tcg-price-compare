@@ -148,6 +148,43 @@ def _download_image(image_url, label, referer=None):
         return None
 
 
+def _get_yugipedia_en_name(card_name):
+    """Yugipedia APIで日本語カード名から英語ページ名を取得。
+    日本語名で検索すると英語ページにリダイレクトされるため、その先のタイトルを英語名として使う。
+    失敗時はNone。
+    """
+    try:
+        resp = _requests.get(
+            "https://yugipedia.com/api.php",
+            params={
+                "action": "query",
+                "titles": card_name,
+                "redirects": 1,
+                "format": "json",
+            },
+            timeout=10,
+            headers={"User-Agent": _BROWSER_UA},
+        )
+        if resp.status_code != 200:
+            return None
+        data = resp.json().get("query", {})
+        # リダイレクト情報から英語名を取得
+        for r in data.get("redirects", []):
+            to = r.get("to", "")
+            if to and to != card_name:
+                print(f"  [英語名] {card_name} → {to}")
+                return to
+        # リダイレクトがなくても、ページが見つかっていれば英語タイトルを使う
+        for page in data.get("pages", {}).values():
+            title = page.get("title", "")
+            if title and title != card_name and page.get("pageid", -1) != -1:
+                print(f"  [英語名] {card_name} → {title}")
+                return title
+    except Exception as e:
+        print(f"  Yugipedia英語名取得失敗 [{card_name}]: {e}")
+    return None
+
+
 def _get_yugipedia_image_url(card_name):
     """Yugipedia MediaWiki APIでカード画像URLを取得。失敗時はNone"""
     try:
@@ -178,46 +215,69 @@ def _get_yugipedia_image_url(card_name):
     return None
 
 
-def get_card_image_path(card_name):
-    """カード画像を取得し一時ファイルパスを返す。失敗時はNone。
-    取得元の優先順位: Renderプロキシ(カーナベル) → YGOPRODECK → Yugipedia
-    """
-    # 1. RenderサーバーのプロキシAPI経由でカーナベル画像を取得
-    #    （GitHub ActionsのIPはカーナベルにブロックされるため、Renderを中継役にする）
+def _get_ygoprodeck_image_url(name, language=None):
+    """YGOPRODECK APIで画像URLを取得。英語名なら確実、日本語名はlanguage='ja'で試みる。失敗時はNone"""
     try:
-        proxy_base = os.environ.get("IMAGE_PROXY_URL", "https://tcg-price-compare.onrender.com")
-        proxy_url = f"{proxy_base}/api/card-image-proxy?name={urllib.parse.quote(card_name)}"
-        print(f"  [プロキシ] {card_name}: {proxy_url}")
-        path = _download_image(proxy_url, card_name)
-        if path:
-            return path
-        print(f"  Renderプロキシ失敗 [{card_name}] — YGOPRODECKで再試行")
-    except Exception as e:
-        print(f"  Renderプロキシ失敗 [{card_name}]: {e} — YGOPRODECKで再試行")
-
-    # 2. YGOPRODECKにフォールバック
-    try:
-        api_url = "https://db.ygoprodeck.com/api/v7/cardinfo.php"
+        params = {"name": name}
+        if language:
+            params["language"] = language
         resp = _requests.get(
-            api_url,
-            params={"name": card_name, "language": "ja"},
+            "https://db.ygoprodeck.com/api/v7/cardinfo.php",
+            params=params,
             timeout=10,
             headers={"User-Agent": _BROWSER_UA},
         )
         if resp.status_code == 200:
             cards = resp.json().get("data", [])
             if cards:
-                image_url = cards[0]["card_images"][0]["image_url"]
-                return _download_image(image_url, card_name)
-        print(f"  YGOPRODECK失敗 [{card_name}]: HTTP {resp.status_code} — Yugipediaで再試行")
+                return cards[0]["card_images"][0]["image_url"]
+        print(f"  YGOPRODECK失敗 [{name}]: HTTP {resp.status_code}")
     except Exception as e:
-        print(f"  YGOPRODECK失敗 [{card_name}]: {e} — Yugipediaで再試行")
+        print(f"  YGOPRODECK失敗 [{name}]: {e}")
+    return None
 
-    # 3. Yugipediaにフォールバック（新カードや日本語名対応）
-    image_url = _get_yugipedia_image_url(card_name)
-    if image_url:
-        return _download_image(image_url, card_name)
 
+def get_card_image_path(card_name):
+    """カード画像を取得し一時ファイルパスを返す。失敗時はNone。
+
+    取得フロー:
+    1. Yugipediaで日本語名→英語名に変換 → YGOPRODECKで英語名検索
+    2. Yugipediaで英語名から直接画像取得
+    3. 日本語名でYugipedia pageimages（英語変換失敗時のフォールバック）
+    4. 日本語名でYGOPRODECK（language=jaで一部カード対応）
+
+    カーナベル画像はクラウドIPからのアクセスがIPレベルでブロックされるため使用しない。
+    """
+    # 1. Yugipedia で日本語名→英語名変換 → YGOPRODECK で画像取得
+    en_name = _get_yugipedia_en_name(card_name)
+    if en_name:
+        url = _get_ygoprodeck_image_url(en_name)
+        if url:
+            path = _download_image(url, card_name)
+            if path:
+                return path
+        # YGOPRODECK失敗時はYugipedia英語名で画像取得を試みる
+        url = _get_yugipedia_image_url(en_name)
+        if url:
+            path = _download_image(url, card_name)
+            if path:
+                return path
+
+    # 2. 日本語名でYugipedia pageimages（英語名変換失敗時）
+    url = _get_yugipedia_image_url(card_name)
+    if url:
+        path = _download_image(url, card_name)
+        if path:
+            return path
+
+    # 3. 日本語名でYGOPRODECK（language=ja、一部カードで有効）
+    url = _get_ygoprodeck_image_url(card_name, language="ja")
+    if url:
+        path = _download_image(url, card_name)
+        if path:
+            return path
+
+    print(f"  全ソースで画像取得失敗 [{card_name}]")
     return None
 
 
