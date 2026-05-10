@@ -67,6 +67,38 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 Compress(app)
 
+_BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+# YGOResources 名前インデックスキャッシュ（初回リクエスト時に1回だけ取得）
+_ygores_name_index = None
+
+def _get_ygores_name_index():
+    global _ygores_name_index
+    if _ygores_name_index is not None:
+        return _ygores_name_index
+    try:
+        resp = _http.get(
+            "https://db.ygoresources.com/data/idx/card/name/ja",
+            timeout=30,
+            headers={"User-Agent": _BROWSER_UA},
+        )
+        _ygores_name_index = resp.json() if resp.status_code == 200 else {}
+        logger.info(f"[YGOResources] 名前インデックス取得: {len(_ygores_name_index)}件")
+    except Exception as e:
+        logger.warning(f"[YGOResources] 名前インデックス取得失敗: {e}")
+        _ygores_name_index = {}
+    return _ygores_name_index
+
+def _ygores_image_url(card_name):
+    """カード名からYGOResourcesのOCGアートワーク画像URLを返す。未登録の場合はNone"""
+    idx = _get_ygores_name_index()
+    ids = idx.get(card_name)
+    if not ids:
+        return None
+    cid = ids[0]
+    path = f"/{cid // 10000}/{(cid % 10000) // 100}/{cid % 100}_1.png"
+    return f"https://artworks-jp-n.ygoresources.com{path}"
+
 @app.after_request
 def add_cache_headers(response):
     """レスポンスタイプに応じたキャッシュ制御"""
@@ -1274,13 +1306,11 @@ def api_health():
 
 @app.route("/api/card-image")
 def api_card_image():
-    """カード名からカーナベルの画像URLを返す"""
+    """カード名から画像URLを返す。YGOResources優先、未登録時はカーナベルにフォールバック"""
     name = request.args.get("name", "").strip()
     if not name:
         return jsonify({"error": "name required"}), 400
-    url = kanabell_card_image_url(name)
-    if not url:
-        return jsonify({"url": None}), 200
+    url = _ygores_image_url(name) or kanabell_card_image_url(name)
     return jsonify({"url": url})
 
 
