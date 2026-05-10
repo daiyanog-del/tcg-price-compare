@@ -158,6 +158,11 @@ header .subtitle{font-size:.78rem;color:var(--text-d);margin-top:8px;letter-spac
 .scard .sdetail{font-size:.76rem;color:var(--text-m);line-height:1.5}
 .scard .sdetail a{color:var(--text-m)}
 .scard .sdetail a:hover{color:var(--accent-l)}
+/* stretched-link: scard-linkのa::afterでカード全体をタップ領域に */
+.scard .slabel,.scard .sprice,.scard .sdetail{position:relative;z-index:2}
+.scard.best::before{z-index:3}
+.scard .scard-link{position:static}
+.scard .scard-link::after{content:"";position:absolute;inset:0;z-index:1}
 
 /* ── Controls row ── */
 .controls{display:flex;gap:16px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
@@ -1494,7 +1499,7 @@ function renderAll(d){
     const isBest=(bestSellPrice!==null&&item.price===bestSellPrice);
     const itemUrl=affLink(item.url, item.shop, 'sell');
     const nameLink=item.url?`<a href="${esc(itemUrl)}" target="_blank" rel="noopener nofollow">${esc(item.name)}</a>`:esc(item.name);
-    const priceLink=item.url?`<a href="${esc(itemUrl)}" target="_blank" rel="noopener nofollow">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
+    const priceLink=item.url?`<a class="scard-link" href="${esc(itemUrl)}" target="_blank" rel="noopener nofollow">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
     h+=`<div class="scard${isBest?' best':''} fin"><div class="slabel">${esc(shop)}</div>
       <div class="sprice">${priceLink}</div>
       <div class="sdetail">${esc(item.rarity||'-')}<br>${nameLink}</div></div>`;
@@ -2494,7 +2499,7 @@ function renderBuyAll(d){
     if(shopBest.price<=0) continue;
     const isBest=(bestBuyPrice!==null&&shopBest.price===bestBuyPrice);
     const sBuyUrl=affLink(shopBest.url, s, 'buy');
-    const sPriceLink=shopBest.url?`<a href="${esc(sBuyUrl)}" target="_blank" rel="noopener nofollow">¥${shopBest.price.toLocaleString()}</a>`:`¥${shopBest.price.toLocaleString()}`;
+    const sPriceLink=shopBest.url?`<a class="scard-link" href="${esc(sBuyUrl)}" target="_blank" rel="noopener nofollow">¥${shopBest.price.toLocaleString()}</a>`:`¥${shopBest.price.toLocaleString()}`;
     h+=`<div class="scard${isBest?' best':''} fin"><div class="slabel">${s}</div>
       <div class="sprice" style="color:var(--green)">${sPriceLink}</div>
       <div class="sdetail">${shopBest.rarity||'-'}<br>${esc(shopBest.name)}</div></div>`;
