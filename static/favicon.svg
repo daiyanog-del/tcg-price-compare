@@ -1,0 +1,11 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="カード相場">
+  <title>カード相場</title>
+  <rect width="128" height="128" fill="#0a1024" rx="16"/>
+  <line x1="64" y1="14" x2="64" y2="118" stroke="#dc2626" stroke-width="2.5"/>
+  <rect x="42" y="24" width="44" height="84" fill="#1a2547" stroke="#dc2626" stroke-width="3" rx="4"/>
+  <rect x="48" y="30" width="32" height="32" fill="#dc2626" opacity="0.85" rx="2"/>
+  <line x1="48" y1="72" x2="80" y2="72" stroke="#dc2626" stroke-width="1.5"/>
+  <line x1="48" y1="82" x2="76" y2="82" stroke="#dc2626" stroke-width="1.5" opacity="0.6"/>
+  <line x1="48" y1="92" x2="78" y2="92" stroke="#dc2626" stroke-width="1.5" opacity="0.6"/>
+  <line x1="48" y1="102" x2="72" y2="102" stroke="#dc2626" stroke-width="1.5" opacity="0.6"/>
+</svg>

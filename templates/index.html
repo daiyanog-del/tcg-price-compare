@@ -5,41 +5,46 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="google-site-verification" content="7SBMfipn1AANFZK-55AZRO3tvCcB5j9iZ9h3sm7r5r0">
 {% if card_name and page_mode == 'search' %}
-<title>{{ card_name }} の価格比較 | CardPrice</title>
+<title>{{ card_name }} の価格比較 | カード相場</title>
 <meta name="description" content="{{ card_name }}の最安値を遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボ・まんぞく屋の6店舗から一括比較。{% if best_price %}現在の最安値は¥{{ '{:,}'.format(best_price) }}。{% endif %}リアルタイム価格検索。">
-<meta property="og:title" content="{{ card_name }} の価格比較 | CardPrice">
+<meta property="og:title" content="{{ card_name }} の価格比較 | カード相場">
 <meta property="og:description" content="{{ card_name }}の最安値を7店舗で比較{% if best_price %}。最安¥{{ '{:,}'.format(best_price) }}{% endif %}">
 <link rel="canonical" href="{{ request.url_root.rstrip('/') }}/card/{{ card_name | urlencode }}">
 {% elif card_name and page_mode == 'buyback' %}
-<title>{{ card_name }} の買取価格比較 | CardPrice</title>
+<title>{{ card_name }} の買取価格比較 | カード相場</title>
 <meta name="description" content="{{ card_name }}の買取価格をカードラッシュ・カーナベル・遊々亭の3店舗で一括比較。{% if best_price %}最高買取額¥{{ '{:,}'.format(best_price) }}。{% endif %}一番高く売れるお店が見つかります。">
-<meta property="og:title" content="{{ card_name }} の買取価格比較 | CardPrice">
+<meta property="og:title" content="{{ card_name }} の買取価格比較 | カード相場">
 <meta property="og:description" content="{{ card_name }}の買取価格を3店舗で比較{% if best_price %}。最高¥{{ '{:,}'.format(best_price) }}{% endif %}">
 <link rel="canonical" href="{{ request.url_root.rstrip('/') }}/buy/{{ card_name | urlencode }}">
 {% else %}
-<title>CardPrice is? — 遊戯王OCG 価格比較</title>
-<meta name="description" content="遊戯王OCGカードの価格を遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボ・まんぞく屋の6店舗から一括比較。買取価格比較・デッキ一括見積もりにも対応。">
-<meta property="og:title" content="CardPrice is? — 遊戯王OCG 価格比較">
-<meta property="og:description" content="遊戯王OCGカードの価格を7店舗から一括比較。買取価格・デッキ見積もり対応。">
+<title>カード相場 — 遊戯王OCG価格インデックス</title>
+<meta name="description" content="組みたいデッキを、いちばん安く。遊戯王OCGのリアルタイム価格比較サービス。">
+<meta property="og:title" content="カード相場 — 遊戯王OCG価格インデックス">
+<meta property="og:description" content="組みたいデッキを、いちばん安く。">
 <link rel="canonical" href="{{ request.url_root.rstrip('/') }}/">
 {% endif %}
-<meta property="og:image" content="{{ request.url_root.rstrip('/') }}/static/ogp.jpg">
+<meta property="og:image" content="https://cardprice.run/static/og-image.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="{{ request.url_root.rstrip('/') }}/static/ogp.jpg">
+<meta name="twitter:title" content="カード相場 — 遊戯王OCG価格インデックス">
+<meta name="twitter:description" content="組みたいデッキを、いちばん安く。">
+<meta name="twitter:image" content="https://cardprice.run/static/og-image.png">
 <meta property="og:type" content="website">
+<meta property="og:url" content="https://cardprice.run/">
 <meta property="og:locale" content="ja_JP">
-<meta property="og:site_name" content="CardPrice is?">
+<meta property="og:site_name" content="カード相場">
 <meta name="robots" content="index, follow">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='6' y='10' width='52' height='76' rx='4' fill='%231a2744' stroke='%230e1830' stroke-width='2'/><rect x='11' y='15' width='42' height='66' rx='2' fill='none' stroke='%230e1830' stroke-width='1' opacity='.5'/><ellipse cx='32' cy='48' rx='14' ry='22' fill='%23060e1a' stroke='%23C49B2A' stroke-width='1.5'/><ellipse cx='32' cy='48' rx='8' ry='15' fill='none' stroke='%23C49B2A' stroke-width='1' opacity='.6'/><rect x='42' y='14' width='52' height='76' rx='4' fill='%231a2744' stroke='%230e1830' stroke-width='2'/><text x='68' y='62' font-size='28' font-weight='bold' fill='%23C49B2A' text-anchor='middle' font-family='Arial'>¥</text></svg>">
-<link rel="apple-touch-icon" href="/static/icon-192.png">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
+<link rel="apple-touch-icon" sizes="192x192" href="/static/icon-192.png">
 <link rel="manifest" href="/static/manifest.json">
-<meta name="theme-color" content="#0c0e14">
+<meta name="theme-color" content="#0a1024">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&family=JetBrains+Mono:wght@400;600&family=Outfit:wght@800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
-<noscript><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&family=JetBrains+Mono:wght@400;600&family=Outfit:wght@800&display=swap" rel="stylesheet"></noscript>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"></noscript>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@900&text=%E3%82%AB%E3%83%BC%E3%83%89%E7%9B%B8%E5%A0%B4&display=swap" rel="stylesheet">
 {% if card_name %}
 <script type="application/ld+json">
 {
@@ -68,23 +73,35 @@
 {% endif %}
 <style>
 :root {
-  --bg:         #0c0e14;
-  --bg-card:    #141620;
-  --bg-hover:   #1a1d2a;
-  --bg-input:   #161824;
-  --border:     #262838;
+  /* 意味色 — ローソク足・上昇/下落のみに使用 */
+  --color-bullish:        #dc2626;
+  --color-bearish:        #64748b;
+  /* テキスト */
+  --color-text-primary:   #ffffff;
+  --color-text-secondary: #94a3b8;
+  --color-text-tertiary:  #64748b;
+  --color-line:           rgba(226, 232, 240, 0.4);
+  /* 基底 */
+  --color-bg:             #0a1024;
+  --color-panel:          #1a2547;
+
+  --bg:         #0a1024;
+  --bg-card:    #1a2547;
+  --bg-hover:   #1e2d58;
+  --bg-input:   #161e3a;
+  --border:     #2a3460;
   --border-hl:  #4a7cff;
-  --text:       #d8dae0;
-  --text-m:     #8a8ca0;
-  --text-d:     #555670;
+  --text:       #ffffff;
+  --text-m:     #94a3b8;
+  --text-d:     #64748b;
   --accent:     #4a7cff;
   --accent-l:   #7da0ff;
   --gold:       #e8c848;
   --gold-d:     #a08820;
   --green:      #34d399;
-  --red:        #f87171;
+  --red:        #dc2626;
   --cyan:       #67e8f9;
-  --sold-out:   rgba(248,113,113,0.1);
+  --sold-out:   rgba(220,38,38,0.1);
   --font:       'Noto Sans JP', system-ui, sans-serif;
   --mono:       'JetBrains Mono', monospace;
   --radius:     8px;
@@ -96,12 +113,8 @@ a{color:var(--accent-l);text-decoration:none}a:hover{text-decoration:underline}
 
 /* ── Header ── */
 header{padding:24px 0 8px;text-align:center}
-.logo-link{display:inline-flex;align-items:center;gap:10px;text-decoration:none}
-.logo-icon{width:38px;height:38px;flex-shrink:0}
-.logo-text{display:flex;flex-direction:column;align-items:flex-start;line-height:1.1}
-.logo-main{font-family:'Outfit',var(--font);font-size:1.7rem;font-weight:800;letter-spacing:.04em;color:rgba(255,255,255,.7);-webkit-text-fill-color:rgba(255,255,255,.7)}
-.logo-hl{-webkit-text-fill-color:#fff;color:#fff}
-.logo-sub{font-size:.7rem;font-weight:700;color:var(--accent-l);letter-spacing:.12em;margin-top:2px}
+.brand-header-link{display:inline-block;text-decoration:none}
+.brand-header-img{height:68px;width:auto;display:block}
 header .subtitle{font-size:.78rem;color:var(--text-d);margin-top:8px;letter-spacing:.02em}
 
 /* ── Search ── */
@@ -404,9 +417,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 /* Mobile — スマホ */
 @media(max-width:640px){
   header{padding:16px 0 8px}
-  .logo-main{font-size:1.55rem}
-  .logo-sub{font-size:.6rem}
-  .logo-icon{width:30px;height:30px}
+  .brand-header-img{height:46px}
 
   /* 検索 */
   .search{flex-direction:column;gap:6px}
@@ -558,22 +569,11 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 <div class="wrap">
   <header>
     <h1>
-      <a href="/" class="logo-link">
-        <svg class="logo-icon" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-          <rect x="6" y="10" width="52" height="76" rx="4" fill="#1a2744" stroke="#0e1830" stroke-width="2"/>
-          <rect x="11" y="15" width="42" height="66" rx="2" fill="none" stroke="#0e1830" stroke-width="1" opacity=".5"/>
-          <ellipse cx="32" cy="48" rx="14" ry="22" fill="#060e1a" stroke="#C49B2A" stroke-width="1.5"/>
-          <ellipse cx="32" cy="48" rx="8" ry="15" fill="none" stroke="#C49B2A" stroke-width="1" opacity=".6"/>
-          <rect x="42" y="14" width="52" height="76" rx="4" fill="#1a2744" stroke="#0e1830" stroke-width="2"/>
-          <text x="68" y="62" font-size="28" font-weight="bold" fill="#C49B2A" text-anchor="middle" font-family="Arial">¥</text>
-        </svg>
-        <span class="logo-text">
-          <span class="logo-main"><span class="logo-hl">Ca</span>rd<span class="logo-hl" style="margin-left:-0.04em">Pri</span>ce i<span class="logo-hl">s</span>?</span>
-          <span class="logo-sub">遊戯王OCG 価格比較</span>
-        </span>
+      <a href="/" class="brand-header-link">
+        <img src="/static/logo-header.svg" alt="カード相場 — 遊戯王OCG価格インデックス" class="brand-header-img">
       </a>
     </h1>
-    <p class="subtitle">販売・買取価格をリアルタイム比較</p>
+    <p class="subtitle">組みたいデッキを、いちばん安く。</p>
     {% if card_name %}
     <nav style="font-size:.75rem;color:var(--text-d);margin-top:6px">
       <a href="/" style="color:var(--text-m)">トップ</a> &gt;
@@ -852,7 +852,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 <!-- フッター -->
 <footer class="site-footer">
   <a onclick="openLegalModal('privacy')">プライバシーポリシー</a>｜<a onclick="openLegalModal('terms')">利用規約</a>｜<a onclick="openLegalModal('shop')">ショップ運営者様へ</a>｜<a href="mailto:tcg.price.compare@gmail.com">お問い合わせ</a>
-  <div class="footer-copy">&copy; 2025 CardPrice</div>
+  <div class="footer-copy">&copy; 2025 カード相場</div>
 </footer>
 
 <!-- PWAインストールバナー -->
@@ -878,7 +878,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
       <button class="legal-modal-close" onclick="closeLegalModal('privacy')">&times;</button>
     </div>
     <div class="legal-modal-body">
-      <p>CardPrice（以下「本サービス」）は、個人が運営するWebサービスです。本サービスにおけるユーザー情報の取扱いについて、以下のとおり定めます。</p>
+      <p>カード相場（以下「本サービス」）は、個人が運営するWebサービスです。本サービスにおけるユーザー情報の取扱いについて、以下のとおり定めます。</p>
 
       <h3>1. 収集する情報</h3>
       <p>本サービスでは、以下の情報を取得する場合があります。</p>
@@ -922,7 +922,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
       <button class="legal-modal-close" onclick="closeLegalModal('terms')">&times;</button>
     </div>
     <div class="legal-modal-body">
-      <p>本利用規約（以下「本規約」）は、CardPrice（以下「本サービス」）の利用条件を定めるものです。本サービスを利用された時点で、本規約に同意したものとみなします。</p>
+      <p>本利用規約（以下「本規約」）は、カード相場（以下「本サービス」）の利用条件を定めるものです。本サービスを利用された時点で、本規約に同意したものとみなします。</p>
 
       <h3>1. サービスの概要</h3>
       <p>本サービスは、遊戯王OCGカードの販売価格および買取価格を複数のショップ（遊々亭、カードラッシュ、トレコロCB、カーナベル、カードラボ）から取得し、比較表示する個人運営のWebサービスです。</p>
@@ -1095,7 +1095,7 @@ function _buildShareOptions(cardName, data, results){
 }
 
 function _shareToX(text){
-  window.open('https://x.com/intent/tweet?text='+encodeURIComponent(text+' #CardPriceis '+location.origin),'_blank');
+  window.open('https://x.com/intent/tweet?text='+encodeURIComponent(text+' #カード相場 '+location.origin),'_blank');
 }
 function _shareToLine(text){
   window.open('https://social-plugins.line.me/lineit/share?url='+encodeURIComponent(location.origin)+'&text='+encodeURIComponent(text),'_blank');
@@ -1726,7 +1726,7 @@ function _updateUrl(cardName, mode){
   }
   // ページタイトルも更新
   const suffix=mode==='buyback'?' の買取価格比較':' の価格比較';
-  document.title=cardName+suffix+' | CardPrice';
+  document.title=cardName+suffix+' | カード相場';
 }
 
 // ブラウザの戻る/進むボタン対応

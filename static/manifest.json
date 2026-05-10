@@ -1,12 +1,17 @@
 {
-  "name": "CardPrice is? — 遊戯王OCG 価格比較",
-  "short_name": "CardPrice is?",
-  "description": "遊戯王OCGカードの価格を6店舗から一括比較",
+  "name": "カード相場 — 遊戯王OCG価格インデックス",
+  "short_name": "カード相場",
+  "description": "組みたいデッキを、いちばん安く。遊戯王OCGのリアルタイム価格比較サービス。",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0c0e14",
-  "theme_color": "#0c0e14",
+  "background_color": "#0a1024",
+  "theme_color": "#0a1024",
   "icons": [
+    {
+      "src": "/static/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    },
     {
       "src": "/static/icon-192.png",
       "sizes": "192x192",

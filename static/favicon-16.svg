@@ -1,0 +1,7 @@
+<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="カード相場">
+  <title>カード相場</title>
+  <rect width="16" height="16" fill="#0a1024" rx="2"/>
+  <rect x="5" y="2" width="6" height="12" fill="#1a2547" stroke="#dc2626" stroke-width="1" rx="0.8"/>
+  <rect x="6" y="3" width="4" height="4" fill="#dc2626" rx="0.4"/>
+  <line x1="6" y1="9" x2="10" y2="9" stroke="#dc2626" stroke-width="0.5"/>
+</svg>

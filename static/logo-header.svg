@@ -1,0 +1,23 @@
+<svg viewBox="0 0 680 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="カード相場 — 遊戯王OCG価格インデックス">
+  <title>カード相場</title>
+  <desc>Header logo for Card Souba — YU-GI-OH! OCG market index service</desc>
+  <rect width="680" height="200" fill="#0a1024"/>
+  <g transform="translate(75, 65)">
+    <rect x="0" y="42" width="8" height="22" fill="#64748b"/>
+    <line x1="4" y1="34" x2="4" y2="68" stroke="#64748b" stroke-width="1.5"/>
+    <rect x="22" y="22" width="8" height="34" fill="#dc2626"/>
+    <line x1="26" y1="14" x2="26" y2="62" stroke="#dc2626" stroke-width="1.5"/>
+    <rect x="44" y="30" width="8" height="20" fill="#64748b"/>
+    <line x1="48" y1="22" x2="48" y2="56" stroke="#64748b" stroke-width="1.5"/>
+    <line x1="76" y1="-6" x2="76" y2="58" stroke="#dc2626" stroke-width="1.8"/>
+    <rect x="66" y="2" width="20" height="48" fill="#1a2547" stroke="#dc2626" stroke-width="2" rx="2.5"/>
+    <rect x="69" y="6" width="14" height="14" fill="#dc2626" opacity="0.85" rx="1"/>
+    <line x1="69" y1="26" x2="83" y2="26" stroke="#dc2626" stroke-width="0.8"/>
+    <line x1="69" y1="32" x2="80" y2="32" stroke="#dc2626" stroke-width="0.8" opacity="0.6"/>
+    <line x1="69" y1="38" x2="81" y2="38" stroke="#dc2626" stroke-width="0.8" opacity="0.6"/>
+    <line x1="69" y1="44" x2="78" y2="44" stroke="#dc2626" stroke-width="0.8" opacity="0.6"/>
+  </g>
+  <text x="190" y="118" fill="#ffffff" font-size="66" letter-spacing="-0.5" font-family="'Noto Serif JP', serif" font-weight="900">カード相場</text>
+  <rect x="192" y="133" width="338" height="2" fill="#e2e8f0" opacity="0.4"/>
+  <text x="194" y="160" fill="#94a3b8" font-size="13" letter-spacing="4.5" font-family="-apple-system, BlinkMacSystemFont, system-ui, sans-serif" font-weight="700">YU-GI-OH! OCG ／ MARKET INDEX</text>
+</svg>
