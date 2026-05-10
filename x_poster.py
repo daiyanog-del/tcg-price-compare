@@ -96,22 +96,52 @@ def _format_date(date_str):
     return f"{d.month}/{d.day}"
 
 
-def _download_image(image_url, label):
+_BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+def _download_image(image_url, label, referer=None):
     """画像URLをダウンロードして一時ファイルパスを返す。失敗時はNone"""
     try:
-        img_resp = _requests.get(image_url, timeout=15, headers={"User-Agent": "CardPriceBot/1.0"})
+        headers = {"User-Agent": _BROWSER_UA}
+        if referer:
+            headers["Referer"] = referer
+
+        # 最大2回リトライ
+        session = _requests.Session()
+        adapter = _requests.adapters.HTTPAdapter(max_retries=2)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+
+        img_resp = session.get(image_url, timeout=15, headers=headers)
         ct = img_resp.headers.get("Content-Type", "不明")
         cl = img_resp.headers.get("Content-Length", "不明")
         print(f"  [DL] {label}: HTTP {img_resp.status_code} Content-Type={ct} Content-Length={cl}")
         if img_resp.status_code != 200:
             print(f"  カード画像ダウンロード失敗 [{label}]: HTTP {img_resp.status_code}")
             return None
-        magic = img_resp.content[:4].hex() if img_resp.content else "空"
-        print(f"  [DL] {label}: 先頭バイト={magic} 実サイズ={len(img_resp.content)}B")
-        tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
-        tmp.write(img_resp.content)
+
+        body = img_resp.content
+        magic = body[:4].hex() if body else "空"
+        print(f"  [DL] {label}: 先頭バイト={magic} 実サイズ={len(body)}B")
+
+        # 1KB未満はエラーページの可能性が高いため弾く
+        if len(body) < 1024:
+            print(f"  カード画像ダウンロード失敗 [{label}]: サイズが小さすぎる ({len(body)}B)")
+            return None
+
+        # Content-Typeから拡張子を決定（tweepy/X APIは中身で判定するが念のため合わせる）
+        if "png" in ct:
+            suffix = ".png"
+        elif "webp" in ct:
+            suffix = ".webp"
+        elif "gif" in ct:
+            suffix = ".gif"
+        else:
+            suffix = ".jpg"
+
+        tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+        tmp.write(body)
         tmp.close()
-        print(f"  カード画像取得成功 [{label}] 保存先={tmp.name}")
+        print(f"  カード画像取得成功 [{label}] suffix={suffix} 保存先={tmp.name}")
         return tmp.name
     except Exception as e:
         print(f"  カード画像ダウンロード失敗 [{label}]: {e}")
@@ -132,7 +162,7 @@ def _get_yugipedia_image_url(card_name):
                 "format": "json",
             },
             timeout=10,
-            headers={"User-Agent": "CardPriceBot/1.0"},
+            headers={"User-Agent": _BROWSER_UA},
         )
         if resp.status_code != 200:
             print(f"  Yugipedia失敗 [{card_name}]: HTTP {resp.status_code}")
@@ -157,7 +187,7 @@ def get_card_image_path(card_name):
         from scraper import kanabell_card_image_url
         image_url = kanabell_card_image_url(card_name)
         if image_url:
-            path = _download_image(image_url, card_name)
+            path = _download_image(image_url, card_name, referer="https://www.ka-nabell.com/")
             if path:
                 return path
         print(f"  カーナベル画像なし [{card_name}] — YGOPRODECKで再試行")
@@ -171,7 +201,7 @@ def get_card_image_path(card_name):
             api_url,
             params={"name": card_name, "language": "ja"},
             timeout=10,
-            headers={"User-Agent": "CardPriceBot/1.0"},
+            headers={"User-Agent": _BROWSER_UA},
         )
         if resp.status_code == 200:
             cards = resp.json().get("data", [])
