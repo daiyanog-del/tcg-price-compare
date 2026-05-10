@@ -98,6 +98,103 @@ def _format_date(date_str):
 
 _BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
+# YGOResources セッション内キャッシュ（プロセス起動時に一度だけ取得）
+_ygoresources_name_index = None  # {カード名: [konami_id, ...]}
+_ygoresources_manifest = None    # {konami_id_str: {artwork_id: {...}}}
+
+
+def _get_ygoresources_name_index():
+    """db.ygoresources.com から日本語カード名→カードID対応表を取得（セッションキャッシュ）"""
+    global _ygoresources_name_index
+    if _ygoresources_name_index is not None:
+        return _ygoresources_name_index
+    try:
+        resp = _requests.get(
+            "https://db.ygoresources.com/data/idx/card/name/ja",
+            timeout=30,
+            headers={"User-Agent": _BROWSER_UA},
+        )
+        if resp.status_code == 200:
+            _ygoresources_name_index = resp.json()
+            print(f"  [YGOResources] 名前インデックス取得: {len(_ygoresources_name_index)}件")
+        else:
+            print(f"  [YGOResources] 名前インデックス取得失敗: HTTP {resp.status_code}")
+            _ygoresources_name_index = {}
+    except Exception as e:
+        print(f"  [YGOResources] 名前インデックス取得エラー: {e}")
+        _ygoresources_name_index = {}
+    return _ygoresources_name_index
+
+
+def _get_ygoresources_manifest():
+    """artworks.ygoresources.com のmanifest.jsonを取得（セッションキャッシュ、約20MB）"""
+    global _ygoresources_manifest
+    if _ygoresources_manifest is not None:
+        return _ygoresources_manifest
+    try:
+        print("  [YGOResources] manifest.json ダウンロード中（約20MB）...")
+        resp = _requests.get(
+            "https://artworks.ygoresources.com/manifest.json",
+            timeout=120,
+            headers={"User-Agent": _BROWSER_UA},
+        )
+        if resp.status_code == 200:
+            _ygoresources_manifest = resp.json().get("cards", {})
+            print(f"  [YGOResources] manifest.json 取得完了: {len(_ygoresources_manifest)}件")
+        else:
+            print(f"  [YGOResources] manifest.json 取得失敗: HTTP {resp.status_code}")
+            _ygoresources_manifest = {}
+    except Exception as e:
+        print(f"  [YGOResources] manifest.json 取得エラー: {e}")
+        _ygoresources_manifest = {}
+    return _ygoresources_manifest
+
+
+def _get_ygoresources_image_url(card_name):
+    """YGOResources から OCG カード画像 URL を取得。OCG最新カード対応。失敗時は None"""
+    name_index = _get_ygoresources_name_index()
+    card_ids = name_index.get(card_name)
+    if not card_ids:
+        print(f"  [YGOResources] 名前未発見: {card_name}")
+        return None
+    card_id = str(card_ids[0])
+    print(f"  [YGOResources] カードID: {card_name} → {card_id}")
+
+    manifest = _get_ygoresources_manifest()
+    card_entry = manifest.get(card_id)
+    if not card_entry:
+        print(f"  [YGOResources] マニフェスト未発見: card_id={card_id}")
+        return None
+
+    # artworkId "1" を優先（通常は基本アートワーク）
+    artwork_key = "1" if "1" in card_entry else next(iter(card_entry), None)
+    if not artwork_key:
+        return None
+    artwork = card_entry[artwork_key]
+
+    # OCG日本語版（neuron_high）→ bestOCG → bestArt の順で優先
+    path = None
+    for entry in artwork.get("idx", {}).get("ja", []):
+        path = entry.get("path")
+        if path:
+            break
+    if not path:
+        path = artwork.get("bestOCG") or artwork.get("bestArt") or artwork.get("bestTCG")
+
+    if not path:
+        print(f"  [YGOResources] パス未発見: card_id={card_id}")
+        return None
+
+    # プロトコル相対URL（//host/path）→ https:
+    if path.startswith("//"):
+        path = "https:" + path
+    elif path.startswith("/"):
+        path = "https://artworks.ygoresources.com" + path
+
+    print(f"  [YGOResources] 画像URL: {path}")
+    return path
+
+
 def _download_image(image_url, label, referer=None):
     """画像URLをダウンロードして一時ファイルパスを返す。失敗時はNone"""
     try:
@@ -241,14 +338,22 @@ def get_card_image_path(card_name):
     """カード画像を取得し一時ファイルパスを返す。失敗時はNone。
 
     取得フロー:
-    1. Yugipediaで日本語名→英語名に変換 → YGOPRODECKで英語名検索
-    2. Yugipediaで英語名から直接画像取得
-    3. 日本語名でYugipedia pageimages（英語変換失敗時のフォールバック）
-    4. 日本語名でYGOPRODECK（language=jaで一部カード対応）
+    1. YGOResources（OCG最新カード含む全カード対応、Cloudflare CDN）
+    2. Yugipediaで日本語名→英語名に変換 → YGOPRODECKで英語名検索
+    3. Yugipediaで英語名から直接画像取得
+    4. 日本語名でYugipedia pageimages（英語変換失敗時のフォールバック）
+    5. 日本語名でYGOPRODECK（language=jaで一部カード対応）
 
     カーナベル画像はクラウドIPからのアクセスがIPレベルでブロックされるため使用しない。
     """
-    # 1. Yugipedia で日本語名→英語名変換 → YGOPRODECK で画像取得
+    # 1. YGOResources（OCG最新カード含む・Cloudflare CDN経由でIPブロックなし）
+    url = _get_ygoresources_image_url(card_name)
+    if url:
+        path = _download_image(url, f"YGOResources:{card_name}")
+        if path:
+            return path
+
+    # 2. Yugipedia で日本語名→英語名変換 → YGOPRODECK で画像取得
     en_name = _get_yugipedia_en_name(card_name)
     if en_name:
         url = _get_ygoprodeck_image_url(en_name)
@@ -263,14 +368,14 @@ def get_card_image_path(card_name):
             if path:
                 return path
 
-    # 2. 日本語名でYugipedia pageimages（英語名変換失敗時）
+    # 4. 日本語名でYugipedia pageimages（英語名変換失敗時）
     url = _get_yugipedia_image_url(card_name)
     if url:
         path = _download_image(url, card_name)
         if path:
             return path
 
-    # 3. 日本語名でYGOPRODECK（language=ja、一部カードで有効）
+    # 5. 日本語名でYGOPRODECK（language=ja、一部カードで有効）
     url = _get_ygoprodeck_image_url(card_name, language="ja")
     if url:
         path = _download_image(url, card_name)
