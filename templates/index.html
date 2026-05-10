@@ -294,6 +294,10 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .card-hero-info{flex:1;min-width:0}
 .card-hero-name{font-size:1.1rem;font-weight:700;margin-bottom:4px}
 .card-hero-meta{font-size:.78rem;color:var(--text-m);line-height:1.6}
+.card-detail{margin-top:6px;font-size:.74rem;line-height:1.5;border-top:1px solid var(--border);padding-top:6px}
+.card-detail-meta{color:var(--text);font-weight:600}
+.card-detail-print{color:var(--text-d);margin-top:1px}
+.card-detail-effect{margin-top:4px;color:var(--text-m);max-height:72px;overflow-y:auto;white-space:pre-wrap;word-break:break-all}
 .ritem-img{width:36px;height:52px;border-radius:3px;overflow:hidden;flex-shrink:0;background:var(--bg-card)}
 .ritem-img img{width:100%;height:100%;object-fit:cover}
 .tbl-img{width:28px;height:40px;border-radius:2px;overflow:hidden;vertical-align:middle}
@@ -1133,38 +1137,58 @@ document.addEventListener('click',e=>{
   }
 });
 
-// ── KONAMI公式DBリンク取得（画像は店舗から取得済み）──
+// ── カード情報取得（YGOResources優先、YGOProDeckフォールバック）──
+function _applyKonamiLink(kid){
+  _konamiDbUrl='https://www.db.yugioh-card.com/yugiohdb/card_search.action?ope=2&cid='+kid+'&request_locale=ja';
+  const nameEl=document.querySelector('.card-hero-name');
+  if(nameEl&&!nameEl.querySelector('a')){
+    const text=nameEl.textContent;
+    nameEl.innerHTML='<a href="'+_konamiDbUrl+'" target="_blank" rel="noopener" style="color:var(--text);text-decoration:none;border-bottom:1px dashed var(--text-d)">'+text+' <span style="font-size:.65rem;color:var(--text-d)">📋 公式DB</span></a>';
+  }
+  const wrap=document.getElementById('heroImgWrap');
+  if(wrap){
+    const img=wrap.querySelector('img');
+    if(img&&!wrap.querySelector('a')){
+      const a=document.createElement('a');
+      a.href=_konamiDbUrl;a.target='_blank';a.rel='noopener';
+      wrap.insertBefore(a,img);
+      a.appendChild(img);
+    }
+  }
+}
+
+function _fetchCardInfo(cardName){
+  fetch('/api/card-info?name='+encodeURIComponent(cardName))
+    .then(r=>r.json())
+    .then(data=>{
+      if(!data.found){fetchCardImage(cardName);return;}
+      if(data.konami_id) _applyKonamiLink(data.konami_id);
+      const det=document.getElementById('cardDetail');
+      if(!det) return;
+      let meta='';
+      if(data.card_type==='モンスター'){
+        meta=`${data.attribute||''} / Lv${data.level||'?'} / ATK ${data.atk??'-'} / DEF ${data.def??'-'}`;
+      } else {
+        meta=data.card_type+(data.property?` (${data.property})`:'')||'';
+      }
+      let html=`<div class="card-detail-meta">${esc(meta)}</div>`;
+      if(data.latest_print) html+=`<div class="card-detail-print">収録: ${esc(data.latest_print)}</div>`;
+      if(data.effect_text) html+=`<div class="card-detail-effect">${esc(data.effect_text)}</div>`;
+      det.innerHTML=html;
+    })
+    .catch(()=>{fetchCardImage(cardName);});
+}
+
 function fetchCardImage(cardName){
-  _konamiDbUrl='';
   fetch('https://db.ygoprodeck.com/api/v7/cardinfo.php?name='+encodeURIComponent(cardName)+'&misc=yes&language=ja')
     .then(r=>r.json())
     .then(data=>{
       if(!data.data||!data.data[0]) return;
       const card=data.data[0];
       const konami_id=(card.misc_info&&card.misc_info[0])?card.misc_info[0].konami_id:null;
+      if(konami_id&&!_konamiDbUrl) _applyKonamiLink(konami_id);
 
-      if(konami_id){
-        _konamiDbUrl='https://www.db.yugioh-card.com/yugiohdb/card_search.action?ope=2&cid='+konami_id+'&request_locale=ja';
-        // カード名にリンク追加
-        const nameEl=document.querySelector('.card-hero-name');
-        if(nameEl){
-          const text=nameEl.textContent;
-          nameEl.innerHTML='<a href="'+_konamiDbUrl+'" target="_blank" rel="noopener" style="color:var(--text);text-decoration:none;border-bottom:1px dashed var(--text-d)">'+text+' <span style="font-size:.65rem;color:var(--text-d)">📋 公式DB</span></a>';
-        }
-        // ヒーロー画像をリンクで包む
-        const wrap=document.getElementById('heroImgWrap');
-        if(wrap){
-          const img=wrap.querySelector('img');
-          if(img&&!wrap.querySelector('a')){
-            const a=document.createElement('a');
-            a.href=_konamiDbUrl;a.target='_blank';a.rel='noopener';
-            wrap.insertBefore(a,img);
-            a.appendChild(img);
-          }
-        }
-      }
-
-      // 店舗画像が取得できなかった場合のみYGOProDeck画像を使用
+      // 画像が未取得の場合のみYGOProDeck画像を使用
       if(!cardImgUrl||cardImgUrl.length<5){
         const imgs=card.card_images?card.card_images[0]:null;
         if(imgs){
@@ -1423,6 +1447,7 @@ function renderAll(d){
       在庫あり ${d.in_stock_count}件 / 売切 ${d.sold_out_count}件 / 計 ${d.total}件<br>
       レアリティ: ${[...new Set(D.map(r=>r.rarity).filter(Boolean))].length}種類
     </div>
+    <div id="cardDetail" class="card-detail"></div>
     <div class="share-btns">
       <button onclick="addToDeck('${escJs(searchTerm)}')" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ デッキに追加</button>
       <div class="share-menu-wrap">
@@ -1445,7 +1470,7 @@ function renderAll(d){
     smEl.innerHTML=sm;
   }
 
-  // /api/card-image でYGOResources優先の画像を取得（カーナベルはサーバー側フォールバック）
+  // 画像: YGOResources優先（カーナベルはサーバー側フォールバック）
   fetch('/api/card-image?name='+encodeURIComponent(searchTerm))
     .then(r=>r.json())
     .then(data=>{
@@ -1456,8 +1481,8 @@ function renderAll(d){
       }
     })
     .catch(()=>{});
-  // KONAMI公式DBリンク取得・YGOProDeck画像フォールバック
-  fetchCardImage(searchTerm);
+  // カード情報: YGOResources（ATK/DEF/効果テキスト等）、未発見時はYGOProDeckフォールバック
+  _fetchCardInfo(searchTerm);
 
   // Summary — 店舗別最安値（全体最安の店舗をハイライト）
   let h='';

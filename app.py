@@ -1304,6 +1304,54 @@ def api_health():
     return jsonify(result), status_code
 
 
+_ATTR_JA = {"dark":"闇","light":"光","fire":"炎","water":"水","earth":"地","wind":"風","divine":"神"}
+_PROP_JA = {"continuous":"永続","quick-play":"速攻","field":"フィールド","equip":"装備","ritual":"儀式","counter":"カウンター"}
+_TYPE_JA = {"monster":"モンスター","spell":"魔法","trap":"罠"}
+
+@app.route("/api/card-info")
+def api_card_info():
+    """カード名からYGOResourcesのカード情報（ATK/DEF/効果テキスト等）を返す"""
+    name = request.args.get("name", "").strip()
+    if not name:
+        return jsonify({"error": "name required"}), 400
+    idx = _get_ygores_name_index()
+    ids = idx.get(name)
+    if not ids:
+        return jsonify({"found": False}), 200
+    card_id = ids[0]
+    try:
+        resp = _http.get(
+            f"https://db.ygoresources.com/data/card/{card_id}",
+            timeout=10,
+            headers={"User-Agent": _BROWSER_UA},
+        )
+        if resp.status_code != 200:
+            return jsonify({"found": False}), 200
+        data = resp.json()
+        ja = data.get("cardData", {}).get("ja", {})
+        card_type = ja.get("cardType", "")
+        prints = ja.get("prints", [])
+        latest_print = ""
+        if prints:
+            last = prints[-1]
+            latest_print = last if isinstance(last, str) else last.get("code", "")
+        return jsonify({
+            "found": True,
+            "konami_id": card_id,
+            "card_type": _TYPE_JA.get(card_type, card_type),
+            "atk": ja.get("atk"),
+            "def": ja.get("def"),
+            "level": ja.get("level"),
+            "attribute": _ATTR_JA.get(ja.get("attribute", ""), ja.get("attribute", "")),
+            "property": _PROP_JA.get(ja.get("property", ""), ja.get("property", "")),
+            "effect_text": ja.get("effectText", ""),
+            "latest_print": latest_print,
+        })
+    except Exception as e:
+        logger.warning(f"[card-info] {name}: {e}")
+        return jsonify({"found": False}), 200
+
+
 @app.route("/api/card-image")
 def api_card_image():
     """カード名から画像URLを返す。YGOResources優先、未登録時はカーナベルにフォールバック"""
