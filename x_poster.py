@@ -180,19 +180,20 @@ def _get_yugipedia_image_url(card_name):
 
 def get_card_image_path(card_name):
     """カード画像を取得し一時ファイルパスを返す。失敗時はNone。
-    取得元の優先順位: カーナベル → YGOPRODECK → Yugipedia
+    取得元の優先順位: Renderプロキシ(カーナベル) → YGOPRODECK → Yugipedia
     """
-    # 1. カーナベルを試みる
+    # 1. RenderサーバーのプロキシAPI経由でカーナベル画像を取得
+    #    （GitHub ActionsのIPはカーナベルにブロックされるため、Renderを中継役にする）
     try:
-        from scraper import kanabell_card_image_url
-        image_url = kanabell_card_image_url(card_name)
-        if image_url:
-            path = _download_image(image_url, card_name, referer="https://www.ka-nabell.com/")
-            if path:
-                return path
-        print(f"  カーナベル画像なし [{card_name}] — YGOPRODECKで再試行")
+        proxy_base = os.environ.get("IMAGE_PROXY_URL", "https://tcg-price-compare.onrender.com")
+        proxy_url = f"{proxy_base}/api/card-image-proxy?name={urllib.parse.quote(card_name)}"
+        print(f"  [プロキシ] {card_name}: {proxy_url}")
+        path = _download_image(proxy_url, card_name)
+        if path:
+            return path
+        print(f"  Renderプロキシ失敗 [{card_name}] — YGOPRODECKで再試行")
     except Exception as e:
-        print(f"  カーナベル画像取得失敗 [{card_name}]: {e} — YGOPRODECKで再試行")
+        print(f"  Renderプロキシ失敗 [{card_name}]: {e} — YGOPRODECKで再試行")
 
     # 2. YGOPRODECKにフォールバック
     try:
