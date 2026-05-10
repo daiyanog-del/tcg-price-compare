@@ -1,11 +1,11 @@
-const CACHE_NAME = 'cardprice-v1';
+const CACHE_NAME = 'cardprice-v2';
 const PRECACHE = [
   '/',
+  '/static/favicon.svg',
+  '/static/favicon-32.png',
+  '/static/apple-touch-icon.png',
   '/static/icon-192.png',
   '/static/icon-512.png',
-  '/static/logo_icon.png',
-  '/static/logo_text.png',
-  '/static/favicon.png',
 ];
 
 // インストール時に基本ファイルをキャッシュ
