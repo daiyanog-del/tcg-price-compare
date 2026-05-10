@@ -426,8 +426,10 @@ def format_tweet(movers, direction, date_old, date_new):
     return text
 
 
-def post_tweet(text, image_path=None, reply_to_id=None):
-    """X API v2でツイートを投稿。成功時はtweet_idを返す、失敗時はNone"""
+def post_tweet(text, image_paths=None, reply_to_id=None):
+    """X API v2でツイートを投稿。成功時はtweet_idを返す、失敗時はNone。
+    image_paths: ファイルパスのリスト（最大4枚）。Noneまたは空リストで画像なし。
+    """
     api_key = os.environ.get("X_API_KEY")
     api_secret = os.environ.get("X_API_SECRET")
     access_token = os.environ.get("X_ACCESS_TOKEN")
@@ -441,31 +443,30 @@ def post_tweet(text, image_path=None, reply_to_id=None):
         import tweepy
         print(f"  [X] tweepyバージョン: {tweepy.__version__}")
 
-        # メディアアップロード（v1.1 API経由）
-        media_id_str = None
-        media_status = "なし"  # "添付済" / "アップロード失敗" / "なし"
-        if image_path:
-            try:
-                import os as _os
-                file_size = _os.path.getsize(image_path)
-                with open(image_path, "rb") as f:
-                    file_magic = f.read(4).hex()
-                print(f"  [X] 画像ファイル確認: size={file_size}B magic={file_magic}")
-                auth = tweepy.OAuth1UserHandler(api_key, api_secret, access_token, access_token_secret)
-                api_v1 = tweepy.API(auth)
-                media = api_v1.media_upload(image_path)
-                media_id_str = str(media.media_id)  # v2 APIは文字列IDを要求
-                media_status = "添付済"
-                print(f"  メディアアップロード成功 (media_id={media_id_str})")
-            except Exception as e:
-                media_status = "アップロード失敗"
-                print(f"  メディアアップロード失敗: {type(e).__name__}: {e}")
-                if hasattr(e, "response") and e.response is not None:
-                    print(f"    HTTPステータス={e.response.status_code}")
-                    print(f"    レスポンス本文={e.response.text[:500]}")
-                if hasattr(e, "api_codes"):
-                    print(f"    api_codes={e.api_codes} api_messages={e.api_messages}")
-                # 画像なしで投稿続行
+        # メディアアップロード（v1.1 API経由、最大4枚）
+        media_ids = []
+        media_status = "なし"
+        if image_paths:
+            auth = tweepy.OAuth1UserHandler(api_key, api_secret, access_token, access_token_secret)
+            api_v1 = tweepy.API(auth)
+            for image_path in image_paths:
+                try:
+                    import os as _os
+                    file_size = _os.path.getsize(image_path)
+                    with open(image_path, "rb") as f:
+                        file_magic = f.read(4).hex()
+                    print(f"  [X] 画像ファイル確認: size={file_size}B magic={file_magic}")
+                    media = api_v1.media_upload(image_path)
+                    media_ids.append(str(media.media_id))
+                    print(f"  メディアアップロード成功 (media_id={media_ids[-1]})")
+                except Exception as e:
+                    print(f"  メディアアップロード失敗: {type(e).__name__}: {e}")
+                    if hasattr(e, "response") and e.response is not None:
+                        print(f"    HTTPステータス={e.response.status_code}")
+                        print(f"    レスポンス本文={e.response.text[:500]}")
+                    if hasattr(e, "api_codes"):
+                        print(f"    api_codes={e.api_codes} api_messages={e.api_messages}")
+            media_status = f"添付済{len(media_ids)}枚" if media_ids else "アップロード失敗"
 
         # DRY_RUNモード: 投稿直前でスキップ（ログのみ出力）
         if os.environ.get("X_POST_DRY_RUN") == "1":
@@ -481,8 +482,8 @@ def post_tweet(text, image_path=None, reply_to_id=None):
             access_token_secret=access_token_secret,
         )
         kwargs = {"text": text}
-        if media_id_str:
-            kwargs["media_ids"] = [media_id_str]
+        if media_ids:
+            kwargs["media_ids"] = media_ids
         if reply_to_id:
             kwargs["in_reply_to_tweet_id"] = str(reply_to_id)
 
@@ -490,6 +491,7 @@ def post_tweet(text, image_path=None, reply_to_id=None):
         tweet_id = response.data["id"] if response.data else None
         print(f"  投稿成功（画像{media_status}） (id={tweet_id}): {text[:50]}...")
         return tweet_id
+
     except Exception as e:
         print(f"  ツイート投稿失敗: {type(e).__name__}: {e}")
         if hasattr(e, "response") and e.response is not None:
@@ -515,17 +517,21 @@ def post_daily_movers(sb):
         print(f"\n--- {direction} ---")
         print(text)
 
-        # NO.1カードの画像を取得
-        image_path = get_card_image_path(movers[0]["name"])
+        # 上位2件の画像を取得
+        image_paths = []
+        for m in movers[:2]:
+            p = get_card_image_path(m["name"])
+            if p:
+                image_paths.append(p)
 
         # 値下がりは値上がりへのリプライとして投稿
         reply_to = up_tweet_id if direction == "down" else None
-        tweet_id = post_tweet(text, image_path=image_path, reply_to_id=reply_to)
+        tweet_id = post_tweet(text, image_paths=image_paths, reply_to_id=reply_to)
 
         # 一時ファイルを削除
-        if image_path:
+        for p in image_paths:
             try:
-                os.unlink(image_path)
+                os.unlink(p)
             except Exception:
                 pass
 
