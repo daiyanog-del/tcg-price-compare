@@ -1305,7 +1305,7 @@ def api_health():
 
 
 _ATTR_JA = {"dark":"闇","light":"光","fire":"炎","water":"水","earth":"地","wind":"風","divine":"神"}
-_PROP_JA = {"continuous":"永続","quick-play":"速攻","field":"フィールド","equip":"装備","ritual":"儀式","counter":"カウンター"}
+_PROP_JA = {"quickplay":"速攻","quick-play":"速攻","continuous":"永続","field":"フィールド","equip":"装備","ritual":"儀式","counter":"カウンター"}
 _TYPE_JA = {"monster":"モンスター","spell":"魔法","trap":"罠"}
 
 @app.route("/api/card-info")
@@ -1342,8 +1342,8 @@ def api_card_info():
             "atk": ja.get("atk"),
             "def": ja.get("def"),
             "level": ja.get("level"),
-            "attribute": _ATTR_JA.get(ja.get("attribute", ""), ja.get("attribute", "")),
-            "property": _PROP_JA.get(ja.get("property", ""), ja.get("property", "")),
+            "attribute": _ATTR_JA.get(ja.get("attribute") or "", ja.get("attribute") or ""),
+            "property": _PROP_JA.get(ja.get("property") or "", ja.get("property") or ""),
             "effect_text": ja.get("effectText", ""),
             "latest_print": latest_print,
         })
