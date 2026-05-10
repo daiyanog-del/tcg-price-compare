@@ -295,8 +295,8 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .card-hero-name{font-size:1.1rem;font-weight:700;margin-bottom:4px}
 .card-hero-meta{font-size:.78rem;color:var(--text-m);line-height:1.6}
 .card-detail{margin-top:6px;font-size:.74rem;line-height:1.5;border-top:1px solid var(--border);padding-top:6px}
-.card-detail-meta{color:var(--text);font-weight:600}
-.card-detail-print{color:var(--text-d);margin-top:1px}
+.card-detail-meta{color:var(--text);font-weight:600;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.card-detail-print{color:var(--text-d);font-size:.70rem;font-weight:400;flex-shrink:0}
 .card-detail-effect{margin-top:4px;color:var(--text-m);max-height:72px;overflow-y:auto;white-space:pre-wrap;word-break:break-all}
 .ritem-img{width:36px;height:52px;border-radius:3px;overflow:hidden;flex-shrink:0;background:var(--bg-card)}
 .ritem-img img{width:100%;height:100%;object-fit:cover}
@@ -1171,8 +1171,8 @@ function _fetchCardInfo(cardName){
       } else {
         meta=data.card_type+(data.property?` (${data.property})`:'')||'';
       }
-      let html=`<div class="card-detail-meta">${esc(meta)}</div>`;
-      if(data.latest_print) html+=`<div class="card-detail-print">収録: ${esc(data.latest_print)}</div>`;
+      const printSpan=data.latest_print?`<span class="card-detail-print">${esc(data.latest_print)}</span>`:'';
+      let html=`<div class="card-detail-meta"><span>${esc(meta)}</span>${printSpan}</div>`;
       if(data.effect_text) html+=`<div class="card-detail-effect">${esc(data.effect_text)}</div>`;
       det.innerHTML=html;
     })
