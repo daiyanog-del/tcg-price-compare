@@ -1020,7 +1020,8 @@ fetch('/api/config').then(r=>r.json()).then(c=>{
 }).catch(()=>{});
 
 function affLink(url, shop, mode){
-  if(!url) return url;
+  url=safeUrl(url);
+  if(!url) return '';
   // 駿河屋: 独自アフィリエイトリダイレクト
   if(shop==='駿河屋'&&_affConfig[shop]){
     const uid=_affConfig[shop].user_id;
@@ -1178,19 +1179,21 @@ function fetchCardImage(cardName){
 
 function _applyCardImages(heroSrc,thumbSrc){
   const wrap=document.getElementById('heroImgWrap');
-  if(wrap&&heroSrc&&!wrap.querySelector('img')){
-    wrap.innerHTML='<img src="'+heroSrc+'" alt="" loading="lazy">';
+  const safeHero=safeUrl(heroSrc);
+  if(wrap&&safeHero&&!wrap.querySelector('img')){
+    wrap.innerHTML='<img src="'+esc(safeHero)+'" alt="" loading="lazy">';
   }
   _fillSmallImages(thumbSrc);
 }
 
 function _fillSmallImages(src){
+  src=safeUrl(src);
   if(!src)return;
   document.querySelectorAll('.ritem-img').forEach(function(el){
-    el.innerHTML='<img src="'+src+'" alt="" loading="lazy">';
+    el.innerHTML='<img src="'+esc(src)+'" alt="" loading="lazy">';
   });
   document.querySelectorAll('.tbl-img').forEach(function(el){
-    el.innerHTML='<img src="'+src+'" alt="" loading="lazy">';
+    el.innerHTML='<img src="'+esc(src)+'" alt="" loading="lazy">';
   });
 }
 
@@ -1442,15 +1445,18 @@ function renderAll(d){
     smEl.innerHTML=sm;
   }
 
-  // カーナベル（アフィリエイト提携先）の画像を優先使用
-  const shopImg=D.find(r=>r.shop==='カーナベル'&&r.image&&r.image.length>5)||D.find(r=>r.image&&r.image.length>5);
-  if(shopImg){
-    cardImgUrl=shopImg.image;
-    cardImgSmall=shopImg.image;
-    document.getElementById('heroImgWrap').innerHTML='<img src="'+esc(shopImg.image)+'" alt="" loading="lazy">';
-    _fillSmallImages(shopImg.image);
-  }
-  // KONAMI公式DBリンク取得（画像は店舗から取得済み）
+  // /api/card-image でYGOResources優先の画像を取得（カーナベルはサーバー側フォールバック）
+  fetch('/api/card-image?name='+encodeURIComponent(searchTerm))
+    .then(r=>r.json())
+    .then(data=>{
+      if(data.url&&safeUrl(data.url)){
+        cardImgUrl=safeUrl(data.url);
+        cardImgSmall=cardImgUrl;
+        _applyCardImages(cardImgUrl,cardImgSmall);
+      }
+    })
+    .catch(()=>{});
+  // KONAMI公式DBリンク取得・YGOProDeck画像フォールバック
   fetchCardImage(searchTerm);
 
   // Summary — 店舗別最安値（全体最安の店舗をハイライト）
@@ -1461,9 +1467,9 @@ function renderAll(d){
     const itemUrl=affLink(item.url, item.shop, 'sell');
     const nameLink=item.url?`<a href="${esc(itemUrl)}" target="_blank" rel="noopener nofollow">${esc(item.name)}</a>`:esc(item.name);
     const priceLink=item.url?`<a href="${esc(itemUrl)}" target="_blank" rel="noopener nofollow">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
-    h+=`<div class="scard${isBest?' best':''} fin"><div class="slabel">${shop}</div>
+    h+=`<div class="scard${isBest?' best':''} fin"><div class="slabel">${esc(shop)}</div>
       <div class="sprice">${priceLink}</div>
-      <div class="sdetail">${item.rarity||'-'}<br>${nameLink}</div></div>`;
+      <div class="sdetail">${esc(item.rarity||'-')}<br>${nameLink}</div></div>`;
   }
   document.getElementById('sumCards').innerHTML=h+affPixel('カーナベル','sell');
 
@@ -1476,7 +1482,7 @@ function renderAll(d){
     let btns='<span class="rf-label">レアリティ:</span><button class="rf-btn active" data-r="" onclick="setRarityFilter(\'\')">すべて</button>';
     for(const r of rarities){
       const cnt=D.filter(x=>x.rarity===r).length;
-      btns+=`<button class="rf-btn" data-r="${esc(r)}" onclick="setRarityFilter('${escJs(r)}')"><span class="rb rb-${r}" style="background:none;padding:0">${esc(r)}</span> <span style="color:var(--text-d)">${cnt}</span></button>`;
+      btns+=`<button class="rf-btn" data-r="${esc(r)}" onclick="setRarityFilter('${escJs(r)}')"><span class="rb rb-${cssClass(r)}" style="background:none;padding:0">${esc(r)}</span> <span style="color:var(--text-d)">${cnt}</span></button>`;
     }
     rfEl.innerHTML=btns;
   }else{
@@ -1489,10 +1495,11 @@ function renderAll(d){
   // Rarity grid
   const entries=Object.entries(d.by_rarity).sort((a,b)=>a[1].price-b[1].price);
   document.getElementById('rgrid').innerHTML=entries.map(([r,item])=>{
-    const link=item.url?`<a href="${esc(item.url)}" target="_blank" rel="noopener">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
+    const itemUrl=safeUrl(item.url);
+    const link=itemUrl?`<a href="${esc(itemUrl)}" target="_blank" rel="noopener">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
     return`<div class="ritem fin">
       <div class="ritem-img"></div>
-      <div style="flex:1"><span class="rb rb-${r}">${r}</span><div class="rshop">${item.shop}</div></div>
+      <div style="flex:1"><span class="rb rb-${cssClass(r)}">${esc(r)}</span><div class="rshop">${esc(item.shop)}</div></div>
       <div style="text-align:right"><div class="rprice">${link}</div></div></div>`;
   }).join('');
 }
@@ -1508,7 +1515,7 @@ function renderTable(){
   });
   const tbody=document.getElementById('tbody');
   tbody.innerHTML=sorted.map(r=>{
-    const rc=r.rarity?'rb-'+r.rarity:'';
+    const rc=r.rarity?'rb-'+cssClass(r.rarity):'';
     const so=r.sold_out?'sold-out':'';
     const stockStr=r.sold_out?'<span class="sob">売切</span>':(r.stock>0?r.stock:'-');
     const linkUrl=affLink(r.url, r.shop, 'sell');
@@ -1518,13 +1525,13 @@ function renderTable(){
     const cond=r.condition==='セール'?'<span style="color:var(--gold)">セール</span>':esc(r.condition);
     return`<tr class="${so}">
       <td data-label="" class="col-img"><div class="tbl-img"></div></td>
-      <td data-label="レアリティ"><span class="rb ${rc}">${r.rarity||'-'}</span></td>
+      <td data-label="レアリティ"><span class="rb ${rc}">${esc(r.rarity||'-')}</span></td>
       <td data-label="カード名" class="col-name">${nameLink}</td>
-      <td data-label="店舗">${r.shop}</td>
+      <td data-label="店舗">${esc(r.shop)}</td>
       <td data-label="状態">${cond}</td>
       <td data-label="価格" class="col-price">¥${r.price.toLocaleString()}</td>
       <td data-label="在庫" class="col-stock">${stockStr}</td>
-      <td data-label="コード" class="col-code">${r.code||''}</td>
+      <td data-label="コード" class="col-code">${esc(r.code||'')}</td>
       <td>${wishBtnHtml(r.name,1)}</td></tr>`;
   }).join('');
 
@@ -1535,8 +1542,9 @@ function renderTable(){
 
   // Fill in card images if already loaded
   if(cardImgSmall){
+    const safeSmall=safeUrl(cardImgSmall);
     document.querySelectorAll('.tbl-img').forEach(el=>{
-      if(!el.querySelector('img')) el.innerHTML=`<img src="${cardImgSmall}" alt="" loading="lazy">`;
+      if(safeSmall&&!el.querySelector('img')) el.innerHTML=`<img src="${esc(safeSmall)}" alt="" loading="lazy">`;
     });
   }
 }
@@ -1563,6 +1571,13 @@ function setRarityFilter(r){
 
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
 function escJs(s){return(s+'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/</g,'\\x3c')}
+function cssClass(s){return String(s||'').replace(/[^a-zA-Z0-9_-]/g,'_')}
+function safeUrl(u){
+  try{
+    const url=new URL(String(u||''), location.origin);
+    return (url.protocol==='http:'||url.protocol==='https:') ? url.href : '';
+  }catch{return ''}
+}
 
 // ── Trending ──
 function loadTrending(){
@@ -2410,8 +2425,8 @@ function renderBuyAll(d){
   const bestShop=best?best.shop:'';
   // カーナベル（アフィリエイト提携先）の画像を優先使用
   const shopImg=buyD.find(r=>r.shop==='カーナベル'&&r.image&&r.image.length>5)||buyD.find(r=>r.image&&r.image.length>5);
-  if(shopImg){
-    document.getElementById('buyHeroImgWrap').innerHTML='<img src="'+esc(shopImg.image)+'" alt="" loading="lazy">';
+  if(shopImg&&safeUrl(shopImg.image)){
+    document.getElementById('buyHeroImgWrap').innerHTML='<img src="'+esc(safeUrl(shopImg.image))+'" alt="" loading="lazy">';
   }else{
     document.getElementById('buyHeroImgWrap').innerHTML='<div style="width:140px;height:204px;background:var(--bg-card)"></div>';
   }
