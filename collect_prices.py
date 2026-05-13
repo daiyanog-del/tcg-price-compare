@@ -497,9 +497,6 @@ def main():
     # 古いデータの削除
     cleanup_old_data(sb)
 
-    # X（Twitter）に値動きランキングを自動投稿
-    from x_poster import post_daily_movers
-    post_daily_movers(sb)
 
     # 日次レポートをDiscordに送信
     send_daily_report(sb, today, success_count, fail_count)

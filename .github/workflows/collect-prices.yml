@@ -1,5 +1,5 @@
 # 価格履歴データ収集
-# 毎日 UTC 20:00 = 日本時間 5:00 に実行
+# 毎日 UTC 20:00 = 日本時間 5:00 に実行（X投稿は post-x.yml が担当）
 # 手動実行も可能 (Actions タブ → Run workflow)
 
 name: Collect Price History
@@ -8,11 +8,6 @@ on:
   schedule:
     - cron: '0 20 * * *'  # 毎日 UTC 20:00 = JST 5:00
   workflow_dispatch:       # 手動実行ボタン
-    inputs:
-      dry_run:
-        description: 'X投稿をスキップしてログのみ確認（チェックを入れると本番Twitterに投稿しない）'
-        type: boolean
-        default: false
 
 jobs:
   collect:
@@ -38,10 +33,5 @@ jobs:
           KANABELL_CLOUD_ID: ${{ secrets.KANABELL_CLOUD_ID }}
           KANABELL_API_KEY: ${{ secrets.KANABELL_API_KEY }}
           KANABELL_INDEX: ${{ secrets.KANABELL_INDEX }}
-          X_API_KEY: ${{ secrets.X_API_KEY }}
-          X_API_SECRET: ${{ secrets.X_API_SECRET }}
-          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
-          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          X_POST_DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
         run: python collect_prices.py

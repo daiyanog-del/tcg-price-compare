@@ -537,3 +537,29 @@ def post_daily_movers(sb):
 
         if direction == "up":
             up_tweet_id = tweet_id
+
+        # 投稿成功時は tweet_log に記録（インプ計測用）
+        if tweet_id and sb:
+            content_type = f"movers_{direction}"
+            try:
+                sb.table("tweet_log").insert({
+                    "tweet_id": str(tweet_id),
+                    "posted_at": datetime.now(JST).isoformat(),
+                    "content_type": content_type,
+                    "parent_tweet_id": str(reply_to) if reply_to else None,
+                }).execute()
+                print(f"  tweet_log 記録済み (type={content_type})")
+            except Exception as e:
+                print(f"  tweet_log 書き込み失敗（投稿自体は成功）: {e}")
+
+
+
+if __name__ == "__main__":
+    from supabase import create_client
+    _url = os.environ.get("SUPABASE_URL", "")
+    _key = os.environ.get("SUPABASE_KEY", "")
+    if not _url or not _key:
+        print("エラー: SUPABASE_URL と SUPABASE_KEY を環境変数に設定してください")
+        raise SystemExit(1)
+    _sb = create_client(_url, _key)
+    post_daily_movers(_sb)

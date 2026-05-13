@@ -1,0 +1,43 @@
+# X（Twitter）自動投稿
+# 毎日 JST 7:30 に値動きランキングを投稿（価格収集は collect-prices.yml が担当）
+# 手動実行時は dry_run を有効にすると本番投稿をスキップできる
+
+name: Post X Daily Movers
+
+on:
+  schedule:
+    - cron: '30 22 * * *'  # 毎日 UTC 22:30 = JST 7:30
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'X投稿をスキップしてログのみ確認（チェックを入れると本番Xに投稿しない）'
+        type: boolean
+        default: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests supabase tweepy
+
+      - name: Post daily movers to X
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          X_POST_DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+        run: python x_poster.py
