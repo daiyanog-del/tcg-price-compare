@@ -1,9 +1,13 @@
+# カード名データベース自動更新
+# 毎週月曜 午前0時 (UTC) = 日本時間 午前9時 に実行
+# 手動実行も可能 (Actions タブ → Run workflow)
+
 name: Update Card Names
 
 on:
   schedule:
-    - cron: '0 0 * * 1'
-  workflow_dispatch:
+    - cron: '0 0 * * 1'  # 毎週月曜 UTC 0:00
+  workflow_dispatch:       # 手動実行ボタン
 
 jobs:
   update:

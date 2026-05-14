@@ -24,7 +24,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests supabase tweepy
+        run: pip install supabase tweepy
 
       - name: Collect metrics
         env:
