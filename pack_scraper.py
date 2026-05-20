@@ -122,12 +122,15 @@ def _try_wiki_page_variants(pack_name: str) -> str:
     Wikiページ名のバリエーションを試してカードリストが取れるものを返す。
     公式サイトのダッシュ表記とWikiの表記が異なる場合がある。
     """
+    # 全角ハイフン(－)はEUC-JPに変換できないため先に正規化
+    normalized = pack_name.replace('－', '-')
     # ダッシュのバリエーション
     variants = [
         pack_name,  # そのまま
-        pack_name.replace(" - ", " \u2212").replace(" -", "\u2212").replace("- ", "\u2212"),  # 半角→数学マイナス
-        re.sub(r'\s*-\s*', ' \u2212', pack_name),  # ハイフンを全てU+2212に
-        re.sub(r'\s*-\s*', '\u2212', pack_name),  # スペースなしU+2212
+        normalized,  # 全角ハイフン→半角
+        normalized.replace(" - ", " \u2212").replace(" -", "\u2212").replace("- ", "\u2212"),  # 半角→数学マイナス
+        re.sub(r'\s*-\s*', ' \u2212', normalized),  # ハイフンを全てU+2212に
+        re.sub(r'\s*-\s*', '\u2212', normalized),  # スペースなしU+2212
     ]
 
     seen = set()
