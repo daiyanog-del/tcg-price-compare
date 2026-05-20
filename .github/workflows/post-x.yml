@@ -1,12 +1,12 @@
 # X（Twitter）自動投稿
-# 毎日 JST 7:30 に値動きランキングを投稿（価格収集は collect-prices.yml が担当）
+# 毎日 JST 21:00前後 に値動きランキングを投稿（価格収集は collect-prices.yml が担当）
 # 手動実行時は dry_run を有効にすると本番投稿をスキップできる
 
 name: Post X Daily Movers
 
 on:
   schedule:
-    - cron: '30 21 * * *'  # 毎日 UTC 21:30 = JST 6:30（GitHub Actions遅延約1時間を考慮して7:30着地狙い）
+    - cron: '0 11 * * *'  # 毎日 UTC 11:00 = JST 20:00（GitHub Actions遅延30〜60分を考慮して21時台着地狙い）
   workflow_dispatch:
     inputs:
       dry_run:

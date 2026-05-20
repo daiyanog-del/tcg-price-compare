@@ -387,14 +387,10 @@ def get_card_image_path(card_name):
 
 
 def format_tweet(movers, direction, date_old, date_new):
-    """投稿テキストを生成"""
+    """投稿テキストを生成。リンクはCTAリプライ側に分離しリーチを最大化する。"""
     label = "値上がり" if direction == "up" else "値下がり"
     period = f"{_format_date(date_old)}→{_format_date(date_new)}"
     tags = "#遊戯王 #遊戯王高騰" if direction == "up" else "#遊戯王 #遊戯王相場"
-
-    # No.1カードの個別ページへ直リンク（末尾固定）
-    encoded_name = urllib.parse.quote(movers[0]["name"])
-    cta = f"\n▶ 最安値を比較する\n{SITE_URL}/card/{encoded_name}"
 
     lines = [f"【{label}カード】{period}\n"]
     for i, m in enumerate(movers):
@@ -404,7 +400,6 @@ def format_tweet(movers, direction, date_old, date_new):
             f"{i+1}. {name} {sign}{m['pct']}%"
             f"({m['yesterday']:,}→{m['today']:,}円)"
         )
-    lines.append(cta)
     lines.append(tags)
     text = "\n".join(lines)
 
@@ -419,7 +414,6 @@ def format_tweet(movers, direction, date_old, date_new):
                 f"{i+1}. {name} {sign}{m['pct']}%"
                 f"({m['yesterday']:,}→{m['today']:,}円)"
             )
-        lines.append(cta)
         lines.append(tags)
         text = "\n".join(lines)
 
@@ -535,9 +529,6 @@ def post_daily_movers(sb):
             except Exception:
                 pass
 
-        if direction == "up":
-            up_tweet_id = tweet_id
-
         # 投稿成功時は tweet_log に記録（インプ計測用）
         if tweet_id and sb:
             content_type = f"movers_{direction}"
@@ -552,6 +543,15 @@ def post_daily_movers(sb):
             except Exception as e:
                 print(f"  tweet_log 書き込み失敗（投稿自体は成功）: {e}")
 
+        # CTAリンクをリプライとして投稿（本文リンクなし化によるリーチ向上との両立）
+        if tweet_id:
+            encoded_name = urllib.parse.quote(movers[0]["name"])
+            cta_text = f"▶ 最安値を比較する\n{SITE_URL}/card/{encoded_name}"
+            cta_id = post_tweet(cta_text, reply_to_id=tweet_id)
+            print(f"  CTAリプライ投稿{'成功' if cta_id else '失敗'} (parent={tweet_id})")
+
+        if direction == "up":
+            up_tweet_id = tweet_id
 
 
 if __name__ == "__main__":
