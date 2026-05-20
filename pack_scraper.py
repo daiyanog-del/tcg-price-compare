@@ -58,7 +58,7 @@ def _cache_write(key: str, data: dict):
 
 _KONAMI_PRODUCTS_URL = "https://www.yugioh-card.com/japan/products/"
 _PACK_CATEGORIES = ["basic", "special", "concept"]
-_MAX_PACKS = 2  # 表示するパック数
+_MAX_PACKS = 4  # 表示するパック数
 
 
 def _fetch_latest_packs_from_official() -> list[dict]:
@@ -90,10 +90,10 @@ def _fetch_latest_packs_from_official() -> list[dict]:
                 y, mo, d = date_match.groups()
                 iso_date = f"{y}-{int(mo):02d}-{int(d):02d}"
 
-                # 未来すぎるパック（発売前でカードリスト未公開）を除外
+                # 発売前パックはWikiにカードリストがなければ get_pack_list() で自動除外される
                 try:
                     release = datetime.strptime(iso_date, "%Y-%m-%d")
-                    if release > datetime.now() + timedelta(days=7):
+                    if release > datetime.now() + timedelta(days=60):
                         continue
                 except ValueError:
                     continue
@@ -290,3 +290,77 @@ def fetch_pack_cards(pack_name: str, wiki_page: str = "", tcg_name: str = "") ->
             return old
 
     return result
+
+
+# ── テーマ別カード取得（遊戯王Wiki【テーマ名】ページ） ──
+
+def fetch_theme_cards(theme_name: str) -> list[str]:
+    """
+    遊戯王Wikiの【テーマ名】ページから関連カード名を取得。
+    旧カードを含むテーマ全体の網羅が目的。取得失敗時は []。
+
+    注意: テーマページのDOM構造はパックページと異なりカード番号を含まないため
+    《カード名》リンクテキストを直接抽出する方式を採る。
+    ノイズ（関連リンク等）が含まれる可能性があるため実ページで要確認。
+    """
+    page_name = f"【{theme_name}】"
+    url = f"{WIKI_BASE}?{quote(page_name, encoding='euc-jp')}"
+
+    try:
+        res = requests.get(url, headers=HEADERS, timeout=20)
+        res.raise_for_status()
+        res.encoding = res.apparent_encoding or 'euc-jp'
+        soup = BeautifulSoup(res.text, "html.parser")
+    except Exception as e:
+        print(f"  fetch_theme_cards 取得失敗 [{theme_name}]: {e}")
+        return []
+
+    cards = []
+    seen: set[str] = set()
+
+    for a in soup.select("a"):
+        text = a.get_text(strip=True)
+        # 《》（U+300A U+300B）で囲まれたカード名を抽出
+        m = re.match(r'[《「『〈](.+?)[》」』〉]', text)
+        if m:
+            name = m.group(1).strip()
+            # 短すぎるものや明らかに非カード名を除外
+            if len(name) >= 3 and name not in seen:
+                seen.add(name)
+                cards.append(name)
+
+    return cards
+
+
+def fetch_card_themes(card_name: str) -> list[str]:
+    """
+    遊戯王Wikiのカードページ（《カード名》）から所属テーマ名を取得。
+    【テーマ名】リンクを抽出する。取得失敗時は []。
+    発売前カードはWikiページ未作成のことがあり空を返す（正常）。
+    """
+    page_name = f"《{card_name}》"
+    url = f"{WIKI_BASE}?{quote(page_name, encoding='euc-jp')}"
+
+    try:
+        res = requests.get(url, headers=HEADERS, timeout=20)
+        res.raise_for_status()
+        res.encoding = res.apparent_encoding or 'euc-jp'
+        soup = BeautifulSoup(res.text, "html.parser")
+    except Exception as e:
+        print(f"  fetch_card_themes 取得失敗 [{card_name}]: {e}")
+        return []
+
+    themes = []
+    seen: set[str] = set()
+
+    for a in soup.select("a"):
+        text = a.get_text(strip=True)
+        # 【】（U+3010 U+3011）で囲まれたテーマ名を抽出
+        m = re.match(r'[【](.+?)[】]', text)
+        if m:
+            theme = m.group(1).strip()
+            if theme and theme not in seen:
+                seen.add(theme)
+                themes.append(theme)
+
+    return themes
