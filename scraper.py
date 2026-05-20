@@ -107,6 +107,7 @@ def dump_html(name: str, soup: BeautifulSoup):
 # ── キャッシュ ──
 
 import tempfile
+import os
 from threading import Lock as _Lock
 _cache_lock = _Lock()
 
@@ -137,9 +138,20 @@ def cache_set(card_name: str, results: list[dict]):
     content = json.dumps(data, ensure_ascii=False)
     # 一時ファイルに書いてからリネームすることで、書き込み途中のファイルを読まれるのを防ぐ
     with _cache_lock:
-        tmp_fp = fp.with_suffix(".tmp")
-        tmp_fp.write_text(content, encoding="utf-8")
-        tmp_fp.replace(fp)
+        tmp_name = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w", encoding="utf-8", dir=CACHE_DIR, prefix=fp.stem + "_", suffix=".tmp", delete=False
+            ) as tmp:
+                tmp.write(content)
+                tmp_name = tmp.name
+            os.replace(tmp_name, fp)
+        finally:
+            if tmp_name and os.path.exists(tmp_name):
+                try:
+                    os.remove(tmp_name)
+                except OSError:
+                    pass
 
 
 # ── 名前フィルタ ──
@@ -605,19 +617,19 @@ def _kanabell_es_host():
     try:
         parts_colon = _KANABELL_CLOUD_ID.split(":")
         if len(parts_colon) < 2:
-            print(f"  [KANABELL] CLOUD_ID形式エラー: コロンがありません (値={_KANABELL_CLOUD_ID[:20]!r})")
+            print("  [KANABELL] CLOUD_ID形式エラー: コロンがありません")
             return None
         encoded = parts_colon[1]
         decoded = _b64.b64decode(encoded).decode()
         parts = decoded.split("$")
         if len(parts) < 2:
-            print(f"  [KANABELL] CLOUD_IDデコード結果が不正: parts={parts}")
+            print(f"  [KANABELL] CLOUD_IDデコード結果が不正: parts数={len(parts)}")
             return None
         url = f"https://{parts[1]}.{parts[0]}"
-        print(f"  [KANABELL] ESホストURL構築成功: {url}")
+        print("  [KANABELL] ESホストURL構築成功")
         return url
     except Exception as e:
-        print(f"  [KANABELL] ESホストURL構築失敗: {e} (CLOUD_ID={_KANABELL_CLOUD_ID[:20]!r})")
+        print(f"  [KANABELL] ESホストURL構築失敗: {type(e).__name__}")
         return None
 
 _KANABELL_ES_URL = None  # lazy init
