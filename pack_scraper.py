@@ -187,7 +187,10 @@ def get_pack_list() -> list[dict]:
 def _fetch_from_wiki(pack_name: str, wiki_page: str) -> list[str]:
     """遊戯王Wikiからパックのカード名リストを取得"""
     page = wiki_page or pack_name
-    url = f"{WIKI_BASE}?{quote(page, encoding='euc-jp')}"
+    try:
+        url = f"{WIKI_BASE}?{quote(page, encoding='euc-jp')}"
+    except UnicodeEncodeError:
+        return []
 
     try:
         res = requests.get(url, headers=HEADERS, timeout=20)
