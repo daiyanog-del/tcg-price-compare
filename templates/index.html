@@ -376,6 +376,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .meta-deck-btn.selected{border-color:var(--accent);background:rgba(74,124,255,.12)}
 .meta-deck-btn.loading{opacity:.6;pointer-events:none}
 .meta-deck-btn .meta-share{font:.65rem var(--mono);color:var(--text-d);margin-left:auto}
+.pack-unreleased-badge{font:.6rem var(--mono);color:#fff;background:#e89844;border-radius:3px;padding:1px 4px;margin-left:4px;vertical-align:middle}
 .meta-deck-detail{margin-top:12px;padding:14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius)}
 .meta-deck-detail h4{font-size:.85rem;margin-bottom:8px;color:var(--text)}
 .meta-card-list{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px}
@@ -1958,14 +1959,17 @@ function renderPacks(){
   const el=document.getElementById('packList');
   if(!_packData.length){el.innerHTML='<div class="meta-loading">パックデータがありません</div>';return;}
 
+  const today=new Date().toISOString().slice(0,10);
   // 日付で降順ソート
   const sorted=[..._packData].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
 
   let html='<div class="meta-deck-list" style="margin-bottom:12px">';
   for(const p of sorted){
     const dateStr=p.date?p.date.replace(/-/g,'/'):'';
+    const unreleased=p.date&&p.date>today;
+    const badge=unreleased?'<span class="pack-unreleased-badge">発売前</span>':'';
     html+=`<button class="meta-deck-btn" onclick="loadPackCards('${esc(p.name)}','${esc(p.wiki_page||p.name)}','${esc(p.tcg_name||'')}')" id="pack-btn-${esc(p.code||p.name)}">
-      ${esc(p.name)} <span class="meta-share">${dateStr}</span>
+      ${esc(p.name)}${badge} <span class="meta-share">${dateStr}</span>
     </button>`;
   }
   html+='</div>';
