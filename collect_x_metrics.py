@@ -35,7 +35,7 @@ def get_tweepy_client():
 def fetch_metrics(tweet_id: str, client) -> dict | None:
     """tweet_id の public_metrics を取得して返す。失敗時は None。"""
     try:
-        resp = client.get_tweet(tweet_id, tweet_fields=["public_metrics"])
+        resp = client.get_tweet(tweet_id, tweet_fields=["public_metrics"], user_auth=True)
         if resp.data and resp.data.public_metrics:
             return dict(resp.data.public_metrics)
     except Exception as e:
@@ -43,7 +43,7 @@ def fetch_metrics(tweet_id: str, client) -> dict | None:
     return None
 
 
-def collect_30min_metrics(sb, client) -> list:
+def collect_30min_metrics(sb, client) -> list[dict]:
     """30分経過 & 未計測のツイートに metrics_30min を記録する。記録したレコードを返す。"""
     threshold = (datetime.now(JST) - timedelta(minutes=30)).isoformat()
     rows = (
@@ -74,7 +74,7 @@ def collect_30min_metrics(sb, client) -> list:
     return recorded
 
 
-def collect_24h_metrics(sb, client) -> list:
+def collect_24h_metrics(sb, client) -> list[dict]:
     """24時間経過 & 未計測のツイートに metrics_24h を記録する。記録したレコードを返す。"""
     threshold = (datetime.now(JST) - timedelta(hours=24)).isoformat()
     rows = (
@@ -105,7 +105,7 @@ def collect_24h_metrics(sb, client) -> list:
     return recorded
 
 
-def notify_discord(results: list):
+def notify_discord(results: list[dict]):
     """計測結果を Discord に通知する。DISCORD_WEBHOOK_URL 未設定時はスキップ。"""
     webhook_url = os.environ.get("DISCORD_WEBHOOK_URL", "")
     if not webhook_url or not results:
