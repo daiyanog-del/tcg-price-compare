@@ -34,6 +34,6 @@ jobs:
           KANABELL_API_KEY: ${{ secrets.KANABELL_API_KEY }}
           KANABELL_INDEX: ${{ secrets.KANABELL_INDEX }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          DAILY_COLD_BUDGET: "800"
+          DAILY_COLD_BUDGET: "3000"
           TIME_BUDGET_SEC: "18000"
         run: python collect_prices.py
