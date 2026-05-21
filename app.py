@@ -949,7 +949,7 @@ def api_trending():
 # ── 値上がり/値下がりランキング（キャッシュ付き） ──
 _movers_cache: dict[str, list] = {}
 _movers_cache_time: float = 0
-_MOVERS_CACHE_SEC = 86400  # 24時間キャッシュ（データは1日1回のみ更新）
+_MOVERS_CACHE_SEC = 3600  # 1時間キャッシュ（収集完了後にサイト表示を当日データへ早く追従させる）
 
 def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
     """Supabaseから値上がり/値下がりランキングを取得（直接クエリ版）"""

@@ -6,7 +6,7 @@ name: Post X Daily Movers
 
 on:
   schedule:
-    - cron: '0 11 * * *'  # 毎日 UTC 11:00 = JST 20:00（GitHub Actions遅延30〜60分を考慮して21時台着地狙い）
+    - cron: '7 11 * * *'  # 毎日 UTC 11:07 = JST 20:07（毎時0分は混雑するため数分ずらす）
   workflow_dispatch:
     inputs:
       dry_run:
