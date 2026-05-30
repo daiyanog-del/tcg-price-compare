@@ -113,7 +113,11 @@ def notify_discord(results: list[dict]):
 
     import requests as _req
 
-    label_map = {"movers_up": "値上がりランキング", "movers_down": "値下がりランキング"}
+    label_map = {
+        "movers_up": "値上がりランキング",
+        "movers_down": "値下がりランキング",
+        "featured_movers": "新弾フィーチャー",
+    }
     window_map = {"30min": "投稿後30分", "24h": "投稿後24時間"}
 
     lines = ["**X投稿 インプレッション計測結果**"]

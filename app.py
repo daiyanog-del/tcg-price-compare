@@ -1292,6 +1292,65 @@ if (os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not _is_debug_mode()) and _
 def font_preview():
     return render_template("font_preview.html")
 
+
+# ── 新弾フィーチャーページ ──
+
+@app.route("/featured")
+def featured_page():
+    """新弾フィーチャーページ: 最新弾の収録カード全件と価格推移を掲載する。
+    X投稿の CTA リンク先 URL として固定で使用（次回新弾でも URL は変わらない）。
+    """
+    return render_template("index.html", card_name="", page_mode="featured")
+
+
+@app.route("/api/featured")
+def api_featured():
+    """新弾フィーチャーデータを返す。
+    {
+      "pack": {"pack_name", "start_date", "window_days"},
+      "days_since_release": int,
+      "cards": [
+        {"name": str, "price": int|null, "shop": str, "rarity": str, "recorded_at": str}
+      ]
+    }
+    """
+    if not _supabase_client:
+        return jsonify({"error": "DBに接続できません"}), 503
+
+    from featured_pack import get_featured_pack, get_days_since_release, get_featured_cards
+
+    pack = get_featured_pack(_supabase_client)
+    if not pack:
+        return jsonify({"pack": None, "days_since_release": -1, "cards": []})
+
+    days = get_days_since_release(pack)
+    card_names = get_featured_cards(_supabase_client, pack)
+
+    # 各カードの最新価格を _estimate_cache から取得（追加クエリなし）
+    cards = []
+    for name in card_names:
+        best = _estimate_cache.get(name)
+        if best:
+            cards.append({
+                "name": name,
+                "price": best.get("price"),
+                "shop": best.get("shop", ""),
+                "rarity": best.get("rarity", ""),
+                "recorded_at": best.get("recorded_at", ""),
+            })
+        else:
+            cards.append({"name": name, "price": None, "shop": "", "rarity": "", "recorded_at": ""})
+
+    # 価格が高い順にソート（価格なしは末尾）
+    cards.sort(key=lambda x: -(x["price"] or 0))
+
+    return jsonify({
+        "pack": pack,
+        "days_since_release": days,
+        "cards": cards,
+    })
+
+
 # ── ヘルスチェック・ステータス ──
 
 @app.route("/api/health")

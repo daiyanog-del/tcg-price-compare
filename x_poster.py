@@ -12,8 +12,10 @@ SITE_URL = "https://tcg-price-compare.onrender.com"
 JST = timezone(timedelta(hours=9))
 
 
-def get_price_movers(sb, direction="up", limit=5):
-    """Supabaseから値上がり/値下がりランキングを取得"""
+def get_price_movers(sb, direction="up", limit=5, allowed_names=None):
+    """Supabaseから値上がり/値下がりランキングを取得。
+    allowed_names: set または None。指定すると対象カードを絞り込む（新弾フィーチャー用）。
+    """
     cutoff = (datetime.now(JST) - timedelta(days=3)).strftime("%Y-%m-%d")
 
     all_rows = []
@@ -36,9 +38,12 @@ def get_price_movers(sb, direction="up", limit=5):
         return [], None, None
 
     # 日付ごと・カードごとの最安値（10円以下は除外）
+    # allowed_names が指定された場合はそのカード集合に絞る
     card_dates = defaultdict(dict)
     for r in all_rows:
         name = r["card_name"]
+        if allowed_names is not None and name not in allowed_names:
+            continue
         d = r["recorded_at"][:10]
         price = r["min_price"]
         if price <= 10:
@@ -554,7 +559,191 @@ def post_daily_movers(sb):
             up_tweet_id = tweet_id
 
 
+def format_featured_tweet(movers, pack_name, days_since_release, date_old=None, date_new=None):
+    """新弾フィーチャー用の投稿テキストを生成。"""
+    day_label = f"発売{days_since_release + 1}日目" if days_since_release >= 0 else "発売日"
+    header = f"【{pack_name[:20]} 値動き】{day_label}\n"
+
+    if date_old and date_new:
+        period = f"{_format_date(date_old)}→{_format_date(date_new)}"
+        header = f"【{pack_name[:20]} 値動き】{day_label} {period}\n"
+
+    lines = [header]
+    for i, m in enumerate(movers):
+        sign = "+" if m["diff"] > 0 else ""
+        name = _truncate(m["name"])
+        lines.append(
+            f"{i+1}. {name} {sign}{m['pct']}%"
+            f"({m['yesterday']:,}→{m['today']:,}円)"
+        )
+    lines.append("#遊戯王 #高騰")
+    text = "\n".join(lines)
+
+    # 280文字を超える場合、末尾のカードから削って収める
+    while len(text) > 280 and len(movers) > 1:
+        movers.pop()
+        lines = [header]
+        for i, m in enumerate(movers):
+            sign = "+" if m["diff"] > 0 else ""
+            name = _truncate(m["name"])
+            lines.append(
+                f"{i+1}. {name} {sign}{m['pct']}%"
+                f"({m['yesterday']:,}→{m['today']:,}円)"
+            )
+        lines.append("#遊戯王 #高騰")
+        text = "\n".join(lines)
+
+    return text
+
+
+def format_initial_tweet(movers, pack_name):
+    """発売当日用（値動きなし）の初値ランキング投稿テキストを生成。"""
+    header = f"【{pack_name[:20]} 初値】発売日\n"
+    lines = [header]
+    for i, m in enumerate(movers):
+        name = _truncate(m["name"])
+        lines.append(f"{i+1}. {name} {m['today']:,}円")
+    lines.append("#遊戯王 #新弾")
+    text = "\n".join(lines)
+
+    while len(text) > 280 and len(movers) > 1:
+        movers.pop()
+        lines = [header]
+        for i, m in enumerate(movers):
+            name = _truncate(m["name"])
+            lines.append(f"{i+1}. {name} {m['today']:,}円")
+        lines.append("#遊戯王 #新弾")
+        text = "\n".join(lines)
+
+    return text
+
+
+def post_featured_movers(sb):
+    """
+    新弾フィーチャー投稿: 運用ウィンドウ内の新弾の値動きトップ5をスレッドで投稿。
+
+    処理の流れ:
+      1. 運用対象の新弾を確認（ウィンドウ外なら即return）
+      2. 収録カード名を取得（Wikiスクレイピング）
+      3. 発売当日は初値ランキング、2日目以降は値動きランキングを投稿
+      4. 親ツイート（リスト+グラフ+写真）→ CTA リプライ（/featured への誘導）
+    """
+    from featured_pack import (
+        get_featured_pack, is_within_window, get_days_since_release,
+        get_featured_cards, get_initial_prices, get_card_history_since,
+    )
+    from chart_renderer import render_price_chart
+
+    print("\n=== 新弾フィーチャー投稿 ===")
+
+    # 運用ウィンドウの確認
+    pack = get_featured_pack(sb)
+    if not pack:
+        print("  運用対象の新弾なし — スキップ")
+        return
+
+    if not is_within_window(pack):
+        print(f"  {pack['pack_name']} は運用ウィンドウ外 — スキップ")
+        return
+
+    pack_name = pack["pack_name"]
+    days = get_days_since_release(pack)
+    print(f"  対象: {pack_name} (発売{days + 1}日目)")
+
+    # 収録カード一覧を取得
+    featured_cards = get_featured_cards(sb, pack)
+    if not featured_cards:
+        # Wiki未整備等でカードが取得できない場合は Discord 通知してスキップ
+        discord_url = os.environ.get("DISCORD_WEBHOOK_URL")
+        if discord_url:
+            try:
+                import requests as _req
+                _req.post(discord_url, json={
+                    "content": f"[新弾フィーチャー] {pack_name} の収録カードが取得できませんでした。"
+                                "Wiki整備待ちの可能性があります。"
+                }, timeout=5)
+            except Exception:
+                pass
+        print(f"  収録カード取得失敗 — スキップ（Discord通知済み）")
+        return
+
+    allowed = set(featured_cards)
+
+    # 発売当日（days=0）は値動きがないため初値ランキング、それ以降は値動きランキング
+    if days == 0:
+        print("  発売当日モード: 初値ランキング")
+        initial_movers = get_initial_prices(sb, featured_cards)
+        if not initial_movers:
+            print("  初値データなし — スキップ")
+            return
+        movers_for_tweet = list(initial_movers[:5])  # ← format_initial_tweet で pop される可能性のためコピー
+        text = format_initial_tweet(movers_for_tweet, pack_name)
+        top_cards = [m["name"] for m in movers_for_tweet[:2]]
+        date_old = date_new = None
+    else:
+        print("  通常モード: 値動きランキング")
+        movers, date_old, date_new = get_price_movers(sb, direction="up", limit=5, allowed_names=allowed)
+        if not movers:
+            print("  値動きデータなし — スキップ（まだ2日分のデータが揃っていない可能性）")
+            return
+        movers_for_tweet = list(movers)
+        text = format_featured_tweet(movers_for_tweet, pack_name, days, date_old, date_new)
+        top_cards = [m["name"] for m in movers_for_tweet[:2]]
+
+    print(f"\n--- 投稿本文 ---\n{text}\n")
+
+    # 上位2枚の画像（グラフ＋カード写真）を取得
+    chart_paths = []
+    photo_paths = []
+
+    for card_name in top_cards[:1]:  # グラフは1枚目のカードのみ
+        history = get_card_history_since(sb, card_name, pack["start_date"])
+        chart_path = render_price_chart(card_name, history)
+        if chart_path:
+            chart_paths.append(chart_path)
+
+    for card_name in top_cards:  # カード写真は上位2枚
+        photo_path = get_card_image_path(card_name)
+        if photo_path:
+            photo_paths.append(photo_path)
+
+    # 画像を chart→photo の順に並べる（最大4枚）
+    image_paths = (chart_paths + photo_paths)[:4]
+
+    # 親ツイートを投稿
+    tweet_id = post_tweet(text, image_paths=image_paths)
+
+    # 一時ファイルを削除
+    for p in image_paths:
+        try:
+            os.unlink(p)
+        except Exception:
+            pass
+
+    # 投稿成功時の記録と CTA リプライ
+    if tweet_id and sb:
+        try:
+            sb.table("tweet_log").insert({
+                "tweet_id": str(tweet_id),
+                "posted_at": datetime.now(JST).isoformat(),
+                "content_type": "featured_movers",
+                "parent_tweet_id": None,
+            }).execute()
+            print(f"  tweet_log 記録済み (type=featured_movers)")
+        except Exception as e:
+            print(f"  tweet_log 書き込み失敗（投稿自体は成功）: {e}")
+
+        # CTA リプライ: WEBサイトの新弾特集ページへ誘導
+        cta_text = f"▶ {pack_name} 収録カード全件の相場を見る\n{SITE_URL}/featured"
+        cta_id = post_tweet(cta_text, reply_to_id=tweet_id)
+        print(f"  CTAリプライ投稿{'成功' if cta_id else '失敗'} (parent={tweet_id})")
+
+    elif not tweet_id:
+        print("  投稿失敗")
+
+
 if __name__ == "__main__":
+    import sys
     from supabase import create_client
     _url = os.environ.get("SUPABASE_URL", "")
     _key = os.environ.get("SUPABASE_KEY", "")
@@ -562,4 +751,9 @@ if __name__ == "__main__":
         print("エラー: SUPABASE_URL と SUPABASE_KEY を環境変数に設定してください")
         raise SystemExit(1)
     _sb = create_client(_url, _key)
-    post_daily_movers(_sb)
+
+    # --featured フラグで新弾フィーチャー投稿、それ以外は通常の値動きランキング
+    if "--featured" in sys.argv:
+        post_featured_movers(_sb)
+    else:
+        post_daily_movers(_sb)
