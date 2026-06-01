@@ -24,7 +24,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4 supabase tweepy
+        run: pip install requests beautifulsoup4 supabase tweepy pywebpush
 
       - name: Collect prices
         env:
@@ -37,3 +37,11 @@ jobs:
           DAILY_COLD_BUDGET: "3000"
           TIME_BUDGET_SEC: "18000"
         run: python collect_prices.py
+
+      - name: Send push notifications
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+        run: python notify.py

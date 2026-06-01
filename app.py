@@ -160,6 +160,11 @@ AFFILIATE_CONFIG = {
     },
 }
 
+# VAPID 設定（Web Push 通知用）
+VAPID_PUBLIC_KEY  = os.environ.get("VAPID_PUBLIC_KEY", "")
+VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "")
+VAPID_CLAIMS      = {"sub": "mailto:tcg.price.compare@gmail.com"}
+
 
 # ── 検索ランキング（Supabase永続化 + メモリフォールバック） ──
 
@@ -1557,6 +1562,74 @@ def api_featured():
     # コールド（起動直後でキャッシュ未確立）: バックグラウンドロードを起動し loading=True を返す
     Thread(target=_load_featured_cache, daemon=True).start()
     return jsonify({"pack": None, "days_since_release": -1, "loading": True, "cards": []})
+
+
+# ── Web Push 通知 ──
+
+@app.route("/api/push/vapid-key")
+def api_push_vapid_key():
+    """フロントエンドに VAPID 公開鍵を返す。"""
+    if not VAPID_PUBLIC_KEY:
+        return jsonify({"error": "push not configured"}), 503
+    return jsonify({"publicKey": VAPID_PUBLIC_KEY})
+
+
+@app.route("/api/push/subscribe", methods=["POST"])
+def api_push_subscribe():
+    """プッシュ購読を登録または更新する。
+    入力: {subscription: {endpoint, keys:{p256dh, auth}}, cards: ["カード名", ...]}
+    """
+    data = request.get_json(silent=True) or {}
+    sub = data.get("subscription", {})
+    endpoint = sub.get("endpoint", "").strip()
+    keys = sub.get("keys", {})
+    p256dh = keys.get("p256dh", "").strip()
+    auth = keys.get("auth", "").strip()
+    cards_raw = data.get("cards", [])
+
+    if not endpoint or not p256dh or not auth:
+        return jsonify({"error": "subscription が不完全です"}), 400
+
+    _load_cardnames()
+    card_names = [_correct_cardname(str(n).strip()) for n in cards_raw[:50]
+                  if str(n).strip() and len(str(n).strip()) <= MAX_CARD_NAME_LEN]
+
+    if not _supabase_client:
+        return jsonify({"ok": False, "reason": "db_unavailable"}), 200
+
+    try:
+        _supabase_client.table("push_subscriptions").upsert({
+            "endpoint": endpoint,
+            "p256dh": p256dh,
+            "auth": auth,
+            "card_names": card_names,
+        }).execute()
+        return jsonify({"ok": True})
+    except Exception as e:
+        logger.warning(f"[push/subscribe] 登録失敗: {e}")
+        return jsonify({"error": "登録に失敗しました"}), 500
+
+
+@app.route("/api/push/unsubscribe", methods=["POST"])
+def api_push_unsubscribe():
+    """プッシュ購読を削除する。
+    入力: {endpoint: "..."}
+    """
+    data = request.get_json(silent=True) or {}
+    endpoint = data.get("endpoint", "").strip()
+    if not endpoint:
+        return jsonify({"error": "endpoint が必要です"}), 400
+
+    if not _supabase_client:
+        return jsonify({"ok": False, "reason": "db_unavailable"}), 200
+
+    try:
+        _supabase_client.table("push_subscriptions") \
+            .delete().eq("endpoint", endpoint).execute()
+        return jsonify({"ok": True})
+    except Exception as e:
+        logger.warning(f"[push/unsubscribe] 削除失敗: {e}")
+        return jsonify({"error": "削除に失敗しました"}), 500
 
 
 # ── ヘルスチェック・ステータス ──

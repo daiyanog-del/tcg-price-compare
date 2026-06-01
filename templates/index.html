@@ -410,6 +410,13 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .wish-card-remove:hover{color:var(--red)}
 .wish-badge{background:var(--accent);color:#fff;font:.6rem var(--mono);font-weight:700;min-width:16px;height:16px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;margin-left:4px;padding:0 4px}
 .wish-badge-drop{background:var(--green)}
+.push-notify-box{margin-top:16px;padding:14px 16px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.push-notify-title{font:.8rem var(--font);font-weight:700;color:var(--text-m);white-space:nowrap}
+.push-notify-desc{font:.75rem var(--font);color:var(--text-d);flex:1;min-width:0}
+.push-notify-btn{padding:7px 16px;font:.78rem var(--font);font-weight:600;border-radius:6px;cursor:pointer;transition:all .15s;border:1px solid var(--accent);background:transparent;color:var(--accent-l);white-space:nowrap}
+.push-notify-btn:hover{background:rgba(74,124,255,.1)}
+.push-notify-btn.active{background:rgba(52,211,153,.12);border-color:var(--green);color:var(--green)}
+.push-notify-btn:disabled{opacity:.5;cursor:not-allowed}
 .wish-card-row.wish-drop{border-color:var(--green);background:rgba(52,211,153,.07)}
 .wish-card-row.wish-pending .wish-price-info{color:var(--text-d)}
 .wish-card-img{width:36px;height:50px;border-radius:3px;overflow:hidden;flex-shrink:0;background:var(--bg)}
@@ -855,6 +862,12 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
           <button class="wish-action-btn danger" onclick="wishClearAll()">すべて削除</button>
         </div>
         <div id="wishList"></div>
+      </div>
+      <!-- プッシュ通知設定 -->
+      <div class="push-notify-box" id="pushNotifyBox" style="display:none">
+        <div class="push-notify-title">値下がり通知</div>
+        <div class="push-notify-desc" id="pushNotifyDesc">購入候補カードが値下がりしたら通知します（毎朝5時頃）</div>
+        <button class="push-notify-btn" id="pushNotifyBtn" onclick="togglePushSubscription()">通知を受け取る</button>
       </div>
     </div>
   </div><!-- /mode-wishlist -->
@@ -2953,6 +2966,7 @@ function wishGet(){
 function wishSave(list){
   localStorage.setItem(WISH_KEY,JSON.stringify(list));
   wishUpdateBadge();
+  syncPushSubscription();
 }
 function wishAdd(name,qty){
   const list=wishGet();
@@ -3002,6 +3016,7 @@ function wishUpdateQty(name,newQty){
 
 function renderWishlist(){
   const list=wishGet();
+  updatePushUI(!!localStorage.getItem(PUSH_SUB_KEY));
   const el=document.getElementById('wishList');
   const actions=document.getElementById('wishActions');
   if(!list.length){
@@ -3055,8 +3070,125 @@ function wishAddFromBtn(btn,name,qty){
   setTimeout(()=>{btn.classList.remove('added');btn.textContent=orig;},1200);
 }
 
+// ── プッシュ通知 ──
+const PUSH_SUB_KEY = 'cardprice_push_subscribed'; // 購読済みフラグ(localStorage)
+
+// 通知ボックスの表示状態を更新する
+function updatePushUI(subscribed){
+  const box = document.getElementById('pushNotifyBox');
+  const btn = document.getElementById('pushNotifyBtn');
+  const desc = document.getElementById('pushNotifyDesc');
+  if(!box||!btn) return;
+  if(!('serviceWorker' in navigator)||!('PushManager' in window)){
+    // 非対応ブラウザは非表示
+    return;
+  }
+  box.style.display='flex';
+  if(subscribed){
+    btn.textContent='通知をオフにする';
+    btn.className='push-notify-btn active';
+    desc.textContent='値下がり通知が設定されています（毎朝5時頃）';
+  }else{
+    btn.textContent='通知を受け取る';
+    btn.className='push-notify-btn';
+    desc.textContent='購入候補カードが値下がりしたら通知します（毎朝5時頃）';
+  }
+}
+
+async function togglePushSubscription(){
+  const btn = document.getElementById('pushNotifyBtn');
+  if(btn) btn.disabled=true;
+  const subscribed = !!localStorage.getItem(PUSH_SUB_KEY);
+  if(subscribed){
+    await unsubscribePush();
+  }else{
+    await subscribePush();
+  }
+  if(btn) btn.disabled=false;
+}
+
+async function subscribePush(){
+  try{
+    const perm = await Notification.requestPermission();
+    if(perm!=='granted'){ alert('通知が許可されていません。ブラウザの設定で許可してください。'); return; }
+
+    // VAPID 公開鍵を取得
+    const keyRes = await fetch('/api/push/vapid-key');
+    if(!keyRes.ok){ alert('通知サービスが準備中です。しばらくお待ちください。'); return; }
+    const {publicKey} = await keyRes.json();
+
+    // Service Worker が登録済みであることを確認
+    const reg = await navigator.serviceWorker.ready;
+
+    // Push 購読を作成
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: _urlBase64ToUint8Array(publicKey),
+    });
+
+    // サーバーに登録
+    const cards = wishGet().map(c=>c.name);
+    const res = await fetch('/api/push/subscribe',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({subscription: sub.toJSON(), cards}),
+    });
+    const data = await res.json();
+    if(data.ok){
+      localStorage.setItem(PUSH_SUB_KEY,'1');
+      updatePushUI(true);
+    }else{
+      alert('登録に失敗しました。しばらくしてから再試行してください。');
+    }
+  }catch(e){
+    console.error('[push] subscribe error:', e);
+    alert('通知の設定に失敗しました: '+e.message);
+  }
+}
+
+async function unsubscribePush(){
+  try{
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if(sub){
+      await fetch('/api/push/unsubscribe',{
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({endpoint: sub.endpoint}),
+      });
+      await sub.unsubscribe();
+    }
+    localStorage.removeItem(PUSH_SUB_KEY);
+    updatePushUI(false);
+  }catch(e){
+    console.error('[push] unsubscribe error:', e);
+  }
+}
+
+// wishlist が変わったら購読情報も同期する（カードの追加/削除に追従）
+async function syncPushSubscription(){
+  if(!localStorage.getItem(PUSH_SUB_KEY)) return;
+  try{
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if(!sub) return;
+    const cards = wishGet().map(c=>c.name);
+    await fetch('/api/push/subscribe',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({subscription: sub.toJSON(), cards}),
+    });
+  }catch(e){ console.warn('[push] sync error:', e); }
+}
+
+// base64url → Uint8Array（applicationServerKey に必要な変換）
+function _urlBase64ToUint8Array(b64){
+  const pad = '='.repeat((4-b64.length%4)%4);
+  const b = atob((b64+pad).replace(/-/g,'+').replace(/_/g,'/'));
+  return Uint8Array.from(b,c=>c.charCodeAt(0));
+}
+
 // 起動時: 価格データをロードしてからバッジ更新（サイトを開いた時に値下がりをバッジ表示）
 loadWishPrices().then(wishUpdateBadge);
+// 通知UIの初期状態を反映
+updatePushUI(!!localStorage.getItem(PUSH_SUB_KEY));
 </script>
 </body>
 </html>
