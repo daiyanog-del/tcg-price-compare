@@ -1391,6 +1391,25 @@ def api_packs():
             logger.info(f"パック一覧をSupabaseから取得: {len(packs)}件")
         except Exception as e:
             logger.error(f"Supabaseパック一覧取得失敗: {e}")
+
+    # 各弾に featured フラグを付与（運用ウィンドウ内の新弾だけ true）
+    fp_name = ""
+    fp_wiki = ""
+    if _supabase_client:
+        try:
+            from featured_pack import get_featured_pack, is_within_window
+            fp = get_featured_pack(_supabase_client)
+            if fp and is_within_window(fp):
+                fp_name = fp.get("pack_name", "")
+                fp_wiki = fp.get("wiki_page", "")
+        except Exception as e:
+            logger.warning(f"新弾フラグ判定失敗（全 featured=false にフォールバック）: {e}")
+    for p in packs:
+        p["featured"] = bool(fp_name) and (
+            p.get("name") == fp_name or
+            (bool(fp_wiki) and p.get("wiki_page") == fp_wiki)
+        )
+
     return jsonify(packs)
 
 @app.route("/api/packs/cards")

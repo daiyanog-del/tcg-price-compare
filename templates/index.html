@@ -602,7 +602,6 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
     <button class="mode-tab" onclick="switchMode('buyback')">買取価格</button>
     <button class="mode-tab" onclick="switchMode('deck')">デッキ計算</button>
     <button class="mode-tab" onclick="switchMode('packs')">最新弾</button>
-    <button class="mode-tab" id="featuredTab" onclick="switchMode('featured')" style="display:none">新弾特集</button>
     <button class="mode-tab" onclick="switchMode('wishlist')">購入候補<span class="wish-badge" id="wishTabBadge" style="display:none">0</span></button>
   </div>
 
@@ -846,16 +845,6 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
     </div>
   </div><!-- /mode-packs -->
 
-  <!-- ===== 新弾フィーチャーモード ===== -->
-  <div id="mode-featured" class="hidden">
-    <div class="deck-builder">
-      <div class="deck-input-area">
-        <div id="featuredHeader" class="meta-loading">新弾情報を読込中...</div>
-        <div id="featuredList"></div>
-        <div id="featuredDetail" class="meta-deck-detail hidden"></div>
-      </div>
-    </div>
-  </div><!-- /mode-featured -->
 
   <!-- ===== 購入候補モード ===== -->
   <div id="mode-wishlist" class="hidden">
@@ -1742,19 +1731,13 @@ if(_pageCardName){
   }
 }
 
-// /featured URL でアクセスした場合は新弾特集モードで起動
+// /featured URL でアクセスした場合は最新弾タブを開き新弾を自動選択
 if(_pageMode==='featured'){
-  document.getElementById('featuredTab').style.display='';
-  switchMode('featured');
-}
-
-// /featured 以外でも新弾フィーチャーが有効な期間はタブを表示する
-if(_pageMode!=='featured'){
-  fetch('/api/featured').then(r=>r.json()).then(d=>{
-    if(d&&d.pack){
-      document.getElementById('featuredTab').style.display='';
-    }
-  }).catch(()=>{});
+  switchMode('packs');
+  loadPacks().then(()=>{
+    const f=_packData.find(p=>p.featured);
+    if(f) loadPackCards(f.name, f.wiki_page||f.name, f.tcg_name||'', true);
+  });
 }
 
 // SEO: 検索完了時にURLをpushStateで書き換え（ブラウザ履歴対応）
@@ -1787,17 +1770,16 @@ window.addEventListener('popstate',function(e){
 
 // ── Mode switch ──
 function switchMode(mode){
-  const labels={search:'販売価格',buyback:'買取価格',deck:'デッキ計算',packs:'最新弾',featured:'新弾特集'};
+  const labels={search:'販売価格',buyback:'買取価格',deck:'デッキ計算',packs:'最新弾'};
   document.querySelectorAll('.mode-tab').forEach(b=>{
     // 購入候補タブはテキスト先頭で判定（バッジspanが含まれるため）
     if(mode==='wishlist') b.classList.toggle('active',b.textContent.startsWith('購入候補'));
     else b.classList.toggle('active',b.textContent===(labels[mode]||mode));
   });
-  ['search','buyback','deck','packs','featured','wishlist'].forEach(m=>{
+  ['search','buyback','deck','packs','wishlist'].forEach(m=>{
     document.getElementById('mode-'+m).classList.toggle('hidden',m!==mode);
   });
   if(mode==='packs') loadPacks();
-  if(mode==='featured') loadFeatured();
   if(mode==='wishlist') renderWishlist();
 }
 
@@ -1978,77 +1960,6 @@ function applyMetaDeckToTextarea(){
 }
 
 // ── 最新弾パック ──
-// ── 新弾フィーチャーモード ──
-let _featuredLoaded=false;
-let _featuredData=null;
-let _featuredThumbObserver=null;
-
-async function loadFeatured(){
-  if(_featuredLoaded) return;
-  const headerEl=document.getElementById('featuredHeader');
-  headerEl.innerHTML='<div class="meta-loading">新弾情報を読込中...</div>';
-  try{
-    const res=await fetch('/api/featured');
-    _featuredData=await res.json();
-    if(_featuredData&&_featuredData.loading){
-      // サーバー側がキャッシュ構築中。2.5秒後に再試行
-      _featuredLoaded=false;
-      headerEl.innerHTML='<div class="meta-loading">新弾情報を準備中... しばらくお待ちください</div>';
-      setTimeout(()=>{_featuredLoaded=false;loadFeatured();},2500);
-      return;
-    }
-    _featuredLoaded=true;
-    renderFeatured();
-  }catch(e){
-    headerEl.innerHTML='<div class="meta-loading">新弾情報の取得に失敗しました</div>';
-  }
-}
-
-function renderFeatured(){
-  const headerEl=document.getElementById('featuredHeader');
-  const listEl=document.getElementById('featuredList');
-  const data=_featuredData;
-
-  if(!data||!data.pack){
-    headerEl.innerHTML='<div class="meta-loading">現在フィーチャー中の新弾はありません</div>';
-    return;
-  }
-
-  const pack=data.pack;
-  const days=data.days_since_release>=0?`発売${data.days_since_release+1}日目`:'発売日';
-  headerEl.innerHTML=`<h3 style="margin:0 0 4px">${esc(pack.pack_name)}</h3>`
-    +`<div class="meta-note">${days} — 収録カード ${data.cards.length}種の価格一覧</div>`;
-
-  if(!data.cards.length){
-    listEl.innerHTML='<div class="meta-loading">収録カード情報を取得中です（しばらくお待ちください）</div>';
-    return;
-  }
-
-  let listHtml='<div class="pack-card-grid" id="featuredCardGrid" style="max-height:520px;overflow-y:auto;margin-top:8px">';
-  data.cards.forEach((c,i)=>{
-    const priceStr=c.price?`${c.price.toLocaleString()}円`:'--';
-    const rarityStr=c.rarity?`<span class="meta-share">${esc(c.rarity)}</span>`:'';
-    // data-card 属性でカード名を持たせ、IntersectionObserver が画像を遅延注入する
-    listHtml+=`<div class="pack-card-item clickable" onclick="featuredSelectCard('${escJs(c.name)}')">`
-      +`<span class="pack-card-thumb" data-card="${esc(c.name)}"></span>`
-      +`<span class="pack-card-num">${i+1}</span>`
-      +`<span class="pack-card-name">${esc(c.name)}</span>`
-      +rarityStr
-      +`<span class="meta-share" style="margin-left:auto">${priceStr}</span>`
-      +`</div>`;
-  });
-  listHtml+='</div>';
-  listHtml+='<div class="meta-note" style="margin-top:6px">カード名をタップすると価格推移を表示します</div>';
-  listEl.innerHTML=listHtml;
-
-  // IntersectionObserver でビューポートに入ったサムネイルだけ画像を取得する
-  _setupFeaturedThumbObserver();
-}
-
-function _setupFeaturedThumbObserver(){
-  _setupThumbObserver('#featuredCardGrid');
-}
-
 // 指定コンテナ内の .pack-card-thumb[data-card] に画像遅延ロードを設定する汎用関数
 let _thumbObserver=null;
 function _setupThumbObserver(containerSelector){
@@ -2087,52 +1998,6 @@ function _setupThumbObserver(containerSelector){
   });
 }
 
-async function featuredSelectCard(cardName){
-  const detailEl=document.getElementById('featuredDetail');
-  detailEl.classList.remove('hidden');
-  detailEl.innerHTML='<div class="meta-loading">'+esc(cardName)+' の価格推移を読込中...</div>';
-  detailEl.scrollIntoView({behavior:'smooth',block:'nearest'});
-
-  // 価格推移と画像を並行取得
-  const [historyRes, imgRes]=await Promise.allSettled([
-    fetch('/api/price-history?name='+encodeURIComponent(cardName)).then(r=>r.json()),
-    fetch('/api/card-image?name='+encodeURIComponent(cardName)).then(r=>r.json()),
-  ]);
-
-  const history=historyRes.status==='fulfilled'?historyRes.value:null;
-  const imgData=imgRes.status==='fulfilled'?imgRes.value:null;
-  const imgUrl=imgData&&imgData.url?safeUrl(imgData.url):'';
-
-  const imgHtml=imgUrl
-    ?`<img src="${esc(imgUrl)}" alt="${esc(cardName)}" loading="lazy" style="width:120px;float:right;margin:0 0 8px 12px;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.3)">`
-    :'';
-
-  if(!history||!history.length){
-    detailEl.innerHTML=imgHtml
-      +`<h4>${esc(cardName)}</h4>`
-      +'<div class="meta-loading" style="clear:both">価格履歴がまだありません（収集中）</div>'
-      +`<button onclick="searchCard('${escJs(cardName)}')" class="meta-deck-btn" style="margin-top:8px;clear:both;display:block">全店舗の価格を見る</button>`;
-    return;
-  }
-  detailEl.innerHTML=imgHtml
-    +`<h4>${esc(cardName)}</h4>`
-    +'<canvas id="featuredCanvas" style="width:100%;max-height:260px;clear:both;display:block"></canvas>'
-    +`<button onclick="searchCard('${escJs(cardName)}')" class="meta-deck-btn" style="margin-top:8px">全店舗の価格を見る</button>`;
-  await _loadChartJs();
-  _drawFeaturedChart(history);
-}
-
-function _drawFeaturedChart(history){
-  const canvas=document.getElementById('featuredCanvas');
-  if(!canvas) return;
-  // 既存の _drawPriceChart を流用（canvas の id を一時的に差し替え）
-  const saved=document.getElementById('priceCanvas');
-  if(saved) saved.id='_priceCanvas_tmp';
-  canvas.id='priceCanvas';
-  _drawPriceChart(history);
-  canvas.id='featuredCanvas';
-  if(saved) saved.id='priceCanvas';
-}
 
 let _packsLoaded=false;
 let _packData=[];
@@ -2164,7 +2029,8 @@ function renderPacks(){
     const dateStr=p.date?p.date.replace(/-/g,'/'):'';
     const unreleased=p.date&&p.date>today;
     const badge=unreleased?'<span class="pack-unreleased-badge">発売前</span>':'';
-    html+=`<button class="meta-deck-btn" onclick="loadPackCards('${esc(p.name)}','${esc(p.wiki_page||p.name)}','${esc(p.tcg_name||'')}')" id="pack-btn-${esc(p.code||p.name)}">
+    const featuredFlag=p.featured?'true':'false';
+    html+=`<button class="meta-deck-btn" onclick="loadPackCards('${esc(p.name)}','${esc(p.wiki_page||p.name)}','${esc(p.tcg_name||'')}',${featuredFlag})" id="pack-btn-${esc(p.code||p.name)}">
       ${esc(p.name)}${badge} <span class="meta-share">${dateStr}</span>
     </button>`;
   }
@@ -2173,7 +2039,7 @@ function renderPacks(){
   el.innerHTML=html;
 }
 
-async function loadPackCards(packName, wikiPage, tcgName){
+async function loadPackCards(packName, wikiPage, tcgName, isFeatured){
   const detailEl=document.getElementById('packDetail');
   // 選択状態を更新
   document.querySelectorAll('#packList .meta-deck-btn').forEach(b=>b.classList.remove('selected'));
@@ -2182,6 +2048,12 @@ async function loadPackCards(packName, wikiPage, tcgName){
 
   detailEl.classList.remove('hidden');
   detailEl.innerHTML='<div class="meta-loading">カードリストを読込中...</div>';
+
+  // 新弾（featured フラグあり）の場合は価格付きデータを /api/featured から取得
+  if(isFeatured){
+    _loadFeaturedIntoPackDetail(packName, detailEl);
+    return;
+  }
 
   try{
     let apiUrl='/api/packs/cards?name='+encodeURIComponent(packName)+'&wiki='+encodeURIComponent(wikiPage);
@@ -2211,6 +2083,107 @@ async function loadPackCards(packName, wikiPage, tcgName){
   }catch(e){
     detailEl.innerHTML='<div class="meta-loading">読込に失敗しました</div>';
   }
+}
+
+async function _loadFeaturedIntoPackDetail(packName, detailEl){
+  try{
+    const res=await fetch('/api/featured');
+    const data=await res.json();
+    if(data&&data.loading){
+      // サーバー側キャッシュ構築中。2.5秒後に再試行
+      detailEl.innerHTML='<div class="meta-loading">新弾情報を準備中... しばらくお待ちください</div>';
+      setTimeout(()=>_loadFeaturedIntoPackDetail(packName, detailEl), 2500);
+      return;
+    }
+    if(!data||!data.pack){
+      detailEl.innerHTML='<div class="meta-loading">新弾情報を取得できませんでした</div>';
+      return;
+    }
+    const pack=data.pack;
+    const days=data.days_since_release>=0?`発売${data.days_since_release+1}日目`:'発売日';
+    const cards=data.cards||[];
+
+    let html=`<h4 style="margin:0 0 4px">${esc(pack.pack_name)}</h4>`
+      +`<div class="meta-note" style="margin-bottom:8px">${days} — 収録カード ${cards.length}種の価格一覧</div>`;
+
+    if(!cards.length){
+      html+='<div class="meta-loading">収録カード情報を取得中です（しばらくお待ちください）</div>';
+      detailEl.innerHTML=html;
+      return;
+    }
+
+    let listHtml='<div class="pack-card-grid" id="packDetailGrid" style="max-height:400px;overflow-y:auto">';
+    cards.forEach((c,i)=>{
+      const priceStr=c.price?`${c.price.toLocaleString()}円`:'--';
+      const rarityStr=c.rarity?`<span class="meta-share">${esc(c.rarity)}</span>`:'';
+      listHtml+=`<div class="pack-card-item clickable" onclick="packSelectCard('${escJs(c.name)}')">`
+        +`<span class="pack-card-thumb" data-card="${esc(c.name)}"></span>`
+        +`<span class="pack-card-num">${i+1}</span>`
+        +`<span class="pack-card-name">${esc(c.name)}</span>`
+        +rarityStr
+        +`<span class="meta-share" style="margin-left:auto">${priceStr}</span>`
+        +`</div>`;
+    });
+    listHtml+='</div>';
+    listHtml+='<div class="meta-note" style="margin-top:6px">カード名をタップすると価格推移を表示します</div>';
+    detailEl.innerHTML=html+listHtml;
+    _setupThumbObserver('#packDetailGrid');
+  }catch(e){
+    detailEl.innerHTML='<div class="meta-loading">読込に失敗しました</div>';
+  }
+}
+
+async function packSelectCard(cardName){
+  const detailEl=document.getElementById('packDetail');
+  // カードリストの下にチャートエリアを追加
+  let chartEl=document.getElementById('packCardDetail');
+  if(!chartEl){
+    chartEl=document.createElement('div');
+    chartEl.id='packCardDetail';
+    chartEl.className='meta-deck-detail';
+    detailEl.appendChild(chartEl);
+  }
+  chartEl.classList.remove('hidden');
+  chartEl.innerHTML='<div class="meta-loading">'+esc(cardName)+' の価格推移を読込中...</div>';
+  chartEl.scrollIntoView({behavior:'smooth',block:'nearest'});
+
+  const [historyRes, imgRes]=await Promise.allSettled([
+    fetch('/api/price-history?name='+encodeURIComponent(cardName)).then(r=>r.json()),
+    fetch('/api/card-image?name='+encodeURIComponent(cardName)).then(r=>r.json()),
+  ]);
+
+  const history=historyRes.status==='fulfilled'?historyRes.value:null;
+  const imgData=imgRes.status==='fulfilled'?imgRes.value:null;
+  const imgUrl=imgData&&imgData.url?safeUrl(imgData.url):'';
+
+  const imgHtml=imgUrl
+    ?`<img src="${esc(imgUrl)}" alt="${esc(cardName)}" loading="lazy" style="width:120px;float:right;margin:0 0 8px 12px;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.3)">`
+    :'';
+
+  if(!history||!history.length){
+    chartEl.innerHTML=imgHtml
+      +`<h4>${esc(cardName)}</h4>`
+      +'<div class="meta-loading" style="clear:both">価格履歴がまだありません（収集中）</div>'
+      +`<button onclick="searchCard('${escJs(cardName)}')" class="meta-deck-btn" style="margin-top:8px;clear:both;display:block">全店舗の価格を見る</button>`;
+    return;
+  }
+  chartEl.innerHTML=imgHtml
+    +`<h4>${esc(cardName)}</h4>`
+    +'<canvas id="packCanvas" style="width:100%;max-height:260px;clear:both;display:block"></canvas>'
+    +`<button onclick="searchCard('${escJs(cardName)}')" class="meta-deck-btn" style="margin-top:8px">全店舗の価格を見る</button>`;
+  await _loadChartJs();
+  _drawPackChart(history);
+}
+
+function _drawPackChart(history){
+  const canvas=document.getElementById('packCanvas');
+  if(!canvas) return;
+  const saved=document.getElementById('priceCanvas');
+  if(saved) saved.id='_priceCanvas_tmp';
+  canvas.id='priceCanvas';
+  _drawPriceChart(history);
+  canvas.id='packCanvas';
+  if(saved) saved.id='priceCanvas';
 }
 
 
