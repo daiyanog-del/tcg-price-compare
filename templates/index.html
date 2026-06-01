@@ -390,6 +390,8 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .pack-card-item:hover{border-color:var(--accent);background:var(--bg-hover);color:var(--text)}
 .pack-card-num{font:.68rem var(--mono);color:var(--text-d);min-width:22px;text-align:right}
 .pack-card-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pack-card-thumb{width:34px;height:34px;flex:none;border-radius:3px;overflow:hidden;background:var(--bg-hover);display:flex;align-items:center;justify-content:center}
+.pack-card-thumb img{width:100%;height:100%;object-fit:cover}
 
 /* ── 購入候補 ── */
 .wish-add{background:none;border:1px solid var(--border);color:var(--text-d);width:26px;height:26px;border-radius:50%;cursor:pointer;font-size:.85rem;line-height:1;display:inline-flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;padding:0}
@@ -1969,15 +1971,22 @@ function applyMetaDeckToTextarea(){
 // ── 新弾フィーチャーモード ──
 let _featuredLoaded=false;
 let _featuredData=null;
+let _featuredThumbObserver=null;
 
 async function loadFeatured(){
   if(_featuredLoaded) return;
   const headerEl=document.getElementById('featuredHeader');
-  const listEl=document.getElementById('featuredList');
   headerEl.innerHTML='<div class="meta-loading">新弾情報を読込中...</div>';
   try{
     const res=await fetch('/api/featured');
     _featuredData=await res.json();
+    if(_featuredData&&_featuredData.loading){
+      // サーバー側がキャッシュ構築中。2.5秒後に再試行
+      _featuredLoaded=false;
+      headerEl.innerHTML='<div class="meta-loading">新弾情報を準備中... しばらくお待ちください</div>';
+      setTimeout(()=>{_featuredLoaded=false;loadFeatured();},2500);
+      return;
+    }
     _featuredLoaded=true;
     renderFeatured();
   }catch(e){
@@ -2005,11 +2014,13 @@ function renderFeatured(){
     return;
   }
 
-  let listHtml='<div class="pack-card-grid" style="max-height:520px;overflow-y:auto;margin-top:8px">';
+  let listHtml='<div class="pack-card-grid" id="featuredCardGrid" style="max-height:520px;overflow-y:auto;margin-top:8px">';
   data.cards.forEach((c,i)=>{
     const priceStr=c.price?`${c.price.toLocaleString()}円`:'--';
     const rarityStr=c.rarity?`<span class="meta-share">${esc(c.rarity)}</span>`:'';
+    // data-card 属性でカード名を持たせ、IntersectionObserver が画像を遅延注入する
     listHtml+=`<div class="pack-card-item clickable" onclick="featuredSelectCard('${escJs(c.name)}')">`
+      +`<span class="pack-card-thumb" data-card="${esc(c.name)}"></span>`
       +`<span class="pack-card-num">${i+1}</span>`
       +`<span class="pack-card-name">${esc(c.name)}</span>`
       +rarityStr
@@ -2019,6 +2030,41 @@ function renderFeatured(){
   listHtml+='</div>';
   listHtml+='<div class="meta-note" style="margin-top:6px">カード名をタップすると価格推移を表示します</div>';
   listEl.innerHTML=listHtml;
+
+  // IntersectionObserver でビューポートに入ったサムネイルだけ画像を取得する
+  _setupFeaturedThumbObserver();
+}
+
+function _setupFeaturedThumbObserver(){
+  if(_featuredThumbObserver) _featuredThumbObserver.disconnect();
+  _featuredThumbObserver=new IntersectionObserver((entries)=>{
+    entries.forEach(entry=>{
+      if(!entry.isIntersecting) return;
+      const el=entry.target;
+      const name=el.dataset.card;
+      if(!name||el.dataset.loaded) return;
+      el.dataset.loaded='1';
+      _featuredThumbObserver.unobserve(el);
+      fetch('/api/card-image?name='+encodeURIComponent(name))
+        .then(r=>r.json())
+        .then(d=>{
+          if(d.url&&safeUrl(d.url)){
+            const img=document.createElement('img');
+            img.src=safeUrl(d.url);
+            img.alt='';
+            img.loading='lazy';
+            img.onerror=function(){this.parentElement.style.display='none';};
+            el.appendChild(img);
+          }else{
+            el.style.display='none';
+          }
+        })
+        .catch(()=>{el.style.display='none';});
+    });
+  },{rootMargin:'200px'});
+  document.querySelectorAll('#featuredCardGrid .pack-card-thumb[data-card]').forEach(el=>{
+    _featuredThumbObserver.observe(el);
+  });
 }
 
 async function featuredSelectCard(cardName){
@@ -2027,30 +2073,40 @@ async function featuredSelectCard(cardName){
   detailEl.innerHTML='<div class="meta-loading">'+esc(cardName)+' の価格推移を読込中...</div>';
   detailEl.scrollIntoView({behavior:'smooth',block:'nearest'});
 
-  // 既存の価格推移 API + Chart.js 描画をそのまま流用
-  try{
-    const res=await fetch('/api/price-history?name='+encodeURIComponent(cardName));
-    const history=await res.json();
-    if(!history||!history.length){
-      detailEl.innerHTML='<div class="meta-loading">'+esc(cardName)+' の価格履歴がまだありません（収集中）</div>';
-      return;
-    }
-    detailEl.innerHTML=`<h4>${esc(cardName)}</h4>`
-      +'<canvas id="featuredCanvas" style="width:100%;max-height:260px"></canvas>'
-      +'<button onclick="searchCard(\''+escJs(cardName)+'\')" class="meta-deck-btn" style="margin-top:8px">全店舗の価格を見る</button>';
-    await _loadChartJs();
-    _drawFeaturedChart(history);
-  }catch(e){
-    detailEl.innerHTML='<div class="meta-loading">読込に失敗しました</div>';
+  // 価格推移と画像を並行取得
+  const [historyRes, imgRes]=await Promise.allSettled([
+    fetch('/api/price-history?name='+encodeURIComponent(cardName)).then(r=>r.json()),
+    fetch('/api/card-image?name='+encodeURIComponent(cardName)).then(r=>r.json()),
+  ]);
+
+  const history=historyRes.status==='fulfilled'?historyRes.value:null;
+  const imgData=imgRes.status==='fulfilled'?imgRes.value:null;
+  const imgUrl=imgData&&imgData.url?safeUrl(imgData.url):'';
+
+  const imgHtml=imgUrl
+    ?`<img src="${esc(imgUrl)}" alt="${esc(cardName)}" loading="lazy" style="width:120px;float:right;margin:0 0 8px 12px;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.3)">`
+    :'';
+
+  if(!history||!history.length){
+    detailEl.innerHTML=imgHtml
+      +`<h4>${esc(cardName)}</h4>`
+      +'<div class="meta-loading" style="clear:both">価格履歴がまだありません（収集中）</div>'
+      +`<button onclick="searchCard('${escJs(cardName)}')" class="meta-deck-btn" style="margin-top:8px;clear:both;display:block">全店舗の価格を見る</button>`;
+    return;
   }
+  detailEl.innerHTML=imgHtml
+    +`<h4>${esc(cardName)}</h4>`
+    +'<canvas id="featuredCanvas" style="width:100%;max-height:260px;clear:both;display:block"></canvas>'
+    +`<button onclick="searchCard('${escJs(cardName)}')" class="meta-deck-btn" style="margin-top:8px">全店舗の価格を見る</button>`;
+  await _loadChartJs();
+  _drawFeaturedChart(history);
 }
 
 function _drawFeaturedChart(history){
   const canvas=document.getElementById('featuredCanvas');
   if(!canvas) return;
-  // 既存の _drawPriceChart と同じ描画ロジックを流用（canvas 要素名のみ異なる）
+  // 既存の _drawPriceChart を流用（canvas の id を一時的に差し替え）
   const saved=document.getElementById('priceCanvas');
-  // 一時的に priceCanvas を featuredCanvas に差し替えてから描画
   if(saved) saved.id='_priceCanvas_tmp';
   canvas.id='priceCanvas';
   _drawPriceChart(history);

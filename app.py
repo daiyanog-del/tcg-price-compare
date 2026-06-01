@@ -1303,52 +1303,77 @@ def featured_page():
     return render_template("index.html", card_name="", page_mode="featured")
 
 
+# ── 新弾フィーチャーキャッシュ（メモリ） ──
+# Wikiスクレイプを毎リクエストに乗せないよう、結果をメモリにキャッシュする。
+# stale-while-revalidate: 古くなったらバックグラウンドで更新しつつ古い値を即返す。
+
+_featured_cache: dict = {"data": None, "ts": 0.0}
+_FEATURED_CACHE_SEC = 600  # 10分
+
+
+def _load_featured_cache():
+    """Wikiスクレイプ + 価格付与をバックグラウンドで実行しメモリに格納する。"""
+    global _featured_cache
+    if not _supabase_client:
+        return
+    try:
+        from featured_pack import get_featured_pack, get_days_since_release, get_featured_cards
+        pack = get_featured_pack(_supabase_client)
+        if not pack:
+            _featured_cache = {"data": {"pack": None, "days_since_release": -1, "cards": []}, "ts": time.time()}
+            return
+        days = get_days_since_release(pack)
+        card_names = get_featured_cards(_supabase_client, pack)
+        cards = []
+        for name in card_names:
+            best = _estimate_cache.get(name)
+            if best:
+                cards.append({
+                    "name": name, "price": best.get("price"),
+                    "shop": best.get("shop", ""), "rarity": best.get("rarity", ""),
+                    "recorded_at": best.get("recorded_at", ""),
+                })
+            else:
+                cards.append({"name": name, "price": None, "shop": "", "rarity": "", "recorded_at": ""})
+        cards.sort(key=lambda x: -(x["price"] or 0))
+        _featured_cache = {
+            "data": {"pack": pack, "days_since_release": days, "cards": cards},
+            "ts": time.time(),
+        }
+        logger.info(f"フィーチャーキャッシュロード完了: {pack['pack_name']} {len(cards)}枚")
+    except Exception as e:
+        logger.error(f"フィーチャーキャッシュロード失敗: {e}")
+
+
 @app.route("/api/featured")
 def api_featured():
-    """新弾フィーチャーデータを返す。
+    """新弾フィーチャーデータをメモリキャッシュから即返す。
     {
       "pack": {"pack_name", "start_date", "window_days"},
       "days_since_release": int,
-      "cards": [
-        {"name": str, "price": int|null, "shop": str, "rarity": str, "recorded_at": str}
-      ]
+      "loading": bool,  # True の場合はキャッシュ未確立。数秒後に再試行してください
+      "cards": [{"name", "price", "shop", "rarity", "recorded_at"}]
     }
     """
     if not _supabase_client:
         return jsonify({"error": "DBに接続できません"}), 503
 
-    from featured_pack import get_featured_pack, get_days_since_release, get_featured_cards
+    cached = _featured_cache.get("data")
+    ts = _featured_cache.get("ts", 0.0)
+    age = time.time() - ts
 
-    pack = get_featured_pack(_supabase_client)
-    if not pack:
-        return jsonify({"pack": None, "days_since_release": -1, "cards": []})
+    if cached is not None and age < _FEATURED_CACHE_SEC:
+        # キャッシュが新鮮: そのまま返す
+        return jsonify(cached)
 
-    days = get_days_since_release(pack)
-    card_names = get_featured_cards(_supabase_client, pack)
+    if cached is not None and age >= _FEATURED_CACHE_SEC:
+        # stale-while-revalidate: 古い値を返しつつバックグラウンドでリフレッシュ
+        Thread(target=_load_featured_cache, daemon=True).start()
+        return jsonify(cached)
 
-    # 各カードの最新価格を _estimate_cache から取得（追加クエリなし）
-    cards = []
-    for name in card_names:
-        best = _estimate_cache.get(name)
-        if best:
-            cards.append({
-                "name": name,
-                "price": best.get("price"),
-                "shop": best.get("shop", ""),
-                "rarity": best.get("rarity", ""),
-                "recorded_at": best.get("recorded_at", ""),
-            })
-        else:
-            cards.append({"name": name, "price": None, "shop": "", "rarity": "", "recorded_at": ""})
-
-    # 価格が高い順にソート（価格なしは末尾）
-    cards.sort(key=lambda x: -(x["price"] or 0))
-
-    return jsonify({
-        "pack": pack,
-        "days_since_release": days,
-        "cards": cards,
-    })
+    # コールド（起動直後でキャッシュ未確立）: バックグラウンドロードを起動し loading=True を返す
+    Thread(target=_load_featured_cache, daemon=True).start()
+    return jsonify({"pack": None, "days_since_release": -1, "loading": True, "cards": []})
 
 
 # ── ヘルスチェック・ステータス ──
@@ -1536,6 +1561,9 @@ def _preload_movers():
 
 if _claim_startup_job("movers_preload"):
     threading.Thread(target=_preload_movers, daemon=True).start()
+
+if _claim_startup_job("featured_prefetch"):
+    threading.Thread(target=_load_featured_cache, daemon=True).start()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
