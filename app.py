@@ -39,7 +39,9 @@ def _normalize_query(q: str) -> str:
     return q.strip()
 
 def _fuzzy_key(s: str) -> str:
-    """あいまい検索用に記号・スペースを除去した比較キーを返す"""
+    """あいまい検索用に記号・スペースを除去した比較キーを返す。全角英数→半角も正規化する"""
+    # U+FF01-FF5E（全角英数・記号）→対応するASCII（半角）に変換
+    s = ''.join(chr(ord(c) - 0xFEE0) if '！' <= c <= '～' else c for c in s)
     return _FUZZY_STRIP.sub('', s).lower()
 
 def _correct_cardname(name: str) -> str:
