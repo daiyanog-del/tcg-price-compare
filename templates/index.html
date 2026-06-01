@@ -1197,7 +1197,8 @@ function _fetchCardInfo(cardName){
       let meta='';
       if(data.card_type==='モンスター'){
         const lvl=(data.rank!=null)?`ランク${data.rank}`:`Lv${data.level||'?'}`;
-        meta=`${data.attribute||''} / ${lvl} / ATK ${data.atk??'-'} / DEF ${data.def??'-'}`;
+        const race=data.race?` / ${data.race}`:'';
+        meta=`${data.attribute||''}${race} / ${lvl} / ATK ${data.atk??'-'} / DEF ${data.def??'-'}`;
       } else {
         meta=data.card_type+(data.property?` (${data.property})`:'')||'';
       }

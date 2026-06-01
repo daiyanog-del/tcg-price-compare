@@ -1547,6 +1547,15 @@ def api_health():
 _ATTR_JA = {"dark":"闇","light":"光","fire":"炎","water":"水","earth":"地","wind":"風","divine":"神"}
 _PROP_JA = {"quickplay":"速攻","quick-play":"速攻","continuous":"永続","field":"フィールド","equip":"装備","ritual":"儀式","counter":"カウンター"}
 _TYPE_JA = {"monster":"モンスター","spell":"魔法","trap":"罠"}
+_RACE_JA = {
+    "Warrior":"戦士族","Spellcaster":"魔法使い族","Dragon":"ドラゴン族",
+    "Beast":"獣族","Beast-Warrior":"獣戦士族","Fiend":"悪魔族","Fairy":"天使族",
+    "Insect":"昆虫族","Dinosaur":"恐竜族","Reptile":"爬虫類族","Sea Serpent":"海竜族",
+    "Aqua":"水族","Pyro":"炎族","Rock":"岩石族","Machine":"機械族","Plant":"植物族",
+    "Winged Beast":"鳥獣族","Zombie":"アンデット族","Thunder":"雷族","Fish":"魚族",
+    "Psychic":"サイキック族","Divine-Beast":"幻神獣族","Creator-God":"創造神族",
+    "Wyrm":"幻竜族","Cyberse":"サイバース族",
+}
 
 @app.route("/api/card-info")
 def api_card_info():
@@ -1575,6 +1584,20 @@ def api_card_info():
         if prints:
             last = prints[-1]
             latest_print = last if isinstance(last, str) else last.get("code", "")
+        race = None
+        if card_type == "monster":
+            try:
+                pdeck = _http.get(
+                    f"https://db.ygoprodeck.com/api/v7/cardinfo.php?konami_id={card_id}&misc=yes",
+                    timeout=5,
+                    headers={"User-Agent": _BROWSER_UA},
+                )
+                if pdeck.status_code == 200:
+                    pdata = pdeck.json()
+                    race_en = pdata.get("data", [{}])[0].get("race", "")
+                    race = _RACE_JA.get(race_en, race_en) or None
+            except Exception:
+                pass
         return jsonify({
             "found": True,
             "konami_id": card_id,
@@ -1583,6 +1606,7 @@ def api_card_info():
             "def": ja.get("def"),
             "level": ja.get("level"),
             "rank": ja.get("rank"),
+            "race": race,
             "attribute": _ATTR_JA.get(ja.get("attribute") or "", ja.get("attribute") or ""),
             "property": _PROP_JA.get(ja.get("property") or "", ja.get("property") or ""),
             "effect_text": ja.get("effectText", ""),
