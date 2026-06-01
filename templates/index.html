@@ -385,13 +385,18 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .meta-card-chip .chip-qty{font-weight:700;color:var(--accent-l);margin-right:3px}
 .meta-actions{display:flex;gap:8px;align-items:center}
 .meta-note{font:.7rem var(--font);color:var(--text-d);margin-top:8px}
-.pack-card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:4px}
+.pack-card-grid{display:grid;grid-template-columns:1fr;gap:4px}
 .pack-card-item{display:flex;align-items:center;gap:8px;padding:6px 10px;font:.78rem var(--font);color:var(--text-m);background:var(--bg-card);border:1px solid var(--border);border-radius:4px;cursor:pointer;transition:all .15s}
 .pack-card-item:hover{border-color:var(--accent);background:var(--bg-hover);color:var(--text)}
 .pack-card-num{font:.68rem var(--mono);color:var(--text-d);min-width:22px;text-align:right}
 .pack-card-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pack-card-thumb{width:34px;height:34px;flex:none;border-radius:3px;overflow:hidden;background:var(--bg-hover);display:flex;align-items:center;justify-content:center}
 .pack-card-thumb img{width:100%;height:100%;object-fit:cover}
+/* パック一覧専用: ボタンをフル幅1列・名前と日付を整列 */
+#packList .meta-deck-list{grid-template-columns:1fr}
+#packList .meta-deck-btn{white-space:normal;justify-content:flex-start;align-items:center;flex-wrap:nowrap;gap:8px}
+#packList .pack-btn-name{flex:1;min-width:0;text-align:left;white-space:normal;word-break:keep-all;overflow-wrap:break-word}
+#packList .meta-deck-btn .meta-share{flex-shrink:0;white-space:nowrap;margin-left:auto}
 
 /* ── 購入候補 ── */
 .wish-add{background:none;border:1px solid var(--border);color:var(--text-d);border-radius:13px;cursor:pointer;font-size:.72rem;font-weight:600;line-height:1;display:inline-flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;padding:3px 10px;white-space:nowrap}
@@ -527,6 +532,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   /* 環境デッキ */
   .meta-deck-list{gap:4px}
   .meta-deck-btn{padding:8px 12px;font-size:.75rem;min-height:44px;flex:1 1 auto;justify-content:center}
+  #packList .meta-deck-btn{flex:1 1 100%;justify-content:flex-start}
   .meta-deck-detail{padding:10px}
   .meta-card-list{gap:3px}
   .meta-card-chip{font-size:.68rem;padding:4px 7px}
@@ -2044,7 +2050,7 @@ function renderPacks(){
     const badge=unreleased?'<span class="pack-unreleased-badge">発売前</span>':'';
     const featuredFlag=p.featured?'true':'false';
     html+=`<button class="meta-deck-btn" onclick="loadPackCards('${esc(p.name)}','${esc(p.wiki_page||p.name)}','${esc(p.tcg_name||'')}',${featuredFlag})" id="pack-btn-${esc(p.code||p.name)}">
-      ${esc(p.name)}${badge} <span class="meta-share">${dateStr}</span>
+      <span class="pack-btn-name">${esc(p.name)}${badge}</span><span class="meta-share">${dateStr}</span>
     </button>`;
   }
   html+='</div>';
