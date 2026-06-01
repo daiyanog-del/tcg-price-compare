@@ -2183,21 +2183,53 @@ async function packSelectCard(cardName){
   }
   chartEl.innerHTML=imgHtml
     +`<h4>${esc(cardName)}</h4>`
-    +'<canvas id="packCanvas" style="width:100%;max-height:260px;clear:both;display:block"></canvas>'
+    +'<canvas id="packCanvas" style="width:100%;height:220px;clear:both;display:block"></canvas>'
     +`<button onclick="searchCard('${escJs(cardName)}')" class="meta-deck-btn" style="margin-top:8px">全店舗の価格を見る</button>`;
   await _loadChartJs();
   _drawPackChart(historyData);
 }
 
-function _drawPackChart(history){
+let _packChartInstance=null;
+function _drawPackChart(data){
+  if(_packChartInstance){_packChartInstance.destroy();_packChartInstance=null;}
   const canvas=document.getElementById('packCanvas');
   if(!canvas) return;
-  const saved=document.getElementById('priceCanvas');
-  if(saved) saved.id='_priceCanvas_tmp';
-  canvas.id='priceCanvas';
-  _drawPriceChart(history);
-  canvas.id='packCanvas';
-  if(saved) saved.id='priceCanvas';
+  const byRarityDate={};
+  data.forEach(r=>{
+    const rar=_normalizeRarity(r.rarity||'不明');
+    if(!byRarityDate[rar])byRarityDate[rar]={};
+    if(!byRarityDate[rar][r.date])byRarityDate[rar][r.date]=[];
+    byRarityDate[rar][r.date].push(r.price);
+  });
+  const datasets=Object.entries(byRarityDate).map(([rar,dates])=>{
+    const points=Object.entries(dates).map(([d,prices])=>({
+      x:d,y:Math.round(prices.reduce((a,b)=>a+b,0)/prices.length)
+    })).sort((a,b)=>a.x.localeCompare(b.x));
+    return{
+      label:rar,data:points,
+      borderColor:RARITY_COLORS[rar]||'#888',
+      backgroundColor:'transparent',
+      tension:0.3,pointRadius:2,borderWidth:2,fill:false
+    };
+  });
+  _packChartInstance=new Chart(canvas,{
+    type:'line',
+    data:{datasets},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      scales:{
+        x:{type:'time',time:{unit:'day',tooltipFormat:'yyyy/MM/dd'},
+           grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#8a8ca0',font:{size:10}}},
+        y:{beginAtZero:false,
+           ticks:{color:'#8a8ca0',font:{size:10},callback:v=>'¥'+v.toLocaleString()},
+           grid:{color:'rgba(255,255,255,.05)'}}
+      },
+      plugins:{
+        legend:{position:'bottom',labels:{color:'#d8dae0',font:{size:11},boxWidth:12,padding:10}},
+        tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': ¥'+ctx.parsed.y.toLocaleString()}}
+      }
+    }
+  });
 }
 
 
