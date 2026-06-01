@@ -71,9 +71,10 @@ _BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHT
 
 # YGOResources 名前インデックスキャッシュ（初回リクエスト時に1回だけ取得）
 _ygores_name_index = None
+_ygores_fuzzy_index = None  # あいまいキー → ids の逆引き（全角/半角・ハイフン種のゆれ吸収用）
 
 def _get_ygores_name_index():
-    global _ygores_name_index
+    global _ygores_name_index, _ygores_fuzzy_index
     if _ygores_name_index is not None:
         return _ygores_name_index
     try:
@@ -83,16 +84,28 @@ def _get_ygores_name_index():
             headers={"User-Agent": _BROWSER_UA},
         )
         _ygores_name_index = resp.json() if resp.status_code == 200 else {}
+        # あいまい一致用の逆引き辞書を構築（記号・全半角・ハイフン種のゆれを吸収）
+        # 衝突時は先勝ち（実データで50件・全てスペース種違いの同一カードのみ）
+        _ygores_fuzzy_index = {}
+        for nm, ids in _ygores_name_index.items():
+            fk = _fuzzy_key(nm)
+            if fk and fk not in _ygores_fuzzy_index:
+                _ygores_fuzzy_index[fk] = ids
         logger.info(f"[YGOResources] 名前インデックス取得: {len(_ygores_name_index)}件")
     except Exception as e:
         logger.warning(f"[YGOResources] 名前インデックス取得失敗: {e}")
         _ygores_name_index = {}
+        _ygores_fuzzy_index = {}
     return _ygores_name_index
 
 def _ygores_image_url(card_name):
     """カード名からYGOResourcesのOCGアートワーク画像URLを返す。未登録の場合はNone"""
     idx = _get_ygores_name_index()
     ids = idx.get(card_name)
+    if not ids and _ygores_fuzzy_index:
+        # 完全一致しない場合は記号・全半角ハイフン等のゆれを無視して再照合
+        # （YGOResourcesは全角ハイフン「－」が標準だが、カード名は半角「-」で渡ることがある）
+        ids = _ygores_fuzzy_index.get(_fuzzy_key(card_name))
     if not ids:
         return None
     cid = ids[0]
