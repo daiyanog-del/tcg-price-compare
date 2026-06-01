@@ -309,7 +309,7 @@ def fetch_recipe_deck(recipe_url: str) -> list[dict]:
     入賞デッキレシピページからフルデッキリスト（メイン+EX）を取得。
 
     Returns:
-        [{"name": "カード名", "qty": 3}, ...]
+        [{"name": "カード名", "qty": 3, "is_ex": False}, ...]
     """
     soup = _fetch_soup(recipe_url)
     if not soup:
@@ -320,6 +320,7 @@ def fetch_recipe_deck(recipe_url: str) -> list[dict]:
         section = h3.get_text(strip=True)
         if section not in ("メインデッキ", "EXデッキ"):
             continue
+        is_ex = (section == "EXデッキ")
         table = h3.find_next("table")
         if not table:
             continue
@@ -335,7 +336,7 @@ def fetch_recipe_deck(recipe_url: str) -> list[dict]:
             if not name:
                 continue
             qty = int(qty_text) if qty_text.isdigit() else 1
-            cards.append({"name": name, "qty": qty})
+            cards.append({"name": name, "qty": qty, "is_ex": is_ex})
 
     return cards
 

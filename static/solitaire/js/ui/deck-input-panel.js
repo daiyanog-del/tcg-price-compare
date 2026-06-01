@@ -14,8 +14,6 @@ const API_META_DECK = '/api/meta/deck';
 /**
  * デッキリストテキストをパース
  * "3 灰流うらら" 形式 → [{qty, name}]
- * @param {string} text
- * @returns {{qty: number, name: string}[]}
  */
 function parseDeckList(text) {
   return text.split('\n')
@@ -28,10 +26,24 @@ function parseDeckList(text) {
 }
 
 /**
+ * プールからダミー（初期）カードを除去する
+ * card-manager が id="initial" で登録した裏面プレースホルダーを削除
+ */
+function clearInitialCards() {
+  ['poolRow', 'poolRow2'].forEach(poolId => {
+    const pool = document.getElementById(poolId);
+    if (!pool) return;
+    pool.querySelectorAll('.tier-item-wrapper').forEach(wrapper => {
+      if (wrapper.id === 'initial') wrapper.remove();
+    });
+  });
+}
+
+/**
  * カード名からAPIで画像URLを取得してプールに追加
- * @param {string} name   カード名
- * @param {number} qty    枚数
- * @param {boolean} isEx  EXデッキか
+ * @param {string}  name   カード名
+ * @param {number}  qty    枚数
+ * @param {boolean} isEx   EXデッキか
  */
 async function addCardByName(name, qty, isEx) {
   let src;
@@ -49,11 +61,10 @@ async function addCardByName(name, qty, isEx) {
     return;
   }
 
+  const poolId = isEx ? 'poolRow2' : 'poolRow';
   for (let i = 0; i < qty; i++) {
     addCardToPool(src, false, isEx);
-    // カードが追加された直後、最後に追加されたカードのIDを登録
-    // card-manager 内でIDを採番しているため、追加後に最後の要素を取る
-    const poolId = isEx ? 'poolRow2' : 'poolRow';
+    // 追加直後に最後の要素を取ってリプレイ辞書へ登録
     const pool = document.getElementById(poolId);
     if (pool) {
       const last = pool.querySelector('.tier-item-wrapper:last-child img');
@@ -63,12 +74,14 @@ async function addCardByName(name, qty, isEx) {
 }
 
 /**
- * テキストデッキを読み込んでプールに追加
- * @param {string} text  デッキリストテキスト
+ * テキストデッキを読み込んでプールに追加（事前にダミーをクリア）
  */
 export async function loadDeckFromText(text) {
   const cards = parseDeckList(text);
   if (cards.length === 0) { alert('デッキリストが空です'); return; }
+
+  clearInitialCards();
+
   const msg = document.getElementById('deckLoadingMsg');
   if (msg) { msg.textContent = 'カード画像を読み込み中...'; msg.style.display = 'block'; }
   for (const { qty, name } of cards) {
@@ -78,7 +91,7 @@ export async function loadDeckFromText(text) {
 }
 
 /**
- * 環境デッキAPIから全デッキ情報を取得して読み込む
+ * 環境デッキAPIから全デッキ情報を取得して読み込む（事前にダミーをクリア）
  * @param {string} theme  テーマ名
  */
 export async function loadMetaDeck(theme) {
@@ -89,22 +102,14 @@ export async function loadMetaDeck(theme) {
     const res = await fetch(`${API_META_DECK}?theme=${encodeURIComponent(theme)}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    const fullDeck = data.full_deck;  // [{name, qty}]
+    const fullDeck = data.full_deck;  // [{name, qty, is_ex}]
     if (!fullDeck || fullDeck.length === 0) throw new Error('デッキリストが取得できませんでした');
 
-    // EXデッキ判定: APIが返す full_deck に is_ex フィールドがない場合は
-    // デッキテキストの "#EX" 区切りを利用（deck_text があれば）
-    const deckText = data.deck_text || '';
-    const exSection = deckText.match(/(?:#ex|#エクストラ)[\s\S]*/i);
-    const exNames = new Set();
-    if (exSection) {
-      parseDeckList(exSection[0].replace(/^#[^\n]*/i, ''))
-        .forEach(c => exNames.add(c.name));
-    }
+    clearInitialCards();
 
-    for (const { name, qty } of fullDeck) {
-      const isEx = exNames.has(name);
-      await addCardByName(name, qty, isEx);
+    for (const { name, qty, is_ex } of fullDeck) {
+      // is_ex フィールドを直接使用（meta_scraper.py 側で付与済み）
+      await addCardByName(name, qty, !!is_ex);
     }
   } catch (e) {
     alert(`環境デッキの読み込みに失敗しました: ${e.message}`);
@@ -115,7 +120,6 @@ export async function loadMetaDeck(theme) {
 
 /**
  * デッキ入力パネルを初期化
- * solitaire.html 内の #deckInputContainer に対して動作
  */
 export function initDeckInputPanel() {
   const container = document.getElementById('deckInputContainer');
@@ -149,13 +153,12 @@ export function initDeckInputPanel() {
 async function loadMetaTierList() {
   const listEl = document.getElementById('metaTierList');
   if (!listEl) return;
-  if (listEl.dataset.loaded === 'true') return; // 既にロード済み
+  if (listEl.dataset.loaded === 'true') return;
 
   listEl.innerHTML = '<span class="deck-loading-msg">読み込み中...</span>';
   try {
     const res = await fetch(API_META);
     const data = await res.json();
-    // data は [{theme, tier, ...}] を想定
     const tiers = Array.isArray(data) ? data : (data.tiers || data.themes || []);
     if (tiers.length === 0) throw new Error('データなし');
 
