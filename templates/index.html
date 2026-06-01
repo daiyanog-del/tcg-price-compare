@@ -2148,11 +2148,12 @@ async function packSelectCard(cardName){
   chartEl.scrollIntoView({behavior:'smooth',block:'nearest'});
 
   const [historyRes, imgRes]=await Promise.allSettled([
-    fetch('/api/price-history?name='+encodeURIComponent(cardName)).then(r=>r.json()),
+    fetch('/api/price-history?card='+encodeURIComponent(cardName)).then(r=>r.json()),
     fetch('/api/card-image?name='+encodeURIComponent(cardName)).then(r=>r.json()),
   ]);
 
-  const history=historyRes.status==='fulfilled'?historyRes.value:null;
+  const historyJson=historyRes.status==='fulfilled'?historyRes.value:null;
+  const historyData=historyJson&&historyJson.data?historyJson.data:[];
   const imgData=imgRes.status==='fulfilled'?imgRes.value:null;
   const imgUrl=imgData&&imgData.url?safeUrl(imgData.url):'';
 
@@ -2160,7 +2161,7 @@ async function packSelectCard(cardName){
     ?`<img src="${esc(imgUrl)}" alt="${esc(cardName)}" loading="lazy" style="width:120px;float:right;margin:0 0 8px 12px;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.3)">`
     :'';
 
-  if(!history||!history.length){
+  if(!historyData.length){
     chartEl.innerHTML=imgHtml
       +`<h4>${esc(cardName)}</h4>`
       +'<div class="meta-loading" style="clear:both">価格履歴がまだありません（収集中）</div>'
@@ -2172,7 +2173,7 @@ async function packSelectCard(cardName){
     +'<canvas id="packCanvas" style="width:100%;max-height:260px;clear:both;display:block"></canvas>'
     +`<button onclick="searchCard('${escJs(cardName)}')" class="meta-deck-btn" style="margin-top:8px">全店舗の価格を見る</button>`;
   await _loadChartJs();
-  _drawPackChart(history);
+  _drawPackChart(historyData);
 }
 
 function _drawPackChart(history){
