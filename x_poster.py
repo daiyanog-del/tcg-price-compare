@@ -11,8 +11,14 @@ import requests as _requests
 SITE_URL = "https://tcg-price-compare.onrender.com"
 JST = timezone(timedelta(hours=9))
 
+# 毎日の値動き投稿の判定閾値（意味のある変動に絞る）
+# TODO: calibrate from data — 直近の価格履歴の分布を見て調整する
+DAILY_MIN_DIFF = 100   # 最安値の前日差（円）の下限
+DAILY_MIN_PCT  = 10    # 前日比変動率（％）の下限
 
-def get_price_movers(sb, direction="up", limit=5, allowed_names=None):
+
+def get_price_movers(sb, direction="up", limit=5, allowed_names=None,
+                     min_diff=50, min_pct=0, fallback=True):
     """Supabaseから値上がり/値下がりランキングを取得。
     allowed_names: set または None。指定すると対象カードを絞り込む（新弾フィーチャー用）。
     """
@@ -78,15 +84,15 @@ def get_price_movers(sb, direction="up", limit=5, allowed_names=None):
             "yesterday": yesterday_price, "diff": diff, "pct": pct,
         })
 
-    # 50円以上の変動を優先、なければ最大変動の1枚のみ投稿
+    # 閾値（円・％の両方）を満たす変動を抽出。fallback=True の場合は該当ゼロでも最大変動1枚を返す
     up_all = sorted([m for m in movers if m["diff"] > 0], key=lambda x: -x["pct"])
     down_all = sorted([m for m in movers if m["diff"] < 0], key=lambda x: x["pct"])
     if direction == "up":
-        filtered = [m for m in up_all if abs(m["diff"]) >= 50]
-        result = filtered[:limit] if filtered else up_all[:1]
+        filtered = [m for m in up_all if abs(m["diff"]) >= min_diff and abs(m["pct"]) >= min_pct]
+        result = filtered[:limit] if filtered else (up_all[:1] if fallback else [])
     else:
-        filtered = [m for m in down_all if abs(m["diff"]) >= 50]
-        result = filtered[:limit] if filtered else down_all[:1]
+        filtered = [m for m in down_all if abs(m["diff"]) >= min_diff and abs(m["pct"]) >= min_pct]
+        result = filtered[:limit] if filtered else (down_all[:1] if fallback else [])
     return result, date_old, date_new
 
 
@@ -506,7 +512,10 @@ def post_daily_movers(sb):
     up_tweet_id = None
 
     for direction in ("up", "down"):
-        movers, date_old, date_new = get_price_movers(sb, direction, limit=5)
+        movers, date_old, date_new = get_price_movers(
+            sb, direction, limit=5,
+            min_diff=DAILY_MIN_DIFF, min_pct=DAILY_MIN_PCT, fallback=False,
+        )
         if not movers:
             label = "値上がり" if direction == "up" else "値下がり"
             print(f"  {label}データなし — スキップ")
