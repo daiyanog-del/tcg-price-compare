@@ -951,6 +951,24 @@ _movers_cache: dict[str, list] = {}
 _movers_cache_time: float = 0
 _MOVERS_CACHE_SEC = 3600  # 1時間キャッシュ（収集完了後にサイト表示を当日データへ早く追従させる）
 
+def _aggregate_daily_min(rows: list) -> dict:
+    """price_history の行リストから、カードごと・日付ごとの最安値を集計して返す。
+    戻り値: {card_name: {date_str: min_price}}
+    10円以下の異常値は除外する。
+    """
+    card_dates: dict = defaultdict(dict)
+    for r in rows:
+        name = r.get("card_name", "")
+        date = r.get("recorded_at", "")[:10]
+        price = r.get("min_price", 0)
+        if not name or not date:
+            continue
+        if price <= 10:
+            continue
+        if date not in card_dates[name] or price < card_dates[name][date]:
+            card_dates[name][date] = price
+    return card_dates
+
 def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
     """Supabaseから値上がり/値下がりランキングを取得（直接クエリ版）"""
     global _movers_cache, _movers_cache_time
@@ -963,8 +981,6 @@ def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
         return []
 
     try:
-        from collections import defaultdict
-
         # 直近3日分のデータをページングで全件取得
         cutoff = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
         all_rows = []
@@ -987,18 +1003,8 @@ def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
         if not all_rows:
             return []
 
-        # 日付ごと・カードごとの最安値を集計（10円以下の異常値は除外）
-        card_dates = defaultdict(dict)
-        for r in all_rows:
-            name = r.get("card_name", "")
-            date = r.get("recorded_at", "")[:10]
-            price = r.get("min_price", 0)
-            if not name or not date:
-                continue
-            if price <= 10:
-                continue
-            if date not in card_dates[name] or price < card_dates[name][date]:
-                card_dates[name][date] = price
+        # 日付ごと・カードごとの最安値を集計
+        card_dates = _aggregate_daily_min(all_rows)
 
         # 全カード共通で比較に使う2日分を特定
         all_dates_set = set()
@@ -1062,6 +1068,147 @@ def api_movers():
     else:
         updated_at = None
     return jsonify({"items": items, "date_old": date_old, "date_new": date_new, "updated_at": updated_at})
+
+
+# ── 購入候補（wishlist）価格アラート ──
+
+def _track_card_async(card_name: str):
+    """tracked_cards に非同期で登録する（既存チェック→なければinsert）。"""
+    try:
+        resp = (_supabase_client.table("tracked_cards")
+                .select("card_name")
+                .eq("card_name", card_name)
+                .limit(1)
+                .execute())
+        if not resp.data:
+            _supabase_client.table("tracked_cards") \
+                .insert({"card_name": card_name, "active": True}) \
+                .execute()
+            logger.info(f"[track] tracked_cards に追加: {card_name}")
+    except Exception as e:
+        logger.warning(f"[track] 追加失敗 ({card_name}): {e}")
+
+
+@app.route("/api/track", methods=["POST"])
+def api_track():
+    """購入候補に追加されたカードを価格収集対象（tracked_cards）に登録する。
+    入力: {"card": "カード名"}
+    返却: {"ok": true, "card": "補正後カード名"} または {"ok": false, "reason": "unknown_card"}
+    ログイン不要・fire-and-forget で使用する軽量エンドポイント。
+    """
+    data = request.get_json(silent=True) or {}
+    card_name_raw = str(data.get("card", "")).strip()
+
+    if not card_name_raw:
+        return jsonify({"error": "カード名を指定してください"}), 400
+    if len(card_name_raw) > MAX_CARD_NAME_LEN:
+        return jsonify({"error": "カード名が長すぎます"}), 400
+
+    _load_cardnames()
+    corrected = _correct_cardname(card_name_raw)
+
+    # カード辞書に存在しない文字列は登録拒否（スパム・誤登録対策）
+    if _cardnames and corrected not in _cardnames:
+        return jsonify({"ok": False, "reason": "unknown_card"}), 200
+
+    if _supabase_client:
+        Thread(target=_track_card_async, args=(corrected,), daemon=True).start()
+
+    return jsonify({"ok": True, "card": corrected})
+
+
+# 値下がり判定の閾値
+_WISH_DROP_PCT = -5.0   # -5% 以上の下落
+_WISH_DROP_ABS = -50    # かつ 50円以上安い
+
+
+@app.route("/api/wish-prices", methods=["POST"])
+def api_wish_prices():
+    """購入候補カードの最新価格と7日前比を返す。
+    入力: {"cards": ["カード名", ...]}  最大50件
+    返却: {"cards": [{name, latest, base_7d, diff, pct, status}, ...]}
+      status: "ready" = データあり, "pending" = まだ収集されていない
+    """
+    global _estimate_cache_time
+
+    data = request.get_json(silent=True) or {}
+    cards_raw = data.get("cards", [])
+    if not isinstance(cards_raw, list):
+        return jsonify({"error": "cards は配列で指定してください"}), 400
+
+    # 最大50件・名前補正
+    _load_cardnames()
+    card_names = []
+    for name in cards_raw[:50]:
+        name = str(name).strip()
+        if name and len(name) <= MAX_CARD_NAME_LEN:
+            card_names.append(_correct_cardname(name))
+    if not card_names:
+        return jsonify({"cards": []})
+
+    # _estimate_cache でデータ有無を事前判定（DBクエリを最小化）
+    if time.time() - _estimate_cache_time > _ESTIMATE_CACHE_SEC:
+        Thread(target=_load_estimate_cache, daemon=True).start()
+
+    have_data = [n for n in card_names if n in _estimate_cache]
+    pending_set = set(card_names) - set(have_data)
+
+    # データあり分: price_history から直近8日分を一括取得して日次最安値を計算
+    card_dates: dict = {}
+    if have_data and _supabase_client:
+        try:
+            cutoff = (datetime.now() - timedelta(days=8)).strftime("%Y-%m-%d")
+            all_rows: list = []
+            page_size = 1000
+            offset = 0
+            while True:
+                resp = (
+                    _supabase_client.table("price_history")
+                    .select("card_name, min_price, recorded_at")
+                    .in_("card_name", have_data)
+                    .gte("recorded_at", cutoff)
+                    .order("recorded_at", desc=False)
+                    .range(offset, offset + page_size - 1)
+                    .execute()
+                )
+                batch = resp.data or []
+                all_rows.extend(batch)
+                if len(batch) < page_size:
+                    break
+                offset += page_size
+            card_dates = dict(_aggregate_daily_min(all_rows))
+        except Exception as e:
+            logger.warning(f"[wish-prices] 価格履歴取得失敗: {e}")
+
+    results = []
+    for name in card_names:
+        if name in pending_set:
+            results.append({"name": name, "latest": None, "base_7d": None,
+                            "diff": None, "pct": None, "status": "pending"})
+            continue
+
+        dates = card_dates.get(name, {})
+        dates_sorted = sorted(dates.keys())
+        latest_price = dates[dates_sorted[-1]] if dates_sorted else None
+        base_7d = dates[dates_sorted[0]] if len(dates_sorted) >= 2 else None
+
+        diff = None
+        pct = None
+        if latest_price is not None and base_7d is not None and base_7d > 0:
+            diff = latest_price - base_7d
+            pct = round((diff / base_7d) * 100, 1)
+
+        results.append({
+            "name": name,
+            "latest": latest_price,
+            "base_7d": base_7d,
+            "diff": diff,
+            "pct": pct,
+            "status": "ready",
+        })
+
+    return jsonify({"cards": results})
+
 
 @app.route("/api/buyback")
 def api_buyback():

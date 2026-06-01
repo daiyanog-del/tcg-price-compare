@@ -329,8 +329,8 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 @media(max-width:600px){.chart-wrap{height:220px}}
 
 /* Deck Builder */
-.mode-tabs{display:flex;gap:4px;max-width:540px;margin:0 auto 20px;justify-content:center}
-.mode-tab{padding:8px 20px;font:.82rem var(--font);font-weight:700;color:var(--text-d);background:var(--bg-card);border:1px solid var(--border);border-radius:20px;cursor:pointer;transition:all .15s}
+.mode-tabs{display:flex;flex-wrap:wrap;gap:6px;max-width:600px;margin:0 auto 20px;justify-content:center}
+.mode-tab{padding:8px 18px;font:.82rem var(--font);font-weight:700;color:var(--text-d);background:var(--bg-card);border:1px solid var(--border);border-radius:20px;cursor:pointer;transition:all .15s;white-space:nowrap}
 .mode-tab:hover{border-color:var(--text-m);color:var(--text-m)}
 .mode-tab.active{color:#fff;border-color:var(--accent);background:linear-gradient(135deg,var(--accent),#6366f1);box-shadow:0 2px 8px rgba(74,124,255,.2)}
 .deck-builder{max-width:800px;margin:0 auto}
@@ -409,6 +409,11 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .wish-card-remove{background:none;border:none;color:var(--text-d);cursor:pointer;font-size:.9rem;padding:4px;line-height:1;transition:color .15s}
 .wish-card-remove:hover{color:var(--red)}
 .wish-badge{background:var(--accent);color:#fff;font:.6rem var(--mono);font-weight:700;min-width:16px;height:16px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;margin-left:4px;padding:0 4px}
+.wish-badge-drop{background:var(--green)}
+.wish-card-row.wish-drop{border-color:var(--green);background:rgba(52,211,153,.07)}
+.wish-card-row.wish-pending .wish-price-info{color:var(--text-d)}
+.wish-price-info{font:.72rem var(--mono);color:var(--text-d);white-space:nowrap;flex-shrink:0}
+.wish-price-drop{color:var(--green);font-weight:700}
 
 /* Mobile — タブレット */
 @media(max-width:768px){
@@ -429,9 +434,9 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   .search button{width:100%;padding:14px;font-size:.95rem;min-height:48px}
   .suggest-dropdown{right:0}
 
-  /* モードタブ — 4タブを1行に均等配置 */
-  .mode-tabs{gap:3px;margin:0 auto 14px}
-  .mode-tab{flex:1;padding:10px 4px;font-size:.76rem;min-height:44px;white-space:nowrap;text-align:center}
+  /* モードタブ — ボタン単位で折り返し（文字途中改行を禁止） */
+  .mode-tabs{flex-wrap:wrap;gap:6px;margin:0 auto 14px}
+  .mode-tab{flex:1 1 28%;min-width:88px;padding:10px 4px;font-size:.76rem;min-height:44px;white-space:nowrap;text-align:center}
 
   /* 店舗トグル */
   .shop-toggles-wrap{margin:-8px auto 12px}
@@ -2922,8 +2927,46 @@ function _drawPriceChart(data){
 </script>
 
 <script>
-// ── 購入候補（localStorage） ──
+// ── 購入候補（localStorage）＋ 値下がりアラート ──
 const WISH_KEY='cardprice_wishlist';
+
+// 直近の /api/wish-prices 結果キャッシュ（name -> {latest, base_7d, diff, pct, status}）
+// null = まだロードしていない。{} 以上 = ロード試行済み（成功・失敗を問わず）
+let _wishPrices = null;
+
+// /api/wish-prices を呼んで _wishPrices を更新する
+async function loadWishPrices(){
+  const list=wishGet();
+  // ロード試行済みとしてマーク（null → {} で「試行済み」になる）
+  _wishPrices={};
+  if(!list.length) return;
+  try{
+    const res=await fetch('/api/wish-prices',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({cards:list.map(c=>c.name)})});
+    const data=await res.json();
+    (data.cards||[]).forEach(c=>{_wishPrices[c.name]=c;});
+  }catch(e){/* _wishPrices={} のまま（再試行しない）*/}
+}
+
+// 価格情報の表示 HTML を生成する
+function _wishPriceHtml(info){
+  if(!info||info.status==='pending'){
+    return '<span class="wish-price-info">相場データ収集中</span>';
+  }
+  if(info.latest==null) return '';
+  const priceStr='¥'+info.latest.toLocaleString();
+  if(info.pct==null||info.diff==null){
+    return `<span class="wish-price-info">${priceStr}</span>`;
+  }
+  const isDrop=info.pct<=-5&&info.diff<=-50;
+  const sign=info.diff>=0?'+':'';
+  const pctStr=`${sign}${info.pct}%`;
+  if(isDrop){
+    return `<span class="wish-price-info wish-price-drop">${priceStr} <small>(${pctStr})</small></span>`;
+  }
+  return `<span class="wish-price-info">${priceStr} <small style="color:var(--text-d)">(${pctStr})</small></span>`;
+}
 
 function wishGet(){
   try{return JSON.parse(localStorage.getItem(WISH_KEY))||[];}catch{return[];}
@@ -2938,6 +2981,9 @@ function wishAdd(name,qty){
   if(existing){existing.qty+=qty||1;}
   else{list.push({name:name,qty:qty||1});}
   wishSave(list);
+  // 価格収集対象に登録（fire-and-forget。失敗しても UI に影響しない）
+  fetch('/api/track',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({card:name})}).catch(()=>{});
 }
 function wishRemove(name){
   const list=wishGet().filter(c=>c.name!==name);
@@ -2947,14 +2993,26 @@ function wishRemove(name){
 function wishClearAll(){
   if(!confirm('購入候補をすべて削除しますか？'))return;
   wishSave([]);
+  _wishPrices=null;
   renderWishlist();
 }
 function wishUpdateBadge(){
   const list=wishGet();
   const badge=document.getElementById('wishTabBadge');
   if(!badge)return;
-  if(list.length>0){badge.textContent=list.length;badge.style.display='inline-flex';}
-  else{badge.style.display='none';}
+  if(!list.length){badge.style.display='none';return;}
+  // 値下がりカード数: pct <= -5% かつ diff <= -50円（未ロード時は 0）
+  const dropCount=Object.values(_wishPrices||{}).filter(
+    d=>d.pct!=null&&d.pct<=-5&&d.diff!=null&&d.diff<=-50
+  ).length;
+  if(dropCount>0){
+    badge.textContent='↓'+dropCount;
+    badge.className='wish-badge wish-badge-drop';
+  }else{
+    badge.textContent=list.length;
+    badge.className='wish-badge';
+  }
+  badge.style.display='inline-flex';
 }
 function wishUpdateQty(name,newQty){
   if(newQty<1)return wishRemove(name);
@@ -2973,16 +3031,26 @@ function renderWishlist(){
     return;
   }
   actions.style.display='flex';
-  el.innerHTML=list.map(c=>`
-    <div class="wish-card-row">
+  // 価格データが未ロード（null）の場合だけロードして再描画（失敗後の再試行はしない）
+  if(_wishPrices===null){
+    loadWishPrices().then(()=>{wishUpdateBadge();renderWishlist();});
+  }
+  el.innerHTML=list.map(c=>{
+    const info=_wishPrices[c.name];
+    const isDrop=info&&info.pct!=null&&info.pct<=-5&&info.diff!=null&&info.diff<=-50;
+    const isPending=!info||info.status==='pending';
+    const rowClass='wish-card-row'+(isDrop?' wish-drop':'')+(isPending?' wish-pending':'');
+    return `
+    <div class="${rowClass}">
       <span class="wish-card-qty">
         <button class="wish-card-remove" onclick="wishUpdateQty('${escJs(c.name)}',${c.qty-1})" title="1枚減らす" style="font-size:.7rem">-</button>
         ${c.qty}x
         <button class="wish-card-remove" onclick="wishUpdateQty('${escJs(c.name)}',${c.qty+1})" title="1枚増やす" style="font-size:.7rem">+</button>
       </span>
       <span class="wish-card-name">${esc(c.name)}</span>
+      ${_wishPriceHtml(info)}
       <button class="wish-card-remove" onclick="wishRemove('${escJs(c.name)}')" title="削除">&times;</button>
-    </div>`).join('');
+    </div>`}).join('');
 }
 
 function wishToEstimate(){
@@ -3005,8 +3073,8 @@ function wishAddFromBtn(btn,name,qty){
   setTimeout(()=>{btn.classList.remove('added');btn.textContent='+';},1200);
 }
 
-// 起動時にバッジ更新
-wishUpdateBadge();
+// 起動時: 価格データをロードしてからバッジ更新（サイトを開いた時に値下がりをバッジ表示）
+loadWishPrices().then(wishUpdateBadge);
 </script>
 </body>
 </html>
