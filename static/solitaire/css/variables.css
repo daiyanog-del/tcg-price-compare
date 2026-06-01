@@ -1,0 +1,29 @@
+/* CSS変数定義 — カード相場ブランド統合版 */
+
+/* デフォルト値 */
+:root {
+  --slot-width: 120px;
+  --slot-height: calc(var(--slot-width) * 1.45);
+  --gap: 12px;
+  --min-display-width: calc(var(--slot-width) * 9.8);
+
+  /* カード相場ダークテーマ */
+  --main-color: #e2e8f0;
+  --bg-color: #0a1024;
+  --bg-card: #1a2547;
+  --bg-surface: #0f1a35;
+  --accent: #4a7cff;
+  --accent-hover: #6b96ff;
+  --gold: #e8c848;
+  --green: #22c55e;
+  --red: #ef4444;
+  --border: #2a3a6a;
+  --radius: 8px;
+
+  /* フォント */
+  --font: 'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic', sans-serif;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-size: 1rem;
+  --title-font-size: 1.4rem;
+  --mini-font-size: 0.85rem;
+}

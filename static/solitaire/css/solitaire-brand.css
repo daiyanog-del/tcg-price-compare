@@ -1,0 +1,423 @@
+/**
+ * solitaire-brand.css
+ * カード相場ダークテーマ上書き — Fugartaのwhiteテーマを全面置換
+ */
+
+/* ── 基本 ── */
+
+html, body {
+  background: var(--bg-color);
+  color: var(--main-color);
+  font-family: var(--font);
+  margin: 0;
+}
+
+body {
+  background: var(--bg-color);
+  color: var(--main-color);
+  font-family: var(--font);
+}
+
+/* ── ナビ ── */
+.sol-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: #0f1a35;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.sol-nav a {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.85rem;
+  transition: color 0.2s;
+}
+
+.sol-nav a:hover { color: var(--accent-hover); }
+
+.sol-nav-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--main-color);
+  letter-spacing: 0.03em;
+}
+
+/* ── タイトル ── */
+.title {
+  color: var(--main-color);
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+/* ── 盤面コンテナ ── */
+#mainContainer {
+  background: var(--bg-color);
+  padding: 12px;
+}
+
+/* ── スロット ── */
+.custom-slot,
+.side-slot,
+.center-slot {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.custom-slot:hover,
+.side-slot:hover,
+.center-slot:hover {
+  border-color: var(--accent);
+}
+
+/* ── プール（デッキ/EXデッキ） ── */
+#imagePool, #imagePool2 {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-top: 8px;
+}
+
+.pool-label,
+.side-slot-label,
+.center-slot-label,
+.left-rectangle-label {
+  color: #94a3b8;
+  font-size: 0.72rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ── アクションボタン（上書き） ── */
+.action-btn {
+  font-family: var(--font);
+  border-radius: var(--radius);
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+}
+
+.action-btn::before { display: none; } /* shimmerアニメ除去 */
+
+.save-btn {
+  background: var(--bg-card);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.save-btn:hover {
+  background: var(--accent);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.load-btn {
+  background: var(--bg-card);
+  border-color: var(--green);
+  color: var(--green);
+}
+.load-btn:hover {
+  background: var(--green);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.draw-btn {
+  background: var(--bg-card);
+  border-color: var(--gold);
+  color: var(--gold);
+}
+.draw-btn:hover {
+  background: var(--gold);
+  color: #111;
+  transform: translateY(-1px);
+}
+
+.reset-btn {
+  background: var(--bg-card);
+  border-color: #94a3b8;
+  color: #94a3b8;
+}
+.reset-btn:hover {
+  background: #94a3b8;
+  color: #0a1024;
+  transform: translateY(-1px);
+}
+
+/* ── コントロールパネル ── */
+.controls {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--main-color);
+}
+
+.controls p,
+.explain-box p {
+  color: #94a3b8;
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.controls a { color: var(--accent); }
+
+.controls button,
+.controls input[type="file"] {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--main-color);
+  font-family: var(--font);
+  border-radius: 6px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.controls button:hover,
+.controls input[type="file"]:hover {
+  border-color: var(--accent);
+  background: rgba(74, 124, 255, 0.1);
+  transform: none;
+  box-shadow: none;
+}
+
+/* ── 説明ボックス ── */
+.explain-box {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+
+/* ── カウンター ── */
+.left-rectangle {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.counter-textbox {
+  background: var(--bg-color);
+  color: var(--main-color);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: var(--mono);
+}
+
+.triangle-button {
+  background: var(--bg-card);
+  color: var(--main-color);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+.triangle-button:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* ── モーダル ── */
+.modal-overlay {
+  background: rgba(0,0,0,0.7);
+}
+
+/* モーダル内は既存modal.cssを上書き */
+.modal-content,
+.save-load-modal,
+.image-browser-modal {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius) !important;
+  color: var(--main-color) !important;
+}
+
+.modal-title {
+  color: var(--main-color) !important;
+}
+
+/* ── デッキ入力パネル（テキスト/メタデッキ追加UI） ── */
+.deck-input-panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin-top: 8px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.deck-input-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.deck-input-tab {
+  padding: 5px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px 6px 0 0;
+  color: #94a3b8;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.deck-input-tab.active,
+.deck-input-tab:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.deck-input-pane {
+  display: none;
+}
+.deck-input-pane.active {
+  display: block;
+}
+
+.deck-textarea {
+  width: 100%;
+  min-height: 90px;
+  background: var(--bg-color);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--main-color);
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  padding: 8px;
+  box-sizing: border-box;
+  resize: vertical;
+}
+
+.deck-load-btn {
+  margin-top: 6px;
+  padding: 6px 16px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-family: var(--font);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.deck-load-btn:hover {
+  background: var(--accent-hover);
+}
+
+.meta-tier-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.meta-tier-btn {
+  padding: 4px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  color: var(--main-color);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.meta-tier-btn:hover {
+  border-color: var(--accent);
+  background: rgba(74,124,255,0.12);
+}
+
+.deck-loading-msg {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+
+/* ── リプレイバー ── */
+.replay-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.replay-btn {
+  padding: 5px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--main-color);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.replay-btn:hover {
+  border-color: var(--accent);
+  background: rgba(74,124,255,0.12);
+}
+.replay-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.replay-btn.play-active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.replay-slider {
+  flex: 1 1 120px;
+  min-width: 80px;
+  accent-color: var(--accent);
+}
+
+.replay-counter {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  white-space: nowrap;
+  font-family: var(--mono);
+}
+
+.replay-comment-input {
+  flex: 2 1 160px;
+  min-width: 80px;
+  background: var(--bg-color);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--main-color);
+  font-size: 0.82rem;
+  padding: 4px 8px;
+  font-family: var(--font);
+}
+
+.replay-share-btn {
+  padding: 5px 12px;
+  background: var(--gold);
+  color: #111;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.replay-share-btn:hover { background: #d4a800; }
+
+/* ── フッタクレジット ── */
+.sol-footer {
+  margin-top: 24px;
+  padding: 10px 16px;
+  font-size: 0.72rem;
+  color: #4a5568;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+.sol-footer a { color: #4a5568; }

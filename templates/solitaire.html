@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>一人回しシミュレータ | カード相場</title>
+<meta name="description" content="遊戯王OCGの一人回し（ソリティア）シミュレータ。ニューロン画像・テキスト・環境デッキからデッキを読み込み、ドラッグ&ドロップで展開を再現。リプレイ保存・URL共有対応。">
+<meta property="og:title" content="一人回しシミュレータ | カード相場">
+<meta property="og:description" content="遊戯王の展開をシミュレート。リプレイ保存・共有対応。">
+<meta property="og:image" content="{{ request.url_root.rstrip('/') }}/static/og-image.png">
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.url_root.rstrip('/') }}/solitaire">
+<meta property="og:locale" content="ja_JP">
+<meta property="og:site_name" content="カード相場">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="一人回しシミュレータ | カード相場">
+<meta name="twitter:image" content="{{ request.url_root.rstrip('/') }}/static/og-image.png">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="{{ request.url_root.rstrip('/') }}/solitaire">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png?v=2">
+<link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=2">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=2">
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#0a1024">
+
+<!-- 外部ライブラリ（CDN） -->
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.0/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
+<script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+
+<!-- スタイルシート -->
+<link rel="stylesheet" href="/static/solitaire/css/main.css">
+</head>
+
+<body>
+<!-- ナビ -->
+<nav class="sol-nav">
+  <a href="/" class="sol-nav-title">カード相場</a>
+  <span style="color:#4a5568">›</span>
+  <span>一人回し</span>
+  <span style="flex:1"></span>
+  <a href="/">販売価格</a>
+  <a href="/buy/">買取価格</a>
+  <a href="/solitaire" style="color:var(--main-color);font-weight:700">一人回し</a>
+</nav>
+
+<!-- デッキ入力パネル -->
+<div id="deckInputContainer" class="deck-input-panel" style="min-width:var(--min-display-width);max-width:1200px;margin:10px auto 0">
+  <div class="deck-input-tabs">
+    <button class="deck-input-tab active" data-pane="deckPaneNeuron">ニューロン画像</button>
+    <button class="deck-input-tab" data-pane="deckPaneText">テキスト</button>
+    <button class="deck-input-tab" data-pane="deckPanePreset">環境デッキ</button>
+  </div>
+  <!-- ニューロン画像 -->
+  <div class="deck-input-pane active" id="deckPaneNeuron">
+    <input type="file" id="imageUpload" accept="image/*" multiple>
+    <button id="folderSelectButton">フォルダから選択</button>
+    <p style="margin:6px 0 0;font-size:0.78rem;color:#94a3b8">
+      ニューロンの「チームに投稿」→Discordで保存した画像を選択してください（メイン40枚以上・EX11枚以上・サイドなし）。
+    </p>
+  </div>
+  <!-- テキスト -->
+  <div class="deck-input-pane" id="deckPaneText">
+    <textarea class="deck-textarea" id="deckTextarea" placeholder="例:&#10;3 灰流うらら&#10;3 増殖するG&#10;1 エフェクト・ヴェーラー"></textarea>
+    <button class="deck-load-btn" id="deckLoadTextBtn">このデッキを読み込む</button>
+  </div>
+  <!-- 環境デッキ -->
+  <div class="deck-input-pane" id="deckPanePreset">
+    <div class="meta-tier-list" id="metaTierList">
+      <span class="deck-loading-msg">タブを開くと読み込みます</span>
+    </div>
+  </div>
+  <div class="deck-loading-msg" id="deckLoadingMsg" style="display:none"></div>
+</div>
+
+<!-- 盤面本体（Fugarta Solo Mode 移植） -->
+<div id="mainContainer">
+  <h1 class="title" contenteditable="true" spellcheck="false">一人回し</h1>
+
+  <div class="main-content">
+    <!-- フリースペース -->
+    <div class="side-slots-container" id="free-space">
+      <div class="side-slot-group">
+        <div class="side-slot-label">フリースペース</div>
+        <div class="side-slot" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+      </div>
+    </div>
+
+    <!-- フィールド -->
+    <div class="custom-layout">
+      <!-- 最上段: 2個 -->
+      <div class="row row-top">
+        <div class="custom-slot" data-slot="1" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+        <div class="custom-slot" data-slot="2" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+      </div>
+      <!-- 2段目: 6個 -->
+      <div class="row row-middle">
+        <div class="custom-slot" data-slot="3" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+        <div class="custom-slot" data-slot="4" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+        <div class="custom-slot" data-slot="5" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+        <div class="custom-slot" data-slot="6" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+        <div class="custom-slot" data-slot="7" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+        <div class="custom-slot" data-slot="8" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+      </div>
+      <!-- 最下段: 6個 -->
+      <div class="row row-bottom">
+        <div class="custom-slot" data-slot="9"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+        <div class="custom-slot" data-slot="10" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+        <div class="custom-slot" data-slot="11" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+        <div class="custom-slot" data-slot="12" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+        <div class="custom-slot" data-slot="13" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+        <div class="custom-slot" data-slot="14" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+      </div>
+    </div>
+
+    <!-- 右サイド: 墓地・除外 -->
+    <div class="side-slots-container">
+      <div class="side-slot-group">
+        <div class="side-slot-label">墓地</div>
+        <div class="side-slot" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+      </div>
+      <div class="side-slot-group">
+        <div class="side-slot-label">除外</div>
+        <div class="side-slot" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 手札エリア -->
+  <div class="center-row">
+    <div class="left-rectangle-container">
+      <div class="left-rectangle-label">カウンター</div>
+      <div class="left-rectangle">
+        <div class="counter-container" id="parent" draggable="true" ondragstart="drag(event)">
+          <div class="triangle-button-container">
+            <button class="triangle-button up">▲</button>
+            <button class="triangle-button down">▼</button>
+          </div>
+          <input type="text" class="counter-textbox" value="1" readonly>
+        </div>
+      </div>
+    </div>
+    <div class="center-group">
+      <div class="center-slot-label">手札</div>
+      <div class="center-slot" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+    </div>
+    <div class="action-button-container randomButton-container">
+      <button id="saveButton2" class="action-btn save-btn">盤面セーブ</button>
+      <button id="loadButton"  class="action-btn load-btn">盤面ロード</button>
+      <button id="randomButton" class="action-btn draw-btn">1ドロー</button>
+      <button id="resetButton"  class="action-btn reset-btn">リセット&amp;5ドロー</button>
+    </div>
+  </div>
+</div><!-- /#mainContainer -->
+
+<!-- デッキ / EXデッキ -->
+<div id="imagePool" class="pool" ondrop="drop(event)" ondragover="allowDrop(event)">
+  <div class="pool-label">デッキ</div>
+  <div class="tier-row" id="poolRow"></div>
+</div>
+
+<div id="imagePool2" class="pool" ondrop="drop(event)" ondragover="allowDrop(event)">
+  <div class="pool-label">EXデッキ</div>
+  <div class="tier-row" id="poolRow2"></div>
+</div>
+
+<!-- リプレイバー -->
+<div id="replayBarContainer" class="replay-bar" style="min-width:var(--min-display-width);max-width:1200px;margin:8px auto 0">
+  <button class="replay-btn" id="replayBack">&#9664; 前へ</button>
+  <input type="range" class="replay-slider" id="replaySlider" min="0" max="0" value="0" disabled>
+  <span class="replay-counter" id="replayCounter">0/0</span>
+  <button class="replay-btn" id="replayFwd">次へ &#9654;</button>
+  <button class="replay-btn" id="replayPlay" disabled>再生</button>
+  <button class="replay-btn" id="replayUndo" disabled>取消</button>
+  <input type="text" class="replay-comment-input" id="replayCommentInput" placeholder="コメント（任意）">
+  <button class="replay-btn" id="replayAddComment">追加</button>
+  <button class="replay-btn" id="replayExport">保存</button>
+  <label class="replay-btn" style="cursor:pointer">
+    読込
+    <input type="file" id="replayImportFile" accept=".json" style="display:none">
+  </label>
+  <button class="replay-share-btn" id="replayShare">共有リンク</button>
+</div>
+
+<!-- 操作説明・盤面保存 -->
+<div class="controls-explain-container" style="min-width:var(--min-display-width);max-width:1200px;margin:0 auto">
+  <div class="controls">
+    <button id="saveButton">盤面を画像保存</button>
+    <button id="shareXButton">Xに投稿</button>
+    <p>
+      ニューロンのデッキ画像をアップロードするとデッキが自動登録されます。<br>
+      注意: メイン40枚以上・EX11枚以上・サイドなしの画像に対応。Discordに投稿した画像を推奨。
+    </p>
+    <p>複数枚の画像またはクリップボード貼り付けで、1枚のカード画像として登録できます。</p>
+  </div>
+  <div class="explain-box">
+    <p>操作方法<br>
+      ・デッキ/EXデッキのカードをドラッグして好きな場所にドロップできます。<br>
+      ・すでにカードがある場所にドロップすると重ねて配置できます（エクシーズ素材など）。<br>
+      ・カウンターをカードにドロップすると付けられます（カウンター増減は▲▼ボタン）。<br>
+      ・右クリックでカードをデッキに戻せます。<br>
+      ・フリースペース・除外ゾーンはダブルクリックで非表示にできます。<br>
+      ・リプレイバーで操作履歴を前後に移動・再生できます。「共有リンク」でURLを生成します。
+    </p>
+  </div>
+</div>
+
+<!-- モーダルオーバーレイ -->
+<div id="imageBrowserModal" class="modal-overlay" style="display:none;"></div>
+
+<!-- フッター: クレジット -->
+<footer class="sol-footer">
+  本ツールは <a href="https://github.com/Fugarta/solo-mode" target="_blank" rel="noopener noreferrer">Solo Mode (Fugarta, MIT)</a> を基に改変しています。
+  &nbsp;|&nbsp; <a href="/">カード相場 トップ</a>
+</footer>
+
+<script type="module" src="/static/solitaire/js/main.js"></script>
+</body>
+</html>

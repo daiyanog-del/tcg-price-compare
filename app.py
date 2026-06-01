@@ -411,6 +411,8 @@ def sitemap():
     xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
     # トップページ
     xml += f'  <url><loc>{base_url}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>\n'
+    # 固定ページ
+    xml += f'  <url><loc>{base_url}/solitaire</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>\n'
     # カード個別ページ
     for name in card_names:
         from urllib.parse import quote
@@ -1479,6 +1481,57 @@ if (os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not _is_debug_mode()) and _
 @app.route("/font-preview")
 def font_preview():
     return render_template("font_preview.html")
+
+
+# ── 一人回しシミュレータ ──
+
+@app.route("/solitaire")
+def solitaire_page():
+    """一人回しシミュレータ"""
+    return render_template("solitaire.html")
+
+
+@app.route("/api/solitaire/replay", methods=["POST"])
+def solitaire_replay_save():
+    """リプレイデータをSupabaseに保存してIDを返す"""
+    import secrets, json as _json
+    if not _supabase_client:
+        return {"error": "データベース未接続"}, 503
+    try:
+        data = request.get_json(force=True)
+        images = data.get("images", {})
+        logs = data.get("logs", [])
+        title = str(data.get("title", ""))[:100]
+        if not logs:
+            return {"error": "logsが空です"}, 400
+        replay_id = secrets.token_urlsafe(8)
+        payload = {"id": replay_id, "title": title, "images": images, "logs": logs}
+        _supabase_client.table("solitaire_replays").insert(payload).execute()
+        return {"id": replay_id}
+    except Exception as e:
+        logger.error(f"リプレイ保存エラー: {e}")
+        return {"error": "保存に失敗しました"}, 500
+
+
+@app.route("/api/solitaire/replay/<replay_id>", methods=["GET"])
+def solitaire_replay_get(replay_id):
+    """Supabaseからリプレイデータを取得"""
+    if not _supabase_client:
+        return {"error": "データベース未接続"}, 503
+    try:
+        resp = _supabase_client.table("solitaire_replays") \
+            .select("images, logs, title") \
+            .eq("id", replay_id) \
+            .limit(1) \
+            .execute()
+        rows = resp.data if resp.data else []
+        if not rows:
+            return {"error": "見つかりません"}, 404
+        row = rows[0]
+        return {"images": row["images"], "logs": row["logs"], "title": row.get("title", "")}
+    except Exception as e:
+        logger.error(f"リプレイ取得エラー: {e}")
+        return {"error": "取得に失敗しました"}, 500
 
 
 # ── 新弾フィーチャーページ ──
