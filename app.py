@@ -1184,7 +1184,8 @@ def api_wish_prices():
     for name in card_names:
         if name in pending_set:
             results.append({"name": name, "latest": None, "base_7d": None,
-                            "diff": None, "pct": None, "status": "pending"})
+                            "diff": None, "pct": None, "status": "pending",
+                            "image": _ygores_image_url(name)})
             continue
 
         dates = card_dates.get(name, {})
@@ -1205,6 +1206,7 @@ def api_wish_prices():
             "diff": diff,
             "pct": pct,
             "status": "ready",
+            "image": _ygores_image_url(name),
         })
 
     return jsonify({"cards": results})
