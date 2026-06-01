@@ -394,7 +394,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .pack-card-thumb img{width:100%;height:100%;object-fit:cover}
 
 /* ── 購入候補 ── */
-.wish-add{background:none;border:1px solid var(--border);color:var(--text-d);width:26px;height:26px;border-radius:50%;cursor:pointer;font-size:.85rem;line-height:1;display:inline-flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;padding:0}
+.wish-add{background:none;border:1px solid var(--border);color:var(--text-d);border-radius:13px;cursor:pointer;font-size:.72rem;font-weight:600;line-height:1;display:inline-flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;padding:3px 10px;white-space:nowrap}
 .wish-add:hover{border-color:var(--accent);color:var(--accent)}
 .wish-add.added{border-color:var(--green);color:var(--green);pointer-events:none}
 .wish-empty{text-align:center;padding:40px 20px;color:var(--text-d);font-size:.9rem}
@@ -1483,6 +1483,7 @@ function renderAll(d){
     <div id="cardDetail" class="card-detail"></div>
     <div class="share-btns">
       <button onclick="addToDeck('${escJs(searchTerm)}')" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ デッキに追加</button>
+      <button onclick="wishAddFromBtn(this,'${escJs(searchTerm)}',1)" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ 購入候補に追加</button>
       <div class="share-menu-wrap">
         <button class="share-btn share-btn-x" onclick="toggleShareMenu('shareMenuSell')">シェア</button>
         <div class="share-menu" id="shareMenuSell"></div>
@@ -3030,7 +3031,7 @@ function renderWishlist(){
   const el=document.getElementById('wishList');
   const actions=document.getElementById('wishActions');
   if(!list.length){
-    el.innerHTML='<div class="wish-empty">購入候補はまだありません<br><span style="font-size:.78rem;margin-top:8px;display:block">検索結果やデッキ計算の結果から + ボタンで追加できます</span></div>';
+    el.innerHTML='<div class="wish-empty">購入候補はまだありません<br><span style="font-size:.78rem;margin-top:8px;display:block">検索結果やデッキ計算の結果から「+ 候補」ボタンで追加できます</span></div>';
     actions.style.display='none';
     return;
   }
@@ -3070,13 +3071,14 @@ function wishToEstimate(){
 
 // 追加ボタンのHTMLを生成するヘルパー
 function wishBtnHtml(name,qty){
-  return `<button class="wish-add" onclick="event.stopPropagation();wishAddFromBtn(this,'${escJs(name)}',${qty||1})" title="購入候補に追加">+</button>`;
+  return `<button class="wish-add" onclick="event.stopPropagation();wishAddFromBtn(this,'${escJs(name)}',${qty||1})" title="購入候補に追加">+ 候補</button>`;
 }
 function wishAddFromBtn(btn,name,qty){
   wishAdd(name,qty);
+  const orig=btn.textContent;
   btn.classList.add('added');
-  btn.textContent='\u2713';
-  setTimeout(()=>{btn.classList.remove('added');btn.textContent='+';},1200);
+  btn.textContent='\u2713 \u8ffd\u52a0';
+  setTimeout(()=>{btn.classList.remove('added');btn.textContent=orig;},1200);
 }
 
 // 起動時: 価格データをロードしてからバッジ更新（サイトを開いた時に値下がりをバッジ表示）
