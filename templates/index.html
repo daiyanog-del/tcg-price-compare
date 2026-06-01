@@ -1196,7 +1196,8 @@ function _fetchCardInfo(cardName){
       if(!det) return;
       let meta='';
       if(data.card_type==='モンスター'){
-        meta=`${data.attribute||''} / Lv${data.level||'?'} / ATK ${data.atk??'-'} / DEF ${data.def??'-'}`;
+        const lvl=(data.rank!=null)?`Rank${data.rank}`:`Lv${data.level||'?'}`;
+        meta=`${data.attribute||''} / ${lvl} / ATK ${data.atk??'-'} / DEF ${data.def??'-'}`;
       } else {
         meta=data.card_type+(data.property?` (${data.property})`:'')||'';
       }

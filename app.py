@@ -1582,6 +1582,7 @@ def api_card_info():
             "atk": ja.get("atk"),
             "def": ja.get("def"),
             "level": ja.get("level"),
+            "rank": ja.get("rank"),
             "attribute": _ATTR_JA.get(ja.get("attribute") or "", ja.get("attribute") or ""),
             "property": _PROP_JA.get(ja.get("property") or "", ja.get("property") or ""),
             "effect_text": ja.get("effectText", ""),
