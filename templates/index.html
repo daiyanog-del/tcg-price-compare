@@ -2036,34 +2036,44 @@ function renderFeatured(){
 }
 
 function _setupFeaturedThumbObserver(){
-  if(_featuredThumbObserver) _featuredThumbObserver.disconnect();
-  _featuredThumbObserver=new IntersectionObserver((entries)=>{
-    entries.forEach(entry=>{
-      if(!entry.isIntersecting) return;
-      const el=entry.target;
-      const name=el.dataset.card;
-      if(!name||el.dataset.loaded) return;
-      el.dataset.loaded='1';
-      _featuredThumbObserver.unobserve(el);
-      fetch('/api/card-image?name='+encodeURIComponent(name))
-        .then(r=>r.json())
-        .then(d=>{
-          if(d.url&&safeUrl(d.url)){
-            const img=document.createElement('img');
-            img.src=safeUrl(d.url);
-            img.alt='';
-            img.loading='lazy';
-            img.onerror=function(){this.parentElement.style.display='none';};
-            el.appendChild(img);
-          }else{
-            el.style.display='none';
-          }
-        })
-        .catch(()=>{el.style.display='none';});
-    });
-  },{rootMargin:'200px'});
-  document.querySelectorAll('#featuredCardGrid .pack-card-thumb[data-card]').forEach(el=>{
-    _featuredThumbObserver.observe(el);
+  _setupThumbObserver('#featuredCardGrid');
+}
+
+// 指定コンテナ内の .pack-card-thumb[data-card] に画像遅延ロードを設定する汎用関数
+let _thumbObserver=null;
+function _setupThumbObserver(containerSelector){
+  // 既存のオブザーバーに新しいコンテナの要素を追加（複数コンテナ対応）
+  if(!_thumbObserver){
+    _thumbObserver=new IntersectionObserver((entries)=>{
+      entries.forEach(entry=>{
+        if(!entry.isIntersecting) return;
+        const el=entry.target;
+        const name=el.dataset.card;
+        if(!name||el.dataset.loaded) return;
+        el.dataset.loaded='1';
+        _thumbObserver.unobserve(el);
+        fetch('/api/card-image?name='+encodeURIComponent(name))
+          .then(r=>r.json())
+          .then(d=>{
+            if(d.url&&safeUrl(d.url)){
+              const img=document.createElement('img');
+              img.src=safeUrl(d.url);
+              img.alt='';
+              img.loading='lazy';
+              img.onerror=function(){this.parentElement.style.display='none';};
+              el.appendChild(img);
+            }else{
+              el.style.display='none';
+            }
+          })
+          .catch(()=>{el.style.display='none';});
+      });
+    },{rootMargin:'200px'});
+  }
+  const container=document.querySelector(containerSelector);
+  if(!container) return;
+  container.querySelectorAll('.pack-card-thumb[data-card]').forEach(el=>{
+    _thumbObserver.observe(el);
   });
 }
 
@@ -2178,6 +2188,7 @@ async function loadPackCards(packName, wikiPage, tcgName){
     let listHtml='';
     data.cards.forEach((name,i)=>{
       listHtml+=`<div class="pack-card-item clickable" onclick="searchCard('${escJs(name)}')">`
+        +`<span class="pack-card-thumb" data-card="${esc(name)}"></span>`
         +`<span class="pack-card-num">${i+1}</span>`
         +`<span class="pack-card-name">${esc(name)}</span>`
         +`</div>`;
@@ -2185,7 +2196,8 @@ async function loadPackCards(packName, wikiPage, tcgName){
 
     detailEl.innerHTML='<h4>'+esc(packName)+' — 収録カード（'+data.count+'種）</h4>'
       +'<div class="meta-note" style="margin-bottom:8px">カード名をタップすると価格を検索します</div>'
-      +'<div class="pack-card-grid" style="max-height:400px;overflow-y:auto">'+listHtml+'</div>';
+      +'<div class="pack-card-grid" id="packDetailGrid" style="max-height:400px;overflow-y:auto">'+listHtml+'</div>';
+    _setupThumbObserver('#packDetailGrid');
   }catch(e){
     detailEl.innerHTML='<div class="meta-loading">読込に失敗しました</div>';
   }
