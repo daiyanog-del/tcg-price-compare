@@ -16,14 +16,11 @@
   flex-shrink: 0;
   position: sticky;
   top: 0;
-  height: 100vh;
+  max-height: 100vh;
   overflow-y: auto;
   background: #0b1428;
   border-right: 1px solid var(--border);
   box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  gap: 0;
 }
 
 /* スクロールバーを細く */
@@ -207,12 +204,7 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
-  max-height: 360px;
-  overflow-y: auto;
-  padding-right: 2px;
 }
-.meta-tier-list::-webkit-scrollbar { width: 3px; }
-.meta-tier-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
 .meta-tier-btn {
   width: 100%;
