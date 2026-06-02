@@ -26,16 +26,18 @@ function parseDeckList(text) {
 }
 
 /**
- * プールからダミー（初期）カードを除去する
- * card-manager が id="initial" で登録した裏面プレースホルダーを削除
+ * 盤面・手札のカードをデッキに戻してから、プールの全カードを削除する
+ * 新しいデッキを読み込む前に呼ぶ
  */
-function clearInitialCards() {
+async function clearAllCards() {
+  // フィールド・手札・墓地等のカードをすべてプールに戻す
+  const { returnAllCardsToDeck } = await import('../components/card-manager.js');
+  returnAllCardsToDeck();
+
+  // プールの全カードを削除（ダミーも前デッキのカードも）
   ['poolRow', 'poolRow2'].forEach(poolId => {
     const pool = document.getElementById(poolId);
-    if (!pool) return;
-    pool.querySelectorAll('.tier-item-wrapper').forEach(wrapper => {
-      if (wrapper.id === 'initial') wrapper.remove();
-    });
+    if (pool) pool.innerHTML = '';
   });
 }
 
@@ -80,7 +82,7 @@ export async function loadDeckFromText(text) {
   const cards = parseDeckList(text);
   if (cards.length === 0) { alert('デッキリストが空です'); return; }
 
-  clearInitialCards();
+  await clearAllCards();
 
   const msg = document.getElementById('deckLoadingMsg');
   if (msg) { msg.textContent = 'カード画像を読み込み中...'; msg.style.display = 'block'; }
@@ -105,7 +107,7 @@ export async function loadMetaDeck(theme) {
     const fullDeck = data.full_deck;  // [{name, qty, is_ex}]
     if (!fullDeck || fullDeck.length === 0) throw new Error('デッキリストが取得できませんでした');
 
-    clearInitialCards();
+    await clearAllCards();
 
     for (const { name, qty, is_ex } of fullDeck) {
       // is_ex フィールドを直接使用（meta_scraper.py 側で付与済み）
