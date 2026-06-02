@@ -2958,12 +2958,15 @@ const WISH_KEY='cardprice_wishlist';
 // 直近の /api/wish-prices 結果キャッシュ（name -> {latest, base_7d, diff, pct, status}）
 // null = まだロードしていない。{} 以上 = ロード試行済み（成功・失敗を問わず）
 let _wishPrices = null;
+let _wishPricesTime = 0;
+const _WISH_PRICES_TTL = 10 * 60 * 1000; // 10分でキャッシュ失効
 
 // /api/wish-prices を呼んで _wishPrices を更新する
 async function loadWishPrices(){
   const list=wishGet();
   // ロード試行済みとしてマーク（null → {} で「試行済み」になる）
   _wishPrices={};
+  _wishPricesTime=Date.now();
   if(!list.length) return;
   try{
     const res=await fetch('/api/wish-prices',{method:'POST',
@@ -3005,7 +3008,7 @@ function wishAdd(name,qty){
   const list=wishGet();
   const existing=list.find(c=>c.name===name);
   if(existing){existing.qty+=qty||1;}
-  else{list.push({name:name,qty:qty||1});}
+  else{list.push({name:name,qty:qty||1});_wishPrices=null;} // 新カードは価格キャッシュをリセット
   wishSave(list);
   // 価格収集対象に登録（fire-and-forget。失敗しても UI に影響しない）
   fetch('/api/track',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -3058,8 +3061,8 @@ function renderWishlist(){
     return;
   }
   actions.style.display='flex';
-  // 価格データが未ロード（null）の場合だけロードして再描画（失敗後の再試行はしない）
-  if(_wishPrices===null){
+  // 未ロード or TTL切れ の場合にロードして再描画
+  if(_wishPrices===null || Date.now()-_wishPricesTime > _WISH_PRICES_TTL){
     loadWishPrices().then(()=>{wishUpdateBadge();renderWishlist();});
   }
   el.innerHTML=list.map(c=>{
