@@ -3,12 +3,17 @@
  * カード配置とゲーム状態をlocalStorageに保存・復元
  */
 
+import { enableTouchDrag } from '../components/drag-drop.js';
+import { getCardState, applyCardState } from '../components/card-state.js';
+import { openCardContextMenu } from '../ui/context-menu.js';
+
 const SAVE_KEY_PREFIX = 'card-sim-save-slot-';
 const MAX_SLOTS = 5;
 const SESSION_RESUME_KEY = 'sol-session-resume';
 
 /**
  * スロット内のカード情報を取得
+ * セット（裏面）状態のカードは元画像URL（faceSrc）を保存する
  * @param {Element} slot - スロット要素
  * @returns {Array} - カード情報の配列
  */
@@ -19,11 +24,15 @@ function getCardsFromSlot(slot) {
   wrappers.forEach(wrapper => {
     const img = wrapper.querySelector('img');
     if (img) {
+      // 裏面の場合は元画像URL（dataset.faceSrc）を保存。表面の場合はimg.srcをそのまま保存
+      const srcToSave = img.dataset.faceSrc || img.src;
+      const state     = getCardState(wrapper);
       cards.push({
-        id: wrapper.id,
-        src: img.src,
-        style: wrapper.getAttribute('style') || '',
+        id:       wrapper.id,
+        src:      srcToSave,
+        style:    wrapper.getAttribute('style') || '',
         cardName: img.dataset.cardName || '',
+        state,   // { orientation, face, faceSrc }
       });
     }
   });
@@ -148,21 +157,28 @@ function restoreCardsToSlot(slot, cards) {
     }
 
     const img = document.createElement('img');
+    // セット状態でも元画像URLを設定（applyCardState内で裏面に差し替えられる）
     img.src = cardData.src;
     img.className = 'tier-item';
     img.setAttribute('draggable', 'true');
     img.id = cardData.id.split(' ')[0];
     if (cardData.cardName) img.dataset.cardName = cardData.cardName;
 
-    // イベントリスナーを再設定
+    // イベントリスナーを再設定（リスナー漏れを防ぐ）
     img.addEventListener('dragstart', window.drag);
+    img.addEventListener('touchstart', enableTouchDrag, { passive: false });
     img.addEventListener('contextmenu', (e) => {
       e.preventDefault();
-      // 右クリック処理は既存のロジックに委譲
+      openCardContextMenu(wrapper, img, e.clientX, e.clientY);
     });
 
     wrapper.appendChild(img);
     slot.appendChild(wrapper);
+
+    // カード状態を復元（守備表示・セット）
+    if (cardData.state) {
+      applyCardState(wrapper, cardData.state);
+    }
   });
 }
 

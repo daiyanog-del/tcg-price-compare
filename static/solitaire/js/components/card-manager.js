@@ -1,4 +1,6 @@
 import { enableTouchDrag } from './drag-drop.js';
+import { applyCardState } from './card-state.js';
+import { openCardContextMenu } from '../ui/context-menu.js';
 
 /**
  * カード管理モジュール
@@ -37,37 +39,14 @@ function createCardElement(src, isEx = false) {
   img.addEventListener('dragstart', window.drag);
   img.addEventListener('touchstart', enableTouchDrag, { passive: false });
 
-  // 右クリック処理
+  // 右クリック: コンテキストメニューを開く
   img.addEventListener('contextmenu', (e) => {
     e.preventDefault();
-    handleCardRightClick(wrapper, img);
+    openCardContextMenu(wrapper, img, e.clientX, e.clientY);
   });
 
   wrapper.appendChild(img);
   return wrapper;
-}
-
-/**
- * カードの右クリック処理
- * @param {Element} wrapper - カードラッパー
- * @param {Element} img - 画像要素
- */
-function handleCardRightClick(wrapper, img) {
-  const parent = wrapper.parentElement;
-  const poolRow = document.getElementById('poolRow');
-
-  // 初期画像は削除不可
-  if (parent.id === 'poolRow' && !initialImageSrcs.includes(img.src)) {
-    wrapper.remove(); // プール内なら削除
-  } else if (parent.id !== 'poolRow') {
-    // プール外ならプールに戻す（リプレイフック）
-    const isEx = wrapper.id.includes('ex');
-    if (typeof window.replayLog === 'function') {
-      window.replayLog({ actionType: 'returnToDeck', cardId: img.id, isEx });
-    }
-    wrapper.style = '';
-    poolRow.appendChild(wrapper);
-  }
 }
 
 /**
@@ -154,6 +133,7 @@ export function getCardsFromPool(poolId, type) {
  */
 export function returnCardToPool(card, poolId) {
   card.style = '';
+  applyCardState(card, {}); // 守備・セット状態をクリア
   const pool = document.getElementById(poolId);
   if (pool) {
     pool.appendChild(card);
@@ -173,6 +153,7 @@ export function returnAllCardsToDeck() {
   const allItemsMain = mainContent.querySelectorAll('.tier-item-wrapper');
   allItemsMain.forEach(item => {
     item.style = '';
+    applyCardState(item, {}); // 守備・セット状態をクリア
     if (item.id.includes('ex')) {
       poolRow2.appendChild(item);
     } else {
@@ -184,6 +165,7 @@ export function returnAllCardsToDeck() {
   const allItemsCenter = centerSlot.querySelectorAll('.tier-item-wrapper');
   allItemsCenter.forEach(item => {
     item.style = '';
+    applyCardState(item, {}); // 守備・セット状態をクリア
     if (item.id.includes('ex')) {
       poolRow2.appendChild(item);
     } else {

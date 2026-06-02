@@ -42,7 +42,7 @@
 
 #poolRow {
   max-height: var(--slot-width);
-  min-height: calc(var(--slot-height) * 1.3);
+  min-height: var(--slot-height);
   overflow-x: auto;
   overflow-y: hidden;
   display: flex;
@@ -53,7 +53,7 @@
 
 #poolRow2 {
   max-height: var(--slot-width);
-  min-height: calc(var(--slot-height) * 1.3);
+  min-height: var(--slot-height);
   overflow-x: auto;
   overflow-y: hidden;
   display: flex;
@@ -154,7 +154,7 @@
   align-items: flex-start;
   gap: 12px;
   width: calc(var(--slot-width) * 5.5);
-  height: calc(var(--slot-height) * 1.1);
+  height: var(--slot-height);
   background: #fff;
   border: 2.5px solid #bdbdbd;
   border-radius: 16px;
@@ -359,6 +359,63 @@
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
+}
+
+/* ── カード状態（守備表示・セット） ───────────────────────────── */
+
+/* 守備表示: 90度回転。overflow:visible でクリップを解除 */
+.tier-item-wrapper.is-defense {
+  overflow: visible;
+}
+
+.tier-item-wrapper.is-defense .tier-item {
+  transform: rotate(90deg);
+  transform-origin: center center;
+}
+
+/* セット（裏側表示）: 薄暗い枠で裏面感を演出 */
+.tier-item-wrapper.is-set .tier-item {
+  filter: brightness(0.85);
+}
+
+/* ── コンテキストメニュー ────────────────────────────────────── */
+
+.sol-context-menu {
+  position: fixed;
+  z-index: 9999;
+  min-width: 160px;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  padding: 4px 0;
+  margin: 0;
+  list-style: none;
+  font-size: 0.9rem;
+  color: #222;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.sol-context-menu-item {
+  padding: 8px 16px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s;
+}
+
+.sol-context-menu-item:hover,
+.sol-context-menu-item:focus {
+  background: #f0f4ff;
+  outline: none;
+}
+
+.sol-context-menu-sep {
+  height: 1px;
+  background: #e0e0e0;
+  margin: 4px 0;
+  padding: 0;
+  pointer-events: none;
 }
 
 /* Twitterリンク */

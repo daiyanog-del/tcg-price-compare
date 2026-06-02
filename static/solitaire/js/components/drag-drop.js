@@ -1,8 +1,14 @@
 import { initializeCounter } from './counter-manager.js';
+import { applyDefense, applySet, toggleDefense, getCardState } from './card-state.js';
+import { openCardContextMenu } from '../ui/context-menu.js';
 
 /**
  * ドラッグ&ドロップ統合管理
  * デスクトップとタッチデバイスの両方に対応
+ *
+ * 修飾キー対応（Shift/Ctrl + ドロップ）:
+ *   Shift のみ       … 守備表示トグル
+ *   Shift + Ctrl     … セット（裏側表示）
  */
 
 // ドロップゾーンの種類
@@ -63,10 +69,12 @@ function resetCardStyle(card, resetTop = true) {
 
 /**
  * カスタムスロットにカードを配置（重ね配置）
- * @param {Element} slot - スロット要素
- * @param {Element} card - カード要素
+ * @param {Element} slot  - スロット要素
+ * @param {Element} card  - カード要素
+ * @param {Object}  [opts]
+ * @param {boolean} [opts.under=false] - true=最背面（下重ね）に配置
  */
-function placeCardInCustomSlot(slot, card) {
+function placeCardInCustomSlot(slot, card, { under = false } = {}) {
   const existingItems = Array.from(slot.querySelectorAll('.tier-item-wrapper'));
 
   // 同じ場所にドロップした場合は何もしない
@@ -76,18 +84,30 @@ function placeCardInCustomSlot(slot, card) {
 
   const baseZIndex = 1;
 
-  // 既存のカードの位置を調整
-  existingItems.forEach((item, index) => {
-    item.style.position = 'absolute';
-    item.style.zIndex = `${baseZIndex + index}`;
-  });
+  if (under && existingItems.length > 0) {
+    // 下重ね: 既存カードを 2..N に底上げ、新規カードを 1（最背面）に
+    const others = existingItems.filter(el => el !== card);
+    others.forEach((item, index) => {
+      item.style.position = 'absolute';
+      item.style.zIndex   = String(baseZIndex + 1 + index);
+      item.style.top      = index === 0 ? '0' : `calc(var(--slot-width) * 0.${index})`;
+    });
+    card.style.position = 'absolute';
+    card.style.zIndex   = String(baseZIndex);
+    card.style.top      = '0';
+    slot.insertBefore(card, slot.firstChild);
+  } else {
+    // 通常（上重ね）: 既存カードを整列し、新規カードを最前面に
+    existingItems.forEach((item, index) => {
+      item.style.position = 'absolute';
+      item.style.zIndex   = `${baseZIndex + index}`;
+    });
 
-  // ドロップされたカードを最前面に配置
-  card.style.position = 'absolute';
-  card.style.top = `calc(var(--slot-width) * 0.${existingItems.length})`;
-  card.style.zIndex = `${baseZIndex + existingItems.length}`;
-
-  slot.appendChild(card);
+    card.style.position = 'absolute';
+    card.style.top      = `calc(var(--slot-width) * 0.${existingItems.length})`;
+    card.style.zIndex   = `${baseZIndex + existingItems.length}`;
+    slot.appendChild(card);
+  }
 }
 
 /**
@@ -140,7 +160,7 @@ function placeCounterOnCard(card, counter) {
  * @param {Element} zoneElement
  * @returns {string}
  */
-function getZoneId(zoneElement) {
+export function getZoneId(zoneElement) {
   const cls = zoneElement.className || '';
   if (zoneElement.id === 'poolRow') return 'poolRow';
   if (zoneElement.id === 'poolRow2') return 'poolRow2';
@@ -163,11 +183,12 @@ function getZoneId(zoneElement) {
 
 /**
  * ドロップ処理の実行
- * @param {Object} draggedInfo - ドラッグ対象情報
+ * @param {Object} draggedInfo  - ドラッグ対象情報
  * @param {Object} dropZoneInfo - ドロップ先情報
- * @param {Element} dropTarget - 具体的なドロップ先要素
+ * @param {Element} dropTarget  - 具体的なドロップ先要素
+ * @param {Object} [modifiers]  - 修飾キー {shift, ctrl}
  */
-function executeDrop(draggedInfo, dropZoneInfo, dropTarget) {
+function executeDrop(draggedInfo, dropZoneInfo, dropTarget, modifiers = {}) {
   const { type: dragType, element: draggedElement } = draggedInfo;
 
   // カウンターのドロップ処理
@@ -194,6 +215,13 @@ function executeDrop(draggedInfo, dropZoneInfo, dropTarget) {
         const before = dropZone.querySelectorAll('.tier-item-wrapper').length;
         placeCardInCustomSlot(dropZone, draggedElement);
         zIndex = String(before + 1);
+
+        // 修飾キーによる状態変更（Shift+Ctrl=セット / Shiftのみ=守備トグル）
+        if (modifiers.shift && modifiers.ctrl) {
+          applySet(draggedElement, true);
+        } else if (modifiers.shift) {
+          toggleDefense(draggedElement);
+        }
         break;
       }
       case 'CENTER_SLOT':
@@ -206,12 +234,15 @@ function executeDrop(draggedInfo, dropZoneInfo, dropTarget) {
     if (typeof window.replayLog === 'function') {
       const cardId = draggedElement.querySelector('img')?.id;
       if (cardId) {
+        const state = getCardState(draggedElement);
         window.replayLog({
-          actionType: 'moveCard',
+          actionType:  'moveCard',
           cardId,
-          zoneId: getZoneId(dropZone),
-          zIndex: zIndex ?? '1',
-          transform: draggedElement.style.transform || '',
+          zoneId:      getZoneId(dropZone),
+          zIndex:      zIndex ?? '1',
+          transform:   draggedElement.style.transform || '',
+          orientation: state.orientation,
+          face:        state.face,
         });
       }
     }
@@ -232,7 +263,7 @@ export function initializeDesktopDragDrop() {
     ev.dataTransfer.setData('text/plain', ev.target.id);
   };
 
-  // drop
+  // drop（Shift/Ctrl 修飾キーを executeDrop に渡す）
   window.drop = function(ev) {
     ev.preventDefault();
 
@@ -246,12 +277,13 @@ export function initializeDesktopDragDrop() {
     const dropZoneInfo = getDropZoneInfo(ev.target);
     if (!dropZoneInfo) return;
 
-    executeDrop(draggedInfo, dropZoneInfo, ev.target);
+    const modifiers = { shift: ev.shiftKey, ctrl: ev.ctrlKey || ev.metaKey };
+    executeDrop(draggedInfo, dropZoneInfo, ev.target, modifiers);
   };
 }
 
 /**
- * タッチドラッグ&ドロップの初期化
+ * タッチドラッグ&ドロップの初期化（長押し=コンテキストメニュー対応）
  * @param {TouchEvent} ev - touchstartイベント
  */
 export function enableTouchDrag(ev) {
@@ -261,27 +293,65 @@ export function enableTouchDrag(ev) {
   if (!draggedInfo) return;
 
   const { element: draggingElem } = draggedInfo;
+  const touch0 = ev.touches[0];
+  const startX = touch0.clientX;
+  const startY = touch0.clientY;
+  let isDragging   = false;
   let shouldResetTop = true;
+
+  // カードの長押しタイマー（500ms でコンテキストメニューを開く）
+  let longPressTimer = null;
+  if (draggedInfo.type === 'card') {
+    longPressTimer = setTimeout(() => {
+      longPressTimer = null;
+      if (!isDragging) {
+        // ドラッグ開始前に指が止まっていた → 長押しと判定してメニュー表示
+        draggingElem.classList.remove('touch-dragging');
+        resetCardStyle(draggingElem, true);
+        document.removeEventListener('touchmove', handleTouchMove);
+        document.removeEventListener('touchend', handleTouchEnd);
+        const img = draggingElem.querySelector('img.tier-item');
+        if (img) openCardContextMenu(draggingElem, img, startX, startY);
+      }
+    }, 500);
+  }
 
   // タッチ移動時の処理
   const handleTouchMove = (ev) => {
     const touch = ev.touches[0];
-    draggingElem.classList.add('touch-dragging');
-    draggingElem.style.left = `${touch.clientX - draggingElem.offsetWidth / 2}px`;
-    draggingElem.style.top = `${touch.clientY - draggingElem.offsetHeight / 2}px`;
+    const dx = touch.clientX - startX;
+    const dy = touch.clientY - startY;
+
+    // 8px以上動いたらドラッグ開始（タイマーキャンセル）
+    if (!isDragging && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+      isDragging = true;
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+
+    if (isDragging) {
+      draggingElem.classList.add('touch-dragging');
+      draggingElem.style.left = `${touch.clientX - draggingElem.offsetWidth / 2}px`;
+      draggingElem.style.top  = `${touch.clientY - draggingElem.offsetHeight / 2}px`;
+    }
   };
 
   // タッチ終了時の処理
   const handleTouchEnd = (ev) => {
-    const touch = ev.changedTouches[0];
-    const dropTarget = document.elementFromPoint(touch.clientX, touch.clientY);
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
 
-    if (dropTarget) {
-      const dropZoneInfo = getDropZoneInfo(dropTarget);
-      if (dropZoneInfo) {
-        // カスタムスロットの場合はtopをリセットしない
-        shouldResetTop = dropZoneInfo.type !== 'CUSTOM_SLOT';
-        executeDrop(draggedInfo, dropZoneInfo, dropTarget);
+    if (isDragging) {
+      const touch = ev.changedTouches[0];
+      const dropTarget = document.elementFromPoint(touch.clientX, touch.clientY);
+
+      if (dropTarget) {
+        const dropZoneInfo = getDropZoneInfo(dropTarget);
+        if (dropZoneInfo) {
+          // タッチは修飾キーなし（状態変更は長押しメニューを使う）
+          shouldResetTop = dropZoneInfo.type !== 'CUSTOM_SLOT';
+          executeDrop(draggedInfo, dropZoneInfo, dropTarget, {});
+        }
       }
     }
 

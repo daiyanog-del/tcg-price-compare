@@ -10,10 +10,10 @@
  *   logs   = [ ...event ]      … 操作ログ（軽い部分。URL共有に向く）
  *
  * イベントスキーマ:
- *   { seq, actionType, cardId?, zoneId?, zIndex?, transform?, counter?, text? }
+ *   { seq, actionType, cardId?, zoneId?, zIndex?, transform?, orientation?, face?, counter?, text? }
  *
  * actionType:
- *   moveCard    … カードをゾーンに移動
+ *   moveCard    … カードをゾーンに移動（orientation/face も含む）
  *   draw        … デッキからドロー（cardId=ドローしたカードID）
  *   returnToDeck … カードをデッキに戻す
  *   resetDeck   … 全リセット&5ドロー
@@ -29,6 +29,7 @@
  */
 
 import { returnAllCardsToDeck } from '../components/card-manager.js';
+import { applyCardState } from '../components/card-state.js';
 
 // ── 状態 ──────────────────────────────────────────────
 let _images = {};   // { cardId: src }
@@ -266,9 +267,9 @@ function _applyEvent(event) {
   }
 }
 
-/** moveCard: cardId のカードを zoneId に移動 */
+/** moveCard: cardId のカードを zoneId に移動（守備・セット状態も復元） */
 function _applyMoveCard(event) {
-  const { cardId, zoneId, zIndex, transform } = event;
+  const { cardId, zoneId, zIndex, transform, orientation, face } = event;
   const card = _findCardWrapper(cardId);
   if (!card) return;
 
@@ -276,10 +277,11 @@ function _applyMoveCard(event) {
   if (!zone) return;
 
   card.style.transform = transform || '';
+  applyCardState(card, { orientation, face });
   _placeCardInZone(zone, card, zIndex);
 }
 
-/** draw: cardId をデッキから手札(center-slot)へ */
+/** draw: cardId をデッキから手札(center-slot)へ（状態クリア） */
 function _applyDraw(event) {
   const { cardId } = event;
   const card = _findCardWrapper(cardId);
@@ -287,10 +289,11 @@ function _applyDraw(event) {
   const center = document.querySelector('.center-slot');
   if (!center) return;
   card.style = '';
+  applyCardState(card, {}); // 守備・セット状態をクリア
   center.appendChild(card);
 }
 
-/** returnToDeck: cardId をプールへ戻す */
+/** returnToDeck: cardId をプールへ戻す（状態クリア） */
 function _applyReturnToDeck(event) {
   const { cardId, isEx } = event;
   const card = _findCardWrapper(cardId);
@@ -299,13 +302,14 @@ function _applyReturnToDeck(event) {
   const pool = document.getElementById(poolId);
   if (!pool) return;
   card.style = '';
+  applyCardState(card, {}); // 守備・セット状態をクリア
   pool.appendChild(card);
 }
 
 /** resetDeck: 全戻し&5ドロー */
 function _applyResetDeck(event) {
   const { drawnIds } = event;
-  returnAllCardsToDeck();
+  returnAllCardsToDeck(); // 内部で applyCardState({}) が呼ばれる
   if (!drawnIds || !drawnIds.length) return;
   const center = document.querySelector('.center-slot');
   if (!center) return;
@@ -380,19 +384,38 @@ function _placeCardInZone(zone, card, zIndex) {
   } else if (zoneCls.includes('custom-slot')) {
     // フィールドスロット（重ね置き）
     const existingItems = Array.from(zone.querySelectorAll('.tier-item-wrapper'));
+    const zNum = parseInt(zIndex ?? '1', 10);
+
     if (existingItems.length > 0 && existingItems[0] !== card) {
       const baseZ = 1;
-      existingItems.forEach((item, idx) => {
-        item.style.position = 'absolute';
-        item.style.zIndex = `${baseZ + idx}`;
-      });
-      card.style.position = 'absolute';
-      card.style.top = `calc(var(--slot-width) * 0.${existingItems.length})`;
-      card.style.zIndex = zIndex ?? `${baseZ + existingItems.length}`;
+
+      if (zNum <= 1 && existingItems.length > 0) {
+        // 下重ね（zIndex=1 かつ既存カードがある場合）
+        const others = existingItems.filter(el => el !== card);
+        others.forEach((el, idx) => {
+          el.style.position = 'absolute';
+          el.style.zIndex   = String(baseZ + 1 + idx);
+          el.style.top      = idx === 0 ? '0' : `calc(var(--slot-width) * 0.${idx})`;
+        });
+        card.style.position = 'absolute';
+        card.style.zIndex   = String(baseZ);
+        card.style.top      = '0';
+        zone.insertBefore(card, zone.firstChild);
+      } else {
+        // 通常の上重ね
+        existingItems.forEach((item, idx) => {
+          item.style.position = 'absolute';
+          item.style.zIndex   = `${baseZ + idx}`;
+        });
+        card.style.position = 'absolute';
+        card.style.top      = `calc(var(--slot-width) * 0.${existingItems.length})`;
+        card.style.zIndex   = zIndex ?? `${baseZ + existingItems.length}`;
+        zone.appendChild(card);
+      }
     } else {
       card.style = '';
+      zone.appendChild(card);
     }
-    zone.appendChild(card);
   } else {
     // center-slot / side-slot / free-space
     card.style = '';
