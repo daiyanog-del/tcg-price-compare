@@ -56,7 +56,6 @@ async function _fetchAndShow(name, imgSrc) {
     ]);
     const data = await infoRes.json();
     const priceData = priceRes ? await priceRes.json().catch(() => null) : null;
-    console.log('[price-debug] name:', name, '| priceRes.ok:', priceRes?.ok, '| data.length:', priceData?.data?.length, '| priceData:', priceData);
     if (data.found) {
       _renderCard(data, imgSrc, name, priceData);
     } else {
@@ -154,21 +153,17 @@ function _buildPriceHtml(name, priceData) {
   const searchUrl = '/card/' + encodeURIComponent(name);
   const buyUrl    = '/buy/'  + encodeURIComponent(name);
 
-  let priceInfo = '';
   const best = _bestFromHistory(priceData);
-  if (best) {
-    const price = Number(best.price).toLocaleString('ja-JP');
-    priceInfo = `<p class="cip-price-val">¥${price}<span class="cip-price-shop">${_esc(best.shop)}</span></p>`;
-  } else {
-    priceInfo = `<p class="cip-price-val cip-price-none">価格データなし</p>`;
-  }
+  const priceInfo = best
+    ? `<p class="cip-price-val">¥${Number(best.price).toLocaleString('ja-JP')}<span class="cip-price-shop">${_esc(best.shop)}</span></p>`
+    : '';
 
   return `
     <div class="cip-price">
       ${priceInfo}
       <div class="cip-price-links">
-        <a href="${searchUrl}" target="_blank" rel="noopener" class="cip-price-link">販売価格</a>
-        <a href="${buyUrl}"    target="_blank" rel="noopener" class="cip-price-link cip-buy-link">買取価格</a>
+        <a href="${searchUrl}" target="_blank" rel="noopener" class="cip-price-link">販売価格を調べる</a>
+        <a href="${buyUrl}"    target="_blank" rel="noopener" class="cip-price-link cip-buy-link">買取価格を調べる</a>
       </div>
     </div>
   `;
