@@ -21,7 +21,7 @@
 
 /* 左サイドバー */
 .sol-sidebar {
-  width: 260px;
+  width: 200px;
   flex-shrink: 0;
   position: sticky;
   top: 0;
