@@ -197,6 +197,7 @@ table.res th:hover{color:var(--accent-l)}
 table.res th .arr{font-size:.58rem;margin-left:2px}
 table.res td{padding:8px 10px;border-bottom:1px solid rgba(37,37,64,.5);vertical-align:middle}
 table.res tr:hover td{background:var(--bg-hover)}
+table.res tr.row-clickable{cursor:pointer}
 table.res tr.sold-out td{opacity:.45}
 table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-color:var(--red)}
 .col-price{font:600 .82rem var(--mono);text-align:right;white-space:nowrap}
@@ -1610,7 +1611,9 @@ function renderTable(){
       ?`<a class="row-link" href="${esc(linkUrl)}" target="_blank" rel="noopener nofollow">${esc(r.name)}</a>`
       :esc(r.name);
     const cond=r.condition==='セール'?'<span style="color:var(--gold)">セール</span>':esc(r.condition);
-    return`<tr class="${so}">
+    const rowClass=[so,linkUrl?'row-clickable':''].filter(Boolean).join(' ');
+    const rowHref=linkUrl?`data-href="${esc(linkUrl)}"`:'';
+    return`<tr class="${rowClass}" ${rowHref}>
       <td data-label="" class="col-img"><div class="tbl-img"></div></td>
       <td data-label="レアリティ"><span class="rb ${rc}">${esc(r.rarity||'-')}</span></td>
       <td data-label="カード名" class="col-name">${nameLink}</td>
@@ -1626,6 +1629,13 @@ function renderTable(){
     const arr=th.querySelector('.arr');
     if(arr) arr.textContent=th.dataset.s===sort.k?(sort.a?'▲':'▼'):'';
   });
+
+  // 行クリックで商品ページへ（a・button クリックは除外）
+  document.getElementById('tbl')?.addEventListener('click',e=>{
+    if(e.target.closest('a,button')) return;
+    const tr=e.target.closest('tr.row-clickable');
+    if(tr?.dataset.href) window.open(tr.dataset.href,'_blank','noopener');
+  },{capture:false});
 
   // Fill in card images if already loaded
   if(cardImgSmall){
