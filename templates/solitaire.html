@@ -178,23 +178,23 @@
           </div>
         </div>
 
-        <!-- 手札エリア（カウンター・ボタンを除いた手札のみ） -->
+        <!-- 手札 + EXデッキ -->
         <div class="center-row">
           <div class="center-group">
             <div class="center-slot-label">手札</div>
             <div class="center-slot" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
           </div>
+          <div id="imagePool2" class="pool" ondrop="drop(event)" ondragover="allowDrop(event)">
+            <div class="pool-label">EXデッキ</div>
+            <div class="tier-row" id="poolRow2"></div>
+          </div>
         </div>
       </div><!-- /#mainContainer -->
 
-      <!-- デッキ / EXデッキ -->
+      <!-- デッキ -->
       <div id="imagePool" class="pool" ondrop="drop(event)" ondragover="allowDrop(event)">
         <div class="pool-label">デッキ</div>
         <div class="tier-row" id="poolRow"></div>
-      </div>
-      <div id="imagePool2" class="pool" ondrop="drop(event)" ondragover="allowDrop(event)">
-        <div class="pool-label">EXデッキ</div>
-        <div class="tier-row" id="poolRow2"></div>
       </div>
 
       <!-- リプレイバー -->

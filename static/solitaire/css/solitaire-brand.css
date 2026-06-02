@@ -415,6 +415,12 @@ html, body {
 #free-space .side-slot {
   border-style: solid;
 }
+
+/* EXデッキを center-row 内に配置したときの調整 */
+.center-row #imagePool2 {
+  margin-top: 0;
+  align-self: flex-end;
+}
 .pool-label,
 .side-slot-label,
 .center-slot-label,
