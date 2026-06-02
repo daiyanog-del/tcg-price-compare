@@ -68,7 +68,10 @@ function _renderCard(data, imgSrc) {
   }
 
   // 属性・レベル行（モンスターのみ）
-  const level = data.level ? `Lv.${data.level}` : data.rank ? `Rank ${data.rank}` : '';
+  const level = data.level   ? `Lv.${data.level}`
+              : data.rank     ? `Rank ${data.rank}`
+              : data.link_val ? `LINK-${data.link_val}`
+              : '';
   const attrLine = isMonster
     ? [data.attribute, level].filter(Boolean).map(_esc).join(' &nbsp;·&nbsp; ')
     : '';

@@ -1815,6 +1815,7 @@ def api_card_info():
             "def": ja.get("def"),
             "level": ja.get("level"),
             "rank": ja.get("rank"),
+            "link_val": ja.get("linkRating"),
             "race": race,
             "attribute": _ATTR_JA.get(ja.get("attribute") or "", ja.get("attribute") or ""),
             "property": prop,
