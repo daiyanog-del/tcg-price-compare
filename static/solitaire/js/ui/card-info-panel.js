@@ -63,8 +63,8 @@ function _renderCard(data, imgSrc) {
       <img class="cip-img" src="${_esc(imgSrc)}" alt="${_esc(data.name || '')}">
       <div class="cip-meta">
         <p class="cip-name">${_esc(data.name || '')}</p>
-        <p class="cip-type">${_esc([data.card_type, data.race].filter(Boolean).join(' / '))}</p>
-        <p class="cip-attr">${_esc([data.attribute, level].filter(Boolean).join(' &nbsp;·&nbsp; '))}</p>
+        <p class="cip-type">${[data.card_type, data.race].filter(Boolean).map(_esc).join(' / ')}</p>
+        <p class="cip-attr">${[data.attribute, level].filter(Boolean).map(_esc).join(' &nbsp;·&nbsp; ')}</p>
         <p class="cip-stats">ATK <strong>${atk}</strong> &nbsp;/&nbsp; DEF <strong>${def}</strong></p>
       </div>
     </div>

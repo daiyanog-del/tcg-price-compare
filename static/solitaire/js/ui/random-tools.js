@@ -40,7 +40,10 @@ function _showOverlay(type, result) {
   label.textContent = '';
 
   overlay.style.display = 'flex';
-  overlay.classList.remove('sol-overlay-exit');
+  // exit クラスを除去してから active を付け直す（アニメーションを再トリガー）
+  overlay.classList.remove('sol-overlay-exit', 'sol-overlay-active');
+  void overlay.offsetWidth; // reflow でアニメーションをリセット
+  overlay.classList.add('sol-overlay-active');
 
   if (type === 'coin') {
     _animateCoin(face, label, result);
@@ -55,6 +58,7 @@ function _showOverlay(type, result) {
 function _dismiss() {
   const overlay = document.getElementById('randomOverlay');
   if (!overlay || overlay.style.display === 'none') return;
+  overlay.classList.remove('sol-overlay-active');
   overlay.classList.add('sol-overlay-exit');
   setTimeout(() => {
     overlay.style.display = 'none';
