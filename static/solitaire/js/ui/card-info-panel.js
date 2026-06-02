@@ -41,7 +41,7 @@ async function _fetchAndShow(name, imgSrc) {
     const res = await fetch(`${API_CARD_INFO}?name=${encodeURIComponent(name)}`);
     const data = await res.json();
     if (data.found) {
-      _renderCard(data, imgSrc);
+      _renderCard(data, imgSrc, name);
     } else {
       _showUnknown(imgSrc, name);
     }
@@ -50,7 +50,7 @@ async function _fetchAndShow(name, imgSrc) {
   }
 }
 
-function _renderCard(data, imgSrc) {
+function _renderCard(data, imgSrc, name) {
   const panel = document.getElementById('cardInfoPanel');
   if (!panel) return;
 
@@ -85,9 +85,9 @@ function _renderCard(data, imgSrc) {
 
   panel.innerHTML = `
     <div class="cip-header">
-      <img class="cip-img" src="${_esc(imgSrc)}" alt="${_esc(data.name || '')}">
+      <img class="cip-img" src="${_esc(imgSrc)}" alt="${_esc(name || '')}">
       <div class="cip-meta">
-        <p class="cip-name">${_esc(data.name || '')}</p>
+        <p class="cip-name">${_esc(name || '')}</p>
         <p class="cip-type">${typeLine}</p>
         ${attrLine ? `<p class="cip-attr">${attrLine}</p>` : ''}
         ${statsHtml}
