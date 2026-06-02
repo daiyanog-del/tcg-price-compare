@@ -51,8 +51,8 @@ function _showOverlay(type, result) {
     _animateDice(face, label, result);
   }
 
-  // 3.5秒後に自動消去
-  _dismissTimer = setTimeout(_dismiss, 3500);
+  // 4秒後に自動消去（転がし~1.2s + 結果表示~2.8s）
+  _dismissTimer = setTimeout(_dismiss, 4000);
 }
 
 function _dismiss() {
@@ -89,18 +89,17 @@ function _animateDice(face, label, finalResult) {
   face.classList.add('sol-dice-face');
 
   let step = 0;
-  const totalSteps = 20;
+  const totalSteps = 12; // 転がし時間: 約1.2s
 
   function tick() {
     const random = Math.floor(Math.random() * 6);
     face.textContent = DICE_FACES[random];
     step++;
 
-    // ステップが進むにつれてインターバルを延ばしスローダウン
-    const delay = step < 8  ? 50
-                : step < 14 ? 80 + (step - 8) * 25
-                : step < 18 ? 200 + (step - 14) * 50
-                : 350;
+    // 前半は高速、後半でスローダウン
+    const delay = step < 6  ? 45                       // 0〜5: 高速 (270ms)
+                : step < 10 ? 90 + (step - 6) * 35    // 6〜9: 減速 (90/125/160/195ms = 570ms)
+                :             260;                     // 10〜11: 仕上げ (520ms)
 
     if (step < totalSteps) {
       setTimeout(tick, delay);
