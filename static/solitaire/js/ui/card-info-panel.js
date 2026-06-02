@@ -56,7 +56,6 @@ async function _fetchAndShow(name, imgSrc) {
     ]);
     const data = await infoRes.json();
     const priceData = priceRes ? await priceRes.json().catch(() => null) : null;
-    console.log('[price-debug]', { sentName: name, resolvedName: priceData?.card_name, dataLen: priceData?.data?.length, debug: priceData?.debug, url: `${API_PRICE_HISTORY}?card=${encodeURIComponent(name)}` });
     if (data.found) {
       _renderCard(data, imgSrc, name, priceData);
     } else {

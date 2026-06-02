@@ -934,8 +934,7 @@ def api_price_history():
     card_name = _correct_cardname(card_name)
 
     if not _supabase_client:
-        logger.warning(f"[price-history] supabase未接続: {card_name}")
-        return jsonify({"card_name": card_name, "data": [], "debug": "no_supabase"})
+        return jsonify({"card_name": card_name, "data": []})
 
     try:
         cutoff = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
@@ -951,11 +950,10 @@ def api_price_history():
              "rarity": r.get("rarity", ""), "price": r.get("min_price", 0)}
             for r in (resp.data or [])
         ]
-        logger.info(f"[price-history] {card_name}: {len(data)}件")
-        return jsonify({"card_name": card_name, "data": data, "debug": f"{len(data)}rows"})
+        return jsonify({"card_name": card_name, "data": data})
     except Exception as e:
         logger.error(f"価格推移取得失敗: {e}")
-        return jsonify({"card_name": card_name, "data": [], "debug": str(e)})
+        return jsonify({"card_name": card_name, "data": []})
 
 TRENDING_MIN_ITEMS = 10  # この件数未満は「利用者が少ない」と見なし非表示
 
