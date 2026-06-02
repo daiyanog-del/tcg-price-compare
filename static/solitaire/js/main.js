@@ -45,13 +45,8 @@ function initializeApp() {
   // デスクトップドラッグ&ドロップを初期化
   initializeDesktopDragDrop();
 
-  // 初期カードを設定（裏面プレースホルダー）
-  const initialImages = [
-    '/static/solitaire/images/blanck.png',
-    '/static/solitaire/images/blanck.png',
-    '/static/solitaire/images/blanck.png',
-  ];
-  initializeCards(initialImages);
+  // ダミー画像なし（デッキ読込後にカードが追加される）
+  initializeCards([]);
 
   // カウンターを初期化
   document.querySelectorAll('.counter-container').forEach(container => {
