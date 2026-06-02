@@ -1300,11 +1300,12 @@ def api_wish_prices():
     have_data = [n for n in card_names if n in _estimate_cache]
     pending_set = set(card_names) - set(have_data)
 
-    # データあり分: price_history から直近8日分を一括取得して日次最安値を計算
-    card_dates: dict = {}
-    if have_data and _supabase_client:
+    def _fetch_price_history(names: list, days: int) -> dict:
+        """price_history から指定日数分の日次最安値を取得して返す"""
+        if not names or not _supabase_client:
+            return {}
         try:
-            cutoff = (datetime.now() - timedelta(days=8)).strftime("%Y-%m-%d")
+            cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
             all_rows: list = []
             page_size = 1000
             offset = 0
@@ -1312,7 +1313,7 @@ def api_wish_prices():
                 resp = (
                     _supabase_client.table("price_history")
                     .select("card_name, min_price, recorded_at")
-                    .in_("card_name", have_data)
+                    .in_("card_name", names)
                     .gte("recorded_at", cutoff)
                     .order("recorded_at", desc=False)
                     .range(offset, offset + page_size - 1)
@@ -1323,9 +1324,22 @@ def api_wish_prices():
                 if len(batch) < page_size:
                     break
                 offset += page_size
-            card_dates = dict(_aggregate_daily_min(all_rows))
+            return dict(_aggregate_daily_min(all_rows))
         except Exception as e:
             logger.warning(f"[wish-prices] 価格履歴取得失敗: {e}")
+            return {}
+
+    # 主クエリ: estimate_cacheにあるカードを8日分で取得
+    card_dates: dict = _fetch_price_history(have_data, days=8)
+
+    # フォールバック: estimateキャッシュ未収録のカードを30日分で再検索
+    if pending_set:
+        fallback = _fetch_price_history(list(pending_set), days=30)
+        for name, dates in fallback.items():
+            if dates:
+                card_dates[name] = dates
+                pending_set.discard(name)
+                have_data.append(name)
 
     results = []
     for name in card_names:
