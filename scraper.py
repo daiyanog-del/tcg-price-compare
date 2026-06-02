@@ -1584,3 +1584,29 @@ def compare_prices_with_cache(card_name: str) -> list[dict]:
     results = compare_prices(card_name)
     cache_set(card_name, results)
     return results
+
+
+def compare_buyback(card_name: str, shop_names: list[str] | None = None) -> list[dict]:
+    """指定された買取店舗を並列にスクレイピング（compare_prices の買取版）"""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    target = shop_names or DEFAULT_BUYBACK_SHOPS
+    active = [(name, fn) for name, fn in BUYBACK_SHOPS if name in target]
+    if not active:
+        return []
+
+    all_results = []
+    with ThreadPoolExecutor(max_workers=len(active)) as executor:
+        futures = {
+            executor.submit(fn, card_name): name
+            for name, fn in active
+        }
+        for future in as_completed(futures):
+            shop_name = futures[future]
+            try:
+                results = future.result()
+                all_results.extend(results)
+            except Exception as e:
+                print(f"  ❌ {shop_name}: {e}")
+
+    return all_results

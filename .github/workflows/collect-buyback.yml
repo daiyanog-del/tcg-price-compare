@@ -1,0 +1,36 @@
+# 買取価格履歴データ収集
+# 毎日 UTC 22:00 = 日本時間 7:00 に実行（販売価格収集 JST 5:00 とずらす）
+# 手動実行も可能 (Actions タブ → Run workflow)
+
+name: Collect Buyback History
+
+on:
+  schedule:
+    - cron: '0 22 * * *'  # 毎日 UTC 22:00 = JST 7:00
+  workflow_dispatch:       # 手動実行ボタン
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120   # 注目カードのみ収集のため販売(330分)より短く設定。実測後に調整
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4 supabase
+
+      - name: Collect buyback prices
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          KANABELL_CLOUD_ID: ${{ secrets.KANABELL_CLOUD_ID }}
+          KANABELL_API_KEY: ${{ secrets.KANABELL_API_KEY }}
+          KANABELL_INDEX: ${{ secrets.KANABELL_INDEX }}
+        run: python collect_buyback.py

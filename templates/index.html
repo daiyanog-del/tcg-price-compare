@@ -283,6 +283,9 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .movers-diff{font:600 .75rem var(--mono)}
 .movers-diff.up{color:#ef4444}
 .movers-diff.down{color:#22c55e}
+/* 買取ランキングは色を反転（値上がり=お得=緑、値下がり=赤） */
+.buyback-diff.up{color:#22c55e}
+.buyback-diff.down{color:#ef4444}
 
 /* Fade */
 @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
@@ -778,6 +781,15 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   <div id="buyEmpty" class="empty">
     <p>売りたいカード名を入力して買取価格を比較</p>
     <p style="font-size:.78rem;color:var(--text-d);margin-top:12px">各ショップの買取価格を一括比較して、最も高く売れるお店が見つかります</p>
+
+    <div id="buybackMoversSection" class="movers hidden">
+      <div class="movers-tabs">
+        <button class="movers-tab active" onclick="switchBuybackMovers('up')">買取UP</button>
+        <button class="movers-tab" onclick="switchBuybackMovers('down')">買取DOWN</button>
+      </div>
+      <div id="buybackMoversPeriod" class="movers-period"></div>
+      <div class="movers-list" id="buybackMoversList"></div>
+    </div>
   </div>
   </div><!-- /mode-buyback -->
 
@@ -1718,6 +1730,48 @@ function loadMovers(dir,retry){
     .catch(()=>{if(retry<2)setTimeout(()=>loadMovers(dir,retry+1),2000);});
 }
 
+// ── 買取値上がり/値下がりランキング（色反転: UP=緑/DOWN=赤） ──
+let _buybackMoversDir='up';
+function switchBuybackMovers(dir){
+  _buybackMoversDir=dir;
+  document.querySelectorAll('#buybackMoversSection .movers-tab').forEach(b=>b.classList.toggle('active',b.textContent.includes(dir==='up'?'UP':'DOWN')));
+  loadBuybackMovers(dir);
+}
+function loadBuybackMovers(dir,retry){
+  retry=retry||0;
+  fetch(`/api/buyback-movers?direction=${dir||_buybackMoversDir}&limit=10`)
+    .then(r=>r.json())
+    .then(data=>{
+      const items=data.items||[];
+      const sec=document.getElementById('buybackMoversSection');
+      const list=document.getElementById('buybackMoversList');
+      const period=document.getElementById('buybackMoversPeriod');
+      if(!items.length){sec.classList.add('hidden');return;}
+      sec.classList.remove('hidden');
+      if(data.date_old&&data.date_new){
+        const upd=data.updated_at?` · ${data.updated_at}収集`:'';
+        period.textContent=_fmtDate(data.date_old)+' → '+_fmtDate(data.date_new)+' の買取価格変動'+upd;
+      }
+      list.innerHTML=items.map((item,i)=>{
+        const isUp=item.diff>0;
+        const sign=isUp?'+':'';
+        // 買取は値上がり=緑(お得)、値下がり=赤 と色反転するため buyback-diff クラスを使用
+        const cls=isUp?'up':'down';
+        return `<div class="movers-item" onclick="doBuySearchCard('${escJs(item.name)}')" data-card="${escJs(item.name)}">
+          <span class="movers-rank">${i+1}</span>
+          <span class="movers-thumb"></span>
+          <span class="movers-name">${esc(item.name)}</span>
+          <span class="movers-price">
+            <span class="movers-price-now">&yen;${item.today.toLocaleString()}</span>
+            <span class="movers-diff buyback-diff ${cls}">${sign}${item.diff.toLocaleString()} (${sign}${item.pct}%)</span>
+          </span>
+        </div>`;
+      }).join('');
+      loadRankingImages('#buybackMoversList .movers-item','movers-thumb');
+    })
+    .catch(()=>{if(retry<2)setTimeout(()=>loadBuybackMovers(dir,retry+1),2000);});
+}
+
 // ── ランキング用カード画像の遅延取得 ──
 function loadRankingImages(itemSelector, thumbClass){
   document.querySelectorAll(itemSelector+'[data-card]').forEach((el,i)=>{
@@ -1735,9 +1789,17 @@ function loadRankingImages(itemSelector, thumbClass){
   });
 }
 
+// 買取ランキングからクリックされた場合：買取モードで検索
+function doBuySearchCard(name){
+  switchMode('buyback');
+  document.getElementById('buyQ').value=name;
+  doBuySearch({validated:true});
+}
+
 // 初期ロード
 loadTrending();
 loadMovers('up');
+loadBuybackMovers('up');
 
 // SEO: カード個別ページの場合、自動検索を実行（サーバーが渡したカード名なのでvalidateスキップ）
 if(_pageCardName){

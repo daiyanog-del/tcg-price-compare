@@ -1092,6 +1092,131 @@ def api_movers():
     return jsonify({"items": items, "date_old": date_old, "date_new": date_new, "updated_at": updated_at})
 
 
+# ── 買取値上がり/値下がりランキング（buyback_history テーブル、最高買取額ベース）──
+_buyback_movers_cache: dict[str, list] = {}
+_buyback_movers_cache_time: float = 0
+_BUYBACK_MOVERS_CACHE_SEC = 3600  # 1時間キャッシュ
+
+def _aggregate_daily_max(rows: list) -> dict:
+    """buyback_history の行リストから、カードごと・日付ごとの最高買取額を集計して返す。
+    戻り値: {card_name: {date_str: max_price}}
+    10円以下の異常値は除外する。
+    """
+    card_dates: dict = defaultdict(dict)
+    for r in rows:
+        name = r.get("card_name", "")
+        date = r.get("recorded_at", "")[:10]
+        price = r.get("max_price", 0)
+        if not name or not date:
+            continue
+        if price <= 10:
+            continue
+        # 最大値を保持（販売は最小値だが買取は最大値が意味を持つ）
+        if date not in card_dates[name] or price > card_dates[name][date]:
+            card_dates[name][date] = price
+    return card_dates
+
+def _get_buyback_movers(direction: str, limit: int = 10) -> list[dict]:
+    """Supabaseから買取の値上がり/値下がりランキングを取得"""
+    global _buyback_movers_cache, _buyback_movers_cache_time
+
+    now = time.time()
+    if _buyback_movers_cache and now - _buyback_movers_cache_time < _BUYBACK_MOVERS_CACHE_SEC:
+        return _buyback_movers_cache.get(direction, [])[:limit]
+
+    if not _supabase_client:
+        return []
+
+    try:
+        # 直近3日分のデータをページングで全件取得
+        cutoff = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
+        all_rows = []
+        page_size = 1000
+        offset = 0
+        while True:
+            resp = (_supabase_client.table("buyback_history")
+                    .select("card_name, max_price, recorded_at")
+                    .gte("recorded_at", cutoff)
+                    .order("recorded_at", desc=False)
+                    .range(offset, offset + page_size - 1)
+                    .execute())
+            batch = resp.data or []
+            all_rows.extend(batch)
+            if len(batch) < page_size:
+                break
+            offset += page_size
+
+        logger.info(f"買取値動きランキング: {len(all_rows)}行取得")
+        if not all_rows:
+            return []
+
+        # 日付ごと・カードごとの最高買取額を集計
+        card_dates = _aggregate_daily_max(all_rows)
+
+        # 全カード共通で比較に使う2日分を特定
+        all_dates_set = set()
+        for dates in card_dates.values():
+            all_dates_set.update(dates.keys())
+        all_dates_sorted = sorted(all_dates_set)
+        if len(all_dates_sorted) < 2:
+            return []
+        date_new = all_dates_sorted[-1]
+        date_old = all_dates_sorted[-2]
+
+        # 各カードの前日比を計算
+        movers = []
+        for name, dates in card_dates.items():
+            if date_new not in dates or date_old not in dates:
+                continue
+            today_price = dates[date_new]
+            yesterday_price = dates[date_old]
+            if yesterday_price == 0:
+                continue
+            diff = today_price - yesterday_price
+            if diff == 0:
+                continue
+            pct = round((diff / yesterday_price) * 100, 1)
+            movers.append({
+                "name": name, "today": today_price,
+                "yesterday": yesterday_price, "diff": diff, "pct": pct
+            })
+
+        up_all = sorted([m for m in movers if m["diff"] > 0], key=lambda x: -x["pct"])
+        down_all = sorted([m for m in movers if m["diff"] < 0], key=lambda x: x["pct"])
+        # 50円以上の変動を優先、なければ全件からフォールバック
+        up = [m for m in up_all if abs(m["diff"]) >= 50][:20] or up_all[:20]
+        down = [m for m in down_all if abs(m["diff"]) >= 50][:20] or down_all[:20]
+
+        # 空データはキャッシュしない（データ未蓄積時に24時間空を返し続けるバグを防ぐ）
+        if up or down:
+            _buyback_movers_cache = {"up": up, "down": down, "date_old": date_old, "date_new": date_new}
+            _buyback_movers_cache_time = now
+        return (up if direction == "up" else down)[:limit]
+    except Exception as e:
+        logger.warning(f"買取価格変動ランキング取得失敗: {e}")
+        return []
+
+@app.route("/api/buyback-movers")
+def api_buyback_movers():
+    """買取の値上がり/値下がりランキングを返す"""
+    direction = request.args.get("direction", "up")
+    if direction not in ("up", "down"):
+        return jsonify({"error": "direction は up または down"}), 400
+    limit, limit_error = _parse_limit_param(10, 20)
+    if limit_error:
+        return limit_error
+    items = _get_buyback_movers(direction, limit)
+    date_old = _buyback_movers_cache.get("date_old") if _buyback_movers_cache else None
+    date_new = _buyback_movers_cache.get("date_new") if _buyback_movers_cache else None
+    JST = timezone(timedelta(hours=9))
+    if _buyback_movers_cache_time:
+        updated_dt = datetime.fromtimestamp(_buyback_movers_cache_time, JST)
+        updated_at = f"{updated_dt.hour}:{updated_dt.minute:02d}"
+    else:
+        updated_at = None
+    return jsonify({"items": items, "date_old": date_old, "date_new": date_new, "updated_at": updated_at})
+
+
 # ── 購入候補（wishlist）価格アラート ──
 
 def _track_card_async(card_name: str):
@@ -1943,6 +2068,18 @@ def _preload_movers():
 
 if _claim_startup_job("movers_preload"):
     threading.Thread(target=_preload_movers, daemon=True).start()
+
+def _preload_buyback_movers():
+    """サーバー起動直後にバックグラウンドで買取moversキャッシュを作成"""
+    time.sleep(8)  # 販売moversプリロードと少しずらす
+    try:
+        _get_buyback_movers("up")
+        logger.info("買取値動きランキングをプリロードしました")
+    except Exception as e:
+        logger.warning(f"買取プリロード失敗: {e}")
+
+if _claim_startup_job("buyback_movers_preload"):
+    threading.Thread(target=_preload_buyback_movers, daemon=True).start()
 
 if _claim_startup_job("featured_prefetch"):
     threading.Thread(target=_load_featured_cache, daemon=True).start()
