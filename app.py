@@ -1707,8 +1707,46 @@ def api_health():
 
 
 _ATTR_JA = {"dark":"闇","light":"光","fire":"炎","water":"水","earth":"地","wind":"風","divine":"神"}
-_PROP_JA = {"quickplay":"速攻","quick-play":"速攻","continuous":"永続","field":"フィールド","equip":"装備","ritual":"儀式","counter":"カウンター"}
-_TYPE_JA = {"monster":"モンスター","spell":"魔法","trap":"罠"}
+_PROP_JA = {
+    # YGOResources keys
+    "quickplay":"速攻","quick-play":"速攻","continuous":"永続",
+    "field":"フィールド","equip":"装備","ritual":"儀式","counter":"カウンター",
+    # ygoprodeck race keys（魔法/罠カードのプロパティ）
+    "Normal":"","Quick-Play":"速攻","Continuous":"永続",
+    "Field":"フィールド","Equip":"装備","Ritual":"儀式","Counter":"カウンター",
+}
+_TYPE_JA = {
+    # 大分類（YGOResources cardType）
+    "monster":"モンスター","spell":"魔法","trap":"罠",
+    # ygoprodeck type フィールド → 日本語モンスター種別
+    "Normal Monster":"通常モンスター",
+    "Effect Monster":"効果モンスター",
+    "Flip Effect Monster":"リバース・効果モンスター",
+    "Flip Monster":"リバースモンスター",
+    "Toon Monster":"トゥーンモンスター",
+    "Spirit Monster":"スピリットモンスター",
+    "Union Effect Monster":"ユニオン・効果モンスター",
+    "Gemini Monster":"デュアルモンスター",
+    "Tuner Monster":"チューナーモンスター",
+    "Fusion Monster":"融合モンスター",
+    "Fusion/Effect Monster":"融合・効果モンスター",
+    "Ritual Monster":"儀式モンスター",
+    "Ritual/Effect Monster":"儀式・効果モンスター",
+    "Synchro Monster":"シンクロモンスター",
+    "Synchro/Effect Monster":"シンクロ・効果モンスター",
+    "Synchro/Tuner Monster":"シンクロ・チューナーモンスター",
+    "XYZ Monster":"エクシーズモンスター",
+    "XYZ/Effect Monster":"エクシーズ・効果モンスター",
+    "Link Monster":"リンクモンスター",
+    "Pendulum/Normal Monster":"ペンデュラム・通常モンスター",
+    "Pendulum/Effect Monster":"ペンデュラム・効果モンスター",
+    "Pendulum Effect Fusion Monster":"フュージョン・ペンデュラムモンスター",
+    "Pendulum Synchro Effect Monster":"シンクロ・ペンデュラムモンスター",
+    "Pendulum XYZ Effect Monster":"エクシーズ・ペンデュラムモンスター",
+    "Token":"トークンモンスター",
+    # 魔法/罠（ygoprodeck では "Spell Card" / "Trap Card"）
+    "Spell Card":"魔法","Trap Card":"罠",
+}
 _RACE_JA = {
     "Warrior":"戦士族","Spellcaster":"魔法使い族","Dragon":"ドラゴン族",
     "Beast":"獣族","Beast-Warrior":"獣戦士族","Fiend":"悪魔族","Fairy":"天使族",
@@ -1747,30 +1785,39 @@ def api_card_info():
             last = prints[-1]
             latest_print = last if isinstance(last, str) else last.get("code", "")
         race = None
-        if card_type == "monster":
-            try:
-                pdeck = _http.get(
-                    f"https://db.ygoprodeck.com/api/v7/cardinfo.php?konami_id={card_id}&misc=yes",
-                    timeout=5,
-                    headers={"User-Agent": _BROWSER_UA},
-                )
-                if pdeck.status_code == 200:
-                    pdata = pdeck.json()
-                    race_en = pdata.get("data", [{}])[0].get("race", "")
+        prop = _PROP_JA.get(ja.get("property") or "", ja.get("property") or "")
+        card_subtype = ""
+        try:
+            pdeck = _http.get(
+                f"https://db.ygoprodeck.com/api/v7/cardinfo.php?konami_id={card_id}&misc=yes",
+                timeout=5,
+                headers={"User-Agent": _BROWSER_UA},
+            )
+            if pdeck.status_code == 200:
+                pitem = pdeck.json().get("data", [{}])[0]
+                card_subtype = pitem.get("type", "")
+                race_en = pitem.get("race", "")
+                if card_type == "monster":
                     race = _RACE_JA.get(race_en, race_en) or None
-            except Exception:
-                pass
+                else:
+                    # 魔法/罠: race フィールドがプロパティ種別
+                    prop = _PROP_JA.get(race_en, "")
+        except Exception:
+            pass
+        # サブタイプ優先、なければ大分類
+        mapped_type = _TYPE_JA.get(card_subtype) or _TYPE_JA.get(card_type, card_type)
         return jsonify({
             "found": True,
             "konami_id": card_id,
-            "card_type": _TYPE_JA.get(card_type, card_type),
+            "card_type": mapped_type,
+            "broad_type": card_type,   # "monster" | "spell" | "trap"（表示判定用）
             "atk": ja.get("atk"),
             "def": ja.get("def"),
             "level": ja.get("level"),
             "rank": ja.get("rank"),
             "race": race,
             "attribute": _ATTR_JA.get(ja.get("attribute") or "", ja.get("attribute") or ""),
-            "property": _PROP_JA.get(ja.get("property") or "", ja.get("property") or ""),
+            "property": prop,
             "effect_text": ja.get("effectText", ""),
             "latest_print": latest_print,
         })

@@ -54,18 +54,40 @@ function _renderCard(data, imgSrc) {
   const panel = document.getElementById('cardInfoPanel');
   if (!panel) return;
 
+  const isMonster = data.broad_type === 'monster';
+  const isSpellTrap = data.broad_type === 'spell' || data.broad_type === 'trap';
+
+  // 種別行: モンスターは "シンクロ・効果モンスター / ドラゴン族"
+  //         魔法/罠は "魔法 [速攻]" や "罠 [永続]"
+  let typeLine = '';
+  if (isMonster) {
+    typeLine = [data.card_type, data.race].filter(Boolean).map(_esc).join(' / ');
+  } else {
+    const prop = data.property ? ` [${_esc(data.property)}]` : '';
+    typeLine = `${_esc(data.card_type)}${prop}`;
+  }
+
+  // 属性・レベル行（モンスターのみ）
   const level = data.level ? `Lv.${data.level}` : data.rank ? `Rank ${data.rank}` : '';
-  const atk = data.atk != null ? data.atk : '?';
-  const def = data.def != null ? data.def : '?';
+  const attrLine = isMonster
+    ? [data.attribute, level].filter(Boolean).map(_esc).join(' &nbsp;·&nbsp; ')
+    : '';
+
+  // ATK/DEF（モンスターのみ）
+  const statsHtml = isMonster ? (() => {
+    const atk = data.atk != null ? data.atk : '?';
+    const def = data.def != null ? data.def : (data.broad_type === 'monster' ? '—' : null);
+    return `<p class="cip-stats">ATK <strong>${atk}</strong>${def !== null ? ` &nbsp;/&nbsp; DEF <strong>${def}</strong>` : ''}</p>`;
+  })() : '';
 
   panel.innerHTML = `
     <div class="cip-header">
       <img class="cip-img" src="${_esc(imgSrc)}" alt="${_esc(data.name || '')}">
       <div class="cip-meta">
         <p class="cip-name">${_esc(data.name || '')}</p>
-        <p class="cip-type">${[data.card_type, data.race].filter(Boolean).map(_esc).join(' / ')}</p>
-        <p class="cip-attr">${[data.attribute, level].filter(Boolean).map(_esc).join(' &nbsp;·&nbsp; ')}</p>
-        <p class="cip-stats">ATK <strong>${atk}</strong> &nbsp;/&nbsp; DEF <strong>${def}</strong></p>
+        <p class="cip-type">${typeLine}</p>
+        ${attrLine ? `<p class="cip-attr">${attrLine}</p>` : ''}
+        ${statsHtml}
       </div>
     </div>
     <div class="cip-effect">${_esc(data.effect_text || '').replace(/\n/g, '<br>')}</div>
