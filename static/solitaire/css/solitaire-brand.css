@@ -433,27 +433,18 @@ html, body {
   background-size: 72% auto;
 }
 
-/* フィールド魔法ゾーン: 風車（4枚羽根）マーク */
+/* フィールド魔法ゾーン: 風車45°回転＋円 */
 .custom-slot[data-slot="3"] {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolygon points='50,50 15,35 8,8 35,15' fill='%234a7cff' fill-opacity='0.3'/%3E%3Cpolygon points='50,50 65,15 92,8 85,35' fill='%234a7cff' fill-opacity='0.3'/%3E%3Cpolygon points='50,50 85,65 92,92 65,85' fill='%234a7cff' fill-opacity='0.3'/%3E%3Cpolygon points='50,50 35,85 8,92 15,65' fill='%234a7cff' fill-opacity='0.3'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='46' fill='none' stroke='%234a7cff' stroke-opacity='0.3' stroke-width='3'/%3E%3Cg transform='rotate(45 50 50)'%3E%3Cpolygon points='50,50 15,35 8,8 35,15' fill='%234a7cff' fill-opacity='0.3'/%3E%3Cpolygon points='50,50 65,15 92,8 85,35' fill='%234a7cff' fill-opacity='0.3'/%3E%3Cpolygon points='50,50 85,65 92,92 65,85' fill='%234a7cff' fill-opacity='0.3'/%3E%3Cpolygon points='50,50 35,85 8,92 15,65' fill='%234a7cff' fill-opacity='0.3'/%3E%3C/g%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: center;
-  background-size: 62%;
-}
-
-/* 墓地: 墓石アイコン */
-.sol-grave .side-slot {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='8' y='10' width='8' height='10' rx='1' fill='%234a7cff' fill-opacity='0.28'/%3E%3Crect x='9' y='4' width='6' height='8' rx='3' fill='%234a7cff' fill-opacity='0.28'/%3E%3Crect x='4' y='19' width='16' height='2' rx='1' fill='%234a7cff' fill-opacity='0.28'/%3E%3Cline x1='12' y1='12' x2='12' y2='16' stroke='%234a7cff' stroke-opacity='0.45' stroke-width='1.5' stroke-linecap='round'/%3E%3Cline x1='10' y1='14' x2='14' y2='14' stroke='%234a7cff' stroke-opacity='0.45' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: center;
-  background-size: 48%;
+  background-size: 65%;
 }
 .custom-slot:hover {
   border-color: var(--accent);
 }
 
 /* ── サイドエリアラッパー（フリースペース・墓地・除外） ── */
-/* sol-hand-area と同じ構造: 枠付きdiv内にラベル + side-slot */
 .sol-side-area {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -462,17 +453,29 @@ html, body {
   display: flex;
   flex-direction: column;
   align-self: stretch;
+  /* 元の side-slot 幅 + padding で最小幅を確保 */
+  min-width: calc(var(--slot-width) * 1.2 + 20px);
+  box-sizing: border-box;
 }
 
-/* side-slot は sol-side-area 内では枠・背景を除去 */
+/* side-slot は sol-side-area 内では枠を除去し、背景色のみ透明化 */
 .sol-side-area .side-slot {
-  background: transparent;
+  background-color: transparent; /* shorthandでなくcolorのみ → background-imageを消さない */
   border: none !important;
   border-radius: 0;
   flex: 1;
   height: auto;
   align-self: auto;
-  width: 100%;
+  width: calc(var(--slot-width) * 1.2); /* 元の幅を復元 */
+  box-sizing: border-box;
+}
+
+/* 墓地: 墓石アイコン（sol-side-area .side-slot より後に記述して優先） */
+.sol-grave .side-slot {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='8' y='10' width='8' height='10' rx='1' fill='%234a7cff' fill-opacity='0.28'/%3E%3Crect x='9' y='4' width='6' height='8' rx='3' fill='%234a7cff' fill-opacity='0.28'/%3E%3Crect x='4' y='19' width='16' height='2' rx='1' fill='%234a7cff' fill-opacity='0.28'/%3E%3Cline x1='12' y1='12' x2='12' y2='16' stroke='%234a7cff' stroke-opacity='0.45' stroke-width='1.5' stroke-linecap='round'/%3E%3Cline x1='10' y1='14' x2='14' y2='14' stroke='%234a7cff' stroke-opacity='0.45' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 55%;
 }
 
 /* ── 手札・デッキ・EXデッキの平仄統一 ── */
