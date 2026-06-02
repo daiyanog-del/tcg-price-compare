@@ -78,6 +78,9 @@ function initializeApp() {
   // カード詳細パネル初期化
   initCardInfoPanel();
 
+  // ゾーン枚数カウント初期化
+  initZoneCounts();
+
   // カード追加時の画像登録
   initCardImageRegistration();
 
@@ -97,6 +100,30 @@ function initializeApp() {
   }
 
   console.log('一人回しシミュレータ initialized');
+}
+
+/** 手札・EXデッキ・デッキ・墓地・除外の枚数をラベル横にリアルタイム表示 */
+function initZoneCounts() {
+  const zones = [
+    { label: document.querySelector('#imagePool .pool-label'),     cards: document.getElementById('poolRow') },
+    { label: document.querySelector('#imagePool2 .pool-label'),    cards: document.getElementById('poolRow2') },
+    { label: document.querySelector('.sol-hand-area .pool-label'), cards: document.querySelector('.center-slot') },
+    { label: document.querySelector('.sol-grave .pool-label'),     cards: document.querySelector('.sol-grave .side-slot') },
+    { label: document.querySelector('.side-slots-container .sol-side-area:not(.sol-grave) .pool-label'),
+      cards:  document.querySelector('.side-slots-container .sol-side-area:not(.sol-grave) .side-slot') },
+  ];
+
+  for (const { label, cards } of zones) {
+    if (!label || !cards) continue;
+    const badge = document.createElement('span');
+    badge.className = 'zone-count';
+    label.appendChild(badge);
+    const update = () => {
+      badge.textContent = cards.querySelectorAll('.tier-item-wrapper').length;
+    };
+    update();
+    new MutationObserver(update).observe(cards, { childList: true, subtree: true });
+  }
 }
 
 /** ページ遷移直前に盤面をsessionStorageへ退避 */

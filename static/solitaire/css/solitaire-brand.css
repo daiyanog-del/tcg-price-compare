@@ -1126,6 +1126,15 @@ html, body {
   to   { transform: scale(1);    opacity: 1; }
 }
 
+/* ── ゾーン枚数バッジ ── */
+.zone-count {
+  margin-left: 5px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  font-family: var(--mono);
+  color: #64748b;
+}
+
 /* ── セッション復元トースト ── */
 .sol-toast {
   position: fixed;
