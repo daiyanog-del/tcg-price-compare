@@ -403,14 +403,16 @@ html, body {
   flex-direction: column;
 }
 
-/* center-slot は sol-hand-area 内なので枠・余白を除去 */
+/* center-slot は sol-hand-area 内なので枠・余白を除去、幅も短縮 */
 .sol-hand-area .center-slot {
   background: transparent;
   border: none !important;
   border-radius: 0;
   margin-left: 0;
-  flex: 1;
   box-shadow: none !important;
+  /* 元の 5.5スロット幅(660px)・min-width:400px を上書きして短縮 */
+  width: calc(var(--slot-width) * 3.5);
+  min-width: unset;
 }
 
 /* ── スロット（フィールド・墓地・除外） ── */
@@ -456,10 +458,12 @@ html, body {
   min-width: unset;
 }
 
-/* EXデッキ: center-row 内は margin/align を center-row に委ねる */
+/* EXデッキ: 残りスペースを使い、空時も最低幅を確保 */
 .center-row #imagePool2 {
   margin-top: 0;
   margin-left: 0;
+  flex: 1;
+  min-width: calc(var(--slot-width) * 2.5);
 }
 
 /* ラベルを統一 */
