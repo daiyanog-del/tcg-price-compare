@@ -733,6 +733,52 @@ html, body {
   text-align: center;
 }
 
+/* ── コイントス・ダイスロール ── */
+.sol-random-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sol-random-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sol-random-btn {
+  flex: 1;
+  padding: 6px 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--main-color);
+  font-family: var(--font);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.sol-random-btn:hover {
+  border-color: var(--accent);
+  background: rgba(74,124,255,0.1);
+}
+
+.sol-random-result {
+  font-size: 1.5rem;
+  min-width: 34px;
+  text-align: center;
+  line-height: 1;
+  color: var(--gold);
+}
+
+@keyframes solRandomFlash {
+  0%   { transform: scale(1.5); opacity: 0.4; }
+  100% { transform: scale(1);   opacity: 1; }
+}
+.sol-random-flash {
+  animation: solRandomFlash 0.25s ease-out forwards;
+}
+
 /* ── フッター ── */
 .sol-footer {
   margin-top: 20px;

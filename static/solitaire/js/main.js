@@ -11,6 +11,7 @@ import { initializeOCRWorker } from './services/ocr-service.js';
 import { initReplayUI } from './ui/replay-ui.js';
 import { registerCardImage } from './services/replay-service.js';
 import { initTokenGenerator } from './ui/token-generator.js';
+import { initRandomTools } from './ui/random-tools.js';
 
 /**
  * カード追加時にリプレイ画像辞書へ登録するフック
@@ -68,6 +69,9 @@ function initializeApp() {
 
   // トークン生成UI初期化
   initTokenGenerator();
+
+  // コイントス・ダイスロール初期化
+  initRandomTools();
 
   // カード追加時の画像登録
   initCardImageRegistration();
