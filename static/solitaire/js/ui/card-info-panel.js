@@ -16,6 +16,17 @@ export function setCardName(imgEl, name) {
 
 /** カード詳細パネルを初期化（クリックリスナー設定） */
 export function initCardInfoPanel() {
+  // 表示/非表示トグル
+  document.getElementById('cipToggle')?.addEventListener('click', () => {
+    const col  = document.querySelector('.sol-cip-col');
+    const area = document.querySelector('.sol-field-area');
+    const btn  = document.getElementById('cipToggle');
+    const hide = !col.classList.contains('hidden');
+    col.classList.toggle('hidden', hide);
+    area.classList.toggle('cip-hidden', hide);
+    btn.textContent = hide ? '▶' : '◀';
+    btn.title = hide ? 'カード情報パネルを表示' : 'カード情報パネルを非表示';
+  });
   // プール・フィールド上のカードへのクリックを委譲で受け取る
   document.addEventListener('click', (e) => {
     const img = e.target.closest('img.tier-item');

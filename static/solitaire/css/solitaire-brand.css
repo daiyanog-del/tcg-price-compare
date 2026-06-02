@@ -47,15 +47,22 @@
 }
 
 /* 盤面列（flex-grow で残り幅を使う） */
-/* 盤面列（分割前と同じ。relative を追加してパネルの基準に） */
+/* 盤面列 */
 .sol-field-area {
   flex: 1;
   min-width: 0;
-  padding: 0 6px 10px;
+  /* 左パディングでパネルとの干渉を解消 */
+  padding: 0 6px 10px calc(var(--slot-width) * 3 + 16px);
   position: relative;
+  transition: padding-left 0.25s ease;
 }
 
-/* カード詳細パネル: 絶対配置で盤面左余白に重ねる（レイアウトに影響しない） */
+/* パネル非表示時は左パディングを戻す */
+.sol-field-area.cip-hidden {
+  padding-left: 6px;
+}
+
+/* カード詳細パネル: 絶対配置（レイアウトに影響しない） */
 .sol-cip-col {
   position: absolute;
   left: 6px;
@@ -64,6 +71,42 @@
   max-height: calc(100vh - 50px);
   overflow-y: auto;
   z-index: 10;
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.sol-cip-col.hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-10px);
+}
+
+/* トグルボタン */
+.sol-cip-toggle {
+  position: absolute;
+  left: calc(var(--slot-width) * 3 + 6px);
+  top: 6px;
+  z-index: 11;
+  width: 18px;
+  height: 30px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 0 4px 4px 0;
+  color: #94a3b8;
+  font-size: 0.65rem;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s, left 0.25s ease, color 0.15s;
+  line-height: 1;
+}
+.sol-cip-toggle:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+/* パネル非表示時はボタンを左端へ */
+.sol-field-area.cip-hidden .sol-cip-toggle {
+  left: 6px;
+  border-radius: 4px;
 }
 
 /* 右パネル */
