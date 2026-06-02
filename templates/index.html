@@ -1227,8 +1227,8 @@ function _fetchCardInfo(cardName){
         const statParts=[data.attribute,data.race,lvl].filter(Boolean);
         const def=data.link_val!=null?'':` / DEF ${data.def??'-'}`;
         let statLine=`<span class="cdm-type">${esc(data.card_type||'')}</span>`;
-        if(statParts.length) statLine+=`　${statParts.map(esc).join(' · ')}`;
-        statLine+=`　ATK ${data.atk??'-'}${def}`;
+        if(statParts.length) statLine+=` ${statParts.map(esc).join(' · ')}`;
+        statLine+=` ATK ${data.atk??'-'}${def}`;
         html+=`<div class="cdm-row cdm-sub">${statLine}${printSpan}</div>`;
       } else {
         html+=`<div class="cdm-row">${esc(data.card_type+(data.property?` [${data.property}]`:'')||'')}${printSpan}</div>`;
