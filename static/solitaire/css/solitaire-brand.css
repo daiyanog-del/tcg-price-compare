@@ -411,7 +411,7 @@ html, body {
   margin-left: 0;
   box-shadow: none !important;
   /* 元の 5.5スロット幅(660px)・min-width:400px を上書きして短縮 */
-  width: calc(var(--slot-width) * 3.5);
+  width: calc(var(--slot-width) * 4.5);
   min-width: unset;
 }
 
