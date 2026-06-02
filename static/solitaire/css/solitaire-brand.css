@@ -421,6 +421,33 @@ html, body {
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
+
+/* ── ゾーンアイコン（同系色ウォーターマーク） ── */
+
+/* ペンデュラムゾーン: 振り子アイコン */
+.custom-slot[data-slot="1"],
+.custom-slot[data-slot="2"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cline x1='12' y1='3' x2='12' y2='15' stroke='%234a7cff' stroke-width='2' stroke-linecap='round' stroke-opacity='0.35'/%3E%3Ccircle cx='12' cy='18.5' r='3' fill='%234a7cff' fill-opacity='0.3'/%3E%3Cline x1='4' y1='3' x2='20' y2='3' stroke='%234a7cff' stroke-width='2' stroke-linecap='round' stroke-opacity='0.35'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 55%;
+}
+
+/* フィールド魔法ゾーン: 星アイコン */
+.custom-slot[data-slot="9"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpolygon points='12,2 14.9,9.3 22.5,9.3 16.7,14.1 19,21 12,17 5,21 7.3,14.1 1.5,9.3 9.1,9.3' fill='%234a7cff' fill-opacity='0.28'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 60%;
+}
+
+/* 墓地: 墓石アイコン */
+.sol-grave .side-slot {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='8' y='10' width='8' height='10' rx='1' fill='%234a7cff' fill-opacity='0.28'/%3E%3Crect x='9' y='4' width='6' height='8' rx='3' fill='%234a7cff' fill-opacity='0.28'/%3E%3Crect x='4' y='19' width='16' height='2' rx='1' fill='%234a7cff' fill-opacity='0.28'/%3E%3Cline x1='12' y1='12' x2='12' y2='16' stroke='%234a7cff' stroke-opacity='0.45' stroke-width='1.5' stroke-linecap='round'/%3E%3Cline x1='10' y1='14' x2='14' y2='14' stroke='%234a7cff' stroke-opacity='0.45' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 48%;
+}
 .custom-slot:hover {
   border-color: var(--accent);
 }
