@@ -226,9 +226,8 @@
   text-align: left;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s, color 0.15s;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  word-break: break-all;
+  line-height: 1.4;
 }
 .meta-tier-btn:hover {
   border-color: var(--accent);
