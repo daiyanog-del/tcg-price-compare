@@ -12,6 +12,7 @@ import { initReplayUI } from './ui/replay-ui.js';
 import { registerCardImage } from './services/replay-service.js';
 import { initTokenGenerator } from './ui/token-generator.js';
 import { initRandomTools } from './ui/random-tools.js';
+import { initCardInfoPanel } from './ui/card-info-panel.js';
 
 /**
  * カード追加時にリプレイ画像辞書へ登録するフック
@@ -72,6 +73,9 @@ function initializeApp() {
 
   // コイントス・ダイスロール初期化
   initRandomTools();
+
+  // カード詳細パネル初期化
+  initCardInfoPanel();
 
   // カード追加時の画像登録
   initCardImageRegistration();

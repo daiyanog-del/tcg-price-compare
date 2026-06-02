@@ -67,7 +67,6 @@ export function handleSaveBoard() {
   const elementsToHide = [
     document.querySelector('.randomButton-container'),
     document.querySelector('.left-rectangle-container'),
-    document.querySelector('#free-space'),
     document.getElementById('replayBarContainer'),
     document.getElementById('deckInputContainer'),
   ];

@@ -6,6 +6,7 @@
 
 import { addCardToPool } from '../components/card-manager.js';
 import { registerCardImage } from '../services/replay-service.js';
+import { setCardName } from './card-info-panel.js';
 
 const API_CARD_IMAGE = '/api/card-image';
 const API_META = '/api/meta';
@@ -66,11 +67,14 @@ async function addCardByName(name, qty, isEx) {
   const poolId = isEx ? 'poolRow2' : 'poolRow';
   for (let i = 0; i < qty; i++) {
     addCardToPool(src, false, isEx);
-    // 追加直後に最後の要素を取ってリプレイ辞書へ登録
+    // 追加直後に最後の要素を取ってリプレイ辞書・カード名を登録
     const pool = document.getElementById(poolId);
     if (pool) {
       const last = pool.querySelector('.tier-item-wrapper:last-child img');
-      if (last?.id) registerCardImage(last.id, src);
+      if (last?.id) {
+        registerCardImage(last.id, src);
+        setCardName(last, name);  // カード詳細パネル用に名前を付与
+      }
     }
   }
 }

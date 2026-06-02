@@ -733,6 +733,93 @@ html, body {
   text-align: center;
 }
 
+/* ── カード詳細パネル ── */
+
+.sol-card-info-wrap {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+}
+
+.sol-card-info-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+  width: calc(var(--slot-width) * 1.5);
+  height: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--main-color);
+}
+
+.cip-empty {
+  color: #4a6490;
+  font-size: 0.72rem;
+  text-align: center;
+  margin: auto 0;
+  line-height: 1.6;
+}
+
+.cip-header {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.cip-img {
+  width: 52px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.cip-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cip-name {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--main-color);
+  line-height: 1.3;
+  word-break: break-all;
+  margin: 0;
+}
+
+.cip-type,
+.cip-attr {
+  font-size: 0.68rem;
+  color: #94a3b8;
+  margin: 0;
+  line-height: 1.3;
+}
+
+.cip-stats {
+  font-size: 0.72rem;
+  color: var(--gold);
+  margin: 2px 0 0;
+  font-family: var(--mono);
+}
+
+.cip-effect {
+  font-size: 0.68rem;
+  color: #94a3b8;
+  line-height: 1.55;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+  overflow-y: auto;
+  flex: 1;
+}
+
 /* ── コイントス・ダイスロール ── */
 .sol-random-tools {
   display: flex;
