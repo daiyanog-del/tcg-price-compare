@@ -60,7 +60,7 @@
   position: absolute;
   left: 10px;
   top: 6px;
-  width: calc(var(--slot-width) * 3);
+  width: calc(var(--slot-width) * 3 + 20px);
   height: calc(var(--slot-height) * 3 + var(--gap) * 3 - 6px);
   overflow: hidden;
   z-index: 10;
@@ -76,7 +76,7 @@
 /* トグルボタン */
 .sol-cip-toggle {
   position: absolute;
-  left: calc(var(--slot-width) * 3 + 10px);
+  left: calc(var(--slot-width) * 3 + 30px);
   top: 6px;
   z-index: 11;
   width: 18px;
