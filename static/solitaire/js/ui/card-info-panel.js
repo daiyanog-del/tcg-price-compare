@@ -8,7 +8,7 @@
  */
 
 const API_CARD_INFO = '/api/card-info';
-const API_DECK_ESTIMATE = '/api/deck-estimate';
+const API_PRICE_HISTORY = '/api/price-history';
 
 /** カード名を img 要素に付与（deck-input-panel から呼ぶ） */
 export function setCardName(imgEl, name) {
@@ -52,7 +52,7 @@ async function _fetchAndShow(name, imgSrc) {
   try {
     const [infoRes, priceRes] = await Promise.all([
       fetch(`${API_CARD_INFO}?name=${encodeURIComponent(name)}`),
-      fetch(`${API_DECK_ESTIMATE}?cards=${encodeURIComponent('1 ' + name)}`).catch(() => null),
+      fetch(`${API_PRICE_HISTORY}?card=${encodeURIComponent(name)}`).catch(() => null),
     ]);
     const data = await infoRes.json();
     const priceData = priceRes ? await priceRes.json().catch(() => null) : null;
@@ -154,7 +154,7 @@ function _buildPriceHtml(name, priceData) {
   const buyUrl    = '/buy/'  + encodeURIComponent(name);
 
   let priceInfo = '';
-  const best = priceData?.results?.[0]?.best;
+  const best = _bestFromHistory(priceData);
   if (best) {
     const price = Number(best.price).toLocaleString('ja-JP');
     priceInfo = `<p class="cip-price-val">¥${price}<span class="cip-price-shop">${_esc(best.shop)}</span></p>`;
@@ -171,6 +171,16 @@ function _buildPriceHtml(name, priceData) {
       </div>
     </div>
   `;
+}
+
+// /api/price-history レスポンスから最新日の最安値を返す
+function _bestFromHistory(data) {
+  const items = data?.data;
+  if (!items || items.length === 0) return null;
+  const latestDate = items.reduce((a, b) => a.date > b.date ? a : b).date;
+  const latest = items.filter(r => r.date === latestDate && r.price > 0);
+  if (latest.length === 0) return null;
+  return latest.reduce((a, b) => a.price < b.price ? a : b);
 }
 
 function _esc(str) {
