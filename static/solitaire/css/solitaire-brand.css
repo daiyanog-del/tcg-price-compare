@@ -3,6 +3,15 @@
  * カード相場ダークテーマ上書き — Fugartaのwhiteテーマを全面置換
  */
 
+/* ── サイズ変数 (1920×1080 に収める) ── */
+/* slot-width 100px / gap 10px で縦約930px → chrome込み約1014px < 1080px */
+:root {
+  --slot-width: 100px;
+  --slot-height: calc(var(--slot-width) * 1.45);
+  --gap: 10px;
+  --min-display-width: calc(var(--slot-width) * 9.8);
+}
+
 /* ── 2カラムレイアウト ── */
 
 .sol-page-layout {
@@ -41,12 +50,12 @@
 .sol-field-area {
   flex: 1;
   min-width: 0;
-  padding: 0 8px 20px;
+  padding: 0 6px 10px;
 }
 
 /* 右パネル */
 .sol-right-panel {
-  width: 160px;
+  width: 148px;
   flex-shrink: 0;
   position: sticky;
   top: 0;
@@ -55,21 +64,21 @@
   background: #0b1428;
   border-left: 1px solid var(--border);
   box-sizing: border-box;
-  padding-bottom: 16px;
+  padding-bottom: 10px;
 }
 
 .sol-right-section {
-  padding: 14px 12px 12px;
+  padding: 10px 10px 8px;
   border-bottom: 1px solid var(--border);
 }
 
 .sol-right-heading {
-  font-size: 0.68rem;
+  font-size: 0.65rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #4a6fa5;
-  margin: 0 0 10px;
+  margin: 0 0 7px;
 }
 
 /* 右パネル内の操作ボタン */
@@ -91,7 +100,7 @@
 
 /* ── サイドバー内セクション共通 ── */
 .sol-sidebar-section {
-  padding: 14px 14px 12px;
+  padding: 10px 12px 10px;
   border-bottom: 1px solid var(--border);
 }
 .sol-sidebar-section:last-child {
@@ -349,7 +358,7 @@ html, body {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 16px;
+  padding: 7px 14px;
   background: #0f1a35;
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
@@ -379,7 +388,7 @@ html, body {
 /* ── 盤面コンテナ ── */
 #mainContainer {
   background: var(--bg-color);
-  padding: 10px 10px 0;
+  padding: 6px 6px 0;
   margin-bottom: 0;
 }
 
@@ -398,7 +407,7 @@ html, body {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 8px 10px;
+  padding: 6px 8px;
   display: flex;
   flex-direction: column;
 }
@@ -449,12 +458,11 @@ html, body {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 8px 10px;
+  padding: 6px 8px;
   display: flex;
   flex-direction: column;
   align-self: stretch;
-  /* 元の side-slot 幅 + padding で最小幅を確保 */
-  min-width: calc(var(--slot-width) * 1.2 + 20px);
+  min-width: calc(var(--slot-width) * 1.2 + 16px);
   box-sizing: border-box;
 }
 
@@ -507,8 +515,8 @@ html, body {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  margin-top: 8px;
-  padding: 8px 10px;
+  margin-top: 6px;
+  padding: 6px 8px;
   min-width: unset;
 }
 
@@ -594,12 +602,12 @@ html, body {
 .replay-bar {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
+  gap: 5px;
+  padding: 5px 8px;
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  margin-top: 8px;
+  margin-top: 6px;
   flex-wrap: wrap;
 }
 .replay-btn {
