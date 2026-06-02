@@ -27,7 +27,6 @@
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.0/dist/tesseract.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
 <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
-
 <link rel="stylesheet" href="/static/solitaire/css/main.css">
 </head>
 
@@ -35,76 +34,98 @@
 <!-- ナビ -->
 <nav class="sol-nav">
   <a href="/" class="sol-nav-title">カード相場</a>
-  <span style="color:#4a5568">›</span>
-  <span>一人回し</span>
+  <span style="color:#2d3f5a">›</span>
+  <span style="color:#64748b;font-size:0.85rem">一人回し</span>
   <span style="flex:1"></span>
   <a href="/">販売価格</a>
   <a href="/buy/">買取価格</a>
   <a href="/solitaire" style="color:var(--main-color);font-weight:700">一人回し</a>
 </nav>
 
-<!-- ページ本体: 左サイドバー＋右メイン -->
+<!-- ページ本体: 左サイドバー + 右メイン -->
 <div class="sol-page-layout">
 
-  <!-- 左サイドバー: デッキ選択 -->
+  <!-- ====== 左サイドバー ====== -->
   <aside class="sol-sidebar">
-    <div id="deckInputContainer" class="deck-input-panel">
-      <div class="deck-input-tabs">
-        <button class="deck-input-tab active" data-pane="deckPaneNeuron">ニューロン</button>
-        <button class="deck-input-tab" data-pane="deckPaneText">テキスト</button>
-        <button class="deck-input-tab" data-pane="deckPanePreset">環境デッキ</button>
-      </div>
 
-      <!-- ニューロン画像 -->
-      <div class="deck-input-pane active" id="deckPaneNeuron">
-        <input type="file" id="imageUpload" accept="image/*" multiple>
-        <button id="folderSelectButton" style="margin-top:6px">フォルダから選択</button>
-        <p style="margin:8px 0 0;font-size:0.75rem;color:#94a3b8;line-height:1.5">
-          ニューロン→Discordで保存した画像を選択（メイン40枚以上・EX11枚以上・サイドなし）。
-        </p>
-      </div>
+    <!-- デッキ選択 -->
+    <div class="sol-sidebar-section">
+      <p class="sol-sidebar-heading">デッキを選択</p>
 
-      <!-- テキスト -->
-      <div class="deck-input-pane" id="deckPaneText">
-        <textarea class="deck-textarea" id="deckTextarea"
-          placeholder="例:&#10;3 灰流うらら&#10;3 増殖するG&#10;1 エフェクト・ヴェーラー"
-          style="min-height:140px"></textarea>
-        <button class="deck-load-btn" id="deckLoadTextBtn">読み込む</button>
-      </div>
-
-      <!-- 環境デッキ -->
-      <div class="deck-input-pane" id="deckPanePreset">
-        <div class="meta-tier-list" id="metaTierList">
-          <span class="deck-loading-msg">タブを開くと読み込みます</span>
+      <div id="deckInputContainer" class="deck-input-panel">
+        <!-- タブ（縦並び） -->
+        <div class="deck-input-tabs">
+          <button class="deck-input-tab active" data-pane="deckPaneNeuron">ニューロン画像</button>
+          <button class="deck-input-tab" data-pane="deckPaneText">テキスト入力</button>
+          <button class="deck-input-tab" data-pane="deckPanePreset">環境デッキ</button>
         </div>
-      </div>
 
-      <div class="deck-loading-msg" id="deckLoadingMsg" style="display:none"></div>
+        <!-- ニューロン画像 -->
+        <div class="deck-input-pane active" id="deckPaneNeuron">
+          <label class="sol-upload-label">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            画像を選択
+            <input type="file" id="imageUpload" accept="image/*" multiple>
+          </label>
+          <button id="folderSelectButton">フォルダから選択</button>
+          <p class="sol-upload-note">
+            ニューロン → Discordに投稿した画像を選択してください。<br>
+            メイン40枚以上・EX11枚以上・サイドなしの画像に対応。
+          </p>
+        </div>
+
+        <!-- テキスト入力 -->
+        <div class="deck-input-pane" id="deckPaneText">
+          <textarea class="deck-textarea" id="deckTextarea"
+            placeholder="例:&#10;3 灰流うらら&#10;3 増殖するG&#10;1 エフェクト・ヴェーラー"></textarea>
+          <button class="deck-load-btn" id="deckLoadTextBtn">このデッキを読み込む</button>
+        </div>
+
+        <!-- 環境デッキ -->
+        <div class="deck-input-pane" id="deckPanePreset">
+          <div class="meta-tier-list" id="metaTierList">
+            <span class="deck-loading-msg">タブを開くと読み込みます</span>
+          </div>
+        </div>
+
+        <div class="deck-loading-msg" id="deckLoadingMsg" style="display:none"></div>
+      </div>
     </div>
 
-    <!-- 操作ボタン（盤面保存・共有） -->
-    <div class="sol-sidebar-actions">
-      <button id="saveButton">盤面を画像保存</button>
-      <button id="shareXButton">Xに投稿</button>
+    <!-- 盤面操作 -->
+    <div class="sol-sidebar-section">
+      <p class="sol-sidebar-heading">盤面</p>
+      <div class="sol-sidebar-actions">
+        <button id="saveButton">盤面を画像保存</button>
+        <button id="shareXButton">Xに投稿</button>
+      </div>
     </div>
 
     <!-- 操作説明 -->
-    <div class="sol-sidebar-explain">
+    <div class="sol-sidebar-section sol-sidebar-explain">
       <p>操作方法</p>
       <ul>
-        <li>カードをドラッグしてフィールドに置く</li>
-        <li>重ねて置くとエクシーズ素材扱い</li>
+        <li>カードをドラッグしてフィールドに配置</li>
+        <li>重ね置きでエクシーズ素材などに活用</li>
         <li>右クリックでデッキに戻す</li>
         <li>カウンターをカードにドロップで付与</li>
         <li>フリースペース・除外はダブルクリックで非表示</li>
       </ul>
     </div>
-  </aside>
 
-  <!-- 右メイン: 盤面 -->
+    <!-- クレジット -->
+    <div class="sol-sidebar-section" style="margin-top:auto">
+      <p style="font-size:0.68rem;color:#2d3f5a;line-height:1.5;margin:0">
+        <a href="https://github.com/Fugarta/solo-mode" target="_blank" rel="noopener noreferrer"
+           style="color:#2d3f5a">Solo Mode (Fugarta, MIT)</a> を基に改変
+      </p>
+    </div>
+
+  </aside><!-- /.sol-sidebar -->
+
+  <!-- ====== 右メイン: 盤面 ====== -->
   <div class="sol-main">
 
-    <!-- 盤面本体 -->
     <div id="mainContainer">
       <h1 class="title" contenteditable="true" spellcheck="false">一人回し</h1>
 
@@ -120,16 +141,16 @@
         <!-- フィールド -->
         <div class="custom-layout">
           <div class="row row-top">
-            <div class="custom-slot" data-slot="1" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
-            <div class="custom-slot" data-slot="2" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+            <div class="custom-slot" data-slot="1"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+            <div class="custom-slot" data-slot="2"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
           </div>
           <div class="row row-middle">
-            <div class="custom-slot" data-slot="3" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
-            <div class="custom-slot" data-slot="4" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
-            <div class="custom-slot" data-slot="5" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
-            <div class="custom-slot" data-slot="6" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
-            <div class="custom-slot" data-slot="7" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
-            <div class="custom-slot" data-slot="8" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+            <div class="custom-slot" data-slot="3"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+            <div class="custom-slot" data-slot="4"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+            <div class="custom-slot" data-slot="5"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+            <div class="custom-slot" data-slot="6"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+            <div class="custom-slot" data-slot="7"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+            <div class="custom-slot" data-slot="8"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
           </div>
           <div class="row row-bottom">
             <div class="custom-slot" data-slot="9"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
@@ -186,7 +207,6 @@
       <div class="pool-label">デッキ</div>
       <div class="tier-row" id="poolRow"></div>
     </div>
-
     <div id="imagePool2" class="pool" ondrop="drop(event)" ondragover="allowDrop(event)">
       <div class="pool-label">EXデッキ</div>
       <div class="tier-row" id="poolRow2"></div>
@@ -194,18 +214,17 @@
 
     <!-- リプレイバー -->
     <div id="replayBarContainer" class="replay-bar">
-      <button class="replay-btn" id="replayBack">&#9664; 前へ</button>
+      <button class="replay-btn" id="replayBack">&#9664; 前</button>
       <input type="range" class="replay-slider" id="replaySlider" min="0" max="0" value="0" disabled>
       <span class="replay-counter" id="replayCounter">0/0</span>
-      <button class="replay-btn" id="replayFwd">次へ &#9654;</button>
+      <button class="replay-btn" id="replayFwd">次 &#9654;</button>
       <button class="replay-btn" id="replayPlay" disabled>再生</button>
       <button class="replay-btn" id="replayUndo" disabled>取消</button>
       <input type="text" class="replay-comment-input" id="replayCommentInput" placeholder="コメント（任意）">
       <button class="replay-btn" id="replayAddComment">追加</button>
       <button class="replay-btn" id="replayExport">保存</button>
       <label class="replay-btn" style="cursor:pointer">
-        読込
-        <input type="file" id="replayImportFile" accept=".json" style="display:none">
+        読込<input type="file" id="replayImportFile" accept=".json" style="display:none">
       </label>
       <button class="replay-share-btn" id="replayShare">共有リンク</button>
     </div>
@@ -214,14 +233,7 @@
 
 </div><!-- /.sol-page-layout -->
 
-<!-- モーダルオーバーレイ -->
 <div id="imageBrowserModal" class="modal-overlay" style="display:none;"></div>
-
-<!-- フッター -->
-<footer class="sol-footer">
-  本ツールは <a href="https://github.com/Fugarta/solo-mode" target="_blank" rel="noopener noreferrer">Solo Mode (Fugarta, MIT)</a> を基に改変しています。
-  &nbsp;|&nbsp; <a href="/">カード相場 トップ</a>
-</footer>
 
 <script type="module" src="/static/solitaire/js/main.js"></script>
 </body>
