@@ -1229,7 +1229,7 @@ function _fetchCardInfo(cardName){
         let statLine=`<span class="cdm-type">${esc(data.card_type||'')}</span>`;
         if(statParts.length) statLine+=` ${statParts.map(esc).join(' · ')}`;
         statLine+=` ATK ${data.atk??'-'}${def}`;
-        html+=`<div class="cdm-row cdm-sub">${statLine}${printSpan}</div>`;
+        html+=`<div class="cdm-row cdm-sub"><span>${statLine}</span>${printSpan}</div>`;
       } else {
         html+=`<div class="cdm-row">${esc(data.card_type+(data.property?` [${data.property}]`:'')||'')}${printSpan}</div>`;
       }
