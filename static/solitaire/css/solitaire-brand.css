@@ -562,6 +562,53 @@ html, body {
 }
 .replay-share-btn:hover { background: #d4a800; }
 
+/* ── トークン生成UI ── */
+.sol-token-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sol-token-name-input {
+  width: 100%;
+  padding: 6px 8px;
+  background: var(--bg-color);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--main-color);
+  font-family: var(--font);
+  font-size: 0.82rem;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+.sol-token-name-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.sol-token-colors {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.sol-token-color-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.1s;
+  padding: 0;
+}
+.sol-token-color-btn:hover {
+  transform: scale(1.15);
+}
+.sol-token-color-btn.active {
+  border-color: #fff;
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
 /* ── フッター ── */
 .sol-footer {
   margin-top: 20px;
