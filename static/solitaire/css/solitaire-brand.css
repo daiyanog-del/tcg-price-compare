@@ -429,11 +429,14 @@ html, body {
 
 /* ── 手札・デッキ・EXデッキの平仄統一 ── */
 
-/* 点線をすべて実線に */
-.pool,
+/* 点線・白枠をすべてブランドカラーに統一 */
+.pool {
+  border-style: solid;
+}
+
 #free-space .side-slot,
 .custom-slot[data-slot="9"] {
-  border-style: solid;
+  border: 1px solid var(--border);
 }
 
 /* 手札: 白背景・大丸み・margin-left を除去してデッキ列と揃える */
