@@ -123,62 +123,105 @@
 
   </aside><!-- /.sol-sidebar -->
 
-  <!-- ====== 右メイン: 盤面 ====== -->
+  <!-- ====== 右メイン: 盤面列 + 右パネル ====== -->
   <div class="sol-main">
 
-    <div id="mainContainer">
-      <h1 class="title" contenteditable="true" spellcheck="false">一人回し</h1>
+    <!-- 盤面列 -->
+    <div class="sol-field-area">
 
-      <div class="main-content">
-        <!-- フリースペース -->
-        <div class="side-slots-container" id="free-space">
-          <div class="side-slot-group">
-            <div class="side-slot-label">フリースペース</div>
-            <div class="side-slot" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+      <div id="mainContainer">
+        <h1 class="title" contenteditable="true" spellcheck="false">一人回し</h1>
+
+        <div class="main-content">
+          <!-- フリースペース -->
+          <div class="side-slots-container" id="free-space">
+            <div class="side-slot-group">
+              <div class="side-slot-label">フリースペース</div>
+              <div class="side-slot" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+            </div>
+          </div>
+
+          <!-- フィールド -->
+          <div class="custom-layout">
+            <div class="row row-top">
+              <div class="custom-slot" data-slot="1"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+              <div class="custom-slot" data-slot="2"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+            </div>
+            <div class="row row-middle">
+              <div class="custom-slot" data-slot="3"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+              <div class="custom-slot" data-slot="4"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+              <div class="custom-slot" data-slot="5"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+              <div class="custom-slot" data-slot="6"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+              <div class="custom-slot" data-slot="7"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+              <div class="custom-slot" data-slot="8"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+            </div>
+            <div class="row row-bottom">
+              <div class="custom-slot" data-slot="9"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+              <div class="custom-slot" data-slot="10" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+              <div class="custom-slot" data-slot="11" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+              <div class="custom-slot" data-slot="12" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+              <div class="custom-slot" data-slot="13" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+              <div class="custom-slot" data-slot="14" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+            </div>
+          </div>
+
+          <!-- 右サイド: 墓地・除外 -->
+          <div class="side-slots-container">
+            <div class="side-slot-group">
+              <div class="side-slot-label">墓地</div>
+              <div class="side-slot" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+            </div>
+            <div class="side-slot-group">
+              <div class="side-slot-label">除外</div>
+              <div class="side-slot" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+            </div>
           </div>
         </div>
 
-        <!-- フィールド -->
-        <div class="custom-layout">
-          <div class="row row-top">
-            <div class="custom-slot" data-slot="1"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
-            <div class="custom-slot" data-slot="2"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
-          </div>
-          <div class="row row-middle">
-            <div class="custom-slot" data-slot="3"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
-            <div class="custom-slot" data-slot="4"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
-            <div class="custom-slot" data-slot="5"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
-            <div class="custom-slot" data-slot="6"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
-            <div class="custom-slot" data-slot="7"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
-            <div class="custom-slot" data-slot="8"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
-          </div>
-          <div class="row row-bottom">
-            <div class="custom-slot" data-slot="9"  ondrop="drop(event)" ondragover="allowDrop(event)"></div>
-            <div class="custom-slot" data-slot="10" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
-            <div class="custom-slot" data-slot="11" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
-            <div class="custom-slot" data-slot="12" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
-            <div class="custom-slot" data-slot="13" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
-            <div class="custom-slot" data-slot="14" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+        <!-- 手札エリア（カウンター・ボタンを除いた手札のみ） -->
+        <div class="center-row">
+          <div class="center-group">
+            <div class="center-slot-label">手札</div>
+            <div class="center-slot" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
           </div>
         </div>
+      </div><!-- /#mainContainer -->
 
-        <!-- 右サイド: 墓地・除外 -->
-        <div class="side-slots-container">
-          <div class="side-slot-group">
-            <div class="side-slot-label">墓地</div>
-            <div class="side-slot" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
-          </div>
-          <div class="side-slot-group">
-            <div class="side-slot-label">除外</div>
-            <div class="side-slot" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
-          </div>
-        </div>
+      <!-- デッキ / EXデッキ -->
+      <div id="imagePool" class="pool" ondrop="drop(event)" ondragover="allowDrop(event)">
+        <div class="pool-label">デッキ</div>
+        <div class="tier-row" id="poolRow"></div>
+      </div>
+      <div id="imagePool2" class="pool" ondrop="drop(event)" ondragover="allowDrop(event)">
+        <div class="pool-label">EXデッキ</div>
+        <div class="tier-row" id="poolRow2"></div>
       </div>
 
-      <!-- 手札エリア -->
-      <div class="center-row">
+      <!-- リプレイバー -->
+      <div id="replayBarContainer" class="replay-bar">
+        <button class="replay-btn" id="replayBack">&#9664; 前</button>
+        <input type="range" class="replay-slider" id="replaySlider" min="0" max="0" value="0" disabled>
+        <span class="replay-counter" id="replayCounter">0/0</span>
+        <button class="replay-btn" id="replayFwd">次 &#9654;</button>
+        <button class="replay-btn" id="replayPlay" disabled>再生</button>
+        <button class="replay-btn" id="replayUndo" disabled>取消</button>
+        <input type="text" class="replay-comment-input" id="replayCommentInput" placeholder="コメント（任意）">
+        <button class="replay-btn" id="replayAddComment">追加</button>
+        <button class="replay-btn" id="replayExport">保存</button>
+        <label class="replay-btn" style="cursor:pointer">
+          読込<input type="file" id="replayImportFile" accept=".json" style="display:none">
+        </label>
+        <button class="replay-share-btn" id="replayShare">共有リンク</button>
+      </div>
+
+    </div><!-- /.sol-field-area -->
+
+    <!-- 右パネル: カウンター + 操作ボタン -->
+    <aside class="sol-right-panel">
+
+      <div class="sol-right-section">
+        <p class="sol-right-heading">カウンター</p>
         <div class="left-rectangle-container">
-          <div class="left-rectangle-label">カウンター</div>
           <div class="left-rectangle">
             <div class="counter-container" id="parent" draggable="true" ondragstart="drag(event)">
               <div class="triangle-button-container">
@@ -189,45 +232,19 @@
             </div>
           </div>
         </div>
-        <div class="center-group">
-          <div class="center-slot-label">手札</div>
-          <div class="center-slot" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
-        </div>
-        <div class="action-button-container randomButton-container">
+      </div>
+
+      <div class="sol-right-section">
+        <p class="sol-right-heading">盤面操作</p>
+        <div class="sol-right-actions">
           <button id="saveButton2" class="action-btn save-btn">盤面セーブ</button>
           <button id="loadButton"  class="action-btn load-btn">盤面ロード</button>
           <button id="randomButton" class="action-btn draw-btn">1ドロー</button>
           <button id="resetButton"  class="action-btn reset-btn">リセット&amp;5ドロー</button>
         </div>
       </div>
-    </div><!-- /#mainContainer -->
 
-    <!-- デッキ / EXデッキ -->
-    <div id="imagePool" class="pool" ondrop="drop(event)" ondragover="allowDrop(event)">
-      <div class="pool-label">デッキ</div>
-      <div class="tier-row" id="poolRow"></div>
-    </div>
-    <div id="imagePool2" class="pool" ondrop="drop(event)" ondragover="allowDrop(event)">
-      <div class="pool-label">EXデッキ</div>
-      <div class="tier-row" id="poolRow2"></div>
-    </div>
-
-    <!-- リプレイバー -->
-    <div id="replayBarContainer" class="replay-bar">
-      <button class="replay-btn" id="replayBack">&#9664; 前</button>
-      <input type="range" class="replay-slider" id="replaySlider" min="0" max="0" value="0" disabled>
-      <span class="replay-counter" id="replayCounter">0/0</span>
-      <button class="replay-btn" id="replayFwd">次 &#9654;</button>
-      <button class="replay-btn" id="replayPlay" disabled>再生</button>
-      <button class="replay-btn" id="replayUndo" disabled>取消</button>
-      <input type="text" class="replay-comment-input" id="replayCommentInput" placeholder="コメント（任意）">
-      <button class="replay-btn" id="replayAddComment">追加</button>
-      <button class="replay-btn" id="replayExport">保存</button>
-      <label class="replay-btn" style="cursor:pointer">
-        読込<input type="file" id="replayImportFile" accept=".json" style="display:none">
-      </label>
-      <button class="replay-share-btn" id="replayShare">共有リンク</button>
-    </div>
+    </aside><!-- /.sol-right-panel -->
 
   </div><!-- /.sol-main -->
 

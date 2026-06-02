@@ -28,12 +28,65 @@
 .sol-sidebar::-webkit-scrollbar-track { background: transparent; }
 .sol-sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
-/* 右メインエリア */
+/* 右メインエリア（盤面列＋右パネルを横並び） */
 .sol-main {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: flex-start;
   overflow-x: auto;
-  padding: 0 10px 20px;
+}
+
+/* 盤面列（flex-grow で残り幅を使う） */
+.sol-field-area {
+  flex: 1;
+  min-width: 0;
+  padding: 0 8px 20px;
+}
+
+/* 右パネル */
+.sol-right-panel {
+  width: 160px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  max-height: 100vh;
+  overflow-y: auto;
+  background: #0b1428;
+  border-left: 1px solid var(--border);
+  box-sizing: border-box;
+  padding-bottom: 16px;
+}
+
+.sol-right-section {
+  padding: 14px 12px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sol-right-heading {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #4a6fa5;
+  margin: 0 0 10px;
+}
+
+/* 右パネル内の操作ボタン */
+.sol-right-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sol-right-actions .action-btn {
+  width: 100%;
+  min-height: 38px;
+  font-size: 0.8rem;
+  padding: 7px 8px;
+  text-align: center;
+  line-height: 1.3;
+  box-sizing: border-box;
 }
 
 /* ── サイドバー内セクション共通 ── */
@@ -327,6 +380,12 @@ html, body {
 #mainContainer {
   background: var(--bg-color);
   padding: 10px 10px 0;
+}
+
+/* center-row は手札のみになったので justify を左寄せに */
+.center-row {
+  justify-content: flex-start;
+  padding-left: 4px;
 }
 
 /* ── スロット ── */
