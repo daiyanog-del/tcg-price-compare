@@ -272,12 +272,10 @@
         <p class="sol-right-heading">ランダム</p>
         <div class="sol-random-tools">
           <div class="sol-random-item">
-            <button id="coinTossBtn" class="sol-random-btn">コイン</button>
-            <span id="coinResult" class="sol-random-result"></span>
+            <button id="coinTossBtn" class="sol-random-btn">コイントス</button>
           </div>
           <div class="sol-random-item">
-            <button id="diceRollBtn" class="sol-random-btn">ダイス</button>
-            <span id="diceResult" class="sol-random-result"></span>
+            <button id="diceRollBtn" class="sol-random-btn">ダイスロール</button>
           </div>
         </div>
       </div>
@@ -289,6 +287,16 @@
 </div><!-- /.sol-page-layout -->
 
 <div id="imageBrowserModal" class="modal-overlay" style="display:none;"></div>
+
+<!-- コイン/ダイス オーバーレイ -->
+<div id="randomOverlay" class="sol-random-overlay" style="display:none">
+  <div class="sol-random-overlay-backdrop"></div>
+  <div class="sol-random-overlay-content">
+    <div id="randomOverlayFace" class="sol-random-overlay-face"></div>
+    <div id="randomOverlayLabel" class="sol-random-overlay-label"></div>
+    <p class="sol-random-overlay-hint">クリックで閉じる</p>
+  </div>
+</div>
 
 <script type="module" src="/static/solitaire/js/main.js"></script>
 </body>
