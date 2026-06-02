@@ -380,12 +380,37 @@ html, body {
 #mainContainer {
   background: var(--bg-color);
   padding: 10px 10px 0;
+  margin-bottom: 0;
 }
 
-/* center-row は手札のみになったので justify を左寄せに */
+/* center-row: mainContainer外に移動し左端をデッキと揃える */
 .center-row {
+  display: flex;
+  align-items: stretch;   /* EXデッキを手札エリアと同じ高さに引き伸ばす */
+  gap: var(--gap);
+  margin: var(--gap) 0 0;
+  padding: 0;
   justify-content: flex-start;
-  padding-left: 4px;
+}
+
+/* 手札エリア: pool と同じ枠付き構造 */
+.sol-hand-area {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* center-slot は sol-hand-area 内なので枠・余白を除去 */
+.sol-hand-area .center-slot {
+  background: transparent;
+  border: none !important;
+  border-radius: 0;
+  margin-left: 0;
+  flex: 1;
+  box-shadow: none !important;
 }
 
 /* ── スロット（フィールド・墓地・除外） ── */
@@ -431,11 +456,10 @@ html, body {
   min-width: unset;
 }
 
-/* EXデッキ: center-row 内は margin-top 不要・上揃え・左余白 */
+/* EXデッキ: center-row 内は margin/align を center-row に委ねる */
 .center-row #imagePool2 {
   margin-top: 0;
-  align-self: flex-start;
-  margin-left: var(--gap);
+  margin-left: 0;
 }
 
 /* ラベルを統一 */

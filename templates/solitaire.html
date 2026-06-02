@@ -178,18 +178,22 @@
           </div>
         </div>
 
-        <!-- 手札 + EXデッキ -->
-        <div class="center-row">
-          <div class="center-group">
-            <div class="center-slot-label">手札</div>
-            <div class="center-slot" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
-          </div>
-          <div id="imagePool2" class="pool" ondrop="drop(event)" ondragover="allowDrop(event)">
-            <div class="pool-label">EXデッキ</div>
-            <div class="tier-row" id="poolRow2"></div>
-          </div>
-        </div>
+      </div>
       </div><!-- /#mainContainer -->
+
+      <!-- 手札 + EXデッキ（mainContainer外に出して左端をデッキエリアと揃える） -->
+      <div class="center-row">
+        <!-- 手札: poolと同じ枠付き構造 -->
+        <div class="sol-hand-area" ondrop="drop(event)" ondragover="allowDrop(event)">
+          <div class="pool-label">手札</div>
+          <div class="center-slot" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+        </div>
+        <!-- EXデッキ -->
+        <div id="imagePool2" class="pool" ondrop="drop(event)" ondragover="allowDrop(event)">
+          <div class="pool-label">EXデッキ</div>
+          <div class="tier-row" id="poolRow2"></div>
+        </div>
+      </div>
 
       <!-- デッキ -->
       <div id="imagePool" class="pool" ondrop="drop(event)" ondragover="allowDrop(event)">
