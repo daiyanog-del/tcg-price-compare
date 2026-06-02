@@ -409,6 +409,12 @@ html, body {
   border-radius: var(--radius);
   margin-top: 8px;
 }
+
+/* フリースペースとEXデッキの点線を除去 */
+#imagePool2,
+#free-space .side-slot {
+  border-style: solid;
+}
 .pool-label,
 .side-slot-label,
 .center-slot-label,
