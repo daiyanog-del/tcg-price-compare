@@ -2966,6 +2966,29 @@ const WISH_KEY='cardprice_wishlist';
 let _wishPrices = null;
 let _wishPricesTime = 0;
 const _WISH_PRICES_TTL = 10 * 60 * 1000; // 10分でキャッシュ失効
+const _WISH_PRICES_CACHE_KEY = 'cardprice_wish_prices_v1';
+
+// ページロード時に localStorage から即時復元
+(function(){
+  try{
+    const raw=localStorage.getItem(_WISH_PRICES_CACHE_KEY);
+    if(!raw) return;
+    const saved=JSON.parse(raw);
+    if(saved&&saved.data&&saved.time){
+      _wishPrices=saved.data;
+      _wishPricesTime=saved.time;
+    }
+  }catch{}
+})();
+
+function _saveWishPricesCache(){
+  try{
+    localStorage.setItem(_WISH_PRICES_CACHE_KEY,JSON.stringify({data:_wishPrices,time:_wishPricesTime}));
+  }catch{}
+}
+function _clearWishPricesCache(){
+  try{ localStorage.removeItem(_WISH_PRICES_CACHE_KEY); }catch{}
+}
 
 // /api/wish-prices を呼んで _wishPrices を更新する
 async function loadWishPrices(){
@@ -2973,13 +2996,14 @@ async function loadWishPrices(){
   // ロード試行済みとしてマーク（null → {} で「試行済み」になる）
   _wishPrices={};
   _wishPricesTime=Date.now();
-  if(!list.length) return;
+  if(!list.length){ _saveWishPricesCache(); return; }
   try{
     const res=await fetch('/api/wish-prices',{method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({cards:list.map(c=>c.name)})});
     const data=await res.json();
     (data.cards||[]).forEach(c=>{_wishPrices[c.name]=c;});
+    _saveWishPricesCache();
   }catch(e){/* _wishPrices={} のまま（再試行しない）*/}
 }
 
@@ -3029,6 +3053,7 @@ function wishClearAll(){
   if(!confirm('購入候補をすべて削除しますか？'))return;
   wishSave([]);
   _wishPrices=null;
+  _clearWishPricesCache();
   renderWishlist();
 }
 function wishUpdateBadge(){
