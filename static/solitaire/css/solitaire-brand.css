@@ -51,6 +51,23 @@
   flex: 1;
   min-width: 0;
   padding: 0 6px 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+/* カード詳細パネル列（左） */
+.sol-cip-col {
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  width: calc(var(--slot-width) * 3);
+}
+
+/* フィールド列（右・センター揃え） */
+.sol-field-col {
+  flex: 1;
+  min-width: 0;
 }
 
 /* 右パネル */
@@ -735,19 +752,13 @@ html, body {
 
 /* ── カード詳細パネル ── */
 
-.sol-card-info-wrap {
-  display: flex;
-  flex-direction: column;
-  align-self: stretch;
-}
-
 .sol-card-info-panel {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 8px;
-  width: calc(var(--slot-width) * 3);
-  height: 100%;
+  width: 100%;           /* .sol-cip-col の幅に従う */
+  max-height: 80vh;
   box-sizing: border-box;
   overflow-y: auto;
   display: flex;
