@@ -169,22 +169,19 @@ function _buildPriceHtml(name, priceData) {
   `;
 }
 
-// /api/price-history レスポンスから各店舗の直近価格を比較して最安値を返す
+// /api/price-history レスポンスから直近7日の全レコードで最安値を返す
 function _bestFromHistory(data) {
   const items = data?.data;
   if (!items || items.length === 0) return null;
-  // 店舗ごとに最新日付・最安値のレコードを1件ずつ取得
-  const shopBest = {};
-  for (const r of items) {
-    if (r.price <= 0) continue;
-    const cur = shopBest[r.shop];
-    if (!cur || r.date > cur.date || (r.date === cur.date && r.price < cur.price)) {
-      shopBest[r.shop] = r;
-    }
-  }
-  const candidates = Object.values(shopBest);
-  if (candidates.length === 0) return null;
-  return candidates.reduce((a, b) => a.price < b.price ? a : b);
+  const valid = items.filter(r => r.price > 0);
+  if (valid.length === 0) return null;
+  // 最新収集日を基準に7日以内のデータを対象にする
+  const latestDate = valid.reduce((a, b) => a.date > b.date ? a : b).date;
+  const cutoff = new Date(latestDate);
+  cutoff.setDate(cutoff.getDate() - 7);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  const recent = valid.filter(r => r.date >= cutoffStr);
+  return recent.reduce((a, b) => a.price < b.price ? a : b);
 }
 
 function _esc(str) {
