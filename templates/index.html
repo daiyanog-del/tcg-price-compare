@@ -420,6 +420,9 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .wish-card-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .wish-card-remove{background:none;border:none;color:var(--text-d);cursor:pointer;font-size:.9rem;padding:4px;line-height:1;transition:color .15s}
 .wish-card-remove:hover{color:var(--red)}
+.wish-card-links{display:flex;gap:4px;flex-shrink:0}
+.wish-card-link{font-size:.7rem;padding:2px 7px;border:1px solid var(--border);border-radius:4px;color:var(--text-d);text-decoration:none;transition:border-color .15s,color .15s;white-space:nowrap}
+.wish-card-link:hover{border-color:var(--accent);color:var(--accent)}
 .wish-badge{background:var(--accent);color:#fff;font:.6rem var(--mono);font-weight:700;min-width:16px;height:16px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;margin-left:4px;padding:0 4px}
 .wish-badge-drop{background:var(--green)}
 .push-notify-box{margin-top:16px;padding:14px 16px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
@@ -1827,6 +1830,7 @@ if(_pageCardName){
   }else{
     document.getElementById('q').value=_pageCardName;
     setTimeout(()=>doSearch({validated:true}),300);
+    if(location.hash==='#priceChart') setTimeout(()=>document.getElementById('priceChart')?.scrollIntoView({behavior:'smooth'}),2500);
   }
 }
 
@@ -3081,6 +3085,10 @@ function renderWishlist(){
       </span>
       <span class="wish-card-name">${esc(c.name)}</span>
       ${_wishPriceHtml(info)}
+      <div class="wish-card-links">
+        <a class="wish-card-link" href="/card/${encodeURIComponent(c.name)}" target="_blank" rel="noopener">販売</a>
+        <a class="wish-card-link" href="/card/${encodeURIComponent(c.name)}#priceChart" target="_blank" rel="noopener">推移</a>
+      </div>
       <button class="wish-card-remove" onclick="wishRemove('${escJs(c.name)}')" title="削除">&times;</button>
     </div>`}).join('');
 }
