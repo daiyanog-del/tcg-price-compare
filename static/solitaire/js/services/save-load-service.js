@@ -5,6 +5,7 @@
 
 const SAVE_KEY_PREFIX = 'card-sim-save-slot-';
 const MAX_SLOTS = 5;
+const SESSION_RESUME_KEY = 'sol-session-resume';
 
 /**
  * スロット内のカード情報を取得
@@ -22,6 +23,7 @@ function getCardsFromSlot(slot) {
         id: wrapper.id,
         src: img.src,
         style: wrapper.getAttribute('style') || '',
+        cardName: img.dataset.cardName || '',
       });
     }
   });
@@ -150,6 +152,7 @@ function restoreCardsToSlot(slot, cards) {
     img.className = 'tier-item';
     img.setAttribute('draggable', 'true');
     img.id = cardData.id.split(' ')[0];
+    if (cardData.cardName) img.dataset.cardName = cardData.cardName;
 
     // イベントリスナーを再設定
     img.addEventListener('dragstart', window.drag);
@@ -381,4 +384,83 @@ export function clearSaveSlot(slotNumber) {
   const key = SAVE_KEY_PREFIX + slotNumber;
   localStorage.removeItem(key);
   console.log(`スロット${slotNumber}をクリアしました`);
+}
+
+// ── セッション復元（ページ遷移をまたいだ盤面の自動保存・復元） ──
+
+/**
+ * 現在の盤面状態をsessionStorageに保存（pagehide時に呼ぶ）
+ * デッキが空なら保存しない
+ */
+export function saveSessionResume() {
+  try {
+    const state = _captureCurrentState();
+    const hasContent = (
+      state.slots.poolRow?.length > 0 ||
+      state.slots.poolRow2?.length > 0 ||
+      Object.keys(state.slots).some(k => k.startsWith('custom-slot-') && state.slots[k].length > 0) ||
+      state.slots['center-slot']?.length > 0
+    );
+    if (!hasContent) return;
+
+    sessionStorage.setItem(SESSION_RESUME_KEY, LZString.compress(JSON.stringify(state)));
+  } catch (e) {
+    console.warn('セッション保存失敗:', e);
+  }
+}
+
+/**
+ * sessionStorageから盤面を復元して盤面に反映する
+ * 呼び出し後にデータは削除される
+ * @returns {boolean} 復元できたか
+ */
+export function loadSessionResume() {
+  try {
+    const raw = sessionStorage.getItem(SESSION_RESUME_KEY);
+    if (!raw) return false;
+    sessionStorage.removeItem(SESSION_RESUME_KEY);
+
+    const state = JSON.parse(LZString.decompress(raw));
+    _applyState(state);
+    return true;
+  } catch (e) {
+    console.warn('セッション復元失敗:', e);
+    sessionStorage.removeItem(SESSION_RESUME_KEY);
+    return false;
+  }
+}
+
+function _captureCurrentState() {
+  const state = { slots: {}, counters: getCounterStates() };
+  state.slots.poolRow  = getCardsFromSlot(document.getElementById('poolRow'));
+  state.slots.poolRow2 = getCardsFromSlot(document.getElementById('poolRow2'));
+  document.querySelectorAll('.custom-slot').forEach(slot => {
+    const n = slot.getAttribute('data-slot');
+    if (n) state.slots[`custom-slot-${n}`] = getCardsFromSlot(slot);
+  });
+  document.querySelectorAll('.side-slot').forEach((slot, i) => {
+    state.slots[`side-slot-${i}`] = getCardsFromSlot(slot);
+  });
+  const center = document.querySelector('.center-slot');
+  if (center) state.slots['center-slot'] = getCardsFromSlot(center);
+  const free = document.getElementById('free-space');
+  if (free) state.slots['free-space'] = getCardsFromSlot(free);
+  return state;
+}
+
+function _applyState(state) {
+  restoreCardsToSlot(document.getElementById('poolRow'),  state.slots.poolRow);
+  restoreCardsToSlot(document.getElementById('poolRow2'), state.slots.poolRow2);
+  document.querySelectorAll('.custom-slot').forEach(slot => {
+    const n = slot.getAttribute('data-slot');
+    if (n) restoreCardsToSlot(slot, state.slots[`custom-slot-${n}`]);
+  });
+  document.querySelectorAll('.side-slot').forEach((slot, i) => {
+    restoreCardsToSlot(slot, state.slots[`side-slot-${i}`]);
+  });
+  const center = document.querySelector('.center-slot');
+  if (center && state.slots['center-slot']) restoreCardsToSlot(center, state.slots['center-slot']);
+  const free = document.getElementById('free-space');
+  if (free && state.slots['free-space']) restoreCardsToSlot(free, state.slots['free-space']);
+  restoreCounters(state.counters);
 }

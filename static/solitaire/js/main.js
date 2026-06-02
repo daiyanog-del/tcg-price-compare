@@ -13,6 +13,7 @@ import { registerCardImage } from './services/replay-service.js';
 import { initTokenGenerator } from './ui/token-generator.js';
 import { initRandomTools } from './ui/random-tools.js';
 import { initCardInfoPanel } from './ui/card-info-panel.js';
+import { saveSessionResume, loadSessionResume } from './services/save-load-service.js';
 
 /**
  * カード追加時にリプレイ画像辞書へ登録するフック
@@ -85,7 +86,38 @@ function initializeApp() {
     console.warn('OCR Workerのプリロードに失敗（処理は続行）:', error);
   });
 
+  // ページ遷移後の盤面復元
+  const restored = loadSessionResume();
+  if (restored) {
+    // 復元したカードをリプレイ画像辞書に登録
+    document.querySelectorAll('img.tier-item').forEach(img => {
+      if (img.id && img.src) registerCardImage(img.id, img.src);
+    });
+    _showToast('前回の盤面を復元しました');
+  }
+
   console.log('一人回しシミュレータ initialized');
+}
+
+/** ページ遷移直前に盤面をsessionStorageへ退避 */
+window.addEventListener('pagehide', () => {
+  saveSessionResume();
+});
+
+/** 短時間表示のトースト通知 */
+function _showToast(msg) {
+  const el = document.createElement('div');
+  el.className = 'sol-toast';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  // 表示→フェードアウト
+  requestAnimationFrame(() => {
+    el.classList.add('sol-toast-visible');
+    setTimeout(() => {
+      el.classList.remove('sol-toast-visible');
+      el.addEventListener('transitionend', () => el.remove(), { once: true });
+    }, 2500);
+  });
 }
 
 window.addEventListener('DOMContentLoaded', initializeApp);

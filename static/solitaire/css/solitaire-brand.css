@@ -1125,6 +1125,30 @@ html, body {
   to   { transform: scale(1);    opacity: 1; }
 }
 
+/* ── セッション復元トースト ── */
+.sol-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(8px);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 18px;
+  font-size: 0.82rem;
+  color: var(--main-color);
+  pointer-events: none;
+  opacity: 0;
+  z-index: 9999;
+  transition: opacity 0.25s, transform 0.25s;
+  white-space: nowrap;
+}
+
+.sol-toast-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
 /* ── フッター ── */
 .sol-footer {
   margin-top: 20px;
