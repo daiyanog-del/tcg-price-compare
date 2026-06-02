@@ -57,23 +57,23 @@ function _renderCard(data, imgSrc, name) {
   const isMonster = data.broad_type === 'monster';
   const isSpellTrap = data.broad_type === 'spell' || data.broad_type === 'trap';
 
-  // 種別行: モンスターは "シンクロ・効果モンスター / ドラゴン族"
+  // 種別行: モンスターは "シンクロ・効果モンスター"
   //         魔法/罠は "魔法 [速攻]" や "罠 [永続]"
   let typeLine = '';
   if (isMonster) {
-    typeLine = [data.card_type, data.race].filter(Boolean).map(_esc).join(' / ');
+    typeLine = _esc(data.card_type || '');
   } else {
     const prop = data.property ? ` [${_esc(data.property)}]` : '';
     typeLine = `${_esc(data.card_type)}${prop}`;
   }
 
-  // 属性・レベル行（モンスターのみ）
+  // 属性・種族・レベル行（モンスター）: 光 · 戦士族 · Lv.4
   const level = data.level   ? `Lv.${data.level}`
               : data.rank     ? `Rank ${data.rank}`
               : data.link_val ? `LINK-${data.link_val}`
               : '';
   const attrLine = isMonster
-    ? [data.attribute, level].filter(Boolean).map(_esc).join(' &nbsp;·&nbsp; ')
+    ? [data.attribute, data.race, level].filter(Boolean).map(_esc).join(' &nbsp;·&nbsp; ')
     : '';
 
   // ATK/DEF（モンスターのみ）
