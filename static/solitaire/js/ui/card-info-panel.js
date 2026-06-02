@@ -8,6 +8,7 @@
  */
 
 const API_CARD_INFO = '/api/card-info';
+const API_DECK_ESTIMATE = '/api/deck-estimate';
 
 /** カード名を img 要素に付与（deck-input-panel から呼ぶ） */
 export function setCardName(imgEl, name) {
@@ -49,19 +50,23 @@ export function initCardInfoPanel() {
 async function _fetchAndShow(name, imgSrc) {
   _showLoading(name, imgSrc);
   try {
-    const res = await fetch(`${API_CARD_INFO}?name=${encodeURIComponent(name)}`);
-    const data = await res.json();
+    const [infoRes, priceRes] = await Promise.all([
+      fetch(`${API_CARD_INFO}?name=${encodeURIComponent(name)}`),
+      fetch(`${API_DECK_ESTIMATE}?cards=${encodeURIComponent('1 ' + name)}`).catch(() => null),
+    ]);
+    const data = await infoRes.json();
+    const priceData = priceRes ? await priceRes.json().catch(() => null) : null;
     if (data.found) {
-      _renderCard(data, imgSrc, name);
+      _renderCard(data, imgSrc, name, priceData);
     } else {
-      _showUnknown(imgSrc, name);
+      _showUnknown(imgSrc, name, priceData);
     }
   } catch {
-    _showUnknown(imgSrc, name);
+    _showUnknown(imgSrc, name, null);
   }
 }
 
-function _renderCard(data, imgSrc, name) {
+function _renderCard(data, imgSrc, name, priceData) {
   const panel = document.getElementById('cardInfoPanel');
   if (!panel) return;
 
@@ -105,6 +110,7 @@ function _renderCard(data, imgSrc, name) {
       </div>
     </div>
     <div class="cip-effect">${_esc(data.effect_text || '').replace(/\n/g, '<br>')}</div>
+    ${_buildPriceHtml(name, priceData)}
   `;
 }
 
@@ -122,7 +128,7 @@ function _showLoading(name, imgSrc) {
   `;
 }
 
-function _showUnknown(imgSrc, name) {
+function _showUnknown(imgSrc, name, priceData) {
   const panel = document.getElementById('cardInfoPanel');
   if (!panel) return;
   panel.innerHTML = `
@@ -133,6 +139,7 @@ function _showUnknown(imgSrc, name) {
         <p class="cip-type" style="color:#4a6490">詳細情報なし</p>
       </div>
     </div>
+    ${name ? _buildPriceHtml(name, priceData) : ''}
   `;
 }
 
@@ -140,6 +147,30 @@ function _showEmpty() {
   const panel = document.getElementById('cardInfoPanel');
   if (!panel) return;
   panel.innerHTML = `<p class="cip-empty">カードをクリックすると詳細を表示</p>`;
+}
+
+function _buildPriceHtml(name, priceData) {
+  const searchUrl = '/card/' + encodeURIComponent(name);
+  const buyUrl    = '/buy/'  + encodeURIComponent(name);
+
+  let priceInfo = '';
+  const best = priceData?.results?.[0]?.best;
+  if (best) {
+    const price = Number(best.price).toLocaleString('ja-JP');
+    priceInfo = `<p class="cip-price-val">¥${price}<span class="cip-price-shop">${_esc(best.shop)}</span></p>`;
+  } else {
+    priceInfo = `<p class="cip-price-val cip-price-none">価格データなし</p>`;
+  }
+
+  return `
+    <div class="cip-price">
+      ${priceInfo}
+      <div class="cip-price-links">
+        <a href="${searchUrl}" target="_blank" rel="noopener" class="cip-price-link">販売価格</a>
+        <a href="${buyUrl}"    target="_blank" rel="noopener" class="cip-price-link cip-buy-link">買取価格</a>
+      </div>
+    </div>
+  `;
 }
 
 function _esc(str) {
