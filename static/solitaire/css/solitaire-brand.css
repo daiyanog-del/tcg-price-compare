@@ -746,7 +746,7 @@ html, body {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 8px;
-  width: calc(var(--slot-width) * 1.5);
+  width: calc(var(--slot-width) * 3);
   height: 100%;
   box-sizing: border-box;
   overflow-y: auto;
