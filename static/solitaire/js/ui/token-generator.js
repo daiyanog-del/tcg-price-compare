@@ -1,6 +1,12 @@
 /**
  * token-generator.js
- * トークンカード画像をCanvasで生成してデッキプールに追加する
+ * プレビュー画像をドラッグして盤面に直接トークンを配置する
+ *
+ * 仕組み:
+ *  dragstart 時に tokenDataURL から新しい .tier-item-wrapper を poolRow に追加し、
+ *  その img の ID を dataTransfer にセットする。
+ *  既存の drop 処理がそのままカードをフィールドへ移動する。
+ *  ドロップが無効な場所なら poolRow に残る（再利用可）。
  */
 
 import { addCardToPool } from '../components/card-manager.js';
@@ -10,19 +16,16 @@ const CARD_W = 106;
 const CARD_H = 154;
 
 const TOKEN_COLORS = [
-  { label: '緑',  value: '#2d6040' },
-  { label: '金',  value: '#7a6020' },
-  { label: '青',  value: '#1a3d6b' },
-  { label: '赤',  value: '#6b1a2a' },
-  { label: '紫',  value: '#4a1a6b' },
-  { label: '灰',  value: '#383848' },
+  { label: '緑', value: '#2d6040' },
+  { label: '金', value: '#7a6020' },
+  { label: '青', value: '#1a3d6b' },
+  { label: '赤', value: '#6b1a2a' },
+  { label: '紫', value: '#4a1a6b' },
+  { label: '黒', value: '#383848' },
 ];
 
 let _selectedColor = TOKEN_COLORS[0].value;
 
-/**
- * CanvasでトークンカードのData URLを生成
- */
 function generateTokenDataURL(name, color) {
   const canvas = document.createElement('canvas');
   canvas.width  = CARD_W;
@@ -38,7 +41,7 @@ function generateTokenDataURL(name, color) {
   ctx.lineWidth = 1.5;
   _roundRect(ctx, 3, 3, CARD_W - 6, CARD_H - 6, 5, false, true);
 
-  // 薄文字「TOKEN」（透かし）
+  // 薄文字「TOKEN」
   ctx.save();
   ctx.globalAlpha = 0.12;
   ctx.fillStyle = '#fff';
@@ -53,7 +56,6 @@ function generateTokenDataURL(name, color) {
   ctx.font = 'bold 9px "Noto Sans JP", sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  // 長い名前は折り返し
   const displayName = name.length > 10 ? name.slice(0, 9) + '…' : name;
   ctx.fillText(displayName, CARD_W / 2, CARD_H / 2 + 14);
 
@@ -86,10 +88,21 @@ function _roundRect(ctx, x, y, w, h, r, fill, stroke) {
   if (stroke) ctx.stroke();
 }
 
-/**
- * トークン生成UIを初期化
- */
+/** プレビュー画像を現在の設定で更新 */
+function refreshPreview() {
+  const img = document.getElementById('tokenPreviewImg');
+  if (!img) return;
+  const name = (document.getElementById('tokenName')?.value || 'トークン').trim() || 'トークン';
+  img.src = generateTokenDataURL(name, _selectedColor);
+}
+
 export function initTokenGenerator() {
+  // 初期プレビュー描画
+  refreshPreview();
+
+  // 名前入力で即時更新
+  document.getElementById('tokenName')?.addEventListener('input', refreshPreview);
+
   // カラーボタン
   document.querySelectorAll('.sol-token-color-btn').forEach(btn => {
     if (btn.dataset.color === _selectedColor) btn.classList.add('active');
@@ -97,19 +110,30 @@ export function initTokenGenerator() {
       document.querySelectorAll('.sol-token-color-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       _selectedColor = btn.dataset.color;
+      refreshPreview();
     });
   });
 
-  // 生成ボタン
-  document.getElementById('generateTokenBtn')?.addEventListener('click', () => {
+  // プレビュー画像のドラッグ開始
+  // → 新しいカード要素を poolRow に生成してその ID を dataTransfer に渡す
+  const preview = document.getElementById('tokenPreviewImg');
+  if (!preview) return;
+
+  preview.addEventListener('dragstart', (ev) => {
     const name = (document.getElementById('tokenName')?.value || 'トークン').trim() || 'トークン';
-    const src = generateTokenDataURL(name, _selectedColor);
+    const src  = generateTokenDataURL(name, _selectedColor);
+
+    // poolRow に新カードを追加
     addCardToPool(src, false, false);
-    // リプレイ辞書に登録
+
+    // 追加された最後のカードの ID を取得
     const pool = document.getElementById('poolRow');
-    if (pool) {
-      const last = pool.querySelector('.tier-item-wrapper:last-child img');
-      if (last?.id) registerCardImage(last.id, src);
-    }
+    const lastImg = pool?.querySelector('.tier-item-wrapper:last-child img');
+    if (!lastImg?.id) { ev.preventDefault(); return; }
+
+    registerCardImage(lastImg.id, src);
+
+    // 既存の drop 処理に渡す ID をセット
+    ev.dataTransfer.setData('text/plain', lastImg.id);
   });
 }

@@ -609,6 +609,40 @@ html, body {
   box-shadow: 0 0 0 1px var(--accent);
 }
 
+/* トークンプレビュー */
+.sol-token-preview-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+}
+
+.sol-token-preview-img {
+  width: 64px;
+  height: auto;
+  border-radius: 4px;
+  cursor: grab;
+  display: block;
+  transition: transform 0.15s, box-shadow 0.15s;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  user-select: none;
+}
+.sol-token-preview-img:hover {
+  transform: scale(1.06);
+  box-shadow: 0 4px 14px rgba(74,124,255,0.35);
+}
+.sol-token-preview-img:active {
+  cursor: grabbing;
+}
+
+.sol-token-hint {
+  font-size: 0.68rem;
+  color: #4a6490;
+  margin: 0;
+  text-align: center;
+}
+
 /* ── フッター ── */
 .sol-footer {
   margin-top: 20px;
