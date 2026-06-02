@@ -3113,7 +3113,7 @@ function renderWishlist(){
       <span class="wish-card-name">${esc(c.name)}</span>
       ${_wishPriceHtml(info)}
       <div class="wish-card-links">
-        <a class="wish-card-link" href="${info&&info.best_url?esc(info.best_url):'/card/'+encodeURIComponent(c.name)}" target="_blank" rel="noopener nofollow">${info&&info.best_url?'最安値で購入':'販売価格'}</a>
+        <a class="wish-card-link" href="/card/${encodeURIComponent(c.name)}" target="_blank" rel="noopener">${info&&info.best_shop?esc(info.best_shop)+'で検索':'販売価格'}</a>
         <a class="wish-card-link wish-card-link-sub" href="/card/${encodeURIComponent(c.name)}#priceChart" target="_blank" rel="noopener">価格推移</a>
       </div>
       <button class="wish-card-remove" onclick="wishRemove('${escJs(c.name)}')" title="削除">&times;</button>

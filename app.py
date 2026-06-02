@@ -1360,8 +1360,7 @@ def api_wish_prices():
             diff = latest_price - base_7d
             pct = round((diff / base_7d) * 100, 1)
 
-        best_shop = (_estimate_cache.get(name) or {}).get("shop", "")
-        best_url = _shop_search_url(best_shop, name) if best_shop else ""
+        best_cache = _estimate_cache.get(name) or {}
         results.append({
             "name": name,
             "latest": latest_price,
@@ -1370,7 +1369,7 @@ def api_wish_prices():
             "pct": pct,
             "status": "ready",
             "image": _ygores_image_url(name),
-            "best_url": best_url,
+            "best_shop": best_cache.get("shop", ""),
         })
 
     return jsonify({"cards": results})
