@@ -317,7 +317,9 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .card-hero-name{font-size:1.1rem;font-weight:700;margin-bottom:4px}
 .card-hero-meta{font-size:.78rem;color:var(--text-m);line-height:1.6}
 .card-detail{margin-top:6px;font-size:.74rem;line-height:1.5;border-top:1px solid var(--border);padding-top:6px}
-.card-detail-meta{color:var(--text);font-weight:600;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.card-detail-meta{display:flex;flex-direction:column;gap:2px}
+.cdm-row{display:flex;justify-content:space-between;align-items:baseline;gap:8px;color:var(--text);font-weight:600}
+.cdm-sub{font-size:.78rem;font-weight:400;color:var(--text-d)}
 .card-detail-print{color:var(--text-d);font-size:.70rem;font-weight:400;flex-shrink:0}
 .card-detail-effect{margin-top:4px;color:var(--text-m);white-space:pre-wrap;word-break:break-all;text-align:left}
 .ritem-img{width:36px;height:52px;border-radius:3px;overflow:hidden;flex-shrink:0;background:var(--bg-card)}
@@ -1217,16 +1219,19 @@ function _fetchCardInfo(cardName){
       if(data.konami_id) _applyKonamiLink(data.konami_id);
       const det=document.getElementById('cardDetail');
       if(!det) return;
-      let meta='';
-      if(data.card_type==='モンスター'){
-        const lvl=(data.rank!=null)?`ランク${data.rank}`:`Lv${data.level||'?'}`;
-        const race=data.race?` / ${data.race}`:'';
-        meta=`${data.attribute||''}${race} / ${lvl} / ATK ${data.atk??'-'} / DEF ${data.def??'-'}`;
-      } else {
-        meta=data.card_type+(data.property?` (${data.property})`:'')||'';
-      }
       const printSpan=data.latest_print?`<span class="card-detail-print">${esc(data.latest_print)}</span>`:'';
-      let html=`<div class="card-detail-meta"><span>${esc(meta)}</span>${printSpan}</div>`;
+      let html='<div class="card-detail-meta">';
+      if(data.broad_type==='monster'){
+        const lvl=data.link_val!=null?`LINK-${data.link_val}`:data.rank!=null?`ランク${data.rank}`:`Lv${data.level??'?'}`;
+        const statParts=[data.attribute,data.race,lvl].filter(Boolean);
+        const def=data.link_val!=null?'':` / DEF ${data.def??'-'}`;
+        html+=`<div class="cdm-row">${esc(data.card_type||'')}${printSpan}</div>`;
+        if(statParts.length) html+=`<div class="cdm-row cdm-sub">${esc(statParts.join(' · '))}</div>`;
+        html+=`<div class="cdm-row cdm-sub">ATK ${data.atk??'-'}${def}</div>`;
+      } else {
+        html+=`<div class="cdm-row">${esc(data.card_type+(data.property?` [${data.property}]`:'')||'')}${printSpan}</div>`;
+      }
+      html+='</div>';
       if(data.effect_text) html+=`<div class="card-detail-effect">${esc(data.effect_text)}</div>`;
       det.innerHTML=html;
     })
