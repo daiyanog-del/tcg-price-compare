@@ -415,16 +415,37 @@ html, body {
   min-width: unset;
 }
 
-/* ── スロット（フィールド・墓地・除外） ── */
-.custom-slot,
-.side-slot {
+/* ── スロット（フィールド） ── */
+.custom-slot {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
-.custom-slot:hover,
-.side-slot:hover {
+.custom-slot:hover {
   border-color: var(--accent);
+}
+
+/* ── サイドエリアラッパー（フリースペース・墓地・除外） ── */
+/* sol-hand-area と同じ構造: 枠付きdiv内にラベル + side-slot */
+.sol-side-area {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+}
+
+/* side-slot は sol-side-area 内では枠・背景を除去 */
+.sol-side-area .side-slot {
+  background: transparent;
+  border: none !important;
+  border-radius: 0;
+  flex: 1;
+  height: auto;
+  align-self: auto;
+  width: 100%;
 }
 
 /* ── 手札・デッキ・EXデッキの平仄統一 ── */
