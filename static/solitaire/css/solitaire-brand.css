@@ -872,6 +872,7 @@ html, body {
 
 .cip-price-val {
   font-size: 0.83rem;
+  font-weight: 600;
   font-family: var(--mono);
   color: var(--gold);
   margin: 0;
