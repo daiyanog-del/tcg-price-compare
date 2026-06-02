@@ -424,21 +424,21 @@ html, body {
 
 /* ── ゾーンアイコン（同系色ウォーターマーク） ── */
 
-/* ペンデュラムゾーン: 振り子アイコン */
-.custom-slot[data-slot="1"],
-.custom-slot[data-slot="2"] {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cline x1='12' y1='3' x2='12' y2='15' stroke='%234a7cff' stroke-width='2' stroke-linecap='round' stroke-opacity='0.35'/%3E%3Ccircle cx='12' cy='18.5' r='3' fill='%234a7cff' fill-opacity='0.3'/%3E%3Cline x1='4' y1='3' x2='20' y2='3' stroke='%234a7cff' stroke-width='2' stroke-linecap='round' stroke-opacity='0.35'/%3E%3C/svg%3E");
+/* ペンデュラムゾーン: 横長ひし形 */
+.custom-slot[data-slot="10"],
+.custom-slot[data-slot="14"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 40'%3E%3Cpolygon points='40,2 78,20 40,38 2,20' fill='%234a7cff' fill-opacity='0.3'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: center;
-  background-size: 55%;
+  background-size: 72% auto;
 }
 
-/* フィールド魔法ゾーン: 星アイコン */
-.custom-slot[data-slot="9"] {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpolygon points='12,2 14.9,9.3 22.5,9.3 16.7,14.1 19,21 12,17 5,21 7.3,14.1 1.5,9.3 9.1,9.3' fill='%234a7cff' fill-opacity='0.28'/%3E%3C/svg%3E");
+/* フィールド魔法ゾーン: 風車（4枚羽根）マーク */
+.custom-slot[data-slot="3"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolygon points='50,50 15,35 8,8 35,15' fill='%234a7cff' fill-opacity='0.3'/%3E%3Cpolygon points='50,50 65,15 92,8 85,35' fill='%234a7cff' fill-opacity='0.3'/%3E%3Cpolygon points='50,50 85,65 92,92 65,85' fill='%234a7cff' fill-opacity='0.3'/%3E%3Cpolygon points='50,50 35,85 8,92 15,65' fill='%234a7cff' fill-opacity='0.3'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: center;
-  background-size: 60%;
+  background-size: 62%;
 }
 
 /* 墓地: 墓石アイコン */
