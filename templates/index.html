@@ -208,6 +208,11 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 
 /* Rarity badge */
 .rb{display:inline-block;padding:2px 7px;border-radius:4px;font-size:.7rem;font-weight:700;white-space:nowrap;background:rgba(74,124,255,.1);color:var(--accent-l)}
+/* Limit regulation badge */
+.lb{display:inline-block;padding:2px 7px;border-radius:4px;font-size:.7rem;font-weight:700;white-space:nowrap;margin-left:6px}
+.lb-forbidden{background:rgba(220,38,38,.15);color:#f87171}
+.lb-limited{background:rgba(232,152,68,.15);color:#e89844}
+.lb-semi{background:rgba(74,124,255,.12);color:var(--accent-l)}
 .rb-ウルトラ,.rb-OFウルトラ{background:rgba(232,200,72,.1);color:var(--gold)}
 .rb-スーパー{background:rgba(103,232,249,.08);color:#7dd4e8}
 .rb-シークレット{background:rgba(180,170,230,.08);color:#b0a8e0}
@@ -404,6 +409,14 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 #packList .meta-deck-btn{white-space:normal;justify-content:flex-start;align-items:center;flex-wrap:nowrap;gap:8px}
 #packList .pack-btn-name{flex:1;min-width:0;text-align:left;white-space:normal;word-break:keep-all;overflow-wrap:break-word}
 #packList .meta-deck-btn .meta-share{flex-shrink:0;white-space:nowrap;margin-left:auto}
+
+/* ── マイデッキ保存 ── */
+.saved-deck-label{font:.72rem var(--font);font-weight:700;color:var(--text-d);margin:10px 0 4px}
+.saved-deck-row{display:flex;align-items:center;gap:6px;margin-bottom:3px}
+.saved-deck-name{flex:1;text-align:left;padding:5px 10px;font:.78rem var(--font);color:var(--text-m);background:var(--bg-card);border:1px solid var(--border);border-radius:4px;cursor:pointer;transition:all .15s;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.saved-deck-name:hover{border-color:var(--accent);color:var(--text)}
+.saved-deck-remove{background:none;border:none;color:var(--text-d);cursor:pointer;font-size:.9rem;padding:4px 6px;line-height:1;transition:color .15s}
+.saved-deck-remove:hover{color:var(--red)}
 
 /* ── 購入候補 ── */
 .wish-add{background:none;border:1px solid var(--border);color:var(--text-d);border-radius:13px;cursor:pointer;font-size:.72rem;font-weight:600;line-height:1;display:inline-flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;padding:3px 10px;white-space:nowrap}
@@ -622,7 +635,8 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   <div class="mode-tabs">
     <button class="mode-tab active" onclick="switchMode('search')">販売価格</button>
     <button class="mode-tab" onclick="switchMode('buyback')">買取価格</button>
-    <button class="mode-tab" onclick="switchMode('deck')">デッキ計算</button>
+    <button class="mode-tab" onclick="switchMode('mydeck')">マイデッキ</button>
+    <button class="mode-tab" onclick="switchMode('meta')">環境デッキ</button>
     <button class="mode-tab" onclick="switchMode('packs')">最新弾</button>
     <button class="mode-tab" onclick="switchMode('wishlist')">購入候補<span class="wish-badge" id="wishTabBadge" style="display:none">0</span></button>
     <a class="mode-tab" href="/solitaire" style="text-decoration:none">一人回し</a>
@@ -799,42 +813,26 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   </div>
   </div><!-- /mode-buyback -->
 
-  <!-- ===== デッキ価格計算モード ===== -->
-  <div id="mode-deck" class="hidden">
+  <!-- ===== マイデッキモード ===== -->
+  <div id="mode-mydeck" class="hidden">
     <div class="deck-builder">
-
       <div class="deck-input-area">
-
-        <!-- 入力方法タブ -->
-        <div class="deck-input-tabs">
-          <button class="deck-input-tab active" onclick="deckInputTab('paste')">テキスト</button>
-          <button class="deck-input-tab" onclick="deckInputTab('preset')">環境デッキ</button>
-        </div>
-
         <!-- テキスト入力 -->
-        <div id="deckInput-paste">
-          <textarea class="deck-textarea" id="deckTextarea" placeholder="カード名を入力（1行1枚、枚数指定も可）&#10;&#10;例:&#10;3 灰流うらら&#10;2 増殖するG&#10;1 サンダー・ボルト&#10;ブラック・マジシャン"></textarea>
-        </div>
+        <textarea class="deck-textarea" id="deckTextarea" placeholder="カード名を入力（1行1枚、枚数指定も可）&#10;&#10;例:&#10;3 灰流うらら&#10;2 増殖するG&#10;1 サンダー・ボルト&#10;ブラック・マジシャン"></textarea>
 
-        <!-- ニューロン連携（未実装・非表示） -->
-        <div id="deckInput-neuron" class="hidden">
-          <textarea class="deck-textarea" id="neuronInput" placeholder="遊戯王ニューロンのデッキURLを貼り付け" disabled></textarea>
-        </div>
-
-        <!-- 環境デッキ（TCG PORTAL連携） -->
-        <div id="deckInput-preset" class="hidden">
-          <div id="metaTierList" class="meta-loading">環境データを読込中...</div>
-          <div id="metaDeckDetail" class="meta-deck-detail hidden"></div>
-        </div>
-
+        <!-- 保存済みデッキ一覧 -->
+        <div id="savedDeckList"></div>
 
         <div class="deck-actions">
           <button class="deck-btn deck-btn-primary" onclick="calcDeckEstimate()">見積もり<span style="display:block;font-size:.65rem;font-weight:400;opacity:.7;margin-top:2px">直近データから即時表示 / データがないカードは自動で店舗検索</span></button>
           <button class="deck-btn deck-btn-outline" onclick="calcDeck()">全て店舗検索<span style="display:block;font-size:.65rem;font-weight:400;opacity:.7;margin-top:2px">全カードをリアルタイムで検索（時間がかかります）</span></button>
         </div>
-        <div style="text-align:right;margin-top:4px"><button class="deck-btn-text" onclick="clearDeck()">入力をクリア</button></div>
+        <div style="text-align:right;margin-top:4px;display:flex;gap:10px;justify-content:flex-end">
+          <button class="deck-btn-text" onclick="saveCurrentDeck()">保存</button>
+          <button class="deck-btn-text" onclick="clearDeck()">入力をクリア</button>
+        </div>
 
-        <!-- デッキモード用 店舗フィルタ -->
+        <!-- マイデッキ用 店舗フィルタ -->
         <div class="shop-toggles" id="deckShopToggles" style="margin:10px 0 0;justify-content:flex-start">
           <label class="shop-toggle active" data-shop="遊々亭">
             <input type="checkbox" checked> 遊々亭
@@ -865,7 +863,48 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
       </div>
 
     </div>
-  </div><!-- /mode-deck -->
+  </div><!-- /mode-mydeck -->
+
+  <!-- ===== 環境デッキモード ===== -->
+  <div id="mode-meta" class="hidden">
+    <div class="deck-builder">
+      <div class="deck-input-area">
+        <!-- 環境デッキ一覧 -->
+        <div id="metaTierList" class="meta-loading">環境データを読込中...</div>
+        <div id="metaDeckDetail" class="meta-deck-detail hidden"></div>
+
+        <!-- 環境デッキ用 店舗フィルタ -->
+        <div class="shop-toggles" id="metaShopToggles" style="margin:10px 0 0;justify-content:flex-start">
+          <label class="shop-toggle active" data-shop="遊々亭">
+            <input type="checkbox" checked> 遊々亭
+          </label>
+          <label class="shop-toggle active" data-shop="カードラッシュ">
+            <input type="checkbox" checked> カードラッシュ
+          </label>
+          <label class="shop-toggle active" data-shop="トレコロCB">
+            <input type="checkbox" checked> トレコロCB
+          </label>
+          <label class="shop-toggle active" data-shop="カーナベル">
+            <input type="checkbox" checked> カーナベル
+          </label>
+          <label class="shop-toggle active" data-shop="カードラボ">
+            <input type="checkbox" checked> カードラボ
+          </label>
+        </div>
+      </div>
+
+      <!-- 環境デッキ計算結果 -->
+      <div id="metaDeckResults" class="deck-results hidden">
+        <div class="deck-total">
+          <span class="deck-total-label">デッキ合計最安値（推定）</span>
+          <span class="deck-total-price" id="metaDeckTotalPrice">-</span>
+        </div>
+        <div class="deck-progress" id="metaDeckProgress"></div>
+        <div id="metaDeckCardList"></div>
+      </div>
+
+    </div>
+  </div><!-- /mode-meta -->
 
   <!-- ===== 最新弾モード ===== -->
   <div id="mode-packs" class="hidden">
@@ -1224,6 +1263,8 @@ function _fetchCardInfo(cardName){
       const det=document.getElementById('cardDetail');
       if(!det) return;
       const printSpan=data.latest_print?`<span class="card-detail-print">${esc(data.latest_print)}</span>`:'';
+      const limitCls={'禁止':'lb-forbidden','制限':'lb-limited','準制限':'lb-semi'};
+      const limitBadge=data.limit?`<span class="lb ${limitCls[data.limit]||''}">${esc(data.limit)}</span>`:'';
       let html='<div class="card-detail-meta">';
       if(data.broad_type==='monster'){
         const lvl=data.link_val!=null?`LINK-${data.link_val}`:data.rank!=null?`ランク${data.rank}`:`Lv${data.level??'?'}`;
@@ -1232,9 +1273,9 @@ function _fetchCardInfo(cardName){
         let statLine=`<span class="cdm-type">${esc(data.card_type||'')}</span>`;
         if(statParts.length) statLine+=` ${statParts.map(esc).join(' · ')}`;
         statLine+=` ATK ${data.atk??'-'}${def}`;
-        html+=`<div class="cdm-row cdm-sub"><span>${statLine}</span>${printSpan}</div>`;
+        html+=`<div class="cdm-row cdm-sub"><span>${statLine}</span>${limitBadge}${printSpan}</div>`;
       } else {
-        html+=`<div class="cdm-row">${esc(data.card_type+(data.property?` [${data.property}]`:'')||'')}${printSpan}</div>`;
+        html+=`<div class="cdm-row">${esc(data.card_type+(data.property?` [${data.property}]`:'')||'')}${limitBadge}${printSpan}</div>`;
       }
       html+='</div>';
       if(data.effect_text) html+=`<div class="card-detail-effect">${esc(data.effect_text)}</div>`;
@@ -1872,29 +1913,36 @@ window.addEventListener('popstate',function(e){
 
 // ── Mode switch ──
 function switchMode(mode){
-  const labels={search:'販売価格',buyback:'買取価格',deck:'デッキ計算',packs:'最新弾'};
+  const labels={search:'販売価格',buyback:'買取価格',mydeck:'マイデッキ',meta:'環境デッキ',packs:'最新弾'};
   document.querySelectorAll('.mode-tab').forEach(b=>{
     // 購入候補タブはテキスト先頭で判定（バッジspanが含まれるため）
     if(mode==='wishlist') b.classList.toggle('active',b.textContent.startsWith('購入候補'));
     else b.classList.toggle('active',b.textContent===(labels[mode]||mode));
   });
-  ['search','buyback','deck','packs','wishlist'].forEach(m=>{
+  ['search','buyback','mydeck','meta','packs','wishlist'].forEach(m=>{
     document.getElementById('mode-'+m).classList.toggle('hidden',m!==mode);
   });
   if(mode==='packs') loadPacks();
   if(mode==='wishlist') renderWishlist();
+  if(mode==='meta') loadMetaTiers();
+  if(mode==='mydeck') renderSavedDecks();
 }
 
 // ── Deck Builder ──
-function deckInputTab(id){
-  const labels={paste:'テキスト',neuron:'ニューロン',preset:'環境デッキ'};
-  document.querySelectorAll('.deck-input-tab').forEach(b=>b.classList.toggle('active',b.textContent.includes(labels[id]||'')));
-  ['paste','neuron','preset'].forEach(t=>{
-    const el=document.getElementById('deckInput-'+t);
-    if(el) el.classList.toggle('hidden',t!==id);
-  });
-  if(id==='preset') loadMetaTiers();
-}
+
+// コンテキスト定義（マイデッキ / 環境デッキ）
+const DECK_CTX = {
+  mydeck:{
+    results:'deckResults', list:'deckCardList', total:'deckTotalPrice',
+    prog:'deckProgress', shops:'deckShopToggles', rowPrefix:'deck-row-',
+    getText:()=>document.getElementById('deckTextarea').value
+  },
+  meta:{
+    results:'metaDeckResults', list:'metaDeckCardList', total:'metaDeckTotalPrice',
+    prog:'metaDeckProgress', shops:'metaShopToggles', rowPrefix:'meta-row-',
+    getText:()=>_lastMetaDeckText
+  }
+};
 
 function parseDeckList(text){
   const lines=text.split('\n').map(l=>l.trim()).filter(Boolean);
@@ -2024,7 +2072,7 @@ async function loadMetaDeck(theme){
     detailEl.innerHTML='<h4>'+heading+'</h4>'
       +'<div class="meta-actions" style="margin-bottom:10px">'
       +'<button class="deck-btn deck-btn-primary" onclick="applyMetaDeck()">この構成で見積もり</button>'
-      +'<button class="deck-btn deck-btn-secondary" onclick="applyMetaDeckToTextarea()">テキストに反映</button>'
+      +'<button class="deck-btn deck-btn-secondary" onclick="applyMetaDeckToTextarea()">マイデッキに送る</button>'
       +'</div>'
       +'<div class="meta-card-list">'+chips+'</div>'
       +recipeHtml
@@ -2040,19 +2088,15 @@ async function loadMetaDeck(theme){
 let _lastMetaDeckText='';
 
 function applyMetaDeck(){
-  document.getElementById('deckTextarea').value=_lastMetaDeckText;
-  deckInputTab('paste');
-  // テキストエリアをハイライトして変化を伝える
-  const ta=document.getElementById('deckTextarea');
-  ta.style.borderColor='var(--accent)';
-  ta.style.boxShadow='0 0 0 3px rgba(74,124,255,.2)';
-  setTimeout(()=>{ta.style.borderColor='';ta.style.boxShadow='';},1500);
-  calcDeckEstimate();
+  // 環境デッキタブ内で見積もりを完結させる（他タブに依存しない）
+  if(!_lastMetaDeckText) return;
+  calcDeckEstimate(DECK_CTX.meta);
 }
 
 function applyMetaDeckToTextarea(){
+  // マイデッキタブへレシピを送り、編集できるようにする
   document.getElementById('deckTextarea').value=_lastMetaDeckText;
-  deckInputTab('paste');
+  switchMode('mydeck');
   // テキストエリアをハイライトして変化を伝える
   const ta=document.getElementById('deckTextarea');
   ta.style.borderColor='var(--accent)';
@@ -2243,7 +2287,7 @@ const PRESETS={};
 function loadPreset(key){
   if(PRESETS[key]){
     document.getElementById('deckTextarea').value=PRESETS[key];
-    deckInputTab('paste');
+    switchMode('mydeck');
   }
 }
 
@@ -2273,27 +2317,28 @@ function addToDeck(name){
     ta.value=lines.join('\n');
   }
   // Flash feedback
-  switchMode('deck');
+  switchMode('mydeck');
 }
 
 let _deckBuyMode=false;
 
-async function calcDeckEstimate(){
-  const text=document.getElementById('deckTextarea').value;
+async function calcDeckEstimate(ctx){
+  ctx = ctx || DECK_CTX.mydeck;
+  const text = ctx.getText();
   const cards=parseDeckList(text);
   if(!cards.length) return;
 
-  const resultsEl=document.getElementById('deckResults');
-  const listEl=document.getElementById('deckCardList');
-  const totalEl=document.getElementById('deckTotalPrice');
-  const progEl=document.getElementById('deckProgress');
-  const totalLabel=document.querySelector('.deck-total-label');
+  const resultsEl=document.getElementById(ctx.results);
+  const listEl=document.getElementById(ctx.list);
+  const totalEl=document.getElementById(ctx.total);
+  const progEl=document.getElementById(ctx.prog);
+  const totalLabel=document.querySelector('#'+ctx.results+' .deck-total-label');
   resultsEl.classList.remove('hidden');
   totalEl.textContent='取得中...';
   totalLabel.textContent='デッキ相場（直近データ）';
 
   listEl.innerHTML=cards.map((c,i)=>`
-    <div class="deck-card-row loading" id="deck-row-${i}">
+    <div class="deck-card-row loading" id="${ctx.rowPrefix}${i}">
       <span class="deck-card-qty">${c.qty}x</span>
       <span class="deck-card-name">${esc(c.name)}</span>
       <span class="deck-card-price">-</span>
@@ -2314,7 +2359,7 @@ async function calcDeckEstimate(){
 
     data.results.forEach((r,i)=>{
       const c=cards[i];
-      const row=document.getElementById('deck-row-'+i);
+      const row=document.getElementById(ctx.rowPrefix+i);
       if(!row)return;
       if(r.best){
         const lineTotal=r.best.price*c.qty;
@@ -2343,7 +2388,7 @@ async function calcDeckEstimate(){
     totalEl.innerHTML=`¥${dbTotal.toLocaleString()} <span style="font-size:.7em;color:var(--text-d)">+ ${missing.length}枚検索中</span>`;
     progEl.textContent=`${found}枚を即時取得 / 残り${missing.length}枚をリアルタイム検索中...`;
 
-    const shops=[...document.querySelectorAll('#deckShopToggles .shop-toggle')]
+    const shops=[...document.querySelectorAll('#'+ctx.shops+' .shop-toggle')]
       .filter(l=>l.querySelector('input').checked).map(l=>l.dataset.shop);
     const missingParam=missing.map(i=>{const c=cards[i];return c.qty>1?`${c.qty} ${c.name}`:c.name}).join('|');
     const params=new URLSearchParams({cards:missingParam});
@@ -2368,13 +2413,13 @@ async function calcDeckEstimate(){
         if(d.type==='card_start'){
           // SSE indexをUI indexにマッピング
           const uiIdx=missing[d.index];
-          const row=document.getElementById('deck-row-'+uiIdx);
+          const row=document.getElementById(ctx.rowPrefix+uiIdx);
           if(row)row.querySelector('.deck-card-status').textContent='検索中...';
         }
         else if(d.type==='card_done'){
           const uiIdx=missing[d.index];
           const c=cards[uiIdx];
-          const row=document.getElementById('deck-row-'+uiIdx);
+          const row=document.getElementById(ctx.rowPrefix+uiIdx);
           if(!row)continue;
 
           if(d.best){
@@ -2426,7 +2471,7 @@ async function calcDeck(buyMode){
   const listEl=document.getElementById('deckCardList');
   const totalEl=document.getElementById('deckTotalPrice');
   const progEl=document.getElementById('deckProgress');
-  const totalLabel=document.querySelector('.deck-total-label');
+  const totalLabel=document.querySelector('#deckResults .deck-total-label');
   resultsEl.classList.remove('hidden');
   totalEl.textContent='計算中...';
   totalLabel.textContent=isBuy?'買取合計（推定）':'デッキ合計最安値（推定）';
@@ -3023,6 +3068,63 @@ function _wishPriceHtml(info){
   return `<span class="wish-price-info">${priceStr} <small style="color:var(--text-d)">(${pctStr})</small></span>`;
 }
 
+// ── マイデッキ保存（localStorage）──
+const SAVED_DECKS_KEY='cardprice_saved_decks';
+
+function savedDecksGet(){
+  try{return JSON.parse(localStorage.getItem(SAVED_DECKS_KEY))||[];}catch{return[];}
+}
+function savedDecksSet(list){
+  localStorage.setItem(SAVED_DECKS_KEY,JSON.stringify(list));
+}
+
+function saveCurrentDeck(){
+  const text=document.getElementById('deckTextarea').value.trim();
+  if(!text){alert('デッキが入力されていません');return;}
+  const name=prompt('デッキ名を入力してください');
+  if(!name||!name.trim())return;
+  const n=name.trim();
+  const list=savedDecksGet();
+  const existing=list.find(d=>d.name===n);
+  if(existing){
+    if(!confirm(`「${n}」はすでに保存されています。上書きしますか？`))return;
+    existing.text=text;
+    existing.updated=Date.now();
+  }else{
+    list.push({id:'d_'+Date.now(),name:n,text:text,updated:Date.now()});
+  }
+  savedDecksSet(list);
+  renderSavedDecks();
+}
+
+function loadSavedDeck(id){
+  const deck=savedDecksGet().find(d=>d.id===id);
+  if(!deck)return;
+  document.getElementById('deckTextarea').value=deck.text;
+  calcDeckEstimate();
+}
+
+function deleteSavedDeck(id){
+  const deck=savedDecksGet().find(d=>d.id===id);
+  if(!deck)return;
+  if(!confirm(`「${deck.name}」を削除しますか？`))return;
+  savedDecksSet(savedDecksGet().filter(d=>d.id!==id));
+  renderSavedDecks();
+}
+
+function renderSavedDecks(){
+  const el=document.getElementById('savedDeckList');
+  if(!el)return;
+  const list=savedDecksGet();
+  if(!list.length){el.innerHTML='';return;}
+  el.innerHTML='<div class="saved-deck-label">保存済みデッキ</div>'
+    +list.map(d=>`
+    <div class="saved-deck-row">
+      <button class="saved-deck-name" onclick="loadSavedDeck('${escJs(d.id)}')">${esc(d.name)}</button>
+      <button class="saved-deck-remove" onclick="deleteSavedDeck('${escJs(d.id)}')" title="削除">&times;</button>
+    </div>`).join('');
+}
+
 function wishGet(){
   try{return JSON.parse(localStorage.getItem(WISH_KEY))||[];}catch{return[];}
 }
@@ -3084,7 +3186,7 @@ function renderWishlist(){
   const el=document.getElementById('wishList');
   const actions=document.getElementById('wishActions');
   if(!list.length){
-    el.innerHTML='<div class="wish-empty">購入候補はまだありません<br><span style="font-size:.78rem;margin-top:8px;display:block">検索結果やデッキ計算の結果から「+ 候補」ボタンで追加できます</span></div>';
+    el.innerHTML='<div class="wish-empty">購入候補はまだありません<br><span style="font-size:.78rem;margin-top:8px;display:block">検索結果やマイデッキから「+ 候補」ボタンで追加できます</span></div>';
     actions.style.display='none';
     return;
   }
@@ -3119,7 +3221,7 @@ function wishToEstimate(){
   if(!list.length)return;
   const text=list.map(c=>`${c.qty} ${c.name}`).join('\n');
   document.getElementById('deckTextarea').value=text;
-  switchMode('deck');
+  switchMode('mydeck');
   calcDeckEstimate();
 }
 
