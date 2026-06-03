@@ -312,6 +312,16 @@
   border-color: var(--red);
 }
 
+/* ── 発動アニメーション補正 ──
+ * playActivateEffect が生成するクローンに .opp-slot と .sol-activate-glow が
+ * 同時に付く。opponent-tray.css は components.css より後に読まれるため
+ * .opp-slot { overflow: hidden } が .sol-activate-glow { overflow: visible } を
+ * 上書きしてしまう。2クラス結合で優先度を上げて visible を確保する。
+ */
+.opp-slot.sol-activate-glow {
+  overflow: visible;
+}
+
 /* ===== レスポンシブ ===== */
 @media (max-width: 600px) {
   .opp-tray-inner {

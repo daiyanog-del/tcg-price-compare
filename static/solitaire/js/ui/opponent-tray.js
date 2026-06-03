@@ -16,6 +16,8 @@
  */
 
 import { DISRUPTION_PRESETS } from '../config/disruption-presets.js';
+import { showCardByName } from './card-info-panel.js';
+import { playActivateEffect } from '../components/card-effects.js';
 
 /** sessionStorage キー */
 const SESSION_KEY = 'sol-opp-tray';
@@ -138,12 +140,22 @@ function _placeCard(slot, name, src, used) {
   img.title = name;
   img.loading = 'lazy';
 
-  // タップ/クリック → 使用済みトグル
+  // シングルクリック → カード詳細パネルを更新
   img.addEventListener('click', (e) => {
     e.stopPropagation();
-    const isUsed = slot.classList.toggle('opp-used');
-    slot.dataset.used = isUsed ? '1' : '';
-    _persist();
+    showCardByName(name, src);
+  });
+
+  // ダブルクリック → 発動アニメーション → 使用済みマーク
+  img.addEventListener('dblclick', (e) => {
+    e.stopPropagation();
+    playActivateEffect(slot);
+    // アニメーション完了（~500ms）後に使用済み状態へ
+    setTimeout(() => {
+      slot.classList.add('opp-used');
+      slot.dataset.used = '1';
+      _persist();
+    }, 500);
   });
 
   // 削除ボタン（ホバー時に表示、CSSで制御）

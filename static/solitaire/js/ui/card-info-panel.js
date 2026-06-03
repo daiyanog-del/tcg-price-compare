@@ -15,6 +15,18 @@ export function setCardName(imgEl, name) {
   if (imgEl) imgEl.dataset.cardName = name;
 }
 
+/**
+ * カード名と画像URLを直接指定してカード詳細パネルを表示する。
+ * 相手の想定妨害トレイなど、委譲クリックを使わないカードから呼ぶ。
+ */
+export function showCardByName(name, imgSrc) {
+  if (name) {
+    _fetchAndShow(name, imgSrc || '');
+  } else {
+    _showUnknown(imgSrc || '', null, null);
+  }
+}
+
 /** カード詳細パネルを初期化（クリックリスナー設定） */
 export function initCardInfoPanel() {
   // 表示/非表示トグル
