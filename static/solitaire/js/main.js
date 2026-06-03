@@ -44,6 +44,48 @@ function initCardImageRegistration() {
 }
 
 /**
+ * ビューポート高さに合わせて --slot-width を動的に設定する。
+ *
+ * 全縦スペースの内訳:
+ *   固定:    nav高さ + トレイヘッダ高さ + リプレイバー + 各種パディング/マージン
+ *   比例:    slot_w × 7.54
+ *            = フィールド3行(slot_w×1.45×3) + center-row(slot_w×1.45×1.1)
+ *              + imagePool(slot_w×1.45×1.1)
+ *
+ * トレイ開閉・ウィンドウリサイズのたびに再計算し、
+ * 常にスクロールなしで全体が収まるよう自動調整する。
+ */
+function fitFieldToViewport() {
+  const nav    = document.querySelector('.sol-nav');
+  const tray   = document.getElementById('opponentTray');
+  const replay = document.getElementById('replayBarContainer');
+  if (!nav || !tray) return;
+
+  const navH    = nav.offsetHeight;
+  const trayH   = tray.offsetHeight;   // 閉=28px 開=閉+ボディ高さ
+  const replayH = replay ? replay.offsetHeight + 4 : 36; // margin-top(4px)込み
+
+  // slot-width に依存しない固定オーバーヘッド:
+  //   mainContainer padding-top  :  4px
+  //   フィールド行間 gap×2       : 20px  (gap=10px固定 on ≥1000px)
+  //   center-row margin-top      :  6px
+  //   center-row内固定(label+pad): 29px  (imagePool2: padding8+border2+label19)
+  //   imagePool margin-top       :  4px
+  //   imagePool内固定(label+pad) : 29px  (imagePool: padding8+border2+label19)
+  //   sol-field-area padding-bottom: 6px
+  const FIXED_MISC = 4 + 20 + 6 + 29 + 4 + 29 + 6; // 98px
+
+  const fixed     = navH + trayH + replayH + FIXED_MISC;
+  const available = window.innerHeight - fixed;
+
+  // slot_h = slot_w × 1.45 として比例係数 7.54 を計算済み
+  const slotW = Math.max(60, Math.min(110, Math.floor(available / 7.54)));
+  document.documentElement.style.setProperty('--slot-width', `${slotW}px`);
+}
+
+let _fitTimer = null;
+
+/**
  * アプリケーション初期化
  */
 function initializeApp() {
@@ -102,6 +144,18 @@ function initializeApp() {
     });
     _showToast('前回の盤面を復元しました');
   }
+
+  // ビューポートに合わせて --slot-width を初期設定
+  fitFieldToViewport();
+
+  // ウィンドウリサイズ時に再計算（デバウンス 150ms）
+  window.addEventListener('resize', () => {
+    clearTimeout(_fitTimer);
+    _fitTimer = setTimeout(fitFieldToViewport, 150);
+  });
+
+  // 相手妨害トレイの開閉に連動して再計算
+  window.addEventListener('opp-tray-resize', fitFieldToViewport);
 
   console.log('一人回しシミュレータ initialized');
 }

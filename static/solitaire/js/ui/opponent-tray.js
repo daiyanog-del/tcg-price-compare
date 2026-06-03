@@ -242,8 +242,9 @@ function _bindToggle() {
       body.removeAttribute('hidden');
     }
     _persistToggleState(!collapsed);
-    // トレイ高さ変化に伴い #mainContainer が移動するため
-    // カード詳細パネルの top を再計算する
+    // トレイ高さ変化 → main.js が --slot-width を再計算（fitFieldToViewport）
+    // → その後カード詳細パネル top を再計算（_syncCipPosition）
+    window.dispatchEvent(new Event('opp-tray-resize'));
     _syncCipPosition();
   });
 }
