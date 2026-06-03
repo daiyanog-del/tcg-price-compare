@@ -1639,12 +1639,13 @@ def solitaire_replay_save():
     try:
         data = request.get_json(force=True)
         images = data.get("images", {})
+        names  = data.get("names", {})
         logs = data.get("logs", [])
         title = str(data.get("title", ""))[:100]
         if not logs:
             return {"error": "logsが空です"}, 400
         replay_id = secrets.token_urlsafe(8)
-        payload = {"id": replay_id, "title": title, "images": images, "logs": logs}
+        payload = {"id": replay_id, "title": title, "images": images, "names": names, "logs": logs}
         _supabase_client.table("solitaire_replays").insert(payload).execute()
         return {"id": replay_id}
     except Exception as e:
@@ -1659,7 +1660,7 @@ def solitaire_replay_get(replay_id):
         return {"error": "データベース未接続"}, 503
     try:
         resp = _supabase_client.table("solitaire_replays") \
-            .select("images, logs, title") \
+            .select("images, names, logs, title") \
             .eq("id", replay_id) \
             .limit(1) \
             .execute()
@@ -1667,7 +1668,12 @@ def solitaire_replay_get(replay_id):
         if not rows:
             return {"error": "見つかりません"}, 404
         row = rows[0]
-        return {"images": row["images"], "logs": row["logs"], "title": row.get("title", "")}
+        return {
+            "images": row["images"],
+            "names":  row.get("names") or {},
+            "logs":   row["logs"],
+            "title":  row.get("title", ""),
+        }
     except Exception as e:
         logger.error(f"リプレイ取得エラー: {e}")
         return {"error": "取得に失敗しました"}, 500

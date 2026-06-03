@@ -165,17 +165,11 @@ async function _tryLoadFromURL() {
   try {
     const res = await fetch(`/api/solitaire/replay/${replayId}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const { images, logs } = await res.json();
+    const { images, names, logs } = await res.json();
 
-    const { importFromURLHash } = await import('../services/replay-service.js');
-    // payload形式に変換してLZStringを介さず直接インポート
-    const { initReplay: _init, registerCardImage } = await import('../services/replay-service.js');
-    _init();
-    Object.entries(images).forEach(([id, src]) => registerCardImage(id, src));
-    // logsをセット（内部セッターを使う）
     const { _setReplayData } = await import('../services/replay-service.js');
     if (typeof _setReplayData === 'function') {
-      _setReplayData(images, logs);
+      _setReplayData(images, names || {}, logs);
     }
     console.log(`リプレイID ${replayId} を読み込みました`);
   } catch (e) {

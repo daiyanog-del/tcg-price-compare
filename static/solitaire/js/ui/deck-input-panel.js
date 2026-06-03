@@ -5,7 +5,7 @@
  */
 
 import { addCardToPool } from '../components/card-manager.js';
-import { registerCardImage } from '../services/replay-service.js';
+import { registerCardImage, registerCardName } from '../services/replay-service.js';
 import { setCardName } from './card-info-panel.js';
 
 const API_CARD_IMAGE = '/api/card-image';
@@ -88,6 +88,7 @@ async function addCardByName(name, qty, isEx) {
       const lastImg     = lastWrapper?.querySelector('img');
       if (lastImg?.id) {
         registerCardImage(lastImg.id, src);
+        registerCardName(lastImg.id, name);  // リプレイ共有用に名前を記録
         setCardName(lastImg, name);  // カード詳細パネル用に名前を付与
         // セット時のモンスター/魔法罠判定に使う（モンスター=裏側守備、魔法罠=伏せ）
         if (cardType && lastWrapper) lastWrapper.dataset.cardType = cardType;

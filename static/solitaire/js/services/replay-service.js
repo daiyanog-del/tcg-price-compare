@@ -35,6 +35,7 @@ import { playActivateEffect, flipMoveClone, playSetFlip } from '../components/ca
 
 // ── 状態 ──────────────────────────────────────────────
 let _images = {};   // { cardId: src }
+let _names  = {};   // { cardId: cardName }
 let _logs   = [];   // イベントログ配列
 let _cursor = -1;   // 現在の再生位置（-1 = ログ先頭の盤面外）
 let _playing = false;
@@ -52,6 +53,7 @@ let _animateForward = false;
  */
 export function initReplay() {
   _images = {};
+  _names  = {};
   _logs = [];
   _cursor = -1;
   _playing = false;
@@ -65,6 +67,15 @@ export function initReplay() {
  */
 export function registerCardImage(cardId, src) {
   _images[cardId] = src;
+}
+
+/**
+ * カード名を登録（カード詳細パネル用）
+ * @param {string} cardId  - カードID（item-NNN 形式）
+ * @param {string} name    - カード名
+ */
+export function registerCardName(cardId, name) {
+  if (name) _names[cardId] = name;
 }
 
 /**
@@ -148,7 +159,7 @@ export function togglePlay() {
 
 /** リプレイデータをエクスポート（ファイル保存用） */
 export function exportReplay(title = 'replay') {
-  const payload = { version: 1, title, images: _images, logs: _logs };
+  const payload = { version: 1, title, images: _images, names: _names, logs: _logs };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -164,6 +175,7 @@ export async function importReplay(file) {
   const payload = JSON.parse(text);
   if (!payload.logs || !payload.images) throw new Error('不正なリプレイファイルです');
   _images = payload.images;
+  _names  = payload.names || {};
   _logs = payload.logs;
   _cursor = -1;
   _createReplayCardElements();
@@ -174,7 +186,7 @@ export async function importReplay(file) {
 export function exportAsURLHash() {
   if (typeof LZString === 'undefined') return null;
   try {
-    const payload = { version: 1, images: _images, logs: _logs };
+    const payload = { version: 1, images: _images, names: _names, logs: _logs };
     return LZString.compressToEncodedURIComponent(JSON.stringify(payload));
   } catch {
     return null;
@@ -189,6 +201,7 @@ export function importFromURLHash(hash) {
     const payload = JSON.parse(json);
     if (!payload.logs || !payload.images) return false;
     _images = payload.images;
+    _names  = payload.names || {};
     _logs = payload.logs;
     _cursor = -1;
     _createReplayCardElements();
@@ -211,10 +224,12 @@ export function getLogs() { return _logs; }
 /**
  * 外部から画像辞書・ログを直接セット（Supabase読み込み用）
  * @param {Object} images  { cardId: src }
+ * @param {Object} names   { cardId: cardName }（省略可）
  * @param {Array}  logs    イベントログ配列
  */
-export function _setReplayData(images, logs) {
+export function _setReplayData(images, names, logs) {
   _images = images;
+  _names  = names || {};
   _logs = logs;
   _cursor = -1;
   _createReplayCardElements();
@@ -278,6 +293,7 @@ function _createReplayCardElements() {
     img.classList.add('tier-item');
     img.setAttribute('draggable', 'true');
     img.id = cardId;
+    if (_names[cardId]) img.dataset.cardName = _names[cardId];
 
     attachCardImageListeners(wrapper, img);
     wrapper.appendChild(img);
