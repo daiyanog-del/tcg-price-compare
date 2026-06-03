@@ -410,17 +410,18 @@
 
 /* card-effects.js の playActivateEffect が body 直下に生成する見た目専用オーバーレイ。
    position:fixed のため overflow/scrollbar に一切影響しない。 */
+/* クローンにはカード画像が含まれるため filter:drop-shadow でカード形状に沿ったグローになる */
 @keyframes solActivatePulse {
-  0%   { transform: scale(1);    box-shadow: 0 0 0px  rgba(212, 175, 55, 0);    background: rgba(212, 175, 55, 0); }
-  40%  { transform: scale(1.05); box-shadow: 0 0 20px rgba(212, 175, 55, 0.85); background: rgba(212, 175, 55, 0.10); }
-  100% { transform: scale(1);    box-shadow: 0 0 0px  rgba(212, 175, 55, 0);    background: rgba(212, 175, 55, 0); }
+  0%   { transform: scale(1);    filter: drop-shadow(0 0 0px  rgba(212, 175, 55, 0)); }
+  40%  { transform: scale(1.05); filter: drop-shadow(0 0 12px rgba(212, 175, 55, 0.85)); }
+  100% { transform: scale(1);    filter: drop-shadow(0 0 0px  rgba(212, 175, 55, 0)); }
 }
 
 .sol-activate-glow {
   position: fixed;
   pointer-events: none;
   z-index: 9000;
-  border-radius: 8px;
+  overflow: visible;
   animation: solActivatePulse 0.5s ease-in-out;
 }
 

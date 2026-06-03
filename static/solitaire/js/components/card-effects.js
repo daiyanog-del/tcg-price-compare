@@ -10,12 +10,12 @@
  */
 
 /**
- * 効果発動アニメーションを再生（fixedグローオーバーレイ方式）
+ * 効果発動アニメーションを再生（fixedカードクローン方式）
  *
- * wrapper の位置に position:fixed の .sol-activate-glow 要素を生成して
- * 金色グロー演出を行う。DOM に影響しないため overflow/scrollbar の
- * レイアウトシフトが発生しない。
- * 連打対応: 古いオーバーレイは即座に除去してから新しいものを生成する。
+ * wrapper を cloneNode(true) して position:fixed で body 直下に生成し
+ * scale + drop-shadow アニメを当てる。本体 DOM はそのまま。
+ * fixed 要素は祖先の overflow:hidden に影響しないため scrollbar シフトが出ない。
+ * 連打対応: 既存クローンは即座に除去してから新しいものを生成する。
  *
  * @param {Element} wrapper - .tier-item-wrapper
  */
@@ -23,27 +23,30 @@ export function playActivateEffect(wrapper) {
   if (!wrapper) return;
   const rect = wrapper.getBoundingClientRect();
 
-  // 同じ wrapper に対する連打: 既存オーバーレイを先に除去
+  // 連打: 既存クローンを先に除去
   const prev = wrapper._activateGlow;
   if (prev && prev.parentNode) prev.parentNode.removeChild(prev);
 
-  const glow = document.createElement('div');
-  glow.classList.add('sol-activate-glow');
-  glow.style.cssText = [
+  // カードの見た目ごとコピーした fixed クローン（守備回転・is-set裏面も再現）
+  const clone = wrapper.cloneNode(true);
+  clone.classList.add('sol-activate-glow');
+  // inline style を上書きして fixed 配置に固定
+  clone.style.cssText = [
     `left: ${rect.left}px`,
     `top: ${rect.top}px`,
     `width: ${rect.width}px`,
     `height: ${rect.height}px`,
+    'margin: 0',
   ].join('; ');
 
-  document.body.appendChild(glow);
-  wrapper._activateGlow = glow;
+  document.body.appendChild(clone);
+  wrapper._activateGlow = clone;
 
   const cleanup = () => {
-    if (glow.parentNode) glow.parentNode.removeChild(glow);
-    if (wrapper._activateGlow === glow) delete wrapper._activateGlow;
+    if (clone.parentNode) clone.parentNode.removeChild(clone);
+    if (wrapper._activateGlow === clone) delete wrapper._activateGlow;
   };
-  glow.addEventListener('animationend', cleanup, { once: true });
+  clone.addEventListener('animationend', cleanup, { once: true });
   setTimeout(cleanup, 600); // フェイルセーフ
 }
 
