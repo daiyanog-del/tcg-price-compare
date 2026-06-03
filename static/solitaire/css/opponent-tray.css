@@ -1,0 +1,303 @@
+/* ===== 相手の想定妨害ミニ盤面 ===== */
+
+/* 外枠：自分盤面の上に配置 */
+.opp-tray {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: var(--gap);
+  background: #f0f0f0;
+  border: 1.5px solid #c0c0c0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* トグルボタン（1行で開閉） */
+.opp-tray-toggle {
+  width: 100%;
+  background: #e8e8e8;
+  border: none;
+  border-radius: 0;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  font-weight: bold;
+  color: #444;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.4;
+}
+
+.opp-tray-toggle:hover {
+  background: #dcdcdc;
+}
+
+/* 開閉矢印アニメーション */
+.opp-tray-toggle .opp-toggle-arrow {
+  display: inline-block;
+  transition: transform 0.2s;
+  font-style: normal;
+}
+
+.opp-tray:not(.collapsed) .opp-tray-toggle .opp-toggle-arrow {
+  transform: rotate(90deg);
+}
+
+/* 本体：閉時は非表示 */
+.opp-tray.collapsed .opp-tray-body {
+  display: none;
+}
+
+.opp-tray-body {
+  padding: 8px 12px 10px;
+}
+
+/* スロット行 */
+.opp-tray-slots {
+  display: flex;
+  gap: var(--gap);
+  justify-content: center;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  margin-bottom: 8px;
+}
+
+/* 1スロット（自分盤面の約70%サイズ） */
+.opp-slot {
+  width: calc(var(--slot-width) * 0.7);
+  height: calc(var(--slot-width) * 0.7 * 1.45);
+  border: 1.5px dashed #aaa;
+  border-radius: 4px;
+  background: #e9e9e9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  color: #999;
+  flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.opp-slot.filled {
+  border-style: solid;
+  border-color: #888;
+  background: transparent;
+}
+
+/* 相手カード画像 */
+.opp-card-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  cursor: pointer;
+  transition: filter 0.2s, opacity 0.2s;
+  border-radius: 3px;
+}
+
+/* 使用済み状態：グレーアウト */
+.opp-slot.opp-used .opp-card-img {
+  filter: grayscale(1) brightness(0.55);
+  opacity: 0.8;
+}
+
+/* 使用済みチェックマーク */
+.opp-slot.opp-used::after {
+  content: '✓';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 2rem;
+  font-weight: bold;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  line-height: 1;
+}
+
+/* 削除ボタン（ホバー時に表示） */
+.opp-slot .opp-remove-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  background: rgba(200, 50, 50, 0.85);
+  border: none;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 0.7rem;
+  line-height: 1;
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  z-index: 10;
+}
+
+.opp-slot:hover .opp-remove-btn {
+  display: flex;
+}
+
+/* コントロール行：プリセットチップ＋検索 */
+.opp-tray-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+/* カテゴリラベル */
+.opp-preset-cat-label {
+  font-size: 0.72rem;
+  color: #888;
+  font-weight: bold;
+  align-self: center;
+  white-space: nowrap;
+  margin-right: 2px;
+}
+
+/* プリセットチップ */
+.opp-preset-chip {
+  font-size: 0.75rem;
+  padding: 3px 8px;
+  background: #fff;
+  border: 1.5px solid #b0b0b0;
+  border-radius: 12px;
+  cursor: pointer;
+  color: #333;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+  line-height: 1.4;
+}
+
+.opp-preset-chip:hover {
+  background: #e0eaff;
+  border-color: #7a9edc;
+}
+
+/* プリセットグループとセパレータ */
+.opp-preset-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.opp-preset-sep {
+  width: 1px;
+  height: 20px;
+  background: #ccc;
+  align-self: center;
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+/* 検索ラッパー（全消去ボタンと並べる） */
+.opp-search-clear-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* 検索入力 */
+.opp-search-input {
+  font-size: 0.8rem;
+  padding: 4px 8px;
+  border: 1.5px solid #b0b0b0;
+  border-radius: 6px;
+  width: 160px;
+  outline: none;
+  background: #fff;
+}
+
+.opp-search-input:focus {
+  border-color: #6a8fd0;
+}
+
+/* サジェストドロップダウン */
+.opp-search-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.opp-search-suggest {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  background: #fff;
+  border: 1.5px solid #b0b0b0;
+  border-radius: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  min-width: 180px;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 500;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+.opp-suggest-item {
+  padding: 5px 12px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.opp-suggest-item:hover,
+.opp-suggest-item.active {
+  background: #e8f0ff;
+}
+
+/* 全消去ボタン */
+.opp-tray-clear {
+  font-size: 0.78rem;
+  padding: 4px 10px;
+  background: #f5e5e5;
+  border: 1.5px solid #d9a0a0;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #c44;
+  white-space: nowrap;
+  transition: background 0.15s;
+  line-height: 1.4;
+}
+
+.opp-tray-clear:hover {
+  background: #f0cece;
+  border-color: #c44;
+}
+
+/* ===== レスポンシブ ===== */
+@media (max-width: 600px) {
+  .opp-tray-slots {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    justify-content: flex-start;
+    padding-bottom: 8px;
+  }
+
+  .opp-tray-controls {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .opp-search-clear-wrap {
+    margin-left: 0;
+    flex-wrap: wrap;
+  }
+
+  .opp-search-input {
+    width: 140px;
+  }
+}

@@ -145,6 +145,28 @@
       <!-- トグルボタン -->
       <button id="cipToggle" class="sol-cip-toggle" title="カード情報パネルを表示/非表示">◀</button>
 
+      <!-- 相手の想定妨害ミニ盤面（開閉式） -->
+      <section id="opponentTray" class="opp-tray collapsed">
+        <button id="oppTrayToggle" class="opp-tray-toggle" aria-expanded="false" aria-controls="oppTrayBody">
+          <i class="opp-toggle-arrow">▶</i>
+          <span>相手の想定妨害</span>
+        </button>
+        <div class="opp-tray-body" id="oppTrayBody">
+          <div class="opp-tray-slots" id="oppTraySlots"></div>
+          <div class="opp-tray-controls">
+            <div id="oppPresetChips"></div>
+            <div class="opp-search-clear-wrap">
+              <div class="opp-search-wrap">
+                <input type="text" id="oppSearchInput" class="opp-search-input"
+                       placeholder="カード名で検索して追加" autocomplete="off">
+                <ul id="oppSearchSuggest" class="opp-search-suggest" hidden></ul>
+              </div>
+              <button id="oppTrayClear" class="opp-tray-clear">全消去</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <div id="mainContainer">
         <div class="main-content">
           <!-- フィールド -->

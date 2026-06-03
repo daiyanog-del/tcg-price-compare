@@ -14,6 +14,7 @@ import { initTokenGenerator } from './ui/token-generator.js';
 import { initRandomTools } from './ui/random-tools.js';
 import { initCardInfoPanel } from './ui/card-info-panel.js';
 import { saveSessionResume, loadSessionResume } from './services/save-load-service.js';
+import { initOpponentTray } from './ui/opponent-tray.js';
 
 /**
  * カード追加時にリプレイ画像辞書へ登録するフック
@@ -77,6 +78,9 @@ function initializeApp() {
 
   // カード詳細パネル初期化
   initCardInfoPanel();
+
+  // 相手の想定妨害ミニ盤面を初期化
+  initOpponentTray();
 
   // ゾーン枚数カウント初期化
   initZoneCounts();
