@@ -17,69 +17,74 @@ async function _getPdfJs() {
   return mod;
 }
 
-// 除外すべきヘッダ語・ラベル
-const SKIP_SET = new Set([
-  'モンスターカード', '魔法カード', '罠カード',
-  'エクストラデッキ', 'サイドデッキ',
-  'カード名', '枚数',
-  'かな', '氏名', 'カードゲームID', '参加番号', '日付', 'イベント名',
-]);
-
-function _skip(str) {
-  if (SKIP_SET.has(str)) return true;
-  if (/合計\s*>>/.test(str)) return true;
-  if (/^>>>/.test(str)) return true;
-  // 1桁数字のみで構成される長い列（プレイヤーID）
-  if (/^[\d\s]+$/.test(str) && str.replace(/\s/g, '').length > 3) return true;
-  return false;
-}
-
 const IS_DIGIT = /^\d+$/;
 
-/**
- * y座標でアイテムをグルーピングしてvisual rowsを作る
- */
-function _clusterRows(items, tol) {
-  const rows = [];
-  for (const item of items) {
-    let found = false;
-    for (const row of rows) {
-      if (Math.abs(row.y - item.y) <= tol) {
-        row.items.push(item);
-        // 加重平均でy更新
-        row.y = row.items.reduce((s, it) => s + it.y, 0) / row.items.length;
-        found = true;
-        break;
-      }
-    }
-    if (!found) rows.push({ y: item.y, items: [item] });
-  }
-  rows.forEach(r => r.items.sort((a, b) => a.x - b.x));
-  return rows.sort((a, b) => b.y - a.y); // y降順=上から下
+// ヘッダー語を str から検出するマッチャー（includes で部分一致）
+const HDR = {
+  monster:  s => s.includes('モンスター'),
+  spell:    s => s.includes('魔法カード') || (s.includes('魔法') && s.includes('カード')),
+  trap:     s => s.includes('罠カード')   || (s.includes('罠') && s.includes('カード')),
+  ex:       s => s.includes('エクストラ'),
+  side:     s => s.includes('サイドデッキ') || (s.includes('サイド') && s.includes('デッキ')),
+  qty:      s => s === '枚数' || s.trim() === '枚数',
+};
+
+// パース結果テキストから除外する語
+const SKIP_RE = [
+  /合計\s*>+/,
+  /^>+/,
+  /^メインデッキ/,
+  /^かな$/,
+  /^氏名$/,
+  /^カードゲームID/,
+  /^参加番号$/,
+  /^日付$/,
+  /^イベント名$/,
+];
+
+function _skipStr(str) {
+  if (SKIP_RE.some(r => r.test(str))) return true;
+  // ヘッダーワード自体
+  if (HDR.monster(str) || HDR.spell(str) || HDR.trap(str)) return true;
+  if (HDR.ex(str) || HDR.side(str)) return true;
+  if (HDR.qty(str) || str === 'カード名') return true;
+  // IDコード: 空白区切りの1桁数字が5個以上
+  if (/^[\d\s]+$/.test(str) && str.replace(/\s+/g, '').length > 4) return true;
+  return false;
 }
 
 /**
  * レイアウト情報（列ヘッダ位置・セクション境界）を検出
+ * 失敗時は { ok: false, debugLines: [...] } を返す
  */
 function _detectLayout(items) {
+  // includes ベースで最初にマッチするアイテムを返す
   const find = (fn) => items.find(fn);
 
-  const monH  = find(it => it.str === 'モンスターカード');
-  const splH  = find(it => it.str === '魔法カード');
-  const trpH  = find(it => it.str === '罠カード');
-  const exH   = find(it => it.str === 'エクストラデッキ');
-  const sideH = find(it => it.str === 'サイドデッキ');
+  const monH  = find(it => HDR.monster(it.str));
+  const splH  = find(it => HDR.spell(it.str) && !HDR.monster(it.str));
+  const trpH  = find(it => HDR.trap(it.str)  && !HDR.monster(it.str) && !HDR.spell(it.str));
+  const exH   = find(it => HDR.ex(it.str));
+  const sideH = find(it => HDR.side(it.str) && !HDR.ex(it.str));
 
-  if (!monH || !exH) return { ok: false };
+  // 診断: 見つかったヘッダーをデバッグ用に返す
+  const debugLines = [
+    `[DEBUG] 総アイテム数: ${items.length}`,
+    `モンスターH: ${monH ? `"${monH.str}" (${monH.x.toFixed(0)},${monH.y.toFixed(0)})` : '未検出'}`,
+    `EXH: ${exH ? `"${exH.str}" (${exH.x.toFixed(0)},${exH.y.toFixed(0)})` : '未検出'}`,
+    `先頭20件: ${items.slice(0, 20).map(it => `"${it.str}"`).join(', ')}`,
+  ];
+
+  if (!monH || !exH) return { ok: false, debugLines };
 
   // 列ヘッダをx昇順でソート
   const colHeaders = [
-    monH  && { type: 'monster', x: monH.x,  y: monH.y  },
-    splH  && { type: 'spell',   x: splH.x,  y: splH.y  },
-    trpH  && { type: 'trap',    x: trpH.x,  y: trpH.y  },
+    { type: 'monster', x: monH.x, y: monH.y },
+    splH && { type: 'spell',   x: splH.x, y: splH.y },
+    trpH && { type: 'trap',    x: trpH.x, y: trpH.y },
   ].filter(Boolean).sort((a, b) => a.x - b.x);
 
-  // ページ幅の推定（全アイテムのx最大値 + 余裕）
+  // ページ幅の推定
   const pageWidth = Math.max(...items.map(it => it.x + (it.w || 0))) + 50;
 
   // 各列のx範囲
@@ -94,18 +99,19 @@ function _detectLayout(items) {
     };
   });
 
-  // 「枚数」ヘッダのx位置を各列に対応付け（量の列を特定するため）
-  const qtyHeaders = items.filter(it => it.str === '枚数');
+  // 「枚数」ヘッダのx位置を各列に対応付け
+  const qtyItems = items.filter(it => HDR.qty(it.str));
   const qtyXPerCol = {};
-  for (const qh of qtyHeaders) {
+  for (const qh of qtyItems) {
     const col = colRanges.find(r => qh.x >= r.startX && qh.x < r.endX);
-    if (col && qh.y > exH.y) { // メインデッキセクション内のみ
+    // メインデッキセクション内（EXヘッダより上）のみ
+    if (col && qh.y > exH.y) {
       qtyXPerCol[col.type] = qh.x;
     }
   }
 
   // EXセクションの「枚数」x
-  const exQtyHeaders = qtyHeaders.filter(it => it.y <= exH.y && (!sideH || it.y >= sideH.y));
+  const exQtyItems = qtyItems.filter(it => it.y <= exH.y && (!sideH || it.y >= sideH.y));
 
   return {
     ok: true,
@@ -115,37 +121,30 @@ function _detectLayout(items) {
     exHeaderY:   exH.y,
     sideHeaderY: sideH ? sideH.y : -Infinity,
     exH, sideH,
-    exQtyHeaders,
+    exQtyItems,
+    debugLines,
   };
 }
 
 /**
- * x座標から列タイプを特定
- */
-function _getColType(x, colRanges) {
-  return colRanges.find(r => x >= r.startX && x < r.endX)?.type ?? null;
-}
-
-/**
  * メインデッキ（モンスター／魔法／罠）をパース
- * strategy: 各列で量(qty)と名前(name)をy降順で並べ、インデックスでペアリング
  */
 function _parseMain(items, layout, warnings) {
   const mainItems = items.filter(it =>
-    it.y < layout.mainHeaderY && it.y > layout.exHeaderY && !_skip(it.str)
+    it.y < layout.mainHeaderY && it.y > layout.exHeaderY && !_skipStr(it.str)
   );
 
   const result = [];
-  const QTY_TOL = 30; // pt単位で「枚数」ヘッダとのx許容誤差
+  const QTY_TOL = 30;
 
   for (const colRange of layout.colRanges) {
     const colItems = mainItems
       .filter(it => it.x >= colRange.startX && it.x < colRange.endX)
-      .sort((a, b) => b.y - a.y); // y降順（上から下）
+      .sort((a, b) => b.y - a.y);
 
     const qtyX = layout.qtyXPerCol[colRange.type];
 
-    // 枚数ヘッダが見つからない場合: 列内の最右端digit列を量とみなす
+    // qtyXが未検出の場合: 列内の最右端digit列を量とみなす
     let effectiveQtyX = qtyX;
     if (effectiveQtyX === undefined) {
       const digitXs = colItems.filter(it => IS_DIGIT.test(it.str)).map(it => it.x);
@@ -158,16 +157,14 @@ function _parseMain(items, layout, warnings) {
     for (const item of colItems) {
       if (IS_DIGIT.test(item.str)) {
         const isQty = effectiveQtyX !== undefined && Math.abs(item.x - effectiveQtyX) <= QTY_TOL;
-        if (isQty) {
-          quantities.push({ val: parseInt(item.str, 10), y: item.y });
-        }
-        // else: 行番号とみなして捨てる
+        if (isQty) quantities.push({ val: parseInt(item.str, 10), y: item.y });
+        // else: 行番号→捨てる
       } else {
         names.push({ str: item.str, y: item.y });
       }
     }
 
-    // インデックスでペアリング（y降順で並んでいるため順序が一致する）
+    // y降順で並んでいるためインデックスでペアリング
     for (let i = 0; i < names.length; i++) {
       const qty = quantities[i]?.val;
       const safeQty = (qty && qty >= 1 && qty <= 3) ? qty : 1;
@@ -183,26 +180,23 @@ function _parseMain(items, layout, warnings) {
 
 /**
  * エクストラデッキをパース
- * エクストラとサイドは横並びのため、x範囲で分割
  */
 function _parseEx(items, layout, warnings) {
   const { exH, sideH } = layout;
 
-  // EXセクション内のアイテム
   const exItems = items.filter(it =>
     it.y < exH.y &&
     (sideH ? it.y >= sideH.y : true) &&
-    !_skip(it.str)
+    !_skipStr(it.str)
   );
 
   if (exItems.length === 0) return [];
 
-  // EXとSideの列分割: sideH.xより小さい = EX、大きい = Side
+  // EXとSideの列分割
   const splitX = sideH ? (exH.x + sideH.x) / 2 : Infinity;
   const exColItems = exItems.filter(it => it.x < splitX).sort((a, b) => b.y - a.y);
 
-  // 量ヘッダのx（EX列内の「枚数」）
-  const exQtyX = layout.exQtyHeaders
+  const exQtyX = layout.exQtyItems
     .filter(it => it.x < splitX)
     .map(it => it.x)[0];
 
@@ -219,13 +213,10 @@ function _parseEx(items, layout, warnings) {
   for (const item of exColItems) {
     if (IS_DIGIT.test(item.str)) {
       const val = parseInt(item.str, 10);
-      // 行番号(1-15)と量(1-3)の区別: 枚数ヘッダx基準 or 値で判断
       const isQty = effectiveQtyX !== undefined
         ? Math.abs(item.x - effectiveQtyX) <= QTY_TOL
         : val >= 1 && val <= 3;
-      if (isQty) {
-        quantities.push({ val, y: item.y });
-      }
+      if (isQty) quantities.push({ val, y: item.y });
     } else {
       names.push({ str: item.str, y: item.y });
     }
@@ -245,9 +236,9 @@ function _parseEx(items, layout, warnings) {
 
 /**
  * ニューロン デッキシートPDFをパース
- * @param {File} file - PDFファイル
- * @param {Object} options
- * @param {boolean} [options.includeSide=false] - サイドデッキも含める（未使用、将来用）
+ * @param {File} file
+ * @param {Object} [options]
+ * @param {boolean} [options.includeSide=false]
  * @returns {Promise<{main:[{qty,name}], ex:[{qty,name}], side:[], warnings:string[], ok:boolean}>}
  */
 export async function parseNeuronPdf(file, { includeSide = false } = {}) {
@@ -269,7 +260,7 @@ export async function parseNeuronPdf(file, { includeSide = false } = {}) {
   }
 
   if (pdf.numPages === 0) throw new Error('PDFにページがありません');
-  if (pdf.numPages > 1) warnings.push('複数ページのPDFです。1ページ目のみ処理します。');
+  if (pdf.numPages > 1) warnings.push(`複数ページ(${pdf.numPages}ページ)のPDFです。1ページ目のみ処理します。`);
 
   const page = await pdf.getPage(1);
   const tc = await page.getTextContent();
@@ -284,13 +275,12 @@ export async function parseNeuronPdf(file, { includeSide = false } = {}) {
     }))
     .sort((a, b) => b.y - a.y || a.x - b.x);
 
-  // デバッグ用: console.logでアイテム確認可能
-  // console.log('PDF items:', items.map(it => `(${it.x.toFixed(0)},${it.y.toFixed(0)}) "${it.str}"`).join('\n'));
-
   const layout = _detectLayout(items);
 
   if (!layout.ok) {
+    // 診断情報をwarningsに含めてモーダルで確認できるようにする
     warnings.push('ニューロン形式のデッキシートとして認識できませんでした。手動で修正してください。');
+    warnings.push(...layout.debugLines);
     return { main: [], ex: [], side: [], warnings, ok: false };
   }
 
