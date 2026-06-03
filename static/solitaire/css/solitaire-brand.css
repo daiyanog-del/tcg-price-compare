@@ -738,6 +738,29 @@ html, body {
 }
 .replay-share-btn:hover { background: #d4a800; }
 
+/* ── リプレイコメントトースト ── */
+#replayCommentToast {
+  position: fixed;
+  top: 72px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(20, 20, 30, 0.88);
+  color: #fff;
+  padding: 8px 20px;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-family: var(--font);
+  max-width: 480px;
+  text-align: center;
+  white-space: pre-wrap;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+#replayCommentToast.rct-show { opacity: 1; }
+#replayCommentToast.rct-hide { opacity: 0; }
+
 /* ── トークン生成UI ── */
 .sol-token-controls {
   display: flex;

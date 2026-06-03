@@ -118,6 +118,7 @@ export function stepForward() {
   _applyEvent(_logs[next]);
   _animateForward = false;
   _cursor = next;
+  _maybeShowCommentToast(_cursor);
   _updateUI();
 }
 
@@ -145,6 +146,7 @@ export function seekTo(n) {
     // 後退：最初から再適用
     _replayTo(target);
   }
+  _maybeShowCommentToast(_cursor);
   _updateUI();
 }
 
@@ -253,6 +255,7 @@ function _replayTo(target) {
     _applyEvent(_logs[i]);
   }
   _cursor = target;
+  _maybeShowCommentToast(_cursor);
   _updateUI();
 }
 
@@ -604,4 +607,32 @@ function _updateUI() {
     btnPlay.classList.toggle('play-active', _playing);
     btnPlay.disabled = total === 0;
   }
+}
+
+/**
+ * カーソル位置のイベントがコメントなら トーストを表示する
+ * @param {number} cursor
+ */
+function _maybeShowCommentToast(cursor) {
+  if (cursor < 0 || cursor >= _logs.length) return;
+  const ev = _logs[cursor];
+  if (ev?.actionType !== 'comment') return;
+  _showCommentToast(ev.text);
+}
+
+function _showCommentToast(text) {
+  let toast = document.getElementById('replayCommentToast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'replayCommentToast';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = text;
+  toast.classList.remove('rct-hide');
+  toast.classList.add('rct-show');
+  clearTimeout(toast._hideTimer);
+  toast._hideTimer = setTimeout(() => {
+    toast.classList.remove('rct-show');
+    toast.classList.add('rct-hide');
+  }, 3500);
 }
