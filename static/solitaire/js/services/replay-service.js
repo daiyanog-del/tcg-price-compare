@@ -426,15 +426,16 @@ function _placeCardInZone(zone, card, zIndex) {
       if (zNum <= 1 && existingItems.length > 0) {
         // 下重ね（zIndex=1 かつ既存カードがある場合）
         const others = existingItems.filter(el => el !== card);
+        // 既存カードを1段ずつ下へずらし、差し込むカードをスロット上端に置く。
+        // 通常積みと同じ方向（上端に古いカード、下へ向かって新しいカード）になる。
         others.forEach((el, idx) => {
           el.style.position = 'absolute';
           el.style.zIndex   = String(baseZ + 1 + idx);
-          el.style.top      = idx === 0 ? '0' : `calc(var(--slot-width) * 0.${idx})`;
+          el.style.top      = `calc(var(--slot-width) * 0.${idx + 1})`;
         });
         card.style.position = 'absolute';
         card.style.zIndex   = String(baseZ);
-        // 上のカードより下にはみ出させて「素材がある」ことを視認できるようにする
-        card.style.top      = `calc(var(--slot-width) * 0.${others.length})`;
+        card.style.top      = '0';
         zone.insertBefore(card, zone.firstChild);
       } else {
         // 通常の上重ね

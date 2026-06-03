@@ -205,18 +205,17 @@ function _placeUnder(wrapper, slot) {
 
   const others = items.filter(el => el !== wrapper);
 
-  // 既存カードを z-index 2..N+1 に、wrapperを 1（最背面）に
+  // 既存カードを1段ずつ下へずらし、差し込むカードをスロット上端に置く。
+  // 通常積みと同じ方向（上端に古いカード、下へ向かって新しいカード）になる。
   others.forEach((el, i) => {
     el.style.position = 'absolute';
     el.style.zIndex   = String(2 + i);
-    // topのずらし量: 元の順番を保つ（i=0 は先頭なので top:0）
-    el.style.top      = i === 0 ? '0' : `calc(var(--slot-width) * 0.${i})`;
+    el.style.top      = `calc(var(--slot-width) * 0.${i + 1})`;
   });
 
   wrapper.style.position = 'absolute';
   wrapper.style.zIndex   = '1';
-  // 上のカードより下にはみ出させて「素材がある」ことを視認できるようにする
-  wrapper.style.top      = `calc(var(--slot-width) * 0.${others.length})`;
+  wrapper.style.top      = '0';
 
   // DOMの先頭に移動（視覚的な重なり順と一致させる）
   slot.insertBefore(wrapper, slot.firstChild);

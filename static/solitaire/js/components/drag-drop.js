@@ -87,15 +87,16 @@ function placeCardInCustomSlot(slot, card, { under = false } = {}) {
   if (under && existingItems.length > 0) {
     // 下重ね: 既存カードを 2..N に底上げ、新規カードを 1（最背面）に
     const others = existingItems.filter(el => el !== card);
+    // 既存カードを1段ずつ下へずらし、差し込むカードをスロット上端に置く。
+    // 通常積みと同じ方向（上端に古いカード、下へ向かって新しいカード）になる。
     others.forEach((item, index) => {
       item.style.position = 'absolute';
       item.style.zIndex   = String(baseZIndex + 1 + index);
-      item.style.top      = index === 0 ? '0' : `calc(var(--slot-width) * 0.${index})`;
+      item.style.top      = `calc(var(--slot-width) * 0.${index + 1})`;
     });
     card.style.position = 'absolute';
     card.style.zIndex   = String(baseZIndex);
-    // 上のカードより下にはみ出させて「素材がある」ことを視認できるようにする
-    card.style.top      = `calc(var(--slot-width) * 0.${others.length})`;
+    card.style.top      = '0';
     slot.insertBefore(card, slot.firstChild);
   } else {
     // 通常（上重ね）: 既存カードを整列し、新規カードを最前面に
