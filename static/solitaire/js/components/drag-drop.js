@@ -1,6 +1,7 @@
 import { initializeCounter } from './counter-manager.js';
 import { applyDefense, applySet, toggleDefense, getCardState } from './card-state.js';
 import { openCardContextMenu } from '../ui/context-menu.js';
+import { playSetFlip } from './card-effects.js';
 
 /**
  * ドラッグ&ドロップ統合管理
@@ -207,6 +208,9 @@ function executeDrop(draggedInfo, dropZoneInfo, dropTarget, modifiers = {}) {
     const { type: dropType, element: dropZone } = dropZoneInfo;
     let zIndex;
 
+    // Shift+Ctrl+D&D（セット）はフリップアニメ後にログ記録するため専用フラグで管理
+    let logHandled = false;
+
     switch (dropType) {
       case 'POOL': {
         const targetCard = dropTarget.closest('.tier-item-wrapper');
@@ -222,8 +226,30 @@ function executeDrop(draggedInfo, dropZoneInfo, dropTarget, modifiers = {}) {
 
         // 修飾キーによる状態変更（優先順位: Shift+Ctrl=セット > Shift=守備）
         if (modifiers.shift && modifiers.ctrl) {
-          applySet(draggedElement, true);
+          // セット: scaleX フリップアニメ完了後に状態変更・ログ記録
+          // （アニメの midpoint で状態を変えるため、ログ記録もそこで行う）
+          const _zIndex = zIndex;
+          playSetFlip(draggedElement, () => {
+            applySet(draggedElement, true);
+            if (typeof window.replayLog === 'function') {
+              const cardId = draggedElement.querySelector('img')?.id;
+              if (cardId) {
+                const state = getCardState(draggedElement);
+                window.replayLog({
+                  actionType:  'moveCard',
+                  cardId,
+                  zoneId:      getZoneId(dropZone),
+                  zIndex:      _zIndex ?? '1',
+                  transform:   draggedElement.style.transform || '',
+                  orientation: state.orientation,
+                  face:        state.face,
+                });
+              }
+            }
+          });
+          logHandled = true;
         } else if (modifiers.shift) {
+          // 守備: CSS transition が回転アニメを担う（即時状態変更でOK）
           toggleDefense(draggedElement);
         }
         break;
@@ -234,8 +260,8 @@ function executeDrop(draggedInfo, dropZoneInfo, dropTarget, modifiers = {}) {
         break;
     }
 
-    // リプレイログ記録（window.replayLog が設定されている場合）
-    if (typeof window.replayLog === 'function') {
+    // リプレイログ記録（Shift+Ctrl セットは上で記録済みのためスキップ）
+    if (!logHandled && typeof window.replayLog === 'function') {
       const cardId = draggedElement.querySelector('img')?.id;
       if (cardId) {
         const state = getCardState(draggedElement);
