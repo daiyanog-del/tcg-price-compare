@@ -20,8 +20,6 @@ const TOKEN_COLORS = [
   { label: '金', value: '#7a6020' },
   { label: '青', value: '#1a3d6b' },
   { label: '赤', value: '#6b1a2a' },
-  { label: '紫', value: '#4a1a6b' },
-  { label: '黒', value: '#383848' },
 ];
 
 let _selectedColor = TOKEN_COLORS[0].value;
