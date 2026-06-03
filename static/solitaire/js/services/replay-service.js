@@ -13,12 +13,13 @@
  *   { seq, actionType, cardId?, zoneId?, zIndex?, transform?, orientation?, face?, counter?, text? }
  *
  * actionType:
- *   moveCard    … カードをゾーンに移動（orientation/face も含む）
- *   draw        … デッキからドロー（cardId=ドローしたカードID）
- *   returnToDeck … カードをデッキに戻す
- *   resetDeck   … 全リセット&5ドロー
- *   counterChange … カウンター値変更（counter: 新しい値）
- *   comment     … コメント挿入
+ *   moveCard       … カードをゾーンに移動（orientation/face も含む）
+ *   draw           … デッキからドロー（cardId=ドローしたカードID）
+ *   returnToDeck   … カードをデッキに戻す
+ *   resetDeck      … 全リセット&5ドロー
+ *   counterChange  … カウンター値変更（counter: 新しい値）
+ *   comment        … コメント挿入
+ *   activateEffect … 効果発動（cardId のカードで発動演出を再生）
  *
  * ゾーンID（Fugartaの要素に対応）:
  *   poolRow, poolRow2,
@@ -30,6 +31,7 @@
 
 import { returnAllCardsToDeck } from '../components/card-manager.js';
 import { applyCardState } from '../components/card-state.js';
+import { playActivateEffect, flipMoveClone } from '../components/card-effects.js';
 
 // ── 状態 ──────────────────────────────────────────────
 let _images = {};   // { cardId: src }
@@ -38,6 +40,10 @@ let _cursor = -1;   // 現在の再生位置（-1 = ログ先頭の盤面外）
 let _playing = false;
 let _playTimer = null;
 const PLAY_INTERVAL_MS = 600;
+
+// リプレイ前進時のみ true にしてアニメーション（FLIP / 発動演出）を有効化。
+// _replayTo 経由の後退・全再構築では false のまま（瞬間適用）。
+let _animateForward = false;
 
 // ── 外部API ──────────────────────────────────────────────
 
@@ -97,7 +103,9 @@ export function undoLast() {
 export function stepForward() {
   if (_cursor >= _logs.length - 1) return;
   const next = _cursor + 1;
+  _animateForward = true;
   _applyEvent(_logs[next]);
+  _animateForward = false;
   _cursor = next;
   _updateUI();
 }
@@ -114,10 +122,13 @@ export function seekTo(n) {
   const target = Math.max(-1, Math.min(n, _logs.length - 1));
   if (target === _cursor) return;
   if (target > _cursor) {
-    // 前進：差分だけ適用
-    for (let i = _cursor + 1; i <= target; i++) {
+    // 前進：差分だけ適用（最終手のみアニメ）
+    for (let i = _cursor + 1; i < target; i++) {
       _applyEvent(_logs[i]);
     }
+    _animateForward = true;
+    _applyEvent(_logs[target]);
+    _animateForward = false;
     _cursor = target;
   } else {
     // 後退：最初から再適用
@@ -264,6 +275,9 @@ function _applyEvent(event) {
     case 'comment':
       // コメントはDOMに反映しない（ログのみ）
       break;
+    case 'activateEffect':
+      _applyActivateEffect(event);
+      break;
   }
 }
 
@@ -276,9 +290,29 @@ function _applyMoveCard(event) {
   const zone = _findZone(zoneId);
   if (!zone) return;
 
+  // FLIPアニメ: 前進時のみ移動前の位置を記録
+  const firstRect = _animateForward ? card.getBoundingClientRect() : null;
+
   card.style.transform = transform || '';
   applyCardState(card, { orientation, face });
   _placeCardInZone(zone, card, zIndex);
+
+  // FLIPアニメ: fixedクローンで移動前→移動後を滑らかに補完
+  if (firstRect) {
+    flipMoveClone(card, firstRect);
+  }
+}
+
+/**
+ * activateEffect: 効果発動演出（前進再生時のみ）
+ * _replayTo による後退・全再構築では _animateForward が false のため演出はスキップ。
+ */
+function _applyActivateEffect(event) {
+  if (!_animateForward) return;
+  const { cardId } = event;
+  const card = _findCardWrapper(cardId);
+  if (!card) return;
+  playActivateEffect(card);
 }
 
 /** draw: cardId をデッキから手札(center-slot)へ（状態クリア） */

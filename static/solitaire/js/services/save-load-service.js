@@ -3,9 +3,8 @@
  * カード配置とゲーム状態をlocalStorageに保存・復元
  */
 
-import { enableTouchDrag } from '../components/drag-drop.js';
 import { getCardState, applyCardState } from '../components/card-state.js';
-import { openCardContextMenu } from '../ui/context-menu.js';
+import { attachCardImageListeners } from '../components/card-manager.js';
 
 const SAVE_KEY_PREFIX = 'card-sim-save-slot-';
 const MAX_SLOTS = 5;
@@ -162,13 +161,8 @@ function restoreCardsToSlot(slot, cards) {
     img.id = cardData.id.split(' ')[0];
     if (cardData.cardName) img.dataset.cardName = cardData.cardName;
 
-    // イベントリスナーを再設定（リスナー漏れを防ぐ）
-    img.addEventListener('dragstart', window.drag);
-    img.addEventListener('touchstart', enableTouchDrag, { passive: false });
-    img.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      openCardContextMenu(wrapper, img, e.clientX, e.clientY);
-    });
+    // イベントリスナーを再設定（dblclick による効果発動含む）
+    attachCardImageListeners(wrapper, img);
 
     wrapper.appendChild(img);
     slot.appendChild(wrapper);

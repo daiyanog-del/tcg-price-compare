@@ -1,6 +1,7 @@
 import { enableTouchDrag } from './drag-drop.js';
 import { applyCardState } from './card-state.js';
 import { openCardContextMenu } from '../ui/context-menu.js';
+import { playActivateEffect } from './card-effects.js';
 
 /**
  * カード管理モジュール
@@ -9,6 +10,34 @@ import { openCardContextMenu } from '../ui/context-menu.js';
 
 let itemCount = 0;
 let initialImageSrcs = [];
+
+/**
+ * カード画像要素にイベントリスナーを一括登録
+ * createCardElement と save-load-service.js の restoreCardsToSlot の
+ * 重複登録を解消した共通ヘルパ。dblclick による効果発動もここで登録する。
+ * @param {Element} wrapper - .tier-item-wrapper
+ * @param {Element} img     - img.tier-item
+ */
+export function attachCardImageListeners(wrapper, img) {
+  img.addEventListener('dragstart', window.drag);
+  img.addEventListener('touchstart', enableTouchDrag, { passive: false });
+
+  // 右クリック: コンテキストメニューを開く
+  img.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    openCardContextMenu(wrapper, img, e.clientX, e.clientY);
+  });
+
+  // ダブルクリック: 効果発動アニメーションを再生してリプレイに記録
+  img.addEventListener('dblclick', (e) => {
+    e.preventDefault();
+    playActivateEffect(wrapper);
+    const cardId = img.id;
+    if (cardId && typeof window.replayLog === 'function') {
+      window.replayLog({ actionType: 'activateEffect', cardId });
+    }
+  });
+}
 
 /**
  * カードIDを生成
@@ -35,15 +64,8 @@ function createCardElement(src, isEx = false) {
   img.setAttribute('draggable', 'true');
   img.id = wrapper.id.split(' ')[0]; // IDの数字部分のみ
 
-  // イベントリスナー
-  img.addEventListener('dragstart', window.drag);
-  img.addEventListener('touchstart', enableTouchDrag, { passive: false });
-
-  // 右クリック: コンテキストメニューを開く
-  img.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    openCardContextMenu(wrapper, img, e.clientX, e.clientY);
-  });
+  // イベントリスナーを一括登録（dblclick による効果発動含む）
+  attachCardImageListeners(wrapper, img);
 
   wrapper.appendChild(img);
   return wrapper;
