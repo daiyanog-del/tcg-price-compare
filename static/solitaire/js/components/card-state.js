@@ -111,13 +111,18 @@ export function getCardState(wrapper) {
 
 /**
  * 保存した状態をカードに適用（復元用）
- * applyDefense を先に呼び、次に applySet を呼ぶことで
- * モンスターの裏側守備復元でも二重適用が問題なく動く（applyDefense は冪等）。
+ * applySet を先に呼び、次に applyDefense を呼ぶことで
+ * 表側守備表示のモンスターを正しく復元できる。
+ *
+ * applySet(false) はモンスターに対して applyDefense(false) の副作用を持つため、
+ * applyDefense を先に呼ぶと表側守備表示が打ち消されてしまう。
+ * applySet を先に実行して副作用を発生させた上で、
+ * 最後に applyDefense で orientation の値どおりに最終確定させる。
  * @param {Element} wrapper - .tier-item-wrapper
  * @param {{ orientation?: string, face?: string }} [state]
  */
 export function applyCardState(wrapper, state = {}) {
   const { orientation, face } = state;
-  applyDefense(wrapper, orientation === 'defense');
-  applySet(wrapper, face === 'down');
+  applySet(wrapper, face === 'down');               // 先にセット状態を確定（副作用で守備が変わってもよい）
+  applyDefense(wrapper, orientation === 'defense'); // 最後に守備/攻撃を orientation の値で確定させる
 }
