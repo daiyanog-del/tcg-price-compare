@@ -90,6 +90,9 @@ export function flipMoveClone(wrapper, firstRect) {
     'transition: none',
   ].join('; ');
 
+  // アニメ中は本体を非表示（クローンと二重に見えないよう）
+  wrapper.style.visibility = 'hidden';
+
   document.body.appendChild(clone);
 
   // 次フレームで transition を付与し最終位置へ移動
@@ -100,10 +103,11 @@ export function flipMoveClone(wrapper, firstRect) {
     clone.style.top  = `${lastRect.top}px`;
   });
 
-  // クリーンアップ: transitionend + setTimeout フェイルセーフ
-  // タブ非アクティブ時など transitionend が発火しない場合でも確実に除去する
+  // クリーンアップ: クローン除去と同時に本体を再表示
+  // タブ非アクティブ時など transitionend が発火しない場合でも確実に処理する
   const cleanup = () => {
     if (clone.parentNode) clone.parentNode.removeChild(clone);
+    wrapper.style.visibility = '';
   };
   clone.addEventListener('transitionend', cleanup, { once: true });
   setTimeout(cleanup, 600); // 自動再生インターバル (600ms) に合わせたフェイルセーフ
