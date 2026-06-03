@@ -40,6 +40,33 @@ export function initOpponentTray() {
   _bindSearch();
   _bindClear();
   _restore();
+  _syncCipPosition();
+}
+
+/**
+ * カード詳細パネル(.sol-cip-col)と cipToggle の top を
+ * #mainContainer の上端に動的に合わせる。
+ *
+ * トレイ（ノーマルフロー）の高さが変わると #mainContainer が
+ * 上下するため、CSS の固定 top では合わなくなる。
+ * トグル開閉・復元のたびに呼ぶことで常に正確な位置を保つ。
+ */
+function _syncCipPosition() {
+  requestAnimationFrame(() => {
+    const fieldArea = document.querySelector('.sol-field-area');
+    const mainContainer = document.getElementById('mainContainer');
+    const cipCol = document.querySelector('.sol-cip-col');
+    const cipToggle = document.getElementById('cipToggle');
+    if (!fieldArea || !mainContainer || !cipCol || !cipToggle) return;
+
+    const faRect = fieldArea.getBoundingClientRect();
+    const mcRect = mainContainer.getBoundingClientRect();
+    // #mainContainer 上端からさらに 4px 下（既存の padding-top 相当）
+    const topPx = Math.round(mcRect.top - faRect.top) + 4;
+
+    cipCol.style.top = `${topPx}px`;
+    cipToggle.style.top = `${topPx}px`;
+  });
 }
 
 // ---------- スロット構築 ----------
@@ -203,6 +230,9 @@ function _bindToggle() {
       body.removeAttribute('hidden');
     }
     _persistToggleState(!collapsed);
+    // トレイ高さ変化に伴い #mainContainer が移動するため
+    // カード詳細パネルの top を再計算する
+    _syncCipPosition();
   });
 }
 
@@ -357,4 +387,7 @@ function _restore() {
     if (!card || !slots[i]) return;
     _placeCard(slots[i], card.name, card.src, card.used);
   });
+
+  // 復元後にトレイ高さが確定するため、カード詳細パネルを再配置
+  _syncCipPosition();
 }
