@@ -21,7 +21,7 @@
 
 /* 左サイドバー */
 .sol-sidebar {
-  width: 200px;
+  width: 180px;
   flex-shrink: 0;
   position: sticky;
   top: 0;
@@ -103,7 +103,7 @@
 
 /* 右パネル */
 .sol-right-panel {
-  width: 172px;
+  width: 180px;
   flex-shrink: 0;
   position: sticky;
   top: 0;
