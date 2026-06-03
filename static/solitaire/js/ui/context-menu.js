@@ -16,6 +16,7 @@ import {
   applyCardState,
   getCardState,
 } from '../components/card-state.js';
+import { playSetFlip } from '../components/card-effects.js';
 
 // ── 単一インスタンス ──────────────────────────────────────────────
 let _menuEl          = null;
@@ -138,12 +139,14 @@ function _buildMenuItems(wrapper, img, parent, isInPool, isInitial) {
     },
   });
 
-  // セット切替
+  // セット切替（フリップアニメ付き: scaleX=0の瞬間に状態変更）
   items.push({
     label: isSet ? '表にする' : 'セット（裏向きにする）',
     action: () => {
-      applySet(wrapper, !isSet);
-      _logState(wrapper);
+      playSetFlip(wrapper, () => {
+        applySet(wrapper, !isSet);
+        _logState(wrapper);
+      });
     },
   });
 

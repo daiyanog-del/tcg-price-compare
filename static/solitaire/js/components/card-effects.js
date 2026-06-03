@@ -51,6 +51,31 @@ export function playActivateEffect(wrapper) {
 }
 
 /**
+ * セット/表向き切り替えアニメーション
+ *
+ * wrapper を scaleX=0 まで折り畳み（is-flipping-out）、
+ * 不可視の瞬間に toggleFn() で状態変更してから展開する（is-flipping-in）。
+ * アニメ中は pointer-events:none で誤操作を防止する。
+ *
+ * @param {Element}  wrapper    - .tier-item-wrapper
+ * @param {Function} toggleFn  - scaleX=0 のタイミングで呼ぶ状態変更関数
+ */
+export function playSetFlip(wrapper, toggleFn) {
+  if (!wrapper) return;
+  const HALF_MS = 150; // solFlipOut の duration と一致させる
+
+  wrapper.classList.add('is-flipping-out');
+  setTimeout(() => {
+    wrapper.classList.remove('is-flipping-out');
+    toggleFn(); // カード不可視の瞬間に状態変更
+    wrapper.classList.add('is-flipping-in');
+    wrapper.addEventListener('animationend', () => {
+      wrapper.classList.remove('is-flipping-in');
+    }, { once: true });
+  }, HALF_MS);
+}
+
+/**
  * FLIPアニメーション（fixedクローン方式）
  *
  * 本体（wrapper）は呼び出し前に既に移動先へ配置済みであること。

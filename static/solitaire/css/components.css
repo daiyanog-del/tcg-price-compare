@@ -80,7 +80,7 @@
   object-fit: cover;
   z-index: 1;
   border-radius: 8px;
-  transition: filter 0.2s;
+  transition: transform 0.3s ease-in-out, filter 0.2s;
 }
 
 .tier-item:active {
@@ -404,6 +404,32 @@
 .tier-item-wrapper.is-defense.is-set::after {
   transform: rotate(90deg);
   transform-origin: center center;
+}
+
+/* 裏面オーバーレイを守備回転トランジションに追従させる */
+.tier-item-wrapper.is-set::after {
+  transition: transform 0.3s ease-in-out;
+}
+
+/* ── セット/表向き切り替えアニメーション ────────────────────── */
+
+/* wrapper を scaleX=0 まで折り畳んだ後、状態変更して展開する2段アニメ。
+   状態変更は scaleX=0 の不可視タイミングで行うため自然なカードフリップに見える。 */
+@keyframes solFlipOut {
+  from { transform: scaleX(1); }
+  to   { transform: scaleX(0); }
+}
+@keyframes solFlipIn {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+.tier-item-wrapper.is-flipping-out {
+  animation: solFlipOut 0.15s ease-in forwards;
+  pointer-events: none;
+}
+.tier-item-wrapper.is-flipping-in {
+  animation: solFlipIn 0.15s ease-out;
+  pointer-events: none;
 }
 
 /* ── 効果発動アニメーション（fixedグローオーバーレイ） ──────── */
