@@ -133,6 +133,22 @@ async function handleShare() {
 }
 
 /**
+ * X投稿用の短いURL生成（常にSupabase ID形式）
+ * ハッシュ形式だと投稿準備画面に数千文字のURLが露出するため
+ */
+async function _generateShortURL() {
+  const title = document.querySelector('.title')?.textContent || '一人回し';
+  const res = await fetch('/api/solitaire/replay', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const { id } = await res.json();
+  return `${location.origin}/solitaire?replay=${id}`;
+}
+
+/**
  * X（Twitter）への投稿
  */
 async function handleShareToX() {
@@ -140,7 +156,7 @@ async function handleShareToX() {
   const btn = document.getElementById('replayShareX');
   if (btn) btn.disabled = true;
   try {
-    const url = await _generateShareURL();
+    const url = await _generateShortURL();
     const text = '一人回しのリプレイを共有しました #カード相場';
     const xUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
     window.open(xUrl, '_blank', 'noopener,noreferrer');
