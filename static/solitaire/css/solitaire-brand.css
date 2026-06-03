@@ -146,6 +146,35 @@
   box-sizing: border-box;
 }
 
+/* 操作方法リスト（右パネル内） */
+.sol-ops-list {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 7px;
+  row-gap: 4px;
+  align-items: center;
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.sol-ops-list dt {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  color: #7aaff0;
+  background: rgba(74, 112, 165, 0.15);
+  border: 1px solid rgba(74, 112, 165, 0.3);
+  border-radius: 3px;
+  padding: 1px 4px;
+  white-space: nowrap;
+  justify-self: start;
+}
+
+.sol-ops-list dd {
+  margin: 0;
+  color: #8fa8c8;
+}
+
 /* ── サイドバー内セクション共通 ── */
 .sol-sidebar-section {
   padding: 10px 12px 10px;
