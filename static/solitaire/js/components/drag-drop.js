@@ -144,17 +144,34 @@ function placeCardInNormalSlot(slot, card) {
  * @param {Element} counter - カウンター要素
  */
 function placeCounterOnCard(card, counter) {
-  const clonedCounter = counter.cloneNode(true);
-  clonedCounter.id = `clonedCounter-${Date.now()}`;
+  const srcTextbox = counter.querySelector('.counter-textbox');
+  const currentValue = srcTextbox ? srcTextbox.value : '1';
 
-  // スタイルリセット
-  clonedCounter.classList.remove('touch-dragging');
-  clonedCounter.style.left = '';
-  clonedCounter.style.top = '';
-  clonedCounter.style.position = '';
+  // カード上では [−][N][+] のフラット構造に再構成
+  const newCounter = document.createElement('div');
+  newCounter.className = 'counter-container';
+  newCounter.id = `clonedCounter-${Date.now()}`;
 
-  initializeCounter(clonedCounter);
-  card.appendChild(clonedCounter);
+  const downBtn = document.createElement('button');
+  downBtn.className = 'triangle-button down';
+  downBtn.textContent = '−';
+
+  const textbox = document.createElement('input');
+  textbox.type = 'text';
+  textbox.className = 'counter-textbox';
+  textbox.value = currentValue;
+  textbox.readOnly = true;
+
+  const upBtn = document.createElement('button');
+  upBtn.className = 'triangle-button up';
+  upBtn.textContent = '+';
+
+  newCounter.appendChild(downBtn);
+  newCounter.appendChild(textbox);
+  newCounter.appendChild(upBtn);
+
+  initializeCounter(newCounter);
+  card.appendChild(newCounter);
 }
 
 /**

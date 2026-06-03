@@ -205,28 +205,45 @@ function restoreCounters(counters) {
       counter.setAttribute('style', counterData.style);
     }
 
-    const buttonContainer = document.createElement('div');
-    buttonContainer.className = 'triangle-button-container';
-
-    const upButton = document.createElement('button');
-    upButton.className = 'triangle-button up';
-    upButton.textContent = '▲';
-
-    const downButton = document.createElement('button');
-    downButton.className = 'triangle-button down';
-    downButton.textContent = '▼';
-
-    buttonContainer.appendChild(upButton);
-    buttonContainer.appendChild(downButton);
-
     const textbox = document.createElement('input');
     textbox.type = 'text';
     textbox.className = 'counter-textbox';
     textbox.value = counterData.value;
     textbox.readOnly = true;
 
-    counter.appendChild(buttonContainer);
-    counter.appendChild(textbox);
+    const isOnCard = parentSlot.classList.contains('tier-item-wrapper');
+
+    if (isOnCard) {
+      // カード上: [−][数値][+] のフラット構造
+      const downBtn = document.createElement('button');
+      downBtn.className = 'triangle-button down';
+      downBtn.textContent = '−';
+
+      const upBtn = document.createElement('button');
+      upBtn.className = 'triangle-button up';
+      upBtn.textContent = '+';
+
+      counter.appendChild(downBtn);
+      counter.appendChild(textbox);
+      counter.appendChild(upBtn);
+    } else {
+      // パネル内: ボタンコンテナ（縦積み）＋数値
+      const buttonContainer = document.createElement('div');
+      buttonContainer.className = 'triangle-button-container';
+
+      const upButton = document.createElement('button');
+      upButton.className = 'triangle-button up';
+      upButton.textContent = '+';
+
+      const downButton = document.createElement('button');
+      downButton.className = 'triangle-button down';
+      downButton.textContent = '−';
+
+      buttonContainer.appendChild(upButton);
+      buttonContainer.appendChild(downButton);
+      counter.appendChild(buttonContainer);
+      counter.appendChild(textbox);
+    }
 
     // イベントリスナーを再設定
     counter.addEventListener('dragstart', window.drag);
