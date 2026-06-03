@@ -84,18 +84,26 @@ export function playSetFlip(wrapper, toggleFn) {
  * クローンは pointer-events:none のため操作に干渉しない。
  * DOM（真実のソース）は常に最終位置を保持し続ける。
  *
- * @param {Element} wrapper   - .tier-item-wrapper（既に移動先に配置済み）
- * @param {DOMRect} firstRect - 移動前の getBoundingClientRect() 値
+ * @param {Element}       wrapper    - .tier-item-wrapper（既に移動先に配置済み）
+ * @param {DOMRect}       firstRect  - 移動前の getBoundingClientRect() 値
+ * @param {Function|null} onComplete - アニメ完了（またはスキップ）後に呼ぶコールバック
  */
-export function flipMoveClone(wrapper, firstRect) {
-  if (!wrapper || !firstRect) return;
+export function flipMoveClone(wrapper, firstRect, onComplete = null) {
+  // 移動なし・引数不正の場合はコールバックだけ呼んで終了
+  if (!wrapper || !firstRect) {
+    if (onComplete) onComplete();
+    return;
+  }
 
   const lastRect = wrapper.getBoundingClientRect();
 
-  // 実質的な移動なし（2px 以内）はスキップ
+  // 実質的な移動なし（2px 以内）: アニメスキップ、コールバックは即時呼ぶ
   const dx = firstRect.left - lastRect.left;
   const dy = firstRect.top  - lastRect.top;
-  if (Math.abs(dx) < 2 && Math.abs(dy) < 2) return;
+  if (Math.abs(dx) < 2 && Math.abs(dy) < 2) {
+    if (onComplete) onComplete();
+    return;
+  }
 
   // クローン生成（class/data属性ごとコピー → 守備回転・is-set裏面も再現）
   const clone = wrapper.cloneNode(true);
@@ -128,11 +136,13 @@ export function flipMoveClone(wrapper, firstRect) {
     clone.style.top  = `${lastRect.top}px`;
   });
 
-  // クリーンアップ: クローン除去と同時に本体を再表示
+  // クリーンアップ: クローン除去・本体再表示・コールバック呼び出し
   // タブ非アクティブ時など transitionend が発火しない場合でも確実に処理する
+  let _done = false;
   const cleanup = () => {
     if (clone.parentNode) clone.parentNode.removeChild(clone);
     wrapper.style.visibility = '';
+    if (!_done && onComplete) { _done = true; onComplete(); }
   };
   clone.addEventListener('transitionend', cleanup, { once: true });
   setTimeout(cleanup, 600); // 自動再生インターバル (600ms) に合わせたフェイルセーフ

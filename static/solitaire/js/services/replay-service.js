@@ -30,8 +30,8 @@
  */
 
 import { returnAllCardsToDeck } from '../components/card-manager.js';
-import { applyCardState } from '../components/card-state.js';
-import { playActivateEffect, flipMoveClone } from '../components/card-effects.js';
+import { applyCardState, getCardState } from '../components/card-state.js';
+import { playActivateEffect, flipMoveClone, playSetFlip } from '../components/card-effects.js';
 
 // ── 状態 ──────────────────────────────────────────────
 let _images = {};   // { cardId: src }
@@ -290,17 +290,44 @@ function _applyMoveCard(event) {
   const zone = _findZone(zoneId);
   if (!zone) return;
 
-  // FLIPアニメ: 前進時のみ移動前の位置を記録
-  const firstRect = _animateForward ? card.getBoundingClientRect() : null;
-
   card.style.transform = transform || '';
-  applyCardState(card, { orientation, face });
+
+  // 後退・全再構築（_replayTo経由）: アニメなしで即時適用
+  if (!_animateForward) {
+    applyCardState(card, { orientation, face });
+    _placeCardInZone(zone, card, zIndex);
+    return;
+  }
+
+  // ── 前進再生: 移動アニメ → 状態変化アニメ の順で実行 ────────────────
+
+  // 移動前の位置と状態を記録（クローンに旧状態を映すため、state 変更前に測定）
+  const firstRect  = card.getBoundingClientRect();
+  const prevState  = getCardState(card);
+  const faceChanged    = prevState.face        !== (face        || '');
+  const orientChanged  = prevState.orientation !== (orientation || '');
+  const stateChanged   = faceChanged || orientChanged;
+
+  if (!stateChanged) {
+    // 状態変化なし: 即時適用して FLIP のみ
+    applyCardState(card, { orientation, face });
+  }
+  // stateChanged の場合は FLIP 完了後のコールバックで適用する
+
   _placeCardInZone(zone, card, zIndex);
 
-  // FLIPアニメ: fixedクローンで移動前→移動後を滑らかに補完
-  if (firstRect) {
-    flipMoveClone(card, firstRect);
-  }
+  // FLIP 完了後に呼ぶ状態変化アニメ
+  const applyStateAnim = stateChanged ? () => {
+    if (faceChanged) {
+      // 表裏変更: scaleX フリップ演出
+      playSetFlip(card, () => applyCardState(card, { orientation, face }));
+    } else {
+      // 向き変更のみ: CSS transition が回転を担う
+      applyCardState(card, { orientation, face });
+    }
+  } : null;
+
+  flipMoveClone(card, firstRect, applyStateAnim);
 }
 
 /**
