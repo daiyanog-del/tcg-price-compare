@@ -28,7 +28,7 @@
  * @param {Element} wrapper - .tier-item-wrapper
  * @returns {boolean}
  */
-function isMonsterCard(wrapper) {
+export function isMonsterCard(wrapper) {
   // EXデッキカード（wrapper.id に "ex" を含む）は常にモンスター
   if (wrapper.id.includes(' ex')) return true;
   // data-card-type による判定（deck-input-panel が付与）

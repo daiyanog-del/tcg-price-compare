@@ -15,6 +15,7 @@ import {
   applySet,
   applyCardState,
   getCardState,
+  isMonsterCard,
 } from '../components/card-state.js';
 import { playSetFlip } from '../components/card-effects.js';
 
@@ -140,15 +141,37 @@ function _buildMenuItems(wrapper, img, parent, isInPool, isInitial) {
   });
 
   // セット切替（フリップアニメ付き: scaleX=0の瞬間に状態変更）
-  items.push({
-    label: isSet ? '表にする' : 'セット（裏向きにする）',
-    action: () => {
-      playSetFlip(wrapper, () => {
-        applySet(wrapper, !isSet);
-        _logState(wrapper);
-      });
-    },
-  });
+  if (isSet && isMonsterCard(wrapper)) {
+    // モンスターのセット解除：攻撃表示か守備表示を選べる
+    items.push({
+      label: '表にする（攻撃表示）',
+      action: () => {
+        playSetFlip(wrapper, () => {
+          applySet(wrapper, false);
+          _logState(wrapper);
+        });
+      },
+    });
+    items.push({
+      label: '表にする（守備表示）',
+      action: () => {
+        playSetFlip(wrapper, () => {
+          applyCardState(wrapper, { orientation: 'defense', face: '' });
+          _logState(wrapper);
+        });
+      },
+    });
+  } else {
+    items.push({
+      label: isSet ? '表にする' : 'セット（裏向きにする）',
+      action: () => {
+        playSetFlip(wrapper, () => {
+          applySet(wrapper, !isSet);
+          _logState(wrapper);
+        });
+      },
+    });
+  }
 
   // 下重ね（フィールドスロット、かつ他のカードがある場合）
   if (isCustom && parent.querySelectorAll('.tier-item-wrapper').length > 1) {
