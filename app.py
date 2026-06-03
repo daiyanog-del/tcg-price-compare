@@ -2061,8 +2061,8 @@ def api_parse_deck_pdf():
                 return jsonify({"error": "PDFにページがありません"}), 400
 
             page = pdf.pages[0]
-            # x_tolerance=2 で行番号とカード名の混在を防ぐ
-            words = page.extract_words(x_tolerance=2, y_tolerance=3, keep_blank_chars=False)
+            # y_tolerance=1: 行番号(y=142)とカード名(y=140)のy差=2ptを別行に分離
+            words = page.extract_words(x_tolerance=2, y_tolerance=1, keep_blank_chars=False)
 
         result = _parse_neuron_pdf_words(words)
         return jsonify(result)
@@ -2123,25 +2123,47 @@ def _parse_neuron_pdf_words(words):
             ],
         }
 
-    # 列定義 (x昇順)
-    col_defs = sorted(
-        [h for h in [
-            {"type": "monster", "x": mon_h["x"]},
-            spl_h and {"type": "spell", "x": spl_h["x"]},
-            trp_h and {"type": "trap",  "x": trp_h["x"]},
-        ] if h],
-        key=lambda h: h["x"],
-    )
     page_w = max(it["x"] for it in items) + 100
 
+    # ── ヘッダ行から列境界を正確に計算 ──────────────────────────
+    # ヘッダ行: [モンスター x=108][枚数 x=217][魔法 x=290][枚数 x=387][罠 x=464][枚数 x=557]
+    # 列境界は 枚数[i].x と 次のカード種ヘッダ[i+1].x の中点
+    main_hdr_y = mon_h["y"]
+    hdr_row = sorted([it for it in items if abs(it["y"] - main_hdr_y) < 5], key=lambda it: it["x"])
+
+    # ヘッダ行内の「枚数」x一覧（左から: モンスター枚数, 魔法枚数, 罠枚数）
+    main_qty_xs = [it["x"] for it in hdr_row if it["str"].strip() == "枚数"]
+    # カード種ヘッダのx一覧（左から: モンスター, 魔法, 罠）
+    card_type_xs = sorted([h["x"] for h in [
+        mon_h, spl_h, trp_h
+    ] if h])
+
+    # 列タイプリスト（x昇順）
+    col_types = []
+    if mon_h: col_types.append(("monster", mon_h["x"]))
+    if spl_h: col_types.append(("spell",   spl_h["x"]))
+    if trp_h: col_types.append(("trap",    trp_h["x"]))
+    col_types.sort(key=lambda c: c[1])
+
+    # 各列の x範囲: 開始=(前の枚数x+自分のカード種x)/2、終了=(自分の枚数x+次のカード種x)/2
     col_ranges = []
-    for i, h in enumerate(col_defs):
-        prev = col_defs[i - 1] if i > 0 else None
-        nxt  = col_defs[i + 1] if i < len(col_defs) - 1 else None
+    for i, (ctype, ctype_x) in enumerate(col_types):
+        # 自分に対応する「枚数」x（ヘッダ行で自分のカード種xより右にある最初のもの）
+        my_qty_x = next((qx for qx in sorted(main_qty_xs) if qx > ctype_x), None)
+
+        # 開始x: 前の「枚数」xと自分のカード種xの中点（最初の列は0）
+        prev_qty_x = main_qty_xs[i - 1] if i > 0 and i - 1 < len(main_qty_xs) else None
+        start_x = (prev_qty_x + ctype_x) / 2 if prev_qty_x else 0
+
+        # 終了x: 自分の「枚数」xと次のカード種xの中点（最後の列はpage_w）
+        next_ctype_x = col_types[i + 1][1] if i + 1 < len(col_types) else None
+        end_x = (my_qty_x + next_ctype_x) / 2 if (my_qty_x and next_ctype_x) else page_w
+
         col_ranges.append({
-            "type": h["type"],
-            "sX": (prev["x"] + h["x"]) / 2 if prev else 0,
-            "eX": (h["x"] + nxt["x"]) / 2 if nxt else page_w,
+            "type": ctype,
+            "sX": start_x,
+            "eX": end_x,
+            "qty_x": my_qty_x,  # この列の枚数列x
         })
 
     def get_col(x):
@@ -2150,10 +2172,12 @@ def _parse_neuron_pdf_words(words):
                 return cr["type"]
         return None
 
+    # qty_x_col: 各列の枚数x（ヘッダ行から直接取得済み）
+    qty_x_col = {cr["type"]: cr["qty_x"] for cr in col_ranges if cr["qty_x"]}
+
     # 除外語
     SKIP = {"モンスターカード","魔法カード","罠カード","エクストラデッキ","サイドデッキ",
             "カード名","枚数","かな","氏名","カードゲームID","参加番号","日付","イベント名",
-            # x_tolerance=2 でヘッダが分割された場合の断片も除外
             "モンスター","魔法","罠","エクストラ","サイド","デッキ","カード"}
     skip_re = [re.compile(p) for p in [r"合計\s*>+", r"^>+", r"^メインデッキ"]]
 
@@ -2161,34 +2185,27 @@ def _parse_neuron_pdf_words(words):
         if s in SKIP: return True
         if any(p.search(s) for p in skip_re): return True
         if hm(s) or hs(s) or ht(s) or he(s) or hsd(s): return True
-        # IDコード: 空白区切りの1桁数字が5個以上
         if re.match(r"^[\d\s]+$", s) and len(s.replace(" ","")) > 4: return True
         return False
 
     is_digit = lambda s: bool(re.match(r"^\d+$", s))
 
-    # y境界
-    # 注意: EXヘッダとサイドヘッダは同一y行（横並び）のため
-    #       EXデータはヘッダ行の「下」全体を y > ex_h_y で取り、x で列分割する
-    main_y    = mon_h["y"]
-    ex_hdr_y  = ex_h["y"]   # ≈ side_h["y"]
+    main_y   = main_hdr_y
+    ex_hdr_y = ex_h["y"]
 
-    # EX/サイド x分割点
-    split_x = (ex_h["x"] + side_h["x"]) / 2 if side_h else (page_w * 0.5)
+    # ── EX/サイド x分割点 ─────────────────────────────────────
+    # EXヘッダ行: [エクストラ x=108][枚数 x=217][サイド x=286][枚数 x=387]
+    # 分割点 = (EX枚数x + サイドx) / 2 = (217 + 286) / 2 = 251.5
+    ex_hdr_row = sorted([it for it in items if abs(it["y"] - ex_hdr_y) < 5], key=lambda it: it["x"])
+    ex_qty_xs  = [it["x"] for it in ex_hdr_row if it["str"].strip() == "枚数"]
+    ex_qty_x   = ex_qty_xs[0] if ex_qty_xs else None  # EX列の枚数x
 
-    # 「枚数」ヘッダ: メインデッキ行にあるもの（y ≈ main_y）で列ごとにx取得
-    qty_headers = [it for it in items if it["str"].strip() == "枚数"]
-    # メインデッキヘッダ行: y が main_y に近いもの（±10pt 以内）
-    main_qty_hdrs = [qh for qh in qty_headers if abs(qh["y"] - main_y) < 10]
-    qty_x_col = {}
-    for qh in main_qty_hdrs:
-        col = get_col(qh["x"])
-        if col:
-            qty_x_col[col] = qh["x"]
-
-    # EXヘッダ行の「枚数」
-    ex_qty_hdrs = [qh for qh in qty_headers if abs(qh["y"] - ex_hdr_y) < 10 and qh["x"] < split_x]
-    ex_qty_x = ex_qty_hdrs[0]["x"] if ex_qty_hdrs else None
+    if side_h and ex_qty_x:
+        split_x = (ex_qty_x + side_h["x"]) / 2
+    elif side_h:
+        split_x = (ex_h["x"] + side_h["x"]) / 2
+    else:
+        split_x = page_w * 0.5
 
     warnings = []
     QTY_TOL = 25
