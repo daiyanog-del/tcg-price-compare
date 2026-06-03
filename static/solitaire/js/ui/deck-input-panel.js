@@ -45,9 +45,9 @@ async function clearAllCards() {
 
 /**
  * カード名からAPIで画像URLを取得してプールに追加
- * @param {string}  name   カード名
- * @param {number}  qty    枚数
- * @param {boolean} isEx   EXデッキか
+ * @param {string}       name   カード名
+ * @param {number}       qty    枚数
+ * @param {boolean|null} isEx   EXデッキか（null=APIレスポンスから自動判定）
  */
 async function addCardByName(name, qty, isEx) {
   // 画像URLとカード種別を並列取得
@@ -66,10 +66,13 @@ async function addCardByName(name, qty, isEx) {
 
   // broad_type: "monster" | "spell" | "trap"
   let cardType = null;
+  let finalIsEx = isEx ?? false;  // null の場合は false をデフォルトにした上で上書き
   try {
     if (infoRes?.ok) {
       const data = await infoRes.json();
       if (data.found && data.broad_type) cardType = data.broad_type;
+      // isEx が null（自動判定モード）の場合のみ API レスポンスの is_ex を使用
+      if (isEx == null && data.found) finalIsEx = !!data.is_ex;
     }
   } catch { /* 無視 */ }
 
@@ -78,9 +81,9 @@ async function addCardByName(name, qty, isEx) {
     return;
   }
 
-  const poolId = isEx ? 'poolRow2' : 'poolRow';
+  const poolId = finalIsEx ? 'poolRow2' : 'poolRow';
   for (let i = 0; i < qty; i++) {
-    addCardToPool(src, false, isEx);
+    addCardToPool(src, false, finalIsEx);
     // 追加直後に最後の wrapper を取ってリプレイ辞書・カード名・種別を登録
     const pool = document.getElementById(poolId);
     if (pool) {
@@ -109,7 +112,7 @@ export async function loadDeckFromText(text) {
   const msg = document.getElementById('deckLoadingMsg');
   if (msg) { msg.textContent = 'カード画像を読み込み中...'; msg.style.display = 'block'; }
   for (const { qty, name } of cards) {
-    await addCardByName(name, qty, false);
+    await addCardByName(name, qty, null);  // null=APIレスポンスのis_exで自動判定
   }
   if (msg) { msg.textContent = ''; msg.style.display = 'none'; }
 }

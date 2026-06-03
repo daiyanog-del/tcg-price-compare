@@ -1956,11 +1956,18 @@ def api_card_info():
             pass
         # サブタイプ優先、なければ大分類
         mapped_type = _TYPE_JA.get(card_subtype) or _TYPE_JA.get(card_type, card_type)
+        # EXデッキ判定（Fusion/Synchro/Xyz/Link とそのペンデュラム派生）
+        _EX_KEYWORDS = ("Fusion", "Synchro", "Xyz", "XYZ", "Link")
+        is_ex = any(kw in card_subtype for kw in _EX_KEYWORDS)
+        # ygoprodeck 取得失敗時のフォールバック（XYZ=rank, Link=linkRating で判定）
+        if not is_ex and card_type == "monster":
+            is_ex = (ja.get("rank") is not None) or (ja.get("linkRating") is not None)
         return jsonify({
             "found": True,
             "konami_id": card_id,
             "card_type": mapped_type,
             "broad_type": card_type,   # "monster" | "spell" | "trap"（表示判定用）
+            "is_ex": is_ex,            # EXデッキカードか否か
             "atk": ja.get("atk"),
             "def": ja.get("def"),
             "level": ja.get("level"),
