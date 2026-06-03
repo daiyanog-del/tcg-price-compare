@@ -363,19 +363,45 @@
 
 /* ── カード状態（守備表示・セット） ───────────────────────────── */
 
-/* 守備表示: 90度回転。overflow:visible でクリップを解除 */
-.tier-item-wrapper.is-defense {
+/* 守備スロット: 守備カードを含む場合のみクリップ解除＋前面化
+   回転カードは左右21pxはみ出すため、z-index で隣カードより前面に出す */
+.custom-slot:has(.tier-item-wrapper.is-defense) {
   overflow: visible;
+  z-index: 5;
 }
 
+/* 守備 wrapper: overflow 許可＋前面 */
+.tier-item-wrapper.is-defense {
+  overflow: visible;
+  z-index: 6;
+}
+
+/* 守備表示: 90度回転 */
 .tier-item-wrapper.is-defense .tier-item {
   transform: rotate(90deg);
   transform-origin: center center;
 }
 
-/* セット（裏側表示）: 薄暗い枠で裏面感を演出 */
-.tier-item-wrapper.is-set .tier-item {
-  filter: brightness(0.85);
+/* セット（裏側表示）: CSS で遊戯王カードバック風の裏面を描画
+   img.src は変更せず、::after オーバーレイで隠す */
+.tier-item-wrapper.is-set::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: 8px;
+  background:
+    radial-gradient(ellipse at center, rgba(255, 210, 140, 0.18) 0%, transparent 52%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 145'%3E%3Cg fill='none' stroke='%23e8c074' stroke-opacity='0.55'%3E%3Ccircle cx='50' cy='72' r='30' stroke-width='2'/%3E%3Ccircle cx='50' cy='72' r='19' stroke-width='1.5'/%3E%3Cpolygon points='50,46 76,72 50,98 24,72' stroke-width='2'/%3E%3Cline x1='50' y1='46' x2='50' y2='98' stroke-width='1' stroke-opacity='0.4'/%3E%3Cline x1='24' y1='72' x2='76' y2='72' stroke-width='1' stroke-opacity='0.4'/%3E%3C/g%3E%3Crect x='7' y='5' width='86' height='135' rx='5' fill='none' stroke='%23e8c074' stroke-opacity='0.25' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat center / 78% auto,
+    linear-gradient(145deg, #5a3018 0%, #7d4d25 40%, #3e2010 100%);
+  border: 2px solid #b87f28;
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.55);
+}
+
+/* 守備かつ裏（リバースセット）: 裏面オーバーレイも 90° 回す */
+.tier-item-wrapper.is-defense.is-set::after {
+  transform: rotate(90deg);
+  transform-origin: center center;
 }
 
 /* ── コンテキストメニュー ────────────────────────────────────── */

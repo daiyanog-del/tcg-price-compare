@@ -213,10 +213,12 @@ function executeDrop(draggedInfo, dropZoneInfo, dropTarget, modifiers = {}) {
       }
       case 'CUSTOM_SLOT': {
         const before = dropZone.querySelectorAll('.tier-item-wrapper').length;
-        placeCardInCustomSlot(dropZone, draggedElement);
-        zIndex = String(before + 1);
+        // Ctrl単独=下重ね / Shift+Ctrl=セット（下重ねではない）
+        const under = modifiers.ctrl && !modifiers.shift;
+        placeCardInCustomSlot(dropZone, draggedElement, { under });
+        zIndex = under ? '1' : String(before + 1);
 
-        // 修飾キーによる状態変更（Shift+Ctrl=セット / Shiftのみ=守備トグル）
+        // 修飾キーによる状態変更（優先順位: Shift+Ctrl=セット > Shift=守備）
         if (modifiers.shift && modifiers.ctrl) {
           applySet(draggedElement, true);
         } else if (modifiers.shift) {
@@ -253,14 +255,16 @@ function executeDrop(draggedInfo, dropZoneInfo, dropTarget, modifiers = {}) {
  * デスクトップドラッグ&ドロップの初期化
  */
 export function initializeDesktopDragDrop() {
-  // allowDrop
+  // allowDrop（Ctrl押下時のコピーカーソルを move に固定）
   window.allowDrop = function(ev) {
     ev.preventDefault();
+    ev.dataTransfer.dropEffect = 'move';
   };
 
-  // drag
+  // drag（effectAllowed で常に move）
   window.drag = function(ev) {
     ev.dataTransfer.setData('text/plain', ev.target.id);
+    ev.dataTransfer.effectAllowed = 'move';
   };
 
   // drop（Shift/Ctrl 修飾キーを executeDrop に渡す）

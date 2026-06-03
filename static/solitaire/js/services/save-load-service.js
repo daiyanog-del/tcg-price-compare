@@ -13,7 +13,6 @@ const SESSION_RESUME_KEY = 'sol-session-resume';
 
 /**
  * スロット内のカード情報を取得
- * セット（裏面）状態のカードは元画像URL（faceSrc）を保存する
  * @param {Element} slot - スロット要素
  * @returns {Array} - カード情報の配列
  */
@@ -24,15 +23,14 @@ function getCardsFromSlot(slot) {
   wrappers.forEach(wrapper => {
     const img = wrapper.querySelector('img');
     if (img) {
-      // 裏面の場合は元画像URL（dataset.faceSrc）を保存。表面の場合はimg.srcをそのまま保存
-      const srcToSave = img.dataset.faceSrc || img.src;
-      const state     = getCardState(wrapper);
+      // セット状態でも img.src は元画像のまま（CSS ::after で裏面を描画するため）
+      const state = getCardState(wrapper);
       cards.push({
         id:       wrapper.id,
-        src:      srcToSave,
+        src:      img.src,
         style:    wrapper.getAttribute('style') || '',
         cardName: img.dataset.cardName || '',
-        state,   // { orientation, face, faceSrc }
+        state,   // { orientation, face }
       });
     }
   });
@@ -157,7 +155,7 @@ function restoreCardsToSlot(slot, cards) {
     }
 
     const img = document.createElement('img');
-    // セット状態でも元画像URLを設定（applyCardState内で裏面に差し替えられる）
+    // img.src は常に元画像（裏面は CSS ::after で描画するため src は変更しない）
     img.src = cardData.src;
     img.className = 'tier-item';
     img.setAttribute('draggable', 'true');
