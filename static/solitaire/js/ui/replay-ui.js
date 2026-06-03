@@ -84,47 +84,70 @@ export function initReplayUI() {
   document.getElementById('replayShare')
     ?.addEventListener('click', handleShare);
 
+  // X に投稿
+  document.getElementById('replayShareX')
+    ?.addEventListener('click', handleShareToX);
+
   // URLハッシュからリプレイを読み込む
   _tryLoadFromURL();
 }
 
 /**
- * 共有ボタン処理
- * テキスト/メタデッキ盤面: LZString → URLハッシュ
- * ニューロン盤面 (dataURL): Supabase ID 発行
+ * 共有URL生成（ハッシュ方式 or Supabase ID 方式）
+ * @returns {Promise<string>} 共有URL
+ */
+async function _generateShareURL() {
+  const title = document.querySelector('.title')?.textContent || '一人回し';
+
+  const hash = exportAsURLHash();
+  if (hash && hash.length < 8000) {
+    return `${location.origin}/solitaire#replay=${hash}`;
+  }
+
+  const res = await fetch('/api/solitaire/replay', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const { id } = await res.json();
+  return `${location.origin}/solitaire?replay=${id}`;
+}
+
+/**
+ * 共有リンクをコピー
  */
 async function handleShare() {
   if (getLogLength() === 0) { alert('記録がありません'); return; }
-  const title = document.querySelector('.title')?.textContent || '一人回し';
-  const shareBtn = document.getElementById('replayShare');
-  if (shareBtn) shareBtn.disabled = true;
-
+  const btn = document.getElementById('replayShare');
+  if (btn) btn.disabled = true;
   try {
-    // まずURLハッシュを試みる（軽量：テキスト/メタ盤面）
-    const hash = exportAsURLHash();
-    if (hash && hash.length < 8000) {
-      const url = `${location.origin}/solitaire#replay=${hash}`;
-      await _copyToClipboard(url);
-      alert('共有リンクをコピーしました');
-      return;
-    }
-
-    // 重い場合はSupabaseに保存してID発行
-    const res = await fetch('/api/solitaire/replay', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title }),
-    });
-
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const { id } = await res.json();
-    const url = `${location.origin}/solitaire?replay=${id}`;
+    const url = await _generateShareURL();
     await _copyToClipboard(url);
-    alert(`共有リンクをコピーしました\n${url}`);
+    alert('共有リンクをコピーしました');
   } catch (e) {
     alert('共有リンクの作成に失敗しました: ' + e.message);
   } finally {
-    if (shareBtn) shareBtn.disabled = false;
+    if (btn) btn.disabled = false;
+  }
+}
+
+/**
+ * X（Twitter）への投稿
+ */
+async function handleShareToX() {
+  if (getLogLength() === 0) { alert('記録がありません'); return; }
+  const btn = document.getElementById('replayShareX');
+  if (btn) btn.disabled = true;
+  try {
+    const url = await _generateShareURL();
+    const text = '一人回しのリプレイを共有しました #カード相場';
+    const xUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
+    window.open(xUrl, '_blank', 'noopener,noreferrer');
+  } catch (e) {
+    alert('X投稿の準備に失敗しました: ' + e.message);
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
