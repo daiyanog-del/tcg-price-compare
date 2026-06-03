@@ -1,29 +1,43 @@
 /* ===== 相手の想定妨害ミニ盤面 =====
- * CSS変数 --opp-toggle-h をここで定義。
- * solitaire-brand.css の .sol-cip-col / .sol-cip-toggle がこの値を参照して
- * カード詳細パネルをトレイヘッダの下に配置する。
+ *
+ * 設計: position: absolute で .sol-field-area 内に配置。
+ * ノーマルフローから外れるため、#mainContainer（ゲームフィールド）を
+ * 押し下げることがなく、カード詳細パネル(.sol-cip-col)と干渉しない。
+ *
+ * 横位置: カード詳細パネル(310px) + cipToggle(18px) の右から
+ *         .sol-field-area の右端まで占有。
+ * 縦位置: カード詳細パネルと同じ top: 6px 始まり。
+ *
+ * cip-hidden 時は tray が左端(30px)から始まる。
  */
-:root {
-  --opp-toggle-h: 30px;
-}
 
-/* ── 外枠 ── */
+/* ── 外枠（絶対配置） ── */
 .opp-tray {
-  width: 100%;
+  position: absolute;
+  left: calc(var(--slot-width) * 3.3 + 30px);
+  top: 6px;
+  right: 0;
+  z-index: 9;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   box-sizing: border-box;
-  border-bottom: 1px solid var(--border);
+  /* ノーマルフローに入らないため #mainContainer を押し下げない */
 }
 
-/* ── トグルボタン（1行ヘッダ）──
- * カード詳細パネル＋cipToggle の右端から始まるよう padding-left で押す。
- * cip-hidden 時はフル幅使用（padding-left: 12px に上書き）。
- */
+/* カード詳細パネル非表示時は左端から始める */
+.sol-field-area.cip-hidden .opp-tray {
+  left: 30px;
+}
+
+/* ── トグルボタン（トレイ全幅のヘッダ行） ── */
 .opp-tray-toggle {
   width: 100%;
-  height: var(--opp-toggle-h);
+  height: 28px;
   background: transparent;
   border: none;
-  padding: 0 10px 0 calc(var(--slot-width) * 3.3 + 32px);
+  border-bottom: 1px solid transparent; /* 開時のみボーダー表示 */
+  padding: 0 8px;
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -38,13 +52,13 @@
   transition: color 0.15s;
   font-family: var(--font);
   box-sizing: border-box;
+  border-radius: var(--radius) var(--radius) 0 0;
 }
 .opp-tray-toggle:hover {
   color: var(--main-color);
 }
-
-.sol-field-area.cip-hidden .opp-tray-toggle {
-  padding-left: 12px;
+.opp-tray:not(.collapsed) .opp-tray-toggle {
+  border-bottom-color: var(--border);
 }
 
 /* 開閉矢印 */
@@ -64,23 +78,15 @@
 }
 
 .opp-tray-body {
-  padding: 4px 8px 8px;
+  padding: 6px 8px 8px;
 }
 
-/* ── 内側レイアウト：スロット（左）＋右エリア（プリセット＋検索） ──
- * カード詳細パネルと cipToggle の右端から始まるよう padding-left で押す。
- * cip-hidden 時はパディング不要。
- */
+/* ── 内側レイアウト：スロット（左）＋右エリア（プリセット＋検索） ── */
 .opp-tray-inner {
   display: flex;
   gap: 10px;
   align-items: flex-start;
-  padding-left: calc(var(--slot-width) * 3.3 + 32px);
-  box-sizing: border-box;
-}
-
-.sol-field-area.cip-hidden .opp-tray-inner {
-  padding-left: 0;
+  /* カード詳細パネルは左に分離配置済みなので offset 不要 */
 }
 
 /* ── スロット横一列 ── */
@@ -91,7 +97,7 @@
   flex-shrink: 0;
 }
 
-/* 1スロット（自分盤面の約62%サイズ） */
+/* 1スロット */
 .opp-slot {
   width: calc(var(--slot-width) * 0.62);
   height: calc(var(--slot-width) * 0.62 * 1.45);
@@ -145,7 +151,7 @@
   line-height: 1;
 }
 
-/* 削除ボタン（ホバー時に表示） */
+/* 削除ボタン（ホバー時） */
 .opp-slot .opp-remove-btn {
   position: absolute;
   top: 2px;
@@ -176,10 +182,9 @@
   display: flex;
   flex-direction: column;
   gap: 5px;
-  justify-content: space-between;
 }
 
-/* プリセットカテゴリグループコンテナ */
+/* プリセットカテゴリコンテナ */
 #oppPresetChips {
   display: flex;
   flex-direction: column;
@@ -202,11 +207,11 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   white-space: nowrap;
-  margin-right: 1px;
+  margin-right: 2px;
   flex-shrink: 0;
 }
 
-/* プリセットチップボタン */
+/* プリセットチップ */
 .opp-preset-chip {
   font-size: 0.7rem;
   padding: 1px 6px;
@@ -226,7 +231,7 @@
   background: rgba(74, 124, 255, 0.1);
 }
 
-/* カテゴリ間セパレータ（非表示：縦積みレイアウトのため不要） */
+/* カテゴリ間区切り（非表示：縦積みレイアウト不要） */
 .opp-preset-sep {
   display: none;
 }
@@ -264,7 +269,7 @@
   color: #4a6490;
 }
 
-/* サジェストドロップダウン */
+/* サジェスト */
 .opp-search-suggest {
   position: absolute;
   top: calc(100% + 2px);
@@ -319,11 +324,13 @@
 
 /* ===== レスポンシブ ===== */
 @media (max-width: 600px) {
-  .opp-tray-toggle {
-    padding-left: 12px;
+  /* 狭幅ではノーマルフローに戻して縦積み */
+  .opp-tray {
+    position: static;
+    width: 100%;
+    margin-bottom: 4px;
   }
   .opp-tray-inner {
-    padding-left: 0;
     flex-direction: column;
   }
   .opp-tray-slots {
