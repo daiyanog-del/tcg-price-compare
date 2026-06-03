@@ -370,6 +370,12 @@
   z-index: 5;
 }
 
+/* 重ね置きスロット: 下カードがスロット枠外にはみ出す部分を見えるようにする */
+.custom-slot:has(.tier-item-wrapper ~ .tier-item-wrapper) {
+  overflow: visible;
+  z-index: 2;
+}
+
 /* 守備 wrapper: overflow 許可＋前面 */
 .tier-item-wrapper.is-defense {
   overflow: visible;
