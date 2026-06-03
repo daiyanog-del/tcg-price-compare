@@ -109,6 +109,12 @@ export function flipMoveClone(wrapper, firstRect, onComplete = null) {
   const clone = wrapper.cloneNode(true);
   clone.classList.add('sol-flip-clone');
 
+  // .tier-item の CSS transition を無効化する。
+  // applyCardState 直後に cloneNode すると DOM 挿入時に 0°→90° のトランジションが
+  // 再発火してしまい、クローンが攻撃表示から始まってしまうのを防ぐ。
+  const cloneTierItem = clone.querySelector('.tier-item');
+  if (cloneTierItem) cloneTierItem.style.transition = 'none';
+
   // inline style を上書き: position:fixed で全スロットの overflow:hidden を突破
   clone.style.cssText = [
     'position: fixed',
