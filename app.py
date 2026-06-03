@@ -2023,6 +2023,27 @@ def api_card_image_proxy():
         return f"error: {e}", 500
 
 
+@app.route("/api/parse-deck-pdf-debug", methods=["POST"])
+def api_parse_deck_pdf_debug():
+    """pdfplumberが抽出したraw wordデータを返す（座標確認用）"""
+    if "file" not in request.files:
+        return jsonify({"error": "ファイルが必要です"}), 400
+    f = request.files["file"]
+    try:
+        import pdfplumber
+        with pdfplumber.open(f.stream) as pdf:
+            page = pdf.pages[0]
+            words = page.extract_words(x_tolerance=2, y_tolerance=3, keep_blank_chars=False)
+        # 座標確認用: 全wordをy,xでソートして返す
+        out = sorted(
+            [{"t": w["text"], "x": round(w["x0"], 1), "y": round(w["top"], 1)} for w in words],
+            key=lambda w: (w["y"], w["x"]),
+        )
+        return jsonify({"words": out, "count": len(out)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/parse-deck-pdf", methods=["POST"])
 def api_parse_deck_pdf():
     """ニューロン デッキシートPDFをパースしてカードリストを返す"""
