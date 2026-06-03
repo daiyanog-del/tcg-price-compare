@@ -1895,6 +1895,8 @@ _RACE_JA = {
     "Psychic":"サイキック族","Divine-Beast":"幻神獣族","Creator-God":"創造神族",
     "Wyrm":"幻竜族","Cyberse":"サイバース族",
 }
+# OCGリミットレギュレーション（banlist_info.ban_ocg → 日本語ラベル）
+_LIMIT_JA = {"Forbidden":"禁止","Banned":"禁止","Limited":"制限","Semi-Limited":"準制限"}
 
 @app.route("/api/card-info")
 def api_card_info():
@@ -1924,6 +1926,7 @@ def api_card_info():
             last = prints[-1]
             latest_print = last if isinstance(last, str) else last.get("code", "")
         race = None
+        limit = None
         prop = _PROP_JA.get(ja.get("property") or "", ja.get("property") or "")
         card_subtype = ""
         try:
@@ -1941,6 +1944,8 @@ def api_card_info():
                 else:
                     # 魔法/罠: race フィールドがプロパティ種別
                     prop = _PROP_JA.get(race_en, "")
+                ban_ocg = pitem.get("banlist_info", {}).get("ban_ocg")
+                limit = _LIMIT_JA.get(ban_ocg) if ban_ocg else None
         except Exception:
             pass
         # サブタイプ優先、なければ大分類
@@ -1960,6 +1965,7 @@ def api_card_info():
             "property": prop,
             "effect_text": ja.get("effectText", ""),
             "latest_print": latest_print,
+            "limit": limit,
         })
     except Exception as e:
         logger.warning(f"[card-info] {name}: {e}")
