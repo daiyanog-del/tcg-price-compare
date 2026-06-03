@@ -383,12 +383,14 @@
 }
 
 /* セット（裏側表示）: CSS で遊戯王カードバック風の裏面を描画
-   img.src は変更せず、::after オーバーレイで隠す */
+   img.src は変更せず、::after オーバーレイで隠す。
+   pointer-events:none でクリック・ドラッグが img に届くようにする */
 .tier-item-wrapper.is-set::after {
   content: "";
   position: absolute;
   inset: 0;
   z-index: 3;
+  pointer-events: none;
   border-radius: 8px;
   background:
     radial-gradient(ellipse at center, rgba(255, 210, 140, 0.18) 0%, transparent 52%),
