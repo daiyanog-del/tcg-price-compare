@@ -29,7 +29,7 @@
  *   free-space
  */
 
-import { returnAllCardsToDeck } from '../components/card-manager.js';
+import { returnAllCardsToDeck, attachCardImageListeners } from '../components/card-manager.js';
 import { applyCardState, getCardState } from '../components/card-state.js';
 import { playActivateEffect, flipMoveClone, playSetFlip } from '../components/card-effects.js';
 
@@ -166,7 +166,7 @@ export async function importReplay(file) {
   _images = payload.images;
   _logs = payload.logs;
   _cursor = -1;
-  _rebuildDeck();
+  _createReplayCardElements();
   _updateUI();
 }
 
@@ -191,7 +191,7 @@ export function importFromURLHash(hash) {
     _images = payload.images;
     _logs = payload.logs;
     _cursor = -1;
-    _rebuildDeck();
+    _createReplayCardElements();
     _updateUI();
     return true;
   } catch {
@@ -217,7 +217,7 @@ export function _setReplayData(images, logs) {
   _images = images;
   _logs = logs;
   _cursor = -1;
-  _rebuildDeck();
+  _createReplayCardElements();
   _updateUI();
 }
 
@@ -247,8 +247,42 @@ function _replayTo(target) {
  */
 function _rebuildDeck() {
   returnAllCardsToDeck();
-  // ニューロン経路のcardIdはDataURLがimagesに登録されているが
-  // returnAllCardsToDeck はDOM要素を移動するだけなのでOK
+}
+
+/**
+ * _images の全カードをDOMに生成してプールに配置する
+ * URL共有・ファイルインポート時、デッキが空の状態から再生できるようにする
+ */
+function _createReplayCardElements() {
+  // 既存カードを全てプールに回収してからクリア
+  returnAllCardsToDeck();
+  const poolRow  = document.getElementById('poolRow');
+  const poolRow2 = document.getElementById('poolRow2');
+  if (!poolRow || !poolRow2) return;
+  poolRow.querySelectorAll('.tier-item-wrapper').forEach(el => el.remove());
+  poolRow2.querySelectorAll('.tier-item-wrapper').forEach(el => el.remove());
+
+  // ログからEXカードのIDを特定
+  const exCardIds = new Set(
+    _logs.filter(e => e.actionType === 'returnToDeck' && e.isEx).map(e => e.cardId)
+  );
+
+  for (const [cardId, src] of Object.entries(_images)) {
+    const isEx = exCardIds.has(cardId);
+    const wrapper = document.createElement('div');
+    wrapper.classList.add('tier-item-wrapper');
+    wrapper.id = `${cardId} ${isEx ? 'ex' : 'normal'}`;
+
+    const img = document.createElement('img');
+    img.src = src;
+    img.classList.add('tier-item');
+    img.setAttribute('draggable', 'true');
+    img.id = cardId;
+
+    attachCardImageListeners(wrapper, img);
+    wrapper.appendChild(img);
+    (isEx ? poolRow2 : poolRow).appendChild(wrapper);
+  }
 }
 
 /**
