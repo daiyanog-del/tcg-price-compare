@@ -152,16 +152,20 @@
           <span>相手の想定妨害</span>
         </button>
         <div class="opp-tray-body" id="oppTrayBody">
-          <div class="opp-tray-slots" id="oppTraySlots"></div>
-          <div class="opp-tray-controls">
-            <div id="oppPresetChips"></div>
-            <div class="opp-search-clear-wrap">
-              <div class="opp-search-wrap">
-                <input type="text" id="oppSearchInput" class="opp-search-input"
-                       placeholder="カード名で検索して追加" autocomplete="off">
-                <ul id="oppSearchSuggest" class="opp-search-suggest" hidden></ul>
+          <div class="opp-tray-inner">
+            <!-- 左：スロット5枚横一列 -->
+            <div class="opp-tray-slots" id="oppTraySlots"></div>
+            <!-- 右：プリセット候補＋検索 -->
+            <div class="opp-tray-right">
+              <div id="oppPresetChips"></div>
+              <div class="opp-search-row">
+                <div class="opp-search-wrap">
+                  <input type="text" id="oppSearchInput" class="opp-search-input"
+                         placeholder="カード名で検索して追加" autocomplete="off">
+                  <ul id="oppSearchSuggest" class="opp-search-suggest" hidden></ul>
+                </div>
+                <button id="oppTrayClear" class="opp-tray-clear">全消去</button>
               </div>
-              <button id="oppTrayClear" class="opp-tray-clear">全消去</button>
             </div>
           </div>
         </div>

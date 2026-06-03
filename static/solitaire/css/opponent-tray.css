@@ -1,121 +1,146 @@
-/* ===== 相手の想定妨害ミニ盤面 ===== */
+/* ===== 相手の想定妨害ミニ盤面 =====
+ * CSS変数 --opp-toggle-h をここで定義。
+ * solitaire-brand.css の .sol-cip-col / .sol-cip-toggle がこの値を参照して
+ * カード詳細パネルをトレイヘッダの下に配置する。
+ */
+:root {
+  --opp-toggle-h: 30px;
+}
 
-/* 外枠：自分盤面の上に配置 */
+/* ── 外枠 ── */
 .opp-tray {
   width: 100%;
   box-sizing: border-box;
-  margin-bottom: var(--gap);
-  background: #f0f0f0;
-  border: 1.5px solid #c0c0c0;
-  border-radius: 8px;
-  overflow: hidden;
+  border-bottom: 1px solid var(--border);
 }
 
-/* トグルボタン（1行で開閉） */
+/* ── トグルボタン（1行ヘッダ）──
+ * カード詳細パネル＋cipToggle の右端から始まるよう padding-left で押す。
+ * cip-hidden 時はフル幅使用（padding-left: 12px に上書き）。
+ */
 .opp-tray-toggle {
   width: 100%;
-  background: #e8e8e8;
+  height: var(--opp-toggle-h);
+  background: transparent;
   border: none;
-  border-radius: 0;
-  padding: 6px 12px;
-  font-size: 0.85rem;
-  font-weight: bold;
-  color: #444;
+  padding: 0 10px 0 calc(var(--slot-width) * 3.3 + 32px);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #4a6fa5;
   cursor: pointer;
   text-align: left;
-  transition: background 0.15s;
   display: flex;
   align-items: center;
-  gap: 6px;
-  line-height: 1.4;
+  gap: 5px;
+  line-height: 1;
+  transition: color 0.15s;
+  font-family: var(--font);
+  box-sizing: border-box;
 }
-
 .opp-tray-toggle:hover {
-  background: #dcdcdc;
+  color: var(--main-color);
 }
 
-/* 開閉矢印アニメーション */
+.sol-field-area.cip-hidden .opp-tray-toggle {
+  padding-left: 12px;
+}
+
+/* 開閉矢印 */
 .opp-tray-toggle .opp-toggle-arrow {
   display: inline-block;
   transition: transform 0.2s;
   font-style: normal;
+  font-size: 0.58rem;
 }
-
 .opp-tray:not(.collapsed) .opp-tray-toggle .opp-toggle-arrow {
   transform: rotate(90deg);
 }
 
-/* 本体：閉時は非表示 */
+/* ── 本体：閉時は非表示 ── */
 .opp-tray.collapsed .opp-tray-body {
   display: none;
 }
 
 .opp-tray-body {
-  padding: 8px 12px 10px;
+  padding: 4px 8px 8px;
 }
 
-/* スロット行 */
+/* ── 内側レイアウト：スロット（左）＋右エリア（プリセット＋検索） ──
+ * カード詳細パネルと cipToggle の右端から始まるよう padding-left で押す。
+ * cip-hidden 時はパディング不要。
+ */
+.opp-tray-inner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding-left: calc(var(--slot-width) * 3.3 + 32px);
+  box-sizing: border-box;
+}
+
+.sol-field-area.cip-hidden .opp-tray-inner {
+  padding-left: 0;
+}
+
+/* ── スロット横一列 ── */
 .opp-tray-slots {
   display: flex;
+  flex-direction: row;
   gap: var(--gap);
-  justify-content: center;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  padding-bottom: 4px;
-  margin-bottom: 8px;
+  flex-shrink: 0;
 }
 
-/* 1スロット（自分盤面の約70%サイズ） */
+/* 1スロット（自分盤面の約62%サイズ） */
 .opp-slot {
-  width: calc(var(--slot-width) * 0.7);
-  height: calc(var(--slot-width) * 0.7 * 1.45);
-  border: 1.5px dashed #aaa;
-  border-radius: 4px;
-  background: #e9e9e9;
+  width: calc(var(--slot-width) * 0.62);
+  height: calc(var(--slot-width) * 0.62 * 1.45);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.65rem;
-  color: #999;
+  font-size: 0.58rem;
+  color: #4a6490;
   flex-shrink: 0;
   position: relative;
   overflow: hidden;
+  transition: border-color 0.15s;
 }
-
+.opp-slot:hover {
+  border-color: #3a5a9a;
+}
 .opp-slot.filled {
-  border-style: solid;
-  border-color: #888;
-  background: transparent;
+  border-color: #3a5a9a;
 }
 
-/* 相手カード画像 */
+/* カード画像 */
 .opp-card-img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
   cursor: pointer;
-  transition: filter 0.2s, opacity 0.2s;
-  border-radius: 3px;
+  transition: filter 0.2s;
+  border-radius: calc(var(--radius) - 1px);
+  user-select: none;
 }
 
-/* 使用済み状態：グレーアウト */
+/* 使用済み：グレーアウト＋チェック */
 .opp-slot.opp-used .opp-card-img {
-  filter: grayscale(1) brightness(0.55);
-  opacity: 0.8;
+  filter: grayscale(1) brightness(0.4);
 }
-
-/* 使用済みチェックマーク */
 .opp-slot.opp-used::after {
   content: '✓';
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  font-size: 2rem;
-  font-weight: bold;
-  color: rgba(255, 255, 255, 0.9);
-  text-shadow: 0 0 4px rgba(0, 0, 0, 0.7);
+  font-size: 1.4rem;
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.85);
+  text-shadow: 0 0 6px rgba(0, 0, 0, 0.9);
   pointer-events: none;
   line-height: 1;
 }
@@ -125,179 +150,184 @@
   position: absolute;
   top: 2px;
   right: 2px;
-  width: 18px;
-  height: 18px;
-  background: rgba(200, 50, 50, 0.85);
+  width: 14px;
+  height: 14px;
+  background: rgba(239, 68, 68, 0.9);
   border: none;
   border-radius: 50%;
   color: #fff;
-  font-size: 0.7rem;
+  font-size: 0.58rem;
   line-height: 1;
   cursor: pointer;
   display: none;
   align-items: center;
   justify-content: center;
   padding: 0;
-  z-index: 10;
+  z-index: 2;
 }
-
 .opp-slot:hover .opp-remove-btn {
   display: flex;
 }
 
-/* コントロール行：プリセットチップ＋検索 */
-.opp-tray-controls {
+/* ── 右エリア：プリセット＋検索 ── */
+.opp-tray-right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  justify-content: space-between;
+}
+
+/* プリセットカテゴリグループコンテナ */
+#oppPresetChips {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* 1カテゴリ行 */
+.opp-preset-group {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  align-items: flex-start;
+  gap: 3px;
+  align-items: center;
 }
 
 /* カテゴリラベル */
 .opp-preset-cat-label {
-  font-size: 0.72rem;
-  color: #888;
-  font-weight: bold;
-  align-self: center;
+  font-size: 0.6rem;
+  color: #4a6fa5;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   white-space: nowrap;
-  margin-right: 2px;
-}
-
-/* プリセットチップ */
-.opp-preset-chip {
-  font-size: 0.75rem;
-  padding: 3px 8px;
-  background: #fff;
-  border: 1.5px solid #b0b0b0;
-  border-radius: 12px;
-  cursor: pointer;
-  color: #333;
-  white-space: nowrap;
-  transition: background 0.15s, border-color 0.15s;
-  line-height: 1.4;
-}
-
-.opp-preset-chip:hover {
-  background: #e0eaff;
-  border-color: #7a9edc;
-}
-
-/* プリセットグループとセパレータ */
-.opp-preset-group {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  align-items: center;
-}
-
-.opp-preset-sep {
-  width: 1px;
-  height: 20px;
-  background: #ccc;
-  align-self: center;
-  margin: 0 2px;
+  margin-right: 1px;
   flex-shrink: 0;
 }
 
-/* 検索ラッパー（全消去ボタンと並べる） */
-.opp-search-clear-wrap {
+/* プリセットチップボタン */
+.opp-preset-chip {
+  font-size: 0.7rem;
+  padding: 1px 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  color: #94a3b8;
+  white-space: nowrap;
+  font-family: var(--font);
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+  line-height: 1.5;
+}
+.opp-preset-chip:hover {
+  border-color: var(--accent);
+  color: var(--main-color);
+  background: rgba(74, 124, 255, 0.1);
+}
+
+/* カテゴリ間セパレータ（非表示：縦積みレイアウトのため不要） */
+.opp-preset-sep {
+  display: none;
+}
+
+/* ── 検索行 ── */
+.opp-search-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-left: auto;
+  gap: 5px;
 }
 
-/* 検索入力 */
+.opp-search-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
 .opp-search-input {
-  font-size: 0.8rem;
-  padding: 4px 8px;
-  border: 1.5px solid #b0b0b0;
+  width: 100%;
+  font-size: 0.74rem;
+  padding: 2px 7px;
+  background: var(--bg-color);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  width: 160px;
+  color: var(--main-color);
+  font-family: var(--font);
   outline: none;
-  background: #fff;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
 }
-
 .opp-search-input:focus {
-  border-color: #6a8fd0;
+  border-color: var(--accent);
+}
+.opp-search-input::placeholder {
+  color: #4a6490;
 }
 
 /* サジェストドロップダウン */
-.opp-search-wrap {
-  position: relative;
-  display: inline-block;
-}
-
 .opp-search-suggest {
   position: absolute;
   top: calc(100% + 2px);
   left: 0;
-  background: #fff;
-  border: 1.5px solid #b0b0b0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 6px;
   list-style: none;
   margin: 0;
-  padding: 4px 0;
-  min-width: 180px;
-  max-height: 200px;
+  padding: 3px 0;
+  min-width: 160px;
+  max-height: 180px;
   overflow-y: auto;
   z-index: 500;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 }
 
 .opp-suggest-item {
-  padding: 5px 12px;
-  font-size: 0.82rem;
+  padding: 4px 10px;
+  font-size: 0.76rem;
+  color: var(--main-color);
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-family: var(--font);
 }
-
 .opp-suggest-item:hover,
 .opp-suggest-item.active {
-  background: #e8f0ff;
+  background: rgba(74, 124, 255, 0.15);
 }
 
 /* 全消去ボタン */
 .opp-tray-clear {
-  font-size: 0.78rem;
-  padding: 4px 10px;
-  background: #f5e5e5;
-  border: 1.5px solid #d9a0a0;
+  font-size: 0.7rem;
+  padding: 2px 7px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 6px;
   cursor: pointer;
-  color: #c44;
+  color: var(--red);
   white-space: nowrap;
-  transition: background 0.15s;
-  line-height: 1.4;
+  font-family: var(--font);
+  transition: background 0.12s, border-color 0.12s;
+  line-height: 1.5;
+  flex-shrink: 0;
 }
-
 .opp-tray-clear:hover {
-  background: #f0cece;
-  border-color: #c44;
+  background: rgba(239, 68, 68, 0.1);
+  border-color: var(--red);
 }
 
 /* ===== レスポンシブ ===== */
 @media (max-width: 600px) {
+  .opp-tray-toggle {
+    padding-left: 12px;
+  }
+  .opp-tray-inner {
+    padding-left: 0;
+    flex-direction: column;
+  }
   .opp-tray-slots {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
-    justify-content: flex-start;
-    padding-bottom: 8px;
-  }
-
-  .opp-tray-controls {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .opp-search-clear-wrap {
-    margin-left: 0;
-    flex-wrap: wrap;
-  }
-
-  .opp-search-input {
-    width: 140px;
   }
 }

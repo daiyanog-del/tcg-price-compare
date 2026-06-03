@@ -56,11 +56,13 @@
   position: relative;
 }
 
-/* カード詳細パネル: 絶対配置（レイアウトに影響しない） */
+/* カード詳細パネル: 絶対配置（レイアウトに影響しない）
+ * top は opponent-tray.css の --opp-toggle-h 分だけ下げて
+ * 相手妨害トレイのヘッダ行と干渉しないようにする。 */
 .sol-cip-col {
   position: absolute;
   left: 10px;
-  top: 6px;
+  top: calc(var(--opp-toggle-h, 30px) + 4px);
   width: calc(var(--slot-width) * 3.3);
   height: calc(var(--slot-height) * 3 + var(--gap) * 3 - 6px);
   overflow: hidden;
@@ -78,7 +80,7 @@
 .sol-cip-toggle {
   position: absolute;
   left: calc(var(--slot-width) * 3.3 + 10px);
-  top: 6px;
+  top: calc(var(--opp-toggle-h, 30px) + 4px);
   z-index: 11;
   width: 18px;
   height: 30px;
