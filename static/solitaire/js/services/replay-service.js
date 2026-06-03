@@ -308,11 +308,10 @@ function _applyMoveCard(event) {
   const stateChanged  = faceChanged || orientChanged;
 
   if (sameZone && stateChanged) {
-    // 同一ゾーン内での状態変更（守備/セット切替など）:
-    // 状態は FLIP 完了コールバックで変更し、変化アニメを見せる。
-    // 同一ゾーンは dx≈0 のため flipMoveClone がすぐ onComplete を呼ぶ。
+    // ── 同一ゾーン内の状態変更（守備/セット切替など） ──────────────────
+    // 移動なし（dx≈0）のため flipMoveClone がすぐ onComplete を呼ぶ。
+    // 状態はコールバック内で変更し、変化アニメ（回転/フリップ）を見せる。
     _placeCardInZone(zone, card, zIndex);
-
     flipMoveClone(card, firstRect, () => {
       if (faceChanged) {
         playSetFlip(card, () => applyCardState(card, { orientation, face }));
@@ -320,10 +319,23 @@ function _applyMoveCard(event) {
         applyCardState(card, { orientation, face }); // CSS transition が回転を担う
       }
     });
+
+  } else if (!sameZone && stateChanged) {
+    // ── 別ゾーンへ移動 ＋ 状態変化（初期配置で守備/セット など） ───────
+    // 状態変更「前」に .tier-item の transition を止める。
+    // こうすることでオリジナルも cloneNode で生成するクローンも
+    // 挿入時に 0° から再起動せず、最初から最終状態（守備回転済み等）になる。
+    const tierItem = card.querySelector('.tier-item');
+    if (tierItem) tierItem.style.transition = 'none';
+    applyCardState(card, { orientation, face }); // 即時・アニメなしで状態確定
+    _placeCardInZone(zone, card, zIndex);
+    flipMoveClone(card, firstRect, () => {
+      // FLIP 完了後にトランジションを復元（次の操作から回転アニメが効くよう）
+      if (tierItem) tierItem.style.transition = '';
+    });
+
   } else {
-    // ゾーン移動（pool→field など）または状態変化なし:
-    // 状態を先に適用し、クローンが最終状態を映した状態で FLIP する。
-    // 「攻撃表示で移動してから守備/セット」という二段階に見えなくなる。
+    // ── 状態変化なし ──────────────────────────────────────────────────
     applyCardState(card, { orientation, face });
     _placeCardInZone(zone, card, zIndex);
     flipMoveClone(card, firstRect, null);
