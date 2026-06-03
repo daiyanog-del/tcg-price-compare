@@ -94,7 +94,8 @@ function placeCardInCustomSlot(slot, card, { under = false } = {}) {
     });
     card.style.position = 'absolute';
     card.style.zIndex   = String(baseZIndex);
-    card.style.top      = '0';
+    // 上のカードより下にはみ出させて「素材がある」ことを視認できるようにする
+    card.style.top      = `calc(var(--slot-width) * 0.${others.length})`;
     slot.insertBefore(card, slot.firstChild);
   } else {
     // 通常（上重ね）: 既存カードを整列し、新規カードを最前面に

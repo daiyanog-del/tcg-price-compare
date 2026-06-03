@@ -433,7 +433,8 @@ function _placeCardInZone(zone, card, zIndex) {
         });
         card.style.position = 'absolute';
         card.style.zIndex   = String(baseZ);
-        card.style.top      = '0';
+        // 上のカードより下にはみ出させて「素材がある」ことを視認できるようにする
+        card.style.top      = `calc(var(--slot-width) * 0.${others.length})`;
         zone.insertBefore(card, zone.firstChild);
       } else {
         // 通常の上重ね

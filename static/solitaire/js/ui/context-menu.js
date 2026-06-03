@@ -215,7 +215,8 @@ function _placeUnder(wrapper, slot) {
 
   wrapper.style.position = 'absolute';
   wrapper.style.zIndex   = '1';
-  wrapper.style.top      = '0';
+  // 上のカードより下にはみ出させて「素材がある」ことを視認できるようにする
+  wrapper.style.top      = `calc(var(--slot-width) * 0.${others.length})`;
 
   // DOMの先頭に移動（視覚的な重なり順と一致させる）
   slot.insertBefore(wrapper, slot.firstChild);
