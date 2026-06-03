@@ -2040,7 +2040,8 @@ def api_parse_deck_pdf():
                 return jsonify({"error": "PDFにページがありません"}), 400
 
             page = pdf.pages[0]
-            words = page.extract_words(x_tolerance=5, y_tolerance=3, keep_blank_chars=False)
+            # x_tolerance=2 で行番号とカード名の混在を防ぐ
+            words = page.extract_words(x_tolerance=2, y_tolerance=3, keep_blank_chars=False)
 
         result = _parse_neuron_pdf_words(words)
         return jsonify(result)
@@ -2060,13 +2061,18 @@ def _parse_neuron_pdf_words(words):
         return {
             "ok": False, "main": [], "ex": [],
             "warnings": ["テキストを抽出できませんでした（0単語）"],
-            "debug": [],
         }
 
     # items: {str, x, y}  (y = page top からの距離; 下方向が大きい)
     items = [{"str": w["text"].strip(), "x": w["x0"], "y": w["top"]}
              for w in words if w["text"].strip()]
     items.sort(key=lambda it: (it["y"], it["x"]))
+
+    # 行番号がカード名に混入した場合に除去するフォールバック
+    # 例: "1BF－毒風のシムーン" → "BF－毒風のシムーン"
+    def strip_row_num(s):
+        cleaned = re.sub(r"^\d+", "", s).strip()
+        return cleaned if cleaned else s
 
     # ヘッダー検出
     def hm(s): return "モンスター" in s
@@ -2083,22 +2089,25 @@ def _parse_neuron_pdf_words(words):
 
     debug_info = [
         f"総単語数: {len(items)}",
-        f"先頭20: {[it['str'] for it in items[:20]]}",
+        f"先頭30: {[it['str'] for it in items[:30]]}",
+        f"ヘッダ: mon={mon_h and mon_h['str']}, ex={ex_h and ex_h['str']}",
     ]
 
     if not mon_h or not ex_h:
         return {
             "ok": False, "main": [], "ex": [],
-            "warnings": ["ニューロン形式として認識できませんでした。手動で修正してください。"],
-            "debug": debug_info,
+            "warnings": [
+                "ニューロン形式として認識できませんでした。手動で修正してください。",
+                *debug_info,
+            ],
         }
 
     # 列定義 (x昇順)
     col_defs = sorted(
         [h for h in [
             {"type": "monster", "x": mon_h["x"]},
-            spl_h and {"type": "spell",   "x": spl_h["x"]},
-            trp_h and {"type": "trap",    "x": trp_h["x"]},
+            spl_h and {"type": "spell", "x": spl_h["x"]},
+            trp_h and {"type": "trap",  "x": trp_h["x"]},
         ] if h],
         key=lambda h: h["x"],
     )
@@ -2122,37 +2131,49 @@ def _parse_neuron_pdf_words(words):
 
     # 除外語
     SKIP = {"モンスターカード","魔法カード","罠カード","エクストラデッキ","サイドデッキ",
-            "カード名","枚数","かな","氏名","カードゲームID","参加番号","日付","イベント名"}
+            "カード名","枚数","かな","氏名","カードゲームID","参加番号","日付","イベント名",
+            # x_tolerance=2 でヘッダが分割された場合の断片も除外
+            "モンスター","魔法","罠","エクストラ","サイド","デッキ","カード"}
     skip_re = [re.compile(p) for p in [r"合計\s*>+", r"^>+", r"^メインデッキ"]]
 
-    def skip(s):
+    def skip_item(s):
         if s in SKIP: return True
         if any(p.search(s) for p in skip_re): return True
         if hm(s) or hs(s) or ht(s) or he(s) or hsd(s): return True
+        # IDコード: 空白区切りの1桁数字が5個以上
         if re.match(r"^[\d\s]+$", s) and len(s.replace(" ","")) > 4: return True
         return False
 
     is_digit = lambda s: bool(re.match(r"^\d+$", s))
 
     # y境界
-    main_y = mon_h["y"]
-    ex_y   = ex_h["y"]
-    side_y = side_h["y"] if side_h else float("inf")
+    # 注意: EXヘッダとサイドヘッダは同一y行（横並び）のため
+    #       EXデータはヘッダ行の「下」全体を y > ex_h_y で取り、x で列分割する
+    main_y    = mon_h["y"]
+    ex_hdr_y  = ex_h["y"]   # ≈ side_h["y"]
 
-    # 「枚数」ヘッダのx位置を各列に対応付け
+    # EX/サイド x分割点
+    split_x = (ex_h["x"] + side_h["x"]) / 2 if side_h else (page_w * 0.5)
+
+    # 「枚数」ヘッダ: メインデッキ行にあるもの（y ≈ main_y）で列ごとにx取得
     qty_headers = [it for it in items if it["str"].strip() == "枚数"]
+    # メインデッキヘッダ行: y が main_y に近いもの（±10pt 以内）
+    main_qty_hdrs = [qh for qh in qty_headers if abs(qh["y"] - main_y) < 10]
     qty_x_col = {}
-    for qh in qty_headers:
-        if main_y <= qh["y"] <= ex_y:
-            col = get_col(qh["x"])
-            if col:
-                qty_x_col[col] = qh["x"]
+    for qh in main_qty_hdrs:
+        col = get_col(qh["x"])
+        if col:
+            qty_x_col[col] = qh["x"]
+
+    # EXヘッダ行の「枚数」
+    ex_qty_hdrs = [qh for qh in qty_headers if abs(qh["y"] - ex_hdr_y) < 10 and qh["x"] < split_x]
+    ex_qty_x = ex_qty_hdrs[0]["x"] if ex_qty_hdrs else None
 
     warnings = []
-    QTY_TOL = 30
+    QTY_TOL = 25
 
-    # メインデッキ
-    main_items = [it for it in items if main_y < it["y"] < ex_y and not skip(it["str"])]
+    # ── メインデッキ ──────────────────────────────────
+    main_items = [it for it in items if main_y < it["y"] < ex_hdr_y and not skip_item(it["str"])]
     result_main = []
 
     for cr in col_ranges:
@@ -2160,7 +2181,9 @@ def _parse_neuron_pdf_words(words):
             [it for it in main_items if cr["sX"] <= it["x"] < cr["eX"]],
             key=lambda it: it["y"],
         )
+
         qty_x = qty_x_col.get(cr["type"])
+        # qty_x 未検出時: 列内で最も右にある digit 群の x を使う
         if qty_x is None:
             dxs = [it["x"] for it in col_items if is_digit(it["str"])]
             qty_x = max(dxs) if dxs else None
@@ -2172,7 +2195,10 @@ def _parse_neuron_pdf_words(words):
                     quantities.append({"val": int(it["str"]), "y": it["y"]})
                 # else: 行番号 → 捨てる
             else:
-                names.append({"str": it["str"], "y": it["y"]})
+                # 行番号がカード名に混入していれば除去
+                name_str = strip_row_num(it["str"])
+                if name_str and not skip_item(name_str):
+                    names.append({"str": name_str, "y": it["y"]})
 
         for i, nm in enumerate(names):
             qty = quantities[i]["val"] if i < len(quantities) else None
@@ -2181,13 +2207,12 @@ def _parse_neuron_pdf_words(words):
                 warnings.append(f"「{nm['str']}」の枚数が読み取れません（1枚として扱います）")
             result_main.append({"qty": safe, "name": nm["str"]})
 
-    # エクストラデッキ
-    ex_items = [it for it in items if ex_y < it["y"] < side_y and not skip(it["str"])]
-    split_x  = (ex_h["x"] + side_h["x"]) / 2 if side_h else float("inf")
-    ex_col   = sorted([it for it in ex_items if it["x"] < split_x], key=lambda it: it["y"])
+    # ── エクストラデッキ ──────────────────────────────
+    # EXとサイドは同一y行から下に並ぶため y > ex_hdr_y の全アイテムを対象に
+    ex_all = [it for it in items if it["y"] > ex_hdr_y and not skip_item(it["str"])]
+    ex_col = sorted([it for it in ex_all if it["x"] < split_x], key=lambda it: it["y"])
 
-    ex_qty_headers = [it for it in qty_headers if ex_y <= it["y"] <= side_y and it["x"] < split_x]
-    ex_qty_x = ex_qty_headers[0]["x"] if ex_qty_headers else None
+    # ex_qty_x 未検出時フォールバック
     if ex_qty_x is None:
         dxs = [it["x"] for it in ex_col if is_digit(it["str"])]
         ex_qty_x = max(dxs) if dxs else None
@@ -2197,8 +2222,11 @@ def _parse_neuron_pdf_words(words):
         if is_digit(it["str"]):
             if ex_qty_x is not None and abs(it["x"] - ex_qty_x) <= QTY_TOL:
                 ex_qtys.append({"val": int(it["str"]), "y": it["y"]})
+            # else: 行番号 → 捨てる
         else:
-            ex_names.append({"str": it["str"], "y": it["y"]})
+            name_str = strip_row_num(it["str"])
+            if name_str and not skip_item(name_str):
+                ex_names.append({"str": name_str, "y": it["y"]})
 
     result_ex = []
     for i, nm in enumerate(ex_names):
@@ -2208,7 +2236,7 @@ def _parse_neuron_pdf_words(words):
 
     ok = len(result_main) > 0 or len(result_ex) > 0
     if not ok:
-        warnings.append(f"カードを抽出できませんでした。[DEBUG] {debug_info}")
+        warnings.extend(debug_info)
 
     return {"ok": ok, "main": result_main, "ex": result_ex, "warnings": warnings}
 
