@@ -9,6 +9,7 @@ import { registerCardImage } from '../services/replay-service.js';
 import { setCardName } from './card-info-panel.js';
 
 const API_CARD_IMAGE = '/api/card-image';
+const API_CARD_INFO  = '/api/card-info';
 const API_META = '/api/meta';
 const API_META_DECK = '/api/meta/deck';
 
@@ -49,15 +50,28 @@ async function clearAllCards() {
  * @param {boolean} isEx   EXデッキか
  */
 async function addCardByName(name, qty, isEx) {
-  let src;
+  // 画像URLとカード種別を並列取得
+  const [imageRes, infoRes] = await Promise.all([
+    fetch(`${API_CARD_IMAGE}?name=${encodeURIComponent(name)}`).catch(() => null),
+    fetch(`${API_CARD_INFO}?name=${encodeURIComponent(name)}`).catch(() => null),
+  ]);
+
+  let src = null;
   try {
-    const res = await fetch(`${API_CARD_IMAGE}?name=${encodeURIComponent(name)}`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    src = data.url || null;
-  } catch {
-    src = null;
-  }
+    if (imageRes?.ok) {
+      const data = await imageRes.json();
+      src = data.url || null;
+    }
+  } catch { /* 無視 */ }
+
+  // broad_type: "monster" | "spell" | "trap"
+  let cardType = null;
+  try {
+    if (infoRes?.ok) {
+      const data = await infoRes.json();
+      if (data.found && data.broad_type) cardType = data.broad_type;
+    }
+  } catch { /* 無視 */ }
 
   if (!src) {
     console.warn(`画像取得失敗: ${name}`);
@@ -67,13 +81,16 @@ async function addCardByName(name, qty, isEx) {
   const poolId = isEx ? 'poolRow2' : 'poolRow';
   for (let i = 0; i < qty; i++) {
     addCardToPool(src, false, isEx);
-    // 追加直後に最後の要素を取ってリプレイ辞書・カード名を登録
+    // 追加直後に最後の wrapper を取ってリプレイ辞書・カード名・種別を登録
     const pool = document.getElementById(poolId);
     if (pool) {
-      const last = pool.querySelector('.tier-item-wrapper:last-child img');
-      if (last?.id) {
-        registerCardImage(last.id, src);
-        setCardName(last, name);  // カード詳細パネル用に名前を付与
+      const lastWrapper = pool.querySelector('.tier-item-wrapper:last-child');
+      const lastImg     = lastWrapper?.querySelector('img');
+      if (lastImg?.id) {
+        registerCardImage(lastImg.id, src);
+        setCardName(lastImg, name);  // カード詳細パネル用に名前を付与
+        // セット時のモンスター/魔法罠判定に使う（モンスター=裏側守備、魔法罠=伏せ）
+        if (cardType && lastWrapper) lastWrapper.dataset.cardType = cardType;
       }
     }
   }

@@ -9,9 +9,32 @@
  * 状態スキーマ（wrapper = .tier-item-wrapper に付与）:
  *   守備表示: data-orientation="defense" + .is-defense
  *   セット  : data-face="down"           + .is-set
+ *   種別    : data-card-type = "monster"|"spell"|"trap"（deck-input-panel が付与）
  *
- * セット時の裏面は CSS ::after で描画するため img.src は一切変更しない。
+ * セット時の挙動:
+ *   モンスター（data-card-type="monster" または EXデッキカード）
+ *     → 裏側守備表示 = .is-set + .is-defense（回転＋裏面）
+ *   魔法・罠（data-card-type="spell"|"trap"）、または種別不明
+ *     → 伏せ = .is-set のみ（縦のまま裏面）
+ *
+ * セット解除時:
+ *   モンスターは .is-defense も同時に解除（フリップ後は攻撃表示へ）
+ *
+ * 裏面は CSS ::after で描画するため img.src は一切変更しない。
  */
+
+/**
+ * カードがモンスターかどうかを判定
+ * @param {Element} wrapper - .tier-item-wrapper
+ * @returns {boolean}
+ */
+function isMonsterCard(wrapper) {
+  // EXデッキカード（wrapper.id に "ex" を含む）は常にモンスター
+  if (wrapper.id.includes(' ex')) return true;
+  // data-card-type による判定（deck-input-panel が付与）
+  const t = wrapper.dataset.cardType || '';
+  return t === 'monster';
+}
 
 /**
  * 守備表示をセット/解除
@@ -38,8 +61,9 @@ export function toggleDefense(wrapper) {
 
 /**
  * セット（裏側表示）をセット/解除
- * img.src は変更しない。.is-set クラスと data-face 属性のみで状態管理し、
- * CSS ::after で裏面を描画する。
+ * モンスターは裏側守備表示（.is-defense も同時に制御）、
+ * 魔法・罠は伏せ（縦のまま）。
+ * img.src は変更しない。.is-set クラスと CSS ::after で裏面を描画。
  * @param {Element} wrapper - .tier-item-wrapper
  * @param {boolean} on      - true=裏面, false=表面
  */
@@ -47,9 +71,17 @@ export function applySet(wrapper, on) {
   if (on) {
     wrapper.classList.add('is-set');
     wrapper.dataset.face = 'down';
+    // モンスターは守備表示も追加（裏側守備表示）
+    if (isMonsterCard(wrapper)) {
+      applyDefense(wrapper, true);
+    }
   } else {
     wrapper.classList.remove('is-set');
     delete wrapper.dataset.face;
+    // モンスターのセット解除は守備表示も同時に解除（攻撃表示へ）
+    if (isMonsterCard(wrapper)) {
+      applyDefense(wrapper, false);
+    }
   }
 }
 
@@ -75,6 +107,8 @@ export function getCardState(wrapper) {
 
 /**
  * 保存した状態をカードに適用（復元用）
+ * applyDefense を先に呼び、次に applySet を呼ぶことで
+ * モンスターの裏側守備復元でも二重適用が問題なく動く（applyDefense は冪等）。
  * @param {Element} wrapper - .tier-item-wrapper
  * @param {{ orientation?: string, face?: string }} [state]
  */
