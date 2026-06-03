@@ -61,11 +61,12 @@
   position: absolute;
   left: 10px;
   top: 6px;
-  width: calc(var(--slot-width) * 3.3);
+  /* --cip-width: トレイ開時にJSが上書き。閉時はフォールバック値(3.3x)を使う */
+  width: var(--cip-width, calc(var(--slot-width) * 3.3));
   height: calc(var(--slot-height) * 3 + var(--gap) * 3 - 6px);
   overflow: hidden;
   z-index: 10;
-  transition: opacity 0.2s, transform 0.2s;
+  transition: opacity 0.2s, transform 0.2s, width 0.25s ease;
 }
 
 .sol-cip-col.hidden {
@@ -77,7 +78,8 @@
 /* トグルボタン */
 .sol-cip-toggle {
   position: absolute;
-  left: calc(var(--slot-width) * 3.3 + 10px);
+  /* パネル幅に連動して移動。--cip-width 未設定時は 3.3x のフォールバック */
+  left: calc(var(--cip-width, calc(var(--slot-width) * 3.3)) + 10px);
   top: 6px;
   z-index: 11;
   width: 18px;
@@ -89,7 +91,7 @@
   font-size: 0.65rem;
   cursor: pointer;
   padding: 0;
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.15s, color 0.15s, left 0.25s ease;
   line-height: 1;
 }
 .sol-cip-toggle:hover {

@@ -53,6 +53,21 @@ export function initOpponentTray() {
  * 上下するため、CSS の固定 top では合わなくなる。
  * トグル開閉・復元のたびに呼ぶことで常に正確な位置を保つ。
  */
+/**
+ * カード詳細パネルの幅を制御する CSS 変数 --cip-width を更新する。
+ * トレイ開時: slot-width の 4.5倍（通常 3.3倍より広く、カード詳細が読みやすい）
+ * トレイ閉時: --cip-width を削除して CSS フォールバック（3.3倍）に戻す
+ */
+function _updateCipWidth(open) {
+  if (open) {
+    document.documentElement.style.setProperty(
+      '--cip-width', 'calc(var(--slot-width) * 4.5)'
+    );
+  } else {
+    document.documentElement.style.removeProperty('--cip-width');
+  }
+}
+
 function _syncCipPosition() {
   requestAnimationFrame(() => {
     const fieldArea = document.querySelector('.sol-field-area');
@@ -242,6 +257,8 @@ function _bindToggle() {
       body.removeAttribute('hidden');
     }
     _persistToggleState(!collapsed);
+    // パネル幅: 開時は広く（4.5x）、閉時は標準（3.3x）に戻す
+    _updateCipWidth(!collapsed);
     // トレイ高さ変化 → main.js が --slot-width を再計算（fitFieldToViewport）
     // → その後カード詳細パネル top を再計算（_syncCipPosition）
     window.dispatchEvent(new Event('opp-tray-resize'));
@@ -391,6 +408,7 @@ function _restore() {
     tray.classList.remove('collapsed');
     if (toggle) toggle.setAttribute('aria-expanded', 'true');
     if (body) body.removeAttribute('hidden');
+    _updateCipWidth(true);
   }
 
   // カード配置を復元
