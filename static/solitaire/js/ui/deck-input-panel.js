@@ -118,6 +118,21 @@ export async function loadDeckFromText(text) {
 }
 
 /**
+ * EXデッキテキストをEXプールに追加（clearAllCardsは行わない）
+ */
+export async function loadExDeckFromText(text) {
+  const cards = parseDeckList(text);
+  if (cards.length === 0) return;
+
+  const msg = document.getElementById('deckLoadingMsg');
+  if (msg) { msg.textContent = 'EXデッキを読み込み中...'; msg.style.display = 'block'; }
+  for (const { qty, name } of cards) {
+    await addCardByName(name, qty, true);
+  }
+  if (msg) { msg.textContent = ''; msg.style.display = 'none'; }
+}
+
+/**
  * 環境デッキAPIから全デッキ情報を取得して読み込む（事前にダミーをクリア）
  * @param {string} theme  テーマ名
  */

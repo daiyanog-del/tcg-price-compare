@@ -827,7 +827,8 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
           <button class="deck-btn deck-btn-primary" onclick="calcDeckEstimate()">見積もり<span style="display:block;font-size:.65rem;font-weight:400;opacity:.7;margin-top:2px">直近データから即時表示 / データがないカードは自動で店舗検索</span></button>
           <button class="deck-btn deck-btn-outline" onclick="calcDeck()">全て店舗検索<span style="display:block;font-size:.65rem;font-weight:400;opacity:.7;margin-top:2px">全カードをリアルタイムで検索（時間がかかります）</span></button>
         </div>
-        <div style="text-align:right;margin-top:4px;display:flex;gap:10px;justify-content:flex-end">
+        <div style="text-align:right;margin-top:4px;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
+          <button class="deck-btn-text" onclick="window.NeuronPDF?.openPicker()">PDFから取り込む</button>
           <button class="deck-btn-text" onclick="saveCurrentDeck()">保存</button>
           <button class="deck-btn-text" onclick="clearDeck()">入力をクリア</button>
         </div>
@@ -3357,5 +3358,6 @@ loadWishPrices().then(wishUpdateBadge);
 // 通知UIの初期状態を反映
 updatePushUI(!!localStorage.getItem(PUSH_SUB_KEY));
 </script>
+<script type="module" src="/static/shared/neuron-pdf-entry.js"></script>
 </body>
 </html>

@@ -9,7 +9,9 @@ import { selectFolderAndFilterImages } from './folder-selector.js';
 import { ImageBrowserModal } from './image-browser-modal.js';
 import { SaveLoadModal } from './save-load-modal.js';
 import { registerCardImage } from '../services/replay-service.js';
-import { initDeckInputPanel } from './deck-input-panel.js';
+import { initDeckInputPanel, loadDeckFromText, loadExDeckFromText } from './deck-input-panel.js';
+import { parseNeuronPdf } from '/static/shared/neuron-pdf-parser.js';
+import { NeuronPreviewModal } from '/static/shared/neuron-preview-modal.js';
 
 /**
  * UIイベントハンドラ（カード相場向け改変版）
@@ -98,6 +100,51 @@ export function handleShareX() {
 }
 
 /**
+ * ニューロンPDFファイル選択ハンドラ
+ */
+export async function handleNeuronPdfSelect(event) {
+  const file = event.target.files[0];
+  event.target.value = ''; // 同じファイルを再選択できるようリセット
+  if (!file) return;
+
+  let parsed;
+  const defaultName = file.name.replace(/\.pdf$/i, '').replace(/[_\-]/g, ' ').trim();
+
+  try {
+    parsed = await parseNeuronPdf(file, { includeSide: false });
+  } catch (e) {
+    parsed = { main: [], ex: [], side: [], warnings: [e.message], ok: false };
+  }
+
+  new NeuronPreviewModal({
+    parsed,
+    defaultName,
+    onSave: ({ name, mainText, exText }) => {
+      const combined = [mainText, exText].filter(Boolean).join('\n');
+      const SAVED_DECKS_KEY = 'cardprice_saved_decks';
+      try {
+        const list = JSON.parse(localStorage.getItem(SAVED_DECKS_KEY) || '[]');
+        const existing = list.find(d => d.name === name);
+        if (existing) {
+          if (!confirm(`「${name}」はすでに保存されています。上書きしますか？`)) return;
+          existing.text = combined;
+          existing.updated = Date.now();
+        } else {
+          list.push({ id: 'd_' + Date.now(), name, text: combined, updated: Date.now() });
+        }
+        localStorage.setItem(SAVED_DECKS_KEY, JSON.stringify(list));
+      } catch (e) {
+        console.error('マイデッキ保存エラー:', e);
+      }
+    },
+    onLoad: async ({ mainText, exText }) => {
+      if (mainText) await loadDeckFromText(mainText);
+      if (exText)   await loadExDeckFromText(exText);
+    },
+  }).show();
+}
+
+/**
  * フォルダ選択ボタンのイベントハンドラ
  */
 export async function handleFolderSelect() {
@@ -182,6 +229,9 @@ export function setupToggleVisibility(elements) {
 export function initializeEventListeners() {
   document.getElementById('imageUpload')
     ?.addEventListener('change', handleImageUpload);
+
+  document.getElementById('neuronPdfUpload')
+    ?.addEventListener('change', handleNeuronPdfSelect);
 
   document.addEventListener('paste', handleImagePaste);
 
