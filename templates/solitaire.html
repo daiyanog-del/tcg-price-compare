@@ -58,6 +58,7 @@
           <button class="deck-input-tab active" data-pane="deckPaneNeuron">ニューロン画像</button>
           <button class="deck-input-tab" data-pane="deckPaneText">テキスト入力</button>
           <button class="deck-input-tab" data-pane="deckPanePreset">環境デッキ</button>
+          <button class="deck-input-tab" data-pane="deckPaneMyDeck">マイデッキ</button>
         </div>
 
         <!-- ニューロン画像 -->
@@ -84,6 +85,13 @@
         <!-- 環境デッキ -->
         <div class="deck-input-pane" id="deckPanePreset">
           <div class="meta-tier-list" id="metaTierList">
+            <span class="deck-loading-msg">タブを開くと読み込みます</span>
+          </div>
+        </div>
+
+        <!-- マイデッキ -->
+        <div class="deck-input-pane" id="deckPaneMyDeck">
+          <div class="my-deck-list" id="myDeckList">
             <span class="deck-loading-msg">タブを開くと読み込みます</span>
           </div>
         </div>

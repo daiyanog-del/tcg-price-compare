@@ -161,6 +161,8 @@ export function initDeckInputPanel() {
 
       // 環境デッキタブに切り替えた時はティアリストを取得
       if (paneId === 'deckPanePreset') loadMetaTierList();
+      // マイデッキタブに切り替えた時は一覧を描画
+      if (paneId === 'deckPaneMyDeck') renderMyDeckList();
     });
   });
 
@@ -199,4 +201,55 @@ async function loadMetaTierList() {
   } catch (e) {
     listEl.innerHTML = `<span class="deck-loading-msg">取得失敗: ${e.message}</span>`;
   }
+}
+
+/**
+ * マイデッキ一覧を描画（タブを開くたびに最新を反映）
+ */
+function renderMyDeckList() {
+  const listEl = document.getElementById('myDeckList');
+  if (!listEl) return;
+
+  let decks = [];
+  try {
+    decks = JSON.parse(localStorage.getItem('cardprice_saved_decks') || '[]');
+  } catch {
+    decks = [];
+  }
+
+  if (decks.length === 0) {
+    listEl.innerHTML = '<span class="deck-loading-msg">保存済みデッキがありません</span>';
+    return;
+  }
+
+  listEl.innerHTML = '';
+  decks
+    .slice()
+    .sort((a, b) => (b.updated || 0) - (a.updated || 0))
+    .forEach(deck => {
+      const date = deck.updated
+        ? new Date(deck.updated).toLocaleDateString('ja-JP', { month: '2-digit', day: '2-digit' })
+        : '';
+
+      const row = document.createElement('div');
+      row.className = 'my-deck-row';
+
+      const info = document.createElement('div');
+      info.className = 'my-deck-info';
+      info.innerHTML = `<span class="my-deck-name">${_esc(deck.name || '無題')}</span>`
+                     + (date ? `<span class="my-deck-date">${date}</span>` : '');
+
+      const btn = document.createElement('button');
+      btn.className = 'my-deck-load-btn';
+      btn.textContent = '読み込む';
+      btn.addEventListener('click', () => loadDeckFromText(deck.text || ''));
+
+      row.appendChild(info);
+      row.appendChild(btn);
+      listEl.appendChild(row);
+    });
+}
+
+function _esc(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
