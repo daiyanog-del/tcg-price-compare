@@ -2023,6 +2023,196 @@ def api_card_image_proxy():
         return f"error: {e}", 500
 
 
+@app.route("/api/parse-deck-pdf", methods=["POST"])
+def api_parse_deck_pdf():
+    """ニューロン デッキシートPDFをパースしてカードリストを返す"""
+    if "file" not in request.files:
+        return jsonify({"error": "ファイルが必要です"}), 400
+    f = request.files["file"]
+    if not f.filename.lower().endswith(".pdf"):
+        return jsonify({"error": "PDFファイルを選択してください"}), 400
+
+    try:
+        import pdfplumber, re as _re
+
+        with pdfplumber.open(f.stream) as pdf:
+            if not pdf.pages:
+                return jsonify({"error": "PDFにページがありません"}), 400
+
+            page = pdf.pages[0]
+            words = page.extract_words(x_tolerance=5, y_tolerance=3, keep_blank_chars=False)
+
+        result = _parse_neuron_pdf_words(words)
+        return jsonify(result)
+
+    except ImportError:
+        return jsonify({"error": "PDF解析ライブラリが利用できません（pdfplumber未インストール）"}), 500
+    except Exception as e:
+        logger.warning(f"[parse-deck-pdf] {e}")
+        return jsonify({"error": f"PDF解析エラー: {e}"}), 500
+
+
+def _parse_neuron_pdf_words(words):
+    """pdfplumber extract_words() の結果からデッキシートをパース"""
+    import re
+
+    if not words:
+        return {
+            "ok": False, "main": [], "ex": [],
+            "warnings": ["テキストを抽出できませんでした（0単語）"],
+            "debug": [],
+        }
+
+    # items: {str, x, y}  (y = page top からの距離; 下方向が大きい)
+    items = [{"str": w["text"].strip(), "x": w["x0"], "y": w["top"]}
+             for w in words if w["text"].strip()]
+    items.sort(key=lambda it: (it["y"], it["x"]))
+
+    # ヘッダー検出
+    def hm(s): return "モンスター" in s
+    def hs(s): return "魔法" in s and "カード" in s
+    def ht(s): return "罠" in s and "カード" in s
+    def he(s): return "エクストラ" in s
+    def hsd(s): return "サイド" in s and "デッキ" in s
+
+    mon_h  = next((it for it in items if hm(it["str"]) and not hs(it["str"]) and not ht(it["str"])), None)
+    spl_h  = next((it for it in items if hs(it["str"]) and not hm(it["str"])), None)
+    trp_h  = next((it for it in items if ht(it["str"]) and not hm(it["str"]) and not hs(it["str"])), None)
+    ex_h   = next((it for it in items if he(it["str"])), None)
+    side_h = next((it for it in items if hsd(it["str"]) and not he(it["str"])), None)
+
+    debug_info = [
+        f"総単語数: {len(items)}",
+        f"先頭20: {[it['str'] for it in items[:20]]}",
+    ]
+
+    if not mon_h or not ex_h:
+        return {
+            "ok": False, "main": [], "ex": [],
+            "warnings": ["ニューロン形式として認識できませんでした。手動で修正してください。"],
+            "debug": debug_info,
+        }
+
+    # 列定義 (x昇順)
+    col_defs = sorted(
+        [h for h in [
+            {"type": "monster", "x": mon_h["x"]},
+            spl_h and {"type": "spell",   "x": spl_h["x"]},
+            trp_h and {"type": "trap",    "x": trp_h["x"]},
+        ] if h],
+        key=lambda h: h["x"],
+    )
+    page_w = max(it["x"] for it in items) + 100
+
+    col_ranges = []
+    for i, h in enumerate(col_defs):
+        prev = col_defs[i - 1] if i > 0 else None
+        nxt  = col_defs[i + 1] if i < len(col_defs) - 1 else None
+        col_ranges.append({
+            "type": h["type"],
+            "sX": (prev["x"] + h["x"]) / 2 if prev else 0,
+            "eX": (h["x"] + nxt["x"]) / 2 if nxt else page_w,
+        })
+
+    def get_col(x):
+        for cr in col_ranges:
+            if cr["sX"] <= x < cr["eX"]:
+                return cr["type"]
+        return None
+
+    # 除外語
+    SKIP = {"モンスターカード","魔法カード","罠カード","エクストラデッキ","サイドデッキ",
+            "カード名","枚数","かな","氏名","カードゲームID","参加番号","日付","イベント名"}
+    skip_re = [re.compile(p) for p in [r"合計\s*>+", r"^>+", r"^メインデッキ"]]
+
+    def skip(s):
+        if s in SKIP: return True
+        if any(p.search(s) for p in skip_re): return True
+        if hm(s) or hs(s) or ht(s) or he(s) or hsd(s): return True
+        if re.match(r"^[\d\s]+$", s) and len(s.replace(" ","")) > 4: return True
+        return False
+
+    is_digit = lambda s: bool(re.match(r"^\d+$", s))
+
+    # y境界
+    main_y = mon_h["y"]
+    ex_y   = ex_h["y"]
+    side_y = side_h["y"] if side_h else float("inf")
+
+    # 「枚数」ヘッダのx位置を各列に対応付け
+    qty_headers = [it for it in items if it["str"].strip() == "枚数"]
+    qty_x_col = {}
+    for qh in qty_headers:
+        if main_y <= qh["y"] <= ex_y:
+            col = get_col(qh["x"])
+            if col:
+                qty_x_col[col] = qh["x"]
+
+    warnings = []
+    QTY_TOL = 30
+
+    # メインデッキ
+    main_items = [it for it in items if main_y < it["y"] < ex_y and not skip(it["str"])]
+    result_main = []
+
+    for cr in col_ranges:
+        col_items = sorted(
+            [it for it in main_items if cr["sX"] <= it["x"] < cr["eX"]],
+            key=lambda it: it["y"],
+        )
+        qty_x = qty_x_col.get(cr["type"])
+        if qty_x is None:
+            dxs = [it["x"] for it in col_items if is_digit(it["str"])]
+            qty_x = max(dxs) if dxs else None
+
+        quantities, names = [], []
+        for it in col_items:
+            if is_digit(it["str"]):
+                if qty_x is not None and abs(it["x"] - qty_x) <= QTY_TOL:
+                    quantities.append({"val": int(it["str"]), "y": it["y"]})
+                # else: 行番号 → 捨てる
+            else:
+                names.append({"str": it["str"], "y": it["y"]})
+
+        for i, nm in enumerate(names):
+            qty = quantities[i]["val"] if i < len(quantities) else None
+            safe = max(1, min(3, qty)) if qty and 1 <= qty <= 3 else 1
+            if i >= len(quantities):
+                warnings.append(f"「{nm['str']}」の枚数が読み取れません（1枚として扱います）")
+            result_main.append({"qty": safe, "name": nm["str"]})
+
+    # エクストラデッキ
+    ex_items = [it for it in items if ex_y < it["y"] < side_y and not skip(it["str"])]
+    split_x  = (ex_h["x"] + side_h["x"]) / 2 if side_h else float("inf")
+    ex_col   = sorted([it for it in ex_items if it["x"] < split_x], key=lambda it: it["y"])
+
+    ex_qty_headers = [it for it in qty_headers if ex_y <= it["y"] <= side_y and it["x"] < split_x]
+    ex_qty_x = ex_qty_headers[0]["x"] if ex_qty_headers else None
+    if ex_qty_x is None:
+        dxs = [it["x"] for it in ex_col if is_digit(it["str"])]
+        ex_qty_x = max(dxs) if dxs else None
+
+    ex_qtys, ex_names = [], []
+    for it in ex_col:
+        if is_digit(it["str"]):
+            if ex_qty_x is not None and abs(it["x"] - ex_qty_x) <= QTY_TOL:
+                ex_qtys.append({"val": int(it["str"]), "y": it["y"]})
+        else:
+            ex_names.append({"str": it["str"], "y": it["y"]})
+
+    result_ex = []
+    for i, nm in enumerate(ex_names):
+        qty = ex_qtys[i]["val"] if i < len(ex_qtys) else None
+        safe = max(1, min(3, qty)) if qty and 1 <= qty <= 3 else 1
+        result_ex.append({"qty": safe, "name": nm["str"]})
+
+    ok = len(result_main) > 0 or len(result_ex) > 0
+    if not ok:
+        warnings.append(f"カードを抽出できませんでした。[DEBUG] {debug_info}")
+
+    return {"ok": ok, "main": result_main, "ex": result_ex, "warnings": warnings}
+
+
 @app.route("/api/status")
 def api_status():
     """エラー追跡状態を返す（テスト実行なし、軽量）"""
