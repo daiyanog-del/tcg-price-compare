@@ -103,7 +103,7 @@
 
 /* 右パネル */
 .sol-right-panel {
-  width: 148px;
+  width: 172px;
   flex-shrink: 0;
   position: sticky;
   top: 0;
@@ -114,6 +114,10 @@
   box-sizing: border-box;
   padding-bottom: 10px;
 }
+
+.sol-right-panel::-webkit-scrollbar { width: 4px; }
+.sol-right-panel::-webkit-scrollbar-track { background: transparent; }
+.sol-right-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
 .sol-right-section {
   padding: 10px 10px 8px;
