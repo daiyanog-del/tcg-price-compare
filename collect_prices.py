@@ -566,6 +566,7 @@ def send_daily_report(
 def cleanup_old_data(sb: Client):
     """保持期間を超えた古いデータを削除"""
     cutoff = (datetime.now(JST).date() - timedelta(days=RETENTION_DAYS)).isoformat()
+    # 価格履歴の削除
     try:
         resp = sb.table("price_history") \
             .delete() \
@@ -573,9 +574,20 @@ def cleanup_old_data(sb: Client):
             .execute()
         deleted = len(resp.data) if resp.data else 0
         if deleted > 0:
-            print(f"古いデータを削除: {deleted}件（{cutoff}より前）")
+            print(f"古い価格履歴を削除: {deleted}件（{cutoff}より前）")
     except Exception as e:
-        print(f"古いデータ削除失敗: {e}")
+        print(f"古い価格履歴削除失敗: {e}")
+    # 一人回しリプレイの削除（90日超）
+    try:
+        resp = sb.table("solitaire_replays") \
+            .delete() \
+            .lt("created_at", cutoff) \
+            .execute()
+        deleted = len(resp.data) if resp.data else 0
+        if deleted > 0:
+            print(f"古いリプレイを削除: {deleted}件（{cutoff}より前）")
+    except Exception as e:
+        print(f"古いリプレイ削除失敗: {e}")
 
 
 def main():

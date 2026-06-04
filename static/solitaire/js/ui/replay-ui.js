@@ -16,6 +16,9 @@ import {
   exportAsURLHash,
   getLogLength,
   getCursor,
+  getImages,
+  getNames,
+  getLogs,
 } from '../services/replay-service.js';
 
 /**
@@ -93,25 +96,46 @@ export function initReplayUI() {
 }
 
 /**
- * 共有URL生成（ハッシュ方式 or Supabase ID 方式）
+ * Supabaseにリプレイを保存し、短縮URL（?replay=ID）を返す共通処理
+ * @param {string} title
+ * @returns {Promise<string>} 短縮URL
+ */
+async function _saveAndGetShortURL(title) {
+  const res = await fetch('/api/solitaire/replay', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title,
+      images: getImages(),
+      names: getNames(),
+      logs: getLogs(),
+    }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const { id } = await res.json();
+  return `${location.origin}/solitaire?replay=${id}`;
+}
+
+/**
+ * 共有URL生成（常にSupabase ID方式で短いURLを発行）
+ * 保存失敗時のみハッシュ方式にフォールバック
  * @returns {Promise<string>} 共有URL
  */
 async function _generateShareURL() {
   const title = document.querySelector('.title')?.textContent || '一人回し';
 
-  const hash = exportAsURLHash();
-  if (hash && hash.length < 8000) {
-    return `${location.origin}/solitaire#replay=${hash}`;
+  // 常にSupabase ID方式（?replay=8文字ID）で短いURLを発行する
+  try {
+    return await _saveAndGetShortURL(title);
+  } catch (e) {
+    // Supabase未接続など保存失敗時のみハッシュ方式にフォールバック
+    console.warn('Supabase保存失敗。ハッシュ方式にフォールバック:', e.message);
+    const hash = exportAsURLHash();
+    if (hash) {
+      return `${location.origin}/solitaire#replay=${hash}`;
+    }
+    throw new Error('共有URLの生成に失敗しました');
   }
-
-  const res = await fetch('/api/solitaire/replay', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title }),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const { id } = await res.json();
-  return `${location.origin}/solitaire?replay=${id}`;
 }
 
 /**
@@ -138,14 +162,7 @@ async function handleShare() {
  */
 async function _generateShortURL() {
   const title = document.querySelector('.title')?.textContent || '一人回し';
-  const res = await fetch('/api/solitaire/replay', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title }),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const { id } = await res.json();
-  return `${location.origin}/solitaire?replay=${id}`;
+  return await _saveAndGetShortURL(title);
 }
 
 /**

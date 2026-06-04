@@ -220,6 +220,8 @@ export function getLogLength() { return _logs.length; }
 export function getCursor() { return _cursor; }
 /** 画像辞書を取得（外部からの参照用） */
 export function getImages() { return _images; }
+/** カード名辞書を取得（外部からの参照用） */
+export function getNames() { return _names; }
 /** ログを取得 */
 export function getLogs() { return _logs; }
 
