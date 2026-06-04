@@ -2051,12 +2051,15 @@ def _fetch_card_info_by_id(card_id: int, name: str) -> dict:
             pass
         # サブタイプ優先、なければ大分類
         mapped_type = _TYPE_JA.get(card_subtype) or _TYPE_JA.get(card_type, card_type)
-        # EXデッキ判定（Fusion/Synchro/Xyz/Link とそのペンデュラム派生）
-        _EX_KEYWORDS = ("Fusion", "Synchro", "Xyz", "XYZ", "Link")
-        is_ex = any(kw in card_subtype for kw in _EX_KEYWORDS)
-        # ygoprodeck 取得失敗時のフォールバック（XYZ=rank, Link=linkRating で判定）
-        if not is_ex and card_type == "monster":
-            is_ex = (ja.get("rank") is not None) or (ja.get("linkRating") is not None)
+        # EXデッキ判定: YGOResources の properties 配列を優先して判定（ygoprodeck非依存）。
+        # 11=Fusion, 18=Xyz, 19=Synchro, 23=Link（/data/meta/mprop で確定・実データ実証済み）。
+        # トゥーン融合等 ygoprodeck が "Toon Monster" と返してしまうカードでも正しく判定できる。
+        _EX_PROP_IDS = {11, 18, 19, 23}
+        props = ja.get("properties") or []
+        is_ex = any(p in _EX_PROP_IDS for p in props)
+        # properties が欠ける異常系のみ ygoprodeck の card_subtype で補完
+        if not is_ex and card_subtype:
+            is_ex = any(kw in card_subtype for kw in ("Fusion", "Synchro", "Xyz", "XYZ", "Link"))
         result = {
             "found": True,
             "konami_id": card_id,
