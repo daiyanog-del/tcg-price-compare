@@ -255,6 +255,7 @@
 
 #parent.counter-container {
   cursor: grab;
+  margin: 0 auto;
 }
 
 .counter-textbox {
