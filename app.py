@@ -2156,23 +2156,38 @@ def _parse_neuron_pdf_words(words):
     ROW_TOL = 7    # 同一行とみなすy方向許容幅 (pt)
 
     def pair_by_row(name_items, digit_items, qty_xs):
-        """各カード名について、その名前より右にある最初の枚数列xと同じ行の数字を枚数として返す。
-        列境界ではなく「枚数列x + 行y」で対応付けるため、ヘッダー文字とカード名のxズレに強い。"""
+        """カード名トークンを「同一y行 × 同一枚数列」でグループ化し、
+        同じセル内の複数トークンをスペース結合した上で枚数と対応付ける。
+        スペースを含むカード名（例: 結晶魔術 光の涙）や特殊文字の分割に対応。"""
+        if not qty_xs:
+            return []
         sorted_qty_xs = sorted(qty_xs)
-        result = []
-        for nm in sorted(name_items, key=lambda it: (it["y"], it["x"])):
-            # このカード名より右にある最初の枚数列x = このカードが属するカード種の枚数列
+
+        # (y_bucket, my_qty_x) をキーにトークンをグループ化
+        groups = {}  # key → [token, ...]
+        y_rep  = {}  # key → 代表y値
+        for nm in name_items:
             my_qty_x = next((qx for qx in sorted_qty_xs if qx > nm["x"]), None)
-            qty = None
-            if my_qty_x is not None:
-                tok = next(
-                    (d for d in digit_items
-                     if abs(d["x"] - my_qty_x) <= QTY_TOL and abs(d["y"] - nm["y"]) <= ROW_TOL),
-                    None,
-                )
-                if tok:
-                    qty = int(tok["str"])
-            result.append((nm, qty))
+            if my_qty_x is None:
+                continue
+            # ROW_TOLで割って丸めることで同一行のトークンが同じバケットに入る
+            key = (round(nm["y"] / ROW_TOL), my_qty_x)
+            groups.setdefault(key, []).append(nm)
+            y_rep.setdefault(key, nm["y"])
+
+        result = []
+        for key in sorted(groups.keys()):
+            _, my_qty_x = key
+            tokens = sorted(groups[key], key=lambda t: t["x"])
+            combined_str = " ".join(t["str"] for t in tokens)
+            nm_y = y_rep[key]
+            tok = next(
+                (d for d in digit_items
+                 if abs(d["x"] - my_qty_x) <= QTY_TOL and abs(d["y"] - nm_y) <= ROW_TOL),
+                None,
+            )
+            qty = int(tok["str"]) if tok else None
+            result.append(({"str": combined_str, "x": tokens[0]["x"], "y": nm_y}, qty))
         return result
 
     # ── メインデッキ ──────────────────────────────────
@@ -2216,22 +2231,6 @@ def _parse_neuron_pdf_words(words):
             if name_str and not skip_item(name_str):
                 if ex_qty_x is None or it["x"] < ex_qty_x:
                     ex_names.append({"str": name_str, "x": it["x"], "y": it["y"]})
-
-    # 同一y行に複数トークンがある場合（特殊文字Δがpdfplumberで別トークンに分割される等）をスペース結合
-    # EX列は1列に絞り込み済みなので、同じy行のトークンは必ず同一カード名の断片
-    if ex_names:
-        ex_names_merged = []
-        row_buf = []
-        for nm in sorted(ex_names, key=lambda it: (it["y"], it["x"])):
-            if row_buf and abs(nm["y"] - row_buf[0]["y"]) > 1:
-                combined = " ".join(t["str"] for t in row_buf)
-                ex_names_merged.append({"str": combined, "x": row_buf[0]["x"], "y": row_buf[0]["y"]})
-                row_buf = []
-            row_buf.append(nm)
-        if row_buf:
-            combined = " ".join(t["str"] for t in row_buf)
-            ex_names_merged.append({"str": combined, "x": row_buf[0]["x"], "y": row_buf[0]["y"]})
-        ex_names = ex_names_merged
 
     result_ex = []
     for nm, qty in pair_by_row(ex_names, ex_digits, [ex_qty_x] if ex_qty_x else []):
