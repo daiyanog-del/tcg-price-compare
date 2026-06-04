@@ -14,43 +14,6 @@ import { NeuronPreviewModal } from '/static/shared/neuron-preview-modal.js';
  */
 
 /**
- * 盤面保存（画像）ボタンのイベントハンドラ
- */
-export function handleSaveBoard() {
-  const elementsToHide = [
-    document.querySelector('.randomButton-container'),
-    document.querySelector('.left-rectangle-container'),
-    document.getElementById('replayBarContainer'),
-    document.getElementById('deckInputContainer'),
-  ];
-
-  const validElements = elementsToHide.filter(el => el !== null);
-  const originalStyles = validElements.map(el => el.style.display);
-  validElements.forEach(el => el.style.display = 'none');
-
-  const titleElement = document.querySelector('.title');
-  const titleText = titleElement ? titleElement.textContent : '一人回し';
-  const formattedTitle = titleText.replace(/[\s　]/g, '_');
-
-  html2canvas(document.getElementById('mainContainer')).then(canvas => {
-    const link = document.createElement('a');
-    link.download = `${formattedTitle}.png`;
-    link.href = canvas.toDataURL();
-    link.click();
-    validElements.forEach((el, i) => el.style.display = originalStyles[i]);
-  });
-}
-
-/**
- * X(Twitter)投稿ボタンのイベントハンドラ
- */
-export function handleShareX() {
-  const tweetText = encodeURIComponent('カード相場 一人回しシミュレータで展開を確認しました\n#カード相場\nhttps://kso.b01.dev/solitaire');
-  const url = `https://twitter.com/intent/tweet?text=${tweetText}`;
-  window.open(url, '_blank');
-}
-
-/**
  * ニューロンPDFファイル選択ハンドラ
  */
 export async function handleNeuronPdfSelect(event) {
@@ -162,12 +125,6 @@ export function setupToggleVisibility(elements) {
 export function initializeEventListeners() {
   document.getElementById('neuronPdfUpload')
     ?.addEventListener('change', handleNeuronPdfSelect);
-
-  document.getElementById('saveButton')
-    ?.addEventListener('click', handleSaveBoard);
-
-  document.getElementById('shareXButton')
-    ?.addEventListener('click', handleShareX);
 
   document.getElementById('resetButton')
     ?.addEventListener('click', handleResetAndDraw);
