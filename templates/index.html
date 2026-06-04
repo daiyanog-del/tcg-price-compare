@@ -2023,8 +2023,9 @@ function parseDeckList(text){
 }
 
 // 保存デッキをmain/ex構造に正規化（旧データ対応）
+// deck.ex=[]（空配列）はfalsyになるためArray.isArrayで判定する
 function normalizeDeck(deck){
-  if(deck.main&&deck.ex) return {main:deck.main,ex:deck.ex};
+  if(Array.isArray(deck.main)) return {main:deck.main,ex:Array.isArray(deck.ex)?deck.ex:[]};
   return {main:parseDeckList(deck.text||''),ex:[]};
 }
 
@@ -2113,7 +2114,8 @@ function handleDeckDrop(event){
 window.onDeckImported=function(deck){
   const{main,ex}=normalizeDeck(deck);
   _currentMydeckCards={main,ex};
-  const combined=deck.text||[...main,...ex].map(c=>c.qty>1?`${c.qty} ${c.name}`:c.name).join('\n');
+  // CRLF(\r\n)をLF(\n)に正規化: textareaがLFに変換するため、比較ミスを防ぐ
+  const combined=(deck.text||[...main,...ex].map(c=>c.qty>1?`${c.qty} ${c.name}`:c.name).join('\n')).replace(/\r/g,'');
   _currentMydeckText=combined;
   const ta=document.getElementById('deckTextarea');
   if(ta) ta.value=combined;
@@ -3289,7 +3291,8 @@ function loadSavedDeck(id){
   // main/ex を正規化（旧データ対応）してセット
   const{main,ex}=normalizeDeck(deck);
   _currentMydeckCards={main,ex};
-  const combined=deck.text||[...main,...ex].map(c=>c.qty>1?`${c.qty} ${c.name}`:c.name).join('\n');
+  // CRLF(\r\n)をLF(\n)に正規化: textareaがLFに変換するため、比較ミスを防ぐ
+  const combined=(deck.text||[...main,...ex].map(c=>c.qty>1?`${c.qty} ${c.name}`:c.name).join('\n')).replace(/\r/g,'');
   _currentMydeckText=combined;
   document.getElementById('deckTextarea').value=combined;
   calcDeckEstimate();
