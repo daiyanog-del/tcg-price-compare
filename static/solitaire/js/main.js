@@ -210,17 +210,20 @@ function adjustSideStack(slotEl) {
   const area = slotEl.closest('.sol-side-area');
   if (!area) return;
 
-  // ラベルと縦パディングを除いた利用可能高さ
+  // CSS変数からフィールド高さを計算（DOMを測定しない: 測定時点でDOMが膨らんでいるため）
+  // CSS の max-height: calc(3 * var(--slot-height) + 2 * var(--gap)) と同じ計算式
+  const rootStyle = getComputedStyle(document.documentElement);
+  const slotWidth = parseFloat(rootStyle.getPropertyValue('--slot-width')) || 120;
+  const slotHeight = slotWidth * 1.45; // --slot-height = --slot-width * 1.45
+  const gap = parseFloat(rootStyle.getPropertyValue('--gap')) || 12;
+  const areaMaxH = 3 * slotHeight + 2 * gap; // CSSのmax-heightと同値
+
+  // side-slotの利用可能高さ = エリア上限 - ラベル - 縦padding
   const label = area.querySelector('.pool-label');
   const labelH = label ? label.offsetHeight : 0;
   const areaStyle = getComputedStyle(area);
   const paddingV = parseFloat(areaStyle.paddingTop) + parseFloat(areaStyle.paddingBottom);
-  const avail = area.clientHeight - labelH - paddingV;
-
-  // max-height を設定してゾーン内スクロールの発動ラインを確定
-  if (avail > 0) {
-    slotEl.style.maxHeight = avail + 'px';
-  }
+  const avail = areaMaxH - labelH - paddingV;
 
   const wrappers = slotEl.querySelectorAll('.tier-item-wrapper');
   const N = wrappers.length;
@@ -231,16 +234,14 @@ function adjustSideStack(slotEl) {
     return;
   }
 
-  // カード高さ: 先頭ラッパーの実測値、無ければCSS変数のフォールバック
-  const cardH = wrappers[0].offsetHeight
-    || parseFloat(getComputedStyle(slotEl).getPropertyValue('--slot-height'))
-    || 174;
+  // カード高さ: 先頭ラッパーの実測値、無ければCSS変数から算出
+  const cardH = wrappers[0].offsetHeight || slotHeight;
 
   const MIN_VISIBLE = 6;            // カードが識別できる最小ステップ(px)
   const naturalStep = cardH * 0.1; // デフォルト（90%重ね）時の増分
 
   // 全枚数を avail に収めるための理想ステップを計算
-  const idealStep = (avail - cardH) / (N - 1);
+  const idealStep = avail > cardH ? (avail - cardH) / (N - 1) : MIN_VISIBLE;
 
   // 下限: MIN_VISIBLE、上限: naturalStep（デフォルトより広げない）
   const step = Math.max(MIN_VISIBLE, Math.min(naturalStep, idealStep));

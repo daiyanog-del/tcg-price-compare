@@ -63,6 +63,8 @@
   .side-slots-container .sol-side-area {
     flex: 1;
     min-height: calc(var(--slot-height) + 32px); /* label + slot の最低高さ保証 */
+    max-height: none;    /* モバイルはフィールドと縦並びなので高さ制限不要 */
+    overflow: visible;
   }
 
   /* ── タッチドラッグ中のカード表示 ── */
