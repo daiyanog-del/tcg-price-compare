@@ -43,7 +43,8 @@ async function _handleFile(file) {
     defaultName,
     onSave: ({ name, mainText, exText }) => {
       // index.htmlのグローバル関数を呼ぶ
-      const combined = [mainText, exText].filter(Boolean).join('\n');
+      // [EX]区切りを挿入してメイン/エクストラデッキを区別できるようにする
+      const combined = exText ? mainText + '\n[EX]\n' + exText : mainText;
       const savedDecksGet = window.savedDecksGet;
       const savedDecksSet = window.savedDecksSet;
       const renderSavedDecks = window.renderSavedDecks;

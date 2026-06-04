@@ -2012,7 +2012,8 @@ const DECK_CTX = {
 };
 
 function parseDeckList(text){
-  const lines=text.split('\n').map(l=>l.trim()).filter(Boolean);
+  // [EX]区切り行はカード名ではないので除外
+  const lines=text.split('\n').map(l=>l.trim()).filter(l=>l&&l!=='[EX]');
   const cards=[];
   for(const line of lines){
     const m=line.match(/^(\d+)\s+(.+)$/);
@@ -2022,11 +2023,24 @@ function parseDeckList(text){
   return cards;
 }
 
+// テキストを [EX] 区切りでメイン/エクストラに分割して返す
+// [EX] がなければ全枚数をメインとして返す
+function parseDeckSections(text){
+  const lines=text.split('\n');
+  const sep=lines.findIndex(l=>l.trim()==='[EX]');
+  if(sep<0) return {main:parseDeckList(text),ex:[]};
+  return {
+    main:parseDeckList(lines.slice(0,sep).join('\n')),
+    ex:parseDeckList(lines.slice(sep+1).join('\n'))
+  };
+}
+
 // 保存デッキをmain/ex構造に正規化（旧データ対応）
 // deck.ex=[]（空配列）はfalsyになるためArray.isArrayで判定する
 function normalizeDeck(deck){
   if(Array.isArray(deck.main)) return {main:deck.main,ex:Array.isArray(deck.ex)?deck.ex:[]};
-  return {main:parseDeckList(deck.text||''),ex:[]};
+  // 旧形式 or main未設定 → テキストを[EX]区切りで解析
+  return parseDeckSections(deck.text||'');
 }
 
 // デッキをカード画像グリッドとして描画（main/ex 2セクション）
@@ -2499,7 +2513,7 @@ async function calcDeckEstimate(ctx){
   if(ctx===DECK_CTX.mydeck){
     const text=ctx.getText();
     if(text!==_currentMydeckText){
-      _currentMydeckCards={main:parseDeckList(text),ex:[]};
+      _currentMydeckCards=parseDeckSections(text);
       _currentMydeckText=text;
     }
     main=_currentMydeckCards.main;
@@ -2645,9 +2659,9 @@ async function calcDeck(buyMode){
   const isBuy=_deckBuyMode;
 
   const text=document.getElementById('deckTextarea').value;
-  // テキストが変更されていれば再解析（手入力は全てmain扱い）
+  // テキストが変更されていれば再解析（[EX]区切りがあればエクストラデッキを分離）
   if(text!==_currentMydeckText){
-    _currentMydeckCards={main:parseDeckList(text),ex:[]};
+    _currentMydeckCards=parseDeckSections(text);
     _currentMydeckText=text;
   }
   const {main,ex}=_currentMydeckCards;
@@ -3268,9 +3282,9 @@ function saveCurrentDeck(){
   const name=prompt('デッキ名を入力してください');
   if(!name||!name.trim())return;
   const n=name.trim();
-  // テキストが変更されていればcardsを再解析（手入力は全てmain扱い）
+  // テキストが変更されていればcardsを再解析（[EX]区切りがあればエクストラデッキを分離）
   if(text!==_currentMydeckText){
-    _currentMydeckCards={main:parseDeckList(text),ex:[]};
+    _currentMydeckCards=parseDeckSections(text);
     _currentMydeckText=text;
   }
   const {main,ex}=_currentMydeckCards;
