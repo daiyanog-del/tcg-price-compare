@@ -888,11 +888,17 @@ def _load_estimate_cache(startup: bool = False):
 if _claim_startup_job("estimate_cache"):
     Thread(target=_load_estimate_cache, kwargs={"startup": True}, daemon=True).start()
 
-@app.route("/api/deck-estimate")
+@app.route("/api/deck-estimate", methods=["GET", "POST"])
 def api_deck_estimate():
-    """デッキ相場見積もり — メモリキャッシュから即時返却"""
+    """デッキ相場見積もり — メモリキャッシュから即時返却。
+    GETは?cards=、POSTはJSON body {"cards":"..."} でカード名を受け取る（URL長制限回避）。
+    """
     global _estimate_cache_time
-    names_raw = request.args.get("cards", "")
+    if request.method == "POST":
+        body = request.get_json(force=True, silent=True) or {}
+        names_raw = body.get("cards", "")
+    else:
+        names_raw = request.args.get("cards", "")
     if not names_raw:
         return jsonify({"error": "カード名がありません"}), 400
 

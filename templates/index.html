@@ -2530,9 +2530,12 @@ async function calcDeckEstimate(ctx){
   const missing=[];// DBにデータがなかったカードのインデックス
 
   try{
-    // Phase 1: DBから一括取得
-    const res=await fetch('/api/deck-estimate?cards='+encodeURIComponent(cardsParam));
-    console.log('[P1] status='+res.status+' type='+res.headers.get('content-type'));
+    // Phase 1: DBから一括取得（POST でカード名を送り URL 長制限を回避）
+    const res=await fetch('/api/deck-estimate',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({cards:cardsParam})
+    });
     const data=await res.json();
     if(data.error){progEl.textContent=data.error;return;}
 
@@ -2574,8 +2577,6 @@ async function calcDeckEstimate(ctx){
     shops.forEach(s=>params.append('shops',s));
 
     const sseRes=await fetch('/api/deck?'+params.toString());
-    console.log('[P2] status='+sseRes.status+' type='+sseRes.headers.get('content-type'));
-    if(!sseRes.ok){const t=await sseRes.text();throw new Error('P2 '+sseRes.status+': '+t.slice(0,200));}
     const reader=sseRes.body.getReader();
     const decoder=new TextDecoder();
     let buffer='',sseFound=0,sseNotFound=0;
@@ -2636,7 +2637,6 @@ async function calcDeckEstimate(ctx){
     }
   }catch(e){
     progEl.textContent='エラーが発生しました。再度お試しください。';
-    console.error('[calcDeckEstimate]', e && (e.stack||e.message||e));
   }
 }
 
