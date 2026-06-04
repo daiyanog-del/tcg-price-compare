@@ -65,6 +65,14 @@
     min-height: calc(var(--slot-height) + 32px); /* label + slot の最低高さ保証 */
   }
 
+  /* ── タッチドラッグ中のカード表示 ── */
+  /* 指の上方に浮かせて「持ち上げ感」を演出し、ドロップ先の視認性を確保 */
+  .touch-dragging {
+    transform: scale(1.12);
+    transform-origin: center bottom;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+  }
+
   /* 盤面スロットの最小幅制約を解除（slot-width が小さくなるため） */
   #mainContainer,
   .pool {

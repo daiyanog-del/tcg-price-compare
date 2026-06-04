@@ -361,7 +361,8 @@ export function enableTouchDrag(ev) {
       ev.preventDefault();
       draggingElem.classList.add('touch-dragging');
       draggingElem.style.left = `${touch.clientX - draggingElem.offsetWidth / 2}px`;
-      draggingElem.style.top  = `${touch.clientY - draggingElem.offsetHeight / 2}px`;
+      // カードを指の真上に表示: 指の下にドロップ先が見えて配置精度が上がる
+      draggingElem.style.top  = `${touch.clientY - draggingElem.offsetHeight - 10}px`;
     }
   };
 
