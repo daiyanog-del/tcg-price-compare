@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cardprice-v3';
+const CACHE_NAME = 'cardprice-v4';
 const PRECACHE = [
   '/',
   '/static/favicon.svg',
@@ -80,6 +80,14 @@ self.addEventListener('fetch', e => {
   // 価格系・その他APIはキャッシュしない（常に最新を取得）
   if (url.pathname.startsWith('/api/')) return;
 
+  // ナビゲーション（HTMLページ遷移）はSWキャッシュ対象外 → ブラウザHTTPキャッシュに委ねる
+  // JS/CSS/HTMLもキャッシュ対象外とし、旧版コードがPWAで固着するのを防ぐ
+  if (
+    e.request.mode === 'navigate' ||
+    /\.(js|css|html)(\?|$)/.test(url.pathname)
+  ) return;
+
+  // アイコン・画像など静的アセットはキャッシュして高速化
   e.respondWith(
     fetch(e.request)
       .then(res => {
