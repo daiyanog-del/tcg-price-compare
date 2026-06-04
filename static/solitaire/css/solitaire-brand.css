@@ -525,7 +525,10 @@ html, body {
 /* ── 盤面コンテナ ── */
 #mainContainer {
   background: var(--bg-color);
-  padding: 4px 6px 0 40px;
+  /* padding-left を slot-width + 固定値にして盤面を右にオフセット。
+     justify-content:center との組み合わせで、増加分の半分ずつ左右に効く。
+     カード詳細パネルの幅は _updateCipWidth() が自動再計算する。 */
+  padding: 4px 6px 0 calc(var(--slot-width) + 40px);
   margin-bottom: 0;
 }
 
