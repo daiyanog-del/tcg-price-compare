@@ -9,7 +9,7 @@
   --slot-width: 94px;
   --slot-height: calc(var(--slot-width) * 1.45);
   --gap: 10px;
-  --min-display-width: calc(var(--slot-width) * 9.8);
+  --min-display-width: calc(var(--slot-width) * 7.3);
 }
 
 /* ── 2カラムレイアウト ── */
@@ -123,6 +123,63 @@
 .sol-right-panel::-webkit-scrollbar-track { background: transparent; }
 .sol-right-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
+/* ── サイドパネル開閉 ── */
+
+/* 畳んだ状態: 幅0・内容非表示・ボーダー消し */
+.sol-sidebar.collapsed,
+.sol-right-panel.collapsed {
+  width: 0;
+  min-width: 0;
+  border-width: 0;
+  overflow: hidden;
+}
+.sol-sidebar.collapsed > *,
+.sol-right-panel.collapsed > * {
+  display: none;
+}
+
+/* 画面端固定のトグルボタン（#cipToggle の見た目を踏襲、少し大きめ） */
+.sol-panel-toggle {
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 50;
+  width: 22px;
+  height: 52px;
+  background: var(--bg-card);
+  border: 1px solid #2d4a7a;
+  color: #7aaff0;
+  cursor: pointer;
+  font-size: 0.7rem;
+  padding: 0;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, left 0.2s ease, right 0.2s ease;
+}
+.sol-panel-toggle:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* 初期位置（JSが開閉に応じて left/right を更新する） */
+.sol-panel-toggle-left  {
+  left: 180px;
+  border-radius: 0 4px 4px 0;
+}
+.sol-panel-toggle-right {
+  right: 180px;
+  border-radius: 4px 0 0 4px;
+}
+
+/* 初回表示時のパルスアニメーション（ボタンの存在を知らせる） */
+@keyframes sol-toggle-pulse {
+  0%, 100% { background: var(--bg-card);            border-color: #2d4a7a; color: #7aaff0; }
+  50%       { background: rgba(74,124,255,0.25);     border-color: var(--accent); color: #fff; }
+}
+.sol-panel-toggle-pulse {
+  animation: sol-toggle-pulse 0.9s ease-in-out 3;
+}
+
 .sol-right-section {
   padding: 10px 10px 8px;
   border-bottom: 1px solid var(--border);
@@ -152,6 +209,31 @@
   text-align: center;
   line-height: 1.3;
   box-sizing: border-box;
+}
+
+/* 操作方法: details 折りたたみ */
+.sol-ops-details {
+  margin: 0;
+}
+.sol-ops-summary {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+.sol-ops-summary::-webkit-details-marker { display: none; }
+.sol-ops-summary::after {
+  content: ' ▶';
+  font-size: 0.55rem;
+  color: #4a7cff;
+  vertical-align: middle;
+}
+.sol-ops-details[open] .sol-ops-summary::after {
+  content: ' ▼';
+}
+.sol-ops-details[open] .sol-ops-list {
+  margin-top: 6px;
 }
 
 /* 操作方法リスト（右パネル内・縦積みスタイル） */
@@ -897,20 +979,21 @@ html, body {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 8px;
+  /* padding/gap/font-size を --slot-width に連動させてウィンドウ縮小時の崩れを防ぐ */
+  padding: clamp(4px, calc(var(--slot-width) * 0.085), 8px);
   width: 100%;
   height: 100%;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  font-size: 0.82rem;
+  gap: clamp(3px, calc(var(--slot-width) * 0.064), 6px);
+  font-size: clamp(0.62rem, calc(var(--slot-width) * 0.14), 0.82rem);
   color: var(--main-color);
 }
 
 .cip-empty {
   color: #4a6490;
-  font-size: 0.79rem;
+  font-size: 0.96em;
   text-align: center;
   margin: auto 0;
   line-height: 1.6;
@@ -918,12 +1001,13 @@ html, body {
 
 .cip-header {
   display: flex;
-  gap: 8px;
+  gap: clamp(4px, calc(var(--slot-width) * 0.085), 8px);
   align-items: flex-start;
 }
 
 .cip-img {
-  width: 52px;
+  /* 画像幅も --slot-width に連動。基準: slot-width=94px → 52px */
+  width: clamp(28px, calc(var(--slot-width) * 0.55), 52px);
   flex-shrink: 0;
   border-radius: 4px;
   object-fit: cover;
@@ -938,7 +1022,7 @@ html, body {
 }
 
 .cip-name {
-  font-size: 0.85rem;
+  font-size: 1.04em;
   font-weight: 700;
   color: var(--main-color);
   line-height: 1.3;
@@ -948,21 +1032,21 @@ html, body {
 
 .cip-type,
 .cip-attr {
-  font-size: 0.75rem;
+  font-size: 0.91em;
   color: #94a3b8;
   margin: 0;
   line-height: 1.3;
 }
 
 .cip-stats {
-  font-size: 0.79rem;
+  font-size: 0.96em;
   color: var(--gold);
   margin: 2px 0 0;
   font-family: var(--mono);
 }
 
 .cip-effect {
-  font-size: 0.75rem;
+  font-size: 0.91em;
   color: #94a3b8;
   line-height: 1.55;
   border-top: 1px solid var(--border);
@@ -981,7 +1065,7 @@ html, body {
 }
 
 .cip-price-val {
-  font-size: 0.83rem;
+  font-size: 1.01em;
   font-weight: 600;
   font-family: var(--mono);
   color: var(--gold);
@@ -992,13 +1076,13 @@ html, body {
 }
 
 .cip-price-shop {
-  font-size: 0.72rem;
+  font-size: 0.88em;
   color: #94a3b8;
   font-family: var(--font);
 }
 
 .cip-price-rarity {
-  font-size: 0.72rem;
+  font-size: 0.88em;
   color: var(--gold);
   font-family: var(--font);
   opacity: 0.85;
@@ -1007,16 +1091,17 @@ html, body {
 .cip-price-none {
   color: #4a6490;
   font-family: var(--font);
-  font-size: 0.75rem;
+  font-size: 0.91em;
 }
 
 .cip-price-links {
   display: flex;
   gap: 5px;
+  flex-wrap: wrap;
 }
 
 .cip-price-link {
-  font-size: 0.75rem;
+  font-size: 0.91em;
   color: var(--accent);
   text-decoration: none;
   padding: 2px 7px;

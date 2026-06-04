@@ -15,6 +15,7 @@ import { initCardInfoPanel } from './ui/card-info-panel.js';
 import { saveSessionResume, loadSessionResume } from './services/save-load-service.js';
 import { initOpponentTray, updateCipWidth } from './ui/opponent-tray.js';
 import { initFeedbackModal } from './ui/feedback-modal.js';
+import { initSidebarToggle } from './ui/sidebar-toggle.js';
 
 /**
  * カード追加時にリプレイ画像辞書へ登録するフック
@@ -78,8 +79,17 @@ function fitFieldToViewport() {
   const fixed     = navH + trayH + replayH + FIXED_MISC;
   const available = window.innerHeight - fixed;
 
-  // slot_h = slot_w × 1.45 として比例係数 7.54 を計算済み
-  const slotW = Math.max(60, Math.min(110, Math.floor(available / 7.54)));
+  // 高さ基準: slot_h = slot_w × 1.45 として比例係数 7.54
+  const slotW_h = Math.floor(available / 7.54);
+
+  // 横幅基準: .sol-main の実測幅を使う
+  // 盤面は 6列 + 墓地除外列 ≒ 7.1 列相当。field padding(16px) + gap×7(70px) = 86px
+  // サイドバー開閉で sol-main 幅が変わるため、window.innerWidth ではなく実測値を使う
+  const mainEl  = document.querySelector('.sol-main');
+  const availW  = mainEl ? mainEl.clientWidth : window.innerWidth;
+  const slotW_w = Math.floor((availW - 86) / 7.1);
+
+  const slotW = Math.max(60, Math.min(110, Math.min(slotW_h, slotW_w)));
   document.documentElement.style.setProperty('--slot-width', `${slotW}px`);
 
   // リサイズ・初期化時にもパネル幅を再計算（開閉問わず）
@@ -126,6 +136,9 @@ function initializeApp() {
 
   // 相手の想定妨害ミニ盤面を初期化
   initOpponentTray();
+
+  // 左サイドバー・右パネルの開閉を初期化
+  initSidebarToggle();
 
   // フィードバック（不具合・要望）モーダルを初期化
   initFeedbackModal();

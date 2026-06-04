@@ -45,7 +45,7 @@
 <div class="sol-page-layout">
 
   <!-- ====== 左サイドバー ====== -->
-  <aside class="sol-sidebar">
+  <aside class="sol-sidebar" id="solSidebar">
 
     <!-- デッキ選択 -->
     <div class="sol-sidebar-section">
@@ -98,12 +98,12 @@
       </div>
     </div>
 
-    <!-- 盤面操作 -->
+    <!-- 盤面: 画像保存（#saveButton2 の「状態セーブ」とは別機能） -->
     <div class="sol-sidebar-section">
-      <p class="sol-sidebar-heading">盤面</p>
+      <p class="sol-sidebar-heading">共有</p>
       <div class="sol-sidebar-actions">
         <button id="saveButton">盤面を画像保存</button>
-        <button id="shareXButton">Xに投稿</button>
+        <button id="shareXButton">画像をXに投稿</button>
       </div>
     </div>
 
@@ -242,7 +242,7 @@
     </div><!-- /.sol-field-area -->
 
     <!-- 右パネル: 操作ボタン + カウンター -->
-    <aside class="sol-right-panel">
+    <aside class="sol-right-panel" id="solRightPanel">
 
       <div class="sol-right-section">
         <p class="sol-right-heading">盤面操作</p>
@@ -298,39 +298,41 @@
         </div>
       </div>
 
-      <!-- 操作方法 -->
+      <!-- 操作方法 (折りたたみ式) -->
       <div class="sol-right-section">
-        <p class="sol-right-heading">操作方法</p>
-        <div class="sol-ops-list">
-          <div class="sol-ops-item">
-            <span class="sol-ops-key">ドラッグ</span>
-            <span class="sol-ops-desc">配置・移動</span>
+        <details class="sol-ops-details">
+          <summary class="sol-right-heading sol-ops-summary">操作方法</summary>
+          <div class="sol-ops-list">
+            <div class="sol-ops-item">
+              <span class="sol-ops-key">ドラッグ</span>
+              <span class="sol-ops-desc">配置・移動</span>
+            </div>
+            <div class="sol-ops-item">
+              <span class="sol-ops-key">Shift + D&amp;D</span>
+              <span class="sol-ops-desc">守備表示（トグル）</span>
+            </div>
+            <div class="sol-ops-item">
+              <span class="sol-ops-key">Ctrl + D&amp;D</span>
+              <span class="sol-ops-desc">エクシーズ素材に追加</span>
+            </div>
+            <div class="sol-ops-item">
+              <span class="sol-ops-key">Shift+Ctrl + D&amp;D</span>
+              <span class="sol-ops-desc">セット（裏側）</span>
+            </div>
+            <div class="sol-ops-item">
+              <span class="sol-ops-key">右クリック / 長押し</span>
+              <span class="sol-ops-desc">操作メニュー</span>
+            </div>
+            <div class="sol-ops-item">
+              <span class="sol-ops-key">重ね置き</span>
+              <span class="sol-ops-desc">エクシーズ召喚</span>
+            </div>
+            <div class="sol-ops-item">
+              <span class="sol-ops-key">ダブルクリック</span>
+              <span class="sol-ops-desc">効果発動</span>
+            </div>
           </div>
-          <div class="sol-ops-item">
-            <span class="sol-ops-key">Shift + D&amp;D</span>
-            <span class="sol-ops-desc">守備表示（トグル）</span>
-          </div>
-          <div class="sol-ops-item">
-            <span class="sol-ops-key">Ctrl + D&amp;D</span>
-            <span class="sol-ops-desc">エクシーズ素材に追加</span>
-          </div>
-          <div class="sol-ops-item">
-            <span class="sol-ops-key">Shift+Ctrl + D&amp;D</span>
-            <span class="sol-ops-desc">セット（裏側）</span>
-          </div>
-          <div class="sol-ops-item">
-            <span class="sol-ops-key">右クリック / 長押し</span>
-            <span class="sol-ops-desc">操作メニュー</span>
-          </div>
-          <div class="sol-ops-item">
-            <span class="sol-ops-key">重ね置き</span>
-            <span class="sol-ops-desc">エクシーズ召喚</span>
-          </div>
-          <div class="sol-ops-item">
-            <span class="sol-ops-key">ダブルクリック</span>
-            <span class="sol-ops-desc">効果発動</span>
-          </div>
-        </div>
+        </details>
       </div>
 
     </aside><!-- /.sol-right-panel -->
@@ -384,6 +386,16 @@
     </div>
   </div>
 </div>
+
+<!-- 画面端固定のサイドパネルトグル（開閉状態に関わらず常時操作可能） -->
+<button id="sidebarToggleLeft"
+        class="sol-panel-toggle sol-panel-toggle-left"
+        aria-expanded="true"
+        title="左パネル開閉">◀</button>
+<button id="sidebarToggleRight"
+        class="sol-panel-toggle sol-panel-toggle-right"
+        aria-expanded="true"
+        title="右パネル開閉">▶</button>
 
 <script type="module" src="/static/solitaire/js/main.js"></script>
 </body>
