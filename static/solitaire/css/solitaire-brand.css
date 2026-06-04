@@ -1032,6 +1032,13 @@ html, body {
   font-family: var(--font);
 }
 
+.cip-price-rarity {
+  font-size: 0.72rem;
+  color: var(--gold);
+  font-family: var(--font);
+  opacity: 0.85;
+}
+
 .cip-price-none {
   color: #4a6490;
   font-family: var(--font);

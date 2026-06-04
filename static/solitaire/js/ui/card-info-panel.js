@@ -166,8 +166,10 @@ function _buildPriceHtml(name, priceData) {
   const buyUrl    = '/buy/'  + encodeURIComponent(name);
 
   const best = _bestFromHistory(priceData);
+  const rarityHtml = best && best.rarity
+    ? `<span class="cip-price-rarity">${_esc(best.rarity)}</span>` : '';
   const priceInfo = best
-    ? `<p class="cip-price-val">¥${Number(best.price).toLocaleString('ja-JP')}<span class="cip-price-shop">${_esc(best.shop)}</span></p>`
+    ? `<p class="cip-price-val">¥${Number(best.price).toLocaleString('ja-JP')}${rarityHtml}<span class="cip-price-shop">${_esc(best.shop)}</span></p>`
     : '';
 
   return `
@@ -181,19 +183,16 @@ function _buildPriceHtml(name, priceData) {
   `;
 }
 
-// /api/price-history レスポンスから直近7日の全レコードで最安値を返す
+// /api/price-history レスポンスから最新収集日の最安値を返す
 function _bestFromHistory(data) {
   const items = data?.data;
   if (!items || items.length === 0) return null;
   const valid = items.filter(r => r.price > 0);
   if (valid.length === 0) return null;
-  // 最新収集日を基準に7日以内のデータを対象にする
+  // 最新収集日の行のみを対象にする（過去日の特売を拾わない）
   const latestDate = valid.reduce((a, b) => a.date > b.date ? a : b).date;
-  const cutoff = new Date(latestDate);
-  cutoff.setDate(cutoff.getDate() - 7);
-  const cutoffStr = cutoff.toISOString().slice(0, 10);
-  const recent = valid.filter(r => r.date >= cutoffStr);
-  return recent.reduce((a, b) => a.price < b.price ? a : b);
+  const latest = valid.filter(r => r.date === latestDate);
+  return latest.reduce((a, b) => a.price < b.price ? a : b);
 }
 
 function _esc(str) {
