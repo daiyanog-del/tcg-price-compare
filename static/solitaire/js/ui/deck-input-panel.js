@@ -4,7 +4,7 @@
  * 既存API /api/card-image, /api/meta, /api/meta/deck を流用
  */
 
-import { addCardToPool } from '../components/card-manager.js';
+import { addCardToPool, sortPoolCards } from '../components/card-manager.js';
 import { registerCardImage, registerCardName } from '../services/replay-service.js';
 import { setCardName } from './card-info-panel.js';
 
@@ -20,7 +20,7 @@ const API_META_DECK = '/api/meta/deck';
 function parseDeckList(text) {
   return text.split('\n')
     .map(l => l.trim())
-    .filter(Boolean)
+    .filter(l => l && l !== '[EX]')  // [EX]区切り行を除外
     .map(line => {
       const m = line.match(/^(\d+)\s+(.+)$/);
       return m ? { qty: parseInt(m[1], 10), name: m[2].trim() } : { qty: 1, name: line };
@@ -114,6 +114,7 @@ export async function loadDeckFromText(text) {
   for (const { qty, name } of cards) {
     await addCardByName(name, qty, null);  // null=APIレスポンスのis_exで自動判定
   }
+  sortPoolCards('poolRow');  // 種別ソート（モンスター→魔法→罠）
   if (msg) { msg.textContent = ''; msg.style.display = 'none'; }
 }
 
@@ -153,6 +154,7 @@ export async function loadMetaDeck(theme) {
       // is_ex フィールドを直接使用（meta_scraper.py 側で付与済み）
       await addCardByName(name, qty, !!is_ex);
     }
+    sortPoolCards('poolRow');  // 種別ソート（モンスター→魔法→罠）
   } catch (e) {
     alert(`環境デッキの読み込みに失敗しました: ${e.message}`);
   }

@@ -2140,6 +2140,67 @@ def api_card_images():
     return resp
 
 
+# カード種別キャッシュ（カード名 → "monster"|"spell"|"trap"|"unknown"）
+# 種別は変化しないので無期限保持
+_card_type_cache: dict = {}
+
+@app.route("/api/card-types", methods=["POST"])
+def api_card_types():
+    """複数カード名の種別（monster/spell/trap）を一括返却。サーバー側メモリキャッシュ付き。
+    リクエスト: {"names": ["カード名A", ...]}
+    レスポンス: {"types": {"カード名A": "monster"|"spell"|"trap"|"unknown", ...}}
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed as _ac
+
+    body = request.get_json(force=True, silent=True) or {}
+    names = body.get("names", [])
+    if not isinstance(names, list):
+        return jsonify({"error": "names must be a list"}), 400
+    names = [str(n).strip() for n in names if n][:MAX_DECK_CARDS]
+
+    result = {}
+    need_fetch = []
+    for name in names:
+        if name in _card_type_cache:
+            result[name] = _card_type_cache[name]
+        else:
+            need_fetch.append(name)
+
+    if need_fetch:
+        def _fetch_one(n):
+            try:
+                idx = _get_ygores_name_index()
+                ids = idx.get(n)
+                if not ids and _ygores_fuzzy_index:
+                    ids = _ygores_fuzzy_index.get(_fuzzy_key(n))
+                if not ids:
+                    return n, "unknown"
+                cid = ids[0]
+                resp = _http.get(
+                    f"https://db.ygoresources.com/data/card/{cid}",
+                    timeout=5,
+                    headers={"User-Agent": _BROWSER_UA},
+                )
+                if resp.status_code != 200:
+                    return n, "unknown"
+                ct = resp.json().get("cardData", {}).get("ja", {}).get("cardType", "") or "unknown"
+                return n, ct  # "monster" | "spell" | "trap"
+            except Exception:
+                return n, "unknown"
+
+        with ThreadPoolExecutor(max_workers=min(len(need_fetch), 8)) as executor:
+            futs = {executor.submit(_fetch_one, n): n for n in need_fetch}
+            for future in _ac(futs, timeout=15):
+                try:
+                    n, t = future.result()
+                    result[n] = t
+                    _card_type_cache[n] = t
+                except Exception:
+                    result[futs[future]] = "unknown"
+
+    return jsonify({"types": result})
+
+
 @app.route("/api/card-image-proxy")
 def api_card_image_proxy():
     """カーナベル画像をRenderサーバー経由でバイナリ転送する（GitHub Actions向け）。

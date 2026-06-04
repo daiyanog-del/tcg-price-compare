@@ -125,7 +125,13 @@ export function sortPoolCards(poolId) {
   const pool = document.getElementById(poolId);
   if (!pool) return;
 
+  const TYPE_ORDER = {monster: 0, spell: 1, trap: 2};
+
   const sortedItems = Array.from(pool.children).sort((a, b) => {
+    const ta = TYPE_ORDER[a.dataset.cardType] ?? 3;
+    const tb = TYPE_ORDER[b.dataset.cardType] ?? 3;
+    if (ta !== tb) return ta - tb;
+    // 同種別内は元のID順を維持
     const idA = a.querySelector('img')?.id.toLowerCase() || '';
     const idB = b.querySelector('img')?.id.toLowerCase() || '';
     return idA.localeCompare(idB);

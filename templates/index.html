@@ -2043,6 +2043,31 @@ function normalizeDeck(deck){
   return parseDeckSections(deck.text||'');
 }
 
+// カード種別ソート順（モンスター→魔法→罠）
+const _DECK_TYPE_ORDER={monster:0,spell:1,trap:2};
+
+// カード配列を種別順にソートして返す（/api/card-typesで取得、サーバー側キャッシュ済み）
+async function sortCardsByType(cards){
+  if(!cards.length) return cards;
+  try{
+    const names=[...new Set(cards.map(c=>c.name))];
+    const res=await fetch('/api/card-types',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({names})
+    });
+    if(!res.ok) return cards;
+    const {types}=await res.json();
+    return [...cards].sort((a,b)=>{
+      const ta=_DECK_TYPE_ORDER[types[a.name]]??3;
+      const tb=_DECK_TYPE_ORDER[types[b.name]]??3;
+      return ta-tb;
+    });
+  }catch{
+    return cards;
+  }
+}
+
 // デッキをカード画像グリッドとして描画（main/ex 2セクション）
 function renderDeckGrid(cards, ctx, mainCount){
   const listEl=document.getElementById(ctx.list);
@@ -2522,9 +2547,7 @@ async function calcDeckEstimate(ctx){
     main=parseDeckList(ctx.getText());
     ex=[];
   }
-  const cards=[...main,...ex];
-  const mainCount=main.length;
-  if(!cards.length) return;
+  if(![...main,...ex].length) return;
 
   const resultsEl=document.getElementById(ctx.results);
   const listEl=document.getElementById(ctx.list);
@@ -2535,7 +2558,11 @@ async function calcDeckEstimate(ctx){
   totalEl.textContent='取得中...';
   totalLabel.textContent='デッキ相場（直近データ）';
 
-  // グリッド描画 → 画像を非同期ロード
+  // メインデッキを種別ソート（モンスター→魔法→罠）してグリッド描画
+  const sortedMain=await sortCardsByType(main);
+  const cards=[...sortedMain,...ex];
+  const mainCount=sortedMain.length;
+
   renderDeckGrid(cards,ctx,mainCount);
   loadDeckGridImages(listEl);
 
@@ -2665,9 +2692,7 @@ async function calcDeck(buyMode){
     _currentMydeckText=text;
   }
   const {main,ex}=_currentMydeckCards;
-  const cards=[...main,...ex];
-  const mainCount=main.length;
-  if(!cards.length) return;
+  if(![...main,...ex].length) return;
 
   const ctx=DECK_CTX.mydeck;
   const resultsEl=document.getElementById('deckResults');
@@ -2679,7 +2704,11 @@ async function calcDeck(buyMode){
   totalEl.textContent='計算中...';
   totalLabel.textContent=isBuy?'買取合計（推定）':'デッキ合計最安値（推定）';
 
-  // グリッド描画 → 画像を非同期ロード
+  // メインデッキを種別ソート（モンスター→魔法→罠）してグリッド描画
+  const sortedMain=await sortCardsByType(main);
+  const cards=[...sortedMain,...ex];
+  const mainCount=sortedMain.length;
+
   renderDeckGrid(cards,ctx,mainCount);
   loadDeckGridImages(listEl);
 
