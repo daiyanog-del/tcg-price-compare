@@ -21,14 +21,27 @@
 @media (max-width: 767px) {
 
   /* ── 横スクロール防止 ── */
-  .sol-main {
-    overflow-x: hidden;
-  }
+  /* .sol-main には overflow-x を指定しない: プール(.pool)の独立スクロールを妨げないため。
+     フィールド盤面の横溢れは JS の fitFieldToViewport() が計算で防ぐ。 */
   #mainContainer {
     overflow-x: hidden;
     /* カード詳細パネル分の左パディングオフセットを解除 */
     padding-left: 4px;
     padding-right: 4px;
+  }
+
+  /* ── デッキ/EXデッキ: 横スクロール可能なカードプール ── */
+  /* カードが画面外にはみ出す場合に横スワイプで閲覧・選択できるようにする */
+  .pool {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch; /* iOS 慣性スクロール */
+    overscroll-behavior-x: contain;   /* スクロール連鎖をプール内で止める */
+  }
+  /* プール行を折り返しなし・横並びに固定 */
+  .pool .tier-row {
+    flex-wrap: nowrap;
+    min-width: max-content;
   }
   .sol-field-area {
     padding: 0 2px 4px 2px;
@@ -127,10 +140,7 @@
    ════════════════════════════════════════════════════ */
 @media (orientation: landscape) and (max-height: 499px) {
 
-  /* ── 横スクロール防止 ── */
-  .sol-main {
-    overflow-x: hidden;
-  }
+  /* ── 横スクロール防止 (sol-main は指定しない: プールスクロールを妨げないため) ── */
   #mainContainer {
     overflow-x: hidden;
     padding-left: 4px;

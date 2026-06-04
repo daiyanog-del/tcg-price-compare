@@ -309,7 +309,10 @@ export function initializeDesktopDragDrop() {
  * @param {TouchEvent} ev - touchstartイベント
  */
 export function enableTouchDrag(ev) {
-  ev.preventDefault();
+  // デッキ/EXデッキ内では touchstart の preventDefault をスキップし横スクロールを許可する。
+  // ドラッグ開始後（8px 移動検知時）の handleTouchMove で preventDefault を呼ぶ。
+  const inPool = ev.currentTarget?.closest?.('#imagePool, #imagePool2');
+  if (!inPool) ev.preventDefault();
 
   const draggedInfo = getDraggedElementInfo(ev.target);
   if (!draggedInfo) return;
@@ -352,6 +355,10 @@ export function enableTouchDrag(ev) {
     }
 
     if (isDragging) {
+      // ドラッグ中はページ/プールのスクロールを防止
+      // (touchstart で preventDefault をスキップしたプールカードでも、
+      //  ドラッグ開始後はここで止める)
+      ev.preventDefault();
       draggingElem.classList.add('touch-dragging');
       draggingElem.style.left = `${touch.clientX - draggingElem.offsetWidth / 2}px`;
       draggingElem.style.top  = `${touch.clientY - draggingElem.offsetHeight / 2}px`;
