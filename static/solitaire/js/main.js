@@ -89,7 +89,13 @@ function fitFieldToViewport() {
   const availW  = mainEl ? mainEl.clientWidth : window.innerWidth;
   const slotW_w = Math.floor((availW - 86) / 7.1);
 
-  const slotW = Math.max(60, Math.min(110, Math.min(slotW_h, slotW_w)));
+  // スマホ（<768px）ではクランプを緩める:
+  //   下限を 34px に下げて盤面が縦持ちで横スクロールなしに収まるようにする。
+  //   上限を 200px に上げて横向き時に大きく表示する。
+  const isNarrow = window.innerWidth < 768;
+  const minW = isNarrow ? 34 : 60;
+  const maxW = isNarrow ? 200 : 110;
+  const slotW = Math.max(minW, Math.min(maxW, Math.min(slotW_h, slotW_w)));
   document.documentElement.style.setProperty('--slot-width', `${slotW}px`);
 
   // リサイズ・初期化時にもパネル幅を再計算（開閉問わず）

@@ -12,3 +12,105 @@
 
 /* 注: サイドバーの自動開閉・slot-width のレスポンシブ算出は
        JS側 (main.js / sidebar-toggle.js) で matchMedia を用いて処理する。 */
+
+/* ── スマホ向けレイアウト (<768px) ── */
+@media (max-width: 767px) {
+
+  /* ── 横スクロール防止 ── */
+  /* JS の fitFieldToViewport() 初回実行前にスクロールが出ないよう clip する */
+  .sol-main {
+    overflow-x: hidden;
+  }
+  #mainContainer {
+    overflow-x: hidden;
+    /* カード詳細パネル(sol-cip-col)はモバイルで非表示にするため
+       slot-width ベースの左パディングオフセットを解除する */
+    padding-left: 4px !important;
+    padding-right: 4px !important;
+  }
+  .sol-field-area {
+    padding: 0 2px 4px 2px;
+  }
+
+  /* ── カード詳細パネルとそのトグルボタンを非表示 ── */
+  /* PC向けホバー機能のためモバイルでは不要 */
+  .sol-cip-col,
+  #cipToggle {
+    display: none !important;
+  }
+
+  /* ── リプレイバー: スマホ向け再構成 ── */
+
+  /* コンテナ: 下部に固定、ボタンを2行に整理 */
+  #replayBarContainer.replay-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 40;
+    border-radius: 8px 8px 0 0;
+    padding: 6px 8px;
+    gap: 6px;
+  }
+
+  /* 再生系ボタンのタップ領域を拡大 (Appleガイドライン 44px) */
+  .replay-btn {
+    min-height: 44px;
+    min-width: 44px;
+    font-size: 0.95rem;
+    padding: 8px 14px;
+  }
+
+  /* 行1: スライダーを全幅 */
+  #replaySlider {
+    order: 1;
+    flex: 1 1 100%;
+    height: 28px;
+    margin-bottom: 2px;
+  }
+
+  /* 行1: スライダーの右隣にカウンターを表示 */
+  #replayCounter {
+    order: 2;
+    font-size: 0.9rem;
+    flex: 0 0 auto;
+    align-self: center;
+  }
+
+  /* 行2: 前 / 取消 / 再生 / 次 の順で大きく並べる */
+  #replayBack  { order: 3; flex: 1 1 0; }
+  #replayUndo  { order: 4; flex: 1 1 0; }
+  #replayPlay  { order: 5; flex: 2 1 0; } /* 再生は一番目立たせる */
+  #replayFwd   { order: 6; flex: 1 1 0; }
+
+  /* 編集系コントロールはモバイルでは非表示（視聴に特化） */
+  /* 保存・読込・コメント追加・共有リンク・X投稿 */
+  #replayCommentInput,
+  #replayAddComment,
+  #replayExport,
+  #replayShare,
+  #replayShareX {
+    display: none !important;
+  }
+  /* 読込ラベル（input[type=file] を内包） */
+  .replay-bar > label {
+    display: none !important;
+  }
+
+  /* コメントトースト: モバイルで読みやすく */
+  #replayCommentToast {
+    max-width: 92vw;
+    font-size: 1.05rem;
+  }
+
+  /* 盤面スロットの最小横幅制約を解除（slot-width が小さくなるため） */
+  #mainContainer,
+  .pool {
+    min-width: 0 !important;
+  }
+
+  /* サイドパネルのトグルボタンをモバイル向けに少し大きく */
+  .sol-panel-toggle {
+    width: 28px;
+    min-height: 48px;
+    font-size: 0.9rem;
+  }
+}
