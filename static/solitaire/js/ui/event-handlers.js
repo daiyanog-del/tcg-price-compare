@@ -1,12 +1,7 @@
 import {
-  addCardToPool,
-  addCardsToPool,
   returnAllCardsToDeck,
   drawRandomCards,
 } from '../components/card-manager.js';
-import { extractCardsFromNeuronImage, extractImagesFromClipboard } from '../services/image-service.js';
-import { selectFolderAndFilterImages } from './folder-selector.js';
-import { ImageBrowserModal } from './image-browser-modal.js';
 import { SaveLoadModal } from './save-load-modal.js';
 import { registerCardImage } from '../services/replay-service.js';
 import { initDeckInputPanel, loadDeckFromText, loadExDeckFromText } from './deck-input-panel.js';
@@ -17,50 +12,6 @@ import { NeuronPreviewModal } from '/static/shared/neuron-preview-modal.js';
  * UIイベントハンドラ（カード相場向け改変版）
  * ベース: Solo Mode (Fugarta, MIT) — 絵文字除去・リプレイフック・デッキ入力追加
  */
-
-/**
- * 画像アップロードイベントハンドラ
- * @param {Event} event - changeイベント
- */
-export async function handleImageUpload(event) {
-  const files = Array.from(event.target.files);
-  if (files.length === 0) return;
-
-  // 複数ファイル = 個別カード画像として扱う
-  if (files.length > 1) {
-    for (const file of files) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const src = e.target.result;
-        addCardToPool(src, false);
-        // リプレイ登録は card-manager 内で行うため不要（後続のregisterCardImage確認済）
-      };
-      reader.readAsDataURL(file);
-    }
-    return;
-  }
-
-  // 単一ファイル = ニューロン画像として処理
-  const file = files[0];
-  try {
-    const { mainDeck, exDeck } = await extractCardsFromNeuronImage(file);
-    addCardsToPool(mainDeck, false);
-    addCardsToPool(exDeck, true);
-    // ニューロン画像はDataURLのためimages辞書に登録（後でcard-managerから呼ばれる）
-  } catch (error) {
-    alert(error.message);
-    console.error('ニューロン画像の処理エラー:', error);
-  }
-}
-
-/**
- * 画像ペーストイベントハンドラ
- * @param {ClipboardEvent} event - pasteイベント
- */
-export async function handleImagePaste(event) {
-  const images = await extractImagesFromClipboard(event);
-  images.forEach(dataURL => addCardToPool(dataURL, true));
-}
 
 /**
  * 盤面保存（画像）ボタンのイベントハンドラ
@@ -145,24 +96,6 @@ export async function handleNeuronPdfSelect(event) {
 }
 
 /**
- * フォルダ選択ボタンのイベントハンドラ
- */
-export async function handleFolderSelect() {
-  try {
-    const filteredImages = await selectFolderAndFilterImages();
-    if (filteredImages.length === 0) {
-      alert('適切なアスペクト比の画像が見つかりませんでした。');
-      return;
-    }
-    const modal = new ImageBrowserModal(filteredImages);
-    modal.show();
-  } catch (error) {
-    alert('フォルダ選択エラー: ' + error.message);
-    console.error(error);
-  }
-}
-
-/**
  * セーブボタンのイベントハンドラ
  */
 export function handleSaveGame() {
@@ -227,13 +160,8 @@ export function setupToggleVisibility(elements) {
  * すべてのイベントリスナーを設定
  */
 export function initializeEventListeners() {
-  document.getElementById('imageUpload')
-    ?.addEventListener('change', handleImageUpload);
-
   document.getElementById('neuronPdfUpload')
     ?.addEventListener('change', handleNeuronPdfSelect);
-
-  document.addEventListener('paste', handleImagePaste);
 
   document.getElementById('saveButton')
     ?.addEventListener('click', handleSaveBoard);
@@ -246,9 +174,6 @@ export function initializeEventListeners() {
 
   document.getElementById('randomButton')
     ?.addEventListener('click', handleDrawOne);
-
-  document.getElementById('folderSelectButton')
-    ?.addEventListener('click', handleFolderSelect);
 
   document.getElementById('saveButton2')
     ?.addEventListener('click', handleSaveGame);

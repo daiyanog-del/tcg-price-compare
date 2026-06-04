@@ -24,7 +24,6 @@
 <link rel="manifest" href="/static/manifest.json">
 <meta name="theme-color" content="#0a1024">
 
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.0/dist/tesseract.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
 <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
 <link rel="stylesheet" href="/static/solitaire/css/main.css">
@@ -55,35 +54,23 @@
       <div id="deckInputContainer" class="deck-input-panel">
         <!-- タブ（縦並び） -->
         <div class="deck-input-tabs">
-          <button class="deck-input-tab active" data-pane="deckPaneNeuron">ニューロン画像</button>
+          <button class="deck-input-tab active" data-pane="deckPaneNeuron">ニューロン(PDF)</button>
           <button class="deck-input-tab" data-pane="deckPaneText">テキスト入力</button>
           <button class="deck-input-tab" data-pane="deckPanePreset">環境デッキ</button>
           <button class="deck-input-tab" data-pane="deckPaneMyDeck">マイデッキ</button>
         </div>
 
-        <!-- ニューロン画像 -->
+        <!-- ニューロン(PDF) -->
         <div class="deck-input-pane active" id="deckPaneNeuron">
-          <label class="sol-upload-label">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            画像を選択
-            <input type="file" id="imageUpload" accept="image/*" multiple>
+          <label class="sol-upload-label" style="background:linear-gradient(90deg,#1e3a5f,#2d5a8e)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            PDFから取り込む
+            <input type="file" id="neuronPdfUpload" accept="application/pdf">
           </label>
-          <button id="folderSelectButton">フォルダから選択</button>
-          <p class="sol-upload-note">
-            ニューロン → Discordに投稿した画像を選択してください。<br>
-            メイン40枚以上・EX11枚以上・サイドなしの画像に対応。
+          <p class="sol-upload-note" style="margin-top:6px">
+            ニューロン → デッキシート(PDF)を選択。<br>
+            カード名が自動で読み取られます。
           </p>
-          <div style="margin-top:10px;border-top:1px solid #2d3f5a;padding-top:10px">
-            <label class="sol-upload-label" style="background:linear-gradient(90deg,#1e3a5f,#2d5a8e)">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-              PDFから取り込む
-              <input type="file" id="neuronPdfUpload" accept="application/pdf">
-            </label>
-            <p class="sol-upload-note" style="margin-top:6px">
-              ニューロン → デッキシート(PDF)を選択。<br>
-              カード名が自動で読み取られます。
-            </p>
-          </div>
         </div>
 
         <!-- テキスト入力 -->
