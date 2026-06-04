@@ -199,6 +199,15 @@ function initializeApp() {
     _fitTimer = setTimeout(fitFieldToViewport, 150);
   });
 
+  // デスクトップPWA（standalone）では window.resize が発火しないケースがある（Chromium既知挙動）。
+  // visualViewport の resize を追加のリスナーとして登録しフォールバックとする。
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', () => {
+      clearTimeout(_fitTimer);
+      _fitTimer = setTimeout(fitFieldToViewport, 150);
+    });
+  }
+
   // 相手妨害トレイの開閉に連動して再計算
   window.addEventListener('opp-tray-resize', fitFieldToViewport);
 
