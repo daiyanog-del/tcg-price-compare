@@ -1603,12 +1603,14 @@ def solitaire_replay_save():
         if not logs:
             return {"error": "logsが空です"}, 400
         replay_id = secrets.token_urlsafe(8)
+        now_iso = datetime.now(timezone.utc).isoformat()
         payload = {
             "id": replay_id,
             "title": title,
             "images": images,
             "names": names,
             "logs": logs,
+            "created_at": now_iso,
         }
         _supabase_client.table("solitaire_replays").insert(payload).execute()
         return {"id": replay_id}
