@@ -2633,6 +2633,7 @@ async function calcDeckEstimate(ctx){
     }
   }catch(e){
     progEl.textContent='エラーが発生しました。再度お試しください。';
+    console.error('[calcDeckEstimate]', e && (e.stack||e.message||e));
   }
 }
 
