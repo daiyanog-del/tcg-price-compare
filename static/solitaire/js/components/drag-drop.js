@@ -309,10 +309,10 @@ export function initializeDesktopDragDrop() {
  * @param {TouchEvent} ev - touchstartイベント
  */
 export function enableTouchDrag(ev) {
-  // デッキ/EXデッキ内では touchstart の preventDefault をスキップし横スクロールを許可する。
+  // デッキ/EXデッキ/手札エリアでは touchstart の preventDefault をスキップし横スクロールを許可。
   // ドラッグ開始後（8px 移動検知時）の handleTouchMove で preventDefault を呼ぶ。
-  const inPool = ev.currentTarget?.closest?.('#imagePool, #imagePool2');
-  if (!inPool) ev.preventDefault();
+  const inScrollZone = ev.currentTarget?.closest?.('#imagePool, #imagePool2, .sol-hand-area');
+  if (!inScrollZone) ev.preventDefault();
 
   const draggedInfo = getDraggedElementInfo(ev.target);
   if (!draggedInfo) return;

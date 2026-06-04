@@ -65,6 +65,26 @@
     min-width: 0;
   }
 
+  /* ── 手札 / EXデッキ のスペース配分 ── */
+  /* 手札エリアが広すぎるため 3:2 で分割し EXデッキに十分な幅を確保 */
+  .sol-hand-area {
+    flex: 3 1 0;
+    min-width: 0;
+  }
+  #imagePool2 {
+    flex: 2 1 0;
+    min-width: 0;
+  }
+  /* 手札の center-slot: 固定幅 (6×slot-width) を解除して親の幅に追従。
+     カードが溢れたときは横スクロールで全カードを閲覧できるようにする。 */
+  .sol-hand-area .center-slot {
+    width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+
   /* ── リプレイバー: スマホ視聴向け再構成 ── */
 
   /* 下部に固定して常に操作できるようにする */
