@@ -130,12 +130,6 @@ body {
   margin-left: var(--gap);
 }
 
-.left-rectangle-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
 
 #free-space {
   display: flex;

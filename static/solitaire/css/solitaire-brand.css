@@ -704,42 +704,6 @@ html, body {
 .reset-btn { background: var(--bg-card); border-color: #94a3b8; color: #94a3b8; }
 .reset-btn:hover { background: #94a3b8; color: #0a1024; transform: translateY(-1px); }
 
-/* ── カウンター（サイドパネル） ── */
-.left-rectangle {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-
-/* パネル内カウンターの数値欄 */
-.counter-container:not(.tier-item-wrapper .counter-container) .counter-textbox {
-  background: var(--bg-surface);
-  color: var(--main-color);
-  border: 1.5px solid var(--border);
-  border-radius: 6px;
-  font-family: var(--mono);
-}
-
-/* パネル内ボタン */
-.counter-container:not(.tier-item-wrapper .counter-container) .triangle-button {
-  background: var(--bg-surface);
-  color: var(--main-color);
-  border: 1.5px solid var(--border);
-  border-radius: 6px;
-  transition: background 0.15s, border-color 0.15s;
-}
-.counter-container:not(.tier-item-wrapper .counter-container) .triangle-button.up:hover {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-.counter-container:not(.tier-item-wrapper .counter-container) .triangle-button.down:hover {
-  background: var(--red);
-  border-color: var(--red);
-  color: #fff;
-}
-
-/* カード上カウンターは components.css の .tier-item-wrapper .counter-container が担当 */
 
 /* ── モーダル ── */
 .modal-overlay { background: rgba(0,0,0,0.7); }

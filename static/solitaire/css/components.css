@@ -218,8 +218,7 @@
 
 /* ラベル */
 .side-slot-label,
-.center-slot-label,
-.left-rectangle-label {
+.center-slot-label {
   font-size: var(--mini-font-size);
   font-weight: bold;
   text-align: center;
@@ -233,20 +232,6 @@
 
 .side-slot-label {
   margin-bottom: 5px;
-}
-
-/* カウンター */
-.left-rectangle {
-  width: calc(var(--slot-width) * 0.7);
-  height: calc(var(--slot-height) * 0.6);
-  background: var(--bg-card, #1a2547);
-  border: 1.5px solid var(--border, #2a3a6a);
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 55px;
-  min-height: 70px;
 }
 
 /* カウンター（バッジスタイル統一） */
