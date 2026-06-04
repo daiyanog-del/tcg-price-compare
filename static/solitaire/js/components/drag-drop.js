@@ -388,8 +388,9 @@ export function enableTouchDrag(ev) {
       ev.preventDefault();
       draggingElem.classList.add('touch-dragging');
       draggingElem.style.left = `${touch.clientX - draggingElem.offsetWidth / 2}px`;
-      // カードを指の真上に表示: 指の下にドロップ先が見えて配置精度が上がる
-      draggingElem.style.top  = `${touch.clientY - draggingElem.offsetHeight - 10}px`;
+      // 指がカード下端付近に来るよう少し浮かせる。
+      // 判定はカードの視覚的下端(= clientY)を使うため、カードをスロットに当てる直感が正しい。
+      draggingElem.style.top  = `${touch.clientY - draggingElem.offsetHeight}px`;
     }
   };
 
@@ -400,7 +401,9 @@ export function enableTouchDrag(ev) {
 
     if (isDragging) {
       const touch = ev.changedTouches[0];
-      // 直接ヒットしなかった場合に近隣ゾーンを探す（ギャップ・空白セル対策）
+      // 判定位置: カードの視覚的下端(= clientY) でスロットを探す。
+      // top = clientY - offsetHeight なのでカード下端 = clientY。
+      // 「カードをスロットに当てる」操作がそのまま正確なドロップ位置になる。
       const dropTarget = findNearestDropZone(touch.clientX, touch.clientY);
 
       if (dropTarget) {
