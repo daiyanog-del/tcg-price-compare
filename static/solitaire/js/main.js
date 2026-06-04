@@ -82,11 +82,8 @@ function fitFieldToViewport() {
   const slotW = Math.max(60, Math.min(110, Math.floor(available / 7.54)));
   document.documentElement.style.setProperty('--slot-width', `${slotW}px`);
 
-  // リサイズ時にもパネル幅を再計算（トレイが開いている場合）
-  requestAnimationFrame(() => {
-    const t = document.getElementById('opponentTray');
-    if (t && !t.classList.contains('collapsed')) updateCipWidth(true);
-  });
+  // リサイズ・初期化時にもパネル幅を再計算（開閉問わず）
+  requestAnimationFrame(() => updateCipWidth());
 }
 
 let _fitTimer = null;
@@ -152,7 +149,7 @@ function initializeApp() {
   }
 
   // ビューポートに合わせて --slot-width を初期設定
-  // ※ fitFieldToViewport 内の RAF でトレイ開時のパネル幅も更新される
+  // ※ fitFieldToViewport 内の RAF でパネル幅（--cip-width）も更新される
   fitFieldToViewport();
 
   // ウィンドウリサイズ時に再計算（デバウンス 150ms）

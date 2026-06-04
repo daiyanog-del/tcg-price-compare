@@ -56,20 +56,14 @@ export function initOpponentTray() {
 /**
  * カード詳細パネルの幅を制御する CSS 変数 --cip-width を更新する。
  *
- * open=true: .custom-layout の左端を実測し、盤面に被らない最大幅を px で設定。
- *            デフォルト幅(3.3x)より広い場合のみ拡張する。
- * open=false: --cip-width を削除してフォールバック(3.3x)に戻す。
+ * .custom-layout（ゲームグリッド）の左端を実測し、
+ * 盤面に被らない最大幅を常に px でセットする。
+ * トレイ開閉状態に関わらず同じロジック。
  *
- * ※ レイアウト確定後（requestAnimationFrame 内 or field-layout-settled 後）に
- *    呼ぶこと。
+ * ※ レイアウト確定後（requestAnimationFrame 内）に呼ぶこと。
  */
-function _updateCipWidth(open) {
-  if (!open) {
-    document.documentElement.style.removeProperty('--cip-width');
-    return;
-  }
-
-  const fieldArea   = document.querySelector('.sol-field-area');
+function _updateCipWidth() {
+  const fieldArea    = document.querySelector('.sol-field-area');
   const customLayout = document.querySelector('.custom-layout');
   if (!fieldArea || !customLayout) return;
 
@@ -78,19 +72,13 @@ function _updateCipWidth(open) {
 
   // 盤面左端 − フィールド左端 − パネル開始位置(10px) − cipToggle幅+余白(28px)
   const maxW = Math.floor(clLeft - faLeft - 38);
-
-  const slotW = parseFloat(
-    getComputedStyle(document.documentElement).getPropertyValue('--slot-width')
-  ) || 80;
-
-  // デフォルト幅(slot_w × 3.3)より広い場合のみ拡張
-  if (maxW > slotW * 3.3) {
+  if (maxW > 0) {
     document.documentElement.style.setProperty('--cip-width', `${maxW}px`);
   }
 }
 
 /** main.js から呼べるよう export */
-export function updateCipWidth(open) { _updateCipWidth(open); }
+export function updateCipWidth() { _updateCipWidth(); }
 
 function _syncCipPosition() {
   requestAnimationFrame(() => {
@@ -281,16 +269,10 @@ function _bindToggle() {
       body.removeAttribute('hidden');
     }
     _persistToggleState(!collapsed);
-    if (collapsed) {
-      // 閉時: 幅を即座に元に戻してアニメーション開始
-      document.documentElement.style.removeProperty('--cip-width');
-    }
     // トレイ高さ変化 → main.js が --slot-width を再計算（fitFieldToViewport）
     window.dispatchEvent(new Event('opp-tray-resize'));
-    if (!collapsed) {
-      // 開時: fitFieldToViewport で slot-width が確定した後のレイアウトで測定
-      requestAnimationFrame(() => _updateCipWidth(true));
-    }
+    // slot-width 確定後のレイアウトでパネル幅を測定（開閉問わず）
+    requestAnimationFrame(() => _updateCipWidth());
     _syncCipPosition();
   });
 }
