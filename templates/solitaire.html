@@ -56,7 +56,7 @@
         <div class="deck-input-tabs">
           <button class="deck-input-tab active" data-pane="deckPaneNeuron">ニューロン(PDF)</button>
           <button class="deck-input-tab" data-pane="deckPaneText">テキスト入力</button>
-          <button class="deck-input-tab" data-pane="deckPanePreset">環境デッキ</button>
+          <button class="deck-input-tab" data-pane="deckPanePreset">環境デッキ（サンプル）</button>
           <button class="deck-input-tab" data-pane="deckPaneMyDeck">マイデッキ</button>
         </div>
 
@@ -105,6 +105,11 @@
         <button id="saveButton">盤面を画像保存</button>
         <button id="shareXButton">Xに投稿</button>
       </div>
+    </div>
+
+    <!-- フィードバック -->
+    <div class="sol-sidebar-section">
+      <button id="feedbackOpenBtn" class="sol-feedback-open-btn">不具合・要望を送る</button>
     </div>
 
     <!-- クレジット -->
@@ -343,6 +348,40 @@
     <div id="randomOverlayFace" class="sol-random-overlay-face"></div>
     <div id="randomOverlayLabel" class="sol-random-overlay-label"></div>
     <p class="sol-random-overlay-hint">クリックで閉じる</p>
+  </div>
+</div>
+
+<!-- フィードバックモーダル -->
+<div id="feedbackModal" class="sol-fb-overlay" style="display:none">
+  <div class="sol-fb-backdrop" data-fb-close></div>
+  <div class="sol-fb-dialog" role="dialog" aria-modal="true" aria-labelledby="fbTitle">
+    <div class="sol-fb-header">
+      <h2 id="fbTitle">不具合・要望を送る</h2>
+      <button type="button" class="sol-fb-close" data-fb-close aria-label="閉じる">×</button>
+    </div>
+    <div class="sol-fb-body">
+      <label class="sol-fb-label" for="fbKind">種別</label>
+      <select id="fbKind" class="sol-fb-select">
+        <option value="bug">不具合（バグ）</option>
+        <option value="request">要望</option>
+        <option value="other">その他</option>
+      </select>
+
+      <label class="sol-fb-label" for="fbBody">本文 <span class="sol-fb-req">*</span></label>
+      <textarea id="fbBody" class="sol-fb-textarea" maxlength="2000"
+        placeholder="不具合の再現手順や要望の内容をご記入ください"></textarea>
+      <div class="sol-fb-count"><span id="fbCount">0</span> / 2000</div>
+
+      <label class="sol-fb-label" for="fbContact">連絡先（任意）</label>
+      <input type="text" id="fbContact" class="sol-fb-input" maxlength="200"
+        placeholder="メール / X など（返信が必要な場合）">
+
+      <p id="fbStatus" class="sol-fb-status" style="display:none"></p>
+    </div>
+    <div class="sol-fb-footer">
+      <button type="button" class="sol-fb-cancel" data-fb-close>キャンセル</button>
+      <button type="button" id="fbSubmit" class="sol-fb-submit">送信する</button>
+    </div>
   </div>
 </div>
 

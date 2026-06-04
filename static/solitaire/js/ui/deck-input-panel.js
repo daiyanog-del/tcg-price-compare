@@ -209,11 +209,14 @@ async function loadMetaTierList() {
     listEl.innerHTML = '';
     tiers.forEach(item => {
       const theme = item.theme || item.name || item;
-      const btn = document.createElement('button');
-      btn.className = 'meta-tier-btn';
-      btn.textContent = theme;
-      btn.addEventListener('click', () => loadMetaDeck(theme));
-      listEl.appendChild(btn);
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'deck-card-row';
+      row.innerHTML =
+        `<span class="deck-card-info"><span class="deck-card-name">${_esc(String(theme))}</span></span>`
+        + `<span class="deck-card-hint">読込 ›</span>`;
+      row.addEventListener('click', () => loadMetaDeck(theme));
+      listEl.appendChild(row);
     });
     listEl.dataset.loaded = 'true';
   } catch (e) {
@@ -249,21 +252,16 @@ function renderMyDeckList() {
         ? new Date(deck.updated).toLocaleDateString('ja-JP', { month: '2-digit', day: '2-digit' })
         : '';
 
-      const row = document.createElement('div');
-      row.className = 'my-deck-row';
-
-      const info = document.createElement('div');
-      info.className = 'my-deck-info';
-      info.innerHTML = `<span class="my-deck-name">${_esc(deck.name || '無題')}</span>`
-                     + (date ? `<span class="my-deck-date">${date}</span>` : '');
-
-      const btn = document.createElement('button');
-      btn.className = 'my-deck-load-btn';
-      btn.textContent = '読み込む';
-      btn.addEventListener('click', () => loadDeckFromText(deck.text || ''));
-
-      row.appendChild(info);
-      row.appendChild(btn);
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'deck-card-row';
+      row.innerHTML =
+        `<span class="deck-card-info">`
+        + `<span class="deck-card-name">${_esc(deck.name || '無題')}</span>`
+        + (date ? `<span class="deck-card-date">${date}</span>` : '')
+        + `</span>`
+        + `<span class="deck-card-hint">読込 ›</span>`;
+      row.addEventListener('click', () => loadDeckFromText(deck.text || ''));
       listEl.appendChild(row);
     });
 }

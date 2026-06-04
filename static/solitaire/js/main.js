@@ -14,6 +14,7 @@ import { initRandomTools } from './ui/random-tools.js';
 import { initCardInfoPanel } from './ui/card-info-panel.js';
 import { saveSessionResume, loadSessionResume } from './services/save-load-service.js';
 import { initOpponentTray, updateCipWidth } from './ui/opponent-tray.js';
+import { initFeedbackModal } from './ui/feedback-modal.js';
 
 /**
  * カード追加時にリプレイ画像辞書へ登録するフック
@@ -125,6 +126,9 @@ function initializeApp() {
 
   // 相手の想定妨害ミニ盤面を初期化
   initOpponentTray();
+
+  // フィードバック（不具合・要望）モーダルを初期化
+  initFeedbackModal();
 
   // ゾーン枚数カウント初期化
   initZoneCounts();

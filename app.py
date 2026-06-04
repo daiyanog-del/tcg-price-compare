@@ -149,6 +149,14 @@ MAX_PACK_PARAM_LEN = 120
 # ヘルスチェック用シークレットキー
 HEALTH_CHECK_KEY = os.environ.get("HEALTH_CHECK_KEY", "")
 
+# フィードバック（不具合・要望）受付
+FEEDBACK_RATE_LIMIT_SEC   = 30    # 同一IP 30秒に1回まで
+MAX_FEEDBACK_BODY_CHARS   = 2000
+MAX_FEEDBACK_CONTACT_CHARS = 200
+_last_feedback: dict[str, float] = {}
+_feedback_lock = Lock()
+_DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
+
 # アフィリエイト設定（環境変数から取得）
 AFFILIATE_CONFIG = {
     "カーナベル": {
@@ -1828,6 +1836,91 @@ def api_push_unsubscribe():
     except Exception as e:
         logger.warning(f"[push/unsubscribe] 削除失敗: {e}")
         return jsonify({"error": "削除に失敗しました"}), 500
+
+
+# ── フィードバック（不具合・要望） ──
+
+@app.route("/api/feedback", methods=["POST"])
+def api_feedback():
+    """一人回しページ等からの不具合・要望を受け付ける。
+    入力: {kind: "bug"|"request"|"other", body: str, contact: str, page: str}
+    """
+    # フィードバック専用レートリミット（30秒、IP単位）
+    client_ip = request.remote_addr or "unknown"
+    now = time.time()
+    with _feedback_lock:
+        last = _last_feedback.get(client_ip, 0)
+        if now - last < FEEDBACK_RATE_LIMIT_SEC:
+            return jsonify({"error": "しばらく待ってから再度送信してください"}), 429
+        _last_feedback[client_ip] = now
+        # 古い記録の掃除
+        if len(_last_feedback) > RATE_LIMIT_MAX_ENTRIES:
+            cutoff = now - 3600
+            stale = [ip for ip, ts in _last_feedback.items() if ts < cutoff]
+            for ip in stale:
+                del _last_feedback[ip]
+
+    data = request.get_json(silent=True) or {}
+
+    # kind の正規化
+    kind = str(data.get("kind", "other")).strip()
+    if kind not in ("bug", "request", "other"):
+        kind = "other"
+
+    # body の検証
+    body = str(data.get("body", "")).strip()
+    if not body:
+        return jsonify({"error": "本文が空です"}), 400
+    if len(body) > MAX_FEEDBACK_BODY_CHARS:
+        return jsonify({"error": "本文が長すぎます"}), 400
+
+    # その他フィールド
+    contact   = str(data.get("contact", "")).strip()[:MAX_FEEDBACK_CONTACT_CHARS]
+    page      = str(data.get("page", "")).strip()[:50]
+    ua        = (request.headers.get("User-Agent") or "")[:300]
+
+    record = {
+        "kind":       kind,
+        "body":       body,
+        "contact":    contact,
+        "page":       page,
+        "user_agent": ua,
+    }
+
+    # Supabase への永続化（失敗してもOKを返す）
+    if _supabase_client:
+        try:
+            _supabase_client.table("feedback_reports").insert(record).execute()
+        except Exception as e:
+            logger.warning(f"[feedback] Supabase insert 失敗: {e}")
+
+    # Discord 通知（外部HTTP遅延を避けるため非同期）
+    if _DISCORD_WEBHOOK_URL:
+        Thread(target=_notify_feedback_discord, args=(record,), daemon=True).start()
+
+    return jsonify({"ok": True})
+
+
+def _notify_feedback_discord(record: dict):
+    """フィードバックを Discord Webhook へ通知する（バックグラウンドスレッドで実行）。"""
+    kind_label = {"bug": "[不具合]", "request": "[要望]", "other": "[その他]"}.get(
+        record.get("kind", "other"), "[その他]"
+    )
+    contact = record.get("contact") or "（なし）"
+    body_text = record.get("body", "")[:1800]
+    content = (
+        f"{kind_label} [{record.get('page', '')}]\n"
+        f"{body_text}\n"
+        f"連絡先: {contact}"
+    )
+    try:
+        _http.post(
+            _DISCORD_WEBHOOK_URL,
+            json={"content": content[:1990]},
+            timeout=10,
+        )
+    except Exception as e:
+        logger.warning(f"[feedback] Discord 通知失敗: {e}")
 
 
 # ── ヘルスチェック・ステータス ──

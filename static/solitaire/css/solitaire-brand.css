@@ -353,28 +353,7 @@
 .meta-tier-list {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-}
-
-.meta-tier-btn {
-  width: 100%;
-  padding: 7px 10px;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  color: #94a3b8;
-  font-size: 0.82rem;
-  font-family: var(--font);
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s, color 0.15s;
-  word-break: break-all;
-  line-height: 1.4;
-}
-.meta-tier-btn:hover {
-  border-color: var(--accent);
-  background: rgba(74,124,255,0.1);
-  color: var(--main-color);
+  gap: 4px;
 }
 
 /* マイデッキリスト */
@@ -383,48 +362,70 @@
   flex-direction: column;
   gap: 4px;
 }
-.my-deck-row {
+
+/* 環境デッキ・マイデッキ共通: 行全体クリックのカードUI */
+.deck-card-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  padding: 6px 8px;
+  padding: 7px 9px;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 5px;
   background: var(--bg-card);
+  cursor: pointer;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--font);
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s, transform 0.05s;
 }
-.my-deck-info {
+.deck-card-row:hover {
+  border-color: var(--accent);
+  background: rgba(74,124,255,0.12);
+}
+.deck-card-row:active {
+  transform: scale(0.99);
+}
+.deck-card-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.deck-card-info {
   display: flex;
   flex-direction: column;
   gap: 1px;
   min-width: 0;
+  flex: 1;
 }
-.my-deck-name {
+.deck-card-name {
   font-size: 0.82rem;
   color: var(--main-color);
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.4;
 }
-.my-deck-date {
+.deck-card-date {
   font-size: 0.72rem;
   color: #94a3b8;
   font-family: var(--mono);
 }
-.my-deck-load-btn {
+
+/* hover 時のみ表示する読込ヒント */
+.deck-card-hint {
   flex-shrink: 0;
-  padding: 3px 10px;
-  font-size: 0.76rem;
-  background: var(--accent);
-  color: #fff;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-family: var(--font);
-  font-weight: 600;
+  font-size: 0.72rem;
+  color: #4a6490;
+  opacity: 0;
+  transition: opacity 0.15s;
 }
-.my-deck-load-btn:hover { background: #3a6fe8; }
+.deck-card-row:hover .deck-card-hint {
+  opacity: 1;
+  color: var(--accent);
+}
 
 .deck-loading-msg {
   font-size: 0.78rem;
@@ -1285,3 +1286,155 @@ html, body {
   text-align: center;
 }
 .sol-footer a { color: #334155; }
+
+/* ── フィードバックボタン（サイドバー内） ── */
+.sol-feedback-open-btn {
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  color: #94a3b8;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-family: var(--font);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.sol-feedback-open-btn:hover {
+  border-color: var(--accent);
+  color: var(--main-color);
+  background: rgba(74,124,255,0.1);
+}
+
+/* ── フィードバックモーダル ── */
+.sol-fb-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sol-fb-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+}
+.sol-fb-dialog {
+  position: relative;
+  width: min(440px, 92vw);
+  max-height: 88vh;
+  overflow-y: auto;
+  background: #0e1a36;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  font-family: var(--font);
+}
+.sol-fb-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.sol-fb-header h2 {
+  margin: 0;
+  font-size: 1.0rem;
+  color: var(--main-color);
+  font-weight: 600;
+}
+.sol-fb-close {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.sol-fb-close:hover { color: var(--main-color); }
+.sol-fb-body {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+}
+.sol-fb-label {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  margin: 14px 0 4px;
+}
+.sol-fb-label:first-child { margin-top: 0; }
+.sol-fb-req { color: #ef5350; }
+.sol-fb-select,
+.sol-fb-input,
+.sol-fb-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  background: var(--bg-card);
+  color: var(--main-color);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-family: var(--font);
+  transition: border-color 0.15s;
+}
+.sol-fb-select:focus,
+.sol-fb-input:focus,
+.sol-fb-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.sol-fb-textarea {
+  min-height: 120px;
+  resize: vertical;
+  line-height: 1.6;
+}
+.sol-fb-count {
+  text-align: right;
+  font-size: 0.72rem;
+  color: #4a6490;
+  margin-top: 3px;
+}
+.sol-fb-status {
+  margin: 12px 0 0;
+  font-size: 0.82rem;
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+.sol-fb-status.ok  { background: rgba(46,160,67,0.15); color: #4ade80; }
+.sol-fb-status.err { background: rgba(239,83,80,0.15); color: #f87171; }
+.sol-fb-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+}
+.sol-fb-cancel {
+  padding: 8px 16px;
+  background: transparent;
+  color: #94a3b8;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 0.85rem;
+}
+.sol-fb-cancel:hover { border-color: #64748b; color: var(--main-color); }
+.sol-fb-submit {
+  padding: 8px 18px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  font-family: var(--font);
+  font-size: 0.85rem;
+  transition: background 0.15s;
+}
+.sol-fb-submit:hover { background: var(--accent-hover); }
+.sol-fb-submit:disabled { opacity: 0.5; cursor: not-allowed; }
