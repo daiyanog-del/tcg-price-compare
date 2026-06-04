@@ -1912,6 +1912,10 @@ def api_card_info():
         return jsonify({"error": "name required"}), 400
     idx = _get_ygores_name_index()
     ids = idx.get(name)
+    if not ids and _ygores_fuzzy_index:
+        # 完全一致しない場合は記号・全半角ハイフン等のゆれを無視して再照合
+        # （画像取得 _ygores_image_url と同じフォールバック。card-info でもゆれを吸収する）
+        ids = _ygores_fuzzy_index.get(_fuzzy_key(name))
     if not ids:
         return jsonify({"found": False}), 200
     card_id = ids[0]
