@@ -191,9 +191,7 @@ export function getZoneId(zoneElement) {
   if (cls.includes('side-slot')) {
     // free-space内か外かで判別
     if (zoneElement.closest('#free-space')) return 'free-space';
-    const allSideSlots = Array.from(document.querySelectorAll(
-      '.side-slot-group:not(#free-space .side-slot-group) .side-slot'
-    ));
+    const allSideSlots = Array.from(document.querySelectorAll('.side-slot'));
     const idx = allSideSlots.indexOf(zoneElement);
     return idx >= 0 ? `side-slot-${idx}` : 'side-slot-?';
   }

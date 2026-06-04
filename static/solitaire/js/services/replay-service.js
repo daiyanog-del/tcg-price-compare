@@ -495,7 +495,7 @@ function _findZone(zoneId) {
   // side-slot-N
   const ssMatch = zoneId.match(/^side-slot-(\d+)$/);
   if (ssMatch) {
-    const allSideSlots = document.querySelectorAll('.side-slot-group:not(#free-space .side-slot-group) .side-slot');
+    const allSideSlots = document.querySelectorAll('.side-slot');
     return allSideSlots[parseInt(ssMatch[1], 10)] ?? null;
   }
   return null;

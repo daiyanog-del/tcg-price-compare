@@ -283,9 +283,7 @@ function _getZoneId(zoneElement) {
   }
   if (cls.includes('side-slot')) {
     if (zoneElement.closest('#free-space')) return 'free-space';
-    const all = Array.from(document.querySelectorAll(
-      '.side-slot-group:not(#free-space .side-slot-group) .side-slot'
-    ));
+    const all = Array.from(document.querySelectorAll('.side-slot'));
     const idx = all.indexOf(zoneElement);
     return idx >= 0 ? `side-slot-${idx}` : 'side-slot-?';
   }
