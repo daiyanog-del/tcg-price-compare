@@ -254,8 +254,29 @@
 }
 
 #parent.counter-container {
-  cursor: grab;
+  cursor: default;
   margin: 0 auto;
+}
+
+.counter-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  cursor: grab;
+  color: rgba(226, 232, 240, 0.45);
+  font-size: 0.9rem;
+  padding: 0 2px;
+  flex-shrink: 0;
+  border-right: 1px solid rgba(74, 124, 255, 0.3);
+  user-select: none;
+  transition: background 0.12s, color 0.12s;
+}
+
+.counter-drag-handle:hover {
+  background: rgba(74, 124, 255, 0.2);
+  color: rgba(226, 232, 240, 0.9);
 }
 
 .counter-textbox {
