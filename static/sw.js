@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cardprice-v2';
+const CACHE_NAME = 'cardprice-v3';
 const PRECACHE = [
   '/',
   '/static/favicon.svg',
@@ -59,7 +59,25 @@ self.addEventListener('notificationclick', e => {
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
 
-  // API・検索リクエストはキャッシュしない
+  // 画像URL解決APIはキャッシュファースト（カード名→URLの対応はほぼ不変）
+  // GETリクエストのみ対象（POSTバッチはCache APIがキャッシュしないためHTTPヘッダに委ねる）
+  if (
+    e.request.method === 'GET' &&
+    (url.pathname === '/api/card-image' || url.pathname === '/api/card-image-proxy')
+  ) {
+    e.respondWith(
+      caches.open(CACHE_NAME).then(async cache => {
+        const hit = await cache.match(e.request);
+        if (hit) return hit;
+        const res = await fetch(e.request);
+        if (res.ok) cache.put(e.request, res.clone());
+        return res;
+      })
+    );
+    return;
+  }
+
+  // 価格系・その他APIはキャッシュしない（常に最新を取得）
   if (url.pathname.startsWith('/api/')) return;
 
   e.respondWith(

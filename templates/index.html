@@ -45,7 +45,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"></noscript>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@900&text=%E3%82%AB%E3%83%BC%E3%83%89%E7%9B%B8%E5%A0%B4&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@900&text=%E3%82%AB%E3%83%BC%E3%83%89%E7%9B%B8%E5%A0%B4&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@900&text=%E3%82%AB%E3%83%BC%E3%83%89%E7%9B%B8%E5%A0%B4&display=swap" rel="stylesheet"></noscript>
 {% if card_name %}
 <script type="application/ld+json">
 {
@@ -2070,34 +2071,31 @@ function renderDeckGrid(cards, ctx, mainCount){
   listEl.innerHTML=html;
 }
 
-// グリッドセルにカード画像を非同期で読み込む（重複排除・並列制限あり）
+// グリッドセルにカード画像をバッチ取得して一括表示する（高速化版）
+// 旧実装: 1枚ずつ120ms間隔で個別fetch（40枚で最大4.8秒）
+// 新実装: ユニーク名を集めて1リクエストで一括取得
 function loadDeckGridImages(listEl){
   const cells=[...listEl.querySelectorAll('[data-card]')];
-  const fetched=new Map(); // name → Promise<url|null>
-  let delay=0;
+  const names=[...new Set(cells.map(el=>el.dataset.card).filter(Boolean))];
+  if(!names.length) return;
 
-  cells.forEach(el=>{
-    const name=el.dataset.card;
-    const wrap=el.querySelector('.deck-grid-img-wrap');
-    if(!name||!wrap) return;
-
-    if(!fetched.has(name)){
-      const d=delay;
-      delay+=120;
-      fetched.set(name,new Promise(res=>{
-        setTimeout(()=>{
-          fetch('/api/card-image?name='+encodeURIComponent(name))
-            .then(r=>r.json()).then(data=>res(data.url||null)).catch(()=>res(null));
-        },d);
-      }));
-    }
-
-    fetched.get(name).then(url=>{
+  fetch('/api/card-images',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({names})
+  })
+  .then(r=>r.json())
+  .then(({images})=>{
+    if(!images) return;
+    cells.forEach(el=>{
+      const url=images[el.dataset.card];
       if(!url) return;
-      const placeholder=wrap.querySelector('.deck-grid-placeholder');
-      if(placeholder) placeholder.outerHTML=`<img src="${esc(url)}" alt="" loading="lazy">`;
+      const wrap=el.querySelector('.deck-grid-img-wrap');
+      const placeholder=wrap&&wrap.querySelector('.deck-grid-placeholder');
+      if(placeholder&&safeUrl(url)) placeholder.outerHTML=`<img src="${esc(url)}" alt="" loading="lazy">`;
     });
-  });
+  })
+  .catch(()=>{});
 }
 
 // PDFドラッグ&ドロップハンドラ

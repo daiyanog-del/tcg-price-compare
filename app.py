@@ -2089,7 +2089,60 @@ def api_card_image():
     if not name:
         return jsonify({"error": "name required"}), 400
     url = _ygores_image_url(name) or kanabell_card_image_url(name)
-    return jsonify({"url": url})
+    resp = jsonify({"url": url})
+    # カード名→画像URLの対応はほぼ不変のため長期キャッシュ可
+    resp.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
+    return resp
+
+
+@app.route("/api/card-images", methods=["POST"])
+def api_card_images():
+    """複数カード名を一括受け取り、画像URLを一括返却するバッチAPI（デッキグリッド高速化用）。
+    リクエスト: {"names": ["カード名A", "カード名B", ...]}
+    レスポンス: {"images": {"カード名A": url|null, ...}}
+    部分成功を許容（解決できない名前は null を返す）。
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed as futures_completed
+
+    data = request.get_json(force=True, silent=True) or {}
+    names = data.get("names", [])
+    if not isinstance(names, list):
+        return jsonify({"error": "names must be a list"}), 400
+    # 上限をMAX_DECK_CARDSで切る（DoS防止）
+    names = [str(n).strip() for n in names if n][:MAX_DECK_CARDS]
+
+    images = {}
+    # まずYGOResourcesで一括解決（O(1)・ネットワーク不要）
+    needs_fallback = []
+    for name in names:
+        url = _ygores_image_url(name)
+        if url:
+            images[name] = url
+        else:
+            needs_fallback.append(name)
+
+    # カーナベルフォールバック（外部ES検索）は並列化して短縮
+    if needs_fallback:
+        def _fetch_kanabell(n):
+            try:
+                url = kanabell_card_image_url(n)
+                return n, url if url else None
+            except Exception:
+                return n, None
+
+        with ThreadPoolExecutor(max_workers=min(len(needs_fallback), 5)) as executor:
+            futs = {executor.submit(_fetch_kanabell, n): n for n in needs_fallback}
+            for future in futures_completed(futs, timeout=10):
+                try:
+                    n, url = future.result()
+                    images[n] = url
+                except Exception:
+                    images[futs[future]] = None
+
+    resp = jsonify({"images": images})
+    # カード名→画像URLの対応はほぼ不変のため長期キャッシュ可
+    resp.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
+    return resp
 
 
 @app.route("/api/card-image-proxy")
@@ -2114,7 +2167,10 @@ def api_card_image_proxy():
         if img_resp.status_code != 200:
             return f"upstream {img_resp.status_code}", 502
         ct = img_resp.headers.get("Content-Type", "image/jpeg")
-        return Response(img_resp.content, content_type=ct)
+        proxy_resp = Response(img_resp.content, content_type=ct)
+        # 画像実体は不変のため長期キャッシュ可
+        proxy_resp.headers["Cache-Control"] = "public, max-age=604800"
+        return proxy_resp
     except Exception as e:
         logger.error(f"[card-image-proxy] {name}: {e}")
         return f"error: {e}", 500
