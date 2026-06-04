@@ -14,7 +14,7 @@ import { initTokenGenerator } from './ui/token-generator.js';
 import { initRandomTools } from './ui/random-tools.js';
 import { initCardInfoPanel } from './ui/card-info-panel.js';
 import { saveSessionResume, loadSessionResume } from './services/save-load-service.js';
-import { initOpponentTray } from './ui/opponent-tray.js';
+import { initOpponentTray, updateCipWidth } from './ui/opponent-tray.js';
 
 /**
  * カード追加時にリプレイ画像辞書へ登録するフック
@@ -81,6 +81,12 @@ function fitFieldToViewport() {
   // slot_h = slot_w × 1.45 として比例係数 7.54 を計算済み
   const slotW = Math.max(60, Math.min(110, Math.floor(available / 7.54)));
   document.documentElement.style.setProperty('--slot-width', `${slotW}px`);
+
+  // リサイズ時にもパネル幅を再計算（トレイが開いている場合）
+  requestAnimationFrame(() => {
+    const t = document.getElementById('opponentTray');
+    if (t && !t.classList.contains('collapsed')) updateCipWidth(true);
+  });
 }
 
 let _fitTimer = null;
@@ -146,6 +152,7 @@ function initializeApp() {
   }
 
   // ビューポートに合わせて --slot-width を初期設定
+  // ※ fitFieldToViewport 内の RAF でトレイ開時のパネル幅も更新される
   fitFieldToViewport();
 
   // ウィンドウリサイズ時に再計算（デバウンス 150ms）
