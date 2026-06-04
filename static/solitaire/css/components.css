@@ -241,6 +241,7 @@
   align-items: center;
   gap: 0;
   padding: 0;
+  width: fit-content;
   background: rgba(10, 16, 36, 0.88);
   border: 1px solid rgba(74, 124, 255, 0.55);
   border-radius: 6px;
