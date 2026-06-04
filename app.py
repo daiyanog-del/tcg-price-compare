@@ -857,26 +857,15 @@ def _load_estimate_cache(startup: bool = False):
     for attempt in range(1, max_retries + 1):
         try:
             cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-            all_rows = []
-            page_size = 1000
-            offset = 0
-            while True:
-                resp = (_supabase_client.table("price_history")
-                        .select("card_name, shop, rarity, min_price, recorded_at")
-                        .gte("recorded_at", cutoff)
-                        .order("min_price", desc=False)
-                        .range(offset, offset + page_size - 1)
-                        .execute())
-                rows = resp.data or []
-                all_rows.extend(rows)
-                if len(rows) < page_size:
-                    break
-                offset += page_size
+            resp = (_supabase_client.rpc("get_card_best_prices", {"cutoff_date": cutoff})
+                    .limit(5000)
+                    .execute())
+            rows = resp.data or []
 
             card_best = {}
-            for row in all_rows:
+            for row in rows:
                 name = row.get("card_name", "")
-                if not name or name in card_best:
+                if not name:
                     continue
                 card_best[name] = {
                     "shop": row.get("shop", ""),
@@ -1011,8 +1000,8 @@ def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
         return []
 
     try:
-        # 直近3日分のデータをページングで全件取得
-        cutoff = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
+        # 直近2日分のデータをページングで全件取得（前日比の計算に必要な最小限）
+        cutoff = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")
         all_rows = []
         page_size = 1000
         offset = 0
