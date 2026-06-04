@@ -200,24 +200,84 @@ function initializeApp() {
   console.log('一人回しシミュレータ initialized');
 }
 
+/**
+ * 墓地・除外スロットのカード重なり量を枚数に応じて動的調整する。
+ * 親エリア(.sol-side-area)の確定高さを基準にし、
+ * 枚数が増えるほど深く重ねて高さを抑制する。
+ * 最小圧縮でも収まらない場合は overflow-y:auto によりゾーン内スクロールが発動する。
+ */
+function adjustSideStack(slotEl) {
+  const area = slotEl.closest('.sol-side-area');
+  if (!area) return;
+
+  // ラベルと縦パディングを除いた利用可能高さ
+  const label = area.querySelector('.pool-label');
+  const labelH = label ? label.offsetHeight : 0;
+  const areaStyle = getComputedStyle(area);
+  const paddingV = parseFloat(areaStyle.paddingTop) + parseFloat(areaStyle.paddingBottom);
+  const avail = area.clientHeight - labelH - paddingV;
+
+  // max-height を設定してゾーン内スクロールの発動ラインを確定
+  if (avail > 0) {
+    slotEl.style.maxHeight = avail + 'px';
+  }
+
+  const wrappers = slotEl.querySelectorAll('.tier-item-wrapper');
+  const N = wrappers.length;
+
+  // 1枚以下は重なり調整不要: 変数をリセットしてCSS既定（90%重ね）に戻す
+  if (N <= 1) {
+    slotEl.style.removeProperty('--stack-overlap');
+    return;
+  }
+
+  // カード高さ: 先頭ラッパーの実測値、無ければCSS変数のフォールバック
+  const cardH = wrappers[0].offsetHeight
+    || parseFloat(getComputedStyle(slotEl).getPropertyValue('--slot-height'))
+    || 174;
+
+  const MIN_VISIBLE = 6;            // カードが識別できる最小ステップ(px)
+  const naturalStep = cardH * 0.1; // デフォルト（90%重ね）時の増分
+
+  // 全枚数を avail に収めるための理想ステップを計算
+  const idealStep = (avail - cardH) / (N - 1);
+
+  // 下限: MIN_VISIBLE、上限: naturalStep（デフォルトより広げない）
+  const step = Math.max(MIN_VISIBLE, Math.min(naturalStep, idealStep));
+
+  // CSS変数に反映（margin-top = -(cardH - step)）
+  slotEl.style.setProperty('--stack-overlap', -(cardH - step) + 'px');
+}
+
 /** 手札・EXデッキ・デッキ・墓地・除外の枚数をラベル横にリアルタイム表示 */
 function initZoneCounts() {
   const zones = [
     { label: document.querySelector('#imagePool .pool-label'),     cards: document.getElementById('poolRow') },
     { label: document.querySelector('#imagePool2 .pool-label'),    cards: document.getElementById('poolRow2') },
     { label: document.querySelector('.sol-hand-area .pool-label'), cards: document.querySelector('.center-slot') },
-    { label: document.querySelector('.sol-grave .pool-label'),     cards: document.querySelector('.sol-grave .side-slot') },
+    { label: document.querySelector('.sol-grave .pool-label'),     cards: document.querySelector('.sol-grave .side-slot'), isSideSlot: true },
     { label: document.querySelector('.side-slots-container .sol-side-area:not(.sol-grave) .pool-label'),
-      cards:  document.querySelector('.side-slots-container .sol-side-area:not(.sol-grave) .side-slot') },
+      cards:  document.querySelector('.side-slots-container .sol-side-area:not(.sol-grave) .side-slot'), isSideSlot: true },
   ];
 
-  for (const { label, cards } of zones) {
+  // リサイズ時に全墓地・除外スロットを再調整（デバウンス付き）
+  let _resizeTimer = null;
+  const sideSlotEls = zones.filter(z => z.isSideSlot).map(z => z.cards).filter(Boolean);
+  window.addEventListener('resize', () => {
+    clearTimeout(_resizeTimer);
+    _resizeTimer = setTimeout(() => {
+      sideSlotEls.forEach(adjustSideStack);
+    }, 150);
+  });
+
+  for (const { label, cards, isSideSlot } of zones) {
     if (!label || !cards) continue;
     const badge = document.createElement('span');
     badge.className = 'zone-count';
     label.appendChild(badge);
     const update = () => {
       badge.textContent = cards.querySelectorAll('.tier-item-wrapper').length;
+      if (isSideSlot) adjustSideStack(cards);
     };
     update();
     new MutationObserver(update).observe(cards, { childList: true, subtree: true });

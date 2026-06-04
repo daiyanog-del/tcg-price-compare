@@ -197,7 +197,8 @@
 }
 
 .side-slot .tier-item-wrapper {
-  margin-top: calc(var(--slot-height)*-0.9);
+  /* JS が --stack-overlap を設定したらそちらを優先、未設定時はデフォルトの90%重ね */
+  margin-top: var(--stack-overlap, calc(var(--slot-height)*-0.9));
 }
 
 .side-slot .tier-item-wrapper:first-child {

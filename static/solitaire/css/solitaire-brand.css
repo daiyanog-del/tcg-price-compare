@@ -696,9 +696,12 @@ html, body {
   border-radius: 0;
   flex: 1;
   height: auto;
+  min-height: 0; /* flex子要素のmin-height:auto を解除 → max-height が有効になる */
   align-self: auto;
   width: calc(var(--slot-width) * 1.2); /* 元の幅を復元 */
   box-sizing: border-box;
+  overflow-x: hidden; /* 横はみ出しは非表示のまま */
+  overflow-y: auto;   /* 極端枚数でゾーン内スクロールに切り替え（max-heightをJSが設定） */
 }
 
 /* 墓地: 墓石アイコン（sol-side-area .side-slot より後に記述して優先） */
