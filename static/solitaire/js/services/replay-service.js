@@ -34,10 +34,11 @@ import { applyCardState, getCardState } from '../components/card-state.js';
 import { playActivateEffect, flipMoveClone, playSetFlip } from '../components/card-effects.js';
 
 // ── 状態 ──────────────────────────────────────────────
-let _images = {};   // { cardId: src }
-let _names  = {};   // { cardId: cardName }
-let _logs   = [];   // イベントログ配列
-let _cursor = -1;   // 現在の再生位置（-1 = ログ先頭の盤面外）
+let _images = {};       // { cardId: src }
+let _names  = {};       // { cardId: cardName }
+let _exCardIds = new Set(); // EXデッキに属するカードIDの集合
+let _logs   = [];       // イベントログ配列
+let _cursor = -1;       // 現在の再生位置（-1 = ログ先頭の盤面外）
 let _playing = false;
 let _playTimer = null;
 const PLAY_INTERVAL_MS = 600;
@@ -54,6 +55,7 @@ let _animateForward = false;
 export function initReplay() {
   _images = {};
   _names  = {};
+  _exCardIds = new Set();
   _logs = [];
   _cursor = -1;
   _playing = false;
@@ -67,6 +69,14 @@ export function initReplay() {
  */
 export function registerCardImage(cardId, src) {
   _images[cardId] = src;
+}
+
+/**
+ * カードをEXデッキとしてマーク（poolRow2に追加されたカード）
+ * @param {string} cardId
+ */
+export function registerCardIsEx(cardId) {
+  _exCardIds.add(cardId);
 }
 
 /**
@@ -161,7 +171,7 @@ export function togglePlay() {
 
 /** リプレイデータをエクスポート（ファイル保存用） */
 export function exportReplay(title = 'replay') {
-  const payload = { version: 1, title, images: _images, names: _names, logs: _logs };
+  const payload = { version: 1, title, images: _images, names: _names, exCardIds: [..._exCardIds], logs: _logs };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -178,6 +188,7 @@ export async function importReplay(file) {
   if (!payload.logs || !payload.images) throw new Error('不正なリプレイファイルです');
   _images = payload.images;
   _names  = payload.names || {};
+  _exCardIds = new Set(payload.exCardIds || []);
   _logs = payload.logs;
   _cursor = -1;
   _createReplayCardElements();
@@ -188,7 +199,7 @@ export async function importReplay(file) {
 export function exportAsURLHash() {
   if (typeof LZString === 'undefined') return null;
   try {
-    const payload = { version: 1, images: _images, names: _names, logs: _logs };
+    const payload = { version: 1, images: _images, names: _names, exCardIds: [..._exCardIds], logs: _logs };
     return LZString.compressToEncodedURIComponent(JSON.stringify(payload));
   } catch {
     return null;
@@ -204,6 +215,7 @@ export function importFromURLHash(hash) {
     if (!payload.logs || !payload.images) return false;
     _images = payload.images;
     _names  = payload.names || {};
+    _exCardIds = new Set(payload.exCardIds || []);
     _logs = payload.logs;
     _cursor = -1;
     _createReplayCardElements();
@@ -222,6 +234,8 @@ export function getCursor() { return _cursor; }
 export function getImages() { return _images; }
 /** カード名辞書を取得（外部からの参照用） */
 export function getNames() { return _names; }
+/** EXカードIDの配列を取得（外部からの参照用） */
+export function getExCardIds() { return [..._exCardIds]; }
 /** ログを取得 */
 export function getLogs() { return _logs; }
 
@@ -231,9 +245,10 @@ export function getLogs() { return _logs; }
  * @param {Object} names   { cardId: cardName }（省略可）
  * @param {Array}  logs    イベントログ配列
  */
-export function _setReplayData(images, names, logs) {
+export function _setReplayData(images, names, logs, exCardIds = []) {
   _images = images;
   _names  = names || {};
+  _exCardIds = new Set(exCardIds);
   _logs = logs;
   _cursor = -1;
   _createReplayCardElements();
@@ -282,10 +297,10 @@ function _createReplayCardElements() {
   poolRow.querySelectorAll('.tier-item-wrapper').forEach(el => el.remove());
   poolRow2.querySelectorAll('.tier-item-wrapper').forEach(el => el.remove());
 
-  // ログからEXカードのIDを特定
-  const exCardIds = new Set(
-    _logs.filter(e => e.actionType === 'returnToDeck' && e.isEx).map(e => e.cardId)
-  );
+  // EXカードIDを特定（_exCardIdsが空の場合はログから推定して旧形式に対応）
+  const exCardIds = _exCardIds.size > 0
+    ? _exCardIds
+    : new Set(_logs.filter(e => e.actionType === 'returnToDeck' && e.isEx).map(e => e.cardId));
 
   for (const [cardId, src] of Object.entries(_images)) {
     const isEx = exCardIds.has(cardId);

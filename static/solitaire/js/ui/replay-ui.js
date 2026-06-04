@@ -18,6 +18,7 @@ import {
   getCursor,
   getImages,
   getNames,
+  getExCardIds,
   getLogs,
 } from '../services/replay-service.js';
 
@@ -108,6 +109,7 @@ async function _saveAndGetShortURL(title) {
       title,
       images: getImages(),
       names: getNames(),
+      exCardIds: getExCardIds(),
       logs: getLogs(),
     }),
   });
@@ -221,11 +223,11 @@ async function _tryLoadFromURL() {
   try {
     const res = await fetch(`/api/solitaire/replay/${replayId}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const { images, names, logs } = await res.json();
+    const { images, names, logs, exCardIds } = await res.json();
 
     const { _setReplayData } = await import('../services/replay-service.js');
     if (typeof _setReplayData === 'function') {
-      _setReplayData(images, names || {}, logs);
+      _setReplayData(images, names || {}, logs, exCardIds || []);
     }
     console.log(`リプレイID ${replayId} を読み込みました`);
   } catch (e) {

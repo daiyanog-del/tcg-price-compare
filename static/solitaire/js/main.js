@@ -8,7 +8,7 @@ import { initializeCards } from './components/card-manager.js';
 import { initializeCounter } from './components/counter-manager.js';
 import { initializeEventListeners } from './ui/event-handlers.js';
 import { initReplayUI } from './ui/replay-ui.js';
-import { registerCardImage } from './services/replay-service.js';
+import { registerCardImage, registerCardIsEx } from './services/replay-service.js';
 import { initTokenGenerator } from './ui/token-generator.js';
 import { initRandomTools } from './ui/random-tools.js';
 import { initCardInfoPanel } from './ui/card-info-panel.js';
@@ -33,6 +33,7 @@ function initCardImageRegistration() {
             ?? (node.matches?.('img.tier-item') ? node : null);
           if (img?.id && img.src) {
             registerCardImage(img.id, img.src);
+            if (poolId === 'poolRow2') registerCardIsEx(img.id);
           }
         });
       });
@@ -179,7 +180,11 @@ function initializeApp() {
   if (restored) {
     // 復元したカードをリプレイ画像辞書に登録
     document.querySelectorAll('img.tier-item').forEach(img => {
-      if (img.id && img.src) registerCardImage(img.id, img.src);
+      if (img.id && img.src) {
+        registerCardImage(img.id, img.src);
+        const wrapper = img.closest('.tier-item-wrapper');
+        if (wrapper?.id.includes(' ex')) registerCardIsEx(img.id);
+      }
     });
     _showToast('前回の盤面を復元しました');
   }

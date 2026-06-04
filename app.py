@@ -1598,6 +1598,7 @@ def solitaire_replay_save():
         data = request.get_json(force=True)
         images = data.get("images", {})
         names  = data.get("names", {})
+        ex_card_ids = data.get("exCardIds", [])
         logs = data.get("logs", [])
         title = str(data.get("title", ""))[:100]
         if not logs:
@@ -1609,6 +1610,7 @@ def solitaire_replay_save():
             "title": title,
             "images": images,
             "names": names,
+            "ex_card_ids": ex_card_ids,
             "logs": logs,
             "created_at": now_iso,
         }
@@ -1626,7 +1628,7 @@ def solitaire_replay_get(replay_id):
         return {"error": "データベース未接続"}, 503
     try:
         resp = _supabase_client.table("solitaire_replays") \
-            .select("images, names, logs, title") \
+            .select("images, names, ex_card_ids, logs, title") \
             .eq("id", replay_id) \
             .limit(1) \
             .execute()
@@ -1635,10 +1637,11 @@ def solitaire_replay_get(replay_id):
             return {"error": "見つかりません"}, 404
         row = rows[0]
         return {
-            "images": row["images"],
-            "names":  row.get("names") or {},
-            "logs":   row["logs"],
-            "title":  row.get("title", ""),
+            "images":     row["images"],
+            "names":      row.get("names") or {},
+            "exCardIds":  row.get("ex_card_ids") or [],
+            "logs":       row["logs"],
+            "title":      row.get("title", ""),
         }
     except Exception as e:
         logger.error(f"リプレイ取得エラー: {e}")
