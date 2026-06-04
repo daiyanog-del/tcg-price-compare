@@ -305,6 +305,33 @@ export function initializeDesktopDragDrop() {
 }
 
 /**
+ * 指位置から最近傍の有効ドロップゾーンを探す。
+ * タッチはスロット間ギャップや空白グリッドセルに当たりやすいため、
+ * 直接ヒットしなかった場合に周囲 ~20px を8方向探索してフォールバックする。
+ * @param {number} x - clientX
+ * @param {number} y - clientY
+ * @returns {Element|null}
+ */
+function findNearestDropZone(x, y) {
+  // 1. 指の正確な位置で試す
+  const direct = document.elementFromPoint(x, y);
+  if (direct && getDropZoneInfo(direct)) return direct;
+
+  // 2. 周囲8方向 (~20px) を探索してギャップを補完
+  const R = 20;
+  const offsets = [
+    [0, -R], [0, R], [-R, 0], [R, 0],       // 上下左右
+    [-R * 0.7, -R * 0.7], [R * 0.7, -R * 0.7],
+    [-R * 0.7,  R * 0.7], [R * 0.7,  R * 0.7], // 斜め45°
+  ];
+  for (const [dx, dy] of offsets) {
+    const el = document.elementFromPoint(x + dx, y + dy);
+    if (el && getDropZoneInfo(el)) return el;
+  }
+  return direct; // 見つからなければ元の要素を返す（ドロップは失敗扱い）
+}
+
+/**
  * タッチドラッグ&ドロップの初期化（長押し=コンテキストメニュー対応）
  * @param {TouchEvent} ev - touchstartイベント
  */
@@ -373,7 +400,8 @@ export function enableTouchDrag(ev) {
 
     if (isDragging) {
       const touch = ev.changedTouches[0];
-      const dropTarget = document.elementFromPoint(touch.clientX, touch.clientY);
+      // 直接ヒットしなかった場合に近隣ゾーンを探す（ギャップ・空白セル対策）
+      const dropTarget = findNearestDropZone(touch.clientX, touch.clientY);
 
       if (dropTarget) {
         const dropZoneInfo = getDropZoneInfo(dropTarget);
