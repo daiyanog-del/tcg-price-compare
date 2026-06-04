@@ -13,84 +13,89 @@ function _injectStyles() {
   style.textContent = `
     .npm-overlay {
       position: fixed; inset: 0;
-      background: rgba(0,0,0,.6);
+      background: rgba(0,0,0,.7);
       z-index: 9999;
       display: flex; align-items: center; justify-content: center;
       padding: 16px; box-sizing: border-box;
     }
     .npm-container {
-      background: #fff; border-radius: 12px;
-      box-shadow: 0 8px 32px rgba(0,0,0,.3);
+      background: #1a2547; border-radius: 10px;
+      border: 1px solid #2d3a5a;
+      box-shadow: 0 12px 40px rgba(0,0,0,.6);
       display: flex; flex-direction: column;
       width: min(680px, 100%); max-height: 90vh;
       overflow: hidden;
+      font-family: 'Noto Sans JP', sans-serif;
     }
     .npm-header {
-      padding: 16px 20px; border-bottom: 1px solid #e0e0e0;
+      padding: 14px 20px; border-bottom: 1px solid #2d3a5a;
       display: flex; justify-content: space-between; align-items: center;
       flex-shrink: 0;
     }
-    .npm-header h2 { margin: 0; font-size: 1.1rem; color: #1a2a4a; }
+    .npm-header h2 { margin: 0; font-size: 1rem; color: #e2e8f4; font-weight: 700; }
     .npm-close {
-      background: none; border: none; font-size: 1.6rem;
-      color: #888; cursor: pointer; line-height: 1; padding: 0 4px;
+      background: none; border: none; font-size: 1.5rem;
+      color: #64748b; cursor: pointer; line-height: 1; padding: 0 4px;
+      transition: color .15s;
     }
-    .npm-close:hover { color: #333; }
+    .npm-close:hover { color: #e2e8f4; }
     .npm-body {
       padding: 16px 20px; overflow-y: auto; flex: 1;
       display: flex; flex-direction: column; gap: 12px;
     }
     .npm-warnings {
-      background: #fff8e1; border: 1px solid #ffe082;
+      background: rgba(232,200,72,.1); border: 1px solid rgba(232,200,72,.3);
       border-radius: 6px; padding: 8px 12px;
-      font-size: .82rem; color: #7a5c00; line-height: 1.6;
+      font-size: .82rem; color: #e8c848; line-height: 1.6;
     }
     .npm-section-label {
-      font-size: .78rem; font-weight: 700; color: #2d3f5a;
-      text-transform: uppercase; letter-spacing: .03em; margin-bottom: 4px;
+      font-size: .72rem; font-weight: 700; color: #64748b;
+      text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px;
     }
     .npm-textarea {
       width: 100%; box-sizing: border-box;
-      border: 1px solid #cbd5e1; border-radius: 6px;
-      padding: 8px 10px; font-size: .85rem; font-family: monospace;
+      border: 1px solid #2d3a5a; border-radius: 6px;
+      padding: 8px 10px; font-size: .82rem; font-family: 'JetBrains Mono', monospace;
       resize: vertical; min-height: 80px; max-height: 200px;
-      line-height: 1.55; color: #1a2a4a; background: #f8fafc;
+      line-height: 1.6; color: #e2e8f4; background: #0a1024;
+      outline: none;
     }
-    .npm-textarea:focus { outline: none; border-color: #3b82f6; background: #fff; }
+    .npm-textarea:focus { border-color: #4a7cff; }
     .npm-name-row {
       display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
     }
-    .npm-name-label { font-size: .82rem; color: #64748b; white-space: nowrap; }
+    .npm-name-label { font-size: .82rem; color: #94a3b8; white-space: nowrap; }
     .npm-name-input {
       flex: 1; min-width: 160px;
-      border: 1px solid #cbd5e1; border-radius: 6px;
-      padding: 6px 10px; font-size: .9rem; color: #1a2a4a;
+      border: 1px solid #2d3a5a; border-radius: 6px;
+      padding: 6px 10px; font-size: .9rem; color: #e2e8f4;
+      background: #0a1024; outline: none;
+      transition: border-color .15s;
     }
-    .npm-name-input:focus { outline: none; border-color: #3b82f6; }
+    .npm-name-input:focus { border-color: #4a7cff; }
     .npm-footer {
-      padding: 12px 20px; border-top: 1px solid #e0e0e0;
+      padding: 12px 20px; border-top: 1px solid #2d3a5a;
       display: flex; gap: 8px; justify-content: flex-end; flex-shrink: 0;
       flex-wrap: wrap;
     }
     .npm-btn {
-      padding: 8px 18px; border-radius: 6px; font-size: .9rem;
-      font-weight: 600; cursor: pointer; border: 2px solid;
-      transition: background .15s, border-color .15s;
+      padding: 8px 18px; border-radius: 6px; font-size: .85rem;
+      font-weight: 700; cursor: pointer; border: none;
+      transition: opacity .15s, background .15s;
     }
+    .npm-btn:hover { opacity: .85; }
     .npm-btn-primary {
-      background: #1e40af; border-color: #1e40af; color: #fff;
+      background: linear-gradient(135deg, #4a7cff, #6366f1); color: #fff;
     }
-    .npm-btn-primary:hover { background: #1d4ed8; border-color: #1d4ed8; }
-    .npm-btn-primary:disabled { background: #93c5fd; border-color: #93c5fd; cursor: default; }
+    .npm-btn-primary:disabled { opacity: .4; cursor: default; }
     .npm-btn-secondary {
-      background: #475569; border-color: #475569; color: #fff;
+      background: #2d3a5a; color: #e2e8f4; border: 1px solid #3d4e6a;
     }
-    .npm-btn-secondary:hover { background: #334155; border-color: #334155; }
     .npm-btn-cancel {
-      background: #fff; border-color: #cbd5e1; color: #475569;
+      background: transparent; color: #94a3b8; border: 1px solid #2d3a5a;
     }
-    .npm-btn-cancel:hover { background: #f1f5f9; }
-    .npm-count { font-size: .75rem; color: #94a3b8; margin-left: 4px; }
+    .npm-btn-cancel:hover { color: #e2e8f4; border-color: #3d4e6a; opacity: 1; }
+    .npm-count { font-size: .72rem; color: #64748b; margin-left: 4px; }
     @media (max-width: 480px) {
       .npm-footer { flex-direction: column; }
       .npm-btn { width: 100%; text-align: center; }

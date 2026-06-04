@@ -382,6 +382,11 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .deck-drop-zone-icon{font-size:1.8rem;margin-bottom:8px;opacity:.6}
 .deck-drop-zone-title{font:.9rem var(--font);font-weight:700;color:var(--text);margin-bottom:4px}
 .deck-drop-zone-sub{font:.75rem var(--font);color:var(--text-d)}
+.neuron-hint{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;padding:8px 10px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;margin-bottom:12px;font-size:.75rem;line-height:1.5}
+.neuron-hint-label{color:var(--text-d);white-space:nowrap}
+.neuron-hint-link{color:var(--accent-l);text-decoration:none;font-weight:600}.neuron-hint-link:hover{text-decoration:underline}
+.neuron-hint-sep{color:var(--text-m)}
+.neuron-hint-note{color:var(--text-d);font-size:.7rem;width:100%;padding-top:2px}
 .deck-input-details{margin-bottom:10px}
 .deck-input-details summary{font:.8rem var(--font);color:var(--text-d);cursor:pointer;padding:6px 2px;user-select:none;list-style:none}
 .deck-input-details summary::-webkit-details-marker{display:none}
@@ -863,6 +868,14 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
           <div class="deck-drop-zone-icon">&#128196;</div>
           <div class="deck-drop-zone-title">PDFをドラッグ&amp;ドロップ / クリックして選択</div>
           <div class="deck-drop-zone-sub">ニューロンのデッキシートPDFを取り込みます</div>
+        </div>
+
+        <!-- ニューロン導線 -->
+        <div class="neuron-hint">
+          <span class="neuron-hint-label">PDFの書き出し方：</span>
+          <a class="neuron-hint-link" href="https://www.db.yugioh-card.com/yugiohdb/member_deck.action" target="_blank" rel="noopener">遊戯王カードデータベース（PC）でマイデッキを開く</a>
+          <span class="neuron-hint-sep">→ デッキを選択 → 「デッキシート印刷」→ PDF保存</span>
+          <span class="neuron-hint-note">※スマホアプリはPDF書き出し非対応（現在対応検討中）</span>
         </div>
 
         <!-- テキスト入力（折りたたみ） -->
