@@ -46,7 +46,8 @@ def _fuzzy_key(s: str) -> str:
 
 def _correct_cardname(name: str) -> str:
     """カード名をDBと照合し、補正が必要なら正式名称を返す。不要ならそのまま返す"""
-    if not _cardnames or name in _cardnames:
+    # O(1) のset検索を使う（_cardnames listへのO(n)検索は避ける）
+    if not _cardnames_set or name in _cardnames_set:
         return name
     q_fuzzy = _fuzzy_key(name)
     # 記号除去で一致
@@ -1002,7 +1003,10 @@ def _aggregate_daily_min(rows: list) -> dict:
     return card_dates
 
 def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
-    """Supabaseから値上がり/値下がりランキングを取得（直接クエリ版）"""
+    """Supabaseから値上がり/値下がりランキングを取得（DB側集計RPC版）。
+    get_price_movers RPC が全件集計を DB 側で処理し、上位 top_n 行だけ返す。
+    アプリ側の全件メモリ展開を廃止し、データ増加に対してメモリが増えない構造に変更。
+    """
     global _movers_cache, _movers_cache_time
 
     now = time.time()
@@ -1013,64 +1017,34 @@ def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
         return []
 
     try:
-        # 直近2日分のデータをページングで全件取得（前日比の計算に必要な最小限）
         cutoff = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")
-        all_rows = []
-        page_size = 1000
-        offset = 0
-        while True:
-            resp = (_supabase_client.table("price_history")
-                    .select("card_name, min_price, recorded_at")
-                    .gte("recorded_at", cutoff)
-                    .order("recorded_at", desc=False)
-                    .range(offset, offset + page_size - 1)
-                    .execute())
-            batch = resp.data or []
-            all_rows.extend(batch)
-            if len(batch) < page_size:
-                break
-            offset += page_size
+        resp = (_supabase_client
+                .rpc("get_price_movers", {"cutoff_date": cutoff, "min_diff": 50, "top_n": 20})
+                .execute())
+        rows = resp.data or []
+        logger.info(f"値動きランキング: {len(rows)}行取得（RPC集計）")
 
-        logger.info(f"値動きランキング: {len(all_rows)}行取得")
-        if not all_rows:
+        if not rows:
             return []
 
-        # 日付ごと・カードごとの最安値を集計
-        card_dates = _aggregate_daily_min(all_rows)
-
-        # 全カード共通で比較に使う2日分を特定
-        all_dates_set = set()
-        for dates in card_dates.values():
-            all_dates_set.update(dates.keys())
-        all_dates_sorted = sorted(all_dates_set)
-        if len(all_dates_sorted) < 2:
-            return []
-        date_new = all_dates_sorted[-1]
-        date_old = all_dates_sorted[-2]
-
-        # 各カードの比較
-        movers = []
-        for name, dates in card_dates.items():
-            if date_new not in dates or date_old not in dates:
-                continue
-            today_price = dates[date_new]
-            yesterday_price = dates[date_old]
-            if yesterday_price == 0:
-                continue
-            diff = today_price - yesterday_price
-            if diff == 0:
-                continue
-            pct = round((diff / yesterday_price) * 100, 1)
-            movers.append({
-                "name": name, "today": today_price,
-                "yesterday": yesterday_price, "diff": diff, "pct": pct
-            })
-
-        up_all = sorted([m for m in movers if m["diff"] > 0], key=lambda x: -x["pct"])
-        down_all = sorted([m for m in movers if m["diff"] < 0], key=lambda x: x["pct"])
-        # 50円以上の変動を優先、なければ全件からフォールバック
-        up = [m for m in up_all if abs(m["diff"]) >= 50][:20] or up_all[:20]
-        down = [m for m in down_all if abs(m["diff"]) >= 50][:20] or down_all[:20]
+        # RPC が direction 別に返すので振り分けるだけ
+        up, down = [], []
+        date_new = date_old = None
+        for row in rows:
+            entry = {
+                "name":      row.get("card_name", ""),
+                "today":     row.get("today_price", 0),
+                "yesterday": row.get("prev_price", 0),
+                "diff":      row.get("diff", 0),
+                "pct":       float(row.get("pct", 0)),
+            }
+            if row.get("direction") == "up":
+                up.append(entry)
+            else:
+                down.append(entry)
+            if date_new is None:
+                date_new = row.get("date_new")
+                date_old = row.get("date_old")
 
         # 空データはキャッシュしない（プリロード時点でデータが揃っていなかった場合に24時間空を返し続けるバグを防ぐ）
         if up or down:
@@ -1127,7 +1101,10 @@ def _aggregate_daily_max(rows: list) -> dict:
     return card_dates
 
 def _get_buyback_movers(direction: str, limit: int = 10) -> list[dict]:
-    """Supabaseから買取の値上がり/値下がりランキングを取得"""
+    """Supabaseから買取の値上がり/値下がりランキングを取得（DB側集計RPC版）。
+    get_buyback_movers RPC が全件集計を DB 側で処理し、上位 top_n 行だけ返す。
+    アプリ側の全件メモリ展開を廃止し、データ増加に対してメモリが増えない構造に変更。
+    """
     global _buyback_movers_cache, _buyback_movers_cache_time
 
     now = time.time()
@@ -1138,64 +1115,34 @@ def _get_buyback_movers(direction: str, limit: int = 10) -> list[dict]:
         return []
 
     try:
-        # 直近3日分のデータをページングで全件取得
         cutoff = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
-        all_rows = []
-        page_size = 1000
-        offset = 0
-        while True:
-            resp = (_supabase_client.table("buyback_history")
-                    .select("card_name, max_price, recorded_at")
-                    .gte("recorded_at", cutoff)
-                    .order("recorded_at", desc=False)
-                    .range(offset, offset + page_size - 1)
-                    .execute())
-            batch = resp.data or []
-            all_rows.extend(batch)
-            if len(batch) < page_size:
-                break
-            offset += page_size
+        resp = (_supabase_client
+                .rpc("get_buyback_movers", {"cutoff_date": cutoff, "min_diff": 50, "top_n": 20})
+                .execute())
+        rows = resp.data or []
+        logger.info(f"買取値動きランキング: {len(rows)}行取得（RPC集計）")
 
-        logger.info(f"買取値動きランキング: {len(all_rows)}行取得")
-        if not all_rows:
+        if not rows:
             return []
 
-        # 日付ごと・カードごとの最高買取額を集計
-        card_dates = _aggregate_daily_max(all_rows)
-
-        # 全カード共通で比較に使う2日分を特定
-        all_dates_set = set()
-        for dates in card_dates.values():
-            all_dates_set.update(dates.keys())
-        all_dates_sorted = sorted(all_dates_set)
-        if len(all_dates_sorted) < 2:
-            return []
-        date_new = all_dates_sorted[-1]
-        date_old = all_dates_sorted[-2]
-
-        # 各カードの前日比を計算
-        movers = []
-        for name, dates in card_dates.items():
-            if date_new not in dates or date_old not in dates:
-                continue
-            today_price = dates[date_new]
-            yesterday_price = dates[date_old]
-            if yesterday_price == 0:
-                continue
-            diff = today_price - yesterday_price
-            if diff == 0:
-                continue
-            pct = round((diff / yesterday_price) * 100, 1)
-            movers.append({
-                "name": name, "today": today_price,
-                "yesterday": yesterday_price, "diff": diff, "pct": pct
-            })
-
-        up_all = sorted([m for m in movers if m["diff"] > 0], key=lambda x: -x["pct"])
-        down_all = sorted([m for m in movers if m["diff"] < 0], key=lambda x: x["pct"])
-        # 50円以上の変動を優先、なければ全件からフォールバック
-        up = [m for m in up_all if abs(m["diff"]) >= 50][:20] or up_all[:20]
-        down = [m for m in down_all if abs(m["diff"]) >= 50][:20] or down_all[:20]
+        # RPC が direction 別に返すので振り分けるだけ
+        up, down = [], []
+        date_new = date_old = None
+        for row in rows:
+            entry = {
+                "name":      row.get("card_name", ""),
+                "today":     row.get("today_price", 0),
+                "yesterday": row.get("prev_price", 0),
+                "diff":      row.get("diff", 0),
+                "pct":       float(row.get("pct", 0)),
+            }
+            if row.get("direction") == "up":
+                up.append(entry)
+            else:
+                down.append(entry)
+            if date_new is None:
+                date_new = row.get("date_new")
+                date_old = row.get("date_old")
 
         # 空データはキャッシュしない（データ未蓄積時に24時間空を返し続けるバグを防ぐ）
         if up or down:
@@ -1265,7 +1212,8 @@ def api_track():
     corrected = _correct_cardname(card_name_raw)
 
     # カード辞書に存在しない文字列は登録拒否（スパム・誤登録対策）
-    if _cardnames and corrected not in _cardnames:
+    # O(1) のset検索を使う（_cardnames listへのO(n)検索は避ける）
+    if _cardnames_set and corrected not in _cardnames_set:
         return jsonify({"ok": False, "reason": "unknown_card"}), 200
 
     if _supabase_client:
