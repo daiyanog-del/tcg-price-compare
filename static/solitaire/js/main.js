@@ -66,35 +66,54 @@ function fitFieldToViewport() {
   const trayH   = tray.offsetHeight;   // 閉=28px 開=閉+ボディ高さ
   const replayH = replay ? replay.offsetHeight + 4 : 36; // margin-top(4px)込み
 
-  // slot-width に依存しない固定オーバーヘッド:
-  //   mainContainer padding-top  :  4px
-  //   フィールド行間 gap×2       : 20px  (gap=10px固定 on ≥1000px)
-  //   center-row margin-top      :  6px
-  //   center-row内固定(label+pad): 29px  (imagePool2: padding8+border2+label19)
-  //   imagePool margin-top       :  4px
-  //   imagePool内固定(label+pad) : 29px  (imagePool: padding8+border2+label19)
-  //   sol-field-area padding-bottom: 6px
-  const FIXED_MISC = 4 + 20 + 6 + 29 + 4 + 29 + 6; // 98px
+  // スマホ検出: 短辺 < 500px → スマホ（縦/横向き問わず検知）
+  const isPhone     = Math.min(window.innerWidth, window.innerHeight) < 500;
+  const isLandscape = window.innerWidth > window.innerHeight;
 
-  const fixed     = navH + trayH + replayH + FIXED_MISC;
-  const available = window.innerHeight - fixed;
+  // 高さ基準:
+  //   横向きスマホ → 盤面3行のみをビューポートに収め、手札/デッキはスクロール
+  //   縦向きスマホ・PC/タブレット → 全体フィット (比例係数 7.54)
+  let slotW_h;
+  if (isPhone && isLandscape) {
+    // mainContainer padding-top(4) + row-gaps(20) + sol-field-area padding-bottom(6)
+    const BOARD_FIXED = 30;
+    const availForBoard = window.innerHeight - navH - trayH - replayH - BOARD_FIXED;
+    slotW_h = Math.floor(availForBoard / 4.35);
+  } else {
+    // slot-width に依存しない固定オーバーヘッド:
+    //   mainContainer padding-top  :  4px
+    //   フィールド行間 gap×2       : 20px  (gap=10px固定 on ≥1000px)
+    //   center-row margin-top      :  6px
+    //   center-row内固定(label+pad): 29px  (imagePool2: padding8+border2+label19)
+    //   imagePool margin-top       :  4px
+    //   imagePool内固定(label+pad) : 29px  (imagePool: padding8+border2+label19)
+    //   sol-field-area padding-bottom: 6px
+    const FIXED_MISC = 4 + 20 + 6 + 29 + 4 + 29 + 6; // 98px
+    const fixed      = navH + trayH + replayH + FIXED_MISC;
+    const available  = window.innerHeight - fixed;
+    slotW_h = Math.floor(available / 7.54);
+  }
 
-  // 高さ基準: slot_h = slot_w × 1.45 として比例係数 7.54
-  const slotW_h = Math.floor(available / 7.54);
-
-  // 横幅基準: .sol-main の実測幅を使う
-  // 盤面は 6列 + 墓地除外列 ≒ 7.1 列相当。field padding(16px) + gap×7(70px) = 86px
-  // サイドバー開閉で sol-main 幅が変わるため、window.innerWidth ではなく実測値を使う
+  // 横幅基準: .sol-main の実測幅を使う。サイドバー開閉で幅が変わるため実測値を使用。
+  // ・縦向きスマホ: CSS で side-slots-container が縦積みになるため 7.2 列 / 88px
+  //     (6列グリッド + 1.2列サイド) × slot + (グリッドgap50 + mainContentgap10 + 側面padding16 + 各種余白12)
+  // ・横向きスマホ: side-slots-container が横並びのため 8.4 列 / 126px
+  //     (6列グリッド + 2.4列サイド×2) × slot + (gap50 + gap10 + gap10 + 側面padding32 + 各種余白24)
+  // ・PC/タブレット: 既存の 7.1 列 / 86px
   const mainEl  = document.querySelector('.sol-main');
   const availW  = mainEl ? mainEl.clientWidth : window.innerWidth;
-  const slotW_w = Math.floor((availW - 86) / 7.1);
 
-  // スマホ（<768px）ではクランプを緩める:
-  //   下限を 34px に下げて盤面が縦持ちで横スクロールなしに収まるようにする。
-  //   上限を 200px に上げて横向き時に大きく表示する。
-  const isNarrow = window.innerWidth < 768;
-  const minW = isNarrow ? 34 : 60;
-  const maxW = isNarrow ? 200 : 110;
+  let slotW_w;
+  if (isPhone && !isLandscape) {
+    slotW_w = Math.floor((availW - 88) / 7.2);
+  } else if (isPhone && isLandscape) {
+    slotW_w = Math.floor((availW - 126) / 8.4);
+  } else {
+    slotW_w = Math.floor((availW - 86) / 7.1);
+  }
+
+  const minW = isPhone ? 26 : 60;
+  const maxW = isPhone ? 200 : 110;
   const slotW = Math.max(minW, Math.min(maxW, Math.min(slotW_h, slotW_w)));
   document.documentElement.style.setProperty('--slot-width', `${slotW}px`);
 

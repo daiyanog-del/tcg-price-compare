@@ -10,6 +10,6 @@
 @import './components.css';
 @import './controls.css';
 @import './modal.css';
-@import './responsive.css';
 @import './solitaire-brand.css';
 @import './opponent-tray.css';
+@import './responsive.css'; /* 最後にインポートして上書きを確実に適用 */

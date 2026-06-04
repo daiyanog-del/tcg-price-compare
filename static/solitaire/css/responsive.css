@@ -1,6 +1,7 @@
 /* レスポンシブデザイン */
+/* main.css では最後にインポートされるため、!important なしで上書きが有効 */
 
-/* プール行の最小高さ（現行レイアウトで有効） */
+/* プール行の最小高さ（デスクトップ向け: 現行レイアウトで有効） */
 @media (min-width: 1000px) {
   #poolRow {
     min-height: calc(var(--slot-height) * 1.1);
@@ -13,35 +14,47 @@
 /* 注: サイドバーの自動開閉・slot-width のレスポンシブ算出は
        JS側 (main.js / sidebar-toggle.js) で matchMedia を用いて処理する。 */
 
-/* ── スマホ向けレイアウト (<768px) ── */
+
+/* ════════════════════════════════════════════════════
+   縦持ちスマホ (<768px 横幅)
+   ════════════════════════════════════════════════════ */
 @media (max-width: 767px) {
 
   /* ── 横スクロール防止 ── */
-  /* JS の fitFieldToViewport() 初回実行前にスクロールが出ないよう clip する */
   .sol-main {
     overflow-x: hidden;
   }
   #mainContainer {
     overflow-x: hidden;
-    /* カード詳細パネル(sol-cip-col)はモバイルで非表示にするため
-       slot-width ベースの左パディングオフセットを解除する */
-    padding-left: 4px !important;
-    padding-right: 4px !important;
+    /* カード詳細パネル分の左パディングオフセットを解除 */
+    padding-left: 4px;
+    padding-right: 4px;
   }
   .sol-field-area {
     padding: 0 2px 4px 2px;
   }
 
-  /* ── カード詳細パネルとそのトグルボタンを非表示 ── */
-  /* PC向けホバー機能のためモバイルでは不要 */
+  /* ── カード詳細パネルは非表示（PC向けホバー機能） ── */
   .sol-cip-col,
   #cipToggle {
-    display: none !important;
+    display: none;
   }
 
-  /* ── リプレイバー: スマホ向け再構成 ── */
+  /* ── 墓地/除外を縦積みにして横幅を節約 ── */
+  /* row のままだと 2 × 1.2 × slot-width ≈ 138px 必要 → 縦にして節約 */
+  .side-slots-container {
+    flex-direction: column;
+  }
 
-  /* コンテナ: 下部に固定、ボタンを2行に整理 */
+  /* 盤面スロットの最小幅制約を解除（slot-width が小さくなるため） */
+  #mainContainer,
+  .pool {
+    min-width: 0;
+  }
+
+  /* ── リプレイバー: スマホ視聴向け再構成 ── */
+
+  /* 下部に固定して常に操作できるようにする */
   #replayBarContainer.replay-bar {
     position: sticky;
     bottom: 0;
@@ -51,7 +64,7 @@
     gap: 6px;
   }
 
-  /* 再生系ボタンのタップ領域を拡大 (Appleガイドライン 44px) */
+  /* タップ領域を 44px 以上に拡大 (Apple/Material ガイドライン) */
   .replay-btn {
     min-height: 44px;
     min-width: 44px;
@@ -59,58 +72,110 @@
     padding: 8px 14px;
   }
 
-  /* 行1: スライダーを全幅 */
+  /* 行1: スライダー (幅いっぱい) + カウンター */
   #replaySlider {
     order: 1;
-    flex: 1 1 100%;
+    flex: 1 1 calc(100% - 52px);
     height: 28px;
-    margin-bottom: 2px;
   }
-
-  /* 行1: スライダーの右隣にカウンターを表示 */
   #replayCounter {
     order: 2;
-    font-size: 0.9rem;
     flex: 0 0 auto;
+    font-size: 0.9rem;
     align-self: center;
+    white-space: nowrap;
   }
 
-  /* 行2: 前 / 取消 / 再生 / 次 の順で大きく並べる */
+  /* 行2: 前 / 取消 / 再生 / 次  (均等配置) */
   #replayBack  { order: 3; flex: 1 1 0; }
   #replayUndo  { order: 4; flex: 1 1 0; }
-  #replayPlay  { order: 5; flex: 2 1 0; } /* 再生は一番目立たせる */
+  #replayPlay  { order: 5; flex: 2 1 0; } /* 再生を目立たせる */
   #replayFwd   { order: 6; flex: 1 1 0; }
 
-  /* 編集系コントロールはモバイルでは非表示（視聴に特化） */
-  /* 保存・読込・コメント追加・共有リンク・X投稿 */
+  /* 編集系コントロールはモバイルで非表示（視聴に特化） */
   #replayCommentInput,
   #replayAddComment,
   #replayExport,
   #replayShare,
   #replayShareX {
-    display: none !important;
+    display: none;
   }
   /* 読込ラベル（input[type=file] を内包） */
   .replay-bar > label {
-    display: none !important;
+    display: none;
   }
 
-  /* コメントトースト: モバイルで読みやすく */
+  /* コメントトーストをモバイルで読みやすく */
   #replayCommentToast {
     max-width: 92vw;
     font-size: 1.05rem;
   }
 
-  /* 盤面スロットの最小横幅制約を解除（slot-width が小さくなるため） */
-  #mainContainer,
-  .pool {
-    min-width: 0 !important;
-  }
-
-  /* サイドパネルのトグルボタンをモバイル向けに少し大きく */
+  /* サイドパネルのトグルボタンを少し大きく */
   .sol-panel-toggle {
     width: 28px;
     min-height: 48px;
     font-size: 0.9rem;
+  }
+}
+
+
+/* ════════════════════════════════════════════════════
+   横向きスマホ (landscape + 高さ < 500px)
+   ※ iPhone SE landscape (667×375) では上の縦向きブロックも適用されるが、
+     このブロックが後発のため side-slots-container と sol-field-area を上書き
+   ════════════════════════════════════════════════════ */
+@media (orientation: landscape) and (max-height: 499px) {
+
+  /* ── 横スクロール防止 ── */
+  .sol-main {
+    overflow-x: hidden;
+  }
+  #mainContainer {
+    overflow-x: hidden;
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+
+  /* カード詳細パネルは非表示 */
+  .sol-cip-col,
+  #cipToggle {
+    display: none;
+  }
+
+  /* 盤面スロットの最小幅制約を解除 */
+  #mainContainer,
+  .pool {
+    min-width: 0;
+  }
+
+  /* ── 縦向きブロックの上書き: 横向きは side-slots-container を横並びに戻す ── */
+  /* 横幅に余裕があるため row を維持（JS 幅計算も 8.4 列で対応済み） */
+  .side-slots-container {
+    flex-direction: row;
+  }
+
+  /* sol-field-area パディングも元の値に戻す */
+  .sol-field-area {
+    padding: 0 6px 6px 10px;
+  }
+
+  /* ── リプレイバー: 下部固定 + 編集系非表示 ── */
+  #replayBarContainer.replay-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 40;
+  }
+
+  /* 編集系は非表示 */
+  #replayCommentInput,
+  #replayAddComment,
+  #replayExport,
+  #replayShare,
+  #replayShareX {
+    display: none;
+  }
+  .replay-bar > label {
+    display: none;
   }
 }
