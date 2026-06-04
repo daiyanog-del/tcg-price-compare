@@ -183,6 +183,13 @@ _ranking_lock = Lock()
 _search_recent: list[tuple[float, str]] = []  # メモリフォールバック用
 RANKING_RECENT_HOURS = 24
 
+# カード情報キャッシュ（一人回しデッキ読込の高速化）
+# konami_id (int) → api_card_info のレスポンスdict をメモリに保持する
+# カード情報はほぼ不変のため TTL なし（再起動でリセット）
+_card_info_cache: dict[int, dict] = {}
+_card_info_lock = Lock()
+MAX_CARD_INFO_CACHE = 5000  # これ以上溜まったら一括クリア
+
 # Supabaseクライアント（環境変数が設定されていれば有効）
 _supabase_client = None
 _SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -1992,21 +1999,17 @@ _RACE_JA = {
 # OCGリミットレギュレーション（banlist_info.ban_ocg → 日本語ラベル）
 _LIMIT_JA = {"Forbidden":"禁止","Banned":"禁止","Limited":"制限","Semi-Limited":"準制限"}
 
-@app.route("/api/card-info")
-def api_card_info():
-    """カード名からYGOResourcesのカード情報（ATK/DEF/効果テキスト等）を返す"""
-    name = request.args.get("name", "").strip()
-    if not name:
-        return jsonify({"error": "name required"}), 400
-    idx = _get_ygores_name_index()
-    ids = idx.get(name)
-    if not ids and _ygores_fuzzy_index:
-        # 完全一致しない場合は記号・全半角ハイフン等のゆれを無視して再照合
-        # （画像取得 _ygores_image_url と同じフォールバック。card-info でもゆれを吸収する）
-        ids = _ygores_fuzzy_index.get(_fuzzy_key(name))
-    if not ids:
-        return jsonify({"found": False}), 200
-    card_id = ids[0]
+def _fetch_card_info_by_id(card_id: int, name: str) -> dict:
+    """konami_id からカード情報dictを取得して返す（キャッシュ付き）。
+    キャッシュヒット時は外部APIを叩かずに即返却する。
+    外部HTTP呼び出しはロック外で行い、ロック保持中のネットワーク待ちを避ける。
+    """
+    # キャッシュ参照（ロック内）
+    with _card_info_lock:
+        if card_id in _card_info_cache:
+            return _card_info_cache[card_id]
+
+    # キャッシュミス → 外部APIで取得（ロック外）
     try:
         resp = _http.get(
             f"https://db.ygoresources.com/data/card/{card_id}",
@@ -2014,7 +2017,7 @@ def api_card_info():
             headers={"User-Agent": _BROWSER_UA},
         )
         if resp.status_code != 200:
-            return jsonify({"found": False}), 200
+            return {"found": False}
         data = resp.json()
         ja = data.get("cardData", {}).get("ja", {})
         card_type = ja.get("cardType", "")
@@ -2054,7 +2057,7 @@ def api_card_info():
         # ygoprodeck 取得失敗時のフォールバック（XYZ=rank, Link=linkRating で判定）
         if not is_ex and card_type == "monster":
             is_ex = (ja.get("rank") is not None) or (ja.get("linkRating") is not None)
-        return jsonify({
+        result = {
             "found": True,
             "konami_id": card_id,
             "card_type": mapped_type,
@@ -2071,10 +2074,42 @@ def api_card_info():
             "effect_text": ja.get("effectText", ""),
             "latest_print": latest_print,
             "limit": limit,
-        })
+        }
     except Exception as e:
         logger.warning(f"[card-info] {name}: {e}")
+        return {"found": False}
+
+    # キャッシュ格納（ロック内）。上限超過時は一括クリアして空きを作る
+    with _card_info_lock:
+        if len(_card_info_cache) >= MAX_CARD_INFO_CACHE:
+            _card_info_cache.clear()
+            logger.info("[card-info] キャッシュ上限到達のためクリアしました")
+        _card_info_cache[card_id] = result
+
+    return result
+
+
+@app.route("/api/card-info")
+def api_card_info():
+    """カード名からYGOResourcesのカード情報（ATK/DEF/効果テキスト等）を返す"""
+    name = request.args.get("name", "").strip()
+    if not name:
+        return jsonify({"error": "name required"}), 400
+    idx = _get_ygores_name_index()
+    ids = idx.get(name)
+    if not ids and _ygores_fuzzy_index:
+        # 完全一致しない場合は記号・全半角ハイフン等のゆれを無視して再照合
+        # （画像取得 _ygores_image_url と同じフォールバック。card-info でもゆれを吸収する）
+        ids = _ygores_fuzzy_index.get(_fuzzy_key(name))
+    if not ids:
         return jsonify({"found": False}), 200
+    card_id = ids[0]
+    result = _fetch_card_info_by_id(card_id, name)
+    resp = jsonify(result)
+    if result.get("found"):
+        # カード情報はほぼ不変のため長期キャッシュ可（card-image と同様）
+        resp.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
+    return resp
 
 
 @app.route("/api/card-image")
@@ -2136,6 +2171,62 @@ def api_card_images():
 
     resp = jsonify({"images": images})
     # カード名→画像URLの対応はほぼ不変のため長期キャッシュ可
+    resp.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
+    return resp
+
+
+@app.route("/api/card-infos", methods=["POST"])
+def api_card_infos():
+    """複数カード名を一括受け取り、カード情報を一括返却するバッチAPI（一人回しデッキ読込高速化用）。
+    リクエスト: {"names": ["カード名A", "カード名B", ...]}
+    レスポンス: {"infos": {"カード名A": {found, broad_type, is_ex, ...}, ...}}
+    部分成功を許容（解決できない名前は {found: false} を返す）。
+    _card_info_cache を経由するため、キャッシュ命中分は外部APIを叩かない。
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    names = data.get("names", [])
+    if not isinstance(names, list):
+        return jsonify({"error": "names must be a list"}), 400
+    names = [str(n).strip() for n in names if n][:MAX_DECK_CARDS]
+
+    idx = _get_ygores_name_index()
+    infos = {}
+
+    # name → card_id を解決し、キャッシュ命中分は即格納、未命中分を並列取得
+    need_fetch = []  # (name, card_id) のリスト
+    for name in names:
+        ids = idx.get(name)
+        if not ids and _ygores_fuzzy_index:
+            ids = _ygores_fuzzy_index.get(_fuzzy_key(name))
+        if not ids:
+            infos[name] = {"found": False}
+            continue
+        card_id = ids[0]
+        # キャッシュ参照（ロック内）
+        with _card_info_lock:
+            cached = _card_info_cache.get(card_id)
+        if cached is not None:
+            infos[name] = cached
+        else:
+            need_fetch.append((name, card_id))
+
+    # キャッシュ未命中分を ThreadPoolExecutor で並列取得
+    if need_fetch:
+        def _fetch_one(item):
+            n, cid = item
+            result = _fetch_card_info_by_id(cid, n)  # キャッシュ格納も内部で行う
+            return n, result
+
+        with ThreadPoolExecutor(max_workers=min(len(need_fetch), 5)) as executor:
+            futs = {executor.submit(_fetch_one, item): item for item in need_fetch}
+            for future in as_completed(futs, timeout=25):
+                try:
+                    n, result = future.result()
+                    infos[n] = result
+                except Exception:
+                    infos[futs[future][0]] = {"found": False}
+
+    resp = jsonify({"infos": infos})
     resp.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
     return resp
 
