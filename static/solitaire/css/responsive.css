@@ -58,6 +58,12 @@
   .side-slots-container {
     flex-direction: column;
   }
+  /* column 配置では align-self:stretch が横方向にしか効かないため、
+     flex:1 で各エリアが side-slots-container の高さを均等に占有するようにする */
+  .side-slots-container .sol-side-area {
+    flex: 1;
+    min-height: calc(var(--slot-height) + 32px); /* label + slot の最低高さ保証 */
+  }
 
   /* 盤面スロットの最小幅制約を解除（slot-width が小さくなるため） */
   #mainContainer,
