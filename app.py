@@ -149,14 +149,6 @@ MAX_PACK_PARAM_LEN = 120
 # ヘルスチェック用シークレットキー
 HEALTH_CHECK_KEY = os.environ.get("HEALTH_CHECK_KEY", "")
 
-# フィードバック（不具合・要望）受付
-FEEDBACK_RATE_LIMIT_SEC   = 30    # 同一IP 30秒に1回まで
-MAX_FEEDBACK_BODY_CHARS   = 2000
-MAX_FEEDBACK_CONTACT_CHARS = 200
-_last_feedback: dict[str, float] = {}
-_feedback_lock = Lock()
-_DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
-
 # アフィリエイト設定（環境変数から取得）
 AFFILIATE_CONFIG = {
     "カーナベル": {
@@ -178,6 +170,14 @@ VAPID_CLAIMS      = {"sub": "mailto:tcg.price.compare@gmail.com"}
 
 from collections import defaultdict
 from threading import Lock, Thread
+
+# フィードバック（不具合・要望）受付
+FEEDBACK_RATE_LIMIT_SEC    = 30    # 同一IP 30秒に1回まで
+MAX_FEEDBACK_BODY_CHARS    = 2000
+MAX_FEEDBACK_CONTACT_CHARS = 200
+_last_feedback: dict[str, float] = {}
+_feedback_lock = Lock()
+_DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 
 _ranking_lock = Lock()
 _search_recent: list[tuple[float, str]] = []  # メモリフォールバック用
