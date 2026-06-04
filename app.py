@@ -2033,7 +2033,7 @@ def api_parse_deck_pdf_debug():
         import pdfplumber
         with pdfplumber.open(f.stream) as pdf:
             page = pdf.pages[0]
-            words = page.extract_words(x_tolerance=2, y_tolerance=3, keep_blank_chars=False)
+            words = page.extract_words(x_tolerance=2, y_tolerance=1, keep_blank_chars=False)
         # 座標確認用: 全wordをy,xでソートして返す
         out = sorted(
             [{"t": w["text"], "x": round(w["x0"], 1), "y": round(w["top"], 1)} for w in words],
@@ -2123,57 +2123,10 @@ def _parse_neuron_pdf_words(words):
             ],
         }
 
-    page_w = max(it["x"] for it in items) + 100
-
-    # ── ヘッダ行から列境界を正確に計算 ──────────────────────────
-    # ヘッダ行: [モンスター x=108][枚数 x=217][魔法 x=290][枚数 x=387][罠 x=464][枚数 x=557]
-    # 列境界は 枚数[i].x と 次のカード種ヘッダ[i+1].x の中点
+    # ヘッダ行から枚数列xを取得（ソート済み: [モンスター枚数x, 魔法枚数x, 罠枚数x]）
     main_hdr_y = mon_h["y"]
     hdr_row = sorted([it for it in items if abs(it["y"] - main_hdr_y) < 5], key=lambda it: it["x"])
-
-    # ヘッダ行内の「枚数」x一覧（左から: モンスター枚数, 魔法枚数, 罠枚数）
-    main_qty_xs = [it["x"] for it in hdr_row if it["str"].strip() == "枚数"]
-    # カード種ヘッダのx一覧（左から: モンスター, 魔法, 罠）
-    card_type_xs = sorted([h["x"] for h in [
-        mon_h, spl_h, trp_h
-    ] if h])
-
-    # 列タイプリスト（x昇順）
-    col_types = []
-    if mon_h: col_types.append(("monster", mon_h["x"]))
-    if spl_h: col_types.append(("spell",   spl_h["x"]))
-    if trp_h: col_types.append(("trap",    trp_h["x"]))
-    col_types.sort(key=lambda c: c[1])
-
-    # 各列の x範囲: 開始=(前の枚数x+自分のカード種x)/2、終了=(自分の枚数x+次のカード種x)/2
-    col_ranges = []
-    for i, (ctype, ctype_x) in enumerate(col_types):
-        # 自分に対応する「枚数」x（ヘッダ行で自分のカード種xより右にある最初のもの）
-        my_qty_x = next((qx for qx in sorted(main_qty_xs) if qx > ctype_x), None)
-
-        # 開始x: 前の「枚数」xと自分のカード種xの中点（最初の列は0）
-        prev_qty_x = main_qty_xs[i - 1] if i > 0 and i - 1 < len(main_qty_xs) else None
-        start_x = (prev_qty_x + ctype_x) / 2 if prev_qty_x else 0
-
-        # 終了x: 自分の「枚数」xと次のカード種xの中点（最後の列はpage_w）
-        next_ctype_x = col_types[i + 1][1] if i + 1 < len(col_types) else None
-        end_x = (my_qty_x + next_ctype_x) / 2 if (my_qty_x and next_ctype_x) else page_w
-
-        col_ranges.append({
-            "type": ctype,
-            "sX": start_x,
-            "eX": end_x,
-            "qty_x": my_qty_x,  # この列の枚数列x
-        })
-
-    def get_col(x):
-        for cr in col_ranges:
-            if cr["sX"] <= x < cr["eX"]:
-                return cr["type"]
-        return None
-
-    # qty_x_col: 各列の枚数x（ヘッダ行から直接取得済み）
-    qty_x_col = {cr["type"]: cr["qty_x"] for cr in col_ranges if cr["qty_x"]}
+    main_qty_xs = sorted([it["x"] for it in hdr_row if it["str"].strip() == "枚数"])
 
     # 除外語
     SKIP = {"モンスターカード","魔法カード","罠カード","エクストラデッキ","サイドデッキ",
@@ -2193,83 +2146,96 @@ def _parse_neuron_pdf_words(words):
     main_y   = main_hdr_y
     ex_hdr_y = ex_h["y"]
 
-    # ── EX/サイド x分割点 ─────────────────────────────────────
-    # EXヘッダ行: [エクストラ x=108][枚数 x=217][サイド x=286][枚数 x=387]
-    # 分割点 = (EX枚数x + サイドx) / 2 = (217 + 286) / 2 = 251.5
+    # EXヘッダ行から枚数列xを取得（[EX枚数x, サイド枚数x]）
     ex_hdr_row = sorted([it for it in items if abs(it["y"] - ex_hdr_y) < 5], key=lambda it: it["x"])
-    ex_qty_xs  = [it["x"] for it in ex_hdr_row if it["str"].strip() == "枚数"]
+    ex_qty_xs  = sorted([it["x"] for it in ex_hdr_row if it["str"].strip() == "枚数"])
     ex_qty_x   = ex_qty_xs[0] if ex_qty_xs else None  # EX列の枚数x
 
-    if side_h and ex_qty_x:
-        split_x = (ex_qty_x + side_h["x"]) / 2
-    elif side_h:
-        split_x = (ex_h["x"] + side_h["x"]) / 2
-    else:
-        split_x = page_w * 0.5
-
     warnings = []
-    QTY_TOL = 25
+    QTY_TOL = 25   # 枚数列x からの横方向許容幅 (pt)
+    ROW_TOL = 7    # 同一行とみなすy方向許容幅 (pt)
+
+    def pair_by_row(name_items, digit_items, qty_xs):
+        """各カード名について、その名前より右にある最初の枚数列xと同じ行の数字を枚数として返す。
+        列境界ではなく「枚数列x + 行y」で対応付けるため、ヘッダー文字とカード名のxズレに強い。"""
+        sorted_qty_xs = sorted(qty_xs)
+        result = []
+        for nm in sorted(name_items, key=lambda it: (it["y"], it["x"])):
+            # このカード名より右にある最初の枚数列x = このカードが属するカード種の枚数列
+            my_qty_x = next((qx for qx in sorted_qty_xs if qx > nm["x"]), None)
+            qty = None
+            if my_qty_x is not None:
+                tok = next(
+                    (d for d in digit_items
+                     if abs(d["x"] - my_qty_x) <= QTY_TOL and abs(d["y"] - nm["y"]) <= ROW_TOL),
+                    None,
+                )
+                if tok:
+                    qty = int(tok["str"])
+            result.append((nm, qty))
+        return result
 
     # ── メインデッキ ──────────────────────────────────
-    main_items = [it for it in items if main_y < it["y"] < ex_hdr_y and not skip_item(it["str"])]
-    result_main = []
-
-    for cr in col_ranges:
-        col_items = sorted(
-            [it for it in main_items if cr["sX"] <= it["x"] < cr["eX"]],
-            key=lambda it: it["y"],
-        )
-
-        qty_x = qty_x_col.get(cr["type"])
-        # qty_x 未検出時: 列内で最も右にある digit 群の x を使う
-        if qty_x is None:
-            dxs = [it["x"] for it in col_items if is_digit(it["str"])]
-            qty_x = max(dxs) if dxs else None
-
-        quantities, names = [], []
-        for it in col_items:
-            if is_digit(it["str"]):
-                if qty_x is not None and abs(it["x"] - qty_x) <= QTY_TOL:
-                    quantities.append({"val": int(it["str"]), "y": it["y"]})
-                # else: 行番号 → 捨てる
-            else:
-                # 行番号がカード名に混入していれば除去
-                name_str = strip_row_num(it["str"])
-                if name_str and not skip_item(name_str):
-                    names.append({"str": name_str, "y": it["y"]})
-
-        for i, nm in enumerate(names):
-            qty = quantities[i]["val"] if i < len(quantities) else None
-            safe = max(1, min(3, qty)) if qty and 1 <= qty <= 3 else 1
-            if i >= len(quantities):
-                warnings.append(f"「{nm['str']}」の枚数が読み取れません（1枚として扱います）")
-            result_main.append({"qty": safe, "name": nm["str"]})
-
-    # ── エクストラデッキ ──────────────────────────────
-    # EXとサイドは同一y行から下に並ぶため y > ex_hdr_y の全アイテムを対象に
-    ex_all = [it for it in items if it["y"] > ex_hdr_y and not skip_item(it["str"])]
-    ex_col = sorted([it for it in ex_all if it["x"] < split_x], key=lambda it: it["y"])
-
-    # ex_qty_x 未検出時フォールバック
-    if ex_qty_x is None:
-        dxs = [it["x"] for it in ex_col if is_digit(it["str"])]
-        ex_qty_x = max(dxs) if dxs else None
-
-    ex_qtys, ex_names = [], []
-    for it in ex_col:
-        if is_digit(it["str"]):
-            if ex_qty_x is not None and abs(it["x"] - ex_qty_x) <= QTY_TOL:
-                ex_qtys.append({"val": int(it["str"]), "y": it["y"]})
-            # else: 行番号 → 捨てる
-        else:
+    main_all = [it for it in items if main_y < it["y"] < ex_hdr_y and not skip_item(it["str"])]
+    main_digits = [it for it in main_all if is_digit(it["str"])]
+    main_names  = []
+    for it in main_all:
+        if not is_digit(it["str"]):
             name_str = strip_row_num(it["str"])
             if name_str and not skip_item(name_str):
-                ex_names.append({"str": name_str, "y": it["y"]})
+                main_names.append({"str": name_str, "x": it["x"], "y": it["y"]})
+
+    # 枚数列未検出時フォールバック: 数字群の中で最も右のxを枚数列とする
+    eff_main_qty_xs = main_qty_xs if main_qty_xs else (
+        [max(it["x"] for it in main_digits)] if main_digits else []
+    )
+
+    result_main = []
+    for nm, qty in pair_by_row(main_names, main_digits, eff_main_qty_xs):
+        safe = max(1, min(3, qty)) if qty is not None and 1 <= qty <= 3 else 1
+        if qty is None:
+            warnings.append(f"「{nm['str']}」の枚数が読み取れません（1枚として扱います）")
+        result_main.append({"qty": safe, "name": nm["str"]})
+
+    # ── エクストラデッキ ──────────────────────────────
+    # EXとサイドは同一y範囲に横並びのため、EX枚数列x より左のカード名のみEXとして取り込む
+    # （EX名x≈70 < ex_qty_x≈217 < サイド名x≈240 なので左右で自然に分離できる）
+    ex_all = [it for it in items if it["y"] > ex_hdr_y and not skip_item(it["str"])]
+    ex_digits = [it for it in ex_all if is_digit(it["str"])]
+
+    # EX枚数列x 未検出時フォールバック
+    if ex_qty_x is None:
+        dxs = [it["x"] for it in ex_digits]
+        ex_qty_x = max(dxs) if dxs else None
+
+    # EX列のカード名のみ: EX枚数列xより左にある名前
+    ex_names = []
+    for it in ex_all:
+        if not is_digit(it["str"]):
+            name_str = strip_row_num(it["str"])
+            if name_str and not skip_item(name_str):
+                if ex_qty_x is None or it["x"] < ex_qty_x:
+                    ex_names.append({"str": name_str, "x": it["x"], "y": it["y"]})
+
+    # 同一y行に複数トークンがある場合（特殊文字Δがpdfplumberで別トークンに分割される等）をスペース結合
+    # EX列は1列に絞り込み済みなので、同じy行のトークンは必ず同一カード名の断片
+    if ex_names:
+        ex_names_merged = []
+        row_buf = []
+        for nm in sorted(ex_names, key=lambda it: (it["y"], it["x"])):
+            if row_buf and abs(nm["y"] - row_buf[0]["y"]) > 1:
+                combined = " ".join(t["str"] for t in row_buf)
+                ex_names_merged.append({"str": combined, "x": row_buf[0]["x"], "y": row_buf[0]["y"]})
+                row_buf = []
+            row_buf.append(nm)
+        if row_buf:
+            combined = " ".join(t["str"] for t in row_buf)
+            ex_names_merged.append({"str": combined, "x": row_buf[0]["x"], "y": row_buf[0]["y"]})
+        ex_names = ex_names_merged
 
     result_ex = []
-    for i, nm in enumerate(ex_names):
-        qty = ex_qtys[i]["val"] if i < len(ex_qtys) else None
-        safe = max(1, min(3, qty)) if qty and 1 <= qty <= 3 else 1
+    for nm, qty in pair_by_row(ex_names, ex_digits, [ex_qty_x] if ex_qty_x else []):
+        safe = max(1, min(3, qty)) if qty is not None and 1 <= qty <= 3 else 1
         result_ex.append({"qty": safe, "name": nm["str"]})
 
     ok = len(result_main) > 0 or len(result_ex) > 0
