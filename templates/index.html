@@ -376,6 +376,39 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .deck-card-row.error .deck-card-name{color:var(--red)}
 .deck-progress{font:.78rem var(--font);color:var(--text-m);margin-bottom:10px}
 
+/* ── マイデッキ ドロップゾーン・グリッド ── */
+.deck-drop-zone{border:2px dashed var(--border);border-radius:var(--radius);padding:28px 20px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;margin-bottom:12px;background:var(--bg-card)}
+.deck-drop-zone:hover,.deck-drop-zone.drag-over{border-color:var(--accent);background:rgba(74,124,255,.08)}
+.deck-drop-zone-icon{font-size:1.8rem;margin-bottom:8px;opacity:.6}
+.deck-drop-zone-title{font:.9rem var(--font);font-weight:700;color:var(--text);margin-bottom:4px}
+.deck-drop-zone-sub{font:.75rem var(--font);color:var(--text-d)}
+.deck-input-details{margin-bottom:10px}
+.deck-input-details summary{font:.8rem var(--font);color:var(--text-d);cursor:pointer;padding:6px 2px;user-select:none;list-style:none}
+.deck-input-details summary::-webkit-details-marker{display:none}
+.deck-input-details summary::before{content:'▸ '}
+.deck-input-details[open] summary::before{content:'▾ '}
+.deck-input-details .deck-textarea{margin-top:8px}
+.deck-grid-section{margin-bottom:16px}
+.deck-grid-section-label{font:.7rem var(--font);font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-d);margin-bottom:8px;padding-left:2px}
+.deck-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:5px}
+.deck-grid-cell{position:relative;border-radius:5px;background:var(--bg-card);border:1px solid var(--border);overflow:hidden;transition:border-color .15s;cursor:default}
+.deck-grid-cell:hover{border-color:var(--accent)}
+.deck-grid-cell.loading .deck-grid-img-wrap{animation:shimmer 1.4s infinite}
+.deck-grid-cell.error{border-color:var(--red);opacity:.75}
+.deck-grid-img-wrap{position:relative;aspect-ratio:59/86;background:var(--bg);overflow:hidden}
+.deck-grid-img-wrap img{width:100%;height:100%;object-fit:cover;display:block}
+.deck-grid-placeholder{width:100%;height:100%;background:var(--bg-card)}
+.deck-grid-badge{position:absolute;top:2px;right:2px;background:rgba(0,0,0,.75);color:#fff;font:.6rem var(--mono);font-weight:700;padding:1px 4px;border-radius:3px;line-height:1.4;pointer-events:none}
+.deck-grid-footer{padding:3px 4px 4px}
+.deck-grid-footer .deck-card-name{display:block;font:.58rem var(--font);color:var(--text-m);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:1px}
+.deck-grid-footer .deck-card-name a{color:inherit;text-decoration:none}
+.deck-grid-footer .deck-card-name a:hover{color:var(--accent-l)}
+.deck-grid-footer .deck-card-price{display:block;font:.62rem var(--mono);font-weight:700;color:var(--gold);white-space:nowrap;min-height:.85em}
+.deck-grid-cell .deck-card-shop,.deck-grid-cell .deck-card-status,.deck-grid-cell .wish-add{display:none}
+@keyframes shimmer{0%{background:var(--bg-card)}50%{background:rgba(74,124,255,.07)}100%{background:var(--bg-card)}}
+@media(max-width:768px){.deck-grid{grid-template-columns:repeat(auto-fill,minmax(60px,1fr));gap:4px}}
+@media(max-width:640px){.deck-grid{grid-template-columns:repeat(auto-fill,minmax(54px,1fr));gap:3px}}
+
 /* ── 環境デッキ プリセット ── */
 .meta-loading{padding:24px;text-align:center;color:var(--text-d);font-size:.85rem}
 .meta-tier-group{margin-bottom:16px}
@@ -817,21 +850,34 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   <div id="mode-mydeck" class="hidden">
     <div class="deck-builder">
       <div class="deck-input-area">
-        <!-- テキスト入力 -->
-        <textarea class="deck-textarea" id="deckTextarea" placeholder="カード名を入力（1行1枚、枚数指定も可）&#10;&#10;例:&#10;3 灰流うらら&#10;2 増殖するG&#10;1 サンダー・ボルト&#10;ブラック・マジシャン"></textarea>
 
-        <!-- 保存済みデッキ一覧 -->
+        <!-- 保存済みデッキ一覧（最上部） -->
         <div id="savedDeckList"></div>
 
-        <div class="deck-actions">
-          <button class="deck-btn deck-btn-primary" onclick="calcDeckEstimate()">見積もり<span style="display:block;font-size:.65rem;font-weight:400;opacity:.7;margin-top:2px">直近データから即時表示 / データがないカードは自動で店舗検索</span></button>
-          <button class="deck-btn deck-btn-outline" onclick="calcDeck()">全て店舗検索<span style="display:block;font-size:.65rem;font-weight:400;opacity:.7;margin-top:2px">全カードをリアルタイムで検索（時間がかかります）</span></button>
+        <!-- PDFドロップゾーン（メインCTA） -->
+        <div class="deck-drop-zone" id="deckDropZone"
+             onclick="window.NeuronPDF?.openPicker()"
+             ondragover="event.preventDefault();this.classList.add('drag-over')"
+             ondragleave="this.classList.remove('drag-over')"
+             ondrop="event.preventDefault();this.classList.remove('drag-over');handleDeckDrop(event)">
+          <div class="deck-drop-zone-icon">&#128196;</div>
+          <div class="deck-drop-zone-title">PDFをドラッグ&amp;ドロップ / クリックして選択</div>
+          <div class="deck-drop-zone-sub">ニューロンのデッキシートPDFを取り込みます</div>
         </div>
-        <div style="text-align:right;margin-top:4px;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
-          <button class="deck-btn-text" onclick="window.NeuronPDF?.openPicker()">PDFから取り込む</button>
-          <button class="deck-btn-text" onclick="saveCurrentDeck()">保存</button>
-          <button class="deck-btn-text" onclick="clearDeck()">入力をクリア</button>
-        </div>
+
+        <!-- テキスト入力（折りたたみ） -->
+        <details class="deck-input-details" id="deckInputDetails">
+          <summary>テキストで入力・編集</summary>
+          <textarea class="deck-textarea" id="deckTextarea" placeholder="カード名を入力（1行1枚、枚数指定も可）&#10;&#10;例:&#10;3 灰流うらら&#10;2 増殖するG&#10;1 サンダー・ボルト&#10;ブラック・マジシャン"></textarea>
+          <div class="deck-actions">
+            <button class="deck-btn deck-btn-primary" onclick="calcDeckEstimate()">見積もり<span style="display:block;font-size:.65rem;font-weight:400;opacity:.7;margin-top:2px">直近データから即時表示 / データがないカードは自動で店舗検索</span></button>
+            <button class="deck-btn deck-btn-outline" onclick="calcDeck()">全て店舗検索<span style="display:block;font-size:.65rem;font-weight:400;opacity:.7;margin-top:2px">全カードをリアルタイムで検索（時間がかかります）</span></button>
+          </div>
+          <div style="text-align:right;margin-top:4px;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
+            <button class="deck-btn-text" onclick="saveCurrentDeck()">保存</button>
+            <button class="deck-btn-text" onclick="clearDeck()">入力をクリア</button>
+          </div>
+        </details>
 
         <!-- マイデッキ用 店舗フィルタ -->
         <div class="shop-toggles" id="deckShopToggles" style="margin:10px 0 0;justify-content:flex-start">
@@ -1932,16 +1978,22 @@ function switchMode(mode){
 // ── Deck Builder ──
 
 // コンテキスト定義（マイデッキ / 環境デッキ）
+// マイデッキのmain/ex状態（loadSavedDeck / onDeckImported で設定、テキスト変更時に再解析）
+let _currentMydeckCards={main:[],ex:[]};
+let _currentMydeckText=''; // _currentMydeckCardsに対応するテキスト（変更検知用）
+
 const DECK_CTX = {
   mydeck:{
     results:'deckResults', list:'deckCardList', total:'deckTotalPrice',
     prog:'deckProgress', shops:'deckShopToggles', rowPrefix:'deck-row-',
-    getText:()=>document.getElementById('deckTextarea').value
+    getText:()=>document.getElementById('deckTextarea').value,
+    getCards:()=>_currentMydeckCards
   },
   meta:{
     results:'metaDeckResults', list:'metaDeckCardList', total:'metaDeckTotalPrice',
     prog:'metaDeckProgress', shops:'metaShopToggles', rowPrefix:'meta-row-',
-    getText:()=>_lastMetaDeckText
+    getText:()=>_lastMetaDeckText,
+    getCards:()=>({main:parseDeckList(_lastMetaDeckText),ex:[]})
   }
 };
 
@@ -1955,6 +2007,107 @@ function parseDeckList(text){
   }
   return cards;
 }
+
+// 保存デッキをmain/ex構造に正規化（旧データ対応）
+function normalizeDeck(deck){
+  if(deck.main&&deck.ex) return {main:deck.main,ex:deck.ex};
+  return {main:parseDeckList(deck.text||''),ex:[]};
+}
+
+// デッキをカード画像グリッドとして描画（main/ex 2セクション）
+function renderDeckGrid(cards, ctx, mainCount){
+  const listEl=document.getElementById(ctx.list);
+  const rowPrefix=ctx.rowPrefix;
+
+  function cellHtml(c, i){
+    const badge=c.qty>1?`<span class="deck-grid-badge">${c.qty}</span>`:'';
+    return `<div class="deck-grid-cell loading" id="${rowPrefix}${i}" data-card="${esc(c.name)}" title="">
+      <div class="deck-grid-img-wrap">
+        <div class="deck-grid-placeholder"></div>
+        ${badge}
+      </div>
+      <div class="deck-grid-footer">
+        <span class="deck-card-name">${esc(c.name)}</span>
+        <span class="deck-card-price"></span>
+      </div>
+      <span class="deck-card-shop" hidden></span>
+      <span class="deck-card-status" hidden></span>
+    </div>`;
+  }
+
+  const mainCards=cards.slice(0,mainCount);
+  const exCards=cards.slice(mainCount);
+  let html='';
+
+  if(mainCards.length){
+    const total=mainCards.reduce((s,c)=>s+c.qty,0);
+    html+=`<div class="deck-grid-section">
+      <div class="deck-grid-section-label">メインデッキ（${total}枚）</div>
+      <div class="deck-grid">${mainCards.map((c,i)=>cellHtml(c,i)).join('')}</div>
+    </div>`;
+  }
+  if(exCards.length){
+    const total=exCards.reduce((s,c)=>s+c.qty,0);
+    html+=`<div class="deck-grid-section">
+      <div class="deck-grid-section-label">エクストラデッキ（${total}枚）</div>
+      <div class="deck-grid">${exCards.map((c,i)=>cellHtml(c,mainCount+i)).join('')}</div>
+    </div>`;
+  }
+  if(!html) html='<div style="padding:12px;color:var(--text-d);font-size:.8rem">カードが入力されていません</div>';
+  listEl.innerHTML=html;
+}
+
+// グリッドセルにカード画像を非同期で読み込む（重複排除・並列制限あり）
+function loadDeckGridImages(listEl){
+  const cells=[...listEl.querySelectorAll('[data-card]')];
+  const fetched=new Map(); // name → Promise<url|null>
+  let delay=0;
+
+  cells.forEach(el=>{
+    const name=el.dataset.card;
+    const wrap=el.querySelector('.deck-grid-img-wrap');
+    if(!name||!wrap) return;
+
+    if(!fetched.has(name)){
+      const d=delay;
+      delay+=120;
+      fetched.set(name,new Promise(res=>{
+        setTimeout(()=>{
+          fetch('/api/card-image?name='+encodeURIComponent(name))
+            .then(r=>r.json()).then(data=>res(data.url||null)).catch(()=>res(null));
+        },d);
+      }));
+    }
+
+    fetched.get(name).then(url=>{
+      if(!url) return;
+      const placeholder=wrap.querySelector('.deck-grid-placeholder');
+      if(placeholder) placeholder.outerHTML=`<img src="${esc(url)}" alt="" loading="lazy">`;
+    });
+  });
+}
+
+// PDFドラッグ&ドロップハンドラ
+function handleDeckDrop(event){
+  const file=event.dataTransfer.files[0];
+  if(!file) return;
+  if(file.type!=='application/pdf'){
+    alert('PDFファイルを選択してください');
+    return;
+  }
+  window.NeuronPDF?.handleFile(file);
+}
+
+// PDF取り込み・デッキロード後のグリッドプレビュー起動
+window.onDeckImported=function(deck){
+  const{main,ex}=normalizeDeck(deck);
+  _currentMydeckCards={main,ex};
+  const combined=deck.text||[...main,...ex].map(c=>c.qty>1?`${c.qty} ${c.name}`:c.name).join('\n');
+  _currentMydeckText=combined;
+  const ta=document.getElementById('deckTextarea');
+  if(ta) ta.value=combined;
+  calcDeckEstimate();
+};
 
 // ── 環境デッキ（TCG PORTAL連携）──
 let _metaLoaded=false;
@@ -2295,6 +2448,8 @@ function loadPreset(key){
 function clearDeck(){
   document.getElementById('deckTextarea').value='';
   document.getElementById('deckResults').classList.add('hidden');
+  _currentMydeckCards={main:[],ex:[]};
+  _currentMydeckText='';
 }
 
 function addToDeck(name){
@@ -2325,8 +2480,23 @@ let _deckBuyMode=false;
 
 async function calcDeckEstimate(ctx){
   ctx = ctx || DECK_CTX.mydeck;
-  const text = ctx.getText();
-  const cards=parseDeckList(text);
+
+  // main/ex を取得（mydeckはテキスト変更を検知して再解析、metaはテキストから生成）
+  let main,ex;
+  if(ctx===DECK_CTX.mydeck){
+    const text=ctx.getText();
+    if(text!==_currentMydeckText){
+      _currentMydeckCards={main:parseDeckList(text),ex:[]};
+      _currentMydeckText=text;
+    }
+    main=_currentMydeckCards.main;
+    ex=_currentMydeckCards.ex;
+  }else{
+    main=parseDeckList(ctx.getText());
+    ex=[];
+  }
+  const cards=[...main,...ex];
+  const mainCount=main.length;
   if(!cards.length) return;
 
   const resultsEl=document.getElementById(ctx.results);
@@ -2338,15 +2508,9 @@ async function calcDeckEstimate(ctx){
   totalEl.textContent='取得中...';
   totalLabel.textContent='デッキ相場（直近データ）';
 
-  listEl.innerHTML=cards.map((c,i)=>`
-    <div class="deck-card-row loading" id="${ctx.rowPrefix}${i}">
-      <span class="deck-card-qty">${c.qty}x</span>
-      <span class="deck-card-name">${esc(c.name)}</span>
-      <span class="deck-card-price">-</span>
-      <span class="deck-card-shop"></span>
-      <span class="deck-card-status">取得中</span>
-      ${wishBtnHtml(c.name,c.qty)}
-    </div>`).join('');
+  // グリッド描画 → 画像を非同期ロード
+  renderDeckGrid(cards,ctx,mainCount);
+  loadDeckGridImages(listEl);
 
   const cardsParam=cards.map(c=>c.qty>1?`${c.qty} ${c.name}`:c.name).join('|');
   let total=0,found=0;
@@ -2366,15 +2530,15 @@ async function calcDeckEstimate(ctx){
         const lineTotal=r.best.price*c.qty;
         total+=lineTotal;
         found++;
-        row.className='deck-card-row';
-        row.querySelector('.deck-card-price').innerHTML=`<span>¥${lineTotal.toLocaleString()}</span>`;
+        row.className='deck-grid-cell';
+        row.title=r.best.shop;
+        row.querySelector('.deck-card-price').textContent=`¥${lineTotal.toLocaleString()}`;
         row.querySelector('.deck-card-shop').textContent=r.best.shop;
         row.querySelector('.deck-card-status').textContent=c.qty>1?`@¥${r.best.price.toLocaleString()}`:'';
         row.querySelector('.deck-card-name').innerHTML=r.best.url
           ?`<a href="${esc(r.best.url)}" target="_blank" rel="noopener">${esc(c.name)}</a>`:esc(c.name);
       }else{
         missing.push(i);
-        row.querySelector('.deck-card-status').textContent='リアルタイム検索中...';
       }
     });
     const dbTotal=total;
@@ -2427,18 +2591,17 @@ async function calcDeckEstimate(ctx){
             const lineTotal=d.best.price*c.qty;
             total+=lineTotal;
             sseFound++;
-            row.className='deck-card-row';
-            row.querySelector('.deck-card-price').innerHTML=`<span>¥${lineTotal.toLocaleString()}</span>`;
+            row.className='deck-grid-cell';
+            row.title=d.best.shop;
+            row.querySelector('.deck-card-price').textContent=`¥${lineTotal.toLocaleString()}`;
             row.querySelector('.deck-card-shop').textContent=d.best.shop;
             row.querySelector('.deck-card-status').textContent=c.qty>1?`@¥${d.best.price.toLocaleString()}`:'';
             row.querySelector('.deck-card-name').innerHTML=d.best.url
               ?`<a href="${esc(d.best.url)}" target="_blank" rel="noopener">${esc(c.name)}</a>`:esc(c.name);
           }else{
             sseNotFound++;
-            row.className='deck-card-row error';
-            row.querySelector('.deck-card-status').textContent='見つかりません';
+            row.className='deck-grid-cell error';
           }
-          const sseExtra=total-dbTotal;
           const remaining=missing.length-(sseFound+sseNotFound);
           if(remaining>0){
             totalEl.innerHTML=`¥${total.toLocaleString()} <span style="font-size:.7em;color:var(--text-d)">+ ${remaining}枚検索中</span>`;
@@ -2465,9 +2628,17 @@ async function calcDeck(buyMode){
   const isBuy=_deckBuyMode;
 
   const text=document.getElementById('deckTextarea').value;
-  const cards=parseDeckList(text);
+  // テキストが変更されていれば再解析（手入力は全てmain扱い）
+  if(text!==_currentMydeckText){
+    _currentMydeckCards={main:parseDeckList(text),ex:[]};
+    _currentMydeckText=text;
+  }
+  const {main,ex}=_currentMydeckCards;
+  const cards=[...main,...ex];
+  const mainCount=main.length;
   if(!cards.length) return;
 
+  const ctx=DECK_CTX.mydeck;
   const resultsEl=document.getElementById('deckResults');
   const listEl=document.getElementById('deckCardList');
   const totalEl=document.getElementById('deckTotalPrice');
@@ -2477,15 +2648,9 @@ async function calcDeck(buyMode){
   totalEl.textContent='計算中...';
   totalLabel.textContent=isBuy?'買取合計（推定）':'デッキ合計最安値（推定）';
 
-  listEl.innerHTML=cards.map((c,i)=>`
-    <div class="deck-card-row loading" id="deck-row-${i}">
-      <span class="deck-card-qty">${c.qty}x</span>
-      <span class="deck-card-name">${esc(c.name)}</span>
-      <span class="deck-card-price">-</span>
-      <span class="deck-card-shop"></span>
-      <span class="deck-card-status">待機中</span>
-      ${wishBtnHtml(c.name,c.qty)}
-    </div>`).join('');
+  // グリッド描画 → 画像を非同期ロード
+  renderDeckGrid(cards,ctx,mainCount);
+  loadDeckGridImages(listEl);
 
   // Build request
   const shopSelector=isBuy?'#buyShopToggles .shop-toggle':'#deckShopToggles .shop-toggle';
@@ -2518,7 +2683,7 @@ async function calcDeck(buyMode){
 
         if(d.type==='card_start'){
           const row=document.getElementById('deck-row-'+d.index);
-          if(row){row.className='deck-card-row loading';row.querySelector('.deck-card-status').textContent='検索中...';}
+          if(row){row.className='deck-grid-cell loading';row.querySelector('.deck-card-status').textContent='検索中...';}
           progEl.textContent=`${d.index+1}/${cards.length} 検索中...`;
         }
         else if(d.type==='card_done'){
@@ -2531,9 +2696,11 @@ async function calcDeck(buyMode){
             const lineTotal=unitPrice*c.qty;
             total+=lineTotal;
             found++;
-            row.className='deck-card-row';
-            const priceColor=isBuy?'color:var(--green)':'';
-            row.querySelector('.deck-card-price').innerHTML=`<span style="${priceColor}">¥${lineTotal.toLocaleString()}</span>`;
+            row.className='deck-grid-cell';
+            row.title=d.best.shop;
+            const priceEl=row.querySelector('.deck-card-price');
+            priceEl.textContent=`¥${lineTotal.toLocaleString()}`;
+            if(isBuy) priceEl.style.color='var(--green)';
             row.querySelector('.deck-card-shop').textContent=d.best.shop;
             row.querySelector('.deck-card-status').textContent=c.qty>1?`@¥${unitPrice.toLocaleString()}`:'';
             row.querySelector('.deck-card-name').innerHTML=d.best.url
@@ -2541,8 +2708,7 @@ async function calcDeck(buyMode){
               :esc(c.name);
           }else{
             notFound++;
-            row.className='deck-card-row error';
-            row.querySelector('.deck-card-status').textContent='見つかりません';
+            row.className='deck-grid-cell error';
           }
           totalEl.textContent=`¥${total.toLocaleString()}`;
         }
@@ -3085,14 +3251,22 @@ function saveCurrentDeck(){
   const name=prompt('デッキ名を入力してください');
   if(!name||!name.trim())return;
   const n=name.trim();
+  // テキストが変更されていればcardsを再解析（手入力は全てmain扱い）
+  if(text!==_currentMydeckText){
+    _currentMydeckCards={main:parseDeckList(text),ex:[]};
+    _currentMydeckText=text;
+  }
+  const {main,ex}=_currentMydeckCards;
   const list=savedDecksGet();
   const existing=list.find(d=>d.name===n);
   if(existing){
     if(!confirm(`「${n}」はすでに保存されています。上書きしますか？`))return;
     existing.text=text;
+    existing.main=main;
+    existing.ex=ex;
     existing.updated=Date.now();
   }else{
-    list.push({id:'d_'+Date.now(),name:n,text:text,updated:Date.now()});
+    list.push({id:'d_'+Date.now(),name:n,text,main,ex,updated:Date.now()});
   }
   savedDecksSet(list);
   renderSavedDecks();
@@ -3101,7 +3275,12 @@ function saveCurrentDeck(){
 function loadSavedDeck(id){
   const deck=savedDecksGet().find(d=>d.id===id);
   if(!deck)return;
-  document.getElementById('deckTextarea').value=deck.text;
+  // main/ex を正規化（旧データ対応）してセット
+  const{main,ex}=normalizeDeck(deck);
+  _currentMydeckCards={main,ex};
+  const combined=deck.text||[...main,...ex].map(c=>c.qty>1?`${c.qty} ${c.name}`:c.name).join('\n');
+  _currentMydeckText=combined;
+  document.getElementById('deckTextarea').value=combined;
   calcDeckEstimate();
 }
 
