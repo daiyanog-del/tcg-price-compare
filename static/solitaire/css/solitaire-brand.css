@@ -591,10 +591,30 @@ html, body {
 }
 .sol-nav a:hover { color: var(--accent-hover); }
 .sol-nav-title {
-  font-size: 1rem;
-  font-weight: 700;
-  color: var(--main-color);
-  letter-spacing: 0.03em;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  text-decoration: none;
+  isolation: isolate;
+}
+.sol-nav-title .nav-icon {
+  height: 36px;
+  width: auto;
+  display: block;
+  mix-blend-mode: screen;
+}
+.sol-nav-title .nav-brand {
+  display: inline-flex;
+  align-items: flex-end;
+  font-family: 'Bungee', sans-serif;
+  font-size: 22px;
+  color: #fff;
+  line-height: 1;
+  letter-spacing: 1px;
+}
+.sol-nav-title .nav-brand .nav-g {
+  color: #facc15;
+  font-size: 1.28em;
 }
 
 /* ── タイトル ── */
