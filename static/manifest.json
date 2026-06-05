@@ -1,7 +1,7 @@
 {
-  "name": "カード相場 — 遊戯王OCG価格インデックス",
-  "short_name": "カード相場",
-  "description": "組みたいデッキを、いちばん安く。遊戯王OCGのリアルタイム価格比較サービス。",
+  "name": "TCGYM — 遊戯王OCG 総合プレイヤーサイト",
+  "short_name": "TCGYM",
+  "description": "遊戯王OCGプレイヤーのための総合サイト。価格比較・デッキ計算・環境・最新弾情報。",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0a1024",

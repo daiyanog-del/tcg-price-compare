@@ -51,7 +51,7 @@ SHOP_HEALTH_URLS = {
 def check_shop_availability(shop_names: list[str]) -> list[str]:
     """各店舗に接続確認し、応答した店舗名のリストを返す（失敗店舗は当日スキップ）"""
     import requests as _req
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; CardPriceBot/1.0)"}
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; TCGYMBot/1.0)"}
     available = []
     for name in shop_names:
         url = SHOP_HEALTH_URLS.get(name)
@@ -543,7 +543,7 @@ def send_daily_report(
     cutoff_line = f"打ち切り: {cutoff_count}枚（周辺カード予算超過）\n" if cutoff_count > 0 else ""
 
     message = (
-        f"**カード相場 日次レポート {today}**\n"
+        f"**TCGYM 日次レポート {today}**\n"
         f"\n"
         f"**前日の検索状況**\n"
         f"検索回数: {total}回 / カード種類: {unique}種\n"

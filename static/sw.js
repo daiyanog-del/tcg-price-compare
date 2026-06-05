@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cardprice-v4';
+const CACHE_NAME = 'tcgym-v1';
 const PRECACHE = [
   '/',
   '/static/favicon.svg',

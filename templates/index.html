@@ -5,35 +5,35 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="google-site-verification" content="7SBMfipn1AANFZK-55AZRO3tvCcB5j9iZ9h3sm7r5r0">
 {% if card_name and page_mode == 'search' %}
-<title>{{ card_name }} の価格比較 | カード相場</title>
+<title>{{ card_name }} の価格比較 | TCGYM</title>
 <meta name="description" content="{{ card_name }}の最安値を遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボ・まんぞく屋の6店舗から一括比較。{% if best_price %}現在の最安値は¥{{ '{:,}'.format(best_price) }}。{% endif %}リアルタイム価格検索。">
-<meta property="og:title" content="{{ card_name }} の価格比較 | カード相場">
+<meta property="og:title" content="{{ card_name }} の価格比較 | TCGYM">
 <meta property="og:description" content="{{ card_name }}の最安値を7店舗で比較{% if best_price %}。最安¥{{ '{:,}'.format(best_price) }}{% endif %}">
 <link rel="canonical" href="{{ request.url_root.rstrip('/') }}/card/{{ card_name | urlencode }}">
 {% elif card_name and page_mode == 'buyback' %}
-<title>{{ card_name }} の買取価格比較 | カード相場</title>
+<title>{{ card_name }} の買取価格比較 | TCGYM</title>
 <meta name="description" content="{{ card_name }}の買取価格をカードラッシュ・カーナベル・遊々亭の3店舗で一括比較。{% if best_price %}最高買取額¥{{ '{:,}'.format(best_price) }}。{% endif %}一番高く売れるお店が見つかります。">
-<meta property="og:title" content="{{ card_name }} の買取価格比較 | カード相場">
+<meta property="og:title" content="{{ card_name }} の買取価格比較 | TCGYM">
 <meta property="og:description" content="{{ card_name }}の買取価格を3店舗で比較{% if best_price %}。最高¥{{ '{:,}'.format(best_price) }}{% endif %}">
 <link rel="canonical" href="{{ request.url_root.rstrip('/') }}/buy/{{ card_name | urlencode }}">
 {% else %}
-<title>カード相場 — 遊戯王OCG価格インデックス</title>
-<meta name="description" content="組みたいデッキを、いちばん安く。遊戯王OCGのリアルタイム価格比較サービス。">
-<meta property="og:title" content="カード相場 — 遊戯王OCG価格インデックス">
-<meta property="og:description" content="組みたいデッキを、いちばん安く。">
+<title>TCGYM — 遊戯王OCG プレイヤーサポート</title>
+<meta name="description" content="遊戯王OCGプレイヤーのサポートサイト。価格比較・デッキ計算・環境デッキ・最新弾情報をひとつに。">
+<meta property="og:title" content="TCGYM — 遊戯王OCG プレイヤーサポート">
+<meta property="og:description" content="価格比較・デッキ・環境・最新弾をひとつに。">
 <link rel="canonical" href="{{ request.url_root.rstrip('/') }}/">
 {% endif %}
 <meta property="og:image" content="{{ request.url_root.rstrip('/') }}/static/og-image.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="カード相場 — 遊戯王OCG価格インデックス">
-<meta name="twitter:description" content="組みたいデッキを、いちばん安く。">
+<meta name="twitter:title" content="TCGYM — 遊戯王OCG プレイヤーサポート">
+<meta name="twitter:description" content="価格比較・デッキ・環境・最新弾をひとつに。">
 <meta name="twitter:image" content="{{ request.url_root.rstrip('/') }}/static/og-image.png">
 <meta property="og:type" content="website">
 <meta property="og:url" content="{{ request.url_root.rstrip('/') }}/">
 <meta property="og:locale" content="ja_JP">
-<meta property="og:site_name" content="カード相場">
+<meta property="og:site_name" content="TCGYM">
 <meta name="robots" content="index, follow">
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2">
 <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png?v=2">
@@ -45,8 +45,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"></noscript>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@900&text=%E3%82%AB%E3%83%BC%E3%83%89%E7%9B%B8%E5%A0%B4&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
-<noscript><link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@900&text=%E3%82%AB%E3%83%BC%E3%83%89%E7%9B%B8%E5%A0%B4&display=swap" rel="stylesheet"></noscript>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&display=swap" rel="stylesheet">
 {% if card_name %}
 <script type="application/ld+json">
 {
@@ -116,7 +115,11 @@ a{color:var(--accent-l);text-decoration:none}a:hover{text-decoration:underline}
 /* ── Header ── */
 header{padding:24px 0 8px;text-align:center}
 .brand-header-link{display:inline-block;text-decoration:none}
-.brand-header-img{height:96px;width:auto;display:block}
+.brand-header-inner{display:flex;align-items:center;gap:10px;isolation:isolate;}
+.brand-header-icon{height:72px;width:auto;display:block;mix-blend-mode:screen;}
+.brand-name{display:inline-flex;align-items:flex-end;font-family:'Bungee',sans-serif;font-size:46px;color:#fff;line-height:1;letter-spacing:1px;}
+.brand-g{color:#facc15;font-size:1.28em;}
+.brand-tagline{display:block;font-size:10px;color:#94a3b8;letter-spacing:3px;font-weight:700;text-align:left;margin-top:4px;}
 header .subtitle{font-size:.78rem;color:var(--text-d);margin-top:8px;letter-spacing:.02em}
 
 /* ── Search ── */
@@ -655,7 +658,13 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   <header>
     <h1>
       <a href="/" class="brand-header-link">
-        <img src="/static/logo-header.svg" alt="カード相場 — 遊戯王OCG価格インデックス" class="brand-header-img">
+        <div class="brand-header-inner">
+          <img src="/static/tcgym-icon.png" alt="" class="brand-header-icon">
+          <div>
+            <span class="brand-name">TC<span class="brand-g">G</span>YM</span>
+            <span class="brand-tagline">遊戯王OCG プレイヤーサポート</span>
+          </div>
+        </div>
       </a>
     </h1>
     <p class="subtitle">組みたいデッキを、いちばん安く。</p>
@@ -1002,7 +1011,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 <!-- フッター -->
 <footer class="site-footer">
   <a onclick="openLegalModal('privacy')">プライバシーポリシー</a>｜<a onclick="openLegalModal('terms')">利用規約</a>｜<a onclick="openLegalModal('shop')">ショップ運営者様へ</a>｜<a href="mailto:tcg.price.compare@gmail.com">お問い合わせ</a>
-  <div class="footer-copy">&copy; 2025 カード相場</div>
+  <div class="footer-copy">&copy; 2025 TCGYM</div>
 </footer>
 
 <!-- PWAインストールバナー -->
@@ -1028,7 +1037,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
       <button class="legal-modal-close" onclick="closeLegalModal('privacy')">&times;</button>
     </div>
     <div class="legal-modal-body">
-      <p>カード相場（以下「本サービス」）は、個人が運営するWebサービスです。本サービスにおけるユーザー情報の取扱いについて、以下のとおり定めます。</p>
+      <p>TCGYM（以下「本サービス」）は、個人が運営するWebサービスです。本サービスにおけるユーザー情報の取扱いについて、以下のとおり定めます。</p>
 
       <h3>1. 収集する情報</h3>
       <p>本サービスでは、以下の情報を取得する場合があります。</p>
@@ -1072,7 +1081,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
       <button class="legal-modal-close" onclick="closeLegalModal('terms')">&times;</button>
     </div>
     <div class="legal-modal-body">
-      <p>本利用規約（以下「本規約」）は、カード相場（以下「本サービス」）の利用条件を定めるものです。本サービスを利用された時点で、本規約に同意したものとみなします。</p>
+      <p>本利用規約（以下「本規約」）は、TCGYM（以下「本サービス」）の利用条件を定めるものです。本サービスを利用された時点で、本規約に同意したものとみなします。</p>
 
       <h3>1. サービスの概要</h3>
       <p>本サービスは、遊戯王OCGカードの販売価格および買取価格を複数のショップ（遊々亭、カードラッシュ、トレコロCB、カーナベル、カードラボ）から取得し、比較表示する個人運営のWebサービスです。</p>
@@ -1245,7 +1254,7 @@ function _buildShareOptions(cardName, data, results){
 }
 
 function _shareToX(text){
-  window.open('https://x.com/intent/tweet?text='+encodeURIComponent(text+' #カード相場 '+location.origin),'_blank');
+  window.open('https://x.com/intent/tweet?text='+encodeURIComponent(text+' #TCGYM '+location.origin),'_blank');
 }
 function _shareToLine(text){
   window.open('https://social-plugins.line.me/lineit/share?url='+encodeURIComponent(location.origin)+'&text='+encodeURIComponent(text),'_blank');
@@ -1954,7 +1963,7 @@ function _updateUrl(cardName, mode){
   }
   // ページタイトルも更新
   const suffix=mode==='buyback'?' の買取価格比較':' の価格比較';
-  document.title=cardName+suffix+' | カード相場';
+  document.title=cardName+suffix+' | TCGYM';
 }
 
 // ブラウザの戻る/進むボタン対応
@@ -1973,8 +1982,18 @@ window.addEventListener('popstate',function(e){
 });
 
 // ── Mode switch ──
+const _subtitleMap={
+  search:'組みたいデッキを、いちばん安く。',
+  buyback:'資金繰りは、大事だよね。',
+  mydeck:'やっぱり、このデッキが好き。',
+  meta:'環境も、覗いておこう。',
+  packs:'価格チェックは、決闘者の嗜み。',
+  wishlist:'メモらないと、始まらない。',
+};
 function switchMode(mode){
   const labels={search:'販売価格',buyback:'買取価格',mydeck:'マイデッキ',meta:'環境デッキ',packs:'最新弾'};
+  const sub=document.querySelector('header .subtitle');
+  if(sub) sub.textContent=_subtitleMap[mode]||'';
   document.querySelectorAll('.mode-tab').forEach(b=>{
     // 購入候補タブはテキスト先頭で判定（バッジspanが含まれるため）
     if(mode==='wishlist') b.classList.toggle('active',b.textContent.startsWith('購入候補'));

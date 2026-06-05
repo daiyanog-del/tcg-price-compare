@@ -176,7 +176,7 @@ async function handleShareToX() {
   if (btn) btn.disabled = true;
   try {
     const url = await _generateShortURL();
-    const text = '一人回しのリプレイを共有しました #カード相場';
+    const text = '一人回しのリプレイを共有しました #TCGYM';
     const xUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
     window.open(xUrl, '_blank', 'noopener,noreferrer');
   } catch (e) {
