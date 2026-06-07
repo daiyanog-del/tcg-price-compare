@@ -115,11 +115,77 @@ function fitFieldToViewport() {
 
   const minW = isPhone ? 26 : 60;
   const maxW = isPhone ? 200 : 110;
-  const slotW = Math.max(minW, Math.min(maxW, Math.min(slotW_h, slotW_w)));
-  document.documentElement.style.setProperty('--slot-width', `${slotW}px`);
+  let slotW = Math.max(minW, Math.min(maxW, Math.min(slotW_h, slotW_w)));
+  applySlotWidth(slotW);
 
-  // リサイズ・初期化時にもパネル幅を再計算（開閉問わず）
+  // 実測補正: 推定で適用後、.sol-field-area の下端がビューポートを超えていれば縮小。
+  // 横向きスマホは「盤面3行のみフィット・手札/デッキはスクロール許容」が仕様のため除外。
+  if (!(isPhone && isLandscape)) {
+    slotW = correctSlotWidthByMeasurement(slotW, minW);
+  }
+
+  // パネル幅は最終 slotW 確定後に1回だけ再計算
   requestAnimationFrame(() => updateCipWidth());
+}
+
+/**
+ * --slot-width CSS変数を適用するヘルパー。
+ * correctSlotWidthByMeasurement と fitFieldToViewport の両方から呼ぶ。
+ */
+function applySlotWidth(w) {
+  document.documentElement.style.setProperty('--slot-width', `${w}px`);
+}
+
+/**
+ * 推定で適用した slotW を実測で補正する。
+ *
+ * .sol-field-area の下端が viewport を超えていたら、超過分だけ
+ * slotW を比率縮小して再適用する。getBoundingClientRect() は同期 reflow を
+ * 強制するので、ループ内で即座に新レイアウトを観測でき RAF 不要。
+ * 縮小のみ（既に収まっている場合は何もしない）。
+ *
+ * 収束根拠:
+ *   フィールド高さ H(slotW) ≈ a·slotW + b（a>0 比例項、b>0 固定項）の
+ *   アフィン関数なので、比率縮小の残差は反復ごとに b/H (<1) 倍に幾何減衰し、
+ *   PC では 2〜3 反復でサブピクセル以下に収まる。
+ *
+ * @param {number} slotW  推定で適用済みの slot-width(px)
+ * @param {number} minW   下限クランプ(px)
+ * @returns {number}      補正後の slot-width(px)
+ */
+function correctSlotWidthByMeasurement(slotW, minW) {
+  const field = document.querySelector('.sol-field-area');
+  if (!field) return slotW;
+
+  const SAFE_MARGIN = 2;    // サブピクセル/丸め誤差ぶんの安全余白(px)
+  const MAX_ITER    = 4;    // 反復上限
+  const MIN_RATIO   = 0.80; // 1反復あたりの最小縮小比（過補正の暴走防止）
+
+  for (let i = 0; i < MAX_ITER; i++) {
+    const rect     = field.getBoundingClientRect(); // 同期 reflow で確定値を取得
+    const overflow = rect.bottom - (window.innerHeight - SAFE_MARGIN);
+    if (overflow <= 0) break; // 収まっている → 終了（拡大はしない）
+
+    const fieldHeight = rect.height;
+    if (fieldHeight <= 0) break;
+
+    // 現在の高さに対し「overflow ぶん削る比率」を slotW に適用
+    let ratio = (fieldHeight - overflow) / fieldHeight;
+    ratio = Math.max(MIN_RATIO, ratio); // 1反復で過剰に縮みすぎるのを抑制
+
+    let next = Math.floor(slotW * ratio);
+    if (next >= slotW) next = slotW - 1; // 縮小のみ: 最低でも -1px 進める
+
+    if (next < minW) {                   // 下限クランプ
+      next = minW;
+      if (slotW === minW) break;         // 既に下限 → CSS overflow に委ねて終了
+    }
+
+    slotW = next;
+    applySlotWidth(slotW);
+  }
+
+  return slotW;
 }
 
 let _fitTimer = null;
