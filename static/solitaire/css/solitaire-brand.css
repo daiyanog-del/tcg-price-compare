@@ -571,6 +571,7 @@ html, body {
   color: var(--main-color);
   font-family: var(--font);
   margin: 0;
+  overflow-y: hidden; /* nav高さ + min-height:100vh で body が 100vh を超えてスクロールバーが出るのを防ぐ */
 }
 
 /* ── ナビ ── */
