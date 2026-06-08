@@ -295,7 +295,9 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .movers-thumb{width:48px;height:67px;border-radius:3px;overflow:hidden;flex-shrink:0;background:var(--bg)}
 .movers-thumb:empty{display:none}
 .movers-thumb img{width:100%;height:100%;object-fit:cover}
-.movers-name{flex:1;font-size:.85rem;font-weight:500;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.movers-name{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:3px}
+.movers-name-text{font-size:.85rem;font-weight:500;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.movers-rarity{display:block;line-height:1}
 .movers-price{text-align:right;font-size:.78rem;line-height:1.4}
 .movers-price-now{font:600 .85rem var(--mono)}
 .movers-diff{font:600 .75rem var(--mono)}
@@ -1911,7 +1913,7 @@ function loadMovers(dir,retry){
         return `<div class="movers-item" onclick="searchCard('${escJs(item.name)}')" data-card="${escJs(item.name)}">
           <span class="movers-rank">${i+1}</span>
           <span class="movers-thumb"></span>
-          <span class="movers-name">${esc(item.name)}${rarityBadge}</span>
+          <span class="movers-name"><span class="movers-name-text">${esc(item.name)}</span>${rarityBadge?`<span class="movers-rarity">${rarityBadge}</span>`:''}</span>
           <span class="movers-price">
             <span class="movers-price-now">&yen;${item.today.toLocaleString()}</span>
             <span class="movers-diff ${cls}">${sign}${item.diff.toLocaleString()} (${sign}${item.pct}%)</span>
@@ -1954,7 +1956,7 @@ function loadBuybackMovers(dir,retry){
         return `<div class="movers-item" onclick="doBuySearchCard('${escJs(item.name)}')" data-card="${escJs(item.name)}">
           <span class="movers-rank">${i+1}</span>
           <span class="movers-thumb"></span>
-          <span class="movers-name">${esc(item.name)}${rarityBadge}</span>
+          <span class="movers-name"><span class="movers-name-text">${esc(item.name)}</span>${rarityBadge?`<span class="movers-rarity">${rarityBadge}</span>`:''}</span>
           <span class="movers-price">
             <span class="movers-price-now">&yen;${item.today.toLocaleString()}</span>
             <span class="movers-diff buyback-diff ${cls}">${sign}${item.diff.toLocaleString()} (${sign}${item.pct}%)</span>
