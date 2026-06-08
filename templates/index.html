@@ -659,13 +659,18 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 </style>
 <script>
 // フラッシュ防止: bodyレンダリング前にハッシュを読み取りCSSを注入する
-// DOM要素がまだ存在しないため、スタイルシートの注入で対応する
+// モードコンテンツに加え、サブタイトルとタブボタンも隠して
+// DOMContentLoaded後に正しい状態で一括表示する
 (function(){
   var h=location.hash.slice(1);
   if(!h||['buyback','mydeck','meta','packs','wishlist'].indexOf(h)<0)return;
   var s=document.createElement('style');
   s.id='fouc-prevent';
-  s.textContent='#mode-search{display:none!important}#mode-'+h+'{display:block!important}';
+  s.textContent=
+    '#mode-search{display:none!important}'+
+    '#mode-'+h+'{display:block!important}'+
+    'header .subtitle{visibility:hidden!important}'+
+    '.mode-tabs{visibility:hidden!important}';
   document.head.appendChild(s);
 })();
 </script>
