@@ -1020,6 +1020,17 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 
 </div>
 
+<script>
+// フラッシュ防止: DOMContentLoaded を待たずにハッシュからタブを即時切替
+// switchMode() は使わず hidden クラスだけ操作（_subtitleMap 等の未初期化定数を参照しない）
+(function(){
+  const h=location.hash.slice(1);
+  if(!h||!['buyback','mydeck','meta','packs','wishlist'].includes(h))return;
+  document.getElementById('mode-search').classList.add('hidden');
+  document.getElementById('mode-'+h).classList.remove('hidden');
+})();
+</script>
+
 <!-- フッター -->
 <footer class="site-footer">
   <a onclick="openLegalModal('privacy')">プライバシーポリシー</a>｜<a onclick="openLegalModal('terms')">利用規約</a>｜<a onclick="openLegalModal('shop')">ショップ運営者様へ</a>｜<a href="mailto:tcg.price.compare@gmail.com">お問い合わせ</a>
@@ -2219,11 +2230,20 @@ let _metaTiers=[];
 async function loadMetaTiers(){
   if(_metaLoaded) return;
   const el=document.getElementById('metaTierList');
+  const CACHE_KEY='tcgym_meta_cache', TTL=3600*1000; // 1時間
+  try{
+    const raw=sessionStorage.getItem(CACHE_KEY);
+    if(raw){
+      const {ts,data}=JSON.parse(raw);
+      if(Date.now()-ts<TTL){_metaTiers=data;_metaLoaded=true;renderMetaTiers();return;}
+    }
+  }catch{}
   el.innerHTML='<div class="meta-loading">環境データを読込中...</div>';
   try{
     const res=await fetch('/api/meta');
     _metaTiers=await res.json();
     _metaLoaded=true;
+    try{sessionStorage.setItem(CACHE_KEY,JSON.stringify({ts:Date.now(),data:_metaTiers}));}catch{}
     renderMetaTiers();
   }catch(e){
     el.innerHTML='<div class="meta-loading">環境データの取得に失敗しました</div>';
@@ -2408,11 +2428,20 @@ let _packData=[];
 async function loadPacks(){
   if(_packsLoaded) return;
   const el=document.getElementById('packList');
+  const CACHE_KEY='tcgym_packs_cache', TTL=6*3600*1000; // 6時間
+  try{
+    const raw=sessionStorage.getItem(CACHE_KEY);
+    if(raw){
+      const {ts,data}=JSON.parse(raw);
+      if(Date.now()-ts<TTL){_packData=data;_packsLoaded=true;renderPacks();return;}
+    }
+  }catch{}
   el.innerHTML='<div class="meta-loading">パック情報を読込中...</div>';
   try{
     const res=await fetch('/api/packs');
     _packData=await res.json();
     _packsLoaded=true;
+    try{sessionStorage.setItem(CACHE_KEY,JSON.stringify({ts:Date.now(),data:_packData}));}catch{}
     renderPacks();
   }catch(e){
     el.innerHTML='<div class="meta-loading">パック情報の取得に失敗しました</div>';
