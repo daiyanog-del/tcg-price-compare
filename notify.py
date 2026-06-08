@@ -21,14 +21,13 @@ from aggregations import daily_min_by_lowest_rarity
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-JST = timezone(timedelta(hours=9))
+from constants import JST, VAPID_CLAIMS
 
 # ── 環境変数 ──
 SUPABASE_URL      = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY      = os.environ.get("SUPABASE_KEY", "")
 VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "")
 VAPID_PUBLIC_KEY  = os.environ.get("VAPID_PUBLIC_KEY", "")
-VAPID_CLAIMS      = {"sub": "mailto:tcg.price.compare@gmail.com"}
 
 # 値下がり判定の閾値
 DROP_PCT = -5.0   # -5% 以上の下落

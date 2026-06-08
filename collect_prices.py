@@ -29,9 +29,9 @@ from meta_scraper import fetch_tier_list, fetch_deck_cards
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
-JST = timezone(timedelta(hours=9))
+from constants import JST, RETENTION_DAYS
+
 WAIT_BETWEEN_CARDS = 1.0
-RETENTION_DAYS = 90
 
 # 毎日の周辺カード収集予算（注目カードは予算外で全件収集）
 DAILY_COLD_BUDGET = int(os.environ.get("DAILY_COLD_BUDGET", "800"))

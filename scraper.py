@@ -1421,15 +1421,6 @@ def compare_prices(card_name: str, shop_names: list[str] | None = None) -> list[
     return all_results
 
 
-def compare_prices_with_cache(card_name: str) -> list[dict]:
-    cached = cache_get(card_name)
-    if cached is not None:
-        return cached
-    results = compare_prices(card_name)
-    cache_set(card_name, results)
-    return results
-
-
 def compare_buyback(card_name: str, shop_names: list[str] | None = None) -> list[dict]:
     """指定された買取店舗を並列にスクレイピング（compare_prices の買取版）"""
     from concurrent.futures import ThreadPoolExecutor, as_completed

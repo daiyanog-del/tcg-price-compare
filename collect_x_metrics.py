@@ -7,9 +7,9 @@ X API で public_metrics を取得して書き込む。
 """
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
-JST = timezone(timedelta(hours=9))
+from constants import JST
 
 
 def get_supabase():

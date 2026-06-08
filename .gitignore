@@ -1,12 +1,20 @@
+# キャッシュ（スクレイピング結果）
+.cache/
+.cache_buy/
+
+# Python
 __pycache__/
-*.py[cod]
+*.pyc
 *.pyo
+*.pyd
+
+# 環境変数（実値は絶対にコミットしない）
 .env
 .env.*
 !.env.example
-.cache/
-.vscode/
-.idea/
-*.swp
-*.swo
-.DS_Store
+
+# デバッグ出力
+debug_*.html
+
+# その他
+*.DS_Store

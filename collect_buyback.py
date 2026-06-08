@@ -29,9 +29,9 @@ from collect_prices import (
 )
 
 # ── 定数 ──
-JST = timezone(timedelta(hours=9))
+from constants import JST, RETENTION_DAYS
+
 WAIT_BETWEEN_CARDS = 1.0  # 収集間隔（秒）。collect_prices.py に合わせる
-RETENTION_DAYS = 90       # 買取履歴の保持期間（販売と同じ）
 
 # CIでブロックされる買取店舗を除外（遊々亭はスクレイピングのためIPブロックリスクあり）
 SKIP_BUYBACK_SHOPS_IN_CI = {"遊々亭"}

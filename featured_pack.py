@@ -15,9 +15,8 @@
   DDL は featured_pack.sql 参照。
 """
 
-from datetime import date, datetime, timezone, timedelta
-
-JST = timezone(timedelta(hours=9))
+from datetime import date, datetime
+from constants import JST
 
 
 def _today_jst() -> date:

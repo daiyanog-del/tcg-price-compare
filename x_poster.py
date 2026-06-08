@@ -8,8 +8,9 @@ from collections import defaultdict
 
 import requests as _requests
 
+from constants import JST
+
 SITE_URL = "https://tcg-price-compare.onrender.com"
-JST = timezone(timedelta(hours=9))
 
 # 毎日の値動き投稿の判定閾値（意味のある変動に絞る）
 # TODO: calibrate from data — 直近の価格履歴の分布を見て調整する
