@@ -357,8 +357,11 @@ def build_deck_text(cards: list[dict], min_adoption: float = 40.0) -> str:
 
 
 def build_recipe_text(recipe_cards: list[dict]) -> str:
-    """フルデッキリストからデッキ計算用のテキストを生成。"""
-    lines = []
-    for c in recipe_cards:
-        lines.append(f"{c['qty']} {c['name']}")
+    """フルデッキリストからデッキ計算用のテキストを生成。is_ex フラグで [EX] 区切りを付ける。"""
+    main = [c for c in recipe_cards if not c.get("is_ex")]
+    ex   = [c for c in recipe_cards if c.get("is_ex")]
+    lines = [f"{c['qty']} {c['name']}" for c in main]
+    if ex:
+        lines.append("[EX]")
+        lines.extend(f"{c['qty']} {c['name']}" for c in ex)
     return "\n".join(lines)

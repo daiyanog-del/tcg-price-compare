@@ -2110,7 +2110,7 @@ const DECK_CTX = {
     prog:'metaDeckProgress', shops:'metaShopToggles', rowPrefix:'meta-row-',
     shareArea:'metaDeckShareArea',
     getText:()=>_lastMetaDeckText,
-    getCards:()=>({main:parseDeckList(_lastMetaDeckText),ex:[]}),
+    getCards:()=>parseDeckSections(_lastMetaDeckText),
     getName:()=>_currentDeckName||'環境デッキ'
   }
 };
@@ -2650,8 +2650,9 @@ async function calcDeckEstimate(ctx){
     main=_currentMydeckCards.main;
     ex=_currentMydeckCards.ex;
   }else{
-    main=parseDeckList(ctx.getText());
-    ex=[];
+    const parsed=parseDeckSections(ctx.getText());
+    main=parsed.main;
+    ex=parsed.ex;
   }
   if(![...main,...ex].length) return;
 
