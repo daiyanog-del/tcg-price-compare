@@ -337,6 +337,29 @@
   box-sizing: border-box;
 }
 
+/* マイデッキ空状態 */
+.mydeck-empty {
+  padding: 4px 0;
+}
+.mydeck-goto-neuron {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  background: rgba(74,124,255,0.12);
+  border: 1px solid rgba(74,124,255,0.3);
+  border-radius: 8px;
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-family: var(--font);
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+.mydeck-goto-neuron:hover {
+  background: rgba(74,124,255,0.2);
+  border-color: var(--accent);
+}
+
 /* ニューロン取り込みセクション */
 .sol-neuron-method-header {
   display: flex;

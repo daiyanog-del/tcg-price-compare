@@ -331,7 +331,18 @@ function renderMyDeckList() {
   }
 
   if (decks.length === 0) {
-    listEl.innerHTML = '<span class="deck-loading-msg">保存済みデッキがありません</span>';
+    listEl.innerHTML =
+      '<div class="mydeck-empty">'
+      + '<p class="sol-upload-note" style="margin:0 0 8px">保存済みデッキがありません。<br>'
+      + 'ニューロンの拡張機能またはPDFからデッキを取り込むと、ここに表示されます。</p>'
+      + '<button type="button" class="mydeck-goto-neuron">ニューロンタブへ</button>'
+      + '</div>';
+    const btn = listEl.querySelector('.mydeck-goto-neuron');
+    if (btn) {
+      btn.addEventListener('click', () => {
+        document.querySelector('[data-pane="deckPaneNeuron"]')?.click();
+      });
+    }
     return;
   }
 
