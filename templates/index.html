@@ -45,7 +45,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"></noscript>
-<link href="https://fonts.googleapis.com/css2?family=Bungee&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bungee&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Bungee&display=swap" rel="stylesheet"></noscript>
 {% if card_name %}
 <script type="application/ld+json">
 {
@@ -708,7 +709,10 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     <h1>
       <a href="/" class="brand-header-link">
         <div class="brand-header-inner">
-          <img src="/static/tcgym-icon.png" alt="" class="brand-header-icon">
+          <picture>
+            <source srcset="/static/tcgym-icon-small.webp" type="image/webp">
+            <img src="/static/tcgym-icon-small.png" alt="" class="brand-header-icon" width="144" height="176" fetchpriority="high">
+          </picture>
           <div>
             <span style="display:inline-flex;align-items:flex-start"><span class="brand-name">TC<span class="brand-g">G</span>YM</span><span class="brand-beta">β</span></span>
             <span class="brand-tagline">遊戯王OCG プレイヤーサポート</span>
@@ -1801,13 +1805,6 @@ function renderTable(){
     if(arr) arr.textContent=th.dataset.s===sort.k?(sort.a?'▲':'▼'):'';
   });
 
-  // 行クリックで商品ページへ（a・button クリックは除外）
-  document.getElementById('tbl')?.addEventListener('click',e=>{
-    if(e.target.closest('a,button')) return;
-    const tr=e.target.closest('tr.row-clickable');
-    if(tr?.dataset.href) window.open(tr.dataset.href,'_blank','noopener');
-  },{capture:false});
-
   // Fill in card images if already loaded
   if(cardImgSmall){
     const safeSmall=safeUrl(cardImgSmall);
@@ -1816,6 +1813,14 @@ function renderTable(){
     });
   }
 }
+
+// 検索結果テーブルの行クリックで商品ページへ（a・button クリックは除外）
+// renderTable() の外で一度だけ登録し、再描画ごとに重複追加されないようにする
+document.getElementById('tbl')?.addEventListener('click',e=>{
+  if(e.target.closest('a,button')) return;
+  const tr=e.target.closest('tr.row-clickable');
+  if(tr?.dataset.href) window.open(tr.dataset.href,'_blank','noopener');
+},{capture:false});
 
 document.querySelectorAll('#tbl th[data-s]').forEach(th=>{
   th.addEventListener('click',()=>{
@@ -1968,21 +1973,27 @@ function loadBuybackMovers(dir,retry){
     .catch(()=>{if(retry<2)setTimeout(()=>loadBuybackMovers(dir,retry+1),2000);});
 }
 
-// ── ランキング用カード画像の遅延取得 ──
+// ── ランキング用カード画像の一括取得（旧: 1件ずつ200ms間隔→新: バッチで1回）
 function loadRankingImages(itemSelector, thumbClass){
-  document.querySelectorAll(itemSelector+'[data-card]').forEach((el,i)=>{
-    const name=el.dataset.card;
-    setTimeout(()=>{
-      fetch('/api/card-image?name='+encodeURIComponent(name))
-        .then(r=>r.json())
-        .then(data=>{
-          if(!data.url)return;
-          const thumb=el.querySelector('.'+thumbClass);
-          if(thumb)thumb.innerHTML='<img src="'+data.url+'" alt="" loading="lazy">';
-        })
-        .catch(()=>{});
-    },i*200);
-  });
+  const els=[...document.querySelectorAll(itemSelector+'[data-card]')];
+  if(!els.length) return;
+  const names=[...new Set(els.map(el=>el.dataset.card).filter(Boolean))];
+  fetch('/api/card-images',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({names})
+  })
+  .then(r=>r.json())
+  .then(({images})=>{
+    if(!images) return;
+    els.forEach(el=>{
+      const url=images[el.dataset.card];
+      if(!url) return;
+      const thumb=el.querySelector('.'+thumbClass);
+      if(thumb) thumb.innerHTML='<img src="'+url+'" alt="" loading="lazy">';
+    });
+  })
+  .catch(()=>{});
 }
 
 // 買取ランキングからクリックされた場合：買取モードで検索
@@ -2003,6 +2014,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // SEO: カード個別ページの場合、自動検索を実行（サーバーが渡したカード名なのでvalidateスキップ）
   if(_pageCardName){
+    // Chart.js を価格データ取得と並行して先読み（価格推移グラフの表示を高速化）
+    _loadChartJs(()=>{});
     if(_pageMode==='buyback'){
       switchMode('buyback');
       document.getElementById('buyQ').value=_pageCardName;

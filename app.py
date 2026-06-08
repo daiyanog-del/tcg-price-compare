@@ -146,6 +146,9 @@ def add_cache_headers(response):
         response.headers['Cache-Control'] = 'public, max-age=60, stale-while-revalidate=300'
     elif 'application/xml' in ct or 'text/plain' in ct:
         response.headers['Cache-Control'] = 'public, max-age=3600'
+    elif path.startswith('static/') and 'image/' in ct and filename not in FAVICON_FILES:
+        # ロゴ・OGP画像等の静的画像は1週間キャッシュ
+        response.headers['Cache-Control'] = 'public, max-age=604800'
     return response
 
 # 同時検索の簡易レートリミット (メモリ内)
@@ -333,6 +336,22 @@ def _save_search_to_supabase(card_name: str):
         _supabase_client.table("search_logs").insert({"card_name": card_name}).execute()
     except Exception as e:
         logger.warning(f"検索ログ保存失敗: {e}")
+
+def _record_deck_search(card_names: list):
+    """デッキ検索カードをdeck_search_logsに記録（人気ランキングには影響しない）"""
+    if not _supabase_client or not card_names:
+        return
+    # 重複排除してバックグラウンドで保存
+    unique_names = list(dict.fromkeys(card_names))
+    Thread(target=_save_deck_search_to_supabase, args=(unique_names,), daemon=True).start()
+
+def _save_deck_search_to_supabase(card_names: list):
+    """deck_search_logsにバッチinsert（非同期）"""
+    try:
+        rows = [{"card_name": name} for name in card_names]
+        _supabase_client.table("deck_search_logs").insert(rows).execute()
+    except Exception as e:
+        logger.warning(f"デッキ検索ログ保存失敗: {e}")
 
 def _get_trending(limit: int = 10) -> list[dict]:
     """直近24時間の検索ランキングを返す"""
@@ -714,6 +733,9 @@ def api_deck():
     if parse_error:
         return parse_error
 
+    # デッキ検索カードを収集対象候補として記録（人気ランキングには影響しない）
+    _record_deck_search([e["name"] for e in card_entries])
+
     def _search_one_card(i, card_name):
         """1枚のカードを全店舗で検索して結果を返す"""
         # キャッシュチェック
@@ -790,6 +812,9 @@ def api_deck_buy():
     card_entries, parse_error = _parse_deck_entries(names_raw)
     if parse_error:
         return parse_error
+
+    # デッキ買取検索カードを収集対象候補として記録（人気ランキングには影響しない）
+    _record_deck_search([e["name"] for e in card_entries])
 
     def _search_one_card_buy(i, card_name):
         """1枚のカードを全買取店舗で検索して最高値を返す"""
