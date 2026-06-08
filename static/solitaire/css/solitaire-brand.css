@@ -337,6 +337,85 @@
   box-sizing: border-box;
 }
 
+/* ニューロン取り込みセクション */
+.sol-neuron-method-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+.sol-neuron-method-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+.sol-recommend-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #facc15;
+  background: rgba(250,204,21,0.12);
+  border: 1px solid rgba(250,204,21,0.3);
+  border-radius: 4px;
+  padding: 1px 5px;
+  letter-spacing: 0.02em;
+}
+.sol-ext-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 9px 10px;
+  background: rgba(74,124,255,0.12);
+  border: 1px solid rgba(74,124,255,0.3);
+  border-radius: 8px;
+  color: #94a3b8;
+  font-size: 0.8rem;
+  font-family: var(--font);
+  text-decoration: none;
+  box-sizing: border-box;
+  cursor: default;
+  opacity: 0.7;
+}
+.sol-ext-link.ready {
+  color: var(--accent);
+  opacity: 1;
+  cursor: pointer;
+}
+.sol-ext-link.ready:hover {
+  background: rgba(74,124,255,0.2);
+  border-color: var(--accent);
+}
+.sol-ext-manual-link {
+  display: block;
+  margin-top: 5px;
+  font-size: 0.68rem;
+  color: #4a6490;
+  text-align: right;
+  text-decoration: underline;
+}
+.sol-ext-manual-link:hover {
+  color: #94a3b8;
+}
+.sol-neuron-divider {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 10px;
+}
+.sol-neuron-divider::before,
+.sol-neuron-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.sol-neuron-divider-text {
+  font-size: 0.68rem;
+  color: #4a6490;
+  white-space: nowrap;
+}
+
 /* ニューロン画像アップロード */
 .sol-upload-label {
   display: flex;

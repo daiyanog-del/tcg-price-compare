@@ -57,17 +57,43 @@
       <div id="deckInputContainer" class="deck-input-panel">
         <!-- タブ（縦並び） -->
         <div class="deck-input-tabs">
-          <button class="deck-input-tab active" data-pane="deckPaneNeuron">ニューロン(PDF)</button>
+          <button class="deck-input-tab active" data-pane="deckPaneNeuron">ニューロン</button>
           <button class="deck-input-tab" data-pane="deckPaneText">テキスト入力</button>
           <button class="deck-input-tab" data-pane="deckPanePreset">サンプルデッキ</button>
           <button class="deck-input-tab" data-pane="deckPaneMyDeck">マイデッキ</button>
         </div>
 
-        <!-- ニューロン(PDF) -->
+        <!-- ニューロン -->
         <div class="deck-input-pane active" id="deckPaneNeuron">
+
+          <!-- (A) Chrome拡張経由（おすすめ） -->
+          <div class="sol-neuron-method-header">
+            <span class="sol-neuron-method-title">Chrome拡張で取り込む（PC）</span>
+            <span class="sol-recommend-badge">おすすめ</span>
+          </div>
+          <p class="sol-upload-note" style="margin-top:0;margin-bottom:6px">
+            ニューロンのデッキページのボタン1つで取り込めます。<br>
+            取り込んだデッキは「マイデッキ」タブに入ります。
+          </p>
+          <!-- ストアURL確定後、href を差し替えて class に "ready" を追加する -->
+          <a class="sol-ext-link" href="#" onclick="return false">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Chromeウェブストアで入手（近日公開予定）
+          </a>
+          <a class="sol-ext-manual-link" href="https://github.com/daiyanog-del/tcg-price-compare" target="_blank" rel="noopener">手動インストール手順（上級者向け）</a>
+
+          <!-- 区切り -->
+          <div class="sol-neuron-divider">
+            <span class="sol-neuron-divider-text">スマホの方・すぐ試したい方はこちら</span>
+          </div>
+
+          <!-- (B) PDF経由 -->
+          <div class="sol-neuron-method-header">
+            <span class="sol-neuron-method-title">PDFから取り込む</span>
+          </div>
           <label class="sol-upload-label" style="background:linear-gradient(90deg,#1e3a5f,#2d5a8e)">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-            PDFから取り込む
+            PDFを選択する
             <input type="file" id="neuronPdfUpload" accept="application/pdf">
           </label>
           <p class="sol-upload-note" style="margin-top:6px">
