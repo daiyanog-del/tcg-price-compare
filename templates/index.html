@@ -1956,6 +1956,14 @@ if(_pageCardName){
   }
 }
 
+// URLハッシュからモードを復元（カード表示ページでないときのみ）
+if(!_pageCardName){
+  const _hashMode=location.hash.slice(1);
+  if(['mydeck','meta','packs','wishlist','buyback'].includes(_hashMode)){
+    switchMode(_hashMode);
+  }
+}
+
 // /featured URL でアクセスした場合は最新弾タブを開き新弾を自動選択
 if(_pageMode==='featured'){
   switchMode('packs');
@@ -2018,6 +2026,11 @@ function switchMode(mode){
   if(mode==='wishlist') renderWishlist();
   if(mode==='meta') loadMetaTiers();
   if(mode==='mydeck') renderSavedDecks();
+  // リロード時にモードを復元できるようURLハッシュを更新
+  const _modeHash = (mode==='search') ? '' : mode;
+  if(location.hash.slice(1) !== _modeHash){
+    history.replaceState(null,'', _modeHash ? ('#'+_modeHash) : (location.pathname+location.search));
+  }
 }
 
 // ── Deck Builder ──
