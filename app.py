@@ -15,7 +15,7 @@ from flask import Flask, render_template, request, jsonify, Response
 from flask_compress import Compress
 
 from scraper import (
-    SHOPS, DEFAULT_SHOPS, WAIT_SEC, cache_get, cache_set,
+    SHOPS, DEFAULT_SHOPS, cache_get, cache_set,
     is_target_card,
     BUYBACK_SHOPS, DEFAULT_BUYBACK_SHOPS,
     buyback_cache_get, buyback_cache_set,
@@ -26,6 +26,7 @@ from aggregations import daily_min_by_lowest_rarity
 from meta_scraper import fetch_tier_list, fetch_deck_cards, build_deck_text, build_recipe_text, _cache_read, _DECK_CACHE_TTL, _TIER_CACHE_TTL
 from pack_scraper import get_pack_list, fetch_pack_cards
 from monitor import tracker, run_health_check
+from constants import JST, VAPID_CLAIMS
 
 import re as _re
 from urllib.parse import quote as _url_quote
@@ -172,10 +173,9 @@ AFFILIATE_CONFIG = {
     },
 }
 
-# VAPID 設定（Web Push 通知用）
+# VAPID 設定（Web Push 通知用）。VAPID_CLAIMS は constants.py に一元定義
 VAPID_PUBLIC_KEY  = os.environ.get("VAPID_PUBLIC_KEY", "")
 VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "")
-VAPID_CLAIMS      = {"sub": "mailto:tcg.price.compare@gmail.com"}
 
 
 # ── 検索ランキング（Supabase永続化 + メモリフォールバック） ──
@@ -996,24 +996,6 @@ _movers_cache: dict[str, list] = {}
 _movers_cache_time: float = 0
 _MOVERS_CACHE_SEC = 3600  # 1時間キャッシュ（収集完了後にサイト表示を当日データへ早く追従させる）
 
-def _aggregate_daily_min(rows: list) -> dict:
-    """price_history の行リストから、カードごと・日付ごとの最安値を集計して返す。
-    戻り値: {card_name: {date_str: min_price}}
-    10円以下の異常値は除外する。
-    """
-    card_dates: dict = defaultdict(dict)
-    for r in rows:
-        name = r.get("card_name", "")
-        date = r.get("recorded_at", "")[:10]
-        price = r.get("min_price", 0)
-        if not name or not date:
-            continue
-        if price <= 10:
-            continue
-        if date not in card_dates[name] or price < card_dates[name][date]:
-            card_dates[name][date] = price
-    return card_dates
-
 def _aggregate_daily_min_lowest_rarity(rows: list) -> dict:
     """price_history 行リストから最安レアリティ系列を代表とした集計を返す。
     （aggregations.py に一元化）"""
@@ -1085,7 +1067,6 @@ def api_movers():
     items = _get_price_movers(direction, limit)
     date_old = _movers_cache.get("date_old") if _movers_cache else None
     date_new = _movers_cache.get("date_new") if _movers_cache else None
-    JST = timezone(timedelta(hours=9))
     if _movers_cache_time:
         updated_dt = datetime.fromtimestamp(_movers_cache_time, JST)
         updated_at = f"{updated_dt.hour}:{updated_dt.minute:02d}"
@@ -1098,25 +1079,6 @@ def api_movers():
 _buyback_movers_cache: dict[str, list] = {}
 _buyback_movers_cache_time: float = 0
 _BUYBACK_MOVERS_CACHE_SEC = 3600  # 1時間キャッシュ
-
-def _aggregate_daily_max(rows: list) -> dict:
-    """buyback_history の行リストから、カードごと・日付ごとの最高買取額を集計して返す。
-    戻り値: {card_name: {date_str: max_price}}
-    10円以下の異常値は除外する。
-    """
-    card_dates: dict = defaultdict(dict)
-    for r in rows:
-        name = r.get("card_name", "")
-        date = r.get("recorded_at", "")[:10]
-        price = r.get("max_price", 0)
-        if not name or not date:
-            continue
-        if price <= 10:
-            continue
-        # 最大値を保持（販売は最小値だが買取は最大値が意味を持つ）
-        if date not in card_dates[name] or price > card_dates[name][date]:
-            card_dates[name][date] = price
-    return card_dates
 
 def _get_buyback_movers(direction: str, limit: int = 10) -> list[dict]:
     """Supabaseから買取の値上がり/値下がりランキングを取得（DB側集計RPC版）。
@@ -1184,7 +1146,6 @@ def api_buyback_movers():
     items = _get_buyback_movers(direction, limit)
     date_old = _buyback_movers_cache.get("date_old") if _buyback_movers_cache else None
     date_new = _buyback_movers_cache.get("date_new") if _buyback_movers_cache else None
-    JST = timezone(timedelta(hours=9))
     if _buyback_movers_cache_time:
         updated_dt = datetime.fromtimestamp(_buyback_movers_cache_time, JST)
         updated_at = f"{updated_dt.hour}:{updated_dt.minute:02d}"
@@ -1590,13 +1551,6 @@ def _prefetch_meta():
 # Flask debugモードのreloaderと複数workerでの二重起動を防ぐ
 if (os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not _is_debug_mode()) and _claim_startup_job("meta_prefetch"):
     _prefetch_meta()
-
-
-# ── フォント比較プレビュー（一時的） ──
-
-@app.route("/font-preview")
-def font_preview():
-    return render_template("font_preview.html")
 
 
 # ── 一人回しシミュレータ ──
@@ -2304,27 +2258,6 @@ def api_card_image_proxy():
         return f"error: {e}", 500
 
 
-@app.route("/api/parse-deck-pdf-debug", methods=["POST"])
-def api_parse_deck_pdf_debug():
-    """pdfplumberが抽出したraw wordデータを返す（座標確認用）"""
-    if "file" not in request.files:
-        return jsonify({"error": "ファイルが必要です"}), 400
-    f = request.files["file"]
-    try:
-        import pdfplumber
-        with pdfplumber.open(f.stream) as pdf:
-            page = pdf.pages[0]
-            words = page.extract_words(x_tolerance=2, y_tolerance=1, keep_blank_chars=False)
-        # 座標確認用: 全wordをy,xでソートして返す
-        out = sorted(
-            [{"t": w["text"], "x": round(w["x0"], 1), "y": round(w["top"], 1)} for w in words],
-            key=lambda w: (w["y"], w["x"]),
-        )
-        return jsonify({"words": out, "count": len(out)})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
 @app.route("/api/parse-deck-pdf", methods=["POST"])
 def api_parse_deck_pdf():
     """ニューロン デッキシートPDFをパースしてカードリストを返す"""
@@ -2597,6 +2530,48 @@ def _build_done(results: list[dict], corrected_name: str = "") -> dict:
     if corrected_name:
         d["corrected_name"] = corrected_name
     return d
+
+
+@app.route("/api/deck-image", methods=["POST"])
+def api_deck_image():
+    """デッキ画像を生成して PNG バイナリを返す。
+    リクエスト: {"name": "デッキ名", "cards": [{"name": str, "qty": int}, ...], "total": int}
+    レスポンス: image/png
+    """
+    body = request.get_json(force=True, silent=True) or {}
+    deck_name = str(body.get("name", "デッキ")).strip()[:50]
+    raw_cards = body.get("cards", [])
+    total = int(body.get("total", 0))
+
+    if not isinstance(raw_cards, list) or not raw_cards:
+        return jsonify({"error": "cards required"}), 400
+
+    # バリデーション（最大60枚）
+    cards = []
+    for c in raw_cards[:60]:
+        if not isinstance(c, dict):
+            continue
+        name = str(c.get("name", "")).strip()
+        try:
+            qty = int(c.get("qty", 1))
+        except (TypeError, ValueError):
+            qty = 1
+        if name and 1 <= qty <= 99:
+            cards.append({"name": name, "qty": qty})
+    if not cards:
+        return jsonify({"error": "有効なカードがありません"}), 400
+
+    try:
+        from deck_image import generate_deck_image
+        site_url = request.host_url.rstrip("/")
+        img_bytes = generate_deck_image(deck_name, cards, total, site_url)
+        resp = Response(img_bytes, content_type="image/png")
+        # 同一デッキは5分間ブラウザキャッシュ可
+        resp.headers["Cache-Control"] = "public, max-age=300"
+        return resp
+    except Exception as e:
+        logger.error(f"[deck-image] {e}")
+        return jsonify({"error": "画像生成に失敗しました"}), 500
 
 
 # ── 起動時プリロード ──

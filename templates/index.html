@@ -311,13 +311,21 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .hidden{display:none!important}
 
 /* Share buttons */
-.share-btns{display:flex;gap:6px;margin-top:8px}
+.share-btns{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
 .share-btn{display:inline-flex;align-items:center;gap:4px;padding:4px 12px;font:.72rem var(--font);font-weight:600;border:1px solid var(--border);border-radius:4px;cursor:pointer;transition:all .15s;text-decoration:none}
 .share-btn:hover{text-decoration:none}
 .share-btn-x{color:#d0d0d0;border-color:#555;background:rgba(255,255,255,.04)}
 .share-btn-x:hover{border-color:#999;color:#fff;background:rgba(255,255,255,.08)}
 .share-btn-line{color:#06C755;border-color:#06C755;background:rgba(6,199,85,.06)}
 .share-btn-line:hover{background:rgba(6,199,85,.15)}
+.share-btn-img{color:var(--accent-l);border-color:var(--accent);background:rgba(74,124,255,.07)}
+.share-btn-img:hover{background:rgba(74,124,255,.18)}
+.share-btn:disabled{opacity:.5;cursor:default}
+/* デッキシェアエリア */
+.deck-share-area{margin:10px 0 6px;padding:10px 12px;border:1px solid var(--border);border-radius:6px;background:rgba(255,255,255,.02)}
+.deck-share-title{font:.72rem var(--font);color:var(--text-d);margin-bottom:6px;letter-spacing:.04em}
+.deck-img-loading{font:.8rem var(--font);color:var(--text-d);padding:8px 0}
+.deck-img-wrap{padding-top:10px}
 .share-btn-copy{color:var(--accent-l);border-color:var(--accent);background:rgba(74,124,255,.06)}
 .share-btn-copy:hover{background:rgba(74,124,255,.15)}
 .share-menu-wrap{position:relative;display:inline-block}
@@ -969,6 +977,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
           <span class="deck-total-price" id="deckTotalPrice">-</span>
         </div>
         <div class="deck-progress" id="deckProgress"></div>
+        <div id="deckShareArea" class="deck-share-area"></div>
         <div id="deckCardList"></div>
       </div>
 
@@ -1010,6 +1019,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
           <span class="deck-total-price" id="metaDeckTotalPrice">-</span>
         </div>
         <div class="deck-progress" id="metaDeckProgress"></div>
+        <div id="metaDeckShareArea" class="deck-share-area"></div>
         <div id="metaDeckCardList"></div>
       </div>
 
@@ -2084,19 +2094,24 @@ function switchMode(mode){
 // マイデッキのmain/ex状態（loadSavedDeck / onDeckImported で設定、テキスト変更時に再解析）
 let _currentMydeckCards={main:[],ex:[]};
 let _currentMydeckText=''; // _currentMydeckCardsに対応するテキスト（変更検知用）
+let _currentDeckName=''; // 現在のデッキ名（シェア文・画像生成用）
 
 const DECK_CTX = {
   mydeck:{
     results:'deckResults', list:'deckCardList', total:'deckTotalPrice',
     prog:'deckProgress', shops:'deckShopToggles', rowPrefix:'deck-row-',
+    shareArea:'deckShareArea',
     getText:()=>document.getElementById('deckTextarea').value,
-    getCards:()=>_currentMydeckCards
+    getCards:()=>_currentMydeckCards,
+    getName:()=>_currentDeckName||'マイデッキ'
   },
   meta:{
     results:'metaDeckResults', list:'metaDeckCardList', total:'metaDeckTotalPrice',
     prog:'metaDeckProgress', shops:'metaShopToggles', rowPrefix:'meta-row-',
+    shareArea:'metaDeckShareArea',
     getText:()=>_lastMetaDeckText,
-    getCards:()=>({main:parseDeckList(_lastMetaDeckText),ex:[]})
+    getCards:()=>({main:parseDeckList(_lastMetaDeckText),ex:[]}),
+    getName:()=>_currentDeckName||'環境デッキ'
   }
 };
 
@@ -2330,31 +2345,14 @@ async function loadMetaDeck(theme){
       return;
     }
 
-    // デッキテキストを変数に保存
+    // デッキテキストと名前をセット
     _lastMetaDeckText=data.deck_text||'';
-
-    // カードチップ表示
-    let chips='';
-    if(hasFullDeck){
-      // フルデッキ表示
-      let totalQty=0;
-      for(const c of data.full_deck){
-        totalQty+=c.qty;
-        chips+='<span class="meta-card-chip"><span class="chip-qty">'+c.qty+'x</span>'+esc(c.name)+'</span>';
-      }
-    }else{
-      // 従来の主要カード表示（画像付き）
-      for(const c of data.cards){
-        const qty=Math.round(c.avg)||1;
-        const imgTag=c.image?'<img src="'+esc(c.image)+'" alt="" style="width:32px;height:46px;border-radius:2px;object-fit:cover;vertical-align:middle;margin-right:4px">':'';
-        chips+='<span class="meta-card-chip">'+imgTag+'<span class="chip-qty">'+qty+'x</span>'+esc(c.name)+'</span>';
-      }
-    }
+    _currentDeckName=theme;
 
     // レシピリンク
     let recipeHtml='';
     if(data.recipes&&data.recipes.length>0){
-      recipeHtml='<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">'
+      recipeHtml='<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">'
         +'<div style="font:.72rem var(--font);color:var(--text-d);margin-bottom:6px">入賞デッキレシピ:</div>';
       for(const r of data.recipes){
         const label=r.title||'レシピを見る';
@@ -2374,14 +2372,15 @@ async function loadMetaDeck(theme){
       :'採用率40%以上のカードを平均枚数で表示 / 手札誘発・汎用カード含む';
 
     detailEl.innerHTML='<h4>'+heading+'</h4>'
-      +'<div class="meta-actions" style="margin-bottom:10px">'
-      +'<button class="deck-btn deck-btn-primary" onclick="applyMetaDeck()">この構成で見積もり</button>'
+      +'<div style="margin-bottom:8px">'
       +'<button class="deck-btn deck-btn-secondary" onclick="applyMetaDeckToTextarea()">マイデッキに送る</button>'
       +'</div>'
-      +'<div class="meta-card-list">'+chips+'</div>'
       +recipeHtml
       +'<div class="meta-note">'+note+'</div>';
     detailEl.scrollIntoView({behavior:'smooth',block:'start'});
+
+    // デッキ選択後に即・見積もり開始（マイデッキと同じ挙動）
+    calcDeckEstimate(DECK_CTX.meta);
   }catch(e){
     detailEl.innerHTML='<div class="meta-loading">読込に失敗しました</div>';
   }finally{
@@ -2711,6 +2710,7 @@ async function calcDeckEstimate(ctx){
 
     if(!missing.length){
       progEl.textContent=`完了 — ${found}/${cards.length}枚の相場を取得`;
+      renderDeckShareUI(ctx,ctx.getName(),total,cards);
       return;
     }
 
@@ -2780,11 +2780,72 @@ async function calcDeckEstimate(ctx){
           const totalFound=found+sseFound;
           const totalMissing=sseNotFound;
           progEl.textContent=`完了 — ${totalFound}/${cards.length}枚の価格を取得${totalMissing>0?` (${totalMissing}枚未取得)`:''}`;
+          renderDeckShareUI(ctx,ctx.getName(),total,cards);
         }
       }
     }
   }catch(e){
     progEl.textContent='エラーが発生しました。再度お試しください。';
+  }
+}
+
+// ── デッキシェアUI ──
+// ctx別のシェアデータを保持（画像生成ボタン用）
+const _deckShareData={};
+
+function renderDeckShareUI(ctx,deckName,total,cards){
+  const el=document.getElementById(ctx.shareArea);
+  if(!el)return;
+  _deckShareData[ctx.shareArea]={deckName,total,cards};
+
+  // 投稿テキスト: デッキ名 + 合計 + サービスURL
+  const totalCards=cards.reduce((s,c)=>s+c.qty,0);
+  const shareText=`【${deckName}】デッキ相場 ¥${total.toLocaleString()}（${totalCards}枚） #カード相場 #遊戯王`;
+  const shareUrl=location.origin;
+  const tweetHref=`https://x.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`;
+  const lineHref=`https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareText)}`;
+
+  el.innerHTML=`
+    <div class="deck-share-title">シェア・投稿</div>
+    <div class="share-btns">
+      <a class="share-btn share-btn-x" href="${tweetHref}" target="_blank" rel="noopener">𝕏 テキスト投稿</a>
+      <a class="share-btn share-btn-line" href="${lineHref}" target="_blank" rel="noopener">LINE</a>
+      <button class="share-btn share-btn-copy" onclick="_shareCopy('${escJs(shareText)}',this)">コピー</button>
+      <button class="share-btn share-btn-img" onclick="generateDeckImageUI('${escJs(ctx.shareArea)}')">デッキ画像を作成</button>
+    </div>
+    <div class="deck-img-area" id="imgarea-${escJs(ctx.shareArea)}"></div>`;
+}
+
+async function generateDeckImageUI(shareAreaId){
+  const data=_deckShareData[shareAreaId];
+  if(!data)return;
+  const area=document.getElementById('imgarea-'+shareAreaId);
+  if(!area)return;
+
+  area.innerHTML='<div class="deck-img-loading">デッキ画像を生成中（30〜60秒かかる場合があります）...</div>';
+  const btn=area.previousElementSibling?.querySelector('.share-btn-img');
+  if(btn)btn.disabled=true;
+
+  try{
+    const res=await fetch('/api/deck-image',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:data.deckName,cards:data.cards,total:data.total})
+    });
+    if(!res.ok)throw new Error(`HTTP ${res.status}`);
+    const blob=await res.blob();
+    const url=URL.createObjectURL(blob);
+    const fname=`${data.deckName}_デッキ画像.png`;
+    area.innerHTML=`
+      <div class="deck-img-wrap">
+        <img src="${url}" alt="デッキ画像" style="max-width:100%;border-radius:6px;display:block;margin-bottom:8px">
+        <div style="font:.8rem var(--font);color:var(--text-d);margin-bottom:8px">この画像を保存してXの投稿画面で添付してください</div>
+        <a href="${url}" download="${esc(fname)}" class="share-btn">画像をダウンロード</a>
+      </div>`;
+  }catch(e){
+    area.innerHTML='<div style="color:var(--error,#f55);font-size:.85rem">画像の生成に失敗しました。再度お試しください。</div>';
+  }finally{
+    if(btn)btn.disabled=false;
   }
 }
 
@@ -3411,6 +3472,7 @@ function saveCurrentDeck(){
 function loadSavedDeck(id){
   const deck=savedDecksGet().find(d=>d.id===id);
   if(!deck)return;
+  _currentDeckName=deck.name||'マイデッキ';
   // main/ex を正規化（旧データ対応）してセット
   const{main,ex}=normalizeDeck(deck);
   _currentMydeckCards={main,ex};
