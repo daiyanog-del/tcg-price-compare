@@ -424,8 +424,9 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .deck-grid-cell:hover{border-color:var(--accent)}
 .deck-grid-cell.loading .deck-grid-img-wrap{animation:shimmer 1.4s infinite}
 .deck-grid-cell.error{border-color:var(--red);opacity:.75}
-.deck-grid-img-wrap{position:relative;aspect-ratio:59/86;background:var(--bg);overflow:hidden}
+.deck-grid-img-wrap{position:relative;aspect-ratio:59/86;background:var(--bg);overflow:hidden;display:block;text-decoration:none}
 .deck-grid-img-wrap img{width:100%;height:100%;object-fit:cover;display:block}
+a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
 .deck-grid-placeholder{width:100%;height:100%;background:var(--bg-card)}
 .deck-grid-badge{position:absolute;top:2px;right:2px;background:rgba(0,0,0,.75);color:#fff;font:.6rem var(--mono);font-weight:700;padding:1px 4px;border-radius:3px;line-height:1.4;pointer-events:none}
 .deck-grid-footer{padding:3px 4px 4px}
@@ -473,12 +474,17 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 #packList .meta-deck-btn .meta-share{flex-shrink:0;white-space:nowrap;margin-left:auto}
 
 /* ── マイデッキ保存 ── */
-.saved-deck-label{font:.72rem var(--font);font-weight:700;color:var(--text-d);margin:10px 0 4px}
-.saved-deck-row{display:flex;align-items:center;gap:6px;margin-bottom:3px}
-.saved-deck-name{flex:1;text-align:left;padding:5px 10px;font:.78rem var(--font);color:var(--text-m);background:var(--bg-card);border:1px solid var(--border);border-radius:4px;cursor:pointer;transition:all .15s;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.saved-deck-name:hover{border-color:var(--accent);color:var(--text)}
-.saved-deck-remove{background:none;border:none;color:var(--text-d);cursor:pointer;font-size:.9rem;padding:4px 6px;line-height:1;transition:color .15s}
-.saved-deck-remove:hover{color:var(--red)}
+.saved-deck-label{font:.72rem var(--font);font-weight:700;color:var(--text-d);margin:10px 0 6px}
+.saved-deck-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:7px;margin-bottom:4px}
+.saved-deck-card{position:relative}
+.saved-deck-card-btn{display:block;width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:5px;overflow:hidden;cursor:pointer;padding:0;text-align:left;transition:border-color .15s}
+.saved-deck-card-btn:hover{border-color:var(--accent)}
+.saved-deck-card-btn.selected{border-color:var(--accent);background:rgba(74,124,255,.12)}
+.saved-deck-thumb{aspect-ratio:59/86;background:var(--bg);overflow:hidden}
+.saved-deck-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.saved-deck-card-name{padding:4px 5px;font:.68rem var(--font);color:var(--text-m);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.saved-deck-remove{position:absolute;top:3px;right:3px;background:rgba(0,0,0,.55);border:none;color:#ccc;cursor:pointer;border-radius:3px;font-size:.7rem;padding:2px 5px;line-height:1;transition:all .15s;z-index:1}
+.saved-deck-remove:hover{background:rgba(200,40,40,.8);color:#fff}
 
 /* ── 購入候補 ── */
 .wish-add{background:none;border:1px solid var(--border);color:var(--text-d);border-radius:13px;cursor:pointer;font-size:.72rem;font-weight:600;line-height:1;display:inline-flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;padding:3px 10px;white-space:nowrap}
@@ -2179,11 +2185,12 @@ function renderDeckGrid(cards, ctx, mainCount){
 
   function cellHtml(c, i){
     const badge=c.qty>1?`<span class="deck-grid-badge">${c.qty}</span>`:'';
+    const cardUrl=`/card/${encodeURIComponent(c.name)}`;
     return `<div class="deck-grid-cell loading" id="${rowPrefix}${i}" data-card="${esc(c.name)}" title="">
-      <div class="deck-grid-img-wrap">
+      <a class="deck-grid-img-wrap" href="${cardUrl}" target="_blank" rel="noopener" title="${esc(c.name)}の価格を確認">
         <div class="deck-grid-placeholder"></div>
         ${badge}
-      </div>
+      </a>
       <div class="deck-grid-footer">
         <span class="deck-card-name">${esc(c.name)}</span>
         <span class="deck-card-price"></span>
@@ -3474,6 +3481,10 @@ function loadSavedDeck(id){
   const deck=savedDecksGet().find(d=>d.id===id);
   if(!deck)return;
   _currentDeckName=deck.name||'マイデッキ';
+  // 選択状態を更新
+  document.querySelectorAll('.saved-deck-card-btn').forEach(b=>b.classList.remove('selected'));
+  const btn=document.querySelector(`#sdcard-${CSS.escape(id)} .saved-deck-card-btn`);
+  if(btn)btn.classList.add('selected');
   // main/ex を正規化（旧データ対応）してセット
   const{main,ex}=normalizeDeck(deck);
   _currentMydeckCards={main,ex};
@@ -3496,13 +3507,47 @@ function renderSavedDecks(){
   const el=document.getElementById('savedDeckList');
   if(!el)return;
   const list=savedDecksGet();
-  if(!list.length){el.innerHTML='<p class="saved-deck-empty">保存済みデッキがありません。<br>Chrome拡張またはPDFからデッキを取り込むと、ここに表示されます。</p>';return;}
+  if(!list.length){
+    el.innerHTML='<p class="saved-deck-empty">保存済みデッキがありません。<br>Chrome拡張またはPDFからデッキを取り込むと、ここに表示されます。</p>';
+    return;
+  }
+  // 各デッキの先頭カード名をサムネイル用に取得
+  const firstCards=list.map(d=>{
+    const m=Array.isArray(d.main)?d.main:normalizeDeck(d).main;
+    return m&&m.length?m[0].name:'';
+  });
   el.innerHTML='<div class="saved-deck-label">保存済みデッキ</div>'
-    +list.map(d=>`
-    <div class="saved-deck-row">
-      <button class="saved-deck-name" onclick="loadSavedDeck('${escJs(d.id)}')">${esc(d.name)}</button>
+    +'<div class="saved-deck-grid">'
+    +list.map((d,i)=>`
+    <div class="saved-deck-card" id="sdcard-${escJs(d.id)}">
+      <button class="saved-deck-card-btn" onclick="loadSavedDeck('${escJs(d.id)}')">
+        <div class="saved-deck-thumb"${firstCards[i]?` data-first-card="${esc(firstCards[i])}"`:''}></div>
+        <div class="saved-deck-card-name">${esc(d.name)}</div>
+      </button>
       <button class="saved-deck-remove" onclick="deleteSavedDeck('${escJs(d.id)}')" title="削除">&times;</button>
-    </div>`).join('');
+    </div>`).join('')
+    +'</div>';
+  _loadSavedDeckThumbnails();
+}
+
+function _loadSavedDeckThumbnails(){
+  const thumbs=[...document.querySelectorAll('.saved-deck-thumb[data-first-card]')];
+  if(!thumbs.length)return;
+  const names=[...new Set(thumbs.map(t=>t.dataset.firstCard).filter(Boolean))];
+  fetch('/api/card-images',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({names})
+  })
+  .then(r=>r.json())
+  .then(({images})=>{
+    if(!images)return;
+    thumbs.forEach(t=>{
+      const url=images[t.dataset.firstCard];
+      if(url&&safeUrl(url)) t.innerHTML=`<img src="${esc(url)}" alt="" loading="lazy">`;
+    });
+  })
+  .catch(()=>{});
 }
 
 function wishGet(){
