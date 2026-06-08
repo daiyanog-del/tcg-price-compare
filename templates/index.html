@@ -477,14 +477,14 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
 
 /* ── マイデッキ保存 ── */
 .saved-deck-label{font:.72rem var(--font);font-weight:700;color:var(--text-d);margin:10px 0 6px}
-.saved-deck-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:7px;margin-bottom:4px}
+.saved-deck-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px;margin-bottom:4px}
 .saved-deck-card{position:relative}
-.saved-deck-card-btn{display:block;width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:5px;overflow:hidden;cursor:pointer;padding:0;text-align:left;transition:border-color .15s}
+.saved-deck-card-btn{display:flex;align-items:center;gap:6px;padding:4px 10px;width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;overflow:hidden;cursor:pointer;text-align:left;transition:border-color .15s}
 .saved-deck-card-btn:hover{border-color:var(--accent)}
 .saved-deck-card-btn.selected{border-color:var(--accent);background:rgba(74,124,255,.12)}
-.saved-deck-thumb{aspect-ratio:59/86;background:var(--bg);overflow:hidden}
+.saved-deck-thumb{width:44px;height:62px;flex-shrink:0;border-radius:2px;background:var(--bg);overflow:hidden}
 .saved-deck-thumb img{width:100%;height:100%;object-fit:cover;display:block}
-.saved-deck-card-name{padding:4px 5px;font:.68rem var(--font);color:var(--text-m);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.saved-deck-card-name{flex:1;min-width:0;font:.78rem var(--font);font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0}
 .saved-deck-remove{position:absolute;top:3px;right:3px;background:rgba(0,0,0,.55);border:none;color:#ccc;cursor:pointer;border-radius:3px;font-size:.7rem;padding:2px 5px;line-height:1;transition:all .15s;z-index:1}
 .saved-deck-remove:hover{background:rgba(200,40,40,.8);color:#fff}
 
