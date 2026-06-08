@@ -1938,40 +1938,45 @@ function doBuySearchCard(name){
   doBuySearch({validated:true});
 }
 
-// 初期ロード
-loadTrending();
-loadMovers('up');
-loadBuybackMovers('up');
+// 初期ロード・モード復元
+// DOMContentLoaded で実行することで、スクリプト末尾の const/let 宣言（_subtitleMap 等）が
+// 全て初期化された後に switchMode() を呼び出し、TDZ ReferenceError を防ぐ。
+document.addEventListener('DOMContentLoaded', () => {
+  // 初期ロード
+  loadTrending();
+  loadMovers('up');
+  loadBuybackMovers('up');
 
-// SEO: カード個別ページの場合、自動検索を実行（サーバーが渡したカード名なのでvalidateスキップ）
-if(_pageCardName){
-  if(_pageMode==='buyback'){
-    switchMode('buyback');
-    document.getElementById('buyQ').value=_pageCardName;
-    setTimeout(()=>doBuySearch({validated:true}),300);
-  }else{
-    document.getElementById('q').value=_pageCardName;
-    setTimeout(()=>doSearch({validated:true}),300);
-    if(location.hash==='#priceChart') setTimeout(()=>document.getElementById('priceChart')?.scrollIntoView({behavior:'smooth'}),2500);
+  // SEO: カード個別ページの場合、自動検索を実行（サーバーが渡したカード名なのでvalidateスキップ）
+  if(_pageCardName){
+    if(_pageMode==='buyback'){
+      switchMode('buyback');
+      document.getElementById('buyQ').value=_pageCardName;
+      setTimeout(()=>doBuySearch({validated:true}),300);
+    }else{
+      document.getElementById('q').value=_pageCardName;
+      setTimeout(()=>doSearch({validated:true}),300);
+      if(location.hash==='#priceChart') setTimeout(()=>document.getElementById('priceChart')?.scrollIntoView({behavior:'smooth'}),2500);
+    }
   }
-}
 
-// URLハッシュからモードを復元（カード表示ページでないときのみ）
-if(!_pageCardName){
-  const _hashMode=location.hash.slice(1);
-  if(['mydeck','meta','packs','wishlist','buyback'].includes(_hashMode)){
-    switchMode(_hashMode);
+  // URLハッシュからモードを復元（カード表示ページでないときのみ）
+  if(!_pageCardName){
+    const _hashMode=location.hash.slice(1);
+    if(['mydeck','meta','packs','wishlist','buyback'].includes(_hashMode)){
+      switchMode(_hashMode);
+    }
   }
-}
 
-// /featured URL でアクセスした場合は最新弾タブを開き新弾を自動選択
-if(_pageMode==='featured'){
-  switchMode('packs');
-  loadPacks().then(()=>{
-    const f=_packData.find(p=>p.featured);
-    if(f) loadPackCards(f.name, f.wiki_page||f.name, f.tcg_name||'', true);
-  });
-}
+  // /featured URL でアクセスした場合は最新弾タブを開き新弾を自動選択
+  if(_pageMode==='featured'){
+    switchMode('packs');
+    loadPacks().then(()=>{
+      const f=_packData.find(p=>p.featured);
+      if(f) loadPackCards(f.name, f.wiki_page||f.name, f.tcg_name||'', true);
+    });
+  }
+});
 
 // SEO: 検索完了時にURLをpushStateで書き換え（ブラウザ履歴対応）
 function _updateUrl(cardName, mode){
