@@ -116,8 +116,9 @@ def _ygores_image_url(card_name):
     return f"https://artworks-jp-n.ygoresources.com{path}"
 
 FAVICON_FILES = {
-    'favicon.svg', 'favicon-16.svg', 'favicon-32.png', 'favicon-16.png',
-    'apple-touch-icon.png', 'icon-192.png', 'icon-512.png', 'manifest.json',
+    'favicon.svg', 'favicon-32.png', 'favicon-16.png',
+    'apple-touch-icon.png', 'icon-192.png', 'icon-512.png',
+    'tcgym-icon-base.png', 'manifest.json',
 }
 
 @app.after_request

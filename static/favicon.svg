@@ -1,7 +1,5 @@
 <svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="TCGYM">
   <title>TCGYM</title>
-  <rect width="128" height="128" fill="#0a1024"/>
-  <image href="/static/tcgym-icon.png" x="0" y="0" width="128" height="128"
-         preserveAspectRatio="xMidYMid meet"
-         style="mix-blend-mode:screen"/>
+  <image href="/static/tcgym-icon-base.png" x="0" y="0" width="128" height="128"
+         preserveAspectRatio="xMidYMid meet"/>
 </svg>
