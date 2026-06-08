@@ -2564,13 +2564,16 @@ def api_deck_image():
     try:
         from deck_image import generate_deck_image
         site_url = request.host_url.rstrip("/")
-        img_bytes = generate_deck_image(deck_name, cards, total, site_url)
+        # _ygores_image_url を resolver として渡す（起動時ロード済みの名前インデックスを共有）
+        img_bytes = generate_deck_image(
+            deck_name, cards, total, site_url,
+            image_url_resolver=_ygores_image_url,
+        )
         resp = Response(img_bytes, content_type="image/png")
-        # 同一デッキは5分間ブラウザキャッシュ可
         resp.headers["Cache-Control"] = "public, max-age=300"
         return resp
     except Exception as e:
-        logger.error(f"[deck-image] {e}")
+        logger.error(f"[deck-image] {e}", exc_info=True)
         return jsonify({"error": "画像生成に失敗しました"}), 500
 
 
