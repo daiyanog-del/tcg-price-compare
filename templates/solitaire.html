@@ -66,34 +66,32 @@
         <!-- ニューロン -->
         <div class="deck-input-pane active" id="deckPaneNeuron">
 
-          <!-- (A) Chrome拡張経由（おすすめ） -->
-          <div class="sol-neuron-method-header">
-            <span class="sol-neuron-method-title">Chrome拡張で取り込む（PC）</span>
-            <span class="sol-recommend-badge">おすすめ</span>
+          <!-- (A) Chrome拡張経由 -->
+          <div class="sol-neuron-section">
+            <div class="sol-neuron-method-header">
+              <span class="sol-neuron-method-title">Chrome拡張で取り込む（PC）</span>
+              <span class="sol-recommend-badge">おすすめ</span>
+            </div>
+            <p class="sol-upload-note">ニューロンのデッキページからボタン1つで取り込めます。取り込んだデッキは「マイデッキ」タブに入ります。</p>
+            <!-- ストアURL確定後、href を差し替えて class に "ready" を追加する -->
+            <a class="sol-ext-link" href="#" onclick="return false">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              Chromeウェブストアで入手（近日公開予定）
+            </a>
           </div>
-          <p class="sol-upload-note" style="margin-top:0;margin-bottom:6px">
-            ニューロンのデッキページのボタン1つで取り込めます。<br>
-            取り込んだデッキは「マイデッキ」タブに入ります。
-          </p>
-          <!-- ストアURL確定後、href を差し替えて class に "ready" を追加する -->
-          <a class="sol-ext-link" href="#" onclick="return false">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            Chromeウェブストアで入手（近日公開予定）
-          </a>
 
           <!-- (B) PDF経由 -->
-          <div class="sol-neuron-method-header">
-            <span class="sol-neuron-method-title">PDFから取り込む</span>
+          <div class="sol-neuron-section">
+            <div class="sol-neuron-method-header">
+              <span class="sol-neuron-method-title">PDFから取り込む</span>
+            </div>
+            <p class="sol-upload-note">ニューロンのデッキシートPDFを選択するとカード名を自動で読み取ります。</p>
+            <label class="sol-upload-label">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              PDFを選択する
+              <input type="file" id="neuronPdfUpload" accept="application/pdf">
+            </label>
           </div>
-          <label class="sol-upload-label" style="background:linear-gradient(90deg,#1e3a5f,#2d5a8e)">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-            PDFを選択する
-            <input type="file" id="neuronPdfUpload" accept="application/pdf">
-          </label>
-          <p class="sol-upload-note" style="margin-top:6px">
-            ニューロン → デッキシート(PDF)を選択。<br>
-            カード名が自動で読み取られます。
-          </p>
         </div>
 
         <!-- テキスト入力 -->

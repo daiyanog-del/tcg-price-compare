@@ -361,6 +361,23 @@
 }
 
 /* ニューロン取り込みセクション */
+.sol-neuron-section {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 8px;
+}
+.sol-neuron-section:last-child {
+  margin-bottom: 0;
+}
+.sol-neuron-section .sol-upload-note {
+  margin: 4px 0 8px;
+}
+.sol-neuron-section .sol-ext-link,
+.sol-neuron-section .sol-upload-label {
+  margin-top: 0;
+}
 .sol-neuron-method-header {
   display: flex;
   align-items: center;
