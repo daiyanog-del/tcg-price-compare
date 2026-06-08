@@ -16,11 +16,13 @@ from flask_compress import Compress
 
 from scraper import (
     SHOPS, DEFAULT_SHOPS, WAIT_SEC, cache_get, cache_set,
-    is_target_card, normalize_rarity,
+    is_target_card,
     BUYBACK_SHOPS, DEFAULT_BUYBACK_SHOPS,
     buyback_cache_get, buyback_cache_set,
     kanabell_card_image_url,
 )
+from rarity import normalize_rarity, config_for_frontend as _rarity_config_for_frontend
+from aggregations import daily_min_by_lowest_rarity
 from meta_scraper import fetch_tier_list, fetch_deck_cards, build_deck_text, build_recipe_text, _cache_read, _DECK_CACHE_TTL, _TIER_CACHE_TTL
 from pack_scraper import get_pack_list, fetch_pack_cards
 from monitor import tracker, run_health_check
@@ -69,6 +71,14 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 Compress(app)
+
+# レアリティ設定を全テンプレートに自動注入（色・スラグ・順序を一元供給）
+_RARITY_CONFIG_JSON = json.dumps(_rarity_config_for_frontend(), ensure_ascii=False)
+
+@app.context_processor
+def inject_rarity_config():
+    """全テンプレートに window.RARITY_CONFIG 用の JSON を渡す。"""
+    return {"rarity_config_json": _RARITY_CONFIG_JSON}
 
 _BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
@@ -959,7 +969,8 @@ def api_price_history():
                 .execute())
         data = [
             {"date": r.get("recorded_at", "")[:10], "shop": r.get("shop", ""),
-             "rarity": r.get("rarity", ""), "price": r.get("min_price", 0)}
+             "rarity": normalize_rarity(r.get("rarity", "")),  # 過渡期の分裂値を正準名に統合
+             "price": r.get("min_price", 0)}
             for r in (resp.data or [])
         ]
         return jsonify({"card_name": card_name, "data": data})
@@ -1004,65 +1015,9 @@ def _aggregate_daily_min(rows: list) -> dict:
     return card_dates
 
 def _aggregate_daily_min_lowest_rarity(rows: list) -> dict:
-    """price_history の行リストから、カードごと・日付ごとの最安値を
-    同一レアリティ系列内のみで集計して返す（異なるレアリティ間の比較を防ぐ）。
-
-    アルゴリズム:
-      1. (card_name, rarity, date) → min_price を集計
-      2. 各 card_name について「最新日の価格が最安のレアリティ」を代表に選ぶ
-         ※ 最新日に欠損のあるレアリティは候補から除外
-         ※ 全レアリティで最新日欠損の場合は期間全体の最小値が最安のレアリティにフォールバック
-      3. 代表レアリティの {date: price} 系列だけ返す
-
-    戻り値: {card_name: {date_str: min_price}}
-    10円以下の異常値は除外する。
-    """
-    # ステップ1: (name, rarity, date) → min_price
-    rarity_dates: dict = defaultdict(lambda: defaultdict(dict))
-    for r in rows:
-        name   = r.get("card_name", "")
-        rarity = r.get("rarity", "") or ""
-        date   = r.get("recorded_at", "")[:10]
-        price  = r.get("min_price", 0)
-        if not name or not date or price <= 10:
-            continue
-        if date not in rarity_dates[name][rarity] or price < rarity_dates[name][rarity][date]:
-            rarity_dates[name][rarity][date] = price
-
-    # ステップ2 & 3: 代表レアリティを選んで card_name → {date: price} を返す
-    result: dict = {}
-    for name, by_rarity in rarity_dates.items():
-        if not by_rarity:
-            continue
-        # 全レアリティの最新日を求める
-        all_dates = sorted({d for dates in by_rarity.values() for d in dates})
-        if not all_dates:
-            continue
-        latest_date = all_dates[-1]
-
-        # 最新日に存在するレアリティから最安を代表に選ぶ
-        best_rarity = None
-        best_price  = None
-        for rarity, dates in by_rarity.items():
-            if latest_date not in dates:
-                continue  # 最新日に欠損 → 候補除外
-            p = dates[latest_date]
-            if best_price is None or p < best_price:
-                best_price  = p
-                best_rarity = rarity
-
-        # フォールバック: 全レアリティで最新日欠損 → 期間最小値が最安のレアリティ
-        if best_rarity is None:
-            for rarity, dates in by_rarity.items():
-                min_p = min(dates.values())
-                if best_price is None or min_p < best_price:
-                    best_price  = min_p
-                    best_rarity = rarity
-
-        if best_rarity is not None:
-            result[name] = dict(by_rarity[best_rarity])
-
-    return result
+    """price_history 行リストから最安レアリティ系列を代表とした集計を返す。
+    （aggregations.py に一元化）"""
+    return daily_min_by_lowest_rarity(rows)
 
 def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
     """Supabaseから値上がり/値下がりランキングを取得（DB側集計RPC版）。
@@ -2589,6 +2544,10 @@ def _sse(data: dict) -> str:
 
 def _build_buyback_done(results: list[dict]) -> dict:
     """買取価格比較用の完了メッセージ（高い順）"""
+    # API境界でレアリティを正準名に統合（過渡期の分裂値を吸収）
+    for r in results:
+        if r.get("rarity"):
+            r["rarity"] = normalize_rarity(r["rarity"])
     by_rarity = {}
     for r in results:
         key = r.get("rarity") or "(不明)"
@@ -2610,6 +2569,10 @@ def _build_buyback_done(results: list[dict]) -> dict:
 
 
 def _build_done(results: list[dict], corrected_name: str = "") -> dict:
+    # API境界でレアリティを正準名に統合（過渡期の分裂値を吸収）
+    for r in results:
+        if r.get("rarity"):
+            r["rarity"] = normalize_rarity(r["rarity"])
     in_stock = [r for r in results if not r.get("sold_out")]
     by_rarity = {}
     for r in in_stock:

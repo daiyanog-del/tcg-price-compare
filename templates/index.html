@@ -218,17 +218,24 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .lb-forbidden{background:rgba(220,38,38,.15);color:#f87171}
 .lb-limited{background:rgba(232,152,68,.15);color:#e89844}
 .lb-semi{background:rgba(74,124,255,.12);color:var(--accent-l)}
-.rb-ウルトラ,.rb-OFウルトラ{background:rgba(232,200,72,.1);color:var(--gold)}
-.rb-スーパー{background:rgba(103,232,249,.08);color:#7dd4e8}
-.rb-シークレット{background:rgba(180,170,230,.08);color:#b0a8e0}
-.rb-プリシク{background:rgba(240,140,200,.08);color:#e8a0c8}
-.rb-25thシークレット{background:rgba(100,200,240,.08);color:#70c8e8}
-.rb-20thシークレット{background:rgba(200,160,80,.1);color:#c8a850}
-.rb-アルティメット,.rb-EXシークレット{background:rgba(160,180,230,.08);color:#a0b8e0}
-.rb-レア{background:rgba(100,190,120,.08);color:#78c088}
-.rb-ノーマル,.rb-ノーマルパラレル{background:rgba(120,120,150,.1);color:var(--text-m)}
-.rb-ミレニアム{background:rgba(200,170,100,.08);color:#c8a868}
-.rb-ホログラフィック{background:rgba(180,180,220,.08);color:#b8b8e0}
+/* バッジ色は rarity.py から供給する CSS変数 --rc-{slug} で管理 */
+/* 変数は <head> 内のインラインスタイルとしてサーバから注入される */
+[class^="rb-"],[class*=" rb-"]{color:var(--rc-color,var(--accent-l));background:var(--rc-bg,rgba(74,124,255,.1))}
+.rb-ultra{--rc-color:#e8c848;--rc-bg:rgba(232,200,72,.1)}
+.rb-secret{--rc-color:#b0a8e0;--rc-bg:rgba(180,170,230,.08)}
+.rb-prismatic-secret{--rc-color:#e8a0c8;--rc-bg:rgba(240,140,200,.08)}
+.rb-qcsecret{--rc-color:#70c8e8;--rc-bg:rgba(100,200,240,.08)}
+.rb-20thsecret{--rc-color:#c8a850;--rc-bg:rgba(200,160,80,.1)}
+.rb-ultimate{--rc-color:#a0b8e0;--rc-bg:rgba(160,180,230,.08)}
+.rb-exsecret{--rc-color:#a0b8e0;--rc-bg:rgba(160,180,230,.08)}
+.rb-super{--rc-color:#7dd4e8;--rc-bg:rgba(103,232,249,.08)}
+.rb-rare{--rc-color:#78c088;--rc-bg:rgba(100,190,120,.08)}
+.rb-normal,.rb-normal-parallel{--rc-color:var(--text-m);--rc-bg:rgba(120,120,150,.1)}
+.rb-millennium{--rc-color:#c8a868;--rc-bg:rgba(200,170,100,.08)}
+.rb-holographic{--rc-color:#b8b8e0;--rc-bg:rgba(180,180,220,.08)}
+.rb-of-ultra{--rc-color:#ffd700;--rc-bg:rgba(255,215,0,.1)}
+.rb-collectors{--rc-color:#1abc9c;--rc-bg:rgba(26,188,156,.1)}
+.rb-gold-secret{--rc-color:#b8860b;--rc-bg:rgba(184,134,11,.1)}
 
 /* Sold-out badge */
 .sob{font:.65rem var(--font);padding:1px 5px;border-radius:3px;background:var(--sold-out);color:var(--red)}
@@ -673,6 +680,10 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
     '.mode-tabs{visibility:hidden!important}';
   document.head.appendChild(s);
 })();
+</script>
+<script>
+// レアリティ設定（サーバから注入 — rarity.py が唯一の定義ソース）
+window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 </script>
 </head>
 <body>
@@ -1810,7 +1821,13 @@ function setRarityFilter(r){
 
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
 function escJs(s){return(s+'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/</g,'\\x3c')}
-function cssClass(s){return String(s||'').replace(/[^a-zA-Z0-9_-]/g,'_')}
+// raritySlug: 正規名 → CSS スラグ（rarity.py の slug に一致、ASCII のみ）
+function raritySlug(s){
+  const cfg=(window.RARITY_CONFIG||{})[s];
+  return cfg?cfg.slug:String(s||'').replace(/[^a-zA-Z0-9_-]/g,'_');
+}
+// cssClass は後方互換のために残す（rarity以外の用途で使われている箇所がある場合用）
+function cssClass(s){return raritySlug(s)}
 function safeUrl(u){
   try{
     const url=new URL(String(u||''), location.origin);
@@ -3203,29 +3220,14 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/static/sw.js
 
 <script>
 // ── 価格推移グラフ ──
-const RARITY_COLORS={
-  'ウルトラ':'#e8c848','UR':'#e8c848',
-  'シークレット':'#e74c3c','SE':'#e74c3c',
-  'スーパー':'#3498db','SR':'#3498db',
-  'レア':'#cd7f32','R':'#cd7f32',
-  'ノーマル':'#888','N':'#888',
-  '25thシークレット':'#9b59b6','25thSE':'#9b59b6','クォーターセンチュリー':'#9b59b6','QCシク':'#9b59b6',
-  'プリシク':'#ff6b9d','PSE':'#ff6b9d','OFプリシク':'#ff6b9d',
-  'コレクターズ':'#1abc9c','CR':'#1abc9c',
-  'ホログラフィック':'#f39c12','HR':'#f39c12',
-  'アルティメット':'#e67e22','UL':'#e67e22',
-  'ゴールド':'#DAA520','GR':'#DAA520',
-  'EXシークレット':'#2ecc71','EXSE':'#2ecc71','エクシク':'#2ecc71',
-  'プリズマティック':'#ff6b9d','プリズマ':'#ff6b9d',
-  'OFプリシク':'#ff1493','OFシークレット':'#dc143c','OFスーパー':'#4169e1','OFウルトラ':'#ffd700',
-  'プレミアムゴールド':'#DAA520','PG':'#DAA520',
-  '20thシークレット':'#d63384','20thSE':'#d63384',
-  'ノーマルパラレル':'#7f8c8d','NP':'#7f8c8d',
-  'ミレニアム':'#8e44ad','ML':'#8e44ad',
-  'スーパーパラレル':'#5dade2','ウルトラパラレル':'#f4d03f',
-  'ゴールドシークレット':'#b8860b','GSE':'#b8860b',
-  'グランドマスター':'#00ced1','10000シークレット':'#ff4500',
-};
+// RARITY_COLORS は rarity.py（サーバ）から注入された RARITY_CONFIG を元に構築
+const RARITY_COLORS=(()=>{
+  const m={};
+  for(const[canon,cfg] of Object.entries(window.RARITY_CONFIG||{})){
+    m[canon]=cfg.color;
+  }
+  return m;
+})();
 let _chartInstance=null;
 
 function _loadChartJs(cb){
@@ -3254,31 +3256,15 @@ function loadPriceHistory(cardName){
     .catch(()=>{});
 }
 
-// グラフ用レアリティ正規化（店舗間の表記ゆれを統合）
-const _RARITY_NORMALIZE={
-  'クォーターセンチュリー':'25thシークレット','QCシク':'25thシークレット','QCSE':'25thシークレット',
-  '25thシク':'25thシークレット','クォーターセンチュリーシークレット':'25thシークレット',
-  '20thシク':'20thシークレット',
-  'プリズマティック':'プリシク','プリズマティックシークレット':'プリシク','PSE':'プリシク',
-  'OFプリズマティックシークレット':'OFプリシク',
-  'オーバーフレームウルトラ':'OFウルトラ','オーバーフレームウルトラレア':'OFウルトラ',
-  'オーバーフレームプリシク':'OFプリシク','オーバーフレームプリズマティックシークレット':'OFプリシク','オーバーフレームプリズマティックシークレットレア':'OFプリシク',
-  'オーバーフレームシークレット':'OFシークレット','オーバーフレームシークレットレア':'OFシークレット',
-  'オーバーフレームスーパー':'OFスーパー','オーバーフレームスーパーレア':'OFスーパー',
-  'エクストラシークレット':'EXシークレット','エクシク':'EXシークレット','ESE':'EXシークレット',
-  'レリーフ':'アルティメット','レリ':'アルティメット',
-  'ホロ':'ホログラフィック',
-  'ゴルシク':'ゴールドシークレット',
-  'コレ':'コレクターズ',
-};
-function _normalizeRarity(r){return _RARITY_NORMALIZE[r]||r;}
+// _RARITY_NORMALIZE / _normalizeRarity は廃止（サーバが正準名を返すため不要）
 
 function _drawPriceChart(data){
   if(_chartInstance){_chartInstance.destroy();_chartInstance=null;}
   // レアリティ×日付ごとに全店舗の平均価格を算出
+  // rarity はサーバ側で正準名に正規化済み
   const byRarityDate={};
   data.forEach(r=>{
-    const rar=_normalizeRarity(r.rarity||'不明');
+    const rar=r.rarity||'不明';
     if(!byRarityDate[rar])byRarityDate[rar]={};
     if(!byRarityDate[rar][r.date])byRarityDate[rar][r.date]=[];
     byRarityDate[rar][r.date].push(r.price);

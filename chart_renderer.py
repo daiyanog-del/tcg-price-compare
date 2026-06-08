@@ -23,6 +23,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import matplotlib.dates as mdates
 import matplotlib.font_manager as fm
+from rarity import color_of, ordered_canonicals  # 色・順序は rarity.py に一元化
 
 # ── 日本語フォント登録（1プロセス1回） ──
 
@@ -80,17 +81,7 @@ def _register_japanese_font():
     _FONT_REGISTERED = True
 
 
-# ── レアリティの表示優先順位と色（フロントの Chart.js と統一） ──
-
-_RARITY_ORDER = ["シークレット", "アルティメット", "ウルトラ", "スーパー", "レア", "ノーマル"]
-_RARITY_COLORS = {
-    "シークレット": "#e74c3c",
-    "アルティメット": "#9b59b6",
-    "ウルトラ":   "#f39c12",
-    "スーパー":   "#3498db",
-    "レア":       "#2ecc71",
-    "ノーマル":   "#95a5a6",
-}
+# 表示順・色は rarity.py の ordered_canonicals() / color_of() を使用（個別定義を廃止）
 
 
 def render_price_chart(card_name: str, history_rows: list, out_path: str = None) -> str | None:
@@ -132,8 +123,9 @@ def render_price_chart(card_name: str, history_rows: list, out_path: str = None)
         fig, ax = plt.subplots(figsize=(8, 4.5), dpi=120)
         fig.patch.set_facecolor("#ffffff")
 
+        # ordered_canonicals() でレアリティを順序付き・網羅的に描画
         plotted_any = False
-        for rarity in _RARITY_ORDER:
+        for rarity in ordered_canonicals():
             if rarity not in rarity_dates:
                 continue
             dates = rarity_dates[rarity]
@@ -144,7 +136,7 @@ def render_price_chart(card_name: str, history_rows: list, out_path: str = None)
                     ys.append(dates[d])
             if len(xs) < 2:
                 continue
-            color = _RARITY_COLORS.get(rarity, "#7f8c8d")
+            color = color_of(rarity)  # rarity.py で一元管理された色
             ax.plot(xs, ys, marker="o", label=rarity, color=color, linewidth=2, markersize=5)
             plotted_any = True
 
@@ -183,10 +175,10 @@ def _render_initial_card(card_name: str, rarity_dates: dict, out_path: str = Non
     """
     _register_japanese_font()
 
-    # 最安値を取得
+    # 最安値を取得（ordered_canonicals で順序付きに走査）
     best_price = None
     best_rarity = None
-    for rarity in _RARITY_ORDER:
+    for rarity in ordered_canonicals():
         if rarity not in rarity_dates:
             continue
         for price in rarity_dates[rarity].values():
