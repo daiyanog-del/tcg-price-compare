@@ -8,6 +8,7 @@
 --
 -- 戻り値 (行ごと):
 --   card_name     text   カード名
+--   rarity        text   レアリティ
 --   today_price   int    直近日の最安値
 --   prev_price    int    前日の最安値
 --   diff          int    価格差 (today - prev)
@@ -23,6 +24,7 @@ CREATE OR REPLACE FUNCTION get_price_movers(
 )
 RETURNS TABLE (
     card_name   text,
+    rarity      text,
     today_price int,
     prev_price  int,
     diff        int,
@@ -35,16 +37,17 @@ LANGUAGE sql
 STABLE
 AS $$
 WITH
--- 直近2日の日次最安値をカードごとに集計（10円以下の異常値を除外）
+-- 直近2日の日次最安値をカード×レアリティごとに集計（10円以下の異常値を除外）
 daily_min AS (
     SELECT
         card_name,
+        rarity,
         recorded_at::date::text AS rec_date,
         MIN(min_price)          AS daily_price
     FROM price_history
     WHERE recorded_at >= cutoff_date::date
       AND min_price > 10
-    GROUP BY card_name, recorded_at::date::text
+    GROUP BY card_name, rarity, recorded_at::date::text
 ),
 -- 比較に使う直近2日を特定
 dates AS (
@@ -58,10 +61,11 @@ dates AS (
         LIMIT 2
     ) t
 ),
--- カードごとの前日比を計算
+-- カード×レアリティごとの前日比を計算
 movers AS (
     SELECT
         d_new.card_name,
+        d_new.rarity,
         d_new.daily_price                                          AS today_price,
         d_old.daily_price                                          AS prev_price,
         d_new.daily_price - d_old.daily_price                     AS diff,
@@ -73,6 +77,7 @@ movers AS (
         dates.date_old
     FROM       daily_min d_new
     JOIN       daily_min d_old  ON d_new.card_name = d_old.card_name
+                               AND d_new.rarity    = d_old.rarity
     CROSS JOIN dates
     WHERE d_new.rec_date = dates.date_new
       AND d_old.rec_date = dates.date_old
@@ -82,7 +87,7 @@ movers AS (
 -- 変動幅フィルタ + 上位N件ずつ抽出
 ranked AS (
     SELECT
-        card_name, today_price, prev_price, diff, pct, date_new, date_old,
+        card_name, rarity, today_price, prev_price, diff, pct, date_new, date_old,
         CASE WHEN diff > 0 THEN 'up' ELSE 'down' END AS direction,
         ROW_NUMBER() OVER (
             PARTITION BY CASE WHEN diff > 0 THEN 'up' ELSE 'down' END
@@ -91,13 +96,13 @@ ranked AS (
     FROM movers
     WHERE ABS(diff) >= min_diff
 )
-SELECT card_name, today_price, prev_price, diff, pct, date_new, date_old, direction
+SELECT card_name, rarity, today_price, prev_price, diff, pct, date_new, date_old, direction
 FROM ranked
 WHERE rn <= top_n
 ORDER BY direction, ABS(pct) DESC;
 $$;
 
--- 買取値動きランキング用 RPC（buyback_history テーブル）
+-- 買取値動りランキング用 RPC（buyback_history テーブル）
 -- 引数・戻り値は get_price_movers と同じ構造。
 -- price_history.min_price の代わりに buyback_history.max_price を使用。
 
@@ -108,6 +113,7 @@ CREATE OR REPLACE FUNCTION get_buyback_movers(
 )
 RETURNS TABLE (
     card_name   text,
+    rarity      text,
     today_price int,
     prev_price  int,
     diff        int,
@@ -120,16 +126,17 @@ LANGUAGE sql
 STABLE
 AS $$
 WITH
--- 直近の日次最高買取額をカードごとに集計（10円以下の異常値を除外）
+-- 直近の日次最高買取額をカード×レアリティごとに集計（10円以下の異常値を除外）
 daily_max AS (
     SELECT
         card_name,
+        rarity,
         recorded_at::date::text AS rec_date,
         MAX(max_price)          AS daily_price
     FROM buyback_history
     WHERE recorded_at >= cutoff_date::date
       AND max_price > 10
-    GROUP BY card_name, recorded_at::date::text
+    GROUP BY card_name, rarity, recorded_at::date::text
 ),
 -- 比較に使う直近2日を特定
 dates AS (
@@ -143,10 +150,11 @@ dates AS (
         LIMIT 2
     ) t
 ),
--- カードごとの前日比を計算
+-- カード×レアリティごとの前日比を計算
 movers AS (
     SELECT
         d_new.card_name,
+        d_new.rarity,
         d_new.daily_price                                          AS today_price,
         d_old.daily_price                                          AS prev_price,
         d_new.daily_price - d_old.daily_price                     AS diff,
@@ -158,6 +166,7 @@ movers AS (
         dates.date_old
     FROM       daily_max d_new
     JOIN       daily_max d_old  ON d_new.card_name = d_old.card_name
+                               AND d_new.rarity    = d_old.rarity
     CROSS JOIN dates
     WHERE d_new.rec_date = dates.date_new
       AND d_old.rec_date = dates.date_old
@@ -167,7 +176,7 @@ movers AS (
 -- 変動幅フィルタ + 上位N件ずつ抽出
 ranked AS (
     SELECT
-        card_name, today_price, prev_price, diff, pct, date_new, date_old,
+        card_name, rarity, today_price, prev_price, diff, pct, date_new, date_old,
         CASE WHEN diff > 0 THEN 'up' ELSE 'down' END AS direction,
         ROW_NUMBER() OVER (
             PARTITION BY CASE WHEN diff > 0 THEN 'up' ELSE 'down' END
@@ -176,7 +185,7 @@ ranked AS (
     FROM movers
     WHERE ABS(diff) >= min_diff
 )
-SELECT card_name, today_price, prev_price, diff, pct, date_new, date_old, direction
+SELECT card_name, rarity, today_price, prev_price, diff, pct, date_new, date_old, direction
 FROM ranked
 WHERE rn <= top_n
 ORDER BY direction, ABS(pct) DESC;

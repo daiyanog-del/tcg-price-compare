@@ -1857,10 +1857,11 @@ function loadMovers(dir,retry){
         const isUp=item.diff>0;
         const sign=isUp?'+':'';
         const cls=isUp?'up':'down';
+        const rarityBadge=item.rarity?`<span class="rb rb-${cssClass(item.rarity)}">${esc(item.rarity)}</span>`:'';
         return `<div class="movers-item" onclick="searchCard('${escJs(item.name)}')" data-card="${escJs(item.name)}">
           <span class="movers-rank">${i+1}</span>
           <span class="movers-thumb"></span>
-          <span class="movers-name">${esc(item.name)}</span>
+          <span class="movers-name">${esc(item.name)}${rarityBadge}</span>
           <span class="movers-price">
             <span class="movers-price-now">&yen;${item.today.toLocaleString()}</span>
             <span class="movers-diff ${cls}">${sign}${item.diff.toLocaleString()} (${sign}${item.pct}%)</span>
@@ -1899,10 +1900,11 @@ function loadBuybackMovers(dir,retry){
         const sign=isUp?'+':'';
         // 買取は値上がり=緑(お得)、値下がり=赤 と色反転するため buyback-diff クラスを使用
         const cls=isUp?'up':'down';
+        const rarityBadge=item.rarity?`<span class="rb rb-${cssClass(item.rarity)}">${esc(item.rarity)}</span>`:'';
         return `<div class="movers-item" onclick="doBuySearchCard('${escJs(item.name)}')" data-card="${escJs(item.name)}">
           <span class="movers-rank">${i+1}</span>
           <span class="movers-thumb"></span>
-          <span class="movers-name">${esc(item.name)}</span>
+          <span class="movers-name">${esc(item.name)}${rarityBadge}</span>
           <span class="movers-price">
             <span class="movers-price-now">&yen;${item.today.toLocaleString()}</span>
             <span class="movers-diff buyback-diff ${cls}">${sign}${item.diff.toLocaleString()} (${sign}${item.pct}%)</span>
