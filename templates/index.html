@@ -387,11 +387,15 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .deck-drop-zone-icon{font-size:1.8rem;margin-bottom:8px;opacity:.6}
 .deck-drop-zone-title{font:.9rem var(--font);font-weight:700;color:var(--text);margin-bottom:4px}
 .deck-drop-zone-sub{font:.75rem var(--font);color:var(--text-d)}
-.neuron-hint{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;padding:8px 10px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;margin-bottom:12px;font-size:.75rem;line-height:1.5}
-.neuron-hint-label{color:var(--text-d);white-space:nowrap}
+.neuron-hint{display:flex;flex-direction:column;gap:0;padding:0;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;margin-bottom:12px;font-size:.75rem;line-height:1.5;overflow:hidden}
+.neuron-hint-method-row{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;padding:8px 10px}
+.neuron-hint-method-row+.neuron-hint-method-row{border-top:1px solid var(--border)}
+.neuron-hint-label{color:var(--text-d);white-space:nowrap;font-weight:600}
 .neuron-hint-link{color:var(--accent-l);text-decoration:none;font-weight:600}.neuron-hint-link:hover{text-decoration:underline}
 .neuron-hint-sep{color:var(--text-m)}
-.neuron-hint-note{color:var(--text-d);font-size:.7rem;width:100%;padding-top:2px}
+.neuron-hint-ext{font-size:.7rem;color:#94a3b8;opacity:.7;text-decoration:none;cursor:default;white-space:nowrap}
+.neuron-hint-badge{font-size:.65rem;font-weight:700;color:#facc15;background:rgba(250,204,21,.12);border:1px solid rgba(250,204,21,.3);border-radius:3px;padding:0 4px;margin-left:2px}
+.saved-deck-empty{font:.75rem var(--font);color:var(--text-d);padding:8px 4px 4px;line-height:1.6}
 .deck-input-details{margin-bottom:10px}
 .deck-input-details summary{font:.8rem var(--font);color:var(--text-d);cursor:pointer;padding:6px 2px;user-select:none;list-style:none}
 .deck-input-details summary::-webkit-details-marker{display:none}
@@ -883,10 +887,17 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 
         <!-- ニューロン導線 -->
         <div class="neuron-hint">
-          <span class="neuron-hint-label">遊戯王ニューロンからの書き出し方：</span>
-          <a class="neuron-hint-link" href="https://www.db.yugioh-card.com/yugiohdb/member_deck.action" target="_blank" rel="noopener">遊戯王ニューロン（遊戯王カードデータベース）をPCで開く</a>
-          <span class="neuron-hint-sep">→ マイデッキ → 対象のデッキを選択 → 「PDFで印刷」</span>
-          <span class="neuron-hint-note">※PDFの書き出しはPC版でのみ対応（スマホアプリは現在対応検討中）</span>
+          <div class="neuron-hint-method-row">
+            <span class="neuron-hint-label">Chrome拡張で取り込む（PC）<span class="neuron-hint-badge">おすすめ</span></span>
+            <span class="neuron-hint-sep">ニューロンのデッキページのボタン1つで取り込み → このページに表示されます</span>
+            <!-- ストアURL確定後、href を差し替えて neuron-hint-ext クラスから opacity/.7/cursor:default を外す -->
+            <a class="neuron-hint-ext" href="#" onclick="return false">Chromeウェブストアで入手（近日公開予定）</a>
+          </div>
+          <div class="neuron-hint-method-row">
+            <span class="neuron-hint-label">PDFから取り込む（↑ のエリアにドロップ）</span>
+            <a class="neuron-hint-link" href="https://www.db.yugioh-card.com/yugiohdb/member_deck.action" target="_blank" rel="noopener">遊戯王ニューロン（PC版）</a>
+            <span class="neuron-hint-sep">→ マイデッキ → デッキ選択 → 「PDFで印刷」</span>
+          </div>
         </div>
 
         <!-- テキスト入力（折りたたみ） -->
@@ -3377,7 +3388,7 @@ function renderSavedDecks(){
   const el=document.getElementById('savedDeckList');
   if(!el)return;
   const list=savedDecksGet();
-  if(!list.length){el.innerHTML='';return;}
+  if(!list.length){el.innerHTML='<p class="saved-deck-empty">保存済みデッキがありません。<br>Chrome拡張またはPDFからデッキを取り込むと、ここに表示されます。</p>';return;}
   el.innerHTML='<div class="saved-deck-label">保存済みデッキ</div>'
     +list.map(d=>`
     <div class="saved-deck-row">
