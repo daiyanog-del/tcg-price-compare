@@ -152,6 +152,8 @@ header .subtitle{font-size:.78rem;color:var(--text-d);margin-top:8px;letter-spac
 .shop-toggle input{display:none}
 .shop-toggle.active{color:var(--text);border-color:var(--accent);background:rgba(74,124,255,.08)}
 .shop-toggle:hover{border-color:var(--text-m)}
+/* 店舗選択UIを非表示（検索は全店舗で動作） */
+.shop-toggles-wrap,#buyShopToggles,#deckShopToggles,#metaShopToggles{display:none !important}
 .progress{max-width:540px;margin:0 auto 28px;display:none;gap:8px}
 .progress.on{display:flex}
 .pstep{flex:1;padding:10px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;font-size:.78rem;text-align:center;transition:all .25s}
