@@ -10,6 +10,7 @@ import re
 import time
 import hashlib
 import json
+import unicodedata
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
@@ -28,7 +29,8 @@ WAIT_SEC = 1.0
 DEBUG_DUMP_HTML = False
 
 def _normalize_fullwidth(text: str) -> str:
-    """全角英数字・一部記号を半角に変換"""
+    """全角英数字・一部記号・互換文字（ローマ数字等）を半角に変換"""
+    text = unicodedata.normalize('NFKC', text)  # ローマ数字(Ⅹ→X等)・全角ハイフン等を一括変換
     result = []
     for ch in text:
         cp = ord(ch)
@@ -78,7 +80,8 @@ _ZEN2HAN = str.maketrans(
 )
 
 def normalize_width(text: str) -> str:
-    """全角英数字を半角に統一"""
+    """全角英数字・互換文字（ローマ数字等）を半角に統一"""
+    text = unicodedata.normalize('NFKC', text)  # ローマ数字(Ⅹ→X等)・全角ハイフン等を一括変換
     return text.translate(_ZEN2HAN)
 
 def parse_price(text: str) -> int | None:
@@ -968,7 +971,7 @@ def scrape_surugaya(card_name: str) -> list[dict]:
     """駿河屋 — ecommerce_items JSデータから価格を取得（カテゴリ501）"""
     page_url = (
         f"{SURUGAYA_BASE}/search"
-        f"?category=501&search_word={requests.utils.quote(card_name)}"
+        f"?category=501&search_word={requests.utils.quote(normalize_width(card_name))}"
     )
     # 駿河屋はBot判定が厳しいため、Sessionでトップページ→Cookie取得→検索の流れを模倣
     surugaya_headers = {

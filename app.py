@@ -7,6 +7,7 @@ import time
 import os
 import random
 import logging
+import unicodedata
 import requests as _http
 import threading
 from datetime import datetime, timezone, timedelta
@@ -42,7 +43,8 @@ def _normalize_query(q: str) -> str:
     return q.strip()
 
 def _fuzzy_key(s: str) -> str:
-    """あいまい検索用に記号・スペースを除去した比較キーを返す。全角英数→半角も正規化する"""
+    """あいまい検索用に記号・スペースを除去した比較キーを返す。全角英数・互換文字→半角も正規化する"""
+    s = unicodedata.normalize('NFKC', s)  # ローマ数字(Ⅹ→X等)・全角ハイフン等を一括変換
     # U+FF01-FF5E（全角英数・記号）→対応するASCII（半角）に変換
     s = ''.join(chr(ord(c) - 0xFEE0) if '！' <= c <= '～' else c for c in s)
     return _FUZZY_STRIP.sub('', s).lower()
@@ -867,7 +869,7 @@ def api_deck_buy():
 # ショップ名からカード検索URLを生成
 def _shop_search_url(shop: str, card_name: str) -> str:
     """ショップ名とカード名から検索ページのURLを生成"""
-    q = _url_quote(card_name)
+    q = _url_quote(unicodedata.normalize('NFKC', card_name))  # ローマ数字等を半角化してURLエンコード
     urls = {
         "遊々亭": f"https://yuyu-tei.jp/sell/ygo/s/search?search_word={q}",
         "カードラッシュ": f"https://www.cardrush.jp/product-list?keyword={q}",
