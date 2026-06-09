@@ -315,11 +315,12 @@ def sync_regulation(sb: Client) -> set[str]:
 
 
 def sync_searched_cards(sb: Client, recent_days: int = 7, min_count: int = 2) -> set[str]:
-    """検索ログから頻繁に検索されたカードを追加。全該当カード集合を返す。"""
+    """検索ログ（単体・デッキ）から頻繁に検索されたカードを追加。全該当カード集合を返す。"""
     print(f"\n--- 検索ログからカード同期（{recent_days}日/{min_count}回以上）---")
 
     since = (datetime.now(JST).date() - timedelta(days=recent_days)).isoformat()
 
+    # 単体検索ログ
     try:
         resp = sb.table("search_logs") \
             .select("card_name") \
@@ -329,11 +330,23 @@ def sync_searched_cards(sb: Client, recent_days: int = 7, min_count: int = 2) ->
         print(f"  検索ログ取得失敗: {e}")
         return set()
 
-    if not resp.data:
+    counts = Counter(row["card_name"] for row in (resp.data or []))
+
+    # デッキ検索ログ（テーブル未作成時はスキップ）
+    try:
+        deck_resp = sb.table("deck_search_logs") \
+            .select("card_name") \
+            .gte("searched_at", since) \
+            .execute()
+        counts.update(row["card_name"] for row in (deck_resp.data or []))
+        print(f"  デッキ検索ログ: {len(deck_resp.data or [])}件")
+    except Exception as e:
+        print(f"  デッキ検索ログ取得スキップ: {e}")
+
+    if not counts:
         print("  検索ログなし")
         return set()
 
-    counts = Counter(row["card_name"] for row in resp.data)
     qualifying = {name for name, cnt in counts.items() if cnt >= min_count}
     print(f"  直近{recent_days}日間: {len(counts)}種, うち{min_count}回以上: {len(qualifying)}種")
 
