@@ -132,23 +132,54 @@ def get_days_since_release(pack) -> int:
 def get_featured_cards(sb, pack) -> list:
     """
     pack の収録カード名リスト（normalize_card_name 適用済み）を返す。
+    Supabaseキャッシュを優先参照し、未ヒット時はWikiスクレイピングして保存する。
     取得失敗時は空リストを返す。
     """
     if not pack:
         return []
 
+    import re
+    from datetime import datetime, timezone, timedelta
     from pack_scraper import fetch_pack_cards
     from collect_prices import normalize_card_name
 
     pack_name = pack["pack_name"]
     wiki_page = pack.get("wiki_page") or ""
     tcg_name = pack.get("tcg_name") or ""
+    safe_key = "pack_" + re.sub(r"[^\w]", "_", pack_name)[:80]
 
+    # Supabaseキャッシュを確認（Renderデプロイ後もデータが残る）
+    if sb:
+        try:
+            resp = sb.table("pack_cards_cache").select("cards, updated_at").eq("pack_key", safe_key).execute()
+            if resp.data:
+                row = resp.data[0]
+                updated_at = datetime.fromisoformat(row["updated_at"].replace("Z", "+00:00"))
+                if datetime.now(timezone.utc) - updated_at < timedelta(hours=24):
+                    raw_cards = row["cards"] or []
+                    print(f"  [featured] {pack_name}: Supabaseキャッシュから {len(raw_cards)} 枚取得")
+                    return [normalize_card_name(c) for c in raw_cards if c]
+        except Exception as e:
+            print(f"  [featured] Supabaseキャッシュ読み込み失敗: {e}")
+
+    # スクレイピング実行
     try:
         result = fetch_pack_cards(pack_name, wiki_page, tcg_name)
         raw_cards = result.get("cards") or []
         normalized = [normalize_card_name(c) for c in raw_cards if c]
-        print(f"  [featured] {pack_name}: 収録カード {len(normalized)} 枚取得")
+        print(f"  [featured] {pack_name}: 収録カード {len(normalized)} 枚取得（スクレイピング）")
+
+        # Supabaseに保存（次回デプロイ後もスクレイピング不要）
+        if sb and raw_cards:
+            try:
+                sb.table("pack_cards_cache").upsert({
+                    "pack_key": safe_key,
+                    "cards": raw_cards,
+                }).execute()
+                print(f"  [featured] {pack_name}: Supabaseに {len(raw_cards)} 枚を保存")
+            except Exception as e:
+                print(f"  [featured] Supabaseキャッシュ書き込み失敗: {e}")
+
         return normalized
     except Exception as e:
         print(f"  [featured] 収録カード取得失敗 [{pack_name}]: {e}")
