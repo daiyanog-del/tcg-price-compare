@@ -411,7 +411,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .neuron-hint-label{color:var(--text-d);white-space:nowrap;font-weight:600}
 .neuron-hint-link{color:var(--accent-l);text-decoration:none;font-weight:600}.neuron-hint-link:hover{text-decoration:underline}
 .neuron-hint-sep{color:var(--text-m)}
-.neuron-hint-ext{font-size:.7rem;color:#94a3b8;opacity:.7;text-decoration:none;cursor:default;white-space:nowrap}
+.neuron-hint-ext{font-size:.7rem;color:var(--accent-l);text-decoration:none;white-space:nowrap;font-weight:600}.neuron-hint-ext:hover{text-decoration:underline}
 .neuron-hint-badge{font-size:.65rem;font-weight:700;color:#facc15;background:rgba(250,204,21,.12);border:1px solid rgba(250,204,21,.3);border-radius:3px;padding:0 4px;margin-left:2px}
 .saved-deck-empty{font:.75rem var(--font);color:var(--text-d);padding:8px 4px 4px;line-height:1.6}
 .deck-input-details{margin-bottom:10px}
@@ -938,8 +938,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
           <div class="neuron-hint-method-row">
             <span class="neuron-hint-label">Chrome拡張で取り込む（PC）<span class="neuron-hint-badge">おすすめ</span></span>
             <span class="neuron-hint-sep">ニューロンのデッキページのボタン1つで取り込み → このページに表示されます</span>
-            <!-- ストアURL確定後、href を差し替えて neuron-hint-ext クラスから opacity/.7/cursor:default を外す -->
-            <a class="neuron-hint-ext" href="#" onclick="return false">Chromeウェブストアで入手（近日公開予定）</a>
+            <a class="neuron-hint-ext" href="https://chromewebstore.google.com/detail/tcgym-%E2%80%94-%E3%83%8B%E3%83%A5%E3%83%BC%E3%83%AD%E3%83%B3%E9%80%A3%E6%90%BA/akgacaffneahmgpolkefmcbldbiklldf?hl=ja" target="_blank" rel="noopener">Chromeウェブストアで入手</a>
           </div>
           <div class="neuron-hint-method-row">
             <span class="neuron-hint-label">PDFから取り込む（↑ のエリアにドロップ）</span>
