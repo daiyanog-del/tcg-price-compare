@@ -844,11 +844,11 @@ html, body {
   overflow-y: auto;   /* 極端枚数でゾーン内スクロールに切り替え */
 }
 
-/* 墓地・除外エリア: フィールド3行分の高さを超えないよう制限
-   （3 * slot-height + 2 * gap = custom-layoutの自然な高さと一致）
-   CSS変数が fitFieldToViewport で更新されても自動追従する */
+/* 墓地・除外エリア: 盤面（.custom-layout）と下端を揃える
+   --field-height は fitFieldToViewport() が盤面を実測してセットする CSS 変数。
+   JS 未実行時のフォールバックとして計算式を残す。 */
 .side-slots-container .sol-side-area {
-  max-height: calc(3 * var(--slot-height) + 2 * var(--gap));
+  max-height: var(--field-height, calc(3 * var(--slot-height) + 2 * var(--gap)));
   overflow: hidden;
 }
 

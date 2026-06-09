@@ -124,6 +124,13 @@ function fitFieldToViewport() {
     slotW = correctSlotWidthByMeasurement(slotW, minW);
   }
 
+  // 盤面の実測高さを CSS 変数へ反映 → 墓地・除外の下端を盤面と一致させる
+  // correctSlotWidthByMeasurement が同期 reflow 済みのため offsetHeight は最終値を返す。
+  const fieldEl = document.querySelector('.custom-layout');
+  if (fieldEl) {
+    document.documentElement.style.setProperty('--field-height', `${fieldEl.offsetHeight}px`);
+  }
+
   // パネル幅は最終 slotW 確定後に1回だけ再計算
   requestAnimationFrame(() => updateCipWidth());
 }
@@ -290,13 +297,14 @@ function adjustSideStack(slotEl) {
   const area = slotEl.closest('.sol-side-area');
   if (!area) return;
 
-  // CSS変数からフィールド高さを計算（DOMを測定しない: 測定時点でDOMが膨らんでいるため）
-  // CSS の max-height: calc(3 * var(--slot-height) + 2 * var(--gap)) と同じ計算式
+  // フィールド高さを取得: fitFieldToViewport が設定した実測値 (--field-height) を優先し、
+  // 未設定時は CSS 変数から計算する（初回描画前などのフォールバック）。
   const rootStyle = getComputedStyle(document.documentElement);
   const slotWidth = parseFloat(rootStyle.getPropertyValue('--slot-width')) || 120;
   const slotHeight = slotWidth * 1.45; // --slot-height = --slot-width * 1.45
   const gap = parseFloat(rootStyle.getPropertyValue('--gap')) || 12;
-  const areaMaxH = 3 * slotHeight + 2 * gap; // CSSのmax-heightと同値
+  const fieldH = parseFloat(rootStyle.getPropertyValue('--field-height'));
+  const areaMaxH = fieldH || (3 * slotHeight + 2 * gap); // CSS の max-height と同じ基準
 
   // side-slotの利用可能高さ = エリア上限 - ラベル - 縦padding
   const label = area.querySelector('.pool-label');
