@@ -1,0 +1,33 @@
+# ygoresources 差分同期
+# 6時間毎に X-Cache-Revision を確認し、変更があったキャッシュ済みパスのみ再取得する
+# 手動実行も可能 (Actions タブ → Run workflow)
+
+name: Sync YGOResources Cache
+
+on:
+  schedule:
+    - cron: '30 1,7,13,19 * * *'  # 6時間毎（他ジョブと時間をずらす）
+  workflow_dispatch:               # 手動実行ボタン
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests supabase
+
+      - name: Sync ygoresources cache
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python sync_ygores.py

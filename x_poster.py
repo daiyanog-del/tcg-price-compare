@@ -116,22 +116,18 @@ _ygoresources_manifest = None    # {konami_id_str: {artwork_id: {...}}}
 
 
 def _get_ygoresources_name_index():
-    """db.ygoresources.com から日本語カード名→カードID対応表を取得（セッションキャッシュ）"""
+    """日本語カード名→カードID対応表を取得（セッションキャッシュ）。
+    取得は ygores_repository 経由（Supabaseキャッシュ優先・レート制限つき）"""
     global _ygoresources_name_index
     if _ygoresources_name_index is not None:
         return _ygoresources_name_index
     try:
-        resp = _requests.get(
-            "https://db.ygoresources.com/data/idx/card/name/ja",
-            timeout=30,
-            headers={"User-Agent": _BROWSER_UA},
-        )
-        if resp.status_code == 200:
-            _ygoresources_name_index = resp.json()
+        from ygores_repository import repository as _ygores_repo
+        _ygoresources_name_index = _ygores_repo.get_name_index()
+        if _ygoresources_name_index:
             print(f"  [YGOResources] 名前インデックス取得: {len(_ygoresources_name_index)}件")
         else:
-            print(f"  [YGOResources] 名前インデックス取得失敗: HTTP {resp.status_code}")
-            _ygoresources_name_index = {}
+            print("  [YGOResources] 名前インデックス取得失敗")
     except Exception as e:
         print(f"  [YGOResources] 名前インデックス取得エラー: {e}")
         _ygoresources_name_index = {}

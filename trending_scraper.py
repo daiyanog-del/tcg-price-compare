@@ -19,28 +19,19 @@ HEADERS = {
 }
 
 # YGOResources の日本語カード名インデックス（正規名との突合に使用）
-_YGORES_NAME_INDEX_URL = "https://db.ygoresources.com/data/idx/card/name/ja"
+# 取得は ygores_repository 経由（Supabaseキャッシュ優先・レート制限つき）
+from ygores_repository import repository as _ygores_repo
+
 _valid_names: set[str] | None = None
 
 
 def _get_valid_names() -> set[str]:
-    """YGOResources から正規カード名セットを取得。失敗時は空セット（検証スキップ）。"""
+    """正規カード名セットを取得。失敗時は空セット（検証スキップ）。"""
     global _valid_names
     if _valid_names is not None:
         return _valid_names
     try:
-        res = requests.get(_YGORES_NAME_INDEX_URL, headers=HEADERS, timeout=10)
-        if res.status_code == 200:
-            data = res.json()
-            # {"カード名": id, ...} 形式を想定
-            if isinstance(data, dict):
-                _valid_names = set(data.keys())
-            elif isinstance(data, list):
-                _valid_names = set(data)
-            else:
-                _valid_names = set()
-        else:
-            _valid_names = set()
+        _valid_names = set(_ygores_repo.get_name_index().keys())
     except Exception:
         _valid_names = set()
     return _valid_names

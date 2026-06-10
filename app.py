@@ -28,6 +28,7 @@ from meta_scraper import fetch_tier_list, fetch_deck_cards, build_deck_text, bui
 from pack_scraper import get_pack_list, fetch_pack_cards
 from monitor import tracker, run_health_check
 from constants import JST, VAPID_CLAIMS
+from ygores_repository import repository as _ygores_repo
 
 import re as _re
 from urllib.parse import quote as _url_quote
@@ -97,12 +98,14 @@ def _get_ygores_name_index():
     if _ygores_name_index is not None:
         return _ygores_name_index
     try:
-        resp = _http.get(
-            "https://db.ygoresources.com/data/idx/card/name/ja",
-            timeout=30,
-            headers={"User-Agent": _BROWSER_UA},
-        )
-        _ygores_name_index = resp.json() if resp.status_code == 200 else {}
+        # repository経由（Supabaseキャッシュ優先 → API。両方失敗時は {}）
+        index = _ygores_repo.get_name_index()
+        if not index:
+            # 失敗時はメモリに固定せず、次のリクエストで再試行する
+            # （API側の連続失敗はrepositoryのサーキットブレーカーが抑制する）
+            logger.warning("[YGOResources] 名前インデックス取得失敗（次回リクエストで再試行）")
+            return {}
+        _ygores_name_index = index
         # あいまい一致用の逆引き辞書を構築（記号・全半角・ハイフン種のゆれを吸収）
         # 衝突時は先勝ち（実データで50件・全てスペース種違いの同一カードのみ）
         _ygores_fuzzy_index = {}
@@ -113,8 +116,7 @@ def _get_ygores_name_index():
         logger.info(f"[YGOResources] 名前インデックス取得: {len(_ygores_name_index)}件")
     except Exception as e:
         logger.warning(f"[YGOResources] 名前インデックス取得失敗: {e}")
-        _ygores_name_index = {}
-        _ygores_fuzzy_index = {}
+        return {}
     return _ygores_name_index
 
 def _ygores_image_url(card_name):
@@ -1987,26 +1989,20 @@ def _fetch_card_info_by_id(card_id: int, name: str) -> dict:
         if card_id in _card_info_cache:
             return _card_info_cache[card_id]
 
-    # キャッシュミス → 外部APIで取得（ロック外）
+    # キャッシュミス → repository経由で取得（Supabaseキャッシュ→外部API。ロック外）
     try:
-        resp = _http.get(
-            f"https://db.ygoresources.com/data/card/{card_id}",
-            timeout=10,
-            headers={"User-Agent": _BROWSER_UA},
-        )
-        if resp.status_code != 200:
+        summary = _ygores_repo.get_card_summary(card_id)
+        if summary is None:
             return {"found": False}
-        data = resp.json()
-        ja = data.get("cardData", {}).get("ja", {})
-        card_type = ja.get("cardType", "")
-        prints = ja.get("prints", [])
+        card_type = summary["card_type"]
+        prints = summary["prints"]
         latest_print = ""
         if prints:
             last = prints[-1]
             latest_print = last if isinstance(last, str) else last.get("code", "")
         race = None
         limit = None
-        prop = _PROP_JA.get(ja.get("property") or "", ja.get("property") or "")
+        prop = _PROP_JA.get(summary["property"] or "", summary["property"] or "")
         card_subtype = ""
         try:
             pdeck = _http.get(
@@ -2033,7 +2029,7 @@ def _fetch_card_info_by_id(card_id: int, name: str) -> dict:
         # 11=Fusion, 18=Xyz, 19=Synchro, 23=Link（/data/meta/mprop で確定・実データ実証済み）。
         # トゥーン融合等 ygoprodeck が "Toon Monster" と返してしまうカードでも正しく判定できる。
         _EX_PROP_IDS = {11, 18, 19, 23}
-        props = ja.get("properties") or []
+        props = summary["properties"]
         is_ex = any(p in _EX_PROP_IDS for p in props)
         # properties が欠ける異常系のみ ygoprodeck の card_subtype で補完
         if not is_ex and card_subtype:
@@ -2044,15 +2040,15 @@ def _fetch_card_info_by_id(card_id: int, name: str) -> dict:
             "card_type": mapped_type,
             "broad_type": card_type,   # "monster" | "spell" | "trap"（表示判定用）
             "is_ex": is_ex,            # EXデッキカードか否か
-            "atk": ja.get("atk"),
-            "def": ja.get("def"),
-            "level": ja.get("level"),
-            "rank": ja.get("rank"),
-            "link_val": ja.get("linkRating"),
+            "atk": summary["atk"],
+            "def": summary["def"],
+            "level": summary["level"],
+            "rank": summary["rank"],
+            "link_val": summary["link_rating"],
             "race": race,
-            "attribute": _ATTR_JA.get(ja.get("attribute") or "", ja.get("attribute") or ""),
+            "attribute": _ATTR_JA.get(summary["attribute"] or "", summary["attribute"] or ""),
             "property": prop,
-            "effect_text": ja.get("effectText", ""),
+            "effect_text": summary["effect_text"],
             "latest_print": latest_print,
             "limit": limit,
         }
@@ -2248,14 +2244,8 @@ def api_card_types():
                 if not ids:
                     return n, "unknown"
                 cid = ids[0]
-                resp = _http.get(
-                    f"https://db.ygoresources.com/data/card/{cid}",
-                    timeout=5,
-                    headers={"User-Agent": _BROWSER_UA},
-                )
-                if resp.status_code != 200:
-                    return n, "unknown"
-                ct = resp.json().get("cardData", {}).get("ja", {}).get("cardType", "") or "unknown"
+                summary = _ygores_repo.get_card_summary(cid)
+                ct = (summary or {}).get("card_type") or "unknown"
                 return n, ct  # "monster" | "spell" | "trap"
             except Exception:
                 return n, "unknown"
