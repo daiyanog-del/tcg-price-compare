@@ -55,13 +55,12 @@ _CARD_URL_KEYWORDS = (
     "booster", "pack", "deck", "set",
 )
 
-# SEED_URLS — 実在確認済み（2026-06-10 WebFetchで確認）
-# www.yugioh-card.com/japan/ が公式OCGサイトのトップであることを確認。
-# products/ は商品一覧（実在確認済み）。トップと商品一覧をシードに設定し、
-# ページ内リンク抽出で個別商品ページへ広げていく。
+# SEED_URLS — 抽出対象は YU-GI-OH.jp（遊戯王ニュースサイト。2026-06-10 実在・到達確認済み）
+# トップページがニュース一覧を兼ねており、記事は news_detail.php?page=details&id=NNNN 形式。
+# 記事リンクは _CARD_URL_KEYWORDS の "news" に合致して自動発見される。
+# anime.php / comic.php 等の非OCGセクションはキーワード不一致で自然に除外される。
 SEED_URLS: list[str] = [
-    "https://www.yugioh-card.com/japan/",           # 公式OCGトップ（最新情報掲載）
-    "https://www.yugioh-card.com/japan/products/",  # 商品一覧（新弾情報）
+    "https://yu-gi-oh.jp/",  # トップ＝最新ニュース一覧
 ]
 
 

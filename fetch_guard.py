@@ -28,14 +28,12 @@ ALLOWED_HOSTS: frozenset = frozenset({
     "www.yu-gi-oh.jp",
     "yu-gi-oh.jp",
     "www.konami.com",
-    "www.yugioh-card.com",
 })
 
 # ホストごとのパスプレフィックス制約（リストにないホストは全パス可）
-# konami.com は /yugioh/ 配下のみ、yugioh-card.com は /japan/ 配下のみ
+# konami.com は /yugioh/ 配下のみ
 ALLOWED_PATH_PREFIXES: dict[str, tuple] = {
     "www.konami.com": ("/yugioh/",),
-    "www.yugioh-card.com": ("/japan/",),
 }
 
 # User-Agent（クローラであることを明示）

@@ -62,10 +62,9 @@ class TestIsWhitelisted:
     def test_konami_games_path(self):
         assert is_whitelisted("https://www.konami.com/games/") is False
 
-    def test_yugioh_card_com_japan_path(self):
-        assert is_whitelisted("https://www.yugioh-card.com/japan/products/") is True
-
-    def test_yugioh_card_com_non_japan_path(self):
+    def test_yugioh_card_com_not_whitelisted(self):
+        # yugioh-card.com はWatcherの対象外（抽出対象は yu-gi-oh.jp。価格収集系とは独立）
+        assert is_whitelisted("https://www.yugioh-card.com/japan/products/") is False
         assert is_whitelisted("https://www.yugioh-card.com/") is False
 
     def test_http_rejected(self):
@@ -251,17 +250,15 @@ class TestWhitelistConstants:
         assert "www.yu-gi-oh.jp" in ALLOWED_HOSTS
         assert "yu-gi-oh.jp" in ALLOWED_HOSTS
         assert "www.konami.com" in ALLOWED_HOSTS
-        assert "www.yugioh-card.com" in ALLOWED_HOSTS
+
+    def test_unrelated_hosts_absent(self):
+        # ホワイトリストは仕様の初期値（yu-gi-oh.jp ＋ konami.com）のみ
+        assert "www.yugioh-card.com" not in ALLOWED_HOSTS
 
     def test_konami_path_prefix_defined(self):
         assert "www.konami.com" in ALLOWED_PATH_PREFIXES
         prefixes = ALLOWED_PATH_PREFIXES["www.konami.com"]
         assert "/yugioh/" in prefixes
-
-    def test_yugioh_card_com_path_prefix_defined(self):
-        assert "www.yugioh-card.com" in ALLOWED_PATH_PREFIXES
-        prefixes = ALLOWED_PATH_PREFIXES["www.yugioh-card.com"]
-        assert "/japan/" in prefixes
 
     def test_yu_gi_oh_jp_no_path_restriction(self):
         # yu-gi-oh.jp にはパス制限がないこと
