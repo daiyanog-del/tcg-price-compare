@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>管理画面 — カード相場</title>
+<link rel="stylesheet" href="/static/solitaire/css/variables.css">
+<link rel="stylesheet" href="/static/solitaire/css/proxy-card.css">
+<link rel="stylesheet" href="/static/admin/admin.css">
+</head>
+<body>
+
+<!-- ──────────────────────── ログイン画面 ──────────────────────── -->
+<div id="login-screen" class="login-screen">
+  <div class="login-card">
+    <h1 class="login-title">カード相場 管理画面</h1>
+    <p class="login-desc">管理キーを入力してください</p>
+    <form id="login-form" class="login-form" autocomplete="off">
+      <input
+        id="login-key-input"
+        type="password"
+        placeholder="管理キー"
+        class="login-input"
+        autocomplete="current-password"
+        required
+      >
+      <button type="submit" class="btn btn-primary login-btn">ログイン</button>
+    </form>
+    <p id="login-error" class="login-error" hidden></p>
+  </div>
+</div>
+
+<!-- ──────────────────────── メイン画面 ──────────────────────── -->
+<div id="main-screen" class="main-screen" hidden>
+
+  <header class="site-header">
+    <span class="site-header__title">カード相場 管理画面</span>
+    <button id="logout-btn" class="btn btn-ghost btn-sm">ログアウト</button>
+  </header>
+
+  <!-- タブナビ -->
+  <nav class="tab-nav">
+    <button class="tab-btn tab-btn--active" data-tab="pending">承認待ち</button>
+    <button class="tab-btn" data-tab="approved">公開中</button>
+    <button class="tab-btn" data-tab="manual">手動登録</button>
+    <button class="tab-btn" data-tab="settings">設定</button>
+  </nav>
+
+  <!-- ──── 承認待ちタブ ──── -->
+  <section id="tab-pending" class="tab-section">
+    <div class="section-header">
+      <h2 class="section-title">承認待ち / 要確認</h2>
+      <button id="reload-pending-btn" class="btn btn-ghost btn-sm">再読み込み</button>
+    </div>
+    <div id="pending-list" class="card-list">
+      <p class="loading-text">読み込み中...</p>
+    </div>
+  </section>
+
+  <!-- ──── 公開中タブ ──── -->
+  <section id="tab-approved" class="tab-section" hidden>
+    <div class="section-header">
+      <h2 class="section-title">公開中カード</h2>
+      <button id="reload-approved-btn" class="btn btn-ghost btn-sm">再読み込み</button>
+    </div>
+    <div id="approved-list" class="card-list">
+      <p class="loading-text">読み込み中...</p>
+    </div>
+  </section>
+
+  <!-- ──── 手動登録タブ ──── -->
+  <section id="tab-manual" class="tab-section" hidden>
+    <div class="section-header">
+      <h2 class="section-title">手動登録</h2>
+    </div>
+    <form id="manual-form" class="manual-form">
+      <div class="form-grid">
+
+        <div class="form-group form-group--full">
+          <label class="form-label">カード名 <span class="required">必須</span></label>
+          <input type="text" name="name" class="form-input" placeholder="例: 真紅眼の黒竜" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">読み仮名</label>
+          <input type="text" name="reading" class="form-input" placeholder="レッドアイズ・ブラックドラゴン">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">カード種別</label>
+          <input type="text" name="card_type" class="form-input" placeholder="効果モンスター / 魔法 / 罠">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">属性</label>
+          <input type="text" name="attribute" class="form-input" placeholder="闇 / 光 / 炎 / 水 / 地 / 風 / 神">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">種族</label>
+          <input type="text" name="race" class="form-input" placeholder="戦士族 / 魔法使い族">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">レベル</label>
+          <input type="number" name="level" class="form-input" placeholder="1〜12" min="1" max="12">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">ランク (エクシーズ)</label>
+          <input type="number" name="rank" class="form-input" placeholder="1〜13" min="1" max="13">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">リンク値</label>
+          <input type="number" name="link_val" class="form-input" placeholder="1〜6" min="1" max="6">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">ATK</label>
+          <input type="number" name="atk" class="form-input" placeholder="数値 (空欄=?)">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">DEF</label>
+          <input type="text" name="def" class="form-input" placeholder="数値 / ? / - (空欄=?)">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">収録商品</label>
+          <input type="text" name="product_name" class="form-input" placeholder="ANIMATION CHRONICLE 2026">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">発売予定日</label>
+          <input type="date" name="release_date" class="form-input">
+        </div>
+
+        <div class="form-group form-group--full">
+          <label class="form-label">効果テキスト</label>
+          <textarea name="effect_text" class="form-textarea" rows="4" placeholder="効果テキストを入力"></textarea>
+        </div>
+
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">登録する（承認待ちに追加）</button>
+      </div>
+      <p id="manual-result" class="form-result" hidden></p>
+    </form>
+  </section>
+
+  <!-- ──── 設定タブ ──── -->
+  <section id="tab-settings" class="tab-section" hidden>
+    <div class="section-header">
+      <h2 class="section-title">設定</h2>
+      <button id="reload-settings-btn" class="btn btn-ghost btn-sm">再読み込み</button>
+    </div>
+
+    <div class="settings-card">
+      <div class="settings-row">
+        <div class="settings-info">
+          <p class="settings-key">公式画像表示 (OFFICIAL_IMAGE_DISPLAY)</p>
+          <p class="settings-desc">
+            無効にすると全サイトの公式取込画像が即時プロキシ表示に縮退します。
+            再デプロイ不要で、最大30秒以内に全ワーカーへ反映されます。
+          </p>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="official-image-toggle" disabled>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <p id="settings-result" class="form-result" hidden></p>
+    </div>
+  </section>
+
+</div><!-- /main-screen -->
+
+<!-- ──────────────────────── カード行テンプレート（pending用） ──────────────────────── -->
+<template id="tmpl-pending-row">
+  <div class="card-row" data-card-id="">
+
+    <!-- 概要行 -->
+    <div class="card-row__summary">
+      <div class="card-row__info">
+        <span class="card-row__name"></span>
+        <span class="card-row__product"></span>
+        <span class="card-row__type"></span>
+        <span class="confidence-badge"></span>
+        <span class="card-row__extracted-at"></span>
+      </div>
+      <div class="card-row__meta">
+        <a class="card-row__source-link" href="" target="_blank" rel="noopener noreferrer">抽出元</a>
+        <span class="card-row__has-image has-image-badge" hidden>画像あり</span>
+      </div>
+      <div class="card-row__actions">
+        <button class="btn btn-success btn-sm action-approve">承認</button>
+        <button class="btn btn-danger btn-sm action-reject">却下</button>
+        <button class="btn btn-ghost btn-sm action-toggle-edit">編集</button>
+      </div>
+    </div>
+
+    <!-- 編集フォーム（折りたたみ） -->
+    <div class="card-row__edit-form" hidden>
+      <div class="edit-form-inner">
+
+        <div class="edit-preview-wrap">
+          <!-- プロキシプレビュー領域 -->
+          <div class="edit-preview">
+            <p class="edit-preview__label">プレビュー</p>
+            <div class="tier-item-wrapper edit-preview__slot">
+              <!-- proxy-card.js で生成した要素をここに挿入 -->
+            </div>
+          </div>
+        </div>
+
+        <div class="edit-fields">
+          <div class="form-grid">
+
+            <div class="form-group">
+              <label class="form-label">カード名</label>
+              <input type="text" name="name" class="form-input edit-field">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">読み仮名</label>
+              <input type="text" name="reading" class="form-input edit-field">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">カード種別</label>
+              <input type="text" name="card_type" class="form-input edit-field">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">属性</label>
+              <input type="text" name="attribute" class="form-input edit-field">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">種族</label>
+              <input type="text" name="race" class="form-input edit-field">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">レベル</label>
+              <input type="number" name="level" class="form-input edit-field">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">ランク</label>
+              <input type="number" name="rank" class="form-input edit-field">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">リンク値</label>
+              <input type="number" name="link_val" class="form-input edit-field">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">ATK</label>
+              <input type="number" name="atk" class="form-input edit-field">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">DEF</label>
+              <input type="text" name="def" class="form-input edit-field">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">収録商品</label>
+              <input type="text" name="product_name" class="form-input edit-field">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">発売予定日</label>
+              <input type="date" name="release_date" class="form-input edit-field">
+            </div>
+
+            <div class="form-group form-group--full">
+              <label class="form-label">効果テキスト</label>
+              <textarea name="effect_text" class="form-textarea edit-field" rows="4"></textarea>
+            </div>
+
+          </div>
+
+          <div class="form-actions">
+            <button class="btn btn-primary btn-sm action-save">保存</button>
+            <button class="btn btn-danger btn-sm action-delete">削除（誤登録取消）</button>
+            <button class="btn btn-ghost btn-sm action-cancel-edit">キャンセル</button>
+          </div>
+          <p class="edit-result form-result" hidden></p>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</template>
+
+<!-- ──────────────────────── カード行テンプレート（approved用） ──────────────────────── -->
+<template id="tmpl-approved-row">
+  <div class="card-row card-row--approved" data-card-id="">
+    <div class="card-row__summary">
+      <div class="card-row__info">
+        <span class="card-row__name"></span>
+        <span class="card-row__product"></span>
+        <span class="card-row__type"></span>
+        <span class="card-row__status-badge"></span>
+        <span class="card-row__has-image has-image-badge" hidden>画像あり</span>
+      </div>
+      <div class="card-row__actions">
+        <button class="btn btn-warning btn-sm action-toggle-hidden"></button>
+        <button class="btn btn-danger btn-sm action-reject-approved">取り下げ</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script type="module" src="/static/admin/admin.js"></script>
+</body>
+</html>

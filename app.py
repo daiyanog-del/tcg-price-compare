@@ -30,6 +30,7 @@ from monitor import tracker, run_health_check
 from constants import JST, VAPID_CLAIMS
 from ygores_repository import repository as _ygores_repo
 import card_display as _card_display
+from admin_unreleased import admin_bp as _admin_bp
 
 import re as _re
 from urllib.parse import quote as _url_quote
@@ -76,6 +77,7 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 Compress(app)
+app.register_blueprint(_admin_bp)
 
 # アップロード上限（デッキPDF読み取り等）。巨大ファイルによるメモリ枯渇を防ぐ
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
