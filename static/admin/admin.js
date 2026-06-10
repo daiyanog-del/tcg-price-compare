@@ -367,6 +367,17 @@ function _renderPendingList(listEl, cards) {
       if (val != null) input.value = val;
     });
 
+    // 抽出元画像サムネイル（編集フォーム内）
+    const sourceImageWrap = row.querySelector('.edit-source-image');
+    if (card.card_image_url) {
+      const imgEl = sourceImageWrap.querySelector('.edit-source-image__img');
+      const linkEl = sourceImageWrap.querySelector('.edit-source-image__link');
+      imgEl.src = card.card_image_url;
+      imgEl.alt = card.name;
+      linkEl.href = card.card_image_url;
+      sourceImageWrap.hidden = false;
+    }
+
     // プレビュー初期描画
     const slot = row.querySelector('.edit-preview__slot');
     _renderPreview(slot, card);

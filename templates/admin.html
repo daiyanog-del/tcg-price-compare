@@ -221,9 +221,18 @@
       <div class="edit-form-inner">
 
         <div class="edit-preview-wrap">
+          <!-- 抽出元画像サムネイル -->
+          <div class="edit-source-image" hidden>
+            <p class="edit-preview__label">抽出元画像</p>
+            <div class="edit-source-image__slot">
+              <a class="edit-source-image__link" href="" target="_blank" rel="noopener noreferrer">
+                <img class="edit-source-image__img" src="" alt="" loading="lazy">
+              </a>
+            </div>
+          </div>
           <!-- プロキシプレビュー領域 -->
           <div class="edit-preview">
-            <p class="edit-preview__label">プレビュー</p>
+            <p class="edit-preview__label">プロキシ表示</p>
             <div class="tier-item-wrapper edit-preview__slot">
               <!-- proxy-card.js で生成した要素をここに挿入 -->
             </div>

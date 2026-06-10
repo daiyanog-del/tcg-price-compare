@@ -186,7 +186,8 @@ def admin_list_unreleased():
             "id, name, reading, card_type, attribute, race, "
             "level, rank, link_val, atk, def, effect_text, "
             "product_name, release_date, confidence, source_url, "
-            "source_domain, extracted_at, status, hidden, konami_id"
+            "source_domain, extracted_at, status, hidden, konami_id, "
+            "extraction_raw"
         ).order("extracted_at", desc=True)
 
         if statuses:
@@ -212,6 +213,16 @@ def admin_list_unreleased():
 
         for card in cards:
             card["has_image"] = card["id"] in ids_with_image
+            # extraction_raw からカード個別画像URLを取り出してトップレベルに付加
+            raw = card.get("extraction_raw") or {}
+            card_img_url = (raw.get("card_image_url") or "").strip()
+            if not card_img_url:
+                # 後方互換: card_image_urls の先頭
+                fallback_list = raw.get("card_image_urls") or []
+                card_img_url = fallback_list[0] if fallback_list else ""
+            card["card_image_url"] = card_img_url
+            # extraction_raw はフロントエンドに不要なので除外する（サイズ削減）
+            card.pop("extraction_raw", None)
 
         return jsonify({"cards": cards})
 
@@ -401,17 +412,31 @@ def _try_fetch_image_from_extraction(
     extraction_raw: dict,
 ) -> tuple[bool, str]:
     """
-    extraction_raw の image_urls から最初の1枚を取り込む。
+    extraction_raw からこのカード個別の画像URLを決定して取り込む。
+
+    URL の決定順:
+      1. card_image_url（各カード固有の画像URL・新形式）があればそれを使う
+      2. なければ card_image_urls（記事全体の画像URL一覧）の先頭を使う（後方互換）
 
     Returns:
         (成功フラグ, 理由文字列)
     """
-    image_urls = extraction_raw.get("image_urls", [])
-    if not image_urls:
-        return False, "image_urls が空です"
+    # 優先1: card_image_url（各カード固有・新形式）
+    card_image_url = (extraction_raw.get("card_image_url") or "").strip()
+    if card_image_url:
+        logger.info(f"[admin] 画像URL決定（card_image_url）: {card_image_url!r}")
+        return _fetch_and_store_image(card_id, card_image_url, source_url)
 
-    image_url = image_urls[0]
-    return _fetch_and_store_image(card_id, image_url, source_url)
+    # 優先2: card_image_urls の先頭（後方互換）
+    card_image_urls = extraction_raw.get("card_image_urls", [])
+    if card_image_urls:
+        fallback_url = card_image_urls[0]
+        logger.info(
+            f"[admin] 画像URL決定（card_image_urls[0] フォールバック）: {fallback_url!r}"
+        )
+        return _fetch_and_store_image(card_id, fallback_url, source_url)
+
+    return False, "card_image_url も card_image_urls も空です"
 
 
 def _fetch_and_store_image(

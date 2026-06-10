@@ -409,6 +409,30 @@ a:hover {
   align-items: flex-start;
 }
 
+/* 抽出元画像サムネイル */
+.edit-source-image {
+  flex-shrink: 0;
+  width: 140px;
+}
+
+.edit-source-image__slot {
+  width: 120px;
+  margin: 0 auto;
+}
+
+.edit-source-image__link {
+  display: block;
+}
+
+.edit-source-image__img {
+  display: block;
+  width: 120px;
+  max-height: 174px;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
 /* プロキシプレビュー */
 .edit-preview {
   flex-shrink: 0;
@@ -775,6 +799,23 @@ a:hover {
 
   .edit-form-inner {
     flex-direction: column;
+  }
+
+  .edit-source-image {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .edit-source-image__slot {
+    width: auto;
+    margin: 0;
+  }
+
+  .edit-source-image__img {
+    width: 80px;
+    max-height: 116px;
   }
 
   .edit-preview {

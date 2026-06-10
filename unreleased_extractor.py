@@ -91,6 +91,11 @@ _SYSTEM_PROMPT = """\
    - product_name: 収録パック名（例: ANIMATION CHRONICLE 2026）。不明なら空文字
    - release_date: 発売予定日（YYYY-MM-DD形式）。不明・未定なら空文字
    - image_urls: 読み取り元の画像URL（提供された画像URLをそのまま記入）
+   - image_url: このカードのメイン画像1枚のURL。
+     各カードについて、そのカードの絵柄・カード名が写っている画像のURLを1枚だけ入れる。
+     通常、img_1 がカード全体画像（絵柄・名前が見える）、img_2 が効果文拡大画像なので img_1 のURLを選ぶ。
+     必ず渡された画像URLの中から正確にコピーして入れること（URLを創作・変形しない）。
+     該当する画像URLが不明な場合は空文字にする。
    - confidence: 抽出の確信度
      - high: カード名・効果文・ステータスがすべて明確に読み取れる
      - medium: 一部情報が不明確または推測が含まれる
@@ -247,6 +252,8 @@ def _get_pydantic_models():
         product_name: str = ""
         release_date: str = ""
         image_urls: list[str] = []
+        # このカードのメイン画像1枚のURL（渡された画像URLのいずれかを正確にコピーする）
+        image_url: str = ""
         confidence: Literal["high", "medium", "low"] = "medium"
 
         model_config = {"populate_by_name": True}
@@ -314,6 +321,8 @@ def _validate_and_fix(card: Any, page_url: str) -> dict | None:
         "confidence": confidence,
         "source_url": page_url,
         "source_domain": source_domain,
+        # このカードのメイン画像URL（空でも可）
+        "image_url": (card.image_url or "").strip(),
         # extraction_raw はこの時点では未設定（呼び出し元で付加する）
     }
 
@@ -449,6 +458,7 @@ def _build_vision_message(processed_text: str, encoded_images: list[dict]) -> li
         '      "product_name": "収録パック名",\n'
         '      "release_date": "YYYY-MM-DD または空文字",\n'
         '      "image_urls": ["読み取り元画像のURL"],\n'
+        '      "image_url": "このカードの絵柄・カード名が写っている画像のURL（渡されたURLを正確にコピー。1枚のみ）",\n'
         '      "confidence": "high|medium|low"\n'
         "    }\n"
         "  ]\n"
@@ -671,7 +681,10 @@ def extract_cards_from_html(html: str, page_url: str = "") -> list[dict]:
         row["extraction_raw"] = {
             "raw_response": raw_text,
             "image_urls": card.image_urls,
+            # 記事全体のカード画像URL一覧（後方互換のため残す）
             "card_image_urls": used_image_urls,
+            # このカード個別のメイン画像URL（新規追加）
+            "card_image_url": row.get("image_url", ""),
             "model": EXTRACTOR_MODEL,
             "input_tokens": message.usage.input_tokens,
             "output_tokens": message.usage.output_tokens,
