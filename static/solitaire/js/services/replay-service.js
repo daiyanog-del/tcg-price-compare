@@ -32,6 +32,9 @@
 import { returnAllCardsToDeck, attachCardImageListeners } from '../components/card-manager.js';
 import { applyCardState, getCardState } from '../components/card-state.js';
 import { playActivateEffect, flipMoveClone, playSetFlip } from '../components/card-effects.js';
+import { createProxyCardElement } from '../components/proxy-card.js';
+
+const _API_CARD_IMAGES = '/api/card-images';
 
 // ── 状態 ──────────────────────────────────────────────
 let _images = {};       // { cardId: src }
@@ -191,7 +194,8 @@ export async function importReplay(file) {
   _exCardIds = new Set(payload.exCardIds || []);
   _logs = payload.logs;
   _cursor = -1;
-  _createReplayCardElements();
+  // card:// センチネルの解決を含むため await が必要
+  await _createReplayCardElements();
   _updateUI();
 }
 
@@ -206,8 +210,8 @@ export function exportAsURLHash() {
   }
 }
 
-/** URLハッシュから読み込み */
-export function importFromURLHash(hash) {
+/** URLハッシュから読み込み（card:// センチネル対応のため非同期化） */
+export async function importFromURLHash(hash) {
   if (typeof LZString === 'undefined') return false;
   try {
     const json = LZString.decompressFromEncodedURIComponent(hash);
@@ -218,7 +222,8 @@ export function importFromURLHash(hash) {
     _exCardIds = new Set(payload.exCardIds || []);
     _logs = payload.logs;
     _cursor = -1;
-    _createReplayCardElements();
+    // card:// センチネルの解決を含むため await が必要
+    await _createReplayCardElements();
     _updateUI();
     return true;
   } catch {
@@ -241,17 +246,19 @@ export function getLogs() { return _logs; }
 
 /**
  * 外部から画像辞書・ログを直接セット（Supabase読み込み用）
+ * card:// センチネル対応のため非同期化。
  * @param {Object} images  { cardId: src }
  * @param {Object} names   { cardId: cardName }（省略可）
  * @param {Array}  logs    イベントログ配列
  */
-export function _setReplayData(images, names, logs, exCardIds = []) {
+export async function _setReplayData(images, names, logs, exCardIds = []) {
   _images = images;
   _names  = names || {};
   _exCardIds = new Set(exCardIds);
   _logs = logs;
   _cursor = -1;
-  _createReplayCardElements();
+  // card:// センチネルの解決を含むため await が必要
+  await _createReplayCardElements();
   _updateUI();
 }
 
@@ -285,10 +292,59 @@ function _rebuildDeck() {
 }
 
 /**
- * _images の全カードをDOMに生成してプールに配置する
- * URL共有・ファイルインポート時、デッキが空の状態から再生できるようにする
+ * _images 内の card:// センチネルをバッチ解決して Map で返す
+ * 解決不要のカード（実URL）は含まない。card:// が1件も無ければ空 Map を返す。
+ *
+ * @returns {Promise<Map<string, Object>>} カード名 -> { kind, url?, proxy? }
  */
-function _createReplayCardElements() {
+async function _resolveReplaySentinels() {
+  const sentinelNames = [];
+  for (const src of Object.values(_images)) {
+    if (src && src.startsWith('card://')) {
+      const name = src.slice('card://'.length);
+      if (name && !sentinelNames.includes(name)) sentinelNames.push(name);
+    }
+  }
+  if (sentinelNames.length === 0) return new Map();
+
+  try {
+    const res = await fetch(_API_CARD_IMAGES, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ names: sentinelNames }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const images = data.images || {};
+
+    const result = new Map();
+    for (const name of sentinelNames) {
+      const val = images[name] ?? null;
+      if (!val) {
+        result.set(name, { kind: 'none' });
+      } else if (typeof val === 'string') {
+        result.set(name, { kind: 'image', url: val });
+      } else {
+        result.set(name, val);
+      }
+    }
+    return result;
+  } catch (e) {
+    console.warn('[replay] card:// 解決失敗（プロキシ風表示にフォールバック）:', e);
+    const fallback = new Map();
+    for (const name of sentinelNames) {
+      fallback.set(name, { kind: 'none' });
+    }
+    return fallback;
+  }
+}
+
+/**
+ * _images の全カードをDOMに生成してプールに配置する
+ * URL共有・ファイルインポート時、デッキが空の状態から再生できるようにする。
+ * card:// センチネルは /api/card-images バッチで再解決してから描画する。
+ */
+async function _createReplayCardElements() {
   // 既存カードを全てプールに回収してからクリア
   returnAllCardsToDeck();
   const poolRow  = document.getElementById('poolRow');
@@ -296,6 +352,9 @@ function _createReplayCardElements() {
   if (!poolRow || !poolRow2) return;
   poolRow.querySelectorAll('.tier-item-wrapper').forEach(el => el.remove());
   poolRow2.querySelectorAll('.tier-item-wrapper').forEach(el => el.remove());
+
+  // card:// センチネルを一括解決
+  const resolved = await _resolveReplaySentinels();
 
   // EXカードIDを特定（_exCardIdsが空の場合はログから推定して旧形式に対応）
   const exCardIds = _exCardIds.size > 0
@@ -308,15 +367,51 @@ function _createReplayCardElements() {
     wrapper.classList.add('tier-item-wrapper');
     wrapper.id = `${cardId} ${isEx ? 'ex' : 'normal'}`;
 
-    const img = document.createElement('img');
-    img.src = src;
-    img.classList.add('tier-item');
-    img.setAttribute('draggable', 'true');
-    img.id = cardId;
-    if (_names[cardId]) img.dataset.cardName = _names[cardId];
+    let cardEl;
 
-    attachCardImageListeners(wrapper, img);
-    wrapper.appendChild(img);
+    if (src && src.startsWith('card://')) {
+      // card:// センチネル: 再解決結果に基づいてカード要素を生成
+      const name = src.slice('card://'.length);
+      const displayResult = resolved.get(name) || { kind: 'none' };
+
+      if (displayResult.kind === 'image' && displayResult.url) {
+        // 発売済み or linked 後の正規画像
+        const img = document.createElement('img');
+        img.src = displayResult.url;
+        img.classList.add('tier-item');
+        img.setAttribute('draggable', 'true');
+        img.id = cardId;
+        if (_names[cardId]) img.dataset.cardName = _names[cardId];
+        cardEl = img;
+      } else if (displayResult.kind === 'proxy' && displayResult.proxy) {
+        // 未発売プロキシ
+        const proxyEl = createProxyCardElement(displayResult.proxy);
+        proxyEl.setAttribute('draggable', 'true');
+        proxyEl.id = cardId;
+        if (_names[cardId]) proxyEl.dataset.cardName = _names[cardId];
+        cardEl = proxyEl;
+      } else {
+        // kind='none'（却下・削除済み等）: カード名のみのフォールバックプロキシ
+        const fallbackProxy = { name: name || _names[cardId] || '不明なカード' };
+        const proxyEl = createProxyCardElement(fallbackProxy);
+        proxyEl.setAttribute('draggable', 'true');
+        proxyEl.id = cardId;
+        if (_names[cardId]) proxyEl.dataset.cardName = _names[cardId];
+        cardEl = proxyEl;
+      }
+    } else {
+      // 通常の実URL（後方互換: 既存リプレイはこのパスを通る）
+      const img = document.createElement('img');
+      img.src = src;
+      img.classList.add('tier-item');
+      img.setAttribute('draggable', 'true');
+      img.id = cardId;
+      if (_names[cardId]) img.dataset.cardName = _names[cardId];
+      cardEl = img;
+    }
+
+    attachCardImageListeners(wrapper, cardEl);
+    wrapper.appendChild(cardEl);
     (isEx ? poolRow2 : poolRow).appendChild(wrapper);
   }
 }

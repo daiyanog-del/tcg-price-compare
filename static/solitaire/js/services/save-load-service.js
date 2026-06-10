@@ -5,6 +5,9 @@
 
 import { getCardState, applyCardState } from '../components/card-state.js';
 import { attachCardImageListeners } from '../components/card-manager.js';
+import { createProxyCardElement } from '../components/proxy-card.js';
+
+const API_CARD_IMAGES = '/api/card-images';
 
 const SAVE_KEY_PREFIX = 'card-sim-save-slot-';
 const MAX_SLOTS = 5;
@@ -23,13 +26,28 @@ function getCardsFromSlot(slot) {
     // img.tier-item（発売済み）または div.tier-item（プロキシ）どちらも .tier-item で取れる
     const cardEl = wrapper.querySelector('.tier-item');
     if (cardEl) {
-      // 発売済みは img.src、プロキシは '' になる（ロード時に再解決）
+      const cardName = cardEl.dataset.cardName || '';
+
+      // src の決定:
+      //   発売済み img: img.src（実URL）
+      //   プロキシ div: 'card://カード名'（再解決センチネル）
+      //
+      // ロード時は restoreCardsToSlot で card:// を検出して /api/card-images で
+      // 現時点の解決結果に変換する（発売後は正規画像、画像削除後はプロキシ）。
+      let src;
+      if (cardEl.tagName === 'IMG') {
+        src = cardEl.src || '';
+      } else {
+        // div.tier-item（プロキシカード）: カード名があれば card:// センチネルで保存
+        src = cardName ? `card://${cardName}` : '';
+      }
+
       const state = getCardState(wrapper);
       cards.push({
         id:       wrapper.id,
-        src:      cardEl.src || '',
+        src,
         style:    wrapper.getAttribute('style') || '',
-        cardName: cardEl.dataset.cardName || '',
+        cardName,
         state,   // { orientation, face }
       });
     }
@@ -131,21 +149,79 @@ export function saveGameState(slotNumber, slotName = '') {
 }
 
 /**
- * カードを復元
+ * card:// センチネルを /api/card-images バッチ POST で解決する
+ *
+ * @param {Array} cards  getCardsFromSlot の返り値（srcに card:// を含む可能性）
+ * @returns {Promise<Map<string, Object>>}
+ *   カード名 -> { kind, url?, proxy? } の Map
+ *   解決不要（実URL）のカードは含まない
+ */
+async function _resolveCardSentinels(cards) {
+  const sentinelNames = [];
+  for (const c of (cards || [])) {
+    if (c.src && c.src.startsWith('card://')) {
+      const name = c.src.slice('card://'.length);
+      if (name && !sentinelNames.includes(name)) {
+        sentinelNames.push(name);
+      }
+    }
+  }
+
+  if (sentinelNames.length === 0) return new Map();
+
+  try {
+    const res = await fetch(API_CARD_IMAGES, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ names: sentinelNames }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const images = data.images || {};
+
+    const result = new Map();
+    for (const name of sentinelNames) {
+      // images[name] は文字列URL / {kind, url?, proxy?} / null
+      const val = images[name] ?? null;
+      if (!val) {
+        result.set(name, { kind: 'none' });
+      } else if (typeof val === 'string') {
+        result.set(name, { kind: 'image', url: val });
+      } else {
+        result.set(name, val);
+      }
+    }
+    return result;
+  } catch (e) {
+    console.warn('[restoreCardsToSlot] card:// 解決失敗（プロキシ風表示にフォールバック）:', e);
+    // 失敗時は kind='none' 扱い（名前のみ表示）
+    const fallback = new Map();
+    for (const name of sentinelNames) {
+      fallback.set(name, { kind: 'none' });
+    }
+    return fallback;
+  }
+}
+
+/**
+ * カードを復元（非同期版: card:// センチネルを再解決してから DOM を構築）
  * @param {Element} slot - 復元先スロット
  * @param {Array} cards - カード情報の配列
  */
-function restoreCardsToSlot(slot, cards) {
+async function restoreCardsToSlot(slot, cards) {
   if (!slot || !cards) return;
 
   // 既存のカードをクリア（初期カードは残す）
   const existingWrappers = slot.querySelectorAll('.tier-item-wrapper:not(#initial)');
   existingWrappers.forEach(wrapper => wrapper.remove());
 
+  // card:// センチネルをバッチ解決（該当なしなら即 return した空 Map）
+  const resolved = await _resolveCardSentinels(cards);
+
   // カードを復元
-  cards.forEach(cardData => {
+  for (const cardData of cards) {
     // 初期カードはスキップ（既に存在するため）
-    if (cardData.id === 'initial') return;
+    if (cardData.id === 'initial') continue;
 
     const wrapper = document.createElement('div');
     wrapper.className = 'tier-item-wrapper';
@@ -154,25 +230,61 @@ function restoreCardsToSlot(slot, cards) {
       wrapper.setAttribute('style', cardData.style);
     }
 
-    const img = document.createElement('img');
-    // img.src は常に元画像（裏面は CSS ::after で描画するため src は変更しない）
-    img.src = cardData.src;
-    img.className = 'tier-item';
-    img.setAttribute('draggable', 'true');
-    img.id = cardData.id.split(' ')[0];
-    if (cardData.cardName) img.dataset.cardName = cardData.cardName;
+    let cardEl;
+
+    if (cardData.src && cardData.src.startsWith('card://')) {
+      // card:// センチネル: 再解決結果を使って描画
+      const name = cardData.src.slice('card://'.length);
+      const displayResult = resolved.get(name) || { kind: 'none' };
+
+      if (displayResult.kind === 'image' && displayResult.url) {
+        // 発売済み or linked 後の正規画像
+        const img = document.createElement('img');
+        img.src = displayResult.url;
+        img.className = 'tier-item';
+        img.setAttribute('draggable', 'true');
+        img.id = cardData.id.split(' ')[0];
+        if (cardData.cardName) img.dataset.cardName = cardData.cardName;
+        cardEl = img;
+      } else if (displayResult.kind === 'proxy' && displayResult.proxy) {
+        // 未発売プロキシ（まだ発売されていない）
+        const proxyEl = createProxyCardElement(displayResult.proxy);
+        proxyEl.setAttribute('draggable', 'true');
+        proxyEl.id = cardData.id.split(' ')[0];
+        if (cardData.cardName) proxyEl.dataset.cardName = cardData.cardName;
+        cardEl = proxyEl;
+      } else {
+        // kind='none'（却下・削除済み等）: カード名のみのフォールバックプロキシ
+        const fallbackProxy = { name: name || cardData.cardName || '不明なカード' };
+        const proxyEl = createProxyCardElement(fallbackProxy);
+        proxyEl.setAttribute('draggable', 'true');
+        proxyEl.id = cardData.id.split(' ')[0];
+        if (cardData.cardName) proxyEl.dataset.cardName = cardData.cardName;
+        cardEl = proxyEl;
+      }
+    } else {
+      // 通常の img（実URL）: 従来どおり
+      const img = document.createElement('img');
+      // img.src は常に元画像（裏面は CSS ::after で描画するため src は変更しない）
+      img.src = cardData.src;
+      img.className = 'tier-item';
+      img.setAttribute('draggable', 'true');
+      img.id = cardData.id.split(' ')[0];
+      if (cardData.cardName) img.dataset.cardName = cardData.cardName;
+      cardEl = img;
+    }
 
     // イベントリスナーを再設定（dblclick による効果発動含む）
-    attachCardImageListeners(wrapper, img);
+    attachCardImageListeners(wrapper, cardEl);
 
-    wrapper.appendChild(img);
+    wrapper.appendChild(cardEl);
     slot.appendChild(wrapper);
 
     // カード状態を復元（守備表示・セット）
     if (cardData.state) {
       applyCardState(wrapper, cardData.state);
     }
-  });
+  }
 }
 
 /**
@@ -254,11 +366,11 @@ function restoreCounters(counters) {
 }
 
 /**
- * ゲーム状態をロード
+ * ゲーム状態をロード（非同期版: card:// センチネルの再解決を含む）
  * @param {number} slotNumber - ロードスロット番号（1-5）
- * @returns {boolean} - ロード成功/失敗
+ * @returns {Promise<boolean>} - ロード成功/失敗
  */
-export function loadGameState(slotNumber) {
+export async function loadGameState(slotNumber) {
   if (slotNumber < 1 || slotNumber > MAX_SLOTS) {
     throw new Error('無効なスロット番号です');
   }
@@ -277,41 +389,7 @@ export function loadGameState(slotNumber) {
     // 旧形式（圧縮されていない）との互換性を保つ
     const gameState = JSON.parse(decompressed || data);
 
-    // デッキプール
-    restoreCardsToSlot(document.getElementById('poolRow'), gameState.slots.poolRow);
-    restoreCardsToSlot(document.getElementById('poolRow2'), gameState.slots.poolRow2);
-
-    // カスタムスロット（フィールド）
-    const customSlots = document.querySelectorAll('.custom-slot');
-    customSlots.forEach(slot => {
-      const slotNum = slot.getAttribute('data-slot');
-      if (slotNum) {
-        const slotKey = `custom-slot-${slotNum}`;
-        restoreCardsToSlot(slot, gameState.slots[slotKey]);
-      }
-    });
-
-    // サイドスロット（墓地、除外など）
-    const sideSlots = document.querySelectorAll('.side-slot');
-    sideSlots.forEach((slot, index) => {
-      const slotKey = `side-slot-${index}`;
-      restoreCardsToSlot(slot, gameState.slots[slotKey]);
-    });
-
-    // 手札スロット
-    const centerSlot = document.querySelector('.center-slot');
-    if (centerSlot && gameState.slots['center-slot']) {
-      restoreCardsToSlot(centerSlot, gameState.slots['center-slot']);
-    }
-
-    // フリースペース
-    const freeSpace = document.getElementById('free-space');
-    if (freeSpace && gameState.slots['free-space']) {
-      restoreCardsToSlot(freeSpace, gameState.slots['free-space']);
-    }
-
-    // カウンターを復元
-    restoreCounters(gameState.counters);
+    await _applyState(gameState);
 
     console.log(`ゲーム状態をスロット${slotNumber}からロードしました`);
     return true;
@@ -436,18 +514,18 @@ export function saveSessionResume() {
 }
 
 /**
- * sessionStorageから盤面を復元して盤面に反映する
+ * sessionStorageから盤面を復元して盤面に反映する（非同期版）
  * 呼び出し後にデータは削除される
- * @returns {boolean} 復元できたか
+ * @returns {Promise<boolean>} 復元できたか
  */
-export function loadSessionResume() {
+export async function loadSessionResume() {
   try {
     const raw = sessionStorage.getItem(SESSION_RESUME_KEY);
     if (!raw) return false;
     sessionStorage.removeItem(SESSION_RESUME_KEY);
 
     const state = JSON.parse(LZString.decompress(raw));
-    _applyState(state);
+    await _applyState(state);
     return true;
   } catch (e) {
     console.warn('セッション復元失敗:', e);
@@ -474,19 +552,30 @@ function _captureCurrentState() {
   return state;
 }
 
-function _applyState(state) {
-  restoreCardsToSlot(document.getElementById('poolRow'),  state.slots.poolRow);
-  restoreCardsToSlot(document.getElementById('poolRow2'), state.slots.poolRow2);
+async function _applyState(state) {
+  // 全スロットを並列復元（card:// 解決の待機がスロット数分重ならないよう Promise.all を使う）
+  const tasks = [];
+
+  tasks.push(restoreCardsToSlot(document.getElementById('poolRow'),  state.slots.poolRow));
+  tasks.push(restoreCardsToSlot(document.getElementById('poolRow2'), state.slots.poolRow2));
+
   document.querySelectorAll('.custom-slot').forEach(slot => {
     const n = slot.getAttribute('data-slot');
-    if (n) restoreCardsToSlot(slot, state.slots[`custom-slot-${n}`]);
+    if (n) tasks.push(restoreCardsToSlot(slot, state.slots[`custom-slot-${n}`]));
   });
   document.querySelectorAll('.side-slot').forEach((slot, i) => {
-    restoreCardsToSlot(slot, state.slots[`side-slot-${i}`]);
+    tasks.push(restoreCardsToSlot(slot, state.slots[`side-slot-${i}`]));
   });
+
   const center = document.querySelector('.center-slot');
-  if (center && state.slots['center-slot']) restoreCardsToSlot(center, state.slots['center-slot']);
+  if (center && state.slots['center-slot']) {
+    tasks.push(restoreCardsToSlot(center, state.slots['center-slot']));
+  }
   const free = document.getElementById('free-space');
-  if (free && state.slots['free-space']) restoreCardsToSlot(free, state.slots['free-space']);
+  if (free && state.slots['free-space']) {
+    tasks.push(restoreCardsToSlot(free, state.slots['free-space']));
+  }
+
+  await Promise.all(tasks);
   restoreCounters(state.counters);
 }

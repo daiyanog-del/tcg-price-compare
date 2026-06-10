@@ -34,23 +34,15 @@ from admin_unreleased import admin_bp as _admin_bp
 
 import re as _re
 from urllib.parse import quote as _url_quote
+from name_normalize import fuzzy_key as _fuzzy_key, _FUZZY_STRIP
 
 # 検索クエリの表記ゆれ正規化
 _DASH_CHARS = _re.compile(r'[\u2012\u2013\u2014\u2015\u2212\uFF0D\uFF70]')  # 各種ダッシュ・ハイフン
-# あいまい検索用: 中黒・ハイフン・スペース等を除去して比較するための正規化
-_FUZZY_STRIP = _re.compile(r'[\s\u3000・\-\u2012\u2013\u2014\u2015\u2212\uFF0D\uFF70\u30FB\uFF65.,()（）「」\u300C\u300D]')
 def _normalize_query(q: str) -> str:
     """ユーザー入力のカード名を正規化（ダッシュ統一・全角スペース変換）"""
     q = _DASH_CHARS.sub('-', q)       # 各種ダッシュ → 通常ハイフン
     q = q.replace('\u3000', ' ')      # 全角スペース → 半角
     return q.strip()
-
-def _fuzzy_key(s: str) -> str:
-    """あいまい検索用に記号・スペースを除去した比較キーを返す。全角英数・互換文字→半角も正規化する"""
-    s = unicodedata.normalize('NFKC', s)  # ローマ数字(Ⅹ→X等)・全角ハイフン等を一括変換
-    # U+FF01-FF5E（全角英数・記号）→対応するASCII（半角）に変換
-    s = ''.join(chr(ord(c) - 0xFEE0) if '！' <= c <= '～' else c for c in s)
-    return _FUZZY_STRIP.sub('', s).lower()
 
 def _correct_cardname(name: str) -> str:
     """カード名をDBと照合し、補正が必要なら正式名称を返す。不要ならそのまま返す"""

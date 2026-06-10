@@ -209,7 +209,8 @@ async function _tryLoadFromURL() {
   if (hash.startsWith('#replay=')) {
     const { importFromURLHash } = await import('../services/replay-service.js');
     const encoded = hash.slice('#replay='.length);
-    if (importFromURLHash(encoded)) {
+    // card:// センチネル対応のため await が必要（非同期関数）
+    if (await importFromURLHash(encoded)) {
       console.log('URLハッシュからリプレイを読み込みました');
     }
     return;
@@ -227,7 +228,8 @@ async function _tryLoadFromURL() {
 
     const { _setReplayData } = await import('../services/replay-service.js');
     if (typeof _setReplayData === 'function') {
-      _setReplayData(images, names || {}, logs, exCardIds || []);
+      // card:// センチネル対応のため await が必要（非同期関数）
+      await _setReplayData(images, names || {}, logs, exCardIds || []);
     }
     console.log(`リプレイID ${replayId} を読み込みました`);
   } catch (e) {

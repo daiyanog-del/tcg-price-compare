@@ -23,10 +23,16 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install requests supabase
 
       - name: Update card names
         run: python update_cardnames.py
+
+      - name: Reconcile unreleased cards
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python reconcile_unreleased.py
 
       - name: Check for changes
         id: diff

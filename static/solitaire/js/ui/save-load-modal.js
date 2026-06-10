@@ -226,16 +226,17 @@ export class SaveLoadModal {
   }
 
   /**
-   * ロード処理
+   * ロード処理（card:// センチネル対応のため非同期化）
    * @param {number} slotNumber - スロット番号
    */
-  handleLoad(slotNumber) {
+  async handleLoad(slotNumber) {
     if (!confirm(`スロット${slotNumber}のデータをロードしますか？\n現在の盤面は失われます。`)) {
       return;
     }
 
     try {
-      loadGameState(slotNumber);
+      // loadGameState は card:// センチネルを再解決するため非同期
+      await loadGameState(slotNumber);
       alert(`スロット${slotNumber}からロードしました`);
       this.hide();
     } catch (error) {

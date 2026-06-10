@@ -205,7 +205,7 @@ let _fitTimer = null;
 /**
  * アプリケーション初期化
  */
-function initializeApp() {
+async function initializeApp() {
   // デスクトップドラッグ&ドロップを初期化
   initializeDesktopDragDrop();
 
@@ -253,8 +253,8 @@ function initializeApp() {
   // カード追加時の画像登録
   initCardImageRegistration();
 
-  // ページ遷移後の盤面復元
-  const restored = loadSessionResume();
+  // ページ遷移後の盤面復元（card:// センチネル対応のため await が必要）
+  const restored = await loadSessionResume();
   if (restored) {
     // 復元したカードをリプレイ画像辞書に登録
     // img.tier-item（発売済み）または div.tier-item（プロキシ）どちらも .tier-item で取れる

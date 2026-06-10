@@ -111,8 +111,10 @@ async function addCardByName(name, qty, isEx) {
       // プロキシは div.tier-item、画像は img.tier-item のどちらでも id を取れる
       const lastCardEl  = lastWrapper?.querySelector('.tier-item');
       if (lastCardEl?.id) {
-        // リプレイ辞書には URL か 'proxy:カード名' を登録する
-        const regSrc = typeof srcOrDisplay === 'string' ? srcOrDisplay : `proxy:${name}`;
+        // リプレイ辞書への登録:
+        //   発売済み（URL文字列）    -> 実URL（後方互換）
+        //   未発売プロキシ or 取込画像 -> 'card://カード名'（再解決センチネル）
+        const regSrc = typeof srcOrDisplay === 'string' ? srcOrDisplay : `card://${name}`;
         registerCardImage(lastCardEl.id, regSrc);
         registerCardName(lastCardEl.id, name);  // リプレイ共有用に名前を記録
         setCardName(lastCardEl, name);  // カード詳細パネル用に名前を付与
@@ -238,8 +240,10 @@ async function addCardsBatch(cards, defaultIsEx) {
         // プロキシは div.tier-item、画像は img.tier-item のどちらでも .tier-item で取れる
         const lastCardEl  = lastWrapper?.querySelector('.tier-item');
         if (lastCardEl?.id) {
-          // リプレイ辞書には URL か 'proxy:カード名' を登録する
-          const regSrc = typeof srcOrDisplay === 'string' ? srcOrDisplay : `proxy:${name}`;
+          // リプレイ辞書への登録:
+          //   発売済み（URL文字列）    -> 実URL（後方互換）
+          //   未発売プロキシ or 取込画像 -> 'card://カード名'（再解決センチネル）
+          const regSrc = typeof srcOrDisplay === 'string' ? srcOrDisplay : `card://${name}`;
           registerCardImage(lastCardEl.id, regSrc);
           registerCardName(lastCardEl.id, name);  // リプレイ共有用に名前を記録
           setCardName(lastCardEl, name);           // カード詳細パネル用に名前を付与
