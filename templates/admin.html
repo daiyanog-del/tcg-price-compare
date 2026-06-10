@@ -24,6 +24,8 @@
     el.textContent = msg;
     el.style.background = color || '#b91c1c';
   }
+  // admin.js から呼べるよう公開（一時診断）
+  window.__diag = showDiag;
   window.addEventListener('error', function (e) {
     var m = e.message || (e.error && e.error.message) || 'unknown';
     var src = e.filename ? (' @ ' + e.filename.split('/').pop() + ':' + e.lineno) : '';

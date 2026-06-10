@@ -107,13 +107,24 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
   const errorEl = document.getElementById('login-error');
   errorEl.hidden = true;
 
-  if (!key) return;
+  // 一時診断: クリックを検知したことと送信キーの長さを画面に出す（特定後削除）
+  if (window.__diag) window.__diag('診断: ログイン送信を検知（入力キー長=' + key.length + '）…', '#1d4ed8');
+
+  if (!key) {
+    if (window.__diag) window.__diag('診断: 入力キーが空です。キーを貼り付けてから押してください。', '#b45309');
+    return;
+  }
 
   try {
     const resp = await fetch('/api/admin/auth-check', {
       method: 'POST',
       headers: { 'X-Admin-Key': key, 'Content-Type': 'application/json' },
     });
+
+    // 一時診断: サーバ応答コードを画面に出す（特定後削除）
+    if (window.__diag) window.__diag('診断: サーバ応答 HTTP ' + resp.status
+      + (resp.ok ? '（成功・ログインします）' : '（認証不可）'),
+      resp.ok ? '#15803d' : '#b91c1c');
 
     if (resp.ok) {
       _adminKey = key;
@@ -127,6 +138,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
       errorEl.hidden = false;
     }
   } catch (err) {
+    if (window.__diag) window.__diag('診断: 通信エラー ' + (err && err.message), '#b91c1c');
     errorEl.textContent = 'ネットワークエラーが発生しました。';
     errorEl.hidden = false;
   }
