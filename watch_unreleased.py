@@ -132,9 +132,11 @@ def _notify_discord(message: str) -> None:
 # ──────────────────────────────────────────────
 
 def _seed_watched_pages(sb: Client) -> None:
-    """SEED_URLS を watched_pages に初期投入する"""
-    logger.info(f"[Watcher] watched_pages が空のため SEED_URLS を投入します ({len(SEED_URLS)}件)")
-    now = datetime.now(timezone.utc).isoformat()
+    """SEED_URLS を watched_pages に投入する（冪等）。
+    毎回実行し、既存行は ignore_duplicates で触らない
+    （content_hash を上書きすると毎回「変化あり」と誤検知するため）。
+    SEED_URLS を後から追加・変更しても次の実行で自動反映される。
+    """
     rows = [
         {
             "url": url,
@@ -143,8 +145,10 @@ def _seed_watched_pages(sb: Client) -> None:
         }
         for url in SEED_URLS
     ]
-    sb.table("watched_pages").upsert(rows, on_conflict="url").execute()
-    logger.info("[Watcher] SEED_URLs 投入完了")
+    sb.table("watched_pages").upsert(
+        rows, on_conflict="url", ignore_duplicates=True
+    ).execute()
+    logger.info(f"[Watcher] SEED_URLS を確認・投入しました ({len(SEED_URLS)}件)")
 
 
 def _get_enabled_pages(sb: Client) -> list[dict]:
@@ -235,11 +239,10 @@ def main() -> None:
 
     sb: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-    # 1. 監視対象ページ取得。0件なら SEED_URLS を投入
+    # 1. SEED_URLS を冪等投入してから監視対象ページを取得
+    #    （空チェック方式だと他URLが残っている場合にシードが入らない）
+    _seed_watched_pages(sb)
     pages = _get_enabled_pages(sb)
-    if not pages:
-        _seed_watched_pages(sb)
-        pages = _get_enabled_pages(sb)
 
     logger.info(f"[Watcher] 監視ページ数: {len(pages)}件")
 
