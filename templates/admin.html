@@ -8,6 +8,43 @@
 <link rel="stylesheet" href="/static/solitaire/css/variables.css">
 <link rel="stylesheet" href="/static/solitaire/css/proxy-card.css">
 <link rel="stylesheet" href="/static/admin/admin.css">
+<!-- 一時診断: ブラウザ側のJSエラーを画面に表示する（原因特定後に削除） -->
+<script>
+(function () {
+  function showDiag(msg, color) {
+    var el = document.getElementById('js-diag');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'js-diag';
+      el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;'
+        + 'padding:10px 14px;font:13px/1.5 monospace;white-space:pre-wrap;'
+        + 'background:' + (color || '#b91c1c') + ';color:#fff;';
+      (document.body || document.documentElement).appendChild(el);
+    }
+    el.textContent = msg;
+    el.style.background = color || '#b91c1c';
+  }
+  window.addEventListener('error', function (e) {
+    var m = e.message || (e.error && e.error.message) || 'unknown';
+    var src = e.filename ? (' @ ' + e.filename.split('/').pop() + ':' + e.lineno) : '';
+    showDiag('JSエラー: ' + m + src);
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    showDiag('JS拒否: ' + ((e.reason && e.reason.message) || e.reason));
+  });
+  // モジュールが最後まで実行されたかを2秒後に確認
+  window.addEventListener('DOMContentLoaded', function () {
+    setTimeout(function () {
+      if (window.__adminLoaded) {
+        showDiag('診断: 管理スクリプトは正常に読み込まれました（このバーは無視してOK）', '#15803d');
+      } else if (!document.getElementById('js-diag')) {
+        showDiag('診断: 管理スクリプトが最後まで実行されていません（エラー未捕捉）。'
+          + 'admin.js の読込がブロックされた可能性があります。', '#b45309');
+      }
+    }, 2000);
+  });
+})();
+</script>
 </head>
 <body>
 

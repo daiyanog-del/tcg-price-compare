@@ -974,3 +974,6 @@ async function _init() {
 }
 
 _init();
+
+// 一時診断: モジュールが最後まで実行されたことを示すフラグ（原因特定後に削除）
+window.__adminLoaded = true;
