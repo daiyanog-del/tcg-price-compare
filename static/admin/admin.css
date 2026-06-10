@@ -6,6 +6,14 @@
 
 /* ── リセット・ベース ──────────────────────────────────── */
 
+/* hidden属性を常に優先する。
+ * .login-screen / .main-screen は display:flex 等を持つため、
+ * これが無いと hidden 属性（UA標準の display:none）が打ち消され、
+ * JSで hidden=true にしても画面が消えない（ログイン後に遷移しない不具合）。 */
+[hidden] {
+  display: none !important;
+}
+
 *,
 *::before,
 *::after {
