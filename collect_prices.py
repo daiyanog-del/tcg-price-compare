@@ -107,16 +107,39 @@ def fetch_tracked_cards_with_meta(sb: Client) -> list[dict]:
     return cards
 
 
-def collect_and_save(sb: Client, card_name: str, today: str, shop_names: list[str]) -> int:
-    """1枚のカードの価格を取得してSupabaseに保存。保存した行数を返す。"""
+def collect_and_save(sb: Client, card_name: str, today: str, shop_names: list[str],
+                     shop_stats: dict | None = None) -> int:
+    """1枚のカードの価格を取得してSupabaseに保存。保存した行数を返す。
+
+    shop_stats に dict を渡すと、店舗ごとの 取得成功/0件/取得エラー を集計する。
+    「0件＝在庫なし」と「取得失敗（接続エラー・セレクタ破損等）」を区別するため。
+    """
+    status: dict = {}
     try:
-        results = compare_prices(card_name, shop_names=shop_names)
+        results = compare_prices(card_name, shop_names=shop_names, status_out=status)
     except Exception as e:
         print(f"  スクレイピング失敗 [{card_name}]: {e}")
         return 0
 
+    had_error = False
+    for shop, st in status.items():
+        failed = bool(st.get("exception")) or (st.get("fetch_errors", 0) > 0 and st.get("count", 0) == 0)
+        if failed:
+            had_error = True
+        if shop_stats is not None:
+            agg = shop_stats.setdefault(shop, {"ok": 0, "empty": 0, "error": 0})
+            if failed:
+                agg["error"] += 1
+            elif st.get("count", 0) == 0:
+                agg["empty"] += 1
+            else:
+                agg["ok"] += 1
+
     if not results:
-        print(f"  結果なし [{card_name}]")
+        if had_error:
+            print(f"  取得失敗 [{card_name}]（店舗側エラー — 在庫なしとは区別）")
+        else:
+            print(f"  結果なし [{card_name}]")
         return 0
 
     min_prices = {}
@@ -523,6 +546,7 @@ def send_daily_report(
     sb: Client, today: str,
     success_count: int, fail_count: int,
     cutoff_count: int = 0, elapsed_min: float = 0.0,
+    shop_stats: dict | None = None,
 ):
     """前日の利用状況をDiscordに日次レポートとして送信"""
     import requests as _req
@@ -555,6 +579,23 @@ def send_daily_report(
 
     cutoff_line = f"打ち切り: {cutoff_count}枚（周辺カード予算超過）\n" if cutoff_count > 0 else ""
 
+    # 店舗別取得状況。「全カードでエラー/0件」の店舗はセレクタ破損の疑いとして警告する
+    shop_block = ""
+    if shop_stats:
+        rows = []
+        suspect = []
+        for shop, s in sorted(shop_stats.items()):
+            attempted = s["ok"] + s["empty"] + s["error"]
+            rows.append(f"  {shop}: 取得 {s['ok']} / 0件 {s['empty']} / エラー {s['error']}")
+            if attempted >= 20 and s["ok"] == 0:
+                suspect.append(shop)
+        shop_block = "\n**店舗別取得状況**\n" + "\n".join(rows) + "\n"
+        if suspect:
+            shop_block += (
+                f"警告: {'、'.join(suspect)} は全カードで取得0件 — "
+                f"サイト構造変更（セレクタ破損）またはブロックの可能性\n"
+            )
+
     message = (
         f"**TCGYM 日次レポート {today}**\n"
         f"\n"
@@ -567,6 +608,7 @@ def send_daily_report(
         f"**収集結果**\n"
         f"成功: {success_count}件 / 失敗: {fail_count}件 / 所要: {elapsed_min:.0f}分\n"
         f"{cutoff_line}"
+        f"{shop_block}"
     )
 
     try:
@@ -664,6 +706,15 @@ def main():
     ci_shops = [name for name, _ in SHOPS if name not in SKIP_SHOPS_IN_CI]
     print("\n--- 店舗ヘルスチェック ---")
     available_shops = check_shop_availability(ci_shops)
+
+    # カーナベルはAPIキー必須。未設定のまま収集すると全カードが0件になり、
+    # 「カーナベルに在庫なし」という誤ったデータがDBに蓄積されるため当日除外する
+    if "カーナベル" in available_shops and not (
+        os.environ.get("KANABELL_CLOUD_ID") and os.environ.get("KANABELL_API_KEY")
+    ):
+        print("  NG: カーナベル — KANABELL_CLOUD_ID / KANABELL_API_KEY 未設定のため当日スキップ")
+        available_shops.remove("カーナベル")
+
     if not available_shops:
         print("全店舗が応答しないため収集を中止します")
         return
@@ -673,6 +724,7 @@ def main():
     success_count = 0
     fail_count = 0
     cutoff_count = 0
+    shop_stats: dict = {}  # 店舗別の 取得成功/0件/エラー 集計
 
     for i, card_data in enumerate(selected):
         card_name = card_data["card_name"]
@@ -686,7 +738,7 @@ def main():
                 break
 
         print(f"[{i+1}/{len(selected)}] {card_name}")
-        saved = collect_and_save(sb, card_name, today, available_shops)
+        saved = collect_and_save(sb, card_name, today, available_shops, shop_stats=shop_stats)
         if saved > 0:
             total_saved += saved
             success_count += 1
@@ -706,10 +758,14 @@ def main():
     cleanup_old_data(sb)
 
     elapsed_min = (datetime.now(JST) - started_at).total_seconds() / 60
-    send_daily_report(sb, today, success_count, fail_count, cutoff_count, elapsed_min)
+    send_daily_report(sb, today, success_count, fail_count, cutoff_count, elapsed_min, shop_stats)
 
     print(f"\n=== 完了（{elapsed_min:.0f}分）===")
     print(f"成功: {success_count}件 / 失敗: {fail_count}件 / 打ち切り: {cutoff_count}件 / 保存行数: {total_saved}")
+    if shop_stats:
+        print("店舗別取得状況:")
+        for shop, s in sorted(shop_stats.items()):
+            print(f"  {shop}: 取得 {s['ok']} / 0件 {s['empty']} / エラー {s['error']}")
 
 
 if __name__ == "__main__":

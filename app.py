@@ -75,6 +75,9 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 Compress(app)
 
+# アップロード上限（デッキPDF読み取り等）。巨大ファイルによるメモリ枯渇を防ぐ
+app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
+
 # レアリティ設定を全テンプレートに自動注入（色・スラグ・順序を一元供給）
 _RARITY_CONFIG_JSON = json.dumps(_rarity_config_for_frontend(), ensure_ascii=False)
 
@@ -1741,11 +1744,24 @@ def api_push_vapid_key():
     return jsonify({"publicKey": VAPID_PUBLIC_KEY})
 
 
+def _same_origin_ok() -> bool:
+    """Origin ヘッダが自サイトと一致するか（他サイトからの購読登録・削除POSTを拒否）。
+    Origin が無いリクエスト（非ブラウザ等）はブラウザ起点のCSRFではないため許可する。
+    プロキシ配下でスキームが書き換わる場合があるため、ホスト名のみ比較する。"""
+    origin = request.headers.get("Origin", "")
+    if not origin:
+        return True
+    from urllib.parse import urlparse
+    return urlparse(origin).netloc == request.host
+
+
 @app.route("/api/push/subscribe", methods=["POST"])
 def api_push_subscribe():
     """プッシュ購読を登録または更新する。
     入力: {subscription: {endpoint, keys:{p256dh, auth}}, cards: ["カード名", ...]}
     """
+    if not _same_origin_ok():
+        return jsonify({"error": "forbidden"}), 403
     data = request.get_json(silent=True) or {}
     sub = data.get("subscription", {})
     endpoint = sub.get("endpoint", "").strip()
@@ -1782,6 +1798,8 @@ def api_push_unsubscribe():
     """プッシュ購読を削除する。
     入力: {endpoint: "..."}
     """
+    if not _same_origin_ok():
+        return jsonify({"error": "forbidden"}), 403
     data = request.get_json(silent=True) or {}
     endpoint = data.get("endpoint", "").strip()
     if not endpoint:

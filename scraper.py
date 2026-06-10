@@ -88,6 +88,20 @@ def parse_price(text: str) -> int | None:
     digits = re.sub(r"[^\d]", "", text)
     return int(digits) if digits else None
 
+# ── 取得失敗の記録（「0件＝在庫なし」と「取得失敗」を区別するため） ──
+# compare_prices が店舗ごとに別スレッドで実行するため、スレッドローカルで数える
+import threading as _threading
+_fetch_stats = _threading.local()
+
+def _reset_fetch_errors():
+    _fetch_stats.errors = 0
+
+def _note_fetch_error():
+    _fetch_stats.errors = getattr(_fetch_stats, "errors", 0) + 1
+
+def _get_fetch_errors() -> int:
+    return getattr(_fetch_stats, "errors", 0)
+
 def safe_get(url: str, timeout: int = 15, retries: int = 1) -> BeautifulSoup | None:
     for attempt in range(1 + retries):
         try:
@@ -98,6 +112,7 @@ def safe_get(url: str, timeout: int = 15, retries: int = 1) -> BeautifulSoup | N
             if attempt < retries:
                 time.sleep(2)
             else:
+                _note_fetch_error()
                 print(f"  ❌ 取得失敗: {e}")
     return None
 
@@ -553,6 +568,7 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
     """カーナベル — Elasticsearch API経由で検索（状態別価格対応）"""
     if not _KANABELL_CLOUD_ID or not _KANABELL_API_KEY:
         print("  ⚠️  カーナベル: KANABELL_CLOUD_ID / KANABELL_API_KEY が未設定です")
+        _note_fetch_error()  # 設定不足は「在庫なし」ではなく取得失敗として扱う
         return []
 
     # カーナベルのESは半角で格納されているため、全角英数字を半角に正規化
@@ -563,6 +579,7 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
         _KANABELL_ES_URL = _kanabell_es_host()
     if _KANABELL_ES_URL is None:
         print("  [KANABELL] ESホストURLの構築に失敗したため検索をスキップします")
+        _note_fetch_error()
         return []
 
     search_url = f"{_KANABELL_ES_URL}/{_KANABELL_INDEX}/_search"
@@ -620,6 +637,7 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
         data = res.json()
     except requests.RequestException as e:
         print(f"  ❌ カーナベルES検索失敗: {e}")
+        _note_fetch_error()
         return []
 
     hits = data.get("hits", {}).get("hits", [])
@@ -1003,11 +1021,13 @@ def scrape_surugaya(card_name: str) -> list[dict]:
         html_text = res.text
     except requests.RequestException as e:
         print(f"  ❌ 駿河屋取得失敗: {e}")
+        _note_fetch_error()
         return []
 
     # Cloudflareブロック検知
     if 'challenge-platform' in html_text and 'ecommerce_items' not in html_text:
         print("  ⚠ 駿河屋: Cloudflareにブロックされた可能性")
+        _note_fetch_error()
         return []
 
     print(f"  駿河屋: HTML {len(html_text)}文字, ecommerce_items={'あり' if 'ecommerce_items' in html_text else 'なし'}")
@@ -1087,6 +1107,7 @@ def scrape_cardrush_buy(card_name: str) -> list[dict]:
         next_data = json.loads(script_el.string)
         buying_prices = next_data["props"]["pageProps"]["buyingPrices"]
     except (json.JSONDecodeError, KeyError, TypeError):
+        _note_fetch_error()  # サイト構造変更の可能性（JSON構造が想定と不一致）
         return []
 
     results = []
@@ -1126,6 +1147,7 @@ def scrape_kanabell_buy(card_name: str) -> list[dict]:
     """カーナベル — ES APIでカードIDを取得し、買取詳細ページから買取価格を取得"""
     if not _KANABELL_CLOUD_ID or not _KANABELL_API_KEY:
         print("  ⚠️  カーナベル買取: KANABELL_CLOUD_ID / KANABELL_API_KEY が未設定です")
+        _note_fetch_error()
         return []
 
     # 全角英数字を半角に正規化
@@ -1167,6 +1189,7 @@ def scrape_kanabell_buy(card_name: str) -> list[dict]:
         hits = res.json().get("hits", {}).get("hits", [])
     except requests.RequestException as e:
         print(f"  ❌ カーナベル買取ES検索失敗: {e}")
+        _note_fetch_error()
         return []
 
     # ユニークなカードIDだけ取得（同名カードを1つにまとめる）
@@ -1400,8 +1423,21 @@ SHOPS = [
 DEFAULT_SHOPS = ["遊々亭", "カードラッシュ", "トレコロCB", "カーナベル", "カードラボ", "まんぞく屋"]
 
 
-def compare_prices(card_name: str, shop_names: list[str] | None = None) -> list[dict]:
-    """指定された店舗を並列にスクレイピング"""
+def _run_shop_with_status(fn, card_name: str) -> tuple[list[dict], int]:
+    """店舗スクレイパーを実行し、(結果, 取得エラー数) を返す（ワーカースレッド内で実行）"""
+    _reset_fetch_errors()
+    items = fn(card_name)
+    return items, _get_fetch_errors()
+
+
+def compare_prices(card_name: str, shop_names: list[str] | None = None,
+                   status_out: dict | None = None) -> list[dict]:
+    """指定された店舗を並列にスクレイピング
+
+    status_out に dict を渡すと、店舗ごとの取得状況を書き込む:
+      {店舗名: {"count": 件数, "fetch_errors": 取得エラー数, "exception": エラー文字列(任意)}}
+    「0件かつ fetch_errors > 0」は在庫なしではなく取得失敗を意味する。
+    """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     target = shop_names or DEFAULT_SHOPS
@@ -1410,21 +1446,26 @@ def compare_prices(card_name: str, shop_names: list[str] | None = None) -> list[
     all_results = []
     with ThreadPoolExecutor(max_workers=len(active)) as executor:
         futures = {
-            executor.submit(fn, card_name): name
+            executor.submit(_run_shop_with_status, fn, card_name): name
             for name, fn in active
         }
         for future in as_completed(futures):
             shop_name = futures[future]
             try:
-                results = future.result()
+                results, fetch_errors = future.result()
                 all_results.extend(results)
+                if status_out is not None:
+                    status_out[shop_name] = {"count": len(results), "fetch_errors": fetch_errors}
             except Exception as e:
                 print(f"  ❌ {shop_name}: {e}")
+                if status_out is not None:
+                    status_out[shop_name] = {"count": 0, "fetch_errors": 1, "exception": str(e)}
 
     return all_results
 
 
-def compare_buyback(card_name: str, shop_names: list[str] | None = None) -> list[dict]:
+def compare_buyback(card_name: str, shop_names: list[str] | None = None,
+                    status_out: dict | None = None) -> list[dict]:
     """指定された買取店舗を並列にスクレイピング（compare_prices の買取版）"""
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -1436,15 +1477,19 @@ def compare_buyback(card_name: str, shop_names: list[str] | None = None) -> list
     all_results = []
     with ThreadPoolExecutor(max_workers=len(active)) as executor:
         futures = {
-            executor.submit(fn, card_name): name
+            executor.submit(_run_shop_with_status, fn, card_name): name
             for name, fn in active
         }
         for future in as_completed(futures):
             shop_name = futures[future]
             try:
-                results = future.result()
+                results, fetch_errors = future.result()
                 all_results.extend(results)
+                if status_out is not None:
+                    status_out[shop_name] = {"count": len(results), "fetch_errors": fetch_errors}
             except Exception as e:
                 print(f"  ❌ {shop_name}: {e}")
+                if status_out is not None:
+                    status_out[shop_name] = {"count": 0, "fetch_errors": 1, "exception": str(e)}
 
     return all_results
