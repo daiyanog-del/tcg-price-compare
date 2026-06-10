@@ -5,20 +5,29 @@ fetch_guard.py — ホワイトリスト強制HTTP取得モジュール
 ホワイトリスト外のURLには WhitelistViolation を送出し、ネットワーク接続を行わない。
 
 担保する制約:
-  - ホスト: www.yu-gi-oh.jp / yu-gi-oh.jp / www.konami.com のみ
-  - パス  : konami.com は /yugioh/ 配下のみ（yu-gi-oh.jp は全パス可）
+  - ホスト: www.yu-gi-oh.jp / yu-gi-oh.jp のみ
   - https 強制（httpは WhitelistViolation）
-  - 固有 User-Agent
   - 同時接続1 + ページ間最低5秒のレート制限
   - リダイレクト先URLも同じ検証を再帰通過（最大3ホップ）
+
+HTTPクライアントについて:
+  yu-gi-oh.jp（XSERVER上）のWAFは Python requests の TLS フィンガープリントを識別して
+  403 を返す（ヘッダを揃えても不可、curl は通る）。そのため curl_cffi で Chrome の
+  TLS/HTTP2 署名を模倣して取得する（impersonate="chrome"）。
+  ローカル環境にのみ curl_cffi が必要（Render本番は import しない）。
 """
 
-import hashlib
 import threading
 import time
 from urllib.parse import urlparse
 
-import requests
+# curl_cffi は requirements.txt に含めるが、万一の取得失敗・バージョン差でも
+# アプリ起動（is_whitelisted 等の検証ロジック）が止まらないよう遅延評価する。
+# 実取得（fetch_whitelisted）が呼ばれた時点で未導入なら明確なエラーを出す。
+try:
+    from curl_cffi import requests as _cffi_requests
+except ImportError:  # pragma: no cover
+    _cffi_requests = None
 
 # ──────────────────────────────────────────────
 # ホワイトリスト定義
@@ -35,11 +44,8 @@ ALLOWED_HOSTS: frozenset = frozenset({
 # ホストごとのパスプレフィックス制約（リストにないホストは全パス可）
 ALLOWED_PATH_PREFIXES: dict[str, tuple] = {}
 
-# User-Agent（クローラであることを明示）
-_USER_AGENT = (
-    "CardSouba-UnreleasedWatcher/1.0 "
-    "(+https://tcg-price-compare.onrender.com)"
-)
+# curl_cffi で模倣するブラウザ署名（WAFのTLSフィンガープリント検査を通すため）
+_IMPERSONATE = "chrome"
 
 # レート制限パラメータ
 _MIN_INTERVAL_SEC = 5.0   # ページ間の最低待機秒数
@@ -118,7 +124,7 @@ def fetch_whitelisted(
     *,
     timeout: int = 30,
     _hop: int = 0,
-) -> requests.Response:
+):
     """ホワイトリストを検証してからHTTPリクエストを実行する。
 
     Args:
@@ -127,11 +133,11 @@ def fetch_whitelisted(
         _hop:    内部用リダイレクトホップカウンタ（直接指定不要）
 
     Returns:
-        requests.Response オブジェクト
+        curl_cffi.requests.Response オブジェクト
+        （.status_code / .content / .text / .headers は requests 互換）
 
     Raises:
         WhitelistViolation: ホワイトリスト違反URL（ネットワーク接続前に発生）
-        requests.RequestException: ネットワークエラー等
     """
     global _last_request_time
 
@@ -144,6 +150,11 @@ def fetch_whitelisted(
     # ホワイトリスト検証（ここで違反なら即例外、ネットワークには出ない）
     _validate_url(url)
 
+    if _cffi_requests is None:
+        raise RuntimeError(
+            "curl_cffi が未導入のため取得できません。`pip install curl_cffi` を実行してください。"
+        )
+
     # レート制限つきでリクエスト実行
     with _rate_lock:
         # 前回リクエストからの経過時間を確認し、不足分だけ待機
@@ -151,11 +162,14 @@ def fetch_whitelisted(
         if elapsed < _MIN_INTERVAL_SEC:
             time.sleep(_MIN_INTERVAL_SEC - elapsed)
 
-        session = requests.Session()
-        session.headers.update({"User-Agent": _USER_AGENT})
-
-        # allow_redirects=False でリダイレクト先を自前で再帰検証
-        response = session.get(url, timeout=timeout, allow_redirects=False)
+        # impersonate でブラウザのTLS/HTTP2署名を模倣（WAF回避）。
+        # allow_redirects=False でリダイレクト先を自前で再帰検証する。
+        response = _cffi_requests.get(
+            url,
+            timeout=timeout,
+            allow_redirects=False,
+            impersonate=_IMPERSONATE,
+        )
         _last_request_time = time.monotonic()
 
     # リダイレクトの場合は Location ヘッダを検証して再帰

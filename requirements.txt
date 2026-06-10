@@ -1,6 +1,7 @@
 flask>=3.0,<4
 flask-compress>=1.14,<2
 requests>=2.31,<3
+curl_cffi>=0.7,<1
 beautifulsoup4>=4.12,<5
 gunicorn>=22.0,<24
 supabase>=2.0,<3

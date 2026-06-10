@@ -81,9 +81,9 @@ class TestFetchWhitelistedViolation:
     """ホワイトリスト違反URLで WhitelistViolation が発生し、ネットワークに出ないことを検証"""
 
     def _assert_violation_without_network(self, url: str):
-        """指定URLで WhitelistViolation が発生し Session.get が呼ばれないことを確認"""
+        """指定URLで WhitelistViolation が発生し HTTP取得が呼ばれないことを確認"""
         mock_get = MagicMock()
-        with patch("requests.Session.get", mock_get):
+        with patch("fetch_guard._cffi_requests.get", mock_get):
             with pytest.raises(WhitelistViolation):
                 fetch_whitelisted(url)
         # ネットワーク呼び出しが一切行われていないことを確認
@@ -129,7 +129,7 @@ class TestFetchWhitelistedRedirect:
         """302リダイレクト先が外部ドメインの場合 WhitelistViolation"""
         mock_resp = self._make_redirect_response("https://evil.example.com/steal")
 
-        with patch("requests.Session.get", return_value=mock_resp):
+        with patch("fetch_guard._cffi_requests.get", return_value=mock_resp):
             with pytest.raises(WhitelistViolation):
                 fetch_whitelisted("https://www.yu-gi-oh.jp/some-page")
 
@@ -137,7 +137,7 @@ class TestFetchWhitelistedRedirect:
         """302リダイレクト先が http の場合 WhitelistViolation"""
         mock_resp = self._make_redirect_response("http://www.yu-gi-oh.jp/page")
 
-        with patch("requests.Session.get", return_value=mock_resp):
+        with patch("fetch_guard._cffi_requests.get", return_value=mock_resp):
             with pytest.raises(WhitelistViolation):
                 fetch_whitelisted("https://www.yu-gi-oh.jp/some-page")
 
@@ -150,7 +150,7 @@ class TestFetchWhitelistedRedirect:
         final_resp.status_code = 200
         final_resp.headers = {}
 
-        with patch("requests.Session.get", side_effect=[redirect_resp, final_resp]):
+        with patch("fetch_guard._cffi_requests.get", side_effect=[redirect_resp, final_resp]):
             # sleep を無効化してテストを高速化
             with patch("fetch_guard.time.sleep"):
                 result = fetch_whitelisted("https://www.yu-gi-oh.jp/some-page")
@@ -162,7 +162,7 @@ class TestFetchWhitelistedRedirect:
         redirect_resp = self._make_redirect_response("https://www.yu-gi-oh.jp/redirect")
         redirect_resp.status_code = 301
 
-        with patch("requests.Session.get", return_value=redirect_resp):
+        with patch("fetch_guard._cffi_requests.get", return_value=redirect_resp):
             with patch("fetch_guard.time.sleep"):
                 with pytest.raises(WhitelistViolation, match="3ホップ"):
                     fetch_whitelisted("https://www.yu-gi-oh.jp/start")
