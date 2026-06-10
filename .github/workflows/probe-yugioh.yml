@@ -1,0 +1,22 @@
+# 一時診断用: yu-gi-oh.jp がGitHub ActionsのIPからアクセス可能か検証する
+# （検証後に削除する）
+name: Probe yu-gi-oh.jp
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: UA別アクセステスト
+        run: |
+          echo "--- 固有UA (Watcher):"
+          curl -s -o /dev/null -w "%{http_code}\n" -A "CardSouba-UnreleasedWatcher/1.0 (+https://tcg-price-compare.onrender.com)" https://yu-gi-oh.jp/ || true
+          echo "--- ブラウザUA:"
+          curl -s -o /dev/null -w "%{http_code}\n" -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" https://yu-gi-oh.jp/ || true
+          echo "--- UAなし:"
+          curl -s -o /dev/null -w "%{http_code}\n" https://yu-gi-oh.jp/ || true
+          echo "--- 比較用 konami.com (固有UA):"
+          curl -s -o /dev/null -w "%{http_code}\n" -A "CardSouba-UnreleasedWatcher/1.0 (+https://tcg-price-compare.onrender.com)" https://www.konami.com/yugioh/ || true
