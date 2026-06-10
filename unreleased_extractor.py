@@ -677,6 +677,12 @@ def extract_cards_from_html(html: str, page_url: str = "") -> list[dict]:
         if row is None:
             continue
 
+        # このカード個別のメイン画像URLを取り出す。
+        # image_url は unreleased_cards テーブルのカラムではないため、
+        # トップレベルからは除去し extraction_raw 内にのみ保持する
+        # （これを残すと insert 時に「カラムが存在しない」エラーになる）。
+        individual_image_url = row.pop("image_url", "")
+
         # extraction_raw: Claude生出力 + card_image_urls（取得元URL）を格納
         row["extraction_raw"] = {
             "raw_response": raw_text,
@@ -684,7 +690,7 @@ def extract_cards_from_html(html: str, page_url: str = "") -> list[dict]:
             # 記事全体のカード画像URL一覧（後方互換のため残す）
             "card_image_urls": used_image_urls,
             # このカード個別のメイン画像URL（新規追加）
-            "card_image_url": row.get("image_url", ""),
+            "card_image_url": individual_image_url,
             "model": EXTRACTOR_MODEL,
             "input_tokens": message.usage.input_tokens,
             "output_tokens": message.usage.output_tokens,
