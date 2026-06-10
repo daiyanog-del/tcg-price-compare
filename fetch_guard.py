@@ -24,17 +24,16 @@ import requests
 # ホワイトリスト定義
 # ──────────────────────────────────────────────
 
+# 抽出対象は YU-GI-OH.jp のみ（ユーザー方針 2026-06-11）。
+# 注意: yu-gi-oh.jp はクラウド事業者のIP（GitHub Actions / Render）を403で拒否するため、
+# Watcherはローカル環境（一般回線）から定期実行する。
 ALLOWED_HOSTS: frozenset = frozenset({
     "www.yu-gi-oh.jp",
     "yu-gi-oh.jp",
-    "www.konami.com",
 })
 
 # ホストごとのパスプレフィックス制約（リストにないホストは全パス可）
-# konami.com は /yugioh/ 配下のみ
-ALLOWED_PATH_PREFIXES: dict[str, tuple] = {
-    "www.konami.com": ("/yugioh/",),
-}
+ALLOWED_PATH_PREFIXES: dict[str, tuple] = {}
 
 # User-Agent（クローラであることを明示）
 _USER_AGENT = (
