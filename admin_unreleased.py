@@ -32,7 +32,9 @@ logger = logging.getLogger(__name__)
 # 環境変数
 # ──────────────────────────────────────────────
 
-_ADMIN_KEY = os.environ.get("ADMIN_KEY", "")
+# 前後の空白・改行を除去する。環境変数の設定時にコピペで末尾改行等が
+# 混入しても認証が通るようにするため（クライアント側も入力を trim している）。
+_ADMIN_KEY = os.environ.get("ADMIN_KEY", "").strip()
 _SUPABASE_URL = os.environ.get("SUPABASE_URL")
 _SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
@@ -115,7 +117,7 @@ def _require_admin_key():
     if _check_auth_rate_limit(ip):
         return jsonify({"error": "認証失敗が多すぎます。しばらく待ってから再試行してください"}), 429
 
-    provided = request.headers.get("X-Admin-Key", "")
+    provided = request.headers.get("X-Admin-Key", "").strip()
     if not hmac.compare_digest(provided, _ADMIN_KEY):
         _record_auth_fail(ip)
         return jsonify({"error": "認証に失敗しました"}), 401
