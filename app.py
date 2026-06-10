@@ -298,6 +298,19 @@ def _require_health_key():
     return None
 
 
+# 一時診断用エンドポイント（検証後に削除する）:
+# RenderのIPから yu-gi-oh.jp に到達できるかを確認する。
+# fetch_guard 経由のためホワイトリスト内の固定URLしか叩けない（悪用不可）。
+@app.route("/api/probe-yugioh-temp")
+def probe_yugioh_temp():
+    try:
+        from fetch_guard import fetch_whitelisted
+        resp = fetch_whitelisted("https://yu-gi-oh.jp/")
+        return jsonify({"status": resp.status_code, "bytes": len(resp.content)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
 def _claim_startup_job(name: str, ttl_sec: int = 300) -> bool:
     """複数worker起動時に同じプリフェッチを同時実行しないための軽いファイルロック。"""
     cache_dir = os.path.join(os.path.dirname(__file__), ".cache")
