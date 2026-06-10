@@ -123,6 +123,7 @@ def fetch_whitelisted(
     url: str,
     *,
     timeout: int = 30,
+    min_interval: float | None = None,
     _hop: int = 0,
 ):
     """ホワイトリストを検証してからHTTPリクエストを実行する。
@@ -130,6 +131,10 @@ def fetch_whitelisted(
     Args:
         url:     取得対象URL（https必須）
         timeout: リクエストタイムアウト秒数（デフォルト30秒）
+        min_interval: 直前リクエストからの最低待機秒数。
+                      None なら既定値 _MIN_INTERVAL_SEC（5秒、ページ巡回用）。
+                      同一記事内の多数のカード画像取得など、静的アセットを
+                      連続取得する場合は短い値（例 0.5）を渡してよい。
         _hop:    内部用リダイレクトホップカウンタ（直接指定不要）
 
     Returns:
@@ -140,6 +145,8 @@ def fetch_whitelisted(
         WhitelistViolation: ホワイトリスト違反URL（ネットワーク接続前に発生）
     """
     global _last_request_time
+
+    interval = _MIN_INTERVAL_SEC if min_interval is None else max(0.0, min_interval)
 
     # リダイレクト上限チェック
     if _hop > 3:
@@ -159,8 +166,8 @@ def fetch_whitelisted(
     with _rate_lock:
         # 前回リクエストからの経過時間を確認し、不足分だけ待機
         elapsed = time.monotonic() - _last_request_time
-        if elapsed < _MIN_INTERVAL_SEC:
-            time.sleep(_MIN_INTERVAL_SEC - elapsed)
+        if elapsed < interval:
+            time.sleep(interval - elapsed)
 
         # impersonate でブラウザのTLS/HTTP2署名を模倣（WAF回避）。
         # allow_redirects=False でリダイレクト先を自前で再帰検証する。
@@ -184,6 +191,8 @@ def fetch_whitelisted(
             location = f"{parsed.scheme}://{parsed.netloc}{location}"
 
         # リダイレクト先もホワイトリスト検証を通す（違反なら WhitelistViolation）
-        return fetch_whitelisted(location, timeout=timeout, _hop=_hop + 1)
+        return fetch_whitelisted(
+            location, timeout=timeout, min_interval=min_interval, _hop=_hop + 1
+        )
 
     return response
