@@ -13,15 +13,18 @@ Blueprint prefix:
 状態変更系エンドポイントは全て card_display.invalidate_cache() を呼ぶ。
 """
 
+import io
 import os
 import hmac
 import time
 import logging
 import threading
+from urllib.parse import urlparse
 
 from flask import Blueprint, request, jsonify, render_template
 
 import card_display as _card_display
+import fetch_guard as _fetch_guard
 
 logger = logging.getLogger(__name__)
 
@@ -333,6 +336,9 @@ def admin_approve_unreleased(card_id: int):
     """
     指定IDのカードを承認する（status='approved'）。
     rejected / pending / needs_review から変更可。
+    承認成功後、extraction_raw の image_urls から最初の1枚を取り込もうとする。
+    画像取込失敗は承認自体を失敗させない。
+    レスポンスに image_fetched: true/false と reason を含める。
     """
     err = _require_admin_key()
     if err:
@@ -342,21 +348,180 @@ def admin_approve_unreleased(card_id: int):
         return jsonify({"error": "Supabase 未接続"}), 503
 
     try:
-        resp = (
+        # まずカードの extraction_raw を取得
+        card_resp = (
+            _supabase.table("unreleased_cards")
+            .select("id, name, source_url, extraction_raw, status")
+            .eq("id", card_id)
+            .execute()
+        )
+        if not card_resp.data:
+            return jsonify({"error": "対象レコードが見つかりません"}), 404
+
+        card_data = card_resp.data[0]
+        if card_data["status"] not in ("pending", "rejected", "needs_review"):
+            return jsonify({"error": "対象レコードが見つかりません（既に承認済みか存在しない可能性があります）"}), 404
+
+        # ステータスを承認済みに更新
+        upd_resp = (
             _supabase.table("unreleased_cards")
             .update({"status": "approved"})
             .eq("id", card_id)
-            .in_("status", ["pending", "rejected", "needs_review"])
             .execute()
         )
-        if not resp.data:
-            return jsonify({"error": "対象レコードが見つかりません（既に承認済みか存在しない可能性があります）"}), 404
+        if not upd_resp.data:
+            return jsonify({"error": "承認処理に失敗しました"}), 500
+
         _card_display.invalidate_cache()
-        return jsonify({"ok": True, "card": resp.data[0]})
+
+        # 画像取込を試みる（失敗しても承認は成立）
+        image_fetched, image_reason = _try_fetch_image_from_extraction(
+            card_id=card_id,
+            source_url=card_data.get("source_url", ""),
+            extraction_raw=card_data.get("extraction_raw") or {},
+        )
+
+        return jsonify({
+            "ok": True,
+            "card": upd_resp.data[0],
+            "image_fetched": image_fetched,
+            "image_reason": image_reason,
+        })
 
     except Exception as e:
         logger.error(f"[admin] approve エラー id={card_id}: {e}")
         return jsonify({"error": "承認に失敗しました"}), 500
+
+
+def _try_fetch_image_from_extraction(
+    card_id: int,
+    source_url: str,
+    extraction_raw: dict,
+) -> tuple[bool, str]:
+    """
+    extraction_raw の image_urls から最初の1枚を取り込む。
+
+    Returns:
+        (成功フラグ, 理由文字列)
+    """
+    image_urls = extraction_raw.get("image_urls", [])
+    if not image_urls:
+        return False, "image_urls が空です"
+
+    image_url = image_urls[0]
+    return _fetch_and_store_image(card_id, image_url, source_url)
+
+
+def _fetch_and_store_image(
+    card_id: int,
+    image_url: str,
+    source_page_url: str,
+) -> tuple[bool, str]:
+    """
+    指定URLの画像を取得してStorageに保存し、official_card_images にINSERTする。
+    ホワイトリスト検証・Content-Type確認・5MB上限チェックを行う。
+
+    Returns:
+        (成功フラグ, 理由文字列)
+    """
+    if not _supabase:
+        return False, "Supabase 未接続"
+
+    # ホワイトリスト検証
+    if not _fetch_guard.is_whitelisted(image_url):
+        logger.warning(f"[admin] 画像URLがホワイトリスト外のためスキップ: {image_url!r}")
+        return False, f"ホワイトリスト外のURL: {image_url!r}"
+
+    # 画像取得
+    try:
+        resp = _fetch_guard.fetch_whitelisted(image_url)
+    except _fetch_guard.WhitelistViolation as e:
+        logger.warning(f"[admin] 画像取得ホワイトリスト違反: {e}")
+        return False, f"ホワイトリスト違反: {e}"
+    except Exception as e:
+        logger.warning(f"[admin] 画像取得失敗: {e}")
+        return False, f"取得エラー: {e}"
+
+    # Content-Type の確認
+    content_type = resp.headers.get("Content-Type", "")
+    if not content_type.startswith("image/"):
+        logger.warning(f"[admin] Content-Type が image/* でない: {content_type!r} ({image_url!r})")
+        return False, f"Content-Type が image/* でない: {content_type!r}"
+
+    # サイズ上限チェック（5MB）
+    MAX_SIZE = 5 * 1024 * 1024
+    content = resp.content
+    if len(content) > MAX_SIZE:
+        logger.warning(f"[admin] 画像が5MBを超えています: {len(content):,}バイト ({image_url!r})")
+        return False, f"画像サイズ超過: {len(content):,}バイト（上限5MB）"
+
+    # 拡張子を推定（Content-Type から）
+    ext_map = {
+        "image/jpeg": "jpg",
+        "image/jpg": "jpg",
+        "image/png": "png",
+        "image/gif": "gif",
+        "image/webp": "webp",
+        "image/avif": "avif",
+    }
+    mime = content_type.split(";")[0].strip().lower()
+    ext = ext_map.get(mime, "jpg")
+
+    # Storage パスを決定
+    storage_path = f"unreleased/{card_id}.{ext}"
+
+    # Supabase Storage にアップロード（既存は上書き: upsert）
+    try:
+        # supabase-py: storage.from_(bucket).upload(path, data, options)
+        # upsert に相当するには file_options で upsert=True を指定する
+        _supabase.storage.from_("official-card-images").upload(
+            path=storage_path,
+            file=content,
+            file_options={
+                "content-type": mime,
+                "upsert": "true",
+            },
+        )
+    except Exception as e:
+        # アップロードエラーをログに記録
+        logger.error(f"[admin] Storage アップロード失敗: {e} (path={storage_path!r})")
+        return False, f"Storage アップロード失敗: {e}"
+
+    # public URL を取得
+    try:
+        url_resp = _supabase.storage.from_("official-card-images").get_public_url(storage_path)
+        # supabase-py v2: get_public_url は文字列を返す
+        if isinstance(url_resp, str):
+            public_url = url_resp
+        else:
+            public_url = url_resp.get("publicUrl", "")
+    except Exception as e:
+        logger.warning(f"[admin] public URL 取得失敗: {e}")
+        public_url = ""
+
+    # source_domain を取得
+    try:
+        source_domain = urlparse(image_url).netloc
+    except Exception:
+        source_domain = ""
+
+    # official_card_images に来歴付き INSERT
+    try:
+        _supabase.table("official_card_images").insert({
+            "unreleased_card_id": card_id,
+            "storage_path": storage_path,
+            "public_url": public_url,
+            "source_image_url": image_url,
+            "source_page_url": source_page_url,
+            "source_domain": source_domain,
+        }).execute()
+    except Exception as e:
+        logger.error(f"[admin] official_card_images INSERT 失敗: {e}")
+        return False, f"DB 登録失敗: {e}"
+
+    _card_display.invalidate_cache()
+    logger.info(f"[admin] 画像取込完了: card_id={card_id}, path={storage_path!r}")
+    return True, f"取込成功: {storage_path}"
 
 
 # ──────────────────────────────────────────────
@@ -528,3 +693,207 @@ def admin_toggle_official_image():
     except Exception as e:
         logger.error(f"[admin] official-image-display 更新エラー: {e}")
         return jsonify({"error": "設定更新に失敗しました"}), 500
+
+
+# ──────────────────────────────────────────────
+# POST /api/admin/unreleased/<id>/fetch-image — 手動画像取込
+# ──────────────────────────────────────────────
+
+@admin_bp.route("/api/admin/unreleased/<int:card_id>/fetch-image", methods=["POST"])
+def admin_fetch_image(card_id: int):
+    """
+    指定URLの画像を手動で取り込む。
+    リクエストボディ: {"image_url": "https://..."}
+    承認済み・linked ステータスのカードのみ対象。
+    ホワイトリスト必須（ホワイトリスト外URLはエラー）。
+    """
+    err = _require_admin_key()
+    if err:
+        return err
+
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+
+    body = request.get_json(silent=True) or {}
+    image_url = (body.get("image_url") or "").strip()
+    if not image_url:
+        return jsonify({"error": "image_url は必須です"}), 400
+
+    # ホワイトリスト事前チェック（エラーにする）
+    if not _fetch_guard.is_whitelisted(image_url):
+        return jsonify({"error": f"ホワイトリスト外のURLは取り込めません: {image_url!r}"}), 400
+
+    # カードが存在するか確認
+    try:
+        card_resp = (
+            _supabase.table("unreleased_cards")
+            .select("id, source_url, status")
+            .eq("id", card_id)
+            .execute()
+        )
+        if not card_resp.data:
+            return jsonify({"error": "対象レコードが見つかりません"}), 404
+
+        card_data = card_resp.data[0]
+        if card_data["status"] not in ("approved", "linked"):
+            return jsonify({"error": "承認済み（approved/linked）のカードにのみ画像を取り込めます"}), 400
+
+    except Exception as e:
+        logger.error(f"[admin] fetch-image カード確認エラー: {e}")
+        return jsonify({"error": "カード確認に失敗しました"}), 500
+
+    # 画像取込
+    success, reason = _fetch_and_store_image(
+        card_id=card_id,
+        image_url=image_url,
+        source_page_url=card_data.get("source_url", ""),
+    )
+
+    if success:
+        return jsonify({"ok": True, "reason": reason})
+    else:
+        return jsonify({"ok": False, "error": reason}), 422
+
+
+# ──────────────────────────────────────────────
+# GET /api/admin/images/domains — 画像出所ドメイン一覧
+# ──────────────────────────────────────────────
+
+@admin_bp.route("/api/admin/images/domains", methods=["GET"])
+def admin_list_image_domains():
+    """
+    official_card_images の source_domain ごとの件数・hidden件数を返す。
+    deleted_at IS NULL（未削除）の行のみ集計する。
+    """
+    err = _require_admin_key()
+    if err:
+        return err
+
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+
+    try:
+        # deleted_at IS NULL の全行を取得して集計（件数が多い場合も現実的に問題ない規模）
+        resp = (
+            _supabase.table("official_card_images")
+            .select("source_domain, hidden")
+            .is_("deleted_at", "null")
+            .execute()
+        )
+        rows = resp.data or []
+
+        # ドメインごとに集計
+        domain_stats: dict[str, dict] = {}
+        for row in rows:
+            domain = row["source_domain"] or "(不明)"
+            if domain not in domain_stats:
+                domain_stats[domain] = {"domain": domain, "total": 0, "hidden": 0}
+            domain_stats[domain]["total"] += 1
+            if row["hidden"]:
+                domain_stats[domain]["hidden"] += 1
+
+        # ソート（total 降順）
+        domains = sorted(domain_stats.values(), key=lambda x: x["total"], reverse=True)
+        return jsonify({"domains": domains})
+
+    except Exception as e:
+        logger.error(f"[admin] images/domains 取得エラー: {e}")
+        return jsonify({"error": "ドメイン一覧取得に失敗しました"}), 500
+
+
+# ──────────────────────────────────────────────
+# POST /api/admin/images/purge-domain — ドメイン一括削除
+# ──────────────────────────────────────────────
+
+@admin_bp.route("/api/admin/images/purge-domain", methods=["POST"])
+def admin_purge_image_domain():
+    """
+    指定ドメインの画像を一括処理する。
+    リクエストボディ: {"domain": "yu-gi-oh.jp", "physical": true/false}
+      - physical=false（省略時）: hidden=true に更新（第1段階・即時非表示）
+      - physical=true           : hidden=true ＋ Storage物理削除 ＋ deleted_at 記録（第2段階）
+
+    レスポンス:
+      {"ok": true, "hidden_count": N, "deleted_count": N, "errors": [...]}
+    """
+    err = _require_admin_key()
+    if err:
+        return err
+
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+
+    body = request.get_json(silent=True) or {}
+    domain = (body.get("domain") or "").strip()
+    if not domain:
+        return jsonify({"error": "domain は必須です"}), 400
+
+    physical = bool(body.get("physical", False))
+
+    errors = []
+
+    try:
+        # 対象行を取得（storage_path も一緒に取得）
+        target_resp = (
+            _supabase.table("official_card_images")
+            .select("id, storage_path, hidden, deleted_at")
+            .eq("source_domain", domain)
+            .is_("deleted_at", "null")
+            .execute()
+        )
+        targets = target_resp.data or []
+
+        if not targets:
+            return jsonify({"ok": True, "hidden_count": 0, "deleted_count": 0, "errors": []})
+
+        target_ids = [r["id"] for r in targets]
+
+        # 第1段階: hidden=true
+        hidden_resp = (
+            _supabase.table("official_card_images")
+            .update({"hidden": True})
+            .in_("id", target_ids)
+            .execute()
+        )
+        hidden_count = len(hidden_resp.data or [])
+        logger.info(f"[admin] purge-domain: domain={domain!r}, hidden={hidden_count}件")
+
+        deleted_count = 0
+
+        if physical:
+            # 第2段階: Storage物理削除 ＋ deleted_at 記録
+            storage_paths = [r["storage_path"] for r in targets if r.get("storage_path")]
+
+            if storage_paths:
+                try:
+                    _supabase.storage.from_("official-card-images").remove(storage_paths)
+                    logger.info(f"[admin] Storage 削除: {len(storage_paths)}件")
+                except Exception as e:
+                    err_msg = f"Storage 削除失敗: {e}"
+                    logger.error(f"[admin] {err_msg}")
+                    errors.append(err_msg)
+
+            # deleted_at を記録（Storage削除失敗分も含めて記録する）
+            from datetime import datetime, timezone
+            now_iso = datetime.now(timezone.utc).isoformat()
+            del_resp = (
+                _supabase.table("official_card_images")
+                .update({"deleted_at": now_iso})
+                .in_("id", target_ids)
+                .execute()
+            )
+            deleted_count = len(del_resp.data or [])
+            logger.info(f"[admin] purge-domain: deleted_at 記録={deleted_count}件")
+
+        _card_display.invalidate_cache()
+
+        return jsonify({
+            "ok": True,
+            "hidden_count": hidden_count,
+            "deleted_count": deleted_count,
+            "errors": errors,
+        })
+
+    except Exception as e:
+        logger.error(f"[admin] purge-domain エラー: {e}")
+        return jsonify({"error": "一括削除に失敗しました"}), 500

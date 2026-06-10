@@ -575,7 +575,98 @@ function _renderApprovedList(listEl, cards) {
       _rejectCard(card.id, row);
     });
 
+    // 画像取込フォーム開閉ボタン
+    const imageForm = row.querySelector('.card-row__image-form');
+    const toggleImageFormBtn = row.querySelector('.action-toggle-image-form');
+    toggleImageFormBtn.addEventListener('click', () => {
+      const isHidden = imageForm.hidden;
+      imageForm.hidden = !isHidden;
+      toggleImageFormBtn.textContent = isHidden ? '閉じる' : '画像取込';
+      // 開いた際にサムネイルを読み込む（has_image が true の場合）
+      if (isHidden && card.has_image) {
+        _loadImageThumbnail(card.id, row);
+      }
+    });
+
+    // 画像URLを指定して取込ボタン
+    row.querySelector('.action-fetch-image').addEventListener('click', () => {
+      _fetchImageByUrl(card.id, row);
+    });
+
     listEl.appendChild(row);
+  }
+}
+
+/**
+ * サムネイル画像を読み込んで表示する（公開中タブ）
+ * @param {number} cardId
+ * @param {HTMLElement} row
+ */
+async function _loadImageThumbnail(cardId, row) {
+  const imgEl = row.querySelector('.image-thumbnail');
+  const noneEl = row.querySelector('.image-thumbnail-none');
+
+  try {
+    // official_card_images の public_url を取得するために approved-list API を再利用せず
+    // 直接 card_display API 経由で画像URLを取得する
+    const resp = await fetch(`/api/card-image?name=${encodeURIComponent(row.querySelector('.card-row__name').textContent)}`);
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.kind === 'image' && data.url) {
+        imgEl.src = data.url;
+        imgEl.alt = row.querySelector('.card-row__name').textContent;
+        imgEl.hidden = false;
+        noneEl.hidden = true;
+        return;
+      }
+    }
+  } catch {
+    // 無視
+  }
+  imgEl.hidden = true;
+  noneEl.hidden = false;
+}
+
+/**
+ * 画像URLを指定して取込する（公開中タブ）
+ * @param {number} cardId
+ * @param {HTMLElement} row
+ */
+async function _fetchImageByUrl(cardId, row) {
+  const urlInput = row.querySelector('.image-url-input');
+  const resultEl = row.querySelector('.image-fetch-result');
+  const imageUrl = (urlInput.value || '').trim();
+
+  if (!imageUrl) {
+    _showResult(resultEl, '画像URLを入力してください', 'error');
+    return;
+  }
+
+  const fetchBtn = row.querySelector('.action-fetch-image');
+  fetchBtn.disabled = true;
+
+  try {
+    const resp = await apiFetch(`/api/admin/unreleased/${cardId}/fetch-image`, {
+      method: 'POST',
+      body: JSON.stringify({ image_url: imageUrl }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (resp.ok && data.ok) {
+      _showResult(resultEl, '画像を取り込みました', 'ok');
+      urlInput.value = '';
+      // 画像ありバッジを表示
+      row.querySelector('.card-row__has-image').hidden = false;
+      // サムネイルを更新
+      _loadImageThumbnail(cardId, row);
+    } else {
+      _showResult(resultEl, data.error || '取込に失敗しました', 'error');
+    }
+  } catch (e) {
+    if (e.message !== '認証エラー') {
+      _showResult(resultEl, '通信エラーが発生しました', 'error');
+    }
+  } finally {
+    fetchBtn.disabled = false;
   }
 }
 
@@ -668,7 +759,134 @@ async function _loadSettings() {
       _showResult(resultEl, '通信エラーが発生しました', 'error');
     }
   }
+
+  // 画像出所ドメイン一覧を読み込む
+  _loadDomains();
 }
+
+// ──────────────────────────────────────────────
+// 設定タブ — 画像の出所管理
+// ──────────────────────────────────────────────
+
+async function _loadDomains() {
+  const listEl = document.getElementById('domains-list');
+  listEl.innerHTML = '<p class="loading-text">読み込み中...</p>';
+
+  try {
+    const resp = await apiFetch('/api/admin/images/domains');
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      listEl.innerHTML = `<p class="loading-text">エラー: ${data.error || resp.status}</p>`;
+      return;
+    }
+    const { domains } = await resp.json();
+    _renderDomainList(listEl, domains);
+  } catch (e) {
+    if (e.message !== '認証エラー') {
+      listEl.innerHTML = '<p class="loading-text">読み込みに失敗しました。</p>';
+    }
+  }
+}
+
+/**
+ * ドメイン一覧を描画する
+ * @param {HTMLElement} listEl
+ * @param {Array} domains
+ */
+function _renderDomainList(listEl, domains) {
+  listEl.innerHTML = '';
+
+  if (!domains || domains.length === 0) {
+    listEl.innerHTML = '<p class="empty-text">取り込んだ画像はありません。</p>';
+    return;
+  }
+
+  for (const d of domains) {
+    const row = document.createElement('div');
+    row.className = 'domain-row';
+    row.innerHTML = `
+      <div class="domain-row__info">
+        <span class="domain-row__name">${_escapeHtml(d.domain)}</span>
+        <span class="domain-row__count">${d.total}件（非表示: ${d.hidden}件）</span>
+      </div>
+      <div class="domain-row__actions">
+        <button class="btn btn-warning btn-sm action-hide-domain" data-domain="${_escapeHtml(d.domain)}">非表示化</button>
+        <button class="btn btn-danger btn-sm action-delete-domain" data-domain="${_escapeHtml(d.domain)}">完全削除</button>
+      </div>
+    `;
+
+    // 非表示化ボタン（第1段階）
+    row.querySelector('.action-hide-domain').addEventListener('click', () => {
+      _purgeDomain(d.domain, false);
+    });
+
+    // 完全削除ボタン（第2段階）
+    row.querySelector('.action-delete-domain').addEventListener('click', () => {
+      _purgeDomain(d.domain, true);
+    });
+
+    listEl.appendChild(row);
+  }
+}
+
+/**
+ * HTML特殊文字をエスケープする
+ * @param {string} str
+ * @returns {string}
+ */
+function _escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * ドメイン一括削除を実行する（2段階確認）
+ * @param {string} domain
+ * @param {boolean} physical  true=物理削除、false=非表示化のみ
+ */
+async function _purgeDomain(domain, physical) {
+  const resultEl = document.getElementById('domains-result');
+  const action = physical ? '完全削除（Storage物理削除含む）' : '非表示化';
+
+  // 第1確認: 操作内容の確認
+  if (!confirm(`ドメイン「${domain}」の画像を${action}します。\nこの操作は取り消せません。続行しますか？`)) {
+    return;
+  }
+
+  // 第2確認: ドメイン名の手入力確認
+  const inputDomain = prompt(`確認のため、ドメイン名を入力してください:\n${domain}`);
+  if (inputDomain !== domain) {
+    alert('ドメイン名が一致しません。操作を中止しました。');
+    return;
+  }
+
+  try {
+    const resp = await apiFetch('/api/admin/images/purge-domain', {
+      method: 'POST',
+      body: JSON.stringify({ domain, physical }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (resp.ok && data.ok) {
+      const msg = physical
+        ? `完全削除完了: ${data.hidden_count}件を非表示化・${data.deleted_count}件を削除しました`
+        : `非表示化完了: ${data.hidden_count}件を非表示化しました`;
+      _showResult(resultEl, msg, 'ok');
+      // 一覧を再読み込み
+      _loadDomains();
+    } else {
+      _showResult(resultEl, data.error || '処理に失敗しました', 'error');
+    }
+  } catch (e) {
+    if (e.message !== '認証エラー') {
+      _showResult(resultEl, '通信エラーが発生しました', 'error');
+    }
+  }
+}
+
+document.getElementById('reload-domains-btn').addEventListener('click', _loadDomains);
 
 document.getElementById('official-image-toggle').addEventListener('change', async (e) => {
   const toggle = e.target;

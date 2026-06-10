@@ -603,6 +603,153 @@ a:hover {
   cursor: not-allowed;
 }
 
+/* ── 設定タブ — 画像の出所管理 ────────────────────── */
+
+.settings-section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 28px;
+  margin-bottom: 8px;
+}
+
+.settings-section-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--main-color);
+}
+
+.settings-section-desc {
+  color: color-mix(in srgb, var(--main-color) 60%, var(--border) 40%);
+  font-size: 0.82rem;
+  line-height: 1.55;
+  margin-bottom: 12px;
+  max-width: 540px;
+}
+
+.domains-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 640px;
+}
+
+.domain-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+}
+
+.domain-row__info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.domain-row__name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--main-color);
+  word-break: break-all;
+}
+
+.domain-row__count {
+  font-size: 0.8rem;
+  color: color-mix(in srgb, var(--main-color) 60%, var(--border) 40%);
+  white-space: nowrap;
+}
+
+.domain-row__actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* ── 公開中タブ — 画像取込フォーム ─────────────────── */
+
+.card-row__image-form {
+  border-top: 1px solid var(--border);
+  padding: 14px 14px;
+  background-color: var(--bg-surface);
+}
+
+.image-form-inner {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.image-thumbnail-wrap {
+  flex-shrink: 0;
+  width: 120px;
+}
+
+.image-thumbnail-label {
+  color: color-mix(in srgb, var(--main-color) 60%, var(--border) 40%);
+  font-size: 0.75rem;
+  margin-bottom: 6px;
+  text-align: center;
+}
+
+.image-thumbnail-slot {
+  width: 120px;
+  height: 174px;
+  background-color: var(--bg-color);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.image-thumbnail {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.image-thumbnail-none {
+  color: color-mix(in srgb, var(--main-color) 40%, var(--border) 60%);
+  font-size: 0.8rem;
+}
+
+.image-fetch-form {
+  flex: 1;
+  min-width: 0;
+}
+
+.image-fetch-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--main-color);
+  margin-bottom: 6px;
+}
+
+.image-fetch-desc {
+  font-size: 0.8rem;
+  color: color-mix(in srgb, var(--main-color) 60%, var(--border) 40%);
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+
+.image-fetch-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.image-url-input {
+  flex: 1;
+}
+
 /* ── レスポンシブ ──────────────────────────────────── */
 
 @media (max-width: 600px) {
@@ -636,6 +783,30 @@ a:hover {
   }
 
   .card-row__summary {
+    flex-wrap: wrap;
+  }
+
+  .image-form-inner {
+    flex-direction: column;
+  }
+
+  .image-thumbnail-wrap {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .image-thumbnail-slot {
+    width: 80px;
+    height: 116px;
+  }
+
+  .domain-row {
+    flex-wrap: wrap;
+  }
+
+  .image-fetch-row {
     flex-wrap: wrap;
   }
 }

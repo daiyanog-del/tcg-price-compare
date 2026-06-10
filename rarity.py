@@ -73,6 +73,16 @@ RARITIES: list[dict] = [
         ],
     },
     {
+        "canonical": "シークレットパラレル",
+        "slug": "secret-parallel",
+        "order": 45,
+        "color": "#ff6b6b",
+        "aliases": [
+            "P-SE",                                             # パラレルシークレット略号（P-SR/P-UR/P-N と整合）
+            "シークレットパラレルレア",                         # 〜レア形式
+        ],
+    },
+    {
         "canonical": "EXシークレット",
         "slug": "exsecret",
         "order": 50,
@@ -359,6 +369,7 @@ RARITIES: list[dict] = [
         "aliases": [
             "PR",                                               # まんぞく屋略号
             "パラ",                                             # 短縮
+            "パラレルレア",                                     # 〜レア形式（冗長 suffix）
         ],
     },
     {
