@@ -83,6 +83,15 @@ RARITIES: list[dict] = [
         ],
     },
     {
+        "canonical": "シークレットブルー",
+        "slug": "secret-blue",
+        "order": 48,
+        "color": "#2980b9",
+        "aliases": [
+            "シークレットSPECIALBLUEVer.",                       # SPECIAL BLUE Ver. 表記
+        ],
+    },
+    {
         "canonical": "EXシークレット",
         "slug": "exsecret",
         "order": 50,
@@ -191,7 +200,7 @@ RARITIES: list[dict] = [
         "order": 87,
         "color": "#00ced1",
         "aliases": [
-            "GXR", "GMR",                                       # 略号
+            "GXR", "GMR", "GM",                                 # 略号（GMはまんぞく屋）
             "グランドマスターレア",                             # 〜レア形式
         ],
     },
@@ -201,7 +210,7 @@ RARITIES: list[dict] = [
         "order": 90,
         "color": "#e67e22",
         "aliases": [
-            "UL",                                               # 略号
+            "UL", "RE",                                         # 略号（REはまんぞく屋のレリーフ表記）
             "アル", "レリ",                                     # 短縮（レリーフ）
             "レリーフ",                                         # 旧名
             "アルティメットレア",                               # 〜レア形式
@@ -260,6 +269,7 @@ RARITIES: list[dict] = [
         "color": "#DAA520",
         "aliases": [
             "GR", "GL",                                         # 略号（GRは遊々亭、GLはまんぞく屋/駿河屋）
+            "ゴル",                                             # 短縮（カーナベル）
             "ゴルレア",                                         # 短縮
             "ゴールドレア",                                     # 〜レア形式
         ],
@@ -270,7 +280,7 @@ RARITIES: list[dict] = [
         "order": 125,
         "color": "#5dade2",
         "aliases": [
-            "P-SR",                                             # 略号（遊々亭）
+            "P-SR", "SR-P",                                     # 略号（P-SRは遊々亭、SR-Pはまんぞく屋）
             "スーパラ",                                         # 短縮
             "スーパーパラレルレア",                             # 〜レア形式
         ],
@@ -292,7 +302,7 @@ RARITIES: list[dict] = [
         "order": 135,
         "color": "#f4d03f",
         "aliases": [
-            "UP", "P-UR",                                       # 略号
+            "UP", "P-UR", "UR-P",                               # 略号（UR-Pはまんぞく屋）
             "ウルパラ",                                         # 短縮
             "ウルトラパラレルレア",                             # 〜レア形式
         ],
@@ -342,7 +352,7 @@ RARITIES: list[dict] = [
         "order": 155,
         "color": "#7f8c8d",
         "aliases": [
-            "NP", "P-N",                                        # 略号
+            "NP", "P-N", "N-P", "PN",                           # 略号（N-P/PNはまんぞく屋）
             "ノーパラ", "Nパラ",                               # 短縮
             "ノーマルパラレルレア",                             # 〜レア形式
             "NPR",                                              # まんぞく屋略号
