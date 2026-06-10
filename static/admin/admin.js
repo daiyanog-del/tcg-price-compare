@@ -15,10 +15,28 @@ const STORAGE_KEY = 'admin_key';
 const PROXY_CARD_JS = '/static/solitaire/js/components/proxy-card.js';
 
 // ──────────────────────────────────────────────
+// localStorage 安全アクセス
+// ──────────────────────────────────────────────
+// プライベートモードやプライバシー強化設定で localStorage アクセスが
+// SecurityError を投げる環境がある。トップレベルで例外が出ると
+// スクリプト全体が停止し、ログインボタン等が一切反応しなくなる。
+// そのため全アクセスを try/catch で包む（保存できなくてもログインは可能）。
+
+function _storageGet(key) {
+  try { return localStorage.getItem(key); } catch (e) { return null; }
+}
+function _storageSet(key, value) {
+  try { localStorage.setItem(key, value); } catch (e) { /* 保存不可でも続行 */ }
+}
+function _storageRemove(key) {
+  try { localStorage.removeItem(key); } catch (e) { /* 削除不可でも続行 */ }
+}
+
+// ──────────────────────────────────────────────
 // 状態
 // ──────────────────────────────────────────────
 
-let _adminKey = localStorage.getItem(STORAGE_KEY) || '';
+let _adminKey = _storageGet(STORAGE_KEY) || '';
 let _createProxyCardElement = null;  // proxy-card.js からロード後に設定
 
 // ──────────────────────────────────────────────
@@ -75,7 +93,7 @@ function _showMain() {
 
 function _logout() {
   _adminKey = '';
-  localStorage.removeItem(STORAGE_KEY);
+  _storageRemove(STORAGE_KEY);
   _showLogin();
 }
 
@@ -99,7 +117,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
 
     if (resp.ok) {
       _adminKey = key;
-      localStorage.setItem(STORAGE_KEY, key);
+      _storageSet(STORAGE_KEY, key);
       _showMain();
     } else if (resp.status === 429) {
       errorEl.textContent = '認証失敗が多すぎます。しばらく待ってから再試行してください。';
@@ -946,7 +964,7 @@ async function _init() {
     } else {
       // キーが無効 → ログイン画面へ
       _adminKey = '';
-      localStorage.removeItem(STORAGE_KEY);
+      _storageRemove(STORAGE_KEY);
       _showLogin();
     }
   } catch {
