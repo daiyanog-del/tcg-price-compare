@@ -84,8 +84,9 @@ export function handleResetAndDraw() {
   const drawnIds = [];
   selectedCards.forEach(card => {
     centerSlot.appendChild(card);
-    const img = card.querySelector('img');
-    if (img) drawnIds.push(img.id);
+    // img.tier-item（発売済み）または div.tier-item（プロキシ）どちらも .tier-item で取れる
+    const cardEl = card.querySelector('.tier-item');
+    if (cardEl) drawnIds.push(cardEl.id);
   });
 
   if (typeof window.replayLog === 'function') {
@@ -101,9 +102,10 @@ export function handleDrawOne() {
   const centerSlot = document.querySelector('.center-slot');
   selectedCards.forEach(card => {
     centerSlot.appendChild(card);
-    const img = card.querySelector('img');
-    if (img && typeof window.replayLog === 'function') {
-      window.replayLog({ actionType: 'draw', cardId: img.id, zoneId: 'center-slot' });
+    // img.tier-item（発売済み）または div.tier-item（プロキシ）どちらも .tier-item で取れる
+    const cardEl = card.querySelector('.tier-item');
+    if (cardEl && typeof window.replayLog === 'function') {
+      window.replayLog({ actionType: 'draw', cardId: cardEl.id, zoneId: 'center-slot' });
     }
   });
 }

@@ -166,6 +166,78 @@ def test_sync_manifest_failure_falls_back_to_full_refetch():
     assert repo.get_sync_meta(META_KEY_REVISION) == "105"
 
 
+# ---------------------------------------------------------------- ミラー形式の正規化テスト
+# 実データ（github.com/db-ygoresources-com/yugioh-card-history）から取得したサンプル
+
+MIRROR_XYZ = {"id": 11932, "type": "monster", "name": "SNo.0 ホープ・ゼアル",
+              "englishAttribute": "light", "effectText": "...", "rank": 0,
+              "atk": -1, "def": -1, "properties": ["戦士族", "エクシーズ", "効果"]}
+MIRROR_LINK = {"id": 13036, "type": "monster", "name": "デコード・トーカー",
+               "englishAttribute": "dark", "effectText": "...", "linkRating": 3,
+               "linkArrows": ["8", "1", "3"], "atk": 2300,
+               "properties": ["サイバース族", "リンク", "効果"]}
+MIRROR_FUSION = {"id": 11878, "type": "monster", "name": "旧神ヌトス",
+                 "englishAttribute": "light", "level": 4, "atk": 2500, "def": 1200,
+                 "properties": ["天使族", "融合", "効果"]}
+MIRROR_NORMAL_MON = {"id": 4925, "type": "monster", "name": "ボアソルジャー",
+                     "englishAttribute": "earth", "level": 4, "atk": 2000, "def": 500,
+                     "properties": ["獣戦士族", "効果"]}
+MIRROR_QUICKPLAY = {"id": 12175, "type": "spell", "name": "ツインツイスター",
+                    "englishAttribute": "spell", "englishProperty": "quickplay",
+                    "localizedProperty": "速攻", "effectText": "..."}
+
+
+def _summ(raw):
+    return CardDataRepository._summarize(raw["id"], raw)
+
+
+def test_mirror_ex_detection():
+    """ミラー形式: エクシーズ/リンク/融合は is_ex=True、通常モンスターは False"""
+    assert _summ(MIRROR_XYZ)["is_ex"] is True
+    assert _summ(MIRROR_LINK)["is_ex"] is True
+    assert _summ(MIRROR_FUSION)["is_ex"] is True
+    assert _summ(MIRROR_NORMAL_MON)["is_ex"] is False
+    assert _summ(MIRROR_QUICKPLAY)["is_ex"] is False  # 魔法はEX対象外
+
+
+def test_mirror_field_mapping():
+    """ミラー形式: ランク/リンク/種族/属性/サブ種別が正しく取れる"""
+    xyz = _summ(MIRROR_XYZ)
+    assert xyz["rank"] == 0 and xyz["level"] is None
+    assert xyz["race_ja"] == "戦士族"
+    assert xyz["attribute"] == "light"
+
+    link = _summ(MIRROR_LINK)
+    assert link["link_rating"] == 3
+    assert link["race_ja"] == "サイバース族"
+
+    spell = _summ(MIRROR_QUICKPLAY)
+    assert spell["card_type"] == "spell"
+    assert spell["property"] == "quickplay"   # app側で _PROP_JA により「速攻」に変換される
+    assert spell["race_ja"] is None
+    assert spell["prints"] == []              # ミラーは収録情報を持たない
+
+
+def test_api_format_still_works():
+    """API形式（cardData.ja）も従来通り正規化できる（整数propertiesでEX判定）"""
+    api_xyz = {"cardData": {"ja": {"name": "X", "cardType": "monster",
+                                   "properties": [18], "atk": 100}}}
+    s = CardDataRepository._summarize(1, api_xyz)
+    assert s["is_ex"] is True and s["card_type"] == "monster"
+    api_normal = {"cardData": {"ja": {"name": "Y", "cardType": "monster",
+                                      "properties": [], "atk": 100}}}
+    assert CardDataRepository._summarize(2, api_normal)["is_ex"] is False
+
+
+def test_card_row_handles_both_formats():
+    """_card_row はミラー形式・API形式どちらからも name/card_type を取り出す"""
+    r1 = CardDataRepository._card_row(11932, MIRROR_XYZ, "now")
+    assert r1["name"] == "SNo.0 ホープ・ゼアル" and r1["card_type"] == "monster"
+    api = {"cardData": {"ja": {"name": "青眼", "cardType": "monster"}}}
+    r2 = CardDataRepository._card_row(4007, api, "now")
+    assert r2["name"] == "青眼" and r2["card_type"] == "monster"
+
+
 def test_flatten_manifest():
     paths = flatten_manifest({"data": {
         "card": {"100": 1}, "qa": {"5": 1},

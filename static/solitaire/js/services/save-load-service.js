@@ -20,15 +20,16 @@ function getCardsFromSlot(slot) {
   const wrappers = slot.querySelectorAll('.tier-item-wrapper');
 
   wrappers.forEach(wrapper => {
-    const img = wrapper.querySelector('img');
-    if (img) {
-      // セット状態でも img.src は元画像のまま（CSS ::after で裏面を描画するため）
+    // img.tier-item（発売済み）または div.tier-item（プロキシ）どちらも .tier-item で取れる
+    const cardEl = wrapper.querySelector('.tier-item');
+    if (cardEl) {
+      // 発売済みは img.src、プロキシは '' になる（ロード時に再解決）
       const state = getCardState(wrapper);
       cards.push({
         id:       wrapper.id,
-        src:      img.src,
+        src:      cardEl.src || '',
         style:    wrapper.getAttribute('style') || '',
-        cardName: img.dataset.cardName || '',
+        cardName: cardEl.dataset.cardName || '',
         state,   // { orientation, face }
       });
     }

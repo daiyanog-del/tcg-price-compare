@@ -199,32 +199,66 @@ class CardDataRepository:
             self.save_card(konami_id, data)
         return data
 
+    # EXデッキの召喚種別（API形式=propertiesの整数コード / ミラー形式=日本語文字列）
+    _EX_PROP_IDS = {11, 18, 19, 23}   # 11=融合,18=エクシーズ,19=シンクロ,23=リンク
+    _EX_PROP_JA = ("融合", "シンクロ", "エクシーズ", "リンク")
+
     def get_card_summary(self, konami_id: int):
         """正規化済み内部モデル。ygoresources のスキーマ知識はここまでで吸収する。
-        返り値: dict（card_type/atk/def/level/rank/link_rating/attribute/property/
-        properties/effect_text/prints）または None
+        ライブAPI形式（/data/card）と GitHubミラー形式（yugioh-card-history）の
+        両方を受け付け、同じ形のdictに正規化する。返り値dict または None。
         """
         raw = self.get_card_raw(konami_id)
         if not raw:
             return None
-        ja = (raw.get("cardData") or {}).get("ja") or {}
-        if not ja:
-            return None
-        return {
-            "konami_id": konami_id,
-            "name": ja.get("name", ""),
-            "card_type": ja.get("cardType", ""),   # "monster" | "spell" | "trap"
-            "atk": ja.get("atk"),
-            "def": ja.get("def"),
-            "level": ja.get("level"),
-            "rank": ja.get("rank"),
-            "link_rating": ja.get("linkRating"),
-            "attribute": ja.get("attribute"),
-            "property": ja.get("property"),
-            "properties": ja.get("properties") or [],
-            "effect_text": ja.get("effectText", ""),
-            "prints": ja.get("prints") or [],
-        }
+        return self._summarize(konami_id, raw)
+
+    @classmethod
+    def _summarize(cls, konami_id, raw):
+        # --- ライブAPI形式（{"cardData": {"ja": {...}}}）---
+        if isinstance(raw, dict) and "cardData" in raw:
+            ja = (raw.get("cardData") or {}).get("ja") or {}
+            if not ja:
+                return None
+            props = ja.get("properties") or []
+            return {
+                "konami_id": konami_id,
+                "name": ja.get("name", ""),
+                "card_type": ja.get("cardType", ""),   # "monster" | "spell" | "trap"
+                "atk": ja.get("atk"),
+                "def": ja.get("def"),
+                "level": ja.get("level"),
+                "rank": ja.get("rank"),
+                "link_rating": ja.get("linkRating"),
+                "attribute": ja.get("attribute"),      # 英語キー（"light"等）
+                "property": ja.get("property"),         # 英語キー（"quickplay"等）
+                "effect_text": ja.get("effectText", ""),
+                "prints": ja.get("prints") or [],
+                "is_ex": any(p in cls._EX_PROP_IDS for p in props),
+                "race_ja": None,                        # APIは日本語種族を持たない
+            }
+        # --- GitHubミラー形式（{"id","type","name","properties":[日本語]...}）---
+        if isinstance(raw, dict) and "type" in raw and "name" in raw:
+            broad = raw.get("type", "")               # "monster" | "spell" | "trap"
+            props = raw.get("properties") or []        # 例: ["ドラゴン族","シンクロ","効果"]
+            is_monster = broad == "monster"
+            return {
+                "konami_id": konami_id,
+                "name": raw.get("name", ""),
+                "card_type": broad,
+                "atk": raw.get("atk"),
+                "def": raw.get("def"),
+                "level": raw.get("level"),
+                "rank": raw.get("rank"),
+                "link_rating": raw.get("linkRating"),
+                "attribute": raw.get("englishAttribute"),   # "light" / "spell" / "trap"
+                "property": raw.get("englishProperty"),      # "quickplay" / "continuous" / None
+                "effect_text": raw.get("effectText", ""),
+                "prints": [],                                # ミラーは収録情報を持たない
+                "is_ex": is_monster and any(s in props for s in cls._EX_PROP_JA),
+                "race_ja": (props[0] if (is_monster and props) else None),
+            }
+        return None
 
     def get_name_index(self) -> dict:
         """日本語カード名→[konami_id] の索引。キャッシュ優先。両方失敗時は {}"""
@@ -252,34 +286,29 @@ class CardDataRepository:
     def _now_iso() -> str:
         return datetime.now(timezone.utc).isoformat()
 
-    def save_card(self, konami_id: int, raw: dict) -> bool:
-        ja = (raw.get("cardData") or {}).get("ja") or {}
-        en = (raw.get("cardData") or {}).get("en") or {}
-        return self._cache_upsert("ygores_cards", {
-            "konami_id": konami_id,
-            "name": ja.get("name") or en.get("name") or "",
-            "card_type": ja.get("cardType") or en.get("cardType") or "",
+    @classmethod
+    def _card_row(cls, konami_id, raw, now):
+        """raw（API形式/ミラー形式どちらでも）から ygores_cards の行dictを作る"""
+        s = cls._summarize(konami_id, raw) or {}
+        return {
+            "konami_id": int(konami_id),
+            "name": s.get("name", ""),
+            "card_type": s.get("card_type", ""),
             "raw": raw,
-            "fetched_at": self._now_iso(),
-        })
+            "fetched_at": now,
+        }
+
+    def save_card(self, konami_id: int, raw: dict) -> bool:
+        return self._cache_upsert("ygores_cards", self._card_row(konami_id, raw, self._now_iso()))
 
     def save_cards_bulk(self, items) -> int:
-        """(konami_id, raw) の列を一括upsert（ダンプimport用）。保存件数を返す"""
+        """(konami_id, raw) の列を一括upsert（ダンプimport用）。保存件数を返す。
+        raw は API形式・GitHubミラー形式のどちらでもよい。"""
         sb = self._supabase()
         if sb is None:
             return 0
-        rows = []
         now = self._now_iso()
-        for konami_id, raw in items:
-            ja = (raw.get("cardData") or {}).get("ja") or {}
-            en = (raw.get("cardData") or {}).get("en") or {}
-            rows.append({
-                "konami_id": int(konami_id),
-                "name": ja.get("name") or en.get("name") or "",
-                "card_type": ja.get("cardType") or en.get("cardType") or "",
-                "raw": raw,
-                "fetched_at": now,
-            })
+        rows = [self._card_row(konami_id, raw, now) for konami_id, raw in items]
         saved = 0
         chunk = 500
         for i in range(0, len(rows), chunk):

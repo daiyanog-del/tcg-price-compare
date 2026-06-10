@@ -1,0 +1,192 @@
+/*
+ * proxy-card.css
+ * 未発売カードのプロキシ表示スタイル
+ *
+ * - 公式カードフレームを模倣しない（variables.css のブランド配色のみ使用）
+ * - .tier-item と同寸（--slot-width / --slot-height）のブロック要素
+ * - 種別区別: 左ボーダー色で表現
+ *   モンスター = --gold、魔法 = --green、罠 = --red、その他 = --accent
+ * - 効果テキスト長で 3 段階のフォントサイズクラスを付与
+ *   pc-text-m（〜80字）/ pc-text-s（〜160字）/ pc-text-xs（それ以上）
+ */
+
+/* ── ラッパー（.tier-item-wrapper と同構造）─────────── */
+
+/* proxy-card は .tier-item-wrapper 内に直接置かれる */
+.proxy-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+
+  /* 左ボーダー: 種別色（デフォルト=--accent） */
+  border-left: 3px solid var(--accent);
+
+  background-color: var(--bg-card);
+  color: var(--main-color);
+  font-family: var(--font);
+
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  cursor: grab;
+
+  /* .tier-item と同じアニメ特性 */
+  transition: transform 0.3s ease-in-out, filter 0.2s;
+  z-index: 1;
+  user-select: none;
+}
+
+.proxy-card:active {
+  cursor: grabbing;
+  filter: brightness(0.93);
+}
+
+/* 種別ごとの左ボーダー色 */
+.proxy-card[data-broad-type="monster"] {
+  border-left-color: var(--gold);
+}
+.proxy-card[data-broad-type="spell"] {
+  border-left-color: var(--green);
+}
+.proxy-card[data-broad-type="trap"] {
+  border-left-color: var(--red);
+}
+
+/* ── ヘッダ（カード名 + 種別ラベル）────────────────── */
+.proxy-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 3px 4px 2px 4px;
+  background-color: color-mix(in srgb, var(--bg-card) 80%, var(--border) 20%);
+  flex-shrink: 0;
+  gap: 2px;
+}
+
+.proxy-card__name {
+  font-size: clamp(0.5rem, 1.5cqw, 0.72rem);
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--main-color);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  word-break: break-all;
+  flex: 1;
+  min-width: 0;
+}
+
+.proxy-card__type-label {
+  font-size: clamp(0.42rem, 1.1cqw, 0.6rem);
+  font-weight: 500;
+  color: var(--bg-card);
+  padding: 1px 3px;
+  border-radius: 2px;
+  background-color: var(--accent);
+  white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 1.3;
+  align-self: flex-start;
+}
+
+.proxy-card[data-broad-type="monster"] .proxy-card__type-label {
+  background-color: var(--gold);
+}
+.proxy-card[data-broad-type="spell"] .proxy-card__type-label {
+  background-color: var(--green);
+}
+.proxy-card[data-broad-type="trap"] .proxy-card__type-label {
+  background-color: var(--red);
+}
+
+/* ── メタ行（属性/レベル/ランク/リンク/種族）────────── */
+.proxy-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1px 3px;
+  padding: 1px 4px;
+  font-size: clamp(0.4rem, 1.1cqw, 0.58rem);
+  color: color-mix(in srgb, var(--main-color) 85%, var(--border) 15%);
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.proxy-card__meta-item {
+  white-space: nowrap;
+}
+
+/* ── 効果テキスト ──────────────────────────────────── */
+.proxy-card__effect {
+  flex: 1;
+  min-height: 0;
+  padding: 2px 4px;
+  line-height: 1.35;
+  color: var(--main-color);
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* スクロールバーは細くして存在感を抑える */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.proxy-card__effect::-webkit-scrollbar {
+  width: 3px;
+}
+.proxy-card__effect::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+/* 効果テキスト: 文字数による 3 段階フォントサイズ */
+.pc-text-m {
+  font-size: clamp(0.5rem, 1.4cqw, 0.65rem);
+}
+.pc-text-s {
+  font-size: clamp(0.44rem, 1.2cqw, 0.58rem);
+}
+.pc-text-xs {
+  font-size: clamp(0.4rem, 1.0cqw, 0.52rem);
+  overflow-y: auto;
+}
+
+/* ── フッタ（ATK/DEF）──────────────────────────────── */
+.proxy-card__stats {
+  display: flex;
+  justify-content: space-around;
+  padding: 2px 4px;
+  font-size: clamp(0.48rem, 1.3cqw, 0.62rem);
+  font-weight: 700;
+  background-color: color-mix(in srgb, var(--bg-card) 80%, var(--border) 20%);
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+}
+
+.proxy-card__atk {
+  color: var(--gold);
+}
+
+.proxy-card__def {
+  color: color-mix(in srgb, var(--main-color) 70%, var(--border) 30%);
+}
+
+/* 魔法・罠はATK/DEFを非表示 */
+.proxy-card[data-broad-type="spell"] .proxy-card__stats,
+.proxy-card[data-broad-type="trap"]  .proxy-card__stats {
+  display: none;
+}
+
+/* ── 守備・セット表示の互換（.tier-item と同じクラスを wrapper が持つ）── */
+/* proxy-card は wrapper 内なので .is-defense / .is-set は wrapper に付く。
+   そのため個別スタイル不要（.tier-item と同じ transform が wrapper 経由で効く）。
+   .tier-item の transition を proxy-card にも持たせているため回転アニメは動作する。 */
+
+/* コンテナクエリ対応（cqw 単位を使うためコンテナ宣言） */
+.tier-item-wrapper {
+  container-type: inline-size;
+}

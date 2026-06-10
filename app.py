@@ -29,6 +29,7 @@ from pack_scraper import get_pack_list, fetch_pack_cards
 from monitor import tracker, run_health_check
 from constants import JST, VAPID_CLAIMS
 from ygores_repository import repository as _ygores_repo
+import card_display as _card_display
 
 import re as _re
 from urllib.parse import quote as _url_quote
@@ -132,6 +133,12 @@ def _ygores_image_url(card_name):
     cid = ids[0]
     path = f"/{cid // 10000}/{(cid % 10000) // 100}/{cid % 100}_1.png"
     return f"https://artworks-jp-n.ygoresources.com{path}"
+
+# card_display に発売済みカードの URL 解決関数を注入する。
+# ここで行うことで循環 import を回避する（card_display は app.py を import しない）。
+# 注意: 注入するのはメモリ内索引の ygoresources のみ。カーナベルは外部ES検索で遅いため、
+# 従来どおり各エンドポイント側でフォールバックする（バッチAPIの並列化を維持）。
+_card_display.register_released_resolver(_ygores_image_url)
 
 FAVICON_FILES = {
     'favicon.svg', 'favicon-32.png', 'favicon-16.png',
@@ -2000,9 +2007,12 @@ def _fetch_card_info_by_id(card_id: int, name: str) -> dict:
         if prints:
             last = prints[-1]
             latest_print = last if isinstance(last, str) else last.get("code", "")
-        race = None
+        # 種族: ミラー形式は日本語種族を直接持つ。無ければ ygoprodeck で補完
+        race = summary.get("race_ja")
         limit = None
         prop = _PROP_JA.get(summary["property"] or "", summary["property"] or "")
+        # EXデッキ判定は repository が形式（API整数コード/ミラー日本語）を吸収して返す
+        is_ex = summary["is_ex"]
         card_subtype = ""
         try:
             pdeck = _http.get(
@@ -2015,22 +2025,17 @@ def _fetch_card_info_by_id(card_id: int, name: str) -> dict:
                 card_subtype = pitem.get("type", "")
                 race_en = pitem.get("race", "")
                 if card_type == "monster":
-                    race = _RACE_JA.get(race_en, race_en) or None
+                    # ミラー由来の種族を優先し、欠ける場合のみ ygoprodeck で補う
+                    race = race or (_RACE_JA.get(race_en, race_en) or None)
                 else:
                     # 魔法/罠: race フィールドがプロパティ種別
-                    prop = _PROP_JA.get(race_en, "")
+                    prop = _PROP_JA.get(race_en, "") or prop
                 ban_ocg = pitem.get("banlist_info", {}).get("ban_ocg")
                 limit = _LIMIT_JA.get(ban_ocg) if ban_ocg else None
         except Exception:
             pass
         # サブタイプ優先、なければ大分類
         mapped_type = _TYPE_JA.get(card_subtype) or _TYPE_JA.get(card_type, card_type)
-        # EXデッキ判定: YGOResources の properties 配列を優先して判定（ygoprodeck非依存）。
-        # 11=Fusion, 18=Xyz, 19=Synchro, 23=Link（/data/meta/mprop で確定・実データ実証済み）。
-        # トゥーン融合等 ygoprodeck が "Toon Monster" と返してしまうカードでも正しく判定できる。
-        _EX_PROP_IDS = {11, 18, 19, 23}
-        props = summary["properties"]
-        is_ex = any(p in _EX_PROP_IDS for p in props)
         # properties が欠ける異常系のみ ygoprodeck の card_subtype で補完
         if not is_ex and card_subtype:
             is_ex = any(kw in card_subtype for kw in ("Fusion", "Synchro", "Xyz", "XYZ", "Link"))
@@ -2068,10 +2073,33 @@ def _fetch_card_info_by_id(card_id: int, name: str) -> dict:
 
 @app.route("/api/card-info")
 def api_card_info():
-    """カード名からYGOResourcesのカード情報（ATK/DEF/効果テキスト等）を返す"""
+    """カード名からYGOResourcesのカード情報（ATK/DEF/効果テキスト等）を返す。
+    未発売カードの場合は card_display 経由でプロキシ用データを返す。
+    レスポンスに kind（'released'|'proxy'|'none'）を追加（後方互換: found 等の既存キーは維持）。
+    """
     name = request.args.get("name", "").strip()
     if not name:
         return jsonify({"error": "name required"}), 400
+
+    # card_display 経由で表示種別を先に解決
+    display = _card_display.resolve_card_display(name)
+
+    if display["kind"] == "proxy":
+        # 未発売カード: プロキシ用データを返す（found=False 相当だが proxy データ付き）
+        proxy = display["proxy"]
+        result = {
+            "found":      False,
+            "kind":       "proxy",
+            "broad_type": proxy.get("broad_type", "monster"),
+            "is_ex":      proxy.get("is_ex", False),
+            "proxy":      proxy,
+        }
+        resp = jsonify(result)
+        # 未発売カードは表示設定変更で即時反映が必要なためキャッシュなし
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
+    # 発売済み or none → 従来どおりYGOResources参照
     idx = _get_ygores_name_index()
     ids = idx.get(name)
     if not ids and _ygores_fuzzy_index:
@@ -2079,9 +2107,12 @@ def api_card_info():
         # （画像取得 _ygores_image_url と同じフォールバック。card-info でもゆれを吸収する）
         ids = _ygores_fuzzy_index.get(_fuzzy_key(name))
     if not ids:
-        return jsonify({"found": False}), 200
+        result = {"found": False, "kind": "none"}
+        return jsonify(result), 200
     card_id = ids[0]
     result = _fetch_card_info_by_id(card_id, name)
+    # 発売済みカードには kind='released' を付与（後方互換: found 等の既存キーは維持）
+    result["kind"] = "released"
     resp = jsonify(result)
     if result.get("found"):
         # カード情報はほぼ不変のため長期キャッシュ可（card-image と同様）
@@ -2091,14 +2122,38 @@ def api_card_info():
 
 @app.route("/api/card-image")
 def api_card_image():
-    """カード名から画像URLを返す。YGOResources優先、未登録時はカーナベルにフォールバック"""
+    """カード名から画像URLを返す。
+    card_display 経由で解決し kind を付与する（後方互換: url キーは維持）。
+    - 発売済み / 公式画像あり: {"url": str, "kind": "image"}
+    - 未発売プロキシ:           {"url": null, "kind": "proxy", "proxy": {...}}
+    - 不明/pending等:           {"url": null, "kind": "none"}
+    """
     name = request.args.get("name", "").strip()
     if not name:
         return jsonify({"error": "name required"}), 400
-    url = _ygores_image_url(name) or kanabell_card_image_url(name)
-    resp = jsonify({"url": url})
-    # カード名→画像URLの対応はほぼ不変のため長期キャッシュ可
-    resp.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
+
+    display = _card_display.resolve_card_display(name)
+
+    if display["kind"] == "image":
+        resp = jsonify({"url": display["url"], "kind": "image"})
+        # 発売済みカードは従来どおり長期キャッシュ可
+        resp.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
+        return resp
+
+    if display["kind"] == "proxy":
+        resp = jsonify({"url": None, "kind": "proxy", "proxy": display["proxy"]})
+        # 未発売カードは表示設定変更で即時反映が必要なためキャッシュなし
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
+    # kind == "none" → カーナベルにフォールバック（従来挙動を維持）
+    url = kanabell_card_image_url(name)
+    if url:
+        resp = jsonify({"url": url, "kind": "image"})
+        resp.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
+        return resp
+    resp = jsonify({"url": None, "kind": "none"})
+    resp.headers["Cache-Control"] = "no-store"
     return resp
 
 
@@ -2106,7 +2161,13 @@ def api_card_image():
 def api_card_images():
     """複数カード名を一括受け取り、画像URLを一括返却するバッチAPI（デッキグリッド高速化用）。
     リクエスト: {"names": ["カード名A", "カード名B", ...]}
-    レスポンス: {"images": {"カード名A": url|null, ...}}
+    レスポンス: {"images": {"カード名A": {url, kind, [proxy]}|旧形式url|null, ...}}
+
+    後方互換対応:
+    - 発売済みカードの値は従来どおり url 文字列（旧クライアントが文字列前提でも動く）。
+    - 未発売・プロキシカードの値は {url: null, kind: 'proxy', proxy: {...}} オブジェクト。
+    - none（pending等）の値は null（従来どおり）。
+    deck-input-panel.js は kind を見て分岐するよう更新済み。
     部分成功を許容（解決できない名前は null を返す）。
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed as futures_completed
@@ -2118,18 +2179,28 @@ def api_card_images():
     # 上限をMAX_DECK_CARDSで切る（DoS防止）
     names = [str(n).strip() for n in names if n][:MAX_DECK_CARDS]
 
+    # card_display バッチで一括解決（発売済み・未発売・プロキシを一度に処理）
+    display_results = _card_display.resolve_card_displays(names)
+
     images = {}
-    # まずYGOResourcesで一括解決（O(1)・ネットワーク不要）
-    needs_fallback = []
+    has_unreleased = False  # 未発売カードが1件でもあればキャッシュを短くする
+    needs_kanabell = []     # YGOResources・未発売どちらにも該当しない名前のカーナベル候補
+
     for name in names:
-        url = _ygores_image_url(name)
-        if url:
-            images[name] = url
+        disp = display_results.get(name, {"kind": "none"})
+        if disp["kind"] == "image":
+            # 発売済み or 公式画像あり: 値は従来どおり URL 文字列（後方互換）
+            images[name] = disp["url"]
+        elif disp["kind"] == "proxy":
+            # 未発売プロキシ: オブジェクトで返す（deck-input-panel.js が kind を判定）
+            images[name] = {"url": None, "kind": "proxy", "proxy": disp["proxy"]}
+            has_unreleased = True
         else:
-            needs_fallback.append(name)
+            # none の場合はカーナベルフォールバックを試みる
+            needs_kanabell.append(name)
 
     # カーナベルフォールバック（外部ES検索）は並列化して短縮
-    if needs_fallback:
+    if needs_kanabell:
         def _fetch_kanabell(n):
             try:
                 url = kanabell_card_image_url(n)
@@ -2137,18 +2208,22 @@ def api_card_images():
             except Exception:
                 return n, None
 
-        with ThreadPoolExecutor(max_workers=min(len(needs_fallback), 5)) as executor:
-            futs = {executor.submit(_fetch_kanabell, n): n for n in needs_fallback}
+        with ThreadPoolExecutor(max_workers=min(len(needs_kanabell), 5)) as executor:
+            futs = {executor.submit(_fetch_kanabell, n): n for n in needs_kanabell}
             for future in futures_completed(futs, timeout=10):
                 try:
                     n, url = future.result()
-                    images[n] = url
+                    images[n] = url  # url は文字列 or None（後方互換）
                 except Exception:
                     images[futs[future]] = None
 
     resp = jsonify({"images": images})
-    # カード名→画像URLの対応はほぼ不変のため長期キャッシュ可
-    resp.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
+    if has_unreleased:
+        # 未発売カードが含まれる場合は表示設定変更で即時反映が必要なためキャッシュなし
+        resp.headers["Cache-Control"] = "no-store"
+    else:
+        # 全て発売済み: カード名→画像URLの対応はほぼ不変のため長期キャッシュ可
+        resp.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
     return resp
 
 
@@ -2156,9 +2231,10 @@ def api_card_images():
 def api_card_infos():
     """複数カード名を一括受け取り、カード情報を一括返却するバッチAPI（一人回しデッキ読込高速化用）。
     リクエスト: {"names": ["カード名A", "カード名B", ...]}
-    レスポンス: {"infos": {"カード名A": {found, broad_type, is_ex, ...}, ...}}
-    部分成功を許容（解決できない名前は {found: false} を返す）。
+    レスポンス: {"infos": {"カード名A": {found, broad_type, is_ex, kind, [proxy], ...}, ...}}
+    部分成功を許容（解決できない名前は {found: false, kind: "none"} を返す）。
     _card_info_cache を経由するため、キャッシュ命中分は外部APIを叩かない。
+    未発売カードは kind='proxy' でプロキシデータを返す（found=False）。
     """
     data = request.get_json(force=True, silent=True) or {}
     names = data.get("names", [])
@@ -2166,17 +2242,37 @@ def api_card_infos():
         return jsonify({"error": "names must be a list"}), 400
     names = [str(n).strip() for n in names if n][:MAX_DECK_CARDS]
 
+    # card_display バッチで未発売カードを先に検出する
+    display_results = _card_display.resolve_card_displays(names)
+
     idx = _get_ygores_name_index()
     infos = {}
+    has_unreleased = False
 
     # name → card_id を解決し、キャッシュ命中分は即格納、未命中分を並列取得
     need_fetch = []  # (name, card_id) のリスト
     for name in names:
+        disp = display_results.get(name, {"kind": "none"})
+
+        if disp["kind"] == "proxy":
+            # 未発売カード: プロキシ用データを返す
+            proxy = disp["proxy"]
+            infos[name] = {
+                "found":      False,
+                "kind":       "proxy",
+                "broad_type": proxy.get("broad_type", "monster"),
+                "is_ex":      proxy.get("is_ex", False),
+                "proxy":      proxy,
+            }
+            has_unreleased = True
+            continue
+
+        # 発売済みは YGOResources から取得（従来どおり）
         ids = idx.get(name)
         if not ids and _ygores_fuzzy_index:
             ids = _ygores_fuzzy_index.get(_fuzzy_key(name))
         if not ids:
-            infos[name] = {"found": False}
+            infos[name] = {"found": False, "kind": "none"}
             continue
         card_id = ids[0]
         # キャッシュ参照（ロック内）
@@ -2201,10 +2297,14 @@ def api_card_infos():
                     n, result = future.result()
                     infos[n] = result
                 except Exception:
-                    infos[futs[future][0]] = {"found": False}
+                    infos[futs[future][0]] = {"found": False, "kind": "none"}
 
     resp = jsonify({"infos": infos})
-    resp.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
+    if has_unreleased:
+        # 未発売カードが含まれる場合は表示設定変更で即時反映が必要なためキャッシュなし
+        resp.headers["Cache-Control"] = "no-store"
+    else:
+        resp.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
     return resp
 
 

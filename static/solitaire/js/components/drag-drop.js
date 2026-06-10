@@ -250,9 +250,9 @@ function executeDrop(draggedInfo, dropZoneInfo, dropTarget, modifiers = {}) {
         break;
     }
 
-    // リプレイログ記録
+    // リプレイログ記録（img.tier-item または div.tier-item（プロキシ）どちらでも対応）
     if (typeof window.replayLog === 'function') {
-      const cardId = draggedElement.querySelector('img')?.id;
+      const cardId = draggedElement.querySelector('.tier-item')?.id;
       if (cardId) {
         const state = getCardState(draggedElement);
         window.replayLog({
@@ -362,8 +362,9 @@ export function enableTouchDrag(ev) {
         resetCardStyle(draggingElem, true);
         document.removeEventListener('touchmove', handleTouchMove);
         document.removeEventListener('touchend', handleTouchEnd);
-        const img = draggingElem.querySelector('img.tier-item');
-        if (img) openCardContextMenu(draggingElem, img, startX, startY);
+        // img.tier-item または div.tier-item（プロキシ）どちらでも .tier-item で取れる
+        const cardEl = draggingElem.querySelector('.tier-item');
+        if (cardEl) openCardContextMenu(draggingElem, cardEl, startX, startY);
       }
     }, 500);
   }

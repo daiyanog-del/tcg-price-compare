@@ -41,15 +41,18 @@ export function initCardInfoPanel() {
     btn.title = hide ? 'カード情報パネルを表示' : 'カード情報パネルを非表示';
   });
   // プール・フィールド上のカードへのクリックを委譲で受け取る
+  // img.tier-item（発売済み）または div.tier-item（プロキシ）どちらも .tier-item で対応
   document.addEventListener('click', (e) => {
-    const img = e.target.closest('img.tier-item');
-    if (!img) return;
-    const name = img.dataset.cardName;
+    const cardEl = e.target.closest('.tier-item');
+    if (!cardEl) return;
+    const name = cardEl.dataset.cardName;
+    // プロキシカードは src がないため空文字または undefined になる
+    const imgSrc = cardEl.src || '';
     if (name) {
-      _fetchAndShow(name, img.src);
+      _fetchAndShow(name, imgSrc);
     } else {
-      // 名前不明（ニューロン画像）: サムネだけ表示
-      _showUnknown(img.src);
+      // 名前不明（ニューロン画像等）: サムネだけ表示
+      _showUnknown(imgSrc);
     }
   });
 

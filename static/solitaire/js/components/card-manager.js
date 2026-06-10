@@ -2,6 +2,7 @@ import { enableTouchDrag } from './drag-drop.js';
 import { applyCardState } from './card-state.js';
 import { openCardContextMenu } from '../ui/context-menu.js';
 import { playActivateEffect } from './card-effects.js';
+import { createProxyCardElement } from './proxy-card.js';
 
 /**
  * カード管理モジュール
@@ -12,27 +13,31 @@ let itemCount = 0;
 let initialImageSrcs = [];
 
 /**
- * カード画像要素にイベントリスナーを一括登録
+ * カード要素（img または proxy-card div）にイベントリスナーを一括登録
  * createCardElement と save-load-service.js の restoreCardsToSlot の
  * 重複登録を解消した共通ヘルパ。dblclick による効果発動もここで登録する。
- * @param {Element} wrapper - .tier-item-wrapper
- * @param {Element} img     - img.tier-item
+ *
+ * プロキシカード（div.tier-item）にも同じリスナーが付くよう、
+ * 第二引数は img.tier-item または div.tier-item どちらでも受け付ける。
+ *
+ * @param {Element} wrapper  - .tier-item-wrapper
+ * @param {Element} cardEl   - img.tier-item または div.tier-item（proxy-card）
  */
-export function attachCardImageListeners(wrapper, img) {
-  img.addEventListener('dragstart', window.drag);
-  img.addEventListener('touchstart', enableTouchDrag, { passive: false });
+export function attachCardImageListeners(wrapper, cardEl) {
+  cardEl.addEventListener('dragstart', window.drag);
+  cardEl.addEventListener('touchstart', enableTouchDrag, { passive: false });
 
   // 右クリック: コンテキストメニューを開く
-  img.addEventListener('contextmenu', (e) => {
+  cardEl.addEventListener('contextmenu', (e) => {
     e.preventDefault();
-    openCardContextMenu(wrapper, img, e.clientX, e.clientY);
+    openCardContextMenu(wrapper, cardEl, e.clientX, e.clientY);
   });
 
   // ダブルクリック: 効果発動アニメーションを再生してリプレイに記録
-  img.addEventListener('dblclick', (e) => {
+  cardEl.addEventListener('dblclick', (e) => {
     e.preventDefault();
     playActivateEffect(wrapper);
-    const cardId = img.id;
+    const cardId = cardEl.id;
     if (cardId && typeof window.replayLog === 'function') {
       window.replayLog({ actionType: 'activateEffect', cardId });
     }
@@ -48,26 +53,63 @@ function generateCardId() {
 }
 
 /**
- * カード要素を作成
- * @param {string} src - 画像のURL
- * @param {boolean} isEx - EXデッキのカードか
- * @returns {Element} - カード要素のラッパー
+ * カード要素を作成（多態対応版）
+ *
+ * 第一引数の種類に応じてカード要素を切り替える:
+ *   - 文字列 (URL)         → <img src=url class="tier-item">（従来どおり。既存呼び出しは無修正で動く）
+ *   - {kind:'image', url}  → <img src=url class="tier-item">
+ *   - {kind:'proxy', proxy}→ createProxyCardElement(proxy)（div.tier-item）
+ *   - それ以外 or null     → <img>（src=''、旧来の挙動に合わせて wrapper を返す）
+ *
+ * wrapper 構造・ID 付与・attachCardImageListeners はすべての種類で共通。
+ *
+ * @param {string|Object} srcOrDisplay  URL 文字列 or {kind, url?, proxy?}
+ * @param {boolean}       isEx          EXデッキのカードか
+ * @returns {Element}                   .tier-item-wrapper
  */
-function createCardElement(src, isEx = false) {
+function createCardElement(srcOrDisplay, isEx = false) {
   const wrapper = document.createElement('div');
   wrapper.classList.add('tier-item-wrapper');
   wrapper.id = `${generateCardId()} ${isEx ? 'ex' : 'normal'}`;
 
-  const img = document.createElement('img');
-  img.src = src;
-  img.classList.add('tier-item');
-  img.setAttribute('draggable', 'true');
-  img.id = wrapper.id.split(' ')[0]; // IDの数字部分のみ
+  let cardEl;
+
+  if (typeof srcOrDisplay === 'string') {
+    // 従来の文字列（URL）引数: 完全後方互換
+    const img = document.createElement('img');
+    img.src = srcOrDisplay;
+    img.classList.add('tier-item');
+    img.setAttribute('draggable', 'true');
+    cardEl = img;
+  } else if (srcOrDisplay && srcOrDisplay.kind === 'image') {
+    // {kind:'image', url: '...'} オブジェクト
+    const img = document.createElement('img');
+    img.src = srcOrDisplay.url || '';
+    img.classList.add('tier-item');
+    img.setAttribute('draggable', 'true');
+    cardEl = img;
+  } else if (srcOrDisplay && srcOrDisplay.kind === 'proxy') {
+    // {kind:'proxy', proxy: {...}} オブジェクト → プロキシ要素を生成
+    const proxyEl = createProxyCardElement(srcOrDisplay.proxy || {});
+    // draggable は createProxyCardElement 内で設定済みだが念のため確認
+    proxyEl.setAttribute('draggable', 'true');
+    cardEl = proxyEl;
+  } else {
+    // フォールバック（null / 未知の形式）: src='' の img を作る（旧来の挙動）
+    const img = document.createElement('img');
+    img.src = '';
+    img.classList.add('tier-item');
+    img.setAttribute('draggable', 'true');
+    cardEl = img;
+  }
+
+  // ID はすべての種類で wrapper の先頭トークンを使う
+  cardEl.id = wrapper.id.split(' ')[0];
 
   // イベントリスナーを一括登録（dblclick による効果発動含む）
-  attachCardImageListeners(wrapper, img);
+  attachCardImageListeners(wrapper, cardEl);
 
-  wrapper.appendChild(img);
+  wrapper.appendChild(cardEl);
   return wrapper;
 }
 
@@ -132,8 +174,9 @@ export function sortPoolCards(poolId) {
     const tb = TYPE_ORDER[b.dataset.cardType] ?? 3;
     if (ta !== tb) return ta - tb;
     // 同種別内は元のID順を維持
-    const idA = a.querySelector('img')?.id.toLowerCase() || '';
-    const idB = b.querySelector('img')?.id.toLowerCase() || '';
+    // img.tier-item または div.tier-item（プロキシ）どちらでも .tier-item で取れる
+    const idA = a.querySelector('.tier-item')?.id.toLowerCase() || '';
+    const idB = b.querySelector('.tier-item')?.id.toLowerCase() || '';
     return idA.localeCompare(idB);
   });
 

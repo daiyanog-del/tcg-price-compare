@@ -12,4 +12,5 @@
 @import './modal.css';
 @import './solitaire-brand.css';
 @import './opponent-tray.css';
+@import './proxy-card.css';
 @import './responsive.css'; /* 最後にインポートして上書きを確実に適用 */

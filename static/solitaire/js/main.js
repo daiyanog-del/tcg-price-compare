@@ -29,11 +29,16 @@ function initCardImageRegistration() {
       mutations.forEach(mut => {
         mut.addedNodes.forEach(node => {
           if (!(node instanceof Element)) return;
-          const img = node.querySelector('img.tier-item')
-            ?? (node.matches?.('img.tier-item') ? node : null);
-          if (img?.id && img.src) {
-            registerCardImage(img.id, img.src);
-            if (poolId === 'poolRow2') registerCardIsEx(img.id);
+          // img.tier-item（発売済み）または div.tier-item（プロキシ）どちらでも .tier-item で取れる
+          const cardEl = node.querySelector('.tier-item')
+            ?? (node.matches?.('.tier-item') ? node : null);
+          if (cardEl?.id) {
+            // プロキシは src がないため 'proxy:カード名' センチネルを使う
+            // （deck-input-panel.js が registerCardImage を呼ぶ前に MutationObserver が
+            //   先に発火した場合のフォールバック。実際は deck-input-panel.js の方が先）
+            const src = cardEl.src || cardEl.dataset?.proxySrc || '';
+            if (src) registerCardImage(cardEl.id, src);
+            if (poolId === 'poolRow2') registerCardIsEx(cardEl.id);
           }
         });
       });
@@ -252,11 +257,13 @@ function initializeApp() {
   const restored = loadSessionResume();
   if (restored) {
     // 復元したカードをリプレイ画像辞書に登録
-    document.querySelectorAll('img.tier-item').forEach(img => {
-      if (img.id && img.src) {
-        registerCardImage(img.id, img.src);
-        const wrapper = img.closest('.tier-item-wrapper');
-        if (wrapper?.id.includes(' ex')) registerCardIsEx(img.id);
+    // img.tier-item（発売済み）または div.tier-item（プロキシ）どちらも .tier-item で取れる
+    document.querySelectorAll('.tier-item').forEach(cardEl => {
+      const src = cardEl.src || cardEl.dataset?.proxySrc || '';
+      if (cardEl.id && src) {
+        registerCardImage(cardEl.id, src);
+        const wrapper = cardEl.closest('.tier-item-wrapper');
+        if (wrapper?.id.includes(' ex')) registerCardIsEx(cardEl.id);
       }
     });
     _showToast('前回の盤面を復元しました');

@@ -58,11 +58,20 @@ async function addCardByName(name, qty, isEx) {
     fetch(`${API_CARD_INFO}?name=${encodeURIComponent(name)}`).catch(() => null),
   ]);
 
-  let src = null;
+  // API レスポンス: kind を見て srcOrDisplay を決定する
+  let srcOrDisplay = null;
   try {
     if (imageRes?.ok) {
       const data = await imageRes.json();
-      src = data.url || null;
+      const kind = data.kind || (data.url ? 'image' : 'none');
+      if (kind === 'image' && data.url) {
+        // 発売済み or 公式画像あり: 従来どおり URL 文字列として扱う
+        srcOrDisplay = data.url;
+      } else if (kind === 'proxy') {
+        // 未発売プロキシ
+        srcOrDisplay = { kind: 'proxy', proxy: data.proxy || {} };
+      }
+      // kind === 'none' は srcOrDisplay = null のままスキップ
     }
   } catch { /* 無視 */ }
 
@@ -72,29 +81,41 @@ async function addCardByName(name, qty, isEx) {
   try {
     if (infoRes?.ok) {
       const data = await infoRes.json();
-      if (data.found && data.broad_type) cardType = data.broad_type;
-      // isEx が null（自動判定モード）の場合のみ API レスポンスの is_ex を使用
-      if (isEx == null && data.found) finalIsEx = !!data.is_ex;
+      // kind が 'proxy' の場合は proxy データから取得
+      const proxyData = data.proxy;
+      if (proxyData && data.kind === 'proxy') {
+        cardType = proxyData.broad_type || null;
+        if (isEx == null) finalIsEx = !!proxyData.is_ex;
+      } else if (data.found && data.broad_type) {
+        cardType = data.broad_type;
+        // isEx が null（自動判定モード）の場合のみ API レスポンスの is_ex を使用
+        if (isEx == null && data.found) finalIsEx = !!data.is_ex;
+      }
     }
   } catch { /* 無視 */ }
 
-  if (!src) {
-    console.warn(`画像取得失敗: ${name}`);
+  if (!srcOrDisplay) {
+    // kind === 'none'（pending/rejected 等）はスキップ
+    console.warn(`画像取得失敗またはスキップ: ${name}`);
     return;
   }
 
   const poolId = finalIsEx ? 'poolRow2' : 'poolRow';
+  // addCardToPool は srcOrDisplay を createCardElement に渡す
   for (let i = 0; i < qty; i++) {
-    addCardToPool(src, false, finalIsEx);
+    addCardToPool(srcOrDisplay, false, finalIsEx);
     // 追加直後に最後の wrapper を取ってリプレイ辞書・カード名・種別を登録
     const pool = document.getElementById(poolId);
     if (pool) {
       const lastWrapper = pool.querySelector('.tier-item-wrapper:last-child');
-      const lastImg     = lastWrapper?.querySelector('img');
-      if (lastImg?.id) {
-        registerCardImage(lastImg.id, src);
-        registerCardName(lastImg.id, name);  // リプレイ共有用に名前を記録
-        setCardName(lastImg, name);  // カード詳細パネル用に名前を付与
+      // プロキシは div.tier-item、画像は img.tier-item のどちらでも id を取れる
+      const lastCardEl  = lastWrapper?.querySelector('.tier-item');
+      if (lastCardEl?.id) {
+        // リプレイ辞書には URL か 'proxy:カード名' を登録する
+        const regSrc = typeof srcOrDisplay === 'string' ? srcOrDisplay : `proxy:${name}`;
+        registerCardImage(lastCardEl.id, regSrc);
+        registerCardName(lastCardEl.id, name);  // リプレイ共有用に名前を記録
+        setCardName(lastCardEl, name);  // カード詳細パネル用に名前を付与
         // セット時のモンスター/魔法罠判定に使う（モンスター=裏側守備、魔法罠=伏せ）
         if (cardType && lastWrapper) lastWrapper.dataset.cardType = cardType;
       }
@@ -152,15 +173,45 @@ async function addCardsBatch(cards, defaultIsEx) {
   // 取得結果を元の cards 配列順で DOM に反映（順序を保証するため配列ループ駆動）
   for (const card of cards) {
     const { qty, name } = card;
-    const src = images[name] || null;
-    if (!src) {
-      console.warn(`画像取得失敗: ${name}`);
+
+    // images[name] は以下のいずれか:
+    //   - 文字列 URL（発売済み / カーナベルフォールバック）  → 従来どおり
+    //   - {url:null, kind:'proxy', proxy:{...}}（未発売プロキシ） → 多態対応
+    //   - null（pending/rejected/取得失敗）                     → スキップ
+    const imgVal = images[name] ?? null;
+
+    // kind === 'none' 相当（null または明示的な none オブジェクト）はスキップ
+    if (!imgVal || (typeof imgVal === 'object' && imgVal.kind === 'none')) {
+      console.warn(`画像取得失敗またはスキップ: ${name}`);
+      continue;
+    }
+
+    // srcOrDisplay: createCardElement に渡す値を確定する
+    let srcOrDisplay;
+    if (typeof imgVal === 'string') {
+      // 発売済み: URL 文字列（後方互換）
+      srcOrDisplay = imgVal;
+    } else if (imgVal.kind === 'proxy') {
+      // 未発売プロキシ: オブジェクトのまま渡す
+      srcOrDisplay = imgVal;
+    } else {
+      // 予期しない形式: スキップ
+      console.warn(`不明な images 形式のためスキップ: ${name}`);
       continue;
     }
 
     const info = infos[name] || {};
     // broad_type: "monster" | "spell" | "trap"
-    const cardType = (info.found && info.broad_type) ? info.broad_type : null;
+    // 未発売カード（kind='proxy'）は proxy データから取得する
+    let cardType = null;
+    if (imgVal?.kind === 'proxy' && imgVal.proxy?.broad_type) {
+      cardType = imgVal.proxy.broad_type;
+    } else if (info.found && info.broad_type) {
+      cardType = info.broad_type;
+    } else if (info.kind === 'proxy' && info.proxy?.broad_type) {
+      // card-infos バッチが proxy を返した場合
+      cardType = info.proxy.broad_type;
+    }
 
     // EX判定の優先順: card.is_ex（metadeck付与済み）> defaultIsEx（強制値）> API応答
     let finalIsEx;
@@ -170,21 +221,28 @@ async function addCardsBatch(cards, defaultIsEx) {
       finalIsEx = defaultIsEx;
     } else {
       // defaultIsEx === null → API応答で自動判定（loadDeckFromText で使用）
-      finalIsEx = info.found ? !!info.is_ex : false;
+      if (imgVal?.kind === 'proxy' && imgVal.proxy) {
+        finalIsEx = !!imgVal.proxy.is_ex;
+      } else {
+        finalIsEx = info.found ? !!info.is_ex : false;
+      }
     }
 
     const poolId = finalIsEx ? 'poolRow2' : 'poolRow';
     for (let i = 0; i < qty; i++) {
-      addCardToPool(src, false, finalIsEx);
+      addCardToPool(srcOrDisplay, false, finalIsEx);
       // 追加直後に最後の wrapper を取ってリプレイ辞書・カード名・種別を登録
       const pool = document.getElementById(poolId);
       if (pool) {
         const lastWrapper = pool.querySelector('.tier-item-wrapper:last-child');
-        const lastImg     = lastWrapper?.querySelector('img');
-        if (lastImg?.id) {
-          registerCardImage(lastImg.id, src);
-          registerCardName(lastImg.id, name);  // リプレイ共有用に名前を記録
-          setCardName(lastImg, name);           // カード詳細パネル用に名前を付与
+        // プロキシは div.tier-item、画像は img.tier-item のどちらでも .tier-item で取れる
+        const lastCardEl  = lastWrapper?.querySelector('.tier-item');
+        if (lastCardEl?.id) {
+          // リプレイ辞書には URL か 'proxy:カード名' を登録する
+          const regSrc = typeof srcOrDisplay === 'string' ? srcOrDisplay : `proxy:${name}`;
+          registerCardImage(lastCardEl.id, regSrc);
+          registerCardName(lastCardEl.id, name);  // リプレイ共有用に名前を記録
+          setCardName(lastCardEl, name);           // カード詳細パネル用に名前を付与
           // セット時のモンスター/魔法罠判定に使う（モンスター=裏側守備、魔法罠=伏せ）
           if (cardType && lastWrapper) lastWrapper.dataset.cardType = cardType;
         }

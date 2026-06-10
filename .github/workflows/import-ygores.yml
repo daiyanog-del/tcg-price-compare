@@ -1,0 +1,40 @@
+# ygoresources 初期データ投入（手動実行のみ）
+# 公開ミラー（GitHub）の日本語カードデータを Supabase に一括投入する。
+# Actions タブ → Import YGOResources Dump → Run workflow で実行。
+# 何度実行してもupsert（重複は上書き）なので安全。
+
+name: Import YGOResources Dump
+
+on:
+  workflow_dispatch:
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests supabase
+
+      - name: Download mirror (ja only)
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse \
+            https://github.com/db-ygoresources-com/yugioh-card-history.git mirror
+          cd mirror
+          git sparse-checkout set ja
+          echo "ja files: $(ls ja | wc -l)"
+
+      - name: Import into Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python import_ygores_dump.py mirror/ja

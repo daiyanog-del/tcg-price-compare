@@ -25,12 +25,14 @@ let _removeListeners = null;
 
 /**
  * コンテキストメニューを開く
- * @param {Element} wrapper - .tier-item-wrapper
- * @param {Element} img     - img.tier-item
- * @param {number}  x       - 表示位置 clientX
- * @param {number}  y       - 表示位置 clientY
+ * @param {Element} wrapper  - .tier-item-wrapper
+ * @param {Element} cardEl   - img.tier-item または div.tier-item（proxy-card）
+ * @param {number}  x        - 表示位置 clientX
+ * @param {number}  y        - 表示位置 clientY
  */
-export function openCardContextMenu(wrapper, img, x, y) {
+export function openCardContextMenu(wrapper, cardEl, x, y) {
+  // 後方互換: 内部で img という名前を使っていた箇所を cardEl として統一する
+  const img = cardEl;  // 既存の _buildMenuItems / _returnToDeck の引数に渡す
   closeContextMenu();
 
   const parent   = wrapper.parentElement;
@@ -252,13 +254,14 @@ function _placeUnder(wrapper, slot) {
  */
 function _logState(wrapper) {
   if (typeof window.replayLog !== 'function') return;
-  const img = wrapper.querySelector('img.tier-item');
-  if (!img) return;
+  // img.tier-item または div.tier-item（プロキシ）どちらでも .tier-item で取れる
+  const cardEl = wrapper.querySelector('.tier-item');
+  if (!cardEl) return;
   const state  = getCardState(wrapper);
   const zoneEl = wrapper.parentElement;
   window.replayLog({
     actionType:  'moveCard',
-    cardId:      img.id,
+    cardId:      cardEl.id,
     zoneId:      _getZoneId(zoneEl),
     zIndex:      wrapper.style.zIndex || '1',
     transform:   wrapper.style.transform || '',

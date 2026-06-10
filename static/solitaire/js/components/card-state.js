@@ -68,12 +68,13 @@ export function toggleDefense(wrapper) {
  * @param {boolean} on      - true=裏面, false=表面
  */
 export function applySet(wrapper, on) {
-  const img = wrapper.querySelector('img.tier-item');
+  // img.tier-item または div.tier-item（プロキシ）どちらでも .tier-item で取れる
+  const cardEl = wrapper.querySelector('.tier-item');
   if (on) {
     wrapper.classList.add('is-set');
     wrapper.dataset.face = 'down';
     // カーソルを合わせたときにカード名を表示（裏側でも名称確認できるように）
-    if (img) img.title = img.dataset.cardName || '？';
+    if (cardEl) cardEl.title = cardEl.dataset.cardName || '？';
     // モンスターは守備表示も追加（裏側守備表示）
     if (isMonsterCard(wrapper)) {
       applyDefense(wrapper, true);
@@ -81,7 +82,7 @@ export function applySet(wrapper, on) {
   } else {
     wrapper.classList.remove('is-set');
     delete wrapper.dataset.face;
-    if (img) img.title = '';
+    if (cardEl) cardEl.title = '';
     // モンスターのセット解除は守備表示も同時に解除（攻撃表示へ）
     if (isMonsterCard(wrapper)) {
       applyDefense(wrapper, false);
