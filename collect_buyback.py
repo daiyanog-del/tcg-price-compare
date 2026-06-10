@@ -38,21 +38,41 @@ SKIP_BUYBACK_SHOPS_IN_CI = {"遊々亭"}
 
 
 def collect_and_save_buyback(
-    sb: Client, card_name: str, today: str, shop_names: list[str]
+    sb: Client, card_name: str, today: str, shop_names: list[str],
+    shop_stats: dict | None = None,
 ) -> int:
     """1枚のカードの買取価格を取得してSupabaseに保存。保存した行数を返す。
 
     販売の collect_and_save とほぼ同じ構造だが、
     店舗×レアリティごとの「最大買取額(max_price)」を記録する点が異なる。
+    shop_stats に dict を渡すと、店舗ごとの 取得成功/0件/取得エラー を集計する。
     """
+    status: dict = {}
     try:
-        results = compare_buyback(card_name, shop_names=shop_names)
+        results = compare_buyback(card_name, shop_names=shop_names, status_out=status)
     except Exception as e:
         print(f"  スクレイピング失敗 [{card_name}]: {e}")
         return 0
 
+    had_error = False
+    for shop, st in status.items():
+        failed = bool(st.get("exception")) or (st.get("fetch_errors", 0) > 0 and st.get("count", 0) == 0)
+        if failed:
+            had_error = True
+        if shop_stats is not None:
+            agg = shop_stats.setdefault(shop, {"ok": 0, "empty": 0, "error": 0})
+            if failed:
+                agg["error"] += 1
+            elif st.get("count", 0) == 0:
+                agg["empty"] += 1
+            else:
+                agg["ok"] += 1
+
     if not results:
-        print(f"  結果なし [{card_name}]")
+        if had_error:
+            print(f"  取得失敗 [{card_name}]（店舗側エラー — 在庫なしとは区別）")
+        else:
+            print(f"  結果なし [{card_name}]")
         return 0
 
     # 店舗×レアリティごとに最大買取額を集計（販売は最小だが買取は最大が意味を持つ）
@@ -139,6 +159,14 @@ def main():
     print(f"\n買取対象店舗: {buyback_shop_names}")
     print("\n--- 店舗ヘルスチェック ---")
     available_shops = check_shop_availability(buyback_shop_names)
+
+    # カーナベルはAPIキー必須。未設定だと全カード0件＝誤データになるため当日除外
+    if "カーナベル" in available_shops and not (
+        os.environ.get("KANABELL_CLOUD_ID") and os.environ.get("KANABELL_API_KEY")
+    ):
+        print("  NG: カーナベル — KANABELL_CLOUD_ID / KANABELL_API_KEY 未設定のため当日スキップ")
+        available_shops.remove("カーナベル")
+
     if not available_shops:
         print("全買取店舗が応答しないため収集を中止します")
         return
@@ -148,11 +176,12 @@ def main():
     total_saved = 0
     success_count = 0
     fail_count = 0
+    shop_stats: dict = {}  # 店舗別の 取得成功/0件/エラー 集計
 
     for i, card_data in enumerate(hot_cards):
         card_name = card_data["card_name"]
         print(f"[{i+1}/{len(hot_cards)}] {card_name}")
-        saved = collect_and_save_buyback(sb, card_name, today, available_shops)
+        saved = collect_and_save_buyback(sb, card_name, today, available_shops, shop_stats=shop_stats)
         if saved > 0:
             total_saved += saved
             success_count += 1
@@ -167,6 +196,13 @@ def main():
     elapsed_min = (datetime.now(JST) - started_at).total_seconds() / 60
     print(f"\n=== 完了（{elapsed_min:.0f}分）===")
     print(f"成功: {success_count}件 / 失敗: {fail_count}件 / 保存行数: {total_saved}")
+    if shop_stats:
+        print("店舗別取得状況:")
+        for shop, s in sorted(shop_stats.items()):
+            attempted = s["ok"] + s["empty"] + s["error"]
+            print(f"  {shop}: 取得 {s['ok']} / 0件 {s['empty']} / エラー {s['error']}")
+            if attempted >= 20 and s["ok"] == 0:
+                print(f"  警告: {shop} は全カードで取得0件 — サイト構造変更またはブロックの可能性")
 
 
 if __name__ == "__main__":

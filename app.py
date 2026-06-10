@@ -905,7 +905,8 @@ def _load_estimate_cache(startup: bool = False):
     max_retries = 3
     for attempt in range(1, max_retries + 1):
         try:
-            cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+            # recorded_at はJST日付で記録されるため、比較もJST基準（UTCだと0-9時に1日ずれる）
+            cutoff = (datetime.now(JST) - timedelta(days=7)).strftime("%Y-%m-%d")
             resp = (_supabase_client.rpc("get_card_best_prices", {"cutoff_date": cutoff})
                     .limit(5000)
                     .execute())
@@ -989,7 +990,7 @@ def api_price_history():
         return jsonify({"card_name": card_name, "data": []})
 
     try:
-        cutoff = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
+        cutoff = (datetime.now(JST) - timedelta(days=90)).strftime("%Y-%m-%d")
         resp = (_supabase_client.table("price_history")
                 .select("shop, rarity, min_price, recorded_at")
                 .eq("card_name", card_name)
@@ -1046,7 +1047,7 @@ def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
         return []
 
     try:
-        cutoff = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")
+        cutoff = (datetime.now(JST) - timedelta(days=2)).strftime("%Y-%m-%d")
         resp = (_supabase_client
                 .rpc("get_price_movers", {"cutoff_date": cutoff, "min_diff": 50, "top_n": 20})
                 .execute())
@@ -1125,7 +1126,7 @@ def _get_buyback_movers(direction: str, limit: int = 10) -> list[dict]:
         return []
 
     try:
-        cutoff = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
+        cutoff = (datetime.now(JST) - timedelta(days=3)).strftime("%Y-%m-%d")
         resp = (_supabase_client
                 .rpc("get_buyback_movers", {"cutoff_date": cutoff, "min_diff": 50, "top_n": 20})
                 .execute())
@@ -1273,7 +1274,7 @@ def api_wish_prices():
         if not names or not _supabase_client:
             return {}
         try:
-            cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+            cutoff = (datetime.now(JST) - timedelta(days=days)).strftime("%Y-%m-%d")
             all_rows: list = []
             page_size = 1000
             offset = 0

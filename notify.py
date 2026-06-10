@@ -52,7 +52,8 @@ def get_price_drops(sb: Client, card_names: list) -> dict:
     if not card_names:
         return {}
 
-    cutoff = (datetime.now() - timedelta(days=8)).strftime("%Y-%m-%d")
+    # recorded_at はJST日付のため比較もJST基準（UTCだと0-9時に1日ずれる）
+    cutoff = (datetime.now(JST) - timedelta(days=8)).strftime("%Y-%m-%d")
     all_rows = []
     page_size = 1000
     offset = 0

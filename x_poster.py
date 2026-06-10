@@ -506,9 +506,32 @@ def post_tweet(text, image_paths=None, reply_to_id=None):
         return None
 
 
+def _already_posted_today(sb, content_type_prefix: str) -> bool:
+    """当日(JST)に同種の投稿が tweet_log にあるか確認。
+    ワークフローの手動再実行・重複起動による二重投稿を防ぐ。"""
+    if not sb:
+        return False
+    try:
+        today_start = datetime.now(JST).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ).isoformat()
+        resp = (sb.table("tweet_log").select("tweet_id")
+                .like("content_type", f"{content_type_prefix}%")
+                .gte("posted_at", today_start)
+                .limit(1).execute())
+        return bool(resp.data)
+    except Exception as e:
+        print(f"  tweet_log 照会失敗（二重投稿チェックをスキップ）: {e}")
+        return False
+
+
 def post_daily_movers(sb):
     """毎日の値動きランキングをXに投稿（値上がり→値下がりのスレッド形式）"""
     print("\n=== X自動投稿 ===")
+
+    if _already_posted_today(sb, "movers_"):
+        print("  本日分は投稿済み（tweet_logに記録あり）— 二重投稿を回避してスキップ")
+        return
 
     up_tweet_id = None
 
@@ -645,6 +668,10 @@ def post_featured_movers(sb):
     from chart_renderer import render_price_chart
 
     print("\n=== 新弾フィーチャー投稿 ===")
+
+    if _already_posted_today(sb, "featured_movers"):
+        print("  本日分は投稿済み（tweet_logに記録あり）— 二重投稿を回避してスキップ")
+        return
 
     # 運用ウィンドウの確認
     pack = get_featured_pack(sb)
