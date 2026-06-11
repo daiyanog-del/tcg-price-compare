@@ -114,7 +114,7 @@ def _get_ygores_name_index():
             fk = _fuzzy_key(nm)
             if fk and fk not in _ygores_fuzzy_index:
                 _ygores_fuzzy_index[fk] = ids
-        logger.info(f"[YGOResources] 名前インデックス取得: {len(_ygores_name_index)}件")
+        logger.info(f"[YGOResources] 名前インデックス取得: {len(_ygores_name_index)}件 rss={_dbg_rss_mb()}MB")  # [MEMDBG] 特定後に rss 部分を削除
     except Exception as e:
         logger.warning(f"[YGOResources] 名前インデックス取得失敗: {e}")
         return {}
@@ -707,9 +707,14 @@ def api_search():
 
         all_results = []
 
+        # 【使い捨て診断】OOM原因特定後に削除。検索開始時点のRSSを記録
+        logger.info(f"[MEMDBG] search-start card='{card_name}' rss={_dbg_rss_mb()}MB shops={len(active_shops)}")
+
         def scrape_shop(name, fn):
             try:
                 items = fn(card_name)
+                # 【使い捨て診断】店舗1件取得直後のRSS。どの店舗でメモリが跳ねるか特定する
+                logger.info(f"[MEMDBG] shop-done '{name}' items={len(items) if items else 0} rss={_dbg_rss_mb()}MB")
                 if items:
                     tracker.record_success(name, len(items))
                 else:
@@ -2752,6 +2757,15 @@ def _read_proc_memory_kb():
         except Exception:
             pass
     return result
+
+
+def _dbg_rss_mb():
+    """現在のRSSをMBで返す（診断ログ用）。取得不可なら -1。"""
+    try:
+        kb = _read_proc_memory_kb().get("vm_rss_kb")
+        return round(kb / 1024, 1) if kb else -1.0
+    except Exception:
+        return -1.0
 
 
 def _approx_cache(obj):
