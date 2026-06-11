@@ -742,7 +742,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     <button class="mode-tab" onclick="switchMode('meta')">環境デッキ</button>
     <button class="mode-tab" onclick="switchMode('packs')">最新弾</button>
     <button class="mode-tab" onclick="switchMode('wishlist')">購入候補<span class="wish-badge" id="wishTabBadge" style="display:none">0</span></button>
-    <a class="mode-tab" href="/solitaire" style="text-decoration:none">一人回し</a>
+    {% if enable_solo_play %}<a class="mode-tab" href="/solitaire" style="text-decoration:none">一人回し</a>{% endif %}
   </div>
 
   <!-- ===== 検索モード ===== -->

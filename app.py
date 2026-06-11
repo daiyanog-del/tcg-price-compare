@@ -79,8 +79,11 @@ _RARITY_CONFIG_JSON = json.dumps(_rarity_config_for_frontend(), ensure_ascii=Fal
 
 @app.context_processor
 def inject_rarity_config():
-    """全テンプレートに window.RARITY_CONFIG 用の JSON を渡す。"""
-    return {"rarity_config_json": _RARITY_CONFIG_JSON}
+    """全テンプレートに window.RARITY_CONFIG 用の JSON / 一人回し導線フラグを渡す。"""
+    return {
+        "rarity_config_json": _RARITY_CONFIG_JSON,
+        "enable_solo_play": ENABLE_VISUAL_SOLO_PLAY,
+    }
 
 _BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
@@ -173,6 +176,11 @@ MAX_PACK_PARAM_LEN = 120
 # ヘルスチェック用シークレットキー
 HEALTH_CHECK_KEY = os.environ.get("HEALTH_CHECK_KEY", "")
 
+# 一人回し(solo play) feature flag。停止要請時に env で 0 を明示セットすると
+# 一人回しの導線・ルートだけが止まり、相場等のコア機能は無傷で動く（kill-switch）。
+# ルート側の gate は solitaire_routes.py が同じ env を import 時評価して持つ。
+ENABLE_VISUAL_SOLO_PLAY = os.environ.get("ENABLE_VISUAL_SOLO_PLAY", "1") == "1"
+
 # アフィリエイト設定（環境変数から取得）
 AFFILIATE_CONFIG = {
     "カーナベル": {
@@ -225,6 +233,12 @@ if _SUPABASE_URL and _SUPABASE_KEY:
         logger.info("Supabase接続成功 — 検索ランキングを永続化します")
     except Exception as e:
         logger.warning(f"Supabase接続失敗（メモリモードで動作）: {e}")
+
+# 一人回し(solo play) Blueprint を登録し、Supabase クライアントアクセサを注入する。
+# ENABLE_VISUAL_SOLO_PLAY=0 で機能停止できる kill-switch（gate は Blueprint 内部）。
+from solitaire_routes import solitaire_bp, init_solitaire
+init_solitaire(lambda: _supabase_client)
+app.register_blueprint(solitaire_bp)
 
 
 def _is_debug_mode() -> bool:
@@ -1588,71 +1602,9 @@ if (os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not _is_debug_mode()) and _
 
 
 # ── 一人回しシミュレータ ──
-
-@app.route("/solitaire")
-def solitaire_page():
-    """一人回しシミュレータ"""
-    return render_template("solitaire.html")
-
-
-@app.route("/api/solitaire/replay", methods=["POST"])
-def solitaire_replay_save():
-    """リプレイデータをSupabaseに保存してIDを返す"""
-    import secrets, json as _json
-    if not _supabase_client:
-        return {"error": "データベース未接続"}, 503
-    try:
-        data = request.get_json(force=True)
-        images = data.get("images", {})
-        names  = data.get("names", {})
-        ex_card_ids = data.get("exCardIds", [])
-        logs = data.get("logs", [])
-        title = str(data.get("title", ""))[:100]
-        if not logs:
-            return {"error": "logsが空です"}, 400
-        replay_id = secrets.token_urlsafe(8)
-        now_iso = datetime.now(timezone.utc).isoformat()
-        payload = {
-            "id": replay_id,
-            "title": title,
-            "images": images,
-            "names": names,
-            "ex_card_ids": ex_card_ids,
-            "logs": logs,
-            "created_at": now_iso,
-        }
-        _supabase_client.table("solitaire_replays").insert(payload).execute()
-        return {"id": replay_id}
-    except Exception as e:
-        logger.error(f"リプレイ保存エラー: {e}")
-        return {"error": "保存に失敗しました"}, 500
-
-
-@app.route("/api/solitaire/replay/<replay_id>", methods=["GET"])
-def solitaire_replay_get(replay_id):
-    """Supabaseからリプレイデータを取得"""
-    if not _supabase_client:
-        return {"error": "データベース未接続"}, 503
-    try:
-        resp = _supabase_client.table("solitaire_replays") \
-            .select("images, names, ex_card_ids, logs, title") \
-            .eq("id", replay_id) \
-            .limit(1) \
-            .execute()
-        rows = resp.data if resp.data else []
-        if not rows:
-            return {"error": "見つかりません"}, 404
-        row = rows[0]
-        return {
-            "images":     row["images"],
-            "names":      row.get("names") or {},
-            "exCardIds":  row.get("ex_card_ids") or [],
-            "logs":       row["logs"],
-            "title":      row.get("title", ""),
-        }
-    except Exception as e:
-        logger.error(f"リプレイ取得エラー: {e}")
-        return {"error": "取得に失敗しました"}, 500
+# ルート定義は solitaire_routes.py（Blueprint）へ切り出し済み。
+# feature flag ENABLE_VISUAL_SOLO_PLAY 背後の self-contained モジュール。
+# Blueprint の登録・依存注入はファイル冒頭付近（Supabase初期化直後）で行う。
 
 
 # ── 新弾フィーチャーページ ──

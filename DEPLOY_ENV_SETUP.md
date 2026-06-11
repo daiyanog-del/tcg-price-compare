@@ -92,6 +92,57 @@ docker compose up
 
 ---
 
+## 一人回し(solo play) kill-switch — `ENABLE_VISUAL_SOLO_PLAY`
+
+一人回し機能は公式カード画像を使うため IP（知的財産）停止要請のリスクを抱えています。
+要請が来た際にこの機能だけを即座に止め、相場・デッキ等のコア機能は無傷で動かし続けるための
+運用スイッチが `ENABLE_VISUAL_SOLO_PLAY` です。
+
+| 環境変数名 | 既定値 | 説明 |
+|---|---|---|
+| `ENABLE_VISUAL_SOLO_PLAY` | `1`（未設定時も ON） | `0` で一人回しを停止。それ以外（`1` 等）で有効 |
+
+### 停止手順（kill-switch を引く）
+
+1. Render.com → 対象サービス（tcg-web）→ **「Environment」**
+2. `ENABLE_VISUAL_SOLO_PLAY` を **`0`** に設定（無ければ Add Environment Variable で追加）
+3. **「Save Changes」** → 自動再デプロイ。即時反映したい場合は **「Manual Deploy」**
+
+### 再開手順
+
+- `ENABLE_VISUAL_SOLO_PLAY` を **`1`** に戻して Save。
+
+### OFF（`0`）時の挙動
+
+- `GET /solitaire` → **503** +「現在ご利用いただけません」案内ページ
+- `POST /api/solitaire/replay` / `GET /api/solitaire/replay/<id>` → **404**
+- トップページのナビから「一人回し」リンクが**非表示**
+
+### OFF にしても影響しないもの（コアは無傷）
+
+- 販売価格・買取価格の比較（`/`, `/card/<name>`, `/buy/`, `/api/deck`, `/api/search` 等）
+- 価格推移・ランキング（`/api/price-history`, `/api/trending`, `/api/movers`）
+- デッキPDF取り込み（`/api/parse-deck-pdf`）やカード画像/情報の各 API（`/api/card-image(s)`,
+  `/api/card-info(s)`, `/api/meta` 等）— これらは一人回しとメインページの共用コアであり停止しません。
+
+### スコープの境界（重要）
+
+- このフラグは**一人回しのサーフェス（導線・ルート）のみ**を止めます。
+- メインページのカード詳細・検索結果が表示する**公式カードアート画像は別管轄**です。
+  公式画像の表示可否は別フラグ `OFFICIAL_IMAGE_DISPLAY`（app_settings / 管理画面トグル）で
+  制御します。公式画像 IP の全面停止が必要な場合はそちらも併せて操作してください。
+
+### 担保テスト
+
+ON/OFF 両状態の挙動は `tests/test_solo_flag.py` で自動検証しています:
+
+```bash
+cd tcg-web
+python -m pytest tests/test_solo_flag.py -v
+```
+
+---
+
 ## 補足: Git履歴にAPIキーが残る問題
 
 今回の修正でコード上からはAPIキーを削除しましたが、Gitの過去のコミット履歴には値が残っています。
