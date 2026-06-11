@@ -5,6 +5,7 @@ TCG 価格比較 Web サーバー
 import json
 import time
 import os
+import hmac
 import random
 import logging
 import unicodedata
@@ -2723,6 +2724,99 @@ if _claim_startup_job("buyback_movers_preload"):
 
 if _claim_startup_job("featured_prefetch"):
     threading.Thread(target=_load_featured_cache, daemon=True).start()
+
+# ─────────────────────────────────────────────────────────────
+# 【使い捨て診断】メモリ内訳エンドポイント（OOM原因特定後に削除する）
+#   - 環境変数 DEBUG_KEY 未設定時は無効（404相当）
+#   - /debug/memory?key=<DEBUG_KEY> で現在RSS・ピークRSS・各キャッシュの件数/概算サイズを返す
+# ─────────────────────────────────────────────────────────────
+_DEBUG_KEY = os.environ.get("DEBUG_KEY", "").strip()
+
+
+def _read_proc_memory_kb():
+    """/proc/self/status から VmRSS（現在）と VmHWM（プロセス開始以降のピーク）をKB単位で返す。"""
+    result = {"vm_rss_kb": None, "vm_hwm_kb": None}
+    try:
+        with open("/proc/self/status", "r") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    result["vm_rss_kb"] = int(line.split()[1])
+                elif line.startswith("VmHWM:"):
+                    result["vm_hwm_kb"] = int(line.split()[1])
+    except Exception:
+        # Linux以外（ローカルWindows等）では /proc が無いので resource にフォールバック
+        try:
+            import resource
+            # ru_maxrss は Linux ではKB、macではバイト。ここではKB前提（Render=Linux）
+            result["vm_hwm_kb"] = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        except Exception:
+            pass
+    return result
+
+
+def _approx_cache(obj):
+    """キャッシュ1個の件数とJSON直列化サイズ（バイト）を概算で返す。失敗時はサイズNone。"""
+    info = {"count": None, "bytes": None}
+    try:
+        info["count"] = len(obj)
+    except Exception:
+        pass
+    try:
+        # 実メモリそのものではなく相対比較用の目安（直列化バイト数）
+        info["bytes"] = len(json.dumps(obj, default=str, ensure_ascii=False).encode("utf-8"))
+    except Exception:
+        pass
+    return info
+
+
+@app.route("/debug/memory")
+def debug_memory():
+    if not _DEBUG_KEY:
+        return jsonify({"error": "DEBUG_KEY 未設定（診断は無効）"}), 404
+    if not hmac.compare_digest((request.args.get("key") or "").strip(), _DEBUG_KEY):
+        return jsonify({"error": "unauthorized"}), 403
+
+    import gc as _gc
+
+    mem = _read_proc_memory_kb()
+
+    # 監視対象キャッシュ（モジュールグローバル名 → 概算）。未定義名は globals().get で安全に取得
+    target_names = [
+        "_cardnames", "_cardnames_set", "_cardnames_fuzzy",
+        "_cardnames_reading", "_cardnames_reading_fuzzy",
+        "_ygores_name_index", "_ygores_fuzzy_index",
+        "_card_info_cache", "_card_type_cache",
+        "_estimate_cache", "_movers_cache", "_buyback_movers_cache",
+        "_trending_cache", "_featured_cache",
+        "_last_search", "_last_feedback",
+    ]
+    g = globals()
+    caches = {}
+    for name in target_names:
+        obj = g.get(name)
+        if obj is None:
+            caches[name] = {"count": None, "bytes": None}
+        else:
+            caches[name] = _approx_cache(obj)
+
+    caches_total_bytes = sum(
+        (c["bytes"] or 0) for c in caches.values()
+    )
+
+    return jsonify({
+        "rss_mb": round((mem["vm_rss_kb"] or 0) / 1024, 1),
+        "peak_rss_mb": round((mem["vm_hwm_kb"] or 0) / 1024, 1),
+        "gc_objects": len(_gc.get_objects()),
+        "caches_total_serialized_mb": round(caches_total_bytes / 1024 / 1024, 2),
+        "caches": {
+            name: {
+                "count": c["count"],
+                "serialized_kb": round(c["bytes"] / 1024, 1) if c["bytes"] is not None else None,
+            }
+            for name, c in caches.items()
+        },
+    })
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
