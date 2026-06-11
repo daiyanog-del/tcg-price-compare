@@ -72,7 +72,11 @@ async function _fetchAndShow(name, imgSrc) {
     const data = await infoRes.json();
     const priceData = priceRes ? await priceRes.json().catch(() => null) : null;
     if (data.found) {
+      // 発売済みカード: 情報は data 直下にある
       _renderCard(data, imgSrc, name, priceData);
+    } else if (data.kind === 'proxy' && data.proxy) {
+      // 未発売カード: 実データは proxy の中にある（フィールド名は _renderCard と一致）
+      _renderCard(data.proxy, imgSrc, name, priceData);
     } else {
       _showUnknown(imgSrc, name, priceData);
     }
@@ -110,7 +114,10 @@ function _renderCard(data, imgSrc, name, priceData) {
   // ATK/DEF（モンスターのみ）
   const statsHtml = isMonster ? (() => {
     const atk = data.atk != null ? data.atk : '?';
-    const def = data.def != null ? data.def : (data.broad_type === 'monster' ? '—' : null);
+    // def は発売済み=数値、未発売プロキシ=文字列（守備力なしは空文字）。
+    // 空文字は「未設定」とみなし、モンスターなら '—' を表示する。
+    const hasDef = data.def != null && data.def !== '';
+    const def = hasDef ? data.def : (data.broad_type === 'monster' ? '—' : null);
     return `<p class="cip-stats">ATK <strong>${atk}</strong>${def !== null ? ` &nbsp;/&nbsp; DEF <strong>${def}</strong>` : ''}</p>`;
   })() : '';
 
