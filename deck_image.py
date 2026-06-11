@@ -43,7 +43,9 @@ _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0
 
 # ── ウォーターマーク設定（env で on/off・強度を制御。orthogonal な mitigation） ──
 # サーバー側で PNG バイトに焼き込むため、デッキ画像はクリーンな抽出元にならない。
-_WM_ENABLED = os.environ.get("DECK_WATERMARK_ENABLED", "1") == "1"
+# 既定 OFF: デッキ画像生成はメモリ消費が大きく、Render のベースライン(約330MB)に対し
+# 余裕が少ないため。十分なメモリのある環境でのみ DECK_WATERMARK_ENABLED=1 で有効化する。
+_WM_ENABLED = os.environ.get("DECK_WATERMARK_ENABLED", "0") == "1"
 try:
     _WM_OPACITY = float(os.environ.get("DECK_WATERMARK_OPACITY", "0.10"))
 except ValueError:
@@ -198,7 +200,10 @@ def _apply_watermark(canvas: Image.Image) -> Image.Image:
         y += step_y
         row += 1
 
-    return Image.alpha_composite(canvas.convert("RGBA"), overlay).convert("RGB")
+    # overlay を RGB canvas に直接貼り付け（mask=overlayのアルファ）。
+    # canvas を RGBA に複製せず in-place 合成するためメモリ確保を最小化する。
+    canvas.paste(overlay, (0, 0), overlay)
+    return canvas
 
 
 def generate_deck_image(deck_name: str, cards: list, total: int,
@@ -221,9 +226,12 @@ def generate_deck_image(deck_name: str, cards: list, total: int,
     """
     # ── キャッシュチェック ──
     sig = "|".join(f"{c['name']}:{c['qty']}" for c in cards)
-    # 透かし設定をキャッシュキーに含める（設定変更時に古いPNGを返さない）
-    wm_sig = f"wm{int(_WM_ENABLED)}-{_WM_OPACITY:.2f}"
-    cache_key = hashlib.md5(f"{deck_name}|{total}|{sig}|{wm_sig}".encode()).hexdigest()
+    # 透かしを焼く場合のみキャッシュキーに設定を含める。
+    # 無効時は従来どおりのキー（透かし導入前のキャッシュをそのまま再利用＝再生成を避ける）。
+    key_src = f"{deck_name}|{total}|{sig}"
+    if _WM_ENABLED:
+        key_src += f"|wm{_WM_OPACITY:.2f}"
+    cache_key = hashlib.md5(key_src.encode()).hexdigest()
     cache_path = os.path.join(_DECK_CACHE_DIR, f"{cache_key}.png")
     if os.path.exists(cache_path):
         with open(cache_path, "rb") as f:
