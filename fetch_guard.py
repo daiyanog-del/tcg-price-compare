@@ -11,10 +11,14 @@ fetch_guard.py — ホワイトリスト強制HTTP取得モジュール
   - リダイレクト先URLも同じ検証を再帰通過（最大3ホップ）
 
 HTTPクライアントについて:
-  yu-gi-oh.jp（XSERVER上）のWAFは Python requests の TLS フィンガープリントを識別して
-  403 を返す（ヘッダを揃えても不可、curl は通る）。そのため curl_cffi で Chrome の
-  TLS/HTTP2 署名を模倣して取得する（impersonate="chrome"）。
-  ローカル環境にのみ curl_cffi が必要（Render本番は import しない）。
+  yu-gi-oh.jp（XSERVER上）のWAFは2層でブロックする（2026-06-11 実測で確定）:
+    第1層 TLSフィンガープリント: Python requests/urllib は住宅IPでも403。
+          ヘッダ（User-Agent等）を揃えても不可。curl_cffi で Chrome の
+          TLS/HTTP2署名を模倣すると突破できる（impersonate="chrome"）。
+    第2層 クラウドIP帯ブロック: TLS署名を偽装しても GitHub Actions / Render 等の
+          データセンターIPからは403。住宅IP（一般回線）からのみ200が返る。
+  → このためクラウド実行は不可能で、Watcherは住宅IPのローカル環境から実行する。
+    curl_cffi もローカル環境にのみ必要（Render本番は import しない）。
 """
 
 import threading
