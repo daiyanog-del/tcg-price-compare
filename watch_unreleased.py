@@ -44,7 +44,9 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 # ──────────────────────────────────────────────
 
 # 1実行あたりの Extractor 呼び出し上限（Claude API コスト暴走防止）
-MAX_EXTRACT_PAGES = 5
+# 既定15。watcher.env の MAX_EXTRACT_PAGES で上書き可（新弾発表が重なる日だけ上げる等）。
+# 上げるとその分だけ実行時間とAPIコストがページ数に比例して増えるため、無制限にはしない。
+MAX_EXTRACT_PAGES = int(os.environ.get("MAX_EXTRACT_PAGES", "15"))
 
 # ページ変化時に新規追加する最大リンク数
 MAX_NEW_LINKS = 20
