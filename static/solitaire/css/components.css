@@ -19,7 +19,7 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
-  background: rgba(227, 227, 227, 0.72);  /* プール背景 #e3e3e3 に馴染ませる */
+  background: rgba(26, 37, 71, 0.78);  /* ダークパネル背景 var(--bg-card)=#1a2547 に馴染ませる */
   pointer-events: none;
   z-index: 2;
 }
@@ -36,7 +36,7 @@
 }
 .pool-loading-text {
   font-size: 0.85rem;
-  color: #4a6490;
+  color: var(--main-color);  /* ダーク背景で読めるよう明色 #e2e8f0 */
   letter-spacing: 0.04em;
 }
 @keyframes pool-spin {
