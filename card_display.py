@@ -309,6 +309,23 @@ def get_unreleased_names() -> list[str]:
     return list(_get_unreleased().keys())
 
 
+def get_unreleased_proxy(name: str) -> dict | None:
+    """
+    表示種別（画像 / プロキシ）に関わらず、未発売カード（approved / linked かつ
+    hidden=false）のカード情報（proxy データ dict）を返す。無ければ None。
+
+    resolve_card_display は「画像で見せるか / プロキシ描画か」という表示判定のため、
+    公式画像があるカードは proxy データを返さない。一方カード情報パネルは画像の有無に
+    関係なくテキスト情報（効果・種別等）が必要なため、その用途で使う専用の入口。
+    """
+    if not name or not _is_enabled():
+        return None
+    card = _get_unreleased().get(name)
+    if card is None:
+        return None
+    return _build_proxy_data(card)
+
+
 def resolve_card_display(name: str) -> dict:
     """
     カード名から表示解決結果を返す唯一の入口。

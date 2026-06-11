@@ -2069,20 +2069,28 @@ def api_card_info():
     # card_display 経由で表示種別を先に解決
     display = _card_display.resolve_card_display(name)
 
-    if display["kind"] == "proxy":
-        # 未発売カード: プロキシ用データを返す（found=False 相当だが proxy データ付き）
-        proxy = display["proxy"]
-        result = {
-            "found":      False,
-            "kind":       "proxy",
-            "broad_type": proxy.get("broad_type", "monster"),
-            "is_ex":      proxy.get("is_ex", False),
-            "proxy":      proxy,
-        }
-        resp = jsonify(result)
-        # 未発売カードは表示設定変更で即時反映が必要なためキャッシュなし
-        resp.headers["Cache-Control"] = "no-store"
-        return resp
+    # 未発売カードはカード情報パネル用にプロキシデータを返す。
+    # 公式画像が表示される（kind=image, source=official_sample）場合でも、
+    # 情報パネルは画像有無に関係なくテキスト情報が必要なため proxy データを返す。
+    # （resolve_card_display は表示判定のみで、画像ありカードは proxy を返さない）
+    is_official_sample = (
+        display["kind"] == "image"
+        and display.get("source") == "official_sample"
+    )
+    if display["kind"] == "proxy" or is_official_sample:
+        proxy = display.get("proxy") or _card_display.get_unreleased_proxy(name)
+        if proxy:
+            result = {
+                "found":      False,
+                "kind":       "proxy",
+                "broad_type": proxy.get("broad_type", "monster"),
+                "is_ex":      proxy.get("is_ex", False),
+                "proxy":      proxy,
+            }
+            resp = jsonify(result)
+            # 未発売カードは表示設定変更で即時反映が必要なためキャッシュなし
+            resp.headers["Cache-Control"] = "no-store"
+            return resp
 
     # 発売済み or none → 従来どおりYGOResources参照
     idx = _get_ygores_name_index()
@@ -2247,18 +2255,24 @@ def api_card_infos():
     for name in names:
         disp = display_results.get(name, {"kind": "none"})
 
-        if disp["kind"] == "proxy":
-            # 未発売カード: プロキシ用データを返す
-            proxy = disp["proxy"]
-            infos[name] = {
-                "found":      False,
-                "kind":       "proxy",
-                "broad_type": proxy.get("broad_type", "monster"),
-                "is_ex":      proxy.get("is_ex", False),
-                "proxy":      proxy,
-            }
-            has_unreleased = True
-            continue
+        # 未発売カードはプロキシデータを返す。公式画像表示
+        # （kind=image, source=official_sample）の場合も情報パネルや
+        # EX ゾーン判定でカード情報が必要なため proxy データを返す。
+        is_official_sample = (
+            disp["kind"] == "image" and disp.get("source") == "official_sample"
+        )
+        if disp["kind"] == "proxy" or is_official_sample:
+            proxy = disp.get("proxy") or _card_display.get_unreleased_proxy(name)
+            if proxy:
+                infos[name] = {
+                    "found":      False,
+                    "kind":       "proxy",
+                    "broad_type": proxy.get("broad_type", "monster"),
+                    "is_ex":      proxy.get("is_ex", False),
+                    "proxy":      proxy,
+                }
+                has_unreleased = True
+                continue
 
         # 発売済みは YGOResources から取得（従来どおり）
         ids = idx.get(name)
