@@ -55,6 +55,7 @@
     ta.value = text;
     _currentMydeckText = text;
 
+    _persistDeck(); // 下書き保存 + 保存済みデッキの自動更新
     _deckRenderImmediate();
 
     clearTimeout(_deckEstimateTimer);
@@ -350,11 +351,127 @@
     input.addEventListener('blur', function(){ setTimeout(close, 150); });
   }
 
+  // ── 永続化（自動下書き + 保存済みデッキ自動更新）──
+  // すべて localStorage（ブラウザ内）。サーバーDBは使わない。
+  var DRAFT_KEY = 'cardprice_deck_draft';
+  // 現在ひも付いている保存済みデッキのID（読込/保存時にセット）。編集はこのデッキへ自動反映する。
+  window._currentSavedDeckId = window._currentSavedDeckId || null;
+
+  function _clearDraft(){
+    try{ localStorage.removeItem(DRAFT_KEY); }catch(_){}
+  }
+
+  // 現在の編集状態を下書き保存し、保存済みデッキにひも付いていればそれも更新する
+  function _persistDeck(){
+    var ta = document.getElementById('deckTextarea');
+    if(!ta) return;
+    if(ta.value !== _currentMydeckText){
+      _currentMydeckCards = parseDeckSections(ta.value);
+      _currentMydeckText = ta.value;
+    }
+    var main = _currentMydeckCards.main || [];
+    var ex = _currentMydeckCards.ex || [];
+    var text = ta.value;
+    var id = window._currentSavedDeckId || null;
+
+    // 下書き保存（次回開いたとき復元）
+    try{
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({
+        text: text, main: main, ex: ex, savedId: id,
+        name: (typeof _currentDeckName !== 'undefined' ? _currentDeckName : '') || ''
+      }));
+    }catch(_){}
+
+    // 保存済みデッキの自動更新（ひも付きがあるとき）
+    if(id && typeof savedDecksGet === 'function'){
+      try{
+        var list = savedDecksGet();
+        var d = list.find(function(x){ return x.id === id; });
+        if(d){
+          d.text = text; d.main = main; d.ex = ex; d.updated = Date.now();
+          savedDecksSet(list);
+        }else{
+          window._currentSavedDeckId = null; // 削除済み → ひも付け解除
+        }
+      }catch(_){}
+    }
+  }
+
+  // 起動時: 下書きがあれば復元する（textareaが空のときのみ。保存済み自動ロード等と競合しない）
+  function _restoreDraft(){
+    var ta = document.getElementById('deckTextarea');
+    if(!ta || ta.value.trim()) return;
+    var draft = null;
+    try{ draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); }catch(_){}
+    if(!draft || !draft.text || !draft.text.trim()) return;
+
+    ta.value = draft.text;
+    _currentMydeckText = draft.text;
+    _currentMydeckCards = (draft.main) ? { main: draft.main, ex: draft.ex || [] }
+                                       : parseDeckSections(draft.text);
+    if(draft.savedId){
+      window._currentSavedDeckId = draft.savedId;
+      if(draft.name && typeof _currentDeckName !== 'undefined') _currentDeckName = draft.name;
+      // 保存済みデッキ一覧で選択状態を反映（描画済みなら）
+      try{
+        var btn = document.querySelector('#sdcard-' + CSS.escape(draft.savedId) + ' .saved-deck-card-btn');
+        if(btn) btn.classList.add('selected');
+      }catch(_){}
+    }
+    // グリッドを復元表示（相場も取得）
+    if(typeof calcDeckEstimate === 'function') calcDeckEstimate();
+  }
+
+  // inline 側のデッキ操作関数を拡張（元の挙動はそのまま、後処理でひも付け/下書きを更新）
+  function _wrap(name, after){
+    var orig = window[name];
+    if(typeof orig !== 'function') return;
+    window[name] = function(){
+      var r = orig.apply(this, arguments);
+      try{ after.apply(this, arguments); }catch(_){}
+      return r;
+    };
+  }
+  function _installWrappers(){
+    // 保存済みデッキ読込 → 以後の編集はこのデッキへ自動反映。下書きも読込デッキに更新する
+    _wrap('loadSavedDeck', function(id){ window._currentSavedDeckId = id; _persistDeck(); });
+    // 入力クリア → ひも付け解除 + 下書き削除
+    _wrap('clearDeck', function(){ window._currentSavedDeckId = null; _clearDraft(); });
+    // PDF/拡張からの取込 → 新規の作業デッキ（保存済みとは切り離す）→ 下書き保存
+    _wrap('onDeckImported', function(){ window._currentSavedDeckId = null; _persistDeck(); });
+    // 環境デッキを送る → 同上
+    _wrap('applyMetaDeckToTextarea', function(){ window._currentSavedDeckId = null; _persistDeck(); });
+    // 手動「保存」 → 保存したデッキにひも付け（以後の編集を自動反映）
+    _wrap('saveCurrentDeck', function(){
+      try{
+        if(typeof savedDecksGet !== 'function') return;
+        var text = document.getElementById('deckTextarea').value.trim();
+        var list = savedDecksGet().slice().reverse(); // 直近に保存したものを優先
+        var d = list.find(function(x){ return (x.text || '').trim() === text; });
+        if(d) window._currentSavedDeckId = d.id;
+        _persistDeck();
+      }catch(_){}
+    });
+  }
+
   // ── 初期化 ────────────────────────────────────
   function _init(){
     var listEl = document.getElementById('deckCardList');
     if(listEl) _initDelegation(listEl);
     _setupDeckSuggest();
+    _installWrappers();
+
+    // 手動でのtextarea編集も下書き保存（プログラム的な代入ではinputは発火しないので二重保存にならない）
+    var ta = document.getElementById('deckTextarea');
+    if(ta){
+      var t = null;
+      ta.addEventListener('input', function(){
+        clearTimeout(t);
+        t = setTimeout(function(){ _persistDeck(); }, 400);
+      });
+    }
+
+    _restoreDraft();
   }
 
   // index.html のインライン <script> が参照するフック・関数を公開
