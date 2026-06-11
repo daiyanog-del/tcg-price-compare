@@ -818,7 +818,9 @@ async function _loadEditCardImage(card, editForm) {
   const linkEl = wrap.querySelector('.edit-source-image__link');
 
   // 既に読み込み済みなら再取得しない
-  if (imgEl.src) return;
+  // 注: 空の <img src=""> でも imgEl.src は絶対URLに解決され空にならないため、
+  //     生の属性値（getAttribute）で判定する。
+  if (imgEl.getAttribute('src')) return;
 
   let url = '';
 
