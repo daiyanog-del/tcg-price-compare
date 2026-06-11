@@ -117,8 +117,6 @@
             <span class="deck-loading-msg">タブを開くと読み込みます</span>
           </div>
         </div>
-
-        <div class="deck-loading-msg" id="deckLoadingMsg" style="display:none"></div>
       </div>
     </div>
 
@@ -227,6 +225,10 @@
         <div id="imagePool2" class="pool" ondrop="drop(event)" ondragover="allowDrop(event)">
           <div class="pool-label">EXデッキ</div>
           <div class="tier-row" id="poolRow2"></div>
+          <div class="pool-loading" aria-hidden="true">
+            <span class="pool-loading-spinner"></span>
+            <span class="pool-loading-text">読み込み中</span>
+          </div>
         </div>
       </div>
 
@@ -234,6 +236,10 @@
       <div id="imagePool" class="pool" ondrop="drop(event)" ondragover="allowDrop(event)">
         <div class="pool-label">デッキ</div>
         <div class="tier-row" id="poolRow"></div>
+        <div class="pool-loading" aria-hidden="true">
+          <span class="pool-loading-spinner"></span>
+          <span class="pool-loading-text">読み込み中</span>
+        </div>
       </div>
 
       <!-- リプレイバー -->

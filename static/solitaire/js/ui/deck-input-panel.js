@@ -30,6 +30,18 @@ function parseDeckList(text) {
 }
 
 /**
+ * デッキ/EXデッキエリアのロード中インジケータを表示・非表示する
+ * @param {string[]} poolIds  対象プールの id（'imagePool' | 'imagePool2'）
+ * @param {boolean}  on       true=表示 / false=非表示
+ */
+function setPoolLoading(poolIds, on) {
+  poolIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('is-loading', on);
+  });
+}
+
+/**
  * 盤面・手札のカードをデッキに戻してから、プールの全カードを削除する
  * 新しいデッキを読み込む前に呼ぶ
  */
@@ -271,12 +283,15 @@ export async function loadDeckFromText(text) {
 
   await clearAllCards();
 
-  const msg = document.getElementById('deckLoadingMsg');
-  if (msg) { msg.textContent = 'カード画像を読み込み中...'; msg.style.display = 'block'; }
-  // null=APIレスポンスのis_exでEX/メインを自動判定
-  await addCardsBatch(cards, null);
-  sortPoolCards('poolRow');  // 種別ソート（モンスター→魔法→罠）
-  if (msg) { msg.textContent = ''; msg.style.display = 'none'; }
+  // デッキ・EXデッキ両エリアにロード中インジケータを表示（EXカードも振り分けられるため）
+  setPoolLoading(['imagePool', 'imagePool2'], true);
+  try {
+    // null=APIレスポンスのis_exでEX/メインを自動判定
+    await addCardsBatch(cards, null);
+    sortPoolCards('poolRow');  // 種別ソート（モンスター→魔法→罠）
+  } finally {
+    setPoolLoading(['imagePool', 'imagePool2'], false);
+  }
 }
 
 /**
@@ -286,11 +301,14 @@ export async function loadExDeckFromText(text) {
   const cards = parseDeckList(text);
   if (cards.length === 0) return;
 
-  const msg = document.getElementById('deckLoadingMsg');
-  if (msg) { msg.textContent = 'EXデッキを読み込み中...'; msg.style.display = 'block'; }
-  // isEx=true 固定でEXプールへ（card-info のis_ex判定不要）
-  await addCardsBatch(cards, true);
-  if (msg) { msg.textContent = ''; msg.style.display = 'none'; }
+  // EXエリアのみロード中インジケータを表示
+  setPoolLoading(['imagePool2'], true);
+  try {
+    // isEx=true 固定でEXプールへ（card-info のis_ex判定不要）
+    await addCardsBatch(cards, true);
+  } finally {
+    setPoolLoading(['imagePool2'], false);
+  }
 }
 
 /**
@@ -298,8 +316,8 @@ export async function loadExDeckFromText(text) {
  * @param {string} theme  テーマ名
  */
 export async function loadMetaDeck(theme) {
-  const msg = document.getElementById('deckLoadingMsg');
-  if (msg) { msg.textContent = `${theme} のデッキを読み込み中...`; msg.style.display = 'block'; }
+  // デッキ・EXデッキ両エリアにロード中インジケータを表示
+  setPoolLoading(['imagePool', 'imagePool2'], true);
 
   try {
     const res = await fetch(`${API_META_DECK}?theme=${encodeURIComponent(theme)}`);
@@ -316,9 +334,9 @@ export async function loadMetaDeck(theme) {
     sortPoolCards('poolRow');  // 種別ソート（モンスター→魔法→罠）
   } catch (e) {
     alert(`環境デッキの読み込みに失敗しました: ${e.message}`);
+  } finally {
+    setPoolLoading(['imagePool', 'imagePool2'], false);
   }
-
-  if (msg) { msg.textContent = ''; msg.style.display = 'none'; }
 }
 
 /**

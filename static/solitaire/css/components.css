@@ -2,11 +2,45 @@
 
 /* カードプール */
 .pool {
+  position: relative;  /* .pool-loading オーバーレイのアンカー */
   margin-top: calc(var(--slot-height) * 0.1);
   padding: 10px;
   background: #e3e3e3;
   border: 2px dashed #aaa;
   min-width: var(--min-display-width);
+}
+
+/* デッキロード中インジケータ（デッキ/EXデッキエリアに重ねて表示） */
+.pool-loading {
+  position: absolute;
+  inset: 0;
+  display: none;  /* .pool.is-loading の時のみ表示 */
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(227, 227, 227, 0.72);  /* プール背景 #e3e3e3 に馴染ませる */
+  pointer-events: none;
+  z-index: 2;
+}
+.pool.is-loading .pool-loading {
+  display: flex;
+}
+.pool-loading-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(74, 124, 255, 0.25);
+  border-top-color: var(--accent);  /* #4a7cff */
+  border-radius: 50%;
+  animation: pool-spin 0.8s linear infinite;
+}
+.pool-loading-text {
+  font-size: 0.85rem;
+  color: #4a6490;
+  letter-spacing: 0.04em;
+}
+@keyframes pool-spin {
+  to { transform: rotate(360deg); }
 }
 
 .tier-container {
