@@ -345,6 +345,7 @@
         <span class="card-row__has-image has-image-badge" hidden>画像あり</span>
       </div>
       <div class="card-row__actions">
+        <button class="btn btn-ghost btn-sm action-toggle-edit">編集</button>
         <button class="btn btn-ghost btn-sm action-toggle-image-form">画像取込</button>
         <button class="btn btn-warning btn-sm action-toggle-hidden"></button>
         <button class="btn btn-danger btn-sm action-reject-approved">取り下げ</button>
@@ -378,6 +379,109 @@
           </div>
           <p class="image-fetch-result form-result" hidden></p>
         </div>
+      </div>
+    </div>
+
+    <!-- 編集フォーム（折りたたみ） -->
+    <div class="card-row__edit-form" hidden>
+      <div class="edit-form-inner">
+
+        <div class="edit-preview-wrap">
+          <!-- 抽出元画像サムネイル -->
+          <div class="edit-source-image" hidden>
+            <p class="edit-preview__label">抽出元画像</p>
+            <div class="edit-source-image__slot">
+              <a class="edit-source-image__link" href="" target="_blank" rel="noopener noreferrer">
+                <img class="edit-source-image__img" src="" alt="" loading="lazy">
+              </a>
+            </div>
+          </div>
+          <!-- プロキシプレビュー領域 -->
+          <div class="edit-preview">
+            <p class="edit-preview__label">プロキシ表示</p>
+            <div class="tier-item-wrapper edit-preview__slot">
+              <!-- proxy-card.js で生成した要素をここに挿入 -->
+            </div>
+          </div>
+        </div>
+
+        <div class="edit-fields">
+          <div class="form-grid">
+
+            <div class="form-group">
+              <label class="form-label">カード名</label>
+              <input type="text" name="name" class="form-input edit-field">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">読み仮名</label>
+              <input type="text" name="reading" class="form-input edit-field">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">カード種別</label>
+              <input type="text" name="card_type" class="form-input edit-field">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">属性</label>
+              <input type="text" name="attribute" class="form-input edit-field">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">種族</label>
+              <input type="text" name="race" class="form-input edit-field">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">レベル</label>
+              <input type="number" name="level" class="form-input edit-field">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">ランク</label>
+              <input type="number" name="rank" class="form-input edit-field">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">リンク値</label>
+              <input type="number" name="link_val" class="form-input edit-field">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">ATK</label>
+              <input type="number" name="atk" class="form-input edit-field">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">DEF</label>
+              <input type="text" name="def" class="form-input edit-field">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">収録商品</label>
+              <input type="text" name="product_name" class="form-input edit-field">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">発売予定日</label>
+              <input type="date" name="release_date" class="form-input edit-field">
+            </div>
+
+            <div class="form-group form-group--full">
+              <label class="form-label">効果テキスト</label>
+              <textarea name="effect_text" class="form-textarea edit-field" rows="4"></textarea>
+            </div>
+
+          </div>
+
+          <div class="form-actions">
+            <button class="btn btn-primary btn-sm action-save">保存</button>
+            <button class="btn btn-ghost btn-sm action-cancel-edit">キャンセル</button>
+          </div>
+          <p class="edit-result form-result" hidden></p>
+        </div>
+
       </div>
     </div>
   </div>

@@ -643,6 +643,7 @@ async function _deleteCard(cardId, row) {
 async function _loadApproved() {
   const listEl = document.getElementById('approved-list');
   listEl.innerHTML = '<p class="loading-text">読み込み中...</p>';
+  await _loadProxyCard();
 
   try {
     const resp = await apiFetch('/api/admin/unreleased?status=approved,linked');
@@ -724,6 +725,48 @@ function _renderApprovedList(listEl, cards) {
     // 画像URLを指定して取込ボタン
     row.querySelector('.action-fetch-image').addEventListener('click', () => {
       _fetchImageByUrl(card.id, row);
+    });
+
+    // ── 編集フォーム（承認待ちタブと同一の配線） ──
+    const editForm = row.querySelector('.card-row__edit-form');
+    const fields = editForm.querySelectorAll('.edit-field');
+
+    // 編集フォームにフィールド値をセット
+    fields.forEach((input) => {
+      const name = input.name;
+      const val = card[name];
+      if (val != null) input.value = val;
+    });
+
+    // プレビュー初期描画
+    const slot = editForm.querySelector('.edit-preview__slot');
+    _renderPreview(slot, card);
+
+    // 編集フォームのリアルタイムプレビュー更新
+    fields.forEach((input) => {
+      input.addEventListener('input', () => {
+        const current = _collectFormData(editForm);
+        _renderPreview(slot, { ...card, ...current });
+      });
+    });
+
+    // 編集フォーム開閉
+    const toggleEditBtn = row.querySelector('.action-toggle-edit');
+    toggleEditBtn.addEventListener('click', () => {
+      const isHidden = editForm.hidden;
+      editForm.hidden = !isHidden;
+      toggleEditBtn.textContent = isHidden ? '閉じる' : '編集';
+    });
+
+    // キャンセルボタン
+    row.querySelector('.action-cancel-edit').addEventListener('click', () => {
+      editForm.hidden = true;
+      toggleEditBtn.textContent = '編集';
+    });
+
+    // 保存ボタン
+    row.querySelector('.action-save').addEventListener('click', () => {
+      _saveCard(card.id, editForm, row);
     });
 
     listEl.appendChild(row);
