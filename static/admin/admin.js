@@ -756,6 +756,8 @@ function _renderApprovedList(listEl, cards) {
       const isHidden = editForm.hidden;
       editForm.hidden = !isHidden;
       toggleEditBtn.textContent = isHidden ? '閉じる' : '編集';
+      // 開いた時に取り込み済みカード画像を遅延読み込み
+      if (isHidden) _loadEditCardImage(card, editForm);
     });
 
     // キャンセルボタン
@@ -801,6 +803,47 @@ async function _loadImageThumbnail(cardId, row) {
   }
   imgEl.hidden = true;
   noneEl.hidden = false;
+}
+
+/**
+ * 公開中タブの編集フォームに、取り込み済みの公式カード画像を表示する。
+ * フォームを開いた時に1枚だけ遅延読み込みする（一覧表示時は読まない）。
+ * 取り込み済み画像が無ければ抽出元画像URLにフォールバックする。
+ * @param {Object} card  一覧APIのカードレコード
+ * @param {HTMLElement} editForm  .card-row__edit-form
+ */
+async function _loadEditCardImage(card, editForm) {
+  const wrap = editForm.querySelector('.edit-source-image');
+  const imgEl = wrap.querySelector('.edit-source-image__img');
+  const linkEl = wrap.querySelector('.edit-source-image__link');
+
+  // 既に読み込み済みなら再取得しない
+  if (imgEl.src) return;
+
+  let url = '';
+
+  // 優先: 取り込み済みの公式画像（実際にサイトに出ている画像）
+  if (card.has_image) {
+    try {
+      const resp = await fetch(`/api/card-image?name=${encodeURIComponent(card.name)}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.kind === 'image' && data.url) url = data.url;
+      }
+    } catch {
+      // 取得失敗時はフォールバックへ
+    }
+  }
+
+  // フォールバック: 抽出元画像URL（手動登録カードには無いことが多い）
+  if (!url && card.card_image_url) url = card.card_image_url;
+
+  if (url) {
+    imgEl.src = url;
+    imgEl.alt = card.name;
+    linkEl.href = url;
+    wrap.hidden = false;
+  }
 }
 
 /**
