@@ -19,6 +19,11 @@ RUN mkdir -p .cache
 RUN useradd -m appuser && chown -R appuser:appuser /app
 USER appuser
 
+# glibcのスレッド別mallocアリーナ数を制限する。
+# gthread(8スレッド)でHTML解析を繰り返すとアリーナが乱立し、解放済みメモリが
+# OSに返却されずRSSが定常330MB前後まで膨らんでいた（2026-06 OOM調査で実測）。
+ENV MALLOC_ARENA_MAX=2
+
 EXPOSE 5000
 
 CMD ["gunicorn", "app:app", \

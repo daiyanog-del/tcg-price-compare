@@ -93,32 +93,42 @@ _BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHT
 # YGOResources 名前インデックスキャッシュ（初回リクエスト時に1回だけ取得）
 _ygores_name_index = None
 _ygores_fuzzy_index = None  # あいまいキー → ids の逆引き（全角/半角・ハイフン種のゆれ吸収用）
+# 排他ロック: 未ロード時に複数スレッドが同時に到達すると、全員が533KBのJSON
+# ダウンロード＋辞書構築を並列実行してメモリが跳ねるため（2026-06 OOM調査で実測）、
+# 最初の1スレッドだけが構築し他は待つ
+_ygores_index_lock = threading.Lock()
 
 def _get_ygores_name_index():
     global _ygores_name_index, _ygores_fuzzy_index
     if _ygores_name_index is not None:
         return _ygores_name_index
-    try:
-        # repository経由（Supabaseキャッシュ優先 → API。両方失敗時は {}）
-        index = _ygores_repo.get_name_index()
-        if not index:
-            # 失敗時はメモリに固定せず、次のリクエストで再試行する
-            # （API側の連続失敗はrepositoryのサーキットブレーカーが抑制する）
-            logger.warning("[YGOResources] 名前インデックス取得失敗（次回リクエストで再試行）")
+    with _ygores_index_lock:
+        # ロック待ちの間に他スレッドが構築済みなら再利用
+        if _ygores_name_index is not None:
+            return _ygores_name_index
+        try:
+            # repository経由（Supabaseキャッシュ優先 → API。両方失敗時は {}）
+            index = _ygores_repo.get_name_index()
+            if not index:
+                # 失敗時はメモリに固定せず、次のリクエストで再試行する
+                # （API側の連続失敗はrepositoryのサーキットブレーカーが抑制する）
+                logger.warning("[YGOResources] 名前インデックス取得失敗（次回リクエストで再試行）")
+                return {}
+            # あいまい一致用の逆引き辞書を構築（記号・全半角・ハイフン種のゆれを吸収）
+            # 衝突時は先勝ち（実データで50件・全てスペース種違いの同一カードのみ）
+            # 構築完了後にグローバルへ代入する（半構築状態を他スレッドに見せない）
+            fuzzy = {}
+            for nm, ids in index.items():
+                fk = _fuzzy_key(nm)
+                if fk and fk not in fuzzy:
+                    fuzzy[fk] = ids
+            _ygores_fuzzy_index = fuzzy
+            _ygores_name_index = index
+            logger.info(f"[YGOResources] 名前インデックス取得: {len(_ygores_name_index)}件 rss={_dbg_rss_mb()}MB")  # [MEMDBG] 特定後に rss 部分を削除
+        except Exception as e:
+            logger.warning(f"[YGOResources] 名前インデックス取得失敗: {e}")
             return {}
-        _ygores_name_index = index
-        # あいまい一致用の逆引き辞書を構築（記号・全半角・ハイフン種のゆれを吸収）
-        # 衝突時は先勝ち（実データで50件・全てスペース種違いの同一カードのみ）
-        _ygores_fuzzy_index = {}
-        for nm, ids in _ygores_name_index.items():
-            fk = _fuzzy_key(nm)
-            if fk and fk not in _ygores_fuzzy_index:
-                _ygores_fuzzy_index[fk] = ids
-        logger.info(f"[YGOResources] 名前インデックス取得: {len(_ygores_name_index)}件 rss={_dbg_rss_mb()}MB")  # [MEMDBG] 特定後に rss 部分を削除
-    except Exception as e:
-        logger.warning(f"[YGOResources] 名前インデックス取得失敗: {e}")
-        return {}
-    return _ygores_name_index
+        return _ygores_name_index
 
 def _ygores_image_url(card_name):
     """カード名からYGOResourcesのOCGアートワーク画像URLを返す。未登録の場合はNone"""
