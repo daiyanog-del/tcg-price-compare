@@ -712,6 +712,8 @@ def api_search():
 
         def scrape_shop(name, fn):
             try:
+                # 【使い捨て診断】店舗処理開始。start有・done無の店舗 = クラッシュ時に処理中だった犯人
+                logger.info(f"[MEMDBG] shop-start '{name}' rss={_dbg_rss_mb()}MB")
                 items = fn(card_name)
                 # 【使い捨て診断】店舗1件取得直後のRSS。どの店舗でメモリが跳ねるか特定する
                 logger.info(f"[MEMDBG] shop-done '{name}' items={len(items) if items else 0} rss={_dbg_rss_mb()}MB")

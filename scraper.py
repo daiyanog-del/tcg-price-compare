@@ -107,7 +107,11 @@ def safe_get(url: str, timeout: int = 15, retries: int = 1) -> BeautifulSoup | N
         try:
             res = requests.get(url, headers=HEADERS, timeout=timeout)
             res.raise_for_status()
-            return BeautifulSoup(res.text, "html.parser")
+            # 【使い捨て診断】HTMLサイズを記録。巨大HTMLをhtml.parserで解析する店舗を特定（OOM原因特定後に削除）
+            _txt = res.text
+            if len(_txt) > 500_000:
+                print(f"  [MEMDBG] safe_get large HTML {len(_txt)//1024}KB url={url[:90]}")
+            return BeautifulSoup(_txt, "html.parser")
         except requests.RequestException as e:
             if attempt < retries:
                 time.sleep(2)
