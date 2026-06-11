@@ -444,6 +444,32 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
 @media(max-width:768px){.deck-grid{grid-template-columns:repeat(auto-fill,minmax(60px,1fr));gap:4px}}
 @media(max-width:640px){.deck-grid{grid-template-columns:repeat(auto-fill,minmax(54px,1fr));gap:3px}}
 
+/* ── デッキ編集UI（deck-edit.js）── */
+.deck-edit-toolbar{display:flex;justify-content:flex-end;margin:8px 0 4px}
+#deckEditToggle.active{color:var(--accent-l)}
+.deck-search-box{position:relative;margin:0 0 10px}
+.deck-search-row{display:flex;gap:6px}
+.deck-search-row input{flex:1;padding:9px 12px;font:.9rem var(--font);color:var(--text);background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);outline:none}
+.deck-search-row input:focus{border-color:var(--accent)}
+.deck-search-row select{padding:0 8px;font:.8rem var(--font);color:var(--text);background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer}
+.deck-suggest-drop{position:absolute;top:100%;left:0;right:0;background:var(--bg-card);border:1px solid var(--border);border-radius:0 0 var(--radius) var(--radius);max-height:280px;overflow-y:auto;z-index:100;display:none}
+.deck-suggest-drop.open{display:block}
+.deck-suggest-item{display:flex;align-items:center;gap:8px;padding:10px 14px;font-size:.86rem;cursor:pointer;border-bottom:1px solid rgba(38,40,56,.5)}
+.deck-suggest-item:last-child{border-bottom:0}
+.deck-suggest-item:hover,.deck-suggest-item.active{background:var(--bg-hover);color:var(--accent-l)}
+.deck-suggest-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.deck-suggest-badge{flex-shrink:0;font:.6rem var(--font);font-weight:700;color:var(--gold);background:rgba(232,200,72,.12);border:1px solid rgba(232,200,72,.4);border-radius:3px;padding:1px 5px}
+/* セルに重ねる操作バー */
+#deckCardList.edit-mode .deck-grid-cell{cursor:grab}
+#deckCardList.edit-mode .deck-grid-cell.dragging{opacity:.4}
+#deckCardList.edit-mode .deck-grid-cell.drag-over{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent) inset}
+#deckCardList.edit-mode .deck-grid-badge{display:none}
+.deck-edit-bar{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:2px;padding:2px;background:linear-gradient(to bottom,rgba(0,0,0,.72),transparent);z-index:3}
+.deck-edit-btn{width:18px;height:18px;padding:0;line-height:1;font:.85rem/1 var(--font);font-weight:700;color:#fff;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);border-radius:3px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.deck-edit-btn:hover{background:var(--accent);border-color:var(--accent)}
+.deck-edit-q{font:.7rem var(--mono);font-weight:700;color:#fff;min-width:14px;text-align:center;text-shadow:0 1px 2px rgba(0,0,0,.8)}
+.deck-edit-del{margin-left:auto}
+
 /* ── 環境デッキ プリセット ── */
 .meta-loading{padding:24px;text-align:center;color:var(--text-d);font-size:.85rem}
 .meta-tier-group{margin-bottom:16px}
@@ -923,6 +949,24 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 
         <!-- 保存済みデッキ一覧（最上部） -->
         <div id="savedDeckList"></div>
+
+        <!-- デッキ編集ツールバー -->
+        <div class="deck-edit-toolbar">
+          <button type="button" id="deckEditToggle" class="deck-btn-text" onclick="toggleDeckEdit()">デッキを編集</button>
+        </div>
+
+        <!-- カード検索して追加（編集モード時のみ表示） -->
+        <div id="deckSearchBox" class="deck-search-box hidden">
+          <div class="deck-search-row">
+            <input type="text" id="deckSearchInput" placeholder="カード名で検索して追加" autocomplete="off">
+            <select id="deckAddDest" title="追加先">
+              <option value="auto">自動</option>
+              <option value="main">メイン</option>
+              <option value="ex">EX</option>
+            </select>
+          </div>
+          <div id="deckSuggestDrop" class="deck-suggest-drop"></div>
+        </div>
 
         <!-- PDFドロップゾーン（メインCTA） -->
         <div class="deck-drop-zone" id="deckDropZone"
@@ -2236,6 +2280,8 @@ function renderDeckGrid(cards, ctx, mainCount){
   }
   if(!html) html='<div style="padding:12px;color:var(--text-d);font-size:.8rem">カードが入力されていません</div>';
   listEl.innerHTML=html;
+  // 編集UI（操作バー・ドラッグ）の注入はdeck-edit.jsに委譲（マイデッキ＋編集モード時のみ動作）
+  if(window._deckAfterRender) window._deckAfterRender(listEl,cards,mainCount,ctx);
 }
 
 // グリッドセルにカード画像をバッチ取得して一括表示する（高速化版）
@@ -2634,6 +2680,8 @@ function clearDeck(){
 }
 
 function addToDeck(name){
+  // deck-edit.js 読込時は構造化追加（is_ex振り分け＋グリッド即時更新）を使う
+  if(window.deckAddCard){ window.deckAddCard(name); switchMode('mydeck'); return; }
   const ta=document.getElementById('deckTextarea');
   const lines=ta.value.split('\n').filter(l=>l.trim());
   // Check if already in list
@@ -2689,7 +2737,8 @@ async function calcDeckEstimate(ctx){
   totalLabel.textContent='デッキ相場（直近データ）';
 
   // メインデッキを種別ソート（モンスター→魔法→罠）してグリッド描画
-  const sortedMain=await sortCardsByType(main);
+  // マイデッキの編集モード中はユーザーの手動並び順を尊重し、自動ソートをスキップする
+  const sortedMain=(window._deckEditMode&&ctx===DECK_CTX.mydeck)?main:await sortCardsByType(main);
   const cards=[...sortedMain,...ex];
   const mainCount=sortedMain.length;
 
@@ -2897,7 +2946,8 @@ async function calcDeck(buyMode){
   totalLabel.textContent=isBuy?'買取合計（推定）':'デッキ合計最安値（推定）';
 
   // メインデッキを種別ソート（モンスター→魔法→罠）してグリッド描画
-  const sortedMain=await sortCardsByType(main);
+  // マイデッキの編集モード中はユーザーの手動並び順を尊重し、自動ソートをスキップする
+  const sortedMain=(window._deckEditMode&&ctx===DECK_CTX.mydeck)?main:await sortCardsByType(main);
   const cards=[...sortedMain,...ex];
   const mainCount=sortedMain.length;
 
@@ -3798,6 +3848,7 @@ loadWishPrices().then(wishUpdateBadge);
 // 通知UIの初期状態を反映
 updatePushUI(!!localStorage.getItem(PUSH_SUB_KEY));
 </script>
+<script src="/static/mydeck/deck-edit.js"></script>
 <script type="module" src="/static/shared/neuron-pdf-entry.js"></script>
 </body>
 </html>

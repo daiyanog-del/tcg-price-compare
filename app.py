@@ -601,6 +601,24 @@ def api_suggest():
                     break
 
     results = (prefix_matches + contains_matches + fuzzy_matches + reading_matches)[:10]
+
+    # include_unreleased=1 のときのみ、未発売カードを候補に統合してオブジェクト配列で返す。
+    # param 無しの既存呼び出し（価格検索サジェスト等）は従来どおり文字列配列のままにする（ゼロ回帰）。
+    if request.args.get("include_unreleased") == "1":
+        released_set = set(results)  # 同名は発売済みを優先（重複排除用）
+        # 未発売カード名を発売済みと同じ前方/部分一致でフィルタ（初版は reading/fuzzy 非対応）
+        unreleased_hits = []
+        for name in _card_display.get_unreleased_names():
+            if name in released_set:
+                continue  # 発売済みと同名 → 発売済みを優先
+            name_lower = name.lower()
+            if name_lower.startswith(q_lower) or q_lower in name_lower:
+                unreleased_hits.append(name)
+        # 発売済み優先 → 未発売の順で連結、上限10件
+        objs = [{"name": n, "unreleased": False} for n in results]
+        objs += [{"name": n, "unreleased": True} for n in unreleased_hits]
+        return jsonify(objs[:10])
+
     return jsonify(results)
 
 

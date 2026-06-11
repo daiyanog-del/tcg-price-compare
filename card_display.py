@@ -301,6 +301,14 @@ def _build_proxy_data(card: dict) -> dict:
 # 公開 API
 # ──────────────────────────────────────────────
 
+def get_unreleased_names() -> list[str]:
+    """
+    サジェスト用に、表示対象の未発売カード名（approved / linked かつ hidden=false）を返す。
+    Supabase 未設定・取得失敗時は空配列を返す（機能を縮退させる）。
+    """
+    return list(_get_unreleased().keys())
+
+
 def resolve_card_display(name: str) -> dict:
     """
     カード名から表示解決結果を返す唯一の入口。
