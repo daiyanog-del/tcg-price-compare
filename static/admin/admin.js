@@ -313,6 +313,98 @@ async function _loadPending() {
   }
 }
 
+// ──────────────────────────────────────────────
+// 一括承認
+// ──────────────────────────────────────────────
+
+/**
+ * 一括承認バーの選択件数ラベルとボタン有効状態を更新する
+ */
+function _updateBulkApproveBar() {
+  const bar = document.getElementById('bulk-approve-bar');
+  const btn = document.getElementById('bulk-approve-btn');
+  const allCheck = document.getElementById('bulk-select-all');
+  const checkboxes = document.querySelectorAll('#pending-list .card-row__select');
+  const checked = document.querySelectorAll('#pending-list .card-row__select:checked');
+
+  const total = checkboxes.length;
+  const count = checked.length;
+
+  btn.textContent = `選択を一括承認（${count}件）`;
+  btn.disabled = count === 0;
+
+  // 全選択チェックボックスの状態を同期
+  if (total === 0) {
+    allCheck.checked = false;
+    allCheck.indeterminate = false;
+  } else if (count === total) {
+    allCheck.checked = true;
+    allCheck.indeterminate = false;
+  } else if (count === 0) {
+    allCheck.checked = false;
+    allCheck.indeterminate = false;
+  } else {
+    allCheck.checked = false;
+    allCheck.indeterminate = true;
+  }
+}
+
+// 全選択チェックボックス
+document.getElementById('bulk-select-all').addEventListener('change', (e) => {
+  const checked = e.target.checked;
+  document.querySelectorAll('#pending-list .card-row__select').forEach((cb) => {
+    cb.checked = checked;
+  });
+  _updateBulkApproveBar();
+});
+
+// 一括承認ボタン
+document.getElementById('bulk-approve-btn').addEventListener('click', async () => {
+  const checked = document.querySelectorAll('#pending-list .card-row__select:checked');
+  const ids = Array.from(checked).map((cb) => {
+    return Number(cb.closest('.card-row').dataset.cardId);
+  });
+
+  if (ids.length === 0) return;
+
+  if (!confirm(`${ids.length}件を承認します。よろしいですか？`)) return;
+
+  const btn = document.getElementById('bulk-approve-btn');
+  btn.disabled = true;
+  btn.textContent = '処理中...';
+
+  try {
+    const resp = await apiFetch('/api/admin/unreleased/bulk-approve', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    });
+    const data = await resp.json().catch(() => ({}));
+
+    if (resp.ok) {
+      // 承認済み行をDOMから除去
+      checked.forEach((cb) => {
+        cb.closest('.card-row').remove();
+      });
+      // 全選択を解除して件数を更新
+      document.getElementById('bulk-select-all').checked = false;
+      document.getElementById('bulk-select-all').indeterminate = false;
+      _updateBulkApproveBar();
+      alert(
+        `${data.approved}件を承認しました。\n` +
+        '画像は取り込みに数秒〜十数秒かかります。少し待ってから再読み込みしてください。'
+      );
+    } else {
+      alert(data.error || '一括承認に失敗しました');
+      _updateBulkApproveBar();
+    }
+  } catch (e) {
+    if (e.message !== '認証エラー') {
+      alert('通信エラーが発生しました');
+    }
+    _updateBulkApproveBar();
+  }
+});
+
 /**
  * 承認待ちカード一覧を描画する
  * @param {HTMLElement} listEl
@@ -321,10 +413,16 @@ async function _loadPending() {
 function _renderPendingList(listEl, cards) {
   listEl.innerHTML = '';
 
+  // 一括承認バーの表示/非表示を制御
+  const bar = document.getElementById('bulk-approve-bar');
+
   if (!cards || cards.length === 0) {
     listEl.innerHTML = '<p class="empty-text">承認待ちのカードはありません。</p>';
+    bar.hidden = true;
     return;
   }
+
+  bar.hidden = false;
 
   const tmpl = document.getElementById('tmpl-pending-row');
 
@@ -424,8 +522,14 @@ function _renderPendingList(listEl, cards) {
       _deleteCard(card.id, row);
     });
 
+    // 一括承認チェックボックス変更時に件数ラベルを更新
+    row.querySelector('.card-row__select').addEventListener('change', _updateBulkApproveBar);
+
     listEl.appendChild(row);
   }
+
+  // 初期状態のバー更新（全件未選択）
+  _updateBulkApproveBar();
 }
 
 /**

@@ -552,6 +552,112 @@ def _fetch_and_store_image(
 
 
 # ──────────────────────────────────────────────
+# POST /api/admin/unreleased/bulk-approve — 一括承認
+# ──────────────────────────────────────────────
+
+# 一括承認の画像取込スレッドで使用するロック（同時実行抑制）
+_bulk_image_lock = threading.Lock()
+
+
+@admin_bp.route("/api/admin/unreleased/bulk-approve", methods=["POST"])
+def admin_bulk_approve_unreleased():
+    """
+    複数カードを一括承認する（status='approved'に更新）。
+    リクエストボディ: {"ids": [1, 2, 3, ...]}
+
+    処理フロー:
+      1. 指定IDのうち pending/needs_review/rejected のものを一括で status='approved' に更新
+      2. 各カードの画像取込はバックグラウンドスレッドで非同期実行（タイムアウト回避）
+      3. 承認完了時点でレスポンスを返す（画像取込の完了を待たない）
+
+    レスポンス: {"approved": N, "image_fetch": "バックグラウンドで取込中"}
+    """
+    err = _require_admin_key()
+    if err:
+        return err
+
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+
+    body = request.get_json(silent=True) or {}
+    ids = body.get("ids", [])
+
+    # ids の検証（整数リストであること）
+    if not isinstance(ids, list) or not ids:
+        return jsonify({"error": "ids は1件以上の整数リストで指定してください"}), 400
+
+    try:
+        ids = [int(i) for i in ids]
+    except (TypeError, ValueError):
+        return jsonify({"error": "ids の各要素は整数である必要があります"}), 400
+
+    if len(ids) > 500:
+        return jsonify({"error": "一度に承認できるのは最大500件です"}), 400
+
+    try:
+        # pending/needs_review/rejected のもののみ対象（既承認・linked は除外）
+        target_resp = (
+            _supabase.table("unreleased_cards")
+            .select("id, source_url, extraction_raw, status")
+            .in_("id", ids)
+            .in_("status", ["pending", "needs_review", "rejected"])
+            .execute()
+        )
+        target_cards = target_resp.data or []
+
+        if not target_cards:
+            return jsonify({"approved": 0, "image_fetch": "対象カードがありませんでした"}), 200
+
+        target_ids = [c["id"] for c in target_cards]
+
+        # ステータスを一括更新
+        _supabase.table("unreleased_cards").update({"status": "approved"}).in_(
+            "id", target_ids
+        ).execute()
+
+        approved_count = len(target_ids)
+        logger.info(f"[admin] 一括承認: {approved_count}件 (ids={target_ids})")
+
+        _card_display.invalidate_cache()
+
+        # 画像取込をバックグラウンドスレッドで起動
+        def _bg_fetch_images(cards: list[dict]) -> None:
+            """バックグラウンドで各カードの画像を順次取込する。"""
+            with _bulk_image_lock:
+                for card_data in cards:
+                    try:
+                        success, reason = _try_fetch_image_from_extraction(
+                            card_id=card_data["id"],
+                            source_url=card_data.get("source_url", ""),
+                            extraction_raw=card_data.get("extraction_raw") or {},
+                        )
+                        logger.info(
+                            f"[admin] 一括承認・画像取込: card_id={card_data['id']}, "
+                            f"success={success}, reason={reason!r}"
+                        )
+                    except Exception as exc:
+                        logger.error(
+                            f"[admin] 一括承認・画像取込エラー card_id={card_data['id']}: {exc}"
+                        )
+
+        t = threading.Thread(
+            target=_bg_fetch_images,
+            args=(target_cards,),
+            daemon=True,
+        )
+        t.start()
+
+        return jsonify({
+            "approved": approved_count,
+            "image_fetch": "バックグラウンドで取込中",
+        })
+
+    except Exception as e:
+        logger.error(f"[admin] bulk-approve エラー: {e}")
+        return jsonify({"error": "一括承認に失敗しました"}), 500
+
+
+# ──────────────────────────────────────────────
 # POST /api/admin/unreleased/<id>/reject — 却下
 # ──────────────────────────────────────────────
 

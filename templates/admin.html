@@ -53,6 +53,14 @@
       <h2 class="section-title">承認待ち / 要確認</h2>
       <button id="reload-pending-btn" class="btn btn-ghost btn-sm">再読み込み</button>
     </div>
+    <!-- 一括承認コントロール -->
+    <div id="bulk-approve-bar" class="bulk-approve-bar" hidden>
+      <label class="bulk-select-all-label">
+        <input type="checkbox" id="bulk-select-all"> 全選択
+      </label>
+      <button id="bulk-approve-btn" class="btn btn-success btn-sm" disabled>選択を一括承認（0件）</button>
+      <p class="bulk-approve-hint">画像の取り込みには数秒〜十数秒かかります。承認後、少し待ってから再読み込みしてください。</p>
+    </div>
     <div id="pending-list" class="card-list">
       <p class="loading-text">読み込み中...</p>
     </div>
@@ -198,6 +206,9 @@
 
     <!-- 概要行 -->
     <div class="card-row__summary">
+      <label class="card-row__select-wrap" title="一括承認対象に含める">
+        <input type="checkbox" class="card-row__select">
+      </label>
       <div class="card-row__info">
         <span class="card-row__name"></span>
         <span class="card-row__product"></span>
