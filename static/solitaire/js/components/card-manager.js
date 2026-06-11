@@ -74,20 +74,25 @@ function createCardElement(srcOrDisplay, isEx = false) {
 
   let cardEl;
 
+  // 発売済みクリーン画像にのみ自サイト透かしを重ねる（SAMPLE画像・プロキシには付けない）
+  let isReleasedImage = false;
+
   if (typeof srcOrDisplay === 'string') {
-    // 従来の文字列（URL）引数: 完全後方互換
+    // 従来の文字列（URL）引数: 完全後方互換。文字列は発売済みクリーン画像
     const img = document.createElement('img');
     img.src = srcOrDisplay;
     img.classList.add('tier-item');
     img.setAttribute('draggable', 'true');
     cardEl = img;
+    isReleasedImage = true;
   } else if (srcOrDisplay && srcOrDisplay.kind === 'image') {
-    // {kind:'image', url: '...'} オブジェクト
+    // {kind:'image', url, source?} オブジェクト。source==='official_sample' は未発売SAMPLE
     const img = document.createElement('img');
     img.src = srcOrDisplay.url || '';
     img.classList.add('tier-item');
     img.setAttribute('draggable', 'true');
     cardEl = img;
+    isReleasedImage = srcOrDisplay.source !== 'official_sample';
   } else if (srcOrDisplay && srcOrDisplay.kind === 'proxy') {
     // {kind:'proxy', proxy: {...}} オブジェクト → プロキシ要素を生成
     const proxyEl = createProxyCardElement(srcOrDisplay.proxy || {});
@@ -101,6 +106,11 @@ function createCardElement(srcOrDisplay, isEx = false) {
     img.classList.add('tier-item');
     img.setAttribute('draggable', 'true');
     cardEl = img;
+  }
+
+  // 発売済みクリーン画像の wrapper に透かしクラスを付与（CSS の data-self-wm で出し分け）
+  if (isReleasedImage) {
+    wrapper.classList.add('wm-released');
   }
 
   // ID はすべての種類で wrapper の先頭トークンを使う

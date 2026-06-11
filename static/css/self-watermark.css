@@ -1,0 +1,47 @@
+/* self-watermark.css — 自サイト透かし（cosmetic mitigation）
+ *
+ * 発売済みクリーン画像にのみ低不透明度の「カード相場」透かしを重ね、
+ * 「明確に非公式」を示す。Konami の "SAMPLE" は模倣しない。
+ *
+ * 適用範囲（描画側で .wm-released クラスを付与した要素のみ）:
+ *   - 検索 hero 画像（#heroImgWrap = .card-hero-img）
+ *   - 一人回し盤面のカード（.tier-item-wrapper）
+ * 未発売 SAMPLE 画像・プロキシ・裏面カードには付与しない。
+ *
+ * on/off : ルート要素の data-self-wm 属性（無ければ透かしを出さない）
+ * 強度   : --self-watermark-opacity（既定 0.12）
+ *
+ * 注意: 一人回しの裏面は .tier-item-wrapper.is-set::after（z-index 3）で描画される。
+ *       透かしは ::before（z-index 2）で実装し競合を避ける。裏面時は明示的に非表示。
+ */
+
+.wm-released {
+  position: relative;
+}
+
+[data-self-wm] .wm-released::before {
+  content: "カード相場";
+  position: absolute;
+  inset: 0;
+  z-index: 2;                 /* img(1) より上・裏面オーバーレイ(3) より下 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: rotate(-22deg);
+  transform-origin: center center;
+  font-weight: 700;
+  font-size: clamp(9px, 22%, 22px);
+  letter-spacing: 0.04em;
+  color: #fff;
+  opacity: var(--self-watermark-opacity, 0.12);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  white-space: nowrap;
+  pointer-events: none;       /* クリック・ドラッグを阻害しない */
+  user-select: none;
+  border-radius: inherit;
+}
+
+/* 裏面（セット）カードには透かしを出さない */
+.tier-item-wrapper.is-set.wm-released::before {
+  display: none;
+}

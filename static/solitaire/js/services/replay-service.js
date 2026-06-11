@@ -383,6 +383,8 @@ async function _createReplayCardElements() {
         img.id = cardId;
         if (_names[cardId]) img.dataset.cardName = _names[cardId];
         cardEl = img;
+        // 発売済みクリーン画像にのみ透かし（SAMPLE画像は除外）
+        if (displayResult.source !== 'official_sample') wrapper.classList.add('wm-released');
       } else if (displayResult.kind === 'proxy' && displayResult.proxy) {
         // 未発売プロキシ
         const proxyEl = createProxyCardElement(displayResult.proxy);
@@ -400,7 +402,7 @@ async function _createReplayCardElements() {
         cardEl = proxyEl;
       }
     } else {
-      // 通常の実URL（後方互換: 既存リプレイはこのパスを通る）
+      // 通常の実URL（後方互換: 既存リプレイはこのパスを通る）。実URLは発売済みクリーン画像
       const img = document.createElement('img');
       img.src = src;
       img.classList.add('tier-item');
@@ -408,6 +410,7 @@ async function _createReplayCardElements() {
       img.id = cardId;
       if (_names[cardId]) img.dataset.cardName = _names[cardId];
       cardEl = img;
+      wrapper.classList.add('wm-released');
     }
 
     attachCardImageListeners(wrapper, cardEl);

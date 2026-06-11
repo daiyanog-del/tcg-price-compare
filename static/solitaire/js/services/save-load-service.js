@@ -246,6 +246,8 @@ async function restoreCardsToSlot(slot, cards) {
         img.id = cardData.id.split(' ')[0];
         if (cardData.cardName) img.dataset.cardName = cardData.cardName;
         cardEl = img;
+        // 発売済みクリーン画像にのみ透かし（SAMPLE画像は除外）
+        if (displayResult.source !== 'official_sample') wrapper.classList.add('wm-released');
       } else if (displayResult.kind === 'proxy' && displayResult.proxy) {
         // 未発売プロキシ（まだ発売されていない）
         const proxyEl = createProxyCardElement(displayResult.proxy);
@@ -263,7 +265,7 @@ async function restoreCardsToSlot(slot, cards) {
         cardEl = proxyEl;
       }
     } else {
-      // 通常の img（実URL）: 従来どおり
+      // 通常の img（実URL）: 従来どおり。保存済みの実URLは発売済みクリーン画像
       const img = document.createElement('img');
       // img.src は常に元画像（裏面は CSS ::after で描画するため src は変更しない）
       img.src = cardData.src;
@@ -272,6 +274,7 @@ async function restoreCardsToSlot(slot, cards) {
       img.id = cardData.id.split(' ')[0];
       if (cardData.cardName) img.dataset.cardName = cardData.cardName;
       cardEl = img;
+      wrapper.classList.add('wm-released');
     }
 
     // イベントリスナーを再設定（dblclick による効果発動含む）

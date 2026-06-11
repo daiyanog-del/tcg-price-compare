@@ -41,6 +41,16 @@ _BADGE_BG = (240, 240, 240)   # 白系背景：カード絵柄に関わらず目
 _BADGE_FG = (20, 20, 30)      # バッジテキスト色（濃紺）
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
 
+# ── ウォーターマーク設定（env で on/off・強度を制御。orthogonal な mitigation） ──
+# サーバー側で PNG バイトに焼き込むため、デッキ画像はクリーンな抽出元にならない。
+_WM_ENABLED = os.environ.get("DECK_WATERMARK_ENABLED", "1") == "1"
+try:
+    _WM_OPACITY = float(os.environ.get("DECK_WATERMARK_OPACITY", "0.10"))
+except ValueError:
+    _WM_OPACITY = 0.10
+_WM_OPACITY = max(0.0, min(1.0, _WM_OPACITY))   # 0〜1 にクランプ
+_WM_TEXT = "カード相場"   # 自サイト名。Konami の "SAMPLE" は模倣しない
+
 # ── フォントキャッシュ（プロセス内シングルトン） ──
 _font_lock = threading.Lock()
 _font_cache: dict = {}   # (size, bold) -> ImageFont
@@ -148,6 +158,49 @@ def _draw_badge(img: Image.Image, qty: int) -> Image.Image:
     return img
 
 
+def _apply_watermark(canvas: Image.Image) -> Image.Image:
+    """
+    canvas（RGB）全面に低不透明度の斜めタイル透かしを焼き込んで返す。
+    無効時・不透明度0の場合は canvas をそのまま返す。
+
+    実装方針:
+      テキスト1枚分の RGBA タイルを作って回転し、市松にずらして敷き詰める。
+      最後に alpha_composite で元 canvas に合成する。
+    """
+    if not _WM_ENABLED or _WM_OPACITY <= 0:
+        return canvas
+
+    w, h = canvas.size
+    alpha = int(round(255 * _WM_OPACITY))
+    font = _get_font(28, bold=True)
+
+    # テキストの寸法を測ってタイルサイズを決める
+    probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    bbox = probe.textbbox((0, 0), _WM_TEXT, font=font)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    pad_x, pad_y = 90, 80   # タイル間の余白（透かし密度）
+    tile = Image.new("RGBA", (tw + pad_x, th + pad_y), (0, 0, 0, 0))
+    ImageDraw.Draw(tile).text(
+        (pad_x // 2 - bbox[0], pad_y // 2 - bbox[1]),
+        _WM_TEXT, font=font, fill=(255, 255, 255, alpha),
+    )
+    tile = tile.rotate(30, expand=True, resample=Image.BICUBIC)
+
+    overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    step_x, step_y = tile.width, tile.height
+    row = 0
+    y = -step_y
+    while y < h:
+        x = -step_x + (step_x // 2 if row % 2 else 0)   # 奇数行は半タイルずらす
+        while x < w:
+            overlay.alpha_composite(tile, (x, y))
+            x += step_x
+        y += step_y
+        row += 1
+
+    return Image.alpha_composite(canvas.convert("RGBA"), overlay).convert("RGB")
+
+
 def generate_deck_image(deck_name: str, cards: list, total: int,
                          site_url: str = "",
                          image_url_resolver=None) -> bytes:
@@ -168,7 +221,9 @@ def generate_deck_image(deck_name: str, cards: list, total: int,
     """
     # ── キャッシュチェック ──
     sig = "|".join(f"{c['name']}:{c['qty']}" for c in cards)
-    cache_key = hashlib.md5(f"{deck_name}|{total}|{sig}".encode()).hexdigest()
+    # 透かし設定をキャッシュキーに含める（設定変更時に古いPNGを返さない）
+    wm_sig = f"wm{int(_WM_ENABLED)}-{_WM_OPACITY:.2f}"
+    cache_key = hashlib.md5(f"{deck_name}|{total}|{sig}|{wm_sig}".encode()).hexdigest()
     cache_path = os.path.join(_DECK_CACHE_DIR, f"{cache_key}.png")
     if os.path.exists(cache_path):
         with open(cache_path, "rb") as f:
@@ -241,6 +296,9 @@ def generate_deck_image(deck_name: str, cards: list, total: int,
     footer_text = f"カード相場  {site_url}" if site_url else "カード相場"
     fy = canvas_h - _FOOTER_H + 12
     draw.text((_MARGIN, fy), footer_text, fill=_FOOTER_COL, font=font_footer)
+
+    # ── 透かし焼き込み（config 有効時のみ） ──
+    canvas = _apply_watermark(canvas)
 
     # ── PNG 出力 & キャッシュ保存 ──
     buf = io.BytesIO()

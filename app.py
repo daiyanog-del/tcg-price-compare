@@ -83,6 +83,8 @@ def inject_rarity_config():
     return {
         "rarity_config_json": _RARITY_CONFIG_JSON,
         "enable_solo_play": ENABLE_VISUAL_SOLO_PLAY,
+        "self_watermark": SELF_WATERMARK_ENABLED,
+        "self_watermark_opacity": SELF_WATERMARK_OPACITY,
     }
 
 _BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -180,6 +182,15 @@ HEALTH_CHECK_KEY = os.environ.get("HEALTH_CHECK_KEY", "")
 # 一人回しの導線・ルートだけが止まり、相場等のコア機能は無傷で動く（kill-switch）。
 # ルート側の gate は solitaire_routes.py が同じ env を import 時評価して持つ。
 ENABLE_VISUAL_SOLO_PLAY = os.environ.get("ENABLE_VISUAL_SOLO_PLAY", "1") == "1"
+
+# 自サイト透かし（cosmetic mitigation）: 発売済みクリーン画像に薄い透かしを重ねる。
+# orthogonal な mitigation。落としても他機能は無傷（env で on/off・強度を制御）。
+SELF_WATERMARK_ENABLED = os.environ.get("SELF_WATERMARK_ENABLED", "1") == "1"
+try:
+    SELF_WATERMARK_OPACITY = float(os.environ.get("SELF_WATERMARK_OPACITY", "0.12"))
+except ValueError:
+    SELF_WATERMARK_OPACITY = 0.12
+SELF_WATERMARK_OPACITY = max(0.0, min(1.0, SELF_WATERMARK_OPACITY))
 
 # アフィリエイト設定（環境変数から取得）
 AFFILIATE_CONFIG = {
@@ -2099,7 +2110,9 @@ def api_card_image():
     display = _card_display.resolve_card_display(name)
 
     if display["kind"] == "image":
-        resp = jsonify({"url": display["url"], "kind": "image"})
+        # source（released|official_sample）を付与（フロントの透かし・object-fit 出し分け用）
+        resp = jsonify({"url": display["url"], "kind": "image",
+                        "source": display.get("source", "released")})
         # 発売済みカードは従来どおり長期キャッシュ可
         resp.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
         return resp
@@ -2113,7 +2126,8 @@ def api_card_image():
     # kind == "none" → カーナベルにフォールバック（従来挙動を維持）
     url = kanabell_card_image_url(name)
     if url:
-        resp = jsonify({"url": url, "kind": "image"})
+        # カーナベル画像も発売済みクリーン画像扱い（released）
+        resp = jsonify({"url": url, "kind": "image", "source": "released"})
         resp.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
         return resp
     resp = jsonify({"url": None, "kind": "none"})
@@ -2153,8 +2167,13 @@ def api_card_images():
     for name in names:
         disp = display_results.get(name, {"kind": "none"})
         if disp["kind"] == "image":
-            # 発売済み or 公式画像あり: 値は従来どおり URL 文字列（後方互換）
-            images[name] = disp["url"]
+            if disp.get("source") == "official_sample":
+                # 未発売の公式 SAMPLE 画像: object で返す（フロントが contain 表示・透かし無しに分岐）
+                images[name] = {"url": disp["url"], "kind": "image", "source": "official_sample"}
+                has_unreleased = True
+            else:
+                # 発売済みクリーン画像: 値は従来どおり URL 文字列（後方互換 = released 扱い）
+                images[name] = disp["url"]
         elif disp["kind"] == "proxy":
             # 未発売プロキシ: オブジェクトで返す（deck-input-panel.js が kind を判定）
             images[name] = {"url": None, "kind": "proxy", "proxy": disp["proxy"]}

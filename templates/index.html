@@ -730,8 +730,9 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
 // レアリティ設定（サーバから注入 — rarity.py が唯一の定義ソース）
 window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 </script>
+<link rel="stylesheet" href="/static/css/self-watermark.css?v=20260611">
 </head>
-<body>
+<body{% if self_watermark %} data-self-wm style="--self-watermark-opacity: {{ self_watermark_opacity }}"{% endif %}>
 <div class="wrap">
   <header>
     <h1>
@@ -1483,13 +1484,26 @@ function fetchCardImage(cardName){
     .catch(()=>{});
 }
 
-function _applyCardImages(heroSrc,thumbSrc){
+function _applyCardImages(heroSrc,thumbSrc,source){
   const wrap=document.getElementById('heroImgWrap');
   const safeHero=safeUrl(heroSrc);
   if(wrap&&safeHero&&!wrap.querySelector('img')){
     wrap.innerHTML='<img src="'+esc(safeHero)+'" alt="" loading="lazy">';
+    // 発売済みクリーン画像にのみ自サイト透かしを付与（SAMPLE画像には付けない）
+    if(source!=='official_sample'){ wrap.classList.add('wm-released'); }
+    else { wrap.classList.remove('wm-released'); }
   }
   _fillSmallImages(thumbSrc);
+}
+
+// /api/card-images バッチの値から表示用URLを取り出す。
+// 値は 文字列URL（発売済み）/ {kind:'image',url,source}（未発売SAMPLE）/ {kind:'proxy'} / null。
+// 画像でない（proxy/none）場合は null を返す。
+function _batchImgUrl(v){
+  if(!v) return null;
+  if(typeof v==='string') return v;
+  if(v.kind==='image'&&v.url) return v.url;
+  return null;
 }
 
 function _fillSmallImages(src){
@@ -1760,7 +1774,7 @@ function renderAll(d){
       if(data.url&&safeUrl(data.url)){
         cardImgUrl=safeUrl(data.url);
         cardImgSmall=cardImgUrl;
-        _applyCardImages(cardImgUrl,cardImgSmall);
+        _applyCardImages(cardImgUrl,cardImgSmall,data.source);
       }
     })
     .catch(()=>{});
@@ -2032,10 +2046,10 @@ function loadRankingImages(itemSelector, thumbClass){
   .then(({images})=>{
     if(!images) return;
     els.forEach(el=>{
-      const url=images[el.dataset.card];
-      if(!url) return;
+      const url=_batchImgUrl(images[el.dataset.card]);
+      if(!url||!safeUrl(url)) return;
       const thumb=el.querySelector('.'+thumbClass);
-      if(thumb) thumb.innerHTML='<img src="'+url+'" alt="" loading="lazy">';
+      if(thumb) thumb.innerHTML='<img src="'+esc(safeUrl(url))+'" alt="" loading="lazy">';
     });
   })
   .catch(()=>{});
@@ -2301,7 +2315,7 @@ function loadDeckGridImages(listEl){
   .then(({images})=>{
     if(!images) return;
     cells.forEach(el=>{
-      const url=images[el.dataset.card];
+      const url=_batchImgUrl(images[el.dataset.card]);
       if(!url) return;
       const wrap=el.querySelector('.deck-grid-img-wrap');
       const placeholder=wrap&&wrap.querySelector('.deck-grid-placeholder');
@@ -3609,8 +3623,8 @@ function _loadSavedDeckThumbnails(){
   .then(({images})=>{
     if(!images)return;
     thumbs.forEach(t=>{
-      const url=images[t.dataset.firstCard];
-      if(url&&safeUrl(url)) t.innerHTML=`<img src="${esc(url)}" alt="" loading="lazy">`;
+      const url=_batchImgUrl(images[t.dataset.firstCard]);
+      if(url&&safeUrl(url)) t.innerHTML=`<img src="${esc(safeUrl(url))}" alt="" loading="lazy">`;
     });
   })
   .catch(()=>{});

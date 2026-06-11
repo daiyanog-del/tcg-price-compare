@@ -314,9 +314,14 @@ def resolve_card_display(name: str) -> dict:
     カード名から表示解決結果を返す唯一の入口。
 
     戻り値の種類:
-      {"kind": "image",  "url": str}
+      {"kind": "image",  "url": str, "source": "released"|"official_sample"}
       {"kind": "proxy",  "proxy": dict}
       {"kind": "none"}
+
+    source は画像の出所を示す:
+      "released"        … 発売済みクリーン画像（外部URL直リンク）
+      "official_sample" … 未発売の公式 SAMPLE 画像（Storage）
+    フロント側で透かし適用可否・object-fit の出し分けに使う。
     """
     if not name:
         return {"kind": "none"}
@@ -325,7 +330,7 @@ def resolve_card_display(name: str) -> dict:
     if _released_resolver is not None:
         url = _released_resolver(name)
         if url:
-            return {"kind": "image", "url": url}
+            return {"kind": "image", "url": url, "source": "released"}
 
     # Supabase 未設定なら (4) へ
     if not _is_enabled():
@@ -342,7 +347,7 @@ def resolve_card_display(name: str) -> dict:
     # (2) 画像あり + 設定有効
     img_url = card.get("_image_url")
     if img_url and _official_image_enabled():
-        return {"kind": "image", "url": img_url}
+        return {"kind": "image", "url": img_url, "source": "official_sample"}
 
     # (3) 画像なし or 設定無効 → プロキシ
     return {"kind": "proxy", "proxy": _build_proxy_data(card)}
@@ -369,7 +374,7 @@ def resolve_card_displays(names: list[str]) -> dict[str, dict]:
         if _released_resolver is not None:
             url = _released_resolver(name)
             if url:
-                result[name] = {"kind": "image", "url": url}
+                result[name] = {"kind": "image", "url": url, "source": "released"}
                 continue
         needs_check.append(name)
 
@@ -393,7 +398,7 @@ def resolve_card_displays(names: list[str]) -> dict[str, dict]:
             continue
         img_url = card.get("_image_url")
         if img_url and img_enabled:
-            result[name] = {"kind": "image", "url": img_url}
+            result[name] = {"kind": "image", "url": img_url, "source": "official_sample"}
         else:
             result[name] = {"kind": "proxy", "proxy": _build_proxy_data(card)}
 

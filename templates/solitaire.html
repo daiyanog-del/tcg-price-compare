@@ -27,9 +27,10 @@
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Bungee&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/solitaire/css/main.css?v=20260604b">
+<link rel="stylesheet" href="/static/css/self-watermark.css?v=20260611">
 </head>
 
-<body>
+<body{% if self_watermark %} data-self-wm style="--self-watermark-opacity: {{ self_watermark_opacity }}"{% endif %}>
 <!-- ナビ -->
 <nav class="sol-nav">
   <a href="/" class="sol-nav-title">

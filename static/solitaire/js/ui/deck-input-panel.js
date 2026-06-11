@@ -65,8 +65,13 @@ async function addCardByName(name, qty, isEx) {
       const data = await imageRes.json();
       const kind = data.kind || (data.url ? 'image' : 'none');
       if (kind === 'image' && data.url) {
-        // 発売済み or 公式画像あり: 従来どおり URL 文字列として扱う
-        srcOrDisplay = data.url;
+        if (data.source === 'official_sample') {
+          // 未発売SAMPLE画像: object で渡し、透かしを付けない（createCardElement が判定）
+          srcOrDisplay = { kind: 'image', url: data.url, source: 'official_sample' };
+        } else {
+          // 発売済みクリーン画像: 従来どおり URL 文字列として扱う（透かし対象）
+          srcOrDisplay = data.url;
+        }
       } else if (kind === 'proxy') {
         // 未発売プロキシ
         srcOrDisplay = { kind: 'proxy', proxy: data.proxy || {} };
@@ -177,9 +182,10 @@ async function addCardsBatch(cards, defaultIsEx) {
     const { qty, name } = card;
 
     // images[name] は以下のいずれか:
-    //   - 文字列 URL（発売済み / カーナベルフォールバック）  → 従来どおり
-    //   - {url:null, kind:'proxy', proxy:{...}}（未発売プロキシ） → 多態対応
-    //   - null（pending/rejected/取得失敗）                     → スキップ
+    //   - 文字列 URL（発売済みクリーン画像 / カーナベルフォールバック）   → 従来どおり
+    //   - {url, kind:'image', source:'official_sample'}（未発売SAMPLE画像） → 多態対応
+    //   - {url:null, kind:'proxy', proxy:{...}}（未発売プロキシ）          → 多態対応
+    //   - null（pending/rejected/取得失敗）                              → スキップ
     const imgVal = images[name] ?? null;
 
     // kind === 'none' 相当（null または明示的な none オブジェクト）はスキップ
@@ -191,10 +197,11 @@ async function addCardsBatch(cards, defaultIsEx) {
     // srcOrDisplay: createCardElement に渡す値を確定する
     let srcOrDisplay;
     if (typeof imgVal === 'string') {
-      // 発売済み: URL 文字列（後方互換）
+      // 発売済みクリーン画像: URL 文字列（後方互換）
       srcOrDisplay = imgVal;
-    } else if (imgVal.kind === 'proxy') {
-      // 未発売プロキシ: オブジェクトのまま渡す
+    } else if (imgVal.kind === 'image' || imgVal.kind === 'proxy') {
+      // 未発売SAMPLE画像（kind:'image'）/ 未発売プロキシ: オブジェクトのまま渡す
+      // （createCardElement が source を見て透かし・表示を出し分ける）
       srcOrDisplay = imgVal;
     } else {
       // 予期しない形式: スキップ
