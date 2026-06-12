@@ -51,6 +51,17 @@ MAX_EXTRACT_PAGES = int(os.environ.get("MAX_EXTRACT_PAGES", "15"))
 # ページ変化時に新規追加する最大リンク数
 MAX_NEW_LINKS = 20
 
+# 「カード画像はあるのにカード0件」ページの再抽出上限。
+# 旧環境（curl_cffi/vision導入前）で抽出に失敗し0件のまま残ったページを
+# 自動で拾い直すための上限。上限到達後は諦める（無限再試行・APIコスト暴走の防止）。
+# コンテンツ変化時に extract_attempts は0へリセットされる。
+MAX_EXTRACT_ATTEMPTS = 3
+
+# ラッシュデュエル記事の除外キーワード（記事見出しで判定）。
+# yu-gi-oh.jp は OCG とラッシュデュエルを同じ news_detail.php で配信するため、
+# 価格比較対象外のラッシュ記事を抽出（Claude呼び出し）しないよう除外する。
+_RUSH_KEYWORDS = ("ラッシュデュエル", "RUSH DUEL")
+
 # 新規追加リンクのフィルタキーワード（小文字で一致確認）
 _CARD_URL_KEYWORDS = (
     "product", "card", "news", "information", "howto",
@@ -121,6 +132,26 @@ def _extract_candidate_links(html: str, base_url: str) -> list[str]:
     return candidates
 
 
+def _is_rush_duel(html: str) -> bool:
+    """記事がラッシュデュエル（価格比較対象外）かを見出しで判定する。
+
+    ナビ/フッターには全ページ共通でラッシュデュエルへのリンクがあるため、
+    本文全体ではなく記事見出し（h1〜h3）で判定する。
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup.find_all(["script", "style", "nav", "footer", "header"]):
+        tag.decompose()
+    for sel in ("h1", "h2", "h3"):
+        el = soup.find(sel)
+        if not el:
+            continue
+        heading = el.get_text(strip=True)
+        heading_up = heading.upper()
+        if any(kw in heading or kw in heading_up for kw in _RUSH_KEYWORDS):
+            return True
+    return False
+
+
 def _notify_discord(message: str) -> None:
     """Discord Webhook へ通知を送る（DISCORD_WEBHOOK_URL が未設定なら何もしない）。
     HTTPライブラリ直接import禁止のAST検査を維持するため discord_notify モジュールに委譲する。
@@ -169,21 +200,48 @@ def _update_checked(sb: Client, url: str, content_hash: str) -> None:
 
 
 def _update_changed(sb: Client, url: str, content_hash: str) -> None:
-    """コンテンツ変化時に last_changed_at / last_checked_at / content_hash を更新する"""
+    """コンテンツ変化時に last_changed_at / last_checked_at / content_hash を更新する。
+    新しい内容は抽出し直す価値があるため extract_attempts を0へリセットする。"""
     now = datetime.now(timezone.utc).isoformat()
     sb.table("watched_pages").update({
         "last_checked_at": now,
         "last_changed_at": now,
         "content_hash": content_hash,
+        "extract_attempts": 0,
     }).eq("url", url).execute()
 
 
-def _update_extracted(sb: Client, url: str) -> None:
-    """Extractor処理完了時に last_extracted_at を更新する"""
+def _update_extracted(sb: Client, url: str, attempts: int) -> None:
+    """Extractor処理完了時に last_extracted_at と extract_attempts を更新する。
+    attempts には更新後の試行回数（今回の試行を含めた値）を渡す。"""
     now = datetime.now(timezone.utc).isoformat()
     sb.table("watched_pages").update({
         "last_extracted_at": now,
+        "extract_attempts": attempts,
     }).eq("url", url).execute()
+
+
+def _count_cards_for_url(sb: Client, url: str) -> int:
+    """指定 source_url の unreleased_cards 件数を返す（再抽出要否の判定用）"""
+    resp = sb.table("unreleased_cards").select("id", count="exact").eq("source_url", url).execute()
+    return resp.count or 0
+
+
+def _should_retry_empty(sb: Client, page: dict, html: str, url: str) -> bool:
+    """「カード画像はあるのにカード0件」のページを再抽出すべきか判定する（原因の修正）。
+
+    旧環境で抽出に失敗し0件のまま last_extracted_at が記録されたページは
+    _extraction_pending では拾えない。カード画像が存在するのに DB が0件で、
+    かつ試行回数が上限未満なら再抽出する。上限到達後は諦める（無限再試行防止）。
+    """
+    attempts = page.get("extract_attempts") or 0
+    if attempts >= MAX_EXTRACT_ATTEMPTS:
+        return False
+    # カード画像抽出は extractor と同一ロジックを使う（単一情報源）
+    from unreleased_extractor import _extract_card_image_urls
+    if not _extract_card_image_urls(html, url):
+        return False
+    return _count_cards_for_url(sb, url) == 0
 
 
 def _extraction_pending(page: dict) -> bool:
@@ -304,6 +362,16 @@ def main() -> None:
             prev_hash = page.get("content_hash", "")
             is_change = not (new_hash == prev_hash and prev_hash)
 
+            # ラッシュデュエル記事は価格比較対象外。巡回・差分記録はするが
+            # Extractor（Claude呼び出し）は行わない（修正1）。
+            if _is_rush_duel(html):
+                logger.info(f"[Watcher] ラッシュデュエル記事のため抽出スキップ: {url}")
+                if is_change:
+                    _update_changed(sb, url, new_hash)
+                else:
+                    _update_checked(sb, url, new_hash)
+                continue
+
             if is_change:
                 # 変化あり（または初回）
                 logger.info(f"[Watcher] コンテンツ変化を検知: {url}")
@@ -319,13 +387,17 @@ def main() -> None:
                         seen_urls.add(new_url)
                         queue.append({"url": new_url, "content_hash": ""})
             else:
-                # 変化なし。ただし「抽出保留」（変化検知済みだが未抽出。
-                # APIキー未設定時期に取りこぼしたページ等）なら抽出に進む（原因2の修正）。
+                # 変化なし。ただし以下は抽出に進む:
+                #   (a) 抽出保留（変化検知済みだが未抽出。APIキー未設定時期の取りこぼし等）
+                #   (b) カード画像があるのにDB0件（旧環境で抽出失敗・上限内）（修正2）
                 _update_checked(sb, url, new_hash)
-                if not _extraction_pending(page):
+                if _extraction_pending(page):
+                    logger.info(f"[Watcher] 変化なしだが未抽出のため抽出に進む: {url}")
+                elif _should_retry_empty(sb, page, html, url):
+                    logger.info(f"[Watcher] 変化なしだがカード画像あり/DB0件のため再抽出: {url}")
+                else:
                     logger.info(f"[Watcher] 変化なし: {url}")
                     continue
-                logger.info(f"[Watcher] 変化なしだが未抽出のため抽出に進む: {url}")
 
             # 4. Extractor 呼び出し上限チェック
             if extract_count >= MAX_EXTRACT_PAGES:
@@ -353,7 +425,7 @@ def main() -> None:
             # 5. unreleased_cards に upsert（既存行は上書きしない）
             n_inserted = _upsert_cards(sb, card_rows)
             total_inserted += n_inserted
-            _update_extracted(sb, url)
+            _update_extracted(sb, url, (page.get("extract_attempts") or 0) + 1)
 
             logger.info(
                 f"[Watcher] 完了: {url} "

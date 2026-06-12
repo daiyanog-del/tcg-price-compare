@@ -55,6 +55,11 @@ _MAX_IMAGES = int(os.environ.get("EXTRACTOR_MAX_IMAGES", "30"))
 # 1画像あたりのサイズ上限（バイト）: 5MB
 _MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
+# カード画像のファイル名パターン「<記事ID>_<14桁日時>_...」
+# 例: 2543_20260602093341_img_1_<hash>.jpg / 2542_20260602093009_<hash>.jpg
+# バナー（news_1.jpg 等）を除外しつつ _img_ 有無に関わらずカード画像を採用する。
+_CARD_IMAGE_NAME_RE = re.compile(r"^\d+_\d{14}_")
+
 # システムプロンプト（固定・日本語）
 _SYSTEM_PROMPT = """\
 あなたは遊戯王OCGの新カード情報を公式ページから正確に抽出するアシスタントです。
@@ -127,9 +132,12 @@ def _extract_card_image_urls(html: str, page_url: str) -> list[str]:
 
     カード画像の判定基準:
       - パスが /images/news/ 配下
-      - ファイル名に _img_ を含む（例: 2543_20260602093341_img_1_<hash>.jpg）
+      - ファイル名が「<記事ID>_<14桁日時>_」で始まる
+        （例: 2543_20260602093341_img_1_<hash>.jpg / 2542_20260602093009_<hash>.jpg）
+        旧来は "_img_" 必須だったが、_img_ を含まない命名（Vジャンプ付録カード等）も
+        カード画像なので、命名規則ベースに緩和した。
 
-    menu/banner/ヘッダーなどのUI画像は除外される。
+    menu/banner（news_1.jpg 等）/ヘッダーなどのUI画像は除外される。
 
     Args:
         html:     取得済みHTMLテキスト
@@ -165,8 +173,10 @@ def _extract_card_image_urls(html: str, page_url: str) -> list[str]:
         if not path.startswith("/images/news/"):
             continue
 
+        # カード画像の命名規則「<記事ID>_<14桁日時>_...」のみ採用。
+        # バナー（news_1.jpg 等）や固定UI画像を除外する。
         filename = path.rsplit("/", 1)[-1]
-        if "_img_" not in filename:
+        if not _CARD_IMAGE_NAME_RE.match(filename):
             continue
 
         seen.add(abs_url)
