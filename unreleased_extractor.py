@@ -60,6 +60,11 @@ _MAX_IMAGE_BYTES = 5 * 1024 * 1024
 # バナー（news_1.jpg 等）を除外しつつ _img_ 有無に関わらずカード画像を採用する。
 _CARD_IMAGE_NAME_RE = re.compile(r"^\d+_\d{14}_")
 
+# ラッシュデュエル専用語（保険フィルタ用）。
+# Claude の is_rush 判定をすり抜けても、ラッシュ固有の語が card_type / effect_text に
+# 現れたカードは OCG に存在しないため除外する。OCGと共通の語は含めない。
+_RUSH_ONLY_TERMS = ("マキシマム", "MAXIMUM", "ラッシュデュエル", "RUSH DUEL")
+
 # システムプロンプト（固定・日本語）
 _SYSTEM_PROMPT = """\
 あなたは遊戯王OCGの新カード情報を公式ページから正確に抽出するアシスタントです。
@@ -86,6 +91,19 @@ _SYSTEM_PROMPT = """\
    - 既存カードの再録情報のみのページでは cards=[] を返す
    - カード情報がないページ（ニュース・イベント・店舗情報等）では cards=[] を返す
 
+1-2. **ラッシュデュエルのカードの扱い（重要）**:
+   このサービスの価格比較対象は遊戯王OCGのみで、ラッシュデュエル（ラッシュデュエル／
+   RUSH DUEL）は対象外です。1ページにOCGとラッシュデュエルのカードが混在することが
+   あるため、各カードごとに is_rush（true/false）を判定してください。
+   - ラッシュデュエルのカードを見分ける主な視覚的手がかり:
+     - カード枠の上部や枠デザインに「ラッシュデュエル」「RUSH DUEL」のロゴ・表記がある
+     - レベルの★がカード上部に横並びで配置される（OCGとは枠・配置の様式が異なる）
+     - 「MAXIMUM（マキシマム）」「LEGEND（レジェンド）」などラッシュ専用の枠・表記がある
+     - 攻撃力/守備力の表記様式や効果欄の枠デザインがOCGと異なる
+   - ラッシュデュエルだと判断したカードは is_rush=true とする（このカードは後段で除外される）
+   - **確信が持てない場合は is_rush=false（OCG扱い）とすること。**
+     正規のOCGカードを誤って除外しないよう、安全側に倒す。
+
 2. 各フィールドの扱い:
    - name: 日本語正式カード名。必須。英語名しかない場合も記入する
    - reading: フリガナ。不明なら空文字
@@ -110,6 +128,8 @@ _SYSTEM_PROMPT = """\
      各カードは1枚の画像に対応するので、そのカードを読み取った画像のURLを入れる。
      必ず渡された画像URLの中から正確にコピーして入れること（URLを創作・変形しない）。
      該当する画像URLが不明な場合は空文字にする。
+   - is_rush: ラッシュデュエルのカードなら true、遊戯王OCGのカードなら false。
+     判別がつかない場合は false（OCG扱い）とする。詳細は上記「1-2.」を参照。
    - confidence: 抽出の確信度
      - high: カード名・効果文・ステータスがすべて明確に読み取れる
      - medium: 一部情報が不明確または推測が含まれる
@@ -273,6 +293,8 @@ def _get_pydantic_models():
         image_urls: list[str] = []
         # このカードのメイン画像1枚のURL（渡された画像URLのいずれかを正確にコピーする）
         image_url: str = ""
+        # ラッシュデュエル（価格比較対象外）なら True。判別不能時は False（OCG扱い）。
+        is_rush: bool = False
         confidence: Literal["high", "medium", "low"] = "medium"
 
         model_config = {"populate_by_name": True}
@@ -306,9 +328,19 @@ def _validate_and_fix(card: Any, page_url: str) -> dict | None:
 
     confidence = card.confidence
 
-    # 必須情報（card_type または effect_text）が両方欠落している場合は low に降格
     card_type = (card.card_type or "").strip()
     effect_text = (card.effect_text or "").strip()
+
+    # 保険フィルタ: Claude の is_rush 判定をすり抜けても、ラッシュ専用語が
+    # card_type / effect_text に現れたカードは OCG に存在しないため除外する。
+    _haystack = f"{card_type} {effect_text}".upper()
+    if any(term.upper() in _haystack for term in _RUSH_ONLY_TERMS):
+        logger.warning(
+            f"[Extractor] ラッシュ専用語を検出したため除外: {name!r} ({page_url!r})"
+        )
+        return None
+
+    # 必須情報（card_type または effect_text）が両方欠落している場合は low に降格
     if not card_type and not effect_text:
         if confidence != "low":
             logger.debug(
@@ -478,6 +510,7 @@ def _build_vision_message(processed_text: str, encoded_images: list[dict]) -> li
         '      "release_date": "YYYY-MM-DD または空文字",\n'
         '      "image_urls": ["読み取り元画像のURL"],\n'
         '      "image_url": "このカードの絵柄・カード名が写っている画像のURL（渡されたURLを正確にコピー。1枚のみ）",\n'
+        '      "is_rush": false,\n'
         '      "confidence": "high|medium|low"\n'
         "    }\n"
         "  ]\n"
@@ -520,6 +553,7 @@ def _build_text_message(processed_text: str) -> list[dict]:
         '      "product_name": "収録パック名",\n'
         '      "release_date": "YYYY-MM-DD または空文字",\n'
         '      "image_urls": [],\n'
+        '      "is_rush": false,\n'
         '      "confidence": "high|medium|low"\n'
         "    }\n"
         "  ]\n"
@@ -691,7 +725,17 @@ def extract_cards_from_html(html: str, page_url: str = "") -> list[dict]:
 
     # 検証・補正して返却
     output_rows = []
+    rush_skipped = 0
     for card in result.cards:
+        # ラッシュデュエル（価格比較対象外）と判定されたカードは除外する。
+        # 判別不能時は is_rush=false（OCG扱い）になるため、誤って正規カードを落とさない。
+        if getattr(card, "is_rush", False):
+            rush_skipped += 1
+            logger.info(
+                f"[Extractor] ラッシュデュエルのため除外: {card.name!r} ({page_url!r})"
+            )
+            continue
+
         row = _validate_and_fix(card, page_url)
         if row is None:
             continue
@@ -718,5 +762,9 @@ def extract_cards_from_html(html: str, page_url: str = "") -> list[dict]:
 
         output_rows.append(row)
 
+    if rush_skipped:
+        logger.info(
+            f"[Extractor] ラッシュデュエル除外: {rush_skipped}件 ({page_url!r})"
+        )
     logger.info(f"[Extractor] 有効カード数（検証後）: {len(output_rows)}件 ({page_url!r})")
     return output_rows

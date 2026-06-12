@@ -133,14 +133,24 @@ def _extract_candidate_links(html: str, base_url: str) -> list[str]:
 
 
 def _is_rush_duel(html: str) -> bool:
-    """記事がラッシュデュエル（価格比較対象外）かを見出しで判定する。
+    """記事がラッシュデュエル（価格比較対象外）かを判定する。
 
-    ナビ/フッターには全ページ共通でラッシュデュエルへのリンクがあるため、
-    本文全体ではなく記事見出し（h1〜h3）で判定する。
+    2段階で判定する:
+      1. 記事見出し（h1〜h3）にラッシュキーワードが含まれるか（安価・短絡）
+      2. ナビ/フッター/ヘッダー/サイドバーと全リンク(<a>)を除去した本文テキストに
+         ラッシュキーワードが含まれるか
+
+    見出しがロゴ画像や商品名のみでキーワード文字列を含まない記事は、見出し判定だけ
+    では素通りするため本文テキストでも判定する。
+    全ページ共通のラッシュデュエルへのリンクはヘッダー/フッター/ナビや本文中の <a> に
+    存在するため、これらを除去してから判定し、本文の地の文で言及している記事のみを拾う
+    （誤って OCG 記事をラッシュと誤判定して正規カードを取りこぼさないよう安全側に倒す）。
     """
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup.find_all(["script", "style", "nav", "footer", "header"]):
         tag.decompose()
+
+    # 1. 記事見出しでの判定（安価なので先に評価）
     for sel in ("h1", "h2", "h3"):
         el = soup.find(sel)
         if not el:
@@ -149,6 +159,16 @@ def _is_rush_duel(html: str) -> bool:
         heading_up = heading.upper()
         if any(kw in heading or kw in heading_up for kw in _RUSH_KEYWORDS):
             return True
+
+    # 2. 本文テキストでの判定。全ページ共通のラッシュリンクは <a> 内にあるため、
+    #    aside（サイドバー）と全リンクを除去してから本文の地の文で判定する。
+    for tag in soup.find_all(["aside", "a"]):
+        tag.decompose()
+    body_text = soup.get_text(separator=" ")
+    body_up = body_text.upper()
+    if any(kw in body_text or kw in body_up for kw in _RUSH_KEYWORDS):
+        return True
+
     return False
 
 
