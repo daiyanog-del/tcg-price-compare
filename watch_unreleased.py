@@ -133,24 +133,23 @@ def _extract_candidate_links(html: str, base_url: str) -> list[str]:
 
 
 def _is_rush_duel(html: str) -> bool:
-    """記事がラッシュデュエル（価格比較対象外）かを判定する。
+    """記事がラッシュデュエル（価格比較対象外）かを記事見出し(h1〜h3)で判定する。
 
-    2段階で判定する:
-      1. 記事見出し（h1〜h3）にラッシュキーワードが含まれるか（安価・短絡）
-      2. ナビ/フッター/ヘッダー/サイドバーと全リンク(<a>)を除去した本文テキストに
-         ラッシュキーワードが含まれるか
+    yu-gi-oh.jp は OCG とラッシュデュエルを同じ news_detail.php で配信するため、
+    価格比較対象外のラッシュ記事を抽出（Claude呼び出し）しないよう除外する。
 
-    見出しがロゴ画像や商品名のみでキーワード文字列を含まない記事は、見出し判定だけ
-    では素通りするため本文テキストでも判定する。
-    全ページ共通のラッシュデュエルへのリンクはヘッダー/フッター/ナビや本文中の <a> に
-    存在するため、これらを除去してから判定し、本文の地の文で言及している記事のみを拾う
-    （誤って OCG 記事をラッシュと誤判定して正規カードを取りこぼさないよう安全側に倒す）。
+    判定は見出し（h1〜h3）にラッシュキーワードが含まれるかのみで行う。
+    以前は本文テキストでも判定していたが、Vジャンプ告知記事の定型宣伝文
+    （「『OCG』カード情報のほかに『ラッシュデュエル』の情報も掲載されているぞ！」）を
+    誤検知し、OCG記事を軒並みスキップしていたため廃止した（2026-06-13）。
+    見出しが画像のみでキーワード文字列を含まない真のラッシュ記事は取りこぼし、
+    ラッシュカードを OCG として抽出してしまう可能性が残るが、運営判断により
+    本文判定の誤検知（正規OCGカードの取りこぼし）を避けることを優先する。
     """
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup.find_all(["script", "style", "nav", "footer", "header"]):
         tag.decompose()
 
-    # 1. 記事見出しでの判定（安価なので先に評価）
     for sel in ("h1", "h2", "h3"):
         el = soup.find(sel)
         if not el:
@@ -159,15 +158,6 @@ def _is_rush_duel(html: str) -> bool:
         heading_up = heading.upper()
         if any(kw in heading or kw in heading_up for kw in _RUSH_KEYWORDS):
             return True
-
-    # 2. 本文テキストでの判定。全ページ共通のラッシュリンクは <a> 内にあるため、
-    #    aside（サイドバー）と全リンクを除去してから本文の地の文で判定する。
-    for tag in soup.find_all(["aside", "a"]):
-        tag.decompose()
-    body_text = soup.get_text(separator=" ")
-    body_up = body_text.upper()
-    if any(kw in body_text or kw in body_up for kw in _RUSH_KEYWORDS):
-        return True
 
     return False
 
