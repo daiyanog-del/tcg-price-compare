@@ -63,7 +63,13 @@ _CARD_IMAGE_NAME_RE = re.compile(r"^\d+_\d{14}_")
 # ラッシュデュエル専用語（保険フィルタ用）。
 # Claude の is_rush 判定をすり抜けても、ラッシュ固有の語が card_type / effect_text に
 # 現れたカードは OCG に存在しないため除外する。OCGと共通の語は含めない。
-_RUSH_ONLY_TERMS = ("マキシマム", "MAXIMUM", "ラッシュデュエル", "RUSH DUEL")
+# 「【条件】」「【効果】」はラッシュの効果記述書式（OCGは「①：」「②：」書式）。
+# 実データ確認: OCG製品(BEYOND THE BRAVE / WORLD PREMIERE PACK 2026等)では出現0件、
+# ラッシュ製品(アドバンスパック ユニオン・ベース)でのみ出現する強い判別軸。
+_RUSH_ONLY_TERMS = (
+    "マキシマム", "MAXIMUM", "ラッシュデュエル", "RUSH DUEL",
+    "【条件】", "【効果】",
+)
 
 # システムプロンプト（固定・日本語）
 _SYSTEM_PROMPT = """\
