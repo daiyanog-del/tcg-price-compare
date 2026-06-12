@@ -186,21 +186,45 @@ def _update_extracted(sb: Client, url: str) -> None:
     }).eq("url", url).execute()
 
 
-def _add_new_links(sb: Client, links: list[str]) -> int:
+def _extraction_pending(page: dict) -> bool:
+    """このページが「抽出保留」状態か判定する。
+
+    変化検知済み（last_changed_at あり）だが、まだ一度も抽出していない
+    （last_extracted_at が null）か、抽出後にさらに変化した場合に True。
+
+    APIキー未設定だった時期に変化検知だけ記録され抽出されなかったページは
+    last_extracted_at=null のまま残る。これを「変化なし」の早期スキップで
+    取りこぼさないために使う（原因2の修正）。
+    """
+    last_changed = page.get("last_changed_at")
+    if not last_changed:
+        return False
+    last_extracted = page.get("last_extracted_at")
+    if not last_extracted:
+        return True
+    try:
+        return last_changed > last_extracted
+    except TypeError:
+        # 比較できない場合は安全側（抽出する）に倒す
+        return True
+
+
+def _add_new_links(sb: Client, links: list[str]) -> list[str]:
     """新規リンクを watched_pages に追加する。既存URLはスキップ（upsert ignore）。
-    戻り値: 実際に挿入を試みた件数
+    戻り値: 追加対象とした URL のリスト（呼び出し側で同一実行のキューに積むため）
     """
     if not links:
-        return 0
+        return []
 
-    rows = [{"url": url, "content_hash": "", "enabled": True} for url in links[:MAX_NEW_LINKS]]
+    target_urls = links[:MAX_NEW_LINKS]
+    rows = [{"url": url, "content_hash": "", "enabled": True} for url in target_urls]
     try:
         sb.table("watched_pages").upsert(rows, on_conflict="url", ignore_duplicates=True).execute()
         logger.info(f"[Watcher] 新規リンク追加: {len(rows)}件")
-        return len(rows)
+        return target_urls
     except Exception as e:
         logger.warning(f"[Watcher] リンク追加失敗: {e}")
-        return 0
+        return []
 
 
 # ──────────────────────────────────────────────
@@ -252,7 +276,14 @@ def main() -> None:
     fail_count = 0         # ページ単位の失敗数
     total_inserted = 0     # 合計 INSERT 件数
 
-    for page in pages:
+    # キュー方式で巡回する。ループ中に新規発見したページを同一実行内で
+    # 処理するため、固定リストではなく先頭から取り出すキューを使う（原因1の修正）。
+    # seen_urls で同一実行内の重複処理を防ぐ。
+    queue: list[dict] = [p for p in pages if p.get("url")]
+    seen_urls: set[str] = {p["url"] for p in queue}
+
+    while queue:
+        page = queue.pop(0)
         url = page.get("url", "")
         if not url:
             continue
@@ -271,21 +302,30 @@ def main() -> None:
             normalized = _normalize_html(html)
             new_hash = _sha256(normalized)
             prev_hash = page.get("content_hash", "")
+            is_change = not (new_hash == prev_hash and prev_hash)
 
-            # 変化なし → last_checked_at のみ更新してスキップ
-            if new_hash == prev_hash and prev_hash:
-                logger.info(f"[Watcher] 変化なし: {url}")
+            if is_change:
+                # 変化あり（または初回）
+                logger.info(f"[Watcher] コンテンツ変化を検知: {url}")
+                _update_changed(sb, url, new_hash)
+
+                # 3. 新規リンクを抽出して追加（最大MAX_NEW_LINKS件）
+                #    追加した URL は同一実行のキューへ積む（原因1の修正）
+                candidate_links = _extract_candidate_links(html, url)
+                logger.info(f"[Watcher] リンク候補: {len(candidate_links)}件")
+                added_urls = _add_new_links(sb, candidate_links)
+                for new_url in added_urls:
+                    if new_url not in seen_urls:
+                        seen_urls.add(new_url)
+                        queue.append({"url": new_url, "content_hash": ""})
+            else:
+                # 変化なし。ただし「抽出保留」（変化検知済みだが未抽出。
+                # APIキー未設定時期に取りこぼしたページ等）なら抽出に進む（原因2の修正）。
                 _update_checked(sb, url, new_hash)
-                continue
-
-            # 変化あり（または初回）
-            logger.info(f"[Watcher] コンテンツ変化を検知: {url}")
-            _update_changed(sb, url, new_hash)
-
-            # 3. 新規リンクを抽出して追加（最大MAX_NEW_LINKS件）
-            candidate_links = _extract_candidate_links(html, url)
-            logger.info(f"[Watcher] リンク候補: {len(candidate_links)}件")
-            _add_new_links(sb, candidate_links)
+                if not _extraction_pending(page):
+                    logger.info(f"[Watcher] 変化なし: {url}")
+                    continue
+                logger.info(f"[Watcher] 変化なしだが未抽出のため抽出に進む: {url}")
 
             # 4. Extractor 呼び出し上限チェック
             if extract_count >= MAX_EXTRACT_PAGES:
@@ -295,20 +335,9 @@ def main() -> None:
                 )
                 continue
 
-            # last_extracted_at より新しい場合のみ Extractor 実行
-            last_extracted = page.get("last_extracted_at")
-            last_changed = page.get("last_changed_at")
-            if last_extracted and last_changed:
-                # last_changed_at が last_extracted_at 以前ならスキップ
-                try:
-                    if last_changed <= last_extracted:
-                        logger.info(f"[Watcher] 抽出済み（前回抽出後の変化なし）: {url}")
-                        continue
-                except TypeError:
-                    pass  # 比較できない場合は抽出実行
-
             # APIキー未設定時は抽出をスキップ（巡回・差分検知は継続。
-            # last_extracted_at を更新しないため、キー設定後の実行で抽出される）
+            # last_extracted_at を更新しないため、キー設定後の実行で
+            # _extraction_pending=True となり抽出される）
             if not os.environ.get("ANTHROPIC_API_KEY"):
                 logger.warning(
                     f"[Watcher] ANTHROPIC_API_KEY 未設定のため抽出をスキップ: {url}"
