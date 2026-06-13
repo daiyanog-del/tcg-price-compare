@@ -288,6 +288,34 @@ function _renderPreview(slot, cardData) {
   }
 }
 
+/**
+ * 編集フォームの画像切替タブを配線する。
+ * タブをクリックすると対応するパネル（抽出元画像 / プロキシ表示）を表示する。
+ * @param {HTMLElement} editForm  .card-row__edit-form
+ */
+function _wireMediaTabs(editForm) {
+  editForm.querySelectorAll('.edit-media-tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      _setActiveMedia(editForm, tab.dataset.media);
+    });
+  });
+}
+
+/**
+ * 編集フォームで指定した画像メディアを表示状態にする。
+ * タブの is-active と、各パネルの表示/非表示を切り替える。
+ * @param {HTMLElement} editForm  .card-row__edit-form
+ * @param {string} media  'source'（抽出元画像）| 'proxy'（プロキシ表示）
+ */
+function _setActiveMedia(editForm, media) {
+  editForm.querySelectorAll('.edit-media-tab').forEach((tab) => {
+    tab.classList.toggle('is-active', tab.dataset.media === media);
+  });
+  editForm.querySelectorAll('.edit-media-panel').forEach((panel) => {
+    panel.hidden = panel.dataset.media !== media;
+  });
+}
+
 // ──────────────────────────────────────────────
 // 承認待ちタブ
 // ──────────────────────────────────────────────
@@ -465,19 +493,24 @@ function _renderPendingList(listEl, cards) {
       if (val != null) input.value = val;
     });
 
-    // 抽出元画像サムネイル（編集フォーム内）
-    const sourceImageWrap = row.querySelector('.edit-source-image');
-    if (card.card_image_url) {
+    // 画像切替タブ（抽出元画像 / プロキシ表示）の初期化
+    const sourceImageWrap = editForm.querySelector('.edit-source-image');
+    const hasSource = !!card.card_image_url;
+    if (hasSource) {
       const imgEl = sourceImageWrap.querySelector('.edit-source-image__img');
       const linkEl = sourceImageWrap.querySelector('.edit-source-image__link');
       imgEl.src = card.card_image_url;
       imgEl.alt = card.name;
       linkEl.href = card.card_image_url;
-      sourceImageWrap.hidden = false;
+      // 抽出元画像がある場合のみタブを表示
+      editForm.querySelector('.edit-media-tab[data-media="source"]').hidden = false;
     }
+    _wireMediaTabs(editForm);
+    // 抽出元画像があればそれを、無ければプロキシ表示を初期表示にする
+    _setActiveMedia(editForm, hasSource ? 'source' : 'proxy');
 
     // プレビュー初期描画
-    const slot = row.querySelector('.edit-preview__slot');
+    const slot = editForm.querySelector('.edit-preview__slot');
     _renderPreview(slot, card);
 
     // 編集フォームのリアルタイムプレビュー更新
@@ -741,6 +774,9 @@ function _renderApprovedList(listEl, cards) {
     // プレビュー初期描画
     const slot = editForm.querySelector('.edit-preview__slot');
     _renderPreview(slot, card);
+    _wireMediaTabs(editForm);
+    // 初期はプロキシ表示（抽出元画像の有無は編集フォームを開いた時に判定する）
+    _setActiveMedia(editForm, 'proxy');
 
     // 編集フォームのリアルタイムプレビュー更新
     fields.forEach((input) => {
@@ -752,12 +788,17 @@ function _renderApprovedList(listEl, cards) {
 
     // 編集フォーム開閉
     const toggleEditBtn = row.querySelector('.action-toggle-edit');
-    toggleEditBtn.addEventListener('click', () => {
+    toggleEditBtn.addEventListener('click', async () => {
       const isHidden = editForm.hidden;
       editForm.hidden = !isHidden;
       toggleEditBtn.textContent = isHidden ? '閉じる' : '編集';
-      // 開いた時に取り込み済みカード画像を遅延読み込み
-      if (isHidden) _loadEditCardImage(card, editForm);
+      // 開いた時に取り込み済みカード画像を遅延読み込みし、タブ表示を更新する
+      if (isHidden) {
+        await _loadEditCardImage(card, editForm);
+        const hasSource = !!editForm.querySelector('.edit-source-image__img').getAttribute('src');
+        editForm.querySelector('.edit-media-tab[data-media="source"]').hidden = !hasSource;
+        _setActiveMedia(editForm, hasSource ? 'source' : 'proxy');
+      }
     });
 
     // キャンセルボタン

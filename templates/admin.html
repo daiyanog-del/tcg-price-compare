@@ -232,18 +232,21 @@
       <div class="edit-form-inner">
 
         <div class="edit-preview-wrap">
-          <!-- 抽出元画像サムネイル -->
-          <div class="edit-source-image" hidden>
-            <p class="edit-preview__label">抽出元画像</p>
+          <!-- 画像切替タブ（抽出元画像 / プロキシ表示） -->
+          <div class="edit-media-tabs">
+            <button type="button" class="edit-media-tab" data-media="source" hidden>抽出元画像</button>
+            <button type="button" class="edit-media-tab" data-media="proxy">プロキシ表示</button>
+          </div>
+          <!-- 抽出元画像パネル -->
+          <div class="edit-source-image edit-media-panel" data-media="source" hidden>
             <div class="edit-source-image__slot">
               <a class="edit-source-image__link" href="" target="_blank" rel="noopener noreferrer">
                 <img class="edit-source-image__img" src="" alt="" loading="lazy">
               </a>
             </div>
           </div>
-          <!-- プロキシプレビュー領域 -->
-          <div class="edit-preview">
-            <p class="edit-preview__label">プロキシ表示</p>
+          <!-- プロキシプレビューパネル -->
+          <div class="edit-preview edit-media-panel" data-media="proxy">
             <div class="tier-item-wrapper edit-preview__slot">
               <!-- proxy-card.js で生成した要素をここに挿入 -->
             </div>
@@ -387,18 +390,21 @@
       <div class="edit-form-inner">
 
         <div class="edit-preview-wrap">
-          <!-- 取り込み済みカード画像サムネイル -->
-          <div class="edit-source-image" hidden>
-            <p class="edit-preview__label">カード画像</p>
+          <!-- 画像切替タブ（抽出元画像 / プロキシ表示） -->
+          <div class="edit-media-tabs">
+            <button type="button" class="edit-media-tab" data-media="source" hidden>抽出元画像</button>
+            <button type="button" class="edit-media-tab" data-media="proxy">プロキシ表示</button>
+          </div>
+          <!-- 抽出元画像（取り込み済みカード画像）パネル -->
+          <div class="edit-source-image edit-media-panel" data-media="source" hidden>
             <div class="edit-source-image__slot">
               <a class="edit-source-image__link" href="" target="_blank" rel="noopener noreferrer">
                 <img class="edit-source-image__img" src="" alt="" loading="lazy">
               </a>
             </div>
           </div>
-          <!-- プロキシプレビュー領域 -->
-          <div class="edit-preview">
-            <p class="edit-preview__label">プロキシ表示</p>
+          <!-- プロキシプレビューパネル -->
+          <div class="edit-preview edit-media-panel" data-media="proxy">
             <div class="tier-item-wrapper edit-preview__slot">
               <!-- proxy-card.js で生成した要素をここに挿入 -->
             </div>

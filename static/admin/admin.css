@@ -449,14 +449,48 @@ a:hover {
   align-items: flex-start;
 }
 
+/* 画像エリア（タブ＋パネル）。抽出元画像とプロキシ表示を同じ枠で切替表示する */
+.edit-preview-wrap {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 切替タブ */
+.edit-media-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.edit-media-tab {
+  padding: 4px 14px;
+  font-size: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background-color: var(--bg-color);
+  color: var(--main-color);
+  cursor: pointer;
+}
+
+.edit-media-tab.is-active {
+  background-color: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg-card);
+}
+
+/* 非アクティブなパネルは隠す */
+.edit-media-panel[hidden] {
+  display: none;
+}
+
 /* 抽出元画像サムネイル */
 .edit-source-image {
-  flex-shrink: 0;
-  width: 410px;
+  width: 400px;
 }
 
 .edit-source-image__slot {
-  width: 410px;
+  width: 400px;
   margin: 0 auto;
 }
 
@@ -466,9 +500,9 @@ a:hover {
 
 .edit-source-image__img {
   display: block;
-  width: 410px;
+  width: 400px;
   max-width: 100%;
-  max-height: 595px; /* 410 * 1.45 */
+  max-height: 580px; /* 400 * 1.45 */
   object-fit: contain;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -476,21 +510,13 @@ a:hover {
 
 /* プロキシプレビュー */
 .edit-preview {
-  flex-shrink: 0;
-  width: 140px;
-}
-
-.edit-preview__label {
-  color: color-mix(in srgb, var(--main-color) 60%, var(--border) 40%);
-  font-size: 0.75rem;
-  margin-bottom: 6px;
-  text-align: center;
+  width: 400px;
 }
 
 .edit-preview__slot {
   position: relative;
-  width: 120px;
-  height: 174px; /* 120 * 1.45 */
+  width: 400px;
+  height: 580px; /* 400 * 1.45 */
   margin: 0 auto;
 }
 
@@ -844,31 +870,28 @@ a:hover {
 
   .edit-source-image {
     width: 100%;
-    display: flex;
-    align-items: center;
-    gap: 12px;
   }
 
   .edit-source-image__slot {
-    width: auto;
+    width: 100%;
+    max-width: 400px;
     margin: 0;
   }
 
   .edit-source-image__img {
-    width: 120px;
-    max-height: 174px;
+    width: 100%;
+    max-height: none;
   }
 
   .edit-preview {
     width: 100%;
-    display: flex;
-    align-items: center;
-    gap: 12px;
   }
 
   .edit-preview__slot {
-    width: 80px;
-    height: 116px;
+    width: 100%;
+    max-width: 400px;
+    height: auto;
+    aspect-ratio: 1 / 1.45;
     margin: 0;
   }
 
