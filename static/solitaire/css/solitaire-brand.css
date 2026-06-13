@@ -1206,6 +1206,16 @@ html, body {
   flex: 1;
 }
 
+/* ペンデュラム効果ブロック（本体効果の直前に表示） */
+.cip-pendulum {
+  flex: none;
+}
+.cip-pendulum-label {
+  display: block;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
 .cip-price {
   border-top: 1px solid var(--border);
   padding-top: 6px;

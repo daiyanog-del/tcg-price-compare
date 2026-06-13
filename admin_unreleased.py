@@ -184,7 +184,7 @@ def admin_list_unreleased():
     try:
         q = _supabase.table("unreleased_cards").select(
             "id, name, reading, card_type, attribute, race, "
-            "level, rank, link_val, atk, def, effect_text, "
+            "level, rank, link_val, atk, def, pendulum_scale, pendulum_effect, effect_text, "
             "product_name, release_date, confidence, source_url, "
             "source_domain, extracted_at, status, hidden, konami_id, "
             "extraction_raw"
@@ -266,6 +266,8 @@ def admin_create_unreleased():
         "link_val":      body.get("link_val"),
         "atk":           body.get("atk"),
         "def":           (body.get("def") or ""),
+        "pendulum_scale": body.get("pendulum_scale"),
+        "pendulum_effect": (body.get("pendulum_effect") or ""),
         "effect_text":   (body.get("effect_text") or ""),
         "product_name":  (body.get("product_name") or ""),
         "release_date":  body.get("release_date") or None,
@@ -298,7 +300,8 @@ def admin_create_unreleased():
 # 更新を許可するフィールドのホワイトリスト
 _ALLOWED_UPDATE_FIELDS = frozenset([
     "name", "reading", "card_type", "attribute", "race",
-    "level", "rank", "link_val", "atk", "def", "effect_text",
+    "level", "rank", "link_val", "atk", "def",
+    "pendulum_scale", "pendulum_effect", "effect_text",
     "product_name", "release_date",
 ])
 

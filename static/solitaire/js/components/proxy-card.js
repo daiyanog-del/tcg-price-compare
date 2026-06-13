@@ -82,6 +82,10 @@ function _metaHtml(p) {
     parts.push(`<span class="proxy-card__meta-item">${_esc(p.race)}</span>`);
   }
 
+  if (p.pendulum_scale != null) {
+    parts.push(`<span class="proxy-card__meta-item">スケール${_esc(p.pendulum_scale)}</span>`);
+  }
+
   return parts.join('');
 }
 
@@ -132,11 +136,15 @@ export function createProxyCardElement(proxyData) {
   meta.className = 'proxy-card__meta';
   meta.innerHTML = _metaHtml(p);
 
-  // 効果テキスト
+  // 効果テキスト（ペンデュラムは「ペンデュラム効果」を先頭に併記）
   const effect = document.createElement('div');
   effect.className = `proxy-card__effect ${textClass}`;
+  const pendBlock = p.pendulum_effect
+    ? `<span class="proxy-card__pendulum-label">【ペンデュラム効果】</span>`
+      + _esc(p.pendulum_effect).replace(/\n/g, '<br>') + '<br>'
+    : '';
   // 改行を <br> に変換して表示
-  effect.innerHTML = _esc(p.effect_text || '').replace(/\n/g, '<br>');
+  effect.innerHTML = pendBlock + _esc(p.effect_text || '').replace(/\n/g, '<br>');
 
   // ATK/DEF フッタ（モンスターのみ。魔法/罠は CSS で display:none）
   const stats = document.createElement('div');

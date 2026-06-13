@@ -354,6 +354,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .cdm-type{font-weight:600}
 .card-detail-print{color:var(--text-d);font-size:.70rem;font-weight:400;flex-shrink:0}
 .card-detail-effect{margin-top:4px;color:var(--text-m);white-space:pre-wrap;word-break:break-all;text-align:left}
+.card-detail-pendulum-label{display:block;font-weight:600;color:var(--text-d)}
 .ritem-img{width:36px;height:52px;border-radius:3px;overflow:hidden;flex-shrink:0;background:var(--bg-card)}
 .ritem-img img{width:100%;height:100%;object-fit:cover}
 .tbl-img{width:52px;height:73px;border-radius:2px;overflow:hidden;vertical-align:middle}
@@ -1446,7 +1447,8 @@ function _fetchCardInfo(cardName){
       let html='<div class="card-detail-meta">';
       if(data.broad_type==='monster'){
         const lvl=data.link_val!=null?`LINK-${data.link_val}`:data.rank!=null?`ランク${data.rank}`:`Lv${data.level??'?'}`;
-        const statParts=[data.attribute,data.race,lvl].filter(Boolean);
+        const scale=data.pendulum_scale!=null?`スケール${data.pendulum_scale}`:'';
+        const statParts=[data.attribute,data.race,lvl,scale].filter(Boolean);
         const def=data.link_val!=null?'':` / DEF ${data.def??'-'}`;
         let statLine=`<span class="cdm-type">${esc(data.card_type||'')}</span>`;
         if(statParts.length) statLine+=` ${statParts.map(esc).join(' · ')}`;
@@ -1456,6 +1458,7 @@ function _fetchCardInfo(cardName){
         html+=`<div class="cdm-row">${esc(data.card_type+(data.property?` [${data.property}]`:'')||'')}${limitBadge}${printSpan}</div>`;
       }
       html+='</div>';
+      if(data.pendulum_effect) html+=`<div class="card-detail-effect"><span class="card-detail-pendulum-label">【ペンデュラム効果】</span>${esc(data.pendulum_effect)}</div>`;
       if(data.effect_text) html+=`<div class="card-detail-effect">${esc(data.effect_text)}</div>`;
       det.innerHTML=html;
     })

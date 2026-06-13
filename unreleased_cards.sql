@@ -79,6 +79,8 @@ CREATE TABLE IF NOT EXISTS unreleased_cards (
     link_val        INTEGER,                              -- リンク値（リンクモンスター用）
     atk             INTEGER,                              -- 攻撃力（NULL=?扱い）
     def             TEXT        NOT NULL DEFAULT '',      -- 守備力（「?」「-」等の文字列にも対応）
+    pendulum_scale  INTEGER,                              -- ペンデュラムスケール（NULL=非ペンデュラム）
+    pendulum_effect TEXT        NOT NULL DEFAULT '',      -- ペンデュラム効果テキスト（本体効果とは別）
     effect_text     TEXT        NOT NULL DEFAULT '',      -- 効果テキスト / フレーバーテキスト
 
     -- 商品・収録情報
@@ -113,6 +115,8 @@ COMMENT ON COLUMN unreleased_cards.rank          IS 'ランク（エクシーズ
 COMMENT ON COLUMN unreleased_cards.link_val      IS 'リンク値（リンクモンスター用）';
 COMMENT ON COLUMN unreleased_cards.atk           IS '攻撃力。NULLは「?」として扱う';
 COMMENT ON COLUMN unreleased_cards.def           IS '守備力（テキスト型: 数値・「?」・「-」等に対応）';
+COMMENT ON COLUMN unreleased_cards.pendulum_scale IS 'ペンデュラムスケール（整数）。NULL=非ペンデュラムモンスター';
+COMMENT ON COLUMN unreleased_cards.pendulum_effect IS 'ペンデュラム効果テキスト（ペンデュラムゾーンでの効果。本体効果とは別）';
 COMMENT ON COLUMN unreleased_cards.effect_text   IS '効果テキストまたはフレーバーテキスト';
 COMMENT ON COLUMN unreleased_cards.product_name  IS '収録パック名（例: ANIMATION CHRONICLE 2026）';
 COMMENT ON COLUMN unreleased_cards.release_date  IS '発売予定日。NULL=未定';

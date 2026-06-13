@@ -107,8 +107,14 @@ function _renderCard(data, imgSrc, name, priceData) {
               : data.rank     ? `Rank ${data.rank}`
               : data.link_val ? `LINK-${data.link_val}`
               : '';
+  const scale = data.pendulum_scale != null ? `スケール${data.pendulum_scale}` : '';
   const attrLine = isMonster
-    ? [data.attribute, data.race, level].filter(Boolean).map(_esc).join(' &nbsp;·&nbsp; ')
+    ? [data.attribute, data.race, level, scale].filter(Boolean).map(_esc).join(' &nbsp;·&nbsp; ')
+    : '';
+
+  // ペンデュラム効果（本体効果とは別ブロック）
+  const pendHtml = data.pendulum_effect
+    ? `<div class="cip-effect cip-pendulum"><span class="cip-pendulum-label">【ペンデュラム効果】</span>${_esc(data.pendulum_effect).replace(/\n/g, '<br>')}</div>`
     : '';
 
   // ATK/DEF（モンスターのみ）
@@ -131,6 +137,7 @@ function _renderCard(data, imgSrc, name, priceData) {
         ${statsHtml}
       </div>
     </div>
+    ${pendHtml}
     <div class="cip-effect">${_esc(data.effect_text || '').replace(/\n/g, '<br>')}</div>
     ${_buildPriceHtml(name, priceData)}
   `;

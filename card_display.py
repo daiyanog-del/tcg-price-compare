@@ -155,7 +155,7 @@ def _fetch_unreleased_cards() -> dict[str, dict]:
             _supabase_client.table("unreleased_cards")
             .select(
                 "id, name, reading, card_type, attribute, race, "
-                "level, rank, link_val, atk, def, effect_text, "
+                "level, rank, link_val, atk, def, pendulum_scale, pendulum_effect, effect_text, "
                 "product_name, release_date, status, hidden"
             )
             .in_("status", ["approved", "linked"])
@@ -288,6 +288,8 @@ def _build_proxy_data(card: dict) -> dict:
         "link_val":     card.get("link_val"),
         "atk":          card.get("atk"),
         "def":          card.get("def", ""),
+        "pendulum_scale": card.get("pendulum_scale"),
+        "pendulum_effect": card.get("pendulum_effect", ""),
         "effect_text":  card.get("effect_text", ""),
         "product_name": card.get("product_name", ""),
         "release_date": str(card.get("release_date") or ""),

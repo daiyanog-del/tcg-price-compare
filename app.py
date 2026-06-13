@@ -2039,6 +2039,8 @@ def _fetch_card_info_by_id(card_id: int, name: str) -> dict:
             "attribute": _ATTR_JA.get(summary["attribute"] or "", summary["attribute"] or ""),
             "property": prop,
             "effect_text": summary["effect_text"],
+            "pendulum_scale": summary.get("pendulum_scale"),       # ペンデュラムスケール（非Pはnull）
+            "pendulum_effect": summary.get("pendulum_effect", ""),  # ペンデュラム効果テキスト
             "latest_print": latest_print,
             "limit": limit,
         }

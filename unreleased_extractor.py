@@ -126,7 +126,12 @@ _SYSTEM_PROMPT = """\
    - link_val: リンクモンスターのリンク値（整数）。不明ならnull
    - atk: 攻撃力（整数）。「?」や不明の場合はnull
    - def: 守備力（文字列: 数値・「?」・「-」等）。不明なら空文字
-   - effect_text: 効果テキストまたはフレーバーテキスト。改行は\\nで表現
+   - pendulum_scale: ペンデュラムモンスターのスケール（整数）。カード下半分の左右端にある青/赤の数字。
+     左右のスケールは常に同値なので片方の数値を入れる。非ペンデュラムモンスターはnull
+   - pendulum_effect: ペンデュラム効果テキスト（カード下半分のペンデュラム効果欄のテキスト）。
+     本体のモンスター効果（effect_text）とは別物。改行は\\nで表現。非ペンデュラムなら空文字
+   - effect_text: モンスター効果テキストまたはフレーバーテキスト。改行は\\nで表現。
+     ペンデュラムモンスターの場合はカード最下部のモンスター効果欄のみを入れる（ペンデュラム効果は含めない）
    - product_name: 収録パック名（例: ANIMATION CHRONICLE 2026）。不明なら空文字
    - release_date: 発売予定日（YYYY-MM-DD形式）。不明・未定なら空文字
    - image_urls: 読み取り元の画像URL（提供された画像URLをそのまま記入）
@@ -293,6 +298,8 @@ def _get_pydantic_models():
         link_val: int | None = None
         atk: int | None = None
         def_: str = Field(default="", alias="def")
+        pendulum_scale: int | None = None
+        pendulum_effect: str = ""
         effect_text: str = ""
         product_name: str = ""
         release_date: str = ""
@@ -372,6 +379,8 @@ def _validate_and_fix(card: Any, page_url: str) -> dict | None:
         "link_val": card.link_val,
         "atk": card.atk,
         "def": (card.def_ or "").strip(),
+        "pendulum_scale": card.pendulum_scale,
+        "pendulum_effect": (card.pendulum_effect or "").strip(),
         "effect_text": effect_text,
         "product_name": (card.product_name or "").strip(),
         "release_date": (card.release_date or "").strip() or None,
@@ -511,6 +520,8 @@ def _build_vision_message(processed_text: str, encoded_images: list[dict]) -> li
         '      "link_val": null,\n'
         '      "atk": null,\n'
         '      "def": "",\n'
+        '      "pendulum_scale": null,\n'
+        '      "pendulum_effect": "",\n'
         '      "effect_text": "効果テキスト",\n'
         '      "product_name": "収録パック名",\n'
         '      "release_date": "YYYY-MM-DD または空文字",\n'
@@ -555,6 +566,8 @@ def _build_text_message(processed_text: str) -> list[dict]:
         '      "link_val": null,\n'
         '      "atk": null,\n'
         '      "def": "",\n'
+        '      "pendulum_scale": null,\n'
+        '      "pendulum_effect": "",\n'
         '      "effect_text": "効果テキスト",\n'
         '      "product_name": "収録パック名",\n'
         '      "release_date": "YYYY-MM-DD または空文字",\n'

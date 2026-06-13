@@ -264,6 +264,8 @@ function _buildProxyData(card) {
     link_val:     card.link_val != null ? Number(card.link_val) : null,
     atk:          card.atk  != null ? Number(card.atk)  : null,
     def:          card.def  || '',
+    pendulum_scale: card.pendulum_scale != null ? Number(card.pendulum_scale) : null,
+    pendulum_effect: card.pendulum_effect || '',
     effect_text:  card.effect_text || '',
     product_name: card.product_name || '',
     release_date: String(card.release_date || ''),
@@ -577,7 +579,7 @@ function _collectFormData(editForm) {
     const raw = input.value.trim();
 
     // 数値フィールド
-    if (['level', 'rank', 'link_val', 'atk'].includes(name)) {
+    if (['level', 'rank', 'link_val', 'atk', 'pendulum_scale'].includes(name)) {
       result[name] = raw !== '' ? Number(raw) : null;
     } else if (name === 'release_date') {
       result[name] = raw || null;
@@ -961,7 +963,7 @@ document.getElementById('manual-form').addEventListener('submit', async (e) => {
 
   // フォームデータ収集
   const body = {};
-  const numFields = ['level', 'rank', 'link_val', 'atk'];
+  const numFields = ['level', 'rank', 'link_val', 'atk', 'pendulum_scale'];
   for (const el of form.elements) {
     if (!el.name) continue;
     const raw = el.value.trim();

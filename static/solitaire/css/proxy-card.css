@@ -135,6 +135,12 @@
   scrollbar-color: var(--border) transparent;
 }
 
+/* ペンデュラム効果の見出し */
+.proxy-card__pendulum-label {
+  font-weight: 600;
+  opacity: 0.85;
+}
+
 .proxy-card__effect::-webkit-scrollbar {
   width: 3px;
 }

@@ -233,6 +233,8 @@ class CardDataRepository:
                 "attribute": ja.get("attribute"),      # 英語キー（"light"等）
                 "property": ja.get("property"),         # 英語キー（"quickplay"等）
                 "effect_text": ja.get("effectText", ""),
+                "pendulum_scale": ja.get("pendulumScale"),       # ペンデュラムスケール（非Pはなし）
+                "pendulum_effect": ja.get("pendulumEffectText", ""),  # ペンデュラム効果（本体効果とは別）
                 "prints": ja.get("prints") or [],
                 "is_ex": any(p in cls._EX_PROP_IDS for p in props),
                 "race_ja": None,                        # APIは日本語種族を持たない
@@ -254,6 +256,8 @@ class CardDataRepository:
                 "attribute": raw.get("englishAttribute"),   # "light" / "spell" / "trap"
                 "property": raw.get("englishProperty"),      # "quickplay" / "continuous" / None
                 "effect_text": raw.get("effectText", ""),
+                "pendulum_scale": raw.get("pendScale"),       # ペンデュラムスケール（非Pはなし）
+                "pendulum_effect": raw.get("pendEffect", ""),  # ペンデュラム効果（本体効果とは別）
                 "prints": [],                                # ミラーは収録情報を持たない
                 "is_ex": is_monster and any(s in props for s in cls._EX_PROP_JA),
                 "race_ja": (props[0] if (is_monster and props) else None),
