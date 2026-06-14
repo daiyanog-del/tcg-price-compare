@@ -693,23 +693,26 @@ html, body {
   overflow-y: hidden; /* nav高さ + min-height:100vh で body が 100vh を超えてスクロールバーが出るのを防ぐ */
 }
 
-/* ── ナビ ── */
-.sol-nav {
+/* ── ナビ（サイドバー上部に統合） ── */
+/* ロゴ + ページリンクを縦配置。旧 .sol-nav 横長ヘッダーは廃止 */
+.sol-sidebar-nav .sol-nav-title { margin-bottom: 10px; }
+.sol-sidebar-links {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 7px 14px;
-  background: #0f1a35;
-  border-bottom: 1px solid var(--border);
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 4px;
 }
-.sol-nav a {
+.sol-sidebar-links a {
   color: var(--accent);
   text-decoration: none;
   font-size: 0.85rem;
+  padding: 2px 0;
   transition: color 0.2s;
 }
-.sol-nav a:hover { color: var(--accent-hover); }
+.sol-sidebar-links a:hover { color: var(--accent-hover); }
+.sol-sidebar-links a.active {
+  color: var(--main-color);
+  font-weight: 700;
+}
 .sol-nav-title {
   display: inline-flex;
   align-items: center;

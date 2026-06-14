@@ -64,12 +64,12 @@ function initCardImageRegistration() {
  * 常にスクロールなしで全体が収まるよう自動調整する。
  */
 function fitFieldToViewport() {
-  const nav    = document.querySelector('.sol-nav');
   const tray   = document.getElementById('opponentTray');
   const replay = document.getElementById('replayBarContainer');
-  if (!nav || !tray) return;
+  if (!tray) return;
 
-  const navH    = nav.offsetHeight;
+  // 旧ヘッダー(.sol-nav)はサイドバーへ統合し廃止。盤面上部に占有高さは無い。
+  const navH    = 0;
   const trayH   = tray.offsetHeight;   // 閉=28px 開=閉+ボディ高さ
   const replayH = replay ? replay.offsetHeight + 4 : 36; // margin-top(4px)込み
 

@@ -31,28 +31,28 @@
 </head>
 
 <body{% if self_watermark %} data-self-wm style="--self-watermark-opacity: {{ self_watermark_opacity }}"{% endif %}>
-<!-- ナビ -->
-<nav class="sol-nav">
-  <a href="/" class="sol-nav-title">
-    <picture>
-      <source srcset="/static/tcgym-icon-small.webp" type="image/webp">
-      <img src="/static/tcgym-icon-small.png" alt="" class="nav-icon">
-    </picture>
-    <span class="nav-brand">TC<span class="nav-g">G</span>YM</span>
-  </a>
-  <span style="color:#2d3f5a">›</span>
-  <span style="color:#64748b;font-size:0.85rem">一人回し</span>
-  <span style="flex:1"></span>
-  <a href="/">販売価格</a>
-  <a href="/buy/">買取価格</a>
-  <a href="/solitaire" style="color:var(--main-color);font-weight:700">一人回し</a>
-</nav>
 
 <!-- ページ本体: 左サイドバー + 右メイン -->
 <div class="sol-page-layout">
 
   <!-- ====== 左サイドバー ====== -->
   <aside class="sol-sidebar" id="solSidebar">
+
+    <!-- ブランド + ページナビ（旧ヘッダーから移植） -->
+    <div class="sol-sidebar-section sol-sidebar-nav">
+      <a href="/" class="sol-nav-title">
+        <picture>
+          <source srcset="/static/tcgym-icon-small.webp" type="image/webp">
+          <img src="/static/tcgym-icon-small.png" alt="" class="nav-icon">
+        </picture>
+        <span class="nav-brand">TC<span class="nav-g">G</span>YM</span>
+      </a>
+      <nav class="sol-sidebar-links">
+        <a href="/">販売価格</a>
+        <a href="/buy/">買取価格</a>
+        <a href="/solitaire" class="active">一人回し</a>
+      </nav>
+    </div>
 
     <!-- デッキ選択 -->
     <div class="sol-sidebar-section">
