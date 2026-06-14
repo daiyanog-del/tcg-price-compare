@@ -4,10 +4,10 @@
 /* プール行の最小高さ（デスクトップ向け: 現行レイアウトで有効） */
 @media (min-width: 1000px) {
   #poolRow {
-    min-height: calc(var(--slot-height) * 1.1);
+    min-height: calc(var(--slot-height) * 1.0);
   }
   #poolRow2 {
-    min-height: calc(var(--slot-height) * 1.1);
+    min-height: calc(var(--slot-height) * 1.0);
   }
 }
 

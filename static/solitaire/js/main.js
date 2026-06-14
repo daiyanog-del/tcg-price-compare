@@ -55,9 +55,10 @@ function initCardImageRegistration() {
  *
  * 全縦スペースの内訳:
  *   固定:    nav高さ + トレイヘッダ高さ + リプレイバー + 各種パディング/マージン
- *   比例:    slot_w × 7.54
- *            = フィールド3行(slot_w×1.45×3) + center-row(slot_w×1.45×1.1)
- *              + imagePool(slot_w×1.45×1.1)
+ *   比例:    slot_w × 7.25
+ *            = フィールド3行(slot_w×1.45×3) + center-row(slot_w×1.45)
+ *              + imagePool(slot_w×1.45)
+ *   (デッキ/EX行の余分な×1.1空白を撤去したため 7.54→7.25)
  *
  * トレイ開閉・ウィンドウリサイズのたびに再計算し、
  * 常にスクロールなしで全体が収まるよう自動調整する。
@@ -78,7 +79,7 @@ function fitFieldToViewport() {
 
   // 高さ基準:
   //   横向きスマホ → 盤面3行のみをビューポートに収め、手札/デッキはスクロール
-  //   縦向きスマホ・PC/タブレット → 全体フィット (比例係数 7.54)
+  //   縦向きスマホ・PC/タブレット → 全体フィット (比例係数 7.25)
   let slotW_h;
   if (isPhone && isLandscape) {
     // mainContainer padding-top(4) + row-gaps(20) + sol-field-area padding-bottom(6)
@@ -86,18 +87,17 @@ function fitFieldToViewport() {
     const availForBoard = window.innerHeight - navH - trayH - replayH - BOARD_FIXED;
     slotW_h = Math.floor(availForBoard / 4.35);
   } else {
-    // slot-width に依存しない固定オーバーヘッド:
-    //   mainContainer padding-top  :  4px
-    //   フィールド行間 gap×2       : 20px  (gap=10px固定 on ≥1000px)
-    //   center-row margin-top      :  6px
-    //   center-row内固定(label+pad): 29px  (imagePool2: padding8+border2+label19)
-    //   imagePool margin-top       :  4px
-    //   imagePool内固定(label+pad) : 29px  (imagePool: padding8+border2+label19)
-    //   sol-field-area padding-bottom: 6px
-    const FIXED_MISC = 4 + 20 + 6 + 29 + 4 + 29 + 6; // 98px
+    // slot-width に依存しない固定オーバーヘッド（実測ベースに引き直し）:
+    //   mainContainer padding-top              :  4px
+    //   行間(center-row mt4 + imagePool mt4)   :  8px
+    //   center-row内固定(label11+mb4+pad4+border1): 22px (やや余裕)
+    //   imagePool内固定(label11+mb4+pad4+border1) : 22px (やや余裕)
+    //   sol-field-area padding-bottom          :  6px
+    // ※やや大きめ(アンダーシュート寄り)に置き、実測補正の縮小ループを避ける
+    const FIXED_MISC = 4 + 8 + 22 + 22 + 6; // 62px
     const fixed      = navH + trayH + replayH + FIXED_MISC;
     const available  = window.innerHeight - fixed;
-    slotW_h = Math.floor(available / 7.54);
+    slotW_h = Math.floor(available / 7.25);
   }
 
   // 横幅基準: .sol-main の実測幅を使う。サイドバー開閉で幅が変わるため実測値を使用。
@@ -119,7 +119,7 @@ function fitFieldToViewport() {
   }
 
   const minW = isPhone ? 26 : 60;
-  const maxW = isPhone ? 200 : 110;
+  const maxW = isPhone ? 200 : 124;
   let slotW = Math.max(minW, Math.min(maxW, Math.min(slotW_h, slotW_w)));
   applySlotWidth(slotW);
 

@@ -760,7 +760,7 @@ html, body {
   display: flex;
   align-items: stretch;   /* EXデッキを手札エリアと同じ高さに引き伸ばす */
   gap: var(--gap);
-  margin: 6px 0 0;
+  margin: 4px 0 0;
   padding: 0;
   justify-content: flex-start;
 }
@@ -770,7 +770,7 @@ html, body {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 6px 8px;
+  padding: 4px 8px;
   display: flex;
   flex-direction: column;
 }
@@ -913,7 +913,7 @@ html, body {
   color: #94a3b8;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   padding: 0;
   text-align: left;
 }
