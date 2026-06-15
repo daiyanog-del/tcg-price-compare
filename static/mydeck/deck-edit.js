@@ -42,7 +42,8 @@
 
   // ── 編集の唯一の入口 ──────────────────────────
   // mutator で _currentMydeckCards(main/ex) を編集し、textarea を再構築して再描画する。
-  // 構造・枚数バッジは即時再描画し、価格再取得（calcDeckEstimate）のみデバウンスする。
+  // 構造・枚数バッジは即時再描画し、プレビュー更新（calcDeckEstimate previewOnly）のみデバウンスする。
+  // 価格計算は「簡易計算/リアルタイム計算」ボタン押下時のみ行い、編集操作では走らせない。
   function _deckMutate(mutator){
     var ta = document.getElementById('deckTextarea');
     if(!ta) return;
@@ -59,7 +60,7 @@
     _deckRenderImmediate();
 
     clearTimeout(_deckEstimateTimer);
-    _deckEstimateTimer = setTimeout(function(){ calcDeckEstimate(); }, 350);
+    _deckEstimateTimer = setTimeout(function(){ calcDeckEstimate(undefined, { previewOnly: true }); }, 350);
   }
 
   // 即時の構造再描画（画像・価格は後続の calcDeckEstimate が読み込む）
@@ -162,9 +163,9 @@
     }
     var box = document.getElementById('deckSearchBox');
     if(box) box.classList.toggle('hidden', !window._deckEditMode);
-    // 並べ替えの有無（編集中はソートしない）が変わるため再計算・再描画する
+    // 並べ替えの有無（編集中はソートしない）が変わるため再描画する（価格計算はしない）
     var ta = document.getElementById('deckTextarea');
-    if(ta && ta.value.trim()) calcDeckEstimate();
+    if(ta && ta.value.trim()) calcDeckEstimate(undefined, { previewOnly: true });
     if(window._deckEditMode){
       var si = document.getElementById('deckSearchInput');
       if(si) si.focus();
@@ -418,8 +419,8 @@
         if(btn) btn.classList.add('selected');
       }catch(_){}
     }
-    // グリッドを復元表示（相場も取得）
-    if(typeof calcDeckEstimate === 'function') calcDeckEstimate();
+    // グリッドを復元表示（価格計算はせずプレビューのみ。価格はボタン押下時に取得）
+    if(typeof calcDeckEstimate === 'function') calcDeckEstimate(undefined, { previewOnly: true });
   }
 
   // inline 側のデッキ操作関数を拡張（元の挙動はそのまま、後処理でひも付け/下書きを更新）
