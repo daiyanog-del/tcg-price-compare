@@ -8,6 +8,7 @@
 
 import { parseNeuronPdf } from './neuron-pdf-parser.js';
 import { NeuronPreviewModal } from './neuron-preview-modal.js';
+import { saveImportedDeck } from './neuron-import-shared.js';
 
 // 隠しfileInputを生成してdocumentに追加
 function _createInput() {
@@ -41,53 +42,8 @@ async function _handleFile(file) {
   new NeuronPreviewModal({
     parsed,
     defaultName,
-    onSave: ({ name, mainText, exText }) => {
-      // index.htmlのグローバル関数を呼ぶ
-      // [EX]区切りを挿入してメイン/エクストラデッキを区別できるようにする
-      const combined = exText ? mainText + '\n[EX]\n' + exText : mainText;
-      const savedDecksGet = window.savedDecksGet;
-      const savedDecksSet = window.savedDecksSet;
-      const renderSavedDecks = window.renderSavedDecks;
-
-      if (!savedDecksGet || !savedDecksSet) {
-        alert('保存機能が利用できません。ページを再読み込みしてお試しください。');
-        return;
-      }
-
-      // main/ex を行パースして配列化（モーダルはテキスト形式で返すため）
-      const parseLine = text => (text || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => {
-        const m = l.match(/^(\d+)\s+(.+)$/);
-        return m ? { qty: parseInt(m[1]), name: m[2].trim() } : { qty: 1, name: l };
-      });
-      const main = parseLine(mainText);
-      const ex   = parseLine(exText);
-
-      const list = savedDecksGet();
-      const existing = list.find(d => d.name === name);
-      let savedDeck;
-      if (existing) {
-        if (!confirm(`「${name}」はすでに保存されています。上書きしますか？`)) return;
-        existing.text = combined;
-        existing.main = main;
-        existing.ex   = ex;
-        existing.updated = Date.now();
-        savedDeck = existing;
-      } else {
-        savedDeck = { id: 'd_' + Date.now(), name, text: combined, main, ex, updated: Date.now() };
-        list.push(savedDeck);
-      }
-      savedDecksSet(list);
-      renderSavedDecks?.();
-
-      // textareaにも反映
-      const ta = document.getElementById('deckTextarea');
-      if (ta) ta.value = combined;
-
-      alert(`「${name}」をマイデッキに保存しました`);
-
-      // グリッドプレビューを起動（保存直後にデッキ内容を画像グリッドで表示）
-      window.onDeckImported?.(savedDeck);
-    },
+    // 保存処理は PDF / URL / 共有ターゲットで共通（neuron-import-shared.js）
+    onSave: saveImportedDeck,
   }).show();
 }
 

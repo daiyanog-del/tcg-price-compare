@@ -31,6 +31,7 @@ from constants import JST, VAPID_CLAIMS
 from ygores_repository import repository as _ygores_repo
 import card_display as _card_display
 from admin_unreleased import admin_bp as _admin_bp
+from neuron_deck_parser import import_neuron as _import_neuron
 
 import re as _re
 from urllib.parse import quote as _url_quote
@@ -2455,6 +2456,50 @@ def api_card_image_proxy():
     except Exception as e:
         logger.error(f"[card-image-proxy] {name}: {e}")
         return f"error: {e}", 500
+
+
+@app.route("/api/import-neuron", methods=["POST"])
+def api_import_neuron():
+    """ニューロンのデッキ/カードURLをサーバー側で取得・解析して返す。
+
+    スマホは拡張が使えないため、拡張のDOM抽出に代わりサーバーで静的HTMLを解析する。
+    解析の実体は neuron_deck_parser.import_neuron（SSRF対策・ホスト検証を内包）。
+    """
+    limited = _consume_rate_limit()
+    if limited:
+        return limited
+
+    data = request.get_json(silent=True) or {}
+    url = (data.get("url") or "").strip()
+    if not url:
+        return jsonify({"ok": False, "error": "URLを指定してください"}), 400
+    if len(url) > 500:
+        return jsonify({"ok": False, "error": "URLが長すぎます"}), 400
+
+    try:
+        result = _import_neuron(url)
+    except Exception as e:
+        logger.warning(f"[import-neuron] {e}")
+        return jsonify({"ok": False, "error": "取り込み処理でエラーが発生しました"}), 500
+
+    return jsonify(result), (200 if result.get("ok") else 400)
+
+
+@app.route("/share-target")
+def share_target():
+    """PWA共有ターゲット（Android）。OSの共有メニューから渡されたURL/テキストから
+    ニューロンURLを取り出し、フロントの取り込みフローへ ?import_url= 付きで渡す。
+
+    GET方式のため service worker 側の特別処理は不要。
+    """
+    from flask import redirect
+
+    shared = (request.args.get("url") or request.args.get("text") or "").strip()
+    m = _re.search(r"https?://\S+", shared)
+    target = m.group(0) if m else ""
+    if target:
+        return redirect(f"/?import_url={_url_quote(target, safe='')}")
+    return redirect("/")
 
 
 @app.route("/api/parse-deck-pdf", methods=["POST"])
