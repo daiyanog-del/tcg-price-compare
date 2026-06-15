@@ -416,6 +416,12 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .neuron-hint-sep{color:var(--text-m)}
 .neuron-hint-ext{font-size:.7rem;color:var(--accent-l);text-decoration:none;white-space:nowrap;font-weight:600}.neuron-hint-ext:hover{text-decoration:underline}
 .neuron-hint-badge{font-size:.65rem;font-weight:700;color:#facc15;background:rgba(250,204,21,.12);border:1px solid rgba(250,204,21,.3);border-radius:3px;padding:0 4px;margin-left:2px}
+.neuron-url-row{display:flex;gap:6px;width:100%;flex-wrap:wrap;margin-top:2px}
+.neuron-url-input{flex:1;min-width:180px;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:6px 8px;color:var(--text);font-size:.75rem;outline:none}
+.neuron-url-input:focus{border-color:var(--accent-l)}
+.neuron-url-btn{flex-shrink:0;background:var(--accent-l);color:#0a1024;border:none;border-radius:5px;padding:6px 14px;font-size:.75rem;font-weight:700;cursor:pointer}
+.neuron-url-btn:hover{opacity:.85}
+.neuron-url-btn:disabled{opacity:.5;cursor:default}
 .saved-deck-empty{font:.75rem var(--font);color:var(--text-d);padding:8px 4px 4px;line-height:1.6}
 .deck-input-details{margin-bottom:10px}
 .deck-input-details summary{font:.8rem var(--font);color:var(--text-d);cursor:pointer;padding:6px 2px;user-select:none;list-style:none}
@@ -987,6 +993,15 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
             <span class="neuron-hint-label">Chrome拡張で取り込む（PC）<span class="neuron-hint-badge">おすすめ</span></span>
             <span class="neuron-hint-sep">ニューロンのデッキページのボタン1つで取り込み → このページに表示されます</span>
             <a class="neuron-hint-ext" href="https://chromewebstore.google.com/detail/tcgym-%E2%80%94-%E3%83%8B%E3%83%A5%E3%83%BC%E3%83%AD%E3%83%B3%E9%80%A3%E6%90%BA/akgacaffneahmgpolkefmcbldbiklldf?hl=ja" target="_blank" rel="noopener">Chromeウェブストアで入手</a>
+          </div>
+          <div class="neuron-hint-method-row">
+            <span class="neuron-hint-label">URLから取り込む（スマホ対応）<span class="neuron-hint-badge">NEW</span></span>
+            <span class="neuron-hint-sep">ニューロンのデッキ／カードのURLを貼り付け（Androidは共有メニューからも可）</span>
+            <div class="neuron-url-row">
+              <input type="url" id="neuronUrlInput" class="neuron-url-input" inputmode="url" autocomplete="off"
+                     placeholder="https://www.db.yugioh-card.com/yugiohdb/member_deck.action?...">
+              <button type="button" id="neuronUrlBtn" class="neuron-url-btn" onclick="window.NeuronURL?.importFromInput()">取り込む</button>
+            </div>
           </div>
           <div class="neuron-hint-method-row">
             <span class="neuron-hint-label">PDFから取り込む（↑ のエリアにドロップ）</span>
@@ -2754,12 +2769,20 @@ async function calcDeckEstimate(ctx, opts){
   const progEl=document.getElementById(ctx.prog);
   const totalLabel=document.querySelector('#'+ctx.results+' .deck-total-label');
   resultsEl.classList.remove('hidden');
-  totalEl.textContent='取得中...';
-  totalLabel.textContent='デッキ相場（直近データ）';
+  if(opts.previewOnly){
+    // デッキ選択・取込時は価格計算しないので「取得中」を出さず未計算表示にする
+    totalEl.textContent='-';
+    totalLabel.textContent='デッキ合計（未計算）';
+  }else{
+    totalEl.textContent='取得中...';
+    totalLabel.textContent='デッキ相場（直近データ）';
+  }
 
   // メインデッキを種別ソート（モンスター→魔法→罠）してグリッド描画
   // マイデッキの編集モード中はユーザーの手動並び順を尊重し、自動ソートをスキップする
-  const sortedMain=(window._deckEditMode&&ctx===DECK_CTX.mydeck)?main:await sortCardsByType(main);
+  // プレビュー時は種別ソート用のAPI(/api/card-types)も呼ばず、保存順のまま即描画する
+  const skipSort=opts.previewOnly||(window._deckEditMode&&ctx===DECK_CTX.mydeck);
+  const sortedMain=skipSort?main:await sortCardsByType(main);
   const cards=[...sortedMain,...ex];
   const mainCount=sortedMain.length;
 
@@ -2769,8 +2792,6 @@ async function calcDeckEstimate(ctx, opts){
   // プレビューのみ（デッキ選択・PDF取込・購入候補変換時）：価格計算は走らせず、カード一覧だけ表示する
   if(opts.previewOnly){
     listEl.querySelectorAll('.deck-grid-cell.loading').forEach(el=>el.classList.remove('loading'));
-    totalEl.textContent='-';
-    totalLabel.textContent='デッキ合計（未計算）';
     progEl.textContent='「簡易計算（DB相場）」または「リアルタイム計算」を押すと価格を取得します';
     return;
   }
@@ -3910,5 +3931,6 @@ updatePushUI(!!localStorage.getItem(PUSH_SUB_KEY));
 </script>
 <script src="/static/mydeck/deck-edit.js"></script>
 <script type="module" src="/static/shared/neuron-pdf-entry.js"></script>
+<script type="module" src="/static/shared/neuron-url-entry.js"></script>
 </body>
 </html>
