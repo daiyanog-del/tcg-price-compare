@@ -5,8 +5,11 @@
 name: Collect Price History
 
 on:
-  schedule:
-    - cron: '0 20 * * *'  # 毎日 UTC 20:00 = JST 5:00
+  # 定期実行は Render Cron(tcg-collect-prices) へ移行したため無効化。
+  # GitHub Actions のデータセンターIPは店舗WAFに弾かれ、遊々亭/カードラボ/カードラッシュ/
+  # トレコロCB が収集できなかった（Renderからは収集可）。手動実行のみ残す（フォールバック用）。
+  # schedule:
+  #   - cron: '0 20 * * *'  # 毎日 UTC 20:00 = JST 5:00（Render Cronへ移行）
   workflow_dispatch:       # 手動実行ボタン
 
 jobs:
