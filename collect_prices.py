@@ -38,7 +38,15 @@ DAILY_COLD_BUDGET = int(os.environ.get("DAILY_COLD_BUDGET", "800"))
 # 収集ループの時間上限（秒）。超過で周辺カードを打ち切り、翌日再開
 TIME_BUDGET_SEC = int(os.environ.get("TIME_BUDGET_SEC", str(300 * 60)))
 
-SKIP_SHOPS_IN_CI = {"遊々亭", "駿河屋", "カードラボ"}
+# 収集から除外する店舗。実行環境ごとに環境変数 COLLECT_SKIP_SHOPS（カンマ区切り）で上書きできる。
+#   - 未設定（GitHub Actions 等の従来環境）: データセンターIPから遅い/到達不能な店舗を従来どおり除外
+#   - Render など店舗に到達できる環境: 例 COLLECT_SKIP_SHOPS="駿河屋"（Cloudflare対策のみ）/ ""（除外なし）
+_DEFAULT_SKIP_SHOPS = {"遊々亭", "駿河屋", "カードラボ"}
+_skip_env = os.environ.get("COLLECT_SKIP_SHOPS")
+if _skip_env is None:
+    SKIP_SHOPS_IN_CI = set(_DEFAULT_SKIP_SHOPS)
+else:
+    SKIP_SHOPS_IN_CI = {s.strip() for s in _skip_env.split(",") if s.strip()}
 
 SHOP_HEALTH_URLS = {
     "カードラッシュ": "https://www.cardrush-yugioh.jp/",
