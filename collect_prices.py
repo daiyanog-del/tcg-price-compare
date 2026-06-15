@@ -48,9 +48,12 @@ if _skip_env is None:
 else:
     SKIP_SHOPS_IN_CI = {s.strip() for s in _skip_env.split(",") if s.strip()}
 
+# ヘルスチェックURLは「実スクレイパーが実際にアクセスするドメイン」と一致させること。
+# （cardrush-yugioh.jp / torecolo.jp はスクレイパーの実ドメイン cardrush.jp / www.torecolo.jp と
+#   食い違っており、Renderから ConnectionError で誤って当日スキップされていた — 2026-06-15修正）
 SHOP_HEALTH_URLS = {
-    "カードラッシュ": "https://www.cardrush-yugioh.jp/",
-    "トレコロCB": "https://torecolo.jp/",
+    "カードラッシュ": "https://www.cardrush.jp/",
+    "トレコロCB": "https://www.torecolo.jp/",
     "カーナベル": "https://www.ka-nabell.com/",
     "まんぞく屋": "https://shopmanzokuya.com/",
 }
