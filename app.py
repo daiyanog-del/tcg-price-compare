@@ -177,6 +177,9 @@ def add_cache_headers(response):
 
 # 同時検索の簡易レートリミット (メモリ内)
 _last_search: dict[str, float] = {}
+# ニューロン取り込み用の独立バケット。価格検索と別管理にすることで、
+# カード共有フロー（取り込み→直後に価格検索）が互いを弾かないようにする。
+_last_import: dict[str, float] = {}
 _rate_limit_lock = __import__('threading').Lock()
 RATE_LIMIT_SEC = 3
 RATE_LIMIT_MAX_ENTRIES = 10000  # これ以上溜まったら古い記録を一括削除
@@ -267,19 +270,28 @@ def _is_debug_mode() -> bool:
     return os.environ.get("FLASK_DEBUG", "1") == "1"
 
 
-def _consume_rate_limit():
-    """重いAPI用のIP単位レートリミット。制限時はレスポンス、通過時はNone。"""
+def _consume_rate_limit(bucket: dict | None = None,
+                        interval: int = RATE_LIMIT_SEC,
+                        message: str = "しばらく待ってから再度検索してください"):
+    """重いAPI用のIP単位レートリミット。制限時はレスポンス、通過時はNone。
+
+    bucket を分けることで、別系統のAPI同士がレート制限を奪い合わないようにする
+    （例: ニューロン取り込みと価格検索を連続実行しても互いに弾かない）。
+    既定は価格検索用の共有バケット（_last_search）。
+    """
+    if bucket is None:
+        bucket = _last_search
     client_ip = request.remote_addr or "unknown"
     now = time.time()
     with _rate_limit_lock:
-        if client_ip in _last_search and now - _last_search[client_ip] < RATE_LIMIT_SEC:
-            return jsonify({"error": "しばらく待ってから再度検索してください"}), 429
-        _last_search[client_ip] = now
-        if len(_last_search) > RATE_LIMIT_MAX_ENTRIES:
+        if client_ip in bucket and now - bucket[client_ip] < interval:
+            return jsonify({"error": message}), 429
+        bucket[client_ip] = now
+        if len(bucket) > RATE_LIMIT_MAX_ENTRIES:
             cutoff = now - 3600
-            stale = [ip for ip, ts in _last_search.items() if ts < cutoff]
+            stale = [ip for ip, ts in bucket.items() if ts < cutoff]
             for ip in stale:
-                del _last_search[ip]
+                del bucket[ip]
     return None
 
 
@@ -2465,7 +2477,10 @@ def api_import_neuron():
     スマホは拡張が使えないため、拡張のDOM抽出に代わりサーバーで静的HTMLを解析する。
     解析の実体は neuron_deck_parser.import_neuron（SSRF対策・ホスト検証を内包）。
     """
-    limited = _consume_rate_limit()
+    # 価格検索とは別バケット。カード共有（取り込み→直後に価格検索）で
+    # 互いを弾かないようにする。
+    limited = _consume_rate_limit(bucket=_last_import,
+                                  message="しばらく待ってから再度お試しください")
     if limited:
         return limited
 
