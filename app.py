@@ -1260,6 +1260,26 @@ def _track_card_async(card_name: str):
         logger.warning(f"[track] 追加失敗 ({card_name}): {e}")
 
 
+def _track_cards_async(card_names: list):
+    """複数カードをまとめて tracked_cards に登録する（既存を1クエリで除外し、新規だけ insert）。
+    マイデッキ保存時に呼ばれ、簡易計算(DB相場)のカバー率を継続的に高めるための収集対象を増やす。
+    """
+    try:
+        existing = set()
+        resp = (_supabase_client.table("tracked_cards")
+                .select("card_name")
+                .in_("card_name", card_names)
+                .execute())
+        for row in (resp.data or []):
+            existing.add(row.get("card_name"))
+        new_rows = [{"card_name": n, "active": True} for n in card_names if n not in existing]
+        if new_rows:
+            _supabase_client.table("tracked_cards").insert(new_rows).execute()
+            logger.info(f"[track] tracked_cards に一括追加: {len(new_rows)}件")
+    except Exception as e:
+        logger.warning(f"[track] 一括追加失敗: {e}")
+
+
 @app.route("/api/track", methods=["POST"])
 def api_track():
     """購入候補に追加されたカードを価格収集対象（tracked_cards）に登録する。
@@ -1287,6 +1307,40 @@ def api_track():
         Thread(target=_track_card_async, args=(corrected,), daemon=True).start()
 
     return jsonify({"ok": True, "card": corrected})
+
+
+@app.route("/api/track-batch", methods=["POST"])
+def api_track_batch():
+    """マイデッキ保存時に、デッキ内の複数カードをまとめて収集対象(tracked_cards)に登録する。
+    入力: {"cards": ["カード名", ...]}  最大 MAX_DECK_CARDS 件
+    返却: {"ok": true, "queued": 登録対象として受理した件数}
+    ログイン不要・fire-and-forget。辞書に存在するカードのみ受理（スパム・誤登録対策）。
+    """
+    data = request.get_json(silent=True) or {}
+    cards_raw = data.get("cards", [])
+    if not isinstance(cards_raw, list):
+        return jsonify({"error": "cards は配列で指定してください"}), 400
+
+    _load_cardnames()
+    seen = set()
+    valid = []
+    for raw in cards_raw[:MAX_DECK_CARDS]:
+        name = str(raw).strip()
+        if not name or len(name) > MAX_CARD_NAME_LEN:
+            continue
+        corrected = _correct_cardname(name)
+        # カード辞書に無い文字列は弾く（O(1) のset検索）
+        if _cardnames_set and corrected not in _cardnames_set:
+            continue
+        if corrected in seen:
+            continue
+        seen.add(corrected)
+        valid.append(corrected)
+
+    if _supabase_client and valid:
+        Thread(target=_track_cards_async, args=(valid,), daemon=True).start()
+
+    return jsonify({"ok": True, "queued": len(valid)})
 
 
 # 値下がり判定の閾値

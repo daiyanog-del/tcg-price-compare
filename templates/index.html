@@ -999,10 +999,6 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
         <details class="deck-input-details" id="deckInputDetails">
           <summary>テキストで入力・編集</summary>
           <textarea class="deck-textarea" id="deckTextarea" placeholder="カード名を入力（1行1枚、枚数指定も可）&#10;&#10;例:&#10;3 灰流うらら&#10;2 増殖するG&#10;1 サンダー・ボルト&#10;ブラック・マジシャン"></textarea>
-          <div class="deck-actions">
-            <button class="deck-btn deck-btn-primary" onclick="calcDeckEstimate()">見積もり<span style="display:block;font-size:.65rem;font-weight:400;opacity:.7;margin-top:2px">直近データから即時表示 / データがないカードは自動で店舗検索</span></button>
-            <button class="deck-btn deck-btn-outline" onclick="calcDeck()">全て店舗検索<span style="display:block;font-size:.65rem;font-weight:400;opacity:.7;margin-top:2px">全カードをリアルタイムで検索（時間がかかります）</span></button>
-          </div>
           <div style="text-align:right;margin-top:4px;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
             <button class="deck-btn-text" onclick="saveCurrentDeck()">保存</button>
             <button class="deck-btn-text" onclick="clearDeck()">入力をクリア</button>
@@ -1026,6 +1022,12 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
           <label class="shop-toggle active" data-shop="カードラボ">
             <input type="checkbox" checked> カードラボ
           </label>
+        </div>
+
+        <!-- 価格計算ボタン（常時表示）：押下時のみ計算が走る -->
+        <div class="deck-actions" style="margin-top:14px">
+          <button class="deck-btn deck-btn-primary" onclick="calcDeckEstimate(DECK_CTX.mydeck,{dbOnly:true})">簡易計算（DB相場）<span style="display:block;font-size:.65rem;font-weight:400;opacity:.7;margin-top:2px">登録済みDBの直近相場から即時表示（スクレイピングなし）</span></button>
+          <button class="deck-btn deck-btn-outline" onclick="calcDeck()">リアルタイム計算<span style="display:block;font-size:.65rem;font-weight:400;opacity:.7;margin-top:2px">全カードを各店舗から取得（時間がかかります）</span></button>
         </div>
       </div>
 
@@ -2348,7 +2350,8 @@ window.onDeckImported=function(deck){
   _currentMydeckText=combined;
   const ta=document.getElementById('deckTextarea');
   if(ta) ta.value=combined;
-  calcDeckEstimate();
+  // PDF取込時は自動で価格計算しない。カード一覧のプレビューだけ表示する
+  calcDeckEstimate(DECK_CTX.mydeck,{previewOnly:true});
 };
 
 // ── 環境デッキ（TCG PORTAL連携）──
@@ -2724,8 +2727,9 @@ function addToDeck(name){
 
 let _deckBuyMode=false;
 
-async function calcDeckEstimate(ctx){
+async function calcDeckEstimate(ctx, opts){
   ctx = ctx || DECK_CTX.mydeck;
+  opts = opts || {};  // {previewOnly:価格計算せず一覧のみ, dbOnly:DB相場のみ・リアルタイム補完なし}
 
   // main/ex を取得（mydeckはテキスト変更を検知して再解析、metaはテキストから生成）
   let main,ex;
@@ -2761,6 +2765,15 @@ async function calcDeckEstimate(ctx){
 
   renderDeckGrid(cards,ctx,mainCount);
   loadDeckGridImages(listEl);
+
+  // プレビューのみ（デッキ選択・PDF取込・購入候補変換時）：価格計算は走らせず、カード一覧だけ表示する
+  if(opts.previewOnly){
+    listEl.querySelectorAll('.deck-grid-cell.loading').forEach(el=>el.classList.remove('loading'));
+    totalEl.textContent='-';
+    totalLabel.textContent='デッキ合計（未計算）';
+    progEl.textContent='「簡易計算（DB相場）」または「リアルタイム計算」を押すと価格を取得します';
+    return;
+  }
 
   const cardsParam=cards.map(c=>c.qty>1?`${c.qty} ${c.name}`:c.name).join('|');
   let total=0,found=0;
@@ -2800,6 +2813,21 @@ async function calcDeckEstimate(ctx){
 
     if(!missing.length){
       progEl.textContent=`完了 — ${found}/${cards.length}枚の相場を取得`;
+      renderDeckShareUI(ctx,ctx.getName(),total,cards);
+      return;
+    }
+
+    // 簡易計算（DBオンリー）：DBに無いカードはリアルタイム補完せず「データなし」と表示する
+    if(opts.dbOnly){
+      missing.forEach(i=>{
+        const row=document.getElementById(ctx.rowPrefix+i);
+        if(!row)return;
+        row.classList.remove('loading');
+        row.classList.add('error');
+        const priceEl=row.querySelector('.deck-card-price');
+        if(priceEl) priceEl.textContent='データなし';
+      });
+      progEl.textContent=`完了 — ${found}/${cards.length}枚の相場を取得（${missing.length}枚はDB未収録）`;
       renderDeckShareUI(ctx,ctx.getName(),total,cards);
       return;
     }
@@ -3533,6 +3561,18 @@ function savedDecksSet(list){
   localStorage.setItem(SAVED_DECKS_KEY,JSON.stringify(list));
 }
 
+// 保存デッキのカードを収集対象(tracked_cards)に登録する（fire-and-forget）。
+// 簡易計算(DB相場)のカバー率を継続的に高めるため。失敗してもUIには影響させない。
+function trackDeckCards(cards){
+  const names=[...new Set((cards||[]).map(c=>c.name).filter(Boolean))];
+  if(!names.length) return;
+  fetch('/api/track-batch',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({cards:names})
+  }).catch(()=>{});
+}
+
 function saveCurrentDeck(){
   const text=document.getElementById('deckTextarea').value.trim();
   if(!text){alert('デッキが入力されていません');return;}
@@ -3557,6 +3597,7 @@ function saveCurrentDeck(){
     list.push({id:'d_'+Date.now(),name:n,text,main,ex,updated:Date.now()});
   }
   savedDecksSet(list);
+  trackDeckCards([...main, ...ex]);
   renderSavedDecks();
 }
 
@@ -3575,7 +3616,8 @@ function loadSavedDeck(id){
   const combined=(deck.text||[...main,...ex].map(c=>c.qty>1?`${c.qty} ${c.name}`:c.name).join('\n')).replace(/\r/g,'');
   _currentMydeckText=combined;
   document.getElementById('deckTextarea').value=combined;
-  calcDeckEstimate();
+  // デッキ選択時は自動で価格計算しない。カード一覧のプレビューだけ表示する
+  calcDeckEstimate(DECK_CTX.mydeck,{previewOnly:true});
 }
 
 function deleteSavedDeck(id){
@@ -3730,7 +3772,8 @@ function wishToEstimate(){
   const text=list.map(c=>`${c.qty} ${c.name}`).join('\n');
   document.getElementById('deckTextarea').value=text;
   switchMode('mydeck');
-  calcDeckEstimate();
+  // 購入候補→マイデッキ変換時は自動で価格計算しない。プレビューだけ表示する
+  calcDeckEstimate(DECK_CTX.mydeck,{previewOnly:true});
 }
 
 // 追加ボタンのHTMLを生成するヘルパー
