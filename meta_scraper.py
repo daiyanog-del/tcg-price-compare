@@ -71,9 +71,45 @@ def _fetch_soup(url: str, timeout: int = 20, retries: int = 2) -> BeautifulSoup 
 
 # ── Tier表 ──
 
+# 集計期間の方針（アダプティブ）:
+#   相手サイトは不定期スナップショットで環境データを公開しており、直近30日に
+#   充実したスナップショットが無いと数テーマしか返らない。そこでまず30日窓を
+#   試し、テーマ数が閾値未満なら60日まで自動で広げて最新の充実データを拾う。
+#   ※ 90日以上にすると API が空配列を返すため上限は60日。
+_TIER_WINDOW_DAYS = [30, 60]
+_TIER_MIN_THEMES = 5
+
+
+def _fetch_meta_complete(date_from: str, date_to: str) -> list[dict] | None:
+    """meta-analysis/complete API を叩いて deckSummaries を返す。失敗時 None。"""
+    url = (f"{TCG_PORTAL_BASE}/api/yugioh/meta-analysis/complete"
+           f"?from={date_from}&to={date_to}")
+    for attempt in range(3):
+        try:
+            res = requests.get(url, headers=HEADERS, timeout=20)
+            res.raise_for_status()
+            data = res.json()
+            if isinstance(data, dict):
+                return data.get("deckSummaries") or []
+            return []
+        except (requests.RequestException, ValueError) as e:
+            if attempt < 2:
+                time.sleep(1)
+                continue
+            print(f"  meta_scraper Tier API 取得失敗: {url} — {e}")
+    return None
+
+
 def fetch_tier_list(force: bool = False) -> list[dict]:
     """
-    TCG PORTAL の環境分析ページから Tier 表を取得。
+    TCG PORTAL の環境分析データから Tier 表を取得。
+
+    取得元は meta-analysis ページの裏で叩かれている JSON API
+    `/api/yugioh/meta-analysis/complete?from=...&to=...`。
+    ※ 2026-06 に同ページが Next.js の SPA 化し、サーバーレンダリングHTMLには
+       2テーマしか含まれなくなったため、HTMLスクレイプから API 直叩きへ移行した。
+       （from/to を明示しないと API 側も少数しか返さないため期間は必須。
+        期間の決め方は _TIER_WINDOW_DAYS のアダプティブ方式を参照）
 
     Returns:
         [{"name": "巳剣", "tier": 1, "share": 14.9, "tops": 18, "rank": 1}, ...]
@@ -84,69 +120,52 @@ def fetch_tier_list(force: bool = False) -> list[dict]:
         if cached:
             return cached["tiers"]
 
-    url = f"{TCG_PORTAL_BASE}/yugioh/meta-analysis"
-    soup = _fetch_soup(url)
-    if not soup:
-        # フォールバック: 期限切れキャッシュでも返す
+    today = datetime.now()
+    date_to = today.strftime("%Y-%m-%d")
+
+    # アダプティブ: 窓を順に広げ、閾値を満たした時点で確定。
+    # どの窓も閾値未満なら最もテーマ数が多かった結果を採用する。
+    best_summaries: list[dict] | None = None
+    api_reached = False
+    for days in _TIER_WINDOW_DAYS:
+        date_from = (today - timedelta(days=days)).strftime("%Y-%m-%d")
+        summaries = _fetch_meta_complete(date_from, date_to)
+        if summaries is None:
+            continue  # 通信失敗。次の窓へ
+        api_reached = True
+        if best_summaries is None or len(summaries) > len(best_summaries):
+            best_summaries = summaries
+        if len(summaries) >= _TIER_MIN_THEMES:
+            break
+
+    if not best_summaries:
+        # API応答が空/全窓失敗 → 期限切れキャッシュでも返す
         cached = _cache_read(cache_key, timedelta(days=7))
-        return cached["tiers"] if cached else []
+        if cached:
+            return cached["tiers"]
+        return []
 
     tiers = []
-    rank = 0
-    seen_names = set()
-
-    # 各デッキエントリは /yugioh/deck-guides/XXXX へのリンクを持つブロック
-    # ※ページ内に同一リストが2回出現するため重複排除が必要
-    for link_el in soup.select("a[href*='/yugioh/deck-guides/']"):
-        block = link_el
-
-        # テーマ名: h3
-        name_el = block.select_one("h3")
-        if not name_el:
+    for i, s in enumerate(best_summaries):
+        name = (s.get("deckGuideName") or "").strip()
+        if not name:
             continue
-        name = name_el.get_text(strip=True)
-        if not name or name in seen_names:
-            continue
-        seen_names.add(name)
-
-        rank += 1
-
-        # 代表カード画像
-        image_url = ""
-        img_el = block.select_one("img[src]")
-        if img_el:
-            image_url = img_el.get("src", "")
-
-        # Tier 値
-        tier = 0
-        tier_text = block.get_text()
-        tier_m = re.search(r"Tier\s*(\d+)", tier_text)
-        if tier_m:
-            tier = int(tier_m.group(1))
-
-        # シェア率
-        share = 0.0
-        share_m = re.search(r"(\d+(?:\.\d+)?)%", tier_text)
-        if share_m:
-            share = float(share_m.group(1))
-
-        # 入賞回数
-        tops = 0
-        tops_m = re.search(r"(\d+)回", tier_text)
-        if tops_m:
-            tops = int(tops_m.group(1))
-
         tiers.append({
             "name": name,
-            "tier": tier,
-            "share": share,
-            "tops": tops,
-            "rank": rank,
-            "image": image_url,
+            "tier": int(s.get("tier") or 0),
+            "share": float(s.get("usageRate") or 0.0),  # 使用率(%)
+            "tops": int(s.get("totalDecks") or 0),       # 入賞デッキ数
+            "rank": int(s.get("rank") or (i + 1)),
+            "image": s.get("representativeCardImage") or "",
         })
 
     if tiers:
         _cache_write(cache_key, {"tiers": tiers})
+    elif api_reached:
+        # API は応答したが有効テーマ0件。古いキャッシュを優先して空表示を避ける
+        cached = _cache_read(cache_key, timedelta(days=7))
+        if cached:
+            return cached["tiers"]
 
     return tiers
 
