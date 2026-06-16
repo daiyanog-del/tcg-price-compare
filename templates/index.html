@@ -135,9 +135,12 @@ header .subtitle{font-size:.78rem;color:var(--text-d);margin-top:8px;letter-spac
 .search button:disabled{background:var(--border);cursor:not-allowed}
 .suggest-dropdown{position:absolute;top:100%;left:0;right:72px;background:var(--bg-card);border:1px solid var(--border);border-radius:0 0 var(--radius) var(--radius);max-height:280px;overflow-y:auto;z-index:100;display:none}
 .suggest-dropdown.open{display:block}
-.suggest-item{padding:10px 16px;font-size:.88rem;cursor:pointer;transition:background .1s;border-bottom:1px solid rgba(38,40,56,.5)}
+.suggest-item{display:flex;align-items:center;gap:10px;padding:8px 14px;font-size:.88rem;cursor:pointer;transition:background .1s;border-bottom:1px solid rgba(38,40,56,.5)}
 .suggest-item:last-child{border-bottom:0}
 .suggest-item:hover,.suggest-item.active{background:var(--bg-hover);color:var(--accent-l)}
+.suggest-thumb{width:30px;height:42px;flex-shrink:0;border-radius:3px;overflow:hidden;background:var(--bg)}
+.suggest-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.suggest-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .suggest-hint{padding:8px 16px;font-size:.72rem;color:var(--text-d);text-align:center}
 
 /* ── Progress ── */
@@ -371,111 +374,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .mode-tab{padding:8px 18px;font:.82rem var(--font);font-weight:700;color:var(--text-d);background:var(--bg-card);border:1px solid var(--border);border-radius:20px;cursor:pointer;transition:all .15s;white-space:nowrap}
 .mode-tab:hover{border-color:var(--text-m);color:var(--text-m)}
 .mode-tab.active{color:#fff;border-color:var(--accent);background:linear-gradient(135deg,var(--accent),#6366f1);box-shadow:0 2px 8px rgba(74,124,255,.2)}
-.deck-builder{max-width:800px;margin:0 auto}
-.deck-input-area{margin-bottom:20px}
-.deck-input-tabs{display:flex;gap:4px;margin-bottom:10px}
-.deck-input-tab{padding:5px 12px;font:.72rem var(--font);font-weight:600;color:var(--text-d);background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer}
-.deck-input-tab.active{color:var(--accent-l);border-color:var(--accent)}
-.deck-textarea{width:100%;min-height:120px;padding:12px;font:.85rem var(--font);background:var(--bg-input);border:1.5px solid var(--border);border-radius:var(--radius);color:var(--text);outline:0;resize:vertical}
-.deck-textarea:focus{border-color:var(--border-hl)}
-.deck-textarea::placeholder{color:var(--text-d)}
-.deck-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
-.deck-btn{padding:10px 20px;font:.85rem var(--font);font-weight:700;border:none;border-radius:var(--radius);cursor:pointer;transition:background .15s}
-.deck-btn-primary{background:var(--accent);color:#fff}.deck-btn-primary:hover{background:#5a88ff}
-.deck-btn-secondary{background:var(--bg-card);color:var(--text-m);border:1px solid var(--border)}.deck-btn-secondary:hover{background:var(--bg-hover)}
-.deck-btn-outline{background:transparent;color:var(--text-m);border:1px solid var(--border);padding:10px 20px;font:.85rem var(--font);font-weight:700;border-radius:var(--radius);cursor:pointer;transition:all .15s}.deck-btn-outline:hover{border-color:var(--text-m);color:var(--text)}
-.deck-btn-text{background:none;border:none;color:var(--text-d);font:.75rem var(--font);cursor:pointer;padding:4px 0;transition:color .15s}.deck-btn-text:hover{color:var(--text-m)}
-.deck-presets{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
-.deck-preset{padding:5px 12px;font:.75rem var(--font);font-weight:600;color:var(--text-m);background:var(--bg-card);border:1px solid var(--border);border-radius:14px;cursor:pointer;transition:all .15s}
-.deck-preset:hover{border-color:var(--accent);color:var(--text)}
-.deck-results{margin-top:20px}
-.deck-total{padding:16px;background:var(--bg-card);border:1px solid var(--gold-d);border-radius:var(--radius);margin-bottom:16px;display:flex;justify-content:space-between;align-items:center}
-.deck-total-label{font-size:.85rem;color:var(--text-m)}
-.deck-total-price{font:700 1.4rem var(--mono);color:var(--gold)}
-.deck-card-row{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;margin-bottom:4px;font-size:.82rem}
-.deck-card-qty{font:700 .82rem var(--mono);color:var(--accent-l);min-width:24px}
-.deck-card-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.deck-card-price{font:600 .85rem var(--mono);color:var(--gold);white-space:nowrap}
-.deck-card-shop{font-size:.72rem;color:var(--text-d);white-space:nowrap}
-.deck-card-status{font-size:.7rem;color:var(--text-d)}
-.deck-card-row.loading .deck-card-status{color:var(--accent-l);animation:pulse 1.2s infinite}
-.deck-card-row.error .deck-card-name{color:var(--red)}
-.deck-progress{font:.78rem var(--font);color:var(--text-m);margin-bottom:10px}
-
-/* ── マイデッキ ドロップゾーン・グリッド ── */
-.deck-drop-zone{border:2px dashed var(--border);border-radius:var(--radius);padding:28px 20px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;margin-bottom:12px;background:var(--bg-card)}
-.deck-drop-zone:hover,.deck-drop-zone.drag-over{border-color:var(--accent);background:rgba(74,124,255,.08)}
-.deck-drop-zone-icon{font-size:1.8rem;margin-bottom:8px;opacity:.6}
-.deck-drop-zone-title{font:.9rem var(--font);font-weight:700;color:var(--text);margin-bottom:4px}
-.deck-drop-zone-sub{font:.75rem var(--font);color:var(--text-d)}
-.neuron-hint{display:flex;flex-direction:column;gap:0;padding:0;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;margin-bottom:12px;font-size:.75rem;line-height:1.5;overflow:hidden}
-.neuron-hint-method-row{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;padding:8px 10px}
-.neuron-hint-method-row+.neuron-hint-method-row{border-top:1px solid var(--border)}
-.neuron-hint-label{color:var(--text-d);white-space:nowrap;font-weight:600}
-.neuron-hint-link{color:var(--accent-l);text-decoration:none;font-weight:600}.neuron-hint-link:hover{text-decoration:underline}
-.neuron-hint-sep{color:var(--text-m)}
-.neuron-hint-ext{font-size:.7rem;color:var(--accent-l);text-decoration:none;white-space:nowrap;font-weight:600}.neuron-hint-ext:hover{text-decoration:underline}
-.neuron-hint-badge{font-size:.65rem;font-weight:700;color:#facc15;background:rgba(250,204,21,.12);border:1px solid rgba(250,204,21,.3);border-radius:3px;padding:0 4px;margin-left:2px}
-.neuron-url-row{display:flex;gap:6px;width:100%;flex-wrap:wrap;margin-top:2px}
-.neuron-url-input{flex:1;min-width:180px;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:6px 8px;color:var(--text);font-size:.75rem;outline:none}
-.neuron-url-input:focus{border-color:var(--accent-l)}
-.neuron-url-btn{flex-shrink:0;background:var(--accent-l);color:#0a1024;border:none;border-radius:5px;padding:6px 14px;font-size:.75rem;font-weight:700;cursor:pointer}
-.neuron-url-btn:hover{opacity:.85}
-.neuron-url-btn:disabled{opacity:.5;cursor:default}
-.saved-deck-empty{font:.75rem var(--font);color:var(--text-d);padding:8px 4px 4px;line-height:1.6}
-.deck-input-details{margin-bottom:10px}
-.deck-input-details summary{font:.8rem var(--font);color:var(--text-d);cursor:pointer;padding:6px 2px;user-select:none;list-style:none}
-.deck-input-details summary::-webkit-details-marker{display:none}
-.deck-input-details summary::before{content:'▸ '}
-.deck-input-details[open] summary::before{content:'▾ '}
-.deck-input-details .deck-textarea{margin-top:8px}
-.deck-grid-section{margin-bottom:16px}
-.deck-grid-section-label{font:.7rem var(--font);font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-d);margin-bottom:8px;padding-left:2px}
-.deck-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:5px}
-.deck-grid-cell{position:relative;border-radius:5px;background:var(--bg-card);border:1px solid var(--border);overflow:hidden;transition:border-color .15s;cursor:default}
-.deck-grid-cell:hover{border-color:var(--accent)}
-.deck-grid-cell.loading .deck-grid-img-wrap{animation:shimmer 1.4s infinite}
-.deck-grid-cell.error{border-color:var(--red);opacity:.75}
-.deck-grid-img-wrap{position:relative;aspect-ratio:59/86;background:var(--bg);overflow:hidden;display:block;text-decoration:none}
-.deck-grid-img-wrap img{width:100%;height:100%;object-fit:cover;display:block}
-a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
-.deck-grid-placeholder{width:100%;height:100%;background:var(--bg-card)}
-.deck-grid-badge{position:absolute;top:2px;right:2px;background:rgba(0,0,0,.75);color:#fff;font:.6rem var(--mono);font-weight:700;padding:1px 4px;border-radius:3px;line-height:1.4;pointer-events:none}
-.deck-grid-footer{padding:3px 4px 4px}
-.deck-grid-footer .deck-card-name{display:block;font:.58rem var(--font);color:var(--text-m);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:1px}
-.deck-grid-footer .deck-card-name a{color:inherit;text-decoration:none}
-.deck-grid-footer .deck-card-name a:hover{color:var(--accent-l)}
-.deck-grid-footer .deck-card-price{display:block;font:.62rem var(--mono);font-weight:700;color:var(--gold);white-space:nowrap;min-height:.85em}
-.deck-grid-cell .deck-card-shop,.deck-grid-cell .deck-card-status,.deck-grid-cell .wish-add{display:none}
-@keyframes shimmer{0%{background:var(--bg-card)}50%{background:rgba(74,124,255,.07)}100%{background:var(--bg-card)}}
-@media(max-width:768px){.deck-grid{grid-template-columns:repeat(auto-fill,minmax(60px,1fr));gap:4px}}
-@media(max-width:640px){.deck-grid{grid-template-columns:repeat(auto-fill,minmax(54px,1fr));gap:3px}}
-
-/* ── デッキ編集UI（deck-edit.js）── */
-.deck-edit-toolbar{display:flex;justify-content:flex-end;margin:8px 0 4px}
-#deckEditToggle.active{color:var(--accent-l)}
-.deck-search-box{position:relative;margin:0 0 10px}
-.deck-search-row{display:flex;gap:6px}
-.deck-search-row input{flex:1;padding:9px 12px;font:.9rem var(--font);color:var(--text);background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);outline:none}
-.deck-search-row input:focus{border-color:var(--accent)}
-.deck-search-row select{padding:0 8px;font:.8rem var(--font);color:var(--text);background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer}
-.deck-suggest-drop{position:absolute;top:100%;left:0;right:0;background:var(--bg-card);border:1px solid var(--border);border-radius:0 0 var(--radius) var(--radius);max-height:280px;overflow-y:auto;z-index:100;display:none}
-.deck-suggest-drop.open{display:block}
-.deck-suggest-item{display:flex;align-items:center;gap:8px;padding:10px 14px;font-size:.86rem;cursor:pointer;border-bottom:1px solid rgba(38,40,56,.5)}
-.deck-suggest-item:last-child{border-bottom:0}
-.deck-suggest-item:hover,.deck-suggest-item.active{background:var(--bg-hover);color:var(--accent-l)}
-.deck-suggest-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.deck-suggest-badge{flex-shrink:0;font:.6rem var(--font);font-weight:700;color:var(--gold);background:rgba(232,200,72,.12);border:1px solid rgba(232,200,72,.4);border-radius:3px;padding:1px 5px}
-/* セルに重ねる操作バー */
-#deckCardList.edit-mode .deck-grid-cell{cursor:grab}
-#deckCardList.edit-mode .deck-grid-cell.dragging{opacity:.4}
-#deckCardList.edit-mode .deck-grid-cell.drag-over{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent) inset}
-#deckCardList.edit-mode .deck-grid-badge{display:none}
-.deck-edit-bar{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:2px;padding:2px;background:linear-gradient(to bottom,rgba(0,0,0,.72),transparent);z-index:3}
-.deck-edit-btn{width:18px;height:18px;padding:0;line-height:1;font:.85rem/1 var(--font);font-weight:700;color:#fff;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);border-radius:3px;cursor:pointer;display:flex;align-items:center;justify-content:center}
-.deck-edit-btn:hover{background:var(--accent);border-color:var(--accent)}
-.deck-edit-q{font:.7rem var(--mono);font-weight:700;color:#fff;min-width:14px;text-align:center;text-shadow:0 1px 2px rgba(0,0,0,.8)}
-.deck-edit-del{margin-left:auto}
+/* ── マイデッキ関連CSSは static/mydeck/deck.css に分離（移動のみ・内容不変） ── */
 
 /* ── 環境デッキ プリセット ── */
 .meta-loading{padding:24px;text-align:center;color:var(--text-d);font-size:.85rem}
@@ -511,18 +410,7 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
 #packList .pack-btn-name{flex:1;min-width:0;text-align:left;white-space:normal;word-break:keep-all;overflow-wrap:break-word}
 #packList .meta-deck-btn .meta-share{flex-shrink:0;white-space:nowrap;margin-left:auto}
 
-/* ── マイデッキ保存 ── */
-.saved-deck-label{font:.72rem var(--font);font-weight:700;color:var(--text-d);margin:10px 0 6px}
-.saved-deck-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px;margin-bottom:4px}
-.saved-deck-card{position:relative}
-.saved-deck-card-btn{display:flex;align-items:center;gap:6px;padding:4px 10px;width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;overflow:hidden;cursor:pointer;text-align:left;transition:border-color .15s}
-.saved-deck-card-btn:hover{border-color:var(--accent)}
-.saved-deck-card-btn.selected{border-color:var(--accent);background:rgba(74,124,255,.12)}
-.saved-deck-thumb{width:44px;height:62px;flex-shrink:0;border-radius:2px;background:var(--bg);overflow:hidden}
-.saved-deck-thumb img{width:100%;height:100%;object-fit:cover;display:block}
-.saved-deck-card-name{flex:1;min-width:0;font:.78rem var(--font);font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0}
-.saved-deck-remove{position:absolute;top:3px;right:3px;background:rgba(0,0,0,.55);border:none;color:#ccc;cursor:pointer;border-radius:3px;font-size:.7rem;padding:2px 5px;line-height:1;transition:all .15s;z-index:1}
-.saved-deck-remove:hover{background:rgba(200,40,40,.8);color:#fff}
+/* ── マイデッキ保存 CSS は static/mydeck/deck.css に分離 ── */
 
 /* ── 購入候補 ── */
 .wish-add{background:none;border:1px solid var(--border);color:var(--text-d);border-radius:13px;cursor:pointer;font-size:.72rem;font-weight:600;line-height:1;display:inline-flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;padding:3px 10px;white-space:nowrap}
@@ -643,18 +531,7 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
   .share-btn{padding:8px 14px;font-size:.75rem;min-height:40px}
   .share-menu{left:50%;right:auto;transform:translateX(-50%);min-width:260px;max-width:90vw}
 
-  /* デッキビルダー */
-  .deck-builder{padding:0}
-  .deck-input-tabs{flex-wrap:wrap}
-  .deck-input-tab{padding:8px 12px;min-height:40px}
-  .deck-textarea{min-height:100px;font-size:.9rem}
-  .deck-actions{flex-direction:column}
-  .deck-btn,.deck-btn-outline{width:100%;padding:14px;font-size:.9rem;min-height:48px;text-align:center}
-  .deck-presets{gap:5px}
-  .deck-preset{padding:8px 12px;font-size:.75rem;min-height:40px}
-  .deck-total{flex-direction:column;gap:6px;text-align:center}
-  .deck-card-row{font-size:.75rem;gap:6px;flex-wrap:wrap}
-  .deck-card-name{white-space:normal}
+  /* デッキビルダーのモバイルCSSは static/mydeck/deck.css に分離 */
   .wish-card-row{font-size:.75rem;gap:6px;flex-wrap:wrap}
 
   /* 環境デッキ */
@@ -738,6 +615,7 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
 window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 </script>
 <link rel="stylesheet" href="/static/css/self-watermark.css?v=20260611">
+<link rel="stylesheet" href="/static/mydeck/deck.css?v=20260615c">
 </head>
 <body{% if self_watermark %} data-self-wm style="--self-watermark-opacity: {{ self_watermark_opacity }}"{% endif %}>
 <div class="wrap">
@@ -953,110 +831,152 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
   <!-- ===== マイデッキモード ===== -->
   <div id="mode-mydeck" class="hidden">
     <div class="deck-builder">
-      <div class="deck-input-area">
 
-        <!-- 保存済みデッキ一覧（最上部） -->
-        <div id="savedDeckList"></div>
+      <!-- 保存済みデッキ一覧（常時最上部） -->
+      <div id="savedDeckList"></div>
 
-        <!-- デッキ編集ツールバー -->
-        <div class="deck-edit-toolbar">
-          <button type="button" id="deckEditToggle" class="deck-btn-text" onclick="toggleDeckEdit()">デッキを編集</button>
-        </div>
+      <!-- モバイル用ペイン切替タブ（PCでは非表示） -->
+      <div class="deck-build-tabs" id="deckBuildTabs">
+        <button type="button" class="deck-build-tab active" data-pane="main" onclick="switchDeckPane('main')">デッキ</button>
+        <button type="button" class="deck-build-tab" data-pane="tools" onclick="switchDeckPane('tools')">カードを追加・取込</button>
+      </div>
 
-        <!-- カード検索して追加（編集モード時のみ表示） -->
-        <div id="deckSearchBox" class="deck-search-box hidden">
-          <div class="deck-search-row">
-            <input type="text" id="deckSearchInput" placeholder="カード名で検索して追加" autocomplete="off">
-            <select id="deckAddDest" title="追加先">
-              <option value="auto">自動</option>
-              <option value="main">メイン</option>
-              <option value="ex">EX</option>
-            </select>
+      <!-- 2ペイン: 左=デッキ本体 / 右=ツール -->
+      <div class="deck-panes" id="deckPanes">
+
+        <!-- ── 左ペイン: デッキ本体 ── -->
+        <div class="deck-pane-main" id="deckPaneMain">
+
+          <!-- ヘッダー: 枚数カウンタ＋整列ボタン（右ペイン検索バーと上端を揃える） -->
+          <div class="deck-counter-bar">
+            <span class="deck-counter" id="deckCountMain"><span>メイン</span><span class="c-num">0</span><span class="c-max">/60</span></span>
+            <span class="deck-counter" id="deckCountEx"><span>EX</span><span class="c-num">0</span><span class="c-max">/15</span></span>
+            <button type="button" class="deck-btn-text deck-sort-btn" onclick="deckSortByType()" title="モンスター→魔法→罠の順に並べ替えます">種別順に整列</button>
           </div>
-          <div id="deckSuggestDrop" class="deck-suggest-drop"></div>
-        </div>
 
-        <!-- PDFドロップゾーン（メインCTA） -->
-        <div class="deck-drop-zone" id="deckDropZone"
-             onclick="window.NeuronPDF?.openPicker()"
-             ondragover="event.preventDefault();this.classList.add('drag-over')"
-             ondragleave="this.classList.remove('drag-over')"
-             ondrop="event.preventDefault();this.classList.remove('drag-over');handleDeckDrop(event)">
-          <div class="deck-drop-zone-icon">&#128196;</div>
-          <div class="deck-drop-zone-title">PDFをドラッグ&amp;ドロップ / クリックして選択</div>
-          <div class="deck-drop-zone-sub">遊戯王ニューロンのデッキシートPDFを取り込みます</div>
-        </div>
+          <!-- デッキ本体（カードグリッド） -->
+          <div id="deckCardList"></div>
 
-        <!-- ニューロン導線 -->
-        <div class="neuron-hint">
-          <div class="neuron-hint-method-row">
-            <span class="neuron-hint-label">Chrome拡張で取り込む（PC）<span class="neuron-hint-badge">おすすめ</span></span>
-            <span class="neuron-hint-sep">ニューロンのデッキページのボタン1つで取り込み → このページに表示されます</span>
-            <a class="neuron-hint-ext" href="https://chromewebstore.google.com/detail/tcgym-%E2%80%94-%E3%83%8B%E3%83%A5%E3%83%BC%E3%83%AD%E3%83%B3%E9%80%A3%E6%90%BA/akgacaffneahmgpolkefmcbldbiklldf?hl=ja" target="_blank" rel="noopener">Chromeウェブストアで入手</a>
+          <!-- 空状態ヒント（カードが無いとき表示） -->
+          <div class="deck-empty-hint" id="deckEmptyHint">
+            右の「カードを追加」から検索してカードを足すか、<br>「ニューロンから取り込む」でデッキを読み込めます。
           </div>
-          <div class="neuron-hint-method-row">
-            <span class="neuron-hint-label">URLから取り込む（スマホ対応）<span class="neuron-hint-badge">NEW</span></span>
-            <span class="neuron-hint-sep">ニューロンのデッキ／カードのURLを貼り付け（Androidは共有メニューからも可）</span>
-            <div class="neuron-url-row">
-              <input type="url" id="neuronUrlInput" class="neuron-url-input" inputmode="url" autocomplete="off"
-                     placeholder="https://www.db.yugioh-card.com/yugiohdb/member_deck.action?...">
-              <button type="button" id="neuronUrlBtn" class="neuron-url-btn" onclick="window.NeuronURL?.importFromInput()">取り込む</button>
+
+          <!-- 価格計算（トリガー・説明・結果を1か所に集約） -->
+          <div class="deck-calc">
+            <div class="deck-calc-title">価格を計算する</div>
+            <div class="deck-actions">
+              <button class="deck-btn deck-btn-primary" onclick="calcDeckEstimate(DECK_CTX.mydeck,{dbOnly:true})">簡易計算（DB相場）<span class="deck-btn-sub">登録済みDBの直近相場から即時表示（スクレイピングなし）</span></button>
+              <button class="deck-btn deck-btn-outline" onclick="calcDeck()">リアルタイム計算<span class="deck-btn-sub">全カードを各店舗から取得（時間がかかります）</span></button>
+            </div>
+            <!-- 計算結果（ボタン押下後に表示） -->
+            <div id="deckResults" class="deck-results hidden">
+              <div class="deck-total">
+                <span class="deck-total-label">デッキ合計最安値（推定）</span>
+                <span class="deck-total-price" id="deckTotalPrice">-</span>
+              </div>
+              <div class="deck-progress" id="deckProgress"></div>
+              <div id="deckShareArea" class="deck-share-area"></div>
             </div>
           </div>
-          <div class="neuron-hint-method-row">
-            <span class="neuron-hint-label">PDFから取り込む（↑ のエリアにドロップ）</span>
-            <a class="neuron-hint-link" href="https://www.db.yugioh-card.com/yugiohdb/member_deck.action" target="_blank" rel="noopener">遊戯王ニューロン（PC版）</a>
-            <span class="neuron-hint-sep">→ マイデッキ → デッキ選択 → 「PDFで印刷」</span>
-          </div>
         </div>
 
-        <!-- テキスト入力（折りたたみ） -->
-        <details class="deck-input-details" id="deckInputDetails">
-          <summary>テキストで入力・編集</summary>
-          <textarea class="deck-textarea" id="deckTextarea" placeholder="カード名を入力（1行1枚、枚数指定も可）&#10;&#10;例:&#10;3 灰流うらら&#10;2 増殖するG&#10;1 サンダー・ボルト&#10;ブラック・マジシャン"></textarea>
-          <div style="text-align:right;margin-top:4px;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
-            <button class="deck-btn-text" onclick="saveCurrentDeck()">保存</button>
-            <button class="deck-btn-text" onclick="clearDeck()">入力をクリア</button>
+        <!-- ── 右ペイン: カード追加・取り込み・設定 ── -->
+        <div class="deck-pane-tools" id="deckPaneTools">
+
+          <!-- カードを追加（右ペイン先頭の検索：左ヘッダーと上端を揃える） -->
+          <div id="deckSearchBox" class="deck-search-box">
+            <div class="deck-search-row">
+              <input type="text" id="deckSearchInput" placeholder="カード名で検索して追加" autocomplete="off">
+              <select id="deckAddDest" title="追加先">
+                <option value="auto">自動</option>
+                <option value="main">メイン</option>
+                <option value="ex">EX</option>
+              </select>
+            </div>
+            <div id="deckSuggestDrop" class="deck-suggest-drop"></div>
           </div>
-        </details>
 
-        <!-- マイデッキ用 店舗フィルタ -->
-        <div class="shop-toggles" id="deckShopToggles" style="margin:10px 0 0;justify-content:flex-start">
-          <label class="shop-toggle active" data-shop="遊々亭">
-            <input type="checkbox" checked> 遊々亭
-          </label>
-          <label class="shop-toggle active" data-shop="カードラッシュ">
-            <input type="checkbox" checked> カードラッシュ
-          </label>
-          <label class="shop-toggle active" data-shop="トレコロCB">
-            <input type="checkbox" checked> トレコロCB
-          </label>
-          <label class="shop-toggle active" data-shop="カーナベル">
-            <input type="checkbox" checked> カーナベル
-          </label>
-          <label class="shop-toggle active" data-shop="カードラボ">
-            <input type="checkbox" checked> カードラボ
-          </label>
-        </div>
+          <!-- ニューロンからデッキを取り込む（PDF / 拡張 / URL の3手段を同列で提示） -->
+          <details class="deck-import-details" id="deckImportDetails">
+            <summary>ニューロンからデッキを取り込む</summary>
+            <div class="deck-import-body">
+              <p class="deck-import-lead">遊戯王ニューロンのデッキを、次の3つの方法で取り込めます。</p>
 
-        <!-- 価格計算ボタン（常時表示）：押下時のみ計算が走る -->
-        <div class="deck-actions" style="margin-top:14px">
-          <button class="deck-btn deck-btn-primary" onclick="calcDeckEstimate(DECK_CTX.mydeck,{dbOnly:true})">簡易計算（DB相場）<span style="display:block;font-size:.65rem;font-weight:400;opacity:.7;margin-top:2px">登録済みDBの直近相場から即時表示（スクレイピングなし）</span></button>
-          <button class="deck-btn deck-btn-outline" onclick="calcDeck()">リアルタイム計算<span style="display:block;font-size:.65rem;font-weight:400;opacity:.7;margin-top:2px">全カードを各店舗から取得（時間がかかります）</span></button>
+              <!-- 手段1: Chrome拡張 -->
+              <div class="import-method">
+                <div class="import-method-head"><span class="import-method-no">1</span>Chrome拡張<span class="import-method-tag rec">PC・おすすめ</span></div>
+                <div class="import-method-body">
+                  <p>ニューロンのデッキページのボタン1つで取り込み → このページに表示されます。</p>
+                  <div class="import-method-action">
+                    <a class="neuron-hint-ext" href="https://chromewebstore.google.com/detail/tcgym-%E2%80%94-%E3%83%8B%E3%83%A5%E3%83%BC%E3%83%AD%E3%83%B3%E9%80%A3%E6%90%BA/akgacaffneahmgpolkefmcbldbiklldf?hl=ja" target="_blank" rel="noopener">Chromeウェブストアで入手</a>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 手段2: PDF（説明とドロップエリアを隣接させる） -->
+              <div class="import-method">
+                <div class="import-method-head"><span class="import-method-no">2</span>PDFファイル</div>
+                <div class="import-method-body">
+                  <p>ニューロン（<a class="neuron-hint-link" href="https://www.db.yugioh-card.com/yugiohdb/member_deck.action" target="_blank" rel="noopener">PC版</a>）→ マイデッキ → デッキ選択 →「PDFで印刷」で保存したPDFを、下のエリアにドロップ。</p>
+                  <div class="deck-drop-zone" id="deckDropZone"
+                       onclick="window.NeuronPDF?.openPicker()"
+                       ondragover="event.preventDefault();this.classList.add('drag-over')"
+                       ondragleave="this.classList.remove('drag-over')"
+                       ondrop="event.preventDefault();this.classList.remove('drag-over');handleDeckDrop(event)">
+                    <div class="deck-drop-zone-icon">&#128196;</div>
+                    <div class="deck-drop-zone-title">PDFをドラッグ&amp;ドロップ / クリックして選択</div>
+                    <div class="deck-drop-zone-sub">ニューロンのデッキシートPDFを取り込みます</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 手段3: URL -->
+              <div class="import-method">
+                <div class="import-method-head"><span class="import-method-no">3</span>URL<span class="import-method-tag">スマホ対応</span></div>
+                <div class="import-method-body">
+                  <p>ニューロンのデッキ／カードのURLを貼り付け（Androidは共有メニューからも可）。</p>
+                  <div class="neuron-url-row">
+                    <input type="url" id="neuronUrlInput" class="neuron-url-input" inputmode="url" autocomplete="off"
+                           placeholder="https://www.db.yugioh-card.com/yugiohdb/member_deck.action?...">
+                    <button type="button" id="neuronUrlBtn" class="neuron-url-btn" onclick="window.NeuronURL?.importFromInput()">取り込む</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <!-- テキストで入力・編集（折りたたみ） -->
+          <details class="deck-input-details" id="deckInputDetails">
+            <summary>テキストで入力・編集</summary>
+            <textarea class="deck-textarea" id="deckTextarea" placeholder="カード名を入力（1行1枚、枚数指定も可）&#10;&#10;例:&#10;3 灰流うらら&#10;2 増殖するG&#10;1 サンダー・ボルト&#10;ブラック・マジシャン"></textarea>
+            <div style="text-align:right;margin-top:4px;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
+              <button class="deck-btn-text" onclick="saveCurrentDeck()">保存</button>
+              <button class="deck-btn-text" onclick="clearDeck()">入力をクリア</button>
+            </div>
+          </details>
+
+          <!-- 店舗フィルタ（現在サイト全体で非表示＝全店舗で計算。JSが選択店舗を読むため要素は残す） -->
+          <div class="shop-toggles" id="deckShopToggles" style="justify-content:flex-start">
+            <label class="shop-toggle active" data-shop="遊々亭">
+              <input type="checkbox" checked> 遊々亭
+            </label>
+            <label class="shop-toggle active" data-shop="カードラッシュ">
+              <input type="checkbox" checked> カードラッシュ
+            </label>
+            <label class="shop-toggle active" data-shop="トレコロCB">
+              <input type="checkbox" checked> トレコロCB
+            </label>
+            <label class="shop-toggle active" data-shop="カーナベル">
+              <input type="checkbox" checked> カーナベル
+            </label>
+            <label class="shop-toggle active" data-shop="カードラボ">
+              <input type="checkbox" checked> カードラボ
+            </label>
+          </div>
+
         </div>
       </div>
-
-      <!-- 計算結果 -->
-      <div id="deckResults" class="deck-results hidden">
-        <div class="deck-total">
-          <span class="deck-total-label">デッキ合計最安値（推定）</span>
-          <span class="deck-total-price" id="deckTotalPrice">-</span>
-        </div>
-        <div class="deck-progress" id="deckProgress"></div>
-        <div id="deckShareArea" class="deck-share-area"></div>
-        <div id="deckCardList"></div>
-      </div>
-
     </div>
   </div><!-- /mode-mydeck -->
 
@@ -1712,11 +1632,29 @@ function fetchSuggest(q){
       if(!names.length){closeSuggest();return;}
       sugItems=names;sugIdx=-1;
       sugDrop.innerHTML=names.map((n,i)=>
-        `<div class="suggest-item" data-i="${i}" onmousedown="selectSug('${escJs(n)}')">${esc(n)}</div>`
+        `<div class="suggest-item" data-i="${i}" onmousedown="selectSug('${escJs(n)}')"><span class="suggest-thumb" data-thumb-name="${esc(n)}"></span><span class="suggest-name">${esc(n)}</span></div>`
       ).join('');
       sugDrop.classList.add('open');
+      loadSuggestThumbnails(sugDrop);
     })
     .catch(()=>closeSuggest());
+}
+
+// 検索候補にカード画像サムネを一括取得して差し込む（販売/買取 共通。マイデッキの実装と同方式）
+function loadSuggestThumbnails(dropEl){
+  const thumbs=[...dropEl.querySelectorAll('.suggest-thumb[data-thumb-name]')];
+  const names=[...new Set(thumbs.map(t=>t.dataset.thumbName).filter(Boolean))];
+  if(!names.length)return;
+  fetch('/api/card-images',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({names})})
+    .then(r=>r.json())
+    .then(({images})=>{
+      if(!images)return;
+      thumbs.forEach(t=>{
+        const url=_batchImgUrl(images[t.dataset.thumbName]);
+        if(url&&safeUrl(url)) t.innerHTML=`<img src="${esc(url)}" alt="" loading="lazy">`;
+      });
+    })
+    .catch(()=>{});
 }
 
 function highlightSug(){
@@ -2932,7 +2870,29 @@ async function calcDeckEstimate(ctx, opts){
 // ctx別のシェアデータを保持（画像生成ボタン用）
 const _deckShareData={};
 
+// メイン/EX 各セクションの小計（表示中の行価格の合計）をセクション見出しに付与する。
+// 計算ロジックには手を入れず、描画済みの行価格を読み取って集計する（DB相場/リアルタイム両対応）。
+function _updateSectionSubtotals(ctx){
+  const listEl=document.getElementById(ctx.list);
+  if(!listEl)return;
+  listEl.querySelectorAll('.deck-grid-section').forEach(sec=>{
+    let sum=0,priced=0;
+    sec.querySelectorAll('.deck-card-price').forEach(p=>{
+      const n=(p.textContent||'').replace(/[^0-9]/g,'');
+      if(n){sum+=parseInt(n,10);priced++;}
+    });
+    const label=sec.querySelector('.deck-grid-section-label');
+    if(!label)return;
+    let st=label.querySelector('.deck-section-subtotal');
+    if(priced>0){
+      if(!st){st=document.createElement('span');st.className='deck-section-subtotal';label.appendChild(st);}
+      st.textContent=` ／ 小計 ¥${sum.toLocaleString()}`;
+    }else if(st){st.remove();}
+  });
+}
+
 function renderDeckShareUI(ctx,deckName,total,cards){
+  _updateSectionSubtotals(ctx); // セクション小計を最新化（簡易計算・リアルタイム両方の確定時に通る）
   const el=document.getElementById(ctx.shareArea);
   if(!el)return;
   _deckShareData[ctx.shareArea]={deckName,total,cards};
@@ -3083,6 +3043,7 @@ async function calcDeck(buyMode){
         else if(d.type==='done'){
           const modeLabel=isBuy?'買取価格':'販売価格';
           progEl.textContent=`完了 — ${found}/${cards.length}枚の${modeLabel}を取得${notFound>0?` (${notFound}枚未取得)`:''}`;
+          _updateSectionSubtotals(ctx); // セクション小計を最新化（リアルタイム計算の確定時）
           const deckShareText=isBuy
             ?`買取合計 ¥${total.toLocaleString()}（${cards.length}枚）！ 3店舗最高値で見積もりました`
             :`デッキ合計 ¥${total.toLocaleString()}（${cards.length}枚）！ 7店舗最安値で見積もりました`;
@@ -3126,8 +3087,9 @@ buyQInput.addEventListener('input',()=>{
       .then(r=>r.json())
       .then(items=>{
         if(!items.length){buySugDrop.classList.remove('open');return;}
-        buySugDrop.innerHTML=items.map(n=>`<div class="suggest-item" onclick="buyQInput.value='${escJs(n)}';buySugDrop.classList.remove('open');doBuySearch({validated:true})">${esc(n)}</div>`).join('');
+        buySugDrop.innerHTML=items.map(n=>`<div class="suggest-item" onclick="buyQInput.value='${escJs(n)}';buySugDrop.classList.remove('open');doBuySearch({validated:true})"><span class="suggest-thumb" data-thumb-name="${esc(n)}"></span><span class="suggest-name">${esc(n)}</span></div>`).join('');
         buySugDrop.classList.add('open');
+        loadSuggestThumbnails(buySugDrop);
       }).catch(()=>{});
   },250);
 });
@@ -3929,7 +3891,7 @@ loadWishPrices().then(wishUpdateBadge);
 // 通知UIの初期状態を反映
 updatePushUI(!!localStorage.getItem(PUSH_SUB_KEY));
 </script>
-<script src="/static/mydeck/deck-edit.js?v=20260615"></script>
+<script src="/static/mydeck/deck-edit.js?v=20260615c"></script>
 <script type="module" src="/static/shared/neuron-pdf-entry.js"></script>
 <script type="module" src="/static/shared/neuron-url-entry.js"></script>
 </body>

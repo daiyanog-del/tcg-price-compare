@@ -68,13 +68,14 @@
     var ctx = DECK_CTX.mydeck;
     var main = _currentMydeckCards.main || [];
     var ex = _currentMydeckCards.ex || [];
-    var resultsEl = document.getElementById(ctx.results);
+    // グリッド(#deckCardList)は計算結果(#deckResults)から独立。カードがあれば常に描画する。
     if(!main.length && !ex.length){
-      if(resultsEl) resultsEl.classList.add('hidden');
+      var listEl = document.getElementById(ctx.list);
+      if(listEl) listEl.innerHTML = '';
+      _refreshDeckChrome(); // 空: グリッドクリア＋ヒント表示＋結果を隠す
       return;
     }
-    if(resultsEl) resultsEl.classList.remove('hidden');
-    renderDeckGrid([].concat(main, ex), ctx, main.length);
+    renderDeckGrid([].concat(main, ex), ctx, main.length); // → _deckAfterRender → _refreshDeckChrome
   }
 
   // ── 配列操作ヘルパー ──────────────────────────
@@ -152,6 +153,31 @@
       a.splice(to, 0, moved);
     });
   }
+  // メイン↔EX 間でカードを移動する（同名があれば枚数を合算）
+  function deckMove(fromSec, fromIdx, toSec, toIdx){
+    if(fromSec === toSec){ deckReorder(fromSec, fromIdx, toIdx); return; }
+    _deckMutate(function(d){
+      var from = d[fromSec] || [];
+      if(!d[toSec]) d[toSec] = [];
+      var to = d[toSec];
+      if(fromIdx < 0 || fromIdx >= from.length) return;
+      var moved = from.splice(fromIdx, 1)[0];
+      var ei = _findCard(to, moved.name);
+      if(ei >= 0){ to[ei].qty += moved.qty; }
+      else { if(toIdx < 0 || toIdx > to.length) toIdx = to.length; to.splice(toIdx, 0, moved); }
+    });
+  }
+  // メイン/EX をそれぞれ種別順（モンスター→魔法→罠）に整列する
+  // 常時編集化で自動ソートを止めた代替手段。inline 側 sortCardsByType を明示実行する。
+  function deckSortByType(){
+    if(typeof sortCardsByType !== 'function') return;
+    var d = _currentMydeckCards;
+    Promise.all([sortCardsByType(d.main || []), sortCardsByType(d.ex || [])])
+      .then(function(res){
+        _deckMutate(function(dd){ dd.main = res[0]; dd.ex = res[1]; });
+      })
+      .catch(function(){});
+  }
 
   // ── 編集モードのトグル ────────────────────────
   function toggleDeckEdit(){
@@ -172,6 +198,51 @@
     }
   }
 
+  // ── 枚数カウンタ・空状態ヒントの更新 ──────────────
+  // 1セクションのカウンタ表示（現在枚数/上限）を更新し、警告色クラスを切り替える
+  function _setCounter(id, qty, max, state){
+    var el = document.getElementById(id);
+    if(!el) return;
+    var num = el.querySelector('.c-num');
+    if(num) num.textContent = qty;
+    el.classList.toggle('warn', state === 'warn');
+    el.classList.toggle('over', state === 'over');
+  }
+  // _currentMydeckCards を読み、カウンタと空状態ヒントを現在の内容に合わせる
+  function _refreshDeckChrome(){
+    var main = _currentMydeckCards.main || [];
+    var ex = _currentMydeckCards.ex || [];
+    var sum = function(a){ return a.reduce(function(s, c){ return s + (c.qty || 0); }, 0); };
+    var mq = sum(main), eq = sum(ex);
+    // メイン: 1枚以上40枚未満は warn、60枚超は over（遊戯王ルール）
+    _setCounter('deckCountMain', mq, 60, (mq > 60) ? 'over' : ((mq > 0 && mq < 40) ? 'warn' : ''));
+    // EX: 15枚超は over
+    _setCounter('deckCountEx', eq, 15, (eq > 15) ? 'over' : '');
+    var empty = !(main.length || ex.length);
+    var hint = document.getElementById('deckEmptyHint');
+    if(hint) hint.style.display = empty ? '' : 'none';
+    // グリッドを結果ブロックから分離したため、空デッキではグリッドのクリアと
+    // 結果(合計)ブロックの非表示もここで行う（clearDeck 等、再描画を伴わない経路に対応）
+    if(empty){
+      var listEl = document.getElementById('deckCardList');
+      if(listEl) listEl.innerHTML = '';
+      var results = document.getElementById('deckResults');
+      if(results) results.classList.add('hidden');
+    }
+  }
+
+  // ── モバイル: デッキ/ツール ペイン切替 ────────────
+  function switchDeckPane(pane){
+    var panes = document.getElementById('deckPanes');
+    if(panes) panes.classList.toggle('show-tools', pane === 'tools');
+    var tabs = document.querySelectorAll('.deck-build-tab');
+    tabs.forEach(function(b){ b.classList.toggle('active', b.dataset.pane === pane); });
+    if(pane === 'tools'){
+      var si = document.getElementById('deckSearchInput');
+      if(si) si.focus();
+    }
+  }
+
   // ── renderDeckGrid 後フック（編集UIの注入/除去）────
   // インライン renderDeckGrid の末尾から呼ばれる。マイデッキ かつ 編集モードのときだけ
   // 各セルに操作バーと（非タッチ時）draggable を付与する。
@@ -180,6 +251,9 @@
     var editing = (ctx === DECK_CTX.mydeck) && window._deckEditMode;
     listEl.classList.toggle('edit-mode', editing);
     _deckMainCount = mainCount;
+
+    // マイデッキは描画のたびに枚数カウンタ・空状態ヒントを更新する
+    if(ctx === DECK_CTX.mydeck) _refreshDeckChrome();
 
     var cells = listEl.querySelectorAll('.deck-grid-cell');
     if(!editing){
@@ -260,8 +334,7 @@
     listEl.addEventListener('dragover', function(e){
       var cell = e.target.closest('.deck-grid-cell');
       if(!cell || !dragFrom) return;
-      var t = _cellSecIdx(cell);
-      if(t.sec !== dragFrom.sec) return; // 同一セクション内のみ
+      // 同一セクション内の並べ替えに加え、メイン↔EX 間の移動も許可する
       e.preventDefault();
       try{ e.dataTransfer.dropEffect = 'move'; }catch(_){}
       cell.classList.add('drag-over');
@@ -277,6 +350,7 @@
       cell.classList.remove('drag-over');
       var to = _cellSecIdx(cell);
       if(to.sec === dragFrom.sec) deckReorder(dragFrom.sec, dragFrom.idx, to.idx);
+      else deckMove(dragFrom.sec, dragFrom.idx, to.sec, to.idx);
       dragFrom = null;
     });
     listEl.addEventListener('dragend', function(){
@@ -312,6 +386,7 @@
       drop.innerHTML = items.map(function(it, i){
         var badge = it.unreleased ? '<span class="deck-suggest-badge">未発売</span>' : '';
         return '<div class="deck-suggest-item" data-i="' + i + '">' +
+               '<span class="deck-suggest-thumb" data-name="' + esc(it.name) + '"></span>' +
                '<span class="deck-suggest-name">' + esc(it.name) + '</span>' + badge + '</div>';
       }).join('');
       // mousedown で選択（blur による先行クローズを防ぐ）
@@ -319,6 +394,31 @@
         el.addEventListener('mousedown', function(ev){ ev.preventDefault(); select(parseInt(el.dataset.i, 10)); });
       });
       drop.classList.add('open');
+      _loadSuggestThumbs(drop); // カード画像サムネを一括取得して差し込む
+    }
+    // 候補のカード画像を /api/card-images で一括取得してサムネ表示する
+    function _loadSuggestThumbs(dropEl){
+      var thumbs = [].slice.call(dropEl.querySelectorAll('.deck-suggest-thumb[data-name]'));
+      var names = thumbs.map(function(t){ return t.dataset.name; }).filter(Boolean);
+      if(!names.length) return;
+      fetch('/api/card-images', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ names: names })
+      })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var images = d && d.images;
+        if(!images) return;
+        thumbs.forEach(function(t){
+          var raw = images[t.dataset.name];
+          var url = (typeof _batchImgUrl === 'function') ? _batchImgUrl(raw) : raw;
+          if(url && (typeof safeUrl !== 'function' || safeUrl(url))){
+            t.innerHTML = '<img src="' + esc(url) + '" alt="" loading="lazy">';
+          }
+        });
+      })
+      .catch(function(){});
     }
     function fetchSuggest(q){
       fetch('/api/suggest?include_unreleased=1&q=' + encodeURIComponent(q))
@@ -436,8 +536,10 @@
   function _installWrappers(){
     // 保存済みデッキ読込 → 以後の編集はこのデッキへ自動反映。下書きも読込デッキに更新する
     _wrap('loadSavedDeck', function(id){ window._currentSavedDeckId = id; _persistDeck(); });
-    // 入力クリア → ひも付け解除 + 下書き削除
-    _wrap('clearDeck', function(){ window._currentSavedDeckId = null; _clearDraft(); });
+    // 入力クリア → ひも付け解除 + 下書き削除 + カウンタ/空状態を更新
+    _wrap('clearDeck', function(){ window._currentSavedDeckId = null; _clearDraft(); _refreshDeckChrome(); });
+    // マイデッキ表示時にカウンタ・空状態ヒントを最新化（空デッキで描画が走らないケースに対応）
+    _wrap('switchMode', function(mode){ if(mode === 'mydeck') _refreshDeckChrome(); });
     // PDF/拡張からの取込 → 新規の作業デッキ（保存済みとは切り離す）→ 下書き保存
     _wrap('onDeckImported', function(){ window._currentSavedDeckId = null; _persistDeck(); });
     // 環境デッキを送る → 同上
@@ -457,6 +559,10 @@
 
   // ── 初期化 ────────────────────────────────────
   function _init(){
+    // 2ペインビルダーは常時編集状態（検索パネルが常に表示されるため）。
+    // 各カードの操作バー表示・手動並び順の尊重（自動種別ソートのスキップ）に使う。
+    window._deckEditMode = true;
+
     var listEl = document.getElementById('deckCardList');
     if(listEl) _initDelegation(listEl);
     _setupDeckSuggest();
@@ -473,6 +579,21 @@
     }
 
     _restoreDraft();
+
+    // 初期カウンタ・空状態ヒントを反映
+    _refreshDeckChrome();
+    // モバイル: デッキが空なら初期表示を「カードを追加・取込」タブにする（フォーカスはしない）
+    var main = _currentMydeckCards.main || [], ex = _currentMydeckCards.ex || [];
+    if(!main.length && !ex.length){
+      var panes = document.getElementById('deckPanes');
+      if(panes) panes.classList.add('show-tools');
+      document.querySelectorAll('.deck-build-tab').forEach(function(b){
+        b.classList.toggle('active', b.dataset.pane === 'tools');
+      });
+      // 空デッキでは取り込み導線を最初から開いておく（初回の導線を明確化）
+      var imp = document.getElementById('deckImportDetails');
+      if(imp) imp.open = true;
+    }
   }
 
   // index.html のインライン <script> が参照するフック・関数を公開
@@ -480,6 +601,9 @@
   window._deckMutate = _deckMutate;
   window.deckAddCard = deckAddCard;
   window.toggleDeckEdit = toggleDeckEdit;
+  window.deckSortByType = deckSortByType;   // 「種別順に整列」ボタン
+  window.switchDeckPane = switchDeckPane;    // モバイルのペイン切替タブ
+  window._refreshDeckChrome = _refreshDeckChrome;
 
   if(document.readyState === 'loading'){
     document.addEventListener('DOMContentLoaded', _init);

@@ -1,0 +1,255 @@
+/*
+ * deck.css — マイデッキ（デッキビルダー）専用スタイル
+ *
+ * 由来: templates/index.html のインライン <style> から「マイデッキ関連CSS」を
+ *       分離したもの（CLAUDE.md「巨大ファイルの段階的分割（ついで方式）」に基づく）。
+ *
+ * 構成:
+ *   1) 既存スタイル（index.html から移動・内容は不変）
+ *   2) 2ペインビルダー リニューアル（2026 追加分）
+ *
+ * 注意: CSS変数（--accent / --gold / --bg-card 等）は index.html の :root で定義済み。
+ *       本ファイルはインライン <style> の後に読み込む前提（カスケード順を維持）。
+ */
+
+/* ===================================================================== */
+/* 1) 既存スタイル（index.html から移動・内容不変）                       */
+/* ===================================================================== */
+
+.deck-builder{max-width:800px;margin:0 auto}
+.deck-input-area{margin-bottom:20px}
+.deck-input-tabs{display:flex;gap:4px;margin-bottom:10px}
+.deck-input-tab{padding:5px 12px;font:.72rem var(--font);font-weight:600;color:var(--text-d);background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer}
+.deck-input-tab.active{color:var(--accent-l);border-color:var(--accent)}
+.deck-textarea{width:100%;min-height:120px;padding:12px;font:.85rem var(--font);background:var(--bg-input);border:1.5px solid var(--border);border-radius:var(--radius);color:var(--text);outline:0;resize:vertical}
+.deck-textarea:focus{border-color:var(--border-hl)}
+.deck-textarea::placeholder{color:var(--text-d)}
+.deck-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.deck-btn{padding:10px 20px;font:.85rem var(--font);font-weight:700;border:none;border-radius:var(--radius);cursor:pointer;transition:background .15s}
+.deck-btn-primary{background:var(--accent);color:#fff}.deck-btn-primary:hover{background:#5a88ff}
+.deck-btn-secondary{background:var(--bg-card);color:var(--text-m);border:1px solid var(--border)}.deck-btn-secondary:hover{background:var(--bg-hover)}
+.deck-btn-outline{background:transparent;color:var(--text-m);border:1px solid var(--border);padding:10px 20px;font:.85rem var(--font);font-weight:700;border-radius:var(--radius);cursor:pointer;transition:all .15s}.deck-btn-outline:hover{border-color:var(--text-m);color:var(--text)}
+.deck-btn-text{background:none;border:none;color:var(--text-d);font:.75rem var(--font);cursor:pointer;padding:4px 0;transition:color .15s}.deck-btn-text:hover{color:var(--text-m)}
+.deck-presets{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+.deck-preset{padding:5px 12px;font:.75rem var(--font);font-weight:600;color:var(--text-m);background:var(--bg-card);border:1px solid var(--border);border-radius:14px;cursor:pointer;transition:all .15s}
+.deck-preset:hover{border-color:var(--accent);color:var(--text)}
+.deck-results{margin-top:20px}
+.deck-total{padding:16px;background:var(--bg-card);border:1px solid var(--gold-d);border-radius:var(--radius);margin-bottom:16px;display:flex;justify-content:space-between;align-items:center}
+.deck-total-label{font-size:.85rem;color:var(--text-m)}
+.deck-total-price{font:700 1.4rem var(--mono);color:var(--gold)}
+.deck-card-row{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;margin-bottom:4px;font-size:.82rem}
+.deck-card-qty{font:700 .82rem var(--mono);color:var(--accent-l);min-width:24px}
+.deck-card-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.deck-card-price{font:600 .85rem var(--mono);color:var(--gold);white-space:nowrap}
+.deck-card-shop{font-size:.72rem;color:var(--text-d);white-space:nowrap}
+.deck-card-status{font-size:.7rem;color:var(--text-d)}
+.deck-card-row.loading .deck-card-status{color:var(--accent-l);animation:pulse 1.2s infinite}
+.deck-card-row.error .deck-card-name{color:var(--red)}
+.deck-progress{font:.78rem var(--font);color:var(--text-m);margin-bottom:10px}
+
+/* ── マイデッキ ドロップゾーン・グリッド ── */
+.deck-drop-zone{border:2px dashed var(--border);border-radius:var(--radius);padding:28px 20px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;margin-bottom:12px;background:var(--bg-card)}
+.deck-drop-zone:hover,.deck-drop-zone.drag-over{border-color:var(--accent);background:rgba(74,124,255,.08)}
+.deck-drop-zone-icon{font-size:1.8rem;margin-bottom:8px;opacity:.6}
+.deck-drop-zone-title{font:.9rem var(--font);font-weight:700;color:var(--text);margin-bottom:4px}
+.deck-drop-zone-sub{font:.75rem var(--font);color:var(--text-d)}
+.neuron-hint{display:flex;flex-direction:column;gap:0;padding:0;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;margin-bottom:12px;font-size:.75rem;line-height:1.5;overflow:hidden}
+.neuron-hint-method-row{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;padding:8px 10px}
+.neuron-hint-method-row+.neuron-hint-method-row{border-top:1px solid var(--border)}
+.neuron-hint-label{color:var(--text-d);white-space:nowrap;font-weight:600}
+.neuron-hint-link{color:var(--accent-l);text-decoration:none;font-weight:600}.neuron-hint-link:hover{text-decoration:underline}
+.neuron-hint-sep{color:var(--text-m)}
+.neuron-hint-ext{font-size:.7rem;color:var(--accent-l);text-decoration:none;white-space:nowrap;font-weight:600}.neuron-hint-ext:hover{text-decoration:underline}
+.neuron-hint-badge{font-size:.65rem;font-weight:700;color:#facc15;background:rgba(250,204,21,.12);border:1px solid rgba(250,204,21,.3);border-radius:3px;padding:0 4px;margin-left:2px}
+.neuron-url-row{display:flex;gap:6px;width:100%;flex-wrap:wrap;margin-top:2px}
+.neuron-url-input{flex:1;min-width:180px;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:6px 8px;color:var(--text);font-size:.75rem;outline:none}
+.neuron-url-input:focus{border-color:var(--accent-l)}
+.neuron-url-btn{flex-shrink:0;background:var(--accent-l);color:#0a1024;border:none;border-radius:5px;padding:6px 14px;font-size:.75rem;font-weight:700;cursor:pointer}
+.neuron-url-btn:hover{opacity:.85}
+.neuron-url-btn:disabled{opacity:.5;cursor:default}
+.saved-deck-empty{font:.75rem var(--font);color:var(--text-d);padding:8px 4px 4px;line-height:1.6}
+.deck-input-details{margin-bottom:10px}
+.deck-input-details summary{font:.8rem var(--font);color:var(--text-d);cursor:pointer;padding:6px 2px;user-select:none;list-style:none}
+.deck-input-details summary::-webkit-details-marker{display:none}
+.deck-input-details summary::before{content:'▸ '}
+.deck-input-details[open] summary::before{content:'▾ '}
+.deck-input-details .deck-textarea{margin-top:8px}
+.deck-grid-section{margin-bottom:16px}
+.deck-grid-section-label{font:.7rem var(--font);font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-d);margin-bottom:8px;padding-left:2px}
+.deck-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:5px}
+.deck-grid-cell{position:relative;border-radius:5px;background:var(--bg-card);border:1px solid var(--border);overflow:hidden;transition:border-color .15s;cursor:default}
+.deck-grid-cell:hover{border-color:var(--accent)}
+.deck-grid-cell.loading .deck-grid-img-wrap{animation:shimmer 1.4s infinite}
+.deck-grid-cell.error{border-color:var(--red);opacity:.75}
+.deck-grid-img-wrap{position:relative;aspect-ratio:59/86;background:var(--bg);overflow:hidden;display:block;text-decoration:none}
+.deck-grid-img-wrap img{width:100%;height:100%;object-fit:cover;display:block}
+a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
+.deck-grid-placeholder{width:100%;height:100%;background:var(--bg-card)}
+.deck-grid-badge{position:absolute;top:2px;right:2px;background:rgba(0,0,0,.75);color:#fff;font:.6rem var(--mono);font-weight:700;padding:1px 4px;border-radius:3px;line-height:1.4;pointer-events:none}
+.deck-grid-footer{padding:3px 4px 4px}
+.deck-grid-footer .deck-card-name{display:block;font:.58rem var(--font);color:var(--text-m);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:1px}
+.deck-grid-footer .deck-card-name a{color:inherit;text-decoration:none}
+.deck-grid-footer .deck-card-name a:hover{color:var(--accent-l)}
+.deck-grid-footer .deck-card-price{display:block;font:.62rem var(--mono);font-weight:700;color:var(--gold);white-space:nowrap;min-height:.85em}
+.deck-grid-cell .deck-card-shop,.deck-grid-cell .deck-card-status,.deck-grid-cell .wish-add{display:none}
+@keyframes shimmer{0%{background:var(--bg-card)}50%{background:rgba(74,124,255,.07)}100%{background:var(--bg-card)}}
+@media(max-width:768px){.deck-grid{grid-template-columns:repeat(auto-fill,minmax(60px,1fr));gap:4px}}
+@media(max-width:640px){.deck-grid{grid-template-columns:repeat(auto-fill,minmax(54px,1fr));gap:3px}}
+
+/* ── デッキ編集UI（deck-edit.js）── */
+.deck-edit-toolbar{display:flex;justify-content:flex-end;margin:8px 0 4px}
+#deckEditToggle.active{color:var(--accent-l)}
+.deck-search-box{position:relative;margin:0 0 10px}
+.deck-search-row{display:flex;gap:6px}
+.deck-search-row input{flex:1;padding:9px 12px;font:.9rem var(--font);color:var(--text);background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);outline:none}
+.deck-search-row input:focus{border-color:var(--accent)}
+.deck-search-row select{padding:0 8px;font:.8rem var(--font);color:var(--text);background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer}
+.deck-suggest-drop{position:absolute;top:100%;left:0;right:0;background:var(--bg-card);border:1px solid var(--border);border-radius:0 0 var(--radius) var(--radius);max-height:280px;overflow-y:auto;z-index:100;display:none}
+.deck-suggest-drop.open{display:block}
+.deck-suggest-item{display:flex;align-items:center;gap:8px;padding:10px 14px;font-size:.86rem;cursor:pointer;border-bottom:1px solid rgba(38,40,56,.5)}
+.deck-suggest-item:last-child{border-bottom:0}
+.deck-suggest-item:hover,.deck-suggest-item.active{background:var(--bg-hover);color:var(--accent-l)}
+.deck-suggest-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.deck-suggest-badge{flex-shrink:0;font:.6rem var(--font);font-weight:700;color:var(--gold);background:rgba(232,200,72,.12);border:1px solid rgba(232,200,72,.4);border-radius:3px;padding:1px 5px}
+/* セルに重ねる操作バー */
+#deckCardList.edit-mode .deck-grid-cell{cursor:grab}
+#deckCardList.edit-mode .deck-grid-cell.dragging{opacity:.4}
+#deckCardList.edit-mode .deck-grid-cell.drag-over{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent) inset}
+#deckCardList.edit-mode .deck-grid-badge{display:none}
+.deck-edit-bar{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:2px;padding:2px;background:linear-gradient(to bottom,rgba(0,0,0,.72),transparent);z-index:3}
+.deck-edit-btn{width:18px;height:18px;padding:0;line-height:1;font:.85rem/1 var(--font);font-weight:700;color:#fff;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);border-radius:3px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.deck-edit-btn:hover{background:var(--accent);border-color:var(--accent)}
+.deck-edit-q{font:.7rem var(--mono);font-weight:700;color:#fff;min-width:14px;text-align:center;text-shadow:0 1px 2px rgba(0,0,0,.8)}
+.deck-edit-del{margin-left:auto}
+
+/* ── マイデッキ保存 ── */
+.saved-deck-label{font:.72rem var(--font);font-weight:700;color:var(--text-d);margin:10px 0 6px}
+.saved-deck-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px;margin-bottom:4px}
+.saved-deck-card{position:relative}
+.saved-deck-card-btn{display:flex;align-items:center;gap:6px;padding:4px 10px;width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;overflow:hidden;cursor:pointer;text-align:left;transition:border-color .15s}
+.saved-deck-card-btn:hover{border-color:var(--accent)}
+.saved-deck-card-btn.selected{border-color:var(--accent);background:rgba(74,124,255,.12)}
+.saved-deck-thumb{width:44px;height:62px;flex-shrink:0;border-radius:2px;background:var(--bg);overflow:hidden}
+.saved-deck-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.saved-deck-card-name{flex:1;min-width:0;font:.78rem var(--font);font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0}
+.saved-deck-remove{position:absolute;top:3px;right:3px;background:rgba(0,0,0,.55);border:none;color:#ccc;cursor:pointer;border-radius:3px;font-size:.7rem;padding:2px 5px;line-height:1;transition:all .15s;z-index:1}
+.saved-deck-remove:hover{background:rgba(200,40,40,.8);color:#fff}
+
+/* デッキビルダー モバイル（index.html の @media(max-width:640px) から移動） */
+@media(max-width:640px){
+  .deck-builder{padding:0}
+  .deck-input-tabs{flex-wrap:wrap}
+  .deck-input-tab{padding:8px 12px;min-height:40px}
+  .deck-textarea{min-height:100px;font-size:.9rem}
+  .deck-actions{flex-direction:column}
+  .deck-btn,.deck-btn-outline{width:100%;padding:14px;font-size:.9rem;min-height:48px;text-align:center}
+  .deck-presets{gap:5px}
+  .deck-preset{padding:8px 12px;font-size:.75rem;min-height:40px}
+  .deck-total{flex-direction:column;gap:6px;text-align:center}
+  .deck-card-row{font-size:.75rem;gap:6px;flex-wrap:wrap}
+  .deck-card-name{white-space:normal}
+}
+
+/* ===================================================================== */
+/* 2) 2ペインビルダー リニューアル（2026 追加）                          */
+/* ===================================================================== */
+
+/* マイデッキは2ペインのため幅を広げる（meta等の .deck-builder には影響させない） */
+#mode-mydeck .deck-builder{max-width:1120px}
+
+/* 2ペイン本体: 左=デッキ / 右=ツール */
+.deck-panes{display:flex;gap:20px;align-items:flex-start}
+.deck-pane-main{flex:1;min-width:0}
+.deck-pane-tools{width:340px;flex-shrink:0;position:sticky;top:12px}
+.deck-pane-tools .deck-results{margin-top:0}
+
+/* 左ペイン: 枚数カウンタバー */
+.deck-counter-bar{display:flex;align-items:center;gap:16px;margin-bottom:12px;padding:9px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius)}
+.deck-counter{font:.78rem var(--font);font-weight:700;color:var(--text-m);display:flex;align-items:baseline;gap:5px}
+.deck-counter .c-num{font:1rem var(--mono);font-weight:700;color:var(--text)}
+.deck-counter .c-max{font:.72rem var(--mono);color:var(--text-d)}
+.deck-counter.warn .c-num{color:var(--gold)}
+.deck-counter.over .c-num{color:var(--red)}
+.deck-counter-bar .deck-sort-btn{margin-left:auto}
+
+/* 左ペイン: 空状態ヒント */
+.deck-empty-hint{padding:28px 16px;text-align:center;color:var(--text-d);font-size:.84rem;line-height:1.7;border:1px dashed var(--border);border-radius:var(--radius);margin-bottom:14px}
+
+/* 計算アクション（左ペイン下部） */
+.deck-pane-main .deck-actions{margin-top:14px}
+
+/* 右ペイン: ツールセクション */
+.deck-tool-section{margin-bottom:16px}
+.deck-tool-title{font:.72rem var(--font);font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-d);margin-bottom:7px}
+.deck-import-details{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:16px}
+.deck-import-details>summary{font:.78rem var(--font);font-weight:700;color:var(--text-m);cursor:pointer;padding:11px 14px;user-select:none;list-style:none}
+.deck-import-details>summary::-webkit-details-marker{display:none}
+.deck-import-details>summary::before{content:'▸ ';color:var(--text-d)}
+.deck-import-details[open]>summary::before{content:'▾ '}
+.deck-import-details[open]>summary{border-bottom:1px solid var(--border)}
+.deck-import-details .deck-import-body{padding:12px 14px}
+.deck-import-details .deck-drop-zone{margin-bottom:10px}
+.deck-import-details .neuron-hint{margin-bottom:0}
+/* 右ペインでは検索ボックスのマージンを詰める */
+.deck-pane-tools .deck-search-box{margin:0}
+
+/* サジェスト: サムネ付き */
+.deck-suggest-thumb{width:30px;height:42px;flex-shrink:0;border-radius:3px;overflow:hidden;background:var(--bg)}
+.deck-suggest-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.deck-suggest-drop{max-height:360px}
+
+/* 操作バーのボタンを少し大きく（タップしやすく） */
+#deckCardList.edit-mode .deck-edit-btn{width:21px;height:21px;font-size:.95rem}
+#deckCardList.edit-mode .deck-edit-q{font-size:.74rem;min-width:16px}
+
+/* セクション間ドラッグ: ドロップ可能セクションのハイライト */
+#deckCardList.edit-mode .deck-grid-section.drop-target{outline:2px dashed var(--accent);outline-offset:3px;border-radius:6px}
+
+/* モバイル切替タブ（デスクトップでは非表示） */
+.deck-build-tabs{display:none;gap:6px;margin-bottom:14px}
+.deck-build-tab{flex:1;padding:10px;font:.84rem var(--font);font-weight:700;color:var(--text-d);background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:all .15s}
+.deck-build-tab.active{color:#fff;border-color:var(--accent);background:rgba(74,124,255,.18)}
+
+/* ── 左右ペインの上端を揃える（ヘッダーバーと検索バーの高さを統一） ── */
+.deck-counter-bar{min-height:44px;box-sizing:border-box}
+.deck-pane-tools .deck-search-box{margin:0 0 16px}
+.deck-pane-tools .deck-search-row input,
+.deck-pane-tools .deck-search-row select{height:44px;box-sizing:border-box}
+
+/* ── 価格計算ブロック（トリガー・説明・結果を1か所に集約） ── */
+.deck-calc{margin-top:16px;padding:14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius)}
+.deck-calc-title{font:.72rem var(--font);font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-d);margin-bottom:10px}
+.deck-calc .deck-actions{margin-top:0}
+.deck-btn-sub{display:block;font-size:.65rem;font-weight:400;opacity:.7;margin-top:2px}
+.deck-calc .deck-results{margin-top:14px}
+.deck-calc .deck-total{margin-bottom:8px}
+.deck-calc .deck-progress{margin-bottom:0}
+
+/* ── セクション小計（メイン/EX 見出しに付与） ── */
+.deck-grid-section-label .deck-section-subtotal{text-transform:none;letter-spacing:0;color:var(--gold);font-weight:700}
+
+/* ── 取り込み: 3手段を同列の番号付きリストで提示 ── */
+.deck-import-lead{font-size:.78rem;color:var(--text-m);margin:0 0 12px;line-height:1.6}
+.import-method{border-top:1px solid var(--border);padding:12px 0}
+.import-method:first-of-type{border-top:0;padding-top:0}
+.import-method:last-of-type{padding-bottom:0}
+.import-method-head{display:flex;align-items:center;gap:8px;font:.84rem var(--font);font-weight:700;color:var(--text);margin-bottom:6px}
+.import-method-no{flex-shrink:0;width:20px;height:20px;display:flex;align-items:center;justify-content:center;background:var(--accent);color:#fff;border-radius:50%;font:.72rem var(--mono);font-weight:700}
+.import-method-tag{font:.62rem var(--font);font-weight:700;color:var(--text-d);background:var(--bg);border:1px solid var(--border);border-radius:3px;padding:1px 6px}
+.import-method-tag.rec{color:#facc15;background:rgba(250,204,21,.12);border-color:rgba(250,204,21,.3)}
+.import-method-body{font-size:.76rem;color:var(--text-m);line-height:1.6}
+.import-method-body p{margin:0 0 8px}
+.import-method-action{margin-top:2px}
+.import-method-body .deck-drop-zone{margin:8px 0 0;padding:18px 14px}
+.import-method-body .neuron-url-row{margin-top:8px}
+
+/* ── レスポンシブ: 2ペイン折返し（モバイルはタブ切替） ── */
+@media(max-width:900px){
+  #mode-mydeck .deck-builder{max-width:800px}
+  .deck-panes{display:block}
+  .deck-pane-tools{width:auto;position:static}
+  .deck-build-tabs{display:flex}
+  /* タブで選択されたペインのみ表示 */
+  .deck-panes:not(.show-tools) .deck-pane-tools{display:none}
+  .deck-panes.show-tools .deck-pane-main{display:none}
+}
