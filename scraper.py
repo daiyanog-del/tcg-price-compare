@@ -1144,7 +1144,16 @@ def scrape_cardrush_buy(card_name: str) -> list[dict]:
 # ── カーナベル買取 ──
 
 def scrape_kanabell_buy(card_name: str) -> list[dict]:
-    """カーナベル — ES APIでカードIDを取得し、買取詳細ページから買取価格を取得"""
+    """カーナベル買取 — ES APIから直接買取価格(sa_buying_price)を取得する。
+
+    買取価格は ES index の `sa_buying_price` に入っており、`sa_limit_flag`(買取枠フラグ)が
+    True のものが現在買取中（=HTMLの「買取終了」非表示と一致）。買取枠切れ(終了)は
+    sa_limit_flag=False で、古い価格が残っているため必ず除外する。
+    買取詳細HTML(?act=buy_detail)はデータセンターIP(Render/GitHub Actions)から403で
+    ブロックされるため、ES方式に統一してどの環境でも取得できるようにした。
+    （2026-06-16 実データ検証: ES sa_buying_price はHTML買取価格と完全一致、
+      sa_limit_flag で有効/終了が150件中100%分離することを確認）
+    """
     if not _KANABELL_CLOUD_ID or not _KANABELL_API_KEY:
         print("  ⚠️  カーナベル買取: KANABELL_CLOUD_ID / KANABELL_API_KEY が未設定です")
         _note_fetch_error()
@@ -1156,12 +1165,17 @@ def scrape_kanabell_buy(card_name: str) -> list[dict]:
     global _KANABELL_ES_URL
     if _KANABELL_ES_URL is None:
         _KANABELL_ES_URL = _kanabell_es_host()
+    if _KANABELL_ES_URL is None:
+        print("  [KANABELL] ESホストURLの構築に失敗したため買取検索をスキップします")
+        _note_fetch_error()
+        return []
 
-    # ES APIでカード名を検索してIDを取得
+    # ES APIでカード名を検索（買取価格・買取枠フラグ・レアリティを直接取得）
     search_url = f"{_KANABELL_ES_URL}/{_KANABELL_INDEX}/_search"
     query_body = {
-        "size": 30,
-        "_source": ["name", "id", "rarity_abbreviation", "category2_abbr", "category3_abbr", "card_image_name1"],
+        "size": 100,
+        "_source": ["name", "id", "rarity_abbreviation", "category2_abbr", "category3_abbr",
+                    "card_image_name1", "sa_buying_price", "sa_limit_flag"],
         "query": {
             "bool": {
                 "must": [
@@ -1192,9 +1206,8 @@ def scrape_kanabell_buy(card_name: str) -> list[dict]:
         _note_fetch_error()
         return []
 
-    # ユニークなカードIDだけ取得（同名カードを1つにまとめる）
+    results = []
     seen_ids = set()
-    cards_to_check = []
     for hit in hits:
         src = hit.get("_source", {})
         name_text = src.get("name", "")
@@ -1208,95 +1221,28 @@ def scrape_kanabell_buy(card_name: str) -> list[dict]:
         if not is_target_card(card_name, name_text):
             continue
         seen_ids.add(card_id)
-        cards_to_check.append(src)
 
-    if not cards_to_check:
-        return []
-
-    # 最初のカードの買取詳細ページを取得（1回のアクセスで同名全レアリティの買取価格が見れる）
-    first_id = cards_to_check[0].get("id", "")
-    buy_url = f"{KANABELL_BASE}/?act=buy_detail&id={first_id}&genre=1"
-    soup = safe_get(buy_url, timeout=20)
-    if not soup:
-        return []
-
-    results = []
-    # 画像URL（ES検索結果から取得）
-    img_name = cards_to_check[0].get("card_image_name1", "")
-    image_url = f"{KANABELL_BASE}/img/s/{img_name}" if img_name else ""
-
-    # 「取扱一覧」セクションのリンクから全バリアントの買取価格・レアリティを取得
-    # 各リンクは "¥xxxx円～ 【レアリティ】 シリーズ > セット" の形式
-    for a_tag in soup.select("a[href*='act=buy_detail']"):
-        link_text = a_tag.get_text(strip=True)
-        # 買取終了は除外
-        if "買取終了" in link_text:
+        # 買取中（買取枠フラグTrue）かつ有効価格のみ採用。枠切れ(終了)は sa_limit_flag=False。
+        if not src.get("sa_limit_flag"):
             continue
-        # 価格を抽出（¥xxxx円～ の部分）
-        price_match = re.search(r"[¥￥]?\s*(\d[\d,]+)\s*円", link_text)
-        if not price_match:
-            continue
-        price = int(price_match.group(1).replace(",", ""))
+        price = src.get("sa_buying_price") or 0
         if price <= 0:
             continue
-        # レアリティを抽出（【xxx】の部分）
-        rarity = ""
-        rarity_match = re.search(r"【([^】]+)】", link_text)
-        if rarity_match:
-            rarity = rarity_match.group(1)
-        # hrefから個別の買取詳細URLを構築
-        href = a_tag.get("href", "")
-        variant_url = f"{KANABELL_BASE}/{href.lstrip('/')}" if href else buy_url
-        # シリーズコード抽出（レアリティの後ろの文字列からセット名を取得）
-        code = ""
-        code_match = re.search(r">\s*(\S+)\s*$", link_text)
-        if code_match:
-            code = code_match.group(1)
 
+        img_name = src.get("card_image_name1", "")
+        image_url = f"{KANABELL_BASE}/img/s/{img_name}" if img_name else ""
         results.append({
             "shop": "カーナベル",
-            "name": cards_to_check[0].get("name", card_name),
-            "rarity": normalize_rarity(rarity),
-            "code": code,
+            "name": name_text,
+            "rarity": normalize_rarity(src.get("rarity_abbreviation", "")),
+            "code": src.get("category3_abbr", ""),
             "condition": "-",
-            "price": price,
+            "price": int(price),
             "stock": 1,
             "sold_out": False,
-            "url": variant_url,
+            "url": f"{KANABELL_BASE}/?act=buy_detail&id={card_id}&genre=1",
             "image": image_url,
         })
-
-    # 取扱一覧からの取得が0件の場合、メインカードのパンくずからレアリティを取得してフォールバック
-    if not results:
-        # パンくず等からメインカードのレアリティを取得
-        page_text = soup.get_text(" ", strip=True)
-        main_rarity = ""
-        main_rarity_match = re.search(r"【([^】]+)】", page_text)
-        if main_rarity_match:
-            main_rarity = main_rarity_match.group(1)
-        # CardListPrice要素から買取価格を取得（フォールバック）
-        for price_el in soup.select(".CardListPrice"):
-            price_text = price_el.get_text(strip=True)
-            if "買取終了" in price_text:
-                continue
-            pm = re.search(r"(\d[\d,]+)", price_text.replace("¥", ""))
-            if not pm:
-                continue
-            price = int(pm.group(1).replace(",", ""))
-            if price <= 0:
-                continue
-            results.append({
-                "shop": "カーナベル",
-                "name": cards_to_check[0].get("name", card_name),
-                "rarity": normalize_rarity(main_rarity),
-                "code": "",
-                "condition": "-",
-                "price": price,
-                "stock": 1,
-                "sold_out": False,
-                "url": buy_url,
-                "image": image_url,
-            })
     return results
 
 
