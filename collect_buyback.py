@@ -33,8 +33,16 @@ from constants import JST, RETENTION_DAYS
 
 WAIT_BETWEEN_CARDS = 1.0  # 収集間隔（秒）。collect_prices.py に合わせる
 
-# CIでブロックされる買取店舗を除外（遊々亭はスクレイピングのためIPブロックリスクあり）
-SKIP_BUYBACK_SHOPS_IN_CI = {"遊々亭"}
+# 買取収集から除外する店舗。実行環境ごとに環境変数 BUYBACK_SKIP_SHOPS（カンマ区切り）で上書きできる。
+#   - 未設定（GitHub Actions 等の従来環境）: 遊々亭はデータセンターIPからブロックされるため従来どおり除外
+#   - Render など店舗に到達できる環境: 例 BUYBACK_SKIP_SHOPS="カーナベル"
+#     （カーナベル買取は buy_detail HTML が bot 検知で 403 のため Render でも取得不可。無駄打ちを避けて除外）
+_DEFAULT_BUYBACK_SKIP_SHOPS = {"遊々亭"}
+_buyback_skip_env = os.environ.get("BUYBACK_SKIP_SHOPS")
+if _buyback_skip_env is None:
+    SKIP_BUYBACK_SHOPS_IN_CI = set(_DEFAULT_BUYBACK_SKIP_SHOPS)
+else:
+    SKIP_BUYBACK_SHOPS_IN_CI = {s.strip() for s in _buyback_skip_env.split(",") if s.strip()}
 
 
 def collect_and_save_buyback(
