@@ -724,9 +724,21 @@ function _renderApprovedList(listEl, cards) {
     statusBadge.textContent = card.status === 'linked' ? 'linked' : '公開中';
     statusBadge.className = `status-badge status-badge--${card.status}`;
 
-    // 画像ありバッジ
+    // 画像ありバッジ / 画像なし警告バッジ
     if (card.has_image) {
       row.querySelector('.card-row__has-image').hidden = false;
+    } else {
+      // 承認済みなのに公式画像が未登録 → 警告バッジを表示
+      row.querySelector('.card-row__no-image').hidden = false;
+      // 抽出元画像URLがあればワンクリック取込ボタンを有効化する
+      // （URLが無いカードは手動登録等なので、従来どおり「画像取込」フォームで対応）
+      const quickBtn = row.querySelector('.action-quick-fetch-image');
+      if (card.card_image_url) {
+        quickBtn.hidden = false;
+        quickBtn.addEventListener('click', () => {
+          _quickFetchImage(card, row, quickBtn);
+        });
+      }
     }
 
     // 非表示トグルボタン
@@ -931,6 +943,42 @@ async function _fetchImageByUrl(cardId, row) {
     }
   } finally {
     fetchBtn.disabled = false;
+  }
+}
+
+/**
+ * 抽出元画像URL（card.card_image_url）をワンクリックで取り込む（公開中タブ）。
+ * URLを貼り直す手間なく、承認済みなのに画像が無いカードを即復旧するための導線。
+ * 取込ロジック自体は _fetchImageByUrl と同じ fetch-image エンドポイントを使う。
+ * @param {Object} card  一覧APIのカードレコード（card_image_url を含む）
+ * @param {HTMLElement} row
+ * @param {HTMLElement} btn  クリックされた取込ボタン
+ */
+async function _quickFetchImage(card, row, btn) {
+  if (!card.card_image_url) return;
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = '取込中…';
+  try {
+    const resp = await apiFetch(`/api/admin/unreleased/${card.id}/fetch-image`, {
+      method: 'POST',
+      body: JSON.stringify({ image_url: card.card_image_url }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (resp.ok && data.ok) {
+      // 画像なし → 画像あり にバッジを切り替え、取込ボタンを隠す
+      row.querySelector('.card-row__has-image').hidden = false;
+      row.querySelector('.card-row__no-image').hidden = true;
+      btn.hidden = true;
+    } else {
+      alert(data.error || '取込に失敗しました');
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  } catch (e) {
+    if (e.message !== '認証エラー') alert('通信エラーが発生しました');
+    btn.disabled = false;
+    btn.textContent = original;
   }
 }
 

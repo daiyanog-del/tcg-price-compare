@@ -1,0 +1,36 @@
+# 承認済み・画像未登録カードの画像バックフィル
+# 承認時の画像取得が（bulk-approve のバックグラウンド取得中断・一時的な
+# ネットワーク失敗等で）こぼれたカードを定期的に拾い直すセーフティネット。
+# 即時検知・手動リカバリは管理画面の「画像なし」バッジ＋ワンクリック取込で行い、
+# こちらは原因を問わず自動回収する保険として動く。
+
+name: Backfill Missing Card Images
+
+on:
+  schedule:
+    - cron: '0 */3 * * *'  # 3時間ごと
+  workflow_dispatch:        # 手動実行ボタン
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # refetch スクリプトは admin_unreleased を import するため
+      # アプリの依存関係（flask 等）一式が必要
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Backfill missing images
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python tools/refetch_missing_images.py

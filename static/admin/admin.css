@@ -411,6 +411,16 @@ a:hover {
   padding: 1px 5px;
 }
 
+/* 承認済みなのに公式画像が未登録のカードを警告表示する */
+.no-image-badge {
+  background-color: var(--red);
+  border-radius: 3px;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 1px 5px;
+}
+
 /* ステータスバッジ（公開中タブ） */
 .status-badge {
   border-radius: 3px;
