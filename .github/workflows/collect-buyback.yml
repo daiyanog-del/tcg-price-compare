@@ -1,13 +1,14 @@
 # 買取価格履歴データ収集
-# 毎日 UTC 22:00 = 日本時間 7:00 に実行（販売価格収集 JST 5:00 とずらす）
-# 手動実行も可能 (Actions タブ → Run workflow)
+# 定期実行は Render Cron `tcg-collect-buyback`（JST 7:00 / crn-d8of5737uimc739hvsrg）へ移行済み。
+# GitHub Actions のデータセンターIPでは カーナベル(buy_detail)=403・カードラッシュ到達不安定・遊々亭ブロック
+# のためほぼ収集0件だったため、schedule を停止し手動実行（workflow_dispatch）のみ残す。
+# （販売価格収集の Render 移行と同じ対応。詳細は collect_prices.py / 関連コミット参照）
+# 手動実行: Actions タブ → Run workflow
 
 name: Collect Buyback History
 
 on:
-  schedule:
-    - cron: '0 22 * * *'  # 毎日 UTC 22:00 = JST 7:00
-  workflow_dispatch:       # 手動実行ボタン
+  workflow_dispatch:       # 手動実行ボタンのみ（定期実行は Render Cron に一本化）
 
 jobs:
   collect:
