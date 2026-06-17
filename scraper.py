@@ -1307,15 +1307,194 @@ def scrape_yuyu_buy(card_name: str) -> list[dict]:
     return results
 
 
+# ── トレコロCB買取 ──
+
+def scrape_torecolo_buy(card_name: str, max_pages: int = 3) -> list[dict]:
+    """トレコロCB買取 — 販売と同じ search.aspx の結果に混在する買取エントリを抽出する。
+
+    買取エントリは price 要素が「(強化/参考)買取価格X円」形式。販売スクレイパー
+    (scrape_torecolo)はこれを除外しているので、本関数は逆にこれだけを拾う。
+    レアリティは買取エントリでは空のことが多い（カード名に版違い情報が入る）。
+    """
+    # トレコロは中黒（・）を残さないと検索ヒットしないため専用の正規化を使う
+    search_name = normalize_width(card_name)
+    search_name = search_name.replace("　", " ")
+    for ch in "-－―‐—–":
+        search_name = search_name.replace(ch, " ")
+    base_url = (
+        f"{TORECOLO_BASE}/shop/goods/search.aspx"
+        f"?search=x&keyword={requests.utils.quote(search_name)}&category=&oshiire_code="
+    )
+    results = []
+
+    for page in range(1, max_pages + 1):
+        page_url = base_url if page == 1 else f"{base_url}&p={page}"
+        soup = safe_get(page_url)
+        if not soup:
+            break
+        items = soup.select("dl.block-thumbnail-t--goods")
+        if not items:
+            break
+
+        for item in items:
+            name_el = item.select_one("a.js-enhanced-ecommerce-goods-name")
+            price_el = item.select_one("div.block-thumbnail-t--price")
+            if not name_el or not price_el:
+                continue
+            name = name_el.get_text(strip=True)
+            price_text = price_el.get_text(strip=True)
+
+            # 買取エントリのみ対象（販売は除外）
+            if "買取" not in price_text:
+                continue
+            price_match = re.search(r"([\d,]+)\s*円", price_text)
+            if not price_match:  # 「参考買取価格」など金額無しは除外
+                continue
+            price = int(price_match.group(1).replace(",", ""))
+            if price <= 0:
+                continue
+
+            href = name_el.get("href", "")
+            product_url = f"{TORECOLO_BASE}{href}" if href.startswith("/") else href
+
+            # 商品名の正規化（販売版 scrape_torecolo と同じ）
+            match_name = name
+            match_name = re.sub(r"^キズあり", "", match_name).strip()
+            match_name = re.sub(r"★キズあり★", "", match_name).strip()
+            match_name = re.sub(r"【[^】]*】", "", match_name).strip()
+            match_name = re.sub(r"^[^◇]*◇", "", match_name).strip()
+            match_name = re.sub(r"（[^）]*）", "", match_name).strip()
+
+            # レアリティ: 買取エントリでは空/「-」のことが多い
+            rarity = ""
+            cat_el = item.select_one("div.block-thumbnail-t--goods-category")
+            if cat_el:
+                rarity = cat_el.get_text(strip=True)
+                rarity = rarity.translate(str.maketrans(
+                    'ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ０１２３４５６７８９',
+                    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+                ))
+                if rarity == "-":
+                    rarity = ""
+
+            code = ""
+            code_match = re.search(r"/g/g([^/]+?)(-[SK])?/", href)
+            if code_match:
+                code = code_match.group(1)
+
+            img_el = item.select_one("img")
+            image_url = ""
+            if img_el:
+                image_url = img_el.get("src", "") or img_el.get("data-src", "")
+                if image_url and not image_url.startswith("http"):
+                    image_url = f"{TORECOLO_BASE}{image_url}"
+
+            # ラッシュデュエル除外
+            if _is_rush_duel(name) or _is_rush_duel(href) or _is_rush_duel(code):
+                continue
+            if not is_target_card(card_name, match_name):
+                continue
+
+            results.append({
+                "shop": "トレコロCB", "name": match_name or name,
+                "rarity": normalize_rarity(rarity), "code": code,
+                "condition": "-", "price": price, "stock": 1,
+                "sold_out": False, "url": product_url, "image": image_url,
+            })
+
+        next_link = soup.select_one("a[href*='p=%d']" % (page + 1))
+        if not next_link:
+            break
+        time.sleep(0.5)
+
+    return results
+
+
+# ── カードラボ買取 ──
+
+CLABO_KAITORI_BASE = "https://www.c-labo-kaitori.jp"
+
+def scrape_clabo_buy(card_name: str) -> list[dict]:
+    """カードラボ買取 — 買取専用サイト c-labo-kaitori.jp を検索する。
+
+    販売(c-labo-online.jp)と同一ECプラットフォームでHTML構造も同じ。
+    figure 要素が買取価格。販売版 scrape_clabo とほぼ同じ構造。
+    """
+    search_name = _normalize_search_query(card_name)
+    page_url = (
+        f"{CLABO_KAITORI_BASE}/product-list"
+        f"?keyword={requests.utils.quote(search_name)}"
+    )
+    soup = safe_get(page_url)
+    if not soup:
+        return []
+
+    results = []
+    for container in soup.select("li:has(div.inner_item_data)"):
+        inner = container.select_one("div.inner_item_data")
+        if not inner:
+            continue
+        name_el = inner.select_one("span.goods_name")
+        if not name_el:
+            continue
+        raw_name = name_el.get_text(strip=True)
+
+        # レアリティとコードを商品名から抽出（販売版と同じ形式）
+        rarity = ""
+        code = ""
+        rarity_match = re.search(r"【([^】]+/[^】]+)】(\S+)$", raw_name)
+        if rarity_match:
+            rarity = rarity_match.group(1).split("/")[0]
+            code = rarity_match.group(2)
+        display_name = re.sub(r"【[^】]*】", "", raw_name).strip()
+        if code:
+            display_name = display_name.replace(code, "").strip()
+
+        if _is_rush_duel(raw_name) or _is_rush_duel(code):
+            continue
+        if not is_target_card(card_name, display_name):
+            continue
+
+        price_el = inner.select_one("span.figure")
+        if not price_el:
+            continue
+        price = parse_price(price_el.get_text())
+        if not price:
+            continue
+
+        # 買取停止（soldoutクラス）は除外対象としてマーク
+        stock_el = inner.select_one("p.stock")
+        sold_out = bool(stock_el and "soldout" in stock_el.get("class", []))
+
+        link_el = container.select_one("a[href*='/product/']")
+        product_url = link_el.get("href", "") if link_el else ""
+
+        image_url = ""
+        img_box = inner.select_one("div.async_image_box")
+        if img_box:
+            image_url = img_box.get("data-src", "")
+
+        results.append({
+            "shop": "カードラボ", "name": display_name,
+            "rarity": normalize_rarity(rarity), "code": code,
+            "condition": "-", "price": price, "stock": 1,
+            "sold_out": sold_out, "url": product_url, "image": image_url,
+        })
+
+    return results
+
+
 # ── 買取店舗リスト ──
 
 BUYBACK_SHOPS = [
     ("カードラッシュ", scrape_cardrush_buy),
     ("カーナベル", scrape_kanabell_buy),
     ("遊々亭", scrape_yuyu_buy),
+    ("トレコロCB", scrape_torecolo_buy),
+    ("カードラボ", scrape_clabo_buy),
 ]
 
-DEFAULT_BUYBACK_SHOPS = ["カードラッシュ", "カーナベル", "遊々亭"]
+DEFAULT_BUYBACK_SHOPS = ["カードラッシュ", "カーナベル", "遊々亭", "トレコロCB", "カードラボ"]
 
 
 # ── 買取キャッシュ（販売と分離）──
