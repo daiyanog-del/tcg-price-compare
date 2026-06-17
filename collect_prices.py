@@ -23,6 +23,7 @@ from pack_scraper import (
     get_pack_list, fetch_pack_cards, _try_wiki_page_variants,
     fetch_theme_cards, fetch_card_themes,
 )
+from price_persist import build_min_price_rows, upsert_price_rows
 from meta_scraper import fetch_tier_list, fetch_deck_cards
 
 # ── Supabase接続 ──
@@ -153,34 +154,20 @@ def collect_and_save(sb: Client, card_name: str, today: str, shop_names: list[st
             print(f"  結果なし [{card_name}]")
         return 0
 
-    min_prices = {}
-    for item in results:
-        if item.get("sold_out"):
-            continue
-        price = item.get("price", 0)
-        if price <= 10:
-            continue
-        key = (item.get("shop", ""), item.get("rarity", ""))
-        if key not in min_prices or price < min_prices[key]:
-            min_prices[key] = price
-
-    if not min_prices:
+    # 行構築は price_persist.build_min_price_rows に集約
+    rows = build_min_price_rows(card_name, results, today)
+    if not rows:
         print(f"  有効な価格なし [{card_name}]")
         return 0
 
-    rows = [
-        {"card_name": card_name, "shop": shop, "rarity": rarity,
-         "min_price": price, "recorded_at": today}
-        for (shop, rarity), price in min_prices.items()
-    ]
-
-    try:
-        sb.table("price_history").insert(rows).execute()
-        print(f"  保存完了 [{card_name}]: {len(rows)}件")
-        return len(rows)
-    except Exception as e:
-        print(f"  DB保存失敗 [{card_name}]: {e}")
-        return 0
+    # UNIQUE(card_name, shop, rarity, recorded_at) 制約に基づく upsert。
+    # 同日に複数回呼ばれても重複行が増えず last-write-wins になる。
+    saved = upsert_price_rows(sb, rows)
+    if saved:
+        print(f"  保存完了 [{card_name}]: {saved}件")
+        return saved
+    print(f"  DB保存失敗 [{card_name}]")
+    return 0
 
 
 def normalize_card_name(name: str) -> str:
