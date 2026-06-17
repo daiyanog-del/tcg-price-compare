@@ -24,6 +24,7 @@ from scraper import (
 )
 from rarity import normalize_rarity, config_for_frontend as _rarity_config_for_frontend
 from aggregations import daily_min_by_lowest_rarity
+from price_persist import build_min_price_rows, upsert_price_rows
 from meta_scraper import fetch_tier_list, fetch_deck_cards, build_deck_text, build_recipe_text, _cache_read, _DECK_CACHE_TTL, _TIER_CACHE_TTL
 from pack_scraper import get_pack_list, fetch_pack_cards
 from monitor import tracker, run_health_check
@@ -673,6 +674,21 @@ def api_validate():
     return jsonify({"valid": False, "suggestion": None})
 
 
+def _persist_scrape_async(card_name: str, scrape_results: list):
+    """scrape 結果を price_history に即時 upsert する。fire-and-forget。
+    /api/search や /api/deck で取得した最新価格を DB に流し、
+    購入候補リストのレアリティ候補ドロップダウンが即座に更新されるようにする。
+    """
+    if not _supabase_client or not scrape_results:
+        return
+    try:
+        today = datetime.now(JST).strftime("%Y-%m-%d")
+        rows = build_min_price_rows(card_name, scrape_results, today)
+        upsert_price_rows(_supabase_client, rows)
+    except Exception as e:
+        logger.warning(f"[persist] {card_name} の即時 upsert 失敗: {e}")
+
+
 @app.route("/api/search")
 def api_search():
     original_name = _normalize_query(request.args.get("q", ""))
@@ -762,6 +778,8 @@ def api_search():
                 # 検索が成功したカードを収集対象に自動登録（次回 collect_prices で永続化）
                 if _supabase_client:
                     Thread(target=_track_card_async, args=(card_name,), daemon=True).start()
+                    # scrape 結果を price_history に即時 upsert（購入候補の rarity 候補を即時化）
+                    Thread(target=_persist_scrape_async, args=(card_name, list(all_results)), daemon=True).start()
         except Exception as e:
             logger.error(f"検索処理で予期しないエラー: {e}")
         finally:
@@ -859,6 +877,9 @@ def api_deck():
                     pass
 
         cache_set(card_name, all_items)
+        # scrape 結果を price_history に即時 upsert（購入候補の rarity 候補を即時化）
+        if _supabase_client and all_items:
+            Thread(target=_persist_scrape_async, args=(card_name, list(all_items)), daemon=True).start()
         in_stock = [r for r in all_items if not r.get("sold_out")]
         best = min(in_stock, key=lambda x: x["price"]) if in_stock else None
         payload = {"type": "card_done", "index": i, "name": card_name,
