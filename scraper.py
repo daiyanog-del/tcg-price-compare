@@ -564,6 +564,26 @@ _KANABELL_CONDITIONS = [
     ("d",  "状態:D"),
 ]
 
+# ── カーナベルES 検索クエリ用ヘルパー ──
+# カーナベルの card_name は text型（.keyword サブフィールド付き）で、ダッシュの表記が
+# カードごとに不統一（長音「ー」/全角ダッシュ「―」/ハイフン「-」等）。検索語と格納値で
+# 区切り表記が食い違うと wildcard も match_phrase_prefix も外れてヒット0件になるため、
+# 区切りを正規化して吸収する。（2026-06-17 ES実機検証で確定）
+_KANABELL_DASH = "－―‐‑‒–—−ーｰ-"  # ダッシュ・長音の各種表記
+_KANABELL_DASH_RE = re.compile(f"[{re.escape(_KANABELL_DASH)}]")
+_KANABELL_SEP_RE = re.compile(f"[・\\s　:：{re.escape(_KANABELL_DASH)}]+")
+
+def _kanabell_canon_dash(text: str) -> str:
+    """ダッシュ・長音の各種表記を半角ハイフンに統一（is_target_card の表記揺れ吸収用）"""
+    return _KANABELL_DASH_RE.sub("-", text)
+
+def _kanabell_wildcard_value(card_name: str) -> str:
+    """card_name.keyword 用の wildcard 値を作る。区切り（中黒・ダッシュ・空白・コロン）を
+    '*' に置換し、格納側の区切り表記揺れに依存せずマッチさせる。
+    例: 「閃刀姫－レイ」→ *閃刀姫*レイ* （格納値「閃刀姫ーレイ」にもヒット）"""
+    parts = [p for p in _KANABELL_SEP_RE.split(card_name) if p]
+    return "*" + "*".join(parts) + "*" if parts else f"*{card_name}*"
+
 def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
     """カーナベル — Elasticsearch API経由で検索（状態別価格対応）"""
     if not _KANABELL_CLOUD_ID or not _KANABELL_API_KEY:
@@ -573,6 +593,7 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
 
     # カーナベルのESは半角で格納されているため、全角英数字を半角に正規化
     card_name = _normalize_fullwidth(card_name)
+    wildcard_value = _kanabell_wildcard_value(card_name)
 
     global _KANABELL_ES_URL
     if _KANABELL_ES_URL is None:
@@ -603,8 +624,8 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
                     {"bool": {"should": [
                         {"match_phrase_prefix": {"card_name": {"query": card_name, "slop": 2}}},
                         {"match_phrase_prefix": {"replace_card_name": {"query": card_name, "slop": 2}}},
-                        {"wildcard": {"card_name": {"value": f"*{card_name}*"}}},
-                        {"wildcard": {"replace_card_name": {"value": f"*{card_name}*"}}},
+                        {"wildcard": {"card_name.keyword": {"value": wildcard_value}}},
+                        {"wildcard": {"replace_card_name.keyword": {"value": wildcard_value}}},
                     ], "minimum_should_match": 1}}
                 ],
                 "filter": [
@@ -654,7 +675,7 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
         if _is_rush_duel(all_text):
             continue
 
-        if not name_text or not is_target_card(card_name, name_text):
+        if not name_text or not is_target_card(_kanabell_canon_dash(card_name), _kanabell_canon_dash(name_text)):
             continue
 
         # レアリティ
@@ -720,6 +741,7 @@ def kanabell_card_image_url(card_name: str) -> str:
         return ""
 
     card_name = _normalize_fullwidth(card_name)
+    wildcard_value = _kanabell_wildcard_value(card_name)
 
     global _KANABELL_ES_URL
     if _KANABELL_ES_URL is None:
@@ -738,8 +760,8 @@ def kanabell_card_image_url(card_name: str) -> str:
                     {"bool": {"should": [
                         {"match_phrase_prefix": {"card_name": {"query": card_name, "slop": 2}}},
                         {"match_phrase_prefix": {"replace_card_name": {"query": card_name, "slop": 2}}},
-                        {"wildcard": {"card_name": {"value": f"*{card_name}*"}}},
-                        {"wildcard": {"replace_card_name": {"value": f"*{card_name}*"}}},
+                        {"wildcard": {"card_name.keyword": {"value": wildcard_value}}},
+                        {"wildcard": {"replace_card_name.keyword": {"value": wildcard_value}}},
                     ], "minimum_should_match": 1}}
                 ],
                 "filter": [
@@ -1161,6 +1183,7 @@ def scrape_kanabell_buy(card_name: str) -> list[dict]:
 
     # 全角英数字を半角に正規化
     card_name = _normalize_fullwidth(card_name)
+    wildcard_value = _kanabell_wildcard_value(card_name)
 
     global _KANABELL_ES_URL
     if _KANABELL_ES_URL is None:
@@ -1181,7 +1204,8 @@ def scrape_kanabell_buy(card_name: str) -> list[dict]:
                 "must": [
                     {"bool": {"should": [
                         {"match_phrase_prefix": {"card_name": {"query": card_name, "slop": 2}}},
-                        {"wildcard": {"card_name": {"value": f"*{card_name}*"}}},
+                        {"wildcard": {"card_name.keyword": {"value": wildcard_value}}},
+                        {"wildcard": {"replace_card_name.keyword": {"value": wildcard_value}}},
                     ], "minimum_should_match": 1}}
                 ],
                 "filter": [
@@ -1218,7 +1242,7 @@ def scrape_kanabell_buy(card_name: str) -> list[dict]:
         all_text = " ".join(str(v) for v in src.values() if isinstance(v, str))
         if _is_rush_duel(all_text):
             continue
-        if not is_target_card(card_name, name_text):
+        if not is_target_card(_kanabell_canon_dash(card_name), _kanabell_canon_dash(name_text)):
             continue
         seen_ids.add(card_id)
 
