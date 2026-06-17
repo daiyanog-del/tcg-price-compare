@@ -24,6 +24,8 @@ from bs4 import BeautifulSoup
 from supabase import create_client, Client
 
 from fetch_guard import fetch_whitelisted, is_whitelisted
+from name_normalize import fuzzy_key
+from ygores_repository import repository as _ygores_repo
 
 logging.basicConfig(
     level=logging.INFO,
@@ -296,6 +298,53 @@ def _add_new_links(sb: Client, links: list[str]) -> list[str]:
 
 
 # ──────────────────────────────────────────────
+# 既知カードフィルタ（再録・別イラスト除外）
+# ──────────────────────────────────────────────
+
+_known_fuzzy_keys: set[str] | None = None
+
+
+def _get_known_fuzzy_keys() -> set[str]:
+    """ygoresources の既知カード名ファジーキー集合を遅延構築する（1実行1回）。
+    取得失敗時は空 set を返す（フィルタなし = 安全側）。
+    """
+    global _known_fuzzy_keys
+    if _known_fuzzy_keys is not None:
+        return _known_fuzzy_keys
+
+    name_index = _ygores_repo.get_name_index()
+    if not name_index:
+        logger.warning("[Watcher] ygores 名前インデックスが空のためフィルタをスキップします")
+        _known_fuzzy_keys = set()
+        return _known_fuzzy_keys
+
+    _known_fuzzy_keys = {fuzzy_key(name) for name in name_index}
+    logger.info(f"[Watcher] 既知カード名索引を構築: {len(_known_fuzzy_keys)}件")
+    return _known_fuzzy_keys
+
+
+def _filter_known_cards(card_rows: list[dict]) -> tuple[list[dict], int]:
+    """既に ygoresources に存在するカード（再録・別イラスト）を除外する。
+    名前インデックスが取得できない場合はフィルタせず全件通す（安全側）。
+    """
+    known = _get_known_fuzzy_keys()
+    if not known:
+        return card_rows, 0
+
+    filtered = []
+    skipped = 0
+    for row in card_rows:
+        fk = fuzzy_key(row.get("name", ""))
+        if fk and fk in known:
+            logger.info(f"[Watcher] 既知カードのためスキップ: {row.get('name', '?')!r}")
+            skipped += 1
+        else:
+            filtered.append(row)
+
+    return filtered, skipped
+
+
+# ──────────────────────────────────────────────
 # unreleased_cards upsert
 # ──────────────────────────────────────────────
 
@@ -431,15 +480,19 @@ def main() -> None:
             from unreleased_extractor import extract_cards_from_html
             card_rows = extract_cards_from_html(html, url)
             extract_count += 1
+            n_extracted = len(card_rows)
 
-            # 5. unreleased_cards に upsert（既存行は上書きしない）
+            # 5a. 既知カード（再録・別イラスト）をフィルタ
+            card_rows, n_skipped = _filter_known_cards(card_rows)
+
+            # 5b. unreleased_cards に upsert（既存行は上書きしない）
             n_inserted = _upsert_cards(sb, card_rows)
             total_inserted += n_inserted
             _update_extracted(sb, url, (page.get("extract_attempts") or 0) + 1)
 
             logger.info(
                 f"[Watcher] 完了: {url} "
-                f"| 抽出={len(card_rows)}件 | 挿入={n_inserted}件"
+                f"| 抽出={n_extracted}件 | 既知スキップ={n_skipped}件 | 挿入={n_inserted}件"
             )
 
         except Exception as e:
