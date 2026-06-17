@@ -445,6 +445,48 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .wish-price-info{font:.72rem var(--mono);color:var(--text-d);white-space:nowrap;flex-shrink:0}
 .wish-price-drop{color:var(--green);font-weight:700}
 
+/* ── まとめ買い最安店舗ランキング ── */
+.wish-shop-ranking{margin:16px 0;padding:14px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px}
+.wish-shop-ranking.hidden{display:none}
+.wish-shop-ranking-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.wish-shop-ranking-title{font:.85rem var(--font);font-weight:700;color:var(--text-m)}
+.wish-shop-ranking-close{background:none;border:none;color:var(--text-d);font-size:1.2rem;cursor:pointer;padding:0 6px;line-height:1}
+.wish-shop-ranking-close:hover{color:var(--text-m)}
+.wish-shop-ranking-loading,.wish-shop-ranking-error{padding:12px;text-align:center;font-size:.85rem;color:var(--text-d)}
+.wish-shop-ranking-error{color:var(--red)}
+.wish-shop-ranking-status{font-size:.72rem;color:var(--accent-l);margin-bottom:8px;padding:4px 8px;background:rgba(74,124,255,.08);border-radius:4px}
+.wish-shop-ranking-warn{font-size:.72rem;color:var(--text-d);margin-top:8px;padding:6px 10px;background:rgba(255,200,50,.07);border-left:3px solid #d4a017;border-radius:3px}
+.wish-shop-ranking-foot{font-size:.7rem;color:var(--text-d);margin-top:8px;text-align:right}
+.wish-shop-list{display:flex;flex-direction:column;gap:6px}
+.wish-shop-row{border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--bg)}
+.wish-shop-row-summary{display:grid;grid-template-columns:28px 1fr auto auto auto 18px;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;font-size:.82rem;transition:background .15s}
+.wish-shop-row-summary:hover{background:rgba(74,124,255,.04)}
+.wish-shop-rank{font:700 .85rem var(--mono);color:var(--accent-l);text-align:center}
+.wish-shop-name{font-weight:600;color:var(--text-m)}
+.wish-shop-total{font:700 .9rem var(--mono);color:var(--text-m);white-space:nowrap}
+.wish-shop-cov{font:.72rem var(--mono);color:var(--text-d);white-space:nowrap}
+.wish-shop-badge{font:.66rem var(--font);font-weight:700;padding:2px 7px;border-radius:10px;white-space:nowrap}
+.wish-shop-badge.ok{background:rgba(52,211,153,.15);color:var(--green)}
+.wish-shop-badge.ng{background:rgba(255,200,50,.12);color:#d4a017}
+.wish-shop-toggle{color:var(--text-d);font-size:.7rem}
+.wish-shop-detail{padding:8px 12px 12px;border-top:1px solid var(--border);background:var(--bg-card)}
+.wish-shop-detail-row{display:grid;grid-template-columns:36px 1fr auto;gap:8px;align-items:center;padding:4px 0;font-size:.78rem;border-bottom:1px dashed rgba(255,255,255,.05)}
+.wish-shop-detail-row:last-of-type{border-bottom:none}
+.wish-shop-detail-qty{font:700 .78rem var(--mono);color:var(--accent-l)}
+.wish-shop-detail-name{color:var(--text-m);text-decoration:none}
+.wish-shop-detail-name:hover{color:var(--accent-l);text-decoration:underline}
+.wish-shop-detail-price{font:.78rem var(--mono);color:var(--text-m);white-space:nowrap}
+.wish-shop-detail-unit{font-size:.65rem;color:var(--text-d);margin-left:6px}
+.wish-shop-detail-missing{font-size:.7rem;color:var(--text-d);margin-top:6px;padding:6px 8px;background:rgba(255,200,50,.06);border-radius:3px}
+.wish-shop-detail-foot{margin-top:10px;text-align:right}
+.wish-shop-detail-link{font-size:.72rem;font-weight:600;padding:5px 11px;border:1px solid var(--accent);border-radius:4px;color:var(--accent-l);text-decoration:none;transition:background .15s}
+.wish-shop-detail-link:hover{background:var(--accent);color:#fff}
+@media(max-width:520px){
+  .wish-shop-row-summary{grid-template-columns:22px 1fr auto 16px;grid-template-rows:auto auto;row-gap:4px}
+  .wish-shop-cov,.wish-shop-badge{grid-column:2/4}
+  .wish-shop-toggle{grid-row:1/3;grid-column:4}
+}
+
 /* Mobile — タブレット */
 @media(max-width:768px){
   .wrap{padding:0 12px}
@@ -1048,9 +1090,33 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
       <div class="deck-input-area">
         <div class="wish-actions" id="wishActions" style="display:none">
           <button class="wish-action-btn" onclick="wishToEstimate()">このリストで見積もり</button>
+          <button class="wish-action-btn" onclick="wishCheapestStores()">まとめ買いの最安店舗を調査</button>
           <button class="wish-action-btn danger" onclick="wishClearAll()">すべて削除</button>
         </div>
         <div id="wishList"></div>
+
+        <!-- 全店舗ランキング（「まとめ買いの最安店舗を調査」ボタン押下後に表示） -->
+        <div id="wishShopRanking" class="wish-shop-ranking hidden"></div>
+
+        <!-- 見積結果（「このリストで見積もり」ボタン押下後に表示） -->
+        <div id="wishResults" class="deck-results hidden">
+          <div class="deck-total">
+            <span class="deck-total-label">購入候補 合計最安値（推定）</span>
+            <span class="deck-total-price" id="wishTotalPrice">-</span>
+          </div>
+          <div class="deck-progress" id="wishProgress"></div>
+          <div id="wishShareArea" class="deck-share-area"></div>
+          <div id="wishCardList"></div>
+        </div>
+
+        <!-- 計算用に必要な店舗フィルタ（calcDeckEstimate が選択店舗を読むため要素は残す。UIには出さない） -->
+        <div class="shop-toggles" id="wishShopToggles" style="display:none">
+          <label class="shop-toggle active" data-shop="遊々亭"><input type="checkbox" checked> 遊々亭</label>
+          <label class="shop-toggle active" data-shop="カードラッシュ"><input type="checkbox" checked> カードラッシュ</label>
+          <label class="shop-toggle active" data-shop="トレコロCB"><input type="checkbox" checked> トレコロCB</label>
+          <label class="shop-toggle active" data-shop="カーナベル"><input type="checkbox" checked> カーナベル</label>
+          <label class="shop-toggle active" data-shop="カードラボ"><input type="checkbox" checked> カードラボ</label>
+        </div>
       </div>
       <!-- プッシュ通知設定 -->
       <div class="push-notify-box" id="pushNotifyBox" style="display:none">
@@ -2159,6 +2225,15 @@ const DECK_CTX = {
     getText:()=>_lastMetaDeckText,
     getCards:()=>parseDeckSections(_lastMetaDeckText),
     getName:()=>_currentDeckName||'環境デッキ'
+  },
+  // 購入候補リスト用：wishGet() を直列化して calcDeckEstimate に渡す
+  wishlist:{
+    results:'wishResults', list:'wishCardList', total:'wishTotalPrice',
+    prog:'wishProgress', shops:'wishShopToggles', rowPrefix:'wish-row-',
+    shareArea:'wishShareArea',
+    getText:()=>(typeof wishGet==='function'?wishGet():[]).map(c=>c.qty>1?`${c.qty} ${c.name}`:c.name).join('\n'),
+    getCards:()=>({main:(typeof wishGet==='function'?wishGet():[]).map(c=>({qty:c.qty,name:c.name})),ex:[]}),
+    getName:()=>'購入候補リスト'
   }
 };
 
@@ -3730,6 +3805,9 @@ function renderWishlist(){
   if(!list.length){
     el.innerHTML='<div class="wish-empty">購入候補はまだありません<br><span style="font-size:.78rem;margin-top:8px;display:block">検索結果やマイデッキから「+ 候補」ボタンで追加できます</span></div>';
     actions.style.display='none';
+    // リストが空になったら見積結果・店舗ランキングも片付ける
+    const wr=document.getElementById('wishResults');if(wr)wr.classList.add('hidden');
+    const wsr=document.getElementById('wishShopRanking');if(wsr){wsr.classList.add('hidden');wsr.innerHTML='';}
     return;
   }
   actions.style.display='flex';
@@ -3761,11 +3839,213 @@ function renderWishlist(){
 function wishToEstimate(){
   const list=wishGet();
   if(!list.length)return;
-  const text=list.map(c=>`${c.qty} ${c.name}`).join('\n');
-  document.getElementById('deckTextarea').value=text;
-  switchMode('mydeck');
-  // 購入候補→マイデッキ変換時は自動で価格計算しない。プレビューだけ表示する
-  calcDeckEstimate(DECK_CTX.mydeck,{previewOnly:true});
+  // 全店舗ランキングが既に開いていれば閉じる（同時表示で画面が混雑するのを避ける）
+  const rankEl=document.getElementById('wishShopRanking');
+  if(rankEl){rankEl.classList.add('hidden');rankEl.innerHTML='';}
+  // 購入候補ページ内で見積を完結させる。DB相場→不足分はリアルタイム補完（既存 calcDeckEstimate ロジックを流用）
+  calcDeckEstimate(DECK_CTX.wishlist,{});
+}
+
+// ── 全店舗ランキング（まとめ買い最安店舗） ──
+// 販売店舗ごとのカード検索URLを生成する。バックエンドの _shop_search_url と同じURLパターンを再現する。
+function _wishShopSearchUrl(shop, name){
+  const q=encodeURIComponent((name||'').normalize('NFKC'));
+  const urls={
+    '遊々亭':`https://yuyu-tei.jp/sell/ygo/s/search?search_word=${q}`,
+    'カードラッシュ':`https://www.cardrush.jp/product-list?keyword=${q}`,
+    'トレコロCB':`https://www.torecolo.jp/shop/goods/search.aspx?search=x&keyword=${q}&category=&oshiire_code=`,
+    'カーナベル':`https://www.ka-nabell.com/?act=sell_search&genre=1&keyword=${q}`,
+    'カードラボ':`https://www.c-labo-online.jp/product-list?keyword=${q}`,
+    'まんぞく屋':`https://shopmanzokuya.com/products/list?category_id=1&name=${q}&orderby=price_l&disp_number=100`,
+  };
+  return urls[shop]||'';
+}
+
+// まとめ買い最安店舗を調査するボタンのハンドラ
+async function wishCheapestStores(){
+  const list=wishGet();
+  if(!list.length)return;
+
+  // 見積結果が出ていれば閉じる（同時表示で画面が混雑するのを避ける）
+  const resultsEl=document.getElementById('wishResults');
+  if(resultsEl)resultsEl.classList.add('hidden');
+
+  const rankEl=document.getElementById('wishShopRanking');
+  rankEl.classList.remove('hidden');
+  rankEl.innerHTML='<div class="wish-shop-ranking-loading">集計中...</div>';
+
+  // Step 1: DB相場で各店舗の合計を即時集計
+  let dbData;
+  try{
+    const res=await fetch('/api/wish-shop-totals',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({cards:list.map(c=>({name:c.name,qty:c.qty}))})
+    });
+    dbData=await res.json();
+  }catch(e){
+    rankEl.innerHTML='<div class="wish-shop-ranking-error">集計に失敗しました。再度お試しください。</div>';
+    return;
+  }
+
+  if(!dbData||!dbData.shops||!dbData.shops.length){
+    rankEl.innerHTML='<div class="wish-shop-ranking-error">店舗データが取得できませんでした。</div>';
+    return;
+  }
+
+  // 店舗別の集計状態を保持（リアルタイム補完で再計算するため）
+  // shopState[shopName] = {total, covered_qty, covered_cards, total_qty, total_cards, missing_set, items_map}
+  const shopState={};
+  for(const s of dbData.shops){
+    shopState[s.shop]={
+      total:s.total||0,
+      covered_qty:s.covered_qty||0,
+      covered_cards:s.covered_cards||0,
+      total_qty:s.total_qty||0,
+      total_cards:s.total_cards||0,
+      missing_set:new Set(s.missing_cards||[]),
+      items_map:new Map((s.items||[]).map(it=>[it.name,{qty:it.qty,price:it.price}])),
+    };
+  }
+  const dbMissing=new Set(dbData.db_missing||[]);
+  const totalQty=list.reduce((s,c)=>s+c.qty,0);
+  const totalCards=list.length;
+
+  // qty 参照テーブル（リアルタイム補完時に price * qty を加算するため）
+  const qtyMap=new Map(list.map(c=>[c.name,c.qty]));
+
+  const renderRanking=(opts)=>{
+    const shops=Object.entries(shopState).map(([shop,st])=>({shop,...st}));
+    // 並び順: 全枚数そろう店舗を優先、その中で合計が安い順
+    shops.sort((a,b)=>{
+      const af=a.covered_qty===totalQty?0:1;
+      const bf=b.covered_qty===totalQty?0:1;
+      if(af!==bf)return af-bf;
+      if(a.covered_qty!==b.covered_qty)return b.covered_qty-a.covered_qty;
+      return a.total-b.total;
+    });
+
+    const realtimeBanner=opts.realtimePending
+      ?`<div class="wish-shop-ranking-status">リアルタイム検索中... 残り${opts.realtimePending}枚`+(opts.realtimeError?` (一部失敗 ${opts.realtimeError}枚)`:'')+`</div>`
+      :(opts.realtimeDone?`<div class="wish-shop-ranking-status">完了`+(opts.realtimeError?` (取得できなかったカード ${opts.realtimeError}枚)`:'')+`</div>`:'');
+
+    const rowsHtml=shops.map((s,i)=>{
+      const allCovered=s.covered_qty===s.total_qty;
+      const badge=allCovered?'<span class="wish-shop-badge ok">✓ すべて揃う</span>':`<span class="wish-shop-badge ng">${s.missing_set.size}種類欠け</span>`;
+      const totalText=s.total>0?`¥${s.total.toLocaleString()}`:'-';
+      return `
+        <div class="wish-shop-row" data-shop-idx="${i}">
+          <div class="wish-shop-row-summary" onclick="_wishToggleShopDetail(${i})">
+            <span class="wish-shop-rank">${i+1}</span>
+            <span class="wish-shop-name">${esc(s.shop)}</span>
+            <span class="wish-shop-total">${totalText}</span>
+            <span class="wish-shop-cov">${s.covered_qty}/${s.total_qty}枚</span>
+            ${badge}
+            <span class="wish-shop-toggle">▾</span>
+          </div>
+          <div class="wish-shop-detail" id="wishShopDetail-${i}" hidden>${_wishShopDetailHtml(s)}</div>
+        </div>`;
+    }).join('');
+
+    const dbMissingHtml=dbMissing.size>0
+      ?`<div class="wish-shop-ranking-warn">どの店舗にもデータが無いカード: ${[...dbMissing].map(esc).join('、')}</div>`
+      :'';
+
+    rankEl.innerHTML=`
+      <div class="wish-shop-ranking-head">
+        <div class="wish-shop-ranking-title">まとめ買い最安店舗（直近7日のDB相場${opts.realtimeDone||opts.realtimePending?'＋リアルタイム検索':''}）</div>
+        <button class="wish-shop-ranking-close" onclick="document.getElementById('wishShopRanking').classList.add('hidden')" aria-label="閉じる">&times;</button>
+      </div>
+      ${realtimeBanner}
+      <div class="wish-shop-list">${rowsHtml}</div>
+      ${dbMissingHtml}
+      <div class="wish-shop-ranking-foot">対象: ${totalCards}種類 / ${totalQty}枚</div>
+    `;
+  };
+
+  // window 公開（行クリック時の展開用）
+  window._wishShopState=shopState;
+  window._wishToggleShopDetail=(idx)=>{
+    const el=document.getElementById('wishShopDetail-'+idx);
+    if(!el)return;
+    el.hidden=!el.hidden;
+  };
+
+  renderRanking({realtimePending:dbMissing.size});
+
+  // Step 2: DB に無いカードのみリアルタイム補完
+  if(!dbMissing.size)return;
+
+  const missingNames=[...dbMissing];
+  const missingNamesParam=missingNames.map(n=>(qtyMap.get(n)||1)>1?`${qtyMap.get(n)} ${n}`:n).join('|');
+  const shopParams=Object.keys(shopState).map(s=>'shops='+encodeURIComponent(s)).join('&');
+  const url='/api/deck?include_per_shop=1&cards='+encodeURIComponent(missingNamesParam)+(shopParams?'&'+shopParams:'');
+
+  let sseError=0;
+  try{
+    const sseRes=await fetch(url);
+    const reader=sseRes.body.getReader();
+    const decoder=new TextDecoder();
+    let buffer='';
+    while(true){
+      const{done,value}=await reader.read();
+      if(done)break;
+      buffer+=decoder.decode(value,{stream:true});
+      const chunks=buffer.split('\n\n');
+      buffer=chunks.pop()||'';
+      for(const chunk of chunks){
+        if(!chunk.startsWith('data: '))continue;
+        const d=JSON.parse(chunk.slice(6));
+        if(d.type!=='card_done')continue;
+        const name=d.name;
+        const qty=qtyMap.get(name)||1;
+        const perShop=d.per_shop||{};
+        let anyShop=false;
+        for(const shop of Object.keys(shopState)){
+          const info=perShop[shop];
+          if(!info)continue;
+          anyShop=true;
+          const st=shopState[shop];
+          // 既存に無いカードを追加
+          if(!st.items_map.has(name)){
+            st.items_map.set(name,{qty,price:info.price,url:info.url||''});
+            st.total+=info.price*qty;
+            st.covered_qty+=qty;
+            st.covered_cards+=1;
+            st.missing_set.delete(name);
+          }
+        }
+        if(!anyShop)sseError+=1;
+        dbMissing.delete(name);
+        renderRanking({realtimePending:dbMissing.size,realtimeError:sseError});
+      }
+    }
+    renderRanking({realtimePending:0,realtimeDone:true,realtimeError:sseError});
+  }catch(e){
+    renderRanking({realtimePending:0,realtimeDone:true,realtimeError:sseError});
+  }
+}
+
+// 店舗詳細パネルのHTML（カード一覧と購入リンク）
+function _wishShopDetailHtml(shopRow){
+  const items=[...shopRow.items_map.values()].map(it=>({...it}));
+  const names=[...shopRow.items_map.keys()];
+  const itemsHtml=names.map((name,i)=>{
+    const it=shopRow.items_map.get(name);
+    const url=it.url||_wishShopSearchUrl(shopRow.shop,name);
+    const line=`<div class="wish-shop-detail-row">
+      <span class="wish-shop-detail-qty">${it.qty}x</span>
+      <a class="wish-shop-detail-name" href="${esc(url)}" target="_blank" rel="noopener">${esc(name)}</a>
+      <span class="wish-shop-detail-price">¥${(it.price*it.qty).toLocaleString()}<span class="wish-shop-detail-unit">@¥${it.price.toLocaleString()}</span></span>
+    </div>`;
+    return line;
+  }).join('');
+  const missingHtml=shopRow.missing_set.size>0
+    ?`<div class="wish-shop-detail-missing">この店舗にデータが無いカード: ${[...shopRow.missing_set].map(esc).join('、')}</div>`
+    :'';
+  const shopTopUrl=_wishShopSearchUrl(shopRow.shop,'');
+  const openHref=shopTopUrl?`<a class="wish-shop-detail-link" href="${esc(shopTopUrl)}" target="_blank" rel="noopener">${esc(shopRow.shop)}を開く</a>`:'';
+  return itemsHtml+missingHtml+`<div class="wish-shop-detail-foot">${openHref}</div>`;
 }
 
 // 追加ボタンのHTMLを生成するヘルパー

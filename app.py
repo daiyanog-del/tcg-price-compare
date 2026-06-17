@@ -781,6 +781,8 @@ def api_deck():
 
     names_raw = request.args.get("cards", "")
     shops_raw = request.args.getlist("shops") or DEFAULT_SHOPS
+    # 購入候補の「全店舗ランキング」用に各カードの店舗別最安値を返すフラグ
+    include_per_shop = request.args.get("include_per_shop", "").lower() in ("1", "true", "yes")
     if not names_raw:
         return jsonify({"error": "カード名がありません"}), 400
     rate_error = _consume_rate_limit()
@@ -810,6 +812,21 @@ def api_deck():
     # デッキ検索カードを収集対象候補として記録（人気ランキングには影響しない）
     _record_deck_search([e["name"] for e in card_entries])
 
+    def _aggregate_per_shop(items: list) -> dict:
+        """店舗別の最安値を {店舗名: {price, url, rarity, ...}} に集約する。
+        sold_out は除外、同じ店舗で複数ヒットがあれば最安を採用。"""
+        per_shop: dict = {}
+        for r in items:
+            if r.get("sold_out"):
+                continue
+            shop = r.get("shop")
+            if not shop or shop not in selected:
+                continue
+            cur = per_shop.get(shop)
+            if cur is None or r.get("price", 0) < cur.get("price", 0):
+                per_shop[shop] = r
+        return per_shop
+
     def _search_one_card(i, card_name):
         """1枚のカードを全店舗で検索して結果を返す"""
         # キャッシュチェック
@@ -817,8 +834,11 @@ def api_deck():
         if cached is not None:
             items = [r for r in cached if r["shop"] in selected and not r.get("sold_out")]
             best = min(items, key=lambda x: x["price"]) if items else None
-            return {"type": "card_done", "index": i, "name": card_name,
-                    "best": best, "count": len(items), "cached": True}
+            payload = {"type": "card_done", "index": i, "name": card_name,
+                       "best": best, "count": len(items), "cached": True}
+            if include_per_shop:
+                payload["per_shop"] = _aggregate_per_shop(items)
+            return payload
 
         # 全店舗を並列スクレイピング
         all_items = []
@@ -834,8 +854,11 @@ def api_deck():
         cache_set(card_name, all_items)
         in_stock = [r for r in all_items if not r.get("sold_out")]
         best = min(in_stock, key=lambda x: x["price"]) if in_stock else None
-        return {"type": "card_done", "index": i, "name": card_name,
-                "best": best, "count": len(in_stock)}
+        payload = {"type": "card_done", "index": i, "name": card_name,
+                   "best": best, "count": len(in_stock)}
+        if include_per_shop:
+            payload["per_shop"] = _aggregate_per_shop(in_stock)
+        return payload
 
     def generate():
         # カード単位で並列検索（最大5カード同時）
@@ -1463,6 +1486,139 @@ def api_wish_prices():
         })
 
     return jsonify({"cards": results})
+
+
+@app.route("/api/wish-shop-totals", methods=["POST"])
+def api_wish_shop_totals():
+    """購入候補リストを「1店舗でまとめ買いするといくらか」を全店舗で集計する。
+    入力: {"cards": [{"name": "カード名", "qty": int}, ...]} 最大50件
+    返却: {
+      "shops": [
+        {"shop": "店舗名", "total": 合計金額, "covered_qty": そろう枚数,
+         "covered_cards": そろうカード種類数, "total_qty": 全枚数,
+         "total_cards": 全カード種類数, "missing_cards": [カード名...],
+         "items": [{"name", "qty", "price"}, ...], "url": 検索URL},
+        ...
+      ],
+      "db_missing": [どの店舗にもデータが無かったカード名]
+    }
+    """
+    data = request.get_json(silent=True) or {}
+    cards_raw = data.get("cards", [])
+    if not isinstance(cards_raw, list):
+        return jsonify({"error": "cards は配列で指定してください"}), 400
+
+    _load_cardnames()
+    entries: list[dict] = []
+    seen = set()
+    for raw in cards_raw[:50]:
+        if not isinstance(raw, dict):
+            continue
+        name = str(raw.get("name", "")).strip()
+        if not name or len(name) > MAX_CARD_NAME_LEN:
+            continue
+        try:
+            qty = int(raw.get("qty", 1))
+        except (TypeError, ValueError):
+            qty = 1
+        if qty < 1:
+            continue
+        if qty > MAX_DECK_QTY:
+            qty = MAX_DECK_QTY
+        corrected = _correct_cardname(name)
+        if corrected in seen:
+            # 重複は枚数を加算
+            for e in entries:
+                if e["name"] == corrected:
+                    e["qty"] = min(e["qty"] + qty, MAX_DECK_QTY)
+                    break
+            continue
+        seen.add(corrected)
+        entries.append({"name": corrected, "qty": qty})
+
+    if not entries:
+        return jsonify({"shops": [], "db_missing": []})
+
+    names = [e["name"] for e in entries]
+    qty_map = {e["name"]: e["qty"] for e in entries}
+    total_qty = sum(qty_map.values())
+    total_cards = len(entries)
+
+    # 直近7日分の price_history を一括取得（販売店舗のみ／sold_out 概念は売り在庫履歴に無いので全行採用）
+    shop_prices: dict[str, dict[str, int]] = {}  # {card_name: {shop: min_price}}
+    if _supabase_client:
+        try:
+            cutoff = (datetime.now(JST) - timedelta(days=7)).strftime("%Y-%m-%d")
+            page_size = 1000
+            offset = 0
+            while True:
+                resp = (
+                    _supabase_client.table("price_history")
+                    .select("card_name, shop, min_price")
+                    .in_("card_name", names)
+                    .gte("recorded_at", cutoff)
+                    .range(offset, offset + page_size - 1)
+                    .execute()
+                )
+                batch = resp.data or []
+                for row in batch:
+                    name = row.get("card_name")
+                    shop = row.get("shop")
+                    price = row.get("min_price")
+                    if not name or not shop or price is None:
+                        continue
+                    cur = shop_prices.setdefault(name, {})
+                    if shop not in cur or price < cur[shop]:
+                        cur[shop] = price
+                if len(batch) < page_size:
+                    break
+                offset += page_size
+        except Exception as e:
+            logger.warning(f"[wish-shop-totals] 価格履歴取得失敗: {e}")
+
+    # 店舗ごとに集計（販売店舗のみ。買取系は対象外）
+    shop_summaries = []
+    for shop_name, _scrape_fn in SHOPS:
+        if shop_name not in DEFAULT_SHOPS:
+            continue  # 駿河屋などの非デフォルト店舗は除外
+        total = 0
+        covered_qty = 0
+        items_in_shop: list[dict] = []
+        missing_cards: list[str] = []
+        for entry in entries:
+            name = entry["name"]
+            qty = entry["qty"]
+            shops_for_card = shop_prices.get(name, {})
+            price = shops_for_card.get(shop_name)
+            if price is None:
+                missing_cards.append(name)
+            else:
+                total += price * qty
+                covered_qty += qty
+                items_in_shop.append({"name": name, "qty": qty, "price": price})
+        shop_summaries.append({
+            "shop": shop_name,
+            "total": total,
+            "covered_qty": covered_qty,
+            "covered_cards": len(items_in_shop),
+            "total_qty": total_qty,
+            "total_cards": total_cards,
+            "missing_cards": missing_cards,
+            "items": items_in_shop,
+            "url": _shop_search_url(shop_name, ""),
+        })
+
+    # 並び順: 全枚数そろう店舗を優先、その中で合計が安い順。
+    # データが一部しか無い店舗は covered_qty 降順 → total 昇順 で続ける。
+    def _sort_key(s):
+        full = s["covered_qty"] == total_qty
+        return (0 if full else 1, -s["covered_qty"], s["total"])
+    shop_summaries.sort(key=_sort_key)
+
+    # どの店舗でも見つからなかったカード = price_history に1件もなかったもの
+    db_missing = [n for n in names if n not in shop_prices]
+
+    return jsonify({"shops": shop_summaries, "db_missing": db_missing})
 
 
 @app.route("/api/buyback")
