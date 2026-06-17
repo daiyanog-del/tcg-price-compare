@@ -204,11 +204,31 @@ def _is_japanese_char(c: str) -> bool:
             or 0x4E00 <= cp <= 0x9FFF or 0x3400 <= cp <= 0x4DBF
             or 0xFF66 <= cp <= 0xFF9F or 0xFF10 <= cp <= 0xFF5A)
 
-def _has_japanese_outside_brackets(text: str) -> bool:
+def _is_alpha(c: str) -> bool:
+    """半角英字か（全角英字は normalize_width で半角化済みの前提）"""
+    return ("A" <= c <= "Z") or ("a" <= c <= "z")
+
+def _has_name_text_outside_brackets(text: str) -> bool:
+    """括弧外に日本語または英字が含まれるか。
+    マッチした基底名の前にこれらがある場合、基底名はより長い別カード名
+    （例: 'Sin 青眼の白龍' の 'Sin '、'SNo.39…' の 'S'）の一部とみなして除外する。
+    型番・レアリティ等の括弧注記は除去してから判定する。"""
     stripped = re.sub(
         r"〔[^〕]*〕|\([^)]*\)|\[[^\]]*\]|☆[^☆]*☆|「[^」]*」|『[^』]*』", "", text
     )
-    return any(_is_japanese_char(c) for c in stripped)
+    return any(_is_japanese_char(c) or _is_alpha(c) for c in stripped)
+
+# 基底名がぴったり括弧で包まれているか判定するための開き/閉じ括弧
+_OPEN_BRACKETS = "(（〔[「『【{《〈"
+_CLOSE_BRACKETS = ")）〕]」』】}》〉"
+
+def _is_exactly_bracketed(text: str, start: int, end: int) -> bool:
+    """マッチ範囲 [start:end) が直前=開き括弧・直後=閉じ括弧でぴったり包まれているか。
+    'BLUE EYES WHITE DRAGON(青眼の白龍)' の (青眼の白龍) のような併記注記を
+    同一カードとして許容するために、前方チェックを免除する条件として使う。"""
+    if start <= 0 or end >= len(text):
+        return False
+    return text[start - 1] in _OPEN_BRACKETS and text[end] in _CLOSE_BRACKETS
 
 _FLEX_SEP = r"[・\s　－\x2d:：]*"
 
@@ -240,14 +260,19 @@ def is_target_card(card_name: str, product_name: str) -> bool:
     flex_pattern = _build_flex_pattern(norm_card)
     for match in re.finditer(flex_pattern, norm_product):
         start, end = match.start(), match.end()
-        if start > 0 and _has_japanese_outside_brackets(norm_product[:start]):
+        # 前方に日本語/英字があれば別カード名の一部とみなして除外。
+        # ただし基底名がぴったり括弧で包まれている併記注記（例: '…(青眼の白龍)'）は許容する。
+        if (start > 0 and _has_name_text_outside_brackets(norm_product[:start])
+                and not _is_exactly_bracketed(norm_product, start, end)):
             continue
         if end < len(norm_product):
             nc = norm_product[end]
-            if _is_japanese_char(nc):
+            # 後方が日本語/英字なら別カード名の延長とみなして除外（例: 末尾 'ONE'）
+            if _is_japanese_char(nc) or _is_alpha(nc):
                 continue
             if nc in "・－-ー、,&" and end + 1 < len(norm_product):
-                if _is_japanese_char(norm_product[end + 1]):
+                nxt = norm_product[end + 1]
+                if _is_japanese_char(nxt) or _is_alpha(nxt):
                     continue
         return True
     return False
