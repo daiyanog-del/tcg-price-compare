@@ -615,7 +615,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 </script>
 <link rel="stylesheet" href="/static/css/self-watermark.css?v=20260611">
-<link rel="stylesheet" href="/static/mydeck/deck.css?v=20260615c">
+<link rel="stylesheet" href="/static/mydeck/deck.css?v=20260617">
 </head>
 <body{% if self_watermark %} data-self-wm style="--self-watermark-opacity: {{ self_watermark_opacity }}"{% endif %}>
 <div class="wrap">
@@ -977,6 +977,15 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 
         </div>
       </div>
+    </div>
+
+    <!-- カード情報ドロワー（右からスライドイン。一人回しの showCardByName を流用） -->
+    <div id="deckCardDrawer" class="deck-card-drawer" aria-hidden="true">
+      <div class="deck-card-drawer-backdrop" data-drawer-close></div>
+      <aside class="deck-card-drawer-panel" role="dialog" aria-modal="true" aria-label="カード情報">
+        <button type="button" class="deck-card-drawer-close" data-drawer-close aria-label="閉じる">&times;</button>
+        <div id="cardInfoPanel" class="cip-panel"><p class="cip-empty">カードをクリックすると詳細を表示</p></div>
+      </aside>
     </div>
   </div><!-- /mode-mydeck -->
 
@@ -3892,6 +3901,7 @@ loadWishPrices().then(wishUpdateBadge);
 updatePushUI(!!localStorage.getItem(PUSH_SUB_KEY));
 </script>
 <script src="/static/mydeck/deck-edit.js?v=20260615c"></script>
+<script type="module" src="/static/mydeck/deck-card-info.js?v=20260617"></script>
 <script type="module" src="/static/shared/neuron-pdf-entry.js"></script>
 <script type="module" src="/static/shared/neuron-url-entry.js"></script>
 </body>

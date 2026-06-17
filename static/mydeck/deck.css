@@ -253,3 +253,51 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
   .deck-panes:not(.show-tools) .deck-pane-tools{display:none}
   .deck-panes.show-tools .deck-pane-main{display:none}
 }
+
+/* ══ カード情報ドロワー（右からスライドイン） ══ */
+/* 一人回しの card-info-panel.js を流用。.cip-* は solitaire-brand.css の規則を
+   ドロワー（固定幅）向けに移植したもの。--slot-width 非依存・色は index.html の
+   テーマ変数に合わせて調整（solitaire の --main-color → --text）。 */
+/* 非モーダルの companion パネル: 背景dimはクリックを奪わない（deckを常時クリック可能に保ち、
+   開いたまま別カードへ差替できる）。閉じるのは × / ESC / パネル外クリック。 */
+.deck-card-drawer{position:fixed;inset:0;z-index:1000;pointer-events:none}
+.deck-card-drawer-backdrop{position:absolute;inset:0;background:rgba(6,11,28,.4);opacity:0;transition:opacity .22s ease;pointer-events:none}
+.deck-card-drawer-panel{
+  position:absolute;top:0;right:0;height:100%;width:360px;max-width:92vw;
+  background:var(--bg-card);border-left:1px solid var(--border);
+  box-shadow:-8px 0 28px rgba(0,0,0,.35);
+  transform:translateX(100%);transition:transform .24s cubic-bezier(.22,.61,.36,1);
+  display:flex;flex-direction:column;box-sizing:border-box;padding:14px 14px 16px;
+  pointer-events:auto
+}
+.deck-card-drawer.open .deck-card-drawer-backdrop{opacity:1}
+.deck-card-drawer.open .deck-card-drawer-panel{transform:translateX(0)}
+.deck-card-drawer-close{
+  align-self:flex-end;flex-shrink:0;width:30px;height:30px;margin-bottom:6px;
+  font-size:1.3rem;line-height:1;color:var(--text-m);background:0;border:0;
+  border-radius:6px;cursor:pointer;transition:background .15s,color .15s
+}
+.deck-card-drawer-close:hover{background:var(--bg-hover);color:var(--text)}
+
+/* ── カード詳細パネル本体（.cip-*） ── */
+.cip-panel{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px;color:var(--text);font-size:.82rem}
+.cip-empty{color:var(--text-d);font-size:.92rem;text-align:center;margin:auto 0;line-height:1.6}
+.cip-header{display:flex;gap:10px;align-items:flex-start;flex-shrink:0}
+.cip-img{width:74px;flex-shrink:0;border-radius:5px;object-fit:cover}
+.cip-meta{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.cip-name{font-size:.98rem;font-weight:700;color:var(--text);line-height:1.3;word-break:break-all;margin:0}
+.cip-type,.cip-attr{font-size:.8rem;color:var(--text-m);margin:0;line-height:1.35}
+.cip-stats{font-size:.86rem;color:var(--gold);margin:3px 0 0;font-family:var(--mono)}
+.cip-effect{font-size:.8rem;color:var(--text-m);line-height:1.6;border-top:1px solid var(--border);padding-top:8px;overflow-y:auto;flex:1;min-height:0}
+.cip-pendulum{flex:none}
+.cip-pendulum-label{display:block;font-weight:600;color:var(--text)}
+.cip-price{border-top:1px solid var(--border);padding-top:8px;flex-shrink:0;display:flex;flex-direction:column;gap:6px}
+.cip-price-val{font-size:.96rem;font-weight:600;font-family:var(--mono);color:var(--gold);margin:0;display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}
+.cip-price-shop{font-size:.78rem;color:var(--text-m);font-family:var(--font)}
+.cip-price-rarity{font-size:.78rem;color:var(--gold);font-family:var(--font);opacity:.85}
+.cip-price-none{color:var(--text-d);font-family:var(--font);font-size:.8rem}
+.cip-price-links{display:flex;gap:6px;flex-wrap:wrap}
+.cip-price-link{font-size:.8rem;color:var(--accent-l);text-decoration:none;padding:3px 9px;border:1px solid var(--border);border-radius:5px;transition:background .15s,border-color .15s;white-space:nowrap}
+.cip-price-link:hover{background:rgba(74,124,255,.12);border-color:var(--accent)}
+.cip-buy-link{color:var(--green)}
+.cip-buy-link:hover{background:rgba(52,211,153,.1);border-color:var(--green)}
