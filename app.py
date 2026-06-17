@@ -759,6 +759,9 @@ def api_search():
             cache_set(card_name, all_results)
             if all_results:
                 _record_search(card_name)
+                # 検索が成功したカードを収集対象に自動登録（次回 collect_prices で永続化）
+                if _supabase_client:
+                    Thread(target=_track_card_async, args=(card_name,), daemon=True).start()
         except Exception as e:
             logger.error(f"検索処理で予期しないエラー: {e}")
         finally:
@@ -811,6 +814,10 @@ def api_deck():
 
     # デッキ検索カードを収集対象候補として記録（人気ランキングには影響しない）
     _record_deck_search([e["name"] for e in card_entries])
+    # デッキ内カードを tracked_cards に自動登録（次回 collect_prices で永続化）。
+    # 既存登録は select で除外され insert されない＝冪等。fire-and-forget。
+    if _supabase_client:
+        Thread(target=_track_cards_async, args=([e["name"] for e in card_entries],), daemon=True).start()
 
     def _aggregate_per_shop(items: list) -> dict:
         """店舗別の最安値を {店舗名: {price, url, rarity, ...}} に集約する。
