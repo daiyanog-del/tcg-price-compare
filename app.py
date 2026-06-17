@@ -1491,16 +1491,20 @@ def api_wish_prices():
 @app.route("/api/wish-shop-totals", methods=["POST"])
 def api_wish_shop_totals():
     """購入候補リストを「1店舗でまとめ買いするといくらか」を全店舗で集計する。
-    入力: {"cards": [{"name": "カード名", "qty": int}, ...]} 最大50件
+    入力: {"cards": [{"name": str, "qty": int, "rarity": str?}, ...]} 最大50件
+       rarity 省略 or 空文字 = 全レアリティから最安（=「最安レアリティ」採用）
+       rarity 指定あり = 該当レアリティのみ集計（同名カードを別行として扱う）
     返却: {
       "shops": [
         {"shop": "店舗名", "total": 合計金額, "covered_qty": そろう枚数,
          "covered_cards": そろうカード種類数, "total_qty": 全枚数,
-         "total_cards": 全カード種類数, "missing_cards": [カード名...],
-         "items": [{"name", "qty", "price"}, ...], "url": 検索URL},
+         "total_cards": 全カード種類数,
+         "missing_cards": [{"name": str, "rarity": str}, ...],
+         "items": [{"name": str, "qty": int, "price": int, "rarity": str}, ...],
+         "url": 検索URL},
         ...
       ],
-      "db_missing": [どの店舗にもデータが無かったカード名]
+      "db_missing": [{"name": str, "rarity": str}, ...]
     }
     """
     data = request.get_json(silent=True) or {}
@@ -1510,7 +1514,8 @@ def api_wish_shop_totals():
 
     _load_cardnames()
     entries: list[dict] = []
-    seen = set()
+    # 重複統合キー: (corrected_name, normalized_rarity_or_empty)
+    seen: dict[tuple, int] = {}
     for raw in cards_raw[:50]:
         if not isinstance(raw, dict):
             continue
@@ -1525,27 +1530,29 @@ def api_wish_shop_totals():
             continue
         if qty > MAX_DECK_QTY:
             qty = MAX_DECK_QTY
+        rarity_raw = str(raw.get("rarity", "") or "").strip()
+        # フロントから受けた rarity も正準名へ統合（古いキャッシュ・表記揺れ対策）
+        rarity = normalize_rarity(rarity_raw) if rarity_raw else ""
         corrected = _correct_cardname(name)
-        if corrected in seen:
-            # 重複は枚数を加算
-            for e in entries:
-                if e["name"] == corrected:
-                    e["qty"] = min(e["qty"] + qty, MAX_DECK_QTY)
-                    break
+        key = (corrected, rarity)
+        if key in seen:
+            # 同名同レアリティは枚数を加算
+            idx = seen[key]
+            entries[idx]["qty"] = min(entries[idx]["qty"] + qty, MAX_DECK_QTY)
             continue
-        seen.add(corrected)
-        entries.append({"name": corrected, "qty": qty})
+        seen[key] = len(entries)
+        entries.append({"name": corrected, "qty": qty, "rarity": rarity})
 
     if not entries:
         return jsonify({"shops": [], "db_missing": []})
 
-    names = [e["name"] for e in entries]
-    qty_map = {e["name"]: e["qty"] for e in entries}
-    total_qty = sum(qty_map.values())
+    names = sorted({e["name"] for e in entries})
+    total_qty = sum(e["qty"] for e in entries)
     total_cards = len(entries)
 
     # 直近7日分の price_history を一括取得（販売店舗のみ／sold_out 概念は売り在庫履歴に無いので全行採用）
-    shop_prices: dict[str, dict[str, int]] = {}  # {card_name: {shop: min_price}}
+    # 構造: rows[card_name][shop][rarity] = min_price  ← rarity 別の最安値を保持
+    rows_by_card_shop_rarity: dict[str, dict[str, dict[str, int]]] = {}
     if _supabase_client:
         try:
             cutoff = (datetime.now(JST) - timedelta(days=7)).strftime("%Y-%m-%d")
@@ -1554,7 +1561,7 @@ def api_wish_shop_totals():
             while True:
                 resp = (
                     _supabase_client.table("price_history")
-                    .select("card_name, shop, min_price")
+                    .select("card_name, shop, rarity, min_price")
                     .in_("card_name", names)
                     .gte("recorded_at", cutoff)
                     .range(offset, offset + page_size - 1)
@@ -1567,14 +1574,33 @@ def api_wish_shop_totals():
                     price = row.get("min_price")
                     if not name or not shop or price is None:
                         continue
-                    cur = shop_prices.setdefault(name, {})
-                    if shop not in cur or price < cur[shop]:
-                        cur[shop] = price
+                    rarity_db = normalize_rarity(row.get("rarity", "") or "")
+                    by_shop = rows_by_card_shop_rarity.setdefault(name, {})
+                    by_rarity = by_shop.setdefault(shop, {})
+                    if rarity_db not in by_rarity or price < by_rarity[rarity_db]:
+                        by_rarity[rarity_db] = price
                 if len(batch) < page_size:
                     break
                 offset += page_size
         except Exception as e:
             logger.warning(f"[wish-shop-totals] 価格履歴取得失敗: {e}")
+
+    def _lookup_price_and_rarity(name: str, shop: str, rarity_pref: str):
+        """エントリと店舗から、その店舗の (採用価格, 採用レアリティ) を返す。
+        rarity_pref が空なら全レアリティの最安を採用。指定があるなら一致した行のみ。"""
+        by_shop = rows_by_card_shop_rarity.get(name, {})
+        by_rarity = by_shop.get(shop)
+        if not by_rarity:
+            return None, ""
+        if rarity_pref:
+            price = by_rarity.get(rarity_pref)
+            return (price, rarity_pref) if price is not None else (None, "")
+        # 未指定: 全レアリティ中の最安
+        chosen_rarity, chosen_price = "", None
+        for r, p in by_rarity.items():
+            if chosen_price is None or p < chosen_price:
+                chosen_rarity, chosen_price = r, p
+        return chosen_price, chosen_rarity
 
     # 店舗ごとに集計（販売店舗のみ。買取系は対象外）
     shop_summaries = []
@@ -1584,18 +1610,21 @@ def api_wish_shop_totals():
         total = 0
         covered_qty = 0
         items_in_shop: list[dict] = []
-        missing_cards: list[str] = []
+        missing_cards: list[dict] = []
         for entry in entries:
             name = entry["name"]
             qty = entry["qty"]
-            shops_for_card = shop_prices.get(name, {})
-            price = shops_for_card.get(shop_name)
+            rarity_pref = entry["rarity"]
+            price, used_rarity = _lookup_price_and_rarity(name, shop_name, rarity_pref)
             if price is None:
-                missing_cards.append(name)
+                missing_cards.append({"name": name, "rarity": rarity_pref})
             else:
                 total += price * qty
                 covered_qty += qty
-                items_in_shop.append({"name": name, "qty": qty, "price": price})
+                items_in_shop.append({
+                    "name": name, "qty": qty, "price": price,
+                    "rarity": used_rarity or rarity_pref,
+                })
         shop_summaries.append({
             "shop": shop_name,
             "total": total,
@@ -1615,10 +1644,90 @@ def api_wish_shop_totals():
         return (0 if full else 1, -s["covered_qty"], s["total"])
     shop_summaries.sort(key=_sort_key)
 
-    # どの店舗でも見つからなかったカード = price_history に1件もなかったもの
-    db_missing = [n for n in names if n not in shop_prices]
+    # db_missing: そのエントリの (name, rarity) で 1 店舗も値が得られなかったもの。
+    # 「カードが DB に1件もない」と「指定レアリティだけ無い」を区別したいので entry 単位で返す。
+    def _entry_has_any_data(entry: dict) -> bool:
+        name = entry["name"]
+        rarity_pref = entry["rarity"]
+        by_shop = rows_by_card_shop_rarity.get(name, {})
+        if not by_shop:
+            return False
+        if not rarity_pref:
+            return any(by_shop.values())
+        return any(rarity_pref in by_rarity for by_rarity in by_shop.values())
+
+    db_missing = [
+        {"name": e["name"], "rarity": e["rarity"]}
+        for e in entries if not _entry_has_any_data(e)
+    ]
 
     return jsonify({"shops": shop_summaries, "db_missing": db_missing})
+
+
+@app.route("/api/card-rarities", methods=["POST"])
+def api_card_rarities():
+    """指定カード名の直近7日に出現したレアリティ候補を返す。
+    入力: {"cards": ["カード名", ...]} 最大50件
+    返却: {"rarities": {"カード名": ["シークレット", "ノーマル", ...]}}
+       順序は出現件数の降順（UI のドロップダウンに頻出順で並べるため）。
+       DB が未設定 or 取得失敗の場合は空辞書で返す（UI 側で「候補なし」扱い）。
+    """
+    data = request.get_json(silent=True) or {}
+    cards_raw = data.get("cards", [])
+    if not isinstance(cards_raw, list):
+        return jsonify({"error": "cards は配列で指定してください"}), 400
+
+    _load_cardnames()
+    names: list[str] = []
+    seen = set()
+    for raw in cards_raw[:50]:
+        name = str(raw).strip()
+        if not name or len(name) > MAX_CARD_NAME_LEN:
+            continue
+        corrected = _correct_cardname(name)
+        if corrected in seen:
+            continue
+        seen.add(corrected)
+        names.append(corrected)
+    if not names:
+        return jsonify({"rarities": {}})
+
+    # 集計: rarity_counts[name][canonical_rarity] = 出現件数
+    rarity_counts: dict[str, dict[str, int]] = {}
+    if _supabase_client:
+        try:
+            cutoff = (datetime.now(JST) - timedelta(days=7)).strftime("%Y-%m-%d")
+            page_size = 1000
+            offset = 0
+            while True:
+                resp = (
+                    _supabase_client.table("price_history")
+                    .select("card_name, rarity")
+                    .in_("card_name", names)
+                    .gte("recorded_at", cutoff)
+                    .range(offset, offset + page_size - 1)
+                    .execute()
+                )
+                batch = resp.data or []
+                for row in batch:
+                    nm = row.get("card_name")
+                    r = normalize_rarity(row.get("rarity", "") or "")
+                    if not nm or not r:
+                        continue
+                    by_r = rarity_counts.setdefault(nm, {})
+                    by_r[r] = by_r.get(r, 0) + 1
+                if len(batch) < page_size:
+                    break
+                offset += page_size
+        except Exception as e:
+            logger.warning(f"[card-rarities] レアリティ候補取得失敗: {e}")
+
+    # 出現件数の降順、同数のときは正準名のアルファベット順で安定化
+    rarities = {
+        nm: [r for r, _cnt in sorted(by_r.items(), key=lambda kv: (-kv[1], kv[0]))]
+        for nm, by_r in rarity_counts.items()
+    }
+    return jsonify({"rarities": rarities})
 
 
 @app.route("/api/buyback")
