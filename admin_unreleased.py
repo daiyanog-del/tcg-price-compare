@@ -442,6 +442,68 @@ def _try_fetch_image_from_extraction(
     return False, "card_image_url も card_image_urls も空です"
 
 
+def _detect_card_bbox(image_bytes: bytes, mime: str) -> tuple[int, int, int, int] | None:
+    """
+    Vision（claude-haiku-4-5）でカード画像の領域を検出し、
+    (x1, y1, x2, y2) のピクセル座標を返す。
+    検出できない場合は None を返す。
+    """
+    import base64
+    import json
+    import anthropic
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return None
+
+    b64 = base64.standard_b64encode(image_bytes).decode()
+    media_type = mime if mime.startswith("image/") else "image/jpeg"
+
+    prompt = (
+        "この画像は遊戯王OCGの公式Xアカウントが投稿した販促画像です。"
+        "画像内に遊戯王カードが1枚写っています。"
+        "カード全体（枠線を含む）を囲む矩形領域のピクセル座標を返してください。\n\n"
+        "以下のJSON形式のみで回答してください。説明文は不要です。\n"
+        '{"x1": <左端>, "y1": <上端>, "x2": <右端>, "y2": <下端>}'
+    )
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=128,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": b64,
+                        },
+                    },
+                    {"type": "text", "text": prompt},
+                ],
+            }],
+        )
+        text = resp.content[0].text.strip()
+        # JSON ブロックがある場合は抽出
+        if "```" in text:
+            text = text.split("```")[1].lstrip("json").strip()
+        coords = json.loads(text)
+        x1 = int(coords["x1"])
+        y1 = int(coords["y1"])
+        x2 = int(coords["x2"])
+        y2 = int(coords["y2"])
+        if x2 > x1 and y2 > y1:
+            return x1, y1, x2, y2
+        return None
+    except Exception as e:
+        logger.warning(f"[admin] _detect_card_bbox 失敗: {e}")
+        return None
+
+
 def _fetch_and_store_image(
     card_id: int,
     image_url: str,
@@ -497,24 +559,30 @@ def _fetch_and_store_image(
     mime = content_type.split(";")[0].strip().lower()
     ext = ext_map.get(mime, "jpg")
 
-    # X の販促画像（pbs.twimg.com）は左半分（カード部分）に切り抜く
+    # X の販促画像（pbs.twimg.com）は Vision でカード領域を検出してクロップ
     from urllib.parse import urlparse as _urlparse
     if _urlparse(image_url).netloc == "pbs.twimg.com":
         try:
+            bbox = _detect_card_bbox(content, mime)
             from PIL import Image
             img = Image.open(io.BytesIO(content))
             w, h = img.size
-            cropped = img.crop((0, 0, w // 2, h))
+            if bbox:
+                x1, y1, x2, y2 = bbox
+                cropped = img.crop((x1, y1, x2, y2))
+                logger.info(f"[admin] Visionによるカード領域クロップ: ({x1},{y1})-({x2},{y2}) / 元サイズ {w}x{h}")
+            else:
+                # Vision が座標を返せなかった場合は左半分にフォールバック
+                cropped = img.crop((0, 0, w // 2, h))
+                logger.warning(f"[admin] Vision座標取得失敗、左半分にフォールバック: {w}x{h}")
             buf = io.BytesIO()
             pil_format = {"jpg": "JPEG", "png": "PNG", "webp": "WEBP"}.get(ext, "JPEG")
             cropped.save(buf, format=pil_format)
             content = buf.getvalue()
-            logger.info(f"[admin] X画像を左半分に切り抜き: {w}x{h} → {w//2}x{h}")
-            # 切り抜き後は必ずサイズ上限を再確認
             if len(content) > MAX_SIZE:
                 return False, f"切り抜き後も5MBを超えています: {len(content):,}バイト"
         except Exception as e:
-            logger.warning(f"[admin] X画像切り抜き失敗（元画像で保存）: {e}")
+            logger.warning(f"[admin] X画像クロップ失敗（元画像で保存）: {e}")
 
     # Storage パスを決定
     storage_path = f"unreleased/{card_id}.{ext}"
