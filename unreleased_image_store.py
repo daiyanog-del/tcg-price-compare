@@ -90,13 +90,15 @@ def crop_x_promo_image(image_bytes: bytes, mime: str) -> bytes:
     ratios = detect_card_bbox_vision(image_bytes, mime)
     if ratios:
         left, top, right, bottom = ratios
-        x1 = int(w * left)
+        # x2（右端）を Vision の right から決定し、x1 をアスペクト比で逆算する。
+        # Vision の left は余白を多く取りがちなので使わない。
         y1 = int(h * top)
         y2 = int(h * bottom)
-        # 右端はアスペクト比（59:86）で上書き（Visionのright精度が低いため）
         card_height = y2 - y1
-        x2 = min(w, x1 + int(card_height * 59 / 86))
-        logger.info(f"[image_store] Visionクロップ: ({x1},{y1})-({x2},{y2}) / 元 {w}x{h}")
+        card_width  = int(card_height * 59 / 86)
+        x2 = min(w, int(w * right))
+        x1 = max(0, x2 - card_width)
+        logger.info(f"[image_store] Visionクロップ（right起点）: ({x1},{y1})-({x2},{y2}) / 元 {w}x{h}")
     else:
         logger.warning(f"[image_store] Vision失敗、左半分フォールバック")
         x1, y1, x2, y2 = 0, 0, w // 2, h
