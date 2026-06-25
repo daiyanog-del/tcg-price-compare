@@ -1044,6 +1044,56 @@ document.getElementById('manual-form').addEventListener('submit', async (e) => {
 });
 
 // ──────────────────────────────────────────────
+// Xポスト取込タブ
+// ──────────────────────────────────────────────
+
+document.getElementById('x-fetch-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const resultEl = document.getElementById('x-fetch-result');
+  const btn = document.getElementById('x-fetch-btn');
+  resultEl.hidden = true;
+
+  const tweetUrl = document.getElementById('x-tweet-url').value.trim();
+  const force = document.getElementById('x-fetch-force').checked;
+
+  if (!tweetUrl) {
+    _showResult(resultEl, 'XポストURLを入力してください', 'error');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '処理中...';
+
+  try {
+    const resp = await apiFetch('/api/admin/unreleased/fetch-x-post', {
+      method: 'POST',
+      body: JSON.stringify({ tweet_url: tweetUrl, force }),
+    });
+    const data = await resp.json().catch(() => ({}));
+
+    if (resp.ok || resp.status === 201) {
+      if (data.skipped) {
+        _showResult(resultEl, `スキップ: ${data.reason}`, 'error');
+      } else if (data.inserted === 0) {
+        _showResult(resultEl, `抽出0件（SAMPLEウォーターマークなし、または既発売カードの可能性）${data.reason ? ` — ${data.reason}` : ''}`, 'error');
+      } else {
+        const names = (data.cards || []).map((c) => c.name).filter(Boolean).join('、');
+        _showResult(resultEl, `${data.inserted}件取り込みました: ${names || '（名前なし）'}`, 'ok');
+      }
+    } else {
+      _showResult(resultEl, data.error || '取り込みに失敗しました', 'error');
+    }
+  } catch (err) {
+    if (err.message !== '認証エラー') {
+      _showResult(resultEl, '通信エラーが発生しました', 'error');
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '取り込む';
+  }
+});
+
+// ──────────────────────────────────────────────
 // 設定タブ
 // ──────────────────────────────────────────────
 

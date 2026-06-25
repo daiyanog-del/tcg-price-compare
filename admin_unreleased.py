@@ -1033,3 +1033,145 @@ def admin_purge_image_domain():
     except Exception as e:
         logger.error(f"[admin] purge-domain エラー: {e}")
         return jsonify({"error": "一括削除に失敗しました"}), 500
+
+
+# ──────────────────────────────────────────────
+# POST /api/admin/unreleased/fetch-x-post — XポストURLから手動取り込み
+# ──────────────────────────────────────────────
+
+import re as _re
+
+_TWEET_ID_RE = _re.compile(r"/status/(\d+)")
+
+
+@admin_bp.route("/api/admin/unreleased/fetch-x-post", methods=["POST"])
+def admin_fetch_x_post():
+    """
+    X（Twitter）のポストURLを受け取り、カード情報を抽出してunreleased_cardsに登録する。
+    リクエストボディ: {"tweet_url": "https://x.com/YuGiOh_OCG_INFO/status/..."}
+
+    フィルタリングはwatch_x_unreleasedと同じロジック（◤◢チェック・重複チェック・Vision抽出）を適用する。
+    ただし管理者が明示的に指定したURLのため、重複チェックはスキップして強制実行するオプションも提供する。
+    リクエストボディ: {"tweet_url": "...", "force": false}
+      force=true: unreleased_cards 重複チェックをスキップしてVisionを強制実行
+    """
+    err = _require_admin_key()
+    if err:
+        return err
+
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+
+    body = request.get_json(silent=True) or {}
+    tweet_url = (body.get("tweet_url") or "").strip()
+    force = bool(body.get("force", False))
+
+    if not tweet_url:
+        return jsonify({"error": "tweet_url は必須です"}), 400
+
+    # tweet_id を抽出
+    m = _TWEET_ID_RE.search(tweet_url)
+    if not m:
+        return jsonify({"error": "tweet_url から tweet_id を取得できませんでした"}), 400
+    tweet_id = m.group(1)
+
+    # X_BEARER_TOKEN の確認
+    x_bearer_token = os.environ.get("X_BEARER_TOKEN", "")
+    if not x_bearer_token:
+        return jsonify({"error": "X_BEARER_TOKEN が未設定です"}), 503
+
+    # X API でツイートを取得
+    try:
+        import requests as _requests
+        resp = _requests.get(
+            f"https://api.twitter.com/2/tweets/{tweet_id}",
+            headers={"Authorization": f"Bearer {x_bearer_token}"},
+            params={
+                "expansions": "attachments.media_keys",
+                "media.fields": "url",
+                "tweet.fields": "text,attachments",
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        logger.error(f"[admin] X API ツイート取得失敗 id={tweet_id}: {e}")
+        return jsonify({"error": f"X API 取得失敗: {e}"}), 502
+
+    tweet_data = data.get("data")
+    if not tweet_data:
+        return jsonify({"error": "ツイートが見つかりません（削除済み or 非公開の可能性）"}), 404
+
+    tweet_text = tweet_data.get("text", "")
+
+    # media_key → URL のマップ
+    media_map: dict[str, str] = {}
+    for media in (data.get("includes") or {}).get("media", []):
+        key = media.get("media_key", "")
+        url = media.get("url", "")
+        if key and url:
+            media_map[key] = url
+
+    # ◤◢ パターンフィルタ（force=False のときのみチェック、forceでもログは残す）
+    from watch_x_unreleased import _CARD_NAME_RE
+    names = _CARD_NAME_RE.findall(tweet_text)
+    if not names and not force:
+        return jsonify({
+            "ok": False,
+            "skipped": True,
+            "reason": "◤◢ パターンが見つかりません。force=true で強制実行できます",
+        })
+
+    # 重複チェック（force=False のときのみ）
+    if not force and names:
+        from name_normalize import fuzzy_key
+        existing_resp = _supabase.table("unreleased_cards").select("name").execute()
+        existing_keys = {fuzzy_key(r["name"]) for r in (existing_resp.data or []) if r.get("name")}
+        if all(fuzzy_key(n) in existing_keys for n in names):
+            return jsonify({
+                "ok": False,
+                "skipped": True,
+                "reason": f"全カードが取込済みです: {names}。force=true で強制実行できます",
+            })
+
+    # 画像URL取得
+    media_keys = (tweet_data.get("attachments") or {}).get("media_keys", [])
+    image_urls = [media_map[k] for k in media_keys if k in media_map]
+    if not image_urls:
+        return jsonify({"error": "ツイートに画像が見つかりません"}), 400
+
+    # Vision 抽出
+    try:
+        from unreleased_extractor import extract_cards_from_tweet
+        card_rows = extract_cards_from_tweet(tweet_text, image_urls, tweet_url)
+    except Exception as e:
+        logger.error(f"[admin] Vision抽出失敗 {tweet_url}: {e}")
+        return jsonify({"error": f"Vision抽出失敗: {e}"}), 500
+
+    if not card_rows:
+        return jsonify({"ok": True, "inserted": 0, "cards": [], "reason": "SAMPLEウォーターマークなし（発売済みカードの可能性）"})
+
+    # upsert
+    inserted_cards = []
+    for row in card_rows:
+        try:
+            ins_resp = _supabase.table("unreleased_cards").upsert(
+                row,
+                on_conflict="name,product_name",
+                ignore_duplicates=True,
+            ).execute()
+            if ins_resp.data:
+                inserted_cards.extend(ins_resp.data)
+        except Exception as e:
+            logger.warning(f"[admin] fetch-x-post upsert失敗 ({row.get('name', '?')}): {e}")
+
+    if inserted_cards:
+        _card_display.invalidate_cache()
+
+    logger.info(f"[admin] fetch-x-post: {len(inserted_cards)}件挿入 ({tweet_url})")
+    return jsonify({
+        "ok": True,
+        "inserted": len(inserted_cards),
+        "cards": inserted_cards,
+    }), 201

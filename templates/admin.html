@@ -44,6 +44,7 @@
     <button class="tab-btn tab-btn--active" data-tab="pending">承認待ち</button>
     <button class="tab-btn" data-tab="approved">公開中</button>
     <button class="tab-btn" data-tab="manual">手動登録</button>
+    <button class="tab-btn" data-tab="x-fetch">Xポスト取込</button>
     <button class="tab-btn" data-tab="settings">設定</button>
   </nav>
 
@@ -166,6 +167,30 @@
         <button type="submit" class="btn btn-primary">登録する（承認待ちに追加）</button>
       </div>
       <p id="manual-result" class="form-result" hidden></p>
+    </form>
+  </section>
+
+  <!-- ──── Xポスト取込タブ ──── -->
+  <section id="tab-x-fetch" class="tab-section" hidden>
+    <div class="section-header">
+      <h2 class="section-title">XポストURL取り込み</h2>
+    </div>
+    <form id="x-fetch-form" class="manual-form">
+      <div class="form-row">
+        <label class="form-label" for="x-tweet-url">XポストURL</label>
+        <input class="form-input" id="x-tweet-url" type="url"
+          placeholder="https://x.com/YuGiOh_OCG_INFO/status/..." required>
+      </div>
+      <div class="form-row">
+        <label class="form-label" style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+          <input type="checkbox" id="x-fetch-force">
+          強制実行（重複・◤◢チェックをスキップ）
+        </label>
+      </div>
+      <div class="form-row">
+        <button type="submit" class="btn btn-primary" id="x-fetch-btn">取り込む</button>
+      </div>
+      <p id="x-fetch-result" class="form-result" hidden></p>
     </form>
   </section>
 

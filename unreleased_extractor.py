@@ -584,6 +584,28 @@ def _build_text_message(processed_text: str) -> list[dict]:
 
 
 # ──────────────────────────────────────────────
+# X ポスト用システムプロンプト
+# ──────────────────────────────────────────────
+
+_SYSTEM_PROMPT_X = """\
+あなたは遊戯王OCGの新カード情報をXのポスト画像から正確に抽出するアシスタントです。
+
+## 画像の構造について
+
+添付された画像は遊戯王OCG公式アカウント（@YuGiOh_OCG_INFO）のプロモーション画像です。
+多くの場合、**画像の左半分にカード**、右半分にパックのロゴ・ボックス画像が配置されています。
+カード部分のみを読み取り、右半分のパック宣材は参考情報として扱ってください。
+
+- カードに「SAMPLE」ウォーターマークが入っている → 未発売カード
+- カードに「SAMPLE」がない → 既発売カードの可能性あり（is_rush 判定に注意）
+- カード名・効果文・ステータスはカード画像内に焼き込まれています
+
+## 抽出ルール
+
+""" + _SYSTEM_PROMPT[_SYSTEM_PROMPT.index("## 抽出ルール"):]
+
+
+# ──────────────────────────────────────────────
 # 公開関数
 # ──────────────────────────────────────────────
 
@@ -786,4 +808,137 @@ def extract_cards_from_html(html: str, page_url: str = "") -> list[dict]:
             f"[Extractor] ラッシュデュエル除外: {rush_skipped}件 ({page_url!r})"
         )
     logger.info(f"[Extractor] 有効カード数（検証後）: {len(output_rows)}件 ({page_url!r})")
+    return output_rows
+
+
+def extract_cards_from_tweet(
+    tweet_text: str,
+    image_urls: list[str],
+    tweet_url: str = "",
+) -> list[dict]:
+    """Xポストの画像からカード情報を抽出する（extract_cards_from_html のX版）。
+
+    HTMLパースなし。image_urls を直接受け取り Vision で抽出する。
+    プロモーション画像（左がカード・右がパックロゴ）に対応したシステムプロンプトを使用。
+
+    Args:
+        tweet_text: ポスト本文（パック名・カード名のコンテキストとして使用）
+        image_urls: ポストに添付された画像URLリスト（pbs.twimg.com）
+        tweet_url:  ポストURL（ログ・source_url 用）
+
+    Returns:
+        unreleased_cards テーブル形式の dict リスト。
+    """
+    try:
+        from anthropic import Anthropic
+    except ImportError as e:
+        raise ImportError(
+            "anthropic パッケージが必要です。pip install anthropic でインストールしてください。"
+        ) from e
+
+    ExtractedCard, ExtractionResult = _get_pydantic_models()
+
+    # 画像枚数上限チェック
+    urls_to_use = image_urls[:_MAX_IMAGES]
+    if len(image_urls) > _MAX_IMAGES:
+        logger.warning(
+            f"[Extractor] X画像枚数超過: {len(image_urls)}枚 → {_MAX_IMAGES}枚に切り捨て"
+        )
+
+    # 画像ダウンロード（fetch_guard 経由 pbs.twimg.com）
+    encoded_images = _download_and_encode_images(urls_to_use)
+    if not encoded_images:
+        logger.warning(f"[Extractor] X全画像取得失敗: {tweet_url!r}")
+        return []
+
+    # ポスト本文をコンテキストとして付加
+    context_text = (
+        f"[ポストURL: {tweet_url}]\n\n"
+        f"[ポスト本文]\n{tweet_text}"
+    )
+
+    message_content = _build_vision_message(context_text, encoded_images)
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise ValueError("環境変数 ANTHROPIC_API_KEY が設定されていません。")
+
+    client = Anthropic(api_key=api_key)
+
+    logger.info(
+        f"[Extractor] X Vision 抽出開始 "
+        f"(model={EXTRACTOR_MODEL}, images={len(encoded_images)}枚): {tweet_url!r}"
+    )
+    try:
+        message = client.messages.create(
+            model=EXTRACTOR_MODEL,
+            max_tokens=_MAX_TOKENS,
+            system=_SYSTEM_PROMPT_X,
+            messages=[{"role": "user", "content": message_content}],
+        )
+    except Exception as e:
+        logger.error(f"[Extractor] Claude API エラー（X）: {e} ({tweet_url!r})")
+        raise
+
+    raw_text = "".join(
+        block.text for block in message.content if hasattr(block, "text")
+    )
+
+    logger.info(
+        f"[Extractor] X Claude 応答: "
+        f"入力={message.usage.input_tokens}tok, 出力={message.usage.output_tokens}tok"
+    )
+
+    import json
+    json_text = re.sub(r"```(?:json)?\s*", "", raw_text).strip()
+    json_text = re.sub(r"```\s*$", "", json_text).strip()
+
+    try:
+        raw_data = json.loads(json_text)
+    except json.JSONDecodeError as e:
+        logger.error(
+            f"[Extractor] X JSON パースエラー: {e}\n"
+            f"  生レスポンス（先頭200文字）: {raw_text[:200]!r}"
+        )
+        return []
+
+    try:
+        result = ExtractionResult.model_validate(raw_data)
+    except Exception as e:
+        logger.error(f"[Extractor] X Pydantic バリデーションエラー: {e}")
+        return []
+
+    logger.info(f"[Extractor] X 抽出カード数（生）: {len(result.cards)}件 ({tweet_url!r})")
+
+    used_image_urls = [img["url"] for img in encoded_images]
+
+    output_rows = []
+    rush_skipped = 0
+    for card in result.cards:
+        if getattr(card, "is_rush", False):
+            rush_skipped += 1
+            logger.info(f"[Extractor] X ラッシュデュエルのため除外: {card.name!r}")
+            continue
+
+        row = _validate_and_fix(card, tweet_url)
+        if row is None:
+            continue
+
+        individual_image_url = row.pop("image_url", "")
+        row["extraction_raw"] = {
+            "raw_response": raw_text,
+            "image_urls": card.image_urls,
+            "card_image_urls": used_image_urls,
+            "card_image_url": individual_image_url,
+            "model": EXTRACTOR_MODEL,
+            "input_tokens": message.usage.input_tokens,
+            "output_tokens": message.usage.output_tokens,
+            "vision_mode": True,
+            "source": "x_tweet",
+        }
+        output_rows.append(row)
+
+    if rush_skipped:
+        logger.info(f"[Extractor] X ラッシュ除外: {rush_skipped}件 ({tweet_url!r})")
+    logger.info(f"[Extractor] X 有効カード数（検証後）: {len(output_rows)}件 ({tweet_url!r})")
     return output_rows

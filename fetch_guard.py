@@ -43,6 +43,10 @@ except ImportError:  # pragma: no cover
 ALLOWED_HOSTS: frozenset = frozenset({
     "www.yu-gi-oh.jp",
     "yu-gi-oh.jp",
+    # X（旧Twitter）の画像CDN。watch_x_unreleased でカード画像を取得するために追加。
+    # pbs.twimg.com は公開CDNのため TLS フィンガープリント偽装は不要だが、
+    # curl_cffi 経由でも問題なく動作する。
+    "pbs.twimg.com",
 })
 
 # ホストごとのパスプレフィックス制約（リストにないホストは全パス可）
