@@ -40,11 +40,12 @@ def detect_card_bbox(image_bytes: bytes, mime: str) -> tuple[int, int, int, int]
     media_type = mime if mime.startswith("image/") else "image/jpeg"
 
     prompt = (
-        "この画像は遊戯王OCGの公式Xアカウントが投稿した販促画像です。"
-        "画像内に遊戯王カードが1枚写っています。"
-        "カード全体（枠線を含む）を囲む矩形領域のピクセル座標を返してください。\n\n"
+        "この画像は遊戯王OCGの公式Xアカウントが投稿した販促画像です。\n"
+        "画像の左側に遊戯王カードが1枚写っています。\n"
+        "カードの外枠（黒い枠線）の外側ギリギリを囲む矩形のピクセル座標を教えてください。\n"
+        "座標は切り落とし方向ではなく、やや広めに取ってください（枠線が確実に入るように）。\n\n"
         "以下のJSON形式のみで回答してください。説明文は不要です。\n"
-        '{"x1": <左端>, "y1": <上端>, "x2": <右端>, "y2": <下端>}'
+        '{"x1": <左端px>, "y1": <上端px>, "x2": <右端px>, "y2": <下端px>}'
     )
 
     try:
@@ -93,8 +94,14 @@ def crop_x_promo_image(image_bytes: bytes, mime: str) -> bytes:
 
     if bbox:
         x1, y1, x2, y2 = bbox
+        # 座標誤差の吸収のため 8px パディングを追加（画像範囲内でクランプ）
+        PAD = 8
+        x1 = max(0, x1 - PAD)
+        y1 = max(0, y1 - PAD)
+        x2 = min(w, x2 + PAD)
+        y2 = min(h, y2 + PAD)
         cropped = img.crop((x1, y1, x2, y2))
-        logger.info(f"[image_store] Vision クロップ: ({x1},{y1})-({x2},{y2}) / 元 {w}x{h}")
+        logger.info(f"[image_store] Vision クロップ（パディング込み）: ({x1},{y1})-({x2},{y2}) / 元 {w}x{h}")
     else:
         cropped = img.crop((0, 0, w // 2, h))
         logger.warning(f"[image_store] フォールバック左半分クロップ: {w}x{h}")
