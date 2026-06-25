@@ -42,10 +42,11 @@ def detect_card_bbox_vision(image_bytes: bytes, mime: str) -> tuple[float, float
     prompt = (
         "この画像は遊戯王OCGの公式Xアカウントが投稿した販促画像です。\n"
         "画像の左側に遊戯王カード1枚が写っています。\n\n"
-        "カード全体（外枠の端から端まで）が画像のどの位置にあるか、"
-        "画像の幅・高さを 1.0 とした割合（0.0〜1.0）で答えてください。\n"
-        "例：カードが左端から10%、上端から5%、右端から55%、下端から5%の位置にある場合:\n"
-        '{"left": 0.10, "top": 0.05, "right": 0.55, "bottom": 0.95}\n\n'
+        "カードの外枠（一番外側の縁）の位置を、画像の幅・高さを 1.0 とした割合で答えてください。\n"
+        "余白を入れず、カードの枠線の外側ギリギリを指定してください。\n"
+        "特に left（左端）は背景とカード枠線の境界を正確に指定してください。\n\n"
+        "例：\n"
+        '{"left": 0.08, "top": 0.03, "right": 0.58, "bottom": 0.97}\n\n'
         "JSONのみ返してください。説明文は不要です。"
     )
 
@@ -90,15 +91,13 @@ def crop_x_promo_image(image_bytes: bytes, mime: str) -> bytes:
     ratios = detect_card_bbox_vision(image_bytes, mime)
     if ratios:
         left, top, right, bottom = ratios
-        # x2（右端）を Vision の right から決定し、x1 をアスペクト比で逆算する。
-        # Vision の left は余白を多く取りがちなので使わない。
+        # left を起点に x1 を決定し、x2 はアスペクト比（59:86）で算出する。
+        x1 = int(w * left)
         y1 = int(h * top)
         y2 = int(h * bottom)
         card_height = y2 - y1
-        card_width  = int(card_height * 59 / 86)
-        x2 = min(w, int(w * right))
-        x1 = max(0, x2 - card_width)
-        logger.info(f"[image_store] Visionクロップ（right起点）: ({x1},{y1})-({x2},{y2}) / 元 {w}x{h}")
+        x2 = min(w, x1 + int(card_height * 59 / 86))
+        logger.info(f"[image_store] Visionクロップ（left起点）: ({x1},{y1})-({x2},{y2}) / 元 {w}x{h}")
     else:
         logger.warning(f"[image_store] Vision失敗、左半分フォールバック")
         x1, y1, x2, y2 = 0, 0, w // 2, h
