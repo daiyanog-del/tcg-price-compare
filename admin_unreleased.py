@@ -417,6 +417,9 @@ def _try_fetch_image_from_extraction(
     """
     extraction_raw からこのカード個別の画像URLを決定して取り込む。
 
+    X カード（source_domain="x.com"）は取り込み時点で画像保存済みのため、
+    official_card_images に既存レコードがあればスキップする。
+
     URL の決定順:
       1. card_image_url（各カード固有の画像URL・新形式）があればそれを使う
       2. なければ card_image_urls（記事全体の画像URL一覧）の先頭を使う（後方互換）
@@ -424,6 +427,24 @@ def _try_fetch_image_from_extraction(
     Returns:
         (成功フラグ, 理由文字列)
     """
+    if not _supabase:
+        return False, "Supabase 未接続"
+
+    # 既存の画像レコードがあればスキップ（X取り込み時に保存済み）
+    try:
+        existing = (
+            _supabase.table("official_card_images")
+            .select("id")
+            .eq("unreleased_card_id", card_id)
+            .is_("deleted_at", "null")
+            .execute()
+        )
+        if existing.data:
+            logger.info(f"[admin] 画像取込済みのためスキップ: card_id={card_id}")
+            return True, "取込済み（スキップ）"
+    except Exception as e:
+        logger.warning(f"[admin] 既存画像確認失敗（処理継続）: {e}")
+
     # 優先1: card_image_url（各カード固有・新形式）
     card_image_url = (extraction_raw.get("card_image_url") or "").strip()
     if card_image_url:
@@ -440,68 +461,6 @@ def _try_fetch_image_from_extraction(
         return _fetch_and_store_image(card_id, fallback_url, source_url)
 
     return False, "card_image_url も card_image_urls も空です"
-
-
-def _detect_card_bbox(image_bytes: bytes, mime: str) -> tuple[int, int, int, int] | None:
-    """
-    Vision（claude-haiku-4-5）でカード画像の領域を検出し、
-    (x1, y1, x2, y2) のピクセル座標を返す。
-    検出できない場合は None を返す。
-    """
-    import base64
-    import json
-    import anthropic
-
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        return None
-
-    b64 = base64.standard_b64encode(image_bytes).decode()
-    media_type = mime if mime.startswith("image/") else "image/jpeg"
-
-    prompt = (
-        "この画像は遊戯王OCGの公式Xアカウントが投稿した販促画像です。"
-        "画像内に遊戯王カードが1枚写っています。"
-        "カード全体（枠線を含む）を囲む矩形領域のピクセル座標を返してください。\n\n"
-        "以下のJSON形式のみで回答してください。説明文は不要です。\n"
-        '{"x1": <左端>, "y1": <上端>, "x2": <右端>, "y2": <下端>}'
-    )
-
-    try:
-        client = anthropic.Anthropic(api_key=api_key)
-        resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=128,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": b64,
-                        },
-                    },
-                    {"type": "text", "text": prompt},
-                ],
-            }],
-        )
-        text = resp.content[0].text.strip()
-        # JSON ブロックがある場合は抽出
-        if "```" in text:
-            text = text.split("```")[1].lstrip("json").strip()
-        coords = json.loads(text)
-        x1 = int(coords["x1"])
-        y1 = int(coords["y1"])
-        x2 = int(coords["x2"])
-        y2 = int(coords["y2"])
-        if x2 > x1 and y2 > y1:
-            return x1, y1, x2, y2
-        return None
-    except Exception as e:
-        logger.warning(f"[admin] _detect_card_bbox 失敗: {e}")
-        return None
 
 
 def _fetch_and_store_image(
@@ -558,31 +517,6 @@ def _fetch_and_store_image(
     }
     mime = content_type.split(";")[0].strip().lower()
     ext = ext_map.get(mime, "jpg")
-
-    # X の販促画像（pbs.twimg.com）は Vision でカード領域を検出してクロップ
-    from urllib.parse import urlparse as _urlparse
-    if _urlparse(image_url).netloc == "pbs.twimg.com":
-        try:
-            bbox = _detect_card_bbox(content, mime)
-            from PIL import Image
-            img = Image.open(io.BytesIO(content))
-            w, h = img.size
-            if bbox:
-                x1, y1, x2, y2 = bbox
-                cropped = img.crop((x1, y1, x2, y2))
-                logger.info(f"[admin] Visionによるカード領域クロップ: ({x1},{y1})-({x2},{y2}) / 元サイズ {w}x{h}")
-            else:
-                # Vision が座標を返せなかった場合は左半分にフォールバック
-                cropped = img.crop((0, 0, w // 2, h))
-                logger.warning(f"[admin] Vision座標取得失敗、左半分にフォールバック: {w}x{h}")
-            buf = io.BytesIO()
-            pil_format = {"jpg": "JPEG", "png": "PNG", "webp": "WEBP"}.get(ext, "JPEG")
-            cropped.save(buf, format=pil_format)
-            content = buf.getvalue()
-            if len(content) > MAX_SIZE:
-                return False, f"切り抜き後も5MBを超えています: {len(content):,}バイト"
-        except Exception as e:
-            logger.warning(f"[admin] X画像クロップ失敗（元画像で保存）: {e}")
 
     # Storage パスを決定
     storage_path = f"unreleased/{card_id}.{ext}"
@@ -1255,6 +1189,18 @@ def admin_fetch_x_post():
 
     if inserted_cards:
         _card_display.invalidate_cache()
+        # 取り込み時点で即座に画像をクロップ・保存（管理画面で承認前に確認できるようにする）
+        from unreleased_image_store import ingest_x_card_image
+        for card in inserted_cards:
+            cid = card.get("id")
+            raw = card.get("extraction_raw") or {}
+            img_url = (raw.get("card_image_url") or "").strip()
+            if not img_url:
+                img_urls = raw.get("card_image_urls") or []
+                img_url = img_urls[0] if img_urls else ""
+            if cid and img_url:
+                ok, reason = ingest_x_card_image(_supabase, cid, img_url, tweet_url)
+                logger.info(f"[admin] fetch-x-post 画像保存: card_id={cid}, ok={ok}, reason={reason!r}")
 
     logger.info(f"[admin] fetch-x-post: {len(inserted_cards)}件挿入 ({tweet_url})")
     return jsonify({
