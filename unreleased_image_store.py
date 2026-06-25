@@ -25,26 +25,39 @@ _STORAGE_BUCKET = "official-card-images"
 
 def _detect_card_right_edge(arr, h: int, w: int) -> int:
     """
-    画像の水平輝度勾配を計算し、カードと背景の境界列（右端 x2）を返す。
+    画像の右端付近のサンプル色を基準に、右から左へスキャンして
+    「背景ではなくなる最初の列」= カード右端を返す。
 
-    カードは左側にあり、右側の販促背景との間に強い色変化がある。
-    画像幅の 30〜70% の範囲でのみ境界を探す（カード右端はこの範囲に必ずある）。
+    - 右端 10% 領域の平均色 = 背景色
+    - 右→左へ走査し、列の平均色が背景色から大きく外れた列を右端とする
+    - 30〜70% の範囲のみ対象
     """
     import numpy as np
 
-    # 上下 20〜80% の中央帯で計算（上下端のノイズを除く）
-    mid = arr[int(h * 0.2):int(h * 0.8)]
-    gray = mid.mean(axis=2).astype(float) if mid.ndim == 3 else mid.astype(float)
+    mid = arr[int(h * 0.1):int(h * 0.9)]  # 上下 10% を除く中央帯
+    rgb = mid.astype(float) if mid.ndim == 3 else np.stack([mid]*3, axis=2).astype(float)
 
-    # 隣接列の輝度差の絶対値 → 強い縦エッジが境界列
-    col_grad = abs(gray[:, 1:] - gray[:, :-1]).mean(axis=0)
+    # 右端 10% の平均色 = 確実に背景の色
+    bg_sample = rgb[:, int(w * 0.9):, :]
+    bg_color = bg_sample.mean(axis=(0, 1))   # shape (3,)
+    bg_std   = bg_sample.std(axis=(0, 1)).mean()
+    # 背景との「異なり度」の閾値（背景の標準偏差の 3 倍 or 最低 20）
+    threshold = max(20.0, bg_std * 3)
 
     search_start = int(w * 0.30)
     search_end   = int(w * 0.70)
-    best_local = int(col_grad[search_start:search_end].argmax())
-    x2 = search_start + best_local + 1  # diff で 1 列分ずれるため +1
-    logger.info(f"[image_store] カード右端検出: x2={x2} (画像幅 {w}px)")
-    return x2
+
+    # 右→左へ走査：背景色から外れた最も右の列を見つける
+    for x in range(search_end, search_start, -1):
+        col_mean = rgb[:, x, :].mean(axis=0)
+        diff = float(abs(col_mean - bg_color).mean())
+        if diff > threshold:
+            logger.info(f"[image_store] カード右端検出: x2={x} (diff={diff:.1f}, thresh={threshold:.1f})")
+            return x
+
+    # 見つからなかった場合は画像幅の 50% をデフォルトに
+    logger.warning(f"[image_store] カード右端を検出できず、50%をデフォルト使用")
+    return int(w * 0.50)
 
 
 def crop_x_promo_image(image_bytes: bytes, mime: str) -> bytes:
