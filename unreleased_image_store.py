@@ -94,14 +94,18 @@ def crop_x_promo_image(image_bytes: bytes, mime: str) -> bytes:
 
     if bbox:
         x1, y1, x2, y2 = bbox
-        # 座標誤差の吸収のため 8px パディングを追加（画像範囲内でクランプ）
+        # 上下（y1/y2）は Vision の値を基準にパディングを加える
         PAD = 8
         x1 = max(0, x1 - PAD)
         y1 = max(0, y1 - PAD)
-        x2 = min(w, x2 + PAD)
         y2 = min(h, y2 + PAD)
+        # 右端（x2）は Vision の値ではなくカードのアスペクト比（59:86）から算出する
+        # → Vision の x2 精度が低くても枠が正確に収まる
+        card_height = y2 - y1
+        x2_from_ratio = x1 + int(card_height * 59 / 86)
+        x2 = min(w, x2_from_ratio)
         cropped = img.crop((x1, y1, x2, y2))
-        logger.info(f"[image_store] Vision クロップ（パディング込み）: ({x1},{y1})-({x2},{y2}) / 元 {w}x{h}")
+        logger.info(f"[image_store] Vision クロップ（アスペクト比補正）: ({x1},{y1})-({x2},{y2}) / 元 {w}x{h}")
     else:
         cropped = img.crop((0, 0, w // 2, h))
         logger.warning(f"[image_store] フォールバック左半分クロップ: {w}x{h}")
