@@ -511,6 +511,11 @@ function _renderPendingList(listEl, cards) {
     // 抽出元画像があればそれを、無ければプロキシ表示を初期表示にする
     _setActiveMedia(editForm, hasSource ? 'source' : 'proxy');
 
+    // 抽出元画像がある場合のみクロップUIを配線
+    if (hasSource) {
+      _setupCropUI(card.id, editForm);
+    }
+
     // プレビュー初期描画
     const slot = editForm.querySelector('.edit-preview__slot');
     _renderPreview(slot, card);
@@ -1042,6 +1047,144 @@ document.getElementById('manual-form').addEventListener('submit', async (e) => {
     }
   }
 });
+
+// ──────────────────────────────────────────────
+// クロップUI
+// ──────────────────────────────────────────────
+
+/**
+ * 承認待ちカード行のクロップUIを配線する。
+ * 「クロップ」ボタン → ドラッグ選択 → 「確定」で API 呼び出し → 画像リロード。
+ * @param {number} cardId
+ * @param {HTMLElement} editForm  .card-row__edit-form
+ */
+function _setupCropUI(cardId, editForm) {
+  const cropBtn     = editForm.querySelector('.crop-btn');
+  const cropPanel   = editForm.querySelector('.crop-panel');
+  if (!cropBtn || !cropPanel) return;
+
+  const previewImg  = cropPanel.querySelector('.crop-preview-img');
+  const overlay     = cropPanel.querySelector('.crop-overlay');
+  const selEl       = cropPanel.querySelector('.crop-selection');
+  const confirmBtn  = cropPanel.querySelector('.crop-confirm-btn');
+  const cancelBtn   = cropPanel.querySelector('.crop-cancel-btn');
+  const resultEl    = cropPanel.querySelector('.crop-result');
+
+  let dragging = false;
+  let startX = 0, startY = 0;
+  let sel = null; // {left, top, right, bottom} (0.0〜1.0)
+
+  // クロップボタン → パネル表示
+  cropBtn.addEventListener('click', () => {
+    const imgEl = editForm.querySelector('.edit-source-image__img');
+    const src = imgEl ? imgEl.getAttribute('src') : '';
+    if (!src) return;
+    previewImg.src = src;
+    sel = null;
+    selEl.hidden = true;
+    confirmBtn.disabled = true;
+    resultEl.hidden = true;
+    cropPanel.hidden = false;
+  });
+
+  cancelBtn.addEventListener('click', () => {
+    cropPanel.hidden = true;
+  });
+
+  // overlay 上の座標を 0.0〜1.0 の割合で取得
+  function _relPos(e) {
+    const rect = overlay.getBoundingClientRect();
+    const cx = (e.touches ? e.touches[0].clientX : e.clientX);
+    const cy = (e.touches ? e.touches[0].clientY : e.clientY);
+    return {
+      x: Math.max(0, Math.min(1, (cx - rect.left) / rect.width)),
+      y: Math.max(0, Math.min(1, (cy - rect.top) / rect.height)),
+    };
+  }
+
+  function _updateSelEl() {
+    if (!sel) return;
+    selEl.style.left   = `${sel.left   * 100}%`;
+    selEl.style.top    = `${sel.top    * 100}%`;
+    selEl.style.width  = `${(sel.right  - sel.left) * 100}%`;
+    selEl.style.height = `${(sel.bottom - sel.top)  * 100}%`;
+    selEl.hidden = false;
+  }
+
+  overlay.addEventListener('mousedown', (e) => {
+    const pos = _relPos(e);
+    startX = pos.x; startY = pos.y;
+    dragging = true;
+    confirmBtn.disabled = true;
+    e.preventDefault();
+  });
+
+  // document レベルで動かすことで、ドラッグ中に overlay 外にはみ出しても追従する
+  function _onMouseMove(e) {
+    if (!dragging) return;
+    const pos = _relPos(e);
+    sel = {
+      left:   Math.min(startX, pos.x),
+      top:    Math.min(startY, pos.y),
+      right:  Math.max(startX, pos.x),
+      bottom: Math.max(startY, pos.y),
+    };
+    _updateSelEl();
+  }
+
+  function _onMouseUp() {
+    if (!dragging) return;
+    dragging = false;
+    if (sel && (sel.right - sel.left) > 0.02 && (sel.bottom - sel.top) > 0.02) {
+      confirmBtn.disabled = false;
+    }
+  }
+
+  document.addEventListener('mousemove', _onMouseMove);
+  document.addEventListener('mouseup',   _onMouseUp);
+
+  confirmBtn.addEventListener('click', async () => {
+    if (!sel) return;
+    confirmBtn.disabled = true;
+    const origText = confirmBtn.textContent;
+    confirmBtn.textContent = '処理中...';
+
+    try {
+      const resp = await apiFetch(`/api/admin/unreleased/${cardId}/crop-image`, {
+        method: 'POST',
+        body: JSON.stringify(sel),
+      });
+      const data = await resp.json().catch(() => ({}));
+
+      if (resp.ok && data.ok) {
+        _showResult(resultEl, 'クロップしました', 'ok');
+        // 確定したクロップ後の画像で img を更新（キャッシュバスター付き URL を使う）
+        const newUrl = data.new_url || '';
+        const imgEl  = editForm.querySelector('.edit-source-image__img');
+        if (imgEl) {
+          const base = (newUrl || imgEl.getAttribute('src') || '').split('?')[0];
+          const busted = `${base}?t=${Date.now()}`;
+          imgEl.src = busted;
+          const linkEl = editForm.querySelector('.edit-source-image__link');
+          if (linkEl) linkEl.href = busted;
+        }
+        sel = null;
+        selEl.hidden = true;
+        cropPanel.hidden = true;
+      } else {
+        _showResult(resultEl, data.error || 'クロップに失敗しました', 'error');
+        confirmBtn.disabled = false;
+      }
+    } catch (e) {
+      if (e.message !== '認証エラー') {
+        _showResult(resultEl, '通信エラーが発生しました', 'error');
+      }
+      confirmBtn.disabled = false;
+    } finally {
+      confirmBtn.textContent = origText;
+    }
+  });
+}
 
 // ──────────────────────────────────────────────
 // Xポスト取込タブ

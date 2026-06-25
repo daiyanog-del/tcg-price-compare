@@ -1065,6 +1065,46 @@ import re as _re
 _TWEET_ID_RE = _re.compile(r"/status/(\d+)")
 
 
+# ──────────────────────────────────────────────
+# POST /api/admin/unreleased/<id>/crop-image — 画像クロップ
+# ──────────────────────────────────────────────
+
+@admin_bp.route("/api/admin/unreleased/<int:card_id>/crop-image", methods=["POST"])
+def admin_crop_image(card_id: int):
+    """
+    保存済み画像を指定割合でクロップし直す。
+    リクエストボディ: {"left": 0.05, "top": 0.02, "right": 0.55, "bottom": 0.98}
+    （画像全体を 1.0 とした割合）
+    クロップ後の画像で Storage を上書きし、管理画面のプレビューURLを返す。
+    """
+    err = _require_admin_key()
+    if err:
+        return err
+
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+
+    body = request.get_json(silent=True) or {}
+    try:
+        left   = float(body["left"])
+        top    = float(body["top"])
+        right  = float(body["right"])
+        bottom = float(body["bottom"])
+    except (KeyError, TypeError, ValueError):
+        return jsonify({"error": "left/top/right/bottom を 0.0〜1.0 の数値で指定してください"}), 400
+
+    if not (0 <= left < right <= 1 and 0 <= top < bottom <= 1):
+        return jsonify({"error": "クロップ範囲が不正です（left < right、top < bottom を満たす必要があります）"}), 400
+
+    from unreleased_image_store import crop_and_save_image
+    ok, result = crop_and_save_image(_supabase, card_id, left, top, right, bottom)
+    if ok:
+        _card_display.invalidate_cache()
+        return jsonify({"ok": True, "new_url": result})
+    else:
+        return jsonify({"ok": False, "error": result}), 422
+
+
 @admin_bp.route("/api/admin/unreleased/fetch-x-post", methods=["POST"])
 def admin_fetch_x_post():
     """

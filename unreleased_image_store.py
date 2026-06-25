@@ -229,3 +229,92 @@ def ingest_x_card_image(
 
     logger.info(f"[image_store] 画像保存完了: card_id={card_id}, path={storage_path!r}")
     return True, f"取込成功: {storage_path}"
+
+
+def crop_and_save_image(
+    sb: Client,
+    card_id: int,
+    left: float,
+    top: float,
+    right: float,
+    bottom: float,
+) -> tuple[bool, str]:
+    """
+    保存済み画像を指定割合でクロップし直してStorageを上書きする。
+    left/top/right/bottom は画像全体を 1.0 とした割合（0.0〜1.0）。
+    """
+    # 現在のStorage URLと保存パスを取得
+    try:
+        rec = (
+            sb.table("official_card_images")
+            .select("id, storage_path, public_url")
+            .eq("unreleased_card_id", card_id)
+            .is_("deleted_at", "null")
+            .execute()
+        )
+        if not rec.data:
+            return False, "画像レコードが見つかりません"
+        row = rec.data[0]
+        storage_path = row.get("storage_path", "")
+        public_url = row.get("public_url", "")
+    except Exception as e:
+        return False, f"DB参照失敗: {e}"
+
+    if not public_url:
+        return False, "Storage URLが登録されていません"
+
+    # 現在の保存済み画像をダウンロード
+    try:
+        resp = requests.get(public_url, timeout=30)
+        resp.raise_for_status()
+        raw_bytes = resp.content
+    except Exception as e:
+        return False, f"画像取得失敗: {e}"
+
+    content_type = resp.headers.get("Content-Type", "image/jpeg")
+    mime = content_type.split(";")[0].strip().lower()
+    if not mime.startswith("image/"):
+        mime = "image/jpeg"
+
+    # クロップ
+    try:
+        img = Image.open(io.BytesIO(raw_bytes))
+        w, h = img.size
+        x1 = int(w * left)
+        y1 = int(h * top)
+        x2 = int(w * right)
+        y2 = int(h * bottom)
+        cropped = img.crop((x1, y1, x2, y2))
+        ext = mime.split("/")[-1].upper()
+        pil_fmt = {"JPEG": "JPEG", "JPG": "JPEG", "PNG": "PNG", "WEBP": "WEBP"}.get(ext, "JPEG")
+        buf = io.BytesIO()
+        cropped.save(buf, format=pil_fmt)
+        image_bytes = buf.getvalue()
+    except Exception as e:
+        return False, f"クロップ失敗: {e}"
+
+    # Storage に上書き保存
+    try:
+        sb.storage.from_(_STORAGE_BUCKET).upload(
+            path=storage_path,
+            file=image_bytes,
+            file_options={"content-type": mime, "upsert": "true"},
+        )
+    except Exception as e:
+        return False, f"Storage保存失敗: {e}"
+
+    # extraction_raw.card_image_url を更新（キャッシュバスター付きURLで管理画面プレビューをリフレッシュ）
+    from datetime import datetime, timezone
+    bust = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    cache_busted_url = f"{public_url.split('?')[0]}?t={bust}"
+    try:
+        card_resp = sb.table("unreleased_cards").select("extraction_raw").eq("id", card_id).execute()
+        if card_resp.data:
+            raw = card_resp.data[0].get("extraction_raw") or {}
+            raw["card_image_url"] = cache_busted_url
+            sb.table("unreleased_cards").update({"extraction_raw": raw}).eq("id", card_id).execute()
+    except Exception as e:
+        logger.warning(f"[image_store] extraction_raw 更新失敗（無視）: {e}")
+
+    logger.info(f"[image_store] クロップ再保存完了: card_id={card_id}, path={storage_path!r}")
+    return True, cache_busted_url
