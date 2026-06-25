@@ -497,6 +497,25 @@ def _fetch_and_store_image(
     mime = content_type.split(";")[0].strip().lower()
     ext = ext_map.get(mime, "jpg")
 
+    # X の販促画像（pbs.twimg.com）は左半分（カード部分）に切り抜く
+    from urllib.parse import urlparse as _urlparse
+    if _urlparse(image_url).netloc == "pbs.twimg.com":
+        try:
+            from PIL import Image
+            img = Image.open(io.BytesIO(content))
+            w, h = img.size
+            cropped = img.crop((0, 0, w // 2, h))
+            buf = io.BytesIO()
+            pil_format = {"jpg": "JPEG", "png": "PNG", "webp": "WEBP"}.get(ext, "JPEG")
+            cropped.save(buf, format=pil_format)
+            content = buf.getvalue()
+            logger.info(f"[admin] X画像を左半分に切り抜き: {w}x{h} → {w//2}x{h}")
+            # 切り抜き後は必ずサイズ上限を再確認
+            if len(content) > MAX_SIZE:
+                return False, f"切り抜き後も5MBを超えています: {len(content):,}バイト"
+        except Exception as e:
+            logger.warning(f"[admin] X画像切り抜き失敗（元画像で保存）: {e}")
+
     # Storage パスを決定
     storage_path = f"unreleased/{card_id}.{ext}"
 
