@@ -193,10 +193,18 @@ def crop_and_save_image(
     except Exception as e:
         return False, f"Storage保存失敗: {e}"
 
-    # extraction_raw.card_image_url をキャッシュバスター付き URL で更新
+    # キャッシュバスター付き URL を生成（Supabase CDN が古い画像をキャッシュしているため）
     bust = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     base_url = (public_url or "").split("?")[0]
     cache_busted_url = f"{base_url}?t={bust}"
+
+    # official_card_images.public_url を更新（公開中カードリストが参照するURL）
+    try:
+        sb.table("official_card_images").update({"public_url": cache_busted_url}).eq("unreleased_card_id", card_id).is_("deleted_at", "null").execute()
+    except Exception as e:
+        logger.warning(f"[image_store] official_card_images.public_url 更新失敗（無視）: {e}")
+
+    # extraction_raw.card_image_url も更新（管理画面プレビュー用）
     try:
         card_resp = sb.table("unreleased_cards").select("extraction_raw").eq("id", card_id).execute()
         if card_resp.data:
