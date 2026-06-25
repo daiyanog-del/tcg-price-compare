@@ -1,16 +1,15 @@
 """
 unreleased_image_store.py — X投稿画像のクロップ・Storage保存
 
-Vision（claude-haiku-4-5）でカード領域座標を検出し、
-Pillow でクロップして Supabase Storage に保存する。
+numpy で水平輝度勾配を計算してカードと背景の境界（右端）を検出し、
+アスペクト比（59:86）からカード領域を決定して Pillow でクロップする。
+Vision API は使用しない。
 
 admin_unreleased.py と watch_x_unreleased.py の両方から使用する。
 Flask に依存しないため、Cron スクリプトからも安全にインポートできる。
 """
 
-import base64
 import io
-import json
 import logging
 import os
 from urllib.parse import urlparse
@@ -24,97 +23,72 @@ logger = logging.getLogger(__name__)
 _STORAGE_BUCKET = "official-card-images"
 
 
-def detect_card_bbox(image_bytes: bytes, mime: str) -> tuple[int, int, int, int] | None:
+def _detect_card_right_edge(arr, h: int, w: int) -> int:
     """
-    Vision（claude-haiku-4-5）で販促画像内のカード領域を検出する。
-    Returns: (x1, y1, x2, y2) または None
+    画像の水平輝度勾配を計算し、カードと背景の境界列（右端 x2）を返す。
+
+    カードは左側にあり、右側の販促背景との間に強い色変化がある。
+    画像幅の 30〜70% の範囲でのみ境界を探す（カード右端はこの範囲に必ずある）。
     """
-    import anthropic
+    import numpy as np
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        logger.warning("[image_store] ANTHROPIC_API_KEY 未設定")
-        return None
+    # 上下 20〜80% の中央帯で計算（上下端のノイズを除く）
+    mid = arr[int(h * 0.2):int(h * 0.8)]
+    gray = mid.mean(axis=2).astype(float) if mid.ndim == 3 else mid.astype(float)
 
-    b64 = base64.standard_b64encode(image_bytes).decode()
-    media_type = mime if mime.startswith("image/") else "image/jpeg"
+    # 隣接列の輝度差の絶対値 → 強い縦エッジが境界列
+    col_grad = abs(gray[:, 1:] - gray[:, :-1]).mean(axis=0)
 
-    prompt = (
-        "この画像は遊戯王OCGの公式Xアカウントが投稿した販促画像です。\n"
-        "画像の左側に遊戯王カードが1枚写っています。\n"
-        "カードの外枠（黒い枠線）の外側ギリギリを囲む矩形のピクセル座標を教えてください。\n"
-        "座標は切り落とし方向ではなく、やや広めに取ってください（枠線が確実に入るように）。\n\n"
-        "以下のJSON形式のみで回答してください。説明文は不要です。\n"
-        '{"x1": <左端px>, "y1": <上端px>, "x2": <右端px>, "y2": <下端px>}'
-    )
-
-    try:
-        client = anthropic.Anthropic(api_key=api_key)
-        resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=128,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": b64,
-                        },
-                    },
-                    {"type": "text", "text": prompt},
-                ],
-            }],
-        )
-        text = resp.content[0].text.strip()
-        if "```" in text:
-            text = text.split("```")[1].lstrip("json").strip()
-        coords = json.loads(text)
-        x1, y1, x2, y2 = int(coords["x1"]), int(coords["y1"]), int(coords["x2"]), int(coords["y2"])
-        if x2 > x1 and y2 > y1:
-            logger.info(f"[image_store] カード座標検出: ({x1},{y1})-({x2},{y2})")
-            return x1, y1, x2, y2
-        return None
-    except Exception as e:
-        logger.warning(f"[image_store] detect_card_bbox 失敗: {e}")
-        return None
+    search_start = int(w * 0.30)
+    search_end   = int(w * 0.70)
+    best_local = int(col_grad[search_start:search_end].argmax())
+    x2 = search_start + best_local + 1  # diff で 1 列分ずれるため +1
+    logger.info(f"[image_store] カード右端検出: x2={x2} (画像幅 {w}px)")
+    return x2
 
 
 def crop_x_promo_image(image_bytes: bytes, mime: str) -> bytes:
     """
     X 販促画像をカード領域にクロップする。
-    Vision で座標を検出できた場合はその座標で、失敗時は左半分にフォールバック。
-    Returns: クロップ済み画像バイト列
+
+    手順:
+      1. 水平輝度勾配でカード右端（x2）を検出
+      2. アスペクト比（59:86）からカード幅を算出 → x1 を決定
+      3. 上下は画像高さの 1% マージンのみ（y1=1%, y2=99%）
     """
-    bbox = detect_card_bbox(image_bytes, mime)
+    import numpy as np
+
     img = Image.open(io.BytesIO(image_bytes))
     w, h = img.size
+    arr = _to_numpy(img)
 
-    if bbox:
-        x1, y1, x2, y2 = bbox
-        # Vision の座標誤差を吸収するパディング
-        # 上端は特に内側を指しやすいので画像高さの 3%（最低 20px）取る
-        PAD_TOP = max(20, int(h * 0.03))
-        PAD_OTHER = max(8, int(h * 0.01))
-        x1 = max(0, x1 - PAD_OTHER)
-        y1 = max(0, y1 - PAD_TOP)
-        y2 = min(h, y2 + PAD_OTHER)
-        # 右端（x2）はアスペクト比（59:86）から算出（Vision の x2 精度が低いため）
-        card_height = y2 - y1
-        x2 = min(w, x1 + int(card_height * 59 / 86))
-        cropped = img.crop((x1, y1, x2, y2))
-        logger.info(f"[image_store] Vision クロップ（上PAD={PAD_TOP}px）: ({x1},{y1})-({x2},{y2}) / 元 {w}x{h}")
-    else:
-        cropped = img.crop((0, 0, w // 2, h))
-        logger.warning(f"[image_store] フォールバック左半分クロップ: {w}x{h}")
+    try:
+        x2 = _detect_card_right_edge(arr, h, w)
+    except Exception as e:
+        logger.warning(f"[image_store] 右端検出失敗、左半分でフォールバック: {e}")
+        x2 = w // 2
+
+    y1 = int(h * 0.01)
+    y2 = int(h * 0.99)
+    card_height = y2 - y1
+    card_width  = int(card_height * 59 / 86)
+    x1 = max(0, x2 - card_width)
+    x2 = min(w, x1 + card_width)
+
+    logger.info(f"[image_store] クロップ領域: ({x1},{y1})-({x2},{y2}) / 元 {w}x{h}")
+    cropped = img.crop((x1, y1, x2, y2))
 
     ext = mime.split("/")[-1].upper()
     pil_fmt = {"JPEG": "JPEG", "JPG": "JPEG", "PNG": "PNG", "WEBP": "WEBP"}.get(ext, "JPEG")
     buf = io.BytesIO()
     cropped.save(buf, format=pil_fmt)
     return buf.getvalue()
+
+
+def _to_numpy(img: Image.Image):
+    """PIL Image を numpy 配列に変換する（numpy 遅延インポート）"""
+    import numpy as np
+    return np.array(img)
 
 
 def ingest_x_card_image(
@@ -128,7 +102,7 @@ def ingest_x_card_image(
     official_card_images に INSERT する。
 
     成功時は unreleased_cards.extraction_raw.card_image_url を
-    Storage の public URL に更新する（管理画面でクロップ済み画像を表示するため）。
+    Storage の public URL に更新する（管理画面で承認前にクロップ済み画像を表示するため）。
 
     Returns: (成功フラグ, 理由文字列)
     """
@@ -155,7 +129,6 @@ def ingest_x_card_image(
     except Exception as e:
         return False, f"画像取得失敗: {e}"
 
-    # Content-Type 確認
     content_type = resp.headers.get("Content-Type", "image/jpeg")
     mime = content_type.split(";")[0].strip().lower()
     if not mime.startswith("image/"):
@@ -171,12 +144,10 @@ def ingest_x_card_image(
     else:
         image_bytes = raw_bytes
 
-    # サイズ上限（5MB）
     MAX_SIZE = 5 * 1024 * 1024
     if len(image_bytes) > MAX_SIZE:
         return False, f"画像サイズ超過: {len(image_bytes):,}バイト（上限5MB）"
 
-    # 拡張子
     ext_map = {"image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png",
                "image/gif": "gif", "image/webp": "webp"}
     ext = ext_map.get(mime, "jpg")
