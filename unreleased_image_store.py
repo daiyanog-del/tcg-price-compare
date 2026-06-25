@@ -91,18 +91,25 @@ def crop_x_promo_image(image_bytes: bytes, mime: str) -> bytes:
     ratios = detect_card_bbox_vision(image_bytes, mime)
     if ratios:
         left, top, right, bottom = ratios
-        # Vision は系統的に余白を多く取るため、内側に補正する
-        TRIM = 0.025  # 2.5% ずつ内側にずらす
-        left   = min(left   + TRIM, 0.5)
-        top    = min(top    + TRIM, 0.5)
-        bottom = max(bottom - TRIM, 0.5)
+        # Vision は系統的に余白を多く取るため辺ごとに内側へ補正する。
+        # 値は Vision の癖に合わせて個別調整する（0.0〜0.1 程度が目安）。
+        TRIM_LEFT   = 0.025
+        TRIM_TOP    = 0.025
+        TRIM_BOTTOM = 0.025
+        left   = min(left   + TRIM_LEFT,   0.5)
+        top    = min(top    + TRIM_TOP,    0.5)
+        bottom = max(bottom - TRIM_BOTTOM, 0.5)
         # left を起点に x1 を決定し、x2 はアスペクト比（59:86）で算出する。
         x1 = int(w * left)
         y1 = int(h * top)
         y2 = int(h * bottom)
         card_height = y2 - y1
         x2 = min(w, x1 + int(card_height * 59 / 86))
-        logger.info(f"[image_store] Visionクロップ（TRIM={TRIM}）: ({x1},{y1})-({x2},{y2}) / 元 {w}x{h}")
+        logger.info(
+            f"[image_store] Visionクロップ "
+            f"(L+{TRIM_LEFT} T+{TRIM_TOP} B-{TRIM_BOTTOM}): "
+            f"({x1},{y1})-({x2},{y2}) / 元 {w}x{h}"
+        )
     else:
         logger.warning(f"[image_store] Vision失敗、左半分フォールバック")
         x1, y1, x2, y2 = 0, 0, w // 2, h
