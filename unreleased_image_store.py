@@ -23,85 +23,91 @@ logger = logging.getLogger(__name__)
 _STORAGE_BUCKET = "official-card-images"
 
 
-def _detect_card_right_edge(arr, h: int, w: int) -> int:
+def detect_card_bbox_vision(image_bytes: bytes, mime: str) -> tuple[float, float, float, float] | None:
     """
-    画像の右端付近のサンプル色を基準に、右から左へスキャンして
-    「背景ではなくなる最初の列」= カード右端を返す。
-
-    - 右端 10% 領域の平均色 = 背景色
-    - 右→左へ走査し、列の平均色が背景色から大きく外れた列を右端とする
-    - 30〜70% の範囲のみ対象
+    Vision（claude-sonnet-4-6）でカード領域を割合（0.0〜1.0）で取得する。
+    Returns: (left, top, right, bottom) の割合、または None
     """
-    import numpy as np
+    import base64
+    import json
+    import anthropic
 
-    mid = arr[int(h * 0.1):int(h * 0.9)]  # 上下 10% を除く中央帯
-    rgb = mid.astype(float) if mid.ndim == 3 else np.stack([mid]*3, axis=2).astype(float)
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return None
 
-    # 右端 10% の平均色 = 確実に背景の色
-    bg_sample = rgb[:, int(w * 0.9):, :]
-    bg_color = bg_sample.mean(axis=(0, 1))   # shape (3,)
-    bg_std   = bg_sample.std(axis=(0, 1)).mean()
-    # 背景との「異なり度」の閾値（背景の標準偏差の 3 倍 or 最低 20）
-    threshold = max(20.0, bg_std * 3)
+    b64 = base64.standard_b64encode(image_bytes).decode()
+    media_type = mime if mime.startswith("image/") else "image/jpeg"
 
-    search_start = int(w * 0.30)
-    search_end   = int(w * 0.70)
+    prompt = (
+        "この画像は遊戯王OCGの公式Xアカウントが投稿した販促画像です。\n"
+        "画像の左側に遊戯王カード1枚が写っています。\n\n"
+        "カード全体（外枠の端から端まで）が画像のどの位置にあるか、"
+        "画像の幅・高さを 1.0 とした割合（0.0〜1.0）で答えてください。\n"
+        "例：カードが左端から10%、上端から5%、右端から55%、下端から5%の位置にある場合:\n"
+        '{"left": 0.10, "top": 0.05, "right": 0.55, "bottom": 0.95}\n\n'
+        "JSONのみ返してください。説明文は不要です。"
+    )
 
-    # 右→左へ走査：背景色から外れた最も右の列を見つける
-    for x in range(search_end, search_start, -1):
-        col_mean = rgb[:, x, :].mean(axis=0)
-        diff = float(abs(col_mean - bg_color).mean())
-        if diff > threshold:
-            logger.info(f"[image_store] カード右端検出: x2={x} (diff={diff:.1f}, thresh={threshold:.1f})")
-            return x
-
-    # 見つからなかった場合は画像幅の 50% をデフォルトに
-    logger.warning(f"[image_store] カード右端を検出できず、50%をデフォルト使用")
-    return int(w * 0.50)
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        resp = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=128,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}},
+                    {"type": "text", "text": prompt},
+                ],
+            }],
+        )
+        text = resp.content[0].text.strip()
+        if "```" in text:
+            text = text.split("```")[1].lstrip("json").strip()
+        c = json.loads(text)
+        left, top, right, bottom = float(c["left"]), float(c["top"]), float(c["right"]), float(c["bottom"])
+        if 0 <= left < right <= 1 and 0 <= top < bottom <= 1:
+            logger.info(f"[image_store] Vision割合検出: left={left}, top={top}, right={right}, bottom={bottom}")
+            return left, top, right, bottom
+        return None
+    except Exception as e:
+        logger.warning(f"[image_store] Vision割合検出失敗: {e}")
+        return None
 
 
 def crop_x_promo_image(image_bytes: bytes, mime: str) -> bytes:
     """
     X 販促画像をカード領域にクロップする。
 
-    手順:
-      1. 水平輝度勾配でカード右端（x2）を検出
-      2. アスペクト比（59:86）からカード幅を算出 → x1 を決定
-      3. 上下は画像高さの 1% マージンのみ（y1=1%, y2=99%）
+    Vision（sonnet-4-6）でカード領域を割合で取得し、
+    右端はアスペクト比（59:86）で補正する。
+    Vision失敗時は左半分にフォールバック。
     """
-    import numpy as np
-
     img = Image.open(io.BytesIO(image_bytes))
     w, h = img.size
-    arr = _to_numpy(img)
 
-    try:
-        x2 = _detect_card_right_edge(arr, h, w)
-    except Exception as e:
-        logger.warning(f"[image_store] 右端検出失敗、左半分でフォールバック: {e}")
-        x2 = w // 2
+    ratios = detect_card_bbox_vision(image_bytes, mime)
+    if ratios:
+        left, top, right, bottom = ratios
+        x1 = int(w * left)
+        y1 = int(h * top)
+        y2 = int(h * bottom)
+        # 右端はアスペクト比（59:86）で上書き（Visionのright精度が低いため）
+        card_height = y2 - y1
+        x2 = min(w, x1 + int(card_height * 59 / 86))
+        logger.info(f"[image_store] Visionクロップ: ({x1},{y1})-({x2},{y2}) / 元 {w}x{h}")
+    else:
+        logger.warning(f"[image_store] Vision失敗、左半分フォールバック")
+        x1, y1, x2, y2 = 0, 0, w // 2, h
 
-    y1 = int(h * 0.01)
-    y2 = int(h * 0.99)
-    card_height = y2 - y1
-    card_width  = int(card_height * 59 / 86)
-    x1 = max(0, x2 - card_width)
-    x2 = min(w, x1 + card_width)
-
-    logger.info(f"[image_store] クロップ領域: ({x1},{y1})-({x2},{y2}) / 元 {w}x{h}")
     cropped = img.crop((x1, y1, x2, y2))
-
     ext = mime.split("/")[-1].upper()
     pil_fmt = {"JPEG": "JPEG", "JPG": "JPEG", "PNG": "PNG", "WEBP": "WEBP"}.get(ext, "JPEG")
     buf = io.BytesIO()
     cropped.save(buf, format=pil_fmt)
     return buf.getvalue()
 
-
-def _to_numpy(img: Image.Image):
-    """PIL Image を numpy 配列に変換する（numpy 遅延インポート）"""
-    import numpy as np
-    return np.array(img)
 
 
 def ingest_x_card_image(
