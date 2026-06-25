@@ -1448,10 +1448,91 @@ function _applyKonamiLink(kid){
   }
 }
 
+// 価格関連セクションの表示/非表示を切り替える（未発売カードは価格テーブル等を隠す）
+function _setPriceSectionsVisible(visible){
+  ['priceChart','sumCards','rarityFilter','p-all','p-rarity'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.style.display=visible?'':'none';
+  });
+  const controls=document.querySelector('#results .controls');
+  if(controls) controls.style.display=visible?'':'none';
+}
+
+// 未発売カードを価格検索せずカード情報のみ表示する
+function showUnreleasedCard(name){
+  const btn=document.getElementById('btn');
+  if(btn){btn.disabled=false;btn.textContent='検索';}
+  const prog=document.getElementById('prog');
+  if(prog) prog.style.display='none';
+  document.getElementById('q').value=name;
+  _updateUrl(name,'search');
+
+  // 前回の検索結果をクリア
+  cardImgUrl='';cardImgSmall='';D=[];
+
+  document.getElementById('empty').classList.add('hidden');
+  document.getElementById('results').classList.remove('hidden');
+  _setPriceSectionsVisible(false); // 価格テーブル等を隠す
+
+  const hero=document.getElementById('cardHero');
+  hero.classList.remove('hidden');
+  document.getElementById('heroImgWrap').innerHTML='<div style="width:140px;height:204px;background:var(--bg-card)"></div>';
+  const heroInfo=document.getElementById('heroInfo');
+  heroInfo.innerHTML=`<div class="card-hero-name">${esc(name)} <span class="pack-unreleased-badge">発売前</span></div>
+    <div class="card-hero-meta">
+      <span style="color:var(--text-m)">このカードはまだ発売前のため、販売価格情報はありません。</span>
+    </div>
+    <div id="cardDetail" class="card-detail"></div>
+    <div class="share-btns">
+      <button onclick="addToDeck('${escJs(name)}')" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ デッキに追加</button>
+      <button onclick="wishAddFromBtn(this,'${escJs(name)}',1)" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ 購入候補に追加</button>
+    </div>`;
+
+  // 画像（公式SAMPLE or プロキシ）
+  fetch('/api/card-image?name='+encodeURIComponent(name))
+    .then(r=>r.json())
+    .then(data=>{
+      if(data.url&&safeUrl(data.url)){
+        cardImgUrl=safeUrl(data.url);cardImgSmall=cardImgUrl;
+        _applyCardImages(cardImgUrl,cardImgSmall,data.source);
+      }
+    })
+    .catch(()=>{});
+  // カード情報（効果テキスト等）— proxy 対応
+  _fetchCardInfo(name);
+}
+
+// 未発売カードの proxy データからカード情報パネルを描画する
+function _renderProxyDetail(p){
+  const det=document.getElementById('cardDetail');
+  if(!det) return;
+  let html='<div class="card-detail-meta">';
+  if(p.broad_type==='monster'){
+    const lvl=p.link_val!=null?`LINK-${p.link_val}`:p.rank!=null?`ランク${p.rank}`:(p.level!=null?`Lv${p.level}`:'');
+    const scale=p.pendulum_scale!=null?`スケール${p.pendulum_scale}`:'';
+    const statParts=[p.attribute,p.race,lvl,scale].filter(Boolean);
+    const def=p.link_val!=null?'':` / DEF ${p.def||'-'}`;
+    let statLine=`<span class="cdm-type">${esc(p.card_type||'')}</span>`;
+    if(statParts.length) statLine+=` ${statParts.map(esc).join(' · ')}`;
+    statLine+=` ATK ${p.atk??'-'}${def}`;
+    html+=`<div class="cdm-row cdm-sub"><span>${statLine}</span></div>`;
+  } else {
+    html+=`<div class="cdm-row">${esc(p.card_type||'')}</div>`;
+  }
+  html+='</div>';
+  if(p.pendulum_effect) html+=`<div class="card-detail-effect"><span class="card-detail-pendulum-label">【ペンデュラム効果】</span>${esc(p.pendulum_effect)}</div>`;
+  if(p.effect_text) html+=`<div class="card-detail-effect">${esc(p.effect_text)}</div>`;
+  const meta=[p.product_name,p.release_date].filter(Boolean).join(' / ');
+  if(meta) html+=`<div class="card-detail-print" style="margin-top:6px">${esc(meta)}</div>`;
+  det.innerHTML=html;
+}
+
 function _fetchCardInfo(cardName){
   fetch('/api/card-info?name='+encodeURIComponent(cardName))
     .then(r=>r.json())
     .then(data=>{
+      // 未発売カード（proxy）は専用描画。found:false でもカード情報を表示する
+      if(data.kind==='proxy'&&data.proxy){_renderProxyDetail(data.proxy);return;}
       if(!data.found){fetchCardImage(cardName);return;}
       if(data.konami_id) _applyKonamiLink(data.konami_id);
       const det=document.getElementById('cardDetail');
@@ -1570,6 +1651,8 @@ function doSearch(opts){
         btn.disabled=false;btn.textContent='検索';
         if(d.valid){
           document.getElementById('q').value=d.name;
+          // 未発売カードは価格検索せず、カード情報のみ表示する
+          if(d.unreleased){showUnreleasedCard(d.name);return;}
           doSearch({validated:true});
         }else if(d.suggestion){
           if(confirm('もしかして: '+d.suggestion+'\n\nこのカード名で検索しますか?')){
@@ -1595,6 +1678,8 @@ function doSearch(opts){
   btn.disabled=true;btn.textContent='検索中...';
   document.getElementById('results').classList.add('hidden');
   document.getElementById('empty').classList.add('hidden');
+  // 直前が未発売カード表示だった場合に隠した価格セクションを復元する
+  _setPriceSectionsVisible(true);
 
   // 前回の検索結果をクリア
   cardImgUrl='';cardImgSmall='';
@@ -1695,7 +1780,7 @@ qInput.addEventListener('keydown',e=>{
   if(sugDrop.classList.contains('open')&&sugItems.length>0){
     if(e.key==='ArrowDown'){e.preventDefault();sugIdx=Math.min(sugIdx+1,sugItems.length-1);highlightSug();return;}
     if(e.key==='ArrowUp'){e.preventDefault();sugIdx=Math.max(sugIdx-1,-1);highlightSug();return;}
-    if(e.key==='Enter'&&sugIdx>=0){e.preventDefault();selectSug(sugItems[sugIdx]);return;}
+    if(e.key==='Enter'&&sugIdx>=0){e.preventDefault();selectSug(sugItems[sugIdx].name,sugItems[sugIdx].unreleased);return;}
     if(e.key==='Escape'){closeSuggest();return;}
   }
   if(e.key==='Enter')doSearch();
@@ -1704,14 +1789,17 @@ qInput.addEventListener('keydown',e=>{
 qInput.addEventListener('blur',()=>{setTimeout(closeSuggest,150)});
 
 function fetchSuggest(q){
-  fetch('/api/suggest?q='+encodeURIComponent(q))
+  // include_unreleased=1 で未発売カードも候補に含める（レスポンスは {name, unreleased} の配列）
+  fetch('/api/suggest?q='+encodeURIComponent(q)+'&include_unreleased=1')
     .then(r=>r.json())
-    .then(names=>{
-      if(!names.length){closeSuggest();return;}
-      sugItems=names;sugIdx=-1;
-      sugDrop.innerHTML=names.map((n,i)=>
-        `<div class="suggest-item" data-i="${i}" onmousedown="selectSug('${escJs(n)}')"><span class="suggest-thumb" data-thumb-name="${esc(n)}"></span><span class="suggest-name">${esc(n)}</span></div>`
-      ).join('');
+    .then(items=>{
+      if(!items.length){closeSuggest();return;}
+      sugItems=items;sugIdx=-1;
+      sugDrop.innerHTML=items.map((it,i)=>{
+        const n=it.name;
+        const badge=it.unreleased?' <span class="pack-unreleased-badge">発売前</span>':'';
+        return `<div class="suggest-item" data-i="${i}" onmousedown="selectSug('${escJs(n)}',${it.unreleased?'true':'false'})"><span class="suggest-thumb" data-thumb-name="${esc(n)}"></span><span class="suggest-name">${esc(n)}${badge}</span></div>`;
+      }).join('');
       sugDrop.classList.add('open');
       loadSuggestThumbnails(sugDrop);
     })
@@ -1745,9 +1833,11 @@ function highlightSug(){
   }
 }
 
-function selectSug(name){
+function selectSug(name,unreleased){
   qInput.value=name;
   closeSuggest();
+  // 未発売カードは価格検索せず、カード情報のみ表示する
+  if(unreleased){showUnreleasedCard(name);return;}
   doSearch({validated:true});
 }
 
@@ -3211,6 +3301,14 @@ function doBuySearch(opts){
         btn.disabled=false;btn.textContent='買取検索';
         if(d.valid){
           buyQInput.value=d.name;
+          // 未発売カードは買取情報が無いため、誤誘導を避けて中断し通知する
+          if(d.unreleased){
+            document.getElementById('buyResults').classList.add('hidden');
+            const be=document.getElementById('buyEmpty');
+            be.classList.remove('hidden');
+            be.innerHTML='<p>「'+esc(d.name)+'」は発売前のカードのため、買取情報はまだありません。</p>';
+            return;
+          }
           doBuySearch({validated:true});
         }else if(d.suggestion){
           if(confirm('もしかして: '+d.suggestion+'\n\nこのカード名で検索しますか?')){

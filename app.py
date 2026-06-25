@@ -669,6 +669,11 @@ def api_validate():
     if corrected in _cardnames_set:
         # 補正成功、またはそのまま一致
         return jsonify({"valid": True, "name": corrected})
+    # 発売済みに無い場合、未発売カード（approved/linked かつ hidden=false）を確認。
+    # 価格検索の前段で未発売を判定し、フロント側で価格検索をスキップして
+    # カード情報パネルのみを表示できるようにする（unreleased=true を付与）。
+    if _card_display.get_unreleased_proxy(q):
+        return jsonify({"valid": True, "name": q, "unreleased": True})
     # 補正できなかった（corrected == q のまま、かつDBに存在しない）
     # TODO: _correct_cardname()が部分一致候補を返せるようになったらsuggestionを活用
     return jsonify({"valid": False, "suggestion": None})
