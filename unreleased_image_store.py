@@ -94,8 +94,8 @@ def crop_x_promo_image(image_bytes: bytes, mime: str) -> bytes:
         # Vision は系統的に余白を多く取るため辺ごとに内側へ補正する。
         # 値は Vision の癖に合わせて個別調整する（0.0〜0.1 程度が目安）。
         TRIM_LEFT   = 0.0
-        TRIM_TOP    = 0.025
-        TRIM_BOTTOM = 0.025
+        TRIM_TOP    = 0.02
+        TRIM_BOTTOM = 0.02
         left   = min(left   + TRIM_LEFT,   0.5)
         top    = min(top    + TRIM_TOP,    0.5)
         bottom = max(bottom - TRIM_BOTTOM, 0.5)
