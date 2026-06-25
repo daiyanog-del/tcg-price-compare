@@ -661,6 +661,48 @@ async function _rejectCard(cardId, row) {
   }
 }
 
+/**
+ * 公開中カードを承認待ちに戻す（やり直し用）。
+ * レコード・画像は保持されるので、承認待ちタブで編集・再クロップ・再承認できる。
+ */
+async function _unpublishCard(cardId, row) {
+  if (!confirm(`ID ${cardId} のカードを承認待ちに戻しますか？\n（承認待ちタブで編集・再クロップ・再承認できます）`)) return;
+  try {
+    const resp = await apiFetch(`/api/admin/unreleased/${cardId}/unpublish`, { method: 'POST' });
+    if (resp.ok) {
+      row.remove();
+    } else {
+      const data = await resp.json().catch(() => ({}));
+      alert(data.error || '承認待ちに戻す処理に失敗しました');
+    }
+  } catch (e) {
+    if (e.message !== '認証エラー') alert('通信エラーが発生しました');
+  }
+}
+
+/**
+ * 公開中カードを却下する（ブロックリスト入り）。
+ * 自動巡回でも今後取り込まれなくなる旨を確認文言で明示する。
+ */
+async function _rejectApprovedCard(cardId, row) {
+  if (!confirm(
+    `ID ${cardId} のカードを却下しますか？\n` +
+    '却下するとブロックリストに入り、自動巡回でも今後取り込まれなくなります。\n' +
+    '（一時的に下げてやり直したい場合は「承認待ちに戻す」を使ってください）'
+  )) return;
+  try {
+    const resp = await apiFetch(`/api/admin/unreleased/${cardId}/reject`, { method: 'POST' });
+    if (resp.ok) {
+      row.remove();
+    } else {
+      const data = await resp.json().catch(() => ({}));
+      alert(data.error || '却下に失敗しました');
+    }
+  } catch (e) {
+    if (e.message !== '認証エラー') alert('通信エラーが発生しました');
+  }
+}
+
 async function _deleteCard(cardId, row) {
   if (!confirm(`ID ${cardId} のカードを完全削除しますか？\nこの操作は取り消せません。`)) return;
   try {
@@ -756,9 +798,14 @@ function _renderApprovedList(listEl, cards) {
       _toggleHidden(card.id, row, toggleHiddenBtn);
     });
 
-    // 取り下げボタン
+    // 承認待ちに戻すボタン（やり直し用：レコード・画像は保持）
+    row.querySelector('.action-unpublish').addEventListener('click', () => {
+      _unpublishCard(card.id, row);
+    });
+
+    // 却下ボタン（ブロックリスト入り：自動巡回でも今後取り込まれない）
     row.querySelector('.action-reject-approved').addEventListener('click', () => {
-      _rejectCard(card.id, row);
+      _rejectApprovedCard(card.id, row);
     });
 
     // 画像取込フォーム開閉ボタン

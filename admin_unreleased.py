@@ -685,6 +685,50 @@ def admin_bulk_approve_unreleased():
 # POST /api/admin/unreleased/<id>/reject — 却下
 # ──────────────────────────────────────────────
 
+@admin_bp.route("/api/admin/unreleased/<int:card_id>/unpublish", methods=["POST"])
+def admin_unpublish_unreleased(card_id: int):
+    """
+    公開中カードを承認待ち（status='pending'）に戻す。
+    レコード・画像レコードは保持したまま、承認待ちタブに戻す（やり直し用）。
+
+    却下（reject）との違い:
+      - reject は status='rejected' でブロックリストに残り、自動巡回でも今後拾わない
+      - unpublish は pending に戻すだけなので、編集・再クロップ・再承認ができる
+    """
+    err = _require_admin_key()
+    if err:
+        return err
+
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+
+    try:
+        # 承認済み（approved/linked）のもののみ対象
+        get_resp = (
+            _supabase.table("unreleased_cards")
+            .select("id, status")
+            .eq("id", card_id)
+            .execute()
+        )
+        if not get_resp.data:
+            return jsonify({"error": "対象レコードが見つかりません"}), 404
+        if get_resp.data[0]["status"] not in ("approved", "linked"):
+            return jsonify({"error": "公開中（approved/linked）のカードのみ承認待ちに戻せます"}), 400
+
+        resp = (
+            _supabase.table("unreleased_cards")
+            .update({"status": "pending"})
+            .eq("id", card_id)
+            .execute()
+        )
+        _card_display.invalidate_cache()
+        return jsonify({"ok": True, "card": resp.data[0] if resp.data else {}})
+
+    except Exception as e:
+        logger.error(f"[admin] unpublish エラー id={card_id}: {e}")
+        return jsonify({"error": "承認待ちに戻す処理に失敗しました"}), 500
+
+
 @admin_bp.route("/api/admin/unreleased/<int:card_id>/reject", methods=["POST"])
 def admin_reject_unreleased(card_id: int):
     """指定IDのカードを却下する（status='rejected'）"""
