@@ -1,17 +1,14 @@
 """
-unreleased_image_store.py — X投稿画像のクロップ・Storage保存
+unreleased_image_store.py — X投稿画像の Storage 保存・手動クロップ
 
-numpy で水平輝度勾配を計算してカードと背景の境界（右端）を検出し、
-アスペクト比（59:86）からカード領域を決定して Pillow でクロップする。
-Vision API は使用しない。
-
+クロップは管理画面での手動操作のみ。取り込み時は元画像をそのまま保存する。
 admin_unreleased.py と watch_x_unreleased.py の両方から使用する。
 Flask に依存しないため、Cron スクリプトからも安全にインポートできる。
 """
 
 import io
 import logging
-import os
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 import requests
@@ -23,96 +20,6 @@ logger = logging.getLogger(__name__)
 _STORAGE_BUCKET = "official-card-images"
 
 
-def detect_card_bbox_vision(image_bytes: bytes, mime: str) -> tuple[float, float, float, float] | None:
-    """
-    Vision（claude-sonnet-4-6）でカード領域を割合（0.0〜1.0）で取得する。
-    Returns: (left, top, right, bottom) の割合、または None
-    """
-    import base64
-    import json
-    import anthropic
-
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        return None
-
-    b64 = base64.standard_b64encode(image_bytes).decode()
-    media_type = mime if mime.startswith("image/") else "image/jpeg"
-
-    prompt = (
-        "この画像は遊戯王OCGの公式Xアカウントが投稿した販促画像です。\n"
-        "画像の左側に遊戯王カード1枚が写っています。\n\n"
-        "カードの外枠（一番外側の縁）の位置を、画像の幅・高さを 1.0 とした割合で答えてください。\n"
-        "余白を入れず、カードの枠線の外側ギリギリを指定してください。\n"
-        "特に left（左端）は背景とカード枠線の境界を正確に指定してください。\n\n"
-        "例：\n"
-        '{"left": 0.08, "top": 0.03, "right": 0.58, "bottom": 0.97}\n\n'
-        "JSONのみ返してください。説明文は不要です。"
-    )
-
-    try:
-        client = anthropic.Anthropic(api_key=api_key)
-        resp = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=128,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}},
-                    {"type": "text", "text": prompt},
-                ],
-            }],
-        )
-        text = resp.content[0].text.strip()
-        if "```" in text:
-            text = text.split("```")[1].lstrip("json").strip()
-        c = json.loads(text)
-        left, top, right, bottom = float(c["left"]), float(c["top"]), float(c["right"]), float(c["bottom"])
-        if 0 <= left < right <= 1 and 0 <= top < bottom <= 1:
-            logger.info(f"[image_store] Vision割合検出: left={left}, top={top}, right={right}, bottom={bottom}")
-            return left, top, right, bottom
-        return None
-    except Exception as e:
-        logger.warning(f"[image_store] Vision割合検出失敗: {e}")
-        return None
-
-
-def crop_x_promo_image(image_bytes: bytes, mime: str) -> bytes:
-    """
-    X 販促画像をカード領域にクロップする。
-
-    Vision（sonnet-4-6）でカード領域を割合で取得し、
-    右端はアスペクト比（59:86）で補正する。
-    Vision失敗時は左半分にフォールバック。
-    """
-    img = Image.open(io.BytesIO(image_bytes))
-    w, h = img.size
-
-    ratios = detect_card_bbox_vision(image_bytes, mime)
-    if ratios:
-        left, top, right, bottom = ratios
-        # left を起点に x1 を決定し、x2 はアスペクト比（59:86）で算出する。
-        x1 = int(w * left)
-        y1 = int(h * top)
-        y2 = int(h * bottom)
-        card_height = y2 - y1
-        x2 = min(w, x1 + int(card_height * 59 / 86))
-        logger.info(
-            f"[image_store] Visionクロップ: ({x1},{y1})-({x2},{y2}) / 元 {w}x{h}"
-        )
-    else:
-        logger.warning(f"[image_store] Vision失敗、左半分フォールバック")
-        x1, y1, x2, y2 = 0, 0, w // 2, h
-
-    cropped = img.crop((x1, y1, x2, y2))
-    ext = mime.split("/")[-1].upper()
-    pil_fmt = {"JPEG": "JPEG", "JPG": "JPEG", "PNG": "PNG", "WEBP": "WEBP"}.get(ext, "JPEG")
-    buf = io.BytesIO()
-    cropped.save(buf, format=pil_fmt)
-    return buf.getvalue()
-
-
-
 def ingest_x_card_image(
     sb: Client,
     card_id: int,
@@ -120,11 +27,11 @@ def ingest_x_card_image(
     tweet_url: str,
 ) -> tuple[bool, str]:
     """
-    X カード画像を取得・クロップして Storage に保存し、
-    official_card_images に INSERT する。
+    X カード画像を取得して Storage に保存し、official_card_images に INSERT する。
+    クロップは行わず元画像をそのまま保存する（管理画面で手動クロップする）。
 
     成功時は unreleased_cards.extraction_raw.card_image_url を
-    Storage の public URL に更新する（管理画面で承認前にクロップ済み画像を表示するため）。
+    Storage の public URL に更新する（管理画面プレビュー用）。
 
     Returns: (成功フラグ, 理由文字列)
     """
@@ -147,7 +54,7 @@ def ingest_x_card_image(
     try:
         resp = requests.get(image_url, timeout=30)
         resp.raise_for_status()
-        raw_bytes = resp.content
+        image_bytes = resp.content
     except Exception as e:
         return False, f"画像取得失敗: {e}"
 
@@ -155,16 +62,6 @@ def ingest_x_card_image(
     mime = content_type.split(";")[0].strip().lower()
     if not mime.startswith("image/"):
         return False, f"Content-Type が image/* でない: {mime!r}"
-
-    # クロップ（pbs.twimg.com の画像のみ）
-    if urlparse(image_url).netloc == "pbs.twimg.com":
-        try:
-            image_bytes = crop_x_promo_image(raw_bytes, mime)
-        except Exception as e:
-            logger.warning(f"[image_store] クロップ失敗（元画像で保存）: {e}")
-            image_bytes = raw_bytes
-    else:
-        image_bytes = raw_bytes
 
     MAX_SIZE = 5 * 1024 * 1024
     if len(image_bytes) > MAX_SIZE:
@@ -230,14 +127,15 @@ def crop_and_save_image(
     bottom: float,
 ) -> tuple[bool, str]:
     """
-    保存済み画像を指定割合でクロップし直してStorageを上書きする。
+    オリジナル画像（source_image_url）を指定割合でクロップして Storage を上書きする。
+    常にオリジナルから切り出すため、何度でもやり直せる。
     left/top/right/bottom は画像全体を 1.0 とした割合（0.0〜1.0）。
     """
-    # 現在のStorage URLと保存パスを取得
+    # オリジナル画像URLと storage_path を取得
     try:
         rec = (
             sb.table("official_card_images")
-            .select("id, storage_path, public_url")
+            .select("id, storage_path, public_url, source_image_url")
             .eq("unreleased_card_id", card_id)
             .is_("deleted_at", "null")
             .execute()
@@ -247,15 +145,17 @@ def crop_and_save_image(
         row = rec.data[0]
         storage_path = row.get("storage_path", "")
         public_url = row.get("public_url", "")
+        source_url = row.get("source_image_url", "")
     except Exception as e:
         return False, f"DB参照失敗: {e}"
 
-    if not public_url:
-        return False, "Storage URLが登録されていません"
+    # オリジナル画像を取得（Storage の上書き済み画像ではなく元の X 画像から切り出す）
+    download_url = source_url or public_url
+    if not download_url:
+        return False, "画像URLが登録されていません"
 
-    # 現在の保存済み画像をダウンロード
     try:
-        resp = requests.get(public_url, timeout=30)
+        resp = requests.get(download_url, timeout=30)
         resp.raise_for_status()
         raw_bytes = resp.content
     except Exception as e:
@@ -293,10 +193,10 @@ def crop_and_save_image(
     except Exception as e:
         return False, f"Storage保存失敗: {e}"
 
-    # extraction_raw.card_image_url を更新（キャッシュバスター付きURLで管理画面プレビューをリフレッシュ）
-    from datetime import datetime, timezone
+    # extraction_raw.card_image_url をキャッシュバスター付き URL で更新
     bust = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-    cache_busted_url = f"{public_url.split('?')[0]}?t={bust}"
+    base_url = (public_url or "").split("?")[0]
+    cache_busted_url = f"{base_url}?t={bust}"
     try:
         card_resp = sb.table("unreleased_cards").select("extraction_raw").eq("id", card_id).execute()
         if card_resp.data:
@@ -306,5 +206,5 @@ def crop_and_save_image(
     except Exception as e:
         logger.warning(f"[image_store] extraction_raw 更新失敗（無視）: {e}")
 
-    logger.info(f"[image_store] クロップ再保存完了: card_id={card_id}, path={storage_path!r}")
+    logger.info(f"[image_store] クロップ保存完了: card_id={card_id}, path={storage_path!r}")
     return True, cache_busted_url

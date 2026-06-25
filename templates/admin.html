@@ -280,20 +280,6 @@
               </a>
             </div>
             <button type="button" class="btn btn-sm btn-ghost crop-btn">クロップ</button>
-            <!-- クロップパネル（クロップボタンクリック時に表示） -->
-            <div class="crop-panel" hidden>
-              <p class="crop-hint">ドラッグしてカード範囲を選択してください</p>
-              <div class="crop-img-wrap">
-                <img class="crop-preview-img" src="" alt="" draggable="false">
-                <div class="crop-overlay"></div>
-                <div class="crop-selection" hidden></div>
-              </div>
-              <div class="crop-actions">
-                <button type="button" class="btn btn-primary btn-sm crop-confirm-btn" disabled>確定</button>
-                <button type="button" class="btn btn-ghost btn-sm crop-cancel-btn">キャンセル</button>
-              </div>
-              <p class="crop-result form-result" hidden></p>
-            </div>
           </div>
           <!-- プロキシプレビューパネル -->
           <div class="edit-preview edit-media-panel" data-media="proxy">
@@ -564,6 +550,24 @@
     </div>
   </div>
 </template>
+
+<!-- ──────────────────────── クロップモーダル（全画面） ──────────────────────── -->
+<div id="crop-modal" class="crop-modal" hidden>
+  <div class="crop-modal__backdrop"></div>
+  <div class="crop-modal__inner">
+    <p class="crop-modal__hint">ドラッグしてカード範囲を選択してください</p>
+    <div class="crop-modal__img-wrap">
+      <img class="crop-modal__img" src="" alt="" draggable="false">
+      <div class="crop-modal__overlay"></div>
+      <div class="crop-modal__selection" hidden></div>
+    </div>
+    <div class="crop-modal__actions">
+      <button type="button" class="btn btn-primary crop-modal__confirm" disabled>確定</button>
+      <button type="button" class="btn btn-ghost crop-modal__cancel">キャンセル</button>
+    </div>
+    <p class="crop-modal__result form-result" hidden></p>
+  </div>
+</div>
 
 <script type="module" src="/static/admin/admin.js"></script>
 </body>
