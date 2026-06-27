@@ -649,9 +649,16 @@ def api_suggest():
             name_lower = name.lower()
             if name_lower.startswith(q_lower) or q_lower in name_lower:
                 unreleased_hits.append(name)
-        # 発売済み優先 → 未発売の順で連結、上限10件
+        # 発売済み優先 → 未発売の順で連結、上限10件。
+        # 未発売候補でも release_date が到来済みなら発売済み扱い（unreleased=false）にして、
+        # 選択時に価格検索へ進ませる（週次インデックス未反映のラグ期間の誤分類対策）。
+        rel_map = _card_display.get_unreleased_release_map()
+        today = datetime.now(JST).strftime("%Y-%m-%d")
         objs = [{"name": n, "unreleased": False} for n in results]
-        objs += [{"name": n, "unreleased": True} for n in unreleased_hits]
+        for n in unreleased_hits:
+            rel = rel_map.get(n, "")
+            still_unreleased = not (rel and rel <= today)
+            objs.append({"name": n, "unreleased": still_unreleased})
         return jsonify(objs[:10])
 
     return jsonify(results)
@@ -672,7 +679,16 @@ def api_validate():
     # 発売済みに無い場合、未発売カード（approved/linked かつ hidden=false）を確認。
     # 価格検索の前段で未発売を判定し、フロント側で価格検索をスキップして
     # カード情報パネルのみを表示できるようにする（unreleased=true を付与）。
-    if _card_display.get_unreleased_proxy(q):
+    proxy = _card_display.get_unreleased_proxy(q)
+    if proxy:
+        # 発売日が到来済みなら「発売済み」として価格検索へ進ませる。
+        # cardnames_ja.json（_cardnames_set）は週次更新で鮮度が低く、発売日〜翌週次
+        # 反映までの間は発売済みカードがこのインデックスに載らない。release_date を
+        # 真値として使い、発売日到来済みカードを未発売と誤分類しないようにする。
+        rel = proxy.get("release_date") or ""
+        today = datetime.now(JST).strftime("%Y-%m-%d")
+        if rel and rel <= today:
+            return jsonify({"valid": True, "name": proxy.get("name") or q})
         return jsonify({"valid": True, "name": q, "unreleased": True})
     # 補正できなかった（corrected == q のまま、かつDBに存在しない）
     # TODO: _correct_cardname()が部分一致候補を返せるようになったらsuggestionを活用

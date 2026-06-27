@@ -311,6 +311,19 @@ def get_unreleased_names() -> list[str]:
     return list(_get_unreleased().keys())
 
 
+def get_unreleased_release_map() -> dict[str, str]:
+    """
+    未発売テーブル（approved / linked かつ hidden=false）の
+    name → release_date(ISO文字列 "YYYY-MM-DD"、無ければ "") のマップを返す。
+
+    呼び出し側で「発売日が到来済みか（=実質発売済み）」を判定するために使う。
+    発売済み名インデックス（cardnames_ja.json）は週次更新で鮮度が低いため、
+    発売日ベースの判定でラグ期間中の誤分類（発売済みカードを未発売扱い）を防ぐ。
+    """
+    return {name: str(card.get("release_date") or "")
+            for name, card in _get_unreleased().items()}
+
+
 def get_unreleased_proxy(name: str) -> dict | None:
     """
     表示種別（画像 / プロキシ）に関わらず、未発売カード（approved / linked かつ
