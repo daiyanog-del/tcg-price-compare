@@ -2667,148 +2667,9 @@ function _setupThumbObserver(containerSelector){
 }
 
 
-let _packsLoaded=false;
-let _packData=[];
-
-async function loadPacks(){
-  if(_packsLoaded) return;
-  const el=document.getElementById('packList');
-  const CACHE_KEY='tcgym_packs_cache', TTL=6*3600*1000; // 6時間
-  try{
-    const raw=sessionStorage.getItem(CACHE_KEY);
-    if(raw){
-      const {ts,data}=JSON.parse(raw);
-      if(Date.now()-ts<TTL){_packData=data;_packsLoaded=true;renderPacks();return;}
-    }
-  }catch{}
-  el.innerHTML='<div class="meta-loading">パック情報を読込中...</div>';
-  try{
-    const res=await fetch('/api/packs');
-    _packData=await res.json();
-    _packsLoaded=true;
-    try{sessionStorage.setItem(CACHE_KEY,JSON.stringify({ts:Date.now(),data:_packData}));}catch{}
-    renderPacks();
-  }catch(e){
-    el.innerHTML='<div class="meta-loading">パック情報の取得に失敗しました</div>';
-  }
-}
-
-function renderPacks(){
-  const el=document.getElementById('packList');
-  if(!_packData.length){el.innerHTML='<div class="meta-loading">パックデータがありません</div>';return;}
-
-  const today=new Date().toISOString().slice(0,10);
-  // 日付で降順ソート
-  const sorted=[..._packData].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-
-  let html='<div class="meta-deck-list" style="margin-bottom:12px">';
-  for(const p of sorted){
-    const dateStr=p.date?p.date.replace(/-/g,'/'):'';
-    const unreleased=p.date&&p.date>today;
-    const badge=unreleased?'<span class="pack-unreleased-badge">発売前</span>':'';
-    const featuredFlag=p.featured?'true':'false';
-    html+=`<button class="meta-deck-btn" onclick="loadPackCards('${esc(p.name)}','${esc(p.wiki_page||p.name)}','${esc(p.tcg_name||'')}',${featuredFlag})" id="pack-btn-${esc(p.code||p.name)}">
-      <span class="pack-btn-name">${esc(p.name)}${badge}</span><span class="meta-share">${dateStr}</span>
-    </button>`;
-  }
-  html+='</div>';
-  html+='<div class="meta-note">遊戯王Wikiより収録カードリストを取得</div>';
-  el.innerHTML=html;
-}
-
-async function loadPackCards(packName, wikiPage, tcgName, isFeatured){
-  const detailEl=document.getElementById('packDetail');
-  // 選択状態を更新
-  document.querySelectorAll('#packList .meta-deck-btn').forEach(b=>b.classList.remove('selected'));
-  const packBtn=document.getElementById('pack-btn-'+(packName));
-  if(packBtn) packBtn.classList.add('selected');
-
-  detailEl.classList.remove('hidden');
-  detailEl.innerHTML='<div class="meta-loading">カードリストを読込中...</div>';
-
-  // 新弾（featured フラグあり）の場合は価格付きデータを /api/featured から取得
-  if(isFeatured){
-    _loadFeaturedIntoPackDetail(packName, detailEl);
-    return;
-  }
-
-  try{
-    let apiUrl='/api/packs/cards?name='+encodeURIComponent(packName)+'&wiki='+encodeURIComponent(wikiPage);
-    if(tcgName) apiUrl+='&tcg='+encodeURIComponent(tcgName);
-    const res=await fetch(apiUrl);
-    const data=await res.json();
-
-    if(!data.cards||!data.cards.length){
-      detailEl.innerHTML='<div class="meta-loading">「'+esc(packName)+'」のカードリストが取得できませんでした</div>';
-      return;
-    }
-
-    // カードチップ表示（クリックで個別検索、リスト形式）
-    let listHtml='';
-    data.cards.forEach((name,i)=>{
-      listHtml+=`<div class="pack-card-item clickable" onclick="searchCard('${escJs(name)}')">`
-        +`<span class="pack-card-thumb" data-card="${esc(name)}"></span>`
-        +`<span class="pack-card-num">${i+1}</span>`
-        +`<span class="pack-card-name">${esc(name)}</span>`
-        +`</div>`;
-    });
-
-    detailEl.innerHTML='<h4>'+esc(packName)+' — 収録カード（'+data.count+'種）</h4>'
-      +'<div class="meta-note" style="margin-bottom:8px">カード名をタップすると価格を検索します</div>'
-      +'<div class="pack-card-grid" id="packDetailGrid" style="max-height:400px;overflow-y:auto">'+listHtml+'</div>';
-    _setupThumbObserver('#packDetailGrid');
-  }catch(e){
-    detailEl.innerHTML='<div class="meta-loading">読込に失敗しました</div>';
-  }
-}
-
-async function _loadFeaturedIntoPackDetail(packName, detailEl){
-  try{
-    const res=await fetch('/api/featured');
-    const data=await res.json();
-    if(data&&data.loading){
-      // サーバー側キャッシュ構築中。2.5秒後に再試行
-      detailEl.innerHTML='<div class="meta-loading">新弾情報を準備中... しばらくお待ちください</div>';
-      setTimeout(()=>_loadFeaturedIntoPackDetail(packName, detailEl), 2500);
-      return;
-    }
-    if(!data||!data.pack){
-      detailEl.innerHTML='<div class="meta-loading">新弾情報を取得できませんでした</div>';
-      return;
-    }
-    const pack=data.pack;
-    const days=data.days_since_release>=0?`発売${data.days_since_release+1}日目`:'発売日';
-    const cards=data.cards||[];
-
-    let html=`<h4 style="margin:0 0 4px">${esc(pack.pack_name)}</h4>`
-      +`<div class="meta-note" style="margin-bottom:8px">${days} — 収録カード ${cards.length}種の価格一覧</div>`;
-
-    if(!cards.length){
-      html+='<div class="meta-loading">収録カード情報を取得中です（しばらくお待ちください）</div>';
-      detailEl.innerHTML=html;
-      return;
-    }
-
-    let listHtml='<div class="pack-card-grid" id="packDetailGrid" style="max-height:400px;overflow-y:auto">';
-    cards.forEach((c,i)=>{
-      const priceStr=c.price?`${c.price.toLocaleString()}円`:'--';
-      const rarityStr=c.rarity?`<span class="meta-share">${esc(c.rarity)}</span>`:'';
-      listHtml+=`<div class="pack-card-item clickable" onclick="searchCard('${escJs(c.name)}')">`
-        +`<span class="pack-card-thumb" data-card="${esc(c.name)}"></span>`
-        +`<span class="pack-card-num">${i+1}</span>`
-        +`<span class="pack-card-name">${esc(c.name)}</span>`
-        +rarityStr
-        +`<span class="meta-share" style="margin-left:auto">${priceStr}</span>`
-        +`</div>`;
-    });
-    listHtml+='</div>';
-    listHtml+='<div class="meta-note" style="margin-top:6px">カード名をタップすると価格を検索します</div>';
-    detailEl.innerHTML=html+listHtml;
-    _setupThumbObserver('#packDetailGrid');
-  }catch(e){
-    detailEl.innerHTML='<div class="meta-loading">読込に失敗しました</div>';
-  }
-}
+// 最新弾タブ（パック）関連の処理は static/packs.js へ切り出し済み。
+// 一括価格検索（bulkSearchPackPrices）もそちらに実装。
+// 関数: loadPacks / renderPacks / loadPackCards / _loadFeaturedIntoPackDetail / bulkSearchPackPrices
 
 
 
@@ -4530,6 +4391,7 @@ loadWishPrices().then(wishUpdateBadge);
 // 通知UIの初期状態を反映
 updatePushUI(!!localStorage.getItem(PUSH_SUB_KEY));
 </script>
+<script src="/static/packs.js?v=20260627"></script>
 <script src="/static/mydeck/deck-edit.js?v=20260615c"></script>
 <script type="module" src="/static/mydeck/deck-card-info.js?v=20260617"></script>
 <script type="module" src="/static/shared/neuron-pdf-entry.js"></script>
