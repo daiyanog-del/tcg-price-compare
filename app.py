@@ -796,19 +796,22 @@ def api_search():
 
 # ── ランキング・設定 ──
 
-@app.route("/api/deck")
+@app.route("/api/deck", methods=["GET", "POST"])
 def api_deck():
     """デッキ一括検索 — 複数カード名を受け取り、各カードの最安値をSSEで返す
 
     v3: 高速化 — 各店舗1ページ目のみ取得 + カード5枚同時並列
+    POST も受け付ける（最新弾の収録カード一括検索など、カード数が多くGETの
+    URL長制限（gunicorn limit_request_line）を超えるケース向け）。
     """
     from functools import partial
     from scraper import scrape_torecolo, scrape_kanabell
 
-    names_raw = request.args.get("cards", "")
-    shops_raw = request.args.getlist("shops") or DEFAULT_SHOPS
+    # GET=クエリ / POST=フォームボディ の双方を request.values で吸収（GET挙動は不変）
+    names_raw = request.values.get("cards", "")
+    shops_raw = request.values.getlist("shops") or DEFAULT_SHOPS
     # 購入候補の「全店舗ランキング」用に各カードの店舗別最安値を返すフラグ
-    include_per_shop = request.args.get("include_per_shop", "").lower() in ("1", "true", "yes")
+    include_per_shop = request.values.get("include_per_shop", "").lower() in ("1", "true", "yes")
     if not names_raw:
         return jsonify({"error": "カード名がありません"}), 400
     rate_error = _consume_rate_limit()
@@ -921,11 +924,15 @@ def api_deck():
 
     return Response(generate(), mimetype="text/event-stream")
 
-@app.route("/api/deck-buy")
+@app.route("/api/deck-buy", methods=["GET", "POST"])
 def api_deck_buy():
-    """デッキ一括買取検索 — 複数カード名の買取最高値をSSEで返す"""
-    names_raw = request.args.get("cards", "")
-    shops_raw = request.args.getlist("shops") or DEFAULT_BUYBACK_SHOPS
+    """デッキ一括買取検索 — 複数カード名の買取最高値をSSEで返す
+
+    POST も受け付ける（カード数が多くGETのURL長制限を超えるケース向け）。
+    """
+    # GET=クエリ / POST=フォームボディ の双方を request.values で吸収（GET挙動は不変）
+    names_raw = request.values.get("cards", "")
+    shops_raw = request.values.getlist("shops") or DEFAULT_BUYBACK_SHOPS
     if not names_raw:
         return jsonify({"error": "カード名がありません"}), 400
     rate_error = _consume_rate_limit()

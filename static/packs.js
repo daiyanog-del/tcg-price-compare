@@ -204,11 +204,17 @@ async function bulkSearchPackPrices(){
   let done=0,found=0;
   if(progEl) progEl.textContent=`${total}種を一括検索します…（数分かかる場合があります）`;
 
+  // カード数が多い弾ではGETのURL長制限（gunicorn limit_request_line=4094）を
+  // 超えて400になるため、POSTでカード名をボディに載せて送る。
   const params=new URLSearchParams({cards:cards.join('|')});
-  const apiUrl=isBuy?'/api/deck-buy?':'/api/deck?';
+  const apiUrl=isBuy?'/api/deck-buy':'/api/deck';
 
   try{
-    const res=await fetch(apiUrl+params.toString());
+    const res=await fetch(apiUrl,{
+      method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body:params.toString()
+    });
     if(!res.ok){
       // レート制限（_consume_rate_limit）等は SSE ではなく JSON エラーで返る
       let msg='検索に失敗しました。時間をおいて再度お試しください';
