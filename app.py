@@ -688,7 +688,7 @@ def api_validate():
         rel = proxy.get("release_date") or ""
         today = datetime.now(JST).strftime("%Y-%m-%d")
         if rel and rel <= today:
-            return jsonify({"valid": True, "name": proxy.get("name") or q})
+            return jsonify({"valid": True, "name": q})
         return jsonify({"valid": True, "name": q, "unreleased": True})
     # 補正できなかった（corrected == q のまま、かつDBに存在しない）
     # TODO: _correct_cardname()が部分一致候補を返せるようになったらsuggestionを活用

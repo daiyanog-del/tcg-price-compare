@@ -33,6 +33,8 @@ import logging
 import threading
 from typing import Callable
 
+from name_normalize import fuzzy_key  # 記号・ハイフン種のゆれ吸収（app.py/reconcile と同一）
+
 logger = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────
@@ -335,7 +337,18 @@ def get_unreleased_proxy(name: str) -> dict | None:
     """
     if not name or not _is_enabled():
         return None
-    card = _get_unreleased().get(name)
+    cards = _get_unreleased()
+    card = cards.get(name)
+    if card is None:
+        # 完全一致なし: 記号・ハイフン種のゆれを吸収して再照合。
+        # unreleased_cards.name は全角ハイフン（－/―等）を含む一方、検索クエリは
+        # 半角ハイフンに正規化されるため、完全一致だとハイフン入りカードが取りこぼされる。
+        fk = fuzzy_key(name)
+        if fk:
+            for cand_name, cand in cards.items():
+                if fuzzy_key(cand_name) == fk:
+                    card = cand
+                    break
     if card is None:
         return None
     return _build_proxy_data(card)
