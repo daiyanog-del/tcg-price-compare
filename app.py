@@ -664,6 +664,22 @@ def api_suggest():
     return jsonify(results)
 
 
+def _is_release_passed_unreleased(name: str) -> bool:
+    """週次インデックス（_cardnames_set / cardnames_ja.json）未反映だが、
+    未発売テーブルに登録済みで release_date が到来済みのカードか。
+
+    cardnames_ja.json は週次更新のため、発売日〜翌週次反映までの間、発売済みカードが
+    このインデックスに載らない。検索/登録ゲートで「既知カード」として扱うため、
+    release_date が今日(JST)以前なら発売済みとみなす。validate と同じ判定を
+    検索・登録エンドポイントでも共有する。
+    """
+    proxy = _card_display.get_unreleased_proxy(name)
+    if not proxy:
+        return False
+    rel = proxy.get("release_date") or ""
+    return bool(rel) and rel <= datetime.now(JST).strftime("%Y-%m-%d")
+
+
 @app.route("/api/validate")
 def api_validate():
     """カード名の存在チェック — 補正候補があれば suggestion として返す"""
@@ -736,8 +752,10 @@ def api_search():
         return rate_error
 
     # 第1層: DB非存在のカード名はconfirmedフラグなしでは拒否（API防御）
+    # ただし release_date 到来済みの未発売テーブル登録カード（週次インデックス未反映の
+    # 発売済みカード）は既知カードとして許可する。
     confirmed = request.args.get("confirmed", "").lower() == "true"
-    if not confirmed and card_name not in _cardnames_set:
+    if not confirmed and card_name not in _cardnames_set and not _is_release_passed_unreleased(card_name):
         return jsonify({"error": "該当するカード名が見つかりません"}), 404
 
     # キャッシュヒット
@@ -1392,7 +1410,8 @@ def api_track():
 
     # カード辞書に存在しない文字列は登録拒否（スパム・誤登録対策）
     # O(1) のset検索を使う（_cardnames listへのO(n)検索は避ける）
-    if _cardnames_set and corrected not in _cardnames_set:
+    # release_date 到来済みの未発売テーブル登録カード（週次インデックス未反映の発売済み）は許可。
+    if _cardnames_set and corrected not in _cardnames_set and not _is_release_passed_unreleased(corrected):
         return jsonify({"ok": False, "reason": "unknown_card"}), 200
 
     if _supabase_client:
@@ -1422,7 +1441,8 @@ def api_track_batch():
             continue
         corrected = _correct_cardname(name)
         # カード辞書に無い文字列は弾く（O(1) のset検索）
-        if _cardnames_set and corrected not in _cardnames_set:
+        # release_date 到来済みの未発売テーブル登録カード（週次インデックス未反映の発売済み）は許可。
+        if _cardnames_set and corrected not in _cardnames_set and not _is_release_passed_unreleased(corrected):
             continue
         if corrected in seen:
             continue
@@ -1812,8 +1832,10 @@ def api_buyback():
         return rate_error
 
     # 第1層: DB非存在のカード名はconfirmedフラグなしでは拒否（API防御）
+    # ただし release_date 到来済みの未発売テーブル登録カード（週次インデックス未反映の
+    # 発売済みカード）は既知カードとして許可する。
     confirmed = request.args.get("confirmed", "").lower() == "true"
-    if not confirmed and card_name not in _cardnames_set:
+    if not confirmed and card_name not in _cardnames_set and not _is_release_passed_unreleased(card_name):
         return jsonify({"error": "該当するカード名が見つかりません"}), 404
 
     # キャッシュヒット
