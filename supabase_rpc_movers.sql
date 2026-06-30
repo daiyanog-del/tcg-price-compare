@@ -84,20 +84,31 @@ movers AS (
       AND d_old.daily_price > 0
       AND d_new.daily_price != d_old.daily_price
 ),
--- 変動幅フィルタ + 上位N件ずつ抽出
+-- 変動幅フィルタ + 同名カード内の代表レアリティを選出
 ranked AS (
     SELECT
         card_name, rarity, today_price, prev_price, diff, pct, date_new, date_old,
         CASE WHEN diff > 0 THEN 'up' ELSE 'down' END AS direction,
         ROW_NUMBER() OVER (
-            PARTITION BY CASE WHEN diff > 0 THEN 'up' ELSE 'down' END
-            ORDER BY ABS(pct) DESC
-        ) AS rn
+            PARTITION BY card_name, CASE WHEN diff > 0 THEN 'up' ELSE 'down' END
+            ORDER BY ABS(pct) DESC, ABS(diff) DESC, today_price DESC, rarity
+        ) AS card_rn
     FROM movers
     WHERE ABS(diff) >= min_diff
+),
+-- 同名カードを1枠に絞った後、方向別に上位N件を抽出
+top_ranked AS (
+    SELECT
+        card_name, rarity, today_price, prev_price, diff, pct, date_new, date_old, direction,
+        ROW_NUMBER() OVER (
+            PARTITION BY direction
+            ORDER BY ABS(pct) DESC, ABS(diff) DESC, card_name, rarity
+        ) AS rn
+    FROM ranked
+    WHERE card_rn = 1
 )
 SELECT card_name, rarity, today_price, prev_price, diff, pct, date_new, date_old, direction
-FROM ranked
+FROM top_ranked
 WHERE rn <= top_n
 ORDER BY direction, ABS(pct) DESC;
 $$;
@@ -173,20 +184,31 @@ movers AS (
       AND d_old.daily_price > 0
       AND d_new.daily_price != d_old.daily_price
 ),
--- 変動幅フィルタ + 上位N件ずつ抽出
+-- 変動幅フィルタ + 同名カード内の代表レアリティを選出
 ranked AS (
     SELECT
         card_name, rarity, today_price, prev_price, diff, pct, date_new, date_old,
         CASE WHEN diff > 0 THEN 'up' ELSE 'down' END AS direction,
         ROW_NUMBER() OVER (
-            PARTITION BY CASE WHEN diff > 0 THEN 'up' ELSE 'down' END
-            ORDER BY ABS(pct) DESC
-        ) AS rn
+            PARTITION BY card_name, CASE WHEN diff > 0 THEN 'up' ELSE 'down' END
+            ORDER BY ABS(pct) DESC, ABS(diff) DESC, today_price DESC, rarity
+        ) AS card_rn
     FROM movers
     WHERE ABS(diff) >= min_diff
+),
+-- 同名カードを1枠に絞った後、方向別に上位N件を抽出
+top_ranked AS (
+    SELECT
+        card_name, rarity, today_price, prev_price, diff, pct, date_new, date_old, direction,
+        ROW_NUMBER() OVER (
+            PARTITION BY direction
+            ORDER BY ABS(pct) DESC, ABS(diff) DESC, card_name, rarity
+        ) AS rn
+    FROM ranked
+    WHERE card_rn = 1
 )
 SELECT card_name, rarity, today_price, prev_price, diff, pct, date_new, date_old, direction
-FROM ranked
+FROM top_ranked
 WHERE rn <= top_n
 ORDER BY direction, ABS(pct) DESC;
 $$;
