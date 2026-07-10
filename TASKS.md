@@ -5,7 +5,7 @@
 
 ## 進行中
 
-- [ ] **値動き2ガードのSupabase適用＋本番確認** — supabase_rpc_movers.sql（DROP＋4引数版CREATE）をSQL Editorで実行 → /api/movers・/api/buyback-movers 実機確認。**適用まではWebは旧ロジックのまま。x_poster の手動実行は適用前に行わない（per_card 引数エラーになる）**
+（なし）
 
 ## バックログ（優先度順）
 
@@ -20,7 +20,7 @@
 
 ## 完了
 
-- [x] 2026-07-10 **値動き検出に2ガード導入（共通店舗＋複数店確認）** — RPC店舗粒度化＋per_card引数・notify.py 2ガード＋基準日改良・x_poster RPC部分一本化・app.py days=3統一。60日リプレイで偽陽性52件全滅/本物1件生存（53/53期待一致）・reviewer監査2巡・pytest 98件全緑。SQL適用は進行中タスク参照
+- [x] 2026-07-10 **値動き検出に2ガード導入（共通店舗＋複数店確認）＋Supabase適用・本番検証済み** — RPC店舗粒度化＋per_card引数・notify.py 2ガード＋基準日改良・x_poster RPC部分一本化・app.py days=3統一。60日リプレイで偽陽性52件全滅/本物1件生存（53/53期待一致）・reviewer監査2巡・pytest 98件全緑。SQLは管理API経由で適用し（旧3引数版DROP・4引数版のみ登録を確認）、本番RPC出力11行を生データ再計算と突き合わせ全件一致（全行が共通2店以上・同方向2店以上）
 - [x] 2026-07-10 **騰落率パイプラインの前提監査（別セッション）完了** — 偽陽性率98%確定（53件中本物1件。店舗欠測26/在庫入替25/系列分裂1）。トレコロCB買取混入疑いは白（キズありSKU×0.8）。買取側は25日分で本物0件・在庫入替型ゼロ。詳細は decisions.md とメモリ
 
 - [x] 2026-07-10 **買取収集激減（7/7以降 1,185→50行/日）の根治4点** — ①TCG PORTAL deck-guides のHTML改修（h3→p）に fetch_deck_cards を追従 ②tracked_cards 1,243件の PostgREST 1000行上限を分割取得（order付きrange）で根治＋ _insert_new_cards を upsert(ignore_duplicates) 化 ③Wikiカードリスト未掲載パックに get_pack_list の枠を消費させない ④sync_regulation の取得元を公式カードDB（forbidden_limited.action）へ移行。ドライラン検証: hot候補562件・収集対象347件（障害前206件を上回る）・規制197枚復活・テスト75件全緑・reviewer監査済（中指摘のorder付与を反映）
