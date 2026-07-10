@@ -26,6 +26,7 @@ from pack_scraper import (
 from price_persist import build_min_price_rows, upsert_price_rows
 from collection_run import record_collection_run
 from meta_scraper import fetch_tier_list, fetch_deck_cards
+from name_normalize import load_cardnames_index, canonicalize_card_name
 
 # ── Supabase接続 ──
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -219,6 +220,38 @@ def normalize_card_name(name: str) -> str:
     return ''.join(result)
 
 
+# ── カード名の名寄せ（フェーズ3 P1）──────────────────────────────────
+# 経路A（本ファイルの sync_*系）は従来 normalize_card_name（全半角・ダッシュ統一のみ）
+# しか通しておらず、中黒ゆれ等（例:「ブラックマジシャン」「ブラック・マジシャン」）が
+# 別カードとして tracked_cards に分裂登録されていた。ここで cardnames_ja.json 照合つきの
+# canonicalize_card_name（name_normalize.py、app._correct_cardname と共通ロジック）を
+# 登録前に通し、正式名に解決してから existing チェック・insert を行う。
+# 挙動: 完全一致→そのまま / fuzzy一意一致→正式名 / fuzzy衝突→補正せず入力のまま＋警告
+#       （別カードへの誤合流を避ける。P6a と同じ安全側動作）/ 未知→normalize_card_name のみ。
+_cardnames_set: set[str] = set()
+_cardnames_fuzzy: dict[str, list[str]] = {}
+_cardnames_index_loaded = False
+
+
+def _ensure_cardnames_index() -> None:
+    """data/cardnames_ja.json を初回参照時に遅延ロードする（app.py 起動には依存しない）。"""
+    global _cardnames_set, _cardnames_fuzzy, _cardnames_index_loaded
+    if _cardnames_index_loaded:
+        return
+    _, _cardnames_set, _cardnames_fuzzy = load_cardnames_index()
+    _cardnames_index_loaded = True
+
+
+def canonicalize_tracked_name(name: str) -> str:
+    """tracked_cards への登録前にカード名を正式名へ解決する（フェーズ3 P1）。"""
+    _ensure_cardnames_index()
+    resolved, _ = canonicalize_card_name(
+        name, _cardnames_set, _cardnames_fuzzy,
+        warn=lambda msg: print(f"  {msg}"), context="collect_prices",
+    )
+    return resolved
+
+
 def _insert_new_cards(sb: Client, new_cards: list[dict], label: str) -> None:
     """new_cards を tracked_cards に登録してログを出す。
 
@@ -266,7 +299,7 @@ def sync_latest_packs(sb: Client) -> tuple[set[str], set[str]]:
         print(f"  {pack['name']}: {result['count']}枚")
 
         for card in result.get("cards", []):
-            normalized = normalize_card_name(card)
+            normalized = canonicalize_tracked_name(normalize_card_name(card))
             all_pack_cards.add(normalized)
             if normalized not in existing and normalized not in seen_new:
                 seen_new.add(normalized)
@@ -297,7 +330,7 @@ def sync_meta_decks(sb: Client) -> set[str]:
     for theme in target:
         deck = fetch_deck_cards(theme["name"], force=True)
         for card in deck.get("cards", []):
-            name = normalize_card_name(card["name"])
+            name = canonicalize_tracked_name(normalize_card_name(card["name"]))
             if card.get("adoption", 0) >= 30.0:
                 hot_meta.add(name)
                 if name not in existing and name not in seen_new:
@@ -365,7 +398,7 @@ def sync_regulation(sb: Client) -> set[str]:
     seen_new: set[str] = set()
 
     for card in cards:
-        name = normalize_card_name(card)
+        name = canonicalize_tracked_name(normalize_card_name(card))
         regulation_set.add(name)
         if name not in existing and name not in seen_new:
             seen_new.add(name)
@@ -419,13 +452,13 @@ def sync_searched_cards(sb: Client, recent_days: int = 7, min_count: int = 2) ->
     new_cards = []
     seen_new: set[str] = set()
     for name in qualifying:
-        normalized = normalize_card_name(name)
+        normalized = canonicalize_tracked_name(normalize_card_name(name))
         if normalized not in existing and normalized not in seen_new:
             seen_new.add(normalized)
             new_cards.append({"card_name": normalized, "active": True})
 
     _insert_new_cards(sb, new_cards, "検索ログ")
-    return {normalize_card_name(n) for n in qualifying}
+    return {canonicalize_tracked_name(normalize_card_name(n)) for n in qualifying}
 
 
 # ── 周辺カード同期（tracked_cards に追加するが注目集合には加えない） ──
@@ -449,7 +482,7 @@ def sync_recipe_decks(sb: Client) -> None:
     for theme in target:
         deck = fetch_deck_cards(theme["name"], force=False)
         for c in deck.get("full_deck", []):
-            name = normalize_card_name(c["name"])
+            name = canonicalize_tracked_name(normalize_card_name(c["name"]))
             if name and name not in existing and name not in seen_new:
                 seen_new.add(name)
                 new_cards.append({"card_name": name, "active": True})
@@ -478,7 +511,7 @@ def sync_theme_wiki_cards(sb: Client) -> None:
         wiki_cards = fetch_theme_cards(theme_name)
         print(f"  【{theme_name}】: {len(wiki_cards)}枚検出")
         for card in wiki_cards:
-            name = normalize_card_name(card)
+            name = canonicalize_tracked_name(normalize_card_name(card))
             if name and name not in existing and name not in seen_new:
                 seen_new.add(name)
                 new_cards.append({"card_name": name, "active": True})
@@ -516,7 +549,7 @@ def sync_remake_themes(sb: Client, new_pack_cards: set[str]) -> None:
         time.sleep(0.5)
         theme_cards = fetch_theme_cards(theme)
         for name_raw in theme_cards:
-            name = normalize_card_name(name_raw)
+            name = canonicalize_tracked_name(normalize_card_name(name_raw))
             if name and name not in existing and name not in seen_new:
                 seen_new.add(name)
                 new_cards.append({"card_name": name, "active": True})
@@ -546,7 +579,7 @@ def sync_trending_cards(sb: Client) -> None:
     new_cards = []
     seen_new: set[str] = set()
     for card in cards:
-        name = normalize_card_name(card)
+        name = canonicalize_tracked_name(normalize_card_name(card))
         if name and name not in existing and name not in seen_new:
             seen_new.add(name)
             new_cards.append({"card_name": name, "active": True})

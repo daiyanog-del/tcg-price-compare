@@ -36,7 +36,7 @@ from neuron_deck_parser import import_neuron as _import_neuron
 
 import re as _re
 from urllib.parse import quote as _url_quote
-from name_normalize import fuzzy_key as _fuzzy_key, _FUZZY_STRIP
+from name_normalize import fuzzy_key as _fuzzy_key, _FUZZY_STRIP, canonicalize_card_name
 
 # 検索クエリの表記ゆれ正規化
 _DASH_CHARS = _re.compile(r'[\u2012\u2013\u2014\u2015\u2212\uFF0D\uFF70]')  # 各種ダッシュ・ハイフン
@@ -48,26 +48,19 @@ def _normalize_query(q: str) -> str:
 
 def _correct_cardname(name: str) -> str:
     """カード名をDBと照合し、補正が必要なら正式名称を返す。不要ならそのまま返す"""
-    # O(1) のset検索を使う（_cardnames listへのO(n)検索は避ける）
-    if not _cardnames_set or name in _cardnames_set:
-        return name
-    q_fuzzy = _fuzzy_key(name)
-    # 記号除去で一致
-    if q_fuzzy in _cardnames_fuzzy:
-        candidates = _cardnames_fuzzy[q_fuzzy]
-        if len(candidates) > 1:
-            # 同一fuzzy_keyに複数の正式名が衝突（例: E・HERO と E-HERO）。
-            # [0]決め打ちは別カードへの誤合流という最悪種の汚染を招くため補正しない。
-            logger.warning(
-                f"_correct_cardname: fuzzy_key衝突のため補正スキップ "
-                f"name={name!r} fuzzy_key={q_fuzzy!r} candidates={candidates}"
-            )
-            return name
-        return candidates[0]
+    # 完全一致・fuzzy一致（一意/衝突）は name_normalize.canonicalize_card_name に集約
+    # （collect_prices.py の書き込み経路と同一ロジックを共有する。フェーズ3 P1）
+    corrected, matched = canonicalize_card_name(
+        name, _cardnames_set, _cardnames_fuzzy, warn=logger.warning, context="_correct_cardname"
+    )
+    if matched:
+        return corrected
+    # ここに来るのは fuzzy_key がインデックスに存在しない場合のみ（app.py 固有の読み仮名フォールバック）
     # 読み仮名の完全一致
     if name in _cardnames_reading:
         return _cardnames_reading[name]
     # 読み仮名の記号除去版で一致
+    q_fuzzy = _fuzzy_key(name)
     if q_fuzzy in _cardnames_reading_fuzzy:
         return _cardnames_reading_fuzzy[q_fuzzy]
     return name
