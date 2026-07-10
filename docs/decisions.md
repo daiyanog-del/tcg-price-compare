@@ -1,5 +1,13 @@
 このファイルの目的: 重要な決定を「いつ・何を・なぜ」で記録する。新しい決定は上に追記
 
+## 2026-07-10: 値動き検出に2ガード導入（共通店舗＋複数店確認。偽陽性98%対策）
+- **決定**: `get_price_movers` / `get_buyback_movers` を店舗粒度集計に書き換え、**ガード①共通店舗**（前日比を「比較2日の両方に記録がある店舗」のみで再計算）を両関数に、**ガード②複数店確認**（集計変動と同方向に動いた共通店舗2店以上を要求）を販売側のみに導入。第4引数 `per_card`（同名カードから返す最大レアリティ数、デフォルト1=Web現行挙動）を追加し、旧3引数版は DROP（PostgRESTのオーバーロード曖昧エラー防止）。app.py `_get_price_movers` days=2→3（X側と統一・欠測日耐性。比較ペアは常に直近2 distinct日なので表示は不変）。notify.py `get_price_drops` に同2ガードを導入し、基準日を「窓内絶対最古日」→「最新日との共通店舗が2店以上になる最古日」に変更（窓初日が疎な日の偽陰性対策）、docstring「7日前比」を実装どおりに正確化。x_poster `post_big_movers` はRPC呼び出し（per_card=999, top_n=100）に部分一本化（activeContext案1）し、`get_price_movers_by_rarity` を削除
+- **理由**: 前提監査（別セッション実施）で、直近60日の2倍級ヒット53件中52件（98%）が偽陽性と確定（店舗欠測型26/在庫入れ替わり型25/系列分裂型1）。ガードは監査の反実仮想判定（共通店舗のみで再計算）をそのまま本番化したもの
+- **検証**: 60日実データのリプレイで偽陽性52件が全滅・本物1件（ユベル25thシク 6/18）のみ生存＝期待一致53/53。買取5件も期待一致（欠測型4死・単独店値札変更1生存=仕様）。全域再走査でも新たなすり抜けゼロ。pytest 98件全緑。SQLとリプレイの意味論差（10円除外の適用順）はreviewer指摘で検出→修正済み・結果不変
+- **既知のトレードオフ**: ①ガード後の2倍級通過は週0.12件まで低下（X投稿のネタはほぼ発生しない。閾値再校正または無投稿容認はX再開判断とセットで別途）②稼働店舗が2店未満の日は販売ランキングが無音になる（現6店体制では共通2店以上率84%で実害小）③買取ランキングは単独店の値札変更（掲載の73.7%）を引き続き載せる（店の実オファー変動として本物扱い。除外するかは表示仕様の判断）④reviewer指摘の「per_card=1だとBIGMOVE成立レアリティがpct最大レアリティに押しのけられる」経路は per_card=999 で解消
+- **未了**: SQLのSupabase適用（SQL Editor実行が必要。適用まではWebは旧ロジックのまま、x_posterの手動実行は per_card 引数エラーになるため適用前に行わないこと）。閾値再校正・名寄せ/型番保持/状態(condition)分離のスキーマ変更はフェーズ3として別途
+- **根拠**: 監査記録（Claudeメモリ cardpricechecker-movers-audit）、reviewer監査、pytest 98件
+
 ## 2026-07-10: 買取収集激減の根治4点（tracked_cards読み出しの分割取得原則を含む）
 - **決定**: ①meta_scraper.fetch_deck_cards をTCG PORTALのHTML改修（カード名 h3→p、カード名リンクと画像リンクの分離）に追従 ②tracked_cards の全件読み出しは `_fetch_all_rows`（order付きrangeの分割取得）経由を原則とし、`_insert_new_cards` は upsert(on_conflict=card_name, ignore_duplicates) に変更 ③get_pack_list は Wikiカードリスト未掲載パックに _MAX_PACKS の枠を消費させない（全滅時は従来動作にフォールバック） ④規制カードの取得元を公式イベントページ→公式カードDB `forbidden_limited.action?request_locale=ja`（#list_forbidden/#list_limited/#list_semi_limited）へ移行
 - **理由**: buyback_history が 7/7以降 1,185行/日→50行/日 に激減。Renderログ・実ページ検証・DB実測で原因4点を確定（主因=①のHTML改修で環境デッキ由来hot約200枚が消滅、②の1000行上限で existing 集合が欠け新規カード追加の一括insertが7/3以降 duplicate key で全滅、0枚パックの枠占有で77枚圏外、規制ページからカード表撤去）。PostgREST（SupabaseのREST層）は1リクエスト最大1000行で、tracked_cards は1,243件と上限超過していた

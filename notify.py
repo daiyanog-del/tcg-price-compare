@@ -4,9 +4,15 @@ collect_prices.py の実行後に GitHub Actions から呼び出す。
 
 処理内容:
 1. push_subscriptions テーブルから購読情報を取得
-2. 各購読のカードについて7日前比を計算
+2. 各購読のカードについて監視窓内の最古日と最新日の比較（最大8日）を計算
 3. -5% 以上かつ 50円以上下落しているカードがあれば通知送信
 4. last_notified_at を更新して24時間以内の重複通知を防止
+
+偽陽性対策のガード（2026-07-10導入。supabase_rpc_movers.sql の値動きランキングと同じ方針）:
+  ガード①（共通店舗）: 前日比の計算を、比較する2日の両方に記録がある店舗
+    （共通店舗）だけで行う。片方の日にしか行が無い店舗は集計から除外する
+  ガード②（複数店確認）: 変動方向と同方向に動いた共通店舗が2店以上ある
+    系列のみ通知対象とする
 """
 
 import os
@@ -16,7 +22,6 @@ from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
 from supabase import create_client, Client
-from aggregations import daily_min_by_lowest_rarity
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -37,17 +42,122 @@ DROP_ABS = -50    # かつ 50円以上安い
 NOTIFY_INTERVAL_HOURS = 20
 
 
-def aggregate_daily_min(rows: list) -> dict:
-    """price_history 行リストから、最安レアリティ系列を代表として
-    {card_name: {date_str: min_price}} を返す。（aggregations.py に一元化）
+def _representative_rarity(rows: list) -> str | None:
+    """1カード分の price_history 行（card_name統一）から代表レアリティを選ぶ。
+
+    ロジックは aggregations.daily_min_by_lowest_rarity と同一（店舗横断で
+    (rarity, date) -> 最安値 を求め、最新日に存在するレアリティのうち最安を選択。
+    全レアリティで最新日欠損なら期間最小値が最安のレアリティにフォールバック）。
+    店舗粒度でのガード①②再計算にレアリティ名自体が必要なため、ここに複製する。
+    データなしは None を返す。
     """
-    return daily_min_by_lowest_rarity(rows)
+    rarity_dates: dict = defaultdict(dict)  # rarity -> {date: min_price}
+    for r in rows:
+        rarity = r.get("rarity", "") or ""
+        date   = r.get("recorded_at", "")[:10]
+        price  = r.get("min_price", 0)
+        if not date or price <= 10:
+            continue
+        if date not in rarity_dates[rarity] or price < rarity_dates[rarity][date]:
+            rarity_dates[rarity][date] = price
+
+    if not rarity_dates:
+        return None
+    all_dates = sorted({d for dates in rarity_dates.values() for d in dates})
+    if not all_dates:
+        return None
+    latest_date = all_dates[-1]
+
+    best_rarity, best_price = None, None
+    for rarity, dates in rarity_dates.items():
+        if latest_date not in dates:
+            continue
+        p = dates[latest_date]
+        if best_price is None or p < best_price:
+            best_price, best_rarity = p, rarity
+
+    # フォールバック: 全レアリティで最新日欠損 → 期間最小値が最安のレアリティ
+    if best_rarity is None:
+        for rarity, dates in rarity_dates.items():
+            min_p = min(dates.values())
+            if best_price is None or min_p < best_price:
+                best_price, best_rarity = min_p, rarity
+
+    return best_rarity
+
+
+def compute_drop(rows: list) -> dict | None:
+    """1カード分の price_history 行（shop列必須、card_name統一）から値下がり判定を行う。
+
+    date_new は監視窓内の最新日で固定。date_old は「date_new との共通店舗
+    （両日に記録がある店舗）が2店以上になる最古の日」を窓内で古い順に探索して選ぶ
+    （2026-07-10改訂）。窓の絶対最古日を固定で使うと、その日の店舗記録が疎な場合に
+    共通店舗が0〜1店になり系列全体が沈黙する偽陰性が生じるため。該当日が窓内に
+    見つからない場合は従来どおり通知なし（None）。
+
+    ガード①（共通店舗）: 上記で選んだ2日の両方に記録がある店舗（共通店舗）
+      だけで最安値を計算する
+    ガード②（複数店確認）: 値下がり方向に動いた共通店舗が2店以上ある場合のみ採用する
+
+    戻り値: {"latest": int, "base_7d": int, "pct": float, "diff": int} または
+    ガード未通過・閾値未達なら None。
+    """
+    rarity = _representative_rarity(rows)
+    if rarity is None:
+        return None
+    rarity_rows = [r for r in rows if (r.get("rarity", "") or "") == rarity]
+
+    shop_dates: dict = defaultdict(dict)  # shop -> {date: min_price}
+    for r in rarity_rows:
+        shop  = r.get("shop", "")
+        date  = r.get("recorded_at", "")[:10]
+        price = r.get("min_price", 0)
+        if not shop or not date or price <= 10:
+            continue
+        if date not in shop_dates[shop] or price < shop_dates[shop][date]:
+            shop_dates[shop][date] = price
+
+    all_dates = sorted({d for dates in shop_dates.values() for d in dates})
+    if len(all_dates) < 2:
+        return None
+    date_new = all_dates[-1]
+
+    # date_new との共通店舗が2店以上になる最古の日を、窓内を古い順に探索して選ぶ
+    date_old = None
+    common_shops: list = []
+    for candidate in all_dates[:-1]:
+        shops = [s for s, dates in shop_dates.items() if candidate in dates and date_new in dates]
+        if len(shops) >= 2:
+            date_old = candidate
+            common_shops = shops
+            break
+    if date_old is None:
+        return None
+
+    base_price   = min(shop_dates[s][date_old] for s in common_shops)
+    latest_price = min(shop_dates[s][date_new] for s in common_shops)
+    if base_price <= 0:
+        return None
+
+    diff = latest_price - base_price
+    pct  = round((diff / base_price) * 100, 1)
+    if not (pct <= DROP_PCT and diff <= DROP_ABS):
+        return None
+
+    # ガード②: 値下がり方向に動いた共通店舗が2店以上
+    down_shops = sum(
+        1 for s in common_shops if shop_dates[s][date_new] < shop_dates[s][date_old]
+    )
+    if down_shops < 2:
+        return None
+
+    return {"latest": latest_price, "base_7d": base_price, "pct": pct, "diff": diff}
 
 
 def get_price_drops(sb: Client, card_names: list) -> dict:
     """カード名リストの値下がり情報を返す。
     戻り値: {card_name: {"latest": int, "base_7d": int, "pct": float, "diff": int}}
-    閾値を超えていないカードは含まれない。
+    ガード①②を通過し、かつ閾値を超えたカードのみ含む。
     """
     if not card_names:
         return {}
@@ -59,7 +169,7 @@ def get_price_drops(sb: Client, card_names: list) -> dict:
     offset = 0
     while True:
         resp = (sb.table("price_history")
-                .select("card_name, rarity, min_price, recorded_at")
+                .select("card_name, rarity, shop, min_price, recorded_at")
                 .in_("card_name", card_names)
                 .gte("recorded_at", cutoff)
                 .order("recorded_at", desc=False)
@@ -71,20 +181,15 @@ def get_price_drops(sb: Client, card_names: list) -> dict:
             break
         offset += page_size
 
-    card_dates = aggregate_daily_min(all_rows)
+    by_card: dict = defaultdict(list)
+    for r in all_rows:
+        by_card[r["card_name"]].append(r)
+
     drops = {}
-    for name, dates in card_dates.items():
-        sorted_dates = sorted(dates.keys())
-        if len(sorted_dates) < 2:
-            continue
-        latest_price = dates[sorted_dates[-1]]
-        base_price   = dates[sorted_dates[0]]
-        if base_price <= 0:
-            continue
-        diff = latest_price - base_price
-        pct  = round((diff / base_price) * 100, 1)
-        if pct <= DROP_PCT and diff <= DROP_ABS:
-            drops[name] = {"latest": latest_price, "base_7d": base_price, "pct": pct, "diff": diff}
+    for name, rows in by_card.items():
+        result = compute_drop(rows)
+        if result is not None:
+            drops[name] = result
 
     return drops
 

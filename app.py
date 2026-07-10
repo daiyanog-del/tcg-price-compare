@@ -1217,7 +1217,7 @@ def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
         return []
 
     try:
-        cutoff = (datetime.now(JST) - timedelta(days=2)).strftime("%Y-%m-%d")
+        cutoff = (datetime.now(JST) - timedelta(days=3)).strftime("%Y-%m-%d")
         resp = (_supabase_client
                 .rpc("get_price_movers", {"cutoff_date": cutoff, "min_diff": 50, "top_n": 20})
                 .execute())

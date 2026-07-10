@@ -1,6 +1,7 @@
 """X（Twitter）自動投稿モジュール — 大変動カードの単発投稿（2026-07-10〜）"""
 
 import os
+import logging
 import tempfile
 import urllib.parse
 from datetime import date, datetime, timedelta, timezone
@@ -10,6 +11,8 @@ import requests as _requests
 
 from constants import JST
 from name_normalize import fuzzy_key
+
+logger = logging.getLogger(__name__)
 
 SITE_URL = "https://tcg-price-compare.onrender.com"
 
@@ -112,46 +115,31 @@ def get_price_movers(sb, direction="up", limit=5, allowed_names=None,
     return result, date_old, date_new
 
 
-def get_price_movers_by_rarity(sb):
-    """Supabaseから price_history 直近3日分を (カード名, レアリティ) 単位で取得し、
-    日付ごとの最安値マップ {(name, rarity): {date_str: price}} を返す。
+def _rpc_rows_to_card_dates(rows):
+    """get_price_movers RPC の戻り行を select_big_movers が受け取る
+    card_dates 形式 {(name, rarity): {date_str: price}} に変換する。
 
-    集計単位をカード名単体ではなく (name, rarity) にする理由: カード名単位だと
-    安レアリティの売切れ（在庫消滅による見かけ上の価格変化）で偽の急騰・急落を
-    拾ってしまうため。10円以下のノイズ除外は get_price_movers と同じ。
-    ページング実装は get_price_movers から流用。
+    RPC 側で店舗粒度のガード①②（共通店舗のみ・複数店確認）を適用済みの
+    today_price/prev_price を、date_new/date_old をキーとした2点系列に
+    詰め直すだけ。select_big_movers 側の BIGMOVE 閾値判定・fuzzy dedup・
+    top_n 選抜ロジックはそのまま利用できる。
+
+    戻り値: (card_dates, date_old, date_new)。rows が空なら ({}, None, None)。
     """
-    cutoff = (datetime.now(JST) - timedelta(days=3)).strftime("%Y-%m-%d")
-
-    all_rows = []
-    page_size = 1000
-    offset = 0
-    while True:
-        resp = (sb.table("price_history")
-                .select("card_name, rarity, min_price, recorded_at")
-                .gte("recorded_at", cutoff)
-                .order("recorded_at", desc=False)
-                .range(offset, offset + page_size - 1)
-                .execute())
-        batch = resp.data or []
-        all_rows.extend(batch)
-        if len(batch) < page_size:
-            break
-        offset += page_size
-
-    card_dates = defaultdict(dict)
-    for r in all_rows:
-        name = r["card_name"]
-        rarity = r.get("rarity") or ""
-        d = r["recorded_at"][:10]
-        price = r["min_price"]
-        if price <= 10:
-            continue
-        key = (name, rarity)
-        if d not in card_dates[key] or price < card_dates[key][d]:
-            card_dates[key][d] = price
-
-    return card_dates
+    card_dates = {}
+    date_old = date_new = None
+    for row in rows:
+        name = row.get("card_name", "")
+        rarity = row.get("rarity") or ""
+        d_new = row.get("date_new")
+        d_old = row.get("date_old")
+        card_dates[(name, rarity)] = {
+            d_old: row.get("prev_price", 0),
+            d_new: row.get("today_price", 0),
+        }
+        if date_old is None:
+            date_old, date_new = d_old, d_new
+    return card_dates, date_old, date_new
 
 
 def select_big_movers(card_dates, date_old=None, date_new=None, top_n=1):
@@ -716,20 +704,30 @@ def post_big_movers(sb):
         print("  本日分は投稿済み（tweet_logに記録あり）— 二重投稿を回避してスキップ")
         return
 
-    card_dates = get_price_movers_by_rarity(sb)
-    if not card_dates:
-        print("  price_history データなし — スキップ")
+    # 値動き集計はSupabase RPC（店舗粒度のガード①②適用済み）に一本化。
+    # per_card=999・top_n=100 で全レアリティを候補として受け取る
+    # （BIGMOVE閾値は diff にも依存するため、RPC側で pct 最大の1レアリティに
+    # 事前に畳み込むと取りこぼしが生じるため。select_big_movers 側で
+    # BIGMOVE閾値判定・fuzzy dedup・方向別top_n選抜を行う）
+    cutoff = (datetime.now(JST) - timedelta(days=3)).strftime("%Y-%m-%d")
+    try:
+        resp = sb.rpc(
+            "get_price_movers",
+            {"cutoff_date": cutoff, "min_diff": 50, "top_n": 100, "per_card": 999},
+        ).execute()
+        rows = resp.data or []
+    except Exception as e:
+        logger.warning(f"RPC get_price_movers 呼び出し失敗 — スキップ: {e}")
         return
 
-    all_dates_set = set()
-    for dates in card_dates.values():
-        all_dates_set.update(dates.keys())
-    all_dates_sorted = sorted(all_dates_set)
-    if len(all_dates_sorted) < 2:
-        print("  比較可能な日付が2日分未満 — スキップ")
+    if not rows:
+        print("  値動きデータなし（RPC結果0件）— スキップ")
         return
-    date_new = all_dates_sorted[-1]
-    date_old = all_dates_sorted[-2]
+
+    card_dates, date_old, date_new = _rpc_rows_to_card_dates(rows)
+    if date_old is None or date_new is None:
+        print("  比較可能な日付が取得できません — スキップ")
+        return
 
     # クールダウン時の次点繰り上げ用に方向ごと上位3件まで受け取る（投稿は各方向1件のみ）
     candidates = select_big_movers(card_dates, date_old, date_new, top_n=3)
