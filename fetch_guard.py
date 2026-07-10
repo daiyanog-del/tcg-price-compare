@@ -49,9 +49,6 @@ ALLOWED_HOSTS: frozenset = frozenset({
     "pbs.twimg.com",
 })
 
-# ホストごとのパスプレフィックス制約（リストにないホストは全パス可）
-ALLOWED_PATH_PREFIXES: dict[str, tuple] = {}
-
 # curl_cffi で模倣するブラウザ署名（WAFのTLSフィンガープリント検査を通すため）
 _IMPERSONATE = "chrome"
 
@@ -72,7 +69,7 @@ _last_request_time: float = 0.0        # 直前リクエスト完了時刻（tim
 # ──────────────────────────────────────────────
 
 class WhitelistViolation(Exception):
-    """ホワイトリスト違反URL（未許可ホスト / http / 非許可パス）へのアクセス試行"""
+    """ホワイトリスト違反URL（未許可ホスト / http）へのアクセス試行"""
 
 
 # ──────────────────────────────────────────────
@@ -100,16 +97,6 @@ def _validate_url(url: str) -> None:
         raise WhitelistViolation(
             f"ホワイトリスト外のホストへのアクセスは禁止されています: {host!r} ({url!r})"
         )
-
-    # パスプレフィックスのチェック（ホストごとに追加制約がある場合）
-    if host in ALLOWED_PATH_PREFIXES:
-        path = parsed.path
-        allowed_prefixes = ALLOWED_PATH_PREFIXES[host]
-        if not any(path.startswith(prefix) for prefix in allowed_prefixes):
-            raise WhitelistViolation(
-                f"ホスト {host!r} では許可されていないパスです: {path!r} ({url!r})\n"
-                f"  許可プレフィックス: {allowed_prefixes}"
-            )
 
 
 # ──────────────────────────────────────────────

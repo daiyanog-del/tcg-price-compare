@@ -11,7 +11,11 @@
 
 ## 次何
 
-- TASKS.md バックログの着手判断。推奨順: x_poster閾値校正 → 柵の由来調査 → movers一本化検討
+- **movers 2系統併存の扱いをユーザーが判断**（バックログ唯一の残件）。調査済みの選択肢:
+  - 案1: 日次投稿のみRPC一本化（x_poster の get_price_movers を RPC呼び出しに置換。featured用の allowed_names 絞り込みは対象カードがRPCの top_n に乗らないためPython集計を残す＝部分一本化）
+  - 案2: 現状維持＋days統一のみ（app.py の days=2 を x_poster と同じ 3 に揃えて欠測日に強くする。最小変更）
+  - 案3: 完全現状維持（差異は decisions.md に記録済み、実害が出たら対応）
+- x_poster 閾値変更（100→50円）の効果観察: 次回投稿（毎日 JST 20:07）から適用。数日分の投稿内容を見て過剰/過少を確認
 - 本番は通常運用継続中（Render web + cron 3本 + GitHub Actions 6本 + ローカルWatcher）。特別な監視事項なし
 
 ## 申し送り・注意

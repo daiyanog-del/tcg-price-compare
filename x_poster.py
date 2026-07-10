@@ -13,8 +13,11 @@ from constants import JST
 SITE_URL = "https://tcg-price-compare.onrender.com"
 
 # 毎日の値動き投稿の判定閾値（意味のある変動に絞る）
-# TODO: calibrate from data — 直近の価格履歴の分布を見て調整する
-DAILY_MIN_DIFF = 100   # 最安値の前日差（円）の下限
+# 2026-07-10 に price_history 直近60日(8,854日次ペア)で校正:
+#   100円では中央値3枚で5枠が埋まらない日が60日中41日、該当ゼロ日も計3日。
+#   50円/10% ならゼロ日なし・中央値 up6/down9 枚で5枠が埋まり、
+#   10%バーで些末な絶対額変動は引き続き除外される（サイト側RPCの min_diff=50 とも整合）
+DAILY_MIN_DIFF = 50    # 最安値の前日差（円）の下限
 DAILY_MIN_PCT  = 10    # 前日比変動率（％）の下限
 
 

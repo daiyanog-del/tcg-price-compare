@@ -94,6 +94,9 @@ def _get_font(size: int = 16, bold: bool = False):
 
 
 # ── カード画像ディスクキャッシュ ──
+# _v2: 画像URL解決方式の変更（x_poster.get_card_image_path 依存 → app.py resolver 経由に刷新、
+# コミット 8983439 2026-06-08）に伴い旧v1キャッシュと形式が変わるため名前を分けた。
+# v2にした具体的理由（キャッシュ内容の非互換性の詳細）はコミットメッセージに記録なし。
 _CARD_CACHE_DIR = os.path.join(tempfile.gettempdir(), "cardprice_card_imgs_v2")
 _DECK_CACHE_DIR = os.path.join(tempfile.gettempdir(), "cardprice_deck_imgs_v2")
 os.makedirs(_CARD_CACHE_DIR, exist_ok=True)
@@ -115,6 +118,9 @@ def _download_card_image(card_name: str, url: str):
             pass
     try:
         resp = _requests.get(url, timeout=8, headers={"User-Agent": _UA})
+        # 1024バイト閾値: コミット 8983439（2026-06-08）で x_poster.get_card_image_path 経由の
+        # ファイル存在チェックから直接HTTP DLに切り替えた際に追加。エラーページ等の小容量レスポンスを
+        # 弾く簡易ガードと見られるが、1024という具体的な数値の根拠はコミットメッセージに記録なし。
         if resp.status_code == 200 and len(resp.content) > 1024:
             img = Image.open(io.BytesIO(resp.content)).convert("RGB")
             img.save(cache_path, "WEBP", quality=80)

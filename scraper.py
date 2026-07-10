@@ -110,6 +110,7 @@ def safe_get(url: str, timeout: int = 15, retries: int = 1) -> BeautifulSoup | N
             return BeautifulSoup(res.text, "html.parser")
         except requests.RequestException as e:
             if attempt < retries:
+                # 根拠不明（導入: abe83370 2026-03-05、理由の記録なし。初回一括アップロードで既に存在）
                 time.sleep(2)
             else:
                 _note_fetch_error()

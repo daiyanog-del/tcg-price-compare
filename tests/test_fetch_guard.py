@@ -23,7 +23,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fetch_guard import (
     ALLOWED_HOSTS,
-    ALLOWED_PATH_PREFIXES,
     WhitelistViolation,
     fetch_whitelisted,
     is_whitelisted,
@@ -233,7 +232,7 @@ class TestASTImportGuard:
 # ──────────────────────────────────────────────
 
 class TestWhitelistConstants:
-    """ALLOWED_HOSTS / ALLOWED_PATH_PREFIXES の定義確認"""
+    """ALLOWED_HOSTS の定義確認"""
 
     def test_allowed_hosts_is_frozenset(self):
         assert isinstance(ALLOWED_HOSTS, frozenset)
@@ -253,8 +252,3 @@ class TestWhitelistConstants:
             "yu-gi-oh.jp",
             "pbs.twimg.com",
         })
-
-    def test_yu_gi_oh_jp_no_path_restriction(self):
-        # yu-gi-oh.jp にはパス制限がないこと
-        assert "www.yu-gi-oh.jp" not in ALLOWED_PATH_PREFIXES
-        assert "yu-gi-oh.jp" not in ALLOWED_PATH_PREFIXES
