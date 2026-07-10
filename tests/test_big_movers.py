@@ -8,7 +8,7 @@ tests/test_big_movers.py — select_big_movers（大変動カード単発投稿�
 
 テスト方針:
   - card_dates: {(name, rarity): {date_str: price}} を手組みして渡すだけ。
-  - 非対称閾値（up +2000円/+100%、down -2000円/-50%）の境界判定
+  - 閾値（up +500円/+30%、down -500円/-30%。2026-07-10ガード後再校正）の境界判定
   - 方向別トップ1選抜（変動率絶対値順）
   - 正規化名（全角半角ゆれ）での重複排除
   - 該当なしのとき空リスト
@@ -41,15 +41,20 @@ def make_card_dates(entries):
 # ──────────────────────────────────────────────
 
 class TestUpThreshold:
-    """急騰: diff >= +2000円 かつ pct >= +100%（両方満たして初めて採用）"""
+    """急騰: diff >= +500円 かつ pct >= +30%（両方満たして初めて採用）"""
 
     def test_exact_boundary_is_included(self):
-        # yesterday=2000, today=4000 -> diff=+2000, pct=+100.0 ちょうど境界
-        card_dates = make_card_dates([("境界カード", "ノーマル", 2000, 4000)])
+        # diff境界: yesterday=1000, today=1500 -> diff=+500ちょうど, pct=+50%(>=30)
+        card_dates = make_card_dates([("差額境界カード", "ノーマル", 1000, 1500)])
         result = select_big_movers(card_dates, OLD, NEW)
         assert len(result) == 1
         assert result[0]["direction"] == "up"
         assert result[0]["diff"] == BIGMOVE_UP_MIN_DIFF
+
+        # pct境界: yesterday=2000, today=2600 -> diff=+600(>=500), pct=+30.0ちょうど
+        card_dates = make_card_dates([("率境界カード", "ノーマル", 2000, 2600)])
+        result = select_big_movers(card_dates, OLD, NEW)
+        assert len(result) == 1
         assert result[0]["pct"] == BIGMOVE_UP_MIN_PCT
 
     def test_diff_met_but_pct_not_met_excluded(self):
@@ -59,8 +64,8 @@ class TestUpThreshold:
         assert result == []
 
     def test_pct_met_but_diff_not_met_excluded(self):
-        # yesterday=1000, today=2500 -> diff=+1500(<2000), pct=+150%(>=100%) は対象外
-        card_dates = make_card_dates([("安カード", "ノーマル", 1000, 2500)])
+        # yesterday=1000, today=1400 -> diff=+400(<500), pct=+40%(>=30%) は対象外
+        card_dates = make_card_dates([("安カード", "ノーマル", 1000, 1400)])
         result = select_big_movers(card_dates, OLD, NEW)
         assert result == []
 
@@ -74,15 +79,20 @@ class TestUpThreshold:
 
 
 class TestDownThreshold:
-    """急落: diff <= -2000円 かつ pct <= -50%（両方満たして初めて採用）"""
+    """急落: diff <= -500円 かつ pct <= -30%（両方満たして初めて採用）"""
 
     def test_exact_boundary_is_included(self):
-        # yesterday=4000, today=2000 -> diff=-2000, pct=-50.0 ちょうど境界
-        card_dates = make_card_dates([("境界カード", "ノーマル", 4000, 2000)])
+        # diff境界: yesterday=1000, today=500 -> diff=-500ちょうど, pct=-50%(<=-30)
+        card_dates = make_card_dates([("差額境界カード", "ノーマル", 1000, 500)])
         result = select_big_movers(card_dates, OLD, NEW)
         assert len(result) == 1
         assert result[0]["direction"] == "down"
         assert result[0]["diff"] == BIGMOVE_DOWN_MIN_DIFF
+
+        # pct境界: yesterday=2000, today=1400 -> diff=-600(<=-500), pct=-30.0ちょうど
+        card_dates = make_card_dates([("率境界カード", "ノーマル", 2000, 1400)])
+        result = select_big_movers(card_dates, OLD, NEW)
+        assert len(result) == 1
         assert result[0]["pct"] == BIGMOVE_DOWN_MIN_PCT
 
     def test_diff_met_but_pct_not_met_excluded(self):
@@ -92,8 +102,8 @@ class TestDownThreshold:
         assert result == []
 
     def test_pct_met_but_diff_not_met_excluded(self):
-        # yesterday=1000, today=400 -> diff=-600(>-2000), pct=-60%(<=-50%) は対象外
-        card_dates = make_card_dates([("安カード", "ノーマル", 1000, 400)])
+        # yesterday=1000, today=600 -> diff=-400(>-500), pct=-40%(<=-30%) は対象外
+        card_dates = make_card_dates([("安カード", "ノーマル", 1000, 600)])
         result = select_big_movers(card_dates, OLD, NEW)
         assert result == []
 

@@ -247,7 +247,8 @@ def sync_latest_packs(sb: Client) -> tuple[set[str], set[str]]:
     """最新弾のカードを追加。(全最新弾カード集合, 今回新規追加分) を返す。"""
     print("\n--- 最新弾カード同期 ---")
 
-    packs = get_pack_list()
+    # 収集用: カードリスト未掲載（発売前など）のパックは除外し、枠を消費させない
+    packs = get_pack_list(include_empty=False)
     if not packs:
         print("  パック情報を取得できませんでした")
         return set(), set()

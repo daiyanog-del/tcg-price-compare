@@ -152,13 +152,23 @@ def _try_wiki_page_variants(pack_name: str) -> str:
     return page
 
 
-def get_pack_list() -> list[dict]:
+def get_pack_list(include_empty: bool = True) -> list[dict]:
     """
     最新パック一覧を返す。
     公式サイトから自動取得し、Wikiでカード取得可能なパックを返す。
-    結果はキャッシュする（24時間）。
+    結果はキャッシュする（24時間）。用途ごとにキャッシュを分離する。
+
+    include_empty:
+        True（既定・表示用 /api/packs, save_pack_list）:
+            Wikiにカードリスト未掲載（発売前など）のパックも含め、
+            直近 _MAX_PACKS 件をそのまま返す。サイトの最新弾リストから
+            発売前パックが消えないようにするための表示用挙動。
+        False（収集用 collect_prices.sync_latest_packs）:
+            カードリスト未掲載パックは除外し、_MAX_PACKS の枠を消費させない
+            （0枚パックが収録数の多い既発売パックを圏外に押し出し、収集対象が
+            痩せる問題の回避。2026-07-07 の買取収集激減の一因。TASKS.md 参照）。
     """
-    cache_key = "pack_list_auto"
+    cache_key = "pack_list_auto" if include_empty else "pack_list_collect"
     cached = _cache_read(cache_key, timedelta(hours=24))
     if cached and "packs" in cached and len(cached["packs"]) > 0:
         return cached["packs"]
@@ -171,32 +181,42 @@ def get_pack_list() -> list[dict]:
             return old["packs"]
         return []
 
-    # 直近パックのうち、Wikiでカードリストが取れるものを_MAX_PACKS個選ぶ。
-    # カードリスト未掲載（発売前など）のパックには枠を消費させない
-    # （0枚パックが枠を潰すと、収録数の多い既発売パックが圏外に落ちて
-    #   収集対象が痩せる。2026-07-07 の買取収集激減の一因。TASKS.md 参照）
-    valid_packs = []
-    cardless_packs = []
-    for pack in official_packs:
-        if len(valid_packs) >= _MAX_PACKS:
-            break
+    if include_empty:
+        # 表示用: カードリスト有無にかかわらず、直近 _MAX_PACKS 件をそのまま返す
+        valid_packs = []
+        for pack in official_packs[:_MAX_PACKS]:
+            wiki_page, _has_cards = _resolve_wiki_page(pack["name"])
+            valid_packs.append({
+                "name": pack["name"],
+                "wiki_page": wiki_page,
+                "tcg_name": pack.get("tcg_name", ""),
+                "date": pack["date"],
+            })
+    else:
+        # 収集用: 直近パックのうち、Wikiでカードリストが取れるものを_MAX_PACKS個選ぶ。
+        # カードリスト未掲載（発売前など）のパックには枠を消費させない
+        valid_packs = []
+        cardless_packs = []
+        for pack in official_packs:
+            if len(valid_packs) >= _MAX_PACKS:
+                break
 
-        wiki_page, has_cards = _resolve_wiki_page(pack["name"])
-        entry = {
-            "name": pack["name"],
-            "wiki_page": wiki_page,
-            "tcg_name": pack.get("tcg_name", ""),
-            "date": pack["date"],
-        }
-        if has_cards:
-            valid_packs.append(entry)
-        else:
-            print(f"  pack_scraper: {pack['name']} はWikiにカードリスト未掲載のためスキップ")
-            cardless_packs.append(entry)
+            wiki_page, has_cards = _resolve_wiki_page(pack["name"])
+            entry = {
+                "name": pack["name"],
+                "wiki_page": wiki_page,
+                "tcg_name": pack.get("tcg_name", ""),
+                "date": pack["date"],
+            }
+            if has_cards:
+                valid_packs.append(entry)
+            else:
+                print(f"  pack_scraper: {pack['name']} はWikiにカードリスト未掲載のためスキップ")
+                cardless_packs.append(entry)
 
-    if not valid_packs:
-        # Wiki全滅時（障害等）は従来どおり直近 _MAX_PACKS 件を返し、表示の全損を避ける
-        valid_packs = cardless_packs[:_MAX_PACKS]
+        if not valid_packs:
+            # Wiki全滅時（障害等）は従来どおり直近 _MAX_PACKS 件を返し、収集の全損を避ける
+            valid_packs = cardless_packs[:_MAX_PACKS]
 
     if valid_packs:
         _cache_write(cache_key, {"packs": valid_packs})
