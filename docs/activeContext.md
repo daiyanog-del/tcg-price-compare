@@ -21,6 +21,8 @@
 
 ## 申し送り・注意
 
+- **買取収集激減（7/7〜7/10）は 2026-07-10 に根治4点を実装・デプロイ済み**: 詳細は TASKS.md 完了欄。次回 cron 実行（7/11 JST7:00台）で「収集対象」300件前後への回復を確認すること。7/7〜7/10 の buyback_history は欠損期間（50〜318行/日）として残るため、買取movers の窓がこの期間にかかる間は母集団が薄い点に注意
+
 - ルートの `自作画像など\` は tools/build_icons.py が参照する現役素材。削除禁止
 - 毎週月曜に update-cardnames.yml が cardnames_ja.json を自動コミットする → **編集前 git pull 必須**
 - ローカルでの動作確認の落とし穴（debug時 _estimate_cache 未ロード等）は Claude メモリ cardpricechecker-local-verify 参照

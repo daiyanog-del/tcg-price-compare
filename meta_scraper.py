@@ -219,17 +219,29 @@ def fetch_deck_cards(theme_name: str, force: bool = False) -> dict:
     seen = set()
 
     for card_link in soup.select("a[href*='/yugioh/cards/']"):
-        # カード名: h3 内のテキスト
-        h3 = card_link.select_one("h3")
-        if not h3:
-            continue
-        card_name = h3.get_text(strip=True)
+        # カード名: リンク内の見出し要素。
+        # 2026-07のサイト改修でカード名の要素が h3 → p に変わったため両対応で拾う
+        # （h3消滅により cards=0 → 収集対象激減の障害が起きた。TASKS.md 参照）
+        name_el = card_link.select_one("h3, p")
+        if not name_el:
+            continue  # 画像のみのリンク等はスキップ
+        card_name = name_el.get_text(strip=True)
         if not card_name or card_name in seen:
             continue
 
-        # カード画像: リンク内の img[src]
+        # カード画像: リンク内 → なければ近傍の祖先ブロック内を探す
+        # （改修後はカード名リンクと画像リンクが別要素に分離した）
         image_url = ""
         img_el = card_link.select_one("img[src]")
+        if not img_el:
+            anc = card_link.parent
+            for _ in range(3):
+                if anc is None:
+                    break
+                img_el = anc.select_one("img[src]")
+                if img_el:
+                    break
+                anc = anc.parent
         if img_el:
             image_url = img_el.get("src", "")
 

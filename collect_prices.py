@@ -87,13 +87,44 @@ def get_supabase() -> Client:
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
+# PostgREST（SupabaseのREST層）は1リクエスト最大1000行しか返さない。
+# tracked_cards は1000件を超えているため、全件が必要な読み出しは必ず分割取得する。
+# （2026-07-10 根治: 上限超過で existing 集合が欠け、新規カード追加の一括insertが
+#   duplicate key で全滅し続け、収集対象が痩せていく障害が起きていた。TASKS.md 参照）
+# 注意: 終端判定（len(batch) < _PAGE_SIZE）は「サーバの返却上限 >= _PAGE_SIZE」が前提。
+# Supabase の Max rows 設定を1000未満に下げる場合はこの値も合わせること。
+_PAGE_SIZE = 1000
+
+
+def _fetch_all_rows(make_query, order_by: str = "card_name") -> list[dict]:
+    """make_query が返す select ビルダーを range 指定で繰り返し実行し、全行を返す。
+
+    ページ間で並び順が揺れると境界の行を取りこぼすため、安定キーで必ず order する。
+    """
+    rows: list[dict] = []
+    offset = 0
+    while True:
+        resp = make_query().order(order_by) \
+            .range(offset, offset + _PAGE_SIZE - 1).execute()
+        batch = resp.data or []
+        rows.extend(batch)
+        if len(batch) < _PAGE_SIZE:
+            return rows
+        offset += _PAGE_SIZE
+
+
+def _fetch_all_tracked_names(sb: Client) -> set[str]:
+    """tracked_cards の全カード名（active を問わず）。新規追加時の重複チェック用"""
+    rows = _fetch_all_rows(lambda: sb.table("tracked_cards").select("card_name"))
+    return {row["card_name"] for row in rows}
+
+
 def fetch_tracked_cards(sb: Client) -> list[str]:
     """監視対象カードの名前一覧を取得（後方互換用）"""
-    resp = sb.table("tracked_cards") \
-        .select("card_name") \
-        .eq("active", True) \
-        .execute()
-    cards = [row["card_name"] for row in resp.data]
+    rows = _fetch_all_rows(
+        lambda: sb.table("tracked_cards").select("card_name").eq("active", True)
+    )
+    cards = [row["card_name"] for row in rows]
     print(f"監視対象カード: {len(cards)}件")
     return cards
 
@@ -101,19 +132,19 @@ def fetch_tracked_cards(sb: Client) -> list[str]:
 def fetch_tracked_cards_with_meta(sb: Client) -> list[dict]:
     """監視対象カードを last_collected_at つきで取得。列未追加時は名前のみ返す。"""
     try:
-        resp = sb.table("tracked_cards") \
-            .select("card_name, last_collected_at") \
-            .eq("active", True) \
-            .execute()
+        rows = _fetch_all_rows(
+            lambda: sb.table("tracked_cards")
+            .select("card_name, last_collected_at")
+            .eq("active", True)
+        )
     except Exception:
         # last_collected_at カラム未追加時のフォールバック
-        resp = sb.table("tracked_cards") \
-            .select("card_name") \
-            .eq("active", True) \
-            .execute()
+        rows = _fetch_all_rows(
+            lambda: sb.table("tracked_cards").select("card_name").eq("active", True)
+        )
     cards = [
         {"card_name": row["card_name"], "last_collected_at": row.get("last_collected_at")}
-        for row in resp.data
+        for row in rows
     ]
     print(f"監視対象カード: {len(cards)}件")
     return cards
@@ -188,17 +219,24 @@ def normalize_card_name(name: str) -> str:
 
 
 def _insert_new_cards(sb: Client, new_cards: list[dict], label: str) -> None:
-    """new_cards を tracked_cards に insert してログを出す"""
+    """new_cards を tracked_cards に登録してログを出す。
+
+    insert ではなく upsert(ignore_duplicates) を使う: existing 集合とDBに
+    わずかな差があっても、1枚の重複でバッチ全体が 23505 で全滅しないように。
+    """
     if not new_cards:
         print(f"  新規カードなし")
         return
     try:
-        sb.table("tracked_cards").insert(new_cards).execute()
-        print(f"  新規追加: {len(new_cards)}枚")
-        for c in new_cards[:10]:
+        resp = sb.table("tracked_cards").upsert(
+            new_cards, on_conflict="card_name", ignore_duplicates=True
+        ).execute()
+        inserted = resp.data or []
+        print(f"  新規追加: {len(inserted)}枚（候補{len(new_cards)}枚中）")
+        for c in inserted[:10]:
             print(f"    + {c['card_name']}")
-        if len(new_cards) > 10:
-            print(f"    ... 他{len(new_cards) - 10}枚")
+        if len(inserted) > 10:
+            print(f"    ... 他{len(inserted) - 10}枚")
     except Exception as e:
         print(f"  カード追加失敗 ({label}): {e}")
 
@@ -214,8 +252,7 @@ def sync_latest_packs(sb: Client) -> tuple[set[str], set[str]]:
         print("  パック情報を取得できませんでした")
         return set(), set()
 
-    resp = sb.table("tracked_cards").select("card_name").execute()
-    existing = {row["card_name"] for row in resp.data}
+    existing = _fetch_all_tracked_names(sb)
 
     all_pack_cards: set[str] = set()
     new_cards = []
@@ -247,8 +284,7 @@ def sync_meta_decks(sb: Client) -> set[str]:
         print("  Tier表を取得できませんでした")
         return set()
 
-    resp = sb.table("tracked_cards").select("card_name").execute()
-    existing = {row["card_name"] for row in resp.data}
+    existing = _fetch_all_tracked_names(sb)
 
     hot_meta: set[str] = set()
     new_cards = []
@@ -271,11 +307,17 @@ def sync_meta_decks(sb: Client) -> set[str]:
 
 
 def fetch_regulation_cards() -> list[str]:
-    """KONAMI公式サイトからリミットレギュレーション対象カードを取得"""
+    """リミットレギュレーション対象カード（禁止・制限・準制限）を取得。
+
+    2026-07: 公式イベントページ（yugioh-card.com/japan/event/limitregulation/）から
+    カード表が撤去されて全損したため、公式カードDBの禁止制限ページへ移行。
+    日本語名は request_locale=ja で取得する。
+    """
     import requests
     from bs4 import BeautifulSoup
 
-    url = "https://www.yugioh-card.com/japan/event/limitregulation/"
+    url = ("https://www.db.yugioh-card.com/yugiohdb/forbidden_limited.action"
+           "?request_locale=ja")
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
     try:
@@ -286,22 +328,19 @@ def fetch_regulation_cards() -> list[str]:
         print(f"  リミットレギュレーション取得失敗: {e}")
         return []
 
-    tables = soup.select("table.limitregulation")
-    if len(tables) < 4:
-        print(f"  テーブル数が想定と異なります: {len(tables)}")
-        return []
-
-    cards = []
-    for table in tables[1:4]:
-        for td in table.select("td"):
-            text = td.get_text(strip=True)
-            if not text or len(text) <= 2:
-                continue
-            if re.match(r'^[A-Z\s\-\'".,;:!?#&\d()/<>★☆＜＞]+$', text):
-                continue
-            if '⇒' in text or '新規' in text:
-                continue
-            cards.append(text)
+    cards: list[str] = []
+    seen: set[str] = set()
+    # 解除（list_release_of_restricted）は3枚解禁で規制の文脈から外れるため対象外（従来同等）
+    for section_id in ("list_forbidden", "list_limited", "list_semi_limited"):
+        section = soup.select_one(f"#{section_id}")
+        if section is None:
+            print(f"  セクションが見つかりません: {section_id}")
+            continue
+        for el in section.select(".card_name"):
+            text = el.get_text(strip=True)
+            if text and text not in seen:
+                seen.add(text)
+                cards.append(text)
 
     return cards
 
@@ -317,8 +356,7 @@ def sync_regulation(sb: Client) -> set[str]:
 
     print(f"  規制対象カード: {len(cards)}枚")
 
-    resp = sb.table("tracked_cards").select("card_name").execute()
-    existing = {row["card_name"] for row in resp.data}
+    existing = _fetch_all_tracked_names(sb)
 
     regulation_set: set[str] = set()
     new_cards = []
@@ -374,8 +412,7 @@ def sync_searched_cards(sb: Client, recent_days: int = 7, min_count: int = 2) ->
     if not qualifying:
         return set()
 
-    resp = sb.table("tracked_cards").select("card_name").execute()
-    existing = {row["card_name"] for row in resp.data}
+    existing = _fetch_all_tracked_names(sb)
 
     new_cards = []
     seen_new: set[str] = set()
@@ -401,8 +438,7 @@ def sync_recipe_decks(sb: Client) -> None:
         print("  Tier表なし")
         return
 
-    resp = sb.table("tracked_cards").select("card_name").execute()
-    existing = {row["card_name"] for row in resp.data}
+    existing = _fetch_all_tracked_names(sb)
 
     target = [t for t in tiers if t.get("tier", 99) <= 4]
     new_cards = []
@@ -428,8 +464,7 @@ def sync_theme_wiki_cards(sb: Client) -> None:
         print("  Tier表なし")
         return
 
-    resp = sb.table("tracked_cards").select("card_name").execute()
-    existing = {row["card_name"] for row in resp.data}
+    existing = _fetch_all_tracked_names(sb)
 
     target = [t for t in tiers if t.get("tier", 99) <= 4]
     new_cards = []
@@ -458,8 +493,7 @@ def sync_remake_themes(sb: Client, new_pack_cards: set[str]) -> None:
     targets = list(new_pack_cards)[:30]
     print(f"\n--- リメイクテーマ逆引き同期（新規{len(new_pack_cards)}枚中{len(targets)}枚対象）---")
 
-    resp = sb.table("tracked_cards").select("card_name").execute()
-    existing = {row["card_name"] for row in resp.data}
+    existing = _fetch_all_tracked_names(sb)
 
     # 新弾カードからテーマを逆引き
     theme_set: set[str] = set()
@@ -505,8 +539,7 @@ def sync_trending_cards(sb: Client) -> None:
 
     print(f"  ランキング取得: {len(cards)}枚")
 
-    resp = sb.table("tracked_cards").select("card_name").execute()
-    existing = {row["card_name"] for row in resp.data}
+    existing = _fetch_all_tracked_names(sb)
 
     new_cards = []
     seen_new: set[str] = set()

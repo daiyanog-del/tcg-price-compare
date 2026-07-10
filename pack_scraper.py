@@ -117,9 +117,9 @@ def _fetch_latest_packs_from_official() -> list[dict]:
     return all_packs
 
 
-def _try_wiki_page_variants(pack_name: str) -> str:
+def _resolve_wiki_page(pack_name: str) -> tuple[str, bool]:
     """
-    Wikiページ名のバリエーションを試してカードリストが取れるものを返す。
+    Wikiページ名のバリエーションを試し、(ページ名, カードリスト有無) を返す。
     公式サイトのダッシュ表記とWikiの表記が異なる場合がある。
     """
     # 全角ハイフン(－)はEUC-JPに変換できないため先に正規化
@@ -141,9 +141,15 @@ def _try_wiki_page_variants(pack_name: str) -> str:
         seen.add(v)
         cards = _fetch_from_wiki(v, v)
         if cards:
-            return v
+            return v, True
 
-    return pack_name  # どれも取れなければ元の名前を返す
+    return pack_name, False  # どれも取れなければ元の名前を返す
+
+
+def _try_wiki_page_variants(pack_name: str) -> str:
+    """後方互換ラッパー: ページ名のみ返す（collect_prices.py の同期処理が使用）"""
+    page, _ = _resolve_wiki_page(pack_name)
+    return page
 
 
 def get_pack_list() -> list[dict]:
@@ -165,19 +171,32 @@ def get_pack_list() -> list[dict]:
             return old["packs"]
         return []
 
-    # 直近パックのうち、Wikiでカードリストが取れるものを_MAX_PACKS個選ぶ
+    # 直近パックのうち、Wikiでカードリストが取れるものを_MAX_PACKS個選ぶ。
+    # カードリスト未掲載（発売前など）のパックには枠を消費させない
+    # （0枚パックが枠を潰すと、収録数の多い既発売パックが圏外に落ちて
+    #   収集対象が痩せる。2026-07-07 の買取収集激減の一因。TASKS.md 参照）
     valid_packs = []
+    cardless_packs = []
     for pack in official_packs:
         if len(valid_packs) >= _MAX_PACKS:
             break
 
-        wiki_page = _try_wiki_page_variants(pack["name"])
-        valid_packs.append({
+        wiki_page, has_cards = _resolve_wiki_page(pack["name"])
+        entry = {
             "name": pack["name"],
             "wiki_page": wiki_page,
             "tcg_name": pack.get("tcg_name", ""),
             "date": pack["date"],
-        })
+        }
+        if has_cards:
+            valid_packs.append(entry)
+        else:
+            print(f"  pack_scraper: {pack['name']} はWikiにカードリスト未掲載のためスキップ")
+            cardless_packs.append(entry)
+
+    if not valid_packs:
+        # Wiki全滅時（障害等）は従来どおり直近 _MAX_PACKS 件を返し、表示の全損を避ける
+        valid_packs = cardless_packs[:_MAX_PACKS]
 
     if valid_packs:
         _cache_write(cache_key, {"packs": valid_packs})
