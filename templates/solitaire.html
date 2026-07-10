@@ -3,6 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% if ga_measurement_id %}
+<!-- Google Analytics 4（環境変数 GA_MEASUREMENT_ID 設定時のみ出力） -->
+<script async src="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}"></script>
+<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','{{ ga_measurement_id }}');</script>
+{% endif %}
 <title>一人回しシミュレータ | TCGYM</title>
 <meta name="description" content="遊戯王OCGの一人回し（ソリティア）シミュレータ。ニューロン画像・テキスト・環境デッキからデッキを読み込み、ドラッグ&ドロップで展開を再現。リプレイ保存・URL共有対応。">
 <meta property="og:title" content="一人回しシミュレータ | TCGYM">

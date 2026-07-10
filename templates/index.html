@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="google-site-verification" content="7SBMfipn1AANFZK-55AZRO3tvCcB5j9iZ9h3sm7r5r0">
+{% if ga_measurement_id %}
+<!-- Google Analytics 4（環境変数 GA_MEASUREMENT_ID 設定時のみ出力） -->
+<script async src="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}"></script>
+<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','{{ ga_measurement_id }}');</script>
+{% endif %}
 {% if card_name and page_mode == 'search' %}
 <title>{{ card_name }} の価格比較 | TCGYM</title>
 <meta name="description" content="{{ card_name }}の最安値を遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボ・まんぞく屋の6店舗から一括比較。{% if best_price %}現在の最安値は¥{{ '{:,}'.format(best_price) }}。{% endif %}リアルタイム価格検索。">

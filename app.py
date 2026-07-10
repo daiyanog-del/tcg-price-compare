@@ -79,6 +79,9 @@ app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
 # レアリティ設定を全テンプレートに自動注入（色・スラグ・順序を一元供給）
 _RARITY_CONFIG_JSON = json.dumps(_rarity_config_for_frontend(), ensure_ascii=False)
 
+# Google Analytics 4 の測定ID（例: G-XXXXXXXXXX）。未設定なら計測タグを出力しない
+GA_MEASUREMENT_ID = os.environ.get("GA_MEASUREMENT_ID", "").strip()
+
 @app.context_processor
 def inject_rarity_config():
     """全テンプレートに window.RARITY_CONFIG 用の JSON / 一人回し導線フラグを渡す。"""
@@ -87,6 +90,7 @@ def inject_rarity_config():
         "enable_solo_play": ENABLE_VISUAL_SOLO_PLAY,
         "self_watermark": SELF_WATERMARK_ENABLED,
         "self_watermark_opacity": SELF_WATERMARK_OPACITY,
+        "ga_measurement_id": GA_MEASUREMENT_ID,
     }
 
 _BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
