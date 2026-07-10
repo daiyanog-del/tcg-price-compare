@@ -243,11 +243,16 @@ class TestWhitelistConstants:
         assert "yu-gi-oh.jp" in ALLOWED_HOSTS
 
     def test_unrelated_hosts_absent(self):
-        # ホワイトリストは yu-gi-oh.jp のみ（ユーザー方針 2026-06-11）
+        # ホワイトリストは yu-gi-oh.jp（ユーザー方針 2026-06-11）＋ X画像CDN
+        # （pbs.twimg.com は 2026-06-25 の未発売カード自動取込パイプラインで追加）
         assert "www.yugioh-card.com" not in ALLOWED_HOSTS
         assert "www.konami.com" not in ALLOWED_HOSTS
-        # 想定外のホストが紛れ込んでいないこと（完全一致で2件のみ）
-        assert ALLOWED_HOSTS == frozenset({"www.yu-gi-oh.jp", "yu-gi-oh.jp"})
+        # 想定外のホストが紛れ込んでいないこと（完全一致で3件のみ）
+        assert ALLOWED_HOSTS == frozenset({
+            "www.yu-gi-oh.jp",
+            "yu-gi-oh.jp",
+            "pbs.twimg.com",
+        })
 
     def test_yu_gi_oh_jp_no_path_restriction(self):
         # yu-gi-oh.jp にはパス制限がないこと
