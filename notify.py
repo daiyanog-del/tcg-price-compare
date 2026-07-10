@@ -27,6 +27,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 from constants import JST, VAPID_CLAIMS
+from rarity import UNKNOWN_RARITY_LABEL
 
 # ── 環境変数 ──
 SUPABASE_URL      = os.environ.get("SUPABASE_URL", "")
@@ -48,6 +49,8 @@ def _representative_rarity(rows: list) -> str | None:
     ロジックは aggregations.daily_min_by_lowest_rarity と同一（店舗横断で
     (rarity, date) -> 最安値 を求め、最新日に存在するレアリティのうち最安を選択。
     全レアリティで最新日欠損なら期間最小値が最安のレアリティにフォールバック）。
+    "(不明)"（rarity抽出失敗の隔離ラベル、フェーズ3 P3）は他に候補がある限り
+    代表選定から除外する（aggregations.daily_min_by_lowest_rarity と同じ方針）。
     店舗粒度でのガード①②再計算にレアリティ名自体が必要なため、ここに複製する。
     データなしは None を返す。
     """
@@ -63,13 +66,17 @@ def _representative_rarity(rows: list) -> str | None:
 
     if not rarity_dates:
         return None
-    all_dates = sorted({d for dates in rarity_dates.values() for d in dates})
+    # "(不明)" は他に候補がある限り除外する（フェーズ3 P3）。
+    # 移行前のレガシー空文字 rarity も同様に除外（aggregations と同一方針）
+    candidates = {r: d for r, d in rarity_dates.items() if r not in ("", UNKNOWN_RARITY_LABEL)} or rarity_dates
+
+    all_dates = sorted({d for dates in candidates.values() for d in dates})
     if not all_dates:
         return None
     latest_date = all_dates[-1]
 
     best_rarity, best_price = None, None
-    for rarity, dates in rarity_dates.items():
+    for rarity, dates in candidates.items():
         if latest_date not in dates:
             continue
         p = dates[latest_date]
@@ -78,7 +85,7 @@ def _representative_rarity(rows: list) -> str | None:
 
     # フォールバック: 全レアリティで最新日欠損 → 期間最小値が最安のレアリティ
     if best_rarity is None:
-        for rarity, dates in rarity_dates.items():
+        for rarity, dates in candidates.items():
             min_p = min(dates.values())
             if best_price is None or min_p < best_price:
                 best_price, best_rarity = min_p, rarity

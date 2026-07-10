@@ -717,17 +717,22 @@ def api_validate():
     return jsonify({"valid": False, "suggestion": None})
 
 
-def _persist_scrape_async(card_name: str, scrape_results: list):
+def _persist_scrape_async(card_name: str, scrape_results: list, ignore_duplicates: bool = False):
     """scrape 結果を price_history に即時 upsert する。fire-and-forget。
     /api/search や /api/deck で取得した最新価格を DB に流し、
     購入候補リストのレアリティ候補ドロップダウンが即座に更新されるようにする。
+
+    ignore_duplicates: True の場合、その日既に行があれば書き込まない
+    （フェーズ3 P6b。/api/deck は店舗を1ページ目に制限した網羅性の低いスクレイプの
+    ため、夜間収集の網羅的な最安値を同日上書きしないようにする。/api/search は
+    全ページ取得のため既定の False のまま last-write-wins を維持する）。
     """
     if not _supabase_client or not scrape_results:
         return
     try:
         today = datetime.now(JST).strftime("%Y-%m-%d")
         rows = build_min_price_rows(card_name, scrape_results, today)
-        upsert_price_rows(_supabase_client, rows)
+        upsert_price_rows(_supabase_client, rows, ignore_duplicates=ignore_duplicates)
     except Exception as e:
         logger.warning(f"[persist] {card_name} の即時 upsert 失敗: {e}")
 
@@ -925,9 +930,12 @@ def api_deck():
                     pass
 
         cache_set(card_name, all_items)
-        # scrape 結果を price_history に即時 upsert（購入候補の rarity 候補を即時化）
+        # scrape 結果を price_history に即時 upsert（購入候補の rarity 候補を即時化）。
+        # /api/deck は店舗1ページ目のみの網羅性が低いスクレイプのため、既存行があれば
+        # 書き込まない（フェーズ3 P6b、夜間収集の網羅的な最安値を上書きしないため）
         if _supabase_client and all_items:
-            Thread(target=_persist_scrape_async, args=(card_name, list(all_items)), daemon=True).start()
+            Thread(target=_persist_scrape_async, args=(card_name, list(all_items)),
+                   kwargs={"ignore_duplicates": True}, daemon=True).start()
         in_stock = [r for r in all_items if not r.get("sold_out")]
         best = min(in_stock, key=lambda x: x["price"]) if in_stock else None
         payload = {"type": "card_done", "index": i, "name": card_name,

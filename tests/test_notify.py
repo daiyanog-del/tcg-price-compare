@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from notify import compute_drop, _representative_rarity, DROP_PCT, DROP_ABS
 from aggregations import daily_min_by_lowest_rarity
+from rarity import UNKNOWN_RARITY_LABEL
 
 OLD, NEW = "2026-07-01", "2026-07-08"
 
@@ -221,6 +222,27 @@ class TestRepresentativeRarityMatchesAggregations:
         expected = daily_min_by_lowest_rarity(rows)["テストカード"]
         actual = self._representative_series(rows, rarity)
         assert actual == expected
+
+
+# ──────────────────────────────────────────────
+# "(不明)" レアリティの除外（フェーズ3 P3）
+# ──────────────────────────────────────────────
+
+class TestUnknownRarityExcludedFromRepresentative:
+    def test_unknown_excluded_when_alternative_exists(self):
+        rows = [
+            row(UNKNOWN_RARITY_LABEL, "店舗A", NEW, 100),
+            row("シク", "店舗A", NEW, 3000),
+            row("シク", "店舗A", OLD, 3200),
+        ]
+        assert _representative_rarity(rows) == "シク"
+
+    def test_unknown_used_as_last_resort(self):
+        rows = [
+            row(UNKNOWN_RARITY_LABEL, "店舗A", OLD, 500),
+            row(UNKNOWN_RARITY_LABEL, "店舗A", NEW, 480),
+        ]
+        assert _representative_rarity(rows) == UNKNOWN_RARITY_LABEL
 
 
 # ──────────────────────────────────────────────

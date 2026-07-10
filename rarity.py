@@ -22,6 +22,12 @@ import warnings
 
 logger = logging.getLogger(__name__)
 
+# フェーズ3 P3（rarity空文字の隔離）: レアリティ抽出失敗行に付与する明示ラベル。
+# price_persist.py が書き込み時に rarity="" をこのラベルへ変換し、正体不明の行が
+# 正規レアリティ系列に混ざらないようにする（aggregations/notify の代表レアリティ選定でも除外対象）。
+# color_of/slug_of は未登録レアリティとして扱われグレー表示にフォールバックする。
+UNKNOWN_RARITY_LABEL = "(不明)"
+
 # ── 正準定義リスト ───────────────────────────────────────────────
 # order は10刻みで管理（将来の挿入を容易にするため）
 # 色はフロント(JS)の RARITY_COLORS を正として統一
