@@ -54,7 +54,16 @@ def _correct_cardname(name: str) -> str:
     q_fuzzy = _fuzzy_key(name)
     # 記号除去で一致
     if q_fuzzy in _cardnames_fuzzy:
-        return _cardnames_fuzzy[q_fuzzy][0]
+        candidates = _cardnames_fuzzy[q_fuzzy]
+        if len(candidates) > 1:
+            # 同一fuzzy_keyに複数の正式名が衝突（例: E・HERO と E-HERO）。
+            # [0]決め打ちは別カードへの誤合流という最悪種の汚染を招くため補正しない。
+            logger.warning(
+                f"_correct_cardname: fuzzy_key衝突のため補正スキップ "
+                f"name={name!r} fuzzy_key={q_fuzzy!r} candidates={candidates}"
+            )
+            return name
+        return candidates[0]
     # 読み仮名の完全一致
     if name in _cardnames_reading:
         return _cardnames_reading[name]

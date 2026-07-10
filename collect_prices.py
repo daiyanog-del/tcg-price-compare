@@ -24,6 +24,7 @@ from pack_scraper import (
     fetch_theme_cards, fetch_card_themes,
 )
 from price_persist import build_min_price_rows, upsert_price_rows
+from collection_run import record_collection_run
 from meta_scraper import fetch_tier_list, fetch_deck_cards
 
 # ── Supabase接続 ──
@@ -739,6 +740,11 @@ def main():
     print("\n--- 店舗ヘルスチェック ---")
     available_shops = check_shop_availability(ci_shops)
 
+    # 観測店舗集合の記録用（P5）: ヘルスチェック落ち・APIキー未設定のスキップ理由を積む
+    skipped_shops: dict[str, str] = {
+        name: "health_check_failed" for name in ci_shops if name not in available_shops
+    }
+
     # カーナベルはAPIキー必須。未設定のまま収集すると全カードが0件になり、
     # 「カーナベルに在庫なし」という誤ったデータがDBに蓄積されるため当日除外する
     if "カーナベル" in available_shops and not (
@@ -746,9 +752,15 @@ def main():
     ):
         print("  NG: カーナベル — KANABELL_CLOUD_ID / KANABELL_API_KEY 未設定のため当日スキップ")
         available_shops.remove("カーナベル")
+        skipped_shops["カーナベル"] = "api_key_missing"
 
     if not available_shops:
         print("全店舗が応答しないため収集を中止します")
+        record_collection_run(
+            sb, "prices", started_at, datetime.now(JST),
+            attempted_shops=ci_shops, available_shops=available_shops,
+            skipped_shops=skipped_shops,
+        )
         return
 
     today = datetime.now(JST).date().isoformat()
@@ -789,7 +801,16 @@ def main():
 
     cleanup_old_data(sb)
 
-    elapsed_min = (datetime.now(JST) - started_at).total_seconds() / 60
+    finished_at = datetime.now(JST)
+    record_collection_run(
+        sb, "prices", started_at, finished_at,
+        attempted_shops=ci_shops, available_shops=available_shops,
+        skipped_shops=skipped_shops, shop_stats=shop_stats,
+        success_count=success_count, fail_count=fail_count,
+        cutoff_count=cutoff_count, saved_rows=total_saved,
+    )
+
+    elapsed_min = (finished_at - started_at).total_seconds() / 60
     send_daily_report(sb, today, success_count, fail_count, cutoff_count, elapsed_min, shop_stats)
 
     print(f"\n=== 完了（{elapsed_min:.0f}分）===")

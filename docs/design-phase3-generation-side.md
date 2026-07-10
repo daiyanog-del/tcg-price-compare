@@ -165,7 +165,7 @@
 
 | 案 | 内容 |
 |---|---|
-| **A（推奨候補）** | **collection_runs テーブル新設（ラン粒度）**。1回の収集実行につき1行: {run_date, kind('sell'/'buy'/'live'), attempted_shops[], available_shops[], per-shop 集計(ok/empty/error) JSONB, started_at, finished_at, success/fail/cutoff_count}。collect_prices / collect_buyback の終了時（＋ヘルスチェック直後の中間書き込みでも可）に書く。経路B（即時upsert）にも `_persist_scrape_async` から kind='live'・選択店舗つきで1行書く（買取ライブ検索があれば同様）。 |
+| **A（推奨候補・2026-07-10実装済み）** | **collection_runs テーブル新設（ラン粒度）**。1回の収集実行につき1行: {run_type('prices'/'buyback'/'instant')、attempted_shops[]、available_shops[]、skipped_shops（店舗→理由のJSONB）、shop_stats（per-shop ok/empty/error JSONB）、started_at、finished_at、success/fail/cutoff_count、saved_rows}。collect_prices / collect_buyback の終了時に書く。※実装時判断: 経路B（即時upsert `_persist_scrape_async`）への記録は、検索1件ごとの呼び出しで「ラン粒度なら年間千行未満」の前提が成立せず、観測集合も「ユーザー選択店舗のみ」で検証価値が低いため**見送り**（'instant' はCHECK制約への前方互換予約のみ）。 |
 | B | カード×店舗×日の試行結果を全記録。 |
 | C | 現状維持（Discord レポートのみ）。 |
 

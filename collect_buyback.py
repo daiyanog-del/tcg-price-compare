@@ -17,6 +17,7 @@ from datetime import datetime, timezone, timedelta
 
 from supabase import create_client, Client
 from scraper import compare_buyback, BUYBACK_SHOPS
+from collection_run import record_collection_run
 from collect_prices import (
     get_supabase,
     normalize_card_name,
@@ -168,15 +169,26 @@ def main():
     print("\n--- 店舗ヘルスチェック ---")
     available_shops = check_shop_availability(buyback_shop_names)
 
+    # 観測店舗集合の記録用（P5）: ヘルスチェック落ち・APIキー未設定のスキップ理由を積む
+    skipped_shops: dict[str, str] = {
+        name: "health_check_failed" for name in buyback_shop_names if name not in available_shops
+    }
+
     # カーナベルはAPIキー必須。未設定だと全カード0件＝誤データになるため当日除外
     if "カーナベル" in available_shops and not (
         os.environ.get("KANABELL_CLOUD_ID") and os.environ.get("KANABELL_API_KEY")
     ):
         print("  NG: カーナベル — KANABELL_CLOUD_ID / KANABELL_API_KEY 未設定のため当日スキップ")
         available_shops.remove("カーナベル")
+        skipped_shops["カーナベル"] = "api_key_missing"
 
     if not available_shops:
         print("全買取店舗が応答しないため収集を中止します")
+        record_collection_run(
+            sb, "buyback", started_at, datetime.now(JST),
+            attempted_shops=buyback_shop_names, available_shops=available_shops,
+            skipped_shops=skipped_shops,
+        )
         return
     print(f"使用店舗: {available_shops}")
 
@@ -201,7 +213,16 @@ def main():
 
     cleanup_old_buyback_data(sb)
 
-    elapsed_min = (datetime.now(JST) - started_at).total_seconds() / 60
+    finished_at = datetime.now(JST)
+    record_collection_run(
+        sb, "buyback", started_at, finished_at,
+        attempted_shops=buyback_shop_names, available_shops=available_shops,
+        skipped_shops=skipped_shops, shop_stats=shop_stats,
+        success_count=success_count, fail_count=fail_count,
+        saved_rows=total_saved,
+    )
+
+    elapsed_min = (finished_at - started_at).total_seconds() / 60
     print(f"\n=== 完了（{elapsed_min:.0f}分）===")
     print(f"成功: {success_count}件 / 失敗: {fail_count}件 / 保存行数: {total_saved}")
     if shop_stats:
