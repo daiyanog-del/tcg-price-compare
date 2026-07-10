@@ -123,7 +123,14 @@ def notify_discord(results: list[dict]):
     lines = ["**X投稿 インプレッション計測結果**"]
     for r in results:
         m = r["metrics"]
-        label = label_map.get(r["content_type"], r["content_type"])
+        ct = r["content_type"]
+        # bigmove投稿は content_type にカード識別子入り（bigmove_up|正規化名|レアリティ）
+        if ct.startswith("bigmove_up"):
+            label = "大変動（急騰）"
+        elif ct.startswith("bigmove_down"):
+            label = "大変動（急落）"
+        else:
+            label = label_map.get(ct, ct)
         window = window_map.get(r["window"], r["window"])
         posted_jst = r["posted_at"][:16].replace("T", " ")
         lines.append(

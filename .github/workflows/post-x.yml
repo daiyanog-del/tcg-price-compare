@@ -1,8 +1,8 @@
 # X（Twitter）自動投稿
-# 毎日 JST 21:00前後 に値動きランキングを投稿（価格収集は collect-prices.yml が担当）
+# 毎日 JST 21:00前後 に大変動カード（急騰・急落）の単発投稿を実行（2026-07-10〜新形式。価格収集は collect-prices.yml が担当）
 # 手動実行時は dry_run を有効にすると本番投稿をスキップできる
 
-name: Post X Daily Movers
+name: Post X Big Movers
 
 on:
   schedule:
@@ -31,7 +31,7 @@ jobs:
       - name: Install dependencies
         run: pip install requests supabase tweepy
 
-      - name: Post daily movers to X
+      - name: Post big movers to X
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}

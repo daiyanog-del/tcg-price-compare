@@ -1,4 +1,4 @@
-"""X（Twitter）自動投稿モジュール — 値動きランキングを毎日投稿"""
+"""X（Twitter）自動投稿モジュール — 大変動カードの単発投稿（2026-07-10〜）"""
 
 import os
 import tempfile
@@ -9,16 +9,28 @@ from collections import defaultdict
 import requests as _requests
 
 from constants import JST
+from name_normalize import fuzzy_key
 
 SITE_URL = "https://tcg-price-compare.onrender.com"
 
-# 毎日の値動き投稿の判定閾値（意味のある変動に絞る）
+# 毎日の値動き投稿の判定閾値（意味のある変動に絞る、旧 post_daily_movers 用）
 # 2026-07-10 に price_history 直近60日(8,854日次ペア)で校正:
 #   100円では中央値3枚で5枠が埋まらない日が60日中41日、該当ゼロ日も計3日。
 #   50円/10% ならゼロ日なし・中央値 up6/down9 枚で5枠が埋まり、
 #   10%バーで些末な絶対額変動は引き続き除外される（サイト側RPCの min_diff=50 とも整合）
 DAILY_MIN_DIFF = 50    # 最安値の前日差（円）の下限
 DAILY_MIN_PCT  = 10    # 前日比変動率（％）の下限
+
+# 大変動カード単発投稿の判定閾値（非対称。値下がりは数学的に-100%を超えられないため）
+# 2026-07-10 price_history 60日実測で校正。up+2000円/+100%=週2.2件・down-2000円/-50%=週4.5件、
+# 方向別トップ1制限で週2〜4件見込み。docs/decisions.md 参照
+BIGMOVE_UP_MIN_DIFF = 2000     # 急騰: 前日差（円）の下限
+BIGMOVE_UP_MIN_PCT = 100       # 急騰: 変動率（％）の下限（2倍級）
+BIGMOVE_DOWN_MIN_DIFF = -2000  # 急落: 前日差（円）の上限（マイナス）
+BIGMOVE_DOWN_MIN_PCT = -50     # 急落: 変動率（％）の上限（マイナス、半減級）
+
+# 7日クールダウン: 同一（正規化名, レアリティ）の bigmove 再投稿を抑止する期間
+BIGMOVE_COOLDOWN_DAYS = 7
 
 
 def get_price_movers(sb, direction="up", limit=5, allowed_names=None,
@@ -98,6 +110,124 @@ def get_price_movers(sb, direction="up", limit=5, allowed_names=None,
         filtered = [m for m in down_all if abs(m["diff"]) >= min_diff and abs(m["pct"]) >= min_pct]
         result = filtered[:limit] if filtered else (down_all[:1] if fallback else [])
     return result, date_old, date_new
+
+
+def get_price_movers_by_rarity(sb):
+    """Supabaseから price_history 直近3日分を (カード名, レアリティ) 単位で取得し、
+    日付ごとの最安値マップ {(name, rarity): {date_str: price}} を返す。
+
+    集計単位をカード名単体ではなく (name, rarity) にする理由: カード名単位だと
+    安レアリティの売切れ（在庫消滅による見かけ上の価格変化）で偽の急騰・急落を
+    拾ってしまうため。10円以下のノイズ除外は get_price_movers と同じ。
+    ページング実装は get_price_movers から流用。
+    """
+    cutoff = (datetime.now(JST) - timedelta(days=3)).strftime("%Y-%m-%d")
+
+    all_rows = []
+    page_size = 1000
+    offset = 0
+    while True:
+        resp = (sb.table("price_history")
+                .select("card_name, rarity, min_price, recorded_at")
+                .gte("recorded_at", cutoff)
+                .order("recorded_at", desc=False)
+                .range(offset, offset + page_size - 1)
+                .execute())
+        batch = resp.data or []
+        all_rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        offset += page_size
+
+    card_dates = defaultdict(dict)
+    for r in all_rows:
+        name = r["card_name"]
+        rarity = r.get("rarity") or ""
+        d = r["recorded_at"][:10]
+        price = r["min_price"]
+        if price <= 10:
+            continue
+        key = (name, rarity)
+        if d not in card_dates[key] or price < card_dates[key][d]:
+            card_dates[key][d] = price
+
+    return card_dates
+
+
+def select_big_movers(card_dates, date_old=None, date_new=None, top_n=1):
+    """大変動カードの候補を純ロジックで選抜する（ネットワーク・sb不要）。
+
+    card_dates: {(name, rarity): {date_str: price}}
+    date_old/date_new: 比較する2日を明示指定する場合。None なら card_dates 全体から
+        最新2日を自動特定する（get_price_movers と同じ方式）。
+    top_n: 方向ごとに返す最大件数。投稿側はクールダウン時の次点繰り上げ用に
+        複数件（top_n=3）を受け取り、実際に投稿するのは各方向1件のみ。
+
+    非対称閾値（値下がりは数学的に-100%を超えられないため）:
+      急騰: diff >= BIGMOVE_UP_MIN_DIFF   かつ pct >= BIGMOVE_UP_MIN_PCT
+      急落: diff <= BIGMOVE_DOWN_MIN_DIFF かつ pct <= BIGMOVE_DOWN_MIN_PCT
+
+    カード名の正規化dedup: 全角半角違い等の表記ゆれ同名（例:「！」/「!」）が
+    別候補として並ばないよう、fuzzy_key(name) が同じものは変動率絶対値が大きい
+    方のみ残す（表示名は元の名前のまま）。
+
+    戻り値: [{"name", "rarity", "today", "yesterday", "diff", "pct", "direction"}, ...]
+        方向ごとに変動率絶対値の降順で最大 top_n 件（該当なしの方向は含めない）。
+        空リストもありうる。
+    """
+    if date_old is None or date_new is None:
+        all_dates_set = set()
+        for dates in card_dates.values():
+            all_dates_set.update(dates.keys())
+        all_dates_sorted = sorted(all_dates_set)
+        if len(all_dates_sorted) < 2:
+            return []
+        date_new = all_dates_sorted[-1]
+        date_old = all_dates_sorted[-2]
+
+    candidates = []
+    for (name, rarity), dates in card_dates.items():
+        if date_new not in dates or date_old not in dates:
+            continue
+        today_price = dates[date_new]
+        yesterday_price = dates[date_old]
+        if yesterday_price <= 0:  # 実データ経路では10円以下除外済みだが、純関数として負値も防御
+            continue
+        diff = today_price - yesterday_price
+        if diff == 0:
+            continue
+        pct = round((diff / yesterday_price) * 100, 1)
+
+        if diff >= BIGMOVE_UP_MIN_DIFF and pct >= BIGMOVE_UP_MIN_PCT:
+            direction = "up"
+        elif diff <= BIGMOVE_DOWN_MIN_DIFF and pct <= BIGMOVE_DOWN_MIN_PCT:
+            direction = "down"
+        else:
+            continue
+
+        candidates.append({
+            "name": name, "rarity": rarity,
+            "today": today_price, "yesterday": yesterday_price,
+            "diff": diff, "pct": pct, "direction": direction,
+        })
+
+    # 正規化名の重複排除: 同一 (fuzzy_key(name), rarity) は変動率絶対値最大の1件のみ残す
+    dedup = {}
+    for c in candidates:
+        key = (fuzzy_key(c["name"]), c["rarity"])
+        if key not in dedup or abs(c["pct"]) > abs(dedup[key]["pct"]):
+            dedup[key] = c
+    candidates = list(dedup.values())
+
+    result = []
+    for direction in ("up", "down"):
+        dir_candidates = [c for c in candidates if c["direction"] == direction]
+        if not dir_candidates:
+            continue
+        dir_candidates.sort(key=lambda c: -abs(c["pct"]))
+        result.extend(dir_candidates[:top_n])
+
+    return result
 
 
 def _truncate(name, max_len=18):
@@ -524,6 +654,135 @@ def _already_posted_today(sb, content_type_prefix: str) -> bool:
         return False
 
 
+def _bigmove_content_type(direction, name, rarity):
+    """bigmove投稿の content_type に (正規化名, レアリティ) を埋め込む。
+
+    tweet_log にはカード識別子を保存できる専用カラムがないため、既存の
+    content_type（自由記述のテキスト列、collect_x_metrics.py 等で完全一致は
+    "movers_up" 等の定型値のみに依存しており本形式でも既存挙動は壊れない）を
+    識別子の運搬先として利用する。区切りは "|"（fuzzy_key はコロンを除去しない
+    ためカード名に「:」「：」が含まれると衝突しうるが、「|」はカード名に
+    現れないため安全）。
+    """
+    return f"bigmove_{direction}|{fuzzy_key(name)}|{rarity}"
+
+
+def _bigmove_recently_posted(sb, direction, name, rarity, cooldown_days=BIGMOVE_COOLDOWN_DAYS) -> bool:
+    """同一 (正規化名, レアリティ, 方向) が直近 cooldown_days 日以内に bigmove 投稿済みか確認。
+
+    tweet_log に専用の識別子カラムがないため、content_type に埋め込んだ識別子
+    （_bigmove_content_type）を完全一致で照会する。スキーマ変更はしない制約下の実装。
+    """
+    if not sb:
+        return False
+    try:
+        cutoff = (datetime.now(JST) - timedelta(days=cooldown_days)).isoformat()
+        content_type = _bigmove_content_type(direction, name, rarity)
+        resp = (sb.table("tweet_log").select("tweet_id")
+                .eq("content_type", content_type)
+                .gte("posted_at", cutoff)
+                .limit(1).execute())
+        return bool(resp.data)
+    except Exception as e:
+        print(f"  tweet_log クールダウン照会失敗（{name}/{rarity}）: {e}")
+        return False
+
+
+def format_bigmove_tweet(mover, date_old, date_new):
+    """大変動カード単発投稿の本文を生成。カード名は切り詰めない（X検索ヒットの生命線）。"""
+    label = "急騰" if mover["direction"] == "up" else "急落"
+    sign = "+" if mover["diff"] > 0 else ""
+    rarity_part = f"（{mover['rarity']}）" if mover["rarity"] else ""
+    period = f"{_format_date(date_old)}→{_format_date(date_new)}"
+    encoded_name = urllib.parse.quote(mover["name"])
+
+    lines = [
+        f"【{label}】{mover['name']}{rarity_part}",
+        f"¥{mover['yesterday']:,} → ¥{mover['today']:,}"
+        f"（{sign}{mover['diff']:,}円 / {sign}{mover['pct']}%）{period}",
+        "全国のカードショップ横断の最安値比較はこちら",
+        f"{SITE_URL}/card/{encoded_name}",
+    ]
+    return "\n".join(lines)
+
+
+def post_big_movers(sb):
+    """大変動カードの単発投稿（1カード1ポスト）。
+    急騰・急落それぞれ1件のみ、該当なしの方向は投稿しない。
+    7日クールダウンあり（クールダウン中は次点候補へ繰り上げ、最大3位まで）。"""
+    print("\n=== X自動投稿（大変動） ===")
+
+    if _already_posted_today(sb, "bigmove_"):
+        print("  本日分は投稿済み（tweet_logに記録あり）— 二重投稿を回避してスキップ")
+        return
+
+    card_dates = get_price_movers_by_rarity(sb)
+    if not card_dates:
+        print("  price_history データなし — スキップ")
+        return
+
+    all_dates_set = set()
+    for dates in card_dates.values():
+        all_dates_set.update(dates.keys())
+    all_dates_sorted = sorted(all_dates_set)
+    if len(all_dates_sorted) < 2:
+        print("  比較可能な日付が2日分未満 — スキップ")
+        return
+    date_new = all_dates_sorted[-1]
+    date_old = all_dates_sorted[-2]
+
+    # クールダウン時の次点繰り上げ用に方向ごと上位3件まで受け取る（投稿は各方向1件のみ）
+    candidates = select_big_movers(card_dates, date_old, date_new, top_n=3)
+    if not candidates:
+        print("  大変動候補なし — 本日は無投稿")
+        return
+
+    for direction in ("up", "down"):
+        dir_movers = [m for m in candidates if m["direction"] == direction]
+        for mover in dir_movers:
+            name = mover["name"]
+            rarity = mover["rarity"]
+
+            if _bigmove_recently_posted(sb, direction, name, rarity):
+                print(f"  クールダウン中のためスキップ: {name}（{rarity}）[{direction}] — 次点候補へ")
+                continue
+
+            text = format_bigmove_tweet(mover, date_old, date_new)
+            print(f"\n--- {direction}: {name}（{rarity}） ---")
+            print(text)
+
+            image_path = get_card_image_path(name)
+            image_paths = [image_path] if image_path else []
+
+            tweet_id = post_tweet(text, image_paths=image_paths)
+
+            for p in image_paths:
+                try:
+                    os.unlink(p)
+                except Exception:
+                    pass
+
+            if tweet_id and sb:
+                content_type = _bigmove_content_type(direction, name, rarity)
+                try:
+                    sb.table("tweet_log").insert({
+                        "tweet_id": str(tweet_id),
+                        "posted_at": datetime.now(JST).isoformat(),
+                        "content_type": content_type,
+                        "parent_tweet_id": None,
+                    }).execute()
+                    print(f"  tweet_log 記録済み (type={content_type})")
+                except Exception as e:
+                    print(f"  tweet_log 書き込み失敗（投稿自体は成功）: {e}")
+            elif not tweet_id:
+                print(f"  投稿されず: {name}（{rarity}）— DRY_RUN/API未設定のスキップ、またはAPI失敗")
+
+            # 投稿を1件試行したらこの方向は終了（post_tweetの失敗はAPI要因の
+            # 可能性が高く、次点で連打しない）
+            break
+
+
+# 旧形式（2026-07-10に新形式=post_big_movers へ切替。手動実行のフォールバック用に残置）
 def post_daily_movers(sb):
     """毎日の値動きランキングをXに投稿（値上がり→値下がりのスレッド形式）"""
     print("\n=== X自動投稿 ===")
@@ -788,8 +1047,11 @@ if __name__ == "__main__":
         raise SystemExit(1)
     _sb = create_client(_url, _key)
 
-    # --featured フラグで新弾フィーチャー投稿、それ以外は通常の値動きランキング
+    # --featured フラグで新弾フィーチャー投稿、--daily-legacy で旧形式（値動きランキング）の
+    # 手動実行フォールバック、それ以外（通常の日次実行）は新形式の大変動単発投稿
     if "--featured" in sys.argv:
         post_featured_movers(_sb)
-    else:
+    elif "--daily-legacy" in sys.argv:
         post_daily_movers(_sb)
+    else:
+        post_big_movers(_sb)
