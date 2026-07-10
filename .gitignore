@@ -18,3 +18,6 @@ debug_*.html
 
 # その他
 *.DS_Store
+
+# Claude Code ローカル設定（コミットしない）
+.claude/
