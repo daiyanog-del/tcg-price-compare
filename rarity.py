@@ -14,6 +14,8 @@ rarity.py — レアリティ定義の Single Source of Truth
 
 注: aliasesにはcanonical自身は含めなくてよい（起動時に自動登録される）。
     各aliasは1つのcanonicalにしか所属できない（起動時バリデーションで検出）。
+    照合キーは空白・丸括弧を除去してから作られる（_preprocess）。空白や括弧の
+    有無だけが違う表記ゆれを alias に列挙する必要はない。
 """
 
 from __future__ import annotations
@@ -89,12 +91,25 @@ RARITIES: list[dict] = [
         ],
     },
     {
+        # SPECIAL RED Ver.。カードラッシュが空白あり/なしの2表記、カードラボが
+        # 括弧付き表記を出す（2026-08-03 の棚卸しで実測。690/144/買取84行）。
+        # 空白・括弧は normalize_rarity の前処理で落ちるため alias は1本で足りる。
+        "canonical": "シークレットレッド",
+        "slug": "secret-red",
+        "order": 47,
+        "color": "#cb4335",
+        "aliases": [
+            "シークレットSPECIALREDVer.",                        # SPECIAL RED Ver. 表記
+        ],
+    },
+    {
         "canonical": "シークレットブルー",
         "slug": "secret-blue",
         "order": 48,
         "color": "#2980b9",
         "aliases": [
             "シークレットSPECIALBLUEVer.",                       # SPECIAL BLUE Ver. 表記
+            "シークレットBLUEVer.",                              # SPECIAL を省いた表記（カードラッシュ）
         ],
     },
     {
@@ -107,6 +122,21 @@ RARITIES: list[dict] = [
             "エクシク",                                         # 短縮
             "エクストラシークレット",                           # フル表記
             "エクストラシークレットレア",                       # 〜レア形式
+        ],
+    },
+    {
+        # EXシークレットのパラレル版。トレコロCBと遊々亭が同じ4枚（オッドアイズ/
+        # クリアウィング/スターヴ・ヴェノム/ダーク・リベリオン）を別表記で出しており、
+        # 2026-08-03 の棚卸しで系列分裂を実測（トレコロ75行 / 遊々亭95行）。
+        "canonical": "EXシークレットパラレル",
+        "slug": "exsecret-parallel",
+        "order": 51,
+        "color": "#58d68d",
+        "aliases": [
+            "P-EXSE",                                           # 略号（遊々亭）
+            "エクストラシークレットパラレル",                   # フル表記
+            "エクストラシークレットパラレルレア",               # 〜レア形式（トレコロCB）
+            "EXシークレットパラレルレア",                       # 〜レア形式
         ],
     },
     {
@@ -149,6 +179,7 @@ RARITIES: list[dict] = [
             "O-PSE",                                            # 略号（まんぞく屋/駿河屋）
             "OFプリズマティックシークレット",                   # フル表記
             "OFプリズマティックシークレットレア",               # 〜レア形式
+            "オバフレプリシク",                                 # カーナベル短縮（2026-08-03 棚卸しで発見）
             "オーバーフレームプリシク",                         # 別フル表記
             "オーバーフレームプリズマティックシークレット",     # 別フル表記
             "オーバーフレームプリズマティックシークレットレア", # 別フル〜レア形式
@@ -161,6 +192,7 @@ RARITIES: list[dict] = [
         "color": "#dc143c",
         "aliases": [
             "O-SE",                                             # 略号
+            "オバフレシク",                                     # カーナベル短縮（2026-08-03 棚卸しで発見）
             "オーバーフレームシークレット",
             "オーバーフレームシークレットレア",
         ],
@@ -172,6 +204,7 @@ RARITIES: list[dict] = [
         "color": "#ffd700",
         "aliases": [
             "O-UR",                                             # 略号（まんぞく屋/駿河屋）
+            "オバフレウル",                                     # カーナベル短縮（2026-08-03 棚卸しで発見）
             "オーバーフレームウルトラ",                         # フル表記
             "オーバーフレームウルトラレア",                     # 〜レア形式
         ],
@@ -233,6 +266,56 @@ RARITIES: list[dict] = [
             "ホログラフィックレア",                             # 〜レア形式
             "ホログラフィックパラレルレア",                     # パラレル版も同一視
             "ホログラフィックパラレル",
+        ],
+    },
+    # ── ミレニアム系 ──
+    # ミレニアムウルトラ等は「ミレニアム(=ミレニアムレア)」とは物理的に別のレアリティ。
+    # 同一カード・同一店で両方が併存することを 2026-08-03 に実測して確定させた
+    # （例: 死者蘇生 = トレコロCB「ミレニアム ¥230」と「ミレニアムシークレットレア ¥3,880」、
+    #   破壊輪 = 遊々亭「ミレニアム ¥120」と「M-SR ¥180」）。無印への alias 統合は誤り。
+    # 表記は店舗ごとに3系列に割れていた: トレコロCB=「〜レア」あり / カードラッシュ・
+    # カードラボ=「〜レア」なし / 遊々亭=略号（M-UR/M-SR/M-SE）。
+    # order は無印ミレニアム(100)の直前に詰め、全体の並び（シークレット>ウルトラ>
+    # ゴールド>スーパー）に合わせている。
+    {
+        "canonical": "ミレニアムシークレット",
+        "slug": "millennium-secret",
+        "order": 96,
+        "color": "#6c3483",
+        "aliases": [
+            "M-SE",                                             # 略号（遊々亭）
+            "ミレニアムシークレットレア",                       # 〜レア形式（トレコロCB）
+        ],
+    },
+    {
+        "canonical": "ミレニアムウルトラ",
+        "slug": "millennium-ultra",
+        "order": 97,
+        "color": "#a569bd",
+        "aliases": [
+            "M-UR",                                             # 略号（遊々亭）
+            "ミレニアムウルトラレア",                           # 〜レア形式（トレコロCB）
+        ],
+    },
+    {
+        "canonical": "ミレニアムゴールド",
+        "slug": "millennium-gold",
+        "order": 98,
+        "color": "#b9770e",
+        "aliases": [
+            # 遊々亭の略号（M-GR 相当）は実データ未出現のため登録しない。
+            # 出てきたら normalize_rarity の未知表記WARNで拾う。
+            "ミレニアムゴールドレア",                           # 〜レア形式（トレコロCB）
+        ],
+    },
+    {
+        "canonical": "ミレニアムスーパー",
+        "slug": "millennium-super",
+        "order": 99,
+        "color": "#5b6ec4",
+        "aliases": [
+            "M-SR",                                             # 略号（遊々亭）
+            "ミレニアムスーパーレア",                           # 〜レア形式（トレコロCB）
         ],
     },
     {
@@ -315,6 +398,20 @@ RARITIES: list[dict] = [
     },
     # ── 低レアリティ ──
     {
+        # KCウルトラレア。トレコロCB/カードラッシュ/遊々亭が同じ9枚（アップル・
+        # マジシャン・ガール等）を3表記で出していた（2026-08-03 棚卸しで実測）。
+        # 「KC」（下記）はカードラッシュが同一カードで KC と KCウルトラ を併記する
+        # ため別レアリティ扱いのまま残す。
+        "canonical": "KCウルトラ",
+        "slug": "kc-ultra",
+        "order": 139,
+        "color": "#48c9b0",
+        "aliases": [
+            "KC-UR",                                            # 略号（遊々亭）
+            "KCウルトラレア",                                   # 〜レア形式（トレコロCB）
+        ],
+    },
+    {
         "canonical": "KC",
         "slug": "kc",
         "order": 140,
@@ -368,6 +465,23 @@ RARITIES: list[dict] = [
         ],
     },
     {
+        # ノーマルレアは遊戯王では「ノーマル」とは別の実在レアリティ。
+        # 2026-08-03 まで「ノーマルレア」「Nレア」を ノーマル の alias として
+        # 統合していたが、これは「〜レア」表記を機械的に畳んだ誤りだった。
+        # 実データでも別物（脆刃の剣: 遊々亭 NR ¥120 に対し ノーマル ¥50）。
+        # 統合をやめたことで、統合期に ノーマル として書かれた過去行とは系列が
+        # 分かれる（値動きRPCは最新2日しか見ないため1〜2回の収集で解消、
+        # グラフは最長90日で自然入替）。
+        "canonical": "ノーマルレア",
+        "slug": "normal-rare",
+        "order": 157,
+        "color": "#a0a0a0",
+        "aliases": [
+            "NR",                                               # 略号（遊々亭）
+            "Nレア",                                            # 略号版
+        ],
+    },
+    {
         "canonical": "ノーマル",
         "slug": "normal",
         "order": 160,
@@ -375,8 +489,6 @@ RARITIES: list[dict] = [
         "aliases": [
             "N",                                                # 略号
             "ノー",                                             # 短縮
-            "ノーマルレア",                                     # トレコロ等の「〜レア」表記（ノーマルに統一）
-            "Nレア",                                            # 略号版
         ],
     },
     # ── 孤児・特殊レアリティ（色/順序を付与して孤児解消） ──
@@ -403,8 +515,23 @@ RARITIES: list[dict] = [
 
 # ── 内部構築（起動時に1回だけ実行） ────────────────────────────────
 
-_ALIAS_TO_CANON: dict[str, str] = {}  # alias（canonical自身含む） → canonical
+_ALIAS_TO_CANON: dict[str, str] = {}  # 前処理済みalias（canonical自身含む） → canonical
 _CANON_TO_ENTRY: dict[str, dict] = {} # canonical → entry dict
+
+# 照合前に落とす装飾文字（2026-08-03 追加）。
+# 同じレアリティを店舗が「シークレットSPECIALREDVer.」「シークレットSPECIAL RED Ver.」
+# 「シークレット(SPECIAL RED Ver.)」の3表記で書いており、空白と括弧の有無だけの
+# 違いで別系列に分裂していた。alias を表記ごとに列挙するのではなく、照合キーの
+# 段階で落とす（aliases 側も同じ前処理を通すので既存定義はそのまま使える）。
+# 「〜レア」suffix の自動除去はしない: ノーマルレア・字レア・ベリーレア・ダブルレア
+# のように「レア」を含んで初めて意味が決まる正規名があり、機械的に畳むと壊れる。
+_STRIP_CHARS = str.maketrans("", "", " 　\t()（）")
+
+
+def _preprocess(s: str) -> str:
+    """照合キーを作る。空白（半角/全角/タブ）と丸括弧を除去する。"""
+    return s.translate(_STRIP_CHARS)
+
 
 def _build_lookup() -> None:
     """RARITIES から逆引き辞書を構築し、重複別名を検出する。"""
@@ -412,7 +539,8 @@ def _build_lookup() -> None:
         canon = entry["canonical"]
         _CANON_TO_ENTRY[canon] = entry
         # canonical 自身も alias 扱いで登録
-        for key in [canon] + entry.get("aliases", []):
+        for raw_key in [canon] + entry.get("aliases", []):
+            key = _preprocess(raw_key)
             if key in _ALIAS_TO_CANON and _ALIAS_TO_CANON[key] != canon:
                 # 重複別名はプログラムのバグなので起動時に警告
                 warnings.warn(
@@ -444,7 +572,9 @@ def normalize_rarity(raw: str, shop: str | None = None) -> str:  # noqa: ARG001
     if not raw:
         return ""
     s = raw.strip()
-    result = _ALIAS_TO_CANON.get(s)
+    # 照合は前処理済みキーで行うが、未知表記は前処理前の文字列をそのまま返す
+    # （生表記を勝手に改変しない。ログにも実際の表記が出る）
+    result = _ALIAS_TO_CANON.get(_preprocess(s))
     if result is not None:
         return result
     # 未知表記は生のまま返す（誤縮約させない）

@@ -1626,6 +1626,10 @@ def api_wish_prices():
                 if len(batch) < page_size:
                     break
                 offset += page_size
+            # 代表レアリティ選定は rarity 文字列でグループ化するため、DB読み出し境界で
+            # 正準名に統合する（過渡期の分裂値を吸収。/api/price-history と同じ方針）
+            for r in all_rows:
+                r["rarity"] = normalize_rarity(r.get("rarity", "") or "")
             return _aggregate_daily_min_lowest_rarity(all_rows)
         except Exception as e:
             logger.warning(f"[wish-prices] 価格履歴取得失敗: {e}")
