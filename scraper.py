@@ -975,22 +975,85 @@ def kanabell_card_image_url(card_name: str) -> str:
 
 CLABO_BASE = "https://www.c-labo-online.jp"
 
-def scrape_clabo(card_name: str) -> list[dict]:
-    """カードラボ — 商品検索ページをスクレイピング"""
+# カードラボ商品検索の1ページあたり件数（2026-08-03 実測。表示数120件はJS側の設定で
+# URLパラメータからは指定できない ── disp_number/view_count/limit いずれも60件のまま）
+CLABO_PAGE_SIZE = 60
+
+
+def _clabo_last_page(soup) -> int:
+    """カードラボのページャから最終ページ番号を読む（ページャが無ければ 1）。
+
+    ページャは `<div class="pager">` 内に `page=N` のリンクを並べており、
+    最終ページへのリンクは `a.to_last_page`。省略記号（...）で中間が省かれても
+    最終ページのリンクは残るため、リンク中の page=N の最大値を採用する。
+    """
+    last = 1
+    for a in soup.select("div.pager a[href*='page=']"):
+        m = re.search(r"[?&]page=(\d+)", a.get("href", ""))
+        if m:
+            last = max(last, int(m.group(1)))
+    return last
+
+
+def scrape_clabo(card_name: str, max_pages: int = 5) -> list[dict]:
+    """カードラボ — 商品検索ページをスクレイピング（複数ページ対応）
+
+    1ページ60件が上限で、60件を超えるカード（例:「ブラック・マジシャン」246件）は
+    2ページ目以降を取らないと取りこぼす（2026-08-03 実測）。
+    範囲外のページを要求すると1ページ目の内容が返るため、終端は
+    「ページャの最終ページ番号」「60件未満」「全商品が既出」の3条件で検出する。
+    """
     search_name = _normalize_search_query(card_name)
-    page_url = (
+    base_url = (
         f"{CLABO_BASE}/product-list"
         f"?keyword={requests.utils.quote(search_name)}"
     )
-    soup = safe_get(page_url)
-    if not soup:
-        return []
-    dump_html("clabo", soup)
 
+    results = []
+    seen_items = set()   # 終端検出用。存在しないページは1ページ目が返るため内容で判定する
+    last_page = None
+    for page in range(1, max_pages + 1):
+        page_url = base_url if page == 1 else f"{base_url}&page={page}"
+        soup = safe_get(page_url)
+        if not soup:
+            break
+        if page == 1:
+            dump_html("clabo", soup)
+            last_page = _clabo_last_page(soup)
+
+        containers = soup.select("li:has(div.inner_item_data)")
+        if not containers:
+            break
+
+        page_keys = set()
+        for c in containers:
+            link = c.select_one("a[href*='/product/']")
+            nm = c.select_one("span.goods_name")
+            page_keys.add((link.get("href", "") if link else "",
+                           nm.get_text(strip=True) if nm else ""))
+        # このページが全て既出＝ページ範囲を超えて1ページ目が返っている
+        if page_keys and page_keys <= seen_items:
+            break
+        seen_items |= page_keys
+
+        results.extend(_parse_clabo_items(card_name, containers))
+
+        # 1ページ分に満たなければ最終ページ
+        if len(containers) < CLABO_PAGE_SIZE:
+            break
+        if last_page is not None and page >= last_page:
+            break
+        time.sleep(0.5)
+
+    return results
+
+
+def _parse_clabo_items(card_name: str, containers) -> list[dict]:
+    """カードラボの商品要素リストを解析する（ページ送りで共通利用）"""
     results = []
     # 各商品は div.inner_item_data 内にリンク・画像・商品情報がまとまっている
     # 親の a タグ (product/XXXXX) からリンクを取得
-    for container in soup.select("li:has(div.inner_item_data)"):
+    for container in containers:
         inner = container.select_one("div.inner_item_data")
         if not inner:
             continue
@@ -1279,29 +1342,61 @@ def scrape_surugaya(card_name: str) -> list[dict]:
 
 CARDRUSH_MEDIA_BASE = "https://cardrush.media"
 
-def scrape_cardrush_buy(card_name: str) -> list[dict]:
-    """カードラッシュ — ラッシュメディアの買取価格を取得"""
+CARDRUSH_BUY_PAGE_SIZE = 100
+
+
+def scrape_cardrush_buy(card_name: str, max_pages: int = 5) -> list[dict]:
+    """カードラッシュ — ラッシュメディアの買取価格を取得（複数ページ対応）
+
+    1ページ100件が上限で、100件を超えるカード（例:「ブラック・マジシャン」182件）は
+    2ページ目以降を取らないと取りこぼす（2026-08-03 実測）。
+    総ページ数は `props.pageProps.lastPage` に入っており、範囲外のページは
+    空の buyingPrices を返す（販売側と違い1ページ目へは戻らない）。
+    """
     search_name = _cardrush_search_query(card_name)
-    page_url = (
+    base_url = (
         f"{CARDRUSH_MEDIA_BASE}/yugioh/buying_prices"
         f"?name={requests.utils.quote(search_name)}"
     )
-    soup = safe_get(page_url, timeout=20)
-    if not soup:
-        return []
 
-    # __NEXT_DATA__ からJSONデータを取得
-    script_el = soup.select_one("script#__NEXT_DATA__")
-    if not script_el:
-        return []
+    results = []
+    for page in range(1, max_pages + 1):
+        page_url = base_url if page == 1 else f"{base_url}&page={page}"
+        soup = safe_get(page_url, timeout=20)
+        if not soup:
+            break
 
-    try:
-        next_data = json.loads(script_el.string)
-        buying_prices = next_data["props"]["pageProps"]["buyingPrices"]
-    except (json.JSONDecodeError, KeyError, TypeError):
-        _note_fetch_error()  # サイト構造変更の可能性（JSON構造が想定と不一致）
-        return []
+        # __NEXT_DATA__ からJSONデータを取得
+        script_el = soup.select_one("script#__NEXT_DATA__")
+        if not script_el:
+            break
 
+        try:
+            next_data = json.loads(script_el.string)
+            page_props = next_data["props"]["pageProps"]
+            buying_prices = page_props["buyingPrices"]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            _note_fetch_error()  # サイト構造変更の可能性（JSON構造が想定と不一致）
+            break
+
+        if not buying_prices:
+            break
+
+        results.extend(_parse_cardrush_buy_items(card_name, buying_prices, page_url))
+
+        last_page = page_props.get("lastPage")
+        if isinstance(last_page, int) and page >= last_page:
+            break
+        # lastPage が取れない場合の保険（1ページ分に満たなければ最終ページ）
+        if len(buying_prices) < CARDRUSH_BUY_PAGE_SIZE:
+            break
+        time.sleep(0.5)
+
+    return results
+
+
+def _parse_cardrush_buy_items(card_name: str, buying_prices: list, page_url: str) -> list[dict]:
+    """カードラッシュ買取のJSON要素リストを解析する（ページ送りで共通利用）"""
     results = []
     for item in buying_prices:
         name = item.get("name", "")
