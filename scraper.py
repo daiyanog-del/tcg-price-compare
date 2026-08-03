@@ -48,14 +48,39 @@ def _normalize_fullwidth(text: str) -> str:
     return ''.join(result)
 
 
+def _squeeze_spaces(s: str) -> str:
+    """連続スペースを1つに畳み、前後のスペースを落とす（検索語生成の共通後処理）。
+
+    記号をスペースへ置換すると、記号が連続する箇所や名前の末尾で余分なスペースが残る。
+    店舗の検索エンジンはこれを別語として扱うことがあり、そのまま投げると0件になる。
+
+    2026-08-03 実測（カード名15,522件中、圧縮で検索語が変わる101件を旧新で比較）:
+      - カードラボ販売 124件 → 133件（'聖なるバリア －ミラーフォース－' 0→4件、
+        '黒魔術のバリア －ミラーフォース－' 0→1件、'冀望郷－バリアン－' 0→4件）
+      - 遊々亭 販売278/買取177・カードラボ買取18・まんぞく屋販売69 はいずれも増減ゼロ
+      - 減少した経路・カードは1件も無い
+    """
+    return re.sub(r"\s+", " ", s).strip()
+
+
 def _normalize_search_query(card_name: str) -> str:
-    """検索クエリ用にカード名を正規化（全角英数→半角、中黒・ハイフン系→スペース）"""
+    """検索クエリ用にカード名を正規化（全角英数→半角、中黒・ハイフン系・コロン→スペース）。
+
+    遊々亭・カードラボの販売/買取とまんぞく屋販売の5経路が共有する。
+
+    コロンを落とす根拠（2026-08-03 実測、コロンを含むカード名9件を残す/落とすで比較）:
+      - 遊々亭販売 7件→16件、遊々亭買取 6件→29件、カードラボ買取 17件→18件
+        （'I：Pマスカレーナ' は遊々亭販売0→23件・買取0→19件と丸ごと欠測していた）
+      - カードラボ販売・まんぞく屋販売は増減ゼロ。減少した経路・カードは無い
+      - 照合側（_FLEX_SEP / _FLEX_SPLIT）は元から「:」「：」を区切り扱いしており、
+        検索語側だけが揃っていなかった
+    """
     name = normalize_width(card_name)
     name = name.replace("・", " ").replace("　", " ")
-    # ハイフン系記号をスペースに置換
-    for ch in "-－―‐—–":
+    # ハイフン系記号・コロンをスペースに置換
+    for ch in "-－―‐—–:：":
         name = name.replace(ch, " ")
-    return name
+    return _squeeze_spaces(name)
 
 
 def _cardrush_search_query(card_name: str) -> str:
@@ -65,10 +90,10 @@ def _cardrush_search_query(card_name: str) -> str:
     ヒットしない。共通の _normalize_search_query に加えて _FLEX_SEP_CHARS の記号も
     スペースへ寄せる。
 
-    照合側の区切り集合とは完全には一致しない点に注意: 照合側は _FLEX_SEP_CHARS に
-    加えて「・空白－-:：」も区切り扱いするが、ここでは _normalize_search_query が
-    扱う「・とハイフン類」までで、コロン（: ：）は検索語に残る。カードラッシュ側が
-    コロンを無視するため実害は確認できていない（「EM：Pグレニャード」は11件ヒット）。
+    コロン（: ：）は _normalize_search_query が落とすため、ここでは扱わない。
+    2026-08-03 実測: 買取はコロンを残すとコロンを含む9カード全てが0件で、落とすと
+    合計27件になる（'I：Pマスカレーナ' 0→17件、'S：Pリトルナイト' 0→6件）。
+    販売は店舗側がコロンを無視するため増減ゼロだった（「EM：Pグレニャード」11件のまま）。
 
     2026-08-03 実測（照合修正と併用したときの取得件数）:
       - 販売: 検索語も直すと 253件 → 289件（照合のみの修正では届かない分がある）
@@ -81,7 +106,7 @@ def _cardrush_search_query(card_name: str) -> str:
     name = _normalize_search_query(card_name)
     for ch in _FLEX_SEP_CHARS:
         name = name.replace(ch, " ")
-    return re.sub(r"\s+", " ", name).strip()
+    return _squeeze_spaces(name)
 
 
 STRICT_NAME_FILTER = True
