@@ -682,6 +682,17 @@ def _parse_cardrush_items(card_name: str, items) -> list[dict]:
         condition = _extract_condition(raw_name)
         display_name = _clean_display_name(raw_name)
 
+        # カードラッシュは単品カードに必ず【レアリティ】を付ける。【-】は「単品カードでは
+        # ない」の印で、実体は封入商品・グッズ（ストラクチャーデッキ／ストレージ／未開封
+        # サイコロ／アクリルスタンド／金属製カード等）。カード価格として記録すると
+        # デッキ1個分の値段がそのカードの価格系列に混ざるため、ここで捨てる。
+        # 実測（2026-08-03・カードラッシュ58カードで照合通過2,467件）: 【-】は14件で
+        # 全てが封入商品・グッズ、型番も {-}。単品カードの巻き込みは0件。
+        # 併せてカテゴリも《未開封BOX》《その他》《アクリルスタンド》のみで、これらの
+        # カテゴリにレアリティ付きの出品は存在しなかった。
+        if rarity.strip() == "-":
+            continue
+
         # 商品画像
         img_el = item.select_one("img")
         image_url = img_el.get("src", "") if img_el else ""

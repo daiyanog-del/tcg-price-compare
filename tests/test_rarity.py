@@ -21,6 +21,7 @@ import pytest
 
 from rarity import (
     RARITIES,
+    UNKNOWN_RARITY_LABEL,
     normalize_rarity,
     order_of,
     ordered_canonicals,
@@ -134,6 +135,50 @@ class TestPreprocessing:
         assert normalize_rarity("  ウルトラレア  ") == "ウルトラ"
 
 
+class TestDashOnlyIsIsolated:
+    """ダッシュ1文字は「レアリティ無し」の印であってレアリティ名ではない。
+    price_history に119行（カードラッシュ/カードラボ）が独立系列で入っていた。"""
+
+    @pytest.mark.parametrize("raw", ["-", "－", "ー", "–", "—", " - "])
+    def test_dash_becomes_unknown_label(self, raw):
+        assert normalize_rarity(raw) == UNKNOWN_RARITY_LABEL
+
+    def test_dash_inside_a_real_rarity_is_untouched(self):
+        # 略号のハイフンは落とさない
+        assert normalize_rarity("M-UR") == "ミレニアムウルトラ"
+        assert normalize_rarity("P-SE") == "シークレットパラレル"
+        assert normalize_rarity("KC-N") == "KCノーマル"
+
+
+class TestKCFamily:
+    """「KC」は接頭辞で実体は KC-N/KC-R/KC-UR。判別できるものはその階層へ、
+    判別できないものは canonical「KC」へ寄せる（2026-08-03 の運用判断）。"""
+
+    @pytest.mark.parametrize("raw,expected", [
+        ("KC-UR", "KCウルトラ"),
+        ("KCウルトラレア", "KCウルトラ"),
+        ("KCウルトラ", "KCウルトラ"),
+        ("KC-R", "KCレア"),
+        ("KCレア", "KCレア"),
+        ("KC-N", "KCノーマル"),
+        ("KCノーマル", "KCノーマル"),
+        ("KC", "KC"),          # 判別不能はそのまま
+    ])
+    def test_kc(self, raw, expected):
+        assert normalize_rarity(raw) == expected
+
+
+class TestNormalParallelSpec:
+    def test_torecolo_parallel_spec_is_merged_provisionally(self):
+        # トレコロCBの「ノーマル(パラレル仕様)」は暫定で ノーマルパラレル と同一物扱い
+        assert normalize_rarity("ノーマル(パラレル仕様)") == "ノーマルパラレル"
+        assert normalize_rarity("ノーマル（パラレル仕様）") == "ノーマルパラレル"
+        assert normalize_rarity("ノーマルパラレル") == "ノーマルパラレル"
+
+    def test_plain_normal_is_unaffected(self):
+        assert normalize_rarity("ノーマル") == "ノーマル"
+
+
 class TestRegressionOfExistingAliases:
     """既存の統合が壊れていないこと（抜き取り）。"""
 
@@ -174,7 +219,7 @@ class TestTableIntegrity:
     def test_new_canonicals_registered(self):
         for canon in ("ミレニアムシークレット", "ミレニアムウルトラ", "ミレニアムゴールド",
                       "ミレニアムスーパー", "EXシークレットパラレル", "KCウルトラ",
-                      "シークレットレッド", "ノーマルレア"):
+                      "KCレア", "KCノーマル", "シークレットレッド", "ノーマルレア"):
             assert canon in ordered_canonicals()
             assert slug_of(canon) != "unknown"
             assert order_of(canon) != 9999
