@@ -48,14 +48,39 @@ def _normalize_fullwidth(text: str) -> str:
     return ''.join(result)
 
 
+def _squeeze_spaces(s: str) -> str:
+    """連続スペースを1つに畳み、前後のスペースを落とす（検索語生成の共通後処理）。
+
+    記号をスペースへ置換すると、記号が連続する箇所や名前の末尾で余分なスペースが残る。
+    店舗の検索エンジンはこれを別語として扱うことがあり、そのまま投げると0件になる。
+
+    2026-08-03 実測（カード名15,522件中、圧縮で検索語が変わる101件を旧新で比較）:
+      - カードラボ販売 124件 → 133件（'聖なるバリア －ミラーフォース－' 0→4件、
+        '黒魔術のバリア －ミラーフォース－' 0→1件、'冀望郷－バリアン－' 0→4件）
+      - 遊々亭 販売278/買取177・カードラボ買取18・まんぞく屋販売69 はいずれも増減ゼロ
+      - 減少した経路・カードは1件も無い
+    """
+    return re.sub(r"\s+", " ", s).strip()
+
+
 def _normalize_search_query(card_name: str) -> str:
-    """検索クエリ用にカード名を正規化（全角英数→半角、中黒・ハイフン系→スペース）"""
+    """検索クエリ用にカード名を正規化（全角英数→半角、中黒・ハイフン系・コロン→スペース）。
+
+    遊々亭・カードラボの販売/買取とまんぞく屋販売の5経路が共有する。
+
+    コロンを落とす根拠（2026-08-03 実測、コロンを含むカード名9件を残す/落とすで比較）:
+      - 遊々亭販売 7件→16件、遊々亭買取 6件→29件、カードラボ買取 17件→18件
+        （'I：Pマスカレーナ' は遊々亭販売0→23件・買取0→19件と丸ごと欠測していた）
+      - カードラボ販売・まんぞく屋販売は増減ゼロ。減少した経路・カードは無い
+      - 照合側（_FLEX_SEP / _FLEX_SPLIT）は元から「:」「：」を区切り扱いしており、
+        検索語側だけが揃っていなかった
+    """
     name = normalize_width(card_name)
     name = name.replace("・", " ").replace("　", " ")
-    # ハイフン系記号をスペースに置換
-    for ch in "-－―‐—–":
+    # ハイフン系記号・コロンをスペースに置換
+    for ch in "-－―‐—–:：":
         name = name.replace(ch, " ")
-    return name
+    return _squeeze_spaces(name)
 
 
 def _cardrush_search_query(card_name: str) -> str:
@@ -65,10 +90,10 @@ def _cardrush_search_query(card_name: str) -> str:
     ヒットしない。共通の _normalize_search_query に加えて _FLEX_SEP_CHARS の記号も
     スペースへ寄せる。
 
-    照合側の区切り集合とは完全には一致しない点に注意: 照合側は _FLEX_SEP_CHARS に
-    加えて「・空白－-:：」も区切り扱いするが、ここでは _normalize_search_query が
-    扱う「・とハイフン類」までで、コロン（: ：）は検索語に残る。カードラッシュ側が
-    コロンを無視するため実害は確認できていない（「EM：Pグレニャード」は11件ヒット）。
+    コロン（: ：）は _normalize_search_query が落とすため、ここでは扱わない。
+    2026-08-03 実測: 買取はコロンを残すとコロンを含む9カード全てが0件で、落とすと
+    合計27件になる（'I：Pマスカレーナ' 0→17件、'S：Pリトルナイト' 0→6件）。
+    販売は店舗側がコロンを無視するため増減ゼロだった（「EM：Pグレニャード」11件のまま）。
 
     2026-08-03 実測（照合修正と併用したときの取得件数）:
       - 販売: 検索語も直すと 253件 → 289件（照合のみの修正では届かない分がある）
@@ -81,7 +106,7 @@ def _cardrush_search_query(card_name: str) -> str:
     name = _normalize_search_query(card_name)
     for ch in _FLEX_SEP_CHARS:
         name = name.replace(ch, " ")
-    return re.sub(r"\s+", " ", name).strip()
+    return _squeeze_spaces(name)
 
 
 STRICT_NAME_FILTER = True
@@ -170,7 +195,25 @@ def dump_html(name: str, soup: BeautifulSoup):
             f.write(soup.prettify())
 
 
-# ── キャッシュ ──
+# ── キャッシュ（店舗束形式） ──
+#
+# ファイル形式（2026-08-03改訂）: 1カード1ファイルは維持しつつ、店舗ごとに
+# 独立したエントリ（タイムスタンプ・partial印付き）の束で持つ。
+#   {"shops": {"店舗名": {"timestamp": ISO8601, "partial": bool, "results": [...]}}}
+#
+# 旧形式はカード名だけをキーに「検索結果の全体」を1枚で持っており、どの店舗を
+# 調べた結果かを記録しなかった。そのため店舗を絞った検索が全体キャッシュを
+# 上書きし、TTLの15分間ほかの店舗が「0件」に見える汚染が起きていた
+# （2026-08-03 本番で実証）。旧形式ファイルは期限切れ扱い（全店ミス）で読む。
+#
+# 約束事:
+# - 取得失敗した店舗は呼び出し側が store に渡さない＝キャッシュされず次回再試行。
+#   「0件」と「取得失敗」を区別する原則のキャッシュ層への延長。
+#   ただし検出できるのはネットワーク層の失敗（safe_get の RequestException 等で
+#   _note_fetch_error が立つもの）のみ。店舗サイトの構造変更・セレクタ不一致による
+#   「例外なしの0件」は在庫なしと区別できず、従来どおりTTLの間キャッシュされる
+# - partial=True は /api/deck の1ページ目限定スクレイプ由来。通常検索
+#   (include_partial=False) では不足扱いにして完全版を取り直す
 
 import tempfile
 import os
@@ -180,34 +223,70 @@ _cache_lock = _Lock()
 def _cache_key(card_name: str) -> str:
     return hashlib.md5(card_name.encode()).hexdigest()
 
-def cache_get(card_name: str) -> list[dict] | None:
-    if not CACHE_ENABLED:
-        return None
-    fp = CACHE_DIR / f"{_cache_key(card_name)}.json"
+def _shop_cache_load(fp: Path) -> dict:
+    """店舗束キャッシュを読み、期限内の店舗エントリだけ返す。
+    旧形式・破損・不在は {} ＝全店ミス扱い。"""
     if not fp.exists():
-        return None
+        return {}
     try:
         data = json.loads(fp.read_text(encoding="utf-8"))
-        ts = datetime.fromisoformat(data["timestamp"])
-        if datetime.now() - ts > timedelta(minutes=CACHE_TTL_MINUTES):
-            return None
-        return data["results"]
+        shops = data.get("shops")
+        if not isinstance(shops, dict):
+            return {}  # 旧形式
+        now = datetime.now()
+        fresh = {}
+        for shop, ent in shops.items():
+            try:
+                ts = datetime.fromisoformat(ent["timestamp"])
+            except Exception:
+                continue
+            if now - ts > timedelta(minutes=CACHE_TTL_MINUTES):
+                continue
+            results = ent.get("results")
+            if not isinstance(results, list):
+                continue
+            fresh[shop] = {"timestamp": ent["timestamp"],
+                           "partial": bool(ent.get("partial")),
+                           "results": results}
+        return fresh
     except Exception:
-        return None
+        return {}
 
-def cache_set(card_name: str, results: list[dict]):
+def _shop_cache_get(cache_dir: Path, key: str, shops: list[str],
+                    include_partial: bool) -> tuple[dict[str, list], list[str]]:
     if not CACHE_ENABLED:
+        return {}, list(shops)
+    fresh = _shop_cache_load(cache_dir / f"{key}.json")
+    hit: dict[str, list] = {}
+    missing: list[str] = []
+    for shop in shops:
+        ent = fresh.get(shop)
+        if ent is None or (ent["partial"] and not include_partial):
+            missing.append(shop)
+        else:
+            hit[shop] = ent["results"]
+    return hit, missing
+
+def _shop_cache_store(cache_dir: Path, key: str, shop_results: dict[str, list],
+                      partial_shops=frozenset()):
+    if not CACHE_ENABLED or not shop_results:
         return
-    CACHE_DIR.mkdir(exist_ok=True)
-    fp = CACHE_DIR / f"{_cache_key(card_name)}.json"
-    data = {"timestamp": datetime.now().isoformat(), "results": results}
-    content = json.dumps(data, ensure_ascii=False)
-    # 一時ファイルに書いてからリネームすることで、書き込み途中のファイルを読まれるのを防ぐ
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    fp = cache_dir / f"{key}.json"
+    # 読み直し→マージ→原子的書き込みをロック内で行い、並行する別店舗の書き込みを消さない
     with _cache_lock:
+        fresh = _shop_cache_load(fp)  # 期限切れエントリはここで間引かれる
+        now_iso = datetime.now().isoformat()
+        for shop, results in shop_results.items():
+            fresh[shop] = {"timestamp": now_iso,
+                           "partial": shop in partial_shops,
+                           "results": results}
+        content = json.dumps({"shops": fresh}, ensure_ascii=False)
+        # 一時ファイルに書いてからリネームすることで、書き込み途中のファイルを読まれるのを防ぐ
         tmp_name = None
         try:
             with tempfile.NamedTemporaryFile(
-                "w", encoding="utf-8", dir=CACHE_DIR, prefix=fp.stem + "_", suffix=".tmp", delete=False
+                "w", encoding="utf-8", dir=cache_dir, prefix=fp.stem + "_", suffix=".tmp", delete=False
             ) as tmp:
                 tmp.write(content)
                 tmp_name = tmp.name
@@ -218,6 +297,29 @@ def cache_set(card_name: str, results: list[dict]):
                     os.remove(tmp_name)
                 except OSError:
                     pass
+
+def cache_get_shops(card_name: str, shops: list[str],
+                    include_partial: bool = False) -> tuple[dict[str, list], list[str]]:
+    """選択店舗のうちキャッシュ命中分と、スクレイプが必要な店舗を返す。
+    返り値: ({店舗名: results}, [不足店舗名])。「調べて0件」は命中（空リスト）、
+    「調べていない」は不足として区別される。"""
+    return _shop_cache_get(CACHE_DIR, _cache_key(card_name), shops, include_partial)
+
+def cache_store_shops(card_name: str, shop_results: dict[str, list],
+                      partial_shops=frozenset()):
+    """店舗ごとの結果をキャッシュへ追記する。取得失敗した店舗は渡さないこと。"""
+    _shop_cache_store(CACHE_DIR, _cache_key(card_name), shop_results, partial_shops)
+
+def cache_get(card_name: str) -> list[dict] | None:
+    """互換API: 期限内の全店舗分を平坦化して返す（メタ表示用）。1店も無ければ None。
+    どの店舗を調べた結果かを区別せず、partial（デッキ検索の1ページ目限定）由来の
+    エントリも混ざるため、検索経路では cache_get_shops を使うこと。"""
+    if not CACHE_ENABLED:
+        return None
+    fresh = _shop_cache_load(CACHE_DIR / f"{_cache_key(card_name)}.json")
+    if not fresh:
+        return None
+    return [r for ent in fresh.values() for r in ent["results"]]
 
 
 # ── 名前フィルタ ──
@@ -1784,39 +1886,33 @@ BUYBACK_SHOPS = [
 DEFAULT_BUYBACK_SHOPS = ["カードラッシュ", "カーナベル", "遊々亭", "トレコロCB", "カードラボ"]
 
 
-# ── 買取キャッシュ（販売と分離）──
+# ── 買取キャッシュ（販売と分離・同じ店舗束形式）──
 
 BUYBACK_CACHE_DIR = Path(__file__).parent / ".cache_buy"
 
 def _buyback_cache_key(card_name: str) -> str:
     return hashlib.md5(f"buy_{card_name}".encode()).hexdigest()
 
-def buyback_cache_get(card_name: str) -> list[dict] | None:
-    if not CACHE_ENABLED:
-        return None
-    fp = BUYBACK_CACHE_DIR / f"{_buyback_cache_key(card_name)}.json"
-    if not fp.exists():
-        return None
-    try:
-        data = json.loads(fp.read_text(encoding="utf-8"))
-        ts = datetime.fromisoformat(data["timestamp"])
-        if datetime.now() - ts > timedelta(minutes=CACHE_TTL_MINUTES):
-            return None
-        return data["results"]
-    except Exception:
-        return None
+def buyback_cache_get_shops(card_name: str, shops: list[str],
+                            include_partial: bool = False) -> tuple[dict[str, list], list[str]]:
+    """買取版 cache_get_shops（挙動は販売と同じ・保存先が別）"""
+    return _shop_cache_get(BUYBACK_CACHE_DIR, _buyback_cache_key(card_name),
+                           shops, include_partial)
 
-def buyback_cache_set(card_name: str, results: list[dict]):
+def buyback_cache_store_shops(card_name: str, shop_results: dict[str, list],
+                              partial_shops=frozenset()):
+    """買取版 cache_store_shops。取得失敗した店舗は渡さないこと。"""
+    _shop_cache_store(BUYBACK_CACHE_DIR, _buyback_cache_key(card_name),
+                      shop_results, partial_shops)
+
+def buyback_cache_get(card_name: str) -> list[dict] | None:
+    """互換API: 期限内の全店舗分を平坦化して返す（メタ表示用）。1店も無ければ None。"""
     if not CACHE_ENABLED:
-        return
-    BUYBACK_CACHE_DIR.mkdir(exist_ok=True)
-    fp = BUYBACK_CACHE_DIR / f"{_buyback_cache_key(card_name)}.json"
-    data = {"timestamp": datetime.now().isoformat(), "results": results}
-    content = json.dumps(data, ensure_ascii=False)
-    with _cache_lock:
-        tmp_fp = fp.with_suffix(".tmp")
-        tmp_fp.write_text(content, encoding="utf-8")
-        tmp_fp.replace(fp)
+        return None
+    fresh = _shop_cache_load(BUYBACK_CACHE_DIR / f"{_buyback_cache_key(card_name)}.json")
+    if not fresh:
+        return None
+    return [r for ent in fresh.values() for r in ent["results"]]
 
 
 # ── 全店舗検索 ──
@@ -1835,8 +1931,10 @@ SHOPS = [
 DEFAULT_SHOPS = ["遊々亭", "カードラッシュ", "トレコロCB", "カーナベル", "カードラボ", "まんぞく屋"]
 
 
-def _run_shop_with_status(fn, card_name: str) -> tuple[list[dict], int]:
-    """店舗スクレイパーを実行し、(結果, 取得エラー数) を返す（ワーカースレッド内で実行）"""
+def run_shop_with_status(fn, card_name: str) -> tuple[list[dict], int]:
+    """店舗スクレイパーを実行し、(結果, 取得エラー数) を返す（ワーカースレッド内で実行）。
+    「0件かつ取得エラー>0」は在庫なしではなく取得失敗。app.py の検索経路が
+    キャッシュ可否（失敗店舗はキャッシュしない）の判定にも使う。"""
     _reset_fetch_errors()
     items = fn(card_name)
     return items, _get_fetch_errors()
@@ -1858,7 +1956,7 @@ def compare_prices(card_name: str, shop_names: list[str] | None = None,
     all_results = []
     with ThreadPoolExecutor(max_workers=len(active)) as executor:
         futures = {
-            executor.submit(_run_shop_with_status, fn, card_name): name
+            executor.submit(run_shop_with_status, fn, card_name): name
             for name, fn in active
         }
         for future in as_completed(futures):
@@ -1889,7 +1987,7 @@ def compare_buyback(card_name: str, shop_names: list[str] | None = None,
     all_results = []
     with ThreadPoolExecutor(max_workers=len(active)) as executor:
         futures = {
-            executor.submit(_run_shop_with_status, fn, card_name): name
+            executor.submit(run_shop_with_status, fn, card_name): name
             for name, fn in active
         }
         for future in as_completed(futures):
