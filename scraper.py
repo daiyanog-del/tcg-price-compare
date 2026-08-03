@@ -11,6 +11,7 @@ import time
 import hashlib
 import json
 import unicodedata
+import urllib.parse
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
@@ -148,19 +149,92 @@ def _note_fetch_error():
 def _get_fetch_errors() -> int:
     return getattr(_fetch_stats, "errors", 0)
 
+# ── HTTPセッションとホスト単位のサーキットブレーカ ──
+# 2026-08-03 追加。カードラボ（www.c-labo-online.jp）が夜間収集の途中から
+# 403 Forbidden を返し続ける問題への対処（調査結果は docs/decisions.md）。
+#   ① セッション使い回し: 従来は毎リクエストが新しい PHPSESSID を発行させており、
+#      1晩に数千個のセッションを店舗側に作らせていた。接続の再利用も効く
+#   ② 403 は再試行しない: 通らないうえ店舗への負荷を2倍にするだけ
+#   ③ 連続403が閾値を超えたホストは一定時間スキップする（叩き続けない）
+#      TTLを設けるのは app.py が常駐プロセスで、恒久ブロックだと
+#      ライブ検索が再起動まで復旧しなくなるため
+_HOST_BLOCK_THRESHOLD = 5
+_HOST_BLOCK_TTL_SEC = 1800
+
+_session_lock = _threading.Lock()
+_session: "requests.Session | None" = None
+_host_block_lock = _threading.Lock()
+_host_block: dict = {}  # {host: {"streak": 連続403数, "until": 解除時刻(epoch秒)}}
+
+
+def _get_session() -> requests.Session:
+    """全スレッドで共有する requests.Session を返す（クッキーと接続の使い回し用）"""
+    global _session
+    with _session_lock:
+        if _session is None:
+            _session = requests.Session()
+            _session.headers.update(HEADERS)
+        return _session
+
+
+def _host_of(url: str) -> str:
+    return urllib.parse.urlsplit(url).netloc
+
+
+def _is_host_blocked(host: str) -> bool:
+    with _host_block_lock:
+        st = _host_block.get(host)
+        if not st or st["until"] <= 0:
+            return False
+        if time.time() >= st["until"]:
+            # TTL切れ。ゼロから数え直して様子を見る
+            st["until"] = 0
+            st["streak"] = 0
+            return False
+        return True
+
+
+def _note_host_result(host: str, forbidden: bool):
+    """403の連続回数を数え、閾値に達したホストを一定時間スキップ対象にする"""
+    with _host_block_lock:
+        st = _host_block.setdefault(host, {"streak": 0, "until": 0})
+        if not forbidden:
+            st["streak"] = 0
+            return
+        st["streak"] += 1
+        if st["streak"] >= _HOST_BLOCK_THRESHOLD and st["until"] <= 0:
+            st["until"] = time.time() + _HOST_BLOCK_TTL_SEC
+            print(
+                f"  ⛔ {host}: 403が{st['streak']}回連続。"
+                f"{_HOST_BLOCK_TTL_SEC // 60}分間このホストへのリクエストを停止します"
+            )
+
+
 def safe_get(url: str, timeout: int = 15, retries: int = 1) -> BeautifulSoup | None:
+    host = _host_of(url)
+    if _is_host_blocked(host):
+        _note_fetch_error()
+        return None
+
     for attempt in range(1 + retries):
         try:
-            res = requests.get(url, headers=HEADERS, timeout=timeout)
+            res = _get_session().get(url, timeout=timeout)
             res.raise_for_status()
+            _note_host_result(host, forbidden=False)
             return BeautifulSoup(res.text, "html.parser")
         except requests.RequestException as e:
-            if attempt < retries:
+            status = getattr(e.response, "status_code", None)
+            _note_host_result(host, forbidden=(status == 403))
+            # 403（アクセス拒否）は再試行しても通らない。他の4xxも同様なので、
+            # 一時的な過負荷を示す429だけは従来どおり再試行する
+            no_retry = status is not None and 400 <= status < 500 and status != 429
+            if attempt < retries and not no_retry:
                 # 根拠不明（導入: abe83370 2026-03-05、理由の記録なし。初回一括アップロードで既に存在）
                 time.sleep(2)
             else:
                 _note_fetch_error()
                 print(f"  ❌ 取得失敗: {e}")
+                break
     return None
 
 def dump_html(name: str, soup: BeautifulSoup):
