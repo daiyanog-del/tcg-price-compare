@@ -54,6 +54,14 @@ STABLE
 AS $$
 WITH
 -- 店舗×カード×レアリティ×日付ごとの日次最安値を集計（10円以下の異常値を除外）
+-- ガード③（正体不明レアリティの除外・2026-08-03追加）: rarity="(不明)"（フェーズ3 P3 の
+-- 抽出失敗ラベル）と空文字（移行前のレガシー）は「そのレアリティが何か分からない」
+-- という印であって、レアリティ名ではない。これらでグループ化すると別々の正体不明品
+-- どうしを同一物として突き合わせることになり偽陽性を生む（実測: 直近7日で "(不明)" が
+-- 2店に跨るカードが4枚、うちブリッツクリークは¥20〜180と幅がある）。
+-- aggregations/notify の代表レアリティ選定は元々これらを除外しており、RPC側だけが
+-- 未対応だったのを揃える。適用時の実測では現行の出力に変化なし（純粋に将来の
+-- 偽陽性経路を塞ぐ変更。販売43系列・買取2系列が対象から外れる）。
 shop_daily AS (
     SELECT
         card_name,
@@ -64,6 +72,7 @@ shop_daily AS (
     FROM price_history
     WHERE recorded_at >= cutoff_date::date
       AND min_price > 10
+      AND COALESCE(rarity, '') NOT IN ('(不明)', '')
     GROUP BY card_name, rarity, shop, recorded_at::date::text
 ),
 -- 比較に使う直近2日を特定
@@ -190,6 +199,10 @@ STABLE
 AS $$
 WITH
 -- 店舗×カード×レアリティ×日付ごとの日次最高買取額を集計（10円以下の異常値を除外）
+-- ガード③（正体不明レアリティの除外）: 販売版と同じ理由。買取側はガード②が無いぶん
+-- 単店の段差がそのまま通るため、正体不明系列を残す危険は販売より大きい。
+-- なお buyback_history の空文字 rarity は 2026-08-03 時点でも書き込みが続いている
+-- （カードラボ・トレコロCBの2店）。
 shop_daily AS (
     SELECT
         card_name,
@@ -200,6 +213,7 @@ shop_daily AS (
     FROM buyback_history
     WHERE recorded_at >= cutoff_date::date
       AND max_price > 10
+      AND COALESCE(rarity, '') NOT IN ('(不明)', '')
     GROUP BY card_name, rarity, shop, recorded_at::date::text
 ),
 -- 比較に使う直近2日を特定
