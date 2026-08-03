@@ -23,12 +23,60 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scraper import (
     to_fullwidth_alnum,
+    _squeeze_spaces,
     _torecolo_search_query,
     _cardrush_search_query,
     _normalize_search_query,
     _kanabell_wildcard_value,
     _kanabell_wildcard_values,
 )
+
+
+class TestNormalizeSearchQuery:
+    """共通検索語（遊々亭・カードラボの販売/買取、まんぞく屋販売の5経路が共有）
+
+    2026-08-03: 空白圧縮とコロン除去を追加した。いずれも影響カードを全経路で
+    旧新比較し、減少ゼロを確認した上での変更（詳細は scraper.py の docstring）。
+    """
+
+    def test_trailing_space_is_stripped(self):
+        # 本丸: 記号を落とした結果の末尾スペースで0件になっていた
+        # （'聖なるバリア ミラーフォース ' は0件、圧縮後はカードラボ販売で4件）
+        assert _normalize_search_query("聖なるバリア －ミラーフォース－") == "聖なるバリア ミラーフォース"
+
+    def test_consecutive_separators_collapse_to_one_space(self):
+        # 「区切り＋ダッシュ」が連続すると空白が二重になる
+        assert _normalize_search_query("カオス・ソルジャー －開闢の使者－") == "カオス ソルジャー 開闢の使者"
+        assert _normalize_search_query("King of Destruction - Xexex") == "King of Destruction Xexex"
+
+    def test_colon_becomes_space(self):
+        # 本丸: コロンを残すと遊々亭・カードラッシュの買取が0件になる
+        assert _normalize_search_query("I：Pマスカレーナ") == "I Pマスカレーナ"
+        assert _normalize_search_query("S:Pリトルナイト") == "S Pリトルナイト"
+
+    def test_no_double_or_edge_spaces_for_any_shape(self):
+        for name in ("めぐり－Ai－", "アルトメギア・メセナ－覚醒－", "Re：EX", "冀望郷－バリアン－"):
+            q = _normalize_search_query(name)
+            assert "  " not in q
+            assert q == q.strip()
+
+    def test_plain_name_is_unchanged(self):
+        # 記号を含まないカード名は従来どおり素通し（退行検知）
+        for name in ("灰流うらら", "増殖するG", "ブラック・マジシャン"):
+            assert _normalize_search_query(name) == name.replace("・", " ")
+
+
+class TestSqueezeSpaces:
+    """検索語生成の共通後処理"""
+
+    def test_collapses_and_strips(self):
+        assert _squeeze_spaces("  a   b  ") == "a b"
+
+    def test_idempotent(self):
+        assert _squeeze_spaces(_squeeze_spaces(" a  b ")) == _squeeze_spaces(" a  b ")
+
+    def test_empty(self):
+        assert _squeeze_spaces("   ") == ""
 
 
 class TestCardrushSearchQuery:
@@ -61,7 +109,13 @@ class TestCardrushSearchQuery:
     def test_plain_name_matches_shared_normalizer(self):
         # 記号を含まないカード名は共通の正規化と同じ結果になること（退行検知）
         for name in ("灰流うらら", "増殖するG", "ブラック・マジシャン"):
-            assert _cardrush_search_query(name) == _normalize_search_query(name).strip()
+            assert _cardrush_search_query(name) == _normalize_search_query(name)
+
+    def test_colon_is_removed_via_shared_normalizer(self):
+        # 買取はコロンを残すと0件になる（'I：Pマスカレーナ' 0→17件）。
+        # 除去は共通の _normalize_search_query 側で行うため、ここでは結果だけ固定する
+        assert _cardrush_search_query("I：Pマスカレーナ") == "I Pマスカレーナ"
+        assert ":" not in _cardrush_search_query("W：Pファンシーボール")
 
 
 class TestToFullwidthAlnum:
