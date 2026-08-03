@@ -84,6 +84,24 @@ def normalize_width(text: str) -> str:
     text = unicodedata.normalize('NFKC', text)  # ローマ数字(Ⅹ→X等)・全角ハイフン等を一括変換
     return text.translate(_ZEN2HAN)
 
+def to_fullwidth_alnum(text: str) -> str:
+    """英数字だけを全角に変換する（記号・空白は変換しない）。
+
+    カーナベルESの card_name には全角で登録されたレコードが混在するため、
+    半角の検索語だけでは一致しない。その対策で全角版の検索値を作るのに使う。
+
+    記号まで全角化してはいけない。2026-08-03 実測: カーナベルには
+    「Ｎｏ.１０４ 仮面魔踏士シャイニングＶ」のように英数字だけ全角でピリオドは
+    半角という混在表記があり、ピリオドも全角化すると0件になる（英数字のみなら3件）。
+    ワイルドカードのメタ文字（* ?）を変換しない点でも、半角版と意味を揃えられる。
+    """
+    return "".join(
+        chr(ord(ch) + 0xFEE0)
+        if ("0" <= ch <= "9" or "A" <= ch <= "Z" or "a" <= ch <= "z")
+        else ch
+        for ch in text
+    )
+
 def parse_price(text: str) -> int | None:
     digits = re.sub(r"[^\d]", "", text)
     return int(digits) if digits else None
@@ -424,13 +442,32 @@ def scrape_cardrush(card_name: str) -> list[dict]:
 
 TORECOLO_BASE = "https://www.torecolo.jp"
 
+# トレコロ検索語で全角ハイフンへ寄せるダッシュ類（長音 ー U+30FC はカード名の一部なので含めない）
+_TORECOLO_DASHES = "-‐‑‒–—―−"
+
+def _torecolo_search_query(card_name: str) -> str:
+    """トレコロ用の検索語を作る（販売・買取で共通）。
+
+    トレコロの検索は「ダッシュが全角ハイフン（U+FF0D）であること」だけを要求する。
+    2026-08-03 実測（同一カードで条件を振って比較）:
+      - U+FF0D なら7件、半角ハイフン U+002D なら0件
+      - 他のダッシュ異体（U+2010/U+2015/U+2212 等）とスペース置換もいずれも0件
+      - 英数字の全角/半角は結果に影響しない
+        （'D－HERO …'=7件 と 'Ｄ－ＨＥＲＯ …'=7件、'No.39 …'=50件 と 'Ｎｏ．３９ …'=50件）
+      - 旧実装はダッシュをスペースへ置換していたため0件を招いていた（これが不具合の原因）
+
+    NFKC（normalize_width）は通さない。トレコロはローマ数字を Ⅹ のまま登録しており、
+    NFKC で X へ潰すと逆に取りこぼすため（「アルカナフォースⅩⅩⅠ」4件→13件）。
+    中黒（・）も残さないとヒットしないため、除去も置換もしない。
+    """
+    s = card_name.replace("　", " ")
+    for ch in _TORECOLO_DASHES:
+        s = s.replace(ch, "－")
+    return s
+
 def scrape_torecolo(card_name: str, max_pages: int = 5) -> list[dict]:
     """トレコロCB — 複数ページ対応、レアリティ取得"""
-    # トレコロは中黒（・）を残さないと検索ヒットしないため専用の正規化を使う
-    search_name = normalize_width(card_name)
-    search_name = search_name.replace("　", " ")
-    for ch in "-－―‐—–":
-        search_name = search_name.replace(ch, " ")
+    search_name = _torecolo_search_query(card_name)
     base_url = (
         f"{TORECOLO_BASE}/shop/goods/search.aspx"
         f"?search=x&keyword={requests.utils.quote(search_name)}&category=&oshiire_code="
@@ -610,6 +647,24 @@ def _kanabell_wildcard_value(card_name: str) -> str:
     parts = [p for p in _KANABELL_SEP_RE.split(card_name) if p]
     return "*" + "*".join(parts) + "*" if parts else f"*{card_name}*"
 
+def _kanabell_wildcard_values(card_name: str) -> list[str]:
+    """半角版と全角版の wildcard 値を返す（同じ値になる場合は1つだけ）。
+
+    カーナベルのESは card_name を半角で持つレコードと全角で持つレコードが混在する。
+    半角の検索語だけでは全角側に一致せず、対象カードが丸ごと取得できなくなる。
+
+    2026-08-02〜03 実測（ESへ直接問い合わせて確認）:
+      - 旧カード「D-HERO ディアボリックガイ」は card_name も半角
+      - 新カード「Ｄ−ＨＥＲＯ デスドグマガイ」は card_name が全角 → 半角検索では0件
+      - 全角英数を含む card_name は全39,994件中32件（14種類）。うち12種類が追跡対象
+      - 14種類のうち2種類は「Ｎｏ.１０４ …」のようにピリオドだけ半角の混在表記。
+        このため全角版は英数字だけを変換する（記号も変換すると当該2種類が0件になる）
+      - 全角版を should に足しても既存のヒット件数は変わらない（灰流うらら37件等で確認）
+    """
+    half = _kanabell_wildcard_value(card_name)
+    full = _kanabell_wildcard_value(to_fullwidth_alnum(card_name))
+    return [half] if half == full else [half, full]
+
 def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
     """カーナベル — Elasticsearch API経由で検索（状態別価格対応）"""
     if not _KANABELL_CLOUD_ID or not _KANABELL_API_KEY:
@@ -617,9 +672,9 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
         _note_fetch_error()  # 設定不足は「在庫なし」ではなく取得失敗として扱う
         return []
 
-    # カーナベルのESは半角で格納されているため、全角英数字を半角に正規化
+    # 検索語は半角に正規化したうえで、全角格納レコード用の wildcard も併せて投げる
     card_name = _normalize_fullwidth(card_name)
-    wildcard_value = _kanabell_wildcard_value(card_name)
+    wildcard_values = _kanabell_wildcard_values(card_name)
 
     global _KANABELL_ES_URL
     if _KANABELL_ES_URL is None:
@@ -650,8 +705,10 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
                     {"bool": {"should": [
                         {"match_phrase_prefix": {"card_name": {"query": card_name, "slop": 2}}},
                         {"match_phrase_prefix": {"replace_card_name": {"query": card_name, "slop": 2}}},
-                        {"wildcard": {"card_name.keyword": {"value": wildcard_value}}},
-                        {"wildcard": {"replace_card_name.keyword": {"value": wildcard_value}}},
+                    ] + [
+                        {"wildcard": {field: {"value": v}}}
+                        for v in wildcard_values
+                        for field in ("card_name.keyword", "replace_card_name.keyword")
                     ], "minimum_should_match": 1}}
                 ],
                 "filter": [
@@ -767,7 +824,7 @@ def kanabell_card_image_url(card_name: str) -> str:
         return ""
 
     card_name = _normalize_fullwidth(card_name)
-    wildcard_value = _kanabell_wildcard_value(card_name)
+    wildcard_values = _kanabell_wildcard_values(card_name)
 
     global _KANABELL_ES_URL
     if _KANABELL_ES_URL is None:
@@ -786,8 +843,10 @@ def kanabell_card_image_url(card_name: str) -> str:
                     {"bool": {"should": [
                         {"match_phrase_prefix": {"card_name": {"query": card_name, "slop": 2}}},
                         {"match_phrase_prefix": {"replace_card_name": {"query": card_name, "slop": 2}}},
-                        {"wildcard": {"card_name.keyword": {"value": wildcard_value}}},
-                        {"wildcard": {"replace_card_name.keyword": {"value": wildcard_value}}},
+                    ] + [
+                        {"wildcard": {field: {"value": v}}}
+                        for v in wildcard_values
+                        for field in ("card_name.keyword", "replace_card_name.keyword")
                     ], "minimum_should_match": 1}}
                 ],
                 "filter": [
@@ -1207,9 +1266,9 @@ def scrape_kanabell_buy(card_name: str) -> list[dict]:
         _note_fetch_error()
         return []
 
-    # 全角英数字を半角に正規化
+    # 検索語は半角に正規化したうえで、全角格納レコード用の wildcard も併せて投げる
     card_name = _normalize_fullwidth(card_name)
-    wildcard_value = _kanabell_wildcard_value(card_name)
+    wildcard_values = _kanabell_wildcard_values(card_name)
 
     global _KANABELL_ES_URL
     if _KANABELL_ES_URL is None:
@@ -1230,8 +1289,10 @@ def scrape_kanabell_buy(card_name: str) -> list[dict]:
                 "must": [
                     {"bool": {"should": [
                         {"match_phrase_prefix": {"card_name": {"query": card_name, "slop": 2}}},
-                        {"wildcard": {"card_name.keyword": {"value": wildcard_value}}},
-                        {"wildcard": {"replace_card_name.keyword": {"value": wildcard_value}}},
+                    ] + [
+                        {"wildcard": {field: {"value": v}}}
+                        for v in wildcard_values
+                        for field in ("card_name.keyword", "replace_card_name.keyword")
                     ], "minimum_should_match": 1}}
                 ],
                 "filter": [
@@ -1366,11 +1427,7 @@ def scrape_torecolo_buy(card_name: str, max_pages: int = 3) -> list[dict]:
     (scrape_torecolo)はこれを除外しているので、本関数は逆にこれだけを拾う。
     レアリティは買取エントリでは空のことが多い（カード名に版違い情報が入る）。
     """
-    # トレコロは中黒（・）を残さないと検索ヒットしないため専用の正規化を使う
-    search_name = normalize_width(card_name)
-    search_name = search_name.replace("　", " ")
-    for ch in "-－―‐—–":
-        search_name = search_name.replace(ch, " ")
+    search_name = _torecolo_search_query(card_name)
     base_url = (
         f"{TORECOLO_BASE}/shop/goods/search.aspx"
         f"?search=x&keyword={requests.utils.quote(search_name)}&category=&oshiire_code="
