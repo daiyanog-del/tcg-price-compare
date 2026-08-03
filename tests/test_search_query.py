@@ -24,9 +24,44 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from scraper import (
     to_fullwidth_alnum,
     _torecolo_search_query,
+    _cardrush_search_query,
+    _normalize_search_query,
     _kanabell_wildcard_value,
     _kanabell_wildcard_values,
 )
+
+
+class TestCardrushSearchQuery:
+    """カードラッシュ検索語（販売・買取で共通）
+
+    カードラッシュは商品名を記号なしで登録しており、検索語に記号が残るとヒットしない。
+    """
+
+    def test_kagi_kakko_is_removed(self):
+        # '炎舞 「天枢」' では0件、'炎舞 天枢' なら2件（2026-08-03 実測）
+        assert _cardrush_search_query("炎舞－「天枢」") == "炎舞 天枢"
+
+    def test_star_and_quotes_are_removed(self):
+        assert _cardrush_search_query("Live☆Twin リィラ") == "Live Twin リィラ"
+        assert _cardrush_search_query("セリオンズ“キング”レギュラス") == "セリオンズ キング レギュラス"
+
+    def test_ampersand_is_removed(self):
+        assert _cardrush_search_query("ドロール＆ロックバード") == "ドロール ロックバード"
+
+    def test_no_double_spaces_or_edge_spaces(self):
+        q = _cardrush_search_query("星遺物－『星杯』")
+        assert "  " not in q
+        assert q == q.strip()
+
+    def test_greek_letters_are_kept(self):
+        # 識別子は検索語からも落とさない
+        assert "α" in _cardrush_search_query("磁石の戦士α")
+        assert "γ" in _cardrush_search_query("PSYフレームギア・γ")
+
+    def test_plain_name_matches_shared_normalizer(self):
+        # 記号を含まないカード名は共通の正規化と同じ結果になること（退行検知）
+        for name in ("灰流うらら", "増殖するG", "ブラック・マジシャン"):
+            assert _cardrush_search_query(name) == _normalize_search_query(name).strip()
 
 
 class TestToFullwidthAlnum:

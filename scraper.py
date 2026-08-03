@@ -56,6 +56,34 @@ def _normalize_search_query(card_name: str) -> str:
     for ch in "-－―‐—–":
         name = name.replace(ch, " ")
     return name
+
+
+def _cardrush_search_query(card_name: str) -> str:
+    """カードラッシュ用の検索語（販売・買取で共通）。
+
+    カードラッシュは商品名を記号なしで登録しており、検索語に記号が残っていると
+    ヒットしない。共通の _normalize_search_query に加えて _FLEX_SEP_CHARS の記号も
+    スペースへ寄せる。
+
+    照合側の区切り集合とは完全には一致しない点に注意: 照合側は _FLEX_SEP_CHARS に
+    加えて「・空白－-:：」も区切り扱いするが、ここでは _normalize_search_query が
+    扱う「・とハイフン類」までで、コロン（: ：）は検索語に残る。カードラッシュ側が
+    コロンを無視するため実害は確認できていない（「EM：Pグレニャード」は11件ヒット）。
+
+    2026-08-03 実測（照合修正と併用したときの取得件数）:
+      - 販売: 検索語も直すと 253件 → 289件（照合のみの修正では届かない分がある）
+        例「セリオンズ“キング”レギュラス」2件→24件、「Live☆Twin リィラ」4件→15件
+      - 買取: 79件 → 109件。買取は検索語を直さないと0件のままのカードが多い
+        （'炎舞－「天枢」'→0件 / '炎舞 天枢'→2件）
+      - 他店（遊々亭・カードラボ・まんぞく屋・トレコロ）では増減ゼロだったため、
+        共通関数ではなくカードラッシュ専用にして影響を閉じている
+    """
+    name = _normalize_search_query(card_name)
+    for ch in _FLEX_SEP_CHARS:
+        name = name.replace(ch, " ")
+    return re.sub(r"\s+", " ", name).strip()
+
+
 STRICT_NAME_FILTER = True
 EXCLUDE_SUPPLY = True
 
@@ -249,10 +277,24 @@ def _is_exactly_bracketed(text: str, start: int, end: int) -> bool:
         return False
     return text[start - 1] in _OPEN_BRACKETS and text[end] in _CLOSE_BRACKETS
 
-_FLEX_SEP = r"[・\s　－\x2d:：]*"
+# カード名の「区切り」として扱う記号。店舗によっては商品名から落として登録するため
+# （例: カードラッシュ「召喚魔術－「剣」」→「召喚魔術剣」）、あってもなくても一致させる。
+#
+# 2026-08-03 実測でこの集合を確定した（判定基準は「店舗が商品名から落とすか否か」）:
+#   落とす（＝ここに入れる）: 「」『』☆★“”〜～＠＆！？．／×  ＋ 従来の ・空白－:：
+#   落とさない（＝入れてはいけない）: ギリシャ文字 α β γ ζ Σ Ω、＋、∀ 等の識別子。
+#     区切りにすると「磁石の戦士α」と「磁石の戦士β」が同一カード扱いになる
+#
+# is_target_card は normalize_width（NFKC）後の文字列で判定するため、全角記号は
+# 半角形（@ & ! ? . / < > = ~）で列挙する。☆★“”×〜(U+301C) はNFKCで変換されない。
+# この定数はパターン生成と分割の両方で使う（以前は同じ集合が2箇所に重複しており、
+# 片方だけ直すと壊れる状態だった）。
+_FLEX_SEP_CHARS = "「」『』【】《》〈〉〔〕☆★“”’'〜～×@&!?./<>=~"
+_FLEX_SEP = r"[・\s　－\x2d:：" + re.escape(_FLEX_SEP_CHARS) + r"]*"
+_FLEX_SPLIT = r"[・\s　－\x2d:：" + re.escape(_FLEX_SEP_CHARS) + r"]"
 
 def _build_flex_pattern(card_name: str) -> str:
-    parts = re.split(r"[・\s　－\-:：]", card_name)
+    parts = re.split(_FLEX_SPLIT, card_name)
     parts = [p for p in parts if p]
     # 各パーツをさらに英字/数字と日本語の境界で分割してflex区切りを挿入
     expanded = []
@@ -277,6 +319,11 @@ def is_target_card(card_name: str, product_name: str) -> bool:
     norm_card = normalize_width(card_name)
     norm_product = normalize_width(product_name)
     flex_pattern = _build_flex_pattern(norm_card)
+    # カード名が区切り記号だけ（例: "☆"・"「」"）だとパターンが空になり、
+    # 空マッチが全位置で成立して無関係な商品を拾ってしまう。照合対象なしとして弾く。
+    # 通常のカード名では起こらないが、ユーザー入力が /api/search に直接届くため防ぐ。
+    if not flex_pattern:
+        return False
     for match in re.finditer(flex_pattern, norm_product):
         start, end = match.start(), match.end()
         # 前方に日本語/英字があれば別カード名の一部とみなして除外。
@@ -389,16 +436,54 @@ def scrape_yuyu(card_name: str) -> list[dict]:
 
 # ── カードラッシュ ──
 
-def scrape_cardrush(card_name: str) -> list[dict]:
-    search_name = _normalize_search_query(card_name)
-    page_url = f"https://www.cardrush.jp/product-list?keyword={requests.utils.quote(search_name)}"
-    soup = safe_get(page_url)
-    if not soup:
-        return []
-    dump_html("cardrush", soup)
+# カードラッシュは1ページ100件。検索語から記号を落とすと母集団が広がるため、
+# ページ送りが無いと人気カードで正解商品が枠から押し出される
+# （実測: 「No.39 希望皇ホープ」は総件数200件で、1ページのみだと通過57→48件に減った）
+CARDRUSH_PAGE_SIZE = 100
+
+def scrape_cardrush(card_name: str, max_pages: int = 5) -> list[dict]:
+    search_name = _cardrush_search_query(card_name)
+    base_url = f"https://www.cardrush.jp/product-list?keyword={requests.utils.quote(search_name)}"
 
     results = []
-    for item in soup.select("li[class*='list_item_cell']"):
+    seen_items = set()   # 終端検出用。存在しないページは1ページ目が返るため内容で判定する
+    for page in range(1, max_pages + 1):
+        page_url = base_url if page == 1 else f"{base_url}&page={page}"
+        soup = safe_get(page_url)
+        if not soup:
+            break
+        if page == 1:
+            dump_html("cardrush", soup)
+
+        items = soup.select("li[class*='list_item_cell']")
+        if not items:
+            break
+
+        page_keys = set()
+        for item in items:
+            link = item.select_one("a.item_data_link")
+            nm = item.select_one("p.item_name")
+            page_keys.add((link.get("href", "") if link else "",
+                           nm.get_text(strip=True) if nm else ""))
+        # このページが全て既出＝ページ範囲を超えて1ページ目が返っている
+        if page_keys and page_keys <= seen_items:
+            break
+        seen_items |= page_keys
+
+        results.extend(_parse_cardrush_items(card_name, items))
+
+        # 1ページ分に満たなければ最終ページ
+        if len(items) < CARDRUSH_PAGE_SIZE:
+            break
+        time.sleep(0.5)
+
+    return results
+
+
+def _parse_cardrush_items(card_name: str, items) -> list[dict]:
+    """カードラッシュの商品要素リストを解析する（ページ送りで共通利用）"""
+    results = []
+    for item in items:
         name_el = item.select_one("p.item_name")
         price_el = item.select_one("div.price")
         stock_el = item.select_one("p.stock")
@@ -1196,7 +1281,7 @@ CARDRUSH_MEDIA_BASE = "https://cardrush.media"
 
 def scrape_cardrush_buy(card_name: str) -> list[dict]:
     """カードラッシュ — ラッシュメディアの買取価格を取得"""
-    search_name = _normalize_search_query(card_name)
+    search_name = _cardrush_search_query(card_name)
     page_url = (
         f"{CARDRUSH_MEDIA_BASE}/yugioh/buying_prices"
         f"?name={requests.utils.quote(search_name)}"
