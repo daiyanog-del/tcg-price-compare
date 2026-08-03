@@ -311,7 +311,13 @@ def _parse_limit_param(default: int, maximum: int):
     return max(1, min(value, maximum)), None
 
 
-def _parse_deck_entries(names_raw: str, *, correct_names: bool = True):
+def _parse_deck_entries(names_raw: str):
+    """デッキ入力（| 区切り・任意で「N 」枚数プレフィックス）をパースし名前補正する。
+
+    名前補正は必須で省略不可。入口の _normalize_query が全角ダッシュを半角へ寄せる
+    ため、補正せずにDB照合へ進むと正式名称（全角ダッシュ）のキーと永遠に一致しない
+    （2026-08-03 デッキ見積もりのバグAの原因。旧 correct_names=False 引数は廃止した）。
+    """
     if len(names_raw) > MAX_DECK_PARAM_CHARS:
         return None, (jsonify({"error": "入力が長すぎます"}), 400)
 
@@ -333,8 +339,7 @@ def _parse_deck_entries(names_raw: str, *, correct_names: bool = True):
             continue
         if len(name) > MAX_CARD_NAME_LEN:
             return None, (jsonify({"error": "カード名が長すぎます"}), 400)
-        if correct_names:
-            name = _correct_cardname(name)
+        name = _correct_cardname(name)
         entries.append({"qty": qty, "name": name})
 
     if not entries:
@@ -1114,14 +1119,30 @@ _estimate_cache: dict[str, dict] = {}
 _estimate_cache_time: float = 0
 _ESTIMATE_CACHE_SEC = 600
 
+_estimate_load_lock = threading.Lock()  # ローダーの多重起動防止（in-flight中はスキップ）
+
 def _load_estimate_cache(startup: bool = False):
     """Supabaseから直近7日の全カード最安値をメモリにロード。
     startup=True のときはジッターを入れてワーカー間の同時アクセスを分散させる。
+    分割取得化で1トリガあたりRPC最大数回になったため、実行中の重複起動は
+    ロック（non-blocking）で弾く。失敗時は既存キャッシュを保持する（部分反映しない。
+    先頭ページだけの部分キャッシュは名前順後半のカードがbest:nullになる＝
+    1000行上限バグと同じ症状を再生産するため、古くても完全なキャッシュを優先）。
     """
     global _estimate_cache, _estimate_cache_time
     if not _supabase_client:
         return
+    if not _estimate_load_lock.acquire(blocking=False):
+        return  # 別スレッドがロード中
 
+    try:
+        _load_estimate_cache_inner(startup)
+    finally:
+        _estimate_load_lock.release()
+
+
+def _load_estimate_cache_inner(startup: bool):
+    global _estimate_cache, _estimate_cache_time
     if startup:
         jitter = random.uniform(0, 6)
         logger.info(f"相場キャッシュ: {jitter:.1f}秒後に開始")
@@ -1129,13 +1150,38 @@ def _load_estimate_cache(startup: bool = False):
 
     max_retries = 3
     for attempt in range(1, max_retries + 1):
+        pages = 0  # except節のログでも参照するためtryの外で初期化
         try:
             # recorded_at はJST日付で記録されるため、比較もJST基準（UTCだと0-9時に1日ずれる）
             cutoff = (datetime.now(JST) - timedelta(days=7)).strftime("%Y-%m-%d")
-            resp = (_supabase_client.rpc("get_card_best_prices", {"cutoff_date": cutoff})
-                    .limit(5000)
-                    .execute())
-            rows = resp.data or []
+            # PostgRESTの返却上限（このプロジェクトは1000行）を超えるカード数があるため、
+            # RPC結果を range で分割取得する。旧実装の .limit(5000) は上限でサイレントに
+            # 切られ、名前順1000種以降（漢字始まりの大半）が見積もりから消えていた
+            # （2026-08-03 判明。tracked_cards の1000行上限根治と同じ罠）。
+            # .order でページ間の並び順を明示的に安定化する（RPC本体の DISTINCT ON
+            # (card_name) にも依存しない。reviewer指摘: 安定キーで必ず order する規律）。
+            # page_size はサーバの返却上限以下であることが正しさの条件（上限超に上げると
+            # 1ページ目で len(batch) < page_size が成立し、静かに切り捨てへ戻る）
+            page_size = 1000
+            max_pages = 20  # 暴走ガード（現在2,688種。offsetが効かない異常時の無限ループ防止）
+            offset = 0
+            rows: list = []
+            while True:
+                resp = (_supabase_client.rpc("get_card_best_prices", {"cutoff_date": cutoff})
+                        .order("card_name")
+                        .range(offset, offset + page_size - 1)
+                        .execute())
+                batch = resp.data or []
+                rows.extend(batch)
+                pages += 1
+                if len(batch) < page_size:
+                    break
+                if pages >= max_pages:
+                    logger.error(
+                        f"相場キャッシュ: {max_pages}ページ({len(rows)}行)を超えたため打ち切り。"
+                        "offsetが効いていないかカード数が異常。取得済み分のみで続行する")
+                    break
+                offset += page_size
 
             card_best = {}
             for row in rows:
@@ -1150,11 +1196,12 @@ def _load_estimate_cache(startup: bool = False):
                 }
             _estimate_cache = card_best
             _estimate_cache_time = time.time()
-            logger.info(f"相場キャッシュロード完了: {len(card_best)}カード")
+            logger.info(f"相場キャッシュロード完了: {len(card_best)}カード (ページ数={pages}, 行数={len(rows)})")
             return
         except Exception as e:
             wait = 5 * attempt
-            logger.error(f"相場キャッシュロード失敗 (試行{attempt}/{max_retries}): {e}")
+            # 途中失敗は全ページ破棄し、既存キャッシュを保持する（docstring参照）
+            logger.error(f"相場キャッシュロード失敗 (試行{attempt}/{max_retries}, {pages}ページ目まで取得後): {e}")
             if attempt < max_retries:
                 logger.info(f"  {wait}秒後にリトライします")
                 time.sleep(wait)
@@ -1181,7 +1228,12 @@ def api_deck_estimate():
     if time.time() - _estimate_cache_time > _ESTIMATE_CACHE_SEC:
         Thread(target=_load_estimate_cache, daemon=True).start()
 
-    card_entries, parse_error = _parse_deck_entries(names_raw, correct_names=False)
+    # 名前補正は必須。入口の _normalize_query が全角ダッシュを半角へ寄せるため、
+    # 補正を省くと「召喚魔術－「剣」」等のDBキー（正式名称=全角ダッシュ）と永遠に
+    # 一致せず best:null になる（2026-08-03 判明。旧 correct_names=False が原因）。
+    # フロントはインデックスで突き合わせるため、補正で名前が変わっても表示は壊れない
+    _load_cardnames()
+    card_entries, parse_error = _parse_deck_entries(names_raw)
     if parse_error:
         return parse_error
 
