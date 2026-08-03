@@ -737,13 +737,33 @@ def _torecolo_search_query(card_name: str) -> str:
         s = s.replace(ch, "－")
     return s
 
-def scrape_torecolo(card_name: str, max_pages: int = 5) -> list[dict]:
-    """トレコロCB — 複数ページ対応、レアリティ取得"""
+# トレコロの検索フォームが持つTCG別カテゴリの絞り込み。遊戯王＝1010。
+# 他の値: 1020=デュエル・マスターズ / 1030=ヴァイスシュヴァルツ / 1050=ヴァンガード /
+#         1073=ワンピース / 1074=ポケモン / 1034=遊戯王ラッシュデュエル ほか。
+#
+# トレコロは複数TCGを扱う店で、指定しないとカード名が一致した別ゲームの商品を拾う。
+# URLに元からある `category=` は別軸のパラメータで、ここに 1010 を入れると0件になる
+# （2026-08-03 実測）。正しいのはフォームの select 名と同じ `ct2`。
+_TORECOLO_YGO_CT2 = "1010"
+
+# 買取エントリは販売とは別のカテゴリ体系に属する（売る側は 20 系、遊戯王＝2010）。
+# 販売用の 1010 を買取に使うと結果が丸ごと0件になる（2026-08-03 実測: 303件→0件）。
+_TORECOLO_YGO_CT2_BUY = "2010"
+
+def scrape_torecolo(card_name: str, max_pages: int = 5,
+                    ct2: str = _TORECOLO_YGO_CT2) -> list[dict]:
+    """トレコロCB — 複数ページ対応、レアリティ取得
+
+    ct2: TCG別カテゴリの絞り込み。既定は遊戯王（_TORECOLO_YGO_CT2）。
+         空文字を渡すと全TCG横断になる（旧挙動。新旧比較の検証用）。
+    """
     search_name = _torecolo_search_query(card_name)
     base_url = (
         f"{TORECOLO_BASE}/shop/goods/search.aspx"
         f"?search=x&keyword={requests.utils.quote(search_name)}&category=&oshiire_code="
     )
+    if ct2:
+        base_url += f"&ct2={ct2}"
     all_results = []
 
     for page in range(1, max_pages + 1):
@@ -891,6 +911,17 @@ def _kanabell_es_host():
 
 _KANABELL_ES_URL = None  # lazy init
 
+# カーナベルは遊戯王ジャンル（category1_id=1）の中に、OCGの紙カードではないものを
+# 混ぜて持っている。商品名にはその印が出ず rarity_abbreviation にだけ現れるため、
+# _is_rush_duel（商品名・型番ベース）をすり抜ける。レアリティ欄で弾く。
+#   ラッシュ   : 遊戯王ラッシュデュエル（別ゲーム）。型番は RD/ が落ちた形で入り、
+#                category3_abbr は EXT01・KP04・「ラッシュ本付属　ら」「プロモ は行」
+#   ステンレス : 20th ANNIVERSARY 等のステンレス製記念カード。金属製で紙のOCGとは別物
+#                （SUPPLY_KEYWORDS の「ステンレス製」は商品名にしか効かない）
+# 遊戯王OCGにこの2つのレアリティは存在しない（rarity.py の canonical にも無く、
+# normalize_rarity は「未知の表記」として生のまま返す）。
+_KANABELL_EXCLUDED_RARITIES = frozenset({"ラッシュ", "ステンレス"})
+
 # 状態ランク: ESフィールド名 → 表示名
 _KANABELL_CONDITIONS = [
     ("sa", "状態:SA"),
@@ -1035,6 +1066,10 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
 
         # レアリティ
         rarity = src.get("rarity_abbreviation", "")
+
+        # ラッシュデュエル・ステンレス製記念カードを除外（レアリティ欄にだけ印が出る）
+        if rarity.strip() in _KANABELL_EXCLUDED_RARITIES:
+            continue
 
         # カードコード (カテゴリ略称から組み立て)
         code = ""
@@ -1182,7 +1217,8 @@ def _clabo_last_page(soup) -> int:
     return last
 
 
-def scrape_clabo(card_name: str, max_pages: int = 5) -> list[dict]:
+def scrape_clabo(card_name: str, max_pages: int = 5,
+                 require_game_tag: bool = True) -> list[dict]:
     """カードラボ — 商品検索ページをスクレイピング（複数ページ対応）
 
     1ページ60件が上限で、60件を超えるカード（例:「ブラック・マジシャン」246件）は
@@ -1223,7 +1259,7 @@ def scrape_clabo(card_name: str, max_pages: int = 5) -> list[dict]:
             break
         seen_items |= page_keys
 
-        results.extend(_parse_clabo_items(card_name, containers))
+        results.extend(_parse_clabo_items(card_name, containers, require_game_tag))
 
         # 1ページ分に満たなければ最終ページ
         if len(containers) < CLABO_PAGE_SIZE:
@@ -1235,8 +1271,32 @@ def scrape_clabo(card_name: str, max_pages: int = 5) -> list[dict]:
     return results
 
 
-def _parse_clabo_items(card_name: str, containers) -> list[dict]:
-    """カードラボの商品要素リストを解析する（ページ送りで共通利用）"""
+# カードラボは複数TCGを1つの検索窓で扱い、商品名にゲーム種別のタグを必ず付ける。
+# 例: 【遊戯】赤き竜【ウルトラ/☆12】DUNE-JP038 / 【DM】宿命の決闘【VR】26EX2 30/89 /
+#     【WS】赤き竜 ビィ【TD】GBF/S134-T01 / 【SV】ペガサスナイト【BR】BP14-102 /
+#     【LO】ペガサス組の級長 アリアンナ・ハートベル【KR】LO-6143-K
+# タグが遊戯王でない出品は別ゲームの同名カードなので捨てる。
+#
+# 判定は「先頭が【遊戯】か」ではなく「最初に現れる【…】が【遊戯】か」で行う。
+# 買取サイトには《未開封》【遊戯】青眼の白龍… のように状態が前置される商品があり、
+# 先頭一致だと遊戯王を巻き込むため（2026-08-03 実測で2件確認）。
+#
+# カテゴリ絞り込み（main_category）は遊戯王OCGだけで 672=シンクロ・676=効果…と
+# カード種別ごとにIDが割れており、検索結果に出たものしか選択肢に現れないため使えない。
+_CLABO_TAG_RE = re.compile(r"【([^】]*)】")
+_CLABO_YGO_TAG = "遊戯"
+
+def _is_clabo_ygo(raw_name: str) -> bool:
+    """カードラボの商品名が遊戯王のものか（最初のゲームタグで判定）"""
+    m = _CLABO_TAG_RE.search(raw_name)
+    return bool(m) and m.group(1) == _CLABO_YGO_TAG
+
+def _parse_clabo_items(card_name: str, containers,
+                       require_game_tag: bool = True) -> list[dict]:
+    """カードラボの商品要素リストを解析する（ページ送りで共通利用）
+
+    require_game_tag=False で他TCG除外を外した旧挙動になる（新旧比較の検証用）。
+    """
     results = []
     # 各商品は div.inner_item_data 内にリンク・画像・商品情報がまとまっている
     # 親の a タグ (product/XXXXX) からリンクを取得
@@ -1250,6 +1310,10 @@ def _parse_clabo_items(card_name: str, containers) -> list[dict]:
         if not name_el:
             continue
         raw_name = name_el.get_text(strip=True)
+
+        # 他TCG（デュエマ・ヴァイス・シャドバ等）の同名カードを除外
+        if require_game_tag and not _is_clabo_ygo(raw_name):
+            continue
 
         # レアリティとコードを商品名から抽出
         # 形式: 【遊戯】カード名【レアリティ/種類】コード
@@ -1698,6 +1762,9 @@ def scrape_kanabell_buy(card_name: str) -> list[dict]:
             continue
         if not is_target_card(_kanabell_canon_dash(card_name), _kanabell_canon_dash(name_text)):
             continue
+        # ラッシュデュエル・ステンレス製記念カードを除外（販売側と同じ判定）
+        if src.get("rarity_abbreviation", "").strip() in _KANABELL_EXCLUDED_RARITIES:
+            continue
         seen_ids.add(card_id)
 
         # 買取中（買取枠フラグTrue）かつ有効価格のみ採用。枠切れ(終了)は sa_limit_flag=False。
@@ -1787,18 +1854,23 @@ def scrape_yuyu_buy(card_name: str) -> list[dict]:
 
 # ── トレコロCB買取 ──
 
-def scrape_torecolo_buy(card_name: str, max_pages: int = 3) -> list[dict]:
+def scrape_torecolo_buy(card_name: str, max_pages: int = 3,
+                        ct2: str = _TORECOLO_YGO_CT2_BUY) -> list[dict]:
     """トレコロCB買取 — 販売と同じ search.aspx の結果に混在する買取エントリを抽出する。
 
     買取エントリは price 要素が「(強化/参考)買取価格X円」形式。販売スクレイパー
     (scrape_torecolo)はこれを除外しているので、本関数は逆にこれだけを拾う。
     レアリティは買取エントリでは空のことが多い（カード名に版違い情報が入る）。
+
+    ct2 は販売側と同じ意味だが値が違う（既定＝買取側の遊戯王 2010。空文字で旧挙動）。
     """
     search_name = _torecolo_search_query(card_name)
     base_url = (
         f"{TORECOLO_BASE}/shop/goods/search.aspx"
         f"?search=x&keyword={requests.utils.quote(search_name)}&category=&oshiire_code="
     )
+    if ct2:
+        base_url += f"&ct2={ct2}"
     results = []
 
     for page in range(1, max_pages + 1):
@@ -1888,11 +1960,13 @@ def scrape_torecolo_buy(card_name: str, max_pages: int = 3) -> list[dict]:
 
 CLABO_KAITORI_BASE = "https://www.c-labo-kaitori.jp"
 
-def scrape_clabo_buy(card_name: str) -> list[dict]:
+def scrape_clabo_buy(card_name: str, require_game_tag: bool = True) -> list[dict]:
     """カードラボ買取 — 買取専用サイト c-labo-kaitori.jp を検索する。
 
     販売(c-labo-online.jp)と同一ECプラットフォームでHTML構造も同じ。
     figure 要素が買取価格。販売版 scrape_clabo とほぼ同じ構造。
+
+    require_game_tag=False で他TCG除外を外した旧挙動になる（新旧比較の検証用）。
     """
     search_name = _normalize_search_query(card_name)
     page_url = (
@@ -1912,6 +1986,10 @@ def scrape_clabo_buy(card_name: str) -> list[dict]:
         if not name_el:
             continue
         raw_name = name_el.get_text(strip=True)
+
+        # 他TCG（デュエマ・ロルカナ等）の同名カードを除外（販売版と同じ判定）
+        if require_game_tag and not _is_clabo_ygo(raw_name):
+            continue
 
         # レアリティとコードを商品名から抽出（販売版と同じ形式）
         rarity = ""
