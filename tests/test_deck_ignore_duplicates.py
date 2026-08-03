@@ -86,8 +86,10 @@ def _fake_scrape(card_name: str) -> list:
 
 def test_deck_route_persists_with_ignore_duplicates_true(monkeypatch):
     monkeypatch.setattr(app_module, "SHOPS", [("テスト店", _fake_scrape)], raising=False)
-    monkeypatch.setattr(app_module, "cache_get", lambda name: None, raising=False)
-    monkeypatch.setattr(app_module, "cache_set", lambda name, results: None, raising=False)
+    monkeypatch.setattr(app_module, "cache_get_shops",
+                        lambda name, shops, include_partial=False: ({}, list(shops)))
+    monkeypatch.setattr(app_module, "cache_store_shops",
+                        lambda name, shop_results, partial_shops=frozenset(): None)
     monkeypatch.setattr(app_module, "Thread", _SyncThread, raising=False)
 
     sink: list = []

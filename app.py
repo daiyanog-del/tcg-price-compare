@@ -16,10 +16,10 @@ from flask import Flask, render_template, request, jsonify, Response
 from flask_compress import Compress
 
 from scraper import (
-    SHOPS, DEFAULT_SHOPS, cache_get, cache_set,
-    is_target_card,
+    SHOPS, DEFAULT_SHOPS, cache_get, cache_get_shops, cache_store_shops,
+    is_target_card, run_shop_with_status,
     BUYBACK_SHOPS, DEFAULT_BUYBACK_SHOPS,
-    buyback_cache_get, buyback_cache_set,
+    buyback_cache_get, buyback_cache_get_shops, buyback_cache_store_shops,
     kanabell_card_image_url,
 )
 from rarity import normalize_rarity, config_for_frontend as _rarity_config_for_frontend
@@ -769,18 +769,22 @@ def api_search():
     if not confirmed and card_name not in _cardnames_set and not _is_release_passed_unreleased(card_name):
         return jsonify({"error": "該当するカード名が見つかりません"}), 404
 
-    # キャッシュヒット
-    cached = cache_get(card_name)
-    if cached is not None:
-        if cached:
+    # キャッシュ: 店舗単位で命中分と不足分を分ける（店舗束キャッシュ）。
+    # 「調べていない店舗」を「0件」と混同しないため、不足店舗だけスクレイプする
+    cached_map, missing_shops = cache_get_shops(card_name, selected)
+    cached_results = [r for rs in cached_map.values() for r in rs]
+
+    if not missing_shops:
+        if cached_results:
             _record_search(card_name)
-        filtered = [r for r in cached if r["shop"] in selected]
         def cached_stream():
             for shop_name, _ in active_shops:
-                count = sum(1 for r in filtered if r["shop"] == shop_name)
+                count = len(cached_map.get(shop_name, []))
                 yield _sse({"type": "shop_done", "shop": shop_name, "count": count, "cached": True})
-            yield _sse(_build_done(filtered, corrected))
+            yield _sse(_build_done(cached_results, corrected))
         return Response(cached_stream(), mimetype="text/event-stream")
+
+    shops_to_scrape = [(name, fn) for name, fn in active_shops if name in missing_shops]
 
     def generate():
         from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -789,47 +793,66 @@ def api_search():
         if corrected:
             yield _sse({"type": "corrected", "original": original_name, "corrected": corrected})
 
-        # 全店舗を「検索中」に
+        # キャッシュ命中店舗は即時に確定表示（逐次表示用に結果も送る）
         for shop_name, _ in active_shops:
+            if shop_name in cached_map:
+                yield _sse({"type": "shop_done", "shop": shop_name,
+                            "count": len(cached_map[shop_name]),
+                            "results": cached_map[shop_name], "cached": True})
+
+        # 不足店舗を「検索中」に
+        for shop_name, _ in shops_to_scrape:
             yield _sse({"type": "progress", "shop": shop_name})
 
-        all_results = []
+        all_results = list(cached_results)
+        scraped_items = []  # 今回スクレイプで得た行（persist用。キャッシュ命中分を含まない）
+        scraped_ok = {}  # 取得に成功した店舗のみキャッシュする（失敗店舗は次回再試行）
 
         def scrape_shop(name, fn):
             try:
-                items = fn(card_name)
+                items, fetch_errors = run_shop_with_status(fn, card_name)
                 if items:
                     tracker.record_success(name, len(items))
                 else:
                     tracker.record_failure(name, f"0件取得 (検索: {card_name})")
-                return name, items, None
+                return name, items, fetch_errors, None
             except Exception as e:
                 tracker.record_failure(name, str(e))
                 logger.error(f"{name} エラー: {e}")
-                return name, [], str(e)
+                return name, [], 0, str(e)
 
         try:
-            with ThreadPoolExecutor(max_workers=len(active_shops)) as executor:
+            # missing が非空なら shops_to_scrape も非空のはずだが、max_workers=0 の
+            # ValueError（=SSEでは原因の見えない500）を防ぐため下限1を保証する
+            with ThreadPoolExecutor(max_workers=max(1, len(shops_to_scrape))) as executor:
                 futures = {
                     executor.submit(scrape_shop, name, fn): name
-                    for name, fn in active_shops
+                    for name, fn in shops_to_scrape
                 }
                 for future in as_completed(futures):
-                    shop_name, results, error = future.result()
+                    shop_name, results, fetch_errors, error = future.result()
                     if error:
                         yield _sse({"type": "shop_error", "shop": shop_name, "error": error})
                     # 店舗完了時に結果データも送信（逐次表示用）
                     yield _sse({"type": "shop_done", "shop": shop_name, "count": len(results), "results": results})
                     all_results.extend(results)
+                    scraped_items.extend(results)
+                    # 「0件かつ取得エラーなし」は在庫なしとしてキャッシュ対象。
+                    # 例外・取得エラーありは書かない＝15分間「0件」に固定しない
+                    if error is None and fetch_errors == 0:
+                        scraped_ok[shop_name] = results
 
-            cache_set(card_name, all_results)
+            cache_store_shops(card_name, scraped_ok)
             if all_results:
                 _record_search(card_name)
                 # 検索が成功したカードを収集対象に自動登録（次回 collect_prices で永続化）
                 if _supabase_client:
                     Thread(target=_track_card_async, args=(card_name,), daemon=True).start()
-                    # scrape 結果を price_history に即時 upsert（購入候補の rarity 候補を即時化）
-                    Thread(target=_persist_scrape_async, args=(card_name, list(all_results)), daemon=True).start()
+                    # scrape 結果を price_history に即時 upsert（購入候補の rarity 候補を即時化）。
+                    # キャッシュ命中分は再送しない（初回スクレイプ時の書き込み方針に従う。
+                    # /api/deck 由来なら ignore_duplicates=True で書かれていないこともある）
+                    if scraped_items:
+                        Thread(target=_persist_scrape_async, args=(card_name, list(scraped_items)), daemon=True).start()
         except Exception as e:
             logger.error(f"検索処理で予期しないエラー: {e}")
         finally:
@@ -907,10 +930,12 @@ def api_deck():
 
     def _search_one_card(i, card_name):
         """1枚のカードを全店舗で検索して結果を返す"""
-        # キャッシュチェック
-        cached = cache_get(card_name)
-        if cached is not None:
-            items = [r for r in cached if r["shop"] in selected and not r.get("sold_out")]
+        # キャッシュチェック（店舗束）。デッキ検索は自身が partial な結果しか作らないため
+        # partial エントリも命中扱いにする（完全版キャッシュがあればそちらが使われる）
+        cached_map, missing = cache_get_shops(card_name, selected, include_partial=True)
+        cached_items = [r for rs in cached_map.values() for r in rs]
+        if not missing:
+            items = [r for r in cached_items if not r.get("sold_out")]
             best = min(items, key=lambda x: x["price"]) if items else None
             payload = {"type": "card_done", "index": i, "name": card_name,
                        "best": best, "count": len(items), "cached": True}
@@ -918,24 +943,34 @@ def api_deck():
                 payload["per_shop"] = _aggregate_per_shop(items)
             return payload
 
-        # 全店舗を並列スクレイピング
-        all_items = []
-        with ThreadPoolExecutor(max_workers=len(active_shops)) as shop_executor:
-            futures = {shop_executor.submit(fn, card_name): name
-                       for name, fn in active_shops}
+        # 不足店舗のみ並列スクレイピング
+        shops_to_scrape = [(name, fn) for name, fn in active_shops if name in missing]
+        scraped_items = []
+        scraped_ok = {}  # 取得に成功した店舗のみキャッシュする（失敗店舗は次回再試行）
+        with ThreadPoolExecutor(max_workers=max(1, len(shops_to_scrape))) as shop_executor:
+            futures = {shop_executor.submit(run_shop_with_status, fn, card_name): name
+                       for name, fn in shops_to_scrape}
             for future in as_completed(futures):
+                shop_name = futures[future]
                 try:
-                    all_items.extend(future.result())
+                    items, fetch_errors = future.result()
                 except Exception:
-                    pass
+                    continue
+                scraped_items.extend(items)
+                if fetch_errors == 0:
+                    scraped_ok[shop_name] = items
 
-        cache_set(card_name, all_items)
+        # トレコロ・カーナベルは1ページ目限定（_FAST_OVERRIDES）のため partial 印を付け、
+        # 通常検索(/api/search)には流用させない
+        cache_store_shops(card_name, scraped_ok,
+                          partial_shops={n for n in scraped_ok if n in _FAST_OVERRIDES})
         # scrape 結果を price_history に即時 upsert（購入候補の rarity 候補を即時化）。
         # /api/deck は店舗1ページ目のみの網羅性が低いスクレイプのため、既存行があれば
         # 書き込まない（フェーズ3 P6b、夜間収集の網羅的な最安値を上書きしないため）
-        if _supabase_client and all_items:
-            Thread(target=_persist_scrape_async, args=(card_name, list(all_items)),
+        if _supabase_client and scraped_items:
+            Thread(target=_persist_scrape_async, args=(card_name, list(scraped_items)),
                    kwargs={"ignore_duplicates": True}, daemon=True).start()
+        all_items = cached_items + scraped_items
         in_stock = [r for r in all_items if not r.get("sold_out")]
         best = min(in_stock, key=lambda x: x["price"]) if in_stock else None
         payload = {"type": "card_done", "index": i, "name": card_name,
@@ -1003,24 +1038,34 @@ def api_deck_buy():
 
     def _search_one_card_buy(i, card_name):
         """1枚のカードを全買取店舗で検索して最高値を返す"""
-        cached = buyback_cache_get(card_name)
-        if cached is not None:
-            items = [r for r in cached if r["shop"] in selected]
-            best = max(items, key=lambda x: x["price"]) if items else None
+        # キャッシュチェック（店舗束）。買取デッキは全ページ取得のため partial 印は不要。
+        # 将来ここに1ページ目限定の高速化を入れる場合は、販売デッキと同様に
+        # include_partial=True での読み出しと partial_shops での書き込みを対にすること
+        cached_map, missing = buyback_cache_get_shops(card_name, selected)
+        cached_items = [r for rs in cached_map.values() for r in rs]
+        if not missing:
+            best = max(cached_items, key=lambda x: x["price"]) if cached_items else None
             return {"type": "card_done", "index": i, "name": card_name,
-                    "best": best, "count": len(items), "cached": True}
+                    "best": best, "count": len(cached_items), "cached": True}
 
-        all_items = []
-        with ThreadPoolExecutor(max_workers=len(active_shops)) as shop_executor:
-            futures = {shop_executor.submit(fn, card_name): name
-                       for name, fn in active_shops}
+        shops_to_scrape = [(name, fn) for name, fn in active_shops if name in missing]
+        scraped_items = []
+        scraped_ok = {}  # 取得に成功した店舗のみキャッシュする（失敗店舗は次回再試行）
+        with ThreadPoolExecutor(max_workers=max(1, len(shops_to_scrape))) as shop_executor:
+            futures = {shop_executor.submit(run_shop_with_status, fn, card_name): name
+                       for name, fn in shops_to_scrape}
             for future in as_completed(futures):
+                shop_name = futures[future]
                 try:
-                    all_items.extend(future.result())
+                    items, fetch_errors = future.result()
                 except Exception:
-                    pass
+                    continue
+                scraped_items.extend(items)
+                if fetch_errors == 0:
+                    scraped_ok[shop_name] = items
 
-        buyback_cache_set(card_name, all_items)
+        buyback_cache_store_shops(card_name, scraped_ok)
+        all_items = cached_items + scraped_items
         best = max(all_items, key=lambda x: x["price"]) if all_items else None
         return {"type": "card_done", "index": i, "name": card_name,
                 "best": best, "count": len(all_items)}
@@ -1852,47 +1897,61 @@ def api_buyback():
     if not confirmed and card_name not in _cardnames_set and not _is_release_passed_unreleased(card_name):
         return jsonify({"error": "該当するカード名が見つかりません"}), 404
 
-    # キャッシュヒット
-    cached = buyback_cache_get(card_name)
-    if cached is not None:
-        if cached:
+    # キャッシュ: 店舗単位で命中分と不足分を分ける（店舗束キャッシュ）
+    cached_map, missing_shops = buyback_cache_get_shops(card_name, selected)
+    cached_results = [r for rs in cached_map.values() for r in rs]
+
+    if not missing_shops:
+        if cached_results:
             _record_search(card_name)
-        filtered = [r for r in cached if r["shop"] in selected]
         def cached_stream():
             for shop_name, _ in active_shops:
-                count = sum(1 for r in filtered if r["shop"] == shop_name)
+                count = len(cached_map.get(shop_name, []))
                 yield _sse({"type": "shop_done", "shop": shop_name, "count": count, "cached": True})
-            yield _sse(_build_buyback_done(filtered))
+            yield _sse(_build_buyback_done(cached_results))
         return Response(cached_stream(), mimetype="text/event-stream")
 
+    shops_to_scrape = [(name, fn) for name, fn in active_shops if name in missing_shops]
+
     def generate():
+        # キャッシュ命中店舗は即時に確定表示
         for shop_name, _ in active_shops:
+            if shop_name in cached_map:
+                yield _sse({"type": "shop_done", "shop": shop_name,
+                            "count": len(cached_map[shop_name]), "cached": True})
+
+        for shop_name, _ in shops_to_scrape:
             yield _sse({"type": "progress", "shop": shop_name})
 
-        all_results = []
+        all_results = list(cached_results)
+        scraped_ok = {}  # 取得に成功した店舗のみキャッシュする（失敗店舗は次回再試行）
 
         def scrape_shop(name, fn):
             try:
-                items = fn(card_name)
-                return name, items, None
+                items, fetch_errors = run_shop_with_status(fn, card_name)
+                return name, items, fetch_errors, None
             except Exception as e:
                 logger.error(f"買取 {name} エラー: {e}")
-                return name, [], str(e)
+                return name, [], 0, str(e)
 
         try:
-            with ThreadPoolExecutor(max_workers=len(active_shops)) as executor:
+            # missing が非空なら shops_to_scrape も非空のはずだが、max_workers=0 の
+            # ValueError（=SSEでは原因の見えない500）を防ぐため下限1を保証する
+            with ThreadPoolExecutor(max_workers=max(1, len(shops_to_scrape))) as executor:
                 futures = {
                     executor.submit(scrape_shop, name, fn): name
-                    for name, fn in active_shops
+                    for name, fn in shops_to_scrape
                 }
                 for future in as_completed(futures):
-                    shop_name, results, error = future.result()
+                    shop_name, results, fetch_errors, error = future.result()
                     if error:
                         yield _sse({"type": "shop_error", "shop": shop_name, "error": error})
                     yield _sse({"type": "shop_done", "shop": shop_name, "count": len(results)})
                     all_results.extend(results)
+                    if error is None and fetch_errors == 0:
+                        scraped_ok[shop_name] = results
 
-            buyback_cache_set(card_name, all_results)
+            buyback_cache_store_shops(card_name, scraped_ok)
             if all_results:
                 _record_search(card_name)
         except Exception as e:
