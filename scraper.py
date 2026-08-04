@@ -265,9 +265,20 @@ def _has_name_text_outside_brackets(text: str) -> bool:
     )
     return any(_is_japanese_char(c) or _is_alpha(c) for c in stripped)
 
-# 基底名がぴったり括弧で包まれているか判定するための開き/閉じ括弧
-_OPEN_BRACKETS = "(（〔[「『【{《〈"
-_CLOSE_BRACKETS = ")）〕]」』】}》〉"
+# 基底名がぴったり括弧で包まれているか判定するための開き/閉じ括弧。
+# carve-out の用途は「英語名(日本語名)」形式の併記注記だけなので丸括弧に限定する。
+#
+# 2026-08-04: ここから 「」『』《》【】〔〕[]{}〈〉 を外した。これらは店舗の注記欄で、
+# その中身が実在のカード名と一致することがあり、前方チェックを免除すると
+# 「別カード名が前にある商品」を丸ごと取り込んでしまう。実測（実店舗9経路8,311ペア）:
+#   《》: カードラッシュの種別欄。カード名「融合」が全融合モンスターに一致していた
+#         （'ファントムオブユベル…《融合》[…]' 等。506件中500件が別カード）
+#   「」: 'マジックカード「死者蘇生」'（実在する別カード）
+#   『』: 'サイコロ『天霆號アーゼウス』'・'金属製カード『青眼の白龍』'（グッズ）
+# 丸括弧だけに絞っても、落ちるのは上記の別物だけで正当な取りこぼしは0件だった。
+# （全角括弧は normalize_width で半角化されるが、念のため両形を入れてある）
+_OPEN_BRACKETS = "(（"
+_CLOSE_BRACKETS = ")）"
 
 def _is_exactly_bracketed(text: str, start: int, end: int) -> bool:
     """マッチ範囲 [start:end) が直前=開き括弧・直後=閉じ括弧でぴったり包まれているか。
@@ -290,8 +301,61 @@ def _is_exactly_bracketed(text: str, start: int, end: int) -> bool:
 # この定数はパターン生成と分割の両方で使う（以前は同じ集合が2箇所に重複しており、
 # 片方だけ直すと壊れる状態だった）。
 _FLEX_SEP_CHARS = "「」『』【】《》〈〉〔〕☆★“”’'〜～×@&!?./<>=~"
-_FLEX_SEP = r"[・\s　－\x2d:：" + re.escape(_FLEX_SEP_CHARS) + r"]*"
-_FLEX_SPLIT = r"[・\s　－\x2d:：" + re.escape(_FLEX_SEP_CHARS) + r"]"
+
+# 記号を追加する前から区切りだった「つなぎ」。中黒・全角/半角スペース・
+# 全角/半角ハイフン・全角/半角コロン（全角形は normalize_width 後には現れないが、
+# 正規表現は生の文字列にも使われうるので両形を残す）。
+# 2026-08-04: 以前はこの集合が _FLEX_SEP / _FLEX_SPLIT の正規表現に直書きされており、
+# 末尾境界の判定側には別のリテラルが置かれていた。片方だけ直すと壊れる状態を
+# 作らないため、区切りを使う3箇所はすべてこの2定数から組み立てる。
+_FLEX_SEP_LEGACY = "・　 －-：:"
+_FLEX_SEP_ALL = _FLEX_SEP_LEGACY + _FLEX_SEP_CHARS
+_FLEX_SEP = r"[\s" + re.escape(_FLEX_SEP_ALL) + r"]*"
+_FLEX_SPLIT = r"[\s" + re.escape(_FLEX_SEP_ALL) + r"]"
+
+# 店舗が商品名に付ける注記の括弧。末尾境界の判定では「ここでカード名は終わり」の
+# 目印として使い、読み飛ばさない。
+#   【レアリティ】{型番}《種類》[カナ読み]〔状態〕(補足) — マスタ15,522件に出現なし
+#   『商品属性』 — カードラッシュが商品名の付帯情報に使う（2026-08-04 実測:
+#     「青眼の白龍『25thANNIVERSARYULTIMATEKAIBASET』」= 本物の青眼の白龍シークレット、
+#     他に スリーブ『…』・プレイマット『…』・純金製『…』）。カード名側にも
+#     「星遺物－『星杯』」等27件あるが、その基底名（星遺物 等）は実在しないため
+#     注記側に倒しても現行マスタでは別カードの取り違えが起きない
+# 対して「」と ＜＞ はカード名の一部として実在し（「炎舞－「天枢」」「召喚魔術－「剣」」
+# 「M∀LICE＜C＞GWC－０６」）、基底名（炎舞・召喚魔術）も実在するため区切り扱いのまま。
+_ANNOTATION_BRACKETS = "【】《》〈〉〔〕『』()[]{}"
+
+# 末尾境界の判定で読み飛ばす区切り文字。照合に使う区切り集合（_FLEX_SEP_ALL）から
+# 注記括弧だけを除いて生成する。旧実装の末尾判定に入っていた 、, ー も引き継ぐ
+# （これらは _FLEX_SEP には無いが、区切りを増やす方向なので判定が緩むことはない）。
+#
+# 2026-08-04: 旧実装はここが `nc in "・－-ー、,&"` の6文字リテラルで、区切り集合に
+# 後から追加した記号を見ていなかった。そのため「区切りを挟んだより長い別カード名」を
+# 弾けず、'スターダスト・ドラゴン' が 'スターダスト・ドラゴン／バスター' を拾っていた。
+# この同期は tests/test_is_target_card.py の不変条件テストで守る。
+_BOUNDARY_SKIP_CHARS = "".join(
+    dict.fromkeys(
+        ch for ch in (_FLEX_SEP_ALL + "、,ー\t")
+        if ch not in _ANNOTATION_BRACKETS
+    )
+)
+
+def _name_continues_after(text: str, end: int) -> bool:
+    """マッチ末尾 end より後ろに、同じカード名の続きがあるか。
+
+    区切り文字の連なりを読み飛ばしてから次の文字を見る。そこに注記括弧でも空白でもない
+    文字が残っていれば「より長い別カード名」とみなす（例: '／バスター'・'－「剣」'・
+    '＠イグニスター'・'３'・'+'）。日本語/英字だけでなく数字やギリシャ文字・∀・± 等の
+    識別子もカード名の一部になりうるため、文字種を絞らず「区切り・注記括弧以外」で見る。
+
+    旧実装より緩くなる唯一のケース: 末尾が区切りだけの商品名（'青眼の白龍・'・
+    '青眼の白龍ー'）。旧は ・(U+30FB) と ー(U+30FC) が片仮名ブロックにあるため
+    「日本語の続き」とみなして弾いていた。取りこぼしが減る方向なので許容する。
+    """
+    i = end
+    while i < len(text) and (text[i].isspace() or text[i] in _BOUNDARY_SKIP_CHARS):
+        i += 1
+    return i < len(text) and text[i] not in _ANNOTATION_BRACKETS
 
 def _build_flex_pattern(card_name: str) -> str:
     parts = re.split(_FLEX_SPLIT, card_name)
@@ -331,15 +395,10 @@ def is_target_card(card_name: str, product_name: str) -> bool:
         if (start > 0 and _has_name_text_outside_brackets(norm_product[:start])
                 and not _is_exactly_bracketed(norm_product, start, end)):
             continue
-        if end < len(norm_product):
-            nc = norm_product[end]
-            # 後方が日本語/英字なら別カード名の延長とみなして除外（例: 末尾 'ONE'）
-            if _is_japanese_char(nc) or _is_alpha(nc):
-                continue
-            if nc in "・－-ー、,&" and end + 1 < len(norm_product):
-                nxt = norm_product[end + 1]
-                if _is_japanese_char(nxt) or _is_alpha(nxt):
-                    continue
+        # 後方にカード名の続きがあれば別カード名の延長とみなして除外
+        # （例: 末尾 'ONE'・'／バスター'・'－「剣」'）
+        if _name_continues_after(norm_product, end):
+            continue
         return True
     return False
 
