@@ -27,7 +27,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 from constants import JST, VAPID_CLAIMS
-from rarity import UNKNOWN_RARITY_LABEL
+from rarity import UNKNOWN_RARITY_LABEL, normalize_rarity
 
 # ── 環境変数 ──
 SUPABASE_URL      = os.environ.get("SUPABASE_URL", "")
@@ -188,8 +188,11 @@ def get_price_drops(sb: Client, card_names: list) -> dict:
             break
         offset += page_size
 
+    # 代表レアリティ選定（_representative_rarity）は rarity 文字列でグループ化するため、
+    # DB読み出し境界で正準名に統合する（過渡期の分裂値を吸収。app.py と同じ方針）
     by_card: dict = defaultdict(list)
     for r in all_rows:
+        r["rarity"] = normalize_rarity(r.get("rarity", "") or "")
         by_card[r["card_name"]].append(r)
 
     drops = {}

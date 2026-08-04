@@ -11,6 +11,7 @@ import time
 import hashlib
 import json
 import unicodedata
+import urllib.parse
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
@@ -48,14 +49,39 @@ def _normalize_fullwidth(text: str) -> str:
     return ''.join(result)
 
 
+def _squeeze_spaces(s: str) -> str:
+    """連続スペースを1つに畳み、前後のスペースを落とす（検索語生成の共通後処理）。
+
+    記号をスペースへ置換すると、記号が連続する箇所や名前の末尾で余分なスペースが残る。
+    店舗の検索エンジンはこれを別語として扱うことがあり、そのまま投げると0件になる。
+
+    2026-08-03 実測（カード名15,522件中、圧縮で検索語が変わる101件を旧新で比較）:
+      - カードラボ販売 124件 → 133件（'聖なるバリア －ミラーフォース－' 0→4件、
+        '黒魔術のバリア －ミラーフォース－' 0→1件、'冀望郷－バリアン－' 0→4件）
+      - 遊々亭 販売278/買取177・カードラボ買取18・まんぞく屋販売69 はいずれも増減ゼロ
+      - 減少した経路・カードは1件も無い
+    """
+    return re.sub(r"\s+", " ", s).strip()
+
+
 def _normalize_search_query(card_name: str) -> str:
-    """検索クエリ用にカード名を正規化（全角英数→半角、中黒・ハイフン系→スペース）"""
+    """検索クエリ用にカード名を正規化（全角英数→半角、中黒・ハイフン系・コロン→スペース）。
+
+    遊々亭・カードラボの販売/買取とまんぞく屋販売の5経路が共有する。
+
+    コロンを落とす根拠（2026-08-03 実測、コロンを含むカード名9件を残す/落とすで比較）:
+      - 遊々亭販売 7件→16件、遊々亭買取 6件→29件、カードラボ買取 17件→18件
+        （'I：Pマスカレーナ' は遊々亭販売0→23件・買取0→19件と丸ごと欠測していた）
+      - カードラボ販売・まんぞく屋販売は増減ゼロ。減少した経路・カードは無い
+      - 照合側（_FLEX_SEP / _FLEX_SPLIT）は元から「:」「：」を区切り扱いしており、
+        検索語側だけが揃っていなかった
+    """
     name = normalize_width(card_name)
     name = name.replace("・", " ").replace("　", " ")
-    # ハイフン系記号をスペースに置換
-    for ch in "-－―‐—–":
+    # ハイフン系記号・コロンをスペースに置換
+    for ch in "-－―‐—–:：":
         name = name.replace(ch, " ")
-    return name
+    return _squeeze_spaces(name)
 
 
 def _cardrush_search_query(card_name: str) -> str:
@@ -65,10 +91,10 @@ def _cardrush_search_query(card_name: str) -> str:
     ヒットしない。共通の _normalize_search_query に加えて _FLEX_SEP_CHARS の記号も
     スペースへ寄せる。
 
-    照合側の区切り集合とは完全には一致しない点に注意: 照合側は _FLEX_SEP_CHARS に
-    加えて「・空白－-:：」も区切り扱いするが、ここでは _normalize_search_query が
-    扱う「・とハイフン類」までで、コロン（: ：）は検索語に残る。カードラッシュ側が
-    コロンを無視するため実害は確認できていない（「EM：Pグレニャード」は11件ヒット）。
+    コロン（: ：）は _normalize_search_query が落とすため、ここでは扱わない。
+    2026-08-03 実測: 買取はコロンを残すとコロンを含む9カード全てが0件で、落とすと
+    合計27件になる（'I：Pマスカレーナ' 0→17件、'S：Pリトルナイト' 0→6件）。
+    販売は店舗側がコロンを無視するため増減ゼロだった（「EM：Pグレニャード」11件のまま）。
 
     2026-08-03 実測（照合修正と併用したときの取得件数）:
       - 販売: 検索語も直すと 253件 → 289件（照合のみの修正では届かない分がある）
@@ -81,7 +107,7 @@ def _cardrush_search_query(card_name: str) -> str:
     name = _normalize_search_query(card_name)
     for ch in _FLEX_SEP_CHARS:
         name = name.replace(ch, " ")
-    return re.sub(r"\s+", " ", name).strip()
+    return _squeeze_spaces(name)
 
 
 STRICT_NAME_FILTER = True
@@ -148,19 +174,92 @@ def _note_fetch_error():
 def _get_fetch_errors() -> int:
     return getattr(_fetch_stats, "errors", 0)
 
+# ── HTTPセッションとホスト単位のサーキットブレーカ ──
+# 2026-08-03 追加。カードラボ（www.c-labo-online.jp）が夜間収集の途中から
+# 403 Forbidden を返し続ける問題への対処（調査結果は docs/decisions.md）。
+#   ① セッション使い回し: 従来は毎リクエストが新しい PHPSESSID を発行させており、
+#      1晩に数千個のセッションを店舗側に作らせていた。接続の再利用も効く
+#   ② 403 は再試行しない: 通らないうえ店舗への負荷を2倍にするだけ
+#   ③ 連続403が閾値を超えたホストは一定時間スキップする（叩き続けない）
+#      TTLを設けるのは app.py が常駐プロセスで、恒久ブロックだと
+#      ライブ検索が再起動まで復旧しなくなるため
+_HOST_BLOCK_THRESHOLD = 5
+_HOST_BLOCK_TTL_SEC = 1800
+
+_session_lock = _threading.Lock()
+_session: "requests.Session | None" = None
+_host_block_lock = _threading.Lock()
+_host_block: dict = {}  # {host: {"streak": 連続403数, "until": 解除時刻(epoch秒)}}
+
+
+def _get_session() -> requests.Session:
+    """全スレッドで共有する requests.Session を返す（クッキーと接続の使い回し用）"""
+    global _session
+    with _session_lock:
+        if _session is None:
+            _session = requests.Session()
+            _session.headers.update(HEADERS)
+        return _session
+
+
+def _host_of(url: str) -> str:
+    return urllib.parse.urlsplit(url).netloc
+
+
+def _is_host_blocked(host: str) -> bool:
+    with _host_block_lock:
+        st = _host_block.get(host)
+        if not st or st["until"] <= 0:
+            return False
+        if time.time() >= st["until"]:
+            # TTL切れ。ゼロから数え直して様子を見る
+            st["until"] = 0
+            st["streak"] = 0
+            return False
+        return True
+
+
+def _note_host_result(host: str, forbidden: bool):
+    """403の連続回数を数え、閾値に達したホストを一定時間スキップ対象にする"""
+    with _host_block_lock:
+        st = _host_block.setdefault(host, {"streak": 0, "until": 0})
+        if not forbidden:
+            st["streak"] = 0
+            return
+        st["streak"] += 1
+        if st["streak"] >= _HOST_BLOCK_THRESHOLD and st["until"] <= 0:
+            st["until"] = time.time() + _HOST_BLOCK_TTL_SEC
+            print(
+                f"  ⛔ {host}: 403が{st['streak']}回連続。"
+                f"{_HOST_BLOCK_TTL_SEC // 60}分間このホストへのリクエストを停止します"
+            )
+
+
 def safe_get(url: str, timeout: int = 15, retries: int = 1) -> BeautifulSoup | None:
+    host = _host_of(url)
+    if _is_host_blocked(host):
+        _note_fetch_error()
+        return None
+
     for attempt in range(1 + retries):
         try:
-            res = requests.get(url, headers=HEADERS, timeout=timeout)
+            res = _get_session().get(url, timeout=timeout)
             res.raise_for_status()
+            _note_host_result(host, forbidden=False)
             return BeautifulSoup(res.text, "html.parser")
         except requests.RequestException as e:
-            if attempt < retries:
+            status = getattr(e.response, "status_code", None)
+            _note_host_result(host, forbidden=(status == 403))
+            # 403（アクセス拒否）は再試行しても通らない。他の4xxも同様なので、
+            # 一時的な過負荷を示す429だけは従来どおり再試行する
+            no_retry = status is not None and 400 <= status < 500 and status != 429
+            if attempt < retries and not no_retry:
                 # 根拠不明（導入: abe83370 2026-03-05、理由の記録なし。初回一括アップロードで既に存在）
                 time.sleep(2)
             else:
                 _note_fetch_error()
                 print(f"  ❌ 取得失敗: {e}")
+                break
     return None
 
 def dump_html(name: str, soup: BeautifulSoup):
@@ -170,7 +269,25 @@ def dump_html(name: str, soup: BeautifulSoup):
             f.write(soup.prettify())
 
 
-# ── キャッシュ ──
+# ── キャッシュ（店舗束形式） ──
+#
+# ファイル形式（2026-08-03改訂）: 1カード1ファイルは維持しつつ、店舗ごとに
+# 独立したエントリ（タイムスタンプ・partial印付き）の束で持つ。
+#   {"shops": {"店舗名": {"timestamp": ISO8601, "partial": bool, "results": [...]}}}
+#
+# 旧形式はカード名だけをキーに「検索結果の全体」を1枚で持っており、どの店舗を
+# 調べた結果かを記録しなかった。そのため店舗を絞った検索が全体キャッシュを
+# 上書きし、TTLの15分間ほかの店舗が「0件」に見える汚染が起きていた
+# （2026-08-03 本番で実証）。旧形式ファイルは期限切れ扱い（全店ミス）で読む。
+#
+# 約束事:
+# - 取得失敗した店舗は呼び出し側が store に渡さない＝キャッシュされず次回再試行。
+#   「0件」と「取得失敗」を区別する原則のキャッシュ層への延長。
+#   ただし検出できるのはネットワーク層の失敗（safe_get の RequestException 等で
+#   _note_fetch_error が立つもの）のみ。店舗サイトの構造変更・セレクタ不一致による
+#   「例外なしの0件」は在庫なしと区別できず、従来どおりTTLの間キャッシュされる
+# - partial=True は /api/deck の1ページ目限定スクレイプ由来。通常検索
+#   (include_partial=False) では不足扱いにして完全版を取り直す
 
 import tempfile
 import os
@@ -180,34 +297,70 @@ _cache_lock = _Lock()
 def _cache_key(card_name: str) -> str:
     return hashlib.md5(card_name.encode()).hexdigest()
 
-def cache_get(card_name: str) -> list[dict] | None:
-    if not CACHE_ENABLED:
-        return None
-    fp = CACHE_DIR / f"{_cache_key(card_name)}.json"
+def _shop_cache_load(fp: Path) -> dict:
+    """店舗束キャッシュを読み、期限内の店舗エントリだけ返す。
+    旧形式・破損・不在は {} ＝全店ミス扱い。"""
     if not fp.exists():
-        return None
+        return {}
     try:
         data = json.loads(fp.read_text(encoding="utf-8"))
-        ts = datetime.fromisoformat(data["timestamp"])
-        if datetime.now() - ts > timedelta(minutes=CACHE_TTL_MINUTES):
-            return None
-        return data["results"]
+        shops = data.get("shops")
+        if not isinstance(shops, dict):
+            return {}  # 旧形式
+        now = datetime.now()
+        fresh = {}
+        for shop, ent in shops.items():
+            try:
+                ts = datetime.fromisoformat(ent["timestamp"])
+            except Exception:
+                continue
+            if now - ts > timedelta(minutes=CACHE_TTL_MINUTES):
+                continue
+            results = ent.get("results")
+            if not isinstance(results, list):
+                continue
+            fresh[shop] = {"timestamp": ent["timestamp"],
+                           "partial": bool(ent.get("partial")),
+                           "results": results}
+        return fresh
     except Exception:
-        return None
+        return {}
 
-def cache_set(card_name: str, results: list[dict]):
+def _shop_cache_get(cache_dir: Path, key: str, shops: list[str],
+                    include_partial: bool) -> tuple[dict[str, list], list[str]]:
     if not CACHE_ENABLED:
+        return {}, list(shops)
+    fresh = _shop_cache_load(cache_dir / f"{key}.json")
+    hit: dict[str, list] = {}
+    missing: list[str] = []
+    for shop in shops:
+        ent = fresh.get(shop)
+        if ent is None or (ent["partial"] and not include_partial):
+            missing.append(shop)
+        else:
+            hit[shop] = ent["results"]
+    return hit, missing
+
+def _shop_cache_store(cache_dir: Path, key: str, shop_results: dict[str, list],
+                      partial_shops=frozenset()):
+    if not CACHE_ENABLED or not shop_results:
         return
-    CACHE_DIR.mkdir(exist_ok=True)
-    fp = CACHE_DIR / f"{_cache_key(card_name)}.json"
-    data = {"timestamp": datetime.now().isoformat(), "results": results}
-    content = json.dumps(data, ensure_ascii=False)
-    # 一時ファイルに書いてからリネームすることで、書き込み途中のファイルを読まれるのを防ぐ
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    fp = cache_dir / f"{key}.json"
+    # 読み直し→マージ→原子的書き込みをロック内で行い、並行する別店舗の書き込みを消さない
     with _cache_lock:
+        fresh = _shop_cache_load(fp)  # 期限切れエントリはここで間引かれる
+        now_iso = datetime.now().isoformat()
+        for shop, results in shop_results.items():
+            fresh[shop] = {"timestamp": now_iso,
+                           "partial": shop in partial_shops,
+                           "results": results}
+        content = json.dumps({"shops": fresh}, ensure_ascii=False)
+        # 一時ファイルに書いてからリネームすることで、書き込み途中のファイルを読まれるのを防ぐ
         tmp_name = None
         try:
             with tempfile.NamedTemporaryFile(
-                "w", encoding="utf-8", dir=CACHE_DIR, prefix=fp.stem + "_", suffix=".tmp", delete=False
+                "w", encoding="utf-8", dir=cache_dir, prefix=fp.stem + "_", suffix=".tmp", delete=False
             ) as tmp:
                 tmp.write(content)
                 tmp_name = tmp.name
@@ -218,6 +371,29 @@ def cache_set(card_name: str, results: list[dict]):
                     os.remove(tmp_name)
                 except OSError:
                     pass
+
+def cache_get_shops(card_name: str, shops: list[str],
+                    include_partial: bool = False) -> tuple[dict[str, list], list[str]]:
+    """選択店舗のうちキャッシュ命中分と、スクレイプが必要な店舗を返す。
+    返り値: ({店舗名: results}, [不足店舗名])。「調べて0件」は命中（空リスト）、
+    「調べていない」は不足として区別される。"""
+    return _shop_cache_get(CACHE_DIR, _cache_key(card_name), shops, include_partial)
+
+def cache_store_shops(card_name: str, shop_results: dict[str, list],
+                      partial_shops=frozenset()):
+    """店舗ごとの結果をキャッシュへ追記する。取得失敗した店舗は渡さないこと。"""
+    _shop_cache_store(CACHE_DIR, _cache_key(card_name), shop_results, partial_shops)
+
+def cache_get(card_name: str) -> list[dict] | None:
+    """互換API: 期限内の全店舗分を平坦化して返す（メタ表示用）。1店も無ければ None。
+    どの店舗を調べた結果かを区別せず、partial（デッキ検索の1ページ目限定）由来の
+    エントリも混ざるため、検索経路では cache_get_shops を使うこと。"""
+    if not CACHE_ENABLED:
+        return None
+    fresh = _shop_cache_load(CACHE_DIR / f"{_cache_key(card_name)}.json")
+    if not fresh:
+        return None
+    return [r for ent in fresh.values() for r in ent["results"]]
 
 
 # ── 名前フィルタ ──
@@ -565,6 +741,17 @@ def _parse_cardrush_items(card_name: str, items) -> list[dict]:
         condition = _extract_condition(raw_name)
         display_name = _clean_display_name(raw_name)
 
+        # カードラッシュは単品カードに必ず【レアリティ】を付ける。【-】は「単品カードでは
+        # ない」の印で、実体は封入商品・グッズ（ストラクチャーデッキ／ストレージ／未開封
+        # サイコロ／アクリルスタンド／金属製カード等）。カード価格として記録すると
+        # デッキ1個分の値段がそのカードの価格系列に混ざるため、ここで捨てる。
+        # 実測（2026-08-03・カードラッシュ58カードで照合通過2,467件）: 【-】は14件で
+        # 全てが封入商品・グッズ、型番も {-}。単品カードの巻き込みは0件。
+        # 併せてカテゴリも《未開封BOX》《その他》《アクリルスタンド》のみで、これらの
+        # カテゴリにレアリティ付きの出品は存在しなかった。
+        if rarity.strip() == "-":
+            continue
+
         # 商品画像
         img_el = item.select_one("img")
         image_url = img_el.get("src", "") if img_el else ""
@@ -609,13 +796,33 @@ def _torecolo_search_query(card_name: str) -> str:
         s = s.replace(ch, "－")
     return s
 
-def scrape_torecolo(card_name: str, max_pages: int = 5) -> list[dict]:
-    """トレコロCB — 複数ページ対応、レアリティ取得"""
+# トレコロの検索フォームが持つTCG別カテゴリの絞り込み。遊戯王＝1010。
+# 他の値: 1020=デュエル・マスターズ / 1030=ヴァイスシュヴァルツ / 1050=ヴァンガード /
+#         1073=ワンピース / 1074=ポケモン / 1034=遊戯王ラッシュデュエル ほか。
+#
+# トレコロは複数TCGを扱う店で、指定しないとカード名が一致した別ゲームの商品を拾う。
+# URLに元からある `category=` は別軸のパラメータで、ここに 1010 を入れると0件になる
+# （2026-08-03 実測）。正しいのはフォームの select 名と同じ `ct2`。
+_TORECOLO_YGO_CT2 = "1010"
+
+# 買取エントリは販売とは別のカテゴリ体系に属する（売る側は 20 系、遊戯王＝2010）。
+# 販売用の 1010 を買取に使うと結果が丸ごと0件になる（2026-08-03 実測: 303件→0件）。
+_TORECOLO_YGO_CT2_BUY = "2010"
+
+def scrape_torecolo(card_name: str, max_pages: int = 5,
+                    ct2: str = _TORECOLO_YGO_CT2) -> list[dict]:
+    """トレコロCB — 複数ページ対応、レアリティ取得
+
+    ct2: TCG別カテゴリの絞り込み。既定は遊戯王（_TORECOLO_YGO_CT2）。
+         空文字を渡すと全TCG横断になる（旧挙動。新旧比較の検証用）。
+    """
     search_name = _torecolo_search_query(card_name)
     base_url = (
         f"{TORECOLO_BASE}/shop/goods/search.aspx"
         f"?search=x&keyword={requests.utils.quote(search_name)}&category=&oshiire_code="
     )
+    if ct2:
+        base_url += f"&ct2={ct2}"
     all_results = []
 
     for page in range(1, max_pages + 1):
@@ -763,6 +970,17 @@ def _kanabell_es_host():
 
 _KANABELL_ES_URL = None  # lazy init
 
+# カーナベルは遊戯王ジャンル（category1_id=1）の中に、OCGの紙カードではないものを
+# 混ぜて持っている。商品名にはその印が出ず rarity_abbreviation にだけ現れるため、
+# _is_rush_duel（商品名・型番ベース）をすり抜ける。レアリティ欄で弾く。
+#   ラッシュ   : 遊戯王ラッシュデュエル（別ゲーム）。型番は RD/ が落ちた形で入り、
+#                category3_abbr は EXT01・KP04・「ラッシュ本付属　ら」「プロモ は行」
+#   ステンレス : 20th ANNIVERSARY 等のステンレス製記念カード。金属製で紙のOCGとは別物
+#                （SUPPLY_KEYWORDS の「ステンレス製」は商品名にしか効かない）
+# 遊戯王OCGにこの2つのレアリティは存在しない（rarity.py の canonical にも無く、
+# normalize_rarity は「未知の表記」として生のまま返す）。
+_KANABELL_EXCLUDED_RARITIES = frozenset({"ラッシュ", "ステンレス"})
+
 # 状態ランク: ESフィールド名 → 表示名
 _KANABELL_CONDITIONS = [
     ("sa", "状態:SA"),
@@ -908,6 +1126,10 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
         # レアリティ
         rarity = src.get("rarity_abbreviation", "")
 
+        # ラッシュデュエル・ステンレス製記念カードを除外（レアリティ欄にだけ印が出る）
+        if rarity.strip() in _KANABELL_EXCLUDED_RARITIES:
+            continue
+
         # カードコード (カテゴリ略称から組み立て)
         code = ""
         if cat3:
@@ -1034,22 +1256,110 @@ def kanabell_card_image_url(card_name: str) -> str:
 
 CLABO_BASE = "https://www.c-labo-online.jp"
 
-def scrape_clabo(card_name: str) -> list[dict]:
-    """カードラボ — 商品検索ページをスクレイピング"""
+# カードラボ商品検索の1ページあたり件数（2026-08-03 実測。表示数120件はJS側の設定で
+# URLパラメータからは指定できない ── disp_number/view_count/limit いずれも60件のまま）
+CLABO_PAGE_SIZE = 60
+
+
+def _clabo_last_page(soup) -> int:
+    """カードラボのページャから最終ページ番号を読む（ページャが無ければ 1）。
+
+    ページャは `<div class="pager">` 内に `page=N` のリンクを並べており、
+    最終ページへのリンクは `a.to_last_page`。省略記号（...）で中間が省かれても
+    最終ページのリンクは残るため、リンク中の page=N の最大値を採用する。
+    """
+    last = 1
+    for a in soup.select("div.pager a[href*='page=']"):
+        m = re.search(r"[?&]page=(\d+)", a.get("href", ""))
+        if m:
+            last = max(last, int(m.group(1)))
+    return last
+
+
+def scrape_clabo(card_name: str, max_pages: int = 5,
+                 require_game_tag: bool = True) -> list[dict]:
+    """カードラボ — 商品検索ページをスクレイピング（複数ページ対応）
+
+    1ページ60件が上限で、60件を超えるカード（例:「ブラック・マジシャン」246件）は
+    2ページ目以降を取らないと取りこぼす（2026-08-03 実測）。
+    範囲外のページを要求すると1ページ目の内容が返るため、終端は
+    「ページャの最終ページ番号」「60件未満」「全商品が既出」の3条件で検出する。
+    """
     search_name = _normalize_search_query(card_name)
-    page_url = (
+    base_url = (
         f"{CLABO_BASE}/product-list"
         f"?keyword={requests.utils.quote(search_name)}"
     )
-    soup = safe_get(page_url)
-    if not soup:
-        return []
-    dump_html("clabo", soup)
 
+    results = []
+    seen_items = set()   # 終端検出用。存在しないページは1ページ目が返るため内容で判定する
+    last_page = None
+    for page in range(1, max_pages + 1):
+        page_url = base_url if page == 1 else f"{base_url}&page={page}"
+        soup = safe_get(page_url)
+        if not soup:
+            break
+        if page == 1:
+            dump_html("clabo", soup)
+            last_page = _clabo_last_page(soup)
+
+        containers = soup.select("li:has(div.inner_item_data)")
+        if not containers:
+            break
+
+        page_keys = set()
+        for c in containers:
+            link = c.select_one("a[href*='/product/']")
+            nm = c.select_one("span.goods_name")
+            page_keys.add((link.get("href", "") if link else "",
+                           nm.get_text(strip=True) if nm else ""))
+        # このページが全て既出＝ページ範囲を超えて1ページ目が返っている
+        if page_keys and page_keys <= seen_items:
+            break
+        seen_items |= page_keys
+
+        results.extend(_parse_clabo_items(card_name, containers, require_game_tag))
+
+        # 1ページ分に満たなければ最終ページ
+        if len(containers) < CLABO_PAGE_SIZE:
+            break
+        if last_page is not None and page >= last_page:
+            break
+        time.sleep(0.5)
+
+    return results
+
+
+# カードラボは複数TCGを1つの検索窓で扱い、商品名にゲーム種別のタグを必ず付ける。
+# 例: 【遊戯】赤き竜【ウルトラ/☆12】DUNE-JP038 / 【DM】宿命の決闘【VR】26EX2 30/89 /
+#     【WS】赤き竜 ビィ【TD】GBF/S134-T01 / 【SV】ペガサスナイト【BR】BP14-102 /
+#     【LO】ペガサス組の級長 アリアンナ・ハートベル【KR】LO-6143-K
+# タグが遊戯王でない出品は別ゲームの同名カードなので捨てる。
+#
+# 判定は「先頭が【遊戯】か」ではなく「最初に現れる【…】が【遊戯】か」で行う。
+# 買取サイトには《未開封》【遊戯】青眼の白龍… のように状態が前置される商品があり、
+# 先頭一致だと遊戯王を巻き込むため（2026-08-03 実測で2件確認）。
+#
+# カテゴリ絞り込み（main_category）は遊戯王OCGだけで 672=シンクロ・676=効果…と
+# カード種別ごとにIDが割れており、検索結果に出たものしか選択肢に現れないため使えない。
+_CLABO_TAG_RE = re.compile(r"【([^】]*)】")
+_CLABO_YGO_TAG = "遊戯"
+
+def _is_clabo_ygo(raw_name: str) -> bool:
+    """カードラボの商品名が遊戯王のものか（最初のゲームタグで判定）"""
+    m = _CLABO_TAG_RE.search(raw_name)
+    return bool(m) and m.group(1) == _CLABO_YGO_TAG
+
+def _parse_clabo_items(card_name: str, containers,
+                       require_game_tag: bool = True) -> list[dict]:
+    """カードラボの商品要素リストを解析する（ページ送りで共通利用）
+
+    require_game_tag=False で他TCG除外を外した旧挙動になる（新旧比較の検証用）。
+    """
     results = []
     # 各商品は div.inner_item_data 内にリンク・画像・商品情報がまとまっている
     # 親の a タグ (product/XXXXX) からリンクを取得
-    for container in soup.select("li:has(div.inner_item_data)"):
+    for container in containers:
         inner = container.select_one("div.inner_item_data")
         if not inner:
             continue
@@ -1059,6 +1369,10 @@ def scrape_clabo(card_name: str) -> list[dict]:
         if not name_el:
             continue
         raw_name = name_el.get_text(strip=True)
+
+        # 他TCG（デュエマ・ヴァイス・シャドバ等）の同名カードを除外
+        if require_game_tag and not _is_clabo_ygo(raw_name):
+            continue
 
         # レアリティとコードを商品名から抽出
         # 形式: 【遊戯】カード名【レアリティ/種類】コード
@@ -1338,29 +1652,61 @@ def scrape_surugaya(card_name: str) -> list[dict]:
 
 CARDRUSH_MEDIA_BASE = "https://cardrush.media"
 
-def scrape_cardrush_buy(card_name: str) -> list[dict]:
-    """カードラッシュ — ラッシュメディアの買取価格を取得"""
+CARDRUSH_BUY_PAGE_SIZE = 100
+
+
+def scrape_cardrush_buy(card_name: str, max_pages: int = 5) -> list[dict]:
+    """カードラッシュ — ラッシュメディアの買取価格を取得（複数ページ対応）
+
+    1ページ100件が上限で、100件を超えるカード（例:「ブラック・マジシャン」182件）は
+    2ページ目以降を取らないと取りこぼす（2026-08-03 実測）。
+    総ページ数は `props.pageProps.lastPage` に入っており、範囲外のページは
+    空の buyingPrices を返す（販売側と違い1ページ目へは戻らない）。
+    """
     search_name = _cardrush_search_query(card_name)
-    page_url = (
+    base_url = (
         f"{CARDRUSH_MEDIA_BASE}/yugioh/buying_prices"
         f"?name={requests.utils.quote(search_name)}"
     )
-    soup = safe_get(page_url, timeout=20)
-    if not soup:
-        return []
 
-    # __NEXT_DATA__ からJSONデータを取得
-    script_el = soup.select_one("script#__NEXT_DATA__")
-    if not script_el:
-        return []
+    results = []
+    for page in range(1, max_pages + 1):
+        page_url = base_url if page == 1 else f"{base_url}&page={page}"
+        soup = safe_get(page_url, timeout=20)
+        if not soup:
+            break
 
-    try:
-        next_data = json.loads(script_el.string)
-        buying_prices = next_data["props"]["pageProps"]["buyingPrices"]
-    except (json.JSONDecodeError, KeyError, TypeError):
-        _note_fetch_error()  # サイト構造変更の可能性（JSON構造が想定と不一致）
-        return []
+        # __NEXT_DATA__ からJSONデータを取得
+        script_el = soup.select_one("script#__NEXT_DATA__")
+        if not script_el:
+            break
 
+        try:
+            next_data = json.loads(script_el.string)
+            page_props = next_data["props"]["pageProps"]
+            buying_prices = page_props["buyingPrices"]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            _note_fetch_error()  # サイト構造変更の可能性（JSON構造が想定と不一致）
+            break
+
+        if not buying_prices:
+            break
+
+        results.extend(_parse_cardrush_buy_items(card_name, buying_prices, page_url))
+
+        last_page = page_props.get("lastPage")
+        if isinstance(last_page, int) and page >= last_page:
+            break
+        # lastPage が取れない場合の保険（1ページ分に満たなければ最終ページ）
+        if len(buying_prices) < CARDRUSH_BUY_PAGE_SIZE:
+            break
+        time.sleep(0.5)
+
+    return results
+
+
+def _parse_cardrush_buy_items(card_name: str, buying_prices: list, page_url: str) -> list[dict]:
+    """カードラッシュ買取のJSON要素リストを解析する（ページ送りで共通利用）"""
     results = []
     for item in buying_prices:
         name = item.get("name", "")
@@ -1475,6 +1821,9 @@ def scrape_kanabell_buy(card_name: str) -> list[dict]:
             continue
         if not is_target_card(_kanabell_canon_dash(card_name), _kanabell_canon_dash(name_text)):
             continue
+        # ラッシュデュエル・ステンレス製記念カードを除外（販売側と同じ判定）
+        if src.get("rarity_abbreviation", "").strip() in _KANABELL_EXCLUDED_RARITIES:
+            continue
         seen_ids.add(card_id)
 
         # 買取中（買取枠フラグTrue）かつ有効価格のみ採用。枠切れ(終了)は sa_limit_flag=False。
@@ -1564,18 +1913,23 @@ def scrape_yuyu_buy(card_name: str) -> list[dict]:
 
 # ── トレコロCB買取 ──
 
-def scrape_torecolo_buy(card_name: str, max_pages: int = 3) -> list[dict]:
+def scrape_torecolo_buy(card_name: str, max_pages: int = 3,
+                        ct2: str = _TORECOLO_YGO_CT2_BUY) -> list[dict]:
     """トレコロCB買取 — 販売と同じ search.aspx の結果に混在する買取エントリを抽出する。
 
     買取エントリは price 要素が「(強化/参考)買取価格X円」形式。販売スクレイパー
     (scrape_torecolo)はこれを除外しているので、本関数は逆にこれだけを拾う。
     レアリティは買取エントリでは空のことが多い（カード名に版違い情報が入る）。
+
+    ct2 は販売側と同じ意味だが値が違う（既定＝買取側の遊戯王 2010。空文字で旧挙動）。
     """
     search_name = _torecolo_search_query(card_name)
     base_url = (
         f"{TORECOLO_BASE}/shop/goods/search.aspx"
         f"?search=x&keyword={requests.utils.quote(search_name)}&category=&oshiire_code="
     )
+    if ct2:
+        base_url += f"&ct2={ct2}"
     results = []
 
     for page in range(1, max_pages + 1):
@@ -1665,11 +2019,13 @@ def scrape_torecolo_buy(card_name: str, max_pages: int = 3) -> list[dict]:
 
 CLABO_KAITORI_BASE = "https://www.c-labo-kaitori.jp"
 
-def scrape_clabo_buy(card_name: str) -> list[dict]:
+def scrape_clabo_buy(card_name: str, require_game_tag: bool = True) -> list[dict]:
     """カードラボ買取 — 買取専用サイト c-labo-kaitori.jp を検索する。
 
     販売(c-labo-online.jp)と同一ECプラットフォームでHTML構造も同じ。
     figure 要素が買取価格。販売版 scrape_clabo とほぼ同じ構造。
+
+    require_game_tag=False で他TCG除外を外した旧挙動になる（新旧比較の検証用）。
     """
     search_name = _normalize_search_query(card_name)
     page_url = (
@@ -1689,6 +2045,10 @@ def scrape_clabo_buy(card_name: str) -> list[dict]:
         if not name_el:
             continue
         raw_name = name_el.get_text(strip=True)
+
+        # 他TCG（デュエマ・ロルカナ等）の同名カードを除外（販売版と同じ判定）
+        if require_game_tag and not _is_clabo_ygo(raw_name):
+            continue
 
         # レアリティとコードを商品名から抽出（販売版と同じ形式）
         rarity = ""
@@ -1748,39 +2108,33 @@ BUYBACK_SHOPS = [
 DEFAULT_BUYBACK_SHOPS = ["カードラッシュ", "カーナベル", "遊々亭", "トレコロCB", "カードラボ"]
 
 
-# ── 買取キャッシュ（販売と分離）──
+# ── 買取キャッシュ（販売と分離・同じ店舗束形式）──
 
 BUYBACK_CACHE_DIR = Path(__file__).parent / ".cache_buy"
 
 def _buyback_cache_key(card_name: str) -> str:
     return hashlib.md5(f"buy_{card_name}".encode()).hexdigest()
 
-def buyback_cache_get(card_name: str) -> list[dict] | None:
-    if not CACHE_ENABLED:
-        return None
-    fp = BUYBACK_CACHE_DIR / f"{_buyback_cache_key(card_name)}.json"
-    if not fp.exists():
-        return None
-    try:
-        data = json.loads(fp.read_text(encoding="utf-8"))
-        ts = datetime.fromisoformat(data["timestamp"])
-        if datetime.now() - ts > timedelta(minutes=CACHE_TTL_MINUTES):
-            return None
-        return data["results"]
-    except Exception:
-        return None
+def buyback_cache_get_shops(card_name: str, shops: list[str],
+                            include_partial: bool = False) -> tuple[dict[str, list], list[str]]:
+    """買取版 cache_get_shops（挙動は販売と同じ・保存先が別）"""
+    return _shop_cache_get(BUYBACK_CACHE_DIR, _buyback_cache_key(card_name),
+                           shops, include_partial)
 
-def buyback_cache_set(card_name: str, results: list[dict]):
+def buyback_cache_store_shops(card_name: str, shop_results: dict[str, list],
+                              partial_shops=frozenset()):
+    """買取版 cache_store_shops。取得失敗した店舗は渡さないこと。"""
+    _shop_cache_store(BUYBACK_CACHE_DIR, _buyback_cache_key(card_name),
+                      shop_results, partial_shops)
+
+def buyback_cache_get(card_name: str) -> list[dict] | None:
+    """互換API: 期限内の全店舗分を平坦化して返す（メタ表示用）。1店も無ければ None。"""
     if not CACHE_ENABLED:
-        return
-    BUYBACK_CACHE_DIR.mkdir(exist_ok=True)
-    fp = BUYBACK_CACHE_DIR / f"{_buyback_cache_key(card_name)}.json"
-    data = {"timestamp": datetime.now().isoformat(), "results": results}
-    content = json.dumps(data, ensure_ascii=False)
-    with _cache_lock:
-        tmp_fp = fp.with_suffix(".tmp")
-        tmp_fp.write_text(content, encoding="utf-8")
-        tmp_fp.replace(fp)
+        return None
+    fresh = _shop_cache_load(BUYBACK_CACHE_DIR / f"{_buyback_cache_key(card_name)}.json")
+    if not fresh:
+        return None
+    return [r for ent in fresh.values() for r in ent["results"]]
 
 
 # ── 全店舗検索 ──
@@ -1799,8 +2153,10 @@ SHOPS = [
 DEFAULT_SHOPS = ["遊々亭", "カードラッシュ", "トレコロCB", "カーナベル", "カードラボ", "まんぞく屋"]
 
 
-def _run_shop_with_status(fn, card_name: str) -> tuple[list[dict], int]:
-    """店舗スクレイパーを実行し、(結果, 取得エラー数) を返す（ワーカースレッド内で実行）"""
+def run_shop_with_status(fn, card_name: str) -> tuple[list[dict], int]:
+    """店舗スクレイパーを実行し、(結果, 取得エラー数) を返す（ワーカースレッド内で実行）。
+    「0件かつ取得エラー>0」は在庫なしではなく取得失敗。app.py の検索経路が
+    キャッシュ可否（失敗店舗はキャッシュしない）の判定にも使う。"""
     _reset_fetch_errors()
     items = fn(card_name)
     return items, _get_fetch_errors()
@@ -1822,7 +2178,7 @@ def compare_prices(card_name: str, shop_names: list[str] | None = None,
     all_results = []
     with ThreadPoolExecutor(max_workers=len(active)) as executor:
         futures = {
-            executor.submit(_run_shop_with_status, fn, card_name): name
+            executor.submit(run_shop_with_status, fn, card_name): name
             for name, fn in active
         }
         for future in as_completed(futures):
@@ -1853,7 +2209,7 @@ def compare_buyback(card_name: str, shop_names: list[str] | None = None,
     all_results = []
     with ThreadPoolExecutor(max_workers=len(active)) as executor:
         futures = {
-            executor.submit(_run_shop_with_status, fn, card_name): name
+            executor.submit(run_shop_with_status, fn, card_name): name
             for name, fn in active
         }
         for future in as_completed(futures):
