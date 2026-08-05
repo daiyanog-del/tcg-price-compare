@@ -23,6 +23,10 @@ from scraper import (
     kanabell_card_image_url,
 )
 from rarity import normalize_rarity, config_for_frontend as _rarity_config_for_frontend
+from shipping import (
+    SHIPPING_CHECKED_ON, calc_shipping, amount_to_free_shipping,
+    amount_to_min_order, is_orderable, rules_for_client as _shipping_rules_for_client,
+)
 from aggregations import daily_min_by_lowest_rarity
 from price_persist import build_min_price_rows, upsert_price_rows
 from meta_scraper import fetch_tier_list, fetch_deck_cards, build_deck_text, build_recipe_text, _cache_read, _DECK_CACHE_TTL, _TIER_CACHE_TTL
@@ -1687,7 +1691,12 @@ def api_wish_shop_totals():
        rarity 指定あり = 該当レアリティのみ集計（同名カードを別行として扱う）
     返却: {
       "shops": [
-        {"shop": "店舗名", "total": 合計金額, "covered_qty": そろう枚数,
+        {"shop": "店舗名", "total": 商品代金の合計, "covered_qty": そろう枚数,
+         "shipping": 送料（int。ルール未登録の店舗は null）,
+         "total_with_shipping": 送料込みの支払額,
+         "free_shipping_at": 送料無料まであといくら（null=無料条件なし/すでに無料）,
+         "min_order_short": 最低注文金額まであといくら（null=制限なし/満たしている）,
+         "orderable": この金額で注文できるか,
          "covered_cards": そろうカード種類数, "total_qty": 全枚数,
          "total_cards": 全カード種類数,
          "missing_cards": [{"name": str, "rarity": str}, ...],
@@ -1695,7 +1704,9 @@ def api_wish_shop_totals():
          "url": 検索URL},
         ...
       ],
-      "db_missing": [{"name": str, "rarity": str}, ...]
+      "db_missing": [{"name": str, "rarity": str}, ...],
+      "shipping_rules": {店舗名: {base_fee, free_threshold, min_order, ...}},
+      "shipping_checked_on": "YYYY-MM-DD"
     }
     """
     data = request.get_json(silent=True) or {}
@@ -1816,9 +1827,17 @@ def api_wish_shop_totals():
                     "name": name, "qty": qty, "price": price,
                     "rarity": used_rarity or rarity_pref,
                 })
+        # 送料・最低注文金額。total は商品代金の合計（送料・手数料を含まない）で、
+        # 各店のしきい値判定はこの額を基準にする。
+        shipping = calc_shipping(shop_name, total)
         shop_summaries.append({
             "shop": shop_name,
             "total": total,
+            "shipping": shipping,
+            "total_with_shipping": total + (shipping or 0),
+            "free_shipping_at": amount_to_free_shipping(shop_name, total),
+            "min_order_short": amount_to_min_order(shop_name, total),
+            "orderable": is_orderable(shop_name, total),
             "covered_qty": covered_qty,
             "covered_cards": len(items_in_shop),
             "total_qty": total_qty,
@@ -1828,11 +1847,13 @@ def api_wish_shop_totals():
             "url": _shop_search_url(shop_name, ""),
         })
 
-    # 並び順: 全枚数そろう店舗を優先、その中で合計が安い順。
-    # データが一部しか無い店舗は covered_qty 降順 → total 昇順 で続ける。
+    # 並び順: 全枚数そろう店舗を優先 → 注文できる店舗を優先 → 送料込み合計が安い順。
+    # データが一部しか無い店舗は covered_qty 降順で続ける。
+    # 最低注文金額に届かない店舗は「表示はするが下げる」（あと少しで届く場合があるため除外はしない）。
     def _sort_key(s):
         full = s["covered_qty"] == total_qty
-        return (0 if full else 1, -s["covered_qty"], s["total"])
+        return (0 if full else 1, -s["covered_qty"],
+                0 if s["orderable"] else 1, s["total_with_shipping"])
     shop_summaries.sort(key=_sort_key)
 
     # db_missing: そのエントリの (name, rarity) で 1 店舗も値が得られなかったもの。
@@ -1852,7 +1873,14 @@ def api_wish_shop_totals():
         for e in entries if not _entry_has_any_data(e)
     ]
 
-    return jsonify({"shops": shop_summaries, "db_missing": db_missing})
+    # 送料ルールも一緒に返す。リアルタイム検索で合計が後から増えたとき、
+    # フロント側で送料と注文可否を計算し直すのに使う（shipping.py の docstring 参照）。
+    return jsonify({
+        "shops": shop_summaries,
+        "db_missing": db_missing,
+        "shipping_rules": _shipping_rules_for_client(),
+        "shipping_checked_on": SHIPPING_CHECKED_ON,
+    })
 
 
 @app.route("/api/card-rarities", methods=["POST"])

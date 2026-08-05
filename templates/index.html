@@ -498,6 +498,17 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .wish-shop-detail-price{font:.78rem var(--mono);color:var(--text-m);white-space:nowrap}
 .wish-shop-detail-unit{font-size:.65rem;color:var(--text-d);margin-left:6px}
 .wish-shop-detail-missing{font-size:.7rem;color:var(--text-d);margin-top:6px;padding:6px 8px;background:rgba(255,200,50,.06);border-radius:3px}
+/* 送料・送料込み合計の行はカード明細と違い枚数列を持たない（2列） */
+.wish-shop-detail-ship,.wish-shop-detail-sum{grid-template-columns:1fr auto}
+.wish-shop-detail-ship .wish-shop-detail-name,.wish-shop-detail-sum .wish-shop-detail-name{color:var(--text-d)}
+.wish-shop-detail-ship{border-top:1px solid var(--border);margin-top:4px;padding-top:8px}
+.wish-shop-detail-sum .wish-shop-detail-name,.wish-shop-detail-sum .wish-shop-detail-price{font-weight:700;color:var(--text-m)}
+/* 送料込み合計の下に出す内訳（商品◯円＋送料◯円） */
+.wish-shop-breakdown{display:block;font:.62rem var(--font);font-weight:400;color:var(--text-d);margin-top:2px}
+/* 最低注文金額に届かない店舗は、順位を下げたうえで見た目でも区別する */
+.wish-shop-row.unorderable{opacity:.72}
+.wish-shop-notice{font-size:.68rem;color:var(--text-d);padding:0 12px 8px}
+.wish-shop-notice.ng{color:#d4a017}
 .wish-shop-detail-foot{margin-top:10px;text-align:right}
 .wish-shop-detail-link{font-size:.72rem;font-weight:600;padding:5px 11px;border:1px solid var(--accent);border-radius:4px;color:var(--accent-l);text-decoration:none;transition:background .15s}
 .wish-shop-detail-link:hover{background:var(--accent);color:#fff}
@@ -4109,6 +4120,31 @@ async function wishCheapestStores(){
     return;
   }
 
+  // 送料ルールはサーバから配られる（shipping.py が正本）。リアルタイム検索で合計が
+  // 後から増え、送料無料しきい値をまたぐと送料が変わるため、フロントでも同じ計算をやり直す。
+  const shippingRules=dbData.shipping_rules||{};
+  const shippingCheckedOn=dbData.shipping_checked_on||'';
+
+  // 商品代金の合計から、送料・注文可否をまとめて求める
+  const _wishShipping=(shop,subtotal)=>{
+    const r=shippingRules[shop];
+    if(!r)return{fee:null,total:subtotal,freeAt:null,shortBy:null,orderable:true};
+    // 1枚も揃わない店舗（subtotal=0）は送料も最低注文金額も判定対象外。
+    // 「金額が足りない」ではなく「買う物が無い」ためで、揃う枚数の表示で伝わる。
+    if(subtotal<=0)return{fee:0,total:0,freeAt:null,shortBy:null,orderable:true};
+    const free=(r.free_threshold!==null&&r.free_threshold!==undefined&&subtotal>=r.free_threshold);
+    const fee=free?0:r.base_fee;
+    let freeAt=null;
+    if(r.free_threshold!==null&&r.free_threshold!==undefined&&subtotal<r.free_threshold){
+      freeAt=r.free_threshold-subtotal;
+    }
+    let shortBy=null;
+    if(r.min_order!==null&&r.min_order!==undefined&&subtotal<r.min_order){
+      shortBy=r.min_order-subtotal;
+    }
+    return{fee,total:subtotal+fee,freeAt,shortBy,orderable:shortBy===null};
+  };
+
   // 店舗別の集計状態。items_map / missing_set のキーは (name,rarity) の合成キーで、同名別レアリティを別エントリ扱い
   const shopState={};
   for(const s of dbData.shops){
@@ -4144,14 +4180,21 @@ async function wishCheapestStores(){
   };
 
   const renderRanking=(opts)=>{
-    const shops=Object.entries(shopState).map(([shop,st])=>({shop,...st}));
-    // 並び順: 全枚数そろう店舗を優先、その中で合計が安い順
+    const shops=Object.entries(shopState).map(([shop,st])=>{
+      // total は商品代金の合計。SSE で増えるたびにここで送料を計算し直す
+      const sh=_wishShipping(shop,st.total);
+      return {shop,...st,ship:sh};
+    });
+    // 並び順: 全枚数そろう店舗を優先 → 注文できる店舗を優先 → 送料込み合計が安い順
     shops.sort((a,b)=>{
       const af=a.covered_qty===totalQty?0:1;
       const bf=b.covered_qty===totalQty?0:1;
       if(af!==bf)return af-bf;
       if(a.covered_qty!==b.covered_qty)return b.covered_qty-a.covered_qty;
-      return a.total-b.total;
+      const ao=a.ship.orderable?0:1;
+      const bo=b.ship.orderable?0:1;
+      if(ao!==bo)return ao-bo;
+      return a.ship.total-b.ship.total;
     });
 
     const realtimeBanner=opts.realtimePending
@@ -4161,17 +4204,34 @@ async function wishCheapestStores(){
     const rowsHtml=shops.map((s,i)=>{
       const allCovered=s.covered_qty===s.total_qty;
       const badge=allCovered?'<span class="wish-shop-badge ok">✓ すべて揃う</span>':`<span class="wish-shop-badge ng">${s.missing_set.size}種類欠け</span>`;
-      const totalText=s.total>0?`¥${s.total.toLocaleString()}`:'-';
+      // 表示する合計は送料込み。内訳（商品＋送料）を下に添える
+      const totalText=s.total>0?`¥${s.ship.total.toLocaleString()}`:'-';
+      let breakdown='';
+      if(s.total>0&&s.ship.fee!==null){
+        breakdown=s.ship.fee===0
+          ?`商品¥${s.total.toLocaleString()}＋送料無料`
+          :`商品¥${s.total.toLocaleString()}＋送料¥${s.ship.fee.toLocaleString()}`;
+      }else if(s.total>0){
+        breakdown=`商品¥${s.total.toLocaleString()}（送料不明）`;
+      }
+      // 注文できない店舗と、あと少しで送料無料になる店舗は行内で理由を出す
+      let notice='';
+      if(s.total>0&&!s.ship.orderable){
+        notice=`<div class="wish-shop-notice ng">最低注文金額に¥${s.ship.shortBy.toLocaleString()}足りないため注文できません</div>`;
+      }else if(s.total>0&&s.ship.freeAt!==null){
+        notice=`<div class="wish-shop-notice">あと¥${s.ship.freeAt.toLocaleString()}で送料無料</div>`;
+      }
       return `
-        <div class="wish-shop-row" data-shop-idx="${i}">
+        <div class="wish-shop-row${s.ship.orderable?'':' unorderable'}" data-shop-idx="${i}">
           <div class="wish-shop-row-summary" onclick="_wishToggleShopDetail(${i})">
             <span class="wish-shop-rank">${i+1}</span>
             <span class="wish-shop-name">${esc(s.shop)}</span>
-            <span class="wish-shop-total">${totalText}</span>
+            <span class="wish-shop-total">${totalText}${breakdown?`<span class="wish-shop-breakdown">${breakdown}</span>`:''}</span>
             <span class="wish-shop-cov">${s.covered_qty}/${s.total_qty}枚</span>
             ${badge}
             <span class="wish-shop-toggle">▾</span>
           </div>
+          ${notice}
           <div class="wish-shop-detail" id="wishShopDetail-${i}" hidden>${_wishShopDetailHtml(s,_missingLabel)}</div>
         </div>`;
     }).join('');
@@ -4188,7 +4248,7 @@ async function wishCheapestStores(){
       ${realtimeBanner}
       <div class="wish-shop-list">${rowsHtml}</div>
       ${dbMissingHtml}
-      <div class="wish-shop-ranking-foot">対象: ${totalCards}種類 / ${totalQty}枚</div>
+      <div class="wish-shop-ranking-foot">対象: ${totalCards}種類 / ${totalQty}枚${shippingCheckedOn?`　／　送料は各店で最も安い配送方法・最小の厚さを前提にした${esc(shippingCheckedOn)}時点の情報です（地域・枚数により実際は高くなる場合があります）`:''}</div>
     `;
   };
 
@@ -4274,12 +4334,29 @@ function _wishShopDetailHtml(shopRow, missingLabel){
       <span class="wish-shop-detail-price">¥${(it.price*it.qty).toLocaleString()}<span class="wish-shop-detail-unit">@¥${it.price.toLocaleString()}</span></span>
     </div>`;
   }).join('');
+  // 送料・最低注文金額の行（商品明細の下に、支払額の内訳として出す）
+  let shipHtml='';
+  const sh=shopRow.ship;
+  if(sh&&shopRow.total>0){
+    const feeText=sh.fee===null?'不明':(sh.fee===0?'無料':`¥${sh.fee.toLocaleString()}`);
+    shipHtml=`<div class="wish-shop-detail-row wish-shop-detail-ship">
+      <span class="wish-shop-detail-name">送料</span>
+      <span class="wish-shop-detail-price">${feeText}</span>
+    </div>
+    <div class="wish-shop-detail-row wish-shop-detail-sum">
+      <span class="wish-shop-detail-name">合計（送料込み）</span>
+      <span class="wish-shop-detail-price">¥${sh.total.toLocaleString()}</span>
+    </div>`;
+    if(!sh.orderable){
+      shipHtml+=`<div class="wish-shop-detail-missing">この店舗は最低注文金額に¥${sh.shortBy.toLocaleString()}足りないため、このリストだけでは注文できません</div>`;
+    }
+  }
   const missingHtml=shopRow.missing_set.size>0
     ?`<div class="wish-shop-detail-missing">この店舗にデータが無いカード: ${[...shopRow.missing_set].map(k=>esc(missingLabel?missingLabel(k):k)).join('、')}</div>`
     :'';
   const shopTopUrl=_wishShopSearchUrl(shopRow.shop,'');
   const openHref=shopTopUrl?`<a class="wish-shop-detail-link" href="${esc(shopTopUrl)}" target="_blank" rel="noopener">${esc(shopRow.shop)}を開く</a>`:'';
-  return itemsHtml+missingHtml+`<div class="wish-shop-detail-foot">${openHref}</div>`;
+  return itemsHtml+shipHtml+missingHtml+`<div class="wish-shop-detail-foot">${openHref}</div>`;
 }
 
 // 追加ボタンのHTMLを生成するヘルパー
