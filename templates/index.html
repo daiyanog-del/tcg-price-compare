@@ -509,8 +509,24 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .wish-shop-row.unorderable{opacity:.72}
 .wish-shop-notice{font-size:.68rem;color:var(--text-d);padding:0 12px 8px}
 .wish-shop-notice.ng{color:#d4a017}
-/* 複数店に分けた場合の最安ヒント（1行） */
+/* 複数店に分けた場合の最安ヒント（1行）。クリックで買い物指示書が開く */
 .wish-shop-split-hint{font-size:.74rem;color:var(--green);margin-top:8px;padding:7px 10px;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.25);border-radius:5px}
+.wish-shop-split-hint.clickable{cursor:pointer;display:flex;align-items:center;gap:8px;transition:background .15s}
+.wish-shop-split-hint.clickable:hover{background:rgba(52,211,153,.14)}
+.wish-shop-split-hint.clickable>span:first-child{flex:1}
+/* 買い物指示書（分割プランの内訳） */
+.wish-split-detail{border:1px solid rgba(52,211,153,.25);border-top:none;border-radius:0 0 5px 5px;margin:0 6px}
+.wish-split-shop{margin-bottom:10px}
+.wish-split-shop-head{display:flex;align-items:center;gap:10px;padding:6px 0 4px;border-bottom:1px solid var(--border);font-size:.78rem}
+.wish-split-shop-name{font-weight:700;color:var(--text-m)}
+.wish-split-shop-count{font:.7rem var(--mono);color:var(--text-d)}
+.wish-split-shop-sub{margin-left:auto;font:.72rem var(--mono);color:var(--text-d);white-space:nowrap}
+.wish-split-shop-link{font-size:.68rem;font-weight:600;padding:2px 8px;border:1px solid var(--accent);border-radius:4px;color:var(--accent-l);text-decoration:none;white-space:nowrap}
+.wish-split-shop-link:hover{background:var(--accent);color:#fff}
+@media(max-width:520px){
+  .wish-split-shop-head{flex-wrap:wrap;row-gap:2px}
+  .wish-split-shop-sub{margin-left:0;width:100%}
+}
 .wish-shop-detail-foot{margin-top:10px;text-align:right}
 .wish-shop-detail-link{font-size:.72rem;font-weight:600;padding:5px 11px;border:1px solid var(--accent);border-radius:4px;color:var(--accent-l);text-decoration:none;transition:background .15s}
 .wish-shop-detail-link:hover{background:var(--accent);color:#fff}
@@ -4180,6 +4196,9 @@ async function wishCheapestStores(){
   const totalQty=list.reduce((s,c)=>s+c.qty,0);
   const totalCards=list.length;
 
+  // 買い物指示書（分割プラン内訳）の開閉状態。SSE更新の再描画で閉じ戻らないよう閉包で持つ
+  let splitOpen=false;
+
   // エントリの逆引きテーブル
   const entryByKey=new Map(list.map(c=>[_wishEntryKey(c.name,c.rarity||""),{name:c.name,qty:c.qty,rarity:c.rarity||""}]));
   const _missingLabel=(key)=>{
@@ -4249,8 +4268,9 @@ async function wishCheapestStores(){
       ?`<div class="wish-shop-ranking-warn">どの店舗にもデータが無いカード: ${[...dbMissingKeys].map(k=>esc(_missingLabel(k))).join('、')}</div>`
       :'';
 
-    // 複数店に分けた場合の最安プラン（wish-split.js）。表示は1行のヒントのみで、
-    // 「どのカードをどの店で」の内訳UIはまだ作らない（2026-08-05 決定・価値検証が先）。
+    // 複数店に分けた場合の最安プラン（wish-split.js）。ヒント行をクリックすると
+    // 「どのカードをどの店で買うか」の買い物指示書が開く（2026-08-05 実データで
+    // ¥1,000規模の差額を確認したため本実装）。
     // 表示額は実行可能なプランの合計なので過大表示にはならない（控えめに出る側にしか外れない）。
     let splitHtml='';
     if(window.WishSplit){
@@ -4270,10 +4290,19 @@ async function wishCheapestStores(){
         const baseline=shops
           .filter(s=>s.covered_qty===split.coveredQty&&s.ship.orderable&&s.total>0)
           .reduce((m,s)=>(m===null||s.ship.total<m?s.ship.total:m),null);
+        let hintText='';
         if(baseline===null){
-          splitHtml=`<div class="wish-shop-split-hint">1店舗ではそろいませんが、${shopNames} の${split.used.length}店舗に分ければ${split.coveredQty}枚そろって ¥${split.total.toLocaleString()}（送料込み）で買えます</div>`;
+          hintText=`1店舗ではそろいませんが、${shopNames} の${split.used.length}店舗に分ければ${split.coveredQty}枚そろって ¥${split.total.toLocaleString()}（送料込み）で買えます`;
         }else if(baseline-split.total>0){
-          splitHtml=`<div class="wish-shop-split-hint">${shopNames} の${split.used.length}店舗に分けて買うと ¥${split.total.toLocaleString()}（送料込み）— 1店舗最安より¥${(baseline-split.total).toLocaleString()}安くなる買い方があります</div>`;
+          hintText=`${shopNames} の${split.used.length}店舗に分けて買うと ¥${split.total.toLocaleString()}（送料込み）— 1店舗最安より¥${(baseline-split.total).toLocaleString()}安くなる買い方があります`;
+        }
+        if(hintText){
+          splitHtml=`
+            <div class="wish-shop-split-hint clickable" onclick="_wishToggleSplitDetail()">
+              <span>${hintText}</span>
+              <span class="wish-shop-toggle">${splitOpen?'▴':'▾'}</span>
+            </div>
+            <div class="wish-shop-detail wish-split-detail" id="wishSplitDetail" ${splitOpen?'':'hidden'}>${_wishSplitDetailHtml(split,shopState)}</div>`;
         }
       }
     }
@@ -4297,6 +4326,14 @@ async function wishCheapestStores(){
     const el=document.getElementById('wishShopDetail-'+idx);
     if(!el)return;
     el.hidden=!el.hidden;
+  };
+  // 買い物指示書の開閉。開閉状態は閉包の splitOpen に保存し、SSE更新の再描画でも維持する
+  window._wishToggleSplitDetail=()=>{
+    splitOpen=!splitOpen;
+    const el=document.getElementById('wishSplitDetail');
+    if(el)el.hidden=!splitOpen;
+    const arrow=document.querySelector('.wish-shop-split-hint .wish-shop-toggle');
+    if(arrow)arrow.textContent=splitOpen?'▴':'▾';
   };
 
   renderRanking({realtimePending:dbMissingEntries.length});
@@ -4358,6 +4395,46 @@ async function wishCheapestStores(){
   }catch(e){
     renderRanking({realtimePending:0,realtimeDone:true,realtimeError:sseError});
   }
+}
+
+// 買い物指示書のHTML（複数店分割プランの内訳。店舗ごとに買うカード・小計・送料を並べる）
+function _wishSplitDetailHtml(split, shopState){
+  const shopBlocks=split.used.map(u=>{
+    const st=shopState[u.shop]||{items_map:new Map()};
+    // この店舗に割り当てられたエントリ（assign の挿入順＝リスト順を保つ）
+    const keys=[...split.assign.entries()].filter(([,s])=>s===u.shop).map(([k])=>k);
+    let qtySum=0;
+    const rows=keys.map(k=>{
+      const it=st.items_map.get(k);
+      if(!it)return '';
+      qtySum+=it.qty;
+      const url=it.url||_wishShopSearchUrl(u.shop,it.name);
+      const rarityLabel=it.rarity?`<span class="wish-shop-detail-rarity">${esc(it.rarity)}</span>`:'';
+      return `<div class="wish-shop-detail-row">
+        <span class="wish-shop-detail-qty">${it.qty}x</span>
+        <a class="wish-shop-detail-name" href="${esc(url)}" target="_blank" rel="noopener">${esc(it.name)}</a>
+        ${rarityLabel}
+        <span class="wish-shop-detail-price">¥${(it.price*it.qty).toLocaleString()}<span class="wish-shop-detail-unit">@¥${it.price.toLocaleString()}</span></span>
+      </div>`;
+    }).join('');
+    const feeText=u.shipping===0?'送料無料':`送料¥${u.shipping.toLocaleString()}`;
+    const shopUrl=_wishShopSearchUrl(u.shop,'');
+    const shopLink=shopUrl?`<a class="wish-split-shop-link" href="${esc(shopUrl)}" target="_blank" rel="noopener">開く</a>`:'';
+    return `<div class="wish-split-shop">
+      <div class="wish-split-shop-head">
+        <span class="wish-split-shop-name">${esc(u.shop)}</span>
+        <span class="wish-split-shop-count">${u.entryCount}種${qtySum}枚</span>
+        <span class="wish-split-shop-sub">商品¥${u.subtotal.toLocaleString()}＋${feeText}</span>
+        ${shopLink}
+      </div>
+      ${rows}
+    </div>`;
+  }).join('');
+  return shopBlocks+`
+    <div class="wish-shop-detail-row wish-shop-detail-sum">
+      <span class="wish-shop-detail-name">合計（送料込み・${split.used.length}店舗）</span>
+      <span class="wish-shop-detail-price">¥${split.total.toLocaleString()}</span>
+    </div>`;
 }
 
 // 店舗詳細パネルのHTML（カード一覧と購入リンク）
