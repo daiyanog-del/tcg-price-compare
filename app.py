@@ -12,7 +12,7 @@ import requests as _http
 import threading
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from flask import Flask, render_template, request, jsonify, Response
+from flask import Flask, render_template, request, jsonify, Response, redirect, url_for
 from flask_compress import Compress
 
 from scraper import (
@@ -37,6 +37,7 @@ from ygores_repository import repository as _ygores_repo
 import card_display as _card_display
 from admin_unreleased import admin_bp as _admin_bp
 from neuron_deck_parser import import_neuron as _import_neuron
+from neuron_link import resolve_card_name
 
 import re as _re
 from urllib.parse import quote as _url_quote
@@ -492,6 +493,18 @@ def card_page(card_name):
                            page_mode="search",
                            best_price=best_price,
                            shop_count=shop_count)
+
+
+@app.route("/card/by-cid/<int:cid>")
+def card_by_cid(cid):
+    """ニューロン連携 — cid（konami_id）で受けてカード個別ページへ転送する。
+    ?name= は拡張が併送するフォールバック名（ygores未収録カード用）。
+    ロジックは neuron_link.resolve_card_name 参照。"""
+    name = resolve_card_name(cid, request.args.get("name", ""),
+                             _ygores_repo.get_card_summary)
+    if not name:
+        return render_template("index.html", card_name="", page_mode="search"), 404
+    return redirect(url_for("card_page", card_name=name), code=302)
 
 
 @app.route("/buy/<path:card_name>")
