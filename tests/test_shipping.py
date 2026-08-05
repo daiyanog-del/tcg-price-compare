@@ -187,6 +187,10 @@ class TestWishShopTotalsShipping:
         assert cr["shipping"] == 180
         assert cr["total_with_shipping"] == 4180
         assert cr["free_shipping_at"] == 1000
+        # items はエントリとの照合用に希望レアリティ（未指定=""）を持つ。
+        # 採用レアリティ（rarity）だけだと未指定エントリの突合が全て外れる
+        assert cr["items"][0]["rarity_pref"] == ""
+        assert cr["items"][0]["rarity"] == "ノーマル"
 
     def test_しきい値を超えると送料が消える(self, client):
         c = client([_row("テストカードA", "カードラッシュ", 4000)])

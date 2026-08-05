@@ -1700,7 +1700,8 @@ def api_wish_shop_totals():
          "covered_cards": そろうカード種類数, "total_qty": 全枚数,
          "total_cards": 全カード種類数,
          "missing_cards": [{"name": str, "rarity": str}, ...],
-         "items": [{"name": str, "qty": int, "price": int, "rarity": str}, ...],
+         "items": [{"name": str, "qty": int, "price": int,
+                    "rarity": 採用レアリティ, "rarity_pref": 希望レアリティ(""=未指定)}, ...],
          "url": 検索URL},
         ...
       ],
@@ -1823,9 +1824,14 @@ def api_wish_shop_totals():
             else:
                 total += price * qty
                 covered_qty += qty
+                # rarity は実際に採用したレアリティ（表示用）、rarity_pref はエントリの
+                # 希望レアリティ（未指定=""）。フロントはエントリとの照合に rarity_pref を
+                # 使う。rarity で照合すると未指定エントリ（""）が採用レアリティ（"ノーマル"等）
+                # と一致せず、DBに価格があるのに「見つからない」扱いになる
                 items_in_shop.append({
                     "name": name, "qty": qty, "price": price,
                     "rarity": used_rarity or rarity_pref,
+                    "rarity_pref": rarity_pref,
                 })
         # 送料・最低注文金額。total は商品代金の合計（送料・手数料を含まない）で、
         # 各店のしきい値判定はこの額を基準にする。

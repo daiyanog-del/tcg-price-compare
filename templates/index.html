@@ -509,6 +509,8 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .wish-shop-row.unorderable{opacity:.72}
 .wish-shop-notice{font-size:.68rem;color:var(--text-d);padding:0 12px 8px}
 .wish-shop-notice.ng{color:#d4a017}
+/* 複数店に分けた場合の最安ヒント（1行） */
+.wish-shop-split-hint{font-size:.74rem;color:var(--green);margin-top:8px;padding:7px 10px;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.25);border-radius:5px}
 .wish-shop-detail-foot{margin-top:10px;text-align:right}
 .wish-shop-detail-link{font-size:.72rem;font-weight:600;padding:5px 11px;border:1px solid var(--accent);border-radius:4px;color:var(--accent-l);text-decoration:none;transition:background .15s}
 .wish-shop-detail-link:hover{background:var(--accent);color:#fff}
@@ -3959,7 +3961,11 @@ async function calcWishEstimate(){
     const e=list[i];
     let best=null;
     for(const shop of (resp.shops||[])){
-      const item=(shop.items||[]).find(it=>it.name===e.name && (it.rarity||"")===(e.rarity||""));
+      // 照合は希望レアリティ（rarity_pref）で行う。従来は採用レアリティ（it.rarity）と
+      // 比較していたため、未指定エントリ（""）はDBに価格があっても「見つからない」扱いになり
+      // 毎回リアルタイム検索へ落ちていた（2026-08-05 修正）
+      const item=(shop.items||[]).find(it=>it.name===e.name &&
+        ((it.rarity_pref!==undefined&&it.rarity_pref!==null)?it.rarity_pref:(it.rarity||""))===(e.rarity||""));
       if(!item)continue;
       if(!best || item.price<best.price){
         best={price:item.price,shop:shop.shop,rarity:item.rarity||""};
@@ -4150,7 +4156,10 @@ async function wishCheapestStores(){
   for(const s of dbData.shops){
     const items_map=new Map();
     for(const it of (s.items||[])){
-      items_map.set(_wishEntryKey(it.name,it.rarity||""),{
+      // キーは希望レアリティ（rarity_pref）で作る。採用レアリティ（it.rarity）で作ると
+      // 未指定エントリ（""）のキーと一致せず、エントリとの突合が全て外れる
+      const prefKey=(it.rarity_pref!==undefined&&it.rarity_pref!==null)?it.rarity_pref:(it.rarity||"");
+      items_map.set(_wishEntryKey(it.name,prefKey),{
         name:it.name, qty:it.qty, price:it.price, rarity:it.rarity||""
       });
     }
@@ -4240,6 +4249,35 @@ async function wishCheapestStores(){
       ?`<div class="wish-shop-ranking-warn">どの店舗にもデータが無いカード: ${[...dbMissingKeys].map(k=>esc(_missingLabel(k))).join('、')}</div>`
       :'';
 
+    // 複数店に分けた場合の最安プラン（wish-split.js）。表示は1行のヒントのみで、
+    // 「どのカードをどの店で」の内訳UIはまだ作らない（2026-08-05 決定・価値検証が先）。
+    // 表示額は実行可能なプランの合計なので過大表示にはならない（控えめに出る側にしか外れない）。
+    let splitHtml='';
+    if(window.WishSplit){
+      const entries=list.map(c=>({key:_wishEntryKey(c.name,c.rarity||""),qty:c.qty}));
+      const priceTable={};
+      for(const e of entries){
+        priceTable[e.key]={};
+        for(const [shop,st] of Object.entries(shopState)){
+          const it=st.items_map.get(e.key);
+          if(it)priceTable[e.key][shop]=it.price;
+        }
+      }
+      const split=WishSplit.computeBestSplit(entries,priceTable,Object.keys(shopState),shippingRules);
+      if(split&&split.used.length>=2){
+        const shopNames=split.used.map(u=>esc(u.shop)).join('＋');
+        // 比較対象: 分割プランと同じカードが全部そろい、かつ注文できる1店舗の最安（送料込み）
+        const baseline=shops
+          .filter(s=>s.covered_qty===split.coveredQty&&s.ship.orderable&&s.total>0)
+          .reduce((m,s)=>(m===null||s.ship.total<m?s.ship.total:m),null);
+        if(baseline===null){
+          splitHtml=`<div class="wish-shop-split-hint">1店舗ではそろいませんが、${shopNames} の${split.used.length}店舗に分ければ${split.coveredQty}枚そろって ¥${split.total.toLocaleString()}（送料込み）で買えます</div>`;
+        }else if(baseline-split.total>0){
+          splitHtml=`<div class="wish-shop-split-hint">${shopNames} の${split.used.length}店舗に分けて買うと ¥${split.total.toLocaleString()}（送料込み）— 1店舗最安より¥${(baseline-split.total).toLocaleString()}安くなる買い方があります</div>`;
+        }
+      }
+    }
+
     rankEl.innerHTML=`
       <div class="wish-shop-ranking-head">
         <div class="wish-shop-ranking-title">まとめ買い最安店舗（直近7日のDB相場${opts.realtimeDone||opts.realtimePending?'＋リアルタイム検索':''}）</div>
@@ -4247,6 +4285,7 @@ async function wishCheapestStores(){
       </div>
       ${realtimeBanner}
       <div class="wish-shop-list">${rowsHtml}</div>
+      ${splitHtml}
       ${dbMissingHtml}
       <div class="wish-shop-ranking-foot">対象: ${totalCards}種類 / ${totalQty}枚${shippingCheckedOn?`　／　送料は各店で最も安い配送方法・最小の厚さを前提にした${esc(shippingCheckedOn)}時点の情報です（地域・枚数により実際は高くなる場合があります）`:''}</div>
     `;
@@ -4492,6 +4531,7 @@ loadWishPrices().then(wishUpdateBadge);
 updatePushUI(!!localStorage.getItem(PUSH_SUB_KEY));
 </script>
 <script src="/static/packs.js?v=20260627b"></script>
+<script src="/static/wish-split.js?v=20260805"></script>
 <script src="/static/mydeck/deck-edit.js?v=20260615c"></script>
 <script type="module" src="/static/mydeck/deck-card-info.js?v=20260617"></script>
 <script type="module" src="/static/shared/neuron-pdf-entry.js"></script>
