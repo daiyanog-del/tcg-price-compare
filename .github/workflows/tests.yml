@@ -1,0 +1,34 @@
+# pytest 自動実行CI
+# push / PR のたびに全テストを回す回帰網（2026-08-06 新設）
+# 手元で pytest を忘れてもここで検知される。所要 約1分
+
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          # ローカル開発環境（テスト検証済み）と同じ系列に合わせる
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run pytest
+        run: python -m pytest tests -q

@@ -23,7 +23,9 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests supabase
+        run: |
+          pip install -r requirements.txt
+          pip install pytest
 
       - name: Update card names
         run: python update_cardnames.py
@@ -33,6 +35,11 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python reconcile_unreleased.py
+
+      # 更新後のマスタで全テストを回してから自動コミットする
+      # （「マスタの『』基底名衝突」等の不変条件テストを自動更新にも効かせる。2026-08-06）
+      - name: Run pytest
+        run: python -m pytest tests -q
 
       - name: Check for changes
         id: diff
