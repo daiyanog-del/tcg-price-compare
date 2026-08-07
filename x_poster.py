@@ -40,7 +40,14 @@ BIGMOVE_COOLDOWN_DAYS = 7
 
 def get_price_movers(sb, direction="up", limit=5, allowed_names=None,
                      min_diff=50, min_pct=0, fallback=True):
-    """Supabaseから値上がり/値下がりランキングを取得。
+    """Supabaseから値上がり/値下がりランキングを取得（Python集計・レアリティ横断min）。
+
+    2026-08-06 監査F4で判明: レアリティ横断のカード単位minかつ店舗粒度のガード
+    （共通店舗のみ・同方向2店以上）が無いため、ガード済みRPC版 get_price_movers
+    （supabase_rpc_movers.sql）とほぼ無相関（実測: 42件中0件が重なる）。
+    post_featured_movers からは2026-08-06にこの関数を外した（RPCベースへ移行）。
+    残る利用者は post_daily_movers（--daily-legacy 手動フォールバック実行のみ）。
+
     allowed_names: set または None。指定すると対象カードを絞り込む（新弾フィーチャー用）。
     """
     cutoff = (datetime.now(JST) - timedelta(days=3)).strftime("%Y-%m-%d")
@@ -142,6 +149,50 @@ def _rpc_rows_to_card_dates(rows):
         if date_old is None:
             date_old, date_new = d_old, d_new
     return card_dates, date_old, date_new
+
+
+def _select_featured_movers(rows, allowed, limit=5):
+    """get_price_movers RPC の戻り行から新弾フィーチャー投稿（値動きランキング）の
+    候補を選抜する純関数（ネットワーク・sb不要）。
+
+    - direction='up' の行のみ対象（新弾フィーチャーは値上がり紹介のみの既存仕様を維持）
+    - card_name が allowed（新弾の収録カード集合）に含まれる行のみ対象
+    - pct 降順で上位 limit 件
+
+    RPC側で per_card=1（カードごと代表レアリティ1行=Web互換）・ガード①②③適用済みの
+    ため、ここでは絞り込みと並べ替えのみ行う。
+
+    pctはRPCのnumeric型がPostgREST/クライアント経由で文字列やDecimal相当で
+    返る場合があるため float に明示キャストする（app.py:1383 の前例と同じ）。
+    ソートは pct 降順を主キー、card_name 昇順を副キーにして同率時も決定的に並べる。
+
+    戻り値: (movers, date_old, date_new)。
+    movers = [{"name", "rarity", "today", "yesterday", "diff", "pct"}, ...]
+    （format_featured_tweet が参照するキー）。date_old/date_new はRPC行から取得
+    （同一呼び出し内は全行共通）。該当行が無ければ ([], None, None)。
+    """
+    filtered = [
+        r for r in rows
+        if r.get("direction") == "up" and r.get("card_name") in allowed
+    ]
+    if not filtered:
+        return [], None, None
+    filtered.sort(key=lambda r: (-float(r.get("pct") or 0), r.get("card_name", "")))
+    date_old = filtered[0].get("date_old")
+    date_new = filtered[0].get("date_new")
+    filtered = filtered[:limit]
+    movers = [
+        {
+            "name": r["card_name"],
+            "rarity": r.get("rarity") or "",
+            "today": r["today_price"],
+            "yesterday": r["prev_price"],
+            "diff": r["diff"],
+            "pct": float(r.get("pct") or 0),
+        }
+        for r in filtered
+    ]
+    return movers, date_old, date_new
 
 
 def select_big_movers(card_dates, date_old=None, date_new=None, top_n=1):
@@ -863,8 +914,11 @@ def format_featured_tweet(movers, pack_name, days_since_release, date_old=None, 
     for i, m in enumerate(movers):
         sign = "+" if m["diff"] > 0 else ""
         name = _truncate(m["name"])
+        # レアリティ表記（format_bigmove_tweet と同じ流儀）。per_card=1 のRPC代表行は
+        # 変動率最大のレアリティであり、無表示だと別レアリティの変動と誤解を招くため。
+        rarity_part = f"（{m['rarity']}）" if m.get("rarity") else ""
         lines.append(
-            f"{i+1}. {name} {sign}{m['pct']}%"
+            f"{i+1}. {name}{rarity_part} {sign}{m['pct']}%"
             f"({m['yesterday']:,}→{m['today']:,}円)"
         )
     lines.append("#遊戯王 #高騰")
@@ -877,8 +931,9 @@ def format_featured_tweet(movers, pack_name, days_since_release, date_old=None, 
         for i, m in enumerate(movers):
             sign = "+" if m["diff"] > 0 else ""
             name = _truncate(m["name"])
+            rarity_part = f"（{m['rarity']}）" if m.get("rarity") else ""
             lines.append(
-                f"{i+1}. {name} {sign}{m['pct']}%"
+                f"{i+1}. {name}{rarity_part} {sign}{m['pct']}%"
                 f"({m['yesterday']:,}→{m['today']:,}円)"
             )
         lines.append("#遊戯王 #高騰")
@@ -924,6 +979,7 @@ def post_featured_movers(sb):
         get_featured_cards, get_initial_prices, get_card_history_since,
     )
     from chart_renderer import render_price_chart
+    from discord_notify import send_discord_message
 
     print("\n=== 新弾フィーチャー投稿 ===")
 
@@ -977,11 +1033,41 @@ def post_featured_movers(sb):
         date_old = date_new = None
     else:
         print("  通常モード: 値動きランキング")
-        movers, date_old, date_new = get_price_movers(sb, direction="up", limit=5, allowed_names=allowed)
-        if not movers:
-            print("  値動きデータなし — スキップ（まだ2日分のデータが揃っていない可能性）")
+        # 値動き集計はSupabase RPC（店舗粒度のガード①②③適用済み）に一本化
+        # （2026-08-06 監査F4。旧Python集計 get_price_movers はガード無し・fallback
+        # で必ず1枚投稿していたため、post_big_movers と同じRPCパターンに揃える）
+        cutoff = (datetime.now(JST) - timedelta(days=3)).strftime("%Y-%m-%d")
+        try:
+            resp = sb.rpc(
+                "get_price_movers",
+                # top_n=250: RPCはdirectionごとにtop_n件返すため最大2×top_n行。
+                # PostgREST返却上限1000行（本プロジェクトで4回踏んだ罠）に対し
+                # 合計500行で安全域。切り捨て時は 'down'<'up' の並びでup側から
+                # 消えるため上限接触は許容不可
+                {"cutoff_date": cutoff, "min_diff": 50, "top_n": 250, "per_card": 1},
+            ).execute()
+            rows = resp.data or []
+        except Exception as e:
+            logger.warning(f"RPC get_price_movers 呼び出し失敗 — スキップ: {e}")
+            send_discord_message(f"[新弾フィーチャー] RPC get_price_movers 呼び出し失敗: {e}")
             return
-        movers_for_tweet = list(movers)
+
+        print(f"  RPC取得行数: {len(rows)}")
+        if len(rows) >= 1000:
+            logger.error(
+                f"RPC get_price_movers が{len(rows)}行返却 — "
+                "PostgREST返却上限1000行に接触し切り捨ての疑い（'down'<'up'の並びでup側から消える）"
+            )
+
+        if not rows:
+            print("  値動きデータなし（RPC結果0行）— スキップ")
+            return
+
+        movers_for_tweet, date_old, date_new = _select_featured_movers(rows, allowed, limit=5)
+        if not movers_for_tweet:
+            print(f"  ガードを満たす値動きなし（フィルタ後0件、rows {len(rows)}行中） — スキップ")
+            return
+
         text = format_featured_tweet(movers_for_tweet, pack_name, days, date_old, date_new)
         top_cards = [m["name"] for m in movers_for_tweet[:2]]
 
