@@ -1285,18 +1285,37 @@ def api_price_history():
 
     try:
         cutoff = (datetime.now(JST) - timedelta(days=90)).strftime("%Y-%m-%d")
-        resp = (_supabase_client.table("price_history")
-                .select("shop, rarity, min_price, recorded_at")
-                .eq("card_name", card_name)
-                .gte("recorded_at", cutoff)
-                .order("recorded_at", desc=False)
-                .limit(2000)
-                .execute())
+        # PostgRESTの返却上限1000行を超えるカードが335枚ある（90日×6店×複数レアリティ、
+        # 最大3,345行）。旧 .limit(2000) は上限で切られ、昇順のため新しい側＝グラフの
+        # 直近数週間が欠落していた（監査F1: docs/audit-price-logic-2026-08-06.md）。
+        # ページ間の順序を安定させるため複合キーで order する
+        page_size = 1000
+        max_pages = 10  # 暴走ガード（現在の最大は約3,345行=4ページ）
+        offset = 0
+        rows: list = []
+        while True:
+            resp = (_supabase_client.table("price_history")
+                    .select("shop, rarity, min_price, recorded_at")
+                    .eq("card_name", card_name)
+                    .gte("recorded_at", cutoff)
+                    .order("recorded_at", desc=False)
+                    .order("shop", desc=False)
+                    .order("rarity", desc=False)
+                    .range(offset, offset + page_size - 1)
+                    .execute())
+            batch = resp.data or []
+            rows.extend(batch)
+            if len(batch) < page_size:
+                break
+            offset += page_size
+            if offset >= max_pages * page_size:
+                logger.error(f"価格推移取得: {max_pages}ページ超過で打ち切り [{card_name}]")
+                break
         data = [
             {"date": r.get("recorded_at", "")[:10], "shop": r.get("shop", ""),
              "rarity": normalize_rarity(r.get("rarity", "")),  # 過渡期の分裂値を正準名に統合
              "price": r.get("min_price", 0)}
-            for r in (resp.data or [])
+            for r in rows
         ]
         return jsonify({"card_name": card_name, "data": data})
     except Exception as e:
@@ -1780,6 +1799,11 @@ def api_wish_shop_totals():
                     .select("card_name, shop, rarity, min_price")
                     .in_("card_name", names)
                     .gte("recorded_at", cutoff)
+                    # ページ間の順序安定化（order無しrangeはページ境界で行を取りこぼしうる。監査F8）
+                    .order("card_name", desc=False)
+                    .order("recorded_at", desc=False)
+                    .order("shop", desc=False)
+                    .order("rarity", desc=False)
                     .range(offset, offset + page_size - 1)
                     .execute()
                 )
@@ -1943,6 +1967,11 @@ def api_card_rarities():
                     .select("card_name, rarity")
                     .in_("card_name", names)
                     .gte("recorded_at", cutoff)
+                    # ページ間の順序安定化（order無しrangeはページ境界で行を取りこぼしうる。監査F8）
+                    .order("card_name", desc=False)
+                    .order("recorded_at", desc=False)
+                    .order("shop", desc=False)
+                    .order("rarity", desc=False)
                     .range(offset, offset + page_size - 1)
                     .execute()
                 )

@@ -1,4 +1,13 @@
 このファイルの目的: 重要な決定を「いつ・何を・なぜ」で記録する。新しい決定は上に追記
+## 2026-08-06: 1000行上限クラスの根治（監査F1/F2/F8）＋読み出し規律の不変条件テスト
+
+価格ロジック監査（docs/audit-price-logic-2026-08-06.md）の修正セット1。
+- **F1**: /api/price-history の `.limit(2000)` を range分割＋複合キーorder（recorded_at,shop,rarity）へ。人気335枚のグラフが6週間欠けていた（本番実証: 墓穴の指名者の最終日=6/23）。一人回しパネルの「最新最安」も同時に治る
+- **F2**: featured_pack.get_card_history_since（X投稿グラフ）は limit/rangeとも無し＝既定1000行キャップ → 同じrange分割へ
+- **F8**: order無しrange 3箇所（app.py wish-shop-totals / card-rarities、featured_pack.get_initial_prices）に複合キーorderを追加。自前ヘルパ _fetch_all_rows の「安定キーで必ずorder」警告への違反状態を解消
+- **再発防止（決定）**: tests/test_price_history_read_discipline.py 新設。price_history/buyback_history の読み出しは「range分割＋order必須・limit禁止」をソース走査で機械的に強制する。このクラスは4回踏んだ（tracked_cards→estimate_cache→F1→F2）ため、レビュー頼みをやめてテストで打ち止めにする
+- 残注意: app.py:1656 / notify.py:182 / x_poster.py:55 は order が単一キー（recorded_at）で完全な全順序ではない。境界リスク小のため今回は不変更（触るならヘルパ経由に統一するとき）
+
 ## 2026-08-05: ニューロン連携をcid方式へ根治（/card/by-cid 新設）
 
 拡張機能（ルート直下 tcgym-neuron-extension・git管理外）の「ニューロンのカードをTCGYMで

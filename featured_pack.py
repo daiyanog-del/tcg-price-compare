@@ -204,6 +204,10 @@ def get_initial_prices(sb, card_names) -> list:
             resp = (sb.table("price_history")
                     .select("card_name, min_price")
                     .eq("recorded_at", today_str)
+                    # ページ間の順序安定化（order無しrangeはページ境界で行を取りこぼしうる。監査F8）
+                    .order("card_name", desc=False)
+                    .order("shop", desc=False)
+                    .order("rarity", desc=False)
                     .range(offset, offset + page_size - 1)
                     .execute())
             batch = resp.data or []
@@ -239,13 +243,31 @@ def get_card_history_since(sb, card_name, since_date_str) -> list:
     グラフ生成用。
     """
     try:
-        resp = (sb.table("price_history")
-                .select("card_name, shop, rarity, min_price, recorded_at")
-                .eq("card_name", card_name)
-                .gte("recorded_at", since_date_str)
-                .order("recorded_at", desc=False)
-                .execute())
-        return resp.data or []
+        # limit/range無しの一括読みはPostgREST上限1000行で黙って切られる
+        # （監査F2: docs/audit-price-logic-2026-08-06.md）。range分割＋複合キーorderで取得する
+        page_size = 1000
+        max_pages = 10  # 暴走ガード
+        offset = 0
+        rows: list = []
+        while True:
+            resp = (sb.table("price_history")
+                    .select("card_name, shop, rarity, min_price, recorded_at")
+                    .eq("card_name", card_name)
+                    .gte("recorded_at", since_date_str)
+                    .order("recorded_at", desc=False)
+                    .order("shop", desc=False)
+                    .order("rarity", desc=False)
+                    .range(offset, offset + page_size - 1)
+                    .execute())
+            batch = resp.data or []
+            rows.extend(batch)
+            if len(batch) < page_size:
+                break
+            offset += page_size
+            if offset >= max_pages * page_size:
+                print(f"  [featured] 価格履歴が{max_pages}ページ超過のため打ち切り [{card_name}]")
+                break
+        return rows
     except Exception as e:
         print(f"  [featured] 価格履歴取得失敗 [{card_name}]: {e}")
         return []
