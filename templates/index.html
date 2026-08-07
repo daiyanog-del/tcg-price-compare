@@ -789,7 +789,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
       <div class="card-hero-info" id="heroInfo"></div>
     </div>
     <div id="priceChart" class="price-chart hidden">
-      <h3 class="chart-title">価格推移 ― レアリティ別平均（最大90日）</h3>
+      <h3 class="chart-title">価格推移 ― レアリティ別の最安値（最大90日）</h3>
       <div class="chart-wrap">
         <canvas id="priceCanvas"></canvas>
       </div>
@@ -3521,7 +3521,9 @@ function loadPriceHistory(cardName){
 
 function _drawPriceChart(data){
   if(_chartInstance){_chartInstance.destroy();_chartInstance=null;}
-  // レアリティ×日付ごとに全店舗の平均価格を算出
+  // レアリティ×日付ごとに全店舗の最安値を算出。同一画面の「最安値」表示・
+  // 値動きランキング・見積もりと統計量を揃える（旧実装は店舗平均で、
+  // 最安値表示と数字が食い違っていた ― 監査F9）
   // rarity はサーバ側で正準名に正規化済み
   const byRarityDate={};
   data.forEach(r=>{
@@ -3532,7 +3534,7 @@ function _drawPriceChart(data){
   });
   const datasets=Object.entries(byRarityDate).map(([rar,dates])=>{
     const points=Object.entries(dates).map(([d,prices])=>({
-      x:d,y:Math.round(prices.reduce((a,b)=>a+b,0)/prices.length)
+      x:d,y:Math.min(...prices)
     })).sort((a,b)=>a.x.localeCompare(b.x));
     return{
       label:rar,data:points,

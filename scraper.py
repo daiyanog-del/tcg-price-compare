@@ -1256,9 +1256,25 @@ def kanabell_card_image_url(card_name: str) -> str:
 
 CLABO_BASE = "https://www.c-labo-online.jp"
 
-# カードラボ商品検索の1ページあたり件数（2026-08-03 実測。表示数120件はJS側の設定で
-# URLパラメータからは指定できない ── disp_number/view_count/limit いずれも60件のまま）
-CLABO_PAGE_SIZE = 60
+# カードラボ商品検索の1ページあたり件数。既定は60件だが `&num=120` で120件に
+# 拡張できる（2026-08-03 実測・2026-08-07 再確認。240は無効で60に落ちる＝上限120）。
+# 1ページの件数を倍にすることでページ送りのリクエスト数を半減させる
+# （毎晩1,000〜1,250リクエスト付近から403遮断が始まるため、リクエスト削減が
+# そのまま取得カード数の増加につながる。docs/audit-price-logic-2026-08-06.md F10）
+CLABO_PAGE_SIZE = 120
+
+
+def _clabo_total_count(soup) -> int | None:
+    """検索結果の総ヒット件数を `.item_count`（例「256件」「7,603件」）から読む。
+
+    読めれば ceil(総件数 / CLABO_PAGE_SIZE) で必要ページ数が確定するため、
+    ページャに頼らず空振りページを踏まずに済む。要素が無ければ None。
+    """
+    el = soup.select_one(".item_count")
+    if not el:
+        return None
+    digits = re.sub(r"\D", "", el.get_text())
+    return int(digits) if digits else None
 
 
 def _clabo_last_page(soup) -> int:
@@ -1280,20 +1296,22 @@ def scrape_clabo(card_name: str, max_pages: int = 5,
                  require_game_tag: bool = True) -> list[dict]:
     """カードラボ — 商品検索ページをスクレイピング（複数ページ対応）
 
-    1ページ60件が上限で、60件を超えるカード（例:「ブラック・マジシャン」246件）は
-    2ページ目以降を取らないと取りこぼす（2026-08-03 実測）。
+    `&num=120` で1ページ120件に拡張し、120件を超えるカード
+    （例:「ブラック・マジシャン」256件）だけ2ページ目以降を取る。
     範囲外のページを要求すると1ページ目の内容が返るため、終端は
-    「ページャの最終ページ番号」「60件未満」「全商品が既出」の3条件で検出する。
+    「総ヒット件数(.item_count)から算出した必要ページ数」を第一に、
+    「ページャの最終ページ番号」「120件未満」「全商品が既出」を保険として検出する。
     """
     search_name = _normalize_search_query(card_name)
     base_url = (
         f"{CLABO_BASE}/product-list"
         f"?keyword={requests.utils.quote(search_name)}"
+        f"&num={CLABO_PAGE_SIZE}"
     )
 
     results = []
     seen_items = set()   # 終端検出用。存在しないページは1ページ目が返るため内容で判定する
-    last_page = None
+    total_pages = None
     for page in range(1, max_pages + 1):
         page_url = base_url if page == 1 else f"{base_url}&page={page}"
         soup = safe_get(page_url)
@@ -1301,7 +1319,12 @@ def scrape_clabo(card_name: str, max_pages: int = 5,
             break
         if page == 1:
             dump_html("clabo", soup)
-            last_page = _clabo_last_page(soup)
+            total = _clabo_total_count(soup)
+            if total is not None:
+                total_pages = -(-total // CLABO_PAGE_SIZE)  # ceil
+            else:
+                # item_count が読めない場合はページャにフォールバック
+                total_pages = _clabo_last_page(soup)
 
         containers = soup.select("li:has(div.inner_item_data)")
         if not containers:
@@ -1323,7 +1346,7 @@ def scrape_clabo(card_name: str, max_pages: int = 5,
         # 1ページ分に満たなければ最終ページ
         if len(containers) < CLABO_PAGE_SIZE:
             break
-        if last_page is not None and page >= last_page:
+        if total_pages is not None and page >= total_pages:
             break
         time.sleep(0.5)
 
