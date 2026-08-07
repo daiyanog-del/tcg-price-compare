@@ -167,8 +167,11 @@ def client(monkeypatch):
     return _make
 
 
-def _row(card, shop, price, rarity="ノーマル"):
-    return {"card_name": card, "shop": shop, "rarity": rarity, "min_price": price}
+def _row(card, shop, price, rarity="ノーマル", recorded_at="2026-08-06"):
+    # recorded_at はF6修正（監査F6: 最新観測日採用）で必須になった。既存テストは
+    # 全行同一日付にしておけば「最新日min」判定は従来どおり素通りする
+    return {"card_name": card, "shop": shop, "rarity": rarity, "min_price": price,
+            "recorded_at": recorded_at}
 
 
 def _by_shop(payload):
@@ -297,3 +300,88 @@ class TestWishShopTotalsShipping:
         assert payload["shipping_checked_on"] == shipping.SHIPPING_CHECKED_ON
         assert payload["shipping_rules"]["カードラッシュ"]["free_threshold"] == 5000
         assert payload["shipping_rules"]["遊々亭"]["min_order"] == 1000
+
+
+class TestWishShopTotalsLatestDatePrice:
+    """監査F6: 店舗合計は「最新観測日」の値を採用し、古い日の安値を混入させない"""
+
+    def test_older_cheap_row_not_used_when_newer_row_exists(self, client):
+        # 6日前(古い)は¥500、今日(最新)は¥800。従来ロジック(7日窓min)は¥500を採用していた
+        c = client([
+            _row("テストカードA", "カードラボ", 500, recorded_at="2026-08-01"),
+            _row("テストカードA", "カードラボ", 800, recorded_at="2026-08-06"),
+        ])
+        res = c.post("/api/wish-shop-totals",
+                     json={"cards": [{"name": "テストカードA", "qty": 1}]})
+        labo = _by_shop(res.get_json())["カードラボ"]
+        assert labo["total"] == 800
+        assert labo["items"][0]["price"] == 800
+
+    def test_newer_row_replaces_regardless_of_arrival_order(self, client):
+        # DBの返却順に依存せず判定できることを確認（新しい日の行が先に来ても正しく置き換わる）
+        c = client([
+            _row("テストカードA", "カードラボ", 800, recorded_at="2026-08-06"),
+            _row("テストカードA", "カードラボ", 500, recorded_at="2026-08-01"),
+        ])
+        res = c.post("/api/wish-shop-totals",
+                     json={"cards": [{"name": "テストカードA", "qty": 1}]})
+        labo = _by_shop(res.get_json())["カードラボ"]
+        assert labo["total"] == 800
+
+    def test_same_date_multiple_rows_take_min(self, client):
+        # 同一日内の複数行（収集の重複実行等）は min を採用する
+        c = client([
+            _row("テストカードA", "カードラボ", 900, recorded_at="2026-08-06"),
+            _row("テストカードA", "カードラボ", 850, recorded_at="2026-08-06"),
+        ])
+        res = c.post("/api/wish-shop-totals",
+                     json={"cards": [{"name": "テストカードA", "qty": 1}]})
+        labo = _by_shop(res.get_json())["カードラボ"]
+        assert labo["total"] == 850
+
+    def test_different_rarities_tracked_independently_by_latest_date(self, client):
+        # レアリティごとに別系列として最新観測日を判定する
+        c = client([
+            _row("テストカードA", "カードラボ", 300, rarity="ノーマル", recorded_at="2026-08-01"),
+            _row("テストカードA", "カードラボ", 250, rarity="ノーマル", recorded_at="2026-08-06"),
+            _row("テストカードA", "カードラボ", 3000, rarity="シク", recorded_at="2026-08-05"),
+        ])
+        res = c.post("/api/wish-shop-totals",
+                     json={"cards": [{"name": "テストカードA", "qty": 1, "rarity": "ノーマル"}]})
+        labo = _by_shop(res.get_json())["カードラボ"]
+        assert labo["total"] == 250
+        assert labo["items"][0]["rarity"] == "ノーマル"
+
+    def test_price_at_or_below_10_yen_excluded(self, client):
+        # 監査M5（2026-08-07）: 10円以下は収集異常値として除外する。
+        # daily_min_by_lowest_rarity 等の他経路と統一
+        c = client([
+            _row("テストカードA", "カードラボ", 5, recorded_at="2026-08-06"),   # 除外される
+            _row("テストカードA", "カードラボ", 300, recorded_at="2026-08-01"),  # 唯一の有効行
+        ])
+        res = c.post("/api/wish-shop-totals",
+                     json={"cards": [{"name": "テストカードA", "qty": 1}]})
+        labo = _by_shop(res.get_json())["カードラボ"]
+        assert labo["total"] == 300
+
+    def test_rarity_granularity_is_per_key_not_per_card_shop(self, client):
+        """現行仕様のピン留め（裁定 中6/L11, 2026-08-07）:
+        F6の集約は (card_name, shop, rarity) 粒度で「そのキーの最新観測日」を採用する。
+        レアリティ未指定（全レアリティ最安）の場合、別レアリティのより新しい観測日
+        より、古い日でも別レアリティの最安値のほうが安ければそちらが採用される
+        ——(card, shop) 粒度に統合して「レアリティ横断で最新日を優先する」よう変更する
+        案も検討したが見送った（本番実測で「古値優勝」は1.1%まで減少済みであり、
+        複雑化に見合わないと判断。docs/decisions.md 2026-08-07 参照）。
+        """
+        c = client([
+            # ノーマルは8/1のみ観測（古いが安い）
+            _row("テストカードA", "カードラボ", 300, rarity="ノーマル", recorded_at="2026-08-01"),
+            # シクは8/6（窓内最新日）だが高い
+            _row("テストカードA", "カードラボ", 3000, rarity="シク", recorded_at="2026-08-06"),
+        ])
+        res = c.post("/api/wish-shop-totals",
+                     json={"cards": [{"name": "テストカードA", "qty": 1}]})  # rarity未指定
+        labo = _by_shop(res.get_json())["カードラボ"]
+        # 現行仕様: レアリティ横断で単純に安い方（8/1観測のノーマル¥300）が採用される
+        assert labo["total"] == 300
+        assert labo["items"][0]["rarity"] == "ノーマル"

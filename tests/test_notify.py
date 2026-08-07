@@ -25,7 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from notify import compute_drop, _representative_rarity, DROP_PCT, DROP_ABS
-from aggregations import daily_min_by_lowest_rarity
+from aggregations import daily_min_by_lowest_rarity, common_shop_price_change
 from rarity import UNKNOWN_RARITY_LABEL
 
 OLD, NEW = "2026-07-01", "2026-07-08"
@@ -236,6 +236,54 @@ class TestUnknownRarityExcludedFromRepresentative:
             row("シク", "店舗A", OLD, 3200),
         ]
         assert _representative_rarity(rows) == "シク"
+
+
+# ──────────────────────────────────────────────
+# aggregations.common_shop_price_change と compute_drop の等価性ピン留め
+# （監査 2026-08-07, 中6/L11）
+# ──────────────────────────────────────────────
+
+class TestCommonShopPriceChangeMatchesComputeDrop:
+    """aggregations.common_shop_price_change は notify.compute_drop の
+    「共通店舗2店以上ある最古日を探索し、共通店舗内minどうしで比較する」という
+    core計算部分の複製である（店舗粒度の再計算にレアリティ名自体が必要なため。
+    docstring参照）。ただし通知専用のガード②（値下がり方向2店確認）・閾値判定は
+    適用しない（裁定 中7, 2026-08-07: ガード②はWeb Push誤送信対策専用）。
+
+    ガード②・閾値の両方を満たすrowsを渡した場合、両者の base_7d/diff/pct が
+    一致することをピン留めする。
+    """
+
+    def test_base_diff_pct_match_when_compute_drop_passes(self):
+        rows = [
+            row("ノーマル", "店舗A", OLD, 2000),
+            row("ノーマル", "店舗A", NEW, 1800),  # -10%, -200円
+            row("ノーマル", "店舗B", OLD, 2000),
+            row("ノーマル", "店舗B", NEW, 1800),
+        ]
+        drop = compute_drop(rows)
+        assert drop is not None  # ガード①②・閾値とも通過する組み合わせ
+        common = common_shop_price_change(rows)["テストカード"]
+        assert common["base_7d"] == drop["base_7d"]
+        assert common["diff"] == drop["diff"]
+        assert common["pct"] == drop["pct"]
+
+    def test_returns_value_even_when_guard2_blocks_notify(self):
+        # 2店とも共通店舗だが逆方向（店舗Aは値下がり、店舗Bは値上がり）→
+        # compute_drop はガード②（値下がり方向2店未満）で不採用=None。
+        # common_shop_price_change はガード②を適用しないため、同じ共通店舗min計算で
+        # base_7d/diff/pct を返す（中7で意図した仕様どおりの差）
+        rows = [
+            row("ノーマル", "店舗A", OLD, 1000),
+            row("ノーマル", "店舗A", NEW, 900),   # 値下がり
+            row("ノーマル", "店舗B", OLD, 1000),
+            row("ノーマル", "店舗B", NEW, 1200),  # 値上がり（最安値には影響しない）
+        ]
+        assert compute_drop(rows) is None
+        common = common_shop_price_change(rows)["テストカード"]
+        assert common["base_7d"] == 1000  # min(店舗A:1000, 店舗B:1000)
+        assert common["diff"] == -100     # min(900,1200) - 1000
+        assert common["pct"] == -10.0
 
     def test_unknown_used_as_last_resort(self):
         rows = [

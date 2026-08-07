@@ -27,7 +27,7 @@ from shipping import (
     SHIPPING_CHECKED_ON, calc_shipping, amount_to_free_shipping,
     amount_to_min_order, is_orderable, rules_for_client as _shipping_rules_for_client,
 )
-from aggregations import daily_min_by_lowest_rarity
+from aggregations import daily_min_by_lowest_rarity, common_shop_price_change
 from price_persist import build_min_price_rows, upsert_price_rows
 from meta_scraper import fetch_tier_list, fetch_deck_cards, build_deck_text, build_recipe_text, _cache_read, _DECK_CACHE_TTL, _TIER_CACHE_TTL
 from pack_scraper import get_pack_list, fetch_pack_cards
@@ -1638,10 +1638,17 @@ def api_wish_prices():
     have_data = [n for n in card_names if n in _estimate_cache]
     pending_set = set(card_names) - set(have_data)
 
-    def _fetch_price_history(names: list, days: int) -> dict:
-        """price_history から指定日数分の日次最安値を取得して返す"""
+    def _fetch_price_history(names: list, days: int) -> tuple[dict, dict]:
+        """price_history から指定日数分の日次最安値（現在価格用）と、
+        共通店舗比較による値動き（変動判定用）を取得して返す。
+        戻り値: (card_dates, card_common)
+          card_dates: {card_name: {date_str: min_price}}
+            代表レアリティの全店舗min。表示する「現在価格」はこの最新日の値を使う
+          card_common: {card_name: {"base_7d", "diff", "pct"}}
+            共通店舗（両日に記録がある店舗）どうしで比較した値動き（監査F5）
+        """
         if not names or not _supabase_client:
-            return {}
+            return {}, {}
         try:
             cutoff = (datetime.now(JST) - timedelta(days=days)).strftime("%Y-%m-%d")
             all_rows: list = []
@@ -1650,7 +1657,7 @@ def api_wish_prices():
             while True:
                 resp = (
                     _supabase_client.table("price_history")
-                    .select("card_name, rarity, min_price, recorded_at")
+                    .select("card_name, rarity, shop, min_price, recorded_at")
                     .in_("card_name", names)
                     .gte("recorded_at", cutoff)
                     .order("recorded_at", desc=False)
@@ -1666,20 +1673,32 @@ def api_wish_prices():
             # 正準名に統合する（過渡期の分裂値を吸収。/api/price-history と同じ方針）
             for r in all_rows:
                 r["rarity"] = normalize_rarity(r.get("rarity", "") or "")
-            return _aggregate_daily_min_lowest_rarity(all_rows)
+            card_dates = _aggregate_daily_min_lowest_rarity(all_rows)
         except Exception as e:
             logger.warning(f"[wish-prices] 価格履歴取得失敗: {e}")
-            return {}
+            return {}, {}
+
+        # 共通店舗比較（変動判定用, 監査F5）は独立した try/except に分離する。
+        # ここで例外が起きても、上で取得済みの card_dates（現在価格の表示）を
+        # 巻き添えにしない（監査 2026-08-07, L9）。失敗時は変動表示なし扱い
+        try:
+            card_common = common_shop_price_change(all_rows)
+        except Exception as e:
+            logger.warning(f"[wish-prices] 共通店舗比較の計算失敗: {e}")
+            card_common = {}
+
+        return card_dates, card_common
 
     # 主クエリ: estimate_cacheにあるカードを8日分で取得
-    card_dates: dict = _fetch_price_history(have_data, days=8)
+    card_dates, card_common = _fetch_price_history(have_data, days=8)
 
     # フォールバック: estimateキャッシュ未収録のカードを30日分で再検索
     if pending_set:
-        fallback = _fetch_price_history(list(pending_set), days=30)
-        for name, dates in fallback.items():
+        fallback_dates, fallback_common = _fetch_price_history(list(pending_set), days=30)
+        for name, dates in fallback_dates.items():
             if dates:
                 card_dates[name] = dates
+                card_common[name] = fallback_common.get(name, {})
                 pending_set.discard(name)
                 have_data.append(name)
 
@@ -1693,14 +1712,18 @@ def api_wish_prices():
 
         dates = card_dates.get(name, {})
         dates_sorted = sorted(dates.keys())
+        # latest（現在価格）は全店舗min、pct/diff（変動判定）は共通店舗min。
+        # 基準が異なるのは意図した仕様（裁定H3, 2026-08-07）: 現在価格はユーザーが
+        # 実際に買える最安値をそのまま見せ、変動判定だけ比較可能性を優先して
+        # 共通店舗に絞る。両者を同じ基準に揃えることはしない
         latest_price = dates[dates_sorted[-1]] if dates_sorted else None
-        base_7d = dates[dates_sorted[0]] if len(dates_sorted) >= 2 else None
 
-        diff = None
-        pct = None
-        if latest_price is not None and base_7d is not None and base_7d > 0:
-            diff = latest_price - base_7d
-            pct = round((diff / base_7d) * 100, 1)
+        # 変動判定（base_7d/diff/pct）は共通店舗比較で算出済み（監査F5）。
+        # 条件を満たす比較対象日が窓内に無ければ全て None（＝変動表示なし）
+        common = card_common.get(name) or {}
+        base_7d = common.get("base_7d")
+        diff = common.get("diff")
+        pct = common.get("pct")
 
         results.append({
             "name": name,
@@ -1785,9 +1808,14 @@ def api_wish_shop_totals():
     total_qty = sum(e["qty"] for e in entries)
     total_cards = len(entries)
 
-    # 直近7日分の price_history を一括取得（販売店舗のみ／sold_out 概念は売り在庫履歴に無いので全行採用）
-    # 構造: rows[card_name][shop][rarity] = min_price  ← rarity 別の最安値を保持
+    # 直近7日分の price_history を一括取得（販売店舗のみ／sold_out 概念は売り在庫履歴に無いので全行採用）。
+    # 7日窓はあくまで「その日に観測が無い場合の欠測補完」用で、採用する価格は各
+    # (card, shop, rarity) キーの**最新観測日**の行のみ（同日内に複数行があれば min）。
+    # 古い日の安値を現在値として拾わないようにする（監査F6）。
+    # 構造: rows[card_name][shop][rarity] = min_price  ← 最新観測日の最安値
     rows_by_card_shop_rarity: dict[str, dict[str, dict[str, int]]] = {}
+    # 各 (card_name, shop, rarity) キーで現在採用している行の観測日（新しい日が来たら置き換える判定用）
+    latest_date_by_key: dict[tuple, str] = {}
     if _supabase_client:
         try:
             cutoff = (datetime.now(JST) - timedelta(days=7)).strftime("%Y-%m-%d")
@@ -1796,7 +1824,7 @@ def api_wish_shop_totals():
             while True:
                 resp = (
                     _supabase_client.table("price_history")
-                    .select("card_name, shop, rarity, min_price")
+                    .select("card_name, shop, rarity, min_price, recorded_at")
                     .in_("card_name", names)
                     .gte("recorded_at", cutoff)
                     # ページ間の順序安定化（order無しrangeはページ境界で行を取りこぼしうる。監査F8）
@@ -1808,17 +1836,44 @@ def api_wish_shop_totals():
                     .execute()
                 )
                 batch = resp.data or []
+                # recorded_at 欠落行の件数（このページ分）。存在すべきでない欠損だが、
+                # サイレントに握りつぶさずページごとに警告する（監査 2026-08-07 追加, L10）
+                missing_recorded_at = 0
                 for row in batch:
                     name = row.get("card_name")
                     shop = row.get("shop")
                     price = row.get("min_price")
+                    recorded_at = row.get("recorded_at")
+                    if not recorded_at:
+                        missing_recorded_at += 1
+                        continue
                     if not name or not shop or price is None:
                         continue
+                    # 10円以下は収集異常値として除外（他の集計経路(daily_min_by_lowest_rarity等)と
+                    # 2026-08-07 監査で統一。監査M5）
+                    if price <= 10:
+                        continue
                     rarity_db = normalize_rarity(row.get("rarity", "") or "")
+                    date = recorded_at[:10]
+                    key = (name, shop, rarity_db)
+                    prev_date = latest_date_by_key.get(key)
                     by_shop = rows_by_card_shop_rarity.setdefault(name, {})
                     by_rarity = by_shop.setdefault(shop, {})
-                    if rarity_db not in by_rarity or price < by_rarity[rarity_db]:
+                    if prev_date is None or date > prev_date:
+                        # より新しい観測日 → 古い日の値を置き換える
                         by_rarity[rarity_db] = price
+                        latest_date_by_key[key] = date
+                    elif date == prev_date:
+                        # 同一日内の複数行は min を採用
+                        if price < by_rarity[rarity_db]:
+                            by_rarity[rarity_db] = price
+                    # date < prev_date（より古い行が後から来た場合）は無視する。
+                    # DB側の order 指定でほぼ発生しないが、順序に依存せず正しくするための明示的ガード
+                if missing_recorded_at:
+                    logger.warning(
+                        f"[wish-shop-totals] recorded_at欠落で除外: {missing_recorded_at}件"
+                        f"（offset={offset}）"
+                    )
                 if len(batch) < page_size:
                     break
                 offset += page_size
