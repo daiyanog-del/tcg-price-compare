@@ -419,10 +419,19 @@ document.getElementById('bulk-approve-btn').addEventListener('click', async () =
       document.getElementById('bulk-select-all').checked = false;
       document.getElementById('bulk-select-all').indeterminate = false;
       _updateBulkApproveBar();
-      alert(
+      let message =
         `${data.approved}件を承認しました。\n` +
-        '画像は取り込みに数秒〜十数秒かかります。少し待ってから再読み込みしてください。'
-      );
+        '画像は取り込みに数秒〜十数秒かかります。少し待ってから再読み込みしてください。';
+      if (data.release_date_backfilled > 0) {
+        message += `\n発売日を${data.release_date_backfilled}件補完しました。`;
+      }
+      if (data.release_date_warnings && data.release_date_warnings.length > 0) {
+        message += '\n⚠ 発売日に注意が必要なカード:\n';
+        message += data.release_date_warnings
+          .map((w) => `ID ${w.id} ${w.name}（${w.reason}）`)
+          .join('\n');
+      }
+      alert(message);
     } else {
       alert(data.error || '一括承認に失敗しました');
       _updateBulkApproveBar();
@@ -636,7 +645,13 @@ async function _approveCard(cardId, row) {
   try {
     const resp = await apiFetch(`/api/admin/unreleased/${cardId}/approve`, { method: 'POST' });
     if (resp.ok) {
+      const data = await resp.json().catch(() => ({}));
       row.remove();
+      // release_date ガードの補完・警告メッセージを表示（補完成功かつ過去日のような両立ケースもあるため連結する）
+      const guardMessages = [];
+      if (data.release_date_note) guardMessages.push(data.release_date_note);
+      if (data.release_date_warning) guardMessages.push(`⚠ ${data.release_date_warning}`);
+      if (guardMessages.length > 0) alert(guardMessages.join('\n'));
     } else {
       const data = await resp.json().catch(() => ({}));
       alert(data.error || '承認に失敗しました');

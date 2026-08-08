@@ -19,12 +19,15 @@ import hmac
 import time
 import logging
 import threading
+from collections import Counter
+from datetime import datetime
 from urllib.parse import urlparse
 
 from flask import Blueprint, request, jsonify, render_template
 
 import card_display as _card_display
 import fetch_guard as _fetch_guard
+from constants import JST as _JST
 
 logger = logging.getLogger(__name__)
 
@@ -343,6 +346,55 @@ def admin_update_unreleased(card_id: int):
         return jsonify({"error": "更新に失敗しました"}), 500
 
 
+def _backfill_release_date(product_name: str, exclude_id: int) -> str | None:
+    """
+    同じ product_name（収録商品名）を持つ他カードの release_date から
+    最頻値を求めて返す（"YYYY-MM-DD" 文字列）。
+
+    unreleased_cards の release_date が NULL のまま承認されると、発売日到来判定
+    （app.py の _is_release_passed_unreleased / /api/validate）が永遠に通らず
+    発売日当日になっても未発売扱いのままになる問題への対策。同一商品に収録され
+    た他カードは同じ発売日であることが通常のため、それを補完値として使う。
+
+    同数タイの場合は新しい日付を優先する（発売延期の反映漏れよりは新しい方が
+    実害が小さいと判断）。
+
+    Args:
+        product_name: 収録商品名（空なら None を返す）
+        exclude_id:   補完対象カード自身のID（結果から除外する）
+
+    Returns:
+        補完できた場合は "YYYY-MM-DD" 文字列、できなければ None
+    """
+    if not product_name:
+        return None
+
+    if not _supabase:
+        return None
+
+    try:
+        resp = (
+            _supabase.table("unreleased_cards")
+            .select("release_date")
+            .eq("product_name", product_name)
+            .neq("id", exclude_id)
+            .execute()
+        )
+    except Exception as e:
+        logger.warning(f"[admin] release_date 補完クエリ失敗 product_name={product_name!r}: {e}")
+        return None
+
+    dates = [row["release_date"] for row in (resp.data or []) if row.get("release_date")]
+    if not dates:
+        return None
+
+    counts = Counter(dates)
+    max_count = max(counts.values())
+    # 最頻値の候補が複数（タイ）なら新しい日付を優先（"YYYY-MM-DD" は文字列比較で日付順）
+    candidates = [d for d, c in counts.items() if c == max_count]
+    return max(candidates)
+
+
 # ──────────────────────────────────────────────
 # POST /api/admin/unreleased/<id>/approve — 承認
 # ──────────────────────────────────────────────
@@ -355,6 +407,12 @@ def admin_approve_unreleased(card_id: int):
     承認成功後、extraction_raw の image_urls から最初の1枚を取り込もうとする。
     画像取込失敗は承認自体を失敗させない。
     レスポンスに image_fetched: true/false と reason を含める。
+
+    release_date ガード:
+      - release_date が NULL の場合、同じ product_name の他カードから補完を試みる
+        （補完できれば release_date_note、できなければ release_date_warning を付加）
+      - 有効な release_date が今日(JST)より前の場合、抽出時の年誤りの可能性を
+        release_date_warning で警告する（承認自体はブロックしない）
     """
     err = _require_admin_key()
     if err:
@@ -367,7 +425,7 @@ def admin_approve_unreleased(card_id: int):
         # まずカードの extraction_raw を取得
         card_resp = (
             _supabase.table("unreleased_cards")
-            .select("id, name, source_url, extraction_raw, status")
+            .select("id, name, source_url, extraction_raw, status, release_date, product_name")
             .eq("id", card_id)
             .execute()
         )
@@ -378,10 +436,47 @@ def admin_approve_unreleased(card_id: int):
         if card_data["status"] not in ("pending", "rejected", "needs_review"):
             return jsonify({"error": "対象レコードが見つかりません（既に承認済みか存在しない可能性があります）"}), 404
 
-        # ステータスを承認済みに更新
+        # release_date ガード判定
+        release_date = card_data.get("release_date")
+        product_name = card_data.get("product_name") or ""
+        update_fields = {"status": "approved"}
+        release_date_note = None
+        release_date_warning = None
+
+        if not release_date:
+            backfilled = _backfill_release_date(product_name, card_id)
+            if backfilled:
+                update_fields["release_date"] = backfilled
+                release_date = backfilled
+                release_date_note = f"発売日を同商品の他カードから補完しました: {backfilled}"
+                logger.info(
+                    f"[admin] release_date 補完: card_id={card_id}, "
+                    f"product_name={product_name!r}, release_date={backfilled}"
+                )
+            else:
+                release_date_warning = (
+                    "発売日が未設定です。発売日を過ぎても未発売扱いのままになるため、"
+                    "判明したら編集で設定してください"
+                )
+                logger.warning(
+                    f"[admin] release_date 未設定のまま承認: card_id={card_id}, "
+                    f"product_name={product_name!r}"
+                )
+
+        if release_date:
+            today = datetime.now(_JST).strftime("%Y-%m-%d")
+            if release_date < today:
+                release_date_warning = (
+                    f"発売日が過去日です（{release_date}）。抽出時の年誤りの可能性があります"
+                )
+                logger.warning(
+                    f"[admin] release_date が過去日: card_id={card_id}, release_date={release_date}"
+                )
+
+        # ステータスを承認済みに更新（release_date 補完がある場合は同時に更新）
         upd_resp = (
             _supabase.table("unreleased_cards")
-            .update({"status": "approved"})
+            .update(update_fields)
             .eq("id", card_id)
             .execute()
         )
@@ -397,12 +492,17 @@ def admin_approve_unreleased(card_id: int):
             extraction_raw=card_data.get("extraction_raw") or {},
         )
 
-        return jsonify({
+        result = {
             "ok": True,
             "card": upd_resp.data[0],
             "image_fetched": image_fetched,
             "image_reason": image_reason,
-        })
+        }
+        if release_date_note:
+            result["release_date_note"] = release_date_note
+        if release_date_warning:
+            result["release_date_warning"] = release_date_warning
+        return jsonify(result)
 
     except Exception as e:
         logger.error(f"[admin] approve エラー id={card_id}: {e}")
@@ -591,10 +691,16 @@ def admin_bulk_approve_unreleased():
 
     処理フロー:
       1. 指定IDのうち pending/needs_review/rejected のものを一括で status='approved' に更新
-      2. 各カードの画像取込はバックグラウンドスレッドで非同期実行（タイムアウト回避）
-      3. 承認完了時点でレスポンスを返す（画像取込の完了を待たない）
+      2. release_date が NULL のカードは、同じ product_name の他カードから補完を試みる
+         （単体承認と同じガード。product_name ごとに補完値をメモ化して重複ルックアップを避ける）
+      3. 各カードの画像取込はバックグラウンドスレッドで非同期実行（タイムアウト回避）
+      4. 承認完了時点でレスポンスを返す（画像取込の完了を待たない）
 
-    レスポンス: {"approved": N, "image_fetch": "バックグラウンドで取込中"}
+    レスポンス: {
+        "approved": N, "image_fetch": "バックグラウンドで取込中",
+        "release_date_backfilled": N,
+        "release_date_warnings": [{"id": ..., "name": ..., "reason": ...}, ...],
+    }
     """
     err = _require_admin_key()
     if err:
@@ -622,7 +728,7 @@ def admin_bulk_approve_unreleased():
         # pending/needs_review/rejected のもののみ対象（既承認・linked は除外）
         target_resp = (
             _supabase.table("unreleased_cards")
-            .select("id, source_url, extraction_raw, status")
+            .select("id, name, source_url, extraction_raw, status, release_date, product_name")
             .in_("id", ids)
             .in_("status", ["pending", "needs_review", "rejected"])
             .execute()
@@ -643,6 +749,65 @@ def admin_bulk_approve_unreleased():
         logger.info(f"[admin] 一括承認: {approved_count}件 (ids={target_ids})")
 
         _card_display.invalidate_cache()
+
+        # release_date ガード: NULLのカードへ補完を試み、補完不可・過去日は警告として収集
+        release_date_backfilled = 0
+        release_date_warnings: list[dict] = []
+        _backfill_cache: dict[str, str | None] = {}
+        today = datetime.now(_JST).strftime("%Y-%m-%d")
+
+        for card_data in target_cards:
+            card_id_ = card_data["id"]
+            card_name_ = card_data.get("name", "")
+            release_date = card_data.get("release_date")
+            product_name = card_data.get("product_name") or ""
+
+            if not release_date:
+                # product_name ごとに補完値をメモ化（同一商品の重複ルックアップを避ける）
+                if product_name not in _backfill_cache:
+                    _backfill_cache[product_name] = _backfill_release_date(product_name, card_id_)
+                backfilled = _backfill_cache[product_name]
+
+                if backfilled:
+                    try:
+                        _supabase.table("unreleased_cards").update(
+                            {"release_date": backfilled}
+                        ).eq("id", card_id_).execute()
+                        release_date_backfilled += 1
+                        release_date = backfilled
+                        logger.info(
+                            f"[admin] 一括承認・release_date 補完: card_id={card_id_}, "
+                            f"release_date={backfilled}"
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"[admin] 一括承認・release_date 補完UPDATE失敗 card_id={card_id_}: {e}"
+                        )
+                        release_date_warnings.append(
+                            {"id": card_id_, "name": card_name_, "reason": "発売日未設定"}
+                        )
+                        continue
+                else:
+                    release_date_warnings.append(
+                        {"id": card_id_, "name": card_name_, "reason": "発売日未設定"}
+                    )
+                    continue
+
+            if release_date and release_date < today:
+                release_date_warnings.append(
+                    {"id": card_id_, "name": card_name_, "reason": f"発売日が過去日 ({release_date})"}
+                )
+
+        if release_date_warnings:
+            logger.warning(
+                f"[admin] 一括承認・release_date 要注意: {len(release_date_warnings)}件 "
+                f"({release_date_warnings})"
+            )
+
+        # 補完UPDATEは先の invalidate_cache() より後に走るため、補完があった場合は
+        # もう一度無効化して古い NULL 値がキャッシュTTL分残らないようにする
+        if release_date_backfilled > 0:
+            _card_display.invalidate_cache()
 
         # 画像取込をバックグラウンドスレッドで起動
         def _bg_fetch_images(cards: list[dict]) -> None:
@@ -674,6 +839,8 @@ def admin_bulk_approve_unreleased():
         return jsonify({
             "approved": approved_count,
             "image_fetch": "バックグラウンドで取込中",
+            "release_date_backfilled": release_date_backfilled,
+            "release_date_warnings": release_date_warnings,
         })
 
     except Exception as e:
