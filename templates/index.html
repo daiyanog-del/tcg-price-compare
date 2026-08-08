@@ -687,9 +687,9 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 /* ── 新弾フィーチャー 店舗×レアリティ価格マトリクス（featured-matrix.js） ── */
 .fmx-scroll{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius)}
 .fmx-table{border-collapse:collapse;width:100%;font:.78rem var(--font);white-space:nowrap}
-.fmx-table th,.fmx-table td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:center}
-.fmx-table thead th{background:var(--bg-card);color:var(--text-m);font-weight:700;position:sticky;top:0;z-index:2}
-.fmx-sticky-col{position:sticky;left:0;background:var(--bg-card);text-align:left;z-index:1;min-width:140px}
+.fmx-table th,.fmx-table td{padding:6px 6px;border-bottom:1px solid var(--border);text-align:center}
+.fmx-table thead th{background:var(--bg-card);color:var(--text-m);font-weight:700;font-size:.72rem;position:sticky;top:0;z-index:2}
+.fmx-sticky-col{position:sticky;left:0;background:var(--bg-card);text-align:left;z-index:1;min-width:110px;max-width:150px;white-space:normal}
 .fmx-table thead .fmx-sticky-col{z-index:3}
 .fmx-name{color:var(--text);font-weight:600}
 .fmx-name-repeat{color:var(--text-d)}
@@ -700,7 +700,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .fmx-cell-empty{color:var(--text-d)}
 .fmx-cell-date{font-size:.65rem;color:var(--text-d);margin-top:2px}
 .fmx-cell-code{font-size:.65rem;color:var(--text-d);margin-top:2px}
-.fmx-cell-action{padding:4px 8px}
+.fmx-cell-action{padding:4px 4px}
 </style>
 <script>
 // フラッシュ防止: bodyレンダリング前にハッシュを読み取りCSSを注入する
