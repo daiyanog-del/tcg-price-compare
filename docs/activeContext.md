@@ -1,6 +1,13 @@
 # activeContext — 今どこ・次何
 
-> 更新: 2026-08-07（監査F9/F10の対応を追加）
+> 更新: 2026-08-08（新弾マトリクス機能を追加）
+
+## 新弾マトリクス機能（2026-08-08・当日はUTILITY SELECTION発売日）
+
+- **何を作ったか**: ①`price_history.url` 列（min_price_any側の出品URL・購入導線用。DDL本番適用済み）②`collect_featured.py`＋Render Cron `tcg-collect-featured`（JST10:15。featured対象弾のみ収集・なければ即終了・last-write-winsで朝5時行を上書き）③`/api/featured/matrix`＋`featured_matrix.py`（非ブロッキング・stale-while-revalidate）④`/featured` の「📊 店舗×レア比較」マトリクスUI（行内最安ハイライト＋ヒートマップ・セルから商品ページ直行・型番表示・「+ 候補」でレアリティ付き購入リスト追加）
+- **設計判断**: 「(不明)」レアリティは除外／再試行はブロック様店舗（失敗率30%以上）のみ1900秒待機・散発は即時／セル型番表示は再録中心の弾で旧型番混入を可視化するための明示的仕様追加。詳細 decisions.md 2026-08-08
+- **検証状況**: pytest 496件全緑・reviewer監査2巡反映済み。実Supabase接続でのUI描画とcron実走は本番デプロイ後の確認事項
+- **次何**: ①新cronサービスへの環境変数コピー（SUPABASE_URL/SUPABASE_KEY/KANABELL_CLOUD_ID/KANABELL_API_KEY/COLLECT_SKIP_SHOPS を tcg-collect-prices から。**ダッシュボードでのユーザー操作**）②当日中の手動初回実行（ダッシュボードの Trigger Run）③8/9朝の初回自動実行ログ確認（TASKS.md 進行中タスク参照。10:15時点の403解除は未実測）
 
 ## 監査F9/F10の対応（2026-08-07）
 

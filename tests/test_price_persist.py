@@ -25,11 +25,11 @@ from rarity import UNKNOWN_RARITY_LABEL
 TODAY = "2026-07-10"
 
 
-def _item(shop, rarity, price, code="", condition="-", sold_out=False):
+def _item(shop, rarity, price, code="", condition="-", sold_out=False, url=""):
     return {
         "shop": shop, "name": "テストカード", "rarity": rarity, "code": code,
         "condition": condition, "price": price, "stock": 1,
-        "sold_out": sold_out, "url": "", "image": "",
+        "sold_out": sold_out, "url": url, "image": "",
     }
 
 
@@ -165,6 +165,51 @@ class TestTwoValueAggregation:
         row = _row_for(rows, "店舗A", "レア")
         assert row["min_price"] == 1500
         assert row["min_price_any"] == 1500
+
+
+# ──────────────────────────────────────────────
+# url: min_price_any を決めた出品のURLが添えられること
+# ──────────────────────────────────────────────
+
+class TestUrlField:
+    def test_url_is_any_side_when_any_equals_normal(self):
+        # any=normal（同一出品）の場合、url はその出品のURL
+        rows = build_min_price_rows(
+            "テストカード",
+            [_item("カードラボ", "レア", 800, code="X1", url="https://example.com/x1")],
+            TODAY,
+        )
+        row = _row_for(rows, "カードラボ", "レア")
+        assert row["url"] == "https://example.com/x1"
+
+    def test_url_is_any_side_when_normal_and_any_differ(self):
+        # 通常品(SA)がnormal側の最安、キズあり(C)がany側の最安 → url はany側(C)のURL
+        # code は従来どおり min_price(=normal側=SA) の型番のまま変わらない
+        rows = build_min_price_rows(
+            "テストカード",
+            [
+                _item("カーナベル", "ウルトラ", 1000, code="C1", condition="状態:SA",
+                      url="https://example.com/sa"),
+                _item("カーナベル", "ウルトラ", 700, code="C2", condition="状態:C",
+                      url="https://example.com/c"),
+            ],
+            TODAY,
+        )
+        row = _row_for(rows, "カーナベル", "ウルトラ")
+        assert row["min_price"] == 1000
+        assert row["min_price_any"] == 700
+        assert row["code"] == "C1"  # min_price（normal側）の監査情報のまま
+        assert row["url"] == "https://example.com/c"  # min_price_any（any側）のURL
+
+    def test_url_missing_becomes_none(self):
+        # url欠落（空文字）の出品しかない場合は None（NULL維持）
+        rows = build_min_price_rows(
+            "テストカード",
+            [_item("店舗A", "レア", 500, code="Z1", url="")],
+            TODAY,
+        )
+        row = _row_for(rows, "店舗A", "レア")
+        assert row["url"] is None
 
 
 # ──────────────────────────────────────────────

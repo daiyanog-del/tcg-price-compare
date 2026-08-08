@@ -1,4 +1,36 @@
 このファイルの目的: 重要な決定を「いつ・何を・なぜ」で記録する。新しい決定は上に追記
+## 2026-08-08: 新弾マトリクス機能（JST10:15収集cron＋店舗×レアリティ比較表）と price_history.url 列
+
+背景: 「新弾発売日の朝10時に各店舗の価格が出そろうので、まとめて比較したい」（ユーザー要望・当日はUTILITY SELECTION発売日）。案A=オンデマンド一括スクレイプ／案B=10時の自動収集＋DB表示／案C=ローカルPC収集を比較し、**案B＋比較表UI**を採択。理由: ①比較表は全セルが揃ってから見たい性質でDB表示と相性が良い ②収集1回で全ユーザー即表示（ユーザーごとのスクレイプが403流量予算を食い潰す案Aの弱点を回避） ③/api/deck のトレコロCB・カーナベル1ページ制限による高レア欠測を踏まない。
+
+### price_history.url 列（DDL適用済み・price_history_url_column.sql）
+
+- `ALTER TABLE price_history ADD COLUMN IF NOT EXISTS url text` を 2026-08-08 に本番適用（Supabase MCP経由・列の存在をSELECTで確認済み）。**コードのデプロイより先に適用**（未適用のままコードが出ると upsert が全行拒否され朝5時収集まで止まるため。price_persist.py の既知リスク）
+- **意味論: url は min_price_any（状態を問わない・実際に買える最安）を決めた出品のURL。code は従来どおり min_price（通常品系列）側の型番**。normal と any が別出品の場合に非対称になるのは意図（url の目的は購入導線、code は監査情報）
+- 却下した代替案: マトリクスのセルから既存の店舗検索URL生成（`_wishShopSearchUrl`）へ飛ばす案。生成がNFKC正規化のみで店舗の記号癖（トレコロ=全角ダッシュ必須等）を反映しておらず0件着地リスクがあるため恒久解にしない（url が NULL の旧行に限りフォールバックとして使用）
+
+### collect_featured.py（新弾限定収集・Render Cron tcg-collect-featured JST10:15）
+
+- featured対象弾（発売0〜7日・featured_pack の自動選択）のみ収集。対象なしの日は即終了＝実収集は新弾週だけ
+- upsert は **last-write-wins**（ignore_duplicates 不使用）＝10時の値で朝5時の行を意図的に上書き
+- collection_runs には記録しない（run_type の CHECK 制約が 'prices'/'buyback'/'instant' 限定のため。ログの「新弾フィーチャー価格収集」で区別）
+- **再試行の条件化**（reviewer指摘で全店一律1900秒待機→条件化。一律だと散発失敗1件でも63分の純待機になるため）: 店舗失敗率 BLOCKLIKE_FAIL_RATIO=30%以上（TODO: calibrate）を「ブロック様」と判定し、その店舗の失敗ペアだけ 1900秒（第1パス終了からの経過分を相殺）待って再試行。散発失敗は待機なし即時再試行。最大2ラウンド
+- 事前実測: JST11:15 に本番Render IP経由でカードラッシュ232件・カードラボ39件=200 OK（朝5時収集起因の403ブロック解除の既知上界が16:40→11:15に短縮）。**10:15ちょうどの解除は未実測**→初回運用ログで確認する
+- ★★403構造対策（裁定待ち）との関係: 本cronは「案B=日中の第2回収集」の新弾限定先行。全量収集の構造対策の裁定は別途のまま
+
+### マトリクスAPI/UI（featured_matrix.py / static/featured-matrix.js）
+
+- /api/featured/matrix は **/api/featured と同じ stale-while-revalidate 非ブロッキング方式**（reviewer高指摘: 同期構築はWikiスクレイプを含みキャッシュスタンピードで全スレッド停止しうる）
+- 読み出し境界で normalize_rarity 適用（既存5経路と同じ流儀）＋ **「(不明)」レアリティは除外**（裁定: 実体がバラバラの疑似系列で行内最安ハイライトが誤った購買判断を誘発するため。aggregations/notify の代表レアリティ選定と同じ扱い）
+- カード名 in_ チャンクは件数固定でなく**エンコード後バイト予算6,000で分割**（長いカード名連続でのURL長超過対策）
+- **セルに型番（code）を表示**（仕様追加・明示）: 当日発売のUTILITY SELECTIONが再録中心で、カード名×レアリティの最安には旧型番の出品が混ざると実データで確認。どの収録の価格かを可視化する。型番別の系列分離は price_history のキー構造（card,shop,rarity,recorded_at）上不可能で、将来課題
+- UIのトグル状態はモジュール変数でなく**DOM（dataset/classList）に保持**（pack切替の innerHTML 全消しで状態だけ残り壊れる reviewer 高指摘の根治）
+
+### 検証
+
+- pytest 496件全緑（新規49件: url集計の非対称・build_matrix境界・ページング挙動・失敗分類4分岐・チャンク分割ほか）。reviewer監査2巡（高3・中7・低3を全て裁定のうえ反映）
+- 実Supabase接続下のUI描画とcron実走は本番デプロイ後に確認（ローカルに接続情報なし）
+
 ## 2026-08-07: グラフ統計量をminへ統一（監査F9）＋夜間収集403の実測と第一弾対策（監査F10）
 
 ### F9: カード詳細グラフを「店舗平均」→「各日の店舗最安値」へ

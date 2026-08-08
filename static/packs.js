@@ -157,6 +157,8 @@ async function _loadFeaturedIntoPackDetail(packName, detailEl){
 
     // 一括検索バーを見出し直下に表示（DB価格を初期表示、ボタンでリアルタイム上書き）
     html+=_packBulkBarHtml();
+    // 店舗×レアリティ価格マトリクス（featured-matrix.js）への切替ボタン
+    html+='<div style="margin-bottom:8px"><button id="fmxToggleBtn" class="share-btn share-btn-copy" onclick="toggleFeaturedMatrix()">📊 店舗×レア比較</button></div>';
 
     let listHtml='<div class="pack-card-grid" id="packDetailGrid" style="max-height:400px;overflow-y:auto">';
     cards.forEach((c,i)=>{
@@ -165,6 +167,7 @@ async function _loadFeaturedIntoPackDetail(packName, detailEl){
     });
     listHtml+='</div>';
     listHtml+='<div class="meta-note" style="margin-top:6px">カード名をタップすると個別検索／まとめて検索でリアルタイム相場を取得します</div>';
+    listHtml+='<div id="featuredMatrixContainer" class="hidden"></div>';
     detailEl.innerHTML=html+listHtml;
     _setupThumbObserver('#packDetailGrid');
   }catch(e){

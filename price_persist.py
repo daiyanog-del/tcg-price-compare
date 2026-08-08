@@ -58,13 +58,18 @@ def build_min_price_rows(card_name: str, scrape_results: list, today: str) -> li
     店舗横断のキーとしては使えない（店舗ごとに表記形式が異なる）ため、あくまで
     「その日その店のそのレアリティの最安は、どの収録だったか」の監査情報。
 
+    url は code と役割分担が非対称: 常に min_price_any（本当の最安値）を決めた
+    出品のURLを添える（code は min_price 側のまま変えない）。通常品とany品が
+    別出品の場合、code と url は別の出品を指すことになる（意図どおり）。
+    出品に有効なURLが無ければ None（NULL維持）。
+
     rarity 抽出失敗行（空文字）は "(不明)" ラベルへ明示し、正規レアリティ系列に
     混ぜない（フェーズ3 P3。除外は読み出し側の代表レアリティ選定で行う）。
 
     sold_out や price <= 10 はノイズとして除外する。
     （畳みキー・除外条件は collect_prices.py:156-175 から切り出したロジックを踏襲）
     """
-    # key(shop, rarity) -> {"any": (price, code), "normal": (price, code) | None}
+    # key(shop, rarity) -> {"any": (price, code, url), "normal": (price, code) | None}
     best: dict[tuple[str, str], dict] = {}
     for item in scrape_results:
         if item.get("sold_out"):
@@ -80,12 +85,13 @@ def build_min_price_rows(card_name: str, scrape_results: list, today: str) -> li
             rarity = UNKNOWN_RARITY_LABEL
         code = item.get("code", "") or ""
         condition = item.get("condition", "") or ""
+        url = item.get("url", "") or ""
 
         key = (shop, rarity)
         entry = best.setdefault(key, {"any": None, "normal": None})
 
         if entry["any"] is None or price < entry["any"][0]:
-            entry["any"] = (price, code)
+            entry["any"] = (price, code, url)
 
         if _is_normal_condition(shop, condition):
             if entry["normal"] is None or price < entry["normal"][0]:
@@ -93,7 +99,7 @@ def build_min_price_rows(card_name: str, scrape_results: list, today: str) -> li
 
     rows = []
     for (shop, rarity), entry in best.items():
-        any_price, any_code = entry["any"]
+        any_price, any_code, any_url = entry["any"]
         if entry["normal"] is not None:
             min_price, min_code = entry["normal"]
         else:
@@ -101,7 +107,7 @@ def build_min_price_rows(card_name: str, scrape_results: list, today: str) -> li
         rows.append({
             "card_name": card_name, "shop": shop, "rarity": rarity,
             "min_price": min_price, "min_price_any": any_price,
-            "code": min_code, "recorded_at": today,
+            "code": min_code, "url": any_url or None, "recorded_at": today,
         })
     return rows
 

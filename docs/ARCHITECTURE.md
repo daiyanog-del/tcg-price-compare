@@ -104,6 +104,7 @@ RPC（DB側集計関数）: `get_price_movers` / `get_buyback_movers`（値動�
 | ジョブ | 実行基盤 | スケジュール |
 |---|---|---|
 | 販売価格収集 (collect_prices.py) | Render Cron `tcg-collect-prices` | 毎日 JST 5:00 |
+| 新弾フィーチャー価格収集 (collect_featured.py) | Render Cron `tcg-collect-featured` | 毎日 JST 10:15（UTC 1:15）— 新弾（featured対象弾）収録カードの発売日朝価格を収集。対象弾が無い日は即終了 |
 | 買取価格収集 (collect_buyback.py) | Render Cron `tcg-collect-buyback` | 毎日 JST 7:00 |
 | X未発売監視 (watch_x_unreleased.py) | Render Cron `tcg-watch-x-unreleased` | 毎日 JST 23:00 |
 | カード名DB更新＋発売済み照合 | GitHub Actions `update-cardnames.yml` | 毎週月曜 UTC 0:00（**cardnames_ja.json を自動コミット** → 編集前 git pull 必須の根拠） |

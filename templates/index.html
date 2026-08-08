@@ -683,6 +683,24 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .legal-modal-body ul{margin:6px 0 6px 20px}
 .legal-modal-body li{margin:3px 0}
 .legal-modal-body a{color:var(--accent-l)}
+
+/* ── 新弾フィーチャー 店舗×レアリティ価格マトリクス（featured-matrix.js） ── */
+.fmx-scroll{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius)}
+.fmx-table{border-collapse:collapse;width:100%;font:.78rem var(--font);white-space:nowrap}
+.fmx-table th,.fmx-table td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:center}
+.fmx-table thead th{background:var(--bg-card);color:var(--text-m);font-weight:700;position:sticky;top:0;z-index:2}
+.fmx-sticky-col{position:sticky;left:0;background:var(--bg-card);text-align:left;z-index:1;min-width:140px}
+.fmx-table thead .fmx-sticky-col{z-index:3}
+.fmx-name{color:var(--text);font-weight:600}
+.fmx-name-repeat{color:var(--text-d)}
+.fmx-rarity-badge{display:inline-block;margin-top:2px;padding:1px 6px;font-size:.68rem;color:var(--text-m);background:var(--bg-hover);border-radius:4px}
+.fmx-cell{color:var(--text)}
+.fmx-cell a{color:var(--text);text-decoration:none}
+.fmx-cell a:hover{text-decoration:underline}
+.fmx-cell-empty{color:var(--text-d)}
+.fmx-cell-date{font-size:.65rem;color:var(--text-d);margin-top:2px}
+.fmx-cell-code{font-size:.65rem;color:var(--text-d);margin-top:2px}
+.fmx-cell-action{padding:4px 8px}
 </style>
 <script>
 // フラッシュ防止: bodyレンダリング前にハッシュを読み取りCSSを注入する
@@ -4609,7 +4627,8 @@ loadWishPrices().then(wishUpdateBadge);
 // 通知UIの初期状態を反映
 updatePushUI(!!localStorage.getItem(PUSH_SUB_KEY));
 </script>
-<script src="/static/packs.js?v=20260627b"></script>
+<script src="/static/packs.js?v=20260808"></script>
+<script src="/static/featured-matrix.js?v=20260808"></script>
 <script src="/static/wish-split.js?v=20260805"></script>
 <script src="/static/mydeck/deck-edit.js?v=20260615c"></script>
 <script type="module" src="/static/mydeck/deck-card-info.js?v=20260617"></script>

@@ -2399,6 +2399,26 @@ def api_featured():
     return jsonify({"pack": None, "days_since_release": -1, "loading": True, "cards": []})
 
 
+@app.route("/api/featured/matrix")
+def api_featured_matrix():
+    """新弾の店舗×レアリティ価格マトリクスを返す（featured_matrix.py、DB読みのみ）。
+    /api/featured と同じ stale-while-revalidate 方式（キャッシュ未確立時は
+    loading=True を即返し、フロントが数秒後に再fetchする）。
+    {
+      "pack": {...} or None, "updated_at": "YYYY-MM-DD", "loading": bool(任意),
+      "shops": [店舗名, ...],
+      "rows": [{"name", "rarity", "cells": {店舗名: {"price", "url", "code", "recorded_at"}}}]
+    }
+    """
+    if not _supabase_client:
+        return jsonify({"error": "DBに接続できません"}), 503
+    from featured_matrix import get_matrix
+    result = get_matrix(_supabase_client)
+    if result.get("error"):
+        return jsonify(result), 503
+    return jsonify(result)
+
+
 # ── Web Push 通知 ──
 
 @app.route("/api/push/vapid-key")
