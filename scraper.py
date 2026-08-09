@@ -1373,6 +1373,79 @@ def _is_clabo_ygo(raw_name: str) -> bool:
     m = _CLABO_TAG_RE.search(raw_name)
     return bool(m) and m.group(1) == _CLABO_YGO_TAG
 
+def _extract_clabo_item(container) -> dict | None:
+    """カードラボの商品コンテナ1件から商品フィールドを抽出する（フィルタ判定は行わない）。
+
+    2026-08-09: カタログ巡回（clabo_catalog.py）と検索パース（_parse_clabo_items）の
+    両方から共有するために切り出した（挙動は変更していない）。
+    ゲームタグ判定・ラッシュデュエル除外・is_target_card照合は呼び出し側の責務。
+    構造的に取得できない（要素が無い・価格が読めない）場合は None を返す。
+    """
+    inner = container.select_one("div.inner_item_data")
+    if not inner:
+        return None
+
+    # 商品名
+    name_el = inner.select_one("span.goods_name")
+    if not name_el:
+        return None
+    raw_name = name_el.get_text(strip=True)
+
+    # レアリティとコードを商品名から抽出
+    # 形式: 【遊戯】カード名【レアリティ/種類】コード
+    rarity = ""
+    code = ""
+    rarity_match = re.search(r"【([^】]+/[^】]+)】(\S+)$", raw_name)
+    if rarity_match:
+        rarity_raw = rarity_match.group(1).split("/")[0]
+        code = rarity_match.group(2)
+        rarity = rarity_raw
+    # 【遊戯】を除去してカード名を抽出
+    display_name = re.sub(r"【[^】]*】", "", raw_name).strip()
+    # 末尾のコードを除去
+    if code:
+        display_name = display_name.replace(code, "").strip()
+
+    # 価格
+    price_el = inner.select_one("span.figure")
+    if not price_el:
+        return None
+    price = parse_price(price_el.get_text())
+    if not price:
+        return None
+
+    # 在庫
+    stock_el = inner.select_one("p.stock")
+    sold_out = False
+    stock = 0
+    if stock_el:
+        if "soldout" in stock_el.get("class", []):
+            sold_out = True
+        else:
+            stock_match = re.search(r"(\d+)", stock_el.get_text())
+            stock = int(stock_match.group(1)) if stock_match else 1
+
+    # 商品リンク
+    link_el = container.select_one("a[href*='/product/']")
+    product_url = link_el.get("href", "") if link_el else ""
+
+    # 画像（data-src に実際の画像URLが入っている）
+    image_url = ""
+    img_box = inner.select_one("div.async_image_box")
+    if img_box:
+        image_url = img_box.get("data-src", "")
+
+    return {
+        "shop": "カードラボ", "name": display_name,
+        "rarity": normalize_rarity(rarity), "code": code,
+        "condition": "-", "price": price, "stock": stock,
+        "sold_out": sold_out, "url": product_url,
+        "image": image_url,
+        # フィルタ判定専用。呼び出し側の最終出力には含めない
+        "raw_name": raw_name,
+    }
+
+
 def _parse_clabo_items(card_name: str, containers,
                        require_game_tag: bool = True) -> list[dict]:
     """カードラボの商品要素リストを解析する（ページ送りで共通利用）
@@ -1383,78 +1456,23 @@ def _parse_clabo_items(card_name: str, containers,
     # 各商品は div.inner_item_data 内にリンク・画像・商品情報がまとまっている
     # 親の a タグ (product/XXXXX) からリンクを取得
     for container in containers:
-        inner = container.select_one("div.inner_item_data")
-        if not inner:
+        item = _extract_clabo_item(container)
+        if item is None:
             continue
-
-        # 商品名
-        name_el = inner.select_one("span.goods_name")
-        if not name_el:
-            continue
-        raw_name = name_el.get_text(strip=True)
+        raw_name = item.pop("raw_name")
 
         # 他TCG（デュエマ・ヴァイス・シャドバ等）の同名カードを除外
         if require_game_tag and not _is_clabo_ygo(raw_name):
             continue
 
-        # レアリティとコードを商品名から抽出
-        # 形式: 【遊戯】カード名【レアリティ/種類】コード
-        rarity = ""
-        code = ""
-        rarity_match = re.search(r"【([^】]+/[^】]+)】(\S+)$", raw_name)
-        if rarity_match:
-            rarity_raw = rarity_match.group(1).split("/")[0]
-            code = rarity_match.group(2)
-            rarity = rarity_raw
-        # 【遊戯】を除去してカード名を抽出
-        display_name = re.sub(r"【[^】]*】", "", raw_name).strip()
-        # 末尾のコードを除去
-        if code:
-            display_name = display_name.replace(code, "").strip()
-
         # ラッシュデュエルのカードを除外（元の商品名・カードコードで判定）
-        if _is_rush_duel(raw_name) or _is_rush_duel(code):
+        if _is_rush_duel(raw_name) or _is_rush_duel(item["code"]):
             continue
 
-        if not is_target_card(card_name, display_name):
+        if not is_target_card(card_name, item["name"]):
             continue
 
-        # 価格
-        price_el = inner.select_one("span.figure")
-        if not price_el:
-            continue
-        price = parse_price(price_el.get_text())
-        if not price:
-            continue
-
-        # 在庫
-        stock_el = inner.select_one("p.stock")
-        sold_out = False
-        stock = 0
-        if stock_el:
-            if "soldout" in stock_el.get("class", []):
-                sold_out = True
-            else:
-                stock_match = re.search(r"(\d+)", stock_el.get_text())
-                stock = int(stock_match.group(1)) if stock_match else 1
-
-        # 商品リンク
-        link_el = container.select_one("a[href*='/product/']")
-        product_url = link_el.get("href", "") if link_el else ""
-
-        # 画像（data-src に実際の画像URLが入っている）
-        image_url = ""
-        img_box = inner.select_one("div.async_image_box")
-        if img_box:
-            image_url = img_box.get("data-src", "")
-
-        results.append({
-            "shop": "カードラボ", "name": display_name,
-            "rarity": normalize_rarity(rarity), "code": code,
-            "condition": "-", "price": price, "stock": stock,
-            "sold_out": sold_out, "url": product_url,
-            "image": image_url,
-        })
+        results.append(item)
 
     return results
 
@@ -2195,8 +2213,14 @@ def compare_prices(card_name: str, shop_names: list[str] | None = None,
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    target = shop_names or DEFAULT_SHOPS
+    # shop_names=[]（明示的な空リスト）は「対象店舗なし」を意味し、DEFAULT_SHOPS への
+    # フォールバックをしてはいけない。`or` 演算子は空リストも偽値として DEFAULT_SHOPS に
+    # 化けさせてしまうため None 判定に変更（reviewer中1。呼び出し元が空の loop_shops を
+    # 渡した晩に、全カードが未フィルタのDEFAULT_SHOPS 6店舗へ飛ぶ事故を防ぐ）
+    target = DEFAULT_SHOPS if shop_names is None else shop_names
     active = [(name, fn) for name, fn in SHOPS if name in target]
+    if not active:
+        return []
 
     all_results = []
     with ThreadPoolExecutor(max_workers=len(active)) as executor:
@@ -2224,7 +2248,8 @@ def compare_buyback(card_name: str, shop_names: list[str] | None = None,
     """指定された買取店舗を並列にスクレイピング（compare_prices の買取版）"""
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    target = shop_names or DEFAULT_BUYBACK_SHOPS
+    # compare_prices と同型の空リスト対策（reviewer中1）
+    target = DEFAULT_BUYBACK_SHOPS if shop_names is None else shop_names
     active = [(name, fn) for name, fn in BUYBACK_SHOPS if name in target]
     if not active:
         return []

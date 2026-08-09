@@ -24,6 +24,7 @@ from pack_scraper import (
     fetch_theme_cards, fetch_card_themes,
 )
 from price_persist import build_min_price_rows, upsert_price_rows
+from clabo_catalog import collect_clabo_catalog
 from collection_run import record_collection_run
 from meta_scraper import fetch_tier_list, fetch_deck_cards
 from name_normalize import load_cardnames_index, canonicalize_card_name
@@ -150,6 +151,126 @@ def fetch_tracked_cards_with_meta(sb: Client) -> list[dict]:
     ]
     print(f"監視対象カード: {len(cards)}件")
     return cards
+
+
+# price_history への upsert を分割する行数（中4）。カード単位で直列 upsert すると
+# カード枚数ぶんのラウンドトリップが発生するため、全カードの行をまとめてから
+# チャンクに分けて渡す。500はPostgRESTの実務的なペイロードサイズを考慮した目安。
+_UPSERT_CHUNK_SIZE = 500
+
+
+def _prepare_clabo_catalog(selected: list[dict], available_shops: list[str],
+                           shop_stats: dict) -> tuple[list[str], dict[str, list[dict]] | None, dict | None]:
+    """カードラボのカタログ巡回（P1・403対策）を、カード単位ループの前に実行する。
+
+    カード単位の検索をやめ、遊戯王カテゴリ14個のカタログページを巡回して全商品を
+    取得し、ローカルで監視カードに名寄せする（docs/audit-403-plan-2026-08-08.md、
+    docs/decisions.md 2026-08-07 F10）。
+
+    戻り値は (loop_shops, matched, catalog_stats)。
+      - loop_shops: 以後のカード単位ループに渡す店舗リスト。成立時はカードラボを除く。
+        available_shops 自体は変更しない（collection_runs には観測店舗としてカードラボ
+        入りのまま渡すため。reviewer中1）
+      - matched: 成立時はカード名→商品リストのdict。対象外/不成立/例外時は None
+      - catalog_stats: crawl_catalog由来の統計。matched が None の場合は保存フェーズが
+        呼ばれないため None のまま返る
+
+    保存（rows構築・upsert）はここでは行わない（reviewer中3）。時間予算打ち切りで
+    ループが処理しなかったカードにカードラボ単独の行を書くと、その日の全店minが
+    カードラボ価格になり偽の棘が立つため、実際にループで処理されたカードだけを
+    対象に後段の _save_clabo_catalog_rows で保存する。
+
+    shop_stats["カードラボ"] は「対象外」以外のケースで先にここで作っておく。
+    不成立/例外時は ok/empty/error を 0 で初期化するだけで、実際の集計は後続の
+    カード単位ループ（collect_and_save）が従来どおり書き込む（loop_shopsに
+    カードラボが残っているため）。成立時は _save_clabo_catalog_rows が後で設定する。
+
+    collect_clabo_catalog が例外を送出した場合（reviewer高3）は、目立つ警告を出し
+    shop_stats に mode="error" を記録したうえで loop_shops を変更せず返す
+    （＝従来の検索方式へフォールバック）。
+    """
+    loop_shops = list(available_shops)
+    if "カードラボ" not in available_shops:
+        return loop_shops, None, None
+
+    clabo_card_names = [c["card_name"] for c in selected]
+    print("\n--- カードラボ カタログ巡回 ---")
+    try:
+        matched, catalog_stats = collect_clabo_catalog(clabo_card_names)
+    except Exception as e:
+        print(
+            f"  ⚠⚠ カードラボ カタログ巡回で予期しない例外が発生しました: {e}。"
+            "従来の検索方式へフォールバックします"
+        )
+        shop_stats["カードラボ"] = {
+            "ok": 0, "empty": 0, "error": 0,
+            "mode": "error", "exception": str(e),
+        }
+        return loop_shops, None, None
+
+    if matched is None:
+        print(
+            "  カタログ巡回が不成立（カテゴリ/ページ取得失敗）。"
+            "従来の検索方式へフォールバックします"
+        )
+        shop_stats["カードラボ"] = {
+            "ok": 0, "empty": 0, "error": 0,
+            "mode": "fallback", "catalog": catalog_stats,
+        }
+        return loop_shops, None, None
+
+    loop_shops = [s for s in loop_shops if s != "カードラボ"]
+    return loop_shops, matched, catalog_stats
+
+
+def _save_clabo_catalog_rows(sb: Client, processed: list[dict], matched: dict[str, list[dict]],
+                             today: str, shop_stats: dict, catalog_stats: dict) -> int:
+    """カタログ巡回の結果を、実際にカード単位ループで処理されたカードだけ保存する。
+
+    processed は selected のうち、時間予算打ち切りの break が起きる前にループが
+    実際に処理したカードのスライス（reviewer中3）。打ち切られたカードにはカードラボ
+    単独の行を書かない（偽の価格棘を防ぐ）。
+
+    全カード分の行をまとめて構築し、_UPSERT_CHUNK_SIZE 行ずつのチャンクで
+    upsert_price_rows に渡す（reviewer中4。カード単位の直列upsertをやめる）。
+    """
+    clabo_ok = 0
+    clabo_empty = 0
+    all_rows: list[dict] = []
+    for card_data in processed:
+        card_name = card_data["card_name"]
+        products = matched.get(card_name, [])
+        if products:
+            clabo_ok += 1
+            all_rows.extend(build_min_price_rows(card_name, products, today))
+        else:
+            clabo_empty += 1
+
+    # reviewer低6: (card_name, shop, rarity, recorded_at) が重複した行がチャンク内に
+    # 混ざると、upsert の ON CONFLICT DO UPDATE がチャンクまとめてエラーになる
+    # （build_min_price_rows は (shop, rarity) で集約するため現状は到達不能だが、
+    # 複数カードにまたがる集約後の全体リストとしての保険）。同キーは後勝ちで一意化する
+    deduped: dict[tuple, dict] = {}
+    for row in all_rows:
+        key = (row["card_name"], row["shop"], row["rarity"], row["recorded_at"])
+        deduped[key] = row
+    all_rows = list(deduped.values())
+
+    saved = 0
+    for i in range(0, len(all_rows), _UPSERT_CHUNK_SIZE):
+        chunk = all_rows[i:i + _UPSERT_CHUNK_SIZE]
+        saved += upsert_price_rows(sb, chunk)
+
+    shop_stats["カードラボ"] = {
+        "ok": clabo_ok, "empty": clabo_empty, "error": 0,
+        "mode": "catalog", "catalog": catalog_stats,
+    }
+    print(
+        f"  カタログ巡回成立: 対象{clabo_ok}枚 / 0件{clabo_empty}枚 / "
+        f"保存{saved}行（商品{catalog_stats['products']}件・"
+        f"カテゴリ失敗{len(catalog_stats['categories_failed'])}件）"
+    )
+    return saved
 
 
 def collect_and_save(sb: Client, card_name: str, today: str, shop_names: list[str],
@@ -662,6 +783,40 @@ def send_daily_report(
                 f"サイト構造変更（セレクタ破損）またはブロックの可能性\n"
             )
 
+        # カードラボ カタログ巡回の異常（カテゴリ差分・検証失敗・未検証）を警告として足す
+        # （reviewer中2/中3b/低2/低3）
+        clabo_stat = shop_stats.get("カードラボ", {})
+        if clabo_stat.get("mode") == "error":
+            shop_block += f"警告: カードラボ カタログ巡回が例外で失敗 — {clabo_stat.get('exception', '')}\n"
+        catalog = clabo_stat.get("catalog") or {}
+
+        # category_drift は None（harvest_categories 取得失敗）と []（差分なし）を区別する。
+        # どちらも `or []` で潰すと「取得失敗」を検知できなくなるため in 判定で分ける（低3）
+        drift = catalog.get("category_drift")
+        if drift is None:
+            if "category_drift" in catalog:
+                shop_block += "警告: カードラボ カテゴリ差分チェック取得失敗\n"
+        elif drift:
+            # Discord本文の文字数上限対策（低2）: 先頭5件のみ本文に出し、残りは件数だけ示す
+            shown = drift[:5]
+            remainder = len(drift) - len(shown)
+            suffix = f"（他{remainder}件）" if remainder > 0 else ""
+            shop_block += f"警告: カードラボ カテゴリ差分 {len(drift)}件 — {'; '.join(shown)}{suffix}\n"
+
+        cat_failed = catalog.get("categories_failed") or []
+        if cat_failed:
+            shop_block += (
+                f"警告: カードラボ カタログ巡回でカテゴリ{len(cat_failed)}件が検証失敗 "
+                f"— {', '.join(cat_failed)}\n"
+            )
+
+        cat_unverified = catalog.get("categories_unverified") or []
+        if cat_unverified:
+            shop_block += (
+                f"警告: カードラボ カタログ巡回でカテゴリ{len(cat_unverified)}件が未検証"
+                f"（item_count読取不能・自然終端のため成立扱い） — {', '.join(cat_unverified)}\n"
+            )
+
     message = (
         f"**TCGYM 日次レポート {today}**\n"
         f"\n"
@@ -803,34 +958,68 @@ def main():
     cutoff_count = 0
     shop_stats: dict = {}  # 店舗別の 取得成功/0件/エラー 集計
 
-    for i, card_data in enumerate(selected):
-        card_name = card_data["card_name"]
+    # カードラボ: カタログ巡回（P1・403対策）。成立すれば loop_shops（カード単位
+    # ループ専用の店舗リスト）からカードラボを外す。available_shops はここでは
+    # 変更しない（record_collection_run に渡す観測店舗集合はカードラボ入りのまま。
+    # reviewer中1。経路の区別は shop_stats["カードラボ"]["mode"] で表現する）
+    loop_shops, clabo_matched, clabo_catalog_stats = _prepare_clabo_catalog(
+        selected, available_shops, shop_stats
+    )
 
-        # 周辺カードのみ時間予算チェック（注目カードは予算外で必ず収集）
-        if card_name in cold_name_set:
-            elapsed = (datetime.now(JST) - started_at).total_seconds()
-            if elapsed > TIME_BUDGET_SEC:
-                cutoff_count = len(selected) - i
-                print(f"時間予算超過（{elapsed/60:.0f}分）。周辺カード残り{cutoff_count}枚を打ち切り")
-                break
+    # 打ち切り時点のインデックス（打ち切りが起きなければ全件処理）。
+    # カタログの保存対象を「実際にループで処理されたカード」に絞るために使う（reviewer中3）
+    loop_end_index = len(selected)
 
-        print(f"[{i+1}/{len(selected)}] {card_name}")
-        saved = collect_and_save(sb, card_name, today, available_shops, shop_stats=shop_stats)
-        if saved > 0:
-            total_saved += saved
-            success_count += 1
-            # 収集完了を記録（途中タイムアウトでも進捗が保持されローテーションが正しく進む）
-            try:
-                sb.table("tracked_cards").update(
-                    {"last_collected_at": datetime.now(JST).isoformat()}
-                ).eq("card_name", card_name).execute()
-            except Exception:
-                pass  # スキーマ未移行時は無視
+    # try/finally で囲む（reviewer低1）: カード単位ループ中に想定外の例外が起きても、
+    # 既に巡回済みのカタログ結果（最大2万件）を失わずに保存する。例外自体は
+    # finally 実行後に再送出される（catch はしない）
+    try:
+        if not loop_shops:
+            # loop_shops が空＝カタログ巡回でカードラボが外れ、かつ他店が全滅した晩。
+            # scraper.compare_prices 側でも空リストはDEFAULT_SHOPSへフォールバックしない
+            # よう塞いだが（reviewer中1）、2,700枚ぶんの空スクレイプ＋待機を毎回
+            # 走らせるのは無駄なので、ここでループ自体をスキップする
+            print("  ⚠ カード単位ループの対象店舗が空のためスキップします（カタログ巡回の保存のみ実施）")
         else:
-            fail_count += 1
+            for i, card_data in enumerate(selected):
+                card_name = card_data["card_name"]
 
-        if i < len(selected) - 1:
-            time.sleep(WAIT_BETWEEN_CARDS)
+                # 周辺カードのみ時間予算チェック（注目カードは予算外で必ず収集）
+                if card_name in cold_name_set:
+                    elapsed = (datetime.now(JST) - started_at).total_seconds()
+                    if elapsed > TIME_BUDGET_SEC:
+                        cutoff_count = len(selected) - i
+                        print(f"時間予算超過（{elapsed/60:.0f}分）。周辺カード残り{cutoff_count}枚を打ち切り")
+                        loop_end_index = i
+                        break
+
+                print(f"[{i+1}/{len(selected)}] {card_name}")
+                saved = collect_and_save(sb, card_name, today, loop_shops, shop_stats=shop_stats)
+                if saved > 0:
+                    total_saved += saved
+                    success_count += 1
+                    # 収集完了を記録（途中タイムアウトでも進捗が保持されローテーションが正しく進む）
+                    try:
+                        sb.table("tracked_cards").update(
+                            {"last_collected_at": datetime.now(JST).isoformat()}
+                        ).eq("card_name", card_name).execute()
+                    except Exception:
+                        pass  # スキーマ未移行時は無視
+                else:
+                    fail_count += 1
+
+                if i < len(selected) - 1:
+                    time.sleep(WAIT_BETWEEN_CARDS)
+    finally:
+        # カタログ巡回が成立していれば、実際に処理されたカードだけを対象にここで保存する。
+        # loop_shops が空でスキップした場合は loop_end_index が len(selected) のままなので、
+        # selected 全件が保存対象になる（正しい）
+        if clabo_matched is not None:
+            processed = selected[:loop_end_index]
+            clabo_saved = _save_clabo_catalog_rows(
+                sb, processed, clabo_matched, today, shop_stats, clabo_catalog_stats
+            )
+            total_saved += clabo_saved
 
     cleanup_old_data(sb)
 

@@ -748,13 +748,24 @@ def _persist_scrape_async(card_name: str, scrape_results: list, ignore_duplicate
     （フェーズ3 P6b。/api/deck は店舗を1ページ目に制限した網羅性の低いスクレイプの
     ため、夜間収集の網羅的な最安値を同日上書きしないようにする。/api/search は
     全ページ取得のため既定の False のまま last-write-wins を維持する）。
+
+    カードラボだけは呼び出し元の指定に関わらず ignore_duplicates=True に固定する
+    （docs/audit-403-plan-2026-08-08.md M1）。夜間収集がカタログ巡回（全数網羅）に
+    切り替わったため、ライブ検索由来の行（取りこぼしあり）が同日の網羅的な最安値を
+    上書きすると系列がギザギザになる。
     """
     if not _supabase_client or not scrape_results:
         return
     try:
         today = datetime.now(JST).strftime("%Y-%m-%d")
-        rows = build_min_price_rows(card_name, scrape_results, today)
-        upsert_price_rows(_supabase_client, rows, ignore_duplicates=ignore_duplicates)
+        clabo_results = [r for r in scrape_results if r.get("shop") == "カードラボ"]
+        other_results = [r for r in scrape_results if r.get("shop") != "カードラボ"]
+        if other_results:
+            rows = build_min_price_rows(card_name, other_results, today)
+            upsert_price_rows(_supabase_client, rows, ignore_duplicates=ignore_duplicates)
+        if clabo_results:
+            clabo_rows = build_min_price_rows(card_name, clabo_results, today)
+            upsert_price_rows(_supabase_client, clabo_rows, ignore_duplicates=True)
     except Exception as e:
         logger.warning(f"[persist] {card_name} の即時 upsert 失敗: {e}")
 
