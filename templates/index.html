@@ -1232,6 +1232,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
       <ul>
         <li><strong>IPアドレス:</strong> サーバーへの過度なアクセスを防止するレートリミット機能のために一時的に取得します。永続的な保存は行いません。</li>
         <li><strong>Cookie:</strong> アフィリエイトプログラム（後述）の計測のために使用されます。</li>
+        <li><strong>購入候補（お気に入りカード）の内容と、端末を識別するためのランダムな識別子:</strong> 購入候補を別の端末（スマートフォンとパソコン等）でも見られるようにする「端末間同期」機能を利用した場合、購入候補に登録したカード名・枚数と、端末を紐づけるためにサーバーが発行するランダムな識別子（氏名・メールアドレス等の個人を特定する情報は含みません）を保存します。この機能は購入候補が1件以上登録されたときに限り有効になります。</li>
       </ul>
 
       <h3>2. 利用目的</h3>
@@ -1239,6 +1240,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
         <li>サービスの正常な運営およびアクセス制御（レートリミット）</li>
         <li>アフィリエイトプログラムにおける成果計測</li>
         <li>サービスの改善および品質向上</li>
+        <li>複数端末間での購入候補の同期</li>
       </ul>
 
       <h3>3. アフィリエイトについて</h3>
@@ -1262,7 +1264,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
       <h3>9. ポリシーの変更</h3>
       <p>本ポリシーは予告なく変更される場合があります。変更後のポリシーは本ページに掲載した時点で効力を生じるものとします。</p>
 
-      <p style="margin-top:16px;font-size:.8rem;color:var(--text-d)">制定日: 2025年6月1日 / 改定日: 2026-07-10</p>
+      <p style="margin-top:16px;font-size:.8rem;color:var(--text-d)">制定日: 2025年6月1日 / 改定日: 2026-08-09</p>
     </div>
   </div>
 </div>
@@ -2354,7 +2356,11 @@ function switchMode(mode){
     document.getElementById('mode-'+m).classList.toggle('hidden',m!==mode);
   });
   if(mode==='packs') loadPacks();
-  if(mode==='wishlist') renderWishlist();
+  if(mode==='wishlist'){
+    renderWishlist();
+    // 端末間同期（P1）: 購入候補タブを開いたときだけ pull する（カード個別ページ閲覧では走らせない）
+    if(window.SyncClient) window.SyncClient.pullIfNeeded();
+  }
   if(mode==='meta') loadMetaTiers();
   if(mode==='mydeck') renderSavedDecks();
   // リロード時にモードを復元できるようURLハッシュを更新
@@ -3787,6 +3793,8 @@ function wishSave(list){
   localStorage.setItem(WISH_KEY,JSON.stringify(list));
   wishUpdateBadge();
   syncPushSubscription();
+  // 端末間同期（P1・購入候補のみ）。sync-client.js 側でデバウンス・無限ループ防止を行う
+  if(window.SyncClient) window.SyncClient.onWishSave(list);
 }
 // (name, rarity) ペアの一致を見るヘルパ。rarity は未指定="" として比較する
 function _wishMatchKey(c,name,rarity){
@@ -4630,6 +4638,14 @@ updatePushUI(!!localStorage.getItem(PUSH_SUB_KEY));
 <script src="/static/packs.js?v=20260808"></script>
 <script src="/static/featured-matrix.js?v=20260808"></script>
 <script src="/static/wish-split.js?v=20260805"></script>
+<script src="/static/shared/sync-client.js?v=20260809"></script>
+<script>
+// 端末間同期（P1）: トップページ（カード個別ページでない）を開いたときだけ pull する（§8）
+// sync-client.js の <script src> より前に置くと window.SyncClient が未定義になるため、
+// 読み込み後の別ブロックに置く（_pageCardName は先行スクリプトのトップレベル const だが、
+// クラシックscript間では同一グローバルレキシカル環境を共有するため参照できる）
+if(!_pageCardName && window.SyncClient) window.SyncClient.pullIfNeeded();
+</script>
 <script src="/static/mydeck/deck-edit.js?v=20260615c"></script>
 <script type="module" src="/static/mydeck/deck-card-info.js?v=20260617"></script>
 <script type="module" src="/static/shared/neuron-pdf-entry.js"></script>

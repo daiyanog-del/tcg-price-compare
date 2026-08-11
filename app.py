@@ -38,6 +38,7 @@ import card_display as _card_display
 from admin_unreleased import admin_bp as _admin_bp
 from neuron_deck_parser import import_neuron as _import_neuron
 from neuron_link import resolve_card_name
+import sync as _sync
 
 import re as _re
 from urllib.parse import quote as _url_quote
@@ -192,6 +193,10 @@ _last_search: dict[str, float] = {}
 # ニューロン取り込み用の独立バケット。価格検索と別管理にすることで、
 # カード共有フロー（取り込み→直後に価格検索）が互いを弾かないようにする。
 _last_import: dict[str, float] = {}
+# 端末間同期(sync)用の独立バケット。既存APIとレート制限を奪い合わないようにする。
+# キーは sync_id（IPだと宅内の複数端末が互いを弾いてしまうため）。
+_last_sync: dict[str, float] = {}
+SYNC_RATE_LIMIT_SEC = 5  # TODO: calibrate from data（設計文書 §6.8）
 _rate_limit_lock = __import__('threading').Lock()
 RATE_LIMIT_SEC = 3
 RATE_LIMIT_MAX_ENTRIES = 10000  # これ以上溜まったら古い記録を一括削除
@@ -284,26 +289,31 @@ def _is_debug_mode() -> bool:
 
 def _consume_rate_limit(bucket: dict | None = None,
                         interval: int = RATE_LIMIT_SEC,
-                        message: str = "しばらく待ってから再度検索してください"):
-    """重いAPI用のIP単位レートリミット。制限時はレスポンス、通過時はNone。
+                        message: str = "しばらく待ってから再度検索してください",
+                        key: str | None = None):
+    """重いAPI用のレートリミット。制限時はレスポンス、通過時はNone。
 
     bucket を分けることで、別系統のAPI同士がレート制限を奪い合わないようにする
     （例: ニューロン取り込みと価格検索を連続実行しても互いに弾かない）。
     既定は価格検索用の共有バケット（_last_search）。
+
+    key: バケットのキー。省略時は従来どおり IP アドレス。同期API等、IP単位だと
+    宅内の複数端末が互いを弾いてしまう場合に sync_id 等の識別子を渡す
+    （既存呼び出し側は key を渡さないため挙動は変わらない）。
     """
     if bucket is None:
         bucket = _last_search
-    client_ip = request.remote_addr or "unknown"
+    rate_key = key or request.remote_addr or "unknown"
     now = time.time()
     with _rate_limit_lock:
-        if client_ip in bucket and now - bucket[client_ip] < interval:
+        if rate_key in bucket and now - bucket[rate_key] < interval:
             return jsonify({"error": message}), 429
-        bucket[client_ip] = now
+        bucket[rate_key] = now
         if len(bucket) > RATE_LIMIT_MAX_ENTRIES:
             cutoff = now - 3600
-            stale = [ip for ip, ts in bucket.items() if ts < cutoff]
-            for ip in stale:
-                del bucket[ip]
+            stale = [k for k, ts in bucket.items() if ts < cutoff]
+            for k in stale:
+                del bucket[k]
     return None
 
 
@@ -2511,6 +2521,125 @@ def api_push_unsubscribe():
     except Exception as e:
         logger.warning(f"[push/unsubscribe] 削除失敗: {e}")
         return jsonify({"error": "削除に失敗しました"}), 500
+
+
+# ── 端末間同期（購入候補。P1。docs/design-sync-2026-08-09.md 第2版） ──
+# ロジックは sync.py に集約し、ここでは配線のみ行う。
+
+@app.route("/api/sync/init", methods=["POST"])
+def api_sync_init():
+    """sync_id を新規発行する（設計文書 §6.3・§8 遅延発行）。
+    購入候補が1件以上あるとき、または「他の端末でも見る」操作時にのみクライアントから呼ばれる。
+    入力: {wishlist: [...]}
+    出力: {ok: true, sync_id, wishlist_rev} / {ok: false, reason: "db_unavailable"}
+    """
+    if not _same_origin_ok():
+        return jsonify({"error": "forbidden"}), 403
+    rate_error = _consume_rate_limit(bucket=_last_sync, interval=SYNC_RATE_LIMIT_SEC,
+                                      key=request.remote_addr or "unknown")
+    if rate_error:
+        return rate_error
+    if not _supabase_client:
+        return jsonify({"ok": False, "reason": "db_unavailable"}), 200
+
+    data = request.get_json(silent=True) or {}
+    cleaned, error = _sync.validate_wishlist(data.get("wishlist", []))
+    if error:
+        return jsonify({"ok": False, "reason": "invalid", "error": error}), 400
+
+    try:
+        result = _sync.init_account(_supabase_client, cleaned)
+        return jsonify(result)
+    except Exception as e:
+        logger.warning(f"[sync/init] 発行失敗: {e}")
+        return jsonify({"ok": False, "reason": "db_unavailable"}), 200
+
+
+@app.route("/api/sync/push", methods=["POST"])
+def api_sync_push():
+    """購入候補を条件付き更新する（設計文書 §4.3・§6.1）。P1では kind="wishlist" のみ対応する。
+    入力: {sync_id, kind: "wishlist", base_rev, items}
+    出力: {ok: true, status: "applied"|"merged", rev, items?} / {ok: false, reason: ...}
+    """
+    if not _same_origin_ok():
+        return jsonify({"error": "forbidden"}), 403
+    data = request.get_json(silent=True) or {}
+    sync_id = str(data.get("sync_id", "")).strip()
+    if not sync_id:
+        return jsonify({"error": "sync_id が必要です"}), 400
+
+    rate_error = _consume_rate_limit(bucket=_last_sync, interval=SYNC_RATE_LIMIT_SEC, key=sync_id)
+    if rate_error:
+        return rate_error
+    if not _supabase_client:
+        return jsonify({"ok": False, "reason": "db_unavailable"}), 200
+
+    if data.get("kind", "wishlist") != "wishlist":
+        # P1では保存デッキ(decks)を扱わない（P2で追加）
+        return jsonify({"ok": False, "reason": "unsupported_kind"}), 400
+    try:
+        base_rev = int(data.get("base_rev", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "base_rev が不正です"}), 400
+
+    cleaned, error = _sync.validate_wishlist(data.get("items", []))
+    if error:
+        return jsonify({"ok": False, "reason": "invalid", "error": error}), 400
+
+    try:
+        result = _sync.push_wishlist(_supabase_client, sync_id, base_rev, cleaned)
+    except Exception as e:
+        logger.warning(f"[sync/push] 更新失敗: {e}")
+        return jsonify({"ok": False, "reason": "db_unavailable"}), 200
+
+    if result.get("reason") == "not_found":
+        # 行が存在しないことが確定した場合のみ新規発行する（設計文書 §6.8）。
+        # DBエラー・例外の経路（上のexcept）では絶対にここに来ない＝再発行しない。
+        try:
+            reissued = _sync.init_account(_supabase_client, cleaned)
+        except Exception as e:
+            logger.warning(f"[sync/push] 再発行失敗: {e}")
+            return jsonify({"ok": False, "reason": "db_unavailable"}), 200
+        reissued["reissued"] = True
+        return jsonify(reissued)
+    return jsonify(result)
+
+
+@app.route("/api/sync/pull", methods=["POST"])
+def api_sync_pull():
+    """リビジョンが変わっていれば購入候補を返す（設計文書 §4.4・§6.2）。
+    入力: {sync_id, wishlist_rev}
+    出力: {ok: true, wishlist: {unchanged: true} | {rev, items}} / {ok: false, reason: ...}
+    """
+    if not _same_origin_ok():
+        return jsonify({"error": "forbidden"}), 403
+    data = request.get_json(silent=True) or {}
+    sync_id = str(data.get("sync_id", "")).strip()
+    if not sync_id:
+        return jsonify({"error": "sync_id が必要です"}), 400
+
+    rate_error = _consume_rate_limit(bucket=_last_sync, interval=SYNC_RATE_LIMIT_SEC, key=sync_id)
+    if rate_error:
+        return rate_error
+    if not _supabase_client:
+        return jsonify({"ok": False, "reason": "db_unavailable"}), 200
+
+    try:
+        wishlist_rev = int(data.get("wishlist_rev", -1))
+    except (TypeError, ValueError):
+        return jsonify({"error": "wishlist_rev が不正です"}), 400
+
+    try:
+        result = _sync.pull(_supabase_client, sync_id, wishlist_rev)
+    except Exception as e:
+        logger.warning(f"[sync/pull] 取得失敗: {e}")
+        return jsonify({"ok": False, "reason": "db_unavailable"}), 200
+
+    if result.get("reason") == "not_found":
+        # pullには端末のローカルデータが無いためサーバー側では再発行しない。
+        # クライアントが reissued を見て sync_id をクリアし、次の push 時に init し直す。
+        return jsonify({"ok": False, "reason": "not_found", "reissued": True})
+    return jsonify(result)
 
 
 # ── フィードバック（不具合・要望） ──
