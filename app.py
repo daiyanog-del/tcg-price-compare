@@ -2523,15 +2523,20 @@ def api_push_unsubscribe():
         return jsonify({"error": "削除に失敗しました"}), 500
 
 
-# ── 端末間同期（購入候補。P1。docs/design-sync-2026-08-09.md 第2版） ──
+# ── 端末間同期（購入候補・保存デッキ。P1で購入候補、P2で保存デッキを追加。
+#    docs/design-sync-2026-08-09.md 第2版） ──
 # ロジックは sync.py に集約し、ここでは配線のみ行う。
 
 @app.route("/api/sync/init", methods=["POST"])
 def api_sync_init():
     """sync_id を新規発行する（設計文書 §6.3・§8 遅延発行）。
-    購入候補が1件以上あるとき、または「他の端末でも見る」操作時にのみクライアントから呼ばれる。
-    入力: {wishlist: [...]}
-    出力: {ok: true, sync_id, wishlist_rev} / {ok: false, reason: "db_unavailable"}
+    購入候補または保存デッキが1件以上あるとき、または「他の端末でも見る」操作時にのみ
+    クライアントから呼ばれる。
+    入力: {wishlist: [...], decks: [...]}
+    出力: {ok: true, sync_id, wishlist_rev, decks_rev} / {ok: false, reason: "db_unavailable"}
+
+    穴ふさぎ（2026-08-13）: 購入候補・保存デッキがどちらも空、またはリクエスト本文が
+    JSONとして読めない場合は行を作らず400で拒否する。空アカウントの量産を防ぐため。
     """
     if not _same_origin_ok():
         return jsonify({"error": "forbidden"}), 403
@@ -2542,13 +2547,23 @@ def api_sync_init():
     if not _supabase_client:
         return jsonify({"ok": False, "reason": "db_unavailable"}), 200
 
-    data = request.get_json(silent=True) or {}
-    cleaned, error = _sync.validate_wishlist(data.get("wishlist", []))
-    if error:
-        return jsonify({"ok": False, "reason": "invalid", "error": error}), 400
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        # 本文がJSONとして読めない（Content-Type不一致・壊れたJSON等）。行を作らず拒否する
+        return jsonify({"error": "リクエスト本文が不正です"}), 400
+
+    wl_cleaned, wl_error = _sync.validate_wishlist(data.get("wishlist", []))
+    if wl_error:
+        return jsonify({"ok": False, "reason": "invalid", "error": wl_error}), 400
+    dk_cleaned, dk_error = _sync.validate_decks(data.get("decks", []))
+    if dk_error:
+        return jsonify({"ok": False, "reason": "invalid", "error": dk_error}), 400
+
+    if not wl_cleaned and not dk_cleaned:
+        return jsonify({"error": "購入候補または保存デッキが必要です"}), 400
 
     try:
-        result = _sync.init_account(_supabase_client, cleaned)
+        result = _sync.init_account(_supabase_client, wl_cleaned, dk_cleaned)
         return jsonify(result)
     except Exception as e:
         logger.warning(f"[sync/init] 発行失敗: {e}")
@@ -2557,8 +2572,9 @@ def api_sync_init():
 
 @app.route("/api/sync/push", methods=["POST"])
 def api_sync_push():
-    """購入候補を条件付き更新する（設計文書 §4.3・§6.1）。P1では kind="wishlist" のみ対応する。
-    入力: {sync_id, kind: "wishlist", base_rev, items}
+    """購入候補・保存デッキを条件付き更新する（設計文書 §4.3・§6.1）。
+    kind="wishlist"（購入候補）と kind="decks"（保存デッキ。P2で追加）を対応する。
+    入力: {sync_id, kind: "wishlist"|"decks", base_rev, items}
     出力: {ok: true, status: "applied"|"merged", rev, items?} / {ok: false, reason: ...}
     """
     if not _same_origin_ok():
@@ -2574,20 +2590,26 @@ def api_sync_push():
     if not _supabase_client:
         return jsonify({"ok": False, "reason": "db_unavailable"}), 200
 
-    if data.get("kind", "wishlist") != "wishlist":
-        # P1では保存デッキ(decks)を扱わない（P2で追加）
+    kind = data.get("kind", "wishlist")
+    if kind not in ("wishlist", "decks"):
         return jsonify({"ok": False, "reason": "unsupported_kind"}), 400
     try:
         base_rev = int(data.get("base_rev", 0))
     except (TypeError, ValueError):
         return jsonify({"error": "base_rev が不正です"}), 400
 
-    cleaned, error = _sync.validate_wishlist(data.get("items", []))
+    if kind == "wishlist":
+        cleaned, error = _sync.validate_wishlist(data.get("items", []))
+    else:
+        cleaned, error = _sync.validate_decks(data.get("items", []))
     if error:
         return jsonify({"ok": False, "reason": "invalid", "error": error}), 400
 
     try:
-        result = _sync.push_wishlist(_supabase_client, sync_id, base_rev, cleaned)
+        if kind == "wishlist":
+            result = _sync.push_wishlist(_supabase_client, sync_id, base_rev, cleaned)
+        else:
+            result = _sync.push_decks(_supabase_client, sync_id, base_rev, cleaned)
     except Exception as e:
         logger.warning(f"[sync/push] 更新失敗: {e}")
         return jsonify({"ok": False, "reason": "db_unavailable"}), 200
@@ -2595,8 +2617,13 @@ def api_sync_push():
     if result.get("reason") == "not_found":
         # 行が存在しないことが確定した場合のみ新規発行する（設計文書 §6.8）。
         # DBエラー・例外の経路（上のexcept）では絶対にここに来ない＝再発行しない。
+        # 再発行時、今回pushしたkindのデータのみを初期値にする（もう片方は空で始まり、
+        # 次にそちら側がpushされた際の競合マージで自然に解決される。sync-client.js側の設計）。
         try:
-            reissued = _sync.init_account(_supabase_client, cleaned)
+            if kind == "wishlist":
+                reissued = _sync.init_account(_supabase_client, cleaned, [])
+            else:
+                reissued = _sync.init_account(_supabase_client, [], cleaned)
         except Exception as e:
             logger.warning(f"[sync/push] 再発行失敗: {e}")
             return jsonify({"ok": False, "reason": "db_unavailable"}), 200
@@ -2607,9 +2634,14 @@ def api_sync_push():
 
 @app.route("/api/sync/pull", methods=["POST"])
 def api_sync_pull():
-    """リビジョンが変わっていれば購入候補を返す（設計文書 §4.4・§6.2）。
-    入力: {sync_id, wishlist_rev}
-    出力: {ok: true, wishlist: {unchanged: true} | {rev, items}} / {ok: false, reason: ...}
+    """リビジョンが変わっていれば購入候補・保存デッキを返す（設計文書 §4.4・§6.2）。
+    入力: {sync_id, wishlist_rev, decks_rev}
+    出力: {ok: true, wishlist: {unchanged: true} | {rev, items},
+                     decks:    {unchanged: true} | {rev, items}} / {ok: false, reason: ...}
+
+    decks_rev はP1のクライアント（デプロイ直後のキャッシュ済みJS）が送ってこない場合がある。
+    その場合は既定値 -1（現在のdecks_revと一致し得ない値）として扱い、常にdecksを
+    返す（古いクライアントはdecksフィールドを無視するだけで実害はない）。
     """
     if not _same_origin_ok():
         return jsonify({"error": "forbidden"}), 403
@@ -2628,9 +2660,13 @@ def api_sync_pull():
         wishlist_rev = int(data.get("wishlist_rev", -1))
     except (TypeError, ValueError):
         return jsonify({"error": "wishlist_rev が不正です"}), 400
+    try:
+        decks_rev = int(data.get("decks_rev", -1))
+    except (TypeError, ValueError):
+        return jsonify({"error": "decks_rev が不正です"}), 400
 
     try:
-        result = _sync.pull(_supabase_client, sync_id, wishlist_rev)
+        result = _sync.pull(_supabase_client, sync_id, wishlist_rev, decks_rev)
     except Exception as e:
         logger.warning(f"[sync/pull] 取得失敗: {e}")
         return jsonify({"ok": False, "reason": "db_unavailable"}), 200

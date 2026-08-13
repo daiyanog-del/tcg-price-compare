@@ -423,6 +423,9 @@
         aria-expanded="true"
         title="右パネル開閉">▶</button>
 
+<!-- 端末間同期（P2）。main.js（type=module・deferされる）より前に読み込まれる通常scriptなので、
+     DOM解析完了後に実行されるmodule側からは常に window.SyncClient が使える（設計文書 §11） -->
+<script src="/static/shared/sync-client.js?v=20260813"></script>
 <script type="module" src="/static/solitaire/js/main.js?v=20260604b"></script>
 </body>
 </html>

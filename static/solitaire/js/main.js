@@ -206,6 +206,12 @@ let _fitTimer = null;
  * アプリケーション初期化
  */
 async function initializeApp() {
+  // 端末間同期（P2）: 一人回しページを開いたときも pull する（設計文書 §11）。
+  // 保存デッキは savedDecksSet/renderSavedDecks 経由で適用されデッキ一覧に反映される。
+  // 購入候補はこのページに適用先(wishSave等)が無いため、sync-client.js側でrevを
+  // 進めずに据え置く（次に購入候補タブのあるページを開いたときに正しく取得・適用される）
+  if (window.SyncClient) window.SyncClient.pullIfNeeded();
+
   // デスクトップドラッグ&ドロップを初期化
   initializeDesktopDragDrop();
 

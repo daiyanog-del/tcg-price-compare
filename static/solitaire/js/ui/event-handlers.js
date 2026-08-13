@@ -4,7 +4,7 @@ import {
 } from '../components/card-manager.js';
 import { SaveLoadModal } from './save-load-modal.js';
 import { registerCardImage } from '../services/replay-service.js';
-import { initDeckInputPanel, loadDeckFromText, loadExDeckFromText } from './deck-input-panel.js';
+import { initDeckInputPanel, loadDeckFromText, loadExDeckFromText, savedDecksGet, savedDecksSet } from './deck-input-panel.js';
 import { parseNeuronPdf } from '/static/shared/neuron-pdf-parser.js';
 import { NeuronPreviewModal } from '/static/shared/neuron-preview-modal.js';
 
@@ -35,9 +35,8 @@ export async function handleNeuronPdfSelect(event) {
     defaultName,
     onSave: ({ name, mainText, exText }) => {
       const combined = [mainText, exText].filter(Boolean).join('\n');
-      const SAVED_DECKS_KEY = 'cardprice_saved_decks';
       try {
-        const list = JSON.parse(localStorage.getItem(SAVED_DECKS_KEY) || '[]');
+        const list = savedDecksGet();
         const existing = list.find(d => d.name === name);
         if (existing) {
           if (!confirm(`「${name}」はすでに保存されています。上書きしますか？`)) return;
@@ -46,7 +45,7 @@ export async function handleNeuronPdfSelect(event) {
         } else {
           list.push({ id: 'd_' + Date.now(), name, text: combined, updated: Date.now() });
         }
-        localStorage.setItem(SAVED_DECKS_KEY, JSON.stringify(list));
+        savedDecksSet(list);
       } catch (e) {
         console.error('マイデッキ保存エラー:', e);
       }

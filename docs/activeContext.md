@@ -1,6 +1,15 @@
 # activeContext — 今どこ・次何
 
-> 更新: 2026-08-11（端末間同期 P1 を追加）
+> 更新: 2026-08-13（端末間同期 P2 を追加）
+
+## 端末間同期 P2: 保存デッキ＋初期化の穴ふさぎ（2026-08-13）
+
+- **デッキ同期を追加**: `merge_decks`（id一致=updated新しい方／id相違=両方残す／同名別idは `(2)` にリネーム・入れ子回避）・`validate_decks`（50件/text 6000/枚数80・`main`/`ex` 欠落を許容＝一人回し由来）・`/api/sync/push` の `kind="decks"`・`/api/sync/pull` は購入候補とデッキを1回で返す
+- **一人回しページを合流**: `deck-input-panel.js` に localStorage の単一窓口（`savedDecksGet`/`savedDecksSet`）を新設し `window` に公開。`event-handlers.js` の直書きを廃止。`solitaire.html` に sync-client.js を追加（module より前の通常script＝評価順が保証される）
+- **穴ふさぎ**: `/api/sync/init` は購入候補・デッキがどちらも空、または本文がJSONとして読めない場合に**行を作らず400**（P1のE2Eで空アカウントが作れることが判明した）
+- **P1の潜在バグも修正**: pull結果を適用できないページ（一人回しには `wishSave` が無い）でもリビジョンだけ進んでデータを取りこぼす作りだった → **適用できた種別だけリビジョンを進める**
+- pytest 606件全緑（P1の579件＋27件）。JSの発火はNode上のスタブで実確認
+- **残**: 本番E2E（デッキ）→ P3（QR＋リンク＋解除・`sync.html`）。**2端末で内容が揃うのはP3から**
 
 ## 端末間同期（購入候補・保存デッキ）P1（2026-08-11）
 

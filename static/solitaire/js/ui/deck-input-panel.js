@@ -15,6 +15,27 @@ const API_CARD_INFOS  = '/api/card-infos';   // バッチ版（POST）
 const API_META = '/api/meta';
 const API_META_DECK = '/api/meta/deck';
 
+// ── マイデッキ保存（localStorage）── index.html と同じキーを共有する。
+// 端末間同期（P2・docs/design-sync-2026-08-09.md §11）: 保存デッキの読み書きは
+// この2関数に集約し、他の場所から直接 localStorage を触らない
+// （sync-client.js の pull/merge 適用も window.savedDecksSet 経由でここを呼ぶ）
+const SAVED_DECKS_KEY = 'cardprice_saved_decks';
+
+export function savedDecksGet() {
+  try { return JSON.parse(localStorage.getItem(SAVED_DECKS_KEY)) || []; } catch { return []; }
+}
+
+export function savedDecksSet(list) {
+  localStorage.setItem(SAVED_DECKS_KEY, JSON.stringify(list));
+  // 端末間同期（P2）。sync-client.js 側でデバウンス・無限ループ防止を行う
+  if (window.SyncClient) window.SyncClient.onDecksSave(list);
+}
+
+// sync-client.js（非モジュール・window.SyncClient経由）から呼べるよう window に公開する。
+// pull/merge結果の適用時に SyncClient がこの2つを呼ぶ（設計文書 §7.4 と同じ経路）
+window.savedDecksSet = savedDecksSet;
+window.renderSavedDecks = renderMyDeckList;
+
 /**
  * デッキリストテキストをパース
  * "3 灰流うらら" 形式 → [{qty, name}]
@@ -410,12 +431,7 @@ function renderMyDeckList() {
   const listEl = document.getElementById('myDeckList');
   if (!listEl) return;
 
-  let decks = [];
-  try {
-    decks = JSON.parse(localStorage.getItem('cardprice_saved_decks') || '[]');
-  } catch {
-    decks = [];
-  }
+  const decks = savedDecksGet();
 
   if (decks.length === 0) {
     listEl.innerHTML =

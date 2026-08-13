@@ -2358,11 +2358,16 @@ function switchMode(mode){
   if(mode==='packs') loadPacks();
   if(mode==='wishlist'){
     renderWishlist();
-    // 端末間同期（P1）: 購入候補タブを開いたときだけ pull する（カード個別ページ閲覧では走らせない）
+    // 端末間同期: 購入候補タブを開いたときだけ pull する（カード個別ページ閲覧では走らせない）。
+    // pullIfNeeded() は購入候補・保存デッキの両方を1回のAPI呼び出しで扱う（P2）
     if(window.SyncClient) window.SyncClient.pullIfNeeded();
   }
   if(mode==='meta') loadMetaTiers();
-  if(mode==='mydeck') renderSavedDecks();
+  if(mode==='mydeck'){
+    renderSavedDecks();
+    // 端末間同期（P2）: マイデッキタブを開いたときだけ pull する（カード個別ページ閲覧では走らせない）
+    if(window.SyncClient) window.SyncClient.pullIfNeeded();
+  }
   // リロード時にモードを復元できるようURLハッシュを更新
   const _modeHash = (mode==='search') ? '' : mode;
   if(location.hash.slice(1) !== _modeHash){
@@ -3666,6 +3671,8 @@ function savedDecksGet(){
 }
 function savedDecksSet(list){
   localStorage.setItem(SAVED_DECKS_KEY,JSON.stringify(list));
+  // 端末間同期（P2・保存デッキ）。sync-client.js 側でデバウンス・無限ループ防止を行う
+  if(window.SyncClient) window.SyncClient.onDecksSave(list);
 }
 
 // 保存デッキのカードを収集対象(tracked_cards)に登録する（fire-and-forget）。
@@ -4638,9 +4645,10 @@ updatePushUI(!!localStorage.getItem(PUSH_SUB_KEY));
 <script src="/static/packs.js?v=20260808"></script>
 <script src="/static/featured-matrix.js?v=20260808"></script>
 <script src="/static/wish-split.js?v=20260805"></script>
-<script src="/static/shared/sync-client.js?v=20260809"></script>
+<script src="/static/shared/sync-client.js?v=20260813"></script>
 <script>
-// 端末間同期（P1）: トップページ（カード個別ページでない）を開いたときだけ pull する（§8）
+// 端末間同期: トップページ（カード個別ページでない）を開いたときだけ pull する（§8）。
+// 購入候補・保存デッキの両方を1回のAPI呼び出しで扱う（P2）。
 // sync-client.js の <script src> より前に置くと window.SyncClient が未定義になるため、
 // 読み込み後の別ブロックに置く（_pageCardName は先行スクリプトのトップレベル const だが、
 // クラシックscript間では同一グローバルレキシカル環境を共有するため参照できる）
