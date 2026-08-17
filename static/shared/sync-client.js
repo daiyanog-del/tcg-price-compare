@@ -26,8 +26,24 @@
  *     生じた壊れた端末を含む）の種別についてはpull結果を適用せず、代わりにローカルの
  *     内容をpushしてサーバー側の和集合マージで合流させる（救済ルール）。詳細は各関数内コメント
  *
- * index.html / 一人回し 双方から <script> で読み込む想定のため非module・IIFEで実装し、
- * window.SyncClient にAPIを公開する（static/wish-split.js と同じ形式）。
+ * 【P3: ワンタイムリンク（§6.4〜§6.7・§7.1〜§7.2）】
+ *   - startLinkShare(): 発行側（index.html）の「他の端末でも見る」ボタンから呼ぶ。
+ *     sync_id 未発行の端末では、ローカルにデータが1件以上あれば先に init してから
+ *     link/create を呼ぶ（§8 遅延発行の条件どおり）。データが無ければ呼び出し側に
+ *     reason:"no_local_data" を返す（index.html 側で案内文を出す）
+ *   - unlinkThisDevice(): 「同期を解除」から呼ぶ。/api/sync/unlink を呼び、返ってきた
+ *     新しい sync_id・リビジョンで状態を張り替える
+ *   - previewLink(token) / redeemLink(token): 引き換え側（/sync ページ）から呼ぶ。
+ *     redeemLink() は成功時に applyRedeemResult() を内部で呼び、結果を適用する
+ *   - applyRedeemResult(result): 「受け取った内容と rev を保存して合流を完了する」関数。
+ *     /sync ページには index.html の完全な wishSave()/savedDecksSet()（バッジ更新・
+ *     push購読同期込み）が無いため、window.wishSave/window.savedDecksSet が存在すれば
+ *     それ経由で適用し（§7.4 と同じ経路。将来それらを持つページから呼ばれても正しく動く）、
+ *     存在しなければ同じ localStorage キーへの書き込みだけをこの関数が代わりに行う
+ *     （_writeLocalList。呼び出し側の /sync ページ自身は localStorage に一切触れない）
+ *
+ * index.html / 一人回し / sync.html 3者から <script> で読み込む想定のため非module・IIFEで
+ * 実装し、window.SyncClient にAPIを公開する（static/wish-split.js と同じ形式）。
  */
 (function (global) {
   "use strict";
@@ -76,6 +92,13 @@
     } catch (e) {
       return [];
     }
+  }
+
+  // wishSave()/savedDecksSet() が存在しないページ（/sync）向けのフォールバック書き込み。
+  // wishSave/savedDecksSet が書き込む先と同じキーに同じ形式で書くだけで、バッジ更新・
+  // push購読同期は行わない（/syncページにはそのUI自体が無いため）。applyRedeemResult() 専用
+  function _writeLocalList(kind, list) {
+    try { localStorage.setItem(_LOCAL_KEYS[kind], JSON.stringify(list || [])); } catch (e) {}
   }
 
   // 種別ごとの正規化（無変化判定・送信内容の比較用）
@@ -352,5 +375,129 @@
     }).catch(function () {}); // ネットワーク断等。画面には何も出さない
   }
 
-  global.SyncClient = { onWishSave: onWishSave, onDecksSave: onDecksSave, pullIfNeeded: pullIfNeeded };
+  // ── P3: ワンタイムリンク（QR＋リンク。設計文書 §6.4〜§6.7・§7.1〜§7.2） ──
+
+  // この端末が同期中かどうか・現在の状態を返す（読み取り専用）。index.html が
+  // 「他の端末と同期中」表示の出し分けに使う。localStorageキーを直接読ませないための窓口
+  function getSyncState() {
+    return _getState();
+  }
+
+  // 確認画面（/sync）向け: この端末のローカル件数（適用前に表示する）
+  function getLocalCounts() {
+    return { wishlist: _readLocalList('wishlist').length, decks: _readLocalList('decks').length };
+  }
+
+  function _createLinkFor(syncId) {
+    return _postJson('/api/sync/link/create', { sync_id: syncId })
+      .then(function (res) {
+        if (res.status === 429) return { ok: false, reason: 'rate_limited' };
+        return res.json().catch(function () { return { ok: false, reason: 'invalid_response' }; });
+      })
+      .catch(function () { return { ok: false, reason: 'network_error' }; });
+  }
+
+  // 発行側（index.html）「他の端末でも見る」ボタンから呼ぶ（設計文書 §7.1）。
+  // sync_id 未発行の端末では、ローカルにデータが1件以上あるときだけ先に init する（§8）。
+  // どちらも無ければ reason:"no_local_data" を返し、呼び出し側で案内文を出す
+  function startLinkShare() {
+    const state = _getState();
+    if (state && state.sync_id) {
+      return _createLinkFor(state.sync_id);
+    }
+    const wishlist = _readLocalList('wishlist');
+    const decks = _readLocalList('decks');
+    if (!wishlist.length && !decks.length) {
+      return Promise.resolve({ ok: false, reason: 'no_local_data' });
+    }
+    return _ensureAccount().then(function (newState) {
+      if (!newState || !newState.sync_id) return { ok: false, reason: 'init_failed' };
+      return _createLinkFor(newState.sync_id);
+    });
+  }
+
+  // 「同期を解除」から呼ぶ（設計文書 §7.3・§6.7）。この端末だけ切り離し、
+  // 返ってきた新しい sync_id・リビジョンで状態を張り替える（元の行は他端末のため残る）
+  function unlinkThisDevice() {
+    const state = _getState();
+    if (!state || !state.sync_id) return Promise.resolve({ ok: false, reason: 'not_linked' });
+    return _postJson('/api/sync/unlink', { sync_id: state.sync_id })
+      .then(function (res) {
+        if (res.status === 429) return { ok: false, reason: 'rate_limited' };
+        return res.json().catch(function () { return { ok: false, reason: 'invalid_response' }; });
+      })
+      .then(function (data) {
+        if (data && data.ok) {
+          _setState({
+            sync_id: data.sync_id,
+            wishlist_rev: data.wishlist_rev || 1,
+            decks_rev: data.decks_rev || 1,
+          });
+        }
+        return data;
+      })
+      .catch(function () { return { ok: false, reason: 'network_error' }; });
+  }
+
+  // 引き換え側（/sync ページ）: 確認画面の下見。副作用なし（設計文書 §6.5）
+  function previewLink(token) {
+    return _postJson('/api/sync/link/preview', { token: token })
+      .then(function (res) { return res.json().catch(function () { return { ok: false, reason: 'invalid_response' }; }); })
+      .catch(function () { return { ok: false, reason: 'network_error' }; });
+  }
+
+  // 受け取った内容と rev を保存して合流を完了する（設計文書 §7.2 D-3）。
+  // /sync ページには index.html の完全な wishSave()/savedDecksSet()（バッジ更新・push購読
+  // 同期込み）が無いため、window にそれらが存在すればそちら経由で適用し（§7.4 と同じ経路）、
+  // 存在しなければ同じ localStorage キーへの書き込みだけをこの関数が代わりに行う
+  // （_writeLocalList）。呼び出し元（/sync ページ）は localStorage に一切触れない。
+  // result: { sync_id, wishlist: {rev, items}, decks: {rev, items} }（redeemLink の成功応答）
+  function applyRedeemResult(result) {
+    if (!result || !result.sync_id || !result.wishlist || !result.decks) return false;
+    _applying = true;
+    try {
+      if (typeof global.wishSave === 'function') global.wishSave(result.wishlist.items || []);
+      else _writeLocalList('wishlist', result.wishlist.items || []);
+      if (typeof global.savedDecksSet === 'function') global.savedDecksSet(result.decks.items || []);
+      else _writeLocalList('decks', result.decks.items || []);
+    } finally {
+      _applying = false;
+    }
+    if (typeof global.renderWishlist === 'function') global.renderWishlist();
+    if (typeof global.renderSavedDecks === 'function') global.renderSavedDecks();
+    // 【2026-08-13データ消失バグと同じ構造の再発防止】新しいsync_idと「両方」のrevを必ず
+    // 一緒に保存する。片方だけ進めるとrev=0のまま残った種別が次回pullで消失しうる
+    _setState({
+      sync_id: result.sync_id,
+      wishlist_rev: result.wishlist.rev,
+      decks_rev: result.decks.rev,
+    });
+    return true;
+  }
+
+  // 引き換え側（/sync ページ）: 確認画面のボタンを押したときに呼ぶ（設計文書 §6.6）。
+  // この端末が既に同期中だった場合は old_sync_id として現在の sync_id を添える
+  // （サーバー側はこれを一切使わない。旧行を削除しない保証はサーバー側で担保する）
+  function redeemLink(token) {
+    const state = _getState();
+    const oldSyncId = (state && state.sync_id) ? state.sync_id : null;
+    const wishlist = _readLocalList('wishlist');
+    const decks = _readLocalList('decks');
+    return _postJson('/api/sync/link/redeem', {
+      token: token, wishlist: wishlist, decks: decks, old_sync_id: oldSyncId,
+    }).then(function (res) {
+      if (res.status === 429) return { ok: false, reason: 'rate_limited' };
+      return res.json().catch(function () { return { ok: false, reason: 'invalid_response' }; });
+    }).then(function (data) {
+      if (data && data.ok) applyRedeemResult(data);
+      return data;
+    }).catch(function () { return { ok: false, reason: 'network_error' }; });
+  }
+
+  global.SyncClient = {
+    onWishSave: onWishSave, onDecksSave: onDecksSave, pullIfNeeded: pullIfNeeded,
+    getSyncState: getSyncState, getLocalCounts: getLocalCounts,
+    startLinkShare: startLinkShare, unlinkThisDevice: unlinkThisDevice,
+    previewLink: previewLink, redeemLink: redeemLink, applyRedeemResult: applyRedeemResult,
+  };
 })(window);

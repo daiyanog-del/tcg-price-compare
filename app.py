@@ -197,6 +197,7 @@ _last_import: dict[str, float] = {}
 # キーは sync_id（IPだと宅内の複数端末が互いを弾いてしまうため）。
 _last_sync: dict[str, float] = {}
 SYNC_RATE_LIMIT_SEC = 5  # TODO: calibrate from data（設計文書 §6.8）
+LINK_CREATE_RATE_LIMIT_SEC = 10  # TODO: calibrate from data（設計文書 §6.8。link/create のみ10秒）
 _rate_limit_lock = __import__('threading').Lock()
 RATE_LIMIT_SEC = 3
 RATE_LIMIT_MAX_ENTRIES = 10000  # これ以上溜まったら古い記録を一括削除
@@ -571,10 +572,23 @@ def robots():
     """robots.txt"""
     from flask import make_response
     base_url = request.url_root.rstrip("/")
-    txt = f"User-agent: *\nAllow: /\nDisallow: /api/\n\nSitemap: {base_url}/sitemap.xml\n"
+    # /sync はワンタイムリンクのトークンがクエリ文字列に載るため検索エンジンにインデックスさせない
+    # （設計文書 §7.2・§12。GA4もこのページには載せていない）
+    txt = f"User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /sync\n\nSitemap: {base_url}/sitemap.xml\n"
     resp = make_response(txt)
     resp.headers["Content-Type"] = "text/plain"
     return resp
+
+
+@app.route("/sync")
+def sync_page():
+    """端末間同期のワンタイムリンク着地ページ（設計文書 §7.2）。
+
+    index.html とは別の最小テンプレート（GAタグ無し）で配信する。/sync?t=<トークン> を
+    GA4入りのindex.htmlで配信すると、GA4が既定でクエリ文字列込みのURLを外部送信するため
+    トークンがGoogleに漏れる（§12）。robots.txt にも Disallow: /sync を追加済み。
+    """
+    return render_template("sync.html")
 
 
 # ── カード名サジェスト（ローカルファイル参照）──
@@ -2675,6 +2689,143 @@ def api_sync_pull():
         # pullには端末のローカルデータが無いためサーバー側では再発行しない。
         # クライアントが reissued を見て sync_id をクリアし、次の push 時に init し直す。
         return jsonify({"ok": False, "reason": "not_found", "reissued": True})
+    return jsonify(result)
+
+
+# ── 端末間同期: ワンタイムリンク（P3。設計文書 §6.4〜§6.7・§7.1〜§7.2） ──
+# ロジックは sync.py に集約し、ここでは配線のみ行う。sync_id は既存3本のAPIと同じく
+# URLに載せずすべてPOSTボディで受け取る（GA4がクエリ文字列を外部送信するため。§12）。
+
+@app.route("/api/sync/link/create", methods=["POST"])
+def api_sync_link_create():
+    """発行側: sync_id に対するワンタイムリンクのトークンを発行する（設計文書 §6.4）。
+    入力: {sync_id}
+    出力: {ok: true, token, url, expires_in} / {ok: false, reason: ...}
+    """
+    if not _same_origin_ok():
+        return jsonify({"error": "forbidden"}), 403
+    data = request.get_json(silent=True) or {}
+    sync_id = str(data.get("sync_id", "")).strip()
+    if not sync_id:
+        return jsonify({"error": "sync_id が必要です"}), 400
+
+    rate_error = _consume_rate_limit(bucket=_last_sync, interval=LINK_CREATE_RATE_LIMIT_SEC, key=sync_id)
+    if rate_error:
+        return rate_error
+    if not _supabase_client:
+        return jsonify({"ok": False, "reason": "db_unavailable"}), 200
+
+    try:
+        result = _sync.create_link_token(_supabase_client, sync_id)
+    except Exception as e:
+        logger.warning(f"[sync/link/create] 発行失敗: {e}")
+        return jsonify({"ok": False, "reason": "db_unavailable"}), 200
+
+    if result.get("reason") == "not_found":
+        return jsonify({"ok": False, "reason": "not_found"}), 200
+
+    base_url = request.url_root.rstrip("/")
+    result["url"] = f"{base_url}/sync?t={result['token']}"
+    return jsonify(result)
+
+
+@app.route("/api/sync/link/preview", methods=["POST"])
+def api_sync_link_preview():
+    """引き換え側: リンクの下見（副作用なし。設計文書 §6.5）。
+    入力: {token}
+    出力: {ok: true, remote: {wishlist_count, decks_count}, expires_in} /
+          {ok: false, reason: "expired"|"used"|"not_found"}
+    """
+    if not _same_origin_ok():
+        return jsonify({"error": "forbidden"}), 403
+    data = request.get_json(silent=True) or {}
+    token = str(data.get("token", "")).strip()
+    if not token:
+        return jsonify({"error": "token が必要です"}), 400
+
+    # preview/redeem/unlink は sync_id を持たない場合があるため IP をキーにする（設計文書 §6.8）
+    rate_error = _consume_rate_limit(bucket=_last_sync, interval=SYNC_RATE_LIMIT_SEC,
+                                      key=request.remote_addr or "unknown")
+    if rate_error:
+        return rate_error
+    if not _supabase_client:
+        return jsonify({"ok": False, "reason": "db_unavailable"}), 200
+
+    try:
+        result = _sync.preview_link(_supabase_client, token)
+    except Exception as e:
+        logger.warning(f"[sync/link/preview] 下見失敗: {e}")
+        return jsonify({"ok": False, "reason": "db_unavailable"}), 200
+    return jsonify(result)
+
+
+@app.route("/api/sync/link/redeem", methods=["POST"])
+def api_sync_link_redeem():
+    """引き換え側: 確認画面のボタンを押したときに呼ぶ。ここで和集合マージを実行する（設計文書 §6.6）。
+    入力: {token, wishlist: [...], decks: [...], old_sync_id: uuid|null}
+    出力: {ok: true, sync_id, wishlist: {rev, items}, decks: {rev, items}} /
+          {ok: false, reason: "expired"|"used"|"not_found"|"conflict_retry_exceeded"}
+
+    old_sync_id はこのエンドポイントでは一切使わない（削除や参照を行わない）。
+    受け取るだけで sync.py に渡さないことで「old_sync_id の行は削除しない」（設計文書 §6.6）を
+    コード上で保証する。
+    """
+    if not _same_origin_ok():
+        return jsonify({"error": "forbidden"}), 403
+    data = request.get_json(silent=True) or {}
+    token = str(data.get("token", "")).strip()
+    if not token:
+        return jsonify({"error": "token が必要です"}), 400
+
+    rate_error = _consume_rate_limit(bucket=_last_sync, interval=SYNC_RATE_LIMIT_SEC,
+                                      key=request.remote_addr or "unknown")
+    if rate_error:
+        return rate_error
+    if not _supabase_client:
+        return jsonify({"ok": False, "reason": "db_unavailable"}), 200
+
+    wl_cleaned, wl_error = _sync.validate_wishlist(data.get("wishlist", []))
+    if wl_error:
+        return jsonify({"ok": False, "reason": "invalid", "error": wl_error}), 400
+    dk_cleaned, dk_error = _sync.validate_decks(data.get("decks", []))
+    if dk_error:
+        return jsonify({"ok": False, "reason": "invalid", "error": dk_error}), 400
+
+    try:
+        result = _sync.redeem_link(_supabase_client, token, wl_cleaned, dk_cleaned)
+    except Exception as e:
+        logger.warning(f"[sync/link/redeem] 引き換え失敗: {e}")
+        return jsonify({"ok": False, "reason": "db_unavailable"}), 200
+    return jsonify(result)
+
+
+@app.route("/api/sync/unlink", methods=["POST"])
+def api_sync_unlink():
+    """発行側: この端末だけ切り離す。現在のデータを新しい sync_id に複製する（設計文書 §6.7）。
+    入力: {sync_id}
+    出力: {ok: true, sync_id: 新しいuuid, wishlist_rev: 1, decks_rev: 1} / {ok: false, reason: ...}
+    """
+    if not _same_origin_ok():
+        return jsonify({"error": "forbidden"}), 403
+    data = request.get_json(silent=True) or {}
+    sync_id = str(data.get("sync_id", "")).strip()
+    if not sync_id:
+        return jsonify({"error": "sync_id が必要です"}), 400
+
+    rate_error = _consume_rate_limit(bucket=_last_sync, interval=SYNC_RATE_LIMIT_SEC, key=sync_id)
+    if rate_error:
+        return rate_error
+    if not _supabase_client:
+        return jsonify({"ok": False, "reason": "db_unavailable"}), 200
+
+    try:
+        result = _sync.unlink(_supabase_client, sync_id)
+    except Exception as e:
+        logger.warning(f"[sync/unlink] 解除失敗: {e}")
+        return jsonify({"ok": False, "reason": "db_unavailable"}), 200
+
+    if result.get("reason") == "not_found":
+        return jsonify({"ok": False, "reason": "not_found"}), 200
     return jsonify(result)
 
 

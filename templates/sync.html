@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- 端末間同期のワンタイムリンク着地ページ。Google Analyticsのタグは意図的に含めない
+     （トークンがクエリ文字列 ?t= に載っており、GA4は既定でクエリ文字列込みのURLを
+     外部送信するため。設計文書 docs/design-sync-2026-08-09.md §7.2・§12）。
+     検索エンジンにも見せない（robots.txt の Disallow: /sync と二重に防御する）。-->
+<meta name="robots" content="noindex, nofollow">
+<title>他の端末と同期 | TCGYM</title>
+<style>
+:root{
+  --bg:#0a1024;--bg-card:#1a2547;--border:#2a3460;--text:#ffffff;
+  --text-m:#94a3b8;--text-d:#64748b;--accent:#4a7cff;--accent-l:#7da0ff;
+  --red:#dc2626;--green:#34d399;--radius:10px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:system-ui,-apple-system,'Segoe UI','Noto Sans JP',sans-serif;
+  background:var(--bg);color:var(--text);min-height:100vh;
+  display:flex;align-items:center;justify-content:center;padding:20px;
+}
+.card{
+  width:100%;max-width:440px;background:var(--bg-card);border:1px solid var(--border);
+  border-radius:var(--radius);padding:28px 24px;
+}
+.brand{font-size:.85rem;color:var(--text-d);margin-bottom:16px;letter-spacing:.05em}
+h1{font-size:1.15rem;margin-bottom:16px;line-height:1.5}
+p{color:var(--text-m);font-size:.9rem;line-height:1.7;margin-bottom:12px}
+.counts{
+  background:var(--bg);border:1px solid var(--border);border-radius:8px;
+  padding:14px 16px;margin:16px 0;font-size:.9rem;
+}
+.counts div{display:flex;justify-content:space-between;padding:4px 0}
+.counts .label{color:var(--text-m)}
+.counts .num{font-weight:700;color:var(--accent-l)}
+.warn{
+  background:rgba(220,38,38,.08);border:1px solid rgba(220,38,38,.3);border-radius:8px;
+  padding:10px 12px;font-size:.82rem;color:#ff9d9d;margin:14px 0;
+}
+.timer{font-size:.78rem;color:var(--text-d);text-align:center;margin:10px 0 4px}
+.actions{display:flex;gap:10px;margin-top:18px}
+button{
+  flex:1;padding:12px;border-radius:8px;border:1px solid var(--border);
+  font-size:.92rem;font-weight:700;cursor:pointer;font-family:inherit;
+}
+.btn-primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn-primary:disabled{opacity:.5;cursor:default}
+.btn-outline{background:transparent;color:var(--text-m)}
+.result-num{font-size:2rem;font-weight:900;color:var(--green);margin:6px 0}
+.top-link{
+  display:block;text-align:center;margin-top:20px;color:var(--accent-l);
+  text-decoration:none;font-size:.88rem;
+}
+.top-link:hover{text-decoration:underline}
+.hidden{display:none}
+.loading{color:var(--text-d);font-size:.85rem;text-align:center;padding:20px 0}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand">TCGYM &mdash; 端末間同期</div>
+
+  <div id="stateLoading" class="loading">確認しています…</div>
+
+  <!-- 確認画面（有効なトークン） -->
+  <div id="stateConfirm" class="hidden">
+    <h1>他の端末と同期しますか？</h1>
+    <div class="counts">
+      <div><span class="label">この端末: 購入候補</span><span class="num" id="localWishCount">-</span>件</div>
+      <div><span class="label">この端末: 保存デッキ</span><span class="num" id="localDeckCount">-</span>件</div>
+      <div><span class="label">リンク元: 購入候補</span><span class="num" id="remoteWishCount">-</span>件</div>
+      <div><span class="label">リンク元: 保存デッキ</span><span class="num" id="remoteDeckCount">-</span>件</div>
+    </div>
+    <p>どちらのデータも消えません。同じカード・デッキは合体され、件数が多い方の枚数が採用されます。</p>
+    <div class="warn">⚠ このリンクの送り主が自分自身であることを確認してください。他人から送られたリンクでは同期しないでください。</div>
+    <div class="timer" id="confirmTimer"></div>
+    <div class="actions">
+      <button type="button" class="btn-outline" id="btnCancel">やめる</button>
+      <button type="button" class="btn-primary" id="btnRedeem">同期する</button>
+    </div>
+  </div>
+
+  <!-- 引き換え完了画面 -->
+  <div id="stateDone" class="hidden">
+    <h1>同期が完了しました</h1>
+    <p>購入候補</p>
+    <div class="result-num" id="doneWishCount">-件</div>
+    <p>保存デッキ</p>
+    <div class="result-num" id="doneDeckCount">-件</div>
+    <a class="top-link" href="/">トップへ戻る</a>
+  </div>
+
+  <!-- 無効・失敗画面 -->
+  <div id="stateInvalid" class="hidden">
+    <h1 id="invalidTitle">このリンクは使えません</h1>
+    <p id="invalidBody"></p>
+    <a class="top-link" href="/">トップへ戻ってやり直す</a>
+  </div>
+</div>
+
+<script src="/static/shared/sync-client.js?v=20260817"></script>
+<script>
+(function(){
+  "use strict";
+  const token = new URLSearchParams(location.search).get('t');
+
+  const els = {
+    loading: document.getElementById('stateLoading'),
+    confirm: document.getElementById('stateConfirm'),
+    done: document.getElementById('stateDone'),
+    invalid: document.getElementById('stateInvalid'),
+  };
+  function show(name){
+    Object.keys(els).forEach(function(k){ els[k].classList.toggle('hidden', k !== name); });
+  }
+
+  // 無効・失敗理由 → 案内文（設計文書 §6.5・§6.8 の reason をそのまま使う）
+  const REASON_TEXT = {
+    expired:  'このリンクは有効期限（10分）を過ぎました。元の端末でもう一度「他の端末でも見る」を押して、新しいリンクを発行してください。',
+    used:     'このリンクは既に使用されています。1つのリンクは1回しか使えません。元の端末で新しいリンクを発行してください。',
+    not_found:'リンクが見つかりませんでした。URLが正しいか確認するか、元の端末で新しいリンクを発行してください。',
+    db_unavailable: '現在サーバーに接続できません。しばらくしてからもう一度お試しください。',
+    conflict_retry_exceeded: '混み合っていて同期に失敗しました。もう一度お試しください。',
+    rate_limited: '短時間に操作しすぎました。少し待ってからもう一度お試しください。',
+    network_error: '通信に失敗しました。通信状況を確認してもう一度お試しください。',
+  };
+  function showInvalid(reason){
+    document.getElementById('invalidBody').textContent =
+      REASON_TEXT[reason] || 'このリンクは使用できませんでした。元の端末で新しいリンクを発行してください。';
+    show('invalid');
+  }
+
+  if(!token){
+    showInvalid('not_found');
+    return;
+  }
+  if(!window.SyncClient){
+    showInvalid('network_error');
+    return;
+  }
+
+  let _timerId = null;
+  function startCountdown(seconds){
+    let remain = seconds;
+    const el = document.getElementById('confirmTimer');
+    function tick(){
+      if(remain <= 0){
+        clearInterval(_timerId);
+        showInvalid('expired');
+        return;
+      }
+      const m = Math.floor(remain/60), s = remain%60;
+      el.textContent = 'あと ' + m + ':' + String(s).padStart(2,'0') + ' で失効します';
+      remain--;
+    }
+    tick();
+    _timerId = setInterval(tick, 1000);
+  }
+
+  window.SyncClient.previewLink(token).then(function(res){
+    if(!res || !res.ok){
+      showInvalid(res && res.reason);
+      return;
+    }
+    const local = window.SyncClient.getLocalCounts();
+    document.getElementById('localWishCount').textContent = local.wishlist;
+    document.getElementById('localDeckCount').textContent = local.decks;
+    document.getElementById('remoteWishCount').textContent = res.remote.wishlist_count;
+    document.getElementById('remoteDeckCount').textContent = res.remote.decks_count;
+    show('confirm');
+    startCountdown(res.expires_in);
+
+    document.getElementById('btnCancel').addEventListener('click', function(){
+      location.href = '/';
+    });
+    document.getElementById('btnRedeem').addEventListener('click', function(){
+      if(_timerId) clearInterval(_timerId);
+      const btn = document.getElementById('btnRedeem');
+      btn.disabled = true;
+      btn.textContent = '同期しています…';
+      window.SyncClient.redeemLink(token).then(function(data){
+        if(!data || !data.ok){
+          showInvalid(data && data.reason);
+          return;
+        }
+        document.getElementById('doneWishCount').textContent = (data.wishlist.items||[]).length + '件';
+        document.getElementById('doneDeckCount').textContent = (data.decks.items||[]).length + '件';
+        show('done');
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

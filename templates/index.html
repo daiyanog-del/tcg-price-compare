@@ -941,6 +941,11 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
   <div id="mode-mydeck" class="hidden">
     <div class="deck-builder">
 
+      <!-- 端末間同期（設計文書 §7.1） -->
+      <div style="text-align:right;margin-bottom:8px">
+        <button class="wish-action-btn" onclick="openSyncShareDialog()">他の端末でも見る</button>
+      </div>
+
       <!-- 保存済みデッキ一覧（常時最上部） -->
       <div id="savedDeckList"></div>
 
@@ -1158,7 +1163,12 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
         <div class="wish-actions" id="wishActions" style="display:none">
           <button class="wish-action-btn" onclick="wishToEstimate()">このリストで見積もり</button>
           <button class="wish-action-btn" onclick="wishCheapestStores()">まとめ買いの最安店舗を調査</button>
+          <button class="wish-action-btn" onclick="openSyncShareDialog()">他の端末でも見る</button>
           <button class="wish-action-btn danger" onclick="wishClearAll()">すべて削除</button>
+        </div>
+        <!-- 端末間同期の状態表示（同期中のみ表示。設計文書 §7.3） -->
+        <div id="wishSyncStatus" class="hidden" style="margin:0 0 12px;padding:8px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;font-size:.78rem;color:var(--text-d)">
+          他の端末と同期中　<a href="#" onclick="unlinkThisDeviceSync();return false;">同期を解除</a>
         </div>
         <div id="wishList"></div>
 
@@ -1345,6 +1355,26 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
       <p style="margin-top:16px"><strong>お問い合わせ:</strong> <a href="mailto:tcg.price.compare@gmail.com" style="color:var(--accent)">tcg.price.compare@gmail.com</a></p>
 
       <p style="margin-top:16px;font-size:.8rem;color:var(--text-d)">最終更新日: 2026年3月21日</p>
+    </div>
+  </div>
+</div>
+
+<!-- 端末間同期: 「他の端末でも見る」ダイアログ（QR＋リンク。設計文書 §7.1） -->
+<div class="legal-overlay" id="syncShareOverlay" onclick="if(event.target===this)closeSyncShareDialog()">
+  <div class="legal-modal" style="max-width:380px">
+    <div class="legal-modal-head">
+      <h2>他の端末でも見る</h2>
+      <button class="legal-modal-close" onclick="closeSyncShareDialog()">&times;</button>
+    </div>
+    <div class="legal-modal-body" style="text-align:center">
+      <p style="color:var(--text-m);font-size:.85rem;margin-bottom:14px">もう一方の端末でこのQRコードを読み取るか、下のリンクを開いてください。有効期限は10分です。</p>
+      <div id="syncShareQr" style="display:flex;justify-content:center;margin:14px 0;min-height:40px"></div>
+      <div id="syncShareTimer" style="font-size:.8rem;color:var(--text-d);margin-bottom:12px"></div>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="syncShareUrl" readonly onclick="this.select()" placeholder="発行中…" style="flex:1;min-width:0;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-input);color:var(--text);font-size:.78rem">
+        <button type="button" class="wish-action-btn" id="syncShareCopyBtn" onclick="copySyncShareLink()">コピー</button>
+      </div>
+      <div id="syncShareError" style="display:none;color:var(--red);font-size:.82rem;margin-top:12px"></div>
     </div>
   </div>
 </div>
@@ -2361,6 +2391,10 @@ function switchMode(mode){
     // 端末間同期: 購入候補タブを開いたときだけ pull する（カード個別ページ閲覧では走らせない）。
     // pullIfNeeded() は購入候補・保存デッキの両方を1回のAPI呼び出しで扱う（P2）
     if(window.SyncClient) window.SyncClient.pullIfNeeded();
+    // 同期状態の表示更新（P3）。_refreshSyncStatusUI はページ末尾のスクリプトで定義されるため、
+    // 初回ページ読み込み時（#wishlist直リンク等）はまだ未定義のことがある。typeof で安全に判定する
+    // （sync-client.js の <script> より前で呼ぶと壊れる、というP1の教訓と同じ理由のガード）
+    if(typeof _refreshSyncStatusUI==='function') _refreshSyncStatusUI();
   }
   if(mode==='meta') loadMetaTiers();
   if(mode==='mydeck'){
@@ -4645,7 +4679,8 @@ updatePushUI(!!localStorage.getItem(PUSH_SUB_KEY));
 <script src="/static/packs.js?v=20260808"></script>
 <script src="/static/featured-matrix.js?v=20260808"></script>
 <script src="/static/wish-split.js?v=20260805"></script>
-<script src="/static/shared/sync-client.js?v=20260813"></script>
+<script src="/static/shared/sync-client.js?v=20260817"></script>
+<script src="/static/shared/qrcode.js?v=20260817"></script>
 <script>
 // 端末間同期: トップページ（カード個別ページでない）を開いたときだけ pull する（§8）。
 // 購入候補・保存デッキの両方を1回のAPI呼び出しで扱う（P2）。
@@ -4653,6 +4688,118 @@ updatePushUI(!!localStorage.getItem(PUSH_SUB_KEY));
 // 読み込み後の別ブロックに置く（_pageCardName は先行スクリプトのトップレベル const だが、
 // クラシックscript間では同一グローバルレキシカル環境を共有するため参照できる）
 if(!_pageCardName && window.SyncClient) window.SyncClient.pullIfNeeded();
+
+// ── 端末間同期: 「他の端末でも見る」ダイアログ・状態表示・解除（P3。設計文書 §7.1・§7.3）──
+// ネットワーク呼び出し・localStorage操作のロジックは sync-client.js 側（SyncClient.*）に
+// 集約されており、ここは配線（ダイアログの開閉・QR描画・カウントダウン表示）のみを行う。
+
+let _syncShareTimerId=null;
+
+function openSyncShareDialog(){
+  const overlay=document.getElementById('syncShareOverlay');
+  overlay.classList.add('active');
+  document.body.style.overflow='hidden';
+  document.getElementById('syncShareQr').innerHTML='';
+  document.getElementById('syncShareUrl').value='';
+  document.getElementById('syncShareTimer').textContent='';
+  _setSyncShareError('');
+  if(_syncShareTimerId){ clearInterval(_syncShareTimerId); _syncShareTimerId=null; }
+
+  if(!window.SyncClient){
+    _setSyncShareError('同期機能を読み込めませんでした。ページを再読み込みしてください。');
+    return;
+  }
+  window.SyncClient.startLinkShare().then(function(res){
+    if(!res || !res.ok){
+      _setSyncShareError(_syncShareErrorText(res && res.reason));
+      return;
+    }
+    document.getElementById('syncShareUrl').value=res.url;
+    if(window.qrcode){
+      const qr=qrcode(0,'M');
+      qr.addData(res.url);
+      qr.make();
+      document.getElementById('syncShareQr').innerHTML=qr.createSvgTag(5);
+    }
+    _startSyncShareCountdown(res.expires_in);
+    _refreshSyncStatusUI();
+  });
+}
+
+function closeSyncShareDialog(){
+  document.getElementById('syncShareOverlay').classList.remove('active');
+  document.body.style.overflow='';
+  if(_syncShareTimerId){ clearInterval(_syncShareTimerId); _syncShareTimerId=null; }
+}
+
+function _startSyncShareCountdown(seconds){
+  let remain=seconds;
+  const el=document.getElementById('syncShareTimer');
+  function tick(){
+    if(remain<=0){
+      clearInterval(_syncShareTimerId);
+      _setSyncShareError('リンクの有効期限が切れました。もう一度「他の端末でも見る」を開いてください。');
+      return;
+    }
+    const m=Math.floor(remain/60), s=remain%60;
+    el.textContent='有効期限: あと '+m+':'+String(s).padStart(2,'0');
+    remain--;
+  }
+  tick();
+  _syncShareTimerId=setInterval(tick,1000);
+}
+
+function _setSyncShareError(msg){
+  const el=document.getElementById('syncShareError');
+  if(!msg){ el.style.display='none'; el.textContent=''; return; }
+  el.style.display='block';
+  el.textContent=msg;
+}
+
+function _syncShareErrorText(reason){
+  const map={
+    no_local_data:'購入候補かデッキを1件以上登録してからお試しください。',
+    db_unavailable:'現在サーバーに接続できません。しばらくしてからもう一度お試しください。',
+    rate_limited:'少し間隔をあけてからもう一度お試しください。',
+    network_error:'通信に失敗しました。もう一度お試しください。',
+    not_found:'同期の状態が見つかりませんでした。ページを再読み込みしてください。',
+    init_failed:'同期の初期化に失敗しました。もう一度お試しください。',
+  };
+  return map[reason] || '同期リンクの発行に失敗しました。もう一度お試しください。';
+}
+
+function copySyncShareLink(){
+  const input=document.getElementById('syncShareUrl');
+  if(!input.value) return;
+  input.select();
+  const btn=document.getElementById('syncShareCopyBtn');
+  const done=()=>{ const orig='コピー'; btn.textContent='コピーしました'; setTimeout(()=>{btn.textContent=orig;},1500); };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(input.value).then(done).catch(()=>{ try{document.execCommand('copy');done();}catch(e){} });
+  }else{
+    try{ document.execCommand('copy'); done(); }catch(e){}
+  }
+}
+
+// 購入候補タブの「他の端末と同期中」表示の出し分け（設計文書 §7.3）
+function _refreshSyncStatusUI(){
+  const el=document.getElementById('wishSyncStatus');
+  if(!el || !window.SyncClient) return;
+  const state=window.SyncClient.getSyncState();
+  el.classList.toggle('hidden', !(state && state.sync_id));
+}
+
+function unlinkThisDeviceSync(){
+  if(!window.SyncClient) return;
+  if(!confirm('この端末をほかの端末との同期から切り離しますか？（この端末のデータは消えません）')) return;
+  window.SyncClient.unlinkThisDevice().then(function(res){
+    if(res && res.ok){
+      _refreshSyncStatusUI();
+    }else{
+      alert('解除に失敗しました。もう一度お試しください。');
+    }
+  });
+}
 </script>
 <script src="/static/mydeck/deck-edit.js?v=20260615c"></script>
 <script type="module" src="/static/mydeck/deck-card-info.js?v=20260617"></script>

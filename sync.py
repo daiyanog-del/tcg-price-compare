@@ -12,7 +12,8 @@ app.py は本モジュールの関数を呼び出す薄い配線のみを持つ
 """
 
 import re
-from datetime import datetime, timezone
+import secrets
+from datetime import datetime, timedelta, timezone
 
 # 「<名前> (2)」「<名前> (3)」形式から元の名前を取り出す（merge_decks の名前衝突解決用）。
 # 既に "(2)" が付いた名前が別の名前と再衝突した際、"(2) (2)" のような入れ子にせず
@@ -29,6 +30,9 @@ PUSH_MAX_RETRY = 3             # 設計文書 §4.3
 MAX_DECKS = 50                 # 設計文書 §9
 MAX_DECK_TEXT_CHARS = 6000     # app.py の MAX_DECK_PARAM_CHARS と同値
 MAX_DECK_CARD_COUNT = 80       # app.py の MAX_DECK_CARDS と同値
+
+# P3: ワンタイムリンク（sync_link_tokens）関連
+LINK_TOKEN_TTL_SEC = 600       # 設計文書 §3.2・§6.4（10分・1回使用で失効）
 
 
 def _now_iso() -> str:
@@ -320,3 +324,158 @@ def pull(client, sync_id, wishlist_rev, decks_rev):
         result["decks"] = {"rev": current_decks_rev, "items": row.get("decks") or []}
 
     return result
+
+
+# ── ワンタイムリンク（P3。設計文書 §6.4〜§6.7・§7.2） ──
+
+
+def _parse_ts(value) -> datetime:
+    """DBから返る timestamptz 文字列（ISO8601。末尾が 'Z' の場合がある）を datetime にパースする。
+    Python 3.10 の datetime.fromisoformat は 'Z' サフィックスを直接扱えないため置換する。"""
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+
+def create_link_token(client, sync_id):
+    """ワンタイムリンク用トークンを発行する（設計文書 §6.4）。
+
+    sync_id が存在しない場合は発行せず {"reason": "not_found"} を返す
+    （sync_link_tokens.sync_id の外部キー制約違反を未然に防ぐ）。
+    URL の組み立て（ホスト名等）は Flask のリクエストコンテキストに依存するため
+    app.py 側の責務とする。DBエラーはここでキャッチせず呼び出し側に送出する。
+    """
+    exists = (client.table("sync_accounts").select("sync_id")
+              .eq("sync_id", sync_id).execute())
+    if not exists.data:
+        return {"reason": "not_found"}
+
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=LINK_TOKEN_TTL_SEC)
+    client.table("sync_link_tokens").insert({
+        "token": token,
+        "sync_id": sync_id,
+        "expires_at": expires_at.isoformat(),
+    }).execute()
+    return {"ok": True, "token": token, "expires_in": LINK_TOKEN_TTL_SEC}
+
+
+def preview_link(client, token):
+    """引き換え前の下見（設計文書 §6.5）。副作用なし。
+
+    返り値:
+      - 有効: {"ok": True, "remote": {"wishlist_count": N, "decks_count": N}, "expires_in": 秒}
+      - 無効: {"ok": False, "reason": "expired"|"used"|"not_found"}
+    """
+    resp = (client.table("sync_link_tokens")
+            .select("sync_id,expires_at,used_at")
+            .eq("token", token).execute())
+    if not resp.data:
+        return {"ok": False, "reason": "not_found"}
+    row = resp.data[0]
+    if row.get("used_at"):
+        return {"ok": False, "reason": "used"}
+
+    now = datetime.now(timezone.utc)
+    expires_at = _parse_ts(row["expires_at"])
+    if expires_at <= now:
+        return {"ok": False, "reason": "expired"}
+
+    acct = (client.table("sync_accounts").select("wishlist,decks")
+            .eq("sync_id", row["sync_id"]).execute())
+    if not acct.data:
+        # リンク元のアカウント行が既に存在しない（通常は起こらないが、cascade削除等の異常系）
+        return {"ok": False, "reason": "not_found"}
+    acct_row = acct.data[0]
+
+    remaining = max(0, int((expires_at - now).total_seconds()))
+    return {
+        "ok": True,
+        "remote": {
+            "wishlist_count": len(acct_row.get("wishlist") or []),
+            "decks_count": len(acct_row.get("decks") or []),
+        },
+        "expires_in": remaining,
+    }
+
+
+def redeem_link(client, token, wishlist, decks):
+    """ワンタイムリンクを引き換え、和集合マージを実行する（設計文書 §6.6）。
+
+    - トークンの消費は `used_at is null and expires_at > now()` の条件付き更新1回で行う。
+      1行更新できた場合のみ引き換え成立（2端末が同時に踏んでも二重処理しない。期限切れも同時に弾く）
+    - マージは merge_wishlist / merge_decks をそのまま再利用する（新しいマージ規則を作らない）
+    - sync_accounts への書き込みは、読んだ時点の wishlist_rev・decks_rev を条件にした
+      条件付き更新で行い、他端末の同時 push と競合したら最大 PUSH_MAX_RETRY 回リトライする
+      （§4.3 と同じ考え方。jsonb の read-modify-write に排他制御が無いと事故る、という
+      設計文書 §15 S4 の教訓をここにも適用する）
+    - old_sync_id の行はこの関数では一切参照・削除しない（呼び出し側が保持するだけで、
+      削除する経路自体を作らないことで「削除しない」を保証する。設計文書 §6.6）
+
+    返り値:
+      - 成功: {"ok": True, "sync_id": ..., "wishlist": {"rev": N, "items": [...]},
+               "decks": {"rev": N, "items": [...]}}
+      - 失敗: {"ok": False, "reason": "expired"|"used"|"not_found"|"conflict_retry_exceeded"}
+    """
+    now_iso = _now_iso()
+    consumed = (client.table("sync_link_tokens")
+                .update({"used_at": now_iso})
+                .eq("token", token)
+                .is_("used_at", "null")
+                .gt("expires_at", now_iso)
+                .execute())
+    if not consumed.data:
+        # 消費できなかった理由を切り分けるため現在の行を読む（副作用なし）
+        cur = (client.table("sync_link_tokens").select("sync_id,expires_at,used_at")
+               .eq("token", token).execute())
+        if not cur.data:
+            return {"ok": False, "reason": "not_found"}
+        row = cur.data[0]
+        if row.get("used_at"):
+            return {"ok": False, "reason": "used"}
+        return {"ok": False, "reason": "expired"}
+
+    sync_id = consumed.data[0]["sync_id"]
+
+    for _ in range(PUSH_MAX_RETRY):
+        cur = (client.table("sync_accounts")
+               .select("wishlist,wishlist_rev,decks,decks_rev")
+               .eq("sync_id", sync_id).execute())
+        if not cur.data:
+            return {"ok": False, "reason": "not_found"}
+        row = cur.data[0]
+        merged_wishlist = merge_wishlist(row.get("wishlist") or [], wishlist)
+        merged_decks = merge_decks(row.get("decks") or [], decks)
+        next_wishlist_rev = row["wishlist_rev"] + 1
+        next_decks_rev = row["decks_rev"] + 1
+
+        resp = (client.table("sync_accounts")
+                .update({
+                    "wishlist": merged_wishlist, "wishlist_rev": next_wishlist_rev,
+                    "decks": merged_decks, "decks_rev": next_decks_rev,
+                    "last_seen_at": _now_iso(),
+                })
+                .eq("sync_id", sync_id)
+                .eq("wishlist_rev", row["wishlist_rev"])
+                .eq("decks_rev", row["decks_rev"])
+                .execute())
+        if resp.data:
+            return {
+                "ok": True,
+                "sync_id": sync_id,
+                "wishlist": {"rev": next_wishlist_rev, "items": merged_wishlist},
+                "decks": {"rev": next_decks_rev, "items": merged_decks},
+            }
+    return {"ok": False, "reason": "conflict_retry_exceeded"}
+
+
+def unlink(client, sync_id):
+    """この端末だけ切り離す（設計文書 §6.7）。
+
+    現在のデータを新しい sync_id に複製して返す（init_account を再利用。リビジョンは1から
+    再スタート）。元の行は削除しない（他の端末は影響を受けない。`all_others` モードは作らない）。
+    """
+    resp = (client.table("sync_accounts").select("wishlist,decks")
+            .eq("sync_id", sync_id).execute())
+    if not resp.data:
+        return {"reason": "not_found"}
+    row = resp.data[0]
+    return init_account(client, row.get("wishlist") or [], row.get("decks") or [])
