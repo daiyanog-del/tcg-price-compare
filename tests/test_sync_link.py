@@ -331,6 +331,7 @@ def link_app_client(monkeypatch):
     client = _FakeClient()
     monkeypatch.setattr(app_module, "_supabase_client", client)
     app_module._last_sync.clear()
+    app_module._last_sync_link.clear()
     app_module.app.config["TESTING"] = True
     return app_module.app.test_client(), client
 
@@ -357,6 +358,94 @@ class TestLinkCreateEndpoint:
         body = res.get_json()
         assert body["ok"] is False
         assert body["reason"] == "not_found"
+
+    def test_repeated_calls_are_still_rate_limited(self, link_app_client):
+        # バケット分離の副作用で「link/create自体のレート制限」が無効化されていないことの
+        # 陽性対照（分離した結果、意図せず制限が無くなっていないかを確認する）
+        flask_client, store = link_app_client
+        _make_account(store, "s1")
+        first = flask_client.post("/api/sync/link/create", json={"sync_id": "s1"})
+        second = flask_client.post("/api/sync/link/create", json={"sync_id": "s1"})
+        assert first.status_code == 200
+        assert second.status_code == 429
+
+    def test_pull_immediately_before_link_create_still_succeeds(self, link_app_client):
+        # 2026-08-17 本番不具合の再発防止（司令塔からの指摘そのもの）。
+        # 「購入候補タブを開く（pullが走る）→ 直後に『他の端末でも見る』を押す（link/create）」
+        # という最も自然な操作フローが、レート制限バケットの共有によりほぼ確実に429で
+        # 落ちていた。pull と link/create のバケットが分離されていれば、同じ sync_id・
+        # ほぼ同時刻でも link/create は成功する
+        flask_client, store = link_app_client
+        _make_account(store, "s1")
+
+        pull_res = flask_client.post("/api/sync/pull", json={
+            "sync_id": "s1", "wishlist_rev": 0, "decks_rev": 0,
+        })
+        assert pull_res.status_code == 200  # pull自体は成功する（背景同期のレート制限内）
+
+        create_res = flask_client.post("/api/sync/link/create", json={"sync_id": "s1"})
+        assert create_res.status_code == 200, (
+            f"pull直後のlink/createが429になった（バケット分離が壊れている）: {create_res.get_json()}"
+        )
+        body = create_res.get_json()
+        assert body["ok"] is True
+        assert body["token"]
+
+    def test_preview_redeem_unlink_bucket_isolated_from_background_sync_too(self, link_app_client):
+        # link/create 以外の3エンドポイントも同じ理由でバケットが分離されているかを確認する。
+        # preview/redeem は sync_id を持たずIPキーのため、pull（sync_idキー）とは元々
+        # キーが違い直接は衝突しないが、unlink は sync_id キーで pull と衝突しうる
+        flask_client, store = link_app_client
+        _make_account(store, "s1")
+
+        pull_res = flask_client.post("/api/sync/pull", json={
+            "sync_id": "s1", "wishlist_rev": 0, "decks_rev": 0,
+        })
+        assert pull_res.status_code == 200
+
+        unlink_res = flask_client.post("/api/sync/unlink", json={"sync_id": "s1"})
+        assert unlink_res.status_code == 200, (
+            f"pull直後のunlinkが429になった（バケット分離が壊れている）: {unlink_res.get_json()}"
+        )
+
+
+class TestPublicBaseUrlScheme:
+    """設計文書 §12 と同種の重大度: ワンタイムリンクのURLが http:// のまま発行されないこと
+    （2026-08-17 本番不具合。Renderのプロキシ配下で request.url_root が http のまま
+    復元できていなかった）。"""
+
+    def test_url_is_https_when_forwarded_proto_header_present(self, link_app_client):
+        flask_client, store = link_app_client
+        _make_account(store, "s1")
+        res = flask_client.post(
+            "/api/sync/link/create", json={"sync_id": "s1"},
+            base_url="http://tcg-price-compare.onrender.com",
+            headers={"X-Forwarded-Proto": "https"},
+        )
+        body = res.get_json()
+        assert body["url"].startswith("https://tcg-price-compare.onrender.com/sync?t="), body["url"]
+
+    def test_url_forced_to_https_even_without_forwarded_proto_header(self, link_app_client):
+        # プロキシ側が X-Forwarded-Proto を送らない設定ミスがあっても、
+        # localhost以外のホストでは http:// のリンクを絶対に生成しない（保険）
+        flask_client, store = link_app_client
+        _make_account(store, "s1")
+        res = flask_client.post(
+            "/api/sync/link/create", json={"sync_id": "s1"},
+            base_url="http://tcg-price-compare.onrender.com",
+        )
+        body = res.get_json()
+        assert body["url"].startswith("https://tcg-price-compare.onrender.com/sync?t="), body["url"]
+
+    def test_localhost_keeps_http_for_local_dev(self, link_app_client):
+        flask_client, store = link_app_client
+        _make_account(store, "s1")
+        res = flask_client.post(
+            "/api/sync/link/create", json={"sync_id": "s1"},
+            base_url="http://localhost:5000",
+        )
+        body = res.get_json()
+        assert body["url"].startswith("http://localhost:5000/sync?t="), body["url"]
 
 
 class TestLinkPreviewEndpoint:

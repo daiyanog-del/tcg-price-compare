@@ -195,9 +195,16 @@ _last_search: dict[str, float] = {}
 _last_import: dict[str, float] = {}
 # 端末間同期(sync)用の独立バケット。既存APIとレート制限を奪い合わないようにする。
 # キーは sync_id（IPだと宅内の複数端末が互いを弾いてしまうため）。
+# init/push/pull は「裏で自動的に走る」背景同期。
 _last_sync: dict[str, float] = {}
 SYNC_RATE_LIMIT_SEC = 5  # TODO: calibrate from data（設計文書 §6.8）
+# 2026-08-17 本番不具合の修正: link/create等（ユーザーが明示的に押すボタン起点）を
+# _last_sync と同じバケット・同じキー(sync_id)で共有すると、購入候補タブを開いた直後に
+# 走る pull（背景同期）がタイムスタンプを更新し、直後のボタン操作がほぼ必ず429で弾かれる
+# （実測: pullの直後にlink/createを呼ぶと429）。ユーザー操作起点のバケットを別に分離する。
+_last_sync_link: dict[str, float] = {}
 LINK_CREATE_RATE_LIMIT_SEC = 10  # TODO: calibrate from data（設計文書 §6.8。link/create のみ10秒）
+LINK_RATE_LIMIT_SEC = 5  # TODO: calibrate from data（link/preview・link/redeem・unlink）
 _rate_limit_lock = __import__('threading').Lock()
 RATE_LIMIT_SEC = 3
 RATE_LIMIT_MAX_ENTRIES = 10000  # これ以上溜まったら古い記録を一括削除
@@ -2475,6 +2482,30 @@ def _same_origin_ok() -> bool:
     return urlparse(origin).netloc == request.host
 
 
+def _public_base_url() -> str:
+    """このリクエストの公開URLのベース（scheme://host）を、プロキシ配下でも正しく返す。
+
+    2026-08-17 本番不具合の修正: Renderのリバースプロキシ配下ではTLSがプロキシで終端され、
+    アプリへは http で転送されるため、request.url_root（= request.scheme 由来）だけでは
+    常に http になり、発行したリンクが http:// になってしまっていた
+    （X-Forwarded-Proto を見ていなかったため）。ワンタイムリンクのトークンは sync_id と
+    同等の権限を持つ資格情報であり、http で開くとhttpsへのリダイレクト前の最初のリクエストで
+    平文で流れる（設計文書 §12「トークンをGoogleに送らない」と同種の重大度）。
+
+    X-Forwarded-Proto を最優先で信頼し、それが無い場合でも localhost/127.0.0.1 以外では
+    https を強制する（プロキシ設定側の不備に対する保険。ローカル開発の http は妨げない）。
+    """
+    proto = request.headers.get("X-Forwarded-Proto", "").split(",")[0].strip()
+    if not proto:
+        proto = request.scheme
+    host = request.host
+    host_only = host.split(":")[0]
+    is_local = host_only in ("localhost", "127.0.0.1")
+    if proto != "https" and not is_local:
+        proto = "https"
+    return f"{proto}://{host}"
+
+
 @app.route("/api/push/subscribe", methods=["POST"])
 def api_push_subscribe():
     """プッシュ購読を登録または更新する。
@@ -2709,7 +2740,10 @@ def api_sync_link_create():
     if not sync_id:
         return jsonify({"error": "sync_id が必要です"}), 400
 
-    rate_error = _consume_rate_limit(bucket=_last_sync, interval=LINK_CREATE_RATE_LIMIT_SEC, key=sync_id)
+    # ユーザーが明示的に押すボタン起点のため、背景同期(init/push/pull)とはバケットを分離する
+    # （2026-08-17: 共有していたことで、タブを開いた直後の pull が枠を食い、ほぼ確実に
+    # 429になる不具合が本番で発生した）
+    rate_error = _consume_rate_limit(bucket=_last_sync_link, interval=LINK_CREATE_RATE_LIMIT_SEC, key=sync_id)
     if rate_error:
         return rate_error
     if not _supabase_client:
@@ -2724,8 +2758,7 @@ def api_sync_link_create():
     if result.get("reason") == "not_found":
         return jsonify({"ok": False, "reason": "not_found"}), 200
 
-    base_url = request.url_root.rstrip("/")
-    result["url"] = f"{base_url}/sync?t={result['token']}"
+    result["url"] = f"{_public_base_url()}/sync?t={result['token']}"
     return jsonify(result)
 
 
@@ -2743,8 +2776,9 @@ def api_sync_link_preview():
     if not token:
         return jsonify({"error": "token が必要です"}), 400
 
-    # preview/redeem/unlink は sync_id を持たない場合があるため IP をキーにする（設計文書 §6.8）
-    rate_error = _consume_rate_limit(bucket=_last_sync, interval=SYNC_RATE_LIMIT_SEC,
+    # preview/redeem/unlink は sync_id を持たない場合があるため IP をキーにする（設計文書 §6.8）。
+    # ユーザー操作起点のため背景同期(_last_sync)とはバケットを分離する（上記 link/create と同じ理由）
+    rate_error = _consume_rate_limit(bucket=_last_sync_link, interval=LINK_RATE_LIMIT_SEC,
                                       key=request.remote_addr or "unknown")
     if rate_error:
         return rate_error
@@ -2777,7 +2811,8 @@ def api_sync_link_redeem():
     if not token:
         return jsonify({"error": "token が必要です"}), 400
 
-    rate_error = _consume_rate_limit(bucket=_last_sync, interval=SYNC_RATE_LIMIT_SEC,
+    # ユーザー操作起点のため背景同期(_last_sync)とはバケットを分離する（上記2つと同じ理由）
+    rate_error = _consume_rate_limit(bucket=_last_sync_link, interval=LINK_RATE_LIMIT_SEC,
                                       key=request.remote_addr or "unknown")
     if rate_error:
         return rate_error
@@ -2812,7 +2847,8 @@ def api_sync_unlink():
     if not sync_id:
         return jsonify({"error": "sync_id が必要です"}), 400
 
-    rate_error = _consume_rate_limit(bucket=_last_sync, interval=SYNC_RATE_LIMIT_SEC, key=sync_id)
+    # ユーザー操作起点のため背景同期(_last_sync)とはバケットを分離する（上記3つと同じ理由）
+    rate_error = _consume_rate_limit(bucket=_last_sync_link, interval=LINK_RATE_LIMIT_SEC, key=sync_id)
     if rate_error:
         return rate_error
     if not _supabase_client:

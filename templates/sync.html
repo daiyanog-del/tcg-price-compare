@@ -76,6 +76,9 @@ button{
     <p>どちらのデータも消えません。同じカード・デッキは合体され、件数が多い方の枚数が採用されます。</p>
     <div class="warn">⚠ このリンクの送り主が自分自身であることを確認してください。他人から送られたリンクでは同期しないでください。</div>
     <div class="timer" id="confirmTimer"></div>
+    <!-- 混み合っている等の一時的な失敗はここに表示し、トークンはまだ有効なので再試行させる
+         （司令塔指摘#2: 429でも理由が分かる表示を出し、押しっぱなしにできる状態にはしない）-->
+    <div class="warn hidden" id="confirmError"></div>
     <div class="actions">
       <button type="button" class="btn-outline" id="btnCancel">やめる</button>
       <button type="button" class="btn-primary" id="btnRedeem">同期する</button>
@@ -159,6 +162,18 @@ button{
     _timerId = setInterval(tick, 1000);
   }
 
+  function setConfirmError(msg){
+    const el = document.getElementById('confirmError');
+    if(!msg){ el.classList.add('hidden'); el.textContent=''; return; }
+    el.classList.remove('hidden');
+    el.textContent = msg;
+  }
+
+  // 再試行しても意味がある理由（トークンはまだ有効）かどうか。
+  // rate_limited / network_error / db_unavailable はその場でボタンを再度押させる。
+  // expired / used / not_found / conflict_retry_exceeded は確認画面から失敗画面へ遷移させる
+  const RETRYABLE_REASONS = ['rate_limited', 'network_error', 'db_unavailable'];
+
   window.SyncClient.previewLink(token).then(function(res){
     if(!res || !res.ok){
       showInvalid(res && res.reason);
@@ -175,21 +190,40 @@ button{
     document.getElementById('btnCancel').addEventListener('click', function(){
       location.href = '/';
     });
-    document.getElementById('btnRedeem').addEventListener('click', function(){
+    const btnRedeem = document.getElementById('btnRedeem');
+    btnRedeem.addEventListener('click', function(){
+      if(btnRedeem.disabled) return; // 連打で複数リクエストを重ねない（司令塔指摘#1・#2）
       if(_timerId) clearInterval(_timerId);
-      const btn = document.getElementById('btnRedeem');
-      btn.disabled = true;
-      btn.textContent = '同期しています…';
+      setConfirmError('');
+      btnRedeem.disabled = true;
+      btnRedeem.textContent = '同期しています…';
       window.SyncClient.redeemLink(token).then(function(data){
         if(!data || !data.ok){
-          showInvalid(data && data.reason);
+          const reason = data && data.reason;
+          if(RETRYABLE_REASONS.indexOf(reason) !== -1){
+            // 司令塔指摘#2: 理由が分かる表示を出し、成功するまで押しっぱなしにできる
+            // 状態にはしない＝ボタンを再度押せる状態に戻して再試行させる（画面遷移はしない）
+            setConfirmError((REASON_TEXT[reason] || '失敗しました。もう一度お試しください。'));
+            btnRedeem.disabled = false;
+            btnRedeem.textContent = '同期する';
+            return;
+          }
+          showInvalid(reason);
           return;
         }
         document.getElementById('doneWishCount').textContent = (data.wishlist.items||[]).length + '件';
         document.getElementById('doneDeckCount').textContent = (data.decks.items||[]).length + '件';
         show('done');
+      }).catch(function(){
+        // redeemLink は原則rejectしない設計だが、想定外の例外でも必ず画面に表示する
+        // （司令塔指摘#2の最終防御。失敗が無言で消えることの再発防止）
+        setConfirmError(REASON_TEXT.network_error);
+        btnRedeem.disabled = false;
+        btnRedeem.textContent = '同期する';
       });
     });
+  }).catch(function(){
+    showInvalid('network_error');
   });
 })();
 </script>
