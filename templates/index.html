@@ -623,38 +623,9 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   .share-menu{left:50%;right:auto;transform:translateX(-50%);min-width:260px;max-width:90vw}
 
   /* デッキビルダーのモバイルCSSは static/mydeck/deck.css に分離 */
-  /* 購入候補の1行: スマホでは横並びflexだとカード名の幅が83pxまで潰れて読めなくなるため、
-     グリッドに組み替えてカード名を画像の隣・上段に幅いっぱいで配置し、他要素はその下に積む。
-     HTML（renderWishlist()）は変更せず、既存クラスへの grid-area 指定のみで再配置する。
-     2026-08-19: 縦に長すぎる指摘を受け、4段→3段に圧縮（名前行／枚数+レアリティ+価格行／リンク+削除行）。
-     カード名は独立行のまま・切り詰め無しを維持し、余白とタップ対象の高さを詰めてコンパクト化した。 */
-  .wish-card-row{
-    display:grid;
-    grid-template-columns:36px 1fr auto auto;
-    grid-template-areas:
-      "img  name  name   name"
-      "img  qty   rarity price"
-      "img  link  link   remove";
-    align-items:center;
-    column-gap:8px;
-    row-gap:4px;
-    padding:6px 10px;
-    font-size:.72rem;
-  }
-  .wish-card-img{grid-area:img;align-self:start}
-  /* カード名は主役: 折り返し許可・省略記号なし・他要素より大きく太く（12pxより大きく維持） */
-  .wish-card-name{grid-area:name;white-space:normal;overflow:visible;text-overflow:clip;font-size:.82rem;font-weight:600;line-height:1.25}
-  /* qtyは1frトラック。実測で320px幅の3項目合計が収まりきらない場合はこの列(1fr)が
-     自動的に縮むが、子要素はoverflow:visibleのまま隣の列間ガター(gap)へ自然にはみ出すだけで
-     視覚的な重なりは生じない（実測・スクリーンショットで確認済み）。
-     min-width:max-content を試したところ逆に320px幅で横スクロールが発生したため採用しなかった。 */
-  .wish-card-qty{grid-area:qty;display:flex;align-items:center;gap:3px}
-  .wish-rarity-select{grid-area:rarity;width:74px;max-width:74px;min-height:32px;padding:2px 3px}
-  .wish-price-info{grid-area:price;justify-self:end;text-align:right}
-  .wish-card-link{grid-area:link;justify-self:start;min-height:32px;display:inline-flex;align-items:center}
-  /* 削除(×)ボタンは行の直下の子要素のみを対象にする（枚数±ボタンと同じクラスを共有しているため） */
-  .wish-card-row>.wish-card-remove{grid-area:remove;justify-self:end;min-width:32px;min-height:32px;font-size:.95rem}
-  .wish-card-qty .wish-card-remove{min-width:28px;min-height:28px;font-size:.8rem}
+  /* 購入候補の1行のグリッド指定は @media(max-width:767px) に分離した
+     （2026-08-19: 641〜767pxでも横並びflexのままカード名が90px前後まで潰れる問題を
+     解消するため。640px以下の見え方は同じ規則がそのまま当たるので変化しない）。 */
 
   /* 環境デッキ */
   .meta-deck-list{gap:4px}
@@ -675,6 +646,39 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   /* フッター */
   .site-footer{padding:24px 12px 20px}
   .site-footer a{display:inline-block;margin:4px 8px}
+}
+
+/* 購入候補の1行: 320〜767px（スマホ〜スマホ横向き・小型タブレット）共通のグリッド指定。
+   旧 @media(max-width:640px) の中にあったものと同一内容だが、640px以下の他要素
+   （検索フォーム・モードタブ・テーブルのカード化など）には影響させないため、
+   このセレクタ群だけを独立した @media(max-width:767px) ブロックへ丸ごと移した。
+   max-width:767px は640px以下も含むため、320〜640pxの見え方は変わらない
+   （同じ規則がそのまま当たる）。
+   2026-08-19: 641〜767pxで横並びflexのままカード名の枠幅が90px前後まで潰れ、
+   3行折り返しで読みにくくなる問題を修正（合格条件: 320〜767pxで枠幅250px以上・2行以内）。
+   HTML（renderWishlist()）は変更せず、既存クラスへの grid-area 指定のみで再配置する。 */
+@media(max-width:767px){
+  .wish-card-row{
+    display:grid;
+    grid-template-columns:36px 1fr auto auto;
+    grid-template-areas:
+      "img  name  name   name"
+      "img  qty   rarity price"
+      "img  link  link   remove";
+    align-items:center;
+    column-gap:8px;
+    row-gap:4px;
+    padding:6px 10px;
+    font-size:.72rem;
+  }
+  .wish-card-img{grid-area:img;align-self:start}
+  .wish-card-name{grid-area:name;white-space:normal;overflow:visible;text-overflow:clip;font-size:.82rem;font-weight:600;line-height:1.25}
+  .wish-card-qty{grid-area:qty;display:flex;align-items:center;gap:3px}
+  .wish-rarity-select{grid-area:rarity;width:74px;max-width:74px;min-height:32px;padding:2px 3px}
+  .wish-price-info{grid-area:price;justify-self:end;text-align:right}
+  .wish-card-link{grid-area:link;justify-self:start;min-height:32px;display:inline-flex;align-items:center}
+  .wish-card-row>.wish-card-remove{grid-area:remove;justify-self:end;min-width:32px;min-height:32px;font-size:.95rem}
+  .wish-card-qty .wish-card-remove{min-width:28px;min-height:28px;font-size:.8rem}
 }
 
 /* ── フッター ── */
