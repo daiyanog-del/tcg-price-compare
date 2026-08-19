@@ -4100,34 +4100,50 @@ async function calcWishEstimate(){
   }
   if(resp.error){progEl.textContent=resp.error;return;}
 
-  // 各エントリ (name,rarity) について、全店舗の中で最安を抽出する
-  const entryBest=list.map(()=>null);  // {price, shop, rarity}
-  const missingIdxs=[];
-  for(let i=0;i<list.length;i++){
-    const e=list[i];
-    let best=null;
-    for(const shop of (resp.shops||[])){
-      // 照合は希望レアリティ（rarity_pref）で行う。従来は採用レアリティ（it.rarity）と
-      // 比較していたため、未指定エントリ（""）はDBに価格があっても「見つからない」扱いになり
-      // 毎回リアルタイム検索へ落ちていた（2026-08-05 修正）
-      const item=(shop.items||[]).find(it=>it.name===e.name &&
-        ((it.rarity_pref!==undefined&&it.rarity_pref!==null)?it.rarity_pref:(it.rarity||""))===(e.rarity||""));
-      if(!item)continue;
-      if(!best || item.price<best.price){
-        best={price:item.price,shop:shop.shop,rarity:item.rarity||""};
-      }
+  // 照合はサーバ正本（entries：名前補正・レアリティ正規化・重複統合済み）で行う。
+  // list（localStorageの生データ）のまま突合すると、保存値がサーバの正規化形と
+  // 食い違ったとき（例: rarity:"ウルトラレア"）DBに価格があるのに「データなし」扱いで
+  // 総額から丸ごと落ちるバグがあった（2026-08-19 修正、まとめ買い機能と同根の原因）。
+  // entries は重複統合で件数・順序が変わりうるため、list と完全一致しない場合だけ
+  // グリッド（wish-row-<i>）を entries ベースで描き直す（一致するときは通常ケースとして
+  // 描き直さず、画像の再取得やちらつきを避ける）。
+  const srvEntries=resp.entries;
+  let workingList=list;
+  if(Array.isArray(srvEntries)&&srvEntries.length){
+    const built=WishEstimate.buildWorkingList(list,srvEntries);
+    workingList=built.workingList;
+    if(built.needsRedraw){
+      const redrawnCards=workingList.map(c=>({name:c.name,qty:c.qty}));
+      renderDeckGrid(redrawnCards,DECK_CTX.wishlist,redrawnCards.length);
+      loadDeckGridImages(listEl);
     }
-    if(best) entryBest[i]=best;
-    else missingIdxs.push(i);
+  }else if(Array.isArray(srvEntries)){
+    // entries が空配列で返るのは全カードがサーバ側バリデーションで弾かれた場合（カード名が
+    // 長すぎる等）。突合キーが作れないので list をそのまま使うが、原因調査ができるよう警告する
+    console.warn('[wish-estimate] サーバから entries が空で返りました。list をそのまま使います。',list);
+  }
+
+  // 各エントリ (name,rarity) について、全店舗の中で最安を抽出する（照合ロジックは
+  // wish-estimate.js に集約。テストが本番ロジックを直接検証できるようにするため）
+  const entryBest=workingList.map(e=>WishEstimate.findBestPrice(e,resp.shops||[]));
+  const missingIdxs=[];
+  entryBest.forEach((best,i)=>{ if(!best) missingIdxs.push(i); });
+
+  // db_missing（サーバ側が正当に「どの店にも無い」と判定したキー）に無いのに突合できな
+  // かったエントリが残っていたら、照合キー不一致の疑いがある。「落ちたことが分からない」
+  // のが本来の問題なので、必ずコンソールに警告する
+  const suspicious=WishEstimate.detectSuspiciousMisses(workingList,entryBest,resp.db_missing||[]);
+  if(suspicious.length){
+    console.warn('[wish-estimate] DBに価格があるはずなのに突合できなかったエントリがあります（照合キー不一致の疑い）:',suspicious);
   }
 
   // Phase 1 描画
   let total=0, found=0;
-  for(let i=0;i<list.length;i++){
+  for(let i=0;i<workingList.length;i++){
     const row=document.getElementById('wish-row-'+i);
     if(!row)continue;
     const best=entryBest[i];
-    const c=list[i];
+    const c=workingList[i];
     if(best){
       const lineTotal=best.price*c.qty;
       total+=lineTotal; found++;
@@ -4143,7 +4159,7 @@ async function calcWishEstimate(){
   }
   totalEl.textContent=`¥${total.toLocaleString()}`;
   if(!missingIdxs.length){
-    progEl.textContent=`完了 — ${found}/${list.length}枚の相場を取得`;
+    progEl.textContent=`完了 — ${found}/${workingList.length}枚の相場を取得`;
     return;
   }
 
@@ -4152,7 +4168,7 @@ async function calcWishEstimate(){
   progEl.textContent=`${found}枚を即時取得 / 残り${missingIdxs.length}枚をリアルタイム検索中...`;
 
   const missingCardsParam=missingIdxs.map(i=>{
-    const c=list[i]; return c.qty>1?`${c.qty} ${c.name}`:c.name;
+    const c=workingList[i]; return c.qty>1?`${c.qty} ${c.name}`:c.name;
   }).join('|');
   const url='/api/deck?include_per_shop=1&cards='+encodeURIComponent(missingCardsParam);
   let sseFound=0, sseNotFound=0;
@@ -4173,7 +4189,7 @@ async function calcWishEstimate(){
         if(d.type==='card_done'){
           const entryIdx=missingIdxs[d.index];
           if(entryIdx==null)continue;
-          const entry=list[entryIdx];
+          const entry=workingList[entryIdx];
           const perShop=d.per_shop||{};
           // rarity 指定があれば一致店舗だけ採用、未指定なら全 rarity から最安
           let chosen=null;
@@ -4213,7 +4229,7 @@ async function calcWishEstimate(){
         }else if(d.type==='done'){
           totalEl.textContent=`¥${total.toLocaleString()}`;
           const totalFound=found+sseFound;
-          progEl.textContent=`完了 — ${totalFound}/${list.length}枚の価格を取得${sseNotFound>0?` (${sseNotFound}枚未取得)`:''}`;
+          progEl.textContent=`完了 — ${totalFound}/${workingList.length}枚の価格を取得${sseNotFound>0?` (${sseNotFound}枚未取得)`:''}`;
         }
       }
     }
@@ -4776,6 +4792,7 @@ updatePushUI(!!localStorage.getItem(PUSH_SUB_KEY));
 </script>
 <script src="/static/packs.js?v=20260808"></script>
 <script src="/static/featured-matrix.js?v=20260808"></script>
+<script src="/static/wish-estimate.js?v=20260819"></script>
 <script src="/static/wish-split.js?v=20260805"></script>
 <script src="/static/shared/sync-client.js?v=20260817"></script>
 <script src="/static/shared/qrcode.js?v=20260817"></script>
