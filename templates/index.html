@@ -623,7 +623,32 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   .share-menu{left:50%;right:auto;transform:translateX(-50%);min-width:260px;max-width:90vw}
 
   /* デッキビルダーのモバイルCSSは static/mydeck/deck.css に分離 */
-  .wish-card-row{font-size:.75rem;gap:6px;flex-wrap:wrap}
+  /* 購入候補の1行: スマホでは横並びflexだとカード名の幅が83pxまで潰れて読めなくなるため、
+     グリッドに組み替えてカード名を画像の隣・上段に幅いっぱいで配置し、他要素はその下に積む。
+     HTML（renderWishlist()）は変更せず、既存クラスへの grid-area 指定のみで再配置する。 */
+  .wish-card-row{
+    display:grid;
+    grid-template-columns:36px 1fr auto;
+    grid-template-areas:
+      "img  name  name"
+      "img  qty   rarity"
+      "img  price price"
+      "img  link  remove";
+    align-items:center;
+    column-gap:10px;
+    row-gap:6px;
+    font-size:.75rem;
+  }
+  .wish-card-img{grid-area:img;align-self:start}
+  /* カード名は主役: 折り返し許可・省略記号なし・他要素より大きく太く */
+  .wish-card-name{grid-area:name;white-space:normal;overflow:visible;text-overflow:clip;font-size:.95rem;font-weight:600;line-height:1.3}
+  .wish-card-qty{grid-area:qty;display:flex;align-items:center;gap:4px}
+  .wish-rarity-select{grid-area:rarity;min-height:40px}
+  .wish-price-info{grid-area:price}
+  .wish-card-link{grid-area:link;justify-self:start;min-height:32px;display:inline-flex;align-items:center}
+  /* 削除(×)ボタンは行の直下の子要素のみを対象にする（枚数±ボタンと同じクラスを共有しているため） */
+  .wish-card-row>.wish-card-remove{grid-area:remove;justify-self:end;min-width:36px;min-height:36px;font-size:1rem}
+  .wish-card-qty .wish-card-remove{min-width:32px;min-height:32px;font-size:.85rem}
 
   /* 環境デッキ */
   .meta-deck-list{gap:4px}
