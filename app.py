@@ -1803,6 +1803,7 @@ def api_wish_shop_totals():
         ...
       ],
       "db_missing": [{"name": str, "rarity": str}, ...],
+      "entries": [{"name": 補正後name, "qty": int, "rarity": 正規化後rarity(""=未指定)}, ...],
       "shipping_rules": {店舗名: {base_fee, free_threshold, min_order, ...}},
       "shipping_checked_on": "YYYY-MM-DD"
     }
@@ -1844,7 +1845,7 @@ def api_wish_shop_totals():
         entries.append({"name": corrected, "qty": qty, "rarity": rarity})
 
     if not entries:
-        return jsonify({"shops": [], "db_missing": []})
+        return jsonify({"shops": [], "db_missing": [], "entries": []})
 
     names = sorted({e["name"] for e in entries})
     total_qty = sum(e["qty"] for e in entries)
@@ -2018,6 +2019,9 @@ def api_wish_shop_totals():
     return jsonify({
         "shops": shop_summaries,
         "db_missing": db_missing,
+        # フロントの照合キーをサーバ正本に統一するため、正規化後の entries を返す
+        # （name補正・rarity正規化・重複統合済み。フロントはこれをキー突合に使う）
+        "entries": entries,
         "shipping_rules": _shipping_rules_for_client(),
         "shipping_checked_on": SHIPPING_CHECKED_ON,
     })

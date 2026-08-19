@@ -138,7 +138,45 @@
     return { total: best.plan.total, used, coveredQty, assign: best.assign };
   }
 
-  const api = { computeBestSplit, shipFee, minOrderDeficit, evalPlan };
+  /**
+   * 分割プランと同じカード集合を「1店舗だけで」揃えた場合の最安（送料込み）を求める。
+   * index.html の baseline 選定ロジック（2026-08-19）をここに切り出したもの。テストが
+   * 本番コードの複製ではなくこの関数自体を検証できるようにする（レビュー指摘対応）。
+   * @param {string[]} splitKeys 分割プランが対象にしたエントリキー
+   * @param {Map<string, number>} qtyByKey キー→枚数
+   * @param {Object<string, Object<string, number>>} priceTable priceTable[key][shop] = 単価
+   * @param {string[]} shops 対象店舗名
+   * @param {Object} rules 送料ルール
+   * @returns {{hasAll: boolean, baseline: ?number, shop: ?string}}
+   *   hasAll   = splitKeys を全部持つ店が1つでも存在したか（注文可否は問わない）
+   *   baseline = そのうち注文できる店の送料込み最安。該当なしは null
+   *   shop     = baseline を出した店舗名。該当なしは null
+   */
+  function selectSingleShopBaseline(splitKeys, qtyByKey, priceTable, shops, rules) {
+    let hasAll = false;
+    let baseline = null;
+    let baselineShop = null;
+    for (const shop of shops) {
+      // 「その店が splitKeys を全部持つか」は priceTable で判定する（店の全カード合計は使わない）
+      const coversAll = splitKeys.every(
+        (k) => priceTable[k] && priceTable[k][shop] !== undefined
+      );
+      if (!coversAll) continue;
+      hasAll = true;
+      // 小計は splitKeys ぶんだけの合計（店の全カード合計 s.total ではない）
+      let subtotal = 0;
+      for (const k of splitKeys) subtotal += priceTable[k][shop] * qtyByKey.get(k);
+      if (minOrderDeficit(rules[shop], subtotal) !== 0) continue;  // 注文不可の店は候補から外す
+      const total = subtotal + shipFee(rules[shop], subtotal);
+      if (baseline === null || total < baseline) {
+        baseline = total;
+        baselineShop = shop;
+      }
+    }
+    return { hasAll, baseline, shop: baselineShop };
+  }
+
+  const api = { computeBestSplit, shipFee, minOrderDeficit, evalPlan, selectSingleShopBaseline };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   global.WishSplit = api;
 })(typeof window !== "undefined" ? window : globalThis);

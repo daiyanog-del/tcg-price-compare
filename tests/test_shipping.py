@@ -385,3 +385,39 @@ class TestWishShopTotalsLatestDatePrice:
         # 現行仕様: レアリティ横断で単純に安い方（8/1観測のノーマル¥300）が採用される
         assert labo["total"] == 300
         assert labo["items"][0]["rarity"] == "ノーマル"
+
+
+class TestWishShopTotalsEntries:
+    """2026-08-19修正: フロントの照合キーをサーバ正本に統一するため、レスポンスに
+    正規化後の entries（name補正・rarity正規化・重複統合済み）を含める。
+    フロントが localStorage の生データ（rarity表記ゆれ含む）からキーを作ると、
+    ここで返す entries とキーが食い違い、分割プランからカードが黙って脱落していた。
+    """
+
+    def test_entriesにレスポンスへ含まれる(self, client):
+        c = client([_row("テストカードA", "カードラボ", 600)])
+        res = c.post("/api/wish-shop-totals",
+                     json={"cards": [{"name": "テストカードA", "qty": 2}]})
+        payload = res.get_json()
+        assert payload["entries"] == [{"name": "テストカードA", "qty": 2, "rarity": ""}]
+
+    def test_rarityが正準名へ正規化される(self, client):
+        # フロントのlocalStorageには「ウルトラレア」のような旧表記が残っている場合がある。
+        # サーバは正準名「ウルトラ」へ正規化する。entriesがこの正規化後の値を返さないと、
+        # フロントの照合キー(name+rarity)がサーバ集計結果と食い違い、分割プランから
+        # カードが脱落する（本バグの直接原因）
+        c = client([_row("テストカードA", "カードラボ", 600, rarity="ウルトラ")])
+        res = c.post("/api/wish-shop-totals",
+                     json={"cards": [{"name": "テストカードA", "qty": 1, "rarity": "ウルトラレア"}]})
+        payload = res.get_json()
+        assert payload["entries"] == [{"name": "テストカードA", "qty": 1, "rarity": "ウルトラ"}]
+        # items側のrarity_prefも同じ正規化後の値でなければ、フロントの照合キーは揃わない
+        labo = _by_shop(payload)["カードラボ"]
+        assert labo["items"][0]["rarity_pref"] == "ウルトラ"
+
+    def test_該当カードが無ければentriesは空配列(self, client):
+        c = client([])
+        res = c.post("/api/wish-shop-totals", json={"cards": []})
+        payload = res.get_json()
+        assert payload["entries"] == []
+        assert payload["shops"] == []

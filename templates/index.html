@@ -4267,7 +4267,11 @@ async function wishCheapestStores(){
     return;
   }
 
-  if(!dbData||!dbData.shops||!dbData.shops.length){
+  // 照合キーはサーバ正本（entries）で統一する。list（localStorageの生データ）で
+  // キーを作ると、サーバ側の名前補正・レアリティ正規化とズレて分割プランからカードが
+  // 黙って脱落するバグがあった（2026-08-19 修正）。list は表示・localStorage操作用に残す
+  const srvEntries=(dbData&&dbData.entries)||[];
+  if(!dbData||!dbData.shops||!dbData.shops.length||!srvEntries.length){
     rankEl.innerHTML='<div class="wish-shop-ranking-error">店舗データが取得できませんでした。</div>';
     return;
   }
@@ -4323,14 +4327,20 @@ async function wishCheapestStores(){
   // db_missing は {name, rarity} オブジェクト配列
   const dbMissingEntries=(dbData.db_missing||[]).map(m=>({name:m.name,rarity:m.rarity||""}));
   const dbMissingKeys=new Set(dbMissingEntries.map(m=>_wishEntryKey(m.name,m.rarity)));
-  const totalQty=list.reduce((s,c)=>s+c.qty,0);
-  const totalCards=list.length;
+  // 枚数・種類数もサーバ正本（srvEntries）から算出する。list（localStorage生データ）は
+  // サーバの重複統合（同名同レアリティのqty加算）を経ていないためズレうる
+  const totalQty=srvEntries.reduce((s,c)=>s+c.qty,0);
+  const totalCards=srvEntries.length;
 
   // 買い物指示書（分割プラン内訳）の開閉状態。SSE更新の再描画で閉じ戻らないよう閉包で持つ
   let splitOpen=false;
+  // 照合キー不一致の検出（droppedEntries）を初回renderRanking呼び出しだけに抑えるフラグ。
+  // dbMissingKeys はSSE経路でカードが見つかるたびに delete されるため、SSEの再描画時に
+  // 判定するとリアルタイムで見つからなかった正当な欠落まで誤検知する（2026-08-19レビュー指摘）
+  let baselineDropCheckDone=false;
 
-  // エントリの逆引きテーブル
-  const entryByKey=new Map(list.map(c=>[_wishEntryKey(c.name,c.rarity||""),{name:c.name,qty:c.qty,rarity:c.rarity||""}]));
+  // エントリの逆引きテーブル（サーバ正本のentriesから作る）
+  const entryByKey=new Map(srvEntries.map(c=>[_wishEntryKey(c.name,c.rarity||""),{name:c.name,qty:c.qty,rarity:c.rarity||""}]));
   const _missingLabel=(key)=>{
     const e=entryByKey.get(key);
     if(!e) return key;
@@ -4404,7 +4414,10 @@ async function wishCheapestStores(){
     // 表示額は実行可能なプランの合計なので過大表示にはならない（控えめに出る側にしか外れない）。
     let splitHtml='';
     if(window.WishSplit){
-      const entries=list.map(c=>({key:_wishEntryKey(c.name,c.rarity||""),qty:c.qty}));
+      // entries/priceTable のキーはサーバ正本（srvEntries）から作る。list（localStorage
+      // 生データ）から作ると、サーバの名前補正・レアリティ正規化とキーが食い違い、
+      // 分割プランからカードが警告無しで脱落する（2026-08-19 修正の本体）
+      const entries=srvEntries.map(c=>({key:_wishEntryKey(c.name,c.rarity||""),qty:c.qty}));
       const priceTable={};
       for(const e of entries){
         priceTable[e.key]={};
@@ -4413,18 +4426,42 @@ async function wishCheapestStores(){
           if(it)priceTable[e.key][shop]=it.price;
         }
       }
+      // priceTableを組んだ直後に、どの店にも価格が無いエントリを検出する。DB側の正当な
+      // 欠落（dbMissingKeys）は除外し、それ以外が残ったら照合キーの不一致を疑って警告する。
+      // dbMissingKeys はSSEでカードが見つかるたびに delete される（4531行付近）ため、
+      // SSEで削られた後に判定すると「リアルタイム検索で見つからなかった正当な欠落」まで
+      // 誤検知してしまう。SSEが始まる前の初回renderRanking呼び出し（=dbMissingKeysが
+      // まだ無傷）でのみ、1回だけ判定する（2026-08-19レビュー指摘）
+      if(!baselineDropCheckDone){
+        baselineDropCheckDone=true;
+        const droppedEntries=entries.filter(e=>Object.keys(priceTable[e.key]).length===0&&!dbMissingKeys.has(e.key));
+        if(droppedEntries.length){
+          console.warn('[wish-split] priceTableでどの店にも価格が見つからないエントリがあります（照合キー不一致の疑い）:',droppedEntries.map(e=>e.key));
+        }
+      }
       const split=WishSplit.computeBestSplit(entries,priceTable,Object.keys(shopState),shippingRules);
       if(split&&split.used.length>=2){
         const shopNames=split.used.map(u=>esc(u.shop)).join('＋');
-        // 比較対象: 分割プランと同じカードが全部そろい、かつ注文できる1店舗の最安（送料込み）
-        const baseline=shops
-          .filter(s=>s.covered_qty===split.coveredQty&&s.ship.orderable&&s.total>0)
-          .reduce((m,s)=>(m===null||s.ship.total<m?s.ship.total:m),null);
+        // 比較対象（baseline）: 分割プランと同じカード集合（キー）を1店舗で全部揃えられる店の
+        // うち、その集合ぶんの小計（店の全カード合計 s.total ではない）で送料・注文可否を判定
+        // した上での最安（送料込み）。covered_qty の一致だけで選ぶと中身が違う店と比較して
+        // しまう（2026-08-19 修正: カードラボの別集合8枚と比較していたバグ）。
+        // 純関数へ切り出し済み（wish-split.js）。テストが本番ロジックを直接検証できるように
+        // するため、index.htmlにはキー集合を組んで呼ぶだけの配線しか置かない
+        const splitKeys=[...split.assign.keys()];
+        const qtyByKey=new Map(entries.map(e=>[e.key,e.qty]));
+        const{hasAll,baseline}=WishSplit.selectSingleShopBaseline(
+          splitKeys,qtyByKey,priceTable,Object.keys(shopState),shippingRules);
         let hintText='';
-        if(baseline===null){
+        if(!hasAll){
           hintText=`1店舗ではそろいませんが、${shopNames} の${split.used.length}店舗に分ければ${split.coveredQty}枚そろって ¥${split.total.toLocaleString()}（送料込み）で買えます`;
+        }else if(baseline===null){
+          // splitKeysを全部持つ店はあるが、その集合ぶんの小計が最低注文金額に届かず注文
+          // できない（＝比較対象が無い）。「1店舗ではそろいません」は事実と違うため使わない。
+          // 節約額も比較対象が無い以上主張できないため「安くなる」とは書かない
+          hintText=`1店舗でそろう店はありますが最低注文金額に届きません。${shopNames} の${split.used.length}店舗に分ければ${split.coveredQty}枚そろって ¥${split.total.toLocaleString()}（送料込み）で買えます`;
         }else if(baseline-split.total>0){
-          hintText=`${shopNames} の${split.used.length}店舗に分けて買うと ¥${split.total.toLocaleString()}（送料込み）— 1店舗最安より¥${(baseline-split.total).toLocaleString()}安くなる買い方があります`;
+          hintText=`${shopNames} の${split.used.length}店舗に分けて買うと ¥${split.total.toLocaleString()}（送料込み・${split.coveredQty}枚）— 同じ${split.coveredQty}枚を1店舗でまとめる最安より¥${(baseline-split.total).toLocaleString()}安くなる買い方があります`;
         }
         if(hintText){
           splitHtml=`
