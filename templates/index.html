@@ -676,9 +676,24 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   .wish-card-qty{grid-area:qty;display:flex;align-items:center;gap:3px}
   .wish-rarity-select{grid-area:rarity;width:74px;max-width:74px;min-height:32px;padding:2px 3px}
   .wish-price-info{grid-area:price;justify-self:end;text-align:right}
-  .wish-card-link{grid-area:link;justify-self:start;min-height:32px;display:inline-flex;align-items:center}
-  .wish-card-row>.wish-card-remove{grid-area:remove;justify-self:end;min-width:32px;min-height:32px;font-size:.95rem}
-  .wish-card-qty .wish-card-remove{min-width:28px;min-height:28px;font-size:.8rem}
+  .wish-card-link{grid-area:link;justify-self:start;min-height:32px;display:inline-flex;align-items:center;position:relative}
+  .wish-card-row>.wish-card-remove{grid-area:remove;justify-self:end;min-width:32px;min-height:32px;font-size:.95rem;position:relative}
+  .wish-card-qty .wish-card-remove{min-width:28px;min-height:28px;font-size:.8rem;position:relative}
+
+  /* タップ対象を見た目のサイズ・行の高さを変えずに44px相当へ拡張する
+     （擬似要素::afterで当たり判定だけを外側に広げる）。
+     行間・行内のrow-gapが4pxしかないため上下均等ではなく非対称に広げる:
+     隣のボタンが無い方向（カード名・画像・価格表示・前後の行の画像側）へ多めに、
+     隣のボタンがある方向（枚数±どうし・レアリティ/リンクの間・価格/削除の間）は
+     0のままにして当たり判定の重複を作らない。
+     2026-08-19実測（PlaywrightでelementFromPointにより実際にタップ判定した結果）:
+     枚数±=44x45px, 価格推移リンク=44x95px, 削除(×)=44x40pxを確保・重複ゼロ。
+     レアリティのselect要素はブラウザ側で生成コンテンツ(::after)がヒットテストに
+     使われないため、CSSだけでは当たり判定を拡張できない（Chromiumで実機検証済み。
+     min-heightを増やすと行の高さが伸びて圧縮の意味が消えるため見送り）。 */
+  .wish-card-qty .wish-card-remove::after{content:"";position:absolute;top:-17px;bottom:0;left:-9px;right:-9px}
+  .wish-card-link::after{content:"";position:absolute;top:0;bottom:-13px;left:0;right:0}
+  .wish-card-row>.wish-card-remove::after{content:"";position:absolute;top:-13px;bottom:0;left:-9px;right:0}
 }
 
 /* ── フッター ── */
