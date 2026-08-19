@@ -150,11 +150,26 @@ class _FakeUpdateQueryBuilder:
 
 
 class _FakeSelectQueryBuilder:
+    """2026-08-18追記: sync.pull() が is_linked()（sync_link_tokens への問い合わせ）を
+    内部で呼ぶようになったため、.not_ / .is_ / .limit も最小限サポートする。
+    このスタブは sync_accounts 形状の行しか持たないため、"used_at" 列は常に無く
+    （= NULL 扱い）、.not_.is_("used_at","null") は常に「除外」に働く＝is_linked()は
+    常に False を返す。このファイルのテストは linked フィールドの中身を検証しないため
+    実害はない（linked の値そのものは tests/test_sync_link.py で検証する）。"""
+
     def __init__(self, store):
         self._store = store
         self._sync_id = None
+        self._is_filters = []  # [(col, val, negate), ...]
+        self._negate_next = False
+        self._limit_n = None
 
     def select(self, *_a, **_k):
+        return self
+
+    @property
+    def not_(self):
+        self._negate_next = True
         return self
 
     def eq(self, col, val):
@@ -162,10 +177,31 @@ class _FakeSelectQueryBuilder:
             self._sync_id = val
         return self
 
+    def is_(self, col, val):
+        self._is_filters.append((col, val, self._negate_next))
+        self._negate_next = False
+        return self
+
+    def limit(self, n):
+        self._limit_n = n
+        return self
+
     def execute(self):
         from types import SimpleNamespace
         row = self._store.get(self._sync_id)
-        return SimpleNamespace(data=[dict(row)] if row is not None else [])
+        if row is None:
+            return SimpleNamespace(data=[])
+        for col, val, negate in self._is_filters:
+            rv = row.get(col)
+            ok = (rv is None) if val == "null" else (rv == val)
+            if negate:
+                ok = not ok
+            if not ok:
+                return SimpleNamespace(data=[])
+        data = [dict(row)]
+        if self._limit_n is not None:
+            data = data[: self._limit_n]
+        return SimpleNamespace(data=data)
 
 
 class _FakeClient:
@@ -212,7 +248,10 @@ class TestPull:
                          "wishlist_rev": 5, "decks": [], "decks_rev": 2}}
         client = _FakeClient(store)
         result = sync.pull(client, "s1", 5, 2)
-        assert result == {"ok": True, "wishlist": {"unchanged": True}, "decks": {"unchanged": True}}
+        # 2026-08-18: pull() は §7.3 の連携判定用に linked も返すようになった
+        # （このスタブでは is_linked() が常に False。tests/test_sync_link.py 参照）
+        assert result == {"ok": True, "linked": False,
+                           "wishlist": {"unchanged": True}, "decks": {"unchanged": True}}
 
     def test_returns_items_when_rev_differs(self):
         store = {"s1": {"sync_id": "s1", "wishlist": [{"name": "A", "rarity": "", "qty": 1}],

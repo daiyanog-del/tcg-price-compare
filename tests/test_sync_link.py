@@ -36,37 +36,50 @@ class _FakeQuery:
         self._table_name = table_name
         self._payload = payload
         self._filters = []
+        self._negate_next = False  # .not_ が呼ばれた直後の1フィルタだけ否定する（postgrest-py準拠）
+        self._limit_n = None
 
     def select(self, *_a, **_k):
         return self
 
-    def eq(self, col, val):
-        self._filters.append(("eq", col, val))
+    @property
+    def not_(self):
+        self._negate_next = True
         return self
+
+    def _push_filter(self, op, col, val):
+        self._filters.append((op, col, val, self._negate_next))
+        self._negate_next = False
+        return self
+
+    def eq(self, col, val):
+        return self._push_filter("eq", col, val)
 
     def is_(self, col, val):
-        self._filters.append(("is", col, val))
-        return self
+        return self._push_filter("is", col, val)
 
     def gt(self, col, val):
-        self._filters.append(("gt", col, val))
+        return self._push_filter("gt", col, val)
+
+    def limit(self, n):
+        self._limit_n = n
         return self
 
     def _match(self, row):
-        for op, col, val in self._filters:
+        for op, col, val, negate in self._filters:
             rv = row.get(col)
             if op == "eq":
-                if rv != val:
-                    return False
+                ok = (rv == val)
             elif op == "is":
-                if val == "null":
-                    if rv is not None:
-                        return False
-                elif rv != val:
-                    return False
+                ok = (rv is None) if val == "null" else (rv == val)
             elif op == "gt":
-                if rv is None or not (rv > val):
-                    return False
+                ok = (rv is not None and rv > val)
+            else:
+                raise AssertionError(f"unknown op {op}")
+            if negate:
+                ok = not ok
+            if not ok:
+                return False
         return True
 
     def execute(self):
@@ -78,6 +91,8 @@ class _FakeQuery:
             return SimpleNamespace(data=[dict(row)])
 
         matched = [r for r in self._rows if self._match(r)]
+        if self._limit_n is not None:
+            matched = matched[: self._limit_n]
         if self._mode == "select":
             return SimpleNamespace(data=[dict(r) for r in matched])
         if self._mode == "update":
@@ -226,6 +241,8 @@ class TestRedeemLink:
 
         assert result["ok"] is True
         assert result["sync_id"] == "s1"
+        # 2026-08-18: 引き換え成立の瞬間は常に連携済み（§7.3）。改めてDBに問い合わせなくてもtrue
+        assert result["linked"] is True
         assert result["wishlist"]["rev"] == 4
         names = {i["name"] for i in result["wishlist"]["items"]}
         assert names == {"A", "B"}
@@ -284,6 +301,99 @@ class TestRedeemLink:
         params = list(inspect.signature(sync.redeem_link).parameters)
         assert "old_sync_id" not in params
         assert params == ["client", "token", "wishlist", "decks"]
+
+
+# ── is_linked（2026-08-18: sync_idの有無ではなく使用済みトークンの有無で判定する。§7.3） ──
+
+class TestIsLinked:
+    def test_false_when_no_tokens_at_all(self):
+        # sync_idは発行済みだが、一度もリンクを発行/引き換えしていない
+        # （購入候補を1件登録しただけの端末の典型的な状態）
+        client = _FakeClient()
+        _make_account(client, "s1")
+        assert sync.is_linked(client, "s1") is False
+
+    def test_false_when_token_exists_but_unused(self):
+        # リンクを発行しただけで、まだ誰にも引き換えられていない
+        client = _FakeClient()
+        _make_account(client, "s1")
+        _make_token(client, "tok-unused", "s1", used=False)
+        assert sync.is_linked(client, "s1") is False
+
+    def test_true_when_one_used_token_exists(self):
+        client = _FakeClient()
+        _make_account(client, "s1")
+        _make_token(client, "tok-used", "s1", used=True)
+        assert sync.is_linked(client, "s1") is True
+
+    def test_true_even_if_other_tokens_for_same_sync_id_are_unused(self):
+        # 過去に発行して使われなかったトークンが残っていても、
+        # 使用済みトークンが1件でもあれば連携済みと判定する
+        client = _FakeClient()
+        _make_account(client, "s1")
+        _make_token(client, "tok-old-unused", "s1", used=False)
+        _make_token(client, "tok-used", "s1", used=True)
+        assert sync.is_linked(client, "s1") is True
+
+    def test_does_not_leak_across_different_sync_ids(self):
+        # 別のsync_idの使用済みトークンにつられてtrueにならないこと
+        client = _FakeClient()
+        _make_account(client, "s1")
+        _make_account(client, "s2")
+        _make_token(client, "tok-other-device", "s2", used=True)
+        assert sync.is_linked(client, "s1") is False
+        assert sync.is_linked(client, "s2") is True
+
+    def test_false_for_unknown_sync_id(self):
+        client = _FakeClient()
+        assert sync.is_linked(client, "ghost") is False
+
+
+# ── pull() の linked フィールド（2026-08-18。§7.3） ──
+
+class TestPullLinkedField:
+    def test_linked_false_when_never_shared(self):
+        client = _FakeClient()
+        _make_account(client, "s1")
+        result = sync.pull(client, "s1", wishlist_rev=1, decks_rev=1)
+        assert result["ok"] is True
+        assert result["linked"] is False
+
+    def test_linked_true_after_a_token_was_redeemed(self):
+        client = _FakeClient()
+        _make_account(client, "s1")
+        _make_token(client, "tok-used", "s1", used=True)
+        result = sync.pull(client, "s1", wishlist_rev=1, decks_rev=1)
+        assert result["ok"] is True
+        assert result["linked"] is True
+
+    def test_linked_present_even_when_wishlist_and_decks_unchanged(self):
+        # unchangedの場合でもlinkedは常に計算して返す（表示更新に必要なため）
+        client = _FakeClient()
+        _make_account(client, "s1", wishlist_rev=5, decks_rev=5)
+        _make_token(client, "tok-used", "s1", used=True)
+        result = sync.pull(client, "s1", wishlist_rev=5, decks_rev=5)
+        assert result["wishlist"] == {"unchanged": True}
+        assert result["decks"] == {"unchanged": True}
+        assert result["linked"] is True
+
+
+# ── unlink 後は is_linked が false に戻ること（2026-08-18） ──
+
+class TestUnlinkResetsLinkedStatus:
+    def test_new_sync_id_after_unlink_has_no_used_tokens(self):
+        client = _FakeClient()
+        _make_account(client, "s1")
+        _make_token(client, "tok-used", "s1", used=True)
+        assert sync.is_linked(client, "s1") is True
+
+        result = sync.unlink(client, "s1")
+        new_sync_id = result["sync_id"]
+
+        # 新しいsync_idには使用済みトークンが存在しない＝未連携に戻る
+        assert sync.is_linked(client, new_sync_id) is False
+        # 元のsync_idは（他端末がまだ使っている可能性があるため）連携済みのまま
+        assert sync.is_linked(client, "s1") is True
 
 
 # ── unlink ──

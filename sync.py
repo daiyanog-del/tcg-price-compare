@@ -298,8 +298,9 @@ def pull(client, sync_id, wishlist_rev, decks_rev):
 
     リビジョンが一致するリストは中身を返さない（unchanged）。
     返り値:
-      - {"ok": True, "wishlist": {...}, "decks": {...}}
+      - {"ok": True, "linked": bool, "wishlist": {...}, "decks": {...}}
         各要素は {"unchanged": True} または {"rev": N, "items": [...]}
+        linked は「他端末と連携済みか」（§7.3。is_linked 参照。sync_id の有無では判定しない）
       - {"reason": "not_found"}（行が存在しないことが確定した場合。DBエラーは送出する）
     """
     resp = (client.table("sync_accounts")
@@ -310,7 +311,7 @@ def pull(client, sync_id, wishlist_rev, decks_rev):
         return {"reason": "not_found"}
     row = resp.data[0]
 
-    result = {"ok": True}
+    result = {"ok": True, "linked": is_linked(client, sync_id)}
     current_wishlist_rev = row["wishlist_rev"]
     if current_wishlist_rev == wishlist_rev:
         result["wishlist"] = {"unchanged": True}
@@ -411,8 +412,10 @@ def redeem_link(client, token, wishlist, decks):
       削除する経路自体を作らないことで「削除しない」を保証する。設計文書 §6.6）
 
     返り値:
-      - 成功: {"ok": True, "sync_id": ..., "wishlist": {"rev": N, "items": [...]},
-               "decks": {"rev": N, "items": [...]}}
+      - 成功: {"ok": True, "sync_id": ..., "linked": True,
+               "wishlist": {"rev": N, "items": [...]}, "decks": {"rev": N, "items": [...]}}
+        linked は常に True（この呼び出し自体がトークンを消費した＝連携が成立した瞬間のため。
+        §7.3。改めて is_linked に問い合わせる必要はない）
       - 失敗: {"ok": False, "reason": "expired"|"used"|"not_found"|"conflict_retry_exceeded"}
     """
     now_iso = _now_iso()
@@ -461,10 +464,39 @@ def redeem_link(client, token, wishlist, decks):
             return {
                 "ok": True,
                 "sync_id": sync_id,
+                "linked": True,
                 "wishlist": {"rev": next_wishlist_rev, "items": merged_wishlist},
                 "decks": {"rev": next_decks_rev, "items": merged_decks},
             }
     return {"ok": False, "reason": "conflict_retry_exceeded"}
+
+
+def is_linked(client, sync_id) -> bool:
+    """この sync_id が既に他端末と連携済みか判定する（設計文書 §7.3）。
+
+    2026-08-18 修正: 「他の端末と同期中」表示が sync_id の有無だけで判定されており、
+    購入候補を1件持っているだけの未連携端末にも誤表示されるバグが実機で見つかった。
+    sync_id は §8 の遅延発行により購入候補・デッキが1件でもあれば自動発行されるため、
+    存在するかどうかは「他端末と繋がっているか」の判定材料にならない。
+
+    正しい判定: sync_link_tokens に、この sync_id 宛の使用済みトークン
+    （used_at is not null）が1件でも存在すれば連携済みとみなす。リンクを発行した側・
+    引き換えた側の両方が同じ sync_id を共有するため、どちらの端末で聞いても同じ結果になる。
+    unlink すると新しい sync_id に移るため、使用済みトークンが無い状態に自動的に戻る
+    （DDL不要。既存データから判定できる）。
+
+    性能に関する既知の注意点: sync_link_tokens は sync_id に索引を持たない
+    （主キーは token、索引は expires_at のみ）ため、このクエリは全走査になる。
+    行数が少ないうちは実害が無い想定。索引追加はDDLになるため今回は対象外
+    （TASKS.md にバックログ済み）。
+    """
+    resp = (client.table("sync_link_tokens")
+            .select("token")
+            .eq("sync_id", sync_id)
+            .not_.is_("used_at", "null")
+            .limit(1)
+            .execute())
+    return bool(resp.data)
 
 
 def unlink(client, sync_id):

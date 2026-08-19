@@ -2390,11 +2390,22 @@ function switchMode(mode){
     renderWishlist();
     // 端末間同期: 購入候補タブを開いたときだけ pull する（カード個別ページ閲覧では走らせない）。
     // pullIfNeeded() は購入候補・保存デッキの両方を1回のAPI呼び出しで扱う（P2）
-    if(window.SyncClient) window.SyncClient.pullIfNeeded();
-    // 同期状態の表示更新（P3）。_refreshSyncStatusUI はページ末尾のスクリプトで定義されるため、
-    // 初回ページ読み込み時（#wishlist直リンク等）はまだ未定義のことがある。typeof で安全に判定する
-    // （sync-client.js の <script> より前で呼ぶと壊れる、というP1の教訓と同じ理由のガード）
-    if(typeof _refreshSyncStatusUI==='function') _refreshSyncStatusUI();
+    if(window.SyncClient){
+      const _pullPromise=window.SyncClient.pullIfNeeded();
+      // 同期状態の表示（P3・§7.3「他の端末と同期中」）はpullが非同期のため、
+      // pull完了後に更新する。タブを開いた直後は「他端末と連携済みか」が未確定であり、
+      // 誤表示（未連携なのに表示される）より無表示を優先する
+      // （2026-08-18 実機バグの修正: sync_idの有無だけで判定していたため、購入候補を
+      // 1件持っただけの未連携端末にも表示されていた）。
+      // _refreshSyncStatusUI はページ末尾のスクリプトで定義されるため、初回ページ読み込み時
+      // （#wishlist直リンク等）はまだ未定義のことがある。typeof で安全に判定する
+      // （sync-client.js の <script> より前で呼ぶと壊れる、というP1の教訓と同じ理由のガード）
+      if(_pullPromise && typeof _pullPromise.then==='function'){
+        _pullPromise.then(function(){
+          if(typeof _refreshSyncStatusUI==='function') _refreshSyncStatusUI();
+        });
+      }
+    }
   }
   if(mode==='meta') loadMetaTiers();
   if(mode==='mydeck'){
@@ -4801,12 +4812,16 @@ function copySyncShareLink(){
   }
 }
 
-// 購入候補タブの「他の端末と同期中」表示の出し分け（設計文書 §7.3）
+// 購入候補タブの「他の端末と同期中」表示の出し分け（設計文書 §7.3）。
+// 2026-08-18 実機バグの修正: sync_idの有無ではなく、state.linked（サーバーが
+// 使用済みトークンの有無から判定した「他端末と連携済みか」）でのみ判定する。
+// sync_idは購入候補・デッキを1件でも作れば自動発行される（§8）ため、
+// 存在するだけでは「他端末と繋がっている」ことを意味しない
 function _refreshSyncStatusUI(){
   const el=document.getElementById('wishSyncStatus');
   if(!el || !window.SyncClient) return;
   const state=window.SyncClient.getSyncState();
-  el.classList.toggle('hidden', !(state && state.sync_id));
+  el.classList.toggle('hidden', !(state && state.linked===true));
 }
 
 let _syncUnlinkInFlight=false; // 連打で複数リクエストを重ねないためのガード（司令塔指摘#1・#2）

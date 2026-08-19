@@ -186,11 +186,23 @@
   // ローカルにしか無かったデータが消えるバグが本番で再現した。
   // 対策として、きっかけの種別に関わらず両方を localStorage から直接読んで送り、
   // 返ってきた両方のrevを保存する（rev=0のプレースホルダを作らない）。
+  // 【2026-08-17 二重init不具合の修正】onWishSave/onDecksSave のデバウンスが2秒以内に
+  // ほぼ同時発火すると、_doPush('wishlist') と _doPush('decks') の両方が「sync_id無し」と
+  // 判断し、_ensureAccount() を独立に2回呼んでいた。/api/sync/init が2回叩かれ、
+  // 内容は同じ（initは常に両方のリストを送るため両行とも中身は完全）だが孤児の行が
+  // 1つ余分にできる（本番で0.2秒差の重複行として再現）。
+  // 対策: 進行中のPromiseをモジュール内で共有し、後続の呼び出しは新しいPOSTを投げず
+  // 同じ結果を待つ（冪等化）。成功・失敗を問わず完了時に解除し、次回は通常どおり発行できる。
+  let _ensureAccountInFlight = null;
+
   function _ensureAccount() {
+    if (_ensureAccountInFlight) return _ensureAccountInFlight;
+
     const wishlist = _readLocalList('wishlist');
     const decks = _readLocalList('decks');
     if (!wishlist.length && !decks.length) return Promise.resolve(null);
-    return _postJson('/api/sync/init', { wishlist: wishlist, decks: decks })
+
+    _ensureAccountInFlight = _postJson('/api/sync/init', { wishlist: wishlist, decks: decks })
       .then(function (res) {
         if (!res.ok) return null;
         return res.json().catch(function () { return {}; });
@@ -201,11 +213,18 @@
           sync_id: data.sync_id,
           wishlist_rev: data.wishlist_rev || 1,
           decks_rev: data.decks_rev || 1,
+          // 発行直後は連携済みトークンが存在し得ない（新規行のため）。§7.3の表示は
+          // is_linked（サーバー側の使用済みトークン判定）でのみ true にする
+          linked: false,
         };
         _setState(state);
         return state;
       })
-      .catch(function () { return null; });
+      .catch(function () { return null; })
+      .finally(function () {
+        _ensureAccountInFlight = null;
+      });
+    return _ensureAccountInFlight;
   }
 
   function _pushOnce(kind, items) {
@@ -281,8 +300,18 @@
     const state = _getState();
     if (!state || !state.sync_id) {
       // 遅延発行: init が両種別のローカル内容を初期値としてそのまま保存するため、
-      // 成功時は追送不要（_ensureAccount がローカルから両方を読んで送る）
-      _ensureAccount();
+      // 通常（自分が先に呼んだ側=リーダー）は追送不要（_ensureAccount がローカルから
+      // 両方を読んで送るため、自分のkindも既にpayloadに含まれている）。
+      // 【2026-08-17】既に他の呼び出しが _ensureAccount を実行中だった場合（フォロワー）は、
+      // その完了を待ってから自分のkind・itemsを明示的に push する。リーダーのinit呼び出しが
+      // 読んだローカルデータに自分の分が含まれているはずだが、明示的に送ることで
+      // 「デッキの内容がpushされないまま終わる」といった取りこぼしを起こさない
+      const wasAlreadyInFlight = !!_ensureAccountInFlight;
+      _ensureAccount().then(function (newState) {
+        if (!wasAlreadyInFlight) return; // リーダー: 追送不要
+        if (!newState || !newState.sync_id) return; // 発行失敗。次回のpushで再度試みられる
+        _pushWithRetry(kind, list);
+      });
       return;
     }
     _pushWithRetry(kind, list);
@@ -354,6 +383,14 @@
 
       const next = Object.assign({}, state);
       let changed = false;
+
+      // 「他端末と連携済みか」（§7.3）はpullのたびにサーバーの判定結果で更新する。
+      // sync_idの有無では判定しない（購入候補を1件持っただけの未連携端末にも
+      // sync_idは自動発行されるため。2026-08-18 誤表示バグの修正）
+      if (typeof data.linked === 'boolean' && next.linked !== data.linked) {
+        next.linked = data.linked;
+        changed = true;
+      }
 
       const wl = data.wishlist || {};
       if (!staleWishlist && !wl.unchanged && typeof wl.rev === 'number') {
@@ -432,6 +469,9 @@
             sync_id: data.sync_id,
             wishlist_rev: data.wishlist_rev || 1,
             decks_rev: data.decks_rev || 1,
+            // unlinkで移った新しいsync_idには使用済みトークンが存在しない（§7.3）。
+            // 「同期を解除」直後に表示が消えるようここで明示的にfalseへ戻す
+            linked: false,
           });
         }
         return data;
@@ -467,10 +507,13 @@
     if (typeof global.renderSavedDecks === 'function') global.renderSavedDecks();
     // 【2026-08-13データ消失バグと同じ構造の再発防止】新しいsync_idと「両方」のrevを必ず
     // 一緒に保存する。片方だけ進めるとrev=0のまま残った種別が次回pullで消失しうる
+    // linked: 引き換えが成立した瞬間＝連携成立の瞬間なので true（§7.3）。
+    // 発行側の端末は次回pullで気づく
     _setState({
       sync_id: result.sync_id,
       wishlist_rev: result.wishlist.rev,
       decks_rev: result.decks.rev,
+      linked: true,
     });
     return true;
   }
