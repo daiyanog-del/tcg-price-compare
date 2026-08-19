@@ -978,8 +978,13 @@ def api_deck():
         Thread(target=_track_cards_async, args=([e["name"] for e in card_entries],), daemon=True).start()
 
     def _aggregate_per_shop(items: list) -> dict:
-        """店舗別の最安値を {店舗名: {price, url, rarity, ...}} に集約する。
-        sold_out は除外、同じ店舗で複数ヒットがあれば最安を採用。"""
+        """店舗別・レアリティ別の最安値を {店舗名: {レアリティ: {price, url, rarity, ...}}} に
+        集約する。sold_out は除外、同じ店舗・同じレアリティで複数ヒットがあれば最安を採用。
+        レアリティが空・不明の商品は "" をキーにして残す（捨てない）。
+
+        （2026-08-19修正: 旧実装は店舗ごとに1件へ畳んでいたため、同じ店が複数レアリティを
+        在庫していても最安の1レアリティしか返らず、クライアント側のレアリティ一致判定で
+        「その店にはそのレアリティが無い」と誤判定されていた）"""
         per_shop: dict = {}
         for r in items:
             if r.get("sold_out"):
@@ -987,9 +992,11 @@ def api_deck():
             shop = r.get("shop")
             if not shop or shop not in selected:
                 continue
-            cur = per_shop.get(shop)
+            rarity = r.get("rarity") or ""
+            by_rarity = per_shop.setdefault(shop, {})
+            cur = by_rarity.get(rarity)
             if cur is None or r.get("price", 0) < cur.get("price", 0):
-                per_shop[shop] = r
+                by_rarity[rarity] = r
         return per_shop
 
     def _search_one_card(i, card_name):

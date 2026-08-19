@@ -4191,12 +4191,13 @@ async function calcWishEstimate(){
           if(entryIdx==null)continue;
           const entry=workingList[entryIdx];
           const perShop=d.per_shop||{};
-          // rarity 指定があれば一致店舗だけ採用、未指定なら全 rarity から最安
+          // per_shop は {店舗名:{レアリティ:{price,url,rarity,...}}}。店ごとの採用候補は
+          // pickPerShopItem に集約（rarity 指定があれば一致店舗だけ採用、未指定なら
+          // その店の全 rarity から最安）。テストが本番ロジックを直接検証できるようにする
           let chosen=null;
           for(const shop of Object.keys(perShop)){
-            const info=perShop[shop];
+            const info=WishEstimate.pickPerShopItem(perShop[shop],entry.rarity);
             if(!info)continue;
-            if(entry.rarity && info.rarity!==entry.rarity) continue;
             if(!chosen||info.price<chosen.price){
               chosen={price:info.price,shop,rarity:info.rarity||"",url:info.url||""};
             }
@@ -4555,10 +4556,10 @@ async function wishCheapestStores(){
         const key=_wishEntryKey(entry.name,entry.rarity);
         let anyShop=false;
         for(const shop of Object.keys(shopState)){
-          const info=perShop[shop];
+          // per_shop は {店舗名:{レアリティ:{price,url,rarity,...}}}。rarity 指定が
+          // あれば一致店舗のみ採用、未指定ならその店の全 rarity から最安（pickPerShopItem）
+          const info=WishEstimate.pickPerShopItem(perShop[shop],entry.rarity);
           if(!info)continue;
-          // rarity 指定があれば一致店舗のみ採用
-          if(entry.rarity && info.rarity!==entry.rarity) continue;
           anyShop=true;
           const st=shopState[shop];
           if(!st.items_map.has(key)){

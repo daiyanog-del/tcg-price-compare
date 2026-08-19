@@ -19,6 +19,12 @@
  *   完全一致しない場合だけグリッドを entries ベースで描き直す設計にした（一致するときは
  *   描き直さない＝通常ケースで画像の再取得やちらつきを避ける）。
  *
+ * pickPerShopItem について（2026-08-19追加）:
+ *   /api/deck の per_shop（リアルタイム検索の店舗別集計）から1店舗ぶんの採用候補を
+ *   選ぶ純関数。見積もりのリアルタイム補完（calcWishEstimate Phase2）と、まとめ買い
+ *   最安店舗のリアルタイム補完（wishCheapestStores）の両方から使われる、共通の
+ *   「per_shop の中から1件選ぶ」ロジックをここに集約する。
+ *
  * 純粋ロジックのみ（DOM 非依存）。node で単体検証できるよう module.exports も持つ。
  */
 (function (global) {
@@ -80,6 +86,37 @@
   }
 
   /**
+   * /api/deck の per_shop（{店舗名: {レアリティ: {price,url,rarity,...}}}）から、
+   * 1店舗ぶんの採用候補を選ぶ純関数。
+   *
+   * 背景（2026-08-19、店舗別集計がレアリティを潰すバグの修正）:
+   *   per_shop は以前「店につき最安1件」に畳まれており、ある店がノーマルとウルトラの
+   *   両方を在庫していてもノーマルしか返らなかった。ユーザーがウルトラを指定していると
+   *   その店は「ウルトラを持っていない」と誤判定されていた（実際には持っている）。
+   *   サーバ側は店舗→レアリティの入れ子に直したので、こちらは入れ子から選ぶだけでよい。
+   *
+   * @param {?Object<string, {price:number,url?:string,rarity?:string}>} shopRarities
+   *   perShop[店舗名]。その店が1件もヒットしていなければ undefined/null。
+   * @param {string} rarityPref 希望レアリティ（未指定は ""）
+   * @returns {?{price:number,url:string,rarity:string}}
+   *   rarityPref が指定されていればその一致のみ、未指定なら全レアリティ中の最安
+   *   （＝旧実装の「レアリティ未指定なら店の最安を採用」という挙動を維持する）
+   */
+  function pickPerShopItem(shopRarities, rarityPref) {
+    if (!shopRarities) return null;
+    if (rarityPref) {
+      return shopRarities[rarityPref] || null;
+    }
+    let best = null;
+    for (const rarity of Object.keys(shopRarities)) {
+      const item = shopRarities[rarity];
+      if (!item) continue;
+      if (!best || item.price < best.price) best = item;
+    }
+    return best;
+  }
+
+  /**
    * db_missing（サーバがどの店にも価格を見つけられなかったキー集合）に無いのに
    * findBestPrice が null を返したエントリを検出する。サーバは価格を持っているはずなのに
    * こちら側の突合で見つけられなかった＝照合キー不一致のバグの疑いがある異常系。
@@ -101,7 +138,7 @@
     return suspicious;
   }
 
-  const api = { entryKey, buildWorkingList, findBestPrice, detectSuspiciousMisses };
+  const api = { entryKey, buildWorkingList, findBestPrice, pickPerShopItem, detectSuspiciousMisses };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   global.WishEstimate = api;
 })(typeof window !== "undefined" ? window : globalThis);
