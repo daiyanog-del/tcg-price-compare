@@ -39,6 +39,7 @@ from admin_unreleased import admin_bp as _admin_bp
 from neuron_deck_parser import import_neuron as _import_neuron
 from neuron_link import resolve_card_name
 import sync as _sync
+from client_ip import _client_ip
 
 import re as _re
 from urllib.parse import quote as _url_quote
@@ -186,7 +187,36 @@ def add_cache_headers(response):
     elif path.startswith('static/') and 'image/' in ct and filename not in FAVICON_FILES:
         # ロゴ・OGP画像等の静的画像は1週間キャッシュ
         response.headers['Cache-Control'] = 'public, max-age=604800'
+    if response.status_code >= 400:
+        # エラーレスポンス（HTMLエラーページ含む）が上記の public キャッシュ指定を
+        # 引き継いだままCDN等に公開キャッシュされないよう、常に上書きで無効化する
+        response.headers['Cache-Control'] = 'no-store'
     return response
+
+
+# ── エラーハンドラ ──
+# /api/ 配下は JSON、それ以外は簡易HTMLページ（トップへの戻りリンク付き）を返す。
+_ERROR_PAGES = {
+    404: ("ページが見つかりません", "お探しのページは見つかりませんでした。URLをご確認ください。"),
+    413: ("リクエストが大きすぎます", "送信内容のサイズが上限を超えています。"),
+    429: ("アクセスが集中しています", "しばらく時間をおいてから再度お試しください。"),
+    500: ("エラーが発生しました", "予期しないエラーが発生しました。しばらくしてから再度お試しください。"),
+}
+
+
+def _make_error_handler(status_code: int, json_error: str):
+    def _handler(e):
+        if request.path.startswith("/api/"):
+            return jsonify({"error": json_error}), status_code
+        title, message = _ERROR_PAGES[status_code]
+        return render_template("error.html", title=title, message=message), status_code
+    return _handler
+
+
+for _code, _json_error in [(404, "not_found"), (413, "payload_too_large"),
+                            (429, "too_many_requests"), (500, "internal_error")]:
+    app.register_error_handler(_code, _make_error_handler(_code, _json_error))
+
 
 # 同時検索の簡易レートリミット (メモリ内)
 _last_search: dict[str, float] = {}
@@ -256,8 +286,7 @@ from threading import Lock, Thread
 FEEDBACK_RATE_LIMIT_SEC    = 30    # 同一IP 30秒に1回まで
 MAX_FEEDBACK_BODY_CHARS    = 2000
 MAX_FEEDBACK_CONTACT_CHARS = 200
-_last_feedback: dict[str, float] = {}
-_feedback_lock = Lock()
+_last_feedback: dict[str, float] = {}  # _consume_rate_limit の共有バケットとして使う
 _DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 
 _ranking_lock = Lock()
@@ -292,7 +321,11 @@ app.register_blueprint(solitaire_bp)
 
 
 def _is_debug_mode() -> bool:
-    return os.environ.get("FLASK_DEBUG", "1") == "1"
+    # フェイルクローズ化（2026-08-20）: FLASK_DEBUG未設定時は「本番」扱いにする。
+    # 以前は既定"1"（デバッグ扱い）だったため、Render側で明示設定していない場合に
+    # ヘルスチェックの鍵チェックが素通りする穴があった（ローカル開発時は
+    # FLASK_DEBUG=1 を明示設定すること。tcg-web/CLAUDE.md 参照）。
+    return os.environ.get("FLASK_DEBUG", "0") == "1"
 
 
 def _consume_rate_limit(bucket: dict | None = None,
@@ -311,16 +344,20 @@ def _consume_rate_limit(bucket: dict | None = None,
     """
     if bucket is None:
         bucket = _last_search
-    rate_key = key or request.remote_addr or "unknown"
+    rate_key = key or _client_ip()
     now = time.time()
     with _rate_limit_lock:
         if rate_key in bucket and now - bucket[rate_key] < interval:
             return jsonify({"error": message}), 429
         bucket[rate_key] = now
         if len(bucket) > RATE_LIMIT_MAX_ENTRIES:
-            cutoff = now - 3600
-            stale = [k for k, ts in bucket.items() if ts < cutoff]
-            for k in stale:
+            # 件数ベースの強制退避。「1時間より古いエントリのみ削除」だと継続フラッド下
+            # （常に直近1時間以内のキーばかりになる）では1件も消えず、ロック保持のまま
+            # 毎回全件スキャンし続ける問題があった。最終アクセスが古い順に超過分を
+            # 無条件で削除し、上限を確実に守る。
+            overflow = len(bucket) - RATE_LIMIT_MAX_ENTRIES
+            oldest_keys = sorted(bucket, key=bucket.get)[:overflow]
+            for k in oldest_keys:
                 del bucket[k]
     return None
 
@@ -973,9 +1010,16 @@ def api_deck():
     # デッキ検索カードを収集対象候補として記録（人気ランキングには影響しない）
     _record_deck_search([e["name"] for e in card_entries])
     # デッキ内カードを tracked_cards に自動登録（次回 collect_prices で永続化）。
+    # 検索自体は全カード名で実行するが、DBへの永続化だけは /api/track-batch と同じ
+    # 辞書ゲート（カード辞書に存在 or 発売済み未発売カード）を通す（スパム・誤登録対策）。
     # 既存登録は select で除外され insert されない＝冪等。fire-and-forget。
-    if _supabase_client:
-        Thread(target=_track_cards_async, args=([e["name"] for e in card_entries],), daemon=True).start()
+    trackable = [
+        e["name"] for e in card_entries
+        if not _cardnames_set or e["name"] in _cardnames_set
+        or _is_release_passed_unreleased(e["name"])
+    ]
+    if _supabase_client and trackable:
+        Thread(target=_track_cards_async, args=(trackable,), daemon=True).start()
 
     def _aggregate_per_shop(items: list) -> dict:
         """店舗別・レアリティ別の最安値を {店舗名: {レアリティ: {price, url, rarity, ...}}} に
@@ -2597,7 +2641,7 @@ def api_sync_init():
     if not _same_origin_ok():
         return jsonify({"error": "forbidden"}), 403
     rate_error = _consume_rate_limit(bucket=_last_sync, interval=SYNC_RATE_LIMIT_SEC,
-                                      key=request.remote_addr or "unknown")
+                                      key=_client_ip())
     if rate_error:
         return rate_error
     if not _supabase_client:
@@ -2790,7 +2834,7 @@ def api_sync_link_preview():
     # preview/redeem/unlink は sync_id を持たない場合があるため IP をキーにする（設計文書 §6.8）。
     # ユーザー操作起点のため背景同期(_last_sync)とはバケットを分離する（上記 link/create と同じ理由）
     rate_error = _consume_rate_limit(bucket=_last_sync_link, interval=LINK_RATE_LIMIT_SEC,
-                                      key=request.remote_addr or "unknown")
+                                      key=_client_ip())
     if rate_error:
         return rate_error
     if not _supabase_client:
@@ -2824,7 +2868,7 @@ def api_sync_link_redeem():
 
     # ユーザー操作起点のため背景同期(_last_sync)とはバケットを分離する（上記2つと同じ理由）
     rate_error = _consume_rate_limit(bucket=_last_sync_link, interval=LINK_RATE_LIMIT_SEC,
-                                      key=request.remote_addr or "unknown")
+                                      key=_client_ip())
     if rate_error:
         return rate_error
     if not _supabase_client:
@@ -2883,20 +2927,13 @@ def api_feedback():
     """一人回しページ等からの不具合・要望を受け付ける。
     入力: {kind: "bug"|"request"|"other", body: str, contact: str, page: str}
     """
-    # フィードバック専用レートリミット（30秒、IP単位）
-    client_ip = request.remote_addr or "unknown"
-    now = time.time()
-    with _feedback_lock:
-        last = _last_feedback.get(client_ip, 0)
-        if now - last < FEEDBACK_RATE_LIMIT_SEC:
-            return jsonify({"error": "しばらく待ってから再度送信してください"}), 429
-        _last_feedback[client_ip] = now
-        # 古い記録の掃除
-        if len(_last_feedback) > RATE_LIMIT_MAX_ENTRIES:
-            cutoff = now - 3600
-            stale = [ip for ip, ts in _last_feedback.items() if ts < cutoff]
-            for ip in stale:
-                del _last_feedback[ip]
+    # フィードバック専用レートリミット（30秒、IP単位）。専用の掃除ロジックを二重管理
+    # しないよう、共通経路（_consume_rate_limit）に統一する（bucketを分けているため
+    # 他系統のAPIとレート制限を奪い合うことはない）。
+    rate_error = _consume_rate_limit(bucket=_last_feedback, interval=FEEDBACK_RATE_LIMIT_SEC,
+                                      message="しばらく待ってから再度送信してください")
+    if rate_error:
+        return rate_error
 
     data = request.get_json(silent=True) or {}
 
@@ -3382,8 +3419,10 @@ def api_card_infos():
 
 
 # カード種別キャッシュ（カード名 → "monster"|"spell"|"trap"|"unknown"）
-# 種別は変化しないので無期限保持
+# 種別は変化しないので無期限保持（ただし上限は設ける。_card_info_cache と同方式）
 _card_type_cache: dict = {}
+_card_type_cache_lock = Lock()
+MAX_CARD_TYPE_CACHE = 5000  # これ以上溜まったら一括クリア
 
 @app.route("/api/card-types", methods=["POST"])
 def api_card_types():
@@ -3402,8 +3441,12 @@ def api_card_types():
     result = {}
     need_fetch = []
     for name in names:
-        if name in _card_type_cache:
-            result[name] = _card_type_cache[name]
+        # in→[] の2段階だとロック外の隙間で clear() と競合しKeyErrorになりうるため、
+        # 1回のロックで取得する（_card_info_cache と同方式に統一）
+        with _card_type_cache_lock:
+            cached = _card_type_cache.get(name)
+        if cached is not None:
+            result[name] = cached
         else:
             need_fetch.append(name)
 
@@ -3429,7 +3472,13 @@ def api_card_types():
                 try:
                     n, t = future.result()
                     result[n] = t
-                    _card_type_cache[n] = t
+                    # "unknown" は辞書に無い任意の文字列がキーとして溜まり続ける主因のため保存しない
+                    if t != "unknown":
+                        with _card_type_cache_lock:
+                            if len(_card_type_cache) >= MAX_CARD_TYPE_CACHE:
+                                _card_type_cache.clear()
+                                logger.info("[card-types] キャッシュ上限到達のためクリアしました")
+                            _card_type_cache[n] = t
                 except Exception:
                     result[futs[future]] = "unknown"
 
@@ -3863,5 +3912,8 @@ if _claim_startup_job("featured_prefetch"):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    debug = os.environ.get("FLASK_DEBUG", "1") == "1"
+    # フェイルクローズ化（2026-08-20）: 既定"1"だとWerkzeugデバッガが既定で有効になり
+    # 実質RCE（任意コード実行）になりうるため、_is_debug_mode() と揃えて既定"0"にする。
+    # ローカル開発時は FLASK_DEBUG=1 を明示設定する（tcg-web/CLAUDE.md 参照）。
+    debug = os.environ.get("FLASK_DEBUG", "0") == "1"
     app.run(debug=debug, host="0.0.0.0", port=port)

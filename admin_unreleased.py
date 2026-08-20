@@ -28,6 +28,7 @@ from flask import Blueprint, request, jsonify, render_template
 import card_display as _card_display
 import fetch_guard as _fetch_guard
 from constants import JST as _JST
+from client_ip import _client_ip
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,42 @@ def _record_auth_fail(ip: str) -> None:
 
 
 # ──────────────────────────────────────────────
+# 認証失敗レート制限（IP非依存のグローバル上限）
+# IP単位のバケットは、攻撃者がリクエストごとに偽装IPを名乗ることで
+# 無限に分散でき実質無力化されうる。全IP合計の失敗回数で歯止めをかける
+# 「最後の砦」として、IP単位の制限とは別に併用する。
+# TODO: calibrate from data — 閾値（60秒に20回）は実データ未収集のため仮置き。
+# ──────────────────────────────────────────────
+
+_AUTH_FAIL_GLOBAL_LIMIT = 20     # この回数に達したらブロック開始
+_AUTH_FAIL_GLOBAL_WINDOW = 60.0  # 集計ウィンドウ・ブロック継続時間（秒）
+
+_auth_fail_global_lock = threading.Lock()
+_auth_fail_global_log: list[float] = []
+_auth_fail_global_blocked_until = 0.0
+
+
+def _check_global_auth_rate_limit() -> bool:
+    """
+    グローバル認証失敗レート制限を確認する。
+    True = 制限中（429を返すべき）、False = 通過可能
+    """
+    with _auth_fail_global_lock:
+        return time.time() < _auth_fail_global_blocked_until
+
+
+def _record_global_auth_fail() -> None:
+    """認証失敗をグローバルに記録し、上限到達時は以後 _AUTH_FAIL_GLOBAL_WINDOW 秒ブロックする"""
+    global _auth_fail_global_blocked_until
+    now = time.time()
+    with _auth_fail_global_lock:
+        _auth_fail_global_log[:] = [t for t in _auth_fail_global_log if now - t < _AUTH_FAIL_GLOBAL_WINDOW]
+        _auth_fail_global_log.append(now)
+        if len(_auth_fail_global_log) >= _AUTH_FAIL_GLOBAL_LIMIT:
+            _auth_fail_global_blocked_until = now + _AUTH_FAIL_GLOBAL_WINDOW
+
+
+# ──────────────────────────────────────────────
 # 認証ヘルパー
 # ──────────────────────────────────────────────
 
@@ -116,13 +153,18 @@ def _require_admin_key():
     if not _admin_key_enabled():
         return jsonify({"error": "管理機能が無効です（ADMIN_KEY 未設定）"}), 503
 
-    ip = request.remote_addr or "unknown"
+    # IP偽装でIP単位バケットを分散されても総当たりを止める最後の砦（グローバル上限）
+    if _check_global_auth_rate_limit():
+        return jsonify({"error": "認証失敗が多すぎます。しばらく待ってから再試行してください"}), 429
+
+    ip = _client_ip()
     if _check_auth_rate_limit(ip):
         return jsonify({"error": "認証失敗が多すぎます。しばらく待ってから再試行してください"}), 429
 
     provided = request.headers.get("X-Admin-Key", "").strip()
     if not hmac.compare_digest(provided, _ADMIN_KEY):
         _record_auth_fail(ip)
+        _record_global_auth_fail()
         return jsonify({"error": "認証に失敗しました"}), 401
 
     return None

@@ -113,7 +113,12 @@ async function _saveAndGetShortURL(title) {
       logs: getLogs(),
     }),
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    // サーバーが返すJSONのerrorメッセージ（レート制限・型不正等の理由）を優先して使う。
+    // JSONとして読めない場合のみ、フォールバックでHTTPステータスを出す。
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || `HTTP ${res.status}`);
+  }
   const { id } = await res.json();
   return `${location.origin}/solitaire?replay=${id}`;
 }

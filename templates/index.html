@@ -13,13 +13,13 @@
 <title>{{ card_name }} の価格比較 | TCGYM</title>
 <meta name="description" content="{{ card_name }}の最安値を遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボ・まんぞく屋の6店舗から一括比較。{% if best_price %}現在の最安値は¥{{ '{:,}'.format(best_price) }}。{% endif %}リアルタイム価格検索。">
 <meta property="og:title" content="{{ card_name }} の価格比較 | TCGYM">
-<meta property="og:description" content="{{ card_name }}の最安値を7店舗で比較{% if best_price %}。最安¥{{ '{:,}'.format(best_price) }}{% endif %}">
+<meta property="og:description" content="{{ card_name }}の最安値を6店舗で比較{% if best_price %}。最安¥{{ '{:,}'.format(best_price) }}{% endif %}">
 <link rel="canonical" href="{{ request.url_root.rstrip('/') }}/card/{{ card_name | urlencode }}">
 {% elif card_name and page_mode == 'buyback' %}
 <title>{{ card_name }} の買取価格比較 | TCGYM</title>
-<meta name="description" content="{{ card_name }}の買取価格をカードラッシュ・カーナベル・遊々亭の3店舗で一括比較。{% if best_price %}最高買取額¥{{ '{:,}'.format(best_price) }}。{% endif %}一番高く売れるお店が見つかります。">
+<meta name="description" content="{{ card_name }}の買取価格をカードラッシュ・カーナベル・遊々亭・トレコロCB・カードラボの5店舗で一括比較。{% if best_price %}最高買取額¥{{ '{:,}'.format(best_price) }}。{% endif %}一番高く売れるお店が見つかります。">
 <meta property="og:title" content="{{ card_name }} の買取価格比較 | TCGYM">
-<meta property="og:description" content="{{ card_name }}の買取価格を3店舗で比較{% if best_price %}。最高¥{{ '{:,}'.format(best_price) }}{% endif %}">
+<meta property="og:description" content="{{ card_name }}の買取価格を5店舗で比較{% if best_price %}。最高¥{{ '{:,}'.format(best_price) }}{% endif %}">
 <link rel="canonical" href="{{ request.url_root.rstrip('/') }}/buy/{{ card_name | urlencode }}">
 {% else %}
 <title>TCGYM — 遊戯王OCG プレイヤーサポート</title>
@@ -58,7 +58,7 @@
   "@context": "https://schema.org",
   "@type": "WebPage",
   "name": "{{ card_name }} の{% if page_mode == 'buyback' %}買取{% endif %}価格比較",
-  "description": "{{ card_name }}の{% if page_mode == 'buyback' %}買取価格を3店舗{% else %}販売価格を7店舗{% endif %}で比較",
+  "description": "{{ card_name }}の{% if page_mode == 'buyback' %}買取価格を5店舗{% else %}販売価格を6店舗{% endif %}で比較",
   "mainEntity": {
     "@type": "Product",
     "name": "{{ card_name }}",
@@ -1260,6 +1260,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 <footer class="site-footer">
   <a onclick="openLegalModal('privacy')">プライバシーポリシー</a>｜<a onclick="openLegalModal('terms')">利用規約</a>｜<a onclick="openLegalModal('shop')">ショップ運営者様へ</a>｜<a href="mailto:tcg.price.compare@gmail.com">お問い合わせ</a>
   <div class="footer-copy">&copy; 2025 TCGYM</div>
+  <div class="footer-rights" style="font-size:.72rem;color:var(--text-d);margin-top:4px">遊戯王OCGカードの著作権は&copy;スタジオ・ダイス／集英社・テレビ東京・KONAMIに帰属します。当サイトはKONAMI社とは無関係の非公認ファンサイトです。</div>
 </footer>
 
 <!-- PWAインストールバナー -->
@@ -1292,7 +1293,8 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
       <ul>
         <li><strong>IPアドレス:</strong> サーバーへの過度なアクセスを防止するレートリミット機能のために一時的に取得します。永続的な保存は行いません。</li>
         <li><strong>Cookie:</strong> アフィリエイトプログラム（後述）の計測のために使用されます。</li>
-        <li><strong>購入候補（お気に入りカード）の内容と、端末を識別するためのランダムな識別子:</strong> 購入候補を別の端末（スマートフォンとパソコン等）でも見られるようにする「端末間同期」機能を利用した場合、購入候補に登録したカード名・枚数と、端末を紐づけるためにサーバーが発行するランダムな識別子（氏名・メールアドレス等の個人を特定する情報は含みません）を保存します。この機能は購入候補が1件以上登録されたときに限り有効になります。</li>
+        <li><strong>購入候補（お気に入りカード）・保存デッキの内容と、端末を識別するためのランダムな識別子:</strong> 購入候補や保存デッキを別の端末（スマートフォンとパソコン等）でも見られるようにする「端末間同期」機能を利用した場合、購入候補に登録したカード名・枚数、保存デッキのデッキ名・カード構成と、端末を紐づけるためにサーバーが発行するランダムな識別子（氏名・メールアドレス等の個人を特定する情報は含みません）を保存します。この識別子は、購入候補または保存デッキを作成したときに発行されます。</li>
+        <li><strong>一人回しシミュレータの共有リプレイ:</strong> 一人回し機能で「共有リンクをコピー」「Xに投稿」を行うと、そのデッキのカード名・操作ログ・タイトルをサーバーに保存し、共有用URLを発行します。このURLを知っている人は誰でも内容を閲覧できます。氏名・メールアドレス等の個人を特定する情報は含みませんが、URLの共有範囲にはご注意ください。</li>
       </ul>
 
       <h3>2. 利用目的</h3>
@@ -1318,13 +1320,13 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
       <h3>7. Web Push通知について</h3>
       <p>値下がり通知機能を利用する際、ブラウザのプッシュ購読情報（通知の送信先を示すエンドポイント情報等）を保存します。この情報は通知の送信目的以外には使用しません。通知の購読は、ブラウザの設定からいつでも解除できます。</p>
 
-      <h3>8. フィードバックについて</h3>
-      <p>フィードバックフォームから送信された内容は、サービス改善の目的で運営者が閲覧します。</p>
+      <h3>8. お問い合わせについて</h3>
+      <p>お問い合わせ（メール）や、一人回しページの「不具合・要望を送る」フォームから送信された内容は、サービス改善の目的で運営者が閲覧します。フォームからの送信では、本文のほか、任意で入力された連絡先と、送信に使用したブラウザの種類（User-Agent）もあわせて保存されます。</p>
 
       <h3>9. ポリシーの変更</h3>
       <p>本ポリシーは予告なく変更される場合があります。変更後のポリシーは本ページに掲載した時点で効力を生じるものとします。</p>
 
-      <p style="margin-top:16px;font-size:.8rem;color:var(--text-d)">制定日: 2025年6月1日 / 改定日: 2026-08-09</p>
+      <p style="margin-top:16px;font-size:.8rem;color:var(--text-d)">制定日: 2025年6月1日 / 改定日: 2026-08-20</p>
     </div>
   </div>
 </div>
@@ -1340,7 +1342,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
       <p>本利用規約（以下「本規約」）は、TCGYM（以下「本サービス」）の利用条件を定めるものです。本サービスを利用された時点で、本規約に同意したものとみなします。</p>
 
       <h3>1. サービスの概要</h3>
-      <p>本サービスは、遊戯王OCGカードの販売価格および買取価格を複数のショップ（遊々亭、カードラッシュ、トレコロCB、カーナベル、カードラボ）から取得し、比較表示する個人運営のWebサービスです。</p>
+      <p>本サービスは、遊戯王OCGカードの販売価格および買取価格を複数のショップ（遊々亭、カードラッシュ、トレコロCB、カーナベル、カードラボ、まんぞく屋）から取得し、比較表示する個人運営のWebサービスです。</p>
 
       <h3>2. 各ショップとの関係</h3>
       <p>本サービスは各カードショップとは独立した非公式の価格比較サービスであり、各ショップの公式サービスではありません。各ショップでの購入・買取に関するお問い合わせは、各ショップへ直接お願いいたします。</p>
@@ -1351,6 +1353,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
         <li>実際の価格は各ショップの公式サイトにてご確認ください。</li>
         <li>本サービスの利用に起因して生じたいかなる損害についても、運営者は一切の責任を負いません。</li>
         <li>本サービスは予告なくメンテナンスや内容の変更、サービスの停止・終了を行う場合があります。</li>
+        <li>端末間同期機能で保存されたデータ（購入候補・保存デッキ）は、バックアップを保証するものではなく、運営上の必要に応じて削除される場合があります。</li>
       </ul>
 
       <h3>4. 禁止事項</h3>
@@ -1369,7 +1372,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
       <h3>6. 規約の変更</h3>
       <p>本規約は予告なく変更される場合があります。変更後の規約は本ページに掲載した時点で効力を生じるものとします。重大な変更がある場合は、本サービス上で告知するよう努めます。</p>
 
-      <p style="margin-top:16px;font-size:.8rem;color:var(--text-d)">最終更新日: 2025年6月1日</p>
+      <p style="margin-top:16px;font-size:.8rem;color:var(--text-d)">最終更新日: 2026-08-20</p>
     </div>
   </div>
 </div>
@@ -3259,8 +3262,8 @@ async function calcDeck(buyMode){
           progEl.textContent=`完了 — ${found}/${cards.length}枚の${modeLabel}を取得${notFound>0?` (${notFound}枚未取得)`:''}`;
           _updateSectionSubtotals(ctx); // セクション小計を最新化（リアルタイム計算の確定時）
           const deckShareText=isBuy
-            ?`買取合計 ¥${total.toLocaleString()}（${cards.length}枚）！ 3店舗最高値で見積もりました`
-            :`デッキ合計 ¥${total.toLocaleString()}（${cards.length}枚）！ 7店舗最安値で見積もりました`;
+            ?`買取合計 ¥${total.toLocaleString()}（${cards.length}枚）！ 5店舗最高値で見積もりました`
+            :`デッキ合計 ¥${total.toLocaleString()}（${cards.length}枚）！ 6店舗最安値で見積もりました`;
           const deckShareUrl=location.origin;
           progEl.innerHTML+=`<div class="share-btns" style="margin-top:8px">
             <a class="share-btn share-btn-x" href="https://x.com/intent/tweet?text=${encodeURIComponent(deckShareText)}&url=${encodeURIComponent(deckShareUrl)}" target="_blank" rel="noopener">𝕏 シェア</a>
@@ -4501,6 +4504,7 @@ async function wishCheapestStores(){
       ${splitHtml}
       ${dbMissingHtml}
       <div class="wish-shop-ranking-foot">対象: ${totalCards}種類 / ${totalQty}枚${shippingCheckedOn?`　／　送料は各店で最も安い配送方法・最小の厚さを前提にした${esc(shippingCheckedOn)}時点の情報です（地域・枚数により実際は高くなる場合があります）`:''}</div>
+      <div class="wish-shop-ranking-foot">価格は取得時点のものです。購入前に各店の商品ページでご確認ください。</div>
     `;
   };
 
@@ -4676,6 +4680,8 @@ const PUSH_SUB_KEY = 'cardprice_push_subscribed'; // 購読済みフラグ(local
 
 // 通知ボックスの表示状態を更新する
 function updatePushUI(subscribed){
+  // Push配信は停止中のためUIを隠す（2026-08-20決定）。復活時はこの行を外す
+  return;
   const box = document.getElementById('pushNotifyBox');
   const btn = document.getElementById('pushNotifyBtn');
   const desc = document.getElementById('pushNotifyDesc');
