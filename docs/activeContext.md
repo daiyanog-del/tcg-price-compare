@@ -1,6 +1,18 @@
 # activeContext — 今どこ・次何
 
-> 更新: 2026-08-19（端末間同期 完成・本番E2E通過／購入候補リストのモバイル改善／分割プラン修正の引き取り）
+> 更新: 2026-08-20（公開前洗い出し＋第1・第2バッチ本番適用完了）
+
+## 2026-08-20: 公開前の粗さ洗い出し → 修正2バッチを本番適用
+
+**背景**: 機能が出そろったため「本格的に人に使ってもらう」前提で3班並行の洗い出し（実機UX回遊／コード横断レビュー／法務表記チェック）＋既存バックログ裁定を実施。共通の構図は「自分しか使わない前提で開いていた裏口が、公開すると第三者に使われる」。
+
+**第1バッチ（8488b41・本番検証済み）**: ①レート制限のクライアントIP解決を根治（client_ip.py 新設。CF-Connecting-IP→True-Client-IP→remote_addr、XFFは偽装可能なため不採用。本番6連打テストで正しく429、XFF/CF偽装ローテーションとも突破不可を実測） ②FLASK_DEBUG既定を"0"に反転＋本番envに FLASK_DEBUG=0 / HEALTH_CHECK_KEY 設定（/api/status キー無し403・正キー200を実測。**UptimeRobotの監視URLキー更新はユーザー操作待ち**） ③リプレイ保存に型検証・上限・レート制限（60秒10回・TODO calibrate） ④/api/deck の tracked_cards 永続化に辞書ゲート（ペガサス誤登録の経路根治） ⑤エラーハンドラ新設（日本語404/500・APIはJSON・≥400はno-store） ⑥_card_type_cache 上限＋ロック読み ⑦admin認証にグローバル失敗上限 ⑧法務表記一式（ポリシーにデッキ同期/共有リプレイ/問い合わせ保存を追記、規約にまんぞく屋・同期データ非保証、フッター権利表記、店舗数統一、まとめ買い価格免責） ⑨Push購読UI非表示（配信は事実上停止中のため。復活時は解除UIも戻すこと）
+
+**第2バッチ（3efc873・本番検証済み）**: escAttr()導入で属性文脈XSSを根治（index.html 69箇所＋packs.js/featured-matrix.js/deck-edit.jsの4ファイル全数置換。onclickは escAttr(escJs(x)) 重ね掛け。escJs誤用等の実バグも道中是正）。safeUrl()のスキーム検証をhref/src 16箇所へ＋空文字がトップURLに解決される穴の修正。escJsに改行エスケープ。セキュリティヘッダ3種（nosniff/Referrer-Policy/X-Frame-Options: SAMEORIGIN）。恒久テスト tests/js/xss_escaping_check.js（20項目・属性文脈のesc/escJs残存ゼロの静的走査つき）。pytest 692件全緑。
+
+**検証の教訓**: reviewer監査が2バッチとも実バグを検出（XFF信頼で総当たり防止が無効化・_replay_rate_log掃除のno-op・_card_type_cacheのロック外読み・packs.js置換漏れ・safeUrl空文字）。実装→別視点監査→本番実測の3段は維持すること。
+
+**残タスク（公開前推奨・未着手）**: /api/deck・confirmed=true のスクレイプ代行口対策と .cache 剪定／/api/deck-image のレート制限＋型検証／コールドスタートのグローバルロック渋滞（M-3）／CSP段階導入（TASKS.md起票済み）／カーナベル型番欄の壊れ値（カテゴリ略称流用）／新弾マトリクスのfeatured期間外挙動（8/29次弾で確認）／裁定待ち: X自動投稿の再開・Push通知の復活or廃止。詳細はTASKS.md。
 
 ## 2026-08-19: 同期の本番E2E通過・モバイル改善・分割プラン修正の引き取り
 
