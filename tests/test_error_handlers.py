@@ -6,6 +6,8 @@ tests/test_error_handlers.py — エラーハンドラ（404/413/429/500）の�
   エラーレスポンスには常に Cache-Control: no-store が付くことを担保する。
   413/429/500 は実ルートで再現しづらいため、登録済みハンドラ関数を
   test_request_context 内で直接呼び出して分岐を検証する。
+  あわせて、全応答共通のセキュリティヘッダ（X-Content-Type-Options /
+  Referrer-Policy / X-Frame-Options）が付くことも担保する（2026-08-20 第2バッチ）。
 """
 
 import sys
@@ -66,3 +68,19 @@ def test_error_handler_html_branch_for_non_api_paths(status_code, json_error):
         body, code = handler(Exception("boom"))
         assert code == status_code
         assert "トップへ戻る" in body
+
+
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "X-Frame-Options": "SAMEORIGIN",
+}
+
+
+@pytest.mark.parametrize("path", ["/", "/api/this-route-does-not-exist"])
+def test_security_headers_present_on_all_responses(path):
+    """主要3つのセキュリティヘッダが / と /api/ 応答の両方に付くこと。"""
+    client = _client()
+    resp = client.get(path)
+    for name, value in _SECURITY_HEADERS.items():
+        assert resp.headers.get(name) == value, f"{path} に {name} が期待値で付いていない"

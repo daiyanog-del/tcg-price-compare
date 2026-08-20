@@ -191,6 +191,14 @@ def add_cache_headers(response):
         # エラーレスポンス（HTMLエラーページ含む）が上記の public キャッシュ指定を
         # 引き継いだままCDN等に公開キャッシュされないよう、常に上書きで無効化する
         response.headers['Cache-Control'] = 'no-store'
+
+    # セキュリティヘッダ（全応答共通・2026-08-20）。
+    # CSPは今回入れない（インラインscript/onclickを多用しており段階導入が必要。TASKS.md参照）。
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    # 埋め込み利用の実績が無いため、将来の自サイト内iframe利用があっても壊れない安全側の
+    # SAMEORIGINにする（DENYにはしない）。
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
     return response
 
 

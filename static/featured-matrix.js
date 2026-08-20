@@ -1,7 +1,7 @@
 // 新弾フィーチャー「店舗×レアリティ価格マトリクス」表示。
 // packs.js の _loadFeaturedIntoPackDetail から呼ばれるトグルボタンで表示/非表示を切り替える。
-// esc / escJs / wishAdd / _wishShopSearchUrl は index.html 本体のグローバル関数を参照する
-// （このファイルは非モジュールで読み込むこと）。
+// esc / escJs / escAttr / safeUrl / wishAdd / _wishShopSearchUrl は index.html 本体の
+// グローバル関数を参照する（このファイルは非モジュールで読み込むこと）。
 //
 // 状態は極力DOM側（コンテナの classList / dataset）に持たせる。モジュールレベル変数で
 // 表示状態を保持すると、packs.js が pack 切替のたびに detailEl.innerHTML を丸ごと
@@ -121,11 +121,11 @@ function _renderFeaturedMatrix(data, container){
       const codeStr=cell.code?`<div class="fmx-cell-code">${esc(cell.code)}</div>`:'';
       const titleText=cell.code?`${shop} / ${cell.code}`:shop;
       const link=url
-        ? `<a href="${esc(url)}" target="_blank" rel="noopener">${priceStr}</a>`
+        ? `<a href="${escAttr(safeUrl(url))}" target="_blank" rel="noopener">${priceStr}</a>`
         : priceStr;
-      html+=`<td class="fmx-cell" style="${style}" title="${esc(titleText)}">${link}${dateStr}${codeStr}</td>`;
+      html+=`<td class="fmx-cell" style="${style}" title="${escAttr(titleText)}">${link}${dateStr}${codeStr}</td>`;
     }
-    html+=`<td class="fmx-cell-action"><button class="wish-add" onclick="_fmxAddWish(this,'${escJs(row.name)}','${escJs(row.rarity||'')}')">+ 候補</button></td>`;
+    html+=`<td class="fmx-cell-action"><button class="wish-add" onclick="_fmxAddWish(this,'${escAttr(escJs(row.name))}','${escAttr(escJs(row.rarity||''))}')">+ 候補</button></td>`;
     html+='</tr>';
   });
 

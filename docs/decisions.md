@@ -1,4 +1,17 @@
 このファイルの目的: 重要な決定を「いつ・何を・なぜ」で記録する。新しい決定は上に追記
+## 2026-08-20: XSS対策（属性文脈エスケープ）とセキュリティヘッダの導入（公開前修正 第2バッチ）
+
+**決定**: `esc()`（テキストノード用・`&<>`のみ実体参照化）とは別に `escAttr()`（`& < > " '` 全て実体参照化）を新設し、HTML属性値の文脈（`href=`/`src=`/`id=`/`data-*=`等）で使われていた `esc()` を全数列挙のうえ `escAttr()` に置換した。
+
+- **なぜ `esc()` を直接直さなかったか**: 呼び出し箇所が数百あり、テキストノード用途（大半）まで挙動が変わるリスクが高い。属性文脈だけを狙い撃ちする新関数を作り、機械置換ではなく1箇所ずつ文脈を確認して置換する方針にした
+- **二重文脈（`onclick="...('${escJs(x)}')..."`）の扱い**: `escJs()`（JS文字列用・`\ ' <` のみ処理）の出力をさらに `escAttr()` で包む「重ね掛け」（`escAttr(escJs(x))`）に統一した。属性値全体を包む代替案（テンプレートリテラル構造を変える）は変更範囲が大きく採らなかった
+- **道中で見つけた個別バグも同時修正**: `escJs()` を `data-card=`/`id=` 等の素の属性値（JS文字列文脈ではない）に誤用していた箇所（3+α件）、`esc()` を逆にonclickのJS文字列文脈で使っていた箇所（1件）。前者は `.dataset.xxx` 読み出し時のHTML実体参照デコードと噛み合わせが取れていなかった潜在バグでもあった（該当のid/data値は全て内部生成の安全な値だったため実害はこれまで顕在化していない）
+- **safeUrl()（http/httpsのみ許可）の適用範囲**: 明示された既知L-1（wish-shop-detail・featured-matrix.js）に加え、同じ監査中に見つけた `affLink()`/`safeUrl()` を経由しない生のhref・img src（meta deckレシピリンク・meta deck画像・wish card画像・deck grid/SSE経由のbest.url等、計10+1箇所）にも同一パターンで適用した。ただし全数の棚卸しはしておらず、残りはTASKS.mdにフォローアップとして起票（「href/imgのスキーム検証が未適用の残存箇所」）
+- **検証方法**: `templates/index.html` の実際の `<script>` 内容をそのまま抽出し、Node `vm` でDOM最小スタブとともに実行、`escAttr`/`esc`/`escJs`/`safeUrl`/`wishBtnHtml`/`_wishRaritySelectHtml` を実装コードそのままの形で呼び出して属性脱出ペイロード（`テスト"onmouseover="alert(1)`等）が脱出しないこと・正常なカード名/URLで表示が壊れないことを確認した（再実装のテストコードではなく実装ファイルを直接ロード）。**このNode検証は恒久化し `tests/js/xss_escaping_check.js`＋`tests/test_xss_escaping.py`（`wish_estimate_check.js` と同じsubprocessラッパー方式）としてリポジトリに永続化した（2026-08-20）**
+- **セキュリティヘッダ**: `X-Content-Type-Options: nosniff` / `Referrer-Policy: strict-origin-when-cross-origin` / `X-Frame-Options: SAMEORIGIN`（DENYではなくSAMEORIGIN＝将来の自サイト内iframeを壊さない安全側）を全応答に追加。CSPは既存コードがインラインscript/onclickを多用しており段階導入が必要なため、今回は見送りTASKS.mdに起票
+- **reviewer差し戻し（同日2回目）で追加是正**: `static/packs.js`（onclick二重文脈・data-card素の属性値）と `static/mydeck/deck-edit.js`（data-name素の属性値・safeUrlで判定だけして生urlを挿入していたバグ）の同種残存を修正し、対象4ファイル（index.html/featured-matrix.js/packs.js/deck-edit.js）で横断課題を完了とした。`safeUrl('')` がサイトトップURLを誤って返す穴（`new URL('', location.origin)` の仕様）も塞いだ。`escJs()` に `\n`/`\r` のエスケープも追加（属性値中の生改行がonclick全体をSyntaxErrorにするため）。Node検証スクリプトも強化: シングルクォート版ペイロードをレンダラー2件に追加、「属性値内でescAttr()に包まれていないesc(/escJs(が0件」を検出する静的走査を4ファイル横断で追加（reviewerの手動監査と同じロジックを自動テスト化）
+
+
 ## 2026-08-11: 購入候補・保存デッキの端末間同期を「番号札方式」で実装（P1デプロイ）
 
 **決定**: 会員登録を作らず、匿名の `sync_id`（UUIDv4）＋**リスト単位のリビジョン制御**で端末間同期を実装する。端末の紐づけはワンタイムリンク＋QR（P3）。設計文書は `docs/design-sync-2026-08-09.md`（第2版）。

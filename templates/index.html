@@ -1639,8 +1639,8 @@ function showUnreleasedCard(name){
     </div>
     <div id="cardDetail" class="card-detail"></div>
     <div class="share-btns">
-      <button onclick="addToDeck('${escJs(name)}')" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ デッキに追加</button>
-      <button onclick="wishAddFromBtn(this,'${escJs(name)}',1)" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ 購入候補に追加</button>
+      <button onclick="addToDeck('${escAttr(escJs(name))}')" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ デッキに追加</button>
+      <button onclick="wishAddFromBtn(this,'${escAttr(escJs(name))}',1)" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ 購入候補に追加</button>
     </div>`;
 
   // 画像（公式SAMPLE or プロキシ）
@@ -1742,7 +1742,7 @@ function _applyCardImages(heroSrc,thumbSrc,source){
   const wrap=document.getElementById('heroImgWrap');
   const safeHero=safeUrl(heroSrc);
   if(wrap&&safeHero&&!wrap.querySelector('img')){
-    wrap.innerHTML='<img src="'+esc(safeHero)+'" alt="" loading="lazy">';
+    wrap.innerHTML='<img src="'+escAttr(safeHero)+'" alt="" loading="lazy">';
     // 発売済みクリーン画像にのみ自サイト透かしを付与（SAMPLE画像には付けない）
     if(source!=='official_sample'){ wrap.classList.add('wm-released'); }
     else { wrap.classList.remove('wm-released'); }
@@ -1764,10 +1764,10 @@ function _fillSmallImages(src){
   src=safeUrl(src);
   if(!src)return;
   document.querySelectorAll('.ritem-img').forEach(function(el){
-    el.innerHTML='<img src="'+esc(src)+'" alt="" loading="lazy">';
+    el.innerHTML='<img src="'+escAttr(src)+'" alt="" loading="lazy">';
   });
   document.querySelectorAll('.tbl-img').forEach(function(el){
-    el.innerHTML='<img src="'+esc(src)+'" alt="" loading="lazy">';
+    el.innerHTML='<img src="'+escAttr(src)+'" alt="" loading="lazy">';
   });
 }
 
@@ -1953,7 +1953,7 @@ function fetchSuggest(q){
       sugDrop.innerHTML=items.map((it,i)=>{
         const n=it.name;
         const badge=it.unreleased?' <span class="pack-unreleased-badge">発売前</span>':'';
-        return `<div class="suggest-item" data-i="${i}" onmousedown="selectSug('${escJs(n)}',${it.unreleased?'true':'false'})"><span class="suggest-thumb" data-thumb-name="${esc(n)}"></span><span class="suggest-name">${esc(n)}${badge}</span></div>`;
+        return `<div class="suggest-item" data-i="${i}" onmousedown="selectSug('${escAttr(escJs(n))}',${it.unreleased?'true':'false'})"><span class="suggest-thumb" data-thumb-name="${escAttr(n)}"></span><span class="suggest-name">${esc(n)}${badge}</span></div>`;
       }).join('');
       sugDrop.classList.add('open');
       loadSuggestThumbnails(sugDrop);
@@ -1972,7 +1972,7 @@ function loadSuggestThumbnails(dropEl){
       if(!images)return;
       thumbs.forEach(t=>{
         const url=_batchImgUrl(images[t.dataset.thumbName]);
-        if(url&&safeUrl(url)) t.innerHTML=`<img src="${esc(url)}" alt="" loading="lazy">`;
+        if(url&&safeUrl(url)) t.innerHTML=`<img src="${escAttr(url)}" alt="" loading="lazy">`;
       });
     })
     .catch(()=>{});
@@ -2026,8 +2026,8 @@ function renderAll(d){
     </div>
     <div id="cardDetail" class="card-detail"></div>
     <div class="share-btns">
-      <button onclick="addToDeck('${escJs(searchTerm)}')" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ デッキに追加</button>
-      <button onclick="wishAddFromBtn(this,'${escJs(searchTerm)}',1)" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ 購入候補に追加</button>
+      <button onclick="addToDeck('${escAttr(escJs(searchTerm))}')" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ デッキに追加</button>
+      <button onclick="wishAddFromBtn(this,'${escAttr(escJs(searchTerm))}',1)" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ 購入候補に追加</button>
       <div class="share-menu-wrap">
         <button class="share-btn share-btn-x" onclick="toggleShareMenu('shareMenuSell')">シェア</button>
         <div class="share-menu" id="shareMenuSell"></div>
@@ -2068,8 +2068,8 @@ function renderAll(d){
   for(const[shop,item]of Object.entries(d.by_shop)){
     const isBest=(bestSellPrice!==null&&item.price===bestSellPrice);
     const itemUrl=affLink(item.url, item.shop, 'sell');
-    const nameLink=item.url?`<a href="${esc(itemUrl)}" target="_blank" rel="noopener nofollow">${esc(item.name)}</a>`:esc(item.name);
-    const priceLink=item.url?`<a class="scard-link" href="${esc(itemUrl)}" target="_blank" rel="noopener nofollow">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
+    const nameLink=item.url?`<a href="${escAttr(itemUrl)}" target="_blank" rel="noopener nofollow">${esc(item.name)}</a>`:esc(item.name);
+    const priceLink=item.url?`<a class="scard-link" href="${escAttr(itemUrl)}" target="_blank" rel="noopener nofollow">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
     h+=`<div class="scard${isBest?' best':''} fin"><div class="slabel">${esc(shop)}</div>
       <div class="sprice">${priceLink}</div>
       <div class="sdetail">${esc(item.rarity||'-')}<br>${nameLink}</div></div>`;
@@ -2085,7 +2085,7 @@ function renderAll(d){
     let btns='<span class="rf-label">レアリティ:</span><button class="rf-btn active" data-r="" onclick="setRarityFilter(\'\')">すべて</button>';
     for(const r of rarities){
       const cnt=D.filter(x=>x.rarity===r).length;
-      btns+=`<button class="rf-btn" data-r="${esc(r)}" onclick="setRarityFilter('${escJs(r)}')"><span class="rb rb-${cssClass(r)}" style="background:none;padding:0">${esc(r)}</span> <span style="color:var(--text-d)">${cnt}</span></button>`;
+      btns+=`<button class="rf-btn" data-r="${escAttr(r)}" onclick="setRarityFilter('${escAttr(escJs(r))}')"><span class="rb rb-${cssClass(r)}" style="background:none;padding:0">${esc(r)}</span> <span style="color:var(--text-d)">${cnt}</span></button>`;
     }
     rfEl.innerHTML=btns;
   }else{
@@ -2099,7 +2099,7 @@ function renderAll(d){
   const entries=Object.entries(d.by_rarity).sort((a,b)=>a[1].price-b[1].price);
   document.getElementById('rgrid').innerHTML=entries.map(([r,item])=>{
     const itemUrl=safeUrl(item.url);
-    const link=itemUrl?`<a href="${esc(itemUrl)}" target="_blank" rel="noopener">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
+    const link=itemUrl?`<a href="${escAttr(itemUrl)}" target="_blank" rel="noopener">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
     return`<div class="ritem fin">
       <div class="ritem-img"></div>
       <div style="flex:1"><span class="rb rb-${cssClass(r)}">${esc(r)}</span><div class="rshop">${esc(item.shop)}</div></div>
@@ -2123,11 +2123,11 @@ function renderTable(){
     const stockStr=r.sold_out?'<span class="sob">売切</span>':(r.stock>0?r.stock:'-');
     const linkUrl=affLink(r.url, r.shop, 'sell');
     const nameLink=r.url
-      ?`<a class="row-link" href="${esc(linkUrl)}" target="_blank" rel="noopener nofollow">${esc(r.name)}</a>`
+      ?`<a class="row-link" href="${escAttr(linkUrl)}" target="_blank" rel="noopener nofollow">${esc(r.name)}</a>`
       :esc(r.name);
     const cond=r.condition==='セール'?'<span style="color:var(--gold)">セール</span>':esc(r.condition);
     const rowClass=[so,linkUrl?'row-clickable':''].filter(Boolean).join(' ');
-    const rowHref=linkUrl?`data-href="${esc(linkUrl)}"`:'';
+    const rowHref=linkUrl?`data-href="${escAttr(linkUrl)}"`:'';
     return`<tr class="${rowClass}" ${rowHref}>
       <td data-label="" class="col-img"><div class="tbl-img"></div></td>
       <td data-label="レアリティ"><span class="rb ${rc}">${esc(r.rarity||'-')}</span></td>
@@ -2149,7 +2149,7 @@ function renderTable(){
   if(cardImgSmall){
     const safeSmall=safeUrl(cardImgSmall);
     document.querySelectorAll('.tbl-img').forEach(el=>{
-      if(safeSmall&&!el.querySelector('img')) el.innerHTML=`<img src="${esc(safeSmall)}" alt="" loading="lazy">`;
+      if(safeSmall&&!el.querySelector('img')) el.innerHTML=`<img src="${escAttr(safeSmall)}" alt="" loading="lazy">`;
     });
   }
 }
@@ -2183,7 +2183,20 @@ function setRarityFilter(r){
 }
 
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
-function escJs(s){return(s+'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/</g,'\\x3c')}
+// 2026-08-20: \n \r のエスケープを追加（属性値中に生の改行/復帰が入ると、onclick等の
+// HTML属性内に埋め込んだJS文字列リテラルが途中で改行され SyntaxError で丸ごと死ぬため。
+// 既存の変換に追記するだけなので安全側の変更＝挙動が壊れる方向にはならない）。
+function escJs(s){return(s+'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\n/g,'\\n').replace(/\r/g,'\\r').replace(/</g,'\\x3c')}
+// escAttr: HTML属性値（href/src/id/data-*等の "..." で囲まれる文脈）用のエスケープ。
+// esc()はtextContent経由のためテキストノードは安全だが & < > のみでダブルクォート(")・
+// シングルクォート(')を通すため、属性値にそのまま使うと属性の外へ脱出できてしまう
+// （2026-08-20 XSS対策）。onclick属性の中でJS文字列（例: 関数呼び出しの引数に
+// escJs(x) を渡す形）を組み立てる二重文脈では、escJs(x)の結果をさらにescAttr()で
+// 包む（JS文字列としての安全性はescJsが、属性値としての安全性はescAttrが担当する）。
+function escAttr(s){
+  return (s+'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
 // raritySlug: 正規名 → CSS スラグ（rarity.py の slug に一致、ASCII のみ）
 function raritySlug(s){
   const cfg=(window.RARITY_CONFIG||{})[s];
@@ -2192,8 +2205,13 @@ function raritySlug(s){
 // cssClass は後方互換のために残す（rarity以外の用途で使われている箇所がある場合用）
 function cssClass(s){return raritySlug(s)}
 function safeUrl(u){
+  // 空文字ガード: new URL('', location.origin) は例外を投げずサイトトップURLに解決される
+  // ため、空文字を渡すと誤ってトップページのURLが返っていた（2026-08-20 reviewer指摘）。
+  // URL不明の店でカード名リンクがサイトトップへ誤誘導される実害があったため先に弾く。
+  const s=String(u||'').trim();
+  if(!s) return '';
   try{
-    const url=new URL(String(u||''), location.origin);
+    const url=new URL(s, location.origin);
     return (url.protocol==='http:'||url.protocol==='https:') ? url.href : '';
   }catch{return ''}
 }
@@ -2208,7 +2226,7 @@ function loadTrending(){
       if(!items.length){sec.classList.add('hidden');return;}
       sec.classList.remove('hidden');
       list.innerHTML=items.map((item,i)=>
-        `<div class="trending-item" onclick="searchCard('${escJs(item.name)}')" data-card="${escJs(item.name)}">
+        `<div class="trending-item" onclick="searchCard('${escAttr(escJs(item.name))}')" data-card="${escAttr(item.name)}">
           <span class="trending-rank">${i+1}</span>
           <span class="trending-thumb"></span>
           <span class="trending-name">${esc(item.name)}</span>
@@ -2255,7 +2273,7 @@ function loadMovers(dir,retry){
         const sign=isUp?'+':'';
         const cls=isUp?'up':'down';
         const rarityBadge=item.rarity?`<span class="rb rb-${cssClass(item.rarity)}">${esc(item.rarity)}</span>`:'';
-        return `<div class="movers-item" onclick="searchCard('${escJs(item.name)}')" data-card="${escJs(item.name)}">
+        return `<div class="movers-item" onclick="searchCard('${escAttr(escJs(item.name))}')" data-card="${escAttr(item.name)}">
           <span class="movers-rank">${i+1}</span>
           <span class="movers-thumb"></span>
           <span class="movers-name"><span class="movers-name-text">${esc(item.name)}</span>${rarityBadge?`<span class="movers-rarity">${rarityBadge}</span>`:''}</span>
@@ -2298,7 +2316,7 @@ function loadBuybackMovers(dir,retry){
         // 買取は値上がり=緑(お得)、値下がり=赤 と色反転するため buyback-diff クラスを使用
         const cls=isUp?'up':'down';
         const rarityBadge=item.rarity?`<span class="rb rb-${cssClass(item.rarity)}">${esc(item.rarity)}</span>`:'';
-        return `<div class="movers-item" onclick="doBuySearchCard('${escJs(item.name)}')" data-card="${escJs(item.name)}">
+        return `<div class="movers-item" onclick="doBuySearchCard('${escAttr(escJs(item.name))}')" data-card="${escAttr(item.name)}">
           <span class="movers-rank">${i+1}</span>
           <span class="movers-thumb"></span>
           <span class="movers-name"><span class="movers-name-text">${esc(item.name)}</span>${rarityBadge?`<span class="movers-rarity">${rarityBadge}</span>`:''}</span>
@@ -2330,7 +2348,7 @@ function loadRankingImages(itemSelector, thumbClass){
       const url=_batchImgUrl(images[el.dataset.card]);
       if(!url||!safeUrl(url)) return;
       const thumb=el.querySelector('.'+thumbClass);
-      if(thumb) thumb.innerHTML='<img src="'+esc(safeUrl(url))+'" alt="" loading="lazy">';
+      if(thumb) thumb.innerHTML='<img src="'+escAttr(safeUrl(url))+'" alt="" loading="lazy">';
     });
   })
   .catch(()=>{});
@@ -2574,8 +2592,8 @@ function renderDeckGrid(cards, ctx, mainCount){
   function cellHtml(c, i){
     const badge=c.qty>1?`<span class="deck-grid-badge">${c.qty}</span>`:'';
     const cardUrl=`/card/${encodeURIComponent(c.name)}`;
-    return `<div class="deck-grid-cell loading" id="${rowPrefix}${i}" data-card="${esc(c.name)}" title="">
-      <a class="deck-grid-img-wrap" href="${cardUrl}" target="_blank" rel="noopener" title="${esc(c.name)}の価格を確認">
+    return `<div class="deck-grid-cell loading" id="${rowPrefix}${i}" data-card="${escAttr(c.name)}" title="">
+      <a class="deck-grid-img-wrap" href="${cardUrl}" target="_blank" rel="noopener" title="${escAttr(c.name)}の価格を確認">
         <div class="deck-grid-placeholder"></div>
         ${badge}
       </a>
@@ -2633,7 +2651,7 @@ function loadDeckGridImages(listEl){
       if(!url) return;
       const wrap=el.querySelector('.deck-grid-img-wrap');
       const placeholder=wrap&&wrap.querySelector('.deck-grid-placeholder');
-      if(placeholder&&safeUrl(url)) placeholder.outerHTML=`<img src="${esc(url)}" alt="" loading="lazy">`;
+      if(placeholder&&safeUrl(url)) placeholder.outerHTML=`<img src="${escAttr(url)}" alt="" loading="lazy">`;
     });
   })
   .catch(()=>{});
@@ -2710,8 +2728,9 @@ function renderMetaTiers(){
       <div class="meta-tier-label"><span class="tier-badge ${cls}">${label}</span></div>
       <div class="meta-deck-list">`;
     for(const d of groups[tier]){
-      const imgHtml=d.image?`<img src="${esc(d.image)}" alt="" style="width:44px;height:62px;border-radius:2px;object-fit:cover;flex-shrink:0">`:'';
-      html+=`<button class="meta-deck-btn" onclick="loadMetaDeck('${esc(d.name)}')" id="meta-btn-${esc(d.name)}">
+      const dImgSafe=d.image?safeUrl(d.image):'';
+      const imgHtml=dImgSafe?`<img src="${escAttr(dImgSafe)}" alt="" style="width:44px;height:62px;border-radius:2px;object-fit:cover;flex-shrink:0">`:'';
+      html+=`<button class="meta-deck-btn" onclick="loadMetaDeck('${escAttr(escJs(d.name))}')" id="meta-btn-${escAttr(d.name)}">
         ${imgHtml} ${esc(d.name)} <span class="meta-share">${d.share}%</span>
       </button>`;
     }
@@ -2755,7 +2774,7 @@ async function loadMetaDeck(theme){
       for(const r of data.recipes){
         const label=r.title||'レシピを見る';
         const date=r.date?' ('+r.date+')':'';
-        recipeHtml+='<a href="'+esc(r.url)+'" target="_blank" rel="noopener" style="display:inline-block;margin:2px 4px 2px 0;padding:3px 8px;font:.7rem var(--font);color:var(--accent-l);border:1px solid var(--border);border-radius:4px;text-decoration:none">'+esc(label)+date+'</a>';
+        recipeHtml+='<a href="'+escAttr(safeUrl(r.url))+'" target="_blank" rel="noopener" style="display:inline-block;margin:2px 4px 2px 0;padding:3px 8px;font:.7rem var(--font);color:var(--accent-l);border:1px solid var(--border);border-radius:4px;text-decoration:none">'+esc(label)+date+'</a>';
       }
       recipeHtml+='</div>';
     }
@@ -2979,7 +2998,7 @@ async function calcDeckEstimate(ctx, opts){
         row.querySelector('.deck-card-shop').textContent=r.best.shop;
         row.querySelector('.deck-card-status').textContent=c.qty>1?`@¥${r.best.price.toLocaleString()}`:'';
         row.querySelector('.deck-card-name').innerHTML=r.best.url
-          ?`<a href="${esc(r.best.url)}" target="_blank" rel="noopener">${esc(c.name)}</a>`:esc(c.name);
+          ?`<a href="${escAttr(safeUrl(r.best.url))}" target="_blank" rel="noopener">${esc(c.name)}</a>`:esc(c.name);
       }else{
         missing.push(i);
       }
@@ -3056,7 +3075,7 @@ async function calcDeckEstimate(ctx, opts){
             row.querySelector('.deck-card-shop').textContent=d.best.shop;
             row.querySelector('.deck-card-status').textContent=c.qty>1?`@¥${d.best.price.toLocaleString()}`:'';
             row.querySelector('.deck-card-name').innerHTML=d.best.url
-              ?`<a href="${esc(d.best.url)}" target="_blank" rel="noopener">${esc(c.name)}</a>`:esc(c.name);
+              ?`<a href="${escAttr(safeUrl(d.best.url))}" target="_blank" rel="noopener">${esc(c.name)}</a>`:esc(c.name);
           }else{
             sseNotFound++;
             row.className='deck-grid-cell error';
@@ -3126,10 +3145,10 @@ function renderDeckShareUI(ctx,deckName,total,cards){
     <div class="share-btns">
       <a class="share-btn share-btn-x" href="${tweetHref}" target="_blank" rel="noopener">𝕏 テキスト投稿</a>
       <a class="share-btn share-btn-line" href="${lineHref}" target="_blank" rel="noopener">LINE</a>
-      <button class="share-btn share-btn-copy" onclick="_shareCopy('${escJs(shareText)}',this)">コピー</button>
-      <button class="share-btn share-btn-img" onclick="generateDeckImageUI('${escJs(ctx.shareArea)}')">デッキ画像を作成</button>
+      <button class="share-btn share-btn-copy" onclick="_shareCopy('${escAttr(escJs(shareText))}',this)">コピー</button>
+      <button class="share-btn share-btn-img" onclick="generateDeckImageUI('${escAttr(escJs(ctx.shareArea))}')">デッキ画像を作成</button>
     </div>
-    <div class="deck-img-area" id="imgarea-${escJs(ctx.shareArea)}"></div>`;
+    <div class="deck-img-area" id="imgarea-${escAttr(ctx.shareArea)}"></div>`;
 }
 
 async function generateDeckImageUI(shareAreaId){
@@ -3156,7 +3175,7 @@ async function generateDeckImageUI(shareAreaId){
       <div class="deck-img-wrap">
         <img src="${url}" alt="デッキ画像" style="max-width:100%;border-radius:6px;display:block;margin-bottom:8px">
         <div style="font:.8rem var(--font);color:var(--text-d);margin-bottom:8px">この画像を保存してXの投稿画面で添付してください</div>
-        <a href="${url}" download="${esc(fname)}" class="share-btn">画像をダウンロード</a>
+        <a href="${url}" download="${escAttr(fname)}" class="share-btn">画像をダウンロード</a>
       </div>`;
   }catch(e){
     area.innerHTML='<div style="color:var(--error,#f55);font-size:.85rem">画像の生成に失敗しました。再度お試しください。</div>';
@@ -3249,7 +3268,7 @@ async function calcDeck(buyMode){
             row.querySelector('.deck-card-shop').textContent=d.best.shop;
             row.querySelector('.deck-card-status').textContent=c.qty>1?`@¥${unitPrice.toLocaleString()}`:'';
             row.querySelector('.deck-card-name').innerHTML=d.best.url
-              ?`<a href="${esc(d.best.url)}" target="_blank" rel="noopener">${esc(c.name)}</a>`
+              ?`<a href="${escAttr(safeUrl(d.best.url))}" target="_blank" rel="noopener">${esc(c.name)}</a>`
               :esc(c.name);
           }else{
             notFound++;
@@ -3268,7 +3287,7 @@ async function calcDeck(buyMode){
           progEl.innerHTML+=`<div class="share-btns" style="margin-top:8px">
             <a class="share-btn share-btn-x" href="https://x.com/intent/tweet?text=${encodeURIComponent(deckShareText)}&url=${encodeURIComponent(deckShareUrl)}" target="_blank" rel="noopener">𝕏 シェア</a>
             <a class="share-btn share-btn-line" href="https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(deckShareUrl)}&text=${encodeURIComponent(deckShareText)}" target="_blank" rel="noopener">LINE</a>
-            <button class="share-btn share-btn-copy" onclick="copyShareText('${escJs(deckShareText)} ${escJs(deckShareUrl)}')">コピー</button>
+            <button class="share-btn share-btn-copy" onclick="copyShareText('${escAttr(escJs(deckShareText))} ${escAttr(escJs(deckShareUrl))}')">コピー</button>
           </div>`;
         }
       }
@@ -3304,7 +3323,7 @@ buyQInput.addEventListener('input',()=>{
       .then(r=>r.json())
       .then(items=>{
         if(!items.length){buySugDrop.classList.remove('open');return;}
-        buySugDrop.innerHTML=items.map(n=>`<div class="suggest-item" onclick="buyQInput.value='${escJs(n)}';buySugDrop.classList.remove('open');doBuySearch({validated:true})"><span class="suggest-thumb" data-thumb-name="${esc(n)}"></span><span class="suggest-name">${esc(n)}</span></div>`).join('');
+        buySugDrop.innerHTML=items.map(n=>`<div class="suggest-item" onclick="buyQInput.value='${escAttr(escJs(n))}';buySugDrop.classList.remove('open');doBuySearch({validated:true})"><span class="suggest-thumb" data-thumb-name="${escAttr(n)}"></span><span class="suggest-name">${esc(n)}</span></div>`).join('');
         buySugDrop.classList.add('open');
         loadSuggestThumbnails(buySugDrop);
       }).catch(()=>{});
@@ -3452,7 +3471,7 @@ function renderBuyAll(d){
   // カーナベル（アフィリエイト提携先）の画像を優先使用
   const shopImg=buyD.find(r=>r.shop==='カーナベル'&&r.image&&r.image.length>5)||buyD.find(r=>r.image&&r.image.length>5);
   if(shopImg&&safeUrl(shopImg.image)){
-    document.getElementById('buyHeroImgWrap').innerHTML='<img src="'+esc(safeUrl(shopImg.image))+'" alt="" loading="lazy">';
+    document.getElementById('buyHeroImgWrap').innerHTML='<img src="'+escAttr(safeUrl(shopImg.image))+'" alt="" loading="lazy">';
   }else{
     document.getElementById('buyHeroImgWrap').innerHTML='<div style="width:140px;height:204px;background:var(--bg-card)"></div>';
   }
@@ -3492,7 +3511,7 @@ function renderBuyAll(d){
     if(shopBest.price<=0) continue;
     const isBest=(bestBuyPrice!==null&&shopBest.price===bestBuyPrice);
     const sBuyUrl=affLink(shopBest.url, s, 'buy');
-    const sPriceLink=shopBest.url?`<a class="scard-link" href="${esc(sBuyUrl)}" target="_blank" rel="noopener nofollow">¥${shopBest.price.toLocaleString()}</a>`:`¥${shopBest.price.toLocaleString()}`;
+    const sPriceLink=shopBest.url?`<a class="scard-link" href="${escAttr(sBuyUrl)}" target="_blank" rel="noopener nofollow">¥${shopBest.price.toLocaleString()}</a>`:`¥${shopBest.price.toLocaleString()}`;
     h+=`<div class="scard${isBest?' best':''} fin"><div class="slabel">${s}</div>
       <div class="sprice" style="color:var(--green)">${sPriceLink}</div>
       <div class="sdetail">${shopBest.rarity||'-'}<br>${esc(shopBest.name)}</div></div>`;
@@ -3516,7 +3535,7 @@ function renderBuyTable(){
   tbody.innerHTML=sorted.map(r=>{
     const priceStr='¥'+r.price.toLocaleString();
     const buyUrl=affLink(r.url, r.shop, 'buy');
-    const link=r.url?`<a href="${esc(buyUrl)}" target="_blank" rel="noopener nofollow">${priceStr}</a>`:priceStr;
+    const link=r.url?`<a href="${escAttr(buyUrl)}" target="_blank" rel="noopener nofollow">${priceStr}</a>`:priceStr;
     return `<tr>
       <td data-label="レアリティ">${esc(r.rarity||'-')}</td>
       <td data-label="カード名">${esc(r.name)}</td>
@@ -3856,12 +3875,12 @@ function renderSavedDecks(){
   el.innerHTML='<div class="saved-deck-label">保存済みデッキ</div>'
     +'<div class="saved-deck-grid">'
     +list.map((d,i)=>`
-    <div class="saved-deck-card" id="sdcard-${escJs(d.id)}">
-      <button class="saved-deck-card-btn" onclick="loadSavedDeck('${escJs(d.id)}')">
-        <div class="saved-deck-thumb"${firstCards[i]?` data-first-card="${esc(firstCards[i])}"`:''}></div>
+    <div class="saved-deck-card" id="sdcard-${escAttr(d.id)}">
+      <button class="saved-deck-card-btn" onclick="loadSavedDeck('${escAttr(escJs(d.id))}')">
+        <div class="saved-deck-thumb"${firstCards[i]?` data-first-card="${escAttr(firstCards[i])}"`:''}></div>
         <div class="saved-deck-card-name">${esc(d.name)}</div>
       </button>
-      <button class="saved-deck-remove" onclick="deleteSavedDeck('${escJs(d.id)}')" title="削除">&times;</button>
+      <button class="saved-deck-remove" onclick="deleteSavedDeck('${escAttr(escJs(d.id))}')" title="削除">&times;</button>
     </div>`).join('')
     +'</div>';
   _loadSavedDeckThumbnails();
@@ -3881,7 +3900,7 @@ function _loadSavedDeckThumbnails(){
     if(!images)return;
     thumbs.forEach(t=>{
       const url=_batchImgUrl(images[t.dataset.firstCard]);
-      if(url&&safeUrl(url)) t.innerHTML=`<img src="${esc(safeUrl(url))}" alt="" loading="lazy">`;
+      if(url&&safeUrl(url)) t.innerHTML=`<img src="${escAttr(safeUrl(url))}" alt="" loading="lazy">`;
     });
   })
   .catch(()=>{});
@@ -3999,12 +4018,12 @@ function _loadWishRarities(names){
 function _wishRaritySelectHtml(c){
   const candidates=_wishRarities[c.name]||[];
   const opts=['<option value="">未指定（最安レア）</option>']
-    .concat(candidates.map(r=>`<option value="${esc(r)}"${r===(c.rarity||"")?' selected':''}>${esc(r)}</option>`));
+    .concat(candidates.map(r=>`<option value="${escAttr(r)}"${r===(c.rarity||"")?' selected':''}>${esc(r)}</option>`));
   // 選択中なのに候補リストに無い rarity は欠落しないように追加表示する
   if(c.rarity && !candidates.includes(c.rarity)){
-    opts.splice(1,0,`<option value="${esc(c.rarity)}" selected>${esc(c.rarity)}</option>`);
+    opts.splice(1,0,`<option value="${escAttr(c.rarity)}" selected>${esc(c.rarity)}</option>`);
   }
-  return `<select class="wish-rarity-select" data-name="${esc(c.name)}" data-old="${esc(c.rarity||"")}" onchange="wishSetRarity(this.dataset.name,this.dataset.old,this.value)" title="レアリティを指定（未指定なら最安レアリティ）">${opts.join('')}</select>`;
+  return `<select class="wish-rarity-select" data-name="${escAttr(c.name)}" data-old="${escAttr(c.rarity||"")}" onchange="wishSetRarity(this.dataset.name,this.dataset.old,this.value)" title="レアリティを指定（未指定なら最安レアリティ）">${opts.join('')}</select>`;
 }
 
 function renderWishlist(){
@@ -4039,21 +4058,22 @@ function renderWishlist(){
     const isDrop=info&&info.pct!=null&&info.pct<=-5&&info.diff!=null&&info.diff<=-50;
     const isPending=!info||info.status==='pending';
     const rowClass='wish-card-row'+(isDrop?' wish-drop':'')+(isPending?' wish-pending':'');
-    const imgHtml=info&&info.image?`<div class="wish-card-img"><img src="${esc(info.image)}" alt="" loading="lazy"></div>`:'<div class="wish-card-img"></div>';
-    const rj=escJs(c.rarity||"");
+    const wishImgSafe=info&&info.image?safeUrl(info.image):'';
+    const imgHtml=wishImgSafe?`<div class="wish-card-img"><img src="${escAttr(wishImgSafe)}" alt="" loading="lazy"></div>`:'<div class="wish-card-img"></div>';
+    const rj=escAttr(escJs(c.rarity||""));
     return `
     <div class="${rowClass}">
       ${imgHtml}
       <span class="wish-card-qty">
-        <button class="wish-card-remove" onclick="wishUpdateQty('${escJs(c.name)}',${c.qty-1},'${rj}')" title="1枚減らす" style="font-size:.7rem">-</button>
+        <button class="wish-card-remove" onclick="wishUpdateQty('${escAttr(escJs(c.name))}',${c.qty-1},'${rj}')" title="1枚減らす" style="font-size:.7rem">-</button>
         ${c.qty}x
-        <button class="wish-card-remove" onclick="wishUpdateQty('${escJs(c.name)}',${c.qty+1},'${rj}')" title="1枚増やす" style="font-size:.7rem">+</button>
+        <button class="wish-card-remove" onclick="wishUpdateQty('${escAttr(escJs(c.name))}',${c.qty+1},'${rj}')" title="1枚増やす" style="font-size:.7rem">+</button>
       </span>
       <span class="wish-card-name">${esc(c.name)}</span>
       ${_wishRaritySelectHtml(c)}
       ${_wishPriceHtml(info)}
       <a class="wish-card-link" href="/card/${encodeURIComponent(c.name)}#priceChart" target="_blank" rel="noopener">価格推移を確認</a>
-      <button class="wish-card-remove" onclick="wishRemove('${escJs(c.name)}','${rj}')" title="削除">&times;</button>
+      <button class="wish-card-remove" onclick="wishRemove('${escAttr(escJs(c.name))}','${rj}')" title="削除">&times;</button>
     </div>`}).join('');
 }
 
@@ -4157,7 +4177,7 @@ async function calcWishEstimate(){
       row.querySelector('.deck-card-status').textContent=c.qty>1?`@¥${best.price.toLocaleString()}`:'';
       const u=_wishShopSearchUrl(best.shop,c.name);
       row.querySelector('.deck-card-name').innerHTML=u
-        ?`<a href="${esc(u)}" target="_blank" rel="noopener">${esc(c.name)}</a>`:esc(c.name);
+        ?`<a href="${escAttr(u)}" target="_blank" rel="noopener">${esc(c.name)}</a>`:esc(c.name);
     }
   }
   totalEl.textContent=`¥${total.toLocaleString()}`;
@@ -4216,7 +4236,7 @@ async function calcWishEstimate(){
             row.querySelector('.deck-card-shop').textContent=chosen.shop;
             row.querySelector('.deck-card-status').textContent=entry.qty>1?`@¥${chosen.price.toLocaleString()}`:'';
             row.querySelector('.deck-card-name').innerHTML=chosen.url
-              ?`<a href="${esc(chosen.url)}" target="_blank" rel="noopener">${esc(entry.name)}</a>`:esc(entry.name);
+              ?`<a href="${escAttr(safeUrl(chosen.url))}" target="_blank" rel="noopener">${esc(entry.name)}</a>`:esc(entry.name);
           }else{
             sseNotFound++;
             row.className='deck-grid-cell error';
@@ -4596,18 +4616,18 @@ function _wishSplitDetailHtml(split, shopState){
       const it=st.items_map.get(k);
       if(!it)return '';
       qtySum+=it.qty;
-      const url=it.url||_wishShopSearchUrl(u.shop,it.name);
+      const url=safeUrl(it.url||_wishShopSearchUrl(u.shop,it.name));
       const rarityLabel=it.rarity?`<span class="wish-shop-detail-rarity">${esc(it.rarity)}</span>`:'';
       return `<div class="wish-shop-detail-row">
         <span class="wish-shop-detail-qty">${it.qty}x</span>
-        <a class="wish-shop-detail-name" href="${esc(url)}" target="_blank" rel="noopener">${esc(it.name)}</a>
+        <a class="wish-shop-detail-name" href="${escAttr(url)}" target="_blank" rel="noopener">${esc(it.name)}</a>
         ${rarityLabel}
         <span class="wish-shop-detail-price">¥${(it.price*it.qty).toLocaleString()}<span class="wish-shop-detail-unit">@¥${it.price.toLocaleString()}</span></span>
       </div>`;
     }).join('');
     const feeText=u.shipping===0?'送料無料':`送料¥${u.shipping.toLocaleString()}`;
     const shopUrl=_wishShopSearchUrl(u.shop,'');
-    const shopLink=shopUrl?`<a class="wish-split-shop-link" href="${esc(shopUrl)}" target="_blank" rel="noopener">開く</a>`:'';
+    const shopLink=shopUrl?`<a class="wish-split-shop-link" href="${escAttr(safeUrl(shopUrl))}" target="_blank" rel="noopener">開く</a>`:'';
     return `<div class="wish-split-shop">
       <div class="wish-split-shop-head">
         <span class="wish-split-shop-name">${esc(u.shop)}</span>
@@ -4629,11 +4649,11 @@ function _wishSplitDetailHtml(split, shopState){
 function _wishShopDetailHtml(shopRow, missingLabel){
   const entries=[...shopRow.items_map.entries()];  // [[key, {name,qty,price,rarity,url?}], ...]
   const itemsHtml=entries.map(([key,it])=>{
-    const url=it.url||_wishShopSearchUrl(shopRow.shop,it.name);
+    const url=safeUrl(it.url||_wishShopSearchUrl(shopRow.shop,it.name));
     const rarityLabel=it.rarity?`<span class="wish-shop-detail-rarity">${esc(it.rarity)}</span>`:'';
     return `<div class="wish-shop-detail-row">
       <span class="wish-shop-detail-qty">${it.qty}x</span>
-      <a class="wish-shop-detail-name" href="${esc(url)}" target="_blank" rel="noopener">${esc(it.name)}</a>
+      <a class="wish-shop-detail-name" href="${escAttr(url)}" target="_blank" rel="noopener">${esc(it.name)}</a>
       ${rarityLabel}
       <span class="wish-shop-detail-price">¥${(it.price*it.qty).toLocaleString()}<span class="wish-shop-detail-unit">@¥${it.price.toLocaleString()}</span></span>
     </div>`;
@@ -4659,13 +4679,13 @@ function _wishShopDetailHtml(shopRow, missingLabel){
     ?`<div class="wish-shop-detail-missing">この店舗にデータが無いカード: ${[...shopRow.missing_set].map(k=>esc(missingLabel?missingLabel(k):k)).join('、')}</div>`
     :'';
   const shopTopUrl=_wishShopSearchUrl(shopRow.shop,'');
-  const openHref=shopTopUrl?`<a class="wish-shop-detail-link" href="${esc(shopTopUrl)}" target="_blank" rel="noopener">${esc(shopRow.shop)}を開く</a>`:'';
+  const openHref=shopTopUrl?`<a class="wish-shop-detail-link" href="${escAttr(safeUrl(shopTopUrl))}" target="_blank" rel="noopener">${esc(shopRow.shop)}を開く</a>`:'';
   return itemsHtml+shipHtml+missingHtml+`<div class="wish-shop-detail-foot">${openHref}</div>`;
 }
 
 // 追加ボタンのHTMLを生成するヘルパー
 function wishBtnHtml(name,qty){
-  return `<button class="wish-add" onclick="event.stopPropagation();wishAddFromBtn(this,'${escJs(name)}',${qty||1})" title="購入候補に追加">+ 候補</button>`;
+  return `<button class="wish-add" onclick="event.stopPropagation();wishAddFromBtn(this,'${escAttr(escJs(name))}',${qty||1})" title="購入候補に追加">+ 候補</button>`;
 }
 function wishAddFromBtn(btn,name,qty){
   wishAdd(name,qty);

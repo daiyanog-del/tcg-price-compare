@@ -1,7 +1,7 @@
 // 最新弾タブ（パック）関連の処理。
 // CLAUDE.md「巨大ファイル段階的分割（ついで方式）」に従い index.html から切り出し。
-// esc / escJs / _setupThumbObserver / searchCard などのヘルパは index.html 本体の
-// グローバル関数を参照する（このファイルは非モジュールで読み込むこと）。
+// esc / escJs / escAttr / safeUrl / _setupThumbObserver / searchCard などのヘルパは
+// index.html 本体のグローバル関数を参照する（このファイルは非モジュールで読み込むこと）。
 
 let _packsLoaded=false;
 let _packData=[];
@@ -47,7 +47,9 @@ function renderPacks(){
     const unreleased=p.date&&p.date>today;
     const badge=unreleased?'<span class="pack-unreleased-badge">発売前</span>':'';
     const featuredFlag=p.featured?'true':'false';
-    html+=`<button class="meta-deck-btn" onclick="loadPackCards('${esc(p.name)}','${esc(p.wiki_page||p.name)}','${esc(p.tcg_name||'')}',${featuredFlag})" id="pack-btn-${esc(p.code||p.name)}">
+    // onclick はJS文字列をHTML属性に埋める二重文脈のため escAttr(escJs(x)) を重ね掛けする
+    // （escJs単独は " をエスケープせず属性を脱出できるため。2026-08-20 XSS対策）
+    html+=`<button class="meta-deck-btn" onclick="loadPackCards('${escAttr(escJs(p.name))}','${escAttr(escJs(p.wiki_page||p.name))}','${escAttr(escJs(p.tcg_name||''))}',${featuredFlag})" id="pack-btn-${escAttr(p.code||p.name)}">
       <span class="pack-btn-name">${esc(p.name)}${badge}</span><span class="meta-share">${dateStr}</span>
     </button>`;
   }
@@ -62,8 +64,10 @@ function _packCardRow(i, name, rarity, price){
   const hasPrice=(price!==null&&price!==undefined&&price!=='');
   const priceStr=hasPrice?`¥${Number(price).toLocaleString()}`:'';
   const dataPrice=hasPrice?` data-price="${Number(price)}"`:'';
-  return `<div class="pack-card-item clickable" id="pack-row-${i}"${dataPrice} onclick="searchCard('${escJs(name)}')">`
-    +`<span class="pack-card-thumb" data-card="${esc(name)}"></span>`
+  // onclick はJS文字列をHTML属性に埋める二重文脈のため escAttr(escJs(x)) を重ね掛けする。
+  // data-card は素の属性値なので escAttr(x) のみでよい（2026-08-20 XSS対策）
+  return `<div class="pack-card-item clickable" id="pack-row-${i}"${dataPrice} onclick="searchCard('${escAttr(escJs(name))}')">`
+    +`<span class="pack-card-thumb" data-card="${escAttr(name)}"></span>`
     +`<span class="pack-card-num">${i+1}</span>`
     +`<span class="pack-card-name">${esc(name)}</span>`
     +`<span class="pack-card-rarity meta-share">${rarity?esc(rarity):''}</span>`

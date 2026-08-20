@@ -13,7 +13,7 @@
  *
  *   index.html のインライン <script> で定義済みのグローバル（DECK_CTX /
  *   _currentMydeckCards / _currentMydeckText / parseDeckSections / calcDeckEstimate /
- *   renderDeckGrid / esc / escJs）を実行時に参照する。本ファイルは index.html の
+ *   renderDeckGrid / esc / escJs / escAttr / safeUrl）を実行時に参照する。本ファイルは index.html の
  *   インライン <script> の後に classic script として読み込まれる前提。
  */
 (function(){
@@ -385,8 +385,10 @@
     function render(){
       drop.innerHTML = items.map(function(it, i){
         var badge = it.unreleased ? '<span class="deck-suggest-badge">未発売</span>' : '';
+        // data-name は素の属性値なので escAttr() を使う（esc() は " をエスケープせず
+        // 属性を脱出できるため。2026-08-20 XSS対策）
         return '<div class="deck-suggest-item" data-i="' + i + '">' +
-               '<span class="deck-suggest-thumb" data-name="' + esc(it.name) + '"></span>' +
+               '<span class="deck-suggest-thumb" data-name="' + escAttr(it.name) + '"></span>' +
                '<span class="deck-suggest-name">' + esc(it.name) + '</span>' + badge + '</div>';
       }).join('');
       // mousedown で選択（blur による先行クローズを防ぐ）
@@ -413,8 +415,12 @@
         thumbs.forEach(function(t){
           var raw = images[t.dataset.name];
           var url = (typeof _batchImgUrl === 'function') ? _batchImgUrl(raw) : raw;
-          if(url && (typeof safeUrl !== 'function' || safeUrl(url))){
-            t.innerHTML = '<img src="' + esc(url) + '" alt="" loading="lazy">';
+          // safeUrl()でスキーム検証(http/httpsのみ)した値そのものを挿入する。
+          // 旧実装はsafeUrl()の戻り値を判定にしか使わず生のurlを挿入していたため、
+          // 判定と挿入内容がズレていた（2026-08-20 XSS対策）
+          var safe = (typeof safeUrl === 'function') ? safeUrl(url) : url;
+          if(safe){
+            t.innerHTML = '<img src="' + escAttr(safe) + '" alt="" loading="lazy">';
           }
         });
       })
