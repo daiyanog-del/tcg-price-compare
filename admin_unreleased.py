@@ -248,16 +248,21 @@ def admin_list_unreleased():
         card_ids = [c["id"] for c in cards]
         img_resp = (
             _supabase.table("official_card_images")
-            .select("unreleased_card_id")
+            .select("unreleased_card_id, source_image_url")
             .in_("unreleased_card_id", card_ids)
             .eq("hidden", False)
             .is_("deleted_at", "null")
             .execute()
         )
         ids_with_image = {row["unreleased_card_id"] for row in (img_resp.data or [])}
+        source_url_by_id = {
+            row["unreleased_card_id"]: (row.get("source_image_url") or "")
+            for row in (img_resp.data or [])
+        }
 
         for card in cards:
             card["has_image"] = card["id"] in ids_with_image
+            card["source_image_url"] = source_url_by_id.get(card["id"], "")
             # extraction_raw からカード個別画像URLを取り出してトップレベルに付加
             raw = card.get("extraction_raw") or {}
             card_img_url = (raw.get("card_image_url") or "").strip()

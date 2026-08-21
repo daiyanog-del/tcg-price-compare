@@ -522,7 +522,7 @@ function _renderPendingList(listEl, cards) {
 
     // 抽出元画像がある場合のみクロップUIを配線
     if (hasSource) {
-      _setupCropUI(card.id, editForm);
+      _setupCropUI(card, editForm);
     }
 
     // プレビュー初期描画
@@ -1260,17 +1260,23 @@ _cropModal.init();
 
 /**
  * クロップボタンをモーダル開閉に配線する。
- * @param {number} cardId
+ * クロップは常にオリジナル画像（source_image_url）に対して行う必要があるため、
+ * 編集フォームの表示画像（クロップ済みの場合あり）ではなく card.source_image_url を優先して渡す。
+ * @param {object} card
  * @param {HTMLElement} editForm
  */
-function _setupCropUI(cardId, editForm) {
+function _setupCropUI(card, editForm) {
   const cropBtn = editForm.querySelector('.crop-btn');
   if (!cropBtn) return;
   cropBtn.addEventListener('click', () => {
-    const imgEl = editForm.querySelector('.edit-source-image__img');
-    const src   = imgEl ? imgEl.getAttribute('src') : '';
+    let src = card.source_image_url || '';
+    if (!src) {
+      // 後方互換: source_image_url が無い場合（手動取込など）は表示画像にフォールバック
+      const imgEl = editForm.querySelector('.edit-source-image__img');
+      src = imgEl ? imgEl.getAttribute('src') : '';
+    }
     if (!src) return;
-    _cropModal.open(cardId, editForm, src);
+    _cropModal.open(card.id, editForm, src);
   });
 }
 
