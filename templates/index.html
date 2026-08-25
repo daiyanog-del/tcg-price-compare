@@ -188,6 +188,9 @@ header .subtitle{font-size:.78rem;color:var(--text-d);margin-top:8px;letter-spac
 .scard .sdetail{font-size:.76rem;color:var(--text-m);line-height:1.5}
 .scard .sdetail a{color:var(--text-m)}
 .scard .sdetail a:hover{color:var(--accent-l)}
+/* B-1: 最安との差額表示（価格.comの「¥42,800（+9,200）」表記に倣う） */
+.scard .sdiff{display:block;font:600 .72rem var(--mono);color:var(--text-d)}
+.scard.best .sdiff{color:var(--gold-d)}
 /* stretched-link: scard-linkのa::afterでカード全体をタップ領域に */
 .scard .slabel,.scard .sprice,.scard .sdetail{position:relative;z-index:2}
 .scard.best::before{z-index:3}
@@ -206,7 +209,12 @@ header .subtitle{font-size:.78rem;color:var(--text-d);margin-top:8px;letter-spac
 .tpanel{display:none;padding-top:12px}.tpanel.active{display:block}
 
 /* ── Table ── */
-.tbl-wrap{max-height:72vh;overflow-y:auto;border-radius:8px;border:1px solid var(--border)}
+.tbl-wrap{border-radius:8px;border:1px solid var(--border)}
+/* B-4: 一覧の既定20行+もっと見る */
+.tbl-more{display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px 0}
+.tbl-more-info{font-size:.74rem;color:var(--text-d)}
+.tbl-more-btn{padding:9px 22px;font:.8rem var(--font);font-weight:700;color:var(--accent-l);background:var(--bg-card);border:1px solid var(--accent);border-radius:8px;cursor:pointer;transition:background .15s}
+.tbl-more-btn:hover{background:rgba(74,124,255,.08)}
 table.res{width:100%;border-collapse:collapse;font-size:.8rem}
 table.res th{text-align:left;padding:9px 10px;font:.68rem var(--font);font-weight:700;color:var(--text-m);text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);z-index:2;cursor:pointer;user-select:none;white-space:nowrap}
 table.res th:hover{color:var(--accent-l)}
@@ -269,6 +277,11 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .rf-btn{padding:3px 10px;font:.72rem var(--font);font-weight:600;color:var(--text-d);background:var(--bg-card);border:1px solid var(--border);border-radius:14px;cursor:pointer;transition:all .15s;white-space:nowrap}
 .rf-btn:hover{border-color:var(--text-m);color:var(--text-m)}
 .rf-btn.active{color:var(--text);border-color:var(--accent);background:rgba(74,124,255,.08)}
+/* C-1(iii): レアリティ既定フィルタの明示バナー */
+.rf-banner{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:.76rem;color:var(--text-m);margin-bottom:8px;padding:8px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px}
+.rf-banner strong{color:var(--text)}
+.rf-banner-clear{padding:3px 12px;font:.72rem var(--font);font-weight:700;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:14px;cursor:pointer}
+.rf-banner-clear:hover{background:rgba(74,124,255,.08)}
 .rgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
 .ritem{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:12px;display:flex;gap:10px;align-items:center;transition:border-color .2s}
 .ritem:hover{border-color:var(--border-hl);background:var(--bg-hover)}
@@ -382,9 +395,21 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 
 /* ── 価格推移グラフ ── */
 .price-chart{margin-bottom:20px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px}
+/* B-2: 価格推移は既定で折りたたみ（<details>化）。開くまでChart.jsの描画は走らせない */
+.price-chart>summary{cursor:pointer;list-style:none;user-select:none}
+.price-chart>summary::-webkit-details-marker{display:none}
+.price-chart>summary::before{content:'▸ ';color:var(--text-d)}
+.price-chart[open]>summary::before{content:'▾ '}
 .chart-title{font-size:.85rem;font-weight:600;margin-bottom:12px;color:var(--text-m)}
 .chart-wrap{position:relative;height:280px}
 @media(max-width:600px){.chart-wrap{height:220px}}
+
+/* B-2: カード情報（効果テキスト）も既定で折りたたみ */
+.card-info-details{margin-top:6px}
+.card-info-details>summary{cursor:pointer;list-style:none;user-select:none;font-size:.74rem;font-weight:600;color:var(--text-d)}
+.card-info-details>summary::-webkit-details-marker{display:none}
+.card-info-details>summary::before{content:'▸ '}
+.card-info-details[open]>summary::before{content:'▾ '}
 
 /* Deck Builder */
 .mode-tabs{display:flex;flex-wrap:wrap;gap:6px;max-width:600px;margin:0 auto 20px;justify-content:center}
@@ -579,12 +604,13 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   .tbtn{padding:10px 14px;font-size:.8rem;min-height:44px}
   .toggle{justify-content:center;margin-left:0;min-height:44px}
 
-  /* レアリティフィルター */
-  .rarity-filter{gap:4px;padding:8px 0}
-  .rf-btn{padding:6px 10px;font-size:.72rem;min-height:36px}
+  /* レアリティフィルター（14ボタン常時展開だと縦に嵩張るため横スクロール1行に収める） */
+  .rarity-filter{gap:4px;padding:8px 0;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .rf-btn{padding:6px 10px;font-size:.72rem;min-height:36px;flex-shrink:0}
+  .rf-label{flex-shrink:0}
 
   /* テーブル → カード型レイアウト */
-  .tbl-wrap{overflow-x:visible;max-height:none;border:0}
+  .tbl-wrap{overflow-x:visible;border:0}
   table.res{min-width:0}
   table.res thead{display:none}
   table.res tbody{display:flex;flex-direction:column;gap:8px}
@@ -856,14 +882,19 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
       <div class="card-hero-img" id="heroImgWrap"></div>
       <div class="card-hero-info" id="heroInfo"></div>
     </div>
-    <div id="priceChart" class="price-chart hidden">
-      <h3 class="chart-title">価格推移 ― レアリティ別の最安値（最大90日）</h3>
-      <div class="chart-wrap">
-        <canvas id="priceCanvas"></canvas>
-      </div>
+
+    <!-- C-1(iii): 既定フィルタの明示バナー（rarityFilter未設定時は非表示） -->
+    <div class="rf-banner hidden" id="rfBanner"></div>
+    <div class="rarity-filter hidden" id="rarityFilter">
+      <span class="rf-label">レアリティ:</span>
+      <button class="rf-btn active" data-r="" onclick="setRarityFilter('')">すべて</button>
+      <!-- 動的に追加される -->
     </div>
 
     <div class="summary" id="sumCards"></div>
+    <!-- F-2: A8トラッキングピクセルはrenderSummary()（レアリティ切替のたびに再実行）から外し、
+         検索1回につき1回だけrenderAll()から挿入するための専用スロット -->
+    <div id="affPixelSlot"></div>
 
     <div class="controls">
       <div class="tabs">
@@ -871,16 +902,10 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
         <button class="tbtn" data-t="rarity" onclick="tab('rarity')">レアリティ別</button>
       </div>
       <label class="toggle" id="soToggle">
-        <input type="checkbox" id="soCheck" onchange="renderTable()">
+        <input type="checkbox" id="soCheck" onchange="_resetTableAndRender()">
         売り切れを表示
         <span class="count-badge" id="soCount">0</span>
       </label>
-    </div>
-
-    <div class="rarity-filter hidden" id="rarityFilter">
-      <span class="rf-label">レアリティ:</span>
-      <button class="rf-btn active" data-r="" onclick="setRarityFilter('')">すべて</button>
-      <!-- 動的に追加される -->
     </div>
 
     <div class="tpanel active" id="p-all">
@@ -900,11 +925,21 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
           <tbody id="tbody"></tbody>
         </table>
       </div>
+      <!-- B-4: 既定20行+もっと見る -->
+      <div class="tbl-more" id="tblMore"></div>
     </div>
 
     <div class="tpanel" id="p-rarity">
       <div class="rgrid" id="rgrid"></div>
     </div>
+
+    <!-- B-2: 価格推移グラフは末尾へ移動＋既定で折りたたみ（初回展開時に描画） -->
+    <details id="priceChart" class="price-chart hidden">
+      <summary class="chart-title">価格推移 ― レアリティ別の最安値（最大90日）</summary>
+      <div class="chart-wrap">
+        <canvas id="priceCanvas"></canvas>
+      </div>
+    </details>
   </div>
 
   <div id="empty" class="empty">
@@ -1456,6 +1491,10 @@ document.addEventListener('keydown',function(e){
 
 <script>
 let D=[],sort={k:'price',a:true},rarityFilter='',cardImgUrl='',cardImgSmall='',_konamiDbUrl='';
+const TABLE_PAGE_SIZE=20; // F-11: 一覧の既定表示件数（もっと見るの増分）。散在していたマジックナンバー20を集約
+let tableShowCount=TABLE_PAGE_SIZE; // B-4: 一覧の既定表示件数（20行+もっと見る）
+let _priceHistoryData=null; // B-2: 価格推移データ。details展開まで描画を遅延する
+let _wantChartOpen=false; // F-1: #priceChart直リンク時に「データ到着後に開く」意図を保持するフラグ
 
 // SEO: カード個別ページの自動検索 & URL書き換え
 const _pageCardName={{ card_name | tojson }};
@@ -1605,7 +1644,7 @@ function _applyKonamiLink(kid){
 
 // 価格関連セクションの表示/非表示を切り替える（未発売カードは価格テーブル等を隠す）
 function _setPriceSectionsVisible(visible){
-  ['priceChart','sumCards','rarityFilter','p-all','p-rarity'].forEach(id=>{
+  ['priceChart','sumCards','rarityFilter','rfBanner','p-all','p-rarity'].forEach(id=>{
     const el=document.getElementById(id);
     if(el) el.style.display=visible?'':'none';
   });
@@ -1623,7 +1662,8 @@ function showUnreleasedCard(name){
   _updateUrl(name,'search');
 
   // 前回の検索結果をクリア
-  cardImgUrl='';cardImgSmall='';D=[];
+  cardImgUrl='';cardImgSmall='';D=[];rarityFilter='';tableShowCount=TABLE_PAGE_SIZE;
+  _updateRarityBanner(); // F-4: 前回検索の絞り込みバナーが残ったまま未発売カード表示に切り替わるのを防ぐ
 
   document.getElementById('empty').classList.add('hidden');
   document.getElementById('results').classList.remove('hidden');
@@ -1637,7 +1677,10 @@ function showUnreleasedCard(name){
     <div class="card-hero-meta">
       <span style="color:var(--text-m)">このカードはまだ発売前のため、販売価格情報はありません。</span>
     </div>
-    <div id="cardDetail" class="card-detail"></div>
+    <details class="card-info-details" id="cardDetailDetails" hidden>
+      <summary>カード情報（効果テキスト）</summary>
+      <div id="cardDetail" class="card-detail"></div>
+    </details>
     <div class="share-btns">
       <button onclick="addToDeck('${escAttr(escJs(name))}')" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ デッキに追加</button>
       <button onclick="wishAddFromBtn(this,'${escAttr(escJs(name))}',1)" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ 購入候補に追加</button>
@@ -1658,6 +1701,12 @@ function showUnreleasedCard(name){
 }
 
 // 未発売カードの proxy データからカード情報パネルを描画する
+// F-6: <details id="cardDetailDetails">は既定hiddenにしてある。中身を書いた側でここを呼び、
+// 「カード情報（効果テキスト）」の見出しだけ空で残る（情報DB未収録カード等）のを防ぐ
+function _showCardDetail(){
+  document.getElementById('cardDetailDetails')?.removeAttribute('hidden');
+}
+
 function _renderProxyDetail(p){
   const det=document.getElementById('cardDetail');
   if(!det) return;
@@ -1680,6 +1729,7 @@ function _renderProxyDetail(p){
   const meta=[p.product_name,p.release_date].filter(Boolean).join(' / ');
   if(meta) html+=`<div class="card-detail-print" style="margin-top:6px">${esc(meta)}</div>`;
   det.innerHTML=html;
+  _showCardDetail();
 }
 
 function _fetchCardInfo(cardName){
@@ -1712,6 +1762,7 @@ function _fetchCardInfo(cardName){
       if(data.pendulum_effect) html+=`<div class="card-detail-effect"><span class="card-detail-pendulum-label">【ペンデュラム効果】</span>${esc(data.pendulum_effect)}</div>`;
       if(data.effect_text) html+=`<div class="card-detail-effect">${esc(data.effect_text)}</div>`;
       det.innerHTML=html;
+      _showCardDetail();
     })
     .catch(()=>{fetchCardImage(cardName);});
 }
@@ -1852,7 +1903,8 @@ function doSearch(opts){
   ).join('');
   prog.style.display='flex';
 
-  D=[];
+  D=[];rarityFilter='';tableShowCount=TABLE_PAGE_SIZE;
+  _updateRarityBanner(); // F-4: 前回検索の絞り込みバナーが残ったまま次の検索結果が出るのを防ぐ
   const params=new URLSearchParams({q});
   shops.forEach(s=>params.append('shops',s));
   if(opts.confirmed)params.append('confirmed','true');
@@ -2006,7 +2058,7 @@ function renderAll(d){
     document.getElementById('results').innerHTML='<div class="empty"><p>該当するカードが見つかりませんでした</p></div>';
     return;
   }
-  document.getElementById('soCount').textContent=d.sold_out_count;
+  // F-5: soCountはこの時点では検索直後の全件基準。絞り込み確定後に_updateHeroSummary()で上書きする
 
   // Card hero image
   const searchTerm=document.getElementById('q').value.trim();
@@ -2020,11 +2072,14 @@ function renderAll(d){
   const bestShop=best?best.shop:'';
   heroInfo.innerHTML=`<div class="card-hero-name">${esc(searchTerm)}</div>
     <div class="card-hero-meta">
-      ${best?`最安値: <strong style="color:var(--gold);font-size:1.1rem">${bestPrice}</strong> (${bestShop})`:'在庫なし'}<br>
+      <span id="heroBest">${best?`最安値: <strong style="color:var(--gold);font-size:1.1rem">${bestPrice}</strong> (${bestShop})`:'在庫なし'}</span><br>
       在庫あり ${d.in_stock_count}件 / 売切 ${d.sold_out_count}件 / 計 ${d.total}件<br>
       レアリティ: ${[...new Set(D.map(r=>r.rarity).filter(Boolean))].length}種類
     </div>
-    <div id="cardDetail" class="card-detail"></div>
+    <details class="card-info-details" id="cardDetailDetails" hidden>
+      <summary>カード情報（効果テキスト）</summary>
+      <div id="cardDetail" class="card-detail"></div>
+    </details>
     <div class="share-btns">
       <button onclick="addToDeck('${escAttr(escJs(searchTerm))}')" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ デッキに追加</button>
       <button onclick="wishAddFromBtn(this,'${escAttr(escJs(searchTerm))}',1)" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ 購入候補に追加</button>
@@ -2062,38 +2117,41 @@ function renderAll(d){
   // カード情報: YGOResources（ATK/DEF/効果テキスト等）、未発見時はYGOProDeckフォールバック
   _fetchCardInfo(searchTerm);
 
-  // Summary — 店舗別最安値（全体最安の店舗をハイライト）
-  let h='';
-  const bestSellPrice=best?best.price:null;
-  for(const[shop,item]of Object.entries(d.by_shop)){
-    const isBest=(bestSellPrice!==null&&item.price===bestSellPrice);
-    const itemUrl=affLink(item.url, item.shop, 'sell');
-    const nameLink=item.url?`<a href="${escAttr(itemUrl)}" target="_blank" rel="noopener nofollow">${esc(item.name)}</a>`:esc(item.name);
-    const priceLink=item.url?`<a class="scard-link" href="${escAttr(itemUrl)}" target="_blank" rel="noopener nofollow">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
-    h+=`<div class="scard${isBest?' best':''} fin"><div class="slabel">${esc(shop)}</div>
-      <div class="sprice">${priceLink}</div>
-      <div class="sdetail">${esc(item.rarity||'-')}<br>${nameLink}</div></div>`;
-  }
-  document.getElementById('sumCards').innerHTML=h+affPixel('カーナベル','sell');
-
   // Build rarity filter buttons
-  rarityFilter='';
+  // C-1(iii): 既定で「全体最安の在庫あり行が属するレアリティ」に絞り込む。
+  // レアリティが1種類以下／最安行にレアリティが無い・不明な場合は従来どおり絞り込みなし
   const rarities=[...new Set(D.map(r=>r.rarity).filter(Boolean))].sort();
+  // F-3: "(不明)"は抽出失敗行の疑似系列（aggregations.py/notify.py/featured_matrix.pyと同じ扱い）。
+  // 自動絞り込みの発動判定からは除外する（実質1レアリティのカードで"(不明)"行が黙って消えるのを防ぐ）
+  const realRarities=rarities.filter(r=>r!=='(不明)');
+  let defaultRarity='';
+  if(realRarities.length>1&&best&&best.rarity&&best.rarity!=='(不明)'){
+    defaultRarity=best.rarity;
+  }
+  rarityFilter=defaultRarity;
+  tableShowCount=TABLE_PAGE_SIZE;
   const rfEl=document.getElementById('rarityFilter');
   if(rarities.length>1){
     rfEl.classList.remove('hidden');
-    let btns='<span class="rf-label">レアリティ:</span><button class="rf-btn active" data-r="" onclick="setRarityFilter(\'\')">すべて</button>';
+    let btns=`<span class="rf-label">レアリティ:</span><button class="rf-btn${defaultRarity===''?' active':''}" data-r="" onclick="setRarityFilter('')">すべて</button>`;
     for(const r of rarities){
       const cnt=D.filter(x=>x.rarity===r).length;
-      btns+=`<button class="rf-btn" data-r="${escAttr(r)}" onclick="setRarityFilter('${escAttr(escJs(r))}')"><span class="rb rb-${cssClass(r)}" style="background:none;padding:0">${esc(r)}</span> <span style="color:var(--text-d)">${cnt}</span></button>`;
+      const isActive=r===defaultRarity;
+      btns+=`<button class="rf-btn${isActive?' active':''}" data-r="${escAttr(r)}" onclick="setRarityFilter('${escAttr(escJs(r))}')"><span class="rb rb-${cssClass(r)}" style="background:none;padding:0">${esc(r)}</span> <span style="color:var(--text-d)">${cnt}</span></button>`;
     }
     rfEl.innerHTML=btns;
   }else{
     rfEl.classList.add('hidden');
   }
+  _updateRarityBanner();
+  _updateHeroSummary(); // F-5: 既定の絞り込み確定後にヒーローの最安値/売切件数を合わせる
 
+  renderSummary();
   renderTable();
   loadPriceHistory(searchTerm);
+  // F-2: A8トラッキングピクセルは検索1回につき1回だけ（レアリティ切替では再発火させない）
+  const pixelSlot=document.getElementById('affPixelSlot');
+  if(pixelSlot) pixelSlot.innerHTML=affPixel('カーナベル','sell');
 
   // Rarity grid
   const entries=Object.entries(d.by_rarity).sort((a,b)=>a[1].price-b[1].price);
@@ -2107,6 +2165,101 @@ function renderAll(d){
   }).join('');
 }
 
+// B-1: 店舗サマリー。d.by_shop（全レアリティ横断のサーバー最安）は使わず、
+// D（全行）から在庫あり＋rarityFilterを反映して組み直し、価格昇順＋最安との差額で描画する。
+// レアリティフィルタ切替のたびに呼び直せるよう独立関数化（setRarityFilter()から呼ぶ）
+// F-14: サマリーカードの店舗リスト（店舗ごとの最安値をグルーピング→価格昇順ソート）を
+// renderSummary()とヒーローの最安値表示の両方から参照する共通関数に切り出す。
+// 別々の計算式（reduceの巡回順 vs byShopグルーピング+ソート）だったため、同額タイのとき
+// ヒーローとサマリー先頭カードで採用される店舗が食い違うことがあった
+function _summaryShopItems(){
+  const inStock=D.filter(r=>!r.sold_out);
+  const filtered=rarityFilter?inStock.filter(r=>r.rarity===rarityFilter):inStock;
+  const byShop={};
+  for(const r of filtered){
+    if(!byShop[r.shop]||r.price<byShop[r.shop].price) byShop[r.shop]=r;
+  }
+  return Object.values(byShop).sort((a,b)=>a.price-b.price);
+}
+
+function renderSummary(){
+  const items=_summaryShopItems();
+  // F-10: 選んだレアリティに在庫が無いとき、無言の空欄にせず明示する
+  if(items.length===0){
+    const soldInRarity=(rarityFilter?D.filter(r=>r.rarity===rarityFilter):D).filter(r=>r.sold_out).length;
+    const soldNote=soldInRarity>0?`（売切${soldInRarity}件）`:'';
+    document.getElementById('sumCards').innerHTML=`<div class="empty" style="padding:16px 0"><p>このレアリティは在庫切れです${soldNote}</p></div>`;
+    return;
+  }
+  const minPrice=items[0].price;
+  let h='';
+  items.forEach((item,i)=>{
+    const isBest=i===0;
+    const itemUrl=affLink(item.url, item.shop, 'sell');
+    const nameLink=item.url?`<a href="${escAttr(itemUrl)}" target="_blank" rel="noopener nofollow">${esc(item.name)}</a>`:esc(item.name);
+    const priceLink=item.url?`<a class="scard-link" href="${escAttr(itemUrl)}" target="_blank" rel="noopener nofollow">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
+    // F-9: rarityFilterが空（=別レアリティ間の比較）のときは差額表示自体を出さない（比較として成立しないため）
+    // F-8: 最安（先頭）は.scard.best::beforeの「BEST PRICE」バッジに任せ.sdiffには何も出さない（重複解消）。
+    //      同額タイのときは「+¥0」ではなく「同額」と出す
+    let diff='';
+    if(rarityFilter&&!isBest){
+      const d=item.price-minPrice;
+      diff=d===0?'同額':`+¥${d.toLocaleString()}`;
+    }
+    h+=`<div class="scard${isBest?' best':''} fin"><div class="slabel">${esc(item.shop)}</div>
+      <div class="sprice">${priceLink}<span class="sdiff">${diff}</span></div>
+      <div class="sdetail">${esc(item.rarity||'-')}<br>${nameLink}</div></div>`;
+  });
+  document.getElementById('sumCards').innerHTML=h;
+}
+
+// F-5/F-14: ヒーローの最安値表示・売切件数バッジをrarityFilterに合わせて再計算する
+// （setRarityFilter()とrenderAll()の両方から呼ぶ。D全体基準のままだと絞り込み後も
+// 表示が追従せず、画面の上と下で数字が矛盾していた）。
+// 最安値は_summaryShopItems()（renderSummary()と同じ算出）の先頭要素を使い、同額タイのときに
+// ヒーローとサマリー先頭カードの店舗名が食い違わないようにする
+function _updateHeroSummary(){
+  const heroBest=document.getElementById('heroBest');
+  const soCountEl=document.getElementById('soCount');
+  if(!heroBest&&!soCountEl) return;
+  const items=_summaryShopItems();
+  const best=items.length?items[0]:null;
+  if(heroBest){
+    heroBest.innerHTML=best
+      ?`最安値: <strong style="color:var(--gold);font-size:1.1rem">¥${best.price.toLocaleString()}</strong> (${esc(best.shop)})`
+      :'在庫なし';
+  }
+  // 売切件数はサーバー集計値（d.sold_out_count）とは別経路でクライアント側のD（rarityFilter適用後）
+  // から再集計している。サーバー側の集計ロジックと将来ズレる可能性があるため要注意
+  if(soCountEl){
+    const scoped=rarityFilter?D.filter(r=>r.rarity===rarityFilter):D;
+    soCountEl.textContent=scoped.filter(r=>r.sold_out).length;
+  }
+}
+
+// C-1(iii): 「絞り込み中」を明示するバナー（解除ボタン付き）
+function _updateRarityBanner(){
+  const banner=document.getElementById('rfBanner');
+  if(!banner) return;
+  if(!rarityFilter){
+    banner.classList.add('hidden');
+    banner.innerHTML='';
+    return;
+  }
+  // F-7/F-13: バナーの主役件数は「一覧(renderTable)が実際に画面に出している件数」と同じ基準に
+  // 揃える。以前はDから直接数えていたため、売切トグルOFF時（既定）は一覧より多い数字が出ていた
+  // （バナー=売切込み・一覧=在庫ありのみ、で同じ絞り込みの件数が食い違って見えていた）。
+  // 売切の内訳は「（売切N件）」として併記し、トグルの状態に関わらず常に見えるようにする
+  const showSO=document.getElementById('soCheck')?.checked;
+  const inRarity=D.filter(r=>r.rarity===rarityFilter);
+  const mainCount=showSO?inRarity.length:inRarity.filter(r=>!r.sold_out).length;
+  const soldCount=inRarity.filter(r=>r.sold_out).length;
+  const soldSuffix=soldCount>0?`（売切${soldCount}件）`:'';
+  const totalRarities=[...new Set(D.map(r=>r.rarity).filter(Boolean))].length;
+  banner.classList.remove('hidden');
+  banner.innerHTML=`レアリティ「<strong>${esc(rarityFilter)}</strong>」で絞り込み中 — ${mainCount}件${soldSuffix} ／ 全${D.length}件・${totalRarities}種<button class="rf-banner-clear" onclick="setRarityFilter('')">すべて表示</button>`;
+}
+
 function renderTable(){
   const showSO=document.getElementById('soCheck').checked;
   let data=showSO?D:D.filter(r=>!r.sold_out);
@@ -2116,8 +2269,11 @@ function renderTable(){
     if(typeof va==='number'&&typeof vb==='number')return sort.a?va-vb:vb-va;
     return sort.a?String(va).localeCompare(String(vb),'ja'):String(vb).localeCompare(String(va),'ja');
   });
+  // B-4: 既定20行+もっと見る（無限スクロールにはしない）
+  const total=sorted.length;
+  const visible=sorted.slice(0,tableShowCount);
   const tbody=document.getElementById('tbody');
-  tbody.innerHTML=sorted.map(r=>{
+  tbody.innerHTML=visible.map(r=>{
     const rc=r.rarity?'rb-'+cssClass(r.rarity):'';
     const so=r.sold_out?'sold-out':'';
     const stockStr=r.sold_out?'<span class="sob">売切</span>':(r.stock>0?r.stock:'-');
@@ -2152,6 +2308,32 @@ function renderTable(){
       if(safeSmall&&!el.querySelector('img')) el.innerHTML=`<img src="${escAttr(safeSmall)}" alt="" loading="lazy">`;
     });
   }
+
+  // もっと見る（残り件数を明示。無限スクロールは採用しない）
+  const moreEl=document.getElementById('tblMore');
+  if(moreEl){
+    if(total===0){
+      moreEl.innerHTML='';
+    }else if(total>visible.length){
+      const remain=total-visible.length;
+      moreEl.innerHTML=`<div class="tbl-more-info">${total}件中 ${visible.length}件を表示</div><button class="tbl-more-btn" onclick="_showMoreRows()">もっと見る（残り${remain}件）</button>`;
+    }else{
+      moreEl.innerHTML=`<div class="tbl-more-info">${total}件中 ${visible.length}件を表示</div>`;
+    }
+  }
+}
+
+// B-4: 「もっと見る」でTABLE_PAGE_SIZE行ずつ追加表示
+function _showMoreRows(){
+  tableShowCount+=TABLE_PAGE_SIZE;
+  renderTable();
+}
+
+// 売り切れ表示トグル: 表示件数をリセットしてから再描画
+function _resetTableAndRender(){
+  tableShowCount=TABLE_PAGE_SIZE;
+  renderTable();
+  _updateRarityBanner(); // F-13: 一覧の基準（売切トグル）が変わったらバナーの件数も追従させる
 }
 
 // 検索結果テーブルの行クリックで商品ページへ（a・button クリックは除外）
@@ -2167,6 +2349,7 @@ document.querySelectorAll('#tbl th[data-s]').forEach(th=>{
     const k=th.dataset.s;
     if(sort.k===k)sort.a=!sort.a;
     else sort={k,a:k==='price'||k==='stock'};
+    tableShowCount=TABLE_PAGE_SIZE; // B-4: ソート変更のたびに表示件数をリセット
     renderTable();
   });
 });
@@ -2178,7 +2361,11 @@ function tab(id){
 
 function setRarityFilter(r){
   rarityFilter=r;
+  tableShowCount=TABLE_PAGE_SIZE; // B-4: レアリティ切替のたびに表示件数をリセット
   document.querySelectorAll('.rf-btn').forEach(b=>b.classList.toggle('active',b.dataset.r===r));
+  _updateRarityBanner();
+  _updateHeroSummary(); // F-5: ヒーローの最安値・売切件数を絞り込みに追従させる
+  renderSummary();
   renderTable();
 }
 
@@ -2371,17 +2558,21 @@ document.addEventListener('DOMContentLoaded', () => {
   loadBuybackMovers('up');
 
   // SEO: カード個別ページの場合、自動検索を実行（サーバーが渡したカード名なのでvalidateスキップ）
+  // Chart.jsのCDN先読みは廃止（F-1/F-12でイベント駆動になったため、/card/*を開いただけで
+  // 未使用の可能性があるCDN2本を読むのはB-2の初期表示軽量化の狙いに反する。
+  // toggle展開時・#priceChart直リンクのデータ到着時にloadPriceHistory/toggleハンドラ側で読み込む）
   if(_pageCardName){
-    // Chart.js を価格データ取得と並行して先読み（価格推移グラフの表示を高速化）
-    _loadChartJs(()=>{});
     if(_pageMode==='buyback'){
       switchMode('buyback');
       document.getElementById('buyQ').value=_pageCardName;
       setTimeout(()=>doBuySearch({validated:true}),300);
     }else{
       document.getElementById('q').value=_pageCardName;
+      // F-1: 固定タイマーでpc.open=trueにしていたが、doSearch(300ms)+SSE(数秒)より先に
+      // loadPriceHistory側のcontainer.open=falseで打ち消される回帰があったため、
+      // 「開く意図」だけをフラグで持たせ、loadPriceHistoryのデータ到着側で開かせる
+      if(location.hash==='#priceChart') _wantChartOpen=true;
       setTimeout(()=>doSearch({validated:true}),300);
-      if(location.hash==='#priceChart') setTimeout(()=>document.getElementById('priceChart')?.scrollIntoView({behavior:'smooth'}),2500);
     }
   }
 
@@ -3650,18 +3841,49 @@ function _loadChartJs(cb){
   document.head.appendChild(s);
 }
 
+// B-2: 価格推移は既定で折りたたみ（<details id="priceChart">）にしたため、
+// データ取得はここで行うが、Chart.jsの読み込み・描画は初回展開まで遅延する
 function loadPriceHistory(cardName){
   const container=document.getElementById('priceChart');
   container.classList.add('hidden');
+  // F-1: #priceChart直リンク（_wantChartOpen）のときはここでopen=falseにしない。
+  // データ到着(.then)側でopen=trueにするまで、閉じた/開いたどちらの状態にも触れない
+  if(!_wantChartOpen) container.open=false;
+  _priceHistoryData=null;
+  if(_chartInstance){_chartInstance.destroy();_chartInstance=null;}
   fetch('/api/price-history?card='+encodeURIComponent(cardName))
     .then(r=>r.json())
     .then(json=>{
-      if(!json.data||!json.data.length)return;
+      if(!json.data||!json.data.length){
+        // F-12: 0件のときも直リンクの「開く」意図をここで消費しきる。
+        // _wantChartOpenをtrueのまま残すと、後続の別カード検索（同一ページセッション内）で
+        // ユーザーが直リンクを踏んでいないのに履歴ありカードのグラフが勝手に開いてしまう
+        _wantChartOpen=false;
+        container.open=false;
+        return;
+      }
+      _priceHistoryData=json.data;
       container.classList.remove('hidden');
-      _loadChartJs(()=>_drawPriceChart(json.data));
+      if(_wantChartOpen){
+        // F-1: 直リンクの「開く」意図はここ（データ到着後）で初めて実行する
+        container.open=true;
+        _loadChartJs(()=>_drawPriceChart(_priceHistoryData));
+        container.scrollIntoView({behavior:'smooth'});
+        _wantChartOpen=false;
+      }else if(container.open){
+        // 直リンク以外で既にユーザーが手動展開している場合の描画（toggleイベントとの競合フォールバック）
+        _loadChartJs(()=>_drawPriceChart(_priceHistoryData));
+      }
     })
-    .catch(()=>{});
+    .catch(()=>{_wantChartOpen=false;container.open=false;}); // F-12: 通信失敗時も直リンクの「開く」意図を消費しきる
 }
+
+// details（#priceChart）の開閉イベントは一度だけ登録（renderTable等と同じ方針）
+document.getElementById('priceChart')?.addEventListener('toggle',function(){
+  if(this.open&&_priceHistoryData&&!_chartInstance){
+    _loadChartJs(()=>_drawPriceChart(_priceHistoryData));
+  }
+});
 
 // _RARITY_NORMALIZE / _normalizeRarity は廃止（サーバが正準名を返すため不要）
 
