@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="google-site-verification" content="7SBMfipn1AANFZK-55AZRO3tvCcB5j9iZ9h3sm7r5r0">
+<script>
+// GA4計測用の薄いラッパ（環境変数GA_MEASUREMENT_ID未設定時はgtagが未定義のため、
+// 存在チェックしてから呼ぶ。個人が特定されうる自由入力値（カード名等）は渡さない）。
+// <head>の先頭で定義することで、本文中の早期クリック（パース途中のタップ）でも
+// ReferenceErrorにならないようにする（レビュー指摘G-7）。
+function _ga(name,params){ if(typeof gtag==='function') gtag('event',name,params||{}); }
+</script>
 {% if ga_measurement_id %}
 <!-- Google Analytics 4（環境変数 GA_MEASUREMENT_ID 設定時のみ出力） -->
 <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}"></script>
@@ -119,7 +126,7 @@ a{color:var(--accent-l);text-decoration:none}a:hover{text-decoration:underline}
 .wrap{max-width:1140px;margin:0 auto;padding:0 20px;position:relative;z-index:1}
 
 /* ── Header ── */
-header{padding:24px 0 8px;text-align:center}
+header{padding:24px 0 8px;text-align:center;position:relative}
 .brand-header-link{display:inline-block;text-decoration:none}
 .brand-header-inner{display:flex;align-items:center;gap:10px;isolation:isolate;}
 .brand-header-icon{height:72px;width:auto;display:block;mix-blend-mode:screen;}
@@ -128,6 +135,15 @@ header{padding:24px 0 8px;text-align:center}
 .brand-g{color:#facc15;font-size:1.28em;}
 .brand-tagline{display:block;font-size:10px;color:#94a3b8;letter-spacing:3px;font-weight:700;text-align:left;margin-top:4px;}
 header .subtitle{font-size:.78rem;color:var(--text-d);margin-top:8px;letter-spacing:.02em}
+/* C-3a: 「一人回し」をモードタブから外し、ヘッダー右上の常設リンクへ（高さを増やさない） */
+/* G-8: font-sizeはremではなくpx固定にする（.brand-nameはpx固定のため、header-solo-link側だけ
+   remでルートフォント拡大に追従すると相対位置がずれてβバッジと衝突する。両方pxに揃えて
+   ルートフォント設定の影響を受けないようにするのが根治） */
+.header-solo-link{position:absolute;top:24px;right:20px;font-size:12px;font-weight:700;color:var(--text-m);background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:5px 12px;text-decoration:none;white-space:nowrap}
+.header-solo-link:hover{color:var(--accent-l);border-color:var(--accent);text-decoration:none}
+/* G-3: 見た目のサイズはそのまま、当たり判定だけ44px相当に拡張する透明な疑似要素
+   （ヘッダーの高さ・レイアウトには影響しない= position:absoluteの子はフローに参加しない） */
+.header-solo-link::after{content:'';position:absolute;inset:-9px}
 
 /* ── Search ── */
 .search{display:flex;gap:8px;max-width:540px;margin:0 auto 20px;position:relative}
@@ -571,8 +587,14 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 
 /* Mobile — スマホ */
 @media(max-width:640px){
-  header{padding:16px 0 8px}
-  .brand-header-img{height:64px}
+  /* C-3a: ヘッダー135px→80px前後の圧縮（ブランドは縮小、subtitleは非表示） */
+  header{padding:12px 0 6px}
+  .brand-header-icon{height:36px}
+  .brand-name{font-size:22px}
+  .brand-beta{font-size:9px;margin-top:2px}
+  .brand-tagline{font-size:8px;letter-spacing:2px;margin-top:2px}
+  header .subtitle{display:none}
+  .header-solo-link{top:10px;right:12px;font-size:11px;padding:4px 9px}
 
   /* 検索 */
   .search{flex-direction:column;gap:6px}
@@ -580,7 +602,8 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   .search button{width:100%;padding:14px;font-size:.95rem;min-height:48px}
   .suggest-dropdown{right:0}
 
-  /* モードタブ — ボタン単位で折り返し（文字途中改行を禁止） */
+  /* モードタブ — ボタン単位で折り返し（文字途中改行を禁止）。C-3a: 「一人回し」を外し
+     6タブ×3列で2段に収める（元は7タブ3段） */
   .mode-tabs{flex-wrap:wrap;gap:6px;margin:0 auto 14px}
   .mode-tab{flex:1 1 28%;min-width:88px;padding:10px 4px;font-size:.76rem;min-height:44px;white-space:nowrap;text-align:center}
 
@@ -672,6 +695,15 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   /* フッター */
   .site-footer{padding:24px 12px 20px}
   .site-footer a{display:inline-block;margin:4px 8px}
+}
+
+/* G-3/G-8: 極小幅対策。.header-solo-linkのfont-sizeをpx固定化（後述）した結果、ルートフォント
+   拡大では衝突しなくなったが、340px以下は文字サイズに関係なく物理的に横幅が足りず重なる
+   （実測: 320px時のgapは-7.4px、340pxで+2.6px）。360px（Android主要幅）を絶対配置のまま
+   維持するため、フォールバック境界を360→340pxへ縮小した（320〜339pxの範囲に該当する実機は
+   実質iPhone SE等320px系のみで、340px境界による見た目の差は実害がない） */
+@media(max-width:340px){
+  .header-solo-link{position:relative;top:auto;right:auto;display:inline-block;margin:0 0 6px}
 }
 
 /* 購入候補の1行: 320〜767px（スマホ〜スマホ横向き・小型タブレット）共通のグリッド指定。
@@ -805,6 +837,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 <body{% if self_watermark %} data-self-wm style="--self-watermark-opacity: {{ self_watermark_opacity }}"{% endif %}>
 <div class="wrap">
   <header>
+    {% if enable_solo_play %}<a class="header-solo-link" id="headerSoloLink" href="/solitaire" aria-label="一人回しシミュレータを開く">一人回し ▸</a>{% endif %}
     <h1>
       <a href="/" class="brand-header-link">
         <div class="brand-header-inner">
@@ -833,13 +866,12 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
   </header>
 
   <div class="mode-tabs">
-    <button class="mode-tab active" onclick="switchMode('search')">販売価格</button>
-    <button class="mode-tab" onclick="switchMode('buyback')">買取価格</button>
-    <button class="mode-tab" onclick="switchMode('mydeck')">マイデッキ</button>
-    <button class="mode-tab" onclick="switchMode('meta')">環境デッキ</button>
-    <button class="mode-tab" onclick="switchMode('packs')">最新弾</button>
-    <button class="mode-tab" onclick="switchMode('wishlist')">購入候補<span class="wish-badge" id="wishTabBadge" style="display:none">0</span></button>
-    {% if enable_solo_play %}<a class="mode-tab" href="/solitaire" style="text-decoration:none">一人回し</a>{% endif %}
+    <button class="mode-tab active" onclick="switchMode('search','tab')">販売価格</button>
+    <button class="mode-tab" onclick="switchMode('buyback','tab')">買取価格</button>
+    <button class="mode-tab" onclick="switchMode('mydeck','tab')">マイデッキ</button>
+    <button class="mode-tab" onclick="switchMode('meta','tab')">環境デッキ</button>
+    <button class="mode-tab" onclick="switchMode('packs','tab')">最新弾</button>
+    <button class="mode-tab" onclick="switchMode('wishlist','tab')">購入候補<span class="wish-badge" id="wishTabBadge" style="display:none">0</span></button>
   </div>
 
   <!-- ===== 検索モード ===== -->
@@ -1490,11 +1522,13 @@ document.addEventListener('keydown',function(e){
 </script>
 
 <script>
+// _ga()は<head>先頭で定義済み（GA4計測用の薄いラッパ。G-7: 早期クリック対策で<head>に移設）
 let D=[],sort={k:'price',a:true},rarityFilter='',cardImgUrl='',cardImgSmall='',_konamiDbUrl='';
 const TABLE_PAGE_SIZE=20; // F-11: 一覧の既定表示件数（もっと見るの増分）。散在していたマジックナンバー20を集約
 let tableShowCount=TABLE_PAGE_SIZE; // B-4: 一覧の既定表示件数（20行+もっと見る）
 let _priceHistoryData=null; // B-2: 価格推移データ。details展開まで描画を遅延する
 let _wantChartOpen=false; // F-1: #priceChart直リンク時に「データ到着後に開く」意図を保持するフラグ
+let _priceChartOpenSrc='user'; // G-6: 次に発火するtoggleイベントの発火元（直リンクによる自動オープンかユーザークリックか）
 
 // SEO: カード個別ページの自動検索 & URL書き換え
 const _pageCardName={{ card_name | tojson }};
@@ -1839,8 +1873,10 @@ function getSelectedShops(){
 }
 
 function doSearch(opts){
-  // opts: {validated:true} サジェスト選択やvalidate済み, {confirmed:true} DB未登録を承認済み
+  // opts: {validated:true} サジェスト選択やvalidate済み, {confirmed:true} DB未登録を承認済み,
+  //       {trigger:'user'|'pageload'|'popstate'|...} G-2: 計測用。省略時は'user'（検索窓からの手動検索）
   opts=opts||{};
+  const trigger=opts.trigger||'user';
   const q=document.getElementById('q').value.trim();
   if(!q)return;
   if(q.length<2){
@@ -1858,17 +1894,18 @@ function doSearch(opts){
         if(d.valid){
           document.getElementById('q').value=d.name;
           // 未発売カードは価格検索せず、カード情報のみ表示する
-          if(d.unreleased){showUnreleasedCard(d.name);return;}
-          doSearch({validated:true});
+          // G-2: 検索意図はあったが未発売のため検索に至らなかったケースも計上する（逆方向の欠測対策）
+          if(d.unreleased){_ga('search_submit',{mode:'sell',trigger:trigger,result:'unreleased'});showUnreleasedCard(d.name);return;}
+          doSearch({validated:true,trigger:trigger});
         }else if(d.suggestion){
           if(confirm('もしかして: '+d.suggestion+'\n\nこのカード名で検索しますか?')){
             document.getElementById('q').value=d.suggestion;
-            doSearch({validated:true});
+            doSearch({validated:true,trigger:trigger});
           }
         }else{
           // TODO: _correct_cardname()が部分一致候補を返せるようになったらsuggestion分岐が有効になる
           if(confirm('該当するカード名が見つかりません。\nそのまま検索しますか?')){
-            doSearch({confirmed:true});
+            doSearch({confirmed:true,trigger:trigger});
           }
         }
       })
@@ -1880,6 +1917,7 @@ function doSearch(opts){
     alert('検索する店舗を1つ以上選択してください');
     return;
   }
+  _ga('search_submit',{mode:'sell',trigger:trigger});
   const btn=document.getElementById('btn');
   btn.disabled=true;btn.textContent='検索中...';
   document.getElementById('results').classList.add('hidden');
@@ -2044,8 +2082,8 @@ function selectSug(name,unreleased){
   qInput.value=name;
   closeSuggest();
   // 未発売カードは価格検索せず、カード情報のみ表示する
-  if(unreleased){showUnreleasedCard(name);return;}
-  doSearch({validated:true});
+  if(unreleased){_ga('search_submit',{mode:'sell',trigger:'user',result:'unreleased'});showUnreleasedCard(name);return;}
+  doSearch({validated:true,trigger:'user'});
 }
 
 function closeSuggest(){sugDrop.classList.remove('open');sugIdx=-1;sugItems=[];}
@@ -2130,6 +2168,13 @@ function renderAll(d){
   }
   rarityFilter=defaultRarity;
   tableShowCount=TABLE_PAGE_SIZE;
+  // G-4: 「変更していないのにchange」で集計が濁らないようイベント名を分ける（自動設定=rarity_filter_default）。
+  // 発火はレアリティUIが実際に出るケース（realRarities.length>1）だけに限定し、
+  // 単一レアリティのカードで毎回発火して分母が壊れるのを防ぐ。C-1(i)判断のため
+  // rarity_count（"(不明)"含む）・real_rarity_count（実体のあるレアリティ数）を同梱する
+  if(realRarities.length>1){
+    _ga('rarity_filter_default',{rarity:defaultRarity||'__all__',rarity_count:rarities.length,real_rarity_count:realRarities.length});
+  }
   const rfEl=document.getElementById('rarityFilter');
   if(rarities.length>1){
     rfEl.classList.remove('hidden');
@@ -2321,12 +2366,15 @@ function renderTable(){
       moreEl.innerHTML=`<div class="tbl-more-info">${total}件中 ${visible.length}件を表示</div>`;
     }
   }
+  // G-7: フィルタロジックの二重管理をやめ、_showMoreRows()がGA計測に使えるよう件数を返す
+  return {total, visibleCount: visible.length};
 }
 
 // B-4: 「もっと見る」でTABLE_PAGE_SIZE行ずつ追加表示
 function _showMoreRows(){
   tableShowCount+=TABLE_PAGE_SIZE;
-  renderTable();
+  const {total, visibleCount}=renderTable();
+  _ga('show_more_rows',{visible_count:visibleCount,total_count:total});
 }
 
 // 売り切れ表示トグル: 表示件数をリセットしてから再描画
@@ -2360,6 +2408,8 @@ function tab(id){
 }
 
 function setRarityFilter(r){
+  // G-4: from_rarityで「自動絞り込みが的外れで、ユーザーがすぐ別のレアリティ／すべてに戻した」を追跡できるようにする
+  _ga('rarity_filter_change',{rarity:r||'__all__',from_rarity:rarityFilter||'__all__'});
   rarityFilter=r;
   tableShowCount=TABLE_PAGE_SIZE; // B-4: レアリティ切替のたびに表示件数をリセット
   document.querySelectorAll('.rf-btn').forEach(b=>b.classList.toggle('active',b.dataset.r===r));
@@ -2426,10 +2476,10 @@ function loadTrending(){
 }
 
 function searchCard(name){
-  switchMode('search');
+  switchMode('search','ranking');
   document.getElementById('q').value=name;
   document.getElementById('q').scrollIntoView({behavior:'smooth',block:'center'});
-  doSearch();
+  doSearch({trigger:'ranking'});
 }
 
 // ── 値上がり/値下がり ──
@@ -2543,9 +2593,9 @@ function loadRankingImages(itemSelector, thumbClass){
 
 // 買取ランキングからクリックされた場合：買取モードで検索
 function doBuySearchCard(name){
-  switchMode('buyback');
+  switchMode('buyback','ranking');
   document.getElementById('buyQ').value=name;
-  doBuySearch({validated:true});
+  doBuySearch({validated:true,trigger:'ranking'});
 }
 
 // 初期ロード・モード復元
@@ -2557,22 +2607,26 @@ document.addEventListener('DOMContentLoaded', () => {
   loadMovers('up');
   loadBuybackMovers('up');
 
+  // G-7: 「一人回し」リンクはinline onclickではなくaddEventListenerで配線
+  // （将来のCSP導入でinline onclickが無効化されても壊れないように）
+  document.getElementById('headerSoloLink')?.addEventListener('click', () => _ga('solo_play_open'));
+
   // SEO: カード個別ページの場合、自動検索を実行（サーバーが渡したカード名なのでvalidateスキップ）
   // Chart.jsのCDN先読みは廃止（F-1/F-12でイベント駆動になったため、/card/*を開いただけで
   // 未使用の可能性があるCDN2本を読むのはB-2の初期表示軽量化の狙いに反する。
   // toggle展開時・#priceChart直リンクのデータ到着時にloadPriceHistory/toggleハンドラ側で読み込む）
   if(_pageCardName){
     if(_pageMode==='buyback'){
-      switchMode('buyback');
+      switchMode('buyback','deeplink');
       document.getElementById('buyQ').value=_pageCardName;
-      setTimeout(()=>doBuySearch({validated:true}),300);
+      setTimeout(()=>doBuySearch({validated:true,trigger:'pageload'}),300);
     }else{
       document.getElementById('q').value=_pageCardName;
       // F-1: 固定タイマーでpc.open=trueにしていたが、doSearch(300ms)+SSE(数秒)より先に
       // loadPriceHistory側のcontainer.open=falseで打ち消される回帰があったため、
       // 「開く意図」だけをフラグで持たせ、loadPriceHistoryのデータ到着側で開かせる
       if(location.hash==='#priceChart') _wantChartOpen=true;
-      setTimeout(()=>doSearch({validated:true}),300);
+      setTimeout(()=>doSearch({validated:true,trigger:'pageload'}),300);
     }
   }
 
@@ -2580,13 +2634,13 @@ document.addEventListener('DOMContentLoaded', () => {
   if(!_pageCardName){
     const _hashMode=location.hash.slice(1);
     if(['mydeck','meta','packs','wishlist','buyback'].includes(_hashMode)){
-      switchMode(_hashMode);
+      switchMode(_hashMode,'hash');
     }
   }
 
   // /featured URL でアクセスした場合は最新弾タブを開き新弾を自動選択
   if(_pageMode==='featured'){
-    switchMode('packs');
+    switchMode('packs','deeplink');
     loadPacks().then(()=>{
       const f=_packData.find(p=>p.featured);
       if(f) loadPackCards(f.name, f.wiki_page||f.name, f.tcg_name||'', true);
@@ -2615,16 +2669,38 @@ function _updateUrl(cardName, mode){
 window.addEventListener('popstate',function(e){
   if(e.state&&e.state.card){
     if(e.state.mode==='buyback'){
-      switchMode('buyback');
+      switchMode('buyback','popstate');
       const _bq=document.getElementById('buyQ');
-      if(_bq){_bq.value=e.state.card;doBuySearch({validated:true});}
+      if(_bq){_bq.value=e.state.card;doBuySearch({validated:true,trigger:'popstate'});}
     }else{
-      switchMode('search');
+      switchMode('search','popstate');
       document.getElementById('q').value=e.state.card;
-      doSearch({validated:true});
+      doSearch({validated:true,trigger:'popstate'});
     }
   }
 });
+
+// G-5: スクロール量計測（C-3c ボトムナビ判断材料）。
+// 現在のスクロール到達率（%）。スクロール不可（コンテンツが画面に収まる）なら0を返す
+function _scrollPct(){
+  const doc=document.documentElement;
+  const scrollTop=window.scrollY||doc.scrollTop||0;
+  const scrollable=doc.scrollHeight-doc.clientHeight;
+  if(scrollable<=0) return 0;
+  return Math.round(Math.min(100,scrollTop/scrollable*100));
+}
+// 25/50/75%到達で1回ずつ発火（GA4拡張計測の90%固定より粒度を細かくする）。
+// 同一ページで重複発火しないよう到達済みしきい値をSetで管理する
+const _scrollDepthFired=new Set();
+window.addEventListener('scroll',function(){
+  const pct=_scrollPct();
+  [25,50,75].forEach(th=>{
+    if(pct>=th && !_scrollDepthFired.has(th)){
+      _scrollDepthFired.add(th);
+      _ga('scroll_depth',{percent:th});
+    }
+  });
+},{passive:true});
 
 // ── Mode switch ──
 const _subtitleMap={
@@ -2635,7 +2711,16 @@ const _subtitleMap={
   packs:'価格チェックは、決闘者の嗜み。',
   wishlist:'メモらないと、始まらない。',
 };
-function switchMode(mode){
+let _currentMode='search'; // GA4計測用: 直前のモードを保持（mode_switchのfrom_mode）
+// G-1: mode_switchはswitchMode()の呼び出し元ごとに明示的なtriggerを渡したときだけ発火する
+// （tab=タブクリック／hash=URLハッシュ復元／deeplink=/buy等の直アクセス／popstate=戻る進む／
+// auto=「デッキに追加」等のUI操作による自動遷移／ranking=人気・値動きランキングのクリック）。
+// trigger省略時は計測しない＝ユーザーがタブを押した経路（trigger:'tab'）だけを素の指標にできる
+function switchMode(mode, trigger){
+  if(trigger && mode!==_currentMode){
+    _ga('mode_switch',{mode:mode,from_mode:_currentMode,trigger:trigger,scroll_pct:_scrollPct()});
+  }
+  _currentMode=mode;
   const labels={search:'販売価格',buyback:'買取価格',mydeck:'マイデッキ',meta:'環境デッキ',packs:'最新弾'};
   const sub=document.querySelector('header .subtitle');
   if(sub) sub.textContent=_subtitleMap[mode]||'';
@@ -3007,7 +3092,7 @@ function applyMetaDeck(){
 function applyMetaDeckToTextarea(){
   // マイデッキタブへレシピを送り、編集できるようにする
   document.getElementById('deckTextarea').value=_lastMetaDeckText;
-  switchMode('mydeck');
+  switchMode('mydeck','auto');
   // テキストエリアをハイライトして変化を伝える
   const ta=document.getElementById('deckTextarea');
   ta.style.borderColor='var(--accent)';
@@ -3068,7 +3153,7 @@ const PRESETS={};
 function loadPreset(key){
   if(PRESETS[key]){
     document.getElementById('deckTextarea').value=PRESETS[key];
-    switchMode('mydeck');
+    switchMode('mydeck','auto');
   }
 }
 
@@ -3081,7 +3166,7 @@ function clearDeck(){
 
 function addToDeck(name){
   // deck-edit.js 読込時は構造化追加（is_ex振り分け＋グリッド即時更新）を使う
-  if(window.deckAddCard){ window.deckAddCard(name); switchMode('mydeck'); return; }
+  if(window.deckAddCard){ window.deckAddCard(name); switchMode('mydeck','auto'); return; }
   const ta=document.getElementById('deckTextarea');
   const lines=ta.value.split('\n').filter(l=>l.trim());
   // Check if already in list
@@ -3102,7 +3187,7 @@ function addToDeck(name){
     ta.value=lines.join('\n');
   }
   // Flash feedback
-  switchMode('mydeck');
+  switchMode('mydeck','auto');
 }
 
 let _deckBuyMode=false;
@@ -3535,7 +3620,9 @@ document.querySelectorAll('#buyShopToggles .shop-toggle').forEach(label=>{
 });
 
 function doBuySearch(opts){
+  // opts.trigger: G-2: 計測用。省略時は'user'（検索窓からの手動検索）
   opts=opts||{};
+  const trigger=opts.trigger||'user';
   const q=buyQInput.value.trim();
   if(!q)return;
   if(q.length<2){
@@ -3553,22 +3640,24 @@ function doBuySearch(opts){
           buyQInput.value=d.name;
           // 未発売カードは買取情報が無いため、誤誘導を避けて中断し通知する
           if(d.unreleased){
+            // G-2: 検索意図はあったが未発売のため検索に至らなかったケースも計上する（逆方向の欠測対策）
+            _ga('search_submit',{mode:'buyback',trigger:trigger,result:'unreleased'});
             document.getElementById('buyResults').classList.add('hidden');
             const be=document.getElementById('buyEmpty');
             be.classList.remove('hidden');
             be.innerHTML='<p>「'+esc(d.name)+'」は発売前のカードのため、買取情報はまだありません。</p>';
             return;
           }
-          doBuySearch({validated:true});
+          doBuySearch({validated:true,trigger:trigger});
         }else if(d.suggestion){
           if(confirm('もしかして: '+d.suggestion+'\n\nこのカード名で検索しますか?')){
             buyQInput.value=d.suggestion;
-            doBuySearch({validated:true});
+            doBuySearch({validated:true,trigger:trigger});
           }
         }else{
           // TODO: _correct_cardname()が部分一致候補を返せるようになったらsuggestion分岐が有効になる
           if(confirm('該当するカード名が見つかりません。\nそのまま検索しますか?')){
-            doBuySearch({confirmed:true});
+            doBuySearch({confirmed:true,trigger:trigger});
           }
         }
       })
@@ -3578,6 +3667,9 @@ function doBuySearch(opts){
   const shops=getBuySelectedShops();
   if(shops.length===0){alert('検索する店舗を1つ以上選択してください');return;}
 
+  // G-2: buyback_search_submitは廃止し、search_submit{mode:'buyback'}に統合
+  // （合算せずに総検索回数を出せるようにするため）
+  _ga('search_submit',{mode:'buyback',trigger:trigger});
   const btn=document.getElementById('buyBtn');
   btn.disabled=true;btn.textContent='検索中...';
   document.getElementById('buyResults').classList.add('hidden');
@@ -3866,6 +3958,7 @@ function loadPriceHistory(cardName){
       container.classList.remove('hidden');
       if(_wantChartOpen){
         // F-1: 直リンクの「開く」意図はここ（データ到着後）で初めて実行する
+        _priceChartOpenSrc='deeplink'; // G-6: 直後に発火するtoggleイベントを自動オープンとして計測する
         container.open=true;
         _loadChartJs(()=>_drawPriceChart(_priceHistoryData));
         container.scrollIntoView({behavior:'smooth'});
@@ -3880,10 +3973,24 @@ function loadPriceHistory(cardName){
 
 // details（#priceChart）の開閉イベントは一度だけ登録（renderTable等と同じ方針）
 document.getElementById('priceChart')?.addEventListener('toggle',function(){
-  if(this.open&&_priceHistoryData&&!_chartInstance){
-    _loadChartJs(()=>_drawPriceChart(_priceHistoryData));
+  if(this.open){
+    // G-6: _wantChartOpen経由の自動オープン（deeplink）とユーザークリック（user）を分離する
+    _ga('price_chart_open',{src:_priceChartOpenSrc});
+    _priceChartOpenSrc='user'; // 消費したら次回以降はユーザー操作として扱う既定に戻す
+    if(_priceHistoryData&&!_chartInstance){
+      _loadChartJs(()=>_drawPriceChart(_priceHistoryData));
+    }
   }
 });
+
+// カード情報（効果テキスト）の<details>はheroInfo.innerHTML=...で毎回作り直されるため、
+// 静的なaddEventListenerでは張り替え漏れが起きる。document capture段階で委譲する
+// （'toggle'イベントはbubbleしないが、capture段階はDOM再生成後の要素にも常に届く）
+document.addEventListener('toggle',function(e){
+  if(e.target&&e.target.classList&&e.target.classList.contains('card-info-details')&&e.target.open){
+    _ga('card_info_open');
+  }
+},true);
 
 // _RARITY_NORMALIZE / _normalizeRarity は廃止（サーバが正準名を返すため不要）
 
