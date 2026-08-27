@@ -2271,8 +2271,9 @@ function renderSummary(){
     // J-4: 状態（condition）が「-」以外（例: 状態C・中古キズあり・セール）なら、レアリティ・カード名と
     // 同じ扱いでここに出す。状態違いの価格を無条件価格に見せない
     const condStr=(item.condition&&item.condition!=='-')?`・${esc(item.condition)}`:'';
-    // K-1: 型番（code）が空でなければ表示する（同一レアリティでも型番違いで価格が大きく異なるため）
-    const codeStr=item.code?`・${esc(item.code)}`:'';
+    // K-1/L-1: 型番（code）が「型番らしい形」を通るときだけ表示する（弾の略号や壊れた値をそのまま
+    // 型番として見せない。迷ったら弾く側に倒す）
+    const codeStr=_looksLikeCardCode(item.code)?`・${esc(item.code)}`:'';
     h+=`<div class="scard${isBest?' best':''} fin"><div class="slabel">${esc(item.shop)}</div>
       <div class="sprice">${priceLink}<span class="sdiff">${diff}</span></div>
       <div class="sdetail">${esc(item.rarity||'-')}${condStr}${codeStr}<br>${nameLink}</div></div>`;
@@ -2420,6 +2421,23 @@ function _openBuybackFromInline(){
   doBuySearch({validated:true,trigger:'auto'});
 }
 
+// L-1: 店舗によって `code` の実体が「型番」ではないことが本番データで判明した
+// （例: カーナベルは弾の略号のみ＝`TTP1`、まれに壊れた値＝`SDモ さ`。トレコロCBは
+// `LPST-JP007PSE` のように余分な接尾辞や `23434538` のような内部ID的な数値が混じる）。
+// K-1で「型番が一致する行だけ突き合わせる」ようにしたが、型番でない値同士が一致すると
+// 別カードを同一視してしまい問題が別経路で復活するため、表示・突き合わせの両方で
+// 「型番らしい形」かを共通の1関数で判定する。
+// 通す例: LPST-JP007 / SD47-JP016 / 20TH-JPC82 / TT01-JPA10 / EXP4-JP037 / QCDB-JP015 / RC04-JP005
+//   → 「英数2-6文字」+ハイフン+「英字2文字（言語コード。JP等）」+「任意で英字1文字（レアリティ等の枝番）」+「数字2-4桁」
+// 弾く例: TTP1（ハイフンなしの略号）/ SDモ さ（日本語・空白混入）/ 23434538（数値のみ）/
+//         LPST-JP007PSE・20TH-JPC8220SE（数字の後に余分な英字が付く接尾辞つき）
+// トレコロCBの接尾辞を剥がす正規化はしない（未確認の接尾辞一覧を推測で剥がすと別カードを同一視する
+// リスクがあるため）。迷ったら弾く側に倒す。根本対応（接尾辞の仕様確認）はTASKS.mdに別途起票する
+function _looksLikeCardCode(code){
+  if(!code) return false;
+  return /^[A-Za-z0-9]{2,6}-[A-Z]{2}[A-Za-z]?\d{2,4}$/.test(String(code).trim());
+}
+
 function _renderBuyInline(){
   if(!_buyInlineFetched) return; // 未取得なら何もしない（再取得のトリガーにはしない）
   const body=document.getElementById('buyInlineBody');
@@ -2446,7 +2464,9 @@ function _renderBuyInline(){
   if(rarityActive){
     const sellItems=_summaryShopItems();
     const sellBest=sellItems.length?sellItems[0]:null;
-    const sellCode=sellBest&&sellBest.code;
+    // L-1: 販売最安のcodeが「型番らしい形」を通るときだけ突き合わせの基準に使う
+    // （店舗によってcodeが弾の略号や壊れた値のことがあり、それ同士が一致しても別カードの可能性があるため）
+    const sellCode=(sellBest&&_looksLikeCardCode(sellBest.code))?sellBest.code:null;
     const sameCodeBuy=sellCode?filtered.filter(r=>r.code===sellCode):[];
     // J-4: 販売側の約4割が「-」以外の状態（状態C・中古キズあり・セール等）を持つ実データが出ている。
     // 状態を無視すると「¥180で買えて」が実は状態Cの価格だった、という利ざやの誤誘導になるため併記する
@@ -2490,8 +2510,9 @@ function _renderBuyInline(){
     // J-4: 買取側もconditionがあれば出す（例: カードラッシュの「強化買取中」＝期間限定の上乗せ価格を
     // 無条件価格のように見せない）
     const condStr=(item.condition&&item.condition!=='-')?`・${esc(item.condition)}`:'';
-    // K-1: 型番（code）が空でなければ表示する（同一レアリティ内の価格差の理由を画面から分かるようにする）
-    const codeStr=item.code?`・${esc(item.code)}`:'';
+    // K-1/L-1: 型番（code）が「型番らしい形」を通るときだけ表示する（同一レアリティ内の価格差の
+    // 理由を画面から分かるようにしつつ、弾の略号や壊れた値をそのまま型番として見せない）
+    const codeStr=_looksLikeCardCode(item.code)?`・${esc(item.code)}`:'';
     cardsHtml+=`<div class="scard${isBest?' best':''} fin"><div class="slabel">${esc(item.shop)}</div>
       <div class="sprice" style="color:var(--green)">${priceLink}<span class="sdiff">${diff}</span></div>
       <div class="sdetail">${esc(item.rarity||'-')}${condStr}${codeStr}<br>${esc(item.name)}</div></div>`;
