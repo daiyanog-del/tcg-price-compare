@@ -419,6 +419,9 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .chart-title{font-size:.85rem;font-weight:600;margin-bottom:12px;color:var(--text-m)}
 .chart-wrap{position:relative;height:280px}
 @media(max-width:600px){.chart-wrap{height:220px}}
+/* C-2: 販売ページに買取価格を併置（#buyInline）。#priceChartと同じ<details>の見た目を流用 */
+.buy-inline-headline{font-size:.92rem;font-weight:600;margin-bottom:14px}
+.buy-inline-note{font-size:.74rem;color:var(--text-d);margin-top:10px}
 
 /* B-2: カード情報（効果テキスト）も既定で折りたたみ */
 .card-info-details{margin-top:6px}
@@ -964,6 +967,14 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     <div class="tpanel" id="p-rarity">
       <div class="rgrid" id="rgrid"></div>
     </div>
+
+    <!-- C-2: 販売ページに買取価格を併置（eスターボックス型）。既定で閉じ、開いたときに初めて
+         /api/buyback を叩く（第2弾B）。buyD/buySort/#buyTbody等の買取タブの状態とは
+         完全に独立した変数・DOMを使う -->
+    <details id="buyInline" class="price-chart">
+      <summary class="chart-title">買取価格も見る（いくらで売れるか）</summary>
+      <div id="buyInlineBody"></div>
+    </details>
 
     <!-- B-2: 価格推移グラフは末尾へ移動＋既定で折りたたみ（初回展開時に描画） -->
     <details id="priceChart" class="price-chart hidden">
@@ -1678,7 +1689,7 @@ function _applyKonamiLink(kid){
 
 // 価格関連セクションの表示/非表示を切り替える（未発売カードは価格テーブル等を隠す）
 function _setPriceSectionsVisible(visible){
-  ['priceChart','sumCards','rarityFilter','rfBanner','p-all','p-rarity'].forEach(id=>{
+  ['priceChart','buyInline','sumCards','rarityFilter','rfBanner','p-all','p-rarity'].forEach(id=>{
     const el=document.getElementById(id);
     if(el) el.style.display=visible?'':'none';
   });
@@ -1697,6 +1708,7 @@ function showUnreleasedCard(name){
 
   // 前回の検索結果をクリア
   cardImgUrl='';cardImgSmall='';D=[];rarityFilter='';tableShowCount=TABLE_PAGE_SIZE;
+  _resetBuyInline(); // C-2: 前回検索の買取価格が残ったまま未発売カード表示に切り替わるのを防ぐ
   _updateRarityBanner(); // F-4: 前回検索の絞り込みバナーが残ったまま未発売カード表示に切り替わるのを防ぐ
 
   document.getElementById('empty').classList.add('hidden');
@@ -1942,6 +1954,7 @@ function doSearch(opts){
   prog.style.display='flex';
 
   D=[];rarityFilter='';tableShowCount=TABLE_PAGE_SIZE;
+  _resetBuyInline(); // C-2: 新しい検索をしたら買取セクションは閉じた未取得状態に戻す（前のカードの買取価格が残ると誤情報になるため）
   _updateRarityBanner(); // F-4: 前回検索の絞り込みバナーが残ったまま次の検索結果が出るのを防ぐ
   const params=new URLSearchParams({q});
   shops.forEach(s=>params.append('shops',s));
@@ -1996,6 +2009,8 @@ function doSearch(opts){
       es.close();D=d.results;
       // 補正後のカード名で検索欄を更新
       if(d.corrected_name) document.getElementById('q').value=d.corrected_name;
+      // J-2: 買取セクションの取得キーは「入力欄の現在値」ではなく、ここで確定した表示カード名にする
+      _currentCardName=document.getElementById('q').value.trim();
       renderAll(d);
       btn.disabled=false;btn.textContent='検索';
       setTimeout(()=>{prog.style.display='none';},1200);
@@ -2239,7 +2254,9 @@ function renderSummary(){
   const minPrice=items[0].price;
   let h='';
   items.forEach((item,i)=>{
-    const isBest=i===0;
+    // J-5: rarityFilterが空（=「すべて」表示・別レアリティ同士の比較）のときはBESTバッジを付けない
+    // （別レアリティの最安値に「BEST PRICE」と断言してしまう表示を防ぐ。F-9の差額抑止と同じ理由）
+    const isBest=!!rarityFilter&&i===0;
     const itemUrl=affLink(item.url, item.shop, 'sell');
     const nameLink=item.url?`<a href="${escAttr(itemUrl)}" target="_blank" rel="noopener nofollow">${esc(item.name)}</a>`:esc(item.name);
     const priceLink=item.url?`<a class="scard-link" href="${escAttr(itemUrl)}" target="_blank" rel="noopener nofollow">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
@@ -2251,11 +2268,236 @@ function renderSummary(){
       const d=item.price-minPrice;
       diff=d===0?'同額':`+¥${d.toLocaleString()}`;
     }
+    // J-4: 状態（condition）が「-」以外（例: 状態C・中古キズあり・セール）なら、レアリティ・カード名と
+    // 同じ扱いでここに出す。状態違いの価格を無条件価格に見せない
+    const condStr=(item.condition&&item.condition!=='-')?`・${esc(item.condition)}`:'';
+    // K-1: 型番（code）が空でなければ表示する（同一レアリティでも型番違いで価格が大きく異なるため）
+    const codeStr=item.code?`・${esc(item.code)}`:'';
     h+=`<div class="scard${isBest?' best':''} fin"><div class="slabel">${esc(item.shop)}</div>
       <div class="sprice">${priceLink}<span class="sdiff">${diff}</span></div>
-      <div class="sdetail">${esc(item.rarity||'-')}<br>${nameLink}</div></div>`;
+      <div class="sdetail">${esc(item.rarity||'-')}${condStr}${codeStr}<br>${nameLink}</div></div>`;
   });
   document.getElementById('sumCards').innerHTML=h;
+}
+
+// ── C-2: 販売ページに買取価格を併置（#buyInline、第2弾B）──
+// 取得方式は(b)遅延ライブ取得で確定（決定は docs/decisions.md）。開いたときに初めて
+// /api/buyback を叩き、1カードにつき1回だけ取得する。buyD/buySort/#buyTbody等の
+// 買取タブの状態には一切触れない独立変数・独立DOM
+let _buyInlineD=null;          // 取得済みの買取結果（未取得はnull）
+let _buyInlineFetched=false;    // 取得完了フラグ（1カード1回のみ取得するためのガード）
+let _buyInlineFetchInFlight=false;
+let _buyInlineFailedShops=[];   // 部分失敗した店舗名（shop_error）
+let _buyInlineES=null;         // J-1: 進行中のEventSource参照。resetで確実に閉じるために保持する
+let _buyInlineGen=0;           // J-1: 世代トークン。close()後も配送されうる旧SSEのイベントを無効化する
+let _buyInlineTimeoutId=null;  // J-1: タイムアウトタイマーの参照。resetで確実にclearTimeoutする
+let _currentCardName='';       // J-2: 「入力欄の現在の文字列」ではなく「いま画面に出ている確定済みの販売結果のカード名」
+
+function _resetBuyInline(){
+  const det=document.getElementById('buyInline');
+  if(det) det.open=false;
+  _buyInlineGen++; // J-1: 世代を進め、これ以前に張ったSSEの遅延イベント（close後に届くdone等）を無効化する
+  if(_buyInlineES){ try{_buyInlineES.close();}catch(e){} _buyInlineES=null; }
+  if(_buyInlineTimeoutId){ clearTimeout(_buyInlineTimeoutId); _buyInlineTimeoutId=null; }
+  _buyInlineD=null;
+  _buyInlineFetched=false;
+  _buyInlineFetchInFlight=false;
+  _buyInlineFailedShops=[];
+  _currentCardName='';
+  const body=document.getElementById('buyInlineBody');
+  if(body) body.innerHTML='';
+}
+
+document.getElementById('buyInline')?.addEventListener('toggle',function(){
+  if(!this.open) return;
+  _ga('buyback_inline_open');
+  // 1カード1回だけ取得。取得済み/取得中なら再取得しない（閉じて再度開いても再取得しない）
+  if(!_buyInlineFetched&&!_buyInlineFetchInFlight) _fetchBuyInline();
+});
+
+function _fetchBuyInline(){
+  // J-3: ガードは呼び出し元（トグルハンドラ・再試行ボタン）に依存せず、この関数の先頭で必ず効かせる
+  if(_buyInlineFetched||_buyInlineFetchInFlight) return;
+  // J-2: 検索欄の現在値ではなく、いま画面に確定表示されているカード名を使う
+  // （検索せずに入力欄だけ書き換えた状態で開かれても、別カードを取りに行かないようにする）
+  const name=_currentCardName;
+  if(!name) return;
+  const gen=++_buyInlineGen; // J-1: このfetch呼び出し専用の世代番号
+  _buyInlineFetchInFlight=true;
+  _buyInlineFailedShops=[];
+  const body=document.getElementById('buyInlineBody');
+  body.innerHTML='<div class="progress on" id="buyInlineProg"></div>';
+  const prog=document.getElementById('buyInlineProg');
+  // G-2: search_submitに合算計上（カード名は送らない）
+  _ga('search_submit',{mode:'buyback',trigger:'inline'});
+  // confirmed=true: 既にsell側の検索で存在確認済みのカード名のため/api/validateを再度挟まない
+  const es=new EventSource('/api/buyback?q='+encodeURIComponent(name)+'&confirmed=true');
+  _buyInlineES=es;
+  function step(shop){
+    let el=document.getElementById('bi-'+shop);
+    if(!el){
+      el=document.createElement('div');
+      el.className='pstep';
+      el.id='bi-'+shop;
+      const pname=document.createElement('span');
+      pname.className='pname';pname.textContent=shop;
+      const pstat=document.createElement('span');
+      pstat.className='pstat';pstat.textContent='待機中';
+      el.appendChild(pname);el.appendChild(pstat);
+      prog.appendChild(el);
+    }
+    return el;
+  }
+  function fail(){
+    if(gen!==_buyInlineGen) return; // J-1: resetや別カードのfetchで世代が進んでいたら無視
+    es.close();_buyInlineFetchInFlight=false;_buyInlineES=null;_buyInlineTimeoutId=null;
+    _renderBuyInlineError('検索がタイムアウトしました。');
+  }
+  _buyInlineTimeoutId=setTimeout(fail,60000);
+  es.onmessage=e=>{
+    if(gen!==_buyInlineGen) return; // J-1: closeしても配送されうる旧世代のイベントを無効化する
+    clearTimeout(_buyInlineTimeoutId);_buyInlineTimeoutId=setTimeout(fail,60000);
+    const d=JSON.parse(e.data);
+    if(d.type==='progress'){
+      const el=step(d.shop);el.className='pstep searching';el.querySelector('.pstat').textContent='検索中...';
+    }else if(d.type==='shop_done'){
+      const el=step(d.shop);el.className='pstep done';el.querySelector('.pstat').textContent=d.count+'件'+(d.cached?' (cache)':'');
+    }else if(d.type==='shop_error'){
+      const el=step(d.shop);el.className='pstep error';el.querySelector('.pstat').textContent='エラー';
+      _buyInlineFailedShops.push(d.shop);
+    }else if(d.type==='done'){
+      clearTimeout(_buyInlineTimeoutId);_buyInlineTimeoutId=null;es.close();_buyInlineFetchInFlight=false;_buyInlineES=null;
+      _buyInlineD=d.results;
+      if(_buyInlineD.length===0&&_buyInlineFailedShops.length>0){
+        // 全店舗失敗＝通信エラー相当。0件確定ではないので「見つかりませんでした」にはしない
+        _renderBuyInlineError('買取価格の取得に失敗しました（'+_buyInlineFailedShops.join('・')+'）。');
+        return;
+      }
+      _buyInlineFetched=true;
+      _renderBuyInline();
+    }
+  };
+  es.onerror=()=>{
+    if(gen!==_buyInlineGen) return; // J-1
+    clearTimeout(_buyInlineTimeoutId);_buyInlineTimeoutId=null;es.close();_buyInlineFetchInFlight=false;_buyInlineES=null;
+    _renderBuyInlineError('通信エラーが発生しました。');
+  };
+}
+
+// J-6: エスケープはここ1箇所だけに統一する。呼び出し側で事前にesc()しないこと
+// （二重エスケープで&amp;等が画面にそのまま出るのを防ぐ／次の実装者がここを外の唯一の正とする）
+function _renderBuyInlineError(msg){
+  const body=document.getElementById('buyInlineBody');
+  if(!body) return;
+  body.innerHTML=`<div class="empty" style="padding:16px 0"><p>${esc(msg)}</p></div>`+
+    `<button class="tbl-more-btn" onclick="_fetchBuyInline()">再試行</button>`;
+}
+
+// _buyInlineDは全レアリティ分。表示は販売側と同じレアリティに絞る（成立しない比較を防ぐ、C-2要件）
+function _buyInlineFilteredData(){
+  if(!_buyInlineD) return [];
+  return rarityFilter?_buyInlineD.filter(r=>r.rarity===rarityFilter):_buyInlineD;
+}
+
+function _buyInlineNotes(){
+  const failed=_buyInlineFailedShops.length
+    ?`<p class="buy-inline-note">${_buyInlineFailedShops.map(esc).join('・')} は取得に失敗しました。</p>`:'';
+  // 販売6店に対し買取5店（まんぞく屋は買取価格をネット非公開）。黙って1店消えると不審に見えるため明示する
+  const manzoku='<p class="buy-inline-note">まんぞく屋は買取価格を公開していないため対象外です。</p>';
+  return failed+manzoku;
+}
+
+function _buyInlineDetailLinkHtml(){
+  return '<button class="tbl-more-btn" style="margin-top:6px" onclick="_openBuybackFromInline()">買取価格の詳細を見る</button>';
+}
+
+function _openBuybackFromInline(){
+  // J-2: 検索欄の現在値ではなく、確定済みの表示カード名を使う（同じ理由で_fetchBuyInline()と揃える）
+  const name=_currentCardName;
+  if(!name) return;
+  switchMode('buyback','auto');
+  document.getElementById('buyQ').value=name;
+  doBuySearch({validated:true,trigger:'auto'});
+}
+
+function _renderBuyInline(){
+  if(!_buyInlineFetched) return; // 未取得なら何もしない（再取得のトリガーにはしない）
+  const body=document.getElementById('buyInlineBody');
+  if(!body) return;
+  if(!_buyInlineD.length){
+    body.innerHTML=`<div class="empty" style="padding:16px 0"><p>このカードの買取価格は見つかりませんでした</p></div>${_buyInlineNotes()}`;
+    return;
+  }
+  const filtered=_buyInlineFilteredData();
+  if(!filtered.length){
+    body.innerHTML=`<div class="empty" style="padding:16px 0"><p>このレアリティの買取価格は見つかりませんでした</p></div>${_buyInlineNotes()}${_buyInlineDetailLinkHtml()}`;
+    return;
+  }
+
+  // H-1: rarityFilterが空（=「すべて」表示）のときは、販売側の全体最安と買取側の全体最高が
+  // 別レアリティ同士になりうる（例: 販売¥180はウルトラ、買取¥72,000は20thシークレット）。
+  // 成立しない比較を出すと実害があるため、要点1行・差額表示ともに出さない（F-9と同じ規律を買取側にも適用）
+  const rarityActive=!!rarityFilter;
+
+  // (a) 要点1行: K-1: レアリティが同じでも型番（収録弾）が違えば全くの別物（実データで同一レアリティ内に
+  // 200倍の価格差を確認済み）。基準は「販売最安の型番」に固定し、その型番の買取価格だけを突き合わせる。
+  // 型番が一致するデータが無いときは、別型番の額で埋めずに「見つかりませんでした」を出す
+  let headline;
+  if(rarityActive){
+    const sellItems=_summaryShopItems();
+    const sellBest=sellItems.length?sellItems[0]:null;
+    const sellCode=sellBest&&sellBest.code;
+    const sameCodeBuy=sellCode?filtered.filter(r=>r.code===sellCode):[];
+    // J-4: 販売側の約4割が「-」以外の状態（状態C・中古キズあり・セール等）を持つ実データが出ている。
+    // 状態を無視すると「¥180で買えて」が実は状態Cの価格だった、という利ざやの誤誘導になるため併記する
+    const sellCond=(sellBest&&sellBest.condition&&sellBest.condition!=='-')?`（${esc(sellBest.condition)}）`:'';
+    if(sellBest&&sellCode&&sameCodeBuy.length){
+      const buyBest=sameCodeBuy.reduce((a,b)=>a.price>b.price?a:b);
+      const buyCond=(buyBest.condition&&buyBest.condition!=='-')?`（${esc(buyBest.condition)}）`:'';
+      headline=`<p class="buy-inline-headline"><strong>${esc(sellCode)}</strong>を${esc(sellBest.shop)}で<strong style="color:var(--gold)">¥${sellBest.price.toLocaleString()}${sellCond}</strong>で買えて、${esc(buyBest.shop)}に<strong style="color:var(--green)">¥${buyBest.price.toLocaleString()}${buyCond}</strong>で売れます</p>`;
+    }else if(sellBest&&sellCode){
+      headline=`<p class="buy-inline-headline"><strong>${esc(sellCode)}</strong>の買取価格は見つかりませんでした</p>`;
+    }else{
+      // 販売側に型番が無い、または在庫が無い（sellBest自体が無い）ときは、同一型番の確認ができない
+      headline='<p class="buy-inline-headline">型番が確認できないため、買値と売値の比較を表示できません</p>';
+    }
+  }else{
+    headline='<p class="buy-inline-headline">レアリティを選ぶと、買値と売値の比較を表示します</p>';
+  }
+  // H-2/J-4: 同一レアリティ内の比較でも「そのまま利ざやが取れる」と読めてしまう。販売・買取
+  // どちらも店舗ごとの状態・枚数の条件で価格が変わることを短く添える（長い免責文にはしない）
+  const conditionNote='<p class="buy-inline-note">販売価格・買取価格ともに、店舗ごとの状態・枚数の条件により変わります</p>';
+
+  // (b) 店舗別カード: 買取額の高い順。差額（買取は高い方が良いため安い側がマイナス表記）とBESTバッジは
+  // 同一レアリティが確定しているときだけ出す（J-5・別レアリティの最高額に「BEST」と断言しない）。
+  // レアリティ・状態の表示自体は「すべて」でも残す
+  const byShop={};
+  for(const r of filtered){ if(!byShop[r.shop]||r.price>byShop[r.shop].price) byShop[r.shop]=r; }
+  const sortedShops=Object.values(byShop).sort((a,b)=>b.price-a.price);
+  const maxPrice=sortedShops[0].price;
+  let cardsHtml='';
+  sortedShops.forEach((item,i)=>{
+    const isBest=rarityActive&&i===0;
+    // アフィリエイト: リンクはaffLink()を使うが、トラッキングピクセルaffPixel()はここでは発火させない
+    // （レアリティ切替のたびにこの関数が再実行されるため。第1弾F-2で潰した重複発火の再発防止）
+    const itemUrl=affLink(item.url,item.shop,'buy');
+    const priceLink=item.url?`<a class="scard-link" href="${escAttr(itemUrl)}" target="_blank" rel="noopener nofollow">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
+    let diff='';
+    if(!isBest&&rarityActive){
+      const d=maxPrice-item.price;
+      diff=d===0?'同額':`−¥${d.toLocaleString()}`;
+    }
+    // J-4: 買取側もconditionがあれば出す（例: カードラッシュの「強化買取中」＝期間限定の上乗せ価格を
+    // 無条件価格のように見せない）
+    const condStr=(item.condition&&item.condition!=='-')?`・${esc(item.condition)}`:'';
+    // K-1: 型番（code）が空でなければ表示する（同一レアリティ内の価格差の理由を画面から分かるようにする）
+    const codeStr=item.code?`・${esc(item.code)}`:'';
+    cardsHtml+=`<div class="scard${isBest?' best':''} fin"><div class="slabel">${esc(item.shop)}</div>
+      <div class="sprice" style="color:var(--green)">${priceLink}<span class="sdiff">${diff}</span></div>
+      <div class="sdetail">${esc(item.rarity||'-')}${condStr}${codeStr}<br>${esc(item.name)}</div></div>`;
+  });
+
+  body.innerHTML=`${headline}${conditionNote}<div class="summary">${cardsHtml}</div>${_buyInlineNotes()}${_buyInlineDetailLinkHtml()}`;
 }
 
 // F-5/F-14: ヒーローの最安値表示・売切件数バッジをrarityFilterに合わせて再計算する
@@ -2417,6 +2659,7 @@ function setRarityFilter(r){
   _updateHeroSummary(); // F-5: ヒーローの最安値・売切件数を絞り込みに追従させる
   renderSummary();
   renderTable();
+  _renderBuyInline(); // C-2: 買取セクションも同じレアリティに絞り込んで再描画する（未取得なら何もしない・再取得はしない）
 }
 
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
@@ -3795,9 +4038,9 @@ function renderBuyAll(d){
     const isBest=(bestBuyPrice!==null&&shopBest.price===bestBuyPrice);
     const sBuyUrl=affLink(shopBest.url, s, 'buy');
     const sPriceLink=shopBest.url?`<a class="scard-link" href="${escAttr(sBuyUrl)}" target="_blank" rel="noopener nofollow">¥${shopBest.price.toLocaleString()}</a>`:`¥${shopBest.price.toLocaleString()}`;
-    h+=`<div class="scard${isBest?' best':''} fin"><div class="slabel">${s}</div>
+    h+=`<div class="scard${isBest?' best':''} fin"><div class="slabel">${esc(s)}</div>
       <div class="sprice" style="color:var(--green)">${sPriceLink}</div>
-      <div class="sdetail">${shopBest.rarity||'-'}<br>${esc(shopBest.name)}</div></div>`;
+      <div class="sdetail">${esc(shopBest.rarity||'-')}<br>${esc(shopBest.name)}</div></div>`;
   }
   document.getElementById('buySumCards').innerHTML=h+affPixel('カーナベル','buy');
 

@@ -231,6 +231,10 @@ _last_search: dict[str, float] = {}
 # ニューロン取り込み用の独立バケット。価格検索と別管理にすることで、
 # カード共有フロー（取り込み→直後に価格検索）が互いを弾かないようにする。
 _last_import: dict[str, float] = {}
+# 買取検索用の独立バケット。2026-08-25のC-2（販売ページに買取価格を併置）で、
+# 販売検索の直後に同じ画面から買取取得が走る動線ができたため、共有バケットのままだと
+# ユーザーの正当な2操作が互いを429で弾く（RATE_LIMIT_SEC=3）。系統ごとに分ける既存方針に従う。
+_last_buyback: dict[str, float] = {}
 # 端末間同期(sync)用の独立バケット。既存APIとレート制限を奪い合わないようにする。
 # キーは sync_id（IPだと宅内の複数端末が互いを弾いてしまうため）。
 # init/push/pull は「裏で自動的に走る」背景同期。
@@ -2178,7 +2182,9 @@ def api_buyback():
 
     active_shops = [(name, fn) for name, fn in BUYBACK_SHOPS if name in selected]
 
-    rate_error = _consume_rate_limit()
+    # 販売検索(_last_search)とは別バケット。同一画面から販売→買取と続けて操作する
+    # 動線（C-2の併置）で互いを弾かないようにする。制限の強さ自体は据え置き。
+    rate_error = _consume_rate_limit(bucket=_last_buyback)
     if rate_error:
         return rate_error
 
