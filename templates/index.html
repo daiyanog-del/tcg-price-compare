@@ -951,6 +951,9 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
         売り切れを表示
         <span class="count-badge" id="soCount">0</span>
       </label>
+      <!-- U-1: 表側からも買取取得のきっかけを置く。取得処理は_fetchBuyInline()を再利用し、
+           二重には書かない（#buyInlineのtoggleを開くのと同じ経路を通す） -->
+      <button class="tbl-more-btn" id="tblBuyBtn" style="padding:6px 14px;font-size:.74rem" onclick="_openBuyInlineFromTableBtn()">買取価格も表示する</button>
     </div>
 
     <div class="tpanel active" id="p-all">
@@ -965,6 +968,9 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
             <th data-s="price">価格<span class="arr">▲</span></th>
             <th data-s="stock">在庫<span class="arr"></span></th>
             <th data-s="code">コード<span class="arr"></span></th>
+            <!-- U-1: 買取データが未取得の間は列自体を出さない（145行ぶんの空欄を避ける）。
+                 #buyInlineを開く／下のボタンを押して取得できたらrenderTable()内でhiddenを外す -->
+            <th data-s="buyMax" id="thBuyMax" class="hidden">この型番の最高買取<span class="arr"></span></th>
             <th style="width:32px"></th>
           </tr></thead>
           <tbody id="tbody"></tbody>
@@ -2281,8 +2287,12 @@ function _maybeOpenBuyInlineOnLoad(){
   _pendingBuyInlineOpen=false;
   const det=document.getElementById('buyInline');
   if(!det) return;
+  // /buy/<カード名> で着地したときの自動オープン。ユーザーが自分で開いたわけでは
+  // ないので 'inline'（＝ユーザー操作）と混ぜない。混ぜると「買取を開いた人数」が
+  // ページ着地で水増しされ、mode_switch / search_submit で潰したのと同じ汚染になる
+  _buyInlineOpenTrigger='deeplink';
   det.open=true;
-  if(!_buyInlineFetched&&!_buyInlineFetchInFlight) _fetchBuyInline();
+  if(!_buyInlineFetched&&!_buyInlineFetchInFlight) _fetchBuyInline('deeplink');
 }
 
 function _resetBuyInline(){
@@ -2300,14 +2310,31 @@ function _resetBuyInline(){
   if(body) body.innerHTML='';
 }
 
+// U-1: 表側の「買取価格も表示する」ボタン経由か、#buyInline summaryを直接開いたのかをGA上で
+// 区別するためのフラグ。既定は'inline'。ボタン側がdet.open=trueする直前だけ'table_button'に
+// 差し替え、toggleリスナーが読み取ったら'inline'に戻す（イベントの二重発火はさせない）
+let _buyInlineOpenTrigger='inline';
+
 document.getElementById('buyInline')?.addEventListener('toggle',function(){
   if(!this.open) return;
-  _ga('buyback_inline_open');
+  _ga('buyback_inline_open',{trigger:_buyInlineOpenTrigger});
   // 1カード1回だけ取得。取得済み/取得中なら再取得しない（閉じて再度開いても再取得しない）
-  if(!_buyInlineFetched&&!_buyInlineFetchInFlight) _fetchBuyInline();
+  if(!_buyInlineFetched&&!_buyInlineFetchInFlight) _fetchBuyInline(_buyInlineOpenTrigger);
+  _buyInlineOpenTrigger='inline';
 });
 
-function _fetchBuyInline(){
+// U-1: 販売テーブル側のボタン。取得処理は自前で書かず、#buyInlineを開く経路（上のtoggle
+// リスナー→_fetchBuyInline）をそのまま再利用する。二重取得・二重GA発火を避けるため
+// det.open=trueを呼ぶだけで、_fetchBuyInline()を直接ここから呼ばない
+function _openBuyInlineFromTableBtn(){
+  const det=document.getElementById('buyInline');
+  if(!det) return;
+  if(det.open) return; // 既に開いている（=取得済みか取得中）なら何もしない
+  _buyInlineOpenTrigger='table_button';
+  det.open=true; // 'toggle'イベントが発火し、上のリスナーがGA計測と_fetchBuyInline()を担う
+}
+
+function _fetchBuyInline(trigger){
   // J-3: ガードは呼び出し元（トグルハンドラ・再試行ボタン）に依存せず、この関数の先頭で必ず効かせる
   if(_buyInlineFetched||_buyInlineFetchInFlight) return;
   // J-2: 検索欄の現在値ではなく、いま画面に確定表示されているカード名を使う
@@ -2320,8 +2347,9 @@ function _fetchBuyInline(){
   const body=document.getElementById('buyInlineBody');
   body.innerHTML='<div class="progress on" id="buyInlineProg"></div>';
   const prog=document.getElementById('buyInlineProg');
-  // G-2: search_submitに合算計上（カード名は送らない）
-  _ga('search_submit',{mode:'buyback',trigger:'inline'});
+  // G-2: search_submitに合算計上（カード名は送らない）。U-1: 再試行ボタン経由（引数無し）は
+  // 従来通り'inline'扱いのまま（既存の意味を壊さない）
+  _ga('search_submit',{mode:'buyback',trigger:trigger||'inline'});
   // confirmed=true: 既にsell側の検索で存在確認済みのカード名のため/api/validateを再度挟まない
   const es=new EventSource('/api/buyback?q='+encodeURIComponent(name)+'&confirmed=true');
   _buyInlineES=es;
@@ -2366,6 +2394,8 @@ function _fetchBuyInline(){
         return;
       }
       _buyInlineFetched=true;
+      _applyBuyMaxToD(); // U-1: 販売テーブルの「この型番の最高買取」列を確定させる
+      renderTable();      // 列を出すため販売テーブルも再描画する（買取セクション自体はこの下で描画）
       _renderBuyInline();
     }
   };
@@ -2418,6 +2448,25 @@ function _buyInlineNotes(){
 function _looksLikeCardCode(code){
   if(!code) return false;
   return /^[A-Za-z0-9]{2,6}-[A-Z]{2}[A-Za-z]?\d{2,4}$/.test(String(code).trim());
+}
+
+// U-1: 販売テーブルの「この型番の最高買取」列。突合は同じ(code,rarity)の買取行のうち最高額で、
+// codeは_looksLikeCardCode()を通るものだけ使う（弾の略号・壊れた値を型番として同一視しない）。
+// この関数自体は取得を一切行わない。_buyInlineD（#buyInline取得結果）が揃ってから呼ぶこと
+function _applyBuyMaxToD(){
+  if(!_buyInlineD){
+    for(const r of D){ r.buyMax=null; r.buyMaxShop=null; }
+    return;
+  }
+  const validBuys=_buyInlineD.filter(b=>_looksLikeCardCode(b.code));
+  for(const r of D){
+    if(!_looksLikeCardCode(r.code)){ r.buyMax=null; r.buyMaxShop=null; continue; }
+    const matches=validBuys.filter(b=>b.code===r.code&&b.rarity===r.rarity);
+    if(!matches.length){ r.buyMax=null; r.buyMaxShop=null; continue; }
+    const best=matches.reduce((a,b)=>b.price>a.price?b:a);
+    r.buyMax=best.price;
+    r.buyMaxShop=best.shop;
+  }
 }
 
 function _renderBuyInline(){
@@ -2532,6 +2581,15 @@ function renderTable(){
   let data=showSO?D:D.filter(r=>!r.sold_out);
   if(rarityFilter) data=data.filter(r=>r.rarity===rarityFilter);
   const sorted=[...data].sort((a,b)=>{
+    // U-1: 「この型番の最高買取」は値の無い行（buyMax=null）を、昇順・降順どちらでも
+    // 必ず末尾に送る（通常の型比較だと空文字と数値が混ざって順序が安定しない）
+    if(sort.k==='buyMax'){
+      const va=a.buyMax,vb=b.buyMax;
+      if(va==null&&vb==null)return 0;
+      if(va==null)return 1;
+      if(vb==null)return -1;
+      return sort.a?va-vb:vb-va;
+    }
     let va=a[sort.k]??'',vb=b[sort.k]??'';
     if(typeof va==='number'&&typeof vb==='number')return sort.a?va-vb:vb-va;
     return sort.a?String(va).localeCompare(String(vb),'ja'):String(vb).localeCompare(String(va),'ja');
@@ -2551,6 +2609,11 @@ function renderTable(){
     const cond=r.condition==='セール'?'<span style="color:var(--gold)">セール</span>':esc(r.condition);
     const rowClass=[so,linkUrl?'row-clickable':''].filter(Boolean).join(' ');
     const rowHref=linkUrl?`data-href="${escAttr(linkUrl)}"`:'';
+    // U-1: 買取が未取得のうちは列自体を出さない（thのhidden切り替えと対にする）。
+    // 値は「同じ(code,rarity)の買取行のうち最高額」で、店名も併記する（_applyBuyMaxToDで算出済み）
+    const buyMaxCell=_buyInlineFetched
+      ?`<td data-label="この型番の最高買取" class="col-buymax">${r.buyMax!=null?'¥'+r.buyMax.toLocaleString()+'（'+esc(r.buyMaxShop)+'）':''}</td>`
+      :'';
     return`<tr class="${rowClass}" ${rowHref}>
       <td data-label="" class="col-img"><div class="tbl-img"></div></td>
       <td data-label="レアリティ"><span class="rb ${rc}">${esc(r.rarity||'-')}</span></td>
@@ -2559,9 +2622,15 @@ function renderTable(){
       <td data-label="状態">${cond}</td>
       <td data-label="価格" class="col-price">¥${r.price.toLocaleString()}</td>
       <td data-label="在庫" class="col-stock">${stockStr}</td>
-      <td data-label="コード" class="col-code">${esc(r.code||'')}</td>
+      <td data-label="コード" class="col-code">${esc(r.code||'')}</td>${buyMaxCell}
       <td>${wishBtnHtml(r.name,1)}</td></tr>`;
   }).join('');
+
+  // U-1: 買取が未取得の間はヘッダー列自体を隠す（thのhiddenをtd側の出し分けと揃える）
+  const thBuyMax=document.getElementById('thBuyMax');
+  if(thBuyMax) thBuyMax.classList.toggle('hidden',!_buyInlineFetched);
+  const buyBtn=document.getElementById('tblBuyBtn');
+  if(buyBtn) buyBtn.classList.toggle('hidden',_buyInlineFetched);
 
   document.querySelectorAll('#tbl th').forEach(th=>{
     const arr=th.querySelector('.arr');
