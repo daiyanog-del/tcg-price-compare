@@ -892,6 +892,11 @@ def api_search():
     if not missing_shops:
         if cached_results:
             _record_search(card_name)
+        # 全店キャッシュ命中の経路でも型番補完を通す。ここを素通しにすると、
+        # キャッシュTTL(15分)の間ずっと補完前の値（カーナベルの弾略号・トレコロの
+        # 接尾辞つき）が返り、補完を入れた意味がほぼ無くなる（大半の検索がこの経路）。
+        # 補完は純粋なメモリ処理なので、キャッシュ命中の速さは損なわない。
+        cached_results = infer_codes(cached_results)
         def cached_stream():
             for shop_name, _ in active_shops:
                 count = len(cached_map.get(shop_name, []))
@@ -2512,6 +2517,8 @@ def api_buyback():
     if not missing_shops:
         if cached_results:
             _record_search(card_name)
+        # 販売側と同じく、全店キャッシュ命中の経路でも型番補完を通す
+        cached_results = infer_codes(cached_results)
         def cached_stream():
             for shop_name, _ in active_shops:
                 count = len(cached_map.get(shop_name, []))
