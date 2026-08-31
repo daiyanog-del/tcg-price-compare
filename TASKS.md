@@ -129,3 +129,5 @@
 - [ ] **非表示UIが挙動を決めている構造の是正** — 店舗トグル（`#shopToggles` / `#buyShopToggles` / `#deckShopToggles` / `#metaShopToggles`）は 2026-06-09 以降 `display:none` だが、検索時の `shops` パラメータはこの非表示DOMから組み立てられている。買取側が3店のまま放置され**5店中3店しか検索していなかった**（2026-08-25 発見・是正済み）。同種の事故を防ぐため、送信する店舗集合は**定数側（サーバの DEFAULT_*_SHOPS）を正とし、UIから組み立てない**形へ寄せる
 - [ ] **【恒久対応】トップの価格推移をRPC（DB側集計）に寄せる** — `/api/top-movers` は現在 PostgREST 経由で1日分の `price_history` を全行取得している。**本番実測で最新日は30,851行**（3日分＝約9万行を1時間ごとに読む）。応急で複合キー安定化＋上限10万行にしたが、Render無料枠のメモリと転送量に対して本来重すぎる。既存 `get_price_movers` と同じくDB側集計のRPCを新設して寄せる。**代表レアリティ選定（(不明)/空を除外して最安）と共通店舗ガードをSQL側で行うこと**
 - [ ] トップの `TOP_DECKS_LIMIT=8` / `TOP_DECKS_CACHE_SEC=1800` / `MOVERS_MIN_PRICE=1000` / `TOP_MOVERS_CACHE_SEC=3600` / `MOVERS_STABILITY_DAYS=1` は仮置き（`# TODO: calibrate from data` 付き）。実データとUXで校正する
+- [ ] **sitemap.xml が `http://` を出している** — `app.py` の sitemap 生成が `request.url_root` 由来で `http://tcg-price-compare.onrender.com/...` を出力している（本番実測）。canonical/sitemap は https にすべき。2026-08-31 のタブ統合調査で発見
+- [ ] `/api/price-history` はフロントからの参照が無くなった（価格推移グラフ削除に伴う）。ルートは残してあるので、削除するかは影響調査のうえ別途判断

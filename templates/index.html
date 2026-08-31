@@ -414,17 +414,15 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .tbl-img{width:52px;height:73px;border-radius:2px;overflow:hidden;vertical-align:middle}
 .tbl-img img{width:100%;height:100%;object-fit:cover}
 
-/* ── 価格推移グラフ ── */
+/* ── details（折りたたみ）の共通見た目（R-2: 旧・価格推移グラフ用のクラス名だが
+   #buyInline（買取価格の折りたたみ）が現役で使用しているため名前はそのまま残す） ── */
 .price-chart{margin-bottom:20px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px}
-/* B-2: 価格推移は既定で折りたたみ（<details>化）。開くまでChart.jsの描画は走らせない */
 .price-chart>summary{cursor:pointer;list-style:none;user-select:none}
 .price-chart>summary::-webkit-details-marker{display:none}
 .price-chart>summary::before{content:'▸ ';color:var(--text-d)}
 .price-chart[open]>summary::before{content:'▾ '}
 .chart-title{font-size:.85rem;font-weight:600;margin-bottom:12px;color:var(--text-m)}
-.chart-wrap{position:relative;height:280px}
-@media(max-width:600px){.chart-wrap{height:220px}}
-/* C-2: 販売ページに買取価格を併置（#buyInline）。#priceChartと同じ<details>の見た目を流用 */
+/* C-2: 販売ページに買取価格を併置（#buyInline）。旧#priceChartと同じ<details>の見た目を流用 */
 .buy-inline-headline{font-size:.92rem;font-weight:600;margin-bottom:14px}
 .buy-inline-note{font-size:.74rem;color:var(--text-d);margin-top:10px}
 
@@ -449,11 +447,15 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .meta-tier-label .tier-badge{display:inline-block;padding:1px 7px;border-radius:3px;color:#fff;font-weight:800;margin-right:6px;font-size:.7rem}
 .tier-1{background:#e8444a}.tier-2{background:#e89844}.tier-3{background:#5898d8}.tier-4{background:#666}
 .meta-deck-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px}
-.meta-deck-btn{padding:4px 10px;font:.78rem var(--font);font-weight:600;color:var(--text);background:var(--bg-card);border:1px solid var(--border);border-radius:6px;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:6px}
+.meta-deck-btn{padding:4px 10px;font:.78rem var(--font);font-weight:600;color:var(--text);background:var(--bg-card);border:1px solid var(--border);border-radius:6px;cursor:pointer;transition:all .15s;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .meta-deck-btn:hover{border-color:var(--accent);background:var(--bg-hover)}
 .meta-deck-btn.selected{border-color:var(--accent);background:rgba(74,124,255,.12)}
 .meta-deck-btn.loading{opacity:.6;pointer-events:none}
 .meta-deck-btn .meta-share{font:.65rem var(--mono);color:var(--text-d);margin-left:auto}
+/* R-1: 旧トップページのデッキ金額表示を環境デッキタブへ統合。名前/シェア行の下にwrapさせる */
+.meta-deck-btn .meta-deck-price{width:100%;display:flex;justify-content:space-between;align-items:baseline;font-weight:400}
+.meta-deck-btn .meta-deck-price-now{font:600 .76rem var(--mono);color:var(--text)}
+.meta-deck-btn .meta-deck-price-note{font:.65rem var(--mono);color:var(--text-d)}
 .pack-unreleased-badge{font:.6rem var(--mono);color:#fff;background:#e89844;border-radius:3px;padding:1px 4px;margin-left:4px;vertical-align:middle}
 .meta-deck-detail{margin-top:12px;padding:14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius)}
 .meta-deck-detail h4{font-size:.85rem;margin-bottom:8px;color:var(--text)}
@@ -981,13 +983,6 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
       <div id="buyInlineBody"></div>
     </details>
 
-    <!-- B-2: 価格推移グラフは末尾へ移動＋既定で折りたたみ（初回展開時に描画） -->
-    <details id="priceChart" class="price-chart hidden">
-      <summary class="chart-title">価格推移 ― レアリティ別の最安値（最大90日）</summary>
-      <div class="chart-wrap">
-        <canvas id="priceCanvas"></canvas>
-      </div>
-    </details>
   </div>
 
   <div id="empty" class="empty">
@@ -995,16 +990,6 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     <!-- Q-10: 検索エラー/タイムアウトの表示専用要素。#empty のinnerHTMLを丸ごと
          置き換えると下のランキングDOMごと消えて復帰できなくなるため、ここだけを書き換える -->
     <div id="emptyError" class="movers-fail hidden"></div>
-
-    <!-- N-1: 環境デッキランキング（いま組むといくら） -->
-    <div id="topDecksSection" class="movers hidden">
-      <div class="movers-tabs">
-        <button class="movers-tab active" onclick="switchTopDecks('price')">安い順</button>
-        <button class="movers-tab" onclick="switchTopDecks('tier')">強い順</button>
-      </div>
-      <div class="movers-period">環境デッキを今すぐ組むといくらか（一部未取得のカードあり・目安）</div>
-      <div class="movers-list" id="topDecksList"></div>
-    </div>
 
     <!-- N-2: 価格推移ランキング（共通店舗ガードのみ・最安¥1,000以上） -->
     <div id="topMoversSection" class="movers hidden">
@@ -1260,7 +1245,13 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
   <div id="mode-meta" class="hidden">
     <div class="deck-builder">
       <div class="deck-input-area">
-        <!-- 環境デッキ一覧 -->
+        <!-- 環境デッキ一覧（R-1: 旧トップページのデッキ金額ランキングをここに統合。
+             既定は強い順=Tier表示、安い順に切り替えると価格データがある
+             デッキ（上位シェア順にスクレイプ済みの分）だけをフラットに並べる） -->
+        <div class="movers-tabs" id="metaSortTabs">
+          <button class="movers-tab active" onclick="switchMetaSort('tier')">強い順</button>
+          <button class="movers-tab" onclick="switchMetaSort('price')">安い順</button>
+        </div>
         <div id="metaTierList" class="meta-loading">環境データを読込中...</div>
         <div id="metaDeckDetail" class="meta-deck-detail hidden"></div>
 
@@ -1562,9 +1553,6 @@ document.addEventListener('keydown',function(e){
 let D=[],sort={k:'price',a:true},rarityFilter='',cardImgUrl='',cardImgSmall='',_konamiDbUrl='';
 const TABLE_PAGE_SIZE=20; // F-11: 一覧の既定表示件数（もっと見るの増分）。散在していたマジックナンバー20を集約
 let tableShowCount=TABLE_PAGE_SIZE; // B-4: 一覧の既定表示件数（20行+もっと見る）
-let _priceHistoryData=null; // B-2: 価格推移データ。details展開まで描画を遅延する
-let _wantChartOpen=false; // F-1: #priceChart直リンク時に「データ到着後に開く」意図を保持するフラグ
-let _priceChartOpenSrc='user'; // G-6: 次に発火するtoggleイベントの発火元（直リンクによる自動オープンかユーザークリックか）
 
 // SEO: カード個別ページの自動検索 & URL書き換え
 const _pageCardName={{ card_name | tojson }};
@@ -1714,7 +1702,7 @@ function _applyKonamiLink(kid){
 
 // 価格関連セクションの表示/非表示を切り替える（未発売カードは価格テーブル等を隠す）
 function _setPriceSectionsVisible(visible){
-  ['priceChart','buyInline','sumCards','rarityFilter','rfBanner','p-all','p-rarity'].forEach(id=>{
+  ['buyInline','sumCards','rarityFilter','rfBanner','p-all','p-rarity'].forEach(id=>{
     const el=document.getElementById(id);
     if(el) el.style.display=visible?'':'none';
   });
@@ -2239,7 +2227,6 @@ function renderAll(d){
 
   renderSummary();
   renderTable();
-  loadPriceHistory(searchTerm);
   // F-2: A8トラッキングピクセルは検索1回につき1回だけ（レアリティ切替では再発火させない）
   const pixelSlot=document.getElementById('affPixelSlot');
   if(pixelSlot) pixelSlot.innerHTML=affPixel('カーナベル','sell');
@@ -2758,69 +2745,7 @@ function searchCard(name){
   doSearch({trigger:'ranking'});
 }
 
-// ── 環境デッキランキング（最初の画面・N-1: いま組むといくら） ──
 function _fmtDate(s){if(!s)return'';const d=new Date(s+'T00:00:00');return (d.getMonth()+1)+'/'+d.getDate();}
-let _topDecksSort='price';
-function switchTopDecks(sort){
-  _topDecksSort=sort;
-  document.querySelectorAll('#topDecksSection .movers-tab').forEach(b=>b.classList.toggle('active',b.textContent.includes(sort==='price'?'安い':'強い')));
-  loadTopDecks(sort);
-}
-function loadTopDecks(sort,retry){
-  retry=retry||0;
-  const sec=document.getElementById('topDecksSection');
-  const list=document.getElementById('topDecksList');
-  sec.classList.remove('hidden');
-  if(!retry) list.innerHTML='<div class="movers-fail">読込中...</div>';
-  fetch(`/api/top-decks?sort=${sort||_topDecksSort}`)
-    .then(r=>r.json())
-    .then(data=>{
-      if(data.error){
-        if(retry<2){setTimeout(()=>loadTopDecks(sort,retry+1),2000);return;}
-        list.innerHTML='<div class="movers-fail">環境デッキ情報の取得に失敗しました</div>';
-        return;
-      }
-      const decks=data.decks||[];
-      if(!decks.length){sec.classList.add('hidden');return;}
-      list.innerHTML=decks.map((d,i)=>{
-        const tierCls=(d.tier>=1&&d.tier<=4)?`tier-${d.tier}`:'tier-4';
-        const tierLabel=d.tier?`Tier${d.tier}`:'-';
-        // Q-11: totalは「取れた分だけの合計」であり正確な総額ではないため、
-        // 一部未取得のときは下限であることが分かるよう「〜」を付ける（「約」は丸めに読める）
-        const priceText=d.priced_count>0
-          ?`&yen;${d.total.toLocaleString()}${d.missing_count>0?'〜':''}`
-          :'価格情報なし';
-        // Q-9: missing_countはカードの種類数（枚数ではない）。「枚」表記だと
-        // 3枚積み1種の未取得が実態と異なり「1枚」に見えるため「種」と表記する
-        const note=d.priced_count>0
-          ?(d.missing_count>0?`${d.missing_count}種未取得`:'全カード取得済み')
-          :'';
-        const imgSafe=d.image?safeUrl(d.image):'';
-        const thumbHtml=imgSafe?`<img src="${escAttr(imgSafe)}" alt="" loading="lazy">`:'';
-        return `<div class="movers-item" onclick="openTopDeck('${escAttr(escJs(d.name))}',${i+1})" data-card="${escAttr(d.name)}">
-          <span class="movers-rank">${i+1}</span>
-          <span class="movers-thumb">${thumbHtml}</span>
-          <span class="movers-name">
-            <span class="movers-name-text">${esc(d.name)}</span>
-            <span class="movers-sub"><span class="rank-tier-badge ${tierCls}">${esc(tierLabel)}</span>使用率${d.share}%</span>
-          </span>
-          <span class="movers-price">
-            <span class="movers-price-now">${priceText}</span>
-            <span class="movers-price-note">${esc(note)}</span>
-          </span>
-        </div>`;
-      }).join('');
-    })
-    .catch(()=>{
-      if(retry<2){setTimeout(()=>loadTopDecks(sort,retry+1),2000);return;}
-      list.innerHTML='<div class="movers-fail">環境デッキ情報の取得に失敗しました</div>';
-    });
-}
-function openTopDeck(theme,rank){
-  _ga('top_deck_click',{rank:rank});
-  switchMode('meta','auto');
-  loadMetaTiers().then(()=>loadMetaDeck(theme));
-}
 
 // ── 価格推移ランキング（最初の画面・N-2: 共通店舗ガードのみ・最安¥1,000以上） ──
 let _topMoversDir='up';
@@ -2958,7 +2883,6 @@ function doBuySearchCard(name){
 // 全て初期化された後に switchMode() を呼び出し、TDZ ReferenceError を防ぐ。
 document.addEventListener('DOMContentLoaded', () => {
   // 初期ロード
-  loadTopDecks('price');
   loadTopMovers('up');
   loadTrending();
   loadBuybackMovers('up');
@@ -2977,9 +2901,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // SEO: カード個別ページの場合、自動検索を実行（サーバーが渡したカード名なのでvalidateスキップ）
-  // Chart.jsのCDN先読みは廃止（F-1/F-12でイベント駆動になったため、/card/*を開いただけで
-  // 未使用の可能性があるCDN2本を読むのはB-2の初期表示軽量化の狙いに反する。
-  // toggle展開時・#priceChart直リンクのデータ到着時にloadPriceHistory/toggleハンドラ側で読み込む）
   if(_pageCardName){
     if(_pageMode==='buyback'){
       switchMode('buyback','deeplink');
@@ -2987,10 +2908,6 @@ document.addEventListener('DOMContentLoaded', () => {
       setTimeout(()=>doBuySearch({validated:true,trigger:'pageload'}),300);
     }else{
       document.getElementById('q').value=_pageCardName;
-      // F-1: 固定タイマーでpc.open=trueにしていたが、doSearch(300ms)+SSE(数秒)より先に
-      // loadPriceHistory側のcontainer.open=falseで打ち消される回帰があったため、
-      // 「開く意図」だけをフラグで持たせ、loadPriceHistoryのデータ到着側で開かせる
-      if(location.hash==='#priceChart') _wantChartOpen=true;
       setTimeout(()=>doSearch({validated:true,trigger:'pageload'}),300);
     }
   }
@@ -3119,7 +3036,7 @@ function switchMode(mode, trigger){
       }
     }
   }
-  if(mode==='meta') loadMetaTiers();
+  if(mode==='meta'){loadMetaTiers();loadMetaDeckPrices();}
   if(mode==='mydeck'){
     renderSavedDecks();
     // 端末間同期（P2）: マイデッキタブを開いたときだけ pull する（カード個別ページ閲覧では走らせない）
@@ -3327,6 +3244,70 @@ let _metaLoaded=false;
 let _metaTiers=[];
 let _metaLoadPromise=null; // Q-11: 呼び出しが重なった時に /api/meta を二重fetchしないためのin-flightガード
 
+// R-1: 旧トップページの「デッキの金額」ランキング（/api/top-decks）を環境デッキタブへ統合。
+// 既定は強い順（Tierグループ表示）、切替で安い順（フラット表示）にする。
+// /api/top-decks はシェア上位8件（top_page.TOP_DECKS_LIMIT）しかスクレイプ・価格計算しないため、
+// _metaPriceMap に入っていないデッキ（Tier一覧には出るが上位8件に入らないもの）もある。
+// その場合は価格行を出さない（「価格情報なし」は取得を試みて失敗した場合の表記のため、
+// そもそも取得していないデッキと意味を混同しないよう区別する）。
+let _metaSort='tier';
+let _metaPriceMap={}; // name -> {total,priced_count,missing_count,tier,share}
+let _metaPricesLoaded=false;
+let _metaPricesLoadPromise=null;
+
+function switchMetaSort(sort){
+  _metaSort=sort;
+  document.querySelectorAll('#metaSortTabs .movers-tab').forEach(b=>b.classList.toggle('active',b.textContent.includes(sort==='price'?'安い':'強い')));
+  renderMetaTiers();
+  loadMetaDeckPrices();
+}
+
+let _metaPricesError=false; // 価格データの取得を試みて失敗した（=取得を試みていないデッキとは区別する）
+function loadMetaDeckPrices(retry){
+  retry=retry||0;
+  if(_metaPricesLoaded) return Promise.resolve();
+  if(_metaPricesLoadPromise) return _metaPricesLoadPromise;
+  _metaPricesLoadPromise=fetch('/api/top-decks?sort=tier')
+    .then(r=>r.json())
+    .then(data=>{
+      if(data.error&&!(data.decks&&data.decks.length)){
+        // 旧loadTopDecksと同じ方針: 2回まで再試行してから諦める
+        if(retry<2){setTimeout(()=>loadMetaDeckPrices(retry+1),2000);return;}
+        _metaPricesLoaded=true;
+        _metaPricesError=true;
+        if(_metaTiers.length) renderMetaTiers();
+        return;
+      }
+      for(const d of (data.decks||[])) _metaPriceMap[d.name]=d;
+      _metaPricesLoaded=true;
+      if(_metaTiers.length) renderMetaTiers(); // 一覧が既に表示済みなら価格を反映して再描画
+    })
+    .catch(()=>{
+      if(retry<2){setTimeout(()=>loadMetaDeckPrices(retry+1),2000);return;}
+      _metaPricesLoaded=true;
+      _metaPricesError=true;
+      if(_metaTiers.length) renderMetaTiers();
+    })
+    .finally(()=>{_metaPricesLoadPromise=null;});
+  return _metaPricesLoadPromise;
+}
+
+function _metaDeckPriceHtml(name){
+  const d=_metaPriceMap[name];
+  if(!d) return '';
+  // Q-11: totalは「取れた分だけの合計」であり正確な総額ではないため、
+  // 一部未取得のときは下限であることが分かるよう「〜」を付ける（「約」は丸めに読める）
+  const priceText=d.priced_count>0
+    ?`&yen;${d.total.toLocaleString()}${d.missing_count>0?'〜':''}`
+    :'価格情報なし';
+  // Q-9: missing_countはカードの種類数（枚数ではない）。「枚」表記だと
+  // 3枚積み1種の未取得が実態と異なり「1枚」に見えるため「種」と表記する
+  const note=d.priced_count>0
+    ?(d.missing_count>0?`${d.missing_count}種未取得`:'全カード取得済み')
+    :'';
+  return `<span class="meta-deck-price"><span class="meta-deck-price-now">${priceText}</span><span class="meta-deck-price-note">${esc(note)}</span></span>`;
+}
+
 function loadMetaTiers(){
   if(_metaLoaded) return Promise.resolve();
   if(_metaLoadPromise) return _metaLoadPromise; // 進行中のfetchに相乗りする
@@ -3360,7 +3341,43 @@ function renderMetaTiers(){
   const el=document.getElementById('metaTierList');
   if(!_metaTiers.length){el.innerHTML='<div class="meta-loading">データがありません</div>';return;}
 
-  // グループ by tier
+  let rank=0; // GA用の表示順（クリック計測。カード名/デッキ名は送らない）
+
+  if(_metaSort==='price'){
+    // 安い順: 価格データを取得できたデッキ（上位シェア8件）だけをフラットに、
+    // 全カード取得済み優先→一部未取得→価格情報なしの順、同グループ内は金額昇順
+    // （app.py側 top_page.rank_decks の並び基準と揃える）
+    const priced=_metaTiers.filter(t=>_metaPriceMap[t.name]);
+    if(!priced.length){
+      el.innerHTML=_metaPricesError
+        ?'<div class="meta-loading">環境デッキの価格情報の取得に失敗しました</div>'
+        :'<div class="meta-loading">価格データを読込中...</div>';
+      return;
+    }
+    const sorted=[...priced].sort((a,b)=>{
+      const da=_metaPriceMap[a.name], db=_metaPriceMap[b.name];
+      const relA=da.total<=0?2:(da.missing_count>0?1:0);
+      const relB=db.total<=0?2:(db.missing_count>0?1:0);
+      if(relA!==relB) return relA-relB;
+      return da.total-db.total;
+    });
+    let html='<div class="meta-deck-list">';
+    for(const d of sorted){
+      rank++;
+      const dImgSafe=d.image?safeUrl(d.image):'';
+      const imgHtml=dImgSafe?`<img src="${escAttr(dImgSafe)}" alt="" style="width:44px;height:62px;border-radius:2px;object-fit:cover;flex-shrink:0">`:'';
+      html+=`<button class="meta-deck-btn" onclick="loadMetaDeck('${escAttr(escJs(d.name))}',${rank})" id="meta-btn-${escAttr(d.name)}">
+        ${imgHtml} ${esc(d.name)} <span class="meta-share">${d.share}%</span>
+        ${_metaDeckPriceHtml(d.name)}
+      </button>`;
+    }
+    html+='</div>';
+    html+='<div class="meta-note">環境デッキを今すぐ組むといくらか（一部未取得のカードあり・目安）／データ: TCG PORTAL 大会入賞データより（直近1ヶ月）</div>';
+    el.innerHTML=html;
+    return;
+  }
+
+  // 強い順（既定）: 従来どおりTierグループ表示。各デッキ行に価格データがあれば併記する
   const groups={};
   for(const t of _metaTiers){
     const key=t.tier||99;
@@ -3376,10 +3393,12 @@ function renderMetaTiers(){
       <div class="meta-tier-label"><span class="tier-badge ${cls}">${label}</span></div>
       <div class="meta-deck-list">`;
     for(const d of groups[tier]){
+      rank++;
       const dImgSafe=d.image?safeUrl(d.image):'';
       const imgHtml=dImgSafe?`<img src="${escAttr(dImgSafe)}" alt="" style="width:44px;height:62px;border-radius:2px;object-fit:cover;flex-shrink:0">`:'';
-      html+=`<button class="meta-deck-btn" onclick="loadMetaDeck('${escAttr(escJs(d.name))}')" id="meta-btn-${escAttr(d.name)}">
+      html+=`<button class="meta-deck-btn" onclick="loadMetaDeck('${escAttr(escJs(d.name))}',${rank})" id="meta-btn-${escAttr(d.name)}">
         ${imgHtml} ${esc(d.name)} <span class="meta-share">${d.share}%</span>
+        ${_metaDeckPriceHtml(d.name)}
       </button>`;
     }
     html+=`</div></div>`;
@@ -3388,7 +3407,10 @@ function renderMetaTiers(){
   el.innerHTML=html;
 }
 
-async function loadMetaDeck(theme){
+async function loadMetaDeck(theme,rank){
+  // R-1: 旧トップページの top_deck_click を統合先の環境デッキタブに合わせて改名。
+  // カード名・デッキ名は送らずクリック順位のみ（従来方針を維持）
+  if(rank) _ga('meta_deck_click',{rank:rank});
   const detailEl=document.getElementById('metaDeckDetail');
   const btn=document.getElementById('meta-btn-'+theme);
   if(btn) btn.classList.add('loading');
@@ -4281,80 +4303,6 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/static/sw.js
 </script>
 
 <script>
-// ── 価格推移グラフ ──
-// RARITY_COLORS は rarity.py（サーバ）から注入された RARITY_CONFIG を元に構築
-const RARITY_COLORS=(()=>{
-  const m={};
-  for(const[canon,cfg] of Object.entries(window.RARITY_CONFIG||{})){
-    m[canon]=cfg.color;
-  }
-  return m;
-})();
-let _chartInstance=null;
-
-function _loadChartJs(cb){
-  if(window.Chart){cb();return;}
-  const s=document.createElement('script');
-  s.src='https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js';
-  s.onload=()=>{
-    const a=document.createElement('script');
-    a.src='https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js';
-    a.onload=cb;
-    document.head.appendChild(a);
-  };
-  document.head.appendChild(s);
-}
-
-// B-2: 価格推移は既定で折りたたみ（<details id="priceChart">）にしたため、
-// データ取得はここで行うが、Chart.jsの読み込み・描画は初回展開まで遅延する
-function loadPriceHistory(cardName){
-  const container=document.getElementById('priceChart');
-  container.classList.add('hidden');
-  // F-1: #priceChart直リンク（_wantChartOpen）のときはここでopen=falseにしない。
-  // データ到着(.then)側でopen=trueにするまで、閉じた/開いたどちらの状態にも触れない
-  if(!_wantChartOpen) container.open=false;
-  _priceHistoryData=null;
-  if(_chartInstance){_chartInstance.destroy();_chartInstance=null;}
-  fetch('/api/price-history?card='+encodeURIComponent(cardName))
-    .then(r=>r.json())
-    .then(json=>{
-      if(!json.data||!json.data.length){
-        // F-12: 0件のときも直リンクの「開く」意図をここで消費しきる。
-        // _wantChartOpenをtrueのまま残すと、後続の別カード検索（同一ページセッション内）で
-        // ユーザーが直リンクを踏んでいないのに履歴ありカードのグラフが勝手に開いてしまう
-        _wantChartOpen=false;
-        container.open=false;
-        return;
-      }
-      _priceHistoryData=json.data;
-      container.classList.remove('hidden');
-      if(_wantChartOpen){
-        // F-1: 直リンクの「開く」意図はここ（データ到着後）で初めて実行する
-        _priceChartOpenSrc='deeplink'; // G-6: 直後に発火するtoggleイベントを自動オープンとして計測する
-        container.open=true;
-        _loadChartJs(()=>_drawPriceChart(_priceHistoryData));
-        container.scrollIntoView({behavior:'smooth'});
-        _wantChartOpen=false;
-      }else if(container.open){
-        // 直リンク以外で既にユーザーが手動展開している場合の描画（toggleイベントとの競合フォールバック）
-        _loadChartJs(()=>_drawPriceChart(_priceHistoryData));
-      }
-    })
-    .catch(()=>{_wantChartOpen=false;container.open=false;}); // F-12: 通信失敗時も直リンクの「開く」意図を消費しきる
-}
-
-// details（#priceChart）の開閉イベントは一度だけ登録（renderTable等と同じ方針）
-document.getElementById('priceChart')?.addEventListener('toggle',function(){
-  if(this.open){
-    // G-6: _wantChartOpen経由の自動オープン（deeplink）とユーザークリック（user）を分離する
-    _ga('price_chart_open',{src:_priceChartOpenSrc});
-    _priceChartOpenSrc='user'; // 消費したら次回以降はユーザー操作として扱う既定に戻す
-    if(_priceHistoryData&&!_chartInstance){
-      _loadChartJs(()=>_drawPriceChart(_priceHistoryData));
-    }
-  }
-});
-
 // カード情報（効果テキスト）の<details>はheroInfo.innerHTML=...で毎回作り直されるため、
 // 静的なaddEventListenerでは張り替え漏れが起きる。document capture段階で委譲する
 // （'toggle'イベントはbubbleしないが、capture段階はDOM再生成後の要素にも常に届く）
@@ -4363,53 +4311,6 @@ document.addEventListener('toggle',function(e){
     _ga('card_info_open');
   }
 },true);
-
-// _RARITY_NORMALIZE / _normalizeRarity は廃止（サーバが正準名を返すため不要）
-
-function _drawPriceChart(data){
-  if(_chartInstance){_chartInstance.destroy();_chartInstance=null;}
-  // レアリティ×日付ごとに全店舗の最安値を算出。同一画面の「最安値」表示・
-  // 値動きランキング・見積もりと統計量を揃える（旧実装は店舗平均で、
-  // 最安値表示と数字が食い違っていた ― 監査F9）
-  // rarity はサーバ側で正準名に正規化済み
-  const byRarityDate={};
-  data.forEach(r=>{
-    const rar=r.rarity||'不明';
-    if(!byRarityDate[rar])byRarityDate[rar]={};
-    if(!byRarityDate[rar][r.date])byRarityDate[rar][r.date]=[];
-    byRarityDate[rar][r.date].push(r.price);
-  });
-  const datasets=Object.entries(byRarityDate).map(([rar,dates])=>{
-    const points=Object.entries(dates).map(([d,prices])=>({
-      x:d,y:Math.min(...prices)
-    })).sort((a,b)=>a.x.localeCompare(b.x));
-    return{
-      label:rar,data:points,
-      borderColor:RARITY_COLORS[rar]||'#888',
-      backgroundColor:'transparent',
-      tension:0.3,pointRadius:2,borderWidth:2,fill:false
-    };
-  });
-  const ctx=document.getElementById('priceCanvas');
-  _chartInstance=new Chart(ctx,{
-    type:'line',
-    data:{datasets},
-    options:{
-      responsive:true,maintainAspectRatio:false,
-      scales:{
-        x:{type:'time',time:{unit:'day',tooltipFormat:'yyyy/MM/dd'},
-           grid:{color:'rgba(255,255,255,.05)'},ticks:{color:'#8a8ca0',font:{size:10}}},
-        y:{beginAtZero:false,
-           ticks:{color:'#8a8ca0',font:{size:10},callback:v=>'\u00a5'+v.toLocaleString()},
-           grid:{color:'rgba(255,255,255,.05)'}}
-      },
-      plugins:{
-        legend:{position:'bottom',labels:{color:'#d8dae0',font:{size:11},boxWidth:12,padding:10}},
-        tooltip:{callbacks:{label:ctx=>ctx.dataset.label+': \u00a5'+ctx.parsed.y.toLocaleString()}}
-      }
-    }
-  });
-}
 </script>
 
 <script>
@@ -4773,7 +4674,7 @@ function renderWishlist(){
       <span class="wish-card-name">${esc(c.name)}</span>
       ${_wishRaritySelectHtml(c)}
       ${_wishPriceHtml(info)}
-      <a class="wish-card-link" href="/card/${encodeURIComponent(c.name)}#priceChart" target="_blank" rel="noopener">価格推移を確認</a>
+      <a class="wish-card-link" href="/card/${encodeURIComponent(c.name)}" target="_blank" rel="noopener">価格を見る</a>
       <button class="wish-card-remove" onclick="wishRemove('${escAttr(escJs(c.name))}','${rj}')" title="削除">&times;</button>
     </div>`}).join('');
 }
