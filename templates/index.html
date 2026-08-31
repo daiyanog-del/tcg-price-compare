@@ -2734,7 +2734,14 @@ function loadTopMovers(dir,retry){
     .then(r=>r.json())
     .then(data=>{
       if(data.error){
-        if(retry<2){setTimeout(()=>loadTopMovers(dir,retry+1),2000);return;}
+        // 初回（キャッシュ失効直後）はサーバ側の集計に十分な時間がかかるため、
+        // 2回×2秒では足りず「取得に失敗しました」を誤表示していた（本番実測: 完了まで15秒程度）。
+        // 待っている間であることが分かる文言に切り替えつつ、余裕を持って再試行する。
+        if(retry<8){
+          list.innerHTML='<div class="movers-fail">集計中です。少しお待ちください…</div>';
+          setTimeout(()=>loadTopMovers(dir,retry+1),3000);
+          return;
+        }
         list.innerHTML='<div class="movers-fail">価格推移ランキングの取得に失敗しました</div>';
         return;
       }
