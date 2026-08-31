@@ -1023,6 +1023,12 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     <label class="shop-toggle active" data-shop="遊々亭">
       <input type="checkbox" checked> 遊々亭
     </label>
+    <label class="shop-toggle active" data-shop="トレコロCB">
+      <input type="checkbox" checked> トレコロCB
+    </label>
+    <label class="shop-toggle active" data-shop="カードラボ">
+      <input type="checkbox" checked> カードラボ
+    </label>
   </div>
 
   <div class="progress" id="buyProg"></div>
@@ -2252,11 +2258,15 @@ function renderSummary(){
     return;
   }
   const minPrice=items[0].price;
+  // M-2: 先頭行（最安）の型番が「型番らしい形」を通るときだけ、差額・BESTの突き合わせ基準にする
+  // （型番が違えば別物のため、別型番同士の引き算を表示しない。買取側の店舗別カードと同じ規律）
+  const topCode=_looksLikeCardCode(items[0].code)?items[0].code:null;
   let h='';
   items.forEach((item,i)=>{
+    const sameCode=!!topCode&&item.code===topCode;
     // J-5: rarityFilterが空（=「すべて」表示・別レアリティ同士の比較）のときはBESTバッジを付けない
     // （別レアリティの最安値に「BEST PRICE」と断言してしまう表示を防ぐ。F-9の差額抑止と同じ理由）
-    const isBest=!!rarityFilter&&i===0;
+    const isBest=!!rarityFilter&&i===0&&sameCode;
     const itemUrl=affLink(item.url, item.shop, 'sell');
     const nameLink=item.url?`<a href="${escAttr(itemUrl)}" target="_blank" rel="noopener nofollow">${esc(item.name)}</a>`:esc(item.name);
     const priceLink=item.url?`<a class="scard-link" href="${escAttr(itemUrl)}" target="_blank" rel="noopener nofollow">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
@@ -2264,7 +2274,7 @@ function renderSummary(){
     // F-8: 最安（先頭）は.scard.best::beforeの「BEST PRICE」バッジに任せ.sdiffには何も出さない（重複解消）。
     //      同額タイのときは「+¥0」ではなく「同額」と出す
     let diff='';
-    if(rarityFilter&&!isBest){
+    if(rarityFilter&&!isBest&&sameCode){
       const d=item.price-minPrice;
       diff=d===0?'同額':`+¥${d.toLocaleString()}`;
     }
@@ -2452,58 +2462,35 @@ function _renderBuyInline(){
     return;
   }
 
-  // H-1: rarityFilterが空（=「すべて」表示）のときは、販売側の全体最安と買取側の全体最高が
-  // 別レアリティ同士になりうる（例: 販売¥180はウルトラ、買取¥72,000は20thシークレット）。
-  // 成立しない比較を出すと実害があるため、要点1行・差額表示ともに出さない（F-9と同じ規律を買取側にも適用）
+  // H-1: rarityFilterが空（=「すべて」表示）のときは、買取側の店舗間の差額・BESTバッジが
+  // 別レアリティ同士になりうる（例: 買取¥72,000は20thシークレット、別行はウルトラ）。
+  // 成立しない比較を出すと実害があるため、差額表示は出さない（F-9と同じ規律を買取側にも適用）
   const rarityActive=!!rarityFilter;
 
-  // (a) 要点1行: K-1: レアリティが同じでも型番（収録弾）が違えば全くの別物（実データで同一レアリティ内に
-  // 200倍の価格差を確認済み）。基準は「販売最安の型番」に固定し、その型番の買取価格だけを突き合わせる。
-  // 型番が一致するデータが無いときは、別型番の額で埋めずに「見つかりませんでした」を出す
-  let headline;
-  if(rarityActive){
-    const sellItems=_summaryShopItems();
-    const sellBest=sellItems.length?sellItems[0]:null;
-    // L-1: 販売最安のcodeが「型番らしい形」を通るときだけ突き合わせの基準に使う
-    // （店舗によってcodeが弾の略号や壊れた値のことがあり、それ同士が一致しても別カードの可能性があるため）
-    const sellCode=(sellBest&&_looksLikeCardCode(sellBest.code))?sellBest.code:null;
-    const sameCodeBuy=sellCode?filtered.filter(r=>r.code===sellCode):[];
-    // J-4: 販売側の約4割が「-」以外の状態（状態C・中古キズあり・セール等）を持つ実データが出ている。
-    // 状態を無視すると「¥180で買えて」が実は状態Cの価格だった、という利ざやの誤誘導になるため併記する
-    const sellCond=(sellBest&&sellBest.condition&&sellBest.condition!=='-')?`（${esc(sellBest.condition)}）`:'';
-    if(sellBest&&sellCode&&sameCodeBuy.length){
-      const buyBest=sameCodeBuy.reduce((a,b)=>a.price>b.price?a:b);
-      const buyCond=(buyBest.condition&&buyBest.condition!=='-')?`（${esc(buyBest.condition)}）`:'';
-      headline=`<p class="buy-inline-headline"><strong>${esc(sellCode)}</strong>を${esc(sellBest.shop)}で<strong style="color:var(--gold)">¥${sellBest.price.toLocaleString()}${sellCond}</strong>で買えて、${esc(buyBest.shop)}に<strong style="color:var(--green)">¥${buyBest.price.toLocaleString()}${buyCond}</strong>で売れます</p>`;
-    }else if(sellBest&&sellCode){
-      headline=`<p class="buy-inline-headline"><strong>${esc(sellCode)}</strong>の買取価格は見つかりませんでした</p>`;
-    }else{
-      // 販売側に型番が無い、または在庫が無い（sellBest自体が無い）ときは、同一型番の確認ができない
-      headline='<p class="buy-inline-headline">型番が確認できないため、買値と売値の比較を表示できません</p>';
-    }
-  }else{
-    headline='<p class="buy-inline-headline">レアリティを選ぶと、買値と売値の比較を表示します</p>';
-  }
-  // H-2/J-4: 同一レアリティ内の比較でも「そのまま利ざやが取れる」と読めてしまう。販売・買取
-  // どちらも店舗ごとの状態・枚数の条件で価格が変わることを短く添える（長い免責文にはしない）
-  const conditionNote='<p class="buy-inline-note">販売価格・買取価格ともに、店舗ごとの状態・枚数の条件により変わります</p>';
+  // M-1: 「要点1行」（販売最安×同型番の買取最高の突き合わせ文）はユーザー判断で廃止した。
+  // 理由は docs/decisions.md 参照（買値より買取が安いのは自明で情報として空／貼り紙で
+  // 誤読を塞ぐ形の表現だった）。案内文も同時に不要になったため削除する
+  // M-1: 注意書きは買取価格側の条件（状態・枚数）に絞って短く残す（販売側への言及は不要になった）
+  const conditionNote='<p class="buy-inline-note">買取価格は店舗ごとの状態・枚数の条件により変わります</p>';
 
-  // (b) 店舗別カード: 買取額の高い順。差額（買取は高い方が良いため安い側がマイナス表記）とBESTバッジは
-  // 同一レアリティが確定しているときだけ出す（J-5・別レアリティの最高額に「BEST」と断言しない）。
-  // レアリティ・状態の表示自体は「すべて」でも残す
+  // (b) 店舗別カード: 買取額の高い順。M-2: 差額（買取は高い方が良いため安い側がマイナス表記）と
+  // BESTバッジは「先頭行（最高額）と同じ型番」の行にだけ出す（型番が違えば別物のため、別型番同士の
+  // 引き算を表示しない）。先頭行の型番が「型番らしい形」を通らないときは、どの行にも出さない
   const byShop={};
   for(const r of filtered){ if(!byShop[r.shop]||r.price>byShop[r.shop].price) byShop[r.shop]=r; }
   const sortedShops=Object.values(byShop).sort((a,b)=>b.price-a.price);
   const maxPrice=sortedShops[0].price;
+  const topCode=_looksLikeCardCode(sortedShops[0].code)?sortedShops[0].code:null;
   let cardsHtml='';
   sortedShops.forEach((item,i)=>{
-    const isBest=rarityActive&&i===0;
+    const sameCode=!!topCode&&item.code===topCode;
+    const isBest=rarityActive&&i===0&&sameCode;
     // アフィリエイト: リンクはaffLink()を使うが、トラッキングピクセルaffPixel()はここでは発火させない
     // （レアリティ切替のたびにこの関数が再実行されるため。第1弾F-2で潰した重複発火の再発防止）
     const itemUrl=affLink(item.url,item.shop,'buy');
     const priceLink=item.url?`<a class="scard-link" href="${escAttr(itemUrl)}" target="_blank" rel="noopener nofollow">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
     let diff='';
-    if(!isBest&&rarityActive){
+    if(!isBest&&rarityActive&&sameCode){
       const d=maxPrice-item.price;
       diff=d===0?'同額':`−¥${d.toLocaleString()}`;
     }
@@ -2518,7 +2505,7 @@ function _renderBuyInline(){
       <div class="sdetail">${esc(item.rarity||'-')}${condStr}${codeStr}<br>${esc(item.name)}</div></div>`;
   });
 
-  body.innerHTML=`${headline}${conditionNote}<div class="summary">${cardsHtml}</div>${_buyInlineNotes()}${_buyInlineDetailLinkHtml()}`;
+  body.innerHTML=`${conditionNote}<div class="summary">${cardsHtml}</div>${_buyInlineNotes()}${_buyInlineDetailLinkHtml()}`;
 }
 
 // F-5/F-14: ヒーローの最安値表示・売切件数バッジをrarityFilterに合わせて再計算する
