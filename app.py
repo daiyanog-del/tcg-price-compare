@@ -11,7 +11,7 @@ import unicodedata
 import requests as _http
 import threading
 from datetime import datetime, timezone, timedelta
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as _FuturesTimeoutError
 from flask import Flask, render_template, request, jsonify, Response, redirect, url_for
 from flask_compress import Compress
 
@@ -30,6 +30,7 @@ from shipping import (
 from aggregations import daily_min_by_lowest_rarity, common_shop_price_change
 from price_persist import build_min_price_rows, upsert_price_rows
 from meta_scraper import fetch_tier_list, fetch_deck_cards, build_deck_text, build_recipe_text, _cache_read, _DECK_CACHE_TTL, _TIER_CACHE_TTL
+import top_page as _top_page
 from pack_scraper import get_pack_list, fetch_pack_cards
 from monitor import tracker, run_health_check
 from constants import JST, VAPID_CLAIMS
@@ -1601,6 +1602,285 @@ def api_buyback_movers():
     else:
         updated_at = None
     return jsonify({"items": items, "date_old": date_old, "date_new": date_new, "updated_at": updated_at})
+
+
+# ── 最初の画面（検索前）向けランキング（N-1: デッキ / N-2: 価格推移） ──
+# 集計ロジック本体は top_page.py に切り出し、ここは配線（取得・キャッシュ・ルート）のみ。
+
+_top_decks_cache: dict = {}
+_top_decks_cache_time: float = 0
+_top_decks_lock = threading.Lock()  # Q-11: in-flightロック（TTL失効直後の同時アクセスでスクレイプが並走するのを防ぐ）
+
+def _get_top_decks_cached(force: bool = False) -> dict:
+    """環境デッキ「いま組むといくら」をシェア上位 top_page.TOP_DECKS_LIMIT 件だけ計算し、
+    top_page.TOP_DECKS_CACHE_SEC 秒キャッシュする（デッキ数ぶんスクレイピングが
+    発生するため、リクエストの度に全デッキを再計算しない）。
+    """
+    global _top_decks_cache, _top_decks_cache_time
+    now = time.time()
+    if not force and _top_decks_cache and now - _top_decks_cache_time < _top_page.TOP_DECKS_CACHE_SEC:
+        return _top_decks_cache
+
+    if not _top_decks_lock.acquire(blocking=False):
+        # 別スレッドが計算中（Q-11）。旧キャッシュがあればそれを返し、無ければ「計算中」を返す
+        return _top_decks_cache or {"decks": [], "updated": None, "error": "計算中です。しばらくしてから再度お試しください"}
+
+    try:
+        # Q-5: 相場キャッシュが一度もロードされていないワーカー（gunicorn複数ワーカーの
+        # うち1つしか _claim_startup_job のプリフェッチが当たらない）で計算すると
+        # 全デッキ¥0になり、それが30分キャッシュされ続ける。未ロードなら計算自体を
+        # スキップしてエラーを返す（バックグラウンドロードは既存どおり走らせる）
+        if _estimate_cache_time == 0:
+            if time.time() - _estimate_cache_time > _ESTIMATE_CACHE_SEC:
+                Thread(target=_load_estimate_cache, daemon=True).start()
+            logger.warning("top-decks: 相場キャッシュ未ロードのため今回の計算をスキップ")
+            return _top_decks_cache or {"decks": [], "updated": None, "error": "価格データを準備中です"}
+
+        # Q-4: fetch_tier_list は最悪126秒かかりうる（窓2つ×3リトライ×timeout20秒）ため、
+        # 既存 /api/meta と同じく executor 経由・タイムアウト付きで呼ぶ
+        try:
+            tiers = _meta_executor.submit(fetch_tier_list).result(timeout=25)
+        except Exception as e:
+            logger.error(f"top-decks: Tier表取得エラー: {e}")
+            tiers = []
+        if not tiers:
+            return _top_decks_cache or {"decks": [], "updated": None, "error": "環境データを取得できませんでした"}
+
+        targets = sorted(tiers, key=lambda t: -(t.get("share") or 0))[:_top_page.TOP_DECKS_LIMIT]
+
+        futures = {_meta_executor.submit(fetch_deck_cards, t["name"], False): t for t in targets}
+        deck_data_by_theme = {}
+        try:
+            # Q-3: as_completed(timeout=...) はイテレータ自体がTimeoutErrorを送出するため、
+            # future.result()を囲むtryでは捕まらない。forループ全体を囲む必要がある
+            for future in as_completed(futures, timeout=40):
+                t = futures[future]
+                try:
+                    deck_data_by_theme[t["name"]] = future.result()
+                except Exception as e:
+                    logger.warning(f"top-decks: デッキ取得失敗 ({t['name']}): {e}")
+        except _FuturesTimeoutError:
+            logger.warning(
+                f"top-decks: {len(targets)}件中{len(deck_data_by_theme)}件で40秒タイムアウト。"
+                "取得できた分だけで続行")
+        finally:
+            # 未完了futureを残すと共有 _meta_executor を占有し続け、/api/meta/deck が
+            # 巻き添えでタイムアウトする（Q-3）。キャンセルできるものはキャンセルする
+            for f in futures:
+                if not f.done():
+                    f.cancel()
+
+        _load_cardnames()
+
+        decks = []
+        for t in targets:
+            data = deck_data_by_theme.get(t["name"])
+            if not data:
+                continue
+            full_deck = data.get("full_deck") or []
+            deck_text = build_recipe_text(full_deck) if full_deck else build_deck_text(data.get("cards") or [])
+            # Q-8: [EX]はEXデッキの区切り見出し行でありカードではない。フロント側の
+            # 既存パーサ（index.html: l!=='[EX]'）と同じく除外してから渡す
+            lines = [l for l in deck_text.split("\n") if l.strip() and l.strip() != "[EX]"]
+            if not lines:
+                continue
+            names_raw = "|".join(lines)
+            entries, parse_error = _parse_deck_entries(names_raw)
+            if parse_error or not entries:
+                continue
+            summary = _top_page.summarize_deck(entries, _estimate_cache)
+            decks.append({
+                "name": t["name"],
+                "tier": t.get("tier", 0),
+                "share": t.get("share", 0),
+                "image": t.get("image", ""),
+                **summary,
+            })
+
+        if not decks:
+            return _top_decks_cache or {"decks": [], "updated": None, "error": "デッキ価格を計算できませんでした"}
+
+        # Q-5続き: 相場キャッシュ由来の異常（全デッキ priced_count=0）はキャッシュしない
+        if all(d.get("priced_count", 0) == 0 for d in decks):
+            logger.warning("top-decks: 全デッキでpriced_count=0。相場キャッシュ異常の疑いがありキャッシュしない")
+            return _top_decks_cache or {"decks": decks, "updated": None, "error": "価格データを取得できませんでした"}
+
+        result = {"decks": decks, "updated": datetime.now(JST).isoformat(), "error": None}
+        _top_decks_cache = result
+        _top_decks_cache_time = now
+        return result
+    finally:
+        _top_decks_lock.release()
+
+@app.route("/api/top-decks")
+def api_top_decks():
+    """検索前の初期画面向け: 環境デッキを「いま組むといくら」で返す"""
+    sort = request.args.get("sort", "price")
+    if sort not in ("price", "tier"):
+        return jsonify({"error": "sort は price または tier"}), 400
+    data = _get_top_decks_cached()
+    decks = _top_page.rank_decks(data.get("decks", []), sort=sort)
+    return jsonify({"decks": decks, "updated": data.get("updated"), "error": data.get("error")})
+
+
+_top_movers_cache: dict = {}
+_top_movers_cache_time: float = 0
+_top_movers_lock = threading.Lock()  # Q-11: in-flightロック
+
+# Q-2: 本番実測（2026-08-31）で最新日の price_history は30,851行。旧 max_pages=20
+# （=2万行上限）は既にこれを下回っており、カード名順の後半が黙って欠落していた。
+# 3日分（当日・7日前・前日）を独立に取得するため、日ごとに十分な余裕を持たせる。
+# TODO: calibrate from data（データ増加ペースに応じて見直す。恒久対応はRPCでDB側
+# 集計に寄せること。3日分×3万行をPostgREST経由で読むのは重い＝TASKS.mdに登録）
+_PRICE_HISTORY_DAY_MAX_PAGES = 100  # 100ページ = 10万行
+
+def _fetch_price_history_day(date_str: str) -> tuple:
+    """指定日(JST日付文字列 YYYY-MM-DD)の price_history 全行を取得する
+    （card_name, shop, rarity, min_price）。1000行上限を超える日があるため、
+    他の全件走査エンドポイントと同じ range 分割で取得する。
+
+    Q-2修正: card_name だけでは一意にならず（同一カード名に複数店舗・複数
+    レアリティの行がある）、.order("card_name") 単独ではページ境界で行が
+    重複・欠落しうる。card_name/shop/rarity の複合キーで安定化する
+    （app.py内の既存の規律「安定キーで必ず order する」に合わせる）。
+
+    戻り値: (rows, complete)。complete=False は暴走ガードで打ち切ったことを示す。
+    その場合、呼び出し側はこの回の結果をキャッシュしないこと。
+    """
+    next_day = (datetime.strptime(date_str, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+    page_size = 1000
+    offset = 0
+    rows: list = []
+    complete = True
+    while True:
+        resp = (_supabase_client.table("price_history")
+                .select("card_name, shop, rarity, min_price")
+                .gte("recorded_at", date_str)
+                .lt("recorded_at", next_day)
+                .order("card_name")
+                .order("shop")
+                .order("rarity")
+                .range(offset, offset + page_size - 1)
+                .execute())
+        batch = resp.data or []
+        rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        offset += page_size
+        if offset >= _PRICE_HISTORY_DAY_MAX_PAGES * page_size:
+            complete = False
+            logger.error(
+                f"top-movers: {date_str} が{_PRICE_HISTORY_DAY_MAX_PAGES}ページ"
+                f"({_PRICE_HISTORY_DAY_MAX_PAGES * page_size}行)を超過して打ち切り。"
+                "この日の結果は不完全なため呼び出し側でキャッシュしないこと")
+            break
+    return rows, complete
+
+def _get_top_movers_cached(force: bool = False) -> dict:
+    """価格推移ランキング（代表レアリティ固定・共通店舗ガード・定着チェック、
+    最安¥1,000以上）を top_page.TOP_MOVERS_CACHE_SEC 秒キャッシュする。
+    """
+    global _top_movers_cache, _top_movers_cache_time
+    now = time.time()
+    if not force and _top_movers_cache and now - _top_movers_cache_time < _top_page.TOP_MOVERS_CACHE_SEC:
+        return _top_movers_cache
+
+    if not _supabase_client:
+        return _top_movers_cache or {"up": [], "down": [], "date_old": None, "date_new": None,
+                                      "error": "価格データベースに接続できません"}
+
+    if not _top_movers_lock.acquire(blocking=False):
+        # 別スレッドが計算中（Q-11）
+        return _top_movers_cache or {"up": [], "down": [], "date_old": None, "date_new": None,
+                                      "error": "計算中です。しばらくしてから再度お試しください"}
+
+    try:
+        # 当日データがまだ無い時間帯を考慮し、最新の recorded_at を実データから取る
+        latest_resp = (_supabase_client.table("price_history")
+                       .select("recorded_at")
+                       .order("recorded_at", desc=True)
+                       .range(0, 0)
+                       .execute())
+        latest_rows = latest_resp.data or []
+        if not latest_rows:
+            return _top_movers_cache or {"up": [], "down": [], "date_old": None, "date_new": None,
+                                          "error": "価格データがまだありません"}
+        date_new = latest_rows[0]["recorded_at"][:10]
+        date_old = (datetime.strptime(date_new, "%Y-%m-%d") - timedelta(days=7)).strftime("%Y-%m-%d")
+        date_prev = (datetime.strptime(date_new, "%Y-%m-%d")
+                     - timedelta(days=_top_page.MOVERS_STABILITY_DAYS)).strftime("%Y-%m-%d")
+
+        try:
+            rows_new, new_complete = _fetch_price_history_day(date_new)
+            rows_old, old_complete = _fetch_price_history_day(date_old)
+        except Exception as e:
+            logger.warning(f"価格推移ランキング(共通店舗ガード版)取得失敗: {e}")
+            if _top_movers_cache:
+                return _top_movers_cache
+            return {"up": [], "down": [], "date_old": None, "date_new": None, "error": "取得に失敗しました"}
+
+        # Q-2: 当日・7日前のどちらかが暴走ガードで打ち切られた（=不完全）なら、
+        # 不完全なランキングをキャッシュせず今回は既存キャッシュを返す
+        if not new_complete or not old_complete:
+            logger.error(f"top-movers: {date_new}/{date_old} のデータが不完全なため今回は結果を使わない")
+            if _top_movers_cache:
+                return _top_movers_cache
+            return {"up": [], "down": [], "date_old": None, "date_new": None, "error": "データ取得が不完全でした"}
+
+        # 前日データの取得は定着チェック専用の付加情報。取得失敗・不完全でも
+        # ランキング自体は返す（定着チェックをスキップして通す方針。P-2）
+        try:
+            rows_prev, prev_complete = _fetch_price_history_day(date_prev)
+            if not prev_complete:
+                logger.warning(f"top-movers: 前日({date_prev})データが不完全、定着チェックをスキップ")
+                rows_prev = []
+        except Exception as e:
+            logger.warning(f"top-movers: 前日({date_prev})データ取得失敗、定着チェックをスキップ: {e}")
+            rows_prev = []
+
+        result = _top_page.aggregate_common_shop_movers(rows_new, rows_old, rows_prev)
+        result["date_new"] = date_new
+        result["date_old"] = date_old
+        result["error"] = None
+
+        # 空データはキャッシュしない（買取movers等と同じ方針。データ未蓄積時に
+        # 長時間空を返し続けるバグを防ぐ）
+        if result["up"] or result["down"]:
+            _top_movers_cache = result
+            _top_movers_cache_time = now
+        return result
+    except Exception as e:
+        logger.warning(f"価格推移ランキング(共通店舗ガード版)取得失敗: {e}")
+        if _top_movers_cache:
+            return _top_movers_cache
+        return {"up": [], "down": [], "date_old": None, "date_new": None, "error": "取得に失敗しました"}
+    finally:
+        _top_movers_lock.release()
+
+@app.route("/api/top-movers")
+def api_top_movers():
+    """検索前の初期画面向け: 価格推移ランキング（共通店舗ガードのみ、最安¥1,000以上）を返す"""
+    direction = request.args.get("direction", "up")
+    if direction not in ("up", "down"):
+        return jsonify({"error": "direction は up または down"}), 400
+    limit, limit_error = _parse_limit_param(10, 20)
+    if limit_error:
+        return limit_error
+    data = _get_top_movers_cached()
+    items = data.get(direction, [])[:limit]
+    if _top_movers_cache_time:
+        updated_dt = datetime.fromtimestamp(_top_movers_cache_time, JST)
+        updated_at = f"{updated_dt.hour}:{updated_dt.minute:02d}"
+    else:
+        updated_at = None
+    return jsonify({
+        "items": items,
+        "date_old": data.get("date_old"),
+        "date_new": data.get("date_new"),
+        "stability_checked": data.get("stability_checked", False),
+        "updated_at": updated_at,
+        "error": data.get("error"),
+    })
 
 
 # ── 購入候補（wishlist）価格アラート ──

@@ -357,6 +357,11 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .movers-diff.down{color:#22c55e}
 /* 買取ランキングは色を反転（値上がり=お得=緑、値下がり=赤） */
 .buyback-diff.up{color:#22c55e}
+/* 環境デッキランキング（最初の画面）: 既存の.movers系クラスを流用し、追加分のみ定義 */
+.movers-sub{font:.68rem var(--mono);color:var(--text-d)}
+.rank-tier-badge{display:inline-block;padding:1px 6px;border-radius:3px;color:#fff;font-weight:800;font-size:.65rem;margin-right:4px;flex-shrink:0}
+.movers-price-note{font:.68rem var(--mono);color:var(--text-d)}
+.movers-fail{padding:16px;text-align:center;color:var(--text-d);font-size:.8rem}
 .buyback-diff.down{color:#ef4444}
 
 /* Fade */
@@ -987,14 +992,28 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 
   <div id="empty" class="empty">
     <p style="font-size:1rem;font-weight:600;color:var(--text-m);margin-bottom:6px">カード名を入力して検索</p>
+    <!-- Q-10: 検索エラー/タイムアウトの表示専用要素。#empty のinnerHTMLを丸ごと
+         置き換えると下のランキングDOMごと消えて復帰できなくなるため、ここだけを書き換える -->
+    <div id="emptyError" class="movers-fail hidden"></div>
 
-    <div id="moversSection" class="movers hidden">
+    <!-- N-1: 環境デッキランキング（いま組むといくら） -->
+    <div id="topDecksSection" class="movers hidden">
       <div class="movers-tabs">
-        <button class="movers-tab active" onclick="switchMovers('up')">値上がり</button>
-        <button class="movers-tab" onclick="switchMovers('down')">値下がり</button>
+        <button class="movers-tab active" onclick="switchTopDecks('price')">安い順</button>
+        <button class="movers-tab" onclick="switchTopDecks('tier')">強い順</button>
       </div>
-      <div id="moversPeriod" class="movers-period"></div>
-      <div class="movers-list" id="moversList"></div>
+      <div class="movers-period">環境デッキを今すぐ組むといくらか（一部未取得のカードあり・目安）</div>
+      <div class="movers-list" id="topDecksList"></div>
+    </div>
+
+    <!-- N-2: 価格推移ランキング（共通店舗ガードのみ・最安¥1,000以上） -->
+    <div id="topMoversSection" class="movers hidden">
+      <div class="movers-tabs">
+        <button class="movers-tab active" onclick="switchTopMovers('up')">値上がり</button>
+        <button class="movers-tab" onclick="switchTopMovers('down')">値下がり</button>
+      </div>
+      <div id="topMoversPeriod" class="movers-period"></div>
+      <div class="movers-list" id="topMoversList"></div>
     </div>
 
     <div id="trendingSection" class="trending hidden">
@@ -1940,6 +1959,7 @@ function doSearch(opts){
   btn.disabled=true;btn.textContent='検索中...';
   document.getElementById('results').classList.add('hidden');
   document.getElementById('empty').classList.add('hidden');
+  document.getElementById('emptyError').classList.add('hidden');  // Q-10: 前回のエラー表示を消す
   // 直前が未発売カード表示だった場合に隠した価格セクションを復元する
   _setPriceSectionsVisible(true);
 
@@ -1972,7 +1992,10 @@ function doSearch(opts){
     es.close();btn.disabled=false;btn.textContent='検索';
     prog.style.display='none';
     document.getElementById('empty').classList.remove('hidden');
-    document.getElementById('empty').innerHTML='<p>検索がタイムアウトしました。再度お試しください。</p>';
+    // Q-10: #emptyのinnerHTML全置換をやめ、専用要素だけを書き換える（ランキングDOMを壊さない）
+    const _errEl=document.getElementById('emptyError');
+    _errEl.textContent='検索がタイムアウトしました。再度お試しください。';
+    _errEl.classList.remove('hidden');
   },60000);
   let partialShown=false;
   es.onmessage=e=>{
@@ -2027,7 +2050,9 @@ function doSearch(opts){
     es.close();btn.disabled=false;btn.textContent='検索';
     prog.style.display='none';
     document.getElementById('empty').classList.remove('hidden');
-    document.getElementById('empty').innerHTML='<p>エラーが発生しました。再度お試しください。</p>';
+    const _errEl2=document.getElementById('emptyError');
+    _errEl2.textContent='エラーが発生しました。再度お試しください。';
+    _errEl2.classList.remove('hidden');
   };
 }
 // ── Autocomplete ──
@@ -2733,35 +2758,107 @@ function searchCard(name){
   doSearch({trigger:'ranking'});
 }
 
-// ── 値上がり/値下がり ──
-let _moversDir='up';
-function switchMovers(dir){
-  _moversDir=dir;
-  document.querySelectorAll('.movers-tab').forEach(b=>b.classList.toggle('active',b.textContent.includes(dir==='up'?'上がり':'下がり')));
-  loadMovers(dir);
-}
+// ── 環境デッキランキング（最初の画面・N-1: いま組むといくら） ──
 function _fmtDate(s){if(!s)return'';const d=new Date(s+'T00:00:00');return (d.getMonth()+1)+'/'+d.getDate();}
-function loadMovers(dir,retry){
+let _topDecksSort='price';
+function switchTopDecks(sort){
+  _topDecksSort=sort;
+  document.querySelectorAll('#topDecksSection .movers-tab').forEach(b=>b.classList.toggle('active',b.textContent.includes(sort==='price'?'安い':'強い')));
+  loadTopDecks(sort);
+}
+function loadTopDecks(sort,retry){
   retry=retry||0;
-  fetch(`/api/movers?direction=${dir||_moversDir}&limit=10`)
+  const sec=document.getElementById('topDecksSection');
+  const list=document.getElementById('topDecksList');
+  sec.classList.remove('hidden');
+  if(!retry) list.innerHTML='<div class="movers-fail">読込中...</div>';
+  fetch(`/api/top-decks?sort=${sort||_topDecksSort}`)
     .then(r=>r.json())
     .then(data=>{
+      if(data.error){
+        if(retry<2){setTimeout(()=>loadTopDecks(sort,retry+1),2000);return;}
+        list.innerHTML='<div class="movers-fail">環境デッキ情報の取得に失敗しました</div>';
+        return;
+      }
+      const decks=data.decks||[];
+      if(!decks.length){sec.classList.add('hidden');return;}
+      list.innerHTML=decks.map((d,i)=>{
+        const tierCls=(d.tier>=1&&d.tier<=4)?`tier-${d.tier}`:'tier-4';
+        const tierLabel=d.tier?`Tier${d.tier}`:'-';
+        // Q-11: totalは「取れた分だけの合計」であり正確な総額ではないため、
+        // 一部未取得のときは下限であることが分かるよう「〜」を付ける（「約」は丸めに読める）
+        const priceText=d.priced_count>0
+          ?`&yen;${d.total.toLocaleString()}${d.missing_count>0?'〜':''}`
+          :'価格情報なし';
+        // Q-9: missing_countはカードの種類数（枚数ではない）。「枚」表記だと
+        // 3枚積み1種の未取得が実態と異なり「1枚」に見えるため「種」と表記する
+        const note=d.priced_count>0
+          ?(d.missing_count>0?`${d.missing_count}種未取得`:'全カード取得済み')
+          :'';
+        const imgSafe=d.image?safeUrl(d.image):'';
+        const thumbHtml=imgSafe?`<img src="${escAttr(imgSafe)}" alt="" loading="lazy">`:'';
+        return `<div class="movers-item" onclick="openTopDeck('${escAttr(escJs(d.name))}',${i+1})" data-card="${escAttr(d.name)}">
+          <span class="movers-rank">${i+1}</span>
+          <span class="movers-thumb">${thumbHtml}</span>
+          <span class="movers-name">
+            <span class="movers-name-text">${esc(d.name)}</span>
+            <span class="movers-sub"><span class="rank-tier-badge ${tierCls}">${esc(tierLabel)}</span>使用率${d.share}%</span>
+          </span>
+          <span class="movers-price">
+            <span class="movers-price-now">${priceText}</span>
+            <span class="movers-price-note">${esc(note)}</span>
+          </span>
+        </div>`;
+      }).join('');
+    })
+    .catch(()=>{
+      if(retry<2){setTimeout(()=>loadTopDecks(sort,retry+1),2000);return;}
+      list.innerHTML='<div class="movers-fail">環境デッキ情報の取得に失敗しました</div>';
+    });
+}
+function openTopDeck(theme,rank){
+  _ga('top_deck_click',{rank:rank});
+  switchMode('meta','auto');
+  loadMetaTiers().then(()=>loadMetaDeck(theme));
+}
+
+// ── 価格推移ランキング（最初の画面・N-2: 共通店舗ガードのみ・最安¥1,000以上） ──
+let _topMoversDir='up';
+function switchTopMovers(dir){
+  _topMoversDir=dir;
+  document.querySelectorAll('#topMoversSection .movers-tab').forEach(b=>b.classList.toggle('active',b.textContent.includes(dir==='up'?'上がり':'下がり')));
+  loadTopMovers(dir);
+}
+function loadTopMovers(dir,retry){
+  retry=retry||0;
+  const sec=document.getElementById('topMoversSection');
+  const list=document.getElementById('topMoversList');
+  const period=document.getElementById('topMoversPeriod');
+  sec.classList.remove('hidden');
+  if(!retry) list.innerHTML='<div class="movers-fail">読込中...</div>';
+  fetch(`/api/top-movers?direction=${dir||_topMoversDir}&limit=10`)
+    .then(r=>r.json())
+    .then(data=>{
+      if(data.error){
+        if(retry<2){setTimeout(()=>loadTopMovers(dir,retry+1),2000);return;}
+        list.innerHTML='<div class="movers-fail">価格推移ランキングの取得に失敗しました</div>';
+        return;
+      }
       const items=data.items||[];
-      const sec=document.getElementById('moversSection');
-      const list=document.getElementById('moversList');
-      const period=document.getElementById('moversPeriod');
       if(!items.length){sec.classList.add('hidden');return;}
-      sec.classList.remove('hidden');
       if(data.date_old&&data.date_new){
         const upd=data.updated_at?` · ${data.updated_at}収集`:'';
-        period.textContent=_fmtDate(data.date_old)+' → '+_fmtDate(data.date_new)+' の価格変動'+upd;
+        // Q-11: 定着チェック（前日データ）が無い回は、精度が落ちていることが分かるよう明示する
+        const stabilityNote=data.stability_checked===false?'（定着確認なし）':'';
+        period.textContent=_fmtDate(data.date_old)+' → '+_fmtDate(data.date_new)+' の価格変動（共通店舗のみ）'+stabilityNote+upd;
       }
       list.innerHTML=items.map((item,i)=>{
         const isUp=item.diff>0;
         const sign=isUp?'+':'';
         const cls=isUp?'up':'down';
+        // Q-1: どのレアリティの値段か分からないまま騰落だけ見せない（旧実装で表示していたバッジの復活）
         const rarityBadge=item.rarity?`<span class="rb rb-${cssClass(item.rarity)}">${esc(item.rarity)}</span>`:'';
-        return `<div class="movers-item" onclick="searchCard('${escAttr(escJs(item.name))}')" data-card="${escAttr(item.name)}">
+        return `<div class="movers-item" onclick="openTopMover('${escAttr(escJs(item.name))}',${i+1})" data-card="${escAttr(item.name)}">
           <span class="movers-rank">${i+1}</span>
           <span class="movers-thumb"></span>
           <span class="movers-name"><span class="movers-name-text">${esc(item.name)}</span>${rarityBadge?`<span class="movers-rarity">${rarityBadge}</span>`:''}</span>
@@ -2771,9 +2868,16 @@ function loadMovers(dir,retry){
           </span>
         </div>`;
       }).join('');
-      loadRankingImages('#moversList .movers-item','movers-thumb');
+      loadRankingImages('#topMoversList .movers-item','movers-thumb');
     })
-    .catch(()=>{if(retry<2)setTimeout(()=>loadMovers(dir,retry+1),2000);});
+    .catch(()=>{
+      if(retry<2){setTimeout(()=>loadTopMovers(dir,retry+1),2000);return;}
+      list.innerHTML='<div class="movers-fail">価格推移ランキングの取得に失敗しました</div>';
+    });
+}
+function openTopMover(name,rank){
+  _ga('top_mover_click',{rank:rank});
+  searchCard(name);
 }
 
 // ── 買取値上がり/値下がりランキング（色反転: UP=緑/DOWN=赤） ──
@@ -2854,13 +2958,23 @@ function doBuySearchCard(name){
 // 全て初期化された後に switchMode() を呼び出し、TDZ ReferenceError を防ぐ。
 document.addEventListener('DOMContentLoaded', () => {
   // 初期ロード
+  loadTopDecks('price');
+  loadTopMovers('up');
   loadTrending();
-  loadMovers('up');
   loadBuybackMovers('up');
 
   // G-7: 「一人回し」リンクはinline onclickではなくaddEventListenerで配線
   // （将来のCSP導入でinline onclickが無効化されても壊れないように）
   document.getElementById('headerSoloLink')?.addEventListener('click', () => _ga('solo_play_open'));
+
+  // 検索欄を手動で空にしたら結果を隠して初期状態（#empty）へ戻す
+  document.getElementById('q')?.addEventListener('input', () => {
+    const results=document.getElementById('results');
+    if(document.getElementById('q').value.trim()===''&&!results.classList.contains('hidden')){
+      results.classList.add('hidden');
+      document.getElementById('empty').classList.remove('hidden');
+    }
+  });
 
   // SEO: カード個別ページの場合、自動検索を実行（サーバーが渡したカード名なのでvalidateスキップ）
   // Chart.jsのCDN先読みは廃止（F-1/F-12でイベント駆動になったため、/card/*を開いただけで
@@ -3211,9 +3325,16 @@ window.onDeckImported=function(deck){
 // ── 環境デッキ（TCG PORTAL連携）──
 let _metaLoaded=false;
 let _metaTiers=[];
+let _metaLoadPromise=null; // Q-11: 呼び出しが重なった時に /api/meta を二重fetchしないためのin-flightガード
 
-async function loadMetaTiers(){
-  if(_metaLoaded) return;
+function loadMetaTiers(){
+  if(_metaLoaded) return Promise.resolve();
+  if(_metaLoadPromise) return _metaLoadPromise; // 進行中のfetchに相乗りする
+  _metaLoadPromise=_loadMetaTiersInner().finally(()=>{_metaLoadPromise=null;});
+  return _metaLoadPromise;
+}
+
+async function _loadMetaTiersInner(){
   const el=document.getElementById('metaTierList');
   const CACHE_KEY='tcgym_meta_cache', TTL=3600*1000; // 1時間
   try{

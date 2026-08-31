@@ -11,6 +11,23 @@ from collections import defaultdict
 from rarity import UNKNOWN_RARITY_LABEL
 
 
+def pick_representative_rarity(price_by_rarity: dict) -> str | None:
+    """{レアリティ: 価格} から代表レアリティを選ぶ（RPCのガード③相当）。
+
+    "(不明)"（rarity抽出失敗の隔離ラベル、フェーズ3 P3）・空文字は、他に候補がある限り
+    除外し、残りの中で最安のレアリティを返す。候補が無ければ None。
+
+    daily_min_by_lowest_rarity / _common_shop_change_for_card が内部で使っている
+    「"(不明)"・空文字の除外」ルールと同じ基準をここに集約する（top_page.py の
+    価格推移ランキングもこれを使い、レアリティを跨いで最安を取る誤りを防ぐ。
+    2026-08-31 reviewer指摘）。
+    """
+    if not price_by_rarity:
+        return None
+    candidates = {r: p for r, p in price_by_rarity.items() if r not in ("", UNKNOWN_RARITY_LABEL)} or price_by_rarity
+    return min(candidates, key=candidates.get)
+
+
 def daily_min_by_lowest_rarity(rows: list) -> dict:
     """price_history 行リストから、最安レアリティ系列を代表として
     {card_name: {date_str: min_price}} を返す。
