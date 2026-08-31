@@ -131,3 +131,5 @@
 - [ ] トップの `TOP_DECKS_LIMIT=8` / `TOP_DECKS_CACHE_SEC=1800` / `MOVERS_MIN_PRICE=1000` / `TOP_MOVERS_CACHE_SEC=3600` / `MOVERS_STABILITY_DAYS=1` は仮置き（`# TODO: calibrate from data` 付き）。実データとUXで校正する
 - [ ] **sitemap.xml が `http://` を出している** — `app.py` の sitemap 生成が `request.url_root` 由来で `http://tcg-price-compare.onrender.com/...` を出力している（本番実測）。canonical/sitemap は https にすべき。2026-08-31 のタブ統合調査で発見
 - [ ] `/api/price-history` はフロントからの参照が無くなった（価格推移グラフ削除に伴う）。ルートは残してあるので、削除するかは影響調査のうえ別途判断
+- [ ] **全角/半角のカード名差異による名寄せ失敗の横断確認** — 2026-08-31 の型番補完実装中に発覚: **トレコロCBだけカード名を全角で返す**（`増殖するＧ` ／ 他店は `増殖するG`）。型番補完側は NFKC 正規化で対処したが、**同じ罠が他の名寄せ処理にも潜んでいる可能性**がある（`price_history` の card_name 突合、`tracked_cards` の登録、デッキ見積もりの照合など）。横断的に確認する
+- [ ] `code_source`（型番が店由来か推測補完かの区別）は現在メモリ上の dict にのみ持ち、DBには保存していない。運用・デバッグで必要になったら `price_history` / `buyback_history` に列追加を検討（2026-08-31 判断: 表示・突合には使わないため今回は不要）

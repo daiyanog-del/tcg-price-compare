@@ -17,6 +17,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from pathlib import Path
 from rarity import normalize_rarity  # 正規化は rarity.py に一元化
+from card_code import infer_codes  # 型番の店舗間補完（カーナベル/トレコロCB）
 
 # ── 共通設定 ──
 HEADERS = {
@@ -2240,7 +2241,9 @@ def compare_prices(card_name: str, shop_names: list[str] | None = None,
                 if status_out is not None:
                     status_out[shop_name] = {"count": 0, "fetch_errors": 1, "exception": str(e)}
 
-    return all_results
+    # 同じカードの全店ぶんが揃った直後に型番を補完する（保存前）。
+    # カーナベルの弾略号・トレコロCBの接尾辞つき値を、他店の完全な型番で補う
+    return infer_codes(all_results)
 
 
 def compare_buyback(card_name: str, shop_names: list[str] | None = None,
@@ -2272,4 +2275,5 @@ def compare_buyback(card_name: str, shop_names: list[str] | None = None,
                 if status_out is not None:
                     status_out[shop_name] = {"count": 0, "fetch_errors": 1, "exception": str(e)}
 
-    return all_results
+    # compare_prices と同様、全店ぶんが揃った直後に型番を補完する（保存前）
+    return infer_codes(all_results)

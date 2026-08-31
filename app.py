@@ -29,6 +29,7 @@ from shipping import (
 )
 from aggregations import daily_min_by_lowest_rarity, common_shop_price_change
 from price_persist import build_min_price_rows, upsert_price_rows
+from card_code import infer_codes
 from meta_scraper import fetch_tier_list, fetch_deck_cards, build_deck_text, build_recipe_text, _cache_read, _DECK_CACHE_TTL, _TIER_CACHE_TTL
 import top_page as _top_page
 from pack_scraper import get_pack_list, fetch_pack_cards
@@ -956,6 +957,20 @@ def api_search():
                     if error is None and fetch_errors == 0:
                         scraped_ok[shop_name] = results
 
+            # 同じカードの全店ぶん（キャッシュ命中分含む）が揃った直後に型番を補完する
+            # （保存前）。カーナベルの弾略号・トレコロCBの接尾辞つき値を、他店の
+            # 完全な型番で補う。infer_codes は新しい dict のリストを返す（元のリストは
+            # 変更しない）ため、店舗別の内訳（scraped_ok・scraped_items）も
+            # 補完後の値で作り直す。
+            all_results = infer_codes(all_results)
+            corrected_by_shop: dict = {}
+            for r in all_results:
+                corrected_by_shop.setdefault(r.get("shop"), []).append(r)
+            scraped_ok = {name: corrected_by_shop.get(name, []) for name in scraped_ok}
+            scraped_items = [
+                r for name, _ in shops_to_scrape for r in corrected_by_shop.get(name, [])
+            ]
+
             cache_store_shops(card_name, scraped_ok)
             if all_results:
                 _record_search(card_name)
@@ -1087,6 +1102,21 @@ def api_deck():
                 scraped_items.extend(items)
                 if fetch_errors == 0:
                     scraped_ok[shop_name] = items
+
+        # 同じカードの今回スクレイプぶんが揃った直後に型番を補完する（保存前）。
+        # カーナベルの弾略号・トレコロCBの接尾辞つき値を、他店の完全な型番で補う。
+        # /api/deck は _FAST_OVERRIDES でトレコロ・カーナベルを1ページ目限定にしている。
+        # 良質な型番を返す店（まんぞく屋・カードラボ・遊々亭・カードラッシュ）が
+        # キャッシュ命中で今回スクレイプされていない場合、今回ぶんだけを候補にすると
+        # 補完できる型番を取りこぼす。cached_items も候補集合に加えて補完し、
+        # 保存・キャッシュ更新の対象は今回スクレイプぶんだけに絞る
+        # （infer_codes は入力と同じ順序で返すため、後半のスライスが scraped 分になる）。
+        _merged = infer_codes(cached_items + scraped_items)
+        scraped_items = _merged[len(cached_items):]
+        corrected_by_shop: dict = {}
+        for r in scraped_items:
+            corrected_by_shop.setdefault(r.get("shop"), []).append(r)
+        scraped_ok = {name: corrected_by_shop.get(name, []) for name in scraped_ok}
 
         # トレコロ・カーナベルは1ページ目限定（_FAST_OVERRIDES）のため partial 印を付け、
         # 通常検索(/api/search)には流用させない
@@ -2528,6 +2558,13 @@ def api_buyback():
                     all_results.extend(results)
                     if error is None and fetch_errors == 0:
                         scraped_ok[shop_name] = results
+
+            # 販売側と同様、全店ぶんが揃った直後に型番を補完する（保存前）
+            all_results = infer_codes(all_results)
+            corrected_by_shop: dict = {}
+            for r in all_results:
+                corrected_by_shop.setdefault(r.get("shop"), []).append(r)
+            scraped_ok = {name: corrected_by_shop.get(name, []) for name in scraped_ok}
 
             buyback_cache_store_shops(card_name, scraped_ok)
             if all_results:
