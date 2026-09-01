@@ -183,7 +183,8 @@ header .subtitle{font-size:.78rem;color:var(--text-d);margin-top:8px;letter-spac
 .scard{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:18px 20px;position:relative;overflow:hidden;transition:border-color .2s,transform .15s}
 .scard:hover{border-color:var(--text-d);transform:translateY(-2px)}
 .scard.best{border-color:var(--gold-d);background:linear-gradient(135deg,rgba(232,200,72,.06),rgba(232,200,72,.02))}
-.scard.best::before{content:'BEST PRICE';position:absolute;top:10px;right:12px;font-size:.58rem;font-weight:800;color:var(--bg);background:linear-gradient(135deg,var(--gold),#f0d860);letter-spacing:.08em;padding:3px 8px;border-radius:4px}
+/* X-1: バッジは金額の近くに置くため絶対配置の角バッジ(::before)をやめ、価格の右隣に出すインラインバッジに変更 */
+.scard .sbest-badge{display:inline-block;vertical-align:middle;margin-left:8px;font-size:.58rem;font-weight:800;color:var(--bg);background:linear-gradient(135deg,var(--gold),#f0d860);letter-spacing:.08em;padding:3px 8px;border-radius:4px}
 .scard .slabel{font-size:.68rem;font-weight:600;color:var(--text-m);text-transform:uppercase;letter-spacing:.1em}
 .scard .sprice{font:600 1.5rem var(--mono);color:var(--gold);margin:5px 0 3px}
 .scard .sprice a{color:var(--gold);text-decoration:none}
@@ -196,7 +197,6 @@ header .subtitle{font-size:.78rem;color:var(--text-d);margin-top:8px;letter-spac
 .scard.best .sdiff{color:var(--gold-d)}
 /* stretched-link: scard-linkのa::afterでカード全体をタップ領域に */
 .scard .slabel,.scard .sprice,.scard .sdetail{position:relative;z-index:2}
-.scard.best::before{z-index:3}
 .scard .scard-link{position:static}
 .scard .scard-link::after{content:"";position:absolute;inset:0;z-index:1}
 
@@ -929,7 +929,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
             <th data-s="code">コード<span class="arr"></span></th>
             <!-- U-1: 買取データが未取得の間は列自体を出さない（145行ぶんの空欄を避ける）。
                  #buyInlineを開く／下のボタンを押して取得できたらrenderTable()内でhiddenを外す -->
-            <th data-s="buyMax" id="thBuyMax" class="hidden">この型番の最高買取<span class="arr"></span></th>
+            <th data-s="buyMax" id="thBuyMax" class="hidden">最高買取<span class="arr"></span></th>
             <th style="width:32px"></th>
           </tr></thead>
           <tbody id="tbody"></tbody>
@@ -2117,20 +2117,23 @@ function renderSummary(){
     return;
   }
   const minPrice=items[0].price;
-  // M-2: 先頭行（最安）の型番が「型番らしい形」を通るときだけ、差額・BESTの突き合わせ基準にする
+  // M-2: 先頭行（最安）の型番が「型番らしい形」を通るときだけ、差額の突き合わせ基準にする
   // （型番が違えば別物のため、別型番同士の引き算を表示しない。買取側の店舗別カードと同じ規律）
   const topCode=_looksLikeCardCode(items[0].code)?items[0].code:null;
   let h='';
   items.forEach((item,i)=>{
     const sameCode=!!topCode&&item.code===topCode;
     // J-5: rarityFilterが空（=「すべて」表示・別レアリティ同士の比較）のときはBESTバッジを付けない
-    // （別レアリティの最安値に「BEST PRICE」と断言してしまう表示を防ぐ。F-9の差額抑止と同じ理由）
-    const isBest=!!rarityFilter&&i===0&&sameCode;
+    // （別レアリティの最安値に断言してしまう表示を防ぐ。F-9の差額抑止と同じ理由）
+    // X-1: BESTバッジは「先頭行＝最安」の印であって型番の一致は無関係（型番一致は差額表示のみの条件）。
+    // 先頭行の型番が使えない値でもバッジは先頭行に付く
+    const isBest=!!rarityFilter&&i===0;
     const itemUrl=affLink(item.url, item.shop, 'sell');
     const nameLink=item.url?`<a href="${escAttr(itemUrl)}" target="_blank" rel="noopener nofollow">${esc(item.name)}</a>`:esc(item.name);
     const priceLink=item.url?`<a class="scard-link" href="${escAttr(itemUrl)}" target="_blank" rel="noopener nofollow">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
+    const bestBadge=isBest?'<span class="sbest-badge">最安</span>':'';
     // F-9: rarityFilterが空（=別レアリティ間の比較）のときは差額表示自体を出さない（比較として成立しないため）
-    // F-8: 最安（先頭）は.scard.best::beforeの「BEST PRICE」バッジに任せ.sdiffには何も出さない（重複解消）。
+    // F-8: 最安（先頭）は.sbest-badgeに任せ.sdiffには何も出さない（重複解消）。
     //      同額タイのときは「+¥0」ではなく「同額」と出す
     let diff='';
     if(rarityFilter&&!isBest&&sameCode){
@@ -2144,7 +2147,7 @@ function renderSummary(){
     // 型番として見せない。迷ったら弾く側に倒す）
     const codeStr=_looksLikeCardCode(item.code)?`・${esc(item.code)}`:'';
     h+=`<div class="scard${isBest?' best':''} fin"><div class="slabel">${esc(item.shop)}</div>
-      <div class="sprice">${priceLink}<span class="sdiff">${diff}</span></div>
+      <div class="sprice">${priceLink}${bestBadge}<span class="sdiff">${diff}</span></div>
       <div class="sdetail">${esc(item.rarity||'-')}${condStr}${codeStr}<br>${nameLink}</div></div>`;
   });
   document.getElementById('sumCards').innerHTML=h;
@@ -2378,9 +2381,10 @@ function _renderBuyInline(){
   // M-1: 注意書きは買取価格側の条件（状態・枚数）に絞って短く残す（販売側への言及は不要になった）
   const conditionNote='<p class="buy-inline-note">買取価格は店舗ごとの状態・枚数の条件により変わります</p>';
 
-  // (b) 店舗別カード: 買取額の高い順。M-2: 差額（買取は高い方が良いため安い側がマイナス表記）と
-  // BESTバッジは「先頭行（最高額）と同じ型番」の行にだけ出す（型番が違えば別物のため、別型番同士の
+  // (b) 店舗別カード: 買取額の高い順。M-2: 差額（買取は高い方が良いため安い側がマイナス表記）は
+  // 「先頭行（最高額）と同じ型番」の行にだけ出す（型番が違えば別物のため、別型番同士の
   // 引き算を表示しない）。先頭行の型番が「型番らしい形」を通らないときは、どの行にも出さない
+  // X-1: BESTバッジは「先頭行＝最高額」の印であって型番の一致は無関係（型番一致は差額表示のみの条件）
   const byShop={};
   for(const r of filtered){ if(!byShop[r.shop]||r.price>byShop[r.shop].price) byShop[r.shop]=r; }
   const sortedShops=Object.values(byShop).sort((a,b)=>b.price-a.price);
@@ -2389,11 +2393,12 @@ function _renderBuyInline(){
   let cardsHtml='';
   sortedShops.forEach((item,i)=>{
     const sameCode=!!topCode&&item.code===topCode;
-    const isBest=rarityActive&&i===0&&sameCode;
+    const isBest=rarityActive&&i===0;
     // アフィリエイト: リンクはaffLink()を使うが、トラッキングピクセルaffPixel()はここでは発火させない
     // （レアリティ切替のたびにこの関数が再実行されるため。第1弾F-2で潰した重複発火の再発防止）
     const itemUrl=affLink(item.url,item.shop,'buy');
     const priceLink=item.url?`<a class="scard-link" href="${escAttr(itemUrl)}" target="_blank" rel="noopener nofollow">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
+    const bestBadge=isBest?'<span class="sbest-badge">最高額</span>':'';
     let diff='';
     if(!isBest&&rarityActive&&sameCode){
       const d=maxPrice-item.price;
@@ -2406,7 +2411,7 @@ function _renderBuyInline(){
     // 理由を画面から分かるようにしつつ、弾の略号や壊れた値をそのまま型番として見せない）
     const codeStr=_looksLikeCardCode(item.code)?`・${esc(item.code)}`:'';
     cardsHtml+=`<div class="scard${isBest?' best':''} fin"><div class="slabel">${esc(item.shop)}</div>
-      <div class="sprice" style="color:var(--green)">${priceLink}<span class="sdiff">${diff}</span></div>
+      <div class="sprice" style="color:var(--green)">${priceLink}${bestBadge}<span class="sdiff">${diff}</span></div>
       <div class="sdetail">${esc(item.rarity||'-')}${condStr}${codeStr}<br>${esc(item.name)}</div></div>`;
   });
 
@@ -2494,9 +2499,11 @@ function renderTable(){
     const rowClass=[so,linkUrl?'row-clickable':''].filter(Boolean).join(' ');
     const rowHref=linkUrl?`data-href="${escAttr(linkUrl)}"`:'';
     // U-1: 買取が未取得のうちは列自体を出さない（thのhidden切り替えと対にする）。
-    // 値は「同じ(code,rarity)の買取行のうち最高額」で、店名も併記する（_applyBuyMaxToDで算出済み）
+    // X-2: 値は金額のみ（店名は出さない。行に既に「店舗」列があり、別店名を括弧書きすると紛らわしい上
+    // スマホで折り返して崩れるため。どの店が最高額かは下の買取セクション一覧で分かる）。
+    // buyMaxShop自体は_applyBuyMaxToDで算出済みのまま保持（ソート等では未使用のため計算は変えない）
     const buyMaxCell=_buyInlineFetched
-      ?`<td data-label="この型番の最高買取" class="col-buymax">${r.buyMax!=null?'¥'+r.buyMax.toLocaleString()+'（'+esc(r.buyMaxShop)+'）':''}</td>`
+      ?`<td data-label="最高買取" class="col-buymax">${r.buyMax!=null?'¥'+r.buyMax.toLocaleString():''}</td>`
       :'';
     return`<tr class="${rowClass}" ${rowHref}>
       <td data-label="" class="col-img"><div class="tbl-img"></div></td>
