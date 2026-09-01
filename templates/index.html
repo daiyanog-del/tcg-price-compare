@@ -165,19 +165,6 @@ header .subtitle{font-size:.78rem;color:var(--text-d);margin-top:8px;letter-spac
 .suggest-hint{padding:8px 16px;font-size:.72rem;color:var(--text-d);text-align:center}
 
 /* ── Progress ── */
-.shop-toggles-wrap{max-width:540px;margin:-12px auto 16px;text-align:center}
-.shop-toggles-btn{font:.75rem var(--font);color:var(--text-d);background:none;border:none;cursor:pointer;padding:4px 8px;transition:color .15s}
-.shop-toggles-btn:hover{color:var(--text-m)}
-.shop-toggles-btn::after{content:'▼';font-size:.6rem;margin-left:4px;display:inline-block;transition:transform .2s}
-.shop-toggles-btn.open::after{transform:rotate(180deg)}
-.shop-toggles{display:none;gap:6px;max-width:540px;margin:8px auto 0;justify-content:center;flex-wrap:wrap}
-.shop-toggles.open{display:flex}
-.shop-toggle{display:flex;align-items:center;gap:5px;padding:5px 12px;font-size:.75rem;font-weight:600;color:var(--text-d);background:var(--bg-card);border:1.5px solid var(--border);border-radius:20px;cursor:pointer;transition:all .2s;user-select:none}
-.shop-toggle input{display:none}
-.shop-toggle.active{color:var(--text);border-color:var(--accent);background:rgba(74,124,255,.08)}
-.shop-toggle:hover{border-color:var(--text-m)}
-/* 店舗選択UIを非表示（検索は全店舗で動作） */
-.shop-toggles-wrap,#buyShopToggles,#deckShopToggles,#metaShopToggles{display:none !important}
 .progress{max-width:540px;margin:0 auto 28px;display:none;gap:8px}
 .progress.on{display:flex}
 .pstep{flex:1;padding:10px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;font-size:.78rem;text-align:center;transition:all .25s}
@@ -619,10 +606,6 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   .mode-tabs{flex-wrap:wrap;gap:6px;margin:0 auto 14px}
   .mode-tab{flex:1 1 28%;min-width:88px;padding:10px 4px;font-size:.76rem;min-height:44px;white-space:nowrap;text-align:center}
 
-  /* 店舗トグル */
-  .shop-toggles-wrap{margin:-8px auto 12px}
-  .shop-toggle{padding:8px 12px;font-size:.75rem;min-height:40px}
-
   /* プログレス */
   .progress{flex-wrap:wrap}
   .pstep{min-width:0;padding:8px 6px;font-size:.72rem}
@@ -896,30 +879,6 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     <div class="suggest-dropdown" id="suggestDrop"></div>
   </div>
 
-  <div class="shop-toggles-wrap">
-    <button class="shop-toggles-btn" onclick="this.classList.toggle('open');document.getElementById('shopToggles').classList.toggle('open')">検索する店舗を選ぶ（6店舗）</button>
-    <div class="shop-toggles" id="shopToggles">
-      <label class="shop-toggle active" data-shop="遊々亭">
-        <input type="checkbox" checked> 遊々亭
-      </label>
-      <label class="shop-toggle active" data-shop="カードラッシュ">
-        <input type="checkbox" checked> カードラッシュ
-      </label>
-      <label class="shop-toggle active" data-shop="トレコロCB">
-        <input type="checkbox" checked> トレコロCB
-      </label>
-      <label class="shop-toggle active" data-shop="カーナベル">
-        <input type="checkbox" checked> カーナベル
-      </label>
-      <label class="shop-toggle active" data-shop="カードラボ">
-        <input type="checkbox" checked> カードラボ
-      </label>
-      <label class="shop-toggle active" data-shop="まんぞく屋">
-        <input type="checkbox" checked> まんぞく屋
-      </label>
-    </div>
-  </div>
-
   <div class="progress" id="prog"></div>
 
   <div id="results" class="hidden">
@@ -1028,28 +987,9 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
   </div><!-- /mode-search -->
 
   <!-- S-1: 買取価格タブは廃止し「価格」タブへ統合（カード個別の買取は#buyInlineが担う）。
-       #buyShopToggles だけは、マイデッキ/環境デッキの「買取合計」価格計算（calcDeck()のisBuy分岐、
-       document.querySelectorAll('#buyShopToggles .shop-toggle')）が今も参照する共有チェックボックス群
-       のため削除せず残す。表示はCSSで常時非表示
-       （.shop-toggles-wrap,#buyShopToggles,...{display:none!important}）のため、
-       単独のタブが無くなっても画面上の見た目に影響しない -->
-  <div class="shop-toggles" id="buyShopToggles">
-    <label class="shop-toggle active" data-shop="カードラッシュ">
-      <input type="checkbox" checked> カードラッシュ
-    </label>
-    <label class="shop-toggle active" data-shop="カーナベル">
-      <input type="checkbox" checked> カーナベル
-    </label>
-    <label class="shop-toggle active" data-shop="遊々亭">
-      <input type="checkbox" checked> 遊々亭
-    </label>
-    <label class="shop-toggle active" data-shop="トレコロCB">
-      <input type="checkbox" checked> トレコロCB
-    </label>
-    <label class="shop-toggle active" data-shop="カードラボ">
-      <input type="checkbox" checked> カードラボ
-    </label>
-  </div>
+       マイデッキ/環境デッキの「買取合計」価格計算（calcDeck()のisBuy分岐）は、
+       非表示DOMの読み取りをやめサーバ既定（DEFAULT_BUYBACK_SHOPS）に一本化した
+       （shopsパラメータを送らない）ため、#buyShopToggles 自体が不要になり削除した -->
 
   <!-- ===== マイデッキモード ===== -->
   <div id="mode-mydeck" class="hidden">
@@ -1184,25 +1124,6 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
             </div>
           </details>
 
-          <!-- 店舗フィルタ（現在サイト全体で非表示＝全店舗で計算。JSが選択店舗を読むため要素は残す） -->
-          <div class="shop-toggles" id="deckShopToggles" style="justify-content:flex-start">
-            <label class="shop-toggle active" data-shop="遊々亭">
-              <input type="checkbox" checked> 遊々亭
-            </label>
-            <label class="shop-toggle active" data-shop="カードラッシュ">
-              <input type="checkbox" checked> カードラッシュ
-            </label>
-            <label class="shop-toggle active" data-shop="トレコロCB">
-              <input type="checkbox" checked> トレコロCB
-            </label>
-            <label class="shop-toggle active" data-shop="カーナベル">
-              <input type="checkbox" checked> カーナベル
-            </label>
-            <label class="shop-toggle active" data-shop="カードラボ">
-              <input type="checkbox" checked> カードラボ
-            </label>
-          </div>
-
         </div>
       </div>
     </div>
@@ -1231,24 +1152,6 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
         <div id="metaTierList" class="meta-loading">環境データを読込中...</div>
         <div id="metaDeckDetail" class="meta-deck-detail hidden"></div>
 
-        <!-- 環境デッキ用 店舗フィルタ -->
-        <div class="shop-toggles" id="metaShopToggles" style="margin:10px 0 0;justify-content:flex-start">
-          <label class="shop-toggle active" data-shop="遊々亭">
-            <input type="checkbox" checked> 遊々亭
-          </label>
-          <label class="shop-toggle active" data-shop="カードラッシュ">
-            <input type="checkbox" checked> カードラッシュ
-          </label>
-          <label class="shop-toggle active" data-shop="トレコロCB">
-            <input type="checkbox" checked> トレコロCB
-          </label>
-          <label class="shop-toggle active" data-shop="カーナベル">
-            <input type="checkbox" checked> カーナベル
-          </label>
-          <label class="shop-toggle active" data-shop="カードラボ">
-            <input type="checkbox" checked> カードラボ
-          </label>
-        </div>
       </div>
 
       <!-- 環境デッキ計算結果 -->
@@ -1306,14 +1209,6 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
           <div id="wishCardList"></div>
         </div>
 
-        <!-- 計算用に必要な店舗フィルタ（calcDeckEstimate が選択店舗を読むため要素は残す。UIには出さない） -->
-        <div class="shop-toggles" id="wishShopToggles" style="display:none">
-          <label class="shop-toggle active" data-shop="遊々亭"><input type="checkbox" checked> 遊々亭</label>
-          <label class="shop-toggle active" data-shop="カードラッシュ"><input type="checkbox" checked> カードラッシュ</label>
-          <label class="shop-toggle active" data-shop="トレコロCB"><input type="checkbox" checked> トレコロCB</label>
-          <label class="shop-toggle active" data-shop="カーナベル"><input type="checkbox" checked> カーナベル</label>
-          <label class="shop-toggle active" data-shop="カードラボ"><input type="checkbox" checked> カードラボ</label>
-        </div>
       </div>
       <!-- プッシュ通知設定 -->
       <div class="push-notify-box" id="pushNotifyBox" style="display:none">
@@ -1837,22 +1732,6 @@ function _fillSmallImages(src){
   });
 }
 
-// Shop toggle logic
-document.querySelectorAll('.shop-toggle').forEach(label=>{
-  label.addEventListener('click',e=>{
-    e.preventDefault();
-    const cb=label.querySelector('input');
-    cb.checked=!cb.checked;
-    label.classList.toggle('active',cb.checked);
-  });
-});
-
-function getSelectedShops(){
-  return [...document.querySelectorAll('#shopToggles .shop-toggle')]
-    .filter(l=>l.querySelector('input').checked)
-    .map(l=>l.dataset.shop);
-}
-
 function doSearch(opts){
   // opts: {validated:true} サジェスト選択やvalidate済み, {confirmed:true} DB未登録を承認済み,
   //       {trigger:'user'|'pageload'|'popstate'|...} G-2: 計測用。省略時は'user'（検索窓からの手動検索）
@@ -1893,11 +1772,6 @@ function doSearch(opts){
       .catch(()=>{btn.disabled=false;btn.textContent='検索';});
     return;
   }
-  const shops=getSelectedShops();
-  if(shops.length===0){
-    alert('検索する店舗を1つ以上選択してください');
-    return;
-  }
   _ga('search_submit',{mode:'sell',trigger:trigger});
   const btn=document.getElementById('btn');
   btn.disabled=true;btn.textContent='検索中...';
@@ -1916,18 +1790,28 @@ function doSearch(opts){
   const sumCards=document.getElementById('sumCards');
   if(sumCards) sumCards.innerHTML='';
 
-  // Build dynamic progress bar
+  // 検索対象店舗はサーバ側の既定（DEFAULT_SHOPS）が決める。フロントはトグルUIから
+  // 店舗集合を組み立てず、SSEで届くprogress/shop_doneイベントに合わせて進捗行を
+  // その場で作る（#buyInlineのstep()と同じ方式。1箇所＝サーバに一本化）。
   const prog=document.getElementById('prog');
-  prog.innerHTML=shops.map(s=>
-    `<div class="pstep" id="s-${s}"><span class="pname">${s}</span><span class="pstat">待機中</span></div>`
-  ).join('');
+  prog.innerHTML='';
   prog.style.display='flex';
+  function _searchProgStep(shop){
+    let el=document.getElementById('s-'+shop);
+    if(!el){
+      el=document.createElement('div');
+      el.className='pstep';
+      el.id='s-'+shop;
+      el.innerHTML=`<span class="pname">${esc(shop)}</span><span class="pstat">待機中</span>`;
+      prog.appendChild(el);
+    }
+    return el;
+  }
 
   D=[];rarityFilter='';tableShowCount=TABLE_PAGE_SIZE;
   _resetBuyInline(); // C-2: 新しい検索をしたら買取セクションは閉じた未取得状態に戻す（前のカードの買取価格が残ると誤情報になるため）
   _updateRarityBanner(); // F-4: 前回検索の絞り込みバナーが残ったまま次の検索結果が出るのを防ぐ
   const params=new URLSearchParams({q});
-  shops.forEach(s=>params.append('shops',s));
   if(opts.confirmed)params.append('confirmed','true');
 
   const es=new EventSource('/api/search?'+params.toString());
@@ -1959,11 +1843,11 @@ function doSearch(opts){
       prog.parentNode.insertBefore(notice,prog);
       setTimeout(()=>notice.remove(),8000);
     }else if(d.type==='progress'){
-      const el=document.getElementById('s-'+d.shop);
-      if(el){el.className='pstep searching';el.querySelector('.pstat').textContent='検索中...';}
+      const el=_searchProgStep(d.shop);
+      el.className='pstep searching';el.querySelector('.pstat').textContent='検索中...';
     }else if(d.type==='shop_done'){
-      const el=document.getElementById('s-'+d.shop);
-      if(el){el.className='pstep done';el.querySelector('.pstat').textContent=d.count+'件'+(d.cached?' (cache)':'');}
+      const el=_searchProgStep(d.shop);
+      el.className='pstep done';el.querySelector('.pstat').textContent=d.count+'件'+(d.cached?' (cache)':'');
       // 逐次表示: 結果が届いたらテーブルに追加
       if(d.results&&d.results.length>0){
         D=D.concat(d.results);
@@ -1975,8 +1859,8 @@ function doSearch(opts){
         renderTable();
       }
     }else if(d.type==='shop_error'){
-      const el=document.getElementById('s-'+d.shop);
-      if(el){el.className='pstep error';el.querySelector('.pstat').textContent='エラー';}
+      const el=_searchProgStep(d.shop);
+      el.className='pstep error';el.querySelector('.pstat').textContent='エラー';
     }else if(d.type==='done'){
       clearTimeout(sseTimeout);
       es.close();D=d.results;
@@ -3092,7 +2976,7 @@ let _currentDeckName=''; // 現在のデッキ名（シェア文・画像生成�
 const DECK_CTX = {
   mydeck:{
     results:'deckResults', list:'deckCardList', total:'deckTotalPrice',
-    prog:'deckProgress', shops:'deckShopToggles', rowPrefix:'deck-row-',
+    prog:'deckProgress', rowPrefix:'deck-row-',
     shareArea:'deckShareArea',
     getText:()=>document.getElementById('deckTextarea').value,
     getCards:()=>_currentMydeckCards,
@@ -3100,7 +2984,7 @@ const DECK_CTX = {
   },
   meta:{
     results:'metaDeckResults', list:'metaDeckCardList', total:'metaDeckTotalPrice',
-    prog:'metaDeckProgress', shops:'metaShopToggles', rowPrefix:'meta-row-',
+    prog:'metaDeckProgress', rowPrefix:'meta-row-',
     shareArea:'metaDeckShareArea',
     getText:()=>_lastMetaDeckText,
     getCards:()=>parseDeckSections(_lastMetaDeckText),
@@ -3109,7 +2993,7 @@ const DECK_CTX = {
   // 購入候補リスト用：wishGet() を直列化して calcDeckEstimate に渡す
   wishlist:{
     results:'wishResults', list:'wishCardList', total:'wishTotalPrice',
-    prog:'wishProgress', shops:'wishShopToggles', rowPrefix:'wish-row-',
+    prog:'wishProgress', rowPrefix:'wish-row-',
     shareArea:'wishShareArea',
     getText:()=>(typeof wishGet==='function'?wishGet():[]).map(c=>c.qty>1?`${c.qty} ${c.name}`:c.name).join('\n'),
     getCards:()=>({main:(typeof wishGet==='function'?wishGet():[]).map(c=>({qty:c.qty,name:c.name})),ex:[]}),
@@ -3751,11 +3635,9 @@ async function calcDeckEstimate(ctx, opts){
     totalEl.innerHTML=`¥${dbTotal.toLocaleString()} <span style="font-size:.7em;color:var(--text-d)">+ ${missing.length}枚検索中</span>`;
     progEl.textContent=`${found}枚を即時取得 / 残り${missing.length}枚をリアルタイム検索中...`;
 
-    const shops=[...document.querySelectorAll('#'+ctx.shops+' .shop-toggle')]
-      .filter(l=>l.querySelector('input').checked).map(l=>l.dataset.shop);
+    // 検索対象店舗はサーバ既定（DEFAULT_SHOPS）に一本化。shopsパラメータは送らない
     const missingParam=missing.map(i=>{const c=cards[i];return c.qty>1?`${c.qty} ${c.name}`:c.name}).join('|');
     const params=new URLSearchParams({cards:missingParam});
-    shops.forEach(s=>params.append('shops',s));
 
     const sseRes=await fetch('/api/deck?'+params.toString());
     const reader=sseRes.body.getReader();
@@ -3937,13 +3819,10 @@ async function calcDeck(buyMode){
   loadDeckGridImages(listEl);
 
   // Build request
-  const shopSelector=isBuy?'#buyShopToggles .shop-toggle':'#deckShopToggles .shop-toggle';
-  const shops=[...document.querySelectorAll(shopSelector)]
-    .filter(l=>l.querySelector('input').checked)
-    .map(l=>l.dataset.shop);
+  // 検索対象店舗はサーバ既定（isBuy: DEFAULT_BUYBACK_SHOPS / 販売: DEFAULT_SHOPS）に一本化。
+  // shopsパラメータは送らない（非表示DOMからの読み取りをやめる、W-1）
   const cardsParam=cards.map(c=>c.qty>1?`${c.qty} ${c.name}`:c.name).join('|');
   const params=new URLSearchParams({cards:cardsParam});
-  shops.forEach(s=>params.append('shops',s));
 
   const apiUrl=isBuy?'/api/deck-buy?':'/api/deck?';
   let total=0,found=0,notFound=0;
@@ -4020,8 +3899,9 @@ async function calcDeck(buyMode){
 // S-1: 買取専用の検索窓・店舗トグル・結果表示・結果テーブル（#buyQ/#buyBtn/#buySuggestDrop/
 // #buyProg/#buyResults/#buyHero/#buySumCards/#buyTbl/#buyTbody とその描画JS）は廃止した。
 // カード個別の買取価格は #buyInline（検索結果に併置、C-2）が担う。
-// getBuySelectedShops()もdoBuySearch専用だったため合わせて削除（マイデッキ/環境デッキの
-// 「買取合計」計算(isBuy分岐)は#buyShopToggles を直接querySelectorAllしており影響しない）
+// W-1（2026-09-01）: マイデッキ/環境デッキの「買取合計」計算(isBuy分岐)も含め、
+// 店舗集合の非表示DOM読み取りを全廃しサーバ既定（DEFAULT_SHOPS/DEFAULT_BUYBACK_SHOPS）
+// に一本化した。getSelectedShops()/getBuySelectedShops()相当の関数はもう存在しない
 </script>
 <script>
 // Service Worker登録
