@@ -40,6 +40,16 @@
 --
 -- 戻り値 (行ごと): card_name, rarity, price_old, price_new, pct,
 --                  date_new, date_old, stability_checked
+--
+-- 性能の経緯（実測・2026-09-01）:
+--   1) SQL言語版（日付を CTE から取得）        : 94,201ms — プランナが
+--      price_history_uniq の recorded_at を Index Cond に使えず、1組合せあたり
+--      90日ぶん（実測51行）を読んでから捨てていた
+--   2) plpgsql化 + 自己結合をやめ3日分を1スキャンして条件付き集計:  3,418ms
+--   3) 被覆インデックス idx_price_history_date_card_shop_rarity 追加:  844ms
+--   本番API実測: 初回1,111ms / キャッシュ後 209〜223ms（切替前は約15秒）
+--   ※ anon ロールの statement_timeout は 3s、authenticated は 8s。
+--     3) を入れないと anon から 57014(statement timeout) で落ちる。
 create or replace function get_top_movers(
   p_min_price      int default 1000,
   p_days_back      int default 7,
@@ -56,67 +66,70 @@ returns table (
   date_old         date,
   stability_checked boolean
 )
-language sql
+language plpgsql
 stable
 as $$
-with l as (select max(ph.recorded_at) as d from price_history ph),
-rep as (
-  select distinct on (ph.card_name) ph.card_name, ph.rarity
-  from price_history ph, l
-  where ph.recorded_at = l.d and ph.min_price is not null
-    and ph.rarity is not null and ph.rarity not in ('(不明)', '')
-  order by ph.card_name, ph.min_price asc
-),
-pair as (
-  select a.card_name, a.shop,
-         min(a.min_price) as np,
-         min(b.min_price) as op
-  from price_history a
-  join price_history b
-    on a.card_name = b.card_name and a.shop = b.shop and a.rarity = b.rarity
-  join rep r on r.card_name = a.card_name and r.rarity = a.rarity
-  cross join l
-  where a.recorded_at = l.d
-    and b.recorded_at = l.d - p_days_back
-    and a.min_price is not null and b.min_price is not null
-  group by 1, 2
-),
-card as (
-  select p.card_name, min(p.np) as p_new, min(p.op) as p_old
-  from pair p group by 1
-),
-stab as (
-  select p.card_name,
-         min(p.np) as new_in_s,
-         min(c.min_price) as prev_in_s
-  from pair p
-  join l on true
-  join rep r on r.card_name = p.card_name
-  join price_history c
-    on c.card_name = p.card_name and c.shop = p.shop and c.rarity = r.rarity
-   and c.recorded_at = l.d - p_stability_days and c.min_price is not null
-  group by 1
-),
-prev_any as (
-  select count(*) as n from price_history ph, l where ph.recorded_at = l.d - p_stability_days
-)
-select c.card_name,
-       r.rarity,
-       c.p_old,
-       c.p_new,
-       round(((c.p_new - c.p_old)::numeric / c.p_old) * 100, 1) as pct,
-       l.d as date_new,
-       (l.d - p_days_back) as date_old,
-       (prev_any.n > 0) as stability_checked
-from card c
-join rep r on r.card_name = c.card_name
-left join stab s on s.card_name = c.card_name
-cross join l
-cross join prev_any
-where c.p_new >= p_min_price
-  and c.p_old >= p_min_price
-  and c.p_new <> c.p_old
-  and (prev_any.n = 0 or (s.card_name is not null and s.new_in_s = s.prev_in_s))
-order by abs((c.p_new - c.p_old)::numeric / c.p_old) desc
-limit p_limit;
+declare
+  v_new    date;
+  v_old    date;
+  v_prev   date;
+begin
+  select max(ph.recorded_at) into v_new from price_history ph;
+  if v_new is null then
+    return;
+  end if;
+  v_old  := v_new - p_days_back;
+  v_prev := v_new - p_stability_days;
+
+  return query
+  with base as (  -- 3日ぶんを1回だけ読む（被覆インデックスでindex-only scan）
+    select ph.card_name as cn, ph.shop as sh, ph.rarity as rr,
+           min(ph.min_price) filter (where ph.recorded_at = v_new)  as np,
+           min(ph.min_price) filter (where ph.recorded_at = v_old)  as op,
+           min(ph.min_price) filter (where ph.recorded_at = v_prev) as pp
+    from price_history ph
+    where ph.recorded_at in (v_new, v_old, v_prev)
+      and ph.min_price is not null
+    group by 1, 2, 3
+  ),
+  prev_n as (select count(*) as n from base b where b.pp is not null),
+  rep as (
+    select distinct on (b.cn) b.cn, b.rr
+    from base b
+    where b.np is not null and b.rr is not null and b.rr not in ('(不明)', '')
+    order by b.cn, b.np asc
+  ),
+  pair as (
+    select b.cn, b.sh, b.np, b.op, b.pp
+    from base b
+    join rep r on r.cn = b.cn and r.rr = b.rr
+    where b.np is not null and b.op is not null
+  ),
+  agg as (
+    select p.cn,
+           min(p.np) as p_new,
+           min(p.op) as p_old,
+           min(p.np) filter (where p.pp is not null) as new_in_s,
+           min(p.pp) filter (where p.pp is not null) as prev_in_s
+    from pair p group by 1
+  )
+  select a.cn, r.rr, a.p_old, a.p_new,
+         round(((a.p_new - a.p_old)::numeric / a.p_old) * 100, 1),
+         v_new, v_old, (pn.n > 0)
+  from agg a
+  join rep r on r.cn = a.cn
+  cross join prev_n pn
+  where a.p_new >= p_min_price
+    and a.p_old >= p_min_price
+    and a.p_new <> a.p_old
+    and (pn.n = 0 or (a.new_in_s is not null and a.new_in_s = a.prev_in_s))
+  order by abs((a.p_new - a.p_old)::numeric / a.p_old) desc
+  limit p_limit;
+end;
 $$;
+
+-- 必須の被覆インデックス。これが無いと日付で絞ったあと3万行×3日ぶんのヒープを
+-- 読むことになり、実測3.4秒で anon の statement_timeout(3s) を超える。
+create index if not exists idx_price_history_date_card_shop_rarity
+  on public.price_history (recorded_at, card_name, shop, rarity)
+  include (min_price);
