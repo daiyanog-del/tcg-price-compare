@@ -25,6 +25,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pack_scraper
 
+# モジュールロード時点（下の autouse フィクスチャが _resolve_wiki_page を
+# 差し替える前）の本物の関数を退避しておく。
+# TestResolveWikiPageDashlessSubtitle はこの本物を直接テストしたいため必要。
+_REAL_RESOLVE_WIKI_PAGE = pack_scraper._resolve_wiki_page
+
 
 @pytest.fixture(autouse=True)
 def _isolate_cache(monkeypatch, tmp_path):
@@ -142,3 +147,34 @@ class TestCacheIsolation:
         pack_scraper.get_pack_list(include_empty=False)
         cache_files = sorted(p.name for p in pack_scraper._CACHE_DIR.glob("*.json"))
         assert cache_files == ["pack_list_auto.json", "pack_list_collect.json"]
+
+
+class TestResolveWikiPageDashlessSubtitle:
+    """
+    _resolve_wiki_page(): 公式名にダッシュが無くても、Wiki側がサブタイトルを
+    U+2212（数学マイナス）で囲んでいる場合に到達できること。
+
+    実測（2026-09-01）:
+        公式「デッキビルドパック グロリアス・ヴィクターズ」
+        Wiki 「デッキビルドパック −グロリアス・ヴィクターズ−」（U+2212 で囲まれている）
+        既存のダッシュ変換バリアントのみでは到達できず、
+        サブタイトルを U+2212 で囲む形を追加することで解決する。
+    """
+
+    def test_dashless_name_resolves_via_u2212_wrapped_subtitle(self, monkeypatch):
+        # このファイルのモジュールレベル autouse フィクスチャが
+        # pack_scraper._resolve_wiki_page を単純スタブに差し替えているため、
+        # このテストでは本物の実装（_REAL_RESOLVE_WIKI_PAGE）を明示的に使う。
+        official_name = "デッキビルドパック グロリアス・ヴィクターズ"
+        dash = "−"  # 数学マイナス（見た目の似た別文字の混入を防ぐため明示的にエスケープで指定）
+        wiki_name = f"デッキビルドパック {dash}グロリアス・ヴィクターズ{dash}"
+
+        def fake_fetch_from_wiki(pack_name: str, wiki_page: str):
+            if pack_name == wiki_name:
+                return ["カードA", "カードB"]
+            return []
+
+        monkeypatch.setattr(pack_scraper, "_fetch_from_wiki", fake_fetch_from_wiki)
+
+        result = _REAL_RESOLVE_WIKI_PAGE(official_name)
+        assert result == (wiki_name, True)

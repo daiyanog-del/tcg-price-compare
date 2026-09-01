@@ -133,6 +133,15 @@ def _resolve_wiki_page(pack_name: str) -> tuple[str, bool]:
         re.sub(r'\s*-\s*', '\u2212', normalized),  # スペースなしU+2212
     ]
 
+    # 公式名にダッシュが無くても、Wiki側はサブタイトルをU+2212で囲んでいる場合がある
+    # 例: 公式「デッキビルドパック グロリアス・ヴィクターズ」
+    #     Wiki「デッキビルドパック −グロリアス・ヴィクターズ−」
+    # 既存のバリアントは「あるダッシュを変換する」ものばかりで、この形に到達できなかった
+    # （2026-09-01 実測。この修正で44件取得できるようになった）
+    if " " in pack_name:
+        series, subtitle = pack_name.split(" ", 1)
+        variants.append(f"{series} −{subtitle}−")
+
     seen = set()
     for v in variants:
         v = v.strip()
