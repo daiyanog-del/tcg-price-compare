@@ -105,6 +105,13 @@ _MIN_VALID_PRICE = 10
 # TODO: calibrate from data（1日で十分か、収集間隔が空いた日の扱い等は未校正）
 MOVERS_STABILITY_DAYS = 1
 
+# RPC(get_top_movers)に渡す p_limit。RPCは「up/down合算・変化率絶対値降順」で
+# 上位N件を返し、app.py側でpctの符号からup/downへ振り分けるため、up/down片方に
+# 偏った相場でも両方向とも API側の上限（_parse_limit_param(10, 20)の最大20件）を
+# 満たせるよう、その最大値の数倍を要求しておく。
+# TODO: calibrate from data（×4は仮置き。実際の up/down 偏りは未計測）
+TOP_MOVERS_RPC_LIMIT = 20 * 4
+
 
 def _group_by_card(rows: list[dict]) -> dict:
     """price_history 行リストを card_name ごとにグループ化する"""
@@ -185,6 +192,11 @@ def aggregate_common_shop_movers(rows_new: list[dict], rows_old: list[dict],
                                   rows_prev: list[dict] | None = None,
                                   min_price: int = MOVERS_MIN_PRICE) -> dict:
     """価格推移ランキング（代表レアリティ固定＋共通店舗ガード＋定着チェック）を計算する。
+
+    注意（2026-09-01）: 本番経路（/api/top-movers）はDB側RPC（get_top_movers）に
+    切り替わっており、この関数はもう本番からは呼ばれない。ただしこの関数と
+    そのテスト（tests/test_top_page.py）は「集計の規約」の実行可能な仕様書として
+    残す。SQL側の意味とここのPython実装が食い違えばテストで気づける。
 
     rows_new / rows_old: price_history の行リスト（当日 / 7日前）。
         各行は {"card_name": str, "shop": str, "rarity": str, "min_price": int} を

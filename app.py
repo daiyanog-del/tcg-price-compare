@@ -1762,58 +1762,18 @@ _top_movers_cache: dict = {}
 _top_movers_cache_time: float = 0
 _top_movers_lock = threading.Lock()  # Q-11: in-flightロック
 
-# Q-2: 本番実測（2026-08-31）で最新日の price_history は30,851行。旧 max_pages=20
-# （=2万行上限）は既にこれを下回っており、カード名順の後半が黙って欠落していた。
-# 3日分（当日・7日前・前日）を独立に取得するため、日ごとに十分な余裕を持たせる。
-# TODO: calibrate from data（データ増加ペースに応じて見直す。恒久対応はRPCでDB側
-# 集計に寄せること。3日分×3万行をPostgREST経由で読むのは重い＝TASKS.mdに登録）
-_PRICE_HISTORY_DAY_MAX_PAGES = 100  # 100ページ = 10万行
-
-def _fetch_price_history_day(date_str: str) -> tuple:
-    """指定日(JST日付文字列 YYYY-MM-DD)の price_history 全行を取得する
-    （card_name, shop, rarity, min_price）。1000行上限を超える日があるため、
-    他の全件走査エンドポイントと同じ range 分割で取得する。
-
-    Q-2修正: card_name だけでは一意にならず（同一カード名に複数店舗・複数
-    レアリティの行がある）、.order("card_name") 単独ではページ境界で行が
-    重複・欠落しうる。card_name/shop/rarity の複合キーで安定化する
-    （app.py内の既存の規律「安定キーで必ず order する」に合わせる）。
-
-    戻り値: (rows, complete)。complete=False は暴走ガードで打ち切ったことを示す。
-    その場合、呼び出し側はこの回の結果をキャッシュしないこと。
-    """
-    next_day = (datetime.strptime(date_str, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
-    page_size = 1000
-    offset = 0
-    rows: list = []
-    complete = True
-    while True:
-        resp = (_supabase_client.table("price_history")
-                .select("card_name, shop, rarity, min_price")
-                .gte("recorded_at", date_str)
-                .lt("recorded_at", next_day)
-                .order("card_name")
-                .order("shop")
-                .order("rarity")
-                .range(offset, offset + page_size - 1)
-                .execute())
-        batch = resp.data or []
-        rows.extend(batch)
-        if len(batch) < page_size:
-            break
-        offset += page_size
-        if offset >= _PRICE_HISTORY_DAY_MAX_PAGES * page_size:
-            complete = False
-            logger.error(
-                f"top-movers: {date_str} が{_PRICE_HISTORY_DAY_MAX_PAGES}ページ"
-                f"({_PRICE_HISTORY_DAY_MAX_PAGES * page_size}行)を超過して打ち切り。"
-                "この日の結果は不完全なため呼び出し側でキャッシュしないこと")
-            break
-    return rows, complete
-
 def _get_top_movers_cached(force: bool = False) -> dict:
     """価格推移ランキング（代表レアリティ固定・共通店舗ガード・定着チェック、
-    最安¥1,000以上）を top_page.TOP_MOVERS_CACHE_SEC 秒キャッシュする。
+    最安¥1,000以上）を DB側RPC（get_top_movers）で集計し、
+    top_page.TOP_MOVERS_CACHE_SEC 秒キャッシュする。
+
+    V-1（2026-09-01）: 従来は price_history を1日ぶん全行（本番実測30,851行）
+    ×3日分をPostgREST経由でPython側に読み出して集計しており、キャッシュ失効後の
+    初回計算に約15秒かかっていた。DB側RPCに集計を寄せ、上位N件だけを受け取る
+    構造に変更した（買取版の _get_buyback_movers と同じ考え方）。
+
+    RPCは「up/down合算・変化率(pct)の絶対値降順」で上位 p_limit 件を返すため、
+    ここで pct の符号から up/down に振り分ける（RPC側はこの振り分けをしない）。
     """
     global _top_movers_cache, _top_movers_cache_time
     now = time.time()
@@ -1830,62 +1790,59 @@ def _get_top_movers_cached(force: bool = False) -> dict:
                                       "error": "計算中です。しばらくしてから再度お試しください"}
 
     try:
-        # 当日データがまだ無い時間帯を考慮し、最新の recorded_at を実データから取る
-        latest_resp = (_supabase_client.table("price_history")
-                       .select("recorded_at")
-                       .order("recorded_at", desc=True)
-                       .range(0, 0)
-                       .execute())
-        latest_rows = latest_resp.data or []
-        if not latest_rows:
-            return _top_movers_cache or {"up": [], "down": [], "date_old": None, "date_new": None,
-                                          "error": "価格データがまだありません"}
-        date_new = latest_rows[0]["recorded_at"][:10]
-        date_old = (datetime.strptime(date_new, "%Y-%m-%d") - timedelta(days=7)).strftime("%Y-%m-%d")
-        date_prev = (datetime.strptime(date_new, "%Y-%m-%d")
-                     - timedelta(days=_top_page.MOVERS_STABILITY_DAYS)).strftime("%Y-%m-%d")
-
         try:
-            rows_new, new_complete = _fetch_price_history_day(date_new)
-            rows_old, old_complete = _fetch_price_history_day(date_old)
+            resp = (_supabase_client
+                    .rpc("get_top_movers", {
+                        "p_min_price": _top_page.MOVERS_MIN_PRICE,
+                        "p_stability_days": _top_page.MOVERS_STABILITY_DAYS,
+                        "p_limit": _top_page.TOP_MOVERS_RPC_LIMIT,
+                    })
+                    .execute())
+            rows = resp.data or []
         except Exception as e:
-            logger.warning(f"価格推移ランキング(共通店舗ガード版)取得失敗: {e}")
+            logger.warning(f"価格推移ランキング(RPC)取得失敗: {e}")
             if _top_movers_cache:
                 return _top_movers_cache
             return {"up": [], "down": [], "date_old": None, "date_new": None, "error": "取得に失敗しました"}
 
-        # Q-2: 当日・7日前のどちらかが暴走ガードで打ち切られた（=不完全）なら、
-        # 不完全なランキングをキャッシュせず今回は既存キャッシュを返す
-        if not new_complete or not old_complete:
-            logger.error(f"top-movers: {date_new}/{date_old} のデータが不完全なため今回は結果を使わない")
-            if _top_movers_cache:
-                return _top_movers_cache
-            return {"up": [], "down": [], "date_old": None, "date_new": None, "error": "データ取得が不完全でした"}
+        if not rows:
+            return _top_movers_cache or {"up": [], "down": [], "date_old": None, "date_new": None,
+                                          "error": "価格データがまだありません"}
 
-        # 前日データの取得は定着チェック専用の付加情報。取得失敗・不完全でも
-        # ランキング自体は返す（定着チェックをスキップして通す方針。P-2）
-        try:
-            rows_prev, prev_complete = _fetch_price_history_day(date_prev)
-            if not prev_complete:
-                logger.warning(f"top-movers: 前日({date_prev})データが不完全、定着チェックをスキップ")
-                rows_prev = []
-        except Exception as e:
-            logger.warning(f"top-movers: 前日({date_prev})データ取得失敗、定着チェックをスキップ: {e}")
-            rows_prev = []
+        up, down = [], []
+        date_new = date_old = None
+        stability_checked = False
+        for row in rows:
+            pct = float(row.get("pct") or 0)
+            if pct == 0:
+                continue  # 変化なしは対象外（旧Python実装と同じ扱い）
+            price_new = row.get("price_new")
+            price_old = row.get("price_old")
+            entry = {
+                "name": row.get("card_name", ""),
+                "rarity": row.get("rarity", ""),
+                "today": price_new,
+                "yesterday": price_old,
+                "diff": price_new - price_old,
+                "pct": pct,
+            }
+            (up if pct > 0 else down).append(entry)
+            if date_new is None:
+                date_new = row.get("date_new")
+                date_old = row.get("date_old")
+                stability_checked = bool(row.get("stability_checked"))
 
-        result = _top_page.aggregate_common_shop_movers(rows_new, rows_old, rows_prev)
-        result["date_new"] = date_new
-        result["date_old"] = date_old
-        result["error"] = None
+        result = {"up": up, "down": down, "date_new": date_new, "date_old": date_old,
+                  "stability_checked": stability_checked, "error": None}
 
         # 空データはキャッシュしない（買取movers等と同じ方針。データ未蓄積時に
         # 長時間空を返し続けるバグを防ぐ）
-        if result["up"] or result["down"]:
+        if up or down:
             _top_movers_cache = result
             _top_movers_cache_time = now
         return result
     except Exception as e:
-        logger.warning(f"価格推移ランキング(共通店舗ガード版)取得失敗: {e}")
+        logger.warning(f"価格推移ランキング(RPC)取得失敗: {e}")
         if _top_movers_cache:
             return _top_movers_cache
         return {"up": [], "down": [], "date_old": None, "date_new": None, "error": "取得に失敗しました"}

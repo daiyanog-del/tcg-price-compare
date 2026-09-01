@@ -227,165 +227,33 @@ class TestApiTopDecks:
         assert deck["total"] == 1000 * 2 + 500
 
 
-# ── /api/top-movers ──
+# ── /api/top-movers（V-1: DB側RPC get_top_movers 版） ──
 
-class _FakeDayQuery:
-    """.select().gte().lt().order().range().execute() チェーンを模倣し、
-    date_str に応じたrowsを1000行ページ分割で返す"""
+class _FakeSupabaseTopMovers:
+    """.rpc("get_top_movers", params).execute() を模倣するfake。
+    exc を渡すと execute() で例外を送出する。"""
 
-    def __init__(self, rows_by_date: dict):
-        self.rows_by_date = rows_by_date
-        self._gte = None
-        self._lt = None
-        self._start = 0
-        self._end = 0
+    def __init__(self, rows: list | None = None, exc: Exception | None = None):
+        self.rows = rows if rows is not None else []
+        self.exc = exc
+        self.rpc_calls: list = []
 
-    def select(self, *_a, **_k):
-        return self
-
-    def gte(self, _col, value):
-        self._gte = value
-        return self
-
-    def lt(self, _col, value):
-        self._lt = value
-        return self
-
-    def order(self, *_a, **_k):
-        return self
-
-    def range(self, start, end):
-        self._start, self._end = start, end
+    def rpc(self, name, params):
+        assert name == "get_top_movers"
+        self.rpc_calls.append(params)
         return self
 
     def execute(self):
-        rows = self.rows_by_date.get(self._gte, [])
-        return SimpleNamespace(data=rows[self._start:self._end + 1])
+        if self.exc is not None:
+            raise self.exc
+        return SimpleNamespace(data=self.rows)
 
 
-class _FakeLatestQuery:
-    def __init__(self, latest_date):
-        self.latest_date = latest_date
-
-    def select(self, *_a, **_k):
-        return self
-
-    def order(self, *_a, **_k):
-        return self
-
-    def range(self, *_a, **_k):
-        return self
-
-    def execute(self):
-        if not self.latest_date:
-            return SimpleNamespace(data=[])
-        return SimpleNamespace(data=[{"recorded_at": self.latest_date}])
-
-
-class _FakeSupabaseMovers:
-    """price_history.select(...) 呼び出しを、最初の1回=最新日取得、以降=日別取得
-    として振り分けるfake。呼び出し順は app.py の実装（先に最新日を取ってから
-    day-fetchを2回行う）に依存する。"""
-
-    def __init__(self, latest_date, rows_by_date):
-        self.latest_date = latest_date
-        self.rows_by_date = rows_by_date
-        self._call_n = 0
-
-    def table(self, name):
-        assert name == "price_history"
-        self._call_n += 1
-        if self._call_n == 1:
-            return _FakeLatestQuery(self.latest_date)
-        return _FakeDayQuery(self.rows_by_date)
-
-
-# ── Q-2: _fetch_price_history_day のページング境界 ──
-
-class _FakePriceHistoryTable:
-    """price_history.select(...).gte().lt().order()×N.range().execute() を模倣する。
-    渡された全行リストを、range(start,end) のとおりスライスして返す
-    （本物のPostgRESTのrange分割と同じ意味）。.order() の呼び出し列を記録する。"""
-
-    def __init__(self, rows: list, order_calls: list | None = None):
-        self.rows = rows
-        self.order_calls = order_calls if order_calls is not None else []
-        self._start = 0
-        self._end = 0
-
-    def select(self, *_a, **_k):
-        return self
-
-    def gte(self, *_a, **_k):
-        return self
-
-    def lt(self, *_a, **_k):
-        return self
-
-    def order(self, col, *_a, **_k):
-        self.order_calls.append(col)
-        return self
-
-    def range(self, start, end):
-        self._start, self._end = start, end
-        return self
-
-    def execute(self):
-        from types import SimpleNamespace as _SNS
-        return _SNS(data=self.rows[self._start:self._end + 1])
-
-
-class _FakeSupabasePriceHistory:
-    def __init__(self, rows: list):
-        self.rows = rows
-        self.order_calls: list = []
-
-    def table(self, name):
-        assert name == "price_history"
-        return _FakePriceHistoryTable(self.rows, self.order_calls)
-
-
-def _make_price_history_rows(n: int):
-    return [{"card_name": f"カード{i:05d}", "shop": "A店", "rarity": "ノーマル", "min_price": 1000}
-            for i in range(n)]
-
-
-class TestFetchPriceHistoryDay:
-    def test_paginates_across_1000_row_boundary_without_loss(self, monkeypatch):
-        # 本番実測(30,851行)を模した規模。同一card_nameが店舗・レアリティを跨いで
-        # 複数存在する状況を想定し、複合キーのページングで全件過不足なく取れることを確認
-        rows = _make_price_history_rows(2500)
-        fake = _FakeSupabasePriceHistory(rows)
-        monkeypatch.setattr(app_module, "_supabase_client", fake)
-
-        result_rows, complete = app_module._fetch_price_history_day("2026-08-31")
-        assert complete is True
-        assert len(result_rows) == 2500
-        assert {r["card_name"] for r in result_rows} == {r["card_name"] for r in rows}
-
-    def test_orders_by_card_name_shop_rarity_for_stable_pagination(self, monkeypatch):
-        # card_name だけでは一意にならず、ページ境界で行が重複・欠落しうる(Q-2)。
-        # 複合キー(card_name, shop, rarity)で安定化していることを確認する
-        fake = _FakeSupabasePriceHistory([])
-        monkeypatch.setattr(app_module, "_supabase_client", fake)
-        app_module._fetch_price_history_day("2026-08-31")
-        assert fake.order_calls == ["card_name", "shop", "rarity"]
-
-    def test_truncates_and_marks_incomplete_beyond_max_pages(self, monkeypatch):
-        total = app_module._PRICE_HISTORY_DAY_MAX_PAGES * 1000 + 500
-        rows = _make_price_history_rows(total)
-        fake = _FakeSupabasePriceHistory(rows)
-        monkeypatch.setattr(app_module, "_supabase_client", fake)
-
-        result_rows, complete = app_module._fetch_price_history_day("2026-08-31")
-        assert complete is False, "暴走ガード到達時は complete=False で不完全であることを示すこと"
-        assert len(result_rows) == app_module._PRICE_HISTORY_DAY_MAX_PAGES * 1000
-
-    def test_max_pages_covers_production_volume(self):
-        # 本番実測(2026-08-31・司令塔): 最新日のprice_historyは30,851行。
-        # 旧 max_pages=20（2万行上限）はこれを下回っており、後半のカードが黙って
-        # 欠落していた。十分な余裕を持たせていることを固定する
-        assert app_module._PRICE_HISTORY_DAY_MAX_PAGES * 1000 > 30_851
+def _movers_row(name, rarity, price_old, price_new, pct, date_new="2026-09-01",
+                 date_old="2026-08-25", stability_checked=True):
+    return {"card_name": name, "rarity": rarity, "price_old": price_old, "price_new": price_new,
+            "pct": pct, "date_new": date_new, "date_old": date_old,
+            "stability_checked": stability_checked}
 
 
 @pytest.fixture()
@@ -397,11 +265,8 @@ def _top_movers_isolated(monkeypatch):
 
 class TestApiTopMovers:
     def test_returns_up_and_down(self, monkeypatch, _top_movers_isolated):
-        rows_by_date = {
-            "2026-08-31": [{"card_name": "値上がりカード", "shop": "A店", "min_price": 2000}],
-            "2026-08-24": [{"card_name": "値上がりカード", "shop": "A店", "min_price": 1000}],
-        }
-        fake = _FakeSupabaseMovers("2026-08-31", rows_by_date)
+        rows = [_movers_row("値上がりカード", "UR", 1000, 2000, 100.0)]
+        fake = _FakeSupabaseTopMovers(rows)
         monkeypatch.setattr(app_module, "_supabase_client", fake)
         app_module.app.config.update(TESTING=True)
         client = app_module.app.test_client()
@@ -410,13 +275,34 @@ class TestApiTopMovers:
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["error"] is None
-        assert data["date_new"] == "2026-08-31"
-        assert data["date_old"] == "2026-08-24"
+        assert data["date_new"] == "2026-09-01"
+        assert data["date_old"] == "2026-08-25"
         assert len(data["items"]) == 1
-        assert data["items"][0]["name"] == "値上がりカード"
+        item = data["items"][0]
+        assert item["name"] == "値上がりカード"
+        assert item["today"] == 2000
+        assert item["yesterday"] == 1000
+        assert item["diff"] == 1000
+        assert item["pct"] == 100.0
 
         resp_down = client.get("/api/top-movers?direction=down")
         assert resp_down.get_json()["items"] == []
+
+    def test_splits_up_and_down_by_pct_sign(self, monkeypatch, _top_movers_isolated):
+        # RPCはup/down合算・abs(pct)降順で返す。app.py側でpctの符号から振り分ける
+        rows = [
+            _movers_row("値上がりカード", "UR", 1000, 1300, 30.0),
+            _movers_row("値下がりカード", "SR", 2000, 1000, -50.0),
+        ]
+        fake = _FakeSupabaseTopMovers(rows)
+        monkeypatch.setattr(app_module, "_supabase_client", fake)
+        app_module.app.config.update(TESTING=True)
+        client = app_module.app.test_client()
+
+        up_items = client.get("/api/top-movers?direction=up").get_json()["items"]
+        down_items = client.get("/api/top-movers?direction=down").get_json()["items"]
+        assert [i["name"] for i in up_items] == ["値上がりカード"]
+        assert [i["name"] for i in down_items] == ["値下がりカード"]
 
     def test_invalid_direction_rejected(self, monkeypatch, _top_movers_isolated):
         app_module.app.config.update(TESTING=True)
@@ -433,90 +319,69 @@ class TestApiTopMovers:
         assert data["items"] == []
         assert data["error"], "DB未接続時は失敗を示すこと（黙って空にしない）"
 
-    def test_cache_hit_skips_refetch(self, monkeypatch, _top_movers_isolated):
-        rows_by_date = {
-            "2026-08-31": [{"card_name": "値上がりカード", "shop": "A店", "min_price": 2000}],
-            "2026-08-24": [{"card_name": "値上がりカード", "shop": "A店", "min_price": 1000}],
-        }
-        fake = _FakeSupabaseMovers("2026-08-31", rows_by_date)
+    def test_rpc_failure_reports_error_not_silent_empty(self, monkeypatch, _top_movers_isolated):
+        fake = _FakeSupabaseTopMovers(exc=RuntimeError("RPC失敗（模擬）"))
         monkeypatch.setattr(app_module, "_supabase_client", fake)
         app_module.app.config.update(TESTING=True)
         client = app_module.app.test_client()
-        client.get("/api/top-movers")
-        call_count_after_first = fake._call_n
-        client.get("/api/top-movers")
-        assert fake._call_n == call_count_after_first, "2回目はキャッシュから返り、DBを再度叩かない"
-
-    # ── P-2: 定着チェックの配線（前日データの取得〜app.py側の受け渡し） ──
-
-    def test_stability_check_filters_unstable_entry_via_route(self, monkeypatch, _top_movers_isolated):
-        """前日(date_new-1)のデータが取れれば定着チェックが働き、在庫入替の疑いが
-        あるカード（前日≠当日）はランキングから消える"""
-        rows_by_date = {
-            "2026-08-31": [{"card_name": "在庫入替カード", "shop": "A店", "min_price": 2000},
-                            {"card_name": "定着カード", "shop": "A店", "min_price": 3000}],
-            "2026-08-24": [{"card_name": "在庫入替カード", "shop": "A店", "min_price": 1000},
-                            {"card_name": "定着カード", "shop": "A店", "min_price": 1500}],
-            "2026-08-30": [{"card_name": "在庫入替カード", "shop": "A店", "min_price": 1200},
-                            {"card_name": "定着カード", "shop": "A店", "min_price": 3000}],
-        }
-        fake = _FakeSupabaseMovers("2026-08-31", rows_by_date)
-        monkeypatch.setattr(app_module, "_supabase_client", fake)
-        app_module.app.config.update(TESTING=True)
-        client = app_module.app.test_client()
-
-        resp = client.get("/api/top-movers?direction=up")
-        data = resp.get_json()
-        assert data["stability_checked"] is True
-        names = [item["name"] for item in data["items"]]
-        assert "定着カード" in names
-        assert "在庫入替カード" not in names, "前日と当日が食い違うカードは定着チェックで除外されること"
-
-    def test_prev_day_fetch_failure_falls_back_to_skip_stability(self, monkeypatch, _top_movers_isolated):
-        """前日データの取得が例外で失敗しても、当日/7日前の取得自体は成功していれば
-        ランキング全体を失敗にせず、定着チェックだけをスキップして返す"""
-        rows_by_date = {
-            "2026-08-31": [{"card_name": "値上がりカード", "shop": "A店", "min_price": 2000}],
-            "2026-08-24": [{"card_name": "値上がりカード", "shop": "A店", "min_price": 1000}],
-        }
-        fake = _FakeSupabaseMovers("2026-08-31", rows_by_date)
-        monkeypatch.setattr(app_module, "_supabase_client", fake)
-
-        date_prev = "2026-08-30"
-        real_fetch = app_module._fetch_price_history_day
-
-        def flaky_fetch(date_str):
-            if date_str == date_prev:
-                raise RuntimeError("前日データの取得に失敗（模擬）")
-            return real_fetch(date_str)
-
-        monkeypatch.setattr(app_module, "_fetch_price_history_day", flaky_fetch)
-        app_module.app.config.update(TESTING=True)
-        client = app_module.app.test_client()
-
-        resp = client.get("/api/top-movers?direction=up")
-        assert resp.status_code == 200
-        data = resp.get_json()
-        assert data["error"] is None, "前日取得の失敗だけでランキング全体を失敗にしないこと"
-        assert data["stability_checked"] is False
-        assert len(data["items"]) == 1
-        assert data["items"][0]["name"] == "値上がりカード"
-
-    # ── Q-2: 当日/7日前データが不完全（暴走ガード到達）ならキャッシュしない ──
-
-    def test_incomplete_new_or_old_day_not_cached(self, monkeypatch, _top_movers_isolated):
-        def incomplete_fetch(date_str):
-            if date_str == "2026-08-31":
-                return ([{"card_name": "カード", "shop": "A店", "rarity": "ノーマル", "min_price": 2000}], False)
-            return ([{"card_name": "カード", "shop": "A店", "rarity": "ノーマル", "min_price": 1000}], True)
-
-        monkeypatch.setattr(app_module, "_fetch_price_history_day", incomplete_fetch)
-        fake = _FakeSupabaseMovers("2026-08-31", {})  # 最新日取得のためだけに使う
-        monkeypatch.setattr(app_module, "_supabase_client", fake)
-        app_module.app.config.update(TESTING=True)
-        client = app_module.app.test_client()
-
         resp = client.get("/api/top-movers")
         data = resp.get_json()
-        assert data["error"], "不完全なデータを黙って使わず失敗を示すこと"
-        assert app_module._top_movers_cache_time == 0, "不完全な結果はキャッシュされないこと"
+        assert data["items"] == []
+        assert data["error"], "RPC失敗時は失敗を示すこと（黙って空にしない）"
+
+    def test_cache_hit_skips_refetch(self, monkeypatch, _top_movers_isolated):
+        rows = [_movers_row("値上がりカード", "UR", 1000, 2000, 100.0)]
+        fake = _FakeSupabaseTopMovers(rows)
+        monkeypatch.setattr(app_module, "_supabase_client", fake)
+        app_module.app.config.update(TESTING=True)
+        client = app_module.app.test_client()
+        client.get("/api/top-movers")
+        call_count_after_first = len(fake.rpc_calls)
+        client.get("/api/top-movers")
+        assert len(fake.rpc_calls) == call_count_after_first, "2回目はキャッシュから返り、RPCを再度呼ばない"
+
+    def test_rpc_called_with_top_page_constants(self, monkeypatch, _top_movers_isolated):
+        """min_price/stability_daysはtop_page.pyの既存定数をそのまま渡し、
+        二重定義しないこと"""
+        rows = [_movers_row("値上がりカード", "UR", 1000, 2000, 100.0)]
+        fake = _FakeSupabaseTopMovers(rows)
+        monkeypatch.setattr(app_module, "_supabase_client", fake)
+        app_module.app.config.update(TESTING=True)
+        client = app_module.app.test_client()
+        client.get("/api/top-movers")
+        assert len(fake.rpc_calls) == 1
+        params = fake.rpc_calls[0]
+        assert params["p_min_price"] == app_module._top_page.MOVERS_MIN_PRICE
+        assert params["p_stability_days"] == app_module._top_page.MOVERS_STABILITY_DAYS
+        assert params["p_limit"] == app_module._top_page.TOP_MOVERS_RPC_LIMIT
+
+    # ── stability_checked のRPC→APIレスポンスへのパススルー ──
+
+    def test_stability_checked_passed_through_from_rpc(self, monkeypatch, _top_movers_isolated):
+        rows = [_movers_row("値上がりカード", "UR", 1000, 2000, 100.0, stability_checked=True)]
+        fake = _FakeSupabaseTopMovers(rows)
+        monkeypatch.setattr(app_module, "_supabase_client", fake)
+        app_module.app.config.update(TESTING=True)
+        client = app_module.app.test_client()
+        data = client.get("/api/top-movers?direction=up").get_json()
+        assert data["stability_checked"] is True
+
+    def test_stability_checked_false_when_rpc_says_so(self, monkeypatch, _top_movers_isolated):
+        rows = [_movers_row("値上がりカード", "UR", 1000, 2000, 100.0, stability_checked=False)]
+        fake = _FakeSupabaseTopMovers(rows)
+        monkeypatch.setattr(app_module, "_supabase_client", fake)
+        app_module.app.config.update(TESTING=True)
+        client = app_module.app.test_client()
+        data = client.get("/api/top-movers?direction=up").get_json()
+        assert data["stability_checked"] is False
+
+    def test_empty_rows_reports_error_not_cached(self, monkeypatch, _top_movers_isolated):
+        fake = _FakeSupabaseTopMovers([])
+        monkeypatch.setattr(app_module, "_supabase_client", fake)
+        app_module.app.config.update(TESTING=True)
+        client = app_module.app.test_client()
+        resp = client.get("/api/top-movers")
+        data = resp.get_json()
+        assert data["items"] == []
+        assert data["error"], "データが無い時は失敗を示すこと（黙って空にしない）"
+        assert app_module._top_movers_cache_time == 0, "空データはキャッシュされないこと"
