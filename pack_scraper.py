@@ -296,6 +296,19 @@ def _fetch_from_ygoprodeck(tcg_set_name: str) -> list[str]:
 
 # ── メイン関数 ──
 
+def pack_cards_cached(pack_name: str) -> dict | None:
+    """キャッシュ済みのカードリストを返す。無ければ None。
+
+    呼び出し側が「外部サイトへのアクセスが発生するか」を事前に知るための関数。
+    判定条件は fetch_pack_cards 内のキャッシュ判定と同一に保つこと（片方だけ
+    変更すると、キャッシュがあるのにレート制限を消費する／その逆が起きる）。
+    """
+    cached = _cache_read(f"pack_{pack_name}", _PACK_LIST_CACHE_TTL)
+    if cached and "cards" in cached and len(cached["cards"]) > 0:
+        return cached
+    return None
+
+
 def fetch_pack_cards(pack_name: str, wiki_page: str = "", tcg_name: str = "") -> dict:
     """
     パックのカードリストを取得。Wiki → YGOPRODeck APIの順で試行。

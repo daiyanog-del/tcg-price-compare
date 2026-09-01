@@ -51,7 +51,9 @@ def _item(shop, rarity, price, url, sold_out=False):
 
 def _fetch_sse_payload(client, **query):
     """/api/deck の SSE レスポンスから card_done イベントの payload を1件取り出す"""
-    app_module._last_search.clear()  # レートリミット回避（同一テスト内で複数回叩くため）
+    app_module._reset_rate_limits()  # レートリミット回避（同一テスト内で複数回叩くため）
+    # 個別バケット名を直接 clear() すると、バケットが増えたとき無関係に429で落ちる
+    # （2026-09-01 /api/packs/cards の分離で実際に5件落ちた）。一括クリアを使う
     resp = client.get("/api/deck", query_string=query)
     assert resp.status_code == 200
     data = resp.get_data(as_text=True)

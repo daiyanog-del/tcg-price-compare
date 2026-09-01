@@ -18,13 +18,21 @@ async function loadPacks(){
     const raw=sessionStorage.getItem(CACHE_KEY);
     if(raw){
       const {ts,data}=JSON.parse(raw);
-      if(Date.now()-ts<TTL){_packData=data;_packsLoaded=true;renderPacks();return;}
+      // 配列かつ空でないキャッシュだけを採用する。壊れたキャッシュ（{"error":...}等）は
+      // ここで弾かれ、下のfetchで新規取得されることで自然に回復する
+      if(Date.now()-ts<TTL&&Array.isArray(data)&&data.length){_packData=data;_packsLoaded=true;renderPacks();return;}
     }
   }catch{}
   el.innerHTML='<div class="meta-loading">パック情報を読込中...</div>';
   try{
     const res=await fetch('/api/packs');
-    _packData=await res.json();
+    // 失敗レスポンスをキャッシュしない。res.ok を見ずに保存していたため、サーバーの
+    // 一時的な500が sessionStorage に6時間焼き付き、復旧後もエラー表示が残っていた
+    // （2026-09-01 実測）。
+    if(!res.ok) throw new Error('packs fetch failed: '+res.status);
+    const json=await res.json();
+    if(!Array.isArray(json)||!json.length) throw new Error('packs response invalid');
+    _packData=json;
     _packsLoaded=true;
     try{sessionStorage.setItem(CACHE_KEY,JSON.stringify({ts:Date.now(),data:_packData}));}catch{}
     renderPacks();
@@ -105,6 +113,12 @@ async function loadPackCards(packName, wikiPage, tcgName, isFeatured){
     let apiUrl='/api/packs/cards?name='+encodeURIComponent(packName)+'&wiki='+encodeURIComponent(wikiPage);
     if(tcgName) apiUrl+='&tcg='+encodeURIComponent(tcgName);
     const res=await fetch(apiUrl);
+    if(res.status===429){
+      // レート制限時は「取得できませんでした」ではなく原因が分かる文言を出す
+      detailEl.innerHTML='<div class="meta-loading">混み合っています。少し待ってからもう一度お試しください</div>';
+      return;
+    }
+    if(!res.ok) throw new Error('pack cards fetch failed: '+res.status);
     const data=await res.json();
 
     if(!data.cards||!data.cards.length){

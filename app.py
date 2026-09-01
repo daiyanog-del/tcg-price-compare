@@ -3,8 +3,21 @@ TCG 価格比較 Web サーバー
 """
 
 import json
+import sys
 import time
 import os
+
+# コンソール出力を UTF-8 に固定する（2026-09-01）。
+# Windows の既定は cp932 で、スクレイパーが print する診断メッセージに cp932 で
+# 表現できない文字（em dash など）が1つ入るだけで UnicodeEncodeError になる。
+# 実害: pack_scraper が Wiki の404を「捕捉して警告を出す」だけのはずが、その print が
+# 落ちて未捕捉例外になり /api/packs が500を返していた（本番Linuxでは再現しない）。
+# 個別の文字を書き換えるのは対症療法なので、出力側を直す。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass  # reconfigure 非対応の環境（古いPython・差し替え済みストリーム）では何もしない
 import random
 import logging
 import unicodedata
@@ -32,7 +45,7 @@ from price_persist import build_min_price_rows, upsert_price_rows
 from card_code import infer_codes
 from meta_scraper import fetch_tier_list, fetch_deck_cards, build_deck_text, build_recipe_text, _cache_read, _DECK_CACHE_TTL, _TIER_CACHE_TTL
 import top_page as _top_page
-from pack_scraper import get_pack_list, fetch_pack_cards
+from pack_scraper import get_pack_list, fetch_pack_cards, pack_cards_cached
 from monitor import tracker, run_health_check
 from constants import JST, VAPID_CLAIMS
 from ygores_repository import repository as _ygores_repo
@@ -242,6 +255,32 @@ _last_import: dict[str, float] = {}
 # 販売検索の直後に同じ画面から買取取得が走る動線ができたため、共有バケットのままだと
 # ユーザーの正当な2操作が互いを429で弾く（RATE_LIMIT_SEC=3）。系統ごとに分ける既存方針に従う。
 _last_buyback: dict[str, float] = {}
+# デッキ見積もり用の独立バケット。マイデッキ／環境デッキ／購入候補の合計計算は
+# カード検索とは別のユーザー操作であり、共有していると「検索した直後にマイデッキを
+# 開く」だけで 429 になる（2026-09-01 に /api/packs/cards で実際に報告された事象と同型）。
+_last_deck: dict[str, float] = {}
+# 最新弾の収録カードリスト用の独立バケット。こちらは店舗スクレイプを伴わず
+# （遊戯王Wikiの取得＋キャッシュ）、性質からしてカード検索と枠を共有する理由がない。
+# 共有していたため「パックを続けて2つ開く」と2つ目が必ず 429 になっていた。
+_last_packs: dict[str, float] = {}
+
+
+def _all_rate_limit_buckets() -> list[dict]:
+    """レートリミットの全バケット。バケットを増やしたらここにも足すこと。
+
+    テストが個別バケット名を直接 clear() していると、バケットを1つ増やすたびに
+    無関係なテストが 429 で落ちる（2026-09-01 に実際に発生。/api/packs/cards の
+    分離で test_deck_per_shop_rarity が5件落ちた）。一覧をここに集約して
+    テスト側は _reset_rate_limits() を呼ぶだけにする。
+    """
+    return [_last_search, _last_import, _last_buyback, _last_deck, _last_packs,
+            _last_sync, _last_sync_link, _last_feedback]
+
+
+def _reset_rate_limits() -> None:
+    """全レートリミットバケットを空にする（テスト用）。"""
+    for b in _all_rate_limit_buckets():
+        b.clear()
 # 端末間同期(sync)用の独立バケット。既存APIとレート制限を奪い合わないようにする。
 # キーは sync_id（IPだと宅内の複数端末が互いを弾いてしまうため）。
 # init/push/pull は「裏で自動的に走る」背景同期。
@@ -1021,7 +1060,7 @@ def api_deck():
     include_per_shop = request.values.get("include_per_shop", "").lower() in ("1", "true", "yes")
     if not names_raw:
         return jsonify({"error": "カード名がありません"}), 400
-    rate_error = _consume_rate_limit()
+    rate_error = _consume_rate_limit(bucket=_last_deck)
     if rate_error:
         return rate_error
 
@@ -1186,7 +1225,7 @@ def api_deck_buy():
     shops_raw = request.values.getlist("shops") or DEFAULT_BUYBACK_SHOPS
     if not names_raw:
         return jsonify({"error": "カード名がありません"}), 400
-    rate_error = _consume_rate_limit()
+    rate_error = _consume_rate_limit(bucket=_last_deck)
     if rate_error:
         return rate_error
 
@@ -2675,7 +2714,14 @@ def api_pack_cards():
         return jsonify({"error": "パック名を指定してください"}), 400
     if any(len(v) > MAX_PACK_PARAM_LEN for v in (pack_name, wiki_page, tcg_name)):
         return jsonify({"error": "パック指定が長すぎます"}), 400
-    rate_error = _consume_rate_limit()
+    # キャッシュ済みなら外部サイトを叩かないのでレート制限を消費しない。
+    # レート制限の目的は yugioh-wiki へのスクレイプ濫用防止であり、キャッシュ
+    # ヒットはその対象外。ここで消費すると「パックAを見た直後にパックBを押す」
+    # という正当な操作が3秒制限で429になる（2026-09-01 にユーザーから報告）。
+    cached = pack_cards_cached(pack_name)
+    if cached is not None:
+        return jsonify(cached)
+    rate_error = _consume_rate_limit(bucket=_last_packs)
     if rate_error:
         return rate_error
     future = _meta_executor.submit(fetch_pack_cards, pack_name, wiki_page, tcg_name)

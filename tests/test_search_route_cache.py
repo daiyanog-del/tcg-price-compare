@@ -66,7 +66,7 @@ def client(tmp_path, monkeypatch):
 
 
 def _search(client, shops):
-    app_module._last_search.clear()  # レートリミット回避
+    app_module._reset_rate_limits()  # レートリミット回避（バケット追加に追随するため一括で消す）
     q = "&".join(["q=テストカード", "confirmed=true"] + [f"shops={s}" for s in shops])
     resp = client.get("/api/search?" + q)
     assert resp.status_code == 200
