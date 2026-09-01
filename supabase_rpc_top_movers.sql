@@ -1,3 +1,8 @@
+-- ⚠ 2026-09-01: 値動きの定義がこのプロジェクトには**2つ**ある。
+--   この get_top_movers はサイトのトップ表示専用。X投稿は supabase_rpc_movers.sql の
+--   get_price_movers を使い、ガードの構成が違う（あちら=複数店同方向 / こちら=定着チェック）。
+--   統合しなかった理由と実測値は docs/decisions.md 2026-09-01 の項。
+--
 -- トップ（最初の画面）の価格推移ランキング用 RPC
 -- Supabase の SQL Editor で実行してください
 -- 2026-09-01 追加。本番へは MCP 経由で適用済み（マイグレーション名: create_get_top_movers）
