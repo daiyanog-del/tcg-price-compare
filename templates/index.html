@@ -21,29 +21,29 @@ function _ga(name,params){ if(typeof gtag==='function') gtag('event',name,params
 <meta name="description" content="{{ card_name }}の最安値を遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボ・まんぞく屋の6店舗から一括比較。{% if best_price %}現在の最安値は¥{{ '{:,}'.format(best_price) }}。{% endif %}リアルタイム価格検索。">
 <meta property="og:title" content="{{ card_name }} の価格比較 | TCGYM">
 <meta property="og:description" content="{{ card_name }}の最安値を6店舗で比較{% if best_price %}。最安¥{{ '{:,}'.format(best_price) }}{% endif %}">
-<link rel="canonical" href="{{ request.url_root.rstrip('/') }}/card/{{ card_name | urlencode }}">
+<link rel="canonical" href="{{ public_base_url }}/card/{{ card_name | urlencode }}">
 {% elif card_name and page_mode == 'buyback' %}
 <title>{{ card_name }} の買取価格比較 | TCGYM</title>
 <meta name="description" content="{{ card_name }}の買取価格をカードラッシュ・カーナベル・遊々亭・トレコロCB・カードラボの5店舗で一括比較。{% if best_price %}最高買取額¥{{ '{:,}'.format(best_price) }}。{% endif %}一番高く売れるお店が見つかります。">
 <meta property="og:title" content="{{ card_name }} の買取価格比較 | TCGYM">
 <meta property="og:description" content="{{ card_name }}の買取価格を5店舗で比較{% if best_price %}。最高¥{{ '{:,}'.format(best_price) }}{% endif %}">
-<link rel="canonical" href="{{ request.url_root.rstrip('/') }}/buy/{{ card_name | urlencode }}">
+<link rel="canonical" href="{{ public_base_url }}/buy/{{ card_name | urlencode }}">
 {% else %}
 <title>TCGYM — 遊戯王OCG プレイヤーサポート</title>
 <meta name="description" content="遊戯王OCGプレイヤーのサポートサイト。価格比較・デッキ計算・環境デッキ・最新弾情報をひとつに。">
 <meta property="og:title" content="TCGYM — 遊戯王OCG プレイヤーサポート">
 <meta property="og:description" content="価格比較・デッキ・環境・最新弾をひとつに。">
-<link rel="canonical" href="{{ request.url_root.rstrip('/') }}/">
+<link rel="canonical" href="{{ public_base_url }}/">
 {% endif %}
-<meta property="og:image" content="{{ request.url_root.rstrip('/') }}/static/og-image.png?v=3">
+<meta property="og:image" content="{{ public_base_url }}/static/og-image.png?v=3">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="TCGYM — 遊戯王OCG プレイヤーサポート">
 <meta name="twitter:description" content="価格比較・デッキ・環境・最新弾をひとつに。">
-<meta name="twitter:image" content="{{ request.url_root.rstrip('/') }}/static/og-image.png?v=3">
+<meta name="twitter:image" content="{{ public_base_url }}/static/og-image.png?v=3">
 <meta property="og:type" content="website">
-<meta property="og:url" content="{{ request.url_root.rstrip('/') }}/">
+<meta property="og:url" content="{{ public_base_url }}/">
 <meta property="og:locale" content="ja_JP">
 <meta property="og:site_name" content="TCGYM">
 <meta name="robots" content="index, follow">

@@ -102,6 +102,11 @@ def inject_rarity_config():
         "self_watermark": SELF_WATERMARK_ENABLED,
         "self_watermark_opacity": SELF_WATERMARK_OPACITY,
         "ga_measurement_id": GA_MEASUREMENT_ID,
+        # canonical / OGP は request.url_root だと Render のプロキシ配下で常に http に
+        # なる（TLSはプロキシで終端されアプリへは http で転送されるため）。
+        # 2026-08-17 に同じ理由でワンタイムリンクが http になる不具合を直した
+        # _public_base_url() をテンプレートにも渡す（2026-09-01）
+        "public_base_url": _public_base_url(),
     }
 
 _BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -601,7 +606,7 @@ def buy_page(card_name):
 def sitemap():
     """動的サイトマップ — 検索されたカードを自動収集"""
     from flask import make_response
-    base_url = request.url_root.rstrip("/")
+    base_url = _public_base_url()
 
     # ランキングからカード名を取得
     cards = _get_trending(limit=30)
@@ -629,7 +634,7 @@ def sitemap():
 def robots():
     """robots.txt"""
     from flask import make_response
-    base_url = request.url_root.rstrip("/")
+    base_url = _public_base_url()
     # /sync はワンタイムリンクのトークンがクエリ文字列に載るため検索エンジンにインデックスさせない
     # （設計文書 §7.2・§12。GA4もこのページには載せていない）
     txt = f"User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /sync\n\nSitemap: {base_url}/sitemap.xml\n"
