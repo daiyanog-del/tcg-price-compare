@@ -2678,7 +2678,10 @@ def api_packs():
                     .limit(10)
                     .execute())
             packs = [{"name": r.get("name", ""), "wiki_page": r.get("wiki_page", ""),
-                      "tcg_name": r.get("tcg_name", ""), "date": r.get("release_date", "")}
+                      "tcg_name": r.get("tcg_name", ""), "date": r.get("release_date", ""),
+                      # DBにカードリスト有無の情報が無いため、不明時は従来どおりの
+                      # 文言にフォールバックさせる意図で True を入れる（packs.js側の設計）
+                      "has_cards": True}
                      for r in (resp.data or [])]
             logger.info(f"パック一覧をSupabaseから取得: {len(packs)}件")
         except Exception as e:
@@ -2751,6 +2754,38 @@ def _prefetch_meta():
 # Flask debugモードのreloaderと複数workerでの二重起動を防ぐ
 if (os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not _is_debug_mode()) and _claim_startup_job("meta_prefetch"):
     _prefetch_meta()
+
+
+def _prefetch_pack_cards():
+    """サーバー起動時にパック収録カードをバックグラウンドで先読みする。
+
+    Renderのファイルシステムはデプロイで揮発するため、デプロイ直後は
+    キャッシュが空になり、ユーザーが素早くパックを続けて開くと429が
+    再発する（本番実測で3回目まで429）。これを緩和するための起動時先読み。
+    """
+    import threading
+    def _run():
+        time.sleep(5)  # 起動完了を待つ（Tier表プリフェッチと重ならないよう少し長めに）
+        try:
+            packs = get_pack_list()
+        except Exception as e:
+            logger.warning(f"パックカード プリフェッチ失敗（一覧取得）: {e}")
+            return
+        prefetched = 0
+        for pack in packs:
+            try:
+                fetch_pack_cards(pack.get("name", ""), pack.get("wiki_page", ""), pack.get("tcg_name", ""))
+                prefetched += 1
+            except Exception as e:
+                logger.warning(f"パックカード プリフェッチ失敗 ({pack.get('name', '')}): {e}")
+            time.sleep(1)  # 遊戯王Wikiへの連続アクセスを避けるための間隔
+        logger.info(f"パックカード プリフェッチ完了: {prefetched}/{len(packs)} パック")
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+# Flask debugモードのreloaderと複数workerでの二重起動を防ぐ
+if (os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not _is_debug_mode()) and _claim_startup_job("pack_prefetch"):
+    _prefetch_pack_cards()
 
 
 # ── 一人回しシミュレータ ──

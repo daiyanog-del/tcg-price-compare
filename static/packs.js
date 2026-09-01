@@ -122,7 +122,17 @@ async function loadPackCards(packName, wikiPage, tcgName, isFeatured){
     const data=await res.json();
 
     if(!data.cards||!data.cards.length){
-      detailEl.innerHTML='<div class="meta-loading">「'+esc(packName)+'」のカードリストが取得できませんでした</div>';
+      // has_cards は文言の出し分けにのみ使う（APIを呼ぶかどうかのガードには使わない）。
+      // get_pack_list の結果は24時間キャッシュされるため、Wiki障害中に一覧を作ると
+      // 全パックが has_cards=false になりうる。その場合にAPI呼び出しを止めると
+      // 障害中は丸一日どのパックも開けなくなってしまう。文言だけなら「表現が
+      // 少しずれる」で済み、機能自体は落ちない。
+      const packInfo=_packData.find(p=>p.name===packName);
+      if(packInfo && packInfo.has_cards===false){
+        detailEl.innerHTML='<div class="meta-loading">「'+esc(packName)+'」の収録カードは遊戯王Wikiにまだ掲載されていません（発売前などの場合があります）</div>';
+      }else{
+        detailEl.innerHTML='<div class="meta-loading">「'+esc(packName)+'」のカードリストが取得できませんでした</div>';
+      }
       return;
     }
 

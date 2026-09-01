@@ -104,6 +104,18 @@ class TestDisplayUse:
         assert names == ["未発売パックA", "未発売パックB", "既発売パック1", "既発売パック2"]
 
 
+class TestHasCardsField:
+    """表示用（include_empty=True）の各エントリに has_cards が含まれること"""
+
+    def test_has_cards_present_and_correct(self):
+        packs = pack_scraper.get_pack_list(include_empty=True)
+        by_name = {p["name"]: p for p in packs}
+        assert by_name["未発売パックA"]["has_cards"] is False
+        assert by_name["未発売パックB"]["has_cards"] is False
+        assert by_name["既発売パック1"]["has_cards"] is True
+        assert by_name["既発売パック2"]["has_cards"] is True
+
+
 class TestCacheIsolation:
     """表示用/収集用のキャッシュが分離され、互いの結果を汚染しないこと"""
 

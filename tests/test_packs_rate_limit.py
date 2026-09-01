@@ -61,3 +61,16 @@ def test_cache_miss_still_rate_limited(client, monkeypatch):
 
     resp2 = client.get("/api/packs/cards?name=未キャッシュパック")
     assert resp2.status_code == 429
+
+
+def test_api_packs_includes_has_cards(client, monkeypatch):
+    """/api/packs のレスポンス各要素に has_cards が含まれること"""
+    monkeypatch.setattr(app_module, "get_pack_list",
+                         lambda: [{"name": "テストパック", "wiki_page": "テストパック",
+                                    "tcg_name": "", "date": "2026-08-01", "has_cards": False}])
+
+    resp = client.get("/api/packs")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert len(data) == 1
+    assert data[0]["has_cards"] is False

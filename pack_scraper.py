@@ -185,12 +185,13 @@ def get_pack_list(include_empty: bool = True) -> list[dict]:
         # 表示用: カードリスト有無にかかわらず、直近 _MAX_PACKS 件をそのまま返す
         valid_packs = []
         for pack in official_packs[:_MAX_PACKS]:
-            wiki_page, _has_cards = _resolve_wiki_page(pack["name"])
+            wiki_page, has_cards = _resolve_wiki_page(pack["name"])
             valid_packs.append({
                 "name": pack["name"],
                 "wiki_page": wiki_page,
                 "tcg_name": pack.get("tcg_name", ""),
                 "date": pack["date"],
+                "has_cards": bool(has_cards),
             })
     else:
         # 収集用: 直近パックのうち、Wikiでカードリストが取れるものを_MAX_PACKS個選ぶ。
