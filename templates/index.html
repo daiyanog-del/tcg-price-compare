@@ -896,6 +896,18 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     </div>
 
     <div class="summary" id="sumCards"></div>
+    <!-- C-2: 販売ページに買取価格を併置（eスターボックス型）。既定で閉じ、開いたときに初めて
+         /api/buyback を叩く（第2弾B）。S-1で買取タブ（旧#buyTbody等）自体は廃止済み。
+         2026-09-01: 一覧の下→店舗サマリーの直後へ移動。全件リストに「最高買取」列を足した結果、
+         列の値を見た人が「どの店か」を知るには一覧(実測3,550px)を越える必要があり、
+         「もっと見る」でさらに遠のいていた。閉じた状態の高さは66pxで、一覧はその分しか下がらない。
+         販売サマリー（どこで買うと安いか）と買取サマリー（どこに売ると高いか）は対になる情報なので隣接させる -->
+    <!-- C-2: 販売ページに買取価格を併置（eスターボックス型）。既定で閉じ、開いたときに初めて
+         /api/buyback を叩く（第2弾B）。S-1で買取タブ（旧#buyTbody等）自体は廃止済み -->
+    <details id="buyInline" class="price-chart">
+      <summary class="chart-title">買取価格も見る（いくらで売れるか）</summary>
+      <div id="buyInlineBody"></div>
+    </details>
     <!-- F-2: A8トラッキングピクセルはrenderSummary()（レアリティ切替のたびに再実行）から外し、
          検索1回につき1回だけrenderAll()から挿入するための専用スロット -->
     <div id="affPixelSlot"></div>
@@ -943,12 +955,6 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
       <div class="rgrid" id="rgrid"></div>
     </div>
 
-    <!-- C-2: 販売ページに買取価格を併置（eスターボックス型）。既定で閉じ、開いたときに初めて
-         /api/buyback を叩く（第2弾B）。S-1で買取タブ（旧#buyTbody等）自体は廃止済み -->
-    <details id="buyInline" class="price-chart">
-      <summary class="chart-title">買取価格も見る（いくらで売れるか）</summary>
-      <div id="buyInlineBody"></div>
-    </details>
 
   </div>
 
