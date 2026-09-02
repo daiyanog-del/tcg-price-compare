@@ -4,9 +4,13 @@ collect_prices.py（定期収集）と app.py（検索・見積もりの即時�
 呼ばれる共通ヘルパ。書き込み経路を 1 か所に集約することで、スキーマ変更や
 冪等性ロジックの修正を 1 か所で完結させる。
 
-前提:
-- price_history テーブルには UNIQUE(card_name, shop, rarity, recorded_at) 制約あり
-- ON CONFLICT DO UPDATE による upsert で last-write-wins
+前提（2026-09-02 整数キー化。price_history_v2.sql 参照）:
+- 正本テーブルは price_history_v2 で、主キーは (card_id, shop_id, rarity_id, recorded_at)
+  （card_name/shop/rarity は card_dim/shop_dim/rarity_dim の整数IDに正規化済み）
+- price_history は従来の列名で読める同名の「ビュー」。読み取り側は無変更
+- 書き込みは RPC upsert_price_rows(p_rows jsonb, p_ignore_duplicates boolean) に一本化。
+  card_name/shop/rarity → card_id/shop_id/rarity_id の名前解決と辞書表への追加は
+  RPC 側（SQL）で行うため、Python 側は従来どおり文字列キーの行を渡すだけでよい
 - フェーズ3 P4/P2（docs/design-phase3-generation-side.md）: min_price_any 列（状態を
   問わない本当の最安値）・code 列（min_price を決めた出品の型番）を追加済み
   （price_history_phase3_columns.sql）
@@ -113,29 +117,62 @@ def build_min_price_rows(card_name: str, scrape_results: list, today: str) -> li
 
 
 def upsert_price_rows(sb, rows: list[dict], ignore_duplicates: bool = False) -> int:
-    """price_history に upsert する。
+    """price_history_v2 に RPC upsert_price_rows 経由で upsert する。
 
-    UNIQUE(card_name, shop, rarity, recorded_at) 制約に基づき、既存があれば
+    主キー (card_id, shop_id, rarity_id, recorded_at) に基づき、既存があれば
     全列上書き（直近の scraper の結果を最新として採用 = last-write-wins）。
+    card_name/shop/rarity → 整数ID の解決と辞書表（card_dim/shop_dim/rarity_dim）
+    への追加は RPC 側で行うため、ここでは従来どおり文字列キーのまま渡す。
 
     ignore_duplicates=True の場合は既存行があれば書き込まない（フェーズ3 P6b。
     網羅性の低い経路 /api/deck の即時upsertが、夜間収集の網羅的な最安値を
     同日上書きしないようにするための切替。/api/search 等は既定の False のまま）。
 
-    成功した行数を返す。エラー時は 0 を返し、警告ログのみ出す（呼び元の処理は止めない）。
+    RPC は `RETURNS TABLE(saved_rows integer)` で、PostgREST 経由では
+    `resp.data == [{"saved_rows": N}]` という list[dict] の形で返る（スカラー
+    RETURNS だと supabase-py の APIResponse が list 以外を弾いて HTTP 200 なのに
+    APIError になるため、レビュー班の指摘でテーブル返却に変更した）。
+
+    戻り値の意味は「渡した行数」から「実際に挿入/更新した行数（saved_rows）」に
+    変わった点に注意。ignore_duplicates=True の経路では、渡した行がすべて既存行
+    （スキップ対象）だった場合に 0 が返るのが正常値であり、異常ではない。
+
+    resp.data が期待した list[dict] 形でない場合（None・空list・saved_rows キー欠落等）
+    は渡した行数にフォールバックし、その旨を warning ログに残す（RPC側の戻り値仕様が
+    崩れている可能性があるため debug ではなく warning）。
+
+    saved_rows が渡した行数より小さい場合、RPC 側が必須列 NULL 等で行を除外した
+    可能性があるため warning ログを出す。ただし ignore_duplicates=True のときは
+    既存行スキップによる正常な減少と区別がつかないため warning は出さない。
+
+    エラー時は 0 を返し、ERROR ログのみ出す（呼び元の処理は止めない）。
     """
     if not rows:
         return 0
     try:
-        sb.table("price_history").upsert(
-            rows,
-            on_conflict="card_name,shop,rarity,recorded_at",
-            ignore_duplicates=ignore_duplicates,
+        resp = sb.rpc(
+            "upsert_price_rows",
+            {"p_rows": rows, "p_ignore_duplicates": ignore_duplicates},
         ).execute()
-        return len(rows)
+        data = resp.data
+        saved = None
+        if isinstance(data, list) and data and isinstance(data[0], dict) and "saved_rows" in data[0]:
+            saved = data[0]["saved_rows"]
+        if not isinstance(saved, int):
+            logger.warning(
+                f"[price_persist] upsert_price_rows RPC の戻り値が想定外の形 "
+                f"({type(data).__name__}: {data!r})。渡した行数 {len(rows)} にフォールバック"
+            )
+            return len(rows)
+        if saved < len(rows) and not ignore_duplicates:
+            logger.warning(
+                f"[price_persist] upsert_price_rows: {len(rows)}行中 {saved}行のみ保存"
+                "（RPC側で必須列NULL等により除外された可能性）"
+            )
+        return saved
     except Exception as e:
         # ERRORレベル: ここが無言で失敗し続けると価格履歴が丸ごと止まる
-        # （例: 列追加DDL未適用のままコードだけデプロイした場合）
+        # （例: RPC未作成のままコードだけデプロイした場合）
         logger.error(f"[price_persist] upsert 失敗 ({len(rows)}行): {e}")
         return 0
 

@@ -79,7 +79,10 @@ declare
   v_old    date;
   v_prev   date;
 begin
-  select max(ph.recorded_at) into v_new from price_history ph;
+  -- 2026-09-02 整数キー化: price_history はビュー（v2 と辞書表の INNER JOIN）になった。
+  -- ビュー経由の max() は MIN/MAX 最適化が効かず209万行のフルスキャン（実測5.5秒）になるため
+  -- 正本テーブル price_history_v2 を直接読む（索引の末尾1件で即応答）。
+  select max(ph.recorded_at) into v_new from price_history_v2 ph;
   if v_new is null then
     return;
   end if;
@@ -135,6 +138,8 @@ $$;
 
 -- 必須の被覆インデックス。これが無いと日付で絞ったあと3万行×3日ぶんのヒープを
 -- 読むことになり、実測3.4秒で anon の statement_timeout(3s) を超える。
+-- 2026-09-02: 以下は旧テーブル（price_history_old）用の索引定義。整数キー化後の被覆索引は
+-- price_history_v2.sql の §3（idx_ph2_date_card_shop_rarity）を参照。
 create index if not exists idx_price_history_date_card_shop_rarity
   on public.price_history (recorded_at, card_name, shop, rarity)
   include (min_price);

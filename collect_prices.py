@@ -842,9 +842,9 @@ def send_daily_report(
 def cleanup_old_data(sb: Client):
     """保持期間を超えた古いデータを削除"""
     cutoff = (datetime.now(JST).date() - timedelta(days=RETENTION_DAYS)).isoformat()
-    # 価格履歴の削除
+    # 価格履歴の削除（ビューは delete 不可のため正本テーブル price_history_v2 を直接削除）
     try:
-        resp = sb.table("price_history") \
+        resp = sb.table("price_history_v2") \
             .delete() \
             .lt("recorded_at", cutoff) \
             .execute()

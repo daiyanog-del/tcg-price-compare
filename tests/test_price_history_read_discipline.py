@@ -11,6 +11,9 @@
 #   3) .limit( を使っていないこと
 # を機械的に強制する。違反が増えたらこのクラスのバグの5例目なので、range分割＋
 # order（複合キー推奨）に書き換えること。詳細: docs/audit-price-logic-2026-08-06.md
+#
+# 2026-09-02 整数キー化: price_history_v2 も走査対象に含める（正本テーブルを直接
+# select する箇所が今後増えても規律の網から外れないように。price_history_v2.sql参照）。
 
 import re
 from pathlib import Path
@@ -23,7 +26,7 @@ def _target_files():
     return [f for f in files if f.name != Path(__file__).name]
 
 
-TABLE_RE = re.compile(r"""\.table\(\s*['"](price_history|buyback_history)['"]\s*\)""")
+TABLE_RE = re.compile(r"""\.table\(\s*['"](price_history_v2|price_history|buyback_history)['"]\s*\)""")
 WRITE_MARKERS = (".insert(", ".upsert(", ".update(", ".delete(")
 
 

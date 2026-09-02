@@ -88,6 +88,11 @@ Flask app.py (3,200行規模) ＋ solitaire_routes.py (Blueprint)
 RPC（DB側集計関数）: `get_price_movers` / `get_buyback_movers`（値動きランキング）
 ※ 既知の課題: X投稿側（x_poster.py）はRPCを使わずPython側で別集計しており2系統併存。TASKS.md 参照
 
+※ 2026-09-02 整数キー化: `price_history` の正本は `price_history_v2`（card_id/shop_id/rarity_id の整数キー、
+card_dim/shop_dim/rarity_dim を辞書表として分離）。`price_history` は従来の列名で読める同名のビューとして残り、
+既存の読み取り箇所・RPCは無変更。書き込みは RPC `upsert_price_rows(p_rows jsonb, p_ignore_duplicates boolean)`
+に一本化（`price_persist.upsert_price_rows` 経由）。詳細・移行手順は `price_history_v2.sql` を参照。
+
 ## キャッシュ戦略
 
 | 対象 | 保存先 | TTL |

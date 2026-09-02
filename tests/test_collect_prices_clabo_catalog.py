@@ -15,6 +15,8 @@ tests/test_collect_prices_clabo_catalog.py — collect_prices.py のカードラ
       upsertはチャンク化する（reviewer中4）
 
   ネットワークには一切出ない（clabo_catalog.collect_clabo_catalog をモックする）。
+  price_history_v2 への書き込みは rpc("upsert_price_rows", ...) 経由
+  （2026-09-02 整数キー化。price_history_v2.sql）。
 """
 
 import sys
@@ -28,16 +30,11 @@ import collect_prices as cp
 
 
 class _FakeTable:
-    """price_history への upsert だけを模倣する最小フェイク"""
+    """price_history 以外のテーブル操作（eq/update等）を模倣する最小フェイク"""
 
     def __init__(self, name: str, state: dict):
         self.name = name
         self.state = state
-        self._pending_upsert_rows = None
-
-    def upsert(self, rows, on_conflict=None, ignore_duplicates=None):
-        self._pending_upsert_rows = rows
-        return self
 
     def eq(self, *a, **k):
         return self
@@ -46,14 +43,20 @@ class _FakeTable:
         return self
 
     def execute(self):
-        if self._pending_upsert_rows is not None:
-            rows = self._pending_upsert_rows
-            self._pending_upsert_rows = None
-            self.state.setdefault(self.name, {}).setdefault("upserted", []).extend(rows)
-            self.state.setdefault(self.name, {}).setdefault("upsert_calls", 0)
-            self.state[self.name]["upsert_calls"] += 1
-            return SimpleNamespace(data=rows)
         return SimpleNamespace(data=[])
+
+
+class _FakeRpc:
+    def __init__(self, state: dict, rows):
+        self.state = state
+        self.rows = rows
+
+    def execute(self):
+        self.state.setdefault("price_history", {}).setdefault("upserted", []).extend(self.rows)
+        self.state.setdefault("price_history", {}).setdefault("upsert_calls", 0)
+        self.state["price_history"]["upsert_calls"] += 1
+        # RPC は RETURNS TABLE(saved_rows integer) なので実物どおり list[dict] で返す
+        return SimpleNamespace(data=[{"saved_rows": len(self.rows)}])
 
 
 class _FakeSupabase:
@@ -62,6 +65,10 @@ class _FakeSupabase:
 
     def table(self, name: str):
         return _FakeTable(name, self.state)
+
+    def rpc(self, name, params):
+        assert name == "upsert_price_rows"
+        return _FakeRpc(self.state, params["p_rows"])
 
 
 def _selected(names):

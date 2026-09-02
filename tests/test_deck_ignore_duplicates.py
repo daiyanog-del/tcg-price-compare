@@ -12,8 +12,9 @@ tests/test_deck_ignore_duplicates.py — /api/deck 経路の即時upsertがignor
 テスト方針:
   Flask test_client で /api/deck を叩き、SHOPS をスタブ1店舗に差し替え、
   Thread を同期実行に差し替えて fire-and-forget を即時観測可能にする。
-  fake Supabase client の price_history.upsert() 呼び出しに渡された
-  ignore_duplicates 引数を検証する（ネットワーク・実Supabase不使用）。
+  fake Supabase client の rpc("upsert_price_rows", ...) 呼び出しに渡された
+  p_ignore_duplicates 引数を検証する（ネットワーク・実Supabase不使用、
+  2026-09-02 整数キー化で upsert() から rpc() 経由に変更。price_history_v2.sql）。
 """
 
 import sys
@@ -25,12 +26,10 @@ import app as app_module
 
 
 class _FakeTable:
-    """任意のチェーンメソッドを self を返すだけで模倣し、execute() は空データを返す。
-    price_history.upsert() の呼び出しだけは引数を記録する。"""
+    """任意のチェーンメソッドを self を返すだけで模倣し、execute() は空データを返す。"""
 
-    def __init__(self, name: str, sink: list):
+    def __init__(self, name: str):
         self.name = name
-        self.sink = sink
         self._pending = None
 
     def __getattr__(self, item):
@@ -38,12 +37,6 @@ class _FakeTable:
         def _chain(*a, **k):
             return self
         return _chain
-
-    def upsert(self, rows, on_conflict=None, ignore_duplicates=None):
-        if self.name == "price_history":
-            self.sink.append({"rows": rows, "on_conflict": on_conflict, "ignore_duplicates": ignore_duplicates})
-        self._pending = rows
-        return self
 
     def insert(self, rows):
         self._pending = rows
@@ -55,12 +48,30 @@ class _FakeTable:
         return SimpleNamespace(data=[])
 
 
+class _FakeRpc:
+    def __init__(self, params: dict):
+        self._params = params
+
+    def execute(self):
+        from types import SimpleNamespace
+        # RPC は RETURNS TABLE(saved_rows integer) なので実物どおり list[dict] で返す
+        return SimpleNamespace(data=[{"saved_rows": len(self._params["p_rows"])}])
+
+
 class _FakeSupabase:
+    """price_history_v2 への書き込みは rpc("upsert_price_rows", ...) 経由になった
+    （2026-09-02 整数キー化）。rpc() 呼び出しだけ引数を sink に記録する。"""
+
     def __init__(self, sink: list):
         self.sink = sink
 
     def table(self, name):
-        return _FakeTable(name, self.sink)
+        return _FakeTable(name)
+
+    def rpc(self, name, params):
+        if name == "upsert_price_rows":
+            self.sink.append(params)
+        return _FakeRpc(params)
 
 
 class _SyncThread:
@@ -103,8 +114,7 @@ def test_deck_route_persists_with_ignore_duplicates_true(monkeypatch):
     assert resp.status_code == 200
     resp.get_data()  # SSEジェネレータを最後まで消費する
 
-    assert sink, "price_history.upsert が呼ばれていない"
+    assert sink, "rpc('upsert_price_rows', ...) が呼ばれていない"
     call = sink[-1]
-    assert call["ignore_duplicates"] is True
-    assert call["on_conflict"] == "card_name,shop,rarity,recorded_at"
-    assert call["rows"][0]["min_price"] == 1000
+    assert call["p_ignore_duplicates"] is True
+    assert call["p_rows"][0]["min_price"] == 1000

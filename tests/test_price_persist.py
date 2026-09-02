@@ -8,7 +8,8 @@ tests/test_price_persist.py — price_persist.build_min_price_rows / upsert_pric
         並行集計すること。「通常品」の定義（カーナベルSA=通常・B/C/D=除外、
         遊々亭セール=通常、トレコロ中古キズあり=除外、カードラッシュ〔状態…〕=除外）
   - P2: min_price を決めた出品の code が行に添えられること
-  - P6b: upsert_price_rows が ignore_duplicates を on_conflict と共に upsert() へ渡すこと
+  - P6b: upsert_price_rows が p_ignore_duplicates を p_rows と共に
+        RPC upsert_price_rows へ渡すこと（2026-09-02 整数キー化。price_history_v2.sql）
 
 ネットワーク・実Supabaseは一切使わない。
 """
@@ -216,25 +217,43 @@ class TestUrlField:
 # P6b: upsert_price_rows の ignore_duplicates 伝播
 # ──────────────────────────────────────────────
 
-class _FakeTable:
-    def __init__(self):
-        self.calls = []
+_UNSET = object()  # 「戻り値を明示指定しない」を None（想定外の型）と区別するための番兵
 
-    def upsert(self, rows, on_conflict=None, ignore_duplicates=None):
-        self.calls.append({"rows": rows, "on_conflict": on_conflict, "ignore_duplicates": ignore_duplicates})
+
+class _FakeRpc:
+    """sb.rpc("upsert_price_rows", {...}).execute() を模倣するフェイク。
+    RPC は RETURNS TABLE(saved_rows integer) なので、実物どおり
+    data == [{"saved_rows": N}] という list[dict] 形で返す
+    （return_value 省略時は「渡した行数がそのまま保存された」を模擬）。"""
+
+    def __init__(self, calls, return_value=_UNSET, raise_error=False):
+        self.calls = calls
+        self.return_value = return_value
+        self.raise_error = raise_error
+        self._params = None
+
+    def __call__(self, name, params):
+        assert name == "upsert_price_rows"
+        self.calls.append(params)
+        self._params = params
         return self
 
     def execute(self):
-        return None
+        if self.raise_error:
+            raise RuntimeError("boom")
+        from types import SimpleNamespace
+        if self.return_value is not _UNSET:
+            return SimpleNamespace(data=self.return_value)
+        return SimpleNamespace(data=[{"saved_rows": len(self._params["p_rows"])}])
 
 
 class _FakeSupabase:
-    def __init__(self):
-        self.table_obj = _FakeTable()
+    def __init__(self, return_value=_UNSET, raise_error=False):
+        self.calls = []
+        self._rpc = _FakeRpc(self.calls, return_value=return_value, raise_error=raise_error)
 
-    def table(self, name):
-        assert name == "price_history"
-        return self.table_obj
+    def rpc(self, name, params):
+        return self._rpc(name, params)
 
 
 class TestUpsertIgnoreDuplicates:
@@ -244,22 +263,102 @@ class TestUpsertIgnoreDuplicates:
                   "min_price": 1000, "min_price_any": 1000, "code": "", "recorded_at": TODAY}]
         saved = upsert_price_rows(sb, rows)
         assert saved == 1
-        call = sb.table_obj.calls[0]
-        assert call["ignore_duplicates"] is False
-        assert call["on_conflict"] == "card_name,shop,rarity,recorded_at"
+        call = sb.calls[0]
+        assert call["p_ignore_duplicates"] is False
+        assert call["p_rows"] == rows
 
     def test_ignore_duplicates_true_is_forwarded(self):
         sb = _FakeSupabase()
         rows = [{"card_name": "テストカード", "shop": "店舗A", "rarity": "レア",
                   "min_price": 1000, "min_price_any": 1000, "code": "", "recorded_at": TODAY}]
         upsert_price_rows(sb, rows, ignore_duplicates=True)
-        call = sb.table_obj.calls[0]
-        assert call["ignore_duplicates"] is True
+        call = sb.calls[0]
+        assert call["p_ignore_duplicates"] is True
 
     def test_empty_rows_no_call(self):
         sb = _FakeSupabase()
         assert upsert_price_rows(sb, []) == 0
-        assert sb.table_obj.calls == []
+        assert sb.calls == []
+
+    def test_rpc_saved_rows_used_as_saved_count(self):
+        # RPCの戻り値（実際に挿入/更新した行数）は渡した行数と異なりうる
+        # （例: ignore_duplicates=True で一部が既存行のためスキップされた場合）
+        sb = _FakeSupabase(return_value=[{"saved_rows": 0}])
+        rows = [{"card_name": "テストカード", "shop": "店舗A", "rarity": "レア",
+                  "min_price": 1000, "min_price_any": 1000, "code": "", "recorded_at": TODAY}]
+        saved = upsert_price_rows(sb, rows, ignore_duplicates=True)
+        assert saved == 0
+
+    def test_ignore_duplicates_true_partial_skip_does_not_warn(self, caplog):
+        # ignore_duplicates=True で一部が既存行スキップにより saved < len(rows) になるのは
+        # 正常値であり warning を出さない
+        sb = _FakeSupabase(return_value=[{"saved_rows": 1}])
+        rows = [
+            {"card_name": "テストカード", "shop": "店舗A", "rarity": "レア",
+             "min_price": 1000, "min_price_any": 1000, "code": "", "recorded_at": TODAY},
+            {"card_name": "テストカード2", "shop": "店舗A", "rarity": "レア",
+             "min_price": 2000, "min_price_any": 2000, "code": "", "recorded_at": TODAY},
+        ]
+        with caplog.at_level("WARNING"):
+            saved = upsert_price_rows(sb, rows, ignore_duplicates=True)
+        assert saved == 1
+        assert not any("行のみ保存" in rec.message for rec in caplog.records)
+
+    def test_partial_save_without_ignore_duplicates_warns(self, caplog):
+        # ignore_duplicates=False で saved < len(rows) は必須列NULL除外等の異常兆候として warning
+        sb = _FakeSupabase(return_value=[{"saved_rows": 1}])
+        rows = [
+            {"card_name": "テストカード", "shop": "店舗A", "rarity": "レア",
+             "min_price": 1000, "min_price_any": 1000, "code": "", "recorded_at": TODAY},
+            {"card_name": "テストカード2", "shop": "店舗A", "rarity": "レア",
+             "min_price": 2000, "min_price_any": 2000, "code": "", "recorded_at": TODAY},
+        ]
+        with caplog.at_level("WARNING"):
+            saved = upsert_price_rows(sb, rows, ignore_duplicates=False)
+        assert saved == 1
+        assert any("行のみ保存" in rec.message for rec in caplog.records)
+
+    def test_empty_list_return_falls_back_to_row_count(self, caplog):
+        # data == [] （saved_rowsが読み取れない）場合は渡した行数にフォールバック
+        sb = _FakeSupabase(return_value=[])
+        rows = [{"card_name": "テストカード", "shop": "店舗A", "rarity": "レア",
+                  "min_price": 1000, "min_price_any": 1000, "code": "", "recorded_at": TODAY}]
+        with caplog.at_level("WARNING"):
+            saved = upsert_price_rows(sb, rows)
+        assert saved == 1
+        assert any("想定外の形" in rec.message for rec in caplog.records)
+
+    def test_none_return_falls_back_to_row_count(self, caplog):
+        sb = _FakeSupabase(return_value=None)
+        rows = [{"card_name": "テストカード", "shop": "店舗A", "rarity": "レア",
+                  "min_price": 1000, "min_price_any": 1000, "code": "", "recorded_at": TODAY}]
+        with caplog.at_level("WARNING"):
+            saved = upsert_price_rows(sb, rows)
+        assert saved == 1
+        assert any("想定外の形" in rec.message for rec in caplog.records)
+
+    def test_missing_saved_rows_key_falls_back_to_row_count(self, caplog):
+        # data の形は list[dict] だが saved_rows キーが無い（想定外の形）
+        sb = _FakeSupabase(return_value=[{"other": 1}])
+        rows = [
+            {"card_name": "テストカード", "shop": "店舗A", "rarity": "レア",
+             "min_price": 1000, "min_price_any": 1000, "code": "", "recorded_at": TODAY},
+            {"card_name": "テストカード2", "shop": "店舗A", "rarity": "レア",
+             "min_price": 2000, "min_price_any": 2000, "code": "", "recorded_at": TODAY},
+        ]
+        with caplog.at_level("WARNING"):
+            saved = upsert_price_rows(sb, rows)
+        assert saved == 2
+        assert any("想定外の形" in rec.message for rec in caplog.records)
+
+    def test_exception_returns_zero_and_logs(self, caplog):
+        sb = _FakeSupabase(raise_error=True)
+        rows = [{"card_name": "テストカード", "shop": "店舗A", "rarity": "レア",
+                  "min_price": 1000, "min_price_any": 1000, "code": "", "recorded_at": TODAY}]
+        with caplog.at_level("ERROR"):
+            saved = upsert_price_rows(sb, rows)
+        assert saved == 0
+        assert any("upsert" in rec.message for rec in caplog.records)
 
 
 # ──────────────────────────────────────────────

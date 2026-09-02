@@ -10,6 +10,8 @@ ignore_duplicates=True に固定されることの検証（監査M1、docs/audit
   （/api/search=False・/api/deck=True）のまま変えない。
 
   ネットワーク・実Supabase不使用。app_module._persist_scrape_async を直接呼ぶ。
+  price_history_v2 への書き込みは rpc("upsert_price_rows", ...) 経由
+  （2026-09-02 整数キー化。price_history_v2.sql）。
 """
 
 import sys
@@ -22,19 +24,9 @@ import app as app_module
 
 
 class _FakeTable:
-    def __init__(self, name: str, sink: list):
+    def __init__(self, name: str):
         self.name = name
-        self.sink = sink
         self._pending = None
-
-    def upsert(self, rows, on_conflict=None, ignore_duplicates=None):
-        if self.name == "price_history":
-            self.sink.append({
-                "shops": {r["shop"] for r in rows},
-                "ignore_duplicates": ignore_duplicates,
-            })
-        self._pending = rows
-        return self
 
     def execute(self):
         self._pending = None
@@ -46,7 +38,25 @@ class _FakeSupabase:
         self.sink = sink
 
     def table(self, name):
-        return _FakeTable(name, self.sink)
+        return _FakeTable(name)
+
+    def rpc(self, name, params):
+        if name == "upsert_price_rows":
+            rows = params["p_rows"]
+            self.sink.append({
+                "shops": {r["shop"] for r in rows},
+                "ignore_duplicates": params["p_ignore_duplicates"],
+            })
+        return _FakeRpc(params)
+
+
+class _FakeRpc:
+    def __init__(self, params: dict):
+        self._params = params
+
+    def execute(self):
+        # RPC は RETURNS TABLE(saved_rows integer) なので実物どおり list[dict] で返す
+        return SimpleNamespace(data=[{"saved_rows": len(self._params["p_rows"])}])
 
 
 def _item(shop, price=1000):
