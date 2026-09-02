@@ -166,6 +166,88 @@
     min-height: 48px;
     font-size: 0.9rem;
   }
+
+  /* ════════════════════════════════════════════════════
+     縦持ちスマホのみ（フェーズ1・設計書 §8.1）
+     横向きスマホ（後発の @media landscape ブロック）には一切影響しない。
+     新規UI部品（下部バー・縦タブ・重ね表示・アクションシート・詳細パネル・
+     簡易メニュー）の見た目は mobile.css が担当し、ここではレイアウトの骨格
+     （1カラム化・並べ替え・非表示化）のみを扱う。
+     ════════════════════════════════════════════════════ */
+  @media (orientation: portrait) {
+
+    /* ── 盤面列を縦1カラムのflexコンテナ化し、order で並べ替える ──
+       .main-content / #mainContainer / .center-row を display:contents にして
+       墓地/除外(.side-slots-container)・手札(.sol-hand-area)・EX(#imagePool2)を
+       DOM移動なしに .sol-field-area の直接の flex 子として扱う（制約2）。
+       確認結果: .custom-layout の自然高さ（盤面3段）は .side-slots-container
+       （横並び2分割・重ね表示で1行分）より常に大きいため、.main-content の
+       align-items:stretch が外れても .custom-layout の offsetHeight
+       （fitFieldToViewport の --field-height 計測元）は変化しない。
+       .sol-field-area の getBoundingClientRect()（correctSlotWidthByMeasurement
+       が使う）も実際のレンダリング結果を見るため display:contents の影響を受けない。
+       → 新コンテナ方式への切替は不要と判断（display:contents を採用）。 */
+    .sol-field-area {
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+      gap: var(--gap);
+      /* 下部固定バー(52px)分の余白は padding では確保しない。
+         correctSlotWidthByMeasurement に bottomReserve=52 を渡し（main.js §8.2）、
+         .sol-field-area の下端自体が (innerHeight-52) を超えないよう slotW 側を
+         縮小して収める設計（padding を足すと二重計算になり、必要以上に縮んでしまう）。 */
+    }
+    #mainContainer,
+    .main-content,
+    .center-row {
+      display: contents;
+    }
+
+    .custom-layout         { order: 1; }
+    .sol-hand-area         { order: 2; flex: none; width: 100%; margin-left: 0; }
+    .side-slots-container  { order: 3; flex-direction: row; }
+    #imagePool2             { order: 4; flex: none; width: 100%; margin-top: 0; }
+    #replayBarContainer     { order: 6; }
+
+    /* B-2: .sol-hand-area / #imagePool2 は padding+border を持つため、width:100% と
+       box-sizing:content-box(既定)の組み合わせで実際の幅が100%を超えて右端が画面外に出ていた。
+       .side-slots-container 自体は無指定だが、子の .sol-side-area も同じ理由でチェック対象に含める。 */
+    .sol-hand-area,
+    #imagePool2,
+    .side-slots-container .sol-side-area {
+      box-sizing: border-box;
+    }
+
+    /* 手札center-slotの固定min-width(400px)を解除（小さいslot-widthでも溢れないように） */
+    .sol-hand-area .center-slot {
+      min-width: 0;
+    }
+
+    /* B-8: 縦タブ方式ではラベルがカード列と横並びのため、767pxブロックの
+       min-height: calc(var(--slot-height) + 32px)（ラベル行の高さを見込んだ値）は過大。
+       手札行と同じ「カード高＋枠余白10px」に揃える。 */
+    .side-slots-container .sol-side-area {
+      min-height: calc(var(--slot-height) + 10px);
+    }
+
+    /* デッキ行は非表示（中身の #poolRow は残す。既存のドロー処理・リプレイ処理を変えない） */
+    #imagePool { display: none; }
+
+    /* 相手の想定妨害トレイは盤面上から外す（メニューからシートとして開く。mobile.css が開時のスタイルを持つ） */
+    #opponentTray { display: none; }
+
+    /* 左右パネルと端のトグルボタンはスマホでは非表示。
+       デッキ読込は #solSidebar 自体をボトムシート化して流用する（制約7）。
+       左右トグルボタンの非表示は sidebar-toggle.js が isPhone && !isLandscape 判定で行う。 */
+    #solSidebar,
+    #solRightPanel {
+      display: none;
+    }
+    /* ボトムシートとして開いた時だけ表示に戻す（sol-sheet-open は mobile-ui.js が付与） */
+    #solSidebar.sol-sheet-open {
+      display: block;
+    }
+  }
 }
 
 

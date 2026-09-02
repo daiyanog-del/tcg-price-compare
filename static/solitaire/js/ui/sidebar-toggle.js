@@ -14,6 +14,8 @@
  * updateCipWidth を既存の仕組みで自動再計算させる。
  */
 
+import { isMobilePortrait, watchMobilePortrait } from '../utils/viewport.js';
+
 const STORAGE_KEY = 'sol-panel-state';
 
 // ブレークポイント
@@ -92,6 +94,16 @@ function triggerRefit() {
   window.dispatchEvent(new Event('opp-tray-resize'));
 }
 
+/** スマホ縦向きでは左右トグルボタンを非表示、それ以外（PC・横向きスマホ）では既存表示に戻す */
+function applyMobileToggleVisibility() {
+  const hide = isMobilePortrait();
+  const btnL = document.getElementById('sidebarToggleLeft');
+  const btnR = document.getElementById('sidebarToggleRight');
+  [btnL, btnR].forEach(btn => {
+    if (btn) btn.style.display = hide ? 'none' : '';
+  });
+}
+
 /**
  * 手動トグル処理（ボタンクリック時）
  * @param {'left'|'right'} side
@@ -165,4 +177,9 @@ export function initSidebarToggle() {
   [mqBoth, mqRight, mqWide].forEach(mq => {
     mq.addEventListener('change', applyAutoState);
   });
+
+  // H-1: スマホ縦向き判定は matchMedia の change イベントに一本化（resize/orientationchange の
+  // 逐次発火はやめる）。実際に portrait の該当/非該当が切り替わった瞬間だけ再評価する。
+  applyMobileToggleVisibility();
+  watchMobilePortrait(() => applyMobileToggleVisibility());
 }

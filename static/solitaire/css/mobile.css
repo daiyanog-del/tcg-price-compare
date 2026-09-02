@@ -1,0 +1,622 @@
+/**
+ * mobile.css — スマホ縦向き専用UI（フェーズ1・設計書 §8）
+ *
+ * ここで定義するのは新規UI部品（下部バー・縦タブ・重ね表示・アクションシート・
+ * 詳細パネル・簡易メニュー）の見た目のみ。レイアウトの骨格（1カラム化・
+ * display:contents・order 並べ替え）は responsive.css 側が担当する。
+ *
+ * ファイル全体を「≤767px かつ縦向き」に閉じる（PC・横向きスマホへの影響ゼロ・制約1）。
+ */
+@media (max-width: 767px) and (orientation: portrait) {
+
+  /* ════════ 縦タブ（設計書 §3.6 L-1・制約8） ════════ */
+
+  .sol-hand-area {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 4px;
+  }
+  #imagePool2 {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 4px;
+  }
+  .side-slots-container .sol-side-area {
+    flex-direction: row;
+    align-items: stretch;
+    gap: 4px;
+  }
+
+  .pool-label {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    width: 16px;
+    flex: 0 0 16px;
+    white-space: nowrap;
+    margin-bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: default;
+  }
+  /* 墓地・除外のラベルはタップで全幅展開できる（設計書 a-3） */
+  .side-slots-container .pool-label {
+    cursor: pointer;
+  }
+  /* 枚数バッジは既存の .zone-count（solitaire-brand.css）を縦タブ内に寄せ、数字だけ横向きに戻す */
+  .zone-count {
+    writing-mode: horizontal-tb;
+    margin-left: 0;
+    margin-top: 4px;
+  }
+
+  .sol-hand-area .center-slot {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+    margin-left: 0;
+  }
+  #imagePool2 .tier-row {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* ════════ 墓地｜除外: 重ね表示（設計書 a-1・制約9） ════════ */
+
+  .side-slots-container .sol-side-area .side-slot {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex: 1;
+    width: auto;
+    min-width: 0;
+  }
+  .side-slots-container .sol-side-area .side-slot .tier-item-wrapper {
+    /* flex子のデフォルト(flex-shrink:1)だとカードが必要以上に圧縮されるため固定幅を維持し、
+       収まらない分は .side-slot の overflow-x:auto で横スクロールに回す（設計書 a-1）。 */
+    flex: 0 0 auto;
+    margin-top: 0;
+    margin-left: calc(-1 * (var(--slot-width) - 28px));
+  }
+  .side-slots-container .sol-side-area .side-slot .tier-item-wrapper:first-child {
+    margin-left: 0;
+  }
+
+  /* タップで全幅展開（設計書 a-3）。mobile-ui.js が相互排他でクラスを付け替える */
+  .side-slots-container .sol-side-area {
+    transition: flex 0.15s ease;
+  }
+  .side-slots-container .sol-side-area.expanded {
+    flex: 1;
+  }
+  .side-slots-container .sol-side-area.sol-collapsed-chip {
+    flex: 0 0 40px;
+    overflow: hidden;
+  }
+  .side-slots-container .sol-side-area.sol-collapsed-chip .side-slot {
+    display: none;
+  }
+
+  /* ════════ タップ操作の状態機械（設計書 §8.3・制約10） ════════ */
+
+  .tier-item-wrapper.touching {
+    transform: scale(1.15);
+    z-index: 500;
+    box-shadow: 0 0 0 3px var(--accent), 0 8px 20px rgba(0, 0, 0, 0.5);
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+  }
+  .tier-item-wrapper.selected {
+    box-shadow: 0 0 0 3px var(--gold), 0 8px 20px rgba(0, 0, 0, 0.5);
+    z-index: 400;
+  }
+
+  .custom-slot.drop-hint,
+  .center-slot.drop-hint,
+  .side-slot.drop-hint,
+  #poolRow.drop-hint {
+    outline: 2px dashed var(--accent);
+    outline-offset: -2px;
+    animation: solDropHintPulse 1s ease-in-out infinite;
+  }
+  @keyframes solDropHintPulse {
+    0%, 100% { background-color: rgba(74, 124, 255, 0.05); }
+    50%      { background-color: rgba(74, 124, 255, 0.22); }
+  }
+
+  #solTouchLabel {
+    position: fixed;
+    transform: translateX(-50%);
+    background: rgba(10, 16, 36, 0.92);
+    color: #fff;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 2000;
+    display: none;
+  }
+
+  /* ════════ B-11: セッション復元トースト（main.js _showToast）が下部バーに重なるのを防ぐ ════════
+     .sol-toast 自体（main.js の実装、bottom:24px）は変更せず、CSS の上書きだけで対応する。 */
+  .sol-toast {
+    bottom: calc(52px + 12px);
+  }
+
+  /* ════════ 下部固定バー（制約4・§8.1） ════════ */
+
+  .sol-mobile-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 52px;
+    z-index: 200;
+    display: flex;
+    gap: 6px;
+    padding: 6px 8px;
+    box-sizing: border-box;
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border);
+  }
+  .sol-mobile-bar[hidden] { display: none; }
+  .sol-mobile-bar-btn {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--main-color);
+    font-family: var(--font);
+    font-size: 0.82rem;
+    font-weight: 600;
+    padding: 0 4px;
+  }
+  .sol-mobile-bar-btn[hidden] { display: none; }
+  .sol-mobile-bar-menu {
+    flex: 0 0 46px;
+    font-size: 1.3rem;
+    position: relative;
+  }
+  .sol-mobile-badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    min-width: 15px;
+    height: 15px;
+    padding: 0 3px;
+    border-radius: 8px;
+    background: var(--red);
+    color: #fff;
+    font-size: 0.6rem;
+    font-weight: 700;
+    line-height: 15px;
+    text-align: center;
+  }
+  .sol-mobile-badge[hidden] { display: none; }
+
+  /* ════════ 旧リプレイバー: 縦向きスマホでは完全非表示（A-4・司令塔決定） ════════
+     実走で #replayBarContainer が sticky のまま残って下部バーの裏に半分見え「取消」が
+     二重になる不具合が確認された。responsive.css の #replayBarContainer.replay-bar
+     { position:sticky; ... } と同じ詳細度（ID+class）のセレクタで、mobile.css が
+     main.css の import で後段に来ることを利用して確実に上書きする。
+     取消は下部バーの #solMobileUndoBtn のみ。⋯メニュー「リプレイ操作」を押した時だけ
+     オーバーレイとして全機能表示する（.sol-mobile-fullbar-open）。 */
+  #replayBarContainer.replay-bar {
+    display: none;
+  }
+
+  /* ⋯メニュー「リプレイ操作」: 通常フローに戻さず fixed オーバーレイとして全機能表示し、×で閉じる */
+  #replayBarContainer.replay-bar.sol-mobile-fullbar-open {
+    display: flex;
+    flex-wrap: wrap;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 52px;
+    z-index: 260;
+    border-radius: 8px 8px 0 0;
+    padding-top: 40px; /* 閉じるボタン分の余白 */
+  }
+  #solMobileReplayBarClose {
+    display: none;
+  }
+  #replayBarContainer.sol-mobile-fullbar-open #solMobileReplayBarClose {
+    display: block;
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 2;
+  }
+
+  /* ════════ カード詳細パネル（スマホ・A-2で「既定は閉」のオーバーレイに変更） ════════
+     選択時には出さない。アクションシートの「詳細」ボタンからのみ開く。
+     top:0・max-height:70vh・スクリムタップ/×で閉じる。開閉は記憶しない。
+     アクションシート(z-index:250)より前面に出す必要があるため z-index を上げる。 */
+
+  .sol-mobile-cip {
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+  }
+  .sol-mobile-cip[hidden] { display: none; }
+  .sol-mobile-cip-scrim {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+  }
+  .sol-mobile-cip-panel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    max-height: 70vh;
+    overflow-y: auto;
+    display: flex;
+    gap: 8px;
+    padding: 16px 34px 16px 12px;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    border-radius: 0 0 14px 14px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    box-sizing: border-box;
+  }
+  .sol-mobile-cip-close {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--main-color);
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .sol-mobile-cip-body {
+    flex: 1;
+    min-width: 0;
+  }
+  /* card-info-panel.js の描画クラス(.cip-*)をスマホパネル幅に合わせて上書き（画像100px＋テキストスクロール） */
+  .sol-mobile-cip-body .cip-header {
+    align-items: flex-start;
+  }
+  .sol-mobile-cip-body .cip-img {
+    width: 100px;
+    flex: 0 0 100px;
+  }
+  .sol-mobile-cip-body .cip-effect {
+    font-size: 0.78rem;
+    max-height: none;
+  }
+  /* B-12: showPrice=false で呼ぶため通常は生成されないが、フェイルセーフとして隠す */
+  .sol-mobile-cip-body .cip-price {
+    display: none;
+  }
+
+  /* ════════ 選択中カードのアクションシート（A-3で再構成） ════════
+     ヘッダ行（カード名＋詳細ボタン）＋操作行の3行以内・高さ110px以下。
+     操作は守備表示｜セット｜墓地へ｜除外へ｜デッキに戻す｜効果発動の6つ（削除は外す＝長押しメニューに残す）。 */
+
+  .sol-mobile-action-sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 52px;
+    z-index: 250;
+    max-height: 110px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 8px;
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.4);
+    box-sizing: border-box;
+  }
+  .sol-mobile-action-sheet[hidden] { display: none; }
+
+  .sol-mobile-action-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 26px;
+    flex-shrink: 0;
+  }
+  .sol-mobile-action-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--main-color);
+  }
+  .sol-mobile-action-detail-btn {
+    flex: 0 0 auto;
+    padding: 3px 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--accent);
+    font-family: var(--font);
+    font-size: 0.76rem;
+    font-weight: 600;
+  }
+
+  .sol-mobile-action-ops {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .sol-mobile-action-ops[hidden] { display: none; }
+  .sol-mobile-action-btn {
+    flex: 1 1 30%;
+    min-width: 88px;
+    padding: 6px 4px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--main-color);
+    font-family: var(--font);
+    font-size: 0.76rem;
+    font-weight: 600;
+  }
+
+  /* ════════ 汎用シート（⋯メニュー・共通スタイル） ════════ */
+
+  .sol-mobile-sheet {
+    position: fixed;
+    inset: 0;
+    z-index: 900;
+  }
+  .sol-mobile-sheet[hidden] { display: none; }
+  .sol-mobile-sheet-scrim {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+  }
+  .sol-mobile-sheet-panel {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-height: 80vh;
+    overflow-y: auto;
+    background: var(--bg-surface);
+    border-radius: 14px 14px 0 0;
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.5);
+    box-sizing: border-box;
+  }
+  .sol-mobile-sheet-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    color: var(--main-color);
+    font-weight: 700;
+  }
+  .sol-mobile-sheet-body {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 14px 24px;
+  }
+  .sol-mobile-menu-item {
+    padding: 12px 10px;
+    text-align: left;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--main-color);
+    font-family: var(--font);
+    font-size: 0.92rem;
+    position: relative;
+  }
+
+  .sol-mobile-sheet-close-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--main-color);
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  /* ════════ デッキ読込ボトムシート（#solSidebar 再利用・制約7） ════════ */
+
+  /* B-1: localStorage の sol-panel-state で #solSidebar に .collapsed が付いたままだと、
+     solitaire-brand.css の .sol-sidebar.collapsed { width:0; border-width:0; overflow:hidden }
+     .sol-sidebar.collapsed > * { display:none } が効いたままになり、× だけの空シートになる
+     （実走で確認。sidebar-toggle.js が縦向きスマホでは左右トグル自体を隠すため .collapsed の
+     解除操作ができず、過去に一度でも畳んだ状態を localStorage に持つ端末で必ず再現する）。
+     .sol-sheet-open 側の指定で collapsed 由来の値を明示的に打ち消す。 */
+  #solSidebar.sol-sheet-open {
+    display: flex !important;
+    flex-direction: column;
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    height: 85vh;
+    max-height: 85vh;
+    min-height: 0;
+    z-index: 910;
+    border-radius: 14px 14px 0 0;
+    border: none;
+    border-top: 1px solid var(--border);
+    border-width: 1px 0 0 0; /* .collapsed の border-width:0 を明示的に打ち消す */
+    overflow-y: auto;        /* .collapsed の overflow:hidden を打ち消す */
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.5);
+    box-sizing: border-box;
+  }
+  #solSidebar.sol-sheet-open > * {
+    display: block; /* .collapsed > * { display:none } を打ち消す */
+  }
+  #solSidebarScrim {
+    position: fixed;
+    inset: 0;
+    z-index: 905;
+    background: rgba(0, 0, 0, 0.55);
+  }
+  #solSidebarScrim[hidden] { display: none; }
+  #solSidebar .sol-mobile-sheet-close-btn {
+    display: none;
+  }
+  #solSidebar.sol-sheet-open .sol-mobile-sheet-close-btn {
+    display: block;
+    align-self: flex-end;
+    position: sticky;
+    top: 0;
+    margin: 8px 8px 0 0;
+    z-index: 2;
+  }
+
+  /* ════════ 相手の想定妨害シート（#opponentTray 再利用・制約6） ════════ */
+
+  #opponentTray.sol-opp-sheet-open {
+    display: block !important;
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    max-height: 80vh;
+    overflow-y: auto;
+    z-index: 910;
+    border-radius: 14px 14px 0 0;
+    border: none;
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.5);
+    box-sizing: border-box;
+  }
+  #opponentTray .sol-mobile-sheet-close-btn {
+    display: none;
+  }
+  #opponentTray.sol-opp-sheet-open .sol-mobile-sheet-close-btn {
+    display: block;
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 2;
+  }
+  #opponentTray.sol-opp-sheet-open .opp-tray-toggle {
+    display: none;
+  }
+  #opponentTray.sol-opp-sheet-open .opp-tray-body {
+    display: block !important;
+    padding-top: 40px;
+  }
+
+  /* ════════ 操作方法シート（右パネルの .sol-ops-details を流用・制約6） ════════ */
+
+  /* .sol-ops-details は display:none の #solRightPanel の子孫にあるため、
+     details 自身を fixed 化するだけでは祖先の display:none に隠れる。
+     祖先2段（#solRightPanel と直接の親 .sol-right-section）だけ一時的に表示に戻す。
+     他の .sol-right-section（盤面操作・カウンター等）は隠したままにする。 */
+  /* M-6: .collapsed が付いていない端末（localStorage に right:false が残存）でも
+     #solRightPanel が盤面幅を占有しないよう固定サイズで浮かせる。 */
+  #solRightPanel.sol-mobile-help-active {
+    display: block !important;
+    position: fixed;
+    width: 0;
+    min-height: 0;
+    border: none;
+  }
+  #solRightPanel.sol-mobile-help-active > .sol-right-section {
+    display: none;
+  }
+  #solRightPanel.sol-mobile-help-active > .sol-right-section.sol-mobile-help-section-active {
+    display: block;
+  }
+
+  .sol-ops-details.sol-mobile-help-open {
+    display: block !important;
+    position: fixed !important;
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    max-height: 70vh;
+    overflow-y: auto;
+    z-index: 910;
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border);
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.5);
+    padding: 14px;
+    box-sizing: border-box;
+  }
+  .sol-mobile-help-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 905;
+    background: rgba(0, 0, 0, 0.55);
+  }
+
+  /* ════════ M-7: touch-action で方向を宣言する（根治） ════════
+     スクロール領域（手札・EX・墓地/除外）とその中のカードは横スクロールを許可(pan-x)。
+     盤面スロット内のカードは方向宣言なし(none)＝JS のドラッグ判定に完全に委ねる。 */
+  .sol-hand-area .center-slot,
+  #imagePool2 .tier-row,
+  .side-slot {
+    touch-action: pan-x;
+  }
+  .sol-hand-area .center-slot .tier-item-wrapper,
+  #imagePool2 .tier-row .tier-item-wrapper,
+  .side-slot .tier-item-wrapper {
+    touch-action: pan-x;
+  }
+  .custom-slot .tier-item-wrapper {
+    touch-action: none;
+  }
+
+  /* ════════ E-2: デッキ読込シート内のページナビ非表示＋⋯メニューへの導線追加 ════════
+     実走で「価格/マイデッキ/環境デッキ/最新弾/購入候補/一人回し」のナビが縦幅を食うことが判明。
+     シート内では非表示にし、代わりに ⋯メニュー末尾の「TCGYM トップへ」で導線を確保する。 */
+  #solSidebar.sol-sheet-open .sol-sidebar-nav {
+    display: none;
+  }
+  .sol-mobile-menu-link {
+    display: block;
+    text-decoration: none;
+  }
+}
+
+/* ════════ H-1: portrait を外れた瞬間の二重防御（致命的バグ対策） ════════
+   mobile.css 全体が @media (max-width:767px) and (orientation:portrait) 内なので、
+   回転やウィンドウ幅変更で portrait を外れると中身が一切適用されなくなり、JS が hidden を
+   戻す前の一瞬（または不具合時）に下部バー・アクションシート・詳細・メニュー・タッチラベルが
+   素の div として PC/横向きに露出してしまう。CSS 側でも強制的に隠す（L-9: #solTouchLabel も対象）。
+   mobile-ui.js 側は matchMedia の change イベントで resetMobileUI() を呼び、hidden を戻す
+   （二重防御。CSS はフェイルセーフ、JS が本来の閉じる処理を担当）。 */
+@media not all and (max-width: 767px) and (orientation: portrait) {
+  .sol-mobile-bar,
+  .sol-mobile-action-sheet,
+  .sol-mobile-cip,
+  .sol-mobile-sheet,
+  #solTouchLabel {
+    display: none !important;
+  }
+}

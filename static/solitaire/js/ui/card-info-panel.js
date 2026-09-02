@@ -85,8 +85,19 @@ async function _fetchAndShow(name, imgSrc) {
   }
 }
 
-function _renderCard(data, imgSrc, name, priceData) {
-  const panel = document.getElementById('cardInfoPanel');
+/**
+ * カード詳細を描画する。
+ * @param {Object}  data       カード情報（/api/card-info のレスポンス、または proxy オブジェクト）
+ * @param {string}  imgSrc     画像URL
+ * @param {string}  name       カード名
+ * @param {Object|null} priceData  /api/price-history のレスポンス。スマホ詳細パネルからは null を渡す
+ * @param {Element} [targetPanel]  描画先パネル要素。省略時は既存の #cardInfoPanel（PC用）
+ *   スマホ詳細パネル（#solMobileCip）から再利用するための最小限の引数追加（mobile-ui.js が使用）。
+ *   引数省略時の挙動は従来と完全に同じ（後方互換）。
+ * @param {boolean} [showPrice=true]  価格ブロックを生成するか。スマホは false でブロック自体を作らない（B-12）。
+ */
+export function _renderCard(data, imgSrc, name, priceData, targetPanel, showPrice = true) {
+  const panel = targetPanel || document.getElementById('cardInfoPanel');
   if (!panel) return;
 
   const isMonster = data.broad_type === 'monster';
@@ -113,8 +124,10 @@ function _renderCard(data, imgSrc, name, priceData) {
     : '';
 
   // ペンデュラム効果（本体効果とは別ブロック）
+  // E-1: effect_text 系フィールドが改行を文字列 "<br>" のまま持っていることがあるため、
+  // _esc の前に実際の改行(\n)へ正規化してから \n→<br> 変換に通す（PC にも効く既存不具合の修正）。
   const pendHtml = data.pendulum_effect
-    ? `<div class="cip-effect cip-pendulum"><span class="cip-pendulum-label">【ペンデュラム効果】</span>${_esc(data.pendulum_effect).replace(/\n/g, '<br>')}</div>`
+    ? `<div class="cip-effect cip-pendulum"><span class="cip-pendulum-label">【ペンデュラム効果】</span>${_esc(_normalizeBreaks(data.pendulum_effect)).replace(/\n/g, '<br>')}</div>`
     : '';
 
   // ATK/DEF（モンスターのみ）
@@ -138,13 +151,19 @@ function _renderCard(data, imgSrc, name, priceData) {
       </div>
     </div>
     ${pendHtml}
-    <div class="cip-effect">${_esc(data.effect_text || '').replace(/\n/g, '<br>')}</div>
-    ${_buildPriceHtml(name, priceData)}
+    <div class="cip-effect">${_esc(_normalizeBreaks(data.effect_text || '')).replace(/\n/g, '<br>')}</div>
+    ${showPrice ? _buildPriceHtml(name, priceData) : ''}
   `;
 }
 
-function _showLoading(name, imgSrc) {
-  const panel = document.getElementById('cardInfoPanel');
+/**
+ * 読み込み中表示。targetPanel はスマホ詳細パネル再利用用（_renderCard 参照。A-2で export・引数追加）。
+ * @param {string}  name
+ * @param {string}  imgSrc
+ * @param {Element} [targetPanel]  省略時は既存の #cardInfoPanel（PC用）
+ */
+export function _showLoading(name, imgSrc, targetPanel) {
+  const panel = targetPanel || document.getElementById('cardInfoPanel');
   if (!panel) return;
   panel.innerHTML = `
     <div class="cip-header">
@@ -157,8 +176,12 @@ function _showLoading(name, imgSrc) {
   `;
 }
 
-function _showUnknown(imgSrc, name, priceData) {
-  const panel = document.getElementById('cardInfoPanel');
+/**
+ * 詳細情報なし（未対応カード）の描画。targetPanel はスマホ詳細パネル再利用用（_renderCard 参照）。
+ * @param {boolean} [showPrice=true]  価格ブロックを生成するか（B-12）。
+ */
+export function _showUnknown(imgSrc, name, priceData, targetPanel, showPrice = true) {
+  const panel = targetPanel || document.getElementById('cardInfoPanel');
   if (!panel) return;
   panel.innerHTML = `
     <div class="cip-header">
@@ -168,7 +191,7 @@ function _showUnknown(imgSrc, name, priceData) {
         <p class="cip-type" style="color:#4a6490">詳細情報なし</p>
       </div>
     </div>
-    ${name ? _buildPriceHtml(name, priceData) : ''}
+    ${(name && showPrice) ? _buildPriceHtml(name, priceData) : ''}
   `;
 }
 
@@ -210,6 +233,18 @@ function _bestFromHistory(data) {
   const latestDate = valid.reduce((a, b) => a.date > b.date ? a : b).date;
   const latest = valid.filter(r => r.date === latestDate);
   return latest.reduce((a, b) => a.price < b.price ? a : b);
+}
+
+/**
+ * E-1: /api/card-info(s) の effect_text 等が改行を実際の \n ではなく文字列 "<br>" のまま
+ * 持っているケースがあり、_esc 後に \n→<br> 変換しても "<br>" という文字列がそのまま
+ * 画面に表示されてしまっていた（PC 側の詳細パネルにも同じ既存不具合）。
+ * _esc に通す前に "<br>" 系タグ文字列を実際の改行へ正規化する。
+ * @param {string} text
+ * @returns {string}
+ */
+function _normalizeBreaks(text) {
+  return String(text ?? '').replace(/<br\s*\/?>/gi, '\n');
 }
 
 function _esc(str) {

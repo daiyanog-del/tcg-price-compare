@@ -16,6 +16,8 @@ import { saveSessionResume, loadSessionResume } from './services/save-load-servi
 import { initOpponentTray, updateCipWidth } from './ui/opponent-tray.js';
 import { initFeedbackModal } from './ui/feedback-modal.js';
 import { initSidebarToggle } from './ui/sidebar-toggle.js';
+import { initMobileUI } from './ui/mobile-ui.js';
+import { isMobilePortrait } from './utils/viewport.js';
 
 /**
  * カード追加時にリプレイ画像辞書へ登録するフック
@@ -73,19 +75,31 @@ function fitFieldToViewport() {
   const trayH   = tray.offsetHeight;   // 閉=28px 開=閉+ボディ高さ
   const replayH = replay ? replay.offsetHeight + 4 : 36; // margin-top(4px)込み
 
-  // スマホ検出: 短辺 < 500px → スマホ（縦/横向き問わず検知）
+  // スマホ検出: 短辺 < 500px → スマホ（縦/横向き問わず検知）。横向き分岐はこの基準のまま（司令塔決定A-1）。
   const isPhone     = Math.min(window.innerWidth, window.innerHeight) < 500;
   const isLandscape = window.innerWidth > window.innerHeight;
+  // 縦向きスマホ分岐の条件は CSS の @media (max-width:767px) and (orientation:portrait) と
+  // 完全に一致させる（司令塔決定A-1）。isPhone(短辺<500)基準のままだと500〜767px縦長で
+  // CSSはモバイルレイアウトなのにJSはPC計算式を使う不整合が起きるため。
+  const isPortraitMobile = isMobilePortrait();
 
   // 高さ基準:
-  //   横向きスマホ → 盤面3行のみをビューポートに収め、手札/デッキはスクロール
-  //   縦向きスマホ・PC/タブレット → 全体フィット (比例係数 7.25)
+  //   横向きスマホ   → 盤面3行のみをビューポートに収め、手札/デッキはスクロール
+  //   縦向きスマホ   → 設計書 §8.2: 下部固定バー52px込みで縦スクロールなしに収める
+  //   PC/タブレット  → 全体フィット (比例係数 7.25)
   let slotW_h;
   if (isPhone && isLandscape) {
     // mainContainer padding-top(4) + row-gaps(20) + sol-field-area padding-bottom(6)
     const BOARD_FIXED = 30;
     const availForBoard = window.innerHeight - navH - trayH - replayH - BOARD_FIXED;
     slotW_h = Math.floor(availForBoard / 4.35);
+  } else if (isPortraitMobile) {
+    // 設計書 §8.2: 縦に並ぶカード段は盤面3段＋手札＋墓地除外＋EXの6段 → 6×1.45=8.7
+    // 固定分 = 下部バー52 + 各行の枠・余白10×3 + 盤面余白8 + 盤面gap20 = 110px
+    // 2026-09-03 司令塔が 375/412/744 幅で実測: 縦横スクロールなし・カード幅 52/59/113px を確認。
+    // 値（8.7・110・下記の幅式の 8・50）を変更する場合は同条件で再実測すること。
+    const MOBILE_PORTRAIT_FIXED = 110;
+    slotW_h = Math.floor((window.innerHeight - MOBILE_PORTRAIT_FIXED) / 8.7);
   } else {
     // slot-width に依存しない固定オーバーヘッド（実測ベースに引き直し）:
     //   mainContainer padding-top              :  4px
@@ -110,8 +124,10 @@ function fitFieldToViewport() {
   const availW  = mainEl ? mainEl.clientWidth : window.innerWidth;
 
   let slotW_w;
-  if (isPhone && !isLandscape) {
-    slotW_w = Math.floor((availW - 88) / 7.2);
+  if (isPortraitMobile) {
+    // 設計書 §8.2: 6列・サイド無し（墓地/除外は下段の横並び2分割になるため列数に含めない）
+    // 2026-09-03 司令塔が 375/412/744 幅で実測済み（上記コメント参照）。
+    slotW_w = Math.floor((availW - 8 - 50) / 6);
   } else if (isPhone && isLandscape) {
     slotW_w = Math.floor((availW - 126) / 8.4);
   } else {
@@ -125,8 +141,11 @@ function fitFieldToViewport() {
 
   // 実測補正: 推定で適用後、.sol-field-area の下端がビューポートを超えていれば縮小。
   // 横向きスマホは「盤面3行のみフィット・手札/デッキはスクロール許容」が仕様のため除外。
+  // 縦向きスマホは下部固定バー(52px)の分だけ基準を上に詰める（設計書 §8.2）。
+  // 2026-09-03 司令塔が 375/412/744 幅で実測: 縦横スクロールなし・カード幅 52/59/113px を確認。
   if (!(isPhone && isLandscape)) {
-    slotW = correctSlotWidthByMeasurement(slotW, minW);
+    const bottomReserve = isPortraitMobile ? 52 : 0;
+    slotW = correctSlotWidthByMeasurement(slotW, minW, bottomReserve);
   }
 
   // 盤面の実測高さを CSS 変数へ反映 → 墓地・除外の下端を盤面と一致させる
@@ -161,11 +180,12 @@ function applySlotWidth(w) {
  *   アフィン関数なので、比率縮小の残差は反復ごとに b/H (<1) 倍に幾何減衰し、
  *   PC では 2〜3 反復でサブピクセル以下に収まる。
  *
- * @param {number} slotW  推定で適用済みの slot-width(px)
- * @param {number} minW   下限クランプ(px)
+ * @param {number} slotW         推定で適用済みの slot-width(px)
+ * @param {number} minW          下限クランプ(px)
+ * @param {number} [bottomReserve=0]  下部に確保する固定領域(px)。縦向きスマホの下部固定バー(52px)分（設計書 §8.2）
  * @returns {number}      補正後の slot-width(px)
  */
-function correctSlotWidthByMeasurement(slotW, minW) {
+function correctSlotWidthByMeasurement(slotW, minW, bottomReserve = 0) {
   const field = document.querySelector('.sol-field-area');
   if (!field) return slotW;
 
@@ -175,7 +195,7 @@ function correctSlotWidthByMeasurement(slotW, minW) {
 
   for (let i = 0; i < MAX_ITER; i++) {
     const rect     = field.getBoundingClientRect(); // 同期 reflow で確定値を取得
-    const overflow = rect.bottom - (window.innerHeight - SAFE_MARGIN);
+    const overflow = rect.bottom - (window.innerHeight - bottomReserve - SAFE_MARGIN);
     if (overflow <= 0) break; // 収まっている → 終了（拡大はしない）
 
     const fieldHeight = rect.height;
@@ -249,6 +269,10 @@ async function initializeApp() {
 
   // 左サイドバー・右パネルの開閉を初期化
   initSidebarToggle();
+
+  // スマホ縦向き専用UI（下部バー・アクションシート・詳細パネル・簡易メニュー等）を初期化。
+  // isPhone && !isLandscape 以外では内部で何もしない（フェーズ1・設計書 §8）
+  initMobileUI();
 
   // フィードバック（不具合・要望）モーダルを初期化
   initFeedbackModal();

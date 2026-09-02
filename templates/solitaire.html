@@ -31,7 +31,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Bungee&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/solitaire/css/main.css?v=20260604b">
+<link rel="stylesheet" href="/static/solitaire/css/main.css?v=20260903b">
 <link rel="stylesheet" href="/static/css/self-watermark.css?v=20260611">
 </head>
 
@@ -42,6 +42,9 @@
 
   <!-- ====== 左サイドバー ====== -->
   <aside class="sol-sidebar" id="solSidebar">
+
+    <!-- スマホ縦向き専用: サイドバーをボトムシート化した際の閉じるボタン（PC/横向きでは mobile.css のスコープ外なので非表示のまま） -->
+    <button id="solSidebarSheetClose" class="sol-mobile-sheet-close-btn" type="button" aria-label="閉じる" hidden>&times;</button>
 
     <!-- ブランド + ページナビ（旧ヘッダーから移植） -->
     <div class="sol-sidebar-section sol-sidebar-nav">
@@ -143,6 +146,9 @@
 
   </aside><!-- /.sol-sidebar -->
 
+  <!-- スマホ縦向き専用: 左サイドバーをボトムシート化した際の背景スクリム -->
+  <div id="solSidebarScrim" class="sol-mobile-sheet-scrim" hidden></div>
+
   <!-- ====== 右メイン: 盤面 + 右パネル ====== -->
   <div class="sol-main">
 
@@ -160,6 +166,8 @@
 
       <!-- 相手の想定妨害ミニ盤面（開閉式） -->
       <section id="opponentTray" class="opp-tray collapsed">
+        <!-- スマホ縦向き専用: トレイをシート表示した際の閉じるボタン -->
+        <button id="oppTraySheetClose" class="sol-mobile-sheet-close-btn" type="button" aria-label="閉じる" hidden>&times;</button>
         <button id="oppTrayToggle" class="opp-tray-toggle" aria-expanded="false" aria-controls="oppTrayBody">
           <i class="opp-toggle-arrow">▶</i>
           <span>相手の想定妨害</span>
@@ -252,6 +260,8 @@
 
       <!-- リプレイバー -->
       <div id="replayBarContainer" class="replay-bar">
+        <!-- スマホ縦向き専用: ⋯メニュー「リプレイ操作」でオーバーレイ表示した際の閉じるボタン（A-4） -->
+        <button id="solMobileReplayBarClose" class="sol-mobile-sheet-close-btn" type="button" aria-label="閉じる" hidden>&times;</button>
         <button class="replay-btn" id="replayBack">&#9664; 前</button>
         <input type="range" class="replay-slider" id="replaySlider" min="0" max="0" value="0" disabled>
         <span class="replay-counter" id="replayCounter">0/0</span>
@@ -266,6 +276,77 @@
         </label>
         <button class="replay-share-btn" id="replayShare">共有リンク</button>
         <button class="replay-share-x-btn" id="replayShareX">X に投稿</button>
+      </div>
+
+      <!-- ===== スマホ縦向き専用UI（フェーズ1）=====
+           PC・横向きスマホでは mobile-ui.js が isPhone && !isLandscape のときしか
+           hidden を外さないため、常に非表示のまま（表示・動作に影響しない）。 -->
+
+      <!-- カード詳細パネル（スマホ）: アクションシートの「詳細」ボタンからのみ開くオーバーレイ（A-2）。
+           card-info-panel.js の描画関数を再利用して中身を描画する。開閉は記憶しない。 -->
+      <div id="solMobileCip" class="sol-mobile-cip" hidden>
+        <div class="sol-mobile-cip-scrim" data-sol-cip-close></div>
+        <div class="sol-mobile-cip-panel">
+          <button id="solMobileCipClose" class="sol-mobile-cip-close" type="button" data-sol-cip-close aria-label="閉じる">&times;</button>
+          <div id="solMobileCipBody" class="sol-mobile-cip-body"></div>
+        </div>
+      </div>
+
+      <!-- 選択中カードのアクションシート: ヘッダ行（カード名＋詳細ボタン）＋操作行（A-3） -->
+      <div id="solMobileActionSheet" class="sol-mobile-action-sheet" hidden>
+        <div class="sol-mobile-action-header">
+          <span id="solMobileActionCardName" class="sol-mobile-action-name"></span>
+          <button type="button" id="solMobileActionDetailBtn" class="sol-mobile-action-detail-btn">詳細</button>
+        </div>
+        <div id="solMobileActionOps" class="sol-mobile-action-ops">
+          <button type="button" class="sol-mobile-action-btn" data-action="defense">守備表示</button>
+          <button type="button" class="sol-mobile-action-btn" data-action="set">セット</button>
+          <button type="button" class="sol-mobile-action-btn" data-action="grave">墓地へ</button>
+          <button type="button" class="sol-mobile-action-btn" data-action="banish">除外へ</button>
+          <button type="button" class="sol-mobile-action-btn" data-action="return">デッキに戻す</button>
+          <button type="button" class="sol-mobile-action-btn" data-action="activate">効果発動</button>
+        </div>
+      </div>
+
+      <!-- 下部固定バー -->
+      <div id="solMobileBar" class="sol-mobile-bar" hidden>
+        <button id="solMobileDeckBtn" type="button" class="sol-mobile-bar-btn">
+          デッキ <span id="solMobileDeckCount">0</span>
+        </button>
+        <button id="solMobileUndoBtn" type="button" class="sol-mobile-bar-btn" hidden>取消</button>
+        <!-- 共有はフェーズ3まで非表示（hidden属性のまま。JSも外さない） -->
+        <button id="solMobileShareBtn" type="button" class="sol-mobile-bar-btn" hidden>共有</button>
+        <button id="solMobileMenuBtn" type="button" class="sol-mobile-bar-btn sol-mobile-bar-menu">
+          &#8943;
+          <span id="solMobileMenuBadge" class="sol-mobile-badge" hidden></span>
+        </button>
+      </div>
+
+      <!-- ⋯メニュー シート -->
+      <div id="solMobileMenuSheet" class="sol-mobile-sheet" hidden>
+        <div class="sol-mobile-sheet-scrim" data-sol-sheet-close></div>
+        <div class="sol-mobile-sheet-panel">
+          <div class="sol-mobile-sheet-header">
+            <span>メニュー</span>
+            <button type="button" class="sol-mobile-sheet-close-btn" data-sol-sheet-close aria-label="閉じる">&times;</button>
+          </div>
+          <div class="sol-mobile-sheet-body">
+            <button type="button" class="sol-mobile-menu-item" data-menu-action="save">盤面セーブ</button>
+            <button type="button" class="sol-mobile-menu-item" data-menu-action="load">盤面ロード</button>
+            <button type="button" class="sol-mobile-menu-item" data-menu-action="reset">リセット&amp;5ドロー</button>
+            <button type="button" class="sol-mobile-menu-item" data-menu-action="coin">コイントス</button>
+            <button type="button" class="sol-mobile-menu-item" data-menu-action="dice">ダイスロール</button>
+            <button type="button" class="sol-mobile-menu-item" data-menu-action="opptray">
+              相手の想定妨害 <span id="solMobileOppBadge" class="sol-mobile-badge" hidden></span>
+            </button>
+            <button type="button" class="sol-mobile-menu-item" data-menu-action="deckinput">デッキを読み込む</button>
+            <button type="button" class="sol-mobile-menu-item" data-menu-action="replay">リプレイ操作</button>
+            <button type="button" class="sol-mobile-menu-item" data-menu-action="help">操作方法</button>
+            <button type="button" class="sol-mobile-menu-item" data-menu-action="feedback">不具合・要望を送る</button>
+            <!-- E-2: デッキ読込シート内のページナビを非表示にする代わりの導線 -->
+            <a href="/" class="sol-mobile-menu-item sol-mobile-menu-link">TCGYM トップへ</a>
+          </div>
+        </div>
       </div>
 
     </div><!-- /.sol-field-area -->
@@ -429,6 +510,6 @@
 <!-- 端末間同期（P2）。main.js（type=module・deferされる）より前に読み込まれる通常scriptなので、
      DOM解析完了後に実行されるmodule側からは常に window.SyncClient が使える（設計文書 §11） -->
 <script src="/static/shared/sync-client.js?v=20260813"></script>
-<script type="module" src="/static/solitaire/js/main.js?v=20260604b"></script>
+<script type="module" src="/static/solitaire/js/main.js?v=20260903b"></script>
 </body>
 </html>

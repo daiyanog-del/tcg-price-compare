@@ -1,6 +1,17 @@
 # activeContext — 今どこ・次何
 
-> 更新: 2026-09-02（定期総点検→第1・第2バッチ適用済み）
+> 更新: 2026-09-03（一人回しスマホ最適化フェーズ1）
+
+## 2026-09-03: 一人回しスマホ最適化 フェーズ1 実装完了（本日コミット・デプロイ）
+
+- 計画: [docs/design-solitaire-mobile-2026-09-02.md](design-solitaire-mobile-2026-09-02.md)（§8 が実装仕様の正本・§9 に実装記録）
+- ユーザー決定: 主用途＝特定の手札1〜2枚から展開を組んで記録・共有（5ドローは主役から外す）／墓地・除外・手札は常時表示／縦スクロール不許容（innerHeight 660 基準）／デッキ列はボタン＋一覧シート（フェーズ2）／エリア名称は左端の縦タブ／相手妨害トレイはメニューへ
+- 実装の骨格: DOM は動かさず `display:contents`＋`order` で並べ替え。判定は `static/solitaire/js/utils/viewport.js` の `isMobilePortrait()`（CSS と同じ `(max-width:767px) and (orientation:portrait)`）に一本化。タップ操作は drag-drop.js に常駐リスナー＋状態機械（idle/pressed/dragging/selected・保留ドロップ先）を追加し、移動は必ず既存 `executeDrop` を通す（リプレイ記録の唯一経路）。新規 UI は `static/solitaire/css/mobile.css` と `static/solitaire/js/ui/mobile-ui.js`
+- 検証: 司令塔がローカル（DB接続あり）で 375×660 を実走（デッキ読込→5ドロー→タップ選択→モンスターゾーン/墓地へ移動→リプレイ手数増→詳細オーバーレイ→回転で全UI非表示）。PC 1280 と横向き 667×375 は変更前と同一寸法。**エミュレータは回転時に resize/matchMedia change を発火しないため JS 側のリセットは implementer の Playwright 実測を採用**
+- 意図的な例外: `card-info-panel.js` の効果テキスト `<br>` 正規化は PC の詳細パネルにも効く（既存不具合の修正。decisions.md 参照）
+- 残: ユーザー実機検収（TASKS.md 参照）。フェーズ2/3 は設計書 §3.3 / §3.4
+
+> 以下は 2026-09-02 時点の記録（更新: 2026-09-02（定期総点検→第1・第2バッチ適用済み））
 
 ## 2026-09-02: 定期総点検と第1・第2バッチの適用
 

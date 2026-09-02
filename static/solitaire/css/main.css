@@ -14,3 +14,4 @@
 @import './opponent-tray.css';
 @import './proxy-card.css';
 @import './responsive.css'; /* 最後にインポートして上書きを確実に適用 */
+@import './mobile.css'; /* スマホ縦向き専用UI（下部バー等）。responsive.css より後段で上書きを確実にする */

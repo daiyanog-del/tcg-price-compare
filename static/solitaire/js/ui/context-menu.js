@@ -36,9 +36,7 @@ export function openCardContextMenu(wrapper, cardEl, x, y) {
   closeContextMenu();
 
   const parent   = wrapper.parentElement;
-  const poolRow  = document.getElementById('poolRow');
-  const poolRow2 = document.getElementById('poolRow2');
-  const isInPool = parent === poolRow || parent === poolRow2;
+  const isInPool = isCardInPool(wrapper);
   const isInitial = wrapper.id === 'initial';
 
   const items = _buildMenuItems(wrapper, img, parent, isInPool, isInitial);
@@ -102,6 +100,58 @@ export function openCardContextMenu(wrapper, cardEl, x, y) {
     document.removeEventListener('scroll', closeContextMenu, { capture: true });
   };
 }
+
+// ── スマホ アクションシート用（mobile-ui.js から呼ぶ）──────────────
+// _buildMenuItems 内のアクションと同じ処理を export し、ロジックの複製を避ける。
+
+/**
+ * カードがプール内（#poolRow / #poolRow2 の直接の子）かどうかを判定する。
+ * openCardContextMenu の isInPool 判定と同じ条件を共有する（A-3・司令塔決定。判定の二重持ち禁止）。
+ * @param {Element} wrapper - .tier-item-wrapper
+ * @returns {boolean}
+ */
+export function isCardInPool(wrapper) {
+  const parent = wrapper.parentElement;
+  const poolRow  = document.getElementById('poolRow');
+  const poolRow2 = document.getElementById('poolRow2');
+  return parent === poolRow || parent === poolRow2;
+}
+
+/**
+ * 守備表示をトグルする（コンテキストメニュー「守備表示にする/攻撃表示にする」と同じ処理）
+ * @param {Element} wrapper - .tier-item-wrapper
+ */
+export function toggleCardDefense(wrapper) {
+  const isDefense = wrapper.dataset.orientation === 'defense';
+  applyDefense(wrapper, !isDefense);
+  _logState(wrapper);
+}
+
+/**
+ * セット状態をトグルする（コンテキストメニュー「セット（裏向きにする）/表にする」と同じ処理）。
+ * セット解除時、コンテキストメニューはモンスターに対して攻撃/守備を選ばせるが、
+ * アクションシートは単純トグルのため攻撃表示に固定する。
+ * @param {Element} wrapper - .tier-item-wrapper
+ */
+export function toggleCardSet(wrapper) {
+  const isSet = wrapper.dataset.face === 'down';
+  playSetFlip(wrapper, () => {
+    applySet(wrapper, !isSet);
+    _logState(wrapper);
+  });
+}
+
+/**
+ * カードをデッキに戻す（コンテキストメニュー「デッキに戻す」と同じ処理）
+ * @param {Element} wrapper - .tier-item-wrapper
+ */
+export function returnCardToDeckMenu(wrapper) {
+  const img = wrapper.querySelector('.tier-item');
+  if (img) _returnToDeck(wrapper, img);
+}
+
+// L-2: removeCardMenu は A-3 でアクションシートから「削除」を外した際に未使用になったため削除。
+// カードの削除は引き続き _buildMenuItems 内の長押しメニュー項目（PC 右クリックメニューと共通）が担う。
 
 /**
  * 現在のコンテキストメニューを閉じる
