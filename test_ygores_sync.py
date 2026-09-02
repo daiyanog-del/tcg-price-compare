@@ -17,8 +17,13 @@ import ygores_repository
 from ygores_repository import (
     YgoResourcesClient, CardDataRepository, USER_AGENT, NAME_INDEX_PATH,
 )
+import os
+
 import sync_ygores
-from sync_ygores import run_sync, flatten_manifest, META_KEY_REVISION
+from sync_ygores import (
+    run_sync, flatten_manifest,
+    META_KEY_REVISION, META_KEY_CURSOR, META_KEY_SESSION, META_KEY_SESSION_FAILED,
+)
 
 
 # ---------------------------------------------------------------- テスト用フェイク
@@ -163,6 +168,256 @@ def test_sync_manifest_failure_falls_back_to_full_refetch():
     repo.set_sync_meta(META_KEY_REVISION, 50)
     assert run_sync(repo) == 0
     assert repo.client.calls.count("data/card/4007") == 2  # revision確認 + 全件再取得
+    assert repo.get_sync_meta(META_KEY_REVISION) == "105"
+
+
+# ---------------------------------------------------------------- 再開カーソル・予算のテスト
+
+def _cursor_test_repo():
+    """card 3件（4007/4008/4009）が変更対象になる再開カーソルテスト共通セットアップ"""
+    manifest = {"data": {"card": {"4007": 1, "4008": 1, "4009": 1}}}
+    repo = make_repo({
+        "data/card/4007": CARD_JSON,
+        "data/card/4008": CARD_JSON,
+        "data/card/4009": CARD_JSON,
+        "manifest/100": manifest,
+    }, revision=105)
+    repo.save_card(4007, {"cardData": {"ja": {"name": "旧4007"}}})
+    repo.save_card(4008, {"cardData": {"ja": {"name": "旧4008"}}})
+    repo.save_card(4009, {"cardData": {"ja": {"name": "旧4009"}}})
+    repo.set_sync_meta(META_KEY_REVISION, 100)
+    return repo
+
+
+def test_sync_budget_stops_midway_and_saves_cursor():
+    """予算(YGORES_SYNC_MAX_ITEMS)に達したら途中で止まり、カーソル保存・リビジョン未更新"""
+    repo = _cursor_test_repo()
+    os.environ["YGORES_SYNC_MAX_ITEMS"] = "2"
+    try:
+        assert run_sync(repo) == 0  # 予算到達は失敗ではない
+    finally:
+        del os.environ["YGORES_SYNC_MAX_ITEMS"]
+
+    assert repo.client.calls.count("data/card/4007") == 2  # revision確認 + 再取得
+    assert "data/card/4008" in repo.client.calls
+    assert "data/card/4009" not in repo.client.calls        # 予算切れで未処理
+    assert repo.get_sync_meta(META_KEY_CURSOR) == "4008"     # 最後に処理したid
+    assert repo.get_sync_meta(META_KEY_REVISION) == "100"    # リビジョンは更新されない
+
+
+def test_sync_resumes_from_cursor_without_refetching_earlier_ids():
+    """カーソルありで再開すると、それ以前のidは再取得しない
+    （セッション識別子(saved|mode|start_current)が一致して初めて『再開』扱いになる）"""
+    repo = _cursor_test_repo()
+    repo.set_sync_meta(META_KEY_SESSION, "100|manifest|105")  # 前回セッションと一致させる
+    repo.set_sync_meta(META_KEY_CURSOR, "4008")  # 4007/4008は処理済み想定
+
+    assert run_sync(repo) == 0
+
+    assert repo.client.calls.count("data/card/4007") == 1   # revision確認のみ（再取得なし）
+    assert "data/card/4008" not in repo.client.calls        # カーソル以下は再取得しない
+    assert "data/card/4009" in repo.client.calls            # カーソルより先のみ再取得
+    assert repo.get_sync_meta(META_KEY_REVISION) == "105"   # 完走したのでリビジョン更新
+    assert repo.get_sync_meta(META_KEY_CURSOR) == ""         # 完走したのでカーソルは消える
+    assert repo.get_sync_meta(META_KEY_SESSION) == ""        # セッションも消える
+
+
+def test_sync_full_completion_clears_cursor():
+    """完走時はカーソルが消えてリビジョンが保存される（カーソルなしからの完走）"""
+    repo = _cursor_test_repo()
+
+    assert run_sync(repo) == 0
+
+    assert repo.get_sync_meta(META_KEY_REVISION) == "105"
+    assert repo.get_sync_meta(META_KEY_CURSOR) == ""
+
+
+def test_sync_card_loop_completes_with_failure_clears_cursor_but_keeps_revision():
+    """予算内で末尾まで到達したが failed>0 → カーソルはクリアされ、リビジョンは未更新
+    （次回、同じ対象集合を先頭から再取得して失敗分も取りこぼさないため）"""
+    manifest = {"data": {"card": {"4007": 1, "4008": 1, "4009": 1}}}
+    repo = make_repo({
+        "data/card/4007": CARD_JSON,
+        "data/card/4008": CARD_JSON,
+        # data/card/4009 は応答なし（None）= 再取得失敗
+        "manifest/100": manifest,
+    }, revision=105)
+    repo.save_card(4007, {"cardData": {"ja": {"name": "旧4007"}}})
+    repo.save_card(4008, {"cardData": {"ja": {"name": "旧4008"}}})
+    repo.save_card(4009, {"cardData": {"ja": {"name": "旧4009"}}})
+    repo.set_sync_meta(META_KEY_REVISION, 100)
+
+    assert run_sync(repo) == 1  # 失敗が残るので終了コード1
+
+    assert repo.get_sync_meta(META_KEY_CURSOR) == ""         # 末尾到達なのでクリアされる
+    assert repo.get_sync_meta(META_KEY_REVISION) == "100"    # 失敗が残るので未更新
+
+
+def test_sync_budget_cut_run_with_failure_then_completion_keeps_revision_unset():
+    """予算打ち切り回に失敗があった場合、次回完走してもリビジョン未更新・終了コード1・
+    カーソル/セッション/失敗フラグは全てクリアされる（次回また同じ起点からやり直すため）"""
+    manifest = {"data": {"card": {"4007": 1, "4008": 1, "4009": 1}}}
+    repo = make_repo({
+        "data/card/4007": CARD_JSON,
+        # data/card/4008 は応答なし（None）= 再取得失敗
+        "data/card/4009": CARD_JSON,
+        "manifest/100": manifest,
+    }, revision=105)
+    repo.save_card(4007, {"cardData": {"ja": {"name": "旧4007"}}})
+    repo.save_card(4008, {"cardData": {"ja": {"name": "旧4008"}}})
+    repo.save_card(4009, {"cardData": {"ja": {"name": "旧4009"}}})
+    repo.set_sync_meta(META_KEY_REVISION, 100)
+
+    os.environ["YGORES_SYNC_MAX_ITEMS"] = "2"
+    try:
+        assert run_sync(repo) == 0  # 予算打ち切り（4008の失敗を含むが打ち切り自体は失敗ではない）
+    finally:
+        del os.environ["YGORES_SYNC_MAX_ITEMS"]
+
+    assert repo.get_sync_meta(META_KEY_CURSOR) == "4008"
+    assert repo.get_sync_meta(META_KEY_SESSION_FAILED) == "1"   # 失敗が即座に記録されている
+    assert repo.get_sync_meta(META_KEY_REVISION) == "100"       # 未更新
+
+    # 次回: 残りの4009だけ処理して末尾に到達（完走）するが、セッション中に失敗があったので…
+    assert run_sync(repo) == 1
+
+    assert repo.get_sync_meta(META_KEY_REVISION) == "100"        # 更新されない
+    assert repo.get_sync_meta(META_KEY_CURSOR) == ""              # クリアされる
+    assert repo.get_sync_meta(META_KEY_SESSION) == ""              # クリアされる
+    assert repo.get_sync_meta(META_KEY_SESSION_FAILED) == ""      # クリアされる
+
+
+def test_sync_new_low_id_appearing_mid_session_is_picked_up_next_session():
+    """セッション途中でリビジョンが進み manifest に（カーソルより）低いidが新たに増えても、
+    完走時は current ではなく start_current（セッション開始時点の現在リビジョン）が保存され、
+    次回そのidが manifest/{start_current} で再び対象になり取りこぼされない"""
+    manifest_v1 = {"data": {"card": {"4007": 1, "4008": 1, "4009": 1}}}
+    manifest_v2 = {"data": {"card": {"4001": 1, "4007": 1, "4008": 1, "4009": 1}}}
+    manifest_v3 = {"data": {"card": {"4001": 1}}}
+    repo = make_repo({
+        "data/card/4001": CARD_JSON,
+        "data/card/4007": CARD_JSON,
+        "data/card/4008": CARD_JSON,
+        "data/card/4009": CARD_JSON,
+        "manifest/100": manifest_v1,
+    }, revision=105)
+    repo.save_card(4001, {"cardData": {"ja": {"name": "旧4001"}}})
+    repo.save_card(4007, {"cardData": {"ja": {"name": "旧4007"}}})
+    repo.save_card(4008, {"cardData": {"ja": {"name": "旧4008"}}})
+    repo.save_card(4009, {"cardData": {"ja": {"name": "旧4009"}}})
+    repo.set_sync_meta(META_KEY_REVISION, 100)
+
+    os.environ["YGORES_SYNC_MAX_ITEMS"] = "2"
+    try:
+        assert run_sync(repo) == 0  # 4007,4008を処理して打ち切り。start_current=105・cursor=4008
+    finally:
+        del os.environ["YGORES_SYNC_MAX_ITEMS"]
+    assert repo.get_sync_meta(META_KEY_CURSOR) == "4008"
+
+    # セッション途中でサーバーが進み、manifest/100 に4001（カーソルより低いid）が新たに現れたとする
+    repo.client.last_revision = 110
+    repo.client.responses["manifest/100"] = manifest_v2
+
+    assert run_sync(repo) == 0  # 残り4009を処理して完走
+    assert repo.get_sync_meta(META_KEY_REVISION) == "105"   # start_current。今回のcurrent(110)ではない
+    assert repo.get_sync_meta(META_KEY_CURSOR) == ""
+    assert "data/card/4001" not in repo.client.calls   # このセッションでは見送られた（バグではない）
+
+    # 次回: saved=105になったので manifest/105 が呼ばれ、4001が改めて対象になる
+    repo.client.responses["manifest/105"] = manifest_v3
+    assert run_sync(repo) == 0
+    assert "data/card/4001" in repo.client.calls        # 取りこぼしが解消された
+    assert repo.get_sync_meta(META_KEY_REVISION) == "110"
+
+
+def test_sync_fallback_mode_does_not_inherit_manifest_mode_cursor():
+    """通常回（manifestモード）のカーソルはフォールバック回（mode不一致）に持ち越されない
+    → 新セッションとして保持カード全件を先頭から再取得する"""
+    manifest = {"data": {"card": {"4007": 1, "4008": 1, "4009": 1}}}
+    repo = make_repo({
+        "data/card/4007": CARD_JSON,
+        "data/card/4008": CARD_JSON,
+        "data/card/4009": CARD_JSON,
+        "manifest/100": manifest,
+    }, revision=105)
+    repo.save_card(4007, {"cardData": {"ja": {"name": "旧4007"}}})
+    repo.save_card(4008, {"cardData": {"ja": {"name": "旧4008"}}})
+    repo.save_card(4009, {"cardData": {"ja": {"name": "旧4009"}}})
+    repo.set_sync_meta(META_KEY_REVISION, 100)
+
+    os.environ["YGORES_SYNC_MAX_ITEMS"] = "2"
+    try:
+        assert run_sync(repo) == 0  # manifestモードで打ち切り。cursor=4008
+    finally:
+        del os.environ["YGORES_SYNC_MAX_ITEMS"]
+    assert repo.get_sync_meta(META_KEY_CURSOR) == "4008"
+    calls_before_run2 = len(repo.client.calls)
+
+    del repo.client.responses["manifest/100"]  # manifestが取れなくなった（リビジョン飛び）→ フォールバック
+
+    assert run_sync(repo) == 0
+
+    # mode不一致（manifest→fallback）で新セッションになるため、カーソル(4008)より前の4007も
+    # 今回（run2）の呼び出し内で再取得される（revision確認probeの1回だけではない）
+    calls_in_run2 = repo.client.calls[calls_before_run2:]
+    assert calls_in_run2.count("data/card/4007") == 2   # revision確認probe + 再取得
+    assert repo.get_sync_meta(META_KEY_REVISION) == "105"
+    assert repo.get_sync_meta(META_KEY_CURSOR) == ""
+
+
+def test_sync_budget_exactly_equals_target_count_completes_naturally():
+    """予算(YGORES_SYNC_MAX_ITEMS)が対象件数ちょうどでも、打ち切りではなく完走として扱われる"""
+    repo = _cursor_test_repo()  # card 3件
+    os.environ["YGORES_SYNC_MAX_ITEMS"] = "3"
+    try:
+        assert run_sync(repo) == 0
+    finally:
+        del os.environ["YGORES_SYNC_MAX_ITEMS"]
+
+    assert repo.get_sync_meta(META_KEY_REVISION) == "105"
+    assert repo.get_sync_meta(META_KEY_CURSOR) == ""
+    assert repo.get_sync_meta(META_KEY_SESSION) == ""
+
+
+def test_sync_max_items_empty_string_falls_back_to_default():
+    """YGORES_SYNC_MAX_ITEMS="" は不正な整数としてWARNING＋既定値にフォールバックする"""
+    repo = _cursor_test_repo()
+    os.environ["YGORES_SYNC_MAX_ITEMS"] = ""
+    try:
+        assert run_sync(repo) == 0
+    finally:
+        del os.environ["YGORES_SYNC_MAX_ITEMS"]
+
+    assert repo.get_sync_meta(META_KEY_REVISION) == "105"   # 既定値(2500)で3件とも完走
+    assert repo.get_sync_meta(META_KEY_CURSOR) == ""
+
+
+def test_sync_max_items_zero_is_fatal_error():
+    """YGORES_SYNC_MAX_ITEMS=0（正の整数でない）は既定値フォールバックせずエラー終了する"""
+    repo = _cursor_test_repo()
+    os.environ["YGORES_SYNC_MAX_ITEMS"] = "0"
+    try:
+        assert run_sync(repo) == 1
+    finally:
+        del os.environ["YGORES_SYNC_MAX_ITEMS"]
+
+    assert repo.get_sync_meta(META_KEY_REVISION) == "100"     # 何も進行しない
+    assert repo.get_sync_meta(META_KEY_SESSION) is None
+    assert "manifest/100" not in repo.client.calls            # 予算検証で即エラー終了しmanifestすら取らない
+
+
+def test_sync_invalid_cursor_is_treated_as_none():
+    """保存済みカーソルが非数値なら WARNING を出し『カーソル無し』として扱う（例外にしない）"""
+    repo = _cursor_test_repo()
+    repo.set_sync_meta(META_KEY_SESSION, "100|manifest|105")  # 前回セッションと一致させ再開扱いにする
+    repo.set_sync_meta(META_KEY_CURSOR, "not-a-number")        # 壊れたカーソル値
+
+    assert run_sync(repo) == 0
+
+    # 「カーソル無し」として扱われるため3件とも（4007から）再取得される
+    assert "data/card/4007" in repo.client.calls
+    assert "data/card/4008" in repo.client.calls
+    assert "data/card/4009" in repo.client.calls
     assert repo.get_sync_meta(META_KEY_REVISION) == "105"
 
 

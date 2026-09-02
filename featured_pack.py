@@ -15,12 +15,34 @@
   DDL は featured_pack.sql 参照。
 """
 
+import time
 from datetime import date, datetime
 from constants import JST
 
 
 def _today_jst() -> date:
     return datetime.now(JST).date()
+
+
+# featured_pack テーブルが未作成と判定した時刻（time.time()）。未作成は設計上の
+# 許容だが、判定後も毎回問い合わせると1日24回（呼び出し頻度分）404が出続けるため、
+# 1時間はテーブル存在確認自体をスキップする。テーブル未作成だと確実に分かる
+# エラー（PGRST205/PGRST202/42P01）のときだけ記憶し、一過性のエラーは従来どおり
+# 毎回試す。2026-09-02 レビュー差し戻し: "does not exist" の文字列一致は
+# 列不存在（42703）等の別種エラーまで拾ってしまい誤判定するため外した
+_FEATURED_PACK_TABLE_MISSING_SINCE = None
+_FEATURED_PACK_MISSING_TTL_SEC = 3600
+
+
+def _is_table_missing_error(e: Exception) -> bool:
+    # postgrest-py の APIError は .code にPostgREST/Postgresのエラーコードを持つ。
+    # コードが取れる場合はそれを正として判定し、取れない例外（ネットワークエラー等）
+    # のときだけ文字列一致にフォールバックする
+    code = getattr(e, "code", None)
+    if code is not None:
+        return code in {"PGRST205", "PGRST202", "42P01"}
+    msg = str(e)
+    return "PGRST205" in msg or "42P01" in msg
 
 
 def get_featured_pack(sb):
@@ -37,31 +59,43 @@ def get_featured_pack(sb):
         }
         または None（運用対象なし）
     """
+    global _FEATURED_PACK_TABLE_MISSING_SINCE
     today = _today_jst()
 
     # 1. 手動オーバーライドテーブルを確認
-    #    テーブルが未作成の場合も例外を出さずフォールバックする
-    try:
-        resp = (sb.table("featured_pack")
-                .select("pack_name, wiki_page, tcg_name, start_date, window_days")
-                .eq("active", True)
-                .order("start_date", desc=True)
-                .limit(1)
-                .execute())
-        rows = resp.data or []
-        if rows:
-            r = rows[0]
-            pack = {
-                "pack_name": r["pack_name"],
-                "wiki_page": r.get("wiki_page") or "",
-                "tcg_name": r.get("tcg_name") or "",
-                "start_date": r["start_date"][:10],
-                "window_days": r.get("window_days") or 7,
-            }
-            print(f"  [featured] オーバーライド使用: {pack['pack_name']} (start={pack['start_date']})")
-            return pack
-    except Exception as e:
-        print(f"  [featured] オーバーライドテーブル未確認（フォールバック）: {e}")
+    #    テーブルが未作成の場合も例外を出さずフォールバックする。
+    #    未作成と判定済み・かつTTL内なら問い合わせ自体をスキップする
+    now = time.time()
+    table_known_missing = (
+        _FEATURED_PACK_TABLE_MISSING_SINCE is not None
+        and now - _FEATURED_PACK_TABLE_MISSING_SINCE < _FEATURED_PACK_MISSING_TTL_SEC
+    )
+    if not table_known_missing:
+        try:
+            resp = (sb.table("featured_pack")
+                    .select("pack_name, wiki_page, tcg_name, start_date, window_days")
+                    .eq("active", True)
+                    .order("start_date", desc=True)
+                    .limit(1)
+                    .execute())
+            rows = resp.data or []
+            if rows:
+                r = rows[0]
+                pack = {
+                    "pack_name": r["pack_name"],
+                    "wiki_page": r.get("wiki_page") or "",
+                    "tcg_name": r.get("tcg_name") or "",
+                    "start_date": r["start_date"][:10],
+                    "window_days": r.get("window_days") or 7,
+                }
+                print(f"  [featured] オーバーライド使用: {pack['pack_name']} (start={pack['start_date']})")
+                return pack
+        except Exception as e:
+            if _is_table_missing_error(e):
+                _FEATURED_PACK_TABLE_MISSING_SINCE = now
+                print(f"  [featured] featured_packテーブル未作成と判定。{_FEATURED_PACK_MISSING_TTL_SEC}秒は問い合わせをスキップします: {e}")
+            else:
+                print(f"  [featured] オーバーライドテーブル未確認（フォールバック）: {e}")
 
     # 2. pack_list から自動算出
     try:

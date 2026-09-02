@@ -169,7 +169,7 @@ class TestResolveWikiPageDashlessSubtitle:
         dash = "−"  # 数学マイナス（見た目の似た別文字の混入を防ぐため明示的にエスケープで指定）
         wiki_name = f"デッキビルドパック {dash}グロリアス・ヴィクターズ{dash}"
 
-        def fake_fetch_from_wiki(pack_name: str, wiki_page: str):
+        def fake_fetch_from_wiki(pack_name: str, wiki_page: str, quiet_404: bool = False):
             if pack_name == wiki_name:
                 return ["カードA", "カードB"]
             return []

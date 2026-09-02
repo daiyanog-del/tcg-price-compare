@@ -120,6 +120,100 @@ def test_estimate_cache_runaway_guard(monkeypatch, _estimate_isolated):
     assert len(app_module._estimate_cache) == 1000
 
 
+# ── 相場RPCのjsonb一括集約経路（2026-09-02: PostgREST 1000行上限による
+#    range分割ページング=RPC最大4回実行を1回に減らす対策） ──
+
+class _FakeSupabaseJsonRpc:
+    """get_card_best_prices_json（1回のRPCでjsonb配列を返す）を模倣"""
+
+    def __init__(self, rows):
+        self.rows = rows
+        self.calls: list = []
+
+    def rpc(self, name, params):
+        self.calls.append(name)
+        if name != "get_card_best_prices_json":
+            raise AssertionError(f"想定外のRPC呼び出し: {name}")
+        return SimpleNamespace(execute=lambda: SimpleNamespace(data=self.rows))
+
+
+def test_estimate_cache_uses_json_route_when_available(monkeypatch, _estimate_isolated):
+    """get_card_best_prices_json が使える場合は1回のRPC呼び出しだけで完了し、
+    従来のページング経路（get_card_best_prices の range 分割）は呼ばれない"""
+    rows = [{"card_name": "カードA", "shop": "店", "rarity": "レア",
+             "min_price": 100, "recorded_at": "2026-09-02"}]
+    fake = _FakeSupabaseJsonRpc(rows)
+    monkeypatch.setattr(app_module, "_supabase_client", fake)
+
+    app_module._load_estimate_cache()
+
+    assert fake.calls == ["get_card_best_prices_json"]
+    assert app_module._estimate_cache["カードA"]["price"] == 100
+
+
+class _FakeSupabaseJsonFailsFallback(_FakeSupabaseRpc):
+    """get_card_best_prices_json が本番未適用（PGRST202相当）で例外になるケース。
+    従来のページング経路（get_card_best_prices）へフォールバックすることを検証する"""
+
+    def rpc(self, name, params):
+        if name == "get_card_best_prices_json":
+            raise Exception("PGRST202: Could not find the function public.get_card_best_prices_json")
+        return super().rpc(name, params)
+
+
+def test_estimate_cache_falls_back_to_paging_when_json_route_missing(monkeypatch, _estimate_isolated):
+    """json経路が未定義で例外になっても、警告を出すだけで従来のページング経路に
+    フォールバックして完走する（本番に未適用のRPCがあってもキャッシュロードは壊れない）"""
+    # 想定上はこのテストで実際にリトライ(time.sleep)には入らないが、将来の回帰で
+    # リトライ経路（wait=5*attempt秒）に落ちてもテストが遅くならないよう無効化しておく
+    monkeypatch.setattr(app_module.time, "sleep", lambda *_a, **_k: None)
+    fake = _FakeSupabaseJsonFailsFallback(total_rows=30)
+    monkeypatch.setattr(app_module, "_supabase_client", fake)
+
+    app_module._load_estimate_cache()
+
+    assert fake.calls == [(0, 999)]  # ページング経路（get_card_best_prices）で完了
+    assert len(app_module._estimate_cache) == 30
+
+
+class _FakeSupabaseJsonNonList(_FakeSupabaseRpc):
+    """get_card_best_prices_json が list 以外（dict等）の想定外レスポンスを返すケース。
+    isinstance チェックで ValueError になり、ページング経路にフォールバックすることを検証する"""
+
+    def rpc(self, name, params):
+        if name == "get_card_best_prices_json":
+            return SimpleNamespace(execute=lambda: SimpleNamespace(data={"unexpected": "dict"}))
+        return super().rpc(name, params)
+
+
+def test_estimate_cache_falls_back_when_json_route_returns_non_list(monkeypatch, _estimate_isolated):
+    """get_card_best_prices_json が dict 等 list 以外を返した場合もページング経路に
+    フォールバックする（例外だけでなく想定外レスポンス型も同じ扱いにする回帰テスト）"""
+    monkeypatch.setattr(app_module.time, "sleep", lambda *_a, **_k: None)
+    fake = _FakeSupabaseJsonNonList(total_rows=30)
+    monkeypatch.setattr(app_module, "_supabase_client", fake)
+
+    app_module._load_estimate_cache()
+
+    assert fake.calls == [(0, 999)]
+    assert len(app_module._estimate_cache) == 30
+
+
+def test_estimate_cache_preserves_existing_cache_when_zero_rows(monkeypatch, _estimate_isolated):
+    """0行はRPC異常の疑いとして例外化し、リトライしても解消しなければ既存キャッシュを
+    保持する（2,700枚規模の運用で0行は常に異常。空キャッシュで上書きしない）"""
+    monkeypatch.setattr(app_module.time, "sleep", lambda *_a, **_k: None)
+    existing = {"既存カード": {"shop": "店", "price": 1, "rarity": "", "recorded_at": ""}}
+    monkeypatch.setattr(app_module, "_estimate_cache", dict(existing))
+    fake = _FakeSupabaseJsonRpc([])  # json経路が常に0行を返す異常系
+    monkeypatch.setattr(app_module, "_supabase_client", fake)
+
+    app_module._load_estimate_cache()
+
+    # 0行応答では上書きされず、既存の中身がそのまま残る
+    assert app_module._estimate_cache == existing
+
+
 # ── バグA: 名前補正 ──
 
 _CANON = "召喚魔術－「剣」"  # 全角ダッシュ持ちの正式名称（合成カード名DBに登録して使う）

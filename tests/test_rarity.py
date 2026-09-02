@@ -45,7 +45,7 @@ class TestMillenniumFamily:
     def test_secret(self, raw):
         assert normalize_rarity(raw) == "ミレニアムシークレット"
 
-    @pytest.mark.parametrize("raw", ["ミレニアムゴールドレア", "ミレニアムゴールド"])
+    @pytest.mark.parametrize("raw", ["ミレニアムゴールドレア", "ミレニアムゴールド", "M-GR"])
     def test_gold(self, raw):
         assert normalize_rarity(raw) == "ミレニアムゴールド"
 

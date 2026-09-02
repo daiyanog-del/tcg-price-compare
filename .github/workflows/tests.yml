@@ -31,4 +31,4 @@ jobs:
           pip install pytest
 
       - name: Run pytest
-        run: python -m pytest tests -q
+        run: python -m pytest tests test_ygores_sync.py -q

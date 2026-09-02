@@ -1,6 +1,11 @@
 # ygoresources 差分同期
 # 6時間毎に X-Cache-Revision を確認し、変更があったキャッシュ済みパスのみ再取得する
 # 手動実行も可能 (Actions タブ → Run workflow)
+#
+# 差分が大きい場合、1回の実行は YGORES_SYNC_MAX_ITEMS 件（既定2500件）の予算内で止まり、
+# 「セッション」(refetch_session/refetch_cursor/refetch_session_failed) として状態を持ち越して
+# 次回（6時間後）に続きから再開する。セッションが完走するまでリビジョンは更新しない。
+# 詳しい保証内容（セッション途中で対象が増えた場合の扱い等）は sync_ygores.py の docstring 参照。
 
 name: Sync YGOResources Cache
 

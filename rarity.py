@@ -20,9 +20,18 @@ rarity.py — レアリティ定義の Single Source of Truth
 
 from __future__ import annotations
 import logging
+import threading
 import warnings
 
 logger = logging.getLogger(__name__)
+
+# 未知レアリティ表記のWARN重複抑制（2026-09-02）。1リクエストあたり同じ未知表記が
+# 何十行も出るため、プロセス内では表記ごとに初回のみ出す。上限に達したらclearして
+# また出るようにする（無限にメモリを食わないためのガードであり、抑制自体の目的では
+# 表記の種類数がそこまで多くない前提）。
+_WARNED_UNKNOWN_RARITIES: set[str] = set()
+_WARNED_UNKNOWN_RARITIES_LOCK = threading.Lock()
+_WARNED_UNKNOWN_RARITIES_MAX = 1000
 
 # フェーズ3 P3（rarity空文字の隔離）: レアリティ抽出失敗行に付与する明示ラベル。
 # price_persist.py が書き込み時に rarity="" をこのラベルへ変換し、正体不明の行が
@@ -303,8 +312,7 @@ RARITIES: list[dict] = [
         "order": 98,
         "color": "#b9770e",
         "aliases": [
-            # 遊々亭の略号（M-GR 相当）は実データ未出現のため登録しない。
-            # 出てきたら normalize_rarity の未知表記WARNで拾う。
+            "M-GR",                                             # 略号（遊々亭。2026-09-02 本番出現を確認し登録）
             "ミレニアムゴールドレア",                           # 〜レア形式（トレコロCB）
         ],
     },
@@ -611,11 +619,17 @@ def normalize_rarity(raw: str, shop: str | None = None) -> str:  # noqa: ARG001
     result = _ALIAS_TO_CANON.get(_preprocess(s))
     if result is not None:
         return result
-    # 未知表記は生のまま返す（誤縮約させない）
-    logger.warning(
-        "[rarity] 未知のレアリティ表記: '%s' — rarity.py の aliases への追加を検討してください。",
-        s,
-    )
+    # 未知表記は生のまま返す（誤縮約させない）。WARNはプロセス内で表記ごとに初回のみ
+    with _WARNED_UNKNOWN_RARITIES_LOCK:
+        if len(_WARNED_UNKNOWN_RARITIES) >= _WARNED_UNKNOWN_RARITIES_MAX:
+            _WARNED_UNKNOWN_RARITIES.clear()
+        already_warned = s in _WARNED_UNKNOWN_RARITIES
+        _WARNED_UNKNOWN_RARITIES.add(s)
+    if not already_warned:
+        logger.warning(
+            "[rarity] 未知のレアリティ表記: '%s' — rarity.py の aliases への追加を検討してください。",
+            s,
+        )
     return s
 
 

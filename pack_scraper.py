@@ -148,10 +148,17 @@ def _resolve_wiki_page(pack_name: str) -> tuple[str, bool]:
         if v in seen:
             continue
         seen.add(v)
-        cards = _fetch_from_wiki(v, v)
+        # quiet_404=True: ページ名が一致するまで順に試す正常動作の途中経過（404）は
+        # 出力しない。500等の404以外の失敗は_fetch_from_wiki側で従来どおり出す
+        cards = _fetch_from_wiki(v, v, quiet_404=True)
         if cards:
             return v, True
 
+    # 全バリアントが尽きた（=どのページ名でも見つからなかった）場合のみ、
+    # ここで従来相当のメッセージを1行出す。500やネットワーク断のときは各バリアント
+    # 側で個別に出力済みのため、ここでは原因を断定しない文言にする
+    # （2026-09-02 レビュー指摘）
+    print(f"  pack_scraper Wiki取得失敗: {pack_name} — 全{len(seen)}バリアントで取得できず（404またはカードリスト無し）")
     return pack_name, False  # どれも取れなければ元の名前を返す
 
 
@@ -236,8 +243,14 @@ def get_pack_list(include_empty: bool = True) -> list[dict]:
 
 # ── 方法1: 遊戯王Wikiからカードリスト取得 ──
 
-def _fetch_from_wiki(pack_name: str, wiki_page: str) -> list[str]:
-    """遊戯王Wikiからパックのカード名リストを取得"""
+def _fetch_from_wiki(pack_name: str, wiki_page: str, quiet_404: bool = False) -> list[str]:
+    """遊戯王Wikiからパックのカード名リストを取得。
+
+    quiet_404: True の場合、404（ページ無し）は出力しない。_resolve_wiki_page が
+    ページ名バリアントを順に試す際の404は正常動作の途中経過であり、本番ログの
+    大半を占めていたため（2026-09-02）。404以外の失敗（500等）は quiet_404 に
+    関わらず従来どおり出力する。
+    """
     page = wiki_page or pack_name
     try:
         url = f"{WIKI_BASE}?{quote(page, encoding='euc-jp')}"
@@ -250,7 +263,9 @@ def _fetch_from_wiki(pack_name: str, wiki_page: str) -> list[str]:
         res.encoding = res.apparent_encoding or 'euc-jp'
         soup = BeautifulSoup(res.text, "html.parser")
     except requests.RequestException as e:
-        print(f"  pack_scraper Wiki取得失敗: {url} — {e}")
+        is_404 = getattr(e.response, "status_code", None) == 404
+        if not (quiet_404 and is_404):
+            print(f"  pack_scraper Wiki取得失敗: {url} — {e}")
         return []
 
     cards = []

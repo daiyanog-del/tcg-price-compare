@@ -157,10 +157,15 @@ def _send_error_alert(shop: str, error: str, count: int):
 
 
 def _send_recovery_alert(shop: str, result_count: int):
-    """復旧通知を送信"""
-    content = (
-        f"🟢 **{shop}** が復旧しました（{result_count}件取得）"
-    )
+    """復旧通知を送信。
+    result_count=0 は「取得エラーは解消したが検索結果が0件（在庫なし等）」の
+    ケースであり、通常の「○件取得で復旧」と同じ文言だと「0件なのに復旧？」と
+    誤読される（2026-09-02 レビュー指摘）。応答自体が復旧したことを明示する文言に分ける。
+    """
+    if result_count > 0:
+        content = f"🟢 **{shop}** が復旧しました（{result_count}件取得）"
+    else:
+        content = f"🟢 **{shop}** の応答が復旧しました（0件取得 — 在庫なし等の可能性）"
     _send_discord(content, color=0x00E676)
     logger.info(f"RECOVERY: {shop} - {result_count}件取得で復旧")
 

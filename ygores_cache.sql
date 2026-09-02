@@ -30,9 +30,11 @@ create table if not exists ygores_blobs (
     fetched_at timestamptz not null default now()
 );
 
--- 同期メタデータ（最終確認 X-Cache-Revision 等）
+-- 同期メタデータ（最終確認 X-Cache-Revision・再開セッション状態 等）
 create table if not exists ygores_sync_meta (
-    key        text primary key,                      -- 'last_revision' / 'last_sync_at'
+    key        text primary key,                      -- 'last_revision' / 'last_sync_at' /
+                                                        -- 'refetch_cursor' / 'refetch_session' /
+                                                        -- 'refetch_session_failed'（sync_ygores.py参照）
     value      text,
     updated_at timestamptz not null default now()
 );

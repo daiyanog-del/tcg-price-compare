@@ -975,10 +975,13 @@ def api_search():
         def scrape_shop(name, fn):
             try:
                 items, fetch_errors = run_shop_with_status(fn, card_name)
-                if items:
-                    tracker.record_success(name, len(items))
+                # collect_prices.py の collect_and_save と判定を揃える:
+                # 取得エラーがあってもitemsが取れていれば失敗扱いしない。
+                # 「0件かつ取得エラーなし」は在庫なしの正常系なので成功（件数0）とする
+                if fetch_errors > 0 and not items:
+                    tracker.record_failure(name, f"取得エラー (検索: {card_name}, エラー数: {fetch_errors})")
                 else:
-                    tracker.record_failure(name, f"0件取得 (検索: {card_name})")
+                    tracker.record_success(name, len(items))
                 return name, items, fetch_errors, None
             except Exception as e:
                 tracker.record_failure(name, str(e))
@@ -1356,34 +1359,68 @@ def _load_estimate_cache_inner(startup: bool):
         try:
             # recorded_at はJST日付で記録されるため、比較もJST基準（UTCだと0-9時に1日ずれる）
             cutoff = (datetime.now(JST) - timedelta(days=7)).strftime("%Y-%m-%d")
-            # PostgRESTの返却上限（このプロジェクトは1000行）を超えるカード数があるため、
-            # RPC結果を range で分割取得する。旧実装の .limit(5000) は上限でサイレントに
-            # 切られ、名前順1000種以降（漢字始まりの大半）が見積もりから消えていた
-            # （2026-08-03 判明。tracked_cards の1000行上限根治と同じ罠）。
-            # .order でページ間の並び順を明示的に安定化する（RPC本体の DISTINCT ON
-            # (card_name) にも依存しない。reviewer指摘: 安定キーで必ず order する規律）。
-            # page_size はサーバの返却上限以下であることが正しさの条件（上限超に上げると
-            # 1ページ目で len(batch) < page_size が成立し、静かに切り捨てへ戻る）
-            page_size = 1000
-            max_pages = 20  # 暴走ガード（現在2,688種。offsetが効かない異常時の無限ループ防止）
-            offset = 0
+
+            # 2026-09-02: get_card_best_prices_json（jsonb一括集約）を優先する。従来の
+            # range分割ページング経路はPostgRESTの1000行上限のためRPCを最大4回叩いており、
+            # 本番実測でDISTINCT ONの並べ替えがwork_mem不足でディスクに溢れ1回6.9秒
+            # （VACUUM後2.1秒）かかっていた＝起動時57014（statement timeout。work_mem不足→
+            # ディスク並べ替え→遅延→3秒超過が原因。メモリ不足そのものの警告ではない）
+            # の一因。work_mem='64MB'指定のjson一括関数なら0.8秒×1回で済む
+            # （supabase_rpc_best_prices.sql参照）。ただし本番にまだ関数が未適用の環境でも
+            # 落ちないよう、失敗（PGRST202=関数未定義など任意の例外）時は警告ログを出して
+            # 従来のページング経路にフォールバックする
+            route = "paged"
             rows: list = []
-            while True:
-                resp = (_supabase_client.rpc("get_card_best_prices", {"cutoff_date": cutoff})
-                        .order("card_name")
-                        .range(offset, offset + page_size - 1)
-                        .execute())
-                batch = resp.data or []
-                rows.extend(batch)
-                pages += 1
-                if len(batch) < page_size:
-                    break
-                if pages >= max_pages:
-                    logger.error(
-                        f"相場キャッシュ: {max_pages}ページ({len(rows)}行)を超えたため打ち切り。"
-                        "offsetが効いていないかカード数が異常。取得済み分のみで続行する")
-                    break
-                offset += page_size
+            try:
+                json_resp = _supabase_client.rpc(
+                    "get_card_best_prices_json", {"cutoff_date": cutoff}
+                ).execute()
+                if isinstance(json_resp.data, list):
+                    rows = json_resp.data
+                    route = "json"
+                    pages = 1
+                else:
+                    raise ValueError(f"想定外のレスポンス型: {type(json_resp.data)}")
+            except Exception as e:
+                logger.warning(
+                    f"相場キャッシュ: get_card_best_prices_json 経路失敗（{e}）。"
+                    "ページング経路にフォールバック")
+
+            if route == "paged":
+                # PostgRESTの返却上限（このプロジェクトは1000行）を超えるカード数があるため、
+                # RPC結果を range で分割取得する。旧実装の .limit(5000) は上限でサイレントに
+                # 切られ、名前順1000種以降（漢字始まりの大半）が見積もりから消えていた
+                # （2026-08-03 判明。tracked_cards の1000行上限根治と同じ罠）。
+                # .order でページ間の並び順を明示的に安定化する（RPC本体の DISTINCT ON
+                # (card_name) にも依存しない。reviewer指摘: 安定キーで必ず order する規律）。
+                # page_size はサーバの返却上限以下であることが正しさの条件（上限超に上げると
+                # 1ページ目で len(batch) < page_size が成立し、静かに切り捨てへ戻る）
+                page_size = 1000
+                max_pages = 20  # 暴走ガード（現在2,688種。offsetが効かない異常時の無限ループ防止）
+                offset = 0
+                while True:
+                    resp = (_supabase_client.rpc("get_card_best_prices", {"cutoff_date": cutoff})
+                            .order("card_name")
+                            .range(offset, offset + page_size - 1)
+                            .execute())
+                    batch = resp.data or []
+                    rows.extend(batch)
+                    pages += 1
+                    if len(batch) < page_size:
+                        break
+                    if pages >= max_pages:
+                        logger.error(
+                            f"相場キャッシュ: {max_pages}ページ({len(rows)}行)を超えたため打ち切り。"
+                            "offsetが効いていないかカード数が異常。取得済み分のみで続行する")
+                        break
+                    offset += page_size
+
+            if not rows:
+                # 2,700枚規模のカードが7日窓に居るのが通常運用であり、0行は
+                # 常に異常（RPC定義ミス・接続不調等）。空キャッシュで上書きすると
+                # 全カードbest:nullになるため、例外化してリトライ＋既存キャッシュ
+                # 保持（docstring の約束）に倒す
+                raise ValueError("相場キャッシュ: 0行（RPC異常の疑い）")
 
             card_best = {}
             for row in rows:
@@ -1398,7 +1435,7 @@ def _load_estimate_cache_inner(startup: bool):
                 }
             _estimate_cache = card_best
             _estimate_cache_time = time.time()
-            logger.info(f"相場キャッシュロード完了: {len(card_best)}カード (ページ数={pages}, 行数={len(rows)})")
+            logger.info(f"相場キャッシュロード完了: {len(card_best)}カード (経路={route}, ページ数={pages}, 行数={len(rows)})")
             return
         except Exception as e:
             wait = 5 * attempt
@@ -3664,6 +3701,7 @@ def api_card_images():
 
     images = {}
     has_unreleased = False  # 未発売カードが1件でもあればキャッシュを短くする
+    timed_out = False       # 並列取得がタイムアウトした場合、長期キャッシュを付けない
     needs_kanabell = []     # YGOResources・未発売どちらにも該当しない名前のカーナベル候補
 
     for name in names:
@@ -3693,21 +3731,36 @@ def api_card_images():
             except Exception:
                 return n, None
 
-        with ThreadPoolExecutor(max_workers=min(len(needs_kanabell), 5)) as executor:
-            futs = {executor.submit(_fetch_kanabell, n): n for n in needs_kanabell}
+        # Q-3と同形: as_completed(timeout=...)はイテレータ自体がTimeoutErrorを送出するため
+        # for全体を囲む。`with`だと__exit__がshutdown(wait=True)して未完了futureの終了を
+        # 待ってしまいタイムアウトの意味が無くなるため、ここでは明示shutdownにする
+        executor = ThreadPoolExecutor(max_workers=min(len(needs_kanabell), 5))
+        futs = {executor.submit(_fetch_kanabell, n): n for n in needs_kanabell}
+        try:
             for future in futures_completed(futs, timeout=10):
                 try:
                     n, url = future.result()
                     images[n] = url  # url は文字列 or None（後方互換）
                 except Exception:
                     images[futs[future]] = None
+        except _FuturesTimeoutError:
+            timed_out = True
+            logger.warning(
+                f"card-images: カーナベル{len(needs_kanabell)}件中10秒タイムアウト。取得できた分だけで応答")
+        finally:
+            # 未完了分は失敗時と同じ値（None）で埋める
+            for n in needs_kanabell:
+                if n not in images:
+                    images[n] = None
+            executor.shutdown(wait=False, cancel_futures=True)
 
     resp = jsonify({"images": images})
-    if has_unreleased:
-        # 未発売カードが含まれる場合は表示設定変更で即時反映が必要なためキャッシュなし
+    if has_unreleased or timed_out:
+        # 未発売カードが含まれる場合、またはタイムアウトで一部が未取得の場合は
+        # 一過性の欠損を24時間固定しないようキャッシュしない
         resp.headers["Cache-Control"] = "no-store"
     else:
-        # 全て発売済み: カード名→画像URLの対応はほぼ不変のため長期キャッシュ可
+        # 全て発売済み・全件取得成功: カード名→画像URLの対応はほぼ不変のため長期キャッシュ可
         resp.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
     return resp
 
@@ -3733,6 +3786,7 @@ def api_card_infos():
     idx = _get_ygores_name_index()
     infos = {}
     has_unreleased = False
+    timed_out = False  # 並列取得がタイムアウトした場合、長期キャッシュを付けない
 
     # name → card_id を解決し、キャッシュ命中分は即格納、未命中分を並列取得
     need_fetch = []  # (name, card_id) のリスト
@@ -3781,18 +3835,30 @@ def api_card_infos():
             result = _fetch_card_info_by_id(cid, n)  # キャッシュ格納も内部で行う
             return n, result
 
-        with ThreadPoolExecutor(max_workers=min(len(need_fetch), 5)) as executor:
-            futs = {executor.submit(_fetch_one, item): item for item in need_fetch}
+        # Q-3と同形（app.py 3699行付近と同じ理由でwithを避け明示shutdownにする）
+        executor = ThreadPoolExecutor(max_workers=min(len(need_fetch), 5))
+        futs = {executor.submit(_fetch_one, item): item for item in need_fetch}
+        try:
             for future in as_completed(futs, timeout=25):
                 try:
                     n, result = future.result()
                     infos[n] = result
                 except Exception:
                     infos[futs[future][0]] = {"found": False, "kind": "none"}
+        except _FuturesTimeoutError:
+            timed_out = True
+            logger.warning(
+                f"card-infos: {len(need_fetch)}件中25秒タイムアウト。取得できた分だけで応答")
+        finally:
+            for n, _cid in need_fetch:
+                if n not in infos:
+                    infos[n] = {"found": False, "kind": "none"}
+            executor.shutdown(wait=False, cancel_futures=True)
 
     resp = jsonify({"infos": infos})
-    if has_unreleased:
-        # 未発売カードが含まれる場合は表示設定変更で即時反映が必要なためキャッシュなし
+    if has_unreleased or timed_out:
+        # 未発売カードが含まれる場合、またはタイムアウトで一部が未取得の場合は
+        # 一過性の欠損を24時間固定しないようキャッシュしない
         resp.headers["Cache-Control"] = "no-store"
     else:
         resp.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
@@ -3847,8 +3913,10 @@ def api_card_types():
             except Exception:
                 return n, "unknown"
 
-        with ThreadPoolExecutor(max_workers=min(len(need_fetch), 8)) as executor:
-            futs = {executor.submit(_fetch_one, n): n for n in need_fetch}
+        # Q-3と同形（app.py 3699行付近と同じ理由でwithを避け明示shutdownにする）
+        executor = ThreadPoolExecutor(max_workers=min(len(need_fetch), 8))
+        futs = {executor.submit(_fetch_one, n): n for n in need_fetch}
+        try:
             for future in _ac(futs, timeout=15):
                 try:
                     n, t = future.result()
@@ -3862,6 +3930,14 @@ def api_card_types():
                             _card_type_cache[n] = t
                 except Exception:
                     result[futs[future]] = "unknown"
+        except _FuturesTimeoutError:
+            logger.warning(
+                f"card-types: {len(need_fetch)}件中15秒タイムアウト。取得できた分だけで応答")
+        finally:
+            for n in need_fetch:
+                if n not in result:
+                    result[n] = "unknown"
+            executor.shutdown(wait=False, cancel_futures=True)
 
     return jsonify({"types": result})
 
