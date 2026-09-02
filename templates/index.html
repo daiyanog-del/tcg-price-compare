@@ -291,7 +291,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .ritem .rprice{font:600 .95rem var(--mono);color:var(--gold)}
 
 /* Empty */
-.empty{text-align:center;padding:48px 20px;color:var(--text-d);font-size:.88rem}
+.empty{text-align:center;padding:12px 20px;color:var(--text-d);font-size:.88rem}
 
 /* 信頼シグナル（1行テキスト） */
 .trust-line{font-size:.75rem;color:var(--text-d);margin-bottom:28px;letter-spacing:.03em}
@@ -316,7 +316,11 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .trending-thumb img{width:100%;height:100%;object-fit:cover}
 
 /* 値上がり/値下がり */
-.movers{max-width:500px;margin:24px auto 0;text-align:left}
+.movers{max-width:500px;margin:12px auto 0;text-align:left}
+/* トップの余白最適化（2026-09-02）: PC幅では販売・買取の2ランキングを左右に並べ、
+   縦積み約1,300pxを半減させる。auto-fit なので片方が .hidden のときは残りが全幅を使う */
+.movers-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;max-width:1000px;margin:0 auto;align-items:start}
+.movers-row>.movers{max-width:none;width:100%}
 .movers-tabs{display:flex;gap:0;margin-bottom:6px;justify-content:center}
 .movers-tab{padding:6px 18px;font-size:.78rem;font-weight:600;border:1px solid var(--border);background:var(--bg-card);color:var(--text-m);cursor:pointer;transition:all .15s}
 .movers-tab:first-child{border-radius:6px 0 0 6px}
@@ -336,7 +340,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .movers-name{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:2px}
 .movers-name-text{font-size:.85rem;font-weight:500;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .movers-rarity{display:block;line-height:1}
-.movers-price{text-align:right;font-size:.78rem;line-height:1.4}
+.movers-price{text-align:right;font-size:.78rem;line-height:1.4;display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0}
 .movers-price-now{font:600 .85rem var(--mono)}
 .movers-diff{font:600 .75rem var(--mono)}
 .movers-diff.up{color:#ef4444}
@@ -585,6 +589,10 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 
 /* Mobile — スマホ */
 @media(max-width:640px){
+  /* トップの余白最適化（2026-09-02）: .empty の左右20px と .movers の外側余白が二重で
+     行幅が311pxに縮み、カード名が3文字で切れていた。スマホでは .empty の左右を0にして幅を渡す */
+  .empty{padding-left:0;padding-right:0}
+
   /* C-3a: ヘッダー135px→80px前後の圧縮（ブランドは縮小） */
   header{padding:12px 0 6px}
   .brand-header-icon{height:36px}
@@ -748,7 +756,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 }
 
 /* ── フッター ── */
-.site-footer{text-align:center;padding:32px 20px 24px;margin-top:48px;border-top:1px solid var(--border);color:var(--text-d);font-size:.82rem}
+.site-footer{text-align:center;padding:32px 20px 24px;margin-top:24px;border-top:1px solid var(--border);color:var(--text-d);font-size:.82rem}
 .site-footer a{color:var(--text-m);margin:0 10px;cursor:pointer;transition:color .2s}
 .site-footer a:hover{color:var(--accent-l);text-decoration:underline}
 .site-footer .footer-copy{margin-top:8px;font-size:.75rem}
@@ -959,25 +967,27 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
          置き換えると下のランキングDOMごと消えて復帰できなくなるため、ここだけを書き換える -->
     <div id="emptyError" class="movers-fail hidden"></div>
 
-    <!-- N-2: 価格推移ランキング（共通店舗ガードのみ・最安¥1,000以上） -->
-    <div id="topMoversSection" class="movers hidden">
-      <div class="movers-tabs">
-        <button class="movers-tab" onclick="switchTopMovers('up')">値上がり</button>
-        <button class="movers-tab active" onclick="switchTopMovers('down')">値下がり</button>
+    <div class="movers-row">
+      <!-- N-2: 価格推移ランキング（共通店舗ガードのみ・最安¥1,000以上） -->
+      <div id="topMoversSection" class="movers hidden">
+        <div class="movers-tabs">
+          <button class="movers-tab" onclick="switchTopMovers('up')">値上がり</button>
+          <button class="movers-tab active" onclick="switchTopMovers('down')">値下がり</button>
+        </div>
+        <div id="topMoversPeriod" class="movers-period"></div>
+        <div class="movers-list" id="topMoversList"></div>
       </div>
-      <div id="topMoversPeriod" class="movers-period"></div>
-      <div class="movers-list" id="topMoversList"></div>
-    </div>
 
-    <!-- S-1: 買取価格タブ廃止に伴い、買取の値上がり/値下がりランキングだけをここへ移設
-         （既存実装をそのまま移設。販売/買取の1ウィジェット統合はしない） -->
-    <div id="buybackMoversSection" class="movers hidden">
-      <div class="movers-tabs">
-        <button class="movers-tab active" onclick="switchBuybackMovers('up')">買取UP</button>
-        <button class="movers-tab" onclick="switchBuybackMovers('down')">買取DOWN</button>
+      <!-- S-1: 買取価格タブ廃止に伴い、買取の値上がり/値下がりランキングだけをここへ移設
+           （既存実装をそのまま移設。販売/買取の1ウィジェット統合はしない） -->
+      <div id="buybackMoversSection" class="movers hidden">
+        <div class="movers-tabs">
+          <button class="movers-tab active" onclick="switchBuybackMovers('up')">買取UP</button>
+          <button class="movers-tab" onclick="switchBuybackMovers('down')">買取DOWN</button>
+        </div>
+        <div id="buybackMoversPeriod" class="movers-period"></div>
+        <div class="movers-list" id="buybackMoversList"></div>
       </div>
-      <div id="buybackMoversPeriod" class="movers-period"></div>
-      <div class="movers-list" id="buybackMoversList"></div>
     </div>
 
     <div id="trendingSection" class="trending hidden">
