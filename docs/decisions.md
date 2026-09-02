@@ -1020,3 +1020,21 @@ rarity_pref 基準に統一。`items_map` のキーも rarity_pref で作る。
 - DB側で適用したもの: `get_card_best_prices`（STABLE / work_mem=64MB / search_path 内包）、`get_card_best_prices_json`（新設・INVOKER）、`price_history` の挿入ベース autovacuum（10,000行+2%）。いずれも SQL ファイルを正本としてリポジトリに収載
 - 計測値: 並べ替え必要メモリ 35MB（quicksort 確認）、json 関数の実行 1.9秒（コールド）。残るリスクは索引スキャンのコールド時 I/O（約1.7秒）で、3秒制限との余裕は約1秒。TASKS.md に記録
 - YGOResources 同期は新方式で手動起動（run 33608582828）。結果は activeContext.md に追記
+
+## 2026-09-02 price_history の整数キー化（Supabase 無料枠 500MB 超過への対応）
+
+**事実**: Supabase の組織プランは free（上限500MB）で、DB は 1,095MB。うち price_history が 1,006MB（本体289MB・索引717MB）。索引が7割を占めるのは card_name/shop/rarity の文字列キーを3本の索引に重複保持していたため。35日より古い行を読む機能は現存しない（`/api/price-history` のみ90日読むが 08-31 のグラフ削除以降は画面から未参照）。
+
+**選択肢と裁定**: ①保持期間短縮＋索引整理（490〜550MB・余裕なし・過去データ喪失）②整数キー化（90日保持のまま約360〜430MB）③Pro（$25/月）。ユーザーは「機能を落とさずコストを増やさない」を条件に②を選択。
+
+**設計**: 辞書表 card_dim/shop_dim/rarity_dim ＋ price_history_v2（主キー (card_id, shop_id, rarity_id, recorded_at)、`id` 列廃止、索引は主キー＋日付先頭の被覆索引の2本）。既存の読み取り11箇所とRPC（best_prices/movers）は**同名ビュー price_history** で無変更。書き込みは RPC `upsert_price_rows(jsonb)` に一本化（`price_persist` が唯一の呼び元だったため変更は1関数）。詳細と本番手順は `price_history_v2.sql`。
+
+**レビュー班が切替前に止めた致命3件**: (1) RPC のスカラー返却は PostgREST が裸の値を返し supabase-py の APIResponse が list 以外を弾いて **HTTP 200 なのに例外**になる → `RETURNS TABLE(saved_rows)` に変更（テストのフェイクも実物の形に） (2) 辞書追加の `ON CONFLICT DO NOTHING` は既存値でも連番を消費し smallserial が約2週間で枯渇 → `WHERE NOT EXISTS` を追加 (3) 流し込み後〜切替の間に旧テーブルへ入った行の差分再同期が無い → 切替トランザクションに `LOCK TABLE`＋`DO UPDATE` 付き再同期を追加。高2件: SECURITY DEFINER 関数の PUBLIC 実行権（`REVOKE FROM PUBLIC, anon, authenticated` が必要。`FROM anon` だけでは消えない）／ビュー経由の `max(recorded_at)` は INNER JOIN で MIN/MAX 最適化が効かず **5.5秒のフルスキャン**（実測）→ `get_top_movers` だけ v2 を直接読む。
+
+**実測（切替前後）**: v2 本体166MB＋主キー88MB＋被覆索引63MB＝318MB。ビュー経由の best_prices 0.9秒（旧0.8秒）、featured_pack 1ページ0.1秒。RPC3本の出力 md5 は切替前後で完全一致。切替後の本番検索で `rpc/upsert_price_rows` が 200 を返し、旧テーブルと v2 の行数は 2,096,431 で一致。
+
+**適用順**: §1〜§3（辞書・v2・流し込み・索引）→ §4a RPC作成＋SQL疎通 → コードをデプロイ（RPC 書き込みは v2 に入るため切替前でも壊れない）→ §4b 切替（1トランザクション）→ §5 旧索引削除（717MB回収）→ **§6 旧テーブル削除は翌朝の夜間収集（JST5:00〜8:30）を確認してから**。
+
+**意図的に残す既知**: ビューは security_invoker 無し（公開読み取りデータ。Advisor の security_definer_view 警告は既知）／`card_dim` は90日削除の対象外で緩やかに増える（3,250件規模で実害なし）／`saved` の意味が「渡した行数」→「実際に挿入/更新した行数」に変わった（`ignore_duplicates=True` 経路で 0 は正常値）。
+
+**セッション運用の教訓**: セッション制限で会話が一度止まり、コードはデプロイ済み・DBは未切替の状態で再開した。切替前に「ビューか表か・行数一致・書き込み先」を確認してから続行できたのは、手順を SQL ファイルに §番号付きで残していたため。長い移行は**手順書に「どこまで適用済みか」を都度追記**すること。

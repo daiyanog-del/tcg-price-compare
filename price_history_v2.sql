@@ -14,6 +14,7 @@
 --   削除（90日保持）は price_history_v2 を直接 delete する。
 -- 実測（切替前・2026-09-02）: v2 本体 166MB + 主キー 88MB + 被覆索引 63MB = 318MB。
 --   ビュー経由の get_card_best_prices 0.9秒（旧0.8秒）、featured_pack の1ページ 0.1秒。
+-- 適用状況: 2026-09-02 12:25 UTC に §4b 切替と §5 旧索引削除まで適用済み。§6（旧テーブル削除）は 9/3 朝の夜間収集確認後。
 -- 適用手順（本番）: §1〜§3 を先に適用（無停止）→ §4a RPC作成＋疎通確認 → §4b 切替（1トランザクション・
 --   差分再同期込み）→ アプリをデプロイ → §5 旧索引削除 → 翌朝の夜間収集を確認後 §6 旧テーブル削除。
 -- 戻し方（§4b の後、§6 の前）: BEGIN; DROP VIEW price_history; ALTER TABLE price_history_old RENAME TO price_history;
