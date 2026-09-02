@@ -9,8 +9,8 @@
 - 最大の構造問題: sync-ygores.yml が 6/15 から一度も完走せず（60分打ち切り・進捗未保存）、6月以降の新カードが名前索引に無い＝トップの画像欠け
 - 注意: 8/25〜9/2 の変更は decisions.md にしか無く本ファイルが追いついていない。TASKS.md に矛盾・失効項目あり（§6）
 - **適用状況（同日）**: 第1バッチ b00d265（検索SSE世代管理・シェア escAttr・日付テスト・reading.json・fetch_guard）→本番で再現手順を再実行し解消を確認。第2バッチ e2be895（相場RPC work_mem/json 一括・0件≠失敗・TimeoutError 未捕捉3箇所・YGOResources 同期のセッション方式・ログ雑音）→デプロイ後ログで json 経路1回成功を確認。DB側は関数2本＋autovacuum 設定を適用済み。残件と裁定待ちは TASKS.md「2026-09-02 定期総点検由来」節
-- **price_history 整数キー化（同日・本番切替済み 8717e04）**: 辞書表＋price_history_v2 が正本、`price_history` は同名ビュー、書き込みは RPC `upsert_price_rows`。旧テーブルは `price_history_old` として本体だけ残置（索引は削除済み）。**次にやること: 9/3 朝に夜間収集の成功（collection_runs の saved_rows・shop_stats）とトップ/購入候補の表示を確認 → `DROP TABLE price_history_old`（price_history_v2.sql §6）**。手順・実測・レビュー指摘は decisions.md 同日分
-- **ユーザー裁定待ち**: 買取cronを JST9:00 へ（Render操作）／import-ygores.yml の手動実行／買取履歴の UNIQUE 化（9/15 の重複消滅後）／Supabase プラン確認
+- **price_history 整数キー化（同日・本番切替済み 8717e04）**: 辞書表＋price_history_v2 が正本、`price_history` は同名ビュー、書き込みは RPC `upsert_price_rows`。旧テーブルは同日中に削除済み（新弾収集ジョブ328行で書き込み経路を確認後、ユーザーが SQL Editor で DROP）。**DB 1,095MB → 433MB**。9/3 朝の夜間収集（`collection_runs.saved_rows`・shop_stats）が新経路で正常なことだけ次回確認。手順・実測・レビュー指摘は decisions.md 同日分
+- **同日中に片付いた裁定**: 買取cron JST9:00（Render で確認済み）／import-ygores.yml 実行済み／買取 UNIQUE 化済み／Supabase は free のまま整数キー化で容量解決。残る裁定は X投稿再開・Push通知の復活or廃止（TASKS.md）
 
 > 以下は 2026-08-21 時点の記録
 
