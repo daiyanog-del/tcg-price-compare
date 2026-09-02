@@ -78,7 +78,15 @@ class WhitelistViolation(Exception):
 
 def _validate_url(url: str) -> None:
     """URLがホワイトリストを満たすか検証する。違反なら WhitelistViolation を送出。"""
-    parsed = urlparse(url)
+    try:
+        parsed = urlparse(url)
+    except ValueError as e:
+        # 例: "https://[::1" のような不正なIPv6リテラルはurlparse自体がValueErrorを
+        # 送出する。ここで変換しないとis_whitelisted()がFalseを返す代わりに例外が
+        # 漏れ、呼び出し側（ホワイトリスト判定でネットワーク接続を防ぐガード）が壊れる
+        raise WhitelistViolation(
+            f"URLの解析に失敗しました: {e} ({url!r})"
+        ) from e
 
     # https 強制チェック
     if parsed.scheme != "https":
@@ -86,11 +94,11 @@ def _validate_url(url: str) -> None:
             f"https以外のスキームは許可されていません: {parsed.scheme!r} ({url!r})"
         )
 
-    host = parsed.netloc.lower()
-
-    # ポート番号が含まれる場合は除去して比較
-    if ":" in host:
-        host = host.split(":")[0]
+    # parsed.hostname はポート番号もユーザー情報（user:pass@）も含まない。
+    # netloc を ":" で単純分割すると "user:pass@evil.example.com" のような
+    # ユーザー情報付きURLで先頭のユーザー名部分をホストと誤認してしまう
+    # （実際の接続先はホワイトリスト外の evil.example.com）ため hostname を使う。
+    host = (parsed.hostname or "").lower()
 
     # ホストのホワイトリストチェック
     if host not in ALLOWED_HOSTS:

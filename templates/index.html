@@ -1574,6 +1574,10 @@ function _setPriceSectionsVisible(visible){
 
 // 未発売カードを価格検索せずカード情報のみ表示する
 function showUnreleasedCard(name){
+  // 世代管理: selectSugの未発売分岐はdoSearchを通らず世代が進まないため、稼働中の
+  // 販売検索ストリームがあればここで明示的に破棄する（そのままだと後から届くdoneが
+  // この未発売カードの見出しの下に前のカードの価格表を描いてしまう）
+  _newSearchGen();
   const btn=document.getElementById('btn');
   if(btn){btn.disabled=false;btn.textContent='検索';}
   const prog=document.getElementById('prog');
@@ -1743,9 +1747,23 @@ function _fillSmallImages(src){
   });
 }
 
+// J-1と同様: 販売検索SSEにも世代管理を入れる。旧ストリームのイベントが新しい検索結果を
+// 上書きしないよう、_searchGenを世代トークンとして使う（buyInlineの_buyInlineES/_buyInlineGen/
+// _buyInlineTimeoutIdと同じ形）
+let _searchES=null;        // 進行中のEventSource参照。新しい検索を張る前に確実に閉じるために保持する
+let _searchGen=0;          // 世代トークン。close()後も配送されうる旧SSEのイベントを無効化する
+let _searchTimeoutId=null; // タイムアウトタイマーの参照。新しい検索を張る前に確実にclearTimeoutする
+
+function _newSearchGen(){ // 世代加算＝旧ストリーム破棄、を不可分にする（片方だけ進むと旧SSEが無限再接続する）
+  if(_searchES){ try{_searchES.close();}catch(e){} _searchES=null; }
+  if(_searchTimeoutId){ clearTimeout(_searchTimeoutId); _searchTimeoutId=null; }
+  return ++_searchGen;
+}
+
 function doSearch(opts){
   // opts: {validated:true} サジェスト選択やvalidate済み, {confirmed:true} DB未登録を承認済み,
   //       {trigger:'user'|'pageload'|'popstate'|...} G-2: 計測用。省略時は'user'（検索窓からの手動検索）
+  //       {_gen} /api/validateを挟む再帰呼び出しが、入口で採番した世代を引き継ぐための内部用引数
   opts=opts||{};
   const trigger=opts.trigger||'user';
   const q=document.getElementById('q').value.trim();
@@ -1754,6 +1772,10 @@ function doSearch(opts){
     alert('カード名を2文字以上入力してください');
     return;
   }
+  // 世代は「ユーザー起点の呼び出し」（入口）でのみ進める。/api/validateの応答を待つ再帰呼び出しは
+  // opts._genで元の世代を引き継ぎ、古い検索の応答が後から来ても新しい世代を追い越させない。
+  // 無効な入力（空/2文字未満）で世代だけ進めてしまわないよう、上のチェックより後で採番する
+  const gen=(opts._gen!==undefined)?opts._gen:_newSearchGen();
   // validate済み・confirmed済みでなければ、まず /api/validate でカード名を確認
   if(!opts.validated&&!opts.confirmed){
     const btn=document.getElementById('btn');
@@ -1761,28 +1783,32 @@ function doSearch(opts){
     fetch('/api/validate?q='+encodeURIComponent(q))
       .then(r=>r.json())
       .then(d=>{
+        if(gen!==_searchGen) return; // 世代管理: 古い応答が#q/btnを触らないようにする
         btn.disabled=false;btn.textContent='検索';
         if(d.valid){
           document.getElementById('q').value=d.name;
           // 未発売カードは価格検索せず、カード情報のみ表示する
           // G-2: 検索意図はあったが未発売のため検索に至らなかったケースも計上する（逆方向の欠測対策）
           if(d.unreleased){_ga('search_submit',{mode:'sell',trigger:trigger,result:'unreleased'});showUnreleasedCard(d.name);return;}
-          doSearch({validated:true,trigger:trigger});
+          doSearch({validated:true,trigger:trigger,_gen:gen});
         }else if(d.suggestion){
           if(confirm('もしかして: '+d.suggestion+'\n\nこのカード名で検索しますか?')){
             document.getElementById('q').value=d.suggestion;
-            doSearch({validated:true,trigger:trigger});
+            doSearch({validated:true,trigger:trigger,_gen:gen});
           }
         }else{
           // TODO: _correct_cardname()が部分一致候補を返せるようになったらsuggestion分岐が有効になる
           if(confirm('該当するカード名が見つかりません。\nそのまま検索しますか?')){
-            doSearch({confirmed:true,trigger:trigger});
+            doSearch({confirmed:true,trigger:trigger,_gen:gen});
           }
         }
       })
-      .catch(()=>{btn.disabled=false;btn.textContent='検索';});
+      .catch(()=>{if(gen!==_searchGen)return;btn.disabled=false;btn.textContent='検索';});
     return;
   }
+  // 世代管理: 古い検索の /api/validate の戻りが後から来た場合は、画面状態（ボタン無効化・
+  // 結果クリア・進捗リセット）を触る前にここで打ち切る（新しい検索の表示を壊さない）
+  if(gen!==_searchGen) return;
   _ga('search_submit',{mode:'sell',trigger:trigger});
   const btn=document.getElementById('btn');
   btn.disabled=true;btn.textContent='検索中...';
@@ -1825,24 +1851,29 @@ function doSearch(opts){
   const params=new URLSearchParams({q});
   if(opts.confirmed)params.append('confirmed','true');
 
+  // 世代管理: 古いvalidateの戻りが後から来てここに到達しても、旧世代のストリームは張らない
+  // （旧ストリームのclose/clearTimeoutは_newSearchGen()側で採番と不可分に行われている）
+  if(gen!==_searchGen) return;
+
   const es=new EventSource('/api/search?'+params.toString());
+  _searchES=es;
   // 60秒で応答がなければタイムアウト
-  let sseTimeout=setTimeout(()=>{
-    es.close();btn.disabled=false;btn.textContent='検索';
+  function _searchTimeoutFail(){
+    if(gen!==_searchGen) return; // 世代管理: 別カードの検索で世代が進んでいたら無視
+    es.close();_searchES=null;_searchTimeoutId=null;btn.disabled=false;btn.textContent='検索';
     prog.style.display='none';
     document.getElementById('empty').classList.remove('hidden');
     // Q-10: #emptyのinnerHTML全置換をやめ、専用要素だけを書き換える（ランキングDOMを壊さない）
     const _errEl=document.getElementById('emptyError');
     _errEl.textContent='検索がタイムアウトしました。再度お試しください。';
     _errEl.classList.remove('hidden');
-  },60000);
+  }
+  _searchTimeoutId=setTimeout(_searchTimeoutFail,60000);
   let partialShown=false;
   es.onmessage=e=>{
-    clearTimeout(sseTimeout);
-    sseTimeout=setTimeout(()=>{
-      es.close();btn.disabled=false;btn.textContent='検索';
-      prog.style.display='none';
-    },60000);
+    if(gen!==_searchGen) return; // 世代管理: closeしても配送されうる旧世代のイベントを無効化する
+    clearTimeout(_searchTimeoutId);
+    _searchTimeoutId=setTimeout(_searchTimeoutFail,60000);
     const d=JSON.parse(e.data);
     if(d.type==='corrected'){
       // カード名が自動補正された場合、検索欄を更新して通知
@@ -1873,8 +1904,8 @@ function doSearch(opts){
       const el=_searchProgStep(d.shop);
       el.className='pstep error';el.querySelector('.pstat').textContent='エラー';
     }else if(d.type==='done'){
-      clearTimeout(sseTimeout);
-      es.close();D=d.results;
+      clearTimeout(_searchTimeoutId);_searchTimeoutId=null;
+      es.close();_searchES=null;D=d.results;
       // 補正後のカード名で検索欄を更新
       if(d.corrected_name) document.getElementById('q').value=d.corrected_name;
       // J-2: 買取セクションの取得キーは「入力欄の現在値」ではなく、ここで確定した表示カード名にする
@@ -1885,8 +1916,9 @@ function doSearch(opts){
     }
   };
   es.onerror=()=>{
-    clearTimeout(sseTimeout);
-    es.close();btn.disabled=false;btn.textContent='検索';
+    if(gen!==_searchGen) return; // 世代管理
+    clearTimeout(_searchTimeoutId);_searchTimeoutId=null;
+    es.close();_searchES=null;btn.disabled=false;btn.textContent='検索';
     prog.style.display='none';
     document.getElementById('empty').classList.remove('hidden');
     const _errEl2=document.getElementById('emptyError');
@@ -2020,7 +2052,7 @@ function renderAll(d){
   if(smEl&&shareOpts.length>0){
     let sm='<div class="share-menu-label">シェアする内容を選択</div>';
     shareOpts.forEach((o,i)=>{
-      const t=o.text.replace(/'/g,"\\'");
+      const t=escAttr(escJs(o.text));
       sm+=`<div class="share-menu-label" style="padding-top:${i?8:4}px">${esc(o.label)}</div>`;
       sm+=`<button class="share-menu-item" onclick="_shareToX('${t}')">𝕏 でポスト</button>`;
       sm+=`<button class="share-menu-item" onclick="_shareToLine('${t}')">LINE で送る</button>`;

@@ -111,6 +111,60 @@ class TestFetchWhitelistedViolation:
 
 
 # ──────────────────────────────────────────────
+# ユーザー情報付きURLでのホスト判定迂回テスト
+# （netloc を ":" 分割していた旧実装は "user:pass@evil.example.com" の
+#   ユーザー情報部分をホストと誤認していた。parsed.hostname を使うことで
+#   実際の接続先ホストのみを見るように修正した回帰テスト）
+# ──────────────────────────────────────────────
+
+class TestUserinfoHostBypass:
+    """ユーザー情報（user:pass@）付きURLでホワイトリスト判定が迂回されないことを確認"""
+
+    def test_userinfo_with_password_rejects_actual_host(self):
+        # netloc は "www.yu-gi-oh.jp:x@evil.example.com" となり、":" 分割だと
+        # 先頭の "www.yu-gi-oh.jp" をホストと誤認してしまう。実際の接続先は
+        # evil.example.com のため拒否されなければならない。
+        mock_get = MagicMock()
+        with patch("fetch_guard._cffi_requests.get", mock_get):
+            with pytest.raises(WhitelistViolation):
+                fetch_whitelisted("https://www.yu-gi-oh.jp:x@evil.example.com/a")
+        mock_get.assert_not_called()
+        assert is_whitelisted("https://www.yu-gi-oh.jp:x@evil.example.com/a") is False
+
+    def test_userinfo_without_password_rejects_actual_host(self):
+        mock_get = MagicMock()
+        with patch("fetch_guard._cffi_requests.get", mock_get):
+            with pytest.raises(WhitelistViolation):
+                fetch_whitelisted("https://user@evil.example.com/")
+        mock_get.assert_not_called()
+        assert is_whitelisted("https://user@evil.example.com/") is False
+
+    def test_port_only_still_allowed(self):
+        # ポート番号のみ（ユーザー情報なし）は従来通り許可される
+        assert is_whitelisted("https://www.yu-gi-oh.jp:443/x") is True
+
+    def test_empty_hostname_rejected(self):
+        # スキームの後にホストが無いURL（parsed.hostname が None になるケース）
+        mock_get = MagicMock()
+        with patch("fetch_guard._cffi_requests.get", mock_get):
+            with pytest.raises(WhitelistViolation):
+                fetch_whitelisted("https:///path")
+        mock_get.assert_not_called()
+        assert is_whitelisted("https:///path") is False
+
+    def test_malformed_ipv6_url_rejected(self):
+        # 不正なIPv6リテラル（閉じ"]"が無い）はurlparse自体がValueErrorを送出する。
+        # _validate_urlがそれをWhitelistViolationに変換せず生のValueErrorを漏らすと、
+        # is_whitelisted()がFalseを返す代わりに例外で落ちてしまう
+        mock_get = MagicMock()
+        with patch("fetch_guard._cffi_requests.get", mock_get):
+            with pytest.raises(WhitelistViolation):
+                fetch_whitelisted("https://[::1")
+        mock_get.assert_not_called()
+        assert is_whitelisted("https://[::1") is False
+
+
+# ──────────────────────────────────────────────
 # リダイレクト先検証テスト
 # ──────────────────────────────────────────────
 

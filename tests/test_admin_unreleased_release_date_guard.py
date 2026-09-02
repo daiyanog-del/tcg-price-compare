@@ -17,12 +17,21 @@ release_date ガードのテスト（admin_unreleased.py）。
 """
 
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import admin_unreleased as admin_module
+
+# release_date ガードは「今日(JST)より前か」を判定するため、固定文字列を
+# ハードコードすると実行日が進むにつれてテストの前提（未来日/過去日）が
+# 崩れて失敗する。date.today() 起点の相対日付にすることで、実行日に依存
+# せず常に意図通りの前提（未来日 or 過去日）でテストできるようにする。
+FUTURE = (date.today() + timedelta(days=30)).isoformat()   # 単一の未来日
+FUTURE2 = (date.today() + timedelta(days=60)).isoformat()  # FUTUREより新しい未来日（多数決/新しい方優先テスト用）
+PAST = (date.today() - timedelta(days=30)).isoformat()     # 過去日（値そのものは使われない/除外されるテスト用）
 
 
 # ──────────────────────────────────────────────
@@ -140,25 +149,25 @@ def test_backfill_release_date_no_match_returns_none(monkeypatch):
 
 def test_backfill_release_date_majority_wins(monkeypatch):
     _install_fake(monkeypatch, [
-        {"id": 2, "product_name": "商品A", "release_date": "2026-09-01"},
-        {"id": 3, "product_name": "商品A", "release_date": "2026-09-01"},
-        {"id": 4, "product_name": "商品A", "release_date": "2026-08-15"},
+        {"id": 2, "product_name": "商品A", "release_date": FUTURE},
+        {"id": 3, "product_name": "商品A", "release_date": FUTURE},
+        {"id": 4, "product_name": "商品A", "release_date": PAST},
         {"id": 1, "product_name": "商品A", "release_date": None},  # 自分自身（NULL）
     ])
-    assert admin_module._backfill_release_date("商品A", 1) == "2026-09-01"
+    assert admin_module._backfill_release_date("商品A", 1) == FUTURE
 
 
 def test_backfill_release_date_tie_prefers_newest(monkeypatch):
     _install_fake(monkeypatch, [
-        {"id": 2, "product_name": "商品A", "release_date": "2026-08-15"},
-        {"id": 3, "product_name": "商品A", "release_date": "2026-09-01"},
+        {"id": 2, "product_name": "商品A", "release_date": FUTURE},
+        {"id": 3, "product_name": "商品A", "release_date": FUTURE2},
     ])
-    assert admin_module._backfill_release_date("商品A", 1) == "2026-09-01"
+    assert admin_module._backfill_release_date("商品A", 1) == FUTURE2
 
 
 def test_backfill_release_date_excludes_self(monkeypatch):
     fake = _install_fake(monkeypatch, [
-        {"id": 1, "product_name": "商品A", "release_date": "2026-01-01"},
+        {"id": 1, "product_name": "商品A", "release_date": PAST},
     ])
     # exclude_id=1 の行しかないので候補なし → None
     assert admin_module._backfill_release_date("商品A", 1) is None
@@ -173,7 +182,7 @@ def test_approve_backfills_null_release_date(monkeypatch):
         {"id": 1, "name": "カードA", "source_url": "", "extraction_raw": {},
          "status": "pending", "release_date": None, "product_name": "商品X"},
         {"id": 2, "name": "カードB", "source_url": "", "extraction_raw": {},
-         "status": "approved", "release_date": "2026-09-01", "product_name": "商品X"},
+         "status": "approved", "release_date": FUTURE, "product_name": "商品X"},
     ]
     _install_fake(monkeypatch, rows)
     client = _client()
@@ -182,9 +191,9 @@ def test_approve_backfills_null_release_date(monkeypatch):
     assert resp.status_code == 200
     data = resp.get_json()
     assert data["ok"] is True
-    assert data["release_date_note"] == "発売日を同商品の他カードから補完しました: 2026-09-01"
+    assert data["release_date_note"] == f"発売日を同商品の他カードから補完しました: {FUTURE}"
     assert "release_date_warning" not in data
-    assert rows[0]["release_date"] == "2026-09-01"
+    assert rows[0]["release_date"] == FUTURE
     assert rows[0]["status"] == "approved"
 
 
@@ -250,7 +259,7 @@ def test_bulk_approve_backfills_and_warns(monkeypatch):
          "status": "pending", "release_date": None, "product_name": "商品X"},
         # id=2: 参照用（補完元）
         {"id": 2, "name": "カードB", "source_url": "", "extraction_raw": {},
-         "status": "approved", "release_date": "2026-09-01", "product_name": "商品X"},
+         "status": "approved", "release_date": FUTURE, "product_name": "商品X"},
         # id=3: 補完不可（同じ商品名の他カードなし）
         {"id": 3, "name": "カードC", "source_url": "", "extraction_raw": {},
          "status": "pending", "release_date": None, "product_name": "商品Y"},
@@ -277,7 +286,7 @@ def test_bulk_approve_backfills_and_warns(monkeypatch):
     assert 1 not in warnings
 
     # id=1 は補完されて release_date が入っている
-    assert rows[0]["release_date"] == "2026-09-01"
+    assert rows[0]["release_date"] == FUTURE
     assert rows[0]["status"] == "approved"
 
 
@@ -292,7 +301,7 @@ def test_bulk_approve_memoizes_backfill_lookup_per_product(monkeypatch):
         {"id": 2, "name": "カードB", "source_url": "", "extraction_raw": {},
          "status": "pending", "release_date": None, "product_name": "商品X"},
         {"id": 3, "name": "カードC", "source_url": "", "extraction_raw": {},
-         "status": "approved", "release_date": "2026-09-01", "product_name": "商品X"},
+         "status": "approved", "release_date": FUTURE, "product_name": "商品X"},
     ]
     _install_fake(monkeypatch, rows)
     client = _client()
@@ -306,5 +315,5 @@ def test_bulk_approve_memoizes_backfill_lookup_per_product(monkeypatch):
     data = resp.get_json()
     assert data["release_date_backfilled"] == 2
     assert data["release_date_warnings"] == []
-    assert rows[0]["release_date"] == "2026-09-01"
-    assert rows[1]["release_date"] == "2026-09-01"
+    assert rows[0]["release_date"] == FUTURE
+    assert rows[1]["release_date"] == FUTURE
