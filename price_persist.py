@@ -138,3 +138,24 @@ def upsert_price_rows(sb, rows: list[dict], ignore_duplicates: bool = False) -> 
         # （例: 列追加DDL未適用のままコードだけデプロイした場合）
         logger.error(f"[price_persist] upsert 失敗 ({len(rows)}行): {e}")
         return 0
+
+
+def upsert_buyback_rows(sb, rows: list[dict]) -> int:
+    """buyback_history に upsert する。
+
+    UNIQUE(card_name, shop, rarity, recorded_at) 前提。同日の再実行は上書き
+    （その日の最高買取額の最新値を採用）。
+
+    成功した行数を返す。エラー時は 0 を返し、警告ログのみ出す（呼び元の処理は止めない）。
+    """
+    if not rows:
+        return 0
+    try:
+        sb.table("buyback_history").upsert(
+            rows,
+            on_conflict="card_name,shop,rarity,recorded_at",
+        ).execute()
+        return len(rows)
+    except Exception as e:
+        logger.error(f"[price_persist] buyback upsert 失敗 ({len(rows)}行): {e}")
+        return 0

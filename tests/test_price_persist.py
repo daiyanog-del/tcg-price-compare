@@ -19,7 +19,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from price_persist import build_min_price_rows, upsert_price_rows, _is_normal_condition
+from price_persist import build_min_price_rows, upsert_price_rows, upsert_buyback_rows, _is_normal_condition
 from rarity import UNKNOWN_RARITY_LABEL
 
 TODAY = "2026-07-10"
@@ -260,3 +260,57 @@ class TestUpsertIgnoreDuplicates:
         sb = _FakeSupabase()
         assert upsert_price_rows(sb, []) == 0
         assert sb.table_obj.calls == []
+
+
+# ──────────────────────────────────────────────
+# upsert_buyback_rows — buyback_history への upsert（本タスクで price_history と揃えた経路）
+# ──────────────────────────────────────────────
+
+class _FakeBuybackTable:
+    def __init__(self, raise_error=False):
+        self.calls = []
+        self.raise_error = raise_error
+
+    def upsert(self, rows, on_conflict=None):
+        self.calls.append({"rows": rows, "on_conflict": on_conflict})
+        return self
+
+    def execute(self):
+        if self.raise_error:
+            raise RuntimeError("boom")
+        return None
+
+
+class _FakeBuybackSupabase:
+    def __init__(self, raise_error=False):
+        self.table_obj = _FakeBuybackTable(raise_error=raise_error)
+
+    def table(self, name):
+        assert name == "buyback_history"
+        return self.table_obj
+
+
+class TestUpsertBuybackRows:
+    def test_success_uses_correct_on_conflict(self):
+        sb = _FakeBuybackSupabase()
+        rows = [{"card_name": "テストカード", "shop": "カードラッシュ", "rarity": "レア",
+                  "max_price": 1000, "recorded_at": TODAY}]
+        saved = upsert_buyback_rows(sb, rows)
+        assert saved == 1
+        call = sb.table_obj.calls[0]
+        assert call["on_conflict"] == "card_name,shop,rarity,recorded_at"
+        assert call["rows"] == rows
+
+    def test_empty_rows_no_call(self):
+        sb = _FakeBuybackSupabase()
+        assert upsert_buyback_rows(sb, []) == 0
+        assert sb.table_obj.calls == []
+
+    def test_exception_returns_zero_and_logs(self, caplog):
+        sb = _FakeBuybackSupabase(raise_error=True)
+        rows = [{"card_name": "テストカード", "shop": "カードラッシュ", "rarity": "レア",
+                  "max_price": 1000, "recorded_at": TODAY}]
+        with caplog.at_level("ERROR"):
+            saved = upsert_buyback_rows(sb, rows)
+        assert saved == 0
+        assert any("buyback" in rec.message for rec in caplog.records)

@@ -18,6 +18,7 @@ from datetime import datetime, timezone, timedelta
 from supabase import create_client, Client
 from scraper import compare_buyback, BUYBACK_SHOPS
 from collection_run import record_collection_run
+from price_persist import upsert_buyback_rows
 from collect_prices import (
     get_supabase,
     normalize_card_name,
@@ -106,13 +107,12 @@ def collect_and_save_buyback(
         for (shop, rarity), price in max_prices.items()
     ]
 
-    try:
-        sb.table("buyback_history").insert(rows).execute()
-        print(f"  保存完了 [{card_name}]: {len(rows)}件")
-        return len(rows)
-    except Exception as e:
-        print(f"  DB保存失敗 [{card_name}]: {e}")
-        return 0
+    saved = upsert_buyback_rows(sb, rows)
+    if saved > 0:
+        print(f"  保存完了 [{card_name}]: {saved}件")
+    else:
+        print(f"  DB保存失敗 [{card_name}]")
+    return saved
 
 
 def cleanup_old_buyback_data(sb: Client):
