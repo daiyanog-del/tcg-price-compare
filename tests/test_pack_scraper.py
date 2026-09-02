@@ -178,3 +178,63 @@ class TestResolveWikiPageDashlessSubtitle:
 
         result = _REAL_RESOLVE_WIKI_PAGE(official_name)
         assert result == (wiki_name, True)
+
+
+class _FakeResponse:
+    """requests.get() の戻り値を模したダミーレスポンス"""
+
+    def __init__(self, html: str):
+        self.text = html
+        self.apparent_encoding = "utf-8"
+
+    def raise_for_status(self):
+        pass
+
+
+class TestGreedyBracketMatch:
+    """
+    正規表現の非貪欲(.+?) → 貪欲(.+) 化の検証。
+
+    背景（2026-09-01実測）:
+        カード名の内側や末尾に閉じ括弧が含まれる場合、非貪欲マッチだと
+        最初の閉じ括弧の手前で切れてしまう（例:「道化の一座『開演」）。
+        貪欲マッチに変えることで正しく末尾まで（例:「道化の一座『開演』」）取得できる。
+    """
+
+    def test_fetch_from_wiki_extracts_full_name_with_inner_bracket(self, monkeypatch):
+        """_fetch_from_wiki(): 品番を含む <li> の <a> テキストに内側の閉じ括弧が
+        含まれていても、末尾の閉じ括弧まで含めて名前を抽出できること"""
+        html = """
+        <html><body>
+        <ul>
+            <li>GLVI-JP001 <a href="?dummy">《道化の一座『開演』》</a></li>
+        </ul>
+        </body></html>
+        """
+
+        def fake_get(url, headers=None, timeout=None):
+            return _FakeResponse(html)
+
+        monkeypatch.setattr(pack_scraper.requests, "get", fake_get)
+
+        cards = pack_scraper._fetch_from_wiki("ダミーパック", "ダミーパック")
+        assert cards == ["道化の一座『開演』"]
+
+    def test_fetch_theme_cards_extracts_full_name_with_inner_bracket(self, monkeypatch):
+        """fetch_theme_cards(): <a> テキストに内側の閉じ括弧が含まれていても、
+        末尾の閉じ括弧まで含めて名前を抽出できること"""
+        html = """
+        <html><body>
+        <ul>
+            <li><a href="?dummy">《火霊術－「紅」》</a></li>
+        </ul>
+        </body></html>
+        """
+
+        def fake_get(url, headers=None, timeout=None):
+            return _FakeResponse(html)
+
+        monkeypatch.setattr(pack_scraper.requests, "get", fake_get)
+
+        cards = pack_scraper.fetch_theme_cards("ダミーテーマ")
+        assert cards == ["火霊術－「紅」"]
