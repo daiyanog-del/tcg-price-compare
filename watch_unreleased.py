@@ -134,6 +134,37 @@ def _extract_candidate_links(html: str, base_url: str) -> list[str]:
     return candidates
 
 
+def _canonicalize_url(url: str) -> str:
+    """yu-gi-oh.jp の旧ニュースURLを新形式へ正規化する。
+
+    2026-09-01のサイトリニューアルで記事URLが
+      旧 https://yu-gi-oh.jp/news_detail.php?page=details&id=2602
+      新 https://yu-gi-oh.jp/news/oid-2602/
+    に変わった（旧URLは301で新URLへ転送される）。
+
+    watched_pages の重複判定はURL文字列の完全一致なので、正規化しないと
+    同じ記事が旧URL・新URLの2行として登録され、二重に抽出される
+    （本番で実際に35組発生し、2026-09-02に移行・統合した）。
+    """
+    from urllib.parse import parse_qs
+
+    parsed = urlparse(url)
+    if parsed.hostname not in ("yu-gi-oh.jp", "www.yu-gi-oh.jp"):
+        return url
+    if parsed.path != "/news_detail.php":
+        return url
+
+    query = parse_qs(parsed.query)
+    id_values = query.get("id")
+    if not id_values:
+        return url
+    id_value = id_values[0]
+    if not id_value.isdigit():
+        return url
+
+    return f"https://yu-gi-oh.jp/news/oid-{id_value}/"
+
+
 def _is_rush_duel(html: str) -> bool:
     """記事がラッシュデュエル（価格比較対象外）かを記事見出し(h1〜h3)で判定する。
 
@@ -286,7 +317,16 @@ def _add_new_links(sb: Client, links: list[str]) -> list[str]:
     if not links:
         return []
 
-    target_urls = links[:MAX_NEW_LINKS]
+    canonical_links = []
+    seen_canonical = set()
+    for link in links:
+        canonical = _canonicalize_url(link)
+        if canonical in seen_canonical:
+            continue
+        seen_canonical.add(canonical)
+        canonical_links.append(canonical)
+
+    target_urls = canonical_links[:MAX_NEW_LINKS]
     rows = [{"url": url, "content_hash": "", "enabled": True} for url in target_urls]
     try:
         sb.table("watched_pages").upsert(rows, on_conflict="url", ignore_duplicates=True).execute()
