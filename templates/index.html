@@ -134,7 +134,6 @@ header{padding:24px 0 8px;text-align:center;position:relative}
 .brand-beta{font-size:13px;color:#94a3b8;font-family:sans-serif;font-weight:600;letter-spacing:0;align-self:flex-start;margin-top:4px;margin-left:2px;}
 .brand-g{color:#facc15;font-size:1.28em;}
 .brand-tagline{display:block;font-size:10px;color:#94a3b8;letter-spacing:3px;font-weight:700;text-align:left;margin-top:4px;}
-header .subtitle{font-size:.78rem;color:var(--text-d);margin-top:8px;letter-spacing:.02em}
 /* C-3a: 「一人回し」をモードタブから外し、ヘッダー右上の常設リンクへ（高さを増やさない） */
 /* G-8: font-sizeはremではなくpx固定にする（.brand-nameはpx固定のため、header-solo-link側だけ
    remでルートフォント拡大に追従すると相対位置がずれてβバッジと衝突する。両方pxに揃えて
@@ -586,13 +585,12 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 
 /* Mobile — スマホ */
 @media(max-width:640px){
-  /* C-3a: ヘッダー135px→80px前後の圧縮（ブランドは縮小、subtitleは非表示） */
+  /* C-3a: ヘッダー135px→80px前後の圧縮（ブランドは縮小） */
   header{padding:12px 0 6px}
   .brand-header-icon{height:36px}
   .brand-name{font-size:22px}
   .brand-beta{font-size:9px;margin-top:2px}
   .brand-tagline{font-size:8px;letter-spacing:2px;margin-top:2px}
-  header .subtitle{display:none}
   .header-solo-link{top:10px;right:12px;font-size:11px;padding:4px 9px}
 
   /* 検索 */
@@ -819,7 +817,6 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   s.textContent=
     '#mode-search{display:none!important}'+
     '#mode-'+h+'{display:block!important}'+
-    'header .subtitle{visibility:hidden!important}'+
     '.mode-tabs{visibility:hidden!important}';
   document.head.appendChild(s);
 })();
@@ -849,7 +846,6 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
         </div>
       </a>
     </h1>
-    <p class="subtitle">組みたいデッキを、いちばん安く。</p>
     {% if card_name %}
     <nav style="font-size:.75rem;color:var(--text-d);margin-top:6px">
       <a href="/" style="color:var(--text-m)">トップ</a> &gt;
@@ -959,7 +955,6 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
   </div>
 
   <div id="empty" class="empty">
-    <p style="font-size:1rem;font-weight:600;color:var(--text-m);margin-bottom:6px">カード名を入力して検索</p>
     <!-- Q-10: 検索エラー/タイムアウトの表示専用要素。#empty のinnerHTMLを丸ごと
          置き換えると下のランキングDOMごと消えて復帰できなくなるため、ここだけを書き換える -->
     <div id="emptyError" class="movers-fail hidden"></div>
@@ -967,8 +962,8 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     <!-- N-2: 価格推移ランキング（共通店舗ガードのみ・最安¥1,000以上） -->
     <div id="topMoversSection" class="movers hidden">
       <div class="movers-tabs">
-        <button class="movers-tab active" onclick="switchTopMovers('up')">値上がり</button>
-        <button class="movers-tab" onclick="switchTopMovers('down')">値下がり</button>
+        <button class="movers-tab" onclick="switchTopMovers('up')">値上がり</button>
+        <button class="movers-tab active" onclick="switchTopMovers('down')">値下がり</button>
       </div>
       <div id="topMoversPeriod" class="movers-period"></div>
       <div class="movers-list" id="topMoversList"></div>
@@ -2683,7 +2678,7 @@ function doBuySearchCard(name){
 function _fmtDate(s){if(!s)return'';const d=new Date(s+'T00:00:00');return (d.getMonth()+1)+'/'+d.getDate();}
 
 // ── 価格推移ランキング（最初の画面・N-2: 共通店舗ガードのみ・最安¥1,000以上） ──
-let _topMoversDir='up';
+let _topMoversDir='down';
 function switchTopMovers(dir){
   _topMoversDir=dir;
   document.querySelectorAll('#topMoversSection .movers-tab').forEach(b=>b.classList.toggle('active',b.textContent.includes(dir==='up'?'上がり':'下がり')));
@@ -2814,11 +2809,11 @@ function loadRankingImages(itemSelector, thumbClass){
 }
 
 // 初期ロード・モード復元
-// DOMContentLoaded で実行することで、スクリプト末尾の const/let 宣言（_subtitleMap 等）が
+// DOMContentLoaded で実行することで、スクリプト末尾の const/let 宣言が
 // 全て初期化された後に switchMode() を呼び出し、TDZ ReferenceError を防ぐ。
 document.addEventListener('DOMContentLoaded', () => {
   // 初期ロード
-  loadTopMovers('up');
+  loadTopMovers('down');
   loadTrending();
   loadBuybackMovers('up');
 
@@ -2915,13 +2910,6 @@ window.addEventListener('scroll',function(){
 },{passive:true});
 
 // ── Mode switch ──
-const _subtitleMap={
-  search:'組みたいデッキを、いちばん安く。',
-  mydeck:'やっぱり、このデッキが好き。',
-  meta:'環境も、覗いておこう。',
-  packs:'価格チェックは、決闘者の嗜み。',
-  wishlist:'メモらないと、始まらない。',
-};
 let _currentMode='search'; // GA4計測用: 直前のモードを保持（mode_switchのfrom_mode）
 // G-1: mode_switchはswitchMode()の呼び出し元ごとに明示的なtriggerを渡したときだけ発火する
 // （tab=タブクリック／hash=URLハッシュ復元／deeplink=/buy等の直アクセス／popstate=戻る進む／
@@ -2933,8 +2921,6 @@ function switchMode(mode, trigger){
   }
   _currentMode=mode;
   const labels={search:'価格',mydeck:'マイデッキ',meta:'環境デッキ',packs:'最新弾'};
-  const sub=document.querySelector('header .subtitle');
-  if(sub) sub.textContent=_subtitleMap[mode]||'';
   document.querySelectorAll('.mode-tab').forEach(b=>{
     // 購入候補タブはテキスト先頭で判定（バッジspanが含まれるため）
     if(mode==='wishlist') b.classList.toggle('active',b.textContent.startsWith('購入候補'));
