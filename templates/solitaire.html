@@ -31,7 +31,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Bungee&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/solitaire/css/main.css?v=20260903c">
+<link rel="stylesheet" href="/static/solitaire/css/main.css?v=20260903d">
 <link rel="stylesheet" href="/static/css/self-watermark.css?v=20260611">
 </head>
 
@@ -337,6 +337,7 @@
             <button type="button" class="sol-mobile-menu-item" data-menu-action="save">盤面セーブ</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="load">盤面ロード</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="reset">リセット&amp;5ドロー</button>
+            <button type="button" class="sol-mobile-menu-item" data-menu-action="clearall">すべて消去（デッキ・盤面・記録）</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="coin">コイントス</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="dice">ダイスロール</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="opptray">
@@ -577,6 +578,6 @@
 <!-- 端末間同期（P2）。main.js（type=module・deferされる）より前に読み込まれる通常scriptなので、
      DOM解析完了後に実行されるmodule側からは常に window.SyncClient が使える（設計文書 §11） -->
 <script src="/static/shared/sync-client.js?v=20260813"></script>
-<script type="module" src="/static/solitaire/js/main.js?v=20260903c"></script>
+<script type="module" src="/static/solitaire/js/main.js?v=20260903d"></script>
 </body>
 </html>

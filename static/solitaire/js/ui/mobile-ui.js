@@ -34,6 +34,7 @@ import { _renderCard, _showUnknown, _showLoading } from './card-info-panel.js';
 import { isMobilePortrait, watchMobilePortrait } from '../utils/viewport.js';
 import { showToast } from '../utils/toast.js';
 import { generateShareURL, buildShareTweetUrl } from './replay-ui.js';
+import { clearEverything } from './deck-input-panel.js';
 
 const API_CARD_INFO = '/api/card-info';
 
@@ -108,17 +109,21 @@ function handlePortraitChange(matches) {
 
 // ══════════════════ デッキ枚数バッジ・下部バーの基本ボタン ══════════════════
 
-function initDeckCountBadge() {
+/** デッキ枚数バッジ（#solMobileDeckCount）を #poolRow の実枚数で更新する */
+function updateDeckCountBadge() {
   const poolRow = document.getElementById('poolRow');
   const countEl = document.getElementById('solMobileDeckCount');
   if (!poolRow || !countEl) return;
-  const update = () => {
-    countEl.textContent = String(poolRow.querySelectorAll('.tier-item-wrapper').length);
-    // §3.5 初見導線: 既存のデッキ枚数バッジ用オブザーバーを流用し、CTAの表示も更新する
-    updateEmptyCta();
-  };
-  update();
-  new MutationObserver(update).observe(poolRow, { childList: true });
+  countEl.textContent = String(poolRow.querySelectorAll('.tier-item-wrapper').length);
+  // §3.5 初見導線: 既存のデッキ枚数バッジ用オブザーバーを流用し、CTAの表示も更新する
+  updateEmptyCta();
+}
+
+function initDeckCountBadge() {
+  const poolRow = document.getElementById('poolRow');
+  if (!poolRow) return;
+  updateDeckCountBadge();
+  new MutationObserver(updateDeckCountBadge).observe(poolRow, { childList: true });
 }
 
 function initBarButtons() {
@@ -182,10 +187,18 @@ function closeMenuSheet() {
   setHidden('solMobileMenuSheet', true);
 }
 
+/** 「すべて消去」。確認ダイアログでOKされた場合のみ deck-input-panel.js の clearEverything を呼ぶ。 */
+async function handleClearEverything() {
+  if (!confirm('デッキ・盤面・記録をすべて消去します。よろしいですか？')) return;
+  await clearEverything();
+  showToast('すべて消去しました');
+}
+
 const MENU_ACTIONS = {
   save:     () => { document.getElementById('saveButton2')?.click(); },
   load:     () => { document.getElementById('loadButton')?.click(); },
   reset:    () => { document.getElementById('resetButton')?.click(); },
+  clearall: () => { handleClearEverything(); },
   coin:     () => { document.getElementById('coinTossBtn')?.click(); },
   dice:     () => { document.getElementById('diceRollBtn')?.click(); },
   opptray:  () => { openOppTraySheet(); },
@@ -829,6 +842,20 @@ function initEmptyCta() {
   document.addEventListener('sol-session-restored', () => { updateEmptyCta(); });
 }
 
+/**
+ * 「すべて消去」（deck-input-panel.js clearEverything）完了後の通知を受けて、
+ * デッキ枚数バッジ・CTA・下部バーの取消/共有ボタンの表示を確実に更新する。
+ * poolRow の MutationObserver や #replayUndo の disabled 監視でも追従するはずだが、
+ * 非同期処理をまたぐため念のためここでも明示的に更新する。
+ */
+function initClearEverything() {
+  document.addEventListener('sol-board-cleared', () => {
+    if (!isMobilePortrait()) return;
+    updateDeckCountBadge();
+    updateReplayBarMobile();
+  });
+}
+
 // ══════════════════ エントリポイント ══════════════════
 
 export function initMobileUI() {
@@ -847,6 +874,7 @@ export function initMobileUI() {
   initDeckSheet();
   initShareSheet();
   initEmptyCta();
+  initClearEverything();
 
   // H-1: resize/orientationchange の逐次発火はやめ、matchMedia の change に一本化する。
   watchMobilePortrait(handlePortraitChange);

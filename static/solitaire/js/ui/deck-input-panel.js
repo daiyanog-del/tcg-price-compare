@@ -5,7 +5,7 @@
  */
 
 import { addCardToPool, sortPoolCards } from '../components/card-manager.js';
-import { registerCardImage, registerCardName } from '../services/replay-service.js';
+import { registerCardImage, registerCardName, resetReplay } from '../services/replay-service.js';
 import { setCardName } from './card-info-panel.js';
 
 const API_CARD_IMAGE  = '/api/card-image';   // 単数版（フォールバック用）
@@ -110,6 +110,21 @@ async function clearAllCards() {
     const pool = document.getElementById(poolId);
     if (pool) pool.innerHTML = '';
   });
+}
+
+/**
+ * デッキ・盤面・リプレイ記録をすべて消去する（スマホ⋯メニュー「すべて消去」用）。
+ * loadDeckFromText 等のデッキ読込中に呼ばれた場合は、読込処理と競合しないよう何もしない。
+ */
+export async function clearEverything() {
+  if (_deckLoadInFlight) {
+    console.warn('[deck-input-panel] デッキ読込が進行中のため「すべて消去」を無視しました');
+    return;
+  }
+  await clearAllCards();          // 盤面・手札等のカードをデッキに戻し、プールも空にする
+  resetReplay();                  // リプレイ記録（ログ・画像辞書・カード名辞書）を初期化
+  sessionStorage.removeItem('sol-session-resume'); // 次回アクセス時の自動復元を止める
+  document.dispatchEvent(new CustomEvent('sol-board-cleared'));
 }
 
 /**

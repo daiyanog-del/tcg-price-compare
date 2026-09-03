@@ -9,6 +9,7 @@
 - フェーズ2: `#solMobileDeckSheet`（5列・NFKC正規化検索・複数選択→「手札へ (n)」は `executeDrop` 経由・サムネイルに `wm-released`・操作行は上部＝キーボード対策）
 - フェーズ3: `#solMobileShareSheet`（「共有リンクを作成」→URL表示→「共有…」(navigator.share)／「コピー」(同期)／「Xに投稿」(本物のリンク)。`.click()` 配線は iOS で user activation を失うため不採用）。タイトルは `replay-ui.js` の `_getReplayTitle()` で入力欄を優先。初見CTA `#solMobileEmptyCta`（全ゾーン0枚のとき）
 - **回帰と根治**: mobile-ui.js が `../main.js` を import → `?v` 付きエントリと別モジュールとして main.js が二重評価され初期化が2回走った（トースト2重で発覚）。`utils/toast.js` に切り出し、main.js は「エントリ専用・import 禁止」を明記
+- 実機検収4点目「過去の状態が復元されリセットできない」→ ⋯メニューに「すべて消去（デッキ・盤面・記録）」を追加（confirm 付き。`clearEverything()`＝全ゾーン消去＋`resetReplay()`＋sessionStorage の復元キー削除）。「リセット&5ドロー」はデッキと記録を残す仕様のまま
 - 検証: ローカル（DB接続あり）375×660 で読込連打→1リクエスト・一覧→手札へ→リプレイ+2・共有リンク作成→コピー。PC 1280 は寸法不変。共有の短縮URLはローカルでは DB 未接続で 503→ハッシュ方式にフォールバック（本番は短縮URL）
 
 ### フェーズ1（同日午前）

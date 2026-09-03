@@ -1066,3 +1066,9 @@ rarity_pref 基準に統一。`items_map` のキーも rarity_pref で作る。
 **決定**: (1) 多重読込防止は PC にも適用する（同じ不具合があり、読込中は一覧行を disabled にするだけで既存経路は変えない）。(2) スマホの共有は既存ボタンの `.click()` 配線ではなく、`generateShareURL()` を export して「リンク作成→表示→同期コピー／`navigator.share`／本物の `<a target=_blank>`」にする（iOS Safari は await 後の clipboard/`window.open` で user activation を失うため。PC の既存ボタンは不変）。(3) main.js は他モジュールから import 禁止（`?v` 付き URL との二重評価を防ぐ）。共有関数は `utils/toast.js` のように utils へ切り出す。(4) 見送り: §3.3「個別長押しで盤面へ」（手札から置く導線に統一）、リセット&5ドローの confirm（PC と揃える）、極小画面の touch-action。
 
 **教訓**: `import` 指定子は `?v=` を継承しないため、**エントリモジュールを import すると二重評価される**。症状（トースト2重）から気付いたが、ドローや手札移動も2重になる致命だった。reviewer も同時に検出。
+
+
+## 2026-09-03（続2）「すべて消去」の追加
+
+**事実**: `pagehide` で盤面を sessionStorage に退避し次回復元する仕組みがあり、「リセット&5ドロー」は盤面をデッキに戻すだけでデッキ・記録は残る。まっさらに戻す手段が PC にもスマホにも無かった（ユーザー実機検収で発覚）。
+**決定**: スマホの ⋯メニューに「すべて消去（デッキ・盤面・記録）」を confirm 付きで追加。共通関数 `clearEverything()` は deck-input-panel.js に置き、リプレイの初期化は既存 `initReplay()` を再利用（`_setReplayData` は DOM 再構築を伴うため不採用）。PC には配線しない（左サイドバーからの再読込で足りる）。自動復元の仕組み自体は残す。
