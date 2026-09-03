@@ -44,7 +44,7 @@ function getDraggedElementInfo(element) {
  * @param {Element} target - ドロップ先の要素
  * @returns {Object|null} - {type: string, element: Element}
  */
-function getDropZoneInfo(target) {
+export function getDropZoneInfo(target) {
   for (const [type, className] of Object.entries(DROP_ZONE_TYPES)) {
     const element = target.closest(`.${className}`);
     if (element) {
@@ -206,7 +206,7 @@ export function getZoneId(zoneElement) {
  * @param {Element} dropTarget  - 具体的なドロップ先要素
  * @param {Object} [modifiers]  - 修飾キー {shift, ctrl}
  */
-function executeDrop(draggedInfo, dropZoneInfo, dropTarget, modifiers = {}) {
+export function executeDrop(draggedInfo, dropZoneInfo, dropTarget, modifiers = {}) {
   const { type: dragType, element: draggedElement } = draggedInfo;
 
   // カウンターのドロップ処理
@@ -467,11 +467,15 @@ const MOBILE_DROP_HINT_SELECTOR = '.custom-slot, .center-slot, .side-slot';
 /** touchstart 時点で preventDefault をスキップし横スクロールを許可する領域（B-4: 墓地/除外も対象に含める） */
 const MOBILE_SCROLL_ZONE_SELECTOR = '#imagePool, #imagePool2, .sol-hand-area, .side-slot';
 
-/** 選択解除時に無視する（選択を保持したままにする）UI要素のセレクタ（M-5: カード上のカウンターも追加） */
+/**
+ * 選択解除時に無視する（選択を保持したままにする）UI要素のセレクタ
+ * （M-5: カード上のカウンターも追加／M-6: デッキ一覧シート・共有シートも追加）
+ */
 const MOBILE_UI_IGNORE_SELECTOR =
   '#solMobileActionSheet, #solMobileCip, #solMobileBar, ' +
   '#solMobileMenuSheet, .sol-context-menu, #solSidebar, #solSidebarScrim, #opponentTray, ' +
-  '.pool-label, #replayBarContainer, .sol-ops-details, .sol-mobile-help-scrim, .counter-container';
+  '.pool-label, #replayBarContainer, .sol-ops-details, .sol-mobile-help-scrim, .counter-container, ' +
+  '#solMobileDeckSheet, #solMobileShareSheet';
 
 /**
  * カード名を取得する。

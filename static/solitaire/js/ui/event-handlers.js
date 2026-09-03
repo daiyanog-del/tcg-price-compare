@@ -4,7 +4,7 @@ import {
 } from '../components/card-manager.js';
 import { SaveLoadModal } from './save-load-modal.js';
 import { registerCardImage } from '../services/replay-service.js';
-import { initDeckInputPanel, loadDeckFromText, loadExDeckFromText, savedDecksGet, savedDecksSet } from './deck-input-panel.js';
+import { initDeckInputPanel, loadDeckFromNeuron, savedDecksGet, savedDecksSet } from './deck-input-panel.js';
 import { parseNeuronPdf } from '/static/shared/neuron-pdf-parser.js';
 import { NeuronPreviewModal } from '/static/shared/neuron-preview-modal.js';
 
@@ -51,8 +51,9 @@ export async function handleNeuronPdfSelect(event) {
       }
     },
     onLoad: async ({ mainText, exText }) => {
-      if (mainText) await loadDeckFromText(mainText);
-      if (exText)   await loadExDeckFromText(exText);
+      // L-8: メイン→EXの逐次読込を1組の sol-deck-load-start/end にまとめる
+      // （個別に呼ぶとメイン完了時点で中間の「EX 0」トーストが出てしまうため）。
+      await loadDeckFromNeuron(mainText, exText);
     },
   }).show();
 }

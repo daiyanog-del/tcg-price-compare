@@ -1,6 +1,13 @@
 /**
  * main.js — 一人回しシミュレータ エントリーポイント
  * ベース: Solo Mode (Fugarta, MIT) を改変
+ *
+ * 注意: このモジュールはエントリ専用。他モジュールから import しないこと。
+ * templates/solitaire.html は `main.js?v=...` というクエリ付きURLで読み込むため、
+ * 他モジュールが `import ... from './main.js'`（クエリ無し）とすると、ブラウザは
+ * 別URL＝別モジュールインスタンスとして main.js をもう一度評価してしまい、
+ * initializeApp() が二重に走る（イベント登録・MutationObserver等が全て二重化する）。
+ * 共有したい関数は utils/ 配下の独立モジュールに切り出すこと（例: utils/toast.js）。
  */
 
 import { initializeDesktopDragDrop, enableTouchDrag } from './components/drag-drop.js';
@@ -18,6 +25,7 @@ import { initFeedbackModal } from './ui/feedback-modal.js';
 import { initSidebarToggle } from './ui/sidebar-toggle.js';
 import { initMobileUI } from './ui/mobile-ui.js';
 import { isMobilePortrait } from './utils/viewport.js';
+import { showToast } from './utils/toast.js';
 
 /**
  * カード追加時にリプレイ画像辞書へ登録するフック
@@ -298,6 +306,9 @@ async function initializeApp() {
     });
     _showToast('前回の盤面を復元しました');
   }
+  // M-3: 復元の有無に関わらず、盤面確定後に mobile-ui.js の初見導線CTA判定を確定させる
+  // （restored=false でも updateEmptyCta() は呼ぶ必要があるため if の外に出す）。
+  document.dispatchEvent(new CustomEvent('sol-session-restored'));
 
   // ビューポートに合わせて --slot-width を初期設定
   // ※ fitFieldToViewport 内の RAF でパネル幅（--cip-width）も更新される
@@ -415,20 +426,11 @@ window.addEventListener('pagehide', () => {
   saveSessionResume();
 });
 
-/** 短時間表示のトースト通知 */
-function _showToast(msg) {
-  const el = document.createElement('div');
-  el.className = 'sol-toast';
-  el.textContent = msg;
-  document.body.appendChild(el);
-  // 表示→フェードアウト
-  requestAnimationFrame(() => {
-    el.classList.add('sol-toast-visible');
-    setTimeout(() => {
-      el.classList.remove('sol-toast-visible');
-      el.addEventListener('transitionend', () => el.remove(), { once: true });
-    }, 2500);
-  });
-}
+/**
+ * 短時間表示のトースト通知。実体は utils/toast.js（mobile-ui.js からもそちらを import する。
+ * main.js は他モジュールから import されないエントリ専用のため、ここには置かない）。
+ * 既存の内部呼び出し（_showToast(...)）はそのまま残し、実体だけ showToast へ委譲する。
+ */
+function _showToast(msg) { showToast(msg); }
 
 window.addEventListener('DOMContentLoaded', initializeApp);

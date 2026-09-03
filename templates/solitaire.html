@@ -31,7 +31,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Bungee&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/solitaire/css/main.css?v=20260903b">
+<link rel="stylesheet" href="/static/solitaire/css/main.css?v=20260903c">
 <link rel="stylesheet" href="/static/css/self-watermark.css?v=20260611">
 </head>
 
@@ -216,6 +216,9 @@
               <div class="custom-slot" data-slot="13" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
               <div class="custom-slot" data-slot="14" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
             </div>
+
+            <!-- スマホ縦向き専用: 初見導線（フェーズ3・§3.5）。デッキ0枚かつ手札0枚のときだけ表示 -->
+            <button type="button" id="solMobileEmptyCta" class="sol-mobile-empty-cta" hidden>デッキを読み込む</button>
           </div>
 
           <!-- 右サイド: 墓地・除外 -->
@@ -314,7 +317,7 @@
           デッキ <span id="solMobileDeckCount">0</span>
         </button>
         <button id="solMobileUndoBtn" type="button" class="sol-mobile-bar-btn" hidden>取消</button>
-        <!-- 共有はフェーズ3まで非表示（hidden属性のまま。JSも外さない） -->
+        <!-- 手数1以上でJS（mobile-ui.js updateReplayBarMobile）がhiddenを外す -->
         <button id="solMobileShareBtn" type="button" class="sol-mobile-bar-btn" hidden>共有</button>
         <button id="solMobileMenuBtn" type="button" class="sol-mobile-bar-btn sol-mobile-bar-menu">
           &#8943;
@@ -345,6 +348,70 @@
             <button type="button" class="sol-mobile-menu-item" data-menu-action="feedback">不具合・要望を送る</button>
             <!-- E-2: デッキ読込シート内のページナビを非表示にする代わりの導線 -->
             <a href="/" class="sol-mobile-menu-item sol-mobile-menu-link">TCGYM トップへ</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- デッキ一覧シート（フェーズ2・設計書 §3.3） -->
+      <div id="solMobileDeckSheet" class="sol-mobile-deck-sheet" hidden>
+        <div class="sol-mobile-sheet-scrim" data-sol-deck-sheet-close></div>
+        <div class="sol-mobile-deck-sheet-panel">
+          <div class="sol-mobile-sheet-header">
+            <span>デッキ</span>
+            <button type="button" class="sol-mobile-sheet-close-btn" data-sol-deck-sheet-close aria-label="閉じる">&times;</button>
+          </div>
+          <div class="sol-mobile-deck-search-row">
+            <input type="search" id="solMobileDeckSearch" class="sol-mobile-deck-search" placeholder="カード名で検索" autocomplete="off">
+          </div>
+          <!-- M-5: 操作行を検索欄と同じ上部に配置（iOSのソフトキーボードが下端を隠しても押せるように） -->
+          <div class="sol-mobile-deck-actions">
+            <button type="button" id="solMobileDeckToHandBtn" class="sol-mobile-deck-primary-btn" disabled>手札へ (0)</button>
+            <div class="sol-mobile-deck-sub-actions">
+              <button type="button" id="solMobileDeckDrawBtn" class="sol-mobile-menu-item">1ドロー</button>
+              <button type="button" id="solMobileDeckResetBtn" class="sol-mobile-menu-item">リセット&amp;5ドロー</button>
+            </div>
+          </div>
+          <div id="solMobileDeckEmpty" class="sol-mobile-deck-empty" hidden>
+            <p>デッキが読み込まれていません</p>
+            <button type="button" id="solMobileDeckEmptyLoadBtn" class="sol-mobile-menu-item">デッキを読み込む</button>
+          </div>
+          <div id="solMobileDeckGrid" class="sol-mobile-deck-grid"></div>
+        </div>
+      </div>
+
+      <!-- 共有シート（フェーズ3・設計書 §3.4／H-1: iOS対応で2段階構成に変更） -->
+      <div id="solMobileShareSheet" class="sol-mobile-sheet" hidden>
+        <div class="sol-mobile-sheet-scrim" data-sol-share-sheet-close></div>
+        <div class="sol-mobile-sheet-panel">
+          <div class="sol-mobile-sheet-header">
+            <span>共有</span>
+            <button type="button" class="sol-mobile-sheet-close-btn" data-sol-share-sheet-close aria-label="閉じる">&times;</button>
+          </div>
+          <div class="sol-mobile-sheet-body">
+            <p class="sol-mobile-share-note">共有リンクは、URLを知っている人なら誰でも閲覧できます。</p>
+            <label class="sol-mobile-share-label" for="solMobileShareTitleInput">タイトル（任意）</label>
+            <input type="text" id="solMobileShareTitleInput" class="sol-mobile-share-input" placeholder="タイトル">
+            <label class="sol-mobile-share-label" for="solMobileShareCommentInput">今の手にコメントを付ける</label>
+            <div class="sol-mobile-share-comment-row">
+              <input type="text" id="solMobileShareCommentInput" class="sol-mobile-share-input" placeholder="コメント（任意）">
+              <button type="button" id="solMobileShareCommentAddBtn" class="sol-mobile-menu-item">追加</button>
+            </div>
+
+            <!-- (1) H-1: リンク作成は明示ボタン→結果表示の2段階（iOSのuser activation対策） -->
+            <button type="button" id="solMobileShareGenerateBtn" class="sol-mobile-menu-item">共有リンクを作成</button>
+            <div id="solMobileShareResult" class="sol-mobile-share-result" hidden>
+              <input type="text" id="solMobileShareUrlInput" class="sol-mobile-share-input" readonly>
+              <div class="sol-mobile-share-result-actions">
+                <button type="button" id="solMobileShareNativeBtn" class="sol-mobile-menu-item" hidden>共有…</button>
+                <button type="button" id="solMobileShareCopyResultBtn" class="sol-mobile-menu-item">コピー</button>
+                <a id="solMobileShareXLink" class="sol-mobile-menu-item" href="#" target="_blank" rel="noopener">Xに投稿</a>
+              </div>
+            </div>
+            <p id="solMobileShareError" class="sol-mobile-share-error" hidden></p>
+
+            <!-- (2) 従来どおり .click() 配線 -->
+            <button type="button" id="solMobileShareExportBtn" class="sol-mobile-menu-item">JSONを保存</button>
+            <button type="button" id="solMobileShareImportBtn" class="sol-mobile-menu-item">JSONを読み込む</button>
           </div>
         </div>
       </div>
@@ -510,6 +577,6 @@
 <!-- 端末間同期（P2）。main.js（type=module・deferされる）より前に読み込まれる通常scriptなので、
      DOM解析完了後に実行されるmodule側からは常に window.SyncClient が使える（設計文書 §11） -->
 <script src="/static/shared/sync-client.js?v=20260813"></script>
-<script type="module" src="/static/solitaire/js/main.js?v=20260903b"></script>
+<script type="module" src="/static/solitaire/js/main.js?v=20260903c"></script>
 </body>
 </html>

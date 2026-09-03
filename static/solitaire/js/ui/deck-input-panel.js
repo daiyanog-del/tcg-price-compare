@@ -15,6 +15,40 @@ const API_CARD_INFOS  = '/api/card-infos';   // バッチ版（POST）
 const API_META = '/api/meta';
 const API_META_DECK = '/api/meta/deck';
 
+// ── デッキ読込の多重防止（バグ修正・PCにも効く） ──
+// 「読込 ›」連打や下部バーからの多重発火で、同じデッキが二重に読み込まれるのを防ぐ。
+let _deckLoadInFlight = false;
+
+/**
+ * 一覧の読込ボタン全て（.deck-card-row・#deckLoadTextBtn）を disabled にし、
+ * 押した行（triggerBtn）だけ文言を「読込中…」に切り替える。
+ * @param {HTMLElement|null} triggerBtn  実際に押されたボタン（.deck-card-row想定。無ければ文言変更はスキップ）
+ * @param {boolean}           loading
+ */
+function _setDeckRowsLoading(triggerBtn, loading) {
+  document.querySelectorAll('.deck-card-row').forEach(btn => { btn.disabled = loading; });
+  const textBtn = document.getElementById('deckLoadTextBtn');
+  if (textBtn) textBtn.disabled = loading;
+
+  const hint = triggerBtn?.querySelector?.('.deck-card-hint');
+  if (!hint) return;
+  if (loading) {
+    hint.dataset.origText = hint.textContent;
+    hint.textContent = '読込中…';
+  } else if (hint.dataset.origText !== undefined) {
+    hint.textContent = hint.dataset.origText;
+    delete hint.dataset.origText;
+  }
+}
+
+/** 現在のプール枚数から { main, ex } を返す（sol-deck-load-end の detail 用） */
+function _currentPoolCounts() {
+  return {
+    main: document.querySelectorAll('#poolRow .tier-item').length,
+    ex: document.querySelectorAll('#poolRow2 .tier-item').length,
+  };
+}
+
 // ── マイデッキ保存（localStorage）── index.html と同じキーを共有する。
 // 端末間同期（P2・docs/design-sync-2026-08-09.md §11）: 保存デッキの読み書きは
 // この2関数に集約し、他の場所から直接 localStorage を触らない
@@ -296,50 +330,171 @@ async function addCardsBatch(cards, defaultIsEx) {
 }
 
 /**
- * テキストデッキを読み込んでプールに追加（事前にダミーをクリア）
+ * L-10: テキストデッキを読み込んでプールに追加（事前にダミーをクリア）
+ * 多重防止: 進行中に再度呼ばれた場合は何もしない（バグ修正・PCにも効く）。
+ * 呼び出し元は2つ: (a) マイデッキ一覧（renderMyDeckList）の行 → 実際に押された
+ * .deck-card-row 要素を triggerBtn として渡す、(b) テキスト入力タブの #deckLoadTextBtn
+ * → .deck-card-hint を持たないボタンなので triggerBtn は渡さない（文言変更対象外・
+ * disabled 化のみ _setDeckRowsLoading 内で個別に扱う）。
+ * サンプルデッキ一覧（環境デッキ）は本関数ではなく loadMetaDeck を使う。
+ * @param {string}            text
+ * @param {HTMLElement|null} [triggerBtn]  マイデッキ一覧から呼ぶ場合のみ渡す押された行。
+ *   渡すとその行の文言だけ「読込中…」に変わる。
  */
-export async function loadDeckFromText(text) {
+export async function loadDeckFromText(text, triggerBtn = null) {
+  if (_deckLoadInFlight) {
+    console.warn('[deck-input-panel] デッキ読込が進行中のため無視しました（loadDeckFromText）');
+    return;
+  }
   const cards = parseDeckList(text);
   if (cards.length === 0) { alert('デッキリストが空です'); return; }
 
-  await clearAllCards();
-
-  // デッキ・EXデッキ両エリアにロード中インジケータを表示（EXカードも振り分けられるため）
-  setPoolLoading(['imagePool', 'imagePool2'], true);
+  _deckLoadInFlight = true;
+  _setDeckRowsLoading(triggerBtn, true);
+  document.dispatchEvent(new CustomEvent('sol-deck-load-start'));
+  let ok = false;
+  let error = null;
   try {
-    // null=APIレスポンスのis_exでEX/メインを自動判定
-    await addCardsBatch(cards, null);
-    sortPoolCards('poolRow');  // 種別ソート（モンスター→魔法→罠）
+    await clearAllCards();
+
+    // デッキ・EXデッキ両エリアにロード中インジケータを表示（EXカードも振り分けられるため）
+    setPoolLoading(['imagePool', 'imagePool2'], true);
+    try {
+      // null=APIレスポンスのis_exでEX/メインを自動判定
+      await addCardsBatch(cards, null);
+      sortPoolCards('poolRow');  // 種別ソート（モンスター→魔法→罠）
+      ok = true;
+    } finally {
+      setPoolLoading(['imagePool', 'imagePool2'], false);
+    }
+  } catch (e) {
+    error = e?.message || String(e);
+    throw e;
   } finally {
-    setPoolLoading(['imagePool', 'imagePool2'], false);
+    _deckLoadInFlight = false;
+    _setDeckRowsLoading(triggerBtn, false);
+    const { main, ex } = _currentPoolCounts();
+    document.dispatchEvent(new CustomEvent('sol-deck-load-end', { detail: { ok, main, ex, error } }));
   }
 }
 
 /**
  * EXデッキテキストをEXプールに追加（clearAllCardsは行わない）
+ * L-8: 単体で呼ばれた場合も _deckLoadInFlight ガードとイベント発行に参加する
+ * （ニューロン経路のようにメインと連続で呼ぶ場合は loadDeckFromNeuron を使うこと。
+ * こちらを直接メイン読込の直後に呼ぶと、メイン側が出す sol-deck-load-end との間で
+ * 中間状態のイベントが挟まってしまう）。
+ * @param {string}            text
+ * @param {HTMLElement|null} [triggerBtn]
  */
-export async function loadExDeckFromText(text) {
+export async function loadExDeckFromText(text, triggerBtn = null) {
+  if (_deckLoadInFlight) {
+    console.warn('[deck-input-panel] デッキ読込が進行中のため無視しました（loadExDeckFromText）');
+    return;
+  }
   const cards = parseDeckList(text);
   if (cards.length === 0) return;
 
-  // EXエリアのみロード中インジケータを表示
-  setPoolLoading(['imagePool2'], true);
+  _deckLoadInFlight = true;
+  _setDeckRowsLoading(triggerBtn, true);
+  document.dispatchEvent(new CustomEvent('sol-deck-load-start'));
+  let ok = false;
+  let error = null;
   try {
-    // isEx=true 固定でEXプールへ（card-info のis_ex判定不要）
-    await addCardsBatch(cards, true);
+    // EXエリアのみロード中インジケータを表示
+    setPoolLoading(['imagePool2'], true);
+    try {
+      // isEx=true 固定でEXプールへ（card-info のis_ex判定不要）
+      await addCardsBatch(cards, true);
+      ok = true;
+    } finally {
+      setPoolLoading(['imagePool2'], false);
+    }
+  } catch (e) {
+    error = e?.message || String(e);
+    throw e;
   } finally {
-    setPoolLoading(['imagePool2'], false);
+    _deckLoadInFlight = false;
+    _setDeckRowsLoading(triggerBtn, false);
+    const { main, ex } = _currentPoolCounts();
+    document.dispatchEvent(new CustomEvent('sol-deck-load-end', { detail: { ok, main, ex, error } }));
+  }
+}
+
+/**
+ * L-8: ニューロン経由（PDF取込／Chrome拡張）のメイン→EX逐次読込を1組の
+ * sol-deck-load-start/end イベントにまとめる。loadDeckFromText → loadExDeckFromText を
+ * そのまま連続呼び出しすると、メイン完了時点で「EX 0」の中間トーストが出てしまうため、
+ * event-handlers.js のニューロン取込み経路（onLoad）はこちらを呼ぶ。
+ * @param {string} mainText
+ * @param {string} exText
+ */
+export async function loadDeckFromNeuron(mainText, exText) {
+  if (_deckLoadInFlight) {
+    console.warn('[deck-input-panel] デッキ読込が進行中のため無視しました（loadDeckFromNeuron）');
+    return;
+  }
+  const mainCards = mainText ? parseDeckList(mainText) : [];
+  const exCards = exText ? parseDeckList(exText) : [];
+  if (mainCards.length === 0 && exCards.length === 0) return;
+
+  _deckLoadInFlight = true;
+  _setDeckRowsLoading(null, true);
+  document.dispatchEvent(new CustomEvent('sol-deck-load-start'));
+  let ok = false;
+  let error = null;
+  try {
+    if (mainCards.length > 0) {
+      await clearAllCards();
+      setPoolLoading(['imagePool', 'imagePool2'], true);
+      try {
+        await addCardsBatch(mainCards, null);
+        sortPoolCards('poolRow');
+      } finally {
+        setPoolLoading(['imagePool', 'imagePool2'], false);
+      }
+    }
+    if (exCards.length > 0) {
+      setPoolLoading(['imagePool2'], true);
+      try {
+        await addCardsBatch(exCards, true);
+      } finally {
+        setPoolLoading(['imagePool2'], false);
+      }
+    }
+    ok = true;
+  } catch (e) {
+    error = e?.message || String(e);
+    throw e;
+  } finally {
+    _deckLoadInFlight = false;
+    _setDeckRowsLoading(null, false);
+    const { main, ex } = _currentPoolCounts();
+    document.dispatchEvent(new CustomEvent('sol-deck-load-end', { detail: { ok, main, ex, error } }));
   }
 }
 
 /**
  * 環境デッキAPIから全デッキ情報を取得して読み込む（事前にダミーをクリア）
- * @param {string} theme  テーマ名
+ * 多重防止: 進行中に再度呼ばれた場合は何もしない（バグ修正・PCにも効く）。
+ * @param {string}            theme  テーマ名
+ * @param {HTMLElement|null} [triggerBtn]  押されたボタン（.deck-card-row）。渡すとその行の
+ *   文言だけ「読込中…」に変わる。
  */
-export async function loadMetaDeck(theme) {
+export async function loadMetaDeck(theme, triggerBtn = null) {
+  if (_deckLoadInFlight) {
+    console.warn('[deck-input-panel] デッキ読込が進行中のため無視しました（loadMetaDeck）');
+    return;
+  }
+  _deckLoadInFlight = true;
+  _setDeckRowsLoading(triggerBtn, true);
+  document.dispatchEvent(new CustomEvent('sol-deck-load-start'));
+
   // デッキ・EXデッキ両エリアにロード中インジケータを表示
   setPoolLoading(['imagePool', 'imagePool2'], true);
 
+  let ok = false;
+  let error = null;
   try {
     const res = await fetch(`${API_META_DECK}?theme=${encodeURIComponent(theme)}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -353,10 +508,16 @@ export async function loadMetaDeck(theme) {
     // addCardsBatch が card.is_ex !== undefined の場合それを使う
     await addCardsBatch(fullDeck, null);
     sortPoolCards('poolRow');  // 種別ソート（モンスター→魔法→罠）
+    ok = true;
   } catch (e) {
+    error = e?.message || String(e);
     alert(`環境デッキの読み込みに失敗しました: ${e.message}`);
   } finally {
     setPoolLoading(['imagePool', 'imagePool2'], false);
+    _deckLoadInFlight = false;
+    _setDeckRowsLoading(triggerBtn, false);
+    const { main, ex } = _currentPoolCounts();
+    document.dispatchEvent(new CustomEvent('sol-deck-load-end', { detail: { ok, main, ex, error } }));
   }
 }
 
@@ -415,7 +576,7 @@ async function loadMetaTierList() {
       row.innerHTML =
         `<span class="deck-card-info"><span class="deck-card-name">${_esc(String(theme))}</span></span>`
         + `<span class="deck-card-hint">読込 ›</span>`;
-      row.addEventListener('click', () => loadMetaDeck(theme));
+      row.addEventListener('click', () => loadMetaDeck(theme, row));
       listEl.appendChild(row);
     });
     listEl.dataset.loaded = 'true';
@@ -467,7 +628,7 @@ function renderMyDeckList() {
         + (date ? `<span class="deck-card-date">${date}</span>` : '')
         + `</span>`
         + `<span class="deck-card-hint">読込 ›</span>`;
-      row.addEventListener('click', () => loadDeckFromText(deck.text || ''));
+      row.addEventListener('click', () => loadDeckFromText(deck.text || '', row));
       listEl.appendChild(row);
     });
 }

@@ -22,6 +22,27 @@ import {
   getLogs,
 } from '../services/replay-service.js';
 
+const REPLAY_TITLE_MAX_LEN = 100;
+
+/**
+ * リプレイのタイトルを決定する。
+ * 優先順位: (1) スマホ共有シートのタイトル入力欄（#solMobileShareTitleInput、値があれば）
+ *          → (2) PC側の .title 見出し要素（存在する場合）
+ *          → (3) 既定値 '一人回し'
+ * #solMobileShareTitleInput は PC には存在しないため、PC では従来どおり (2)→(3) の挙動になる。
+ * @returns {string}
+ */
+function _getReplayTitle() {
+  const mobileInput = document.getElementById('solMobileShareTitleInput');
+  const mobileTitle = mobileInput?.value?.trim();
+  if (mobileTitle) return mobileTitle.slice(0, REPLAY_TITLE_MAX_LEN);
+
+  const pageTitle = document.querySelector('.title')?.textContent;
+  if (pageTitle) return pageTitle;
+
+  return '一人回し';
+}
+
 /**
  * リプレイバーを初期化する
  * DOM要素 #replayBarContainer が存在することが前提
@@ -66,7 +87,7 @@ export function initReplayUI() {
   document.getElementById('replayExport')
     ?.addEventListener('click', () => {
       if (getLogLength() === 0) { alert('記録がありません'); return; }
-      const title = document.querySelector('.title')?.textContent || '一人回し';
+      const title = _getReplayTitle();
       exportReplay(title);
     });
 
@@ -124,12 +145,13 @@ async function _saveAndGetShortURL(title) {
 }
 
 /**
- * 共有URL生成（常にSupabase ID方式で短いURLを発行）
- * 保存失敗時のみハッシュ方式にフォールバック
+ * H-1: 共有URL生成（常にSupabase ID方式で短いURLを発行）。保存失敗時のみハッシュ方式に
+ * フォールバック。mobile-ui.js の共有シートからも同じロジックを使うため export する
+ * （ロジックは移動せず export を足すだけ）。
  * @returns {Promise<string>} 共有URL
  */
-async function _generateShareURL() {
-  const title = document.querySelector('.title')?.textContent || '一人回し';
+export async function generateShareURL() {
+  const title = _getReplayTitle();
 
   // 常にSupabase ID方式（?replay=8文字ID）で短いURLを発行する
   try {
@@ -153,7 +175,7 @@ async function handleShare() {
   const btn = document.getElementById('replayShare');
   if (btn) btn.disabled = true;
   try {
-    const url = await _generateShareURL();
+    const url = await generateShareURL();
     await _copyToClipboard(url);
     alert('共有リンクをコピーしました');
   } catch (e) {
@@ -168,8 +190,19 @@ async function handleShare() {
  * ハッシュ形式だと投稿準備画面に数千文字のURLが露出するため
  */
 async function _generateShortURL() {
-  const title = document.querySelector('.title')?.textContent || '一人回し';
+  const title = _getReplayTitle();
   return await _saveAndGetShortURL(title);
+}
+
+/**
+ * H-1: X投稿用のtweet intent URLを組み立てる（文面の組み立てを共通化。mobile-ui.js の
+ * 共有シートが本物の <a href> を組み立てる際にもこれを使う）。
+ * @param {string} shareUrl  共有URL（generateShareURL() の戻り値等）
+ * @returns {string} tweet intent URL
+ */
+export function buildShareTweetUrl(shareUrl) {
+  const text = '一人回しのリプレイを共有しました #TCGYM';
+  return `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(shareUrl)}`;
 }
 
 /**
@@ -181,9 +214,7 @@ async function handleShareToX() {
   if (btn) btn.disabled = true;
   try {
     const url = await _generateShortURL();
-    const text = '一人回しのリプレイを共有しました #TCGYM';
-    const xUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
-    window.open(xUrl, '_blank', 'noopener,noreferrer');
+    window.open(buildShareTweetUrl(url), '_blank', 'noopener,noreferrer');
   } catch (e) {
     alert('X投稿の準備に失敗しました: ' + e.message);
   } finally {

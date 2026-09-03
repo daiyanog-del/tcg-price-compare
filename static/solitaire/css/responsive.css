@@ -247,6 +247,22 @@
     #solSidebar.sol-sheet-open {
       display: block;
     }
+
+    /* フェーズ3: 上の767pxブロックにある編集系コントロールの display:none を打ち消す。
+       #replayBarContainer 自体は mobile.css で通常時 display:none のため素の縦向きレイアウト
+       では見えないが、⋯メニュー「リプレイ操作」オーバーレイ（.sol-mobile-fullbar-open）を開くと
+       #replayBarContainer が display:flex になるため、その中の共有・コメント・保存ボタンも
+       操作できる状態に戻しておく必要がある（横向きブロックには影響しない）。 */
+    #replayCommentInput,
+    #replayAddComment,
+    #replayExport,
+    #replayShare,
+    #replayShareX {
+      display: revert;
+    }
+    .replay-bar > label {
+      display: revert;
+    }
   }
 }
 

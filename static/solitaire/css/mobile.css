@@ -182,6 +182,25 @@
     padding: 0 4px;
   }
   .sol-mobile-bar-btn[hidden] { display: none; }
+  /* タスクA: デッキ読込の進捗表示（多重防止のバグ修正）。中身を隠して文言だけ差し替える */
+  .sol-mobile-bar-btn.sol-loading {
+    position: relative;
+    color: transparent;
+  }
+  .sol-mobile-bar-btn.sol-loading > * {
+    visibility: hidden;
+  }
+  .sol-mobile-bar-btn.sol-loading::after {
+    content: '読込中…';
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--main-color);
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
   .sol-mobile-bar-menu {
     flex: 0 0 46px;
     font-size: 1.3rem;
@@ -226,6 +245,10 @@
     z-index: 260;
     border-radius: 8px 8px 0 0;
     padding-top: 40px; /* 閉じるボタン分の余白 */
+    /* M-7: responsive.css の display:revert で編集系コントロールが増えた分、
+       小さい端末では折り返しで縦に伸びて画面からはみ出し得るため、上限を設けてスクロールにする */
+    max-height: calc(100vh - 60px);
+    overflow-y: auto;
   }
   #solMobileReplayBarClose {
     display: none;
@@ -602,6 +625,263 @@
     display: block;
     text-decoration: none;
   }
+
+  /* ════════ デッキ一覧シート（フェーズ2・設計書 §3.3） ════════ */
+
+  .sol-mobile-deck-sheet {
+    position: fixed;
+    inset: 0;
+    z-index: 950;
+  }
+  .sol-mobile-deck-sheet[hidden] { display: none; }
+  .sol-mobile-deck-sheet .sol-mobile-sheet-scrim {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+  }
+  .sol-mobile-deck-sheet-panel {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 92vh;
+    max-height: 92vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-surface);
+    border-radius: 14px 14px 0 0;
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.5);
+    box-sizing: border-box;
+  }
+  .sol-mobile-deck-search-row {
+    flex-shrink: 0;
+    padding: 8px 14px;
+  }
+  .sol-mobile-deck-search {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    background: var(--bg-color);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--main-color);
+    font-family: var(--font);
+    font-size: 0.9rem;
+  }
+  .sol-mobile-deck-empty {
+    flex: 1;
+    padding: 30px 20px;
+    text-align: center;
+    color: #94a3b8;
+    font-size: 0.85rem;
+  }
+  .sol-mobile-deck-empty[hidden] { display: none; }
+  /* デッキ0枚のときはグリッド自体を隠す（空メッセージと二重表示させない） */
+  .sol-mobile-deck-grid[hidden] { display: none; }
+  .sol-mobile-deck-grid {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    /* grid-auto-rows:auto のままだと、コンテナの高さが flex:1 で確定しているために
+       行が自動計算されず各セルが重なるバグがあった（実測で確認）。min-content で
+       各行をセルの自然な高さ（aspect-ratio由来）に固定し、align-content:start で
+       上詰めにする。行数が多い分は grid 自体の overflow-y:auto でスクロールする。 */
+    grid-auto-rows: min-content;
+    align-content: start;
+    gap: 6px;
+    padding: 4px 14px 14px;
+  }
+  .sol-mobile-deck-cell {
+    position: relative;
+    aspect-ratio: 1 / 1.45; /* --slot-height = --slot-width * 1.45 と同じ比率 */
+    padding: 0;
+    border: 2px solid transparent;
+    border-radius: 4px;
+    background: var(--bg-card);
+    overflow: hidden;
+    cursor: pointer;
+  }
+  .sol-mobile-deck-cell[hidden] { display: none; }
+  .sol-mobile-deck-cell.selected {
+    border-color: var(--gold);
+    box-shadow: 0 0 0 2px var(--gold);
+  }
+  .sol-mobile-deck-thumb {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .sol-mobile-deck-thumb-proxy {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 2px;
+    font-size: 0.55rem;
+    line-height: 1.2;
+    color: var(--main-color);
+  }
+  .sol-mobile-deck-check {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--gold);
+    color: #111;
+    font-size: 0.62rem;
+    line-height: 16px;
+    text-align: center;
+    display: none;
+  }
+  .sol-mobile-deck-cell.selected .sol-mobile-deck-check { display: block; }
+  /* M-5: 操作行は検索欄の直下（上部）に配置。iOSのソフトキーボードで下端が隠れても
+     「手札へ」等が押せるようにするため。境界線は次要素（空メッセージ/グリッド）との間。 */
+  .sol-mobile-deck-actions {
+    flex-shrink: 0;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .sol-mobile-deck-primary-btn {
+    padding: 12px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius);
+    font-family: var(--font);
+    font-size: 0.95rem;
+    font-weight: 700;
+  }
+  .sol-mobile-deck-primary-btn:disabled { opacity: 0.4; }
+  .sol-mobile-deck-sub-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .sol-mobile-deck-sub-actions .sol-mobile-menu-item {
+    flex: 1;
+    text-align: center;
+    padding: 8px;
+  }
+
+  /* ════════ 共有シート（フェーズ3・設計書 §3.4） ════════
+     枠自体は⋯メニューと共通の .sol-mobile-sheet を再利用。ここでは中身固有の要素のみ。 */
+
+  .sol-mobile-share-note {
+    margin: 0 0 10px;
+    font-size: 0.76rem;
+    color: #94a3b8;
+  }
+  .sol-mobile-share-label {
+    display: block;
+    margin: 8px 0 4px;
+    font-size: 0.78rem;
+    color: #94a3b8;
+  }
+  .sol-mobile-share-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    background: var(--bg-color);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--main-color);
+    font-family: var(--font);
+    font-size: 0.9rem;
+  }
+  .sol-mobile-share-comment-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .sol-mobile-share-comment-row .sol-mobile-share-input {
+    flex: 1;
+  }
+  .sol-mobile-share-comment-row .sol-mobile-menu-item {
+    flex: 0 0 auto;
+    padding: 8px 14px;
+  }
+
+  /* H-1: リンク作成結果（URL表示＋共有…／コピー／Xに投稿） */
+  #solMobileShareGenerateBtn {
+    margin-top: 12px;
+  }
+  .sol-mobile-share-result {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .sol-mobile-share-result[hidden] { display: none; }
+  #solMobileShareUrlInput {
+    color: #94a3b8;
+  }
+  .sol-mobile-share-result-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .sol-mobile-share-result-actions .sol-mobile-menu-item {
+    flex: 1 1 0;
+    min-width: 72px;
+    text-align: center;
+    padding: 8px 6px;
+  }
+  .sol-mobile-share-result-actions .sol-mobile-menu-item[hidden] { display: none; }
+  /* #solMobileShareXLink は <a> なので .sol-mobile-menu-item のボタン風見た目を継承させる */
+  a.sol-mobile-menu-item {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    box-sizing: border-box;
+  }
+  .sol-mobile-share-error {
+    margin: 8px 0 0;
+    padding: 8px 10px;
+    background: rgba(220, 60, 60, 0.12);
+    border: 1px solid rgba(220, 60, 60, 0.4);
+    border-radius: var(--radius);
+    color: #ff9b9b;
+    font-size: 0.8rem;
+  }
+  .sol-mobile-share-error[hidden] { display: none; }
+
+  /* ════════ 初見導線（設計書 §3.5） ════════
+     M-3: pointer-events はCTAボタン自身にしか与えない設計。ラッパ要素を持たず、
+     ボタン自体を position:absolute で配置しているため、ボタンの矩形の外側
+     （.custom-layout の他の部分）は最初から pointer-events の対象外＝盤面タップを
+     奪わない（表示中はカードが無いため実害はないが、念のため明記）。 */
+
+  #solMobileEmptyCta {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 100;
+    padding: 16px 28px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius);
+    font-family: var(--font);
+    font-size: 1rem;
+    font-weight: 700;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    white-space: nowrap;
+  }
+  #solMobileEmptyCta[hidden] { display: none; }
+  /* CTAの絶対配置の基準（PC/横向きに影響しないようportait内でのみ指定） */
+  .custom-layout {
+    position: relative;
+  }
 }
 
 /* ════════ H-1: portrait を外れた瞬間の二重防御（致命的バグ対策） ════════
@@ -616,6 +896,8 @@
   .sol-mobile-action-sheet,
   .sol-mobile-cip,
   .sol-mobile-sheet,
+  .sol-mobile-deck-sheet,
+  #solMobileEmptyCta,
   #solTouchLabel {
     display: none !important;
   }
