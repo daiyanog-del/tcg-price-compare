@@ -40,7 +40,11 @@ const _API_CARD_IMAGES = '/api/card-images';
 let _images = {};       // { cardId: src }
 let _names  = {};       // { cardId: cardName }
 let _exCardIds = new Set(); // EXデッキに属するカードIDの集合
-let _logs   = [];       // イベントログ配列
+let _logs   = [];       // イベントログ配列（手数として扱う。setup ログは含まない）
+// D-3: 範囲共有（設計書 §D）で先頭に付く「初期配置」ログ。setup:true が付いた要素のみを
+// 保持し、_setReplayData / importReplay / importFromURLHash 時に初期配置として即時適用する。
+// カウンター・スライダー・前後/再生の対象は _logs のみで、_setupLogs は手数に数えない。
+let _setupLogs = [];
 let _cursor = -1;       // 現在の再生位置（-1 = ログ先頭の盤面外）
 let _playing = false;
 let _playTimer = null;
@@ -60,6 +64,7 @@ export function initReplay() {
   _names  = {};
   _exCardIds = new Set();
   _logs = [];
+  _setupLogs = [];
   _cursor = -1;
   _playing = false;
   _updateUI();
@@ -172,9 +177,48 @@ export function togglePlay() {
   }
 }
 
-/** リプレイデータをエクスポート（ファイル保存用） */
+/**
+ * D-3/D-4: logs 配列の先頭から連続する setup:true の要素を取り出す。
+ * setup:true が付いていない要素に到達した時点で走査を止める（間に非setupが挟まっている
+ * 場合、それ以降の setup:true 風要素は誤爆防止のため通常ログとして扱う）。
+ * @param {Array} logs
+ * @returns {{setupLogs: Array, logs: Array}}
+ */
+function _splitSetupLogs(logs) {
+  const setupLogs = [];
+  let i = 0;
+  while (i < logs.length && logs[i]?.setup === true) {
+    setupLogs.push(logs[i]);
+    i++;
+  }
+  // Low-11: 本体ログ（setup を除いた部分）の seq を 0 から振り直す。
+  // logEvent() は seq = _logs.length（本体ログの長さ）で採番するため、範囲共有等で
+  // setup が挟まった状態のログを再インポートしたときも同じ採番規則に揃える必要がある。
+  // setup 側の seq は元の値のまま変更しない（本体の手数としては数えないため）。
+  const bodyLogs = logs.slice(i).map((ev, idx) => ({ ...ev, seq: idx }));
+  return { setupLogs, logs: bodyLogs };
+}
+
+/**
+ * D-3: setup ログを初期配置として即時適用する（演出・待ち時間なし）。
+ * 呼び出し前提: プールへのカード配置（_createReplayCardElements/_rebuildDeck）が完了していること。
+ */
+function _applySetupLogs() {
+  for (const ev of _setupLogs) _applyEvent(ev);
+}
+
+/**
+ * リプレイの payload オブジェクトを組み立てる（exportReplay・E-2端末保存の共通ロジック）。
+ * D-4: setup ログもそのまま含める（加工しない）。
+ * @param {string} title
+ */
+export function buildReplayPayload(title = 'replay') {
+  return { version: 1, title, images: _images, names: _names, exCardIds: [..._exCardIds], logs: [..._setupLogs, ..._logs] };
+}
+
+/** リプレイデータをエクスポート（ファイル保存用）。D-4: setup ログもそのまま含めて保存する */
 export function exportReplay(title = 'replay') {
-  const payload = { version: 1, title, images: _images, names: _names, exCardIds: [..._exCardIds], logs: _logs };
+  const payload = buildReplayPayload(title);
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -184,33 +228,65 @@ export function exportReplay(title = 'replay') {
   URL.revokeObjectURL(url);
 }
 
-/** リプレイJSONをインポートして盤面に反映 */
+/**
+ * リプレイ payload（{images, names, logs, exCardIds}）を盤面に反映する共通処理。
+ * importReplay（ファイル読込）と E-3 保存済みリプレイの「開く」の両方から呼ぶ
+ * （「開く」は importReplay と同じ経路で読み込む、という設計書の指示のための共通化）。
+ * D-4: setup 付きログもそのまま通す（加工しない）。
+ * @param {{images:Object, names?:Object, exCardIds?:Array, logs:Array}} payload
+ */
+async function _applyReplayPayload(payload) {
+  _images = payload.images;
+  _names  = payload.names || {};
+  _exCardIds = new Set(payload.exCardIds || []);
+  const split = _splitSetupLogs(payload.logs);
+  _setupLogs = split.setupLogs;
+  _logs = split.logs;
+  _cursor = -1;
+  // card:// センチネルの解決を含むため await が必要
+  await _createReplayCardElements();
+  _applySetupLogs();
+  _updateUI();
+}
+
+/** リプレイJSONをインポートして盤面に反映。D-4: setup 付きログもそのまま通す（加工しない） */
 export async function importReplay(file) {
   const text = await file.text();
   const payload = JSON.parse(text);
   if (!payload.logs || !payload.images) throw new Error('不正なリプレイファイルです');
-  _images = payload.images;
-  _names  = payload.names || {};
-  _exCardIds = new Set(payload.exCardIds || []);
-  _logs = payload.logs;
-  _cursor = -1;
-  // card:// センチネルの解決を含むため await が必要
-  await _createReplayCardElements();
-  _updateUI();
+  await _applyReplayPayload(payload);
 }
 
-/** テキスト/メタデッキ読込時のURL共有用 LZString圧縮エクスポート */
-export function exportAsURLHash() {
+/**
+ * E-3: 端末保存された圧縮リプレイデータ（LZString.compress の出力）を復元する。
+ * importReplay と同じ _applyReplayPayload を経由する（ロジックを複製しない）。
+ * @param {string} compressed
+ */
+export async function loadReplayFromCompressedData(compressed) {
+  if (typeof LZString === 'undefined') throw new Error('LZStringが利用できません');
+  const json = LZString.decompress(compressed);
+  if (!json) throw new Error('リプレイデータの展開に失敗しました');
+  const payload = JSON.parse(json);
+  if (!payload.logs || !payload.images) throw new Error('不正なリプレイデータです');
+  await _applyReplayPayload(payload);
+}
+
+/**
+ * テキスト/メタデッキ読込時のURL共有用 LZString圧縮エクスポート
+ * @param {Array} [logsOverride]  D-2: 範囲共有用に加工済みの logs を渡せる（省略時は全ログ）
+ */
+export function exportAsURLHash(logsOverride) {
   if (typeof LZString === 'undefined') return null;
   try {
-    const payload = { version: 1, images: _images, names: _names, exCardIds: [..._exCardIds], logs: _logs };
+    const logs = logsOverride ?? [..._setupLogs, ..._logs];
+    const payload = { version: 1, images: _images, names: _names, exCardIds: [..._exCardIds], logs };
     return LZString.compressToEncodedURIComponent(JSON.stringify(payload));
   } catch {
     return null;
   }
 }
 
-/** URLハッシュから読み込み（card:// センチネル対応のため非同期化） */
+/** URLハッシュから読み込み（card:// センチネル対応のため非同期化）。D-4: setup 付きログもそのまま通す */
 export async function importFromURLHash(hash) {
   if (typeof LZString === 'undefined') return false;
   try {
@@ -220,10 +296,13 @@ export async function importFromURLHash(hash) {
     _images = payload.images;
     _names  = payload.names || {};
     _exCardIds = new Set(payload.exCardIds || []);
-    _logs = payload.logs;
+    const split = _splitSetupLogs(payload.logs);
+    _setupLogs = split.setupLogs;
+    _logs = split.logs;
     _cursor = -1;
     // card:// センチネルの解決を含むため await が必要
     await _createReplayCardElements();
+    _applySetupLogs();
     _updateUI();
     return true;
   } catch {
@@ -243,6 +322,8 @@ export function getNames() { return _names; }
 export function getExCardIds() { return [..._exCardIds]; }
 /** ログを取得 */
 export function getLogs() { return _logs; }
+/** High-1: setup ログ（初期配置。範囲共有の再共有時に先頭へ結合するため）を取得 */
+export function getSetupLogs() { return _setupLogs; }
 
 /**
  * リプレイ記録を初期化する（「すべて消去」用・deck-input-panel.js clearEverything から呼ばれる）。
@@ -266,10 +347,14 @@ export async function _setReplayData(images, names, logs, exCardIds = []) {
   _images = images;
   _names  = names || {};
   _exCardIds = new Set(exCardIds);
-  _logs = logs;
+  const split = _splitSetupLogs(logs);
+  _setupLogs = split.setupLogs;
+  _logs = split.logs;
   _cursor = -1;
   // card:// センチネルの解決を含むため await が必要
   await _createReplayCardElements();
+  // D-3: setup ログを初期配置として即時適用（演出・待ち時間なし）。以降のログだけを手数として扱う
+  _applySetupLogs();
   _updateUI();
 }
 
@@ -286,6 +371,8 @@ function _safeCloneEvent(event) {
  */
 function _replayTo(target) {
   _rebuildDeck();
+  // D-3: setup ログ（初期配置）を通常ログより先に、演出なしで再適用する
+  _applySetupLogs();
   for (let i = 0; i <= target; i++) {
     _applyEvent(_logs[i]);
   }

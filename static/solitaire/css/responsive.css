@@ -205,9 +205,19 @@
 
     .custom-layout         { order: 1; }
     .sol-hand-area         { order: 2; flex: none; width: 100%; margin-left: 0; }
-    .side-slots-container  { order: 3; flex-direction: row; }
+    /* A-2: 墓地｜除外の左右2分割をやめ、各1行・全幅の縦積みにする（縦タブ拡張は廃止） */
+    .side-slots-container  { order: 3; flex-direction: column; }
     #imagePool2             { order: 4; flex: none; width: 100%; margin-top: 0; }
     #replayBarContainer     { order: 6; }
+
+    /* A-2: 767pxブロック(21行目〜)の .sol-side-area { flex:1 } は横2分割用の均等配分だったため、
+       縦積みでは打ち消して各1行の自然高さにする（min-heightはB-8のまま活かす）。
+       align-self:stretch（solitaire-brand.css）は親のクロス軸（columnなら横）に効くため、
+       width指定なしでも全幅になるが、意図を明確にするため明示する。 */
+    .side-slots-container .sol-side-area {
+      flex: none;
+      width: 100%;
+    }
 
     /* B-2: .sol-hand-area / #imagePool2 は padding+border を持つため、width:100% と
        box-sizing:content-box(既定)の組み合わせで実際の幅が100%を超えて右端が画面外に出ていた。
@@ -225,9 +235,10 @@
 
     /* B-8: 縦タブ方式ではラベルがカード列と横並びのため、767pxブロックの
        min-height: calc(var(--slot-height) + 32px)（ラベル行の高さを見込んだ値）は過大。
-       手札行と同じ「カード高＋枠余白10px」に揃える。 */
+       手札行と同じ「カード高＋枠余白」に揃える（2026-09-03 追加修正で padding 6px→2px に
+       伴い枠余白 10px→6px に更新。padding上下2px×2＋border上下2px＝6px）。 */
     .side-slots-container .sol-side-area {
-      min-height: calc(var(--slot-height) + 10px);
+      min-height: calc(var(--slot-height) + 6px);
     }
 
     /* デッキ行は非表示（中身の #poolRow は残す。既存のドロー処理・リプレイ処理を変えない） */
@@ -321,5 +332,45 @@
   }
   .replay-bar > label {
     display: none;
+  }
+}
+
+/* ════════════════════════════════════════════════════
+   A-3/Low-8: 「縦向き推奨」帯 専用メディアクエリ
+   横向きスマホ用レイアウトブロック（@media (orientation:landscape) and (max-height:499px)）
+   とは別に、max-width:1023px を追加した専用クエリに閉じる。
+   これにより 1400×400 のような PC の横長ウィンドウ（幅は広いが高さを詰めたケース）では
+   帯を出さない。viewport.js の MOBILE_LANDSCAPE_QUERY と条件を完全一致させること。
+   ════════════════════════════════════════════════════ */
+@media (orientation: landscape) and (max-height: 499px) and (max-width: 1023px) {
+  .sol-landscape-hint {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 3000;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 6px 10px;
+    background: var(--accent, #4a7cff);
+    color: #fff;
+    font-size: 0.76rem;
+    font-family: var(--font);
+    box-sizing: border-box;
+  }
+  .sol-landscape-hint[hidden] { display: none; }
+  .sol-landscape-hint-close {
+    flex: 0 0 auto;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
   }
 }

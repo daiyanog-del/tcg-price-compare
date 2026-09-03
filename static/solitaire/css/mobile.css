@@ -9,6 +9,32 @@
  */
 @media (max-width: 767px) and (orientation: portrait) {
 
+  /* ════════ 第2次実機検収 追加修正（2026-09-03）: 固定分の圧縮 ════════
+     A-2で行数が3行→4行（墓地/除外が別行化）に増えたことでカード幅が48pxまで
+     低下したため、縦向きスマホ限定で gap/padding を圧縮して52px以上を確保する。
+     縦タブ幅・重ね表示（-28px）・.sol-hand-area/#imagePool2/.side-slots-container の
+     縦タブ内 gap:4px（カード列とラベルの間）は対象外（変更しない）。
+     - .sol-field-area の要素間gap: 10→6px（盤面/手札/墓地/除外/EXの間、4箇所）
+     - .custom-layout の盤面3段間gap: 10→8px（カード視認性への影響を抑えるため6ではなく8）
+     - 手札/墓地/除外/EXの各行の上下padding: 4〜6px→2px に圧縮
+       （指示は「5→3px程度」だが、375×660実測で3pxでは51pxまでしか届かず、
+       あと1px分を2pxまで詰めて52pxへ到達させた。B-8のmin-height式も追随済み）
+     - .sol-field-area の padding-bottom: 4→2px（52px到達のための最終調整。指示に
+       明記のない項目だが、盤面下の余白でカード視認性には影響しない） */
+  .sol-field-area {
+    gap: 6px;
+    padding-bottom: 2px; /* 767pxブロックの4pxを縦向きのみ2pxに詰める（52px到達のための最終調整） */
+  }
+  .custom-layout {
+    gap: 8px;
+  }
+  .sol-hand-area,
+  .side-slots-container .sol-side-area,
+  #imagePool2 {
+    padding-top: 2px;
+    padding-bottom: 2px;
+  }
+
   /* ════════ 縦タブ（設計書 §3.6 L-1・制約8） ════════ */
 
   .sol-hand-area {
@@ -86,19 +112,11 @@
     margin-left: 0;
   }
 
-  /* タップで全幅展開（設計書 a-3）。mobile-ui.js が相互排他でクラスを付け替える */
-  .side-slots-container .sol-side-area {
-    transition: flex 0.15s ease;
-  }
-  .side-slots-container .sol-side-area.expanded {
-    flex: 1;
-  }
-  .side-slots-container .sol-side-area.sol-collapsed-chip {
-    flex: 0 0 40px;
-    overflow: hidden;
-  }
-  .side-slots-container .sol-side-area.sol-collapsed-chip .side-slot {
-    display: none;
+  /* ════════ A-1: 墓地の墓石アイコン（透かし）を縦向きスマホでは非表示にする ════════
+     solitaire-brand.css の .sol-grave .side-slot の background-image を打ち消す。
+     PC・横向きスマホは変更しない（brand.css 自体は触らない）。 */
+  .sol-grave .side-slot {
+    background-image: none;
   }
 
   /* ════════ タップ操作の状態機械（設計書 §8.3・制約10） ════════ */
@@ -146,6 +164,27 @@
      .sol-toast 自体（main.js の実装、bottom:24px）は変更せず、CSS の上書きだけで対応する。 */
   .sol-toast {
     bottom: calc(52px + 12px);
+  }
+
+  /* ════════ C-2: 移動の演出（設計書 §C）════════
+     mobile-ui.js の _flyCardClone が body 直下に生成する fixed クローン。
+     left/top/width/height を JS 側でアニメさせるため、これらに transition を効かせる。 */
+  .sol-fly-clone {
+    position: fixed;
+    z-index: 3500;
+    pointer-events: none;
+    border-radius: 6px;
+    object-fit: cover; /* img版のみ有効。div版（Low-9: プロキシ）には無害 */
+    overflow: hidden; /* Low-9: プロキシ版は cardEl.cloneNode(true) を内包するため、はみ出しを隠す */
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    transition: left 0.3s cubic-bezier(0.4,0,0.2,1), top 0.3s cubic-bezier(0.4,0,0.2,1),
+                width 0.3s cubic-bezier(0.4,0,0.2,1), height 0.3s cubic-bezier(0.4,0,0.2,1);
+    background: var(--bg-card);
+  }
+  /* Low-9: プロキシ版クローン内の cloneNode(true) をクローン全体にフィットさせる */
+  .sol-fly-clone > .tier-item {
+    width: 100%;
+    height: 100%;
   }
 
   /* ════════ 下部固定バー（制約4・§8.1） ════════ */
@@ -761,9 +800,25 @@
     font-weight: 700;
   }
   .sol-mobile-deck-primary-btn:disabled { opacity: 0.4; }
+  /* B-1: 墓地へ/除外へ/EXへ/盤面へ。4個を2列×2行に折り返す */
+  .sol-mobile-deck-dest-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .sol-mobile-deck-dest-actions .sol-mobile-menu-item {
+    flex: 1 1 calc(50% - 3px);
+    min-width: 0;
+    text-align: center;
+    padding: 7px 4px;
+    font-size: 0.82rem;
+  }
+  .sol-mobile-deck-dest-actions .sol-mobile-menu-item:disabled { opacity: 0.4; }
   .sol-mobile-deck-sub-actions {
     display: flex;
     gap: 8px;
+    margin-top: 8px;
   }
   .sol-mobile-deck-sub-actions .sol-mobile-menu-item {
     flex: 1;
@@ -807,6 +862,73 @@
   .sol-mobile-share-comment-row .sol-mobile-menu-item {
     flex: 0 0 auto;
     padding: 8px 14px;
+  }
+
+  /* D-1: 共有する範囲（開始・終了スライダー） */
+  .sol-mobile-share-range-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 4px 0;
+  }
+  .sol-mobile-share-range-tag {
+    flex: 0 0 34px;
+    font-size: 0.76rem;
+    color: #94a3b8;
+  }
+  .sol-mobile-share-range-input {
+    flex: 1;
+    height: 28px;
+  }
+  .sol-mobile-share-range-label {
+    margin: 2px 0 8px;
+    font-size: 0.76rem;
+    color: #94a3b8;
+  }
+
+  /* E-3: 保存済みリプレイ一覧 */
+  .sol-mobile-saved-replay-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 6px;
+  }
+  .sol-mobile-saved-replay-info {
+    flex: 1;
+    min-width: 0;
+  }
+  .sol-mobile-saved-replay-title {
+    display: block;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--main-color);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sol-mobile-saved-replay-meta {
+    display: block;
+    font-size: 0.72rem;
+    color: #94a3b8;
+    margin-top: 2px;
+  }
+  .sol-mobile-saved-replay-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  .sol-mobile-saved-replay-actions button {
+    padding: 6px 8px;
+    background: var(--bg-color);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--main-color);
+    font-family: var(--font);
+    font-size: 0.76rem;
   }
 
   /* H-1: リンク作成結果（URL表示＋共有…／コピー／Xに投稿） */
@@ -898,7 +1020,8 @@
   .sol-mobile-sheet,
   .sol-mobile-deck-sheet,
   #solMobileEmptyCta,
-  #solTouchLabel {
+  #solTouchLabel,
+  .sol-fly-clone {
     display: none !important;
   }
 }

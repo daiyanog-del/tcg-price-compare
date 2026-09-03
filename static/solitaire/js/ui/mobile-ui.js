@@ -22,6 +22,7 @@ import {
   clearPendingMobileDrop,
   getDropZoneInfo,
   executeDrop,
+  selectMobileCard,
 } from '../components/drag-drop.js';
 import {
   toggleCardDefense,
@@ -31,10 +32,19 @@ import {
 } from './context-menu.js';
 import { playActivateEffect } from '../components/card-effects.js';
 import { _renderCard, _showUnknown, _showLoading } from './card-info-panel.js';
-import { isMobilePortrait, watchMobilePortrait } from '../utils/viewport.js';
+import { isMobilePortrait, watchMobilePortrait, isMobileLandscape, watchMobileLandscape } from '../utils/viewport.js';
 import { showToast } from '../utils/toast.js';
 import { generateShareURL, buildShareTweetUrl } from './replay-ui.js';
 import { clearEverything } from './deck-input-panel.js';
+import {
+  getLogLength,
+  getSetupLogs,
+  buildReplayPayload,
+  getImages,
+  getExCardIds,
+  loadReplayFromCompressedData,
+} from '../services/replay-service.js';
+import { savedReplaysGet, saveReplayEntry, deleteReplayEntry } from '../services/saved-replays.js';
 
 const API_CARD_INFO = '/api/card-info';
 
@@ -79,6 +89,7 @@ function resetMobileUI() {
   closeCardDetailOverlay();
   closeDeckSheet();   // フェーズ2: デッキ一覧シート
   closeShareSheet();  // フェーズ3: 共有シート
+  closeSavedReplaysSheet(); // E-3: 保存済みリプレイ一覧シート
   clearMobileSelection();
   clearPendingMobileDrop(); // 残件6: 保留ドロップと保留元カードの選択見た目も消す
 
@@ -91,6 +102,7 @@ function resetMobileUI() {
   setHidden('solMobileShareBtn', true);
   setHidden('solMobileDeckSheet', true);
   setHidden('solMobileShareSheet', true);
+  setHidden('solMobileSavedReplaysSheet', true);
   setHidden('solMobileEmptyCta', true);
   setDeckBtnLoading(false); // 読込中表示のまま portrait を外れた場合の保険
 }
@@ -204,6 +216,7 @@ const MENU_ACTIONS = {
   opptray:  () => { openOppTraySheet(); },
   deckinput:() => { openSidebarSheet(); },
   replay:   () => { openReplayOverlay(); },
+  savedreplays: () => { openSavedReplaysSheet(); }, // E-3
   help:     () => { openHelpSheet(); },
   feedback: () => { document.getElementById('feedbackOpenBtn')?.click(); },
 };
@@ -372,26 +385,6 @@ function closeHelpSheet() {
   if (_helpScrim) _helpScrim.style.display = 'none';
 }
 
-// ══════════════════ 縦タブ: 墓地｜除外の全幅展開（設計書 a-3） ══════════════════
-
-function initSideAreaExpand() {
-  const areas = Array.from(document.querySelectorAll('.side-slots-container .sol-side-area'));
-  if (areas.length === 0) return;
-  areas.forEach(area => {
-    const label = area.querySelector('.pool-label');
-    if (!label) return;
-    label.addEventListener('click', () => {
-      if (!isMobilePortrait()) return;
-      const wasExpanded = area.classList.contains('expanded');
-      areas.forEach(a => a.classList.remove('expanded', 'sol-collapsed-chip'));
-      if (!wasExpanded) {
-        area.classList.add('expanded');
-        areas.forEach(a => { if (a !== area) a.classList.add('sol-collapsed-chip'); });
-      }
-    });
-  });
-}
-
 // ══════════════════ カード詳細パネル（スマホ・A-2で「既定は閉」に変更） ══════════════════
 
 /** wrapper からカード名・画像URLを取り出す（card-info-panel.js の名前解決に合わせる） */
@@ -527,6 +520,113 @@ function initActionSheet() {
   });
 }
 
+// ══════════════════ C-2: 移動の演出（設計書 §C） ══════════════════
+// デッキ一覧シート／1ドロー／リセット&5ドロー／B-1の移動時に、カードのサムネイル複製を
+// 出発点（シートのセル。取れなければ下部バーの「デッキ」ボタン）から行き先ゾーンへ
+// 300ms で飛ばす（position:fixed の clone。到着後に自身を消す）。
+// 実際の移動は必ず executeDrop を先に完了させてから演出するため、演出の有無で
+// リプレイ記録・DOM の最終状態は変わらない（C-1調査の結果、既存のドラッグ操作・
+// 1ドロー・リセット&5ドローには元々このような移動演出は無い＝ゼロから追加）。
+
+const FLY_DURATION_MS = 300;
+const FLY_STAGGER_MS = 60;
+
+function _prefersReducedMotion() {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+/**
+ * 出発点の矩形を返す（cardId に対応するデッキシートのセルがあればそれ、
+ * 無ければ＝シートが閉じている場合は下部バーの「デッキ」ボタン）。
+ * @param {string|null} cardId
+ * @returns {DOMRect|null}
+ */
+function _getFlyOriginRect(cardId) {
+  const deckSheet = document.getElementById('solMobileDeckSheet');
+  const sheetOpen = deckSheet && !deckSheet.hasAttribute('hidden');
+  if (sheetOpen && cardId) {
+    const cell = document.querySelector(`#solMobileDeckGrid .sol-mobile-deck-cell[data-card-id="${CSS.escape(cardId)}"]`);
+    if (cell) return cell.getBoundingClientRect();
+  }
+  const deckBtn = document.getElementById('solMobileDeckBtn');
+  return deckBtn ? deckBtn.getBoundingClientRect() : null;
+}
+
+/**
+ * originRect から targetEl（移動後のカード実体。既に最終位置にある）へ、
+ * カードのサムネイル複製を 300ms で飛ばす。prefers-reduced-motion: reduce では何もしない。
+ * @param {DOMRect|null} originRect
+ * @param {Element} targetEl  .tier-item-wrapper（移動先で最終位置に配置済み）
+ * @param {number} [delayMs=0]
+ */
+function _flyCardClone(originRect, targetEl, delayMs = 0) {
+  if (_prefersReducedMotion() || !originRect || !targetEl) return;
+  setTimeout(() => {
+    if (!targetEl.isConnected) return; // 遅延中に移動先が消えた場合は何もしない
+    const targetRect = targetEl.getBoundingClientRect();
+    const cardEl = targetEl.querySelector('.tier-item');
+    const isImg = cardEl?.tagName === 'IMG';
+
+    let clone;
+    if (isImg) {
+      clone = document.createElement('img');
+      clone.src = cardEl.src;
+    } else if (cardEl) {
+      // Low-9: プロキシ（div.tier-item）は img を持たず名前等が子要素に描画されているため、
+      // 空divではなく cardEl.cloneNode(true) を包んで見た目（名前等）を保つ。
+      clone = document.createElement('div');
+      clone.appendChild(cardEl.cloneNode(true));
+    } else {
+      clone = document.createElement('div');
+    }
+    clone.className = 'sol-fly-clone';
+    clone.style.left = `${originRect.left}px`;
+    clone.style.top = `${originRect.top}px`;
+    clone.style.width = `${originRect.width}px`;
+    clone.style.height = `${originRect.height}px`;
+    document.body.appendChild(clone);
+
+    requestAnimationFrame(() => {
+      void clone.offsetWidth; // reflow 強制（初期位置を確定させる）
+      clone.style.left = `${targetRect.left}px`;
+      clone.style.top = `${targetRect.top}px`;
+      clone.style.width = `${targetRect.width}px`;
+      clone.style.height = `${targetRect.height}px`;
+    });
+
+    setTimeout(() => clone.remove(), FLY_DURATION_MS + 60);
+  }, delayMs);
+}
+
+/**
+ * 選択中カード群（wrapperEls）を演出付きで移動する。移動そのものは executeFn（executeDrop
+ * 呼び出し）を各カードごとに先に実行し、その後 originRectForCardId が返す矩形から
+ * wrapper の最終位置へ複製を飛ばす（60ms ずつずらす）。
+ * @param {Array<{cardId:string, wrapper:Element}>} items
+ * @param {(cardId:string, wrapper:Element)=>void} executeFn
+ */
+function _moveWithFlyEffect(items, executeFn) {
+  items.forEach((item, i) => {
+    const originRect = _getFlyOriginRect(item.cardId);
+    executeFn(item.cardId, item.wrapper);
+    _flyCardClone(originRect, item.wrapper, i * FLY_STAGGER_MS);
+  });
+}
+
+/**
+ * 1ドロー／リセット&5ドローのように「移動対象のカードが呼び出し前には分からない」操作向け。
+ * targetContainer 内の実行前 wrapper id 集合との差分で新規カードを検出し、演出を飛ばす。
+ * @param {Element|null} targetContainer  移動先の実コンテナ（例: .center-slot）
+ * @param {Set<string>} beforeIds
+ */
+function _flyNewlyAddedCards(targetContainer, beforeIds) {
+  if (!targetContainer) return;
+  const originRect = _getFlyOriginRect(null); // 特定カードに紐付かないためデッキボタン基準
+  const afterWrappers = Array.from(targetContainer.querySelectorAll('.tier-item-wrapper'));
+  const newWrappers = afterWrappers.filter(w => !beforeIds.has(w.id));
+  newWrappers.forEach((w, i) => _flyCardClone(originRect, w, i * FLY_STAGGER_MS));
+}
+
 // ══════════════════ デッキ一覧シート（フェーズ2・設計書 §3.3） ══════════════════
 
 // 選択中のカードID（#poolRow内 .tier-item の id）の集合。シートを開くたびにクリアする。
@@ -580,15 +680,29 @@ function _toggleDeckCardSelection(cell) {
     _selectedDeckCardIds.add(id);
     cell.classList.add('selected');
   }
-  _updateDeckToHandBtn();
+  _updateDeckActionButtons();
 }
 
-function _updateDeckToHandBtn() {
-  const btn = document.getElementById('solMobileDeckToHandBtn');
-  if (!btn) return;
+/**
+ * B-1: 「手札へ (n)」に加え、副行の「墓地へ」「除外へ」「EXへ」は選択1枚以上で有効。
+ * 「盤面へ」は選択がちょうど1枚のときだけ有効（B-1指示どおり）。
+ */
+function _updateDeckActionButtons() {
   const n = _selectedDeckCardIds.size;
-  btn.textContent = `手札へ (${n})`;
-  btn.disabled = n === 0;
+
+  const handBtn = document.getElementById('solMobileDeckToHandBtn');
+  if (handBtn) {
+    handBtn.textContent = `手札へ (${n})`;
+    handBtn.disabled = n === 0;
+  }
+
+  ['solMobileDeckToGraveBtn', 'solMobileDeckToBanishBtn', 'solMobileDeckToExBtn'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.disabled = n === 0;
+  });
+
+  const fieldBtn = document.getElementById('solMobileDeckToFieldBtn');
+  if (fieldBtn) fieldBtn.disabled = n !== 1;
 }
 
 /** L-9: 大文字小文字・全角半角を正規化してから部分一致で比較する（NFKC正規化＋小文字化） */
@@ -618,7 +732,7 @@ function _buildDeckGrid() {
   if (wrappers.length === 0) {
     grid.hidden = true;
     if (emptyEl) emptyEl.hidden = false;
-    _updateDeckToHandBtn();
+    _updateDeckActionButtons();
     return;
   }
 
@@ -629,27 +743,73 @@ function _buildDeckGrid() {
     if (cell) grid.appendChild(cell);
   });
   _applyDeckSearchFilter();
-  _updateDeckToHandBtn();
+  _updateDeckActionButtons();
 }
 
-/** 選択したカードを手札へ移動する。移動は必ず executeDrop 経由（リプレイ記録の唯一の経路）。 */
-function _moveSelectedDeckCardsToHand() {
-  const handSlot = document.querySelector('.sol-hand-area .center-slot');
-  if (!handSlot) return;
-  const dropZoneInfo = getDropZoneInfo(handSlot);
+/**
+ * B-1: 選択したカードを指定のゾーン要素（.center-slot / .side-slot / #poolRow2）へ移動する。
+ * 移動は必ず executeDrop 経由（リプレイ記録の唯一の経路）。C-2: 移動演出も併せて行う。
+ * @param {Element|null} zoneSlotEl
+ */
+function _moveSelectedDeckCardsToZone(zoneSlotEl) {
+  if (!zoneSlotEl) return;
+  const dropZoneInfo = getDropZoneInfo(zoneSlotEl);
   if (!dropZoneInfo) return;
 
-  Array.from(_selectedDeckCardIds).forEach(cardId => {
-    const cardEl = document.getElementById(cardId);
-    const wrapper = cardEl?.closest('.tier-item-wrapper');
-    if (!wrapper) return;
-    executeDrop({ type: 'card', element: wrapper }, dropZoneInfo, handSlot, {});
+  const items = Array.from(_selectedDeckCardIds)
+    .map(cardId => {
+      const cardEl = document.getElementById(cardId);
+      const wrapper = cardEl?.closest('.tier-item-wrapper');
+      return wrapper ? { cardId, wrapper } : null;
+    })
+    .filter(Boolean);
+
+  _moveWithFlyEffect(items, (cardId, wrapper) => {
+    executeDrop({ type: 'card', element: wrapper }, dropZoneInfo, zoneSlotEl, {});
   });
 
   // M-4: 移動後は選択状態を明示的にクリアする（次にシートを開いた時の再構築任せにしない）
   _selectedDeckCardIds.clear();
-  _updateDeckToHandBtn();
+  _updateDeckActionButtons();
   closeDeckSheet();
+}
+
+/** 選択したカードを手札へ移動する（B-1既存動作）。 */
+function _moveSelectedDeckCardsToHand() {
+  _moveSelectedDeckCardsToZone(document.querySelector('.sol-hand-area .center-slot'));
+}
+
+/** B-1: 選択したカードを墓地へ移動する。 */
+function _moveSelectedDeckCardsToGrave() {
+  _moveSelectedDeckCardsToZone(getSideSlot(true));
+}
+
+/** B-1: 選択したカードを除外へ移動する。 */
+function _moveSelectedDeckCardsToBanish() {
+  _moveSelectedDeckCardsToZone(getSideSlot(false));
+}
+
+/** B-1: 選択したカードをEXデッキへ移動する。#poolRow2 は getDropZoneInfo で POOL 判定になる。 */
+function _moveSelectedDeckCardsToEx() {
+  _moveSelectedDeckCardsToZone(document.getElementById('poolRow2'));
+}
+
+/**
+ * B-2: 「盤面へ」。選択がちょうど1枚のときだけ有効。
+ * シートを閉じて、そのカードを drag-drop.js のタップ状態機械の selected 状態にする
+ * （既存の selectMobileCard を export して呼ぶ。executeDrop はここでは呼ばない。
+ * ユーザーが盤面スロットをタップした時点で既存のタップ移動フローが executeDrop する）。
+ */
+function _moveSelectedDeckCardToField() {
+  if (_selectedDeckCardIds.size !== 1) return;
+  const cardId = Array.from(_selectedDeckCardIds)[0];
+  const cardEl = document.getElementById(cardId);
+  const wrapper = cardEl?.closest('.tier-item-wrapper');
+  if (!wrapper) return;
+  _selectedDeckCardIds.clear();
+  _updateDeckActionButtons();
+  closeDeckSheet();
+  selectMobileCard(wrapper);
 }
 
 function openDeckSheet() {
@@ -675,14 +835,30 @@ function initDeckSheet() {
 
   document.getElementById('solMobileDeckToHandBtn')
     ?.addEventListener('click', _moveSelectedDeckCardsToHand);
+  // B-1: 副行（墓地へ／除外へ／EXへ／盤面へ）
+  document.getElementById('solMobileDeckToGraveBtn')
+    ?.addEventListener('click', _moveSelectedDeckCardsToGrave);
+  document.getElementById('solMobileDeckToBanishBtn')
+    ?.addEventListener('click', _moveSelectedDeckCardsToBanish);
+  document.getElementById('solMobileDeckToExBtn')
+    ?.addEventListener('click', _moveSelectedDeckCardsToEx);
+  document.getElementById('solMobileDeckToFieldBtn')
+    ?.addEventListener('click', _moveSelectedDeckCardToField);
 
-  // 副ボタン: 1ドロー・リセット&5ドロー（既存ボタンをclickするだけ。ロジックを複製しない）
+  // 副ボタン: 1ドロー・リセット&5ドロー（既存ボタンをclickするだけ。ロジックを複製しない）。
+  // C-2: 移動先（手札 .center-slot）の実行前 wrapper id 集合との差分で新規カードを検出して演出する。
   document.getElementById('solMobileDeckDrawBtn')?.addEventListener('click', () => {
+    const handSlot = document.querySelector('.sol-hand-area .center-slot');
+    const beforeIds = new Set(Array.from(handSlot?.querySelectorAll('.tier-item-wrapper') || []).map(w => w.id));
     document.getElementById('randomButton')?.click();
+    _flyNewlyAddedCards(handSlot, beforeIds);
     _buildDeckGrid();
   });
   document.getElementById('solMobileDeckResetBtn')?.addEventListener('click', () => {
+    const handSlot = document.querySelector('.sol-hand-area .center-slot');
+    const beforeIds = new Set(Array.from(handSlot?.querySelectorAll('.tier-item-wrapper') || []).map(w => w.id));
     document.getElementById('resetButton')?.click();
+    _flyNewlyAddedCards(handSlot, beforeIds);
     _buildDeckGrid();
   });
 
@@ -712,6 +888,7 @@ function openShareSheet() {
   if (urlInput) urlInput.value = '';
   const xLink = document.getElementById('solMobileShareXLink');
   if (xLink) xLink.href = '#';
+  _initShareRangeSliders(); // D-1: 開くたびに現在の手数で範囲スライダーをリセット（既定=全範囲）
   setHidden('solMobileShareSheet', false);
 }
 function closeShareSheet() {
@@ -725,6 +902,81 @@ function _showShareError(msg) {
   el.hidden = false;
 }
 
+// ── D-1: 共有する範囲（開始・終了スライダー） ──
+
+/** シートを開くたびに現在の手数(N)で min/max を張り直し、既定=全範囲(1〜N)に戻す */
+function _initShareRangeSliders() {
+  const total = Math.max(1, getLogLength());
+  const startEl = document.getElementById('solMobileShareRangeStart');
+  const endEl = document.getElementById('solMobileShareRangeEnd');
+  if (!startEl || !endEl) return;
+  startEl.min = '1'; startEl.max = String(total); startEl.value = '1';
+  endEl.min = '1'; endEl.max = String(total); endEl.value = String(total);
+  _updateShareRangeLabel();
+}
+
+function _updateShareRangeLabel() {
+  const startEl = document.getElementById('solMobileShareRangeStart');
+  const endEl = document.getElementById('solMobileShareRangeEnd');
+  const labelEl = document.getElementById('solMobileShareRangeLabel');
+  if (!startEl || !endEl || !labelEl) return;
+  const total = getLogLength();
+  labelEl.textContent = `${startEl.value}手目〜${endEl.value}手目（全${total}手）`;
+}
+
+/**
+ * High-2: コメント追加でログが1件増えた直後に、範囲スライダーの max を新しい手数へ追従させる。
+ * end が「変更前の max（＝全範囲の終端）」と同じ値だった場合のみ新しい max に追従させ、
+ * ユーザーが明示的に途中の手数を指定していた場合はその値をそのまま保持する。
+ * start は 1〜newTotal の範囲を外れない限りそのまま保持する（1は常に有効な最小値のため
+ * 特別な追従処理は不要）。
+ */
+function _refreshShareRangeAfterCommentAdd() {
+  const startEl = document.getElementById('solMobileShareRangeStart');
+  const endEl = document.getElementById('solMobileShareRangeEnd');
+  if (!startEl || !endEl) return;
+
+  const oldEndMax = parseInt(endEl.max, 10) || 1;
+  const endWasAtMax = parseInt(endEl.value, 10) === oldEndMax;
+
+  const newTotal = Math.max(1, getLogLength());
+  startEl.max = String(newTotal);
+  endEl.max = String(newTotal);
+
+  if (endWasAtMax) endEl.value = String(newTotal);
+
+  // 値が新しい max を超えていれば安全のためクランプする（通常は増加方向なので発生しない）
+  if (parseInt(startEl.value, 10) > newTotal) startEl.value = String(newTotal);
+  if (parseInt(endEl.value, 10) > newTotal) endEl.value = String(newTotal);
+  // start > end にならないよう最終調整
+  if (parseInt(startEl.value, 10) > parseInt(endEl.value, 10)) startEl.value = endEl.value;
+
+  _updateShareRangeLabel();
+}
+
+/** 開始 > 終了にならないよう相互クランプする */
+function _onShareRangeInput(which) {
+  const startEl = document.getElementById('solMobileShareRangeStart');
+  const endEl = document.getElementById('solMobileShareRangeEnd');
+  if (!startEl || !endEl) return;
+  const s = parseInt(startEl.value, 10);
+  const e = parseInt(endEl.value, 10);
+  if (which === 'start' && s > e) endEl.value = startEl.value;
+  else if (which === 'end' && e < s) startEl.value = endEl.value;
+  _updateShareRangeLabel();
+}
+
+/** @returns {{start:number, end:number}} 1-indexed 手数の範囲（既定値=全範囲でも数値を返す） */
+function _getShareRange() {
+  const startEl = document.getElementById('solMobileShareRangeStart');
+  const endEl = document.getElementById('solMobileShareRangeEnd');
+  const total = Math.max(1, getLogLength());
+  return {
+    start: startEl ? parseInt(startEl.value, 10) : 1,
+    end: endEl ? parseInt(endEl.value, 10) : total,
+  };
+}
+
 /** H-1: 「共有リンクを作成」。await をまたぐため、この関数自体からは clipboard/share を呼ばない。 */
 async function _generateShareLink() {
   const btn = document.getElementById('solMobileShareGenerateBtn');
@@ -734,10 +986,16 @@ async function _generateShareLink() {
   const xLink = document.getElementById('solMobileShareXLink');
   if (!btn) return;
 
+  // Medium-7: setup（初期配置）込みでも手数0なら記録なし扱いで止める
+  if (getLogLength() + getSetupLogs().length === 0) {
+    _showShareError('記録がありません');
+    return;
+  }
+
   setHidden('solMobileShareError', true);
   btn.disabled = true;
   try {
-    const url = await generateShareURL();
+    const url = await generateShareURL(_getShareRange()); // D-2: 共有する範囲を渡す
     if (urlInput) urlInput.value = url;
     if (xLink) xLink.href = buildShareTweetUrl(url);
     if (nativeBtn) nativeBtn.hidden = typeof navigator.share !== 'function';
@@ -807,7 +1065,13 @@ function initShareSheet() {
     target.value = input.value;
     document.getElementById('replayAddComment')?.click();
     input.value = '';
+    // High-2: コメント追加で手数が1増えるため、範囲スライダーの max を追従させる
+    _refreshShareRangeAfterCommentAdd();
   });
+
+  // D-1: 共有する範囲（開始・終了スライダー、相互クランプ）
+  document.getElementById('solMobileShareRangeStart')?.addEventListener('input', () => _onShareRangeInput('start'));
+  document.getElementById('solMobileShareRangeEnd')?.addEventListener('input', () => _onShareRangeInput('end'));
 
   // (1) リンク作成〜共有・コピー・X投稿
   document.getElementById('solMobileShareGenerateBtn')?.addEventListener('click', () => { _generateShareLink(); });
@@ -821,6 +1085,173 @@ function initShareSheet() {
   });
   document.getElementById('solMobileShareImportBtn')?.addEventListener('click', () => {
     document.getElementById('replayImportFile')?.click();
+  });
+
+  // E-2: 端末に保存
+  document.getElementById('solMobileShareSaveLocalBtn')?.addEventListener('click', _saveReplayToDevice);
+}
+
+// ══════════════════ E-1/E-2: リプレイの端末保存（設計書 §E） ══════════════════
+
+/** タイトル欄が空のときの既定タイトル（YYYY-MM-DD HH:MM） */
+function _formatDefaultReplayTitle() {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/**
+ * E-2: 共有シートの「端末に保存」。現在のリプレイ全体（共有する範囲の指定は影響しない）を
+ * exportReplay と同じ payload（buildReplayPayload）で組み立て、LZString 圧縮して
+ * saved-replays.js の localStorage 一覧に追加する。
+ */
+function _saveReplayToDevice() {
+  // Low-13: setup（初期配置）だけの盤面も保存できるよう、setup込みの手数で判定する
+  const total = getLogLength() + getSetupLogs().length;
+  if (total === 0) { showToast('記録がありません'); return; }
+  if (typeof LZString === 'undefined') { showToast('保存に失敗しました'); return; }
+
+  const titleInput = document.getElementById('solMobileShareTitleInput');
+  const title = titleInput?.value?.trim() || _formatDefaultReplayTitle();
+
+  const payload = buildReplayPayload(title);
+  const compressed = LZString.compress(JSON.stringify(payload));
+
+  const images = getImages();
+  const exCount = new Set(getExCardIds()).size;
+  const mainCount = Math.max(0, Object.keys(images).length - exCount);
+
+  const result = saveReplayEntry({
+    title,
+    main: mainCount,
+    ex: exCount,
+    steps: total,
+    data: compressed,
+  });
+
+  // High-3: 保存失敗時は理由に応じたトーストを出す
+  if (!result.ok) {
+    if (result.reason === 'too_large') {
+      showToast('このリプレイは大きすぎて保存できません');
+    } else {
+      showToast('保存できませんでした（端末の空き容量）');
+    }
+    return;
+  }
+  showToast(result.removedCount > 0
+    ? `端末に保存しました（上限のため古い${result.removedCount}件を削除）`
+    : '端末に保存しました');
+}
+
+// ══════════════════ E-3: 保存済みリプレイ一覧シート（設計書 §E） ══════════════════
+
+function openSavedReplaysSheet() {
+  _renderSavedReplaysList();
+  setHidden('solMobileSavedReplaysSheet', false);
+}
+function closeSavedReplaysSheet() {
+  setHidden('solMobileSavedReplaysSheet', true);
+}
+
+/**
+ * E-3: 保存済みリプレイを開く。importReplay と同じ経路（loadReplayFromCompressedData）で読み込む。
+ * Medium-4: 呼び出し元が成否で分岐できるよう Promise<boolean> を返す。
+ * Medium-5: 現在の記録（setup込み）が残っている場合は上書き前に確認する。
+ * @param {{data:string, title?:string}} item
+ * @returns {Promise<boolean>}
+ */
+async function _openSavedReplay(item) {
+  const hasCurrentRecord = (getLogLength() + getSetupLogs().length) > 0;
+  if (hasCurrentRecord && !confirm('現在の記録を破棄して開きます。よろしいですか？')) {
+    return false;
+  }
+  try {
+    await loadReplayFromCompressedData(item.data);
+    closeSavedReplaysSheet();
+    showToast('リプレイを復元しました');
+    return true;
+  } catch (e) {
+    console.warn('[mobile-ui] 保存済みリプレイの復元に失敗:', e);
+    showToast('復元に失敗しました');
+    return false;
+  }
+}
+
+/** 一覧を再描画する（削除後・開くたびに呼ぶ）。カード名等ユーザー由来文字列は textContent で入れる（XSS対策）。 */
+function _renderSavedReplaysList() {
+  const listEl = document.getElementById('solMobileSavedReplaysList');
+  const emptyEl = document.getElementById('solMobileSavedReplaysEmpty');
+  if (!listEl) return;
+
+  const items = savedReplaysGet().slice().sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+  listEl.innerHTML = '';
+
+  if (items.length === 0) {
+    if (emptyEl) emptyEl.hidden = false;
+    return;
+  }
+  if (emptyEl) emptyEl.hidden = true;
+
+  items.forEach(item => {
+    const row = document.createElement('div');
+    row.className = 'sol-mobile-saved-replay-row';
+
+    const info = document.createElement('div');
+    info.className = 'sol-mobile-saved-replay-info';
+    const titleEl = document.createElement('span');
+    titleEl.className = 'sol-mobile-saved-replay-title';
+    titleEl.textContent = item.title || '無題';
+    const metaEl = document.createElement('span');
+    metaEl.className = 'sol-mobile-saved-replay-meta';
+    const dateStr = item.savedAt
+      ? new Date(item.savedAt).toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+      : '';
+    metaEl.textContent = `${dateStr} ・ ${item.steps ?? 0}手 ・ メイン${item.main ?? 0}/EX${item.ex ?? 0}`;
+    info.appendChild(titleEl);
+    info.appendChild(metaEl);
+
+    const actions = document.createElement('div');
+    actions.className = 'sol-mobile-saved-replay-actions';
+
+    const openBtn = document.createElement('button');
+    openBtn.type = 'button';
+    openBtn.textContent = '開く';
+    openBtn.addEventListener('click', () => _openSavedReplay(item));
+
+    const shareBtn = document.createElement('button');
+    shareBtn.type = 'button';
+    shareBtn.textContent = '共有';
+    shareBtn.addEventListener('click', async () => {
+      // Medium-4: 復元成功時（true）だけ共有シートを開く
+      const ok = await _openSavedReplay(item);
+      if (!ok) return;
+      closeSavedReplaysSheet();
+      openShareSheet();
+    });
+
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.textContent = '削除';
+    delBtn.addEventListener('click', () => {
+      if (!confirm(`「${item.title || '無題'}」を削除します。よろしいですか？`)) return;
+      deleteReplayEntry(item.id);
+      _renderSavedReplaysList();
+    });
+
+    actions.appendChild(openBtn);
+    actions.appendChild(shareBtn);
+    actions.appendChild(delBtn);
+    row.appendChild(info);
+    row.appendChild(actions);
+    listEl.appendChild(row);
+  });
+}
+
+function initSavedReplaysSheet() {
+  const sheet = document.getElementById('solMobileSavedReplaysSheet');
+  if (!sheet) return;
+  sheet.querySelectorAll('[data-sol-saved-replays-close]').forEach(el => {
+    el.addEventListener('click', closeSavedReplaysSheet);
   });
 }
 
@@ -856,6 +1287,33 @@ function initClearEverything() {
   });
 }
 
+// ══════════════════ A-3: 横向きスマホの「縦向き推奨」帯 ══════════════════
+// PC幅ではメディアクエリ自体（(orientation:landscape) and (max-height:499px)）が
+// 発火しないため CSS 側で常に非表示。ここでは横向きスマホの該当/非該当に応じて
+// hidden を付け外しし、閉じた記憶を sessionStorage に残す。
+
+const LANDSCAPE_HINT_CLOSED_KEY = 'sol-landscape-hint-closed';
+
+function updateLandscapeHint() {
+  const el = document.getElementById('solLandscapeHint');
+  if (!el) return;
+  if (sessionStorage.getItem(LANDSCAPE_HINT_CLOSED_KEY)) {
+    el.setAttribute('hidden', '');
+    return;
+  }
+  if (isMobileLandscape()) el.removeAttribute('hidden');
+  else el.setAttribute('hidden', '');
+}
+
+function initLandscapeHint() {
+  document.getElementById('solLandscapeHintClose')?.addEventListener('click', () => {
+    sessionStorage.setItem(LANDSCAPE_HINT_CLOSED_KEY, '1');
+    setHidden('solLandscapeHint', true);
+  });
+  updateLandscapeHint();
+  watchMobileLandscape(updateLandscapeHint);
+}
+
 // ══════════════════ エントリポイント ══════════════════
 
 export function initMobileUI() {
@@ -868,13 +1326,14 @@ export function initMobileUI() {
   initSidebarSheet();
   initDeckLoadProgress();
   initOppTraySheet();
-  initSideAreaExpand();
   initCardDetailPanel();
   initActionSheet();
   initDeckSheet();
   initShareSheet();
+  initSavedReplaysSheet();
   initEmptyCta();
   initClearEverything();
+  initLandscapeHint(); // A-3: portrait 判定とは独立（横向きスマホでのみ表示するため）
 
   // H-1: resize/orientationchange の逐次発火はやめ、matchMedia の change に一本化する。
   watchMobilePortrait(handlePortraitChange);

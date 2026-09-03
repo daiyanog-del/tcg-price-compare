@@ -581,8 +581,12 @@ function clearPendingDrop() {
   _pendingDropZone = null;
 }
 
-/** pressed（移動なしtouchend）→ selected へ遷移する */
-function selectMobileCard(wrapper) {
+/**
+ * pressed（移動なしtouchend）→ selected へ遷移する。
+ * B-2: デッキ一覧シートの「盤面へ」から idle 状態のプール内カードを直接選択状態にするため export する
+ * （タップ移動用の別経路を作らず、既存の状態機械の遷移関数をそのまま再利用する）。
+ */
+export function selectMobileCard(wrapper) {
   // 残件4: 金枠（.selected）の二重残留を防ぐため、付ける前に全て外す
   document.querySelectorAll('.tier-item-wrapper.selected').forEach(el => el.classList.remove('selected'));
   _mState = 'selected';

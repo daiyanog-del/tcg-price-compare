@@ -20,6 +20,7 @@ import {
   getNames,
   getExCardIds,
   getLogs,
+  getSetupLogs,
 } from '../services/replay-service.js';
 
 const REPLAY_TITLE_MAX_LEN = 100;
@@ -86,7 +87,8 @@ export function initReplayUI() {
   // リプレイエクスポート（ファイル保存）
   document.getElementById('replayExport')
     ?.addEventListener('click', () => {
-      if (getLogLength() === 0) { alert('記録がありません'); return; }
+      // Low-13: setup（初期配置）だけの盤面も保存できるよう、setup込みの手数で判定する
+      if (getLogLength() + getSetupLogs().length === 0) { alert('記録がありません'); return; }
       const title = _getReplayTitle();
       exportReplay(title);
     });
@@ -118,11 +120,32 @@ export function initReplayUI() {
 }
 
 /**
+ * D-2: 現在の全ログ（getLogs()。setup を含まない通常の手数）から、指定範囲だけを
+ * 「そのまま」残し、それより前を setup:true 付きの初期配置ログへ変換する。
+ * 元の配列・要素は変更しない（_safeCloneEvent 相当のシャローコピー）。
+ * range 省略時・{start,end}が全範囲を指す場合はそのままの配列を返す（従来どおり）。
+ * @param {Array} allLogs
+ * @param {{start:number, end:number}|null|undefined} range  1-indexed 手数（開始・終了）
+ * @returns {Array}
+ */
+function _buildRangeLogs(allLogs, range) {
+  if (!range) return allLogs;
+  const total = allLogs.length;
+  const start = Math.max(1, Math.min(range.start || 1, total));
+  const end = Math.max(start, Math.min(range.end || total, total));
+  if (start <= 1 && end >= total) return allLogs; // 全範囲なら加工不要
+  const setupPart = allLogs.slice(0, start - 1).map(ev => ({ ...ev, setup: true }));
+  const restPart = allLogs.slice(start - 1, end);
+  return [...setupPart, ...restPart];
+}
+
+/**
  * Supabaseにリプレイを保存し、短縮URL（?replay=ID）を返す共通処理
  * @param {string} title
+ * @param {Array}  [logsOverride]  D-2: 範囲共有用に加工済みの logs を渡せる（省略時は全ログ）
  * @returns {Promise<string>} 短縮URL
  */
-async function _saveAndGetShortURL(title) {
+async function _saveAndGetShortURL(title, logsOverride) {
   const res = await fetch('/api/solitaire/replay', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -131,7 +154,7 @@ async function _saveAndGetShortURL(title) {
       images: getImages(),
       names: getNames(),
       exCardIds: getExCardIds(),
-      logs: getLogs(),
+      logs: logsOverride ?? getLogs(),
     }),
   });
   if (!res.ok) {
@@ -148,18 +171,23 @@ async function _saveAndGetShortURL(title) {
  * H-1: 共有URL生成（常にSupabase ID方式で短いURLを発行）。保存失敗時のみハッシュ方式に
  * フォールバック。mobile-ui.js の共有シートからも同じロジックを使うため export する
  * （ロジックは移動せず export を足すだけ）。
+ * @param {{start:number, end:number}} [range]  D-2: 共有する範囲（1-indexed 手数）。省略時は全範囲
  * @returns {Promise<string>} 共有URL
  */
-export async function generateShareURL() {
+export async function generateShareURL(range) {
   const title = _getReplayTitle();
+  // High-1: 既存の setup（初期配置。共有URLを開いて再共有した場合など）を先頭に必ず残す。
+  // _buildRangeLogs は setup を含まない通常ログ（getLogs()）のみを対象に加工するため、
+  // setup 自体はここで別途結合する（再共有で setup が消える不具合の修正）。
+  const logs = [...getSetupLogs(), ..._buildRangeLogs(getLogs(), range)];
 
   // 常にSupabase ID方式（?replay=8文字ID）で短いURLを発行する
   try {
-    return await _saveAndGetShortURL(title);
+    return await _saveAndGetShortURL(title, logs);
   } catch (e) {
     // Supabase未接続など保存失敗時のみハッシュ方式にフォールバック
     console.warn('Supabase保存失敗。ハッシュ方式にフォールバック:', e.message);
-    const hash = exportAsURLHash();
+    const hash = exportAsURLHash(logs);
     if (hash) {
       return `${location.origin}/solitaire#replay=${hash}`;
     }
@@ -171,7 +199,8 @@ export async function generateShareURL() {
  * 共有リンクをコピー
  */
 async function handleShare() {
-  if (getLogLength() === 0) { alert('記録がありません'); return; }
+  // Low-13: setup（初期配置）だけの盤面も共有できるよう、setup込みの手数で判定する
+  if (getLogLength() + getSetupLogs().length === 0) { alert('記録がありません'); return; }
   const btn = document.getElementById('replayShare');
   if (btn) btn.disabled = true;
   try {
@@ -191,7 +220,9 @@ async function handleShare() {
  */
 async function _generateShortURL() {
   const title = _getReplayTitle();
-  return await _saveAndGetShortURL(title);
+  // High-1: setup を含めて送る（X投稿でも setup が落ちないようにする）
+  const logs = [...getSetupLogs(), ...getLogs()];
+  return await _saveAndGetShortURL(title, logs);
 }
 
 /**

@@ -31,11 +31,17 @@
 
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Bungee&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/solitaire/css/main.css?v=20260903d">
+<link rel="stylesheet" href="/static/solitaire/css/main.css?v=20260903e">
 <link rel="stylesheet" href="/static/css/self-watermark.css?v=20260611">
 </head>
 
 <body{% if self_watermark %} data-self-wm style="--self-watermark-opacity: {{ self_watermark_opacity }}"{% endif %}>
+
+<!-- A-3: 横向きスマホ専用の案内帯（閉じられる。PC幅・縦向きでは常に非表示のまま） -->
+<div id="solLandscapeHint" class="sol-landscape-hint" hidden>
+  <span>このページはスマホ縦向きに最適化されています</span>
+  <button type="button" id="solLandscapeHintClose" class="sol-landscape-hint-close" aria-label="閉じる">&times;</button>
+</div>
 
 <!-- ページ本体: 左サイドバー + 右メイン -->
 <div class="sol-page-layout">
@@ -345,6 +351,7 @@
             </button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="deckinput">デッキを読み込む</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="replay">リプレイ操作</button>
+            <button type="button" class="sol-mobile-menu-item" data-menu-action="savedreplays">保存済みリプレイ</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="help">操作方法</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="feedback">不具合・要望を送る</button>
             <!-- E-2: デッキ読込シート内のページナビを非表示にする代わりの導線 -->
@@ -367,6 +374,13 @@
           <!-- M-5: 操作行を検索欄と同じ上部に配置（iOSのソフトキーボードが下端を隠しても押せるように） -->
           <div class="sol-mobile-deck-actions">
             <button type="button" id="solMobileDeckToHandBtn" class="sol-mobile-deck-primary-btn" disabled>手札へ (0)</button>
+            <!-- B-1: 手札以外の行き先。選択1枚以上で有効（盤面へは選択ちょうど1枚のときのみ） -->
+            <div class="sol-mobile-deck-dest-actions">
+              <button type="button" id="solMobileDeckToGraveBtn" class="sol-mobile-menu-item" disabled>墓地へ</button>
+              <button type="button" id="solMobileDeckToBanishBtn" class="sol-mobile-menu-item" disabled>除外へ</button>
+              <button type="button" id="solMobileDeckToExBtn" class="sol-mobile-menu-item" disabled>EXへ</button>
+              <button type="button" id="solMobileDeckToFieldBtn" class="sol-mobile-menu-item" disabled>盤面へ</button>
+            </div>
             <div class="sol-mobile-deck-sub-actions">
               <button type="button" id="solMobileDeckDrawBtn" class="sol-mobile-menu-item">1ドロー</button>
               <button type="button" id="solMobileDeckResetBtn" class="sol-mobile-menu-item">リセット&amp;5ドロー</button>
@@ -398,6 +412,18 @@
               <button type="button" id="solMobileShareCommentAddBtn" class="sol-mobile-menu-item">追加</button>
             </div>
 
+            <!-- D-1: 共有する範囲。既定は 1〜N（全範囲） -->
+            <label class="sol-mobile-share-label">共有する範囲</label>
+            <div class="sol-mobile-share-range-row">
+              <span class="sol-mobile-share-range-tag">開始</span>
+              <input type="range" id="solMobileShareRangeStart" class="sol-mobile-share-range-input" min="1" max="1" value="1">
+            </div>
+            <div class="sol-mobile-share-range-row">
+              <span class="sol-mobile-share-range-tag">終了</span>
+              <input type="range" id="solMobileShareRangeEnd" class="sol-mobile-share-range-input" min="1" max="1" value="1">
+            </div>
+            <p id="solMobileShareRangeLabel" class="sol-mobile-share-range-label">1手目〜1手目（全1手）</p>
+
             <!-- (1) H-1: リンク作成は明示ボタン→結果表示の2段階（iOSのuser activation対策） -->
             <button type="button" id="solMobileShareGenerateBtn" class="sol-mobile-menu-item">共有リンクを作成</button>
             <div id="solMobileShareResult" class="sol-mobile-share-result" hidden>
@@ -413,6 +439,23 @@
             <!-- (2) 従来どおり .click() 配線 -->
             <button type="button" id="solMobileShareExportBtn" class="sol-mobile-menu-item">JSONを保存</button>
             <button type="button" id="solMobileShareImportBtn" class="sol-mobile-menu-item">JSONを読み込む</button>
+            <!-- E-2: リプレイの端末保存（localStorage）。共有する範囲の指定は影響しない（全ログを保存） -->
+            <button type="button" id="solMobileShareSaveLocalBtn" class="sol-mobile-menu-item">端末に保存</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 保存済みリプレイ一覧シート（E-3） -->
+      <div id="solMobileSavedReplaysSheet" class="sol-mobile-sheet" hidden>
+        <div class="sol-mobile-sheet-scrim" data-sol-saved-replays-close></div>
+        <div class="sol-mobile-sheet-panel">
+          <div class="sol-mobile-sheet-header">
+            <span>保存済みリプレイ</span>
+            <button type="button" class="sol-mobile-sheet-close-btn" data-sol-saved-replays-close aria-label="閉じる">&times;</button>
+          </div>
+          <div class="sol-mobile-sheet-body">
+            <p id="solMobileSavedReplaysEmpty" class="sol-mobile-share-note" hidden>保存したリプレイはありません</p>
+            <div id="solMobileSavedReplaysList"></div>
           </div>
         </div>
       </div>
@@ -578,6 +621,6 @@
 <!-- 端末間同期（P2）。main.js（type=module・deferされる）より前に読み込まれる通常scriptなので、
      DOM解析完了後に実行されるmodule側からは常に window.SyncClient が使える（設計文書 §11） -->
 <script src="/static/shared/sync-client.js?v=20260813"></script>
-<script type="module" src="/static/solitaire/js/main.js?v=20260903d"></script>
+<script type="module" src="/static/solitaire/js/main.js?v=20260903e"></script>
 </body>
 </html>

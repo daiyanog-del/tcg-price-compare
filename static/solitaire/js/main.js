@@ -102,12 +102,18 @@ function fitFieldToViewport() {
     const availForBoard = window.innerHeight - navH - trayH - replayH - BOARD_FIXED;
     slotW_h = Math.floor(availForBoard / 4.35);
   } else if (isPortraitMobile) {
-    // 設計書 §8.2: 縦に並ぶカード段は盤面3段＋手札＋墓地除外＋EXの6段 → 6×1.45=8.7
-    // 固定分 = 下部バー52 + 各行の枠・余白10×3 + 盤面余白8 + 盤面gap20 = 110px
-    // 2026-09-03 司令塔が 375/412/744 幅で実測: 縦横スクロールなし・カード幅 52/59/113px を確認。
-    // 値（8.7・110・下記の幅式の 8・50）を変更する場合は同条件で再実測すること。
-    const MOBILE_PORTRAIT_FIXED = 110;
-    slotW_h = Math.floor((window.innerHeight - MOBILE_PORTRAIT_FIXED) / 8.7);
+    // 設計書 §A-2（2026-09-03 第2次実機検収対応）: 墓地｜除外の左右2分割をやめ、
+    // 盤面3段＋手札＋墓地＋除外＋EXの7段が縦に並ぶ → 7×1.45=10.15
+    // 固定分（2026-09-03 追加修正: 375×660 Playwright実測に基づき圧縮。旧158pxから
+    //   mobile.css の gap/padding 圧縮とあわせて再計算）:
+    //   下部バー52 + .sol-field-area内の要素間gap 6×4(盤面↔手札↔墓地↔除外↔EX)=24
+    //   + 盤面内gap 8×2=16 + 4行の枠余白(padding2px×2+border2px=6)×4行=24
+    //   + 盤面custom-slotのborder(1px×2辺×3行)=6 + フィールドpadding-bottom2 + 安全余白2
+    //   = 52+24+16+24+6+2+2 = 126px（実測 fieldHeight=605.7px で基準606px以内に収まることを確認）。
+    // 値（10.15・126・mobile.css の gap:6px/8px・padding:2px・padding-bottom:2px、
+    // 下記の幅式の 8・50）を変更する場合は同条件で再実測すること。
+    const MOBILE_PORTRAIT_FIXED = 126;
+    slotW_h = Math.floor((window.innerHeight - MOBILE_PORTRAIT_FIXED) / 10.15);
   } else {
     // slot-width に依存しない固定オーバーヘッド（実測ベースに引き直し）:
     //   mainContainer padding-top              :  4px
