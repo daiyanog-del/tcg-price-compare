@@ -1,3 +1,12 @@
+-- 2026-09-04 追記: トップページにオーバーフレーム(OF)専用ウィジェットを追加するため、
+--   get_top_movers に p_rarities（レアリティ絞り込み）を追加した（既存引数の後ろに
+--   追加・null なら従来どおり全レアリティ対象で互換を保つ）。絞り込みは base CTE の
+--   where 句で行うため、代表レアリティ選定（rep）もこの絞り込み後の中で行われる
+--   ＝「安い他レアリティに埋もれてOFが代表から漏れる」ことが起きない。
+--   あわせて、シリアル付きOF(グランドマスターレア)向けに新関数 get_top_priced
+--   （値動きではなく現在の最安値の高額順ランキング）をファイル末尾に追加した
+--   （本番実測: グランドマスターレアは7日間の値動きが0件だったため）。
+--
 -- ⚠ 2026-09-01: 値動きの定義がこのプロジェクトには**2つ**ある。
 --   この get_top_movers はサイトのトップ表示専用。X投稿は supabase_rpc_movers.sql の
 --   get_price_movers を使い、ガードの構成が違う（あちら=複数店同方向 / こちら=定着チェック）。
@@ -55,11 +64,17 @@
 --   本番API実測: 初回1,111ms / キャッシュ後 209〜223ms（切替前は約15秒）
 --   ※ anon ロールの statement_timeout は 3s、authenticated は 8s。
 --     3) を入れないと anon から 57014(statement timeout) で落ちる。
+-- 2026-09-04: 引数を追加したため、旧シグネチャ(4引数)が残ると PostgREST の名前付き呼び出しが
+-- 「どちらにも一致して曖昧(42725)」になる。CREATE OR REPLACE は引数型リストが違うと別関数
+-- （オーバーロード）を作ってしまうので、先に旧版を明示的に落とす（本番は同日に適用済み）。
+drop function if exists get_top_movers(int, int, int, int);
+
 create or replace function get_top_movers(
   p_min_price      int default 1000,
   p_days_back      int default 7,
   p_stability_days int default 1,
-  p_limit          int default 10
+  p_limit          int default 10,
+  p_rarities       text[] default null
 )
 returns table (
   card_name        text,
@@ -98,8 +113,12 @@ begin
     from price_history ph
     where ph.recorded_at in (v_new, v_old, v_prev)
       and ph.min_price is not null
+      and (p_rarities is null or ph.rarity = any(p_rarities))
     group by 1, 2, 3
   ),
+  -- 注: p_rarities 指定時は base がその部分集合なので、prev_n（定着チェックを適用するかの
+  -- 判定）も「対象レアリティに前日データがあるか」になる。OF等の小集団で前日行が無い日は
+  -- 定着チェックがスキップされ、UI には「（定着確認なし）」と出る（意図した挙動・2026-09-04）。
   prev_n as (select count(*) as n from base b where b.pp is not null),
   rep as (
     select distinct on (b.cn) b.cn, b.rr
@@ -143,3 +162,92 @@ $$;
 create index if not exists idx_price_history_date_card_shop_rarity
   on public.price_history (recorded_at, card_name, shop, rarity)
   include (min_price);
+
+-- 2026-09-04 追加: シリアル付きオーバーフレーム(グランドマスターレア)専用ウィジェット用。
+-- こちらは「値動き」ではなく「現在の最安値の高額順」ランキング（本番実測: 対象レアリティは
+-- 7日間の値動きが0件だったため、get_top_movers と同じ設計では素材にならない）。
+--
+-- 集計の規約:
+--   代表レアリティ: p_rarities で絞り込んだ中で、カードごとに「当日の最安値を持つ
+--     レアリティ」（get_top_movers の rep と同じ distinct on 方式。この関数は
+--     p_rarities で候補を絞っているため通常は単一レアリティしか残らないが、
+--     複数指定にも耐えるようにしておく）。
+--   price_new: 代表レアリティの当日の全店舗最安値（表示用の主価格）。
+--   price_old / price_new_common: 当日と p_days_back 日前の**両方に記録がある店舗
+--     （共通店舗）**だけで求めた最安値どうしの組。片方でも共通店舗が無ければ両方 null
+--     にし、差額(pct)を出さない（get_top_movers と同じ非対称回避の考え方。price_new
+--     側も共通店舗限定の price_new_common を別列で返し、pctは必ずこの2値から計算する）。
+--
+-- 性能: get_top_movers と同じ被覆インデックス（idx_price_history_date_card_shop_rarity /
+--   price_history_v2.sql §3 の idx_ph2_date_card_shop_rarity）で2日分のみ読むため足りる想定。
+--   anon ロールの statement_timeout は 3s。
+create or replace function get_top_priced(
+  p_rarities  text[],
+  p_days_back int default 7,
+  p_limit     int default 10
+)
+returns table (
+  card_name        text,
+  rarity           text,
+  price_new        int,
+  price_new_common int,
+  price_old        int,
+  pct              numeric,
+  date_new         date,
+  date_old         date
+)
+language plpgsql
+stable
+as $$
+declare
+  v_new date;
+  v_old date;
+begin
+  select max(ph.recorded_at) into v_new from price_history_v2 ph;
+  if v_new is null then
+    return;
+  end if;
+  v_old := v_new - p_days_back;
+
+  return query
+  with base as (
+    select ph.card_name as cn, ph.shop as sh, ph.rarity as rr,
+           min(ph.min_price) filter (where ph.recorded_at = v_new) as np,
+           min(ph.min_price) filter (where ph.recorded_at = v_old) as op
+    from price_history ph
+    where ph.recorded_at in (v_new, v_old)
+      and ph.min_price is not null
+      and ph.rarity = any(p_rarities)
+    group by 1, 2, 3
+  ),
+  rep as (
+    select distinct on (b.cn) b.cn, b.rr
+    from base b
+    where b.np is not null
+    order by b.cn, b.np asc
+  ),
+  card_rows as (
+    select b.cn, b.sh, b.np, b.op
+    from base b
+    join rep r on r.cn = b.cn and r.rr = b.rr
+  ),
+  agg as (
+    select cr.cn,
+           min(cr.np) as p_new,
+           -- 共通店舗＝当日(np)と過去日(op)の両方に記録がある店舗。両側とも同じ店舗集合で
+           -- 集計する（片側だけ絞ると非対称になり偽の差額が出る）
+           min(cr.np) filter (where cr.op is not null and cr.np is not null) as p_new_common,
+           min(cr.op) filter (where cr.op is not null and cr.np is not null) as p_old
+    from card_rows cr group by 1
+  )
+  select a.cn, r.rr, a.p_new, a.p_new_common, a.p_old,
+         case when a.p_old is not null and a.p_new_common is not null
+              then round(((a.p_new_common - a.p_old)::numeric / a.p_old) * 100, 1)
+              else null end,
+         v_new, v_old
+  from agg a
+  join rep r on r.cn = a.cn
+  order by a.p_new desc
+  limit p_limit;
+end;
+$$;

@@ -1,6 +1,14 @@
 # activeContext — 今どこ・次何
 
-> 更新: 2026-09-04 夜（一人回しスマホ最適化 第6次検収対応）
+> 更新: 2026-09-04（OF/シリアル付きランキング追加）
+
+## 2026-09-04: トップにオーバーフレーム(OF)／シリアル付き(グランドマスターレア=GMR)専用ランキングを追加
+
+- ウィジェット `#ofMoversSection`（1段目タブ OF／シリアル付き、OF は値上がり/値下がり）。OF は既存 `/api/top-movers` に `group=of`（RPC `get_top_movers` に `p_rarities` 追加）、シリアル付きは新 `/api/top-priced?group=gmr`（新RPC `get_top_priced`＝現在最安値の高額順・共通店舗があれば7日差額）。**両RPCは本番適用済み**（マイグレーション `add_rarity_filter_top_movers_and_top_priced`、旧4引数版は drop 済み・pg_proc で1件を確認）。実測: get_top_priced 10ms／get_top_movers(OF) 242ms
+- GMR を値動きでなく高額順にした理由: 本番実測で GMR は7日間の値動き0件（decisions.md 参照）
+- 拾い漏れ照合: LOC 2弾の GMR 36種は全て監視済み。**LIMIT OVER SPECIAL PACK Vol.1/2 の OFプリシク5枚が未監視だったので tracked_cards に追加**（Wake Up Your E・HERO／No.99 希望皇ホープドラグナー／ファイアウォール・ドラゴン・シンギュラリティ／究極竜魔導師／俱利伽羅天童※辞書は「俱」）。ORIGINAL ARTWORK COLLECTION(9/26)・IMMORTAL PHOENIX(10/31) は未発売
+- ローカル検証: 環境変数に Supabase 鍵が無いので API は「接続できません」になる。UI は fetch をブラウザ側で差し替えて実データ形で確認（Flask はテンプレートをキャッシュするので変更後はサーバー再起動が必要）
+- 残: reviewer 指摘の修正反映（H-2 主価格と差額の基準不一致→不一致行は差額非表示、M-1 空でセクションが消える、M-2 再試行タイマーの世代ガード 等）→ 本番デプロイ→ 実機目視（3ウィジェット時のレイアウト L-5）
 
 ## 2026-09-04 深夜: 盤面の5列化（設計書 §13）
 

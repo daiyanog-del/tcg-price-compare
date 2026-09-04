@@ -988,6 +988,23 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
         <div id="buybackMoversPeriod" class="movers-period"></div>
         <div class="movers-list" id="buybackMoversList"></div>
       </div>
+
+      <!-- 2026-09-04: オーバーフレーム(OF)／シリアル付きオーバーフレーム(グランドマスターレア)
+           専用ランキング。1段目タブでOF(値動き)⇔グランドマスター(高額順・タブ表記はユーザー指定で「グランドマスター」)を切替、
+           OF側だけ2段目タブ(値上がり/値下がり)を出す。
+           配置は既存2つ（価格推移・買取）の後ろ＝3番目（ユーザー裁定A・2026-09-04） -->
+      <div id="ofMoversSection" class="movers hidden">
+        <div class="movers-tabs">
+          <button class="movers-tab active" id="ofMoversTabOf" onclick="switchOfMoversGroup('of')">オーバーフレーム</button>
+          <button class="movers-tab" id="ofMoversTabGmr" onclick="switchOfMoversGroup('gmr')">グランドマスター</button>
+        </div>
+        <div class="movers-tabs" id="ofMoversDirTabs">
+          <button class="movers-tab" onclick="switchOfMovers('up')">値上がり</button>
+          <button class="movers-tab active" onclick="switchOfMovers('down')">値下がり</button>
+        </div>
+        <div id="ofMoversPeriod" class="movers-period"></div>
+        <div class="movers-list" id="ofMoversList"></div>
+      </div>
     </div>
 
     <div id="trendingSection" class="trending hidden">
@@ -2784,6 +2801,155 @@ function openTopMover(name,rank){
   searchCard(name);
 }
 
+// ── OF(オーバーフレーム)／シリアル付きOF(グランドマスターレア)ランキング（2026-09-04追加） ──
+// 1段目タブ: OF(値動き。get_top_movers流用) ⇔ シリアル付き(現在の最安値の高額順。get_top_priced)
+let _ofMoversGroup='of';
+let _ofMoversDir='down';
+// タブ切替のたびに増やす世代番号。OF/シリアル付きは同じ #ofMoversList を共有しており、
+// 切替前の読込（特に2秒後の再試行）が切替後の表示を上書きしてしまうため、
+// 応答時に世代が変わっていたら捨てる（ローカル検証で実際に発生したのを確認）
+let _ofMoversSeq=0;
+function switchOfMoversGroup(group){
+  _ofMoversGroup=group;
+  _ofMoversSeq++;
+  document.getElementById('ofMoversTabOf').classList.toggle('active',group==='of');
+  document.getElementById('ofMoversTabGmr').classList.toggle('active',group==='gmr');
+  // シリアル付き(高額順)には値上がり/値下がりの概念が無いため2段目タブを隠す
+  document.getElementById('ofMoversDirTabs').classList.toggle('hidden',group==='gmr');
+  loadOfMoversSection();
+}
+function switchOfMovers(dir){
+  _ofMoversDir=dir;
+  _ofMoversSeq++;
+  document.querySelectorAll('#ofMoversDirTabs .movers-tab').forEach(b=>b.classList.toggle('active',b.textContent.includes(dir==='up'?'上がり':'下がり')));
+  loadOfMoversSection();
+}
+function loadOfMoversSection(retry){
+  if(_ofMoversGroup==='gmr') loadGmrPriced(retry);
+  else loadOfMovers(_ofMoversDir,retry);
+}
+function loadOfMovers(dir,retry){
+  retry=retry||0;
+  const seq=_ofMoversSeq;
+  const sec=document.getElementById('ofMoversSection');
+  const list=document.getElementById('ofMoversList');
+  const period=document.getElementById('ofMoversPeriod');
+  sec.classList.remove('hidden');
+  if(!retry){list.innerHTML='<div class="movers-fail">読込中...</div>';period.textContent='';}  // L-4: 前タブの期間表示を引き継がない
+  fetch(`/api/top-movers?group=of&direction=${dir||_ofMoversDir}&limit=10`)
+    .then(r=>r.json())
+    .then(data=>{
+      if(seq!==_ofMoversSeq) return;  // 切替済み・この応答は捨てる
+      if(data.error){
+        if(retry<3){
+          list.innerHTML='<div class="movers-fail">集計中です。少しお待ちください…</div>';
+          setTimeout(()=>{ if(seq!==_ofMoversSeq) return; loadOfMovers(dir,retry+1); },2000);
+          return;
+        }
+        list.innerHTML='<div class="movers-fail">ランキングの取得に失敗しました</div>';
+        return;
+      }
+      const items=data.items||[];
+      // M-1修正: 空データでもセクションごと隠さず、リスト内にメッセージを出す
+      // （隠すと他タブへの導線ごと消えて復帰できなくなるため）
+      if(!items.length){list.innerHTML='<div class="movers-fail">該当するカードがありません</div>';period.textContent='';return;}
+      if(data.date_old&&data.date_new){
+        const upd=data.updated_at?` · ${data.updated_at}収集`:'';
+        const stabilityNote=data.stability_checked===false?'（定着確認なし）':'';
+        period.textContent=_fmtDate(data.date_old)+' → '+_fmtDate(data.date_new)+' の価格変動（共通店舗のみ）'+stabilityNote+upd;
+      }
+      list.innerHTML=items.map((item,i)=>{
+        const isUp=item.diff>0;
+        const sign=isUp?'+':'';
+        const cls=isUp?'up':'down';
+        const rarityBadge=item.rarity?`<span class="rb rb-${cssClass(item.rarity)}">${esc(item.rarity)}</span>`:'';
+        return `<div class="movers-item" onclick="openOfMover('${escAttr(escJs(item.name))}',${i+1})" data-card="${escAttr(item.name)}">
+          <span class="movers-rank">${i+1}</span>
+          <span class="movers-thumb"></span>
+          <span class="movers-name"><span class="movers-name-text">${esc(item.name)}</span>${rarityBadge?`<span class="movers-rarity">${rarityBadge}</span>`:''}</span>
+          <span class="movers-price">
+            <span class="movers-price-now">&yen;${item.today.toLocaleString()}</span>
+            <span class="movers-diff ${cls}">${sign}${item.diff.toLocaleString()} (${sign}${item.pct}%)</span>
+          </span>
+        </div>`;
+      }).join('');
+      loadRankingImages('#ofMoversList .movers-item','movers-thumb');
+    })
+    .catch(()=>{
+      if(seq!==_ofMoversSeq) return;
+      if(retry<2){setTimeout(()=>{ if(seq!==_ofMoversSeq) return; loadOfMovers(dir,retry+1); },2000);return;}
+      list.innerHTML='<div class="movers-fail">ランキングの取得に失敗しました</div>';
+    });
+}
+function loadGmrPriced(retry){
+  retry=retry||0;
+  const seq=_ofMoversSeq;
+  const sec=document.getElementById('ofMoversSection');
+  const list=document.getElementById('ofMoversList');
+  const period=document.getElementById('ofMoversPeriod');
+  sec.classList.remove('hidden');
+  if(!retry){list.innerHTML='<div class="movers-fail">読込中...</div>';period.textContent='';}  // L-4: 前タブの期間表示を引き継がない
+  fetch(`/api/top-priced?group=gmr&limit=10`)
+    .then(r=>r.json())
+    .then(data=>{
+      if(seq!==_ofMoversSeq) return;  // 切替済み・この応答は捨てる
+      if(data.error){
+        if(retry<3){
+          list.innerHTML='<div class="movers-fail">集計中です。少しお待ちください…</div>';
+          setTimeout(()=>{ if(seq!==_ofMoversSeq) return; loadGmrPriced(retry+1); },2000);
+          return;
+        }
+        list.innerHTML='<div class="movers-fail">ランキングの取得に失敗しました</div>';
+        return;
+      }
+      const items=data.items||[];
+      // M-1修正: 空データでもセクションごと隠さず、リスト内にメッセージを出す
+      if(!items.length){list.innerHTML='<div class="movers-fail">該当するカードがありません</div>';period.textContent='';return;}
+      if(data.date_new){
+        const upd=data.updated_at?` · ${data.updated_at}収集`:'';
+        // M-4修正: 差額(diffがnullでない、または「変動なし」の0)を持つ行が
+        // 1件でもあれば比較日(date_old)も併記する
+        const hasAnyDiff=items.some(it=>it.diff!==null&&it.diff!==undefined);
+        const compareNote=hasAnyDiff?`・差額は ${_fmtDate(data.date_old)} 比（共通店舗のみ）`:'';
+        period.textContent=_fmtDate(data.date_new)+' 時点の最安値（高い順）'+compareNote+upd;
+      }
+      list.innerHTML=items.map((item,i)=>{
+        // diff が null（共通店舗が無く比較不能）と 0（7日前と同額）は区別して表示する。
+        // 0 を「+0 (0%)」と出しても意味が無いため「変動なし」の文言に置き換える
+        const hasDiff=item.diff!==null&&item.diff!==undefined&&item.diff!==0;
+        const flatHtml=(item.diff===0)?`<span class="movers-diff" style="color:var(--text-d)">7日間 変動なし</span>`:'';
+        const isUp=hasDiff&&item.diff>0;
+        const sign=isUp?'+':'';
+        const cls=isUp?'up':'down';
+        const diffHtml=hasDiff?`<span class="movers-diff ${cls}">${sign}${item.diff.toLocaleString()} (${sign}${item.pct}%)</span>`:flatHtml;
+        const rarityBadge=item.rarity?`<span class="rb rb-${cssClass(item.rarity)}">${esc(item.rarity)}</span>`:'';
+        return `<div class="movers-item" onclick="openGmrPriced('${escAttr(escJs(item.name))}',${i+1})" data-card="${escAttr(item.name)}">
+          <span class="movers-rank">${i+1}</span>
+          <span class="movers-thumb"></span>
+          <span class="movers-name"><span class="movers-name-text">${esc(item.name)}</span>${rarityBadge?`<span class="movers-rarity">${rarityBadge}</span>`:''}</span>
+          <span class="movers-price">
+            <span class="movers-price-now">&yen;${item.price.toLocaleString()}</span>
+            ${diffHtml}
+          </span>
+        </div>`;
+      }).join('');
+      loadRankingImages('#ofMoversList .movers-item','movers-thumb');
+    })
+    .catch(()=>{
+      if(seq!==_ofMoversSeq) return;
+      if(retry<2){setTimeout(()=>{ if(seq!==_ofMoversSeq) return; loadGmrPriced(retry+1); },2000);return;}
+      list.innerHTML='<div class="movers-fail">ランキングの取得に失敗しました</div>';
+    });
+}
+function openOfMover(name,rank){
+  _ga('of_mover_click',{rank:rank});
+  searchCard(name);
+}
+function openGmrPriced(name,rank){
+  _ga('gmr_priced_click',{rank:rank});
+  searchCard(name);
+}
+
 // ── 買取値上がり/値下がりランキング（色反転: UP=緑/DOWN=赤） ──
 let _buybackMoversDir='up';
 function switchBuybackMovers(dir){
@@ -2856,6 +3022,7 @@ function loadRankingImages(itemSelector, thumbClass){
 document.addEventListener('DOMContentLoaded', () => {
   // 初期ロード
   loadTopMovers('down');
+  loadOfMovers('down');
   loadTrending();
   loadBuybackMovers('up');
 

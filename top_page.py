@@ -113,6 +113,35 @@ MOVERS_STABILITY_DAYS = 1
 TOP_MOVERS_RPC_LIMIT = 20 * 4
 
 
+# ── オーバーフレーム(OF)／シリアル付きオーバーフレーム(GMR)ウィジェット（2026-09-04） ──
+
+# rarity.py の canonical 名。OFは既存の価格推移ランキング（get_top_movers）と
+# 同じ規約でレアリティだけ絞る。GMRは値動きがほぼ無い（本番実測: 7日で0件）ため
+# 現在の最安値の高額順ランキング（get_top_priced）を使う。
+OF_RARITIES = ("OFプリシク", "OFシークレット", "OFウルトラ", "OFスーパー")
+GMR_RARITIES = ("グランドマスター",)
+RARITY_GROUPS = {"of": OF_RARITIES, "gmr": GMR_RARITIES}
+
+# 各APIで実際に受け付けるgroupの許可リスト（L-1修正: RARITY_GROUPSは
+# レアリティの定義集合であり「どのAPIがどのgroupを受け付けるか」とは別の
+# 関心事のため分離する）。
+# /api/top-movers: 値動きランキング（get_top_movers）はOFのみ対応。
+TOP_MOVERS_GROUPS = ("of",)
+# /api/top-priced: 高額順ランキング（get_top_priced）はGMRのみ対応。
+# get_top_priced の代表レアリティ選定は「カードごとの最安レアリティ」であり、
+# 複数レアリティが混在する群（OF等）の高額順ランキングには意味的に不向きなため。
+TOP_PRICED_GROUPS = ("gmr",)
+
+# 高額順ランキングの表示件数上限。/api/top-priced?limit=20 まで返せるよう、
+# APIの上限（_parse_limit_param(10, 20)の最大20）と揃える（M-3修正:
+# 従来10だと limit=20 を指定してもRPCが10件しか返さず頭打ちになっていた）。
+# TODO: calibrate from data（表示件数の妥当性は未検証、既存TOP_DECKS_LIMIT等と同水準の仮置き）
+TOP_PRICED_LIMIT = 20
+
+# app.py側キャッシュのTTL。既存のTOP_MOVERS_CACHE_SECに倣う。
+TOP_PRICED_CACHE_SEC = 3600
+
+
 def _group_by_card(rows: list[dict]) -> dict:
     """price_history 行リストを card_name ごとにグループ化する"""
     grouped: dict = {}

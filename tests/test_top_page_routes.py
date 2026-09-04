@@ -260,6 +260,8 @@ def _movers_row(name, rarity, price_old, price_new, pct, date_new="2026-09-01",
 def _top_movers_isolated(monkeypatch):
     monkeypatch.setattr(app_module, "_top_movers_cache", {})
     monkeypatch.setattr(app_module, "_top_movers_cache_time", 0)
+    monkeypatch.setattr(app_module, "_top_movers_group_cache", {})
+    monkeypatch.setattr(app_module, "_top_movers_group_cache_time", {})
     yield
 
 
@@ -385,3 +387,230 @@ class TestApiTopMovers:
         assert data["items"] == []
         assert data["error"], "データが無い時は失敗を示すこと（黙って空にしない）"
         assert app_module._top_movers_cache_time == 0, "空データはキャッシュされないこと"
+
+    # ── OF(オーバーフレーム)専用タブ（2026-09-04追加） ──
+
+    def test_group_of_passes_of_rarities_to_rpc(self, monkeypatch, _top_movers_isolated):
+        rows = [_movers_row("OFカード", "OFウルトラ", 1000, 1300, 30.0)]
+        fake = _FakeSupabaseTopMovers(rows)
+        monkeypatch.setattr(app_module, "_supabase_client", fake)
+        app_module.app.config.update(TESTING=True)
+        client = app_module.app.test_client()
+
+        resp = client.get("/api/top-movers?group=of&direction=up")
+        assert resp.status_code == 200
+        assert len(fake.rpc_calls) == 1
+        assert fake.rpc_calls[0]["p_rarities"] == list(app_module._top_page.OF_RARITIES)
+        data = resp.get_json()
+        assert data["items"][0]["name"] == "OFカード"
+
+    def test_group_none_does_not_pass_p_rarities(self, monkeypatch, _top_movers_isolated):
+        rows = [_movers_row("値上がりカード", "UR", 1000, 2000, 100.0)]
+        fake = _FakeSupabaseTopMovers(rows)
+        monkeypatch.setattr(app_module, "_supabase_client", fake)
+        app_module.app.config.update(TESTING=True)
+        client = app_module.app.test_client()
+
+        client.get("/api/top-movers")
+        assert "p_rarities" not in fake.rpc_calls[0]
+
+    def test_invalid_group_rejected(self, monkeypatch, _top_movers_isolated):
+        app_module.app.config.update(TESTING=True)
+        client = app_module.app.test_client()
+        resp = client.get("/api/top-movers?group=gmr")
+        assert resp.status_code == 400
+
+    # ── グループ間キャッシュ分離: group=None と group=of は別辞書で管理されており、
+    # 片方を温めても他方のキャッシュヒットにはならないこと ──
+
+    def test_group_none_then_of_cache_is_separate(self, monkeypatch, _top_movers_isolated):
+        rows = [_movers_row("値上がりカード", "UR", 1000, 2000, 100.0)]
+        fake = _FakeSupabaseTopMovers(rows)
+        monkeypatch.setattr(app_module, "_supabase_client", fake)
+        app_module.app.config.update(TESTING=True)
+        client = app_module.app.test_client()
+
+        client.get("/api/top-movers")  # group=None を温める
+        assert len(fake.rpc_calls) == 1
+        client.get("/api/top-movers?group=of")
+        assert len(fake.rpc_calls) == 2, "group=ofはgroup=Noneのキャッシュを流用せずRPCを再度呼ぶこと"
+        assert fake.rpc_calls[1]["p_rarities"] == list(app_module._top_page.OF_RARITIES)
+
+    def test_group_of_then_none_cache_is_separate(self, monkeypatch, _top_movers_isolated):
+        rows = [_movers_row("値上がりカード", "UR", 1000, 2000, 100.0)]
+        fake = _FakeSupabaseTopMovers(rows)
+        monkeypatch.setattr(app_module, "_supabase_client", fake)
+        app_module.app.config.update(TESTING=True)
+        client = app_module.app.test_client()
+
+        client.get("/api/top-movers?group=of")  # group=of を温める
+        assert len(fake.rpc_calls) == 1
+        client.get("/api/top-movers")
+        assert len(fake.rpc_calls) == 2, "group=Noneはgroup=ofのキャッシュを流用せずRPCを再度呼ぶこと"
+        assert "p_rarities" not in fake.rpc_calls[1]
+
+
+# ── /api/top-priced（シリアル付きオーバーフレーム(GMR)専用: 高額順ランキング、2026-09-04追加） ──
+
+class _FakeSupabaseTopPriced:
+    """.rpc("get_top_priced", params).execute() を模倣するfake。"""
+
+    def __init__(self, rows: list | None = None, exc: Exception | None = None):
+        self.rows = rows if rows is not None else []
+        self.exc = exc
+        self.rpc_calls: list = []
+
+    def rpc(self, name, params):
+        assert name == "get_top_priced"
+        self.rpc_calls.append(params)
+        return self
+
+    def execute(self):
+        if self.exc is not None:
+            raise self.exc
+        return SimpleNamespace(data=self.rows)
+
+
+def _priced_row(name, rarity, price_new, price_new_common=None, price_old=None, pct=None,
+                 date_new="2026-09-04", date_old="2026-08-28"):
+    return {"card_name": name, "rarity": rarity, "price_new": price_new,
+            "price_new_common": price_new_common, "price_old": price_old, "pct": pct,
+            "date_new": date_new, "date_old": date_old}
+
+
+@pytest.fixture()
+def _top_priced_isolated(monkeypatch):
+    monkeypatch.setattr(app_module, "_top_priced_cache", {})
+    monkeypatch.setattr(app_module, "_top_priced_cache_time", {})
+    yield
+
+
+class TestApiTopPriced:
+    def test_returns_items_with_and_without_diff(self, monkeypatch, _top_priced_isolated):
+        rows = [
+            _priced_row("差額ありカード", "グランドマスター", 10000, price_new_common=10000,
+                        price_old=8000, pct=25.0),
+            _priced_row("差額なしカード", "グランドマスター", 5000),  # 7日前の共通店舗価格なし
+        ]
+        fake = _FakeSupabaseTopPriced(rows)
+        monkeypatch.setattr(app_module, "_supabase_client", fake)
+        app_module.app.config.update(TESTING=True)
+        client = app_module.app.test_client()
+
+        resp = client.get("/api/top-priced?group=gmr&limit=10")
+        assert resp.status_code == 200
+        assert len(fake.rpc_calls) == 1
+        assert fake.rpc_calls[0]["p_rarities"] == list(app_module._top_page.GMR_RARITIES)
+        data = resp.get_json()
+        assert data["error"] is None
+        items = data["items"]
+        assert items[0]["name"] == "差額ありカード"
+        assert items[0]["price"] == 10000
+        assert items[0]["diff"] == 2000
+        assert items[0]["pct"] == 25.0
+        assert items[1]["name"] == "差額なしカード"
+        assert items[1]["diff"] is None
+        assert items[1]["pct"] is None
+
+    def test_invalid_group_rejected(self, monkeypatch, _top_priced_isolated):
+        app_module.app.config.update(TESTING=True)
+        client = app_module.app.test_client()
+        resp = client.get("/api/top-priced?group=xyz")
+        assert resp.status_code == 400
+
+    def test_missing_group_rejected(self, monkeypatch, _top_priced_isolated):
+        app_module.app.config.update(TESTING=True)
+        client = app_module.app.test_client()
+        resp = client.get("/api/top-priced")
+        assert resp.status_code == 400
+
+    def test_no_supabase_client_reports_error_not_silent_empty(self, monkeypatch, _top_priced_isolated):
+        monkeypatch.setattr(app_module, "_supabase_client", None)
+        app_module.app.config.update(TESTING=True)
+        client = app_module.app.test_client()
+        resp = client.get("/api/top-priced?group=gmr")
+        data = resp.get_json()
+        assert data["items"] == []
+        assert data["error"], "DB未接続時は失敗を示すこと（黙って空にしない）"
+
+    def test_empty_rows_reports_error_not_cached(self, monkeypatch, _top_priced_isolated):
+        fake = _FakeSupabaseTopPriced([])
+        monkeypatch.setattr(app_module, "_supabase_client", fake)
+        app_module.app.config.update(TESTING=True)
+        client = app_module.app.test_client()
+        resp = client.get("/api/top-priced?group=gmr")
+        data = resp.get_json()
+        assert data["items"] == []
+        assert data["error"], "データが無い時は失敗を示すこと（黙って空にしない）"
+        assert app_module._top_priced_cache_time.get("gmr", 0) == 0, "空データはキャッシュされないこと"
+
+    def test_cache_hit_skips_refetch(self, monkeypatch, _top_priced_isolated):
+        rows = [_priced_row("差額なしカード", "グランドマスター", 5000)]
+        fake = _FakeSupabaseTopPriced(rows)
+        monkeypatch.setattr(app_module, "_supabase_client", fake)
+        app_module.app.config.update(TESTING=True)
+        client = app_module.app.test_client()
+        client.get("/api/top-priced?group=gmr")
+        call_count_after_first = len(fake.rpc_calls)
+        client.get("/api/top-priced?group=gmr")
+        assert len(fake.rpc_calls) == call_count_after_first, "2回目はキャッシュから返り、RPCを再度呼ばない"
+
+    def test_limit_20_passed_to_rpc(self, monkeypatch, _top_priced_isolated):
+        """M-3: limit=20を要求したらRPCのp_limitも20以上でなければ頭打ちになる"""
+        rows = [_priced_row(f"カード{i}", "グランドマスター", 5000 - i) for i in range(20)]
+        fake = _FakeSupabaseTopPriced(rows)
+        monkeypatch.setattr(app_module, "_supabase_client", fake)
+        app_module.app.config.update(TESTING=True)
+        client = app_module.app.test_client()
+
+        resp = client.get("/api/top-priced?group=gmr&limit=20")
+        assert resp.status_code == 200
+        assert fake.rpc_calls[0]["p_limit"] >= 20
+        assert len(resp.get_json()["items"]) == 20
+
+    def test_group_of_rejected(self, monkeypatch, _top_priced_isolated):
+        """L-1: get_top_priced の代表レアリティ選定は「カードごとの最安レアリティ」の
+        ため複数レアリティが混在する群には不向き。groupはgmrのみ許可する"""
+        app_module.app.config.update(TESTING=True)
+        client = app_module.app.test_client()
+        resp = client.get("/api/top-priced?group=of")
+        assert resp.status_code == 400
+
+    def test_rpc_failure_falls_back_to_stale_cache(self, monkeypatch, _top_priced_isolated):
+        """RPC例外時は空を返さず、既存キャッシュがあればそれにフォールバックすること"""
+        rows = [_priced_row("差額なしカード", "グランドマスター", 5000)]
+        ok_fake = _FakeSupabaseTopPriced(rows)
+        monkeypatch.setattr(app_module, "_supabase_client", ok_fake)
+        app_module.app.config.update(TESTING=True)
+        client = app_module.app.test_client()
+        first = client.get("/api/top-priced?group=gmr").get_json()
+        assert first["items"], "前提: 1回目は正常にキャッシュされていること"
+
+        fail_fake = _FakeSupabaseTopPriced(exc=RuntimeError("RPC失敗（模擬）"))
+        monkeypatch.setattr(app_module, "_supabase_client", fail_fake)
+        monkeypatch.setattr(app_module, "_top_priced_cache_time",
+                             {"gmr": 0})  # 強制的にキャッシュ失効させ再取得を発生させる
+        resp = client.get("/api/top-priced?group=gmr")
+        data = resp.get_json()
+        assert data["items"] == first["items"], "RPC失敗時は古いキャッシュのitemsをそのまま返すこと"
+        assert data["error"] is None, "キャッシュへフォールバックできた場合はerrorを出さないこと"
+
+    def test_diff_null_when_price_and_common_price_differ(self, monkeypatch, _top_priced_isolated):
+        """H-2: 主価格(price=全店最安)と差額(price_common基準)の基準が食い違う行
+        （別の店由来）は、価格−差額≠7日前 となり読み違えるため差額を出さない"""
+        rows = [
+            _priced_row("店違いカード", "グランドマスター", price_new=12000,
+                        price_new_common=10000, price_old=9000, pct=11.1),
+        ]
+        fake = _FakeSupabaseTopPriced(rows)
+        monkeypatch.setattr(app_module, "_supabase_client", fake)
+        app_module.app.config.update(TESTING=True)
+        client = app_module.app.test_client()
+
+        resp = client.get("/api/top-priced?group=gmr")
+        item = resp.get_json()["items"][0]
+        assert item["price"] == 12000
+        assert item["price_common"] == 10000, "price_commonはそのまま返す"
+        assert item["diff"] is None
+        assert item["pct"] is None
+        assert item["yesterday"] is None

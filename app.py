@@ -1843,10 +1843,25 @@ _top_movers_cache: dict = {}
 _top_movers_cache_time: float = 0
 _top_movers_lock = threading.Lock()  # Q-11: in-flightロック
 
-def _get_top_movers_cached(force: bool = False) -> dict:
+# 2026-09-04: トップページのOF(オーバーフレーム)専用タブ用。既存の
+# _top_movers_cache 一式（group=None、全レアリティ対象）はテストが直接
+# monkeypatchしているため変数名・意味を変えず、グループ別（"of"）の分だけ
+# こちらの辞書で別管理する。
+_top_movers_group_cache: dict[str, dict] = {}
+_top_movers_group_cache_time: dict[str, float] = {}
+# L-2修正: ハードコードでなく top_page.RARITY_GROUPS（レアリティ群の定義集合）から
+# 機械的に作る。実際に許可するgroupは api_top_movers 側で top_page.TOP_MOVERS_GROUPS
+# により絞るため、ここに未使用のキー（例: gmr）が含まれても実害はない。
+_top_movers_group_locks: dict[str, threading.Lock] = {g: threading.Lock() for g in _top_page.RARITY_GROUPS}
+
+
+def _get_top_movers_cached(group: str | None = None, force: bool = False) -> dict:
     """価格推移ランキング（代表レアリティ固定・共通店舗ガード・定着チェック、
     最安¥1,000以上）を DB側RPC（get_top_movers）で集計し、
     top_page.TOP_MOVERS_CACHE_SEC 秒キャッシュする。
+
+    group: None なら従来どおり全レアリティ対象。"of" なら top_page.OF_RARITIES
+        に絞る（RPCの p_rarities 引数、2026-09-04追加）。
 
     V-1（2026-09-01）: 従来は price_history を1日ぶん全行（本番実測30,851行）
     ×3日分をPostgREST経由でPython側に読み出して集計しており、キャッシュ失効後の
@@ -1858,37 +1873,48 @@ def _get_top_movers_cached(force: bool = False) -> dict:
     """
     global _top_movers_cache, _top_movers_cache_time
     now = time.time()
-    if not force and _top_movers_cache and now - _top_movers_cache_time < _top_page.TOP_MOVERS_CACHE_SEC:
-        return _top_movers_cache
+
+    if group is None:
+        cached = _top_movers_cache
+        cached_time = _top_movers_cache_time
+        lock = _top_movers_lock
+    else:
+        cached = _top_movers_group_cache.get(group, {})
+        cached_time = _top_movers_group_cache_time.get(group, 0)
+        lock = _top_movers_group_locks[group]
+
+    if not force and cached and now - cached_time < _top_page.TOP_MOVERS_CACHE_SEC:
+        return cached
 
     if not _supabase_client:
-        return _top_movers_cache or {"up": [], "down": [], "date_old": None, "date_new": None,
-                                      "error": "価格データベースに接続できません"}
+        return cached or {"up": [], "down": [], "date_old": None, "date_new": None,
+                           "error": "価格データベースに接続できません"}
 
-    if not _top_movers_lock.acquire(blocking=False):
+    if not lock.acquire(blocking=False):
         # 別スレッドが計算中（Q-11）
-        return _top_movers_cache or {"up": [], "down": [], "date_old": None, "date_new": None,
-                                      "error": "計算中です。しばらくしてから再度お試しください"}
+        return cached or {"up": [], "down": [], "date_old": None, "date_new": None,
+                           "error": "計算中です。しばらくしてから再度お試しください"}
 
     try:
+        params = {
+            "p_min_price": _top_page.MOVERS_MIN_PRICE,
+            "p_stability_days": _top_page.MOVERS_STABILITY_DAYS,
+            "p_limit": _top_page.TOP_MOVERS_RPC_LIMIT,
+        }
+        if group is not None:
+            params["p_rarities"] = list(_top_page.RARITY_GROUPS[group])
         try:
-            resp = (_supabase_client
-                    .rpc("get_top_movers", {
-                        "p_min_price": _top_page.MOVERS_MIN_PRICE,
-                        "p_stability_days": _top_page.MOVERS_STABILITY_DAYS,
-                        "p_limit": _top_page.TOP_MOVERS_RPC_LIMIT,
-                    })
-                    .execute())
+            resp = _supabase_client.rpc("get_top_movers", params).execute()
             rows = resp.data or []
         except Exception as e:
-            logger.warning(f"価格推移ランキング(RPC)取得失敗: {e}")
-            if _top_movers_cache:
-                return _top_movers_cache
+            logger.warning(f"価格推移ランキング(RPC)取得失敗(group={group}): {e}")
+            if cached:
+                return cached
             return {"up": [], "down": [], "date_old": None, "date_new": None, "error": "取得に失敗しました"}
 
         if not rows:
-            return _top_movers_cache or {"up": [], "down": [], "date_old": None, "date_new": None,
-                                          "error": "価格データがまだありません"}
+            return cached or {"up": [], "down": [], "date_old": None, "date_new": None,
+                               "error": "価格データがまだありません"}
 
         up, down = [], []
         date_new = date_old = None
@@ -1919,30 +1945,41 @@ def _get_top_movers_cached(force: bool = False) -> dict:
         # 空データはキャッシュしない（買取movers等と同じ方針。データ未蓄積時に
         # 長時間空を返し続けるバグを防ぐ）
         if up or down:
-            _top_movers_cache = result
-            _top_movers_cache_time = now
+            if group is None:
+                _top_movers_cache = result
+                _top_movers_cache_time = now
+            else:
+                _top_movers_group_cache[group] = result
+                _top_movers_group_cache_time[group] = now
         return result
     except Exception as e:
-        logger.warning(f"価格推移ランキング(RPC)取得失敗: {e}")
-        if _top_movers_cache:
-            return _top_movers_cache
+        logger.warning(f"価格推移ランキング(RPC)取得失敗(group={group}): {e}")
+        if cached:
+            return cached
         return {"up": [], "down": [], "date_old": None, "date_new": None, "error": "取得に失敗しました"}
     finally:
-        _top_movers_lock.release()
+        lock.release()
 
 @app.route("/api/top-movers")
 def api_top_movers():
-    """検索前の初期画面向け: 価格推移ランキング（共通店舗ガードのみ、最安¥1,000以上）を返す"""
+    """検索前の初期画面向け: 価格推移ランキング（共通店舗ガードのみ、最安¥1,000以上）を返す
+
+    group クエリ（省略時=全レアリティ対象／"of"=OF4種に絞る）を2026-09-04に追加。
+    """
     direction = request.args.get("direction", "up")
     if direction not in ("up", "down"):
         return jsonify({"error": "direction は up または down"}), 400
+    group = request.args.get("group")
+    if group is not None and group not in _top_page.TOP_MOVERS_GROUPS:
+        return jsonify({"error": f"group は {'/'.join(_top_page.TOP_MOVERS_GROUPS)} のみ指定できます"}), 400
     limit, limit_error = _parse_limit_param(10, 20)
     if limit_error:
         return limit_error
-    data = _get_top_movers_cached()
+    data = _get_top_movers_cached(group)
     items = data.get(direction, [])[:limit]
-    if _top_movers_cache_time:
-        updated_dt = datetime.fromtimestamp(_top_movers_cache_time, JST)
+    cache_time = _top_movers_cache_time if group is None else _top_movers_group_cache_time.get(group, 0)
+    if cache_time:
+        updated_dt = datetime.fromtimestamp(cache_time, JST)
         updated_at = f"{updated_dt.hour}:{updated_dt.minute:02d}"
     else:
         updated_at = None
@@ -1951,6 +1988,137 @@ def api_top_movers():
         "date_old": data.get("date_old"),
         "date_new": data.get("date_new"),
         "stability_checked": data.get("stability_checked", False),
+        "updated_at": updated_at,
+        "error": data.get("error"),
+    })
+
+
+_top_priced_cache: dict[str, dict] = {}
+_top_priced_cache_time: dict[str, float] = {}
+_top_priced_locks: dict[str, threading.Lock] = {g: threading.Lock() for g in _top_page.RARITY_GROUPS}
+
+
+def _get_top_priced_cached(group: str, force: bool = False) -> dict:
+    """現在の最安値の高額順ランキング（DB側RPC get_top_priced）を
+    top_page.TOP_PRICED_CACHE_SEC 秒キャッシュする（2026-09-04追加）。
+
+    シリアル付きオーバーフレーム(GMR)は本番実測で7日間の値動きが0件だったため、
+    get_top_movers と同じ「値動き」の枠組みではなく「現在の最安値が高い順」を返す。
+    差額(diff/pct)は「7日前の共通店舗価格があれば」出し、無ければ出さない
+    （RPC側で price_old/price_new_common が null になる）。
+
+    _get_top_movers_cached と同じ方針: キャッシュ/in-flightロック/空データ非キャッシュ/
+    例外時は既存キャッシュへフォールバック。
+    """
+    now = time.time()
+    cached = _top_priced_cache.get(group, {})
+    cached_time = _top_priced_cache_time.get(group, 0)
+    lock = _top_priced_locks[group]
+
+    if not force and cached and now - cached_time < _top_page.TOP_PRICED_CACHE_SEC:
+        return cached
+
+    if not _supabase_client:
+        return cached or {"items": [], "date_old": None, "date_new": None,
+                           "error": "価格データベースに接続できません"}
+
+    if not lock.acquire(blocking=False):
+        return cached or {"items": [], "date_old": None, "date_new": None,
+                           "error": "計算中です。しばらくしてから再度お試しください"}
+
+    try:
+        try:
+            resp = (_supabase_client
+                    .rpc("get_top_priced", {
+                        "p_rarities": list(_top_page.RARITY_GROUPS[group]),
+                        "p_limit": _top_page.TOP_PRICED_LIMIT,
+                    })
+                    .execute())
+            rows = resp.data or []
+        except Exception as e:
+            logger.warning(f"高額順ランキング(RPC)取得失敗(group={group}): {e}")
+            if cached:
+                return cached
+            return {"items": [], "date_old": None, "date_new": None, "error": "取得に失敗しました"}
+
+        if not rows:
+            return cached or {"items": [], "date_old": None, "date_new": None,
+                               "error": "価格データがまだありません"}
+
+        items = []
+        date_new = date_old = None
+        for row in rows:
+            price_new = row.get("price_new")
+            price_old = row.get("price_old")
+            price_new_common = row.get("price_new_common")
+            pct_raw = row.get("pct")
+            pct = float(pct_raw) if pct_raw is not None else None  # L-3: movers側と型を揃える
+            diff = None
+            yesterday = price_old
+            if price_new != price_new_common:
+                # H-2修正: 主価格(price=全店最安)と差額(price_common基準)は
+                # 基準が異なる。price_new(全店最安)とprice_new_common(共通店舗内
+                # 最安)が別の店に由来する場合、価格−差額≠7日前 となり読み違えを
+                # 生むため、その行は差額(diff/pct/yesterday)を出さない。
+                # price_common自体はそのまま返してよい。
+                diff = None
+                pct = None
+                yesterday = None
+            elif price_old is not None and price_new_common is not None:
+                diff = price_new_common - price_old
+            items.append({
+                "name": row.get("card_name", ""),
+                "rarity": row.get("rarity", ""),
+                "price": price_new,
+                "price_common": price_new_common,
+                "yesterday": yesterday,
+                "diff": diff,
+                "pct": pct,
+            })
+            if date_new is None:
+                date_new = row.get("date_new")
+                date_old = row.get("date_old")
+
+        result = {"items": items, "date_new": date_new, "date_old": date_old, "error": None}
+
+        if items:
+            _top_priced_cache[group] = result
+            _top_priced_cache_time[group] = now
+        return result
+    except Exception as e:
+        logger.warning(f"高額順ランキング(RPC)取得失敗(group={group}): {e}")
+        if cached:
+            return cached
+        return {"items": [], "date_old": None, "date_new": None, "error": "取得に失敗しました"}
+    finally:
+        lock.release()
+
+
+@app.route("/api/top-priced")
+def api_top_priced():
+    """検索前の初期画面向け: 現在の最安値の高額順ランキングを返す（2026-09-04追加）。
+    group クエリは top_page.TOP_PRICED_GROUPS（現状 "gmr"）のみ許可する
+    （L-1修正: get_top_priced の代表レアリティ選定は「カードごとの最安レアリティ」
+    のため、複数レアリティが混在する群の高額順ランキングには意味的に不向き）。
+    """
+    group = request.args.get("group")
+    if group not in _top_page.TOP_PRICED_GROUPS:
+        return jsonify({"error": f"group は {'/'.join(_top_page.TOP_PRICED_GROUPS)} のいずれかを指定してください"}), 400
+    limit, limit_error = _parse_limit_param(10, 20)
+    if limit_error:
+        return limit_error
+    data = _get_top_priced_cached(group)
+    items = data.get("items", [])[:limit]
+    cache_time = _top_priced_cache_time.get(group, 0)
+    if cache_time:
+        updated_dt = datetime.fromtimestamp(cache_time, JST)
+        updated_at = f"{updated_dt.hour}:{updated_dt.minute:02d}"
+    else:
+        updated_at = None
+    return jsonify({
+        "items": items,
+        "date_old": data.get("date_old"),
+        "date_new": data.get("date_new"),
         "updated_at": updated_at,
         "error": data.get("error"),
     })
