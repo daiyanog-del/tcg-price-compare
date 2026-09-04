@@ -240,6 +240,14 @@
     font-size: 0.82rem;
     font-weight: 600;
   }
+  /* タスクB: 演出の間だけデッキボタンを光らせる（400ms・.sol-loading とは別クラス） */
+  @keyframes solDeckBtnPulse {
+    0%, 100% { box-shadow: none; }
+    50% { box-shadow: 0 0 0 3px var(--accent); background: var(--accent); color: #fff; }
+  }
+  .sol-mobile-bar-btn.sol-pulse {
+    animation: solDeckBtnPulse 0.4s ease-in-out;
+  }
   .sol-mobile-bar-menu {
     flex: 0 0 46px;
     font-size: 1.3rem;
@@ -826,8 +834,59 @@
     padding: 8px;
   }
 
-  /* ════════ 共有シート（フェーズ3・設計書 §3.4） ════════
+  /* ════════ 共有シート（フェーズ3・設計書 §3.4／2026-09-04 タスクA: 「わかる」構成に再編） ════════
      枠自体は⋯メニューと共通の .sol-mobile-sheet を再利用。ここでは中身固有の要素のみ。 */
+
+  /* タスクA: 全セクション（①〜④）にスクロールで到達できるよう .sol-mobile-sheet-panel の
+     80vhより広く取る。overflow-y:auto は .sol-mobile-sheet-panel 側で既に効いている。 */
+  .sol-mobile-share-panel {
+    max-height: 92vh;
+  }
+  .sol-mobile-share-current {
+    margin: 0 0 4px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--main-color);
+  }
+  /* タスクA: ①〜④の区切り線＋番号付き見出し */
+  .sol-mobile-share-section {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  /* ①（現在の記録の直後のセクション）だけ上余白を詰める。:first-of-typeはタグ別判定のため
+     divの①とdetailsの④の両方にマッチしてしまうので使わない。 */
+  #solMobileShareCurrentInfo + .sol-mobile-share-section {
+    margin-top: 10px;
+  }
+  .sol-mobile-share-heading {
+    margin: 0 0 6px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--main-color);
+  }
+  /* タスクA: ④ファイルは<details>で折りたたみ、目立たせない */
+  details.sol-mobile-share-section {
+    cursor: default;
+  }
+  details.sol-mobile-share-section summary.sol-mobile-share-heading {
+    cursor: pointer;
+    list-style: none;
+  }
+  details.sol-mobile-share-section summary.sol-mobile-share-heading::-webkit-details-marker {
+    display: none;
+  }
+  details.sol-mobile-share-section summary.sol-mobile-share-heading::after {
+    content: '▾';
+    float: right;
+    color: #94a3b8;
+  }
+  details.sol-mobile-share-section[open] summary.sol-mobile-share-heading::after {
+    content: '▴';
+  }
+  details.sol-mobile-share-section .sol-mobile-menu-item {
+    margin-top: 6px;
+  }
 
   .sol-mobile-share-note {
     margin: 0 0 10px;
@@ -880,22 +939,39 @@
     flex: 1;
     height: 28px;
   }
+  /* タスクA: 開始/終了スライダーの左右「−」「＋」（1手ずつ動かせる） */
+  .sol-mobile-share-range-btn {
+    flex: 0 0 30px;
+    height: 30px;
+    padding: 0;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--main-color);
+    font-family: var(--font);
+    font-size: 1rem;
+    line-height: 1;
+  }
   .sol-mobile-share-range-label {
     margin: 2px 0 8px;
     font-size: 0.76rem;
     color: #94a3b8;
   }
 
-  /* E-3: 保存済みリプレイ一覧 */
+  /* E-3: 保存済みリプレイ一覧（タスクA: タイトル／日時・N手・メイン・EX の2行＋行タップで開く＋「…」メニュー） */
   .sol-mobile-saved-replay-row {
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 10px;
+    width: 100%;
+    box-sizing: border-box;
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     margin-bottom: 6px;
+    text-align: left;
+    cursor: pointer;
   }
   .sol-mobile-saved-replay-info {
     flex: 1;
@@ -917,18 +993,43 @@
     margin-top: 2px;
   }
   .sol-mobile-saved-replay-actions {
-    display: flex;
-    gap: 4px;
+    position: relative;
     flex-shrink: 0;
   }
-  .sol-mobile-saved-replay-actions button {
-    padding: 6px 8px;
+  .sol-mobile-saved-replay-more {
+    padding: 6px 10px;
     background: var(--bg-color);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     color: var(--main-color);
     font-family: var(--font);
-    font-size: 0.76rem;
+    font-size: 0.9rem;
+    line-height: 1;
+  }
+  .sol-mobile-saved-replay-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  }
+  .sol-mobile-saved-replay-menu[hidden] { display: none; }
+  .sol-mobile-saved-replay-menu button {
+    padding: 6px 12px;
+    background: var(--bg-color);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--main-color);
+    font-family: var(--font);
+    font-size: 0.8rem;
+    white-space: nowrap;
   }
 
   /* H-1: リンク作成結果（URL表示＋共有…／コピー／Xに投稿） */

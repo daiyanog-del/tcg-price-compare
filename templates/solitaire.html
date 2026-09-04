@@ -31,7 +31,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Bungee&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/solitaire/css/main.css?v=20260903e">
+<link rel="stylesheet" href="/static/solitaire/css/main.css?v=20260904a">
 <link rel="stylesheet" href="/static/css/self-watermark.css?v=20260611">
 </head>
 
@@ -394,53 +394,76 @@
         </div>
       </div>
 
-      <!-- 共有シート（フェーズ3・設計書 §3.4／H-1: iOS対応で2段階構成に変更） -->
+      <!-- 共有シート（フェーズ3・設計書 §3.4／H-1: iOS対応で2段階構成／2026-09-04 タスクA: 「わかる」構成に再編 -->
       <div id="solMobileShareSheet" class="sol-mobile-sheet" hidden>
         <div class="sol-mobile-sheet-scrim" data-sol-share-sheet-close></div>
-        <div class="sol-mobile-sheet-panel">
+        <div class="sol-mobile-sheet-panel sol-mobile-share-panel">
           <div class="sol-mobile-sheet-header">
-            <span>共有</span>
+            <span>記録の共有・保存</span>
             <button type="button" class="sol-mobile-sheet-close-btn" data-sol-share-sheet-close aria-label="閉じる">&times;</button>
           </div>
           <div class="sol-mobile-sheet-body">
-            <p class="sol-mobile-share-note">共有リンクは、URLを知っている人なら誰でも閲覧できます。</p>
-            <label class="sol-mobile-share-label" for="solMobileShareTitleInput">タイトル（任意）</label>
-            <input type="text" id="solMobileShareTitleInput" class="sol-mobile-share-input" placeholder="タイトル">
-            <label class="sol-mobile-share-label" for="solMobileShareCommentInput">今の手にコメントを付ける</label>
-            <div class="sol-mobile-share-comment-row">
-              <input type="text" id="solMobileShareCommentInput" class="sol-mobile-share-input" placeholder="コメント（任意）">
-              <button type="button" id="solMobileShareCommentAddBtn" class="sol-mobile-menu-item">追加</button>
-            </div>
+            <p id="solMobileShareCurrentInfo" class="sol-mobile-share-current">現在の記録: 0手（メイン0枚・EX0枚）</p>
 
-            <!-- D-1: 共有する範囲。既定は 1〜N（全範囲） -->
-            <label class="sol-mobile-share-label">共有する範囲</label>
-            <div class="sol-mobile-share-range-row">
-              <span class="sol-mobile-share-range-tag">開始</span>
-              <input type="range" id="solMobileShareRangeStart" class="sol-mobile-share-range-input" min="1" max="1" value="1">
-            </div>
-            <div class="sol-mobile-share-range-row">
-              <span class="sol-mobile-share-range-tag">終了</span>
-              <input type="range" id="solMobileShareRangeEnd" class="sol-mobile-share-range-input" min="1" max="1" value="1">
-            </div>
-            <p id="solMobileShareRangeLabel" class="sol-mobile-share-range-label">1手目〜1手目（全1手）</p>
-
-            <!-- (1) H-1: リンク作成は明示ボタン→結果表示の2段階（iOSのuser activation対策） -->
-            <button type="button" id="solMobileShareGenerateBtn" class="sol-mobile-menu-item">共有リンクを作成</button>
-            <div id="solMobileShareResult" class="sol-mobile-share-result" hidden>
-              <input type="text" id="solMobileShareUrlInput" class="sol-mobile-share-input" readonly>
-              <div class="sol-mobile-share-result-actions">
-                <button type="button" id="solMobileShareNativeBtn" class="sol-mobile-menu-item" hidden>共有…</button>
-                <button type="button" id="solMobileShareCopyResultBtn" class="sol-mobile-menu-item">コピー</button>
-                <a id="solMobileShareXLink" class="sol-mobile-menu-item" href="#" target="_blank" rel="noopener">Xに投稿</a>
+            <!-- ① 共有する範囲 -->
+            <div class="sol-mobile-share-section">
+              <p class="sol-mobile-share-heading">① 共有する範囲</p>
+              <p class="sol-mobile-share-note">開始より前の手は初期配置として送られ、受け取った人は開始手から再生できます。</p>
+              <div class="sol-mobile-share-range-row">
+                <span class="sol-mobile-share-range-tag">開始</span>
+                <button type="button" class="sol-mobile-share-range-btn" data-share-range-step="start" data-share-range-delta="-1" aria-label="開始を1手戻す">−</button>
+                <input type="range" id="solMobileShareRangeStart" class="sol-mobile-share-range-input" min="1" max="1" value="1">
+                <button type="button" class="sol-mobile-share-range-btn" data-share-range-step="start" data-share-range-delta="1" aria-label="開始を1手進める">＋</button>
               </div>
+              <div class="sol-mobile-share-range-row">
+                <span class="sol-mobile-share-range-tag">終了</span>
+                <button type="button" class="sol-mobile-share-range-btn" data-share-range-step="end" data-share-range-delta="-1" aria-label="終了を1手戻す">−</button>
+                <input type="range" id="solMobileShareRangeEnd" class="sol-mobile-share-range-input" min="1" max="1" value="1">
+                <button type="button" class="sol-mobile-share-range-btn" data-share-range-step="end" data-share-range-delta="1" aria-label="終了を1手進める">＋</button>
+              </div>
+              <p id="solMobileShareRangeLabel" class="sol-mobile-share-range-label">1手目〜1手目（全範囲）</p>
             </div>
-            <p id="solMobileShareError" class="sol-mobile-share-error" hidden></p>
 
-            <!-- (2) 従来どおり .click() 配線 -->
-            <button type="button" id="solMobileShareExportBtn" class="sol-mobile-menu-item">JSONを保存</button>
-            <button type="button" id="solMobileShareImportBtn" class="sol-mobile-menu-item">JSONを読み込む</button>
-            <!-- E-2: リプレイの端末保存（localStorage）。共有する範囲の指定は影響しない（全ログを保存） -->
-            <button type="button" id="solMobileShareSaveLocalBtn" class="sol-mobile-menu-item">端末に保存</button>
+            <!-- ② 共有する -->
+            <div class="sol-mobile-share-section">
+              <p class="sol-mobile-share-heading">② 共有する</p>
+              <label class="sol-mobile-share-label" for="solMobileShareTitleInput">タイトル（任意）</label>
+              <input type="text" id="solMobileShareTitleInput" class="sol-mobile-share-input" placeholder="タイトル">
+              <label class="sol-mobile-share-label" for="solMobileShareCommentInput">今の手にコメント</label>
+              <div class="sol-mobile-share-comment-row">
+                <input type="text" id="solMobileShareCommentInput" class="sol-mobile-share-input" placeholder="コメント（任意）">
+                <button type="button" id="solMobileShareCommentAddBtn" class="sol-mobile-menu-item">追加</button>
+              </div>
+              <p class="sol-mobile-share-note">リンクを知っている人は誰でも閲覧できます。</p>
+
+              <!-- H-1: リンク作成は明示ボタン→結果表示の2段階（iOSのuser activation対策） -->
+              <button type="button" id="solMobileShareGenerateBtn" class="sol-mobile-menu-item">共有リンクを作成</button>
+              <div id="solMobileShareResult" class="sol-mobile-share-result" hidden>
+                <input type="text" id="solMobileShareUrlInput" class="sol-mobile-share-input" readonly>
+                <div class="sol-mobile-share-result-actions">
+                  <button type="button" id="solMobileShareNativeBtn" class="sol-mobile-menu-item" hidden>共有…</button>
+                  <button type="button" id="solMobileShareCopyResultBtn" class="sol-mobile-menu-item">コピー</button>
+                  <a id="solMobileShareXLink" class="sol-mobile-menu-item" href="#" target="_blank" rel="noopener">Xに投稿</a>
+                </div>
+              </div>
+              <p id="solMobileShareError" class="sol-mobile-share-error" hidden></p>
+            </div>
+
+            <!-- ③ この端末に保存する -->
+            <div class="sol-mobile-share-section">
+              <p class="sol-mobile-share-heading">③ この端末に保存する</p>
+              <!-- E-2: リプレイの端末保存（localStorage）。共有する範囲の指定は影響しない（全ログを保存） -->
+              <button type="button" id="solMobileShareSaveLocalBtn" class="sol-mobile-menu-item">端末に保存</button>
+              <p class="sol-mobile-share-note">このブラウザの中に保存されます（他の端末には同期されません）。開くには ⋯メニュー →「保存済みリプレイ」。</p>
+              <button type="button" id="solMobileShareOpenSavedBtn" class="sol-mobile-menu-item" hidden>保存済みリプレイを開く</button>
+            </div>
+
+            <!-- ④ ファイル（折りたたみ・目立たせない） -->
+            <details class="sol-mobile-share-section">
+              <summary class="sol-mobile-share-heading">④ ファイル</summary>
+              <button type="button" id="solMobileShareExportBtn" class="sol-mobile-menu-item">JSONを保存</button>
+              <button type="button" id="solMobileShareImportBtn" class="sol-mobile-menu-item">JSONを読み込む</button>
+            </details>
           </div>
         </div>
       </div>
@@ -454,7 +477,7 @@
             <button type="button" class="sol-mobile-sheet-close-btn" data-sol-saved-replays-close aria-label="閉じる">&times;</button>
           </div>
           <div class="sol-mobile-sheet-body">
-            <p id="solMobileSavedReplaysEmpty" class="sol-mobile-share-note" hidden>保存したリプレイはありません</p>
+            <p id="solMobileSavedReplaysEmpty" class="sol-mobile-share-note" hidden>保存したリプレイはありません。共有シートの「端末に保存」で保存できます。</p>
             <div id="solMobileSavedReplaysList"></div>
           </div>
         </div>
@@ -621,6 +644,6 @@
 <!-- 端末間同期（P2）。main.js（type=module・deferされる）より前に読み込まれる通常scriptなので、
      DOM解析完了後に実行されるmodule側からは常に window.SyncClient が使える（設計文書 §11） -->
 <script src="/static/shared/sync-client.js?v=20260813"></script>
-<script type="module" src="/static/solitaire/js/main.js?v=20260903e"></script>
+<script type="module" src="/static/solitaire/js/main.js?v=20260904a"></script>
 </body>
 </html>

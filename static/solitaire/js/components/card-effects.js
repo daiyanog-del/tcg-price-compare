@@ -160,3 +160,88 @@ export function flipMoveClone(wrapper, firstRect, onComplete = null) {
   clone.addEventListener('transitionend', cleanup, { once: true });
   setTimeout(cleanup, 600); // 自動再生インターバル (600ms) に合わせたフェイルセーフ
 }
+
+/**
+ * タスクB: prefers-reduced-motion: reduce か（flyBetweenRects 専用で見る。
+ * 既存の flipMoveClone / playActivateEffect / playSetFlip は対象外＝挙動を変えない）。
+ */
+export function prefersReducedMotion() {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+/**
+ * タスクB: 明示的な出発点(fromRect)から到着点(toRect)へカードのクローンを飛ばす。
+ *
+ * flipMoveClone は到着点を常に wrapper の実際の位置（getBoundingClientRect）から取るが、
+ * こちらは呼び出し側が渡した矩形をそのまま使う。縦向きスマホでは #poolRow（デッキ列）が
+ * display:none のため実際の位置が0矩形になり演出が成立しない移動（replay-service.js の
+ * moveCard 前進適用）で、#solMobileDeckBtn の矩形を代替の出発点/到着点として渡すために使う。
+ * クローン生成方法・sol-flip-clone クラスは flipMoveClone と同じ。所要時間は 300ms 固定。
+ * prefers-reduced-motion: reduce では演出せずコールバックだけ呼ぶ。
+ *
+ * @param {Element}       cardEl     - .tier-item-wrapper（DOM上の実体。移動先の最終配置は
+ *                                     呼び出し側が onComplete 内で行う想定）
+ * @param {DOMRect|null}  fromRect
+ * @param {DOMRect|null}  toRect     - 省略時は cardEl の現在位置（flipMoveClone と同じ挙動）
+ * @param {Function|null} onComplete
+ */
+export function flyBetweenRects(cardEl, fromRect, toRect, onComplete = null) {
+  if (!cardEl || !fromRect || prefersReducedMotion()) {
+    if (onComplete) onComplete();
+    return;
+  }
+
+  const lastRect = toRect || cardEl.getBoundingClientRect();
+
+  const dx = fromRect.left - lastRect.left;
+  const dy = fromRect.top  - lastRect.top;
+  if (Math.abs(dx) < 2 && Math.abs(dy) < 2) {
+    if (onComplete) onComplete();
+    return;
+  }
+
+  const clone = cardEl.cloneNode(true);
+  clone.classList.add('sol-flip-clone');
+
+  const cloneTierItem = clone.querySelector('.tier-item');
+  if (cloneTierItem) {
+    cloneTierItem.style.transition = 'none';
+    if (clone.classList.contains('is-defense')) {
+      cloneTierItem.style.transform = 'rotate(90deg)';
+    } else {
+      cloneTierItem.style.transform = '';
+    }
+  }
+
+  clone.style.cssText = [
+    'position: fixed',
+    `left: ${fromRect.left}px`,
+    `top: ${fromRect.top}px`,
+    `width: ${fromRect.width}px`,
+    `height: ${fromRect.height}px`,
+    'margin: 0',
+    'z-index: 9000',
+    'pointer-events: none',
+    'overflow: visible',
+    'transition: none',
+  ].join('; ');
+
+  cardEl.style.visibility = 'hidden';
+  document.body.appendChild(clone);
+
+  requestAnimationFrame(() => {
+    void clone.offsetWidth; // reflow 強制（initial 位置を確定させる）
+    clone.style.transition = 'left 0.3s cubic-bezier(0.4,0,0.2,1), top 0.3s cubic-bezier(0.4,0,0.2,1)';
+    clone.style.left = `${lastRect.left}px`;
+    clone.style.top  = `${lastRect.top}px`;
+  });
+
+  let _done = false;
+  const cleanup = () => {
+    if (clone.parentNode) clone.parentNode.removeChild(clone);
+    cardEl.style.visibility = '';
+    if (!_done && onComplete) { _done = true; onComplete(); }
+  };
+  clone.addEventListener('transitionend', cleanup, { once: true });
+  setTimeout(cleanup, 360); // 300ms + フェイルセーフ余裕
+}

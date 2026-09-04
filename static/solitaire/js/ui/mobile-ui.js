@@ -889,6 +889,8 @@ function openShareSheet() {
   const xLink = document.getElementById('solMobileShareXLink');
   if (xLink) xLink.href = '#';
   _initShareRangeSliders(); // D-1: 開くたびに現在の手数で範囲スライダーをリセット（既定=全範囲）
+  _updateShareCurrentInfo(); // タスクA: 「現在の記録: N手（メインM枚・EX E枚）」
+  _updateShareOpenSavedButton(); // タスクA: 保存済みが1件以上あれば③に「保存済みリプレイを開く」を出す
   setHidden('solMobileShareSheet', false);
 }
 function closeShareSheet() {
@@ -921,7 +923,30 @@ function _updateShareRangeLabel() {
   const labelEl = document.getElementById('solMobileShareRangeLabel');
   if (!startEl || !endEl || !labelEl) return;
   const total = getLogLength();
-  labelEl.textContent = `${startEl.value}手目〜${endEl.value}手目（全${total}手）`;
+  const start = parseInt(startEl.value, 10);
+  const end = parseInt(endEl.value, 10);
+  // タスクA: 開始=1かつ終了=全手数なら「全範囲」とわかる表記にする
+  const isFull = start === 1 && end === total;
+  labelEl.textContent = isFull
+    ? `${start}手目〜${end}手目（全範囲）`
+    : `${start}手目〜${end}手目（全${total}手）`;
+}
+
+/**
+ * タスクA: 「−」「＋」ボタンで開始/終了スライダーを1手ずつ動かす。
+ * min/max は _initShareRangeSliders が張った値をそのまま使う（相互クランプは
+ * 既存の _onShareRangeInput に委譲し、判定ロジックを複製しない）。
+ * @param {'start'|'end'} which
+ * @param {number} delta  -1 または 1
+ */
+function _stepShareRange(which, delta) {
+  const el = document.getElementById(which === 'start' ? 'solMobileShareRangeStart' : 'solMobileShareRangeEnd');
+  if (!el) return;
+  const min = parseInt(el.min, 10);
+  const max = parseInt(el.max, 10);
+  const next = Math.max(min, Math.min(max, parseInt(el.value, 10) + delta));
+  el.value = String(next);
+  _onShareRangeInput(which);
 }
 
 /**
@@ -1072,6 +1097,12 @@ function initShareSheet() {
   // D-1: 共有する範囲（開始・終了スライダー、相互クランプ）
   document.getElementById('solMobileShareRangeStart')?.addEventListener('input', () => _onShareRangeInput('start'));
   document.getElementById('solMobileShareRangeEnd')?.addEventListener('input', () => _onShareRangeInput('end'));
+  // タスクA: 「−」「＋」ボタン（1手ずつ動かせる）
+  sheet.querySelectorAll('[data-share-range-step]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _stepShareRange(btn.dataset.shareRangeStep, parseInt(btn.dataset.shareRangeDelta, 10));
+    });
+  });
 
   // (1) リンク作成〜共有・コピー・X投稿
   document.getElementById('solMobileShareGenerateBtn')?.addEventListener('click', () => { _generateShareLink(); });
@@ -1089,6 +1120,12 @@ function initShareSheet() {
 
   // E-2: 端末に保存
   document.getElementById('solMobileShareSaveLocalBtn')?.addEventListener('click', _saveReplayToDevice);
+
+  // タスクA: ③「保存済みリプレイを開く（n件）」→ 保存済み一覧シートへ切り替える
+  document.getElementById('solMobileShareOpenSavedBtn')?.addEventListener('click', () => {
+    closeShareSheet();
+    openSavedReplaysSheet();
+  });
 }
 
 // ══════════════════ E-1/E-2: リプレイの端末保存（設計書 §E） ══════════════════
@@ -1101,13 +1138,46 @@ function _formatDefaultReplayTitle() {
 }
 
 /**
+ * タスクA: 現在の記録（setup込みの手数・メイン/EX枚数）をまとめて返す。
+ * 共有シート冒頭の「現在の記録」表示と、端末保存（_saveReplayToDevice）の両方で使う
+ * （手数・メイン/EX枚数の算出ロジックを二重に持たない）。
+ */
+function _getReplayCounts() {
+  const total = getLogLength() + getSetupLogs().length; // Low-13: setupのみの盤面も1手以上として扱う
+  const images = getImages();
+  const exCount = new Set(getExCardIds()).size;
+  const mainCount = Math.max(0, Object.keys(images).length - exCount);
+  return { total, main: mainCount, ex: exCount };
+}
+
+/** タスクA: 共有シート冒頭の「現在の記録: N手（メインM枚・EX E枚）」を更新する */
+function _updateShareCurrentInfo() {
+  const el = document.getElementById('solMobileShareCurrentInfo');
+  if (!el) return;
+  const { total, main, ex } = _getReplayCounts();
+  el.textContent = `現在の記録: ${total}手（メイン${main}枚・EX${ex}枚）`;
+}
+
+/** タスクA: ③に「保存済みリプレイを開く（n件）」を出す（0件なら隠す） */
+function _updateShareOpenSavedButton() {
+  const btn = document.getElementById('solMobileShareOpenSavedBtn');
+  if (!btn) return;
+  const n = savedReplaysGet().length;
+  if (n === 0) {
+    btn.setAttribute('hidden', '');
+    return;
+  }
+  btn.textContent = `保存済みリプレイを開く（${n}件）`;
+  btn.removeAttribute('hidden');
+}
+
+/**
  * E-2: 共有シートの「端末に保存」。現在のリプレイ全体（共有する範囲の指定は影響しない）を
  * exportReplay と同じ payload（buildReplayPayload）で組み立て、LZString 圧縮して
  * saved-replays.js の localStorage 一覧に追加する。
  */
 function _saveReplayToDevice() {
-  // Low-13: setup（初期配置）だけの盤面も保存できるよう、setup込みの手数で判定する
-  const total = getLogLength() + getSetupLogs().length;
+  const { total, main: mainCount, ex: exCount } = _getReplayCounts();
   if (total === 0) { showToast('記録がありません'); return; }
   if (typeof LZString === 'undefined') { showToast('保存に失敗しました'); return; }
 
@@ -1116,10 +1186,6 @@ function _saveReplayToDevice() {
 
   const payload = buildReplayPayload(title);
   const compressed = LZString.compress(JSON.stringify(payload));
-
-  const images = getImages();
-  const exCount = new Set(getExCardIds()).size;
-  const mainCount = Math.max(0, Object.keys(images).length - exCount);
 
   const result = saveReplayEntry({
     title,
@@ -1138,9 +1204,11 @@ function _saveReplayToDevice() {
     }
     return;
   }
+  // タスクA: 保存先とたどり方が分かる文言に変更
   showToast(result.removedCount > 0
-    ? `端末に保存しました（上限のため古い${result.removedCount}件を削除）`
-    : '端末に保存しました');
+    ? `端末に保存しました（上限のため古い${result.removedCount}件を削除）。⋯メニュー →「保存済みリプレイ」から開けます`
+    : '端末に保存しました。⋯メニュー →「保存済みリプレイ」から開けます');
+  _updateShareOpenSavedButton(); // 保存直後に件数を反映
 }
 
 // ══════════════════ E-3: 保存済みリプレイ一覧シート（設計書 §E） ══════════════════
@@ -1193,8 +1261,17 @@ function _renderSavedReplaysList() {
   if (emptyEl) emptyEl.hidden = true;
 
   items.forEach(item => {
+    // タスクA: 行全体をタップで「開く」、右端「…」で共有/削除のミニメニュー。
+    // 行の中に共有/削除の<button>を含めるため、行自体は<button>ではなくrole="button"のdivにする
+    // （<button>の中に<button>を入れるとブラウザがDOM構造を勝手に組み替えてしまうため）。
     const row = document.createElement('div');
     row.className = 'sol-mobile-saved-replay-row';
+    row.setAttribute('role', 'button');
+    row.setAttribute('tabindex', '0');
+    row.addEventListener('click', () => _openSavedReplay(item));
+    row.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); _openSavedReplay(item); }
+    });
 
     const info = document.createElement('div');
     info.className = 'sol-mobile-saved-replay-info';
@@ -1206,22 +1283,28 @@ function _renderSavedReplaysList() {
     const dateStr = item.savedAt
       ? new Date(item.savedAt).toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
       : '';
-    metaEl.textContent = `${dateStr} ・ ${item.steps ?? 0}手 ・ メイン${item.main ?? 0}/EX${item.ex ?? 0}`;
+    metaEl.textContent = `${dateStr} ・ ${item.steps ?? 0}手・メイン${item.main ?? 0}・EX${item.ex ?? 0}`;
     info.appendChild(titleEl);
     info.appendChild(metaEl);
 
     const actions = document.createElement('div');
     actions.className = 'sol-mobile-saved-replay-actions';
 
-    const openBtn = document.createElement('button');
-    openBtn.type = 'button';
-    openBtn.textContent = '開く';
-    openBtn.addEventListener('click', () => _openSavedReplay(item));
+    const moreBtn = document.createElement('button');
+    moreBtn.type = 'button';
+    moreBtn.className = 'sol-mobile-saved-replay-more';
+    moreBtn.textContent = '…';
+    moreBtn.setAttribute('aria-label', 'その他の操作');
+
+    const menu = document.createElement('div');
+    menu.className = 'sol-mobile-saved-replay-menu';
+    menu.hidden = true;
 
     const shareBtn = document.createElement('button');
     shareBtn.type = 'button';
     shareBtn.textContent = '共有';
-    shareBtn.addEventListener('click', async () => {
+    shareBtn.addEventListener('click', async (ev) => {
+      ev.stopPropagation(); // 行タップ（開く）を誘発しない
       // Medium-4: 復元成功時（true）だけ共有シートを開く
       const ok = await _openSavedReplay(item);
       if (!ok) return;
@@ -1232,15 +1315,22 @@ function _renderSavedReplaysList() {
     const delBtn = document.createElement('button');
     delBtn.type = 'button';
     delBtn.textContent = '削除';
-    delBtn.addEventListener('click', () => {
+    delBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation(); // 行タップ（開く）を誘発しない
       if (!confirm(`「${item.title || '無題'}」を削除します。よろしいですか？`)) return;
       deleteReplayEntry(item.id);
       _renderSavedReplaysList();
     });
 
-    actions.appendChild(openBtn);
-    actions.appendChild(shareBtn);
-    actions.appendChild(delBtn);
+    moreBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation(); // 行タップ（開く）を誘発しない
+      menu.hidden = !menu.hidden;
+    });
+
+    menu.appendChild(shareBtn);
+    menu.appendChild(delBtn);
+    actions.appendChild(moreBtn);
+    actions.appendChild(menu);
     row.appendChild(info);
     row.appendChild(actions);
     listEl.appendChild(row);

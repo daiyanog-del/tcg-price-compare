@@ -31,8 +31,9 @@
 
 import { returnAllCardsToDeck, attachCardImageListeners } from '../components/card-manager.js';
 import { applyCardState, getCardState } from '../components/card-state.js';
-import { playActivateEffect, flipMoveClone, playSetFlip } from '../components/card-effects.js';
+import { playActivateEffect, flipMoveClone, playSetFlip, flyBetweenRects, prefersReducedMotion } from '../components/card-effects.js';
 import { createProxyCardElement } from '../components/proxy-card.js';
+import { isMobilePortrait } from '../utils/viewport.js';
 
 const _API_CARD_IMAGES = '/api/card-images';
 
@@ -573,6 +574,18 @@ function _applyMoveCard(event) {
   const orientChanged = prevState.orientation !== (orientation || '');
   const stateChanged  = faceChanged || orientChanged;
 
+  // タスクB: 縦向きスマホでは #poolRow（デッキ列）が display:none のため、移動元/移動先が
+  // #poolRow だと矩形が0幅になり flipMoveClone の演出が成立しない。#solMobileDeckBtn の
+  // 矩形を代替の出発点/到着点にして飛ばす（PC・横向き・#poolRow が絡まない移動は従来どおり）。
+  const mobilePortrait = isMobilePortrait();
+  const toIsDeckPool = zoneId === 'poolRow' && mobilePortrait;
+  const fromIsEmpty  = mobilePortrait && firstRect.width === 0;
+
+  if (toIsDeckPool || fromIsEmpty) {
+    _applyMoveCardWithDeckFly({ card, zone, zIndex, orientation, face, faceChanged, stateChanged, firstRect, toIsDeckPool });
+    return;
+  }
+
   if (sameZone && stateChanged) {
     // ── 同一ゾーン内の状態変更（守備/セット切替など） ──────────────────
     // 移動なし（dx≈0）のため flipMoveClone がすぐ onComplete を呼ぶ。
@@ -609,6 +622,78 @@ function _applyMoveCard(event) {
 }
 
 /**
+ * タスクB: #poolRow（デッキ列。縦向きスマホでは非表示）が絡む moveCard の前進適用。
+ * 出発点/到着点のうち #poolRow 側は #solMobileDeckBtn の矩形で代替して飛ばす。
+ * 到着点がデッキ側（toIsDeckPool）の場合、#poolRow の実際の矩形は取得できない（0幅）ため
+ * クローンを飛ばし終えてから DOM を確定する。出発点だけの代替（toIsDeckPool=false）は
+ * 従来の「別ゾーンへ移動」と同じ順序（状態確定 → DOM配置 → 演出）を保つ。
+ */
+function _applyMoveCardWithDeckFly({ card, zone, zIndex, orientation, face, faceChanged, stateChanged, firstRect, toIsDeckPool }) {
+  const deckBtn = document.getElementById('solMobileDeckBtn');
+  const deckBtnRect = deckBtn ? deckBtn.getBoundingClientRect() : null;
+  const fromRect = firstRect.width === 0 ? deckBtnRect : firstRect;
+
+  _pulseDeckBtn();
+
+  if (toIsDeckPool) {
+    // 到着点はデッキボタン矩形。飛ばし終えてから DOM を確定する（既存の onComplete 経路を維持）。
+    if (stateChanged) applyCardState(card, { orientation, face });
+    flyBetweenRects(card, fromRect, deckBtnRect, () => {
+      _placeCardInZone(zone, card, zIndex);
+    });
+    return;
+  }
+
+  // 出発点だけデッキボタン矩形に差し替え、到着点は通常どおり最終位置（先にDOMを確定してから飛ばす）
+  const tierItem = card.querySelector('.tier-item');
+  if (stateChanged) {
+    if (tierItem) tierItem.style.transition = 'none';
+    applyCardState(card, { orientation, face });
+  }
+  _placeCardInZone(zone, card, zIndex);
+  flyBetweenRects(card, fromRect, null, () => {
+    if (tierItem) tierItem.style.transition = '';
+  });
+}
+
+/** タスクB: 演出の間だけ #solMobileDeckBtn を軽く光らせる（400ms・prefers-reduced-motion では何もしない） */
+function _pulseDeckBtn() {
+  if (prefersReducedMotion()) return;
+  const btn = document.getElementById('solMobileDeckBtn');
+  if (!btn) return;
+  btn.classList.remove('sol-pulse');
+  void btn.offsetWidth; // 再アニメのための reflow 強制
+  btn.classList.add('sol-pulse');
+  setTimeout(() => btn.classList.remove('sol-pulse'), 400);
+}
+
+const DECK_FLY_STAGGER_MS = 60; // タスクB追補: resetDeck等で複数枚飛ばす際のずらし幅
+
+/**
+ * タスクB追補: #poolRow が絡む draw/resetDeck/returnToDeck（moveCard以外のactionType）でも
+ * 前進再生かつ縦向きスマホなら演出対象、という共通判定。
+ * PC・横向き・後退（_animateForwardがfalse。_replayTo経由の全再構築やstepBack）では false。
+ */
+function _shouldMobileFly() {
+  return _animateForward && isMobilePortrait();
+}
+
+/**
+ * タスクB追補: #solMobileDeckBtn の矩形から card の現在位置（既に最終配置済み）へ飛ばす。
+ * 呼び出し前提: _shouldMobileFly() が true であること（呼び出し側で判定済み）。
+ * @param {Element}  card
+ * @param {DOMRect}  deckBtnRect
+ * @param {number}   [delayMs=0]  resetDeckの複数枚ずらし用
+ */
+function _flyFromDeckBtn(card, deckBtnRect, delayMs = 0) {
+  if (delayMs > 0) {
+    setTimeout(() => flyBetweenRects(card, deckBtnRect, null, null), delayMs);
+  } else {
+    flyBetweenRects(card, deckBtnRect, null, null);
+  }
+}
+
+/**
  * activateEffect: 効果発動演出（前進再生時のみ）
  * _replayTo による後退・全再構築では _animateForward が false のため演出はスキップ。
  */
@@ -620,7 +705,11 @@ function _applyActivateEffect(event) {
   playActivateEffect(card);
 }
 
-/** draw: cardId をデッキから手札(center-slot)へ（状態クリア） */
+/**
+ * draw: cardId をデッキから手札(center-slot)へ（状態クリア）
+ * タスクB追補: 前進再生かつ縦向きスマホでは #solMobileDeckBtn から飛ばす
+ * （#poolRow は非表示のため、デッキから来たことが分かる演出をここで補う）。
+ */
 function _applyDraw(event) {
   const { cardId } = event;
   const card = _findCardWrapper(cardId);
@@ -630,9 +719,23 @@ function _applyDraw(event) {
   card.style = '';
   applyCardState(card, {}); // 守備・セット状態をクリア
   center.appendChild(card);
+
+  if (_shouldMobileFly()) {
+    const deckBtn = document.getElementById('solMobileDeckBtn');
+    if (deckBtn) {
+      _pulseDeckBtn();
+      _flyFromDeckBtn(card, deckBtn.getBoundingClientRect());
+    }
+  }
 }
 
-/** returnToDeck: cardId をプールへ戻す（状態クリア） */
+/**
+ * returnToDeck: cardId をプールへ戻す（状態クリア）
+ * タスクB追補: 非EX（#poolRow行き）かつ前進再生・縦向きスマホでは、現在位置から
+ * #solMobileDeckBtn へ飛ばし終えてから DOM を確定する（#poolRow は非表示のため
+ * 実際の到着矩形が取れない。_applyMoveCardWithDeckFly の toIsDeckPool と同じ順序）。
+ * EX（#poolRow2）は表示されているため従来どおり演出なし。
+ */
 function _applyReturnToDeck(event) {
   const { cardId, isEx } = event;
   const card = _findCardWrapper(cardId);
@@ -640,24 +743,49 @@ function _applyReturnToDeck(event) {
   const poolId = isEx ? 'poolRow2' : 'poolRow';
   const pool = document.getElementById(poolId);
   if (!pool) return;
+
+  if (!isEx && _shouldMobileFly()) {
+    const deckBtn = document.getElementById('solMobileDeckBtn');
+    if (deckBtn) {
+      const deckBtnRect = deckBtn.getBoundingClientRect();
+      const fromRect = card.getBoundingClientRect();
+      _pulseDeckBtn();
+      flyBetweenRects(card, fromRect, deckBtnRect, () => {
+        card.style = '';
+        applyCardState(card, {});
+        pool.appendChild(card);
+      });
+      return;
+    }
+  }
+
   card.style = '';
   applyCardState(card, {}); // 守備・セット状態をクリア
   pool.appendChild(card);
 }
 
-/** resetDeck: 全戻し&5ドロー */
+/**
+ * resetDeck: 全戻し&5ドロー
+ * タスクB追補: 前進再生かつ縦向きスマホでは、引いた各カードを #solMobileDeckBtn から
+ * 60msずつずらして飛ばす（既存の draw/moveCard の演出と同じ考え方）。
+ */
 function _applyResetDeck(event) {
   const { drawnIds } = event;
   returnAllCardsToDeck(); // 内部で applyCardState({}) が呼ばれる
   if (!drawnIds || !drawnIds.length) return;
   const center = document.querySelector('.center-slot');
   if (!center) return;
-  drawnIds.forEach(cardId => {
+
+  const deckBtn = _shouldMobileFly() ? document.getElementById('solMobileDeckBtn') : null;
+  const deckBtnRect = deckBtn ? deckBtn.getBoundingClientRect() : null;
+  if (deckBtnRect) _pulseDeckBtn();
+
+  drawnIds.forEach((cardId, i) => {
     const card = _findCardWrapper(cardId);
-    if (card) {
-      card.style = '';
-      center.appendChild(card);
-    }
+    if (!card) return;
+    card.style = '';
+    center.appendChild(card);
+    if (deckBtnRect) _flyFromDeckBtn(card, deckBtnRect, i * DECK_FLY_STAGGER_MS);
   });
 }
 
