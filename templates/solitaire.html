@@ -31,7 +31,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Bungee&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/solitaire/css/main.css?v=20260904d">
+<link rel="stylesheet" href="/static/solitaire/css/main.css?v=20260904e">
 <link rel="stylesheet" href="/static/css/self-watermark.css?v=20260611">
 </head>
 
@@ -323,6 +323,8 @@
         <span id="solMobilePlayDeckBadge" class="sol-mobile-play-deck-badge">
           デッキ <span id="solMobilePlayDeckCount">0</span>
         </span>
+        <!-- 第7次実機検収: 範囲再生中（「再生して確認」で停止済み録画があるとき）だけ表示 -->
+        <span id="solMobilePlayRangeBadge" class="sol-mobile-play-range-badge" hidden></span>
         <input type="range" id="solMobileReplayStripSlider" class="sol-mobile-replay-strip-slider" min="0" max="0" value="0" disabled>
       </div>
 
@@ -662,6 +664,6 @@
 <!-- 端末間同期（P2）。main.js（type=module・deferされる）より前に読み込まれる通常scriptなので、
      DOM解析完了後に実行されるmodule側からは常に window.SyncClient が使える（設計文書 §11） -->
 <script src="/static/shared/sync-client.js?v=20260813"></script>
-<script type="module" src="/static/solitaire/js/main.js?v=20260904d"></script>
+<script type="module" src="/static/solitaire/js/main.js?v=20260904e"></script>
 </body>
 </html>

@@ -350,9 +350,24 @@
   }
   .sol-mobile-replay-strip[hidden] { display: none; }
   .sol-mobile-replay-strip-slider {
-    width: 100%;
+    flex: 1 1 auto;
+    min-width: 0;
     height: 24px;
   }
+  /* 第7次実機検収: 範囲再生中の「録画範囲を再生中（s〜e手目）」表示。
+     デッキバッジ・スライダーと1行に収める小さな表示（375px幅では省略記号で収める）。 */
+  .sol-mobile-play-range-badge {
+    flex: 0 1 auto;
+    min-width: 0;
+    margin-right: 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font);
+    font-size: 0.68rem;
+    color: #94a3b8;
+  }
+  .sol-mobile-play-range-badge[hidden] { display: none; }
   .sol-mobile-play-toggle-btn {
     color: var(--accent);
     border-color: var(--accent);

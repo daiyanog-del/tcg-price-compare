@@ -1178,7 +1178,10 @@ function initShareSheet() {
   });
   document.getElementById('solMobileSharePlaybackBtn')?.addEventListener('click', () => {
     closeShareSheet();
-    enterPlaybackMode('share'); // 第6次検収-1: origin を覚え、終了時に共有シートへ戻れるようにする
+    // 第7次検収: 停止済み録画があれば「受け手が見るものと同じ」その範囲だけを再生する。
+    // 録画が無ければ従来どおり全体を再生する（range=null）。
+    const range = _getRecordingRange();
+    enterPlaybackMode('share', range); // 第6次検収-1: origin を覚え、終了時に共有シートへ戻れるようにする
   });
 
   // (1) リンク作成〜共有・コピー・X投稿
@@ -1476,6 +1479,23 @@ let _playbackMode = false;
 // 第6次検収-1: 再生モードへ入った入口（'menu'|'url'|'saved'|'share'）。'share' の場合のみ
 // 通常の「✕ 終了」で共有シートへ自動的に戻る（enterPlaybackMode の呼び出し元ごとに指定）。
 let _playbackOrigin = null;
+// 第7次検収: 「再生して確認」で停止済み録画があるときに渡す 1-based 範囲 {start, end}。
+// 範囲再生でなければ null（従来どおり全体を再生）。
+let _playbackRange = null;
+
+/**
+ * 第7次検収: 範囲再生中、絶対カーソル位置(getCursor()の値)から範囲内の相対位置(0..N)を求める。
+ * 相対0 ＝ 範囲開始手の直前（seekTo(start-2) 相当）、相対N ＝ 範囲末尾（end手目）まで適用済み。
+ * @returns {number}
+ */
+function _playbackRelCursor() {
+  if (!_playbackRange) return 0;
+  return getCursor() - (_playbackRange.start - 2);
+}
+/** @returns {number} 範囲の手数 N = end-start+1（範囲再生でなければ 0） */
+function _playbackRangeTotal() {
+  return _playbackRange ? (_playbackRange.end - _playbackRange.start + 1) : 0;
+}
 
 /** H-1: #replayPlay が自動再生中（.play-active）なら既存の togglePlay に委譲して止める。 */
 function _stopAutoPlayIfNeeded() {
@@ -1489,14 +1509,56 @@ function _stopAutoPlayIfNeeded() {
  * 再生モードのバー・帯を #replayBack/#replayPlay/#replayCounter/#replaySlider の
  * 現在値から同期する。#replayCounter・#replayPlay の MutationObserver から都度呼ぶ（B-2/B-3/M-7）。
  * M-6: 前/再生/次ボタンの disabled も元ボタンからコピーする。
+ * 第7次検収: 範囲再生中（_playbackRange）は、カウンター・スライダー・前後/再生ボタンの
+ * disabled を「範囲内の相対値」で上書きする（受け手が見るものと同じ範囲だけを操作させる）。
+ * 自動再生が範囲末尾に達したら #replayPlay.click() で togglePlay に委譲して止める。
  */
 function _syncPlaybackFromMain() {
   const counterEl = document.getElementById('replayCounter');
   const mobileCounter = document.getElementById('solMobilePlayCounter');
-  if (counterEl && mobileCounter) mobileCounter.textContent = counterEl.textContent;
 
   const mainSlider = document.getElementById('replaySlider');
   const stripSlider = document.getElementById('solMobileReplayStripSlider');
+
+  const playBtn = document.getElementById('replayPlay');
+  const mobilePlayBtn = document.getElementById('solMobilePlayToggleBtn');
+
+  const backBtn = document.getElementById('replayBack');
+  const mobileBackBtn = document.getElementById('solMobilePlayBackBtn');
+
+  const fwdBtn = document.getElementById('replayFwd');
+  const mobileFwdBtn = document.getElementById('solMobilePlayFwdBtn');
+
+  if (_playbackRange) {
+    const total = _playbackRangeTotal();
+    const rel = Math.max(0, Math.min(total, _playbackRelCursor()));
+
+    if (mobileCounter) mobileCounter.textContent = `${rel}/${total}`;
+
+    if (stripSlider) {
+      stripSlider.min = '0';
+      stripSlider.max = String(total);
+      stripSlider.value = String(rel);
+      stripSlider.disabled = false;
+    }
+
+    if (playBtn && mobilePlayBtn) {
+      mobilePlayBtn.textContent = playBtn.classList.contains('play-active') ? '❚❚ 停止' : '▶ 再生';
+      mobilePlayBtn.disabled = rel >= total;
+    }
+    if (mobileBackBtn) mobileBackBtn.disabled = rel <= 0;
+    if (mobileFwdBtn) mobileFwdBtn.disabled = rel >= total;
+
+    // 自動再生が範囲末尾に達したら togglePlay に委譲して止める（#replayCounter の変化を
+    // 検知するたびにここへ来るため、範囲を1手も超えずに止まる）。
+    if (playBtn?.classList.contains('play-active') && rel >= total) {
+      playBtn.click();
+    }
+    return;
+  }
+
+  if (counterEl && mobileCounter) mobileCounter.textContent = counterEl.textContent;
+
   if (mainSlider && stripSlider) {
     stripSlider.min = mainSlider.min;
     stripSlider.max = mainSlider.max;
@@ -1504,21 +1566,29 @@ function _syncPlaybackFromMain() {
     stripSlider.disabled = mainSlider.disabled;
   }
 
-  const playBtn = document.getElementById('replayPlay');
-  const mobilePlayBtn = document.getElementById('solMobilePlayToggleBtn');
   if (playBtn && mobilePlayBtn) {
     mobilePlayBtn.textContent = playBtn.classList.contains('play-active') ? '❚❚ 停止' : '▶ 再生';
     mobilePlayBtn.disabled = playBtn.disabled; // M-6
   }
 
   // M-6: 前/次ボタンの disabled を元ボタンからコピー（末尾で「次」を disabled にする等）
-  const backBtn = document.getElementById('replayBack');
-  const mobileBackBtn = document.getElementById('solMobilePlayBackBtn');
   if (backBtn && mobileBackBtn) mobileBackBtn.disabled = backBtn.disabled;
-
-  const fwdBtn = document.getElementById('replayFwd');
-  const mobileFwdBtn = document.getElementById('solMobilePlayFwdBtn');
   if (fwdBtn && mobileFwdBtn) mobileFwdBtn.disabled = fwdBtn.disabled;
+}
+
+/**
+ * 第7次検収: 帯の範囲ラベル（「録画範囲を再生中（s〜e手目）」）の表示を更新する。
+ * @param {{start:number, end:number}|null} range
+ */
+function _updatePlaybackRangeBadge(range) {
+  const el = document.getElementById('solMobilePlayRangeBadge');
+  if (!el) return;
+  if (range) {
+    el.textContent = `録画範囲を再生中（${range.start}〜${range.end}手目）`;
+    el.hidden = false;
+  } else {
+    el.hidden = true;
+  }
 }
 
 /**
@@ -1527,9 +1597,13 @@ function _syncPlaybackFromMain() {
  * M-6: 記録が0手（setup込み）なら入らずトーストのみ表示する。
  * 第6次検収-1: origin を覚えておく。'share'（共有シートの「再生して確認」）の場合のみ、
  * 通常の「✕ 終了」で共有シートへ自動的に戻れるようにする（exitPlaybackMode 参照）。
+ * 第7次検収: range（1-based {start,end}）を渡すと、その範囲だけを再生する
+ * （受け手が見るものと同じにする）。入場時に seekTo(start-2) で範囲開始手の直前へ移動し、
+ * その位置を相対0として扱う（_syncPlaybackFromMain が絶対↔相対の変換を担う）。
  * @param {'menu'|'url'|'saved'|'share'|null} [origin]
+ * @param {{start:number, end:number}|null} [range]
  */
-function enterPlaybackMode(origin = null) {
+function enterPlaybackMode(origin = null, range = null) {
   if (!isMobilePortrait() || _playbackMode) return;
   if (getLogLength() + getSetupLogs().length === 0) { // M-6
     showToast('記録がありません');
@@ -1537,6 +1611,7 @@ function enterPlaybackMode(origin = null) {
   }
   _playbackMode = true;
   _playbackOrigin = origin;
+  _playbackRange = range; // 第7次検収
   clearMobileSelection(); // B-4: 選択中カードが残っていれば解除
   setMobilePlaybackMode(true); // drag-drop.js: タップ選択・ドラッグを無効化（B-4）
   document.body.classList.add('sol-playback'); // H-3: 盤面全体を pointer-events:none で二重防御
@@ -1552,6 +1627,12 @@ function enterPlaybackMode(origin = null) {
   setHidden('solMobileBarNormal', true);
   setHidden('solMobilePlayBar', false);
   setHidden('solMobileReplayStrip', false);
+  _updatePlaybackRangeBadge(range); // 第7次検収
+
+  if (range) {
+    // 第7次検収: 範囲開始手の直前（start=1 なら初期状態）へ移動してから同期する
+    seekTo(range.start - 2);
+  }
   _syncPlaybackFromMain();
   updateDeckCountBadge(); // 第6次検収-2a: 帯の「デッキ N」バッジを最新枚数にする
 
@@ -1563,8 +1644,9 @@ function enterPlaybackMode(origin = null) {
 /**
  * 再生モードを終了する。
  * H-1: 自動再生中なら先に止める。
- * H-4: 途中から分岐して続ける機能は作らない方針のため、カーソルが末尾でなければ
- * 末尾まで進めてから終了し、トーストで知らせる。
+ * H-4: 途中から分岐して続ける機能は作らない方針のため、カーソルが末尾（全記録の末尾。
+ * 範囲再生中であっても全記録の末尾でよい＝司令塔裁定）でなければ末尾まで進めてから
+ * 終了し、トーストで知らせる。
  * 第6次検収-1: 終了後に共有シートへ戻すかどうかを制御する。
  * @param {{ forceOpenShare?: boolean, returnToOrigin?: boolean }} [opts]
  *   forceOpenShare: true なら origin に関係なく終了後に共有シートを開く（再生バーの「共有」ボタン用）。
@@ -1575,13 +1657,15 @@ function exitPlaybackMode({ forceOpenShare = false, returnToOrigin = true } = {}
   _stopAutoPlayIfNeeded(); // H-1
 
   const total = getLogLength();
-  if (getCursor() < total - 1) { // H-4
+  if (getCursor() < total - 1) { // H-4: 全記録の末尾まで進める（範囲再生中でも同じ）
     seekTo(total - 1);
     showToast('最後の手まで進めました');
   }
 
   const origin = _playbackOrigin;
   _playbackOrigin = null;
+  _playbackRange = null; // 第7次検収: 範囲状態を破棄
+  _updatePlaybackRangeBadge(null);
 
   _playbackMode = false;
   setMobilePlaybackMode(false);
@@ -1615,11 +1699,18 @@ function initPlaybackBar() {
   });
   document.getElementById('solMobilePlayExitBtn')?.addEventListener('click', () => { exitPlaybackMode(); });
 
-  // 帯のスライダー → 既存の #replaySlider の input イベントを発火させて seekTo させる（B-2）
+  // 帯のスライダー → 既存の #replaySlider の input イベントを発火させて seekTo させる（B-2）。
+  // 第7次検収: 範囲再生中は stripSlider の値が「範囲内の相対値」なので、絶対位置に変換して
+  // seekTo を直接呼ぶ（#replaySlider 経由にすると絶対値として誤解釈されるため）。
   const mainSlider = document.getElementById('replaySlider');
   const stripSlider = document.getElementById('solMobileReplayStripSlider');
   if (mainSlider && stripSlider) {
     stripSlider.addEventListener('input', () => {
+      if (_playbackRange) {
+        const rel = parseInt(stripSlider.value, 10) || 0;
+        seekTo(_playbackRange.start - 2 + rel);
+        return;
+      }
       mainSlider.value = stripSlider.value;
       mainSlider.dispatchEvent(new Event('input', { bubbles: true }));
     });
