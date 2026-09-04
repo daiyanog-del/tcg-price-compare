@@ -1611,6 +1611,12 @@ function _setPriceSectionsVisible(visible){
 }
 
 // 未発売カードを価格検索せずカード情報のみ表示する
+// 効果テキストの改行正規化: 元データ(YGOResources)は改行を文字列 "<br>" で持つものが多く
+// （2026-09-04 本番DB実測: 14,241枚中10,205枚）、esc() でそのまま文字として表示されていた。
+// 一人回しの card-info-panel.js（E-1）と同じ変換。.card-detail-effect は pre-wrap なので改行文字で行分けされる。
+// ※トップレベルに置くこと（_renderProxyDetail と _fetchCardInfo の両方から参照する）
+function _normalizeBreaks(text){return String(text??'').replace(/<br\s*\/?>/gi,'\n');}
+
 function showUnreleasedCard(name){
   // 世代管理: selectSugの未発売分岐はdoSearchを通らず世代が進まないため、稼働中の
   // 販売検索ストリームがあればここで明示的に破棄する（そのままだと後から届くdoneが
@@ -1660,11 +1666,6 @@ function showUnreleasedCard(name){
       }
     })
     .catch(()=>{});
-  // 効果テキストの改行正規化: 元データ(YGOResources)は改行を文字列 "<br>" で持つものが多く
-  // （2026-09-04 本番DB実測: 14,241枚中10,205枚）、esc() でそのまま文字として表示されていた。
-  // 一人回しの card-info-panel.js（E-1）と同じ変換。.card-detail-effect は pre-wrap なので 
- で改行される
-  function _normalizeBreaks(text){return String(text??'').replace(/<br\s*\/?>/gi,'\n');}
   // カード情報（効果テキスト等）— proxy 対応
   _fetchCardInfo(name);
 }
