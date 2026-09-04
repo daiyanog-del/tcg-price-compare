@@ -144,9 +144,11 @@ function fitFieldToViewport() {
 
   let slotW_w;
   if (isPortraitMobile) {
-    // 設計書 §8.2: 6列・サイド無し（墓地/除外は下段の横並び2分割になるため列数に含めない）
-    // 2026-09-03 司令塔が 375/412/744 幅で実測済み（上記コメント参照）。
-    slotW_w = Math.floor((availW - 8 - 50) / 6);
+    // 2026-09-04 5列化: 盤面を6列→5列グリッドに変更（フィールド魔法をEXゾーン2つの間の
+    // 最上段中央へ移動、slot9は非表示）。gap 10px×4=40px を差し引く。
+    // 実測: 375×660 では高さ制約（slotW_h側）が支配するため 52px のまま変わらず、
+    // 412×780 では幅制約（slotW_w側）が緩み従来の59pxより拡大する。
+    slotW_w = Math.floor((availW - 8 - 40) / 5);
   } else if (isPhone && isLandscape) {
     slotW_w = Math.floor((availW - 126) / 8.4);
   } else {

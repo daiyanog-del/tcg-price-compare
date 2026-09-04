@@ -36,9 +36,8 @@
     gap: 6px;
     padding-bottom: 2px; /* 767pxブロックの4pxを縦向きのみ2pxに詰める（52px到達のための最終調整） */
   }
-  .custom-layout {
-    gap: 8px;
-  }
+  /* .custom-layout の gap（盤面3段間）は 2026-09-04 5列化セクション（下記）で
+     display:grid とあわせて gap: 8px 10px として指定する（縦8px・横10pxを維持）。 */
   .sol-hand-area,
   .side-slots-container .sol-side-area,
   #imagePool2 {
@@ -128,6 +127,56 @@
      PC・横向きスマホは変更しない（brand.css 自体は触らない）。 */
   .sol-grave .side-slot {
     background-image: none;
+  }
+
+  /* ════════ 2026-09-04 5列化（盤面を6列→5列グリッドへ・DOMは動かさない） ════════
+     フィールド魔法（slot3）をEXモンスターゾーン2つ（slot1・slot2）の間、最上段の
+     中央へ移動。中段=モンスターゾーン slot4〜8（5列）、下段=魔法罠ゾーン slot10〜14（5列）。
+     .row-top/.row-middle/.row-bottom を display:contents にし、.custom-layout を
+     5列グリッド化した上で、各 .custom-slot に data-slot 基準で grid-row/grid-column を
+     直接指定する（layout.css の nth-child ベースの配置は上書きされる。詳細度が同じでも
+     mobile.css が main.css で最後にインポートされるため後勝ちで確実に上書きできる）。
+     PC・横向きスマホは layout.css の6列グリッドのまま（このブロックの外・変更なし）。 */
+  .row-top,
+  .row-middle,
+  .row-bottom {
+    display: contents;
+  }
+  .custom-layout {
+    display: grid;
+    grid-template-columns: repeat(5, var(--slot-width));
+    grid-auto-rows: var(--slot-height);
+    gap: 8px 10px;
+    justify-content: center;
+  }
+  /* 最上段: [slot1][slot3][slot2]（EXモンスターゾーン2つの間にフィールド魔法） */
+  .custom-layout .custom-slot[data-slot="1"] { grid-row: 1; grid-column: 2; }
+  .custom-layout .custom-slot[data-slot="3"] { grid-row: 1; grid-column: 3; }
+  .custom-layout .custom-slot[data-slot="2"] { grid-row: 1; grid-column: 4; }
+  /* 中段: モンスターゾーン5個（slot4〜8） */
+  .custom-layout .custom-slot[data-slot="4"] { grid-row: 2; grid-column: 1; }
+  .custom-layout .custom-slot[data-slot="5"] { grid-row: 2; grid-column: 2; }
+  .custom-layout .custom-slot[data-slot="6"] { grid-row: 2; grid-column: 3; }
+  .custom-layout .custom-slot[data-slot="7"] { grid-row: 2; grid-column: 4; }
+  .custom-layout .custom-slot[data-slot="8"] { grid-row: 2; grid-column: 5; }
+  /* 下段: 魔法罠ゾーン5個（slot10〜14。10・14はペンデュラムのアイコン付き） */
+  .custom-layout .custom-slot[data-slot="10"] { grid-row: 3; grid-column: 1; }
+  .custom-layout .custom-slot[data-slot="11"] { grid-row: 3; grid-column: 2; }
+  .custom-layout .custom-slot[data-slot="12"] { grid-row: 3; grid-column: 3; }
+  .custom-layout .custom-slot[data-slot="13"] { grid-row: 3; grid-column: 4; }
+  .custom-layout .custom-slot[data-slot="14"] { grid-row: 3; grid-column: 5; }
+  /* slot9（フィールド魔法の下・PCではEXデッキ位置の空きマス）は既定で非表示。
+     PCで記録された共有リプレイが slot9 にカードを置くことがあるため、カードが
+     入っている間だけ盤面の下に単独表示する（崩れ防止のため6列目には出さない）。
+     :has() 非対応ブラウザでは常に非表示のまま（フォールバックとして許容）。 */
+  .custom-layout .custom-slot[data-slot="9"] {
+    display: none;
+  }
+  .custom-layout .custom-slot[data-slot="9"]:has(.tier-item-wrapper) {
+    display: flex;
+    grid-row: 4;
+    grid-column: 1 / -1;
+    justify-self: center;
   }
 
   /* ════════ タップ操作の状態機械（設計書 §8.3・制約10） ════════ */
