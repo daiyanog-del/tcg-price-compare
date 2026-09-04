@@ -350,7 +350,8 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .movers-name-text{font-size:.85rem;font-weight:500;color:#fff;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.25;overflow-wrap:anywhere}
 .movers-rarity{display:block;line-height:1}
 .movers-price{text-align:right;font-size:.78rem;line-height:1.4;display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0}
-.movers-price-now{font:600 .85rem var(--mono)}
+/* 現在価格は白（カード名と同じ）。色を指定しないと外側 .empty の案内文用グレー(--text-d)を継承して薄くなる（2026-09-04 指摘） */
+.movers-price-now{font:600 .85rem var(--mono);color:var(--text)}
 .movers-diff{font:600 .75rem var(--mono)}
 .movers-diff.up{color:#ef4444}
 .movers-diff.down{color:#22c55e}
