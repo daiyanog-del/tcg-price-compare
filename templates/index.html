@@ -1640,7 +1640,8 @@ function showUnreleasedCard(name){
     <div class="card-hero-meta">
       <span style="color:var(--text-m)">このカードはまだ発売前のため、販売価格情報はありません。</span>
     </div>
-    <details class="card-info-details" id="cardDetailDetails" hidden>
+    <!-- 2026-09-04: 既定で開く（B-2 のスマホ縦長対策で畳んでいたが、PC でも隠れて読めないため全幅で開く裁定） -->
+    <details class="card-info-details" id="cardDetailDetails" open hidden>
       <summary>カード情報（効果テキスト）</summary>
       <div id="cardDetail" class="card-detail"></div>
     </details>
@@ -1659,6 +1660,12 @@ function showUnreleasedCard(name){
       }
     })
     .catch(()=>{});
+  // 効果テキストの改行正規化: 元データ(YGOResources)は改行を文字列 "<br>" で持つものが多く
+  // （2026-09-04 本番DB実測: 14,241枚中10,205枚）、esc() でそのまま文字として表示されていた。
+  // 一人回しの card-info-panel.js（E-1）と同じ変換。.card-detail-effect は pre-wrap なので 
+ で改行される
+  function _normalizeBreaks(text){return String(text??'').replace(/<br\s*\/?>/gi,'
+');}
   // カード情報（効果テキスト等）— proxy 対応
   _fetchCardInfo(name);
 }
@@ -1687,8 +1694,8 @@ function _renderProxyDetail(p){
     html+=`<div class="cdm-row">${esc(p.card_type||'')}</div>`;
   }
   html+='</div>';
-  if(p.pendulum_effect) html+=`<div class="card-detail-effect"><span class="card-detail-pendulum-label">【ペンデュラム効果】</span>${esc(p.pendulum_effect)}</div>`;
-  if(p.effect_text) html+=`<div class="card-detail-effect">${esc(p.effect_text)}</div>`;
+  if(p.pendulum_effect) html+=`<div class="card-detail-effect"><span class="card-detail-pendulum-label">【ペンデュラム効果】</span>${esc(_normalizeBreaks(p.pendulum_effect))}</div>`;
+  if(p.effect_text) html+=`<div class="card-detail-effect">${esc(_normalizeBreaks(p.effect_text))}</div>`;
   const meta=[p.product_name,p.release_date].filter(Boolean).join(' / ');
   if(meta) html+=`<div class="card-detail-print" style="margin-top:6px">${esc(meta)}</div>`;
   det.innerHTML=html;
@@ -1722,8 +1729,8 @@ function _fetchCardInfo(cardName){
         html+=`<div class="cdm-row">${esc(data.card_type+(data.property?` [${data.property}]`:'')||'')}${limitBadge}${printSpan}</div>`;
       }
       html+='</div>';
-      if(data.pendulum_effect) html+=`<div class="card-detail-effect"><span class="card-detail-pendulum-label">【ペンデュラム効果】</span>${esc(data.pendulum_effect)}</div>`;
-      if(data.effect_text) html+=`<div class="card-detail-effect">${esc(data.effect_text)}</div>`;
+      if(data.pendulum_effect) html+=`<div class="card-detail-effect"><span class="card-detail-pendulum-label">【ペンデュラム効果】</span>${esc(_normalizeBreaks(data.pendulum_effect))}</div>`;
+      if(data.effect_text) html+=`<div class="card-detail-effect">${esc(_normalizeBreaks(data.effect_text))}</div>`;
       det.innerHTML=html;
       _showCardDetail();
     })
@@ -2072,7 +2079,8 @@ function renderAll(d){
       在庫あり ${d.in_stock_count}件 / 売切 ${d.sold_out_count}件 / 計 ${d.total}件<br>
       レアリティ: ${[...new Set(D.map(r=>r.rarity).filter(Boolean))].length}種類
     </div>
-    <details class="card-info-details" id="cardDetailDetails" hidden>
+    <!-- 2026-09-04: 既定で開く（B-2 のスマホ縦長対策で畳んでいたが、PC でも隠れて読めないため全幅で開く裁定） -->
+    <details class="card-info-details" id="cardDetailDetails" open hidden>
       <summary>カード情報（効果テキスト）</summary>
       <div id="cardDetail" class="card-detail"></div>
     </details>
