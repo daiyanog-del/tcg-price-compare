@@ -1664,8 +1664,7 @@ function showUnreleasedCard(name){
   // （2026-09-04 本番DB実測: 14,241枚中10,205枚）、esc() でそのまま文字として表示されていた。
   // 一人回しの card-info-panel.js（E-1）と同じ変換。.card-detail-effect は pre-wrap なので 
  で改行される
-  function _normalizeBreaks(text){return String(text??'').replace(/<br\s*\/?>/gi,'
-');}
+  function _normalizeBreaks(text){return String(text??'').replace(/<br\s*\/?>/gi,'\n');}
   // カード情報（効果テキスト等）— proxy 対応
   _fetchCardInfo(name);
 }
