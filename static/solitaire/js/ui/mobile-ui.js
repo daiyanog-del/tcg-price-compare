@@ -956,9 +956,10 @@ function _updateRecordBtn() {
     btn.classList.add('recording');
     if (dot) dot.hidden = false;
   } else {
-    label.textContent = '● 録画';
+    // 待機中も赤いドットを常時表示（第5次検収: 「録画」が暗いグレーで見つけづらい）
+    label.textContent = '録画';
     btn.classList.remove('recording');
-    if (dot) dot.hidden = true;
+    if (dot) dot.hidden = false;
   }
 }
 

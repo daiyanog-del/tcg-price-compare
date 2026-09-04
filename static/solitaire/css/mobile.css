@@ -28,6 +28,10 @@
        あと1px分を2pxまで詰めて52pxへ到達させた。B-8のmin-height式も追随済み）
      - .sol-field-area の padding-bottom: 4→2px（52px到達のための最終調整。指示に
        明記のない項目だが、盤面下の余白でカード視認性には影響しない） */
+  /* 第5次検収②: 墓地｜除外の隙間（layout.css の gap 10px）を他の行間 6px に揃える */
+  .side-slots-container {
+    gap: 6px;
+  }
   .sol-field-area {
     gap: 6px;
     padding-bottom: 2px; /* 767pxブロックの4pxを縦向きのみ2pxに詰める（52px到達のための最終調整） */
@@ -290,12 +294,19 @@
   /* ════════ タスクA-2: 録画ボタン（下部バー） ════════
      録画中は赤系トーン＋ドット点滅。@keyframes は prefers-reduced-motion で無効化する（タスクC）。
      L-10: ラベルは「■ N手」に短縮済み（mobile-ui.js）。375px幅で折り返さないよう nowrap を付ける。 */
+  /* 第5次検収①: 待機中の「録画」が暗いグレーで見つけづらい → 白・太字・赤みの枠に */
+  .sol-mobile-record-btn {
+    color: #fff;
+    font-weight: 700;
+    border-color: #8a3a3a;
+  }
   .sol-mobile-record-btn.recording {
     border-color: #dc3c3c;
     color: #ff9b9b;
   }
   #solMobileRecordLabel {
     white-space: nowrap;
+    color: #fff; /* 別の規則で span に #333 が当たり暗いグレーになっていたため明示（第5次検収①） */
   }
   .sol-mobile-record-dot {
     display: inline-block;
