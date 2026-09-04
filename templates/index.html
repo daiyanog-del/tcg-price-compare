@@ -319,8 +319,15 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .movers{max-width:500px;margin:12px auto 0;text-align:left}
 /* トップの余白最適化（2026-09-02）: PC幅では販売・買取の2ランキングを左右に並べ、
    縦積み約1,300pxを半減させる。auto-fit なので片方が .hidden のときは残りが全幅を使う */
-.movers-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;max-width:1000px;margin:0 auto;align-items:start}
-.movers-row>.movers{max-width:none;width:100%}
+/* ランキング3枚の並び（2026-09-04 裁定A・3列化）: 既定は1列（各500pxで中央寄せ。スマホ〜タブレットは縦積み）、
+   3列が入る幅（本番実測: ページ本体1100px÷3≒356px/枚）では3列固定にする。
+   旧 auto-fit(minmax 340px) は3枚だと2列＋1枚余りの歯抜けになるため廃止 */
+.movers-row{display:grid;grid-template-columns:1fr;gap:16px;max-width:1140px;margin:0 auto;align-items:start}
+.movers-row>.movers{width:100%;margin:12px auto 0}
+@media(min-width:1062px){
+  .movers-row{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .movers-row>.movers{max-width:none}
+}
 .movers-tabs{display:flex;gap:0;margin-bottom:6px;justify-content:center}
 .movers-tab{padding:6px 18px;font-size:.78rem;font-weight:600;border:1px solid var(--border);background:var(--bg-card);color:var(--text-m);cursor:pointer;transition:all .15s}
 .movers-tab:first-child{border-radius:6px 0 0 6px}
@@ -338,7 +345,9 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .movers-thumb:empty{display:none}
 .movers-thumb img{width:100%;height:100%;object-fit:cover}
 .movers-name{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:2px}
-.movers-name-text{font-size:.85rem;font-weight:500;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* カード名は2行まで折り返す（3列化で名前に使える幅が約156pxになり、本番実測で18件中3件・最長286pxが1行に収まらないため。
+   サムネ高53pxに対し1行分しか使っていなかったので、2行にしても行の高さは変わらない） */
+.movers-name-text{font-size:.85rem;font-weight:500;color:#fff;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.25;overflow-wrap:anywhere}
 .movers-rarity{display:block;line-height:1}
 .movers-price{text-align:right;font-size:.78rem;line-height:1.4;display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0}
 .movers-price-now{font:600 .85rem var(--mono)}
