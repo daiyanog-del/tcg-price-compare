@@ -168,6 +168,19 @@ async function _saveAndGetShortURL(title, logsOverride) {
 }
 
 /**
+ * High-1: 既存の setup（初期配置。共有URLを開いて再共有した場合など）を先頭に必ず残す。
+ * _buildRangeLogs は setup を含まない通常ログ（getLogs()）のみを対象に加工するため、
+ * setup 自体はここで別途結合する（再共有で setup が消える不具合の修正）。
+ * タスクA-4: 端末保存（mobile-ui.js の buildReplayPayload 呼び出し）でも同じ範囲加工を
+ * 使うため export する（_buildRangeLogs 自体は変更せず、ロジックを複製しない）。
+ * @param {{start:number, end:number}} [range]  D-2: 共有する範囲（1-indexed 手数）。省略時は全範囲
+ * @returns {Array}
+ */
+export function buildRangeLogsForPayload(range) {
+  return [...getSetupLogs(), ..._buildRangeLogs(getLogs(), range)];
+}
+
+/**
  * H-1: 共有URL生成（常にSupabase ID方式で短いURLを発行）。保存失敗時のみハッシュ方式に
  * フォールバック。mobile-ui.js の共有シートからも同じロジックを使うため export する
  * （ロジックは移動せず export を足すだけ）。
@@ -176,10 +189,7 @@ async function _saveAndGetShortURL(title, logsOverride) {
  */
 export async function generateShareURL(range) {
   const title = _getReplayTitle();
-  // High-1: 既存の setup（初期配置。共有URLを開いて再共有した場合など）を先頭に必ず残す。
-  // _buildRangeLogs は setup を含まない通常ログ（getLogs()）のみを対象に加工するため、
-  // setup 自体はここで別途結合する（再共有で setup が消える不具合の修正）。
-  const logs = [...getSetupLogs(), ..._buildRangeLogs(getLogs(), range)];
+  const logs = buildRangeLogsForPayload(range);
 
   // 常にSupabase ID方式（?replay=8文字ID）で短いURLを発行する
   try {
@@ -279,6 +289,8 @@ async function _tryLoadFromURL() {
     // card:// センチネル対応のため await が必要（非同期関数）
     if (await importFromURLHash(encoded)) {
       console.log('URLハッシュからリプレイを読み込みました');
+      // タスクB-1: 共有リンクから開いたときは mobile-ui.js が再生モードを自動で開く
+      document.dispatchEvent(new CustomEvent('sol-replay-loaded-from-url'));
     }
     return;
   }
@@ -299,6 +311,8 @@ async function _tryLoadFromURL() {
       await _setReplayData(images, names || {}, logs, exCardIds || []);
     }
     console.log(`リプレイID ${replayId} を読み込みました`);
+    // タスクB-1: 共有リンクから開いたときは mobile-ui.js が再生モードを自動で開く
+    document.dispatchEvent(new CustomEvent('sol-replay-loaded-from-url'));
   } catch (e) {
     console.warn('リプレイの読み込みに失敗:', e.message);
   }

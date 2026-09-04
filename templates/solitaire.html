@@ -31,7 +31,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Bungee&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/solitaire/css/main.css?v=20260904a">
+<link rel="stylesheet" href="/static/solitaire/css/main.css?v=20260904b">
 <link rel="stylesheet" href="/static/css/self-watermark.css?v=20260611">
 </head>
 
@@ -269,8 +269,6 @@
 
       <!-- リプレイバー -->
       <div id="replayBarContainer" class="replay-bar">
-        <!-- スマホ縦向き専用: ⋯メニュー「リプレイ操作」でオーバーレイ表示した際の閉じるボタン（A-4） -->
-        <button id="solMobileReplayBarClose" class="sol-mobile-sheet-close-btn" type="button" aria-label="閉じる" hidden>&times;</button>
         <button class="replay-btn" id="replayBack">&#9664; 前</button>
         <input type="range" class="replay-slider" id="replaySlider" min="0" max="0" value="0" disabled>
         <span class="replay-counter" id="replayCounter">0/0</span>
@@ -317,18 +315,36 @@
         </div>
       </div>
 
-      <!-- 下部固定バー -->
+      <!-- タスクB-2: 再生モード専用のスライダー帯（下部バーの直上・#replaySlider と同期する） -->
+      <div id="solMobileReplayStrip" class="sol-mobile-replay-strip" hidden>
+        <input type="range" id="solMobileReplayStripSlider" class="sol-mobile-replay-strip-slider" min="0" max="0" value="0" disabled>
+      </div>
+
+      <!-- 下部固定バー: 通常モード / 再生モードで中身を丸ごと差し替える（タスクA-2・タスクB-2） -->
       <div id="solMobileBar" class="sol-mobile-bar" hidden>
-        <button id="solMobileDeckBtn" type="button" class="sol-mobile-bar-btn">
-          デッキ <span id="solMobileDeckCount">0</span>
-        </button>
-        <button id="solMobileUndoBtn" type="button" class="sol-mobile-bar-btn" hidden>取消</button>
-        <!-- 手数1以上でJS（mobile-ui.js updateReplayBarMobile）がhiddenを外す -->
-        <button id="solMobileShareBtn" type="button" class="sol-mobile-bar-btn" hidden>共有</button>
-        <button id="solMobileMenuBtn" type="button" class="sol-mobile-bar-btn sol-mobile-bar-menu">
-          &#8943;
-          <span id="solMobileMenuBadge" class="sol-mobile-badge" hidden></span>
-        </button>
+        <div id="solMobileBarNormal" class="sol-mobile-bar-row">
+          <button id="solMobileDeckBtn" type="button" class="sol-mobile-bar-btn">
+            デッキ <span id="solMobileDeckCount">0</span>
+          </button>
+          <!-- タスクA-2: 録画開始/停止。録画中は「■ 停止 ・ N手」に変わる（赤系・ドット点滅） -->
+          <button id="solMobileRecordBtn" type="button" class="sol-mobile-bar-btn sol-mobile-record-btn">
+            <span id="solMobileRecordDot" class="sol-mobile-record-dot" aria-hidden="true" hidden></span>
+            <span id="solMobileRecordLabel">&#9679; 録画</span>
+          </button>
+          <button id="solMobileUndoBtn" type="button" class="sol-mobile-bar-btn" hidden>取消</button>
+          <button id="solMobileMenuBtn" type="button" class="sol-mobile-bar-btn sol-mobile-bar-menu">
+            &#8943;
+            <span id="solMobileMenuBadge" class="sol-mobile-badge" hidden></span>
+          </button>
+        </div>
+        <!-- タスクB-2: 再生モード。#replayBack/#replayPlay/#replayFwd/#replayCounter を .click()／textContent 追従で使う -->
+        <div id="solMobilePlayBar" class="sol-mobile-bar-row" hidden>
+          <button id="solMobilePlayBackBtn" type="button" class="sol-mobile-bar-btn">&#9664; 前</button>
+          <button id="solMobilePlayToggleBtn" type="button" class="sol-mobile-bar-btn sol-mobile-play-toggle-btn">&#9654; 再生</button>
+          <button id="solMobilePlayFwdBtn" type="button" class="sol-mobile-bar-btn">次 &#9654;</button>
+          <span id="solMobilePlayCounter" class="sol-mobile-play-counter">0/0</span>
+          <button id="solMobilePlayExitBtn" type="button" class="sol-mobile-bar-btn">&#10005; 終了</button>
+        </div>
       </div>
 
       <!-- ⋯メニュー シート -->
@@ -350,7 +366,8 @@
               相手の想定妨害 <span id="solMobileOppBadge" class="sol-mobile-badge" hidden></span>
             </button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="deckinput">デッキを読み込む</button>
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="replay">リプレイ操作</button>
+            <button type="button" class="sol-mobile-menu-item" data-menu-action="playback">リプレイを再生</button>
+            <button type="button" class="sol-mobile-menu-item" data-menu-action="share">共有・保存</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="savedreplays">保存済みリプレイ</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="help">操作方法</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="feedback">不具合・要望を送る</button>
@@ -405,23 +422,15 @@
           <div class="sol-mobile-sheet-body">
             <p id="solMobileShareCurrentInfo" class="sol-mobile-share-current">現在の記録: 0手（メイン0枚・EX0枚）</p>
 
-            <!-- ① 共有する範囲 -->
+            <!-- ① 録画（タスクA-3: 「共有する範囲」スライダーを廃止し、録画状態の表示に置き換え） -->
             <div class="sol-mobile-share-section">
-              <p class="sol-mobile-share-heading">① 共有する範囲</p>
-              <p class="sol-mobile-share-note">開始より前の手は初期配置として送られ、受け取った人は開始手から再生できます。</p>
-              <div class="sol-mobile-share-range-row">
-                <span class="sol-mobile-share-range-tag">開始</span>
-                <button type="button" class="sol-mobile-share-range-btn" data-share-range-step="start" data-share-range-delta="-1" aria-label="開始を1手戻す">−</button>
-                <input type="range" id="solMobileShareRangeStart" class="sol-mobile-share-range-input" min="1" max="1" value="1">
-                <button type="button" class="sol-mobile-share-range-btn" data-share-range-step="start" data-share-range-delta="1" aria-label="開始を1手進める">＋</button>
-              </div>
-              <div class="sol-mobile-share-range-row">
-                <span class="sol-mobile-share-range-tag">終了</span>
-                <button type="button" class="sol-mobile-share-range-btn" data-share-range-step="end" data-share-range-delta="-1" aria-label="終了を1手戻す">−</button>
-                <input type="range" id="solMobileShareRangeEnd" class="sol-mobile-share-range-input" min="1" max="1" value="1">
-                <button type="button" class="sol-mobile-share-range-btn" data-share-range-step="end" data-share-range-delta="1" aria-label="終了を1手進める">＋</button>
-              </div>
-              <p id="solMobileShareRangeLabel" class="sol-mobile-share-range-label">1手目〜1手目（全範囲）</p>
+              <p class="sol-mobile-share-heading">① 録画</p>
+              <p id="solMobileShareRecordingInfo" class="sol-mobile-share-note">全記録（0手）を共有します。特定の場面だけ共有するには下部バーの ● 録画 を使ってください。</p>
+              <button type="button" id="solMobileShareStartRecordingBtn" class="sol-mobile-menu-item">&#9679; 録画を始める</button>
+              <!-- M-3: 録画中に共有シートを開いた場合のみ表示（停止処理を行い①の表示を更新する） -->
+              <button type="button" id="solMobileShareStopRecordingBtn" class="sol-mobile-menu-item" hidden>ここで停止して範囲を確定</button>
+              <button type="button" id="solMobileShareRedoRecordingBtn" class="sol-mobile-menu-item" hidden>録画をやり直す</button>
+              <button type="button" id="solMobileSharePlaybackBtn" class="sol-mobile-menu-item">再生して確認</button>
             </div>
 
             <!-- ② 共有する -->
@@ -452,7 +461,8 @@
             <!-- ③ この端末に保存する -->
             <div class="sol-mobile-share-section">
               <p class="sol-mobile-share-heading">③ この端末に保存する</p>
-              <!-- E-2: リプレイの端末保存（localStorage）。共有する範囲の指定は影響しない（全ログを保存） -->
+              <!-- E-2/タスクA-4: リプレイの端末保存（localStorage）。①録画があればその範囲だけを、
+                   無ければ全ログを保存する（mobile-ui.js _saveReplayToDevice が range を渡す） -->
               <button type="button" id="solMobileShareSaveLocalBtn" class="sol-mobile-menu-item">端末に保存</button>
               <p class="sol-mobile-share-note">このブラウザの中に保存されます（他の端末には同期されません）。開くには ⋯メニュー →「保存済みリプレイ」。</p>
               <button type="button" id="solMobileShareOpenSavedBtn" class="sol-mobile-menu-item" hidden>保存済みリプレイを開く</button>
@@ -644,6 +654,6 @@
 <!-- 端末間同期（P2）。main.js（type=module・deferされる）より前に読み込まれる通常scriptなので、
      DOM解析完了後に実行されるmodule側からは常に window.SyncClient が使える（設計文書 §11） -->
 <script src="/static/shared/sync-client.js?v=20260813"></script>
-<script type="module" src="/static/solitaire/js/main.js?v=20260904a"></script>
+<script type="module" src="/static/solitaire/js/main.js?v=20260904b"></script>
 </body>
 </html>

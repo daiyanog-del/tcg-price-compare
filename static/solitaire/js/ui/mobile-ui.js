@@ -23,6 +23,7 @@ import {
   getDropZoneInfo,
   executeDrop,
   selectMobileCard,
+  setMobilePlaybackMode,
 } from '../components/drag-drop.js';
 import {
   toggleCardDefense,
@@ -34,7 +35,7 @@ import { playActivateEffect } from '../components/card-effects.js';
 import { _renderCard, _showUnknown, _showLoading } from './card-info-panel.js';
 import { isMobilePortrait, watchMobilePortrait, isMobileLandscape, watchMobileLandscape } from '../utils/viewport.js';
 import { showToast } from '../utils/toast.js';
-import { generateShareURL, buildShareTweetUrl } from './replay-ui.js';
+import { generateShareURL, buildShareTweetUrl, buildRangeLogsForPayload } from './replay-ui.js';
 import { clearEverything } from './deck-input-panel.js';
 import {
   getLogLength,
@@ -43,6 +44,8 @@ import {
   getImages,
   getExCardIds,
   loadReplayFromCompressedData,
+  getCursor,
+  seekTo,
 } from '../services/replay-service.js';
 import { savedReplaysGet, saveReplayEntry, deleteReplayEntry } from '../services/saved-replays.js';
 
@@ -85,21 +88,22 @@ function resetMobileUI() {
   closeSidebarSheet();
   closeOppTraySheet();
   closeHelpSheet();
-  closeReplayOverlay();
   closeCardDetailOverlay();
   closeDeckSheet();   // フェーズ2: デッキ一覧シート
   closeShareSheet();  // フェーズ3: 共有シート
   closeSavedReplaysSheet(); // E-3: 保存済みリプレイ一覧シート
+  exitPlaybackMode(); // タスクB: portrait を外れる際は再生モードも強制終了
+  _resetRecording();  // タスクA-1: 録画状態も破棄する
   clearMobileSelection();
   clearPendingMobileDrop(); // 残件6: 保留ドロップと保留元カードの選択見た目も消す
 
   setHidden('solMobileBar', true);
+  setHidden('solMobileReplayStrip', true);
   setHidden('solMobileActionSheet', true);
   setHidden('solMobileMenuSheet', true);
   setHidden('solMobileCip', true);
   setHidden('solSidebarScrim', true);
   setHidden('solMobileUndoBtn', true);
-  setHidden('solMobileShareBtn', true);
   setHidden('solMobileDeckSheet', true);
   setHidden('solMobileShareSheet', true);
   setHidden('solMobileSavedReplaysSheet', true);
@@ -147,9 +151,9 @@ function initBarButtons() {
   document.getElementById('solMobileUndoBtn')
     ?.addEventListener('click', () => { document.getElementById('replayUndo')?.click(); });
 
-  // 共有: フェーズ3の共有シートを開く
-  document.getElementById('solMobileShareBtn')
-    ?.addEventListener('click', () => { openShareSheet(); });
+  // タスクA-2: 録画開始/停止（トグル）
+  document.getElementById('solMobileRecordBtn')
+    ?.addEventListener('click', () => { toggleRecording(); });
 
   // ⋯ メニュー
   document.getElementById('solMobileMenuBtn')
@@ -160,14 +164,13 @@ function initBarButtons() {
  * A-4: 旧リプレイバーは縦向きスマホでは常時 display:none（mobile.css）。
  * 取消は下部バーの #solMobileUndoBtn だけが表示を担う。
  * リプレイの手数（#replayUndo の disabled 属性）を見て表示を切り替える。
- * フェーズ3: 共有ボタンも同じ「手数1以上」判定（undoBtn.disabled と同基準）で表示する。
+ * タスクA-5: 共有ボタンは下部バーから外したため、ここでは取消のみを扱う。
  */
 function updateReplayBarMobile() {
   if (!isMobilePortrait()) return;
   const undoBtn = document.getElementById('replayUndo');
   if (!undoBtn) return;
   setHidden('solMobileUndoBtn', undoBtn.disabled);
-  setHidden('solMobileShareBtn', undoBtn.disabled);
 }
 
 function initReplayBarMobile() {
@@ -175,18 +178,6 @@ function initReplayBarMobile() {
   if (!undoBtn) return;
   updateReplayBarMobile();
   new MutationObserver(updateReplayBarMobile).observe(undoBtn, { attributes: true, attributeFilter: ['disabled'] });
-}
-
-// ══════════════════ ⋯メニュー「リプレイ操作」オーバーレイ（A-4） ══════════════════
-
-function openReplayOverlay() {
-  document.getElementById('replayBarContainer')?.classList.add('sol-mobile-fullbar-open');
-}
-function closeReplayOverlay() {
-  document.getElementById('replayBarContainer')?.classList.remove('sol-mobile-fullbar-open');
-}
-function initReplayOverlay() {
-  document.getElementById('solMobileReplayBarClose')?.addEventListener('click', closeReplayOverlay);
 }
 
 // ══════════════════ ⋯ メニューシート ══════════════════
@@ -215,7 +206,8 @@ const MENU_ACTIONS = {
   dice:     () => { document.getElementById('diceRollBtn')?.click(); },
   opptray:  () => { openOppTraySheet(); },
   deckinput:() => { openSidebarSheet(); },
-  replay:   () => { openReplayOverlay(); },
+  playback: () => { enterPlaybackMode(); }, // タスクB-1: 旧「リプレイ操作」オーバーレイを廃止し再生モードへ
+  share:    () => { openShareSheet(); },    // タスクA-5: 下部バーから外した共有導線
   savedreplays: () => { openSavedReplaysSheet(); }, // E-3
   help:     () => { openHelpSheet(); },
   feedback: () => { document.getElementById('feedbackOpenBtn')?.click(); },
@@ -276,6 +268,7 @@ function initDeckLoadProgress() {
     setDeckBtnLoading(true);
     // M-3: clearAllCards 中は一瞬盤面が空になり得るため、CTAが誤って一瞬出るのを防ぐ
     setHidden('solMobileEmptyCta', true);
+    _resetRecording(); // タスクA-1: デッキ再読込で録画状態を破棄する
   });
   document.addEventListener('sol-deck-load-end', (ev) => {
     if (!isMobilePortrait()) return;
@@ -869,7 +862,121 @@ function initDeckSheet() {
   });
 }
 
-// ══════════════════ 共有シート（フェーズ3・設計書 §3.4／H-1で2段階構成に変更） ══════════════════
+// ══════════════════ タスクA: 録画モード（設計書 §A） ══════════════════
+// 「録画開始」でこの時点までの手数(startIdx)を、「停止」で終了時点(endIdx)を記録する。
+// 共有・端末保存・X投稿は、録画（停止済み）があればその範囲だけを送る
+// （既存の setup:true 方式・generateShareURL/buildRangeLogsForPayload の range 引数を使う）。
+
+let _recording = { recording: false, startIdx: null, endIdx: null };
+
+/** 録画が開始され、かつ停止済み（範囲が確定している）かどうか */
+function _hasStoppedRecording() {
+  return !_recording.recording && _recording.startIdx !== null && _recording.endIdx !== null;
+}
+
+/**
+ * @returns {{start:number, end:number}|null} 1-indexed 手数の範囲。録画（停止済み）が無ければ null（＝全範囲扱い）。
+ * M-2: 停止後の取消（undo）で手数が減っていても壊れないよう、表示・送信の直前で
+ * endIdx を現在の手数以下へ、startIdx を endIdx 以下へクランプする（_recording 自体は書き換えない）。
+ */
+function _getRecordingRange() {
+  if (!_hasStoppedRecording()) return null;
+  const total = getLogLength();
+  const end = Math.min(_recording.endIdx, total);
+  const start = Math.min(_recording.startIdx, end);
+  return { start: start + 1, end };
+}
+
+/**
+ * 録画状態を破棄する。「すべて消去」／デッキ再読込／保存済みリプレイを開く／
+ * 共有リンクから開く の各経路（それぞれの呼び出し箇所）から呼ぶ。
+ */
+function _resetRecording() {
+  _recording = { recording: false, startIdx: null, endIdx: null };
+  _updateRecordBtn();
+}
+
+/**
+ * 録画開始: この時点までの手が初期配置（setup）になる（A-1）。
+ * M-4: 巻き戻し中（cursor がログ末尾より前）に開始した場合でも表示と一致させるため、
+ * 全ログ長（getLogLength）ではなく現在の再生位置（getCursor()+1）を基準にする
+ * （通常はカーソルが末尾にあるため両者は一致する）。
+ */
+function _startRecording() {
+  _recording = { recording: true, startIdx: getCursor() + 1, endIdx: null };
+  _updateRecordBtn();
+}
+
+/**
+ * 録画停止: 停止時点までを録画範囲として確定し、共有シートを開く（A-3）。
+ * M-4: startIdx と同じ基準（getCursor()+1）で終端を確定する。
+ * M-1: 1手も録画されていない（endIdx <= startIdx）場合は不成立として状態を破棄し、
+ * トーストのみ表示して共有シートは開かない（M-3: 共有シートの「ここで停止して範囲を確定」
+ * ボタン経由で呼ばれた場合は、シートが既に開いたままなので①の表示を全記録表示へ戻す）。
+ */
+function _stopRecording() {
+  if (!_recording.recording) return;
+  const endIdx = getCursor() + 1;
+  if (endIdx <= _recording.startIdx) {
+    _resetRecording();
+    showToast('1手も録画されていません');
+    _updateShareRecordingSection();
+    return;
+  }
+  _recording.endIdx = endIdx;
+  _recording.recording = false;
+  _updateRecordBtn();
+  openShareSheet();
+}
+
+/** 下部バーの「● 録画」ボタン（トグル） */
+function toggleRecording() {
+  if (_recording.recording) _stopRecording();
+  else _startRecording();
+}
+
+/**
+ * 録画ボタンの見た目・手数バッジを更新する。
+ * A-1/M-4: 録画中に取消（undo）や巻き戻し（前ボタン・スライダー）で現在位置が startIdx より
+ * 前に戻ったら startIdx をその値にクランプする。基準は全ログ長（getLogLength）ではなく
+ * 現在の再生位置（getCursor()+1）を使う（巻き戻し中は logEvent の切り捨てが未発生でも
+ * ログ長は変わらないため、ログ長基準だと巻き戻し直後の表示が実態とずれる）。
+ * L-10: ラベルは「■ N手」に短縮（375px幅で折り返さないよう。録画中は赤いドット＋枠で分かる）。
+ */
+function _updateRecordBtn() {
+  const btn = document.getElementById('solMobileRecordBtn');
+  const dot = document.getElementById('solMobileRecordDot');
+  const label = document.getElementById('solMobileRecordLabel');
+  if (!btn || !label) return;
+  if (_recording.recording) {
+    const cur = getCursor() + 1; // M-4: 現在の再生位置基準
+    if (cur < _recording.startIdx) _recording.startIdx = cur; // A-1/M-4: クランプ
+    const n = Math.max(0, cur - _recording.startIdx);
+    label.textContent = `■ ${n}手`;
+    btn.classList.add('recording');
+    if (dot) dot.hidden = false;
+  } else {
+    label.textContent = '● 録画';
+    btn.classList.remove('recording');
+    if (dot) dot.hidden = true;
+  }
+}
+
+/**
+ * A-2: #replayCounter のテキスト変化（stepForward/stepBack/seekTo/undo 等、既存の手数更新経路）を
+ * 監視し、録画中バッジの N手・クランプを追従させる。
+ */
+function initRecording() {
+  const counterEl = document.getElementById('replayCounter');
+  if (counterEl) {
+    new MutationObserver(() => {
+      if (_recording.recording) _updateRecordBtn();
+    }).observe(counterEl, { childList: true, characterData: true, subtree: true });
+  }
+}
+
+// ══════════════════ 共有シート（フェーズ3・設計書 §3.4／H-1で2段階構成に変更／
+//                     2026-09-04 タスクA-3: ①を「共有する範囲」スライダーから録画状態表示へ） ══════════════════
 // (1) 「共有リンクを作成」→ replay-ui.js の generateShareURL() を直接呼ぶ（.click() 配線を
 //     やめた。iOS Safari は await の後に user activation が失われ、.click() 経由の
 //     clipboard/window.open が沈黙失敗するため）。結果は readonly input に表示し、
@@ -888,7 +995,7 @@ function openShareSheet() {
   if (urlInput) urlInput.value = '';
   const xLink = document.getElementById('solMobileShareXLink');
   if (xLink) xLink.href = '#';
-  _initShareRangeSliders(); // D-1: 開くたびに現在の手数で範囲スライダーをリセット（既定=全範囲）
+  _updateShareRecordingSection(); // タスクA-3: ①録画した範囲 / 全記録の表示を更新
   _updateShareCurrentInfo(); // タスクA: 「現在の記録: N手（メインM枚・EX E枚）」
   _updateShareOpenSavedButton(); // タスクA: 保存済みが1件以上あれば③に「保存済みリプレイを開く」を出す
   setHidden('solMobileShareSheet', false);
@@ -904,102 +1011,43 @@ function _showShareError(msg) {
   el.hidden = false;
 }
 
-// ── D-1: 共有する範囲（開始・終了スライダー） ──
-
-/** シートを開くたびに現在の手数(N)で min/max を張り直し、既定=全範囲(1〜N)に戻す */
-function _initShareRangeSliders() {
-  const total = Math.max(1, getLogLength());
-  const startEl = document.getElementById('solMobileShareRangeStart');
-  const endEl = document.getElementById('solMobileShareRangeEnd');
-  if (!startEl || !endEl) return;
-  startEl.min = '1'; startEl.max = String(total); startEl.value = '1';
-  endEl.min = '1'; endEl.max = String(total); endEl.value = String(total);
-  _updateShareRangeLabel();
-}
-
-function _updateShareRangeLabel() {
-  const startEl = document.getElementById('solMobileShareRangeStart');
-  const endEl = document.getElementById('solMobileShareRangeEnd');
-  const labelEl = document.getElementById('solMobileShareRangeLabel');
-  if (!startEl || !endEl || !labelEl) return;
-  const total = getLogLength();
-  const start = parseInt(startEl.value, 10);
-  const end = parseInt(endEl.value, 10);
-  // タスクA: 開始=1かつ終了=全手数なら「全範囲」とわかる表記にする
-  const isFull = start === 1 && end === total;
-  labelEl.textContent = isFull
-    ? `${start}手目〜${end}手目（全範囲）`
-    : `${start}手目〜${end}手目（全${total}手）`;
-}
-
 /**
- * タスクA: 「−」「＋」ボタンで開始/終了スライダーを1手ずつ動かす。
- * min/max は _initShareRangeSliders が張った値をそのまま使う（相互クランプは
- * 既存の _onShareRangeInput に委譲し、判定ロジックを複製しない）。
- * @param {'start'|'end'} which
- * @param {number} delta  -1 または 1
+ * タスクA-3/M-3: ①録画セクションの表示を更新する。3状態:
+ *   - 録画中（stop前）: 「録画中（N手）」＋「ここで停止して範囲を確定」
+ *   - 録画（停止済み）あり: 「録画した範囲: s手目〜e手目（N手）」＋「録画をやり直す」
+ *   - 録画なし: 「全記録（N手）を共有します。…」＋「● 録画を始める」
  */
-function _stepShareRange(which, delta) {
-  const el = document.getElementById(which === 'start' ? 'solMobileShareRangeStart' : 'solMobileShareRangeEnd');
-  if (!el) return;
-  const min = parseInt(el.min, 10);
-  const max = parseInt(el.max, 10);
-  const next = Math.max(min, Math.min(max, parseInt(el.value, 10) + delta));
-  el.value = String(next);
-  _onShareRangeInput(which);
-}
+function _updateShareRecordingSection() {
+  const infoEl = document.getElementById('solMobileShareRecordingInfo');
+  const startBtn = document.getElementById('solMobileShareStartRecordingBtn');
+  const stopBtn = document.getElementById('solMobileShareStopRecordingBtn');
+  const redoBtn = document.getElementById('solMobileShareRedoRecordingBtn');
+  if (!infoEl) return;
 
-/**
- * High-2: コメント追加でログが1件増えた直後に、範囲スライダーの max を新しい手数へ追従させる。
- * end が「変更前の max（＝全範囲の終端）」と同じ値だった場合のみ新しい max に追従させ、
- * ユーザーが明示的に途中の手数を指定していた場合はその値をそのまま保持する。
- * start は 1〜newTotal の範囲を外れない限りそのまま保持する（1は常に有効な最小値のため
- * 特別な追従処理は不要）。
- */
-function _refreshShareRangeAfterCommentAdd() {
-  const startEl = document.getElementById('solMobileShareRangeStart');
-  const endEl = document.getElementById('solMobileShareRangeEnd');
-  if (!startEl || !endEl) return;
+  if (_recording.recording) {
+    // M-3: 録画中に共有シートを開いた場合（⋯メニュー「共有・保存」経由等）
+    const n = Math.max(0, getCursor() + 1 - _recording.startIdx);
+    infoEl.textContent = `録画中（${n}手）`;
+    if (startBtn) startBtn.hidden = true;
+    if (stopBtn) stopBtn.hidden = false;
+    if (redoBtn) redoBtn.hidden = true;
+    return;
+  }
 
-  const oldEndMax = parseInt(endEl.max, 10) || 1;
-  const endWasAtMax = parseInt(endEl.value, 10) === oldEndMax;
-
-  const newTotal = Math.max(1, getLogLength());
-  startEl.max = String(newTotal);
-  endEl.max = String(newTotal);
-
-  if (endWasAtMax) endEl.value = String(newTotal);
-
-  // 値が新しい max を超えていれば安全のためクランプする（通常は増加方向なので発生しない）
-  if (parseInt(startEl.value, 10) > newTotal) startEl.value = String(newTotal);
-  if (parseInt(endEl.value, 10) > newTotal) endEl.value = String(newTotal);
-  // start > end にならないよう最終調整
-  if (parseInt(startEl.value, 10) > parseInt(endEl.value, 10)) startEl.value = endEl.value;
-
-  _updateShareRangeLabel();
-}
-
-/** 開始 > 終了にならないよう相互クランプする */
-function _onShareRangeInput(which) {
-  const startEl = document.getElementById('solMobileShareRangeStart');
-  const endEl = document.getElementById('solMobileShareRangeEnd');
-  if (!startEl || !endEl) return;
-  const s = parseInt(startEl.value, 10);
-  const e = parseInt(endEl.value, 10);
-  if (which === 'start' && s > e) endEl.value = startEl.value;
-  else if (which === 'end' && e < s) startEl.value = endEl.value;
-  _updateShareRangeLabel();
-}
-
-/** @returns {{start:number, end:number}} 1-indexed 手数の範囲（既定値=全範囲でも数値を返す） */
-function _getShareRange() {
-  const startEl = document.getElementById('solMobileShareRangeStart');
-  const endEl = document.getElementById('solMobileShareRangeEnd');
-  const total = Math.max(1, getLogLength());
-  return {
-    start: startEl ? parseInt(startEl.value, 10) : 1,
-    end: endEl ? parseInt(endEl.value, 10) : total,
-  };
+  const range = _getRecordingRange();
+  if (range) {
+    const n = range.end - range.start + 1;
+    infoEl.textContent = `録画した範囲: ${range.start}手目〜${range.end}手目（${n}手）`;
+    if (startBtn) startBtn.hidden = true;
+    if (stopBtn) stopBtn.hidden = true;
+    if (redoBtn) redoBtn.hidden = false;
+  } else {
+    const total = getLogLength();
+    infoEl.textContent = `全記録（${total}手）を共有します。特定の場面だけ共有するには下部バーの ● 録画 を使ってください。`;
+    if (startBtn) startBtn.hidden = false;
+    if (stopBtn) stopBtn.hidden = true;
+    if (redoBtn) redoBtn.hidden = true;
+  }
 }
 
 /** H-1: 「共有リンクを作成」。await をまたぐため、この関数自体からは clipboard/share を呼ばない。 */
@@ -1020,7 +1068,7 @@ async function _generateShareLink() {
   setHidden('solMobileShareError', true);
   btn.disabled = true;
   try {
-    const url = await generateShareURL(_getShareRange()); // D-2: 共有する範囲を渡す
+    const url = await generateShareURL(_getRecordingRange()); // タスクA-4: 録画があればその範囲を渡す
     if (urlInput) urlInput.value = url;
     if (xLink) xLink.href = buildShareTweetUrl(url);
     if (nativeBtn) nativeBtn.hidden = typeof navigator.share !== 'function';
@@ -1087,21 +1135,37 @@ function initShareSheet() {
     const input = document.getElementById('solMobileShareCommentInput');
     const target = document.getElementById('replayCommentInput');
     if (!input || !target) return;
+    // H-2: logEvent は「カーソルが末尾でない状態」で呼ばれると未来ログを切り捨てる。
+    // 巻き戻し中にコメントを追加すると記録が壊れるため、先に末尾までseekToしてから追加する。
+    const total = getLogLength();
+    if (getCursor() + 1 < total) seekTo(total - 1);
     target.value = input.value;
     document.getElementById('replayAddComment')?.click();
     input.value = '';
-    // High-2: コメント追加で手数が1増えるため、範囲スライダーの max を追従させる
-    _refreshShareRangeAfterCommentAdd();
+    // H-2: 停止済み録画があれば endIdx をコメント追加後の手数へ追従させる（範囲が古いままにならないよう）
+    if (_hasStoppedRecording()) _recording.endIdx = getLogLength();
+    // High-2: コメント追加で手数が1増えるため、①録画セクション・現在の記録の表示を追従させる
+    _updateShareRecordingSection();
+    _updateShareCurrentInfo();
   });
 
-  // D-1: 共有する範囲（開始・終了スライダー、相互クランプ）
-  document.getElementById('solMobileShareRangeStart')?.addEventListener('input', () => _onShareRangeInput('start'));
-  document.getElementById('solMobileShareRangeEnd')?.addEventListener('input', () => _onShareRangeInput('end'));
-  // タスクA: 「−」「＋」ボタン（1手ずつ動かせる）
-  sheet.querySelectorAll('[data-share-range-step]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      _stepShareRange(btn.dataset.shareRangeStep, parseInt(btn.dataset.shareRangeDelta, 10));
-    });
+  // M-3: 録画中に共有シートを開いた場合の「ここで停止して範囲を確定」（停止処理＝表示更新）
+  document.getElementById('solMobileShareStopRecordingBtn')?.addEventListener('click', () => {
+    _stopRecording();
+  });
+
+  // タスクA-3: ①録画セクション（「● 録画を始める」／「録画をやり直す」／「再生して確認」）
+  document.getElementById('solMobileShareStartRecordingBtn')?.addEventListener('click', () => {
+    closeShareSheet();
+    _startRecording();
+  });
+  document.getElementById('solMobileShareRedoRecordingBtn')?.addEventListener('click', () => {
+    _resetRecording();
+    closeShareSheet();
+  });
+  document.getElementById('solMobileSharePlaybackBtn')?.addEventListener('click', () => {
+    closeShareSheet();
+    enterPlaybackMode();
   });
 
   // (1) リンク作成〜共有・コピー・X投稿
@@ -1172,9 +1236,9 @@ function _updateShareOpenSavedButton() {
 }
 
 /**
- * E-2: 共有シートの「端末に保存」。現在のリプレイ全体（共有する範囲の指定は影響しない）を
- * exportReplay と同じ payload（buildReplayPayload）で組み立て、LZString 圧縮して
- * saved-replays.js の localStorage 一覧に追加する。
+ * E-2/タスクA-4: 共有シートの「端末に保存」。録画（停止済み）があればその範囲だけを、
+ * 無ければリプレイ全体を exportReplay と同じ payload（buildReplayPayload）で組み立て、
+ * LZString 圧縮して saved-replays.js の localStorage 一覧に追加する。
  */
 function _saveReplayToDevice() {
   const { total, main: mainCount, ex: exCount } = _getReplayCounts();
@@ -1184,14 +1248,19 @@ function _saveReplayToDevice() {
   const titleInput = document.getElementById('solMobileShareTitleInput');
   const title = titleInput?.value?.trim() || _formatDefaultReplayTitle();
 
-  const payload = buildReplayPayload(title);
+  // タスクA-4: 録画があればその範囲のログだけを保存する
+  const range = _getRecordingRange();
+  const logsOverride = range ? buildRangeLogsForPayload(range) : undefined;
+  const steps = range ? (range.end - range.start + 1) : total;
+
+  const payload = buildReplayPayload(title, logsOverride);
   const compressed = LZString.compress(JSON.stringify(payload));
 
   const result = saveReplayEntry({
     title,
     main: mainCount,
     ex: exCount,
-    steps: total,
+    steps,
     data: compressed,
   });
 
@@ -1235,6 +1304,7 @@ async function _openSavedReplay(item) {
   }
   try {
     await loadReplayFromCompressedData(item.data);
+    _resetRecording(); // タスクA-1: 保存済みリプレイを開く で録画状態を破棄
     closeSavedReplaysSheet();
     showToast('リプレイを復元しました');
     return true;
@@ -1268,9 +1338,14 @@ function _renderSavedReplaysList() {
     row.className = 'sol-mobile-saved-replay-row';
     row.setAttribute('role', 'button');
     row.setAttribute('tabindex', '0');
-    row.addEventListener('click', () => _openSavedReplay(item));
+    // タスクB-1: 行タップで開いたときは再生モードを自動で開く
+    const openAndPlay = async () => {
+      const ok = await _openSavedReplay(item);
+      if (ok) enterPlaybackMode();
+    };
+    row.addEventListener('click', openAndPlay);
     row.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); _openSavedReplay(item); }
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openAndPlay(); }
     });
 
     const info = document.createElement('div');
@@ -1374,6 +1449,170 @@ function initClearEverything() {
     if (!isMobilePortrait()) return;
     updateDeckCountBadge();
     updateReplayBarMobile();
+    _resetRecording(); // タスクA-1: 「すべて消去」で録画状態を破棄する
+  });
+}
+
+// ══════════════════ タスクB: 再生モード（設計書 §B） ══════════════════
+// 下部バーの中身を [◀前][▶再生/❚❚停止][次▶][x/N][✕終了] に差し替え、その直上に
+// スライダー帯（#solMobileReplayStrip）を出す。既存の #replayBack/#replayPlay/#replayFwd/
+// #replaySlider/#replayCounter を .click()／textContent 追従で使い、ロジックを複製しない
+// （B-2）。旧オーバーレイ（.sol-mobile-fullbar-open・⋯メニュー「リプレイ操作」）は廃止。
+
+let _playbackMode = false;
+
+/** H-1: #replayPlay が自動再生中（.play-active）なら既存の togglePlay に委譲して止める。 */
+function _stopAutoPlayIfNeeded() {
+  const playBtn = document.getElementById('replayPlay');
+  if (playBtn?.classList.contains('play-active')) {
+    playBtn.click();
+  }
+}
+
+/**
+ * 再生モードのバー・帯を #replayBack/#replayPlay/#replayCounter/#replaySlider の
+ * 現在値から同期する。#replayCounter・#replayPlay の MutationObserver から都度呼ぶ（B-2/B-3/M-7）。
+ * M-6: 前/再生/次ボタンの disabled も元ボタンからコピーする。
+ */
+function _syncPlaybackFromMain() {
+  const counterEl = document.getElementById('replayCounter');
+  const mobileCounter = document.getElementById('solMobilePlayCounter');
+  if (counterEl && mobileCounter) mobileCounter.textContent = counterEl.textContent;
+
+  const mainSlider = document.getElementById('replaySlider');
+  const stripSlider = document.getElementById('solMobileReplayStripSlider');
+  if (mainSlider && stripSlider) {
+    stripSlider.min = mainSlider.min;
+    stripSlider.max = mainSlider.max;
+    stripSlider.value = mainSlider.value;
+    stripSlider.disabled = mainSlider.disabled;
+  }
+
+  const playBtn = document.getElementById('replayPlay');
+  const mobilePlayBtn = document.getElementById('solMobilePlayToggleBtn');
+  if (playBtn && mobilePlayBtn) {
+    mobilePlayBtn.textContent = playBtn.classList.contains('play-active') ? '❚❚ 停止' : '▶ 再生';
+    mobilePlayBtn.disabled = playBtn.disabled; // M-6
+  }
+
+  // M-6: 前/次ボタンの disabled を元ボタンからコピー（末尾で「次」を disabled にする等）
+  const backBtn = document.getElementById('replayBack');
+  const mobileBackBtn = document.getElementById('solMobilePlayBackBtn');
+  if (backBtn && mobileBackBtn) mobileBackBtn.disabled = backBtn.disabled;
+
+  const fwdBtn = document.getElementById('replayFwd');
+  const mobileFwdBtn = document.getElementById('solMobilePlayFwdBtn');
+  if (fwdBtn && mobileFwdBtn) mobileFwdBtn.disabled = fwdBtn.disabled;
+}
+
+/**
+ * 再生モードへ入る。入口（B-1）: ⋯メニュー「リプレイを再生」／共有リンクで開いたとき／
+ * 保存済みリプレイを開いたとき／共有シート「再生して確認」。
+ * M-6: 記録が0手（setup込み）なら入らずトーストのみ表示する。
+ */
+function enterPlaybackMode() {
+  if (!isMobilePortrait() || _playbackMode) return;
+  if (getLogLength() + getSetupLogs().length === 0) { // M-6
+    showToast('記録がありません');
+    return;
+  }
+  _playbackMode = true;
+  clearMobileSelection(); // B-4: 選択中カードが残っていれば解除
+  setMobilePlaybackMode(true); // drag-drop.js: タップ選択・ドラッグを無効化（B-4）
+  document.body.classList.add('sol-playback'); // H-3: 盤面全体を pointer-events:none で二重防御
+  // M-5: イベント経由に頼らず全シート・オーバーレイを明示的に閉じる
+  closeMenuSheet();
+  closeShareSheet();
+  closeSavedReplaysSheet();
+  closeDeckSheet();
+  setHidden('solMobileActionSheet', true);
+  closeCardDetailOverlay();
+
+  setHidden('solMobileBar', false); // 共有リンクの初回ロード等、まだ通常表示に至っていない場合の保険
+  setHidden('solMobileBarNormal', true);
+  setHidden('solMobilePlayBar', false);
+  setHidden('solMobileReplayStrip', false);
+  _syncPlaybackFromMain();
+
+  // B-3: 盤面を覆わないよう下部予約量(52→88px)を増やし、既存の再フィット経路(resize)を発火する
+  document.documentElement.style.setProperty('--sol-mobile-bottom-reserve', '88px');
+  window.dispatchEvent(new Event('resize'));
+}
+
+/**
+ * 再生モードを終了する。
+ * H-1: 自動再生中なら先に止める。
+ * H-4: 途中から分岐して続ける機能は作らない方針のため、カーソルが末尾でなければ
+ * 末尾まで進めてから終了し、トーストで知らせる。
+ */
+function exitPlaybackMode() {
+  if (!_playbackMode) return;
+  _stopAutoPlayIfNeeded(); // H-1
+
+  const total = getLogLength();
+  if (getCursor() < total - 1) { // H-4
+    seekTo(total - 1);
+    showToast('最後の手まで進めました');
+  }
+
+  _playbackMode = false;
+  setMobilePlaybackMode(false);
+  document.body.classList.remove('sol-playback'); // H-3
+  setHidden('solMobilePlayBar', true);
+  setHidden('solMobileReplayStrip', true);
+  setHidden('solMobileBarNormal', false);
+
+  document.documentElement.style.setProperty('--sol-mobile-bottom-reserve', '52px');
+  window.dispatchEvent(new Event('resize'));
+}
+
+function initPlaybackBar() {
+  document.getElementById('solMobilePlayBackBtn')?.addEventListener('click', () => {
+    document.getElementById('replayBack')?.click();
+  });
+  document.getElementById('solMobilePlayToggleBtn')?.addEventListener('click', () => {
+    document.getElementById('replayPlay')?.click();
+  });
+  document.getElementById('solMobilePlayFwdBtn')?.addEventListener('click', () => {
+    document.getElementById('replayFwd')?.click();
+  });
+  document.getElementById('solMobilePlayExitBtn')?.addEventListener('click', exitPlaybackMode);
+
+  // 帯のスライダー → 既存の #replaySlider の input イベントを発火させて seekTo させる（B-2）
+  const mainSlider = document.getElementById('replaySlider');
+  const stripSlider = document.getElementById('solMobileReplayStripSlider');
+  if (mainSlider && stripSlider) {
+    stripSlider.addEventListener('input', () => {
+      mainSlider.value = stripSlider.value;
+      mainSlider.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+
+  // 再生モード中だけバー・帯を追従させる共通コールバック
+  const syncIfPlayback = () => { if (_playbackMode) _syncPlaybackFromMain(); };
+
+  // #replayCounter の変化（stepForward/stepBack/seekTo/togglePlay 等、既存の手数更新経路）を監視
+  const counterEl = document.getElementById('replayCounter');
+  if (counterEl) {
+    new MutationObserver(syncIfPlayback).observe(counterEl, { childList: true, characterData: true, subtree: true });
+  }
+  // M-7: #replayPlay の class（play-active）／disabled 属性変化も監視する
+  const playBtn = document.getElementById('replayPlay');
+  if (playBtn) {
+    new MutationObserver(syncIfPlayback).observe(playBtn, { attributes: true, attributeFilter: ['class', 'disabled'] });
+  }
+}
+
+/**
+ * B-1: 共有リンク（#replay=/?replay=）で開いたとき、再生モードを自動で開く。
+ * replay-ui.js の _tryLoadFromURL が読み込み完了後に発火するイベントを受ける
+ * （このタイミングでは盤面・ログは既に反映済み）。
+ */
+function initPlaybackURLAutoOpen() {
+  document.addEventListener('sol-replay-loaded-from-url', () => {
+    if (!isMobilePortrait()) return;
+    _resetRecording(); // タスクA-1: 共有リンクから開く で録画状態を破棄
+    enterPlaybackMode();
   });
 }
 
@@ -1411,7 +1650,9 @@ export function initMobileUI() {
   initDeckCountBadge();
   initBarButtons();
   initReplayBarMobile();
-  initReplayOverlay();
+  initRecording(); // タスクA
+  initPlaybackBar(); // タスクB
+  initPlaybackURLAutoOpen(); // タスクB-1
   initMenuSheet();
   initSidebarSheet();
   initDeckLoadProgress();

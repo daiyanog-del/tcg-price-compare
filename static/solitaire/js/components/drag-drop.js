@@ -332,6 +332,19 @@ function findNearestDropZone(x, y) {
   return direct; // 見つからなければ元の要素を返す（ドロップは失敗扱い）
 }
 
+// タスクB-4: 再生モード中はスマホ縦向きのタップ選択・ドラッグを無効にするフラグ。
+// mobile-ui.js が enterPlaybackMode/exitPlaybackMode から setMobilePlaybackMode を呼ぶ。
+// PC・横向きスマホ（isMobilePortrait()がfalse）の挙動には一切影響しない。
+let _mobilePlaybackMode = false;
+
+/**
+ * タスクB-4: 再生モード中フラグを設定する（mobile-ui.js から呼ぶ）。
+ * @param {boolean} v
+ */
+export function setMobilePlaybackMode(v) {
+  _mobilePlaybackMode = !!v;
+}
+
 /**
  * タッチドラッグ&ドロップの初期化（長押し=コンテキストメニュー対応）
  * @param {TouchEvent} ev - touchstartイベント
@@ -343,6 +356,8 @@ export function enableTouchDrag(ev) {
   // スマホ縦向き かつ カードの場合のみ §8.3 の新しい状態機械を使う。
   // カウンター、PC/タブレット、横向きスマホは従来どおり以下の処理を使う。
   if (isMobilePortrait() && draggedInfo.type === 'card') {
+    // タスクB-4: 再生モード中は何もしない（PCの再生中挙動は変えない。isMobilePortrait()経路のみ対象）
+    if (_mobilePlaybackMode) return;
     // documentへバブリングさせない（非カード要素向けの選択後タップ判定リスナーを誤発火させないため）
     ev.stopPropagation();
     _handleMobileCardTouchStart(ev, draggedInfo.element);

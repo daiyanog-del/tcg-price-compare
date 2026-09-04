@@ -96,6 +96,7 @@ function fitFieldToViewport() {
   //   縦向きスマホ   → 設計書 §8.2: 下部固定バー52px込みで縦スクロールなしに収める
   //   PC/タブレット  → 全体フィット (比例係数 7.25)
   let slotW_h;
+  let mobileBottomReserve = 0; // タスクB-3: isPortraitMobile分岐でのみ実測値に更新される（それ以外は0のまま未使用）
   if (isPhone && isLandscape) {
     // mainContainer padding-top(4) + row-gaps(20) + sol-field-area padding-bottom(6)
     const BOARD_FIXED = 30;
@@ -112,7 +113,11 @@ function fitFieldToViewport() {
     //   = 52+24+16+24+6+2+2 = 126px（実測 fieldHeight=605.7px で基準606px以内に収まることを確認）。
     // 値（10.15・126・mobile.css の gap:6px/8px・padding:2px・padding-bottom:2px、
     // 下記の幅式の 8・50）を変更する場合は同条件で再実測すること。
-    const MOBILE_PORTRAIT_FIXED = 126;
+    // タスクB-3: 126px のうち下部バー分(既定52px)を --sol-mobile-bottom-reserve から読む。
+    // 再生モード時は mobile-ui.js がこの変数を88pxへ書き換えて再フィットさせる（既定52pxなら計算結果は不変）。
+    const MOBILE_PORTRAIT_FIXED_BASE = 74; // 126 - 52（下部バー分を除いた固定分）
+    mobileBottomReserve = getMobileBottomReserve();
+    const MOBILE_PORTRAIT_FIXED = MOBILE_PORTRAIT_FIXED_BASE + mobileBottomReserve;
     slotW_h = Math.floor((window.innerHeight - MOBILE_PORTRAIT_FIXED) / 10.15);
   } else {
     // slot-width に依存しない固定オーバーヘッド（実測ベースに引き直し）:
@@ -158,7 +163,7 @@ function fitFieldToViewport() {
   // 縦向きスマホは下部固定バー(52px)の分だけ基準を上に詰める（設計書 §8.2）。
   // 2026-09-03 司令塔が 375/412/744 幅で実測: 縦横スクロールなし・カード幅 52/59/113px を確認。
   if (!(isPhone && isLandscape)) {
-    const bottomReserve = isPortraitMobile ? 52 : 0;
+    const bottomReserve = isPortraitMobile ? mobileBottomReserve : 0;
     slotW = correctSlotWidthByMeasurement(slotW, minW, bottomReserve);
   }
 
@@ -171,6 +176,19 @@ function fitFieldToViewport() {
 
   // パネル幅は最終 slotW 確定後に1回だけ再計算
   requestAnimationFrame(() => updateCipWidth());
+}
+
+/**
+ * タスクB-3: 縦向きスマホの下部予約量(px)を CSS 変数 --sol-mobile-bottom-reserve から読む。
+ * 通常時は mobile.css が既定値 52px を定義する。再生モード中は mobile-ui.js がこの変数を
+ * 88px に書き換えてから resize イベントを発火し、fitFieldToViewport を再実行させる。
+ * 変数が未定義（PC・横向き等）の場合は 52px にフォールバックする。
+ * @returns {number}
+ */
+function getMobileBottomReserve() {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--sol-mobile-bottom-reserve');
+  const v = parseFloat(raw);
+  return Number.isFinite(v) ? v : 52;
 }
 
 /**
@@ -298,7 +316,10 @@ async function initializeApp() {
   initCardImageRegistration();
 
   // ページ遷移後の盤面復元（card:// センチネル対応のため await が必要）
-  const restored = await loadSessionResume();
+  // URL に共有リプレイ（?replay=ID / #replay=）が付いているときは前回の盤面を復元しない。
+  // 復元が共有データを上書きし、受け手側で再生モードが開かない競合があった（2026-09-04 実測）。
+  const hasReplayInUrl = /[?&]replay=/.test(location.search) || location.hash.startsWith('#replay=');
+  const restored = hasReplayInUrl ? false : await loadSessionResume();
   if (restored) {
     // 復元したカードをリプレイ画像辞書に登録
     // img.tier-item（発売済み）または div.tier-item（プロキシ）どちらも .tier-item で取れる

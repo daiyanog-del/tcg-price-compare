@@ -211,10 +211,14 @@ function _applySetupLogs() {
 /**
  * リプレイの payload オブジェクトを組み立てる（exportReplay・E-2端末保存の共通ロジック）。
  * D-4: setup ログもそのまま含める（加工しない）。
+ * タスクA-4: logsOverride を渡すと（録画範囲の共有・端末保存など）、通常の全ログの代わりに
+ * それを使う。加工（setup付与・範囲抽出）自体は呼び出し元（replay-ui.js の
+ * buildRangeLogsForPayload 等）が行い、ここではロジックを複製しない。
  * @param {string} title
+ * @param {Array} [logsOverride]
  */
-export function buildReplayPayload(title = 'replay') {
-  return { version: 1, title, images: _images, names: _names, exCardIds: [..._exCardIds], logs: [..._setupLogs, ..._logs] };
+export function buildReplayPayload(title = 'replay', logsOverride) {
+  return { version: 1, title, images: _images, names: _names, exCardIds: [..._exCardIds], logs: logsOverride ?? [..._setupLogs, ..._logs] };
 }
 
 /** リプレイデータをエクスポート（ファイル保存用）。D-4: setup ログもそのまま含めて保存する */

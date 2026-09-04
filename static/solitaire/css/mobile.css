@@ -9,6 +9,13 @@
  */
 @media (max-width: 767px) and (orientation: portrait) {
 
+  /* タスクB-3: 下部固定領域の予約量（main.js fitFieldToViewport が参照する）。
+     既定は下部バー52px分。再生モード中は mobile-ui.js がこれを88px（バー52px＋帯36px）へ
+     書き換えて resize を発火し、盤面を再フィットさせる（終了時に52pxへ戻す）。 */
+  :root {
+    --sol-mobile-bottom-reserve: 52px;
+  }
+
   /* ════════ 第2次実機検収 追加修正（2026-09-03）: 固定分の圧縮 ════════
      A-2で行数が3行→4行（墓地/除外が別行化）に増えたことでカード幅が48pxまで
      低下したため、縦向きスマホ限定で gap/padding を圧縮して52px以上を確保する。
@@ -204,6 +211,16 @@
     border-top: 1px solid var(--border);
   }
   .sol-mobile-bar[hidden] { display: none; }
+  /* タスクA-2/B-2: 通常モード・再生モードの行。#solMobileBar は常に1行だけを表示する
+     （もう一方は hidden）。gap/padding は親 .sol-mobile-bar 側で既に確保しているため
+     ここでは flex:1 で幅いっぱいに広げるだけでよい。 */
+  .sol-mobile-bar-row {
+    display: flex;
+    flex: 1;
+    gap: 6px;
+    min-width: 0;
+  }
+  .sol-mobile-bar-row[hidden] { display: none; }
   .sol-mobile-bar-btn {
     flex: 1;
     min-width: 0;
@@ -270,42 +287,97 @@
   }
   .sol-mobile-badge[hidden] { display: none; }
 
+  /* ════════ タスクA-2: 録画ボタン（下部バー） ════════
+     録画中は赤系トーン＋ドット点滅。@keyframes は prefers-reduced-motion で無効化する（タスクC）。
+     L-10: ラベルは「■ N手」に短縮済み（mobile-ui.js）。375px幅で折り返さないよう nowrap を付ける。 */
+  .sol-mobile-record-btn.recording {
+    border-color: #dc3c3c;
+    color: #ff9b9b;
+  }
+  #solMobileRecordLabel {
+    white-space: nowrap;
+  }
+  .sol-mobile-record-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #dc3c3c;
+  }
+  .sol-mobile-record-dot[hidden] { display: none; }
+  .sol-mobile-record-btn.recording .sol-mobile-record-dot {
+    animation: solRecordDotBlink 1s ease-in-out infinite;
+  }
+  @keyframes solRecordDotBlink {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.15; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .sol-mobile-record-btn.recording .sol-mobile-record-dot {
+      animation: none;
+    }
+  }
+
+  /* ════════ タスクB-2/C: 再生モードのスライダー帯・下部バー ════════ */
+
+  .sol-mobile-replay-strip {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 52px;
+    height: 36px;
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    box-sizing: border-box;
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border);
+  }
+  .sol-mobile-replay-strip[hidden] { display: none; }
+  .sol-mobile-replay-strip-slider {
+    width: 100%;
+    height: 24px;
+  }
+  .sol-mobile-play-toggle-btn {
+    color: var(--accent);
+    border-color: var(--accent);
+    font-weight: 700;
+  }
+  .sol-mobile-play-counter {
+    flex: 0 0 auto;
+    padding: 0 4px;
+    font-variant-numeric: tabular-nums;
+    font-family: var(--font);
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--main-color);
+    white-space: nowrap;
+  }
+
+  /* ════════ H-3: 再生モード中は盤面への入力を完全に無効化 ════════
+     drag-drop.js のタップ選択・ドラッグのガード（setMobilePlaybackMode）に加え、
+     盤面（カードのタップ・カウンターのクリック・ダブルクリック効果発動）を丸ごと
+     pointer-events:none にして二重に防御する。下部バー・帯・シート類は対象外
+     （body.sol-playback の子孫を個別指定するため、それらは無関係のまま操作できる）。 */
+  body.sol-playback .custom-layout,
+  body.sol-playback .sol-hand-area,
+  body.sol-playback .side-slots-container,
+  body.sol-playback #imagePool2 {
+    pointer-events: none;
+  }
+
   /* ════════ 旧リプレイバー: 縦向きスマホでは完全非表示（A-4・司令塔決定） ════════
      実走で #replayBarContainer が sticky のまま残って下部バーの裏に半分見え「取消」が
      二重になる不具合が確認された。responsive.css の #replayBarContainer.replay-bar
      { position:sticky; ... } と同じ詳細度（ID+class）のセレクタで、mobile.css が
      main.css の import で後段に来ることを利用して確実に上書きする。
-     取消は下部バーの #solMobileUndoBtn のみ。⋯メニュー「リプレイ操作」を押した時だけ
-     オーバーレイとして全機能表示する（.sol-mobile-fullbar-open）。 */
+     タスクB-1: 旧オーバーレイ（.sol-mobile-fullbar-open）は廃止。#replayBack/#replayPlay/
+     #replayFwd/#replaySlider/#replayCounter は再生モードのバー・帯から .click()／
+     textContent 追従で使うため、DOM 自体は残し常時 display:none のままにする
+     （非表示要素でも .click() やプロパティ読み取りは機能する）。 */
   #replayBarContainer.replay-bar {
     display: none;
-  }
-
-  /* ⋯メニュー「リプレイ操作」: 通常フローに戻さず fixed オーバーレイとして全機能表示し、×で閉じる */
-  #replayBarContainer.replay-bar.sol-mobile-fullbar-open {
-    display: flex;
-    flex-wrap: wrap;
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 52px;
-    z-index: 260;
-    border-radius: 8px 8px 0 0;
-    padding-top: 40px; /* 閉じるボタン分の余白 */
-    /* M-7: responsive.css の display:revert で編集系コントロールが増えた分、
-       小さい端末では折り返しで縦に伸びて画面からはみ出し得るため、上限を設けてスクロールにする */
-    max-height: calc(100vh - 60px);
-    overflow-y: auto;
-  }
-  #solMobileReplayBarClose {
-    display: none;
-  }
-  #replayBarContainer.sol-mobile-fullbar-open #solMobileReplayBarClose {
-    display: block;
-    position: absolute;
-    top: 6px;
-    right: 6px;
-    z-index: 2;
   }
 
   /* ════════ カード詳細パネル（スマホ・A-2で「既定は閉」のオーバーレイに変更） ════════
@@ -923,40 +995,6 @@
     padding: 8px 14px;
   }
 
-  /* D-1: 共有する範囲（開始・終了スライダー） */
-  .sol-mobile-share-range-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 4px 0;
-  }
-  .sol-mobile-share-range-tag {
-    flex: 0 0 34px;
-    font-size: 0.76rem;
-    color: #94a3b8;
-  }
-  .sol-mobile-share-range-input {
-    flex: 1;
-    height: 28px;
-  }
-  /* タスクA: 開始/終了スライダーの左右「−」「＋」（1手ずつ動かせる） */
-  .sol-mobile-share-range-btn {
-    flex: 0 0 30px;
-    height: 30px;
-    padding: 0;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--main-color);
-    font-family: var(--font);
-    font-size: 1rem;
-    line-height: 1;
-  }
-  .sol-mobile-share-range-label {
-    margin: 2px 0 8px;
-    font-size: 0.76rem;
-    color: #94a3b8;
-  }
 
   /* E-3: 保存済みリプレイ一覧（タスクA: タイトル／日時・N手・メイン・EX の2行＋行タップで開く＋「…」メニュー） */
   .sol-mobile-saved-replay-row {
@@ -1116,6 +1154,7 @@
    （二重防御。CSS はフェイルセーフ、JS が本来の閉じる処理を担当）。 */
 @media not all and (max-width: 767px) and (orientation: portrait) {
   .sol-mobile-bar,
+  .sol-mobile-replay-strip,
   .sol-mobile-action-sheet,
   .sol-mobile-cip,
   .sol-mobile-sheet,

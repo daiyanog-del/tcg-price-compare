@@ -259,11 +259,12 @@
       display: block;
     }
 
-    /* フェーズ3: 上の767pxブロックにある編集系コントロールの display:none を打ち消す。
-       #replayBarContainer 自体は mobile.css で通常時 display:none のため素の縦向きレイアウト
-       では見えないが、⋯メニュー「リプレイ操作」オーバーレイ（.sol-mobile-fullbar-open）を開くと
-       #replayBarContainer が display:flex になるため、その中の共有・コメント・保存ボタンも
-       操作できる状態に戻しておく必要がある（横向きブロックには影響しない）。 */
+    /* フェーズ3で追加・タスクB-1で経路のみ廃止: 上の767pxブロックにある編集系コントロールの
+       display:none を打ち消す指定。#replayBarContainer 自体は mobile.css で縦向きスマホでは
+       常時 display:none のため、この打ち消し自体は現在どの経路でも画面に効果を及ぼさない
+       （旧オーバーレイ .sol-mobile-fullbar-open は廃止済み）。#replayCommentInput 等は
+       共有シート側のボタンから .click() で発火させる設計のため、display 状態は無関係に動作する。
+       実害が無いため据え置き（削除するとしても本ブロックのみで完結する）。 */
     #replayCommentInput,
     #replayAddComment,
     #replayExport,
