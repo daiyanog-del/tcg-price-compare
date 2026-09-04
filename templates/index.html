@@ -366,6 +366,8 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .of-tabs-row .movers-tabs{margin-bottom:0}
 .of-tabs-row .movers-tab{padding:6px 10px}
 #ofMoversDirTabs .movers-tab{padding:6px 8px}
+/* 期間表示は1行固定（折り返すと隣の2枚と一覧の開始位置がずれる） */
+#ofMoversPeriod{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .buyback-diff.down{color:#ef4444}
 
 /* Fade */
@@ -2928,8 +2930,10 @@ function loadGmrPriced(retry){
         // M-4修正: 差額(diffがnullでない、または「変動なし」の0)を持つ行が
         // 1件でもあれば比較日(date_old)も併記する
         const hasAnyDiff=items.some(it=>it.diff!==null&&it.diff!==undefined);
-        const compareNote=hasAnyDiff?`・差額は ${_fmtDate(data.date_old)} 比（共通店舗のみ）`:'';
-        period.textContent=_fmtDate(data.date_new)+' 時点の最安値（高い順）'+compareNote+upd;
+        // 文言は1行（枠343px）に収める。旧文言「9/4 時点の最安値（高い順）・差額は 8/28 比（共通店舗のみ） · 20:16収集」は
+        // 2行に折り返し、隣の2枚と一覧の開始位置が16pxずれた（2026-09-04 本番実測）
+        const compareNote=hasAnyDiff?`・差額は${_fmtDate(data.date_old)}比`:'';
+        period.textContent=_fmtDate(data.date_new)+' の最安値（高い順'+compareNote+'）'+upd;
       }
       list.innerHTML=items.map((item,i)=>{
         // diff が null（共通店舗が無く比較不能）と 0（7日前と同額）は区別して表示する。
