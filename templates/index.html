@@ -361,6 +361,11 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .rank-tier-badge{display:inline-block;padding:1px 6px;border-radius:3px;color:#fff;font-weight:800;font-size:.65rem;margin-right:4px;flex-shrink:0}
 .movers-price-note{font:.68rem var(--mono);color:var(--text-d)}
 .movers-fail{padding:16px;text-align:center;color:var(--text-d);font-size:.8rem}
+/* OF/グランドマスター: 種別タブと方向タブを同じ行に（左右に振り分け・余白を詰める） */
+.of-tabs-row{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px}
+.of-tabs-row .movers-tabs{margin-bottom:0}
+.of-tabs-row .movers-tab{padding:6px 10px}
+#ofMoversDirTabs .movers-tab{padding:6px 8px}
 .buyback-diff.down{color:#ef4444}
 
 /* Fade */
@@ -1003,13 +1008,17 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
            OF側だけ2段目タブ(値上がり/値下がり)を出す。
            配置は既存2つ（価格推移・買取）の後ろ＝3番目（ユーザー裁定A・2026-09-04） -->
       <div id="ofMoversSection" class="movers hidden">
-        <div class="movers-tabs">
-          <button class="movers-tab active" id="ofMoversTabOf" onclick="switchOfMoversGroup('of')">オーバーフレーム</button>
-          <button class="movers-tab" id="ofMoversTabGmr" onclick="switchOfMoversGroup('gmr')">グランドマスター</button>
-        </div>
-        <div class="movers-tabs" id="ofMoversDirTabs">
-          <button class="movers-tab" onclick="switchOfMovers('up')">値上がり</button>
-          <button class="movers-tab active" onclick="switchOfMovers('down')">値下がり</button>
+        <!-- 2026-09-04: 方向タブを1段目の右側に詰めて他2枚と一覧の開始位置を揃える。
+             4つ並べると本番実測で451px（枠343px）に収まらないため、方向は「上昇/下落」の短い表記＋余白を詰める -->
+        <div class="of-tabs-row">
+          <div class="movers-tabs">
+            <button class="movers-tab active" id="ofMoversTabOf" onclick="switchOfMoversGroup('of')">オーバーフレーム</button>
+            <button class="movers-tab" id="ofMoversTabGmr" onclick="switchOfMoversGroup('gmr')">グランドマスター</button>
+          </div>
+          <div class="movers-tabs" id="ofMoversDirTabs">
+            <button class="movers-tab" data-dir="up" onclick="switchOfMovers('up')" title="値上がり">上昇</button>
+            <button class="movers-tab active" data-dir="down" onclick="switchOfMovers('down')" title="値下がり">下落</button>
+          </div>
         </div>
         <div id="ofMoversPeriod" class="movers-period"></div>
         <div class="movers-list" id="ofMoversList"></div>
@@ -2830,7 +2839,7 @@ function switchOfMoversGroup(group){
 function switchOfMovers(dir){
   _ofMoversDir=dir;
   _ofMoversSeq++;
-  document.querySelectorAll('#ofMoversDirTabs .movers-tab').forEach(b=>b.classList.toggle('active',b.textContent.includes(dir==='up'?'上がり':'下がり')));
+  document.querySelectorAll('#ofMoversDirTabs .movers-tab').forEach(b=>b.classList.toggle('active',b.dataset.dir===dir));
   loadOfMoversSection();
 }
 function loadOfMoversSection(retry){
