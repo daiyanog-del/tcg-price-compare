@@ -31,7 +31,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Bungee&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/solitaire/css/main.css?v=20260904c">
+<link rel="stylesheet" href="/static/solitaire/css/main.css?v=20260904d">
 <link rel="stylesheet" href="/static/css/self-watermark.css?v=20260611">
 </head>
 
@@ -317,6 +317,12 @@
 
       <!-- タスクB-2: 再生モード専用のスライダー帯（下部バーの直上・#replaySlider と同期する） -->
       <div id="solMobileReplayStrip" class="sol-mobile-replay-strip" hidden>
+        <!-- 第6次実機検収-2a: 再生モード中は #solMobileDeckBtn が非表示（矩形0）になるため、
+             デッキ演出（ドロー等）の錨をこちらへ移す（replay-service.js _getDeckAnchorRect が参照）。
+             枚数は #poolRow に追従（mobile-ui.js updateDeckCountBadge）。 -->
+        <span id="solMobilePlayDeckBadge" class="sol-mobile-play-deck-badge">
+          デッキ <span id="solMobilePlayDeckCount">0</span>
+        </span>
         <input type="range" id="solMobileReplayStripSlider" class="sol-mobile-replay-strip-slider" min="0" max="0" value="0" disabled>
       </div>
 
@@ -343,6 +349,8 @@
           <button id="solMobilePlayToggleBtn" type="button" class="sol-mobile-bar-btn sol-mobile-play-toggle-btn">&#9654; 再生</button>
           <button id="solMobilePlayFwdBtn" type="button" class="sol-mobile-bar-btn">次 &#9654;</button>
           <span id="solMobilePlayCounter" class="sol-mobile-play-counter">0/0</span>
+          <!-- 第6次実機検収-1: 「再生して確認」からでも共有導線に戻れるよう、終了の左に共有ボタンを置く -->
+          <button id="solMobilePlayShareBtn" type="button" class="sol-mobile-bar-btn sol-mobile-play-share-btn">共有</button>
           <button id="solMobilePlayExitBtn" type="button" class="sol-mobile-bar-btn">&#10005; 終了</button>
         </div>
       </div>
@@ -654,6 +662,6 @@
 <!-- 端末間同期（P2）。main.js（type=module・deferされる）より前に読み込まれる通常scriptなので、
      DOM解析完了後に実行されるmodule側からは常に window.SyncClient が使える（設計文書 §11） -->
 <script src="/static/shared/sync-client.js?v=20260813"></script>
-<script type="module" src="/static/solitaire/js/main.js?v=20260904c"></script>
+<script type="module" src="/static/solitaire/js/main.js?v=20260904d"></script>
 </body>
 </html>

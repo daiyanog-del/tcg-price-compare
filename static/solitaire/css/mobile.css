@@ -266,7 +266,10 @@
     0%, 100% { box-shadow: none; }
     50% { box-shadow: 0 0 0 3px var(--accent); background: var(--accent); color: #fff; }
   }
-  .sol-mobile-bar-btn.sol-pulse {
+  /* 第6次実機検収-2a: 再生モード中は #solMobilePlayDeckBadge がデッキ演出の錨になるため
+     同じパルス演出を適用する（.sol-mobile-bar-btn 以外にも当たるようセレクタを追加）。 */
+  .sol-mobile-bar-btn.sol-pulse,
+  .sol-mobile-play-deck-badge.sol-pulse {
     animation: solDeckBtnPulse 0.4s ease-in-out;
   }
   .sol-mobile-bar-menu {
@@ -364,6 +367,35 @@
     font-weight: 700;
     color: var(--main-color);
     white-space: nowrap;
+  }
+  /* 第6次実機検収-1: 再生バーの「共有」ボタン（終了の左・小さめ） */
+  .sol-mobile-play-share-btn {
+    flex: 0 0 auto;
+    padding: 0 10px;
+  }
+  /* 第6次実機検収-2a: 再生モードの帯の左端「デッキ N」バッジ。
+     #solMobileDeckBtn が非表示（矩形0）になる再生モード中のデッキ演出の錨として使う
+     （replay-service.js _getDeckAnchorRect が参照）。ボタンと似た見た目にして違和感を減らす。 */
+  .sol-mobile-play-deck-badge {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    margin-right: 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--main-color);
+    font-family: var(--font);
+    font-size: 0.78rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  /* 第6次実機検収-2c: デッキ演出クローンに影・出発時の拡大(scale)を付けて出発点を目立たせる。
+     .sol-flip-clone 自体（PC の flipMoveClone とも共有）は変更せず、追加クラスのみで対応する。 */
+  .sol-deck-fly-clone {
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
   }
 
   /* ════════ H-3: 再生モード中は盤面への入力を完全に無効化 ════════

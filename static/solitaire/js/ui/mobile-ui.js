@@ -92,7 +92,9 @@ function resetMobileUI() {
   closeDeckSheet();   // フェーズ2: デッキ一覧シート
   closeShareSheet();  // フェーズ3: 共有シート
   closeSavedReplaysSheet(); // E-3: 保存済みリプレイ一覧シート
-  exitPlaybackMode(); // タスクB: portrait を外れる際は再生モードも強制終了
+  // タスクB: portrait を外れる際は再生モードも強制終了。第6次検収-1: 回転時は
+  // origin（'share'等）に関係なく共有シートへ戻らせない（この直後に setHidden で強制的に閉じる）。
+  exitPlaybackMode({ returnToOrigin: false });
   _resetRecording();  // タスクA-1: 録画状態も破棄する
   clearMobileSelection();
   clearPendingMobileDrop(); // 残件6: 保留ドロップと保留元カードの選択見た目も消す
@@ -125,12 +127,19 @@ function handlePortraitChange(matches) {
 
 // ══════════════════ デッキ枚数バッジ・下部バーの基本ボタン ══════════════════
 
-/** デッキ枚数バッジ（#solMobileDeckCount）を #poolRow の実枚数で更新する */
+/**
+ * デッキ枚数バッジ（#solMobileDeckCount）を #poolRow の実枚数で更新する。
+ * 第6次検収-2a: 再生モードの帯にある #solMobilePlayDeckCount も同じ枚数に追従させる
+ * （デッキ演出の錨バッジが古い枚数のまま表示され続けないように）。
+ */
 function updateDeckCountBadge() {
   const poolRow = document.getElementById('poolRow');
   const countEl = document.getElementById('solMobileDeckCount');
-  if (!poolRow || !countEl) return;
-  countEl.textContent = String(poolRow.querySelectorAll('.tier-item-wrapper').length);
+  const playCountEl = document.getElementById('solMobilePlayDeckCount');
+  if (!poolRow) return;
+  const n = String(poolRow.querySelectorAll('.tier-item-wrapper').length);
+  if (countEl) countEl.textContent = n;
+  if (playCountEl) playCountEl.textContent = n;
   // §3.5 初見導線: 既存のデッキ枚数バッジ用オブザーバーを流用し、CTAの表示も更新する
   updateEmptyCta();
 }
@@ -206,7 +215,7 @@ const MENU_ACTIONS = {
   dice:     () => { document.getElementById('diceRollBtn')?.click(); },
   opptray:  () => { openOppTraySheet(); },
   deckinput:() => { openSidebarSheet(); },
-  playback: () => { enterPlaybackMode(); }, // タスクB-1: 旧「リプレイ操作」オーバーレイを廃止し再生モードへ
+  playback: () => { enterPlaybackMode('menu'); }, // タスクB-1: 旧「リプレイ操作」オーバーレイを廃止し再生モードへ
   share:    () => { openShareSheet(); },    // タスクA-5: 下部バーから外した共有導線
   savedreplays: () => { openSavedReplaysSheet(); }, // E-3
   help:     () => { openHelpSheet(); },
@@ -1160,13 +1169,16 @@ function initShareSheet() {
     closeShareSheet();
     _startRecording();
   });
+  // 第6次検収-3: 「録画をやり直す」も _startRecording と同じ経路にする（新規に開始する。
+  // 停止済み録画は _startRecording が無条件で新しいオブジェクトに差し替えるため自動的に破棄される。
+  // 共有前なら confirm 不要＝録画は軽い操作として扱う）。
   document.getElementById('solMobileShareRedoRecordingBtn')?.addEventListener('click', () => {
-    _resetRecording();
     closeShareSheet();
+    _startRecording();
   });
   document.getElementById('solMobileSharePlaybackBtn')?.addEventListener('click', () => {
     closeShareSheet();
-    enterPlaybackMode();
+    enterPlaybackMode('share'); // 第6次検収-1: origin を覚え、終了時に共有シートへ戻れるようにする
   });
 
   // (1) リンク作成〜共有・コピー・X投稿
@@ -1342,7 +1354,7 @@ function _renderSavedReplaysList() {
     // タスクB-1: 行タップで開いたときは再生モードを自動で開く
     const openAndPlay = async () => {
       const ok = await _openSavedReplay(item);
-      if (ok) enterPlaybackMode();
+      if (ok) enterPlaybackMode('saved');
     };
     row.addEventListener('click', openAndPlay);
     row.addEventListener('keydown', (ev) => {
@@ -1461,6 +1473,9 @@ function initClearEverything() {
 // （B-2）。旧オーバーレイ（.sol-mobile-fullbar-open・⋯メニュー「リプレイ操作」）は廃止。
 
 let _playbackMode = false;
+// 第6次検収-1: 再生モードへ入った入口（'menu'|'url'|'saved'|'share'）。'share' の場合のみ
+// 通常の「✕ 終了」で共有シートへ自動的に戻る（enterPlaybackMode の呼び出し元ごとに指定）。
+let _playbackOrigin = null;
 
 /** H-1: #replayPlay が自動再生中（.play-active）なら既存の togglePlay に委譲して止める。 */
 function _stopAutoPlayIfNeeded() {
@@ -1510,14 +1525,18 @@ function _syncPlaybackFromMain() {
  * 再生モードへ入る。入口（B-1）: ⋯メニュー「リプレイを再生」／共有リンクで開いたとき／
  * 保存済みリプレイを開いたとき／共有シート「再生して確認」。
  * M-6: 記録が0手（setup込み）なら入らずトーストのみ表示する。
+ * 第6次検収-1: origin を覚えておく。'share'（共有シートの「再生して確認」）の場合のみ、
+ * 通常の「✕ 終了」で共有シートへ自動的に戻れるようにする（exitPlaybackMode 参照）。
+ * @param {'menu'|'url'|'saved'|'share'|null} [origin]
  */
-function enterPlaybackMode() {
+function enterPlaybackMode(origin = null) {
   if (!isMobilePortrait() || _playbackMode) return;
   if (getLogLength() + getSetupLogs().length === 0) { // M-6
     showToast('記録がありません');
     return;
   }
   _playbackMode = true;
+  _playbackOrigin = origin;
   clearMobileSelection(); // B-4: 選択中カードが残っていれば解除
   setMobilePlaybackMode(true); // drag-drop.js: タップ選択・ドラッグを無効化（B-4）
   document.body.classList.add('sol-playback'); // H-3: 盤面全体を pointer-events:none で二重防御
@@ -1534,6 +1553,7 @@ function enterPlaybackMode() {
   setHidden('solMobilePlayBar', false);
   setHidden('solMobileReplayStrip', false);
   _syncPlaybackFromMain();
+  updateDeckCountBadge(); // 第6次検収-2a: 帯の「デッキ N」バッジを最新枚数にする
 
   // B-3: 盤面を覆わないよう下部予約量(52→88px)を増やし、既存の再フィット経路(resize)を発火する
   document.documentElement.style.setProperty('--sol-mobile-bottom-reserve', '88px');
@@ -1545,8 +1565,12 @@ function enterPlaybackMode() {
  * H-1: 自動再生中なら先に止める。
  * H-4: 途中から分岐して続ける機能は作らない方針のため、カーソルが末尾でなければ
  * 末尾まで進めてから終了し、トーストで知らせる。
+ * 第6次検収-1: 終了後に共有シートへ戻すかどうかを制御する。
+ * @param {{ forceOpenShare?: boolean, returnToOrigin?: boolean }} [opts]
+ *   forceOpenShare: true なら origin に関係なく終了後に共有シートを開く（再生バーの「共有」ボタン用）。
+ *   returnToOrigin: false なら origin==='share' でも共有シートへ戻さない（回転による強制終了用）。既定 true。
  */
-function exitPlaybackMode() {
+function exitPlaybackMode({ forceOpenShare = false, returnToOrigin = true } = {}) {
   if (!_playbackMode) return;
   _stopAutoPlayIfNeeded(); // H-1
 
@@ -1555,6 +1579,9 @@ function exitPlaybackMode() {
     seekTo(total - 1);
     showToast('最後の手まで進めました');
   }
+
+  const origin = _playbackOrigin;
+  _playbackOrigin = null;
 
   _playbackMode = false;
   setMobilePlaybackMode(false);
@@ -1565,6 +1592,11 @@ function exitPlaybackMode() {
 
   document.documentElement.style.setProperty('--sol-mobile-bottom-reserve', '52px');
   window.dispatchEvent(new Event('resize'));
+
+  // 第6次検収-1: 「再生して確認」から入った場合は共有シートへ自動的に戻る
+  if (forceOpenShare || (returnToOrigin && origin === 'share')) {
+    openShareSheet();
+  }
 }
 
 function initPlaybackBar() {
@@ -1577,7 +1609,11 @@ function initPlaybackBar() {
   document.getElementById('solMobilePlayFwdBtn')?.addEventListener('click', () => {
     document.getElementById('replayFwd')?.click();
   });
-  document.getElementById('solMobilePlayExitBtn')?.addEventListener('click', exitPlaybackMode);
+  // 第6次検収-1: origin に関係なく終了→共有シートを開く（再生バーの小さな「共有」ボタン）
+  document.getElementById('solMobilePlayShareBtn')?.addEventListener('click', () => {
+    exitPlaybackMode({ forceOpenShare: true });
+  });
+  document.getElementById('solMobilePlayExitBtn')?.addEventListener('click', () => { exitPlaybackMode(); });
 
   // 帯のスライダー → 既存の #replaySlider の input イベントを発火させて seekTo させる（B-2）
   const mainSlider = document.getElementById('replaySlider');
@@ -1613,7 +1649,7 @@ function initPlaybackURLAutoOpen() {
   document.addEventListener('sol-replay-loaded-from-url', () => {
     if (!isMobilePortrait()) return;
     _resetRecording(); // タスクA-1: 共有リンクから開く で録画状態を破棄
-    enterPlaybackMode();
+    enterPlaybackMode('url');
   });
 }
 

@@ -626,21 +626,41 @@ function _applyMoveCard(event) {
 }
 
 /**
+ * 第6次実機検収-2a: デッキ演出の錨（アンカー）要素を返す。
+ * 通常モードでは #solMobileDeckBtn（下部バーのデッキボタン）が可視だが、再生モード中は
+ * 下部バーが再生用の中身に切り替わり #solMobileDeckBtn が非表示（矩形0）になるため、
+ * 演出の出発/到着点として機能しなくなる（司令塔の以前の確認は通常バーのままだったため見逃した
+ * バグ）。#solMobileDeckBtn が可視（幅>0）ならそれを、そうでなければ再生モードの帯にある
+ * #solMobilePlayDeckBadge を使う。パルス演出も同じ要素に当てる（_pulseDeckBtn）。
+ * @returns {Element|null}
+ */
+function _getDeckAnchorEl() {
+  const deckBtn = document.getElementById('solMobileDeckBtn');
+  if (deckBtn && deckBtn.getBoundingClientRect().width > 0) return deckBtn;
+  return document.getElementById('solMobilePlayDeckBadge');
+}
+
+/** @returns {DOMRect|null} */
+function _getDeckAnchorRect() {
+  const el = _getDeckAnchorEl();
+  return el ? el.getBoundingClientRect() : null;
+}
+
+/**
  * タスクB: #poolRow（デッキ列。縦向きスマホでは非表示）が絡む moveCard の前進適用。
- * 出発点/到着点のうち #poolRow 側は #solMobileDeckBtn の矩形で代替して飛ばす。
+ * 出発点/到着点のうち #poolRow 側はデッキ演出の錨（_getDeckAnchorRect）の矩形で代替して飛ばす。
  * 到着点がデッキ側（toIsDeckPool）の場合、#poolRow の実際の矩形は取得できない（0幅）ため
  * クローンを飛ばし終えてから DOM を確定する。出発点だけの代替（toIsDeckPool=false）は
  * 従来の「別ゾーンへ移動」と同じ順序（状態確定 → DOM配置 → 演出）を保つ。
  */
 function _applyMoveCardWithDeckFly({ card, zone, zIndex, orientation, face, faceChanged, stateChanged, firstRect, toIsDeckPool }) {
-  const deckBtn = document.getElementById('solMobileDeckBtn');
-  const deckBtnRect = deckBtn ? deckBtn.getBoundingClientRect() : null;
+  const deckBtnRect = _getDeckAnchorRect(); // 第6次検収2a
   const fromRect = firstRect.width === 0 ? deckBtnRect : firstRect;
 
   _pulseDeckBtn();
 
   if (toIsDeckPool) {
-    // 到着点はデッキボタン矩形。飛ばし終えてから DOM を確定する（既存の onComplete 経路を維持）。
+    // 到着点はデッキ錨の矩形。飛ばし終えてから DOM を確定する（既存の onComplete 経路を維持）。
     if (stateChanged) applyCardState(card, { orientation, face });
     flyBetweenRects(card, fromRect, deckBtnRect, () => {
       _placeCardInZone(zone, card, zIndex);
@@ -648,7 +668,7 @@ function _applyMoveCardWithDeckFly({ card, zone, zIndex, orientation, face, face
     return;
   }
 
-  // 出発点だけデッキボタン矩形に差し替え、到着点は通常どおり最終位置（先にDOMを確定してから飛ばす）
+  // 出発点だけデッキ錨の矩形に差し替え、到着点は通常どおり最終位置（先にDOMを確定してから飛ばす）
   const tierItem = card.querySelector('.tier-item');
   if (stateChanged) {
     if (tierItem) tierItem.style.transition = 'none';
@@ -660,10 +680,13 @@ function _applyMoveCardWithDeckFly({ card, zone, zIndex, orientation, face, face
   });
 }
 
-/** タスクB: 演出の間だけ #solMobileDeckBtn を軽く光らせる（400ms・prefers-reduced-motion では何もしない） */
+/**
+ * タスクB: 演出の間だけデッキ演出の錨（_getDeckAnchorEl）を軽く光らせる
+ * （400ms・prefers-reduced-motion では何もしない）。
+ */
 function _pulseDeckBtn() {
   if (prefersReducedMotion()) return;
-  const btn = document.getElementById('solMobileDeckBtn');
+  const btn = _getDeckAnchorEl(); // 第6次検収2a
   if (!btn) return;
   btn.classList.remove('sol-pulse');
   void btn.offsetWidth; // 再アニメのための reflow 強制
@@ -671,7 +694,7 @@ function _pulseDeckBtn() {
   setTimeout(() => btn.classList.remove('sol-pulse'), 400);
 }
 
-const DECK_FLY_STAGGER_MS = 60; // タスクB追補: resetDeck等で複数枚飛ばす際のずらし幅
+const DECK_FLY_STAGGER_MS = 80; // 第6次検収2c: resetDeck等で複数枚飛ばす際のずらし幅（60→80ms）
 
 /**
  * タスクB追補: #poolRow が絡む draw/resetDeck/returnToDeck（moveCard以外のactionType）でも
@@ -683,8 +706,9 @@ function _shouldMobileFly() {
 }
 
 /**
- * タスクB追補: #solMobileDeckBtn の矩形から card の現在位置（既に最終配置済み）へ飛ばす。
- * 呼び出し前提: _shouldMobileFly() が true であること（呼び出し側で判定済み）。
+ * タスクB追補: デッキ演出の錨（_getDeckAnchorRect）の矩形から card の現在位置
+ * （既に最終配置済み）へ飛ばす。呼び出し前提: _shouldMobileFly() が true であること
+ * （呼び出し側で判定済み）。
  * @param {Element}  card
  * @param {DOMRect}  deckBtnRect
  * @param {number}   [delayMs=0]  resetDeckの複数枚ずらし用
@@ -711,7 +735,7 @@ function _applyActivateEffect(event) {
 
 /**
  * draw: cardId をデッキから手札(center-slot)へ（状態クリア）
- * タスクB追補: 前進再生かつ縦向きスマホでは #solMobileDeckBtn から飛ばす
+ * タスクB追補: 前進再生かつ縦向きスマホではデッキ演出の錨（_getDeckAnchorRect）から飛ばす
  * （#poolRow は非表示のため、デッキから来たことが分かる演出をここで補う）。
  */
 function _applyDraw(event) {
@@ -725,10 +749,10 @@ function _applyDraw(event) {
   center.appendChild(card);
 
   if (_shouldMobileFly()) {
-    const deckBtn = document.getElementById('solMobileDeckBtn');
-    if (deckBtn) {
+    const deckBtnRect = _getDeckAnchorRect(); // 第6次検収2a
+    if (deckBtnRect) {
       _pulseDeckBtn();
-      _flyFromDeckBtn(card, deckBtn.getBoundingClientRect());
+      _flyFromDeckBtn(card, deckBtnRect);
     }
   }
 }
@@ -736,8 +760,8 @@ function _applyDraw(event) {
 /**
  * returnToDeck: cardId をプールへ戻す（状態クリア）
  * タスクB追補: 非EX（#poolRow行き）かつ前進再生・縦向きスマホでは、現在位置から
- * #solMobileDeckBtn へ飛ばし終えてから DOM を確定する（#poolRow は非表示のため
- * 実際の到着矩形が取れない。_applyMoveCardWithDeckFly の toIsDeckPool と同じ順序）。
+ * デッキ演出の錨（_getDeckAnchorRect）へ飛ばし終えてから DOM を確定する（#poolRow は
+ * 非表示のため実際の到着矩形が取れない。_applyMoveCardWithDeckFly の toIsDeckPool と同じ順序）。
  * EX（#poolRow2）は表示されているため従来どおり演出なし。
  */
 function _applyReturnToDeck(event) {
@@ -749,9 +773,11 @@ function _applyReturnToDeck(event) {
   if (!pool) return;
 
   if (!isEx && _shouldMobileFly()) {
-    const deckBtn = document.getElementById('solMobileDeckBtn');
-    if (deckBtn) {
-      const deckBtnRect = deckBtn.getBoundingClientRect();
+    const deckBtnRect = _getDeckAnchorRect(); // 第6次検収2a
+    if (deckBtnRect) {
+      // 第6次検収2b: 出発の実カードを飛ばし始めた瞬間に隠す（flyBetweenRects が visibility:hidden
+      // にするのはクローン生成の直前なので、fromRect 取得後・flyBetweenRects 呼び出し前に
+      // 追加の隠蔽は不要。flyBetweenRects 内の cardEl.style.visibility='hidden' に委譲する）。
       const fromRect = card.getBoundingClientRect();
       _pulseDeckBtn();
       flyBetweenRects(card, fromRect, deckBtnRect, () => {
@@ -770,8 +796,9 @@ function _applyReturnToDeck(event) {
 
 /**
  * resetDeck: 全戻し&5ドロー
- * タスクB追補: 前進再生かつ縦向きスマホでは、引いた各カードを #solMobileDeckBtn から
- * 60msずつずらして飛ばす（既存の draw/moveCard の演出と同じ考え方）。
+ * タスクB追補: 前進再生かつ縦向きスマホでは、引いた各カードをデッキ演出の錨
+ * （_getDeckAnchorRect）から 80ms ずつずらして飛ばす（既存の draw/moveCard の演出と同じ考え方。
+ * 第6次検収2c: 60→80ms）。
  */
 function _applyResetDeck(event) {
   const { drawnIds } = event;
@@ -780,8 +807,7 @@ function _applyResetDeck(event) {
   const center = document.querySelector('.center-slot');
   if (!center) return;
 
-  const deckBtn = _shouldMobileFly() ? document.getElementById('solMobileDeckBtn') : null;
-  const deckBtnRect = deckBtn ? deckBtn.getBoundingClientRect() : null;
+  const deckBtnRect = _shouldMobileFly() ? _getDeckAnchorRect() : null; // 第6次検収2a
   if (deckBtnRect) _pulseDeckBtn();
 
   drawnIds.forEach((cardId, i) => {

@@ -175,8 +175,15 @@ export function prefersReducedMotion() {
  * flipMoveClone は到着点を常に wrapper の実際の位置（getBoundingClientRect）から取るが、
  * こちらは呼び出し側が渡した矩形をそのまま使う。縦向きスマホでは #poolRow（デッキ列）が
  * display:none のため実際の位置が0矩形になり演出が成立しない移動（replay-service.js の
- * moveCard 前進適用）で、#solMobileDeckBtn の矩形を代替の出発点/到着点として渡すために使う。
- * クローン生成方法・sol-flip-clone クラスは flipMoveClone と同じ。所要時間は 300ms 固定。
+ * moveCard 前進適用）で、デッキ演出の錨（#solMobileDeckBtn or #solMobilePlayDeckBadge）の
+ * 矩形を代替の出発点/到着点として渡すために使う（現状の呼び出し元はこの用途のみ）。
+ * クローン生成方法・sol-flip-clone クラスは flipMoveClone と同じ。
+ * 第6次実機検収-2c: 所要時間を 300→450ms に延長し、出発時に少し拡大(scale 1.1)して
+ * 到着で通常サイズ(1.0)へ収束させ、影を付けて出発点が目に留まるようにする
+ * （sol-deck-fly-clone は .sol-flip-clone に追加する専用クラス。.sol-flip-clone 自体
+ * ＝PC の flipMoveClone とも共有する共通クラスは変更しない）。
+ * 実カード（cardEl）は飛行中 visibility:hidden にし、到着（cleanup）で元に戻す
+ * （クローンと二重に見えないようにする。飛ばし始める直前に隠す）。
  * prefers-reduced-motion: reduce では演出せずコールバックだけ呼ぶ。
  *
  * @param {Element}       cardEl     - .tier-item-wrapper（DOM上の実体。移動先の最終配置は
@@ -201,7 +208,7 @@ export function flyBetweenRects(cardEl, fromRect, toRect, onComplete = null) {
   }
 
   const clone = cardEl.cloneNode(true);
-  clone.classList.add('sol-flip-clone');
+  clone.classList.add('sol-flip-clone', 'sol-deck-fly-clone');
 
   const cloneTierItem = clone.querySelector('.tier-item');
   if (cloneTierItem) {
@@ -225,15 +232,18 @@ export function flyBetweenRects(cardEl, fromRect, toRect, onComplete = null) {
     'overflow: visible',
     'transition: none',
   ].join('; ');
+  clone.style.transform = 'scale(1.1)'; // 出発時は少し拡大（第6次検収2c）
 
+  // 実カードは飛ばし始める直前（クローンをbodyへ追加する直前）に隠す
   cardEl.style.visibility = 'hidden';
   document.body.appendChild(clone);
 
   requestAnimationFrame(() => {
     void clone.offsetWidth; // reflow 強制（initial 位置を確定させる）
-    clone.style.transition = 'left 0.3s cubic-bezier(0.4,0,0.2,1), top 0.3s cubic-bezier(0.4,0,0.2,1)';
+    clone.style.transition = 'left 0.45s cubic-bezier(0.4,0,0.2,1), top 0.45s cubic-bezier(0.4,0,0.2,1), transform 0.45s cubic-bezier(0.4,0,0.2,1)';
     clone.style.left = `${lastRect.left}px`;
     clone.style.top  = `${lastRect.top}px`;
+    clone.style.transform = 'scale(1.0)'; // 到着で通常サイズへ収束
   });
 
   let _done = false;
@@ -243,5 +253,5 @@ export function flyBetweenRects(cardEl, fromRect, toRect, onComplete = null) {
     if (!_done && onComplete) { _done = true; onComplete(); }
   };
   clone.addEventListener('transitionend', cleanup, { once: true });
-  setTimeout(cleanup, 360); // 300ms + フェイルセーフ余裕
+  setTimeout(cleanup, 510); // 450ms + フェイルセーフ余裕
 }
