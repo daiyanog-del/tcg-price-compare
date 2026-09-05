@@ -1028,10 +1028,6 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
       </div>
     </div>
 
-    <div id="trendingSection" class="trending hidden">
-      <h2 class="trending-title">みんなが検索中</h2>
-      <div class="trending-list" id="trendingList"></div>
-    </div>
   </div>
   </div><!-- /mode-search -->
 
@@ -2725,28 +2721,6 @@ function safeUrl(u){
   }catch{return ''}
 }
 
-// ── Trending ──
-function loadTrending(){
-  fetch('/api/trending?limit=10')
-    .then(r=>r.json())
-    .then(items=>{
-      const sec=document.getElementById('trendingSection');
-      const list=document.getElementById('trendingList');
-      if(!items.length){sec.classList.add('hidden');return;}
-      sec.classList.remove('hidden');
-      list.innerHTML=items.map((item,i)=>
-        `<div class="trending-item" onclick="searchCard('${escAttr(escJs(item.name))}')" data-card="${escAttr(item.name)}">
-          <span class="trending-rank">${i+1}</span>
-          <span class="trending-thumb"></span>
-          <span class="trending-name">${esc(item.name)}</span>
-          <span class="trending-count">${item.count}回</span>
-        </div>`
-      ).join('');
-      loadRankingImages('#trendingList .trending-item','trending-thumb');
-    })
-    .catch(()=>{});
-}
-
 function searchCard(name){
   switchMode('search','ranking');
   document.getElementById('q').value=name;
@@ -3054,7 +3028,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // 初期ロード
   loadTopMovers('down');
   loadOfMovers('down');
-  loadTrending();
   loadBuybackMovers('up');
 
   // G-7: 「一人回し」リンクはinline onclickではなくaddEventListenerで配線
