@@ -4578,6 +4578,7 @@ async function calcWishEstimate(){
   const shareEl=document.getElementById('wishShareArea');
   const totalLabel=document.querySelector('#wishResults .deck-total-label');
   resultsEl.classList.remove('hidden');
+  resultsEl.scrollIntoView({block:'start'});
   totalEl.textContent='取得中...';
   if(totalLabel) totalLabel.textContent='デッキ相場（直近データ）';
   progEl.textContent='';
@@ -4771,6 +4772,7 @@ async function wishCheapestStores(){
   const rankEl=document.getElementById('wishShopRanking');
   rankEl.classList.remove('hidden');
   rankEl.innerHTML='<div class="wish-shop-ranking-loading">集計中...</div>';
+  rankEl.scrollIntoView({block:'start'});
 
   // Step 1: DB相場で各店舗の合計を即時集計
   let dbData;
