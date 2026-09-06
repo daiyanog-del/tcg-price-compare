@@ -11,6 +11,8 @@ import {
   seekTo,
   undoLast,
   togglePlay,
+  setPlaySpeed,
+  getPlaySpeed,
   exportReplay,
   importReplay,
   exportAsURLHash,
@@ -45,6 +47,18 @@ function _getReplayTitle() {
 }
 
 /**
+ * 現在の再生速度倍率に応じて速度ボタンの選択中スタイル（active クラス）を更新する
+ */
+function _updateSpeedButtons() {
+  const current = getPlaySpeed();
+  document.querySelectorAll('#replaySpeedGroup .replay-speed-btn')
+    .forEach((btn) => {
+      const speed = parseFloat(btn.dataset.speed);
+      btn.classList.toggle('active', speed === current);
+    });
+}
+
+/**
  * リプレイバーを初期化する
  * DOM要素 #replayBarContainer が存在することが前提
  */
@@ -66,6 +80,17 @@ export function initReplayUI() {
 
   document.getElementById('replayUndo')
     ?.addEventListener('click', () => undoLast());
+
+  // 再生速度切替（0.5x / 1x / 2x）
+  document.querySelectorAll('#replaySpeedGroup .replay-speed-btn')
+    .forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const speed = parseFloat(btn.dataset.speed);
+        setPlaySpeed(speed);
+        _updateSpeedButtons();
+      });
+    });
+  _updateSpeedButtons();
 
   document.getElementById('replaySlider')
     ?.addEventListener('input', (e) => {

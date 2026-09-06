@@ -49,7 +49,9 @@ let _setupLogs = [];
 let _cursor = -1;       // 現在の再生位置（-1 = ログ先頭の盤面外）
 let _playing = false;
 let _playTimer = null;
-const PLAY_INTERVAL_MS = 600;
+const DEFAULT_INTERVAL_MS = 900;
+// 再生速度倍率（有効値: 0.5 / 1 / 2）。実際の再生間隔は DEFAULT_INTERVAL_MS / _speedMultiplier
+let _speedMultiplier = 1;
 
 // リプレイ前進時のみ true にしてアニメーション（FLIP / 発動演出）を有効化。
 // _replayTo 経由の後退・全再構築では false のまま（瞬間適用）。
@@ -167,6 +169,21 @@ export function seekTo(n) {
   }
   _maybeShowCommentToast(_cursor);
   _updateUI();
+}
+
+/**
+ * 再生速度を変更する（有効値: 0.5 / 1 / 2）
+ * togglePlay中でも次のタイマー設定（_playNext内）から新しい間隔が反映される。
+ * @param {number} multiplier
+ */
+export function setPlaySpeed(multiplier) {
+  _speedMultiplier = multiplier;
+  _updateUI();
+}
+
+/** 現在の再生速度倍率を取得（UIのボタンハイライト用） */
+export function getPlaySpeed() {
+  return _speedMultiplier;
 }
 
 /** 再生/一時停止 */
@@ -946,7 +963,7 @@ function _playNext() {
     return;
   }
   stepForward();
-  _playTimer = setTimeout(_playNext, PLAY_INTERVAL_MS);
+  _playTimer = setTimeout(_playNext, DEFAULT_INTERVAL_MS / _speedMultiplier);
 }
 
 // ── UI同期 ──────────────────────────────────────────────

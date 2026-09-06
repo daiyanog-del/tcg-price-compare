@@ -982,6 +982,11 @@ html, body {
 .replay-btn:disabled { opacity: 0.35; cursor: default; }
 .replay-btn.play-active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
+/* 再生速度切替ボタン */
+.replay-speed-group { display: flex; gap: 3px; }
+.replay-speed-btn { padding: 4px 7px; }
+.replay-speed-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
 .replay-slider { flex: 1 1 100px; min-width: 60px; accent-color: var(--accent); }
 .replay-counter { font-size: 0.78rem; color: #94a3b8; white-space: nowrap; font-family: var(--mono); }
 .replay-comment-input {
