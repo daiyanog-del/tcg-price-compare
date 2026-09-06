@@ -179,6 +179,19 @@ class TestNormalParallelSpec:
         assert normalize_rarity("ノーマル") == "ノーマル"
 
 
+class TestParallelMergedIntoNormalParallel:
+    """2026-09-06: canonical「パラレル」(旧order 170)はカーナベル・トレコロCBの
+    表記ゆれと確定し ノーマルパラレル へ統合した（同一型番 SR10-JP016/LGB1-JP039 で
+    カードラッシュ・遊々亭「ノーマルパラレル」⇔トレコロCB「パラレル」）。"""
+
+    @pytest.mark.parametrize("raw", ["パラレル", "PR", "パラ", "パラレルレア"])
+    def test_parallel_aliases_merge(self, raw):
+        assert normalize_rarity(raw) == "ノーマルパラレル"
+
+    def test_parallel_is_no_longer_a_separate_canonical(self):
+        assert "パラレル" not in ordered_canonicals()
+
+
 class TestRegressionOfExistingAliases:
     """既存の統合が壊れていないこと（抜き取り）。"""
 
@@ -230,3 +243,13 @@ class TestTableIntegrity:
                       "ミレニアムゴールド", "ミレニアムスーパー"):
             assert order_of(canon) < order_of("ミレニアム")
             assert order_of(canon) > order_of("ホログラフィック")
+
+    def test_aliases_are_globally_unique(self):
+        """全エントリの canonical+aliases が前処理後キーで重複しないことを検証する。
+        エイリアスの移動漏れ（旧エントリの消し忘れ）を機械的に検出するため。"""
+        seen = {}
+        for e in RARITIES:
+            for raw in [e["canonical"]] + e.get("aliases", []):
+                key = raw.translate(str.maketrans("", "", " 　\t()（）"))
+                assert key not in seen, f"{key}: {seen.get(key)} と {e['canonical']} で重複"
+                seen[key] = e["canonical"]
