@@ -157,6 +157,7 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
     // 初回ロード
     if (tabName === 'pending') _loadPending();
     if (tabName === 'approved') _loadApproved();
+    if (tabName === 'rejected') _loadRejected();
     if (tabName === 'settings') _loadSettings();
   });
 });
@@ -167,6 +168,7 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
 
 document.getElementById('reload-pending-btn').addEventListener('click', _loadPending);
 document.getElementById('reload-approved-btn').addEventListener('click', _loadApproved);
+document.getElementById('reload-rejected-btn').addEventListener('click', _loadRejected);
 document.getElementById('reload-settings-btn').addEventListener('click', _loadSettings);
 
 // ──────────────────────────────────────────────
@@ -353,6 +355,7 @@ async function _loadPending() {
 function _updateBulkApproveBar() {
   const bar = document.getElementById('bulk-approve-bar');
   const btn = document.getElementById('bulk-approve-btn');
+  const rejectBtn = document.getElementById('bulk-reject-btn');
   const allCheck = document.getElementById('bulk-select-all');
   const checkboxes = document.querySelectorAll('#pending-list .card-row__select');
   const checked = document.querySelectorAll('#pending-list .card-row__select:checked');
@@ -362,6 +365,8 @@ function _updateBulkApproveBar() {
 
   btn.textContent = `選択を一括承認（${count}件）`;
   btn.disabled = count === 0;
+  rejectBtn.textContent = `選択を一括却下（${count}件）`;
+  rejectBtn.disabled = count === 0;
 
   // 全選択チェックボックスの状態を同期
   if (total === 0) {
@@ -379,10 +384,21 @@ function _updateBulkApproveBar() {
   }
 }
 
+// 一度に処理できる件数の上限（サーバー側の bulk-approve/bulk-reject と同じ上限）
+const BULK_LIMIT = 500;
+
 // 全選択チェックボックス
 document.getElementById('bulk-select-all').addEventListener('change', (e) => {
+  const checkboxes = document.querySelectorAll('#pending-list .card-row__select');
+
+  if (e.target.checked && checkboxes.length > BULK_LIMIT) {
+    alert(`一度に処理できるのは${BULK_LIMIT}件までです。絞り込んでから実行してください。`);
+    e.target.checked = false;
+    return;
+  }
+
   const checked = e.target.checked;
-  document.querySelectorAll('#pending-list .card-row__select').forEach((cb) => {
+  checkboxes.forEach((cb) => {
     cb.checked = checked;
   });
   _updateBulkApproveBar();
@@ -440,6 +456,61 @@ document.getElementById('bulk-approve-btn').addEventListener('click', async () =
     if (e.message !== '認証エラー') {
       alert('通信エラーが発生しました');
     }
+    _updateBulkApproveBar();
+  }
+});
+
+// 一括却下ボタン
+document.getElementById('bulk-reject-btn').addEventListener('click', async () => {
+  const checked = document.querySelectorAll('#pending-list .card-row__select:checked');
+  const ids = Array.from(checked).map((cb) => {
+    return Number(cb.closest('.card-row').dataset.cardId);
+  });
+
+  if (ids.length === 0) return;
+
+  if (ids.length > BULK_LIMIT) {
+    alert(`一度に処理できるのは${BULK_LIMIT}件までです。絞り込んでから実行してください。`);
+    return;
+  }
+
+  // confirm ダイアログに対象カード名の先頭数件を表示する
+  const namePreviewCount = 3;
+  const names = Array.from(checked)
+    .slice(0, namePreviewCount)
+    .map((cb) => cb.closest('.card-row').querySelector('.card-row__name').textContent);
+  const namesLabel = names.join('、') + (ids.length > namePreviewCount ? ' 他' : '');
+  if (!confirm(`以下を含む${ids.length}件を却下します: ${namesLabel}\nよろしいですか？`)) return;
+
+  const btn = document.getElementById('bulk-reject-btn');
+  btn.disabled = true;
+  btn.textContent = '処理中...';
+
+  try {
+    const resp = await apiFetch('/api/admin/unreleased/bulk-reject', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    });
+    const data = await resp.json().catch(() => ({}));
+
+    if (resp.ok) {
+      const skippedCount = Array.isArray(data.skipped) ? data.skipped.length : (data.skipped || 0);
+      let message = `${data.rejected}件却下しました。`;
+      if (skippedCount > 0) {
+        message = `${data.rejected}件却下、${skippedCount}件は対象外（既に承認済み等）でした。`;
+      }
+      alert(message);
+      await _loadPending();
+    } else {
+      alert(data.error || '一括却下に失敗しました');
+    }
+  } catch (e) {
+    if (e.message !== '認証エラー') {
+      alert('通信エラーが発生しました');
+    }
+  } finally {
+    // _loadPending() が失敗した場合でも必ずバー状態を更新し、
+    // ボタンが「処理中...」のまま固着しないようにする
     _updateBulkApproveBar();
   }
 });
@@ -1060,6 +1131,93 @@ async function _toggleHidden(cardId, row, btn) {
     } else {
       const data = await resp.json().catch(() => ({}));
       alert(data.error || '切替に失敗しました');
+    }
+  } catch (e) {
+    if (e.message !== '認証エラー') alert('通信エラーが発生しました');
+  }
+}
+
+// ──────────────────────────────────────────────
+// 却下済みタブ
+// ──────────────────────────────────────────────
+
+async function _loadRejected() {
+  const listEl = document.getElementById('rejected-list');
+  listEl.innerHTML = '<p class="loading-text">読み込み中...</p>';
+
+  try {
+    const resp = await apiFetch('/api/admin/unreleased?status=rejected');
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      listEl.innerHTML = `<p class="loading-text">エラー: ${data.error || resp.status}</p>`;
+      return;
+    }
+    const { cards } = await resp.json();
+    _renderRejectedList(listEl, cards);
+  } catch (e) {
+    if (e.message !== '認証エラー') {
+      listEl.innerHTML = '<p class="loading-text">読み込みに失敗しました。</p>';
+    }
+  }
+}
+
+/**
+ * 却下済みカード一覧を描画する
+ * @param {HTMLElement} listEl
+ * @param {Array} cards
+ */
+function _renderRejectedList(listEl, cards) {
+  listEl.innerHTML = '';
+
+  if (!cards || cards.length === 0) {
+    listEl.innerHTML = '<p class="empty-text">却下済みのカードはありません。</p>';
+    return;
+  }
+
+  const tmpl = document.getElementById('tmpl-rejected-row');
+
+  for (const card of cards) {
+    const row = tmpl.content.cloneNode(true).querySelector('.card-row');
+    row.dataset.cardId = card.id;
+
+    row.querySelector('.card-row__name').textContent    = card.name;
+    row.querySelector('.card-row__product').textContent = card.product_name || '';
+    row.querySelector('.card-row__type').textContent    = card.card_type || '';
+    row.querySelector('.card-row__extracted-at').textContent = _formatDate(card.extracted_at);
+
+    // 抽出元リンク
+    const link = row.querySelector('.card-row__source-link');
+    if (card.source_url && card.source_url !== 'manual') {
+      link.href = card.source_url;
+      link.title = card.source_url;
+    } else {
+      link.textContent = '手動登録';
+      link.removeAttribute('href');
+    }
+
+    // 承認待ちに戻すボタン
+    row.querySelector('.action-restore').addEventListener('click', () => {
+      _restoreCard(card.id, row);
+    });
+
+    listEl.appendChild(row);
+  }
+}
+
+/**
+ * 却下済みカードを承認待ちに戻す。
+ * @param {number} cardId
+ * @param {HTMLElement} row
+ */
+async function _restoreCard(cardId, row) {
+  if (!confirm(`ID ${cardId} のカードを承認待ちに戻しますか？`)) return;
+  try {
+    const resp = await apiFetch(`/api/admin/unreleased/${cardId}/restore`, { method: 'POST' });
+    if (resp.ok) {
+      row.remove();
+    } else {
+      const data = await resp.json().catch(() => ({}));
+      alert(data.error || '承認待ちに戻す処理に失敗しました');
     }
   } catch (e) {
     if (e.message !== '認証エラー') alert('通信エラーが発生しました');

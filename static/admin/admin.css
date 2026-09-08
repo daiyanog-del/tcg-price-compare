@@ -439,6 +439,11 @@ a:hover {
   color: #fff;
 }
 
+.status-badge--rejected {
+  background-color: var(--red);
+  color: #fff;
+}
+
 .card-row__actions {
   display: flex;
   gap: 6px;

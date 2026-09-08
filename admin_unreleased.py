@@ -896,6 +896,79 @@ def admin_bulk_approve_unreleased():
 
 
 # ──────────────────────────────────────────────
+# POST /api/admin/unreleased/bulk-reject — 一括却下
+# ──────────────────────────────────────────────
+
+@admin_bp.route("/api/admin/unreleased/bulk-reject", methods=["POST"])
+def admin_bulk_reject_unreleased():
+    """
+    複数カードを一括却下する（status='rejected'に更新）。
+    リクエストボディ: {"ids": [1, 2, 3, ...]}
+
+    pending/needs_review のものを対象に一括で status='rejected' に更新する
+    （bulk-approve と同じ絞り込み方針。既に rejected/approved/linked のものは除外）。
+    却下は画像取込を伴わないため、バックグラウンド処理は不要。
+
+    レスポンス: {"rejected": N, "requested": M, "skipped": [対象外だったID, ...]}
+    """
+    err = _require_admin_key()
+    if err:
+        return err
+
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+
+    body = request.get_json(silent=True) or {}
+    ids = body.get("ids", [])
+
+    # ids の検証（整数リストであること）
+    if not isinstance(ids, list) or not ids:
+        return jsonify({"error": "ids は1件以上の整数リストで指定してください"}), 400
+
+    try:
+        ids = [int(i) for i in ids]
+    except (TypeError, ValueError):
+        return jsonify({"error": "ids の各要素は整数である必要があります"}), 400
+
+    if len(ids) > 500:
+        return jsonify({"error": "一度に却下できるのは最大500件です"}), 400
+
+    try:
+        # pending/needs_review のもののみ対象（既rejected・approved・linked は除外）
+        target_resp = (
+            _supabase.table("unreleased_cards")
+            .select("id")
+            .in_("id", ids)
+            .in_("status", ["pending", "needs_review"])
+            .execute()
+        )
+        target_cards = target_resp.data or []
+        target_ids = [c["id"] for c in target_cards]
+        skipped_ids = [i for i in ids if i not in target_ids]
+
+        if not target_cards:
+            return jsonify({"rejected": 0, "requested": len(ids), "skipped": skipped_ids}), 200
+
+        # ステータスを一括更新
+        # TOCTOU対策: SELECT〜UPDATEの間に他の操作で状態が変わった行を確実に除外するため、
+        # UPDATE側にも同じstatus条件を付ける（SELECT時点のtarget_idsだけを信用しない）。
+        _supabase.table("unreleased_cards").update({"status": "rejected"}).in_(
+            "id", target_ids
+        ).in_("status", ["pending", "needs_review"]).execute()
+
+        rejected_count = len(target_ids)
+        logger.info(f"[admin] 一括却下: {rejected_count}件 (ids={target_ids})")
+
+        _card_display.invalidate_cache()
+
+        return jsonify({"rejected": rejected_count, "requested": len(ids), "skipped": skipped_ids})
+
+    except Exception as e:
+        logger.error(f"[admin] bulk-reject エラー: {e}")
+        return jsonify({"error": "一括却下に失敗しました"}), 500
+
+
+# ──────────────────────────────────────────────
 # POST /api/admin/unreleased/<id>/reject — 却下
 # ──────────────────────────────────────────────
 
@@ -968,6 +1041,49 @@ def admin_reject_unreleased(card_id: int):
     except Exception as e:
         logger.error(f"[admin] reject エラー id={card_id}: {e}")
         return jsonify({"error": "却下に失敗しました"}), 500
+
+
+# ──────────────────────────────────────────────
+# POST /api/admin/unreleased/<id>/restore — 却下済みを承認待ちに戻す
+# ──────────────────────────────────────────────
+
+@admin_bp.route("/api/admin/unreleased/<int:card_id>/restore", methods=["POST"])
+def admin_restore_unreleased(card_id: int):
+    """
+    却下済み（status='rejected'）のカードを承認待ち（status='pending'）に戻す。
+    unpublish（approved/linked→pending）とは対象ステータスが異なる専用処理。
+    """
+    err = _require_admin_key()
+    if err:
+        return err
+
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+
+    try:
+        get_resp = (
+            _supabase.table("unreleased_cards")
+            .select("id, status")
+            .eq("id", card_id)
+            .execute()
+        )
+        if not get_resp.data:
+            return jsonify({"error": "対象レコードが見つかりません"}), 404
+        if get_resp.data[0]["status"] != "rejected":
+            return jsonify({"error": "却下済みのカードのみ承認待ちに戻せます"}), 400
+
+        resp = (
+            _supabase.table("unreleased_cards")
+            .update({"status": "pending"})
+            .eq("id", card_id)
+            .execute()
+        )
+        _card_display.invalidate_cache()
+        return jsonify({"ok": True, "card": resp.data[0] if resp.data else {}})
+
+    except Exception as e:
+        logger.error(f"[admin] restore エラー id={card_id}: {e}")
+        return jsonify({"error": "承認待ちに戻す処理に失敗しました"}), 500
 
 
 # ──────────────────────────────────────────────

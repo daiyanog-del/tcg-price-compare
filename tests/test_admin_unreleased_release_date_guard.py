@@ -317,3 +317,56 @@ def test_bulk_approve_memoizes_backfill_lookup_per_product(monkeypatch):
     assert data["release_date_warnings"] == []
     assert rows[0]["release_date"] == FUTURE
     assert rows[1]["release_date"] == FUTURE
+
+
+# ──────────────────────────────────────────────
+# 一括却下エンドポイント
+# ──────────────────────────────────────────────
+
+def test_bulk_reject_excludes_approved_and_linked(monkeypatch):
+    """approved/linked のIDを含めても却下されず、対象外(skipped)として扱われる。"""
+    rows = [
+        {"id": 1, "name": "カードA", "status": "pending"},
+        {"id": 2, "name": "カードB", "status": "approved"},
+        {"id": 3, "name": "カードC", "status": "linked"},
+    ]
+    _install_fake(monkeypatch, rows)
+    client = _client()
+
+    resp = client.post(
+        "/api/admin/unreleased/bulk-reject",
+        headers=HEADERS,
+        json={"ids": [1, 2, 3]},
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["rejected"] == 1
+    assert data["requested"] == 3
+    assert set(data["skipped"]) == {2, 3}
+    assert rows[0]["status"] == "rejected"
+    assert rows[1]["status"] == "approved"
+    assert rows[2]["status"] == "linked"
+
+
+def test_bulk_reject_over_500_ids_returns_400(monkeypatch):
+    _install_fake(monkeypatch, [])
+    client = _client()
+
+    resp = client.post(
+        "/api/admin/unreleased/bulk-reject",
+        headers=HEADERS,
+        json={"ids": list(range(1, 502))},
+    )
+    assert resp.status_code == 400
+
+
+def test_bulk_reject_invalid_id_types_returns_400(monkeypatch):
+    _install_fake(monkeypatch, [])
+    client = _client()
+
+    resp = client.post(
+        "/api/admin/unreleased/bulk-reject",
+        headers=HEADERS,
+        json={"ids": [1, "abc", {"x": 1}]},
+    )
+    assert resp.status_code == 400
