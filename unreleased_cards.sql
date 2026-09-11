@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS unreleased_cards (
                     CHECK (status IN ('pending', 'approved', 'rejected', 'linked', 'needs_review')),
     hidden          BOOLEAN     NOT NULL DEFAULT FALSE,   -- TRUE=個別非表示（承認済みでも隠す）
     konami_id       INTEGER,                              -- 発売後に紐付けるYGOResources konami_id
+    linked_at       TIMESTAMPTZ,                          -- status=linkedになった日時。7日経過後の自動削除の起点
 
     -- 重複防止（同一カード名・同一パックは1行）
     UNIQUE (name, product_name)
@@ -127,6 +128,7 @@ COMMENT ON COLUMN unreleased_cards.extraction_raw IS 'Extractor生の出力JSON�
 COMMENT ON COLUMN unreleased_cards.status        IS 'ステータス: pending=未レビュー/approved=承認済/rejected=否認/linked=発売後紐付済/needs_review=要確認';
 COMMENT ON COLUMN unreleased_cards.hidden        IS 'TRUE=個別非表示。承認済みでもこのフラグでサイトから隠せる';
 COMMENT ON COLUMN unreleased_cards.konami_id     IS '発売後にReconcilerが設定するYGOResources konami_id';
+COMMENT ON COLUMN unreleased_cards.linked_at     IS 'status=linkedになった日時。7日経過後の自動削除の起点';
 
 -- インデックス（表示解決クエリの高速化）
 CREATE INDEX IF NOT EXISTS idx_unreleased_cards_status_hidden
