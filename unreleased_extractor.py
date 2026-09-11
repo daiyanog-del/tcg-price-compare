@@ -8,8 +8,9 @@ yu-gi-oh.jp の新カード記事では、カード名・効果文・ステー�
 焼き込まれており、HTML本文にテキストとして存在しない。そのため、カード画像を
 Vision（画像をClaudeに直接渡す）で読み取るハイブリッド方式を採用する。
 
-  - カード画像（/images/news/ 配下かつ _img_ を含むURL）をダウンロードして
-    Claude の vision 入力として渡す
+  - カード画像（旧: /images/news/ 配下の命名規則一致URL、
+    新: 2026-09-01リニューアル後の /media/cms/v1/ 配下のCMS画像変換プロキシURL）
+    をダウンロードして Claude の vision 入力として渡す
   - テキスト（記事タイトル・収録パック名・発売日等）も同時に渡す
   - カード画像が0枚の場合はテキスト抽出にフォールバック
 
@@ -25,6 +26,7 @@ Vision（画像をClaudeに直接渡す）で読み取るハイブリッド方�
 """
 
 import base64
+import json
 import logging
 import os
 import re
@@ -55,10 +57,19 @@ _MAX_IMAGES = int(os.environ.get("EXTRACTOR_MAX_IMAGES", "30"))
 # 1画像あたりのサイズ上限（バイト）: 5MB
 _MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
-# カード画像のファイル名パターン「<記事ID>_<14桁日時>_...」
+# [旧サイト] カード画像のファイル名パターン「<記事ID>_<14桁日時>_...」
 # 例: 2543_20260602093341_img_1_<hash>.jpg / 2542_20260602093009_<hash>.jpg
 # バナー（news_1.jpg 等）を除外しつつ _img_ 有無に関わらずカード画像を採用する。
+# 2026-09-01のサイトリニューアル以前の記事にのみ残っている旧形式のため、
+# 過去データ・既存テストとの互換目的で維持する。
 _CARD_IMAGE_NAME_RE = re.compile(r"^\d+_\d{14}_")
+
+# [新サイト] 2026-09-01リニューアル後の /media/cms/v1/<base64url>.<署名>.webp 形式のURL用。
+# base64url部分をデコードするとJSON配列 ["/assets/.../<ファイル名>", "fm=webp&q=80"] が
+# 得られる。配列0番目の元アセットパスのファイル名（拡張子除く）が遊戯王の型番
+# 「<セットコード>-<地域コード><通し番号>(_<レアリティ等サフィックス>)?」形式に一致すれば
+# カード画像として採用する。パック写真等（例: pack_IMPH.jpg）はハイフンを含まないため除外される。
+_CARD_SET_CODE_RE = re.compile(r"^[A-Za-z0-9]+-[A-Za-z]{1,4}[0-9]{1,4}[A-Za-z0-9_]*$")
 
 # ラッシュデュエル専用語（保険フィルタ用）。
 # Claude の is_rush 判定をすり抜けても、ラッシュ固有の語が card_type / effect_text に
@@ -158,17 +169,54 @@ _SYSTEM_PROMPT = """\
 # カード画像URL抽出
 # ──────────────────────────────────────────────
 
+def _is_new_site_card_image(path: str) -> bool:
+    """新サイト（2026-09-01リニューアル後）のCMS画像変換プロキシURLがカード画像かを判定する。
+
+    path は `/media/cms/v1/<base64url(JSON)>.<署名>.webp` 形式。
+    最終セグメントの最初の `.` までを base64url デコードし、
+    JSON配列 ["/assets/.../<ファイル名>", "fm=webp&q=80"] の0番目要素（元アセットパス）の
+    ファイル名（拡張子除く）が型番形式（_CARD_SET_CODE_RE）に一致すれば True。
+    デコード・パースに失敗した場合は False（スキップ）。
+    """
+    segment = path.rsplit("/", 1)[-1]
+    encoded = segment.split(".", 1)[0]
+    if not encoded:
+        return False
+
+    try:
+        padding = "=" * (-len(encoded) % 4)
+        decoded = base64.urlsafe_b64decode(encoded + padding).decode("utf-8")
+        payload = json.loads(decoded)
+        asset_path = payload[0]
+    except Exception:
+        return False
+
+    asset_filename = str(asset_path).rsplit("/", 1)[-1]
+    asset_stem = asset_filename.rsplit(".", 1)[0] if "." in asset_filename else asset_filename
+
+    return bool(_CARD_SET_CODE_RE.match(asset_stem))
+
+
 def _extract_card_image_urls(html: str, page_url: str) -> list[str]:
     """HTMLからカード画像URLを抽出する（dedupe・順序保持）。
 
-    カード画像の判定基準:
+    新旧2つのサイト形式に対応する:
+
+    [旧サイト] （2026-09-01リニューアル以前の記事に残る）
       - パスが /images/news/ 配下
       - ファイル名が「<記事ID>_<14桁日時>_」で始まる
         （例: 2543_20260602093341_img_1_<hash>.jpg / 2542_20260602093009_<hash>.jpg）
         旧来は "_img_" 必須だったが、_img_ を含まない命名（Vジャンプ付録カード等）も
         カード画像なので、命名規則ベースに緩和した。
 
-    menu/banner（news_1.jpg 等）/ヘッダーなどのUI画像は除外される。
+    [新サイト] （2026-09-01リニューアル後）
+      - パスが /media/cms/v1/ 配下のCMS画像変換プロキシURL
+        （`/media/cms/v1/<base64url(JSON)>.<署名>.webp`）
+      - base64url部分をデコードして得られる元アセットパスのファイル名が
+        遊戯王の型番形式（セットコード-地域コード+通し番号、例: IMPH-JP009_SR）に一致する
+        （詳細は `_is_new_site_card_image` を参照）
+
+    menu/banner（news_1.jpg 等）/ヘッダー/パック写真などのUI・非カード画像は除外される。
 
     Args:
         html:     取得済みHTMLテキスト
@@ -198,16 +246,19 @@ def _extract_card_image_urls(html: str, page_url: str) -> list[str]:
             continue
 
         parsed = urlparse(abs_url)
-
-        # /images/news/ 配下かつファイル名に _img_ を含むもののみ
         path = parsed.path
-        if not path.startswith("/images/news/"):
-            continue
 
-        # カード画像の命名規則「<記事ID>_<14桁日時>_...」のみ採用。
-        # バナー（news_1.jpg 等）や固定UI画像を除外する。
-        filename = path.rsplit("/", 1)[-1]
-        if not _CARD_IMAGE_NAME_RE.match(filename):
+        if path.startswith("/images/news/"):
+            # 旧サイト: カード画像の命名規則「<記事ID>_<14桁日時>_...」のみ採用。
+            # バナー（news_1.jpg 等）や固定UI画像を除外する。
+            filename = path.rsplit("/", 1)[-1]
+            if not _CARD_IMAGE_NAME_RE.match(filename):
+                continue
+        elif path.startswith("/media/cms/v1/"):
+            # 新サイト: CMS画像変換プロキシURLをデコードして型番形式か判定する。
+            if not _is_new_site_card_image(path):
+                continue
+        else:
             continue
 
         seen.add(abs_url)
@@ -613,7 +664,8 @@ def extract_cards_from_html(html: str, page_url: str = "") -> list[dict]:
     """HTMLページから遊戯王OCG新カード情報を抽出し、unreleased_cards 行形式の dict リストを返す。
 
     内部フロー（ハイブリッド方式）:
-      1. HTMLからカード画像URL（/images/news/ 配下かつ _img_ 含む）を抽出
+      1. HTMLからカード画像URL（新旧サイト双方の形式に対応。詳細は
+         `_extract_card_image_urls` を参照）を抽出
       2. カード画像が1枚以上ある場合:
          a. 画像をダウンロードしてbase64エンコード（最大 _MAX_IMAGES 枚）
          b. 画像＋テキストを Vision で Claude に渡して抽出
