@@ -29,6 +29,11 @@
   var _deckEstimateTimer = null;
   var _deckMainCount = 0; // 直近描画時のメインデッキ枚数（D&Dのセクション判定用）
 
+  // 直近追加したカードのハイライト対象（_deckAfterRender で1回だけ使い、その後クリアする）
+  var _deckPendingHighlight = null; // {name, sec}
+  // 追加したカードのミニログ（新しい順・最大5件）。各要素: {key, name, sec, ts}
+  var _deckAddedLog = [];
+
   // ── デッキ直列化 ──────────────────────────────
   // main/ex 構造を textarea テキストへ。ex があれば [EX] 区切りを付与（parseDeckSections と往復可能）
   function _serializeDeck(deck){
@@ -111,18 +116,144 @@
     var destSel = document.getElementById('deckAddDest');
     var dest = destSel ? destSel.value : 'auto';
     var sec = (dest === 'ex') ? 'ex' : 'main';
+    _deckPendingHighlight = { name: name, sec: sec };
     _deckMutate(function(d){ _addToSection(d, sec, name); });
+    _recordAdd(name, sec);
 
     if(dest === 'auto'){
       fetch('/api/card-info?name=' + encodeURIComponent(name))
         .then(function(r){ return r.ok ? r.json() : null; })
         .then(function(info){
           if(info && info.is_ex){
+            _deckPendingHighlight = { name: name, sec: 'ex' };
+            // ログ上の該当エントリ（同名・main の最新1件）を ex に書き換える
+            for(var i = 0; i < _deckAddedLog.length; i++){
+              if(_deckAddedLog[i].name === name && _deckAddedLog[i].sec === 'main'){
+                _deckAddedLog[i].sec = 'ex';
+                break;
+              }
+            }
+            // _deckMutate → _deckAfterRender → _refreshDeckChrome が _renderAddedList() を
+            // 呼ぶため、ここでの明示呼び出しは不要（reviewer低7指摘・冗長コード除去）
             _deckMutate(function(d){ _moveCardToEx(d, name); });
           }
         })
         .catch(function(){});
     }
+  }
+
+  // 追加ログへ記録（新しい順・最大5件）
+  function _recordAdd(name, sec){
+    _deckAddedLog.unshift({ key: name + '_' + Date.now(), name: name, sec: sec, ts: Date.now() });
+    if(_deckAddedLog.length > 5) _deckAddedLog.length = 5;
+    _renderAddedList();
+  }
+
+  // 追加ログから取り消す（1枚減らす。0になれば自動的にデッキからも消える）
+  function deckUndoAdd(key){
+    var i = -1;
+    for(var j = 0; j < _deckAddedLog.length; j++){
+      if(_deckAddedLog[j].key === key){ i = j; break; }
+    }
+    if(i < 0) return;
+    var entry = _deckAddedLog[i];
+    // 追加後にメイン↔EX間でドラッグ移動された場合に備え、実際に今どちらのセクションに
+    // いるかを確認してから減らす（記録時の sec のまま呼ぶとサイレント失敗しうる。reviewer低3指摘）
+    var sec = _resolveEntrySec(entry) || entry.sec;
+    deckDec(entry.name, sec);
+    _deckAddedLog.splice(i, 1);
+    _renderAddedList();
+  }
+
+  // ログエントリの記録済み sec にカードが無ければ反対側を見る（D&D等でのセクション移動に追従）。
+  // 両方に無ければ null（グリッド側の×削除等でデッキから完全に消えた）
+  function _resolveEntrySec(entry){
+    if(_findCard(_currentMydeckCards[entry.sec] || [], entry.name) >= 0) return entry.sec;
+    var other = (entry.sec === 'main') ? 'ex' : 'main';
+    if(_findCard(_currentMydeckCards[other] || [], entry.name) >= 0) return other;
+    return null;
+  }
+
+  // 追加ログのミニリスト（#deckAddedList）を描画する
+  function _renderAddedList(){
+    var box = document.getElementById('deckAddedList');
+    if(!box) return;
+    // グリッド側の×削除等でデッキから完全に消えたカードはログからも落とす
+    // （reviewer低4指摘: 「0枚」表示のまま残る・取消ボタンが無反応になるのを防ぐ）
+    _deckAddedLog = _deckAddedLog.filter(function(entry){ return _resolveEntrySec(entry) !== null; });
+    if(!_deckAddedLog.length){ box.innerHTML = ''; return; }
+    box.innerHTML = _deckAddedLog.map(function(entry){
+      var sec = _resolveEntrySec(entry);
+      var arr = (_currentMydeckCards[sec] || []);
+      var idx = _findCard(arr, entry.name);
+      // qty は localStorage / 端末間同期 / 拡張取込由来のデータを型検証なしで通す既存の
+      // normalizeDeck を経由しうるため、数値化してから esc() を通す（reviewer低4指摘）
+      var qty = idx >= 0 ? (Number(arr[idx].qty) || 0) : 0;
+      var destLabel = sec === 'ex' ? 'EX' : 'メイン';
+      // data-name / data-key は素の属性値なので escAttr() を使う（2026-08-20 XSS対策の流儀に合わせる）
+      return '<div class="deck-added-row" data-key="' + escAttr(entry.key) + '">' +
+             '<span class="deck-added-thumb" data-name="' + escAttr(entry.name) + '"></span>' +
+             '<span class="deck-added-name">' + esc(entry.name) + '</span>' +
+             '<span class="deck-added-qty">' + esc(String(qty)) + '枚</span>' +
+             '<span class="deck-added-dest">' + esc(destLabel) + '</span>' +
+             '<button type="button" class="deck-added-undo" data-key="' + escAttr(entry.key) + '" title="取り消す">取消</button>' +
+             '</div>';
+    }).join('');
+    box.querySelectorAll('.deck-added-undo').forEach(function(btn){
+      btn.addEventListener('click', function(){ deckUndoAdd(btn.dataset.key); });
+    });
+    _loadAddedThumbs(box);
+  }
+
+  // 追加ログのサムネURLキャッシュ（name -> 検証済みURL文字列 | null）。
+  // _renderAddedList は _refreshDeckChrome から編集のたびに再実行されるため、
+  // 取得済みのカードまで毎回 /api/card-images を叩かないようにする（reviewer中1指摘）
+  var _thumbCache = {};
+
+  function _applyThumb(t, safeUrlStr){
+    if(safeUrlStr) t.innerHTML = '<img src="' + escAttr(safeUrlStr) + '" alt="" loading="lazy">';
+  }
+
+  // 追加ログのサムネを /api/card-images で一括取得（_loadSuggestThumbs と同パターン）。
+  // 未キャッシュの名前だけをまとめて1回で取得する。
+  function _loadAddedThumbs(boxEl){
+    var thumbs = [].slice.call(boxEl.querySelectorAll('.deck-added-thumb[data-name]'));
+    var pending = [];
+    thumbs.forEach(function(t){
+      var name = t.dataset.name;
+      if(!name) return;
+      if(Object.prototype.hasOwnProperty.call(_thumbCache, name)){
+        _applyThumb(t, _thumbCache[name]);
+      }else{
+        pending.push(name);
+      }
+    });
+    var names = pending.filter(function(n, i){ return pending.indexOf(n) === i; }); // 重複除去
+    if(!names.length) return;
+    fetch('/api/card-images', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ names: names })
+    })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(d){
+      var images = d && d.images;
+      names.forEach(function(name){
+        var raw = images ? images[name] : null;
+        var url = (typeof _batchImgUrl === 'function') ? _batchImgUrl(raw) : raw;
+        var safe = (typeof safeUrl === 'function') ? safeUrl(url) : url;
+        _thumbCache[name] = safe || null;
+      });
+      thumbs.forEach(function(t){
+        var name = t.dataset.name;
+        if(name && names.indexOf(name) >= 0) _applyThumb(t, _thumbCache[name]);
+      });
+    })
+    .catch(function(){
+      // 障害時も null でキャッシュを確定させ、編集操作のたびに同じ名前を
+      // 再フェッチし続けないようにする（サムネなしで諦める。reviewer低3指摘）
+      names.forEach(function(name){ _thumbCache[name] = null; });
+    });
   }
 
   function deckInc(name, sec){
@@ -229,6 +360,53 @@
       var results = document.getElementById('deckResults');
       if(results) results.classList.add('hidden');
     }
+    _updateDeckSaveBar();
+    _updateBuildTabBadge();
+    // グリッド側の +/-/削除・D&D 等での枚数変化にミニリストの「現在の合計枚数」表示を追従させる
+    // （reviewer中1指摘: _recordAdd/deckUndoAdd 経由の再描画だけでは編集操作に追従しなかった）
+    _renderAddedList();
+  }
+
+  // 保存ステータス表示（#deckSaveStatus）の更新: 未保存 / どのデッキに自動反映されているか
+  function _updateDeckSaveBar(){
+    var status = document.getElementById('deckSaveStatus');
+    var btn = document.getElementById('deckSaveBtn');
+    if(!status && !btn) return;
+    // 保存ボタンは未保存/自動保存中どちらでも常に表示する（後者は明示的な再保存を可能にするため）
+    if(btn) btn.hidden = false;
+    var id = window._currentSavedDeckId;
+    if(id == null){
+      if(status){
+        status.textContent = '未保存のデッキ';
+        status.classList.remove('linked');
+      }
+    }else{
+      if(status){
+        // 表示名は保存済みリストの実データを正とする（_currentDeckName は loadSavedDeck 経由でしか
+        // 更新されず、saveCurrentDeck 直後は古い値のままになるため、保存済みリストを優先して引く）
+        var nm = '';
+        try{
+          if(typeof savedDecksGet === 'function'){
+            var d = savedDecksGet().find(function(x){ return x.id === id; });
+            if(d && d.name) nm = d.name;
+          }
+        }catch(_){}
+        if(!nm) nm = (typeof _currentDeckName !== 'undefined' && _currentDeckName) ? _currentDeckName : 'マイデッキ';
+        status.textContent = nm + '・自動保存中';
+        status.classList.add('linked');
+      }
+    }
+  }
+
+  // モバイルタブ「デッキ」の枚数バッジ（#deckBuildTabBadge）を更新
+  function _updateBuildTabBadge(){
+    var badge = document.getElementById('deckBuildTabBadge');
+    if(!badge) return;
+    var main = _currentMydeckCards.main || [];
+    var ex = _currentMydeckCards.ex || [];
+    var sum = function(a){ return a.reduce(function(s, c){ return s + (c.qty || 0); }, 0); };
+    var total = sum(main) + sum(ex);
+    badge.textContent = total > 0 ? String(total) : '';
   }
 
   // ── モバイル: デッキ/ツール ペイン切替 ────────────
@@ -265,6 +443,9 @@
         var wrap = cell.querySelector('.deck-grid-img-wrap');
         if(wrap) wrap.removeAttribute('draggable');
       });
+      // 編集モードOFFで描画された場合はハイライト対象セルが生成されないため、
+      // 次回ONに戻った際に無関係なセルへ誤って付与しないようここでクリアする（reviewer低1指摘）
+      _deckPendingHighlight = null;
       return;
     }
 
@@ -294,6 +475,23 @@
         '<button type="button" class="deck-edit-btn deck-edit-del" data-act="del" title="削除">×</button>';
       cell.appendChild(bar);
     });
+
+    // 直近追加したカードを一瞬ハイライトする（PC幅限定のCSSで視覚効果、900px以下では無効）
+    if(ctx === DECK_CTX.mydeck && _deckPendingHighlight){
+      var targetName = _deckPendingHighlight.name;
+      var targetSec = _deckPendingHighlight.sec;
+      var matches = listEl.querySelectorAll('[data-card="' + CSS.escape(targetName) + '"]');
+      matches.forEach(function(cell){
+        if(cell.dataset.sec === targetSec){
+          cell.classList.add('deck-grid-added');
+          // 350ms後に _deckEstimateTimer のプレビュー再描画（renderDeckGrid の innerHTML 総入替）が
+          // 走ると、このセル自体が新しい要素に置き換わりハイライトは事実上そこで消える。
+          // setTimeout はその前に自然に見えなくなるよう短めに設定する（reviewer低2指摘）
+          setTimeout(function(){ cell.classList.remove('deck-grid-added'); }, 300);
+        }
+      });
+      _deckPendingHighlight = null;
+    }
   }
 
   // ── イベント委譲（操作バー・ドラッグ）────────────
@@ -539,17 +737,45 @@
       return r;
     };
   }
+  // 追加ログをリセットして再描画する（デッキそのものが入れ替わるタイミングで呼ぶ共通処理）
+  function _resetAddedLog(){
+    _deckAddedLog = [];
+    _renderAddedList();
+  }
+
   function _installWrappers(){
     // 保存済みデッキ読込 → 以後の編集はこのデッキへ自動反映。下書きも読込デッキに更新する
-    _wrap('loadSavedDeck', function(id){ window._currentSavedDeckId = id; _persistDeck(); });
+    // loadSavedDeck の orig は previewOnly 計算が同期的に完了することがあり、その時点では
+    // _currentSavedDeckId がまだ更新されていないため保存バー等が古い表示のまま残る。
+    // after() 側で明示的に _refreshDeckChrome() を呼び直す（reviewer指摘・2026-09-12）
+    _wrap('loadSavedDeck', function(id){
+      // 存在しないID（例: 他端末同期で削除済み）で呼ばれた場合、orig は何もせず戻るが
+      // _wrap は戻り値に関係なく after を実行するため、ここでひも付けてしまわないよう
+      // 存在確認してから反映する（reviewer低1指摘）
+      if(typeof savedDecksGet === 'function' && !savedDecksGet().some(function(d){ return d.id === id; })) return;
+      // _persistDeck() を先に呼ぶこと: textarea と _currentMydeckText の差分を検知して
+      // _currentMydeckCards を再パースする副作用があり、_refreshDeckChrome() の empty 判定が
+      // これに依存している（先に _refreshDeckChrome を呼ぶ実装に戻すと壊れる。reviewer確認済み）
+      window._currentSavedDeckId = id; _persistDeck(); _resetAddedLog(); _refreshDeckChrome();
+    });
     // 入力クリア → ひも付け解除 + 下書き削除 + カウンタ/空状態を更新
-    _wrap('clearDeck', function(){ window._currentSavedDeckId = null; _clearDraft(); _refreshDeckChrome(); });
+    _wrap('clearDeck', function(){
+      window._currentSavedDeckId = null;
+      _clearDraft();
+      // 他3経路と同じ順序に揃える（reviewer低2指摘: 逆順だと古いログのまま
+      // _refreshDeckChrome→_renderAddedList が走り、無駄なサムネ再fetchが起きうる）
+      _resetAddedLog();
+      _refreshDeckChrome();
+      // 保存済み一覧の選択ハイライトも解除する（reviewer中3指摘: 新規作成・クリア後も
+      // 前のデッキが選択状態のままだと保存バー「未保存のデッキ」表示と矛盾して見える）
+      document.querySelectorAll('.saved-deck-card-btn.selected').forEach(function(b){ b.classList.remove('selected'); });
+    });
     // マイデッキ表示時にカウンタ・空状態ヒントを最新化（空デッキで描画が走らないケースに対応）
     _wrap('switchMode', function(mode){ if(mode === 'mydeck') _refreshDeckChrome(); });
     // PDF/拡張からの取込 → 新規の作業デッキ（保存済みとは切り離す）→ 下書き保存
-    _wrap('onDeckImported', function(){ window._currentSavedDeckId = null; _persistDeck(); });
+    _wrap('onDeckImported', function(){ window._currentSavedDeckId = null; _persistDeck(); _resetAddedLog(); _refreshDeckChrome(); });
     // 環境デッキを送る → 同上
-    _wrap('applyMetaDeckToTextarea', function(){ window._currentSavedDeckId = null; _persistDeck(); });
+    _wrap('applyMetaDeckToTextarea', function(){ window._currentSavedDeckId = null; _persistDeck(); _resetAddedLog(); _refreshDeckChrome(); });
     // 手動「保存」 → 保存したデッキにひも付け（以後の編集を自動反映）
     _wrap('saveCurrentDeck', function(){
       try{
@@ -557,10 +783,28 @@
         var text = document.getElementById('deckTextarea').value.trim();
         var list = savedDecksGet().slice().reverse(); // 直近に保存したものを優先
         var d = list.find(function(x){ return (x.text || '').trim() === text; });
-        if(d) window._currentSavedDeckId = d.id;
+        // _currentDeckName も更新する（共有文・共有画像タイトルの getName() が参照するため。
+        // 表示バー側は savedDecksGet() から引き直すが、それとは別に真の値も揃えておく必要がある。
+        // reviewer中2指摘: ここを省くと別名保存後も共有系だけ旧デッキ名のままになる）
+        if(d){ window._currentSavedDeckId = d.id; if(typeof _currentDeckName !== 'undefined') _currentDeckName = d.name || _currentDeckName; }
         _persistDeck();
+        _updateDeckSaveBar();
       }catch(_){}
     });
+  }
+
+  // ── 新規デッキ作成（保存済み一覧・カウンタバーから呼ばれる）──
+  function deckCreateNew(){
+    var ta = document.getElementById('deckTextarea');
+    var hasUnsavedWork = ta && ta.value.trim() && (window._currentSavedDeckId == null);
+    if(hasUnsavedWork){
+      if(!confirm('保存されていない変更があります。破棄して新規作成しますか？')) return;
+    }
+    if(typeof window.clearDeck === 'function') window.clearDeck();
+    _resetAddedLog();
+    switchDeckPane('tools');
+    var si = document.getElementById('deckSearchInput');
+    if(si) si.focus();
   }
 
   // ── 初期化 ────────────────────────────────────
@@ -610,6 +854,8 @@
   window.deckSortByType = deckSortByType;   // 「種別順に整列」ボタン
   window.switchDeckPane = switchDeckPane;    // モバイルのペイン切替タブ
   window._refreshDeckChrome = _refreshDeckChrome;
+  window.deckCreateNew = deckCreateNew;      // 「＋ 新規デッキを作成」ボタン
+  window.deckUndoAdd = deckUndoAdd;          // 追加ログの「取消」ボタン（行ごとに直接listenerを張るため公開も必要）
 
   if(document.readyState === 'loading'){
     document.addEventListener('DOMContentLoaded', _init);

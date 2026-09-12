@@ -216,6 +216,15 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
 .deck-pane-tools .deck-search-row input,
 .deck-pane-tools .deck-search-row select{height:44px;box-sizing:border-box}
 
+/* 保存ステータス（狭幅での折返し）。同一詳細度の無条件ルール（167行付近）より後に置き、
+   カスケードで負けないようにする（reviewer中1指摘: 旧位置＝138行台のブロックは
+   167行台のルールに上書きされ gap / margin-left が無効化されていた） */
+@media(max-width:640px){
+  .deck-counter-bar{flex-wrap:wrap;gap:8px 14px}
+  .deck-counter-bar .deck-sort-btn{margin-left:0}
+  .deck-save-status{flex-basis:100%;order:3}
+}
+
 /* ── 価格計算ブロック（トリガー・説明・結果を1か所に集約） ── */
 .deck-calc{margin-top:16px;padding:14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius)}
 .deck-calc-title{font:.72rem var(--font);font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-d);margin-bottom:10px}
@@ -242,6 +251,35 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
 .import-method-action{margin-top:2px}
 .import-method-body .deck-drop-zone{margin:8px 0 0;padding:18px 14px}
 .import-method-body .neuron-url-row{margin-top:8px}
+
+/* ── 新規デッキ作成ボタン（保存済みデッキ見出しの右側に常設） ── */
+.saved-deck-label{display:flex;justify-content:space-between;align-items:center}
+.saved-deck-new-btn{flex-shrink:0}
+
+/* ── 保存ステータス（枚数カウンタバー内） ── */
+.deck-save-status{font:.72rem var(--font);color:var(--text-d)}
+.deck-save-status.linked{color:var(--accent-l)}
+
+/* ── モバイルタブ「デッキ」の枚数バッジ ── */
+.deck-build-tab-badge{display:inline-block;margin-left:5px;padding:1px 6px;font:.65rem var(--mono);font-weight:700;color:#fff;background:var(--accent);border-radius:10px;line-height:1.4}
+.deck-build-tab-badge:empty{display:none}
+
+/* ── 追加ログ（カードを追加した直後のミニリスト） ── */
+.deck-added-list{display:flex;flex-direction:column;gap:4px}
+.deck-added-list:not(:empty){margin-top:8px}
+.deck-added-row{display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;font-size:.78rem}
+.deck-added-thumb{width:26px;height:36px;flex-shrink:0;border-radius:3px;overflow:hidden;background:var(--bg)}
+.deck-added-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.deck-added-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+.deck-added-qty{font:700 .72rem var(--mono);color:var(--accent-l);white-space:nowrap}
+.deck-added-dest{font-size:.68rem;color:var(--text-d);white-space:nowrap}
+.deck-added-undo{flex-shrink:0;background:rgba(0,0,0,.25);border:1px solid var(--border);color:var(--text-m);cursor:pointer;border-radius:4px;font-size:.68rem;padding:2px 6px;line-height:1.4;transition:all .15s}
+.deck-added-undo:hover{background:rgba(200,40,40,.35);border-color:var(--red);color:#fff}
+
+/* ── 直近追加したカードのハイライト（PC幅限定。900px以下は排他表示のため無効） ── */
+@media(min-width:901px){
+  .deck-grid-cell.deck-grid-added{box-shadow:0 0 0 2px var(--accent);transition:box-shadow .3s}
+}
 
 /* ── レスポンシブ: 2ペイン折返し（モバイルはタブ切替） ── */
 @media(max-width:900px){

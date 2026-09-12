@@ -851,7 +851,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 </script>
 <link rel="stylesheet" href="/static/css/self-watermark.css?v=20260611">
-<link rel="stylesheet" href="/static/mydeck/deck.css?v=20260617">
+<link rel="stylesheet" href="/static/mydeck/deck.css?v=20260912a">
 </head>
 <body{% if self_watermark %} data-self-wm style="--self-watermark-opacity: {{ self_watermark_opacity }}"{% endif %}>
 <div class="wrap">
@@ -1050,7 +1050,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 
       <!-- モバイル用ペイン切替タブ（PCでは非表示） -->
       <div class="deck-build-tabs" id="deckBuildTabs">
-        <button type="button" class="deck-build-tab active" data-pane="main" onclick="switchDeckPane('main')">デッキ</button>
+        <button type="button" class="deck-build-tab active" data-pane="main" onclick="switchDeckPane('main')">デッキ<span class="deck-build-tab-badge" id="deckBuildTabBadge"></span></button>
         <button type="button" class="deck-build-tab" data-pane="tools" onclick="switchDeckPane('tools')">カードを追加・取込</button>
       </div>
 
@@ -1064,6 +1064,8 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
           <div class="deck-counter-bar">
             <span class="deck-counter" id="deckCountMain"><span>メイン</span><span class="c-num">0</span><span class="c-max">/60</span></span>
             <span class="deck-counter" id="deckCountEx"><span>EX</span><span class="c-num">0</span><span class="c-max">/15</span></span>
+            <span class="deck-save-status" id="deckSaveStatus"></span>
+            <button type="button" class="deck-btn-text deck-save-btn" id="deckSaveBtn" onclick="saveCurrentDeck()">保存</button>
             <button type="button" class="deck-btn-text deck-sort-btn" onclick="deckSortByType()" title="モンスター→魔法→罠の順に並べ替えます">種別順に整列</button>
           </div>
 
@@ -1109,6 +1111,9 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
             </div>
             <div id="deckSuggestDrop" class="deck-suggest-drop"></div>
           </div>
+          <!-- 追加したカードのミニリスト（#deckSearchBox の外に置き、ボックスの高さが
+               伸びてもサジェスト候補ドロップダウンの位置（入力欄直下）がずれないようにする） -->
+          <div id="deckAddedList" class="deck-added-list"></div>
 
           <!-- ニューロンからデッキを取り込む（PDF / 拡張 / URL の3手段を同列で提示） -->
           <details class="deck-import-details" id="deckImportDetails">
@@ -3702,6 +3707,7 @@ function clearDeck(){
   document.getElementById('deckResults').classList.add('hidden');
   _currentMydeckCards={main:[],ex:[]};
   _currentMydeckText='';
+  _currentDeckName='';
 }
 
 function addToDeck(name){
@@ -4342,8 +4348,10 @@ function renderSavedDecks(){
   const el=document.getElementById('savedDeckList');
   if(!el)return;
   const list=savedDecksGet();
+  const newBtn='<button class="deck-btn-text saved-deck-new-btn" onclick="deckCreateNew()">＋ 新規デッキを作成</button>';
   if(!list.length){
-    el.innerHTML='<p class="saved-deck-empty">保存済みデッキがありません。<br>Chrome拡張またはPDFからデッキを取り込むと、ここに表示されます。</p>';
+    el.innerHTML='<div class="saved-deck-label"><span>保存済みデッキ</span>'+newBtn+'</div>'
+      +'<p class="saved-deck-empty">保存済みデッキがありません。<br>Chrome拡張またはPDFからデッキを取り込むか、「＋ 新規デッキを作成」から始められます。</p>';
     return;
   }
   // 各デッキの先頭カード名をサムネイル用に取得
@@ -4351,7 +4359,7 @@ function renderSavedDecks(){
     const m=Array.isArray(d.main)?d.main:normalizeDeck(d).main;
     return m&&m.length?m[0].name:'';
   });
-  el.innerHTML='<div class="saved-deck-label">保存済みデッキ</div>'
+  el.innerHTML='<div class="saved-deck-label"><span>保存済みデッキ</span>'+newBtn+'</div>'
     +'<div class="saved-deck-grid">'
     +list.map((d,i)=>`
     <div class="saved-deck-card" id="sdcard-${escAttr(d.id)}">
@@ -5456,7 +5464,7 @@ function unlinkThisDeviceSync(){
   });
 }
 </script>
-<script src="/static/mydeck/deck-edit.js?v=20260615c"></script>
+<script src="/static/mydeck/deck-edit.js?v=20260912a"></script>
 <script type="module" src="/static/mydeck/deck-card-info.js?v=20260617"></script>
 <script type="module" src="/static/shared/neuron-pdf-entry.js"></script>
 <script type="module" src="/static/shared/neuron-url-entry.js"></script>
