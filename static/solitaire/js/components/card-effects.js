@@ -30,8 +30,13 @@ export function playActivateEffect(wrapper) {
   // カードの見た目ごとコピーした fixed クローン（守備回転・is-set裏面も再現）
   const clone = wrapper.cloneNode(true);
   clone.classList.add('sol-activate-glow');
-  // inline style を上書きして fixed 配置に固定
+  // inline style を上書きして fixed 配置に固定。
+  // position はクラス(.sol-activate-glow)側の定義に任せず、ここで明示的に指定する。
+  // wrapper が self-watermark.css の .wm-released（position:relative）クラスを持つ場合、
+  // <link> の読み込み順で後勝ちになりクラス指定の fixed が上書きされて演出が消えてしまうため
+  // （flipMoveClone は元々インラインで position:fixed を指定しておりこの問題を回避できていた）。
   clone.style.cssText = [
+    'position: fixed',
     `left: ${rect.left}px`,
     `top: ${rect.top}px`,
     `width: ${rect.width}px`,
