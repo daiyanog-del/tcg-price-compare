@@ -1028,6 +1028,49 @@ html, body {
 .replay-share-x-btn:hover { background: #222; }
 .replay-share-x-btn:disabled { opacity: 0.35; cursor: default; }
 
+/* ── PC版 録画ボタン（#pcRecordBtn） ──
+   待機中はやや赤みの枠、録画中は赤背景＋点滅ドットで明確に区別する。
+   モバイル版 .sol-mobile-record-btn（mobile.css）とは別のクラス・見た目。 */
+.pc-record-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-color: #8a3a3a;
+  color: #f2a5a5;
+  font-weight: 700;
+}
+.pc-record-btn.recording {
+  background: #4a1414;
+  border-color: #dc3c3c;
+  color: #ff9b9b;
+}
+.pc-record-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #dc3c3c;
+}
+.pc-record-btn.recording .pc-record-dot {
+  animation: solPcRecordDotBlink 1s ease-in-out infinite;
+}
+@keyframes solPcRecordDotBlink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.15; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pc-record-btn.recording .pc-record-dot {
+    animation: none;
+  }
+}
+
+/* PC版 再生中の操作ロック（replay-ui.js が #replayPlay の再生状態に連動して付け外しする）。
+   PC専用クラス。mobile.css の body.sol-playback（スマホ縦向き専用の再生モード）とは
+   別物で、互いに参照し合わない。 */
+.sol-playback-pc {
+  pointer-events: none;
+}
+
 /* ── リプレイコメントトースト ── */
 #replayCommentToast {
   position: fixed;
@@ -1575,6 +1618,32 @@ html, body {
   inset: 0;
   background: rgba(0, 0, 0, 0.65);
 }
+
+/* ════════ PC版ドラッグ中の視覚フィードバック（拡大＋ラベル追従） ════════
+   モバイル版 .touching / #solTouchLabel（mobile.css・767px以下限定）の見た目を踏襲しつつ、
+   クラス名/IDを分けて衝突を避ける。ネイティブD&D専用のためモバイル幅を制限するメディア
+   クエリは不要（dragstart/dragendはタッチ操作からは発火しない）。 */
+.tier-item-wrapper.pc-card-lifting {
+  /* transform/z-index は drag-drop.js の liftPcDragging がインラインで設定するため
+     ここでは記述しない（CSS側で書いても常にインラインに負けるデッドコードになる）。 */
+  box-shadow: 0 0 0 3px var(--accent), 0 8px 20px rgba(0, 0, 0, 0.5);
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+#pcDragLabel {
+  position: fixed;
+  transform: translateX(-50%);
+  background: rgba(10, 16, 36, 0.92);
+  color: #fff;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2100;
+  display: none;
+}
 .sol-fb-dialog {
   position: relative;
   width: min(440px, 92vw);
@@ -1692,3 +1761,43 @@ html, body {
 }
 .sol-fb-submit:hover { background: var(--accent-hover); }
 .sol-fb-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── PC版 共有シート（#pcShareSheet） ──
+   .sol-fb-* （フィードバックモーダル）の見た目を流用しつつ、シート内は
+   縦積みボタンにするための最小限の上書き。モバイル版共有シートには影響しない。
+   .sol-fb-overlay は常に display:flex のため、hidden属性での開閉を効かせるには
+   ここで明示的に display:none を上書きする必要がある。 */
+.pc-share-sheet[hidden] {
+  display: none;
+}
+.pc-share-dialog {
+  width: min(320px, 92vw);
+}
+.pc-share-body {
+  gap: 8px;
+}
+.pc-share-body .replay-share-btn,
+.pc-share-body .replay-btn {
+  width: 100%;
+  box-sizing: border-box;
+  text-align: center;
+  padding: 9px 10px;
+  font-size: 0.85rem;
+}
+.pc-share-import-label {
+  cursor: pointer;
+  margin: 0;
+}
+/* ①録画セクション（モバイル版 .sol-mobile-share-note 相当の見た目をPC共有シート向けに移植） */
+.pc-share-note {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #94a3b8;
+  line-height: 1.4;
+}
+.pc-share-divider {
+  width: 100%;
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 2px 0;
+}

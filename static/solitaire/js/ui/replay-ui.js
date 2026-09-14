@@ -11,6 +11,7 @@ import {
   seekTo,
   undoLast,
   togglePlay,
+  isPlaying,
   setPlaySpeed,
   getPlaySpeed,
   exportReplay,
@@ -24,6 +25,8 @@ import {
   getLogs,
   getSetupLogs,
 } from '../services/replay-service.js';
+import { setPcPlaybackMode } from '../components/drag-drop.js';
+import { initPcRecording, _getPcRecordingRange, updatePcShareRecordingSection, _resetPcRecording, _syncPcRecordingEndIdxAfterComment } from './pc-recording.js';
 
 const REPLAY_TITLE_MAX_LEN = 100;
 
@@ -103,10 +106,17 @@ export function initReplayUI() {
     ?.addEventListener('click', () => {
       const input = document.getElementById('replayCommentInput');
       const text = input?.value?.trim();
-      if (text) {
-        logEvent({ actionType: 'comment', text });
-        if (input) input.value = '';
-      }
+      if (!text) return; // 空入力なら盤面をシークする副作用も起こさない
+
+      // 再生中に停止しただけではカーソルが再生途中の位置に残ったままで、直後の logEvent() が
+      // 「カーソルより先の未来ログを切り捨てる」処理（replay-service.js）を発火させてしまい、
+      // 記録の後半が消える。再生中は先に停止し、カーソルが末尾でなければ末尾までシークしてから
+      // コメントを追加する（＝コメントは常に記録の末尾に追記される）。
+      if (isPlaying()) togglePlay();
+      if (getCursor() < getLogLength() - 1) seekTo(getLogLength() - 1);
+      logEvent({ actionType: 'comment', text });
+      input.value = '';
+      _syncPcRecordingEndIdxAfterComment(); // 中2対応: 停止済み録画があれば endIdx を追従させる
     });
 
   // リプレイエクスポート（ファイル保存）
@@ -125,6 +135,7 @@ export function initReplayUI() {
       if (!file) return;
       try {
         await importReplay(file);
+        _resetPcRecording(); // 重大4対応: JSON読込で古い録画範囲(_pcRecording)が残留するのを防ぐ
         alert('リプレイを読み込みました');
       } catch (err) {
         alert('読み込み失敗: ' + err.message);
@@ -142,6 +153,89 @@ export function initReplayUI() {
 
   // URLハッシュからリプレイを読み込む
   _tryLoadFromURL();
+
+  // PC版共有シート（#pcShareSheet）の開閉。中身のボタン(#replayShare等)は
+  // 上で既にイベント配線済みなので、ここでは表示/非表示のトグルのみ行う。
+  const pcShareSheet = _initPcShareSheet();
+
+  // PC版 録画→再生モードUI: 状態機械は pc-recording.js に分離。録画停止時に
+  // 共有シートを自動で開くコールバックだけをここから渡す。
+  initPcRecording({
+    openShareSheet: () => pcShareSheet?.open(),
+    closeShareSheet: () => pcShareSheet?.close(),
+  });
+
+  // 重大4対応: デッキ再読込で古い録画範囲(_pcRecording)が残留すると、別セッションの
+  // 手数がたまたま範囲を満たしていた場合に無言で誤った共有リンクを生成してしまう。
+  // deck-input-panel.js が dispatch する sol-deck-load-start（読込開始時点）で破棄する。
+  document.addEventListener('sol-deck-load-start', () => _resetPcRecording());
+
+  // PC版 再生中の操作無効化: #replayPlay の再生状態（play-active クラス。
+  // replay-service.js の _updateUI が togglePlay/stepForward/stepBack/seekTo/undo・
+  // 自動再生タイマーの各経路から更新する）を監視し、drag-drop.js の
+  // setPcPlaybackMode／盤面の pointer-events を連動させる。
+  _initPcPlaybackModeWatcher();
+}
+
+/**
+ * PC版共有シートの開閉トグルを初期化する。
+ * モバイル版の共有シート(#solMobileShareSheet, mobile-ui.js)とは別要素・別IDのため
+ * 干渉しない。
+ * @returns {{open: () => void, close: () => void}|null}
+ */
+function _initPcShareSheet() {
+  const sheet = document.getElementById('pcShareSheet');
+  if (!sheet) return null;
+
+  const open = () => {
+    updatePcShareRecordingSection(); // ①録画セクションの表示を開く直前に最新化する
+    sheet.hidden = false;
+  };
+  const close = () => { sheet.hidden = true; };
+
+  document.getElementById('pcShareSheetOpen')?.addEventListener('click', open);
+  document.getElementById('pcShareSheetClose')?.addEventListener('click', close);
+  document.getElementById('pcShareSheetCloseBtn')?.addEventListener('click', close);
+
+  // Escapeキーで閉じる（feedback-modal.js等、既存の他モーダルと同じ作法に合わせる）
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !sheet.hidden) close();
+  });
+
+  return { open, close };
+}
+
+/**
+ * PC専用: 再生中に pointer-events:none を当てる対象コンテナ。
+ * #imagePool（デッキ欄。EXデッキの #imagePool2 とは別）はモバイル版の
+ * body.sol-playback には含まれないが、PC版は常時表示されるため独自に追加が必要
+ * （#imagePool 内カードの dblclick=効果発動 が再生中に window.replayLog() を呼ぶと
+ * 　logEvent() の「巻き戻し後は未来ログを切り捨てる」処理でリプレイ記録が壊れるため）。
+ * #solRightPanel（1ドロー/リセット&5ドロー/盤面ロード/カウンター/トークン等）も同じ理由で
+ * 必須。右パネルはモバイル版に存在しないため、モバイル版の body.sol-playback を参考にした
+ * 棚卸しでは構造上見落とされていた。
+ */
+const PC_PLAYBACK_LOCK_SELECTOR = '.custom-layout, .sol-hand-area, .side-slots-container, #imagePool, #imagePool2, #solRightPanel';
+
+/**
+ * #replayPlay の class="play-active" の有無を監視し、PC版の再生中フラグを連動させる。
+ * ドラッグ無効化そのものは drag-drop.js の setPcPlaybackMode（dragstart の preventDefault）が
+ * 担うが、クリック等での誤操作も防ぐため盤面に pointer-events:none も重ねて掛ける
+ * （.sol-playback-pc は PC専用クラス。mobile.css の body.sol-playback とは別物）。
+ */
+function _initPcPlaybackModeWatcher() {
+  const btnPlay = document.getElementById('replayPlay');
+  if (!btnPlay) return;
+
+  const sync = () => {
+    const playing = btnPlay.classList.contains('play-active');
+    setPcPlaybackMode(playing);
+    document.querySelectorAll(PC_PLAYBACK_LOCK_SELECTOR).forEach((el) => {
+      el.classList.toggle('sol-playback-pc', playing);
+    });
+  };
+
+  new MutationObserver(sync).observe(btnPlay, { attributes: true, attributeFilter: ['class'] });
 }
 
 /**
@@ -239,7 +333,8 @@ async function handleShare() {
   const btn = document.getElementById('replayShare');
   if (btn) btn.disabled = true;
   try {
-    const url = await generateShareURL();
+    // PC版: 停止済みの録画があればその範囲だけを共有する（無ければ range=null で全範囲）
+    const url = await generateShareURL(_getPcRecordingRange());
     await _copyToClipboard(url);
     alert('共有リンクをコピーしました');
   } catch (e) {
@@ -252,11 +347,13 @@ async function handleShare() {
 /**
  * X投稿用の短いURL生成（常にSupabase ID形式）
  * ハッシュ形式だと投稿準備画面に数千文字のURLが露出するため
+ * 中1対応: 「共有リンクをコピー」と同じく、PC版の停止済み録画があればその範囲だけを使う
+ * （buildRangeLogsForPayload が setup を含めて組み立てる。range 省略時は全範囲）。
+ * @param {{start:number, end:number}} [range]
  */
-async function _generateShortURL() {
+async function _generateShortURL(range) {
   const title = _getReplayTitle();
-  // High-1: setup を含めて送る（X投稿でも setup が落ちないようにする）
-  const logs = [...getSetupLogs(), ...getLogs()];
+  const logs = buildRangeLogsForPayload(range);
   return await _saveAndGetShortURL(title, logs);
 }
 
@@ -279,7 +376,8 @@ async function handleShareToX() {
   const btn = document.getElementById('replayShareX');
   if (btn) btn.disabled = true;
   try {
-    const url = await _generateShortURL();
+    // 中1対応: 「共有リンクをコピー」と同じくPC版の停止済み録画範囲を反映する
+    const url = await _generateShortURL(_getPcRecordingRange());
     window.open(buildShareTweetUrl(url), '_blank', 'noopener,noreferrer');
   } catch (e) {
     alert('X投稿の準備に失敗しました: ' + e.message);
@@ -314,6 +412,7 @@ async function _tryLoadFromURL() {
     // card:// センチネル対応のため await が必要（非同期関数）
     if (await importFromURLHash(encoded)) {
       console.log('URLハッシュからリプレイを読み込みました');
+      _resetPcRecording(); // 重大4対応: JSON読込で古い録画範囲(_pcRecording)が残留するのを防ぐ
       // タスクB-1: 共有リンクから開いたときは mobile-ui.js が再生モードを自動で開く
       document.dispatchEvent(new CustomEvent('sol-replay-loaded-from-url'));
     }
@@ -336,6 +435,7 @@ async function _tryLoadFromURL() {
       await _setReplayData(images, names || {}, logs, exCardIds || []);
     }
     console.log(`リプレイID ${replayId} を読み込みました`);
+    _resetPcRecording(); // 重大4対応: JSON読込で古い録画範囲(_pcRecording)が残留するのを防ぐ
     // タスクB-1: 共有リンクから開いたときは mobile-ui.js が再生モードを自動で開く
     document.dispatchEvent(new CustomEvent('sol-replay-loaded-from-url'));
   } catch (e) {

@@ -282,12 +282,43 @@
         <button class="replay-btn" id="replayUndo" disabled>取消</button>
         <input type="text" class="replay-comment-input" id="replayCommentInput" placeholder="コメント（任意）">
         <button class="replay-btn" id="replayAddComment">追加</button>
-        <button class="replay-btn" id="replayExport">保存</button>
-        <label class="replay-btn" style="cursor:pointer">
-          読込<input type="file" id="replayImportFile" accept=".json" style="display:none">
-        </label>
-        <button class="replay-share-btn" id="replayShare">共有リンク</button>
-        <button class="replay-share-x-btn" id="replayShareX">X に投稿</button>
+        <!-- PC版 録画: 状態機械は static/solitaire/js/ui/pc-recording.js に分離。
+             クリックで開始、録画中は赤色表示に変化、再クリックで終了→共有シート自動オープン。 -->
+        <button class="replay-btn pc-record-btn" id="pcRecordBtn" type="button">
+          <span id="pcRecordDot" class="pc-record-dot" aria-hidden="true"></span>
+          <span id="pcRecordLabel">録画</span>
+        </button>
+        <button class="replay-share-btn" id="pcShareSheetOpen">共有</button>
+      </div>
+
+      <!-- PC版 共有シート: モバイル版(#solMobileShareSheet)とは別実装・IDも別。
+           既存の共有4機能(リンクコピー/X投稿/JSON保存/JSON読込)を1つのシートにまとめる。
+           ボタンのIDは既存のまま(#replayShare等)にして replay-ui.js の initReplayUI() の
+           配線を変更せずに使い回す。 -->
+      <div id="pcShareSheet" class="sol-fb-overlay pc-share-sheet" hidden>
+        <div class="sol-fb-backdrop" id="pcShareSheetClose"></div>
+        <div class="sol-fb-dialog pc-share-dialog" role="dialog" aria-modal="true" aria-labelledby="pcShareTitle">
+          <div class="sol-fb-header">
+            <h2 id="pcShareTitle">共有</h2>
+            <button type="button" class="sol-fb-close" id="pcShareSheetCloseBtn" aria-label="閉じる">&times;</button>
+          </div>
+          <div class="sol-fb-body pc-share-body">
+            <!-- ①録画セクション: 状態機械は pc-recording.js。3状態表示はモバイル版
+                 #solMobileShareRecordingInfo と同じ考え方（録画なし/録画中/停止済み）。 -->
+            <p id="pcShareRecordingInfo" class="pc-share-note">全記録（0手）を共有します。特定の場面だけ共有するには上のリプレイバーの ● 録画 を使ってください。</p>
+            <button type="button" id="pcShareStartRecordingBtn" class="replay-btn">&#9679; 録画を始める</button>
+            <button type="button" id="pcShareStopRecordingBtn" class="replay-btn" hidden>ここで停止して範囲を確定</button>
+            <button type="button" id="pcShareRedoRecordingBtn" class="replay-btn" hidden>録画をやり直す</button>
+            <button type="button" id="pcShareRangePlayBtn" class="replay-btn" hidden>この範囲を再生</button>
+            <hr class="pc-share-divider">
+            <button class="replay-share-btn" id="replayShare">共有リンクをコピー</button>
+            <button class="replay-share-x-btn" id="replayShareX">X に投稿</button>
+            <button class="replay-btn" id="replayExport">JSON保存</button>
+            <label class="replay-btn pc-share-import-label">
+              JSON読込<input type="file" id="replayImportFile" accept=".json" style="display:none">
+            </label>
+          </div>
+        </div>
       </div>
 
       <!-- ===== スマホ縦向き専用UI（フェーズ1）=====

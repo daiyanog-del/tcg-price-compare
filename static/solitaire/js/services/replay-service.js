@@ -195,6 +195,11 @@ export function togglePlay() {
   }
 }
 
+/** 現在自動再生中かどうか（PC版「この範囲を再生」等、再生中の判定が必要な呼び出し元用） */
+export function isPlaying() {
+  return _playing;
+}
+
 /**
  * D-3/D-4: logs 配列の先頭から連続する setup:true の要素を取り出す。
  * setup:true が付いていない要素に到達した時点で走査を止める（間に非setupが挟まっている

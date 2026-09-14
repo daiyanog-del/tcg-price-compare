@@ -270,6 +270,88 @@ export function executeDrop(draggedInfo, dropZoneInfo, dropTarget, modifiers = {
   }
 }
 
+/* ════════════════════════════════════════════════════════════════
+ * PC版ドラッグ中の視覚フィードバック（拡大＋ラベル追従）
+ * モバイル版の liftTouching/unliftTouching/showTouchLabel 系（§8.3）と同等のロジックを
+ * PC専用のクラス・ID・dataset キーで独立実装する（モバイル側の関数・挙動は一切変更しない）。
+ * ════════════════════════════════════════════════════════════════ */
+
+let _pcDragLabelEl = null;
+
+function ensurePcDragLabel() {
+  if (_pcDragLabelEl && document.body.contains(_pcDragLabelEl)) return _pcDragLabelEl;
+  const el = document.createElement('div');
+  el.id = 'pcDragLabel';
+  document.body.appendChild(el);
+  _pcDragLabelEl = el;
+  return el;
+}
+
+/** 名前ラベルをカーソルの上40pxに表示する（XSS対策: textContent を使用） */
+function showPcDragLabel(wrapper, x, y) {
+  const el = ensurePcDragLabel();
+  el.textContent = getMobileCardDisplayName(wrapper) || '名称不明';
+  el.style.left = `${x}px`;
+  el.style.top  = `${y - 40}px`;
+  el.style.display = 'block';
+}
+function movePcDragLabel(x, y) {
+  if (!_pcDragLabelEl) return;
+  _pcDragLabelEl.style.left = `${x}px`;
+  _pcDragLabelEl.style.top  = `${y - 40}px`;
+}
+function hidePcDragLabel() {
+  if (_pcDragLabelEl) _pcDragLabelEl.style.display = 'none';
+}
+
+/**
+ * PC版の「持ち上げ」表現（liftTouching のPC専用版）。
+ * .pc-card-lifting クラスの transform:scale はインラインの style.transform（重ね置きで
+ * style.zIndex が設定済みのケース等）に優先度で負けて見えないことがあるため、
+ * 既存のインライン transform/zIndex を退避したうえで合成し、解除時に復元する。
+ * 二重呼び出し防止のため dataset.pcOrigTransform で冪等化する。
+ * @param {Element} wrapper - .tier-item-wrapper
+ */
+function liftPcDragging(wrapper) {
+  if (wrapper.dataset.pcOrigTransform !== undefined) return; // 冪等化
+  wrapper.classList.add('pc-card-lifting');
+  const origTransform = wrapper.style.transform || '';
+  const origZIndex    = wrapper.style.zIndex || '';
+  wrapper.dataset.pcOrigTransform = origTransform;
+  wrapper.dataset.pcOrigZIndex    = origZIndex;
+  wrapper.style.transform = `${origTransform} scale(1.15)`.trim();
+  wrapper.style.zIndex    = '500';
+}
+/** liftPcDragging の復元 */
+function unliftPcDragging(wrapper) {
+  wrapper.classList.remove('pc-card-lifting');
+  if (wrapper.dataset.pcOrigTransform !== undefined) {
+    wrapper.style.transform = wrapper.dataset.pcOrigTransform;
+    delete wrapper.dataset.pcOrigTransform;
+  }
+  if (wrapper.dataset.pcOrigZIndex !== undefined) {
+    wrapper.style.zIndex = wrapper.dataset.pcOrigZIndex;
+    delete wrapper.dataset.pcOrigZIndex;
+  }
+}
+
+// dragstart 中だけ document に登録するラベル追従用リスナー（1本だけを保持）。
+// ネイティブD&Dの 'drag' イベントは clientX/clientY が 0 になるブラウザがあるため使えず、
+// 座標が正しく取れる 'dragover' を document に一時登録してラベル位置を更新する。
+let _pcDragOverListener = null;
+// 現在 lift 中のカード（dragend が発火しない異常系での強制復旧に使う）。
+let _pcLiftedWrapper = null;
+
+function cleanupPcDragVisual(wrapper) {
+  unliftPcDragging(wrapper);
+  hidePcDragLabel();
+  if (_pcDragOverListener) {
+    document.removeEventListener('dragover', _pcDragOverListener);
+    _pcDragOverListener = null;
+  }
+  if (_pcLiftedWrapper === wrapper) _pcLiftedWrapper = null;
+}
+
 /**
  * デスクトップドラッグ&ドロップの初期化
  */
@@ -300,9 +382,55 @@ export function initializeDesktopDragDrop() {
     const dropZoneInfo = getDropZoneInfo(ev.target);
     if (!dropZoneInfo) return;
 
+    // ネイティブD&Dは drop → dragend の順で発火するため、dragend での解除を待つと
+    // executeDrop 内のリプレイ記録・z-index設定が拡大状態のまま行われてしまう。
+    // ここで先に視覚フィードバック（拡大・ラベル・z-index退避）を解除してから移動処理に入る。
+    // dragend 側の解除はドロップ不成立時やESCキャンセル時のフォールバックとして残す（冪等）。
+    if (draggedInfo.type === 'card') {
+      cleanupPcDragVisual(draggedInfo.element);
+    }
+
     const modifiers = { shift: ev.shiftKey, ctrl: ev.ctrlKey || ev.metaKey };
     executeDrop(draggedInfo, dropZoneInfo, ev.target, modifiers);
   };
+
+  // PC版の視覚フィードバック（拡大＋ラベル追従）。
+  // dragstart/dragend は bubbleするため document への委譲で拾い、既存の
+  // window.drag/window.drop（カード個別の dragstart リスナー・ondrop 属性）には一切触れない。
+  document.addEventListener('dragstart', (ev) => {
+    // PC版リプレイ再生モード中はドラッグ自体を無効化する。
+    // window.drag（カード要素に直接付いた dragstart リスナー）は既にこのイベントより先に
+    // 実行済みだが、'dragstart' はキャンセル可能で、いずれかのリスナーが preventDefault
+    // すればディスパッチ完了後にブラウザがドラッグ操作全体を中止する（HTML5 D&D仕様）ため、
+    // ここで止めれば window.drop 側の処理まで含めて発火しなくなる。
+    if (_pcPlaybackMode) { ev.preventDefault(); return; }
+
+    const draggedInfo = getDraggedElementInfo(ev.target);
+    if (!draggedInfo || draggedInfo.type !== 'card') return;
+    const wrapper = draggedInfo.element;
+
+    // dragend未発火のまま次のdragstartを迎えた異常系（例: ドラッグ中に要素がDOMから
+    // 除去された）への保険。前回のlift状態が残っていれば先に強制復旧する。
+    if (_pcLiftedWrapper && _pcLiftedWrapper !== wrapper) {
+      cleanupPcDragVisual(_pcLiftedWrapper);
+    }
+    _pcLiftedWrapper = wrapper;
+
+    liftPcDragging(wrapper);
+    showPcDragLabel(wrapper, ev.clientX, ev.clientY);
+
+    if (_pcDragOverListener) {
+      document.removeEventListener('dragover', _pcDragOverListener); // 念のための冪等化
+    }
+    _pcDragOverListener = (mv) => movePcDragLabel(mv.clientX, mv.clientY);
+    document.addEventListener('dragover', _pcDragOverListener);
+  });
+
+  document.addEventListener('dragend', (ev) => {
+    const draggedInfo = getDraggedElementInfo(ev.target);
+    if (!draggedInfo || draggedInfo.type !== 'card') return;
+    cleanupPcDragVisual(draggedInfo.element);
+  });
 }
 
 /**
@@ -343,6 +471,19 @@ let _mobilePlaybackMode = false;
  */
 export function setMobilePlaybackMode(v) {
   _mobilePlaybackMode = !!v;
+}
+
+// PC版一人回し 録画→再生: リプレイ再生中（#replayPlay の再生状態）はPC版のネイティブ
+// ドラッグ&ドロップを無効化するフラグ。replay-ui.js が #replayPlay の状態変化を監視して呼ぶ。
+// _mobilePlaybackMode（スマホ縦向き専用の状態機械）とは完全に独立しており、互いに影響しない。
+let _pcPlaybackMode = false;
+
+/**
+ * PC版リプレイ再生モード中フラグを設定する（replay-ui.js から呼ぶ）。
+ * @param {boolean} v
+ */
+export function setPcPlaybackMode(v) {
+  _pcPlaybackMode = !!v;
 }
 
 /**
@@ -490,7 +631,7 @@ const MOBILE_UI_IGNORE_SELECTOR =
   '#solMobileActionSheet, #solMobileCip, #solMobileBar, ' +
   '#solMobileMenuSheet, .sol-context-menu, #solSidebar, #solSidebarScrim, #opponentTray, ' +
   '.pool-label, #replayBarContainer, .sol-ops-details, .sol-mobile-help-scrim, .counter-container, ' +
-  '#solMobileDeckSheet, #solMobileShareSheet';
+  '#solMobileDeckSheet, #solMobileShareSheet, #pcShareSheet';
 
 /**
  * カード名を取得する。

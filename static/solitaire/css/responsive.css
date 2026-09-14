@@ -146,7 +146,9 @@
   #replayAddComment,
   #replayExport,
   #replayShare,
-  #replayShareX {
+  #replayShareX,
+  #pcShareSheetOpen,
+  #pcRecordBtn {
     display: none;
   }
   /* 読込ラベル（input[type=file] を内包） */
@@ -328,7 +330,9 @@
   #replayAddComment,
   #replayExport,
   #replayShare,
-  #replayShareX {
+  #replayShareX,
+  #pcShareSheetOpen,
+  #pcRecordBtn {
     display: none;
   }
   .replay-bar > label {
