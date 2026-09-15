@@ -3,9 +3,17 @@
  * カードの右クリック / 長押しコンテキストメニュー
  *
  * 表示項目（ゾーン別）:
- *   フィールド: 攻撃/守備の切替 / セット・表にする / 一番下に重ねる / 墓地送り / 除外 / 手札に戻す / デッキに戻す / 削除
+ *   フィールド: 攻撃/守備の切替 / セット・表にする / 場に出す（攻撃/守備/裏側守備/表側/セット）※カード種別で出し分け
+ *              / 一番下に重ねる / 墓地送り / 除外 / 手札に戻す / デッキに戻す / 削除
  *   プール    : 削除（初期カードは不可）
  *   その他    : 墓地送り / 除外 / 手札に戻す / デッキに戻す / 削除
+ *
+ * 「場に出す」系はマウス操作専用（isTouch=trueの呼び出し元には出さない。タッチの長押しメニューは
+ * mousedown/keydownしか見ていない配置待ち状態機械と噛み合わず操作不能に陥りうるため）。
+ * 2段階クリック方式: メニュー項目クリックでは何も確定させず配置待ち状態に入り、全 .custom-slot を
+ * ハイライトする。スロットクリックで初めて状態とゾーン移動の両方を確定する。
+ * Esc / スロット以外への外側クリック / 別カードの右クリック / 別カードのドラッグ開始で
+ * キャンセルされる（cancelFieldPlacement を export し、drag-drop.js の dragstart から呼ぶ）。
  *
  * 依存: card-state.js のほか、固定ゾーン移動（墓地送り/除外/手札に戻す）のために
  * drag-drop.js の getDropZoneInfo/executeDrop/getZoneId を使う（実際の配置・リプレイ記録ロジックの二重持ちを避ける）。
@@ -35,17 +43,23 @@ let _removeListeners = null;
  * @param {Element} cardEl   - img.tier-item または div.tier-item（proxy-card）
  * @param {number}  x        - 表示位置 clientX
  * @param {number}  y        - 表示位置 clientY
+ * @param {boolean} [isTouch=false] - タッチ（長押し）経由の呼び出しなら true。
+ *   「場に出す」系項目はマウスの mousedown/keydown だけを監視する配置待ち状態機械
+ *   に依存しているため、タッチ経由ではこの項目群を出さない（drag-drop.js の
+ *   長押しメニューから呼ばれる場合に true を渡す）。
  */
-export function openCardContextMenu(wrapper, cardEl, x, y) {
+export function openCardContextMenu(wrapper, cardEl, x, y, isTouch = false) {
   // 後方互換: 内部で img という名前を使っていた箇所を cardEl として統一する
   const img = cardEl;  // 既存の _buildMenuItems / _returnToDeck の引数に渡す
   closeContextMenu();
+  // 配置待ち状態のまま別カードを右クリックした場合に操作不能へ陥らないようキャンセルする
+  cancelFieldPlacement();
 
   const parent   = wrapper.parentElement;
   const isInPool = isCardInPool(wrapper);
   const isInitial = wrapper.id === 'initial';
 
-  const items = _buildMenuItems(wrapper, img, parent, isInPool, isInitial);
+  const items = _buildMenuItems(wrapper, img, parent, isInPool, isInitial, isTouch);
   if (items.length === 0) return;
 
   // ── メニュー要素を生成 ────────────────────────────────────────
@@ -175,7 +189,7 @@ export function closeContextMenu() {
 
 // ── 内部: メニュー項目の組み立て ──────────────────────────────────
 
-function _buildMenuItems(wrapper, img, parent, isInPool, isInitial) {
+function _buildMenuItems(wrapper, img, parent, isInPool, isInitial, isTouch = false) {
   const items = [];
 
   if (isInPool) {
@@ -231,6 +245,17 @@ function _buildMenuItems(wrapper, img, parent, isInPool, isInitial) {
     });
   }
 
+  // 場に出す（2段階クリック方式・マウス操作専用）。プール以外（フィールド/固定ゾーン）なら無条件表示。
+  // カード種別で項目を出し分ける: モンスター=攻撃/守備/裏側守備、魔法・罠=表側/セット
+  // （モンスターに「セット」を出すと applyCardState の適用順の都合で裏側攻撃表示という
+  //   不正な状態になるため出さない。裏側にしたい場合は「裏側守備」を使う想定）。
+  // isTouch=true（タッチ長押しメニュー）では、mousedown/keydownしか見ない配置待ち状態機械
+  // と噛み合わないため項目自体を出さない。
+  if (!isTouch) {
+    items.push({ separator: true });
+    items.push(..._fieldPlacementItems(wrapper));
+  }
+
   // 下重ね（フィールドスロット、かつ他のカードがある場合）
   if (isCustom && parent.querySelectorAll('.tier-item-wrapper').length > 1) {
     items.push({
@@ -284,6 +309,121 @@ function _buildMenuItems(wrapper, img, parent, isInPool, isInitial) {
   });
 
   return items;
+}
+
+/**
+ * 「場に出す」メニュー項目を組み立てる（カード種別で出し分け）
+ * @param {Element} wrapper - .tier-item-wrapper
+ * @returns {Array<{label: string, action: Function}>}
+ */
+function _fieldPlacementItems(wrapper) {
+  if (isMonsterCard(wrapper)) {
+    // 「場に出す（セット）」は出さない: applyCardState はapplySet→applyDefenseの順に
+    // 適用するため、モンスターに { orientation: '', face: 'down' } を渡すと
+    // applySet(true)の副作用（守備表示化）を直後のapplyDefense(false)が打ち消し、
+    // 「裏側攻撃表示」という遊戯王に存在しない状態になってしまう。
+    // 裏側にしたい場合は下の「場に出す（裏側守備）」で同じ結果になるため項目として冗長でもある。
+    return [
+      { label: '場に出す（攻撃）',     action: () => _startFieldPlacement(wrapper, { orientation: '',        face: '' }) },
+      { label: '場に出す（守備）',     action: () => _startFieldPlacement(wrapper, { orientation: 'defense', face: '' }) },
+      { label: '場に出す（裏側守備）', action: () => _startFieldPlacement(wrapper, { orientation: 'defense', face: 'down' }) },
+    ];
+  }
+  return [
+    { label: '場に出す（表側）', action: () => _startFieldPlacement(wrapper, { orientation: '', face: '' }) },
+    { label: '場に出す（セット）', action: () => _startFieldPlacement(wrapper, { orientation: '', face: 'down' }) },
+  ];
+}
+
+// ── 「場に出す」配置待ち状態機械（PC版専用・2段階クリック方式） ──────
+
+// 配置待ち中の情報。null = 配置待ちでない。
+let _pcPlacement        = null; // { wrapper, state, slots }
+let _pcPlacementCleanup = null; // イベントリスナー解除関数
+
+/**
+ * 「場に出す」の配置待ちを開始する。
+ * 対象カードの状態を先に確定させず、全フィールドスロットをハイライトして
+ * ユーザーの配置先クリックを待つ。
+ * @param {Element} wrapper - .tier-item-wrapper
+ * @param {{orientation: string, face: string}} state - 確定時に適用する状態
+ */
+function _startFieldPlacement(wrapper, state) {
+  cancelFieldPlacement(); // 念のための冪等化
+
+  // カードが既にいるスロットはハイライト・確定対象から除外する（無意味な1手が
+  // リプレイに記録されるのを防ぐ。墓地送り/除外/手札に戻す3項目と同じ方針）。
+  // 状態だけ変えたい場合は既存の守備/セット切替メニュー項目を使ってもらう想定。
+  const currentSlot = wrapper.parentElement;
+  const slots = Array.from(document.querySelectorAll('.custom-slot')).filter((s) => s !== currentSlot);
+  slots.forEach((slot) => slot.classList.add('pc-placement-target'));
+  _pcPlacement = { wrapper, state, slots };
+
+  const onOutsideMouseDown = (e) => {
+    // 左クリック（button===0）のスロットクリックのみ配置を確定する。
+    // 右クリック（スロット内の既存カードへの右クリック含む）は次のコンテキストメニューを
+    // 開くための操作であり、確定ではなくキャンセル扱いにする
+    // （openCardContextMenu 側の cancelFieldPlacement 呼び出しと合わせて二重の安全策）。
+    const slot = e.button === 0 ? e.target.closest('.custom-slot') : null;
+    if (slot && slots.includes(slot)) {
+      _confirmFieldPlacement(slot);
+    } else {
+      cancelFieldPlacement();
+    }
+  };
+  const onKeydown = (e) => {
+    if (e.key === 'Escape') cancelFieldPlacement();
+  };
+
+  // openCardContextMenu の外クリック処理と同じパターン: 配置待ちを開始した
+  // 同一クリック（mousedown→click）で即座に反応しないよう setTimeout で登録する。
+  const tid = setTimeout(() => {
+    document.addEventListener('mousedown', onOutsideMouseDown);
+    document.addEventListener('keydown', onKeydown);
+  }, 0);
+
+  _pcPlacementCleanup = () => {
+    clearTimeout(tid);
+    document.removeEventListener('mousedown', onOutsideMouseDown);
+    document.removeEventListener('keydown', onKeydown);
+  };
+}
+
+/**
+ * 配置待ちを確定し、対象スロットへカードを移動する。
+ * 状態は先に確定してから executeDrop に渡すため、executeDrop 内のリプレイ記録
+ * （getCardState を参照）で正しい orientation/face が1回だけ記録される。
+ * @param {Element} slot - .custom-slot
+ */
+function _confirmFieldPlacement(slot) {
+  const { wrapper, state } = _pcPlacement;
+  // 配置待ち中にデッキ再読込/盤面ロード/リプレイ巻き戻し等でカードがDOMから
+  // 切り離されている場合、そのまま挿入すると削除済みカードが復活してしまうためガードする
+  // （drag-drop.js の _tapTargetEl.isConnected ガードと同じ作法）。
+  if (!wrapper || !wrapper.isConnected) {
+    cancelFieldPlacement();
+    return;
+  }
+  applyCardState(wrapper, state);
+  const dropZoneInfo = getDropZoneInfo(slot);
+  if (dropZoneInfo) {
+    executeDrop({ type: 'card', element: wrapper }, dropZoneInfo, slot, {});
+  }
+  cancelFieldPlacement();
+}
+
+/**
+ * 「場に出す」の配置待ちをキャンセルする（ハイライト解除・リスナー解除）。
+ * 配置待ちでない場合は何もしない（他の呼び出し元からの冪等呼び出しを許容）。
+ */
+export function cancelFieldPlacement() {
+  if (!_pcPlacement) return;
+  _pcPlacement.slots.forEach((slot) => slot.classList.remove('pc-placement-target'));
+  if (_pcPlacementCleanup) {
+    _pcPlacementCleanup();
+    _pcPlacementCleanup = null;
+  }
+  _pcPlacement = null;
 }
 
 // ── 内部: カード操作ヘルパ ───────────────────────────────────────

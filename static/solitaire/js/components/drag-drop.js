@@ -1,6 +1,6 @@
 import { initializeCounter, addCounterDeleteButton } from './counter-manager.js';
 import { applyDefense, applySet, toggleDefense, getCardState } from './card-state.js';
-import { openCardContextMenu, closeContextMenu } from '../ui/context-menu.js';
+import { openCardContextMenu, closeContextMenu, cancelFieldPlacement } from '../ui/context-menu.js';
 import { isMobilePortrait } from '../utils/viewport.js';
 
 /**
@@ -399,6 +399,10 @@ export function initializeDesktopDragDrop() {
   // dragstart/dragend は bubbleするため document への委譲で拾い、既存の
   // window.drag/window.drop（カード個別の dragstart リスナー・ondrop 属性）には一切触れない。
   document.addEventListener('dragstart', (ev) => {
+    // 「場に出す」配置待ち中に別カードのドラッグを開始した場合、操作不能に陥らないよう
+    // 先に配置待ちをキャンセルする（配置待ちでなければ何もしない）。
+    cancelFieldPlacement();
+
     // PC版リプレイ再生モード中はドラッグ自体を無効化する。
     // window.drag（カード要素に直接付いた dragstart リスナー）は既にこのイベントより先に
     // 実行済みだが、'dragstart' はキャンセル可能で、いずれかのリスナーが preventDefault
@@ -531,7 +535,7 @@ export function enableTouchDrag(ev) {
         document.removeEventListener('touchend', handleTouchEnd);
         // img.tier-item または div.tier-item（プロキシ）どちらでも .tier-item で取れる
         const cardEl = draggingElem.querySelector('.tier-item');
-        if (cardEl) openCardContextMenu(draggingElem, cardEl, startX, startY);
+        if (cardEl) openCardContextMenu(draggingElem, cardEl, startX, startY, true);
       }
     }, 500);
   }
@@ -890,7 +894,7 @@ function _handleMobileCardTouchStart(ev, wrapper) {
       setTimeout(() => {
         document.removeEventListener('touchend', suppressNextTouchEnd);
       }, 1000);
-      if (cardEl) openCardContextMenu(wrapper, cardEl, startX, startY);
+      if (cardEl) openCardContextMenu(wrapper, cardEl, startX, startY, true);
     }
   }, 500);
 

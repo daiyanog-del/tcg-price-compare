@@ -180,6 +180,13 @@
   border: 2px dashed #ccc;
 }
 
+/* 「場に出す」配置待ち中のハイライト（PC版・2段階クリック方式） */
+.custom-slot.pc-placement-target {
+  border-color: #2e86de;
+  box-shadow: 0 0 0 3px rgba(46, 134, 222, 0.45), 0 6px 16px rgba(46, 134, 222, 0.25);
+  cursor: pointer;
+}
+
 /* 手札スロット */
 .center-slot {
   display: flex;
