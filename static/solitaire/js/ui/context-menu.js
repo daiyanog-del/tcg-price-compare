@@ -37,7 +37,7 @@ import {
   getCardState,
   isMonsterCard,
 } from '../components/card-state.js';
-import { playSetFlip } from '../components/card-effects.js';
+import { playSetFlip, flipMoveClone } from '../components/card-effects.js';
 import { getDropZoneInfo, executeDrop, getZoneId } from '../components/drag-drop.js';
 
 // ── 単一インスタンス ──────────────────────────────────────────────
@@ -444,10 +444,13 @@ function _confirmFieldPlacement(slot) {
     cancelFieldPlacement();
     return;
   }
+  // FLIPアニメーション用に移動前の座標を、状態変更（applyCardState）より前に取得する
+  const firstRect = wrapper.getBoundingClientRect();
   applyCardState(wrapper, state);
   const dropZoneInfo = getDropZoneInfo(slot);
   if (dropZoneInfo) {
     executeDrop({ type: 'card', element: wrapper }, dropZoneInfo, slot, {});
+    flipMoveClone(wrapper, firstRect);
   }
   cancelFieldPlacement();
 }
@@ -475,6 +478,10 @@ function _returnToDeck(wrapper, img) {
   const isEx   = wrapper.id.includes('ex');
   const cardId = img.id;
 
+  // FLIPアニメーション用に移動前の座標を確定処理より前に取得する
+  // （スタイルリセットで見た目上の位置が変わる前の、ユーザーに見えている位置を使う）
+  const firstRect = wrapper.getBoundingClientRect();
+
   if (typeof window.replayLog === 'function') {
     window.replayLog({ actionType: 'returnToDeck', cardId, isEx });
   }
@@ -485,6 +492,8 @@ function _returnToDeck(wrapper, img) {
 
   const pool = document.getElementById(isEx ? 'poolRow2' : 'poolRow');
   pool.appendChild(wrapper);
+
+  flipMoveClone(wrapper, firstRect);
 }
 
 /**
@@ -529,7 +538,10 @@ function _moveToFixedZone(wrapper, zoneEl) {
     console.warn('[context-menu] ゾーン種別を判定できませんでした');
     return;
   }
+  // FLIPアニメーション用に移動前の座標を executeDrop（DOM移動）より前に取得する
+  const firstRect = wrapper.getBoundingClientRect();
   executeDrop({ type: 'card', element: wrapper }, dropZoneInfo, zoneEl, {});
+  flipMoveClone(wrapper, firstRect);
 }
 
 /**

@@ -1,5 +1,5 @@
 import { initializeCounter, addCounterDeleteButton } from './counter-manager.js';
-import { applyDefense, applySet, toggleDefense, getCardState } from './card-state.js';
+import { applyDefense, applySet, toggleDefense, getCardState, applyCardState } from './card-state.js';
 import { openCardContextMenu, closeContextMenu, cancelFieldPlacement } from '../ui/context-menu.js';
 import { isMobilePortrait } from '../utils/viewport.js';
 
@@ -121,6 +121,8 @@ function placeCardInCustomSlot(slot, card, { under = false } = {}) {
  */
 function placeCardInPool(pool, card, targetCard) {
   resetCardStyle(card);
+  // デッキ/EXデッキには表示形式の概念がないため、常に縦向き・表向きにリセットする
+  applyCardState(card, {});
 
   if (targetCard && targetCard !== card) {
     pool.insertBefore(card, targetCard);
@@ -136,6 +138,8 @@ function placeCardInPool(pool, card, targetCard) {
  */
 function placeCardInNormalSlot(slot, card) {
   resetCardStyle(card);
+  // 手札・墓地・除外には表示形式の概念がないため、常に縦向き・表向きにリセットする
+  applyCardState(card, {});
   slot.appendChild(card);
 }
 

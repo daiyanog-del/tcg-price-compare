@@ -34,7 +34,7 @@ import {
   returnCardToDeckMenu,
   isCardInPool,
 } from './context-menu.js';
-import { playActivateEffect } from '../components/card-effects.js';
+import { playActivateEffect, flipMoveClone } from '../components/card-effects.js';
 import { _renderCard, _showUnknown, _showLoading } from './card-info-panel.js';
 import { isMobilePortrait, watchMobilePortrait, isMobileLandscape, watchMobileLandscape } from '../utils/viewport.js';
 import { showToast } from '../utils/toast.js';
@@ -462,12 +462,21 @@ function getSideSlot(isGrave) {
   return document.querySelector('.side-slots-container .sol-side-area:not(.sol-grave) .side-slot');
 }
 
-/** M-11: moveMobileSelectionTo が失敗（false）したときに原因を追える警告を出す */
-function moveSelectionOrWarn(dropZoneElement, label) {
+/**
+ * M-11: moveMobileSelectionTo が失敗（false）したときに原因を追える警告を出す。
+ * アクションシート経由の「墓地へ」「除外へ」は executeDrop の即時DOM移動だけで
+ * FLIPアニメーションを一切呼んでいなかった（瞬間移動して見えるバグ）ため、
+ * 移動前の座標を取得しておき、成功後に flipMoveClone で繋ぐ。
+ * @param {Element} wrapper        - .tier-item-wrapper（移動対象。移動前座標の取得に使う）
+ */
+function moveSelectionOrWarn(wrapper, dropZoneElement, label) {
+  const firstRect = wrapper ? wrapper.getBoundingClientRect() : null;
   const ok = moveMobileSelectionTo(dropZoneElement);
   if (!ok) {
     console.warn(`[mobile-ui] 移動先が見つからない: ${label}`);
+    return;
   }
+  if (wrapper && firstRect) flipMoveClone(wrapper, firstRect);
 }
 
 // A-3: 「削除」は外す（長押しメニューに残る）。6操作のみ。
@@ -476,8 +485,8 @@ function moveSelectionOrWarn(dropZoneElement, label) {
 const ACTION_HANDLERS = {
   defense: (wrapper) => { toggleCardDefense(wrapper); clearMobileSelection(); },
   set:     (wrapper) => { toggleCardSet(wrapper); clearMobileSelection(); },
-  grave:   () => { moveSelectionOrWarn(getSideSlot(true), '墓地'); },
-  banish:  () => { moveSelectionOrWarn(getSideSlot(false), '除外'); },
+  grave:   (wrapper) => { moveSelectionOrWarn(wrapper, getSideSlot(true), '墓地'); },
+  banish:  (wrapper) => { moveSelectionOrWarn(wrapper, getSideSlot(false), '除外'); },
   return:  (wrapper) => { returnCardToDeckMenu(wrapper); clearMobileSelection(); },
   activate:(wrapper) => {
     playActivateEffect(wrapper);

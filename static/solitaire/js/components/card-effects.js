@@ -81,6 +81,18 @@ export function playSetFlip(wrapper, toggleFn) {
 }
 
 /**
+ * 矩形が「不可視要素のゼロ矩形」（display:none の祖先を持つ要素などで幅・高さが
+ * ともに0になっている状態）かどうかを判定する。
+ * flipMoveClone / flyBetweenRects の両方で、実位置を表さない矩形をアニメに使わない
+ * ためのガードとして使う。
+ * @param {DOMRect} rect
+ * @returns {boolean}
+ */
+function _isZeroRect(rect) {
+  return rect.width === 0 && rect.height === 0;
+}
+
+/**
  * FLIPアニメーション（fixedクローン方式）
  *
  * 本体（wrapper）は呼び出し前に既に移動先へ配置済みであること。
@@ -102,6 +114,15 @@ export function flipMoveClone(wrapper, firstRect, onComplete = null) {
 
   const lastRect = wrapper.getBoundingClientRect();
 
+  // 出発点・到着点のどちらかが「不可視要素のゼロ矩形」（display:none の親を持つ要素は
+  // getBoundingClientRect() が幅・高さともに0を返す）の場合、その矩形は実位置を表していない。
+  // これをそのまま left/top に使うと画面左上(0,0)へ飛ぶ見た目になるため、アニメを行わず
+  // 即座に完了扱いにする（例: 縦向きスマホで #poolRow が display:none の状態でのデッキ戻し）。
+  if (_isZeroRect(firstRect) || _isZeroRect(lastRect)) {
+    if (onComplete) onComplete();
+    return;
+  }
+
   // 実質的な移動なし（2px 以内）: アニメスキップ、コールバックは即時呼ぶ
   const dx = firstRect.left - lastRect.left;
   const dy = firstRect.top  - lastRect.top;
@@ -109,6 +130,15 @@ export function flipMoveClone(wrapper, firstRect, onComplete = null) {
     if (onComplete) onComplete();
     return;
   }
+
+  // 連打対策: 同じ wrapper に対して前回のクローンがまだ飛行中なら即座に完了させる。
+  // removeChild で生のDOM除去だけを行うと、そのクローンの transitionend が発火せず
+  // 先発の cleanup（＝onComplete呼び出しを含む）が正常経路で呼ばれないまま
+  // フェイルセーフの setTimeout まで遅延し、後発の演出による配置を後から
+  // 上書きしてしまう処理順序の逆転が起こる。そのため保持しておいた cleanup 関数を
+  // 直接呼び、先発の完了処理（onComplete含む）を遅延なく実行してから後発を開始する。
+  const prevClone = wrapper._flipClone;
+  if (prevClone && prevClone._cleanup) prevClone._cleanup();
 
   // クローン生成（class/data属性ごとコピー → 守備回転・is-set裏面も再現）
   const clone = wrapper.cloneNode(true);
@@ -145,6 +175,7 @@ export function flipMoveClone(wrapper, firstRect, onComplete = null) {
   wrapper.style.visibility = 'hidden';
 
   document.body.appendChild(clone);
+  wrapper._flipClone = clone;
 
   // 次フレームで transition を付与し最終位置へ移動
   requestAnimationFrame(() => {
@@ -159,16 +190,26 @@ export function flipMoveClone(wrapper, firstRect, onComplete = null) {
   let _done = false;
   const cleanup = () => {
     if (clone.parentNode) clone.parentNode.removeChild(clone);
-    wrapper.style.visibility = '';
+    // 自分が最新のクローンである場合のみ本体を再表示する。
+    // 既に新しいクローン（連打による後発呼び出し）に差し替わっている場合、
+    // ここで visibility を戻すと後発クローンの飛行中に本体が見えてしまう。
+    if (wrapper._flipClone === clone) {
+      wrapper.style.visibility = '';
+      delete wrapper._flipClone;
+    }
     if (!_done && onComplete) { _done = true; onComplete(); }
   };
+  clone._cleanup = cleanup; // 連打ガードで後発から直接呼べるように保持しておく
   clone.addEventListener('transitionend', cleanup, { once: true });
   setTimeout(cleanup, 600); // 自動再生インターバル (600ms) に合わせたフェイルセーフ
 }
 
 /**
- * タスクB: prefers-reduced-motion: reduce か（flyBetweenRects 専用で見る。
- * 既存の flipMoveClone / playActivateEffect / playSetFlip は対象外＝挙動を変えない）。
+ * prefers-reduced-motion: reduce かどうか。
+ * 判定を使うのは flyBetweenRects（デッキ演出の錨から/への飛行）のみ。
+ * flipMoveClone・playActivateEffect・playSetFlip はこの判定の対象外で、
+ * 縦向きスマホでの不可視移動（display:none 配下）はそれぞれ個別のゼロ矩形ガード等で
+ * 対処している（挙動は変えない）。
  */
 export function prefersReducedMotion() {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -205,12 +246,32 @@ export function flyBetweenRects(cardEl, fromRect, toRect, onComplete = null) {
 
   const lastRect = toRect || cardEl.getBoundingClientRect();
 
+  // flipMoveClone と同じ理由のガード: デッキ演出の錨（#solMobileDeckBtn / #solMobilePlayDeckBadge）
+  // は常にDOM上に存在するため呼び出し元の null チェック（_getDeckAnchorRect）をすり抜けるが、
+  // 両方とも非表示（display:none の hidden 属性下）の場合はゼロ矩形が渡ってくる。
+  // そのまま使うと画面左上(0,0)へ飛ぶ見た目になるため、ここでも即座に完了扱いにする。
+  if (_isZeroRect(fromRect) || _isZeroRect(lastRect)) {
+    if (onComplete) onComplete();
+    return;
+  }
+
   const dx = fromRect.left - lastRect.left;
   const dy = fromRect.top  - lastRect.top;
   if (Math.abs(dx) < 2 && Math.abs(dy) < 2) {
     if (onComplete) onComplete();
     return;
   }
+
+  // 連打対策: flipMoveClone と同じ cardEl._flipClone で追跡する。
+  // 両関数とも同じ本体要素の visibility を共有して隠す仕組みのため、
+  // 追跡プロパティを分けると「fly→flip」「flip→fly」のように演出が
+  // 450ms以内に重なった際、先発側のcleanupが後発の飛行中に本体を
+  // 再表示してしまい二重表示が起きる。
+  // 除去も removeChild ではなく保持しておいた cleanup を直接呼ぶ（flipMoveClone と同じ理由。
+  // transitionend 頼みだと先発の onComplete がフェイルセーフまで遅延し、後発の配置を
+  // 後から上書きする処理順序の逆転が起こる）。
+  const prevClone = cardEl._flipClone;
+  if (prevClone && prevClone._cleanup) prevClone._cleanup();
 
   const clone = cardEl.cloneNode(true);
   clone.classList.add('sol-flip-clone', 'sol-deck-fly-clone');
@@ -242,6 +303,7 @@ export function flyBetweenRects(cardEl, fromRect, toRect, onComplete = null) {
   // 実カードは飛ばし始める直前（クローンをbodyへ追加する直前）に隠す
   cardEl.style.visibility = 'hidden';
   document.body.appendChild(clone);
+  cardEl._flipClone = clone;
 
   requestAnimationFrame(() => {
     void clone.offsetWidth; // reflow 強制（initial 位置を確定させる）
@@ -254,9 +316,16 @@ export function flyBetweenRects(cardEl, fromRect, toRect, onComplete = null) {
   let _done = false;
   const cleanup = () => {
     if (clone.parentNode) clone.parentNode.removeChild(clone);
-    cardEl.style.visibility = '';
+    // 自分が最新のクローンである場合のみ本体を再表示する（flipMoveClone と同じ作法）。
+    // 既に後発の演出（fly/flip どちらでも）に差し替わっている場合、ここで
+    // visibility を戻すと後発クローンの飛行中に本体が見えてしまう。
+    if (cardEl._flipClone === clone) {
+      cardEl.style.visibility = '';
+      delete cardEl._flipClone;
+    }
     if (!_done && onComplete) { _done = true; onComplete(); }
   };
+  clone._cleanup = cleanup; // 連打ガードで後発から直接呼べるように保持しておく
   clone.addEventListener('transitionend', cleanup, { once: true });
   setTimeout(cleanup, 510); // 450ms + フェイルセーフ余裕
 }

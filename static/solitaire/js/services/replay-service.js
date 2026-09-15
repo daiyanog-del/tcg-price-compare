@@ -805,7 +805,10 @@ function _applyDraw(event) {
  * タスクB追補: 非EX（#poolRow行き）かつ前進再生・縦向きスマホでは、現在位置から
  * デッキ演出の錨（_getDeckAnchorRect）へ飛ばし終えてから DOM を確定する（#poolRow は
  * 非表示のため実際の到着矩形が取れない。_applyMoveCardWithDeckFly の toIsDeckPool と同じ順序）。
- * EX（#poolRow2）は表示されているため従来どおり演出なし。
+ * EX（#poolRow2）は常時表示のため上記のデッキ演出分岐を通らないが、前進再生時は
+ * moveCard（_applyMoveCard）と同じ方針で flipMoveClone による通常のFLIPアニメーションが
+ * 入る（演出なしではない。以前は瞬間移動していたが、2026-09-15にPC/EX含めた全分岐で
+ * アニメーションを追加した）。
  */
 function _applyReturnToDeck(event) {
   const { cardId, isEx } = event;
@@ -815,6 +818,13 @@ function _applyReturnToDeck(event) {
   const pool = document.getElementById(poolId);
   if (!pool) return;
 
+  // 状態クリア＋DOM確定（PC/モバイル/EX/非EXの全分岐で共通）
+  const commit = () => {
+    card.style = '';
+    applyCardState(card, {}); // 守備・セット状態をクリア
+    pool.appendChild(card);
+  };
+
   if (!isEx && _shouldMobileFly()) {
     const deckBtnRect = _getDeckAnchorRect(); // 第6次検収2a
     if (deckBtnRect) {
@@ -823,18 +833,25 @@ function _applyReturnToDeck(event) {
       // 追加の隠蔽は不要。flyBetweenRects 内の cardEl.style.visibility='hidden' に委譲する）。
       const fromRect = card.getBoundingClientRect();
       _pulseDeckBtn();
-      flyBetweenRects(card, fromRect, deckBtnRect, () => {
-        card.style = '';
-        applyCardState(card, {});
-        pool.appendChild(card);
-      });
+      flyBetweenRects(card, fromRect, deckBtnRect, commit);
       return;
     }
   }
 
-  card.style = '';
-  applyCardState(card, {}); // 守備・セット状態をクリア
-  pool.appendChild(card);
+  // moveCard（_applyMoveCard）は前進再生時にPCでも flipMoveClone を呼ぶが、returnToDeck は
+  // 上のモバイル縦向き分岐（flyBetweenRects）にしか演出がなく、PCでは瞬間移動していた。
+  // _applyMoveCard と同じ方針で、前進再生時はPCでも FLIP アニメーションを挟む。
+  // deckBtnRect が取れない縦向きスマホ（錨要素も非表示）でこの分岐に落ちてきた場合は、
+  // flipMoveClone 側のゼロ矩形ガード（display:none 配下への移動を検知して即完了扱いにする）
+  // に判定を委ね、ここでは個別に isMobilePortrait 等を判定しない。
+  if (_animateForward) {
+    const firstRect = card.getBoundingClientRect();
+    commit();
+    flipMoveClone(card, firstRect, null);
+    return;
+  }
+
+  commit();
 }
 
 /**
