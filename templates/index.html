@@ -834,6 +834,9 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 // DOMContentLoaded後に正しい状態で一括表示する
 (function(){
   var h=location.hash.slice(1);
+  // 一人回しページの「マイデッキページで取り込む」導線（#mydeck-import）は
+  // #mydeckタブを開いた状態にするための特殊ハッシュなので、ここでは#mydeckとして扱う
+  if(h==='mydeck-import')h='mydeck';
   // S-1: 買取価格タブは「価格」タブへ統合されたため、#buybackは常時表示のmode-searchのまま
   // （非表示にする対象から除外。除外しないとmode-buyback要素が無くコンテンツが消える）
   if(!h||['mydeck','meta','packs','wishlist'].indexOf(h)<0)return;
@@ -3062,8 +3065,22 @@ document.addEventListener('DOMContentLoaded', () => {
   // S-1: #buyback は買取タブが無くなったため「価格」タブ（search）へ正規化する
   if(!_pageCardName){
     const _hashMode=location.hash.slice(1);
-    if(['mydeck','meta','packs','wishlist','buyback'].includes(_hashMode)){
-      switchMode(_hashMode==='buyback'?'search':_hashMode,'hash');
+    // #mydeck-import: 一人回しページの「マイデッキページで取り込む」ボタンからの遷移用。
+    // マイデッキタブを開いた上で、ニューロン取込パネルを開いた状態で表示する
+    const _isImportDeeplink = _hashMode === 'mydeck-import';
+    const _normalizedHash = _isImportDeeplink ? 'mydeck' : _hashMode;
+    if(['mydeck','meta','packs','wishlist','buyback'].includes(_normalizedHash)){
+      switchMode(_normalizedHash==='buyback'?'search':_normalizedHash,'hash');
+    }
+    if(_isImportDeeplink){
+      const _importDetails = document.getElementById('deckImportDetails');
+      if(_importDetails) _importDetails.open = true;
+      // モバイル幅では deck.css の .deck-panes.show-tools が無いと
+      // 取込パネルが属する右ペイン(#deckPaneTools)ごと非表示になるため、
+      // ペイン切替（タブのアクティブ状態も含む）を明示的に行う
+      document.getElementById('deckPanes')?.classList.add('show-tools');
+      if(typeof window.switchDeckPane === 'function') window.switchDeckPane('tools');
+      if(_importDetails) _importDetails.scrollIntoView({block:'start'});
     }
   }
 
@@ -4309,9 +4326,13 @@ function saveCurrentDeck(){
     existing.main=main;
     existing.ex=ex;
     existing.updated=Date.now();
+    window._currentSavedDeckId = existing.id;
   }else{
-    list.push({id:'d_'+Date.now(),name:n,text,main,ex,updated:Date.now()});
+    const newDeck={id:'d_'+Date.now(),name:n,text,main,ex,updated:Date.now()};
+    list.push(newDeck);
+    window._currentSavedDeckId = newDeck.id;
   }
+  if(typeof _currentDeckName !== 'undefined') _currentDeckName = n;
   savedDecksSet(list);
   trackDeckCards([...main, ...ex]);
   renderSavedDecks();

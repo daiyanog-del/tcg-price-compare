@@ -779,14 +779,9 @@
     // 手動「保存」 → 保存したデッキにひも付け（以後の編集を自動反映）
     _wrap('saveCurrentDeck', function(){
       try{
-        if(typeof savedDecksGet !== 'function') return;
-        var text = document.getElementById('deckTextarea').value.trim();
-        var list = savedDecksGet().slice().reverse(); // 直近に保存したものを優先
-        var d = list.find(function(x){ return (x.text || '').trim() === text; });
-        // _currentDeckName も更新する（共有文・共有画像タイトルの getName() が参照するため。
-        // 表示バー側は savedDecksGet() から引き直すが、それとは別に真の値も揃えておく必要がある。
-        // reviewer中2指摘: ここを省くと別名保存後も共有系だけ旧デッキ名のままになる）
-        if(d){ window._currentSavedDeckId = d.id; if(typeof _currentDeckName !== 'undefined') _currentDeckName = d.name || _currentDeckName; }
+        // window._currentSavedDeckId・_currentDeckName は orig（saveCurrentDeck本体）側で
+        // 保存確定時に正しくセット済み（キャンセル・空欄時は本体がreturnしそもそもここに来ない）。
+        // ここではテキスト一致による推測はせず、永続化と保存バー表示更新のみ行う。
         _persistDeck();
         _updateDeckSaveBar();
       }catch(_){}

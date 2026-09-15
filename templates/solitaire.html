@@ -87,30 +87,13 @@
         <!-- ニューロン -->
         <div class="deck-input-pane active" id="deckPaneNeuron">
 
-          <!-- (A) Chrome拡張経由 -->
+          <!-- ニューロン取込（Chrome拡張・PDF・URL）はマイデッキページに統一。ここでは誘導のみ -->
           <div class="sol-neuron-section">
-            <div class="sol-neuron-method-header">
-              <span class="sol-neuron-method-title">Chrome拡張で取り込む（PC）</span>
-              <span class="sol-recommend-badge">おすすめ</span>
-            </div>
-            <p class="sol-upload-note">ニューロンのデッキページからボタン1つで取り込めます。取り込んだデッキは「マイデッキ」タブに入ります。</p>
-            <a class="sol-ext-link ready" href="https://chromewebstore.google.com/detail/tcgym-%E2%80%94-%E3%83%8B%E3%83%A5%E3%83%BC%E3%83%AD%E3%83%B3%E9%80%A3%E6%90%BA/akgacaffneahmgpolkefmcbldbiklldf?hl=ja" target="_blank" rel="noopener">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              Chromeウェブストアで入手
+            <p class="sol-upload-note">ニューロンのデッキ取り込み（Chrome拡張・PDF・URL）は「マイデッキ」ページで行えます。取り込んだデッキは「保存」すると、この一人回し画面の「マイデッキ」タブに反映されます。</p>
+            <a class="sol-ext-link ready" href="/#mydeck-import">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              マイデッキページで取り込む
             </a>
-          </div>
-
-          <!-- (B) PDF経由 -->
-          <div class="sol-neuron-section">
-            <div class="sol-neuron-method-header">
-              <span class="sol-neuron-method-title">PDFから取り込む</span>
-            </div>
-            <p class="sol-upload-note">ニューロンのデッキシートPDFを選択するとカード名を自動で読み取ります。</p>
-            <label class="sol-upload-label">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-              PDFを選択する
-              <input type="file" id="neuronPdfUpload" accept="application/pdf">
-            </label>
           </div>
         </div>
 

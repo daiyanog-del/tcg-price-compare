@@ -713,6 +713,17 @@ html, body {
   color: var(--main-color);
   font-weight: 700;
 }
+/* サイト内の他ページへの画面遷移であることを示す矢印アイコン。
+   下の「デッキを選択」タブ内にある同名ボタン（画面遷移なしのローカル切替）との
+   混同を避けるための視覚的な区別（現在地の「一人回し」リンクには付けない）。 */
+.sol-sidebar-links a:not(.active)::after {
+  content: '↗';
+  display: inline-block;
+  margin-left: 3px;
+  font-size: 0.72em;
+  opacity: 0.6;
+  transform: translateY(-1px);
+}
 .sol-nav-title {
   display: inline-flex;
   align-items: center;
