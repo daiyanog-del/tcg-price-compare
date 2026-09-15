@@ -123,6 +123,27 @@ export function logEvent(event) {
   _updateUI();
 }
 
+/**
+ * 案B: 開始直後（記録0件の状態）のリセット&5ドローのみを setup ログとして記録する。
+ * logEvent と違い _logs ではなく _setupLogs に積む（手数カウンターに数えない・取消の対象外）。
+ * 呼び出し元（event-handlers.js）が「記録0件かどうか」を判定してから呼ぶこと。
+ * @param {Object} event  - イベントオブジェクト（setup:true を強制付与）
+ */
+export function logSetupEvent(event) {
+  const cloned = { ..._safeCloneEvent(event), setup: true, seq: -1 };
+  // 開始直後のリセット&5ドローを連打すると呼び出し元の判定（記録0件）が
+  // 毎回成立してしまうため、末尾が同じ resetDeck であれば追加せず置換する。
+  // setupログ全体には範囲共有由来の counterChange 等が混在し得るため、
+  // truncateはせず「末尾が同種actionTypeの場合のみ置換」に限定する。
+  const last = _setupLogs[_setupLogs.length - 1];
+  if (last && last.actionType === cloned.actionType && cloned.actionType === 'resetDeck') {
+    _setupLogs[_setupLogs.length - 1] = cloned;
+  } else {
+    _setupLogs.push(cloned);
+  }
+  _updateUI();
+}
+
 /** undo: 最後のイベントを1件取り消し */
 export function undoLast() {
   if (_logs.length === 0) return;
