@@ -1,4 +1,4 @@
-import { initializeCounter } from './counter-manager.js';
+import { initializeCounter, addCounterDeleteButton } from './counter-manager.js';
 import { applyDefense, applySet, toggleDefense, getCardState } from './card-state.js';
 import { openCardContextMenu, closeContextMenu } from '../ui/context-menu.js';
 import { isMobilePortrait } from '../utils/viewport.js';
@@ -172,6 +172,7 @@ function placeCounterOnCard(card, counter) {
   newCounter.appendChild(upBtn);
 
   initializeCounter(newCounter);
+  addCounterDeleteButton(newCounter); // カード上のカウンターのみ×で即削除できるようにする
   card.appendChild(newCounter);
 }
 

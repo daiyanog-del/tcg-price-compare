@@ -53,6 +53,33 @@ function generateCardId() {
 }
 
 /**
+ * 復元されたカードIDに合わせてitemCountを進める
+ *
+ * save-load-service.js の復元処理は保存済みのID（"item-000"等）をそのまま
+ * DOMへ書き戻すだけでitemCountを更新しないため、そのままだと復元後に
+ * addCardToPool等で新規カードを追加した際、generateCardIdが同じ連番を
+ * 再発行してIDが重複してしまう（重複IDはgetElementByIdが最初の1件しか
+ * 返さないため、カウンター復元等が別カードに誤って紐付く原因になる）。
+ * 復元完了直後にこの関数を呼び、既存IDの最大連番+1までitemCountを進める。
+ *
+ * @param {string[]} ids - 復元されたカードのwrapper.id一覧（例: "item-003 normal"）
+ */
+export function syncCardIdCounter(ids) {
+  if (!ids) return;
+  let maxNum = -1;
+  for (const id of ids) {
+    const m = /^item-(\d+)/.exec(id || '');
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (n > maxNum) maxNum = n;
+    }
+  }
+  if (maxNum + 1 > itemCount) {
+    itemCount = maxNum + 1;
+  }
+}
+
+/**
  * カード要素を作成（多態対応版）
  *
  * 第一引数の種類に応じてカード要素を切り替える:

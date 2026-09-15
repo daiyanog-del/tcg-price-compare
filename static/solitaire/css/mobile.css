@@ -1250,6 +1250,23 @@
   .custom-layout {
     position: relative;
   }
+
+  /* 削除(×)ボタン追加でカード上カウンター全体幅が約73.6pxとなり、
+     縦向きスマホのカード幅(52〜59px)をはみ出すため、カード上カウンターに
+     限りボタン・数値欄を縮小してカード幅に収める（PC/横向きには影響しない）。 */
+  .tier-item-wrapper .counter-container {
+    height: 18px;
+  }
+  .tier-item-wrapper .counter-container .triangle-button {
+    width: 11px;
+    height: 18px;
+    font-size: 0.6rem;
+  }
+  .tier-item-wrapper .counter-container .counter-textbox {
+    width: 1rem;
+    height: 18px;
+    font-size: 0.62rem;
+  }
 }
 
 /* ════════ H-1: portrait を外れた瞬間の二重防御（致命的バグ対策） ════════

@@ -4,8 +4,10 @@
  */
 
 import { getCardState, applyCardState } from '../components/card-state.js';
-import { attachCardImageListeners } from '../components/card-manager.js';
+import { attachCardImageListeners, syncCardIdCounter } from '../components/card-manager.js';
 import { createProxyCardElement } from '../components/proxy-card.js';
+import { addCounterDeleteButton, initializeCounter } from '../components/counter-manager.js';
+import { showToast } from '../utils/toast.js';
 
 const API_CARD_IMAGES = '/api/card-images';
 
@@ -73,9 +75,14 @@ function getCounterStates() {
     const textbox = counter.querySelector('.counter-textbox');
     const parentSlot = counter.parentElement;
 
+    // カード上のカウンターは、カード要素（.tier-item-wrapper）固有のidで親を記録する。
+    // className（全カード共通の文字列）だと盤面に同名カードが複数ある場合に
+    // 復元時のquerySelectorが最初の1件しか拾えず、別カードに付け替わってしまうため。
+    const cardWrapper = parentSlot ? parentSlot.closest('.tier-item-wrapper') : null;
+
     counters.push({
       value: textbox ? textbox.value : '1',
-      parentId: parentSlot ? parentSlot.className : '',
+      parentId: cardWrapper ? cardWrapper.id : (parentSlot ? parentSlot.className : ''),
       parentDataSlot: parentSlot ? parentSlot.getAttribute('data-slot') : null,
       style: counter.getAttribute('style') || '',
     });
@@ -301,6 +308,10 @@ function restoreCounters(counters) {
   const existingCounters = document.querySelectorAll('.counter-container:not(#parent)');
   existingCounters.forEach(counter => counter.remove());
 
+  // 旧形式データ等で復元先が見つからずスキップした件数。1件でもあればトーストで通知する
+  // （console.warnだけだとセーブスロットを永続ロードするたびに無言でカウンターが消える）。
+  let skippedCount = 0;
+
   // カウンターを復元
   counters.forEach(counterData => {
     // 親となるスロットを検索
@@ -308,7 +319,15 @@ function restoreCounters(counters) {
     if (counterData.parentDataSlot) {
       parentSlot = document.querySelector(`[data-slot="${counterData.parentDataSlot}"]`);
     } else if (counterData.parentId) {
-      parentSlot = document.querySelector(`.${counterData.parentId.split(' ')[0]}`);
+      // 新形式: parentId はカード要素（.tier-item-wrapper）固有のid
+      parentSlot = document.getElementById(counterData.parentId);
+      if (!parentSlot) {
+        // 旧形式（class名ベースのparentId）を含む壊れた古いデータへの配慮。
+        // 同名カードが複数あると誤ったカードに復元されてしまう旧バグを再現しない
+        // よう、ここでは推測復元せずスキップする（根本修正は保存側で完了済み）。
+        console.warn('[restoreCounters] カウンターの復元先カードが見つかりませんでした（旧形式データの可能性）。このカウンターの復元をスキップします:', counterData.parentId);
+        skippedCount++;
+      }
     }
 
     if (!parentSlot) return;
@@ -342,6 +361,8 @@ function restoreCounters(counters) {
       counter.appendChild(downBtn);
       counter.appendChild(textbox);
       counter.appendChild(upBtn);
+      addCounterDeleteButton(counter); // 復元後もカード上カウンターは×で削除できるようにする
+      initializeCounter(counter); // 復元後も+/-ボタンが反応するようにイベントを登録する
     } else {
       // パネル内: ボタンコンテナ（縦積み）＋数値
       const buttonContainer = document.createElement('div');
@@ -366,6 +387,10 @@ function restoreCounters(counters) {
 
     parentSlot.appendChild(counter);
   });
+
+  if (skippedCount > 0) {
+    showToast('古い保存データのためカウンターを復元できませんでした');
+  }
 }
 
 /**
@@ -580,5 +605,13 @@ async function _applyState(state) {
   }
 
   await Promise.all(tasks);
+
+  // 復元済みカードIDに合わせてitemCountを進める（重複ID防止。詳細はsyncCardIdCounterのコメント参照）
+  // state.slots由来のIDだけだと、保存データに存在しないスロットキー（盤面レイアウト変更前後など）の
+  // 場合にrestoreCardsToSlotが早期returnして残存カードが消えず、そのIDがカウンターに反映されない。
+  // 実際にDOM上へ存在する全カードのIDを対象にすることで、残存・復元・プロキシいずれも漏らさず拾う。
+  const domIds = [...document.querySelectorAll('.tier-item-wrapper')].map(w => w.id);
+  syncCardIdCounter(domIds);
+
   restoreCounters(state.counters);
 }

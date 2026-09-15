@@ -363,6 +363,17 @@
   color: #fff;
 }
 
+/* カード上カウンターの削除(×)ボタン: [−][N][+]の並びを崩さず末尾に追加 */
+.counter-delete-btn {
+  border-left: 1px solid rgba(74, 124, 255, 0.3);
+  font-size: 0.7rem;
+}
+
+.counter-delete-btn:hover {
+  background: rgba(239, 68, 68, 0.6);
+  color: #fff;
+}
+
 /* tier-item-wrapper 内のカウンター（カード上バッジ）: 位置指定のみ */
 .tier-item-wrapper .counter-container {
   position: absolute;
