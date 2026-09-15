@@ -1050,6 +1050,12 @@ html, body {
   color: #ffd2d2;
   font-weight: 700;
 }
+/* components.css の `p, span, li { color:#333 }` が中の #pcRecordLabel(span)に
+   直接効き、親のcolor継承より優先されて暗いグレーに見えていたため明示指定する
+   （モバイル版 .sol-mobile-record-btn span でも同じ問題があり同様に対処済み）。 */
+.pc-record-btn span {
+  color: inherit;
+}
 .pc-record-btn.recording {
   background: #4a1414;
   border-color: #dc3c3c;
