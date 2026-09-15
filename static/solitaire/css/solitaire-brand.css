@@ -696,22 +696,53 @@ html, body {
 /* ── ナビ（サイドバー上部に統合） ── */
 /* ロゴ + ページリンクを縦配置。旧 .sol-nav 横長ヘッダーは廃止 */
 .sol-sidebar-nav .sol-nav-title { margin-bottom: 10px; }
+/* アイコン付きメニューバー化: ナビ全体を一つの「箱」として視認できるように
+   背景・角丸・内側パディングを持たせる。デッキ選択タブ(.deck-input-tab)は
+   背景を塗りつぶす方式のため、ナビ側は左アクセントバーのみ・矢印(::after)併用の
+   別の視覚言語にして区別する（2026-09-15、docs/decisions.md参照）。 */
 .sol-sidebar-links {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 1px;
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 8px;
+  padding: 4px;
 }
 .sol-sidebar-links a {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   color: var(--accent);
   text-decoration: none;
-  font-size: 0.85rem;
-  padding: 2px 0;
-  transition: color 0.2s;
+  font-size: 0.8rem;
+  padding: 6px 7px;
+  border-radius: 5px;
+  border-left: 2px solid transparent;
+  transition: color 0.2s, background-color 0.2s, border-color 0.2s;
 }
-.sol-sidebar-links a:hover { color: var(--accent-hover); }
+.sol-sidebar-links a svg {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+/* ナビは「背景を塗らず左アクセントバーのみ」で反応を示す。
+   下のデッキ選択タブ(.deck-input-tab)は背景を塗りつぶす方式にして、
+   同じ見た目の「押せる箱」に見えないよう役割の違いを形で分ける
+   （decisions.md 参照）。 */
+.sol-sidebar-links a:hover {
+  color: var(--accent-hover);
+  background: transparent;
+  border-left-color: var(--accent-hover);
+}
 .sol-sidebar-links a.active {
   color: var(--main-color);
   font-weight: 700;
+  background: transparent;
+  border-left-color: var(--accent);
+}
+.sol-sidebar-links a.active svg { opacity: 1; }
+.sol-sidebar-links a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 /* サイト内の他ページへの画面遷移であることを示す矢印アイコン。
    下の「デッキを選択」タブ内にある同名ボタン（画面遷移なしのローカル切替）との
@@ -719,7 +750,8 @@ html, body {
 .sol-sidebar-links a:not(.active)::after {
   content: '↗';
   display: inline-block;
-  margin-left: 3px;
+  margin-left: auto;
+  padding-left: 4px;
   font-size: 0.72em;
   opacity: 0.6;
   transform: translateY(-1px);
@@ -992,6 +1024,14 @@ html, body {
 .replay-btn:hover { border-color: var(--accent); background: rgba(74,124,255,0.12); }
 .replay-btn:disabled { opacity: 0.35; cursor: default; }
 .replay-btn.play-active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* 破壊的操作（すべて消去）用: 赤系で視覚的に危険操作だと分かるようにする */
+.replay-btn-danger {
+  margin-left: 12px; /* バー末尾に配置し、頻用する「取消」等から間隔を空けて誤操作を防ぐ */
+  color: var(--red);
+  border-color: var(--red);
+}
+.replay-btn-danger:hover { border-color: var(--red); background: rgba(239,68,68,0.12); }
 
 /* 再生速度切替ボタン */
 .replay-speed-group { display: flex; gap: 3px; }

@@ -12,6 +12,9 @@
  *     moveMobileSelectionTo 経由）。判定ロジックを複製しない。
  *   - 守備表示・セット・デッキに戻す は context-menu.js の既存処理を呼ぶ（削除はアクション
  *     シートから外した・A-3）。
+ *   - プール内カード（デッキ/EXデッキ）を選択した場合は、操作行のうち「墓地へ」「除外へ」のみ
+ *     表示する（2026-09-15: 従来は操作行を丸ごと隠していたが、モバイルでも墓地送り/除外を
+ *     使えるようユーザー決定で変更。詳細は docs/decisions.md 参照）。
  *   - 既存ボタン（保存・読込・リセット等）は .click() で発火させ、ロジックを複製しない。
  */
 
@@ -468,6 +471,8 @@ function moveSelectionOrWarn(dropZoneElement, label) {
 }
 
 // A-3: 「削除」は外す（長押しメニューに残る）。6操作のみ。
+// grave/banish は moveSelectionOrWarn 経由で moveMobileSelectionTo を呼ぶため、
+// 選択中カードの現在ゾーン（フィールドでもプールでも）を問わず同じハンドラで動く。
 const ACTION_HANDLERS = {
   defense: (wrapper) => { toggleCardDefense(wrapper); clearMobileSelection(); },
   set:     (wrapper) => { toggleCardSet(wrapper); clearMobileSelection(); },
@@ -486,8 +491,16 @@ const ACTION_HANDLERS = {
 
 /**
  * A-3: ヘッダ行（カード名＋詳細ボタン）＋操作行。
- * 選択カードがプール内（#poolRow/#poolRow2 の子）の場合は操作ボタンを出さずヘッダ行だけにする
- * （context-menu.js の isCardInPool を共有。判定を二重に持たない）。
+ * 選択カードがプール内（#poolRow/#poolRow2 の子）の場合は、操作行のうち意味を持つ
+ * 「墓地へ」「除外へ」だけを表示し、フィールド専用の「守備表示」「セット」「効果発動」と
+ * 既にデッキ内のため無意味な「デッキに戻す」は隠す（context-menu.js の isCardInPool を共有。
+ * 判定を二重に持たない）。
+ * 「手札に戻す」「場に出す」はここでは追加しない: プール内カードは drag-drop.js の
+ * selectMobileCard()（タップ選択）→ _onDocTouchEnd（移動先スロットをタップして確定）という
+ * 既存経路で墓地・除外・手札・盤面のどこへでも既に移動可能なため、ボタンとしての追加は
+ * 見送った（ユーザー判断）。※デッキ一覧シート（#solMobileDeckSheet）の「手札へ」「盤面へ」は
+ * #poolRow のみを列挙しており #poolRow2（EXデッキ）を含まないため、根拠にはならない
+ * （2026-09-15: 従来は isCardInPool(wrapper) で操作行全体を hidden にしていた・A-3決定を変更）。
  */
 function updateActionSheetForSelection(wrapper) {
   const { name } = getCardNameAndSrc(wrapper);
@@ -495,7 +508,14 @@ function updateActionSheetForSelection(wrapper) {
   if (nameEl) nameEl.textContent = name || '名称不明';
 
   const opsEl = document.getElementById('solMobileActionOps');
-  if (opsEl) opsEl.hidden = isCardInPool(wrapper);
+  if (opsEl) {
+    opsEl.hidden = false;
+    const inPool = isCardInPool(wrapper);
+    ['defense', 'set', 'return', 'activate'].forEach(action => {
+      const btn = opsEl.querySelector(`[data-action="${action}"]`);
+      if (btn) btn.hidden = inPool;
+    });
+  }
 
   setHidden('solMobileActionSheet', false);
 }

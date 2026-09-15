@@ -5,7 +5,14 @@
  * 表示項目（ゾーン別）:
  *   フィールド: 攻撃/守備の切替 / セット・表にする / 場に出す（攻撃/守備/裏側守備/表側/セット）※カード種別で出し分け
  *              / 一番下に重ねる / 墓地送り / 除外 / 手札に戻す / デッキに戻す / 削除
- *   プール    : 削除（初期カードは不可）
+ *   プール    : 墓地送り / 除外 / 場に出す（カード種別で出し分け） / 削除
+ *              （通常デッキ #poolRow のみ手札に戻すも表示。EXデッキ #poolRow2 は通常プレイで
+ *               手札に加えることがほぼ無いため、誤操作防止のため手札に戻すを出さない
+ *               （ドラッグ操作ではEXデッキのカードも手札へ置けるが、それとは別に、
+ *               ワンタップで確定するメニュー項目としては誤操作のリスクが高いため出さない）。
+ *               攻撃/守備トグル・セット・
+ *               一番下に重ねる・デッキに戻すは既にデッキ内のカードには意味がないため出さない）
+ *              （初期カード isInitial は現状維持で何も出さない。昔の設計の名残でスコープ外）
  *   その他    : 墓地送り / 除外 / 手札に戻す / デッキに戻す / 削除
  *
  * 「場に出す」系はマウス操作専用（isTouch=trueの呼び出し元には出さない。タッチの長押しメニューは
@@ -193,9 +200,42 @@ function _buildMenuItems(wrapper, img, parent, isInPool, isInitial, isTouch = fa
   const items = [];
 
   if (isInPool) {
-    if (!isInitial) {
-      items.push({ label: '削除', action: () => { wrapper.remove(); } });
+    if (isInitial) return items; // 初期カードは現状維持で何も出さない（昔の設計の名残・スコープ外）
+
+    // EXデッキ判定: #poolRow2 の直接の子かどうかで判定する（DOM構造から確定するため
+    // wrapper.id の文字列一致より確実）
+    const isExPool = parent === document.getElementById('poolRow2');
+
+    // 墓地送り / 除外（通常デッキ・EXデッキ両方に表示）
+    const graveZoneEl  = _getGraveZoneElement();
+    const banishZoneEl = _getBanishZoneElement();
+    items.push({
+      label: '墓地送り',
+      action: () => { _moveToFixedZone(wrapper, graveZoneEl); },
+    });
+    items.push({
+      label: '除外',
+      action: () => { _moveToFixedZone(wrapper, banishZoneEl); },
+    });
+
+    // 手札に戻す: 通常デッキのみ（EXデッキは誤操作防止のため出さない。ドラッグ操作ではEXデッキの
+    // カードも手札へ置けるが、ワンタップで確定するメニュー項目としては誤操作のリスクが高いため出さない）
+    if (!isExPool) {
+      const handZoneEl = _getHandZoneElement();
+      items.push({
+        label: '手札に戻す',
+        action: () => { _moveToFixedZone(wrapper, handZoneEl); },
+      });
     }
+
+    // 場に出す（2段階クリック方式・マウス操作専用。タッチ長押しメニューでは出さない）
+    if (!isTouch) {
+      items.push({ separator: true });
+      items.push(..._fieldPlacementItems(wrapper));
+    }
+
+    items.push({ separator: true });
+    items.push({ label: '削除', action: () => { wrapper.remove(); } });
     return items;
   }
 

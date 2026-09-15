@@ -148,7 +148,8 @@
   #replayShare,
   #replayShareX,
   #pcShareSheetOpen,
-  #pcRecordBtn {
+  #pcRecordBtn,
+  #replayResetAll {
     display: none;
   }
   /* 読込ラベル（input[type=file] を内包） */
@@ -332,7 +333,8 @@
   #replayShare,
   #replayShareX,
   #pcShareSheetOpen,
-  #pcRecordBtn {
+  #pcRecordBtn,
+  #replayResetAll {
     display: none;
   }
   .replay-bar > label {

@@ -31,7 +31,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Bungee&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/solitaire/css/main.css?v=20260904f">
+<link rel="stylesheet" href="/static/solitaire/css/main.css?v=20260915">
 <link rel="stylesheet" href="/static/css/self-watermark.css?v=20260611">
 </head>
 
@@ -62,12 +62,12 @@
         <span class="nav-brand">TC<span class="nav-g">G</span>YM</span>
       </a>
       <nav class="sol-sidebar-links">
-        <a href="/">価格</a>
-        <a href="/#mydeck">マイデッキ</a>
-        <a href="/#meta">環境デッキ</a>
-        <a href="/#packs">最新弾</a>
-        <a href="/#wishlist">購入候補</a>
-        <a href="/solitaire" class="active">一人回し</a>
+        <a href="/"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>価格</a>
+        <a href="/#mydeck"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>マイデッキ</a>
+        <a href="/#meta"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>環境デッキ</a>
+        <a href="/#packs"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>最新弾</a>
+        <a href="/#wishlist"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>購入候補</a>
+        <a href="/solitaire" class="active" aria-current="page"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="M2.6 16.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83"/><path d="M2.6 11.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83"/></svg>一人回し</a>
       </nav>
     </div>
 
@@ -78,10 +78,16 @@
       <div id="deckInputContainer" class="deck-input-panel">
         <!-- タブ（縦並び） -->
         <div class="deck-input-tabs">
-          <button class="deck-input-tab active" data-pane="deckPaneNeuron">ニューロン</button>
-          <button class="deck-input-tab" data-pane="deckPaneText">テキスト入力</button>
-          <button class="deck-input-tab" data-pane="deckPanePreset">サンプルデッキ</button>
           <button class="deck-input-tab" data-pane="deckPaneMyDeck">マイデッキ</button>
+          <button class="deck-input-tab active" data-pane="deckPaneNeuron">ニューロン</button>
+          <button class="deck-input-tab" data-pane="deckPanePreset">サンプルデッキ</button>
+        </div>
+
+        <!-- マイデッキ -->
+        <div class="deck-input-pane" id="deckPaneMyDeck">
+          <div class="my-deck-list" id="myDeckList">
+            <span class="deck-loading-msg">タブを開くと読み込みます</span>
+          </div>
         </div>
 
         <!-- ニューロン -->
@@ -97,23 +103,9 @@
           </div>
         </div>
 
-        <!-- テキスト入力 -->
-        <div class="deck-input-pane" id="deckPaneText">
-          <textarea class="deck-textarea" id="deckTextarea"
-            placeholder="例:&#10;3 灰流うらら&#10;3 増殖するG&#10;1 エフェクト・ヴェーラー"></textarea>
-          <button class="deck-load-btn" id="deckLoadTextBtn">このデッキを読み込む</button>
-        </div>
-
         <!-- 環境デッキ -->
         <div class="deck-input-pane" id="deckPanePreset">
           <div class="meta-tier-list" id="metaTierList">
-            <span class="deck-loading-msg">タブを開くと読み込みます</span>
-          </div>
-        </div>
-
-        <!-- マイデッキ -->
-        <div class="deck-input-pane" id="deckPaneMyDeck">
-          <div class="my-deck-list" id="myDeckList">
             <span class="deck-loading-msg">タブを開くと読み込みます</span>
           </div>
         </div>
@@ -272,6 +264,8 @@
           <span id="pcRecordLabel">録画</span>
         </button>
         <button class="replay-share-btn" id="pcShareSheetOpen">共有</button>
+        <!-- 破壊的操作のため頻用ボタン群から離し、危険色クラスで区別する -->
+        <button class="replay-btn replay-btn-danger" id="replayResetAll" type="button">すべて消去</button>
       </div>
 
       <!-- PC版 共有シート: モバイル版(#solMobileShareSheet)とは別実装・IDも別。
@@ -683,6 +677,6 @@
 <!-- 端末間同期（P2）。main.js（type=module・deferされる）より前に読み込まれる通常scriptなので、
      DOM解析完了後に実行されるmodule側からは常に window.SyncClient が使える（設計文書 §11） -->
 <script src="/static/shared/sync-client.js?v=20260813"></script>
-<script type="module" src="/static/solitaire/js/main.js?v=20260904f"></script>
+<script type="module" src="/static/solitaire/js/main.js?v=20260915"></script>
 </body>
 </html>

@@ -20,15 +20,13 @@ const API_META_DECK = '/api/meta/deck';
 let _deckLoadInFlight = false;
 
 /**
- * 一覧の読込ボタン全て（.deck-card-row・#deckLoadTextBtn）を disabled にし、
+ * 一覧の読込ボタン全て（.deck-card-row）を disabled にし、
  * 押した行（triggerBtn）だけ文言を「読込中…」に切り替える。
  * @param {HTMLElement|null} triggerBtn  実際に押されたボタン（.deck-card-row想定。無ければ文言変更はスキップ）
  * @param {boolean}           loading
  */
 function _setDeckRowsLoading(triggerBtn, loading) {
   document.querySelectorAll('.deck-card-row').forEach(btn => { btn.disabled = loading; });
-  const textBtn = document.getElementById('deckLoadTextBtn');
-  if (textBtn) textBtn.disabled = loading;
 
   const hint = triggerBtn?.querySelector?.('.deck-card-hint');
   if (!hint) return;
@@ -113,18 +111,20 @@ async function clearAllCards() {
 }
 
 /**
- * デッキ・盤面・リプレイ記録をすべて消去する（スマホ⋯メニュー「すべて消去」用）。
+ * デッキ・盤面・リプレイ記録をすべて消去する（スマホ⋯メニュー「すべて消去」／PC版「すべて消去」用）。
  * loadDeckFromText 等のデッキ読込中に呼ばれた場合は、読込処理と競合しないよう何もしない。
+ * @returns {Promise<boolean>} 実際に消去を実行したら true、読込中で無視したら false
  */
 export async function clearEverything() {
   if (_deckLoadInFlight) {
     console.warn('[deck-input-panel] デッキ読込が進行中のため「すべて消去」を無視しました');
-    return;
+    return false;
   }
   await clearAllCards();          // 盤面・手札等のカードをデッキに戻し、プールも空にする
   resetReplay();                  // リプレイ記録（ログ・画像辞書・カード名辞書）を初期化
   sessionStorage.removeItem('sol-session-resume'); // 次回アクセス時の自動復元を止める
   document.dispatchEvent(new CustomEvent('sol-board-cleared'));
+  return true;
 }
 
 /**
@@ -347,10 +347,8 @@ async function addCardsBatch(cards, defaultIsEx) {
 /**
  * L-10: テキストデッキを読み込んでプールに追加（事前にダミーをクリア）
  * 多重防止: 進行中に再度呼ばれた場合は何もしない（バグ修正・PCにも効く）。
- * 呼び出し元は2つ: (a) マイデッキ一覧（renderMyDeckList）の行 → 実際に押された
- * .deck-card-row 要素を triggerBtn として渡す、(b) テキスト入力タブの #deckLoadTextBtn
- * → .deck-card-hint を持たないボタンなので triggerBtn は渡さない（文言変更対象外・
- * disabled 化のみ _setDeckRowsLoading 内で個別に扱う）。
+ * 呼び出し元: マイデッキ一覧（renderMyDeckList）の行 → 実際に押された
+ * .deck-card-row 要素を triggerBtn として渡す。
  * サンプルデッキ一覧（環境デッキ）は本関数ではなく loadMetaDeck を使う。
  * @param {string}            text
  * @param {HTMLElement|null} [triggerBtn]  マイデッキ一覧から呼ぶ場合のみ渡す押された行。
@@ -558,12 +556,6 @@ export function initDeckInputPanel() {
       // マイデッキタブに切り替えた時は一覧を描画
       if (paneId === 'deckPaneMyDeck') renderMyDeckList();
     });
-  });
-
-  // テキスト読み込みボタン
-  document.getElementById('deckLoadTextBtn')?.addEventListener('click', () => {
-    const text = document.getElementById('deckTextarea')?.value || '';
-    loadDeckFromText(text);
   });
 }
 
