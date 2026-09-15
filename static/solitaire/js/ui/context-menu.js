@@ -3,11 +3,16 @@
  * カードの右クリック / 長押しコンテキストメニュー
  *
  * 表示項目（ゾーン別）:
- *   フィールド: 攻撃/守備の切替 / セット・表にする / 一番下に重ねる / デッキに戻す / 削除
+ *   フィールド: 攻撃/守備の切替 / セット・表にする / 一番下に重ねる / 墓地送り / 除外 / 手札に戻す / デッキに戻す / 削除
  *   プール    : 削除（初期カードは不可）
- *   その他    : デッキに戻す / 削除
+ *   その他    : 墓地送り / 除外 / 手札に戻す / デッキに戻す / 削除
  *
- * 依存: card-state.js のみ（drag-drop.js との循環を避けるため _getZoneId を内部実装）
+ * 依存: card-state.js のほか、固定ゾーン移動（墓地送り/除外/手札に戻す）のために
+ * drag-drop.js の getDropZoneInfo/executeDrop/getZoneId を使う（実際の配置・リプレイ記録ロジックの二重持ちを避ける）。
+ * main.js は drag-drop.js を先に import し、drag-drop.js が本ファイルを import するため、
+ * 本ファイル（context-menu.js）の方が drag-drop.js より先にモジュール評価が完了する。
+ * そのため本ファイルのトップレベル（関数の外）で drag-drop.js からの import 値を参照すると
+ * 未初期化になる危険がある。参照は必ず関数内（呼び出し時点）に限ること。
  */
 
 import {
@@ -18,6 +23,7 @@ import {
   isMonsterCard,
 } from '../components/card-state.js';
 import { playSetFlip } from '../components/card-effects.js';
+import { getDropZoneInfo, executeDrop, getZoneId } from '../components/drag-drop.js';
 
 // ── 単一インスタンス ──────────────────────────────────────────────
 let _menuEl          = null;
@@ -233,6 +239,36 @@ function _buildMenuItems(wrapper, img, parent, isInPool, isInitial) {
     });
   }
 
+  // 固定ゾーンへの移動（墓地送り / 除外 / 手札に戻す）
+  // 既に対象ゾーンにいるカードにはその項目を出さない（無意味な1手がリプレイに記録されるのを防ぐ）
+  const graveZoneEl  = _getGraveZoneElement();
+  const banishZoneEl = _getBanishZoneElement();
+  const handZoneEl   = _getHandZoneElement();
+  const fixedZoneItems = [];
+  if (parent !== graveZoneEl) {
+    fixedZoneItems.push({
+      label: '墓地送り',
+      action: () => { _moveToFixedZone(wrapper, graveZoneEl); },
+    });
+  }
+  if (parent !== banishZoneEl) {
+    fixedZoneItems.push({
+      label: '除外',
+      action: () => { _moveToFixedZone(wrapper, banishZoneEl); },
+    });
+  }
+  if (parent !== handZoneEl) {
+    fixedZoneItems.push({
+      label: '手札に戻す',
+      action: () => { _moveToFixedZone(wrapper, handZoneEl); },
+    });
+  }
+
+  if (fixedZoneItems.length > 0) {
+    items.push({ separator: true });
+    items.push(...fixedZoneItems);
+  }
+
   items.push({ separator: true });
 
   // デッキに戻す
@@ -269,6 +305,51 @@ function _returnToDeck(wrapper, img) {
 
   const pool = document.getElementById(isEx ? 'poolRow2' : 'poolRow');
   pool.appendChild(wrapper);
+}
+
+/**
+ * 墓地ゾーンのDOM要素を取得する（mobile-ui.js の getSideSlot(true) と同一セレクタ）。
+ * @returns {Element|null}
+ */
+function _getGraveZoneElement() {
+  return document.querySelector('.sol-grave .side-slot');
+}
+
+/**
+ * 除外ゾーンのDOM要素を取得する（mobile-ui.js の getSideSlot(false) と同一セレクタ）。
+ * 墓地(.sol-grave)を除外することで、想定妨害トレイ等が将来増えても誤って墓地を掴まない。
+ * @returns {Element|null}
+ */
+function _getBanishZoneElement() {
+  return document.querySelector('.side-slots-container .sol-side-area:not(.sol-grave) .side-slot');
+}
+
+/**
+ * 手札ゾーン（center-slot）のDOM要素を取得する。
+ * @returns {Element|null}
+ */
+function _getHandZoneElement() {
+  return document.querySelector('.sol-hand-area .center-slot');
+}
+
+/**
+ * カードを固定ゾーン（墓地/除外/手札）へ移動する。
+ * drag-drop.js の executeDrop をそのまま使い、配置・リプレイ記録ロジックを複製しない
+ * （moveMobileSelectionTo と同じパターン）。
+ * @param {Element} wrapper     - .tier-item-wrapper
+ * @param {Element|null} zoneEl - 移動先のゾーンDOM要素
+ */
+function _moveToFixedZone(wrapper, zoneEl) {
+  if (!zoneEl) {
+    console.warn('[context-menu] 移動先のゾーン要素が見つかりません');
+    return;
+  }
+  const dropZoneInfo = getDropZoneInfo(zoneEl);
+  if (!dropZoneInfo) {
+    console.warn('[context-menu] ゾーン種別を判定できませんでした');
+    return;
+  }
+  executeDrop({ type: 'card', element: wrapper }, dropZoneInfo, zoneEl, {});
 }
 
 /**
@@ -309,36 +390,15 @@ function _logState(wrapper) {
   if (!cardEl) return;
   const state  = getCardState(wrapper);
   const zoneEl = wrapper.parentElement;
+  // drag-drop.js の getZoneId は zoneElement が null だと className アクセスで例外になるため、
+  // 呼び出し側（ここ）でガードする（_getZoneId 複製時にあったnullガードを踏襲）
   window.replayLog({
     actionType:  'moveCard',
     cardId:      cardEl.id,
-    zoneId:      _getZoneId(zoneEl),
+    zoneId:      zoneEl ? getZoneId(zoneEl) : 'unknown',
     zIndex:      wrapper.style.zIndex || '1',
     transform:   wrapper.style.transform || '',
     orientation: state.orientation,
     face:        state.face,
   });
-}
-
-/**
- * ゾーン要素から zoneId 文字列を取得
- * drag-drop.js の getZoneId と同ロジック（循環依存を避けるため複製）
- */
-function _getZoneId(zoneElement) {
-  if (!zoneElement) return 'unknown';
-  const cls = zoneElement.className || '';
-  if (zoneElement.id === 'poolRow')  return 'poolRow';
-  if (zoneElement.id === 'poolRow2') return 'poolRow2';
-  if (cls.includes('center-slot'))   return 'center-slot';
-  if (cls.includes('custom-slot')) {
-    const slot = zoneElement.getAttribute('data-slot');
-    return slot ? `custom-slot-${slot}` : 'custom-slot-?';
-  }
-  if (cls.includes('side-slot')) {
-    if (zoneElement.closest('#free-space')) return 'free-space';
-    const all = Array.from(document.querySelectorAll('.side-slot'));
-    const idx = all.indexOf(zoneElement);
-    return idx >= 0 ? `side-slot-${idx}` : 'side-slot-?';
-  }
-  return 'unknown';
 }
