@@ -76,13 +76,34 @@ function makeFakeDocument() {
 }
 
 // 「端末間同期: ...」ブロックだけを実レンダリング結果から抽出する（他ページ関数非依存の自己完結ブロック）
+// 2026-09-22 バッチC: 同期配線の<script>は static/js/index-sync.js へ外部化されたため、
+// レンダリング結果にマーカーが無ければ外部ファイル側を対象にフォールバックする
+// （外部ファイルには</script>が無いためファイル末尾までを対象にする）。
 function extractSyncShareBlock(html) {
   const startMarker = 'let _syncShareTimerId=null;';
   const startIdx = html.indexOf(startMarker);
-  if (startIdx === -1) throw new Error('開始マーカーが見つかりません: ' + startMarker);
-  const endIdx = html.indexOf('</script>', startIdx);
-  if (endIdx === -1) throw new Error('ブロックの終端(</script>)が見つかりません');
-  return html.slice(startIdx, endIdx);
+  if (startIdx !== -1) {
+    const endIdx = html.indexOf('</script>', startIdx);
+    if (endIdx === -1) throw new Error('ブロックの終端(</script>)が見つかりません');
+    return html.slice(startIdx, endIdx);
+  }
+  // 2026-09-22 reviewer指摘: マーカー不在＝外部化済みと決め打ちで直読みせず、
+  // index.htmlが実際に index-sync.js を参照していることを確認してからにする
+  // （そうでなければテンプレート構造自体が変わった可能性があり、静かに握り潰さずthrowする）。
+  // 渡されるhtmlはFlaskがレンダリング済みのものなので、static_url()呼び出しの
+  // テンプレート記法ではなく展開後の実URL（/static/js/index-sync.js?v=<hash>）を見る
+  const refMatch = html.match(/<script[^>]*\ssrc="[^"]*\/static\/js\/index-sync\.js(\?v=[^"]*)?"[^>]*>/);
+  if (!refMatch) {
+    throw new Error(
+      '開始マーカーが見つからず、index.htmlに static_url(\'js/index-sync.js\') への参照もありません'
+      + '（テンプレート構造が変わった可能性）: ' + startMarker
+    );
+  }
+  const jsPath = path.join(__dirname, '..', '..', 'static', 'js', 'index-sync.js');
+  const source = fs.readFileSync(jsPath, 'utf8');
+  const extIdx = source.indexOf(startMarker);
+  if (extIdx === -1) throw new Error('開始マーカーが見つかりません: ' + startMarker);
+  return source.slice(extIdx);
 }
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }

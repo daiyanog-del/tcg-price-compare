@@ -1,0 +1,201 @@
+/* deferred.css
+ * templates/index.html のインライン <style> から切り出した、初期表示に不要な CSS。
+ * 元は 購入候補(wishlist)・PWAバナー・規約モーダル・新弾フィーチャーマトリクス の
+ * スタイル定義（2026-09-22 バッチCで外部化・中身は移動のみで変更なし）。
+ * fonts と同じ media=print + onload 方式で非ブロッキング読込する。
+ */
+/* ── 購入候補 ── */
+.wish-add{background:none;border:1px solid var(--border);color:var(--text-d);border-radius:13px;cursor:pointer;font-size:.72rem;font-weight:600;line-height:1;display:inline-flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;padding:3px 10px;white-space:nowrap}
+.wish-add:hover{border-color:var(--accent);color:var(--accent)}
+.wish-add.added{border-color:var(--green);color:var(--green);pointer-events:none}
+.wish-empty{text-align:center;padding:40px 20px;color:var(--text-d);font-size:.9rem}
+.wish-actions{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.wish-action-btn{padding:8px 16px;font:.78rem var(--font);font-weight:600;border-radius:6px;cursor:pointer;transition:all .15s;border:1px solid var(--border);background:var(--bg-card);color:var(--text-m)}
+.wish-action-btn:hover{border-color:var(--accent);color:var(--accent)}
+.wish-action-btn.danger{color:var(--red);border-color:transparent}
+.wish-action-btn.danger:hover{border-color:var(--red)}
+.wish-card-row{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;margin-bottom:4px;font-size:.82rem}
+.wish-card-qty{font:700 .82rem var(--mono);color:var(--accent-l);min-width:24px}
+.wish-card-name{flex:1;min-width:0;overflow-wrap:break-word;white-space:normal}
+.wish-card-remove{background:none;border:none;color:var(--text-d);cursor:pointer;font-size:.9rem;padding:4px;line-height:1;transition:color .15s}
+.wish-card-remove:hover{color:var(--red)}
+.wish-card-link{font-size:.7rem;font-weight:600;padding:2px 8px;border:1px solid var(--accent);border-radius:4px;color:var(--accent);text-decoration:none;transition:background .15s,color .15s;white-space:nowrap;flex-shrink:0}
+.wish-card-link:hover{background:var(--accent);color:#fff}
+.wish-rarity-select{font:.7rem var(--font);padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text-m);max-width:140px;flex-shrink:0}
+.wish-rarity-select:hover,.wish-rarity-select:focus{border-color:var(--accent);outline:none}
+.wish-badge{background:var(--accent);color:#fff;font:.6rem var(--mono);font-weight:700;min-width:16px;height:16px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;margin-left:4px;padding:0 4px}
+.wish-badge-drop{background:var(--green)}
+.push-notify-box{margin-top:16px;padding:14px 16px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.push-notify-title{font:.8rem var(--font);font-weight:700;color:var(--text-m);white-space:nowrap}
+.push-notify-desc{font:.75rem var(--font);color:var(--text-d);flex:1;min-width:0}
+.push-notify-btn{padding:7px 16px;font:.78rem var(--font);font-weight:600;border-radius:6px;cursor:pointer;transition:all .15s;border:1px solid var(--accent);background:transparent;color:var(--accent-l);white-space:nowrap}
+.push-notify-btn:hover{background:rgba(74,124,255,.1)}
+.push-notify-btn.active{background:rgba(52,211,153,.12);border-color:var(--green);color:var(--green)}
+.push-notify-btn:disabled{opacity:.5;cursor:not-allowed}
+.wish-card-row.wish-drop{border-color:var(--green);background:rgba(52,211,153,.07)}
+.wish-card-row.wish-pending .wish-price-info{color:var(--text-d)}
+.wish-card-img{width:36px;height:50px;border-radius:3px;overflow:hidden;flex-shrink:0;background:var(--bg)}
+.wish-card-img img{width:100%;height:100%;object-fit:cover}
+.wish-price-info{font:.72rem var(--mono);color:var(--text-d);white-space:nowrap;flex-shrink:0}
+.wish-price-drop{color:var(--green);font-weight:700}
+
+/* ── まとめ買い最安店舗ランキング ── */
+.wish-shop-ranking{margin:16px 0;padding:14px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px}
+.wish-shop-ranking.hidden{display:none}
+.wish-shop-ranking-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.wish-shop-ranking-title{font:.85rem var(--font);font-weight:700;color:var(--text-m)}
+.wish-shop-ranking-close{background:none;border:none;color:var(--text-d);font-size:1.2rem;cursor:pointer;padding:0 6px;line-height:1}
+.wish-shop-ranking-close:hover{color:var(--text-m)}
+.wish-shop-ranking-loading,.wish-shop-ranking-error{padding:12px;text-align:center;font-size:.85rem;color:var(--text-d)}
+.wish-shop-ranking-error{color:var(--red)}
+.wish-shop-ranking-status{font-size:.72rem;color:var(--accent-l);margin-bottom:8px;padding:4px 8px;background:rgba(74,124,255,.08);border-radius:4px}
+.wish-shop-ranking-warn{font-size:.72rem;color:var(--text-d);margin-top:8px;padding:6px 10px;background:rgba(255,200,50,.07);border-left:3px solid #d4a017;border-radius:3px}
+.wish-shop-ranking-foot{font-size:.7rem;color:var(--text-d);margin-top:8px;text-align:right}
+.wish-shop-list{display:flex;flex-direction:column;gap:6px}
+.wish-shop-row{border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--bg)}
+.wish-shop-row-summary{display:grid;grid-template-columns:28px 1fr auto auto auto 18px;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;font-size:.82rem;transition:background .15s}
+.wish-shop-row-summary:hover{background:rgba(74,124,255,.04)}
+.wish-shop-rank{font:700 .85rem var(--mono);color:var(--accent-l);text-align:center}
+.wish-shop-name{font-weight:600;color:var(--text-m)}
+.wish-shop-total{font:700 .9rem var(--mono);color:var(--text-m);white-space:nowrap}
+.wish-shop-cov{font:.72rem var(--mono);color:var(--text-d);white-space:nowrap}
+.wish-shop-badge{font:.66rem var(--font);font-weight:700;padding:2px 7px;border-radius:10px;white-space:nowrap}
+.wish-shop-badge.ok{background:rgba(52,211,153,.15);color:var(--green)}
+.wish-shop-badge.ng{background:rgba(255,200,50,.12);color:#d4a017}
+.wish-shop-toggle{color:var(--text-d);font-size:.7rem}
+.wish-shop-detail{padding:8px 12px 12px;border-top:1px solid var(--border);background:var(--bg-card)}
+.wish-shop-detail-row{display:grid;grid-template-columns:36px 1fr auto;gap:8px;align-items:center;padding:4px 0;font-size:.78rem;border-bottom:1px dashed rgba(255,255,255,.05)}
+.wish-shop-detail-row:last-of-type{border-bottom:none}
+.wish-shop-detail-qty{font:700 .78rem var(--mono);color:var(--accent-l)}
+.wish-shop-detail-name{color:var(--text-m);text-decoration:none}
+.wish-shop-detail-name:hover{color:var(--accent-l);text-decoration:underline}
+.wish-shop-detail-rarity{font:.66rem var(--font);font-weight:600;padding:1px 6px;border:1px solid var(--border);border-radius:8px;color:var(--text-d);white-space:nowrap}
+.wish-shop-detail-price{font:.78rem var(--mono);color:var(--text-m);white-space:nowrap}
+.wish-shop-detail-unit{font-size:.65rem;color:var(--text-d);margin-left:6px}
+.wish-shop-detail-missing{font-size:.7rem;color:var(--text-d);margin-top:6px;padding:6px 8px;background:rgba(255,200,50,.06);border-radius:3px}
+/* 送料・送料込み合計の行はカード明細と違い枚数列を持たない（2列） */
+.wish-shop-detail-ship,.wish-shop-detail-sum{grid-template-columns:1fr auto}
+.wish-shop-detail-ship .wish-shop-detail-name,.wish-shop-detail-sum .wish-shop-detail-name{color:var(--text-d)}
+.wish-shop-detail-ship{border-top:1px solid var(--border);margin-top:4px;padding-top:8px}
+.wish-shop-detail-sum .wish-shop-detail-name,.wish-shop-detail-sum .wish-shop-detail-price{font-weight:700;color:var(--text-m)}
+/* 送料込み合計の下に出す内訳（商品◯円＋送料◯円） */
+.wish-shop-breakdown{display:block;font:.62rem var(--font);font-weight:400;color:var(--text-d);margin-top:2px}
+/* 最低注文金額に届かない店舗は、順位を下げたうえで見た目でも区別する */
+.wish-shop-row.unorderable{opacity:.72}
+.wish-shop-notice{font-size:.68rem;color:var(--text-d);padding:0 12px 8px}
+.wish-shop-notice.ng{color:#d4a017}
+/* 複数店に分けた場合の最安ヒント（1行）。クリックで買い物指示書が開く */
+.wish-shop-split-hint{font-size:.74rem;color:var(--green);margin-top:8px;padding:7px 10px;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.25);border-radius:5px}
+.wish-shop-split-hint.clickable{cursor:pointer;display:flex;align-items:center;gap:8px;transition:background .15s}
+.wish-shop-split-hint.clickable:hover{background:rgba(52,211,153,.14)}
+.wish-shop-split-hint.clickable>span:first-child{flex:1}
+/* 買い物指示書（分割プランの内訳） */
+.wish-split-detail{border:1px solid rgba(52,211,153,.25);border-top:none;border-radius:0 0 5px 5px;margin:0 6px}
+.wish-split-shop{margin-bottom:10px}
+.wish-split-shop-head{display:flex;align-items:center;gap:10px;padding:6px 0 4px;border-bottom:1px solid var(--border);font-size:.78rem}
+.wish-split-shop-name{font-weight:700;color:var(--text-m)}
+.wish-split-shop-count{font:.7rem var(--mono);color:var(--text-d)}
+.wish-split-shop-sub{margin-left:auto;font:.72rem var(--mono);color:var(--text-d);white-space:nowrap}
+.wish-split-shop-link{font-size:.68rem;font-weight:600;padding:2px 8px;border:1px solid var(--accent);border-radius:4px;color:var(--accent-l);text-decoration:none;white-space:nowrap}
+.wish-split-shop-link:hover{background:var(--accent);color:#fff}
+@media(max-width:520px){
+  .wish-split-shop-head{flex-wrap:wrap;row-gap:2px}
+  .wish-split-shop-sub{margin-left:0;width:100%}
+}
+.wish-shop-detail-foot{margin-top:10px;text-align:right}
+.wish-shop-detail-link{font-size:.72rem;font-weight:600;padding:5px 11px;border:1px solid var(--accent);border-radius:4px;color:var(--accent-l);text-decoration:none;transition:background .15s}
+.wish-shop-detail-link:hover{background:var(--accent);color:#fff}
+@media(max-width:520px){
+  .wish-shop-row-summary{grid-template-columns:22px 1fr auto 16px;grid-template-rows:auto auto;row-gap:4px}
+  .wish-shop-cov,.wish-shop-badge{grid-column:2/4}
+  .wish-shop-toggle{grid-row:1/3;grid-column:4}
+}
+
+@media(max-width:767px){
+  .wish-card-row{
+    display:grid;
+    grid-template-columns:36px 1fr auto auto;
+    grid-template-areas:
+      "img  name  name   name"
+      "img  qty   rarity price"
+      "img  link  link   remove";
+    align-items:center;
+    column-gap:8px;
+    row-gap:4px;
+    padding:6px 10px;
+    font-size:.72rem;
+  }
+  .wish-card-img{grid-area:img;align-self:start}
+  .wish-card-name{grid-area:name;white-space:normal;overflow:visible;text-overflow:clip;font-size:.82rem;font-weight:600;line-height:1.25}
+  .wish-card-qty{grid-area:qty;display:flex;align-items:center;gap:3px}
+  .wish-rarity-select{grid-area:rarity;width:74px;max-width:74px;min-height:32px;padding:2px 3px}
+  .wish-price-info{grid-area:price;justify-self:end;text-align:right}
+  .wish-card-link{grid-area:link;justify-self:start;min-height:32px;display:inline-flex;align-items:center;position:relative}
+  .wish-card-row>.wish-card-remove{grid-area:remove;justify-self:end;min-width:32px;min-height:32px;font-size:.95rem;position:relative}
+  .wish-card-qty .wish-card-remove{min-width:28px;min-height:28px;font-size:.8rem;position:relative}
+
+  /* タップ対象を見た目のサイズ・行の高さを変えずに44px相当へ拡張する
+     （擬似要素::afterで当たり判定だけを外側に広げる）。
+     行間・行内のrow-gapが4pxしかないため上下均等ではなく非対称に広げる:
+     隣のボタンが無い方向（カード名・画像・価格表示・前後の行の画像側）へ多めに、
+     隣のボタンがある方向（枚数±どうし・レアリティ/リンクの間・価格/削除の間）は
+     0のままにして当たり判定の重複を作らない。
+     2026-08-19実測（PlaywrightでelementFromPointにより実際にタップ判定した結果）:
+     枚数±=44x45px, 価格推移リンク=44x95px, 削除(×)=44x40pxを確保・重複ゼロ。
+     レアリティのselect要素はブラウザ側で生成コンテンツ(::after)がヒットテストに
+     使われないため、CSSだけでは当たり判定を拡張できない（Chromiumで実機検証済み。
+     min-heightを増やすと行の高さが伸びて圧縮の意味が消えるため見送り）。 */
+  .wish-card-qty .wish-card-remove::after{content:"";position:absolute;top:-17px;bottom:0;left:-9px;right:-9px}
+  .wish-card-link::after{content:"";position:absolute;top:0;bottom:-13px;left:0;right:0}
+  .wish-card-row>.wish-card-remove::after{content:"";position:absolute;top:-13px;bottom:0;left:-9px;right:0}
+}
+
+/* ── PWAインストールバナー ── */
+.pwa-banner{position:fixed;bottom:0;left:0;right:0;background:var(--bg-card);border-top:1px solid var(--border);padding:14px 20px;display:none;align-items:center;justify-content:center;gap:14px;z-index:200;font-size:.85rem;color:var(--text);animation:pwaSlideUp .3s ease}
+@keyframes pwaSlideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.pwa-banner.show{display:flex}
+.pwa-banner-text{color:var(--text-m);font-size:.82rem}
+.pwa-banner-btn{padding:8px 18px;font:.82rem var(--font);font-weight:700;background:var(--accent);color:#fff;border:0;border-radius:var(--radius);cursor:pointer;transition:background .15s;white-space:nowrap}
+.pwa-banner-btn:hover{background:var(--accent-l)}
+.pwa-banner-close{background:none;border:none;color:var(--text-d);font-size:1.1rem;cursor:pointer;padding:4px 8px;line-height:1}
+.pwa-banner-close:hover{color:var(--text-m)}
+.pwa-ios-guide{position:fixed;bottom:0;left:0;right:0;background:var(--bg-card);border-top:1px solid var(--border);padding:20px;display:none;z-index:201;animation:pwaSlideUp .3s ease;max-width:400px;margin:0 auto;border-radius:var(--radius) var(--radius) 0 0}
+.pwa-ios-guide.show{display:block}
+.pwa-ios-guide-title{font-weight:700;font-size:.9rem;margin-bottom:12px}
+.pwa-ios-guide ol{padding-left:1.4em;font-size:.82rem;color:var(--text-m);line-height:1.8}
+.pwa-ios-guide-close{position:absolute;top:12px;right:12px;background:none;border:none;color:var(--text-d);font-size:1.1rem;cursor:pointer}
+@media(max-width:600px){.pwa-banner{flex-wrap:wrap;gap:8px;padding:12px 16px}.pwa-banner-text{width:100%;text-align:center}}
+
+/* ── モーダル（プライバシーポリシー・利用規約） ── */
+.legal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:none;align-items:center;justify-content:center;padding:20px}
+.legal-overlay.active{display:flex}
+.legal-modal{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;max-width:680px;width:100%;max-height:82vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.5)}
+.legal-modal-head{display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid var(--border)}
+.legal-modal-head h2{font-size:1.08rem;font-weight:700;color:var(--text)}
+.legal-modal-close{background:none;border:none;color:var(--text-m);font-size:1.4rem;cursor:pointer;padding:4px 8px;border-radius:4px;transition:color .2s,background .2s}
+.legal-modal-close:hover{color:var(--text);background:var(--bg-hover)}
+.legal-modal-body{padding:24px;overflow-y:auto;line-height:1.75;font-size:.88rem;color:var(--text-m)}
+.legal-modal-body h3{color:var(--text);font-size:.95rem;font-weight:700;margin:20px 0 8px;padding-bottom:4px;border-bottom:1px solid var(--border)}
+.legal-modal-body h3:first-child{margin-top:0}
+.legal-modal-body p{margin:6px 0}
+.legal-modal-body ul{margin:6px 0 6px 20px}
+.legal-modal-body li{margin:3px 0}
+.legal-modal-body a{color:var(--accent-l)}
+
+/* ── 新弾フィーチャー 店舗×レアリティ価格マトリクス（featured-matrix.js） ── */
+.fmx-scroll{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius)}
+.fmx-table{border-collapse:collapse;width:100%;font:.78rem var(--font);white-space:nowrap}
+.fmx-table th,.fmx-table td{padding:6px 6px;border-bottom:1px solid var(--border);text-align:center}
+.fmx-table thead th{background:var(--bg-card);color:var(--text-m);font-weight:700;font-size:.72rem;position:sticky;top:0;z-index:2}
+.fmx-sticky-col{position:sticky;left:0;background:var(--bg-card);text-align:left;z-index:1;min-width:110px;max-width:150px;white-space:normal}
+.fmx-table thead .fmx-sticky-col{z-index:3}
+.fmx-name{color:var(--text);font-weight:600}
+.fmx-name-repeat{color:var(--text-d)}
+.fmx-rarity-badge{display:inline-block;margin-top:2px;padding:1px 6px;font-size:.68rem;color:var(--text-m);background:var(--bg-hover);border-radius:4px}
+.fmx-cell{color:var(--text)}
+.fmx-cell a{color:var(--text);text-decoration:none}
+.fmx-cell a:hover{text-decoration:underline}
+.fmx-cell-empty{color:var(--text-d)}
+.fmx-cell-date{font-size:.65rem;color:var(--text-d);margin-top:2px}
+.fmx-cell-code{font-size:.65rem;color:var(--text-d);margin-top:2px}
+.fmx-cell-action{padding:4px 4px}

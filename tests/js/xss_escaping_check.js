@@ -31,9 +31,42 @@ const html = fs.readFileSync(INDEX_HTML_PATH, 'utf-8');
 // <script>...</script>（属性なし＝src読み込みでもld+jsonでもない、実行されるJS）を
 // 出現順に全て連結する。ブラウザでも同じ順で1つのグローバルスコープに定義されるため、
 // これで本物の実行時の関数定義（esc/escJs/escAttr/safeUrl/各レンダラー）が揃う。
-const blocks = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+// 2026-09-22 バッチC: 本体/購入候補/同期配線の3インラインscriptを
+// static/js/index-{main,wish,sync}.js へ外部化したため、それらへの
+// <script src="{{ static_url('js/index-*.js') }}" defer> 参照も、
+// テンプレート内の出現順を保ったまま実ファイルの中身に置き換えて連結する
+// （それ以外のsrc付きscript・ld+json・importmap等は従来通り対象外のまま）。
+const INDEX_JS_DIR = path.join(__dirname, '..', '..', 'static', 'js');
+const scriptTagRe = /<script(\s[^>]*)?>([\s\S]*?)<\/script>/g;
+const EXTERNAL_JS_NAMES = ['index-main.js', 'index-wish.js', 'index-sync.js'];
+const blocks = [];
+const externalFound = new Set();
+let scriptMatch;
+while ((scriptMatch = scriptTagRe.exec(html)) !== null) {
+  const attrs = scriptMatch[1] || '';
+  const body = scriptMatch[2];
+  if (attrs === '') {
+    blocks.push(body);
+    continue;
+  }
+  // 属性の並び順（src/deferの前後関係）に依存しないよう、src="..."部分文字列だけを見る
+  // （2026-09-22 reviewer指摘: defer前提の行全体マッチだと属性順が変わった際に検出漏れする）
+  const srcMatch = attrs.match(/src="\{\{\s*static_url\('js\/(index-(?:main|wish|sync)\.js)'\)\s*\}\}"/);
+  if (srcMatch) {
+    externalFound.add(srcMatch[1]);
+    blocks.push(fs.readFileSync(path.join(INDEX_JS_DIR, srcMatch[1]), 'utf-8'));
+  }
+}
 if (blocks.length === 0) {
   console.error('FAIL: templates/index.html から <script> ブロックを抽出できませんでした（テンプレート構造が変わった可能性）');
+  process.exit(1);
+}
+// 外部化した3ファイル全てへの参照が見つかることをアサートする（2026-09-22 reviewer指摘）。
+// 1本でも見つからないと、そのファイル内のXSS対策コードが検証対象から静かに漏れてしまうため。
+console.log(`抽出件数: inline=${blocks.length - externalFound.size}, external=${externalFound.size}/${EXTERNAL_JS_NAMES.length} (${[...externalFound].sort().join(', ')})`);
+const missingExternal = EXTERNAL_JS_NAMES.filter((n) => !externalFound.has(n));
+if (missingExternal.length > 0) {
+  console.error('FAIL: templates/index.html から外部化JSへの参照が見つかりませんでした: ' + missingExternal.join(', '));
   process.exit(1);
 }
 let src = blocks.join('\n');
@@ -235,6 +268,11 @@ const STATIC_CHECK_TARGETS = [
   path.join(__dirname, '..', '..', 'static', 'featured-matrix.js'),
   path.join(__dirname, '..', '..', 'static', 'packs.js'),
   path.join(__dirname, '..', '..', 'static', 'mydeck', 'deck-edit.js'),
+  // 2026-09-22 バッチC: index.htmlから外部化した3ファイル（旧インラインscript）も
+  // 同じ静的チェック対象に含める（移動しただけで検査対象から漏れないようにするため）
+  path.join(__dirname, '..', '..', 'static', 'js', 'index-main.js'),
+  path.join(__dirname, '..', '..', 'static', 'js', 'index-wish.js'),
+  path.join(__dirname, '..', '..', 'static', 'js', 'index-sync.js'),
 ];
 
 // 文字列 s の中から escAttr( ... ) のバランスの取れた呼び出し全体を取り除く
