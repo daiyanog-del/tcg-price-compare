@@ -1,11 +1,17 @@
+// レビュー指摘（Medium）: CACHE_NAME を上げると activate 時に旧キャッシュが全削除され、
+// PRECACHE だけでなく /api/card-image のカード画像キャッシュ（fetchハンドラが
+// CACHE_NAME を使って個別にput/matchしている）も一緒に消えてしまう。
+// PRECACHE の中身を変えるだけならバージョンを上げる必要は無いため 'tcgym-v2' に戻す。
 const CACHE_NAME = 'tcgym-v2';
+// '/' と '/static/icon-512.png' は以前ここに含めていたが、下の fetch ハンドラで
+// navigate（ページ遷移）リクエストは早期returnしてSWキャッシュ対象外にしているため
+// '/' のキャッシュは一度も参照されない。icon-512.png もPWAインストール時の
+// マニフェスト参照でしか使わず初期表示の高速化に寄与しないため外す。
 const PRECACHE = [
-  '/',
   '/static/favicon.svg',
   '/static/favicon-32.png',
   '/static/apple-touch-icon.png',
   '/static/icon-192.png',
-  '/static/icon-512.png',
 ];
 
 // インストール時に基本ファイルをキャッシュ

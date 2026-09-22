@@ -48,6 +48,10 @@ const JINJA_REPLACEMENTS = [
   // クォートで囲まれた {{ ga_measurement_id }} はそのままでも有効なJS文字列だが、
   // 残存チェックの誤検知を避けるため無害な固定文字列に置き換える
   [/'\{\{ ga_measurement_id \}\}'/, "'GA_MEASUREMENT_ID_PLACEHOLDER'"],
+  // 2026-09-22追加: static_url()（内容ハッシュ付き?v=を生成するJinjaグローバル）による
+  // qrcode.js動的読み込み先の埋め込み。クォートで囲まれているためJS構文としては有効だが、
+  // 上の裸{{...}}残存チェックに引っかかるため無害な固定パスに置き換える
+  [/const _QRCODE_SRC = "\{\{ static_url\('shared\/qrcode\.js'\) \}\}";/, 'const _QRCODE_SRC = "/static/shared/qrcode.js";'],
 ];
 for (const [pattern, replacement] of JINJA_REPLACEMENTS) {
   src = src.replace(pattern, replacement);
