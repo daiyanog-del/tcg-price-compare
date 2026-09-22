@@ -1,6 +1,13 @@
 # activeContext — 今どこ・次何
 
-> 更新: 2026-09-22（トップページ高速化バッチA デプロイ済み）
+> 更新: 2026-09-22（高速化バッチB デプロイ済み）
+
+## 2026-09-22（続）: トップページ高速化バッチB（PR #2・c02aeef・本番 live）
+
+- 実装: ①ランキングAPI 3本を `<link rel="preload" as="fetch" crossorigin>`（トップ限定・`/card/` では出さない）②`_cache_warmer` 常駐スレッド（起動時プリロード4種＋TTL-300秒で裏更新・ハートビート付きロック再取得・既存キャッシュがある時だけ更新・失敗600秒バックオフ・`DISABLE_STARTUP_JOBS=1` で全起動ジョブ抑止、tests/conftest.py で設定）③import map で module の相対 import 5件をハッシュ付きURLへ ④`.movers-thumb` 枠を常時確保（欠落 0/39 を本番実測）＋`/api/card-images` を100ms束ね窓で通常1回 ⑤solitaire.html の `?v=` 10本を `static_url()` へ
+- reviewer 指摘10件反映（High: warmer が失敗時に65秒スクレイプを60秒ごと永久リトライ／5分以内の再起動で warmer が二度と起動しない）。Render ログ2週間で WORKER TIMEOUT は0回（再起動は全てデプロイ）
+- 本番実測（デプロイ直後）: warmer がブート後20秒で4種プリロード完了（top-decks 7秒）→ 直後の `/api/top-decks` 0.18秒（バッチA時点は6.6秒）。ブラウザ: ランキング fetch の開始が DCL 1368ms → **415ms**（preload・initiator=link・fetch が再利用し二重取得なし・console 警告0）。module 7本すべてハッシュ付きURL。サムネ枠 38×53 固定。`/api/card-images` は1回になったが所要2.3秒（デプロイ直後の画像解決が冷えている。次の観察対象）
+- 残: TASKS.md「高速化バッチC 候補」。`_cache_warmer` の定数4つは `TODO: calibrate from data`
 
 ## 2026-09-22: トップページ高速化バッチA（PR #1・f010d7e・本番 live）
 

@@ -1171,3 +1171,14 @@ rarity_pref 基準に統一。`items_map` のキーも rarity_pref で作る。
 4. sw.js の `CACHE_NAME` は **PRECACHE の変更だけでは上げない**（activate の全削除でカード画像キャッシュも消えるため）
 5. `deck-edit.js` の `_init` は `readyState==='complete'` のときだけ即時、それ以外は DOMContentLoaded 待ち（defer 化で従来のインライン初期化との順序が逆転するのを防ぐ）
 **据え置き**: サーバーのリージョン移設（Render は既存サービスのリージョン変更非対応＝作り直し。URL が変わると localStorage のマイデッキ等が別オリジン扱いで見えなくなるため、独自ドメイン定着後に実施する）／DB インデックス（EXPLAIN 計測後）／未参照画像3枚（logo_text.png 484KB・tcgym-icon.png 608KB・ogp.jpg 220KB）の削除は inventory-audit の承認フローで
+
+
+## 2026-09-22（続）高速化バッチB（cache warmer と preload）
+
+**決定**:
+1. TTL 失効当番を消すために常駐スレッド `_cache_warmer` を置く。**既存キャッシュがある時だけ**温め直す（コールド充填は初回プリロードとユーザー契機の SWR に任せる）。理由: 失敗時は cache_time が更新されず「経過時間だけ」の判定は常に真になり、top-decks（最大65秒の外部取得）を60秒ごとに永久リトライしてしまう（reviewer 指摘 High）。失敗は600秒バックオフ
+2. 二重起動防止は `_claim_startup_job` の一度きり判定ではなく、**ループ内で再 claim＋保持中は毎周 lock を touch（ハートビート）**。理由: 一度きり判定だとロックTTL（300秒）以内のワーカー再起動で warmer が二度と起動しない。本番は1ワーカーで Render ログ2週間に WORKER TIMEOUT は0回だが、機能が無言で死ぬ設計は避ける
+3. 起動時ジョブは `DISABLE_STARTUP_JOBS=1` で全て抑止し、pytest では `tests/conftest.py` で設定する（warmer が60秒ごとにテスト中のキャッシュを上書きし実ネットワークへ出るのを防ぐ）
+4. ランキング fetch を defer JS の到着から切り離す手段は `<link rel="preload" as="fetch" crossorigin="anonymous">`（JS の実行順・TDZ を触らない）。`/card/` ページでは出さない（ランキングは検索完了で即隠れる）。preload は応答に `Cache-Control` が無い（error/空）ときブラウザが再利用せず二重取得になるが、その局面はサーバー不調時のみで許容
+5. `.movers-thumb` の空枠は残す（ランキング7種39枚で画像欠落0件を本番実測。CLS 解消を優先）。manifest.json は `?v=` 無しのまま据え置き（PWA のマニフェストURL変更は再インストール扱いになる懸念があるため）
+**教訓**: 常駐スレッドを足すときは「失敗し続けたときに何が起きるか」と「起動できなかったときに気づけるか」を先に設計する

@@ -5,7 +5,8 @@
 
 ## 進行中
 
-- [ ] **★トップページ高速化バッチB（2026-09-22 バッチA デプロイ後の残課題・decisions.md 2026-09-22）** — ①ランキング fetch（`loadTopMovers` 等）を defer JS の到着に依存させない（DOMContentLoaded 待ちをやめ、TDZ を避ける形で先に起動。初回訪問で約0.7秒短縮見込み・要実測） ②起動時プリロードに top-decks/top-movers/top-priced を追加し TTL 前に裏で再取得（デプロイ直後の初回 6.6秒を消す） ③`neuron-*.js`・`solitaire/js/ui/card-info-panel.js` の module import 8本が `?v=` 無しで毎回304（import map か中身のバージョン付与を検討） ④`/api/card-images` POST 3回→1回＋`.movers-thumb:empty{display:none}` による CLS 解消 ⑤`deck.css`（26KB）をマイデッキ表示時に遅延読込・インラインCSS 50KB の分割 ⑥インラインJS（コメント行27%）のミニファイ＝ビルド工程新設 ⑦`get_buyback_movers` RPC のインデックス（EXPLAIN で計測してから） ⑧solitaire.html/admin.html の `?v=` を `static_url()` へ移行
+- [x] **トップページ高速化バッチB（2026-09-22 PR #2 本番済み）** — preload／cache warmer／import map／サムネ束ね＋CLS／solitaire static_url。実測は activeContext 参照
+- [ ] **高速化バッチC 候補（2026-09-22 起票・未着手）** — ①`/api/card-images` がデプロイ直後 2.3秒（画像解決の冷え。warmer で名前を先読みするか、解決結果をDB/ディスクに永続化）②`deck.css`（26KB）をマイデッキ表示時に遅延読込・インラインCSS 50KB の分割 ③インラインJS（コメント行27%）のミニファイ＝ビルド工程新設（ツール導入判断が要る）④`get_buyback_movers` RPC のインデックス（EXPLAIN 計測後）⑤一人回しページ内部の module 群のバージョン付与（import map 拡張）⑥`_cache_warmer` 定数4つの校正（`TODO: calibrate from data`: 初回待ち10秒＝Supabase/estimate_cache が使えるまでの実時間をログから実測）⑦独自ドメイン取得後に CDN（Cloudflare）でAPI JSON のエッジキャッシュ
 - [ ] **独自ドメイン→サーバーリージョン移設（サービス名確定後・後回し裁定 2026-09-22）** — 順序: ドメイン取得→定着→シンガポールに新サービス作成→ドメイン向き先切替。移設前に新サービスから店舗検索を試す（データセンターIP帯のブロック有無は未検証）。cron 4本は同時作り直しか判断
 
 - [ ] **一人回し PC版右クリックメニュー「場に出す」: 配置待ち中にフィールド上の別カードをドラッグ開始すると、キャンセルより先に確定してしまう（2026-09-15 reviewer指摘・スコープ外として据え置き）** — `context-menu.js` の配置待ちキャンセルは `document` の `mousedown`（スロット外クリック）と `drag-drop.js` の `dragstart`（別カードのドラッグ開始）の両方で発火する設計だが、対象がフィールド上（`.custom-slot` の子）のカードの場合、`mousedown` の時点で `e.target.closest('.custom-slot')` がヒットして先に配置が確定してしまい、`dragstart` 側のキャンセルには届かない。ヘッダコメント「別カードのドラッグ開始でキャンセルされる」は、スロット外（プール等）のカードにしか正しく当てはまらない。修正方針＝カード要素上の mousedown は確定対象から除外する、またはコメントを実態に合わせて修正する
