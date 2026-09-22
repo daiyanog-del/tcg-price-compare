@@ -2,6 +2,14 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
+{% if page_mode == 'search' and not card_name %}
+<!-- トップページ3本のランキングfetchはDOMContentLoaded後に起動するためdefer JSの到着を待つ。
+     ブラウザにHTML解析と同時に先読みさせる（URLは各fetchの初期値と一致させる）。
+     card_name有り（/card/<name>検索結果ページ）では検索完了でランキングが即隠れるため出さない。 -->
+<link rel="preload" href="/api/top-movers?direction=down&amp;limit=10" as="fetch" crossorigin="anonymous">
+<link rel="preload" href="/api/top-movers?group=of&amp;direction=down&amp;limit=10" as="fetch" crossorigin="anonymous">
+<link rel="preload" href="/api/buyback-movers?direction=up&amp;limit=10" as="fetch" crossorigin="anonymous">
+{% endif %}
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="google-site-verification" content="7SBMfipn1AANFZK-55AZRO3tvCcB5j9iZ9h3sm7r5r0">
 <script>
@@ -348,8 +356,8 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .movers-item:nth-child(1) .movers-rank{color:var(--gold)}
 .movers-item:nth-child(2) .movers-rank{color:#c0c0c0}
 .movers-item:nth-child(3) .movers-rank{color:#cd7f32}
+/* 欠落0件を2026-09-22 本番で実測したため空枠のまま（ランキング7種39枚中、画像欠落0件） */
 .movers-thumb{width:38px;height:53px;border-radius:3px;overflow:hidden;flex-shrink:0;background:var(--bg)}
-.movers-thumb:empty{display:none}
 .movers-thumb img{width:100%;height:100%;object-fit:cover}
 .movers-name{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:2px}
 /* カード名は2行まで折り返す（3列化で名前に使える幅が約156pxになり、本番実測で18件中3件・最長286pxが1行に収まらないため。
@@ -862,6 +870,20 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 </script>
 <link rel="stylesheet" href="{{ static_url('css/self-watermark.css') }}">
 <link rel="stylesheet" href="{{ static_url('mydeck/deck.css') }}">
+<!-- import map: モジュールから相対importされるファイルを内容ハッシュ付きURLへ写像する
+     （静的な相対specifierはstatic_url()を通せないため、ここでブラウザ解決を上書きする）。
+     必ず最初のmodule scriptより前に置く -->
+<script type="importmap">
+{
+  "imports": {
+    "/static/shared/neuron-pdf-parser.js": {{ static_url('shared/neuron-pdf-parser.js') | tojson }},
+    "/static/shared/neuron-preview-modal.js": {{ static_url('shared/neuron-preview-modal.js') | tojson }},
+    "/static/shared/neuron-import-shared.js": {{ static_url('shared/neuron-import-shared.js') | tojson }},
+    "/static/shared/neuron-url-parser.js": {{ static_url('shared/neuron-url-parser.js') | tojson }},
+    "/static/solitaire/js/ui/card-info-panel.js": {{ static_url('solitaire/js/ui/card-info-panel.js') | tojson }}
+  }
+}
+</script>
 </head>
 <body{% if self_watermark %} data-self-wm style="--self-watermark-opacity: {{ self_watermark_opacity }}"{% endif %}>
 <div class="wrap">
@@ -3013,11 +3035,32 @@ function loadBuybackMovers(dir,retry){
     .catch(()=>{if(retry<2)setTimeout(()=>loadBuybackMovers(dir,retry+1),2000);});
 }
 
-// ── ランキング用カード画像の一括取得（旧: 1件ずつ200ms間隔→新: バッチで1回）
+// ── ランキング用カード画像の一括取得（旧: 1件ずつ200ms間隔→バッチで1回→
+//    さらに: 同一タイミングで起動する複数セクション分の呼び出しを100msデバウンスで
+//    束ね、/api/card-images へのPOSTを通常1〜2回にまとめる（応答が100ms超ばらつくと
+//    2回に分かれることがある）。初期ロード時に3セクションが連続して呼び出しても、
+//    名前のunionで1回のPOSTになる）
+let _rankingImageQueue=[];
+let _rankingImageTimer=null;
 function loadRankingImages(itemSelector, thumbClass){
-  const els=[...document.querySelectorAll(itemSelector+'[data-card]')];
-  if(!els.length) return;
-  const names=[...new Set(els.map(el=>el.dataset.card).filter(Boolean))];
+  const key=itemSelector+'|'+thumbClass;
+  if(_rankingImageQueue.some(q=>q.key===key)) return;  // 同一セレクタの重複キューイングを防ぐ
+  _rankingImageQueue.push({itemSelector,thumbClass,key});
+  if(_rankingImageTimer) return;
+  _rankingImageTimer=setTimeout(_flushRankingImageQueue,100);
+}
+function _flushRankingImageQueue(){
+  const queue=_rankingImageQueue;
+  _rankingImageQueue=[];
+  _rankingImageTimer=null;
+  // DOM要素はflush時点（POST応答を待たず）に集めておく。応答が届く頃には
+  // タブ切替等でリストが再描画されている可能性があるため
+  const entries=queue.map(({itemSelector,thumbClass})=>({
+    els:[...document.querySelectorAll(itemSelector+'[data-card]')],
+    thumbClass
+  })).filter(e=>e.els.length);
+  if(!entries.length) return;
+  const names=[...new Set(entries.flatMap(e=>e.els.map(el=>el.dataset.card).filter(Boolean)))];
   fetch('/api/card-images',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
@@ -3026,11 +3069,13 @@ function loadRankingImages(itemSelector, thumbClass){
   .then(r=>r.json())
   .then(({images})=>{
     if(!images) return;
-    els.forEach(el=>{
-      const url=_batchImgUrl(images[el.dataset.card]);
-      if(!url||!safeUrl(url)) return;
-      const thumb=el.querySelector('.'+thumbClass);
-      if(thumb) thumb.innerHTML='<img src="'+escAttr(safeUrl(url))+'" alt="" loading="lazy">';
+    entries.forEach(({els,thumbClass})=>{
+      els.forEach(el=>{
+        const url=_batchImgUrl(images[el.dataset.card]);
+        if(!url||!safeUrl(url)) return;
+        const thumb=el.querySelector('.'+thumbClass);
+        if(thumb) thumb.innerHTML='<img src="'+escAttr(safeUrl(url))+'" alt="" loading="lazy">';
+      });
     });
   })
   .catch(()=>{});
@@ -5526,7 +5571,7 @@ function unlinkThisDeviceSync(){
 </script>
 <script src="{{ static_url('mydeck/deck-edit.js') }}" defer></script>
 <script type="module" src="{{ static_url('mydeck/deck-card-info.js') }}"></script>
-<script type="module" src="/static/shared/neuron-pdf-entry.js"></script>
-<script type="module" src="/static/shared/neuron-url-entry.js"></script>
+<script type="module" src="{{ static_url('shared/neuron-pdf-entry.js') }}"></script>
+<script type="module" src="{{ static_url('shared/neuron-url-entry.js') }}"></script>
 </body>
 </html>

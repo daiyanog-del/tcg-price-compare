@@ -4765,6 +4765,13 @@ def api_deck_image():
 
 
 # ── 起動時プリロード ──
+# DISABLE_STARTUP_JOBS=1（pytest実行時。tests/conftest.py が設定）のときは
+# 起動時バックグラウンドスレッドを一切起動しない。pytestはapp.pyを何度もimportするため、
+# 起動のたびにSupabase未接続のプリロード失敗ログが出たり、daemonスレッドがテスト後も
+# 残り続けたりするのを防ぐ（レビュー指摘Medium・2026-09-22）。
+_STARTUP_JOBS_DISABLED = os.environ.get("DISABLE_STARTUP_JOBS") == "1"
+
+
 def _preload_movers():
     """サーバー起動直後にバックグラウンドでmoversキャッシュを作成"""
     time.sleep(5)  # Supabase接続が確立するのを待つ
@@ -4774,7 +4781,7 @@ def _preload_movers():
     except Exception as e:
         logger.warning(f"プリロード失敗: {e}")
 
-if _claim_startup_job("movers_preload"):
+if not _STARTUP_JOBS_DISABLED and _claim_startup_job("movers_preload"):
     threading.Thread(target=_preload_movers, daemon=True).start()
 
 def _preload_buyback_movers():
@@ -4786,10 +4793,141 @@ def _preload_buyback_movers():
     except Exception as e:
         logger.warning(f"買取プリロード失敗: {e}")
 
-if _claim_startup_job("buyback_movers_preload"):
+if not _STARTUP_JOBS_DISABLED and _claim_startup_job("buyback_movers_preload"):
     threading.Thread(target=_preload_buyback_movers, daemon=True).start()
 
-if _claim_startup_job("featured_prefetch"):
+# キャッシュのTTLが切れる少し手前で裏更新をかけ、ユーザーのリクエストが
+# TTL失効直後の重い再計算（RPC/スクレイプ）に当たらないようにする常駐スレッド。
+# 既存のSWR（stale-while-revalidate）経路はリクエストが来て初めて動くため、
+# アクセスが疎な時間帯（深夜等）はTTL失効直後の1発目が重いままだった。
+_CACHE_WARMER_INTERVAL_SEC = 60  # ループ間隔　# TODO: calibrate from data
+_CACHE_WARMER_MARGIN_SEC = 300  # TTLのこの秒数手前で裏更新をかける　# TODO: calibrate from data
+# レビュー指摘（High・2026-09-22）: 裏更新が失敗してもcache_timeは進まないため、
+# バックオフ無しだと（特にtop-decksの最大65秒の外部取得を）60秒ごとに永久リトライしてしまう。
+_CACHE_WARMER_FAIL_BACKOFF_SEC = 600  # 直近の失敗からこの秒数は同じキャッシュの裏更新を試みない　# TODO: calibrate from data
+
+_cache_warmer_lock_path = os.path.join(os.path.dirname(__file__), ".cache", "startup_cache_warmer.lock")
+
+
+def _touch_cache_warmer_lock():
+    """cache_warmerのロックファイルのmtimeを更新する（ハートビート）。
+    _claim_startup_job のTTL(300秒)以内に必ず1回touchすることで、このプロセスが
+    生きている間は他プロセスにロックを横取りされないようにする。"""
+    try:
+        os.utime(_cache_warmer_lock_path, None)
+    except OSError:
+        pass
+
+
+def _cache_warmer():
+    """主要キャッシュを起動時に温め、以後はTTL失効前に裏更新し続ける常駐スレッド。
+
+    レビュー指摘（High・2026-09-22）:
+    - _claim_startup_job は起動時の一度きりの判定だったため、ワーカーが
+      ロックTTL(300秒)以内に再起動すると warmer が二度と起動しなかった。
+      ここではスレッド自体は常に起動し、ループ内で毎回ロック取得を試み、
+      保持中は毎周ロックファイルをtouchするハートビート方式にする
+      （プロセスが死ねば300秒でロックが失効し、次のプロセスが引き継げる）。
+    - 裏更新はTTL失効直前のホットキャッシュを保つのが目的で、コールド充填
+      （まだ一度も成功していない状態）は初回プリロードとユーザーリクエスト契機の
+      SWR経路に任せる。失敗時はcache_timeが更新されないため、「既存キャッシュの
+      有無」を見ずに経過時間だけで判定すると、キャッシュが空のままTTL超過判定が
+      常に真になり続け、重い取得（特にtop-decksは最大65秒）を永久リトライしてしまう。
+    """
+    have_lock = False
+    claim_failed_logged = False
+    while True:
+        if not have_lock:
+            have_lock = _claim_startup_job("cache_warmer")
+            if not have_lock:
+                if not claim_failed_logged:
+                    logger.info("cache_warmer: 他プロセスが実行中のためロック取得を待機します")
+                    claim_failed_logged = True
+                time.sleep(_CACHE_WARMER_INTERVAL_SEC)
+                continue
+            claim_failed_logged = False
+            logger.info("cache_warmer: ロックを取得しました")
+            time.sleep(10)  # Supabase接続確立・他の起動時プリロードと重ならないよう少し待つ  # TODO: calibrate from data
+
+            # 初回プリロード（top-decksは外部スクレイプで重いため最後）
+            try:
+                _get_top_movers_cached(None)
+                logger.info("価格推移ランキング(全体)をプリロードしました")
+            except Exception as e:
+                logger.warning(f"価格推移ランキング(全体)プリロード失敗: {e}")
+            try:
+                _get_top_movers_cached("of")
+                logger.info("価格推移ランキング(OF)をプリロードしました")
+            except Exception as e:
+                logger.warning(f"価格推移ランキング(OF)プリロード失敗: {e}")
+            try:
+                _get_top_priced_cached("gmr")
+                logger.info("最安値ランキング(GMR)をプリロードしました")
+            except Exception as e:
+                logger.warning(f"最安値ランキング(GMR)プリロード失敗: {e}")
+            try:
+                _get_top_decks_cached()
+                logger.info("環境デッキランキングをプリロードしました")
+            except Exception as e:
+                logger.warning(f"環境デッキランキングプリロード失敗: {e}")
+            continue
+
+        # ロック保持中: 毎周touchして他プロセスに取られないようにする
+        _touch_cache_warmer_lock()
+        time.sleep(_CACHE_WARMER_INTERVAL_SEC)
+
+        # TTL失効前の裏更新。「既存キャッシュがある時だけ」かつ「直近の失敗から
+        # _CACHE_WARMER_FAIL_BACKOFF_SEC秒経過している時だけ」裏更新する
+        # （コールド充填はしない・失敗の永久リトライを防ぐ）。
+        # 直列実行で最大65秒(top-decks)ずれるため、各ブロックの先頭でnowを取り直す。
+        now = time.time()
+        if _top_movers_cache and now - _top_movers_cache_time > _top_page.TOP_MOVERS_CACHE_SEC - _CACHE_WARMER_MARGIN_SEC:
+            if now - _top_movers_refresh_failed_at.get("__all__", 0) >= _CACHE_WARMER_FAIL_BACKOFF_SEC:
+                _run_swr_refresh(
+                    _get_top_movers_cached,
+                    on_failed=lambda: _mark_top_movers_refresh_failed(None),
+                    fn_kwargs={"group": None, "force": True},
+                )
+
+        now = time.time()
+        if _top_movers_group_cache.get("of") and now - _top_movers_group_cache_time.get("of", 0) > _top_page.TOP_MOVERS_CACHE_SEC - _CACHE_WARMER_MARGIN_SEC:
+            if now - _top_movers_refresh_failed_at.get("of", 0) >= _CACHE_WARMER_FAIL_BACKOFF_SEC:
+                _run_swr_refresh(
+                    _get_top_movers_cached,
+                    on_failed=lambda: _mark_top_movers_refresh_failed("of"),
+                    fn_kwargs={"group": "of", "force": True},
+                )
+
+        now = time.time()
+        if _top_priced_cache.get("gmr") and now - _top_priced_cache_time.get("gmr", 0) > _top_page.TOP_PRICED_CACHE_SEC - _CACHE_WARMER_MARGIN_SEC:
+            if now - _top_priced_refresh_failed_at.get("gmr", 0) >= _CACHE_WARMER_FAIL_BACKOFF_SEC:
+                _run_swr_refresh(
+                    _get_top_priced_cached,
+                    on_failed=lambda: _mark_top_priced_refresh_failed("gmr"),
+                    fn_kwargs={"group": "gmr", "force": True},
+                )
+
+        now = time.time()
+        if _top_decks_cache and now - _top_decks_cache_time > _top_page.TOP_DECKS_CACHE_SEC - _CACHE_WARMER_MARGIN_SEC:
+            if now - _top_decks_refresh_failed_at >= _CACHE_WARMER_FAIL_BACKOFF_SEC:
+                _run_swr_refresh(
+                    _get_top_decks_cached,
+                    on_failed=_mark_top_decks_refresh_failed,
+                    fn_kwargs={"force": True},
+                )
+
+        now = time.time()
+        if _buyback_movers_cache and now - _buyback_movers_cache_time > _BUYBACK_MOVERS_CACHE_SEC - _CACHE_WARMER_MARGIN_SEC:
+            try:
+                _refresh_buyback_movers_cache()
+            except Exception as e:
+                logger.warning(f"買取値動きランキング裏更新失敗: {e}")
+
+
+if not _STARTUP_JOBS_DISABLED:
+    threading.Thread(target=_cache_warmer, daemon=True).start()
+
+if not _STARTUP_JOBS_DISABLED and _claim_startup_job("featured_prefetch"):
     threading.Thread(target=_load_featured_cache, daemon=True).start()
 
 if __name__ == "__main__":

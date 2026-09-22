@@ -12,27 +12,27 @@
 <meta name="description" content="遊戯王OCGの一人回し（ソリティア）シミュレータ。ニューロン画像・テキスト・環境デッキからデッキを読み込み、ドラッグ&ドロップで展開を再現。リプレイ保存・URL共有対応。">
 <meta property="og:title" content="一人回しシミュレータ | TCGYM">
 <meta property="og:description" content="遊戯王の展開をシミュレート。リプレイ保存・共有対応。">
-<meta property="og:image" content="{{ public_base_url }}/static/og-image.png?v=3">
+<meta property="og:image" content="{{ public_base_url }}{{ static_url('og-image.png') }}">
 <meta property="og:type" content="website">
 <meta property="og:url" content="{{ public_base_url }}/solitaire">
 <meta property="og:locale" content="ja_JP">
 <meta property="og:site_name" content="TCGYM">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="一人回しシミュレータ | TCGYM">
-<meta name="twitter:image" content="{{ public_base_url }}/static/og-image.png?v=3">
+<meta name="twitter:image" content="{{ public_base_url }}{{ static_url('og-image.png') }}">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="{{ public_base_url }}/solitaire">
-<link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=3">
-<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png?v=3">
-<link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=3">
-<link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=3">
+<link rel="icon" type="image/svg+xml" href="{{ static_url('favicon.svg') }}">
+<link rel="icon" type="image/png" sizes="32x32" href="{{ static_url('favicon-32.png') }}">
+<link rel="icon" type="image/png" sizes="16x16" href="{{ static_url('favicon-16.png') }}">
+<link rel="apple-touch-icon" sizes="180x180" href="{{ static_url('apple-touch-icon.png') }}">
 <link rel="manifest" href="/static/manifest.json">
 <meta name="theme-color" content="#0a1024">
 
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Bungee&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/solitaire/css/main.css?v=20260915">
-<link rel="stylesheet" href="/static/css/self-watermark.css?v=20260611">
+<link rel="stylesheet" href="{{ static_url('solitaire/css/main.css') }}">
+<link rel="stylesheet" href="{{ static_url('css/self-watermark.css') }}">
 </head>
 
 <body{% if self_watermark %} data-self-wm style="--self-watermark-opacity: {{ self_watermark_opacity }}"{% endif %}>
@@ -676,7 +676,7 @@
 
 <!-- 端末間同期（P2）。main.js（type=module・deferされる）より前に読み込まれる通常scriptなので、
      DOM解析完了後に実行されるmodule側からは常に window.SyncClient が使える（設計文書 §11） -->
-<script src="/static/shared/sync-client.js?v=20260813"></script>
-<script type="module" src="/static/solitaire/js/main.js?v=20260915"></script>
+<script src="{{ static_url('shared/sync-client.js') }}"></script>
+<script type="module" src="{{ static_url('solitaire/js/main.js') }}"></script>
 </body>
 </html>
