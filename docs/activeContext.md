@@ -1,6 +1,17 @@
 # activeContext — 今どこ・次何
 
-> 更新: 2026-09-06（「パラレル」→「ノーマルパラレル」統合）
+> 更新: 2026-09-22（トップページ高速化バッチA デプロイ済み）
+
+## 2026-09-22: トップページ高速化バッチA（PR #1・f010d7e・本番 live）
+
+- 発端: ユーザー「TCGYMの動作をとにかく軽くしたい」。実測（本番）で判明した4層: ①Render(オレゴン)⇔Supabase(東京)⇔日本ユーザーの距離（DB1往復≈0.1秒） ②CDNは全応答 DYNAMIC・静的JS/CSSは Flask 既定 no-cache で毎回再検証・アイコンは no-store ③トップで使わないJS約200KBがパーサをブロック ④ランキングAPIの期限切れ当番（top-decks 冷え時8.7秒／top-movers 3.3秒／buyback-movers 毎回1.2秒=0件が一切キャッシュされない不具合）
+- 裁定: ドメイン取得・リージョン移設は後回し（サービス名未確定）。バッチAのみ実施
+- 実装（implementer→reviewer→差し戻し9件反映）: `static_url()`（内容ハッシュ付き `?v=`・一致時のみ1年 immutable・手書き `?v=` は max-age=3600）／読み取り専用GET API 6本に max-age=300（error付き・空は `g.no_cache`）／ランキング4種を stale-while-revalidate（60秒バックオフ・例外ログ）／buyback 0件を5分キャッシュ＋in-flightロック＋コールドはブロッキング／外部JS 6本 defer・qrcode.js 動的読込・deck-edit.js `_init` は DOMContentLoaded 後に固定／sw.js PRECACHE 削減（CACHE_NAME 据え置き）／Noto Sans JP 400;700;800・Bungee text=TCGYM
+- 本番再計測（PC・司令塔のブラウザ）: 初回 domInteractive 1085→667ms・load 1630→1424ms／2回目 DCL 795→665ms・load 796→665ms・?v=付き資産は全てキャッシュヒット／API温: top-decks 0.15秒・buyback 0.16秒（旧1.2秒）。デプロイ直後の初回 top-decks は6.6秒（キャッシュ未確立＝SWRの対象外。起動時プリロードは次バッチ）
+- 気づき: `defer` は DOMContentLoaded を遅らせるため、DCL 内で起動するランキング fetch は defer JS の到着（初回≈0.8秒）を待つ。次バッチ候補=ランキング fetch を defer 完了に依存させない／neuron-*.js（module import・`?v=` 無し）8本の再検証を無くす／起動時プリロード
+- 記録の訂正: decisions.md 2026-06 の「Render無料プラン」は現在 **Starter（有料・スリープ無し・オレゴン）**。Supabase は ap-northeast-1（東京）
+- 残: TASKS.md「高速化バッチB」参照。CI の pytest は司令塔がローカル 841 passed を根拠にチェック完了前にマージした（結果は後追いで確認すること）
+
 
 ## 2026-09-06: canonical「パラレル」を「ノーマルパラレル」へ統合（完了）
 

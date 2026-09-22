@@ -1159,3 +1159,15 @@ rarity_pref 基準に統一。`items_map` のキーも rarity_pref で作る。
 **事実**: ナビ（サイト内の別ページへ遷移するリンク）にアイコンを付けた際、hover/active の背景色をデッキ選択タブ（一人回し内でのローカル切替）とほぼ同じ配色（`rgba(74,124,255,0.08/0.14)` 系）にしてしまい、前回コミット（7bf51be）で解決したはずの「マイデッキ」表記混同がむしろ悪化した。同コミットで付けていた外部遷移矢印↗も誤って削除していた。
 **決定**: ナビとタブを**塗り方**で区別する。ナビ (`.sol-sidebar-links a`) は hover/active で**背景を塗らず**左アクセントバー（`border-left`）のみで反応を示す。タブ (`.deck-input-tab`) は従来どおり**背景を塗りつぶす**方式を維持。矢印↗はナビの非アクティブ項目のみに復活させ、タブには付けない（アイコン＝機能の種類、矢印＝画面遷移の有無、という役割分担）。あわせて各SVGに `aria-hidden="true" focusable="false"`、現在地リンクに `aria-current="page"` を追加（スクリーンリーダー対応）。
 **据え置き**: サイドバーナビ全体の背景 `rgba(0,0,0,0.18)` の視認性調整・SVGの `stroke-linecap/linejoin` は今回は対応不要（reviewer指摘の軽微項目、別途）。`:focus-visible` はナビ側のみ今回ついでに追加（背景を塗らない方式に変えたためキーボード操作時の視認性が下がる懸念があったため）。
+
+
+## 2026-09-22 トップページ高速化バッチA（キャッシュ制御の方針）
+
+**事実（本番実測）**: Render は Starter プラン・オレゴン（decisions 2026-06 の「無料プラン」は現状と不一致）、Supabase は東京。前段 CDN は全応答 `cf-cache-status: DYNAMIC` で、`Cache-Control` を付けてもエッジには乗らない（独自ドメイン＋自前 Cloudflare まで効かない）。静的JS/CSS は Flask 既定の `no-cache`（毎回 304 再検証）、アイコンは `no-store`。手書き `?v=` は8本中4本で更新漏れ（据え置きのまま中身が更新済み）。
+**決定**:
+1. 静的ファイルの長期キャッシュは **内容ハッシュ一致時のみ**（`static_url()` が発行した `?v=` と `_static_content_hash()` が一致した場合だけ `immutable` 1年）。手書き `?v=` は `max-age=3600` に留め ETag 再検証で更新漏れを1時間で自己修復する。理由: reviewer 指摘どおり手書き `?v=` に `immutable` を付けると更新漏れ時に最大1年間旧コードが残るため。solitaire.html・admin.html の手書き `?v=` は未移行（3600秒運用）
+2. 読み取り専用 GET API（top-movers/top-priced/buyback-movers/top-decks/config/meta）は `public, max-age=300`。ただし **error 付き・空応答はハンドラが `g.no_cache=True` を立てて付けない**（フロントの2秒リトライが同一URLの fetch でキャッシュを読み続け、5分間エラー固定になるため）
+3. ランキング4種のサーバー内キャッシュは stale-while-revalidate（`/api/featured` の既存方式を流用）。失敗は60秒バックオフ、裏スレッドは `_run_swr_refresh` で例外をログ化。buyback-movers の「0件は一切キャッシュしない」は「0件は5分だけ」に変更（元の意図＝長時間空を固定しない、は維持）
+4. sw.js の `CACHE_NAME` は **PRECACHE の変更だけでは上げない**（activate の全削除でカード画像キャッシュも消えるため）
+5. `deck-edit.js` の `_init` は `readyState==='complete'` のときだけ即時、それ以外は DOMContentLoaded 待ち（defer 化で従来のインライン初期化との順序が逆転するのを防ぐ）
+**据え置き**: サーバーのリージョン移設（Render は既存サービスのリージョン変更非対応＝作り直し。URL が変わると localStorage のマイデッキ等が別オリジン扱いで見えなくなるため、独自ドメイン定着後に実施する）／DB インデックス（EXPLAIN 計測後）／未参照画像3枚（logo_text.png 484KB・tcgym-icon.png 608KB・ogp.jpg 220KB）の削除は inventory-audit の承認フローで
