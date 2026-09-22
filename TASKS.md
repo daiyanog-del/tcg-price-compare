@@ -6,7 +6,9 @@
 ## 進行中
 
 - [x] **トップページ高速化バッチB（2026-09-22 PR #2 本番済み）** — preload／cache warmer／import map／サムネ束ね＋CLS／solitaire static_url。実測は activeContext 参照
-- [ ] **高速化バッチC 候補（2026-09-22 起票・未着手）** — ①`/api/card-images` がデプロイ直後 2.3秒（画像解決の冷え。warmer で名前を先読みするか、解決結果をDB/ディスクに永続化）②`deck.css`（26KB）をマイデッキ表示時に遅延読込・インラインCSS 50KB の分割 ③インラインJS（コメント行27%）のミニファイ＝ビルド工程新設（ツール導入判断が要る）④`get_buyback_movers` RPC のインデックス（EXPLAIN 計測後）⑤一人回しページ内部の module 群のバージョン付与（import map 拡張）⑥`_cache_warmer` 定数4つの校正（`TODO: calibrate from data`: 初回待ち10秒＝Supabase/estimate_cache が使えるまでの実時間をログから実測）⑦独自ドメイン取得後に CDN（Cloudflare）でAPI JSON のエッジキャッシュ
+- [x] **トップページ高速化バッチC（2026-09-22 PR #3 本番済み）** — JS/CSS外部化・起動時温め拡張・一人回し import map。実測は activeContext 参照
+- [ ] **★買取収集 cron の実行欠落を監視する（2026-09-22 発見）** — `tcg-collect-buyback`（Render cron・UTC 0:00）が 09-17〜21 の5日間実行されず（ログに起動痕跡なし・エラーなし）。buyback_history が欠けると買取値動きランキングが 0 件になる。対策案: `monitor.py`/Discord 通知に「buyback_history の当日行数が 0 なら警告」を追加、または collection_runs の日次件数チェック。原因（Render 側のスケジュール不発か）は未特定
+- [ ] **高速化 残課題（2026-09-22 起票・未着手）** — ①インラインCSS 残り38KB のミニファイ（Jinja 0・`url()` 0 なので rcssmin 等で安全。JS は Jinja 混在で不可）②`get_buyback_movers` の covering index（EXPLAIN 実測 425ms、現在は裏更新のみ）③`_cache_warmer` 定数の校正（`TODO: calibrate from data`）④独自ドメイン取得後に CDN（Cloudflare）で API JSON のエッジキャッシュ ⑤`featured_pack` テーブルへの GET が 404（起動ログ）＝機能不全の可能性、要確認
 - [ ] **独自ドメイン→サーバーリージョン移設（サービス名確定後・後回し裁定 2026-09-22）** — 順序: ドメイン取得→定着→シンガポールに新サービス作成→ドメイン向き先切替。移設前に新サービスから店舗検索を試す（データセンターIP帯のブロック有無は未検証）。cron 4本は同時作り直しか判断
 
 - [ ] **一人回し PC版右クリックメニュー「場に出す」: 配置待ち中にフィールド上の別カードをドラッグ開始すると、キャンセルより先に確定してしまう（2026-09-15 reviewer指摘・スコープ外として据え置き）** — `context-menu.js` の配置待ちキャンセルは `document` の `mousedown`（スロット外クリック）と `drag-drop.js` の `dragstart`（別カードのドラッグ開始）の両方で発火する設計だが、対象がフィールド上（`.custom-slot` の子）のカードの場合、`mousedown` の時点で `e.target.closest('.custom-slot')` がヒットして先に配置が確定してしまい、`dragstart` 側のキャンセルには届かない。ヘッダコメント「別カードのドラッグ開始でキャンセルされる」は、スロット外（プール等）のカードにしか正しく当てはまらない。修正方針＝カード要素上の mousedown は確定対象から除外する、またはコメントを実態に合わせて修正する

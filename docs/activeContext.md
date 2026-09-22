@@ -1,6 +1,14 @@
 # activeContext — 今どこ・次何
 
-> 更新: 2026-09-22（高速化バッチB デプロイ済み）
+> 更新: 2026-09-22（高速化バッチC デプロイ済み）
+
+## 2026-09-22（続2）: トップページ高速化バッチC（PR #3・0f8f0aa・本番 live）
+
+- 実装: ①インラインJS 3ブロック（206KB）を `static/js/index-{main,wish,sync}.js` へ移動（中身無変更・機械照合済み）＋defer＋内容ハッシュ長期キャッシュ＋preload as=script。Jinja 依存の `_pageCardName`/`_pageMode`/`_QRCODE_SRC` だけインライン ②購入候補/PWA/モーダル/新弾マトリクスの CSS 17KB を `static/css/deferred.css` へ（非ブロッキング）。基底 `display:none` はクリティカルCSSに残す（reviewer High: 規約全文とバナーが一瞬見える FOUC/CLS） ③warmer 初回にカード名辞書と画像索引（ygores 533KB）を先読み・top-decks 前に相場キャッシュ完了を最大30秒待つ・`_load_cardnames` ロック ④`static_import_map()`（os.walk 列挙・メモ化・パス検証・JSONエスケープ）で solitaire.html に import map 34本 ⑤Node harness（XSS/同期）を外部ファイル対応・抽出件数アサート
+- 本番実測: HTML 88KB→**29KB**（br）。`/api/card-images` デプロイ直後 2.3秒→**0.15秒**（warmer が起動12秒で索引まで温め完了）。ブラウザ: 初回 domInteractive 598→**328ms**・load 1446→**986ms**、再訪 DCL 665→**244ms**・load 665→**376ms**（91リソース中68がキャッシュ、ネットワークは API 2本＋アイコン1）。console error 0。バッチA着手前（load 1630/796）からは初回 40%減・再訪 53%減
+- **別件（性能ではない）: 買取収集 cron `tcg-collect-buyback` が 09-17〜21 の5日間実行されていない**（Render ログに実行痕跡なし・エラーなし・09-16 と 09-22 は正常）。このため買取値動きランキングが 0 件（比較日が窓内に1日しかない）。要監視＝TASKS.md 起票
+- `get_buyback_movers` RPC は EXPLAIN 実測 425ms（idx_buyback_history_date の Index Scan 394ms・全 shared hit）。covering index で短縮できるが、今は warmer の裏更新でしか走らないため据え置き
+- 残: TASKS.md「高速化 残課題」参照
 
 ## 2026-09-22（続）: トップページ高速化バッチB（PR #2・c02aeef・本番 live）
 
