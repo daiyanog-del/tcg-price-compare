@@ -852,9 +852,17 @@
   window.deckCreateNew = deckCreateNew;      // 「＋ 新規デッキを作成」ボタン
   window.deckUndoAdd = deckUndoAdd;          // 追加ログの「取消」ボタン（行ごとに直接listenerを張るため公開も必要）
 
-  if(document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', _init);
-  }else{
+  // 2026-09-22 defer化に伴う変更（レビュー指摘Medium）:
+  // このscriptタグは defer で読み込まれるため、実行時点の document.readyState は
+  // 常に 'interactive'（DOMパース完了直後・DOMContentLoadedより前）になる。
+  // 旧来の「loadingなら待つ、それ以外は即実行」のままだと 'interactive' で即 _init() が
+  // 走ってしまい、index.html 側のインラインDOMContentLoadedハンドラより先に実行される
+  // 順序変更が起きる。従来どおり「インライン側の後」を保つため、'complete'（既にページ
+  // 全体の読み込みまで終わっている＝スクリプトの動的挿入等の想定外ケース）のときだけ
+  // 即時実行し、'loading'・'interactive' はどちらも DOMContentLoaded を待つ。
+  if(document.readyState === 'complete'){
     _init();
+  }else{
+    document.addEventListener('DOMContentLoaded', _init);
   }
 })();

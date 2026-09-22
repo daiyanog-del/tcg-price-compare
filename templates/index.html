@@ -35,30 +35,37 @@ function _ga(name,params){ if(typeof gtag==='function') gtag('event',name,params
 <meta property="og:description" content="価格比較・デッキ・環境・最新弾をひとつに。">
 <link rel="canonical" href="{{ public_base_url }}/">
 {% endif %}
-<meta property="og:image" content="{{ public_base_url }}/static/og-image.png?v=3">
+<meta property="og:image" content="{{ public_base_url }}{{ static_url('og-image.png') }}">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="TCGYM — 遊戯王OCG プレイヤーサポート">
 <meta name="twitter:description" content="価格比較・デッキ・環境・最新弾をひとつに。">
-<meta name="twitter:image" content="{{ public_base_url }}/static/og-image.png?v=3">
+<meta name="twitter:image" content="{{ public_base_url }}{{ static_url('og-image.png') }}">
 <meta property="og:type" content="website">
 <meta property="og:url" content="{{ public_base_url }}/">
 <meta property="og:locale" content="ja_JP">
 <meta property="og:site_name" content="TCGYM">
 <meta name="robots" content="index, follow">
-<link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=3">
-<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png?v=3">
-<link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png?v=3">
-<link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=3">
-<link rel="manifest" href="/static/manifest.json">
+<link rel="icon" type="image/svg+xml" href="{{ static_url('favicon.svg') }}">
+<link rel="icon" type="image/png" sizes="32x32" href="{{ static_url('favicon-32.png') }}">
+<link rel="icon" type="image/png" sizes="16x16" href="{{ static_url('favicon-16.png') }}">
+<link rel="apple-touch-icon" sizes="180x180" href="{{ static_url('apple-touch-icon.png') }}">
+<link rel="manifest" href="{{ static_url('manifest.json') }}">
 <meta name="theme-color" content="#0a1024">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
-<noscript><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"></noscript>
-<link href="https://fonts.googleapis.com/css2?family=Bungee&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
-<noscript><link href="https://fonts.googleapis.com/css2?family=Bungee&display=swap" rel="stylesheet"></noscript>
+<!-- Noto Sans JP + JetBrains Mono は1リクエストに統合済み。
+     weight 900 は本文中で未使用のため外したが、.sbest-badge/.rank-tier-badge/.tier-badge が
+     font-weight:800 を使っているため 700 までに削ると太字が代替フォントにフォールバックして
+     しまう（レビュー指摘Medium・再grepで確認済み）。800 を含めて読み込む -->
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"></noscript>
+<!-- Bungeeは.brand-nameの"TCGYM"5文字にしか使わない。Google Fontsのtext=は1リクエスト中の
+     全ファミリに適用されてしまうため、Noto/JetBrainsと同居させるとそちらの文字も5文字に
+     絞られて壊れる。そのためBungeeだけ別リクエストのまま維持し、text=TCGYMでグリフを絞る -->
+<link href="https://fonts.googleapis.com/css2?family=Bungee&text=TCGYM&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Bungee&text=TCGYM&display=swap" rel="stylesheet"></noscript>
 {% if card_name %}
 <script type="application/ld+json">
 {
@@ -853,8 +860,8 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 // レアリティ設定（サーバから注入 — rarity.py が唯一の定義ソース）
 window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 </script>
-<link rel="stylesheet" href="/static/css/self-watermark.css?v=20260611">
-<link rel="stylesheet" href="/static/mydeck/deck.css?v=20260912a">
+<link rel="stylesheet" href="{{ static_url('css/self-watermark.css') }}">
+<link rel="stylesheet" href="{{ static_url('mydeck/deck.css') }}">
 </head>
 <body{% if self_watermark %} data-self-wm style="--self-watermark-opacity: {{ self_watermark_opacity }}"{% endif %}>
 <div class="wrap">
@@ -5327,19 +5334,22 @@ loadWishPrices().then(wishUpdateBadge);
 // 通知UIの初期状態を反映
 updatePushUI(!!localStorage.getItem(PUSH_SUB_KEY));
 </script>
-<script src="/static/packs.js?v=20260808"></script>
-<script src="/static/featured-matrix.js?v=20260808"></script>
-<script src="/static/wish-estimate.js?v=20260819"></script>
-<script src="/static/wish-split.js?v=20260805"></script>
-<script src="/static/shared/sync-client.js?v=20260817"></script>
-<script src="/static/shared/qrcode.js?v=20260817"></script>
+<script src="{{ static_url('packs.js') }}" defer></script>
+<script src="{{ static_url('featured-matrix.js') }}" defer></script>
+<script src="{{ static_url('wish-estimate.js') }}" defer></script>
+<script src="{{ static_url('wish-split.js') }}" defer></script>
+<script src="{{ static_url('shared/sync-client.js') }}" defer></script>
 <script>
 // 端末間同期: トップページ（カード個別ページでない）を開いたときだけ pull する（§8）。
 // 購入候補・保存デッキの両方を1回のAPI呼び出しで扱う（P2）。
-// sync-client.js の <script src> より前に置くと window.SyncClient が未定義になるため、
-// 読み込み後の別ブロックに置く（_pageCardName は先行スクリプトのトップレベル const だが、
-// クラシックscript間では同一グローバルレキシカル環境を共有するため参照できる）
-if(!_pageCardName && window.SyncClient) window.SyncClient.pullIfNeeded();
+// sync-client.js は defer 読み込みのため、この<script>ブロック自体（非defer）は
+// パース中にsync-client.jsより先に実行されてしまい、直接呼ぶと window.SyncClient が
+// 未定義になる。DOMContentLoaded（deferスクリプトの実行完了後に発火）の中へ移す
+// （_pageCardName は先行スクリプトのトップレベル const だが、クラシックscript間では
+// 同一グローバルレキシカル環境を共有するため参照できる）
+document.addEventListener('DOMContentLoaded', function(){
+  if(!_pageCardName && window.SyncClient) window.SyncClient.pullIfNeeded();
+});
 
 // ── 端末間同期: 「他の端末でも見る」ダイアログ・状態表示・解除（P3。設計文書 §7.1・§7.3）──
 // ネットワーク呼び出し・localStorage操作のロジックは sync-client.js 側（SyncClient.*）に
@@ -5347,6 +5357,28 @@ if(!_pageCardName && window.SyncClient) window.SyncClient.pullIfNeeded();
 
 let _syncShareTimerId=null;
 let _syncShareInFlight=false; // 2026-08-17: 連打でリクエストを重ねて429を誘発しないためのガード
+
+// qrcode.js の動的読み込み先URL（内容ハッシュ付き。static_url()はサーバー側で計算する）
+const _QRCODE_SRC = "{{ static_url('shared/qrcode.js') }}";
+
+// qrcode.js は「他の端末でも見る」ダイアログでQRを描くときにしか使わないため、
+// <script>タグでの静的読み込みをやめ、初回使用時だけ動的に挿入する（トップページの
+// 初期読み込みを軽くするため）。_qrcodeLoadPromise で多重挿入を防ぐ。
+// 読み込みに失敗してもQR無しでダイアログ自体は表示する既存のフォールバックを維持する
+// （レビュー指摘Low: onerror時はPromiseをnullに戻し、次回呼び出しで再試行できるようにする）。
+let _qrcodeLoadPromise=null;
+function _ensureQrcodeLoaded(){
+  if(window.qrcode) return Promise.resolve(true);
+  if(_qrcodeLoadPromise) return _qrcodeLoadPromise;
+  _qrcodeLoadPromise=new Promise(function(resolve){
+    const s=document.createElement('script');
+    s.src=_QRCODE_SRC;
+    s.onload=function(){ resolve(!!window.qrcode); };
+    s.onerror=function(){ _qrcodeLoadPromise=null; resolve(false); };
+    document.head.appendChild(s);
+  });
+  return _qrcodeLoadPromise;
+}
 
 function openSyncShareDialog(){
   // 発行中に「他の端末でも見る」を連打しても新しいリクエストを重ねない
@@ -5376,12 +5408,19 @@ function openSyncShareDialog(){
       return;
     }
     document.getElementById('syncShareUrl').value=res.url;
-    if(window.qrcode){
+    _ensureQrcodeLoaded().then(function(ok){
+      if(!ok){
+        // 読み込み失敗時はQR無しでダイアログを表示する（既存のフォールバック）。
+        // 何も出ないと失敗に気づけないため、QR枠に文言を出してURLコピーへ誘導する
+        document.getElementById('syncShareQr').innerHTML=
+          '<span style="color:var(--text-m);font-size:.82rem">QRを表示できませんでした。上のURLをコピーしてください</span>';
+        return;
+      }
       const qr=qrcode(0,'M');
       qr.addData(res.url);
       qr.make();
       document.getElementById('syncShareQr').innerHTML=qr.createSvgTag(5);
-    }
+    });
     _startSyncShareCountdown(res.expires_in);
     _refreshSyncStatusUI();
   }).catch(function(){
@@ -5485,8 +5524,8 @@ function unlinkThisDeviceSync(){
   });
 }
 </script>
-<script src="/static/mydeck/deck-edit.js?v=20260912a"></script>
-<script type="module" src="/static/mydeck/deck-card-info.js?v=20260617"></script>
+<script src="{{ static_url('mydeck/deck-edit.js') }}" defer></script>
+<script type="module" src="{{ static_url('mydeck/deck-card-info.js') }}"></script>
 <script type="module" src="/static/shared/neuron-pdf-entry.js"></script>
 <script type="module" src="/static/shared/neuron-url-entry.js"></script>
 </body>

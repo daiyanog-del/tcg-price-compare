@@ -6,6 +6,7 @@ import json
 import sys
 import time
 import os
+import hashlib
 
 # コンソール出力を UTF-8 に固定する（2026-09-01）。
 # Windows の既定は cp932 で、スクレイパーが print する診断メッセージに cp932 で
@@ -25,7 +26,7 @@ import requests as _http
 import threading
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as _FuturesTimeoutError
-from flask import Flask, render_template, request, jsonify, Response, redirect, url_for
+from flask import Flask, render_template, request, jsonify, Response, redirect, url_for, g
 from flask_compress import Compress
 
 from scraper import (
@@ -190,23 +191,112 @@ FAVICON_FILES = {
     'tcgym-icon-base.png', 'manifest.json',
 }
 
+# 読み取り専用GET APIのうち、レスポンス内容が数分単位でしか変わらないもの。
+# ここに載せたパスだけ、GETかつstatus 200のときに短時間の公開キャッシュを許可する。
+_CACHEABLE_GET_API_PATHS = {
+    'api/top-movers', 'api/top-priced', 'api/buyback-movers',
+    'api/top-decks', 'api/config', 'api/meta',
+}
+
+# static/ 配下ファイルの内容ハッシュキャッシュ: rel_path -> (mtime, size, hash)
+# mtime/sizeが変わっていなければ再計算しない（毎リクエストの再ハッシュを避ける）
+_static_hash_cache: dict[str, tuple[float, int, str]] = {}
+_static_hash_lock = threading.Lock()
+
+
+def _static_content_hash(rel_path: str) -> str | None:
+    """static/ 配下の実ファイル内容から短いハッシュ(md5先頭12桁)を計算する。
+
+    レビュー指摘（Critical）: 手書きの ?v= は更新時に上げ忘れることがあり
+    （実例: packs.js 等4本で ?v= 据え置きのまま中身だけ更新済みだった）、
+    immutable を付けると更新漏れが最大1年間ブラウザに残ってしまう。
+    内容そのものから決まるハッシュを使えば、ファイルを直せばURLも自動で変わるため
+    「更新したのにキャッシュが古いまま」という不整合が原理的に起きない。
+
+    パストラバーサル防止: '..' セグメントを明示的に拒否した上で、実パスを正規化してから
+    static_folder 配下であることを再確認する（シンボリックリンク等の抜け道も防ぐ）。
+    ファイルが存在しない・static_folder外なら None を返す（呼び出し側は ?v= 無しにフォールバック）。
+    """
+    if not rel_path or any(seg == '..' for seg in rel_path.replace('\\', '/').split('/')):
+        return None
+    static_root = os.path.realpath(app.static_folder)
+    abs_path = os.path.realpath(os.path.join(app.static_folder, rel_path))
+    if os.path.commonpath([static_root, abs_path]) != static_root:
+        return None
+    try:
+        st = os.stat(abs_path)
+    except OSError:
+        return None
+
+    cached = _static_hash_cache.get(rel_path)
+    if cached and cached[0] == st.st_mtime and cached[1] == st.st_size:
+        return cached[2]
+
+    try:
+        with open(abs_path, 'rb') as f:
+            digest = hashlib.md5(f.read()).hexdigest()[:12]
+    except OSError:
+        return None
+
+    with _static_hash_lock:
+        _static_hash_cache[rel_path] = (st.st_mtime, st.st_size, digest)
+    return digest
+
+
+def static_url(rel_path: str) -> str:
+    """static/配下のファイルを内容ハッシュ付きURLで返すJinjaグローバル。
+    ハッシュが計算できない（ファイルが無い等）場合は ?v= を付けずに返す。
+    """
+    h = _static_content_hash(rel_path)
+    base = url_for('static', filename=rel_path)
+    return f"{base}?v={h}" if h else base
+
+
+app.jinja_env.globals['static_url'] = static_url
+
+
 @app.after_request
 def add_cache_headers(response):
     """レスポンスタイプに応じたキャッシュ制御"""
     ct = response.content_type
     path = request.path.lstrip('/')
     filename = path.split('/')[-1]
-    if filename in FAVICON_FILES:
-        # ファビコン・アイコン類はキャッシュさせない
-        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-        response.headers['Pragma'] = 'no-cache'
+    query_v = request.args.get('v')
+    is_static = path.startswith('static/')
+    # static_url() が発行した「内容ハッシュ付き?v=」と一致する場合だけ1年immutable。
+    # 一致判定を FAVICON_FILES 判定より先に置くことで、favicon/manifest.json も
+    # ハッシュ一致時は immutable を優先させる（レビュー指摘: 順序調整）。
+    content_hash = _static_content_hash(path[len('static/'):]) if is_static else None
+    hash_matched = bool(is_static and query_v and content_hash and query_v == content_hash)
+
+    if hash_matched:
+        response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+    elif filename in FAVICON_FILES:
+        # ファビコン・アイコン類: ハッシュ不一致（未対応の古い?v=や?v=無し）のときはここに来る。
+        # 以前は no-store で毎回再検証させていたが、1日キャッシュに緩める。
+        response.headers['Cache-Control'] = 'public, max-age=86400'
     elif 'text/html' in ct:
         response.headers['Cache-Control'] = 'public, max-age=60, stale-while-revalidate=300'
     elif 'application/xml' in ct or 'text/plain' in ct:
         response.headers['Cache-Control'] = 'public, max-age=3600'
-    elif path.startswith('static/') and 'image/' in ct and filename not in FAVICON_FILES:
-        # ロゴ・OGP画像等の静的画像は1週間キャッシュ
+    elif is_static and query_v and filename not in FAVICON_FILES:
+        # 手書きの?v=（ハッシュと不一致、または当該ファイルにハッシュが無い）はimmutableにせず
+        # 短時間キャッシュに留める。ETagによる再検証は残るため、?v=の更新漏れがあっても
+        # 最大1時間で自己修復する（レビュー指摘: 根本対策と保険の両立）。
+        response.headers['Cache-Control'] = 'public, max-age=3600'
+    elif is_static and 'image/' in ct and filename not in FAVICON_FILES:
+        # ロゴ・OGP画像等、?v=の無い静的画像は従来通り1週間キャッシュ
         response.headers['Cache-Control'] = 'public, max-age=604800'
+    elif (
+        request.method == 'GET'
+        and response.status_code == 200
+        and path in _CACHEABLE_GET_API_PATHS
+        and not getattr(g, 'no_cache', False)
+    ):
+        # 読み取り専用の集計系APIは短時間の公開キャッシュを許可する。
+        # ただしハンドラ側が g.no_cache=True を立てた場合（error付き・空データ応答）は
+        # 意味のない失敗応答をCDN等に公開キャッシュしないよう付けない
+        response.headers['Cache-Control'] = 'public, max-age=300'
     if response.status_code >= 400:
         # エラーレスポンス（HTMLエラーページ含む）が上記の public キャッシュ指定を
         # 引き継いだままCDN等に公開キャッシュされないよう、常に上書きで無効化する
@@ -1641,25 +1731,48 @@ def api_movers():
     return jsonify({"items": items, "date_old": date_old, "date_new": date_new, "updated_at": updated_at})
 
 
+# ── SWR（stale-while-revalidate）裏更新の共通ヘルパ ──
+# 対象: top-decks/top-movers/top-priced/buyback-movers の4関数。
+_SWR_RETRY_BACKOFF_SEC = 60  # 直近の裏更新失敗から この秒数が経つまでは再試行しない（失敗の多重発火防止）
+
+
+def _run_swr_refresh(fn, on_failed=None, fn_kwargs=None):
+    """SWR裏更新スレッドの target を包む共通ラッパ。
+
+    レビュー指摘（Medium）: 各キャッシュ関数を裏スレッドで直接呼ぶだけだと、
+    (1) 例外が出てもdaemonスレッドの中で握りつぶされてログに残らない、
+    (2) error付き・空の「実質失敗」応答を成功と区別できず毎リクエストで再試行してしまう。
+    ここで例外を必ずログに残し、戻り値（dict）に error が立っていれば on_failed() で
+    バックオフ用の失敗時刻を更新する（buyback-movers はキャッシュ関数側が自前で
+    失敗時刻を更新するため on_failed は渡さない）。
+    """
+    try:
+        result = fn(**(fn_kwargs or {}))
+        if on_failed and isinstance(result, dict) and result.get('error'):
+            on_failed()
+    except Exception:
+        logger.exception(f"SWR 裏更新に失敗: {getattr(fn, '__name__', fn)}")
+        if on_failed:
+            on_failed()
+
+
 # ── 買取値上がり/値下がりランキング（buyback_history テーブル、最高買取額ベース）──
 _buyback_movers_cache: dict[str, list] = {}
 _buyback_movers_cache_time: float = 0
+_buyback_movers_cache_empty: bool = False  # 直近のキャッシュが0件だったか（TTL切り替え用）
+_buyback_movers_refresh_failed_at: float = 0  # 直近の裏更新失敗（例外/空）時刻。SWRバックオフ用
 _BUYBACK_MOVERS_CACHE_SEC = 3600  # 1時間キャッシュ
+# 空データ（RPCが0件を返した場合）は元々「24時間空を返し続けるバグを防ぐ」ため一切
+# キャッシュしていなかった。ただしそのままだと失効直後は毎リクエストでRPCが走ってしまう
+# ため、意図（長時間空を固定しない）は保ちつつ短時間だけキャッシュする。
+_BUYBACK_MOVERS_EMPTY_CACHE_SEC = 300  # 0件時は5分だけキャッシュ
+_buyback_movers_lock = threading.Lock()  # in-flightロック（同時アクセスでRPCが重複しないようにする）
 
-def _get_buyback_movers(direction: str, limit: int = 10) -> list[dict]:
-    """Supabaseから買取の値上がり/値下がりランキングを取得（DB側集計RPC版）。
-    get_buyback_movers RPC が全件集計を DB 側で処理し、上位 top_n 行だけ返す。
-    アプリ側の全件メモリ展開を廃止し、データ増加に対してメモリが増えない構造に変更。
-    """
-    global _buyback_movers_cache, _buyback_movers_cache_time
 
-    now = time.time()
-    if _buyback_movers_cache and now - _buyback_movers_cache_time < _BUYBACK_MOVERS_CACHE_SEC:
-        return _buyback_movers_cache.get(direction, [])[:limit]
-
+def _fetch_buyback_movers_from_db() -> dict | None:
+    """RPCから買取movers生データを取得してup/downに振り分ける。取得失敗時はNoneを返す。"""
     if not _supabase_client:
-        return []
-
+        return None
     try:
         cutoff = (datetime.now(JST) - timedelta(days=3)).strftime("%Y-%m-%d")
         resp = (_supabase_client
@@ -1667,9 +1780,6 @@ def _get_buyback_movers(direction: str, limit: int = 10) -> list[dict]:
                 .execute())
         rows = resp.data or []
         logger.info(f"買取値動きランキング: {len(rows)}行取得（RPC集計）")
-
-        if not rows:
-            return []
 
         # RPC が direction 別に返すので振り分けるだけ
         up, down = [], []
@@ -1690,15 +1800,88 @@ def _get_buyback_movers(direction: str, limit: int = 10) -> list[dict]:
             if date_new is None:
                 date_new = row.get("date_new")
                 date_old = row.get("date_old")
-
-        # 空データはキャッシュしない（データ未蓄積時に24時間空を返し続けるバグを防ぐ）
-        if up or down:
-            _buyback_movers_cache = {"up": up, "down": down, "date_old": date_old, "date_new": date_new}
-            _buyback_movers_cache_time = now
-        return (up if direction == "up" else down)[:limit]
+        return {"up": up, "down": down, "date_old": date_old, "date_new": date_new}
     except Exception as e:
         logger.warning(f"買取価格変動ランキング取得失敗: {e}")
-        return []
+        return None
+
+
+def _refresh_buyback_movers_cache(blocking: bool = False) -> None:
+    """買取movers RPCを叩いてキャッシュを更新する。
+
+    blocking=False（既定・stale-while-revalidate経路）: in-flightロックを取れない
+    （既に別スレッドが更新中）場合は何もしない。
+    blocking=True（コールド経路。レビュー指摘High）: 他スレッドが更新中ならその完了を
+    最大15秒待ってから読む。ロック取得後、待っている間に他スレッドが既にキャッシュを
+    埋めていればRPCを重複発行しない（ダブルチェック）。
+    取得失敗時・空データ時は既存キャッシュを維持しつつ失敗時刻を記録する（SWRバックオフ用）。
+    """
+    global _buyback_movers_cache, _buyback_movers_cache_time, _buyback_movers_cache_empty
+    global _buyback_movers_refresh_failed_at
+
+    acquired = (
+        _buyback_movers_lock.acquire(timeout=15) if blocking
+        else _buyback_movers_lock.acquire(blocking=False)
+    )
+    if not acquired:
+        return
+    try:
+        if blocking and _buyback_movers_cache:
+            # ロック待ちの間に別スレッドが既に埋めていた（ダブルチェック）
+            return
+        data = _fetch_buyback_movers_from_db()
+        if data is None:
+            _buyback_movers_refresh_failed_at = time.time()
+            return
+        _buyback_movers_cache = data
+        _buyback_movers_cache_time = time.time()
+        _buyback_movers_cache_empty = not (data["up"] or data["down"])
+        if _buyback_movers_cache_empty:
+            _buyback_movers_refresh_failed_at = time.time()
+    finally:
+        _buyback_movers_lock.release()
+
+
+def _get_buyback_movers(direction: str, limit: int = 10) -> dict:
+    """Supabaseから買取の値上がり/値下がりランキングを取得（DB側集計RPC版）。
+    get_buyback_movers RPC が全件集計を DB 側で処理し、上位 top_n 行だけ返す。
+    アプリ側の全件メモリ展開を廃止し、データ増加に対してメモリが増えない構造に変更。
+
+    stale-while-revalidate: キャッシュが期限切れでも古い値を即返し、裏スレッドで
+    更新する（更新中に別リクエストが来てもRPCを重複発行しない）。
+    コールド（未確立）時は初回訪問者に空を返さないよう、ブロッキングで取得を待つ
+    （レビュー指摘High）。
+
+    戻り値: {"items": [...], "date_old": ..., "date_new": ...} のスナップショット
+    （レビュー指摘: 呼び出し側が items と date_old/date_new を別々に
+    _buyback_movers_cache から読むと、裏更新スレッドと競合して不整合になりうるため
+    1回の呼び出しでまとめて返す）
+    """
+    def _snapshot() -> dict:
+        cache = _buyback_movers_cache
+        if not cache:
+            return {"items": [], "date_old": None, "date_new": None}
+        return {
+            "items": cache.get(direction, [])[:limit],
+            "date_old": cache.get("date_old"),
+            "date_new": cache.get("date_new"),
+        }
+
+    now = time.time()
+    ttl = _BUYBACK_MOVERS_EMPTY_CACHE_SEC if _buyback_movers_cache_empty else _BUYBACK_MOVERS_CACHE_SEC
+    if _buyback_movers_cache and now - _buyback_movers_cache_time < ttl:
+        return _snapshot()
+
+    if _buyback_movers_cache:
+        # 古いキャッシュを即返しつつ裏で更新（直近の失敗からバックオフ期間内なら起動しない）
+        if now - _buyback_movers_refresh_failed_at >= _SWR_RETRY_BACKOFF_SEC:
+            Thread(target=_run_swr_refresh,
+                   kwargs={"fn": _refresh_buyback_movers_cache}, daemon=True).start()
+        return _snapshot()
+
+    # コールド（未確立）: 初回はブロッキングで取得を待つ
+    _refresh_buyback_movers_cache(blocking=True)
+    return _snapshot()
 
 @app.route("/api/buyback-movers")
 def api_buyback_movers():
@@ -1709,9 +1892,13 @@ def api_buyback_movers():
     limit, limit_error = _parse_limit_param(10, 20)
     if limit_error:
         return limit_error
-    items = _get_buyback_movers(direction, limit)
-    date_old = _buyback_movers_cache.get("date_old") if _buyback_movers_cache else None
-    date_new = _buyback_movers_cache.get("date_new") if _buyback_movers_cache else None
+    snapshot = _get_buyback_movers(direction, limit)
+    items = snapshot["items"]
+    date_old = snapshot["date_old"]
+    date_new = snapshot["date_new"]
+    if not items:
+        # 空応答をCDN等に公開キャッシュさせない（レビュー指摘Critical）
+        g.no_cache = True
     if _buyback_movers_cache_time:
         updated_dt = datetime.fromtimestamp(_buyback_movers_cache_time, JST)
         updated_at = f"{updated_dt.hour}:{updated_dt.minute:02d}"
@@ -1725,7 +1912,14 @@ def api_buyback_movers():
 
 _top_decks_cache: dict = {}
 _top_decks_cache_time: float = 0
+_top_decks_refresh_failed_at: float = 0  # 直近の裏更新失敗（error付き返却/例外）時刻。SWRバックオフ用
 _top_decks_lock = threading.Lock()  # Q-11: in-flightロック（TTL失効直後の同時アクセスでスクレイプが並走するのを防ぐ）
+
+
+def _mark_top_decks_refresh_failed() -> None:
+    global _top_decks_refresh_failed_at
+    _top_decks_refresh_failed_at = time.time()
+
 
 def _get_top_decks_cached(force: bool = False) -> dict:
     """環境デッキ「いま組むといくら」をシェア上位 top_page.TOP_DECKS_LIMIT 件だけ計算し、
@@ -1735,6 +1929,20 @@ def _get_top_decks_cached(force: bool = False) -> dict:
     global _top_decks_cache, _top_decks_cache_time
     now = time.time()
     if not force and _top_decks_cache and now - _top_decks_cache_time < _top_page.TOP_DECKS_CACHE_SEC:
+        return _top_decks_cache
+
+    if not force and _top_decks_cache:
+        # stale-while-revalidate: 期限切れでも古いキャッシュを即返し、
+        # 裏でこの関数自身を force=True で再帰的に呼んで更新する（結果は破棄）。
+        # 既に別スレッドが計算中なら下の lock.acquire(blocking=False) に阻まれて
+        # 何もせず終わる（既存のin-flightロックをそのまま活かす）。
+        # 直近の失敗からバックオフ期間内なら起動しない（毎リクエスト再試行を防ぐ）。
+        if now - _top_decks_refresh_failed_at >= _SWR_RETRY_BACKOFF_SEC:
+            Thread(target=_run_swr_refresh, kwargs={
+                "fn": _get_top_decks_cached,
+                "on_failed": _mark_top_decks_refresh_failed,
+                "fn_kwargs": {"force": True},
+            }, daemon=True).start()
         return _top_decks_cache
 
     if not _top_decks_lock.acquire(blocking=False):
@@ -1836,6 +2044,8 @@ def api_top_decks():
         return jsonify({"error": "sort は price または tier"}), 400
     data = _get_top_decks_cached()
     decks = _top_page.rank_decks(data.get("decks", []), sort=sort)
+    if data.get("error"):
+        g.no_cache = True
     return jsonify({"decks": decks, "updated": data.get("updated"), "error": data.get("error")})
 
 
@@ -1853,6 +2063,14 @@ _top_movers_group_cache_time: dict[str, float] = {}
 # 機械的に作る。実際に許可するgroupは api_top_movers 側で top_page.TOP_MOVERS_GROUPS
 # により絞るため、ここに未使用のキー（例: gmr）が含まれても実害はない。
 _top_movers_group_locks: dict[str, threading.Lock] = {g: threading.Lock() for g in _top_page.RARITY_GROUPS}
+
+# 直近の裏更新失敗（error付き返却/例外）時刻。SWRバックオフ用。groupごとに別管理
+# （キーは group文字列、全レアリティ対象=Noneは "__all__" とする）
+_top_movers_refresh_failed_at: dict[str, float] = {}
+
+
+def _mark_top_movers_refresh_failed(group: str | None = None) -> None:
+    _top_movers_refresh_failed_at[group or "__all__"] = time.time()
 
 
 def _get_top_movers_cached(group: str | None = None, force: bool = False) -> dict:
@@ -1884,6 +2102,19 @@ def _get_top_movers_cached(group: str | None = None, force: bool = False) -> dic
         lock = _top_movers_group_locks[group]
 
     if not force and cached and now - cached_time < _top_page.TOP_MOVERS_CACHE_SEC:
+        return cached
+
+    if not force and cached:
+        # stale-while-revalidate: 古いキャッシュを即返しつつ裏で更新する。
+        # 裏スレッドがロックを取れなければ（既に計算中なら）何もしない。
+        # 直近の失敗からバックオフ期間内なら起動しない（毎リクエスト再試行を防ぐ）。
+        failed_at = _top_movers_refresh_failed_at.get(group or "__all__", 0)
+        if now - failed_at >= _SWR_RETRY_BACKOFF_SEC:
+            Thread(target=_run_swr_refresh, kwargs={
+                "fn": _get_top_movers_cached,
+                "on_failed": lambda: _mark_top_movers_refresh_failed(group),
+                "fn_kwargs": {"group": group, "force": True},
+            }, daemon=True).start()
         return cached
 
     if not _supabase_client:
@@ -1977,6 +2208,8 @@ def api_top_movers():
         return limit_error
     data = _get_top_movers_cached(group)
     items = data.get(direction, [])[:limit]
+    if data.get("error"):
+        g.no_cache = True
     cache_time = _top_movers_cache_time if group is None else _top_movers_group_cache_time.get(group, 0)
     if cache_time:
         updated_dt = datetime.fromtimestamp(cache_time, JST)
@@ -1996,6 +2229,12 @@ def api_top_movers():
 _top_priced_cache: dict[str, dict] = {}
 _top_priced_cache_time: dict[str, float] = {}
 _top_priced_locks: dict[str, threading.Lock] = {g: threading.Lock() for g in _top_page.RARITY_GROUPS}
+# 直近の裏更新失敗（error付き返却/例外）時刻。SWRバックオフ用。groupごとに別管理
+_top_priced_refresh_failed_at: dict[str, float] = {}
+
+
+def _mark_top_priced_refresh_failed(group: str) -> None:
+    _top_priced_refresh_failed_at[group] = time.time()
 
 
 def _get_top_priced_cached(group: str, force: bool = False) -> dict:
@@ -2016,6 +2255,19 @@ def _get_top_priced_cached(group: str, force: bool = False) -> dict:
     lock = _top_priced_locks[group]
 
     if not force and cached and now - cached_time < _top_page.TOP_PRICED_CACHE_SEC:
+        return cached
+
+    if not force and cached:
+        # stale-while-revalidate: 古いキャッシュを即返しつつ裏で更新する。
+        # 裏スレッドがロックを取れなければ（既に計算中なら）何もしない。
+        # 直近の失敗からバックオフ期間内なら起動しない（毎リクエスト再試行を防ぐ）。
+        failed_at = _top_priced_refresh_failed_at.get(group, 0)
+        if now - failed_at >= _SWR_RETRY_BACKOFF_SEC:
+            Thread(target=_run_swr_refresh, kwargs={
+                "fn": _get_top_priced_cached,
+                "on_failed": lambda: _mark_top_priced_refresh_failed(group),
+                "fn_kwargs": {"group": group, "force": True},
+            }, daemon=True).start()
         return cached
 
     if not _supabase_client:
@@ -2109,6 +2361,8 @@ def api_top_priced():
         return limit_error
     data = _get_top_priced_cached(group)
     items = data.get("items", [])[:limit]
+    if data.get("error"):
+        g.no_cache = True
     cache_time = _top_priced_cache_time.get(group, 0)
     if cache_time:
         updated_dt = datetime.fromtimestamp(cache_time, JST)
@@ -2831,6 +3085,9 @@ def api_meta():
     except Exception as e:
         logger.error(f"Tier表取得エラー: {e}")
         tiers = []
+    if not tiers:
+        # 空応答をCDN等に公開キャッシュさせない（レビュー指摘Critical）
+        g.no_cache = True
     return jsonify(tiers)
 
 @app.route("/api/meta/deck")
