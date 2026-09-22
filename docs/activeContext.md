@@ -10,7 +10,7 @@
 - 本番再計測（PC・司令塔のブラウザ）: 初回 domInteractive 1085→667ms・load 1630→1424ms／2回目 DCL 795→665ms・load 796→665ms・?v=付き資産は全てキャッシュヒット／API温: top-decks 0.15秒・buyback 0.16秒（旧1.2秒）。デプロイ直後の初回 top-decks は6.6秒（キャッシュ未確立＝SWRの対象外。起動時プリロードは次バッチ）
 - 気づき: `defer` は DOMContentLoaded を遅らせるため、DCL 内で起動するランキング fetch は defer JS の到着（初回≈0.8秒）を待つ。次バッチ候補=ランキング fetch を defer 完了に依存させない／neuron-*.js（module import・`?v=` 無し）8本の再検証を無くす／起動時プリロード
 - 記録の訂正: decisions.md 2026-06 の「Render無料プラン」は現在 **Starter（有料・スリープ無し・オレゴン）**。Supabase は ap-northeast-1（東京）
-- 残: TASKS.md「高速化バッチB」参照。CI の pytest は司令塔がローカル 841 passed を根拠にチェック完了前にマージした（結果は後追いで確認すること）
+- 残: TASKS.md「高速化バッチB」参照。CI の pytest は PR・main とも success（後追い確認済み）
 
 
 ## 2026-09-06: canonical「パラレル」を「ノーマルパラレル」へ統合（完了）
