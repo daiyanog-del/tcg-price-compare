@@ -33,6 +33,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Bungee&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/main.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/self-watermark.css') }}">
+<!-- import map: solitaire/js・shared 配下の相対importを内容ハッシュ付きURLへ写像する
+     （静的な相対specifierはstatic_url()を通せないため、ここでブラウザ解決を上書きする）。
+     必ず最初のmodule scriptより前に置く -->
+<script type="importmap">{{ static_import_map(['solitaire/js', 'shared']) | safe }}</script>
 </head>
 
 <body{% if self_watermark %} data-self-wm style="--self-watermark-opacity: {{ self_watermark_opacity }}"{% endif %}>

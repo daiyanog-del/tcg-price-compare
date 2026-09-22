@@ -255,6 +255,61 @@ def static_url(rel_path: str) -> str:
 app.jinja_env.globals['static_url'] = static_url
 
 
+# prefixes(tuple化したキー) -> 生成済みJSON文字列。本番はstatic配下が起動後に変わらない
+# 前提でプロセス内メモ化する（os.walkの毎リクエスト実行を避ける）。ローカル開発時
+# （_is_debug_mode()真）はファイル追加を即反映させたいためメモ化しない
+_static_import_map_cache: dict[tuple[str, ...], str] = {}
+
+
+def static_import_map(prefixes: list[str]) -> str:
+    """static/配下の指定prefix群にある全 .js/.mjs ファイルを、内容ハッシュ付きURLへ写像する
+    importmap用JSON文字列を返すJinjaグローバル。
+
+    一人回し(solitaire.html)は多数のJSファイルを相対importで読み込んでおり、それぞれに
+    static_url()を個別に書くと更新のたびに列挙漏れが起きうるため、prefix配下をos.walkで
+    網羅的に列挙して自動生成する。パス区切りは常に '/' に正規化する。
+
+    パストラバーサル防止: '..' セグメントを明示的に拒否した上で、実パスを正規化してから
+    static_folder配下であることを再確認する（_static_content_hashと同じ方式）。
+    """
+    cache_key = tuple(prefixes)
+    if not _is_debug_mode() and cache_key in _static_import_map_cache:
+        return _static_import_map_cache[cache_key]
+
+    imports: dict[str, str] = {}
+    static_root = os.path.realpath(app.static_folder)
+    for prefix in prefixes:
+        prefix_norm = prefix.replace('\\', '/').strip('/')
+        if not prefix_norm or any(seg == '..' for seg in prefix_norm.split('/')):
+            continue
+        abs_prefix = os.path.realpath(os.path.join(app.static_folder, *prefix_norm.split('/')))
+        if os.path.commonpath([static_root, abs_prefix]) != static_root:
+            continue
+        if not os.path.isdir(abs_prefix):
+            continue
+        for dirpath, _dirnames, filenames in os.walk(abs_prefix):
+            for fn in filenames:
+                if not fn.lower().endswith(('.js', '.mjs')):
+                    continue
+                abs_path = os.path.join(dirpath, fn)
+                rel_path = os.path.relpath(abs_path, static_root).replace(os.sep, '/')
+                # 非ASCIIファイル名対策でpercent-encode（importmapのキーはURL文字列のため）
+                key = '/static/' + _url_quote(rel_path, safe='/')
+                imports[key] = static_url(rel_path)
+
+    raw = json.dumps({"imports": imports}, ensure_ascii=False)
+    # </script> 等の混入防止（index.html側で使っている | tojson と同等の対策。
+    # importmapは<script type="importmap">の中にそのまま埋め込むため必要）
+    safe_json = raw.replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026')
+
+    if not _is_debug_mode():
+        _static_import_map_cache[cache_key] = safe_json
+    return safe_json
+
+
+app.jinja_env.globals['static_import_map'] = static_import_map
+
+
 @app.after_request
 def add_cache_headers(response):
     """レスポンスタイプに応じたキャッシュ制御"""
@@ -791,12 +846,25 @@ _cardnames_fuzzy: dict[str, list[str]] = {}   # fuzzy_key → [正式カード�
 _cardnames_reading: dict[str, str] = {}       # 読み仮名 → 正式カード名
 _cardnames_reading_fuzzy: dict[str, str] = {} # 読み仮名(fuzzy_key) → 正式カード名
 _cardnames_loaded = False
+# 排他ロック: 未ロード時に複数スレッドが同時に到達すると全員がJSON読込・辞書構築を
+# 並列実行してしまうため（_ygores_index_lock と同じ設計）、最初の1スレッドだけが
+# 構築し他は待つ
+_cardnames_lock = threading.Lock()
 
 def _load_cardnames():
     """data/cardnames_ja.json と reading マップをメモリに読み込む"""
     global _cardnames, _cardnames_set, _cardnames_fuzzy, _cardnames_reading, _cardnames_reading_fuzzy, _cardnames_loaded
     if _cardnames_loaded:
         return
+    with _cardnames_lock:
+        # ロック待ちの間に他スレッドが構築済みなら再利用
+        if _cardnames_loaded:
+            return
+        _load_cardnames_locked()
+
+def _load_cardnames_locked():
+    """_load_cardnames のロック内本体（ダブルチェックロックのため分離）"""
+    global _cardnames, _cardnames_set, _cardnames_fuzzy, _cardnames_reading, _cardnames_reading_fuzzy, _cardnames_loaded
     base = os.path.dirname(__file__)
     cardnames_path = os.path.join(base, "data", "cardnames_ja.json")
     reading_path = os.path.join(base, "data", "cardnames_reading.json")
@@ -4805,6 +4873,10 @@ _CACHE_WARMER_MARGIN_SEC = 300  # TTLのこの秒数手前で裏更新をかけ�
 # レビュー指摘（High・2026-09-22）: 裏更新が失敗してもcache_timeは進まないため、
 # バックオフ無しだと（特にtop-decksの最大65秒の外部取得を）60秒ごとに永久リトライしてしまう。
 _CACHE_WARMER_FAIL_BACKOFF_SEC = 600  # 直近の失敗からこの秒数は同じキャッシュの裏更新を試みない　# TODO: calibrate from data
+# top-decksプリロード前に相場キャッシュ(_estimate_cache)のロード完了を待つ上限秒数。
+# 本番実測ではブート後7秒程度で完了するため30秒あれば十分に余裕がある値。
+# 実測値そのものではなく安全マージンを含めた仮置きのため校正対象として残す
+_CACHE_WARMER_ESTIMATE_WAIT_SEC = 30  # TODO: calibrate from data（本番実測: 相場キャッシュ完了はブート後7秒）
 
 _cache_warmer_lock_path = os.path.join(os.path.dirname(__file__), ".cache", "startup_cache_warmer.lock")
 
@@ -4849,7 +4921,20 @@ def _cache_warmer():
             logger.info("cache_warmer: ロックを取得しました")
             time.sleep(10)  # Supabase接続確立・他の起動時プリロードと重ならないよう少し待つ  # TODO: calibrate from data
 
-            # 初回プリロード（top-decksは外部スクレイプで重いため最後）
+            # 初回プリロード（top-decksは外部スクレイプで重いため最後）。
+            # ローカルI/O（カード名辞書）を先に、ネットワーク取得（YGOResources索引）を
+            # 後にする（2026-09-22 reviewer指摘: ネットワーク待ちでローカルI/Oの完了が
+            # 遅れるのを避けるため）
+            try:
+                _load_cardnames()
+                logger.info("カード名データベースをプリロードしました")
+            except Exception as e:
+                logger.warning(f"カード名データベースプリロード失敗: {e}")
+            try:
+                _get_ygores_name_index()
+                logger.info("YGOResources名前インデックスをプリロードしました")
+            except Exception as e:
+                logger.warning(f"YGOResources名前インデックスプリロード失敗: {e}")
             try:
                 _get_top_movers_cached(None)
                 logger.info("価格推移ランキング(全体)をプリロードしました")
@@ -4865,6 +4950,15 @@ def _cache_warmer():
                 logger.info("最安値ランキング(GMR)をプリロードしました")
             except Exception as e:
                 logger.warning(f"最安値ランキング(GMR)プリロード失敗: {e}")
+            # top-decksは相場キャッシュ(_estimate_cache)未ロードだと計算をスキップし、
+            # warmerは「既存キャッシュがある時だけ」裏更新する設計のため、ここで初回が
+            # 空振りすると次のユーザーが重い取得を被ってしまう。相場キャッシュの
+            # 別スレッドロード（起動時に開始済み）完了を最大30秒待ってから進む
+            wait_start = time.time()
+            while _estimate_cache_time == 0 and time.time() - wait_start < _CACHE_WARMER_ESTIMATE_WAIT_SEC:
+                time.sleep(1)
+            if _estimate_cache_time == 0:
+                logger.warning(f"cache_warmer: 相場キャッシュのロード待機が{_CACHE_WARMER_ESTIMATE_WAIT_SEC}秒を超えました。top-decksプリロードは未ロードのまま進みます")
             try:
                 _get_top_decks_cached()
                 logger.info("環境デッキランキングをプリロードしました")
