@@ -5,6 +5,11 @@ let D=[],sort={k:'price',a:true},rarityFilter='',cardImgUrl='',cardImgSmall='',_
 const TABLE_PAGE_SIZE=20; // F-11: 一覧の既定表示件数（もっと見るの増分）。散在していたマジックナンバー20を集約
 let tableShowCount=TABLE_PAGE_SIZE; // B-4: 一覧の既定表示件数（20行+もっと見る）
 
+// 検索中・詳細表示中は紹介文を畳み、結果に画面を使う。
+// DOMの置換や監視ではなく、検索の状態遷移から明示的に切り替える。
+function _setSearchLayout(hasResult){
+  document.getElementById('mode-search').classList.toggle('has-search-result',hasResult);
+}
 
 // ── アフィリエイトリンク変換 ──
 let _affConfig={};
@@ -146,6 +151,7 @@ function _setPriceSectionsVisible(visible){
 function _normalizeBreaks(text){return String(text??'').replace(/<br\s*\/?>/gi,'\n');}
 
 function showUnreleasedCard(name){
+  _setSearchLayout(true);
   // 世代管理: selectSugの未発売分岐はdoSearchを通らず世代が進まないため、稼働中の
   // 販売検索ストリームがあればここで明示的に破棄する（そのままだと後から届くdoneが
   // この未発売カードの見出しの下に前のカードの価格表を描いてしまう）
@@ -385,6 +391,7 @@ function doSearch(opts){
   _ga('search_submit',{mode:'sell',trigger:trigger});
   const btn=document.getElementById('btn');
   btn.disabled=true;btn.textContent='検索中...';
+  _setSearchLayout(true);
   document.getElementById('results').classList.add('hidden');
   document.getElementById('empty').classList.add('hidden');
   document.getElementById('emptyError').classList.add('hidden');  // Q-10: 前回のエラー表示を消す
@@ -440,6 +447,7 @@ function doSearch(opts){
     const _errEl=document.getElementById('emptyError');
     _errEl.textContent='検索がタイムアウトしました。再度お試しください。';
     _errEl.classList.remove('hidden');
+    _setSearchLayout(!document.getElementById('results').classList.contains('hidden'));
   }
   _searchTimeoutId=setTimeout(_searchTimeoutFail,60000);
   let partialShown=false;
@@ -485,6 +493,7 @@ function doSearch(opts){
       _currentCardName=document.getElementById('q').value.trim();
       renderAll(d);
       btn.disabled=false;btn.textContent='検索';
+      _setSearchLayout(d.total>0);
       setTimeout(()=>{prog.style.display='none';},1200);
     }
   };
@@ -497,6 +506,7 @@ function doSearch(opts){
     const _errEl2=document.getElementById('emptyError');
     _errEl2.textContent='エラーが発生しました。再度お試しください。';
     _errEl2.classList.remove('hidden');
+    _setSearchLayout(!document.getElementById('results').classList.contains('hidden'));
   };
 }
 // ── Autocomplete ──
@@ -579,13 +589,19 @@ function selectSug(name,unreleased){
 function closeSuggest(){sugDrop.classList.remove('open');sugIdx=-1;sugItems=[];}
 
 function renderAll(d){
+  _setSearchLayout(d.total>0);
   document.getElementById('results').classList.remove('hidden');
   const searchTerm0=document.getElementById('q').value.trim();
   // S-2: /buy/<カード名>からの検索は/buy/のURLのまま保つ（'buyback'指定時はプレフィックスが
   // 既に一致しておりpushStateされないため実質no-op。フラグは_maybeOpenBuyInlineOnLoadで消費する前に読む）
   if(d.total>0) _updateUrl(searchTerm0,_pendingBuyInlineOpen?'buyback':'search');
   if(d.total===0){
-    document.getElementById('results').innerHTML='<div class="empty"><p>該当するカードが見つかりませんでした</p></div>';
+    // 0件でも詳細・比較表のDOMを保持し、次の検索で再利用する。
+    document.getElementById('results').classList.add('hidden');
+    document.getElementById('empty').classList.remove('hidden');
+    const emptyError=document.getElementById('emptyError');
+    emptyError.textContent='該当するカードが見つかりませんでした';
+    emptyError.classList.remove('hidden');
     _maybeOpenBuyInlineOnLoad(); // 0件でも次回の検索に持ち越さない
     return;
   }
@@ -607,8 +623,8 @@ function renderAll(d){
       在庫あり ${d.in_stock_count}件 / 売切 ${d.sold_out_count}件 / 計 ${d.total}件<br>
       レアリティ: ${[...new Set(D.map(r=>r.rarity).filter(Boolean))].length}種類
     </div>
-    <!-- 2026-09-04: 既定で開く（B-2 のスマホ縦長対策で畳んでいたが、PC でも隠れて読めないため全幅で開く裁定） -->
-    <details class="card-info-details" id="cardDetailDetails" open hidden>
+    <!-- 価格比較を先に見せ、効果テキストは必要なときに開く。未発売カードは従来どおり開く。 -->
+    <details class="card-info-details" id="cardDetailDetails" hidden>
       <summary>カード情報（効果テキスト）</summary>
       <div id="cardDetail" class="card-detail"></div>
     </details>
@@ -1595,6 +1611,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if(document.getElementById('q').value.trim()===''&&!results.classList.contains('hidden')){
       results.classList.add('hidden');
       document.getElementById('empty').classList.remove('hidden');
+      _setSearchLayout(false);
     }
   });
 
@@ -1702,11 +1719,12 @@ function switchMode(mode, trigger){
     _ga('mode_switch',{mode:mode,from_mode:_currentMode,trigger:trigger,scroll_pct:_scrollPct()});
   }
   _currentMode=mode;
-  const labels={search:'価格',mydeck:'マイデッキ',meta:'環境デッキ',packs:'最新弾'};
   document.querySelectorAll('.mode-tab').forEach(b=>{
-    // 購入候補タブはテキスト先頭で判定（バッジspanが含まれるため）
-    if(mode==='wishlist') b.classList.toggle('active',b.textContent.startsWith('購入候補'));
-    else b.classList.toggle('active',b.textContent===(labels[mode]||mode));
+    // 文言変更や購入候補の件数バッジに依存せず、遷移先をキーに選択状態を同期する。
+    const active=b.dataset.mode===mode;
+    b.classList.toggle('active',active);
+    if(active) b.setAttribute('aria-current','page');
+    else b.removeAttribute('aria-current');
   });
   ['search','mydeck','meta','packs','wishlist'].forEach(m=>{
     document.getElementById('mode-'+m).classList.toggle('hidden',m!==mode);
