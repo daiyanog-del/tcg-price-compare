@@ -21,7 +21,7 @@ def test_navigation_targets_and_unique_ids():
         assert f"switchMode('{mode}'" in button['onclick']
         assert soup.find(id=f'mode-{mode}') is not None
     for element_id in ['wishTabBadge', 'q', 'btn', 'results', 'cardHero', 'heroInfo', 'buyInline',
-                       'topMoversList', 'buybackMoversList', 'ofMoversList', 'searchIntro']:
+                       'topMoversList', 'buybackMoversList', 'ofMoversList']:
         assert len(soup.select(f'#{element_id}')) == 1
 
 

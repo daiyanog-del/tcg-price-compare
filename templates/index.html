@@ -752,11 +752,6 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
   <div id="mode-search"{% if card_name %} class="has-search-result"{% endif %}>
 
   <div class="price-search-area">
-    <div id="searchIntro">
-      <p class="search-eyebrow">遊戯王OCGの価格比較</p>
-      <h2>欲しいカードを、<br class="search-mobile-break">納得の価格で。</h2>
-      <p class="search-description">販売価格と買取価格を、まとめてチェック。</p>
-    </div>
     <div class="price-search-form">
       <label class="price-search-label" for="q">カード名で探す</label>
   <div class="search">
@@ -847,7 +842,6 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
   </div>
 
   <div id="empty" class="empty">
-    <div class="market-heading"><h2>いまの相場をチェック</h2><p>気になるカードから、店舗の価格を比較。</p></div>
     <!-- Q-10: 検索エラー/タイムアウトの表示専用要素。#empty のinnerHTMLを丸ごと
          置き換えると下のランキングDOMごと消えて復帰できなくなるため、ここだけを書き換える -->
     <div id="emptyError" class="movers-fail hidden"></div>

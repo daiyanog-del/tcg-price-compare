@@ -18,12 +18,8 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
 .price-redesign .price-breadcrumb{flex-basis:100%;padding-bottom:12px;overflow-wrap:anywhere}
 /* 変数は価格画面だけで上書きし、他モード本体の色・寸法は保つ。 */
 .price-redesign #mode-search{--bg:#101626;--bg-card:#171f31;--bg-hover:#202c42;--bg-input:#171f31;--border:#2b3549;--text:#eff3fb;--text-m:#a8b4c9;--text-d:#a8b4c9;--gold:#f3ce46;--gold-d:#b69b3d;--accent-l:#aec5ff;--green:#63d3ae}
-.price-search-area{display:grid;grid-template-columns:1fr 1.1fr;align-items:center;gap:32px;padding:40px 0 34px}
-.search-eyebrow{font-size:12px;color:#a8b4c9;margin-bottom:9px}
-#searchIntro h2{font-size:28px;line-height:1.5;letter-spacing:-.6px}
-.search-description{font-size:12px;line-height:1.8;color:#a8b4c9;margin-top:9px}
-.search-mobile-break{display:none}
-.price-search-form{min-width:0}
+.price-search-area{padding:22px 0}
+.price-search-form{min-width:0;max-width:660px}
 .price-search-label{display:block;color:#a8b4c9;font-size:12px;margin-bottom:9px}
 #mode-search .search{max-width:none;margin:0;flex-direction:row;gap:6px;background:var(--bg-card);border:1px solid var(--border);border-radius:7px;padding:5px}
 #mode-search .search input{min-width:0;width:0;border:0;background:none;box-shadow:none;padding:10px;font-size:14px;border-radius:3px}
@@ -32,14 +28,8 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
 #mode-search .search button:disabled{background:#2b3549;color:#a8b4c9}
 #mode-search .search:focus-within{border-color:#f3ce46}
 #mode-search .suggest-dropdown{right:0;margin-top:4px}
-#mode-search.has-search-result #searchIntro{display:none}
-#mode-search.has-search-result .price-search-area{display:block;padding:22px 0}
-#mode-search.has-search-result .price-search-form{max-width:660px}
 #mode-search.has-search-result .price-search-label{display:none}
 #mode-search .empty{padding:0;text-align:left}
-.market-heading{display:flex;justify-content:space-between;gap:8px 20px;align-items:baseline;flex-wrap:wrap;margin-bottom:18px}
-.market-heading h2{font-size:18px;letter-spacing:-.4px}
-.market-heading p{font-size:11px;color:#a8b4c9}
 #mode-search .movers-row{grid-template-columns:1fr;gap:20px;max-width:none}
 #mode-search .movers-row>.movers{max-width:none;min-width:0;width:100%;margin:0;background:var(--bg-card);border:1px solid var(--border);border-radius:9px;overflow:hidden}
 .market-panel-title{font-size:15px;font-weight:700;padding:18px 16px 12px}
@@ -108,12 +98,8 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
  .price-redesign .mode-tabs .nav-wishlist.active{border-color:#f3ce46}
  .price-redesign .brand-header-icon{height:34px}
  .price-redesign .brand-name{font-size:25px}
- .price-search-area{grid-template-columns:1fr;gap:20px;padding:28px 0}
- #searchIntro h2{font-size:25px}
- .search-mobile-break{display:block}
  #mode-search .search input{font-size:16px;padding:8px}
  #mode-search .search button{padding-inline:16px}
- .market-heading{margin-bottom:14px}
  #mode-search .card-hero{gap:14px;margin-bottom:20px}
  #mode-search .card-hero-img{width:90px}
  #mode-search .card-hero-name{font-size:18px;margin-bottom:7px}
