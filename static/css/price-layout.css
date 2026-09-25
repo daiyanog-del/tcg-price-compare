@@ -1,0 +1,139 @@
+/* 承認済み見本の価格比較画面。共通変更は背景とヘッダーに限定する。 */
+body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
+.price-redesign> .wrap>header{display:flex;align-items:center;flex-wrap:wrap;gap:0 28px;padding:20px 0 0;text-align:left;border-bottom:1px solid #2b3549;margin-bottom:0}
+.price-redesign header h1{flex-shrink:0;margin-bottom:16px}
+.price-redesign .brand-header-inner{gap:9px}
+.price-redesign .brand-header-icon{height:40px}
+.price-redesign .brand-name{font-size:28px}
+.price-redesign .brand-g{color:#f3ce46}
+.price-redesign .brand-beta{font-size:10px}
+.price-redesign .brand-tagline{font-size:8px;letter-spacing:1px;color:#a8b4c9}
+.price-redesign .mode-tabs{display:flex;align-items:center;flex:1;align-self:stretch;max-width:none;gap:18px;margin:0;justify-content:flex-start;flex-wrap:nowrap}
+.price-redesign .mode-tab,.price-redesign .header-solo-link{display:inline-flex;align-items:center;justify-content:center;position:static;flex:0 0 auto;min-width:0;min-height:50px;margin:0;padding:8px 0 18px;border:0;border-bottom:2px solid transparent;border-radius:0;background:none;box-shadow:none;color:#a8b4c9;font:700 12px var(--font);white-space:nowrap;text-decoration:none}
+.price-redesign .mode-tab:hover,.price-redesign .header-solo-link:hover{color:#eff3fb;background:none;border-color:transparent}
+.price-redesign .mode-tab.active{color:#eff3fb;border-bottom-color:#f3ce46;background:none;box-shadow:none}
+.price-redesign .header-solo-link::after{display:none}
+.price-redesign .nav-wishlist{margin-left:auto}
+.price-redesign .wish-badge{background:#2b3549;color:#eff3fb}
+.price-redesign .price-breadcrumb{flex-basis:100%;padding-bottom:12px;overflow-wrap:anywhere}
+/* 変数は価格画面だけで上書きし、他モード本体の色・寸法は保つ。 */
+.price-redesign #mode-search{--bg:#101626;--bg-card:#171f31;--bg-hover:#202c42;--bg-input:#171f31;--border:#2b3549;--text:#eff3fb;--text-m:#a8b4c9;--text-d:#a8b4c9;--gold:#f3ce46;--gold-d:#b69b3d;--accent-l:#aec5ff;--green:#63d3ae}
+.price-search-area{display:grid;grid-template-columns:1fr 1.1fr;align-items:center;gap:32px;padding:40px 0 34px}
+.search-eyebrow{font-size:12px;color:#a8b4c9;margin-bottom:9px}
+#searchIntro h2{font-size:28px;line-height:1.5;letter-spacing:-.6px}
+.search-description{font-size:12px;line-height:1.8;color:#a8b4c9;margin-top:9px}
+.search-mobile-break{display:none}
+.price-search-form{min-width:0}
+.price-search-label{display:block;color:#a8b4c9;font-size:12px;margin-bottom:9px}
+#mode-search .search{max-width:none;margin:0;flex-direction:row;gap:6px;background:var(--bg-card);border:1px solid var(--border);border-radius:7px;padding:5px}
+#mode-search .search input{min-width:0;width:0;border:0;background:none;box-shadow:none;padding:10px;font-size:14px;border-radius:3px}
+#mode-search .search button{width:auto;min-height:44px;padding:10px 20px;box-shadow:none;background:#f3ce46;color:#242013;border-radius:4px;font-size:14px}
+#mode-search .search button:hover{background:#ffe16d}
+#mode-search .search button:disabled{background:#2b3549;color:#a8b4c9}
+#mode-search .search:focus-within{border-color:#f3ce46}
+#mode-search .suggest-dropdown{right:0;margin-top:4px}
+#mode-search.has-search-result #searchIntro{display:none}
+#mode-search.has-search-result .price-search-area{display:block;padding:22px 0}
+#mode-search.has-search-result .price-search-form{max-width:660px}
+#mode-search.has-search-result .price-search-label{display:none}
+#mode-search .empty{padding:0;text-align:left}
+.market-heading{display:flex;justify-content:space-between;gap:8px 20px;align-items:baseline;flex-wrap:wrap;margin-bottom:18px}
+.market-heading h2{font-size:18px;letter-spacing:-.4px}
+.market-heading p{font-size:11px;color:#a8b4c9}
+#mode-search .movers-row{grid-template-columns:1fr;gap:20px;max-width:none}
+#mode-search .movers-row>.movers{max-width:none;min-width:0;width:100%;margin:0;background:var(--bg-card);border:1px solid var(--border);border-radius:9px;overflow:hidden}
+.market-panel-title{font-size:15px;font-weight:700;padding:18px 16px 12px}
+#mode-search .movers-tabs{justify-content:flex-start;margin:0 16px 10px;gap:0}
+#mode-search .movers-tab{min-height:36px;padding:7px 12px;font-size:12px;background:none;color:var(--text-m);border-color:var(--border)}
+#mode-search .movers-tab.active{color:var(--text);background:#2b3549;border-color:#46526a}
+#mode-search .movers-period{text-align:left;margin:0;padding:0 16px 14px;min-height:30px;font-size:11px;line-height:1.6}
+#mode-search .of-tabs-row{display:flex;flex-direction:column;align-items:flex-start;gap:0;margin:0}
+#mode-search .of-tabs-row .movers-tabs{margin-bottom:8px}
+#mode-search #ofMoversDirTabs .movers-tab{padding:5px 14px;min-height:30px}
+#mode-search .movers-list{gap:0}
+#mode-search .movers-item{display:grid;grid-template-columns:18px 38px minmax(0,1fr);gap:5px 9px;padding:15px 16px;background:none;border:0;border-top:1px solid var(--border);border-radius:0;min-width:0;transform:none;transition:background .15s}
+#mode-search .movers-item:hover{background:var(--bg-hover);transform:none}
+#mode-search .movers-rank{grid-column:1;grid-row:1 / 3;min-width:0;font-size:11px;align-self:start;padding-top:3px}
+#mode-search .movers-thumb{grid-column:2;grid-row:1 / 3;align-self:start}
+#mode-search .movers-name{grid-column:3;grid-row:1;gap:5px}
+#mode-search .movers-name-text{font-size:13px;line-height:1.6;font-weight:400;color:var(--text)}
+#mode-search .movers-rarity{line-height:1.5}
+#mode-search .movers-price{grid-column:3;grid-row:2;text-align:left;flex-direction:row;align-items:baseline;flex-wrap:wrap;gap:4px 9px;min-width:0}
+#mode-search .movers-price-now{font-size:17px;line-height:1.5;color:var(--text)}
+#mode-search .movers-diff{font-size:11px}
+#mode-search .movers-diff.down{color:#63d3ae}
+#mode-search .movers-diff.up{color:#ff8f94}
+/* 買取では値上がりが売り手に有利なため、販売と色を反転する。 */
+#mode-search .buyback-diff.up{color:#63d3ae}
+#mode-search .buyback-diff.down{color:#ff8f94}
+/* 詳細は画像より価格情報を主役にする。 */
+#mode-search .card-hero{flex-direction:row;align-items:flex-start;text-align:left;gap:22px;margin-bottom:24px}
+#mode-search .card-hero-img{width:140px;max-width:100%;border-radius:5px}
+#mode-search .card-hero-img>div{max-width:100%}
+#mode-search .card-hero-name{font-size:24px;line-height:1.5;margin-bottom:10px;overflow-wrap:anywhere}
+#mode-search .card-hero-meta{font-size:12px;line-height:1.9}
+#mode-search #heroBest{display:inline-block;margin-bottom:5px}
+#mode-search .card-info-details>summary{color:var(--text-m);min-height:36px;padding:8px 0;font-size:12px}
+#mode-search .card-detail{font-size:12px;line-height:1.8}
+#mode-search .share-btns{justify-content:flex-start;margin-top:12px;gap:8px}
+/* 既存の動的HTMLに残るインライン寸法のみ、タッチ可能な大きさに統一。 */
+#mode-search .share-btns>button{min-height:40px;padding:8px 12px!important;font-size:12px!important;border-color:#46526a!important;color:var(--text)!important}
+#mode-search .share-btns>button[onclick^="wishAdd"]{background:#f3ce46!important;color:#242013!important;border-color:#f3ce46!important}
+#mode-search .share-btn{min-height:40px;align-items:center}
+#mode-search .summary{gap:12px;margin-bottom:20px}
+#mode-search .scard{border-radius:8px;padding:18px;background:var(--bg-card);transform:none}
+#mode-search .scard:hover{transform:none}
+#mode-search .scard.best{background:var(--bg-card);border-color:var(--gold-d)}
+#mode-search .scard .slabel{letter-spacing:0;font-size:12px}
+#mode-search .scard .sprice{font-size:24px}
+#mode-search .scard .sbest-badge{background:#f3ce46;letter-spacing:0}
+#mode-search .price-chart{padding:14px 16px}
+#mode-search .price-chart:not([open])>.chart-title{margin-bottom:0}
+.price-redesign header :focus-visible,#mode-search :focus-visible{outline:2px solid #f3ce46;outline-offset:3px}
+@media(min-width:1024px){#mode-search .movers-row{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:1023px){
+ .price-redesign>.wrap>header{gap:0 18px}
+ .price-redesign header h1{flex-basis:100%;margin-bottom:2px}
+ .price-redesign .mode-tabs{gap:22px}
+ .price-redesign .mode-tab,.price-redesign .header-solo-link{min-height:48px;padding-bottom:10px}
+}
+@media(max-width:640px){
+ .price-redesign>.wrap{padding-inline:16px}
+ .price-redesign>.wrap>header{padding-top:15px}
+ .price-redesign .mode-tabs{flex-wrap:wrap;gap:0 8px;justify-content:space-between}
+ .price-redesign .mode-tab,.price-redesign .header-solo-link{font-size:11px;min-height:44px;padding:10px 0;flex:0 0 auto}
+ /* 購入候補をロゴの横に置き、5つの主導線を1行に収める。 */
+ .price-redesign header h1{padding-right:90px}
+ .price-redesign .mode-tabs .nav-wishlist{position:absolute;top:16px;right:0;min-height:40px;margin-left:0;padding:8px;border:1px solid #2b3549;border-radius:6px}
+ .price-redesign .mode-tabs .nav-wishlist.active{border-color:#f3ce46}
+ .price-redesign .brand-header-icon{height:34px}
+ .price-redesign .brand-name{font-size:25px}
+ .price-search-area{grid-template-columns:1fr;gap:20px;padding:28px 0}
+ #searchIntro h2{font-size:25px}
+ .search-mobile-break{display:block}
+ #mode-search .search input{font-size:16px;padding:8px}
+ #mode-search .search button{padding-inline:16px}
+ .market-heading{margin-bottom:14px}
+ #mode-search .card-hero{gap:14px;margin-bottom:20px}
+ #mode-search .card-hero-img{width:90px}
+ #mode-search .card-hero-name{font-size:18px;margin-bottom:7px}
+ #mode-search .card-hero-meta{font-size:11px}
+ #mode-search .share-btns{gap:6px}
+ #mode-search .share-btns>button{padding:8px!important}
+ #mode-search .share-menu{position:fixed;left:16px;right:16px;top:auto;bottom:20px;transform:none;min-width:0;max-width:none}
+ #mode-search .cdm-row{flex-wrap:wrap}
+ #mode-search .card-detail-print{white-space:normal;flex-shrink:1}
+ #mode-search .summary{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+ #mode-search .scard{padding:13px 11px}
+ #mode-search .scard .sprice{font-size:20px;overflow-wrap:anywhere}
+ #mode-search .scard .sbest-badge{margin:4px 0 0;display:table}
+ #mode-search .scard .sdetail{font-size:11px;overflow-wrap:anywhere}
+ #mode-search .controls{align-items:flex-start;gap:8px}
+ #mode-search .tabs{justify-content:flex-start}
+ #mode-search table.res tbody{gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+ #mode-search table.res tr{border:0;border-bottom:1px solid var(--border);border-radius:0}
+ #mode-search table.res tr:last-child{border-bottom:0}
+}
+@media(prefers-reduced-motion:reduce){
+ .price-redesign header *,#mode-search *,#mode-search *::before,#mode-search *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+}

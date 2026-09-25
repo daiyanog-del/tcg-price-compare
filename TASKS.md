@@ -5,6 +5,8 @@
 
 ## 進行中
 
+- [x] **トップ・カード詳細のデザイン更新（2026-09-25 実装・ローカル検証完了）** — 承認済み見本に沿って共通ナビ、検索、画像付きランキング、カード詳細を整理。販売/買取/OF/GMR・絞り込み等を維持。全870テスト成功。公開反映の確認結果は activeContext を参照。
+
 - [x] **トップページ高速化バッチB（2026-09-22 PR #2 本番済み）** — preload／cache warmer／import map／サムネ束ね＋CLS／solitaire static_url。実測は activeContext 参照
 - [x] **トップページ高速化バッチC（2026-09-22 PR #3 本番済み）** — JS/CSS外部化・起動時温め拡張・一人回し import map。実測は activeContext 参照
 - [ ] **★買取収集 cron の実行欠落を監視する（2026-09-22 発見）** — `tcg-collect-buyback`（Render cron・UTC 0:00）が 09-17〜21 の5日間実行されず（ログに起動痕跡なし・エラーなし）。buyback_history が欠けると買取値動きランキングが 0 件になる。対策案: `monitor.py`/Discord 通知に「buyback_history の当日行数が 0 なら警告」を追加、または collection_runs の日次件数チェック。原因（Render 側のスケジュール不発か）は未特定

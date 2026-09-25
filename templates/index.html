@@ -695,6 +695,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 <link rel="stylesheet" href="{{ static_url('css/deferred.css') }}" media="print" onload="this.media='all'">
 <noscript><link rel="stylesheet" href="{{ static_url('css/deferred.css') }}"></noscript>
 <link rel="stylesheet" href="{{ static_url('mydeck/deck.css') }}">
+<link rel="stylesheet" href="{{ static_url('css/price-layout.css') }}">
 <!-- import map: モジュールから相対importされるファイルを内容ハッシュ付きURLへ写像する
      （静的な相対specifierはstatic_url()を通せないため、ここでブラウザ解決を上書きする）。
      必ず最初のmodule scriptより前に置く -->
@@ -710,10 +711,9 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 }
 </script>
 </head>
-<body{% if self_watermark %} data-self-wm style="--self-watermark-opacity: {{ self_watermark_opacity }}"{% endif %}>
+<body class="price-redesign"{% if self_watermark %} data-self-wm style="--self-watermark-opacity: {{ self_watermark_opacity }}"{% endif %}>
 <div class="wrap">
   <header>
-    {% if enable_solo_play %}<a class="header-solo-link" id="headerSoloLink" href="/solitaire" aria-label="一人回しシミュレータを開く">一人回し ▸</a>{% endif %}
     <h1>
       <a href="/" class="brand-header-link">
         <div class="brand-header-inner">
@@ -728,8 +728,16 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
         </div>
       </a>
     </h1>
+    <nav class="mode-tabs" aria-label="メインナビゲーション">
+      <button class="mode-tab active" data-mode="search" aria-current="page" onclick="switchMode('search','tab')">価格比較</button>
+      <button class="mode-tab" data-mode="meta" onclick="switchMode('meta','tab')">環境デッキ</button>
+      <button class="mode-tab" data-mode="mydeck" onclick="switchMode('mydeck','tab')">マイデッキ</button>
+      {% if enable_solo_play %}<a class="header-solo-link" id="headerSoloLink" href="/solitaire" aria-label="一人回しシミュレータを開く">一人回し</a>{% endif %}
+      <button class="mode-tab" data-mode="packs" onclick="switchMode('packs','tab')">新商品</button>
+      <button class="mode-tab nav-wishlist" data-mode="wishlist" onclick="switchMode('wishlist','tab')">購入候補<span class="wish-badge" id="wishTabBadge" style="display:none">0</span></button>
+    </nav>
     {% if card_name %}
-    <nav style="font-size:.75rem;color:var(--text-d);margin-top:6px">
+    <nav class="price-breadcrumb" aria-label="パンくず" style="font-size:.75rem;color:var(--text-d);margin-top:6px">
       <a href="/" style="color:var(--text-m)">トップ</a> &gt;
       {% if page_mode == 'buyback' %}
       <a href="/buy/{{ card_name | urlencode }}" style="color:var(--text-m)">{{ card_name }} の買取価格比較</a>
@@ -740,21 +748,23 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     {% endif %}
   </header>
 
-  <div class="mode-tabs">
-    <button class="mode-tab active" onclick="switchMode('search','tab')">価格</button>
-    <button class="mode-tab" onclick="switchMode('mydeck','tab')">マイデッキ</button>
-    <button class="mode-tab" onclick="switchMode('meta','tab')">環境デッキ</button>
-    <button class="mode-tab" onclick="switchMode('packs','tab')">最新弾</button>
-    <button class="mode-tab" onclick="switchMode('wishlist','tab')">購入候補<span class="wish-badge" id="wishTabBadge" style="display:none">0</span></button>
-  </div>
-
   <!-- ===== 検索モード ===== -->
-  <div id="mode-search">
+  <div id="mode-search"{% if card_name %} class="has-search-result"{% endif %}>
 
+  <div class="price-search-area">
+    <div id="searchIntro">
+      <p class="search-eyebrow">遊戯王OCGの価格比較</p>
+      <h2>欲しいカードを、<br class="search-mobile-break">納得の価格で。</h2>
+      <p class="search-description">販売価格と買取価格を、まとめてチェック。</p>
+    </div>
+    <div class="price-search-form">
+      <label class="price-search-label" for="q">カード名で探す</label>
   <div class="search">
     <input type="text" id="q" placeholder="カード名を入力（例: ブラック・マジシャン）" autofocus autocomplete="off">
     <button id="btn" onclick="doSearch()">検索</button>
     <div class="suggest-dropdown" id="suggestDrop"></div>
+  </div>
+    </div>
   </div>
 
   <div class="progress" id="prog"></div>
@@ -837,6 +847,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
   </div>
 
   <div id="empty" class="empty">
+    <div class="market-heading"><h2>いまの相場をチェック</h2><p>気になるカードから、店舗の価格を比較。</p></div>
     <!-- Q-10: 検索エラー/タイムアウトの表示専用要素。#empty のinnerHTMLを丸ごと
          置き換えると下のランキングDOMごと消えて復帰できなくなるため、ここだけを書き換える -->
     <div id="emptyError" class="movers-fail hidden"></div>
@@ -844,6 +855,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     <div class="movers-row">
       <!-- N-2: 価格推移ランキング（共通店舗ガードのみ・最安¥1,000以上） -->
       <div id="topMoversSection" class="movers hidden">
+        <h3 class="market-panel-title">販売価格</h3>
         <div class="movers-tabs">
           <button class="movers-tab" onclick="switchTopMovers('up')">値上がり</button>
           <button class="movers-tab active" onclick="switchTopMovers('down')">値下がり</button>
@@ -855,6 +867,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
       <!-- S-1: 買取価格タブ廃止に伴い、買取の値上がり/値下がりランキングだけをここへ移設
            （既存実装をそのまま移設。販売/買取の1ウィジェット統合はしない） -->
       <div id="buybackMoversSection" class="movers hidden">
+        <h3 class="market-panel-title">買取価格</h3>
         <div class="movers-tabs">
           <button class="movers-tab active" onclick="switchBuybackMovers('up')">買取UP</button>
           <button class="movers-tab" onclick="switchBuybackMovers('down')">買取DOWN</button>
@@ -868,6 +881,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
            OF側だけ2段目タブ(値上がり/値下がり)を出す。
            配置は既存2つ（価格推移・買取）の後ろ＝3番目（ユーザー裁定A・2026-09-04） -->
       <div id="ofMoversSection" class="movers hidden">
+        <h3 class="market-panel-title">高レアリティ</h3>
         <!-- 2026-09-04: 方向タブを1段目の右側に詰めて他2枚と一覧の開始位置を揃える。
              4つ並べると本番実測で451px（枠343px）に収まらないため、方向は「上昇/下落」の短い表記＋余白を詰める -->
         <div class="of-tabs-row">
