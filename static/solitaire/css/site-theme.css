@@ -59,3 +59,5 @@ select:focus-visible,.deck-card-row:focus-visible{outline:2px solid #f3ce46;outl
 /* 横向き案内も明色背景と濃色文字の組み合わせにそろえる。 */
 .sol-landscape-hint{background:#f3ce46;color:#242013}
 .sol-landscape-hint span,.sol-landscape-hint-close{color:#242013}
+/* 手札・墓地・除外・EXは背景で区別する。枠幅は保ち、配置と当たり判定を維持。 */
+.sol-hand-area,.side-slots-container>.sol-side-area,#imagePool2{border-color:transparent}
