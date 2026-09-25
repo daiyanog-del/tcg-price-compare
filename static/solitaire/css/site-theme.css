@@ -61,3 +61,28 @@ select:focus-visible,.deck-card-row:focus-visible{outline:2px solid #f3ce46;outl
 .sol-landscape-hint span,.sol-landscape-hint-close{color:#242013}
 /* 手札・墓地・除外・EXは背景で区別する。枠幅は保ち、配置と当たり判定を維持。 */
 .sol-hand-area,.side-slots-container>.sol-side-area,#imagePool2{border-color:transparent}
+/* 領域は背景で分け、通常時の囲み線は置かない。枠幅は維持する。 */
+#imagePool,.custom-slot,.custom-slot[data-slot="9"],#free-space .side-slot,
+.opp-slot,.opp-slot.filled,.cip-effect,.cip-price,.sol-footer,.sol-toast,
+.sol-fb-dialog,.sol-fb-header,.sol-fb-footer,.pc-share-divider,
+.sol-recommend-badge,.opp-search-suggest{border-color:transparent}
+/* ホバー時もマスを線で囲まず、面の変化で置き場所を示す。 */
+.custom-slot:hover,.opp-slot:hover{border-color:transparent;background-color:#202c42}
+/* 通常操作の外枠を面へ置換。選択・危険操作・録画状態は対象外。 */
+.sol-cip-toggle,.sol-panel-toggle,.sol-sidebar-actions button,
+.replay-btn:not(.replay-btn-danger):not(.play-active):not(.active):not(#pcRecordBtn),
+.cip-price-link,.sol-random-btn,.sol-feedback-open-btn,.sol-fb-cancel,
+.opp-preset-chip{border-color:transparent}
+.sol-random-btn:hover,.sol-feedback-open-btn:hover,.opp-preset-chip:hover{
+  background-color:#202c42;border-color:transparent;
+}
+@media(max-width:768px){
+  .sol-mobile-bar,.sol-mobile-replay-strip,.sol-mobile-cip-panel,
+  .sol-mobile-action-sheet,.sol-mobile-sheet-panel,.sol-mobile-sheet-header,
+  .sol-mobile-deck-sheet-panel,.sol-mobile-share-section,.sol-mobile-saved-replay-row,
+  .sol-mobile-saved-replay-menu,.sol-ops-details.sol-mobile-help-open,
+  #solSidebar.sol-sheet-open,#opponentTray.sol-opp-sheet-open{border-color:transparent}
+  .sol-mobile-bar-btn:not(.sol-mobile-record-btn),.sol-mobile-play-deck-badge,
+  .sol-mobile-action-detail-btn,.sol-mobile-action-btn,.sol-mobile-menu-item,
+  .sol-mobile-saved-replay-more,.sol-mobile-saved-replay-menu button{border-color:transparent}
+}
