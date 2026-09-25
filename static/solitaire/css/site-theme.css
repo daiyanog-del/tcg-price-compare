@@ -1,0 +1,61 @@
+/* 全ページ共通の配色。一人回しの配置・寸法・枠幅は変更しない。 */
+:root {
+  --main-color:#eff3fb;
+  --bg-color:#101626;
+  --bg-card:#171f31;
+  --bg-surface:#141c2c;
+  --accent:#aec5ff;
+  --accent-hover:#d0ddff;
+  --gold:#f3ce46;
+  --green:#63d3ae;
+  --red:#ff8f94;
+  --border:#2b3549;
+}
+.sol-sidebar,.sol-right-panel{background:#141c2c;border-color:transparent}
+.sol-sidebar-section,.sol-right-section,.sol-neuron-section,.sol-neuron-divider,
+.replay-bar,.deck-card-row{border-color:transparent}
+.sol-sidebar-links{background:transparent}
+.sol-sidebar-links a{color:#a8b4c9}
+.sol-sidebar-links a.active{color:#eff3fb;border-left-color:#f3ce46}
+.sol-sidebar-links a:hover,.deck-input-tab:hover,.deck-card-row:hover,
+.deck-card-row:focus-visible{background:#202c42;color:#eff3fb}
+.deck-input-tab{color:#a8b4c9}
+.deck-input-tab.active{background:#202c42;border-color:transparent;color:#f3ce46}
+.sol-right-heading,.sol-sidebar-heading,.pool-label,.center-slot-label,
+.side-slot-label,.left-rectangle-label,.deck-card-date,.deck-card-hint,
+.sol-upload-note,.sol-sidebar-explain,.sol-sidebar-explain p,.sol-ops-desc,
+.replay-counter,.sol-cip-toggle,.sol-panel-toggle{color:#a8b4c9}
+.sol-panel-toggle{border-color:#2b3549}
+/* 主操作だけを黄色で強調する。通常操作と危険操作の識別は維持する。 */
+.deck-load-btn,.draw-btn,.sol-mobile-deck-primary-btn,.replay-share-btn{
+  background:#f3ce46;color:#242013;border-color:transparent;box-shadow:none;
+}
+.deck-load-btn:hover,.draw-btn:hover,.sol-mobile-deck-primary-btn:hover,
+.replay-share-btn:hover{background:#ffe16d;color:#242013}
+.save-btn,.load-btn,.reset-btn{background:#202c42;color:#eff3fb;border-color:transparent}
+.save-btn:hover,.load-btn:hover,.reset-btn:hover{background:#2b3549;color:#eff3fb}
+.sol-cip-toggle:hover,.sol-panel-toggle:hover,
+.replay-btn.play-active,.replay-speed-btn.active{background:#f3ce46;color:#242013;border-color:transparent}
+.sol-nav-title .nav-brand{color:#eff3fb}
+.sol-nav-title .nav-brand .nav-g{color:#f3ce46}
+/* 既存の明色背景＋白文字を避け、操作中の状態を明瞭にする。 */
+.mydeck-goto-neuron,.sol-ext-link,.sol-ops-key{background:#202c42;border-color:transparent;color:#aec5ff}
+button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
+select:focus-visible,.deck-card-row:focus-visible{outline:2px solid #f3ce46;outline-offset:2px}
+/* 枠は透明化だけにとどめるため、盤面の計測値やドラッグ領域は変わらない。 */
+.modal-content,.save-load-modal,.image-browser-modal{border-color:transparent!important}
+@media(max-width:768px){
+  .sol-mobile-toolbar,.sol-mobile-sheet-header,.sol-mobile-deck-actions{border-color:transparent}
+}
+
+.opp-tray,.opp-tray:not(.collapsed) .opp-tray-toggle,.sol-card-info-panel{border-color:transparent}
+.opp-tray-toggle,.opp-tray-toggle span,.cip-empty,.sol-token-hint{color:#a8b4c9}
+.sol-fb-submit,#solMobileEmptyCta{background:#f3ce46;color:#242013}
+.sol-fb-submit:hover,#solMobileEmptyCta:hover{background:#ffe16d;color:#242013}
+@keyframes solDeckBtnPulse {
+  0%,100%{box-shadow:none}
+  50%{box-shadow:0 0 0 3px #f3ce46;background:#f3ce46;color:#242013}
+}
+/* 横向き案内も明色背景と濃色文字の組み合わせにそろえる。 */
+.sol-landscape-hint{background:#f3ce46;color:#242013}
+.sol-landscape-hint span,.sol-landscape-hint-close{color:#242013}

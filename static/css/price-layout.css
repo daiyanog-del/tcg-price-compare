@@ -1,4 +1,4 @@
-/* 承認済み見本の価格比較画面。共通変更は背景とヘッダーに限定する。 */
+/* 価格比較画面と共通ヘッダー。全モードの配色・部品は site-theme.css で統一する。 */
 body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
 .price-redesign> .wrap>header{display:flex;align-items:center;flex-wrap:wrap;gap:0 28px;padding:20px 0 0;text-align:left;border-bottom:1px solid #2b3549;margin-bottom:0}
 .price-redesign header h1{flex-shrink:0;margin-bottom:16px}
@@ -16,7 +16,7 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
 .price-redesign .nav-wishlist{margin-left:auto}
 .price-redesign .wish-badge{background:#2b3549;color:#eff3fb}
 .price-redesign .price-breadcrumb{flex-basis:100%;padding-bottom:12px;overflow-wrap:anywhere}
-/* 変数は価格画面だけで上書きし、他モード本体の色・寸法は保つ。 */
+/* 価格画面固有の変数。共通の色は site-theme.css と揃える。 */
 .price-redesign #mode-search{--bg:#101626;--bg-card:#171f31;--bg-hover:#202c42;--bg-input:#171f31;--border:#2b3549;--text:#eff3fb;--text-m:#a8b4c9;--text-d:#a8b4c9;--gold:#f3ce46;--gold-d:#b69b3d;--accent-l:#aec5ff;--green:#63d3ae}
 .price-search-area{padding:22px 0}
 .price-search-form{min-width:0;max-width:660px}
@@ -31,7 +31,7 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
 #mode-search.has-search-result .price-search-label{display:none}
 #mode-search .empty{padding:0;text-align:left}
 #mode-search .movers-row{grid-template-columns:1fr;gap:20px;max-width:none}
-#mode-search .movers-row>.movers{max-width:none;min-width:0;width:100%;margin:0;background:var(--bg-card);border:1px solid var(--border);border-radius:9px;overflow:hidden}
+#mode-search .movers-row>.movers{max-width:none;min-width:0;width:100%;margin:0;background:var(--bg-card);border:0;border-radius:8px;overflow:hidden}
 .market-panel-title{font-size:15px;font-weight:700;padding:18px 16px 12px}
 #mode-search .movers-tabs{justify-content:flex-start;margin:0 16px 10px;gap:0}
 #mode-search .movers-tab{min-height:36px;padding:7px 12px;font-size:12px;background:none;color:var(--text-m);border-color:var(--border)}
@@ -41,15 +41,16 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
 #mode-search .of-tabs-row .movers-tabs{margin-bottom:8px}
 #mode-search #ofMoversDirTabs .movers-tab{padding:5px 14px;min-height:30px}
 #mode-search .movers-list{gap:0}
-#mode-search .movers-item{display:grid;grid-template-columns:18px 38px minmax(0,1fr);gap:5px 9px;padding:15px 16px;background:none;border:0;border-top:1px solid var(--border);border-radius:0;min-width:0;transform:none;transition:background .15s}
+#mode-search .movers-item{display:grid;grid-template-columns:18px 38px minmax(0,1fr) auto;align-items:center;gap:8px;padding:14px 12px;background:none;border:0;border-radius:0;min-width:0;transform:none;transition:background .15s}
 #mode-search .movers-item:hover{background:var(--bg-hover);transform:none}
-#mode-search .movers-rank{grid-column:1;grid-row:1 / 3;min-width:0;font-size:11px;align-self:start;padding-top:3px}
-#mode-search .movers-thumb{grid-column:2;grid-row:1 / 3;align-self:start}
+#mode-search .movers-rank{grid-column:1;grid-row:1;min-width:0;font-size:11px}
+#mode-search .movers-thumb{grid-column:2;grid-row:1}
 #mode-search .movers-name{grid-column:3;grid-row:1;gap:5px}
 #mode-search .movers-name-text{font-size:13px;line-height:1.6;font-weight:400;color:var(--text)}
 #mode-search .movers-rarity{line-height:1.5}
-#mode-search .movers-price{grid-column:3;grid-row:2;text-align:left;flex-direction:row;align-items:baseline;flex-wrap:wrap;gap:4px 9px;min-width:0}
-#mode-search .movers-price-now{font-size:17px;line-height:1.5;color:var(--text)}
+#mode-search .movers-rarity .rb{white-space:normal;overflow-wrap:anywhere;font-size:10px}
+#mode-search .movers-price{grid-column:4;grid-row:1;text-align:right;flex-direction:column;align-items:flex-end;gap:4px;min-width:0;max-width:112px;font-variant-numeric:tabular-nums}
+#mode-search .movers-price-now{font-size:15px;line-height:1.5;white-space:nowrap;color:var(--text)}
 #mode-search .movers-diff{font-size:11px}
 #mode-search .movers-diff.down{color:#63d3ae}
 #mode-search .movers-diff.up{color:#ff8f94}
@@ -100,6 +101,10 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
  .price-redesign .brand-name{font-size:25px}
  #mode-search .search input{font-size:16px;padding:8px}
  #mode-search .search button{padding-inline:16px}
+ #mode-search .movers-item{grid-template-columns:14px 32px minmax(0,1fr) auto;gap:6px}
+ #mode-search .movers-thumb{width:32px;height:45px}
+ #mode-search .movers-price{max-width:104px}
+ #mode-search .movers-name-text{font-size:12px}
  #mode-search .card-hero{gap:14px;margin-bottom:20px}
  #mode-search .card-hero-img{width:90px}
  #mode-search .card-hero-name{font-size:18px;margin-bottom:7px}
@@ -116,8 +121,8 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
  #mode-search .scard .sdetail{font-size:11px;overflow-wrap:anywhere}
  #mode-search .controls{align-items:flex-start;gap:8px}
  #mode-search .tabs{justify-content:flex-start}
- #mode-search table.res tbody{gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden}
- #mode-search table.res tr{border:0;border-bottom:1px solid var(--border);border-radius:0}
+ #mode-search table.res tbody{gap:10px;border:0;border-radius:8px;overflow:hidden}
+ #mode-search table.res tr{border:0;border-radius:8px}
  #mode-search table.res tr:last-child{border-bottom:0}
 }
 @media(prefers-reduced-motion:reduce){

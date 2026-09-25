@@ -1,0 +1,93 @@
+/* 全モード共通。入力・選択・ドラッグの目印は残し、情報の枠と行罫線をなくす。 */
+body.price-redesign {
+  --bg:#101626; --bg-card:#171f31; --bg-hover:#202c42; --bg-input:#171f31;
+  --border:#2b3549; --border-hl:#f3ce46;
+  --text:#eff3fb; --text-m:#a8b4c9; --text-d:#a8b4c9;
+  --accent:#f3ce46; --accent-l:#aec5ff; --gold:#f3ce46; --gold-d:#b69b3d;
+  --green:#63d3ae; --radius:8px;
+  --color-bg:#101626; --color-panel:#171f31;
+  --color-text-primary:#eff3fb; --color-text-secondary:#a8b4c9; --color-text-tertiary:#a8b4c9;
+}
+.price-redesign :focus-visible {outline:2px solid #f3ce46;outline-offset:3px}
+.price-redesign>.wrap>header,.price-redesign .site-footer {border:0}
+.price-redesign :is(#mode-meta,#mode-mydeck,#mode-packs,#mode-wishlist) {padding-top:22px}
+
+/* 面の濃淡でまとめ、カードや明細を一つずつ囲まない。 */
+.price-redesign :is(.scard,.scard.best,.tbl-wrap,.price-chart,.ritem,.trending-item,
+ .meta-deck-detail,.meta-deck-btn,.meta-card-chip,.pack-card-item,
+ .deck-total,.deck-card-row,.deck-counter-bar,.deck-import-details,.deck-calc,
+ .neuron-hint,.deck-share-area,.saved-deck-card-btn,.deck-added-row,
+ .wish-card-row,.wish-shop-ranking,.wish-shop-row,.push-notify-box,
+ .wish-shop-split-hint,.wish-split-detail,.fmx-scroll,.legal-modal) {border:0;border-radius:8px}
+.price-redesign :is(.suggest-item,.deck-suggest-item,.meta-deck-sep,
+ .import-method,.neuron-hint-method-row,.deck-import-details[open]>summary,
+ .wish-shop-detail,.wish-shop-detail-row,.wish-shop-detail-ship,.wish-split-shop-head,
+ .cip-effect,.cip-price,.legal-modal-head,.legal-modal-body h3) {border:0}
+.price-redesign .neuron-hint-method-row+.neuron-hint-method-row {border-top:0}
+.price-redesign .deck-grid-cell:not(.error):not(.drag-over),.price-redesign .card-hero-img {border:0}
+.price-redesign #wishSyncStatus {border:0!important}
+/* 環境デッキのレシピ一覧は既存の動的HTMLがインラインで区切りを指定する。 */
+.price-redesign #metaDeckDetail>div[style*="border-top"] {border-top:0!important}
+.price-redesign #metaDeckDetail>div[style*="border-top"]>a {border:0!important;background:var(--bg-hover)}
+
+/* 一覧は余白で行を分け、操作対象の背景だけを変える。交互背景は使わない。 */
+.price-redesign :is(.meta-deck-list,.saved-deck-grid,.pack-card-grid,.wish-shop-list) {gap:10px}
+.price-redesign :is(.meta-deck-btn,.saved-deck-card-btn,.pack-card-item) {padding:12px}
+/* 環境デッキは画像・名前・率が折り返しにくい列幅を確保する。 */
+.price-redesign #metaTierList .meta-deck-list {grid-template-columns:repeat(auto-fill,minmax(min(220px,100%),1fr))}
+.price-redesign #metaTierList .meta-deck-btn {padding:6px 10px}
+.price-redesign :is(.wish-card-row,.deck-card-row) {padding-block:14px;margin-bottom:10px;background:transparent}
+.price-redesign .wish-card-row.wish-drop {background:rgba(99,211,174,.07)}
+.price-redesign .deck-added-row {padding-block:10px}
+.price-redesign .wish-shop-detail-row {padding-block:9px}
+.price-redesign :is(.meta-deck-btn,.saved-deck-card-btn,.pack-card-item,.wish-card-row,.deck-card-row,
+ .wish-shop-row-summary,.wish-shop-detail-row,.trending-item,.ritem):is(:hover,:focus-within) {background:var(--bg-hover);transform:none}
+.price-redesign #mode-search .movers-item:focus-within {background:var(--bg-hover)}
+.price-redesign :is(.wish-shop-total,.wish-shop-detail-price,.wish-price-info,.deck-card-price,
+ .meta-deck-price-now,.sprice,.rprice,.fmx-cell) {font-variant-numeric:tabular-nums}
+.price-redesign :is(.wish-shop-total,.wish-shop-detail-price,.wish-price-info,.deck-card-price) {text-align:right}
+.price-redesign :is(.wish-card-name,.deck-card-name,.pack-card-name,.wish-shop-name) {color:var(--text)}
+.price-redesign .meta-tier-group {margin-bottom:24px}
+.price-redesign .meta-deck-sep {padding-top:16px}
+.price-redesign .import-method+.import-method {margin-top:8px}
+
+/* 表は整列と行の余白で追えるようにする。価格マトリクスの意味色は維持する。 */
+.price-redesign table.res :is(th,td),.price-redesign .fmx-table :is(th,td) {border:0}
+.price-redesign table.res td {padding-block:13px}
+.price-redesign table.res tr:focus-within td {background:var(--bg-hover)}
+.price-redesign .fmx-table :is(th,td) {padding-block:12px}
+.price-redesign .fmx-table tbody tr:is(:hover,:focus-within) {background:var(--bg-hover)}
+.price-redesign .fmx-table tbody tr:is(:hover,:focus-within) .fmx-sticky-col {background:var(--bg-hover)}
+
+/* 通常操作は面、選択状態は黄色の印と明るい文字、主操作は黄色で統一。 */
+.price-redesign :is(.deck-btn-secondary,.deck-btn-outline,.deck-preset,.wish-action-btn,
+ .wish-card-link,.wish-shop-detail-link,.wish-split-shop-link,.tbl-more-btn,
+ .rf-banner-clear,.share-btn,.cip-price-link,.wish-add) {border:0;background:var(--bg-hover);border-radius:6px}
+.price-redesign :is(.deck-btn-primary,.neuron-url-btn,.pwa-banner-btn),
+.price-redesign .wish-action-btn[onclick="wishToEstimate()"] {background:#f3ce46;color:#242013;box-shadow:none}
+.price-redesign :is(.deck-btn-primary,.neuron-url-btn,.pwa-banner-btn):hover,
+.price-redesign .wish-action-btn[onclick="wishToEstimate()"]:hover {background:#ffe16d;color:#242013}
+.price-redesign :is(.deck-btn-primary,.neuron-url-btn,.pwa-banner-btn):disabled {background:var(--border);color:var(--text-m)}
+.price-redesign :is(.movers-tab,.deck-input-tab,.deck-build-tab,.rf-btn) {border:0;background:var(--bg-card);color:var(--text-m)}
+.price-redesign :is(.movers-tab,.deck-input-tab,.deck-build-tab,.rf-btn).active,
+.price-redesign :is(.meta-deck-btn,.saved-deck-card-btn).selected {
+  background:var(--bg-hover);color:var(--text);box-shadow:inset 0 -2px 0 #f3ce46;
+}
+.price-redesign #mode-search .movers-tab {border:0}
+.price-redesign #mode-search .movers-tab.active {background:var(--bg-hover);box-shadow:inset 0 -2px 0 #f3ce46}
+.price-redesign #mode-search .rf-btn.active {background:var(--bg-hover)}
+.price-redesign :is(.deck-build-tab-badge,.import-method-no) {background:#2b3549;color:var(--text)}
+.price-redesign .meta-card-chip.clickable:hover {background:var(--bg-hover);color:var(--text)}
+.price-redesign :is(.wish-card-link,.wish-shop-detail-link,.wish-split-shop-link):hover {background:#2b3549;color:var(--text)}
+.price-redesign .deck-edit-btn:hover {background:#f3ce46;color:#242013}
+.price-redesign .deck-drop-zone:is(:hover,.drag-over) {background:var(--bg-hover)}
+.price-redesign #mode-search .share-btns>button {border:0!important;background:var(--bg-hover)}
+.price-redesign #mode-search :is(.scard,.scard.best,.price-chart,.tbl-wrap,.ritem) {border:0}
+.price-redesign #mode-search .rf-banner {border:0}
+.price-redesign .mode-tabs .nav-wishlist {border:0;background:var(--bg-card)}
+.price-redesign .mode-tabs .nav-wishlist.active {box-shadow:inset 0 -2px 0 #f3ce46}
+
+@media(max-width:640px) {
+ .price-redesign #mode-search table.res td {padding-block:3px}
+ .price-redesign #mode-search table.res tr:is(:hover,:focus-within) {background:var(--bg-hover)}
+}
