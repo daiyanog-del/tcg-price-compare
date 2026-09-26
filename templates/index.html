@@ -906,11 +906,6 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
   <div id="mode-mydeck" class="hidden">
     <div class="deck-builder">
 
-      <!-- 端末間同期（設計文書 §7.1） -->
-      <div style="text-align:right;margin-bottom:8px">
-        <button class="wish-action-btn" onclick="openSyncShareDialog()">他の端末でも見る</button>
-      </div>
-
       <!-- 保存済みデッキ一覧（常時最上部） -->
       <div id="savedDeckList"></div>
 
@@ -940,16 +935,21 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 
           <!-- 空状態ヒント（カードが無いとき表示） -->
           <div class="deck-empty-hint" id="deckEmptyHint">
-            右の「カードを追加」から検索してカードを足すか、<br>「ニューロンから取り込む」でデッキを読み込めます。
+            カードを追加するか、デッキを取り込んでください。
           </div>
 
           <!-- 価格計算（トリガー・説明・結果を1か所に集約） -->
           <div class="deck-calc">
             <div class="deck-calc-title">価格を計算する</div>
             <div class="deck-actions">
-              <button class="deck-btn deck-btn-primary" onclick="calcDeckEstimate(DECK_CTX.mydeck,{dbOnly:true})">簡易計算（DB相場）<span class="deck-btn-sub">登録済みDBの直近相場から即時表示（スクレイピングなし）</span></button>
-              <button class="deck-btn deck-btn-outline" onclick="calcDeck()">リアルタイム計算<span class="deck-btn-sub">全カードを各店舗から取得（時間がかかります）</span></button>
+              <button class="deck-btn deck-btn-primary" onclick="calcDeckEstimate(DECK_CTX.mydeck,{dbOnly:true})">相場で計算</button>
+              <button class="deck-btn deck-btn-outline" onclick="calcDeck()">店舗から取得</button>
             </div>
+            <details class="deck-calc-help">
+              <summary>計算方法について</summary>
+              <p>相場で計算：収集済みの直近の価格から、すぐに合計を表示します。</p>
+              <p>店舗から取得：各店舗の現在の価格を取得します。カード枚数によって時間がかかります。</p>
+            </details>
             <!-- 計算結果（ボタン押下後に表示） -->
             <div id="deckResults" class="deck-results hidden">
               <div class="deck-total">

@@ -84,10 +84,52 @@ body.price-redesign {
 .price-redesign #mode-search .share-btns>button {border:0!important;background:var(--bg-hover)}
 .price-redesign #mode-search :is(.scard,.scard.best,.price-chart,.tbl-wrap,.ritem) {border:0}
 .price-redesign #mode-search .rf-banner {border:0}
-.price-redesign .mode-tabs .nav-wishlist {border:0;background:var(--bg-card)}
-.price-redesign .mode-tabs .nav-wishlist.active {box-shadow:inset 0 -2px 0 #f3ce46}
+.price-redesign .mode-tabs .nav-wishlist {background:transparent;border-radius:0;border:0;border-bottom:2px solid transparent}
+.price-redesign .mode-tabs .nav-wishlist.active {border-bottom-color:#f3ce46;box-shadow:none}
 
 @media(max-width:640px) {
  .price-redesign #mode-search table.res td {padding-block:3px}
  .price-redesign #mode-search table.res tr:is(:hover,:focus-within) {background:var(--bg-hover)}
+}
+
+/* マイデッキはカード一覧を中心に、管理操作・編集・計算の間隔をそろえる。 */
+.price-redesign #mode-mydeck{padding-top:20px}
+#mode-mydeck #savedDeckList{margin-bottom:28px}
+#mode-mydeck .saved-deck-label{display:flex;align-items:center;flex-wrap:wrap;gap:8px 20px;margin:0 0 12px;font-size:13px;color:var(--text)}
+#mode-mydeck .deck-library-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px 16px;margin-left:auto}
+#mode-mydeck .deck-library-actions button{font-size:12px;min-height:36px;padding:6px 0;background:none;color:var(--text-m);border:0}
+#mode-mydeck .deck-library-actions .saved-deck-new-btn{color:var(--text)}
+#mode-mydeck .deck-library-actions button:hover{color:var(--gold)}
+#mode-mydeck .saved-deck-empty{padding:0;margin:0;font-size:12px}
+#mode-mydeck .saved-deck-grid{grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+#mode-mydeck .deck-panes{gap:28px}
+#mode-mydeck .deck-pane-tools{width:300px}
+#mode-mydeck .deck-counter-bar{padding:0 0 12px;gap:12px;background:none;flex-wrap:wrap;margin-bottom:0}
+#mode-mydeck .deck-save-status{flex:1;min-width:100px}
+#mode-mydeck .deck-counter-bar .deck-sort-btn{margin-left:0}
+#mode-mydeck .deck-save-btn,#mode-mydeck .deck-sort-btn{min-height:36px;padding:6px 8px;font-size:12px}
+#mode-mydeck .deck-save-btn{background:var(--bg-hover);border-radius:6px;color:var(--text)}
+#mode-mydeck .deck-empty-hint{border:0;background:var(--bg-card);min-height:180px;display:flex;align-items:center;justify-content:center;padding:24px;font-size:13px;line-height:1.8}
+#mode-mydeck .deck-calc{background:none;padding:16px 0 0;margin-top:0}
+#mode-mydeck .deck-calc-title{font-size:12px;margin-bottom:10px;letter-spacing:0}
+#mode-mydeck .deck-calc .deck-actions{flex-direction:row;flex-wrap:wrap;gap:10px}
+#mode-mydeck .deck-calc .deck-btn{width:auto;min-height:40px;padding:9px 16px;font-size:12px}
+#mode-mydeck .deck-calc-help{margin-top:12px;color:var(--text-m);font-size:12px;line-height:1.8}
+#mode-mydeck .deck-calc-help summary{cursor:pointer;width:fit-content}
+#mode-mydeck .deck-calc-help p{margin:6px 0}
+#mode-mydeck .deck-import-details{background:transparent;margin-bottom:10px}
+#mode-mydeck .deck-import-details>summary{padding:12px 0;font-size:12px}
+#mode-mydeck .deck-import-details .deck-import-body{padding:8px 0 16px}
+#mode-mydeck .deck-pane-tools .deck-search-box{margin-bottom:12px}
+@media(max-width:900px){
+ #mode-mydeck .deck-pane-tools{width:auto}
+}
+@media(max-width:640px){
+ #mode-mydeck #savedDeckList{margin-bottom:20px}
+ #mode-mydeck .saved-deck-label{gap:4px 12px}
+ #mode-mydeck .deck-library-actions{gap:14px;margin-left:0;flex-basis:100%}
+ #mode-mydeck .deck-counter-bar{gap:6px 8px}
+ #mode-mydeck .deck-save-status{order:3;flex-basis:100%}
+ #mode-mydeck .deck-empty-hint{min-height:150px;padding:20px}
+ .price-redesign .mode-tabs .nav-wishlist{padding:8px 0;min-height:36px}
 }

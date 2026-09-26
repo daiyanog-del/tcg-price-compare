@@ -155,10 +155,11 @@ function renderSavedDecks(){
   const el=document.getElementById('savedDeckList');
   if(!el)return;
   const list=savedDecksGet();
-  const newBtn='<button class="deck-btn-text saved-deck-new-btn" onclick="deckCreateNew()">＋ 新規デッキを作成</button>';
+  const libraryHeader='<div class="saved-deck-label"><span>保存済みデッキ</span><div class="deck-library-actions">'
+    +'<button class="deck-btn-text saved-deck-new-btn" onclick="deckCreateNew()">＋ 新規作成</button>'
+    +'<button class="deck-btn-text" onclick="openSyncShareDialog()">端末同期</button></div></div>';
   if(!list.length){
-    el.innerHTML='<div class="saved-deck-label"><span>保存済みデッキ</span>'+newBtn+'</div>'
-      +'<p class="saved-deck-empty">保存済みデッキがありません。<br>Chrome拡張またはPDFからデッキを取り込むか、「＋ 新規デッキを作成」から始められます。</p>';
+    el.innerHTML=libraryHeader+'<p class="saved-deck-empty">保存済みデッキはありません。</p>';
     return;
   }
   // 各デッキの先頭カード名をサムネイル用に取得
@@ -166,7 +167,7 @@ function renderSavedDecks(){
     const m=Array.isArray(d.main)?d.main:normalizeDeck(d).main;
     return m&&m.length?m[0].name:'';
   });
-  el.innerHTML='<div class="saved-deck-label"><span>保存済みデッキ</span>'+newBtn+'</div>'
+  el.innerHTML=libraryHeader
     +'<div class="saved-deck-grid">'
     +list.map((d,i)=>`
     <div class="saved-deck-card" id="sdcard-${escAttr(d.id)}">

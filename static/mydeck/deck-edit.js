@@ -835,9 +835,6 @@
       document.querySelectorAll('.deck-build-tab').forEach(function(b){
         b.classList.toggle('active', b.dataset.pane === 'tools');
       });
-      // 空デッキでは取り込み導線を最初から開いておく（初回の導線を明確化）
-      var imp = document.getElementById('deckImportDetails');
-      if(imp) imp.open = true;
     }
   }
 

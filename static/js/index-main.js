@@ -2370,7 +2370,9 @@ async function calcDeckEstimate(ctx, opts){
   // プレビューのみ（デッキ選択・PDF取込・購入候補変換時）：価格計算は走らせず、カード一覧だけ表示する
   if(opts.previewOnly){
     listEl.querySelectorAll('.deck-grid-cell.loading').forEach(el=>el.classList.remove('loading'));
-    progEl.textContent='「簡易計算（DB相場）」または「リアルタイム計算」を押すと価格を取得します';
+    progEl.textContent=ctx===DECK_CTX.mydeck
+      ?'「相場で計算」または「店舗から取得」で価格を表示します'
+      :'「簡易計算（DB相場）」または「リアルタイム計算」を押すと価格を取得します';
     return;
   }
 
