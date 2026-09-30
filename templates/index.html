@@ -1139,7 +1139,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 
 <!-- フッター -->
 <footer class="site-footer">
-  <a onclick="openLegalModal('privacy')">プライバシーポリシー</a>｜<a onclick="openLegalModal('terms')">利用規約</a>｜<a onclick="openLegalModal('shop')">ショップ運営者様へ</a>｜<a href="mailto:tcg.price.compare@gmail.com">お問い合わせ</a>
+  <a onclick="openLegalModal('privacy')">プライバシーポリシー</a>｜<a onclick="openLegalModal('terms')">利用規約</a>｜<a onclick="openLegalModal('shop')">ショップ運営者様へ</a>｜<a href="mailto:tcg.price.compare@gmail.com">お問い合わせ</a>｜<a onclick="openServiceQrDialog()">QRコード</a>
   <div class="footer-copy">&copy; 2025 TCGYM</div>
   <div class="footer-rights" style="font-size:.72rem;color:var(--text-d);margin-top:4px">遊戯王OCGカードの著作権は&copy;スタジオ・ダイス／集英社・テレビ東京・KONAMIに帰属します。当サイトはKONAMI社とは無関係の非公認ファンサイトです。</div>
 </footer>
@@ -1313,6 +1313,24 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
   </div>
 </div>
 
+<!-- サービス紹介用QRコード ダイアログ（常にトップページURLを表示） -->
+<div class="legal-overlay" id="serviceQrOverlay" onclick="if(event.target===this)closeServiceQrDialog()">
+  <div class="legal-modal" style="max-width:380px">
+    <div class="legal-modal-head">
+      <h2>TCGYMを紹介する</h2>
+      <button class="legal-modal-close" onclick="closeServiceQrDialog()">&times;</button>
+    </div>
+    <div class="legal-modal-body" style="text-align:center">
+      <p style="color:var(--text-m);font-size:.85rem;margin-bottom:14px">スマホのカメラで読み取るとTCGYMのトップページが開きます。</p>
+      <div id="serviceQrCode" style="display:flex;justify-content:center;margin:14px 0;min-height:40px"></div>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="serviceQrUrl" readonly onclick="this.select()" style="flex:1;min-width:0;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-input);color:var(--text);font-size:.78rem">
+        <button type="button" class="wish-action-btn" id="serviceQrCopyBtn" onclick="copyServiceQrLink()">コピー</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 /* モーダル開閉 */
 function openLegalModal(type){
@@ -1425,6 +1443,8 @@ document.addEventListener('toggle',function(e){
 <script>
 // qrcode.js の動的読み込み先URL（内容ハッシュ付き。static_url()はサーバー側で計算する）
 const _QRCODE_SRC = "{{ static_url('shared/qrcode.js') }}";
+// サービス紹介QRコードは常にトップページURLを指す（開いたページに関わらず固定）
+const _SERVICE_URL = "{{ public_base_url }}/";
 </script>
 <script src="{{ static_url('js/index-sync.js') }}" defer></script>
 <script src="{{ static_url('mydeck/deck-edit.js') }}" defer></script>
