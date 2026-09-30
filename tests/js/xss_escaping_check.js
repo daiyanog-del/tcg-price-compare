@@ -85,6 +85,8 @@ const JINJA_REPLACEMENTS = [
   // qrcode.js動的読み込み先の埋め込み。クォートで囲まれているためJS構文としては有効だが、
   // 上の裸{{...}}残存チェックに引っかかるため無害な固定パスに置き換える
   [/const _QRCODE_SRC = "\{\{ static_url\('shared\/qrcode\.js'\) \}\}";/, 'const _QRCODE_SRC = "/static/shared/qrcode.js";'],
+  // 2026-09-30追加: サービス紹介QRコードのトップページURL（同じく残存チェック回避のため固定値に置換）
+  [/const _SERVICE_URL = "\{\{ public_base_url \}\}\/";/, 'const _SERVICE_URL = "https://example.com/";'],
 ];
 for (const [pattern, replacement] of JINJA_REPLACEMENTS) {
   src = src.replace(pattern, replacement);

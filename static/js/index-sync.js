@@ -161,6 +161,47 @@ function _refreshSyncStatusUI(){
   el.classList.toggle('hidden', !(state && state.linked===true));
 }
 
+// ── サービス紹介用QRコード ダイアログ（フッター「QRコード」リンク）──
+// 常にトップページのURL（_SERVICE_URL。index.html側のインラインscriptで定義）を表示する。
+// 「他の端末でも見る」ダイアログと同じくqrcode.jsを遅延読み込みし、同じ描画手順を使う。
+function openServiceQrDialog(){
+  const overlay=document.getElementById('serviceQrOverlay');
+  overlay.classList.add('active');
+  document.body.style.overflow='hidden';
+  document.getElementById('serviceQrUrl').value=_SERVICE_URL;
+  document.getElementById('serviceQrCode').innerHTML='';
+  _ensureQrcodeLoaded().then(function(ok){
+    if(!ok){
+      // 読み込み失敗時は既存の同期ダイアログと同じフォールバック文言を出す
+      document.getElementById('serviceQrCode').innerHTML=
+        '<span style="color:var(--text-m);font-size:.82rem">QRを表示できませんでした。上のURLをコピーしてください</span>';
+      return;
+    }
+    const qr=qrcode(0,'M');
+    qr.addData(_SERVICE_URL);
+    qr.make();
+    document.getElementById('serviceQrCode').innerHTML=qr.createSvgTag(5);
+  });
+}
+
+function closeServiceQrDialog(){
+  document.getElementById('serviceQrOverlay').classList.remove('active');
+  document.body.style.overflow='';
+}
+
+function copyServiceQrLink(){
+  const input=document.getElementById('serviceQrUrl');
+  if(!input.value) return;
+  input.select();
+  const btn=document.getElementById('serviceQrCopyBtn');
+  const done=()=>{ const orig='コピー'; btn.textContent='コピーしました'; setTimeout(()=>{btn.textContent=orig;},1500); };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(input.value).then(done).catch(()=>{ try{document.execCommand('copy');done();}catch(e){} });
+  }else{
+    try{ document.execCommand('copy'); done(); }catch(e){}
+  }
+}
+
 let _syncUnlinkInFlight=false; // 連打で複数リクエストを重ねないためのガード（司令塔指摘#1・#2）
 
 function unlinkThisDeviceSync(){
