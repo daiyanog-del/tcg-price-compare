@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 import requests
-from PIL import Image
+from PIL import Image, ImageOps
 from supabase import Client
 
 logger = logging.getLogger(__name__)
@@ -168,7 +168,8 @@ def crop_and_save_image(
 
     # クロップ
     try:
-        img = Image.open(io.BytesIO(raw_bytes))
+        # ブラウザと認識入力に合わせ、EXIF回転後の座標で保存する。
+        img = ImageOps.exif_transpose(Image.open(io.BytesIO(raw_bytes)))
         w, h = img.size
         x1 = int(w * left)
         y1 = int(h * top)

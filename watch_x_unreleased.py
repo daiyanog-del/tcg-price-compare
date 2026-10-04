@@ -182,6 +182,8 @@ def _upsert_cards(sb: Client, rows: list[dict]) -> list[dict]:
                 inserted.extend(resp.data)
         except Exception as e:
             logger.warning(f"[X-Watcher] upsert失敗 ({row.get('name', '?')}): {e}")
+            # 一部挿入失敗を成功扱いするとsince_idが進み、再取得できなくなる。
+            raise
     return inserted
 
 
@@ -237,7 +239,8 @@ def process_tweets(
             card_rows = extract_cards_from_tweet(text, image_urls, tweet_url)
         except Exception as e:
             logger.error(f"[X-Watcher] 抽出失敗: {tweet_url} → {e}")
-            continue
+            # バッチを失敗にしてsince_idを維持し、次回未処理分を再試行する。
+            raise
 
         if not card_rows:
             logger.info(f"[X-Watcher] 抽出0件: {tweet_url}")
@@ -252,26 +255,26 @@ def process_tweets(
         if skipped:
             logger.info(f"[X-Watcher] ygores既知スキップ: {skipped}件")
 
-        # ⑦upsert
-        inserted_rows = _upsert_cards(sb, filtered)
-        n = len(inserted_rows)
-        total_inserted += n
-        # 新規取込分をキャッシュに追加（同一実行内の重複処理防止）
-        for row in filtered:
-            existing_keys.add(fuzzy_key(row.get("name", "")))
-        logger.info(f"[X-Watcher] 挿入: {n}件 ({tweet_url})")
-
-        # ⑧取り込み時点で画像をクロップ・保存（管理画面で承認前に確認できるようにする）
+        # ⑦⑧カード単位で挿入と画像保存を完了する。
+        # 後続カードの挿入が失敗しても、成功済みカードの画像処理を失わない。
         from unreleased_image_store import ingest_x_card_image
-        for card in inserted_rows:
-            cid = card.get("id")
-            raw = card.get("extraction_raw") or {}
-            img_url = (raw.get("card_image_url") or "").strip()
-            if not img_url:
-                img_url = (raw.get("card_image_urls") or [""])[0]
-            if cid and img_url:
-                ok, reason = ingest_x_card_image(sb, cid, img_url, tweet_url)
-                logger.info(f"[X-Watcher] 画像保存: card_id={cid}, ok={ok}, reason={reason!r}")
+        n = 0
+        for row in filtered:
+            inserted_rows = _upsert_cards(sb, [row])
+            n += len(inserted_rows)
+            total_inserted += len(inserted_rows)
+            # 新規取込分をキャッシュに追加（同一実行内の重複処理防止）
+            existing_keys.add(fuzzy_key(row.get("name", "")))
+            for card in inserted_rows:
+                cid = card.get("id")
+                raw = card.get("extraction_raw") or {}
+                img_url = (raw.get("card_image_url") or "").strip()
+                if not img_url:
+                    img_url = (raw.get("card_image_urls") or [""])[0]
+                if cid and img_url:
+                    ok, reason = ingest_x_card_image(sb, cid, img_url, tweet_url)
+                    logger.info(f"[X-Watcher] 画像保存: card_id={cid}, ok={ok}, reason={reason!r}")
+        logger.info(f"[X-Watcher] 挿入: {n}件 ({tweet_url})")
 
     return total_inserted
 
