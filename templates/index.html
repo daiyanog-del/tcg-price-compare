@@ -945,6 +945,15 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
             <button type="button" class="deck-btn-text deck-sort-btn" onclick="deckSortByType()" title="モンスター→魔法→罠の順に並べ替えます">種別順に整列</button>
           </div>
 
+          <details id="deckOwnership" class="deck-ownership">
+            <summary>所持枚数と不足分を確認</summary>
+            <p>このデッキに使える枚数をカード名ごとに入力します。レアリティは区別せず、他のデッキの所持枚数とは共有しません。空欄は未確認、0は所持なしです。</p>
+            <div id="deckOwnershipRows"></div>
+            <div class="deck-owned-actions"><button type="button" id="deckOwnershipPreview" class="deck-btn deck-btn-outline">不足分の追加内容を確認</button><button type="button" class="deck-btn-text" onclick="switchMode('wishlist','deck-ownership')">購入候補を見る</button></div>
+            <div id="deckOwnershipStatus" role="status" aria-live="polite"></div>
+            <div id="deckOwnershipConfirm" hidden></div>
+          </details>
+
           <!-- デッキ本体（カードグリッド） -->
           <div id="deckCardList"></div>
 
@@ -1464,6 +1473,7 @@ const _QRCODE_SRC = "{{ static_url('shared/qrcode.js') }}";
 const _SERVICE_URL = "{{ public_base_url }}/";
 </script>
 <script src="{{ static_url('js/index-sync.js') }}" defer></script>
+<script src="{{ static_url('mydeck/deck-ownership.js') }}" defer></script>
 <script src="{{ static_url('mydeck/deck-edit.js') }}" defer></script>
 <script type="module" src="{{ static_url('mydeck/deck-card-info.js') }}"></script>
 <script type="module" src="{{ static_url('shared/neuron-pdf-entry.js') }}"></script>

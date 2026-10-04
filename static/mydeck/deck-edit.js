@@ -341,6 +341,7 @@
   }
   // _currentMydeckCards を読み、カウンタと空状態ヒントを現在の内容に合わせる
   function _refreshDeckChrome(){
+    if(window.DeckOwnership) window.DeckOwnership.render();
     var main = _currentMydeckCards.main || [];
     var ex = _currentMydeckCards.ex || [];
     var sum = function(a){ return a.reduce(function(s, c){ return s + (c.qty || 0); }, 0); };
@@ -667,7 +668,7 @@
   }
 
   // 現在の編集状態を下書き保存し、保存済みデッキにひも付いていればそれも更新する
-  function _persistDeck(){
+  function _persistDeck(strict){
     var ta = document.getElementById('deckTextarea');
     if(!ta) return;
     if(ta.value !== _currentMydeckText){
@@ -678,14 +679,18 @@
     var ex = _currentMydeckCards.ex || [];
     var text = ta.value;
     var id = window._currentSavedDeckId || null;
+    var owned = window.DeckOwnership ? window.DeckOwnership.snapshot() : {};
 
     // 下書き保存（次回開いたとき復元）
     try{
       localStorage.setItem(DRAFT_KEY, JSON.stringify({
-        text: text, main: main, ex: ex, savedId: id,
+        text: text, main: main, ex: ex, savedId: id, owned: owned,
         name: (typeof _currentDeckName !== 'undefined' ? _currentDeckName : '') || ''
       }));
-    }catch(_){}
+    }catch(e){
+      if(window.DeckOwnership) window.DeckOwnership.saveError(e);
+      if(strict) throw e;
+    }
 
     // 保存済みデッキの自動更新（ひも付きがあるとき）
     if(id && typeof savedDecksGet === 'function'){
@@ -693,12 +698,15 @@
         var list = savedDecksGet();
         var d = list.find(function(x){ return x.id === id; });
         if(d){
-          d.text = text; d.main = main; d.ex = ex; d.updated = Date.now();
+          d.text = text; d.main = main; d.ex = ex; d.owned = owned; d.updated = Date.now();
           savedDecksSet(list);
         }else{
           window._currentSavedDeckId = null; // 削除済み → ひも付け解除
         }
-      }catch(_){}
+      }catch(e){
+        if(window.DeckOwnership) window.DeckOwnership.saveError(e);
+        if(strict) throw e;
+      }
     }
   }
 
@@ -710,6 +718,7 @@
     try{ draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); }catch(_){}
     if(!draft || !draft.text || !draft.text.trim()) return;
 
+    if(window.DeckOwnership) window.DeckOwnership.set(draft.owned);
     ta.value = draft.text;
     _currentMydeckText = draft.text;
     _currentMydeckCards = (draft.main) ? { main: draft.main, ex: draft.ex || [] }
@@ -756,10 +765,12 @@
       // _persistDeck() を先に呼ぶこと: textarea と _currentMydeckText の差分を検知して
       // _currentMydeckCards を再パースする副作用があり、_refreshDeckChrome() の empty 判定が
       // これに依存している（先に _refreshDeckChrome を呼ぶ実装に戻すと壊れる。reviewer確認済み）
+      if(window.DeckOwnership) window.DeckOwnership.set(savedDecksGet().find(function(d){ return d.id === id; }).owned);
       window._currentSavedDeckId = id; _persistDeck(); _resetAddedLog(); _refreshDeckChrome();
     });
     // 入力クリア → ひも付け解除 + 下書き削除 + カウンタ/空状態を更新
     _wrap('clearDeck', function(){
+      if(window.DeckOwnership) window.DeckOwnership.set({});
       window._currentSavedDeckId = null;
       _clearDraft();
       // 他3経路と同じ順序に揃える（reviewer低2指摘: 逆順だと古いログのまま
@@ -773,9 +784,9 @@
     // マイデッキ表示時にカウンタ・空状態ヒントを最新化（空デッキで描画が走らないケースに対応）
     _wrap('switchMode', function(mode){ if(mode === 'mydeck') _refreshDeckChrome(); });
     // PDF/拡張からの取込 → 新規の作業デッキ（保存済みとは切り離す）→ 下書き保存
-    _wrap('onDeckImported', function(){ window._currentSavedDeckId = null; _persistDeck(); _resetAddedLog(); _refreshDeckChrome(); });
+    _wrap('onDeckImported', function(){ if(window.DeckOwnership) window.DeckOwnership.set({}); window._currentSavedDeckId = null; _persistDeck(); _resetAddedLog(); _refreshDeckChrome(); });
     // 環境デッキを送る → 同上
-    _wrap('applyMetaDeckToTextarea', function(){ window._currentSavedDeckId = null; _persistDeck(); _resetAddedLog(); _refreshDeckChrome(); });
+    _wrap('applyMetaDeckToTextarea', function(){ if(window.DeckOwnership) window.DeckOwnership.set({}); window._currentSavedDeckId = null; _persistDeck(); _resetAddedLog(); _refreshDeckChrome(); });
     // 手動「保存」 → 保存したデッキにひも付け（以後の編集を自動反映）
     _wrap('saveCurrentDeck', function(){
       try{
@@ -839,6 +850,7 @@
   }
 
   // index.html のインライン <script> が参照するフック・関数を公開
+  window._persistDeckOwnership = function(){ _persistDeck(true); };
   window._deckAfterRender = _deckAfterRender;
   window._deckMutate = _deckMutate;
   window.deckAddCard = deckAddCard;

@@ -4854,6 +4854,23 @@ def _build_done(results: list[dict], corrected_name: str = "") -> dict:
 _last_deck_image = {}
 # TODO: calibrate from data — 同時生成数の増加は本番相当のメモリ計測後に判断する。
 _deck_image_slot = threading.BoundedSemaphore(1)
+_deck_image_metrics_lock = threading.Lock()
+_deck_image_metrics_log_errors = 0
+
+
+def _log_deck_image_metrics(event, **values):
+    """計測の失敗でPNGや混雑時の応答を壊さず、次のログに失敗数を残す。"""
+    global _deck_image_metrics_log_errors
+    with _deck_image_metrics_lock:
+        errors = _deck_image_metrics_log_errors
+    try:
+        logger.info('deck_image_metrics %s', json.dumps({
+            "event": event, "pid": os.getpid(), "log_errors": errors, **values,
+        }))
+    except Exception:
+        # 出力先自体の障害なので同じloggerで警告を再帰出力しない。
+        with _deck_image_metrics_lock:
+            _deck_image_metrics_log_errors += 1
 
 
 @app.route("/api/deck-image", methods=["POST"])
@@ -4872,10 +4889,13 @@ def api_deck_image():
         return rate_error
     # 画像合成は1件ずつ実行し、Webスレッドを待ち行列で埋めない。
     if not _deck_image_slot.acquire(blocking=False):
+        _log_deck_image_metrics("capacity_rejected")
         response = jsonify({"error": "画像を作成中です。少し待って再度お試しください"})
         response.headers["Retry-After"] = str(RATE_LIMIT_SEC)
         return response, 503
 
+    image_started = time.monotonic()
+    image_outcome = "failed"
     try:
         from deck_image import generate_deck_image
         site_url = request.host_url.rstrip("/")
@@ -4886,12 +4906,15 @@ def api_deck_image():
         )
         resp = Response(img_bytes, content_type="image/png")
         resp.headers["Cache-Control"] = "public, max-age=300"
+        image_outcome = "completed"
         return resp
     except Exception as e:
         logger.error(f"[deck-image] {e}", exc_info=True)
         return jsonify({"error": "画像生成に失敗しました"}), 500
     finally:
         _deck_image_slot.release()
+        # デッキ名・カード名を含めず、実行時間と枠不足を本番で集計する。
+        _log_deck_image_metrics(image_outcome, duration_sec=round(time.monotonic() - image_started, 6))
 
 
 # ── 起動時プリロード ──

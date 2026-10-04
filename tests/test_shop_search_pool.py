@@ -47,6 +47,12 @@ def test_shared_jobs_and_execution_capacity(workers):
     assert peak == workers
     assert calls == workers * 2
     assert not pool._inflight
+    metrics = pool.snapshot()
+    assert metrics['peak_running'] == workers
+    assert metrics['peak_pending'] == workers * 2
+    assert metrics['accepted'] == workers * 2 and metrics['shared'] == workers * 2
+    assert metrics['capacity_rejected'] == 1
+    assert metrics['completed'] == workers * 2 and metrics['exceptions'] == 0
 
 
 def test_function_and_partial_settings_are_not_mixed():
@@ -103,9 +109,9 @@ def test_synchronous_completion_does_not_deadlock(monkeypatch):
     # add_done_callback がその場で呼び出される経路を確実に通す。
     pool = ShopSearchPool(2, 2)
 
-    def immediate(runner, fn, name):
+    def immediate(runner, *args):
         future = Future()
-        future.set_result(runner(fn, name))
+        future.set_result(runner(*args))
         return future
 
     monkeypatch.setattr(pool._executor, 'submit', immediate)
@@ -172,3 +178,229 @@ def test_executor_submit_failure_does_not_consume_capacity(monkeypatch):
 def test_invalid_capacity_is_rejected(workers, pending):
     with pytest.raises(ValueError):
         ShopSearchPool(workers, pending)
+
+
+class ManualClock:
+    """壁時計の変更と無関係に、待機・実行の経過秒を制御する。"""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+class ManualExecutor:
+    """Futureの実際の状態遷移を保ち、キュー開始時刻だけ手動にする。"""
+
+    def __init__(self):
+        self.jobs = []
+
+    def submit(self, fn, *args):
+        future = Future()
+        self.jobs.append((future, fn, args))
+        return future
+
+    def run_next(self):
+        future, fn, args = self.jobs.pop(0)
+        if future.set_running_or_notify_cancel():
+            try:
+                future.set_result(fn(*args))
+            except BaseException as error:
+                future.set_exception(error)
+
+
+def test_metrics_exact_counts_times_and_cancel(monkeypatch):
+    clock = ManualClock()
+    executor = ManualExecutor()
+    pool = ShopSearchPool(2, 2, clock=clock)
+    monkeypatch.setattr(pool._executor, 'submit', executor.submit)
+
+    def search(name):
+        # runnerからsnapshotを読める（計測ロックを持ったまま実行していない）。
+        assert pool.snapshot()['running'] == 1
+        if name == '例外になる入力':
+            clock.now = 11
+            raise OSError('ログに出してはいけない入力を含む例外')
+        clock.now = 7
+        return name
+
+    clock.now = 1
+    success = pool.submit(search, '個人入力', runner=run)
+    clock.now = 2
+    failure = pool.submit(search, '例外になる入力', runner=run)
+    assert pool.submit(search, '個人入力', runner=run) is success
+    with pytest.raises(PoolCapacityError):
+        pool.submit(search, '受付上限を超えた入力', runner=run)
+    assert pool.snapshot()['queued'] == 2
+    clock.now = 5
+    executor.run_next()
+    clock.now = 8
+    executor.run_next()
+    assert success.result() == '個人入力'
+    with pytest.raises(OSError):
+        failure.result()
+    cancelled = pool.submit(search, 'キャンセル入力', runner=run)
+    assert cancelled.cancel()
+    executor.run_next()
+    data = pool.snapshot()
+    for key, expected in {'accepted': 3, 'shared': 1, 'capacity_rejected': 1,
+                          'completed': 2, 'exceptions': 1, 'cancelled': 1,
+                          'running': 0, 'pending': 0, 'queued': 0,
+                          'peak_running': 1, 'peak_pending': 2}.items():
+        assert data[key] == expected, key
+    assert data['wait_seconds'] == {'count': 2, 'total': 10, 'max': 6}
+    assert data['run_seconds'] == {'count': 2, 'total': 5, 'max': 3}
+    data['wait_seconds']['total'] = -1
+    assert pool.snapshot()['wait_seconds']['total'] == 10
+    pool.shutdown()
+    with pytest.raises(RuntimeError):
+        pool.submit(search, '終了後', runner=run)
+    assert pool.snapshot()['shutdown_rejected'] == 1
+
+
+def test_metrics_log_is_throttled_private_and_outside_locks(monkeypatch):
+    import json
+
+    clock = ManualClock()
+    executor = ManualExecutor()
+    lines = []
+
+    class Logger:
+        def info(self, format_string, value):
+            # 元の受付ロックも計測ロックも解放してからloggerを呼ぶ。
+            for lock in (pool._lock, pool._metrics_lock):
+                assert lock.acquire(blocking=False)
+                lock.release()
+            pool.snapshot()
+            lines.append(format_string % value)
+
+    pool = ShopSearchPool(2, 2, clock=clock, logger=Logger())
+    monkeypatch.setattr(pool._executor, 'submit', executor.submit)
+    pool.submit(str, '秘密のカード名', runner=run)
+    clock.now = 59
+    pool.submit(str, '秘密のカード名', runner=run)
+    assert lines == []
+    clock.now = 60
+    pool.submit(str, '秘密のカード名', runner=run)
+    assert len(lines) == 1
+    assert json.loads(lines[0])['shared'] == 2
+    executor.run_next()
+    assert len(lines) == 1
+    clock.now = 120
+    pool.submit(str, '別の秘密のカード名', runner=run)
+    assert len(lines) == 2
+    executor.run_next()
+    pool.shutdown()
+    assert len(lines) == 2
+    for line in lines:
+        assert '秘密' not in line
+        data = json.loads(line)
+        assert data['event'] == 'shop_search_pool'
+        assert data['max_workers'] == 2 and data['max_pending'] == 2
+        assert data['pid'] > 0 and data['instance_id']
+        assert data['started_at_utc'].endswith('+00:00')
+    assert json.loads(lines[0])['instance_id'] == json.loads(lines[1])['instance_id']
+
+
+def test_metrics_synchronous_executor_and_submission_error(monkeypatch):
+    clock = ManualClock()
+    pool = ShopSearchPool(2, 2, clock=clock)
+
+    def immediate(fn, *args):
+        future = Future()
+        future.set_running_or_notify_cancel()
+        future.set_result(fn(*args))
+        return future
+
+    def runner(fn, name):
+        assert pool.snapshot()['running'] == 1
+        clock.now += 2
+        return fn(name)
+
+    monkeypatch.setattr(pool._executor, 'submit', immediate)
+    assert pool.submit(str, '同期完了', runner=runner).result() == '同期完了'
+
+    def rejected(*args):
+        raise RuntimeError('executorは終了済み')
+
+    monkeypatch.setattr(pool._executor, 'submit', rejected)
+    with pytest.raises(RuntimeError, match='終了済み'):
+        pool.submit(str, '投入失敗', runner=runner)
+    data = pool.snapshot()
+    assert data['accepted'] == 2 and data['completed'] == 1
+    assert data['submission_errors'] == 1 and data['exceptions'] == 0
+    assert data['pending'] == 0 and data['running'] == 0
+    assert data['wait_seconds']['total'] == 0
+    assert data['run_seconds']['total'] == 2
+    pool.shutdown(wait=False)
+
+
+@pytest.mark.parametrize('interval', [0, -1, float('inf'), float('nan')])
+def test_invalid_log_interval(interval):
+    with pytest.raises(ValueError):
+        ShopSearchPool(2, 2, log_interval=interval)
+
+
+def test_logger_failure_does_not_fail_search_or_change_capacity(monkeypatch):
+    class BrokenLogger:
+        def info(self, *args):
+            raise RuntimeError('ログ収集先の障害')
+
+    clock = ManualClock()
+    executor = ManualExecutor()
+    pool = ShopSearchPool(2, 2, clock=clock, logger=BrokenLogger())
+    monkeypatch.setattr(pool._executor, 'submit', executor.submit)
+    clock.now = 60
+    future = pool.submit(str, 'ログ障害でも返す結果', runner=run)
+    assert pool.snapshot()['log_errors'] == 1
+    clock.now = 120
+    executor.run_next()
+    assert future.result() == 'ログ障害でも返す結果'
+    assert pool.snapshot()['log_errors'] == 2
+    assert pool.snapshot()['completed'] == 1 and pool.snapshot()['pending'] == 0
+    pool.shutdown()
+
+
+def test_instances_are_identifiable_and_snapshot_does_not_emit_logs():
+    class UnexpectedLogger:
+        def info(self, *args):
+            raise AssertionError('snapshotだけでログを出してはいけない')
+
+    clock = ManualClock()
+    with ShopSearchPool(2, 2, clock=clock, logger=UnexpectedLogger()) as first, \
+            ShopSearchPool(2, 2, clock=clock, logger=UnexpectedLogger()) as second:
+        assert first.snapshot()['pid'] == second.snapshot()['pid']
+        assert first.snapshot()['instance_id'] != second.snapshot()['instance_id']
+        clock.now = 120
+        assert first.snapshot()['uptime_seconds'] == 120
+        assert first.snapshot()['log_errors'] == 0
+        clock.now = 0
+
+
+def test_shutdown_without_wait_preserves_running_job_metrics():
+    started, release = Event(), Event()
+    pool = ShopSearchPool(2, 2)
+
+    def search(name):
+        started.set()
+        assert release.wait(3)
+        return name
+
+    future = pool.submit(search, '実行中', runner=run)
+    try:
+        assert started.wait(3)
+        assert not future.cancel(), '実行中のFutureをキャンセルできてはいけない'
+        pool.shutdown(wait=False)
+        assert pool.snapshot()['running'] == 1
+        assert pool.snapshot()['pending'] == 1
+        with pytest.raises(RuntimeError):
+            pool.submit(search, '終了後の新規', runner=run)
+    finally:
+        release.set()
+    assert future.result(3) == '実行中'
+    pool.shutdown()
+    data = pool.snapshot()
+    assert data['completed'] == 1 and data['cancelled'] == 0
+    assert data['pending'] == 0 and data['running'] == 0
+    assert data['shutdown_rejected'] == 1

@@ -77,6 +77,13 @@ def _deck_updated(deck) -> int:
         return 0
 
 
+def _keep_omitted_owned(deck, previous):
+    """旧クライアントの省略は維持する。明示した空辞書は所持確認の解除。"""
+    if "owned" not in deck and "owned" in previous:
+        return {**deck, "owned": dict(previous["owned"])}
+    return deck
+
+
 def merge_decks(server_decks, client_decks):
     """保存デッキの和集合マージ（設計文書 §5.2）。
 
@@ -96,7 +103,9 @@ def merge_decks(server_decks, client_decks):
                 continue  # validate_decks で除外済みのはずだが念のため無視
             if did in by_id:
                 if _deck_updated(d) > _deck_updated(by_id[did]):
-                    by_id[did] = d
+                    by_id[did] = _keep_omitted_owned(d, by_id[did])
+                else:
+                    by_id[did] = _keep_omitted_owned(by_id[did], d)
                 # 同値または既存の方が新しければ既存を維持
             else:
                 by_id[did] = d
@@ -204,6 +213,16 @@ def validate_decks(decks):
             "ex": ex,
             "updated": _deck_updated(d),
         })
+        if "owned" in d:
+            owned = d["owned"]
+            if not isinstance(owned, dict) or len(owned) > MAX_DECK_CARD_COUNT * 2:
+                return None, "所持枚数は最大160種類の辞書で指定してください"
+            for card_name, qty in owned.items():
+                if (not isinstance(card_name, str) or not card_name.strip()
+                        or len(card_name) > MAX_CARD_NAME_LEN
+                        or type(qty) is not int or not 0 <= qty <= WISHLIST_QTY_MAX):
+                    return None, "所持枚数はカード名ごとに0〜99の整数で指定してください"
+            cleaned[-1]["owned"] = dict(owned)
     return cleaned, None
 
 
@@ -289,8 +308,31 @@ def push_decks(client, sync_id, base_rev, items):
     購入候補とはリビジョン（decks_rev）を分けているため、片方の更新がもう片方の
     競合を誘発しない（設計文書 §3.1）。
     """
-    return _push(client, sync_id, base_rev, items,
-                 list_col="decks", rev_col="decks_rev", merge_fn=merge_decks)
+    # 通常更新も先に読む。旧版がownedを送らなくても消さず、読んだリビジョンで
+    # 条件付き更新するため、その間の別端末の更新を上書きしない。
+    for _ in range(PUSH_MAX_RETRY):
+        cur = (client.table("sync_accounts").select("decks,decks_rev")
+               .eq("sync_id", sync_id).execute())
+        if not cur.data:
+            return {"reason": "not_found"}
+        row = cur.data[0]
+        current = row.get("decks") or []
+        revision = row["decks_rev"]
+        if revision == base_rev:
+            by_id = {d["id"]: d for d in current}
+            updated = [_keep_omitted_owned(d, by_id.get(d["id"], {})) for d in items]
+        else:
+            updated = merge_decks(current, items)
+        result = (client.table("sync_accounts")
+                  .update({"decks": updated, "decks_rev": revision + 1,
+                           "last_seen_at": _now_iso()})
+                  .eq("sync_id", sync_id).eq("decks_rev", revision).execute())
+        if result.data:
+            if revision != base_rev or updated != items:
+                return {"ok": True, "status": "merged", "rev": revision + 1,
+                        "items": updated}
+            return {"ok": True, "status": "applied", "rev": revision + 1}
+    return {"ok": False, "reason": "conflict_retry_exceeded"}
 
 
 def pull(client, sync_id, wishlist_rev, decks_rev):

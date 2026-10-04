@@ -111,10 +111,12 @@ function saveCurrentDeck(){
     existing.text=text;
     existing.main=main;
     existing.ex=ex;
+    if(window.DeckOwnership) existing.owned=window.DeckOwnership.snapshot();
     existing.updated=Date.now();
     window._currentSavedDeckId = existing.id;
   }else{
     const newDeck={id:'d_'+Date.now(),name:n,text,main,ex,updated:Date.now()};
+    if(window.DeckOwnership) newDeck.owned=window.DeckOwnership.snapshot();
     list.push(newDeck);
     window._currentSavedDeckId = newDeck.id;
   }
@@ -127,6 +129,7 @@ function saveCurrentDeck(){
 function loadSavedDeck(id){
   const deck=savedDecksGet().find(d=>d.id===id);
   if(!deck)return;
+  if(window.DeckOwnership) window.DeckOwnership.set(deck.owned);
   _currentDeckName=deck.name||'マイデッキ';
   // 選択状態を更新
   document.querySelectorAll('.saved-deck-card-btn').forEach(b=>b.classList.remove('selected'));
@@ -1114,3 +1117,10 @@ function _urlBase64ToUint8Array(b64){
 loadWishPrices().then(wishUpdateBadge);
 // 通知UIの初期状態を反映
 updatePushUI(!!localStorage.getItem(PUSH_SUB_KEY));
+
+// 所持確認からの追加は不足数を計算済み。一括保存後に価格キャッシュだけ更新する。
+function wishOwnershipAdded(rows){
+  _wishPrices=null;
+  _clearWishPricesCache();
+  trackDeckCards(rows);
+}
