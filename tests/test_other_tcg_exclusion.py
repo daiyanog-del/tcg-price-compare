@@ -27,7 +27,10 @@ tests/test_other_tcg_exclusion.py — 他TCG（遊戯王以外のカードゲー
 """
 
 import sys
+import json
+from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from bs4 import BeautifulSoup
@@ -164,8 +167,72 @@ def test_clabo_parser_old_behaviour_keeps_other_tcg():
 def test_kanabell_excluded_rarities():
     """ラッシュデュエルとステンレス製記念カードをレアリティ欄で弾く"""
     assert "ラッシュ" in _KANABELL_EXCLUDED_RARITIES
+    assert "Oラッシュ" in _KANABELL_EXCLUDED_RARITIES
     assert "ステンレス" in _KANABELL_EXCLUDED_RARITIES
     # OCGで実在するレアリティを巻き込んでいないこと
     for keep in ("ウルトラ", "シークレット", "ノーマル", "スーパー",
                  "プリシク", "25thシークレット", "ミレニアムウルトラ"):
         assert keep not in _KANABELL_EXCLUDED_RARITIES
+
+
+@pytest.mark.parametrize("fields, excluded", [
+    ({"rarity_abbreviation": "Oラッシュ"}, True),
+    ({"rarity_abbreviation": " Ｏラッシュ "}, True),
+    ({"rarity_abbreviation": "ラッシュ"}, True),
+    ({"rarity_abbreviation": "ステンレス"}, True),
+    ({"rarity_abbreviation": "ウルトラ", "category2_abbr": "ラッシュデュエル"}, True),
+    ({"rarity_abbreviation": "ウルトラ", "category3_abbr": "RD/KP01-JP001"}, True),
+    ({"rarity_abbreviation": "ウルトラ", "category2_id": 999}, False),
+    ({"rarity_abbreviation": "オーバーフレーム"}, False),
+    ({"rarity_abbreviation": "グランドマスター"}, False),
+    ({"rarity_abbreviation": "新規未登録レアリティ"}, False),
+    ({"name": "ラッシュ・ウォリアー", "rarity_abbreviation": "ノーマル"}, False),
+])
+def test_kanabell_game_and_rarity_filter(fields, excluded):
+    """明示的な別ゲーム情報だけを除外し、未知分類や正規OCGを巻き込まない。"""
+    assert scraper._is_kanabell_excluded(fields) is excluded
+
+
+@pytest.mark.parametrize("scrape", [scraper.scrape_kanabell, scraper.scrape_kanabell_buy])
+def test_kanabell_sale_and_buy_drop_overrush(monkeypatch, scrape):
+    """問題の商品は全状態で除外し、同名のOCGは販売・買取とも残す。"""
+    hits = []
+    for card_id, rarity in [("100283847", "Oラッシュ"), ("ocg", "ウルトラ")]:
+        source = {"id": card_id, "name": "青眼の白龍", "rarity_abbreviation": rarity,
+                  "sa_buying_price": 100, "sa_limit_flag": True}
+        for rank, _ in scraper._KANABELL_CONDITIONS:
+            source[f"{rank}_selling_price"] = 200
+            source[f"{rank}_stock"] = 1
+        hits.append({"_source": source})
+    monkeypatch.setattr(scraper, "_KANABELL_CLOUD_ID", "test")
+    monkeypatch.setattr(scraper, "_KANABELL_API_KEY", "test")
+    monkeypatch.setattr(scraper, "_KANABELL_ES_URL", "https://example.invalid")
+    response = SimpleNamespace(status_code=200, raise_for_status=lambda: None,
+                               json=lambda: {"hits": {"hits": hits}})
+    monkeypatch.setattr(scraper.requests, "post", lambda *args, **kwargs: response)
+    rows = scrape("青眼の白龍")
+    assert len(rows) == (4 if scrape is scraper.scrape_kanabell else 1)
+    assert all("id=ocg" in row["url"] for row in rows)
+
+
+@pytest.mark.parametrize("buyback", [False, True])
+def test_kanabell_old_cache_drops_overrush(tmp_path, monkeypatch, buyback):
+    """期限内の旧キャッシュからの混入も防ぎ、他店とOCGの行を保持する。"""
+    monkeypatch.setattr(scraper, "CACHE_ENABLED", True)
+    monkeypatch.setattr(scraper, "BUYBACK_CACHE_DIR" if buyback else "CACHE_DIR", tmp_path)
+    card_name = "青眼の白龍"
+    key = scraper._buyback_cache_key(card_name) if buyback else scraper._cache_key(card_name)
+    ocg = {"shop": "カーナベル", "name": card_name, "rarity": "ウルトラ"}
+    other = {"shop": "他店", "name": card_name, "rarity": "ウルトラ"}
+    data = {"shops": {
+        "カーナベル": {"timestamp": datetime.now().isoformat(), "results": [
+            {"shop": "カーナベル", "name": card_name, "rarity": "Oラッシュ"}, ocg]},
+        "他店": {"timestamp": datetime.now().isoformat(), "results": [other]},
+    }}
+    (tmp_path / f"{key}.json").write_text(json.dumps(data), encoding="utf-8")
+    get_shops = scraper.buyback_cache_get_shops if buyback else scraper.cache_get_shops
+    get_all = scraper.buyback_cache_get if buyback else scraper.cache_get
+    hit, missing = get_shops(card_name, ["カーナベル", "他店"])
+    assert not missing
+    assert hit == {"カーナベル": [ocg], "他店": [other]}
+    assert get_all(card_name) == [ocg, other]

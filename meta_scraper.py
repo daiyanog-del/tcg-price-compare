@@ -8,6 +8,9 @@ TCG PORTAL 環境データスクレイパー
 import re
 import json
 import time
+import os
+import tempfile
+from threading import Lock
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
@@ -27,6 +30,7 @@ TCG_PORTAL_BASE = "https://tcg-portal.jp"
 _CACHE_DIR = Path(__file__).parent / ".cache" / "meta"
 _TIER_CACHE_TTL = timedelta(hours=3)
 _DECK_CACHE_TTL = timedelta(hours=6)
+_CACHE_IO_LOCK = Lock()
 
 
 def _cache_path(key: str) -> Path:
@@ -40,7 +44,9 @@ def _cache_read(key: str, ttl: timedelta) -> dict | None:
     if not fp.exists():
         return None
     try:
-        data = json.loads(fp.read_text(encoding="utf-8"))
+        # Windowsでも同一プロセスの読込と置換が競合しないようにする。
+        with _CACHE_IO_LOCK:
+            data = json.loads(fp.read_text(encoding="utf-8"))
         ts = datetime.fromisoformat(data["_ts"])
         if datetime.now() - ts > ttl:
             return None
@@ -51,8 +57,19 @@ def _cache_read(key: str, ttl: timedelta) -> dict | None:
 
 def _cache_write(key: str, data: dict):
     fp = _cache_path(key)
-    data["_ts"] = datetime.now().isoformat()
-    fp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    # 本文と取得条件を同じファイルへ原子的に保存し、並行読込時の欠損を防ぐ。
+    payload = {**data, "_ts": datetime.now().isoformat()}
+    tmp_name = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=fp.parent,
+                                         suffix=".tmp", delete=False) as tmp:
+            tmp_name = tmp.name
+            json.dump(payload, tmp, ensure_ascii=False)
+        with _CACHE_IO_LOCK:
+            os.replace(tmp_name, fp)
+    finally:
+        if tmp_name and os.path.exists(tmp_name):
+            os.remove(tmp_name)
 
 
 def _fetch_soup(url: str, timeout: int = 20, retries: int = 2) -> BeautifulSoup | None:
@@ -100,7 +117,25 @@ def _fetch_meta_complete(date_from: str, date_to: str) -> list[dict] | None:
     return None
 
 
+def tier_snapshot(cached: dict | None, *, stale: bool = False,
+                  refresh_error: str | None = None) -> dict:
+    """行と取得条件を一体で返す。旧キャッシュにない条件は推測しない。"""
+    cached = cached or {}
+    tiers = cached.get("tiers", [])
+    metadata = {"from": None, "to": None, "fetched_at": None,
+                "stale": False, "sample_size": None, "theme_count": len(tiers),
+                "refresh_error": None}
+    metadata.update(cached.get("metadata") or {})
+    metadata.update(stale=stale, refresh_error=refresh_error)
+    return {"tiers": tiers, "metadata": metadata}
+
+
 def fetch_tier_list(force: bool = False) -> list[dict]:
+    """既存呼び出し用に、従来どおりTier行のリストだけを返す。"""
+    return fetch_tier_snapshot(force)["tiers"]
+
+
+def fetch_tier_snapshot(force: bool = False) -> dict:
     """
     TCG PORTAL の環境分析データから Tier 表を取得。
 
@@ -112,13 +147,13 @@ def fetch_tier_list(force: bool = False) -> list[dict]:
         期間の決め方は _TIER_WINDOW_DAYS のアダプティブ方式を参照）
 
     Returns:
-        [{"name": "巳剣", "tier": 1, "share": 14.9, "tops": 18, "rank": 1}, ...]
+        {"tiers": [...], "metadata": {"from": ..., "to": ..., "stale": ...}}
     """
     cache_key = "tier_list"
     if not force:
         cached = _cache_read(cache_key, _TIER_CACHE_TTL)
         if cached:
-            return cached["tiers"]
+            return tier_snapshot(cached)
 
     today = datetime.now()
     date_to = today.strftime("%Y-%m-%d")
@@ -126,6 +161,7 @@ def fetch_tier_list(force: bool = False) -> list[dict]:
     # アダプティブ: 窓を順に広げ、閾値を満たした時点で確定。
     # どの窓も閾値未満なら最もテーマ数が多かった結果を採用する。
     best_summaries: list[dict] | None = None
+    best_from = None
     api_reached = False
     for days in _TIER_WINDOW_DAYS:
         date_from = (today - timedelta(days=days)).strftime("%Y-%m-%d")
@@ -135,15 +171,15 @@ def fetch_tier_list(force: bool = False) -> list[dict]:
         api_reached = True
         if best_summaries is None or len(summaries) > len(best_summaries):
             best_summaries = summaries
+            best_from = date_from
         if len(summaries) >= _TIER_MIN_THEMES:
             break
 
     if not best_summaries:
         # API応答が空/全窓失敗 → 期限切れキャッシュでも返す
         cached = _cache_read(cache_key, timedelta(days=7))
-        if cached:
-            return cached["tiers"]
-        return []
+        return tier_snapshot(cached, stale=bool(cached),
+                             refresh_error="empty_response" if api_reached else "fetch_failed")
 
     tiers = []
     for i, s in enumerate(best_summaries):
@@ -160,14 +196,20 @@ def fetch_tier_list(force: bool = False) -> list[dict]:
         })
 
     if tiers:
-        _cache_write(cache_key, {"tiers": tiers})
+        snapshot = tier_snapshot({"tiers": tiers, "metadata": {
+            "from": best_from, "to": date_to,
+            "fetched_at": datetime.now().astimezone().isoformat(),
+            # totalDecksの総和が重複のない母数かは未確認なので合計を断定しない。
+            "sample_size": None,
+        }})
+        _cache_write(cache_key, snapshot)
+        return snapshot
     elif api_reached:
         # API は応答したが有効テーマ0件。古いキャッシュを優先して空表示を避ける
         cached = _cache_read(cache_key, timedelta(days=7))
-        if cached:
-            return cached["tiers"]
+        return tier_snapshot(cached, stale=bool(cached), refresh_error="empty_response")
 
-    return tiers
+    return tier_snapshot(None, refresh_error="fetch_failed")
 
 
 # ── テーマ別 主要カード ──

@@ -44,6 +44,49 @@ from shipping import (
 from aggregations import daily_min_by_lowest_rarity, common_shop_price_change
 from price_persist import build_min_price_rows, upsert_price_rows
 from card_code import infer_codes
+from search_status import search_coverage
+from shop_search_pool import ShopSearchPool, PoolCapacityError
+from concurrent.futures import Future
+from weakref import WeakSet
+
+# 既存の単品検索6店舗を全リクエストで共有。待機込みで既存1デッキの5カード分。
+# TODO: calibrate from data — 本番の待ち時間・メモリ計測後に上限を校正する。
+_shop_search_pool = ShopSearchPool(max_workers=len(DEFAULT_SHOPS), max_pending=5 * len(DEFAULT_SHOPS))
+_shop_health_lock = threading.Lock()
+_shop_health_recorded = WeakSet()
+
+
+def _submit_shop_fetch(fn, card_name):
+    try:
+        return _shop_search_pool.submit(fn, card_name, runner=run_shop_with_status)
+    except PoolCapacityError as exc:
+        logging.getLogger(__name__).warning("店舗検索の受付上限: %s", exc)
+        future = Future()
+        future.set_exception(exc)
+        return future
+
+
+def _shop_fetch_result(future):
+    # 同時利用者が共有するFutureの結果は変更せず、利用者ごとにコピーする。
+    items, errors = future.result()
+    return [dict(item) for item in items], errors
+
+
+def _record_shop_health_once(future, shop_name, results, fetch_errors):
+    """実取得1件につき1回だけ監視記録する。自サーバーの受付上限は店舗障害ではない。"""
+    if isinstance(future.exception(), PoolCapacityError):
+        return
+    # 同じFutureを待つリクエスト間で判定と記録を排他する。
+    # 弱参照なので、処理済みFutureを監視用集合が保持し続けることはない。
+    with _shop_health_lock:
+        if future in _shop_health_recorded:
+            return
+        if fetch_errors:
+            tracker.record_failure(shop_name, "店舗からの取得に失敗しました")
+        else:
+            tracker.record_success(shop_name, len(results))
+        _shop_health_recorded.add(future)
+
 from meta_scraper import fetch_tier_list, fetch_deck_cards, build_deck_text, build_recipe_text, _cache_read, _DECK_CACHE_TTL, _TIER_CACHE_TTL
 import top_page as _top_page
 from pack_scraper import get_pack_list, fetch_pack_cards, pack_cards_cached
@@ -418,7 +461,7 @@ def _all_rate_limit_buckets() -> list[dict]:
     分離で test_deck_per_shop_rarity が5件落ちた）。一覧をここに集約して
     テスト側は _reset_rate_limits() を呼ぶだけにする。
     """
-    return [_last_search, _last_import, _last_buyback, _last_deck, _last_packs,
+    return [_last_search, _last_import, _last_buyback, _last_deck, _last_deck_image, _last_packs,
             _last_sync, _last_sync_link, _last_feedback]
 
 
@@ -1103,7 +1146,8 @@ def api_search():
             for shop_name, _ in active_shops:
                 count = len(cached_map.get(shop_name, []))
                 yield _sse({"type": "shop_done", "shop": shop_name, "count": count, "cached": True})
-            yield _sse(_build_done(cached_results, corrected))
+            yield _sse({**_build_done(cached_results, corrected),
+                        **search_coverage(selected, cached_map, cached_results)})
         return Response(cached_stream(), mimetype="text/event-stream")
 
     shops_to_scrape = [(name, fn) for name, fn in active_shops if name in missing_shops]
@@ -1130,36 +1174,28 @@ def api_search():
         scraped_items = []  # 今回スクレイプで得た行（persist用。キャッシュ命中分を含まない）
         scraped_ok = {}  # 取得に成功した店舗のみキャッシュする（失敗店舗は次回再試行）
 
-        def scrape_shop(name, fn):
-            try:
-                items, fetch_errors = run_shop_with_status(fn, card_name)
-                # collect_prices.py の collect_and_save と判定を揃える:
-                # 取得エラーがあってもitemsが取れていれば失敗扱いしない。
-                # 「0件かつ取得エラーなし」は在庫なしの正常系なので成功（件数0）とする
-                if fetch_errors > 0 and not items:
-                    tracker.record_failure(name, f"取得エラー (検索: {card_name}, エラー数: {fetch_errors})")
-                else:
-                    tracker.record_success(name, len(items))
-                return name, items, fetch_errors, None
-            except Exception as e:
-                tracker.record_failure(name, str(e))
-                logger.error(f"{name} エラー: {e}")
-                return name, [], 0, str(e)
-
         try:
-            # missing が非空なら shops_to_scrape も非空のはずだが、max_workers=0 の
-            # ValueError（=SSEでは原因の見えない500）を防ぐため下限1を保証する
-            with ThreadPoolExecutor(max_workers=max(1, len(shops_to_scrape))) as executor:
+            # 全利用者が共有する店舗検索枠へ投入する。
+            if shops_to_scrape:
                 futures = {
-                    executor.submit(scrape_shop, name, fn): name
+                    _submit_shop_fetch(fn, card_name): name
                     for name, fn in shops_to_scrape
                 }
                 for future in as_completed(futures):
-                    shop_name, results, fetch_errors, error = future.result()
-                    if error:
-                        yield _sse({"type": "shop_error", "shop": shop_name, "error": error})
+                    shop_name = futures[future]
+                    error = None
+                    try:
+                        results, fetch_errors = _shop_fetch_result(future)
+                    except Exception as exc:
+                        results, fetch_errors, error = [], 1, str(exc)
+                        logger.warning("店舗取得失敗: %s", shop_name, exc_info=True)
+                    _record_shop_health_once(future, shop_name, results, fetch_errors)
+                    if error or fetch_errors:
+                        yield _sse({"type": "shop_error", "shop": shop_name,
+                                    "error": "店舗からの取得に失敗しました"})
                     # 店舗完了時に結果データも送信（逐次表示用）
-                    yield _sse({"type": "shop_done", "shop": shop_name, "count": len(results), "results": results})
+                    yield _sse({"type": "shop_done", "shop": shop_name, "count": len(results), "results": results,
+                                "status": "partial" if (error or fetch_errors) else "ok"})
                     all_results.extend(results)
                     scraped_items.extend(results)
                     # 「0件かつ取得エラーなし」は在庫なしとしてキャッシュ対象。
@@ -1196,7 +1232,8 @@ def api_search():
             logger.error(f"検索処理で予期しないエラー: {e}")
         finally:
             # エラーが起きても必ず完了メッセージを送る
-            yield _sse(_build_done(all_results, corrected))
+            yield _sse({**_build_done(all_results, corrected),
+                        **search_coverage(selected, set(cached_map) | set(scraped_ok), all_results)})
 
     return Response(generate(), mimetype="text/event-stream")
 
@@ -1291,7 +1328,8 @@ def api_deck():
             items = [r for r in cached_items if not r.get("sold_out")]
             best = min(items, key=lambda x: x["price"]) if items else None
             payload = {"type": "card_done", "index": i, "name": card_name,
-                       "best": best, "count": len(items), "cached": True}
+                       "best": best, "count": len(items), "cached": True,
+                       **search_coverage(selected, cached_map, items)}
             if include_per_shop:
                 payload["per_shop"] = _aggregate_per_shop(items)
             return payload
@@ -1300,14 +1338,15 @@ def api_deck():
         shops_to_scrape = [(name, fn) for name, fn in active_shops if name in missing]
         scraped_items = []
         scraped_ok = {}  # 取得に成功した店舗のみキャッシュする（失敗店舗は次回再試行）
-        with ThreadPoolExecutor(max_workers=max(1, len(shops_to_scrape))) as shop_executor:
-            futures = {shop_executor.submit(run_shop_with_status, fn, card_name): name
+        if shops_to_scrape:
+            futures = {_submit_shop_fetch(fn, card_name): name
                        for name, fn in shops_to_scrape}
             for future in as_completed(futures):
                 shop_name = futures[future]
                 try:
-                    items, fetch_errors = future.result()
+                    items, fetch_errors = _shop_fetch_result(future)
                 except Exception:
+                    logger.warning("一括検索の店舗取得に失敗: %s", shop_name, exc_info=True)
                     continue
                 scraped_items.extend(items)
                 if fetch_errors == 0:
@@ -1342,7 +1381,8 @@ def api_deck():
         in_stock = [r for r in all_items if not r.get("sold_out")]
         best = min(in_stock, key=lambda x: x["price"]) if in_stock else None
         payload = {"type": "card_done", "index": i, "name": card_name,
-                   "best": best, "count": len(in_stock)}
+                   "best": best, "count": len(in_stock),
+                   **search_coverage(selected, set(cached_map) | set(scraped_ok), all_items)}
         if include_per_shop:
             payload["per_shop"] = _aggregate_per_shop(in_stock)
         return payload
@@ -1369,7 +1409,8 @@ def api_deck():
                     idx = futures[future]
                     yield _sse({"type": "card_done", "index": idx,
                                 "name": card_entries[idx]["name"],
-                                "best": None, "count": 0})
+                                "best": None, "count": 0,
+                                **search_coverage(selected, [], [])})
 
         yield _sse({"type": "done"})
 
@@ -1414,19 +1455,21 @@ def api_deck_buy():
         if not missing:
             best = max(cached_items, key=lambda x: x["price"]) if cached_items else None
             return {"type": "card_done", "index": i, "name": card_name,
-                    "best": best, "count": len(cached_items), "cached": True}
+                    "best": best, "count": len(cached_items), "cached": True,
+                    **search_coverage(selected, cached_map, cached_items)}
 
         shops_to_scrape = [(name, fn) for name, fn in active_shops if name in missing]
         scraped_items = []
         scraped_ok = {}  # 取得に成功した店舗のみキャッシュする（失敗店舗は次回再試行）
-        with ThreadPoolExecutor(max_workers=max(1, len(shops_to_scrape))) as shop_executor:
-            futures = {shop_executor.submit(run_shop_with_status, fn, card_name): name
+        if shops_to_scrape:
+            futures = {_submit_shop_fetch(fn, card_name): name
                        for name, fn in shops_to_scrape}
             for future in as_completed(futures):
                 shop_name = futures[future]
                 try:
-                    items, fetch_errors = future.result()
+                    items, fetch_errors = _shop_fetch_result(future)
                 except Exception:
+                    logger.warning("一括検索の店舗取得に失敗: %s", shop_name, exc_info=True)
                     continue
                 scraped_items.extend(items)
                 if fetch_errors == 0:
@@ -1436,7 +1479,8 @@ def api_deck_buy():
         all_items = cached_items + scraped_items
         best = max(all_items, key=lambda x: x["price"]) if all_items else None
         return {"type": "card_done", "index": i, "name": card_name,
-                "best": best, "count": len(all_items)}
+                "best": best, "count": len(all_items),
+                **search_coverage(selected, set(cached_map) | set(scraped_ok), all_items)}
 
     def generate():
         CARD_PARALLEL = 5
@@ -1456,7 +1500,8 @@ def api_deck_buy():
                     idx = futures[future]
                     yield _sse({"type": "card_done", "index": idx,
                                 "name": card_entries[idx]["name"],
-                                "best": None, "count": 0})
+                                "best": None, "count": 0,
+                                **search_coverage(selected, [], [])})
 
         yield _sse({"type": "done"})
 
@@ -3051,7 +3096,8 @@ def api_buyback():
             for shop_name, _ in active_shops:
                 count = len(cached_map.get(shop_name, []))
                 yield _sse({"type": "shop_done", "shop": shop_name, "count": count, "cached": True})
-            yield _sse(_build_buyback_done(cached_results))
+            yield _sse({**_build_buyback_done(cached_results),
+                        **search_coverage(selected, cached_map, cached_results)})
         return Response(cached_stream(), mimetype="text/event-stream")
 
     shops_to_scrape = [(name, fn) for name, fn in active_shops if name in missing_shops]
@@ -3069,27 +3115,27 @@ def api_buyback():
         all_results = list(cached_results)
         scraped_ok = {}  # 取得に成功した店舗のみキャッシュする（失敗店舗は次回再試行）
 
-        def scrape_shop(name, fn):
-            try:
-                items, fetch_errors = run_shop_with_status(fn, card_name)
-                return name, items, fetch_errors, None
-            except Exception as e:
-                logger.error(f"買取 {name} エラー: {e}")
-                return name, [], 0, str(e)
-
         try:
-            # missing が非空なら shops_to_scrape も非空のはずだが、max_workers=0 の
-            # ValueError（=SSEでは原因の見えない500）を防ぐため下限1を保証する
-            with ThreadPoolExecutor(max_workers=max(1, len(shops_to_scrape))) as executor:
+            # 全利用者が共有する店舗検索枠へ投入する。
+            if shops_to_scrape:
                 futures = {
-                    executor.submit(scrape_shop, name, fn): name
+                    _submit_shop_fetch(fn, card_name): name
                     for name, fn in shops_to_scrape
                 }
                 for future in as_completed(futures):
-                    shop_name, results, fetch_errors, error = future.result()
-                    if error:
-                        yield _sse({"type": "shop_error", "shop": shop_name, "error": error})
-                    yield _sse({"type": "shop_done", "shop": shop_name, "count": len(results)})
+                    shop_name = futures[future]
+                    error = None
+                    try:
+                        results, fetch_errors = _shop_fetch_result(future)
+                    except Exception as exc:
+                        results, fetch_errors, error = [], 1, str(exc)
+                        logger.warning("店舗取得失敗: %s", shop_name, exc_info=True)
+                    _record_shop_health_once(future, shop_name, results, fetch_errors)
+                    if error or fetch_errors:
+                        yield _sse({"type": "shop_error", "shop": shop_name,
+                                    "error": "店舗からの取得に失敗しました"})
+                    yield _sse({"type": "shop_done", "shop": shop_name, "count": len(results),
+                                "status": "partial" if (error or fetch_errors) else "ok"})
                     all_results.extend(results)
                     if error is None and fetch_errors == 0:
                         scraped_ok[shop_name] = results
@@ -3107,7 +3153,8 @@ def api_buyback():
         except Exception as e:
             logger.error(f"買取検索で予期しないエラー: {e}")
         finally:
-            yield _sse(_build_buyback_done(all_results))
+            yield _sse({**_build_buyback_done(all_results),
+                        **search_coverage(selected, set(cached_map) | set(scraped_ok), all_results)})
 
     return Response(generate(), mimetype="text/event-stream")
 
@@ -3139,24 +3186,28 @@ _meta_executor = ThreadPoolExecutor(max_workers=4)
 @app.route("/api/meta")
 def api_meta():
     """環境Tier表を返す（キャッシュヒットなら即座、ミスならスレッドプール経由）"""
+    from meta_scraper import fetch_tier_snapshot, tier_snapshot
     force = request.args.get("force") == "1"
+    include_metadata = request.args.get("include_metadata") == "1"
 
     # キャッシュがあればExecutorを通さず即返却
     if not force:
         cached = _cache_read("tier_list", _TIER_CACHE_TTL)
         if cached and "tiers" in cached:
-            return jsonify(cached["tiers"])
+            snapshot = tier_snapshot(cached)
+            return jsonify(snapshot if include_metadata else snapshot["tiers"])
 
-    future = _meta_executor.submit(fetch_tier_list, force)
+    future = _meta_executor.submit(fetch_tier_snapshot, force)
     try:
-        tiers = future.result(timeout=25)
+        snapshot = future.result(timeout=25)
     except Exception as e:
         logger.error(f"Tier表取得エラー: {e}")
-        tiers = []
-    if not tiers:
+        cached = _cache_read("tier_list", timedelta(days=7))
+        snapshot = tier_snapshot(cached, stale=bool(cached), refresh_error="timeout_or_error")
+    if not snapshot["tiers"] or snapshot["metadata"]["refresh_error"]:
         # 空応答をCDN等に公開キャッシュさせない（レビュー指摘Critical）
         g.no_cache = True
-    return jsonify(tiers)
+    return jsonify(snapshot if include_metadata else snapshot["tiers"])
 
 @app.route("/api/meta/deck")
 def api_meta_deck():
@@ -4787,34 +4838,30 @@ def _build_done(results: list[dict], corrected_name: str = "") -> dict:
     return d
 
 
+_last_deck_image = {}
+# TODO: calibrate from data — 同時生成数の増加は本番相当のメモリ計測後に判断する。
+_deck_image_slot = threading.BoundedSemaphore(1)
+
+
 @app.route("/api/deck-image", methods=["POST"])
 def api_deck_image():
     """デッキ画像を生成して PNG バイナリを返す。
     リクエスト: {"name": "デッキ名", "cards": [{"name": str, "qty": int}, ...], "total": int}
     レスポンス: image/png
     """
-    body = request.get_json(force=True, silent=True) or {}
-    deck_name = str(body.get("name", "デッキ")).strip()[:50]
-    raw_cards = body.get("cards", [])
-    total = int(body.get("total", 0))
-
-    if not isinstance(raw_cards, list) or not raw_cards:
-        return jsonify({"error": "cards required"}), 400
-
-    # バリデーション（最大60枚）
-    cards = []
-    for c in raw_cards[:60]:
-        if not isinstance(c, dict):
-            continue
-        name = str(c.get("name", "")).strip()
-        try:
-            qty = int(c.get("qty", 1))
-        except (TypeError, ValueError):
-            qty = 1
-        if name and 1 <= qty <= 99:
-            cards.append({"name": name, "qty": qty})
-    if not cards:
-        return jsonify({"error": "有効なカードがありません"}), 400
+    from deck_image_request import validate_deck_image_request
+    try:
+        deck_name, cards, total = validate_deck_image_request(request.get_json(silent=True))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    rate_error = _consume_rate_limit(bucket=_last_deck_image)
+    if rate_error:
+        return rate_error
+    # 画像合成は1件ずつ実行し、Webスレッドを待ち行列で埋めない。
+    if not _deck_image_slot.acquire(blocking=False):
+        response = jsonify({"error": "画像を作成中です。少し待って再度お試しください"})
+        response.headers["Retry-After"] = str(RATE_LIMIT_SEC)
+        return response, 503
 
     try:
         from deck_image import generate_deck_image
@@ -4830,6 +4877,8 @@ def api_deck_image():
     except Exception as e:
         logger.error(f"[deck-image] {e}", exc_info=True)
         return jsonify({"error": "画像生成に失敗しました"}), 500
+    finally:
+        _deck_image_slot.release()
 
 
 # ── 起動時プリロード ──

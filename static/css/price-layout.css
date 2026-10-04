@@ -41,7 +41,7 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
 #mode-search .of-tabs-row .movers-tabs{margin-bottom:8px}
 #mode-search #ofMoversDirTabs .movers-tab{padding:5px 14px;min-height:30px}
 #mode-search .movers-list{gap:0}
-#mode-search .movers-item{display:grid;grid-template-columns:18px 38px minmax(0,1fr) auto;align-items:center;gap:8px;padding:14px 12px;background:none;border:0;border-radius:0;min-width:0;transform:none;transition:background .15s}
+#mode-search .movers-item{color:inherit;text-decoration:none;display:grid;grid-template-columns:18px 38px minmax(0,1fr) auto;align-items:center;gap:8px;padding:14px 12px;background:none;border:0;border-radius:0;min-width:0;transform:none;transition:background .15s}
 #mode-search .movers-item:hover{background:var(--bg-hover);transform:none}
 #mode-search .movers-rank{grid-column:1;grid-row:1;min-width:0;font-size:11px}
 #mode-search .movers-thumb{grid-column:2;grid-row:1}
@@ -92,7 +92,7 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
  .price-redesign>.wrap{padding-inline:16px}
  .price-redesign>.wrap>header{padding-top:15px}
  .price-redesign .mode-tabs{flex-wrap:wrap;gap:0 8px;justify-content:space-between}
- .price-redesign .mode-tab,.price-redesign .header-solo-link{font-size:11px;min-height:44px;padding:10px 0;flex:0 0 auto}
+ .price-redesign .mode-tab,.price-redesign .header-solo-link{font-size:12px;min-height:44px;padding:10px 0;flex:0 0 auto}
  /* 購入候補をロゴの横に置き、5つの主導線を1行に収める。 */
  .price-redesign header h1{padding-right:90px}
  .price-redesign .mode-tabs .nav-wishlist{position:absolute;top:16px;right:0;min-height:40px;margin-left:0;padding:8px;border:1px solid #2b3549;border-radius:6px}

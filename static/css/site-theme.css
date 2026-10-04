@@ -133,3 +133,9 @@ body.price-redesign {
  #mode-mydeck .deck-empty-hint{min-height:150px;padding:20px}
  .price-redesign .mode-tabs .nav-wishlist{padding:8px 0;min-height:36px}
 }
+
+/* 取得範囲の警告を価格と分離し、小画面でも折り返す。 */
+#searchCoverage { margin: 12px 0; padding: 12px; background: var(--bg-card); color: var(--text); overflow-wrap: anywhere; }
+#searchCoverage[hidden] { display: none; }
+#searchCoverage button { margin-left: 12px; padding: 6px 12px; cursor: pointer; background: var(--bg-hover); color: var(--text); border: 1px solid var(--border); border-radius: 6px; }
+.search-failure-note { font-size: .75rem; line-height: 1.5; color: var(--text-d); overflow-wrap: anywhere; }

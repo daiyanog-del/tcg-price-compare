@@ -297,6 +297,7 @@ async function bulkSearchPackPrices(){
               if(priceEl){ priceEl.textContent='--'; priceEl.style.color=''; priceEl.title=''; }
             }
           }
+          SearchStatus.annotate(row,d);
           if(progEl) progEl.textContent=`${done}/${total} 検索中…`;
         }
         else if(d.type==='done'){

@@ -320,6 +320,9 @@ def _shop_cache_load(fp: Path) -> dict:
             results = ent.get("results")
             if not isinstance(results, list):
                 continue
+            # 修正前に保存された販売・買取結果にも最新のゲーム種別判定を適用する。
+            if shop == "カーナベル":
+                results = [r for r in results if not _is_kanabell_excluded(r)]
             fresh[shop] = {"timestamp": ent["timestamp"],
                            "partial": bool(ent.get("partial")),
                            "results": results}
@@ -978,9 +981,20 @@ _KANABELL_ES_URL = None  # lazy init
 #                category3_abbr は EXT01・KP04・「ラッシュ本付属　ら」「プロモ は行」
 #   ステンレス : 20th ANNIVERSARY 等のステンレス製記念カード。金属製で紙のOCGとは別物
 #                （SUPPLY_KEYWORDS の「ステンレス製」は商品名にしか効かない）
-# 遊戯王OCGにこの2つのレアリティは存在しない（rarity.py の canonical にも無く、
+#   Oラッシュ : ラッシュデュエルのオーバーラッシュ（青眼の白龍 100283847で確認）
+# 遊戯王OCGにこれらのレアリティは存在しない（rarity.py の canonical にも無く、
 # normalize_rarity は「未知の表記」として生のまま返す）。
-_KANABELL_EXCLUDED_RARITIES = frozenset({"ラッシュ", "ステンレス"})
+_KANABELL_EXCLUDED_RARITIES = frozenset({"ラッシュ", "Oラッシュ", "ステンレス"})
+
+
+def _is_kanabell_excluded(product: dict) -> bool:
+    """販売・買取のES商品と保存済み結果から、別ゲーム・非紙カードを判定する。"""
+    # category2_id の意味は未確認なので、番号からの推測では除外しない。
+    # 分類名・商品名・型番の明示的なラッシュ識別子は既存の判定を共有する。
+    text = " ".join(v for v in product.values() if isinstance(v, str))
+    rarity = product.get("rarity_abbreviation", product.get("rarity", "")) or ""
+    return (_is_rush_duel(text)
+            or unicodedata.normalize("NFKC", rarity).strip() in _KANABELL_EXCLUDED_RARITIES)
 
 # 状態ランク: ESフィールド名 → 表示名
 _KANABELL_CONDITIONS = [
@@ -1115,10 +1129,9 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
         name_text = src.get("name", "")
         card_id = src.get("id") or hit.get("_id", "")
 
-        # ラッシュデュエルのカードを除外（全フィールドで判定）
+        # ゲーム分類・型番・レアリティを販売と買取で共通判定する。
         cat3 = src.get("category3_abbr", "")
-        all_text = " ".join(str(v) for v in src.values() if isinstance(v, str))
-        if _is_rush_duel(all_text):
+        if _is_kanabell_excluded(src):
             continue
 
         if not name_text or not is_target_card(_kanabell_canon_dash(card_name), _kanabell_canon_dash(name_text)):
@@ -1126,10 +1139,6 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
 
         # レアリティ
         rarity = src.get("rarity_abbreviation", "")
-
-        # ラッシュデュエル・ステンレス製記念カードを除外（レアリティ欄にだけ印が出る）
-        if rarity.strip() in _KANABELL_EXCLUDED_RARITIES:
-            continue
 
         # カードコード (カテゴリ略称から組み立て)
         code = ""
@@ -1857,14 +1866,10 @@ def scrape_kanabell_buy(card_name: str) -> list[dict]:
         card_id = src.get("id") or hit.get("_id", "")
         if not name_text or not card_id or card_id in seen_ids:
             continue
-        # ラッシュデュエルのカードを除外（全フィールドで判定）
-        all_text = " ".join(str(v) for v in src.values() if isinstance(v, str))
-        if _is_rush_duel(all_text):
+        # ゲーム分類・型番・レアリティを販売と買取で共通判定する。
+        if _is_kanabell_excluded(src):
             continue
         if not is_target_card(_kanabell_canon_dash(card_name), _kanabell_canon_dash(name_text)):
-            continue
-        # ラッシュデュエル・ステンレス製記念カードを除外（販売側と同じ判定）
-        if src.get("rarity_abbreviation", "").strip() in _KANABELL_EXCLUDED_RARITIES:
             continue
         seen_ids.add(card_id)
 

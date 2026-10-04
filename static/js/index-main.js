@@ -151,6 +151,7 @@ function _setPriceSectionsVisible(visible){
 function _normalizeBreaks(text){return String(text??'').replace(/<br\s*\/?>/gi,'\n');}
 
 function showUnreleasedCard(name){
+  SearchStatus.show({});
   _setSearchLayout(true);
   // 世代管理: selectSugの未発売分岐はdoSearchを通らず世代が進まないため、稼働中の
   // 販売検索ストリームがあればここで明示的に破棄する（そのままだと後から届くdoneが
@@ -340,6 +341,7 @@ function _newSearchGen(){ // 世代加算＝旧ストリーム破棄、を不可
 }
 
 function doSearch(opts){
+  closeSuggest();
   // opts: {validated:true} サジェスト選択やvalidate済み, {confirmed:true} DB未登録を承認済み,
   //       {trigger:'user'|'pageload'|'popstate'|...} G-2: 計測用。省略時は'user'（検索窓からの手動検索）
   //       {_gen} /api/validateを挟む再帰呼び出しが、入口で採番した世代を引き継ぐための内部用引数
@@ -425,6 +427,7 @@ function doSearch(opts){
     return el;
   }
 
+  SearchStatus.show({});
   D=[];rarityFilter='';tableShowCount=TABLE_PAGE_SIZE;
   _resetBuyInline(); // C-2: 新しい検索をしたら買取セクションは閉じた未取得状態に戻す（前のカードの買取価格が残ると誤情報になるため）
   _updateRarityBanner(); // F-4: 前回検索の絞り込みバナーが残ったまま次の検索結果が出るのを防ぐ
@@ -470,7 +473,7 @@ function doSearch(opts){
       el.className='pstep searching';el.querySelector('.pstat').textContent='検索中...';
     }else if(d.type==='shop_done'){
       const el=_searchProgStep(d.shop);
-      el.className='pstep done';el.querySelector('.pstat').textContent=d.count+'件'+(d.cached?' (cache)':'');
+      el.className=d.status==='partial'?'pstep error':'pstep done';el.querySelector('.pstat').textContent=d.status==='partial'?(d.count?d.count+'件・一部失敗':'取得失敗'):d.count+'件'+(d.cached?' (cache)':'');
       // 逐次表示: 結果が届いたらテーブルに追加
       if(d.results&&d.results.length>0){
         D=D.concat(d.results);
@@ -491,6 +494,7 @@ function doSearch(opts){
       if(d.corrected_name) document.getElementById('q').value=d.corrected_name;
       // J-2: 買取セクションの取得キーは「入力欄の現在値」ではなく、ここで確定した表示カード名にする
       _currentCardName=document.getElementById('q').value.trim();
+      SearchStatus.show(d);
       renderAll(d);
       btn.disabled=false;btn.textContent='検索';
       _setSearchLayout(d.total>0);
@@ -512,13 +516,14 @@ function doSearch(opts){
 // ── Autocomplete ──
 const qInput=document.getElementById('q');
 const sugDrop=document.getElementById('suggestDrop');
-let sugTimer=null, sugIdx=-1, sugItems=[];
+let sugTimer=null, sugIdx=-1, sugItems=[], sugGeneration=0;
 
 qInput.addEventListener('input',()=>{
-  clearTimeout(sugTimer);
+  closeSuggest();
   const v=qInput.value.trim();
   if(v.length<2){closeSuggest();return;}
-  sugTimer=setTimeout(()=>fetchSuggest(v),250);
+  const generation=sugGeneration;
+  sugTimer=setTimeout(()=>fetchSuggest(v,generation),250);
 });
 
 qInput.addEventListener('keydown',e=>{
@@ -531,13 +536,17 @@ qInput.addEventListener('keydown',e=>{
   if(e.key==='Enter')doSearch();
 });
 
-qInput.addEventListener('blur',()=>{setTimeout(closeSuggest,150)});
+// 候補の選択は mousedown で blur より先に処理される。
+qInput.addEventListener('blur',closeSuggest);
 
-function fetchSuggest(q){
+function fetchSuggest(q,generation=sugGeneration){
+  const isCurrent=()=>generation===sugGeneration && document.activeElement===qInput && qInput.value.trim()===q;
+  if(!isCurrent())return;
   // include_unreleased=1 で未発売カードも候補に含める（レスポンスは {name, unreleased} の配列）
   fetch('/api/suggest?q='+encodeURIComponent(q)+'&include_unreleased=1')
     .then(r=>r.json())
     .then(items=>{
+      if(!isCurrent())return;
       if(!items.length){closeSuggest();return;}
       sugItems=items;sugIdx=-1;
       sugDrop.innerHTML=items.map((it,i)=>{
@@ -548,7 +557,7 @@ function fetchSuggest(q){
       sugDrop.classList.add('open');
       loadSuggestThumbnails(sugDrop);
     })
-    .catch(()=>closeSuggest());
+    .catch(()=>{if(isCurrent())closeSuggest();});
 }
 
 // 検索候補にカード画像サムネを一括取得して差し込む（販売/買取 共通。マイデッキの実装と同方式）
@@ -586,7 +595,10 @@ function selectSug(name,unreleased){
   doSearch({validated:true,trigger:'user'});
 }
 
-function closeSuggest(){sugDrop.classList.remove('open');sugIdx=-1;sugItems=[];}
+function closeSuggest(){
+  clearTimeout(sugTimer);sugTimer=null;sugGeneration++;
+  sugDrop.classList.remove('open');sugIdx=-1;sugItems=[];
+}
 
 function renderAll(d){
   _setSearchLayout(d.total>0);
@@ -601,7 +613,7 @@ function renderAll(d){
     document.getElementById('empty').classList.remove('hidden');
     const emptyError=document.getElementById('emptyError');
     emptyError.textContent='該当するカードが見つかりませんでした';
-    emptyError.classList.remove('hidden');
+    emptyError.classList.toggle('hidden',!!SearchStatus.message(d));
     _maybeOpenBuyInlineOnLoad(); // 0件でも次回の検索に持ち越さない
     return;
   }
@@ -630,7 +642,7 @@ function renderAll(d){
     </details>
     <div class="share-btns">
       <button onclick="addToDeck('${escAttr(escJs(searchTerm))}')" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ デッキに追加</button>
-      <button onclick="wishAddFromBtn(this,'${escAttr(escJs(searchTerm))}',1)" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ 購入候補に追加</button>
+      <button id="heroWishAdd" onclick="wishAddFromBtn(this,'${escAttr(escJs(searchTerm))}',1,rarityFilter)" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ 購入候補に追加</button>
       <div class="share-menu-wrap">
         <button class="share-btn share-btn-x" onclick="toggleShareMenu('shareMenuSell')">シェア</button>
         <div class="share-menu" id="shareMenuSell"></div>
@@ -901,13 +913,14 @@ function _fetchBuyInline(trigger){
     if(d.type==='progress'){
       const el=step(d.shop);el.className='pstep searching';el.querySelector('.pstat').textContent='検索中...';
     }else if(d.type==='shop_done'){
-      const el=step(d.shop);el.className='pstep done';el.querySelector('.pstat').textContent=d.count+'件'+(d.cached?' (cache)':'');
+      const el=step(d.shop);el.className=d.status==='partial'?'pstep error':'pstep done';el.querySelector('.pstat').textContent=d.status==='partial'?(d.count?d.count+'件・一部失敗':'取得失敗'):d.count+'件'+(d.cached?' (cache)':'');
     }else if(d.type==='shop_error'){
       const el=step(d.shop);el.className='pstep error';el.querySelector('.pstat').textContent='エラー';
       _buyInlineFailedShops.push(d.shop);
     }else if(d.type==='done'){
       clearTimeout(_buyInlineTimeoutId);_buyInlineTimeoutId=null;es.close();_buyInlineFetchInFlight=false;_buyInlineES=null;
       _buyInlineD=d.results;
+      _buyInlineFailedShops=d.failed_shops||_buyInlineFailedShops;
       if(_buyInlineD.length===0&&_buyInlineFailedShops.length>0){
         // 全店舗失敗＝通信エラー相当。0件確定ではないので「見つかりませんでした」にはしない
         _renderBuyInlineError('買取価格の取得に失敗しました（'+_buyInlineFailedShops.join('・')+'）。');
@@ -1077,6 +1090,8 @@ function _updateHeroSummary(){
 
 // C-1(iii): 「絞り込み中」を明示するバナー（解除ボタン付き）
 function _updateRarityBanner(){
+  const wishButton=document.getElementById('heroWishAdd');
+  if(wishButton)wishButton.textContent=rarityFilter?`+ ${rarityFilter}を購入候補に追加`:'+ レアリティ未指定で購入候補に追加';
   const banner=document.getElementById('rfBanner');
   if(!banner) return;
   if(!rarityFilter){
@@ -1269,6 +1284,13 @@ function safeUrl(u){
   }catch{return ''}
 }
 
+// 修飾キーと中ボタンはブラウザ標準の別タブ操作に任せる。
+function rankingLinkClick(event){
+  if(event.defaultPrevented||event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return false;
+  event.preventDefault();
+  return true;
+}
+
 function searchCard(name){
   switchMode('search','ranking');
   document.getElementById('q').value=name;
@@ -1330,7 +1352,7 @@ function loadTopMovers(dir,retry){
         const cls=isUp?'up':'down';
         // Q-1: どのレアリティの値段か分からないまま騰落だけ見せない（旧実装で表示していたバッジの復活）
         const rarityBadge=item.rarity?`<span class="rb rb-${cssClass(item.rarity)}">${esc(item.rarity)}</span>`:'';
-        return `<div class="movers-item" onclick="openTopMover('${escAttr(escJs(item.name))}',${i+1})" data-card="${escAttr(item.name)}">
+        return `<a class="movers-item" href="/card/${escAttr(encodeURIComponent(item.name))}" onclick="if(!rankingLinkClick(event))return true;openTopMover('${escAttr(escJs(item.name))}',${i+1})" data-card="${escAttr(item.name)}">
           <span class="movers-rank">${i+1}</span>
           <span class="movers-thumb"></span>
           <span class="movers-name"><span class="movers-name-text">${esc(item.name)}</span>${rarityBadge?`<span class="movers-rarity">${rarityBadge}</span>`:''}</span>
@@ -1338,7 +1360,7 @@ function loadTopMovers(dir,retry){
             <span class="movers-price-now">&yen;${item.today.toLocaleString()}</span>
             <span class="movers-diff ${cls}">${sign}${item.diff.toLocaleString()} (${sign}${item.pct}%)</span>
           </span>
-        </div>`;
+        </a>`;
       }).join('');
       loadRankingImages('#topMoversList .movers-item','movers-thumb');
     })
@@ -1414,7 +1436,7 @@ function loadOfMovers(dir,retry){
         const sign=isUp?'+':'';
         const cls=isUp?'up':'down';
         const rarityBadge=item.rarity?`<span class="rb rb-${cssClass(item.rarity)}">${esc(item.rarity)}</span>`:'';
-        return `<div class="movers-item" onclick="openOfMover('${escAttr(escJs(item.name))}',${i+1})" data-card="${escAttr(item.name)}">
+        return `<a class="movers-item" href="/card/${escAttr(encodeURIComponent(item.name))}" onclick="if(!rankingLinkClick(event))return true;openOfMover('${escAttr(escJs(item.name))}',${i+1})" data-card="${escAttr(item.name)}">
           <span class="movers-rank">${i+1}</span>
           <span class="movers-thumb"></span>
           <span class="movers-name"><span class="movers-name-text">${esc(item.name)}</span>${rarityBadge?`<span class="movers-rarity">${rarityBadge}</span>`:''}</span>
@@ -1422,7 +1444,7 @@ function loadOfMovers(dir,retry){
             <span class="movers-price-now">&yen;${item.today.toLocaleString()}</span>
             <span class="movers-diff ${cls}">${sign}${item.diff.toLocaleString()} (${sign}${item.pct}%)</span>
           </span>
-        </div>`;
+        </a>`;
       }).join('');
       loadRankingImages('#ofMoversList .movers-item','movers-thumb');
     })
@@ -1476,7 +1498,7 @@ function loadGmrPriced(retry){
         const cls=isUp?'up':'down';
         const diffHtml=hasDiff?`<span class="movers-diff ${cls}">${sign}${item.diff.toLocaleString()} (${sign}${item.pct}%)</span>`:flatHtml;
         const rarityBadge=item.rarity?`<span class="rb rb-${cssClass(item.rarity)}">${esc(item.rarity)}</span>`:'';
-        return `<div class="movers-item" onclick="openGmrPriced('${escAttr(escJs(item.name))}',${i+1})" data-card="${escAttr(item.name)}">
+        return `<a class="movers-item" href="/card/${escAttr(encodeURIComponent(item.name))}" onclick="if(!rankingLinkClick(event))return true;openGmrPriced('${escAttr(escJs(item.name))}',${i+1})" data-card="${escAttr(item.name)}">
           <span class="movers-rank">${i+1}</span>
           <span class="movers-thumb"></span>
           <span class="movers-name"><span class="movers-name-text">${esc(item.name)}</span>${rarityBadge?`<span class="movers-rarity">${rarityBadge}</span>`:''}</span>
@@ -1484,7 +1506,7 @@ function loadGmrPriced(retry){
             <span class="movers-price-now">&yen;${item.price.toLocaleString()}</span>
             ${diffHtml}
           </span>
-        </div>`;
+        </a>`;
       }).join('');
       loadRankingImages('#ofMoversList .movers-item','movers-thumb');
     })
@@ -1531,7 +1553,7 @@ function loadBuybackMovers(dir,retry){
         // 買取は値上がり=緑(お得)、値下がり=赤 と色反転するため buyback-diff クラスを使用
         const cls=isUp?'up':'down';
         const rarityBadge=item.rarity?`<span class="rb rb-${cssClass(item.rarity)}">${esc(item.rarity)}</span>`:'';
-        return `<div class="movers-item" onclick="doBuySearchCard('${escAttr(escJs(item.name))}')" data-card="${escAttr(item.name)}">
+        return `<a class="movers-item" href="/buy/${escAttr(encodeURIComponent(item.name))}" onclick="if(!rankingLinkClick(event))return true;doBuySearchCard('${escAttr(escJs(item.name))}')" data-card="${escAttr(item.name)}">
           <span class="movers-rank">${i+1}</span>
           <span class="movers-thumb"></span>
           <span class="movers-name"><span class="movers-name-text">${esc(item.name)}</span>${rarityBadge?`<span class="movers-rarity">${rarityBadge}</span>`:''}</span>
@@ -1539,7 +1561,7 @@ function loadBuybackMovers(dir,retry){
             <span class="movers-price-now">&yen;${item.today.toLocaleString()}</span>
             <span class="movers-diff buyback-diff ${cls}">${sign}${item.diff.toLocaleString()} (${sign}${item.pct}%)</span>
           </span>
-        </div>`;
+        </a>`;
       }).join('');
       loadRankingImages('#buybackMoversList .movers-item','movers-thumb');
     })
@@ -1615,47 +1637,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // SEO: カード個別ページの場合、自動検索を実行（サーバーが渡したカード名なのでvalidateスキップ）。
-  // S-1: /buy/<カード名> も「価格」タブ（#q検索）に統合。S-2: 着地時は買取セクション（#buyInline）を
-  // 開いた状態にする。固定タイマーで開くと検索完了が遅いときに打ち消される回帰があったため、
-  // 検索結果が実際に届いた側（renderAll内の_maybeOpenBuyInlineOnLoad）から開く
-  if(_pageCardName){
-    document.getElementById('q').value=_pageCardName;
-    if(_pageMode==='buyback') _pendingBuyInlineOpen=true;
-    setTimeout(()=>doSearch({validated:true,trigger:'pageload'}),300);
-  }
-
-  // URLハッシュからモードを復元（カード表示ページでないときのみ）。
-  // S-1: #buyback は買取タブが無くなったため「価格」タブ（search）へ正規化する
-  if(!_pageCardName){
-    const _hashMode=location.hash.slice(1);
-    // #mydeck-import: 一人回しページの「マイデッキページで取り込む」ボタンからの遷移用。
-    // マイデッキタブを開いた上で、ニューロン取込パネルを開いた状態で表示する
-    const _isImportDeeplink = _hashMode === 'mydeck-import';
-    const _normalizedHash = _isImportDeeplink ? 'mydeck' : _hashMode;
-    if(['mydeck','meta','packs','wishlist','buyback'].includes(_normalizedHash)){
-      switchMode(_normalizedHash==='buyback'?'search':_normalizedHash,'hash');
-    }
-    if(_isImportDeeplink){
-      const _importDetails = document.getElementById('deckImportDetails');
-      if(_importDetails) _importDetails.open = true;
-      // モバイル幅では deck.css の .deck-panes.show-tools が無いと
-      // 取込パネルが属する右ペイン(#deckPaneTools)ごと非表示になるため、
-      // ペイン切替（タブのアクティブ状態も含む）を明示的に行う
-      document.getElementById('deckPanes')?.classList.add('show-tools');
-      if(typeof window.switchDeckPane === 'function') window.switchDeckPane('tools');
-      if(_importDetails) _importDetails.scrollIntoView({block:'start'});
-    }
-  }
-
-  // /featured URL でアクセスした場合は最新弾タブを開き新弾を自動選択
-  if(_pageMode==='featured'){
-    switchMode('packs','deeplink');
-    loadPacks().then(()=>{
-      const f=_packData.find(p=>p.featured);
-      if(f) loadPackCards(f.name, f.wiki_page||f.name, f.tcg_name||'', true);
-    });
-  }
+  _restoreLocation('pageload');
 
   // フラッシュ防止用の一時スタイルを削除（以降のタブ切替を正常に動かすため）
   const _fp=document.getElementById('fouc-prevent');
@@ -1667,7 +1649,7 @@ function _updateUrl(cardName, mode){
   if(!cardName)return;
   const prefix=mode==='buyback'?'/buy/':'/card/';
   const newUrl=prefix+encodeURIComponent(cardName);
-  if(window.location.pathname!==newUrl){
+  if(window.location.pathname+window.location.search+window.location.hash!==newUrl){
     history.pushState({card:cardName,mode:mode},'',newUrl);
   }
   // ページタイトルも更新
@@ -1675,16 +1657,60 @@ function _updateUrl(cardName, mode){
   document.title=cardName+suffix+' | TCGYM';
 }
 
-// ブラウザの戻る/進むボタン対応
-window.addEventListener('popstate',function(e){
-  if(e.state&&e.state.card){
-    switchMode('search','popstate');
-    document.getElementById('q').value=e.state.card;
-    // S-2: /buy/<カード名>の履歴エントリに戻ったときは、買取セクションを開いた状態に戻す
-    if(e.state.mode==='buyback') _pendingBuyInlineOpen=true;
-    doSearch({validated:true,trigger:'popstate'});
+// URLを正本にして、初期表示と戻る・進むを同じ処理で復元する。
+function _resetSearchView(){
+  SearchStatus.show({});
+  _newSearchGen();
+  _resetBuyInline();
+  closeSuggest();
+  _pendingBuyInlineOpen=false;
+  document.getElementById('btn').disabled=false;
+  document.getElementById('btn').textContent='検索';
+  document.getElementById('q').value='';
+  document.getElementById('results').classList.add('hidden');
+  document.getElementById('empty').classList.remove('hidden');
+  document.getElementById('emptyError').classList.add('hidden');
+  document.getElementById('prog').style.display='none';
+  _setSearchLayout(false);
+}
+function _restoreLocation(trigger){
+  _resetSearchView();
+  const hash=location.hash.slice(1);
+  const mode=hash==='mydeck-import'?'mydeck':hash;
+  if(['mydeck','meta','packs','wishlist'].includes(mode)){
+    switchMode(mode,trigger);
+    if(hash==='mydeck-import'){
+      const details=document.getElementById('deckImportDetails');
+      if(details)details.open=true;
+      document.getElementById('deckPanes')?.classList.add('show-tools');
+      if(typeof window.switchDeckPane==='function')window.switchDeckPane('tools');
+      if(details)details.scrollIntoView({block:'start'});
+    }
+    document.title='TCGYM';
+    return;
   }
-});
+  if(location.pathname==='/featured'){
+    switchMode('packs',trigger);
+    loadPacks().then(()=>{
+      if(location.pathname!=='/featured'||location.hash)return;
+      const f=_packData.find(p=>p.featured);
+      if(f)loadPackCards(f.name,f.wiki_page||f.name,f.tcg_name||'',true);
+    });
+    return;
+  }
+  switchMode('search',trigger);
+  const cardPath=location.pathname.match(/^\/(card|buy)\/(.+)$/);
+  if(cardPath){
+    let name;
+    try{name=decodeURIComponent(cardPath[2]);}catch{return;}
+    document.getElementById('q').value=name;
+    _pendingBuyInlineOpen=cardPath[1]==='buy';
+    doSearch({trigger:trigger});
+  }else{
+    document.title='TCGYM';
+  }
+}
+window.addEventListener('popstate',()=>_restoreLocation('popstate'));
 
 // G-5: スクロール量計測（C-3c ボトムナビ判断材料）。
 // 現在のスクロール到達率（%）。スクロール不可（コンテンツが画面に収まる）なら0を返す
@@ -1757,10 +1783,14 @@ function switchMode(mode, trigger){
     // 端末間同期（P2）: マイデッキタブを開いたときだけ pull する（カード個別ページ閲覧では走らせない）
     if(window.SyncClient) window.SyncClient.pullIfNeeded();
   }
-  // リロード時にモードを復元できるようURLハッシュを更新
-  const _modeHash = (mode==='search') ? '' : mode;
-  if(location.hash.slice(1) !== _modeHash){
-    history.replaceState(null,'', _modeHash ? ('#'+_modeHash) : (location.pathname+location.search));
+  // タブ操作のみ履歴を積む。復元とランキング検索では中間URLを作らない。
+  if(trigger && !['pageload','popstate','hash','deeplink','ranking'].includes(trigger)){
+    const url=mode==='search'?'/':'/#'+mode;
+    if(location.pathname+location.search+location.hash!==url){
+      _resetSearchView();
+      history.pushState(null,'',url);
+      document.title='TCGYM';
+    }
   }
 }
 
@@ -1957,10 +1987,11 @@ window.onDeckImported=function(deck){
 // ── 環境デッキ（TCG PORTAL連携）──
 let _metaLoaded=false;
 let _metaTiers=[];
+let _metaMetadata={};
 let _metaLoadPromise=null; // Q-11: 呼び出しが重なった時に /api/meta を二重fetchしないためのin-flightガード
 
 // R-1: 旧トップページの「デッキの金額」ランキング（/api/top-decks）を環境デッキタブへ統合。
-// 既定は強い順（Tierグループ表示）、切替で安い順（フラット表示）にする。
+// 既定は入賞傾向（Tierグループ表示）、切替で安い順（フラット表示）にする。
 // /api/top-decks はシェア上位8件（top_page.TOP_DECKS_LIMIT）しかスクレイプ・価格計算しないため、
 // _metaPriceMap に入っていないデッキ（Tier一覧には出るが上位8件に入らないもの）もある。
 // その場合は価格行を出さない（「価格情報なし」は取得を試みて失敗した場合の表記のため、
@@ -1972,7 +2003,7 @@ let _metaPricesLoadPromise=null;
 
 function switchMetaSort(sort){
   _metaSort=sort;
-  document.querySelectorAll('#metaSortTabs .movers-tab').forEach(b=>b.classList.toggle('active',b.textContent.includes(sort==='price'?'安い':'強い')));
+  document.querySelectorAll('#metaSortTabs .movers-tab').forEach(b=>b.classList.toggle('active',b.textContent.includes(sort==='price'?'安い':'入賞傾向')));
   renderMetaTiers();
   loadMetaDeckPrices();
 }
@@ -2032,29 +2063,49 @@ function loadMetaTiers(){
 
 async function _loadMetaTiersInner(){
   const el=document.getElementById('metaTierList');
-  const CACHE_KEY='tcgym_meta_cache', TTL=3600*1000; // 1時間
+  const CACHE_KEY='tcgym_meta_cache_v2', TTL=3600*1000; // 1時間
   try{
     const raw=sessionStorage.getItem(CACHE_KEY);
     if(raw){
       const {ts,data}=JSON.parse(raw);
-      if(Date.now()-ts<TTL){_metaTiers=data;_metaLoaded=true;renderMetaTiers();return;}
+      if(Date.now()-ts<TTL&&Array.isArray(data.tiers)&&data.tiers.length&&!data.metadata?.stale&&!data.metadata?.refresh_error){
+        _metaTiers=data.tiers;_metaMetadata=data.metadata||{};_metaLoaded=true;renderMetaTiers();return;
+      }
     }
   }catch{}
   el.innerHTML='<div class="meta-loading">環境データを読込中...</div>';
   try{
-    const res=await fetch('/api/meta');
-    _metaTiers=await res.json();
-    _metaLoaded=true;
-    try{sessionStorage.setItem(CACHE_KEY,JSON.stringify({ts:Date.now(),data:_metaTiers}));}catch{}
+    const res=await fetch('/api/meta?include_metadata=1');
+    if(!res.ok) throw new Error('環境データ取得失敗');
+    const data=await res.json();
+    // 段階的な公開更新中は旧配列形式も許容し、取得条件は不明と表示する。
+    _metaTiers=Array.isArray(data)?data:data.tiers;
+    if(!Array.isArray(_metaTiers)) throw new Error('環境データ形式不正');
+    _metaMetadata=Array.isArray(data)?{}:(data.metadata||{});
+    _metaLoaded=_metaTiers.length>0&&!_metaMetadata.stale&&!_metaMetadata.refresh_error;
+    try{
+      if(_metaLoaded) sessionStorage.setItem(CACHE_KEY,JSON.stringify({ts:Date.now(),data:{tiers:_metaTiers,metadata:_metaMetadata}}));
+      else sessionStorage.removeItem(CACHE_KEY);
+    }catch{}
     renderMetaTiers();
   }catch(e){
     el.innerHTML='<div class="meta-loading">環境データの取得に失敗しました</div>';
   }
 }
 
+function _metaProvenanceHtml(){
+  const m=_metaMetadata;
+  const period=m.from&&m.to?`集計期間: ${m.from}〜${m.to}`:'集計期間不明';
+  const updated=m.fetched_at?`データ取得: ${m.fetched_at}`:'取得日時不明';
+  const sample=Number.isInteger(m.sample_size)&&m.sample_size>=0?`母数: ${m.sample_size}件`:'母数不明';
+  const status=m.stale?'／更新に失敗したため、以前取得したデータを表示しています':
+    (m.refresh_error?'／最新データを取得できませんでした':'');
+  return esc(`データ: TCG PORTAL 大会入賞データ／${period}／${updated}／${sample}${status}`);
+}
+
 function renderMetaTiers(){
   const el=document.getElementById('metaTierList');
-  if(!_metaTiers.length){el.innerHTML='<div class="meta-loading">データがありません</div>';return;}
+  if(!_metaTiers.length){el.innerHTML=`<div class="meta-loading">${_metaMetadata.refresh_error?'環境データの取得に失敗しました':'データがありません'}</div><div class="meta-note">${_metaProvenanceHtml()}</div>`;return;}
 
   let rank=0; // GA用の表示順（クリック計測。カード名/デッキ名は送らない）
 
@@ -2067,6 +2118,7 @@ function renderMetaTiers(){
       el.innerHTML=_metaPricesError
         ?'<div class="meta-loading">環境デッキの価格情報の取得に失敗しました</div>'
         :'<div class="meta-loading">価格データを読込中...</div>';
+      el.innerHTML+=`<div class="meta-note">${_metaProvenanceHtml()}</div>`;
       return;
     }
     const sorted=[...priced].sort((a,b)=>{
@@ -2100,12 +2152,12 @@ function renderMetaTiers(){
       </button>`;
     }
     html+='</div>';
-    html+='<div class="meta-note">環境デッキを今すぐ組むといくらか（一部未取得のカードあり・目安）／データ: TCG PORTAL 大会入賞データより（直近1ヶ月）</div>';
+    html+=`<div class="meta-note">環境デッキを今すぐ組むといくらか（一部未取得のカードあり・目安）／${_metaProvenanceHtml()}</div>`;
     el.innerHTML=html;
     return;
   }
 
-  // 強い順（既定）: 従来どおりTierグループ表示。各デッキ行に価格データがあれば併記する
+  // 入賞傾向（既定）: 従来どおりTierグループ表示。各デッキ行に価格データがあれば併記する
   const groups={};
   for(const t of _metaTiers){
     const key=t.tier||99;
@@ -2136,7 +2188,7 @@ function renderMetaTiers(){
   const pricedCount=Object.keys(_metaPriceMap).length;
   const priceLimitNote=(_metaPricesLoaded&&pricedCount>0&&pricedCount<_metaTiers.length)
     ?`価格は使用率が高い上位${pricedCount}デッキのみ計算しています／`:'';
-  html+=`<div class="meta-note">${priceLimitNote}データ: TCG PORTAL 大会入賞データより（直近1ヶ月）</div>`;
+  html+=`<div class="meta-note">${priceLimitNote}${_metaProvenanceHtml()}</div>`;
   el.innerHTML=html;
 }
 
@@ -2484,6 +2536,7 @@ async function calcDeckEstimate(ctx, opts){
             sseNotFound++;
             row.className='deck-grid-cell error';
           }
+          SearchStatus.annotate(row,d);
           const remaining=missing.length-(sseFound+sseNotFound);
           if(remaining>0){
             totalEl.innerHTML=`¥${total.toLocaleString()} <span style="font-size:.7em;color:var(--text-d)">+ ${remaining}枚検索中</span>`;
@@ -2571,7 +2624,7 @@ async function generateDeckImageUI(shareAreaId){
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({name:data.deckName,cards:data.cards,total:data.total})
     });
-    if(!res.ok)throw new Error(`HTTP ${res.status}`);
+    if(!res.ok){const problem=await res.json().catch(()=>({}));throw new Error(problem.error||'画像の生成に失敗しました。再度お試しください。');}
     const blob=await res.blob();
     const url=URL.createObjectURL(blob);
     const fname=`${data.deckName}_デッキ画像.png`;
@@ -2582,7 +2635,7 @@ async function generateDeckImageUI(shareAreaId){
         <a href="${url}" download="${escAttr(fname)}" class="share-btn">画像をダウンロード</a>
       </div>`;
   }catch(e){
-    area.innerHTML='<div style="color:var(--error,#f55);font-size:.85rem">画像の生成に失敗しました。再度お試しください。</div>';
+    area.innerHTML=`<div role="alert" style="color:var(--error,#f55);font-size:.85rem">${esc(e.message||'画像の生成に失敗しました。再度お試しください。')}</div>`;
   }finally{
     if(btn)btn.disabled=false;
   }
@@ -2675,6 +2728,7 @@ async function calcDeck(buyMode){
             notFound++;
             row.className='deck-grid-cell error';
           }
+          SearchStatus.annotate(row,d);
           totalEl.textContent=`¥${total.toLocaleString()}`;
         }
         else if(d.type==='done'){
