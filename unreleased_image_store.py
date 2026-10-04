@@ -171,10 +171,11 @@ def crop_and_save_image(
         # ブラウザと認識入力に合わせ、EXIF回転後の座標で保存する。
         img = ImageOps.exif_transpose(Image.open(io.BytesIO(raw_bytes)))
         w, h = img.size
-        x1 = int(w * left)
-        y1 = int(h * top)
-        x2 = int(w * right)
-        y2 = int(h * bottom)
+        # 比率への変換・JSON往復による誤差で455pxが454pxへ切り捨てられないようにする。
+        x1 = round(w * left)
+        y1 = round(h * top)
+        x2 = round(w * right)
+        y2 = round(h * bottom)
         cropped = img.crop((x1, y1, x2, y2))
         ext = mime.split("/")[-1].upper()
         pil_fmt = {"JPEG": "JPEG", "JPG": "JPEG", "PNG": "PNG", "WEBP": "WEBP"}.get(ext, "JPEG")
