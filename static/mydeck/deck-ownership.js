@@ -146,8 +146,6 @@
   function applyReceived(list){
     const deck=list.find(d=>d.id===global._currentSavedDeckId);if(!deck)return;
     set(deck.owned);
-    const draft=JSON.parse(localStorage.getItem('cardprice_deck_draft')||'null');
-    if(draft&&draft.savedId===deck.id){draft.owned=validateOwned(deck.owned);localStorage.setItem('cardprice_deck_draft',JSON.stringify(draft));}
     render();
   }
   global.DeckOwnership={validateOwned,requiredCards,plan,supplement,set,snapshot,render,applyReceived,

@@ -19,7 +19,7 @@ function fixture(){
   s.window=s;vm.createContext(s);vm.runInContext(ownershipSource,s);s.DeckOwnership.set({A:1});
   const apply=s.DeckOwnership.applyReceived;s.DeckOwnership.applyReceived=items=>{applied.push(items);apply(items);};
   vm.runInContext(source,s);
-  return {s,data,requests,applied,
+  return {s,data,requests,applied,timers,
     timer(){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();},
     edit(n){s.DeckOwnership.set({A:n});data.set('cardprice_deck_draft',JSON.stringify({...deck(n)[0],savedId:'d1'}));s.savedDecksSet(deck(n));},
     reload(){vm.runInContext(source,s);},
@@ -80,5 +80,48 @@ function fixture(){
   const normalAfterAck=failed.s.SyncClient.pullIfNeeded();
   failed.answer(5,{ok:true,decks:{rev:4,items:deck(0)},wishlist:{unchanged:true}});await normalAfterAck;
   assert.equal(failed.value(),0);assert.equal(failed.owned(),0);assert.equal(failed.draft(),0);
+  // 送信失敗後の解除はサーバーの旧データを複製するため、未ACKを新IDへ追送する。
+  const unlinkFailed=fixture();unlinkFailed.edit(2);unlinkFailed.timer();
+  for(let i=0;i<3;i++){unlinkFailed.fail(i);await tick();if(i<2){unlinkFailed.timer();await tick();}}
+  const unlink=unlinkFailed.s.SyncClient.unlinkThisDevice();
+  unlinkFailed.answer(3,{ok:true,sync_id:'new',decks_rev:1,wishlist_rev:1});await unlink;
+  assert.equal(unlinkFailed.requests[4].body.sync_id,'new');
+  assert.equal(unlinkFailed.requests[4].body.base_rev,0,'複製先だけのデッキを通常置換で消さない');
+  assert.equal(unlinkFailed.requests[4].body.items[0].owned.A,2);
+  assert.equal(JSON.parse(unlinkFailed.data.get('cardprice_sync_state')).decks_dirty,true);
+  unlinkFailed.reload();const afterUnlink=unlinkFailed.s.SyncClient.pullIfNeeded();
+  assert.equal(unlinkFailed.requests[5].body.sync_id,'new');
+  unlinkFailed.answer(6,{ok:true,decks:{rev:2,items:deck(1)},wishlist:{unchanged:true}});await afterUnlink;
+  assert.equal(unlinkFailed.value(),2);assert.equal(unlinkFailed.owned(),2);assert.equal(unlinkFailed.draft(),2);
+  unlinkFailed.answer(5,{ok:true,status:'applied',rev:3});await tick();
+  assert(!JSON.parse(unlinkFailed.data.get('cardprice_sync_state')).decks_dirty);
+  // 解除リクエスト開始時には未編集でも、応答待ち中の編集を新IDへ引き継ぐ。
+  const unlinkEditing=fixture();const unlinkWait=unlinkEditing.s.SyncClient.unlinkThisDevice();
+  unlinkEditing.edit(3);unlinkEditing.answer(0,{ok:true,sync_id:'new',decks_rev:1,wishlist_rev:1});await unlinkWait;
+  assert.equal(unlinkEditing.requests[1].body.sync_id,'new');assert.equal(unlinkEditing.requests[1].body.items[0].owned.A,3);
+  // 旧IDの遅延ACKが新IDのdirtyやrevを変更してはいけない。
+  const oldAck=fixture();oldAck.edit(2);oldAck.timer();const unlinkDuringPush=oldAck.s.SyncClient.unlinkThisDevice();
+  oldAck.answer(1,{ok:true,sync_id:'new',decks_rev:1,wishlist_rev:1});await unlinkDuringPush;
+  oldAck.answer(0,{ok:true,status:'applied',rev:9});await tick();
+  const detached=JSON.parse(oldAck.data.get('cardprice_sync_state'));
+  assert.equal(detached.sync_id,'new');assert.equal(detached.decks_rev,0);assert.equal(detached.decks_dirty,true);
+  // QR引換の待機中の編集はローカル/UI/下書きを維持し、新IDへ競合合流する。
+  const qrEditing=fixture();const redeem=qrEditing.s.SyncClient.redeemLink('token');qrEditing.edit(2);
+  qrEditing.answer(0,{ok:true,sync_id:'joined',decks:{rev:5,items:[...deck(1),serverOnly]},wishlist:{rev:1,items:[]}});await redeem;
+  assert.equal(qrEditing.value(),2);assert.equal(qrEditing.owned(),2);assert.equal(qrEditing.draft(),2);
+  assert.equal(qrEditing.requests[1].body.sync_id,'joined');assert.equal(qrEditing.requests[1].body.base_rev,0);
+  assert.equal(qrEditing.requests[1].body.items[0].owned.A,2);
+  qrEditing.answer(1,{ok:true,status:'merged',rev:6,items:[...deck(2),serverOnly]});await tick();
+  assert.equal(JSON.parse(qrEditing.data.get(key))[1].id,'d2');
+  // 編集のない引換も、保存リストと編集中UIと下書きを同じ所持情報へ揃える。
+  const qrNormal=fixture();qrNormal.edit(1);const qrDone=qrNormal.s.SyncClient.redeemLink('token');
+  qrNormal.answer(0,{ok:true,sync_id:'joined',decks:{rev:5,items:[...deck(0),serverOnly]},wishlist:{rev:1,items:[]}});await qrDone;
+  assert.equal(qrNormal.value(),0);assert.equal(qrNormal.owned(),0);assert.equal(qrNormal.draft(),0);
+  assert.equal(qrNormal.timers.size,0,'合流前の送信予約は新デッキを削除し得る');
+  // /syncページには編集UI・保存関数がない。それでも次回ホームの下書きは更新する。
+  const qrPage=fixture();delete qrPage.s.DeckOwnership;delete qrPage.s.savedDecksSet;
+  const qrPageDone=qrPage.s.SyncClient.redeemLink('token');
+  qrPage.answer(0,{ok:true,sync_id:'joined',decks:{rev:5,items:deck(0)},wishlist:{rev:1,items:[]}});await qrPageDone;
+  assert.equal(qrPage.value(),0);assert.equal(qrPage.draft(),0);
   console.log('所持枚数同期: snapshot・owned単独変更・遅延push/pull・通常反映を確認');
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -103,6 +103,21 @@
     try { localStorage.setItem(_LOCAL_KEYS[kind], JSON.stringify(list || [])); } catch (e) {}
   }
 
+  // /syncには編集UIが無いが、次回ホームで古い下書きを復元しないよう所持情報は揃える。
+  function _applyDeckOwnedToDraft(items) {
+    const raw = localStorage.getItem('cardprice_deck_draft');
+    if (raw) {
+      const draft = JSON.parse(raw);
+      const deck = draft && (items || []).find(function (d) { return d.id === draft.savedId; });
+      if (deck) {
+        if (Object.prototype.hasOwnProperty.call(deck, 'owned')) draft.owned = deck.owned;
+        else delete draft.owned;
+        localStorage.setItem('cardprice_deck_draft', JSON.stringify(draft));
+      }
+    }
+    if (global.DeckOwnership) global.DeckOwnership.applyReceived(items || []);
+  }
+
   // 種別ごとの正規化（無変化判定・送信内容の比較用）
   function _canonicalize(kind, list) {
     if (kind === 'decks') {
@@ -170,7 +185,7 @@
     _applying = true;
     try {
       global.savedDecksSet(items || []);
-      if(global.DeckOwnership) global.DeckOwnership.applyReceived(items || []);
+      _applyDeckOwnedToDraft(items || []);
     } finally {
       _applying = false;
     }
@@ -253,7 +268,7 @@
       }
       return res.json().catch(function () { return {}; });
     }).then(function (data) {
-      if (!data) return;
+      if (!data || (_getState() || {}).sync_id !== state.sync_id) return;
       if (data.reissued) {
         // 再発行＝サーバー側で新しい行が作られた（今回pushした種別のデータのみを持つ。
         // app.pyのpush再発行経路はkind単体しか受け取れない仕様のため）。
@@ -404,7 +419,7 @@
       if (!res.ok) return null; // 429/5xx は再送しない。次回ページ読み込みで再試行される
       return res.json().catch(function () { return {}; });
     }).then(function (data) {
-      if (!data) return;
+      if (!data || (_getState() || {}).sync_id !== state.sync_id) return;
       if (data.reissued) {
         _clearState();
         _notifyReissued();
@@ -490,6 +505,7 @@
   function unlinkThisDevice() {
     const state = _getState();
     if (!state || !state.sync_id) return Promise.resolve({ ok: false, reason: 'not_linked' });
+    const decksAtStart = _canonicalize('decks', _readLocalList('decks'));
     return _postJson('/api/sync/unlink', { sync_id: state.sync_id })
       .then(function (res) {
         if (res.status === 429) return { ok: false, reason: 'rate_limited' };
@@ -497,14 +513,31 @@
       })
       .then(function (data) {
         if (data && data.ok) {
-          _setState({
+          // 解除APIはサーバー側のデータを複製するため、未ACKのローカル編集は
+          // 新IDへ追送する。解除の応答を待つ間の編集・ACKも含めて判定する。
+          const latest = _getState() || state;
+          const decks = _readLocalList('decks');
+          const needsPush = state.decks_dirty || latest.decks_dirty
+            || latest.decks_rev !== state.decks_rev
+            || decksAtStart !== _canonicalize('decks', decks);
+          const next = {
             sync_id: data.sync_id,
             wishlist_rev: data.wishlist_rev || 1,
             decks_rev: data.decks_rev || 1,
-            // unlinkで移った新しいsync_idには使用済みトークンが存在しない（§7.3）。
-            // 「同期を解除」直後に表示が消えるようここで明示的にfalseへ戻す
+            // unlink直後の新IDには連携済みトークンが存在しない。
             linked: false,
-          });
+          };
+          if (needsPush) {
+            next.decks_dirty = true;
+            // 複製先にだけある他端末のデッキも残すため、初回追送は競合合流する。
+            next.decks_rev = 0;
+          }
+          _setState(next);
+          if (needsPush) {
+            clearTimeout(_kindState.decks.debounceTimer);
+            _kindState.decks.debounceTimer = null;
+            _doPush('decks', decks);
+          }
         }
         return data;
       })
@@ -524,19 +557,27 @@
   // 存在しなければ同じ localStorage キーへの書き込みだけをこの関数が代わりに行う
   // （_writeLocalList）。呼び出し元（/sync ページ）は localStorage に一切触れない。
   // result: { sync_id, wishlist: {rev, items}, decks: {rev, items} }（redeemLink の成功応答）
-  function applyRedeemResult(result) {
+  function applyRedeemResult(result, expectedDecks) {
     if (!result || !result.sync_id || !result.wishlist || !result.decks) return false;
+    const localDecks = _readLocalList('decks');
+    const changedDecks = expectedDecks !== undefined && _canonicalize('decks', localDecks) !== expectedDecks;
     _applying = true;
     try {
       if (typeof global.wishSave === 'function') global.wishSave(result.wishlist.items || []);
       else _writeLocalList('wishlist', result.wishlist.items || []);
-      if (typeof global.savedDecksSet === 'function') global.savedDecksSet(result.decks.items || []);
-      else _writeLocalList('decks', result.decks.items || []);
+      if (!changedDecks) {
+        if (typeof global.savedDecksSet === 'function') global.savedDecksSet(result.decks.items || []);
+        else localStorage.setItem(_LOCAL_KEYS.decks, JSON.stringify(result.decks.items || []));
+        _applyDeckOwnedToDraft(result.decks.items || []);
+      }
     } finally {
       _applying = false;
     }
     if (typeof global.renderWishlist === 'function') global.renderWishlist();
     if (typeof global.renderSavedDecks === 'function') global.renderSavedDecks();
+    // 合流前に予約された旧snapshotは、サーバーで増えたデッキを消すため送らない。
+    clearTimeout(_kindState.decks.debounceTimer);
+    _kindState.decks.debounceTimer = null;
     // 【2026-08-13データ消失バグと同じ構造の再発防止】新しいsync_idと「両方」のrevを必ず
     // 一緒に保存する。片方だけ進めるとrev=0のまま残った種別が次回pullで消失しうる
     // linked: 引き換えが成立した瞬間＝連携成立の瞬間なので true（§7.3）。
@@ -544,9 +585,15 @@
     _setState({
       sync_id: result.sync_id,
       wishlist_rev: result.wishlist.rev,
-      decks_rev: result.decks.rev,
+      decks_rev: changedDecks ? 0 : result.decks.rev,
+      ...(changedDecks ? {decks_dirty: true} : {}),
       linked: true,
     });
+    if (changedDecks) {
+      clearTimeout(_kindState.decks.debounceTimer);
+      _kindState.decks.debounceTimer = null;
+      _doPush('decks', localDecks);
+    }
     return true;
   }
 
@@ -564,7 +611,7 @@
       if (res.status === 429) return { ok: false, reason: 'rate_limited' };
       return res.json().catch(function () { return { ok: false, reason: 'invalid_response' }; });
     }).then(function (data) {
-      if (data && data.ok) applyRedeemResult(data);
+      if (data && data.ok) applyRedeemResult(data, _canonicalize('decks', decks));
       return data;
     }).catch(function () { return { ok: false, reason: 'network_error' }; });
   }
