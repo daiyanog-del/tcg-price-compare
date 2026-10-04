@@ -3179,6 +3179,19 @@ def api_config():
     })
 
 
+@app.route("/api/new-cards")
+def api_new_cards():
+    """新着の未発売カードを返す。正常0件と取得障害を区別する。"""
+    try:
+        response = jsonify(_card_display.get_new_cards())
+        # 管理画面の表示制御は共通30秒キャッシュで扱い、ブラウザには残さない。
+        response.headers["Cache-Control"] = "no-store"
+        return response
+    except Exception:
+        logger.exception("新着の未発売カード取得失敗")
+        return jsonify({"error": "新着の未発売カードを取得できませんでした"}), 503
+
+
 # ── 環境データ（TCG PORTAL） ──
 
 _meta_executor = ThreadPoolExecutor(max_workers=4)

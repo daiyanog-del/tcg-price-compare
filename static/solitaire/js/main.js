@@ -26,6 +26,8 @@ import { initSidebarToggle } from './ui/sidebar-toggle.js';
 import { initMobileUI } from './ui/mobile-ui.js';
 import { isMobilePortrait } from './utils/viewport.js';
 import { showToast } from './utils/toast.js';
+import { loadDeckFromNeuron, clearEverything } from './ui/deck-input-panel.js';
+import { receiveDeckHandoff } from '../../shared/deck-handoff.js';
 
 /**
  * カード追加時にリプレイ画像辞書へ登録するフック
@@ -321,7 +323,14 @@ async function initializeApp() {
   // URL に共有リプレイ（?replay=ID / #replay=）が付いているときは前回の盤面を復元しない。
   // 復元が共有データを上書きし、受け手側で再生モードが開かない競合があった（2026-09-04 実測）。
   const hasReplayInUrl = /[?&]replay=/.test(location.search) || location.hash.startsWith('#replay=');
-  const restored = hasReplayInUrl ? false : await loadSessionResume();
+  const handedOff = await receiveDeckHandoff({
+    loadDeck: loadDeckFromNeuron, clearDeck: clearEverything,
+    getCounts: () => ({
+      main: document.querySelectorAll('#poolRow .tier-item').length,
+      ex: document.querySelectorAll('#poolRow2 .tier-item').length,
+    }),
+  });
+  const restored = hasReplayInUrl || handedOff ? false : await loadSessionResume();
   if (restored) {
     // 復元したカードをリプレイ画像辞書に登録
     // img.tier-item（発売済み）または div.tier-item（プロキシ）どちらも .tier-item で取れる

@@ -32,6 +32,8 @@ import time
 import logging
 import threading
 from typing import Callable
+from datetime import datetime, date, timezone
+from constants import JST
 
 from name_normalize import fuzzy_key  # 記号・ハイフン種のゆれ吸収（app.py/reconcile と同一）
 
@@ -95,6 +97,11 @@ def _is_enabled() -> bool:
 _CACHE_TTL = 30.0  # 秒
 
 _cache_lock = threading.Lock()
+_cache_generation = 0
+
+
+class DisplayDataUnavailable(RuntimeError):
+    """公開データの取得失敗。正常な0件とは区別する。"""
 
 # app_settings キャッシュ
 _settings_cache: dict | None = None
@@ -113,7 +120,9 @@ def invalidate_cache() -> None:
     """
     global _settings_cache, _settings_cache_at
     global _unreleased_cache, _unreleased_cache_at
+    global _cache_generation
     with _cache_lock:
+        _cache_generation += 1
         _settings_cache = None
         _settings_cache_at = 0.0
         _unreleased_cache = None
@@ -125,22 +134,37 @@ def invalidate_cache() -> None:
 # 内部: Supabase データ取得
 # ──────────────────────────────────────────────
 
-def _fetch_app_settings() -> dict:
+def _fetch_app_settings(*, strict: bool = False) -> dict:
     """
     app_settings テーブルから全設定を取得して {key: value} の dict で返す。
     失敗時は空の dict を返す（機能を縮退させる）。
     """
     if not _is_enabled():
+        if strict:
+            raise DisplayDataUnavailable("未発売カードの接続が利用できません")
         return {}
     try:
         resp = _supabase_client.table("app_settings").select("key, value").execute()
         return {row["key"]: row["value"] for row in (resp.data or [])}
     except Exception as e:
         logger.warning(f"[card_display] app_settings 取得失敗: {e}")
+        if strict:
+            raise DisplayDataUnavailable("表示設定を取得できません") from e
         return {}
 
 
-def _fetch_unreleased_cards() -> dict[str, dict]:
+def _read_all_rows(query) -> list[dict]:
+    """Supabaseの既定取得上限で、新着候補の並べ替え前に欠落しないようページ取得する。"""
+    rows = []
+    page_size = 500  # APIの既定上限1000件以内で取得する通信単位。
+    while True:
+        page = query.order("id").range(len(rows), len(rows) + page_size - 1).execute().data or []
+        rows.extend(page)
+        if len(page) < page_size:
+            return rows
+
+
+def _fetch_unreleased_cards(*, strict: bool = False) -> dict[str, dict]:
     """
     approved / linked の unreleased_cards を取得し、
     official_card_images (hidden=false, deleted_at IS NULL) を LEFT JOIN して
@@ -150,21 +174,21 @@ def _fetch_unreleased_cards() -> dict[str, dict]:
     失敗時は空の dict を返す。
     """
     if not _is_enabled():
+        if strict:
+            raise DisplayDataUnavailable("未発売カードの接続が利用できません")
         return {}
     try:
         # 1. unreleased_cards（approved/linked かつ hidden=false）
-        cards_resp = (
+        cards = _read_all_rows(
             _supabase_client.table("unreleased_cards")
             .select(
                 "id, name, reading, card_type, attribute, race, "
                 "level, rank, link_val, atk, def, pendulum_scale, pendulum_effect, effect_text, "
-                "product_name, release_date, status, hidden"
+                "product_name, release_date, extracted_at, status, hidden"
             )
             .in_("status", ["approved", "linked"])
             .eq("hidden", False)
-            .execute()
         )
-        cards = cards_resp.data or []
         if not cards:
             return {}
 
@@ -173,15 +197,16 @@ def _fetch_unreleased_cards() -> dict[str, dict]:
         card_ids = list(id_to_card.keys())
 
         # 2. official_card_images（non-hidden, non-deleted）
-        images_resp = (
-            _supabase_client.table("official_card_images")
-            .select("unreleased_card_id, public_url")
-            .in_("unreleased_card_id", card_ids)
-            .eq("hidden", False)
-            .is_("deleted_at", "null")
-            .execute()
-        )
-        images = images_resp.data or []
+        images = []
+        # 大量のIDでURLが長くなりすぎないよう、ページと同じ単位で取得する。
+        for offset in range(0, len(card_ids), 500):
+            images.extend(_read_all_rows(
+                _supabase_client.table("official_card_images")
+                .select("unreleased_card_id, public_url")
+                .in_("unreleased_card_id", card_ids[offset:offset + 500])
+                .eq("hidden", False)
+                .is_("deleted_at", "null")
+            ))
 
         # カードIDごとに最初の画像を紐付け（複数ある場合は先頭を使用）
         id_to_image_url: dict[int, str] = {}
@@ -206,6 +231,8 @@ def _fetch_unreleased_cards() -> dict[str, dict]:
 
     except Exception as e:
         logger.warning(f"[card_display] unreleased_cards 取得失敗: {e}")
+        if strict:
+            raise DisplayDataUnavailable("未発売カードを取得できません") from e
         return {}
 
 
@@ -213,33 +240,85 @@ def _fetch_unreleased_cards() -> dict[str, dict]:
 # 内部: キャッシュ付き取得
 # ──────────────────────────────────────────────
 
-def _get_settings() -> dict:
+def _get_settings(*, strict: bool = False) -> dict:
     """TTL 付きキャッシュから app_settings を返す"""
     global _settings_cache, _settings_cache_at
     now = time.monotonic()
     with _cache_lock:
         if _settings_cache is not None and (now - _settings_cache_at) < _CACHE_TTL:
             return _settings_cache
+        generation = _cache_generation
     # キャッシュ失効 or 未初期化 → 再取得（ロック外で実行してブロックを最小化）
-    fresh = _fetch_app_settings()
+    try:
+        fresh = _fetch_app_settings(strict=True)
+    except DisplayDataUnavailable:
+        if strict:
+            raise
+        return {}  # 失敗した空辞書は正常キャッシュとして保存しない。
     with _cache_lock:
-        _settings_cache = fresh
-        _settings_cache_at = time.monotonic()
-    return fresh
+        if generation == _cache_generation:
+            _settings_cache = fresh
+            _settings_cache_at = time.monotonic()
+            return fresh
+    # 管理操作による無効化が取得中に起きた場合、古い応答で復活させない。
+    return _get_settings(strict=strict)
 
 
-def _get_unreleased() -> dict[str, dict]:
+def _get_unreleased(*, strict: bool = False) -> dict[str, dict]:
     """TTL 付きキャッシュから unreleased_cards 辞書を返す"""
     global _unreleased_cache, _unreleased_cache_at
     now = time.monotonic()
     with _cache_lock:
         if _unreleased_cache is not None and (now - _unreleased_cache_at) < _CACHE_TTL:
             return _unreleased_cache
-    fresh = _fetch_unreleased_cards()
+        generation = _cache_generation
+    try:
+        fresh = _fetch_unreleased_cards(strict=True)
+    except DisplayDataUnavailable:
+        if strict:
+            raise
+        return {}
     with _cache_lock:
-        _unreleased_cache = fresh
-        _unreleased_cache_at = time.monotonic()
-    return fresh
+        if generation == _cache_generation:
+            _unreleased_cache = fresh
+            _unreleased_cache_at = time.monotonic()
+            return fresh
+    return _get_unreleased(strict=strict)
+
+
+def get_new_cards() -> dict:
+    """承認・表示許可済みの未発売カードを登録日時順に最大36件返す。"""
+    while True:
+        with _cache_lock:
+            generation = _cache_generation
+        cards = _get_unreleased(strict=True)
+        settings = _get_settings(strict=True)
+        with _cache_lock:
+            if generation == _cache_generation:
+                break
+    image_enabled = bool(settings.get("OFFICIAL_IMAGE_DISPLAY", {}).get("enabled", True))
+    today = datetime.now(JST).date()
+    rows = []
+    for card in cards.values():
+        # linkedは照合ジョブで発売確認済み。発売日が未設定・未来日のままでも一覧から除く。
+        if card.get("status") != "approved" or card.get("hidden"):
+            continue
+        release_date = card.get("release_date")
+        if release_date and date.fromisoformat(release_date) <= today:
+            continue
+        added_at = card.get("extracted_at")
+        # extracted_atは公式公開日ではなく、当サービスに追加した日時。
+        added = datetime.fromisoformat(added_at.replace("Z", "+00:00")) if added_at else None
+        if added is not None and added.tzinfo is None:
+            added = added.replace(tzinfo=timezone.utc)
+        rows.append((added.timestamp() if added else float("-inf"), {
+            "name": card["name"], "added_at": added.isoformat() if added else None,
+            "release_date": release_date or None,
+            "product_name": card.get("product_name") or None,
+            "image_url": (card.get("_image_url") or None) if image_enabled else None,
+        }))
+    rows.sort(key=lambda row: (row[0], row[1]["name"]), reverse=True)
+    return {"cards": [row for _, row in rows[:36]], "has_more": len(rows) > 36}
 
 
 def _official_image_enabled() -> bool:

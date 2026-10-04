@@ -1,0 +1,22 @@
+/* 新カードの画像を主役にし、検索とランキングの既存の配色を保つ。 */
+.new-cards{margin:0 0 32px;text-align:left;color:var(--text)}
+.new-cards[hidden]{display:none}
+.new-cards h2{margin:0;font-size:19px;line-height:1.5}
+.new-cards-help{margin:6px 0 20px;font-size:13px;color:var(--text-m)}
+.new-cards-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:18px}
+.new-card-link{display:block;min-width:0;color:var(--text);text-decoration:none}
+.new-card-link:focus-visible{outline:2px solid var(--gold);outline-offset:5px}
+.new-card-picture{position:relative;display:block;width:100%;aspect-ratio:59/86;background:var(--bg-card);border-radius:3px;overflow:hidden}
+.new-card-picture img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:var(--bg-card)}
+.new-card-placeholder{display:flex;align-items:center;justify-content:center;width:100%;height:100%;padding:12px;text-align:center;font-size:13px;color:var(--text-m)}
+.new-card-link:hover strong{text-decoration:underline;text-underline-offset:3px}
+.new-card-meta{display:flex;justify-content:space-between;align-items:center;gap:4px;margin:10px 0 5px;font-size:11px;color:var(--text-m);flex-wrap:wrap}
+.new-card-badge{background:#302d24;color:#f3ce46;padding:2px 6px;border-radius:3px}
+.new-card-link strong{display:block;font-size:13px;line-height:1.55;overflow-wrap:anywhere}
+.new-cards-status{font-size:13px;color:var(--text-m);margin:16px 0 0}
+.new-cards-status:empty{display:none}
+.new-cards-button{margin-top:16px;min-height:44px;padding:8px 16px;color:var(--text);background:var(--bg-hover);border:0;border-radius:4px;cursor:pointer;font:inherit}
+.new-cards-button[hidden]{display:none}
+.new-cards-button:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
+@media(max-width:900px){.new-cards-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:20px 14px}}
+@media(max-width:640px){.new-cards h2{font-size:17px}.new-cards-help{font-size:12px;margin-bottom:16px}.new-cards-grid{gap:16px 10px}.new-card-link strong{font-size:12px}.new-card-meta{font-size:10px}.new-card-badge{padding:1px 4px}}

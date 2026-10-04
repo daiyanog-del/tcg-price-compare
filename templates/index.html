@@ -697,12 +697,14 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 <link rel="stylesheet" href="{{ static_url('mydeck/deck.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/price-layout.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/site-theme.css') }}">
+<link rel="stylesheet" href="{{ static_url('css/new-cards.css') }}">
 <!-- import map: モジュールから相対importされるファイルを内容ハッシュ付きURLへ写像する
      （静的な相対specifierはstatic_url()を通せないため、ここでブラウザ解決を上書きする）。
      必ず最初のmodule scriptより前に置く -->
 <script type="importmap">
 {
   "imports": {
+    "/static/shared/deck-handoff.js": {{ static_url('shared/deck-handoff.js') | tojson }},
     "/static/shared/neuron-pdf-parser.js": {{ static_url('shared/neuron-pdf-parser.js') | tojson }},
     "/static/shared/neuron-preview-modal.js": {{ static_url('shared/neuron-preview-modal.js') | tojson }},
     "/static/shared/neuron-import-shared.js": {{ static_url('shared/neuron-import-shared.js') | tojson }},
@@ -850,6 +852,15 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
          置き換えると下のランキングDOMごと消えて復帰できなくなるため、ここだけを書き換える -->
     <div id="emptyError" class="movers-fail hidden"></div>
 
+    <section id="newCardsSection" class="new-cards" aria-labelledby="newCardsHeading" hidden>
+      <h2 id="newCardsHeading">新着の未発売カード</h2>
+      <p class="new-cards-help">発売前のカードも、デッキに追加して一人回しできます。</p>
+      <div id="newCardsGrid" class="new-cards-grid"></div>
+      <p id="newCardsStatus" class="new-cards-status" role="status"></p>
+      <button id="newCardsRetry" class="new-cards-button" hidden>再試行</button>
+      <button id="newCardsMore" class="new-cards-button" aria-controls="newCardsGrid" hidden>もっと見る</button>
+    </section>
+
     <div class="movers-row">
       <!-- N-2: 価格推移ランキング（共通店舗ガードのみ・最安¥1,000以上） -->
       <div id="topMoversSection" class="movers hidden">
@@ -930,6 +941,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
             <span class="deck-counter" id="deckCountEx"><span>EX</span><span class="c-num">0</span><span class="c-max">/15</span></span>
             <span class="deck-save-status" id="deckSaveStatus"></span>
             <button type="button" class="deck-btn-text deck-save-btn" id="deckSaveBtn" onclick="saveCurrentDeck()">保存</button>
+            {% if enable_solo_play %}<button type="button" class="deck-btn-text" onclick="openCurrentDeckInSolitaire()">このデッキで一人回し</button>{% endif %}
             <button type="button" class="deck-btn-text deck-sort-btn" onclick="deckSortByType()" title="モンスター→魔法→罠の順に並べ替えます">種別順に整列</button>
           </div>
 
@@ -1363,6 +1375,7 @@ const _pageMode={{ page_mode | tojson }};
 </script>
 <script src="{{ static_url('js/search-status.js') }}" defer></script>
 <script src="{{ static_url('js/index-main.js') }}" defer></script>
+<script src="{{ static_url('js/new-cards.js') }}" defer></script>
 <script>
 // Service Worker登録
 if('serviceWorker' in navigator){navigator.serviceWorker.register('/static/sw.js')}
