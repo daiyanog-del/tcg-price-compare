@@ -539,6 +539,7 @@ async function calcWishEstimate(){
             const priceEl=row.querySelector('.deck-card-price');
             if(priceEl) priceEl.textContent=entry.rarity?`${entry.rarity}データなし`:'データなし';
           }
+          SearchStatus.annotate(row,d);
           const remaining=missingIdxs.length-(sseFound+sseNotFound);
           if(remaining>0){
             totalEl.innerHTML=`¥${total.toLocaleString()} <span style="font-size:.7em;color:var(--text-d)">+ ${remaining}枚検索中</span>`;
@@ -891,7 +892,7 @@ async function wishCheapestStores(){
             st.missing_set.delete(key);
           }
         }
-        if(!anyShop)sseError+=1;
+        if(!anyShop||(d.failed_shops||[]).length)sseError+=1;
         dbMissingKeys.delete(key);
         renderRanking({realtimePending:dbMissingKeys.size,realtimeError:sseError});
       }
@@ -984,12 +985,12 @@ function _wishShopDetailHtml(shopRow, missingLabel){
 function wishBtnHtml(name,qty){
   return `<button class="wish-add" onclick="event.stopPropagation();wishAddFromBtn(this,'${escAttr(escJs(name))}',${qty||1})" title="購入候補に追加">+ 候補</button>`;
 }
-function wishAddFromBtn(btn,name,qty){
-  wishAdd(name,qty);
+function wishAddFromBtn(btn,name,qty,rarity){
+  wishAdd(name,qty,rarity);
   const orig=btn.textContent;
   btn.classList.add('added');
   btn.textContent='\u2713 \u8ffd\u52a0';
-  setTimeout(()=>{btn.classList.remove('added');btn.textContent=orig;},1200);
+  setTimeout(()=>{btn.classList.remove('added');if(btn.id==='heroWishAdd')_updateRarityBanner();else btn.textContent=orig;},1200);
 }
 
 // ── プッシュ通知 ──

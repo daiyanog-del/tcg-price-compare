@@ -765,6 +765,9 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 
   <div class="progress" id="prog"></div>
 
+  <div id="searchCoverage" role="status" hidden><span></span>
+    <button type="button" onclick="doSearch({validated:true})">再試行</button>
+  </div>
   <div id="results" class="hidden">
     <div class="card-hero hidden" id="cardHero">
       <div class="card-hero-img" id="heroImgWrap"></div>
@@ -1059,10 +1062,10 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     <div class="deck-builder">
       <div class="deck-input-area">
         <!-- 環境デッキ一覧（R-1: 旧トップページのデッキ金額ランキングをここに統合。
-             既定は強い順=Tier表示、安い順に切り替えると価格データがある
+             既定は入賞傾向=Tier表示、安い順に切り替えると価格データがある
              デッキ（上位シェア順にスクレイプ済みの分）だけをフラットに並べる） -->
         <div class="movers-tabs" id="metaSortTabs">
-          <button class="movers-tab active" onclick="switchMetaSort('tier')">強い順</button>
+          <button class="movers-tab active" onclick="switchMetaSort('tier')">入賞傾向</button>
           <button class="movers-tab" onclick="switchMetaSort('price')">安い順</button>
         </div>
         <div id="metaTierList" class="meta-loading">環境データを読込中...</div>
@@ -1358,6 +1361,7 @@ document.addEventListener('keydown',function(e){
 const _pageCardName={{ card_name | tojson }};
 const _pageMode={{ page_mode | tojson }};
 </script>
+<script src="{{ static_url('js/search-status.js') }}" defer></script>
 <script src="{{ static_url('js/index-main.js') }}" defer></script>
 <script>
 // Service Worker登録

@@ -37,6 +37,7 @@ const sandbox = {
   _maybeOpenBuyInlineOnLoad() { consumed++; },
 };
 vm.createContext(sandbox);
+vm.runInContext(fs.readFileSync(path.join(__dirname, "../../static/js/search-status.js"), "utf8"), sandbox);
 vm.runInContext([
   block('function _setSearchLayout(', '// ── アフィリエイト'),
   block('function switchMode(', '// ── Deck Builder'),

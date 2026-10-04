@@ -12,7 +12,7 @@ const API_CARD_IMAGE  = '/api/card-image';   // 単数版（フォールバッ�
 const API_CARD_IMAGES = '/api/card-images';  // バッチ版（POST）
 const API_CARD_INFO   = '/api/card-info';    // 単数版（フォールバック用）
 const API_CARD_INFOS  = '/api/card-infos';   // バッチ版（POST）
-const API_META = '/api/meta';
+const API_META = '/api/meta?include_metadata=1';
 const API_META_DECK = '/api/meta/deck';
 
 // ── デッキ読込の多重防止（バグ修正・PCにも効く） ──
@@ -570,6 +570,7 @@ async function loadMetaTierList() {
   listEl.innerHTML = '<span class="deck-loading-msg">読み込み中...</span>';
   try {
     const res = await fetch(API_META);
+    if (!res.ok) throw new Error('環境データ取得失敗');
     const data = await res.json();
     const tiers = Array.isArray(data) ? data : (data.tiers || data.themes || []);
     if (tiers.length === 0) throw new Error('データなし');
@@ -586,7 +587,15 @@ async function loadMetaTierList() {
       row.addEventListener('click', () => loadMetaDeck(theme, row));
       listEl.appendChild(row);
     });
-    listEl.dataset.loaded = 'true';
+    // 更新失敗時の退避データはタブを再度開いたときに再取得する。
+    const stale = data.metadata?.stale || data.metadata?.refresh_error;
+    listEl.dataset.loaded = stale ? 'false' : 'true';
+    if (stale) {
+      const note = document.createElement('span');
+      note.className = 'deck-loading-msg';
+      note.textContent = '更新に失敗したため、以前取得した環境データを表示しています';
+      listEl.appendChild(note);
+    }
   } catch (e) {
     listEl.innerHTML = `<span class="deck-loading-msg">取得失敗: ${e.message}</span>`;
   }
