@@ -9,6 +9,11 @@ let tableShowCount=TABLE_PAGE_SIZE; // B-4: 一覧の既定表示件数（20行+
 // DOMの置換や監視ではなく、検索の状態遷移から明示的に切り替える。
 function _setSearchLayout(hasResult){
   document.getElementById('mode-search').classList.toggle('has-search-result',hasResult);
+  if(!hasResult)Promise.resolve().then(()=>{
+    // 履歴復元中の一時的な初期状態ではなく、画面切替完了後の表示状態を見る。
+    if(!document.getElementById('mode-search').classList.contains('hidden')&&
+       !document.getElementById('empty').classList.contains('hidden'))window.NewCards?.load();
+  });
 }
 
 // ── アフィリエイトリンク変換 ──
@@ -2758,3 +2763,18 @@ async function calcDeck(buyMode){
 // W-1（2026-09-01）: マイデッキ/環境デッキの「買取合計」計算(isBuy分岐)も含め、
 // 店舗集合の非表示DOM読み取りを全廃しサーバ既定（DEFAULT_SHOPS/DEFAULT_BUYBACK_SHOPS）
 // に一本化した。getSelectedShops()/getBuySelectedShops()相当の関数はもう存在しない
+
+// 保存済みデッキを変更せず、クリック時の編集内容を同じタブへ渡す。
+async function openCurrentDeckInSolitaire(){
+  try{
+    const text=document.getElementById('deckTextarea').value;
+    if(text.length>12000)throw new Error('デッキ情報が大きすぎます。メイン60枚・EX15枚以内にしてください。');
+    const snapshot={version:1,name:_currentDeckName||'マイデッキ',...parseDeckSections(text)};
+    const {storeHandoff}=await import('/static/shared/deck-handoff.js');
+    storeHandoff(snapshot);
+    location.assign('/solitaire?from=mydeck');
+  }catch(error){
+    console.warn('[deck-handoff] 引継ぎデータを保存できませんでした',error);
+    alert('一人回しを開けませんでした。'+(error.message||'ブラウザの一時保存を確認してください。'));
+  }
+}
