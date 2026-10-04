@@ -11,3 +11,6 @@ pywebpush>=2.0,<3
 pdfplumber>=0.11,<1
 Pillow>=10.0,<12
 anthropic>=0.25,<1
+
+# 自動クロップの候補枠補正（画像の保存は利用者の確認後）
+opencv-python-headless>=4.10,<5

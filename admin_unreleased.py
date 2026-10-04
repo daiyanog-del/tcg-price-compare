@@ -271,6 +271,8 @@ def admin_list_unreleased():
                 fallback_list = raw.get("card_image_urls") or []
                 card_img_url = fallback_list[0] if fallback_list else ""
             card["card_image_url"] = card_img_url
+            for key in ("crop_suggestion", "release_date_evidence", "recognition_review"):
+                card[key] = raw.get(key)
             # extraction_raw はフロントエンドに不要なので除外する（サイズ削減）
             card.pop("extraction_raw", None)
 
@@ -394,52 +396,12 @@ def admin_update_unreleased(card_id: int):
 
 
 def _backfill_release_date(product_name: str, exclude_id: int) -> str | None:
-    """
-    同じ product_name（収録商品名）を持つ他カードの release_date から
-    最頻値を求めて返す（"YYYY-MM-DD" 文字列）。
-
-    unreleased_cards の release_date が NULL のまま承認されると、発売日到来判定
-    （app.py の _is_release_passed_unreleased / /api/validate）が永遠に通らず
-    発売日当日になっても未発売扱いのままになる問題への対策。同一商品に収録され
-    た他カードは同じ発売日であることが通常のため、それを補完値として使う。
-
-    同数タイの場合は新しい日付を優先する（発売延期の反映漏れよりは新しい方が
-    実害が小さいと判断）。
-
-    Args:
-        product_name: 収録商品名（空なら None を返す）
-        exclude_id:   補完対象カード自身のID（結果から除外する）
-
-    Returns:
-        補完できた場合は "YYYY-MM-DD" 文字列、できなければ None
-    """
+    """他カードの多数決を使わず、商品に紐付く公式発売日だけを補完する。"""
+    from release_date_resolver import resolve_release_date
     if not product_name:
         return None
-
-    if not _supabase:
-        return None
-
-    try:
-        resp = (
-            _supabase.table("unreleased_cards")
-            .select("release_date")
-            .eq("product_name", product_name)
-            .neq("id", exclude_id)
-            .execute()
-        )
-    except Exception as e:
-        logger.warning(f"[admin] release_date 補完クエリ失敗 product_name={product_name!r}: {e}")
-        return None
-
-    dates = [row["release_date"] for row in (resp.data or []) if row.get("release_date")]
-    if not dates:
-        return None
-
-    counts = Counter(dates)
-    max_count = max(counts.values())
-    # 最頻値の候補が複数（タイ）なら新しい日付を優先（"YYYY-MM-DD" は文字列比較で日付順）
-    candidates = [d for d, c in counts.items() if c == max_count]
-    return max(candidates)
+    evidence = resolve_release_date(product_name)
+    return evidence['release_date'] if evidence['status'] == 'verified' else None
 
 
 # ──────────────────────────────────────────────
@@ -456,7 +418,7 @@ def admin_approve_unreleased(card_id: int):
     レスポンスに image_fetched: true/false と reason を含める。
 
     release_date ガード:
-      - release_date が NULL の場合、同じ product_name の他カードから補完を試みる
+      - release_date が NULL の場合、商品名が一致する公式商品情報から補完を試みる
         （補完できれば release_date_note、できなければ release_date_warning を付加）
       - 有効な release_date が今日(JST)より前の場合、抽出時の年誤りの可能性を
         release_date_warning で警告する（承認自体はブロックしない）
@@ -495,7 +457,7 @@ def admin_approve_unreleased(card_id: int):
             if backfilled:
                 update_fields["release_date"] = backfilled
                 release_date = backfilled
-                release_date_note = f"発売日を同商品の他カードから補完しました: {backfilled}"
+                release_date_note = f"発売日を公式商品情報から補完しました: {backfilled}"
                 logger.info(
                     f"[admin] release_date 補完: card_id={card_id}, "
                     f"product_name={product_name!r}, release_date={backfilled}"
@@ -738,7 +700,7 @@ def admin_bulk_approve_unreleased():
 
     処理フロー:
       1. 指定IDのうち pending/needs_review/rejected のものを一括で status='approved' に更新
-      2. release_date が NULL のカードは、同じ product_name の他カードから補完を試みる
+      2. release_date が NULL のカードは、商品名が一致する公式商品情報から補完を試みる
          （単体承認と同じガード。product_name ごとに補完値をメモ化して重複ルックアップを避ける）
       3. 各カードの画像取込はバックグラウンドスレッドで非同期実行（タイムアウト回避）
       4. 承認完了時点でレスポンスを返す（画像取込の完了を待たない）
@@ -1622,3 +1584,35 @@ def admin_fetch_x_post():
         "inserted": len(inserted_cards),
         "cards": inserted_cards,
     }), 201
+
+
+@admin_bp.route("/api/admin/unreleased/<int:card_id>/suggest-crop", methods=["POST"])
+def admin_suggest_crop(card_id: int):
+    """既存の元画像から確認用の枠だけを返す。画像・DBへ保存しない。"""
+    err = _require_admin_key()
+    if err:
+        return err
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+    body = request.get_json(silent=True)
+    if body not in (None, {}):
+        return jsonify({"error": "画像URL等の指定は受け付けません"}), 400
+    try:
+        cards = _supabase.table("unreleased_cards").select("name").eq("id", card_id).execute().data or []
+        if not cards:
+            return jsonify({"error": "カードが見つかりません"}), 404
+        images = (_supabase.table("official_card_images").select("source_image_url")
+                  .eq("unreleased_card_id", card_id).eq("hidden", False)
+                  .is_("deleted_at", "null").execute().data or [])
+        source_urls = {row.get("source_image_url") for row in images if row.get("source_image_url")}
+        if len(source_urls) != 1:
+            return jsonify({"error": "元画像を一意に確認できません。元画像の登録を確認してください"}), 422
+        from crop_suggestion_service import suggest_crop
+        suggestion = suggest_crop(cards[0]["name"], source_urls.pop())
+        return jsonify({"ok": True, "crop_suggestion": suggestion})
+    except ValueError as exc:
+        logger.warning("[admin] 枠候補生成失敗 card_id=%s: %s", card_id, exc)
+        return jsonify({"error": str(exc)}), 422
+    except Exception:
+        logger.exception("[admin] 枠候補生成失敗 card_id=%s", card_id)
+        return jsonify({"error": "枠候補の生成に失敗しました。時間を置いて再試行してください"}), 502

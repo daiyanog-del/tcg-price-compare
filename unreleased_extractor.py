@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 # ──────────────────────────────────────────────
 
 # 使用モデル（環境変数で切替可能）
-_DEFAULT_MODEL = "claude-sonnet-4-6"
+_DEFAULT_MODEL = "claude-sonnet-5-5"
 EXTRACTOR_MODEL = os.environ.get("EXTRACTOR_MODEL", _DEFAULT_MODEL)
 
 # Claude API のパラメータ
@@ -144,7 +144,8 @@ _SYSTEM_PROMPT = """\
    - effect_text: モンスター効果テキストまたはフレーバーテキスト。改行は\\nで表現。
      ペンデュラムモンスターの場合はカード最下部のモンスター効果欄のみを入れる（ペンデュラム効果は含めない）
    - product_name: 収録パック名（例: ANIMATION CHRONICLE 2026）。不明なら空文字
-   - release_date: 発売予定日（YYYY-MM-DD形式）。不明・未定なら空文字
+   - release_date: 発売予定日（YYYY-MM-DD形式）。年を含む明示的な根拠がない場合は空文字。投稿年やモデルの記憶で年を推測しない。
+   - card_bbox: 元画像のピクセル座標でカード全体の [left, top, right, bottom]。絵柄だけでなくカード最外縁。宣伝背景や光彩は除く。判読不能ならnull。
    - image_urls: 読み取り元の画像URL（提供された画像URLをそのまま記入）
    - image_url: このカードが写っている画像1枚のURL。
      各カードは1枚の画像に対応するので、そのカードを読み取った画像のURLを入れる。
@@ -357,6 +358,7 @@ def _get_pydantic_models():
         image_urls: list[str] = []
         # このカードのメイン画像1枚のURL（渡された画像URLのいずれかを正確にコピーする）
         image_url: str = ""
+        card_bbox: list[float] | None = None
         # ラッシュデュエル（価格比較対象外）なら True。判別不能時は False（OCG扱い）。
         is_rush: bool = False
         confidence: Literal["high", "medium", "low"] = "medium"
@@ -507,10 +509,27 @@ def _download_and_encode_images(image_urls: list[str]) -> list[dict]:
             }
             media_type = ext_map.get(ext, "image/jpeg")
 
+        from io import BytesIO
+        from PIL import Image, ImageOps
+        try:
+            with Image.open(BytesIO(content)) as source:
+                if source.width * source.height > 20_000_000:
+                    raise ValueError("画像の画素数が大きすぎます")
+                image = ImageOps.exif_transpose(source).convert("RGB")
+                # 座標は元画像に戻す必要があるため、ここでは拡縮しない。
+                width, height = image.size
+                buffer = BytesIO()
+                image.save(buffer, format="PNG")
+                normalized = buffer.getvalue()
+                if len(normalized) > _MAX_IMAGE_BYTES:
+                    raise ValueError("PNG変換後の画像が上限を超えています")
+        except Exception as exc:
+            logger.warning("画像のデコード失敗: %s (%s)", url, exc)
+            continue
         encoded.append({
-            "url": url,
-            "media_type": media_type,
-            "data": base64.standard_b64encode(content).decode("ascii"),
+            "url": url, "media_type": "image/png",
+            "data": base64.standard_b64encode(normalized).decode("ascii"),
+            "width": width, "height": height,
         })
         logger.debug(f"[Extractor] 画像取得成功: {url!r} ({len(content):,}バイト, {media_type})")
 
@@ -549,7 +568,7 @@ def _build_vision_message(processed_text: str, encoded_images: list[dict]) -> li
         # 画像直後に参照用のURL注記を付ける（Claudeが image_urls フィールドに使用）
         content.append({
             "type": "text",
-            "text": f"[上記画像のURL: {img['url']}]",
+            "text": f"[上記画像のURL: {img['url']} / 元画像サイズ: {img.get('width', '?')}x{img.get('height', '?')} px]",
         })
 
     # テキストブロック（記事コンテキスト＋スキーマ指示）
@@ -660,337 +679,79 @@ _SYSTEM_PROMPT_X = """\
 # 公開関数
 # ──────────────────────────────────────────────
 
-def extract_cards_from_html(html: str, page_url: str = "") -> list[dict]:
-    """HTMLページから遊戯王OCG新カード情報を抽出し、unreleased_cards 行形式の dict リストを返す。
-
-    内部フロー（ハイブリッド方式）:
-      1. HTMLからカード画像URL（新旧サイト双方の形式に対応。詳細は
-         `_extract_card_image_urls` を参照）を抽出
-      2. カード画像が1枚以上ある場合:
-         a. 画像をダウンロードしてbase64エンコード（最大 _MAX_IMAGES 枚）
-         b. 画像＋テキストを Vision で Claude に渡して抽出
-      3. カード画像が0枚の場合: テキストのみでフォールバック抽出
-      4. JSON レスポンスをパース・バリデーション・補正して返す
-
-    - HTTPリクエストはこの関数内では行わない（html 引数として受け取る）
-      ※ 画像ダウンロードは fetch_guard.fetch_whitelisted 経由で内部的に行う
-    - anthropic パッケージは遅延 import（関数呼び出し時に初めてロード）
-    - pydantic は遅延 import（同上）
-
-    Args:
-        html:     取得済みHTMLテキスト
-        page_url: ページのURL（ログ・source_url・image_urls正規化に使用）
-
-    Returns:
-        unreleased_cards テーブル形式の dict リスト。
-        各 dict の "extraction_raw" キーに Claude 生出力・card_image_urls 等を含む。
-        カード情報がないページでは空リストを返す。
-    """
-    # anthropic を遅延 import（ローカル環境で未インストールでも落ちないように）
-    try:
-        from anthropic import Anthropic
-    except ImportError as e:
-        raise ImportError(
-            "anthropic パッケージが必要です。"
-            "pip install anthropic でインストールしてください。"
-        ) from e
-
-    # Pydanticモデルを遅延ロード
-    ExtractedCard, ExtractionResult = _get_pydantic_models()
-
-    # HTML前処理（テキスト化）
-    processed_text = _preprocess_html(html, page_url)
-    logger.info(
-        f"[Extractor] 前処理完了: {len(html):,}文字 → {len(processed_text):,}文字 ({page_url!r})"
-    )
-
-    # カード画像URLを抽出
-    card_image_urls = _extract_card_image_urls(html, page_url)
-    logger.info(f"[Extractor] カード画像URL: {len(card_image_urls)}件 ({page_url!r})")
-
-    # 画像枚数上限チェック
-    if len(card_image_urls) > _MAX_IMAGES:
-        logger.warning(
-            f"[Extractor] カード画像が上限を超えています "
-            f"({len(card_image_urls)}枚 > {_MAX_IMAGES}枚)。先頭{_MAX_IMAGES}枚に切り捨てます。"
-        )
-        card_image_urls = card_image_urls[:_MAX_IMAGES]
-
-    # Vision または テキストフォールバック を選択
-    use_vision = len(card_image_urls) > 0
-    encoded_images: list[dict] = []
-
-    if use_vision:
-        logger.info(
-            f"[Extractor] Vision 抽出モード: {len(card_image_urls)}枚の画像を取得します"
-        )
-        encoded_images = _download_and_encode_images(card_image_urls)
-        logger.info(f"[Extractor] 画像取得成功: {len(encoded_images)}件")
-
-        if not encoded_images:
-            # 全画像の取得に失敗した場合はテキストフォールバック
-            logger.warning(
-                f"[Extractor] 全画像の取得に失敗。テキスト抽出にフォールバックします: {page_url!r}"
-            )
-            use_vision = False
-    else:
-        logger.info(
-            f"[Extractor] テキスト抽出モード（カード画像なし）: {page_url!r}"
-        )
-
-    # メッセージ構築
-    if use_vision:
-        message_content = _build_vision_message(processed_text, encoded_images)
-    else:
-        message_content = _build_text_message(processed_text)
-
-    # Claude API クライアント
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise ValueError(
-            "環境変数 ANTHROPIC_API_KEY が設定されていません。"
-        )
-
-    client = Anthropic(api_key=api_key)
-
-    # 構造化抽出リクエスト
-    mode_label = "Vision" if use_vision else "テキスト"
-    logger.info(
-        f"[Extractor] Claude API 呼び出し中 "
-        f"(model={EXTRACTOR_MODEL}, mode={mode_label}): {page_url!r}"
-    )
-    try:
-        message = client.messages.create(
-            model=EXTRACTOR_MODEL,
-            max_tokens=_MAX_TOKENS,
-            system=_SYSTEM_PROMPT,
-            messages=[
-                {
-                    "role": "user",
-                    "content": message_content,
-                }
-            ],
-        )
-    except Exception as e:
-        logger.error(f"[Extractor] Claude API エラー: {e} ({page_url!r})")
-        raise
-
-    # レスポンスからテキストを取得
-    raw_text = ""
-    if message.content:
-        for block in message.content:
-            if hasattr(block, "text"):
-                raw_text += block.text
-
-    logger.info(
-        f"[Extractor] Claude 応答受信: "
-        f"入力={message.usage.input_tokens}tok, "
-        f"出力={message.usage.output_tokens}tok"
-    )
-
-    # JSON を手動パース（messages.parse が pydantic 連携前提の場合の代替）
-    import json
-
-    # コードブロック記法（```json ... ```）を除去
-    json_text = re.sub(r"```(?:json)?\s*", "", raw_text).strip()
-    json_text = re.sub(r"```\s*$", "", json_text).strip()
-
-    try:
-        raw_data = json.loads(json_text)
-    except json.JSONDecodeError as e:
-        logger.error(
-            f"[Extractor] JSON パースエラー: {e}\n"
-            f"  生レスポンス（先頭200文字）: {raw_text[:200]!r}"
-        )
-        return []
-
-    # Pydantic でバリデーション
-    try:
-        result = ExtractionResult.model_validate(raw_data)
-    except Exception as e:
-        logger.error(f"[Extractor] Pydantic バリデーションエラー: {e}")
-        return []
-
-    logger.info(f"[Extractor] 抽出カード数（生）: {len(result.cards)}件")
-
-    # 使用した画像URLリスト（後段の画像取込処理でも参照される）
-    used_image_urls = [img["url"] for img in encoded_images]
-
-    # 検証・補正して返却
-    output_rows = []
-    rush_skipped = 0
-    for card in result.cards:
-        # ラッシュデュエル（価格比較対象外）と判定されたカードは除外する。
-        # 判別不能時は is_rush=false（OCG扱い）になるため、誤って正規カードを落とさない。
-        if getattr(card, "is_rush", False):
-            rush_skipped += 1
-            logger.info(
-                f"[Extractor] ラッシュデュエルのため除外: {card.name!r} ({page_url!r})"
-            )
-            continue
-
-        row = _validate_and_fix(card, page_url)
-        if row is None:
-            continue
-
-        # このカード個別のメイン画像URLを取り出す。
-        # image_url は unreleased_cards テーブルのカラムではないため、
-        # トップレベルからは除去し extraction_raw 内にのみ保持する
-        # （これを残すと insert 時に「カラムが存在しない」エラーになる）。
-        individual_image_url = row.pop("image_url", "")
-
-        # extraction_raw: Claude生出力 + card_image_urls（取得元URL）を格納
-        row["extraction_raw"] = {
-            "raw_response": raw_text,
-            "image_urls": card.image_urls,
-            # 記事全体のカード画像URL一覧（後方互換のため残す）
-            "card_image_urls": used_image_urls,
-            # このカード個別のメイン画像URL（新規追加）
-            "card_image_url": individual_image_url,
-            "model": EXTRACTOR_MODEL,
-            "input_tokens": message.usage.input_tokens,
-            "output_tokens": message.usage.output_tokens,
-            "vision_mode": use_vision,
-        }
-
-        output_rows.append(row)
-
-    if rush_skipped:
-        logger.info(
-            f"[Extractor] ラッシュデュエル除外: {rush_skipped}件 ({page_url!r})"
-        )
-    logger.info(f"[Extractor] 有効カード数（検証後）: {len(output_rows)}件 ({page_url!r})")
-    return output_rows
-
-
-def extract_cards_from_tweet(
-    tweet_text: str,
-    image_urls: list[str],
-    tweet_url: str = "",
-) -> list[dict]:
-    """Xポストの画像からカード情報を抽出する（extract_cards_from_html のX版）。
-
-    HTMLパースなし。image_urls を直接受け取り Vision で抽出する。
-    プロモーション画像（左がカード・右がパックロゴ）に対応したシステムプロンプトを使用。
-
-    Args:
-        tweet_text: ポスト本文（パック名・カード名のコンテキストとして使用）
-        image_urls: ポストに添付された画像URLリスト（pbs.twimg.com）
-        tweet_url:  ポストURL（ログ・source_url 用）
-
-    Returns:
-        unreleased_cards テーブル形式の dict リスト。
-    """
-    try:
-        from anthropic import Anthropic
-    except ImportError as e:
-        raise ImportError(
-            "anthropic パッケージが必要です。pip install anthropic でインストールしてください。"
-        ) from e
-
-    ExtractedCard, ExtractionResult = _get_pydantic_models()
-
-    # 画像枚数上限チェック
-    urls_to_use = image_urls[:_MAX_IMAGES]
-    if len(image_urls) > _MAX_IMAGES:
-        logger.warning(
-            f"[Extractor] X画像枚数超過: {len(image_urls)}枚 → {_MAX_IMAGES}枚に切り捨て"
-        )
-
-    # 画像ダウンロード（fetch_guard 経由 pbs.twimg.com）
-    encoded_images = _download_and_encode_images(urls_to_use)
-    if not encoded_images:
-        logger.warning(f"[Extractor] X全画像取得失敗: {tweet_url!r}")
-        return []
-
-    # ポスト本文をコンテキストとして付加
-    context_text = (
-        f"[ポストURL: {tweet_url}]\n\n"
-        f"[ポスト本文]\n{tweet_text}"
-    )
-
-    message_content = _build_vision_message(context_text, encoded_images)
+def _extract_cards(processed_text: str, encoded_images: list[dict], source_url: str, *, from_x=False) -> list[dict]:
+    """共通の構造化抽出。再読・照合の失敗はwatcherへ伝え再試行対象にする。"""
+    from anthropic import Anthropic
+    from unreleased_quality import structured_request, enrich_rows
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         raise ValueError("環境変数 ANTHROPIC_API_KEY が設定されていません。")
-
-    client = Anthropic(api_key=api_key)
-
-    logger.info(
-        f"[Extractor] X Vision 抽出開始 "
-        f"(model={EXTRACTOR_MODEL}, images={len(encoded_images)}枚): {tweet_url!r}"
-    )
-    try:
-        message = client.messages.create(
-            model=EXTRACTOR_MODEL,
-            max_tokens=_MAX_TOKENS,
-            system=_SYSTEM_PROMPT_X,
-            messages=[{"role": "user", "content": message_content}],
+    client = Anthropic(api_key=api_key, timeout=180.0, max_retries=1)
+    _, Result = _get_pydantic_models()
+    context = f"[処理日時: {datetime.now(ZoneInfo('Asia/Tokyo')).isoformat()}。これは発売日の根拠ではありません]\n{processed_text}"
+    # 大量画像の関連付けと応答切れを避ける。最大4枚は未校正。
+    # TODO: calibrate from data
+    batches = [encoded_images[i:i + 4] for i in range(0, len(encoded_images), 4)] or [[]]
+    output = []
+    seen = set()
+    for images in batches:
+        content = _build_vision_message(context, images) if images else _build_text_message(context)
+        data, text, usage = structured_request(
+            client, model=EXTRACTOR_MODEL, system=_SYSTEM_PROMPT_X if from_x else _SYSTEM_PROMPT,
+            content=content, schema=Result.model_json_schema(), max_tokens=_MAX_TOKENS,
         )
-    except Exception as e:
-        logger.error(f"[Extractor] Claude API エラー（X）: {e} ({tweet_url!r})")
-        raise
+        result = Result.model_validate(data)
+        urls = [image['url'] for image in images]
+        logger.info('[Extractor] model=%s source=%s images=%s cards=%s', EXTRACTOR_MODEL, source_url, len(images), len(result.cards))
+        for card in result.cards:
+            if card.is_rush:
+                continue
+            row = _validate_and_fix(card, source_url)
+            if row is None:
+                continue
+            image_url = row.pop('image_url', '')
+            if images and image_url not in urls:
+                # 複数画像の先頭へのフォールバックは別カード画像を結び付けるため禁止。
+                raise ValueError(f'カード画像の対応を確認できません: {card.name}')
+            key = (row['name'], image_url)
+            if key in seen:
+                continue
+            seen.add(key)
+            row['extraction_raw'] = {
+                'raw_response': text, 'image_urls': card.image_urls,
+                'card_image_urls': urls, 'card_image_url': image_url,
+                'source_image_url': image_url, 'card_bbox': card.card_bbox,
+                'model': EXTRACTOR_MODEL, **usage, 'vision_mode': bool(images),
+                'source': 'x_tweet' if from_x else 'official_html',
+                'quality_version': 1,
+            }
+            output.append(row)
+    return enrich_rows(output, client=client, model=EXTRACTOR_MODEL, encoded_images=encoded_images)
 
-    raw_text = "".join(
-        block.text for block in message.content if hasattr(block, "text")
-    )
 
-    logger.info(
-        f"[Extractor] X Claude 応答: "
-        f"入力={message.usage.input_tokens}tok, 出力={message.usage.output_tokens}tok"
-    )
+def extract_cards_from_html(html: str, page_url: str = "") -> list[dict]:
+    """公式ページを構造化抽出し、画像再読と公式発売日照合を行う。"""
+    urls = _extract_card_image_urls(html, page_url)
+    if len(urls) > _MAX_IMAGES:
+        # 先頭だけで完了扱いにすると取りこぼすため明示的に失敗する。
+        raise ValueError(f'カード画像数が抽出上限を超えています: {len(urls)}')
+    images = _download_and_encode_images(urls)
+    if len(images) != len(urls):
+        raise ValueError('カード画像の一部を取得できません。再試行が必要です。')
+    return _extract_cards(_preprocess_html(html, page_url), images, page_url)
 
-    import json
-    json_text = re.sub(r"```(?:json)?\s*", "", raw_text).strip()
-    json_text = re.sub(r"```\s*$", "", json_text).strip()
 
-    try:
-        raw_data = json.loads(json_text)
-    except json.JSONDecodeError as e:
-        logger.error(
-            f"[Extractor] X JSON パースエラー: {e}\n"
-            f"  生レスポンス（先頭200文字）: {raw_text[:200]!r}"
-        )
+def extract_cards_from_tweet(tweet_text: str, image_urls: list[str], tweet_url: str = "") -> list[dict]:
+    """Xの元画像を保存前に認識し、クロップ候補のみを記録する。"""
+    if not image_urls:
         return []
-
-    try:
-        result = ExtractionResult.model_validate(raw_data)
-    except Exception as e:
-        logger.error(f"[Extractor] X Pydantic バリデーションエラー: {e}")
-        return []
-
-    logger.info(f"[Extractor] X 抽出カード数（生）: {len(result.cards)}件 ({tweet_url!r})")
-
-    used_image_urls = [img["url"] for img in encoded_images]
-
-    output_rows = []
-    rush_skipped = 0
-    for card in result.cards:
-        if getattr(card, "is_rush", False):
-            rush_skipped += 1
-            logger.info(f"[Extractor] X ラッシュデュエルのため除外: {card.name!r}")
-            continue
-
-        row = _validate_and_fix(card, tweet_url)
-        if row is None:
-            continue
-
-        individual_image_url = row.pop("image_url", "")
-        row["extraction_raw"] = {
-            "raw_response": raw_text,
-            "image_urls": card.image_urls,
-            "card_image_urls": used_image_urls,
-            "card_image_url": individual_image_url,
-            "model": EXTRACTOR_MODEL,
-            "input_tokens": message.usage.input_tokens,
-            "output_tokens": message.usage.output_tokens,
-            "vision_mode": True,
-            "source": "x_tweet",
-        }
-        output_rows.append(row)
-
-    if rush_skipped:
-        logger.info(f"[Extractor] X ラッシュ除外: {rush_skipped}件 ({tweet_url!r})")
-    logger.info(f"[Extractor] X 有効カード数（検証後）: {len(output_rows)}件 ({tweet_url!r})")
-    return output_rows
+    if len(image_urls) > _MAX_IMAGES:
+        raise ValueError('X画像数が抽出上限を超えています')
+    images = _download_and_encode_images(image_urls)
+    if len(images) != len(image_urls):
+        raise ValueError('X画像の一部を取得できません。再試行が必要です。')
+    context = f'[ポストURL: {tweet_url}]\n[ポスト本文]\n{tweet_text}'
+    return _extract_cards(context, images, tweet_url, from_x=True)

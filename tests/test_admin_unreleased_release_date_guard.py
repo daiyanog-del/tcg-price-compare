@@ -7,7 +7,7 @@ release_date ガードのテスト（admin_unreleased.py）。
   （app.py の _is_release_passed_unreleased / /api/validate）が永遠に通らず、
   発売日当日になっても未発売扱いのままになる（id=375 の実害）。
   逆に抽出AIの年誤り（過去日）は承認時点から発売済み扱いになる逆方向の誤判定。
-  このガードは NULL への補完（同一 product_name の他カードから最頻値）と
+  このガードは NULL への補完（商品名が一致する公式商品情報）と
   過去日の警告表示を行う（ブロックはしない）。
 
 テスト方針:
@@ -116,6 +116,11 @@ class _FakeSupabase:
 
 
 def _install_fake(monkeypatch, rows):
+    import release_date_resolver
+    monkeypatch.setattr(release_date_resolver, "resolve_release_date", lambda product: {
+        "status": "verified" if product == "商品X" else "unverified",
+        "release_date": FUTURE if product == "商品X" else None,
+    })
     fake = _FakeSupabase(rows)
     monkeypatch.setattr(admin_module, "_supabase", fake, raising=False)
     monkeypatch.setattr(admin_module, "_ADMIN_KEY", "test-key", raising=False)
@@ -147,22 +152,22 @@ def test_backfill_release_date_no_match_returns_none(monkeypatch):
     assert admin_module._backfill_release_date("商品A", 1) is None
 
 
-def test_backfill_release_date_majority_wins(monkeypatch):
+def test_backfill_release_date_does_not_trust_majority(monkeypatch):
     _install_fake(monkeypatch, [
         {"id": 2, "product_name": "商品A", "release_date": FUTURE},
         {"id": 3, "product_name": "商品A", "release_date": FUTURE},
         {"id": 4, "product_name": "商品A", "release_date": PAST},
         {"id": 1, "product_name": "商品A", "release_date": None},  # 自分自身（NULL）
     ])
-    assert admin_module._backfill_release_date("商品A", 1) == FUTURE
+    assert admin_module._backfill_release_date("商品A", 1) is None
 
 
-def test_backfill_release_date_tie_prefers_newest(monkeypatch):
+def test_backfill_release_date_does_not_guess_newest(monkeypatch):
     _install_fake(monkeypatch, [
         {"id": 2, "product_name": "商品A", "release_date": FUTURE},
         {"id": 3, "product_name": "商品A", "release_date": FUTURE2},
     ])
-    assert admin_module._backfill_release_date("商品A", 1) == FUTURE2
+    assert admin_module._backfill_release_date("商品A", 1) is None
 
 
 def test_backfill_release_date_excludes_self(monkeypatch):
@@ -191,7 +196,7 @@ def test_approve_backfills_null_release_date(monkeypatch):
     assert resp.status_code == 200
     data = resp.get_json()
     assert data["ok"] is True
-    assert data["release_date_note"] == f"発売日を同商品の他カードから補完しました: {FUTURE}"
+    assert data["release_date_note"] == f"発売日を公式商品情報から補完しました: {FUTURE}"
     assert "release_date_warning" not in data
     assert rows[0]["release_date"] == FUTURE
     assert rows[0]["status"] == "approved"

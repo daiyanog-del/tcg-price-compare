@@ -590,6 +590,7 @@ function _renderPendingList(listEl, cards) {
     _wireMediaTabs(editForm);
     // 抽出元画像があればそれを、無ければプロキシ表示を初期表示にする
     _setActiveMedia(editForm, hasSource ? 'source' : 'proxy');
+    _showRecognitionEvidence(card, editForm);
 
     // 抽出元画像がある場合のみクロップUIを配線
     if (hasSource) {
@@ -603,6 +604,7 @@ function _renderPendingList(listEl, cards) {
     // 編集フォームのリアルタイムプレビュー更新
     fields.forEach((input) => {
       input.addEventListener('input', () => {
+        _showRecognitionEvidence(card, editForm);
         const current = _collectFormData(editForm);
         _renderPreview(slot, { ...card, ...current });
       });
@@ -1288,6 +1290,9 @@ const _cropModal = {
   _startX:   0,
   _startY:   0,
   _sel:      null,
+  _revision: 0,
+  _suggesting: false,
+  _imgSrc: '',
 
   init() {
     this.el         = document.getElementById('crop-modal');
@@ -1297,6 +1302,8 @@ const _cropModal = {
     this.confirmBtn = this.el.querySelector('.crop-modal__confirm');
     this.cancelBtn  = this.el.querySelector('.crop-modal__cancel');
     this.resultEl   = this.el.querySelector('.crop-modal__result');
+    this.suggestBtn = this.el.querySelector('.crop-modal__suggest');
+    this.suggestBtn.addEventListener('click', () => this._suggest());
 
     this.cancelBtn.addEventListener('click', () => this.close());
     this.el.querySelector('.crop-modal__backdrop').addEventListener('click', () => this.close());
@@ -1308,7 +1315,10 @@ const _cropModal = {
     this.confirmBtn.addEventListener('click', () => this._confirm());
   },
 
-  open(cardId, editForm, imgSrc) {
+  open(cardId, editForm, imgSrc, suggestion = null) {
+    this._revision++;
+    this._imgSrc = imgSrc;
+    this.suggestBtn.disabled = this._suggesting;
     this._cardId   = cardId;
     this._editForm = editForm;
     this._sel      = null;
@@ -1319,9 +1329,20 @@ const _cropModal = {
     this.resultEl.hidden   = true;
     this.el.hidden         = false;
     document.body.style.overflow = 'hidden';
+    const candidate = _validatedCropSuggestion(suggestion, imgSrc);
+    const hint = this.el.querySelector('.crop-modal__hint');
+    hint.textContent = candidate
+      ? '自動検出した候補枠です。欠け・余白を確認し、必要ならドラッグで選び直して確定してください'
+      : 'ドラッグしてカード範囲を選択してください';
+    if (candidate) {
+      this._sel = candidate;
+      this._updateSel();
+      this.confirmBtn.disabled = false;
+    }
   },
 
   close() {
+    this._revision++;
     this.el.hidden = true;
     document.body.style.overflow = '';
   },
@@ -1348,6 +1369,7 @@ const _cropModal = {
 
   _onDown(e) {
     if (this.el.hidden) return;
+    this._revision++;
     const pos = this._relPos(e);
     this._startX   = pos.x;
     this._startY   = pos.y;
@@ -1412,9 +1434,103 @@ const _cropModal = {
       this.confirmBtn.textContent = '確定';
     }
   },
+
+  async _suggest() {
+    if (this._suggesting || this.el.hidden) return;
+    this._suggesting = true;
+    this.suggestBtn.disabled = true;
+    this.suggestBtn.textContent = '候補を取得中...';
+    this.resultEl.hidden = true;
+    const revision = this._revision;
+    const cardId = this._cardId;
+    try {
+      const resp = await apiFetch(`/api/admin/unreleased/${cardId}/suggest-crop`, {
+        method: 'POST', body: JSON.stringify({}),
+      });
+      const data = await resp.json();
+      // 閉じた後・カード移動後・手動選択開始後には古い応答を反映しない。
+      if (this.el.hidden || this._revision !== revision || this._cardId !== cardId) return;
+      const candidate = _validatedCropSuggestion(data.crop_suggestion, this._imgSrc);
+      if (!resp.ok || !data.ok || !candidate) {
+        _showResult(this.resultEl, data.error || '元画像と一致する候補枠を取得できませんでした', 'error');
+        return;
+      }
+      this._sel = candidate;
+      this._updateSel();
+      this.confirmBtn.disabled = false;
+      this.el.querySelector('.crop-modal__hint').textContent = '自動検出した候補枠です。欠け・余白を確認し、必要ならドラッグで選び直して確定してください';
+    } catch (e) {
+      if (!this.el.hidden && this._revision === revision && e.message !== '認証エラー') {
+        _showResult(this.resultEl, '候補枠を取得できませんでした。手動で範囲を選択するか再試行してください', 'error');
+      }
+    } finally {
+      this._suggesting = false;
+      this.suggestBtn.disabled = false;
+      this.suggestBtn.textContent = '自動で枠を提案';
+    }
+  },
 };
 
 _cropModal.init();
+
+function _validatedCropSuggestion(suggestion, imgSrc) {
+  if (!suggestion || !imgSrc || suggestion.source_image_url !== imgSrc) return null;
+  const {left, top, right, bottom} = suggestion;
+  if (![left, top, right, bottom].every(v => typeof v === 'number' && Number.isFinite(v))) return null;
+  if (!(0 <= left && left < right && right <= 1 && 0 <= top && top < bottom && bottom <= 1)) return null;
+  return {left, top, right, bottom};
+}
+
+function _showRecognitionEvidence(card, editForm) {
+  const panel = editForm.querySelector('.recognition-evidence');
+  if (!panel) return;
+  panel.replaceChildren();
+  const date = card.release_date_evidence;
+  const recognition = card.recognition_review;
+  const current = key => {
+    const input = editForm.querySelector(`[name="${key}"]`);
+    return input && input.value !== undefined ? input.value : card[key];
+  };
+  const normalized = value => value == null ? '' : String(value);
+  for (const [label, item] of [['抽出時の発売日照合', date], ['抽出時の数値再読', recognition]]) {
+    if (!item || typeof item !== 'object') continue;
+    const line = document.createElement('p');
+    const state = item.status === 'verified' ? '照合済み' : '要確認';
+    const reason = typeof item.reason === 'string' ? item.reason : '';
+    const evidence = typeof item.evidence === 'string' ? item.evidence : '';
+    let snapshot;
+    let changed;
+    if (item === date) {
+      snapshot = `対象商品：${item.product_name || '不明'}、発売日：${item.release_date || '未確定'}（抽出候補：${item.candidate_date || 'なし'}）`;
+      changed = !Object.hasOwn(item, 'product_name')
+        || normalized(current('product_name')) !== normalized(item.product_name)
+        || normalized(current('release_date')) !== normalized(item.release_date);
+    } else {
+      const values = item.values || {};
+      snapshot = `種別：${item.card_type || '不明'}、レベル：${values.level ?? 'なし'}、ランク：${values.rank ?? 'なし'}、リンク：${values.link_val ?? 'なし'}`;
+      changed = !item.values || normalized(current('card_type')) !== normalized(item.card_type)
+        || ['level', 'rank', 'link_val'].some(key => normalized(current(key)) !== normalized(values[key]));
+    }
+    line.textContent = `${label}：${state} ${snapshot}。${reason}${evidence ? `（${evidence}）` : ''}${changed ? ' 手動変更あり・現在値は未照合' : ''}`;
+    panel.appendChild(line);
+  }
+  if (date && typeof date.source_url === 'string') {
+    try {
+      const url = new URL(date.source_url);
+      if (url.protocol === 'https:' && url.hostname === 'www.yugioh-card.com'
+          && !url.username && !url.password && !url.port
+          && url.pathname.startsWith('/japan/products/')) {
+        const link = document.createElement('a');
+        link.href = url.href;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = '公式商品情報で発売日を確認';
+        panel.appendChild(link);
+      }
+    } catch (_) { /* 不正な参照URLはリンクとして表示しない。 */ }
+  }
+  panel.hidden = panel.childElementCount === 0;
+}
 
 /**
  * クロップボタンをモーダル開閉に配線する。
@@ -1434,7 +1550,7 @@ function _setupCropUI(card, editForm) {
       src = imgEl ? imgEl.getAttribute('src') : '';
     }
     if (!src) return;
-    _cropModal.open(card.id, editForm, src);
+    _cropModal.open(card.id, editForm, src, card.crop_suggestion);
   });
 }
 
