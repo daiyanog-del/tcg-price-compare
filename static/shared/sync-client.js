@@ -55,6 +55,8 @@
 
   // pull/merge結果の適用中は true。onWishSave/onDecksSave からの再送信を止め、無限ループを防ぐ
   let _applying = false;
+  let _deckPushInFlight = 0;
+  let _deckRetryWaiting = 0;
 
   // 種別ごとのデバウンスタイマー・直前送信シグネチャ（購入候補とデッキが互いを妨げないように分離）
   const _kindState = {
@@ -106,7 +108,8 @@
     if (kind === 'decks') {
       return JSON.stringify((list || []).map(function (d) {
         return { id: d.id, name: d.name, text: d.text || '', main: d.main || [], ex: d.ex || [],
-                 updated: d.updated || 0 };
+                 updated: d.updated || 0,
+                 ...(Object.prototype.hasOwnProperty.call(d, 'owned') ? {owned: JSON.parse(JSON.stringify(d.owned))} : {}) };
       }));
     }
     return JSON.stringify((list || []).map(function (c) {
@@ -160,11 +163,14 @@
   }
 
   // pull/merge で受け取った保存デッキを savedDecksSet() 経由で適用する（直接 localStorage に書かない）
-  function _applyReceivedDecks(items) {
+  function _applyReceivedDecks(items, expectedLocal) {
+    // 通信中に変わった編集内容は古い応答で巻き戻さない。次のpushで合流する。
+    if (expectedLocal !== undefined && _canonicalize('decks', _readLocalList('decks')) !== expectedLocal) return false;
     if (typeof global.savedDecksSet !== 'function') return false;
     _applying = true;
     try {
       global.savedDecksSet(items || []);
+      if(global.DeckOwnership) global.DeckOwnership.applyReceived(items || []);
     } finally {
       _applying = false;
     }
@@ -217,6 +223,7 @@
           // is_linked（サーバー側の使用済みトークン判定）でのみ true にする
           linked: false,
         };
+        if (_canonicalize('decks', decks) !== _canonicalize('decks', _readLocalList('decks'))) state.decks_dirty = true;
         _setState(state);
         return state;
       })
@@ -231,6 +238,8 @@
     const state = _getState();
     if (!state || !state.sync_id) return Promise.resolve();
     const revKey = kind === 'decks' ? 'decks_rev' : 'wishlist_rev';
+    const expectedDecks = kind === 'decks' ? _canonicalize('decks', items) : undefined;
+    if (kind === 'decks') _deckPushInFlight++;
     return _postJson('/api/sync/push', {
       sync_id: state.sync_id,
       kind: kind,
@@ -256,6 +265,7 @@
         const siblingKind = kind === 'decks' ? 'wishlist' : 'decks';
         const next = { sync_id: data.sync_id, wishlist_rev: 0, decks_rev: 0 };
         next[revKey] = data[revKey] || 1;
+        if (kind !== 'decks' || expectedDecks !== _canonicalize('decks', _readLocalList('decks'))) next.decks_dirty = true;
         _setState(next);
         _notifyReissued();
         const siblingItems = _readLocalList(siblingKind);
@@ -266,17 +276,24 @@
       }
       if (!data.ok) return; // db_unavailable 等。画面には何も出さない（§4.2）
       if (data.status === 'applied') {
-        const next = Object.assign({}, state);
-        next[revKey] = data.rev;
+        const next = Object.assign({}, _getState() || state);
+        next[revKey] = Math.max(next[revKey] || 0, data.rev);
+        if (kind === 'decks' && expectedDecks === _canonicalize('decks', _readLocalList('decks'))) delete next.decks_dirty;
         _setState(next);
       } else if (data.status === 'merged') {
-        const next = Object.assign({}, state);
-        next[revKey] = data.rev;
+        const next = Object.assign({}, _getState() || state);
+        if (kind === 'decks') {
+          // 内容を適用しなかった応答のrevも採用しない。次のpushを競合合流にして、
+          // サーバーだけにあるデッキが通常置換で消えることを防ぐ。
+          if (data.rev < (next[revKey] || 0) || !_applyReceivedDecks(data.items, expectedDecks)) return;
+        } else {
+          _applyReceivedWishlist(data.items);
+        }
+        next[revKey] = Math.max(next[revKey] || 0, data.rev);
+        if (kind === 'decks') delete next.decks_dirty;
         _setState(next);
-        if (kind === 'decks') _applyReceivedDecks(data.items);
-        else _applyReceivedWishlist(data.items);
       }
-    });
+    }).finally(function () { if (kind === 'decks') _deckPushInFlight--; });
   }
 
   function _pushWithRetry(kind, items, attempt) {
@@ -284,8 +301,10 @@
     return _pushOnce(kind, items).catch(function (e) {
       attempt++;
       if (attempt >= MAX_RETRY) return; // 次回ページ読み込み時に解決させる（§4.2）
+      if (kind === 'decks') _deckRetryWaiting++;
       return _sleep(BACKOFF_BASE_MS * Math.pow(2, attempt - 1)).then(function () {
-        return _pushWithRetry(kind, items, attempt);
+        if (kind === 'decks') _deckRetryWaiting--;
+        return _pushWithRetry(kind, kind === 'decks' ? _readLocalList('decks') : items, attempt);
       });
     });
   }
@@ -294,7 +313,7 @@
     if (_applying) return; // 受信適用中は送信しない（無限ループ防止）
     const ks = _kindState[kind];
     const canon = _canonicalize(kind, list);
-    if (canon === ks.lastSentJson) return; // 直前送信内容と同一ならスキップ
+    if (canon === ks.lastSentJson && !(kind === 'decks' && (_getState() || {}).decks_dirty)) return; // 直前送信内容と同一ならスキップ
     ks.lastSentJson = canon;
 
     const state = _getState();
@@ -331,13 +350,20 @@
   // savedDecksSet() から呼ばれるフック（P2）。2秒デバウンスして push する（§4.2）
   function onDecksSave(list) {
     if (_applying) return;
+    // ACKまで残す。失敗/バックオフ/リロード後のpullでも未送信内容を守る。
+    const state = _getState();
+    if (state) { state.decks_dirty = true; _setState(state); }
     const ks = _kindState.decks;
     if (ks.debounceTimer) clearTimeout(ks.debounceTimer);
     const snapshot = (list || []).map(function (d) {
       return { id: d.id, name: d.name, text: d.text || '', main: d.main || [], ex: d.ex || [],
-               updated: d.updated || 0 };
+               updated: d.updated || 0,
+                 ...(Object.prototype.hasOwnProperty.call(d, 'owned') ? {owned: JSON.parse(JSON.stringify(d.owned))} : {}) };
     });
-    ks.debounceTimer = setTimeout(function () { _doPush('decks', snapshot); }, DEBOUNCE_MS);
+    ks.debounceTimer = setTimeout(function () {
+      ks.debounceTimer = null;
+      _doPush('decks', snapshot);
+    }, DEBOUNCE_MS);
   }
 
   // トップページ・購入候補タブ・マイデッキタブ・一人回しページを開いたときに呼ぶ（§8）。
@@ -365,6 +391,11 @@
       if (local.length) _doPush('decks', local);
     }
 
+    if (state.decks_dirty && !_kindState.decks.debounceTimer && !_deckPushInFlight && !_deckRetryWaiting) {
+      _doPush('decks', _readLocalList('decks'));
+    }
+    const expectedDecks = _canonicalize('decks', _readLocalList('decks'));
+    const decksPending = !!state.decks_dirty || !!_kindState.decks.debounceTimer || _deckPushInFlight > 0;
     return _postJson('/api/sync/pull', {
       sync_id: state.sync_id,
       wishlist_rev: state.wishlist_rev || 0,
@@ -381,7 +412,7 @@
       }
       if (!data.ok) return;
 
-      const next = Object.assign({}, state);
+      const next = Object.assign({}, _getState() || state);
       let changed = false;
 
       // 「他端末と連携済みか」（§7.3）はpullのたびにサーバーの判定結果で更新する。
@@ -403,7 +434,8 @@
       }
       const dk = data.decks || {};
       if (!staleDecks && !dk.unchanged && typeof dk.rev === 'number') {
-        if (_applyReceivedDecks(dk.items)) {
+        if (dk.rev >= (next.decks_rev || 0) && !next.decks_dirty && !decksPending && !_kindState.decks.debounceTimer && !_deckPushInFlight
+            && _applyReceivedDecks(dk.items, expectedDecks)) {
           next.decks_rev = dk.rev;
           changed = true;
         }
