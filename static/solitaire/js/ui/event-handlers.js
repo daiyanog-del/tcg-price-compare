@@ -4,7 +4,7 @@ import {
 } from '../components/card-manager.js';
 import { SaveLoadModal } from './save-load-modal.js';
 import { registerCardImage, logSetupEvent, getLogLength, getCursor } from '../services/replay-service.js';
-import { initDeckInputPanel, loadDeckFromNeuron, savedDecksGet, savedDecksSet } from './deck-input-panel.js';
+import { initDeckInputPanel, loadDeckFromNeuron, savedDecksGet, savedDecksSet, parseDeckList } from './deck-input-panel.js';
 import { parseNeuronPdf } from '/static/shared/neuron-pdf-parser.js';
 import { NeuronPreviewModal } from '/static/shared/neuron-preview-modal.js';
 
@@ -34,16 +34,22 @@ export async function handleNeuronPdfSelect(event) {
     parsed,
     defaultName,
     onSave: ({ name, mainText, exText }) => {
-      const combined = [mainText, exText].filter(Boolean).join('\n');
+      // [EX]区切りを挿入（saveImportedDeck と同じ形式）
+      const combined = exText ? mainText + '\n[EX]\n' + exText : mainText;
+      // main/ex 配列も保存する（マイデッキは配列を優先して使うため text と同期させる）
+      const main = parseDeckList(mainText || '');
+      const ex = parseDeckList(exText || '');
       try {
         const list = savedDecksGet();
         const existing = list.find(d => d.name === name);
         if (existing) {
           if (!confirm(`「${name}」はすでに保存されています。上書きしますか？`)) return;
           existing.text = combined;
+          existing.main = main;
+          existing.ex = ex;
           existing.updated = Date.now();
         } else {
-          list.push({ id: 'd_' + Date.now(), name, text: combined, updated: Date.now() });
+          list.push({ id: 'd_' + Date.now(), name, text: combined, main, ex, updated: Date.now() });
         }
         savedDecksSet(list);
       } catch (e) {

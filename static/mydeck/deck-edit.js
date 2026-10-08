@@ -716,13 +716,32 @@
     if(!ta || ta.value.trim()) return;
     var draft = null;
     try{ draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); }catch(_){}
+    // ひも付き保存済みデッキが下書きと食い違う場合は保存済みを正とする
+    // （一人回しの上書き保存や他端末同期で保存済みだけ更新されたとき、古い下書きで上書きしないため）
+    if(draft && draft.savedId && typeof savedDecksGet === 'function'){
+      try{
+        var _list = savedDecksGet() || [];
+        var _d = null;
+        for(var _i = 0; _i < _list.length; _i++){
+          if(_list[_i] && _list[_i].id === draft.savedId){ _d = _list[_i]; break; }
+        }
+        if(_d){
+          var _dText = String(_d.text || '').replace(/\r/g, '');
+          var _draftText = String(draft.text || '').replace(/\r/g, '');
+          if(_dText !== _draftText){
+            console.warn('下書きがひも付き保存済みデッキと食い違うため保存済みを復元（' + (_d.name || '') + '）');
+            draft = { text: _dText, main: _d.main, ex: _d.ex, savedId: _d.id, owned: _d.owned, name: _d.name };
+          }
+        }
+      }catch(_){}
+    }
     if(!draft || !draft.text || !draft.text.trim()) return;
 
     if(window.DeckOwnership) window.DeckOwnership.set(draft.owned);
     ta.value = draft.text;
     _currentMydeckText = draft.text;
-    _currentMydeckCards = (draft.main) ? { main: draft.main, ex: draft.ex || [] }
-                                       : parseDeckSections(draft.text);
+    // 修正前に作られた下書きは main/ex が text と食い違うことがあるため normalizeDeck で text と照合する
+    _currentMydeckCards = normalizeDeck(draft);
     if(draft.savedId){
       window._currentSavedDeckId = draft.savedId;
       if(draft.name && typeof _currentDeckName !== 'undefined') _currentDeckName = draft.name;
@@ -935,9 +954,9 @@
         _showAddedToast(deck.name || 'マイデッキ', function(){ _openDeckFromToast(id); });
         return;
       }
-      // 元データは loadSavedDeck の表示優先順位に合わせ text を優先する
-      // （一人回しの上書き保存は text だけ更新し main/ex が古いまま残ることがあるため）
-      var nd = deck.text ? parseDeckSections(String(deck.text).replace(/\r/g, '')) : normalizeDeck(deck);
+      // normalizeDeck は main/ex が text と食い違うとき text を正とする
+      // （修正前の一人回し上書き保存で main/ex が古いまま残ったデータ対策。一致時は EX 振り分けを維持）
+      var nd = normalizeDeck(deck);
       deck.main = nd.main;
       deck.ex = nd.ex;
       _addToSection(deck, sec, name);
