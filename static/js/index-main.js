@@ -192,7 +192,7 @@ function showUnreleasedCard(name){
       <div id="cardDetail" class="card-detail"></div>
     </details>
     <div class="share-btns">
-      <button onclick="addToDeck('${escAttr(escJs(name))}')" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ デッキに追加</button>
+      <button onclick="addToDeck('${escAttr(escJs(name))}',this)" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ デッキに追加</button>
       <button onclick="wishAddFromBtn(this,'${escAttr(escJs(name))}',1)" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ 購入候補に追加</button>
     </div>`;
 
@@ -646,7 +646,7 @@ function renderAll(d){
       <div id="cardDetail" class="card-detail"></div>
     </details>
     <div class="share-btns">
-      <button onclick="addToDeck('${escAttr(escJs(searchTerm))}')" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ デッキに追加</button>
+      <button onclick="addToDeck('${escAttr(escJs(searchTerm))}',this)" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ デッキに追加</button>
       <button id="heroWishAdd" onclick="wishAddFromBtn(this,'${escAttr(escJs(searchTerm))}',1,rarityFilter)" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ 購入候補に追加</button>
       <div class="share-menu-wrap">
         <button class="share-btn share-btn-x" onclick="toggleShareMenu('shareMenuSell')">シェア</button>
@@ -2349,9 +2349,9 @@ function clearDeck(){
   _currentDeckName='';
 }
 
-function addToDeck(name){
-  // deck-edit.js 読込時は構造化追加（is_ex振り分け＋グリッド即時更新）を使う
-  if(window.deckAddCard){ window.deckAddCard(name); switchMode('mydeck','auto'); return; }
+function addToDeck(name,btn){
+  // deck-edit.js 読込時は追加先ピッカー（編集中/保存済み/新規を選択・タブ遷移なし）を使う
+  if(window.deckOpenAddPicker){ window.deckOpenAddPicker(name,btn); return; }
   const ta=document.getElementById('deckTextarea');
   const lines=ta.value.split('\n').filter(l=>l.trim());
   // Check if already in list
