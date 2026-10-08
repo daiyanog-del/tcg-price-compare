@@ -954,9 +954,9 @@
         _showAddedToast(deck.name || 'マイデッキ', function(){ _openDeckFromToast(id); });
         return;
       }
-      // 元データは loadSavedDeck の表示優先順位に合わせ text を優先する
-      // （一人回しの上書き保存は text だけ更新し main/ex が古いまま残ることがあるため）
-      var nd = deck.text ? parseDeckSections(String(deck.text).replace(/\r/g, '')) : normalizeDeck(deck);
+      // normalizeDeck は main/ex が text と食い違うとき text を正とする
+      // （修正前の一人回し上書き保存で main/ex が古いまま残ったデータ対策。一致時は EX 振り分けを維持）
+      var nd = normalizeDeck(deck);
       deck.main = nd.main;
       deck.ex = nd.ex;
       _addToSection(deck, sec, name);
