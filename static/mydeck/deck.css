@@ -358,3 +358,16 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
 .deck-owned-review{display:flex;flex-direction:column;gap:4px;padding:10px 0;overflow-wrap:anywhere}
 .deck-owned-review small{font-size:12px;color:var(--text-m)}
 @media(max-width:640px){.deck-owned-row{grid-template-columns:minmax(0,1fr) 86px}.deck-owned-count{grid-column:1/-1}.deck-ownership p{font-size:13px}.deck-owned-review span{line-height:1.8}}
+
+/* 検索結果「+ デッキに追加」の追加先ポップオーバー／完了トースト */
+.deck-add-picker{position:fixed;z-index:1100;min-width:200px;max-width:min(320px,calc(100vw - 16px));overflow-y:auto;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 6px 20px rgba(0,0,0,.5);padding:4px}
+.deck-add-picker-title{padding:4px 8px;font-size:.68rem;color:var(--text-m)}
+.deck-add-picker-item{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;text-align:left;background:none;border:none;border-radius:4px;color:var(--text);font-size:.8rem;padding:8px;cursor:pointer}
+.deck-add-picker-item:hover,.deck-add-picker-item:focus-visible{background:var(--bg-hover);outline:none}
+.deck-add-picker-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.deck-add-picker-badge{flex-shrink:0;font-size:.64rem;padding:1px 6px;border-radius:999px;border:1px solid var(--accent);color:var(--accent)}
+.deck-add-picker-new{border-top:1px solid var(--border);border-radius:0 0 4px 4px;margin-top:2px;color:var(--accent-l)}
+.deck-add-toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:1100;display:flex;align-items:center;gap:12px;max-width:calc(100vw - 24px);background:var(--bg-card);border:1px solid var(--accent);border-radius:var(--radius);box-shadow:0 6px 20px rgba(0,0,0,.5);padding:10px 14px;font-size:.82rem;color:var(--text)}
+.deck-add-toast-msg{min-width:0;overflow-wrap:anywhere}
+.deck-add-toast-btn{flex-shrink:0;background:none;border:1px solid var(--accent);border-radius:4px;color:var(--accent);font-size:.76rem;font-weight:600;padding:4px 10px;cursor:pointer}
+.deck-add-toast-btn:hover{background:var(--bg-hover)}

@@ -813,6 +813,280 @@
     if(si) si.focus();
   }
 
+  // ── 検索結果「+ デッキに追加」の追加先ピッカー ──────────────
+  // ボタン直下にポップオーバーを出し、追加先（編集中/保存済み/新規）を選ばせる。
+  // どの経路でもタブ遷移はしない。完了後はトーストで通知し、［デッキを開く］で遷移できる。
+  var _addPickerEl = null;      // 表示中のポップオーバー要素
+  var _addPickerAnchor = null;  // 起点ボタン
+  var _addPickerCleanup = null; // 付与したリスナーの解除関数
+  var _addToastEl = null;
+  var _addToastTimer = null;
+
+  // ポップオーバーを閉じる。restoreFocus=true なら起点ボタンへフォーカスを戻す
+  function _closeAddPicker(restoreFocus){
+    var anchor = _addPickerAnchor;
+    if(_addPickerCleanup){ _addPickerCleanup(); _addPickerCleanup = null; }
+    if(_addPickerEl && _addPickerEl.parentNode) _addPickerEl.parentNode.removeChild(_addPickerEl);
+    _addPickerEl = null;
+    _addPickerAnchor = null;
+    if(restoreFocus === true && anchor && document.body.contains(anchor)){
+      try{ anchor.focus({ preventScroll: true }); }catch(_){}
+    }
+  }
+
+  // トースト表示。onOpen があれば［デッキを開く］ボタンを付ける。ms 経過で自動的に消える
+  function _showAddToast(msgText, onOpen, ms){
+    if(_addToastEl && _addToastEl.parentNode) _addToastEl.parentNode.removeChild(_addToastEl);
+    clearTimeout(_addToastTimer);
+    var el = document.createElement('div');
+    el.className = 'deck-add-toast';
+    el.setAttribute('role', 'status');
+    var msg = document.createElement('span');
+    msg.className = 'deck-add-toast-msg';
+    msg.textContent = msgText;
+    el.appendChild(msg);
+    if(onOpen){
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'deck-add-toast-btn';
+      btn.textContent = 'デッキを開く';
+      btn.addEventListener('click', function(){
+        if(el.parentNode) el.parentNode.removeChild(el);
+        clearTimeout(_addToastTimer);
+        onOpen();
+      });
+      el.appendChild(btn);
+    }
+    document.body.appendChild(el);
+    _addToastEl = el;
+    _addToastTimer = setTimeout(function(){
+      if(el.parentNode) el.parentNode.removeChild(el);
+      if(_addToastEl === el) _addToastEl = null;
+    }, ms || 5000);
+  }
+  function _showAddedToast(deckName, onOpen){
+    _showAddToast('『' + deckName + '』に追加しました', onOpen);
+  }
+
+  // トーストの［デッキを開く］: 保存済みデッキ(savedId)を開く／未保存の作業デッキならタブ遷移のみ。
+  // 別デッキを開くことで未保存の作業デッキを失う場合は確認する（deckCreateNew と同趣旨）
+  function _openDeckFromToast(savedId){
+    if(savedId && window._currentSavedDeckId !== savedId){
+      var ta = document.getElementById('deckTextarea');
+      var hasUnsavedWork = ta && ta.value.trim() && (window._currentSavedDeckId == null);
+      if(hasUnsavedWork &&
+         !confirm('保存されていない編集中のデッキがあります。破棄してこのデッキを開きますか？')) return;
+      if(typeof loadSavedDeck === 'function') loadSavedDeck(savedId);
+    }
+    switchMode('mydeck', 'auto');
+  }
+
+  // card-info の is_ex でセクションを決める。失敗時は main + console.warn
+  function _resolveSec(name){
+    return fetch('/api/card-info?name=' + encodeURIComponent(name))
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(info){
+        if(!info){ console.warn('[deck-add] card-info取得失敗のためメインに追加します:', name); return 'main'; }
+        return info.is_ex ? 'ex' : 'main';
+      })
+      .catch(function(e){
+        console.warn('[deck-add] card-info取得エラーのためメインに追加します:', name, e);
+        return 'main';
+      });
+  }
+
+  // 保存済みデッキ一覧のサムネ等を最新化（描画済みのときのみ）
+  function _refreshSavedDeckList(){
+    var el = document.getElementById('savedDeckList');
+    if(!el || !el.children.length || typeof renderSavedDecks !== 'function') return;
+    renderSavedDecks();
+    // 再描画で選択状態が消えるため、編集中デッキの選択表示を戻す
+    var cur = window._currentSavedDeckId;
+    if(cur){
+      try{
+        var b = document.querySelector('#sdcard-' + CSS.escape(cur) + ' .saved-deck-card-btn');
+        if(b) b.classList.add('selected');
+      }catch(_){}
+    }
+  }
+
+  // 編集中デッキ（保存済み/未保存）へ追加 → 既存 deckAddCard（タブ遷移なし）
+  function _addToCurrentDeck(name, deckName, savedId){
+    deckAddCard(name);
+    _showAddedToast(deckName, function(){ _openDeckFromToast(savedId); });
+  }
+
+  // 別の保存済みデッキへ直接追加（開いているデッキは切り替えない）
+  function _addToOtherSavedDeck(name, id){
+    _showAddToast('追加中…', null, 15000);
+    _resolveSec(name).then(function(sec){
+      var list = savedDecksGet();
+      var deck = list.find(function(d){ return d.id === id; });
+      if(!deck){
+        console.warn('[deck-add] 追加先デッキが見つかりません:', id);
+        _showAddToast('追加先のデッキが見つかりませんでした');
+        return;
+      }
+      // 待機中にそのデッキが編集中になった場合は、二重書き込みを避けエディタ経由で追加する
+      if(id === window._currentSavedDeckId){
+        _deckPendingHighlight = { name: name, sec: sec };
+        _deckMutate(function(d){ _addToSection(d, sec, name); });
+        _recordAdd(name, sec);
+        _showAddedToast(deck.name || 'マイデッキ', function(){ _openDeckFromToast(id); });
+        return;
+      }
+      // 元データは loadSavedDeck の表示優先順位に合わせ text を優先する
+      // （一人回しの上書き保存は text だけ更新し main/ex が古いまま残ることがあるため）
+      var nd = deck.text ? parseDeckSections(String(deck.text).replace(/\r/g, '')) : normalizeDeck(deck);
+      deck.main = nd.main;
+      deck.ex = nd.ex;
+      _addToSection(deck, sec, name);
+      deck.text = _serializeDeck(deck);
+      deck.updated = Date.now();
+      savedDecksSet(list);
+      trackDeckCards([{ name: name }]);
+      _refreshSavedDeckList();
+      _showAddedToast(deck.name || 'マイデッキ', function(){ _openDeckFromToast(id); });
+    });
+  }
+
+  // 新しいデッキを作って追加（開いているデッキは変更しない）
+  function _addToNewDeck(name){
+    var n = null;
+    var existing = savedDecksGet();
+    for(;;){
+      var input = prompt('デッキ名を入力してください');
+      if(input === null || !input.trim()) return; // キャンセル/空で中止
+      n = input.trim();
+      if(existing.some(function(d){ return d.name === n; })){
+        alert('「' + n + '」は既に存在します。別の名前を入力してください。');
+        continue;
+      }
+      break;
+    }
+    _showAddToast('追加中…', null, 15000);
+    _resolveSec(name).then(function(sec){
+      var cur = savedDecksGet(); // fetch中の変更に備え再取得
+      // 待機中に同名デッキができていたら連番を付ける
+      var finalName = n, k = 2;
+      while(cur.some(function(d){ return d.name === finalName; })){ finalName = n + ' (' + k + ')'; k++; }
+      var deck = { id: 'd_' + Date.now(), name: finalName, text: '', main: [], ex: [], updated: Date.now() };
+      _addToSection(deck, sec, name);
+      deck.text = _serializeDeck(deck);
+      cur.push(deck);
+      savedDecksSet(cur);
+      trackDeckCards([{ name: name }]);
+      _refreshSavedDeckList();
+      _showAddedToast(finalName, function(){ _openDeckFromToast(deck.id); });
+    });
+  }
+
+  // ポップオーバーを起点ボタン直下に配置する。下に収まらなければ上、横は画面内に寄せる
+  function _placeAddPicker(menu, anchor){
+    var margin = 8;
+    var vw = document.documentElement.clientWidth;
+    var vh = window.innerHeight;
+    var r = anchor ? anchor.getBoundingClientRect() : { left: vw / 2, right: vw / 2, top: vh / 2, bottom: vh / 2 };
+    menu.style.maxHeight = (vh - margin * 2) + 'px';
+    var mw = menu.offsetWidth, mh = menu.offsetHeight;
+    var left = Math.min(Math.max(margin, r.left), Math.max(margin, vw - mw - margin));
+    var top = r.bottom + 4;
+    if(top + mh > vh - margin){
+      var above = r.top - 4 - mh;
+      top = above >= margin ? above : Math.max(margin, vh - mh - margin);
+    }
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
+  }
+
+  // ポップオーバーを開く。anchor は押されたボタン
+  function deckOpenAddPicker(name, anchor){
+    if(!name) return;
+    // 同じボタンの再押下は閉じるだけ
+    if(_addPickerEl && _addPickerAnchor === anchor){ _closeAddPicker(); return; }
+    _closeAddPicker();
+
+    var list = savedDecksGet();
+    var curId = window._currentSavedDeckId || null;
+    var ta = document.getElementById('deckTextarea');
+    var hasDraft = !!(ta && ta.value.trim()) && curId == null;
+
+    var menu = document.createElement('div');
+    menu.className = 'deck-add-picker';
+    var title = document.createElement('div');
+    title.className = 'deck-add-picker-title';
+    title.textContent = '追加先を選択';
+    menu.appendChild(title);
+
+    function addItem(label, badge, onPick, extraClass){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'deck-add-picker-item' + (extraClass ? ' ' + extraClass : '');
+      var s = document.createElement('span');
+      s.className = 'deck-add-picker-label';
+      s.textContent = label;
+      b.appendChild(s);
+      if(badge){
+        var bd = document.createElement('span');
+        bd.className = 'deck-add-picker-badge';
+        bd.textContent = badge;
+        b.appendChild(bd);
+      }
+      b.addEventListener('click', function(){ _closeAddPicker(true); onPick(); });
+      menu.appendChild(b);
+    }
+
+    if(hasDraft){
+      addItem('編集中のデッキ（未保存）', '編集中', function(){
+        _addToCurrentDeck(name, '編集中のデッキ', null);
+      });
+    }
+    list.forEach(function(d){
+      var isCur = (d.id === curId);
+      addItem(d.name || 'マイデッキ', isCur ? '編集中' : '', function(){
+        if(isCur) _addToCurrentDeck(name, d.name || 'マイデッキ', d.id);
+        else _addToOtherSavedDeck(name, d.id);
+      });
+    });
+    addItem('＋ 新しいデッキを作る', '', function(){ _addToNewDeck(name); }, 'deck-add-picker-new');
+
+    document.body.appendChild(menu);
+    _addPickerEl = menu;
+    _addPickerAnchor = anchor || null;
+    _placeAddPicker(menu, anchor);
+
+    // 外側クリックで閉じる（フォーカスは戻さない）／Escで閉じる（戻す）
+    function onDown(e){
+      if(menu.contains(e.target)) return;
+      if(anchor && anchor.contains(e.target)) return; // 再押下はトグル側で処理
+      _closeAddPicker();
+    }
+    function onKey(e){ if(e.key === 'Escape') _closeAddPicker(true); }
+    // スクロール/リサイズでは起点ボタンに追従して再配置。ボタンが画面外・DOM外なら閉じる
+    function onMove(e){
+      if(e && e.type === 'scroll' && menu.contains(e.target)) return;
+      if(anchor){
+        if(!document.body.contains(anchor)){ _closeAddPicker(); return; }
+        var r = anchor.getBoundingClientRect();
+        if(r.bottom < 0 || r.top > window.innerHeight ||
+           r.right < 0 || r.left > document.documentElement.clientWidth){ _closeAddPicker(); return; }
+      }
+      _placeAddPicker(menu, anchor);
+    }
+    document.addEventListener('pointerdown', onDown, true);
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('scroll', onMove, true);
+    window.addEventListener('resize', onMove);
+    _addPickerCleanup = function(){
+      document.removeEventListener('pointerdown', onDown, true);
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('scroll', onMove, true);
+      window.removeEventListener('resize', onMove);
+    };
+    var first = menu.querySelector('.deck-add-picker-item');
+    if(first) first.focus({ preventScroll: true });
+  }
+
   // ── 初期化 ────────────────────────────────────
   function _init(){
     // 2ペインビルダーは常時編集状態（検索パネルが常に表示されるため）。
@@ -854,6 +1128,7 @@
   window._deckAfterRender = _deckAfterRender;
   window._deckMutate = _deckMutate;
   window.deckAddCard = deckAddCard;
+  window.deckOpenAddPicker = deckOpenAddPicker; // 検索結果「+ デッキに追加」の追加先ピッカー
   window.toggleDeckEdit = toggleDeckEdit;
   window.deckSortByType = deckSortByType;   // 「種別順に整列」ボタン
   window.switchDeckPane = switchDeckPane;    // モバイルのペイン切替タブ
