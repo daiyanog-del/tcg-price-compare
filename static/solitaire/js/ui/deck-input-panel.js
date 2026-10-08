@@ -72,7 +72,7 @@ window.renderSavedDecks = renderMyDeckList;
  * デッキリストテキストをパース
  * "3 灰流うらら" 形式 → [{qty, name}]
  */
-function parseDeckList(text) {
+export function parseDeckList(text) {
   return text.split('\n')
     .map(l => l.trim())
     .filter(l => l && l !== '[EX]')  // [EX]区切り行を除外

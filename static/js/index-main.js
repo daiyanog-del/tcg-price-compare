@@ -1859,10 +1859,41 @@ function parseDeckSections(text){
   };
 }
 
+// カード配列（main+ex）をカード名ごとの合計枚数Mapにする（名前はtrim、qtyは数値化）
+function _deckCardCounts(main,ex){
+  const map=new Map();
+  for(const c of [].concat(Array.isArray(main)?main:[],Array.isArray(ex)?ex:[])){
+    if(!c) continue;
+    const name=String(c.name==null?'':c.name).trim();
+    if(!name) continue;
+    const q=Number(c.qty);
+    map.set(name,(map.get(name)||0)+(Number.isFinite(q)?q:1));
+  }
+  return map;
+}
+
+// main/ex 配列が text（[EX]区切り）と同じ内容か（カード名ごとの合計枚数で比較）
+function _deckArraysMatchText(deck){
+  const text=String(deck.text||'').replace(/\r/g,'');
+  const parsed=parseDeckSections(text);
+  const a=_deckCardCounts(parsed.main,parsed.ex);
+  const b=_deckCardCounts(deck.main,deck.ex);
+  if(a.size!==b.size) return false;
+  for(const [k,v] of a){ if(b.get(k)!==v) return false; }
+  return true;
+}
+
 // 保存デッキをmain/ex構造に正規化（旧データ対応）
 // deck.ex=[]（空配列）はfalsyになるためArray.isArrayで判定する
 function normalizeDeck(deck){
-  if(Array.isArray(deck.main)) return {main:deck.main,ex:Array.isArray(deck.ex)?deck.ex:[]};
+  if(Array.isArray(deck.main)){
+    const text=String(deck.text||'').replace(/\r/g,'');
+    // text が空なら配列をそのまま採用
+    if(!text.trim()||_deckArraysMatchText(deck)) return {main:deck.main,ex:Array.isArray(deck.ex)?deck.ex:[]};
+    // 配列が text と食い違う（上書き保存で配列が古いまま等）→ text を正とする
+    console.warn('保存デッキの main/ex が text と食い違っているため text を採用（'+(deck.name||'')+'）');
+    return parseDeckSections(text);
+  }
   // 旧形式 or main未設定 → テキストを[EX]区切りで解析
   return parseDeckSections(deck.text||'');
 }

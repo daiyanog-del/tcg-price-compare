@@ -167,7 +167,7 @@ function renderSavedDecks(){
   }
   // 各デッキの先頭カード名をサムネイル用に取得
   const firstCards=list.map(d=>{
-    const m=Array.isArray(d.main)?d.main:normalizeDeck(d).main;
+    const m=normalizeDeck(d).main;
     return m&&m.length?m[0].name:'';
   });
   el.innerHTML=libraryHeader
