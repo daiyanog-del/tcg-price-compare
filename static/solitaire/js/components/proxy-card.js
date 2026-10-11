@@ -149,9 +149,11 @@ export function createProxyCardElement(proxyData) {
   // ATK/DEF フッタ（モンスターのみ。魔法/罠は CSS で display:none）
   const stats = document.createElement('div');
   stats.className = 'proxy-card__stats';
+  // リンクモンスターは DEF を持たないので DEF 欄を出さない
+  const isLink = p.link_val != null || (p.card_type || '').includes('リンク');
   stats.innerHTML =
     `<span class="proxy-card__atk">ATK ${_esc(atkStr)}</span>` +
-    `<span class="proxy-card__def">DEF ${_esc(defStr)}</span>`;
+    (isLink ? '' : `<span class="proxy-card__def">DEF ${_esc(defStr)}</span>`);
 
   el.appendChild(header);
   if (_metaHtml(p)) el.appendChild(meta);
