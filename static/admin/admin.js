@@ -1481,53 +1481,141 @@ function _validatedCropSuggestion(suggestion, imgSrc) {
   return {left, top, right, bottom};
 }
 
+// 発売日の照合 reason → 管理者向けの短い補足
+const _DATE_REASON_HINTS = {
+  '商品名が未指定': '収録商品が空欄です',
+  '公式商品一覧に一致する商品がない（付録・特典等は手動確認）': '公式の商品一覧に同じ名前の商品がありません（雑誌付録・特典などは手動で確認してください）',
+  '一致商品の独立した公式詳細ページがない': '公式に商品の詳細ページがありません',
+  '同名商品が複数あり詳細ページを一意に選べない': '公式に同じ名前の商品が複数あります',
+  '商品名が一致するheader内に発売日の根拠がない': '公式の商品ページに発売日の記載が見つかりません',
+};
+
+function _dateReasonHint(reason) {
+  if (typeof reason !== 'string') return '';
+  if (Object.hasOwn(_DATE_REASON_HINTS, reason)) return _DATE_REASON_HINTS[reason];
+  if (reason.startsWith('公式発売日の取得・検証失敗')) return '公式サイトの取得に失敗しました';
+  return '';
+}
+
+// 公式商品ページへの小リンク（https・www.yugioh-card.com・/japan/products/ のみ許可）
+function _officialDateLink(date) {
+  if (!date || typeof date.source_url !== 'string') return null;
+  try {
+    const url = new URL(date.source_url);
+    if (url.protocol === 'https:' && url.hostname === 'www.yugioh-card.com'
+        && !url.username && !url.password && !url.port
+        && url.pathname.startsWith('/japan/products/')) {
+      const link = document.createElement('a');
+      link.href = url.href;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.className = 'recognition-evidence__link';
+      link.textContent = '公式商品情報で発売日を確認';
+      return link;
+    }
+  } catch (_) { /* 不正な参照URLはリンクとして表示しない。 */ }
+  return null;
+}
+
 function _showRecognitionEvidence(card, editForm) {
   const panel = editForm.querySelector('.recognition-evidence');
   if (!panel) return;
   panel.replaceChildren();
-  const date = card.release_date_evidence;
-  const recognition = card.recognition_review;
+  const date = card.release_date_evidence && typeof card.release_date_evidence === 'object'
+    ? card.release_date_evidence : null;
+  const recognition = card.recognition_review && typeof card.recognition_review === 'object'
+    ? card.recognition_review : null;
   const current = key => {
     const input = editForm.querySelector(`[name="${key}"]`);
     return input && input.value !== undefined ? input.value : card[key];
   };
   const normalized = value => value == null ? '' : String(value);
-  for (const [label, item] of [['抽出時の発売日照合', date], ['抽出時の数値再読', recognition]]) {
-    if (!item || typeof item !== 'object') continue;
+
+  // 手動変更の判定（抽出時の根拠を現在値の保証として扱わない）
+  let dateState = null;
+  let dateChanged = false;
+  if (date) {
+    dateChanged = !Object.hasOwn(date, 'product_name')
+      || normalized(current('product_name')) !== normalized(date.product_name)
+      || normalized(current('release_date')) !== normalized(date.release_date);
+    dateState = dateChanged ? 'manual' : (date.status === 'verified' ? 'ok' : 'review');
+  }
+  let recState = null;
+  let isMonster = false;
+  if (recognition) {
+    const values = recognition.values || {};
+    const recChanged = !recognition.values
+      || normalized(current('card_type')) !== normalized(recognition.card_type)
+      || ['level', 'rank', 'link_val'].some(key => normalized(current(key)) !== normalized(values[key]));
+    recState = recChanged ? 'manual' : (recognition.status === 'verified' ? 'ok' : 'review');
+    isMonster = String(recognition.card_type || '').includes('モンスター');
+  }
+
+  const addLine = (className, text) => {
     const line = document.createElement('p');
-    const state = item.status === 'verified' ? '照合済み' : '要確認';
-    const reason = typeof item.reason === 'string' ? item.reason : '';
-    const evidence = typeof item.evidence === 'string' ? item.evidence : '';
-    let snapshot;
-    let changed;
-    if (item === date) {
-      snapshot = `対象商品：${item.product_name || '不明'}、発売日：${item.release_date || '未確定'}（抽出候補：${item.candidate_date || 'なし'}）`;
-      changed = !Object.hasOwn(item, 'product_name')
-        || normalized(current('product_name')) !== normalized(item.product_name)
-        || normalized(current('release_date')) !== normalized(item.release_date);
-    } else {
-      const values = item.values || {};
-      snapshot = `種別：${item.card_type || '不明'}、レベル：${values.level ?? 'なし'}、ランク：${values.rank ?? 'なし'}、リンク：${values.link_val ?? 'なし'}`;
-      changed = !item.values || normalized(current('card_type')) !== normalized(item.card_type)
-        || ['level', 'rank', 'link_val'].some(key => normalized(current(key)) !== normalized(values[key]));
+    line.className = `recognition-evidence__line ${className}`;
+    line.textContent = text;
+    panel.appendChild(line);
+    return line;
+  };
+
+  // 照合済み（1行にまとめる）
+  const okItems = [];
+  if (dateState === 'ok') okItems.push('発売日（公式商品ページと一致）');
+  if (recState === 'ok') okItems.push('レベル・ランク・リンク値（画像から再確認）');
+  if (okItems.length) {
+    const line = document.createElement('p');
+    line.className = 'recognition-evidence__line recognition-evidence__line--ok';
+    const mark = document.createElement('span');
+    mark.className = 'recognition-evidence__mark';
+    mark.textContent = '✓';
+    line.appendChild(mark);
+    line.appendChild(document.createTextNode(` 照合済み：${okItems.join('・')}`));
+    if (dateState === 'ok') {
+      const link = _officialDateLink(date);
+      if (link) {
+        line.appendChild(document.createTextNode(' '));
+        line.appendChild(link);
+      }
     }
-    line.textContent = `${label}：${state} ${snapshot}。${reason}${evidence ? `（${evidence}）` : ''}${changed ? ' 手動変更あり・現在値は未照合' : ''}`;
     panel.appendChild(line);
   }
-  if (date && typeof date.source_url === 'string') {
-    try {
-      const url = new URL(date.source_url);
-      if (url.protocol === 'https:' && url.hostname === 'www.yugioh-card.com'
-          && !url.username && !url.password && !url.port
-          && url.pathname.startsWith('/japan/products/')) {
-        const link = document.createElement('a');
-        link.href = url.href;
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        link.textContent = '公式商品情報で発売日を確認';
-        panel.appendChild(link);
-      }
-    } catch (_) { /* 不正な参照URLはリンクとして表示しない。 */ }
+
+  // 手動変更
+  if (dateState === 'manual') {
+    addLine('recognition-evidence__line--manual',
+      '発売日・収録商品は手動で変更されています（抽出時の照合結果は現在の値には当てはまりません）');
+  }
+  if (recState === 'manual') {
+    addLine('recognition-evidence__line--manual',
+      'カード種別・レベル等は手動で変更されています（抽出時の照合結果は現在の値には当てはまりません）');
+  }
+
+  // 要確認
+  if (dateState === 'review') {
+    let text;
+    if (date.status === 'conflict') {
+      text = '⚠ 公式情報の中で発売日が食い違っています';
+    } else {
+      text = '⚠ 発売日を公式サイトで確認できませんでした';
+      const hint = _dateReasonHint(date.reason);
+      if (hint) text += `：${hint}`;
+    }
+    if (typeof date.candidate_date === 'string' && date.candidate_date
+        && normalized(current('release_date')) === '') {
+      text += `（投稿内の日付：${date.candidate_date}）`;
+    }
+    const line = addLine('recognition-evidence__line--review', text);
+    const link = _officialDateLink(date);
+    if (link) {
+      line.appendChild(document.createTextNode(' '));
+      line.appendChild(link);
+    }
+  }
+  if (recState === 'review') {
+    addLine('recognition-evidence__line--review', isMonster
+      ? '⚠ レベル・ランク・リンク値を画像から確定できませんでした。画像で確認してください'
+      : '⚠ カード種別を画像から確定できませんでした。画像で確認してください');
   }
   panel.hidden = panel.childElementCount === 0;
 }

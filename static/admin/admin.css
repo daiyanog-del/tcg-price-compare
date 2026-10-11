@@ -1017,3 +1017,33 @@ a:hover {
   gap: 10px;
   align-self: flex-end;
 }
+
+/* 認識根拠（補足欄。目立たせず、要確認のときだけ注意色） */
+.recognition-evidence {
+  font-size: 0.8rem;
+  font-weight: normal;
+  background-color: var(--bg-surface);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  margin-bottom: 12px;
+  color: color-mix(in srgb, var(--main-color) 70%, var(--border) 30%);
+}
+
+.recognition-evidence__line {
+  margin: 2px 0;
+  font-weight: normal;
+  font-style: normal;
+}
+
+.recognition-evidence__mark {
+  color: var(--green);
+}
+
+.recognition-evidence__line--review {
+  color: var(--gold);
+}
+
+.recognition-evidence__link {
+  font-size: 0.72rem;
+  margin-left: 4px;
+}
