@@ -82,12 +82,12 @@ const lastSource = () => sources[sources.length - 1];
   await tick(); await tick();
   assert(!hidden(), '店舗検索中でも枠が出る');
   assert.equal(get('mercariRef').open, false, '検索中は閉じた見出しだけで出る');
-  assert(!body().includes('class="scard') && body().includes('メルカリで見る') && !body().includes('確認中'), 'D空: タイルなし・リンクのみ: ' + body());
+  assert(!body().includes('class="scard') && !body().includes('確認中'), 'D空: タイルなし: ' + body());
 
   // 3) shop_done で店舗結果が溜まるたびに描き直す（再取得なし・開いたまま）
   send(sources[0], { type: 'shop_done', shop: 'A', status: 'ok', count: 1, results: [row('ウルトラ')] });
   assert.equal(mercariCalls().length, 1, '再取得しない');
-  assert(body().split('class="scard').length - 1 === 1 && body().includes('>ウルトラ<') && !body().includes('>ノーマル<') && !body().includes('確認中'), body());
+  assert(body().split('class="scard fin"').length - 1 === 1 && body().includes('ウルトラ・1枚') && !body().includes('ノーマル') && !body().includes('確認中'), body());
   assert.equal(get('mercariRef').open, false, '検索中は閉じたまま');
   send(sources[0], { type: 'shop_done', shop: 'B', status: 'ok', count: 0, results: [] });
   assert(!body().includes('>ノーマル<'));
@@ -96,7 +96,7 @@ const lastSource = () => sources[sources.length - 1];
   run('rarityFilter="ウルトラ"');
   send(sources[0], { type: 'done', total: 1, results: [row('ウルトラ')] });
   assert.equal(mercariCalls().length, 1, 'done で同名なら取り直さない');
-  assert(body().split('class="scard').length - 1 === 1 && !body().includes('>ノーマル<') && !body().includes('表示していません'), body());
+  assert(body().split('class="scard fin"').length - 1 === 1 && !body().includes('>ノーマル<') && !body().includes('表示していません'), body());
   assert(!hidden() && get('mercariRef').open === true, 'done で確定した時点で開く');
 
   // 5) done で total=0 → 枠を消す
@@ -193,8 +193,8 @@ const lastSource = () => sources[sources.length - 1];
     assert.equal(run('_mercariPending'), false);
   }
 
-  // 10) 「メルカリで見る」リンクのクリック計測（イベント委譲・affiliate 付き）。パネル本文以外のクリックは数えない
-  vm.runInContext(block('// 「メルカリで見る」リンクのクリック計測', '// U-1: 販売テーブル側'), sandbox);
+  // 10) メルカリ欄の価格リンクのクリック計測（イベント委譲・affiliate 付き）。パネル本文以外のクリックは数えない
+  vm.runInContext(block('// メルカリ欄の価格リンク（タイル内の', '// U-1: 販売テーブル側'), sandbox);
   const onClick = get('mercariRefBody').listeners.click;
   assert(onClick, '本文にクリック委譲が登録されている');
   const linkEl = (rel) => ({ getAttribute: (k) => (k === 'rel' ? rel : null) });

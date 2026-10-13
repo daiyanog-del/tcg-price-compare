@@ -34,33 +34,42 @@
     return {rs:all.filter(r=>st.indexOf(r)>=0),excluded:all.filter(r=>st.indexOf(r)<0)};
   }
 
-  // 最下行: メルカリへのリンク（アフィリエイト時は「PR」の印と rel=sponsored）。リンクが出ないときは出さない
-  function linkNote(d){
+  // 価格の数字をメルカリ検索へのリンクにする（店舗タイルの .scard-link と同じ作り。アフィリエイト時は rel=sponsored）。
+  // リンクが安全でないときは数字だけ出す
+  function priceLink(d,text){
     const link=safeUrl(d.search_url);
-    if(!link) return '';
-    const aff=d.affiliate===true;
-    // 店舗リンクと同じ「PR」の印（AFF_PR_BADGE は index-main.js のグローバル定数。描画は両ファイル読込後に呼ばれる）
-    return `<p class="buy-inline-note mref-tail"><a href="${escAttr(link)}" target="_blank" rel="${aff?'sponsored noopener':'noopener'}">メルカリで見る</a>${aff?AFF_PR_BADGE:''}</p>`;
+    if(!link) return text;
+    return `<a class="scard-link" href="${escAttr(link)}" target="_blank" rel="${d.affiliate===true?'sponsored noopener':'noopener'}">${text}</a>`;
   }
 
-  // レアリティごとに店舗サマリーと同じ .scard タイル1枚。札は店舗表と同じ .rb クラス
-  function tile(r,v){
-    const label=`<span class="rb rb-${escAttr(cssClass(r))}">${esc(r)}</span>`;
+  function tileHtml(label,price,detail){
+    return `<div class="scard fin"><div class="slabel">${esc(label)}</div><div class="sprice">${price}</div><div class="sdetail">${detail}</div></div>`;
+  }
+
+  // レアリティごとに「1枚」タイルと「N枚組」タイル（あるものだけ）。店舗サマリーと同じ .scard
+  function tiles(d,r){
+    const v=d.by_rarity[r];
     const set=v.set||null;
-    let price,d1,d2='';
+    let h='';
     if(Number(v.count)>0){
-      price=yen(v.min);
-      d1=v.median==null?`${Number(v.count)}件`:`中央 ${yen(v.median)}・${Number(v.count)}件`;
-      if(set) d2=`${Number(set.unit_min_qty)}枚組 ${yen(set.unit_min)}/枚`;
-    }else{
-      // 単品が無くセットのみ: 1枚あたりを大きく、組の総額と件数を下に
+      const detail=v.median==null?`${Number(v.count)}件`:`中央 ${yen(v.median)}・${Number(v.count)}件`;
+      h+=tileHtml(r+'・1枚',priceLink(d,yen(v.min)),detail);
+    }
+    if(set){
       const q=Number(set.unit_min_qty);
       const total=set.unit_min_total!=null?Number(set.unit_min_total):Number(set.unit_min)*q;
-      price=`${yen(set.unit_min)}<span class="mref-unit">/枚</span>`;
-      d1=`${q}枚組 ${yen(total)}・${Number(set.count)}件`;
+      h+=tileHtml(`${r}・${q}枚組`,priceLink(d,yen(set.unit_min))+'<span class="mref-unit">/枚</span>',`${q}枚 ${yen(total)}・${Number(set.count)}件`);
     }
-    return `<div class="scard fin"><div class="slabel">${label}</div><div class="sprice">${price}</div>`+
-      `<div class="sdetail">${d1}${d2?'<br>'+d2:''}</div></div>`;
+    return h;
+  }
+
+  // 見出し: 「メルカリ」＋アフィリエイト時だけ店舗リンクと同じ「PR」の印（AFF_PR_BADGE は index-main.js のグローバル定数）
+  let lastAff=null;
+  function setHead(aff){
+    const head=document.getElementById('mercariRefHead');
+    if(!head||lastAff===aff) return;
+    lastAff=aff;
+    head.innerHTML='メルカリ'+(aff?AFF_PR_BADGE:'');
   }
 
   function emptyHtml(msg){
@@ -94,22 +103,23 @@
     if(sel){
       // 選択したレアリティだけ。出品が無ければ1行のみ
       const v=sc.rs.indexOf(sel)>=0?d.by_rarity[sel]:null;
-      h+=v?`<div class="summary">${tile(sel,v)}</div>`:emptyHtml('このレアリティの出品は見つかりませんでした');
+      h+=v?`<div class="summary">${tiles(d,sel)}</div>`:emptyHtml('このレアリティの出品は見つかりませんでした');
     }else if(sc.rs.length>0){
-      h+=`<div class="summary">${sc.rs.map(r=>tile(r,d.by_rarity[r])).join('')}</div>`;
+      h+=`<div class="summary">${sc.rs.map(r=>tiles(d,r)).join('')}</div>`;
     }else{
-      // 店舗検索の途中で全レアリティが確認中のときは「出品なし」と言わず、リンクだけ出す。
+      // 店舗検索の途中で全レアリティが確認中のときは「出品なし」と言わない（何も出さない）。
       // 全件が判定不能のときも同様（取得できたが全件除外は「出品なし」と区別）
       const allUnconfirmed=view.pending&&sc.excluded.length>0;
       if(!(Number(d.unclassified_count)>0)&&!allUnconfirmed) h+=emptyHtml(fetched>0||sc.excluded.length>0?'条件に合う出品なし':'出品なし');
     }
-    h+=linkNote(d);
+    setHead(d.affiliate===true);
     show(h);
   }
 
   function renderError(busy){
     data=null;
     lastHtml='';
+    setHead(false);
     show('<p class="buy-inline-note">'+(busy?'混雑中です。少し待って再表示してください':'メルカリの情報を取得できませんでした')+'</p>');
   }
 
@@ -124,6 +134,7 @@
     data=null;
     lastHtml='';
     autoOpened=false;
+    setHead(false);
     if(el){el.classList.add('hidden');el.open=false;}
     if(body) body.innerHTML='';
   }

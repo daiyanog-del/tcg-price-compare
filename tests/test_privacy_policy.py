@@ -41,8 +41,8 @@ def test_index_mentions_mercari_ambassador():
     html = _client().get("/").get_data(as_text=True)
     assert "メルカリアンバサダー（株式会社メルカリ）" in html
     assert "上記のアフィリエイトASP以外の第三者に提供することはありません" in html
-    # 画面の表記（「メルカリで見る」＋「PR」の印）と一致していること
-    assert "「メルカリで見る」リンク（「PR」と表示しています）" in html
+    # 画面の表記（メルカリ欄の見出しの「PR」の印）と一致していること
+    assert "メルカリ欄のリンク（「PR」と表示しています）" in html
     assert "メルカリで見る（PR）" not in html
 
 

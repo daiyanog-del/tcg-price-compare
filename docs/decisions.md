@@ -1299,3 +1299,12 @@ rarity_pref 基準に統一。`items_map` のキーも rarity_pref で作る。
 - 決定: 「一部のリンクは広告（PR）を含みます」の注記（`.aff-note`・`AFF_NOTE_TEXT`・`sumAffNote`・メルカリ側の注記）を全廃。各リンク横の「PR」の印（`.aff-pr` / `AFF_PR_BADGE`）と rel=sponsored（直リンクは nofollow）だけを残す。
 - 理由: 販売・買取・メルカリの3か所に同じ注記が並び多すぎるとユーザー指摘。A8.net は「PR等」の表記を求めており、各リンク横の印で要件を満たす見込み。
 - 代替案: 販売サマリー下の1か所に集約する案はユーザーが不採用。
+
+## 2026-10-13: メルカリパネルをコンパクト化（見出しにPR印・価格をリンク化・1枚/N枚組を別タイル）（ユーザー承認済みの見本どおり）
+- 決定: 見出しを「メルカリ」＋アフィリエイト時だけ `AFF_PR_BADGE`（見出しの直後に1つ）に変更し「（個人出品）」を削除。「メルカリで見る」の行（`.mref-tail`）を廃止し、価格の数字（`.sprice` 内）を店舗タイルと同じ `<a class="scard-link">` にした（rel はアフィリエイト時 `sponsored noopener`、それ以外 `noopener`。色は通常文字色）。GA `mercari_link_click` は既存の本文クリック委譲（`a[href]` の rel 判定）がそのままタイル内リンクで発火する。
+- タイル: 各レアリティを「{レアリティ}・1枚」（単品最安・中央値・件数）と「{レアリティ}・N枚組」（1枚あたり最安＋小さく「/枚」・「N枚 ¥総額・N件」）の別タイルに分割。ラベルはレアリティ札ではなくプレーンテキスト。「すべて」は既存のレアリティ順に各レアリティの2枚を隣り合わせで並べる。
+- グリッド: `#mode-search #mercariRef .summary` を `repeat(auto-fill,minmax(180px,1fr))`・`margin-bottom:0`（price-layout.css の `#mode-search .summary{margin-bottom:20px}` に負けていた）。スマホ幅（640px以下）は同じ詳細度で2列にし、index.html の `#mercariRef .summary{grid-template-columns:1fr}` は外した。
+- 実測（Playwright、本番 /api/mercari の実データ・灰流うらら/調和ノ天救竜）: 1280px・特定レアリティ選択時の枠の高さ 228px→172px。
+- 見出しの印はデータ取得後に `#mercariRefHead` を書き換えて出す（取得前・失敗時・カード切替時は印なし）。
+- プライバシーポリシー: 「メルカリで見る」リンクの記述が実態と食い違うため「カード詳細のメルカリ欄のリンク（『PR』と表示しています）」に修正（tests/test_privacy_policy.py も追従）。
+- 未決: 取得できたが全件がレアリティ判定不能（by_rarity が空で unclassified_count>0）のとき、リンク行の廃止により本文が空になる（見出しだけの開いた枠）。文言を出すかは未決。
