@@ -897,7 +897,7 @@ document.getElementById('mercariRef')?.addEventListener('toggle',function(){
   if(this.dataset.autoOpen){ delete this.dataset.autoOpen; return; } // mercari-ref.js が自動で開いた分は利用者の操作ではないので計測しない
   _ga('mercari_inline_open',{trigger:'inline'});
 });
-// 「メルカリで見る」リンクのクリック計測（本文は動的描画なのでイベント委譲。インラインonclickはCSPで使えない）
+// メルカリ欄の価格リンク（タイル内の .scard-link）のクリック計測（本文は動的描画なのでイベント委譲。インラインonclickはCSPで使えない）
 document.getElementById('mercariRefBody')?.addEventListener('click',function(e){
   const a=e.target&&e.target.closest?e.target.closest('a[href]'):null;
   if(!a||!this.contains(a)) return;
