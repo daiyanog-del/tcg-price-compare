@@ -9,7 +9,7 @@ reconcile_unreleased.py -- 未発売カード発売済み自動照合ジョブ
   (a) ファジーキー完全一致 + 候補1件 -> konami_id 設定 + status='linked'
   (b) ファジーキー完全一致 + 候補複数 -> status='needs_review'（管理画面で要確認）
   (c) 一致なし・発売日が未来/NULL        -> スキップ（まだ未発売）
-  (d) 一致なし・発売日が過去              -> 画像AIの1字誤読を疑い、ファジーキーが
+  (d) 一致なし・発売日が7日以上前            -> 画像AIの1字誤読を疑い、ファジーキーが
                                             ちょうど1文字だけ違う正式名を探す
         見つかる   -> reason=near_match で needs_review（自動 linked はしない）
         見つからず -> reason=release_passed_no_match で needs_review
@@ -164,12 +164,18 @@ def _find_near_candidates(
     return found[:MAX_NEAR_CANDIDATES]
 
 
+# 発売日からこの日数が経つまでは近似判定しない（ygores への登録遅れで、発売直後のカードが
+# needs_review に回って公開から消える／似た名前の別カードを誤検知するのを防ぐ猶予期間）
+RELEASE_GRACE_DAYS = 7  # TODO: calibrate from data
+
+
 def _is_release_passed(release_date) -> bool:
-    """release_date が今日(JST)より前なら True。NULL・不正値は False。"""
+    """release_date が今日(JST)より RELEASE_GRACE_DAYS 日以上前なら True。NULL・不正値は False。"""
     if not release_date:
         return False
     try:
-        return date.fromisoformat(str(release_date)[:10]) < datetime.now(JST).date()
+        limit = datetime.now(JST).date() - timedelta(days=RELEASE_GRACE_DAYS)
+        return date.fromisoformat(str(release_date)[:10]) <= limit
     except (TypeError, ValueError):
         return False
 

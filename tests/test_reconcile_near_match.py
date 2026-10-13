@@ -23,6 +23,8 @@ import reconcile_unreleased as target
 
 FUTURE = (date.today() + timedelta(days=30)).isoformat()
 PAST = (date.today() - timedelta(days=30)).isoformat()
+DAYS_6_AGO = (date.today() - timedelta(days=6)).isoformat()
+DAYS_7_AGO = (date.today() - timedelta(days=7)).isoformat()
 
 
 # ──────────────────────────────────────────────
@@ -285,3 +287,19 @@ def test_link_requires_admin_key(monkeypatch):
     _install(monkeypatch, [_row(1, "needs_review")])
     resp = _client().post("/api/admin/unreleased/1/link", json={"konami_id": 100})
     assert resp.status_code == 401
+
+
+def test_grace_period_boundary_6_days_ago_is_skipped(monkeypatch):
+    cards = [_card(1, "屠欺龍", DAYS_6_AGO)]
+    summary, rows = _run(monkeypatch, cards, {"蜃欺龍": [100]})
+    assert rows[0]["status"] == "approved"
+    assert summary["skipped"] == 1
+    assert summary["needs_review"] == 0
+
+
+def test_grace_period_boundary_7_days_ago_is_judged(monkeypatch):
+    cards = [_card(1, "屠欺龍", DAYS_7_AGO)]
+    summary, rows = _run(monkeypatch, cards, {"蜃欺龍": [100]})
+    assert rows[0]["status"] == "needs_review"
+    assert rows[0]["review_candidates"]["reason"] == "near_match"
+    assert summary["near_match"] == 1
