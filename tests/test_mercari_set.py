@@ -2,7 +2,7 @@
 tests/test_mercari_set.py — 同じカードの2〜3枚組（セット）の1枚あたり価格
 
 セットは単品の統計（count/min/median）に混ぜず、レアリティ別に
-set={unit_min, unit_min_qty, count} として別に持つ。実通信はしない。
+set={unit_min, unit_min_qty, unit_min_total, count} として別に持つ。実通信はしない。
 題名のうち「（実題名）」と付けたものは tests/fixtures/mercari の実データにある題名。
 """
 import json
@@ -163,7 +163,7 @@ def _agg(items, card="灰流うらら"):
 def test_1枚あたり価格は四捨五入():
     a = _agg([_item("灰流うらら ウルトラ 3枚セット", 1000), _item("灰流うらら ウルトラ 2枚", 1001)])
     s = a["by_rarity"]["ウルトラ"]["set"]
-    assert s == {"unit_min": 333, "unit_min_qty": 3, "count": 2}    # 1000/3=333.3 と 1001/2=500.5→501
+    assert s == {"unit_min": 333, "unit_min_qty": 3, "unit_min_total": 1000, "count": 2}    # 1000/3=333.3 と 1001/2=500.5→501
 
 
 def test_半端の四捨五入は切り上げ():
@@ -173,7 +173,7 @@ def test_半端の四捨五入は切り上げ():
 
 def test_1枚あたりが同額なら3枚組を優先():
     a = _agg([_item("灰流うらら ウルトラ 2枚", 600), _item("灰流うらら ウルトラ 3枚", 900)])
-    assert a["by_rarity"]["ウルトラ"]["set"] == {"unit_min": 300, "unit_min_qty": 3, "count": 2}
+    assert a["by_rarity"]["ウルトラ"]["set"] == {"unit_min": 300, "unit_min_qty": 3, "unit_min_total": 900, "count": 2}
     a = _agg([_item("灰流うらら ウルトラ 3枚", 900), _item("灰流うらら ウルトラ 2枚", 600)])   # 並びを替えても同じ
     assert a["by_rarity"]["ウルトラ"]["set"]["unit_min_qty"] == 3
 
@@ -190,7 +190,7 @@ def test_単品の統計にセットを混ぜない():
     row = _agg(items)["by_rarity"]["ウルトラ"]
     assert row["count"] == 3 and row["min"] == 1000 and row["median"] == 1200
     assert row["min_is_floor"] is False
-    assert row["set"] == {"unit_min": 100, "unit_min_qty": 3, "count": 1}
+    assert row["set"] == {"unit_min": 100, "unit_min_qty": 3, "unit_min_total": 300, "count": 1}
 
 
 def test_セットしか無いレアリティも行として出す():

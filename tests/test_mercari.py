@@ -73,6 +73,42 @@ def test_除外規則(title, reason):
     assert _reason("灰流うらら", title) == reason
 
 
+@pytest.mark.parametrize("title", [
+    "遊戯王　泰亜版　灰流うらら　ウルトラレア",
+    "遊戯王 灰流うらら 亜版 ウルトラ",
+    "遊戯王 灰流うらら 亜シク",
+    "遊戯王 灰流うらら 英版",
+    "遊戯王 灰流うらら 英字 ウルトラ",
+    "遊戯王 灰流うらら ENG ウルトラ",
+    "遊戯王 灰流うらら English ver ウルトラ",
+    "遊戯王 灰流うらら 中国語 ウルトラ",
+    "遊戯王 灰流うらら 繁体字 ウルトラ",
+    "遊戯王 灰流うらら 台湾 ウルトラ",
+    "遊戯王 灰流うらら 香港版 ウルトラ",
+    "遊戯王 灰流うらら TCG版 ウルトラ",
+    "灰流うらら RC04-EN009 ウルトラ",
+    "灰流うらら RC04-KR009 ウルトラ",
+    "灰流うらら BLZD-AE024 ウルトラ",
+    "灰流うらら RA01-SC009 ウルトラ",
+])
+def test_他言語版は除外(title):
+    assert _reason("灰流うらら", title) == "overseas"
+
+
+@pytest.mark.parametrize("title", [
+    "遊戯王 灰流うらら 日版 ウルトラ",
+    "遊戯王 灰流うらら 日本版 ウルトラ",
+    "灰流うらら RC04-JP009 ウルトラ",
+    "遊戯王 灰流うらら プリズマ プリシク",
+    "遊戯王 灰流うらら ENTER ウルトラ",
+    "遊戯王 灰流うらら ENGAGE ウルトラ",
+    "遊戯王 灰流うらら 亜種 ウルトラ",
+    "灰流うらら ABC-DEF1 ウルトラ",
+])
+def test_他言語版の除外語は誤爆しない(title):
+    assert _reason("灰流うらら", title) is None
+
+
 def test_オークションと価格不正は除外():
     assert _reason("灰流うらら", "灰流うらら", auction={"id": "x"}) == "auction"
     assert _reason("灰流うらら", "灰流うらら", price="abc") == "bad_price"

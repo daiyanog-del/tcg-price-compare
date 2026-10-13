@@ -501,7 +501,7 @@ function doSearch(opts){
       _currentCardName=document.getElementById('q').value.trim();
       SearchStatus.show(d);
       renderAll(d);
-      if(d.total>0&&window.MercariRef) MercariRef.load(_currentCardName); // メルカリ参考相場は店舗表とは別fetchで非同期表示
+      if(d.total>0&&window.MercariRef){ _syncMercariView(); MercariRef.load(_currentCardName); } // メルカリ参考相場は店舗表とは別fetchで非同期表示
       btn.disabled=false;btn.textContent='検索';
       _setSearchLayout(d.total>0);
       setTimeout(()=>{prog.style.display='none';},1200);
@@ -1255,6 +1255,15 @@ function setRarityFilter(r){
   renderSummary();
   renderTable();
   _renderBuyInline(); // C-2: 買取セクションも同じレアリティに絞り込んで再描画する（未取得なら何もしない・再取得はしない）
+  _syncMercariView(); // メルカリ参考相場も同じレアリティで描き直す（再取得はしない）
+}
+
+// メルカリ参考相場へ「選択中のレアリティ」と「店舗結果（売り切れ含む）に存在するレアリティ」を渡す。
+// 店舗に無いレアリティ（他言語版・誤表記の混入）はメルカリ側で表示対象から外す。店舗結果が無いときは絞らない
+function _syncMercariView(){
+  if(!window.MercariRef) return;
+  const stores=[...new Set(D.map(r=>r.rarity).filter(r=>r&&r!=='(不明)'))];
+  MercariRef.setView({rarity:rarityFilter,stores:stores});
 }
 
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}

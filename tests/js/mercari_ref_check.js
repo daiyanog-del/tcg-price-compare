@@ -1,5 +1,5 @@
-// メルカリ参考相場の実コード(static/js/mercari-ref.js)を実行し、表示内容・XSS対策・
-// 古い応答の破棄を検証する。esc/escAttr/cssClass/safeUrl は index-main.js の実物を使う。
+// メルカリ参考相場の実コード(static/js/mercari-ref.js)を実行し、表示内容（レアリティ選択・すべて・
+// 店舗に無いレアリティの除外）・XSS対策・古い応答の破棄を検証する。esc/escAttr/cssClass/safeUrl は index-main.js の実物を使う。
 'use strict';
 const fs = require('fs'), path = require('path'), vm = require('vm'), assert = require('assert/strict');
 const root = path.join(__dirname, '../..');
@@ -16,15 +16,16 @@ class FakeTextDiv {
 }
 const classes = new Set(['hidden']);
 const box = {
-  innerHTML: '',
+  open: false,
   classList: { add: (n) => classes.add(n), remove: (n) => classes.delete(n), contains: (n) => classes.has(n) },
 };
+const body = { innerHTML: '' };
 const pending = [];
 const sandbox = {
   console, URL, Number, Promise, encodeURIComponent, Object,
   location: { origin: 'https://example.test' },
   window: { RARITY_CONFIG: { 'シークレット': { slug: 'secret', order: 40 }, 'ウルトラ': { slug: 'ultra', order: 110 }, 'ノーマル': { slug: 'normal', order: 160 } } },
-  document: { getElementById: (id) => (id === 'mercariRef' ? box : null), createElement: () => new FakeTextDiv() },
+  document: { getElementById: (id) => (id === 'mercariRef' ? box : id === 'mercariRefBody' ? body : null), createElement: () => new FakeTextDiv() },
   fetch(url) { return new Promise((resolve, reject) => pending.push({ url, resolve, reject })); },
 };
 vm.createContext(sandbox);
@@ -34,138 +35,192 @@ const api = sandbox.window.MercariRef;
 const reply = (req, body, status = 200) => req.resolve({ ok: status >= 200 && status < 300, status, json: async () => body });
 const tick = () => new Promise((r) => setImmediate(r));
 
+const U = 'https://jp.mercari.com/search?keyword=x';
+const resp = (by, extra = {}) => Object.assign({ ok: true, unclassified_count: 0, fetched_count: 120, num_found: 1316, search_url: U, by_rarity: by }, extra);
+const BY = {
+  'シークレット': { count: 3, min: 640, median: 700, min_is_floor: false, set: null },
+  'ウルトラ': { count: 5, min: 1000, median: 1500, min_is_floor: false, set: { unit_min: 833, unit_min_qty: 3, unit_min_total: 2500, count: 4 } },
+  'ノーマル': { count: 1, min: 300, median: null, min_is_floor: true, set: { unit_min: 300, unit_min_qty: 2, unit_min_total: 600, count: 2 } },
+  'レリーフ': { count: 0, min: null, median: null, min_is_floor: false, set: { unit_min: 400, unit_min_qty: 3, unit_min_total: 1200, count: 1 } },
+};
+const body_ = () => body.innerHTML;
+async function loadWith(d, view, status = 200) {
+  api.load('x');
+  api.setView(view);
+  reply(pending.shift(), d, status);
+  await tick(); await tick();
+}
+
 (async () => {
-  // 1) 成功: レアリティ順・最安/中央/件数・判定できず・リンク
+  // 0) 取得中は枠を出さない・閉じた状態（店舗表の描画を遅らせない・前カードの表示を残さない）
+  box.open = true;
   api.load('灰流うらら');
   assert.equal(pending.length, 1);
   assert.equal(pending[0].url, '/api/mercari?name=' + encodeURIComponent('灰流うらら'));
-  reply(pending.shift(), {
-    ok: true, unclassified_count: 2, total_considered: 9, fetched_count: 120, num_found: 1316,
-    search_url: 'https://jp.mercari.com/search?keyword=x&status=on_sale&category_id=1152',
-    by_rarity: {
-      'ノーマル': { count: 1, min: 300, median: null, min_is_floor: true, set: { unit_min: 300, unit_min_qty: 3, count: 2 } },
-      'ウルトラ': { count: 5, min: 1000, median: 1500, min_is_floor: false, set: { unit_min: 100, unit_min_qty: 3, count: 4 } },
-      'シークレット': { count: 3, min: 640, median: 700, min_is_floor: false },
-    },
-  });
+  assert(classes.has('hidden') && body_() === '' && box.open === false);
+  api.setView({ rarity: 'ウルトラ', stores: [] });
+  reply(pending.shift(), resp(BY));
   await tick(); await tick();
   assert(!classes.has('hidden'));
-  const h = box.innerHTML;
-  assert(h.indexOf('シークレット') < h.indexOf('ウルトラ') && h.indexOf('ウルトラ') < h.indexOf('ノーマル'), 'レアリティ順');
-  // 見出しは1回だけ。各行は 札 | 最安 | 中央 | 件数 の4セル
-  
-  assert.equal(h.split('>最安<').length - 1, 1);
-  assert(h.includes('<span class="mref-min">¥640</span><span class="mref-med">¥700</span><span class="mref-n">3</span>'));
-  assert(h.includes('<span class="mref-min">¥300*</span><span class="mref-med">—</span><span class="mref-n">1</span>'), '300円は¥300*・中央なしは—');
-  assert(h.includes('* 300円は最低出品価格・関連度上位120件から集計'));
-  assert(h.includes('レアリティ判定できず 2件'));
+  assert.equal(box.open, false, '初期状態は閉じる');
+
+  // 1) レアリティ選択: タイル2枚
+  let h = body_();
+  assert(h.includes('<p class="buy-inline-note">メルカリで出品中の価格です（関連度上位120件から集計）</p>'));
+  assert(h.includes('<div class="summary">') && h.split('class="scard').length - 1 === 2);
+  assert(h.includes('1枚で買う') && h.includes('3枚組で買う'));
+  assert(h.includes('<div class="sprice">¥1,000</div>'), '単品最安');
+  assert(h.includes('ウルトラ・出品5件の最安<br>中央値 ¥1,500'));
+  assert(h.includes('<div class="sprice">¥833<span class="mref-unit">/枚</span></div>'), '1枚あたり＋/枚');
+  assert(h.includes('ウルトラ・3枚組 ¥2,500<br>同じカードだけの組 4件'), '総額は出品価格そのもの');
+  // 価格は金色にしない（HTMLに金色指定を持ち込まない・CSSは通常文字色に上書き）
+  assert(!/gold|#e8c848|style="color/i.test(h));
+  const tpl = fs.readFileSync(path.join(root, 'templates/index.html'), 'utf8');
+  assert(tpl.includes('#mercariRef .scard .sprice{color:var(--text)}'), 'メルカリのタイル価格は通常文字色');
+  // 他のレアリティ: 1枚あたりの安い順（セットのみのレアリティも含む）。リンクも同じ行
+  assert(h.includes('他のレアリティ: ノーマル ¥300〜 / レリーフ ¥400〜 / シークレット ¥640〜'), h);
+  assert(!h.includes('ほか'), '3つ以内なら「ほかN種」なし');
   assert(h.includes('rel="noopener"') && h.includes('target="_blank"') && h.includes('メルカリで見る'));
-  assert(!h.includes('sponsored') && !h.includes('（PR）'), 'affiliateなしはPR表記・sponsoredなし');
+  assert(!h.includes('sponsored') && !h.includes('（PR）'), 'affiliateなしはPR表記なし');
+  assert(!h.includes('店舗に無い'));
+
+  // 1b) 再取得せず選択を切り替える（レアリティ変更）
+  api.setView({ rarity: 'ノーマル', stores: [] });
+  assert.equal(pending.length, 0, '切替で再取得しない');
+  h = body_();
+  assert(h.includes('<div class="sprice">¥300<span class="mref-unit">最低出品価格</span></div>'), '300円は最低出品価格');
+  assert(h.includes('中央値 —（3件未満）'));
+  assert(h.includes('2枚組で買う') && h.includes('ノーマル・2枚組 ¥600<br>同じカードだけの組 2件'), '最安がN=2の組なら見出しも2枚組');
+  api.setView({ rarity: 'レリーフ', stores: [] });
+  h = body_();
+  assert(h.includes('1枚で買う</div><div class="sprice mref-none">出品なし</div>'), '単品なしは出品なし');
+  assert(h.includes('<div class="sprice">¥400<span class="mref-unit">/枚</span></div>'));
+  api.setView({ rarity: 'シークレット', stores: [] });
+  h = body_();
+  assert(h.includes('3枚組で買う</div><div class="sprice mref-none">出品なし</div>'), 'セットなしは出品なし');
+  assert(h.includes('<div class="sprice">¥640</div>'));
+  // 開いた状態は描き直しで閉じない
+  box.open = true;
+  api.setView({ rarity: 'ウルトラ', stores: [] });
+  assert.equal(box.open, true);
+
+  // 2) 選択レアリティの出品が無い
+  api.setView({ rarity: 'スーパー', stores: [] });
+  h = body_();
+  assert(h.includes('このレアリティの出品は見つかりませんでした') && !h.includes('class="scard'));
+  assert(h.includes('他のレアリティ: ノーマル ¥300〜 / レリーフ ¥400〜 / シークレット ¥640〜 ほか1種'), h);
+  assert(h.includes('メルカリで見る'));
+
+  // 3) すべて表示: 1行ずつ（札・単品最安・セット1枚あたり）。中央値・件数列なし
+  api.setView({ rarity: '', stores: [] });
+  h = body_();
+  assert(h.indexOf('シークレット') < h.indexOf('ウルトラ') && h.indexOf('ウルトラ') < h.indexOf('ノーマル'), 'レアリティ順');
+  assert(h.includes('>単品最安<') && h.includes('>セット(1枚)<') && !h.includes('中央') && !h.includes('件数'));
+  assert.equal(h.split('class="mref-h"').length - 1, 3);
+  assert(h.includes('<span class="mref-min">¥640</span><span class="mref-set">—</span>'));
+  assert(h.includes('<span class="mref-min">¥1,000</span><span class="mref-set">¥833<small>3枚組</small></span>'));
+  assert(h.includes('<span class="mref-min">¥300*</span><span class="mref-set">¥300<small>2枚組</small></span>'), '300円は*');
+  assert(h.includes('<span class="mref-min">—</span><span class="mref-set">¥400<small>3枚組</small></span>'), 'セットのみ');
+  assert(h.includes('* 300円は最低出品価格'));
   assert(h.includes('rb-secret'));
-  // 5列目「セット(1枚)」: ¥単価の下に「N枚組」。無ければ「—」。セットの単価には「*」を付けない
-  assert(h.includes('>セット(1枚)<'));
-  assert(h.includes('<span class="mref-set">¥100<small>3枚組</small></span>'));
-  assert(h.includes('<span class="mref-set">¥300<small>3枚組</small></span>') && !h.includes('¥300<small>3枚組</small></span>*'));
-  assert(h.includes('<span class="mref-n">3</span><span class="mref-set">—</span>'), 'セット無しは—');
-  assert(h.includes('セット＝同じカード2〜3枚組の1枚あたり価格'));
-  assert.equal(h.split('class="mref-h"').length - 1, 5, '見出しセルは5つ');
+  assert(h.indexOf('メルカリで出品中の価格です') < h.indexOf('mref-grid') && h.indexOf('mref-grid') < h.indexOf('メルカリで見る'), '注記・表・リンクの順');
+  assert(!h.includes('他のレアリティ'));
 
-  // セットしか無いレアリティ: 単品列は—、セット列に単価
-  api.load('x');
-  reply(pending.shift(), { ok: true, unclassified_count: 0, fetched_count: 5, num_found: 5, search_url: 'https://jp.mercari.com/search?keyword=x',
-    by_rarity: { 'スーパー': { count: 0, min: null, median: null, min_is_floor: false, set: { unit_min: 250, unit_min_qty: 2, count: 1 } } } });
-  await tick(); await tick();
-  assert(box.innerHTML.includes('<span class="mref-min">—</span><span class="mref-med">—</span><span class="mref-n">—</span><span class="mref-set">¥250<small>2枚組</small></span>'), box.innerHTML);
-  assert(!box.innerHTML.includes('最低出品価格') && !box.innerHTML.includes('¥null'));
+  // 4) 店舗に無いレアリティは表示対象から外し、件数を注記する（選択表示・すべて表示の両方）
+  api.setView({ rarity: 'ウルトラ', stores: ['ウルトラ', 'シークレット'] });
+  h = body_();
+  assert(h.includes('他のレアリティ: シークレット ¥640〜') && !h.includes('ノーマル') && !h.includes('レリーフ'));
+  assert(h.includes('店舗に無いレアリティ 2件'), h);
+  api.setView({ rarity: '', stores: ['ウルトラ', 'シークレット'] });
+  h = body_();
+  assert(!h.includes('rb-normal') && !h.includes('>ノーマル<') && h.includes('>ウルトラ<') && h.includes('>シークレット<'));
+  assert(h.includes('店舗に無いレアリティ 2件'));
+  assert(!h.includes('¥300'), '除外したレアリティの価格が残っていない');
+  // 店舗に無いレアリティを選んでいる場合（通常は起きない）も出品は出さない
+  api.setView({ rarity: 'ノーマル', stores: ['ウルトラ'] });
+  assert(body_().includes('このレアリティの出品は見つかりませんでした') && !body_().includes('¥600'));
+  // 店舗結果が空のときは絞らない
+  api.setView({ rarity: '', stores: [] });
+  assert(body_().includes('>ノーマル<') && !body_().includes('店舗に無い'));
+  // 全レアリティが店舗に無い
+  api.setView({ rarity: '', stores: ['エクストラ'] });
+  assert(body_().includes('条件に合う出品なし') && body_().includes('店舗に無いレアリティ 4件'));
 
-  // 2) XSS: レアリティ名・URLに脱出ペイロード
-  api.load('x');
-  reply(pending.shift(), {
-    ok: true, unclassified_count: 0,
-    search_url: 'javascript:alert(1)',
-    by_rarity: { '"><img src=x onerror=alert(1)>': { count: 1, min: 500, median: null, min_is_floor: false } },
-  });
-  await tick(); await tick();
-  assert(!box.innerHTML.includes('<img'), 'レアリティ名がエスケープされていない: ' + box.innerHTML);
-  assert(!box.innerHTML.includes('javascript:'), '危険なURLが出力された');
-  assert(!box.innerHTML.includes('メルカリで見る'), '安全でないURLのときはリンクを出さない');
-  api.load('x');
-  reply(pending.shift(), { ok: true, unclassified_count: 0, search_url: 'https://jp.mercari.com/search?keyword="onmouseover="x', by_rarity: {} });
-  await tick(); await tick();
-  assert(!/href="[^"]*"[^>]*onmouseover=/.test(box.innerHTML) && !box.innerHTML.includes('"onmouseover="'), 'URLが属性から脱出');
+  // 5) PR表記・sponsored の分岐
+  await loadWith(resp(BY, { affiliate: true, search_url: 'https://jp.mercari.com/search?keyword=x&afid=8033172568' }), { rarity: 'ウルトラ', stores: [] });
+  h = body_();
+  assert(h.includes('rel="sponsored noopener"') && h.includes('メルカリで見る（PR）'));
+  assert(h.includes('afid=8033172568') && h.includes('target="_blank"'));
+  await loadWith(resp(BY, { affiliate: 'true' }), { rarity: 'ウルトラ', stores: [] });
+  assert(!body_().includes('sponsored') && body_().includes('rel="noopener"'));
 
-  // 3) 出品なし
-  api.load('x');
-  reply(pending.shift(), { ok: true, by_rarity: {}, unclassified_count: 0, search_url: 'https://jp.mercari.com/search?keyword=x' });
-  await tick(); await tick();
-  assert(box.innerHTML.includes('出品なし') && !box.innerHTML.includes('条件に合う'));
-  assert(!box.innerHTML.includes('取得できませんでした'));
-  // 取得はできたが全件が除外された場合は「条件に合う出品なし」
-  api.load('x');
-  reply(pending.shift(), { ok: true, by_rarity: {}, unclassified_count: 0, fetched_count: 120, num_found: 1316, search_url: 'https://jp.mercari.com/search?keyword=x' });
-  await tick(); await tick();
-  assert(box.innerHTML.includes('条件に合う出品なし'));
-  // 全件を取得できているときは「関連度上位」の注記を出さない
-  api.load('x');
-  reply(pending.shift(), { ok: true, by_rarity: { 'ウルトラ': { count: 1, min: 500, median: null, min_is_floor: false } }, unclassified_count: 0, fetched_count: 5, num_found: 5, search_url: 'https://jp.mercari.com/search?keyword=x' });
-  await tick(); await tick();
-  assert(!box.innerHTML.includes('関連度上位') && !box.innerHTML.includes('*'));
+  // 6) 全件取得できているときは「関連度上位」の注記を出さない
+  await loadWith(resp(BY, { fetched_count: 5, num_found: 5 }), { rarity: 'ウルトラ', stores: [] });
+  assert(body_().includes('メルカリで出品中の価格です</p>') && !body_().includes('関連度上位'));
 
-  // 4) 取得失敗(ok:false / HTTPエラー / 通信例外)は0件と区別した文言
-  api.load('x');
-  reply(pending.shift(), { ok: false, error: 'fetch_failed' });
-  await tick(); await tick();
-  assert(box.innerHTML.includes('メルカリの情報を取得できませんでした') && !box.innerHTML.includes('出品なし'));
-  api.load('x');
-  reply(pending.shift(), { ok: false, error: 'rate_limited' }, 429);
-  await tick(); await tick();
-  assert(box.innerHTML.includes('メルカリの情報を取得できませんでした'));
-  api.load('x');
-  reply(pending.shift(), { ok: false, error: 'busy' }, 503);
-  await tick(); await tick();
-  assert(box.innerHTML.includes('混雑中です。少し待って再表示してください') && !box.innerHTML.includes('取得できませんでした'));
+  // 7) XSS: レアリティ名・URLに脱出ペイロード（選択表示・すべて・他のレアリティ行）
+  const evil = '"><img src=x onerror=alert(1)>';
+  const byEvil = { [evil]: { count: 1, min: 500, median: null, min_is_floor: false, set: { unit_min: 100, unit_min_qty: 3, unit_min_total: 300, count: 1 } },
+    'ウルトラ': { count: 1, min: 900, median: null, min_is_floor: false, set: null } };
+  for (const rar of ['', evil, 'ウルトラ']) {
+    await loadWith(resp(byEvil, { search_url: 'javascript:alert(1)' }), { rarity: rar, stores: [] });
+    h = body_();
+    assert(!h.includes('<img'), 'レアリティ名がエスケープされていない: ' + h);
+    assert(!h.includes('javascript:'), '危険なURLが出力された');
+    assert(!h.includes('メルカリで見る'), '安全でないURLのときはリンクを出さない');
+  }
+  await loadWith(resp({}, { search_url: 'https://jp.mercari.com/search?keyword="onmouseover="x' }), { rarity: '', stores: [] });
+  assert(!/href="[^"]*"[^>]*onmouseover=/.test(body_()) && !body_().includes('"onmouseover="'), 'URLが属性から脱出');
+
+  // 8) 出品なし
+  await loadWith(resp({}, { fetched_count: 0, num_found: 0 }), { rarity: '', stores: [] });
+  assert(body_().includes('出品なし') && !body_().includes('条件に合う') && !body_().includes('取得できませんでした'));
+  await loadWith(resp({}), { rarity: '', stores: [] });
+  assert(body_().includes('条件に合う出品なし'));
+
+  // 9) 取得失敗(ok:false / HTTPエラー / 通信例外)は0件と区別した文言。パネルは出す
+  await loadWith({ ok: false, error: 'fetch_failed' }, { rarity: '', stores: [] });
+  assert(!classes.has('hidden') && body_().includes('メルカリの情報を取得できませんでした') && !body_().includes('出品なし'));
+  await loadWith({ ok: false, error: 'rate_limited' }, { rarity: '', stores: [] }, 429);
+  assert(body_().includes('メルカリの情報を取得できませんでした'));
+  await loadWith({ ok: false, error: 'busy' }, { rarity: '', stores: [] }, 503);
+  assert(body_().includes('混雑中です。少し待って再表示してください') && !body_().includes('取得できませんでした'));
   api.load('x');
   pending.shift().reject(new Error('network'));
   await tick(); await tick();
-  assert(box.innerHTML.includes('メルカリの情報を取得できませんでした'));
+  assert(body_().includes('メルカリの情報を取得できませんでした'));
+  // 失敗後のレアリティ切替で古いデータを描き直さない
+  api.setView({ rarity: 'ウルトラ', stores: [] });
+  assert(body_().includes('メルカリの情報を取得できませんでした') && !body_().includes('class="scard'));
 
-  // 5) 未知のカード(404)は枠ごと出さない
-  api.load('x');
-  reply(pending.shift(), { ok: false, error: 'unknown_card' }, 404);
-  await tick(); await tick();
-  assert(classes.has('hidden') && box.innerHTML === '');
+  // 10) 未知のカード(404)は枠ごと出さない
+  await loadWith({ ok: false, error: 'unknown_card' }, { rarity: '', stores: [] }, 404);
+  assert(classes.has('hidden') && body_() === '');
 
-  // 6) 古い応答は捨てる(カード切替・clear後に届いた応答)
+  // 11) 古い応答は捨てる(カード切替・clear後に届いた応答)
+  const one = (p) => resp({ 'ウルトラ': { count: 1, min: p, median: null, min_is_floor: false, set: null } });
+  api.setView({ rarity: 'ウルトラ', stores: [] });
   api.load('A');
   const a = pending.shift();
   api.load('B');
   const b = pending.shift();
-  reply(b, { ok: true, by_rarity: { 'ウルトラ': { count: 1, min: 111, median: null, min_is_floor: false } }, unclassified_count: 0, search_url: 'https://jp.mercari.com/search?keyword=B' });
+  reply(b, one(111));
   await tick(); await tick();
-  reply(a, { ok: true, by_rarity: { 'ウルトラ': { count: 1, min: 999, median: null, min_is_floor: false } }, unclassified_count: 0, search_url: 'https://jp.mercari.com/search?keyword=A' });
+  reply(a, one(999));
   await tick(); await tick();
-  assert(box.innerHTML.includes('¥111') && !box.innerHTML.includes('¥999'), '古いカードの応答で上書きされた');
+  assert(body_().includes('¥111') && !body_().includes('¥999'), '古いカードの応答で上書きされた');
+  // clear: 閉じて初期化。以後の古い応答は描画しない
+  box.open = true;
   api.load('C');
   const c = pending.shift();
   api.clear();
-  reply(c, { ok: true, by_rarity: { 'ウルトラ': { count: 1, min: 222, median: null, min_is_floor: false } }, unclassified_count: 0, search_url: 'https://jp.mercari.com/search?keyword=C' });
+  assert(box.open === false);
+  reply(c, one(222));
   await tick(); await tick();
-  assert(classes.has('hidden') && box.innerHTML === '', 'clear後の応答が描画された');
+  assert(classes.has('hidden') && body_() === '', 'clear後の応答が描画された');
+  // clear後にsetViewしてもデータは無いので描かれない
+  api.setView({ rarity: 'ウルトラ', stores: [] });
+  assert(body_() === '');
 
-  // 6b) affiliate:true はPR表記と rel=sponsored。URLのエスケープ(&)は維持
-  api.load('x');
-  reply(pending.shift(), { ok: true, by_rarity: {}, unclassified_count: 0, affiliate: true, search_url: 'https://jp.mercari.com/search?keyword=x&afid=8033172568' });
-  await tick(); await tick();
-  assert(box.innerHTML.includes('rel="sponsored noopener"') && box.innerHTML.includes('メルカリで見る（PR）'));
-  assert(box.innerHTML.includes('afid=8033172568') && box.innerHTML.includes('target="_blank"'));
-  // affiliate が true 以外(文字列"true"等)はPR扱いにしない
-  api.load('x');
-  reply(pending.shift(), { ok: true, by_rarity: {}, unclassified_count: 0, affiliate: 'true', search_url: 'https://jp.mercari.com/search?keyword=x' });
-  await tick(); await tick();
-  assert(!box.innerHTML.includes('sponsored') && box.innerHTML.includes('rel="noopener"'));
-
-  // 7) 取得中は枠を出さない(店舗表の描画を遅らせない・前カードの表示を残さない)
-  api.load('D');
-  assert(classes.has('hidden') && box.innerHTML === '');
   console.log('mercari_ref_check: OK');
 })().catch((e) => { console.error('FAIL', e); process.exit(1); });
