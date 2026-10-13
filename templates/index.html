@@ -884,7 +884,10 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 
     <section id="newCardsSection" class="new-cards" aria-labelledby="newCardsHeading" hidden>
       <a class="new-cards-back" href="/">← トップへ戻る</a>
-      <h2 id="newCardsHeading">新着の未発売カード</h2>
+      <div class="new-cards-head">
+        <h2 id="newCardsHeading">新着の未発売カード</h2>
+        <a class="new-cards-head-link" href="/new-cards">すべて見る →</a>
+      </div>
       <p class="new-cards-help">発売前のカードも、デッキに追加して一人回しできます。</p>
       <div id="newCardsGrid" class="new-cards-grid"></div>
       <p id="newCardsStatus" class="new-cards-status" role="status"></p>
