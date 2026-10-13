@@ -23,8 +23,8 @@ def test_テンプレートの配線():
     soup = BeautifulSoup(html, 'html.parser')
     box = soup.select('#priceTrend')
     assert len(box) == 1 and 'hidden' in box[0].get('class', [])
-    # 店舗サマリー(#sumCards)の直後・買取(#buyInline)の前
-    assert html.index('id="sumCards"') < html.index('id="priceTrend"') < html.index('id="buyInline"')
+    # 買取(#buyInline)の後ろ・一覧(.controls)の前（2026-10-13 並び変更: 買う→売る→相場）
+    assert html.index('id="sumCards"') < html.index('id="buyInline"') < html.index('id="priceTrend"') < html.index('id="affPixelSlot"')
     srcs = [s.get('src', '') for s in soup.find_all('script')]
     assert any('js/price-trend.js' in s for s in srcs)
     # インラインscriptは追加していない（CSP）

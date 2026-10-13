@@ -31,8 +31,8 @@ def test_テンプレートの配線():
     soup = BeautifulSoup(html, 'html.parser')
     box = soup.select('#mercariRef')
     assert len(box) == 1 and 'hidden' in box[0].get('class', [])
-    # 店舗の表(#sumCards)・買取(#buyInline)より後ろに置く＝店舗価格が先に見える
-    assert html.index('id="sumCards"') < html.index('id="buyInline"') < html.index('id="mercariRef"')
+    # 店舗サマリー(#sumCards)の直後・買取(#buyInline)の前（2026-10-13 並び変更: 買う→売る→相場）
+    assert html.index('id="sumCards"') < html.index('id="mercariRef"') < html.index('id="buyInline"')
     srcs = [s.get('src', '') for s in soup.find_all('script')]
     assert any('js/mercari-ref.js' in s for s in srcs)
     # インラインscriptは追加していない（CSP）
