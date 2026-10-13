@@ -30,8 +30,8 @@ const sandbox = {
 };
 vm.createContext(sandbox);
 vm.runInContext(block('function esc(', 'function rankingLinkClick('), sandbox);
-// 店舗リンクと共通の「PR」の印・注記（index-main.js の実定数）
-vm.runInContext(block('const AFF_PR_BADGE=', '// 注記ブロック') + block('const AFF_NOTE_TEXT=', 'function affPixel('), sandbox);
+// 店舗リンクと共通の「PR」の印（index-main.js の実定数。注記は廃止）
+vm.runInContext(block('const AFF_PR_BADGE=', 'function affPixel('), sandbox);
 vm.runInContext(fs.readFileSync(path.join(root, 'static/js/mercari-ref.js'), 'utf8'), sandbox);
 const api = sandbox.window.MercariRef;
 const reply = (req, body, status = 200) => req.resolve({ ok: status >= 200 && status < 300, status, json: async () => body });
@@ -166,8 +166,7 @@ async function loadWith(d, view, status = 200) {
   h = body_();
   assert(h.includes('rel="sponsored noopener"') && h.includes('>メルカリで見る</a><span class="aff-pr">PR</span>'), h);
   assert(!h.includes('メルカリで見る（PR）'), '文字表記「（PR）」は廃止');
-  assert(h.includes('<div class="aff-note">一部のリンクは広告（PR）を含みます</div>'));
-  assert(h.indexOf('class="aff-note"') < h.indexOf('メルカリで見る') && h.indexOf('class="summary"') < h.indexOf('class="aff-note"'), 'タイルの直下に注記');
+  assert(!h.includes('aff-note') && !h.includes('含みます'), '注記は出さない（印だけ）');
   assert(h.includes('afid=8033172568') && h.includes('target="_blank"'));
   await loadWith(resp(BY, { affiliate: 'true' }), { rarity: 'ウルトラ', stores: [] });
   assert(!body_().includes('sponsored') && !body_().includes('aff-pr') && !body_().includes('aff-note') && body_().includes('rel="noopener"'));
