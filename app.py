@@ -845,6 +845,7 @@ def sitemap():
     xml += f'  <url><loc>{base_url}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>\n'
     # 固定ページ
     xml += f'  <url><loc>{base_url}/solitaire</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>\n'
+    xml += f'  <url><loc>{base_url}/new-cards</loc><changefreq>daily</changefreq><priority>0.6</priority></url>\n'
     # カード個別ページ
     for name in card_names:
         from urllib.parse import quote
@@ -3210,7 +3211,9 @@ def api_config():
 def api_new_cards():
     """新着の未発売カードを返す。正常0件と取得障害を区別する。"""
     try:
-        response = jsonify(_card_display.get_new_cards())
+        # all=1 は一覧ページ用（上限なしで全件）。トップは従来どおり36件＋has_more。
+        limit = None if request.args.get("all") == "1" else 36
+        response = jsonify(_card_display.get_new_cards(limit=limit))
         # 管理画面の表示制御は共通30秒キャッシュで扱い、ブラウザには残さない。
         response.headers["Cache-Control"] = "no-store"
         return response
@@ -3423,6 +3426,12 @@ def featured_page():
     X投稿の CTA リンク先 URL として固定で使用（次回新弾でも URL は変わらない）。
     """
     return render_template("index.html", card_name="", page_mode="featured")
+
+
+@app.route("/new-cards")
+def new_cards_page():
+    """未発売カード一覧ページ: トップの「新着の未発売カード」を商品ごとに全件表示する。"""
+    return render_template("index.html", card_name="", page_mode="new_cards")
 
 
 # ── 新弾フィーチャーキャッシュ（メモリ） ──

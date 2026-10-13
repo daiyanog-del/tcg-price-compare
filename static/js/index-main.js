@@ -1680,7 +1680,12 @@ function _resetSearchView(){
   document.getElementById('prog').style.display='none';
   _setSearchLayout(false);
 }
+// 未発売カード一覧ページ（/new-cards）の表示状態。ランキング等のトップ要素を隠し、一覧を主役にする。
+function _setNewCardsPage(on){
+  document.getElementById('mode-search').classList.toggle('new-cards-page',on);
+}
 function _restoreLocation(trigger){
+  _setNewCardsPage(location.pathname==='/new-cards');
   _resetSearchView();
   const hash=location.hash.slice(1);
   const mode=hash==='mydeck-import'?'mydeck':hash;
@@ -1694,6 +1699,11 @@ function _restoreLocation(trigger){
       if(details)details.scrollIntoView({block:'start'});
     }
     document.title='TCGYM';
+    return;
+  }
+  if(location.pathname==='/new-cards'){
+    switchMode('search',trigger);
+    document.title='未発売カード一覧 | TCGYM';
     return;
   }
   if(location.pathname==='/featured'){
@@ -1796,6 +1806,8 @@ function switchMode(mode, trigger){
     if(location.pathname+location.search+location.hash!==url){
       _resetSearchView();
       history.pushState(null,'',url);
+      // 一覧ページからタブ操作でトップ等へ移った場合は、一覧専用の表示状態を解除する。
+      _setNewCardsPage(false);
       document.title='TCGYM';
     }
   }

@@ -4,6 +4,7 @@
 .new-cards h2{margin:0;font-size:19px;line-height:1.5}
 .new-cards-help{margin:6px 0 20px;font-size:13px;color:var(--text-m)}
 .new-cards-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:18px}
+.new-card{display:flex;flex-direction:column;min-width:0}
 .new-card-link{display:block;min-width:0;color:var(--text);text-decoration:none}
 .new-card-link:focus-visible{outline:2px solid var(--gold);outline-offset:5px}
 .new-card-picture{position:relative;display:block;width:100%;aspect-ratio:59/86;background:var(--bg-card);border-radius:3px;overflow:hidden}
@@ -13,10 +14,27 @@
 .new-card-meta{display:flex;justify-content:space-between;align-items:center;gap:4px;margin:10px 0 5px;font-size:11px;color:var(--text-m);flex-wrap:wrap}
 .new-card-badge{background:#302d24;color:#f3ce46;padding:2px 6px;border-radius:3px}
 .new-card-link strong{display:block;font-size:13px;line-height:1.55;overflow-wrap:anywhere}
+/* 既存の「+ デッキに追加」ボタンと同じ配色（文字=accent-l・枠=accent・背景なし） */
+.new-card-add{margin-top:auto;width:100%;min-height:40px;padding:4px 6px;background:none;color:var(--accent-l);border:1px solid var(--accent);border-radius:4px;font:inherit;font-size:12px;font-weight:600;line-height:1.3;cursor:pointer;overflow-wrap:anywhere}
+.new-card-link{margin-bottom:8px}
+.new-card-add:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
+.new-cards-all{display:inline-block;margin-top:16px;font-size:14px;color:var(--accent-l);text-decoration:none}
+.new-cards-all[hidden]{display:none}
+.new-cards-all:hover{text-decoration:underline;text-underline-offset:3px}
+.new-cards-all:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
+/* 一覧ページ（/new-cards）: 商品ごとのグループ表示。トップ用のランキングは隠す */
+.new-cards-back{display:none;margin:0 0 14px;font-size:13px;color:var(--text-m);text-decoration:none}
+.new-cards-back:hover{text-decoration:underline;text-underline-offset:3px}
+.new-cards-page .new-cards-back{display:inline-block}
+.new-cards-page .movers-row{display:none}
+.new-cards-grid.is-grouped{display:block}
+.new-card-group+.new-card-group{margin-top:32px}
+.new-card-group-title{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;margin:0 0 12px;font-size:16px;line-height:1.5}
+.new-card-group-date{font-size:12px;font-weight:400;color:var(--text-m)}
 .new-cards-status{font-size:13px;color:var(--text-m);margin:16px 0 0}
 .new-cards-status:empty{display:none}
 .new-cards-button{margin-top:16px;min-height:44px;padding:8px 16px;color:var(--text);background:var(--bg-hover);border:0;border-radius:4px;cursor:pointer;font:inherit}
 .new-cards-button[hidden]{display:none}
 .new-cards-button:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
 @media(max-width:900px){.new-cards-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:20px 14px}}
-@media(max-width:640px){.new-cards h2{font-size:17px}.new-cards-help{font-size:12px;margin-bottom:16px}.new-cards-grid{gap:16px 10px}.new-card-link strong{font-size:12px}.new-card-meta{font-size:10px}.new-card-badge{padding:1px 4px}}
+@media(max-width:640px){.new-cards h2{font-size:17px}.new-cards-help{font-size:12px;margin-bottom:16px}.new-cards-grid{gap:16px 10px}.new-card-link strong{font-size:12px}.new-card-add{font-size:11px;min-height:36px;padding:4px 2px}.new-card-group-title{font-size:15px}.new-card-meta{font-size:10px}.new-card-badge{padding:1px 4px}}

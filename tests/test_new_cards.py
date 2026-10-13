@@ -198,3 +198,31 @@ def test_candidates_beyond_database_page_limit_are_not_lost(database):
     result = display.get_new_cards()
     assert [row["name"] for row in result["cards"]] == ["新カード1001"]
     assert result["cards"][0]["image_url"] == "https://example.test/1001.png"
+
+
+def test_api_all_returns_every_card_and_default_stays_36(database):
+    import app as app_module
+    database.rows["unreleased_cards"] = [card(i) for i in range(40)]
+    client = app_module.app.test_client()
+    default = client.get("/api/new-cards").get_json()
+    assert len(default["cards"]) == 36
+    assert default["has_more"] is True
+    everything = client.get("/api/new-cards?all=1").get_json()
+    assert len(everything["cards"]) == 40
+    assert everything["has_more"] is False
+    assert everything["cards"][0]["name"] == "新カード39"
+
+
+def test_get_new_cards_limit_none_has_no_cap(database):
+    database.rows["unreleased_cards"] = [card(i) for i in range(50)]
+    assert len(display.get_new_cards(limit=None)["cards"]) == 50
+    assert len(display.get_new_cards()["cards"]) == 36
+
+
+def test_new_cards_page_renders():
+    import app as app_module
+    response = app_module.app.test_client().get("/new-cards")
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "<title>未発売カード一覧 | TCGYM</title>" in html
+    assert 'class="new-cards-page"' in html
