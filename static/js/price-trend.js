@@ -82,13 +82,15 @@
       if(p.n<n0)n0=p.n; if(p.n>n1)n1=p.n;
       if(p.p<lo)lo=p.p; if(p.p>hi)hi=p.p;
     }));
+    // 「すべて」は価格帯が数桁違うため対数目盛（価格0以下は aggregate で除外済み）。1本選択は線形
+    const f=sel.single?(v=>v):Math.log10;
     // Y軸は線の最小〜最大に上下少し余白。全部同値なら中央に水平線
     let ylo,yhi;
-    if(hi===lo){ylo=lo-1;yhi=hi+1;}
-    else{const pad=(hi-lo)*0.12;ylo=lo-pad;yhi=hi+pad;}
+    if(hi===lo){ylo=f(lo)-1;yhi=f(hi)+1;}
+    else{const pad=(f(hi)-f(lo))*0.12;ylo=f(lo)-pad;yhi=f(hi)+pad;}
     const span=Math.max(1,n1-n0);
     const X=n=>(n-n0)/span*VB_W;
-    const Y=v=>VB_H-(v-ylo)/(yhi-ylo)*VB_H;
+    const Y=v=>VB_H-(f(v)-ylo)/(yhi-ylo)*VB_H;
     const paths=lines.map(l=>({
       r:l.r,
       d:l.pts.map((p,i)=>(i?'L':'M')+X(p.n).toFixed(1)+' '+Y(p.p).toFixed(1)).join(' '),
@@ -101,14 +103,14 @@
     return (v>0?'▲':v<0?'▼':'')+Math.abs(v).toFixed(1)+'%';
   }
 
-  // 見出し右側の既定表示（選択1本: 初日→最新日と騰落率＋安値/高値。すべて: 空）
+  // 見出し右側の既定表示（選択1本: 初日→最新日と騰落率＋安値/高値。すべて: 安値/高値のみ）
   // 色は .movers-diff.up / .down（上昇=赤・下降=緑）。金色は店舗最安専用なので使わない
   function summaryHtml(sel,L){
-    if(!sel.single) return '';
+    const range=`<span class="pt-range">安 ${yen(L.lo)} / 高 ${yen(L.hi)}</span>`;
+    if(!sel.single) return range;
     const pts=sel.lines[0].pts, a=pts[0].p, b=pts[pts.length-1].p;
     const cls=b>a?'up':b<a?'down':'';
-    return `<span class="movers-diff ${cls}">${yen(a)} → ${yen(b)} ${pct(a,b)}</span>`+
-      `<span class="pt-range">安 ${yen(L.lo)} / 高 ${yen(L.hi)}</span>`;
+    return `<span class="movers-diff ${cls}">${yen(a)} → ${yen(b)} ${pct(a,b)}</span>`+range;
   }
 
   function show(html){
@@ -139,8 +141,6 @@
     const paths=L.paths.map(p=>`<path d="${p.d}" fill="none" stroke="${esc(colorOf(p.r))}" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`).join('');
     const legend=sel.single?'':'<div class="pt-legend">'+sel.lines.map(l=>
       `<span class="pt-chip"><i style="background:${esc(colorOf(l.r))}"></i>${esc(l.r)}</span>`).join('')+'</div>';
-    // すべてモードは目盛りの代わりにグラフ左上/左下に最大・最小金額を添える
-    const ylab=sel.single?'':`<span class="pt-ymax">${yen(L.hi)}</span><span class="pt-ymin">${yen(L.lo)}</span>`;
     const y0=new Date(L.n0*86400000).getUTCFullYear(), y1=new Date(L.n1*86400000).getUTCFullYear();
     let first='',last='';
     sel.lines.forEach(l=>{
@@ -152,7 +152,7 @@
     show(`<div class="pt-head"><span class="pt-title">${title}</span><span class="pt-val" id="ptVal">${summaryHtml(sel,L)}</span></div>`+
       legend+
       `<div class="pt-plot" id="ptPlot"><svg viewBox="0 0 ${VB_W} ${VB_H}" preserveAspectRatio="none" role="img" aria-label="価格推移グラフ">`+
-      paths+`<line id="ptCursor" class="pt-cursor" x1="0" x2="0" y1="0" y2="${VB_H}" vector-effect="non-scaling-stroke" visibility="hidden"/></svg>${ylab}</div>`+
+      paths+`<line id="ptCursor" class="pt-cursor" x1="0" x2="0" y1="0" y2="${VB_H}" vector-effect="non-scaling-stroke" visibility="hidden"/></svg></div>`+
       `<div class="pt-axis"><span>${esc(fmt(first))}</span><span>${esc(fmt(last))}</span></div>`);
     bindPointer(sel,L);
   }
