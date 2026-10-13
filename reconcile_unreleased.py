@@ -8,7 +8,13 @@ reconcile_unreleased.py -- 未発売カード発売済み自動照合ジョブ
 照合ロジック:
   (a) ファジーキー完全一致 + 候補1件 -> konami_id 設定 + status='linked'
   (b) ファジーキー完全一致 + 候補複数 -> status='needs_review'（管理画面で要確認）
-  (c) 一致なし                          -> スキップ（まだ未発売）
+  (c) 一致なし・発売日が未来/NULL        -> スキップ（まだ未発売）
+  (d) 一致なし・発売日が過去              -> 画像AIの1字誤読を疑い、ファジーキーが
+                                            ちょうど1文字だけ違う正式名を探す
+        見つかる   -> reason=near_match で needs_review（自動 linked はしない）
+        見つからず -> reason=release_passed_no_match で needs_review
+  needs_review にした理由と候補は review_candidates(JSONB) に保存し、
+  管理画面の「承認待ち」タブで人が紐付ける。
 
 ファジーキーは name_normalize.fuzzy_key を使う（app.py と同一ロジック）。
 
@@ -28,6 +34,7 @@ import sys
 import logging
 from datetime import date, datetime, timedelta, timezone
 
+from constants import JST
 from name_normalize import fuzzy_key
 from ygores_repository import repository as _ygores_repo
 
@@ -61,7 +68,7 @@ def _fetch_approved_cards(sb) -> list[dict]:
     try:
         resp = (
             sb.table('unreleased_cards')
-            .select('id, name')
+            .select('id, name, release_date')
             .eq('status', 'approved')
             .is_('konami_id', 'null')
             .execute()
@@ -94,16 +101,108 @@ def _build_fuzzy_index(name_index: dict) -> dict[str, list[str]]:
     return fuzzy_idx
 
 
-def _update_card(sb, card_id: int, konami_id: str | None, new_status: str) -> bool:
+# near_match の候補数上限（短い名前だと1字違いが大量に出るため、画面が埋まらないようにする）
+# TODO: calibrate from data
+MAX_NEAR_CANDIDATES = 10
+
+
+def _build_fuzzy_names_index(name_index: dict) -> dict[str, list[tuple[str, int]]]:
+    """
+    ygores の名前インデックスから ファジーキー -> [(正式名, konami_id)] の辞書を構築する。
+    管理画面に候補の正式名を出すために使う。同一 (正式名, konami_id) は重複除去する。
+    """
+    idx: dict[str, list[tuple[str, int]]] = {}
+    for name, ids in name_index.items():
+        fk = fuzzy_key(name)
+        id_list = ids if isinstance(ids, list) else [ids]
+        bucket = idx.setdefault(fk, [])
+        for cid in id_list:
+            pair = (name, int(cid))
+            if pair not in bucket:
+                bucket.append(pair)
+    return idx
+
+
+def _build_length_index(names_idx: dict[str, list[tuple[str, int]]]) -> dict[int, list[str]]:
+    """ファジーキーの文字数 -> そのキー一覧。1字違い探索を同じ長さのキーだけに絞るため。"""
+    by_len: dict[int, list[str]] = {}
+    for fk in names_idx:
+        by_len.setdefault(len(fk), []).append(fk)
+    return by_len
+
+
+def _is_one_char_diff(a: str, b: str) -> bool:
+    """同じ長さで、ちょうど1文字だけ違うなら True（完全一致・長さ違いは False）。"""
+    if len(a) != len(b):
+        return False
+    diff = 0
+    for x, y in zip(a, b):
+        if x != y:
+            diff += 1
+            if diff > 1:
+                return False
+    return diff == 1
+
+
+def _find_near_candidates(
+    fk: str,
+    names_idx: dict[str, list[tuple[str, int]]],
+    length_idx: dict[int, list[str]],
+) -> list[dict]:
+    """fk と1字だけ違う正式名を {konami_id, name} のリストで返す（konami_id 重複除去・上限あり）。"""
+    found: list[dict] = []
+    seen: set[int] = set()
+    for other in length_idx.get(len(fk), []):
+        if not _is_one_char_diff(fk, other):
+            continue
+        for name, cid in names_idx[other]:
+            if cid in seen:
+                continue
+            seen.add(cid)
+            found.append({'konami_id': cid, 'name': name})
+    found.sort(key=lambda c: c['konami_id'])
+    return found[:MAX_NEAR_CANDIDATES]
+
+
+def _is_release_passed(release_date) -> bool:
+    """release_date が今日(JST)より前なら True。NULL・不正値は False。"""
+    if not release_date:
+        return False
+    try:
+        return date.fromisoformat(str(release_date)[:10]) < datetime.now(JST).date()
+    except (TypeError, ValueError):
+        return False
+
+
+def _make_review(reason: str, candidates: list[dict]) -> dict:
+    """review_candidates に保存する辞書を作る。"""
+    return {
+        'reason': reason,
+        'candidates': candidates,
+        'checked_at': datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _update_card(
+    sb,
+    card_id: int,
+    konami_id: str | None,
+    new_status: str,
+    review_candidates: dict | None = None,
+) -> bool:
     """unreleased_cards の1件を更新する。
     status='linked' に更新する場合は、7日後クリーンアップの起点となる
-    linked_at も併せて記録する。"""
+    linked_at も併せて記録し、review_candidates は NULL にクリアする。
+    status='needs_review' の場合は review_candidates（理由と候補）を保存する。"""
     try:
         row: dict = {'status': new_status}
         if konami_id is not None:
             row['konami_id'] = int(konami_id)
         if new_status == 'linked':
             row['linked_at'] = datetime.now(timezone.utc).isoformat()
+            row['review_candidates'] = None
+        elif review_candidates is not None:
+            row['review_candidates'] = review_candidates
         sb.table('unreleased_cards').update(row).eq('id', card_id).execute()
         return True
     except Exception as e:
@@ -113,9 +212,15 @@ def _update_card(sb, card_id: int, konami_id: str | None, new_status: str) -> bo
 
 def reconcile(sb) -> dict[str, int]:
     """
-    照合処理本体。サマリ辞書 {linked, needs_review, skipped, error} を返す。
+    照合処理本体。サマリ辞書
+    {linked, needs_review, near_match, release_passed_no_match, skipped, error} を返す。
+    needs_review は multiple_exact / near_match / release_passed_no_match の合計。
     """
-    summary = {'linked': 0, 'needs_review': 0, 'skipped': 0, 'error': 0}
+    summary = {
+        'linked': 0, 'needs_review': 0,
+        'near_match': 0, 'release_passed_no_match': 0,
+        'skipped': 0, 'error': 0,
+    }
 
     # ygores 名前インデックスを取得（Supabase キャッシュ優先）
     logger.info('ygores 名前インデックスを取得中...')
@@ -129,6 +234,8 @@ def reconcile(sb) -> dict[str, int]:
     # ファジーキー索引を構築
     fuzzy_idx = _build_fuzzy_index(name_index)
     logger.info(f'ファジーキー索引: {len(fuzzy_idx)} 件')
+    names_idx = _build_fuzzy_names_index(name_index)
+    length_idx = _build_length_index(names_idx)
 
     # 照合対象カードを取得
     cards = _fetch_approved_cards(sb)
@@ -144,9 +251,27 @@ def reconcile(sb) -> dict[str, int]:
         fk = fuzzy_key(name)
 
         if fk not in fuzzy_idx:
-            # 一致なし: まだ未発売 → スキップ
-            logger.debug(f'一致なし（未発売）: {name!r}')
-            summary['skipped'] += 1
+            if not _is_release_passed(card.get('release_date')):
+                # 一致なし・発売日が未来/NULL: まだ未発売 → スキップ
+                # （似た名前の別の未発売カードを誤検知しないため近似判定はしない）
+                logger.debug(f'一致なし（未発売）: {name!r}')
+                summary['skipped'] += 1
+                continue
+
+            # 一致なし・発売日が過去: 画像AIの1字誤読を疑う（自動 linked はしない）
+            near = _find_near_candidates(fk, names_idx, length_idx)
+            if near:
+                reason = 'near_match'
+                logger.warning(f'needs_review（1字違い）: {name!r} -> {near}')
+            else:
+                reason = 'release_passed_no_match'
+                logger.warning(f'needs_review（発売日経過・一致なし）: {name!r}')
+            ok = _update_card(sb, card_id, None, 'needs_review', _make_review(reason, near))
+            if ok:
+                summary['needs_review'] += 1
+                summary[reason] += 1
+            else:
+                summary['error'] += 1
             continue
 
         candidates = fuzzy_idx[fk]
@@ -165,7 +290,11 @@ def reconcile(sb) -> dict[str, int]:
             logger.warning(
                 f'needs_review（候補複数）: {name!r} -> candidates={candidates}'
             )
-            ok = _update_card(sb, card_id, None, 'needs_review')
+            review = _make_review(
+                'multiple_exact',
+                [{'konami_id': cid, 'name': n} for n, cid in names_idx.get(fk, [])],
+            )
+            ok = _update_card(sb, card_id, None, 'needs_review', review)
             if ok:
                 summary['needs_review'] += 1
             else:
@@ -310,7 +439,9 @@ def main():
     summary = reconcile(sb)
     logger.info(
         f'=== 照合完了 | linked: {summary["linked"]} / '
-        f'needs_review: {summary["needs_review"]} / '
+        f'needs_review: {summary["needs_review"]} '
+        f'(near_match: {summary["near_match"]} / '
+        f'release_passed_no_match: {summary["release_passed_no_match"]}) / '
         f'skipped(未発売): {summary["skipped"]} / '
         f'error: {summary["error"]} ==='
     )

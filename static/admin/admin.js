@@ -566,6 +566,17 @@ function _renderPendingList(listEl, cards) {
       row.querySelector('.card-row__has-image').hidden = false;
     }
 
+    // 要確認カードの紐付け候補（概要行と編集フォームの間に挿入）
+    const reviewEl = _buildReviewBlock(card);
+    if (reviewEl) {
+      row.querySelector('.card-row__summary').after(reviewEl);
+      reviewEl.querySelectorAll('.action-link-candidate').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          _linkCandidate(card, Number(btn.dataset.konamiId), btn.dataset.officialName);
+        });
+      });
+    }
+
     // 編集フォームにフィールド値をセット
     const editForm = row.querySelector('.card-row__edit-form');
     const fields = editForm.querySelectorAll('.edit-field');
@@ -652,6 +663,71 @@ function _renderPendingList(listEl, cards) {
 
   // 初期状態のバー更新（全件未選択）
   _updateBulkApproveBar();
+}
+
+// review_candidates.reason の日本語ラベル
+const REVIEW_REASON_LABELS = {
+  near_match: '発売済みの1字違いのカード名があります',
+  multiple_exact: '同じ名前の発売済みカードが複数あります',
+  release_passed_no_match: '発売日を過ぎましたが発売済みカードと一致しません',
+};
+
+/**
+ * 要確認カード（status=needs_review かつ review_candidates あり）の
+ * 理由ラベルと紐付け候補の表示ブロックを作る。対象外なら null。
+ * 文字列は必ず _escapeHtml を通す。
+ * @param {Object} card
+ * @returns {HTMLElement|null}
+ */
+function _buildReviewBlock(card) {
+  const review = card.review_candidates;
+  if (card.status !== 'needs_review' || !review) return null;
+
+  const reasonLabel = REVIEW_REASON_LABELS[review.reason] || '要確認です';
+  const candidates = Array.isArray(review.candidates) ? review.candidates : [];
+
+  const candidatesHtml = candidates.map((c) => {
+    const konamiId = Number(c.konami_id);
+    return `
+      <li class="review-candidates__item">
+        <span class="review-candidates__name">${_escapeHtml(c.name)}</span>
+        <span class="review-candidates__id">ID ${_escapeHtml(konamiId)}</span>
+        <button class="btn btn-primary btn-sm action-link-candidate"
+                data-konami-id="${_escapeHtml(konamiId)}"
+                data-official-name="${_escapeHtml(c.name)}">このカードに紐付け</button>
+      </li>`;
+  }).join('');
+
+  const el = document.createElement('div');
+  el.className = 'review-candidates';
+  el.innerHTML = `
+    <div class="review-candidates__reason">${_escapeHtml(reasonLabel)}</div>
+    ${candidates.length ? `<ul class="review-candidates__list">${candidatesHtml}</ul>` : ''}`;
+  return el;
+}
+
+/**
+ * 要確認カードを候補の正式カードに紐付ける。成功したら承認待ち一覧を再読込する。
+ * @param {Object} card  登録名を持つ未発売カード
+ * @param {number} konamiId
+ * @param {string} officialName  紐付け先の正式名
+ */
+async function _linkCandidate(card, konamiId, officialName) {
+  if (!confirm(`「${card.name}」を「${officialName}」に紐付けます。よろしいですか？`)) return;
+  try {
+    const resp = await apiFetch(`/api/admin/unreleased/${card.id}/link`, {
+      method: 'POST',
+      body: JSON.stringify({ konami_id: konamiId }),
+    });
+    if (resp.ok) {
+      await _loadPending();
+    } else {
+      const data = await resp.json().catch(() => ({}));
+      alert(data.error || '紐付けに失敗しました');
+    }
+  } catch (e) {
+    if (e.message !== '認証エラー') alert('通信エラーが発生しました');
+  }
 }
 
 /**

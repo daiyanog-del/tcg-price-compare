@@ -450,6 +450,46 @@ a:hover {
   flex-shrink: 0;
 }
 
+/* ── 要確認カードの紐付け候補（承認待ちタブ） ───────────────
+ * 危険色(--red)は使わず、注意喚起は既存の黄(--gold)の左線で示す。 */
+.review-candidates {
+  border-top: 1px solid var(--border);
+  border-left: 3px solid var(--gold);
+  background-color: var(--bg-surface);
+  padding: 8px 14px;
+}
+
+.review-candidates__reason {
+  color: var(--main-color);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.review-candidates__list {
+  list-style: none;
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.review-candidates__item {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.review-candidates__name {
+  color: var(--main-color);
+  font-size: 0.9rem;
+}
+
+.review-candidates__id {
+  color: color-mix(in srgb, var(--main-color) 60%, var(--border) 40%);
+  font-size: 0.75rem;
+}
+
 /* ── 編集フォーム（折りたたみ） ──────────────────────── */
 
 .card-row__edit-form {

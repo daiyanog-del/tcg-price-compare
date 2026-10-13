@@ -130,6 +130,12 @@ COMMENT ON COLUMN unreleased_cards.hidden        IS 'TRUE=個別非表示。承�
 COMMENT ON COLUMN unreleased_cards.konami_id     IS '発売後にReconcilerが設定するYGOResources konami_id';
 COMMENT ON COLUMN unreleased_cards.linked_at     IS 'status=linkedになった日時。7日経過後の自動削除の起点';
 
+-- needs_review の理由と紐付け候補（reconcile_unreleased.py が書き、管理画面が表示する）
+-- 形: {"reason": "multiple_exact" | "near_match" | "release_passed_no_match",
+--      "candidates": [{"konami_id": int, "name": str}], "checked_at": ISO文字列}
+ALTER TABLE unreleased_cards ADD COLUMN IF NOT EXISTS review_candidates JSONB;
+COMMENT ON COLUMN unreleased_cards.review_candidates IS 'needs_reviewの理由と紐付け候補（JSON）。reason=multiple_exact/near_match/release_passed_no_match。linked時はNULL';
+
 -- インデックス（表示解決クエリの高速化）
 CREATE INDEX IF NOT EXISTS idx_unreleased_cards_status_hidden
     ON unreleased_cards (status, hidden)

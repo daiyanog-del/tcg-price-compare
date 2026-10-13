@@ -20,7 +20,7 @@ import time
 import logging
 import threading
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 from flask import Blueprint, request, jsonify, render_template
@@ -29,6 +29,7 @@ import card_display as _card_display
 import fetch_guard as _fetch_guard
 from constants import JST as _JST
 from client_ip import _client_ip
+from ygores_repository import repository as _ygores_repo
 
 logger = logging.getLogger(__name__)
 
@@ -232,7 +233,7 @@ def admin_list_unreleased():
             "level, rank, link_val, atk, def, pendulum_scale, pendulum_effect, effect_text, "
             "product_name, release_date, confidence, source_url, "
             "source_domain, extracted_at, status, hidden, konami_id, "
-            "extraction_raw"
+            "extraction_raw, review_candidates"
         ).order("extracted_at", desc=True)
 
         if statuses:
@@ -516,6 +517,88 @@ def admin_approve_unreleased(card_id: int):
     except Exception as e:
         logger.error(f"[admin] approve エラー id={card_id}: {e}")
         return jsonify({"error": "承認に失敗しました"}), 500
+
+
+# ──────────────────────────────────────────────
+# POST /api/admin/unreleased/<id>/link — 発売済みカードへ手動紐付け
+# ──────────────────────────────────────────────
+
+_LINKABLE_STATUSES = ("needs_review", "pending", "approved")
+
+
+@admin_bp.route("/api/admin/unreleased/<int:card_id>/link", methods=["POST"])
+def admin_link_unreleased(card_id: int):
+    """
+    未発売カードを発売済みカード（ygores の konami_id）に手動で紐付ける。
+    リクエストボディ: {"konami_id": 12345}
+    画像AIの誤読で自動照合できなかったカードを、管理者が候補から選んで紐付ける用途。
+
+    対象は status が needs_review / pending / approved のもの。
+    konami_id は整数で、ygores 名前インデックスに実在するIDのみ受け付ける。
+    更新内容: konami_id 設定・status='linked'・linked_at=現在UTC・review_candidates=NULL
+    """
+    err = _require_admin_key()
+    if err:
+        return err
+
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+
+    body = request.get_json(silent=True) or {}
+    konami_id = body.get("konami_id")
+    # bool は int のサブクラスなので明示的に除外する
+    if isinstance(konami_id, bool) or not isinstance(konami_id, int):
+        return jsonify({"error": "konami_id は整数で指定してください"}), 400
+
+    try:
+        name_index = _ygores_repo.get_name_index() or {}
+    except Exception as e:
+        logger.error(f"[admin] link: ygores 名前インデックス取得エラー: {e}")
+        return jsonify({"error": "カード名インデックスの取得に失敗しました"}), 500
+
+    valid_ids: set[int] = set()
+    for ids in name_index.values():
+        for cid in (ids if isinstance(ids, list) else [ids]):
+            try:
+                valid_ids.add(int(cid))
+            except (TypeError, ValueError):
+                continue
+    if konami_id not in valid_ids:
+        return jsonify({"error": "指定された konami_id は発売済みカードに存在しません"}), 400
+
+    try:
+        get_resp = (
+            _supabase.table("unreleased_cards")
+            .select("id, status")
+            .eq("id", card_id)
+            .execute()
+        )
+        if not get_resp.data:
+            return jsonify({"error": "対象レコードが見つかりません"}), 404
+        if get_resp.data[0]["status"] not in _LINKABLE_STATUSES:
+            return jsonify({"error": "紐付けできるのは要確認・承認待ち・承認済みのカードのみです"}), 400
+
+        upd_resp = (
+            _supabase.table("unreleased_cards")
+            .update({
+                "konami_id": konami_id,
+                "status": "linked",
+                "linked_at": datetime.now(timezone.utc).isoformat(),
+                "review_candidates": None,
+            })
+            .eq("id", card_id)
+            .in_("status", list(_LINKABLE_STATUSES))
+            .execute()
+        )
+        if not upd_resp.data:
+            return jsonify({"error": "紐付けに失敗しました（状態が変わった可能性があります）"}), 409
+        _card_display.invalidate_cache()
+        logger.info(f"[admin] link: card_id={card_id} -> konami_id={konami_id}")
+        return jsonify({"ok": True, "card": upd_resp.data[0]})
+
+    except Exception as e:
+        logger.error(f"[admin] link エラー id={card_id}: {e}")
+        return jsonify({"error": "紐付けに失敗しました"}), 500
 
 
 def _try_fetch_image_from_extraction(
