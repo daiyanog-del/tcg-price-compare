@@ -18,6 +18,14 @@ def test_mercari_ref_client():
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+@pytest.mark.skipif(shutil.which('node') is None, reason='node が見つかりません')
+def test_mercari_parallel_wiring():
+    """検索SSEと並行してメルカリを取得する配線（実物の doSearch を偽SSEで動かす）。"""
+    result = subprocess.run(['node', str(ROOT / 'tests/js/mercari_parallel_check.js')],
+                            cwd=ROOT, capture_output=True, text=True, encoding='utf-8', timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_テンプレートの配線():
     html = app_module.app.test_client().get('/').get_data(as_text=True)
     soup = BeautifulSoup(html, 'html.parser')

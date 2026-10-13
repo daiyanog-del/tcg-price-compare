@@ -6,7 +6,8 @@
 (function(){
   let gen=0;              // 世代番号。カードを切り替えたあとに届いた古い応答を捨てる
   let data=null;          // 取得済みの応答（未取得・失敗・クリア後は null）
-  let view={rarity:'',stores:[]}; // rarity=選択中のレアリティ（空=すべて）/ stores=店舗結果に存在するレアリティ
+  let view={rarity:'',stores:[],pending:false}; // rarity=選択中のレアリティ（空=すべて）/ stores=店舗結果に存在するレアリティ / pending=店舗検索が終わっていない
+  let lastHtml='';        // 直近に描いたHTML。同じ内容なら DOM を触らない（開いたまま描き直してもちらつき・選択解除を起こさない）
 
   const OTHER_SHOW=3;     // 「他のレアリティ」に並べる数。残りは「ほかN種」
 
@@ -33,11 +34,12 @@
     return c.length?Math.min.apply(null,c):null;
   }
 
-  // 店舗結果にあるレアリティだけを対象にする。店舗結果が無い（空）ときは絞らない
+  // 店舗結果にあるレアリティだけを対象にする。店舗検索が終わった後に店舗結果が無い（空）ときは絞らない。
+  // 店舗検索の途中（pending）は、まだ店舗で確認できていないレアリティを「確認中」として分ける（空でも全部が確認中）
   function scope(d){
     const all=sortedRarities(d.by_rarity);
     const st=Array.isArray(view.stores)?view.stores:[];
-    if(st.length===0) return {rs:all,excluded:[]};
+    if(st.length===0&&!view.pending) return {rs:all,excluded:[]};
     return {rs:all.filter(r=>st.indexOf(r)>=0),excluded:all.filter(r=>st.indexOf(r)<0)};
   }
 
@@ -73,11 +75,12 @@
     return parts.length?`<p class="buy-inline-note mref-tail">${parts.join('　')}</p>`:'';
   }
 
-  // 店舗に無いレアリティ名を列挙（4種超は先頭3つ＋「ほかN種」）
+  // 店舗に無いレアリティ名を列挙（4種超は先頭3つ＋「ほかN種」）。店舗検索の途中は「無い」と断定せず「確認中」と注記する
   function excludedNote(names){
     if(!names.length) return '';
     let s=names.slice(0,OTHER_SHOW).map(esc).join('・');
     if(names.length>OTHER_SHOW) s+=`・ほか${names.length-OTHER_SHOW}種`;
+    if(view.pending) return `<p class="buy-inline-note">店舗の検索中のため確認中のレアリティ（${s}）があります</p>`;
     return `<p class="buy-inline-note">店舗に無いレアリティ（${s}）は表示していません</p>`;
   }
 
@@ -133,7 +136,12 @@
     const el=box(),body=bodyEl();
     if(!el||!body) return;
     el.classList.remove('hidden');
+    if(html===lastHtml) return;
+    // 開いたまま描き直してもスクロール位置を飛ばさない
+    const y=(el.open&&typeof window.scrollY==='number'&&typeof window.scrollTo==='function')?window.scrollY:null;
     body.innerHTML=html;
+    lastHtml=html;
+    if(y!==null&&window.scrollY!==y) window.scrollTo(window.scrollX||0,y);
   }
 
   function render(){
@@ -154,7 +162,9 @@
       h+=gridHtml(d,sc.rs)+affNote(d)+tailNote(d,[]);
     }else{
       // 全件が判定不能のときは「出品なし」と言わず、判定できず件数とリンクを出す（取得できたが全件除外は「出品なし」と区別）
-      if(!(Number(d.unclassified_count)>0)) h+=emptyHtml(fetched>0||sc.excluded.length>0?'条件に合う出品なし':'出品なし');
+      // 店舗検索の途中で全レアリティが確認中のときは、一覧が空でも「出品なし」と言わない
+      const allUnconfirmed=view.pending&&sc.rs.length===0&&sc.excluded.length>0;
+      if(!(Number(d.unclassified_count)>0)&&!allUnconfirmed) h+=emptyHtml(fetched>0||sc.excluded.length>0?'条件に合う出品なし':'出品なし');
       h+=affNote(d)+tailNote(d,[]);
     }
     h+=excludedNote(sc.excluded);
@@ -163,18 +173,20 @@
 
   function renderError(busy){
     data=null;
+    lastHtml='';
     show('<p class="buy-inline-note">'+(busy?'混雑中です。少し待って再表示してください':'メルカリの情報を取得できませんでした')+'</p>');
   }
 
   // 選択レアリティ・店舗結果のレアリティが変わったとき（再取得せず描き直す）
   function setView(v){
-    view={rarity:(v&&v.rarity)||'',stores:(v&&Array.isArray(v.stores))?v.stores:[]};
+    view={rarity:(v&&v.rarity)||'',stores:(v&&Array.isArray(v.stores))?v.stores:[],pending:!!(v&&v.pending)};
     if(data) render();
   }
 
   function reset(){
     const el=box(),body=bodyEl();
     data=null;
+    lastHtml='';
     if(el){el.classList.add('hidden');el.open=false;}
     if(body) body.innerHTML='';
   }

@@ -355,6 +355,9 @@ let _searchES=null;        // 進行中のEventSource参照。新しい検索を
 let _searchGen=0;          // 世代トークン。close()後も配送されうる旧SSEのイベントを無効化する
 let _searchTimeoutId=null; // タイムアウトタイマーの参照。新しい検索を張る前に確実にclearTimeoutする
 
+let _mercariPending=false; // 店舗検索が終わっていない間 true（メルカリ参考相場を「確認中」表示にする）
+let _mercariName='';       // いまメルカリを取得している（した）カード名。名前補正時の取り直し判定に使う
+
 function _newSearchGen(){ // 世代加算＝旧ストリーム破棄、を不可分にする（片方だけ進むと旧SSEが無限再接続する）
   if(_searchES){ try{_searchES.close();}catch(e){} _searchES=null; }
   if(_searchTimeoutId){ clearTimeout(_searchTimeoutId); _searchTimeoutId=null; }
@@ -462,9 +465,15 @@ function doSearch(opts){
 
   const es=new EventSource('/api/search?'+params.toString());
   _searchES=es;
+  // メルカリ参考相場は店舗検索と並行して取得し、店舗検索の途中でもパネルを出す（レアリティは店舗結果が揃うまで「確認中」）
+  _mercariPending=true;
+  _mercariName=q;
+  _syncMercariView();
+  if(window.MercariRef) MercariRef.load(q);
   // 60秒で応答がなければタイムアウト
   function _searchTimeoutFail(){
     if(gen!==_searchGen) return; // 世代管理: 別カードの検索で世代が進んでいたら無視
+    _mercariPending=false;if(window.MercariRef) MercariRef.clear();
     es.close();_searchES=null;_searchTimeoutId=null;btn.disabled=false;btn.textContent='検索';
     prog.style.display='none';
     document.getElementById('empty').classList.remove('hidden');
@@ -484,6 +493,7 @@ function doSearch(opts){
     if(d.type==='corrected'){
       // カード名が自動補正された場合、検索欄を更新して通知
       document.getElementById('q').value=d.corrected;
+      _reloadMercariIfRenamed(d.corrected); // 補正後の名前でメルカリを取り直す（古い応答は世代管理で捨てられる）
       const notice=document.createElement('div');
       notice.className='correct-notice';
       notice.textContent='「'+d.original+'」→「'+d.corrected+'」に補正して検索しました';
@@ -505,6 +515,7 @@ function doSearch(opts){
           partialShown=true;
         }
         renderTable();
+        _syncMercariView(); // 店舗で確認できたレアリティが増えたので、メルカリの表示を描き直す（再取得はしない）
       }
     }else if(d.type==='shop_error'){
       const el=_searchProgStep(d.shop);
@@ -518,7 +529,9 @@ function doSearch(opts){
       _currentCardName=document.getElementById('q').value.trim();
       SearchStatus.show(d);
       renderAll(d);
-      if(d.total>0&&window.MercariRef){ _syncMercariView(); MercariRef.load(_currentCardName); } // メルカリ参考相場は店舗表とは別fetchで非同期表示
+      _mercariPending=false;
+      if(d.total>0){ _syncMercariView(); _reloadMercariIfRenamed(_currentCardName); } // メルカリ参考相場は検索開始時に取得済み。最終の店舗レアリティで絞り直す
+      else if(window.MercariRef) MercariRef.clear(); // 全店0件ならメルカリも出さない
       btn.disabled=false;btn.textContent='検索';
       _setSearchLayout(d.total>0);
       setTimeout(()=>{prog.style.display='none';},1200);
@@ -528,6 +541,7 @@ function doSearch(opts){
     if(gen!==_searchGen) return; // 世代管理
     clearTimeout(_searchTimeoutId);_searchTimeoutId=null;
     es.close();_searchES=null;btn.disabled=false;btn.textContent='検索';
+    _mercariPending=false;if(window.MercariRef) MercariRef.clear();
     prog.style.display='none';
     document.getElementById('empty').classList.remove('hidden');
     const _errEl2=document.getElementById('emptyError');
@@ -867,6 +881,7 @@ function _resetBuyInline(){
   _buyInlineFetchInFlight=false;
   _buyInlineFailedShops=[];
   _currentCardName='';
+  _mercariPending=false;_mercariName='';
   if(window.MercariRef) MercariRef.clear(); // 前のカードのメルカリ枠を残さない
   const body=document.getElementById('buyInlineBody');
   if(body) body.innerHTML='';
@@ -1296,7 +1311,14 @@ function setRarityFilter(r){
 function _syncMercariView(){
   if(!window.MercariRef) return;
   const stores=[...new Set(D.map(r=>r.rarity).filter(r=>r&&r!=='(不明)'))];
-  MercariRef.setView({rarity:rarityFilter,stores:stores});
+  MercariRef.setView({rarity:rarityFilter,stores:stores,pending:_mercariPending});
+}
+
+// 検索中にカード名が補正されたとき、補正後の名前でメルカリを取り直す（同じ名前なら何もしない）
+function _reloadMercariIfRenamed(name){
+  if(!window.MercariRef||!name||name===_mercariName) return;
+  _mercariName=name;
+  MercariRef.load(name);
 }
 
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}

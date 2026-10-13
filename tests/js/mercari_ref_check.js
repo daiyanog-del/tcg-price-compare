@@ -252,5 +252,54 @@ async function loadWith(d, view, status = 200) {
   api.setView({ rarity: 'ウルトラ', stores: [] });
   assert(body_() === '');
 
+  // 12) 店舗検索の途中（pending）: 確認できたレアリティだけ出し、残りは「確認中」と注記する（「店舗に無い」とは言わない）
+  await loadWith(resp(BY), { rarity: '', stores: [], pending: true });
+  h = body_();
+  assert(!classes.has('hidden'), '店舗検索中でも枠は出る');
+  assert.equal(box.open, false, '閉じた見出しのまま');
+  assert(!h.includes('mref-grid') && !h.includes('class="scard'), 'D空: 一覧は出さない: ' + h);
+  assert(h.includes('店舗の検索中のため確認中のレアリティ（シークレット・ウルトラ・ノーマル・ほか1種）があります'), h);
+  assert(h.includes('メルカリで見る') && !h.includes('出品なし') && !h.includes('店舗に無い') && !h.includes('表示していません'));
+  // 一部の店舗が返った: その店舗のレアリティだけ表示（1種ならタイル）。残りは確認中
+  api.setView({ rarity: '', stores: ['ウルトラ'], pending: true });
+  assert.equal(pending.length, 0, '描き直しで再取得しない');
+  h = body_();
+  assert(h.includes('ウルトラ・出品5件の最安') && !h.includes('¥640') && !h.includes('¥300'), h);
+  assert(h.includes('店舗の検索中のため確認中のレアリティ（シークレット・ノーマル・レリーフ）があります'), h);
+  assert(!h.includes('店舗に無い'));
+  api.setView({ rarity: '', stores: ['ウルトラ', 'シークレット'], pending: true });
+  h = body_();
+  assert(h.includes('mref-grid') && h.includes('>ウルトラ<') && h.includes('>シークレット<') && !h.includes('>ノーマル<'), h);
+  assert(h.includes('店舗の検索中のため確認中のレアリティ（ノーマル・レリーフ）があります'));
+  // 開いたまま描き直してもパネルを閉じない
+  box.open = true;
+  api.setView({ rarity: '', stores: ['ウルトラ'], pending: true });
+  assert.equal(box.open, true, '描き直しで閉じない');
+  // 確定（pending 解除）: 従来どおり「店舗に無い」
+  api.setView({ rarity: 'ウルトラ', stores: ['ウルトラ', 'シークレット'] });
+  h = body_();
+  assert(h.includes('店舗に無いレアリティ（ノーマル・レリーフ）は表示していません') && !h.includes('確認中'), h);
+  assert.equal(box.open, true);
+  // pending でも全レアリティが確認中でメルカリが出品なしなら「出品なし」と言う（確認中の注記は出さない）
+  await loadWith(resp({}, { fetched_count: 0, num_found: 0 }), { rarity: '', stores: [], pending: true });
+  assert(body_().includes('出品なし') && !body_().includes('確認中'));
+  // XSS: pending の注記でもレアリティ名はエスケープ
+  await loadWith(resp(byEvil), { rarity: '', stores: [], pending: true });
+  assert(!body_().includes('<img') && body_().includes('確認中のレアリティ'), body_());
+  // 同じ内容の描き直しでは DOM を書き換えない
+  let writes = 0, inner = body.innerHTML;
+  Object.defineProperty(body, 'innerHTML', { configurable: true, get: () => inner, set: (v) => { writes++; inner = v; } });
+  api.setView({ rarity: '', stores: [], pending: true });
+  api.setView({ rarity: '', stores: [], pending: true });
+  assert(writes <= 1, '同一HTMLを再代入しない: ' + writes);
+  delete body.innerHTML; body.innerHTML = inner;
+
+  // 13) 取得中に pending のまま応答が届く（load → 応答）。pending 中の 404 は枠ごと消える
+  api.setView({ rarity: '', stores: [], pending: true });
+  api.load('灰流うらら');
+  reply(pending.shift(), { ok: false, error: 'unknown_card' }, 404);
+  await tick(); await tick();
+  assert(classes.has('hidden') && body_() === '');
+
   console.log('mercari_ref_check: OK');
 })().catch((e) => { console.error('FAIL', e); process.exit(1); });
