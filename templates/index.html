@@ -461,15 +461,9 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
    価格色は通常文字色（金色＝店舗の最安専用・緑＝買取） */
 #mercariRef .scard .sprice{color:var(--text)}
 .mref-unit{font:600 .72rem var(--mono);color:var(--text-d);margin-left:6px}
-.mref-none{font:600 1rem var(--font);color:var(--text-d)}
-.mref-grid{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px 16px;align-items:center;font-size:.85rem;max-width:460px;margin-top:12px}
-.mref-h{font-size:.68rem;color:var(--text-d);text-align:right}
-.mref-h:first-child{text-align:left}
-.mref-min,.mref-set{text-align:right;white-space:nowrap}
-.mref-min{font:600 .9rem var(--mono);color:var(--text)}
-.mref-set{font:600 .85rem var(--mono);color:var(--text-m);line-height:1.15}
-.mref-set small{display:block;font:.65rem var(--font);color:var(--text-d)}
-.mref-grid .rb{justify-self:start}
+/* レアリティごとのタイル。特定レアリティ選択時に1枚が横いっぱいに伸びないよう auto-fill */
+#mercariRef .summary{grid-template-columns:repeat(auto-fill,minmax(220px,1fr));margin-bottom:0}
+#mercariRef .mref-tail{margin-top:4px}
 .mref-tail a{color:var(--accent-l)}
 .mref-tail a:hover{text-decoration:underline}
 .aff-note{font-size:.74rem;color:var(--text-d);margin-top:6px;text-align:right}
@@ -573,7 +567,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   .pstep .pname{font-size:.68rem}
 
   /* サマリーカード */
-  .summary{grid-template-columns:1fr}
+  .summary,#mercariRef .summary{grid-template-columns:1fr}
   .scard{padding:14px 16px}
   .scard .sprice{font-size:1.3rem}
 
@@ -826,7 +820,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
          検索1回につき1回だけrenderAll()から挿入するための専用スロット -->
     <!-- メルカリ参考相場: 店舗の表とは別枠。/api/mercari を別fetchで取得して mercari-ref.js が描画する -->
     <details id="mercariRef" class="price-chart hidden">
-      <summary class="chart-title">メルカリの出品も見る（個人出品・参考）</summary>
+      <summary class="chart-title">メルカリ（個人出品）</summary>
       <div id="mercariRefBody"></div>
     </details>
     <div id="affPixelSlot"></div>

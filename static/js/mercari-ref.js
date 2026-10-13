@@ -7,9 +7,8 @@
   let gen=0;              // 世代番号。カードを切り替えたあとに届いた古い応答を捨てる
   let data=null;          // 取得済みの応答（未取得・失敗・クリア後は null）
   let view={rarity:'',stores:[],pending:false}; // rarity=選択中のレアリティ（空=すべて）/ stores=店舗結果に存在するレアリティ / pending=店舗検索が終わっていない
+  let autoOpened=false;   // このカードで既に自動で開いたか（ユーザーが閉じた後に開き直さない）
   let lastHtml='';        // 直近に描いたHTML。同じ内容なら DOM を触らない（開いたまま描き直してもちらつき・選択解除を起こさない）
-
-  const OTHER_SHOW=3;     // 「他のレアリティ」に並べる数。残りは「ほかN種」
 
   function box(){return document.getElementById('mercariRef');}
   function bodyEl(){return document.getElementById('mercariRefBody');}
@@ -26,14 +25,6 @@
     return Object.keys(byRarity||{}).sort((a,b)=>rarityOrder(a)-rarityOrder(b));
   }
 
-  // 1枚あたりの最安（単品の最安とセットの1枚あたりの安い方）。どちらも無ければ null
-  function bestUnit(v){
-    const c=[];
-    if(Number(v.count)>0) c.push(Number(v.min));
-    if(v.set) c.push(Number(v.set.unit_min));
-    return c.length?Math.min.apply(null,c):null;
-  }
-
   // 店舗結果にあるレアリティだけを対象にする。店舗検索が終わった後に店舗結果が無い（空）ときは絞らない。
   // 店舗検索の途中（pending）は、まだ店舗で確認できていないレアリティを「確認中」として分ける（空でも全部が確認中）
   function scope(d){
@@ -43,89 +34,33 @@
     return {rs:all.filter(r=>st.indexOf(r)>=0),excluded:all.filter(r=>st.indexOf(r)<0)};
   }
 
-  function headNote(d){
-    const fetched=Number(d.fetched_count)||0;
-    // 最安は関連度上位の取得分の中の最安。全件でないときは母数を明示する
-    const part=(fetched>0&&Number(d.num_found)>fetched)?`（関連度上位${fetched}件から集計）`:'';
-    return `<p class="buy-inline-note">メルカリで出品中の価格です${part}</p>`;
-  }
-
-  // アフィリエイト時の注記（買取パネルと同じく、タイル・一覧の直下）。リンクが出ないときは出さない
-  function affNote(d){
-    return d.affiliate===true&&safeUrl(d.search_url)?`<div class="aff-note">${AFF_NOTE_TEXT}</div>`:'';
-  }
-
-  // 最下行: メルカリへのリンク（アフィリエイト時は「PR」の印と rel=sponsored）と他のレアリティ
-  function tailNote(d,others){
-    const unclassified=Number(d.unclassified_count)||0;
-    const parts=[];
+  // 最下行: メルカリへのリンク（アフィリエイト時は「PR」の印と rel=sponsored）。リンクが出ないときは出さない
+  function linkNote(d){
     const link=safeUrl(d.search_url);
-    if(link){
-      const aff=d.affiliate===true;
-      // 店舗リンクと同じ「PR」の印（AFF_PR_BADGE は index-main.js のグローバル定数。描画は両ファイル読込後に呼ばれる）
-      parts.push(`<a href="${escAttr(link)}" target="_blank" rel="${aff?'sponsored noopener':'noopener'}">メルカリで見る</a>${aff?AFF_PR_BADGE:''}`);
-    }
-    const list=others.map(r=>({r:r,p:bestUnit(d.by_rarity[r])})).filter(x=>x.p!=null).sort((a,b)=>a.p-b.p);
-    if(list.length){
-      let s='他のレアリティ: '+list.slice(0,OTHER_SHOW).map(x=>`${esc(x.r)} ${yen(x.p)}〜`).join(' / ');
-      if(list.length>OTHER_SHOW) s+=` ほか${list.length-OTHER_SHOW}種`;
-      parts.push(s);
-    }
-    if(unclassified>0) parts.push(`レアリティ判定できず ${unclassified}件`);
-    return parts.length?`<p class="buy-inline-note mref-tail">${parts.join('　')}</p>`:'';
+    if(!link) return '';
+    const aff=d.affiliate===true;
+    // 店舗リンクと同じ「PR」の印（AFF_PR_BADGE は index-main.js のグローバル定数。描画は両ファイル読込後に呼ばれる）
+    return `<p class="buy-inline-note mref-tail"><a href="${escAttr(link)}" target="_blank" rel="${aff?'sponsored noopener':'noopener'}">メルカリで見る</a>${aff?AFF_PR_BADGE:''}</p>`;
   }
 
-  // 店舗に無いレアリティ名を列挙（4種超は先頭3つ＋「ほかN種」）。店舗検索の途中は「無い」と断定せず「確認中」と注記する
-  function excludedNote(names){
-    if(!names.length) return '';
-    let s=names.slice(0,OTHER_SHOW).map(esc).join('・');
-    if(names.length>OTHER_SHOW) s+=`・ほか${names.length-OTHER_SHOW}種`;
-    if(view.pending) return `<p class="buy-inline-note">店舗の検索中のため確認中のレアリティ（${s}）があります</p>`;
-    return `<p class="buy-inline-note">店舗に無いレアリティ（${s}）は表示していません</p>`;
-  }
-
-  function tile(label,price,unit,detail){
-    return `<div class="scard fin"><div class="slabel">${label}</div>`+
-      `<div class="sprice">${price}${unit?`<span class="mref-unit">${unit}</span>`:''}</div>`+
-      `<div class="sdetail">${detail}</div></div>`;
-  }
-  function tileNone(label){
-    return `<div class="scard fin"><div class="slabel">${label}</div><div class="sprice mref-none">出品なし</div></div>`;
-  }
-
-  // レアリティを1つ選んでいるとき: 「1枚で買う」「N枚組で買う」の2タイル
-  function tilesHtml(r,v){
-    const name=esc(r);
-    let single;
+  // レアリティごとに店舗サマリーと同じ .scard タイル1枚。札は店舗表と同じ .rb クラス
+  function tile(r,v){
+    const label=`<span class="rb rb-${escAttr(cssClass(r))}">${esc(r)}</span>`;
+    const set=v.set||null;
+    let price,d1,d2='';
     if(Number(v.count)>0){
-      const med=v.median==null?'中央値 —（3件未満）':`中央値 ${yen(v.median)}`;
-      single=tile('1枚で買う',yen(v.min),v.min_is_floor?'最低出品価格':'',`${name}・出品${Number(v.count)}件の最安<br>${med}`);
+      price=yen(v.min);
+      d1=v.median==null?`${Number(v.count)}件`:`中央 ${yen(v.median)}・${Number(v.count)}件`;
+      if(set) d2=`${Number(set.unit_min_qty)}枚組 ${yen(set.unit_min)}/枚`;
     }else{
-      single=tileNone('1枚で買う');
+      // 単品が無くセットのみ: 1枚あたりを大きく、組の総額と件数を下に
+      const q=Number(set.unit_min_qty);
+      const total=set.unit_min_total!=null?Number(set.unit_min_total):Number(set.unit_min)*q;
+      price=`${yen(set.unit_min)}<span class="mref-unit">/枚</span>`;
+      d1=`${q}枚組 ${yen(total)}・${Number(set.count)}件`;
     }
-    let set;
-    if(v.set){
-      const q=Number(v.set.unit_min_qty);
-      const total=v.set.unit_min_total!=null?Number(v.set.unit_min_total):Number(v.set.unit_min)*q;
-      set=tile(`${q}枚組で買う`,yen(v.set.unit_min),'/枚',`${name}・${q}枚組 ${yen(total)}<br>同じカードだけの組 ${Number(v.set.count)}件`);
-    }else{
-      set=tileNone('3枚組で買う');
-    }
-    return `<div class="summary">${single}${set}</div>`;
-  }
-
-  // 「すべて」: 各レアリティ1行（札・単品最安・セットの1枚あたり）
-  function rowHtml(r,v){
-    const hasSingle=Number(v.count)>0;
-    const min=hasSingle?yen(v.min)+(v.min_is_floor?'*':''):'—';
-    const set=v.set?`<span class="mref-set">${yen(v.set.unit_min)}<small>${Number(v.set.unit_min_qty)}枚組</small></span>`:'<span class="mref-set">—</span>';
-    return `<span class="rb rb-${escAttr(cssClass(r))}">${esc(r)}</span><span class="mref-min">${min}</span>${set}`;
-  }
-  function gridHtml(d,rs){
-    let h='<div class="mref-grid"><span class="mref-h"></span><span class="mref-h">単品最安</span><span class="mref-h">セット(1枚)</span>'+
-      rs.map(r=>rowHtml(r,d.by_rarity[r])).join('')+'</div>';
-    if(rs.some(r=>d.by_rarity[r].min_is_floor&&Number(d.by_rarity[r].count)>0)) h+='<p class="buy-inline-note">* 300円は最低出品価格</p>';
-    return h;
+    return `<div class="scard fin"><div class="slabel">${label}</div><div class="sprice">${price}</div>`+
+      `<div class="sdetail">${d1}${d2?'<br>'+d2:''}</div></div>`;
   }
 
   function emptyHtml(msg){
@@ -136,6 +71,11 @@
     const el=box(),body=bodyEl();
     if(!el||!body) return;
     el.classList.remove('hidden');
+    // 表示するときは開いた状態にする。同じカードの間は1回だけ（ユーザーが閉じたら描き直しで開き直さない）
+    if(!autoOpened){
+      autoOpened=true;
+      if(!el.open){ el.dataset.autoOpen='1'; el.open=true; } // 自動で開いた分は index-main.js のGA計測から除く
+    }
     if(html===lastHtml) return;
     body.innerHTML=html;
     lastHtml=html;
@@ -146,26 +86,23 @@
     if(!d) return;
     const sc=scope(d);
     const fetched=Number(d.fetched_count)||0;
-    // 選択が1つ、または表示対象が1種類だけのときはタイル。「(不明)」選択は比較できないので一覧
+    // 「(不明)」選択は比較できないので全レアリティのタイル
     let sel=view.rarity||'';
-    // 店舗検索の途中は、確認できたレアリティが1種でも自動でタイルにしない（後から増えて表示が切り替わるのを避ける）
-    if(!sel&&sc.rs.length===1&&!view.pending) sel=sc.rs[0];
     if(sel==='(不明)') sel='';
-    let h=headNote(d);
+    let h='';
     if(sel){
+      // 選択したレアリティだけ。出品が無ければ1行のみ
       const v=sc.rs.indexOf(sel)>=0?d.by_rarity[sel]:null;
-      h+=v?tilesHtml(sel,v):emptyHtml('このレアリティの出品は見つかりませんでした');
-      h+=affNote(d)+tailNote(d,sc.rs.filter(r=>r!==sel));
+      h+=v?`<div class="summary">${tile(sel,v)}</div>`:emptyHtml('このレアリティの出品は見つかりませんでした');
     }else if(sc.rs.length>0){
-      h+=gridHtml(d,sc.rs)+affNote(d)+tailNote(d,[]);
+      h+=`<div class="summary">${sc.rs.map(r=>tile(r,d.by_rarity[r])).join('')}</div>`;
     }else{
-      // 全件が判定不能のときは「出品なし」と言わず、判定できず件数とリンクを出す（取得できたが全件除外は「出品なし」と区別）
-      // 店舗検索の途中で全レアリティが確認中のときは、一覧が空でも「出品なし」と言わない
-      const allUnconfirmed=view.pending&&sc.rs.length===0&&sc.excluded.length>0;
+      // 店舗検索の途中で全レアリティが確認中のときは「出品なし」と言わず、リンクだけ出す。
+      // 全件が判定不能のときも同様（取得できたが全件除外は「出品なし」と区別）
+      const allUnconfirmed=view.pending&&sc.excluded.length>0;
       if(!(Number(d.unclassified_count)>0)&&!allUnconfirmed) h+=emptyHtml(fetched>0||sc.excluded.length>0?'条件に合う出品なし':'出品なし');
-      h+=affNote(d)+tailNote(d,[]);
     }
-    h+=excludedNote(sc.excluded);
+    h+=linkNote(d);
     show(h);
   }
 
@@ -185,6 +122,7 @@
     const el=box(),body=bodyEl();
     data=null;
     lastHtml='';
+    autoOpened=false;
     if(el){el.classList.add('hidden');el.open=false;}
     if(body) body.innerHTML='';
   }

@@ -903,6 +903,7 @@ document.getElementById('buyInline')?.addEventListener('toggle',function(){
 // メルカリ参考相場パネルを開いたときの計測（買取の buyback_inline_open と同じ方式）
 document.getElementById('mercariRef')?.addEventListener('toggle',function(){
   if(!this.open) return;
+  if(this.dataset.autoOpen){ delete this.dataset.autoOpen; return; } // mercari-ref.js が自動で開いた分は利用者の操作ではないので計測しない
   _ga('mercari_inline_open',{trigger:'inline'});
 });
 

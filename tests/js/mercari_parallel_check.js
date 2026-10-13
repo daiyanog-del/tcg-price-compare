@@ -23,7 +23,7 @@ const fetches = [], sources = [], timers = new Map();
 let timerSeq = 0;
 class FakeES { constructor(url) { this.url = url; this.closed = false; sources.push(this); } close() { this.closed = true; } }
 const sandbox = {
-  console, URL, Number, Promise, Object, Set, JSON, URLSearchParams, encodeURIComponent,
+  console, URL, Number, Promise, Object, Set, JSON, URLSearchParams, encodeURIComponent, location: { origin: 'https://example.test' },
   window: { RARITY_CONFIG: { 'ウルトラ': { order: 110 }, 'ノーマル': { order: 160 }, 'シークレット': { order: 40 } } },
   document: {
     getElementById: get,
@@ -81,23 +81,22 @@ const lastSource = () => sources[sources.length - 1];
   mercariCalls()[0].resolve(okResp(BY));
   await tick(); await tick();
   assert(!hidden(), '店舗検索中でも枠が出る');
-  assert.equal(get('mercariRef').open, false);
-  assert(body().includes('確認中のレアリティ（ウルトラ・ノーマル）があります') && !body().includes('mref-grid'), body());
+  assert.equal(get('mercariRef').open, true, '検索中でも開いた状態で出る');
+  assert(!body().includes('class="scard') && body().includes('メルカリで見る') && !body().includes('確認中'), 'D空: タイルなし・リンクのみ: ' + body());
 
   // 3) shop_done で店舗結果が溜まるたびに描き直す（再取得なし・開いたまま）
-  get('mercariRef').open = true;
   send(sources[0], { type: 'shop_done', shop: 'A', status: 'ok', count: 1, results: [row('ウルトラ')] });
   assert.equal(mercariCalls().length, 1, '再取得しない');
-  assert(body().includes('mref-grid') && body().includes('>ウルトラ<') && body().includes('確認中のレアリティ（ノーマル）があります'), body());
+  assert(body().split('class="scard').length - 1 === 1 && body().includes('>ウルトラ<') && !body().includes('>ノーマル<') && !body().includes('確認中'), body());
   assert.equal(get('mercariRef').open, true, '開いたまま');
   send(sources[0], { type: 'shop_done', shop: 'B', status: 'ok', count: 0, results: [] });
-  assert(body().includes('確認中のレアリティ（ノーマル）'));
+  assert(!body().includes('>ノーマル<'));
 
   // 4) done: 確定。最終の店舗レアリティで絞り込み。同じ名前なら取り直さない
   run('rarityFilter="ウルトラ"');
   send(sources[0], { type: 'done', total: 1, results: [row('ウルトラ')] });
   assert.equal(mercariCalls().length, 1, 'done で同名なら取り直さない');
-  assert(body().includes('店舗に無いレアリティ（ノーマル）は表示していません') && !body().includes('確認中'), body());
+  assert(body().split('class="scard').length - 1 === 1 && !body().includes('>ノーマル<') && !body().includes('表示していません'), body());
   assert(!hidden() && get('mercariRef').open === true);
 
   // 5) done で total=0 → 枠を消す
