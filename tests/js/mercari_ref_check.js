@@ -60,6 +60,7 @@ const tick = () => new Promise((r) => setImmediate(r));
   assert(h.includes('* 300円は最低出品価格・関連度上位120件から集計'));
   assert(h.includes('レアリティ判定できず 2件'));
   assert(h.includes('rel="noopener"') && h.includes('target="_blank"') && h.includes('メルカリで見る'));
+  assert(!h.includes('sponsored') && !h.includes('（PR）'), 'affiliateなしはPR表記・sponsoredなし');
   assert(h.includes('rb-secret'));
   // 5列目「セット(1枚)」: ¥単価の下に「N枚組」。無ければ「—」。セットの単価には「*」を付けない
   assert(h.includes('>セット(1枚)<'));
@@ -150,6 +151,18 @@ const tick = () => new Promise((r) => setImmediate(r));
   reply(c, { ok: true, by_rarity: { 'ウルトラ': { count: 1, min: 222, median: null, min_is_floor: false } }, unclassified_count: 0, search_url: 'https://jp.mercari.com/search?keyword=C' });
   await tick(); await tick();
   assert(classes.has('hidden') && box.innerHTML === '', 'clear後の応答が描画された');
+
+  // 6b) affiliate:true はPR表記と rel=sponsored。URLのエスケープ(&)は維持
+  api.load('x');
+  reply(pending.shift(), { ok: true, by_rarity: {}, unclassified_count: 0, affiliate: true, search_url: 'https://jp.mercari.com/search?keyword=x&afid=8033172568' });
+  await tick(); await tick();
+  assert(box.innerHTML.includes('rel="sponsored noopener"') && box.innerHTML.includes('メルカリで見る（PR）'));
+  assert(box.innerHTML.includes('afid=8033172568') && box.innerHTML.includes('target="_blank"'));
+  // affiliate が true 以外(文字列"true"等)はPR扱いにしない
+  api.load('x');
+  reply(pending.shift(), { ok: true, by_rarity: {}, unclassified_count: 0, affiliate: 'true', search_url: 'https://jp.mercari.com/search?keyword=x' });
+  await tick(); await tick();
+  assert(!box.innerHTML.includes('sponsored') && box.innerHTML.includes('rel="noopener"'));
 
   // 7) 取得中は枠を出さない(店舗表の描画を遅らせない・前カードの表示を残さない)
   api.load('D');

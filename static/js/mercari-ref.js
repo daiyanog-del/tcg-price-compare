@@ -55,7 +55,11 @@
       if(unclassified>0) h+=`<div class="mref-note">レアリティ判定できず ${unclassified}件</div>`;
     }
     const link=safeUrl(d.search_url);
-    if(link) h+=`<div class="mref-link"><a href="${escAttr(link)}" target="_blank" rel="noopener">メルカリで見る</a></div>`;
+    if(link){
+      // アフィリエイトリンク（afid付き）のときはPR表記とrel=sponsoredを付ける
+      const aff=d.affiliate===true;
+      h+=`<div class="mref-link"><a href="${escAttr(link)}" target="_blank" rel="${aff?'sponsored noopener':'noopener'}">${aff?'メルカリで見る（PR）':'メルカリで見る'}</a></div>`;
+    }
     el.innerHTML=h;
   }
 

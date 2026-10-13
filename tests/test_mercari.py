@@ -253,6 +253,27 @@ def test_検索URL():
     assert "A%26B" in mercari.build_search_url("A&B")
 
 
+def test_検索URL_afidあり(monkeypatch):
+    monkeypatch.setenv("MERCARI_AFID", "8033172568")
+    url = mercari.build_search_url("増殖するG")
+    assert "afid=8033172568" in url and "status=on_sale" in url and "category_id=1152" in url
+    assert mercari.get_afid() == "8033172568"
+
+
+def test_検索URL_afidなし_空_不正値(monkeypatch, caplog):
+    monkeypatch.delenv("MERCARI_AFID", raising=False)
+    assert "afid" not in mercari.build_search_url("x")
+    monkeypatch.setenv("MERCARI_AFID", "  ")
+    assert "afid" not in mercari.build_search_url("x")
+    # 不正値: 付けずにWARNは1回だけ
+    monkeypatch.setattr(mercari, "_AFID_WARNED", False)
+    monkeypatch.setenv("MERCARI_AFID", "12a&x=1")
+    with caplog.at_level("WARNING"):
+        assert "afid" not in mercari.build_search_url("x")
+        assert "afid" not in mercari.build_search_url("y")
+    assert sum("MERCARI_AFID" in r.getMessage() for r in caplog.records) == 1
+
+
 # ── DPoP ──
 
 def test_dpop署名はES256で検証できる():
@@ -395,6 +416,18 @@ def test_api_成功(client, monkeypatch):
     assert d["by_rarity"]["ウルトラ"] == {"count": 3, "min": 1000, "median": 1200, "min_is_floor": False, "set": None}
     assert d["unclassified_count"] == 1 and d["total_considered"] == 4
     assert d["search_url"].startswith("https://jp.mercari.com/search?keyword=")
+    assert d["affiliate"] is False
+
+
+def test_api_affiliateフラグはキャッシュ越しでも現在の環境変数に従う(client, monkeypatch):
+    monkeypatch.setattr(mercari, "fetch_raw", lambda kw: {"items": [_item("灰流うらら ウルトラ", 1000)]})
+    monkeypatch.delenv("MERCARI_AFID", raising=False)
+    d1 = client.get("/api/mercari", query_string={"name": "灰流うらら"}).get_json()
+    assert d1["affiliate"] is False and "afid" not in d1["search_url"]
+    monkeypatch.setenv("MERCARI_AFID", "8033172568")
+    app_module._reset_rate_limits()   # 同一IPの連続要求をレート制限で弾かせない
+    d2 = client.get("/api/mercari", query_string={"name": "灰流うらら"}).get_json()
+    assert d2["cached"] is True and d2["affiliate"] is True and "afid=8033172568" in d2["search_url"]
 
 
 def test_api_取得失敗(client, monkeypatch):
