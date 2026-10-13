@@ -48,11 +48,6 @@
     return `<p class="buy-inline-note">メルカリで出品中の価格です${part}</p>`;
   }
 
-  // アフィリエイト時の注記（買取パネルと同じく、タイル・一覧の直下）。リンクが出ないときは出さない
-  function affNote(d){
-    return d.affiliate===true&&safeUrl(d.search_url)?`<div class="aff-note">${AFF_NOTE_TEXT}</div>`:'';
-  }
-
   // 最下行: メルカリへのリンク（アフィリエイト時は「PR」の印と rel=sponsored）と他のレアリティ
   function tailNote(d,others){
     const unclassified=Number(d.unclassified_count)||0;
@@ -149,13 +144,13 @@
     if(sel){
       const v=sc.rs.indexOf(sel)>=0?d.by_rarity[sel]:null;
       h+=v?tilesHtml(sel,v):emptyHtml('このレアリティの出品は見つかりませんでした');
-      h+=affNote(d)+tailNote(d,sc.rs.filter(r=>r!==sel));
+      h+=tailNote(d,sc.rs.filter(r=>r!==sel));
     }else if(sc.rs.length>0){
-      h+=gridHtml(d,sc.rs)+affNote(d)+tailNote(d,[]);
+      h+=gridHtml(d,sc.rs)+tailNote(d,[]);
     }else{
       // 全件が判定不能のときは「出品なし」と言わず、判定できず件数とリンクを出す（取得できたが全件除外は「出品なし」と区別）
       if(!(Number(d.unclassified_count)>0)) h+=emptyHtml(fetched>0||sc.excluded.length>0?'条件に合う出品なし':'出品なし');
-      h+=affNote(d)+tailNote(d,[]);
+      h+=tailNote(d,[]);
     }
     h+=excludedNote(sc.excluded);
     show(h);
