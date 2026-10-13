@@ -39,6 +39,22 @@ function affLink(url, shop, mode){
   return 'https://px.a8.net/svt/ejp?a8mat='+a8mat+'&a8ejpredirect='+encodeURIComponent(url);
 }
 
+// 広告表記: 店名ではなく「affLinkが実際に変換したか」で判定する（設定取得前の直リンクは対象外）
+function _isAffUrl(orig, converted){
+  return !!converted&&converted!==safeUrl(orig);
+}
+// 変換されたリンクは sponsored、直リンクは従来どおり nofollow
+function _affRel(isAff){
+  return isAff?'sponsored noopener':'noopener nofollow';
+}
+const AFF_PR_BADGE='<span class="aff-pr">PR</span>';
+// 注記ブロックの表示切替（変換リンクが1つ以上あるときだけ表示）
+function _setAffNote(show){
+  const el=document.getElementById('sumAffNote');
+  if(el) el.classList.toggle('hidden',!show);
+}
+const AFF_NOTE_TEXT='一部のリンクは広告（PR）を含みます';
+
 function affPixel(shop, mode){
   // A8.netのトラッキングピクセル
   if(!_affConfig[shop]) return '';
@@ -140,7 +156,7 @@ function _applyKonamiLink(kid){
 
 // 価格関連セクションの表示/非表示を切り替える（未発売カードは価格テーブル等を隠す）
 function _setPriceSectionsVisible(visible){
-  ['buyInline','sumCards','rarityFilter','rfBanner','p-all','p-rarity'].forEach(id=>{
+  ['buyInline','sumCards','sumAffNote','rarityFilter','rfBanner','p-all','p-rarity'].forEach(id=>{
     const el=document.getElementById(id);
     if(el) el.style.display=visible?'':'none';
   });
@@ -413,6 +429,7 @@ function doSearch(opts){
   if(cardHero) cardHero.classList.add('hidden');
   const sumCards=document.getElementById('sumCards');
   if(sumCards) sumCards.innerHTML='';
+  _setAffNote(false);
 
   // 検索対象店舗はサーバ側の既定（DEFAULT_SHOPS）が決める。フロントはトグルUIから
   // 店舗集合を組み立てず、SSEで届くprogress/shop_doneイベントに合わせて進捗行を
@@ -765,6 +782,7 @@ function renderSummary(){
     const soldInRarity=(rarityFilter?D.filter(r=>r.rarity===rarityFilter):D).filter(r=>r.sold_out).length;
     const soldNote=soldInRarity>0?`（売切${soldInRarity}件）`:'';
     document.getElementById('sumCards').innerHTML=`<div class="empty" style="padding:16px 0"><p>このレアリティは在庫切れです${soldNote}</p></div>`;
+    _setAffNote(false);
     return;
   }
   const minPrice=items[0].price;
@@ -772,6 +790,7 @@ function renderSummary(){
   // （型番が違えば別物のため、別型番同士の引き算を表示しない。買取側の店舗別カードと同じ規律）
   const topCode=_looksLikeCardCode(items[0].code)?items[0].code:null;
   let h='';
+  let anyAff=false;
   items.forEach((item,i)=>{
     const sameCode=!!topCode&&item.code===topCode;
     // J-5: rarityFilterが空（=「すべて」表示・別レアリティ同士の比較）のときはBESTバッジを付けない
@@ -780,8 +799,11 @@ function renderSummary(){
     // 先頭行の型番が使えない値でもバッジは先頭行に付く
     const isBest=!!rarityFilter&&i===0;
     const itemUrl=affLink(item.url, item.shop, 'sell');
-    const nameLink=item.url?`<a href="${escAttr(itemUrl)}" target="_blank" rel="noopener nofollow">${esc(item.name)}</a>`:esc(item.name);
-    const priceLink=item.url?`<a class="scard-link" href="${escAttr(itemUrl)}" target="_blank" rel="noopener nofollow">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
+    const isAff=!!item.url&&_isAffUrl(item.url,itemUrl);
+    if(isAff) anyAff=true;
+    const relStr=_affRel(isAff);
+    const nameLink=item.url?`<a href="${escAttr(itemUrl)}" target="_blank" rel="${relStr}">${esc(item.name)}</a>`:esc(item.name);
+    const priceLink=item.url?`<a class="scard-link" href="${escAttr(itemUrl)}" target="_blank" rel="${relStr}">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
     const bestBadge=isBest?'<span class="sbest-badge">最安</span>':'';
     // F-9: rarityFilterが空（=別レアリティ間の比較）のときは差額表示自体を出さない（比較として成立しないため）
     // F-8: 最安（先頭）は.sbest-badgeに任せ.sdiffには何も出さない（重複解消）。
@@ -797,11 +819,12 @@ function renderSummary(){
     // K-1/L-1: 型番（code）が「型番らしい形」を通るときだけ表示する（弾の略号や壊れた値をそのまま
     // 型番として見せない。迷ったら弾く側に倒す）
     const codeStr=_looksLikeCardCode(item.code)?`・${esc(item.code)}`:'';
-    h+=`<div class="scard${isBest?' best':''} fin"><div class="slabel">${esc(item.shop)}</div>
+    h+=`<div class="scard${isBest?' best':''} fin"><div class="slabel">${esc(item.shop)}${isAff?AFF_PR_BADGE:''}</div>
       <div class="sprice">${priceLink}${bestBadge}<span class="sdiff">${diff}</span></div>
       <div class="sdetail">${esc(item.rarity||'-')}${condStr}${codeStr}<br>${nameLink}</div></div>`;
   });
   document.getElementById('sumCards').innerHTML=h;
+  _setAffNote(anyAff);
 }
 
 // ── C-2: 販売ページに買取価格を併置（#buyInline、第2弾B）──
@@ -1044,13 +1067,16 @@ function _renderBuyInline(){
   const maxPrice=sortedShops[0].price;
   const topCode=_looksLikeCardCode(sortedShops[0].code)?sortedShops[0].code:null;
   let cardsHtml='';
+  let anyAff=false;
   sortedShops.forEach((item,i)=>{
     const sameCode=!!topCode&&item.code===topCode;
     const isBest=rarityActive&&i===0;
     // アフィリエイト: リンクはaffLink()を使うが、トラッキングピクセルaffPixel()はここでは発火させない
     // （レアリティ切替のたびにこの関数が再実行されるため。第1弾F-2で潰した重複発火の再発防止）
     const itemUrl=affLink(item.url,item.shop,'buy');
-    const priceLink=item.url?`<a class="scard-link" href="${escAttr(itemUrl)}" target="_blank" rel="noopener nofollow">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
+    const isAff=!!item.url&&_isAffUrl(item.url,itemUrl);
+    if(isAff) anyAff=true;
+    const priceLink=item.url?`<a class="scard-link" href="${escAttr(itemUrl)}" target="_blank" rel="${_affRel(isAff)}">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
     const bestBadge=isBest?'<span class="sbest-badge">最高額</span>':'';
     let diff='';
     if(!isBest&&rarityActive&&sameCode){
@@ -1063,12 +1089,12 @@ function _renderBuyInline(){
     // K-1/L-1: 型番（code）が「型番らしい形」を通るときだけ表示する（同一レアリティ内の価格差の
     // 理由を画面から分かるようにしつつ、弾の略号や壊れた値をそのまま型番として見せない）
     const codeStr=_looksLikeCardCode(item.code)?`・${esc(item.code)}`:'';
-    cardsHtml+=`<div class="scard${isBest?' best':''} fin"><div class="slabel">${esc(item.shop)}</div>
+    cardsHtml+=`<div class="scard${isBest?' best':''} fin"><div class="slabel">${esc(item.shop)}${isAff?AFF_PR_BADGE:''}</div>
       <div class="sprice" style="color:var(--green)">${priceLink}${bestBadge}<span class="sdiff">${diff}</span></div>
       <div class="sdetail">${esc(item.rarity||'-')}${condStr}${codeStr}<br>${esc(item.name)}</div></div>`;
   });
 
-  body.innerHTML=`${conditionNote}<div class="summary">${cardsHtml}</div>${_buyInlineNotes()}`;
+  body.innerHTML=`${conditionNote}<div class="summary">${cardsHtml}</div>${anyAff?`<div class="aff-note">${AFF_NOTE_TEXT}</div>`:''}${_buyInlineNotes()}`;
 }
 
 // F-5/F-14: ヒーローの最安値表示・売切件数バッジをrarityFilterに合わせて再計算する
@@ -1147,8 +1173,9 @@ function renderTable(){
     const so=r.sold_out?'sold-out':'';
     const stockStr=r.sold_out?'<span class="sob">売切</span>':(r.stock>0?r.stock:'-');
     const linkUrl=affLink(r.url, r.shop, 'sell');
+    const isAff=!!r.url&&_isAffUrl(r.url,linkUrl);
     const nameLink=r.url
-      ?`<a class="row-link" href="${escAttr(linkUrl)}" target="_blank" rel="noopener nofollow">${esc(r.name)}</a>`
+      ?`<a class="row-link" href="${escAttr(linkUrl)}" target="_blank" rel="${_affRel(isAff)}">${esc(r.name)}</a>`
       :esc(r.name);
     const cond=r.condition==='セール'?'<span style="color:var(--gold)">セール</span>':esc(r.condition);
     const rowClass=[so,linkUrl?'row-clickable':''].filter(Boolean).join(' ');
@@ -1164,7 +1191,7 @@ function renderTable(){
       <td data-label="" class="col-img"><div class="tbl-img"></div></td>
       <td data-label="レアリティ"><span class="rb ${rc}">${esc(r.rarity||'-')}</span></td>
       <td data-label="カード名" class="col-name">${nameLink}</td>
-      <td data-label="店舗">${esc(r.shop)}</td>
+      <td data-label="店舗">${esc(r.shop)}${isAff?AFF_PR_BADGE:''}</td>
       <td data-label="状態">${cond}</td>
       <td data-label="価格" class="col-price">¥${r.price.toLocaleString()}</td>
       <td data-label="在庫" class="col-stock">${stockStr}</td>

@@ -471,6 +471,8 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 @media(max-width:420px){.mref-grid{gap:6px 8px}.mref-grid .rb{font-size:.64rem;padding:2px 5px}.mref-min{font-size:.8rem}}
 .mref-grid .rb{justify-self:start}
 .mref-note{font-size:.74rem;color:var(--text-d);margin-top:6px}
+.aff-note{font-size:.74rem;color:var(--text-d);margin-top:6px;text-align:right}
+.aff-pr{display:inline-block;margin-left:6px;font-size:.62rem;font-weight:500;color:var(--text-d);border:1px solid currentColor;border-radius:3px;padding:0 3px;line-height:1.4;vertical-align:1px;letter-spacing:0;text-transform:none}
 .mref-link{margin-top:8px;font-size:.76rem}
 .mref-link a{color:var(--accent-l)}
 .mref-link a:hover{text-decoration:underline}
@@ -809,6 +811,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     </div>
 
     <div class="summary" id="sumCards"></div>
+    <div class="aff-note hidden" id="sumAffNote">一部のリンクは広告（PR）を含みます</div>
     <!-- C-2: 販売ページに買取価格を併置（eスターボックス型）。既定で閉じ、開いたときに初めて
          /api/buyback を叩く（第2弾B）。S-1で買取タブ（旧#buyTbody等）自体は廃止済み。
          2026-09-01: 一覧の下→店舗サマリーの直後へ移動。全件リストに「最高買取」列を足した結果、
