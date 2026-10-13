@@ -451,6 +451,23 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 /* ── details（折りたたみ）の共通見た目（R-2: 旧・価格推移グラフ用のクラス名だが
    #buyInline（買取価格の折りたたみ）が現役で使用しているため名前はそのまま残す） ── */
 .price-chart{margin-bottom:20px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px}
+/* 価格推移の細い常設グラフ（price-trend.js）。枠は .price-chart と同じ見た目で padding だけ小さめ */
+.price-trend{margin-bottom:20px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:10px 12px}
+.pt-head{display:flex;justify-content:space-between;align-items:baseline;gap:4px 12px;flex-wrap:wrap;font-size:.78rem}
+.pt-title{color:var(--text-m);font-weight:600}
+.pt-val{display:flex;gap:4px 10px;align-items:baseline;flex-wrap:wrap;font-family:var(--mono)}
+.pt-range,.pt-read{color:var(--text-m);font:.72rem var(--mono)}
+.pt-legend{display:flex;flex-wrap:wrap;gap:2px 10px;margin-top:4px;font-size:.68rem;color:var(--text-m)}
+.pt-chip i{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px;vertical-align:middle}
+.pt-plot{position:relative;margin-top:6px;height:72px;touch-action:pan-y;cursor:crosshair}
+.pt-plot svg{display:block;width:100%;height:100%}
+.pt-cursor{stroke:var(--text-d);stroke-width:1}
+.pt-ymax,.pt-ymin{position:absolute;left:2px;font:.62rem var(--mono);color:var(--text-d);pointer-events:none}
+.pt-ymax{top:0}
+.pt-ymin{bottom:0}
+.pt-axis{display:flex;justify-content:space-between;margin-top:2px;font:.62rem var(--mono);color:var(--text-d)}
+.pt-note{margin:0;font-size:.75rem;color:var(--text-d)}
+@media(max-width:600px){.pt-plot{height:60px}}
 .price-chart>summary{cursor:pointer;list-style:none;user-select:none}
 .price-chart>summary::-webkit-details-marker{display:none}
 .price-chart>summary::before{content:'▸ ';color:var(--text-d)}
@@ -803,6 +820,10 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     </div>
 
     <div class="summary" id="sumCards"></div>
+    <!-- 価格推移の細い常設グラフ（折りたたまない）。/api/price-history を別fetchで取得して price-trend.js が描画する -->
+    <div id="priceTrend" class="price-trend hidden">
+      <div id="priceTrendBody"></div>
+    </div>
     <!-- C-2: 販売ページに買取価格を併置（eスターボックス型）。既定で閉じ、開いたときに初めて
          /api/buyback を叩く（第2弾B）。S-1で買取タブ（旧#buyTbody等）自体は廃止済み。
          2026-09-01: 一覧の下→店舗サマリーの直後へ移動。全件リストに「最高買取」列を足した結果、
@@ -1414,6 +1435,7 @@ const _pageMode={{ page_mode | tojson }};
 <script src="{{ static_url('js/search-status.js') }}" defer></script>
 <script src="{{ static_url('js/index-main.js') }}" defer></script>
 <script src="{{ static_url('js/mercari-ref.js') }}" defer></script>
+<script src="{{ static_url('js/price-trend.js') }}" defer></script>
 <script src="{{ static_url('js/new-cards.js') }}" defer></script>
 <script>
 // Service Worker登録
