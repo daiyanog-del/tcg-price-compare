@@ -23,7 +23,6 @@ import threading
 import time
 import unicodedata
 import uuid
-from datetime import datetime, timedelta
 from typing import Callable
 from urllib.parse import quote
 
@@ -33,8 +32,6 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 
 import rarity as _rarity
-from card_code import looks_like_card_code
-from constants import JST
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +56,6 @@ CACHE_TTL_SEC = 15 * 60  # TODO: calibrate from data
 CACHE_MAX_ENTRIES = 500
 MERCARI_MEDIAN_MIN_COUNT = 3  # TODO: calibrate from data（これ未満は中央値を出さない）
 MERCARI_MIN_LISTING_PRICE = 300  # メルカリの最低出品価格。min がこれなら「下限張り付き」
-CODE_LOOKBACK_DAYS = 90  # 型番→レアリティ補完で見る価格履歴の期間
-CODE_MAX_PAGES = 10  # 価格履歴の読み出し上限（1000行×10ページ）
 
 # ── 除外規則（商品名） ──
 # TODO: calibrate from data（実データで除外漏れ・過剰除外を確認しながら増減する）
@@ -323,13 +318,6 @@ def exclusion_reason(card_name: str, item: dict,
 _CODE_IN_TEXT = re.compile(r"[A-Za-z0-9]{2,6}-[A-Za-z]{2}[A-Za-z]?\d{2,4}")
 
 
-def extract_code(item_name: str) -> str | None:
-    """商品名から型番（RC04-JP009 形式）を1つ取り出す。複数あれば None（曖昧）。"""
-    norm = unicodedata.normalize("NFKC", item_name or "").upper()
-    codes = {m.group(0) for m in _CODE_IN_TEXT.finditer(norm) if looks_like_card_code(m.group(0))}
-    return next(iter(codes)) if len(codes) == 1 else None
-
-
 def _text_for_rarity(card_name: str, item_name: str) -> str:
     """レアリティ判定にかける文字列。カード名と型番は先に取り除く
     （カード名の一部や型番の英字を略号と取り違えないため）。
@@ -345,57 +333,28 @@ def _text_for_rarity(card_name: str, item_name: str) -> str:
     return text
 
 
-def classify_rarity(card_name: str, item_name: str,
-                    code_rarity_lookup: Callable[[], dict[str, set[str]]] | None = None) -> str | None:
-    """出品名からレアリティ(正規名)を判定する。判定できなければ None。
+def classify_rarity(card_name: str, item_name: str) -> str | None:
+    """出品名のレアリティ表記から正規名を判定する。判定できなければ None。
 
-    1. 商品名のレアリティ表記
-    2. だめなら、型番が商品名にあり、そのカードで型番→レアリティが1種類にしか
-       対応しないときだけ補う（複数対応の型番は補わない）
+    型番からの補完は行わない（2026-10-13 不採用。docs/decisions.md 参照）。
     """
-    r = _rarity.extract_rarity_from_text(_text_for_rarity(card_name, item_name))
-    if r:
-        return r
-    if code_rarity_lookup is None:
-        return None
-    code = extract_code(item_name)
-    if not code:
-        return None
-    try:
-        mapping = code_rarity_lookup()
-    except Exception as e:  # 補完はあくまで補助。失敗しても集計自体は続ける
-        logger.warning("[mercari] 型番補完の取得失敗: %s", e)
-        return None
-    rarities = mapping.get(code)
-    if rarities and len(rarities) == 1:
-        return next(iter(rarities))
-    return None
+    return _rarity.extract_rarity_from_text(_text_for_rarity(card_name, item_name))
 
 
 # ── 集計 ──
 
-def aggregate(card_name: str, items: list[dict],
-              code_rarity_lookup: Callable[[], dict[str, set[str]]] | None = None,
-              known_names=None) -> dict:
+def aggregate(card_name: str, items: list[dict], known_names=None) -> dict:
     """生の出品リストを除外→レアリティ判定→レアリティ別集計にする（通信なし）。"""
     groups: dict[str, list[int]] = {}
     unclassified = 0
     considered = 0
-    # 型番補完の問い合わせはカード名単位で1回に抑える（遅延評価＋メモ化）
-    memo: dict = {}
-
-    def lookup():
-        if "v" not in memo:
-            memo["v"] = code_rarity_lookup() if code_rarity_lookup else {}
-        return memo["v"]
-
     matcher = build_name_matcher(card_name, items, known_names)
     for it in items:
         if exclusion_reason(card_name, it, matcher):
             continue
         considered += 1
         price = int(it["price"])
-        r = classify_rarity(card_name, it.get("name") or "", lookup if code_rarity_lookup else None)
+        r = classify_rarity(card_name, it.get("name") or "")
         if r is None:
             unclassified += 1
             continue
@@ -412,81 +371,6 @@ def aggregate(card_name: str, items: list[dict],
             "min_is_floor": mn == MERCARI_MIN_LISTING_PRICE,
         }
     return {"by_rarity": by_rarity, "unclassified_count": unclassified, "total_considered": considered}
-
-
-# ── 型番→レアリティ（Supabase 価格履歴ビュー） ──
-
-_code_map_cache: dict[str, tuple[float, dict]] = {}
-_code_map_lock = threading.Lock()
-CODE_MAP_TTL_SEC = 6 * 3600  # TODO: calibrate from data（夜間収集で日次にしか変わらない）
-
-
-def load_code_rarity_map(client, card_name: str) -> dict[str, set[str]]:
-    """カード名の 型番→{レアリティ} を直近90日の価格履歴から作る。
-
-    price_history ビューは price_history_v2 を card_dim / rarity_dim と結合したもの
-    （/api/price-history と同じ読み方）。型番として正しい形のものだけ使う
-    （カーナベルの弾略号・トレコロの数値IDは除く）。1000行上限を超えるため
-    order 付き range でページ送りし、上限ページに達して打ち切られた場合は
-    「一意」の判定が信用できないので空を返す（補完しない）。
-    カード名単位でキャッシュする。
-    """
-    now = time.time()
-    with _code_map_lock:
-        hit = _code_map_cache.get(card_name)
-        if hit and now - hit[0] < CODE_MAP_TTL_SEC:
-            return hit[1]
-    cutoff = (datetime.now(JST) - timedelta(days=CODE_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
-    page_size = 1000
-    offset = 0
-    mapping: dict[str, set[str]] = {}
-    truncated = False
-    while True:
-        resp = (client.table("price_history")
-                .select("rarity, code, recorded_at")
-                .eq("card_name", card_name)
-                .gte("recorded_at", cutoff)
-                .neq("code", "")
-                .order("recorded_at", desc=True)
-                .order("shop", desc=False)
-                .order("rarity", desc=False)
-                .range(offset, offset + page_size - 1)
-                .execute())
-        batch = resp.data or []
-        for row in batch:
-            code = unicodedata.normalize("NFKC", str(row.get("code") or "")).strip().upper()
-            if not looks_like_card_code(code):
-                continue
-            canon = _rarity.normalize_rarity(row.get("rarity") or "")
-            if not canon or canon == _rarity.UNKNOWN_RARITY_LABEL:
-                continue
-            mapping.setdefault(code, set()).add(canon)
-        if len(batch) < page_size:
-            break
-        offset += page_size
-        if offset >= CODE_MAX_PAGES * page_size:
-            # ちょうど上限行数のときを打ち切りと誤判定しないよう、次の1行があるか確かめる
-            probe = (client.table("price_history")
-                     .select("rarity, code, recorded_at")
-                     .eq("card_name", card_name)
-                     .gte("recorded_at", cutoff)
-                     .neq("code", "")
-                     .order("recorded_at", desc=True)
-                     .order("shop", desc=False)
-                     .order("rarity", desc=False)
-                     .range(offset, offset)
-                     .execute())
-            if probe.data:
-                truncated = True
-                logger.warning("[mercari] 型番補完: %dページで打ち切り [%s] 補完しない", CODE_MAX_PAGES, card_name)
-            break
-    if truncated:
-        mapping = {}
-    with _code_map_lock:
-        if len(_code_map_cache) >= CACHE_MAX_ENTRIES:
-            _code_map_cache.clear()
-        _code_map_cache[card_name] = (now, mapping)
-    return mapping
 
 
 # ── 公開: キャッシュ・負荷対策つき取得 ──
@@ -535,7 +419,7 @@ def _reset_load_state():
         _inflight.clear()
 
 
-def _fetch_and_aggregate(card_name: str, supabase_client, known_names) -> dict:
+def _fetch_and_aggregate(card_name: str, known_names) -> dict:
     """上限チェック→取得→集計。成功/失敗の結果dict(キャッシュ前)を返す。"""
     # 同時実行枠を取れてから毎分枠を消費する（busy で終わる要求が毎分枠を食わないように）
     if not _fetch_slots.acquire(blocking=False):
@@ -552,12 +436,9 @@ def _fetch_and_aggregate(card_name: str, supabase_client, known_names) -> dict:
         return FAILED_RESULT
     finally:
         _fetch_slots.release()
-    lookup = None
-    if supabase_client is not None:
-        lookup = lambda: load_code_rarity_map(supabase_client, card_name)  # noqa: E731
     items = raw.get("items", [])
     try:
-        agg = aggregate(card_name, items, lookup, known_names)
+        agg = aggregate(card_name, items, known_names)
     except Exception as e:
         logger.error("[mercari] 集計失敗 [%s]: %s", card_name, e)
         return FAILED_RESULT
@@ -569,12 +450,12 @@ def _fetch_and_aggregate(card_name: str, supabase_client, known_names) -> dict:
             "search_url": build_search_url(card_name)}
 
 
-def get_reference(card_name: str, supabase_client=None, known_names=None) -> dict:
+def get_reference(card_name: str, known_names=None) -> dict:
     """/api/mercari の本体。
 
     成功: {"ok":True,...,"cached":bool}
     失敗: {"ok":False,"error":"fetch_failed"}（取得失敗）/ {"ok":False,"error":"busy"}（負荷制限）
-    失敗結果はキャッシュしない。supabase_client が None なら型番補完をスキップする。
+    失敗結果はキャッシュしない。DBには一切問い合わせない（型番補完は不採用）。
     同じカードの取得が進行中なら、新しく取りに行かずその結果を待って共有する。
     """
     key = unicodedata.normalize("NFKC", card_name).strip()
@@ -599,7 +480,7 @@ def get_reference(card_name: str, supabase_client=None, known_names=None) -> dic
         return FAILED_RESULT
     result = FAILED_RESULT
     try:
-        result = _fetch_and_aggregate(card_name, supabase_client, known_names)
+        result = _fetch_and_aggregate(card_name, known_names)
         if result.get("ok"):
             with _cache_lock:
                 if len(_cache) >= CACHE_MAX_ENTRIES:

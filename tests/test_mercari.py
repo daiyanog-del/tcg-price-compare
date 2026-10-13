@@ -160,130 +160,11 @@ def test_classify_カード名と型番は先に除いてから判定する():
     assert mercari.classify_rarity("増殖するG", "遊戯王 増殖するG RC04-JP005 ウルトラレア") == "ウルトラ"
 
 
-# ── 型番補完 ──
-
-def test_型番補完_一意のときだけ補う():
-    lookup = lambda: {"RC04-JP009": {"スーパー"}}
-    assert mercari.classify_rarity("灰流うらら", "遊戯王 灰流うらら RC04-JP009", lookup) == "スーパー"
-
-
-def test_型番補完_複数レアリティにまたがる型番は補わない():
-    lookup = lambda: {"RC04-JP009": {"スーパー", "ウルトラ", "シークレット"}}
-    assert mercari.classify_rarity("灰流うらら", "遊戯王 灰流うらら RC04-JP009", lookup) is None
-
-
-def test_型番補完_商品名のレアリティ表記が優先される():
-    lookup = lambda: {"RC04-JP009": {"スーパー"}}
-    assert mercari.classify_rarity("灰流うらら", "灰流うらら RC04-JP009 ウルトラ", lookup) == "ウルトラ"
-
-
-def test_型番補完_型番が複数ある題名や型番なしは補わない():
-    lookup = lambda: {"RC04-JP009": {"スーパー"}, "RC03-JP010": {"スーパー"}}
-    assert mercari.classify_rarity("灰流うらら", "灰流うらら RC04-JP009 RC03-JP010", lookup) is None
-    assert mercari.classify_rarity("灰流うらら", "灰流うらら", lookup) is None
-
-
-def test_型番補完_未登録の型番は補わない():
-    assert mercari.classify_rarity("灰流うらら", "灰流うらら RC99-JP001", lambda: {}) is None
-
-
-def test_型番補完_取得に失敗しても分類は続く():
-    def boom():
-        raise RuntimeError("db down")
-    assert mercari.classify_rarity("灰流うらら", "灰流うらら RC04-JP009", boom) is None
-
-
-def test_型番補完の問い合わせはaggregateの中でカード名ごとに1回():
-    calls = []
-
-    def lookup():
-        calls.append(1)
-        return {"RC04-JP009": {"スーパー"}}
-    items = [_item("灰流うらら RC04-JP009", 500), _item("灰流うらら RC04-JP009 美品", 600),
-             _item("灰流うらら", 700)]
-    agg = mercari.aggregate("灰流うらら", items, lookup)
-    assert len(calls) == 1
-    assert agg["by_rarity"]["スーパー"]["count"] == 2
-    assert agg["unclassified_count"] == 1
-
-
-class _FakeQuery:
-    def __init__(self, rows, log):
-        self.rows, self.log, self.lo, self.hi = rows, log, 0, None
-
-    def select(self, *a, **k): return self
-    def eq(self, *a): return self
-    def gte(self, *a): return self
-    def neq(self, *a): return self
-    def order(self, *a, **k): return self
-
-    def range(self, lo, hi):
-        self.lo, self.hi = lo, hi
-        return self
-
-    def execute(self):
-        self.log.append((self.lo, self.hi))
-
-        class R:
-            pass
-        r = R()
-        r.data = self.rows[self.lo:self.hi + 1]
-        return r
-
-
-class _FakeClient:
-    def __init__(self, rows):
-        self.rows, self.log = rows, []
-
-    def table(self, name):
-        assert name == "price_history"
-        return _FakeQuery(self.rows, self.log)
-
-
 @pytest.fixture(autouse=True)
 def _clear_caches():
     mercari._cache.clear()
-    mercari._code_map_cache.clear()
     yield
     mercari._cache.clear()
-    mercari._code_map_cache.clear()
-
-
-def test_価格履歴から型番とレアリティの対応を作る():
-    rows = [
-        {"rarity": "スーパー", "code": "RC04-JP009", "recorded_at": "2026-10-12"},
-        {"rarity": "UR", "code": "RC04-JP009", "recorded_at": "2026-10-12"},   # 別名は正規名へ
-        {"rarity": "ノーマル", "code": "TT01-JPA09", "recorded_at": "2026-10-12"},
-        {"rarity": "ノーマル", "code": "TTP1", "recorded_at": "2026-10-12"},   # 弾略号は型番ではない
-        {"rarity": "(不明)", "code": "ZZ01-JP001", "recorded_at": "2026-10-12"},
-    ]
-    m = mercari.load_code_rarity_map(_FakeClient(rows), "灰流うらら")
-    assert m["RC04-JP009"] == {"スーパー", "ウルトラ"}
-    assert m["TT01-JPA09"] == {"ノーマル"}
-    assert "TTP1" not in m and "ZZ01-JP001" not in m
-
-
-def test_価格履歴の読み出しは1000行ごとにページ送りする():
-    rows = [{"rarity": "スーパー", "code": "RC04-JP009", "recorded_at": "2026-10-12"}] * 2500
-    rows[-1] = {"rarity": "ウルトラ", "code": "RC04-JP009", "recorded_at": "2026-08-01"}
-    client = _FakeClient(rows)
-    m = mercari.load_code_rarity_map(client, "灰流うらら")
-    assert client.log == [(0, 999), (1000, 1999), (2000, 2999)]
-    assert m["RC04-JP009"] == {"スーパー", "ウルトラ"}   # 最後のページの行まで読めている
-
-
-def test_価格履歴が上限ページで打ち切られたら補完しない():
-    rows = [{"rarity": "スーパー", "code": "RC04-JP009", "recorded_at": "2026-10-12"}] * (1000 * mercari.CODE_MAX_PAGES + 5)
-    assert mercari.load_code_rarity_map(_FakeClient(rows), "灰流うらら") == {}
-
-
-def test_型番マップはカード名単位でキャッシュされる():
-    client = _FakeClient([{"rarity": "スーパー", "code": "RC04-JP009", "recorded_at": "2026-10-12"}])
-    mercari.load_code_rarity_map(client, "灰流うらら")
-    mercari.load_code_rarity_map(client, "灰流うらら")
-    assert len(client.log) == 1
-    mercari.load_code_rarity_map(client, "増殖するG")
-    assert len(client.log) == 2
 
 
 # ── 集計 ──
@@ -327,7 +208,7 @@ def test_by_rarityは既存のレアリティ順():
 @pytest.mark.parametrize("fx", ["hairu", "G", "blue", "senkoku"])
 def test_fixtureの集計が妥当(fx):
     kw, items = _load(fx)
-    agg = mercari.aggregate(kw, items, None, KNOWN_NAMES)
+    agg = mercari.aggregate(kw, items, KNOWN_NAMES)
     assert agg["total_considered"] > 0
     assert sum(v["count"] for v in agg["by_rarity"].values()) + agg["unclassified_count"] == agg["total_considered"]
     matcher = mercari.build_name_matcher(kw, items, KNOWN_NAMES)
@@ -466,17 +347,25 @@ def test_get_reference_キャッシュは期限切れで再取得(monkeypatch):
     assert len(calls) == 2
 
 
-def test_get_reference_Supabaseが無くても動く(monkeypatch):
-    monkeypatch.setattr(mercari, "fetch_raw", lambda kw: {"items": [_item("灰流うらら RC04-JP009", 500)]})
-    r = mercari.get_reference("灰流うらら", None)
-    assert r["ok"] and r["unclassified_count"] == 1
+def test_型番補完はせずSupabaseに一切問い合わせない(monkeypatch):
+    """型番補完は不採用（docs/decisions.md 2026-10-13）。リクエスト経路でDBを呼ばないことを固定する。"""
+    calls = []
 
-
-def test_get_reference_Supabaseの型番補完を使う(monkeypatch):
+    class Spy:
+        def __getattr__(self, name):
+            calls.append(name)
+            raise AssertionError("Supabase を呼んではいけない")
+    monkeypatch.setattr(app_module, "_supabase_client", Spy())
     monkeypatch.setattr(mercari, "fetch_raw", lambda kw: {"items": [_item("灰流うらら RC04-JP009", 500)]})
-    client = _FakeClient([{"rarity": "スーパー", "code": "RC04-JP009", "recorded_at": "2026-10-12"}])
-    r = mercari.get_reference("灰流うらら", client)
-    assert r["by_rarity"]["スーパー"]["count"] == 1 and r["unclassified_count"] == 0
+    app_module.app.config.update(TESTING=True)
+    app_module._reset_rate_limits()
+    d = app_module.app.test_client().get("/api/mercari", query_string={"name": "灰流うらら"}).get_json()
+    app_module._reset_rate_limits()
+    assert d["ok"] is True
+    # 題名にレアリティが無ければ、型番があっても判定できずのまま
+    assert d["unclassified_count"] == 1 and d["by_rarity"] == {}
+    assert calls == []
+    assert not hasattr(mercari, "load_code_rarity_map") and not hasattr(mercari, "extract_code")
 
 
 # ── API ──

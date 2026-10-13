@@ -38,11 +38,9 @@ def _reason(card, title, **kw):
 @pytest.fixture(autouse=True)
 def _reset():
     mercari._cache.clear()
-    mercari._code_map_cache.clear()
     mercari._reset_load_state()
     yield
     mercari._cache.clear()
-    mercari._code_map_cache.clear()
     mercari._reset_load_state()
 
 
@@ -318,47 +316,6 @@ def test_中央値は四捨五入():
     assert mercari.aggregate("灰流うらら", items)["by_rarity"]["ウルトラ"]["median"] == 1002
     items = [_item("灰流うらら ウルトラ", p) for p in (1000, 1002, 1002, 1004)]   # 中央値 1002
     assert mercari.aggregate("灰流うらら", items)["by_rarity"]["ウルトラ"]["median"] == 1002
-
-
-class _Q:
-    def __init__(self, rows):
-        self.rows, self.lo, self.hi = rows, 0, 0
-
-    def select(self, *a, **k): return self
-    def eq(self, *a): return self
-    def gte(self, *a): return self
-    def neq(self, *a): return self
-    def order(self, *a, **k): return self
-
-    def range(self, lo, hi):
-        self.lo, self.hi = lo, hi
-        return self
-
-    def execute(self):
-        class R:
-            pass
-        r = R()
-        r.data = self.rows[self.lo:self.hi + 1]
-        return r
-
-
-class _C:
-    def __init__(self, rows):
-        self.rows = rows
-
-    def table(self, name):
-        return _Q(self.rows)
-
-
-def _rows(n):
-    return [{"rarity": "スーパー", "code": "RC04-JP009", "recorded_at": "2026-10-12"}] * n
-
-
-def test_ちょうど上限行数は打ち切りと扱わない():
-    n = 1000 * mercari.CODE_MAX_PAGES
-    assert mercari.load_code_rarity_map(_C(_rows(n)), "A")["RC04-JP009"] == {"スーパー"}
-    mercari._code_map_cache.clear()
-    assert mercari.load_code_rarity_map(_C(_rows(n + 1)), "A") == {}
 
 
 # ── 指摘8・軽微: 母数と全件除外 ──
