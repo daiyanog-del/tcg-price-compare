@@ -475,7 +475,7 @@ def test_api_取得失敗(client, monkeypatch):
         raise mercari.MercariFetchError("HTTP 403")
     monkeypatch.setattr(mercari, "fetch_raw", boom)
     r = client.get("/api/mercari", query_string={"name": "灰流うらら"})
-    assert r.get_json() == {"ok": False, "error": "fetch_failed"}
+    assert r.get_json() == {"ok": False, "error": "fetch_failed", "card_name": "灰流うらら"}
 
 
 def test_api_0件は成功として返す(client, monkeypatch):
@@ -517,3 +517,19 @@ def test_api_未知のカード名は外部に問い合わせない(client, monk
 def test_メルカリは店舗一覧に入っていない():
     assert all("メルカリ" not in name for name, _ in app_module.SHOPS)
     assert all("メルカリ" not in name for name in app_module.DEFAULT_SHOPS)
+
+
+def test_api_補正が必要な名前でも1回の呼び出しで補正後の結果を返す(client, monkeypatch):
+    """名前補正時にクライアントが取り直すと IP 1秒制限で429になるため、サーバー側で /api/search と同じ補正をかける。"""
+    seen = []
+    monkeypatch.setattr(app_module, "_correct_cardname", lambda n: "灰流うらら" if n == "はいりゅううらら" else n)
+    monkeypatch.setattr(mercari, "fetch_raw", lambda kw: seen.append(kw) or {"items": [_item("灰流うらら ウルトラ", 1000)]})
+    r = client.get("/api/mercari", query_string={"name": "はいりゅううらら"})
+    d = r.get_json()
+    assert r.status_code == 200 and d["ok"] is True
+    assert d["card_name"] == "灰流うらら"
+    assert seen and "灰流うらら" in seen[0]
+    # 補正しても既知名でなければ従来どおり404
+    app_module._reset_rate_limits()
+    r2 = client.get("/api/mercari", query_string={"name": "存在しないカード名xyz"})
+    assert r2.status_code == 404
