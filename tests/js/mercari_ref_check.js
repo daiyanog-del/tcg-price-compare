@@ -177,7 +177,7 @@ const tiles = (h) => h.split('class="scard').length - 1;
   await loadWith(resp(BY), { rarity: '', stores: [], pending: true });
   h = body_();
   assert(!classes.has('hidden'), '店舗検索中でも枠は出る');
-  assert.equal(box.open, true);
+  assert.equal(box.open, false, '店舗検索中は閉じた見出しだけ');
   assert(tiles(h) === 0 && h.includes('メルカリで見る') && !h.includes('出品なし'), 'D空: タイルなし・リンクのみ: ' + h);
   noBanned(h);
   api.setView({ rarity: '', stores: ['ウルトラ'], pending: true });
@@ -187,12 +187,14 @@ const tiles = (h) => h.split('class="scard').length - 1;
   noBanned(h);
   api.setView({ rarity: '', stores: ['ウルトラ', 'シークレット'], pending: true });
   assert.equal(tiles(body_()), 2);
-  // 描き直しで閉じない
+  assert.equal(box.open, false, '描き直しでも pending 中は開かない');
+  // pending 中にユーザーが開いたら、そのまま開いておく
   box.open = true;
   api.setView({ rarity: '', stores: ['ウルトラ'], pending: true });
   assert.equal(box.open, true);
-  // 確定
+  // 確定（pending 解除）
   api.setView({ rarity: 'ウルトラ', stores: ['ウルトラ', 'シークレット'] });
+  assert.equal(box.open, true);
   h = body_();
   assert(tiles(h) === 1);
   noBanned(h);
@@ -213,6 +215,23 @@ const tiles = (h) => h.split('class="scard').length - 1;
   reply(pending.shift(), { ok: false, error: 'unknown_card' }, 404);
   await tick(); await tick();
   assert(classes.has('hidden') && body_() === '');
+
+  // 6b) pending 中は閉じたまま → 確定で自動オープン。確定後にユーザーが閉じたら開き直さない
+  await loadWith(resp(BY), { rarity: '', stores: [], pending: true });
+  assert.equal(box.open, false);
+  delete box.dataset.autoOpen;
+  api.setView({ rarity: '', stores: ['ウルトラ'] });
+  assert.equal(box.open, true, '確定した時点で開く');
+  assert.equal(box.dataset.autoOpen, '1', '自動オープンはGAから除外する印が付く');
+  box.open = false;
+  api.setView({ rarity: 'ウルトラ', stores: ['ウルトラ'] });
+  assert.equal(box.open, false, '確定後にユーザーが閉じたら開き直さない');
+  // 応答が確定（pending解除）の後に届いた場合も、届いた時点で開く
+  api.load('灰流うらら');
+  api.setView({ rarity: '', stores: ['ウルトラ'] });
+  reply(pending.shift(), resp(BY));
+  await tick(); await tick();
+  assert.equal(box.open, true);
 
   // 7) 自動で開く: 新しいロードで再び開いた状態から。自動で開いた印（GA除外用）が付く
   await loadWith(resp(BY), { rarity: 'ウルトラ', stores: [] });

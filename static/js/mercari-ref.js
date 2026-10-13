@@ -71,8 +71,9 @@
     const el=box(),body=bodyEl();
     if(!el||!body) return;
     el.classList.remove('hidden');
-    // 表示するときは開いた状態にする。同じカードの間は1回だけ（ユーザーが閉じたら描き直しで開き直さない）
-    if(!autoOpened){
+    // 店舗検索の途中（pending）は閉じた見出しだけ（開くと店舗の表を押し下げるため）。確定した時点で開いた状態にする。
+    // 自動で開くのは同じカードで1回だけ（ユーザーが閉じたら描き直しで開き直さない。pending中にユーザーが開いたものは閉じない）
+    if(!autoOpened&&!view.pending){
       autoOpened=true;
       if(!el.open){ el.dataset.autoOpen='1'; el.open=true; } // 自動で開いた分は index-main.js のGA計測から除く
     }

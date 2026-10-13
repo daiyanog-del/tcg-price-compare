@@ -13,13 +13,13 @@ function element(id) {
   const cls = new Set();
   return { id, value: '', innerHTML: '', textContent: '', style: {}, dataset: {}, open: false, disabled: false, children: [],
     classList: { add: (c) => cls.add(c), remove: (c) => cls.delete(c), contains: (c) => cls.has(c), toggle() {} },
-    querySelector() { return this._q || (this._q = element('q')); }, appendChild() {}, insertBefore() {}, addEventListener() {}, remove() {},
+    querySelector() { return this._q || (this._q = element('q')); }, appendChild() {}, insertBefore() {}, listeners: {}, addEventListener(k, fn) { this.listeners[k] = fn; }, contains() { return true; }, remove() {},
     parentNode: { insertBefore() {} }, setAttribute() {}, removeAttribute() {} };
 }
 const els = new Map();
 const get = (id) => { if (!els.has(id)) els.set(id, element(id)); return els.get(id); };
 get('mercariRef').classList.add('hidden');
-const fetches = [], sources = [], timers = new Map();
+const fetches = [], sources = [], timers = new Map(), gaCalls = [];
 let timerSeq = 0;
 class FakeES { constructor(url) { this.url = url; this.closed = false; sources.push(this); } close() { this.closed = true; } }
 const sandbox = {
@@ -34,7 +34,7 @@ const sandbox = {
   fetch(url) { return new Promise((resolve, reject) => fetches.push({ url, resolve, reject })); },
   setTimeout(fn) { const id = ++timerSeq; timers.set(id, fn); return id; },
   clearTimeout(id) { timers.delete(id); },
-  _ga() {}, _setSearchLayout() {}, _setAffNote() {}, _setPriceSectionsVisible() {}, _updateRarityBanner() {}, renderTable() {}, closeSuggest() {},
+  _ga(name, p) { gaCalls.push([name, p]); }, _setSearchLayout() {}, _setAffNote() {}, _setPriceSectionsVisible() {}, _updateRarityBanner() {}, renderTable() {}, closeSuggest() {},
   renderAll() {}, SearchStatus: { show() {} }, TABLE_PAGE_SIZE: 20,
 };
 vm.createContext(sandbox);
@@ -81,14 +81,14 @@ const lastSource = () => sources[sources.length - 1];
   mercariCalls()[0].resolve(okResp(BY));
   await tick(); await tick();
   assert(!hidden(), '店舗検索中でも枠が出る');
-  assert.equal(get('mercariRef').open, true, '検索中でも開いた状態で出る');
+  assert.equal(get('mercariRef').open, false, '検索中は閉じた見出しだけで出る');
   assert(!body().includes('class="scard') && body().includes('メルカリで見る') && !body().includes('確認中'), 'D空: タイルなし・リンクのみ: ' + body());
 
   // 3) shop_done で店舗結果が溜まるたびに描き直す（再取得なし・開いたまま）
   send(sources[0], { type: 'shop_done', shop: 'A', status: 'ok', count: 1, results: [row('ウルトラ')] });
   assert.equal(mercariCalls().length, 1, '再取得しない');
   assert(body().split('class="scard').length - 1 === 1 && body().includes('>ウルトラ<') && !body().includes('>ノーマル<') && !body().includes('確認中'), body());
-  assert.equal(get('mercariRef').open, true, '開いたまま');
+  assert.equal(get('mercariRef').open, false, '検索中は閉じたまま');
   send(sources[0], { type: 'shop_done', shop: 'B', status: 'ok', count: 0, results: [] });
   assert(!body().includes('>ノーマル<'));
 
@@ -97,7 +97,7 @@ const lastSource = () => sources[sources.length - 1];
   send(sources[0], { type: 'done', total: 1, results: [row('ウルトラ')] });
   assert.equal(mercariCalls().length, 1, 'done で同名なら取り直さない');
   assert(body().split('class="scard').length - 1 === 1 && !body().includes('>ノーマル<') && !body().includes('表示していません'), body());
-  assert(!hidden() && get('mercariRef').open === true);
+  assert(!hidden() && get('mercariRef').open === true, 'done で確定した時点で開く');
 
   // 5) done で total=0 → 枠を消す
   get('q').value = 'ゼロ件';
@@ -192,6 +192,18 @@ const lastSource = () => sources[sources.length - 1];
     assert(hidden() && body() === '', 'キャンセルで消す');
     assert.equal(run('_mercariPending'), false);
   }
+
+  // 10) 「メルカリで見る」リンクのクリック計測（イベント委譲・affiliate 付き）。パネル本文以外のクリックは数えない
+  vm.runInContext(block('// 「メルカリで見る」リンクのクリック計測', '// U-1: 販売テーブル側'), sandbox);
+  const onClick = get('mercariRefBody').listeners.click;
+  assert(onClick, '本文にクリック委譲が登録されている');
+  const linkEl = (rel) => ({ getAttribute: (k) => (k === 'rel' ? rel : null) });
+  onClick.call(get('mercariRefBody'), { target: { closest: () => linkEl('sponsored noopener') } });
+  onClick.call(get('mercariRefBody'), { target: { closest: () => linkEl('noopener') } });
+  onClick.call(get('mercariRefBody'), { target: { closest: () => null } });
+  const clicks = gaCalls.filter((c) => c[0] === 'mercari_link_click');
+  assert.equal(clicks.length, 2);
+  assert.deepEqual(clicks.map((c) => c[1].affiliate), [true, false]);
 
   // 配線がソースに残っていること（showUnreleasedCard と popstate 経路は _resetBuyInline を呼ぶ）
   assert(/function showUnreleasedCard[\s\S]*?_resetBuyInline\(\)/.test(main), '未発売カード表示で _resetBuyInline');
