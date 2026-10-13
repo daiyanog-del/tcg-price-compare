@@ -380,6 +380,22 @@ def admin_update_unreleased(card_id: int):
         return jsonify({"error": "更新するフィールドがありません（許可フィールド外のキーは無視されます）"}), 400
 
     try:
+        # 名前か発売日が変わったら、照合が付けた「要確認」の印は前提が崩れるので消す
+        if "name" in updates or "release_date" in updates:
+            cur = (
+                _supabase.table("unreleased_cards")
+                .select("name, release_date")
+                .eq("id", card_id)
+                .execute()
+            )
+            if cur.data:
+                old = cur.data[0]
+                new_rd = updates.get("release_date") or None
+                old_rd = old.get("release_date") or None
+                if (("name" in updates and updates["name"] != old.get("name"))
+                        or ("release_date" in updates and new_rd != old_rd)):
+                    updates["review_candidates"] = None
+
         resp = (
             _supabase.table("unreleased_cards")
             .update(updates)
@@ -523,6 +539,8 @@ def admin_approve_unreleased(card_id: int):
 # POST /api/admin/unreleased/<id>/link — 発売済みカードへ手動紐付け
 # ──────────────────────────────────────────────
 
+# needs_review は、旧方式（照合で status を needs_review に変えていた頃）に作られた既存データ向け。
+# 現行の reconcile は status を approved のまま印だけ付けるため、新規には発生しない。
 _LINKABLE_STATUSES = ("approved", "needs_review")
 
 
@@ -632,9 +650,20 @@ def admin_review_dismiss(card_id: int):
         review = card.get("review_candidates")
         if card["status"] != "approved" or not isinstance(review, dict):
             return jsonify({"error": "要確認の印が付いた公開中（approved）のカードのみ対象です"}), 400
+        if review.get("reason") == "multiple_exact":
+            # 同名の発売済みカードが既にある＝発売済みなので「まだ未発売」にはできない（紐付けのみ）
+            return jsonify({"error": "同名の発売済みカードが複数ある場合は確認済みにできません。紐付けてください"}), 400
 
         new_review = dict(review)
         new_review["dismissed_at"] = datetime.now(timezone.utc).isoformat()
+        # 確認済み時点の理由と候補ID。reconcile は理由変化・候補増加を検知して印を付け直す
+        new_review["dismissed_signature"] = {
+            "reason": review.get("reason"),
+            "candidate_ids": sorted(
+                c["konami_id"] for c in (review.get("candidates") or [])
+                if isinstance(c, dict) and isinstance(c.get("konami_id"), int)
+            ),
+        }
         upd_resp = (
             _supabase.table("unreleased_cards")
             .update({"review_candidates": new_review})
@@ -644,7 +673,7 @@ def admin_review_dismiss(card_id: int):
         )
         if not upd_resp.data:
             return jsonify({"error": "更新に失敗しました（状態が変わった可能性があります）"}), 409
-        _card_display.invalidate_cache()
+        # 公開サイトの表示に影響しない（review_candidates は表示に使わない）ためキャッシュ無効化は不要
         return jsonify({"ok": True, "card": upd_resp.data[0]})
 
     except Exception as e:

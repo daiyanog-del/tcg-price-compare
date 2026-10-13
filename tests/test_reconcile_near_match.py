@@ -230,14 +230,93 @@ def test_multiple_exact_saves_candidates_and_keeps_approved(monkeypatch):
     assert summary["review_marked"] == 1
 
 
-def test_dismissed_card_is_not_overwritten(monkeypatch):
-    dismissed = {"reason": "near_match", "candidates": [], "total_candidates": 0,
-                 "checked_at": "x", "dismissed_at": "2026-10-01T00:00:00+00:00"}
+def _dismissed(reason, ids):
+    return {"reason": reason, "candidates": [{"konami_id": i, "name": "x"} for i in ids],
+            "total_candidates": len(ids), "checked_at": "x",
+            "dismissed_at": "2026-10-01T00:00:00+00:00",
+            "dismissed_signature": {"reason": reason, "candidate_ids": sorted(ids)}}
+
+
+def test_dismissed_card_with_same_signature_is_not_overwritten(monkeypatch):
+    dismissed = _dismissed("near_match", [100])
     cards = [_card(1, "屠欺龍", PAST, review=dict(dismissed))]
     summary, rows = _run(monkeypatch, cards, {"蜃欺龍": [100]})
     assert rows[0]["review_candidates"] == dismissed
     assert summary["dismissed_skipped"] == 1
     assert summary["review_marked"] == 0
+
+
+def test_dismissed_card_is_remarked_when_new_candidate_appears(monkeypatch):
+    cards = [_card(1, "屠欺龍", PAST, review=_dismissed("near_match", [100]))]
+    summary, rows = _run(monkeypatch, cards, {"蜃欺龍": [100], "蛋欺龍": [101]})
+    rc = rows[0]["review_candidates"]
+    assert rc["dismissed_at"] is None
+    assert "dismissed_signature" not in rc
+    assert {c["konami_id"] for c in rc["candidates"]} == {100, 101}
+    assert summary["review_marked"] == 1
+    assert summary["dismissed_skipped"] == 0
+
+
+def test_dismissed_card_is_remarked_when_reason_changes(monkeypatch):
+    cards = [_card(1, "屠欺龍", PAST, review=_dismissed("near_match", [100]))]
+    # 近い名前が消えた → release_passed_no_match（理由が変わる）
+    summary, rows = _run(monkeypatch, cards, {"全然違う": [100]})
+    rc = rows[0]["review_candidates"]
+    assert rc["reason"] == "release_passed_no_match"
+    assert rc["dismissed_at"] is None
+    assert summary["release_passed_no_match"] == 1
+
+
+def test_dismissed_without_signature_is_remarked(monkeypatch):
+    old = {"reason": "near_match", "candidates": [], "dismissed_at": "2026-10-01T00:00:00+00:00"}
+    cards = [_card(1, "屠欺龍", PAST, review=old)]
+    summary, rows = _run(monkeypatch, cards, {"蜃欺龍": [100]})
+    assert rows[0]["review_candidates"]["dismissed_at"] is None
+    assert summary["review_marked"] == 1
+
+
+def test_stale_review_cleared_when_skipped(monkeypatch):
+    stale = {"reason": "near_match", "candidates": [], "dismissed_at": None}
+    cards = [_card(1, "屠欺龍", FUTURE, review=dict(stale)),      # 未来日
+             _card(2, "屠欺龍B", DAYS_6_AGO, review=dict(stale)),  # 猶予期間内
+             _card(3, "屠欺龍C", None, review=dict(stale))]       # NULL
+    summary, rows = _run(monkeypatch, cards, {"無関係": [1]})
+    assert all(r["review_candidates"] is None for r in rows)
+    assert summary["review_cleared"] == 3
+    assert summary["skipped"] == 3
+
+
+def test_dismissed_review_kept_when_skipped(monkeypatch):
+    d = _dismissed("near_match", [100])
+    cards = [_card(1, "屠欺龍", FUTURE, review=dict(d))]
+    summary, rows = _run(monkeypatch, cards, {"無関係": [1]})
+    assert rows[0]["review_candidates"] == d
+    assert summary["review_cleared"] == 0
+
+
+def test_fetch_failure_counts_as_error(monkeypatch):
+    monkeypatch.setattr(target._ygores_repo, "get_name_index", lambda: {"x": [1]})
+
+    class _Boom:
+        def table(self, _n):
+            raise RuntimeError("down")
+
+    summary = target.reconcile(_Boom())
+    assert summary["error"] == 1
+
+
+def test_main_exits_1_on_fetch_failure(monkeypatch):
+    import pytest
+    monkeypatch.setattr(target, "_get_supabase", lambda: object())
+    monkeypatch.setattr(target, "reconcile", lambda sb: {
+        "linked": 0, "review_marked": 0, "multiple_exact": 0, "near_match": 0,
+        "release_passed_no_match": 0, "dismissed_skipped": 0, "review_cleared": 0,
+        "skipped": 0, "conflict": 0, "error": 1})
+    monkeypatch.setattr(target, "_cleanup_stale_cards",
+                        lambda sb: {"linked_deleted": 0, "rejected_deleted": 0, "error": 0})
+    with pytest.raises(SystemExit) as ei:
+        target.main()
+    assert ei.value.code == 1
 
 
 def test_dismissed_card_still_linked_on_exact_single_match(monkeypatch):
@@ -406,3 +485,58 @@ def test_review_dismiss_not_found_and_auth(monkeypatch):
     client = _client()
     assert client.post("/api/admin/unreleased/9/review-dismiss", headers=HEADERS).status_code == 404
     assert client.post("/api/admin/unreleased/1/review-dismiss").status_code == 401
+
+
+def test_review_dismiss_records_signature(monkeypatch):
+    rows = [_row(1, "approved")]
+    rows[0]["review_candidates"]["candidates"] = [
+        {"konami_id": 300, "name": "a"}, {"konami_id": 100, "name": "b"}]
+    _install(monkeypatch, rows)
+    assert _client().post("/api/admin/unreleased/1/review-dismiss", headers=HEADERS).status_code == 200
+    assert rows[0]["review_candidates"]["dismissed_signature"] == {
+        "reason": "near_match", "candidate_ids": [100, 300]}
+
+
+def test_review_dismiss_rejects_multiple_exact(monkeypatch):
+    rows = [_row(1, "approved")]
+    rows[0]["review_candidates"]["reason"] = "multiple_exact"
+    _install(monkeypatch, rows)
+    assert _client().post("/api/admin/unreleased/1/review-dismiss", headers=HEADERS).status_code == 400
+    assert rows[0]["review_candidates"]["dismissed_at"] is None
+
+
+# ──────────────────────────────────────────────
+# 編集API（PUT）で name / release_date が変わったら印を消す
+# ──────────────────────────────────────────────
+
+def _put_row():
+    r = _row(1, "approved")
+    r["release_date"] = "2026-09-01"
+    return r
+
+
+def test_put_name_change_clears_review(monkeypatch):
+    rows = [_put_row()]
+    _install(monkeypatch, rows)
+    resp = _client().put("/api/admin/unreleased/1", headers=HEADERS, json={"name": "蜃欺龍"})
+    assert resp.status_code == 200
+    assert rows[0]["name"] == "蜃欺龍"
+    assert rows[0]["review_candidates"] is None
+
+
+def test_put_release_date_change_clears_review(monkeypatch):
+    rows = [_put_row()]
+    _install(monkeypatch, rows)
+    resp = _client().put("/api/admin/unreleased/1", headers=HEADERS, json={"release_date": "2027-01-01"})
+    assert resp.status_code == 200
+    assert rows[0]["review_candidates"] is None
+
+
+def test_put_unchanged_name_or_other_field_keeps_review(monkeypatch):
+    rows = [_put_row()]
+    _install(monkeypatch, rows)
+    client = _client()
+    # 同じ name・同じ release_date の再保存、無関係フィールドの変更では消さない
+    assert client.put("/api/admin/unreleased/1", headers=HEADERS,
+                      json={"name": "屠欺龍", "release_date": "2026-09-01", "reading": "とぎりゅう"}).status_code == 200
+    assert rows[0]["review_candidates"] is not None

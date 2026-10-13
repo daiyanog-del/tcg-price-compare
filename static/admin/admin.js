@@ -667,7 +667,8 @@ const REVIEW_REASON_LABELS = {
 /**
  * 「要確認」表示の対象か判定する。
  *  - approved: review_candidates があり、dismissed_at が無いもの（公開中タブ）
- *  - needs_review: review_candidates があるもの（承認待ちタブ・既存データ向け）
+ *  - needs_review: review_candidates があるもの（旧方式で作られた既存データ向け。現行の照合は
+ *    status を変えないため新規には発生しない）
  * @param {Object} card
  * @returns {boolean}
  */
@@ -709,7 +710,8 @@ function _buildReviewBlock(card) {
     ? `<div class="review-candidates__rest">ほか ${_escapeHtml(rest)} 件（上位${_escapeHtml(candidates.length)}件のみ表示）</div>`
     : '';
   // 公開中（approved）のカードだけ「確認済み」を選べる
-  const dismissHtml = card.status === 'approved'
+  // multiple_exact は同名の発売済みカードが既にあるため「まだ未発売」にはできない（紐付けのみ）
+  const dismissHtml = (card.status === 'approved' && review.reason !== 'multiple_exact')
     ? '<button class="btn btn-ghost btn-sm action-review-dismiss">確認済み（まだ未発売）</button>'
     : '';
 
