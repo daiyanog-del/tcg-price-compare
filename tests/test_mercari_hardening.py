@@ -276,12 +276,23 @@ def test_同じレアリティの複数表記は曖昧にならない():
     ("遊戯王 灰流うらら ○○様専用", "dedicated"),
     ("さ*く様 遊戯王 灰流うらら", "dedicated"),
     ("遊戯王 灰流うらら 専用", "dedicated"),
+    ("ボ*ブ様 遊戯王OCG 灰流うらら", "dedicated"),
+    ("遊戯王 灰流うらら ○○様用", "dedicated"),
+    ("遊戯王 灰流うらら 専用です", "dedicated"),
 ])
 def test_追加の除外規則(title, reason):
     assert _reason("灰流うらら", title) == reason
 
 
 @pytest.mark.parametrize("title", [
+    "遊戯王 灰流うらら 王様",
+    "神様 遊戯王 灰流うらら",
+    "遊戯王 灰流うらら お客様へ",
+    "皆様 遊戯王 灰流うらら",
+    "遊戯王 灰流うらら 異様な人気",
+    "王様 遊戯王 灰流うらら",
+    "遊戯王 灰流うらら 専用ではありません",
+    "遊戯王 灰流うらら 専用じゃありません",
     "遊戯王 灰流うらら スリーブ付き",
     "遊戯王 灰流うらら ローダー付き",
     "遊戯王 灰流うらら トップローダー付",
@@ -364,3 +375,73 @@ def test_numFoundが無くても動く(monkeypatch):
     monkeypatch.setattr(mercari, "fetch_raw", lambda kw: {"items": []})
     r = mercari.get_reference("灰流うらら")
     assert r["ok"] and r["fetched_count"] == 0 and r["num_found"] is None
+
+
+# ── 再監査の軽微指摘 ──
+
+def test_busyの要求は毎分枠を消費しない(monkeypatch):
+    monkeypatch.setattr(mercari, "fetch_raw", lambda kw: {"items": []})
+    monkeypatch.setattr(mercari, "MAX_FETCHES_PER_MIN", 1)
+    sem = threading.BoundedSemaphore(1)
+    sem.acquire()                       # 同時実行枠を埋めておく
+    monkeypatch.setattr(mercari, "_fetch_slots", sem)
+    for n in "ABC":
+        assert mercari.get_reference("カード" + n) == {"ok": False, "error": "busy"}
+    sem.release()
+    assert mercari.get_reference("カードD")["ok"] is True   # 毎分枠(1)は busy に食われていない
+
+
+def test_毎分上限で断られたときは同時実行枠を返す(monkeypatch):
+    monkeypatch.setattr(mercari, "fetch_raw", lambda kw: {"items": []})
+    monkeypatch.setattr(mercari, "MAX_FETCHES_PER_MIN", 0)
+    sem = threading.BoundedSemaphore(1)
+    monkeypatch.setattr(mercari, "_fetch_slots", sem)
+    assert mercari.get_reference("カードA") == {"ok": False, "error": "busy"}
+    assert sem.acquire(blocking=False)  # 返却されている
+
+
+def test_合流待ちの上限は取得側の最悪時間より長い():
+    worst = mercari.REQUEST_TOTAL_TIMEOUT_SEC + mercari.REQUEST_READ_TIMEOUT_SEC
+    assert mercari.SINGLE_FLIGHT_WAIT_SEC > worst
+
+
+def test_合流できる待ち手の数に上限(monkeypatch):
+    started, release = threading.Event(), threading.Event()
+
+    def slow(kw):
+        started.set()
+        release.wait(5)
+        return {"items": []}
+    monkeypatch.setattr(mercari, "fetch_raw", slow)
+    monkeypatch.setattr(mercari, "MAX_SINGLE_FLIGHT_WAITERS", 1)
+    results = []
+    leader = threading.Thread(target=lambda: results.append(mercari.get_reference("灰流うらら")))
+    leader.start()
+    assert started.wait(5)
+    waiter = threading.Thread(target=lambda: results.append(mercari.get_reference("灰流うらら")))
+    waiter.start()
+    for _ in range(100):               # 待ち手が登録されるまで待つ
+        if mercari._inflight["灰流うらら"].waiters == 1:
+            break
+        threading.Event().wait(0.02)
+    assert mercari.get_reference("灰流うらら") == {"ok": False, "error": "busy"}   # 2人目は即busy
+    release.set()
+    leader.join(5)
+    waiter.join(5)
+    assert len(results) == 2 and all(r["ok"] for r in results)
+
+
+def test_受信本文が上限を超えたら失敗(monkeypatch):
+    class R:
+        status_code = 200
+        closed = False
+        def iter_content(self, n):
+            yield b"x" * (mercari.MAX_RESPONSE_BYTES // 2 + 1)
+            yield b"x" * (mercari.MAX_RESPONSE_BYTES // 2 + 1)
+            raise AssertionError("上限超過後も読み続けた")
+        def close(self):
+            R.closed = True
+    monkeypatch.setattr(mercari.requests, "post", lambda *a, **k: R())
+    with pytest.raises(mercari.MercariFetchError):
+        mercari.fetch_raw("灰流うらら")
+    assert R.closed

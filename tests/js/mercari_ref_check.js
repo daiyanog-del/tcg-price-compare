@@ -107,7 +107,7 @@ const tick = () => new Promise((r) => setImmediate(r));
   api.load('x');
   reply(pending.shift(), { ok: false, error: 'busy' }, 503);
   await tick(); await tick();
-  assert(box.innerHTML.includes('メルカリの情報を取得できませんでした'));
+  assert(box.innerHTML.includes('混雑中です。少し待って再表示してください') && !box.innerHTML.includes('取得できませんでした'));
   api.load('x');
   pending.shift().reject(new Error('network'));
   await tick(); await tick();

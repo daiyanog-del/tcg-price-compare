@@ -55,12 +55,12 @@
     el.innerHTML=h;
   }
 
-  function renderError(){
+  function renderError(busy){
     const el=box();
     if(!el) return;
     el.classList.remove('hidden');
     el.innerHTML='<div class="mref-title">メルカリ（出品中・参考）</div>'+
-      '<div class="mref-note">メルカリの情報を取得できませんでした</div>';
+      '<div class="mref-note">'+(busy?'混雑中です。少し待って再表示してください':'メルカリの情報を取得できませんでした')+'</div>';
   }
 
   function clear(){
@@ -83,11 +83,12 @@
       let d=null;
       try{d=await res.json();}catch(e){d=null;}
       if(my!==gen) return;
-      if(!res.ok||!d||!d.ok||typeof d.by_rarity!=='object'||d.by_rarity===null){renderError();return;}
+      if(res.status===503||(d&&d.error==='busy')){renderError(true);return;} // 混雑中（取得失敗とは文言を分ける）
+      if(!res.ok||!d||!d.ok||typeof d.by_rarity!=='object'||d.by_rarity===null){renderError(false);return;}
       render(d);
     }).catch(()=>{
       if(my!==gen) return;
-      renderError();
+      renderError(false);
     });
   }
 

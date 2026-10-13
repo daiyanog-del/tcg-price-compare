@@ -49,7 +49,11 @@ REQUEST_TOTAL_TIMEOUT_SEC = 15  # TODO: calibrate from data（接続〜本文受
 # TODO: calibrate from data
 MAX_CONCURRENT_FETCHES = 2   # メルカリへの同時リクエスト上限。空きが無ければ待たずに失敗応答
 MAX_FETCHES_PER_MIN = 20     # メルカリへの実リクエスト数の毎分上限（キャッシュ命中は数えない）
-SINGLE_FLIGHT_WAIT_SEC = 20  # 同一カードの取得中に合流して待つ上限
+# 同一カードの取得中に合流して待つ上限。取得側の最悪時間（合計15秒＋最後の受信待ち5秒）と
+# 集計の余裕を足した値にして、取得が終わる前に待ち手だけ失敗にならないようにする
+SINGLE_FLIGHT_WAIT_SEC = REQUEST_TOTAL_TIMEOUT_SEC + REQUEST_READ_TIMEOUT_SEC + 10
+MAX_SINGLE_FLIGHT_WAITERS = 8  # 1つの取得に合流できる待ち手の数。超えたら即 busy
+MAX_RESPONSE_BYTES = 5 * 1024 * 1024  # 受信本文の上限。超えたら取得失敗
 
 CACHE_TTL_SEC = 15 * 60  # TODO: calibrate from data
 CACHE_MAX_ENTRIES = 500
@@ -67,8 +71,13 @@ MULTI_PATTERN = re.compile(
     r"|[×✖]️?\s*[2-9]|(?<![A-Z0-9])X\s*[2-9]"  # 「×2」「x3」（EX2 等は除く）
     r"|[2-9]\s*体"             # 「3体」
 )
-# 専用出品（「〇〇様専用」）。「仕様」「同様」等の語は除く
-DEDICATED_PATTERN = re.compile(r"専用|(?<![仕同多模])様(?![式子々])")
+# 専用出品。実際の形だけを見る: 「様専用」「様用」、否定形でない「専用」、
+# 題名先頭の「〇〇様」（伏せ字含む「ボ*ブ様 …」）。「王様」「神様」「お客様」「皆様」「異様」
+# 「専用ではありません」等は除外しない（題名先頭の「様」は下の否定先読みで通常語を外す）
+DEDICATED_PATTERN = re.compile(
+    r"様専用|様用|専用(?!ではあり|じゃあり|では無|ではな)"
+    r"|^(?!お客様|皆様|神様|王様|異様|同様|多様|模様)\S{1,10}様[\s　]"
+)
 # 単品に付属品が付く表記（サプライ扱いにしない）
 ACCESSORY_NOTE_PATTERN = re.compile(r"(?:スリーブ|ローダー|トップローダー|ケース)\s*(?:付き?|入り?)")
 OVERSEAS_PATTERN = re.compile(r"英語|アジア|韓国|海外|北米|EU版|(?<![A-Z])EU(?![A-Z])|欧州")
@@ -160,8 +169,12 @@ def fetch_raw(keyword: str) -> dict:
         # 本文は少しずつ読み、合計時間が上限を超えたら打ち切る（読み取りタイムアウトは
         # 1回の待ちにしか効かず、少しずつ送られ続けると合計で長引くため）
         chunks = []
+        received = 0
         for chunk in resp.iter_content(65536):
             chunks.append(chunk)
+            received += len(chunk)
+            if received > MAX_RESPONSE_BYTES:
+                raise MercariFetchError("応答が大きすぎる")
             if time.monotonic() > deadline:
                 raise MercariFetchError("合計タイムアウト")
         if time.monotonic() > deadline:
@@ -293,7 +306,7 @@ def exclusion_reason(card_name: str, item: dict,
         return "multi"
     if OVERSEAS_PATTERN.search(upper):
         return "overseas"
-    if DEDICATED_PATTERN.search(residual):
+    if DEDICATED_PATTERN.search(residual) or DEDICATED_PATTERN.search(_norm(name).strip()):
         return "dedicated"
     # 「スリーブ付き」等は単品の付属表記なのでサプライ扱いにしない
     if SUPPLY_PATTERN.search(ACCESSORY_NOTE_PATTERN.sub(" ", upper)):
@@ -497,6 +510,7 @@ class _Flight:
     def __init__(self):
         self.event = threading.Event()
         self.result: dict | None = None
+        self.waiters = 0
 
 
 def _take_minute_budget(now: float) -> bool:
@@ -511,7 +525,8 @@ def _take_minute_budget(now: float) -> bool:
 
 
 def _reset_load_state():
-    """テスト用: キャッシュ以外の負荷対策の状態を初期化する。"""
+    """テスト専用: キャッシュ以外の負荷対策の状態を初期化する。本番コードから呼ばないこと
+    （進行中の取得の待ち合わせや上限の記録を消してしまうため）。"""
     global _fetch_slots
     _fetch_slots = threading.BoundedSemaphore(MAX_CONCURRENT_FETCHES)
     with _fetch_times_lock:
@@ -522,11 +537,13 @@ def _reset_load_state():
 
 def _fetch_and_aggregate(card_name: str, supabase_client, known_names) -> dict:
     """上限チェック→取得→集計。成功/失敗の結果dict(キャッシュ前)を返す。"""
-    if not _take_minute_budget(time.time()):
-        logger.warning("[mercari] 毎分上限(%d)超過 [%s]", MAX_FETCHES_PER_MIN, card_name)
-        return BUSY_RESULT
+    # 同時実行枠を取れてから毎分枠を消費する（busy で終わる要求が毎分枠を食わないように）
     if not _fetch_slots.acquire(blocking=False):
         logger.warning("[mercari] 同時実行上限(%d)超過 [%s]", MAX_CONCURRENT_FETCHES, card_name)
+        return BUSY_RESULT
+    if not _take_minute_budget(time.time()):
+        _fetch_slots.release()
+        logger.warning("[mercari] 毎分上限(%d)超過 [%s]", MAX_FETCHES_PER_MIN, card_name)
         return BUSY_RESULT
     try:
         raw = fetch_raw(card_name)
@@ -571,6 +588,10 @@ def get_reference(card_name: str, supabase_client=None, known_names=None) -> dic
         leader = flight is None
         if leader:
             flight = _inflight[key] = _Flight()
+        elif flight.waiters >= MAX_SINGLE_FLIGHT_WAITERS:
+            return BUSY_RESULT   # 待ち手が多すぎる。待たせず失敗応答
+        else:
+            flight.waiters += 1
     if not leader:
         if flight.event.wait(SINGLE_FLIGHT_WAIT_SEC) and flight.result is not None:
             res = flight.result
