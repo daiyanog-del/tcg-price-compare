@@ -192,6 +192,15 @@ const nTiles = (h) => h.split('class="scard fin"').length - 1;
   await loadWith({ ok: false, error: 'fetch_failed' }, { rarity: '', stores: [] });
   assert.equal(head.innerHTML, 'メルカリ', '失敗時は印なし');
 
+  assert(!tpl.includes('{#'), 'CSS/JS内の「{#」はJinjaのコメント開始になりテンプレートが500になる');
+  // 5a) PR印は affiliate===true かつリンクが出るときだけ（安全でないURLなら印なし）
+  await loadWith(resp(BY, { affiliate: true, search_url: 'javascript:alert(1)' }), { rarity: 'ウルトラ', stores: [] });
+  assert.equal(head.innerHTML, 'メルカリ', 'リンクが出ないときPR印は出さない');
+  assert(!body_().includes('<a '));
+  await loadWith(resp(BY, { affiliate: true }), { rarity: 'ウルトラ', stores: [] });
+  assert(head.innerHTML.includes('aff-pr'));
+  assert(tpl.includes('.mref-unit{') && tpl.includes('white-space:nowrap}') && tpl.includes('@media(max-width:340px){ #mercariRef .scard .sdetail{white-space:normal}}'), '/枚は分割しない・極小幅は折り返し可');
+
   // 5b) レアリティ判定できず件数は出さない。全件が判定不能のとき「出品なし」と言わずリンクだけ
   await loadWith(resp(BY, { unclassified_count: 7 }), { rarity: 'ウルトラ', stores: [] });
   assert(!body_().includes('判定できず'));

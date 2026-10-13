@@ -69,7 +69,7 @@
   function linkRow(d){
     const link=safeUrl(d.search_url);
     if(!link) return '';
-    return `<p class="buy-inline-note mref-tail"><a class="scard-link" href="${escAttr(link)}" target="_blank" rel="${d.affiliate===true?'sponsored noopener':'noopener'}">メルカリで見る</a></p>`;
+    return `<p class="buy-inline-note"><a class="scard-link" href="${escAttr(link)}" target="_blank" rel="${d.affiliate===true?'sponsored noopener':'noopener'}">メルカリで見る</a></p>`;
   }
 
   // 見出し: 「メルカリ」＋アフィリエイト時だけ店舗リンクと同じ「PR」の印（AFF_PR_BADGE は index-main.js のグローバル定数）
@@ -122,7 +122,7 @@
       if(!(Number(d.unclassified_count)>0)&&!allUnconfirmed) h+=emptyHtml(fetched>0||sc.excluded.length>0?'条件に合う出品なし':'出品なし');
       h+=linkRow(d);
     }
-    setHead(d.affiliate===true);
+    setHead(d.affiliate===true&&!!safeUrl(d.search_url)); // PR印はリンクが実際に出るときだけ
     show(h);
   }
 
