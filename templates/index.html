@@ -464,7 +464,11 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .mref-unit{font:600 .72rem var(--mono);color:var(--text-d);margin-left:6px}
 /* 1枚タイルとN枚組タイルを横に並べる。#mode-search .summary（price-layout.css）に負けないよう #mode-search を付ける。
    価格の数字は店舗タイルと同じ .scard-link（色は通常文字色。金色は店舗の最安専用） */
-#mode-search #mercariRef .summary{grid-template-columns:repeat(auto-fill,minmax(180px,1fr));margin-bottom:0}
+#mode-search #mercariRef .summary{grid-template-columns:repeat(auto-fill,minmax(min(360px,100%),1fr));margin-bottom:0}
+/* レアリティごとに1グループ（見出し＋「1枚」「N枚組」の2セル）。内側は常に2列で、無い側は空セル */
+.mref-group{min-width:0}
+.mref-ghead{font-size:.68rem;font-weight:600;color:var(--text-m);margin:0 0 6px}
+.mref-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 #mercariRef .scard .sprice a{color:var(--text)}
 #mercariRef .scard .sdetail{white-space:nowrap}
 .aff-pr{display:inline-block;margin-left:6px;font-size:.62rem;font-weight:500;color:var(--text-d);border:1px solid currentColor;border-radius:3px;padding:0 3px;line-height:1.4;vertical-align:1px;letter-spacing:0;text-transform:none}
@@ -568,7 +572,6 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 
   /* サマリーカード */
   .summary{grid-template-columns:1fr}
-  #mode-search #mercariRef .summary{grid-template-columns:repeat(2,minmax(0,1fr))}
   .scard{padding:14px 16px}
   .scard .sprice{font-size:1.3rem}
 

@@ -46,21 +46,29 @@
     return `<div class="scard fin"><div class="slabel">${esc(label)}</div><div class="sprice">${price}</div><div class="sdetail">${detail}</div></div>`;
   }
 
-  // レアリティごとに「1枚」タイルと「N枚組」タイル（あるものだけ）。店舗サマリーと同じ .scard
-  function tiles(d,r){
+  // レアリティごとに1グループ: 見出し（レアリティ名・札にしない）＋「1枚」「N枚組」の2セル。
+  // 片方が無いときは空セル（何も描かない）で位置を保ち、全グループで1枚が左・N枚組が右に揃う
+  function group(d,r){
     const v=d.by_rarity[r];
     const set=v.set||null;
-    let h='';
+    let one='<div class="mref-empty"></div>',multi='<div class="mref-empty"></div>';
     if(Number(v.count)>0){
       const detail=v.median==null?`${Number(v.count)}件`:`中央 ${yen(v.median)}・${Number(v.count)}件`;
-      h+=tileHtml(r+'・1枚',priceLink(d,yen(v.min)),detail);
+      one=tileHtml('1枚',priceLink(d,yen(v.min)),detail);
     }
     if(set){
       const q=Number(set.unit_min_qty);
       const total=set.unit_min_total!=null?Number(set.unit_min_total):Number(set.unit_min)*q;
-      h+=tileHtml(`${r}・${q}枚組`,priceLink(d,yen(set.unit_min))+'<span class="mref-unit">/枚</span>',`${q}枚 ${yen(total)}・${Number(set.count)}件`);
+      multi=tileHtml(`${q}枚組`,priceLink(d,yen(set.unit_min))+'<span class="mref-unit">/枚</span>',`${q}枚 ${yen(total)}・${Number(set.count)}件`);
     }
-    return h;
+    return `<div class="mref-group"><div class="mref-ghead">${esc(r)}</div><div class="mref-pair">${one}${multi}</div></div>`;
+  }
+
+  // 表示するタイルが無いときの1行リンク（アフィリエイト時は rel=sponsored。クリックは index-main.js の委譲でGA計測）
+  function linkRow(d){
+    const link=safeUrl(d.search_url);
+    if(!link) return '';
+    return `<p class="buy-inline-note mref-tail"><a class="scard-link" href="${escAttr(link)}" target="_blank" rel="${d.affiliate===true?'sponsored noopener':'noopener'}">メルカリで見る</a></p>`;
   }
 
   // 見出し: 「メルカリ」＋アフィリエイト時だけ店舗リンクと同じ「PR」の印（AFF_PR_BADGE は index-main.js のグローバル定数）
@@ -103,14 +111,15 @@
     if(sel){
       // 選択したレアリティだけ。出品が無ければ1行のみ
       const v=sc.rs.indexOf(sel)>=0?d.by_rarity[sel]:null;
-      h+=v?`<div class="summary">${tiles(d,sel)}</div>`:emptyHtml('このレアリティの出品は見つかりませんでした');
+      h+=v?`<div class="summary">${group(d,sel)}</div>`:emptyHtml('このレアリティの出品は見つかりませんでした')+linkRow(d);
     }else if(sc.rs.length>0){
-      h+=`<div class="summary">${sc.rs.map(r=>tiles(d,r)).join('')}</div>`;
+      h+=`<div class="summary">${sc.rs.map(r=>group(d,r)).join('')}</div>`;
     }else{
-      // 店舗検索の途中で全レアリティが確認中のときは「出品なし」と言わない（何も出さない）。
+      // 店舗検索の途中で全レアリティが確認中のときは「出品なし」と言わない（リンク1行だけ出す）。
       // 全件が判定不能のときも同様（取得できたが全件除外は「出品なし」と区別）
       const allUnconfirmed=view.pending&&sc.excluded.length>0;
       if(!(Number(d.unclassified_count)>0)&&!allUnconfirmed) h+=emptyHtml(fetched>0||sc.excluded.length>0?'条件に合う出品なし':'出品なし');
+      h+=linkRow(d);
     }
     setHead(d.affiliate===true);
     show(h);

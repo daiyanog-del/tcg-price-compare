@@ -56,7 +56,7 @@ async function loadWith(d, view, status = 200) {
 
 const BANNED = ['メルカリで出品中の価格です', '関連度上位', 'aff-note', '一部のリンクは広告', '他のレアリティ', 'レアリティ判定できず',
   '店舗に無いレアリティ', '表示していません', '確認中のレアリティ', '店舗の検索中', '最低出品価格', '3件未満', 'mref-grid', '単品最安',
-  'メルカリで見る', 'mref-tail', 'rb rb-', '個人出品'];
+  'rb rb-', '個人出品'];
 const noBanned = (h) => BANNED.forEach((w) => assert(!h.includes(w), '削除した文言が残っている: ' + w + '\n' + h));
 const nTiles = (h) => h.split('class="scard fin"').length - 1;
 
@@ -77,8 +77,10 @@ const nTiles = (h) => h.split('class="scard fin"').length - 1;
   let h = body_();
   noBanned(h);
   assert(h.startsWith('<div class="summary">') && nTiles(h) === 2, h);
-  assert(h.includes('<div class="slabel">ウルトラ・1枚</div>') && h.includes('<div class="slabel">ウルトラ・3枚組</div>'), 'ラベルはプレーンテキスト');
-  assert(h.indexOf('ウルトラ・1枚') < h.indexOf('ウルトラ・3枚組'), '1枚が先');
+  assert.equal(h.split('mref-group').length - 1, 1, 'グループは1つ');
+  assert(h.includes('<div class="mref-ghead">ウルトラ</div>') && h.split('ウルトラ').length - 1 === 1, 'レアリティ名はグループ見出しに1回だけ（札にしない）');
+  assert(h.includes('<div class="slabel">1枚</div>') && h.includes('<div class="slabel">3枚組</div>'), 'タイルのラベルは「1枚」「3枚組」だけ');
+  assert(h.indexOf('<div class="slabel">1枚') < h.indexOf('<div class="slabel">3枚組'), '1枚が先（左）');
   const A1 = '<a class="scard-link" href="' + U + '" target="_blank" rel="noopener">';
   assert(h.includes('<div class="sprice">' + A1 + '¥1,000</a></div>'), '単品最安の数字がリンク: ' + h);
   assert(h.includes('<div class="sdetail">中央 ¥1,500・5件</div>'), h);
@@ -88,26 +90,26 @@ const nTiles = (h) => h.split('class="scard fin"').length - 1;
   assert.equal(head.innerHTML, 'メルカリ', 'affiliateなしは見出しに印なし');
   const tpl = fs.readFileSync(path.join(root, 'templates/index.html'), 'utf8');
   assert(tpl.includes('#mercariRef .scard .sprice{color:var(--text)}') && tpl.includes('#mercariRef .scard .sprice a{color:var(--text)}'), 'タイル価格・リンクは通常文字色');
-  assert(tpl.includes('#mode-search #mercariRef .summary{grid-template-columns:repeat(auto-fill,minmax(180px,1fr));margin-bottom:0}'), 'price-layout.css に負けない詳細度で180px auto-fill');
-  assert(tpl.includes('#mode-search #mercariRef .summary{grid-template-columns:repeat(2,minmax(0,1fr))}'), 'スマホ幅は2列');
+  assert(tpl.includes('#mode-search #mercariRef .summary{grid-template-columns:repeat(auto-fill,minmax(min(360px,100%),1fr));margin-bottom:0}'), 'price-layout.css に負けない詳細度でグループの外側グリッド');
+  assert(tpl.includes('.mref-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))'), 'グループ内は常に2列（スマホ幅も）');
   assert(!tpl.includes('.summary,#mercariRef .summary{grid-template-columns:1fr}'), 'スマホで1列に潰さない');
   assert(tpl.includes('<summary class="chart-title" id="mercariRefHead">メルカリ</summary>'), '見出し');
   assert(!tpl.includes('.mref-grid') && !tpl.includes('.mref-h{') && !tpl.includes('.mref-set') && !tpl.includes('mref-tail'), '旧一覧・リンク行のCSSは廃止');
-  assert(!h.includes('メルカリで見る') && !h.includes('<p'), 'リンク行は無い');
+  assert(!h.includes('メルカリで見る') && !h.includes('<p'), 'タイルがあるときリンク行は無い');
 
   // 1b) 再取得せず選択を切り替える。中央値なし・セットなし・セットのみ
   api.setView({ rarity: 'ノーマル', stores: [] });
   assert.equal(pending.length, 0, '切替で再取得しない');
   h = body_();
   assert(h.includes('>¥300</a></div>') && h.includes('<div class="sdetail">1件</div>'), '中央値なしは「1件」のみ: ' + h);
-  assert(h.includes('<div class="slabel">ノーマル・2枚組</div>') && h.includes('<div class="sdetail">2枚 ¥600・2件</div>'), '2枚組: ' + h);
+  assert(h.includes('<div class="slabel">2枚組</div>') && h.includes('<div class="sdetail">2枚 ¥600・2件</div>'), '2枚組: ' + h);
   assert(!h.includes('*') && !h.includes('最低出品価格'));
   api.setView({ rarity: 'シークレット', stores: [] });
   h = body_();
-  assert(nTiles(h) === 1 && h.includes('シークレット・1枚') && h.includes('<div class="sdetail">中央 ¥700・3件</div>') && !h.includes('枚組'), 'セット無しは1枚タイルだけ: ' + h);
+  assert(nTiles(h) === 1 && h.includes('<div class="slabel">1枚</div>') && h.includes('<div class="mref-pair">') && h.endsWith('<div class="mref-empty"></div></div></div></div>') && h.includes('<div class="sdetail">中央 ¥700・3件</div>') && !h.includes('枚組'), 'セット無しは1枚タイルだけ: ' + h);
   api.setView({ rarity: 'レリーフ', stores: [] });
   h = body_();
-  assert(nTiles(h) === 1 && !h.includes('レリーフ・1枚') && h.includes('<div class="slabel">レリーフ・3枚組</div>'), '単品なしはN枚組タイルだけ: ' + h);
+  assert(nTiles(h) === 1 && !h.includes('<div class="slabel">1枚</div>') && h.includes('<div class="mref-pair"><div class="mref-empty"></div><div class="scard fin"><div class="slabel">3枚組</div>'), '単品なしはN枚組タイルだけ: ' + h);
   assert(h.includes('¥400</a><span class="mref-unit">/枚</span>'), 'セットのみは1枚あたり＋/枚');
   assert(h.includes('<div class="sdetail">3枚 ¥1,200・1件</div>'), h);
   assert(!h.includes('出品なし'));
@@ -127,15 +129,23 @@ const nTiles = (h) => h.split('class="scard fin"').length - 1;
   api.setView({ rarity: 'スーパー', stores: [] });
   h = body_();
   assert(h.includes('このレアリティの出品は見つかりませんでした') && nTiles(h) === 0);
+  assert(h.includes('<a class="scard-link" href="'+U+'" target="_blank" rel="noopener">メルカリで見る</a>'), '出品なしの行に続けてリンク: '+h);
   noBanned(h);
 
   // 3) すべて: 全レアリティのタイルを既存の順序で並べる
   api.setView({ rarity: '', stores: [] });
   h = body_();
   assert.equal(nTiles(h), 6, h);
-  const order = ['シークレット・1枚', 'ウルトラ・1枚', 'ウルトラ・3枚組', 'ノーマル・1枚', 'ノーマル・2枚組', 'レリーフ・3枚組'].map((x) => h.indexOf('>' + x + '<'));
-  assert(order.every((v, i) => v >= 0 && (i === 0 || v > order[i - 1])), 'レアリティ順で各レアリティの1枚・N枚組が隣り合う: ' + order);
-  assert.equal(h.split('<div class="summary">').length - 1, 1, '1つの .summary に並べる');
+  const order = ['シークレット', 'ウルトラ', 'ノーマル', 'レリーフ'].map((x) => h.indexOf('<div class="mref-ghead">' + x + '</div>'));
+  assert(order.every((v, i) => v >= 0 && (i === 0 || v > order[i - 1])), 'レアリティ順のグループ: ' + order);
+  assert.equal(h.split('mref-group"').length - 1, 4, 'レアリティごとに1グループ');
+  assert.equal(h.split('<div class="mref-pair">').length - 1, 4);
+  assert.equal(h.split('class="mref-empty"').length - 1, 2, 'セット無し(シークレット)・単品無し(レリーフ)の空セルで位置を保つ: ' + h);
+  // 各グループの中身は常に2セル（1枚＝左・N枚組＝右）
+  h.split('<div class="mref-pair">').slice(1).forEach((g) => {
+    const cells = g.split('</div></div></div>')[0];
+    assert.equal(cells.split('class="scard fin"').length - 1 + cells.split('class="mref-empty"').length - 1, 2, 'グループ内は2セル: ' + g);
+  });
   noBanned(h);
   // (不明) 選択も全タイル
   api.setView({ rarity: '(不明)', stores: [] });
@@ -187,6 +197,11 @@ const nTiles = (h) => h.split('class="scard fin"').length - 1;
   await loadWith(resp({}, { unclassified_count: 5 }), { rarity: '', stores: [] });
   h = body_();
   assert(!h.includes('出品なし') && !h.includes('条件に合う') && !h.includes('判定できず'), h);
+  assert(h.includes('>メルカリで見る</a>') && nTiles(h) === 0, '表示対象0のときは「メルカリで見る」だけの1行: ' + h);
+  await loadWith(resp({}, { unclassified_count: 5, affiliate: true }), { rarity: '', stores: [] });
+  assert(body_().includes('rel="sponsored noopener">メルカリで見る</a>'), 'アフィリエイト時は sponsored');
+  await loadWith({ ok: false, error: 'fetch_failed' }, { rarity: '', stores: [] });
+  assert(!body_().includes('メルカリで見る'), '取得失敗にリンクは不要');
 
   // 6) pending（店舗検索の途中）: 確認できたレアリティだけタイル。注記は出さない
   await loadWith(resp(BY), { rarity: '', stores: [], pending: true });
@@ -198,7 +213,7 @@ const nTiles = (h) => h.split('class="scard fin"').length - 1;
   api.setView({ rarity: '', stores: ['ウルトラ'], pending: true });
   assert.equal(pending.length, 0, '描き直しで再取得しない');
   h = body_();
-  assert(nTiles(h) === 2 && h.includes('ウルトラ・1枚') && !h.includes('¥640') && !h.includes('¥300'), h);
+  assert(nTiles(h) === 2 && h.includes('<div class="mref-ghead">ウルトラ</div>') && !h.includes('¥640') && !h.includes('¥300'), h);
   noBanned(h);
   api.setView({ rarity: '', stores: ['ウルトラ', 'シークレット'], pending: true });
   assert.equal(nTiles(body_()), 3);

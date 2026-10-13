@@ -82,12 +82,12 @@ const lastSource = () => sources[sources.length - 1];
   await tick(); await tick();
   assert(!hidden(), '店舗検索中でも枠が出る');
   assert.equal(get('mercariRef').open, false, '検索中は閉じた見出しだけで出る');
-  assert(!body().includes('class="scard') && !body().includes('確認中'), 'D空: タイルなし: ' + body());
+  assert(!body().includes('class="scard fin"') && body().includes('メルカリで見る') && !body().includes('確認中'), 'D空: タイルなし・リンクのみ: ' + body());
 
   // 3) shop_done で店舗結果が溜まるたびに描き直す（再取得なし・開いたまま）
   send(sources[0], { type: 'shop_done', shop: 'A', status: 'ok', count: 1, results: [row('ウルトラ')] });
   assert.equal(mercariCalls().length, 1, '再取得しない');
-  assert(body().split('class="scard fin"').length - 1 === 1 && body().includes('ウルトラ・1枚') && !body().includes('ノーマル') && !body().includes('確認中'), body());
+  assert(body().split('class="scard fin"').length - 1 === 1 && body().includes('mref-ghead">ウルトラ<') && !body().includes('ノーマル') && !body().includes('確認中'), body());
   assert.equal(get('mercariRef').open, false, '検索中は閉じたまま');
   send(sources[0], { type: 'shop_done', shop: 'B', status: 'ok', count: 0, results: [] });
   assert(!body().includes('>ノーマル<'));
