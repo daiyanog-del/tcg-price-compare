@@ -129,12 +129,13 @@ async function loadWith(d, view, status = 200) {
   // 4) 店舗に無いレアリティは表示対象から外し、件数を注記する（選択表示・すべて表示の両方）
   api.setView({ rarity: 'ウルトラ', stores: ['ウルトラ', 'シークレット'] });
   h = body_();
-  assert(h.includes('他のレアリティ: シークレット ¥640〜') && !h.includes('ノーマル') && !h.includes('レリーフ'));
-  assert(h.includes('店舗に無いレアリティ 2件'), h);
+  assert(h.includes('他のレアリティ: シークレット ¥640〜 ') === false && h.includes('他のレアリティ: シークレット ¥640〜') && !h.includes('ノーマル ¥') && !h.includes('レリーフ ¥'));
+  assert(h.includes('店舗に無いレアリティ（ノーマル・レリーフ）は表示していません'), h);
+  assert(!h.includes('件は表示') && !h.includes('レアリティ 2件'), '単位「件」は使わない');
   api.setView({ rarity: '', stores: ['ウルトラ', 'シークレット'] });
   h = body_();
   assert(!h.includes('rb-normal') && !h.includes('>ノーマル<') && h.includes('>ウルトラ<') && h.includes('>シークレット<'));
-  assert(h.includes('店舗に無いレアリティ 2件'));
+  assert(h.includes('店舗に無いレアリティ（ノーマル・レリーフ）は表示していません'));
   assert(!h.includes('¥300'), '除外したレアリティの価格が残っていない');
   // 店舗に無いレアリティを選んでいる場合（通常は起きない）も出品は出さない
   api.setView({ rarity: 'ノーマル', stores: ['ウルトラ'] });
@@ -144,7 +145,19 @@ async function loadWith(d, view, status = 200) {
   assert(body_().includes('>ノーマル<') && !body_().includes('店舗に無い'));
   // 全レアリティが店舗に無い
   api.setView({ rarity: '', stores: ['エクストラ'] });
-  assert(body_().includes('条件に合う出品なし') && body_().includes('店舗に無いレアリティ 4件'));
+  assert(body_().includes('条件に合う出品なし') && body_().includes('店舗に無いレアリティ（シークレット・ウルトラ・ノーマル・ほか1種）は表示していません'));
+
+  // 4b) 表示対象が1種類だけなら「すべて」でもタイル表示（rarityFilterが空でも）
+  api.setView({ rarity: '', stores: ['ウルトラ'] });
+  h = body_();
+  assert(h.includes('class="scard') && !h.includes('mref-grid') && h.includes('ウルトラ・出品5件の最安'), h);
+  assert(h.includes('店舗に無いレアリティ（シークレット・ノーマル・レリーフ）は表示していません'));
+  // 店舗側で「(不明)」を選んでいるときはタイルでなく一覧
+  api.setView({ rarity: '(不明)', stores: [] });
+  assert(body_().includes('mref-grid') && !body_().includes('class="scard'));
+  // 単一レアリティの応答はそのままタイル
+  api.setView({ rarity: '', stores: [] });
+  assert(body_().includes('mref-grid'));
 
   // 5) PR表記・sponsored の分岐
   await loadWith(resp(BY, { affiliate: true, search_url: 'https://jp.mercari.com/search?keyword=x&afid=8033172568' }), { rarity: 'ウルトラ', stores: [] });
@@ -153,6 +166,18 @@ async function loadWith(d, view, status = 200) {
   assert(h.includes('afid=8033172568') && h.includes('target="_blank"'));
   await loadWith(resp(BY, { affiliate: 'true' }), { rarity: 'ウルトラ', stores: [] });
   assert(!body_().includes('sponsored') && body_().includes('rel="noopener"'));
+
+  // 5b) レアリティ判定できず件数: 最下行の注記にまとめる。全件が判定不能のとき「出品なし」と言わない
+  await loadWith(resp(BY, { unclassified_count: 7 }), { rarity: 'ウルトラ', stores: [] });
+  assert(body_().includes('レアリティ判定できず 7件'));
+  await loadWith(resp({}, { unclassified_count: 5 }), { rarity: '', stores: [] });
+  h = body_();
+  assert(h.includes('レアリティ判定できず 5件') && h.includes('メルカリで見る') && !h.includes('出品なし') && !h.includes('条件に合う'), h);
+  await loadWith(resp(BY), { rarity: 'ウルトラ', stores: [] });
+  assert(!body_().includes('判定できず'));
+  // 5c) 店舗に無いレアリティが3種のとき（ほかN種は4種超の全除外ケースで検証済み）
+  await loadWith(resp(BY), { rarity: '', stores: ['エクストラ', 'ウルトラ'] });
+  assert(body_().includes('店舗に無いレアリティ（シークレット・ノーマル・レリーフ）は表示していません'));
 
   // 6) 全件取得できているときは「関連度上位」の注記を出さない
   await loadWith(resp(BY, { fetched_count: 5, num_found: 5 }), { rarity: 'ウルトラ', stores: [] });

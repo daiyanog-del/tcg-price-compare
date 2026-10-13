@@ -37,9 +37,8 @@
   function scope(d){
     const all=sortedRarities(d.by_rarity);
     const st=Array.isArray(view.stores)?view.stores:[];
-    if(st.length===0) return {rs:all,excluded:0};
-    const rs=all.filter(r=>st.indexOf(r)>=0);
-    return {rs:rs,excluded:all.length-rs.length};
+    if(st.length===0) return {rs:all,excluded:[]};
+    return {rs:all.filter(r=>st.indexOf(r)>=0),excluded:all.filter(r=>st.indexOf(r)<0)};
   }
 
   function headNote(d){
@@ -51,6 +50,7 @@
 
   // 最下行: メルカリへのリンク（アフィリエイト時はPR表記と rel=sponsored）と他のレアリティ
   function tailNote(d,others){
+    const unclassified=Number(d.unclassified_count)||0;
     const parts=[];
     const link=safeUrl(d.search_url);
     if(link){
@@ -63,11 +63,16 @@
       if(list.length>OTHER_SHOW) s+=` ほか${list.length-OTHER_SHOW}種`;
       parts.push(s);
     }
+    if(unclassified>0) parts.push(`レアリティ判定できず ${unclassified}件`);
     return parts.length?`<p class="buy-inline-note mref-tail">${parts.join('　')}</p>`:'';
   }
 
-  function excludedNote(n){
-    return n>0?`<p class="buy-inline-note">店舗に無いレアリティ ${n}件は表示していません</p>`:'';
+  // 店舗に無いレアリティ名を列挙（4種超は先頭3つ＋「ほかN種」）
+  function excludedNote(names){
+    if(!names.length) return '';
+    let s=names.slice(0,OTHER_SHOW).map(esc).join('・');
+    if(names.length>OTHER_SHOW) s+=`・ほか${names.length-OTHER_SHOW}種`;
+    return `<p class="buy-inline-note">店舗に無いレアリティ（${s}）は表示していません</p>`;
   }
 
   function tile(label,price,unit,detail){
@@ -130,7 +135,10 @@
     if(!d) return;
     const sc=scope(d);
     const fetched=Number(d.fetched_count)||0;
-    const sel=view.rarity||'';
+    // 選択が1つ、または表示対象が1種類だけのときはタイル。「(不明)」選択は比較できないので一覧
+    let sel=view.rarity||'';
+    if(!sel&&sc.rs.length===1) sel=sc.rs[0];
+    if(sel==='(不明)') sel='';
     let h=headNote(d);
     if(sel){
       const v=sc.rs.indexOf(sel)>=0?d.by_rarity[sel]:null;
@@ -139,8 +147,9 @@
     }else if(sc.rs.length>0){
       h+=gridHtml(d,sc.rs)+tailNote(d,[]);
     }else{
-      // 取得できたが全件が除外された場合は「出品なし」と区別する
-      h+=emptyHtml(fetched>0||sc.excluded>0?'条件に合う出品なし':'出品なし')+tailNote(d,[]);
+      // 全件が判定不能のときは「出品なし」と言わず、判定できず件数とリンクを出す（取得できたが全件除外は「出品なし」と区別）
+      if(!(Number(d.unclassified_count)>0)) h+=emptyHtml(fetched>0||sc.excluded.length>0?'条件に合う出品なし':'出品なし');
+      h+=tailNote(d,[]);
     }
     h+=excludedNote(sc.excluded);
     show(h);

@@ -98,7 +98,7 @@ ACCESSORY_NOTE_PATTERN = re.compile(r"(?:スリーブ|ローダー|トップロ�
 OVERSEAS_PATTERN = re.compile(
     r"英語|アジア|韓国|海外|北米|EU版|(?<![A-Z])EU(?![A-Z])|欧州"
     r"|泰亜|亜版|亜(?=シク|ウル|スー|レア)"
-    r"|英版|英字|(?<![A-Z])ENG(?![A-Z])|ENGLISH|中国|中文|繁体|簡体|简体|台湾|香港|TCG版"
+    r"|英版|英字(?!なし|無し)|(?<![A-Z])ENG(?![A-Z])|ENGLISH|中国|中文|繁体|繁體|簡体|簡體|简体|台湾|香港|TCG版"
     r"|(?<![A-Z0-9])[A-Z0-9]{2,6}-(?:EN|KR|AE|SC|TC|DE|FR|IT|SP|PT|EU)\d"
 )
 SUPPLY_PATTERN = re.compile(

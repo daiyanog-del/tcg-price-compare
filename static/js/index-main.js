@@ -862,6 +862,12 @@ document.getElementById('buyInline')?.addEventListener('toggle',function(){
   _buyInlineOpenTrigger='inline';
 });
 
+// メルカリ参考相場パネルを開いたときの計測（買取の buyback_inline_open と同じ方式）
+document.getElementById('mercariRef')?.addEventListener('toggle',function(){
+  if(!this.open) return;
+  _ga('mercari_inline_open',{trigger:'inline'});
+});
+
 // U-1: 販売テーブル側のボタン。取得処理は自前で書かず、#buyInlineを開く経路（上のtoggle
 // リスナー→_fetchBuyInline）をそのまま再利用する。二重取得・二重GA発火を避けるため
 // det.open=trueを呼ぶだけで、_fetchBuyInline()を直接ここから呼ばない
