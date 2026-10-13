@@ -1311,11 +1311,10 @@ function _syncMercariView(){
   MercariRef.setView({rarity:rarityFilter,stores:stores,pending:_mercariPending});
 }
 
-// 価格推移グラフへ「選択中のレアリティ」と「店舗結果に存在するレアリティ」を渡す（メルカリ枠と同じ方針）
+// 価格推移グラフへ「選択中のレアリティ」を渡す（再取得せず描き直す）
 function _syncPriceTrendView(){
   if(!window.PriceTrend) return;
-  const stores=[...new Set(D.map(r=>r.rarity).filter(r=>r&&r!=='(不明)'))];
-  PriceTrend.setView({rarity:rarityFilter,stores:stores});
+  PriceTrend.setView({rarity:rarityFilter});
 }
 
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}

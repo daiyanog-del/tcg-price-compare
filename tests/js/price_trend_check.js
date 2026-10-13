@@ -1,5 +1,5 @@
 // 価格推移グラフの実コード(static/js/price-trend.js)を実行し、集計（日別・レアリティ別の最安値）・
-// 表示切替（1本/すべて/店舗に無いレアリティの除外/履歴なし）・XSS・古い応答の破棄・読み取り操作を検証する。
+// 表示切替（1本/すべて・(不明)は案内のみ/履歴なし）・XSS・古い応答の破棄・読み取り操作を検証する。
 'use strict';
 const fs = require('fs'), path = require('path'), vm = require('vm'), assert = require('assert/strict');
 const root = path.join(__dirname, '../..');
@@ -45,50 +45,42 @@ const DATA = [
 ];
 
 (async () => {
-  // 1) 取得 → すべて表示（店舗結果に存在するレアリティだけ）
-  api.setView({ rarity: '', stores: ['シークレット', 'ウルトラ'] });
+  // 1) 取得 → 「すべて」はグラフを描かず案内1行だけ
+  api.setView({ rarity: '' });
   api.load('テスト');
   assert.match(pending[0].url, /^\/api\/price-history\?card=%E3/);
   reply(pending[0], { data: DATA }); await tick();
   assert(!classes.has('hidden'));
   let h = body.innerHTML;
-  assert.equal((h.match(/<path /g) || []).length, 2, 'すべて: 店舗にある2レアリティだけ線を描く');
-  assert(h.includes('レアリティ別の最安値・10日'));
-  assert(h.includes('stroke="#f00"') && h.includes('stroke="#0af"'));
-  assert(!h.includes('onerror') && !h.includes('movers-diff'), '店舗に無い/不明は出さず、すべてでは騰落率なし');
-  assert(!h.includes('pt-ymax') && !h.includes('pt-ymin'), 'グラフ内の最大/最小ラベルは廃止');
-  assert(h.includes('安 ¥250 / 高 ¥5,500'), 'すべても見出し右に安値/高値');
-  // 対数目盛: 全系列の頂点が余白12%を残して収まる（最小=下端付近・最大=上端付近）
-  const ys = [...h.matchAll(/[ML][\d.]+ ([\d.]+)/g)].map((m) => +m[1]);
-  assert(Math.min(...ys) > 5 && Math.max(...ys) < 95);
-  assert(h.includes('vector-effect="non-scaling-stroke"') && h.includes('preserveAspectRatio="none"'));
+  assert(h.includes('レアリティを選ぶと価格推移を表示します') && !h.includes('<svg') && !h.includes('<path'));
 
   // 2) 1本選択: 日別は全店舗の最安値（9/1=4800, 9/10=5500）、上昇は up
-  api.setView({ rarity: 'シークレット', stores: ['シークレット'] });
+  api.setView({ rarity: 'シークレット' });
   h = body.innerHTML;
   assert.equal((h.match(/<path /g) || []).length, 1);
   assert(h.includes('価格推移（シークレット・最安値・10日）'));
   assert(h.includes('¥4,800 → ¥5,500 ▲14.6%') && h.includes('movers-diff up'));
   assert(h.includes('安 ¥4,800 / 高 ¥5,500'));
-  assert(!h.includes('--gold'));
+  assert(!h.includes('--gold') && !h.includes('pt-legend'));
   // 下降
-  api.setView({ rarity: 'ウルトラ', stores: [] });
+  api.setView({ rarity: 'ウルトラ' });
   assert(body.innerHTML.includes('movers-diff down') && body.innerHTML.includes('▼16.7%'));
 
   // 3) 履歴1日分のレアリティ / 存在しないレアリティ → 1行だけ
-  api.setView({ rarity: 'ノーマル', stores: [] });
+  api.setView({ rarity: 'ノーマル' });
   assert(body.innerHTML.includes('このレアリティの価格推移はまだありません') && !body.innerHTML.includes('<svg'));
-  api.setView({ rarity: 'エクストラ', stores: [] });
+  api.setView({ rarity: 'エクストラ' });
   assert(body.innerHTML.includes('まだありません'));
 
-  // 4) (不明) は「すべて」と同じ・店舗が空なら絞らない・XSSは実体参照化
-  api.setView({ rarity: '(不明)', stores: [] });
+  // 4) (不明) も案内1行・XSS（レアリティ名）は実体参照化
+  api.setView({ rarity: '(不明)' });
+  assert(body.innerHTML.includes('レアリティを選ぶと価格推移を表示します') && !body.innerHTML.includes('<svg'));
+  api.setView({ rarity: '<img onerror=x>' });
   h = body.innerHTML;
-  assert(h.includes('&lt;img onerror=x&gt;') && !h.includes('<img onerror'));
-  assert.equal((h.match(/<path /g) || []).length, 3);
+  assert(h.includes('&lt;img onerror=x&gt;') && !h.includes('<img onerror') && h.includes('<svg'));
 
   // 5) 読み取り操作: 縦線と値の差し替え、離れたら戻す、GAは1回だけ
-  api.setView({ rarity: 'シークレット', stores: [] });
+  api.setView({ rarity: 'シークレット' });
   const plot = plotHolder.p;
   plot.h.pointermove({ clientX: 95 });
   assert.equal(els.ptCursor.attrs.visibility, 'visible');
@@ -114,15 +106,5 @@ const DATA = [
   assert(classes.has('hidden'));
   api.load('F'); api.clear(); reply(pending[6], { data: DATA }); await tick();
   assert(classes.has('hidden') && body.innerHTML === '', 'clear 後に届いた応答は捨てる');
-  // 対数目盛の実測: 100 / 1000 / 10000 の線は、真ん中の線が縦の中央(Y=50)に来る（線形なら Y≒91 付近）
-  api.load('LOG');
-  reply(pending[pending.length - 1], { data: [
-    row('2026-09-01', 'A', 'シークレット', 100), row('2026-09-10', 'A', 'シークレット', 100),
-    row('2026-09-01', 'A', 'ウルトラ', 1000), row('2026-09-10', 'A', 'ウルトラ', 1000),
-    row('2026-09-01', 'A', 'ノーマル', 10000), row('2026-09-10', 'A', 'ノーマル', 10000) ] }); await tick();
-  api.setView({ rarity: '', stores: [] });
-  const dd = [...body.innerHTML.matchAll(/d="M0\.0 ([\d.]+) L1000\.0 /g)].map((m) => +m[1]).sort((x, y) => x - y);
-  assert.equal(dd.length, 3);
-  assert(Math.abs(dd[1] - 50) < 0.5, '対数目盛: 1000円の線は中央 ' + dd);
   console.log('price_trend_check OK');
 })().catch((e) => { console.error(e); process.exit(1); });
