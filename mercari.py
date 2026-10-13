@@ -226,6 +226,12 @@ def _name_key(text: str) -> str:
     return "".join(c for c in t if not c.isspace() and c not in scraper._FLEX_SEP_ALL)
 
 
+# セット判定で「別カードあり」とみなす短いカード名の最大長（2〜3文字）。TODO: calibrate from data
+SHORT_NAME_MAX_LEN = 3
+# 短いカード名の独立トークン判定の区切り（空白・全角空白・「・」「、」「,」「/」「＆」「&」・各種括弧）
+_TOKEN_SPLIT_RE = re.compile(r"[\s　・、,/／&＆【】「」『』()（）\[\]〔〕]+")
+
+
 def build_name_matcher(card_name: str, items: list[dict],
                        known_names=None) -> Callable[[str], bool]:
     """出品名が「そのカード単品」を指しているかを判定する関数を作る。
@@ -238,10 +244,14 @@ def build_name_matcher(card_name: str, items: list[dict],
          a. カード名を含む別の長い名前（例: ブラック・マジシャン → …・ガール）の一部に
             なっているだけの出現は数えない
          b. 題名に別のカード名（4文字以上）も並んでいれば詰め合わせとみなして除外
+    返す関数には属性 has_short_other_card(title) も付く。セット判定専用で、2〜3文字の短い
+    カード名（「天罰」等）が区切りで挟まれた独立トークンとして並んでいるかを返す
+    （単品判定では使わない。短い名前は一般語と衝突しやすいため、セット判定だけに限定）。
     """
     key = _name_key(card_name)
     supers: list[str] = []
     others: list[str] = []
+    short_others: set[str] = set()
     if known_names:
         all_titles = "\n".join(_name_key(it.get("name") or "") for it in items)
         for n in known_names:
@@ -252,6 +262,8 @@ def build_name_matcher(card_name: str, items: list[dict],
                 supers.append(nk)
             elif len(nk) >= 4 and nk not in key and nk in all_titles:
                 others.append(nk)
+            elif 2 <= len(nk) <= SHORT_NAME_MAX_LEN and nk not in key and nk in all_titles:
+                short_others.add(nk)
         supers = list(dict.fromkeys(supers))
         others = list(dict.fromkeys(others))
 
@@ -277,6 +289,15 @@ def build_name_matcher(card_name: str, items: list[dict],
             return False
         return True
 
+    def has_short_other_card(title: str) -> bool:
+        if not short_others:
+            return False
+        for token in _TOKEN_SPLIT_RE.split(_norm(title)):
+            if token and _name_key(token) in short_others:
+                return True
+        return False
+
+    matches.has_short_other_card = has_short_other_card
     return matches
 
 
@@ -355,6 +376,11 @@ def evaluate_listing(card_name: str, item: dict,
         return "non_ocg", 1
     if scraper._is_rush_duel(_norm(name)):
         return "rush_duel", 1
+    if set_qty > 1:
+        # セットは他カードの組を除くため、短いカード名（「天罰」等）の独立トークンも見る
+        check = getattr(name_matches, "has_short_other_card", None)
+        if check is not None and check(name):
+            return "name_mismatch", 1
     return None, set_qty
 
 

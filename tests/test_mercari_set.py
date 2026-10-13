@@ -227,3 +227,86 @@ def test_by_rarityは単品とセットを合わせたレアリティ順():
     a = _agg([_item("灰流うらら ノーマル", 100), _item("灰流うらら シークレット 3枚", 900),
               _item("灰流うらら ウルトラ", 100)])
     assert list(a["by_rarity"]) == ["シークレット", "ウルトラ", "ノーマル"]
+
+
+# ── セット判定だけで見る短いカード名（2〜3文字）の他カード検出 ──
+
+@pytest.mark.parametrize("title", [
+    "遊戯王 ・神の宣告 ・天罰 2枚セット【スーパーレア】",   # 実題名（別カード「天罰」との2枚）
+    "遊戯王 神の宣告 天罰 2枚セット",
+    "遊戯王 神の宣告・天罰 2枚",
+    "遊戯王 神の宣告【天罰】2枚",
+    "遊戯王 神の宣告、天罰、2枚",
+    "遊戯王 神の宣告＆天罰 2枚セット",
+    "神の宣告/天罰 2枚セット",
+    "天罰 神の宣告 2枚セット",                         # 先頭
+    "遊戯王 神の宣告 2枚セット 天罰",                    # 末尾
+    "遊戯王 神の宣告 (天罰) 2枚セット",
+])
+def test_セットに短い別カード名が独立トークンで並んでいれば除外(title):
+    assert _eval("神の宣告", title) == ("name_mismatch", 1)
+
+
+def test_短い別カード名は単品判定では見ない():
+    # 1枚出品（N無し）の挙動は変えない。短い名前は一般語と衝突しやすいため
+    assert _eval("神の宣告", "遊戯王 神の宣告 天罰") == (None, 1)
+    assert _eval("神の宣告", "遊戯王 神の宣告 ・天罰 スーパー") == (None, 1)
+
+
+def test_短い名前でも独立トークンでなければセット扱いのまま():
+    assert _eval("神の宣告", "遊戯王 神の宣告天罰 2枚セット") == (None, 2)        # 区切り無しで連結
+    assert _eval("神の宣告", "遊戯王 神の宣告 天罰的な 2枚セット") == (None, 2)     # 別の語の一部
+
+
+def test_対象カード名の部分文字列は他カード扱いにしない():
+    # 「増殖」はカード名だが「増殖するG」の部分文字列なので除く
+    assert _eval("増殖するG", "遊戯王 増殖するG 増殖 3枚") == (None, 3)
+
+
+@pytest.mark.parametrize("title", [
+    "遊戯王 灰流うらら 初期 美品 3枚",
+    "遊戯王 灰流うらら 即発送 新品 3枚セット",
+    "遊戯王 灰流うらら ノーマル 日本語版 3枚",
+])
+def test_出品文の定番語はカード名と衝突しない(title):
+    assert _eval("灰流うらら", title) == (None, 3)
+
+
+def test_known_namesが無ければ短い名前は見ない():
+    it = _item("遊戯王 神の宣告 ・天罰 2枚セット")
+    matcher = mercari.build_name_matcher("神の宣告", [it], None)
+    assert mercari.evaluate_listing("神の宣告", it, matcher) == (None, 2)
+
+
+def test_短いカード名の一覧に出品文の定番語やレアリティ語と同じものが無い():
+    """機械的な点検の固定: 2〜3文字のカード名が、レアリティ別名・出品文の定番語と同じになっていない。
+    衝突するカードが将来追加されたら、セットの誤除外が増えるのでここで気づく。"""
+    import rarity
+    short = {mercari._name_key(n) for n in KNOWN_NAMES if 2 <= len(mercari._name_key(n)) <= mercari.SHORT_NAME_MAX_LEN}
+    assert short
+    rarity_words = {a.upper() for a in rarity._ALIAS_TO_CANON} | {c.upper() for c in rarity._ALIAS_TO_CANON.values()}
+    common = ["初期", "美品", "即発送", "新品", "中古", "傷", "限定", "完品", "未使用", "良品", "値下げ", "送料", "匿名",
+              "同梱", "在庫", "日本語", "日本", "遊戯王", "状態", "絵違い", "初版", "再録", "最強", "手札誘発", "汎用",
+              "傷あり", "傷なし", "即購入", "即決", "発送", "カード", "単品", "おまけ", "特価", "早い者勝ち", "日版", "国内"]
+    assert not [k for k in short if k.upper() in rarity_words]
+    assert not [k for k in short if k in {mercari._name_key(w) for w in common}]
+
+
+def test_実題名_セットとして拾えていた題名は短名の検出で落ちない():
+    """fixture内で同一カードの2〜3枚組として拾えている題名のうち、短名検出で落ちるのは
+    別カード「天罰」との2枚組1件だけ。"""
+    dropped, picked = [], 0
+    for f in sorted(FIXTURE_DIR.glob("*.json")):
+        d = json.loads(f.read_text(encoding="utf-8"))
+        kw, items = d["keyword"], d["response"]["items"]
+        on = mercari.build_name_matcher(kw, items, KNOWN_NAMES)
+        off = mercari.build_name_matcher(kw, items, KNOWN_NAMES)
+        off.has_short_other_card = lambda t: False
+        for it in items:
+            r0, q0 = mercari.evaluate_listing(kw, it, off)
+            if r0 is None and q0 > 1:
+                picked += 1
+                if mercari.evaluate_listing(kw, it, on)[0] is not None:
+                    dropped.append(it["name"])
+    assert picked >= 90
+    assert dropped == ["遊戯王 ・神の宣告 ・天罰 2枚セット【スーパーレア】"]
