@@ -69,8 +69,12 @@ const lastSource = () => sources[sources.length - 1];
   run('doSearch({validated:true})');
   assert.equal(sources.length, 1);
   assert(sources[0].url.startsWith('/api/search?'));
-  assert.equal(mercariCalls().length, 1, '検索開始と同時に取得');
+  assert.equal(mercariCalls().length, 0, 'EventSource作成直後には呼ばない（最初のイベント待ち）');
+  send(sources[0], { type: 'progress', shop: 'A' });
+  assert.equal(mercariCalls().length, 1, '最初のイベントで取得開始');
   assert.equal(mercariCalls()[0].url, '/api/mercari?name=' + encodeURIComponent('灰流うらら'));
+  send(sources[0], { type: 'progress', shop: 'B' });
+  assert.equal(mercariCalls().length, 1, '2つ目以降のイベントでは呼ばない');
   assert(hidden(), '応答前は枠を出さない');
 
   // 2) 店舗検索の途中（done 前）に応答が届く: 枠が出て、D 空なら確認中の注記のみ
@@ -84,7 +88,7 @@ const lastSource = () => sources[sources.length - 1];
   get('mercariRef').open = true;
   send(sources[0], { type: 'shop_done', shop: 'A', status: 'ok', count: 1, results: [row('ウルトラ')] });
   assert.equal(mercariCalls().length, 1, '再取得しない');
-  assert(body().includes('ウルトラ・出品5件の最安') && body().includes('確認中のレアリティ（ノーマル）があります'), body());
+  assert(body().includes('mref-grid') && body().includes('>ウルトラ<') && body().includes('確認中のレアリティ（ノーマル）があります'), body());
   assert.equal(get('mercariRef').open, true, '開いたまま');
   send(sources[0], { type: 'shop_done', shop: 'B', status: 'ok', count: 0, results: [] });
   assert(body().includes('確認中のレアリティ（ノーマル）'));
@@ -99,6 +103,7 @@ const lastSource = () => sources[sources.length - 1];
   // 5) done で total=0 → 枠を消す
   get('q').value = 'ゼロ件';
   run('doSearch({validated:true})');
+  send(lastSource(), { type: 'progress', shop: 'A' });
   assert.equal(mercariCalls().length, 2);
   assert(sources[0].closed, '旧ストリームは閉じる');
   mercariCalls()[1].resolve(okResp(BY));
@@ -107,34 +112,37 @@ const lastSource = () => sources[sources.length - 1];
   send(sources[1], { type: 'done', total: 0, results: [] });
   assert(hidden() && body() === '', '全店0件ならメルカリも出さない');
 
-  // 6) 検索中の名前補正: corrected で補正後の名前で取り直し、古い応答は捨てる
+  // 6) 検索中の名前補正: 取り直さない（サーバーが /api/mercari 内で補正する）。世代管理は維持される
   get('q').value = 'はいりゅううらら';
   run('doSearch({confirmed:true})');
-  const first = mercariCalls()[2];
-  assert.equal(first.url, '/api/mercari?name=' + encodeURIComponent('はいりゅううらら'));
-  send(sources[2], { type: 'corrected', original: 'はいりゅううらら', corrected: '灰流うらら' });
-  const second = mercariCalls()[3];
-  assert.equal(second.url, '/api/mercari?name=' + encodeURIComponent('灰流うらら'), '補正後の名前で取り直す');
-  send(sources[2], { type: 'shop_done', shop: 'A', status: 'ok', count: 1, results: [row('ウルトラ')] });
-  second.resolve(okResp({ 'ウルトラ': { count: 1, min: 111, median: null, min_is_floor: false, set: null } }));
+  send(lastSource(), { type: 'corrected', original: 'はいりゅううらら', corrected: '灰流うらら' });
+  assert.equal(mercariCalls().length, 3);
+  const only = mercariCalls()[2];
+  assert.equal(only.url, '/api/mercari?name=' + encodeURIComponent('はいりゅううらら'), '入力名のまま1回だけ呼ぶ');
+  send(lastSource(), { type: 'shop_done', shop: 'A', status: 'ok', count: 1, results: [row('ウルトラ')] });
+  only.resolve(okResp({ 'ウルトラ': { count: 1, min: 111, median: null, min_is_floor: false, set: null } }));
   await tick(); await tick();
-  first.resolve(okResp({ 'ウルトラ': { count: 1, min: 999, median: null, min_is_floor: false, set: null } }));
-  await tick(); await tick();
-  assert(body().includes('¥111') && !body().includes('¥999'), '古い名前の応答を捨てる');
-  send(sources[2], { type: 'done', total: 1, corrected_name: '灰流うらら', results: [row('ウルトラ')] });
-  assert.equal(mercariCalls().length, 4, 'corrected と同名なら取り直さない');
-
-  // done.corrected_name だけで名前が変わる場合も取り直す
-  get('q').value = 'abc';
+  assert(body().includes('ウルトラ'), body());
+  send(lastSource(), { type: 'done', total: 1, corrected_name: '灰流うらら', results: [row('ウルトラ')] });
+  assert.equal(mercariCalls().length, 3, 'done.corrected_name でも取り直さない');
+  // 次の検索を始めると、前の検索の応答は世代管理で捨てられる
+  get('q').value = 'next';
   run('doSearch({confirmed:true})');
-  const n = mercariCalls().length;
-  send(lastSource(), { type: 'done', total: 1, corrected_name: '別名カード', results: [row('ウルトラ')] });
-  assert.equal(mercariCalls().length, n + 1);
-  assert.equal(mercariCalls()[n].url, '/api/mercari?name=' + encodeURIComponent('別名カード'), 'done.corrected_name で取り直す');
+  send(lastSource(), { type: 'progress', shop: 'A' });
+  const nxt = mercariCalls()[3];
+  assert(hidden());
 
   // 7) 検索失敗（onerror）で枠を消す
+  // 7a) イベントを1つも受けずに失敗（/api/search が429等）した検索ではメルカリを呼ばない
+  const before = mercariCalls().length;
+  get('q').value = 'fail-first';
+  run('doSearch({confirmed:true})');
+  lastSource().onerror();
+  assert.equal(mercariCalls().length, before, 'onerror のみの検索ではメルカリを呼ばない');
+  assert(hidden());
   get('q').value = 'error-card';
   run('doSearch({confirmed:true})');
+  send(lastSource(), { type: 'progress', shop: 'A' });
   mercariCalls()[mercariCalls().length - 1].resolve(okResp(BY));
   await tick(); await tick();
   assert(!hidden());
@@ -146,6 +154,7 @@ const lastSource = () => sources[sources.length - 1];
   get('q').value = 'timeout-card';
   timers.clear();
   run('doSearch({confirmed:true})');
+  send(lastSource(), { type: 'progress', shop: 'A' });
   mercariCalls()[mercariCalls().length - 1].resolve(okResp(BY));
   await tick(); await tick();
   assert(!hidden());
@@ -158,12 +167,32 @@ const lastSource = () => sources[sources.length - 1];
   // 8) 新しい検索・未発売カード表示・戻る/進む（_resetBuyInline 経由）でクリアされる
   get('q').value = 'reset-card';
   run('doSearch({confirmed:true})');
+  send(lastSource(), { type: 'progress', shop: 'A' });
   mercariCalls()[mercariCalls().length - 1].resolve(okResp(BY));
   await tick(); await tick();
   assert(!hidden());
   run('_resetBuyInline()');
   assert(hidden() && body() === '', '_resetBuyInline でメルカリ枠が消える');
   assert.equal(run('_mercariPending'), false);
+
+  // 9) validate の確認ダイアログでキャンセルしたら枠を消し pending を解除する（もしかして／見つかりません の両方）
+  sandbox.confirm = () => false;
+  for (const v of [{ valid: false, suggestion: '候補カード' }, { valid: false }]) {
+    get('q').value = 'zz-cancel';
+    run('doSearch({confirmed:true})');
+    send(lastSource(), { type: 'progress', shop: 'A' });
+    mercariCalls()[mercariCalls().length - 1].resolve(okResp(BY));
+    await tick(); await tick();
+    assert(!hidden());
+    get('q').value = 'zz-cancel2';
+    run('doSearch()');
+    const vreq = fetches[fetches.length - 1];
+    assert(vreq.url.startsWith('/api/validate'));
+    vreq.resolve({ json: async () => v });
+    await tick(); await tick();
+    assert(hidden() && body() === '', 'キャンセルで消す');
+    assert.equal(run('_mercariPending'), false);
+  }
 
   // 配線がソースに残っていること（showUnreleasedCard と popstate 経路は _resetBuyInline を呼ぶ）
   assert(/function showUnreleasedCard[\s\S]*?_resetBuyInline\(\)/.test(main), '未発売カード表示で _resetBuyInline');

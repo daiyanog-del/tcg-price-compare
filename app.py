@@ -1767,12 +1767,15 @@ def api_mercari():
         return jsonify({"ok": False, "error": "rate_limited"}), 429
     # 外部検索の踏み台にならないよう、既知のカード名だけ受け付ける（/api/search と同じ基準）
     _load_cardnames()
+    # /api/search と同じ補正をかけてから判定・取得する（補正前の名前で呼ばれても1回で正しい結果を返す。
+    # クライアントが補正後の名前で取り直すと IP 1秒制限で必ず429になるため）
+    card_name = _correct_cardname(card_name)
     if card_name not in _cardnames_set and not _is_release_passed_unreleased(card_name):
         return jsonify({"ok": False, "error": "unknown_card"}), 404
     result = _mercari.get_reference(card_name, _cardnames_set)
     if result.get("error") == "busy":  # プロセス全体の負荷制限(同時実行/毎分上限)。待たせず失敗応答
         return jsonify(result), 503
-    return jsonify(result)
+    return jsonify(dict(result, card_name=card_name))  # card_name=補正後の名前
 
 
 TRENDING_MIN_ITEMS = 10  # この件数未満は「利用者が少ない」と見なし非表示

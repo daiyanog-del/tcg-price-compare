@@ -264,8 +264,15 @@ async function loadWith(d, view, status = 200) {
   api.setView({ rarity: '', stores: ['ウルトラ'], pending: true });
   assert.equal(pending.length, 0, '描き直しで再取得しない');
   h = body_();
-  assert(h.includes('ウルトラ・出品5件の最安') && !h.includes('¥640') && !h.includes('¥300'), h);
+  assert(h.includes('mref-grid') && !h.includes('class="scard') && h.includes('>ウルトラ<') && !h.includes('¥640') && !h.includes('¥300'), '確認中はレアリティ1種でも自動タイルにしない: ' + h);
   assert(h.includes('店舗の検索中のため確認中のレアリティ（シークレット・ノーマル・レリーフ）があります'), h);
+  // 明示的にレアリティを選んでいるときは pending 中でもタイル
+  api.setView({ rarity: 'ウルトラ', stores: ['ウルトラ'], pending: true });
+  assert(body_().includes('class="scard') && body_().includes('ウルトラ・出品5件の最安'));
+  // pending が解除されたら、表示対象が1種類だけなら自動タイル（既存ルール）
+  api.setView({ rarity: '', stores: ['ウルトラ'] });
+  assert(body_().includes('class="scard') && !body_().includes('mref-grid'));
+  api.setView({ rarity: '', stores: ['ウルトラ'], pending: true });
   assert(!h.includes('店舗に無い'));
   api.setView({ rarity: '', stores: ['ウルトラ', 'シークレット'], pending: true });
   h = body_();

@@ -137,11 +137,8 @@
     if(!el||!body) return;
     el.classList.remove('hidden');
     if(html===lastHtml) return;
-    // 開いたまま描き直してもスクロール位置を飛ばさない
-    const y=(el.open&&typeof window.scrollY==='number'&&typeof window.scrollTo==='function')?window.scrollY:null;
     body.innerHTML=html;
     lastHtml=html;
-    if(y!==null&&window.scrollY!==y) window.scrollTo(window.scrollX||0,y);
   }
 
   function render(){
@@ -151,7 +148,8 @@
     const fetched=Number(d.fetched_count)||0;
     // 選択が1つ、または表示対象が1種類だけのときはタイル。「(不明)」選択は比較できないので一覧
     let sel=view.rarity||'';
-    if(!sel&&sc.rs.length===1) sel=sc.rs[0];
+    // 店舗検索の途中は、確認できたレアリティが1種でも自動でタイルにしない（後から増えて表示が切り替わるのを避ける）
+    if(!sel&&sc.rs.length===1&&!view.pending) sel=sc.rs[0];
     if(sel==='(不明)') sel='';
     let h=headNote(d);
     if(sel){
