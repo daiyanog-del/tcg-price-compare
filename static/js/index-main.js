@@ -2502,6 +2502,11 @@ async function calcDeckEstimate(ctx, opts){
     ex=parsed.ex;
   }
   if(![...main,...ex].length) return;
+  // デッキ価格計算の利用計測（一覧表示だけのプレビューは計算していないので数えない）
+  if(!opts.previewOnly) _ga('deck_calc',{
+    deck:ctx===DECK_CTX.meta?'meta':ctx===DECK_CTX.wishlist?'wishlist':'mydeck',
+    method:opts.dbOnly?'db':'db_then_shop', side:'sell',
+    card_count:[...main,...ex].reduce((s,c)=>s+(c.qty||1),0)});
 
   const resultsEl=document.getElementById(ctx.results);
   const listEl=document.getElementById(ctx.list);
@@ -2763,6 +2768,9 @@ async function calcDeck(buyMode){
   }
   const {main,ex}=_currentMydeckCards;
   if(![...main,...ex].length) return;
+  // デッキ価格計算の利用計測（店舗から直接取得）
+  _ga('deck_calc',{deck:'mydeck', method:'shop', side:isBuy?'buy':'sell',
+    card_count:[...main,...ex].reduce((s,c)=>s+(c.qty||1),0)});
 
   const ctx=DECK_CTX.mydeck;
   const resultsEl=document.getElementById('deckResults');
