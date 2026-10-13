@@ -37,3 +37,14 @@ def test_index_mainの連動配線():
     assert 'PriceTrend.load(_currentCardName)' in js
     assert 'PriceTrend.clear()' in js
     assert js.count('_syncPriceTrendView()') >= 3  # 定義 + setRarityFilter + done
+
+
+def test_グラフのCSSが新仕様():
+    """目盛り・吹き出し用のCSSがあり、金色を使わず、Jinjaコメント('{#')を含まない。"""
+    src = (ROOT / 'templates/index.html').read_text(encoding='utf-8')
+    a = src.index('.price-trend{')
+    css = src[a:src.index('.price-chart>summary', a)]
+    for sel in ('.pt-plot{', '.pt-grid{', '.pt-axr{', '.pt-tip{', '.pt-cursor{', '.pt-dot{'):
+        assert sel in css, sel
+    assert 'height:150px' in css and 'var(--gold)' not in css and '{#' not in css
+    assert '.pt-axis' not in css  # 下部の始点・終点日付は廃止
