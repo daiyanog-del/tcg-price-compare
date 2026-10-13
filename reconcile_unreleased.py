@@ -14,6 +14,7 @@ reconcile_unreleased.py -- 未発売カード発売済み自動照合ジョブ
         見つかる   -> review_candidates に reason=near_match（自動 linked はしない）
         見つからず -> review_candidates に reason=release_passed_no_match
   review_candidates(JSONB) = {reason, candidates(上位最大10件), total_candidates,
+                              all_candidate_ids(切り詰め前の全候補ID・確認済み判定用),
                               checked_at, dismissed_at}
   管理画面の「公開中」タブに「要確認」と表示され、人が紐付け or「確認済み（まだ未発売）」を選ぶ。
   dismissed_at がある（確認済み）カードは、dismissed_signature（理由＋候補ID）と今回の結果が
@@ -160,9 +161,9 @@ def _find_near_candidates(
     fk: str,
     names_idx: dict[str, list[tuple[str, int]]],
     length_idx: dict[int, list[str]],
-) -> tuple[list[dict], int]:
-    """fk と1字だけ違う正式名を ({konami_id, name} の上位 MAX_NEAR_CANDIDATES 件, 打ち切り前の件数) で返す。
-    konami_id は重複除去する。"""
+) -> list[dict]:
+    """fk と1字だけ違う正式名を、切り詰め前の全件 {konami_id, name}（konami_id 昇順・重複除去）で返す。
+    表示用の上位10件への切り詰めは _make_review が行う。"""
     found: list[dict] = []
     seen: set[int] = set()
     for other in length_idx.get(len(fk), []):
@@ -174,7 +175,7 @@ def _find_near_candidates(
             seen.add(cid)
             found.append({'konami_id': cid, 'name': name})
     found.sort(key=lambda c: c['konami_id'])
-    return found[:MAX_NEAR_CANDIDATES], len(found)
+    return found
 
 
 # 発売日からこの日数が経つまでは近似判定しない（ygores への登録遅れで、発売直後のカードが
@@ -193,12 +194,15 @@ def _is_release_passed(release_date) -> bool:
         return False
 
 
-def _make_review(reason: str, candidates: list[dict], total: int | None = None) -> dict:
-    """review_candidates に保存する辞書を作る。candidates は上位 MAX_NEAR_CANDIDATES 件に切り詰める。"""
+def _make_review(reason: str, candidates: list[dict]) -> dict:
+    """review_candidates に保存する辞書を作る。candidates は全候補を渡す。
+    表示用 candidates は上位 MAX_NEAR_CANDIDATES 件に切り詰め、確認済み判定用に
+    切り詰め前の全候補IDを all_candidate_ids（ソート済み）として保存する。"""
     return {
         'reason': reason,
         'candidates': candidates[:MAX_NEAR_CANDIDATES],
-        'total_candidates': len(candidates) if total is None else total,
+        'total_candidates': len(candidates),
+        'all_candidate_ids': sorted(c['konami_id'] for c in candidates),
         'checked_at': datetime.now(timezone.utc).isoformat(),
         'dismissed_at': None,
     }
@@ -310,7 +314,7 @@ def reconcile(sb) -> dict[str, int]:
         logger.info('照合対象がありません。終了します')
         return summary
 
-    def _mark(card, reason, cands, total):
+    def _mark(card, reason, cands):
         """status を変えず review_candidates だけ記録する。"""
         if _is_dismissed(card):
             if _dismissal_still_valid(card, reason, cands):
@@ -318,7 +322,7 @@ def reconcile(sb) -> dict[str, int]:
                 summary['dismissed_skipped'] += 1
                 return
             logger.warning(f'確認済みを外して再度印を付ける（理由/候補が変化）: {card["name"]!r}')
-        result = _update_card(sb, card['id'], None, 'approved', _make_review(reason, cands, total))
+        result = _update_card(sb, card['id'], None, 'approved', _make_review(reason, cands))
         if result == 'ok':
             summary['review_marked'] += 1
             summary[reason] += 1
@@ -350,13 +354,13 @@ def reconcile(sb) -> dict[str, int]:
                 continue
 
             # 一致なし・発売日が7日以上前: 画像AIの1字誤読を疑う（自動 linked はしない）
-            near, total = _find_near_candidates(fk, names_idx, length_idx)
+            near = _find_near_candidates(fk, names_idx, length_idx)
             if near:
                 logger.warning(f'要確認（1字違い）: {name!r} -> {near}')
-                _mark(card, 'near_match', near, total)
+                _mark(card, 'near_match', near)
             else:
                 logger.warning(f'要確認（発売日経過・一致なし）: {name!r}')
-                _mark(card, 'release_passed_no_match', [], 0)
+                _mark(card, 'release_passed_no_match', [])
             continue
 
         candidates = fuzzy_idx[fk]
@@ -376,7 +380,7 @@ def reconcile(sb) -> dict[str, int]:
             # 候補複数 -> 要確認の印だけ付ける（公開は維持）
             logger.warning(f'要確認（候補複数）: {name!r} -> candidates={candidates}')
             allc = [{'konami_id': cid, 'name': n} for n, cid in names_idx.get(fk, [])]
-            _mark(card, 'multiple_exact', allc, len(allc))
+            _mark(card, 'multiple_exact', allc)
 
     return summary
 

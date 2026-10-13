@@ -118,19 +118,20 @@ def test_find_near_candidates_dedup_and_same_length_only():
     }
     names_idx = target._build_fuzzy_names_index(name_index)
     length_idx = target._build_length_index(names_idx)
-    found, total = target._find_near_candidates(target.fuzzy_key("屠欺龍"), names_idx, length_idx)
+    found = target._find_near_candidates(target.fuzzy_key("屠欺龍"), names_idx, length_idx)
     assert found == [{"konami_id": 100, "name": "蜃欺龍"}]
-    assert total == 1
 
 
-def test_find_near_candidates_truncates_to_top10_with_total():
-    # 先頭1字だけ違う名前を15件用意する
+def test_make_review_truncates_display_but_keeps_all_ids():
     name_index = {chr(0x4E00 + i) + "欺龍": [1000 + i] for i in range(15)}
     names_idx = target._build_fuzzy_names_index(name_index)
     length_idx = target._build_length_index(names_idx)
-    found, total = target._find_near_candidates(target.fuzzy_key("屠欺龍"), names_idx, length_idx)
-    assert len(found) == target.MAX_NEAR_CANDIDATES == 10
-    assert total == 15
+    found = target._find_near_candidates(target.fuzzy_key("屠欺龍"), names_idx, length_idx)
+    assert len(found) == 15
+    rc = target._make_review("near_match", found)
+    assert len(rc["candidates"]) == target.MAX_NEAR_CANDIDATES == 10
+    assert rc["total_candidates"] == 15
+    assert rc["all_candidate_ids"] == [1000 + i for i in range(15)]
 
 
 def test_build_fuzzy_names_index_skips_non_integer_id(monkeypatch):
@@ -231,8 +232,8 @@ def test_multiple_exact_saves_candidates_and_keeps_approved(monkeypatch):
 
 
 def _dismissed(reason, ids):
-    return {"reason": reason, "candidates": [{"konami_id": i, "name": "x"} for i in ids],
-            "total_candidates": len(ids), "checked_at": "x",
+    return {"reason": reason, "candidates": [{"konami_id": i, "name": "x"} for i in sorted(ids)[:10]],
+            "total_candidates": len(ids), "all_candidate_ids": sorted(ids), "checked_at": "x",
             "dismissed_at": "2026-10-01T00:00:00+00:00",
             "dismissed_signature": {"reason": reason, "candidate_ids": sorted(ids)}}
 
@@ -255,6 +256,26 @@ def test_dismissed_card_is_remarked_when_new_candidate_appears(monkeypatch):
     assert {c["konami_id"] for c in rc["candidates"]} == {100, 101}
     assert summary["review_marked"] == 1
     assert summary["dismissed_skipped"] == 0
+
+
+def test_dismissed_with_over_10_candidates_remarked_when_larger_id_added(monkeypatch):
+    """候補が10件を超えても、切り詰めで見えない大きい konami_id の新規候補を見逃さない。"""
+    base = {chr(0x4E00 + i) + "欺龍": [1000 + i] for i in range(12)}
+    ids = [1000 + i for i in range(12)]
+    cards = [_card(1, "屠欺龍", PAST, review=_dismissed("near_match", ids))]
+    # 同じ候補のまま → 確認済みを維持
+    summary, rows = _run(monkeypatch, cards, dict(base))
+    assert summary["dismissed_skipped"] == 1
+    # konami_id が最大の1字違いカードが追加された（上位10件の外側）→ 再付与
+    extra = dict(base)
+    extra[chr(0x4E00 + 20) + "欺龍"] = [9999]
+    cards = [_card(1, "屠欺龍", PAST, review=_dismissed("near_match", ids))]
+    summary, rows = _run(monkeypatch, cards, extra)
+    rc = rows[0]["review_candidates"]
+    assert rc["dismissed_at"] is None
+    assert 9999 in rc["all_candidate_ids"]
+    assert 9999 not in [c["konami_id"] for c in rc["candidates"]]  # 表示は上位10件のまま
+    assert summary["review_marked"] == 1
 
 
 def test_dismissed_card_is_remarked_when_reason_changes(monkeypatch):
@@ -495,6 +516,15 @@ def test_review_dismiss_records_signature(monkeypatch):
     assert _client().post("/api/admin/unreleased/1/review-dismiss", headers=HEADERS).status_code == 200
     assert rows[0]["review_candidates"]["dismissed_signature"] == {
         "reason": "near_match", "candidate_ids": [100, 300]}
+
+
+def test_review_dismiss_signature_uses_all_candidate_ids(monkeypatch):
+    rows = [_row(1, "approved")]
+    rows[0]["review_candidates"].update(
+        candidates=[{"konami_id": 100, "name": "a"}], all_candidate_ids=[100, 200, 300])
+    _install(monkeypatch, rows)
+    assert _client().post("/api/admin/unreleased/1/review-dismiss", headers=HEADERS).status_code == 200
+    assert rows[0]["review_candidates"]["dismissed_signature"]["candidate_ids"] == [100, 200, 300]
 
 
 def test_review_dismiss_rejects_multiple_exact(monkeypatch):

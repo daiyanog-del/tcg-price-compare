@@ -659,9 +659,13 @@ def admin_review_dismiss(card_id: int):
         # 確認済み時点の理由と候補ID。reconcile は理由変化・候補増加を検知して印を付け直す
         new_review["dismissed_signature"] = {
             "reason": review.get("reason"),
+            # 切り詰め前の全候補ID（無い旧データは表示用 candidates のIDにフォールバック）
             "candidate_ids": sorted(
-                c["konami_id"] for c in (review.get("candidates") or [])
-                if isinstance(c, dict) and isinstance(c.get("konami_id"), int)
+                cid for cid in (
+                    review.get("all_candidate_ids")
+                    or [c.get("konami_id") for c in (review.get("candidates") or [])
+                        if isinstance(c, dict)]
+                ) if isinstance(cid, int)
             ),
         }
         upd_resp = (
