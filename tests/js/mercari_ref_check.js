@@ -43,8 +43,8 @@ const tick = () => new Promise((r) => setImmediate(r));
     ok: true, unclassified_count: 2, total_considered: 9, fetched_count: 120, num_found: 1316,
     search_url: 'https://jp.mercari.com/search?keyword=x&status=on_sale&category_id=1152',
     by_rarity: {
-      'ノーマル': { count: 1, min: 300, median: null, min_is_floor: true },
-      'ウルトラ': { count: 5, min: 1000, median: 1500, min_is_floor: false },
+      'ノーマル': { count: 1, min: 300, median: null, min_is_floor: true, set: { unit_min: 300, unit_min_qty: 3, count: 2 } },
+      'ウルトラ': { count: 5, min: 1000, median: 1500, min_is_floor: false, set: { unit_min: 100, unit_min_qty: 3, count: 4 } },
       'シークレット': { count: 3, min: 640, median: 700, min_is_floor: false },
     },
   });
@@ -53,7 +53,7 @@ const tick = () => new Promise((r) => setImmediate(r));
   const h = box.innerHTML;
   assert(h.indexOf('シークレット') < h.indexOf('ウルトラ') && h.indexOf('ウルトラ') < h.indexOf('ノーマル'), 'レアリティ順');
   // 見出しは1回だけ。各行は 札 | 最安 | 中央 | 件数 の4セル
-  assert.equal(h.split('mref-h"').length - 1, 4, '見出しセルは4つ(空+最安+中央+件数)');
+  
   assert.equal(h.split('>最安<').length - 1, 1);
   assert(h.includes('<span class="mref-min">¥640</span><span class="mref-med">¥700</span><span class="mref-n">3</span>'));
   assert(h.includes('<span class="mref-min">¥300*</span><span class="mref-med">—</span><span class="mref-n">1</span>'), '300円は¥300*・中央なしは—');
@@ -61,6 +61,21 @@ const tick = () => new Promise((r) => setImmediate(r));
   assert(h.includes('レアリティ判定できず 2件'));
   assert(h.includes('rel="noopener"') && h.includes('target="_blank"') && h.includes('メルカリで見る'));
   assert(h.includes('rb-secret'));
+  // 5列目「セット(1枚)」: ¥単価の下に「N枚組」。無ければ「—」。セットの単価には「*」を付けない
+  assert(h.includes('>セット(1枚)<'));
+  assert(h.includes('<span class="mref-set">¥100<small>3枚組</small></span>'));
+  assert(h.includes('<span class="mref-set">¥300<small>3枚組</small></span>') && !h.includes('¥300<small>3枚組</small></span>*'));
+  assert(h.includes('<span class="mref-n">3</span><span class="mref-set">—</span>'), 'セット無しは—');
+  assert(h.includes('セット＝同じカード2〜3枚組の1枚あたり価格'));
+  assert.equal(h.split('class="mref-h"').length - 1, 5, '見出しセルは5つ');
+
+  // セットしか無いレアリティ: 単品列は—、セット列に単価
+  api.load('x');
+  reply(pending.shift(), { ok: true, unclassified_count: 0, fetched_count: 5, num_found: 5, search_url: 'https://jp.mercari.com/search?keyword=x',
+    by_rarity: { 'スーパー': { count: 0, min: null, median: null, min_is_floor: false, set: { unit_min: 250, unit_min_qty: 2, count: 1 } } } });
+  await tick(); await tick();
+  assert(box.innerHTML.includes('<span class="mref-min">—</span><span class="mref-med">—</span><span class="mref-n">—</span><span class="mref-set">¥250<small>2枚組</small></span>'), box.innerHTML);
+  assert(!box.innerHTML.includes('最低出品価格') && !box.innerHTML.includes('¥null'));
 
   // 2) XSS: レアリティ名・URLに脱出ペイロード
   api.load('x');

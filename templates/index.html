@@ -453,13 +453,16 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 /* メルカリ参考相場（店舗の表とは別枠） */
 .mref{margin-bottom:20px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px 16px}
 .mref-title{font-size:.85rem;font-weight:600;margin-bottom:10px;color:var(--text-m)}
-.mref-grid{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:6px 16px;align-items:center;font-size:.8rem;max-width:460px}
+.mref-grid{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto auto;gap:6px 12px;align-items:center;font-size:.8rem;max-width:460px}
 .mref-h{font-size:.68rem;color:var(--text-d);text-align:right}
 .mref-h:first-child{text-align:left}
-.mref-min,.mref-med,.mref-n{text-align:right;white-space:nowrap}
+.mref-min,.mref-med,.mref-n,.mref-set{text-align:right;white-space:nowrap}
 .mref-min{font:600 .85rem var(--mono);color:var(--text)}
 .mref-med{font:600 .8rem var(--mono);color:var(--text-m)}
 .mref-n{font:.8rem var(--mono);color:var(--text-m)}
+.mref-set{font:600 .8rem var(--mono);color:var(--text-m);line-height:1.15}
+.mref-set small{display:block;font:.65rem var(--font);color:var(--text-d)}
+@media(max-width:420px){.mref-grid{gap:6px 8px}.mref-grid .rb{font-size:.64rem;padding:2px 5px}.mref-min{font-size:.8rem}}
 .mref-grid .rb{justify-self:start}
 .mref-note{font-size:.74rem;color:var(--text-d);margin-top:6px}
 .mref-link{margin-top:8px;font-size:.76rem}

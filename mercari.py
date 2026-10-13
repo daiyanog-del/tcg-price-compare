@@ -61,11 +61,23 @@ MERCARI_MIN_LISTING_PRICE = 300  # メルカリの最低出品価格。min が�
 # TODO: calibrate from data（実データで除外漏れ・過剰除外を確認しながら増減する）
 GRADED_PATTERN = re.compile(r"(?<![A-Z])(?:PSA|BGS|ARS|CGC)(?![A-Z])|鑑定")
 MULTI_PATTERN = re.compile(
-    r"(?<![0-9A-Z])(?:[2-9]|[1-9][0-9]+)\s*枚"  # 「2枚」「10枚」（「1枚」は単品）
+    r"(?<![0-9A-Z])(?:[2-9]|[1-9][0-9]+)\s*枚|[二三四五六七八九十]\s*枚"  # 「2枚」「10枚」「三枚」（「1枚」は単品）
     r"|セット|まとめ|計\s*[0-9]+\s*枚|大量"
     r"|[×✖]️?\s*[2-9]|(?<![A-Z0-9])X\s*[2-9]"  # 「×2」「x3」（EX2 等は除く）
     r"|[2-9]\s*体"             # 「3体」
 )
+# 同一カードのセット（2〜3枚組）として拾う条件。TODO: calibrate from data
+SET_QTY_CHOICES = (2, 3)  # 1枚あたり価格を出すセット枚数。4枚以上は拾わない
+_KANJI_NUM = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+# 枚数表記: 「N枚」「×N」「xN」（全角数字は NFKC 済み。漢数字は一〜十）
+_QTY_PATTERNS = (
+    re.compile(r"(?<![0-9A-Z])(\d+|[一二三四五六七八九十])\s*枚"),
+    re.compile(r"[×✖]️?\s*(\d+)"),
+    re.compile(r"(?<![A-Z0-9])X\s*(\d+)"),
+)
+# これがあるセットは「同じカードだけの組」と言えないので従来どおり除外
+SET_DISQUALIFY_PATTERN = re.compile(r"各|計|まとめ|他|関連|デッキ|パーツ|詰め合わせ|大量|\d\s*体")
+
 # 専用出品。実際の形だけを見る: 「様専用」「様用」、否定形でない「専用」、
 # 題名先頭の「〇〇様」（伏せ字含む「ボ*ブ様 …」）。「王様」「神様」「お客様」「皆様」「異様」
 # 「専用ではありません」等は除外しない（題名先頭の「様」は下の否定先読みで通常語を外す）
@@ -268,25 +280,55 @@ def build_name_matcher(card_name: str, items: list[dict],
     return matches
 
 
+def same_card_set_qty(text: str) -> int | None:
+    """題名（カード名除去・NFKC・大文字化済み）が「同じカードだけの2〜3枚組」なら枚数、
+    そうでなければ None。
+
+    枚数は「N枚」「N枚セット」「N枚組」「×N」「xN」から読む。次のどれかなら None
+    （従来どおり複数枚として除外）: 4枚以上／枚数表記が複数で食い違う／枚数が読めない
+    （「セット」だけ）／「各」「計」「まとめ」「他」「関連」「デッキ」「パーツ」「詰め合わせ」
+    「N体」。他カード名の混在は呼び出し側（build_name_matcher）で先に除外される。
+    """
+    if SET_DISQUALIFY_PATTERN.search(text):
+        return None
+    qtys = set()
+    for pat in _QTY_PATTERNS:
+        for m in pat.finditer(text):
+            g = m.group(1)
+            qtys.add(_KANJI_NUM[g] if g in _KANJI_NUM else int(g))
+    if len(qtys) != 1:
+        return None
+    q = next(iter(qtys))
+    return q if q in SET_QTY_CHOICES else None
+
+
 def exclusion_reason(card_name: str, item: dict,
                      name_matches: Callable[[str], bool] | None = None) -> str | None:
-    """除外すべき出品なら理由、対象ならNone。name_matches 省略時は build_name_matcher の
-    最小形（含有のみ）を使う。"""
+    """除外すべき出品なら理由、対象ならNone（複数枚は同一カードのセットも「multi」で除外）。
+    name_matches 省略時は build_name_matcher の最小形（含有のみ）を使う。"""
+    return evaluate_listing(card_name, item, name_matches, allow_set=False)[0]
+
+
+def evaluate_listing(card_name: str, item: dict,
+                     name_matches: Callable[[str], bool] | None = None,
+                     allow_set: bool = True) -> tuple[str | None, int]:
+    """出品を評価して (除外理由, 枚数) を返す。除外なら理由が入り、対象なら理由は None で
+    枚数は 1（単品）または 2〜3（同一カードのセット。allow_set=True のときだけ）。"""
     name = item.get("name") or ""
     if item.get("auction"):
-        return "auction"
+        return "auction", 1
     if item.get("status") not in (None, "", "ITEM_STATUS_ON_SALE", "STATUS_ON_SALE"):
-        return "not_on_sale"
+        return "not_on_sale", 1
     try:
         price = int(item.get("price"))
     except (TypeError, ValueError):
-        return "bad_price"
+        return "bad_price", 1
     if price <= 0:
-        return "bad_price"
+        return "bad_price", 1
     if name_matches is None:
         name_matches = build_name_matcher(card_name, [item])
     if not name_matches(name):
-        return "name_mismatch"
+        return "name_mismatch", 1
     # 注意書き類の語がカード名自体に含まれる場合（例: 「…セット」）に誤爆しないよう、
     # カード名部分を除いた残りで判定する
     import scraper
@@ -296,21 +338,24 @@ def exclusion_reason(card_name: str, item: dict,
         residual = re.sub(flex, " ", residual, flags=re.IGNORECASE)
     upper = residual.upper()
     if GRADED_PATTERN.search(upper):
-        return "graded"
+        return "graded", 1
+    set_qty = 1
     if MULTI_PATTERN.search(upper):
-        return "multi"
+        set_qty = same_card_set_qty(upper) if allow_set else None
+        if set_qty is None:
+            return "multi", 1
     if OVERSEAS_PATTERN.search(upper):
-        return "overseas"
+        return "overseas", 1
     if DEDICATED_PATTERN.search(residual) or DEDICATED_PATTERN.search(_norm(name).strip()):
-        return "dedicated"
+        return "dedicated", 1
     # 「スリーブ付き」等は単品の付属表記なのでサプライ扱いにしない
     if SUPPLY_PATTERN.search(ACCESSORY_NOTE_PATTERN.sub(" ", upper)):
-        return "supply"
+        return "supply", 1
     if NON_OCG_PATTERN.search(upper):
-        return "non_ocg"
+        return "non_ocg", 1
     if scraper._is_rush_duel(_norm(name)):
-        return "rush_duel"
-    return None
+        return "rush_duel", 1
+    return None, set_qty
 
 
 # ── レアリティ判定 ──
@@ -343,34 +388,60 @@ def classify_rarity(card_name: str, item_name: str) -> str | None:
 
 # ── 集計 ──
 
+def _half_up(x: float) -> int:
+    """四捨五入（偶数丸めにしない）。"""
+    return int(math.floor(x + 0.5))
+
+
 def aggregate(card_name: str, items: list[dict], known_names=None) -> dict:
-    """生の出品リストを除外→レアリティ判定→レアリティ別集計にする（通信なし）。"""
-    groups: dict[str, list[int]] = {}
-    unclassified = 0
+    """生の出品リストを除外→レアリティ判定→レアリティ別集計にする（通信なし）。
+
+    単品の統計（count/min/median）と、同じカードの2〜3枚組（セット）の
+    1枚あたり価格 set={unit_min, unit_min_qty, count} は別々に持つ（セットは単品に混ぜない）。
+    """
+    singles: dict[str, list[int]] = {}
+    sets: dict[str, list[tuple[int, int]]] = {}  # レアリティ → [(1枚あたり価格, 枚数)]
+    unclassified_single = unclassified_set = 0
     considered = 0
     matcher = build_name_matcher(card_name, items, known_names)
     for it in items:
-        if exclusion_reason(card_name, it, matcher):
+        reason, qty = evaluate_listing(card_name, it, matcher)
+        if reason:
             continue
         considered += 1
         price = int(it["price"])
         r = classify_rarity(card_name, it.get("name") or "")
         if r is None:
-            unclassified += 1
+            if qty == 1:
+                unclassified_single += 1
+            else:
+                unclassified_set += 1
             continue
-        groups.setdefault(r, []).append(price)
+        if qty == 1:
+            singles.setdefault(r, []).append(price)
+        else:
+            sets.setdefault(r, []).append((_half_up(price / qty), qty))
     by_rarity: dict[str, dict] = {}
-    for r in sorted(groups, key=_rarity.order_of):
-        prices = groups[r]
-        mn = min(prices)
+    for r in sorted(set(singles) | set(sets), key=_rarity.order_of):
+        prices = singles.get(r, [])
+        mn = min(prices) if prices else None
+        unit = sets.get(r)
         by_rarity[r] = {
             "count": len(prices),
             "min": mn,
-            "median": (int(math.floor(statistics.median(prices) + 0.5))  # 四捨五入（偶数丸めにしない）
+            "median": (_half_up(statistics.median(prices))
                        if len(prices) >= MERCARI_MEDIAN_MIN_COUNT else None),
             "min_is_floor": mn == MERCARI_MIN_LISTING_PRICE,
+            # 同額なら枚数の多い方（3枚組）を優先
+            "set": ({"unit_min": min(unit, key=lambda t: (t[0], -t[1]))[0],
+                     "unit_min_qty": min(unit, key=lambda t: (t[0], -t[1]))[1],
+                     "count": len(unit)} if unit else None),
         }
-    return {"by_rarity": by_rarity, "unclassified_count": unclassified, "total_considered": considered}
+    return {"by_rarity": by_rarity,
+            "unclassified_count": unclassified_single + unclassified_set,
+            "unclassified_single": unclassified_single,
+            "unclassified_set": unclassified_set,
+            "total_considered": considered}
 
 
 # ── 公開: キャッシュ・負荷対策つき取得 ──

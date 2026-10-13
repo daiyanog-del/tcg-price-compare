@@ -18,13 +18,16 @@
     return Object.keys(byRarity||{}).sort((a,b)=>rarityOrder(a)-rarityOrder(b));
   }
 
-  // 列をそろえた表。見出し行は1回だけ。300円は最低出品価格なので「¥300*」にして注記へ
+  // 列をそろえた表。見出し行は1回だけ。300円は最低出品価格なので単品の最安だけ「¥300*」にして注記へ
+  // （セットは1枚あたりに割った値なので「*」は付けない）
   function rowHtml(r,v){
-    const min=yen(v.min)+(v.min_is_floor?'*':'');
+    const hasSingle=Number(v.count)>0;
+    const min=hasSingle?yen(v.min)+(v.min_is_floor?'*':''):'—';
     const med=v.median==null?'—':yen(v.median);
+    const set=v.set?`<span class="mref-set">${yen(v.set.unit_min)}<small>${Number(v.set.unit_min_qty)}枚組</small></span>`:'<span class="mref-set">—</span>';
     return `<span class="rb rb-${escAttr(cssClass(r))}">${esc(r)}</span>`+
       `<span class="mref-min">${min}</span><span class="mref-med">${med}</span>`+
-      `<span class="mref-n">${Number(v.count)}</span>`;
+      `<span class="mref-n">${hasSingle?Number(v.count):'—'}</span>${set}`;
   }
 
   function render(d){
@@ -40,14 +43,15 @@
       h+=`<div class="mref-note">${fetched>0?'条件に合う出品なし':'出品なし'}</div>`;
     }else{
       if(rs.length>0){
-        h+='<div class="mref-grid"><span class="mref-h"></span><span class="mref-h">最安</span><span class="mref-h">中央</span><span class="mref-h">件数</span>'+
+        h+='<div class="mref-grid"><span class="mref-h"></span><span class="mref-h">最安</span><span class="mref-h">中央</span><span class="mref-h">件数</span><span class="mref-h">セット(1枚)</span>'+
           rs.map(r=>rowHtml(r,d.by_rarity[r])).join('')+'</div>';
       }
       const notes=[];
-      if(rs.some(r=>d.by_rarity[r].min_is_floor)) notes.push('* 300円は最低出品価格');
+      if(rs.some(r=>d.by_rarity[r].min_is_floor&&Number(d.by_rarity[r].count)>0)) notes.push('* 300円は最低出品価格');
       // 最安は関連度上位の取得分の中の最安。全件でないときは母数を明示する
       if(fetched>0&&Number(d.num_found)>fetched) notes.push(`関連度上位${fetched}件から集計`);
       if(notes.length) h+=`<div class="mref-note">${esc(notes.join('・'))}</div>`;
+      if(rs.some(r=>d.by_rarity[r].set)) h+='<div class="mref-note">セット＝同じカード2〜3枚組の1枚あたり価格</div>';
       if(unclassified>0) h+=`<div class="mref-note">レアリティ判定できず ${unclassified}件</div>`;
     }
     const link=safeUrl(d.search_url);

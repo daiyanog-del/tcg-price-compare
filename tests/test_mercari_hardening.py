@@ -322,7 +322,7 @@ def test_中央値は四捨五入():
 
 def test_結果に取得件数と全体件数を含む(monkeypatch):
     monkeypatch.setattr(mercari, "fetch_raw", lambda kw: {
-        "items": [_item("灰流うらら ウルトラ", 1000), _item("灰流うらら 3枚セット", 900)],
+        "items": [_item("灰流うらら ウルトラ", 1000), _item("灰流うらら まとめ売り", 900)],
         "meta": {"numFound": "1316"}})
     r = mercari.get_reference("灰流うらら")
     assert r["fetched_count"] == 2 and r["num_found"] == 1316 and r["total_considered"] == 1

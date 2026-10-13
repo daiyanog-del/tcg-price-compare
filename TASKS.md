@@ -5,7 +5,7 @@
 
 ## 進行中
 
-- [ ] **メルカリ参考相場（2026-10-13、実装済み・未デプロイ）** — カード詳細に別枠「メルカリ（出品中・参考）」を追加（/api/mercari、mercari.py、static/js/mercari-ref.js）。店舗一覧・最安比較・夜間収集には混ぜない。校正待ち（`# TODO: calibrate from data`）: 中央値の最小件数 MERCARI_MEDIAN_MIN_COUNT、除外語（GRADED/MULTI/OVERSEAS/SUPPLY/NON_OCG/DEDICATED。2026-10-13 に「×2」「3体」「専用」「様」を追加、「スリーブ付き」等の付属表記は除外しない）、負荷対策（MAX_CONCURRENT_FETCHES=2・MAX_FETCHES_PER_MIN=20・合計タイムアウト15秒）、rarity._TEXT_NOISE_RE・_TEXT_EXTRA_ALIASES、rarity._TEXT_EXCLUDED_ALIASES、キャッシュ15分、レート制限1秒。型番によるレアリティ補完は不採用（decisions.md 2026-10-13）。アフィリエイト化は mercari.build_search_url の差し替えのみ。
+- [ ] **メルカリ参考相場（2026-10-13、実装済み・未デプロイ）** — カード詳細に別枠「メルカリ（出品中・参考）」を追加（/api/mercari、mercari.py、static/js/mercari-ref.js）。店舗一覧・最安比較・夜間収集には混ぜない。校正待ち（`# TODO: calibrate from data`）: 中央値の最小件数 MERCARI_MEDIAN_MIN_COUNT、除外語（GRADED/MULTI/OVERSEAS/SUPPLY/NON_OCG/DEDICATED。2026-10-13 に「×2」「3体」「専用」「様」を追加、「スリーブ付き」等の付属表記は除外しない）、負荷対策（MAX_CONCURRENT_FETCHES=2・MAX_FETCHES_PER_MIN=20・合計タイムアウト15秒）、同一カード2〜3枚組の拾い条件（SET_QTY_CHOICES・SET_DISQUALIFY_PATTERN）、rarity._TEXT_NOISE_RE・_TEXT_EXTRA_ALIASES、rarity._TEXT_EXCLUDED_ALIASES、キャッシュ15分、レート制限1秒。型番によるレアリティ補完は不採用（decisions.md 2026-10-13）。アフィリエイト化は mercari.build_search_url の差し替えのみ。
 
 - [x] **一人回し上書き保存でマイデッキが古い内容に戻る不具合（2026-10-08）** — 一人回しPDF取込保存に [EX] 区切りと main/ex を追加。normalizeDeck が main/ex と text の食い違いを検知し text を正とする。下書き復元はひも付き保存済みと食い違えば保存済みを優先。[EX]無しの壊れデータは EX がメインに混ざる（カードは消えない）既知の制限。
 

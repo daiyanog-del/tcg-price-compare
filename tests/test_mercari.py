@@ -190,7 +190,7 @@ def test_最低出品価格300円はmin_is_floor():
 
 def test_判定できなかった件数と母数():
     items = [_item("灰流うらら ウルトラ", 1000), _item("灰流うらら", 500),
-             _item("灰流うらら 3枚セット", 100), _item("無限泡影 ウルトラ", 100)]
+             _item("灰流うらら まとめ売り", 100), _item("無限泡影 ウルトラ", 100)]
     agg = mercari.aggregate("灰流うらら", items)
     assert agg["unclassified_count"] == 1
     assert agg["total_considered"] == 2
@@ -210,17 +210,23 @@ def test_fixtureの集計が妥当(fx):
     kw, items = _load(fx)
     agg = mercari.aggregate(kw, items, KNOWN_NAMES)
     assert agg["total_considered"] > 0
-    assert sum(v["count"] for v in agg["by_rarity"].values()) + agg["unclassified_count"] == agg["total_considered"]
+    assert (sum(v["count"] + (v["set"]["count"] if v["set"] else 0) for v in agg["by_rarity"].values())
+            + agg["unclassified_count"] == agg["total_considered"])
+    assert agg["unclassified_count"] == agg["unclassified_single"] + agg["unclassified_set"]
     matcher = mercari.build_name_matcher(kw, items, KNOWN_NAMES)
     for it in items:
-        if mercari.exclusion_reason(kw, it, matcher) is None:
+        reason, qty = mercari.evaluate_listing(kw, it, matcher)
+        if reason is None:
             n = it["name"].upper()
-            # 鑑定品・複数枚・海外版・サプライが混ざっていない
-            for bad in ("PSA", "BGS", "鑑定", "セット", "まとめ", "アジア", "スリーブ", "プロテクター", "英語"):
+            # 鑑定品・海外版・サプライが混ざっていない
+            for bad in ("PSA", "BGS", "鑑定", "まとめ", "アジア", "スリーブ", "プロテクター", "英語"):
                 assert bad not in n, it["name"]
-            assert not mercari.MULTI_PATTERN.search(it["name"]), it["name"]
+            if qty == 1:   # 単品に複数枚・セットが混ざっていない
+                assert "セット" not in n and not mercari.MULTI_PATTERN.search(it["name"]), it["name"]
+            else:
+                assert qty in mercari.SET_QTY_CHOICES
     for r, v in agg["by_rarity"].items():
-        assert v["min"] >= 300
+        assert v["min"] is None or v["min"] >= 300
         assert v["median"] is None or v["median"] >= v["min"]
         assert v["median"] is None or v["count"] >= mercari.MERCARI_MEDIAN_MIN_COUNT
 
@@ -386,7 +392,7 @@ def test_api_成功(client, monkeypatch):
     r = client.get("/api/mercari", query_string={"name": "灰流うらら"})
     d = r.get_json()
     assert r.status_code == 200 and d["ok"] is True and d["cached"] is False
-    assert d["by_rarity"]["ウルトラ"] == {"count": 3, "min": 1000, "median": 1200, "min_is_floor": False}
+    assert d["by_rarity"]["ウルトラ"] == {"count": 3, "min": 1000, "median": 1200, "min_is_floor": False, "set": None}
     assert d["unclassified_count"] == 1 and d["total_considered"] == 4
     assert d["search_url"].startswith("https://jp.mercari.com/search?keyword=")
 
