@@ -40,7 +40,7 @@ const tick = () => new Promise((r) => setImmediate(r));
   assert.equal(pending.length, 1);
   assert.equal(pending[0].url, '/api/mercari?name=' + encodeURIComponent('灰流うらら'));
   reply(pending.shift(), {
-    ok: true, unclassified_count: 2, total_considered: 9,
+    ok: true, unclassified_count: 2, total_considered: 9, fetched_count: 120, num_found: 1316,
     search_url: 'https://jp.mercari.com/search?keyword=x&status=on_sale&category_id=1152',
     by_rarity: {
       'ノーマル': { count: 1, min: 300, median: null, min_is_floor: true },
@@ -52,9 +52,12 @@ const tick = () => new Promise((r) => setImmediate(r));
   assert(!classes.has('hidden'));
   const h = box.innerHTML;
   assert(h.indexOf('シークレット') < h.indexOf('ウルトラ') && h.indexOf('ウルトラ') < h.indexOf('ノーマル'), 'レアリティ順');
-  assert(h.includes('最安 ¥640') && h.includes('中央 ¥700') && h.includes('（3件）'));
-  assert(h.includes('最安 ¥300（最低出品価格）'));
-  assert(!h.includes('中央 ¥null') && h.split('中央').length === 3, '中央値なしの行は中央を出さない');
+  // 見出しは1回だけ。各行は 札 | 最安 | 中央 | 件数 の4セル
+  assert.equal(h.split('mref-h"').length - 1, 4, '見出しセルは4つ(空+最安+中央+件数)');
+  assert.equal(h.split('>最安<').length - 1, 1);
+  assert(h.includes('<span class="mref-min">¥640</span><span class="mref-med">¥700</span><span class="mref-n">3</span>'));
+  assert(h.includes('<span class="mref-min">¥300*</span><span class="mref-med">—</span><span class="mref-n">1</span>'), '300円は¥300*・中央なしは—');
+  assert(h.includes('* 300円は最低出品価格・関連度上位120件から集計'));
   assert(h.includes('レアリティ判定できず 2件'));
   assert(h.includes('rel="noopener"') && h.includes('target="_blank"') && h.includes('メルカリで見る'));
   assert(h.includes('rb-secret'));
@@ -79,8 +82,18 @@ const tick = () => new Promise((r) => setImmediate(r));
   api.load('x');
   reply(pending.shift(), { ok: true, by_rarity: {}, unclassified_count: 0, search_url: 'https://jp.mercari.com/search?keyword=x' });
   await tick(); await tick();
-  assert(box.innerHTML.includes('出品なし'));
+  assert(box.innerHTML.includes('出品なし') && !box.innerHTML.includes('条件に合う'));
   assert(!box.innerHTML.includes('取得できませんでした'));
+  // 取得はできたが全件が除外された場合は「条件に合う出品なし」
+  api.load('x');
+  reply(pending.shift(), { ok: true, by_rarity: {}, unclassified_count: 0, fetched_count: 120, num_found: 1316, search_url: 'https://jp.mercari.com/search?keyword=x' });
+  await tick(); await tick();
+  assert(box.innerHTML.includes('条件に合う出品なし'));
+  // 全件を取得できているときは「関連度上位」の注記を出さない
+  api.load('x');
+  reply(pending.shift(), { ok: true, by_rarity: { 'ウルトラ': { count: 1, min: 500, median: null, min_is_floor: false } }, unclassified_count: 0, fetched_count: 5, num_found: 5, search_url: 'https://jp.mercari.com/search?keyword=x' });
+  await tick(); await tick();
+  assert(!box.innerHTML.includes('関連度上位') && !box.innerHTML.includes('*'));
 
   // 4) 取得失敗(ok:false / HTTPエラー / 通信例外)は0件と区別した文言
   api.load('x');
@@ -89,6 +102,10 @@ const tick = () => new Promise((r) => setImmediate(r));
   assert(box.innerHTML.includes('メルカリの情報を取得できませんでした') && !box.innerHTML.includes('出品なし'));
   api.load('x');
   reply(pending.shift(), { ok: false, error: 'rate_limited' }, 429);
+  await tick(); await tick();
+  assert(box.innerHTML.includes('メルカリの情報を取得できませんでした'));
+  api.load('x');
+  reply(pending.shift(), { ok: false, error: 'busy' }, 503);
   await tick(); await tick();
   assert(box.innerHTML.includes('メルカリの情報を取得できませんでした'));
   api.load('x');

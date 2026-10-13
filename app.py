@@ -1769,6 +1769,8 @@ def api_mercari():
     if card_name not in _cardnames_set and not _is_release_passed_unreleased(card_name):
         return jsonify({"ok": False, "error": "unknown_card"}), 404
     result = _mercari.get_reference(card_name, _supabase_client, _cardnames_set)
+    if result.get("error") == "busy":  # プロセス全体の負荷制限(同時実行/毎分上限)。待たせず失敗応答
+        return jsonify(result), 503
     return jsonify(result)
 
 

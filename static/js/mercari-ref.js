@@ -18,11 +18,13 @@
     return Object.keys(byRarity||{}).sort((a,b)=>rarityOrder(a)-rarityOrder(b));
   }
 
+  // 列をそろえた表。見出し行は1回だけ。300円は最低出品価格なので「¥300*」にして注記へ
   function rowHtml(r,v){
-    const min=v.min_is_floor?yen(v.min)+'（最低出品価格）':yen(v.min);
-    const med=v.median==null?'':`<span class="mref-med">中央 ${yen(v.median)}</span>`;
-    return `<div class="mref-row"><span class="rb rb-${escAttr(cssClass(r))}">${esc(r)}</span>`+
-      `<span class="mref-min">最安 ${min}</span>${med}<span class="mref-n">（${Number(v.count)}件）</span></div>`;
+    const min=yen(v.min)+(v.min_is_floor?'*':'');
+    const med=v.median==null?'—':yen(v.median);
+    return `<span class="rb rb-${escAttr(cssClass(r))}">${esc(r)}</span>`+
+      `<span class="mref-min">${min}</span><span class="mref-med">${med}</span>`+
+      `<span class="mref-n">${Number(v.count)}</span>`;
   }
 
   function render(d){
@@ -32,10 +34,20 @@
     let h='<div class="mref-title">メルカリ（出品中・参考）</div>';
     const rs=sortedRarities(d.by_rarity);
     const unclassified=Number(d.unclassified_count)||0;
+    const fetched=Number(d.fetched_count)||0;
     if(rs.length===0&&unclassified===0){
-      h+='<div class="mref-note">出品なし</div>';
+      // 取得できたが全件が除外された場合は「出品なし」と区別する
+      h+=`<div class="mref-note">${fetched>0?'条件に合う出品なし':'出品なし'}</div>`;
     }else{
-      h+=rs.map(r=>rowHtml(r,d.by_rarity[r])).join('');
+      if(rs.length>0){
+        h+='<div class="mref-grid"><span class="mref-h"></span><span class="mref-h">最安</span><span class="mref-h">中央</span><span class="mref-h">件数</span>'+
+          rs.map(r=>rowHtml(r,d.by_rarity[r])).join('')+'</div>';
+      }
+      const notes=[];
+      if(rs.some(r=>d.by_rarity[r].min_is_floor)) notes.push('* 300円は最低出品価格');
+      // 最安は関連度上位の取得分の中の最安。全件でないときは母数を明示する
+      if(fetched>0&&Number(d.num_found)>fetched) notes.push(`関連度上位${fetched}件から集計`);
+      if(notes.length) h+=`<div class="mref-note">${esc(notes.join('・'))}</div>`;
       if(unclassified>0) h+=`<div class="mref-note">レアリティ判定できず ${unclassified}件</div>`;
     }
     const link=safeUrl(d.search_url);

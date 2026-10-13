@@ -684,8 +684,6 @@ def config_for_frontend() -> dict:
 # 自由文では誤爆するため照合対象から外す別名（照合キー形式＝大文字・空白括弧除去後）。
 # 実データで誤爆を確認したもの（ノー: 「カノーネ」、コレ: 「アートワークコレクション」）と、
 # 日本語の一般語・カード系列名に含まれることが明らかな短い別名（予防。実データ未観測）。
-# 「レア」はメルカリの題名では実際にレアリティとして使われる（「初期 レア」）ため
-# 外さず、誤爆する語（レアリティ・レア度）を照合前に取り除く。
 # TODO: calibrate from data（メルカリ出品名の追加サンプルで再点検する）
 _TEXT_EXCLUDED_ALIASES: frozenset[str] = frozenset({
     "コレ",    # 「アートワークコレクション」に含まれる（実データで確認）
@@ -697,57 +695,92 @@ _TEXT_EXCLUDED_ALIASES: frozenset[str] = frozenset({
     "EX",      # 「EX-49」「EX 初期」など弾・エキスパート版の表記と区別できない
 })
 
-# 「レア」を含むがレアリティ表記ではない語（「高レアリティ多数」「レア度」）
-_TEXT_NOISE_RE = re.compile("レアリティ|レア度")
+# 自由文でだけ使う追加の別名（辞書 RARITIES には入れない＝normalize_rarity は変えない）。
+# TODO: calibrate from data
+_TEXT_EXTRA_ALIASES: dict[str, str] = {
+    "クオシク": "25thシークレット",
+    "クォシク": "25thシークレット",
+    "シクレア": "シークレット",
+}
+
+# レアリティ表記ではないが別名を含む語。照合前に取り除く。
+# TODO: calibrate from data
+_TEXT_NOISE_RE = re.compile(
+    "レアリティ|レア度|激レア|超レア|高レア|低レア|レア物|レアカード|レアコレ|"
+    r"スーパーセール|PR\s*プロモ|プロモ"
+)
+_JP_CHARS = "ぁ-ヿ一-鿿ー"  # ひらがな・カタカナ・漢字・長音
+_TRAILING_RARE_RE = re.compile("\\s?レア(?![" + _JP_CHARS + "])")
 _TEXT_INDEX: list | None = None
 _TEXT_INDEX_LOCK = threading.Lock()
 
 
 def _char_class(ch: str) -> str:
-    """空白許容の境目判定用: 数字 / ASCII英字 / それ以外（日本語・記号）。"""
+    """空白許容の境目判定用: 数字 / ASCII英字 / 日本語 / その他記号。"""
     if ch.isascii():
         return "d" if ch.isdigit() else ("a" if ch.isalpha() else "o")
     return "j"
 
 
 def _build_text_index() -> list:
-    """(照合キー, canonical, ASCII英数字を含むか, 正規表現) を長い順に並べた索引を作る。"""
-    items = []
+    """(canonical, 正規表現) を長い別名順に並べた索引を作る。
+
+    - 数字・英字・日本語の境目と日本語どうしの間には空白が入ってもよい
+    - 英数字の端は、隣が英数字なら別の語とみなす（型番・英単語の一部を拾わない）
+    - 2文字以下の別名は、隣が日本語文字・英字のときも別の語とみなす
+      （「激レア」「クオシク」の一部、「SRP」等）。数字は許す（「シク1枚」）
+    - 1文字のASCII略号（R・N・M等）は隣が日本語・英数字・ハイフンでない独立語のときだけ
+    """
+    pairs: dict[str, str] = {}
     for alias, canon in _ALIAS_TO_CANON.items():
-        key = alias.upper()
+        pairs[alias.upper()] = canon
+    for alias, canon in _TEXT_EXTRA_ALIASES.items():
+        pairs[_preprocess(alias).upper()] = canon
+    items = []
+    for key, canon in pairs.items():
         if not key or key in _TEXT_EXCLUDED_ALIASES:
             continue
-        has_ascii = bool(re.search(r"[A-Z0-9]", key))
-        if has_ascii:
-            # 両端がASCII英数字なら、隣が英数字の場合は別の語（型番・略号の一部）とみなす
-            # 2文字以下の略号（SR・R・N 等）はハイフン隣接も別の語とみなす
-            # （"SM-51"・"ST-R" のような弾名・型番の一部を拾わないため）
-            cls = r"[A-Z0-9\-]" if len(key) <= 2 else r"[A-Z0-9]"
-            pre = f"(?<!{cls})" if re.match(r"[A-Z0-9]", key) else ""
-            post = f"(?!{cls})" if re.search(r"[A-Z0-9]$", key) else ""
-            # 数字・英字・日本語の境目には空白が入ってもよい（"25th シークレット"）
-            body = ""
-            for i, ch in enumerate(key):
-                if i and (_char_class(ch) != _char_class(key[i - 1])):
-                    body += r"\s?"
-                body += re.escape(ch)
-            pat = re.compile(pre + body + post)
+        body = ""
+        for i, ch in enumerate(key):
+            if i:
+                a, b = _char_class(key[i - 1]), _char_class(ch)
+                if a != b or a == "j":
+                    body += r" ?"
+            body += re.escape(ch)
+        first_ascii = re.match(r"[A-Z0-9]", key) is not None
+        last_ascii = re.search(r"[A-Z0-9]$", key) is not None
+        short = len(key) <= 2
+        if len(key) == 1 and first_ascii:
+            block = r"[A-Z0-9\-" + _JP_CHARS + "]"
+            pre, post = f"(?<!{block})", f"(?!{block})"
         else:
-            pat = None
-        items.append((key, canon, has_ascii, pat))
-    items.sort(key=lambda t: -len(t[0]))
-    return items
+            if first_ascii:
+                blk = r"[A-Z0-9\-]" if short else r"[A-Z0-9]"
+                pre = f"(?<!{blk})"
+            elif short:
+                pre = f"(?<![A-Z{_JP_CHARS}])"
+            else:
+                pre = ""
+            if last_ascii:
+                blk = r"[A-Z0-9\-]" if short else r"[A-Z0-9]"
+                post = f"(?!{blk})"
+            elif short:
+                post = f"(?![A-Z{_JP_CHARS}])"
+            else:
+                post = ""
+        items.append((len(key), canon, re.compile(pre + body + post)))
+    items.sort(key=lambda t: -t[0])
+    return [(c, p) for _, c, p in items]
 
 
 def extract_rarity_from_text(text: str) -> str | None:
     """商品名などの自由文から正規レアリティ名を推定する。判定できなければ None。
 
-    - 別名を長い順に試し、最初に当たったものを採用する（「ウルトラ」より先に
-      「ウルトラパラレル」を、「シークレット」より先に「ゴールドシークレット」を拾うため）
-    - 英数字を含む別名（UR・SR・N・R 等）は前後が英数字のとき一致とみなさない
-      （型番 RC04-JP009 の "R" や "JP" の誤爆を防ぐ）
-    - 日本語のみの別名は空白・括弧を除いた文字列で照合する
-    - _TEXT_EXCLUDED_ALIASES の別名は使わない
+    - 別名を長い順に試し、重ならない一致をすべて集める（「ウルトラ」より先に
+      「ウルトラパラレル」、「シークレット」より先に「ゴールドシークレット」）
+    - 一致した正規名が2種類以上なら曖昧なので None（「コレクターズ … ウルトラ」等）
+    - 「25th/20th」と「シークレット」が両方あるときは 25thシークレット/20thシークレット
+    - 誤爆しやすい別名の扱いは _build_text_index と _TEXT_EXCLUDED_ALIASES / _TEXT_NOISE_RE
     """
     import unicodedata
     global _TEXT_INDEX
@@ -759,14 +792,30 @@ def extract_rarity_from_text(text: str) -> str | None:
                 _TEXT_INDEX = _build_text_index()
     norm = unicodedata.normalize("NFKC", text).upper()
     norm = _TEXT_NOISE_RE.sub(" ", norm)
-    # 括弧は区切りに置換（"(SR)" と隣接文字を分けるため）。空白は残して語境界に使う
-    spaced = re.sub(r"[()（）\[\]【】「」『』/／,、。]", " ", norm)
-    spaced = re.sub(r"[\s　]+", " ", spaced)
-    stripped = _preprocess(spaced).replace(" ", "")
-    for key, canon, has_ascii, pat in _TEXT_INDEX:
-        if has_ascii:
-            if pat.search(spaced):
-                return canon
-        elif key in stripped:
-            return canon
+    # 括弧・区切りは空白に置換して語境界にする
+    work = re.sub(r"[()（）\[\]【】「」『』/／,、。]", " ", norm)
+    work = re.sub(r"[\s　]+", " ", work)
+    found: list[str] = []
+    for canon, pat in _TEXT_INDEX:
+        while True:
+            m = pat.search(work)
+            if not m:
+                break
+            if canon not in found:
+                found.append(canon)
+            # 一致箇所を潰して、より短い別名の再一致を防ぐ。直後の「レア」は
+            # 「25thシークレットレア」のように同じ表記の一部なので一緒に潰す
+            end = m.end()
+            tail = _TRAILING_RARE_RE.match(work, end)
+            if tail:
+                end = tail.end()
+            work = work[:m.start()] + "#" * (end - m.start()) + work[end:]
+    if len(found) == 1:
+        canon = found[0]
+        if canon == "シークレット":
+            if re.search(r"(?<![A-Z0-9])25 ?TH(?![A-Z])", norm):
+                return "25thシークレット"
+            if re.search(r"(?<![A-Z0-9])20 ?TH(?![A-Z])", norm):
+                return "20thシークレット"
+        return canon
     return None

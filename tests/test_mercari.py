@@ -401,17 +401,23 @@ def test_リクエストボディは出品中のみ_遊戯王シングル_1ペ�
 # ── 通信エラーの区別 ──
 
 class _Resp:
-    def __init__(self, status=200, data=None, bad_json=False):
-        self.status_code, self._data, self._bad = status, data, bad_json
+    def __init__(self, status=200, data=None, bad_json=False, chunks=None):
+        self.status_code, self._data, self._bad, self._chunks = status, data, bad_json, chunks
+        self.closed = False
 
-    def json(self):
-        if self._bad:
-            raise ValueError("bad")
-        return self._data
+    def iter_content(self, size):
+        if self._chunks is not None:
+            yield from self._chunks
+            return
+        yield b"<html>" if self._bad else json.dumps(self._data).encode("utf-8")
+
+    def close(self):
+        self.closed = True
 
 
 @pytest.mark.parametrize("resp", [_Resp(401), _Resp(403), _Resp(429), _Resp(500), _Resp(bad_json=True),
-                                  _Resp(data=[1, 2]), _Resp(data={"items": "x"})])
+                                  _Resp(data=[1, 2]), _Resp(data={"items": "x"}),
+                                  _Resp(data={}), _Resp(data={"meta": {"numFound": "0"}})])  # items キー無しは失敗
 def test_fetch_rawの失敗はMercariFetchError(monkeypatch, resp):
     monkeypatch.setattr(mercari.requests, "post", lambda *a, **k: resp)
     with pytest.raises(mercari.MercariFetchError):

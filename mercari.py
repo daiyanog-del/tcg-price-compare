@@ -15,8 +15,10 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import math
 import re
 import statistics
+import collections
 import threading
 import time
 import unicodedata
@@ -39,7 +41,15 @@ logger = logging.getLogger(__name__)
 SEARCH_API_URL = "https://api.mercari.jp/v2/entities:search"
 CATEGORY_ID_YUGIOH_SINGLE = 1152  # 遊戯王シングル（プレイマット等は別カテゴリで除ける）
 PAGE_SIZE = 120
-REQUEST_TIMEOUT_SEC = 15
+REQUEST_CONNECT_TIMEOUT_SEC = 5
+REQUEST_READ_TIMEOUT_SEC = 5  # 1回の受信待ち。合計は REQUEST_TOTAL_TIMEOUT_SEC で打ち切る
+REQUEST_TOTAL_TIMEOUT_SEC = 15  # TODO: calibrate from data（接続〜本文受信の合計上限）
+
+# 負荷対策（プロセス単位。gunicornワーカーごとに効く）
+# TODO: calibrate from data
+MAX_CONCURRENT_FETCHES = 2   # メルカリへの同時リクエスト上限。空きが無ければ待たずに失敗応答
+MAX_FETCHES_PER_MIN = 20     # メルカリへの実リクエスト数の毎分上限（キャッシュ命中は数えない）
+SINGLE_FLIGHT_WAIT_SEC = 20  # 同一カードの取得中に合流して待つ上限
 
 CACHE_TTL_SEC = 15 * 60  # TODO: calibrate from data
 CACHE_MAX_ENTRIES = 500
@@ -50,11 +60,17 @@ CODE_MAX_PAGES = 10  # 価格履歴の読み出し上限（1000行×10ページ�
 
 # ── 除外規則（商品名） ──
 # TODO: calibrate from data（実データで除外漏れ・過剰除外を確認しながら増減する）
-GRADED_PATTERN = re.compile(r"PSA|BGS|ARS|CGC|鑑定")
+GRADED_PATTERN = re.compile(r"(?<![A-Z])(?:PSA|BGS|ARS|CGC)(?![A-Z])|鑑定")
 MULTI_PATTERN = re.compile(
     r"(?<![0-9A-Z])(?:[2-9]|[1-9][0-9]+)\s*枚"  # 「2枚」「10枚」（「1枚」は単品）
     r"|セット|まとめ|計\s*[0-9]+\s*枚|大量"
+    r"|[×✖]️?\s*[2-9]|(?<![A-Z0-9])X\s*[2-9]"  # 「×2」「x3」（EX2 等は除く）
+    r"|[2-9]\s*体"             # 「3体」
 )
+# 専用出品（「〇〇様専用」）。「仕様」「同様」等の語は除く
+DEDICATED_PATTERN = re.compile(r"専用|(?<![仕同多模])様(?![式子々])")
+# 単品に付属品が付く表記（サプライ扱いにしない）
+ACCESSORY_NOTE_PATTERN = re.compile(r"(?:スリーブ|ローダー|トップローダー|ケース)\s*(?:付き?|入り?)")
 OVERSEAS_PATTERN = re.compile(r"英語|アジア|韓国|海外|北米|EU版|(?<![A-Z])EU(?![A-Z])|欧州")
 SUPPLY_PATTERN = re.compile(
     r"スリーブ|プロテクター|プレイマット|ストレージ|デッキケース|ラバーマット|"
@@ -130,22 +146,39 @@ def _build_request_body(keyword: str) -> dict:
 
 def fetch_raw(keyword: str) -> dict:
     """検索APIを1回叩いて生レスポンス(dict)を返す。失敗は MercariFetchError。"""
+    deadline = time.monotonic() + REQUEST_TOTAL_TIMEOUT_SEC
+    resp = None
     try:
         resp = requests.post(
             SEARCH_API_URL, json=_build_request_body(keyword),
             headers={"DPoP": _dpop_token("POST", SEARCH_API_URL), "X-Platform": "web",
                      "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"},
-            timeout=REQUEST_TIMEOUT_SEC,
+            timeout=(REQUEST_CONNECT_TIMEOUT_SEC, REQUEST_READ_TIMEOUT_SEC), stream=True,
         )
+        if resp.status_code != 200:
+            raise MercariFetchError(f"HTTP {resp.status_code}")
+        # 本文は少しずつ読み、合計時間が上限を超えたら打ち切る（読み取りタイムアウトは
+        # 1回の待ちにしか効かず、少しずつ送られ続けると合計で長引くため）
+        chunks = []
+        for chunk in resp.iter_content(65536):
+            chunks.append(chunk)
+            if time.monotonic() > deadline:
+                raise MercariFetchError("合計タイムアウト")
+        if time.monotonic() > deadline:
+            raise MercariFetchError("合計タイムアウト")
+        data = json.loads(b"".join(chunks).decode("utf-8"))
     except requests.RequestException as e:
         raise MercariFetchError(f"通信失敗: {type(e).__name__}") from e
-    if resp.status_code != 200:
-        raise MercariFetchError(f"HTTP {resp.status_code}")
-    try:
-        data = resp.json()
-    except ValueError as e:
+    except (ValueError, UnicodeDecodeError) as e:
         raise MercariFetchError("JSON不正") from e
-    if not isinstance(data, dict) or not isinstance(data.get("items", []), list):
+    finally:
+        if resp is not None:
+            try:
+                resp.close()
+            except Exception:
+                pass
+    if not isinstance(data, dict) or not isinstance(data.get("items"), list):
+        # items が無い応答は「0件」ではなく形式不正。0件成功としてキャッシュしない
         raise MercariFetchError("レスポンス形式不正")
     return data
 
@@ -260,7 +293,10 @@ def exclusion_reason(card_name: str, item: dict,
         return "multi"
     if OVERSEAS_PATTERN.search(upper):
         return "overseas"
-    if SUPPLY_PATTERN.search(upper):
+    if DEDICATED_PATTERN.search(residual):
+        return "dedicated"
+    # 「スリーブ付き」等は単品の付属表記なのでサプライ扱いにしない
+    if SUPPLY_PATTERN.search(ACCESSORY_NOTE_PATTERN.sub(" ", upper)):
         return "supply"
     if NON_OCG_PATTERN.search(upper):
         return "non_ocg"
@@ -283,11 +319,15 @@ def extract_code(item_name: str) -> str | None:
 
 def _text_for_rarity(card_name: str, item_name: str) -> str:
     """レアリティ判定にかける文字列。カード名と型番は先に取り除く
-    （カード名の一部や型番の英字を略号と取り違えないため）。"""
-    text = unicodedata.normalize("NFKC", item_name or "")
-    norm_card = unicodedata.normalize("NFKC", card_name or "")
-    if norm_card:
-        text = re.sub(re.escape(norm_card), " ", text, flags=re.IGNORECASE)
+    （カード名の一部や型番の英字を略号と取り違えないため）。
+    カード名は exclusion_reason と同じ区切り無視の照合（scraper._build_flex_pattern）で除く。
+    「ソーラーフレアドラゴン」のように中黒・空白を省いた出品名でも、カード名の一部
+    （「フレア」「チャージ」等）がレアリティと判定されないようにするため。"""
+    import scraper
+    text = _norm(item_name)
+    flex = scraper._build_flex_pattern(_norm(card_name))
+    if flex:
+        text = re.sub(flex, " ", text, flags=re.IGNORECASE)
     text = _CODE_IN_TEXT.sub(" ", text)
     return text
 
@@ -354,7 +394,8 @@ def aggregate(card_name: str, items: list[dict],
         by_rarity[r] = {
             "count": len(prices),
             "min": mn,
-            "median": int(statistics.median(prices)) if len(prices) >= MERCARI_MEDIAN_MIN_COUNT else None,
+            "median": (int(math.floor(statistics.median(prices) + 0.5))  # 四捨五入（偶数丸めにしない）
+                       if len(prices) >= MERCARI_MEDIAN_MIN_COUNT else None),
             "min_is_floor": mn == MERCARI_MIN_LISTING_PRICE,
         }
     return {"by_rarity": by_rarity, "unclassified_count": unclassified, "total_considered": considered}
@@ -411,8 +452,20 @@ def load_code_rarity_map(client, card_name: str) -> dict[str, set[str]]:
             break
         offset += page_size
         if offset >= CODE_MAX_PAGES * page_size:
-            truncated = True
-            logger.warning("[mercari] 型番補完: %dページで打ち切り [%s] 補完しない", CODE_MAX_PAGES, card_name)
+            # ちょうど上限行数のときを打ち切りと誤判定しないよう、次の1行があるか確かめる
+            probe = (client.table("price_history")
+                     .select("rarity, code, recorded_at")
+                     .eq("card_name", card_name)
+                     .gte("recorded_at", cutoff)
+                     .neq("code", "")
+                     .order("recorded_at", desc=True)
+                     .order("shop", desc=False)
+                     .order("rarity", desc=False)
+                     .range(offset, offset)
+                     .execute())
+            if probe.data:
+                truncated = True
+                logger.warning("[mercari] 型番補完: %dページで打ち切り [%s] 補完しない", CODE_MAX_PAGES, card_name)
             break
     if truncated:
         mapping = {}
@@ -423,16 +476,89 @@ def load_code_rarity_map(client, card_name: str) -> dict[str, set[str]]:
     return mapping
 
 
-# ── 公開: キャッシュ付き取得 ──
+# ── 公開: キャッシュ・負荷対策つき取得 ──
 
 _cache: dict[str, tuple[float, dict]] = {}
 _cache_lock = threading.Lock()
 
+# 負荷対策の状態（プロセス単位）
+_fetch_slots = threading.BoundedSemaphore(MAX_CONCURRENT_FETCHES)
+_fetch_times: "collections.deque[float]" = collections.deque()
+_fetch_times_lock = threading.Lock()
+_inflight: dict[str, "_Flight"] = {}
+_inflight_lock = threading.Lock()
+
+BUSY_RESULT = {"ok": False, "error": "busy"}
+FAILED_RESULT = {"ok": False, "error": "fetch_failed"}
+
+
+class _Flight:
+    """同じカードの取得を1本にまとめる（single-flight）ための待ち合わせ。"""
+    def __init__(self):
+        self.event = threading.Event()
+        self.result: dict | None = None
+
+
+def _take_minute_budget(now: float) -> bool:
+    """直近60秒の実リクエスト数が上限未満なら1回分を消費して True。"""
+    with _fetch_times_lock:
+        while _fetch_times and now - _fetch_times[0] >= 60:
+            _fetch_times.popleft()
+        if len(_fetch_times) >= MAX_FETCHES_PER_MIN:
+            return False
+        _fetch_times.append(now)
+        return True
+
+
+def _reset_load_state():
+    """テスト用: キャッシュ以外の負荷対策の状態を初期化する。"""
+    global _fetch_slots
+    _fetch_slots = threading.BoundedSemaphore(MAX_CONCURRENT_FETCHES)
+    with _fetch_times_lock:
+        _fetch_times.clear()
+    with _inflight_lock:
+        _inflight.clear()
+
+
+def _fetch_and_aggregate(card_name: str, supabase_client, known_names) -> dict:
+    """上限チェック→取得→集計。成功/失敗の結果dict(キャッシュ前)を返す。"""
+    if not _take_minute_budget(time.time()):
+        logger.warning("[mercari] 毎分上限(%d)超過 [%s]", MAX_FETCHES_PER_MIN, card_name)
+        return BUSY_RESULT
+    if not _fetch_slots.acquire(blocking=False):
+        logger.warning("[mercari] 同時実行上限(%d)超過 [%s]", MAX_CONCURRENT_FETCHES, card_name)
+        return BUSY_RESULT
+    try:
+        raw = fetch_raw(card_name)
+    except MercariFetchError as e:
+        logger.warning("[mercari] 取得失敗 [%s]: %s", card_name, e)
+        return FAILED_RESULT
+    finally:
+        _fetch_slots.release()
+    lookup = None
+    if supabase_client is not None:
+        lookup = lambda: load_code_rarity_map(supabase_client, card_name)  # noqa: E731
+    items = raw.get("items", [])
+    try:
+        agg = aggregate(card_name, items, lookup, known_names)
+    except Exception as e:
+        logger.error("[mercari] 集計失敗 [%s]: %s", card_name, e)
+        return FAILED_RESULT
+    try:
+        num_found = int((raw.get("meta") or {}).get("numFound"))
+    except (TypeError, ValueError):
+        num_found = None
+    return {"ok": True, **agg, "fetched_count": len(items), "num_found": num_found,
+            "search_url": build_search_url(card_name)}
+
 
 def get_reference(card_name: str, supabase_client=None, known_names=None) -> dict:
-    """/api/mercari の本体。成功: {"ok":True,...,"cached":bool} / 失敗: {"ok":False,"error":"fetch_failed"}。
+    """/api/mercari の本体。
 
+    成功: {"ok":True,...,"cached":bool}
+    失敗: {"ok":False,"error":"fetch_failed"}（取得失敗）/ {"ok":False,"error":"busy"}（負荷制限）
     失敗結果はキャッシュしない。supabase_client が None なら型番補完をスキップする。
+    同じカードの取得が進行中なら、新しく取りに行かずその結果を待って共有する。
     """
     key = unicodedata.normalize("NFKC", card_name).strip()
     now = time.time()
@@ -440,22 +566,27 @@ def get_reference(card_name: str, supabase_client=None, known_names=None) -> dic
         hit = _cache.get(key)
         if hit and now - hit[0] < CACHE_TTL_SEC:
             return {**hit[1], "cached": True}
+    with _inflight_lock:
+        flight = _inflight.get(key)
+        leader = flight is None
+        if leader:
+            flight = _inflight[key] = _Flight()
+    if not leader:
+        if flight.event.wait(SINGLE_FLIGHT_WAIT_SEC) and flight.result is not None:
+            res = flight.result
+            return {**res, "cached": True} if res.get("ok") else res
+        return FAILED_RESULT
+    result = FAILED_RESULT
     try:
-        raw = fetch_raw(card_name)
-    except MercariFetchError as e:
-        logger.warning("[mercari] 取得失敗 [%s]: %s", card_name, e)
-        return {"ok": False, "error": "fetch_failed"}
-    lookup = None
-    if supabase_client is not None:
-        lookup = lambda: load_code_rarity_map(supabase_client, card_name)  # noqa: E731
-    try:
-        agg = aggregate(card_name, raw.get("items", []), lookup, known_names)
-    except Exception as e:
-        logger.error("[mercari] 集計失敗 [%s]: %s", card_name, e)
-        return {"ok": False, "error": "fetch_failed"}
-    result = {"ok": True, **agg, "search_url": build_search_url(card_name)}
-    with _cache_lock:
-        if len(_cache) >= CACHE_MAX_ENTRIES:
-            _cache.clear()
-        _cache[key] = (now, result)
-    return {**result, "cached": False}
+        result = _fetch_and_aggregate(card_name, supabase_client, known_names)
+        if result.get("ok"):
+            with _cache_lock:
+                if len(_cache) >= CACHE_MAX_ENTRIES:
+                    _cache.clear()
+                _cache[key] = (now, result)
+    finally:
+        flight.result = result
+        flight.event.set()
+        with _inflight_lock:
+            _inflight.pop(key, None)
+    return {**result, "cached": False} if result.get("ok") else result
