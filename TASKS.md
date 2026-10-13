@@ -184,7 +184,7 @@
 - [ ] **【恒久対応】トップの価格推移をRPC（DB側集計）に寄せる** — `/api/top-movers` は現在 PostgREST 経由で1日分の `price_history` を全行取得している。**本番実測で最新日は30,851行**（3日分＝約9万行を1時間ごとに読む）。応急で複合キー安定化＋上限10万行にしたが、Render無料枠のメモリと転送量に対して本来重すぎる。既存 `get_price_movers` と同じくDB側集計のRPCを新設して寄せる。**代表レアリティ選定（(不明)/空を除外して最安）と共通店舗ガードをSQL側で行うこと**
 - [ ] トップの `TOP_DECKS_LIMIT=8` / `TOP_DECKS_CACHE_SEC=1800` / `MOVERS_MIN_PRICE=1000` / `TOP_MOVERS_CACHE_SEC=3600` / `MOVERS_STABILITY_DAYS=1` は仮置き（`# TODO: calibrate from data` 付き）。実データとUXで校正する
 - [ ] **sitemap.xml が `http://` を出している** — `app.py` の sitemap 生成が `request.url_root` 由来で `http://tcg-price-compare.onrender.com/...` を出力している（本番実測）。canonical/sitemap は https にすべき。2026-08-31 のタブ統合調査で発見
-- [ ] `/api/price-history` はフロントからの参照が無くなった（価格推移グラフ削除に伴う）。ルートは残してあるので、削除するかは影響調査のうえ別途判断
+- [x] 2026-10-13 `/api/price-history` はフロントからの参照が無くなっていたが、価格推移の細い常設グラフ（static/js/price-trend.js）の復活で参照が戻った。ルートは残す
 - [ ] **全角/半角のカード名差異による名寄せ失敗の横断確認** — 2026-08-31 の型番補完実装中に発覚: **トレコロCBだけカード名を全角で返す**（`増殖するＧ` ／ 他店は `増殖するG`）。型番補完側は NFKC 正規化で対処したが、**同じ罠が他の名寄せ処理にも潜んでいる可能性**がある（`price_history` の card_name 突合、`tracked_cards` の登録、デッキ見積もりの照合など）。横断的に確認する
 - [ ] `code_source`（型番が店由来か推測補完かの区別）は現在メモリ上の dict にのみ持ち、DBには保存していない。運用・デバッグで必要になったら `price_history` / `buyback_history` に列追加を検討（2026-08-31 判断: 表示・突合には使わないため今回は不要）
 - [ ] **`get_top_movers` は被覆インデックス `idx_price_history_date_card_shop_rarity` に依存する** — このインデックスを消すと anon の statement_timeout(3s) を超えて 57014 で落ちる（実測: 索引なし3.4秒 / ありで844ms）。DB再構築時は `supabase_rpc_top_movers.sql` の末尾にあるインデックス作成も必ず適用すること

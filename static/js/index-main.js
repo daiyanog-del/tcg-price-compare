@@ -150,7 +150,7 @@ function _applyKonamiLink(kid){
 
 // 価格関連セクションの表示/非表示を切り替える（未発売カードは価格テーブル等を隠す）
 function _setPriceSectionsVisible(visible){
-  ['buyInline','sumCards','rarityFilter','rfBanner','p-all','p-rarity'].forEach(id=>{
+  ['buyInline','priceTrend','sumCards','rarityFilter','rfBanner','p-all','p-rarity'].forEach(id=>{
     const el=document.getElementById(id);
     if(el) el.style.display=visible?'':'none';
   });
@@ -525,6 +525,7 @@ function doSearch(opts){
       _mercariPending=false;
       if(d.total>0) _syncMercariView(); // メルカリ参考相場は最初のイベント受信時に取得済み。最終の店舗レアリティで絞り直す
       else if(window.MercariRef) MercariRef.clear(); // 全店0件ならメルカリも出さない
+      if(d.total>0&&window.PriceTrend){ _syncPriceTrendView(); PriceTrend.load(_currentCardName); } // 価格推移グラフも別fetchで非同期表示
       btn.disabled=false;btn.textContent='検索';
       _setSearchLayout(d.total>0);
       setTimeout(()=>{prog.style.display='none';},1200);
@@ -872,6 +873,7 @@ function _resetBuyInline(){
   _currentCardName='';
   _mercariPending=false;
   if(window.MercariRef) MercariRef.clear(); // 前のカードのメルカリ枠を残さない
+  if(window.PriceTrend) PriceTrend.clear(); // 前のカードの価格推移グラフを残さない
   const body=document.getElementById('buyInlineBody');
   if(body) body.innerHTML='';
 }
@@ -1298,6 +1300,7 @@ function setRarityFilter(r){
   renderTable();
   _renderBuyInline(); // C-2: 買取セクションも同じレアリティに絞り込んで再描画する（未取得なら何もしない・再取得はしない）
   _syncMercariView(); // メルカリ参考相場も同じレアリティで描き直す（再取得はしない）
+  _syncPriceTrendView(); // 価格推移グラフも同じレアリティで描き直す（再取得はしない）
 }
 
 // メルカリ参考相場へ「選択中のレアリティ」と「店舗結果（売り切れ含む）に存在するレアリティ」を渡す。
@@ -1306,6 +1309,12 @@ function _syncMercariView(){
   if(!window.MercariRef) return;
   const stores=[...new Set(D.map(r=>r.rarity).filter(r=>r&&r!=='(不明)'))];
   MercariRef.setView({rarity:rarityFilter,stores:stores,pending:_mercariPending});
+}
+
+// 価格推移グラフへ「選択中のレアリティ」を渡す（再取得せず描き直す）
+function _syncPriceTrendView(){
+  if(!window.PriceTrend) return;
+  PriceTrend.setView({rarity:rarityFilter});
 }
 
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
@@ -2493,6 +2502,11 @@ async function calcDeckEstimate(ctx, opts){
     ex=parsed.ex;
   }
   if(![...main,...ex].length) return;
+  // デッキ価格計算の利用計測（一覧表示だけのプレビューは計算していないので数えない）
+  if(!opts.previewOnly) _ga('deck_calc',{
+    deck:ctx===DECK_CTX.meta?'meta':ctx===DECK_CTX.wishlist?'wishlist':'mydeck',
+    method:opts.dbOnly?'db':'db_then_shop', side:'sell',
+    card_count:[...main,...ex].reduce((s,c)=>s+(c.qty||1),0)});
 
   const resultsEl=document.getElementById(ctx.results);
   const listEl=document.getElementById(ctx.list);
@@ -2754,6 +2768,9 @@ async function calcDeck(buyMode){
   }
   const {main,ex}=_currentMydeckCards;
   if(![...main,...ex].length) return;
+  // デッキ価格計算の利用計測（店舗から直接取得）
+  _ga('deck_calc',{deck:'mydeck', method:'shop', side:isBuy?'buy':'sell',
+    card_count:[...main,...ex].reduce((s,c)=>s+(c.qty||1),0)});
 
   const ctx=DECK_CTX.mydeck;
   const resultsEl=document.getElementById('deckResults');
