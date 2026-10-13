@@ -93,7 +93,14 @@ DEDICATED_PATTERN = re.compile(
 )
 # 単品に付属品が付く表記（サプライ扱いにしない）
 ACCESSORY_NOTE_PATTERN = re.compile(r"(?:スリーブ|ローダー|トップローダー|ケース)\s*(?:付き?|入り?)")
-OVERSEAS_PATTERN = re.compile(r"英語|アジア|韓国|海外|北米|EU版|(?<![A-Z])EU(?![A-Z])|欧州")
+# 他言語版の除外。「日版」「日本版」は除外しない。「亜」単独は誤爆しやすいので版・レアリティ略称の前だけ見る
+# 型番の地域コード（BLZD-EN024 等）は日本語版の -JP と区別できるので除外する。TODO: calibrate from data
+OVERSEAS_PATTERN = re.compile(
+    r"英語|アジア|韓国|海外|北米|EU版|(?<![A-Z])EU(?![A-Z])|欧州"
+    r"|泰亜|亜版|亜(?=シク|ウル|スー|レア)"
+    r"|英版|英字(?!なし|無し)|(?<![A-Z])ENG(?![A-Z])|ENGLISH|中国|中文|繁体|繁體|簡体|簡體|简体|台湾|香港|TCG版"
+    r"|(?<![A-Z0-9])[A-Z0-9]{2,6}-(?:EN|KR|AE|SC|TC|DE|FR|IT|SP|PT|EU)\d"
+)
 SUPPLY_PATTERN = re.compile(
     r"スリーブ|プロテクター|プレイマット|ストレージ|デッキケース|ラバーマット|"
     r"フィールドセンター|デュエルセット|デュエルフィールド|ステンレス|"
@@ -458,7 +465,7 @@ def aggregate(card_name: str, items: list[dict], known_names=None) -> dict:
     1枚あたり価格 set={unit_min, unit_min_qty, count} は別々に持つ（セットは単品に混ぜない）。
     """
     singles: dict[str, list[int]] = {}
-    sets: dict[str, list[tuple[int, int]]] = {}  # レアリティ → [(1枚あたり価格, 枚数)]
+    sets: dict[str, list[tuple[int, int, int]]] = {}  # レアリティ → [(1枚あたり価格, 枚数, 組の総額)]
     unclassified_single = unclassified_set = 0
     considered = 0
     matcher = build_name_matcher(card_name, items, known_names)
@@ -478,7 +485,7 @@ def aggregate(card_name: str, items: list[dict], known_names=None) -> dict:
         if qty == 1:
             singles.setdefault(r, []).append(price)
         else:
-            sets.setdefault(r, []).append((_half_up(price / qty), qty))
+            sets.setdefault(r, []).append((_half_up(price / qty), qty, price))
     by_rarity: dict[str, dict] = {}
     for r in sorted(set(singles) | set(sets), key=_rarity.order_of):
         prices = singles.get(r, [])
@@ -493,6 +500,8 @@ def aggregate(card_name: str, items: list[dict], known_names=None) -> dict:
             # 同額なら枚数の多い方（3枚組）を優先
             "set": ({"unit_min": min(unit, key=lambda t: (t[0], -t[1]))[0],
                      "unit_min_qty": min(unit, key=lambda t: (t[0], -t[1]))[1],
+                     # 最安の組の総額（1枚あたり×枚数だと端数がずれるため実際の出品価格を返す）
+                     "unit_min_total": min(unit, key=lambda t: (t[0], -t[1]))[2],
                      "count": len(unit)} if unit else None),
         }
     return {"by_rarity": by_rarity,

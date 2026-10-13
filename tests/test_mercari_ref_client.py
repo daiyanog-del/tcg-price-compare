@@ -29,3 +29,10 @@ def test_テンプレートの配線():
     assert any('js/mercari-ref.js' in s for s in srcs)
     # インラインscriptは追加していない（CSP）
     assert 'MercariRef' not in ''.join(s.string or '' for s in soup.find_all('script') if not s.get('src'))
+
+
+def test_パネルを開いたらGAイベントを送る配線():
+    js = (ROOT / 'static/js/index-main.js').read_text(encoding='utf-8')
+    i = js.index("document.getElementById('mercariRef')?.addEventListener('toggle'")
+    block = js[i:i + 200]
+    assert "if(!this.open) return;" in block and "_ga('mercari_inline_open'" in block
