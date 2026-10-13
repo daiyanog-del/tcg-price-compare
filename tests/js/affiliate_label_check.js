@@ -160,4 +160,7 @@ const html = fs.readFileSync(path.join(root, 'templates/index.html'), 'utf8');
 assert(html.includes('<div class="aff-note hidden" id="sumAffNote">一部のリンクは広告（PR）を含みます</div>'));
 assert(html.indexOf('id="sumCards"') < html.indexOf('id="sumAffNote"') && html.indexOf('id="sumAffNote"') < html.indexOf('id="buyInline"'));
 assert(html.includes('.aff-pr{') && html.includes('.aff-note{'));
+// メルカリのリンクも同じ印・注記の定数を使う（文字の「（PR）」表記は持たない）
+const mref = fs.readFileSync(path.join(root, 'static/js/mercari-ref.js'), 'utf8');
+assert(mref.includes('AFF_PR_BADGE') && mref.includes('AFF_NOTE_TEXT') && !mref.includes('（PR）'));
 console.log('affiliate_label_check: OK');
