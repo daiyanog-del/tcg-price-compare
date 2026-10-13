@@ -310,3 +310,50 @@ def test_実題名_セットとして拾えていた題名は短名の検出で�
                     dropped.append(it["name"])
     assert picked >= 90
     assert dropped == ["遊戯王 ・神の宣告 ・天罰 2枚セット【スーパーレア】"]
+
+
+# ── reviewer監査: 枚数表記の取りこぼし ──
+
+@pytest.mark.parametrize("title", [
+    "遊戯王 灰流うらら ×10", "遊戯王 灰流うらら x12", "遊戯王 灰流うらら X10",
+    "遊戯王 灰流うらら ✖️15", "遊戯王 灰流うらら ×１０",
+])
+def test_2桁以上の乗算表記は複数枚として除外(title):
+    assert _eval("灰流うらら", title) == ("multi", 1)
+
+
+def test_乗算1は単品():
+    assert _eval("灰流うらら", "遊戯王 灰流うらら ×1") == (None, 1)
+    assert _eval("灰流うらら", "遊戯王 灰流うらら x1") == (None, 1)
+
+
+@pytest.mark.parametrize("title", [
+    "遊戯王 灰流うらら 十二枚", "遊戯王 灰流うらら 十枚", "遊戯王 灰流うらら 二十枚", "遊戯王 灰流うらら 十三枚セット",
+])
+def test_十以上の漢数字は4枚以上として除外(title):
+    assert _eval("灰流うらら", title) == ("multi", 1)
+
+
+@pytest.mark.parametrize("title", [
+    "遊戯王 灰流うらら 2〜3枚", "遊戯王 灰流うらら 2-3枚", "遊戯王 灰流うらら 2~3枚",
+    "遊戯王 灰流うらら ２～３枚", "遊戯王 灰流うらら 二〜三枚", "遊戯王 灰流うらら 2–3枚",
+])
+def test_枚数の幅表記は対象外(title):
+    assert _eval("灰流うらら", title) == ("multi", 1)
+
+
+@pytest.mark.parametrize("title", [
+    "遊戯王 灰流うらら 2枚目以降送料無料",
+    "遊戯王 灰流うらら 3枚目 値引き",
+])
+def test_N枚目は枚数として読まない(title):
+    assert _eval("灰流うらら", title) == (None, 1)
+
+
+def test_N枚目と本当の枚数が並ぶときは本当の枚数を読む():
+    assert _eval("灰流うらら", "遊戯王 灰流うらら 3枚セット 2枚目以降送料無料") == (None, 3)
+
+
+def test_型番のハイフンは幅表記と取り違えない():
+    assert _eval("灰流うらら", "遊戯王 灰流うらら RC04-JP009 3枚") == (None, 3)
+    assert _eval("灰流うらら", "遊戯王 灰流うらら MACR-JP036 2枚セット") == (None, 2)
