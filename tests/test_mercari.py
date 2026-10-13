@@ -1,0 +1,545 @@
+"""
+tests/test_mercari.py — メルカリ参考相場（mercari.py / rarity.extract_rarity_from_text / /api/mercari）
+
+実通信はしない。tests/fixtures/mercari/*.json は 2026-10-13 に実APIから取得した生レスポンス
+（sellerId/buyerId・画像URL等は削除、集計に使う項目だけ残してある）。
+"""
+import base64
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
+
+import mercari
+import rarity
+import app as app_module
+
+FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "mercari"
+KNOWN_NAMES = json.loads((REPO_ROOT / "data" / "cardnames_ja.json").read_text(encoding="utf-8"))
+
+
+def _load(name):
+    d = json.loads((FIXTURE_DIR / f"{name}.json").read_text(encoding="utf-8"))
+    return d["keyword"], d["response"]["items"]
+
+
+def _item(name, price=1000, **kw):
+    it = {"id": "m1", "name": name, "price": str(price), "status": "ITEM_STATUS_ON_SALE",
+          "categoryId": 1152, "auction": None, "itemType": "ITEM_TYPE_MERCARI"}
+    it.update(kw)
+    return it
+
+
+def _reason(card, title, known=None, **kw):
+    items = [_item(title, **kw)]
+    matcher = mercari.build_name_matcher(card, items, known)
+    return mercari.exclusion_reason(card, items[0], matcher)
+
+
+# ── 除外規則 ──
+
+@pytest.mark.parametrize("title", [
+    "遊戯王 灰流うらら ウルトラ",
+    "【即発送】灰流うらら ホログラフィックレア 美品",
+    "灰流うらら　RC04-JP009　1枚",
+    "遊戯王、灰流うらら　　シークレット　1枚 、匿名発送",
+])
+def test_対象の出品は除外されない(title):
+    assert _reason("灰流うらら", title) is None
+
+
+@pytest.mark.parametrize("title,reason", [
+    ("遊戯王 灰流うらら 【PSA10】", "graded"),
+    ("遊戯王 灰流うらら BGS9.5", "graded"),
+    ("遊戯王 灰流うらら 鑑定品", "graded"),
+    ("遊戯王 灰流うらら 3枚セット", "multi"),
+    ("遊戯王 灰流うらら ウルトラ 2枚", "multi"),
+    ("遊戯王 灰流うらら まとめ売り", "multi"),
+    ("遊戯王 灰流うらら 計8枚", "multi"),
+    ("灰流うらら アジア版 シークレット", "overseas"),
+    ("灰流うらら 英語版", "overseas"),
+    ("灰流うらら 韓国版", "overseas"),
+    ("遊戯王 灰流うらら スリーブ 100枚", "multi"),
+    ("遊戯王 灰流うらら デュエリストカードプロテクター", "supply"),
+    ("遊戯王 灰流うらら プレイマット", "supply"),
+    ("灰流うらら バンダイ版", "non_ocg"),
+    ("遊戯王 無限泡影", "name_mismatch"),
+])
+def test_除外規則(title, reason):
+    assert _reason("灰流うらら", title) == reason
+
+
+def test_オークションと価格不正は除外():
+    assert _reason("灰流うらら", "灰流うらら", auction={"id": "x"}) == "auction"
+    assert _reason("灰流うらら", "灰流うらら", price="abc") == "bad_price"
+    assert _reason("灰流うらら", "灰流うらら", price="0") == "bad_price"
+
+
+def test_売り切れは除外():
+    assert _reason("灰流うらら", "灰流うらら", status="ITEM_STATUS_SOLD_OUT") == "not_on_sale"
+
+
+def test_全角半角の差は無視してカード名を照合する():
+    assert _reason("増殖するG", "遊戯王 増殖するＧ ウルトラ") is None
+    assert _reason("増殖するG", "遊戯王 増殖するg ウルトラ") is None
+
+
+def test_より長い別カード名の一部は対象外():
+    # ブラック・マジシャン → ブラック・マジシャン・ガール は別カード
+    assert _reason("ブラック・マジシャン", "遊戯王 ブラック・マジシャン・ガール ウルトラ", KNOWN_NAMES) == "name_mismatch"
+    assert _reason("ブラック・マジシャン", "遊戯王 ブラックマジシャン ウルトラ", KNOWN_NAMES) is None
+    assert _reason("青眼の白龍", "遊戯王 白き幻獣－青眼の白龍", KNOWN_NAMES) == "name_mismatch"
+
+
+def test_別カード名が並ぶ詰め合わせは除外():
+    assert _reason("灰流うらら", "遊戯王 灰流うらら 無限泡影 ウルトラ", KNOWN_NAMES) == "name_mismatch"
+    # known_names が無いときは判定できないので含有のみ（ここでは通る）
+    assert _reason("灰流うらら", "遊戯王 灰流うらら 無限泡影 ウルトラ") is None
+
+
+def test_除外語がカード名の一部でも誤爆しない():
+    # カード名自体に「セット」を含む場合、カード名部分は除外語の判定から外す
+    assert _reason("ラッシュセット", "遊戯王 ラッシュセット ウルトラ") is None
+
+
+# ── レアリティ抽出 ──
+
+@pytest.mark.parametrize("text,expected", [
+    ("ウルトラ", "ウルトラ"),
+    ("ウルトラレア", "ウルトラ"),
+    ("ウルトラ パラレル", "ウルトラパラレル"),          # 長い別名が優先
+    ("ゴールドシークレット", "ゴールドシークレット"),      # 「シークレット」より先
+    ("ゴルシク", "ゴールドシークレット"),
+    ("プリズマティックシークレットレア", "プリシク"),
+    ("クォーターセンチュリーシークレット", "25thシークレット"),
+    ("25th シークレット", "25thシークレット"),
+    ("20thシークレット", "20thシークレット"),
+    ("SR", "スーパー"),
+    ("【SR】", "スーパー"),
+    ("(SR)", "スーパー"),
+    ("SR-P", "スーパーパラレル"),
+    ("レリーフ", "アルティメット"),
+    ("初期 レア", "レア"),
+    ("N", "ノーマル"),
+    ("ノーマル", "ノーマル"),
+    ("ホロ", "ホログラフィック"),
+])
+def test_レアリティ抽出_正例(text, expected):
+    assert rarity.extract_rarity_from_text(text) == expected
+
+
+@pytest.mark.parametrize("text", [
+    "",
+    "遊戯王 灰流うらら",
+    "RC04-JP009",                        # 型番の R / JP を略号と取り違えない
+    "遊戯王 EX-49",                       # EX は除外別名
+    "SM-51",
+    "高レアリティ多数",                    # 「レア」の誤爆
+    "レア度高め",
+    "遊戯王アートワークコレクション",        # 「コレ」の誤爆（実データ）
+    "オルフェゴール ガラテア ディヴェル カノーネ",   # 「ノー」の誤爆（実データ）
+    "美品 即発送 匿名配送",
+    "ABCSRDEF",                          # 英字に埋もれた略号
+])
+def test_レアリティ抽出_誤爆しない(text):
+    assert rarity.extract_rarity_from_text(text) is None
+
+
+def test_既存のnormalize_rarityは変わらない():
+    assert rarity.normalize_rarity("UR") == "ウルトラ"
+    assert rarity.normalize_rarity("ウルトラレア") == "ウルトラ"
+    assert rarity.normalize_rarity("ホロ") == "ホログラフィック"
+
+
+def test_classify_カード名と型番は先に除いてから判定する():
+    assert mercari.classify_rarity("増殖するG", "遊戯王 増殖するG RC04-JP005") is None
+    assert mercari.classify_rarity("増殖するG", "遊戯王 増殖するG RC04-JP005 ウルトラレア") == "ウルトラ"
+
+
+# ── 型番補完 ──
+
+def test_型番補完_一意のときだけ補う():
+    lookup = lambda: {"RC04-JP009": {"スーパー"}}
+    assert mercari.classify_rarity("灰流うらら", "遊戯王 灰流うらら RC04-JP009", lookup) == "スーパー"
+
+
+def test_型番補完_複数レアリティにまたがる型番は補わない():
+    lookup = lambda: {"RC04-JP009": {"スーパー", "ウルトラ", "シークレット"}}
+    assert mercari.classify_rarity("灰流うらら", "遊戯王 灰流うらら RC04-JP009", lookup) is None
+
+
+def test_型番補完_商品名のレアリティ表記が優先される():
+    lookup = lambda: {"RC04-JP009": {"スーパー"}}
+    assert mercari.classify_rarity("灰流うらら", "灰流うらら RC04-JP009 ウルトラ", lookup) == "ウルトラ"
+
+
+def test_型番補完_型番が複数ある題名や型番なしは補わない():
+    lookup = lambda: {"RC04-JP009": {"スーパー"}, "RC03-JP010": {"スーパー"}}
+    assert mercari.classify_rarity("灰流うらら", "灰流うらら RC04-JP009 RC03-JP010", lookup) is None
+    assert mercari.classify_rarity("灰流うらら", "灰流うらら", lookup) is None
+
+
+def test_型番補完_未登録の型番は補わない():
+    assert mercari.classify_rarity("灰流うらら", "灰流うらら RC99-JP001", lambda: {}) is None
+
+
+def test_型番補完_取得に失敗しても分類は続く():
+    def boom():
+        raise RuntimeError("db down")
+    assert mercari.classify_rarity("灰流うらら", "灰流うらら RC04-JP009", boom) is None
+
+
+def test_型番補完の問い合わせはaggregateの中でカード名ごとに1回():
+    calls = []
+
+    def lookup():
+        calls.append(1)
+        return {"RC04-JP009": {"スーパー"}}
+    items = [_item("灰流うらら RC04-JP009", 500), _item("灰流うらら RC04-JP009 美品", 600),
+             _item("灰流うらら", 700)]
+    agg = mercari.aggregate("灰流うらら", items, lookup)
+    assert len(calls) == 1
+    assert agg["by_rarity"]["スーパー"]["count"] == 2
+    assert agg["unclassified_count"] == 1
+
+
+class _FakeQuery:
+    def __init__(self, rows, log):
+        self.rows, self.log, self.lo, self.hi = rows, log, 0, None
+
+    def select(self, *a, **k): return self
+    def eq(self, *a): return self
+    def gte(self, *a): return self
+    def neq(self, *a): return self
+    def order(self, *a, **k): return self
+
+    def range(self, lo, hi):
+        self.lo, self.hi = lo, hi
+        return self
+
+    def execute(self):
+        self.log.append((self.lo, self.hi))
+
+        class R:
+            pass
+        r = R()
+        r.data = self.rows[self.lo:self.hi + 1]
+        return r
+
+
+class _FakeClient:
+    def __init__(self, rows):
+        self.rows, self.log = rows, []
+
+    def table(self, name):
+        assert name == "price_history"
+        return _FakeQuery(self.rows, self.log)
+
+
+@pytest.fixture(autouse=True)
+def _clear_caches():
+    mercari._cache.clear()
+    mercari._code_map_cache.clear()
+    yield
+    mercari._cache.clear()
+    mercari._code_map_cache.clear()
+
+
+def test_価格履歴から型番とレアリティの対応を作る():
+    rows = [
+        {"rarity": "スーパー", "code": "RC04-JP009", "recorded_at": "2026-10-12"},
+        {"rarity": "UR", "code": "RC04-JP009", "recorded_at": "2026-10-12"},   # 別名は正規名へ
+        {"rarity": "ノーマル", "code": "TT01-JPA09", "recorded_at": "2026-10-12"},
+        {"rarity": "ノーマル", "code": "TTP1", "recorded_at": "2026-10-12"},   # 弾略号は型番ではない
+        {"rarity": "(不明)", "code": "ZZ01-JP001", "recorded_at": "2026-10-12"},
+    ]
+    m = mercari.load_code_rarity_map(_FakeClient(rows), "灰流うらら")
+    assert m["RC04-JP009"] == {"スーパー", "ウルトラ"}
+    assert m["TT01-JPA09"] == {"ノーマル"}
+    assert "TTP1" not in m and "ZZ01-JP001" not in m
+
+
+def test_価格履歴の読み出しは1000行ごとにページ送りする():
+    rows = [{"rarity": "スーパー", "code": "RC04-JP009", "recorded_at": "2026-10-12"}] * 2500
+    rows[-1] = {"rarity": "ウルトラ", "code": "RC04-JP009", "recorded_at": "2026-08-01"}
+    client = _FakeClient(rows)
+    m = mercari.load_code_rarity_map(client, "灰流うらら")
+    assert client.log == [(0, 999), (1000, 1999), (2000, 2999)]
+    assert m["RC04-JP009"] == {"スーパー", "ウルトラ"}   # 最後のページの行まで読めている
+
+
+def test_価格履歴が上限ページで打ち切られたら補完しない():
+    rows = [{"rarity": "スーパー", "code": "RC04-JP009", "recorded_at": "2026-10-12"}] * (1000 * mercari.CODE_MAX_PAGES + 5)
+    assert mercari.load_code_rarity_map(_FakeClient(rows), "灰流うらら") == {}
+
+
+def test_型番マップはカード名単位でキャッシュされる():
+    client = _FakeClient([{"rarity": "スーパー", "code": "RC04-JP009", "recorded_at": "2026-10-12"}])
+    mercari.load_code_rarity_map(client, "灰流うらら")
+    mercari.load_code_rarity_map(client, "灰流うらら")
+    assert len(client.log) == 1
+    mercari.load_code_rarity_map(client, "増殖するG")
+    assert len(client.log) == 2
+
+
+# ── 集計 ──
+
+def test_中央値は件数が閾値以上のときだけ出す():
+    n = mercari.MERCARI_MEDIAN_MIN_COUNT
+    items = [_item("灰流うらら ウルトラ", 1000 + i * 100) for i in range(n)]
+    items += [_item("灰流うらら スーパー", 500 + i * 100) for i in range(n - 1)]
+    agg = mercari.aggregate("灰流うらら", items)
+    assert agg["by_rarity"]["ウルトラ"]["median"] == 1100
+    assert agg["by_rarity"]["ウルトラ"]["count"] == n
+    assert agg["by_rarity"]["スーパー"]["median"] is None
+    assert agg["by_rarity"]["スーパー"]["min"] == 500
+
+
+def test_最低出品価格300円はmin_is_floor():
+    items = [_item("増殖するG ウルトラ", 300), _item("増殖するG ウルトラ", 350),
+             _item("増殖するG スーパー", 301)]
+    agg = mercari.aggregate("増殖するG", items)
+    assert agg["by_rarity"]["ウルトラ"]["min_is_floor"] is True
+    assert agg["by_rarity"]["スーパー"]["min_is_floor"] is False
+
+
+def test_判定できなかった件数と母数():
+    items = [_item("灰流うらら ウルトラ", 1000), _item("灰流うらら", 500),
+             _item("灰流うらら 3枚セット", 100), _item("無限泡影 ウルトラ", 100)]
+    agg = mercari.aggregate("灰流うらら", items)
+    assert agg["unclassified_count"] == 1
+    assert agg["total_considered"] == 2
+    assert list(agg["by_rarity"]) == ["ウルトラ"]
+
+
+def test_by_rarityは既存のレアリティ順():
+    items = [_item("灰流うらら ノーマル", 100), _item("灰流うらら ウルトラ", 100),
+             _item("灰流うらら シークレット", 100)]
+    assert list(mercari.aggregate("灰流うらら", items)["by_rarity"]) == ["シークレット", "ウルトラ", "ノーマル"]
+
+
+# ── 実データ fixture（2026-10-13 取得） ──
+
+@pytest.mark.parametrize("fx", ["hairu", "G", "blue", "senkoku"])
+def test_fixtureの集計が妥当(fx):
+    kw, items = _load(fx)
+    agg = mercari.aggregate(kw, items, None, KNOWN_NAMES)
+    assert agg["total_considered"] > 0
+    assert sum(v["count"] for v in agg["by_rarity"].values()) + agg["unclassified_count"] == agg["total_considered"]
+    matcher = mercari.build_name_matcher(kw, items, KNOWN_NAMES)
+    for it in items:
+        if mercari.exclusion_reason(kw, it, matcher) is None:
+            n = it["name"].upper()
+            # 鑑定品・複数枚・海外版・サプライが混ざっていない
+            for bad in ("PSA", "BGS", "鑑定", "セット", "まとめ", "アジア", "スリーブ", "プロテクター", "英語"):
+                assert bad not in n, it["name"]
+            assert not mercari.MULTI_PATTERN.search(it["name"]), it["name"]
+    for r, v in agg["by_rarity"].items():
+        assert v["min"] >= 300
+        assert v["median"] is None or v["median"] >= v["min"]
+        assert v["median"] is None or v["count"] >= mercari.MERCARI_MEDIAN_MIN_COUNT
+
+
+def test_fixture_灰流うらら_既知の除外():
+    kw, items = _load("hairu")
+    matcher = mercari.build_name_matcher(kw, items, KNOWN_NAMES)
+    by_reason = {}
+    for it in items:
+        by_reason.setdefault(mercari.exclusion_reason(kw, it, matcher), []).append(it["name"])
+    assert any("PSA10" in n for n in by_reason["graded"])
+    assert any("3枚セット" in n for n in by_reason["multi"])
+    assert any("アジア版" in n for n in by_reason["overseas"])
+    assert len(by_reason[None]) > 0
+
+
+# ── 検索リンク ──
+
+def test_検索URL():
+    url = mercari.build_search_url("灰流うらら")
+    assert url.startswith("https://jp.mercari.com/search?keyword=")
+    assert "%E7%81%B0%E6%B5%81" in url and "status=on_sale" in url and "category_id=1152" in url
+    # カード名中の & が別パラメータにならない
+    assert "A%26B" in mercari.build_search_url("A&B")
+
+
+# ── DPoP ──
+
+def test_dpop署名はES256で検証できる():
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
+
+    def unb64(s):
+        return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+    token = mercari._dpop_token("POST", mercari.SEARCH_API_URL)
+    h, p, sig = token.split(".")
+    header, payload = json.loads(unb64(h)), json.loads(unb64(p))
+    assert header["typ"] == "dpop+jwt" and header["alg"] == "ES256"
+    assert header["jwk"]["crv"] == "P-256" and header["jwk"]["kty"] == "EC"
+    assert payload["htm"] == "POST" and payload["htu"] == mercari.SEARCH_API_URL
+    assert payload["jti"] and payload["uuid"] and isinstance(payload["iat"], int)
+    raw = unb64(sig)
+    assert len(raw) == 64
+    pub = ec.EllipticCurvePublicNumbers(
+        int.from_bytes(unb64(header["jwk"]["x"]), "big"),
+        int.from_bytes(unb64(header["jwk"]["y"]), "big"), ec.SECP256R1()).public_key()
+    pub.verify(encode_dss_signature(int.from_bytes(raw[:32], "big"), int.from_bytes(raw[32:], "big")),
+               f"{h}.{p}".encode(), ec.ECDSA(hashes.SHA256()))
+
+
+def test_リクエストボディは出品中のみ_遊戯王シングル_1ページ():
+    body = mercari._build_request_body("灰流うらら")
+    cond = body["searchCondition"]
+    assert cond["status"] == ["STATUS_ON_SALE"] and cond["categoryId"] == [1152]
+    assert cond["keyword"] == "灰流うらら" and body["pageSize"] == 120 and body["pageToken"] == ""
+
+
+# ── 通信エラーの区別 ──
+
+class _Resp:
+    def __init__(self, status=200, data=None, bad_json=False):
+        self.status_code, self._data, self._bad = status, data, bad_json
+
+    def json(self):
+        if self._bad:
+            raise ValueError("bad")
+        return self._data
+
+
+@pytest.mark.parametrize("resp", [_Resp(401), _Resp(403), _Resp(429), _Resp(500), _Resp(bad_json=True),
+                                  _Resp(data=[1, 2]), _Resp(data={"items": "x"})])
+def test_fetch_rawの失敗はMercariFetchError(monkeypatch, resp):
+    monkeypatch.setattr(mercari.requests, "post", lambda *a, **k: resp)
+    with pytest.raises(mercari.MercariFetchError):
+        mercari.fetch_raw("灰流うらら")
+
+
+def test_fetch_rawのタイムアウトはMercariFetchError(monkeypatch):
+    def boom(*a, **k):
+        raise mercari.requests.Timeout()
+    monkeypatch.setattr(mercari.requests, "post", boom)
+    with pytest.raises(mercari.MercariFetchError):
+        mercari.fetch_raw("灰流うらら")
+
+
+def test_fetch_rawの0件は失敗ではない(monkeypatch):
+    monkeypatch.setattr(mercari.requests, "post", lambda *a, **k: _Resp(data={"items": []}))
+    assert mercari.fetch_raw("灰流うらら")["items"] == []
+
+
+# ── キャッシュ ──
+
+def test_get_reference_成功はキャッシュ_失敗はキャッシュしない(monkeypatch):
+    calls = []
+
+    def fake_fetch(kw):
+        calls.append(kw)
+        if len(calls) == 1:
+            raise mercari.MercariFetchError("HTTP 500")
+        return {"items": [_item("灰流うらら ウルトラ", 1000)]}
+    monkeypatch.setattr(mercari, "fetch_raw", fake_fetch)
+    assert mercari.get_reference("灰流うらら") == {"ok": False, "error": "fetch_failed"}
+    r1 = mercari.get_reference("灰流うらら")
+    assert r1["ok"] and r1["cached"] is False and r1["by_rarity"]["ウルトラ"]["min"] == 1000
+    r2 = mercari.get_reference("灰流うらら")
+    assert r2["cached"] is True and len(calls) == 2
+
+
+def test_get_reference_キャッシュは期限切れで再取得(monkeypatch):
+    calls = []
+    monkeypatch.setattr(mercari, "fetch_raw", lambda kw: calls.append(1) or {"items": []})
+    mercari.get_reference("灰流うらら")
+    key = next(iter(mercari._cache))
+    t, v = mercari._cache[key]
+    mercari._cache[key] = (t - mercari.CACHE_TTL_SEC - 1, v)
+    mercari.get_reference("灰流うらら")
+    assert len(calls) == 2
+
+
+def test_get_reference_Supabaseが無くても動く(monkeypatch):
+    monkeypatch.setattr(mercari, "fetch_raw", lambda kw: {"items": [_item("灰流うらら RC04-JP009", 500)]})
+    r = mercari.get_reference("灰流うらら", None)
+    assert r["ok"] and r["unclassified_count"] == 1
+
+
+def test_get_reference_Supabaseの型番補完を使う(monkeypatch):
+    monkeypatch.setattr(mercari, "fetch_raw", lambda kw: {"items": [_item("灰流うらら RC04-JP009", 500)]})
+    client = _FakeClient([{"rarity": "スーパー", "code": "RC04-JP009", "recorded_at": "2026-10-12"}])
+    r = mercari.get_reference("灰流うらら", client)
+    assert r["by_rarity"]["スーパー"]["count"] == 1 and r["unclassified_count"] == 0
+
+
+# ── API ──
+
+@pytest.fixture()
+def client(monkeypatch):
+    app_module.app.config.update(TESTING=True)
+    app_module._reset_rate_limits()
+    monkeypatch.setattr(app_module, "_supabase_client", None)
+    yield app_module.app.test_client()
+    app_module._reset_rate_limits()
+
+
+def test_api_成功(client, monkeypatch):
+    monkeypatch.setattr(mercari, "fetch_raw", lambda kw: {"items": [
+        _item("灰流うらら ウルトラ", 1000), _item("灰流うらら ウルトラ", 1200), _item("灰流うらら ウルトラ", 1400),
+        _item("灰流うらら", 300)]})
+    r = client.get("/api/mercari", query_string={"name": "灰流うらら"})
+    d = r.get_json()
+    assert r.status_code == 200 and d["ok"] is True and d["cached"] is False
+    assert d["by_rarity"]["ウルトラ"] == {"count": 3, "min": 1000, "median": 1200, "min_is_floor": False}
+    assert d["unclassified_count"] == 1 and d["total_considered"] == 4
+    assert d["search_url"].startswith("https://jp.mercari.com/search?keyword=")
+
+
+def test_api_取得失敗(client, monkeypatch):
+    def boom(kw):
+        raise mercari.MercariFetchError("HTTP 403")
+    monkeypatch.setattr(mercari, "fetch_raw", boom)
+    r = client.get("/api/mercari", query_string={"name": "灰流うらら"})
+    assert r.get_json() == {"ok": False, "error": "fetch_failed"}
+
+
+def test_api_0件は成功として返す(client, monkeypatch):
+    monkeypatch.setattr(mercari, "fetch_raw", lambda kw: {"items": []})
+    d = client.get("/api/mercari", query_string={"name": "灰流うらら"}).get_json()
+    assert d["ok"] is True and d["by_rarity"] == {} and d["total_considered"] == 0
+
+
+def test_api_レート制限(client, monkeypatch):
+    monkeypatch.setattr(mercari, "fetch_raw", lambda kw: {"items": []})
+    assert client.get("/api/mercari", query_string={"name": "灰流うらら"}).status_code == 200
+    r = client.get("/api/mercari", query_string={"name": "灰流うらら"})
+    assert r.status_code == 429 and r.get_json() == {"ok": False, "error": "rate_limited"}
+
+
+def test_api_レート制限は他APIのバケットと独立(client, monkeypatch):
+    monkeypatch.setattr(mercari, "fetch_raw", lambda kw: {"items": []})
+    with app_module.app.test_request_context("/"):
+        app_module._consume_rate_limit()   # 価格検索バケットを消費
+    assert client.get("/api/mercari", query_string={"name": "灰流うらら"}).status_code == 200
+
+
+def test_api_入力検証(client):
+    assert client.get("/api/mercari").status_code == 400
+    assert client.get("/api/mercari", query_string={"name": "  "}).status_code == 400
+    app_module._reset_rate_limits()
+    r = client.get("/api/mercari", query_string={"name": "あ" * (app_module.MAX_CARD_NAME_LEN + 1)})
+    assert r.status_code == 400 and r.get_json()["ok"] is False
+
+
+def test_api_未知のカード名は外部に問い合わせない(client, monkeypatch):
+    def must_not_call(kw):
+        raise AssertionError("外部通信してはいけない")
+    monkeypatch.setattr(mercari, "fetch_raw", must_not_call)
+    r = client.get("/api/mercari", query_string={"name": "存在しないカード名ZZZ"})
+    assert r.status_code == 404 and r.get_json()["error"] == "unknown_card"
+
+
+def test_メルカリは店舗一覧に入っていない():
+    assert all("メルカリ" not in name for name, _ in app_module.SHOPS)
+    assert all("メルカリ" not in name for name in app_module.DEFAULT_SHOPS)

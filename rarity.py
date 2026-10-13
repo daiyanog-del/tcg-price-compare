@@ -20,6 +20,7 @@ rarity.py — レアリティ定義の Single Source of Truth
 
 from __future__ import annotations
 import logging
+import re
 import threading
 import warnings
 
@@ -674,3 +675,98 @@ def config_for_frontend() -> dict:
         }
         for e in RARITIES
     }
+
+
+# ── 自由文（商品名）からのレアリティ抽出 ─────────────────────────────
+# メルカリ等、レアリティ欄を持たない出品タイトルから正規名を推定する。
+# normalize_rarity（完全一致）とは別物で、既存の挙動・辞書は変更しない。
+
+# 自由文では誤爆するため照合対象から外す別名（照合キー形式＝大文字・空白括弧除去後）。
+# 実データで誤爆を確認したもの（ノー: 「カノーネ」、コレ: 「アートワークコレクション」）と、
+# 日本語の一般語・カード系列名に含まれることが明らかな短い別名（予防。実データ未観測）。
+# 「レア」はメルカリの題名では実際にレアリティとして使われる（「初期 レア」）ため
+# 外さず、誤爆する語（レアリティ・レア度）を照合前に取り除く。
+# TODO: calibrate from data（メルカリ出品名の追加サンプルで再点検する）
+_TEXT_EXCLUDED_ALIASES: frozenset[str] = frozenset({
+    "コレ",    # 「アートワークコレクション」に含まれる（実データで確認）
+    "ノー",    # 「カノーネ」に含まれる（実データで確認）
+    "スー",    # 「スーパー」以外の語に含まれる
+    "アル",    # 「アルバム」等に含まれる
+    "ミレ",    # 「ミレニアム」系の語に含まれる
+    "パラ",    # 「パラレル」「パラドックス」等に含まれる
+    "EX",      # 「EX-49」「EX 初期」など弾・エキスパート版の表記と区別できない
+})
+
+# 「レア」を含むがレアリティ表記ではない語（「高レアリティ多数」「レア度」）
+_TEXT_NOISE_RE = re.compile("レアリティ|レア度")
+_TEXT_INDEX: list | None = None
+_TEXT_INDEX_LOCK = threading.Lock()
+
+
+def _char_class(ch: str) -> str:
+    """空白許容の境目判定用: 数字 / ASCII英字 / それ以外（日本語・記号）。"""
+    if ch.isascii():
+        return "d" if ch.isdigit() else ("a" if ch.isalpha() else "o")
+    return "j"
+
+
+def _build_text_index() -> list:
+    """(照合キー, canonical, ASCII英数字を含むか, 正規表現) を長い順に並べた索引を作る。"""
+    items = []
+    for alias, canon in _ALIAS_TO_CANON.items():
+        key = alias.upper()
+        if not key or key in _TEXT_EXCLUDED_ALIASES:
+            continue
+        has_ascii = bool(re.search(r"[A-Z0-9]", key))
+        if has_ascii:
+            # 両端がASCII英数字なら、隣が英数字の場合は別の語（型番・略号の一部）とみなす
+            # 2文字以下の略号（SR・R・N 等）はハイフン隣接も別の語とみなす
+            # （"SM-51"・"ST-R" のような弾名・型番の一部を拾わないため）
+            cls = r"[A-Z0-9\-]" if len(key) <= 2 else r"[A-Z0-9]"
+            pre = f"(?<!{cls})" if re.match(r"[A-Z0-9]", key) else ""
+            post = f"(?!{cls})" if re.search(r"[A-Z0-9]$", key) else ""
+            # 数字・英字・日本語の境目には空白が入ってもよい（"25th シークレット"）
+            body = ""
+            for i, ch in enumerate(key):
+                if i and (_char_class(ch) != _char_class(key[i - 1])):
+                    body += r"\s?"
+                body += re.escape(ch)
+            pat = re.compile(pre + body + post)
+        else:
+            pat = None
+        items.append((key, canon, has_ascii, pat))
+    items.sort(key=lambda t: -len(t[0]))
+    return items
+
+
+def extract_rarity_from_text(text: str) -> str | None:
+    """商品名などの自由文から正規レアリティ名を推定する。判定できなければ None。
+
+    - 別名を長い順に試し、最初に当たったものを採用する（「ウルトラ」より先に
+      「ウルトラパラレル」を、「シークレット」より先に「ゴールドシークレット」を拾うため）
+    - 英数字を含む別名（UR・SR・N・R 等）は前後が英数字のとき一致とみなさない
+      （型番 RC04-JP009 の "R" や "JP" の誤爆を防ぐ）
+    - 日本語のみの別名は空白・括弧を除いた文字列で照合する
+    - _TEXT_EXCLUDED_ALIASES の別名は使わない
+    """
+    import unicodedata
+    global _TEXT_INDEX
+    if not text:
+        return None
+    if _TEXT_INDEX is None:
+        with _TEXT_INDEX_LOCK:
+            if _TEXT_INDEX is None:
+                _TEXT_INDEX = _build_text_index()
+    norm = unicodedata.normalize("NFKC", text).upper()
+    norm = _TEXT_NOISE_RE.sub(" ", norm)
+    # 括弧は区切りに置換（"(SR)" と隣接文字を分けるため）。空白は残して語境界に使う
+    spaced = re.sub(r"[()（）\[\]【】「」『』/／,、。]", " ", norm)
+    spaced = re.sub(r"[\s　]+", " ", spaced)
+    stripped = _preprocess(spaced).replace(" ", "")
+    for key, canon, has_ascii, pat in _TEXT_INDEX:
+        if has_ascii:
+            if pat.search(spaced):
+                return canon
+        elif key in stripped:
+            return canon
+    return None

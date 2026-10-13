@@ -462,7 +462,7 @@ def _all_rate_limit_buckets() -> list[dict]:
     テスト側は _reset_rate_limits() を呼ぶだけにする。
     """
     return [_last_search, _last_import, _last_buyback, _last_deck, _last_deck_image, _last_packs,
-            _last_sync, _last_sync_link, _last_feedback]
+            _last_sync, _last_sync_link, _last_feedback, _last_mercari]
 
 
 def _reset_rate_limits() -> None:
@@ -1746,6 +1746,31 @@ def api_price_history():
     except Exception as e:
         logger.error(f"価格推移取得失敗: {e}")
         return jsonify({"card_name": card_name, "data": []})
+
+# ── メルカリ参考相場（別枠表示専用。SHOPS/最安比較/夜間収集には混ぜない） ──
+import mercari as _mercari
+_last_mercari: dict[str, float] = {}
+MERCARI_RATE_LIMIT_SEC = 1  # TODO: calibrate from data（カード詳細1表示につき1回。連続操作で弾きすぎない値）
+
+
+@app.route("/api/mercari")
+def api_mercari():
+    """出品中のメルカリ参考相場をレアリティ別に返す（最安・中央値・件数）。"""
+    card_name = _normalize_query(request.args.get("name", ""))
+    if not card_name:
+        return jsonify({"ok": False, "error": "name_required"}), 400
+    if len(card_name) > MAX_CARD_NAME_LEN:
+        return jsonify({"ok": False, "error": "name_too_long"}), 400
+    rate_error = _consume_rate_limit(bucket=_last_mercari, interval=MERCARI_RATE_LIMIT_SEC)
+    if rate_error:
+        return jsonify({"ok": False, "error": "rate_limited"}), 429
+    # 外部検索の踏み台にならないよう、既知のカード名だけ受け付ける（/api/search と同じ基準）
+    _load_cardnames()
+    if card_name not in _cardnames_set and not _is_release_passed_unreleased(card_name):
+        return jsonify({"ok": False, "error": "unknown_card"}), 404
+    result = _mercari.get_reference(card_name, _supabase_client, _cardnames_set)
+    return jsonify(result)
+
 
 TRENDING_MIN_ITEMS = 10  # この件数未満は「利用者が少ない」と見なし非表示
 

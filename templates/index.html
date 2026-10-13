@@ -450,6 +450,17 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .price-chart>summary::before{content:'▸ ';color:var(--text-d)}
 .price-chart[open]>summary::before{content:'▾ '}
 .chart-title{font-size:.85rem;font-weight:600;margin-bottom:12px;color:var(--text-m)}
+/* メルカリ参考相場（店舗の表とは別枠） */
+.mref{margin-bottom:20px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px 16px}
+.mref-title{font-size:.85rem;font-weight:600;margin-bottom:10px;color:var(--text-m)}
+.mref-row{display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px;padding:4px 0;font-size:.8rem}
+.mref-min{font:600 .85rem var(--mono);color:var(--gold)}
+.mref-med{font:600 .8rem var(--mono);color:var(--text-m)}
+.mref-n{color:var(--text-d);font-size:.74rem}
+.mref-note{font-size:.76rem;color:var(--text-d);margin-top:6px}
+.mref-link{margin-top:8px;font-size:.76rem}
+.mref-link a{color:var(--text-m)}
+.mref-link a:hover{color:var(--accent-l)}
 /* C-2: 販売ページに買取価格を併置（#buyInline）。旧#priceChartと同じ<details>の見た目を流用 */
 .buy-inline-headline{font-size:.92rem;font-weight:600;margin-bottom:14px}
 .buy-inline-note{font-size:.74rem;color:var(--text-d);margin-top:10px}
@@ -799,6 +810,8 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     </details>
     <!-- F-2: A8トラッキングピクセルはrenderSummary()（レアリティ切替のたびに再実行）から外し、
          検索1回につき1回だけrenderAll()から挿入するための専用スロット -->
+    <!-- メルカリ参考相場: 店舗の表とは別枠。/api/mercari を別fetchで取得して mercari-ref.js が描画する -->
+    <div class="mref hidden" id="mercariRef"></div>
     <div id="affPixelSlot"></div>
 
     <div class="controls">
@@ -1384,6 +1397,7 @@ const _pageMode={{ page_mode | tojson }};
 </script>
 <script src="{{ static_url('js/search-status.js') }}" defer></script>
 <script src="{{ static_url('js/index-main.js') }}" defer></script>
+<script src="{{ static_url('js/mercari-ref.js') }}" defer></script>
 <script src="{{ static_url('js/new-cards.js') }}" defer></script>
 <script>
 // Service Worker登録

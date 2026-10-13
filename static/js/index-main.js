@@ -501,6 +501,7 @@ function doSearch(opts){
       _currentCardName=document.getElementById('q').value.trim();
       SearchStatus.show(d);
       renderAll(d);
+      if(d.total>0&&window.MercariRef) MercariRef.load(_currentCardName); // メルカリ参考相場は店舗表とは別fetchで非同期表示
       btn.disabled=false;btn.textContent='検索';
       _setSearchLayout(d.total>0);
       setTimeout(()=>{prog.style.display='none';},1200);
@@ -843,6 +844,7 @@ function _resetBuyInline(){
   _buyInlineFetchInFlight=false;
   _buyInlineFailedShops=[];
   _currentCardName='';
+  if(window.MercariRef) MercariRef.clear(); // 前のカードのメルカリ枠を残さない
   const body=document.getElementById('buyInlineBody');
   if(body) body.innerHTML='';
 }

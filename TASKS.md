@@ -5,6 +5,8 @@
 
 ## 進行中
 
+- [ ] **メルカリ参考相場（2026-10-13、実装済み・未デプロイ）** — カード詳細に別枠「メルカリ（出品中・参考）」を追加（/api/mercari、mercari.py、static/js/mercari-ref.js）。店舗一覧・最安比較・夜間収集には混ぜない。校正待ち（`# TODO: calibrate from data`）: 中央値の最小件数 MERCARI_MEDIAN_MIN_COUNT、除外語（GRADED/MULTI/OVERSEAS/SUPPLY/NON_OCG）、rarity._TEXT_EXCLUDED_ALIASES、キャッシュ15分、レート制限1秒、型番マップTTL。本番Supabaseでの型番補完の行数・補完率は未実測。アフィリエイト化は mercari.build_search_url の差し替えのみ。
+
 - [x] **一人回し上書き保存でマイデッキが古い内容に戻る不具合（2026-10-08）** — 一人回しPDF取込保存に [EX] 区切りと main/ex を追加。normalizeDeck が main/ex と text の食い違いを検知し text を正とする。下書き復元はひも付き保存済みと食い違えば保存済みを優先。[EX]無しの壊れデータは EX がメインに混ざる（カードは消えない）既知の制限。
 
 - [x] **クロップ精度再修正（2026-10-04、main反映・配信更新確認）** — 閉輪郭だけに依存する内枠誤採用、全画面の不要補正、保存時の1px切捨てを修正。24実画像・保存ピクセル一致を検証。縮小時の検出不足と閾値の独立校正は残る。

@@ -8,6 +8,8 @@ supabase>=2.0,<3
 tweepy>=4.14,<5
 matplotlib>=3.8,<4
 pywebpush>=2.0,<3
+# メルカリ参考相場のDPoP署名(ES256)。pywebpush経由で入っているが直接importするため明示
+cryptography>=42
 pdfplumber>=0.11,<1
 Pillow>=10.0,<12
 anthropic>=0.25,<1
