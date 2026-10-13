@@ -462,10 +462,14 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .pt-grid{stroke:rgba(148,163,184,.14);stroke-width:1}
 .pt-ax{font:10px var(--mono);fill:var(--text-d)}
 .pt-axr{font:10px var(--mono);fill:var(--text-m)}
-.pt-cursor{stroke:#94a3b8;stroke-width:1;stroke-dasharray:3 3}
-.pt-dot{fill:#fff;stroke:var(--accent-l);stroke-width:2}
+.pt-line{fill:none;stroke:var(--accent-l);stroke-width:2;stroke-linejoin:round}
+.pt-area{fill:url(#ptGrad)}
+.pt-stop{stop-color:var(--accent-l)}
+.pt-last{fill:var(--accent-l)}
+.pt-cursor{stroke:var(--text-m);stroke-width:1;stroke-dasharray:3 3}
+.pt-dot{fill:var(--text);stroke:var(--accent-l);stroke-width:2}
 .pt-tip{position:absolute;top:0;left:0;display:none;pointer-events:none;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:4px 7px;font:11px var(--mono);white-space:nowrap;transform:translateX(-50%);color:var(--text-m)}
-.pt-tip b{color:#fff}
+.pt-tip b{color:var(--text)}
 .pt-note{margin:0;font-size:.75rem;color:var(--text-d)}
 .price-chart>summary{cursor:pointer;list-style:none;user-select:none}
 .price-chart>summary::-webkit-details-marker{display:none}

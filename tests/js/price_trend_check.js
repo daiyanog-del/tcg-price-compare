@@ -5,20 +5,26 @@ const fs = require('fs'), path = require('path'), vm = require('vm'), assert = r
 const root = path.join(__dirname, '../..');
 const classes = new Set(['hidden']);
 const box = { classList: { add: (n) => classes.add(n), remove: (n) => classes.delete(n), contains: (n) => classes.has(n) } };
-const body = { innerHTML: '' };
+let bodyWidth = 0;   // body の実幅（0=測れない→下限320で描く）
+const body = { innerHTML: '', getBoundingClientRect: () => ({ width: bodyWidth }) };
+const roInstances = [];
+const docHandlers = {};
 const els = {};
 const pending = [];
 const gaCalls = [];
 function mkPlot() {
   const h = {};
-  return { addEventListener: (t, f) => { h[t] = f; }, getBoundingClientRect: () => ({ left: 0, width: 100 }), h };
+  return { addEventListener: (t, f) => { h[t] = f; }, contains: (t) => t === 'inside', getBoundingClientRect: () => ({ left: 0, width: 100 }), h };
 }
 const plotHolder = {};
 const sandbox = {
   console, Number, Promise, encodeURIComponent, Object, Math, Date, isFinite,
   _ga: (n) => gaCalls.push(n),
   window: { RARITY_CONFIG: { 'シークレット': { color: '#f00', order: 40 }, 'ウルトラ': { color: '#0af', order: 110 }, 'ノーマル': { order: 160 } } },
+  ResizeObserver: class { constructor(cb) { this.cb = cb; this.observed = 0; roInstances.push(this); } observe() { this.observed++; } },
   document: {
+    addEventListener: (t, f) => { docHandlers[t] = f; },
+    removeEventListener: (t, f) => { if (docHandlers[t] === f) delete docHandlers[t]; },
     getElementById: (id) => {
       if (id === 'priceTrend') return box;
       if (id === 'priceTrendBody') return body;
@@ -63,11 +69,12 @@ const DATA = [
   assert(h.includes('安 ¥4,800 / 高 ¥5,500'));
   assert(!h.includes('--gold') && !h.includes('pt-legend'));
   // 階段線: 始点 M0 → 水平 H262(=320-58) → 縦 V。折れ線(L)は使わない
-  const stepM = /<path d="(M[^"]*)" fill="none" stroke="var\(--accent-l\)"/.exec(h);
-  assert(stepM, '線色はアクセント色');
+  const stepM = /<path class="pt-line" d="(M[^"]*)"/.exec(h);
+  assert(stepM, '線はクラス指定(色はCSSでアクセント色)');
+  assert(!/(stroke|fill|stop-color)="var\(/.test(h), 'SVG属性にvar()で色を書かない');
   assert.match(stepM[1], /^M0\.0 [\d.]+H262\.0V[\d.]+$/);
   assert(!stepM[1].includes('L'));
-  assert(h.includes('fill="url(#ptGrad)"') && h.includes('stop-opacity=".28"') && h.includes('stop-opacity="0"'));
+  assert(h.includes('class="pt-area"') && h.includes('stop-opacity=".28"') && h.includes('stop-opacity="0"'));
   assert(h.includes('r="3.5"'), '最新日の点');
   assert(!h.includes('#f00'), 'レアリティ色は使わない');
   // 目盛り（4800〜5500 を12%余白→ 約3本、2.5×10^n 系の刻み）
@@ -126,6 +133,30 @@ const DATA = [
   assert(els.ptTip.innerHTML.includes('Z&lt;b&gt;') && !els.ptTip.innerHTML.includes('Z<b>'));
   assert.deepEqual(Array.from(gaCalls), ['price_trend_touch']);
 
+  // 5b) 吹き出しの縦位置: 最高値の点(y≈22)を隠さず点の下へ。低い点では上へ
+  api.setView({ rarity: 'シークレット' });
+  plot.h.pointermove({ clientX: 95 });
+  assert.equal(els.ptTip.style.top, '32px', '最高値＝最新日の点は上に入らないので下に出す');
+  plot.h.pointermove({ clientX: 2 });
+  assert.equal(els.ptTip.style.top, '88px', '低い点では点の上に出す');
+  plot.h.pointerleave();
+
+  // 5c) タッチ: pointerleave では消さず、グラフ外タップか pointercancel で消す。マウスは離れたら消す
+  plot.h.pointermove({ clientX: 95, pointerType: 'touch' });
+  plot.h.pointerleave({ pointerType: 'touch' });
+  assert.equal(els.ptTip.style.display, 'block', 'touch は離れても残る');
+  docHandlers.pointerdown({ target: 'inside' });
+  assert.equal(els.ptTip.style.display, 'block', 'グラフ内タップでは消さない');
+  docHandlers.pointerdown({ target: 'outside' });
+  assert.equal(els.ptTip.style.display, 'none', 'グラフ外タップで消える');
+  assert.equal(els.ptDot.attrs.visibility, 'hidden');
+  plot.h.pointermove({ clientX: 5, pointerType: 'touch' });
+  plot.h.pointercancel({ pointerType: 'touch' });
+  assert.equal(els.ptTip.style.display, 'none', 'pointercancel(スクロール開始)で消える');
+  plot.h.pointermove({ clientX: 5, pointerType: 'mouse' });
+  plot.h.pointerleave({ pointerType: 'mouse' });
+  assert.equal(els.ptTip.style.display, 'none', 'マウスは離れたら消える');
+
   // 6) 古い応答の破棄 / 空・失敗は枠ごと非表示 / clear
   api.load('A'); api.load('B');
   reply(pending[1], { data: [row('2026-01-01', 'A', 'ウルトラ', 1)] }); await tick();
@@ -159,5 +190,41 @@ const DATA = [
   assert.deepEqual(Array.from(nt(0, 100, 3)), [0, 50, 100]);
   assert.deepEqual(Array.from(nt(180, 260, 3)), [200, 250]);
   assert.deepEqual(Array.from(nt(4500, 5800, 3)), [4500, 5000, 5500]);
+  assert.deepEqual(Array.from(nt(30, 31, 3)), [30, 31], '1円差でも刻みは1以上（¥30/¥31/¥31の重複表示を出さない）');
+  api.load('Y');
+  reply(pending[pending.length - 1], { data: [row('2026-09-01', 'A', 'ウルトラ', 30), row('2026-09-02', 'A', 'ウルトラ', 31)] }); await tick();
+  api.setView({ rarity: 'ウルトラ' });
+  const yt = Array.from(body.innerHTML.matchAll(/class="pt-axr"[^>]*>([^<]*)</g), (m) => m[1]);
+  assert.equal(new Set(yt).size, yt.length, '目盛りに重複なし: ' + yt);
+
+  // 9) 右余白は目盛り文字の最長幅に合わせる（¥1,000,000 以上でもはみ出さない）
+  api.load('P');
+  reply(pending[pending.length - 1], { data: [row('2026-09-01', 'A', 'ウルトラ', 1000000), row('2026-09-10', 'A', 'ウルトラ', 1200000)] }); await tick();
+  api.setView({ rarity: 'ウルトラ' });
+  h = body.innerHTML;
+  const lab = Array.from(h.matchAll(/class="pt-axr" x="([\d.]+)"[^>]*>([^<]*)</g), (m) => ({ x: +m[1], t: m[2] }));
+  assert(lab.length >= 2);
+  lab.forEach((l) => assert(l.x + l.t.length * 6.2 <= 320, '文字が右端(320)内に収まる: ' + l.t + ' x=' + l.x));
+  assert(+/H([\d.]+)V/.exec(h)[1] < 262, '長い目盛りのぶんグラフ本体の右端が内側に寄る');
+
+  // 10) ResizeObserver: 生成は1回だけ・同じ幅の通知では描き直さない・幅が変われば描き直す・実幅が座標に反映される
+  assert.equal(roInstances.length, 1, 'render を何度呼んでも observe 用の ResizeObserver は1つ');
+  assert.equal(roInstances[0].observed, 1);
+  bodyWidth = 500;
+  api.setView({ rarity: 'ウルトラ' });
+  assert(body.innerHTML.includes('viewBox="0 0 500 150"'), '実幅500で描く');
+  assert(/H426\.0V/.test(body.innerHTML), '右端 = 実幅 - 右余白(500-74。7桁価格の目盛り幅)');
+  assert.equal(roInstances.length, 1);
+  body.innerHTML += '<!--marker-->';
+  roInstances[0].cb();
+  assert(body.innerHTML.includes('<!--marker-->'), '同じ幅の通知では描き直さない');
+  bodyWidth = 700;
+  roInstances[0].cb();
+  assert(!body.innerHTML.includes('<!--marker-->') && body.innerHTML.includes('viewBox="0 0 700 150"'), '幅が変われば描き直す');
+  bodyWidth = 0;
+  body.innerHTML += '<!--marker2-->';
+  roInstances[0].cb();
+  assert(body.innerHTML.includes('<!--marker2-->'), '幅0(非表示)の通知では描き直さない');
+  assert.equal(roInstances.length, 1);
   console.log('price_trend_check OK');
 })().catch((e) => { console.error(e); process.exit(1); });

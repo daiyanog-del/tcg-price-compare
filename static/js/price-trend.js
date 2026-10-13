@@ -12,13 +12,15 @@
   let view={rarity:''};            // rarity=選択中のレアリティ（空=すべて）
   let gaSent=false;                // 読み取り操作のGAは1ページ1回だけ
   let drawnW=0;                    // 直近に描いたときの幅（リサイズでの無駄な再描画を避ける）
+  let docDown=null;                // グラフ外タップで吹き出しを消す document リスナー（描き直すたびに付け替え）
   let ro=null;                     // ResizeObserver（初回描画時に1度だけ作る）
 
-  const H=150, PAD={l:0,r:58,t:10,b:18};   // グラフ高さと余白（右は価格目盛り、下は月ラベル用）
+  const H=150, PAD={l:0,t:10,b:18};        // グラフ高さと余白（下は月ラベル用。右余白は目盛り文字の長さで決める＝frame）
+  const AX_MIN_R=58, AX_CHAR_W=6.2, AX_GAP=12;  // 右余白の下限・等幅10px文字の概算幅・左の隙間(6)＋右の余裕(6)
   const MIN_W=320;                         // 測れない・極端に狭いときの下限幅
   // 線色はレアリティ色にしない: レアリティ色には赤系があり、騰落の赤(上昇)と意味が衝突するため。
-  // 金色(--gold)は店舗最安専用なので使わない。サイト共通のアクセント色に統一する
-  const LINE='var(--accent-l)';
+  // 金色(--gold)は店舗最安専用なので使わない。サイト共通のアクセント色(--accent-l)に統一する。
+  // 色はSVG属性ではなくCSSクラス(.pt-line など)で指定する（index.html）
   const MSG_NONE='このレアリティの価格推移はまだありません';
   const MSG_PICK='レアリティを選ぶと価格推移を表示します';
 
@@ -66,7 +68,7 @@
   // 目盛りにちょうどよい刻み（1,2,2.5,5×10^n）で約n本
   function niceTicks(lo,hi,n){
     const raw=(hi-lo)/n||1, mag=Math.pow(10,Math.floor(Math.log10(raw)));
-    const step=[1,2,2.5,5,10].map(k=>k*mag).find(s=>s>=raw);
+    const step=Math.max(1,[1,2,2.5,5,10].map(k=>k*mag).find(s=>s>=raw)); // 円の最小単位は1（1円差で0.5刻みにならない）
     const t=[];
     for(let v=Math.ceil(lo/step)*step;v<=hi+1e-9;v+=step) t.push(v);
     return t;
@@ -81,9 +83,13 @@
     if(ylo===yhi){ylo-=1;yhi+=1;}
     const m=(yhi-ylo)*0.12; ylo-=m; yhi+=m;
     const n0=pts[0].n, n1=pts[pts.length-1].n, span=Math.max(1,n1-n0);
-    const X=n=>PAD.l+(n-n0)/span*(W-PAD.l-PAD.r);
+    // 右余白: 目盛り文字の最長幅に合わせる（¥1,000,000 以上でもはみ出さない）
+    const ticks=niceTicks(ylo,yhi,3);
+    const maxLen=ticks.reduce((m,v)=>Math.max(m,yen(v).length),0);
+    const padR=Math.max(AX_MIN_R,Math.ceil(maxLen*AX_CHAR_W+AX_GAP));
+    const X=n=>PAD.l+(n-n0)/span*(W-PAD.l-padR);
     const Y=v=>PAD.t+(1-(v-ylo)/(yhi-ylo))*(H-PAD.t-PAD.b);
-    return {W:W,n0:n0,n1:n1,lo:rawLo,hi:rawHi,ylo:ylo,yhi:yhi,X:X,Y:Y};
+    return {W:W,n0:n0,n1:n1,lo:rawLo,hi:rawHi,ylo:ylo,yhi:yhi,X:X,Y:Y,ticks:ticks,padR:padR};
   }
 
   // 階段線: 前日の値を水平に引き、日付が変わる位置で縦に段差
@@ -107,10 +113,10 @@
   }
 
   function gridSvg(F){
-    const yl=niceTicks(F.ylo,F.yhi,3).map(v=>{
+    const yl=F.ticks.map(v=>{
       const y=F.Y(v).toFixed(1);
-      return `<line class="pt-grid" x1="${PAD.l}" x2="${F.W-PAD.r}" y1="${y}" y2="${y}"/>`+
-        `<text class="pt-axr" x="${F.W-PAD.r+6}" y="${(F.Y(v)+3.5).toFixed(1)}">${esc(yen(v))}</text>`;
+      return `<line class="pt-grid" x1="${PAD.l}" x2="${F.W-F.padR}" y1="${y}" y2="${y}"/>`+
+        `<text class="pt-axr" x="${F.W-F.padR+6}" y="${(F.Y(v)+3.5).toFixed(1)}">${esc(yen(v))}</text>`;
     }).join('');
     const ml=monthMarks(F).map(k=>{
       const x=F.X(k.n).toFixed(1);
@@ -183,11 +189,11 @@
     const area=stepPath(pts,F)+`V${H-PAD.b}H${F.X(pts[0].n).toFixed(1)}Z`;
     show(`<div class="pt-head"><span class="pt-title">価格推移（${esc(r)}・その日の最安値）</span><span class="pt-val">${summaryHtml(pts,F)}</span></div>`+
       `<div class="pt-plot" id="ptPlot"><svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="価格推移グラフ">`+
-      `<defs><linearGradient id="ptGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${LINE}" stop-opacity=".28"/><stop offset="1" stop-color="${LINE}" stop-opacity="0"/></linearGradient></defs>`+
+      `<defs><linearGradient id="ptGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="pt-stop" stop-opacity=".28"/><stop offset="1" class="pt-stop" stop-opacity="0"/></linearGradient></defs>`+
       gridSvg(F)+
-      `<path d="${area}" fill="url(#ptGrad)"/>`+
-      `<path d="${stepPath(pts,F)}" fill="none" stroke="${LINE}" stroke-width="2" stroke-linejoin="round"/>`+
-      `<circle cx="${F.X(last.n).toFixed(1)}" cy="${F.Y(last.p).toFixed(1)}" r="3.5" fill="${LINE}"/>`+
+      `<path class="pt-area" d="${area}"/>`+
+      `<path class="pt-line" d="${stepPath(pts,F)}"/>`+
+      `<circle class="pt-last" cx="${F.X(last.n).toFixed(1)}" cy="${F.Y(last.p).toFixed(1)}" r="3.5"/>`+
       `<line id="ptCursor" class="pt-cursor" x1="0" x2="0" y1="${PAD.t}" y2="${H-PAD.b}" visibility="hidden"/>`+
       `<circle id="ptDot" class="pt-dot" r="4" cx="0" cy="0" visibility="hidden"/></svg>`+
       `<div id="ptTip" class="pt-tip"></div></div>`);
@@ -205,6 +211,8 @@
   function bindPointer(pts,F){
     const plot=document.getElementById('ptPlot');
     if(!plot||!plot.addEventListener) return;
+    const hi=pts.reduce((b,p)=>p.p>b.p?p:b,pts[0]), lastP=pts[pts.length-1];
+    const keepPoints=[hi,lastP].map(p=>({x:F.X(p.n),y:F.Y(p.p)}));
     const cur=document.getElementById('ptCursor'), dot=document.getElementById('ptDot'), tip=document.getElementById('ptTip');
     function move(e){
       const rc=plot.getBoundingClientRect();
@@ -216,8 +224,15 @@
       if(tip){
         tip.innerHTML=tipHtml(h);
         tip.style.display='block';
-        const half=(tip.offsetWidth||100)/2;       // 左右端ではみ出さないようクランプ
-        tip.style.left=Math.min(Math.max(px,half),Math.max(half,rc.width-half))+'px';
+        const tw=tip.offsetWidth||100, th=tip.offsetHeight||22, half=tw/2;
+        const left=Math.min(Math.max(px,half),Math.max(half,rc.width-half));   // 左右端ではみ出さないようクランプ
+        tip.style.left=left+'px';
+        // 縦位置: ホバー点の上（入らなければ下）。最高値・最新日の点は隠さない
+        const sx=rc.width/F.W, keep=keepPoints.map(k=>({x:k.x*sx,y:k.y}));
+        const hit=top=>keep.some(k=>k.x>left-half-6&&k.x<left+half+6&&k.y>top-6&&k.y<top+th+6);
+        const yy=F.Y(h.p), above=yy-th-10, below=yy+10;
+        let top=above>=0&&!hit(above)?above:(below+th<=H&&!hit(below)?below:(above>=0?above:below));
+        tip.style.top=Math.max(0,top).toFixed(0)+'px';
       }
       if(!gaSent){gaSent=true;if(typeof _ga==='function') _ga('price_trend_touch');} // カード名は送らない
     }
@@ -228,8 +243,12 @@
     }
     plot.addEventListener('pointerdown',move);
     plot.addEventListener('pointermove',move);
-    plot.addEventListener('pointerleave',leave);
+    // 指(touch)は離しただけでは消さない: 次のタップ（グラフ外も）か pointercancel（スクロール開始）で消す
+    plot.addEventListener('pointerleave',e=>{if(!e||e.pointerType!=='touch') leave();});
     plot.addEventListener('pointercancel',leave);
+    if(docDown&&document.removeEventListener) document.removeEventListener('pointerdown',docDown);
+    docDown=e=>{if(!(e&&e.target&&plot.contains&&plot.contains(e.target))) leave();};
+    if(document.addEventListener) document.addEventListener('pointerdown',docDown);
   }
 
   // 選択レアリティが変わったとき（再取得せず描き直す）
