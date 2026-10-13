@@ -567,15 +567,7 @@ function _renderPendingList(listEl, cards) {
     }
 
     // 要確認カードの紐付け候補（概要行と編集フォームの間に挿入）
-    const reviewEl = _buildReviewBlock(card);
-    if (reviewEl) {
-      row.querySelector('.card-row__summary').after(reviewEl);
-      reviewEl.querySelectorAll('.action-link-candidate').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          _linkCandidate(card, Number(btn.dataset.konamiId), btn.dataset.officialName);
-        });
-      });
-    }
+    _attachReviewBlock(row, card, _loadPending);
 
     // 編集フォームにフィールド値をセット
     const editForm = row.querySelector('.card-row__edit-form');
@@ -673,18 +665,33 @@ const REVIEW_REASON_LABELS = {
 };
 
 /**
- * 要確認カード（status=needs_review かつ review_candidates あり）の
- * 理由ラベルと紐付け候補の表示ブロックを作る。対象外なら null。
+ * 「要確認」表示の対象か判定する。
+ *  - approved: review_candidates があり、dismissed_at が無いもの（公開中タブ）
+ *  - needs_review: review_candidates があるもの（承認待ちタブ・既存データ向け）
+ * @param {Object} card
+ * @returns {boolean}
+ */
+function _needsReview(card) {
+  const review = card.review_candidates;
+  if (!review) return false;
+  if (card.status === 'needs_review') return true;
+  return card.status === 'approved' && !review.dismissed_at;
+}
+
+/**
+ * 要確認カードの理由ラベルと紐付け候補の表示ブロックを作る。対象外なら null。
  * 文字列は必ず _escapeHtml を通す。
  * @param {Object} card
  * @returns {HTMLElement|null}
  */
 function _buildReviewBlock(card) {
+  if (!_needsReview(card)) return null;
   const review = card.review_candidates;
-  if (card.status !== 'needs_review' || !review) return null;
 
   const reasonLabel = REVIEW_REASON_LABELS[review.reason] || '要確認です';
   const candidates = Array.isArray(review.candidates) ? review.candidates : [];
+  const total = Number(review.total_candidates) || candidates.length;
+  const rest = total - candidates.length;
 
   const candidatesHtml = candidates.map((c) => {
     const konamiId = Number(c.konami_id);
@@ -698,21 +705,56 @@ function _buildReviewBlock(card) {
       </li>`;
   }).join('');
 
+  const restHtml = rest > 0
+    ? `<div class="review-candidates__rest">ほか ${_escapeHtml(rest)} 件（上位${_escapeHtml(candidates.length)}件のみ表示）</div>`
+    : '';
+  // 公開中（approved）のカードだけ「確認済み」を選べる
+  const dismissHtml = card.status === 'approved'
+    ? '<button class="btn btn-ghost btn-sm action-review-dismiss">確認済み（まだ未発売）</button>'
+    : '';
+
   const el = document.createElement('div');
   el.className = 'review-candidates';
   el.innerHTML = `
-    <div class="review-candidates__reason">${_escapeHtml(reasonLabel)}</div>
-    ${candidates.length ? `<ul class="review-candidates__list">${candidatesHtml}</ul>` : ''}`;
+    <div class="review-candidates__head">
+      <span class="review-candidates__badge">要確認</span>
+      <span class="review-candidates__reason">${_escapeHtml(reasonLabel)}</span>
+      ${dismissHtml}
+    </div>
+    ${candidates.length ? `<ul class="review-candidates__list">${candidatesHtml}</ul>` : ''}
+    ${restHtml}`;
   return el;
 }
 
 /**
- * 要確認カードを候補の正式カードに紐付ける。成功したら承認待ち一覧を再読込する。
+ * 行の概要行の直後に要確認ブロックを挿入し、ボタンを配線する。
+ * @param {HTMLElement} row
+ * @param {Object} card
+ * @param {Function} reload  操作成功後に呼ぶ一覧再読込関数
+ */
+function _attachReviewBlock(row, card, reload) {
+  const reviewEl = _buildReviewBlock(card);
+  if (!reviewEl) return;
+  row.querySelector('.card-row__summary').after(reviewEl);
+  reviewEl.querySelectorAll('.action-link-candidate').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      _linkCandidate(card, Number(btn.dataset.konamiId), btn.dataset.officialName, reload);
+    });
+  });
+  const dismissBtn = reviewEl.querySelector('.action-review-dismiss');
+  if (dismissBtn) {
+    dismissBtn.addEventListener('click', () => _dismissReview(card, reload));
+  }
+}
+
+/**
+ * 要確認カードを候補の正式カードに紐付ける。成功したら一覧を再読込する。
  * @param {Object} card  登録名を持つ未発売カード
  * @param {number} konamiId
  * @param {string} officialName  紐付け先の正式名
+ * @param {Function} reload
  */
-async function _linkCandidate(card, konamiId, officialName) {
+async function _linkCandidate(card, konamiId, officialName, reload) {
   if (!confirm(`「${card.name}」を「${officialName}」に紐付けます。よろしいですか？`)) return;
   try {
     const resp = await apiFetch(`/api/admin/unreleased/${card.id}/link`, {
@@ -720,10 +762,28 @@ async function _linkCandidate(card, konamiId, officialName) {
       body: JSON.stringify({ konami_id: konamiId }),
     });
     if (resp.ok) {
-      await _loadPending();
+      await reload();
     } else {
       const data = await resp.json().catch(() => ({}));
       alert(data.error || '紐付けに失敗しました');
+    }
+  } catch (e) {
+    if (e.message !== '認証エラー') alert('通信エラーが発生しました');
+  }
+}
+
+/**
+ * 「確認済み（まだ未発売）」にする。以後、自動照合は印を付け直さない。
+ */
+async function _dismissReview(card, reload) {
+  if (!confirm(`「${card.name}」を確認済み（まだ未発売）にします。以後、自動照合は要確認の印を付けません。`)) return;
+  try {
+    const resp = await apiFetch(`/api/admin/unreleased/${card.id}/review-dismiss`, { method: 'POST' });
+    if (resp.ok) {
+      await reload();
+    } else {
+      const data = await resp.json().catch(() => ({}));
+      alert(data.error || '確認済みの記録に失敗しました');
     }
   } catch (e) {
     if (e.message !== '認証エラー') alert('通信エラーが発生しました');
@@ -922,6 +982,16 @@ function _renderApprovedList(listEl, cards) {
 
   const tmpl = document.getElementById('tmpl-approved-row');
 
+  // 要確認カードを先頭に並べ（元の順序は維持）、タブ上部に件数を出す
+  const flagged = cards.filter(_needsReview);
+  cards = [...flagged, ...cards.filter((c) => !_needsReview(c))];
+  if (flagged.length > 0) {
+    const summaryEl = document.createElement('div');
+    summaryEl.className = 'review-summary';
+    summaryEl.textContent = `要確認 ${flagged.length}件`;
+    listEl.appendChild(summaryEl);
+  }
+
   for (const card of cards) {
     const row = tmpl.content.cloneNode(true).querySelector('.card-row');
     row.dataset.cardId = card.id;
@@ -951,6 +1021,9 @@ function _renderApprovedList(listEl, cards) {
         });
       }
     }
+
+    // 要確認カードの紐付け候補・確認済みボタン
+    _attachReviewBlock(row, card, _loadApproved);
 
     // 非表示トグルボタン
     const toggleHiddenBtn = row.querySelector('.action-toggle-hidden');

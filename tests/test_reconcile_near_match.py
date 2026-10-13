@@ -12,7 +12,7 @@ tests/test_reconcile_near_match.py -- 未発売カード照合の「1字違い�
 """
 
 import sys
-from datetime import date, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -21,10 +21,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import admin_unreleased as admin_module
 import reconcile_unreleased as target
 
-FUTURE = (date.today() + timedelta(days=30)).isoformat()
-PAST = (date.today() - timedelta(days=30)).isoformat()
-DAYS_6_AGO = (date.today() - timedelta(days=6)).isoformat()
-DAYS_7_AGO = (date.today() - timedelta(days=7)).isoformat()
+# reconcile 側は JST 基準で「今日」を判定する。テストも同じ基準で相対日付を作る
+# （UTC 環境の UTC15〜24時に date.today() とずれて境界テストが落ちるのを防ぐ）
+_TODAY = datetime.now(target.JST).date()
+FUTURE = (_TODAY + timedelta(days=30)).isoformat()
+PAST = (_TODAY - timedelta(days=30)).isoformat()
+DAYS_6_AGO = (_TODAY - timedelta(days=6)).isoformat()
+DAYS_7_AGO = (_TODAY - timedelta(days=7)).isoformat()
 
 
 # ──────────────────────────────────────────────
@@ -115,12 +118,29 @@ def test_find_near_candidates_dedup_and_same_length_only():
     }
     names_idx = target._build_fuzzy_names_index(name_index)
     length_idx = target._build_length_index(names_idx)
-    found = target._find_near_candidates(target.fuzzy_key("屠欺龍"), names_idx, length_idx)
+    found, total = target._find_near_candidates(target.fuzzy_key("屠欺龍"), names_idx, length_idx)
     assert found == [{"konami_id": 100, "name": "蜃欺龍"}]
+    assert total == 1
+
+
+def test_find_near_candidates_truncates_to_top10_with_total():
+    # 先頭1字だけ違う名前を15件用意する
+    name_index = {chr(0x4E00 + i) + "欺龍": [1000 + i] for i in range(15)}
+    names_idx = target._build_fuzzy_names_index(name_index)
+    length_idx = target._build_length_index(names_idx)
+    found, total = target._find_near_candidates(target.fuzzy_key("屠欺龍"), names_idx, length_idx)
+    assert len(found) == target.MAX_NEAR_CANDIDATES == 10
+    assert total == 15
+
+
+def test_build_fuzzy_names_index_skips_non_integer_id(monkeypatch):
+    idx = target._build_fuzzy_names_index({"正常": [1], "壊れ": ["abc"]})
+    assert idx[target.fuzzy_key("正常")] == [("正常", 1)]
+    assert idx[target.fuzzy_key("壊れ")] == []
 
 
 # ──────────────────────────────────────────────
-# reconcile() の分岐
+# reconcile() の分岐（status は approved のまま・印だけ付ける）
 # ──────────────────────────────────────────────
 
 def _run(monkeypatch, cards, name_index):
@@ -130,34 +150,35 @@ def _run(monkeypatch, cards, name_index):
     return summary, cards
 
 
-def _card(cid, name, release_date, status="approved"):
+def _card(cid, name, release_date, status="approved", review=None):
     return {"id": cid, "name": name, "release_date": release_date,
-            "status": status, "konami_id": None, "review_candidates": None}
+            "status": status, "konami_id": None, "review_candidates": review}
 
 
-def test_past_release_one_char_diff_goes_needs_review_not_linked(monkeypatch):
+def test_past_release_one_char_diff_marks_review_and_keeps_approved(monkeypatch):
     cards = [_card(1, "屠欺龍", PAST)]
     summary, rows = _run(monkeypatch, cards, {"蜃欺龍": [100]})
-    assert rows[0]["status"] == "needs_review"
-    assert rows[0]["konami_id"] is None  # 自動 linked しない
+    assert rows[0]["status"] == "approved"  # 公開を維持
+    assert rows[0]["konami_id"] is None     # 自動 linked しない
     rc = rows[0]["review_candidates"]
     assert rc["reason"] == "near_match"
     assert rc["candidates"] == [{"konami_id": 100, "name": "蜃欺龍"}]
+    assert rc["total_candidates"] == 1
     assert rc["checked_at"]
+    assert rc["dismissed_at"] is None
     assert summary["near_match"] == 1
-    assert summary["needs_review"] == 1
+    assert summary["review_marked"] == 1
     assert summary["linked"] == 0
 
 
 def test_past_release_two_char_diff_is_no_match(monkeypatch):
     cards = [_card(1, "屠欺龍", PAST)]
     summary, rows = _run(monkeypatch, cards, {"蜃欺竜": [100]})
-    assert rows[0]["status"] == "needs_review"
-    assert rows[0]["review_candidates"] == {
-        "reason": "release_passed_no_match",
-        "candidates": [],
-        "checked_at": rows[0]["review_candidates"]["checked_at"],
-    }
+    assert rows[0]["status"] == "approved"
+    rc = rows[0]["review_candidates"]
+    assert rc["reason"] == "release_passed_no_match"
+    assert rc["candidates"] == []
+    assert rc["total_candidates"] == 0
     assert summary["release_passed_no_match"] == 1
     assert summary["near_match"] == 0
 
@@ -168,39 +189,92 @@ def test_future_release_is_skipped_even_if_similar(monkeypatch):
     assert rows[0]["status"] == "approved"
     assert rows[0]["review_candidates"] is None
     assert summary["skipped"] == 1
-    assert summary["needs_review"] == 0
+    assert summary["review_marked"] == 0
 
 
 def test_null_release_is_skipped(monkeypatch):
     cards = [_card(1, "屠欺龍", None)]
     summary, rows = _run(monkeypatch, cards, {"蜃欺龍": [100]})
-    assert rows[0]["status"] == "approved"
+    assert rows[0]["review_candidates"] is None
     assert summary["skipped"] == 1
 
 
-def test_multiple_exact_saves_candidates(monkeypatch):
+def test_grace_period_boundary_6_days_ago_is_skipped(monkeypatch):
+    cards = [_card(1, "屠欺龍", DAYS_6_AGO)]
+    summary, rows = _run(monkeypatch, cards, {"蜃欺龍": [100]})
+    assert rows[0]["review_candidates"] is None
+    assert summary["skipped"] == 1
+    assert summary["review_marked"] == 0
+
+
+def test_grace_period_boundary_7_days_ago_is_judged(monkeypatch):
+    cards = [_card(1, "屠欺龍", DAYS_7_AGO)]
+    summary, rows = _run(monkeypatch, cards, {"蜃欺龍": [100]})
+    assert rows[0]["status"] == "approved"
+    assert rows[0]["review_candidates"]["reason"] == "near_match"
+    assert summary["near_match"] == 1
+
+
+def test_multiple_exact_saves_candidates_and_keeps_approved(monkeypatch):
     cards = [_card(1, "同名カード", FUTURE)]
     summary, rows = _run(monkeypatch, cards, {"同名カード": [200, 201]})
-    assert rows[0]["status"] == "needs_review"
+    assert rows[0]["status"] == "approved"
     rc = rows[0]["review_candidates"]
     assert rc["reason"] == "multiple_exact"
     assert rc["candidates"] == [
         {"konami_id": 200, "name": "同名カード"},
         {"konami_id": 201, "name": "同名カード"},
     ]
-    assert summary["needs_review"] == 1
-    assert summary["near_match"] == 0
+    assert rc["total_candidates"] == 2
+    assert summary["multiple_exact"] == 1
+    assert summary["review_marked"] == 1
+
+
+def test_dismissed_card_is_not_overwritten(monkeypatch):
+    dismissed = {"reason": "near_match", "candidates": [], "total_candidates": 0,
+                 "checked_at": "x", "dismissed_at": "2026-10-01T00:00:00+00:00"}
+    cards = [_card(1, "屠欺龍", PAST, review=dict(dismissed))]
+    summary, rows = _run(monkeypatch, cards, {"蜃欺龍": [100]})
+    assert rows[0]["review_candidates"] == dismissed
+    assert summary["dismissed_skipped"] == 1
+    assert summary["review_marked"] == 0
+
+
+def test_dismissed_card_still_linked_on_exact_single_match(monkeypatch):
+    dismissed = {"reason": "near_match", "dismissed_at": "2026-10-01T00:00:00+00:00"}
+    cards = [_card(1, "正式カード", PAST, review=dismissed)]
+    summary, rows = _run(monkeypatch, cards, {"正式カード": [300]})
+    assert rows[0]["status"] == "linked"
+    assert rows[0]["konami_id"] == 300
+    assert rows[0]["review_candidates"] is None
+    assert summary["linked"] == 1
 
 
 def test_exact_single_links_and_clears_review_candidates(monkeypatch):
-    c = _card(1, "正式カード", PAST)
-    c["review_candidates"] = {"reason": "near_match", "candidates": []}
+    c = _card(1, "正式カード", PAST, review={"reason": "near_match", "candidates": []})
     summary, rows = _run(monkeypatch, [c], {"正式カード": [300]})
     assert rows[0]["status"] == "linked"
     assert rows[0]["konami_id"] == 300
     assert rows[0]["review_candidates"] is None
     assert rows[0]["linked_at"]
     assert summary["linked"] == 1
+
+
+def test_update_has_status_approved_condition(monkeypatch):
+    """照合の取得後に管理者が状態を変えた行（却下など）は、UPDATE されずに conflict になる。"""
+    monkeypatch.setattr(target._ygores_repo, "get_name_index",
+                        lambda: {"正式カード": [300], "蜃欺龍": [100]})
+    rows = [_card(1, "正式カード", PAST), _card(2, "屠欺龍", PAST)]
+    sb = _FakeSupabase(rows)
+    # 取得後・更新前に status が変わった状況を再現する
+    monkeypatch.setattr(target, "_fetch_approved_cards", lambda _sb: [dict(r) for r in rows])
+    rows[0]["status"] = "rejected"
+    rows[1]["status"] = "rejected"
+    summary = target.reconcile(sb)
+    assert summary["conflict"] == 2
+    assert summary["linked"] == 0 and summary["review_marked"] == 0
+    assert rows[0]["status"] == "rejected" and rows[0]["konami_id"] is None
+    assert rows[1]["review_candidates"] is None
 
 
 # ──────────────────────────────────────────────
@@ -228,11 +302,12 @@ def _client():
 
 def _row(cid, status):
     return {"id": cid, "name": "屠欺龍", "status": status, "konami_id": None,
-            "linked_at": None, "review_candidates": {"reason": "near_match", "candidates": []}}
+            "linked_at": None,
+            "review_candidates": {"reason": "near_match", "candidates": [], "dismissed_at": None}}
 
 
 def test_link_success(monkeypatch):
-    rows = [_row(1, "needs_review")]
+    rows = [_row(1, "approved")]
     _install(monkeypatch, rows)
     resp = _client().post("/api/admin/unreleased/1/link", headers=HEADERS, json={"konami_id": 100})
     assert resp.status_code == 200
@@ -242,30 +317,38 @@ def test_link_success(monkeypatch):
     assert rows[0]["review_candidates"] is None
 
 
-def test_link_accepts_pending_and_approved(monkeypatch):
-    rows = [_row(1, "pending"), _row(2, "approved")]
+def test_link_accepts_needs_review(monkeypatch):
+    rows = [_row(1, "needs_review")]
     _install(monkeypatch, rows)
-    client = _client()
-    assert client.post("/api/admin/unreleased/1/link", headers=HEADERS, json={"konami_id": 200}).status_code == 200
-    assert client.post("/api/admin/unreleased/2/link", headers=HEADERS, json={"konami_id": 201}).status_code == 200
+    assert _client().post("/api/admin/unreleased/1/link", headers=HEADERS, json={"konami_id": 200}).status_code == 200
+    assert rows[0]["status"] == "linked"
+
+
+def test_link_rejects_pending(monkeypatch):
+    rows = [_row(1, "pending")]
+    _install(monkeypatch, rows)
+    resp = _client().post("/api/admin/unreleased/1/link", headers=HEADERS, json={"konami_id": 100})
+    assert resp.status_code == 400
+    assert rows[0]["status"] == "pending"
+    assert rows[0]["konami_id"] is None
 
 
 def test_link_unknown_konami_id_400(monkeypatch):
-    rows = [_row(1, "needs_review")]
+    rows = [_row(1, "approved")]
     _install(monkeypatch, rows)
     resp = _client().post("/api/admin/unreleased/1/link", headers=HEADERS, json={"konami_id": 999})
     assert resp.status_code == 400
-    assert rows[0]["status"] == "needs_review"
+    assert rows[0]["status"] == "approved"
 
 
 def test_link_non_integer_konami_id_400(monkeypatch):
-    rows = [_row(1, "needs_review")]
+    rows = [_row(1, "approved")]
     _install(monkeypatch, rows)
     client = _client()
     for bad in ("100", 100.5, None, True, [100]):
         resp = client.post("/api/admin/unreleased/1/link", headers=HEADERS, json={"konami_id": bad})
         assert resp.status_code == 400, bad
-    assert rows[0]["status"] == "needs_review"
+    assert rows[0]["status"] == "approved"
 
 
 def test_link_rejected_or_linked_status_400(monkeypatch):
@@ -284,22 +367,42 @@ def test_link_not_found_404(monkeypatch):
 
 
 def test_link_requires_admin_key(monkeypatch):
-    _install(monkeypatch, [_row(1, "needs_review")])
+    _install(monkeypatch, [_row(1, "approved")])
     resp = _client().post("/api/admin/unreleased/1/link", json={"konami_id": 100})
     assert resp.status_code == 401
 
 
-def test_grace_period_boundary_6_days_ago_is_skipped(monkeypatch):
-    cards = [_card(1, "屠欺龍", DAYS_6_AGO)]
-    summary, rows = _run(monkeypatch, cards, {"蜃欺龍": [100]})
+# ──────────────────────────────────────────────
+# review-dismiss API
+# ──────────────────────────────────────────────
+
+def test_review_dismiss_sets_dismissed_at_and_keeps_status(monkeypatch):
+    rows = [_row(1, "approved")]
+    _install(monkeypatch, rows)
+    resp = _client().post("/api/admin/unreleased/1/review-dismiss", headers=HEADERS)
+    assert resp.status_code == 200
     assert rows[0]["status"] == "approved"
-    assert summary["skipped"] == 1
-    assert summary["needs_review"] == 0
+    assert rows[0]["review_candidates"]["dismissed_at"]
+    assert rows[0]["review_candidates"]["reason"] == "near_match"  # 他の中身は保持
 
 
-def test_grace_period_boundary_7_days_ago_is_judged(monkeypatch):
-    cards = [_card(1, "屠欺龍", DAYS_7_AGO)]
-    summary, rows = _run(monkeypatch, cards, {"蜃欺龍": [100]})
-    assert rows[0]["status"] == "needs_review"
-    assert rows[0]["review_candidates"]["reason"] == "near_match"
-    assert summary["near_match"] == 1
+def test_review_dismiss_without_review_400(monkeypatch):
+    rows = [_row(1, "approved")]
+    rows[0]["review_candidates"] = None
+    _install(monkeypatch, rows)
+    assert _client().post("/api/admin/unreleased/1/review-dismiss", headers=HEADERS).status_code == 400
+
+
+def test_review_dismiss_non_approved_400(monkeypatch):
+    rows = [_row(1, "needs_review"), _row(2, "linked")]
+    _install(monkeypatch, rows)
+    client = _client()
+    assert client.post("/api/admin/unreleased/1/review-dismiss", headers=HEADERS).status_code == 400
+    assert client.post("/api/admin/unreleased/2/review-dismiss", headers=HEADERS).status_code == 400
+
+
+def test_review_dismiss_not_found_and_auth(monkeypatch):
+    _install(monkeypatch, [_row(1, "approved")])
+    client = _client()
+    assert client.post("/api/admin/unreleased/9/review-dismiss", headers=HEADERS).status_code == 404
+    assert client.post("/api/admin/unreleased/1/review-dismiss").status_code == 401

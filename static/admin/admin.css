@@ -459,10 +459,42 @@ a:hover {
   padding: 8px 14px;
 }
 
+.review-candidates__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.review-candidates__badge {
+  background-color: var(--gold);
+  border-radius: 3px;
+  color: var(--bg-color);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 1px 5px;
+}
+
 .review-candidates__reason {
   color: var(--main-color);
   font-size: 0.85rem;
   font-weight: 600;
+}
+
+.review-candidates__rest {
+  color: color-mix(in srgb, var(--main-color) 60%, var(--border) 40%);
+  font-size: 0.75rem;
+  margin-top: 4px;
+}
+
+/* 公開中タブ上部の要確認件数 */
+.review-summary {
+  border-left: 3px solid var(--gold);
+  background-color: var(--bg-surface);
+  color: var(--main-color);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 6px 14px;
 }
 
 .review-candidates__list {

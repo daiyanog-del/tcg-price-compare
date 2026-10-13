@@ -5,16 +5,19 @@ reconcile_unreleased.py -- 未発売カード発売済み自動照合ジョブ
 処理: ygoresources の日本語カード名インデックス（カード名→konami_id リスト）と照合し、
       発売が確認できたカードを自動的に status='linked' へ更新する。
 
-照合ロジック:
+照合ロジック（status は approved のまま。公開サイトから消さない）:
   (a) ファジーキー完全一致 + 候補1件 -> konami_id 設定 + status='linked'
-  (b) ファジーキー完全一致 + 候補複数 -> status='needs_review'（管理画面で要確認）
-  (c) 一致なし・発売日が未来/NULL        -> スキップ（まだ未発売）
-  (d) 一致なし・発売日が7日以上前            -> 画像AIの1字誤読を疑い、ファジーキーが
+  (b) ファジーキー完全一致 + 候補複数 -> review_candidates に reason=multiple_exact を記録
+  (c) 一致なし・発売日が未来/NULL/7日以内 -> スキップ（まだ未発売、または ygores 登録待ち）
+  (d) 一致なし・発売日が7日以上前         -> 画像AIの1字誤読を疑い、ファジーキーが
                                             ちょうど1文字だけ違う正式名を探す
-        見つかる   -> reason=near_match で needs_review（自動 linked はしない）
-        見つからず -> reason=release_passed_no_match で needs_review
-  needs_review にした理由と候補は review_candidates(JSONB) に保存し、
-  管理画面の「承認待ち」タブで人が紐付ける。
+        見つかる   -> review_candidates に reason=near_match（自動 linked はしない）
+        見つからず -> review_candidates に reason=release_passed_no_match
+  review_candidates(JSONB) = {reason, candidates(上位最大10件), total_candidates,
+                              checked_at, dismissed_at}
+  管理画面の「公開中」タブに「要確認」と表示され、人が紐付け or「確認済み（まだ未発売）」を選ぶ。
+  dismissed_at がある（確認済み）カードは上書きしない（完全一致1件の linked 化は行う）。
+  全 UPDATE は status='approved' を条件に付け、同時実行で状態を壊さない。
 
 ファジーキーは name_normalize.fuzzy_key を使う（app.py と同一ロジック）。
 
@@ -68,7 +71,7 @@ def _fetch_approved_cards(sb) -> list[dict]:
     try:
         resp = (
             sb.table('unreleased_cards')
-            .select('id, name, release_date')
+            .select('id, name, release_date, review_candidates')
             .eq('status', 'approved')
             .is_('konami_id', 'null')
             .execute()
@@ -117,7 +120,11 @@ def _build_fuzzy_names_index(name_index: dict) -> dict[str, list[tuple[str, int]
         id_list = ids if isinstance(ids, list) else [ids]
         bucket = idx.setdefault(fk, [])
         for cid in id_list:
-            pair = (name, int(cid))
+            try:
+                pair = (name, int(cid))
+            except (TypeError, ValueError):
+                logger.warning(f'konami_id が整数でないため読み飛ばし: {name!r} -> {cid!r}')
+                continue
             if pair not in bucket:
                 bucket.append(pair)
     return idx
@@ -148,8 +155,9 @@ def _find_near_candidates(
     fk: str,
     names_idx: dict[str, list[tuple[str, int]]],
     length_idx: dict[int, list[str]],
-) -> list[dict]:
-    """fk と1字だけ違う正式名を {konami_id, name} のリストで返す（konami_id 重複除去・上限あり）。"""
+) -> tuple[list[dict], int]:
+    """fk と1字だけ違う正式名を ({konami_id, name} の上位 MAX_NEAR_CANDIDATES 件, 打ち切り前の件数) で返す。
+    konami_id は重複除去する。"""
     found: list[dict] = []
     seen: set[int] = set()
     for other in length_idx.get(len(fk), []):
@@ -161,11 +169,11 @@ def _find_near_candidates(
             seen.add(cid)
             found.append({'konami_id': cid, 'name': name})
     found.sort(key=lambda c: c['konami_id'])
-    return found[:MAX_NEAR_CANDIDATES]
+    return found[:MAX_NEAR_CANDIDATES], len(found)
 
 
 # 発売日からこの日数が経つまでは近似判定しない（ygores への登録遅れで、発売直後のカードが
-# needs_review に回って公開から消える／似た名前の別カードを誤検知するのを防ぐ猶予期間）
+# 要確認扱いになる／似た名前の別カードを誤検知するのを防ぐ猶予期間）
 RELEASE_GRACE_DAYS = 7  # TODO: calibrate from data
 
 
@@ -180,12 +188,14 @@ def _is_release_passed(release_date) -> bool:
         return False
 
 
-def _make_review(reason: str, candidates: list[dict]) -> dict:
-    """review_candidates に保存する辞書を作る。"""
+def _make_review(reason: str, candidates: list[dict], total: int | None = None) -> dict:
+    """review_candidates に保存する辞書を作る。candidates は上位 MAX_NEAR_CANDIDATES 件に切り詰める。"""
     return {
         'reason': reason,
-        'candidates': candidates,
+        'candidates': candidates[:MAX_NEAR_CANDIDATES],
+        'total_candidates': len(candidates) if total is None else total,
         'checked_at': datetime.now(timezone.utc).isoformat(),
+        'dismissed_at': None,
     }
 
 
@@ -195,11 +205,12 @@ def _update_card(
     konami_id: str | None,
     new_status: str,
     review_candidates: dict | None = None,
-) -> bool:
-    """unreleased_cards の1件を更新する。
+) -> str:
+    """unreleased_cards の1件を更新する。戻り値: 'ok' / 'conflict'(status が approved でなくなっていた) / 'error'。
+    UPDATE は必ず status='approved' を条件に付ける（同時実行で管理画面の操作結果を上書きしない）。
     status='linked' に更新する場合は、7日後クリーンアップの起点となる
     linked_at も併せて記録し、review_candidates は NULL にクリアする。
-    status='needs_review' の場合は review_candidates（理由と候補）を保存する。"""
+    status を変えず印だけ付ける場合は new_status='approved' と review_candidates を渡す。"""
     try:
         row: dict = {'status': new_status}
         if konami_id is not None:
@@ -209,23 +220,35 @@ def _update_card(
             row['review_candidates'] = None
         elif review_candidates is not None:
             row['review_candidates'] = review_candidates
-        sb.table('unreleased_cards').update(row).eq('id', card_id).execute()
-        return True
+        resp = (
+            sb.table('unreleased_cards').update(row)
+            .eq('id', card_id).eq('status', 'approved').execute()
+        )
+        if not resp.data:
+            logger.warning(f'更新対象なし（状態が変わった可能性）id={card_id}')
+            return 'conflict'
+        return 'ok'
     except Exception as e:
         logger.warning(f'更新失敗 id={card_id}: {e}')
-        return False
+        return 'error'
+
+
+def _is_dismissed(card: dict) -> bool:
+    """管理者が「確認済み（まだ未発売）」にしたカードなら True。"""
+    rc = card.get('review_candidates')
+    return bool(isinstance(rc, dict) and rc.get('dismissed_at'))
 
 
 def reconcile(sb) -> dict[str, int]:
     """
-    照合処理本体。サマリ辞書
-    {linked, needs_review, near_match, release_passed_no_match, skipped, error} を返す。
-    needs_review は multiple_exact / near_match / release_passed_no_match の合計。
+    照合処理本体。サマリ辞書を返す。
+      linked / review_marked(印付け合計) / multiple_exact / near_match /
+      release_passed_no_match / dismissed_skipped / skipped / conflict / error
     """
     summary = {
-        'linked': 0, 'needs_review': 0,
-        'near_match': 0, 'release_passed_no_match': 0,
-        'skipped': 0, 'error': 0,
+        'linked': 0, 'review_marked': 0,
+        'multiple_exact': 0, 'near_match': 0, 'release_passed_no_match': 0,
+        'dismissed_skipped': 0, 'skipped': 0, 'conflict': 0, 'error': 0,
     }
 
     # ygores 名前インデックスを取得（Supabase キャッシュ優先）
@@ -251,6 +274,21 @@ def reconcile(sb) -> dict[str, int]:
         logger.info('照合対象がありません。終了します')
         return summary
 
+    def _mark(card, reason, cands, total):
+        """status を変えず review_candidates だけ記録する。"""
+        if _is_dismissed(card):
+            logger.info(f'確認済みのためスキップ: {card["name"]!r} ({reason})')
+            summary['dismissed_skipped'] += 1
+            return
+        result = _update_card(sb, card['id'], None, 'approved', _make_review(reason, cands, total))
+        if result == 'ok':
+            summary['review_marked'] += 1
+            summary[reason] += 1
+        elif result == 'conflict':
+            summary['conflict'] += 1
+        else:
+            summary['error'] += 1
+
     for card in cards:
         card_id = card['id']
         name = card['name']
@@ -258,53 +296,40 @@ def reconcile(sb) -> dict[str, int]:
 
         if fk not in fuzzy_idx:
             if not _is_release_passed(card.get('release_date')):
-                # 一致なし・発売日が未来/NULL: まだ未発売 → スキップ
+                # 一致なし・発売日が未来/NULL/猶予期間内: まだ未発売 → スキップ
                 # （似た名前の別の未発売カードを誤検知しないため近似判定はしない）
                 logger.debug(f'一致なし（未発売）: {name!r}')
                 summary['skipped'] += 1
                 continue
 
-            # 一致なし・発売日が過去: 画像AIの1字誤読を疑う（自動 linked はしない）
-            near = _find_near_candidates(fk, names_idx, length_idx)
+            # 一致なし・発売日が7日以上前: 画像AIの1字誤読を疑う（自動 linked はしない）
+            near, total = _find_near_candidates(fk, names_idx, length_idx)
             if near:
-                reason = 'near_match'
-                logger.warning(f'needs_review（1字違い）: {name!r} -> {near}')
+                logger.warning(f'要確認（1字違い）: {name!r} -> {near}')
+                _mark(card, 'near_match', near, total)
             else:
-                reason = 'release_passed_no_match'
-                logger.warning(f'needs_review（発売日経過・一致なし）: {name!r}')
-            ok = _update_card(sb, card_id, None, 'needs_review', _make_review(reason, near))
-            if ok:
-                summary['needs_review'] += 1
-                summary[reason] += 1
-            else:
-                summary['error'] += 1
+                logger.warning(f'要確認（発売日経過・一致なし）: {name!r}')
+                _mark(card, 'release_passed_no_match', [], 0)
             continue
 
         candidates = fuzzy_idx[fk]
 
         if len(candidates) == 1:
-            # 完全一致・候補1件 -> linked
+            # 完全一致・候補1件 -> linked（確認済みでも発売済みと確定したので linked にする）
             konami_id = candidates[0]
-            ok = _update_card(sb, card_id, konami_id, 'linked')
-            if ok:
+            result = _update_card(sb, card_id, konami_id, 'linked')
+            if result == 'ok':
                 logger.info(f'linked: {name!r} -> konami_id={konami_id}')
                 summary['linked'] += 1
+            elif result == 'conflict':
+                summary['conflict'] += 1
             else:
                 summary['error'] += 1
         else:
-            # 候補複数 -> needs_review（管理画面で要確認）
-            logger.warning(
-                f'needs_review（候補複数）: {name!r} -> candidates={candidates}'
-            )
-            review = _make_review(
-                'multiple_exact',
-                [{'konami_id': cid, 'name': n} for n, cid in names_idx.get(fk, [])],
-            )
-            ok = _update_card(sb, card_id, None, 'needs_review', review)
-            if ok:
-                summary['needs_review'] += 1
-            else:
-                summary['error'] += 1
+            # 候補複数 -> 要確認の印だけ付ける（公開は維持）
+            logger.warning(f'要確認（候補複数）: {name!r} -> candidates={candidates}')
+            allc = [{'konami_id': cid, 'name': n} for n, cid in names_idx.get(fk, [])]
+            _mark(card, 'multiple_exact', allc, len(allc))
 
     return summary
 
@@ -365,7 +390,7 @@ def _fetch_rejected_cards(sb) -> list[dict]:
     try:
         resp = (
             sb.table('unreleased_cards')
-            .select('id, name, release_date')
+            .select('id, name, release_date, review_candidates')
             .eq('status', 'rejected')
             .execute()
         )
@@ -445,9 +470,12 @@ def main():
     summary = reconcile(sb)
     logger.info(
         f'=== 照合完了 | linked: {summary["linked"]} / '
-        f'needs_review: {summary["needs_review"]} '
-        f'(near_match: {summary["near_match"]} / '
+        f'要確認の印付け: {summary["review_marked"]} '
+        f'(multiple_exact: {summary["multiple_exact"]} / '
+        f'near_match: {summary["near_match"]} / '
         f'release_passed_no_match: {summary["release_passed_no_match"]}) / '
+        f'確認済みスキップ: {summary["dismissed_skipped"]} / '
+        f'競合: {summary["conflict"]} / '
         f'skipped(未発売): {summary["skipped"]} / '
         f'error: {summary["error"]} ==='
     )

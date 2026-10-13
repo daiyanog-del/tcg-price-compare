@@ -523,7 +523,7 @@ def admin_approve_unreleased(card_id: int):
 # POST /api/admin/unreleased/<id>/link — 発売済みカードへ手動紐付け
 # ──────────────────────────────────────────────
 
-_LINKABLE_STATUSES = ("needs_review", "pending", "approved")
+_LINKABLE_STATUSES = ("approved", "needs_review")
 
 
 @admin_bp.route("/api/admin/unreleased/<int:card_id>/link", methods=["POST"])
@@ -533,7 +533,7 @@ def admin_link_unreleased(card_id: int):
     リクエストボディ: {"konami_id": 12345}
     画像AIの誤読で自動照合できなかったカードを、管理者が候補から選んで紐付ける用途。
 
-    対象は status が needs_review / pending / approved のもの。
+    対象は status が approved / needs_review のもの（pending は未レビューなので対象外）。
     konami_id は整数で、ygores 名前インデックスに実在するIDのみ受け付ける。
     更新内容: konami_id 設定・status='linked'・linked_at=現在UTC・review_candidates=NULL
     """
@@ -576,7 +576,7 @@ def admin_link_unreleased(card_id: int):
         if not get_resp.data:
             return jsonify({"error": "対象レコードが見つかりません"}), 404
         if get_resp.data[0]["status"] not in _LINKABLE_STATUSES:
-            return jsonify({"error": "紐付けできるのは要確認・承認待ち・承認済みのカードのみです"}), 400
+            return jsonify({"error": "紐付けできるのは公開中（approved）または要確認（needs_review）のカードのみです"}), 400
 
         upd_resp = (
             _supabase.table("unreleased_cards")
@@ -599,6 +599,57 @@ def admin_link_unreleased(card_id: int):
     except Exception as e:
         logger.error(f"[admin] link エラー id={card_id}: {e}")
         return jsonify({"error": "紐付けに失敗しました"}), 500
+
+
+# ──────────────────────────────────────────────
+# POST /api/admin/unreleased/<id>/review-dismiss — 「確認済み（まだ未発売）」
+# ──────────────────────────────────────────────
+
+@admin_bp.route("/api/admin/unreleased/<int:card_id>/review-dismiss", methods=["POST"])
+def admin_review_dismiss(card_id: int):
+    """
+    reconcile が付けた「要確認」の印を、管理者が確認済み（まだ未発売）にする。
+    status='approved' かつ review_candidates があるカードの
+    review_candidates.dismissed_at に現在UTCを入れる。以後 reconcile は印を上書きしない。
+    """
+    err = _require_admin_key()
+    if err:
+        return err
+
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+
+    try:
+        get_resp = (
+            _supabase.table("unreleased_cards")
+            .select("id, status, review_candidates")
+            .eq("id", card_id)
+            .execute()
+        )
+        if not get_resp.data:
+            return jsonify({"error": "対象レコードが見つかりません"}), 404
+        card = get_resp.data[0]
+        review = card.get("review_candidates")
+        if card["status"] != "approved" or not isinstance(review, dict):
+            return jsonify({"error": "要確認の印が付いた公開中（approved）のカードのみ対象です"}), 400
+
+        new_review = dict(review)
+        new_review["dismissed_at"] = datetime.now(timezone.utc).isoformat()
+        upd_resp = (
+            _supabase.table("unreleased_cards")
+            .update({"review_candidates": new_review})
+            .eq("id", card_id)
+            .eq("status", "approved")
+            .execute()
+        )
+        if not upd_resp.data:
+            return jsonify({"error": "更新に失敗しました（状態が変わった可能性があります）"}), 409
+        _card_display.invalidate_cache()
+        return jsonify({"ok": True, "card": upd_resp.data[0]})
+
+    except Exception as e:
+        logger.error(f"[admin] review-dismiss エラー id={card_id}: {e}")
+        return jsonify({"error": "確認済みの記録に失敗しました"}), 500
 
 
 def _try_fetch_image_from_extraction(
