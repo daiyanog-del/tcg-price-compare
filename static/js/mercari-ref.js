@@ -48,7 +48,8 @@
 
   // レアリティごとに1グループ: 見出し（レアリティ名・札にしない）＋「1枚」「N枚組」の2セル。
   // 片方が無いときは空セル（何も描かない）で位置を保ち、全グループで1枚が左・N枚組が右に揃う
-  function group(d,r){
+  // 見出しは「すべて」等の複数レアリティ表示のときだけ（特定レアリティ選択時はページ上部の絞り込みバナーに出ているため省く）
+  function group(d,r,withHead){
     const v=d.by_rarity[r];
     const set=v.set||null;
     let one='<div class="mref-empty"></div>',multi='<div class="mref-empty"></div>';
@@ -61,7 +62,7 @@
       const total=set.unit_min_total!=null?Number(set.unit_min_total):Number(set.unit_min)*q;
       multi=tileHtml(`${q}枚組`,priceLink(d,yen(set.unit_min))+'<span class="mref-unit">/枚</span>',`${q}枚 ${yen(total)}・${Number(set.count)}件`);
     }
-    return `<div class="mref-group"><div class="mref-ghead">${esc(r)}</div><div class="mref-pair">${one}${multi}</div></div>`;
+    return `<div class="mref-group">${withHead?`<div class="mref-ghead">${esc(r)}</div>`:''}<div class="mref-pair">${one}${multi}</div></div>`;
   }
 
   // 表示するタイルが無いときの1行リンク（アフィリエイト時は rel=sponsored。クリックは index-main.js の委譲でGA計測）
@@ -111,9 +112,9 @@
     if(sel){
       // 選択したレアリティだけ。出品が無ければ1行のみ
       const v=sc.rs.indexOf(sel)>=0?d.by_rarity[sel]:null;
-      h+=v?`<div class="summary">${group(d,sel)}</div>`:emptyHtml('このレアリティの出品は見つかりませんでした')+linkRow(d);
+      h+=v?`<div class="summary">${group(d,sel,false)}</div>`:emptyHtml('このレアリティの出品は見つかりませんでした')+linkRow(d);
     }else if(sc.rs.length>0){
-      h+=`<div class="summary">${sc.rs.map(r=>group(d,r)).join('')}</div>`;
+      h+=`<div class="summary">${sc.rs.map(r=>group(d,r,true)).join('')}</div>`;
     }else{
       // 店舗検索の途中で全レアリティが確認中のときは「出品なし」と言わない（リンク1行だけ出す）。
       // 全件が判定不能のときも同様（取得できたが全件除外は「出品なし」と区別）

@@ -467,7 +467,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 #mode-search #mercariRef .summary{grid-template-columns:repeat(auto-fill,minmax(min(360px,100%),1fr));margin-bottom:0}
 /* レアリティごとに1グループ（見出し＋「1枚」「N枚組」の2セル）。内側は常に2列で、無い側は空セル */
 .mref-group{min-width:0}
-.mref-ghead{font-size:.68rem;font-weight:600;color:var(--text-m);margin:0 0 6px}
+.mref-ghead{font-size:.68rem;font-weight:600;color:var(--text-m);margin:0 0 6px;padding-left:18px} /* 左端はタイル内文字に揃える（#mode-search .scard の padding18。実測でborder分は文字位置に効かない） */
 .mref-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 #mercariRef .scard .sprice a{color:var(--text)}
 #mercariRef .scard .sdetail{white-space:nowrap}
@@ -572,6 +572,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 
   /* サマリーカード */
   .summary{grid-template-columns:1fr}
+  #mercariRef .mref-ghead{padding-left:11px} /* スマホの #mode-search .scard は padding11 */
   .scard{padding:14px 16px}
   .scard .sprice{font-size:1.3rem}
 
