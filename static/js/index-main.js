@@ -910,9 +910,14 @@ document.getElementById('mercariRefBody')?.addEventListener('click',function(e){
 function _openBuyInlineFromTableBtn(){
   const det=document.getElementById('buyInline');
   if(!det) return;
-  if(det.open) return; // 既に開いている（=取得済みか取得中）なら何もしない
+  // 開く場合も既に開いている場合も、見出しが画面上部に来るよう動かす（間に価格推移が挟まり、
+  // 開いたことが画面外で起きて気づけないため）。モーション低減設定なら瞬間移動
+  const reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const scrollToBuy=()=>det.scrollIntoView({behavior:reduce?'auto':'smooth',block:'start'});
+  if(det.open){ scrollToBuy(); return; } // 既に開いている（=取得済みか取得中）なら計測・取得はしない
   _buyInlineOpenTrigger='table_button';
   det.open=true; // 'toggle'イベントが発火し、上のリスナーがGA計測と_fetchBuyInline()を担う
+  scrollToBuy();
 }
 
 function _fetchBuyInline(trigger){

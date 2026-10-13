@@ -451,8 +451,8 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 /* ── details（折りたたみ）の共通見た目（R-2: 旧・価格推移グラフ用のクラス名だが
    #buyInline（買取価格の折りたたみ）が現役で使用しているため名前はそのまま残す） ── */
 .price-chart{margin-bottom:20px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px}
-/* 価格推移の細い常設グラフ（price-trend.js）。枠は .price-chart と同じ見た目で padding だけ小さめ */
-.price-trend{margin-bottom:20px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:10px 12px}
+/* 価格推移の細い常設グラフ（price-trend.js）。外枠は付けない（上下の要素と左端を揃える） */
+.price-trend{margin-bottom:20px}
 .pt-head{display:flex;justify-content:space-between;align-items:baseline;gap:4px 12px;flex-wrap:wrap;font-size:.78rem}
 .pt-title{color:var(--text-m);font-weight:600}
 .pt-val{display:flex;gap:4px 10px;align-items:baseline;flex-wrap:wrap;font-family:var(--mono)}
