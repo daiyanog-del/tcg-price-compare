@@ -99,8 +99,8 @@ const DATA = [
 
   // 6) 古い応答の破棄 / 空・失敗は枠ごと非表示 / clear
   api.load('A'); api.load('B');
-  reply(pending[1], { data: DATA }); await tick();
-  reply(pending[2], { data: [row('2026-01-01', 'A', 'ウルトラ', 1)] }); await tick();
+  reply(pending[1], { data: [row('2026-01-01', 'A', 'ウルトラ', 1)] }); await tick();
+  reply(pending[2], { data: DATA }); await tick();
   assert(body.innerHTML.includes('<svg'), '古い応答(A)は捨てられ、Bの描画が残る');
   api.load('C'); reply(pending[3], { data: [] }); await tick();
   assert(classes.has('hidden') && body.innerHTML === '');
