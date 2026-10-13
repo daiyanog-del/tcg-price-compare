@@ -34,3 +34,18 @@ def test_index_does_not_claim_no_analytics():
     client = _client()
     html = client.get("/").get_data(as_text=True)
     assert "アクセス解析ツールを使用していません" not in html
+
+
+def test_index_mentions_mercari_ambassador():
+    """メルカリアンバサダー利用の明示があり、第三者提供の文と併存すること。"""
+    html = _client().get("/").get_data(as_text=True)
+    assert "メルカリアンバサダー（株式会社メルカリ）" in html
+    assert "上記のアフィリエイトASP以外の第三者に提供することはありません" in html
+
+
+
+def test_index_mentions_surugaya_affiliate():
+    """駿河屋アフィリエイト利用とPR表示の明示があること。"""
+    html = _client().get("/").get_data(as_text=True)
+    assert "駿河屋アフィリエイトプログラム（株式会社駿河屋）" in html
+    assert "「PR」と表示しています" in html
