@@ -34,13 +34,13 @@ const sandbox = {
   fetch(url) { return new Promise((resolve, reject) => fetches.push({ url, resolve, reject })); },
   setTimeout(fn) { const id = ++timerSeq; timers.set(id, fn); return id; },
   clearTimeout(id) { timers.delete(id); },
-  _ga(name, p) { gaCalls.push([name, p]); }, _setSearchLayout() {}, _setAffNote() {}, _setPriceSectionsVisible() {}, _updateRarityBanner() {}, renderTable() {}, closeSuggest() {},
+  _ga(name, p) { gaCalls.push([name, p]); }, _setSearchLayout() {}, _setPriceSectionsVisible() {}, _updateRarityBanner() {}, renderTable() {}, closeSuggest() {},
   renderAll() {}, SearchStatus: { show() {} }, TABLE_PAGE_SIZE: 20,
 };
 vm.createContext(sandbox);
 vm.runInContext('let D=[],rarityFilter="",tableShowCount=0,_currentCardName="";let _buyInlineGen=0,_buyInlineES=null,_buyInlineTimeoutId=null,_buyInlineD=null,_buyInlineFetched=false,_buyInlineFetchInFlight=false,_buyInlineFailedShops=[];', sandbox);
 vm.runInContext(block('function esc(', 'function rankingLinkClick('), sandbox);
-vm.runInContext(block('const AFF_PR_BADGE=', '// 注記ブロック') + block('const AFF_NOTE_TEXT=', 'function affPixel('), sandbox);
+vm.runInContext(block('const AFF_PR_BADGE=', 'function affPixel('), sandbox);
 vm.runInContext(fs.readFileSync(path.join(root, 'static/js/mercari-ref.js'), 'utf8'), sandbox);
 sandbox.MercariRef = sandbox.window.MercariRef; // ブラウザでは window のプロパティが素の識別子で参照できる
 vm.runInContext([

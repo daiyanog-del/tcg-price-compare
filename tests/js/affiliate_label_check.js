@@ -63,12 +63,12 @@ function setData() {
     {shop:'カーナベル',name:'灰流うらら',price:50,rarity:'ウルトラ',code:'AB-JP001',condition:'-',url:'${NK}'},
     {shop:'トレコロ',name:'灰流うらら',price:40,rarity:'ウルトラ',code:'AB-JP001',condition:'-',url:'${TC}'}];`);
 }
-const noteHidden = () => get('sumAffNote').classList.contains('hidden');
+// 注記は廃止（PRの印と rel だけ）。どの描画でも注記文言・要素が出ないこと
+const noNote = () => assert(!get('sumCards').innerHTML.includes('aff-note') && !get('sumCards').innerHTML.includes('含みます'), '注記は出さない');
 const count = (h, s) => h.split(s).length - 1;
 const PR = '<span class="aff-pr">PR</span>';
 const FULL = `_affConfig={'カーナベル':{sell:'dummyA8',buy:'dummyA8'},'駿河屋':{user_id:'9999'}}`;
 
-get('sumAffNote').classList.add('hidden'); // index.html の初期状態
 setData();
 
 // 1) ヘルパー
@@ -97,7 +97,7 @@ assert(h.includes('<div class="slabel">トレコロ</div>'), 'トレコロは直
 assert.equal(count(h, 'rel="sponsored noopener"'), 4, '変換2店×(名前+価格)');
 assert.equal(count(h, 'rel="noopener nofollow"'), 2, 'トレコロ×(名前+価格)');
 assert(!h.includes('<b>悪い店</b>') && h.includes('&lt;b&gt;悪い店&lt;/b&gt;'), '店名はesc済み');
-assert.equal(noteHidden(), false, '注記表示');
+noNote();
 
 // 3) 設定が空: 直リンクのみ→PRなし・注記非表示。再描画で正しく切り替わる
 run(`_affConfig={}`);
@@ -106,21 +106,21 @@ h = get('sumCards').innerHTML;
 assert.equal(count(h, 'aff-pr'), 0);
 assert.equal(count(h, 'sponsored'), 0);
 assert(h.includes('rel="noopener nofollow"'));
-assert.equal(noteHidden(), true, '直リンクのみなら注記は隠す');
+noNote();
 run(`_affConfig={'カーナベル':{sell:'dummyA8'}}`);
 run(`renderSummary()`);
-assert.equal(noteHidden(), false, '再描画で再び表示');
+noNote();
 // レアリティ切替で変換店が消える場合（トレコロのみのレアリティ）
 run(`D.push({shop:'トレコロ',name:'y',price:10,rarity:'ノーマル',code:'',condition:'-',url:'${TC}',sold_out:false,stock:1}); rarityFilter='ノーマル'`);
 run(`renderSummary()`);
-assert.equal(noteHidden(), true, '切替先に変換リンクが無ければ隠す');
+noNote();
 // 在庫切れ表示でも隠す（直前が表示状態だった場合）
 run(`rarityFilter=''`);
 run(`renderSummary()`);
-assert.equal(noteHidden(), false);
+noNote();
 run(`rarityFilter='存在しない'`);
 run(`renderSummary()`);
-assert.equal(noteHidden(), true, '在庫切れ表示では隠す');
+noNote();
 run(`D.pop(); rarityFilter=''`);
 
 // 4) 買取カード
@@ -131,8 +131,7 @@ assert(h.includes('<div class="slabel">カーナベル' + PR + '</div>'));
 assert(h.includes('<div class="slabel">トレコロ</div>'));
 assert.equal(count(h, PR), 1);
 assert(h.includes('rel="sponsored noopener"') && h.includes('rel="noopener nofollow"'));
-assert(h.includes('<div class="aff-note">一部のリンクは広告（PR）を含みます</div>'));
-assert(h.indexOf('aff-note') > h.indexOf('class="summary"'), '注記はカード一覧の後ろ');
+assert(!h.includes('aff-note') && !h.includes('含みます'), '買取にも注記は出さない');
 run(`_affConfig={}`);
 run(`_renderBuyInline()`);
 h = get('buyInlineBody').innerHTML;
@@ -155,12 +154,11 @@ run(`renderTable()`);
 h = get('tbody').innerHTML;
 assert(!h.includes('aff-pr') && !h.includes('sponsored'));
 
-// 6) 配線: index.html に注記要素とCSSがある（兄弟要素・サマリー直後）
+// 6) 配線: index.html に印のCSSがあり、注記の要素・CSSは無い
 const html = fs.readFileSync(path.join(root, 'templates/index.html'), 'utf8');
-assert(html.includes('<div class="aff-note hidden" id="sumAffNote">一部のリンクは広告（PR）を含みます</div>'));
-assert(html.indexOf('id="sumCards"') < html.indexOf('id="sumAffNote"') && html.indexOf('id="sumAffNote"') < html.indexOf('id="buyInline"'));
-assert(html.includes('.aff-pr{') && html.includes('.aff-note{'));
-// メルカリのリンクも同じ印の定数を使う（パネル内の注記 .aff-note は出さない）（文字の「（PR）」表記は持たない）
+assert(html.includes('.aff-pr{'));
+assert(!html.includes('aff-note') && !html.includes('sumAffNote') && !html.includes('含みます'));
+// メルカリのリンクも同じ印の定数を使う（文字の「（PR）」表記・注記は持たない）
 const mref = fs.readFileSync(path.join(root, 'static/js/mercari-ref.js'), 'utf8');
-assert(mref.includes('AFF_PR_BADGE') && !mref.includes('AFF_NOTE_TEXT') && !mref.includes('（PR）'));
+assert(mref.includes('AFF_PR_BADGE') && !mref.includes('AFF_NOTE_TEXT') && !mref.includes('aff-note') && !mref.includes('（PR）'));
 console.log('affiliate_label_check: OK');

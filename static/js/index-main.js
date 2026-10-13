@@ -48,12 +48,6 @@ function _affRel(isAff){
   return isAff?'sponsored noopener':'noopener nofollow';
 }
 const AFF_PR_BADGE='<span class="aff-pr">PR</span>';
-// 注記ブロックの表示切替（変換リンクが1つ以上あるときだけ表示）
-function _setAffNote(show){
-  const el=document.getElementById('sumAffNote');
-  if(el) el.classList.toggle('hidden',!show);
-}
-const AFF_NOTE_TEXT='一部のリンクは広告（PR）を含みます';
 
 function affPixel(shop, mode){
   // A8.netのトラッキングピクセル
@@ -156,7 +150,7 @@ function _applyKonamiLink(kid){
 
 // 価格関連セクションの表示/非表示を切り替える（未発売カードは価格テーブル等を隠す）
 function _setPriceSectionsVisible(visible){
-  ['buyInline','sumCards','sumAffNote','rarityFilter','rfBanner','p-all','p-rarity'].forEach(id=>{
+  ['buyInline','sumCards','rarityFilter','rfBanner','p-all','p-rarity'].forEach(id=>{
     const el=document.getElementById(id);
     if(el) el.style.display=visible?'':'none';
   });
@@ -431,7 +425,6 @@ function doSearch(opts){
   if(cardHero) cardHero.classList.add('hidden');
   const sumCards=document.getElementById('sumCards');
   if(sumCards) sumCards.innerHTML='';
-  _setAffNote(false);
 
   // 検索対象店舗はサーバ側の既定（DEFAULT_SHOPS）が決める。フロントはトグルUIから
   // 店舗集合を組み立てず、SSEで届くprogress/shop_doneイベントに合わせて進捗行を
@@ -796,7 +789,6 @@ function renderSummary(){
     const soldInRarity=(rarityFilter?D.filter(r=>r.rarity===rarityFilter):D).filter(r=>r.sold_out).length;
     const soldNote=soldInRarity>0?`（売切${soldInRarity}件）`:'';
     document.getElementById('sumCards').innerHTML=`<div class="empty" style="padding:16px 0"><p>このレアリティは在庫切れです${soldNote}</p></div>`;
-    _setAffNote(false);
     return;
   }
   const minPrice=items[0].price;
@@ -804,7 +796,6 @@ function renderSummary(){
   // （型番が違えば別物のため、別型番同士の引き算を表示しない。買取側の店舗別カードと同じ規律）
   const topCode=_looksLikeCardCode(items[0].code)?items[0].code:null;
   let h='';
-  let anyAff=false;
   items.forEach((item,i)=>{
     const sameCode=!!topCode&&item.code===topCode;
     // J-5: rarityFilterが空（=「すべて」表示・別レアリティ同士の比較）のときはBESTバッジを付けない
@@ -814,7 +805,6 @@ function renderSummary(){
     const isBest=!!rarityFilter&&i===0;
     const itemUrl=affLink(item.url, item.shop, 'sell');
     const isAff=!!item.url&&_isAffUrl(item.url,itemUrl);
-    if(isAff) anyAff=true;
     const relStr=_affRel(isAff);
     const nameLink=item.url?`<a href="${escAttr(itemUrl)}" target="_blank" rel="${relStr}">${esc(item.name)}</a>`:esc(item.name);
     const priceLink=item.url?`<a class="scard-link" href="${escAttr(itemUrl)}" target="_blank" rel="${relStr}">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
@@ -838,7 +828,6 @@ function renderSummary(){
       <div class="sdetail">${esc(item.rarity||'-')}${condStr}${codeStr}<br>${nameLink}</div></div>`;
   });
   document.getElementById('sumCards').innerHTML=h;
-  _setAffNote(anyAff);
 }
 
 // ── C-2: 販売ページに買取価格を併置（#buyInline、第2弾B）──
@@ -1095,7 +1084,6 @@ function _renderBuyInline(){
   const maxPrice=sortedShops[0].price;
   const topCode=_looksLikeCardCode(sortedShops[0].code)?sortedShops[0].code:null;
   let cardsHtml='';
-  let anyAff=false;
   sortedShops.forEach((item,i)=>{
     const sameCode=!!topCode&&item.code===topCode;
     const isBest=rarityActive&&i===0;
@@ -1103,7 +1091,6 @@ function _renderBuyInline(){
     // （レアリティ切替のたびにこの関数が再実行されるため。第1弾F-2で潰した重複発火の再発防止）
     const itemUrl=affLink(item.url,item.shop,'buy');
     const isAff=!!item.url&&_isAffUrl(item.url,itemUrl);
-    if(isAff) anyAff=true;
     const priceLink=item.url?`<a class="scard-link" href="${escAttr(itemUrl)}" target="_blank" rel="${_affRel(isAff)}">¥${item.price.toLocaleString()}</a>`:`¥${item.price.toLocaleString()}`;
     const bestBadge=isBest?'<span class="sbest-badge">最高額</span>':'';
     let diff='';
@@ -1122,7 +1109,7 @@ function _renderBuyInline(){
       <div class="sdetail">${esc(item.rarity||'-')}${condStr}${codeStr}<br>${esc(item.name)}</div></div>`;
   });
 
-  body.innerHTML=`${conditionNote}<div class="summary">${cardsHtml}</div>${anyAff?`<div class="aff-note">${AFF_NOTE_TEXT}</div>`:''}${_buyInlineNotes()}`;
+  body.innerHTML=`${conditionNote}<div class="summary">${cardsHtml}</div>${_buyInlineNotes()}`;
 }
 
 // F-5/F-14: ヒーローの最安値表示・売切件数バッジをrarityFilterに合わせて再計算する
