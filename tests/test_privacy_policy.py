@@ -42,3 +42,10 @@ def test_index_mentions_mercari_ambassador():
     assert "メルカリアンバサダー（株式会社メルカリ）" in html
     assert "上記のアフィリエイトASP以外の第三者に提供することはありません" in html
 
+
+
+def test_index_mentions_surugaya_affiliate():
+    """駿河屋アフィリエイト利用とPR表示の明示があること。"""
+    html = _client().get("/").get_data(as_text=True)
+    assert "駿河屋アフィリエイトプログラム（株式会社駿河屋）" in html
+    assert "「PR」と表示しています" in html
