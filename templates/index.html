@@ -42,6 +42,12 @@ function _ga(name,params){ if(typeof gtag==='function') gtag('event',name,params
 <meta property="og:title" content="{{ card_name }} の買取価格比較 | TCGYM">
 <meta property="og:description" content="{{ card_name }}の買取価格を5店舗で比較{% if best_price %}。最高¥{{ '{:,}'.format(best_price) }}{% endif %}">
 <link rel="canonical" href="{{ public_base_url }}/buy/{{ card_name | urlencode }}">
+{% elif page_mode == 'new_cards' %}
+<title>未発売カード一覧 | TCGYM</title>
+<meta name="description" content="発売前の遊戯王OCGカードを収録商品ごとに一覧。デッキに追加して一人回しもできます。">
+<meta property="og:title" content="未発売カード一覧 | TCGYM">
+<meta property="og:description" content="発売前のカードを収録商品ごとに一覧。">
+<link rel="canonical" href="{{ public_base_url }}/new-cards">
 {% else %}
 <title>TCGYM — 遊戯王OCG プレイヤーサポート</title>
 <meta name="description" content="遊戯王OCGプレイヤーのサポートサイト。価格比較・デッキ計算・環境デッキ・最新弾情報をひとつに。">
@@ -770,7 +776,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
   </header>
 
   <!-- ===== 検索モード ===== -->
-  <div id="mode-search"{% if card_name %} class="has-search-result"{% endif %}>
+  <div id="mode-search"{% if card_name %} class="has-search-result"{% elif page_mode == 'new_cards' %} class="new-cards-page"{% endif %}>
 
   <div class="price-search-area">
     <div class="price-search-form">
@@ -873,10 +879,12 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     <div id="emptyError" class="movers-fail hidden"></div>
 
     <section id="newCardsSection" class="new-cards" aria-labelledby="newCardsHeading" hidden>
+      <a class="new-cards-back" href="/">← トップへ戻る</a>
       <h2 id="newCardsHeading">新着の未発売カード</h2>
       <p class="new-cards-help">発売前のカードも、デッキに追加して一人回しできます。</p>
       <div id="newCardsGrid" class="new-cards-grid"></div>
       <p id="newCardsStatus" class="new-cards-status" role="status"></p>
+      <a id="newCardsAll" class="new-cards-all" href="/new-cards" hidden>未発売カードをすべて見る →</a>
       <button id="newCardsRetry" class="new-cards-button" hidden>再試行</button>
       <button id="newCardsMore" class="new-cards-button" aria-controls="newCardsGrid" hidden>もっと見る</button>
     </section>
