@@ -472,6 +472,8 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .mref-grid .rb{justify-self:start}
 .mref-tail a{color:var(--accent-l)}
 .mref-tail a:hover{text-decoration:underline}
+.aff-note{font-size:.74rem;color:var(--text-d);margin-top:6px;text-align:right}
+.aff-pr{display:inline-block;margin-left:6px;font-size:.62rem;font-weight:500;color:var(--text-d);border:1px solid currentColor;border-radius:3px;padding:0 3px;line-height:1.4;vertical-align:1px;letter-spacing:0;text-transform:none}
 /* C-2: 販売ページに買取価格を併置（#buyInline）。旧#priceChartと同じ<details>の見た目を流用 */
 .buy-inline-headline{font-size:.92rem;font-weight:600;margin-bottom:14px}
 .buy-inline-note{font-size:.74rem;color:var(--text-d);margin-top:10px}
@@ -807,6 +809,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     </div>
 
     <div class="summary" id="sumCards"></div>
+    <div class="aff-note hidden" id="sumAffNote">一部のリンクは広告（PR）を含みます</div>
     <!-- C-2: 販売ページに買取価格を併置（eスターボックス型）。既定で閉じ、開いたときに初めて
          /api/buyback を叩く（第2弾B）。S-1で買取タブ（旧#buyTbody等）自体は廃止済み。
          2026-09-01: 一覧の下→店舗サマリーの直後へ移動。全件リストに「最高買取」列を足した結果、
@@ -1240,7 +1243,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
       </ul>
 
       <h3>3. アフィリエイトについて</h3>
-      <p>本サービスは、A8.net（株式会社ファンコミュニケーションズ）が提供するアフィリエイトプログラムを利用しており、カーナベルとの提携を行っています。ユーザーが本サービス経由で提携ショップのリンクをクリックした際、Cookieが設定される場合があります。</p>
+      <p>本サービスは、A8.net（株式会社ファンコミュニケーションズ）が提供するアフィリエイトプログラムを利用しており、カーナベルとの提携を行っています。また、駿河屋アフィリエイトプログラム（株式会社駿河屋）を利用しています。これらの提携ショップへのリンクには、価格比較の画面で「PR」と表示しています。ユーザーが本サービス経由で提携ショップのリンクをクリックした際、Cookieが設定される場合があります。</p>
       <p>また、本サービスはメルカリアンバサダー（株式会社メルカリ）を利用しています。カード詳細の「メルカリで見る（PR）」リンクにはアンバサダー用の識別子が含まれており、リンク経由の成果計測はメルカリ側で行われます。本サービスがこのリンクのためにCookieを設定することはなく、本サービスが取得した情報をメルカリへ提供することもありません。</p>
 
       <h3>4. Cookieの使用について</h3>
