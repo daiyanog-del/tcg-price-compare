@@ -286,8 +286,11 @@ def _get_unreleased(*, strict: bool = False) -> dict[str, dict]:
     return _get_unreleased(strict=strict)
 
 
-def get_new_cards() -> dict:
-    """承認・表示許可済みの未発売カードを登録日時順に最大36件返す。"""
+def get_new_cards(limit: int | None = 36) -> dict:
+    """承認・表示許可済みの未発売カードを登録日時順に返す。
+
+    limit が整数ならその件数まで（既定36件・超過分は has_more）。None なら上限なしで全件返す。
+    """
     while True:
         with _cache_lock:
             generation = _cache_generation
@@ -318,7 +321,9 @@ def get_new_cards() -> dict:
             "image_url": (card.get("_image_url") or None) if image_enabled else None,
         }))
     rows.sort(key=lambda row: (row[0], row[1]["name"]), reverse=True)
-    return {"cards": [row for _, row in rows[:36]], "has_more": len(rows) > 36}
+    if limit is None:
+        return {"cards": [row for _, row in rows], "has_more": False}
+    return {"cards": [row for _, row in rows[:limit]], "has_more": len(rows) > limit}
 
 
 def _official_image_enabled() -> bool:

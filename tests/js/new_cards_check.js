@@ -10,7 +10,8 @@ function block(start,end){
 function element(tag='div'){
   const classes=new Set();
   return {tag,children:[],attributes:{},listeners:{},hidden:false,value:'',textContent:'',
-    classList:{contains:name=>classes.has(name),add:name=>classes.add(name),remove:name=>classes.delete(name)},
+    classList:{contains:name=>classes.has(name),add:name=>classes.add(name),remove:name=>classes.delete(name),
+      toggle:(name,on)=>{if(on)classes.add(name);else classes.delete(name);}},
     // HTMLパーサーに入力を渡す実装へ退行した場合は、名前の内容に関係なく失敗させる。
     set innerHTML(value){throw Error('HTML文字列によるDOM作成が使われています: '+value);},
     appendChild(child){this.children.push(child);child.parent=this;},
@@ -21,15 +22,16 @@ function element(tag='div'){
     addEventListener(event,handler){this.listeners[event]=handler;},
   };
 }
-const ids=['newCardsSection','newCardsGrid','newCardsMore','newCardsStatus','newCardsRetry','empty','q'];
+const ids=['newCardsSection','newCardsGrid','newCardsMore','newCardsStatus','newCardsRetry','newCardsHeading','newCardsAll','mode-search','empty','q'];
 const elements=new Map(ids.map(id=>[id,element()]));
 const get=id=>elements.get(id)||null;
-const pending=[],searches=[],events={};
+const pending=[],searches=[],added=[],events={};
 const sandbox={console,URL,Intl,Date,Number,Promise,encodeURIComponent,
   location:{origin:'https://example.test'},window:{},
   document:{getElementById:get,createElement:element,addEventListener:(event,fn)=>events[event]=fn},
   fetch(url){return new Promise((resolve,reject)=>pending.push({url,resolve,reject}));},
   doSearch(opts){searches.push({name:get('q').value,opts});},
+  addToDeck(name,button){added.push({name,button});},
 };
 vm.createContext(sandbox);
 vm.runInContext(block('function safeUrl(', 'function searchCard('),sandbox);
@@ -52,9 +54,15 @@ function click(link,flags={}){
   const first=api.load(),duplicate=api.load();
   assert.equal(first,duplicate);assert.equal(pending.length,1,'二重loadで通信が重複した');
   reply(pending[0],{cards,has_more:false});await first;
-  let links=get('newCardsGrid').children;
+  // 各カードは外枠 .new-card（<a>＋デッキ追加ボタン）。<a>の中にbuttonを入れない。
+  const wraps=get('newCardsGrid').children;
+  let links=wraps.map(w=>w.children[0]);
   assert.equal(links.length,6);assert.equal(get('newCardsMore').hidden,false);
+  assert.equal(wraps[0].className,'new-card');
   assert.equal(links[0].tag,'a');
+  assert.equal(wraps[0].children[1].tag,'button');
+  assert.equal(wraps[0].children[1].textContent,'+ デッキに追加');
+  assert.equal(links[0].children.some(c=>c.tag==='button'),false,'<a>内にbuttonがある');
   assert.equal(links[0].href,'/card/'+encodeURIComponent(cards[0].name));
   assert.equal(links[0].children[2].tag,'strong');
   assert.equal(links[0].children[2].textContent,cards[0].name);
@@ -66,6 +74,11 @@ function click(link,flags={}){
   assert.equal(picture.children[0].textContent,cards[4].name,'画像失敗時の代替カード名が消えた');
   assert.equal(links[0].children[1].children[1].textContent,'10/02 追加','JSTの日付境界が反映されていない');
   assert.equal(links[3].children[1].children[1].textContent,'');
+
+  // デッキ追加ボタンは既存の addToDeck を呼ぶだけ。
+  wraps[1].children[1].listeners.click();
+  assert.equal(added.length,1);assert.equal(added[0].name,cards[1].name);assert.equal(added[0].button,wraps[1].children[1]);
+  assert.equal(get('newCardsAll').hidden,true,'has_moreが偽なのに全件リンクが出ている');
 
   // 通常クリックだけ既存検索へ渡し、別タブ・別ウィンドウ操作は妨げない。
   assert.equal(click(links[0]).prevented,true);
@@ -102,5 +115,29 @@ function click(link,flags={}){
   const restored=api.load();reply(pending.at(-1),{cards,has_more:false});await restored;
   assert.equal(get('newCardsGrid').children.length,6,'再取得後に表示件数が初期化されていない');
   assert.equal(get('newCardsStatus').textContent,'');assert.equal(get('newCardsRetry').hidden,true);
+  // has_more が真で全件表示しきったときだけ一覧ページへのリンクを出す。
+  const more=api.load();reply(pending.at(-1),{cards:cards.slice(0,7),has_more:true});await more;
+  assert.equal(get('newCardsAll').hidden,true);
+  get('newCardsMore').listeners.click();
+  assert.equal(get('newCardsAll').hidden,false);assert.equal(get('newCardsStatus').textContent,'');
+
+  // 一覧ページ: all=1 で取得し、商品ごとにグループ化（新しい順・未定は最後・発売日は最も早い日付）。
+  get('mode-search').classList.add('new-cards-page');
+  const listCards=[
+    {name:'A1',product_name:'商品X',added_at:'2026-10-01T00:00:00Z',release_date:'2026-12-20'},
+    {name:'B1',product_name:'',added_at:'2026-10-09T00:00:00Z',release_date:null},
+    {name:'C1',product_name:'商品Y',added_at:'2026-10-05T00:00:00Z',release_date:'2026-11-05'},
+    {name:'A2',product_name:'商品X',added_at:'2026-10-03T00:00:00Z',release_date:'2026-12-01'},
+  ];
+  const listLoad=api.load();
+  assert.equal(pending.at(-1).url,'/api/new-cards?all=1');
+  reply(pending.at(-1),{cards:listCards,has_more:false});await listLoad;
+  const groups=get('newCardsGrid').children;
+  assert.deepEqual(groups.map(g=>g.children[0].children[0].textContent),['商品Y（1件）','商品X（2件）','収録商品未定（1件）']);
+  assert.equal(groups[1].children[0].children[1].textContent,'12/01 発売');
+  assert.equal(groups[2].children[0].children.length,1,'発売日が無いのに表示された');
+  assert.equal(groups[1].children[1].children.length,2);
+  assert.equal(get('newCardsMore').hidden,true);assert.equal(get('newCardsAll').hidden,true);
+  assert.equal(get('newCardsHeading').textContent,'未発売カード一覧');
   console.log('新着カード: 6件追加・DOM安全性・JST日付・クリック・通信共有・失敗/空/再試行を確認');
 })().catch(error=>{console.error(error);process.exitCode=1;});
