@@ -16,6 +16,7 @@ import base64
 import json
 import logging
 import math
+import os
 import re
 import statistics
 import collections
@@ -210,10 +211,32 @@ def fetch_raw(keyword: str) -> dict:
 
 # ── リンク ──
 
+_AFID_WARNED = False  # 不正値のWARNを1回だけ出すためのフラグ
+
+
+def get_afid() -> str:
+    """メルカリアンバサダーの識別子。環境変数 MERCARI_AFID（数字のみ）を呼び出しごとに読む
+    （テストで差し替えやすくするため）。未設定・空・不正値は空文字（＝アフィリエイトなし）。"""
+    global _AFID_WARNED
+    raw = os.environ.get("MERCARI_AFID", "").strip()
+    if not raw:
+        return ""
+    if raw.isascii() and raw.isdigit():
+        return raw
+    if not _AFID_WARNED:
+        _AFID_WARNED = True
+        logger.warning("[mercari] MERCARI_AFID が数字のみではないため無視します（アフィリエイトなしで動作）")
+    return ""
+
+
 def build_search_url(card_name: str) -> str:
-    """「メルカリで見る」の遷移先。アフィリエイト化する場合はこの関数だけ差し替える。"""
-    return ("https://jp.mercari.com/search?keyword=" + quote(card_name, safe="")
-            + "&status=on_sale&category_id=" + str(CATEGORY_ID_YUGIOH_SINGLE))
+    """「メルカリで見る」の遷移先。MERCARI_AFID があればアンバサダー用の afid を付ける。"""
+    url = ("https://jp.mercari.com/search?keyword=" + quote(card_name, safe="")
+           + "&status=on_sale&category_id=" + str(CATEGORY_ID_YUGIOH_SINGLE))
+    afid = get_afid()
+    if afid:
+        url += "&afid=" + afid
+    return url
 
 
 # ── 絞り込み ──
@@ -552,12 +575,21 @@ def _fetch_and_aggregate(card_name: str, known_names) -> dict:
         num_found = int((raw.get("meta") or {}).get("numFound"))
     except (TypeError, ValueError):
         num_found = None
-    return {"ok": True, **agg, "fetched_count": len(items), "num_found": num_found,
-            "search_url": build_search_url(card_name)}
+    # search_url / affiliate はキャッシュに入れず get_reference が返却時に付ける
+    return {"ok": True, **agg, "fetched_count": len(items), "num_found": num_found}
 
 
 def get_reference(card_name: str, known_names=None) -> dict:
-    """/api/mercari の本体。
+    """/api/mercari の本体。成功時は search_url / affiliate を返却時に組み立てて付ける
+    （キャッシュ値には含めない＝環境変数の変更が15分キャッシュに残らない）。"""
+    res = _get_reference_cached(card_name, known_names)
+    if res.get("ok"):
+        return {**res, "search_url": build_search_url(card_name), "affiliate": bool(get_afid())}
+    return res
+
+
+def _get_reference_cached(card_name: str, known_names=None) -> dict:
+    """キャッシュ・負荷対策つき取得の本体。
 
     成功: {"ok":True,...,"cached":bool}
     失敗: {"ok":False,"error":"fetch_failed"}（取得失敗）/ {"ok":False,"error":"busy"}（負荷制限）
