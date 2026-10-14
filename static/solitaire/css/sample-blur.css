@@ -5,10 +5,11 @@
  * on/off: ルート(body)の data-sample-blur 属性（無ければぼかさない）。既定オフ。
  * 強さ  : --sample-blur-radius（既定 2px。盤面カード約94px幅で実確認。「雰囲気は分かるが細部は見えない」程度）
  *
- * イラスト範囲（実SAMPLE画像 480x700 で実測。通常/リンク/魔法罠とペンデュラムを両方覆う共通範囲）:
- *   x 8%〜92% ・ y 17.5%〜64%
- *   通常枠のイラストは概ね x11〜89% / y17.5〜65%、ペンデュラム枠は x7.5〜94.5% / y17.5〜63%
- *   （下端はペンデュラム効果欄の上端63%）。ペンデュラム判別情報がDOMに無いため共通範囲で近似する。
+ * イラスト範囲（実SAMPLE画像 480x700 の画素エッジ実測）:
+ *   通常枠（効果/通常/融合等/リンク/魔法罠）: x 12.0〜87.5% ・ y 18.3〜70.0%
+ *   ペンデュラム枠                          : x  6.9〜93.1% ・ y 18.3〜62.7%
+ *   既定は通常枠。ペンデュラムは sample-blur.js が [data-art-frame="pendulum"] を付ける。
+ *   範囲は --sample-blur-inset（clip-path: inset 値）で1か所に定義し、全擬似要素が共用する。
  *
  * 擬似要素の衝突回避:
  *   裏面(.is-set)は components.css の .tier-item-wrapper.is-set::after（z-index 3）が使うため、
@@ -19,6 +20,13 @@
 
 :root {
   --sample-blur-radius: 2px;
+  /* 通常枠: 上 18.3% / 右 12.5% / 下 30% / 左 12% */
+  --sample-blur-inset: inset(18.3% 12.5% 30% 12%);
+}
+
+/* ペンデュラム枠: 上 18.3% / 左右 6.9% / 下 37.3% */
+[data-art-frame="pendulum"] {
+  --sample-blur-inset: inset(18.3% 6.9% 37.3% 6.9%);
 }
 
 .sample-art {
@@ -31,7 +39,7 @@
   inset: 0;
   z-index: 2;                 /* img(1) より上・裏面オーバーレイ(3) より下 */
   pointer-events: none;       /* クリック・ドラッグを阻害しない */
-  clip-path: inset(17.5% 8% 36% 8%);
+  clip-path: var(--sample-blur-inset);
   -webkit-backdrop-filter: blur(var(--sample-blur-radius));
   backdrop-filter: blur(var(--sample-blur-radius));
   transition: transform 0.3s ease-in-out;
@@ -51,7 +59,7 @@
   inset: 0;
   z-index: 2;
   pointer-events: none;
-  clip-path: inset(17.5% 8% 36% 8%);
+  clip-path: var(--sample-blur-inset);
   -webkit-backdrop-filter: blur(var(--sample-blur-radius));
   backdrop-filter: blur(var(--sample-blur-radius));
 }
