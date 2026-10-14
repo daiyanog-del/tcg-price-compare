@@ -54,8 +54,9 @@ function getCardsFromSlot(slot) {
         style:    wrapper.getAttribute('style') || '',
         cardName,
         state,   // { orientation, face }
-        // 旧セーブデータには無いキー（省略時は従来どおり発売済み扱い）
-        ...(isSample ? { source: 'official_sample' } : {}),
+        // 旧セーブデータには無いキー（省略時は従来どおり発売済み扱い）。
+        // url は card:// 再解決が通信失敗したときだけ使う SAMPLE 画像の実URL
+        ...(isSample ? { source: 'official_sample', url: cardEl.src || '' } : {}),
       });
     }
   });
@@ -206,10 +207,11 @@ async function _resolveCardSentinels(cards) {
     return result;
   } catch (e) {
     console.warn('[restoreCardsToSlot] card:// 解決失敗（プロキシ風表示にフォールバック）:', e);
-    // 失敗時は kind='none' 扱い（名前のみ表示）
+    // 失敗時は kind='none' 扱い（名前のみ表示）。resolveFailed は「再解決できなかった」印
+    // （SAMPLE は保存済みの実URLで復元するため、解決成功で none が返った場合と区別する）
     const fallback = new Map();
     for (const name of sentinelNames) {
-      fallback.set(name, { kind: 'none' });
+      fallback.set(name, { kind: 'none', resolveFailed: true });
     }
     return fallback;
   }
@@ -247,7 +249,11 @@ async function restoreCardsToSlot(slot, cards) {
     if (cardData.src && cardData.src.startsWith('card://')) {
       // card:// センチネル: 再解決結果を使って描画
       const name = cardData.src.slice('card://'.length);
-      const displayResult = resolved.get(name) || { kind: 'none' };
+      let displayResult = resolved.get(name) || { kind: 'none' };
+      // 再解決が通信失敗した SAMPLE: 保存済みの実URLで SAMPLE 画像として復元（プロキシに落とさない）
+      if (displayResult.resolveFailed && cardData.source === 'official_sample' && cardData.url) {
+        displayResult = { kind: 'image', url: cardData.url, source: 'official_sample' };
+      }
 
       if (displayResult.kind === 'image' && displayResult.url) {
         // 発売済み or linked 後の正規画像

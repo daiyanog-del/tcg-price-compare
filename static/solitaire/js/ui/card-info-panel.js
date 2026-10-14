@@ -20,11 +20,11 @@ export function setCardName(imgEl, name) {
  * 相手の想定妨害トレイなど、委譲クリックを使わないカードから呼ぶ。
  */
 export function showCardByName(name, imgSrc, source) {
-  _setSampleFlag(source === 'official_sample');
+  const isSample = source === 'official_sample';
   if (name) {
-    _fetchAndShow(name, imgSrc || '');
+    _fetchAndShow(name, imgSrc || '', isSample);
   } else {
-    _showUnknown(imgSrc || '', null, null);
+    _showUnknown(imgSrc || '', null, null, undefined, true, isSample);
   }
 }
 
@@ -47,14 +47,14 @@ export function initCardInfoPanel() {
     const cardEl = e.target.closest('.tier-item');
     if (!cardEl) return;
     const name = cardEl.dataset.cardName;
-    _setSampleFlag(!!cardEl.closest('.sample-art'));
+    const isSample = !!cardEl.closest('.sample-art');
     // プロキシカードは src がないため空文字または undefined になる
     const imgSrc = cardEl.src || '';
     if (name) {
-      _fetchAndShow(name, imgSrc);
+      _fetchAndShow(name, imgSrc, isSample);
     } else {
       // 名前不明（ニューロン画像等）: サムネだけ表示
-      _showUnknown(imgSrc);
+      _showUnknown(imgSrc, undefined, undefined, undefined, true, isSample);
     }
   });
 
@@ -64,14 +64,16 @@ export function initCardInfoPanel() {
 
 // ── 内部処理 ──────────────────────────────────────
 
-/** 表示対象が未発売SAMPLE画像かを明示フラグで持つ（sample-blur.js が .cip-img を包む判定に使う。URL一致の補助） */
-function _setSampleFlag(isSample) {
-  const panel = document.getElementById('cardInfoPanel');
-  if (panel) panel.dataset.sample = isSample ? '1' : '';
+/**
+ * SAMPLEフラグは各描画関数の引数で受け取り、描画した img 自体に data-sample を付ける。
+ * （パネル共通の状態にすると、fetch 完了が前後したとき別カードの画像がぼかされるため）
+ */
+function _sampleAttr(isSample) {
+  return isSample ? ' data-sample="1"' : '';
 }
 
-async function _fetchAndShow(name, imgSrc) {
-  _showLoading(name, imgSrc);
+async function _fetchAndShow(name, imgSrc, isSample = false) {
+  _showLoading(name, imgSrc, undefined, isSample);
   try {
     const [infoRes, priceRes] = await Promise.all([
       fetch(`${API_CARD_INFO}?name=${encodeURIComponent(name)}`),
@@ -81,15 +83,15 @@ async function _fetchAndShow(name, imgSrc) {
     const priceData = priceRes ? await priceRes.json().catch(() => null) : null;
     if (data.found) {
       // 発売済みカード: 情報は data 直下にある
-      _renderCard(data, imgSrc, name, priceData);
+      _renderCard(data, imgSrc, name, priceData, undefined, true, isSample);
     } else if (data.kind === 'proxy' && data.proxy) {
       // 未発売カード: 実データは proxy の中にある（フィールド名は _renderCard と一致）
-      _renderCard(data.proxy, imgSrc, name, priceData);
+      _renderCard(data.proxy, imgSrc, name, priceData, undefined, true, isSample);
     } else {
-      _showUnknown(imgSrc, name, priceData);
+      _showUnknown(imgSrc, name, priceData, undefined, true, isSample);
     }
   } catch {
-    _showUnknown(imgSrc, name, null);
+    _showUnknown(imgSrc, name, null, undefined, true, isSample);
   }
 }
 
@@ -104,7 +106,7 @@ async function _fetchAndShow(name, imgSrc) {
  *   引数省略時の挙動は従来と完全に同じ（後方互換）。
  * @param {boolean} [showPrice=true]  価格ブロックを生成するか。スマホは false でブロック自体を作らない（B-12）。
  */
-export function _renderCard(data, imgSrc, name, priceData, targetPanel, showPrice = true) {
+export function _renderCard(data, imgSrc, name, priceData, targetPanel, showPrice = true, isSample = false) {
   const panel = targetPanel || document.getElementById('cardInfoPanel');
   if (!panel) return;
 
@@ -150,7 +152,7 @@ export function _renderCard(data, imgSrc, name, priceData, targetPanel, showPric
 
   panel.innerHTML = `
     <div class="cip-header">
-      <img class="cip-img" src="${_esc(imgSrc)}" alt="${_esc(name || '')}">
+      <img class="cip-img" src="${_esc(imgSrc)}" alt="${_esc(name || '')}"${_sampleAttr(isSample)}>
       <div class="cip-meta">
         <p class="cip-name">${_esc(name || '')}</p>
         <p class="cip-type">${typeLine}</p>
@@ -170,12 +172,12 @@ export function _renderCard(data, imgSrc, name, priceData, targetPanel, showPric
  * @param {string}  imgSrc
  * @param {Element} [targetPanel]  省略時は既存の #cardInfoPanel（PC用）
  */
-export function _showLoading(name, imgSrc, targetPanel) {
+export function _showLoading(name, imgSrc, targetPanel, isSample = false) {
   const panel = targetPanel || document.getElementById('cardInfoPanel');
   if (!panel) return;
   panel.innerHTML = `
     <div class="cip-header">
-      <img class="cip-img" src="${_esc(imgSrc)}" alt="">
+      <img class="cip-img" src="${_esc(imgSrc)}" alt=""${_sampleAttr(isSample)}>
       <div class="cip-meta">
         <p class="cip-name">${_esc(name)}</p>
         <p class="cip-type" style="color:#4a6490">読み込み中...</p>
@@ -188,12 +190,12 @@ export function _showLoading(name, imgSrc, targetPanel) {
  * 詳細情報なし（未対応カード）の描画。targetPanel はスマホ詳細パネル再利用用（_renderCard 参照）。
  * @param {boolean} [showPrice=true]  価格ブロックを生成するか（B-12）。
  */
-export function _showUnknown(imgSrc, name, priceData, targetPanel, showPrice = true) {
+export function _showUnknown(imgSrc, name, priceData, targetPanel, showPrice = true, isSample = false) {
   const panel = targetPanel || document.getElementById('cardInfoPanel');
   if (!panel) return;
   panel.innerHTML = `
     <div class="cip-header">
-      <img class="cip-img" src="${_esc(imgSrc)}" alt="">
+      <img class="cip-img" src="${_esc(imgSrc)}" alt=""${_sampleAttr(isSample)}>
       <div class="cip-meta">
         <p class="cip-name">${_esc(name || '不明なカード')}</p>
         <p class="cip-type" style="color:#4a6490">詳細情報なし</p>

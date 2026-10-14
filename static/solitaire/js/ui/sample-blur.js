@@ -47,8 +47,8 @@ function isSampleSrc(src) {
 function wrapSampleCipImages(root) {
   root.querySelectorAll('img.cip-img').forEach((img) => {
     if (img.parentElement?.classList.contains('cip-img-wrap')) return;
-    // 明示フラグ（パネルの data-sample）または盤面・トレイの .sample-art 画像とのURL一致
-    if (root.dataset.sample !== '1' && !isSampleSrc(img.src)) return;
+    // 明示フラグ（描画側が付ける img の data-sample）または盤面・トレイの .sample-art 画像とのURL一致
+    if (img.dataset.sample !== '1' && !isSampleSrc(img.src)) return;
     const wrap = document.createElement('span');
     wrap.className = 'cip-img-wrap sample-art';
     img.replaceWith(wrap);
