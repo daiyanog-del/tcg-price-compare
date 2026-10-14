@@ -36,6 +36,11 @@ HOST_HEADER_OVERRIDES = {
         "User-Agent": "TCGYM/1.0 (+https://tcg-price-compare.onrender.com)",
     },
 }
+# 混雑時に再試行せず、連続タイムアウトでホストを一時停止する対象ホスト。
+# 2026-10-11 トレコロが負荷で応答しなくなり（Read timed out 427件）、その最中も
+# 再試行が負担を上乗せしていたため、トレコロ（ユーザー承認範囲）に限って適用する。
+# 他ホストは従来どおり（接続エラー/タイムアウトは再試行、ブレーカは403のみ）。
+NO_RETRY_ON_TIMEOUT_HOSTS = {"www.torecolo.jp"}
 # WAFの拒否ページ（200で返るため status では検知できない）の最終URLパス
 _WAF_DENY_PATH = "/CustomError/error403"
 WAIT_SEC = 1.0
@@ -193,9 +198,8 @@ def _get_fetch_errors() -> int:
 #      1晩に数千個のセッションを店舗側に作らせていた。接続の再利用も効く
 #   ② 403 は再試行しない: 通らないうえ店舗への負荷を2倍にするだけ
 #   ③ 連続403が閾値を超えたホストは一定時間スキップする（叩き続けない）
-#   ④ 2026-10-14 追加: タイムアウト・接続エラーも再試行せず、403と同じ連続カウントに数える。
-#      トレコロCBが混雑で応答しなくなった際（Read timed out 427件）、再試行が負担を
-#      上乗せしていたため。応答しないホストへは連続失敗でスキップして休ませる
+#   ④ 2026-10-14 追加: NO_RETRY_ON_TIMEOUT_HOSTS（トレコロのみ）では、タイムアウト・
+#      接続エラーも再試行せず、403と同じ連続カウントに数える（理由は同定数のコメント）
 #      TTLを設けるのは app.py が常駐プロセスで、恒久ブロックだと
 #      ライブ検索が再起動まで復旧しなくなるため
 _HOST_BLOCK_THRESHOLD = 5
@@ -301,7 +305,9 @@ def safe_get(url: str, timeout: int = 15, retries: int = 1) -> BeautifulSoup | N
             status = getattr(e.response, "status_code", None)
             # タイムアウト・接続エラーは相手が混雑/停止しているサインなので、
             # 403と同じ連続失敗として数える（ConnectTimeout は両方を継承）
-            no_response = isinstance(e, (requests.Timeout, requests.ConnectionError))
+            no_response = host in NO_RETRY_ON_TIMEOUT_HOSTS and isinstance(
+                e, (requests.Timeout, requests.ConnectionError)
+            )
             _note_host_result(host, forbidden=(status == 403 or no_response))
             # 403（アクセス拒否）は再試行しても通らない。他の4xxも同様なので、
             # 一時的な過負荷を示す429だけは従来どおり再試行する。

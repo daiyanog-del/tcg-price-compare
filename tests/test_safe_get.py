@@ -10,7 +10,8 @@ tests/test_safe_get.py — safe_get の再試行方針とサーキットブレ�
   当時の safe_get は 403 でも再試行していたため、遮断後の1,451件が実質約2,900
   リクエストになり、店舗側への負荷を倍にしていた。ここでは対処の3点を固定する:
     ① 403（および429以外の4xx）は再試行しない
-    ② 5xx・429は従来どおり再試行する（タイムアウト・接続エラーは2026-10-14から再試行しない）
+    ② 5xx・429・接続エラー・タイムアウトは従来どおり再試行する（トレコロのみ2026-10-14から
+       タイムアウト・接続エラーを再試行しない。⑤参照）
     ③ 連続403が閾値に達したホストは一定時間スキップし、叩き続けない
        （app.py は常駐プロセスのため、恒久ブロックではなくTTLで自動復帰させる）
 
@@ -116,17 +117,33 @@ def test_500_retries(monkeypatch):
     assert len(fake.calls) == 2
 
 
-def test_connection_error_does_not_retry(monkeypatch):
+def test_connection_error_retries(monkeypatch):
     fake = _install(monkeypatch, [0])
     assert scraper.safe_get(URL) is None
-    assert len(fake.calls) == 1, "接続エラーは再試行しない（相手が落ちている時に負担を上乗せしない）"
+    assert len(fake.calls) == 2
 
 
-def test_timeout_does_not_retry(monkeypatch):
+def test_timeout_retries_on_other_hosts(monkeypatch):
     fake = _install(monkeypatch, [-1])
     assert scraper.safe_get(URL) is None
-    assert len(fake.calls) == 1, "タイムアウトは再試行しない（混雑中の相手に負担を上乗せしない）"
+    assert len(fake.calls) == 2, "トレコロ以外は従来どおりタイムアウトでも再試行する"
+
+
+def test_timeout_does_not_count_toward_block_on_other_hosts(monkeypatch):
+    _install(monkeypatch, [-1])
+    for _ in range(scraper._HOST_BLOCK_THRESHOLD + 2):
+        scraper.safe_get(URL)
+    assert not scraper._is_host_blocked(scraper._host_of(URL)), "他ホストのブレーカは403のみ"
+
+
+def test_torecolo_timeout_and_connection_error_do_not_retry(monkeypatch):
+    fake = _install(monkeypatch, [-1])
+    assert scraper.safe_get(TORECOLO_URL) is None
+    assert len(fake.calls) == 1, "トレコロはタイムアウトを再試行しない"
     assert scraper._get_fetch_errors() == 1, "取得失敗として数える"
+    fake2 = _install(monkeypatch, [0])
+    assert scraper.safe_get(TORECOLO_URL) is None
+    assert len(fake2.calls) == 1, "トレコロは接続エラーも再試行しない"
 
 
 def test_retry_succeeds_on_second_attempt(monkeypatch):
