@@ -158,7 +158,7 @@ export class NeuronPreviewModal {
       : '';
 
     const loadBtn = this.onLoad
-      ? `<button class="npm-btn npm-btn-secondary" id="npmLoadBtn">読み込む（テストプレイ）</button>`
+      ? `<button class="npm-btn npm-btn-secondary" id="npmLoadBtn">読み込む（シミュレーター）</button>`
       : '';
 
     return `

@@ -1159,7 +1159,7 @@ function _copyShareUrl() {
 function _nativeShareUrl() {
   const url = document.getElementById('solMobileShareUrlInput')?.value || '';
   if (!url || typeof navigator.share !== 'function') return;
-  const title = document.getElementById('solMobileShareTitleInput')?.value?.trim() || 'テストプレイ';
+  const title = document.getElementById('solMobileShareTitleInput')?.value?.trim() || '共有リプレイ';
   navigator.share({ title, url }).catch(() => { /* ユーザーキャンセル等は無視 */ });
 }
 

@@ -36,7 +36,7 @@ const REPLAY_TITLE_MAX_LEN = 100;
  * リプレイのタイトルを決定する。
  * 優先順位: (1) スマホ共有シートのタイトル入力欄（#solMobileShareTitleInput、値があれば）
  *          → (2) PC側の .title 見出し要素（存在する場合）
- *          → (3) 既定値 'テストプレイ'
+ *          → (3) 既定値 '共有リプレイ'
  * #solMobileShareTitleInput は PC には存在しないため、PC では従来どおり (2)→(3) の挙動になる。
  * @returns {string}
  */
@@ -48,7 +48,7 @@ function _getReplayTitle() {
   const pageTitle = document.querySelector('.title')?.textContent;
   if (pageTitle) return pageTitle;
 
-  return 'テストプレイ';
+  return '共有リプレイ';
 }
 
 /**
@@ -383,7 +383,7 @@ async function _generateShortURL(range) {
  * @returns {string} tweet intent URL
  */
 export function buildShareTweetUrl(shareUrl) {
-  const text = 'テストプレイのリプレイを共有しました #TCGYM';
+  const text = 'リプレイを共有しました #TCGYM';
   return `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(shareUrl)}`;
 }
 

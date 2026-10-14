@@ -44,7 +44,7 @@ function _ga(name,params){ if(typeof gtag==='function') gtag('event',name,params
 <link rel="canonical" href="{{ public_base_url }}/buy/{{ card_name | urlencode }}">
 {% elif page_mode == 'new_cards' %}
 <title>未発売カード一覧 | TCGYM</title>
-<meta name="description" content="発売前の遊戯王OCGカードを収録商品ごとに一覧。デッキに追加してテストプレイ（一人回し）もできます。">
+<meta name="description" content="発売前の遊戯王OCGカードを収録商品ごとに一覧。デッキに追加してテストプレイもできます。">
 <meta property="og:title" content="未発売カード一覧 | TCGYM">
 <meta property="og:description" content="発売前のカードを収録商品ごとに一覧。">
 <link rel="canonical" href="{{ public_base_url }}/new-cards">
@@ -776,7 +776,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
       <button class="mode-tab active" data-mode="search" aria-current="page" onclick="switchMode('search','tab')">価格比較</button>
       <button class="mode-tab" data-mode="meta" onclick="switchMode('meta','tab')">環境デッキ</button>
       <button class="mode-tab" data-mode="mydeck" onclick="switchMode('mydeck','tab')">マイデッキ</button>
-      {% if enable_solo_play %}<a class="header-solo-link" id="headerSoloLink" href="/solitaire" aria-label="テストプレイ（一人回しシミュレーター）を開く">テストプレイ</a>{% endif %}
+      {% if enable_solo_play %}<a class="header-solo-link" id="headerSoloLink" href="/solitaire" aria-label="シミュレーターを開く">シミュレーター</a>{% endif %}
       <button class="mode-tab" data-mode="packs" onclick="switchMode('packs','tab')">新商品</button>
       <button class="mode-tab nav-wishlist" data-mode="wishlist" onclick="switchMode('wishlist','tab')">購入候補<span class="wish-badge" id="wishTabBadge" style="display:none">0</span></button>
     </nav>
@@ -907,7 +907,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
         <h2 id="newCardsHeading">新着の未発売カード</h2>
         <a class="new-cards-head-link" href="/new-cards">すべて見る →</a>
       </div>
-      <p class="new-cards-help">発売前のカードも、デッキに追加してテストプレイ（一人回し）できます。</p>
+      <p class="new-cards-help">発売前のカードも、デッキに追加してテストプレイできます。</p>
       <div id="newCardsGrid" class="new-cards-grid"></div>
       <p id="newCardsStatus" class="new-cards-status" role="status"></p>
       <a id="newCardsAll" class="new-cards-all" href="/new-cards" hidden>未発売カードをすべて見る →</a>
@@ -1253,7 +1253,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
         <li><strong>IPアドレス:</strong> サーバーへの過度なアクセスを防止するレートリミット機能のために一時的に取得します。永続的な保存は行いません。</li>
         <li><strong>Cookie:</strong> アフィリエイトプログラム（後述）の計測のために使用されます。</li>
         <li><strong>購入候補（お気に入りカード）・保存デッキの内容と、端末を識別するためのランダムな識別子:</strong> 購入候補や保存デッキを別の端末（スマートフォンとパソコン等）でも見られるようにする「端末間同期」機能を利用した場合、購入候補に登録したカード名・枚数、保存デッキのデッキ名・カード構成と、端末を紐づけるためにサーバーが発行するランダムな識別子（氏名・メールアドレス等の個人を特定する情報は含みません）を保存します。この識別子は、購入候補または保存デッキを作成したときに発行されます。</li>
-        <li><strong>テストプレイ（一人回しシミュレーター）の共有リプレイ:</strong> テストプレイ機能で「共有リンクをコピー」「Xに投稿」を行うと、そのデッキのカード名・操作ログ・タイトルをサーバーに保存し、共有用URLを発行します。このURLを知っている人は誰でも内容を閲覧できます。氏名・メールアドレス等の個人を特定する情報は含みませんが、URLの共有範囲にはご注意ください。</li>
+        <li><strong>シミュレーターの共有リプレイ:</strong> シミュレーター機能で「共有リンクをコピー」「Xに投稿」を行うと、そのデッキのカード名・操作ログ・タイトルをサーバーに保存し、共有用URLを発行します。このURLを知っている人は誰でも内容を閲覧できます。氏名・メールアドレス等の個人を特定する情報は含みませんが、URLの共有範囲にはご注意ください。</li>
       </ul>
 
       <h3>2. 利用目的</h3>
@@ -1281,7 +1281,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
       <p>値下がり通知機能を利用する際、ブラウザのプッシュ購読情報（通知の送信先を示すエンドポイント情報等）を保存します。この情報は通知の送信目的以外には使用しません。通知の購読は、ブラウザの設定からいつでも解除できます。</p>
 
       <h3>8. お問い合わせについて</h3>
-      <p>お問い合わせ（メール）や、テストプレイページの「不具合・要望を送る」フォームから送信された内容は、サービス改善の目的で運営者が閲覧します。フォームからの送信では、本文のほか、任意で入力された連絡先と、送信に使用したブラウザの種類（User-Agent）もあわせて保存されます。</p>
+      <p>お問い合わせ（メール）や、シミュレーターページの「不具合・要望を送る」フォームから送信された内容は、サービス改善の目的で運営者が閲覧します。フォームからの送信では、本文のほか、任意で入力された連絡先と、送信に使用したブラウザの種類（User-Agent）もあわせて保存されます。</p>
 
       <h3>9. ポリシーの変更</h3>
       <p>本ポリシーは予告なく変更される場合があります。変更後のポリシーは本ページに掲載した時点で効力を生じるものとします。</p>
