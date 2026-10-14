@@ -7,6 +7,7 @@ GitHub Actions cron（2時間毎）から実行される。
   2. 各ページを取得 → SHA-256 でコンテンツ差分を検知 → last_checked_at を更新
   3. 変化あり → ページ内リンクから新規ページ候補を最大20件追加
   4. 変化があり last_extracted_at より新しい場合のみ Extractor 呼び出し
+     （記事ページのみ。トップ・一覧ページはリンク発見だけで抽出しない）
      → unreleased_cards に upsert（既存行は上書きしない）
   5. 1回の実行での抽出上限: MAX_EXTRACT_PAGES ページ
   6. ページ単位で例外捕捉して続行。全件失敗時は Discord 通知
@@ -17,6 +18,7 @@ HTTP取得: fetch_guard.fetch_whitelisted のみ使用（requests は直接 impo
 import hashlib
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse
 
@@ -163,6 +165,30 @@ def _canonicalize_url(url: str) -> str:
         return url
 
     return f"https://yu-gi-oh.jp/news/oid-{id_value}/"
+
+
+def _is_article_page(url: str) -> bool:
+    """カード抽出の対象となる記事ページかを判定する。
+
+    トップ・/news/・/news/search/・/card/ などの一覧ページはサムネイル
+    （カード上半分だけの正方形画像）しか載っておらず、そこから抽出すると画像が切れた
+    カードが先に登録され、後から記事ページで正しい画像付きで抽出しても
+    _upsert_cards が既存行を上書きしないため捨てられる。よって一覧ページは
+    リンク発見のみとし、抽出は記事ページに限る。
+
+    対象: /news/<記事ID>/（記事IDは英数字・_・- の1セグメント）。
+    旧形式 news_detail.php?id=NNNN は _canonicalize_url で /news/oid-NNNN/ に
+    正規化してから判定する。
+    """
+    canonical = _canonicalize_url(url)
+    parsed = urlparse(canonical)
+    if parsed.hostname not in ("yu-gi-oh.jp", "www.yu-gi-oh.jp"):
+        return False
+    m = re.fullmatch(r"/news/([A-Za-z0-9_-]+)/?", parsed.path)
+    if not m:
+        return False
+    # /news/search/ は一覧（検索結果）であり記事ではない
+    return m.group(1) != "search"
 
 
 def _is_rush_duel(html: str) -> bool:
@@ -471,6 +497,8 @@ def main() -> None:
                     _update_checked(sb, url, new_hash)
                 continue
 
+            is_article = _is_article_page(url)
+
             if is_change:
                 # 変化あり（または初回）
                 logger.info(f"[Watcher] コンテンツ変化を検知: {url}")
@@ -485,11 +513,20 @@ def main() -> None:
                     if new_url not in seen_urls:
                         seen_urls.add(new_url)
                         queue.append({"url": new_url, "content_hash": ""})
+
+                # 一覧ページはサムネイル画像で抽出すると画像が切れるため
+                # リンク発見のみ（Extractor・MAX_EXTRACT_PAGES は消費しない）
+                if not is_article:
+                    logger.info(f"[Watcher] 一覧ページのため抽出スキップ（リンク発見のみ）: {url}")
+                    continue
             else:
                 # 変化なし。ただし以下は抽出に進む:
                 #   (a) 抽出保留（変化検知済みだが未抽出。APIキー未設定時期の取りこぼし等）
                 #   (b) カード画像があるのにDB0件（旧環境で抽出失敗・上限内）（修正2）
                 _update_checked(sb, url, new_hash)
+                if not is_article:
+                    logger.info(f"[Watcher] 一覧ページのため抽出スキップ（リンク発見のみ）: {url}")
+                    continue
                 if _extraction_pending(page):
                     logger.info(f"[Watcher] 変化なしだが未抽出のため抽出に進む: {url}")
                 elif _should_retry_empty(sb, page, html, url):
