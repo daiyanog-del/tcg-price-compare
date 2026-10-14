@@ -326,6 +326,9 @@ a:hover {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
+  /* clip はスクロールコンテナを作らないため、中の sticky（保存行）が効く。
+   * 非対応ブラウザでは上の hidden のまま（保存行が張り付かないだけ） */
+  overflow: clip;
 }
 
 .card-row__summary {
@@ -448,6 +451,18 @@ a:hover {
   display: flex;
   gap: 6px;
   flex-shrink: 0;
+}
+
+/* 取り消しにくい操作（却下・承認待ちに戻す）は通常操作から離して右端へ寄せる。
+ * 公開中は「承認待ちに戻す」が先頭なので、直後の「却下」は寄せ直さない */
+.card-row__actions .action-reject,
+.card-row__actions .action-reject-approved,
+.card-row__actions .action-unpublish {
+  margin-left: auto;
+}
+
+.card-row__actions .action-unpublish + .action-reject-approved {
+  margin-left: 0;
 }
 
 /* ── 要確認カードの紐付け候補（承認待ちタブ） ───────────────
@@ -595,6 +610,18 @@ a:hover {
   border-radius: var(--radius);
 }
 
+/* 自動クロップ済みの控えめな注記（警告色は使わない） */
+.edit-source-image__auto-note {
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--main-color) 55%, var(--border) 45%);
+}
+
+.edit-source-image__auto-note[hidden] {
+  display: none;
+}
+
 /* プロキシプレビュー */
 .edit-preview {
   width: 400px;
@@ -669,6 +696,28 @@ a:hover {
   gap: 8px;
   flex-wrap: wrap;
   margin-top: 14px;
+}
+
+/* 編集フォームの保存行は画面下に張り付ける（長いフォームでも保存・キャンセルに届く）。
+ * 背景を付けて下の入力欄が透けないようにする。削除など取り消しにくい操作は右端 */
+.edit-fields .form-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  background-color: var(--bg-surface);
+  border-top: 1px solid var(--border);
+  padding: 10px 0;
+  margin-top: 14px;
+}
+
+/* 入力欄にフォーカスしたとき、sticky の保存行の下に隠れないよう保存行の高さぶん余白を取る */
+.edit-fields input,
+.edit-fields textarea {
+  scroll-margin-bottom: 56px; /* PC の保存行の高さ（実測46px）＋余白 */
+}
+
+.edit-fields .form-actions .action-delete {
+  margin-left: auto;
 }
 
 .form-result {
@@ -943,14 +992,6 @@ a:hover {
     padding: 14px;
   }
 
-  .form-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .form-group--full {
-    grid-column: 1;
-  }
-
   .edit-form-inner {
     flex-direction: column;
   }
@@ -1007,6 +1048,185 @@ a:hover {
   }
 
   .image-fetch-row {
+    flex-wrap: wrap;
+  }
+
+  /* タブ列: 右（左）に続きがあるときだけ端に影が出る（スクロール影。端まで行くと local の覆いで消える） */
+  .tab-nav {
+    background:
+      linear-gradient(to right, var(--bg-surface), transparent) left center / 24px 100% no-repeat local,
+      linear-gradient(to left, var(--bg-surface), transparent) right center / 24px 100% no-repeat local,
+      linear-gradient(to right, color-mix(in srgb, var(--main-color) 45%, transparent), transparent) left center / 18px 100% no-repeat scroll,
+      linear-gradient(to left, color-mix(in srgb, var(--main-color) 45%, transparent), transparent) right center / 18px 100% no-repeat scroll;
+    background-color: var(--bg-surface);
+  }
+
+  .tab-btn {
+    min-height: 44px;
+  }
+
+  /* 入力欄は 16px 未満だと iOS でフォーカス時に画面が拡大される */
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea,
+  .form-input,
+  .form-textarea {
+    font-size: 16px;
+  }
+
+  /* タップ対象を 40px 程度に */
+  .btn,
+  .btn-sm,
+  .edit-media-tab {
+    min-height: 40px;
+  }
+
+  .btn-sm {
+    font-size: 0.88rem;
+    padding: 8px 12px;
+  }
+
+  .edit-media-tab {
+    padding: 8px 14px;
+    font-size: 0.88rem;
+  }
+
+  .card-row__select,
+  .bulk-select-all-label input,
+  #x-fetch-force {
+    width: 20px;
+    height: 20px;
+  }
+
+  .card-row__select-wrap {
+    padding: 10px;
+    margin: -10px 0 -10px -10px;
+  }
+
+  .bulk-select-all-label {
+    min-height: 40px;
+    gap: 10px;
+  }
+
+  /* 一括操作バー: ボタンを上に（折り返し可）、ヒント文は下に全幅 */
+  /* 全選択・一括承認・一括却下を各1行の全幅で縦に並べる（却下だけが孤立しない） */
+  .bulk-select-all-label,
+  .bulk-approve-bar .btn {
+    flex: 1 1 100%;
+  }
+
+  .bulk-approve-hint {
+    flex: 1 1 100%;
+  }
+
+  /* カード行: 3段（名前＋バッジ → メタ → 操作ボタン列）。
+   * info を display:contents にして子要素を summary の flex アイテムとして並べ替える */
+  /* 段間の間隔は gap ではなく各段の margin-top で付ける（高さ0の改行アイテムで gap が二重にならないように） */
+  .card-row__summary {
+    gap: 0 8px;
+  }
+
+  .card-row__info {
+    display: contents;
+  }
+
+  .card-row__select-wrap {
+    order: 1;
+  }
+
+  .card-row__name {
+    order: 2;
+    flex: 1 1 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  /* 名前以外のバッジ類（信頼度・状態・画像あり/なし）は名前の右 */
+  .card-row__info > :not(.card-row__name):not(.card-row__product):not(.card-row__type):not(.card-row__extracted-at) {
+    order: 3;
+  }
+
+  /* 1段目の終わりの改行（高さ0の全幅アイテム） */
+  .card-row__info::after {
+    content: '';
+    order: 4;
+    flex: 0 0 100%;
+    height: 0;
+  }
+
+  .card-row__product,
+  .card-row__type,
+  .card-row__extracted-at {
+    order: 5;
+    margin-top: 8px;
+  }
+
+  .card-row__meta {
+    order: 6;
+    flex-wrap: wrap;
+    margin-top: 8px;
+  }
+
+  .card-row__actions {
+    order: 7;
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    flex-shrink: 1;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .card-row__actions .btn {
+    flex: 0 1 auto;
+  }
+
+  a.card-row__source-link,
+  .review-candidates__item a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 40px;
+    padding: 0 6px;
+  }
+
+  /* 編集フォームの短い数値欄は2列に並べる。それ以外は全幅 */
+  .form-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .form-grid > .form-group:not(.form-group--short) {
+    grid-column: 1 / -1;
+  }
+
+  .form-group {
+    min-width: 0;
+  }
+
+  /* スマホの保存行は 390px で61px・375px で折り返して109px（実測） */
+  .edit-fields input,
+  .edit-fields textarea {
+    scroll-margin-bottom: 116px;
+  }
+
+  /* ドメイン行: 名前を全幅1行目、件数と操作を2行目 */
+  .domain-row__info {
+    display: contents;
+  }
+
+  .domain-row__name {
+    flex: 1 1 100%;
+  }
+
+  .domain-row__count {
+    flex: 1 1 0;
+    min-width: 0;
+    white-space: normal;
+  }
+
+  .domain-row__actions {
+    flex-wrap: wrap;
+  }
+
+  .crop-modal__actions {
     flex-wrap: wrap;
   }
 }
@@ -1088,6 +1308,14 @@ a:hover {
   display: flex;
   gap: 10px;
   align-self: flex-end;
+}
+
+/* スマホ幅: クロップのボタンは折り返し、右寄せにそろえる（共通定義より後ろに置く必要がある） */
+@media (max-width: 600px) {
+  .crop-modal__actions {
+    align-self: stretch;
+    justify-content: flex-end;
+  }
 }
 
 /* 認識根拠（補足欄。目立たせず、要確認のときだけ注意色） */

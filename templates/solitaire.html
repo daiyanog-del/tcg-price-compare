@@ -8,9 +8,9 @@
 <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}"></script>
 <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','{{ ga_measurement_id }}');</script>
 {% endif %}
-<title>テストプレイ（一人回しシミュレーター） | TCGYM</title>
+<title>一人回しシミュレーター | TCGYM</title>
 <meta name="description" content="発売前のカードもOK。マイデッキや環境デッキからワンタップで読み込める遊戯王OCGの一人回しシミュレーター。ニューロン画像・テキストにも対応し、ドラッグ&ドロップで展開を再現。リプレイ保存・URL共有対応。">
-<meta property="og:title" content="テストプレイ（一人回しシミュレーター） | TCGYM">
+<meta property="og:title" content="一人回しシミュレーター | TCGYM">
 <meta property="og:description" content="遊戯王の展開をシミュレート。リプレイ保存・共有対応。">
 <meta property="og:image" content="{{ public_base_url }}{{ static_url('og-image.png') }}">
 <meta property="og:type" content="website">
@@ -18,7 +18,7 @@
 <meta property="og:locale" content="ja_JP">
 <meta property="og:site_name" content="TCGYM">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="テストプレイ（一人回しシミュレーター） | TCGYM">
+<meta name="twitter:title" content="一人回しシミュレーター | TCGYM">
 <meta name="twitter:image" content="{{ public_base_url }}{{ static_url('og-image.png') }}">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="{{ public_base_url }}/solitaire">
@@ -73,7 +73,7 @@
         <a href="/#meta"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>環境デッキ</a>
         <a href="/#packs"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>最新弾</a>
         <a href="/#wishlist"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>購入候補</a>
-        <a href="/solitaire" class="active" aria-current="page"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="M2.6 16.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83"/><path d="M2.6 11.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83"/></svg>テストプレイ</a>
+        <a href="/solitaire" class="active" aria-current="page"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="M2.6 16.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83"/><path d="M2.6 11.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83"/></svg>シミュレーター</a>
       </nav>
     </div>
 
@@ -101,7 +101,7 @@
 
           <!-- ニューロン取込（Chrome拡張・PDF・URL）はマイデッキページに統一。ここでは誘導のみ -->
           <div class="sol-neuron-section">
-            <p class="sol-upload-note">ニューロンのデッキ取り込み（Chrome拡張・PDF・URL）は「マイデッキ」ページで行えます。取り込んだデッキは「保存」すると、このテストプレイ画面の「マイデッキ」タブに反映されます。</p>
+            <p class="sol-upload-note">ニューロンのデッキ取り込み（Chrome拡張・PDF・URL）は「マイデッキ」ページで行えます。取り込んだデッキは「保存」すると、このシミュレーター画面の「マイデッキ」タブに反映されます。</p>
             <a class="sol-ext-link ready" href="/#mydeck-import">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
               マイデッキページで取り込む

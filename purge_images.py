@@ -90,7 +90,7 @@ def cmd_purge(supabase, domain: str, physical: bool, yes: bool) -> None:
     try:
         target_resp = (
             supabase.table("official_card_images")
-            .select("id, storage_path, hidden")
+            .select("id, unreleased_card_id, storage_path, hidden")
             .eq("source_domain", domain)
             .is_("deleted_at", "null")
             .execute()
@@ -146,6 +146,13 @@ def cmd_purge(supabase, domain: str, physical: bool, yes: bool) -> None:
     if physical:
         # 第2段階: Storage物理削除
         storage_paths = [r["storage_path"] for r in targets if r.get("storage_path")]
+        # 退避した元画像（バケットは公開のため、残すと削除後も閲覧できてしまう）も消す
+        try:
+            from unreleased_image_store import collect_original_paths
+            card_ids = sorted({r["unreleased_card_id"] for r in targets if r.get("unreleased_card_id")})
+            storage_paths += collect_original_paths(supabase, card_ids)
+        except Exception as e:
+            print(f"[警告] 退避元画像パスの収集失敗（無視）: {e}")
         if storage_paths:
             try:
                 supabase.storage.from_("official-card-images").remove(storage_paths)

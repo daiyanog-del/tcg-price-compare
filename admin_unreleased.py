@@ -272,7 +272,7 @@ def admin_list_unreleased():
                 fallback_list = raw.get("card_image_urls") or []
                 card_img_url = fallback_list[0] if fallback_list else ""
             card["card_image_url"] = card_img_url
-            for key in ("crop_suggestion", "release_date_evidence", "recognition_review"):
+            for key in ("crop_suggestion", "crop_state", "release_date_evidence", "recognition_review"):
                 card[key] = raw.get(key)
             # extraction_raw はフロントエンドに不要なので除外する（サイズ削減）
             card.pop("extraction_raw", None)
@@ -1275,6 +1275,14 @@ def admin_delete_unreleased(card_id: int):
         return jsonify({"error": "Supabase 未接続"}), 503
 
     try:
+        # 退避した元画像のパスは、行を消す前でないと extraction_raw を読めない
+        original_paths: list[str] = []
+        try:
+            from unreleased_image_store import collect_original_paths
+            original_paths = collect_original_paths(_supabase, [card_id])
+        except Exception as e:
+            logger.warning(f"[admin] 退避元画像パスの収集失敗（無視）: id={card_id}: {e}")
+
         resp = (
             _supabase.table("unreleased_cards")
             .delete()
@@ -1283,6 +1291,13 @@ def admin_delete_unreleased(card_id: int):
         )
         if not resp.data:
             return jsonify({"error": "対象レコードが見つかりません"}), 404
+
+        # バケットは公開のため、退避元画像を残すと削除後も閲覧できてしまう。失敗しても削除は成功扱い
+        if original_paths:
+            try:
+                _supabase.storage.from_("official-card-images").remove(original_paths)
+            except Exception as e:
+                logger.warning(f"[admin] 退避元画像の削除失敗（無視）: id={card_id}: {e}")
         _card_display.invalidate_cache()
         return jsonify({"ok": True, "deleted_id": card_id})
 
@@ -1496,7 +1511,7 @@ def admin_purge_image_domain():
         # 対象行を取得（storage_path も一緒に取得）
         target_resp = (
             _supabase.table("official_card_images")
-            .select("id, storage_path, hidden, deleted_at")
+            .select("id, unreleased_card_id, storage_path, hidden, deleted_at")
             .eq("source_domain", domain)
             .is_("deleted_at", "null")
             .execute()
@@ -1523,6 +1538,13 @@ def admin_purge_image_domain():
         if physical:
             # 第2段階: Storage物理削除 ＋ deleted_at 記録
             storage_paths = [r["storage_path"] for r in targets if r.get("storage_path")]
+            # 退避した元画像（バケットは公開のため、残すと削除後も閲覧できてしまう）も消す
+            try:
+                from unreleased_image_store import collect_original_paths
+                card_ids = sorted({r["unreleased_card_id"] for r in targets if r.get("unreleased_card_id")})
+                storage_paths += collect_original_paths(_supabase, card_ids)
+            except Exception as e:
+                logger.warning(f"[admin] 退避元画像パスの収集失敗（無視）: {e}")
 
             if storage_paths:
                 try:
@@ -1606,6 +1628,28 @@ def admin_crop_image(card_id: int):
         return jsonify({"ok": True, "new_url": result})
     else:
         return jsonify({"ok": False, "error": result}), 422
+
+
+# ──────────────────────────────────────────────
+# POST /api/admin/unreleased/<id>/restore-original-image — 元画像に戻す
+# ──────────────────────────────────────────────
+
+@admin_bp.route("/api/admin/unreleased/<int:card_id>/restore-original-image", methods=["POST"])
+def admin_restore_original_image(card_id: int):
+    """クロップ済みの画像を、退避してある元画像（無ければ source_image_url）に戻す。"""
+    err = _require_admin_key()
+    if err:
+        return err
+
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+
+    from unreleased_image_store import restore_original_image
+    ok, result = restore_original_image(_supabase, card_id)
+    if ok:
+        _card_display.invalidate_cache()
+        return jsonify({"ok": True, "new_url": result})
+    return jsonify({"ok": False, "error": result}), 422
 
 
 @admin_bp.route("/api/admin/unreleased/fetch-x-post", methods=["POST"])

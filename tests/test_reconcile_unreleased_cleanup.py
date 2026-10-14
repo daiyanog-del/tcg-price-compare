@@ -208,7 +208,8 @@ def test_linked_deletion_removes_storage_images(monkeypatch):
     summary = target._cleanup_stale_cards(sb)
 
     assert summary["linked_deleted"] == 1
-    assert sb.removed_storage_paths == ["unreleased/1/front.jpg"]
+    # 退避元画像（記録が無いので拡張子候補）も一緒に消す
+    assert sb.removed_storage_paths == ["unreleased/1/front.jpg", "unreleased/originals/1.jpg", "unreleased/originals/1.png", "unreleased/originals/1.gif", "unreleased/originals/1.webp"]
 
 
 # ──────────────────────────────────────────────
@@ -302,4 +303,4 @@ def test_storage_delete_failure_skips_only_that_card(monkeypatch):
     assert summary["error"] == 1
     remaining_ids = {r["id"] for r in sb.unreleased_rows}
     assert remaining_ids == {1}
-    assert sb.removed_storage_paths == ["unreleased/2/front.jpg"]
+    assert sb.removed_storage_paths == ["unreleased/2/front.jpg", "unreleased/originals/2.jpg", "unreleased/originals/2.png", "unreleased/originals/2.gif", "unreleased/originals/2.webp"]

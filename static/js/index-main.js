@@ -1711,6 +1711,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
   _restoreLocation('pageload');
 
+  // 管理者のブラウザ（localStorage に admin_key がある）だけフッターに「管理」リンクを出す。
+  // キー名は static/admin/admin.js の STORAGE_KEY と同じ。
+  // プライベートモード等で localStorage が例外を投げても何もしない（非表示のまま）
+  try{
+    if(localStorage.getItem('admin_key')){
+      const _adminLink=document.getElementById('footerAdminLink');
+      if(_adminLink) _adminLink.hidden=false;
+    }
+  }catch(e){ /* 参照不可なら非表示のまま */ }
+
   // フラッシュ防止用の一時スタイルを削除（以降のタブ切替を正常に動かすため）
   const _fp=document.getElementById('fouc-prevent');
   if(_fp) _fp.remove();
@@ -2893,6 +2903,6 @@ async function openCurrentDeckInSolitaire(){
     location.assign('/solitaire?from=mydeck');
   }catch(error){
     console.warn('[deck-handoff] 引継ぎデータを保存できませんでした',error);
-    alert('テストプレイを開けませんでした。'+(error.message||'ブラウザの一時保存を確認してください。'));
+    alert('シミュレーターを開けませんでした。'+(error.message||'ブラウザの一時保存を確認してください。'));
   }
 }
