@@ -2893,6 +2893,6 @@ async function openCurrentDeckInSolitaire(){
     location.assign('/solitaire?from=mydeck');
   }catch(error){
     console.warn('[deck-handoff] 引継ぎデータを保存できませんでした',error);
-    alert('一人回しを開けませんでした。'+(error.message||'ブラウザの一時保存を確認してください。'));
+    alert('テストプレイを開けませんでした。'+(error.message||'ブラウザの一時保存を確認してください。'));
   }
 }
