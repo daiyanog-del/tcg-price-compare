@@ -31,9 +31,11 @@ import re
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
-ROOT   = Path(__file__).resolve().parent.parent.parent
+APP_ROOT = Path(__file__).resolve().parent.parent
+ROOT   = APP_ROOT.parent
 SRC    = ROOT / '自作画像など' / 'ベース（反転）縦80％.png'
-STATIC = ROOT / 'tcg-web' / 'static'
+# CIや別名のチェックアウトでも、生成スクリプトが属するリポジトリを参照する。
+STATIC = APP_ROOT / 'static'
 HEADER_SRC = ROOT / '自作画像など' / 'ベース（反転）_w_trans_よさそう.png'
 
 # ---- 元画像を紺地+白線に変換 ----

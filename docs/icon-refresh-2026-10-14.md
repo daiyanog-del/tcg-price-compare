@@ -17,7 +17,7 @@
 | ファイル | 変更理由 |
 | --- | --- |
 | .gitattributes | 生成SVG・manifest・SWの改行をLFに固定し、Windows/Linux間のハッシュ不一致を防ぐ |
-| tools/build_icons.py | 比率維持、ノイズ除去、透明背景/全面背景/安全円の作り分け、輪郭、ヘッダー生成、参照ハッシュ生成。OG再生成を`--og`に分離 |
+| tools/build_icons.py | 比率維持、ノイズ除去、透明背景/全面背景/安全円の作り分け、輪郭、ヘッダー生成、参照ハッシュ生成。出力先のフォルダ名依存を解消。OG再生成を`--og`に分離 |
 | static/favicon-16.png、favicon-32.png | タブ用の透過画像へ再生成 |
 | static/favicon.svg、tcgym-icon-base.png | 1024pxの透過素材へ更新 |
 | static/apple-touch-icon.png | 180px、余白付き・全面背景へ再生成 |
