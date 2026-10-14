@@ -175,3 +175,47 @@ class TestMainSkipsCollectedTorecolo:
         assert by_card["A"] == ["カードラッシュ"], "取得済みカードはトレコロを外す・他店は変えない"
         assert by_card["B"] == ["カードラッシュ"]
         assert by_card["C"] == ["カードラッシュ", "トレコロCB"], "行が無いカードは従来どおり取る"
+
+
+class TestBlocklikeMinAttempted:
+    def test_small_denominator_is_not_blocklike(self):
+        # 1/1 失敗（100%）でも試行数が下限未満ならブロック様にしない
+        assert classify_blocklike_shops([("A", "トレコロCB")], {"トレコロCB": 1}) == set()
+        assert classify_blocklike_shops([("A", "S")] * 4, {"S": 4}) == set()
+
+    def test_at_min_attempted_is_judged(self):
+        from collect_featured import BLOCKLIKE_MIN_ATTEMPTED
+        pairs = [(f"C{i}", "S") for i in range(BLOCKLIKE_MIN_ATTEMPTED)]
+        assert classify_blocklike_shops(pairs, {"S": BLOCKLIKE_MIN_ATTEMPTED}) == {"S"}
+
+
+class TestAttemptedDenominatorExcludesSkipped:
+    def test_failures_ratio_uses_actually_attempted_cards(self, monkeypatch):
+        """トレコロを外した分は分母に入れない: 10枚中6枚取得済み→試行4枚（下限未満）なので
+        4枚全失敗でもブロック様（長時間待ち）にならず、即時再試行へ回る"""
+        cards = [f"C{i}" for i in range(10)]
+        done = set(cards[:6])
+        sleeps = []
+        retried = []
+
+        def fake_collect(sb, card, today, shops, shop_stats=None):
+            if "トレコロCB" in shops and card not in done:
+                retried.append((card, list(shops)))
+                return 0, ["トレコロCB"]
+            return 0, []
+
+        monkeypatch.setattr(sys, "argv", ["collect_featured.py"])
+        monkeypatch.setattr(collect_featured, "get_supabase", lambda: object())
+        monkeypatch.setattr(collect_featured, "_resolve_pack", lambda sb, a: {"pack_name": "P"})
+        monkeypatch.setattr(collect_featured, "get_featured_cards", lambda sb, p: cards)
+        monkeypatch.setattr(collect_featured, "check_shop_availability", lambda shops: ["トレコロCB"])
+        monkeypatch.setattr(collect_featured, "fetch_cards_collected_today", lambda *a: done)
+        monkeypatch.setattr(collect_featured, "collect_and_save_for_shops", fake_collect)
+        monkeypatch.setattr(collect_featured.time, "sleep", lambda s: sleeps.append(s))
+
+        collect_featured.main()
+
+        assert all(s < collect_featured.RETRY_WAIT_SEC - 100 for s in sleeps), "長時間待ちが発生した"
+        # 第1パス4件 + 即時再試行ラウンド(最大2回)分
+        assert len(retried) >= 8
+        assert all(c not in done for c, _ in retried), "取得済みカードは試行されない"

@@ -60,6 +60,12 @@ MAX_RETRIES = 2
 #       誤判定率と待機コストのトレードオフを見て再校正すること）
 BLOCKLIKE_FAIL_RATIO = 0.30
 
+# 店舗の試行数（分母）がこれ未満ならブロック様と判定しない下限。
+# 当日取得済みのトレコロを外すと分母が小さくなり、1枚の失敗で比率が閾値を超えて
+# 約32分待ちになるのを避ける。
+# TODO: calibrate from data（暫定値）
+BLOCKLIKE_MIN_ATTEMPTED = 5
+
 # 朝5時の collect_prices.py で当日分を取得済みなら第1パスで取り直さない店舗。
 # トレコロCBは2026-10-11に負荷で応答しなくなった経緯があり（夜間収集が1日4,300回超）、
 # 同日の二重取得を避けて負担を減らす。他店は従来どおり last-write-wins で取り直す
@@ -118,7 +124,8 @@ def _is_shop_failed(status_entry: dict | None) -> bool:
 
 
 def classify_blocklike_shops(failed_pairs: list[tuple[str, str]], attempted_per_shop: dict[str, int],
-                              threshold: float = BLOCKLIKE_FAIL_RATIO) -> set[str]:
+                              threshold: float = BLOCKLIKE_FAIL_RATIO,
+                              min_attempted: int = BLOCKLIKE_MIN_ATTEMPTED) -> set[str]:
     """failed_pairs を店舗ごとに集計し、(失敗数 / その店舗の試行数) が threshold 以上の
     店舗を「ブロック様」（403連続などでホスト単位ブロックされている疑い）と判定する。
 
@@ -132,7 +139,7 @@ def classify_blocklike_shops(failed_pairs: list[tuple[str, str]], attempted_per_
     blocklike: set[str] = set()
     for shop, fails in fail_counts.items():
         attempted = attempted_per_shop.get(shop, 0)
-        if attempted > 0 and (fails / attempted) >= threshold:
+        if attempted >= max(1, min_attempted) and (fails / attempted) >= threshold:
             blocklike.add(shop)
     return blocklike
 
@@ -291,6 +298,9 @@ def main():
     # 朝5時の収集で当日行が既にある (カード, 店舗) は第1パスの対象から外す。
     # 行が無いカード（朝に失敗・未収集）は従来どおり取る。失敗ペアの再試行は
     # 第1パスの失敗集合から作られるため、外したペアは再試行にも現れない
+    # 既知の制約: 当日行は /api/deck（トレコロは1ページのみ）や /api/search の途中結果からも
+    # 書かれるため、朝の収集で取れていないカードを取得済みと誤認しうる。
+    # 翌日の通常収集で回復するので許容する
     already_collected: dict[str, set[str]] = {}
     for skip_shop in SKIP_IF_COLLECTED_TODAY_SHOPS:
         if skip_shop in available_shops:

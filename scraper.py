@@ -39,6 +39,10 @@ HOST_HEADER_OVERRIDES = {
 # 混雑時に再試行せず、連続タイムアウトでホストを一時停止する対象ホスト。
 # 2026-10-11 トレコロが負荷で応答しなくなり（Read timed out 427件）、その最中も
 # 再試行が負担を上乗せしていたため、トレコロ（ユーザー承認範囲）に限って適用する。
+# 対象は requests.Timeout（ReadTimeout/ConnectTimeout）のみ。ConnectionError
+# （共有Sessionのkeep-alive切れ由来の Connection aborted / RemoteDisconnected 等）は
+# 10-11の事象に無く、再試行で通るため従来どおり再試行し、連続カウントにも入れない
+# （無再試行にすると途中ページ欠けの「成功」保存が増える）。
 # 他ホストは従来どおり（接続エラー/タイムアウトは再試行、ブレーカは403のみ）。
 NO_RETRY_ON_TIMEOUT_HOSTS = {"www.torecolo.jp"}
 # WAFの拒否ページ（200で返るため status では検知できない）の最終URLパス
@@ -198,10 +202,11 @@ def _get_fetch_errors() -> int:
 #      1晩に数千個のセッションを店舗側に作らせていた。接続の再利用も効く
 #   ② 403 は再試行しない: 通らないうえ店舗への負荷を2倍にするだけ
 #   ③ 連続403が閾値を超えたホストは一定時間スキップする（叩き続けない）
-#   ④ 2026-10-14 追加: NO_RETRY_ON_TIMEOUT_HOSTS（トレコロのみ）では、タイムアウト・
-#      接続エラーも再試行せず、403と同じ連続カウントに数える（理由は同定数のコメント）
 #      TTLを設けるのは app.py が常駐プロセスで、恒久ブロックだと
 #      ライブ検索が再起動まで復旧しなくなるため
+#   ④ 2026-10-14 追加: NO_RETRY_ON_TIMEOUT_HOSTS（トレコロのみ）では、タイムアウト
+#      （requests.Timeout）を再試行せず、403と同じ連続カウントに数える
+#      （理由は同定数のコメント）。接続エラーは対象外（keep-alive切れ等は再試行で通る）
 _HOST_BLOCK_THRESHOLD = 5
 _HOST_BLOCK_TTL_SEC = 1800
 
@@ -303,15 +308,13 @@ def safe_get(url: str, timeout: int = 15, retries: int = 1) -> BeautifulSoup | N
             return BeautifulSoup(res.text, "html.parser")
         except requests.RequestException as e:
             status = getattr(e.response, "status_code", None)
-            # タイムアウト・接続エラーは相手が混雑/停止しているサインなので、
-            # 403と同じ連続失敗として数える（ConnectTimeout は両方を継承）
-            no_response = host in NO_RETRY_ON_TIMEOUT_HOSTS and isinstance(
-                e, (requests.Timeout, requests.ConnectionError)
-            )
+            # 対象ホストのタイムアウトは相手が混雑しているサインなので、
+            # 403と同じ連続失敗として数える
+            no_response = host in NO_RETRY_ON_TIMEOUT_HOSTS and isinstance(e, requests.Timeout)
             _note_host_result(host, forbidden=(status == 403 or no_response))
             # 403（アクセス拒否）は再試行しても通らない。他の4xxも同様なので、
             # 一時的な過負荷を示す429だけは従来どおり再試行する。
-            # タイムアウト・接続エラーも再試行しない（混雑中のホストへ負担を上乗せしない）。
+            # 対象ホストのタイムアウトも再試行しない（混雑中のホストへ負担を上乗せしない）。
             # 5xx は一時的なサーバ側エラーで再試行すれば通る見込みがあるため従来どおり再試行する
             no_retry = no_response or (
                 status is not None and 400 <= status < 500 and status != 429

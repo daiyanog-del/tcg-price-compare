@@ -136,14 +136,21 @@ def test_timeout_does_not_count_toward_block_on_other_hosts(monkeypatch):
     assert not scraper._is_host_blocked(scraper._host_of(URL)), "他ホストのブレーカは403のみ"
 
 
-def test_torecolo_timeout_and_connection_error_do_not_retry(monkeypatch):
+def test_torecolo_timeout_does_not_retry(monkeypatch):
     fake = _install(monkeypatch, [-1])
     assert scraper.safe_get(TORECOLO_URL) is None
     assert len(fake.calls) == 1, "トレコロはタイムアウトを再試行しない"
     assert scraper._get_fetch_errors() == 1, "取得失敗として数える"
-    fake2 = _install(monkeypatch, [0])
+
+
+def test_torecolo_connection_error_still_retries_and_not_counted(monkeypatch):
+    """keep-alive切れ等の接続エラーは従来どおり再試行し、ブレーカの連続カウントに入れない"""
+    fake = _install(monkeypatch, [0])
     assert scraper.safe_get(TORECOLO_URL) is None
-    assert len(fake2.calls) == 1, "トレコロは接続エラーも再試行しない"
+    assert len(fake.calls) == 2
+    for _ in range(scraper._HOST_BLOCK_THRESHOLD + 2):
+        scraper.safe_get(TORECOLO_URL)
+    assert not scraper._is_host_blocked("www.torecolo.jp")
 
 
 def test_retry_succeeds_on_second_attempt(monkeypatch):
