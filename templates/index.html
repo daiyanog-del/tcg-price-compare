@@ -72,7 +72,7 @@ function _ga(name,params){ if(typeof gtag==='function') gtag('event',name,params
 <link rel="icon" type="image/png" sizes="16x16" href="{{ static_url('favicon-16.png') }}">
 <link rel="apple-touch-icon" sizes="180x180" href="{{ static_url('apple-touch-icon.png') }}">
 <link rel="manifest" href="{{ static_url('manifest.json') }}">
-<meta name="theme-color" content="#0a1024">
+<meta name="theme-color" content="#101626">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <!-- Noto Sans JP + JetBrains Mono は1リクエストに統合済み。
@@ -763,8 +763,8 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
       <a href="/" class="brand-header-link">
         <div class="brand-header-inner">
           <picture>
-            <source srcset="/static/tcgym-icon-small.webp" type="image/webp">
-            <img src="/static/tcgym-icon-small.png" alt="" class="brand-header-icon" width="144" height="176" fetchpriority="high">
+            <source srcset="{{ static_url('tcgym-icon-small.webp') }}" type="image/webp">
+            <img src="{{ static_url('tcgym-icon-small.png') }}" alt="" class="brand-header-icon" width="144" height="176" fetchpriority="high">
           </picture>
           <div>
             <span style="display:inline-flex;align-items:flex-start"><span class="brand-name">TC<span class="brand-g">G</span>YM</span><span class="brand-beta">β</span></span>
