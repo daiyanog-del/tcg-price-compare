@@ -228,6 +228,13 @@ export function executeDrop(draggedInfo, dropZoneInfo, dropTarget, modifiers = {
     const { type: dropType, element: dropZone } = dropZoneInfo;
     let zIndex;
 
+    // 同一ゾーン（デッキ/EXデッキ/手札）内への置き直しは意味のない操作なので、
+    // 配置もリプレイ記録（手数）もしない。デッキ内の並べ替えも行わない。
+    // フィールド（CUSTOM_SLOT）は修飾キーで守備/セット等の状態変更があるため対象外。
+    if ((dropType === 'POOL' || dropType === 'CENTER_SLOT') && draggedElement.parentElement === dropZone) {
+      return;
+    }
+
     switch (dropType) {
       case 'POOL': {
         const targetCard = dropTarget.closest('.tier-item-wrapper');
