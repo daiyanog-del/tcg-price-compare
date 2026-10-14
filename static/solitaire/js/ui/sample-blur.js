@@ -29,6 +29,7 @@ function saveSetting(on) {
 
 function applySetting(on) {
   document.body.toggleAttribute('data-sample-blur', on);
+  if (on) scheduleScan();
   document.querySelectorAll('input[data-sample-blur-toggle]').forEach((cb) => {
     cb.checked = on;
   });
@@ -65,7 +66,87 @@ function initCipObserver() {
   });
 }
 
+// ───────── ペンデュラム枠判定（イラスト枠の範囲が通常枠と異なるため） ─────────
+// 未発売カードのカード情報APIから pendulum_scale / card_type を引き、
+// .sample-art 要素に data-art-frame="pendulum" を付ける（範囲は sample-blur.css）。
+
+const API_CARD_INFO = '/api/card-info';
+const _pendulumCache = new Map(); // 名前 -> Promise<boolean>
+let _warned = false;
+
+function _warnOnce(msg, err) {
+  if (_warned) return;
+  _warned = true;
+  console.warn(msg, err || '');
+}
+
+/** 名前ごとにキャッシュしたペンデュラム判定。失敗時は false（通常枠のまま） */
+function isPendulumCard(name) {
+  if (!_pendulumCache.has(name)) {
+    const p = fetch(`${API_CARD_INFO}?name=${encodeURIComponent(name)}`)
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((data) => {
+        const info = data && data.kind === 'proxy' ? data.proxy : data;
+        if (!info) return false;
+        return info.pendulum_scale != null || String(info.card_type || '').includes('ペンデュラム');
+      })
+      .catch((err) => {
+        _warnOnce('[sample-blur] ペンデュラム判定に失敗（通常枠のまま表示）', err);
+        _pendulumCache.delete(name); // 一時的な失敗は次回再試行できるようにする
+        return false;
+      });
+    _pendulumCache.set(name, p);
+  }
+  return _pendulumCache.get(name);
+}
+
+/** .sample-art 要素からカード名を取る（盤面・トレイ・スマホセル・情報パネルの包み） */
+function nameOfSampleEl(el) {
+  const own = el.dataset.cardName || el.querySelector('[data-card-name]')?.dataset.cardName;
+  if (own) return own;
+  if (el.classList.contains('cip-img-wrap')) {
+    const t = el.closest('.cip-header')?.querySelector('.cip-name')?.textContent?.trim();
+    if (t && t !== '不明なカード') return t;
+  }
+  return '';
+}
+
+function updateArtFrame(el) {
+  const name = nameOfSampleEl(el);
+  if (!name) return;
+  if (el.dataset.artFrameName === name) return; // 判定済み or 判定中
+  el.dataset.artFrameName = name;
+  el.removeAttribute('data-art-frame');
+  isPendulumCard(name).then((pend) => {
+    if (el.dataset.artFrameName !== name) return; // その間に別カードへ差し替わった
+    if (pend) el.setAttribute('data-art-frame', 'pendulum');
+  });
+}
+
+let _scanQueued = false;
+function scheduleScan() {
+  if (_scanQueued) return;
+  _scanQueued = true;
+  queueMicrotask(() => {
+    _scanQueued = false;
+    // ぼかしオフ時はAPIを叩かない（オンにした時点で判定開始）
+    if (!document.body.hasAttribute('data-sample-blur')) return;
+    document.querySelectorAll('.sample-art').forEach(updateArtFrame);
+  });
+}
+
+function initArtFrameObserver() {
+  // ドロー・ロード・リプレイ・トレイ追加・パネル描画で後から増える要素にも付ける
+  new MutationObserver(scheduleScan).observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['class', 'data-card-name'],
+  });
+}
+
 export function initSampleBlur() {
+  initArtFrameObserver();
   applySetting(loadSetting());
   document.querySelectorAll('input[data-sample-blur-toggle]').forEach((cb) => {
     cb.addEventListener('change', () => {
