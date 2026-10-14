@@ -1,18 +1,19 @@
-// レビュー指摘（Medium）: CACHE_NAME を上げると activate 時に旧キャッシュが全削除され、
-// PRECACHE だけでなく /api/card-image のカード画像キャッシュ（fetchハンドラが
-// CACHE_NAME を使って個別にput/matchしている）も一緒に消えてしまう。
-// PRECACHE の中身を変えるだけならバージョンを上げる必要は無いため 'tcgym-v2' に戻す。
+// カード画像のキャッシュを保持し、アイコンだけ内容ハッシュで更新する。
 const CACHE_NAME = 'tcgym-v2';
-// '/' と '/static/icon-512.png' は以前ここに含めていたが、下の fetch ハンドラで
-// navigate（ページ遷移）リクエストは早期returnしてSWキャッシュ対象外にしているため
-// '/' のキャッシュは一度も参照されない。icon-512.png もPWAインストール時の
-// マニフェスト参照でしか使わず初期表示の高速化に寄与しないため外す。
-const PRECACHE = [
-  '/static/favicon.svg',
-  '/static/favicon-32.png',
-  '/static/apple-touch-icon.png',
-  '/static/icon-192.png',
-];
+// tools/build_icons.py が画像と同時に更新する。
+// BEGIN GENERATED ICON URLS
+const ICON_ASSETS = {
+  "favicon.svg": "/static/favicon.svg?v=199718b87322",
+  "favicon-16.png": "/static/favicon-16.png?v=5e0582f1fbc0",
+  "favicon-32.png": "/static/favicon-32.png?v=7177d19ffdaf",
+  "apple-touch-icon.png": "/static/apple-touch-icon.png?v=ef57391b09f0",
+  "icon-192.png": "/static/icon-192.png?v=731d046325e8",
+  "icon-512.png": "/static/icon-512.png?v=a7552c8ee432",
+  "icon-maskable-192.png": "/static/icon-maskable-192.png?v=760917454e71",
+  "icon-maskable-512.png": "/static/icon-maskable-512.png?v=a473e85ca419"
+};
+// END GENERATED ICON URLS
+const PRECACHE = Object.values(ICON_ASSETS);
 
 // インストール時に基本ファイルをキャッシュ
 self.addEventListener('install', e => {
@@ -23,12 +24,21 @@ self.addEventListener('install', e => {
   );
 });
 
-// 古いキャッシュを削除
+// 同じキャッシュ内の旧アイコンだけ削除し、蓄積済みのカード画像は残す。
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys =>
       Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    ).then(async () => {
+      const cache = await caches.open(CACHE_NAME);
+      const current = new Set(PRECACHE.map(path => new URL(path, self.location.origin).href));
+      const iconPaths = new Set(PRECACHE.map(path => new URL(path, self.location.origin).pathname));
+      const requests = await cache.keys();
+      await Promise.all(requests.filter(req => {
+        const url = new URL(req.url);
+        return url.origin === self.location.origin && iconPaths.has(url.pathname) && !current.has(url.href);
+      }).map(req => cache.delete(req)));
+    }).then(() => self.clients.claim())
   );
 });
 
@@ -39,8 +49,8 @@ self.addEventListener('push', e => {
   e.waitUntil(
     self.registration.showNotification(data.title, {
       body: data.body,
-      icon: '/static/icon-192.png',
-      badge: '/static/favicon-32.png',
+      icon: ICON_ASSETS['icon-192.png'],
+      badge: ICON_ASSETS['favicon-32.png'],
       data: {url: data.url},
       tag: 'price-drop',    // 同じタグの通知は上書きされる（スタック防止）
     })

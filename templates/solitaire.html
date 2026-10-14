@@ -26,7 +26,7 @@
 <link rel="icon" type="image/png" sizes="32x32" href="{{ static_url('favicon-32.png') }}">
 <link rel="icon" type="image/png" sizes="16x16" href="{{ static_url('favicon-16.png') }}">
 <link rel="apple-touch-icon" sizes="180x180" href="{{ static_url('apple-touch-icon.png') }}">
-<link rel="manifest" href="/static/manifest.json">
+<link rel="manifest" href="{{ static_url('manifest.json') }}">
 <meta name="theme-color" content="#101626">
 
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
@@ -62,8 +62,8 @@
     <div class="sol-sidebar-section sol-sidebar-nav">
       <a href="/" class="sol-nav-title">
         <picture>
-          <source srcset="/static/tcgym-icon-small.webp" type="image/webp">
-          <img src="/static/tcgym-icon-small.png" alt="" class="nav-icon">
+          <source srcset="{{ static_url('tcgym-icon-small.webp') }}" type="image/webp">
+          <img src="{{ static_url('tcgym-icon-small.png') }}" alt="" class="nav-icon" width="144" height="176">
         </picture>
         <span class="nav-brand">TC<span class="nav-g">G</span>YM</span>
       </a>
