@@ -375,3 +375,46 @@ def test_bulk_reject_invalid_id_types_returns_400(monkeypatch):
         json={"ids": [1, "abc", {"x": 1}]},
     )
     assert resp.status_code == 400
+
+
+# ──────────────────────────────────────────────
+# 詳細ページ未公開の新商品: 公式商品一覧の発売日で承認時に補完される
+# （resolver 本体は差し替えず、公式ページ取得だけをモックする）
+# ──────────────────────────────────────────────
+
+def _install_real_resolver_with_list_only(monkeypatch, rows):
+    import json
+    import release_date_resolver as resolver
+    fake = _install_fake(monkeypatch, rows)
+    monkeypatch.undo()  # _install_fake の resolver 差し替えを戻す
+    monkeypatch.setattr(admin_module, "_supabase", fake, raising=False)
+    monkeypatch.setattr(admin_module, "_ADMIN_KEY", "test-key", raising=False)
+    list_date = (date.today() + timedelta(days=45))
+    index = "p[1]=" + json.dumps({
+        "title": "商品L", "url": "", "release-date": f"{list_date.year}年{list_date.month}月{list_date.day}日(土)",
+    }, ensure_ascii=False) + ";"
+    monkeypatch.setattr(resolver, "_fetch_html", lambda url: index)
+    resolver._cache.clear()
+    return list_date.isoformat()
+
+
+def test_approve_backfills_from_official_list_without_detail_page(monkeypatch):
+    rows = [{"id": 1, "name": "カードA", "source_url": "", "extraction_raw": {},
+             "status": "pending", "release_date": None, "product_name": "商品L"}]
+    expected = _install_real_resolver_with_list_only(monkeypatch, rows)
+    resp = _client().post("/api/admin/unreleased/1/approve", headers=HEADERS)
+    assert resp.status_code == 200
+    assert resp.get_json()["release_date_note"] == f"発売日を公式商品情報から補完しました: {expected}"
+    assert rows[0]["release_date"] == expected
+
+
+def test_bulk_approve_backfills_from_official_list_without_detail_page(monkeypatch):
+    rows = [{"id": 1, "name": "カードA", "source_url": "", "extraction_raw": {},
+             "status": "pending", "release_date": None, "product_name": "商品L"},
+            {"id": 2, "name": "カードB", "source_url": "", "extraction_raw": {},
+             "status": "pending", "release_date": None, "product_name": "商品L"}]
+    expected = _install_real_resolver_with_list_only(monkeypatch, rows)
+    resp = _client().post("/api/admin/unreleased/bulk-approve", headers=HEADERS, json={"ids": [1, 2]})
+    assert resp.status_code == 200
+    assert resp.get_json()["release_date_backfilled"] == 2
+    assert [r["release_date"] for r in rows] == [expected, expected]

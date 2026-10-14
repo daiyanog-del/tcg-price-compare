@@ -1671,6 +1671,7 @@ const _DATE_REASON_HINTS = {
   '商品名が未指定': '収録商品が空欄です',
   '公式商品一覧に一致する商品がない（付録・特典等は手動確認）': '公式の商品一覧に同じ名前の商品がありません（雑誌付録・特典などは手動で確認してください）',
   '一致商品の独立した公式詳細ページがない': '公式に商品の詳細ページがありません',
+  '公式商品一覧に発売日が完全な年月日で載っていない（詳細ページ未公開）': '公式の商品一覧にまだ発売日が載っていません',
   '同名商品が複数あり詳細ページを一意に選べない': '公式に同じ名前の商品が複数あります',
   '商品名が一致するheader内に発売日の根拠がない': '公式の商品ページに発売日の記載が見つかりません',
 };
@@ -1719,10 +1720,14 @@ function _showRecognitionEvidence(card, editForm) {
   // 手動変更の判定（抽出時の根拠を現在値の保証として扱わない）
   let dateState = null;
   let dateChanged = false;
+  // 記事内の日付を補助採用した場合、抽出時の値は公式値ではなく candidate_date
+  const adoptedFromArticle = !!date && date.adopted_from === 'article'
+    && typeof date.candidate_date === 'string' && date.candidate_date !== '';
   if (date) {
+    const extractedDate = adoptedFromArticle ? date.candidate_date : date.release_date;
     dateChanged = !Object.hasOwn(date, 'product_name')
       || normalized(current('product_name')) !== normalized(date.product_name)
-      || normalized(current('release_date')) !== normalized(date.release_date);
+      || normalized(current('release_date')) !== normalized(extractedDate);
     dateState = dateChanged ? 'manual' : (date.status === 'verified' ? 'ok' : 'review');
   }
   let recState = null;
@@ -1779,7 +1784,9 @@ function _showRecognitionEvidence(card, editForm) {
   // 要確認
   if (dateState === 'review') {
     let text;
-    if (date.status === 'conflict') {
+    if (adoptedFromArticle) {
+      text = `⚠ 発売日は記事内の日付です（公式未確認）：${date.candidate_date}`;
+    } else if (date.status === 'conflict') {
       text = '⚠ 公式情報の中で発売日が食い違っています';
     } else {
       text = '⚠ 発売日を公式サイトで確認できませんでした';

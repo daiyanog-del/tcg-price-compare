@@ -1,5 +1,6 @@
 """抽出失敗の区別、画像とカードの対応、再読と日付根拠を検証する。"""
 import base64
+from datetime import datetime, timedelta
 import io
 import json
 import sys
@@ -35,12 +36,18 @@ def _row():
             'extraction_raw': {'source_image_url': 'https://pbs.twimg.com/test.png', 'card_bbox': [0, 0, 100, 145]}}
 
 
-def _setup(monkeypatch, *, verified=True, answer=None):
+def _jst_date(days):
+    from constants import JST
+    return (datetime.now(JST).date() + timedelta(days=days)).isoformat()
+
+
+def _setup(monkeypatch, *, verified=True, answer=None, status=None):
     import card_crop
     import release_date_resolver
+    status = status or ('verified' if verified else 'unverified')
     monkeypatch.setattr(release_date_resolver, 'resolve_release_date', lambda p: {
-        'status': 'verified' if verified else 'unverified', 'release_date': '2026-10-31' if verified else None,
-        'reason': '公式日付' if verified else '商品不明', 'source_url': 'https://www.yugioh-card.com/japan/products/test/'})
+        'status': status, 'release_date': '2026-10-31' if status == 'verified' else None,
+        'reason': '公式日付' if status == 'verified' else '商品不明', 'source_url': 'https://www.yugioh-card.com/japan/products/test/'})
     monkeypatch.setattr(card_crop, 'refine_card_box', lambda data, box: {'left': 0, 'top': 0, 'right': 1, 'bottom': 1})
     monkeypatch.setattr(card_crop, 'make_level_zoom', lambda data, box: b'zoom')
     monkeypatch.setattr(quality, 'structured_request', lambda *a, **kw: ({'cards': answer if answer is not None else [
@@ -58,10 +65,63 @@ def test_second_read_corrects_count_and_date_with_evidence(monkeypatch):
 
 
 def test_unknown_date_is_not_guessed(monkeypatch):
+    # 候補が過去日（年誤りの典型）なら、公式未確認のまま推測しない
     images = _setup(monkeypatch, verified=False)
     row = quality.enrich_rows([_row()], client=None, model='test', encoded_images=images)[0]
     assert row['release_date'] is None
-    assert row['extraction_raw']['release_date_evidence']['status'] == 'unverified'
+    evidence = row['extraction_raw']['release_date_evidence']
+    assert evidence['status'] == 'unverified'
+    assert 'adopted_from' not in evidence
+
+
+def _enrich_with_candidate(monkeypatch, candidate, **setup):
+    images = _setup(monkeypatch, **setup)
+    row = _row()
+    row['release_date'] = candidate
+    row = quality.enrich_rows([row], client=None, model='test', encoded_images=images)[0]
+    return row, row['extraction_raw']['release_date_evidence']
+
+
+def test_article_date_in_range_is_adopted_when_unverified(monkeypatch):
+    candidate = _jst_date(30)
+    row, evidence = _enrich_with_candidate(monkeypatch, candidate, verified=False)
+    assert row['release_date'] == candidate
+    assert evidence['adopted_from'] == 'article'
+    assert evidence['status'] == 'unverified'
+    assert evidence['release_date'] is None
+
+
+def test_article_date_today_and_limit_are_adopted(monkeypatch):
+    for days in (0, 400):
+        row, evidence = _enrich_with_candidate(monkeypatch, _jst_date(days), verified=False)
+        assert row['release_date'] == _jst_date(days)
+        assert evidence['adopted_from'] == 'article'
+
+
+@pytest.mark.parametrize('days', [-1, -365, 401])
+def test_article_date_out_of_range_is_not_adopted(monkeypatch, days):
+    row, evidence = _enrich_with_candidate(monkeypatch, _jst_date(days), verified=False)
+    assert row['release_date'] is None
+    assert 'adopted_from' not in evidence
+
+
+@pytest.mark.parametrize('candidate', [None, '', '来年', '2026-02-30', 20261231])
+def test_article_date_invalid_is_not_adopted(monkeypatch, candidate):
+    row, evidence = _enrich_with_candidate(monkeypatch, candidate, verified=False)
+    assert row['release_date'] is None
+    assert 'adopted_from' not in evidence
+
+
+def test_article_date_is_not_adopted_on_conflict(monkeypatch):
+    row, evidence = _enrich_with_candidate(monkeypatch, _jst_date(30), status='conflict')
+    assert row['release_date'] is None
+    assert 'adopted_from' not in evidence
+
+
+def test_official_date_wins_over_article_date(monkeypatch):
+    row, evidence = _enrich_with_candidate(monkeypatch, _jst_date(30), verified=True)
+    assert row['release_date'] == '2026-10-31'
+    assert 'adopted_from' not in evidence
 
 
 def test_duplicate_review_ids_fail(monkeypatch):
