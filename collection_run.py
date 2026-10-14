@@ -55,3 +55,27 @@ def record_collection_run(
     except Exception as e:
         logger.warning(f"[collection_run] {run_type} ラン記録失敗（テーブル未作成の可能性）: {e}")
         return False
+
+
+# ホスト名 -> shop_stats 上の店舗名（アクセス回数を既存の shop_stats JSON に載せる対象）
+HOST_TO_SHOP = {"www.torecolo.jp": "トレコロCB"}
+
+
+def attach_host_request_counts(shop_stats: dict, counts: dict) -> list[str]:
+    """scraper.get_host_request_counts() の結果を shop_stats の該当店舗に
+    "requests"（実HTTP送信数）・"skipped"（ブレーカでスキップ数）として足し、
+    終了ログ用の行リストを返す。
+
+    shop_stats は collection_runs.shop_stats（JSON列）にそのまま入るため、スキーマ変更は不要。
+    既存の表示ループは s['ok'] 等しか読まないので追加キーがあっても影響しない。
+    ログにはカウントされた全ホストを出す（店舗に対応しないホストも負担把握のため）。
+    """
+    lines = []
+    for host, c in sorted(counts.items()):
+        lines.append(f"  {host}: リクエスト {c['requests']}回 / ブレーカでスキップ {c['skipped']}回")
+        shop = HOST_TO_SHOP.get(host)
+        if shop:
+            agg = shop_stats.setdefault(shop, {"ok": 0, "empty": 0, "error": 0})
+            agg["requests"] = c["requests"]
+            agg["skipped"] = c["skipped"]
+    return lines

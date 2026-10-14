@@ -10,7 +10,8 @@ tests/test_safe_get.py — safe_get の再試行方針とサーキットブレ�
   当時の safe_get は 403 でも再試行していたため、遮断後の1,451件が実質約2,900
   リクエストになり、店舗側への負荷を倍にしていた。ここでは対処の3点を固定する:
     ① 403（および429以外の4xx）は再試行しない
-    ② 5xx・429・接続エラーは従来どおり再試行する
+    ② 5xx・429・接続エラー・タイムアウトは従来どおり再試行する（トレコロのみ2026-10-14から
+       タイムアウト・接続エラーを再試行しない。⑤参照）
     ③ 連続403が閾値に達したホストは一定時間スキップし、叩き続けない
        （app.py は常駐プロセスのため、恒久ブロックではなくTTLで自動復帰させる）
 
@@ -60,6 +61,8 @@ class _FakeSession:
         status = self._statuses[min(len(self.calls) - 1, len(self._statuses) - 1)]
         if status == 0:
             raise requests.ConnectionError("boom")
+        if status == -1:
+            raise requests.ReadTimeout("timed out")
         return _FakeResponse(status, url=self.final_url or url)
 
 
@@ -67,6 +70,7 @@ class _FakeSession:
 def _reset_state(monkeypatch):
     """モジュールレベルの状態（セッション・ホストブロック）をテストごとに初期化する"""
     scraper._host_block.clear()
+    scraper.reset_host_request_counts()
     scraper._session = None
     scraper._reset_fetch_errors()
     # 再試行時の sleep(2) でテストを待たせない
@@ -117,6 +121,36 @@ def test_connection_error_retries(monkeypatch):
     fake = _install(monkeypatch, [0])
     assert scraper.safe_get(URL) is None
     assert len(fake.calls) == 2
+
+
+def test_timeout_retries_on_other_hosts(monkeypatch):
+    fake = _install(monkeypatch, [-1])
+    assert scraper.safe_get(URL) is None
+    assert len(fake.calls) == 2, "トレコロ以外は従来どおりタイムアウトでも再試行する"
+
+
+def test_timeout_does_not_count_toward_block_on_other_hosts(monkeypatch):
+    _install(monkeypatch, [-1])
+    for _ in range(scraper._HOST_BLOCK_THRESHOLD + 2):
+        scraper.safe_get(URL)
+    assert not scraper._is_host_blocked(scraper._host_of(URL)), "他ホストのブレーカは403のみ"
+
+
+def test_torecolo_timeout_does_not_retry(monkeypatch):
+    fake = _install(monkeypatch, [-1])
+    assert scraper.safe_get(TORECOLO_URL) is None
+    assert len(fake.calls) == 1, "トレコロはタイムアウトを再試行しない"
+    assert scraper._get_fetch_errors() == 1, "取得失敗として数える"
+
+
+def test_torecolo_connection_error_still_retries_and_not_counted(monkeypatch):
+    """keep-alive切れ等の接続エラーは従来どおり再試行し、ブレーカの連続カウントに入れない"""
+    fake = _install(monkeypatch, [0])
+    assert scraper.safe_get(TORECOLO_URL) is None
+    assert len(fake.calls) == 2
+    for _ in range(scraper._HOST_BLOCK_THRESHOLD + 2):
+        scraper.safe_get(TORECOLO_URL)
+    assert not scraper._is_host_blocked("www.torecolo.jp")
 
 
 def test_retry_succeeds_on_second_attempt(monkeypatch):
@@ -219,3 +253,50 @@ def test_waf_error403_redirect_is_failure(monkeypatch):
     assert len(fake.calls) == 1, "WAF拒否は再試行しない"
     assert scraper._get_fetch_errors() == 1, "取得失敗として数える（キャッシュ・履歴に0件で載せない）"
     assert scraper._host_block["www.torecolo.jp"]["streak"] == 1, "403として記録される"
+
+
+# ── ⑤ 連続タイムアウトでもホストを一時停止する／アクセス回数の記録 ──
+
+def test_host_blocked_after_consecutive_timeouts(monkeypatch):
+    fake = _install(monkeypatch, [-1])
+    for _ in range(scraper._HOST_BLOCK_THRESHOLD):
+        scraper.safe_get(TORECOLO_URL)
+    assert len(fake.calls) == scraper._HOST_BLOCK_THRESHOLD  # 再試行なしなので1検索1リクエスト
+
+    scraper._reset_fetch_errors()
+    assert scraper.safe_get(TORECOLO_URL) is None
+    assert len(fake.calls) == scraper._HOST_BLOCK_THRESHOLD, "閾値到達後はネットワークに出ない"
+    assert scraper._get_fetch_errors() == 1, "スキップ中も取得失敗として数える（在庫なし扱いにしない）"
+
+
+def test_timeout_streak_reset_by_success(monkeypatch):
+    fake = _install(monkeypatch, [-1, -1, 200] + [-1] * 10)
+    scraper.safe_get(TORECOLO_URL)
+    scraper.safe_get(TORECOLO_URL)
+    assert scraper.safe_get(TORECOLO_URL) is not None
+    before = len(fake.calls)
+    for _ in range(scraper._HOST_BLOCK_THRESHOLD - 1):
+        scraper.safe_get(TORECOLO_URL)
+    assert len(fake.calls) == before + scraper._HOST_BLOCK_THRESHOLD - 1
+
+
+def test_500_does_not_count_toward_block(monkeypatch):
+    """5xx はブレーカの連続カウントに入れない（従来どおり）"""
+    fake = _install(monkeypatch, [500])
+    for _ in range(scraper._HOST_BLOCK_THRESHOLD):
+        scraper.safe_get(URL)
+    assert not scraper._is_host_blocked(scraper._host_of(URL))
+
+
+def test_host_request_counts(monkeypatch):
+    """再試行は1回ずつ数え、ブレーカでのスキップは別カウント"""
+    _install(monkeypatch, [500])  # 5xx は再試行あり＝1検索で2リクエスト
+    scraper.safe_get(TORECOLO_URL)
+    assert scraper.get_host_request_counts()["www.torecolo.jp"] == {"requests": 2, "skipped": 0}
+
+    scraper.reset_host_request_counts()
+    _install(monkeypatch, [-1])
+    for _ in range(scraper._HOST_BLOCK_THRESHOLD + 2):
+        scraper.safe_get(TORECOLO_URL)
+    c = scraper.get_host_request_counts()["www.torecolo.jp"]
+    assert c == {"requests": scraper._HOST_BLOCK_THRESHOLD, "skipped": 2}

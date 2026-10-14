@@ -107,3 +107,22 @@ class TestRecordFailureDoesNotRaise:
                 attempted_shops=[], available_shops=[],
             )
         assert any("記録失敗" in rec.message for rec in caplog.records)
+
+
+class TestAttachHostRequestCounts:
+    def test_adds_counts_to_torecolo_shop_stats_and_returns_log_lines(self):
+        from collection_run import attach_host_request_counts
+        stats = {"トレコロCB": {"ok": 3, "empty": 1, "error": 0}}
+        lines = attach_host_request_counts(
+            stats, {"www.torecolo.jp": {"requests": 10, "skipped": 4},
+                    "www.cardrush.jp": {"requests": 5, "skipped": 0}})
+        assert stats["トレコロCB"] == {"ok": 3, "empty": 1, "error": 0, "requests": 10, "skipped": 4}
+        assert "カードラッシュ" not in stats, "店舗対応の無いホストは shop_stats に足さない"
+        assert any("www.torecolo.jp" in l and "10" in l and "4" in l for l in lines)
+        assert any("www.cardrush.jp" in l for l in lines)
+
+    def test_creates_zero_entry_when_shop_absent(self):
+        from collection_run import attach_host_request_counts
+        stats = {}
+        attach_host_request_counts(stats, {"www.torecolo.jp": {"requests": 0, "skipped": 2}})
+        assert stats["トレコロCB"]["ok"] == 0 and stats["トレコロCB"]["skipped"] == 2

@@ -36,6 +36,15 @@ HOST_HEADER_OVERRIDES = {
         "User-Agent": "TCGYM/1.0 (+https://tcg-price-compare.onrender.com)",
     },
 }
+# 混雑時に再試行せず、連続タイムアウトでホストを一時停止する対象ホスト。
+# 2026-10-11 トレコロが負荷で応答しなくなり（Read timed out 427件）、その最中も
+# 再試行が負担を上乗せしていたため、トレコロ（ユーザー承認範囲）に限って適用する。
+# 対象は requests.Timeout（ReadTimeout/ConnectTimeout）のみ。ConnectionError
+# （共有Sessionのkeep-alive切れ由来の Connection aborted / RemoteDisconnected 等）は
+# 10-11の事象に無く、再試行で通るため従来どおり再試行し、連続カウントにも入れない
+# （無再試行にすると途中ページ欠けの「成功」保存が増える）。
+# 他ホストは従来どおり（接続エラー/タイムアウトは再試行、ブレーカは403のみ）。
+NO_RETRY_ON_TIMEOUT_HOSTS = {"www.torecolo.jp"}
 # WAFの拒否ページ（200で返るため status では検知できない）の最終URLパス
 _WAF_DENY_PATH = "/CustomError/error403"
 WAIT_SEC = 1.0
@@ -195,13 +204,39 @@ def _get_fetch_errors() -> int:
 #   ③ 連続403が閾値を超えたホストは一定時間スキップする（叩き続けない）
 #      TTLを設けるのは app.py が常駐プロセスで、恒久ブロックだと
 #      ライブ検索が再起動まで復旧しなくなるため
+#   ④ 2026-10-14 追加: NO_RETRY_ON_TIMEOUT_HOSTS（トレコロのみ）では、タイムアウト
+#      （requests.Timeout）を再試行せず、403と同じ連続カウントに数える
+#      （理由は同定数のコメント）。接続エラーは対象外（keep-alive切れ等は再試行で通る）
 _HOST_BLOCK_THRESHOLD = 5
 _HOST_BLOCK_TTL_SEC = 1800
 
 _session_lock = _threading.Lock()
 _session: "requests.Session | None" = None
 _host_block_lock = _threading.Lock()
-_host_block: dict = {}  # {host: {"streak": 連続403数, "until": 解除時刻(epoch秒)}}
+_host_block: dict = {}  # {host: {"streak": 連続403/タイムアウト等の数, "until": 解除時刻(epoch秒)}}
+
+# ホスト別のアクセス回数（負担の記録用。収集ジョブ終了時にログ・collection_runs へ出す）
+#   requests: 実際にHTTPリクエストを送った回数（再試行も1回と数える）
+#   skipped : サーキットブレーカで送らずにスキップした回数
+_host_counts_lock = _threading.Lock()
+_host_counts: dict = {}  # {host: {"requests": int, "skipped": int}}
+
+
+def _count_host(host: str, key: str):
+    with _host_counts_lock:
+        c = _host_counts.setdefault(host, {"requests": 0, "skipped": 0})
+        c[key] += 1
+
+
+def get_host_request_counts() -> dict:
+    """ホスト別のアクセス回数のスナップショット {host: {"requests": n, "skipped": m}} を返す"""
+    with _host_counts_lock:
+        return {h: dict(c) for h, c in _host_counts.items()}
+
+
+def reset_host_request_counts():
+    with _host_counts_lock:
+        _host_counts.clear()
 
 
 def _get_session() -> requests.Session:
@@ -232,7 +267,8 @@ def _is_host_blocked(host: str) -> bool:
 
 
 def _note_host_result(host: str, forbidden: bool):
-    """403の連続回数を数え、閾値に達したホストを一定時間スキップ対象にする"""
+    """403・タイムアウト・接続エラー（forbidden=True）の連続回数を数え、
+    閾値に達したホストを一定時間スキップ対象にする。成功・その他の失敗でリセットする"""
     with _host_block_lock:
         st = _host_block.setdefault(host, {"streak": 0, "until": 0})
         if not forbidden:
@@ -242,7 +278,7 @@ def _note_host_result(host: str, forbidden: bool):
         if st["streak"] >= _HOST_BLOCK_THRESHOLD and st["until"] <= 0:
             st["until"] = time.time() + _HOST_BLOCK_TTL_SEC
             print(
-                f"  ⛔ {host}: 403が{st['streak']}回連続。"
+                f"  ⛔ {host}: 403/タイムアウト等が{st['streak']}回連続。"
                 f"{_HOST_BLOCK_TTL_SEC // 60}分間このホストへのリクエストを停止します"
             )
 
@@ -250,11 +286,13 @@ def _note_host_result(host: str, forbidden: bool):
 def safe_get(url: str, timeout: int = 15, retries: int = 1) -> BeautifulSoup | None:
     host = _host_of(url)
     if _is_host_blocked(host):
+        _count_host(host, "skipped")
         _note_fetch_error()
         return None
 
     for attempt in range(1 + retries):
         try:
+            _count_host(host, "requests")
             res = _get_session().get(
                 url, timeout=timeout, headers=HOST_HEADER_OVERRIDES.get(host)
             )
@@ -270,10 +308,17 @@ def safe_get(url: str, timeout: int = 15, retries: int = 1) -> BeautifulSoup | N
             return BeautifulSoup(res.text, "html.parser")
         except requests.RequestException as e:
             status = getattr(e.response, "status_code", None)
-            _note_host_result(host, forbidden=(status == 403))
+            # 対象ホストのタイムアウトは相手が混雑しているサインなので、
+            # 403と同じ連続失敗として数える
+            no_response = host in NO_RETRY_ON_TIMEOUT_HOSTS and isinstance(e, requests.Timeout)
+            _note_host_result(host, forbidden=(status == 403 or no_response))
             # 403（アクセス拒否）は再試行しても通らない。他の4xxも同様なので、
-            # 一時的な過負荷を示す429だけは従来どおり再試行する
-            no_retry = status is not None and 400 <= status < 500 and status != 429
+            # 一時的な過負荷を示す429だけは従来どおり再試行する。
+            # 対象ホストのタイムアウトも再試行しない（混雑中のホストへ負担を上乗せしない）。
+            # 5xx は一時的なサーバ側エラーで再試行すれば通る見込みがあるため従来どおり再試行する
+            no_retry = no_response or (
+                status is not None and 400 <= status < 500 and status != 429
+            )
             if attempt < retries and not no_retry:
                 # 根拠不明（導入: abe83370 2026-03-05、理由の記録なし。初回一括アップロードで既に存在）
                 time.sleep(2)
