@@ -19,7 +19,8 @@ export function setCardName(imgEl, name) {
  * カード名と画像URLを直接指定してカード詳細パネルを表示する。
  * 相手の想定妨害トレイなど、委譲クリックを使わないカードから呼ぶ。
  */
-export function showCardByName(name, imgSrc) {
+export function showCardByName(name, imgSrc, source) {
+  _setSampleFlag(source === 'official_sample');
   if (name) {
     _fetchAndShow(name, imgSrc || '');
   } else {
@@ -46,6 +47,7 @@ export function initCardInfoPanel() {
     const cardEl = e.target.closest('.tier-item');
     if (!cardEl) return;
     const name = cardEl.dataset.cardName;
+    _setSampleFlag(!!cardEl.closest('.sample-art'));
     // プロキシカードは src がないため空文字または undefined になる
     const imgSrc = cardEl.src || '';
     if (name) {
@@ -61,6 +63,12 @@ export function initCardInfoPanel() {
 }
 
 // ── 内部処理 ──────────────────────────────────────
+
+/** 表示対象が未発売SAMPLE画像かを明示フラグで持つ（sample-blur.js が .cip-img を包む判定に使う。URL一致の補助） */
+function _setSampleFlag(isSample) {
+  const panel = document.getElementById('cardInfoPanel');
+  if (panel) panel.dataset.sample = isSample ? '1' : '';
+}
 
 async function _fetchAndShow(name, imgSrc) {
   _showLoading(name, imgSrc);

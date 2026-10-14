@@ -36,9 +36,12 @@ function getCardsFromSlot(slot) {
       //
       // ロード時は restoreCardsToSlot で card:// を検出して /api/card-images で
       // 現時点の解決結果に変換する（発売後は正規画像、画像削除後はプロキシ）。
+      //   未発売SAMPLE画像（wrapper に sample-art）: 名前があれば 'card://カード名'
+      //     （ロード時に再解決。発売後は自動でクリーン画像になる）。名前が無ければ実URL＋source で保存。
+      const isSample = wrapper.classList.contains('sample-art');
       let src;
       if (cardEl.tagName === 'IMG') {
-        src = cardEl.src || '';
+        src = (isSample && cardName) ? `card://${cardName}` : (cardEl.src || '');
       } else {
         // div.tier-item（プロキシカード）: カード名があれば card:// センチネルで保存
         src = cardName ? `card://${cardName}` : '';
@@ -51,6 +54,8 @@ function getCardsFromSlot(slot) {
         style:    wrapper.getAttribute('style') || '',
         cardName,
         state,   // { orientation, face }
+        // 旧セーブデータには無いキー（省略時は従来どおり発売済み扱い）
+        ...(isSample ? { source: 'official_sample' } : {}),
       });
     }
   });
@@ -282,7 +287,9 @@ async function restoreCardsToSlot(slot, cards) {
       img.id = cardData.id.split(' ')[0];
       if (cardData.cardName) img.dataset.cardName = cardData.cardName;
       cardEl = img;
-      wrapper.classList.add('wm-released');
+      // 実URL保存のSAMPLE（名前なし）は source で判別。旧データ（source無し）は発売済みクリーン画像
+      if (cardData.source === 'official_sample') wrapper.classList.add('sample-art');
+      else wrapper.classList.add('wm-released');
     }
 
     // イベントリスナーを再設定（dblclick による効果発動含む）

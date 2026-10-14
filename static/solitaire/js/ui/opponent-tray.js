@@ -123,11 +123,13 @@ async function addDisruptionCard(name) {
   if (!emptySlot) return; // 5スロット満杯
 
   let src = null;
+  let source = '';
   try {
     const res = await fetch(`/api/card-image?name=${encodeURIComponent(name)}`);
     if (res.ok) {
       const data = await res.json();
       src = data.url || data.image_url || null;
+      source = data.source || '';
     }
   } catch {
     // 画像取得失敗は無視（カードを追加しない）
@@ -135,7 +137,7 @@ async function addDisruptionCard(name) {
 
   if (!src) return;
 
-  _placeCard(emptySlot, name, src, false);
+  _placeCard(emptySlot, name, src, false, source);
   _persist();
 }
 
@@ -145,11 +147,14 @@ async function addDisruptionCard(name) {
  * @param {string}      name  カード名
  * @param {string}      src   画像URL
  * @param {boolean}     used  使用済み状態
+ * @param {string}      source 画像の出所（'official_sample' = 未発売SAMPLE。イラストぼかし設定の対象）
  */
-function _placeCard(slot, name, src, used) {
+function _placeCard(slot, name, src, used, source) {
   // 既存コンテンツをクリア
   slot.innerHTML = '';
   slot.classList.add('filled');
+  slot.classList.toggle('sample-art', source === 'official_sample');
+  slot.dataset.source = source || '';
   if (used) {
     slot.classList.add('opp-used');
     slot.dataset.used = '1';
@@ -170,7 +175,7 @@ function _placeCard(slot, name, src, used) {
   // シングルクリック → カード詳細パネルを更新
   img.addEventListener('click', (e) => {
     e.stopPropagation();
-    showCardByName(name, src);
+    showCardByName(name, src, source);
   });
 
   // ダブルクリック → 発動アニメーション → 使用済みマーク
@@ -204,8 +209,9 @@ function _placeCard(slot, name, src, used) {
 /** スロットを空に戻す */
 function _clearSlot(slot) {
   slot.innerHTML = '';
-  slot.classList.remove('filled', 'opp-used');
+  slot.classList.remove('filled', 'opp-used', 'sample-art');
   slot.dataset.used = '';
+  slot.dataset.source = '';
 }
 
 /** 最初の空スロットを返す（満杯時は null） */
@@ -371,6 +377,7 @@ function _persist() {
         name: img.dataset.cardName || '',
         src: img.src,
         used: slot.dataset.used === '1',
+        source: slot.dataset.source || '',
       });
     } else {
       cards.push(null); // 空スロット
@@ -426,7 +433,7 @@ function _restore() {
   const slots = document.querySelectorAll('.opp-slot');
   state.cards.forEach((card, i) => {
     if (!card || !slots[i]) return;
-    _placeCard(slots[i], card.name, card.src, card.used);
+    _placeCard(slots[i], card.name, card.src, card.used, card.source);
   });
 
   // 復元後にトレイ高さが確定するため、カード詳細パネルを再配置

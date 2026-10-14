@@ -4,7 +4,7 @@
  * 中央に横書きで重ね、「明確に非公式」を示す。Konami の "SAMPLE" は模倣しない。
  *
  * テキスト欄の範囲（実カード画像 480x700 で実測。通常/効果/リンク/魔法罠/ペンデュラムで共通）:
- *   x 7%〜93%（幅86%）・y 75%〜94%（高さ19%）。ペンデュラム枠も下段の効果欄は同位置。
+ *   x 7%〜93%（幅86%）・y 75%〜94%（高さ19%・中心84.5%）。ペンデュラム枠も下段の効果欄は同位置。
  *
  * 適用範囲（描画側で .wm-released クラスを付与した要素のみ）:
  *   - 検索 hero 画像（#heroImgWrap = .card-hero-img）
@@ -28,12 +28,18 @@
 [data-self-wm] .wm-released::before {
   content: "TCGYM";
   position: absolute;
-  /* 効果テキスト欄: 上75% / 右7% / 下6%（=94%まで） / 左7% */
-  inset: 75% 7% 6% 7%;
+  /* wrapper 全体に敷く（守備表示の90度回転を img と同じ transform で追従させるため。
+     sample-blur.css と同じ方式）。文字は内側でテキスト欄の位置に置く */
+  inset: 0;
   z-index: 2;                 /* img(1) より上・裏面オーバーレイ(3) より下 */
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
+  /* 文字の縦中心をテキスト欄の中心（高さの84.5%）に合わせる。
+     縦のパーセントは幅基準でしか書けないため、カード縦横比 1.455 を使い cqw で指定:
+     84.5% × 1.455 × 100cqw − 文字高(15cqw)/2 ≒ 115.4cqw */
+  padding-top: 115.4cqw;
+  box-sizing: border-box;
   font-weight: 700;
   /* 欄の高さ=カード幅の約27.7%。文字高15cqw・幅約48cqwで欄内に収まる。非対応環境は固定px */
   font-size: 9px;
@@ -47,6 +53,13 @@
   overflow: hidden;
   pointer-events: none;       /* クリック・ドラッグを阻害しない */
   user-select: none;
+  transition: transform 0.3s ease-in-out;  /* img と同じ */
+}
+
+/* 守備表示: img(.tier-item)と同じ90度回転に追従（components.css の .is-defense .tier-item） */
+[data-self-wm] .tier-item-wrapper.is-defense.wm-released::before {
+  transform: rotate(90deg);
+  transform-origin: center center;
 }
 
 /* 裏面（セット）カードには透かしを出さない */

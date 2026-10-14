@@ -37,7 +37,7 @@ function applySetting(on) {
 /** 盤面にある .sample-art カードと同じ画像URLか（カード情報パネルの判定用） */
 function isSampleSrc(src) {
   if (!src) return false;
-  for (const img of document.querySelectorAll('.sample-art > img.tier-item')) {
+  for (const img of document.querySelectorAll('.sample-art > img.tier-item, .sample-art > img.opp-card-img')) {
     if (img.src === src) return true;
   }
   return false;
@@ -47,7 +47,8 @@ function isSampleSrc(src) {
 function wrapSampleCipImages(root) {
   root.querySelectorAll('img.cip-img').forEach((img) => {
     if (img.parentElement?.classList.contains('cip-img-wrap')) return;
-    if (!isSampleSrc(img.src)) return;
+    // 明示フラグ（パネルの data-sample）または盤面・トレイの .sample-art 画像とのURL一致
+    if (root.dataset.sample !== '1' && !isSampleSrc(img.src)) return;
     const wrap = document.createElement('span');
     wrap.className = 'cip-img-wrap sample-art';
     img.replaceWith(wrap);

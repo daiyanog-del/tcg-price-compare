@@ -31,6 +31,18 @@ import { loadDeckFromNeuron, clearEverything } from './ui/deck-input-panel.js';
 import { receiveDeckHandoff } from '../../shared/deck-handoff.js';
 
 /**
+ * リプレイ画像辞書に登録する src を決める。
+ * 未発売SAMPLE（wrapper に sample-art）で名前があれば 'card://カード名'（再生時に再解決＝発売後はクリーン画像）。
+ * それ以外は従来どおり実URL / プロキシのセンチネル。
+ */
+function registrySrcOf(cardEl) {
+  const wrapper = cardEl.closest?.('.tier-item-wrapper');
+  const name = cardEl.dataset?.cardName;
+  if (wrapper?.classList.contains('sample-art') && name) return `card://${name}`;
+  return cardEl.src || cardEl.dataset?.proxySrc || '';
+}
+
+/**
  * カード追加時にリプレイ画像辞書へ登録するフック
  * MutationObserver でプールの変化を監視し cardId→src を登録
  */
@@ -49,7 +61,7 @@ function initCardImageRegistration() {
             // プロキシは src がないため 'proxy:カード名' センチネルを使う
             // （deck-input-panel.js が registerCardImage を呼ぶ前に MutationObserver が
             //   先に発火した場合のフォールバック。実際は deck-input-panel.js の方が先）
-            const src = cardEl.src || cardEl.dataset?.proxySrc || '';
+            const src = registrySrcOf(cardEl);
             if (src) registerCardImage(cardEl.id, src);
             if (poolId === 'poolRow2') registerCardIsEx(cardEl.id);
           }
@@ -339,7 +351,7 @@ async function initializeApp() {
     // 復元したカードをリプレイ画像辞書に登録
     // img.tier-item（発売済み）または div.tier-item（プロキシ）どちらも .tier-item で取れる
     document.querySelectorAll('.tier-item').forEach(cardEl => {
-      const src = cardEl.src || cardEl.dataset?.proxySrc || '';
+      const src = registrySrcOf(cardEl);
       if (cardEl.id && src) {
         registerCardImage(cardEl.id, src);
         const wrapper = cardEl.closest('.tier-item-wrapper');
