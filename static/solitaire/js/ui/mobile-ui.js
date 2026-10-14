@@ -678,6 +678,8 @@ function _buildDeckCell(wrapper) {
   // self-watermark.css の [data-self-wm] .wm-released::before は position:relative の
   // 祖先に依存するが .sol-mobile-deck-cell は既に position:relative なのでそのまま効く。
   if (wrapper.classList.contains('wm-released')) cell.classList.add('wm-released');
+  // 未発売SAMPLE画像のイラストぼかし（sample-blur.css）。.sol-mobile-deck-cell は position:relative 済み
+  if (wrapper.classList.contains('sample-art')) cell.classList.add('sample-art');
 
   if (src) {
     const thumb = document.createElement('img');

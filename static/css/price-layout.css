@@ -7,7 +7,6 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
 .price-redesign .brand-name{font-size:28px}
 .price-redesign .brand-g{color:#f3ce46}
 .price-redesign .brand-beta{font-size:10px}
-.price-redesign .brand-tagline{font-size:8px;letter-spacing:1px;color:#a8b4c9}
 .price-redesign .mode-tabs{display:flex;align-items:center;flex:1;align-self:stretch;max-width:none;gap:18px;margin:0;justify-content:flex-start;flex-wrap:nowrap}
 .price-redesign .mode-tab,.price-redesign .header-solo-link{display:inline-flex;align-items:center;justify-content:center;position:static;flex:0 0 auto;min-width:0;min-height:50px;margin:0;padding:8px 0 18px;border:0;border-bottom:2px solid transparent;border-radius:0;background:none;box-shadow:none;color:#a8b4c9;font:700 12px var(--font);white-space:nowrap;text-decoration:none}
 .price-redesign .mode-tab:hover,.price-redesign .header-solo-link:hover{color:#eff3fb;background:none;border-color:transparent}

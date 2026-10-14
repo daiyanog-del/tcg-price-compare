@@ -33,6 +33,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Bungee&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/main.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/self-watermark.css') }}">
+<link rel="stylesheet" href="{{ static_url('solitaire/css/sample-blur.css') }}">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/site-theme.css') }}">
 <!-- import map: solitaire/js・shared 配下の相対importを内容ハッシュ付きURLへ写像する
      （静的な相対specifierはstatic_url()を通せないため、ここでブラウザ解決を上書きする）。
@@ -388,6 +389,10 @@
             <button type="button" class="sol-mobile-menu-item" data-menu-action="load">盤面ロード</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="reset">リセット&amp;5ドロー</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="clearall">すべて消去（デッキ・盤面・記録）</button>
+            <label class="sol-mobile-menu-item sol-sample-blur-toggle">
+              <input type="checkbox" id="solMobileSampleBlurToggle" data-sample-blur-toggle>
+              <span>未発売カードのイラストをぼかす</span>
+            </label>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="coin">コイントス</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="dice">ダイスロール</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="opptray">
@@ -534,6 +539,14 @@
           <button id="randomButton" class="action-btn draw-btn">1ドロー</button>
           <button id="resetButton"  class="action-btn reset-btn">リセット&amp;5ドロー</button>
         </div>
+      </div>
+
+      <div class="sol-right-section">
+        <p class="sol-right-heading">表示</p>
+        <label class="sol-sample-blur-toggle">
+          <input type="checkbox" id="solSampleBlurToggle" data-sample-blur-toggle>
+          <span>未発売カードのイラストをぼかす</span>
+        </label>
       </div>
 
       <div class="sol-right-section">

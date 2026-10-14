@@ -19,6 +19,7 @@ import { registerCardImage, registerCardIsEx } from './services/replay-service.j
 import { initTokenGenerator } from './ui/token-generator.js';
 import { initRandomTools } from './ui/random-tools.js';
 import { initCardInfoPanel } from './ui/card-info-panel.js';
+import { initSampleBlur } from './ui/sample-blur.js';
 import { saveSessionResume, loadSessionResume } from './services/save-load-service.js';
 import { initOpponentTray, updateCipWidth } from './ui/opponent-tray.js';
 import { initFeedbackModal } from './ui/feedback-modal.js';
@@ -299,6 +300,9 @@ async function initializeApp() {
 
   // カード詳細パネル初期化
   initCardInfoPanel();
+
+  // 未発売SAMPLE画像のぼかし設定（localStorage復元・トグル配線）
+  initSampleBlur();
 
   // 相手の想定妨害ミニ盤面を初期化
   initOpponentTray();
