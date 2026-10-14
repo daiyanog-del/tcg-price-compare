@@ -595,6 +595,18 @@ a:hover {
   border-radius: var(--radius);
 }
 
+/* 自動クロップ済みの控えめな注記（警告色は使わない） */
+.edit-source-image__auto-note {
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--main-color) 55%, var(--border) 45%);
+}
+
+.edit-source-image__auto-note[hidden] {
+  display: none;
+}
+
 /* プロキシプレビュー */
 .edit-preview {
   width: 400px;
