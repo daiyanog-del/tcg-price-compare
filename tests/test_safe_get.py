@@ -31,9 +31,10 @@ import scraper
 
 
 class _FakeResponse:
-    def __init__(self, status_code: int, text: str = "<html><body>ok</body></html>"):
+    def __init__(self, status_code: int, text: str = "<html><body>ok</body></html>", url: str = ""):
         self.status_code = status_code
         self.text = text
+        self.url = url
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -49,14 +50,17 @@ class _FakeSession:
         # statuses: 返すステータスコードのリスト（尽きたら最後の値を繰り返す）
         self._statuses = list(statuses)
         self.calls = []
+        self.call_headers = []  # get() に渡されたヘッダ上書き
+        self.final_url = None   # リダイレクト後の最終URL（None なら要求URLのまま）
         self.headers = {}
 
-    def get(self, url, timeout=None):
+    def get(self, url, timeout=None, headers=None):
         self.calls.append(url)
+        self.call_headers.append(headers)
         status = self._statuses[min(len(self.calls) - 1, len(self._statuses) - 1)]
         if status == 0:
             raise requests.ConnectionError("boom")
-        return _FakeResponse(status)
+        return _FakeResponse(status, url=self.final_url or url)
 
 
 @pytest.fixture(autouse=True)
@@ -189,3 +193,29 @@ def test_session_is_reused():
     second = scraper._get_session()
     assert first is second, "毎回新しいセッションを作ると店舗側にセッションが大量生成される"
     assert first.headers.get("User-Agent") == scraper.HEADERS["User-Agent"]
+
+
+# ── ④ トレコロ宛てだけUAを名乗り直す／WAF拒否ページへのリダイレクトは失敗扱い ──
+# 2026-10-14: WAFが Chrome/120 等のUAを遮断し error403.html へ200で飛ばす事象への対処
+
+TORECOLO_URL = "https://www.torecolo.jp/shop/goods/search.aspx?search=x&keyword=test"
+
+
+def test_torecolo_gets_own_user_agent_only(monkeypatch):
+    fake = _install(monkeypatch, [200])
+    assert scraper.safe_get(TORECOLO_URL) is not None
+    assert fake.call_headers[-1] == {
+        "User-Agent": "TCGYM/1.0 (+https://tcg-price-compare.onrender.com)"
+    }
+    # 他ホストは上書きなし（共有Sessionの既存UAのまま）
+    assert scraper.safe_get(URL) is not None
+    assert fake.call_headers[-1] is None
+
+
+def test_waf_error403_redirect_is_failure(monkeypatch):
+    fake = _install(monkeypatch, [200])
+    fake.final_url = "https://www.torecolo.jp/CustomError/error403.html"
+    assert scraper.safe_get(TORECOLO_URL) is None
+    assert len(fake.calls) == 1, "WAF拒否は再試行しない"
+    assert scraper._get_fetch_errors() == 1, "取得失敗として数える（キャッシュ・履歴に0件で載せない）"
+    assert scraper._host_block["www.torecolo.jp"]["streak"] == 1, "403として記録される"

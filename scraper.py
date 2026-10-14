@@ -27,6 +27,17 @@ HEADERS = {
         "Chrome/120.0.0.0 Safari/537.36"
     )
 }
+# ホスト別のヘッダ上書き（共通 HEADERS・共有Session自体は変えず、リクエスト時だけ渡す）。
+# 2026-10-14: トレコロ前段のWAFが Chrome/120 等の一般ブラウザUAを遮断し、
+# /CustomError/error403.html へ HTTP 200 でリダイレクトする（全カード0件になった）。
+# 遮断回避のための別ブラウザ偽装はせず、トレコロ宛てだけ正体を明かして名乗る。
+HOST_HEADER_OVERRIDES = {
+    "www.torecolo.jp": {
+        "User-Agent": "TCGYM/1.0 (+https://tcg-price-compare.onrender.com)",
+    },
+}
+# WAFの拒否ページ（200で返るため status では検知できない）の最終URLパス
+_WAF_DENY_PATH = "/CustomError/error403"
 WAIT_SEC = 1.0
 DEBUG_DUMP_HTML = False
 
@@ -244,8 +255,17 @@ def safe_get(url: str, timeout: int = 15, retries: int = 1) -> BeautifulSoup | N
 
     for attempt in range(1 + retries):
         try:
-            res = _get_session().get(url, timeout=timeout)
+            res = _get_session().get(
+                url, timeout=timeout, headers=HOST_HEADER_OVERRIDES.get(host)
+            )
             res.raise_for_status()
+            # WAFの拒否ページへ200でリダイレクトされた場合は403相当の失敗として扱う
+            # （商品0件のHTMLを「在庫なし」と誤認してキャッシュ・履歴に載せないため。再試行もしない）
+            if _WAF_DENY_PATH in urllib.parse.urlsplit(str(getattr(res, "url", "") or "")).path:
+                _note_host_result(host, forbidden=True)
+                _note_fetch_error()
+                print(f"  ❌ 取得失敗: {host} のWAFに拒否されました（{res.url}）")
+                return None
             _note_host_result(host, forbidden=False)
             return BeautifulSoup(res.text, "html.parser")
         except requests.RequestException as e:
