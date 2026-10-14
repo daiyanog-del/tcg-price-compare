@@ -589,6 +589,9 @@ function _renderPendingList(listEl, cards) {
       linkEl.href = card.card_image_url;
       // 抽出元画像がある場合のみタブを表示
       editForm.querySelector('.edit-media-tab[data-media="source"]').hidden = false;
+      // 自動クロップ済みなら控えめな注記を出す
+      const autoNote = sourceImageWrap.querySelector('.edit-source-image__auto-note');
+      if (autoNote && card.crop_state && card.crop_state.mode === 'auto') autoNote.hidden = false;
     }
     _wireMediaTabs(editForm);
     // 抽出元画像があればそれを、無ければプロキシ表示を初期表示にする
@@ -1443,6 +1446,7 @@ const _cropModal = {
   _sel:      null,
   _revision: 0,
   _suggesting: false,
+  _busy: false,   // クロップ確定・元画像に戻す の処理中
   _imgSrc: '',
 
   init() {
@@ -1454,6 +1458,8 @@ const _cropModal = {
     this.cancelBtn  = this.el.querySelector('.crop-modal__cancel');
     this.resultEl   = this.el.querySelector('.crop-modal__result');
     this.suggestBtn = this.el.querySelector('.crop-modal__suggest');
+    this.restoreBtn = this.el.querySelector('.crop-modal__restore');
+    this.restoreBtn.addEventListener('click', () => this._submit('restore'));
     this.suggestBtn.addEventListener('click', () => this._suggest());
 
     this.cancelBtn.addEventListener('click', () => this.close());
@@ -1463,20 +1469,18 @@ const _cropModal = {
     document.addEventListener('mousemove',     (e) => this._onMove(e));
     document.addEventListener('mouseup',       (e) => this._onUp(e));
 
-    this.confirmBtn.addEventListener('click', () => this._confirm());
+    this.confirmBtn.addEventListener('click', () => this._submit('crop'));
   },
 
   open(cardId, editForm, imgSrc, suggestion = null) {
     this._revision++;
     this._imgSrc = imgSrc;
-    this.suggestBtn.disabled = this._suggesting;
     this._cardId   = cardId;
     this._editForm = editForm;
     this._sel      = null;
     this._dragging = false;
     this.img.src   = imgSrc;
     this.selEl.hidden      = true;
-    this.confirmBtn.disabled = true;
     this.resultEl.hidden   = true;
     this.el.hidden         = false;
     document.body.style.overflow = 'hidden';
@@ -1488,8 +1492,17 @@ const _cropModal = {
     if (candidate) {
       this._sel = candidate;
       this._updateSel();
-      this.confirmBtn.disabled = false;
     }
+    this._refreshButtons();
+  },
+
+  // 確定・元画像に戻す・自動で枠を提案 の有効/無効を状態から一括で決める
+  _refreshButtons() {
+    const s = this._sel;
+    const big = !!s && (s.right - s.left) > 0.02 && (s.bottom - s.top) > 0.02;
+    this.confirmBtn.disabled = this._busy || this._dragging || !big;
+    this.restoreBtn.disabled = this._busy;
+    this.suggestBtn.disabled = this._busy || this._suggesting;
   },
 
   close() {
@@ -1519,13 +1532,13 @@ const _cropModal = {
   },
 
   _onDown(e) {
-    if (this.el.hidden) return;
+    if (this.el.hidden || this._busy) return;
     this._revision++;
     const pos = this._relPos(e);
     this._startX   = pos.x;
     this._startY   = pos.y;
     this._dragging = true;
-    this.confirmBtn.disabled = true;
+    this._refreshButtons();
     e.preventDefault();
   },
 
@@ -1544,52 +1557,73 @@ const _cropModal = {
   _onUp() {
     if (!this._dragging) return;
     this._dragging = false;
-    const s = this._sel;
-    if (s && (s.right - s.left) > 0.02 && (s.bottom - s.top) > 0.02) {
-      this.confirmBtn.disabled = false;
-    }
+    this._refreshButtons();
   },
 
-  async _confirm() {
-    if (!this._sel) return;
-    this.confirmBtn.disabled = true;
-    this.confirmBtn.textContent = '処理中...';
+  // 編集フォームの画像・リンクを差し替え、自動クロップ注記を消す（応答時点の編集フォームではなく、送信時のフォームに対して行う）
+  _applyNewImage(editForm, newUrl) {
+    if (!editForm) return;
+    const imgEl  = editForm.querySelector('.edit-source-image__img');
+    if (imgEl && newUrl) {
+      imgEl.src = newUrl;
+      const linkEl = editForm.querySelector('.edit-source-image__link');
+      if (linkEl) linkEl.href = newUrl;
+    }
+    const note = editForm.querySelector('.edit-source-image__auto-note');
+    if (note) note.hidden = true;
+  },
 
+  /**
+   * クロップ確定（kind='crop'）／元画像に戻す（kind='restore'）を送信する。
+   * 開始時に revision・editForm・cardId を退避し、応答時に照合する（_suggest と同じ流儀）。
+   * サーバー側は既に保存済みなので画像の差し替えは送信時のフォームへ常に行うが、
+   * モーダルを閉じる・エラー表示は、モーダルが同じ状態のままのときだけ行う。
+   * 処理中は 確定・元画像に戻す・自動で枠を提案 をまとめて無効化する。
+   */
+  async _submit(kind) {
+    if (this._busy || this.el.hidden || !this._cardId) return;
+    if (kind === 'crop' && !this._sel) return;
+    const isCrop = kind === 'crop';
+    const revision = this._revision;
+    const editForm = this._editForm;
+    const cardId = this._cardId;
+    const btn = isCrop ? this.confirmBtn : this.restoreBtn;
+    const idleLabel = isCrop ? '確定' : '元画像に戻す';
+    const failMsg = isCrop ? 'クロップに失敗しました' : '元画像に戻せませんでした';
+    const path = isCrop ? 'crop-image' : 'restore-original-image';
+    const body = isCrop ? { ...this._sel } : {};
+    this._busy = true;
+    this._refreshButtons();
+    btn.textContent = '処理中...';
     try {
-      const resp = await apiFetch(`/api/admin/unreleased/${this._cardId}/crop-image`, {
+      const resp = await apiFetch(`/api/admin/unreleased/${cardId}/${path}`, {
         method: 'POST',
-        body: JSON.stringify(this._sel),
+        body: JSON.stringify(body),
       });
       const data = await resp.json().catch(() => ({}));
-
+      const current = !this.el.hidden && this._revision === revision && this._cardId === cardId;
       if (resp.ok && data.ok) {
-        // 編集フォームの抽出元画像をキャッシュバスター付き URL でリロード
-        const newUrl = data.new_url || '';
-        const imgEl  = this._editForm.querySelector('.edit-source-image__img');
-        if (imgEl && newUrl) {
-          imgEl.src = newUrl;
-          const linkEl = this._editForm.querySelector('.edit-source-image__link');
-          if (linkEl) linkEl.href = newUrl;
-        }
-        this.close();
-      } else {
-        _showResult(this.resultEl, data.error || 'クロップに失敗しました', 'error');
-        this.confirmBtn.disabled = false;
+        this._applyNewImage(editForm, data.new_url || '');
+        if (current) this.close();
+      } else if (current) {
+        _showResult(this.resultEl, data.error || failMsg, 'error');
       }
     } catch (e) {
-      if (e.message !== '認証エラー') {
+      const current = !this.el.hidden && this._revision === revision && this._cardId === cardId;
+      if (current && e.message !== '認証エラー') {
         _showResult(this.resultEl, '通信エラーが発生しました', 'error');
       }
-      this.confirmBtn.disabled = false;
     } finally {
-      this.confirmBtn.textContent = '確定';
+      this._busy = false;
+      btn.textContent = idleLabel;
+      this._refreshButtons();
     }
   },
 
   async _suggest() {
-    if (this._suggesting || this.el.hidden) return;
+    if (this._suggesting || this._busy || this.el.hidden) return;
     this._suggesting = true;
-    this.suggestBtn.disabled = true;
+    this._refreshButtons();
     this.suggestBtn.textContent = '候補を取得中...';
     this.resultEl.hidden = true;
     const revision = this._revision;
@@ -1608,7 +1642,7 @@ const _cropModal = {
       }
       this._sel = candidate;
       this._updateSel();
-      this.confirmBtn.disabled = false;
+      this._refreshButtons();
       this.el.querySelector('.crop-modal__hint').textContent = '自動検出した候補枠です。欠け・余白を確認し、必要ならドラッグで選び直して確定してください';
     } catch (e) {
       if (!this.el.hidden && this._revision === revision && e.message !== '認証エラー') {
@@ -1616,7 +1650,7 @@ const _cropModal = {
       }
     } finally {
       this._suggesting = false;
-      this.suggestBtn.disabled = false;
+      this._refreshButtons();
       this.suggestBtn.textContent = '自動で枠を提案';
     }
   },

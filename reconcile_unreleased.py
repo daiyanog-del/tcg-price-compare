@@ -410,6 +410,9 @@ def _delete_images_for_cards(sb, card_ids: list[int]) -> None:
     )
     rows = resp.data or []
     storage_paths = [r['storage_path'] for r in rows if r.get('storage_path')]
+    # 退避した元画像も消す（カード行を消す前に extraction_raw を読む必要があるため、ここで収集する）
+    from unreleased_image_store import collect_original_paths
+    storage_paths += collect_original_paths(sb, card_ids)
     if storage_paths:
         sb.storage.from_('official-card-images').remove(storage_paths)
 
