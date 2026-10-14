@@ -2,6 +2,13 @@
 
 > 更新: 2026-10-04（総合レビュー指摘修正）
 
+## 2026-10-14: 一人回しで未発売EXカードがメインデッキに入る不具合を修正
+
+- 症状: 一人回しのデッキ読込（[EX]区切りの無いテキスト・自動判定）で、公式SAMPLE画像のある未発売EXカード（融合/S/X/L）がメインデッキに入る。
+- 原因: addCardsBatch の自動判定が、画像が kind:'proxy' のときだけ proxy.is_ex を見て、それ以外は info.found ? is_ex : false だった。SAMPLE画像ありの未発売カードは画像が kind:'image'、card-infos は found:false・kind:'proxy'（is_ex は正しく true）なので常に false になっていた。サーバー側の判定は正常。
+- 修正: info.found に加えて info.kind==='proxy' でも card-infos の is_ex を使う（1行）。マイデッキの追加経路（deckAddCard/_resolveSec）は card-info の is_ex を直接見ており影響なし。
+- 検証: 本番ページで修正版モジュールを読み込み、未発売EX3枚＋発売済みEXがEX、発売済みメイン・未発売魔法がメインに入ることを確認。
+
 ## 2026-10-13: 店舗アフィリエイトの広告表記（PR）
 
 - 実装: affLink が変換したリンク（本番: カーナベル販売/買取・駿河屋販売）にだけ店名横「PR」＋rel=sponsored。サマリー/買取の下に「一部のリンクは広告（PR）を含みます」（変換リンクがある時だけ）。表は印のみ。
