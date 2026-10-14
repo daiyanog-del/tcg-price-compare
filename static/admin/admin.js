@@ -621,7 +621,7 @@ function _renderPendingList(listEl, cards) {
     toggleEditBtn.addEventListener('click', () => {
       const isHidden = editForm.hidden;
       editForm.hidden = !isHidden;
-      toggleEditBtn.textContent = isHidden ? '閉じる' : '編集';
+      toggleEditBtn.textContent = isHidden ? '編集を閉じる' : '編集';
     });
 
     // キャンセルボタン
@@ -1056,7 +1056,7 @@ function _renderApprovedList(listEl, cards) {
     toggleImageFormBtn.addEventListener('click', () => {
       const isHidden = imageForm.hidden;
       imageForm.hidden = !isHidden;
-      toggleImageFormBtn.textContent = isHidden ? '閉じる' : '画像取込';
+      toggleImageFormBtn.textContent = isHidden ? '画像を閉じる' : '画像取込';
       // 開いた際にサムネイルを読み込む（has_image が true の場合）
       if (isHidden && card.has_image) {
         _loadImageThumbnail(card.id, row);
@@ -1099,7 +1099,7 @@ function _renderApprovedList(listEl, cards) {
     toggleEditBtn.addEventListener('click', async () => {
       const isHidden = editForm.hidden;
       editForm.hidden = !isHidden;
-      toggleEditBtn.textContent = isHidden ? '閉じる' : '編集';
+      toggleEditBtn.textContent = isHidden ? '編集を閉じる' : '編集';
       // 開いた時に取り込み済みカード画像を遅延読み込みし、タブ表示を更新する
       if (isHidden) {
         await _loadEditCardImage(card, editForm);
