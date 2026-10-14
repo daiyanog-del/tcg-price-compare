@@ -3,6 +3,7 @@ import base64
 import copy
 import json
 import logging
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,24 @@ def structured_request(client, *, model, system, content, schema, max_tokens=160
     return data, text, {'input_tokens': message.usage.input_tokens, 'output_tokens': message.usage.output_tokens}
 
 
+# 記事内の日付を補助採用する上限（今日から何日先まで）。AIの年誤り（過去日）対策の範囲。
+# TODO: calibrate from data
+_ARTICLE_DATE_MAX_DAYS = 400
+
+
+def _article_date_adoptable(value):
+    """記事から読んだ日付が今日(JST)以上かつ上限日数以内の有効なISO日付か。"""
+    from constants import JST
+    if not isinstance(value, str):
+        return False
+    try:
+        parsed = datetime.strptime(value, '%Y-%m-%d').date()
+    except ValueError:
+        return False
+    today = datetime.now(JST).date()
+    return today <= parsed <= today + timedelta(days=_ARTICLE_DATE_MAX_DAYS)
+
+
 _REVIEW_SCHEMA = {
     'type': 'object', 'properties': {'cards': {'type': 'array', 'items': {
         'type': 'object', 'properties': {
@@ -71,6 +90,10 @@ def enrich_rows(rows, *, client, model, encoded_images):
         raw['release_date_evidence'] = evidence
         row['release_date'] = evidence['release_date'] if evidence['status'] == 'verified' else None
         if evidence['status'] != 'verified':
+            # 公式で確認できない場合のみ、記事内の日付を範囲内なら補助採用（conflictは採用しない）。
+            if evidence['status'] != 'conflict' and _article_date_adoptable(evidence['candidate_date']):
+                row['release_date'] = evidence['candidate_date']
+                evidence['adopted_from'] = 'article'
             logger.warning('発売日要確認: %s: %s', row['name'], evidence['reason'])
         raw['recognition_review'] = {'status': 'needs_review', 'reason': '拡大再読の対象画像・枠が確認できません'}
         image = images.get(raw.get('source_image_url'))
