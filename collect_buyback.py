@@ -16,8 +16,8 @@ import time
 from datetime import datetime, timezone, timedelta
 
 from supabase import create_client, Client
-from scraper import compare_buyback, BUYBACK_SHOPS
-from collection_run import record_collection_run
+from scraper import compare_buyback, BUYBACK_SHOPS, get_host_request_counts
+from collection_run import record_collection_run, attach_host_request_counts
 from price_persist import upsert_buyback_rows
 from collect_prices import (
     get_supabase,
@@ -214,6 +214,8 @@ def main():
     cleanup_old_buyback_data(sb)
 
     finished_at = datetime.now(JST)
+    # ホスト別アクセス回数（店舗サイトへの負担の記録）。shop_stats に載せて collection_runs へ保存する
+    host_count_lines = attach_host_request_counts(shop_stats, get_host_request_counts())
     record_collection_run(
         sb, "buyback", started_at, finished_at,
         attempted_shops=buyback_shop_names, available_shops=available_shops,
@@ -232,6 +234,10 @@ def main():
             print(f"  {shop}: 取得 {s['ok']} / 0件 {s['empty']} / エラー {s['error']}")
             if attempted >= 20 and s["ok"] == 0:
                 print(f"  警告: {shop} は全カードで取得0件 — サイト構造変更またはブロックの可能性")
+    if host_count_lines:
+        print("ホスト別アクセス回数:")
+        for line in host_count_lines:
+            print(line)
 
 
 if __name__ == "__main__":

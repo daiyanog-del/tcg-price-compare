@@ -193,6 +193,9 @@ def _get_fetch_errors() -> int:
 #      1晩に数千個のセッションを店舗側に作らせていた。接続の再利用も効く
 #   ② 403 は再試行しない: 通らないうえ店舗への負荷を2倍にするだけ
 #   ③ 連続403が閾値を超えたホストは一定時間スキップする（叩き続けない）
+#   ④ 2026-10-14 追加: タイムアウト・接続エラーも再試行せず、403と同じ連続カウントに数える。
+#      トレコロCBが混雑で応答しなくなった際（Read timed out 427件）、再試行が負担を
+#      上乗せしていたため。応答しないホストへは連続失敗でスキップして休ませる
 #      TTLを設けるのは app.py が常駐プロセスで、恒久ブロックだと
 #      ライブ検索が再起動まで復旧しなくなるため
 _HOST_BLOCK_THRESHOLD = 5
@@ -201,7 +204,30 @@ _HOST_BLOCK_TTL_SEC = 1800
 _session_lock = _threading.Lock()
 _session: "requests.Session | None" = None
 _host_block_lock = _threading.Lock()
-_host_block: dict = {}  # {host: {"streak": 連続403数, "until": 解除時刻(epoch秒)}}
+_host_block: dict = {}  # {host: {"streak": 連続403/タイムアウト等の数, "until": 解除時刻(epoch秒)}}
+
+# ホスト別のアクセス回数（負担の記録用。収集ジョブ終了時にログ・collection_runs へ出す）
+#   requests: 実際にHTTPリクエストを送った回数（再試行も1回と数える）
+#   skipped : サーキットブレーカで送らずにスキップした回数
+_host_counts_lock = _threading.Lock()
+_host_counts: dict = {}  # {host: {"requests": int, "skipped": int}}
+
+
+def _count_host(host: str, key: str):
+    with _host_counts_lock:
+        c = _host_counts.setdefault(host, {"requests": 0, "skipped": 0})
+        c[key] += 1
+
+
+def get_host_request_counts() -> dict:
+    """ホスト別のアクセス回数のスナップショット {host: {"requests": n, "skipped": m}} を返す"""
+    with _host_counts_lock:
+        return {h: dict(c) for h, c in _host_counts.items()}
+
+
+def reset_host_request_counts():
+    with _host_counts_lock:
+        _host_counts.clear()
 
 
 def _get_session() -> requests.Session:
@@ -232,7 +258,8 @@ def _is_host_blocked(host: str) -> bool:
 
 
 def _note_host_result(host: str, forbidden: bool):
-    """403の連続回数を数え、閾値に達したホストを一定時間スキップ対象にする"""
+    """403・タイムアウト・接続エラー（forbidden=True）の連続回数を数え、
+    閾値に達したホストを一定時間スキップ対象にする。成功・その他の失敗でリセットする"""
     with _host_block_lock:
         st = _host_block.setdefault(host, {"streak": 0, "until": 0})
         if not forbidden:
@@ -242,7 +269,7 @@ def _note_host_result(host: str, forbidden: bool):
         if st["streak"] >= _HOST_BLOCK_THRESHOLD and st["until"] <= 0:
             st["until"] = time.time() + _HOST_BLOCK_TTL_SEC
             print(
-                f"  ⛔ {host}: 403が{st['streak']}回連続。"
+                f"  ⛔ {host}: 403/タイムアウト等が{st['streak']}回連続。"
                 f"{_HOST_BLOCK_TTL_SEC // 60}分間このホストへのリクエストを停止します"
             )
 
@@ -250,11 +277,13 @@ def _note_host_result(host: str, forbidden: bool):
 def safe_get(url: str, timeout: int = 15, retries: int = 1) -> BeautifulSoup | None:
     host = _host_of(url)
     if _is_host_blocked(host):
+        _count_host(host, "skipped")
         _note_fetch_error()
         return None
 
     for attempt in range(1 + retries):
         try:
+            _count_host(host, "requests")
             res = _get_session().get(
                 url, timeout=timeout, headers=HOST_HEADER_OVERRIDES.get(host)
             )
@@ -270,10 +299,17 @@ def safe_get(url: str, timeout: int = 15, retries: int = 1) -> BeautifulSoup | N
             return BeautifulSoup(res.text, "html.parser")
         except requests.RequestException as e:
             status = getattr(e.response, "status_code", None)
-            _note_host_result(host, forbidden=(status == 403))
+            # タイムアウト・接続エラーは相手が混雑/停止しているサインなので、
+            # 403と同じ連続失敗として数える（ConnectTimeout は両方を継承）
+            no_response = isinstance(e, (requests.Timeout, requests.ConnectionError))
+            _note_host_result(host, forbidden=(status == 403 or no_response))
             # 403（アクセス拒否）は再試行しても通らない。他の4xxも同様なので、
-            # 一時的な過負荷を示す429だけは従来どおり再試行する
-            no_retry = status is not None and 400 <= status < 500 and status != 429
+            # 一時的な過負荷を示す429だけは従来どおり再試行する。
+            # タイムアウト・接続エラーも再試行しない（混雑中のホストへ負担を上乗せしない）。
+            # 5xx は一時的なサーバ側エラーで再試行すれば通る見込みがあるため従来どおり再試行する
+            no_retry = no_response or (
+                status is not None and 400 <= status < 500 and status != 429
+            )
             if attempt < retries and not no_retry:
                 # 根拠不明（導入: abe83370 2026-03-05、理由の記録なし。初回一括アップロードで既に存在）
                 time.sleep(2)

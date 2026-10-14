@@ -84,3 +84,94 @@ class TestGroupPairsByCard:
         pairs = [("カードA", "遊々亭"), ("カードA", "カードラボ"), ("カードB", "遊々亭")]
         result = _group_pairs_by_card(pairs)
         assert result == {"カードA": ["遊々亭", "カードラボ"], "カードB": ["遊々亭"]}
+
+
+# ──────────────────────────────────────────────
+# トレコロCBの当日取得済みカードを第1パスから外す（2026-10-14）
+# ──────────────────────────────────────────────
+
+import collect_featured
+from collect_featured import fetch_cards_collected_today
+
+
+class _FakeQuery:
+    """_fetch_all_rows が使う select().eq().eq().order().range().execute() のチェーンを模す"""
+
+    def __init__(self, rows, log):
+        self._rows = rows
+        self._log = log
+        self._range = (0, 999)
+
+    def select(self, *_):
+        return self
+
+    def eq(self, col, val):
+        self._log.append((col, val))
+        return self
+
+    def order(self, *_):
+        return self
+
+    def range(self, a, b):
+        self._range = (a, b)
+        return self
+
+    def execute(self):
+        a, b = self._range
+        return type("R", (), {"data": self._rows[a:b + 1]})()
+
+
+class _FakeSb:
+    def __init__(self, rows):
+        self.rows = rows
+        self.log = []
+
+    def table(self, name):
+        assert name == "price_history"
+        return _FakeQuery(self.rows, self.log)
+
+
+class TestFetchCardsCollectedToday:
+    def test_returns_only_target_cards_with_rows(self):
+        sb = _FakeSb([{"card_name": "A"}, {"card_name": "B"}, {"card_name": "Z"}])
+        got = fetch_cards_collected_today(sb, ["A", "C", "B"], "2026-10-14", "トレコロCB")
+        assert got == {"A", "B"}
+        # 店舗と日付で絞っている
+        assert ("shop", "トレコロCB") in sb.log and ("recorded_at", "2026-10-14") in sb.log
+
+    def test_paginates_beyond_1000_rows(self):
+        rows = [{"card_name": f"C{i}"} for i in range(2500)]
+        got = fetch_cards_collected_today(_FakeSb(rows), ["C0", "C1500", "C2499"], "2026-10-14", "トレコロCB")
+        assert got == {"C0", "C1500", "C2499"}
+
+    def test_query_failure_falls_back_to_empty_set(self):
+        class Boom:
+            def table(self, *_):
+                raise RuntimeError("db down")
+        assert fetch_cards_collected_today(Boom(), ["A"], "2026-10-14", "トレコロCB") == set()
+
+
+class TestMainSkipsCollectedTorecolo:
+    def test_first_pass_excludes_torecolo_only_for_collected_cards(self, monkeypatch):
+        calls = []  # (card, shops)
+
+        def fake_collect(sb, card, today, shops, shop_stats=None):
+            calls.append((card, list(shops)))
+            return 0, []
+
+        monkeypatch.setattr(sys, "argv", ["collect_featured.py"])
+        monkeypatch.setattr(collect_featured, "get_supabase", lambda: object())
+        monkeypatch.setattr(collect_featured, "_resolve_pack", lambda sb, a: {"pack_name": "P"})
+        monkeypatch.setattr(collect_featured, "get_featured_cards", lambda sb, p: ["A", "B", "C"])
+        monkeypatch.setattr(collect_featured, "check_shop_availability", lambda shops: ["カードラッシュ", "トレコロCB"])
+        monkeypatch.setattr(collect_featured, "fetch_cards_collected_today",
+                            lambda sb, names, today, shop: {"A", "B"})
+        monkeypatch.setattr(collect_featured, "collect_and_save_for_shops", fake_collect)
+        monkeypatch.setattr(collect_featured.time, "sleep", lambda *_: None)
+
+        collect_featured.main()
+
+        by_card = dict(calls)
+        assert by_card["A"] == ["カードラッシュ"], "取得済みカードはトレコロを外す・他店は変えない"
+        assert by_card["B"] == ["カードラッシュ"]
+        assert by_card["C"] == ["カードラッシュ", "トレコロCB"], "行が無いカードは従来どおり取る"

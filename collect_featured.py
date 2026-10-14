@@ -44,7 +44,8 @@ from constants import JST
 from collect_prices import (
     get_supabase, check_shop_availability, SKIP_SHOPS_IN_CI, WAIT_BETWEEN_CARDS,
 )
-from scraper import compare_prices, SHOPS
+from collection_run import attach_host_request_counts
+from scraper import compare_prices, SHOPS, get_host_request_counts
 from price_persist import build_min_price_rows, upsert_price_rows
 from featured_pack import get_featured_pack, get_featured_cards
 
@@ -58,6 +59,41 @@ MAX_RETRIES = 2
 # TODO: calibrate from data（collection_runs.shop_stats の実績が溜まり次第、
 #       誤判定率と待機コストのトレードオフを見て再校正すること）
 BLOCKLIKE_FAIL_RATIO = 0.30
+
+# 朝5時の collect_prices.py で当日分を取得済みなら第1パスで取り直さない店舗。
+# トレコロCBは2026-10-11に負荷で応答しなくなった経緯があり（夜間収集が1日4,300回超）、
+# 同日の二重取得を避けて負担を減らす。他店は従来どおり last-write-wins で取り直す
+SKIP_IF_COLLECTED_TODAY_SHOPS = ("トレコロCB",)
+
+
+def fetch_cards_collected_today(sb, card_names: list[str], today: str, shop: str) -> set[str]:
+    """today（JST日付）の price_history に shop の行が既にある card_names の部分集合を返す。
+
+    カードごとに問い合わせず、(shop, recorded_at) の行をまとめて分割取得し
+    対象カード集合と突き合わせる。PostgREST の1000行上限対策で range 分割し、
+    ページ境界で行を落とさないよう card_name+rarity で order する
+    （tests/test_price_history_read_discipline.py の規律）。
+    取得に失敗した場合は空集合を返す＝従来どおり全カードを取る側（安全側）に倒す。
+    """
+    page = 1000
+    try:
+        rows: list[dict] = []
+        offset = 0
+        while True:
+            resp = (sb.table("price_history").select("card_name,rarity")
+                    .eq("shop", shop).eq("recorded_at", today)
+                    .order("card_name").order("rarity")
+                    .range(offset, offset + page - 1).execute())
+            batch = resp.data or []
+            rows.extend(batch)
+            if len(batch) < page:
+                break
+            offset += page
+    except Exception as e:
+        print(f"  警告: {shop} の当日取得済み確認に失敗: {e} — 全カードを取得します")
+        return set()
+    targets = set(card_names)
+    return {r["card_name"] for r in rows if r.get("card_name") in targets}
 
 
 def _is_shop_failed(status_entry: dict | None) -> bool:
@@ -252,10 +288,30 @@ def main():
     shop_stats: dict = {}
     failed_pairs: list[tuple[str, str]] = []  # (card_name, shop)
 
+    # 朝5時の収集で当日行が既にある (カード, 店舗) は第1パスの対象から外す。
+    # 行が無いカード（朝に失敗・未収集）は従来どおり取る。失敗ペアの再試行は
+    # 第1パスの失敗集合から作られるため、外したペアは再試行にも現れない
+    already_collected: dict[str, set[str]] = {}
+    for skip_shop in SKIP_IF_COLLECTED_TODAY_SHOPS:
+        if skip_shop in available_shops:
+            already_collected[skip_shop] = fetch_cards_collected_today(
+                sb, card_names, today, skip_shop
+            )
+            print(f"{skip_shop}: 当日取得済み {len(already_collected[skip_shop])}/{len(card_names)}枚は取り直しません")
+    # ブロック様判定の分母は「実際に試行したカード数」にする
+    attempted_per_shop = {
+        shop: sum(1 for c in card_names if c not in already_collected.get(shop, ()))
+        for shop in available_shops
+    }
+
     for i, card_name in enumerate(card_names):
         print(f"[{i + 1}/{len(card_names)}] {card_name}")
+        card_shops = [s for s in available_shops if card_name not in already_collected.get(s, ())]
+        if not card_shops:
+            print("  全店舗取得済みのためスキップ")
+            continue
         saved, failed_shops = collect_and_save_for_shops(
-            sb, card_name, today, available_shops, shop_stats=shop_stats
+            sb, card_name, today, card_shops, shop_stats=shop_stats
         )
         total_saved += saved
         for shop in failed_shops:
@@ -272,7 +328,6 @@ def main():
     #       RETRY_WAIT_SEC秒（第1パス終了からの経過分を差し引いた残り）待って再試行
     # を最大 MAX_RETRIES ラウンド行う（司令塔裁定: 全店舗一律1900秒待機は過剰なため）。
     pass1_end = datetime.now(JST)
-    attempted_per_shop = {shop: len(card_names) for shop in available_shops}
 
     retry_round = 0
     while failed_pairs and retry_round < MAX_RETRIES:
@@ -346,6 +401,11 @@ def main():
         print("店舗別取得状況:")
         for shop, s in sorted(shop_stats.items()):
             print(f"  {shop}: 取得 {s['ok']} / 0件 {s['empty']} / エラー {s['error']}")
+    host_count_lines = attach_host_request_counts(shop_stats, get_host_request_counts())
+    if host_count_lines:
+        print("ホスト別アクセス回数:")
+        for line in host_count_lines:
+            print(line)
 
 
 if __name__ == "__main__":

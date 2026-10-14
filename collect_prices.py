@@ -18,14 +18,14 @@ from collections import Counter
 from datetime import datetime, timezone, timedelta
 
 from supabase import create_client, Client
-from scraper import compare_prices, SHOPS
+from scraper import compare_prices, SHOPS, get_host_request_counts
 from pack_scraper import (
     get_pack_list, fetch_pack_cards, _try_wiki_page_variants,
     fetch_theme_cards, fetch_card_themes,
 )
 from price_persist import build_min_price_rows, upsert_price_rows
 from clabo_catalog import collect_clabo_catalog
-from collection_run import record_collection_run
+from collection_run import record_collection_run, attach_host_request_counts
 from meta_scraper import fetch_tier_list, fetch_deck_cards
 from name_normalize import load_cardnames_index, canonicalize_card_name
 
@@ -1024,6 +1024,8 @@ def main():
     cleanup_old_data(sb)
 
     finished_at = datetime.now(JST)
+    # ホスト別アクセス回数（店舗サイトへの負担の記録）。shop_stats に載せて collection_runs へ保存する
+    host_count_lines = attach_host_request_counts(shop_stats, get_host_request_counts())
     record_collection_run(
         sb, "prices", started_at, finished_at,
         attempted_shops=ci_shops, available_shops=available_shops,
@@ -1041,6 +1043,10 @@ def main():
         print("店舗別取得状況:")
         for shop, s in sorted(shop_stats.items()):
             print(f"  {shop}: 取得 {s['ok']} / 0件 {s['empty']} / エラー {s['error']}")
+    if host_count_lines:
+        print("ホスト別アクセス回数:")
+        for line in host_count_lines:
+            print(line)
 
 
 if __name__ == "__main__":
