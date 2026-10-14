@@ -16,6 +16,7 @@
 
 | ファイル | 変更理由 |
 | --- | --- |
+| .gitattributes | 生成SVG・manifest・SWの改行をLFに固定し、Windows/Linux間のハッシュ不一致を防ぐ |
 | tools/build_icons.py | 比率維持、ノイズ除去、透明背景/全面背景/安全円の作り分け、輪郭、ヘッダー生成、参照ハッシュ生成。OG再生成を`--og`に分離 |
 | static/favicon-16.png、favicon-32.png | タブ用の透過画像へ再生成 |
 | static/favicon.svg、tcgym-icon-base.png | 1024pxの透過素材へ更新 |
@@ -62,4 +63,4 @@ node tests/js/icon_cache_check.js
 - iPhone/Android実機へのインストールは未確認。インストール済みアイコンの再取得時期はOSやブラウザに依存する。
 - 透過版は輪郭を追加したぶん、白背景では従来の白線画より濃く見える。ヘッダーは既存の白いデザインを維持し、暗色のサイト上で使う。
 - 高解像度化でSVGとヘッダー画像の容量は増える。内容ハッシュによる長期キャッシュを利用する。
-- 本番反映の結果はactiveContext.mdに追記する。
+- 公開PR: https://github.com/daiyanog-del/tcg-price-compare/pull/35 。本番反映の結果は最終チャットで報告する。

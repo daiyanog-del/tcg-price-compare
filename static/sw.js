@@ -3,7 +3,7 @@ const CACHE_NAME = 'tcgym-v2';
 // tools/build_icons.py が画像と同時に更新する。
 // BEGIN GENERATED ICON URLS
 const ICON_ASSETS = {
-  "favicon.svg": "/static/favicon.svg?v=199718b87322",
+  "favicon.svg": "/static/favicon.svg?v=d72d4d065613",
   "favicon-16.png": "/static/favicon-16.png?v=5e0582f1fbc0",
   "favicon-32.png": "/static/favicon-32.png?v=7177d19ffdaf",
   "apple-touch-icon.png": "/static/apple-touch-icon.png?v=ef57391b09f0",

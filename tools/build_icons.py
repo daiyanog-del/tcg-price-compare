@@ -127,7 +127,8 @@ def update_icon_references(background):
         for suffix, purpose in [('', 'any'), ('-maskable', 'maskable')]
         for size in (192, 512)
     ]
-    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n',
+                             encoding='utf-8', newline='\n')
 
     names = ['favicon.svg', 'favicon-16.png', 'favicon-32.png', 'apple-touch-icon.png',
              'icon-192.png', 'icon-512.png', 'icon-maskable-192.png', 'icon-maskable-512.png']
@@ -139,7 +140,7 @@ def update_icon_references(background):
                         lambda _: block, sw_path.read_text(encoding='utf-8'), flags=re.S)
     if count != 1:
         raise ValueError('sw.js のアイコンURL生成範囲が見つかりません')
-    sw_path.write_text(sw, encoding='utf-8')
+    sw_path.write_text(sw, encoding='utf-8', newline='\n')
 
 
 def build_favicons():
@@ -164,7 +165,7 @@ def build_favicons():
            'xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
            'role="img" aria-label="TCGYM">\n  <title>TCGYM</title>\n'
            f'  <image width="1024" height="1024" xlink:href="data:image/png;base64,{encoded}"/>\n</svg>\n')
-    (STATIC / 'favicon.svg').write_text(svg, encoding='utf-8')
+    (STATIC / 'favicon.svg').write_text(svg, encoding='utf-8', newline='\n')
 
     # ヘッダーは従来と同一の透過原画。72 CSS pxでの3倍密度まで原寸未満で表示できる。
     with Image.open(HEADER_SRC) as header:

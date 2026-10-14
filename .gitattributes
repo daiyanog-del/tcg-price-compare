@@ -1,0 +1,4 @@
+# 生成時の内容ハッシュがWindowsとLinuxで一致するよう、改行を固定する。
+static/favicon.svg text eol=lf
+static/manifest.json text eol=lf
+static/sw.js text eol=lf

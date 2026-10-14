@@ -78,6 +78,8 @@ def test_svg_embeds_high_resolution_transparent_artwork():
 
 
 def test_manifest_and_service_worker_reference_current_content():
+    for name in ('favicon.svg', 'manifest.json', 'sw.js'):
+        assert b'\r' not in (STATIC / name).read_bytes(), '本番Linuxと同じLF改行であること'
     manifest = json.loads((STATIC / 'manifest.json').read_text(encoding='utf-8'))
     assert manifest['theme_color'] == manifest['background_color'] == build_icons.theme_background()
     assert {(icon['purpose'], icon['sizes']) for icon in manifest['icons']} == {
