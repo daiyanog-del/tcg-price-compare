@@ -315,7 +315,9 @@ async function addCardsBatch(cards, defaultIsEx) {
       if (imgVal?.kind === 'proxy' && imgVal.proxy) {
         finalIsEx = !!imgVal.proxy.is_ex;
       } else {
-        finalIsEx = info.found ? !!info.is_ex : false;
+        // 未発売の公式SAMPLE画像カードは画像が kind:'image' になるため、
+        // card-infos 側の kind:'proxy'（found:false）の is_ex で判定する
+        finalIsEx = (info.found || info.kind === 'proxy') ? !!info.is_ex : false;
       }
     }
 
