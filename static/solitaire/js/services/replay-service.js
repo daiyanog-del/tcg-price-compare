@@ -531,6 +531,7 @@ async function _createReplayCardElements() {
         cardEl = img;
         // 発売済みクリーン画像にのみ透かし（SAMPLE画像は除外）
         if (displayResult.source !== 'official_sample') wrapper.classList.add('wm-released');
+        else wrapper.classList.add('sample-art'); // 未発売SAMPLE（イラストぼかし設定の対象）
       } else if (displayResult.kind === 'proxy' && displayResult.proxy) {
         // 未発売プロキシ
         const proxyEl = createProxyCardElement(displayResult.proxy);

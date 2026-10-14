@@ -954,6 +954,7 @@
   }
   .sol-mobile-deck-check {
     position: absolute;
+    z-index: 3; /* 透かし・ぼかしの擬似要素(z-index 2)より前面 */
     top: 2px;
     right: 2px;
     width: 16px;

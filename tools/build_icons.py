@@ -84,16 +84,30 @@ def build_og_image():
     f_g   = load_font(['ariblk.ttf', 'arialbd.ttf'], 205)
     f_sub = load_font(['YuGothB.ttc', 'msgothic.ttc', 'meiryo.ttc'], 26)
 
-    tx, ty = 470, 130
+    tx = 470
     tc_w = int(draw.textlength('TC', font=f_xl))
     g_w  = int(draw.textlength('G',  font=f_g))
     ym_w = int(draw.textlength('YM', font=f_xl))
-    draw.text((tx,              ty + 25), 'TC', fill='white',   font=f_xl)
-    draw.text((tx + tc_w,       ty),      'G',  fill='#facc15', font=f_g)
-    draw.text((tx + tc_w + g_w, ty + 25), 'YM', fill='white',   font=f_xl)
-    draw.line([(tx, ty + 205), (min(W - 30, tx + tc_w + g_w + ym_w + 20), ty + 205)],
+
+    # 実際の描画範囲（textbbox）から縦配置を計算する。基準はベースライン（anchor='ls'）。
+    # 大きな「G」(205px) は下端がベースライン付近まで伸びるため、固定オフセットで下線・小見出しを
+    # 置くと重なる（以前の不具合）。G の bbox 下端・小見出しの bbox 上端から間隔を取る。
+    SUB_TEXT = '遊戯王OCG 総合プレイヤーサイト'
+    g_box   = draw.textbbox((0, 0), 'G', font=f_g, anchor='ls')   # (l, t, r, b) ベースライン原点
+    sub_box = draw.textbbox((0, 0), SUB_TEXT, font=f_sub, anchor='ls')
+    GAP_LINE = 30   # G下端 → 下線
+    GAP_SUB  = 26   # 下線 → 小見出し上端
+    block_h = (g_box[3] - g_box[1]) + GAP_LINE + 1 + GAP_SUB + (sub_box[3] - sub_box[1])
+    top = (H - block_h) // 2 - 10          # アイコン(縦中心 約315)に合わせ、ブロックを上下中央寄せ
+    base = top - g_box[1]                  # G 上端が top に来るベースライン
+    draw.text((tx,              base), 'TC', fill='white',   font=f_xl, anchor='ls')
+    draw.text((tx + tc_w,       base), 'G',  fill='#facc15', font=f_g,  anchor='ls')
+    draw.text((tx + tc_w + g_w, base), 'YM', fill='white',   font=f_xl, anchor='ls')
+    line_y = base + g_box[3] + GAP_LINE
+    draw.line([(tx, line_y), (min(W - 30, tx + tc_w + g_w + ym_w + 20), line_y)],
               fill=(148, 163, 184, 100), width=1)
-    draw.text((tx + 2, ty + 218), '遊戯王OCG 総合プレイヤーサイト', fill='#94a3b8', font=f_sub)
+    sub_base = line_y + 1 + GAP_SUB - sub_box[1]
+    draw.text((tx + 2, sub_base), SUB_TEXT, fill='#94a3b8', font=f_sub, anchor='ls')
     draw.line([(0, 580), (W, 580)], fill=(250, 204, 21, 25), width=1)
 
     img.save(str(STATIC / 'og-image.png'))

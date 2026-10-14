@@ -103,6 +103,8 @@ function createCardElement(srcOrDisplay, isEx = false) {
 
   // 発売済みクリーン画像にのみ自サイト透かしを重ねる（SAMPLE画像・プロキシには付けない）
   let isReleasedImage = false;
+  // 未発売SAMPLE画像（イラストぼかし設定の対象。sample-blur.css）
+  let isSampleImage = false;
 
   if (typeof srcOrDisplay === 'string') {
     // 従来の文字列（URL）引数: 完全後方互換。文字列は発売済みクリーン画像
@@ -120,6 +122,7 @@ function createCardElement(srcOrDisplay, isEx = false) {
     img.setAttribute('draggable', 'true');
     cardEl = img;
     isReleasedImage = srcOrDisplay.source !== 'official_sample';
+    isSampleImage = !isReleasedImage;
   } else if (srcOrDisplay && srcOrDisplay.kind === 'proxy') {
     // {kind:'proxy', proxy: {...}} オブジェクト → プロキシ要素を生成
     const proxyEl = createProxyCardElement(srcOrDisplay.proxy || {});
@@ -138,6 +141,9 @@ function createCardElement(srcOrDisplay, isEx = false) {
   // 発売済みクリーン画像の wrapper に透かしクラスを付与（CSS の data-self-wm で出し分け）
   if (isReleasedImage) {
     wrapper.classList.add('wm-released');
+  }
+  if (isSampleImage) {
+    wrapper.classList.add('sample-art');
   }
 
   // ID はすべての種類で wrapper の先頭トークンを使う

@@ -36,9 +36,12 @@ function getCardsFromSlot(slot) {
       //
       // ロード時は restoreCardsToSlot で card:// を検出して /api/card-images で
       // 現時点の解決結果に変換する（発売後は正規画像、画像削除後はプロキシ）。
+      //   未発売SAMPLE画像（wrapper に sample-art）: 名前があれば 'card://カード名'
+      //     （ロード時に再解決。発売後は自動でクリーン画像になる）。名前が無ければ実URL＋source で保存。
+      const isSample = wrapper.classList.contains('sample-art');
       let src;
       if (cardEl.tagName === 'IMG') {
-        src = cardEl.src || '';
+        src = (isSample && cardName) ? `card://${cardName}` : (cardEl.src || '');
       } else {
         // div.tier-item（プロキシカード）: カード名があれば card:// センチネルで保存
         src = cardName ? `card://${cardName}` : '';
@@ -51,6 +54,9 @@ function getCardsFromSlot(slot) {
         style:    wrapper.getAttribute('style') || '',
         cardName,
         state,   // { orientation, face }
+        // 旧セーブデータには無いキー（省略時は従来どおり発売済み扱い）。
+        // url は card:// 再解決が通信失敗したときだけ使う SAMPLE 画像の実URL
+        ...(isSample ? { source: 'official_sample', url: cardEl.src || '' } : {}),
       });
     }
   });
@@ -201,10 +207,11 @@ async function _resolveCardSentinels(cards) {
     return result;
   } catch (e) {
     console.warn('[restoreCardsToSlot] card:// 解決失敗（プロキシ風表示にフォールバック）:', e);
-    // 失敗時は kind='none' 扱い（名前のみ表示）
+    // 失敗時は kind='none' 扱い（名前のみ表示）。resolveFailed は「再解決できなかった」印
+    // （SAMPLE は保存済みの実URLで復元するため、解決成功で none が返った場合と区別する）
     const fallback = new Map();
     for (const name of sentinelNames) {
-      fallback.set(name, { kind: 'none' });
+      fallback.set(name, { kind: 'none', resolveFailed: true });
     }
     return fallback;
   }
@@ -242,7 +249,11 @@ async function restoreCardsToSlot(slot, cards) {
     if (cardData.src && cardData.src.startsWith('card://')) {
       // card:// センチネル: 再解決結果を使って描画
       const name = cardData.src.slice('card://'.length);
-      const displayResult = resolved.get(name) || { kind: 'none' };
+      let displayResult = resolved.get(name) || { kind: 'none' };
+      // 再解決が通信失敗した SAMPLE: 保存済みの実URLで SAMPLE 画像として復元（プロキシに落とさない）
+      if (displayResult.resolveFailed && cardData.source === 'official_sample' && cardData.url) {
+        displayResult = { kind: 'image', url: cardData.url, source: 'official_sample' };
+      }
 
       if (displayResult.kind === 'image' && displayResult.url) {
         // 発売済み or linked 後の正規画像
@@ -255,6 +266,7 @@ async function restoreCardsToSlot(slot, cards) {
         cardEl = img;
         // 発売済みクリーン画像にのみ透かし（SAMPLE画像は除外）
         if (displayResult.source !== 'official_sample') wrapper.classList.add('wm-released');
+        else wrapper.classList.add('sample-art'); // 未発売SAMPLE（イラストぼかし設定の対象）
       } else if (displayResult.kind === 'proxy' && displayResult.proxy) {
         // 未発売プロキシ（まだ発売されていない）
         const proxyEl = createProxyCardElement(displayResult.proxy);
@@ -281,7 +293,9 @@ async function restoreCardsToSlot(slot, cards) {
       img.id = cardData.id.split(' ')[0];
       if (cardData.cardName) img.dataset.cardName = cardData.cardName;
       cardEl = img;
-      wrapper.classList.add('wm-released');
+      // 実URL保存のSAMPLE（名前なし）は source で判別。旧データ（source無し）は発売済みクリーン画像
+      if (cardData.source === 'official_sample') wrapper.classList.add('sample-art');
+      else wrapper.classList.add('wm-released');
     }
 
     // イベントリスナーを再設定（dblclick による効果発動含む）

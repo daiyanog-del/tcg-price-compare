@@ -1,0 +1,101 @@
+/* sample-blur.css — 未発売SAMPLE画像のイラスト部分を薄くぼかす（一人回し・任意設定）
+ *
+ * 対象: wrapper に .sample-art が付いたカード（{kind:'image', source:'official_sample'} 由来）のみ。
+ *       プロキシ・発売済み画像には .sample-art を付けない。
+ * on/off: ルート(body)の data-sample-blur 属性（無ければぼかさない）。既定オフ。
+ * 強さ  : --sample-blur-radius（既定 2px。盤面カード約94px幅で実確認。「雰囲気は分かるが細部は見えない」程度）
+ *
+ * イラスト範囲（実SAMPLE画像 480x700 で実測。通常/リンク/魔法罠とペンデュラムを両方覆う共通範囲）:
+ *   x 8%〜92% ・ y 17.5%〜64%
+ *   通常枠のイラストは概ね x11〜89% / y17.5〜65%、ペンデュラム枠は x7.5〜94.5% / y17.5〜63%
+ *   （下端はペンデュラム効果欄の上端63%）。ペンデュラム判別情報がDOMに無いため共通範囲で近似する。
+ *
+ * 擬似要素の衝突回避:
+ *   裏面(.is-set)は components.css の .tier-item-wrapper.is-set::after（z-index 3）が使うため、
+ *   :not(.is-set) で除外する。透かし(self-watermark.css)の ::before は SAMPLE には付かない。
+ *   clip-path で範囲を切り、要素自体は wrapper 全体に敷く（守備表示の90度回転を .tier-item と同じ
+ *   transform で追従させるため）。
+ */
+
+:root {
+  --sample-blur-radius: 2px;
+}
+
+.sample-art {
+  position: relative;
+}
+
+[data-sample-blur] .sample-art:not(.is-set):not(.opp-slot)::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;                 /* img(1) より上・裏面オーバーレイ(3) より下 */
+  pointer-events: none;       /* クリック・ドラッグを阻害しない */
+  clip-path: inset(17.5% 8% 36% 8%);
+  -webkit-backdrop-filter: blur(var(--sample-blur-radius));
+  backdrop-filter: blur(var(--sample-blur-radius));
+  transition: transform 0.3s ease-in-out;
+}
+
+/* 守備表示: 画像(.tier-item)と同じ90度回転に追従 */
+[data-sample-blur] .tier-item-wrapper.is-defense.sample-art:not(.is-set)::after {
+  transform: rotate(90deg);
+  transform-origin: center center;
+}
+
+/* 相手の想定妨害トレイ: .opp-slot は ::after を使用済みマークに使うため ::before で敷く。
+   スロットは img 直下配置なので wrapper 相当の .opp-slot 全体に敷き、clip-path で範囲を切る */
+[data-sample-blur] .opp-slot.sample-art::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  clip-path: inset(17.5% 8% 36% 8%);
+  -webkit-backdrop-filter: blur(var(--sample-blur-radius));
+  backdrop-filter: blur(var(--sample-blur-radius));
+}
+/* 使用済みマーク(✓)と削除ボタンはぼかしより前面に */
+[data-sample-blur] .opp-slot.sample-art::after,
+[data-sample-blur] .opp-slot.sample-art .opp-remove-btn {
+  z-index: 3;
+}
+
+/* カード情報パネルの拡大画像: img に擬似要素は付けられないので JS が .cip-img-wrap で包む */
+.cip-img-wrap {
+  position: relative;
+  display: inline-block;
+  flex: 0 0 auto;
+  line-height: 0;
+  border-radius: 4px;
+}
+.cip-img-wrap > .cip-img {
+  display: block;
+}
+
+/* 設定UI（右パネル「表示」・スマホ⋯メニュー共通のチェックボックス） */
+.sol-sample-blur-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--main-color);
+}
+/* components.css の `p, span, li { color:#333 }` が暗色パネルで読めなくなるのを打ち消す */
+.sol-sample-blur-toggle span {
+  color: inherit;
+}
+.sol-sample-blur-toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+/* スマホ⋯メニュー内は他のメニュー項目と同じ文字サイズに揃える */
+.sol-mobile-menu-item.sol-sample-blur-toggle {
+  font-size: 0.92rem;
+}
