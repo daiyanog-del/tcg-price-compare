@@ -904,6 +904,9 @@ function _renderPendingList(listEl, cards) {
     _renderUncertainFields(row.querySelector('.uncertain-fields-badge'), card);
     _renderAutoVerdict(row.querySelector('.auto-verdict-badge'), card);
     _renderTextCheckBadge(row.querySelector('.text-check-badge'), card.text_check);
+    if (card.reread_trusted_on_disagree) {
+      row.querySelector('.reread-trusted-badge').hidden = false;
+    }
 
     // 抽出元リンク
     const link = row.querySelector('.card-row__source-link');
@@ -1393,6 +1396,11 @@ function _renderApprovedList(listEl, cards) {
     // 自動承認で公開されたカードの札
     if (card.approval_via === 'auto') {
       row.querySelector('.auto-approved-badge').hidden = false;
+    }
+
+    // 食い違いのまま読み直し側を信じて通したカードの札
+    if (card.reread_trusted_on_disagree) {
+      row.querySelector('.reread-trusted-badge').hidden = false;
     }
 
     // 画像ありバッジ / 画像なし警告バッジ

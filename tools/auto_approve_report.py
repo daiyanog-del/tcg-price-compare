@@ -11,6 +11,9 @@ extraction_raw.auto_approve_verdict が付いた承認済み/紐付け済み/却
   - 効果テキストの誤字検証（extraction_raw.text_check）: 抽出時に強い疑義が付いたカードを、
     承認時に本文を手直ししたか（検出が役立った）／手直しせず承認したか（誤検知、または人の見落とし）で数える
 
+  - 食い違いのまま読み直し側を信じて通したカード（extraction_raw.reread_trusted_on_disagree）の枚数と、
+    そのうち後で効果テキストを直された（承認後の編集で現在値が承認時と違う）／利用者に誤り報告された（unreleased_text_reports）枚数
+
   - confidence × uncertain_fields（抽出AIが「不確か」とした欄）: 信頼度別の最終結果（手直しなし承認／手直しあり承認／却下）と、
     medium で不確かとされた欄ごとに「その欄が承認時に手直しされたか」（自己申告の当たり率）
 
@@ -49,11 +52,13 @@ def _load_env_fallback() -> None:
                 os.environ[key] = val
 
 
-def summarize(cards: list[dict]) -> dict:
+def summarize(cards: list[dict], reported_ids=None) -> dict:
     """カード行（id, name, status, extraction_raw）から集計結果を作る。純粋関数。
 
     対象は verdict が付いていて status が approved/linked/rejected のもののみ。
+    reported_ids: 効果テキスト（または「その他」）の誤り報告が付いたカードの id の集合（省略可）。
     """
+    reported_ids = set(reported_ids or ())
     total = Counter()
     eligible_edited: list[dict] = []
     eligible_rejected: list[dict] = []
@@ -62,6 +67,7 @@ def summarize(cards: list[dict]) -> dict:
     eligible_approved = 0
     text = {"checked": 0, "flagged": [], "flagged_fixed": [], "flagged_unfixed": [], "weak_only": 0,
             "approval_flagged_unedited": []}
+    trust = {"trusted": [], "fixed_later": [], "reported": []}
     conf = {"by_confidence": {}, "by_field": {}, "medium_without_fields": 0}
     for c in cards:
         raw = c.get("extraction_raw") or {}
@@ -76,6 +82,7 @@ def summarize(cards: list[dict]) -> dict:
         _tally_confidence(conf, c, raw, status, edited)
         if status != "rejected":
             _tally_text_check(text, c, raw, snap, edited)
+            _tally_trusted(trust, c, raw, snap, reported_ids)
         if status == "rejected":
             if eligible:
                 eligible_rejected.append({"id": c.get("id"), "name": c.get("name")})
@@ -95,6 +102,7 @@ def summarize(cards: list[dict]) -> dict:
         "ineligible_clean": ineligible_clean,
         "ineligible_clean_reasons": dict(ineligible_clean_reasons),
         "text_check": text,
+        "reread_trust": trust,
         "confidence": {
             "by_confidence": {k: dict(v) for k, v in conf["by_confidence"].items()},
             "by_field": {k: dict(v) for k, v in conf["by_field"].items()},
@@ -140,6 +148,25 @@ def _tally_confidence(conf: dict, card: dict, raw: dict, status: str, edited) ->
                 row["edited_that_field"] += 1
 
 
+def _tally_trusted(trust: dict, card: dict, raw: dict, snap: dict, reported_ids: set) -> None:
+    """食い違いで読み直し側を信じて通したカードの集計。承認済み/紐付け済みのみ（呼び出し側で却下を除く）。
+
+    「後で直された」= 抽出時の読み直し文（effect_text_reread.text）と現在の effect_text が norm() 後に違うこと。
+    承認時の手直しも含む（編集の時期までは区別しない）。
+    """
+    if raw.get("reread_trusted_on_disagree") is not True:
+        return
+    item = {"id": card.get("id"), "name": card.get("name")}
+    trust["trusted"].append(item)
+    reread = raw.get("effect_text_reread") if isinstance(raw.get("effect_text_reread"), dict) else {}
+    original = reread.get("text")
+    from effect_text_reread import norm
+    if isinstance(original, str) and norm(card.get("effect_text") or "") != norm(original):
+        trust["fixed_later"].append(item)
+    if card.get("id") in reported_ids:
+        trust["reported"].append(item)
+
+
 def _tally_text_check(text: dict, card: dict, raw: dict, snap: dict, edited) -> None:
     """効果テキスト検証の集計。承認済み/紐付け済みで、抽出時の text_check があるものが対象。"""
     tc = raw.get("text_check")
@@ -170,13 +197,30 @@ def _fetch_cards(sb) -> list[dict]:
     rows: list[dict] = []
     offset = 0
     while True:
-        batch = (sb.table("unreleased_cards").select("id, name, status, extraction_raw")
+        batch = (sb.table("unreleased_cards").select("id, name, status, effect_text, extraction_raw")
                  .in_("status", ["approved", "linked", "rejected"])
                  .order("id").range(offset, offset + _PAGE - 1).execute().data or [])
         rows.extend(batch)
         if len(batch) < _PAGE:
             return rows
         offset += _PAGE
+
+
+def _fetch_reported_ids(sb) -> set:
+    """効果テキスト・その他の誤り報告が付いたカード id。テーブルが無い（SQL未適用）などで読めなければ空。"""
+    try:
+        from reread_trust import REPORT_FIELDS
+        ids, offset = set(), 0
+        while True:
+            batch = (sb.table("unreleased_text_reports").select("unreleased_card_id")
+                     .in_("field", list(REPORT_FIELDS)).order("id").range(offset, offset + _PAGE - 1).execute().data or [])
+            ids.update(r["unreleased_card_id"] for r in batch)
+            if len(batch) < _PAGE:
+                return ids
+            offset += _PAGE
+    except Exception as e:  # noqa: BLE001
+        print(f"(誤り報告を読めませんでした: {e})")
+        return set()
 
 
 def print_report(result: dict) -> None:
@@ -225,6 +269,18 @@ def print_report(result: dict) -> None:
             print(f"    - id={r['id']} {r['name']}: {', '.join(map(str, r['examples']))}")
         print(f"  承認時点でも n-gram/言い回し/書式の強い疑義が残り、本文を直さず承認した: {len(tx['approval_flagged_unedited'])} 件")
         print("  ※「直さず承認」が誤検知かは目視で判定が必要。多ければ tools/text_check_calibrate.py で閾値を見直す。")
+    tr = result.get("reread_trust")
+    if tr is not None:
+        print()
+        print("=== 食い違いで読み直し側を信じて通したカード（承認済み/紐付け済み）===")
+        print(f"通した枚数: {len(tr['trusted'])} 件")
+        print(f"  うち後で効果テキストを直された（現在値が読み直し文と違う）: {len(tr['fixed_later'])} 件")
+        for r in tr["fixed_later"]:
+            print(f"    - id={r['id']} {r['name']}")
+        print(f"  うち利用者から効果テキスト/その他の誤り報告が付いた: {len(tr['reported'])} 件")
+        for r in tr["reported"]:
+            print(f"    - id={r['id']} {r['name']}")
+        print("  ※ 0件でない場合は設定 TRUST_REREAD_ON_DISAGREE が自動で無効になっているはず（docs/decisions.md）。")
 
 
 def main() -> int:
@@ -234,7 +290,7 @@ def main() -> int:
         return 1
     from supabase import create_client
     sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
-    print_report(summarize(_fetch_cards(sb)))
+    print_report(summarize(_fetch_cards(sb), _fetch_reported_ids(sb)))
     return 0
 
 

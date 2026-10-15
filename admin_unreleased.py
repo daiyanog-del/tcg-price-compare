@@ -287,6 +287,8 @@ def admin_list_unreleased():
             for key in ("crop_suggestion", "crop_state", "release_date_evidence", "recognition_review", "auto_approve_verdict",
                         "auto_approve_skip", "text_check"):
                 card[key] = raw.get(key)
+            # 食い違いのまま読み直し側を信じて通したカードの札用
+            card["reread_trusted_on_disagree"] = raw.get("reread_trusted_on_disagree") is True
             # 承認前確認で自動承認を見送った理由（判定とは別キー）の日本語ラベル
             skip = card.get("auto_approve_skip")
             if isinstance(skip, dict) and skip.get("reason"):
@@ -436,6 +438,14 @@ def admin_update_unreleased(card_id: int):
         if not resp.data:
             return jsonify({"error": "対象レコードが見つかりません"}), 404
         _card_display.invalidate_cache()
+        if "effect_text" in updates:
+            try:
+                import reread_trust
+                saved = resp.data[0]
+                reread_trust.on_effect_text_edited(
+                    _supabase, card_id, saved.get("name") or "", saved.get("extraction_raw"), saved.get("effect_text"))
+            except Exception as e:  # 保存は成立させる
+                logger.warning(f"[admin] 読み直し採用の自動復帰処理に失敗 id={card_id}: {e}")
         # 編集後の値で誤字チェックと自動承認判定を取り直す（失敗しても保存は成立）
         _recompute_checks_after_edit(resp.data[0])
         return jsonify({"ok": True, "card": resp.data[0]})
@@ -443,6 +453,16 @@ def admin_update_unreleased(card_id: int):
     except Exception as e:
         logger.error(f"[admin] unreleased_cards 更新エラー id={card_id}: {e}")
         return jsonify({"error": "更新に失敗しました"}), 500
+
+
+def _revert_trust_on_withdrawn(card: dict, action: str) -> None:
+    """公開中の読み直し採用カードを非公開・却下・削除したとき、読み直し採用の設定を自動で無効にする（失敗しても操作は成立）。"""
+    try:
+        import reread_trust
+        reread_trust.on_withdrawn(_supabase, card.get("id"), card.get("name") or "", card.get("status"),
+                                  card.get("extraction_raw"), action)
+    except Exception as e:
+        logger.warning(f"[admin] 読み直し採用の自動復帰処理に失敗 id={card.get('id')}: {e}")
 
 
 def _execute_approve_update(build_query, fields: dict):
@@ -1113,7 +1133,7 @@ def admin_unpublish_unreleased(card_id: int):
         # 承認済み（approved/linked）のもののみ対象
         get_resp = (
             _supabase.table("unreleased_cards")
-            .select("id, status")
+            .select("id, name, status, extraction_raw")
             .eq("id", card_id)
             .execute()
         )
@@ -1121,6 +1141,7 @@ def admin_unpublish_unreleased(card_id: int):
             return jsonify({"error": "対象レコードが見つかりません"}), 404
         if get_resp.data[0]["status"] not in ("approved", "linked"):
             return jsonify({"error": "公開中（approved/linked）のカードのみ承認待ちに戻せます"}), 400
+        _revert_trust_on_withdrawn(get_resp.data[0], "承認待ちに戻し（非公開化）")
 
         # X に投稿済みなら、非公開にした後で投稿も削除する（誤字を直して再承認すれば再投稿される）
         posted = _x_post.collect_posted_safe(_supabase, [card_id])
@@ -1152,6 +1173,8 @@ def admin_reject_unreleased(card_id: int):
     try:
         # 承認済みを却下した場合は、X に投稿済みなら投稿も削除する（承認前のカードには投稿が無いので空）
         posted = _x_post.collect_posted_safe(_supabase, [card_id])
+        prev = (_supabase.table("unreleased_cards").select("id, name, status, extraction_raw")
+                .eq("id", card_id).execute().data or [None])[0]
         resp = (
             _supabase.table("unreleased_cards")
             .update({"status": "rejected"})
@@ -1162,6 +1185,8 @@ def admin_reject_unreleased(card_id: int):
             return jsonify({"error": "対象レコードが見つかりません"}), 404
         _card_display.invalidate_cache()
         _x_post.start_delete_thread(_supabase, posted)
+        if prev:
+            _revert_trust_on_withdrawn(prev, "却下")
         return jsonify({"ok": True, "card": resp.data[0]})
 
     except Exception as e:
@@ -1285,7 +1310,7 @@ def admin_delete_unreleased(card_id: int):
         return jsonify({"error": "Supabase 未接続"}), 503
 
     try:
-        cur = _supabase.table("unreleased_cards").select("id, status, source_url").eq("id", card_id).execute()
+        cur = _supabase.table("unreleased_cards").select("id, name, status, source_url, extraction_raw").eq("id", card_id).execute()
         cur_row = cur.data[0] if cur.data else {}
         imported = (cur_row.get("source_url") or "").strip() not in ("", "manual")
         if cur_row and (cur_row.get("status") in ("approved", "linked")
@@ -1296,6 +1321,7 @@ def admin_delete_unreleased(card_id: int):
                 return jsonify({"error": "対象レコードが見つかりません"}), 404
             _card_display.invalidate_cache()
             _x_post.start_delete_thread(_supabase, posted)
+            _revert_trust_on_withdrawn(cur_row, "削除（却下扱い）")
             return jsonify({"ok": True, "deleted_id": card_id, "rejected_instead": True,
                             "note": "公開中、または取込由来のカードは物理削除せず却下扱いにしました（再取込で入り直さないため）。"
                                     "完全に消すには、却下タブから削除してください"})

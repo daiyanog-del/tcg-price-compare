@@ -1506,7 +1506,8 @@ a:hover {
 }
 
 /* 自動承認で公開されたカードの札。承認待ちに戻す操作が近くにあることを title で示す */
-.auto-approved-badge {
+.auto-approved-badge,
+.reread-trusted-badge {
   border: 1px solid var(--accent);
   border-radius: 3px;
   color: var(--main-color);

@@ -129,13 +129,68 @@ def _read_one(client, model, crop_png: bytes, name: str = ""):
                                       schema=REREAD_SCHEMA, max_tokens=_MAX_TOKENS, effort=REREAD_EFFORT)
 
 
-def reread_effect_texts(rows: list[dict], *, client, encoded_images: list[dict], model: str | None = None) -> None:
+# 食い違いを信じてよい大きさの上限（norm() 後の1回目 a と読み直し b の比較）。
+# 根拠: 本番の食い違い4件はいずれも1〜2文字の置換（され→し、・→か、は→後）。行の欠け・別カードの文・作り話は
+# 差分が大きく、先頭や末尾にまとまる。これらを「読み直しが正しい」とは言えないので人に回す。
+# TODO: calibrate from data（食い違い事例が溜まったら、信じた後の訂正率から見直す）
+TRUST_MAX_DIFF_CHARS = 4          # 非一致文字数（置換は長い側、削除・挿入はその長さの合計）の上限
+TRUST_LEN_RATIO = (0.95, 1.05)    # len(読み直し)/len(1回目) の許容範囲
+TRUST_MAX_EDGE_INDEL = 1          # 先頭・末尾にある削除/挿入がこの文字数を超えたら（行の欠け・追加とみなして）信じない
+
+
+def diff_within_trust_limits(a: str, b: str) -> bool:
+    """norm() 後の a（1回目）と b（読み直し）の食い違いが、信じてよい小ささか。"""
+    if not a or not b:
+        return False
+    if not (TRUST_LEN_RATIO[0] <= len(b) / len(a) <= TRUST_LEN_RATIO[1]):
+        return False
+    ops = diff_ops(a, b)
+    mismatch = sum(max(len(x), len(y)) for tag, x, y in ops if tag != "equal")
+    if mismatch > TRUST_MAX_DIFF_CHARS:
+        return False
+    for idx in (0, len(ops) - 1):   # 端にまとまった削除・挿入
+        tag, x, y = ops[idx]
+        if tag in ("delete", "insert") and max(len(x), len(y)) > TRUST_MAX_EDGE_INDEL:
+            return False
+    return True
+
+
+def _can_trust_on_disagree(row: dict, raw: dict, model: str, a: str, b: str, text: str,
+                           has_unreadable: bool, trust_on_disagree: bool | None) -> bool:
+    """食い違っても読み直し側を信じて effect_text を不確かにしないか（reread_trust.py 参照）。
+
+    すべて満たすときだけ True: 食い違いが小さい（diff_within_trust_limits）／読み直しに〓が無い／両方に文がある／1回目と読み直しが同じモデル／
+    1回目が name を不確かとしていない／ペンデュラムでない／読み直し文に誤字検査の強い疑いが無い（検査できないときも不可）／
+    設定が有効（読めなければ無効）。安い条件から順に見て、設定の読み取りは最後にする。
+    誤字検査は取込前なので他カードの文脈（名前・「」内語）なしで行う。文脈なしのほうが強い疑いが出やすい（安全側）。
+    最終的な自動承認の判定（annotate_row）は文脈つきで text_check をやり直し、強い疑いがあれば別途不適格にする。
+    """
+    if has_unreadable or not a or not b or _is_pendulum(row):
+        return False
+    if not diff_within_trust_limits(a, b):
+        return False
+    if raw.get("model") != model or "name" in _uncertain_list(raw):
+        return False
+    from unreleased_auto_approve import compute_text_check
+    check = compute_text_check({"name": row.get("name") or "", "effect_text": text,
+                                "pendulum_effect": row.get("pendulum_effect") or ""})
+    if check.get("status") != "checked" or check.get("strong"):
+        return False
+    if trust_on_disagree is not None:
+        return trust_on_disagree
+    import reread_trust
+    return reread_trust.is_enabled()
+
+
+def reread_effect_texts(rows: list[dict], *, client, encoded_images: list[dict], model: str | None = None,
+                        trust_on_disagree: bool | None = None) -> None:
     """各カードの効果欄を拡大して読み直し、effect_text を採用して1回目と突き合わせる（rows を直接更新）。
 
     - 1回目の effect_text は extraction_raw.effect_text_first_pass に残す
     - 結果と比較情報は extraction_raw.effect_text_reread {text, model, agreed, diff_summary, usage, ...}
     - 食い違い・〓・失敗・ペンデュラムは uncertain_fields に effect_text（ペンデュラムは pendulum_effect も）を追加する
     - 失敗時は1回目の結果を残す（黙って通さない）
+    - trust_on_disagree: None なら設定（reread_trust.is_enabled）に従う。True/False はテスト用の固定
     """
     from card_crop import make_effect_crop, effect_box_kind
     from unreleased_extractor import normalize_effect_punct
@@ -215,6 +270,16 @@ def reread_effect_texts(rows: list[dict], *, client, encoded_images: list[dict],
             if "effect_text" in uncertain:
                 raw["uncertain_fields"] = [f for f in uncertain if f != "effect_text"]
                 raw["uncertain_cleared_by_reread"] = True
+        elif not agreed and _can_trust_on_disagree(row, raw, model, a, b, text, has_unreadable, trust_on_disagree):
+            # 食い違ったが、読み直し側に問題が見当たらないので不確かにしない（外れたら設定が自動で無効になる）
+            raw["reread_trusted_on_disagree"] = True
+            # 採用するのは読み直し文。1回目の自己申告による effect_text の不確かは1回目の読み取りへの自信の話なので外す
+            # （name の自己申告があるときは条件側で信じない）。fields が空でも medium_uncertain_unknown にしない印を残す
+            if "effect_text" in uncertain:
+                raw["uncertain_fields"] = [f for f in uncertain if f != "effect_text"]
+                raw["uncertain_cleared_by_reread"] = True
+            raw["reread_trust_diff_summary"] = raw["effect_text_reread"]["diff_summary"]
+            logger.info("効果テキストが食い違ったが読み直し側を採用: %s %s", row.get("name"), raw["reread_trust_diff_summary"])
         elif not agreed:
             _mark_uncertain(raw, "effect_text")
             logger.warning("効果テキストが1回目と食い違い/〓あり/空: %s", row.get("name"))
