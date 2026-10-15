@@ -568,3 +568,10 @@
 p, span, li {
   color: #333;
 }
+
+/* ?newcards=1&focus= で開いたときに強調するカード。モバイルの選択中（.selected）と同じ金色の枠。
+   プールのカードは70%重なるため、前面に出して枠を見せる。赤（危険色）は使わない。 */
+.tier-item-wrapper.sol-newcard-focus {
+  box-shadow: 0 0 0 3px var(--gold), 0 8px 20px rgba(0, 0, 0, 0.5);
+  z-index: 400;
+}

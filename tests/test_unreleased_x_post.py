@@ -63,19 +63,42 @@ class Poster:
 def test_text_full():
     t = xp.build_tweet_text("テストカード", "テストパック", "2026-11-01", site_url="https://example.test")
     assert t.split("\n") == [
-        "【新カード情報】", "テストカード", "収録：テストパック", "発売日：2026年11月1日",
-        "https://example.test/card/%E3%83%86%E3%82%B9%E3%83%88%E3%82%AB%E3%83%BC%E3%83%89",
+        "公式発表の新カード「テストカード」が、TCGYMのシミュレーターで使えるようになりました。",
+        "収録：テストパック／発売日：2026年11月1日",
+        "https://example.test/solitaire?newcards=1&focus=%E3%83%86%E3%82%B9%E3%83%88%E3%82%AB%E3%83%BC%E3%83%89",
         "#遊戯王 #OCG"]
+    assert "【新カード情報】" not in t
 
 
 def test_text_without_date_and_product():
     t = xp.build_tweet_text("A", "", None, site_url="https://example.test")
-    assert "発売日" not in t and "収録" not in t
-    assert t.split("\n")[1] == "A"
+    # 商品名・発売日が両方無いときは情報行ごと出さない
+    assert t.split("\n") == [
+        "公式発表の新カード「A」が、TCGYMのシミュレーターで使えるようになりました。",
+        "https://example.test/solitaire?newcards=1&focus=A", "#遊戯王 #OCG"]
+
+
+def test_text_product_only_and_date_only():
+    only_product = xp.build_tweet_text("A", "P", None, site_url="https://example.test").split("\n")
+    assert only_product[1] == "収録：P"
+    only_date = xp.build_tweet_text("A", "", "2026-11-01", site_url="https://example.test").split("\n")
+    assert only_date[1] == "発売日：2026年11月1日"
 
 
 def test_text_invalid_date_omitted():
-    assert "発売日" not in xp.build_tweet_text("A", "P", "bad", site_url="https://example.test")
+    t = xp.build_tweet_text("A", "P", "bad", site_url="https://example.test")
+    assert "発売日" not in t
+    assert t.split("\n")[1] == "収録：P"
+
+
+def test_text_url_encodes_reserved_characters():
+    # & # ? / % スペース を含む名前でも focus が1つのクエリ値に収まる
+    name = "A&B#C?D/E%F G"
+    t = xp.build_tweet_text(name, "", None, site_url="https://example.test")
+    url = t.split("\n")[-2]
+    assert url == "https://example.test/solitaire?newcards=1&focus=A%26B%23C%3FD%2FE%25F%20G"
+    from urllib.parse import urlsplit, parse_qs
+    assert parse_qs(urlsplit(url).query) == {"newcards": ["1"], "focus": [name]}
 
 
 def test_text_truncated_within_limit():
@@ -92,8 +115,11 @@ def test_text_name_truncated_when_still_over():
     name = "あ" * 300
     t = xp.build_tweet_text(name, "P", None, site_url="https://example.test")
     assert xp.weighted_length(t) <= xp.TWEET_WEIGHT_LIMIT
-    line = t.split("\n")[1]
-    assert line != name and line.endswith("…")
+    line = t.split("\n")[0]
+    assert name not in line and "…" in line
+    # URL は詰めず完全なカード名で作る
+    from urllib.parse import quote
+    assert t.split("\n")[-2].endswith("focus=" + quote(name, safe=""))
 
 
 def test_weighted_length_url_and_cjk():

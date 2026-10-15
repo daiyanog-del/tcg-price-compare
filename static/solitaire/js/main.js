@@ -19,7 +19,7 @@ import { initReplayUI } from './ui/replay-ui.js';
 import { registerCardImage, registerCardIsEx, registerCardName, captureReplaySession, restoreReplaySession, rebuildAtCursor, isPlaying, isReplayAnimating } from './services/replay-service.js';
 import { initTokenGenerator } from './ui/token-generator.js';
 import { initRandomTools } from './ui/random-tools.js';
-import { initCardInfoPanel } from './ui/card-info-panel.js';
+import { initCardInfoPanel, showCardByName } from './ui/card-info-panel.js';
 import { initSampleBlur } from './ui/sample-blur.js';
 import { saveSessionResume, loadSessionResume } from './services/save-load-service.js';
 import { initOpponentTray, updateCipWidth } from './ui/opponent-tray.js';
@@ -32,6 +32,7 @@ import { showToast } from './utils/toast.js';
 import { hasReplayInUrl as isReplayInUrl } from './utils/replay-url.js';
 import { loadDeckFromNeuron, clearEverything } from './ui/deck-input-panel.js';
 import { receiveDeckHandoff } from '../../shared/deck-handoff.js';
+import { receiveNewCards } from '../../shared/newcards-entry.js';
 
 /**
  * リプレイ画像辞書に登録する src を決める。
@@ -383,7 +384,13 @@ async function initializeApp() {
       ex: document.querySelectorAll('#poolRow2 .tier-item').length,
     }),
   });
-  const restored = hasReplayInUrl || handedOff ? false : await loadSessionResume();
+  // ?newcards=1（X投稿などからの直行）。リプレイ指定・持込があれば何もしない（判定は receiveNewCards 内でも行う）
+  const newCardsLoaded = hasReplayInUrl || handedOff ? false : await receiveNewCards({
+    loadDeck: loadDeckFromNeuron, clearDeck: clearEverything,
+    showCard: el => showCardByName(el.dataset.cardName, el.src || '', el.closest('.sample-art') ? 'official_sample' : ''),
+    canShowCard: () => !isMobilePortrait(), // スマホ縦の詳細は別UI（下部シート）なので自動では開かない
+  });
+  const restored = hasReplayInUrl || handedOff || newCardsLoaded ? false : await loadSessionResume();
   // リプレイ記録の復元（盤面は loadSessionResume が写しから復元済み。ここでは記録の変数を戻すだけ）。
   // 画像辞書は保存されていた辞書を先に入れ、次の DOM からの登録で上書き・追加する（順序を変えない）
   const replaySnap = restored && restored.replay ? restored.replay : null;
