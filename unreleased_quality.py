@@ -8,6 +8,30 @@ from datetime import datetime, timedelta
 logger = logging.getLogger(__name__)
 
 
+# 抽出AIが「不確かだった欄」として返せる値（構造化出力の enum）
+UNCERTAIN_FIELDS = (
+    "name", "effect_text", "pendulum_effect", "card_type", "attribute", "race",
+    "level_rank_link", "atk", "def", "pendulum_scale", "product_name", "release_date",
+)
+
+# 不確かだと自動承認しない欄（効果・数値・名前・種別。読み違いがそのまま公開内容の誤りになる）。
+# 重要欄に含めない欄の根拠:
+#   release_date: 取込時に公式の発売日表と別途照合する（release_date_not_verified）ので自己申告に頼らない
+#   product_name: 発売日の公式照合に使われ、不一致は発売日側の照合で落ちる
+#   attribute / race: 効果・数値ほど内容を左右せず、公開画像（カード画像そのもの）と見比べて訂正しやすい
+IMPORTANT_UNCERTAIN_FIELDS = frozenset({
+    "name", "effect_text", "pendulum_effect", "card_type", "level_rank_link",
+    "atk", "def", "pendulum_scale",
+})
+
+UNCERTAIN_FIELD_LABELS = {
+    "name": "カード名", "effect_text": "効果テキスト", "pendulum_effect": "ペンデュラム効果",
+    "card_type": "カード種別", "attribute": "属性", "race": "種族",
+    "level_rank_link": "レベル/ランク/リンク", "atk": "攻撃力", "def": "守備力",
+    "pendulum_scale": "ペンデュラムスケール", "product_name": "収録パック", "release_date": "発売日",
+}
+
+
 def strict_schema(schema):
     """Pydanticのスキーマを全項目必須のAPI構造化出力へ変換する。"""
     schema = copy.deepcopy(schema)

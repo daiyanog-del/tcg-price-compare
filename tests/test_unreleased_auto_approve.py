@@ -45,9 +45,49 @@ def test_all_conditions_met():
     assert v["eligible"] is True and v["reasons"] == [] and v["version"] == aa.VERSION and v["at"]
 
 
-@pytest.mark.parametrize("conf", ["medium", "low", None])
-def test_confidence_must_be_high(conf):
-    assert "confidence_not_high" in _ev(_card(confidence=conf))["reasons"]
+@pytest.mark.parametrize("conf", ["low", None, "unknown"])
+def test_low_confidence_is_ineligible(conf):
+    assert "confidence_low" in _ev(_card(confidence=conf))["reasons"]
+
+
+def test_high_ignores_uncertain_fields():
+    assert _ev(_card(raw={"uncertain_fields": ["effect_text"]}))["eligible"] is True
+
+
+@pytest.mark.parametrize("fields", [None, [], "effect_text"])
+def test_medium_without_uncertain_fields_is_ineligible(fields):
+    raw = {} if fields is None else {"uncertain_fields": fields}
+    v = _ev(_card(confidence="medium", raw=raw))
+    assert v["eligible"] is False and v["reasons"] == ["medium_uncertain_unknown"]
+
+
+@pytest.mark.parametrize("fields", [["attribute"], ["race"], ["product_name"], ["release_date"],
+                                    ["attribute", "race", "release_date", "product_name"]])
+def test_medium_with_unimportant_uncertain_fields_passes(fields):
+    v = _ev(_card(confidence="medium", raw={"uncertain_fields": fields}))
+    assert v["eligible"] is True and v["reasons"] == [] and "uncertain_fields" not in v
+
+
+@pytest.mark.parametrize("field", sorted(["name", "effect_text", "pendulum_effect", "card_type",
+                                          "level_rank_link", "atk", "def", "pendulum_scale"]))
+def test_medium_with_important_uncertain_field_is_ineligible(field):
+    v = _ev(_card(confidence="medium", raw={"uncertain_fields": ["attribute", field]}))
+    assert v["eligible"] is False and v["reasons"] == ["medium_uncertain_fields"]
+    assert v["uncertain_fields"] == [field]  # 重要欄だけを記録する
+
+
+def test_medium_with_unknown_field_value_is_ineligible():
+    v = _ev(_card(confidence="medium", raw={"uncertain_fields": ["something_new"]}))
+    assert v["reasons"] == ["medium_uncertain_fields"]
+
+
+def test_verdict_reason_labels_include_field_names():
+    v = _ev(_card(confidence="medium", raw={"uncertain_fields": ["effect_text", "atk"]}))
+    labels = aa.verdict_reason_labels(v)
+    assert len(labels) == 1 and "効果テキスト" in labels[0] and "攻撃力" in labels[0]
+    # 旧バージョンの判定記録（confidence_not_high）も表示できる
+    assert aa.verdict_reason_labels({"reasons": ["confidence_not_high"]}) == ["抽出の信頼度が高ではない"]
+    assert aa.verdict_reason_labels(None) == []
 
 
 @pytest.mark.parametrize("review", [None, {"status": "needs_review"}, "verified"])
@@ -120,11 +160,12 @@ def test_same_name_unchecked_when_names_unavailable():
 
 def test_multiple_reasons_collected():
     v = _ev(_card(confidence="low", raw={"release_date_evidence": None}))
-    assert {"confidence_not_high", "release_date_not_verified"} <= set(v["reasons"])
+    assert {"confidence_low", "release_date_not_verified"} <= set(v["reasons"])
 
 
 def test_all_reason_codes_have_labels():
-    codes = {"confidence_not_high", "recognition_not_verified", "release_date_not_verified", "crop_not_contour",
+    codes = {"confidence_not_high", "confidence_low", "medium_uncertain_fields", "medium_uncertain_unknown",
+             "recognition_not_verified", "release_date_not_verified", "crop_not_contour",
              "crop_invalid", "crop_too_small", "crop_not_applied", "lacks_card_body", "same_name_exists",
              "same_name_unchecked", "evaluation_error"}
     assert codes <= set(aa.REASON_LABELS)

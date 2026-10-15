@@ -32,6 +32,8 @@ import unreleased_x_post as _x_post
 import unreleased_text_report as _text_report
 import unreleased_approve as _approve
 from unreleased_auto_approve import reason_label as _auto_approve_label
+from unreleased_auto_approve import uncertain_field_labels as _uncertain_field_labels
+from unreleased_auto_approve import verdict_reason_labels as _verdict_reason_labels
 import fetch_guard as _fetch_guard
 from constants import JST as _JST
 from client_ip import _client_ip
@@ -295,9 +297,11 @@ def admin_list_unreleased():
             # 自動承認判定の理由コードを日本語ラベルにして添える（ラベルの正本は Python 側のみ）
             verdict = card.get("auto_approve_verdict")
             if isinstance(verdict, dict):
-                card["auto_approve_reason_labels"] = [
-                    _auto_approve_label(code) for code in (verdict.get("reasons") or [])
-                ]
+                card["auto_approve_reason_labels"] = _verdict_reason_labels(verdict)
+            # 抽出AIが「不確か」とした欄（confidence が high 以外のとき）。旧データは None
+            uncertain = raw.get("uncertain_fields")
+            card["uncertain_fields"] = uncertain if isinstance(uncertain, list) else None
+            card["uncertain_field_labels"] = _uncertain_field_labels(uncertain)
             # extraction_raw はフロントエンドに不要なので除外する（サイズ削減）
             card.pop("extraction_raw", None)
 

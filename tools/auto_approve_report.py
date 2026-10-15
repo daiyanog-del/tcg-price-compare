@@ -11,6 +11,9 @@ extraction_raw.auto_approve_verdict が付いた承認済み/紐付け済み/却
   - 効果テキストの誤字検証（extraction_raw.text_check）: 抽出時に強い疑義が付いたカードを、
     承認時に本文を手直ししたか（検出が役立った）／手直しせず承認したか（誤検知、または人の見落とし）で数える
 
+  - confidence × uncertain_fields（抽出AIが「不確か」とした欄）: 信頼度別の最終結果（手直しなし承認／手直しあり承認／却下）と、
+    medium で不確かとされた欄ごとに「その欄が承認時に手直しされたか」（自己申告の当たり率）
+
 実行:
   python tools/auto_approve_report.py            # 本番Supabaseを読むだけ（書き込みなし）
 
@@ -59,6 +62,7 @@ def summarize(cards: list[dict]) -> dict:
     eligible_approved = 0
     text = {"checked": 0, "flagged": [], "flagged_fixed": [], "flagged_unfixed": [], "weak_only": 0,
             "approval_flagged_unedited": []}
+    conf = {"by_confidence": {}, "by_field": {}, "medium_without_fields": 0}
     for c in cards:
         raw = c.get("extraction_raw") or {}
         verdict = raw.get("auto_approve_verdict")
@@ -69,6 +73,7 @@ def summarize(cards: list[dict]) -> dict:
         total[(eligible, "rejected" if status == "rejected" else "approved")] += 1
         snap = raw.get("approval_snapshot") if isinstance(raw.get("approval_snapshot"), dict) else {}
         edited = snap.get("edited_fields")  # None=記録なし（承認記録の導入前など）
+        _tally_confidence(conf, c, raw, status, edited)
         if status != "rejected":
             _tally_text_check(text, c, raw, snap, edited)
         if status == "rejected":
@@ -90,10 +95,49 @@ def summarize(cards: list[dict]) -> dict:
         "ineligible_clean": ineligible_clean,
         "ineligible_clean_reasons": dict(ineligible_clean_reasons),
         "text_check": text,
+        "confidence": {
+            "by_confidence": {k: dict(v) for k, v in conf["by_confidence"].items()},
+            "by_field": {k: dict(v) for k, v in conf["by_field"].items()},
+            "medium_without_fields": conf["medium_without_fields"],
+        },
     }
 
 
 _TEXT_FIELDS = ("effect_text", "pendulum_effect")
+
+# uncertain_fields の値 → 承認時の手直し検出（SNAPSHOT_FIELDS）で対応する列
+_UNCERTAIN_TO_SNAPSHOT = {
+    "level_rank_link": ("level", "rank", "link_val"),
+}
+
+
+def _tally_confidence(conf: dict, card: dict, raw: dict, status: str, edited) -> None:
+    """confidence 別の最終結果と、medium の uncertain_fields ごとの手直し率を数える。"""
+    c = card.get("confidence") or "(なし)"
+    if status == "rejected":
+        outcome = "rejected"
+    elif edited is None:
+        outcome = "approved_unknown"   # 承認記録の導入前
+    elif edited:
+        outcome = "approved_edited"
+    else:
+        outcome = "approved_clean"
+    conf["by_confidence"].setdefault(c, Counter())[outcome] += 1
+    if c != "medium":
+        return
+    fields = raw.get("uncertain_fields")
+    if not isinstance(fields, list) or not fields:
+        conf["medium_without_fields"] += 1
+        return
+    for f in dict.fromkeys(fields):
+        row = conf["by_field"].setdefault(f, Counter())
+        row["n"] += 1
+        if status == "rejected":
+            row["rejected"] += 1
+        elif edited is not None:
+            row["judged"] += 1
+            if any(k in edited for k in _UNCERTAIN_TO_SNAPSHOT.get(f, (f,))):
+                row["edited_that_field"] += 1
 
 
 def _tally_text_check(text: dict, card: dict, raw: dict, snap: dict, edited) -> None:
@@ -155,6 +199,19 @@ def print_report(result: dict) -> None:
         print(f"  - {reason_label(code)} ({code}): {n}")
     print()
     print("※ 手直しの記録(approval_snapshot)が無い旧データは「手直しなし」に数えていません。")
+    cf = result.get("confidence")
+    if cf and cf["by_confidence"]:
+        print()
+        print("=== 信頼度 × AIが不確かとした欄（判定あり・承認済み/紐付け済み/却下）===")
+        for k in ("high", "medium", "low"):
+            v = cf["by_confidence"].get(k)
+            if v:
+                print(f"  {k}: 手直しなし承認 {v.get('approved_clean', 0)} / 手直しあり承認 {v.get('approved_edited', 0)}"
+                      f" / 却下 {v.get('rejected', 0)} / 記録なし承認 {v.get('approved_unknown', 0)}")
+        print(f"  medium で uncertain_fields が無い（旧データ・AIが出さなかった）: {cf['medium_without_fields']} 件")
+        for f, v in sorted(cf["by_field"].items(), key=lambda kv: -kv[1].get("n", 0)):
+            print(f"  - 不確か欄 {f}: {v.get('n', 0)} 件 / うち承認でその欄を手直し {v.get('edited_that_field', 0)}"
+                  f"（判定可能 {v.get('judged', 0)}）/ 却下 {v.get('rejected', 0)}")
     tx = result.get("text_check")
     if tx:
         print()

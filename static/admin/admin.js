@@ -549,6 +549,20 @@ function _renderAutoVerdict(el, card) {
 }
 
 /**
+ * 抽出AIが「不確か」とした欄の表示（extraction_raw.uncertain_fields。ラベルはサーバー側が返す）。
+ * 旧データ・信頼度が高のカードは空なので何も出さない。値は textContent だけで設定する。
+ * @param {HTMLElement|null} el
+ * @param {{uncertain_field_labels?: string[]}} card
+ */
+function _renderUncertainFields(el, card) {
+  if (!el) return;
+  const labels = Array.isArray(card.uncertain_field_labels) ? card.uncertain_field_labels : [];
+  if (!labels.length) return;
+  el.textContent = 'AIが不確かとした欄: ' + labels.join('、');
+  el.hidden = false;
+}
+
+/**
  * 効果テキストの誤字チェックの表示（unreleased_text_check.py の結果）。
  * 値は textContent / createTextNode だけで設定する（innerHTML 不使用）。
  * 強い疑義 = 自動承認の条件に使うもの。弱い疑義 = 参考表示のみ。
@@ -829,6 +843,7 @@ function _renderPendingList(listEl, cards) {
     badge.classList.add(_confidenceClass(card.confidence));
 
     // 自動承認の判定（シャドーモード: 表示のみ）
+    _renderUncertainFields(row.querySelector('.uncertain-fields-badge'), card);
     _renderAutoVerdict(row.querySelector('.auto-verdict-badge'), card);
     _renderTextCheckBadge(row.querySelector('.text-check-badge'), card.text_check);
 
