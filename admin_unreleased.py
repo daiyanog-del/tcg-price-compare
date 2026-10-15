@@ -302,6 +302,9 @@ def admin_list_unreleased():
             uncertain = raw.get("uncertain_fields")
             card["uncertain_fields"] = uncertain if isinstance(uncertain, list) else None
             card["uncertain_field_labels"] = _uncertain_field_labels(uncertain)
+            # 効果テキストの1回目と拡大読み直しの食い違い（一致・旧データは None）
+            from effect_text_reread import admin_view as _reread_view
+            card["effect_reread"] = _reread_view(raw)
             # extraction_raw はフロントエンドに不要なので除外する（サイズ削減）
             card.pop("extraction_raw", None)
 

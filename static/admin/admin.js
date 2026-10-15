@@ -676,6 +676,62 @@ function _renderTextCheckPanel(editForm, tc, stale) {
 }
 
 /**
+ * 効果テキストの「1回目の読み取り」と「拡大して読み直した結果」が食い違ったときの表示。
+ * 現在の効果テキストは読み直し結果を採用している。食い違い箇所だけ強調する（値は textContent のみ）。
+ * @param {HTMLElement} editForm
+ * @param {{effect_reread?: object|null}} card
+ */
+function _renderRereadPanel(editForm, card) {
+  const panel = editForm.querySelector('.reread-panel');
+  if (!panel) return;
+  const note = panel.querySelector('.reread-panel__note');
+  const rows = panel.querySelector('.reread-panel__rows');
+  rows.replaceChildren();
+  note.textContent = '';
+  const view = card.effect_reread;
+  if (!view || typeof view !== 'object') {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+  if (view.status === 'skipped') {
+    note.textContent = 'ペンデュラムは効果欄の拡大読み直しが未対応です。画像を見て効果テキストを確認してください。';
+    return;
+  }
+  if (view.status === 'error') {
+    note.textContent = '拡大読み直しに失敗しました（1回目の読み取り結果のままです）。画像を見て確認してください。理由: ' + String(view.reason || '');
+    return;
+  }
+  note.textContent = '1回目と拡大して読み直した結果が食い違いました。効果テキスト欄は読み直し結果です。'
+    + (view.unreadable ? '読めない文字は「〓」になっています。' : '')
+    + '（取込時の結果です。編集後は反映されません。比較のため空白・改行を除き全角半角をそろえた表示）';
+  const ops = Array.isArray(view.ops) ? view.ops : [];
+  const addRow = (label, index) => {
+    const dt = document.createElement('dt');
+    dt.className = 'reread-panel__label';
+    dt.textContent = label;
+    const dd = document.createElement('dd');
+    dd.className = 'reread-panel__text';
+    for (const op of ops) {
+      const part = String(op[index] || '');
+      if (!part) continue;
+      if (op[0] === 'equal') {
+        dd.appendChild(document.createTextNode(part));
+      } else {
+        const mark = document.createElement('mark');
+        mark.className = 'text-check__mark';
+        mark.textContent = part;
+        dd.appendChild(mark);
+      }
+    }
+    rows.appendChild(dt);
+    rows.appendChild(dd);
+  };
+  addRow('1回目の読み取り', 1);
+  addRow('読み直し（採用中）', 2);
+}
+
+/**
  * 編集フォームの誤字チェック欄を初期化し、「再検査」ボタンを配線する。
  * 再検査は編集中の値（カード名・効果テキスト・ペンデュラム効果）で行い、結果は保存しない。
  */
@@ -894,6 +950,7 @@ function _renderPendingList(listEl, cards) {
     _setActiveMedia(editForm, hasSource ? 'source' : 'proxy');
     _showRecognitionEvidence(card, editForm);
     _setupTextCheck(editForm, card);
+    _renderRereadPanel(editForm, card);
     _setupReportPanel(row, editForm, card);
 
     // 抽出元画像がある場合のみクロップUIを配線
@@ -1406,6 +1463,7 @@ function _renderApprovedList(listEl, cards) {
     });
 
     _setupTextCheck(editForm, card);
+    _renderRereadPanel(editForm, card);
     _setupReportPanel(row, editForm, card);
     // プレビュー初期描画
     const slot = editForm.querySelector('.edit-preview__slot');

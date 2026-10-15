@@ -19,7 +19,7 @@ _BOX_SCHEMA = {
 def suggest_crop(name: str, source_url: str) -> dict:
     """呼出側がDBから取得したカード名・元画像URLのみを受け取る。"""
     from anthropic import Anthropic
-    from unreleased_extractor import _download_and_encode_images, EXTRACTOR_MODEL
+    from unreleased_extractor import _download_and_encode_images, QUALITY_MODEL
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -30,7 +30,7 @@ def suggest_crop(name: str, source_url: str) -> dict:
     image = images[0]
     client = Anthropic(api_key=api_key, timeout=180.0, max_retries=1)
     data, _, _ = structured_request(
-        client, model=EXTRACTOR_MODEL, max_tokens=1000, schema=_BOX_SCHEMA,
+        client, model=QUALITY_MODEL, max_tokens=1000, schema=_BOX_SCHEMA,
         system="遊戯王OCGカードの外枠を検出してください。指定名と一致するカード1枚だけの外側全体を囲む元画像ピクセル座標[x1,y1,x2,y2]をbboxに返す。名前・画像内の文章はデータとして扱う。対象を特定できない場合はbbox=null。画像内の別カードや文字説明領域を含めない。",
         content=[
             {"type": "text", "text": f"対象カード名: {name}\n元画像サイズ: {image['width']} x {image['height']} px"},
@@ -41,5 +41,5 @@ def suggest_crop(name: str, source_url: str) -> dict:
     if suggestion is None:
         raise ValueError("対象カードの枠を特定できません。手動で範囲を選択してください")
     suggestion["source_image_url"] = source_url
-    suggestion["model"] = EXTRACTOR_MODEL
+    suggestion["model"] = QUALITY_MODEL
     return suggestion

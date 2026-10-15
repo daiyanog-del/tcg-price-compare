@@ -133,7 +133,8 @@ def _confidence_reasons(card: dict, raw: dict) -> tuple[list[str], list[str]]:
         reasons.append("confidence_low")
     elif conf not in ("high", "medium"):
         reasons.append("confidence_missing")
-    elif conf == "medium" and not fields:
+    elif conf == "medium" and not fields and not raw.get("uncertain_cleared_by_reread"):
+        # 読み直しの一致で effect_text の不確かを外した結果 fields が空になった場合は「AIが出さなかった」と区別する
         reasons.append("medium_uncertain_unknown")
     if important:
         reasons.append("medium_uncertain_fields" if conf == "medium" else "uncertain_important_fields")

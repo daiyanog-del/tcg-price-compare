@@ -51,12 +51,19 @@ def strict_schema(schema):
     return schema
 
 
-def structured_request(client, *, model, system, content, schema, max_tokens=16000):
-    """不完全な応答は成功0件に変換せず失敗として呼出側に伝える。"""
+def structured_request(client, *, model, system, content, schema, max_tokens=16000, effort=None):
+    """不完全な応答は成功0件に変換せず失敗として呼出側に伝える。
+
+    effort（"low"/"medium"/"high"）を渡すと output_config.effort に入れる。None なら送らない（モデル既定）。
+    thinking・temperature などサンプリング指定は送らない（Opus 5.5 は thinking を無効化できない）。
+    """
+    output_config = {'format': {'type': 'json_schema', 'schema': strict_schema(schema)}}
+    if effort:
+        output_config['effort'] = effort
     message = client.messages.create(
         model=model, max_tokens=max_tokens, system=system,
         messages=[{'role': 'user', 'content': content}],
-        extra_body={'output_config': {'format': {'type': 'json_schema', 'schema': strict_schema(schema)}}},
+        extra_body={'output_config': output_config},
     )
     if message.stop_reason != 'end_turn':
         raise ValueError(f'抽出応答が未完了です: {message.stop_reason}')
@@ -117,7 +124,7 @@ _REVIEW_SCHEMA = {
 
 
 def enrich_rows(rows, *, client, model, encoded_images):
-    """初回候補を元画像の境界で補正し、上部拡大で数値を読み直す。"""
+    """初回候補を元画像の境界で補正し、上部拡大で数値を、効果欄の拡大で効果テキストを読み直す。"""
     from card_crop import refine_card_box, make_level_zoom
     from release_date_resolver import resolve_release_date
     images = {image['url']: image for image in encoded_images}
@@ -203,4 +210,7 @@ def enrich_rows(rows, *, client, model, encoded_images):
             if not valid:
                 row['confidence'] = 'low'
                 logger.warning('数値要確認: %s', row['name'])
+    # 効果テキストの拡大読み直しと1回目との突き合わせ（全カード。X・公式・管理画面の取込すべてがここを通る）
+    from effect_text_reread import reread_effect_texts
+    reread_effect_texts(rows, client=client, encoded_images=encoded_images)
     return rows
