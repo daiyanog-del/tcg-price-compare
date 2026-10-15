@@ -1898,3 +1898,32 @@ a.replay-btn { display: inline-block; text-decoration: none; }
   color: #94a3b8;
   line-height: 1.4;
 }
+
+/* ── 共有シートの「みんなのリプレイに公開する」チェック（PC・スマホ共通） ──
+   チェックボックスの作りは .sol-sample-blur-toggle（sample-blur.css）と同じ。黄は使わない（accent）。 */
+.sol-public-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--main-color);
+}
+/* components.css の `p, span, li { color:#333 }` が暗色パネルで読めなくなるのを打ち消す */
+.sol-public-check span { color: inherit; }
+.sol-public-check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.pc-share-error {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--red);
+}
+.pc-share-error[hidden] { display: none; }

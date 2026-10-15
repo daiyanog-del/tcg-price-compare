@@ -146,3 +146,142 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--gold); outline-
   .rp-row-actions { flex: 1 1 100%; justify-content: flex-end; padding: 0 8px 8px; }
   .rp-thumb { width: 96px; }
 }
+
+/* ── みんなのリプレイ（公開リプレイ） ──
+   札は普通のボタンの色（#202c42）。黄は使わない（見出しの左線は既存の .rp-heading のまま）。 */
+.rp-filter { margin-bottom: 12px; }
+.rp-filter-box { position: relative; max-width: 360px; }
+.rp-filter-input {
+  width: 100%;
+  padding: 8px 32px 8px 10px;
+  background: var(--bg-surface);
+  color: var(--main-color);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font);
+  font-size: 0.88rem;
+}
+.rp-filter-input::placeholder { color: #a8b4c9; }
+.rp-filter-clear {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  color: #a8b4c9;
+  border: 0;
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.rp-filter-clear:hover { color: var(--main-color); background: var(--bg-hover); }
+.rp-filter-clear[hidden] { display: none; }
+.rp-suggest {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  background: var(--bg-hover);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  max-height: 320px;
+  overflow-y: auto;
+}
+.rp-suggest[hidden] { display: none; }
+.rp-suggest-item { padding: 8px 10px; font-size: 0.85rem; border-radius: var(--radius); cursor: pointer; }
+.rp-suggest-item:hover, .rp-suggest-item.is-active { background: var(--border); }
+
+.rp-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.rp-pcard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 8px 10px;
+  background: var(--bg-card);
+  border-radius: var(--radius);
+}
+.rp-pcard:hover { background: var(--bg-hover); }
+.rp-pcard-link { display: flex; flex-direction: column; gap: 8px; color: var(--main-color); text-decoration: none; }
+/* カード全体を押せるようにする（小さなリンクは z-index で上に出す） */
+.rp-pcard-link::after { content: ''; position: absolute; inset: 0; border-radius: var(--radius); }
+.rp-pcard-thumb {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1200 / 630;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--bg-surface);
+}
+.rp-pcard-title {
+  font-weight: 700;
+  font-size: 0.92rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rp-pcard-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.rp-tag {
+  max-width: 100%;
+  padding: 2px 8px;
+  background: var(--bg-hover);
+  color: var(--main-color);
+  border-radius: var(--radius);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rp-pcard-meta { font-size: 0.76rem; color: #a8b4c9; }
+.rp-pcard-continue {
+  position: relative;
+  z-index: 1;
+  align-self: flex-start;
+  padding: 2px 0;
+  font-size: 0.76rem;
+  color: var(--accent);
+  text-decoration: none;
+}
+.rp-pcard-continue:hover { color: var(--accent-hover); text-decoration: underline; }
+.rp-more-wrap { display: flex; justify-content: center; margin-top: 12px; }
+.rp-more[hidden] { display: none; }
+.rp-more:disabled { opacity: 0.5; cursor: default; }
+
+/* 共有履歴の「公開中」の札（状態の目印なので accent。黄・赤は使わない）と「公開をやめる」 */
+.rp-row-titleline { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rp-badge-public {
+  flex: none;
+  padding: 1px 8px;
+  background: var(--accent);
+  color: var(--bg-color);
+  border-radius: var(--radius);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+/* 取り消せない操作ではないので、赤は文字色だけ（枠・背景なし） */
+.rp-btn-unpublish { color: var(--red); background: transparent; }
+.rp-btn-unpublish:hover { background: var(--bg-hover); }
+
+@media (max-width: 860px) {
+  .rp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .rp-grid { grid-template-columns: minmax(0, 1fr); }
+  .rp-filter-box { max-width: none; }
+}
+
+/* 公開中の行は操作ボタンが多いので、題名が潰れないよう、幅が足りないときは操作を下へ折り返す */
+.rp-row { flex-wrap: wrap; }
+.rp-row-link { flex: 1 1 260px; }
+.rp-row-actions { margin-left: auto; }
+.rp-row-title { min-width: 0; }

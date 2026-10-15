@@ -313,9 +313,16 @@
             <!-- 範囲の表示: 状態機械は pc-recording.js（updatePcShareRecordingSection） -->
             <p class="pc-range-info" data-pc-range-info data-verb="共有">全部の手（0手）を共有します</p>
             <button type="button" class="replay-btn" data-pc-range-play hidden>この範囲を再生</button>
+            <!-- みんなのリプレイに公開（初期オフ）。リンク作成・X投稿の両方に効く。タイトル必須（replay-ui.js） -->
+            <label class="sol-public-check">
+              <input type="checkbox" id="pcSharePublic">
+              <span>みんなのリプレイに公開する</span>
+            </label>
+            <p class="pc-share-note">一覧で誰でも見られます。このブラウザから公開をやめられます</p>
+            <p class="pc-share-error" id="pcSharePublicError" role="alert" hidden></p>
             <button class="replay-share-btn" id="replayShare">リンクを作ってコピー</button>
             <button class="replay-share-x-btn" id="replayShareX">X に投稿</button>
-            <p class="pc-share-note">リンクを知っている人なら誰でも見られます。90日で消えます</p>
+            <p class="pc-share-note">リンクを知っている人なら誰でも見られます。公開しないリンクは90日で消えます</p>
           </div>
         </div>
       </div>
@@ -535,7 +542,14 @@
 
             <!-- 共有する（共有の用途で開いたときだけ表示） -->
             <div class="sol-mobile-share-section" data-share-mode="share">
-              <p class="sol-mobile-share-note">リンクを知っている人なら誰でも見られます。90日で消えます。</p>
+              <p class="sol-mobile-share-note">リンクを知っている人なら誰でも見られます。公開しないリンクは90日で消えます。</p>
+
+              <!-- みんなのリプレイに公開（初期オフ）。タイトル必須（replay-ui.js の checkPublicTitle） -->
+              <label class="sol-public-check">
+                <input type="checkbox" id="solMobileSharePublic">
+                <span>みんなのリプレイに公開する</span>
+              </label>
+              <p class="sol-mobile-share-note">一覧で誰でも見られます。このブラウザから公開をやめられます</p>
 
               <!-- H-1: リンク作成は明示ボタン→結果表示の2段階（iOSのuser activation対策） -->
               <button type="button" id="solMobileShareGenerateBtn" class="sol-mobile-menu-item sol-mobile-deck-primary-btn">共有リンクを作成</button>

@@ -37,6 +37,8 @@ import { savedReplaysGet, saveReplayEntry } from '../services/saved-replays.js';
 import { isReplayAtEnd } from '../utils/replay-url.js';
 
 const REPLAY_TITLE_MAX_LEN = 100;
+/** 公開（みんなのリプレイ）に使えるタイトルの長さ。サーバー（solitaire_routes.PUBLIC_TITLE_MAX_LEN）と同じ */
+const PUBLIC_TITLE_MAX_LEN = 40;
 
 /**
  * 利用者が入力したタイトル（保存・共有シートのタイトル欄 [data-replay-title]）を返す。
@@ -59,6 +61,18 @@ function _getTypedReplayTitle() {
  */
 function _getReplayTitle() {
   return _getTypedReplayTitle() || '共有リプレイ';
+}
+
+/**
+ * 「みんなのリプレイに公開する」を選んだときのタイトルの検査。公開はタイトル必須（誰でも見られる一覧に載るため）。
+ * 問題なければ ''、あればその場に出すエラー文を返す。禁止語の判定はサーバー側（保存時の 400）。
+ * @returns {string}
+ */
+export function checkPublicTitle() {
+  const t = _getTypedReplayTitle();
+  if (!t) return '公開するにはタイトルを入れてください';
+  if ([...t].length > PUBLIC_TITLE_MAX_LEN) return `公開するタイトルは${PUBLIC_TITLE_MAX_LEN}文字以内にしてください`;
+  return '';
 }
 
 /** タイトル欄（[data-replay-title]）どうしで入力を写し合う（保存と共有で同じタイトルを使うため） */
@@ -299,9 +313,10 @@ function _buildRangeLogs(allLogs, range) {
  * Supabaseにリプレイを保存し、短縮URL（?replay=ID）を返す共通処理
  * @param {string} title
  * @param {Array}  [logsOverride]  D-2: 範囲共有用に加工済みの logs を渡せる（省略時は全ログ）
+ * @param {boolean} [isPublic]  true なら「みんなのリプレイ」として公開する（サーバーが削除用の鍵を返す）
  * @returns {Promise<string>} 短縮URL
  */
-async function _saveAndGetShortURL(title, logsOverride) {
+async function _saveAndGetShortURL(title, logsOverride, isPublic = false) {
   const logs = logsOverride ?? getLogs();
   // 保険: 名前が辞書に無いカードは DOM の dataset.cardName で補う（復元・ロード等の経路で漏れても共有に名前を載せる）
   document.querySelectorAll('.tier-item[id]').forEach(el => {
@@ -322,7 +337,7 @@ async function _saveAndGetShortURL(title, logsOverride) {
   const res = await fetch('/api/solitaire/replay', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, images, names, exCardIds, cardTypes, logs, board }),
+    body: JSON.stringify({ title, images, names, exCardIds, cardTypes, logs, board, ...(isPublic ? { public: true } : {}) }),
   });
   if (!res.ok) {
     // サーバーが返すJSONのerrorメッセージ（レート制限・型不正等の理由）を優先して使う。
@@ -330,11 +345,12 @@ async function _saveAndGetShortURL(title, logsOverride) {
     const errData = await res.json().catch(() => ({}));
     throw new Error(errData.error || `HTTP ${res.status}`);
   }
-  const { id } = await res.json();
+  const { id, deleteToken } = await res.json();
   // 共有履歴（リプレイ一覧ページ用）に控える。記録に失敗しても共有自体は成功させる。
+  // 公開したものは取り下げの鍵（deleteToken）も控える（このブラウザからだけ取り下げられる）
   try {
     const steps = logs.filter(ev => !ev.setup).length; // setup（初期配置）を除いた手数
-    addSharedReplay({ id, title, steps });
+    addSharedReplay({ id, title, steps, public: isPublic && !!deleteToken, deleteToken });
   } catch (e) {
     console.warn('共有履歴の記録に失敗（共有は成功）:', e);
   }
@@ -419,11 +435,18 @@ export function describeSaveResult(result) {
  * フォールバック。mobile-ui.js の共有シートからも同じロジックを使うため export する
  * （ロジックは移動せず export を足すだけ）。
  * @param {{start:number, end:number}} [range]  D-2: 共有する範囲（1-indexed 手数）。省略時は全範囲
+ * @param {{public?:boolean}} [opts]  public:true なら「みんなのリプレイ」に公開する。タイトル必須で、
+ *   保存に失敗してもハッシュ方式にはフォールバックしない（公開されないリンクを公開したつもりで渡さないため）
  * @returns {Promise<string>} 共有URL
  */
-export async function generateShareURL(range) {
-  const title = _getReplayTitle();
+export async function generateShareURL(range, { public: isPublic = false } = {}) {
   const logs = buildRangeLogsForPayload(range);
+  if (isPublic) {
+    const err = checkPublicTitle();
+    if (err) throw new Error(err);
+    return await _saveAndGetShortURL(_getTypedReplayTitle(), logs, true);
+  }
+  const title = _getReplayTitle();
 
   // 常にSupabase ID方式（?replay=8文字ID）で短いURLを発行する
   try {
@@ -445,18 +468,45 @@ export async function generateShareURL(range) {
 async function handleShare() {
   // Low-13: setup（初期配置）だけの盤面も共有できるよう、setup込みの手数で判定する
   if (getLogLength() + getSetupLogs().length === 0) { alert('記録がありません'); return; }
+  const isPublic = _isPcPublicChecked();
+  if (!_checkPcPublicTitle(isPublic)) return;
   const btn = document.getElementById('replayShare');
   if (btn) btn.disabled = true;
   try {
     // PC版: 停止済みの録画があればその範囲だけを共有する（無ければ range=null で全範囲）
-    const url = await generateShareURL(_getPcRecordingRange());
+    const url = await generateShareURL(_getPcRecordingRange(), { public: isPublic });
     await _copyToClipboard(url);
-    alert('共有リンクをコピーしました');
+    alert(isPublic ? '共有リンクをコピーしました。みんなのリプレイに公開しました' : '共有リンクをコピーしました');
   } catch (e) {
-    alert('共有リンクの作成に失敗しました: ' + e.message);
+    // 公開の失敗（禁止語・タイトル不備など）は、チェックの下にその場で出す
+    if (isPublic) _showPcPublicError(e.message);
+    else alert('共有リンクの作成に失敗しました: ' + e.message);
   } finally {
     if (btn) btn.disabled = false;
   }
+}
+
+/** PC共有シートの「みんなのリプレイに公開する」がオンか */
+function _isPcPublicChecked() {
+  return !!document.getElementById('pcSharePublic')?.checked;
+}
+
+/** チェックの下のエラー表示。空文字なら消す */
+function _showPcPublicError(msg) {
+  const el = document.getElementById('pcSharePublicError');
+  if (!el) return;
+  el.textContent = msg;
+  el.hidden = !msg;
+}
+
+/**
+ * 公開オンのときのタイトル検査（リンク作成・X投稿の前）。問題があればその場にエラーを出して false を返す。
+ * オフのときは前回のエラーを消して true。
+ */
+function _checkPcPublicTitle(isPublic) {
+  const err = isPublic ? checkPublicTitle() : '';
+  _showPcPublicError(err);
+  return !err;
 }
 
 /**
@@ -476,10 +526,10 @@ function handleSaveToDevice() {
  * （buildRangeLogsForPayload が setup を含めて組み立てる。range 省略時は全範囲）。
  * @param {{start:number, end:number}} [range]
  */
-async function _generateShortURL(range) {
-  const title = _getReplayTitle();
+async function _generateShortURL(range, isPublic = false) {
   const logs = buildRangeLogsForPayload(range);
-  return await _saveAndGetShortURL(title, logs);
+  if (isPublic) return await _saveAndGetShortURL(_getTypedReplayTitle(), logs, true);
+  return await _saveAndGetShortURL(_getReplayTitle(), logs);
 }
 
 /**
@@ -498,14 +548,18 @@ export function buildShareTweetUrl(shareUrl) {
  */
 async function handleShareToX() {
   if (getLogLength() === 0) { alert('記録がありません'); return; }
+  const isPublic = _isPcPublicChecked();
+  if (!_checkPcPublicTitle(isPublic)) return;
   const btn = document.getElementById('replayShareX');
   if (btn) btn.disabled = true;
   try {
     // 中1対応: 「共有リンクをコピー」と同じくPC版の停止済み録画範囲を反映する
-    const url = await _generateShortURL(_getPcRecordingRange());
+    const url = await _generateShortURL(_getPcRecordingRange(), isPublic);
     window.open(buildShareTweetUrl(url), '_blank', 'noopener,noreferrer');
+    if (isPublic) showToast('みんなのリプレイに公開しました');
   } catch (e) {
-    alert('X投稿の準備に失敗しました: ' + e.message);
+    if (isPublic) _showPcPublicError(e.message);
+    else alert('X投稿の準備に失敗しました: ' + e.message);
   } finally {
     if (btn) btn.disabled = false;
   }

@@ -11,6 +11,8 @@ OFF 時の挙動:
   - GET /solitaire/replays              → 503 + solo_disabled.html（リプレイ一覧ページ）
   - POST /api/solitaire/replay          → 404
   - GET  /api/solitaire/replay/<id>     → 404
+  - GET  /api/solitaire/public          → 404（みんなのリプレイの一覧）
+  - POST /api/solitaire/replay/<id>/unpublish → 404（公開の取り下げ）
   - GET  /solitaire/og/<id>.png         → 404
 
 依存注入（循環 import 回避）:
@@ -20,7 +22,10 @@ OFF 時の挙動:
 """
 
 import os
+import re
 import time
+import hmac
+import hashlib
 import secrets
 import logging
 import threading
@@ -31,6 +36,7 @@ from flask import Blueprint, render_template, request, abort, Response, send_fil
 from client_ip import _client_ip
 from replay_board import validate_board
 import replay_og_image
+import replay_moderation
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +84,54 @@ def _consume_replay_rate_limit():
                 for k in oldest_keys:
                     del _replay_rate_log[k]
     return None
+
+# ── 公開一覧の閲覧・公開の取り下げ用レートリミット（保存とは別の枠） ──
+# TODO: calibrate from data — 閾値は実データ未収集のため仮置き。
+PUBLIC_LIST_RATE_LIMIT_WINDOW_SEC = 60
+PUBLIC_LIST_RATE_LIMIT_MAX_REQUESTS = 30
+UNPUBLISH_RATE_LIMIT_WINDOW_SEC = 60
+UNPUBLISH_RATE_LIMIT_MAX_REQUESTS = 10
+_public_list_rate_lock = threading.Lock()
+_public_list_rate_log: dict[str, list[float]] = {}
+_unpublish_rate_lock = threading.Lock()
+_unpublish_rate_log: dict[str, list[float]] = {}
+
+
+def _consume_ip_rate_limit(lock, log, window_sec, max_requests, message):
+    """IP 単位のレートリミット（_consume_replay_rate_limit と同じ作りで、枠ごとに log を分ける）。
+    通過時は None、制限時は (dict, 429)。"""
+    ip = _client_ip()
+    now = time.time()
+    with lock:
+        timestamps = log.setdefault(ip, [])
+        timestamps[:] = [t for t in timestamps if now - t < window_sec]
+        if len(timestamps) >= max_requests:
+            return {"error": message}, 429
+        timestamps.append(now)
+        if len(log) > REPLAY_RATE_LIMIT_MAX_TRACKED_IPS:
+            stale = [k for k, v in log.items() if not v or now - v[-1] >= window_sec]
+            for k in stale:
+                del log[k]
+            if len(log) > REPLAY_RATE_LIMIT_MAX_TRACKED_IPS:
+                overflow = len(log) - REPLAY_RATE_LIMIT_MAX_TRACKED_IPS
+                for k in sorted(log, key=lambda k: log[k][-1])[:overflow]:
+                    del log[k]
+    return None
+
+
+def _consume_public_list_rate_limit():
+    return _consume_ip_rate_limit(
+        _public_list_rate_lock, _public_list_rate_log,
+        PUBLIC_LIST_RATE_LIMIT_WINDOW_SEC, PUBLIC_LIST_RATE_LIMIT_MAX_REQUESTS,
+        "しばらく待ってから再度読み込んでください")
+
+
+def _consume_unpublish_rate_limit():
+    return _consume_ip_rate_limit(
+        _unpublish_rate_lock, _unpublish_rate_log,
+        UNPUBLISH_RATE_LIMIT_WINDOW_SEC, UNPUBLISH_RATE_LIMIT_MAX_REQUESTS,
+        "しばらく待ってから再度お試しください")
+
 
 # app.py から注入される Supabase クライアントアクセサ（引数なし → client or None）
 _get_supabase = lambda: None
@@ -210,6 +264,47 @@ REPLAY_MAX_BODY_BYTES = 512 * 1024
 
 _CARD_TYPES = ("monster", "spell", "trap")
 
+# 公開（みんなのリプレイ）の上限。TODO: calibrate from data — 仮置き
+PUBLIC_TITLE_MAX_LEN = 40
+PUBLIC_CARD_NAMES_MAX = 80
+PUBLIC_CARD_NAME_MAX_LEN = 60
+PUBLIC_LIST_DEFAULT_LIMIT = 24
+PUBLIC_LIST_MAX_LIMIT = 48
+PUBLIC_LIST_CARD_NAMES_SHOWN = 6   # 一覧で返すカード名の件数（総数は card_count）
+_PUBLIC_CARD_QUERY_MAX_LEN = 100
+
+# before（published_at の続き読み位置）の形式。PostgREST のフィルタに文字列のまま渡すため、形を確かめてから使う
+_BEFORE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}(:?\d{2})?)?$")
+
+
+def _hash_delete_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _build_card_names(names, images):
+    """names の値から公開用のカード名一覧を作る。トークン（画像が data:）と重複を除き、
+    1件は PUBLIC_CARD_NAME_MAX_LEN 文字までで切り、PUBLIC_CARD_NAMES_MAX 件まで。"""
+    out, seen = [], set()
+    for card_id, name in names.items():
+        if not isinstance(name, str):
+            continue
+        img = images.get(card_id)
+        if isinstance(img, str) and img.startswith("data:"):
+            continue
+        name = name.strip()[:PUBLIC_CARD_NAME_MAX_LEN]
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        out.append(name)
+        if len(out) >= PUBLIC_CARD_NAMES_MAX:
+            break
+    return out
+
+
+def _count_steps(logs):
+    """手数（setup:true の初期配置ログを除いた数）"""
+    return sum(1 for ev in logs if not (isinstance(ev, dict) and ev.get("setup")))
+
 
 def _clean_card_types(card_types, images):
     """cardTypes（{cardId: 'monster'|'spell'|'trap'}）を検証して返す。
@@ -249,6 +344,7 @@ def solitaire_replay_save():
         card_types_in = data.get("cardTypes")   # 省略可（旧クライアントは送らない）
         logs = data.get("logs", [])
         title = str(data.get("title", ""))[:100]
+        is_public = data.get("public") is True
         # 型チェック: 期待型でなければ拒否
         if not isinstance(logs, list) or not isinstance(images, dict) \
                 or not isinstance(names, dict) or not isinstance(ex_card_ids, list):
@@ -260,6 +356,15 @@ def solitaire_replay_save():
         if len(logs) > REPLAY_MAX_LOG_ENTRIES:
             return {"error": "logsが多すぎます"}, 400
         # board（リンク画像用の最後の盤面）。不備があっても共有自体は失敗させない（捨てて保存する）
+        if is_public:
+            # 公開はタイトル必須（誰でも見られる一覧に載るため）。不適切な語は断る
+            title = title.strip()
+            if not title:
+                return {"error": "公開するにはタイトルを入れてください"}, 400
+            if len(title) > PUBLIC_TITLE_MAX_LEN:
+                return {"error": f"公開するタイトルは{PUBLIC_TITLE_MAX_LEN}文字以内にしてください"}, 400
+            if replay_moderation.contains_ng_word(title):
+                return {"error": "タイトルに使えない言葉が含まれています"}, 400
         board_in = data.get("board")
         board = validate_board(board_in)
         if board_in is not None and board is None:
@@ -280,10 +385,23 @@ def solitaire_replay_save():
         card_types = _clean_card_types(card_types_in, images)
         if card_types:
             payload["card_types"] = card_types
+        delete_token = None
+        if is_public:
+            # 鍵はここで一度だけ返し、DB にはハッシュだけを残す（取り下げは鍵を持つブラウザだけ）
+            delete_token = secrets.token_urlsafe(24)
+            payload.update({
+                "is_public": True,
+                "published_at": now_iso,
+                "card_names": _build_card_names(names, images),
+                "steps": _count_steps(logs),
+                "delete_token_hash": _hash_delete_token(delete_token),
+            })
         _supabase_client.table("solitaire_replays").insert(payload).execute()
         if board:
             # X のクローラーは待ち時間が短いので、投稿される前に画像を先に描いてキャッシュを温める
             replay_og_image.warm_cache_async(replay_id, board, title)
+        if delete_token:
+            return {"id": replay_id, "deleteToken": delete_token}
         return {"id": replay_id}
     except Exception as e:
         logger.error(f"リプレイ保存エラー: {e}")
@@ -319,3 +437,99 @@ def solitaire_replay_get(replay_id):
     except Exception as e:
         logger.error(f"リプレイ取得エラー: {e}")
         return {"error": "取得に失敗しました"}, 500
+
+
+@solitaire_bp.route("/api/solitaire/public", methods=["GET"])
+def solitaire_public_list():
+    """みんなのリプレイの一覧（公開かつ非表示でないもの。published_at の新しい順）。
+
+    ?card=<カード名>（完全一致）・?before=<published_at>（これより古いものを返す＝続き読み）・?limit=24（上限48）。
+    戻り値: {"items": [{id, title, card_names(先頭6件), card_count, steps, published_at}],
+             "next": 続きを読むときの before、無ければ null}
+    """
+    if not ENABLE_VISUAL_SOLO_PLAY:
+        abort(404)
+    rate_error = _consume_public_list_rate_limit()
+    if rate_error:
+        return rate_error
+    try:
+        limit = int(request.args.get("limit", PUBLIC_LIST_DEFAULT_LIMIT))
+    except ValueError:
+        return {"error": "limit が不正です"}, 400
+    limit = max(1, min(limit, PUBLIC_LIST_MAX_LIMIT))
+    card = request.args.get("card", "").strip()
+    if len(card) > _PUBLIC_CARD_QUERY_MAX_LEN:
+        return {"error": "card が長すぎます"}, 400
+    # クエリ中の + が空白に化けた場合の復元
+    before = request.args.get("before", "").strip().replace(" ", "+")
+    if before and not _BEFORE_RE.match(before):
+        return {"error": "before が不正です"}, 400
+
+    sb = _get_supabase()
+    if not sb:
+        return {"error": "データベース未接続"}, 503
+    try:
+        q = (sb.table("solitaire_replays")
+             .select("id, title, card_names, steps, published_at")
+             .eq("is_public", True)
+             .eq("hidden", False))
+        if card:
+            q = q.contains("card_names", [card])
+        if before:
+            q = q.lt("published_at", before)
+        # 続きがあるかを知るため1件多く読む
+        rows = q.order("published_at", desc=True).limit(limit + 1).execute().data or []
+    except Exception as e:
+        logger.error(f"公開リプレイ一覧の取得エラー: {e}")
+        return {"error": "取得に失敗しました"}, 500
+    has_more = len(rows) > limit
+    items = []
+    for r in rows[:limit]:
+        names = r.get("card_names") or []
+        items.append({
+            "id": r.get("id"),
+            "title": r.get("title") or "",
+            "card_names": names[:PUBLIC_LIST_CARD_NAMES_SHOWN],
+            "card_count": len(names),
+            "steps": r.get("steps") or 0,
+            "published_at": r.get("published_at"),
+        })
+    return {"items": items, "next": items[-1]["published_at"] if has_more and items else None}
+
+
+@solitaire_bp.route("/api/solitaire/replay/<replay_id>/unpublish", methods=["POST"])
+def solitaire_replay_unpublish(replay_id):
+    """公開の取り下げ。本文 {token}（公開時に返した deleteToken）。鍵のハッシュが一致したときだけ、
+    is_public=false・published_at=null・delete_token_hash=null にする（行は消さない。90日ルールに戻る）。"""
+    if not ENABLE_VISUAL_SOLO_PLAY:
+        abort(404)
+    rate_error = _consume_unpublish_rate_limit()
+    if rate_error:
+        return rate_error
+    data = request.get_json(silent=True)
+    token = data.get("token") if isinstance(data, dict) else None
+    if not isinstance(token, str) or not token or len(token) > 200:
+        return {"error": "取り下げできません"}, 403
+    sb = _get_supabase()
+    if not sb:
+        return {"error": "データベース未接続"}, 503
+    try:
+        resp = (sb.table("solitaire_replays")
+                .select("delete_token_hash")
+                .eq("id", replay_id)
+                .eq("is_public", True)
+                .limit(1)
+                .execute())
+        rows = resp.data if resp.data else []
+        stored = (rows[0].get("delete_token_hash") if rows else None) or ""
+        # id が無い・公開でない・鍵が違うは同じ応答にする（id の有無を推測させない）
+        if not stored or not hmac.compare_digest(_hash_delete_token(token), stored):
+            return {"error": "取り下げできません"}, 403
+        (sb.table("solitaire_replays")
+         .update({"is_public": False, "published_at": None, "delete_token_hash": None})
+         .eq("id", replay_id)
+         .execute())
+        return {"ok": True}
+    except Exception as e:
+        logger.error(f"公開の取り下げエラー {replay_id}: {e}")
+        return {"error": "取り下げに失敗しました"}, 500

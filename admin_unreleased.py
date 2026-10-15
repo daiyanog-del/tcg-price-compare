@@ -1864,3 +1864,88 @@ def admin_suggest_crop(card_id: int):
     except Exception:
         logger.exception("[admin] 枠候補生成失敗 card_id=%s", card_id)
         return jsonify({"error": "枠候補の生成に失敗しました。時間を置いて再試行してください"}), 502
+
+
+# ──────────────────────────────────────────────
+# 公開リプレイ（みんなのリプレイ）の管理
+# ──────────────────────────────────────────────
+
+_PUBLIC_REPLAY_ADMIN_LIMIT = 100  # 1回に返す件数の上限（仮置き。TODO: calibrate from data）
+
+
+@admin_bp.route("/api/admin/public-replays", methods=["GET"])
+def admin_list_public_replays():
+    """公開中のリプレイを新しい順に返す（非表示のものも含め hidden の状態を付ける）。"""
+    err = _require_admin_key()
+    if err:
+        return err
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+    try:
+        resp = (
+            _supabase.table("solitaire_replays")
+            .select("id, title, card_names, steps, published_at, hidden")
+            .eq("is_public", True)
+            .order("published_at", desc=True)
+            .limit(_PUBLIC_REPLAY_ADMIN_LIMIT)
+            .execute()
+        )
+        return jsonify({"items": resp.data or []})
+    except Exception as e:
+        logger.error(f"[admin] 公開リプレイ一覧エラー: {e}")
+        return jsonify({"error": "公開リプレイの取得に失敗しました"}), 500
+
+
+@admin_bp.route("/api/admin/public-replays/<replay_id>/toggle-hidden", methods=["POST"])
+def admin_toggle_public_replay_hidden(replay_id: str):
+    """公開リプレイの hidden を反転する（非表示にすると一覧から消える。行は残る）。"""
+    err = _require_admin_key()
+    if err:
+        return err
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+    try:
+        cur = (
+            _supabase.table("solitaire_replays")
+            .select("id, hidden")
+            .eq("id", replay_id)
+            .eq("is_public", True)
+            .execute()
+        )
+        if not cur.data:
+            return jsonify({"error": "対象レコードが見つかりません"}), 404
+        new_hidden = not cur.data[0]["hidden"]
+        (
+            _supabase.table("solitaire_replays")
+            .update({"hidden": new_hidden})
+            .eq("id", replay_id)
+            .execute()
+        )
+        return jsonify({"ok": True, "hidden": new_hidden})
+    except Exception as e:
+        logger.error(f"[admin] 公開リプレイ非表示切替エラー id={replay_id}: {e}")
+        return jsonify({"error": "非表示の切替に失敗しました"}), 500
+
+
+@admin_bp.route("/api/admin/public-replays/<replay_id>", methods=["DELETE"])
+def admin_delete_public_replay(replay_id: str):
+    """公開リプレイの行を消す（元に戻せない）。公開中の行だけが対象。"""
+    err = _require_admin_key()
+    if err:
+        return err
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+    try:
+        resp = (
+            _supabase.table("solitaire_replays")
+            .delete()
+            .eq("id", replay_id)
+            .eq("is_public", True)
+            .execute()
+        )
+        if not resp.data:
+            return jsonify({"error": "対象レコードが見つかりません"}), 404
+        return jsonify({"ok": True, "deleted_id": replay_id})
+    except Exception as e:
+        logger.error(f"[admin] 公開リプレイ削除エラー id={replay_id}: {e}")
+        return jsonify({"error": "削除に失敗しました"}), 500

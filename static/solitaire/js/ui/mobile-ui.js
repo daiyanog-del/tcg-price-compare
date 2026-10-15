@@ -38,7 +38,7 @@ import { playActivateEffect, flipMoveClone } from '../components/card-effects.js
 import { _renderCard, _showUnknown, _showLoading } from './card-info-panel.js';
 import { isMobilePortrait, watchMobilePortrait, isMobileLandscape, watchMobileLandscape } from '../utils/viewport.js';
 import { showToast } from '../utils/toast.js';
-import { generateShareURL, buildShareTweetUrl, getReplayCounts, saveReplayToDevice, describeSaveResult, exportReplayFile } from './replay-ui.js';
+import { generateShareURL, checkPublicTitle, buildShareTweetUrl, getReplayCounts, saveReplayToDevice, describeSaveResult, exportReplayFile } from './replay-ui.js';
 import { clearEverything } from './deck-input-panel.js';
 import {
   getLogLength,
@@ -1290,16 +1290,25 @@ async function _generateShareLink() {
     return;
   }
 
+  // 「みんなのリプレイに公開する」: タイトル必須。空ならリンクを作らずその場でエラーを出す
+  const isPublic = !!document.getElementById('solMobileSharePublic')?.checked;
+  if (isPublic) {
+    const titleErr = checkPublicTitle();
+    if (titleErr) { _showShareError(titleErr); return; }
+  }
+
   setHidden('solMobileShareError', true);
   btn.disabled = true;
   try {
-    const url = await generateShareURL(_getRecordingRange()); // タスクA-4: 録画があればその範囲を渡す
+    const url = await generateShareURL(_getRecordingRange(), { public: isPublic }); // タスクA-4: 録画があればその範囲を渡す
     if (urlInput) urlInput.value = url;
     if (xLink) xLink.href = buildShareTweetUrl(url);
     if (nativeBtn) nativeBtn.hidden = typeof navigator.share !== 'function';
     if (resultEl) resultEl.hidden = false;
+    if (isPublic) showToast('みんなのリプレイに公開しました');
   } catch (e) {
-    _showShareError('リンクを作成できませんでした');
+    // 公開の失敗は理由（禁止語など）を出す。通常の共有は従来どおりの文言
+    _showShareError(isPublic ? e.message : 'リンクを作成できませんでした');
   } finally {
     btn.disabled = false;
   }

@@ -159,6 +159,7 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
     if (tabName === 'approved') _loadApproved();
     if (tabName === 'rejected') _loadRejected();
     if (tabName === 'settings') _loadSettings();
+    if (tabName === 'public-replays') _loadPublicReplays();
   });
 });
 
@@ -170,6 +171,7 @@ document.getElementById('reload-pending-btn').addEventListener('click', _loadPen
 document.getElementById('reload-approved-btn').addEventListener('click', _loadApproved);
 document.getElementById('reload-rejected-btn').addEventListener('click', _loadRejected);
 document.getElementById('reload-settings-btn').addEventListener('click', _loadSettings);
+document.getElementById('reload-public-replays-btn').addEventListener('click', _loadPublicReplays);
 
 // ──────────────────────────────────────────────
 // ユーティリティ
@@ -2442,3 +2444,101 @@ async function _init() {
 }
 
 _init();
+
+// ──────────────────────────────────────────────
+// 公開リプレイタブ（みんなのリプレイ）
+// ──────────────────────────────────────────────
+
+/** 公開リプレイ一覧を読み込んで描画する */
+async function _loadPublicReplays() {
+  const listEl = document.getElementById('public-replays-list');
+  listEl.textContent = '読み込み中...';
+  try {
+    const resp = await apiFetch('/api/admin/public-replays');
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      listEl.textContent = `エラー: ${data.error || resp.status}`;
+      return;
+    }
+    const { items } = await resp.json();
+    _renderPublicReplays(listEl, items);
+  } catch (e) {
+    if (e.message !== '認証エラー') listEl.textContent = '読み込みに失敗しました。';
+  }
+}
+
+/** 公開リプレイの行を描画する。ユーザー由来の文字列（タイトル・カード名）は textContent で入れる */
+function _renderPublicReplays(listEl, items) {
+  listEl.textContent = '';
+  if (!items || items.length === 0) {
+    const p = document.createElement('p');
+    p.className = 'loading-text';
+    p.textContent = '公開されているリプレイはありません。';
+    listEl.appendChild(p);
+    return;
+  }
+  const resultEl = document.getElementById('public-replays-result');
+  const mk = (tag, cls, text) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  };
+  for (const r of items) {
+    const row = mk('div', 'card-row');
+    const summary = mk('div', 'card-row__summary');
+
+    const info = mk('div', 'card-row__info');
+    info.appendChild(mk('span', 'card-row__name', r.title || '無題'));
+    const names = r.card_names || [];
+    const shown = names.slice(0, 4).join('、') + (names.length > 4 ? ` ほか${names.length - 4}枚` : '');
+    info.appendChild(mk('span', 'card-row__product', shown));
+    info.appendChild(mk('span', `status-badge ${r.hidden ? 'status-badge--rejected' : 'status-badge--approved'}`,
+      r.hidden ? '非表示' : '表示中'));
+    info.appendChild(mk('span', 'card-row__extracted-at', `${_formatDate(r.published_at)}・${r.steps ?? 0}手`));
+    summary.appendChild(info);
+
+    const meta = mk('div', 'card-row__meta');
+    const link = mk('a', 'card-row__source-link', '開く');
+    link.href = `/solitaire?replay=${encodeURIComponent(r.id)}`;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    meta.appendChild(link);
+    summary.appendChild(meta);
+
+    const actions = mk('div', 'card-row__actions');
+    const hideBtn = mk('button', 'btn btn-ghost btn-sm', r.hidden ? '戻す' : '非表示にする');
+    hideBtn.addEventListener('click', async () => {
+      hideBtn.disabled = true;
+      try {
+        const resp = await apiFetch(`/api/admin/public-replays/${encodeURIComponent(r.id)}/toggle-hidden`, { method: 'POST' });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) { _showResult(resultEl, data.error || '切り替えに失敗しました', 'error'); hideBtn.disabled = false; return; }
+        _loadPublicReplays();
+      } catch (e) {
+        if (e.message !== '認証エラー') _showResult(resultEl, '通信エラーが発生しました', 'error');
+        hideBtn.disabled = false;
+      }
+    });
+    actions.appendChild(hideBtn);
+    const delBtn = mk('button', 'btn btn-danger btn-sm', '削除');
+    delBtn.addEventListener('click', async () => {
+      if (!confirm(`「${r.title || '無題'}」を削除します。元に戻せません。よろしいですか？`)) return;
+      delBtn.disabled = true;
+      try {
+        const resp = await apiFetch(`/api/admin/public-replays/${encodeURIComponent(r.id)}`, { method: 'DELETE' });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) { _showResult(resultEl, data.error || '削除に失敗しました', 'error'); delBtn.disabled = false; return; }
+        _loadPublicReplays();
+      } catch (e) {
+        if (e.message !== '認証エラー') _showResult(resultEl, '通信エラーが発生しました', 'error');
+        delBtn.disabled = false;
+      }
+    });
+    actions.appendChild(delBtn);
+    summary.appendChild(actions);
+
+    row.appendChild(summary);
+    listEl.appendChild(row);
+  }
+}

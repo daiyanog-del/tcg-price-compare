@@ -4,7 +4,8 @@
  *
  * このブラウザ（localStorage）にあるリプレイだけを扱う。
  *   1. 端末に保存したリプレイ（services/saved-replays.js）
- *   2. 共有リンクを作ったリプレイの履歴（services/shared-replays.js）
+ *   2. 共有リンクを作ったリプレイの履歴（services/shared-replays.js）。公開中のものは「公開をやめる」で取り下げられる
+ * 加えて、一番上に「みんなのリプレイ」（公開されたリプレイ。GET /api/solitaire/public）を並べる。
  * シミュレーター本体（main.js 等）は読み込まない。
  * 起動時に、廃止した盤面セーブ（スロット）の移行（services/slot-migration.js）と、
  * 「ファイルから開く」（書き出した JSON を端末保存へ登録してシミュレーターで開く）も受け持つ。
@@ -13,7 +14,7 @@
 
 import { savedReplaysGet, deleteReplayEntry, assertReplayPayload, saveReplayPayload } from './services/saved-replays.js';
 import { migrateSlotsToReplays, getRemainingSlotKeys, exportRemainingSlotsJson } from './services/slot-migration.js';
-import { sharedReplaysGet, deleteSharedReplay } from './services/shared-replays.js';
+import { sharedReplaysGet, deleteSharedReplay, unpublishSharedReplay } from './services/shared-replays.js';
 import { shouldConfirmOpen } from './utils/session-resume-store.js';
 
 /**
@@ -162,7 +163,10 @@ function renderShared() {
     link.appendChild(thumb);
 
     const info = el('span', 'rp-row-info');
-    info.appendChild(el('span', 'rp-row-title', item.title || '無題'));
+    const titleLine = el('span', 'rp-row-titleline');
+    titleLine.appendChild(el('span', 'rp-row-title', item.title || '無題'));
+    if (item.public && item.deleteToken) titleLine.appendChild(el('span', 'rp-badge-public', '公開中'));
+    info.appendChild(titleLine);
     const date = formatDateTime(item.createdAt);
     info.appendChild(el('span', 'rp-row-meta', `${date ? date + '・' : ''}${item.steps ?? 0}手`));
     link.appendChild(info);
@@ -177,14 +181,266 @@ function renderShared() {
       setTimeout(() => { copyBtn.textContent = 'リンクをコピー'; }, 2000);
     });
     actions.appendChild(copyBtn);
+    if (item.public && item.deleteToken) {
+      // 赤は文字色だけ（取り消せない操作ではないので枠・背景は付けない）
+      actions.appendChild(actionButton('公開をやめる', 'rp-btn-unpublish', () => { unpublishItem(item); }));
+    }
     actions.appendChild(actionButton('履歴から消す', 'rp-btn-danger', () => {
-      if (!confirm(`「${item.title || '無題'}」をこの一覧から消します。共有リンクは作成から90日で自動的に消えます。よろしいですか？`)) return;
+      const isPublic = item.public && item.deleteToken;
+      const msg = isPublic
+        ? `「${item.title || '無題'}」は公開中です。この一覧から消すと、このブラウザから公開をやめられなくなります（先に「公開をやめる」を押してください）。それでも消しますか？`
+        : `「${item.title || '無題'}」をこの一覧から消します。共有リンクは作成から90日で自動的に消えます。よろしいですか？`;
+      if (!confirm(msg)) return;
       deleteSharedReplay(item.id);
       renderShared();
     }));
     li.appendChild(actions);
     listEl.appendChild(li);
   }
+}
+
+/** 共有履歴の下のエラー表示（空文字で消す） */
+function showSharedError(message) {
+  const errEl = document.getElementById('rpSharedError');
+  if (!errEl) return;
+  errEl.textContent = message;
+  errEl.hidden = !message;
+}
+
+/**
+ * 公開をやめる。確認のあと、公開時にこのブラウザへ控えた鍵で取り下げ API を呼び、成功したら「公開中」の札を外す。
+ * 403 は「鍵が合わない・すでに公開されていない（運営の削除を含む）」なので、控えを外して状況を伝える。
+ */
+async function unpublishItem(item) {
+  if (!confirm(`「${item.title || '無題'}」の公開をやめます。みんなのリプレイの一覧から外れ、共有リンクは作成から90日で消えます。よろしいですか？`)) return;
+  showSharedError('');
+  try {
+    const res = await fetch('/api/solitaire/replay/' + encodeURIComponent(item.id) + '/unpublish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: item.deleteToken }),
+    });
+    if (res.ok) {
+      unpublishSharedReplay(item.id);
+      renderShared();
+      loadPublic(true); // 一覧から外れたことを上の区画にも反映する
+      return;
+    }
+    if (res.status === 403) {
+      unpublishSharedReplay(item.id);
+      renderShared();
+      showSharedError('このリプレイはすでに公開されていないようです。表示を更新しました。');
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
+    showSharedError(data.error || '公開をやめられませんでした。しばらくしてからもう一度お試しください');
+  } catch {
+    showSharedError('通信に失敗しました。しばらくしてからもう一度お試しください');
+  }
+}
+
+// ── 0. みんなのリプレイ（公開されたリプレイ） ──
+
+const PUBLIC_PAGE_SIZE = 24;
+const PUBLIC_TAGS_SHOWN = 4;
+let publicCard = '';        // 絞り込み中のカード名（空なら絞り込みなし）
+let publicNext = null;      // 続きを読むときの before（無ければ null）
+let publicReqSeq = 0;       // 古い応答が新しい表示を上書きしないための通し番号
+
+/** 公開リプレイのカード1枚を作る。ユーザー由来の文字列（タイトル・カード名）は textContent だけで入れる */
+function buildPublicCard(item) {
+  const li = el('li', 'rp-pcard');
+  const idParam = encodeURIComponent(item.id);
+  const openHref = '/solitaire?replay=' + idParam;
+
+  // カード全体を押せるように、主リンクの当たりを CSS（::after）でカード全体に広げる
+  const link = el('a', 'rp-pcard-link');
+  link.href = openHref;
+  link.addEventListener('click', confirmReplaceSessionRecord);
+
+  const thumb = document.createElement('img');
+  thumb.className = 'rp-pcard-thumb';
+  thumb.src = '/solitaire/og/' + idParam + '.png';
+  thumb.alt = '';
+  thumb.loading = 'lazy';
+  thumb.width = 1200;
+  thumb.height = 630;
+  thumb.addEventListener('error', () => { thumb.style.visibility = 'hidden'; });
+  link.appendChild(thumb);
+  link.appendChild(el('span', 'rp-pcard-title', item.title || '無題'));
+  li.appendChild(link);
+
+  const names = Array.isArray(item.card_names) ? item.card_names : [];
+  const total = Number.isFinite(item.card_count) ? item.card_count : names.length;
+  if (names.length) {
+    const tags = el('span', 'rp-pcard-tags');
+    for (const name of names.slice(0, PUBLIC_TAGS_SHOWN)) tags.appendChild(el('span', 'rp-tag', name));
+    if (total > PUBLIC_TAGS_SHOWN) tags.appendChild(el('span', 'rp-tag', `他${total - PUBLIC_TAGS_SHOWN}`));
+    li.appendChild(tags);
+  }
+
+  const date = formatDateTime(Date.parse(item.published_at));
+  li.appendChild(el('span', 'rp-pcard-meta', `${item.steps ?? 0}手${date ? '・' + date : ''}`));
+
+  const cont = el('a', 'rp-pcard-continue', '最後の盤面から続ける');
+  cont.href = openHref + '&at=end';
+  cont.addEventListener('click', confirmReplaceSessionRecord);
+  li.appendChild(cont);
+  return li;
+}
+
+function showPublicError(message) {
+  const errEl = document.getElementById('rpPublicError');
+  if (!errEl) return;
+  errEl.textContent = message;
+  errEl.hidden = !message;
+}
+
+/**
+ * 公開リプレイを読み込む。reset=true なら先頭から読み直し（絞り込み変更・取り下げ後）、
+ * false なら続き（「もっと見る」）を末尾に足す。
+ */
+async function loadPublic(reset) {
+  const listEl = document.getElementById('rpPublicList');
+  const moreBtn = document.getElementById('rpPublicMore');
+  const emptyEl = document.getElementById('rpPublicEmpty');
+  if (!listEl) return;
+  const seq = ++publicReqSeq;
+  if (reset) { publicNext = null; }
+  const params = new URLSearchParams({ limit: String(PUBLIC_PAGE_SIZE) });
+  if (publicCard) params.set('card', publicCard);
+  if (!reset && publicNext) params.set('before', publicNext);
+  showPublicError('');
+  if (moreBtn) moreBtn.disabled = true;
+  try {
+    const res = await fetch('/api/solitaire/public?' + params.toString());
+    if (seq !== publicReqSeq) return; // 後から出した読み込みがあるので、この応答は使わない
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    if (reset) listEl.textContent = '';
+    for (const item of data.items || []) listEl.appendChild(buildPublicCard(item));
+    publicNext = data.next || null;
+    if (moreBtn) moreBtn.hidden = !publicNext;
+    const empty = listEl.children.length === 0;
+    if (emptyEl) {
+      emptyEl.hidden = !empty;
+      emptyEl.textContent = publicCard
+        ? `「${publicCard}」を使った公開リプレイはまだありません。`
+        : 'まだ公開されたリプレイはありません。シミュレーターの共有で「みんなのリプレイに公開する」を選ぶと、ここに並びます';
+    }
+  } catch (err) {
+    if (seq !== publicReqSeq) return;
+    showPublicError('公開リプレイを読み込めませんでした。しばらくしてからもう一度お試しください');
+    if (reset) { listEl.textContent = ''; if (emptyEl) emptyEl.hidden = true; if (moreBtn) moreBtn.hidden = true; }
+  } finally {
+    if (seq === publicReqSeq && moreBtn) moreBtn.disabled = false;
+  }
+}
+
+document.getElementById('rpPublicMore')?.addEventListener('click', () => { loadPublic(false); });
+
+// ── 0-b. カード名の絞り込み（入力補完は既存の /api/suggest。返り値は文字列の配列） ──
+
+const SUGGEST_DEBOUNCE_MS = 200;
+const SUGGEST_MAX = 8;
+let suggestTimer = null;
+let suggestAbort = null;
+let suggestActive = -1; // 候補のうち、キーボードで選んでいる位置
+
+function suggestEls() {
+  return {
+    input: document.getElementById('rpPublicCard'),
+    list: document.getElementById('rpPublicSuggest'),
+    clear: document.getElementById('rpPublicCardClear'),
+  };
+}
+
+function closeSuggest() {
+  const { input, list } = suggestEls();
+  if (!list) return;
+  list.hidden = true;
+  list.textContent = '';
+  suggestActive = -1;
+  input?.setAttribute('aria-expanded', 'false');
+}
+
+/** 絞り込みを決める（name が空なら解除）。入力欄・✕ボタン・一覧を合わせる */
+function applyCardFilter(name) {
+  const { input, clear } = suggestEls();
+  publicCard = name;
+  if (input) input.value = name;
+  if (clear) clear.hidden = !name;
+  closeSuggest();
+  loadPublic(true);
+}
+
+function renderSuggest(names) {
+  const { input, list } = suggestEls();
+  if (!list) return;
+  list.textContent = '';
+  suggestActive = -1;
+  if (!names.length) { closeSuggest(); return; }
+  for (const name of names) {
+    const li = el('li', 'rp-suggest-item', name);
+    li.setAttribute('role', 'option');
+    // blur より先に処理する（mousedown）。タッチでも mousedown が合成される
+    li.addEventListener('mousedown', (e) => { e.preventDefault(); applyCardFilter(name); });
+    list.appendChild(li);
+  }
+  list.hidden = false;
+  input?.setAttribute('aria-expanded', 'true');
+}
+
+async function fetchSuggest(q) {
+  if (suggestAbort) suggestAbort.abort();
+  suggestAbort = new AbortController();
+  try {
+    const res = await fetch('/api/suggest?q=' + encodeURIComponent(q), { signal: suggestAbort.signal });
+    if (!res.ok) return;
+    const data = await res.json();
+    renderSuggest((Array.isArray(data) ? data : []).filter(n => typeof n === 'string').slice(0, SUGGEST_MAX));
+  } catch {
+    // 中断・通信失敗のときは候補を出さないだけ（絞り込み自体は入力した名前のまま Enter で決められる）
+  }
+}
+
+function setSuggestActive(idx) {
+  const { list } = suggestEls();
+  const items = list ? [...list.children] : [];
+  items.forEach((li, i) => li.classList.toggle('is-active', i === idx));
+  suggestActive = idx;
+}
+
+function initCardFilter() {
+  const { input, list, clear } = suggestEls();
+  if (!input || !list) return;
+  input.addEventListener('input', () => {
+    clearTimeout(suggestTimer);
+    const q = input.value.trim();
+    if (!q) { closeSuggest(); return; }
+    suggestTimer = setTimeout(() => fetchSuggest(q), SUGGEST_DEBOUNCE_MS);
+  });
+  input.addEventListener('keydown', (e) => {
+    // 日本語入力の変換確定の Enter では決定しない
+    if (e.isComposing || e.keyCode === 229) return;
+    const n = list.children.length;
+    if (e.key === 'ArrowDown' && n) { e.preventDefault(); setSuggestActive((suggestActive + 1) % n); }
+    else if (e.key === 'ArrowUp' && n) { e.preventDefault(); setSuggestActive((suggestActive - 1 + n) % n); }
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      clearTimeout(suggestTimer);
+      const picked = suggestActive >= 0 ? list.children[suggestActive]?.textContent : input.value.trim();
+      if (picked) applyCardFilter(picked);
+    } else if (e.key === 'Escape') {
+      closeSuggest();
+    }
+  });
+  // フォーカスが外れたら候補を閉じる（候補は mousedown で先に処理される）
+  input.addEventListener('blur', () => { setTimeout(closeSuggest, 100); });
+  clear?.addEventListener('click', () => { applyCardFilter(''); input.focus(); });
 }
 
 // ── 3. ファイルから開く ──
@@ -271,3 +527,5 @@ migrateSlotsToReplays();
 showSlotMigrationNotice();
 renderSaved();
 renderShared();
+initCardFilter();
+loadPublic(true);
