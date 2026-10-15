@@ -31,14 +31,16 @@ function _hasStoppedPcRecording() {
 /**
  * @returns {{start:number, end:number}|null} 1-indexed 手数の範囲。録画（停止済み）が無ければ null（＝全範囲扱い）。
  * 停止後の取消（undo）で手数が減っていても壊れないよう、表示・送信の直前で
- * endIdx を現在の手数以下へ、startIdx を endIdx 以下へクランプする（_pcRecording 自体は書き換えない）。
+ * endIdx を現在の手数以下へクランプする（_pcRecording 自体は書き換えない）。
+ * 取消や巻き戻した位置からの操作で録画範囲の手がすべて消えた場合は null（＝全範囲扱い）を返す。
+ * 空範囲を返すと「2手目〜1手目（0手）」のような逆順表示になり、共有側（_buildRangeLogs）の丸めとも食い違うため。
  */
 export function _getPcRecordingRange() {
   if (!_hasStoppedPcRecording()) return null;
   const total = getLogLength();
   const end = Math.min(_pcRecording.endIdx, total);
-  const start = Math.min(_pcRecording.startIdx, end);
-  return { start: start + 1, end };
+  if (_pcRecording.startIdx >= end) return null;
+  return { start: _pcRecording.startIdx + 1, end };
 }
 
 /**
@@ -203,8 +205,7 @@ function _redoPcRecordingFromSheet() {
     // 再生中に seekTo すると自動再生が続いてしまうため、先に止める（_playPcRecordingRange と同じ注意）
     if (isPlaying()) togglePlay();
     seekTo(prevStart - 1); // startIdx = getCursor()+1 なので cursor = startIdx-1 が録画開始時の盤面
-    // 未来ログをここで確定的に切り捨てる（logEvent の切り捨ては cursor>=0 のときだけで、
-    // 0手目からのやり直しでは残る。取消で盤面が末尾へ飛ぶのも防ぐ）
+    // 未来ログをここで確定的に切り捨てる（録画開始の操作より前に、先の記録を消しておく）
     truncateAfterCursor();
   }
   _startPcRecording();
