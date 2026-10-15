@@ -38,7 +38,7 @@ import { playActivateEffect, flipMoveClone } from '../components/card-effects.js
 import { _renderCard, _showUnknown, _showLoading } from './card-info-panel.js';
 import { isMobilePortrait, watchMobilePortrait, isMobileLandscape, watchMobileLandscape } from '../utils/viewport.js';
 import { showToast } from '../utils/toast.js';
-import { generateShareURL, buildShareTweetUrl, getReplayCounts, saveReplayToDevice, describeSaveResult, exportReplayFile } from './replay-ui.js';
+import { generateShareURL, checkPublicTitle, resetShareUrlMemo, buildShareTweetUrl, getReplayCounts, saveReplayToDevice, describeSaveResult, exportReplayFile } from './replay-ui.js';
 import { clearEverything } from './deck-input-panel.js';
 import {
   getLogLength,
@@ -1258,6 +1258,17 @@ function openShareSheet(mode) {
   document.querySelectorAll('#solMobileShareSheet [data-share-mode]').forEach((el) => {
     el.hidden = el.dataset.shareMode !== _shareSheetMode;
   });
+  // タイトル欄の説明は実際の動きに合わせる（保存は日時が既定、共有は「共有リプレイ」。公開はタイトル必須）
+  const titleNote = document.getElementById('solMobileShareTitleNote');
+  if (titleNote) {
+    titleNote.textContent = _shareSheetMode === 'save'
+      ? '空欄なら日時が入ります'
+      : '空欄なら「共有リプレイ」になります（公開するときはタイトルが必要です）';
+  }
+  // 開くたびに公開はオフに戻す（前回のチェックが残って意図せず公開しないように）。共有URLの使い回しも止める
+  const publicCheck = document.getElementById('solMobileSharePublic');
+  if (publicCheck) publicCheck.checked = false;
+  resetShareUrlMemo();
   // 前回の結果・エラー表示を残さない
   setHidden('solMobileShareResult', true);
   setHidden('solMobileShareError', true);
@@ -1331,16 +1342,25 @@ async function _generateShareLink() {
     return;
   }
 
+  // 「みんなのリプレイに公開する」: タイトル必須。空ならリンクを作らずその場でエラーを出す
+  const isPublic = !!document.getElementById('solMobileSharePublic')?.checked;
+  if (isPublic) {
+    const titleErr = checkPublicTitle();
+    if (titleErr) { _showShareError(titleErr); return; }
+  }
+
   setHidden('solMobileShareError', true);
   btn.disabled = true;
   try {
-    const url = await generateShareURL(_getRecordingRange()); // タスクA-4: 録画があればその範囲を渡す
+    const url = await generateShareURL(_getRecordingRange(), { public: isPublic }); // タスクA-4: 録画があればその範囲を渡す
     if (urlInput) urlInput.value = url;
     if (xLink) xLink.href = buildShareTweetUrl(url);
     if (nativeBtn) nativeBtn.hidden = typeof navigator.share !== 'function';
     if (resultEl) resultEl.hidden = false;
+    if (isPublic) showToast('みんなのリプレイに公開しました');
   } catch (e) {
-    _showShareError('リンクを作成できませんでした');
+    // 公開の失敗は理由（禁止語など）を出す。通常の共有は従来どおりの文言
+    _showShareError(isPublic ? e.message : 'リンクを作成できませんでした');
   } finally {
     btn.disabled = false;
   }

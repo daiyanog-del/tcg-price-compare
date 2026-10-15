@@ -853,10 +853,12 @@ def cleanup_old_data(sb: Client):
             print(f"古い価格履歴を削除: {deleted}件（{cutoff}より前）")
     except Exception as e:
         print(f"古い価格履歴削除失敗: {e}")
-    # 一人回しリプレイの削除（90日超）
+    # 一人回しリプレイの削除（90日超）。公開中（みんなのリプレイ）は対象外＝取り下げか運営の削除まで残す。
+    # 取り下げると is_public=false に戻るので、作成日が古ければ次の掃除で消える
     try:
         resp = sb.table("solitaire_replays") \
             .delete() \
+            .eq("is_public", False) \
             .lt("created_at", cutoff) \
             .execute()
         deleted = len(resp.data) if resp.data else 0

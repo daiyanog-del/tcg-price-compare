@@ -46,7 +46,24 @@
 
   <main class="rp-main">
     <h1 class="rp-title">リプレイ一覧</h1>
-    <p class="rp-lead">このブラウザに残っているリプレイです。別のブラウザや端末で保存したものは表示されません。</p>
+    <p class="rp-lead">一番上は、みなさんが公開したリプレイです。その下は、このブラウザに残っているリプレイで、別のブラウザや端末で保存したものは表示されません。</p>
+
+    <section class="rp-section" aria-labelledby="rpPublicHeading">
+      <h2 class="rp-heading" id="rpPublicHeading">みんなのリプレイ</h2>
+      <p class="rp-note">共有のときに「みんなのリプレイに公開する」を選んだリプレイを、新しい順に並べています。カードを押すと、シミュレーターで最初から再生します。</p>
+      <div class="rp-filter">
+        <div class="rp-filter-box">
+          <input type="text" id="rpPublicCard" class="rp-filter-input" placeholder="使ったカード名で絞り込む" autocomplete="off"
+                 role="combobox" aria-expanded="false" aria-controls="rpPublicSuggest" aria-autocomplete="list" aria-label="使ったカード名で絞り込む" maxlength="100">
+          <button type="button" id="rpPublicCardClear" class="rp-filter-clear" aria-label="絞り込みを解除" hidden>&#10005;</button>
+          <ul id="rpPublicSuggest" class="rp-suggest" role="listbox" hidden></ul>
+        </div>
+      </div>
+      <p id="rpPublicEmpty" class="rp-empty" hidden></p>
+      <p id="rpPublicError" class="rp-error" role="alert" hidden></p>
+      <ul id="rpPublicList" class="rp-grid"></ul>
+      <div class="rp-more-wrap"><button type="button" id="rpPublicMore" class="rp-btn rp-more" hidden>もっと見る</button></div>
+    </section>
 
     <div id="rpSlotNotice" class="rp-notice" hidden>
       <span id="rpSlotNoticeText"></span>
@@ -70,7 +87,8 @@
 
     <section class="rp-section" aria-labelledby="rpSharedHeading">
       <h2 class="rp-heading" id="rpSharedHeading">共有リンクを作ったリプレイ</h2>
-      <p class="rp-note">共有リンクは作成から90日で自動的に消えます。「履歴から消す」は、この一覧から消すだけです。</p>
+      <p class="rp-note">公開しなかった共有リンクは、作成から90日で自動的に消えます。「公開中」のものは、「公開をやめる」を押すまで一覧に残ります。「履歴から消す」は、この一覧から消すだけです。</p>
+      <p id="rpSharedError" class="rp-error" role="alert" hidden></p>
       <p id="rpSharedEmpty" class="rp-empty" hidden>シミュレーターの共有で「共有リンクを作成」すると、ここに並びます。</p>
       <ul id="rpSharedList" class="rp-list"></ul>
     </section>

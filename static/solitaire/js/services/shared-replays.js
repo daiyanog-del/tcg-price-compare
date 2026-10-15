@@ -5,6 +5,8 @@
  * 共有リンク（Supabase 保存・90日で自動削除）を後から探せるようにするための、このブラウザ内だけの控え。
  * saved-replays.js と同じ作法（キー1本にJSON配列を保持・読み書きは try/catch）。
  * 項目は {id, title, createdAt, steps}。新しい順で最大 MAX_SHARED_REPLAYS 件。
+ * 「みんなのリプレイに公開」した項目には public:true と deleteToken（取り下げの鍵）も持つ。
+ * 鍵はこのブラウザにしか無い（サーバーにはハッシュだけ）。取り下げたら unpublishSharedReplay で外す。
  * 履歴の記録に失敗しても共有そのものは失敗させない（呼び出し側は戻り値を無視してよい）。
  */
 
@@ -42,9 +44,27 @@ export function sharedReplaysSet(list) {
 }
 
 /**
+ * 上限（MAX_SHARED_REPLAYS）を超えた分を捨てる。公開中の項目は取り下げの鍵を持つので飛ばし、
+ * 通常の項目の古いほう（末尾）から捨てる。公開中だけで上限を超えるときに限り、最後の手段として一番古い公開中を捨てる。
+ * @param {Array} list 新しい順の一覧
+ * @returns {Array}
+ */
+export function trimSharedReplays(list) {
+  const out = list.slice();
+  while (out.length > MAX_SHARED_REPLAYS) {
+    let idx = -1;
+    for (let i = out.length - 1; i >= 0; i--) {
+      if (!out[i].public) { idx = i; break; }
+    }
+    out.splice(idx >= 0 ? idx : out.length - 1, 1);
+  }
+  return out;
+}
+
+/**
  * 共有リンクを作った記録を1件、先頭に追加する。同じ id が既にあれば置き換える。
  * 上限を超えた分は古いものから落とす。
- * @param {{id:string, title:string, steps:number}} entry
+ * @param {{id:string, title:string, steps:number, public?:boolean, deleteToken?:string}} entry
  * @returns {{ok:boolean}}
  */
 export function addSharedReplay(entry) {
@@ -55,8 +75,27 @@ export function addSharedReplay(entry) {
     createdAt: Date.now(),
     steps: Number.isFinite(entry.steps) ? entry.steps : 0,
   };
-  const list = [item, ...sharedReplaysGet().filter(r => r.id !== item.id)].slice(0, MAX_SHARED_REPLAYS);
+  if (entry.public === true && entry.deleteToken) {
+    item.public = true;
+    item.deleteToken = String(entry.deleteToken);
+  }
+  const list = trimSharedReplays([item, ...sharedReplaysGet().filter(r => r.id !== item.id)]);
   return sharedReplaysSet(list);
+}
+
+/**
+ * 公開を取り下げた項目から public と deleteToken を外す（履歴の項目自体は残す）。
+ * @param {string} id
+ * @returns {Array} 更新後の一覧
+ */
+export function unpublishSharedReplay(id) {
+  const list = sharedReplaysGet().map((r) => {
+    if (r.id !== id) return r;
+    const { public: _p, deleteToken: _t, ...rest } = r;
+    return rest;
+  });
+  sharedReplaysSet(list);
+  return list;
 }
 
 /**

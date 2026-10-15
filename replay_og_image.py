@@ -551,6 +551,21 @@ def read_cached(replay_id: str):
         return None
 
 
+def purge_cache(replay_id: str) -> None:
+    """その id のディスクキャッシュと、描画に失敗したとき用のメモリキャッシュを消す。
+    管理画面で削除・非表示にしたあと、タイトル入りの画像が残って見え続けないようにする。失敗しても例外は投げない。"""
+    if not is_valid_replay_id(replay_id):
+        return
+    try:
+        os.remove(_cache_path(replay_id))
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        logger.warning(f"OG画像キャッシュの削除に失敗 {replay_id}: {e}")
+    with _degraded_lock:
+        _degraded_cache.pop(replay_id, None)
+
+
 def _read_degraded(replay_id: str):
     with _degraded_lock:
         item = _degraded_cache.get(replay_id)

@@ -46,6 +46,7 @@
     <button class="tab-btn" data-tab="rejected">却下済み</button>
     <button class="tab-btn" data-tab="manual">手動登録</button>
     <button class="tab-btn" data-tab="x-fetch">Xポスト取込</button>
+    <button class="tab-btn" data-tab="public-replays">公開リプレイ</button>
     <button class="tab-btn" data-tab="settings">設定</button>
   </nav>
 
@@ -209,6 +210,25 @@
   </section>
 
   <!-- ──── 設定タブ ──── -->
+  <!-- ──── 公開リプレイタブ（みんなのリプレイ） ──── -->
+  <section id="tab-public-replays" class="tab-section" hidden>
+    <div class="section-header">
+      <h2 class="section-title">公開リプレイ（みんなのリプレイ）</h2>
+      <button id="reload-public-replays-btn" class="btn btn-ghost btn-sm">再読み込み</button>
+    </div>
+    <p class="bulk-approve-hint">新しい順に100件ずつ。「非表示にする」は、みんなのリプレイの一覧からも直リンクからも見えなくなります（行は残り、「戻す」で元どおり）。「削除」は行ごと消え、元に戻せません。</p>
+    <form id="public-replays-find" class="manual-form" autocomplete="off">
+      <input id="public-replays-find-input" type="text" class="form-input" placeholder="idまたはリンクで探す（例: ?replay=xxxxxxxx）" aria-label="idまたはリンクで探す">
+      <button type="submit" class="btn btn-ghost btn-sm">探す</button>
+      <button type="button" id="public-replays-find-clear" class="btn btn-ghost btn-sm" hidden>一覧に戻る</button>
+    </form>
+    <p id="public-replays-result" class="form-result" hidden></p>
+    <div id="public-replays-list" class="card-list">
+      <p class="loading-text">読み込み中...</p>
+    </div>
+    <button type="button" id="public-replays-more" class="btn btn-ghost btn-sm" hidden>もっと見る</button>
+  </section>
+
   <section id="tab-settings" class="tab-section" hidden>
     <div class="section-header">
       <h2 class="section-title">設定</h2>
