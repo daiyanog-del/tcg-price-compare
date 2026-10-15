@@ -86,12 +86,12 @@ export function initReplayUI() {
   document.getElementById('replayUndo')
     ?.addEventListener('click', () => undoLast());
 
-  // すべて消去: PC版「すべて消去」ボタン。モバイル版⋯メニューの
-  // 「すべて消去」（deck-input-panel.js clearEverything）と同じ処理を使い、盤面も含めて
+  // クリア: 右パネル「盤面操作」のクリアボタン。モバイル版⋯メニューの
+  // 「クリア」（deck-input-panel.js clearEverything）と同じ処理を使い、盤面も含めて
   // 完全に初期状態へ戻す。誤操作防止のため確認ダイアログを必須にする。
-  document.getElementById('replayResetAll')
+  document.getElementById('clearButton')
     ?.addEventListener('click', async () => {
-      if (!confirm('デッキ・盤面・記録をすべて消去します。よろしいですか？')) return;
+      if (!confirm('読み込んだデッキ・盤面・記録をすべて消去します。元に戻せません。よろしいですか？')) return;
       // clearEverything() はデッキ読込中だと何もせず false を返す。その場合に
       // _resetPcRecording() だけ実行すると「盤面は残るが録画範囲だけ消える」
       // 中途半端な状態になるため、成功時のみ後続処理を行う。
@@ -99,7 +99,7 @@ export function initReplayUI() {
         // clearEverything() は PC版の録画状態（pc-recording.js）を知らないため、ここで明示的にリセットする
         _resetPcRecording();
       } else {
-        showToast('デッキ読込中のため消去できませんでした');
+        showToast('デッキ読込中のためクリアできませんでした');
       }
     });
 

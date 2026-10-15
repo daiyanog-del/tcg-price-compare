@@ -49,6 +49,7 @@ import {
   loadReplayFromCompressedData,
   getCursor,
   seekTo,
+  truncateAfterCursor,
 } from '../services/replay-service.js';
 import { savedReplaysGet, saveReplayEntry, deleteReplayEntry } from '../services/saved-replays.js';
 
@@ -202,11 +203,11 @@ function closeMenuSheet() {
   setHidden('solMobileMenuSheet', true);
 }
 
-/** 「すべて消去」。確認ダイアログでOKされた場合のみ deck-input-panel.js の clearEverything を呼ぶ。 */
+/** 「クリア」。確認ダイアログでOKされた場合のみ deck-input-panel.js の clearEverything を呼ぶ。 */
 async function handleClearEverything() {
-  if (!confirm('デッキ・盤面・記録をすべて消去します。よろしいですか？')) return;
+  if (!confirm('読み込んだデッキ・盤面・記録をすべて消去します。元に戻せません。よろしいですか？')) return;
   await clearEverything();
-  showToast('すべて消去しました');
+  showToast('クリアしました');
 }
 
 const MENU_ACTIONS = {
@@ -1200,11 +1201,25 @@ function initShareSheet() {
     closeShareSheet();
     _startRecording();
   });
-  // 第6次検収-3: 「録画をやり直す」も _startRecording と同じ経路にする（新規に開始する。
-  // 停止済み録画は _startRecording が無条件で新しいオブジェクトに差し替えるため自動的に破棄される。
-  // 共有前なら confirm 不要＝録画は軽い操作として扱う）。
+  // 「録画をやり直す」: 停止済み録画の開始位置（startIdx＝録画開始時点までの手数）へ盤面を巻き戻してから、
+  // その位置で新規に録画を開始する（startIdx は元と同じ値になる）。
+  // 巻き戻し直後に truncateAfterCursor() で未来ログを切り捨てる（0手目からのやり直しでも確実に消す）。
+  // 共有シートが開いている時点で再生モードは終了済み（enterPlaybackMode が閉じ、
+  // exitPlaybackMode が開く）なので、再生モード中にここへ来ることは無い。
   document.getElementById('solMobileShareRedoRecordingBtn')?.addEventListener('click', () => {
+    const stopped = _hasStoppedRecording();
+    const prevStart = stopped ? _recording.startIdx : null;
+    // 録画停止後に打った手（endIdx より先）まで消えるときだけ確認する
+    if (stopped) {
+      const extra = getLogLength() - _recording.endIdx;
+      if (extra > 0 && !confirm(`録画を始めた位置まで戻ります。録画範囲より後の${extra}手も消えます。よろしいですか？`)) return;
+    }
     closeShareSheet();
+    if (prevStart !== null) {
+      _stopAutoPlayIfNeeded(); // 自動再生中なら先に止める
+      seekTo(prevStart - 1);
+      truncateAfterCursor();
+    }
     _startRecording();
   });
   document.getElementById('solMobileSharePlaybackBtn')?.addEventListener('click', () => {

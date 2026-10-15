@@ -60,6 +60,7 @@
 
     <!-- ブランド + ページナビ（旧ヘッダーから移植） -->
     <div class="sol-sidebar-section sol-sidebar-nav">
+      <div class="sol-sidebar-head">
       <a href="/" class="sol-nav-title">
         <picture>
           <source srcset="{{ static_url('tcgym-icon-small.webp') }}" type="image/webp">
@@ -67,6 +68,12 @@
         </picture>
         <span class="nav-brand">TC<span class="nav-g">G</span>YM</span>
       </a>
+      <!-- ロゴ行の右端に左サイドバー開閉ボタン（畳んだ時は #solRailLeft が画面端に残る） -->
+      <button id="sidebarToggleLeft" type="button"
+              class="sol-panel-toggle sol-panel-toggle-left"
+              aria-expanded="true" aria-controls="solSidebar"
+              aria-label="左パネルを畳む">◀</button>
+      </div>
       <nav class="sol-sidebar-links">
         <a href="/"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>価格</a>
         <a href="/#mydeck"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>マイデッキ</a>
@@ -135,6 +142,13 @@
 
   <!-- スマホ縦向き専用: 左サイドバーをボトムシート化した際の背景スクリム -->
   <div id="solSidebarScrim" class="sol-mobile-sheet-scrim" hidden></div>
+
+  <!-- 左サイドバーを畳んだ時だけ出る縦帯（盤面レイアウトのフロー内。帯全体が開くボタン） -->
+  <button id="solRailLeft" type="button" class="sol-panel-rail sol-panel-rail-left"
+          aria-expanded="false" aria-controls="solSidebar" aria-label="左パネル（メニュー）を開く" hidden>
+    <span class="sol-rail-arrow" aria-hidden="true">▶</span>
+    <span class="sol-rail-label">メニュー</span>
+  </button>
 
   <!-- ====== 右メイン: 盤面 + 右パネル ====== -->
   <div class="sol-main">
@@ -270,8 +284,6 @@
           <span id="pcRecordLabel">録画</span>
         </button>
         <button class="replay-share-btn" id="pcShareSheetOpen">共有</button>
-        <!-- 破壊的操作のため頻用ボタン群から離し、危険色クラスで区別する -->
-        <button class="replay-btn replay-btn-danger" id="replayResetAll" type="button">すべて消去</button>
       </div>
 
       <!-- PC版 共有シート: モバイル版(#solMobileShareSheet)とは別実装・IDも別。
@@ -385,10 +397,10 @@
             <button type="button" class="sol-mobile-sheet-close-btn" data-sol-sheet-close aria-label="閉じる">&times;</button>
           </div>
           <div class="sol-mobile-sheet-body">
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="save">盤面セーブ</button>
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="load">盤面ロード</button>
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="reset">リセット&amp;5ドロー</button>
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="clearall">すべて消去（デッキ・盤面・記録）</button>
+            <button type="button" class="sol-mobile-menu-item" data-menu-action="save">セーブ<span class="sol-mobile-menu-desc">今の盤面を保存します</span></button>
+            <button type="button" class="sol-mobile-menu-item" data-menu-action="load">ロード<span class="sol-mobile-menu-desc">保存した盤面を呼び出します</span></button>
+            <button type="button" class="sol-mobile-menu-item" data-menu-action="reset">リセット<span class="sol-mobile-menu-desc">カードをデッキに戻して5枚引き直します（記録は残ります）</span></button>
+            <button type="button" class="sol-mobile-menu-item" data-menu-action="clearall">クリア<span class="sol-mobile-menu-desc">デッキ・盤面・記録をすべて消します</span></button>
             <label class="sol-mobile-menu-item sol-sample-blur-toggle">
               <input type="checkbox" id="solMobileSampleBlurToggle" data-sample-blur-toggle>
               <span>未発売カードのイラストをぼかす</span>
@@ -532,12 +544,27 @@
     <aside class="sol-right-panel" id="solRightPanel">
 
       <div class="sol-right-section">
-        <p class="sol-right-heading">盤面操作</p>
+        <!-- 見出し行の右端に右パネル開閉ボタン（畳んだ時は #solRailRight が画面端に残る） -->
+        <div class="sol-panel-head">
+          <p class="sol-right-heading">盤面操作</p>
+          <button id="sidebarToggleRight" type="button"
+                  class="sol-panel-toggle sol-panel-toggle-right"
+                  aria-expanded="true" aria-controls="solRightPanel"
+                  aria-label="右パネルを畳む">▶</button>
+        </div>
         <div class="sol-right-actions">
-          <button id="saveButton2" class="action-btn save-btn">盤面セーブ</button>
-          <button id="loadButton"  class="action-btn load-btn">盤面ロード</button>
-          <button id="randomButton" class="action-btn draw-btn">1ドロー</button>
-          <button id="resetButton"  class="action-btn reset-btn">リセット&amp;5ドロー</button>
+          <button id="saveButton2" class="action-btn save-btn">セーブ</button>
+          <button id="loadButton"  class="action-btn load-btn">ロード</button>
+          <button id="randomButton" class="action-btn draw-btn">ドロー</button>
+          <!-- リセット／クリアは即時表示の自前ツールチップ（CSSのみ: :hover / :focus-visible）。title属性は二重表示になるため使わない -->
+          <div class="sol-tip-wrap">
+            <button id="resetButton" class="action-btn reset-btn" aria-describedby="resetButtonTip">リセット</button>
+            <span id="resetButtonTip" class="sol-tip sol-tip-up" role="tooltip">場・手札・墓地・除外のカードをデッキ（EXカードはEXデッキ）に戻してシャッフルし、5枚引き直します。読み込んだデッキと記録は消えません。</span>
+          </div>
+          <div class="sol-tip-wrap">
+            <button id="clearButton" class="action-btn clear-btn" aria-describedby="clearButtonTip">クリア</button>
+            <span id="clearButtonTip" class="sol-tip" role="tooltip">読み込んだデッキ・盤面・記録をすべて消して、最初の状態に戻します。元に戻せません。</span>
+          </div>
         </div>
       </div>
 
@@ -634,6 +661,13 @@
 
   </div><!-- /.sol-main -->
 
+  <!-- 右パネルを畳んだ時だけ出る縦帯（フロー内。.sol-main の外に置くので fitFieldToViewport が測る .sol-main 幅が自動で縮む。帯全体が開くボタン） -->
+  <button id="solRailRight" type="button" class="sol-panel-rail sol-panel-rail-right"
+          aria-expanded="false" aria-controls="solRightPanel" aria-label="右パネル（盤面操作）を開く" hidden>
+    <span class="sol-rail-arrow" aria-hidden="true">◀</span>
+    <span class="sol-rail-label">盤面操作</span>
+  </button>
+
 </div><!-- /.sol-page-layout -->
 
 <div id="imageBrowserModal" class="modal-overlay" style="display:none;"></div>
@@ -681,16 +715,6 @@
     </div>
   </div>
 </div>
-
-<!-- 画面端固定のサイドパネルトグル（開閉状態に関わらず常時操作可能） -->
-<button id="sidebarToggleLeft"
-        class="sol-panel-toggle sol-panel-toggle-left"
-        aria-expanded="true"
-        title="左パネル開閉">◀</button>
-<button id="sidebarToggleRight"
-        class="sol-panel-toggle sol-panel-toggle-right"
-        aria-expanded="true"
-        title="右パネル開閉">▶</button>
 
 <!-- 端末間同期（P2）。main.js（type=module・deferされる）より前に読み込まれる通常scriptなので、
      DOM解析完了後に実行されるmodule側からは常に window.SyncClient が使える（設計文書 §11） -->
