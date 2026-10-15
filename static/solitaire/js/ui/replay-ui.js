@@ -189,6 +189,14 @@ export function initReplayUI() {
   // deck-input-panel.js が dispatch する sol-deck-load-start（読込開始時点）で破棄する。
   document.addEventListener('sol-deck-load-start', () => _resetPcRecording());
 
+  // 「リセット」(event-handlers.js handleReset) は記録も初期化するため、録画状態も破棄する。
+  // 共有シートが開いたままでも録画セクション表示が追従するよう updatePcShareRecordingSection も呼ぶ。
+  // （依存方向: event-handlers → イベント通知 → replay-ui → pc-recording。import の循環は作らない）
+  document.addEventListener('sol-replay-reset', () => {
+    _resetPcRecording();
+    updatePcShareRecordingSection();
+  });
+
   // PC版 再生中の操作無効化: #replayPlay の再生状態（play-active クラス。
   // replay-service.js の _updateUI が togglePlay/stepForward/stepBack/seekTo/undo・
   // 自動再生タイマーの各経路から更新する）を監視し、drag-drop.js の
