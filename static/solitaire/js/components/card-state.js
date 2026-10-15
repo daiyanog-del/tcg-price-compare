@@ -24,19 +24,8 @@
  * 裏面は CSS ::after で描画するため img.src は一切変更しない。
  */
 
-/**
- * 画像の src がトークン（トークン生成が canvas.toDataURL() で作る data: URL）かを判定する。
- * トークンかどうかの判定の根拠はこの1か所だけに置く。理由:
- *   - 実カードの画像は https のURL、未発売カードは card:// センチネル・プロキシ（div）で、
- *     data: URL の画像を作るのはトークン生成だけ（replay-board.js の token 判定と同じ根拠）。
- *   - リプレイの画像辞書（images）・盤面セーブの src にも data: URL がそのまま残るため、
- *     再生・セッション復元・JSON読込・盤面ロードでカードを作り直すときも同じ判定で復元できる。
- * @param {string|null|undefined} src
- * @returns {boolean}
- */
-export function isTokenSrc(src) {
-  return typeof src === 'string' && src.startsWith('data:');
-}
+import { isTokenSrc } from '../utils/token-src.js';
+export { isTokenSrc }; // 判定の実体は utils/token-src.js（replay-board.js と共有）
 
 /**
  * カードがトークンかどうか（wrapper の data-token="1" で判定）。

@@ -41,7 +41,7 @@
  */
 
 import { returnAllCardsToDeck, attachCardImageListeners, sortPoolCards } from '../components/card-manager.js';
-import { applyCardState, getCardState, isTokenSrc, markTokenIfSrc } from '../components/card-state.js';
+import { applyCardState, getCardState, isTokenSrc, isTokenCard, markTokenIfSrc } from '../components/card-state.js';
 import { createCardCounter } from '../components/counter-manager.js';
 import { restackCustomSlot } from '../components/slot-stack.js';
 import { playActivateEffect, flipMoveClone, playSetFlip, flyBetweenRects, prefersReducedMotion } from '../components/card-effects.js';
@@ -529,13 +529,23 @@ export function resetReplay() {
 /**
  * 記録（ログ・setupログ・カーソル）だけを初期化する（「リセット」用・event-handlers.js handleReset から呼ばれる）。
  * resetReplay / initReplay と違い、画像辞書・カード名辞書・EX判定は保持する
- * （読み込んだデッキは残すため）。盤面DOMは呼び出し元（returnAllCardsToDeck）が担当する。
+ * （読み込んだデッキは残すため。ただし盤面に無いトークンの項目は消す）。盤面DOMは呼び出し元（returnAllCardsToDeck）が担当する。
  */
 export function clearReplayLog() {
   _stopPlay(); // 再生中なら停止（内部で _updateUI も呼ばれる）
   _logs = [];
   _setupLogs = [];
   _cursor = -1;
+  // 盤面に無いトークン（記録を始める前に削除したもの）を辞書から消す。残すと、リセット後の
+  // 巻き戻しで _restoreRemovedTokens が削除済みのトークンをデッキへ作り直してしまう
+  for (const [cardId, src] of Object.entries(_images)) {
+    if (isTokenSrc(src) && !document.getElementById(cardId)) {
+      delete _images[cardId];
+      delete _names[cardId];
+      delete _cardTypes[cardId];
+      _exCardIds.delete(cardId);
+    }
+  }
   // 表示中のコメントトーストが残らないよう即座に隠す
   const toast = document.getElementById('replayCommentToast');
   if (toast) {
@@ -922,9 +932,7 @@ function _applyMoveCardWithDeckFly({ card, place, orientation, face, faceChanged
   if (toIsDeckPool) {
     // 到着点はデッキ錨の矩形。飛ばし終えてから DOM を確定する（既存の onComplete 経路を維持）。
     if (stateChanged) applyCardState(card, { orientation, face });
-    flyBetweenRects(card, fromRect, deckBtnRect, _trackAnim(() => {
-      place();
-    }));
+    flyBetweenRects(card, fromRect, deckBtnRect, _trackAnim(_afterFly(card, place)));
     return;
   }
 
@@ -952,6 +960,19 @@ function _pulseDeckBtn() {
   void btn.offsetWidth; // 再アニメのための reflow 強制
   btn.classList.add('sol-pulse');
   setTimeout(() => btn.classList.remove('sol-pulse'), 400);
+}
+
+/**
+ * 演出の完了後に配置を確定する処理を包む。演出の途中で作り直し（巻き戻し・次の手）が起きて世代が
+ * 変わった、またはカードがもう画面に無い（削除されたトークンなど）なら、何もしない。
+ * （そのまま配置すると、消えたカードが盤面に戻ってしまう）
+ */
+function _afterFly(card, fn) {
+  const gen = _animGen;
+  return () => {
+    if (gen !== _animGen || !card.isConnected) return;
+    fn();
+  };
 }
 
 const DECK_FLY_STAGGER_MS = 80; // 第6次検収2c: resetDeck等で複数枚飛ばす際のずらし幅（60→80ms）
@@ -1054,7 +1075,7 @@ function _applyReturnToDeck(event) {
       // 追加の隠蔽は不要。flyBetweenRects 内の cardEl.style.visibility='hidden' に委譲する）。
       const fromRect = card.getBoundingClientRect();
       _pulseDeckBtn();
-      flyBetweenRects(card, fromRect, deckBtnRect, _trackAnim(commit));
+      flyBetweenRects(card, fromRect, deckBtnRect, _trackAnim(_afterFly(card, commit)));
       return;
     }
   }
@@ -1132,7 +1153,7 @@ function _applyCounterChange(event) {
 /** removeCard: トークンを盤面から消す（辞書にはカードが残るので、巻き戻しでは作り直される） */
 function _applyRemoveCard(event) {
   const card = _findCardWrapper(event.cardId);
-  if (!card) return;
+  if (!card || !isTokenCard(card)) return; // トークン以外は消さない（手で作った記録などで普通のカードが消えないように）
   const sourceSlot = card.parentElement;
   card.remove();
   restackCustomSlot(sourceSlot); // フィールドの重ねを詰め直す（.custom-slot 以外は何もしない）

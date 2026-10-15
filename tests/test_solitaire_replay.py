@@ -83,10 +83,10 @@ def test_replay_save_rate_limit_blocks_eleventh_request(monkeypatch):
 # ── カード種類（cardTypes）の保存・取得（省略可の項目） ──
 
 class _RecordingTable:
-    """insert の内容を残し、列が無い DB を真似て card_types 付きの insert/select を失敗させられるフェイク"""
+    """insert の内容を残すフェイク"""
 
-    def __init__(self, log, missing_column=False, row=None):
-        self.log, self.missing_column, self.row = log, missing_column, row
+    def __init__(self, log, row=None):
+        self.log, self.row = log, row
         self._select = None
 
     def insert(self, payload):
@@ -107,12 +107,8 @@ class _RecordingTable:
 
     def execute(self):
         if self._op == "insert":
-            if self.missing_column and "card_types" in self._payload:
-                raise RuntimeError("column card_types does not exist")
             self.log.append(self._payload)
             return None
-        if self.missing_column and "card_types" in self._select:
-            raise RuntimeError("column card_types does not exist")
 
         class _R:
             data = [self.row]
@@ -156,27 +152,12 @@ def test_replay_save_card_types_not_dict_returns_400(monkeypatch):
     assert resp.status_code == 400
 
 
-def test_replay_save_retries_without_card_types_when_column_missing(monkeypatch):
-    """列追加SQL未適用の本番でも共有は成功する（card_types だけ落として再試行）"""
-    log = []
-    client = _load_app_with(monkeypatch, lambda: _RecordingTable(log, missing_column=True))
-    resp = client.post("/api/solitaire/replay", json={
-        "logs": [1], "images": {"a": "x"}, "cardTypes": {"a": "monster"}})
-    assert resp.status_code == 200
-    assert "card_types" not in log[0]
-
-
-def test_replay_get_returns_card_types_and_survives_missing_column(monkeypatch):
+def test_replay_get_returns_card_types(monkeypatch):
     row = {"images": {"a": "x"}, "names": {}, "ex_card_ids": [], "logs": [{}], "title": "t",
            "card_types": {"a": "spell"}}
     client = _load_app_with(monkeypatch, lambda: _RecordingTable([], row=row))
     body = client.get("/api/solitaire/replay/abc").get_json()
     assert body["cardTypes"] == {"a": "spell"}
-    # 列が無いDB: card_types なしで読み、cardTypes は空
-    row2 = {k: v for k, v in row.items() if k != "card_types"}
-    client2 = _load_app_with(monkeypatch, lambda: _RecordingTable([], missing_column=True, row=row2))
-    body2 = client2.get("/api/solitaire/replay/abc").get_json()
-    assert body2["cardTypes"] == {} and body2["images"] == {"a": "x"}
 
 
 # ── リプレイ一覧ページ（GET /solitaire/replays） ──

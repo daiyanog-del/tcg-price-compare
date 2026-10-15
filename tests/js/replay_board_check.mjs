@@ -104,4 +104,11 @@ assert.equal(b.hand.length, 0); assert.equal(b.deckCount, 4);   // 消えたカ�
 b = buildBoardFromLogs([mv('a', 'custom-slot-5'), { actionType: 'counterChange', cardId: 'a', op: 'add', index: 0, counter: 2 }], dict);
 assert.equal(b.field[0].name, 'A');
 
+// removeCard はトークン（data: 画像）にだけ効く。普通のカードへの removeCard は無視する（replay-service と同じ）
+b = buildBoardFromLogs([mv('a', 'custom-slot-5'), { actionType: 'removeCard', cardId: 'a', zoneId: 'custom-slot-5' }], dict);
+assert.equal(b.field.length, 1); assert.equal(b.field[0].name, 'A');
+// 判定は card-state.js と同じ utils/token-src.js（data: のみ）。https でも card:// でもないだけの画像はトークン扱いにしない
+b = buildBoardFromLogs([mv('x', 'custom-slot-5')], { images: { x: 'blob:abc' }, names: { x: 'X' }, exCardIds: [] });
+assert.equal(b.field[0].token, undefined);
+
 console.log('replay_board_check OK');

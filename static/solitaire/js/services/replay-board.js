@@ -15,6 +15,8 @@
  *   - 画像のURLは送らない（サーバーがカード名から解決する）。token は data: 画像のトークン（名前入りの枠で描かれる）
  */
 
+import { isTokenSrc } from '../utils/token-src.js';
+
 const FIELD_SLOT_RE = /^custom-slot-(\d+)$/;
 const isFieldSlot = (z) => {
   const m = FIELD_SLOT_RE.exec(z || '');
@@ -94,8 +96,8 @@ export function buildBoardFromLogs(logs, dict) {
         if (where.has(id)) place(id, ev.isEx ? 'poolRow2' : 'poolRow');
         break;
       case 'removeCard': {
-        // トークンの削除。盤面から外す（辞書には残る）。居なければ何もしない
-        if (!where.has(id)) break;
+        // トークンの削除。盤面から外す（辞書には残る）。居ない・トークンでないカードは何もしない（replay-service と同じ）
+        if (!where.has(id) || !isTokenSrc(images[id])) break;
         const arr = zoneList(where.get(id));
         const i = arr.indexOf(id);
         if (i >= 0) arr.splice(i, 1);
@@ -116,7 +118,7 @@ export function buildBoardFromLogs(logs, dict) {
   // カードは名前と種類だけを送る。トークンは辞書の画像が data: のもの（名前が無ければ「トークン」）
   const ref = (cid) => {
     const src = String(images[cid] ?? '');
-    const isToken = !src.startsWith('https://') && !src.startsWith('card://');
+    const isToken = isTokenSrc(src); // card-state.js の isTokenSrc と同じ基準（data: 画像）
     const name = String(names[cid] || (src.startsWith('card://') ? src.slice('card://'.length) : '') || (isToken ? 'トークン' : ''));
     return isToken ? { name, token: true } : { name };
   };

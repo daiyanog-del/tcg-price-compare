@@ -280,16 +280,7 @@ def solitaire_replay_save():
         card_types = _clean_card_types(card_types_in, images)
         if card_types:
             payload["card_types"] = card_types
-        try:
-            _supabase_client.table("solitaire_replays").insert(payload).execute()
-        except Exception as e:
-            if "card_types" not in payload:
-                raise
-            # 列追加SQL（solitaire_replays_card_types.sql）の適用前でも共有自体は止めない。
-            # カードの種類だけ失われる（再生後の「場に出す」メニューが魔法罠用になる）ため、警告を残す
-            logger.warning(f"リプレイ保存: card_types 列なしで再試行します（SQL未適用の可能性）: {e}")
-            payload.pop("card_types")
-            _supabase_client.table("solitaire_replays").insert(payload).execute()
+        _supabase_client.table("solitaire_replays").insert(payload).execute()
         if board:
             # X のクローラーは待ち時間が短いので、投稿される前に画像を先に描いてキャッシュを温める
             replay_og_image.warm_cache_async(replay_id, board, title)
@@ -308,20 +299,11 @@ def solitaire_replay_get(replay_id):
     if not _supabase_client:
         return {"error": "データベース未接続"}, 503
     try:
-        try:
-            resp = _supabase_client.table("solitaire_replays") \
-                .select("images, names, ex_card_ids, logs, title, card_types") \
-                .eq("id", replay_id) \
-                .limit(1) \
-                .execute()
-        except Exception as e:
-            # 列追加SQL（solitaire_replays_card_types.sql）の適用前でも読み込めるようにする
-            logger.warning(f"リプレイ取得: card_types 列なしで再試行します（SQL未適用の可能性）: {e}")
-            resp = _supabase_client.table("solitaire_replays") \
-                .select("images, names, ex_card_ids, logs, title") \
-                .eq("id", replay_id) \
-                .limit(1) \
-                .execute()
+        resp = _supabase_client.table("solitaire_replays") \
+            .select("images, names, ex_card_ids, logs, title, card_types") \
+            .eq("id", replay_id) \
+            .limit(1) \
+            .execute()
         rows = resp.data if resp.data else []
         if not rows:
             return {"error": "見つかりません"}, 404
