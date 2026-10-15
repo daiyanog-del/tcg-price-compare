@@ -5,7 +5,7 @@
  */
 
 import { addCardToPool, sortPoolCards } from '../components/card-manager.js';
-import { registerCardImage, registerCardName, resetReplay } from '../services/replay-service.js';
+import { registerCardImage, registerCardName, registerCardType, resetReplay } from '../services/replay-service.js';
 import { setCardName } from './card-info-panel.js';
 import { clearSessionResume } from '../utils/session-resume-store.js';
 
@@ -221,7 +221,10 @@ async function addCardByName(name, qty, isEx) {
         registerCardName(lastCardEl.id, name);  // リプレイ共有用に名前を記録
         setCardName(lastCardEl, name);  // カード詳細パネル用に名前を付与
         // セット時のモンスター/魔法罠判定に使う（モンスター=裏側守備、魔法罠=伏せ）
-        if (cardType && lastWrapper) lastWrapper.dataset.cardType = cardType;
+        if (cardType && lastWrapper) {
+          lastWrapper.dataset.cardType = cardType;
+          registerCardType(lastCardEl.id, cardType); // リプレイの再生・復元で付け直せるよう辞書にも登録
+        }
       }
     }
   }
@@ -354,7 +357,10 @@ async function addCardsBatch(cards, defaultIsEx) {
           registerCardName(lastCardEl.id, name);  // リプレイ共有用に名前を記録
           setCardName(lastCardEl, name);           // カード詳細パネル用に名前を付与
           // セット時のモンスター/魔法罠判定に使う（モンスター=裏側守備、魔法罠=伏せ）
-          if (cardType && lastWrapper) lastWrapper.dataset.cardType = cardType;
+          if (cardType && lastWrapper) {
+            lastWrapper.dataset.cardType = cardType;
+            registerCardType(lastCardEl.id, cardType); // リプレイの再生・復元で付け直せるよう辞書にも登録
+          }
         }
       }
     }

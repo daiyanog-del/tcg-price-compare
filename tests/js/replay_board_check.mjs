@@ -78,4 +78,37 @@ assert.deepEqual(b.grave.cards.map(c => c.name), ['B', 'C', 'E', 'トークン']
 assert.equal(b.grave.cards[3].face, 'down'); assert.equal(b.grave.cards[3].token, true);
 assert.deepEqual(b.banish, { count: 0, cards: [] });
 
+// 同じマスの中で表示形式だけを変えた記録（inPlace）は重なりの順番を動かさない。通常の記録は一番上へ移る
+b = buildBoardFromLogs([
+  mv('a', 'custom-slot-5'), mv('b', 'custom-slot-5', { zIndex: '1' }), mv('c', 'custom-slot-5', { zIndex: '3' }),   // 下から b, a, c
+  mv('a', 'custom-slot-5', { zIndex: '2', orientation: 'defense', inPlace: true }),                                // 真ん中の a だけ守備
+], dict);
+assert.equal(b.field[0].name, 'C'); assert.equal(b.field[0].n, 3);   // 一番上は c のまま
+b = buildBoardFromLogs([
+  mv('a', 'custom-slot-5'), mv('b', 'custom-slot-5', { zIndex: '1' }), mv('c', 'custom-slot-5', { zIndex: '3' }),
+  mv('a', 'custom-slot-5', { zIndex: '2', orientation: 'defense' }),                                               // inPlace なし（旧記録）= 一番上へ
+], dict);
+assert.equal(b.field[0].name, 'A'); assert.equal(b.field[0].pos, 'def');
+
+// デッキ列の途中へ戻した記録（beforeCardId）。count は変わらず、途中でも末尾でも枚数は同じ
+b = buildBoardFromLogs([mv('a', 'custom-slot-5'), mv('a', 'poolRow', { beforeCardId: 'c' })], dict);
+assert.equal(b.deckCount, 5); assert.equal(b.field.length, 0);
+
+// removeCard（トークン削除）: 盤面から消え、resetDeck でもデッキへ戻らない。辞書には残る
+b = buildBoardFromLogs([mv('t', 'custom-slot-6'), { actionType: 'removeCard', cardId: 't', zoneId: 'custom-slot-6' }], dict);
+assert.equal(b.field.length, 0); assert.equal(b.deckCount, 4);   // 5 枚中、トークンを除いた 4 枚がデッキ
+b = buildBoardFromLogs([mv('t', 'custom-slot-6'), { actionType: 'removeCard', cardId: 't', zoneId: 'custom-slot-6' },
+  { actionType: 'resetDeck' }, mv('t', 'center-slot')], dict);
+assert.equal(b.hand.length, 0); assert.equal(b.deckCount, 4);   // 消えたカードへの後続イベントは無視
+// counterChange（カウンターの追加・削除）は配置に影響しない
+b = buildBoardFromLogs([mv('a', 'custom-slot-5'), { actionType: 'counterChange', cardId: 'a', op: 'add', index: 0, counter: 2 }], dict);
+assert.equal(b.field[0].name, 'A');
+
+// removeCard はトークン（data: 画像）にだけ効く。普通のカードへの removeCard は無視する（replay-service と同じ）
+b = buildBoardFromLogs([mv('a', 'custom-slot-5'), { actionType: 'removeCard', cardId: 'a', zoneId: 'custom-slot-5' }], dict);
+assert.equal(b.field.length, 1); assert.equal(b.field[0].name, 'A');
+// 判定は card-state.js と同じ utils/token-src.js（data: のみ）。https でも card:// でもないだけの画像はトークン扱いにしない
+b = buildBoardFromLogs([mv('x', 'custom-slot-5')], { images: { x: 'blob:abc' }, names: { x: 'X' }, exCardIds: [] });
+assert.equal(b.field[0].token, undefined);
+
 console.log('replay_board_check OK');

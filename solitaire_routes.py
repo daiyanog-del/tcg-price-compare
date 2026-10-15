@@ -208,6 +208,20 @@ REPLAY_MAX_LOG_ENTRIES = 2000
 REPLAY_MAX_BODY_BYTES = 512 * 1024
 
 
+_CARD_TYPES = ("monster", "spell", "trap")
+
+
+def _clean_card_types(card_types, images):
+    """cardTypes（{cardId: 'monster'|'spell'|'trap'}）を検証して返す。
+    images に無いカードID・不正な種類の値は捨てる（任意の値をDBに溜めないため）。"""
+    if not isinstance(card_types, dict):
+        return {}
+    return {
+        k: v for k, v in card_types.items()
+        if isinstance(k, str) and k in images and v in _CARD_TYPES
+    }
+
+
 @solitaire_bp.route("/api/solitaire/replay", methods=["POST"])
 def solitaire_replay_save():
     """リプレイデータをSupabaseに保存してIDを返す"""
@@ -232,11 +246,14 @@ def solitaire_replay_save():
         images = data.get("images", {})
         names  = data.get("names", {})
         ex_card_ids = data.get("exCardIds", [])
+        card_types_in = data.get("cardTypes")   # 省略可（旧クライアントは送らない）
         logs = data.get("logs", [])
         title = str(data.get("title", ""))[:100]
         # 型チェック: 期待型でなければ拒否
         if not isinstance(logs, list) or not isinstance(images, dict) \
                 or not isinstance(names, dict) or not isinstance(ex_card_ids, list):
+            return {"error": "不正なリクエストです"}, 400
+        if card_types_in is not None and not isinstance(card_types_in, dict):
             return {"error": "不正なリクエストです"}, 400
         if not logs:
             return {"error": "logsが空です"}, 400
@@ -260,6 +277,9 @@ def solitaire_replay_save():
         }
         if board:
             payload["board"] = board
+        card_types = _clean_card_types(card_types_in, images)
+        if card_types:
+            payload["card_types"] = card_types
         _supabase_client.table("solitaire_replays").insert(payload).execute()
         if board:
             # X のクローラーは待ち時間が短いので、投稿される前に画像を先に描いてキャッシュを温める
@@ -280,7 +300,7 @@ def solitaire_replay_get(replay_id):
         return {"error": "データベース未接続"}, 503
     try:
         resp = _supabase_client.table("solitaire_replays") \
-            .select("images, names, ex_card_ids, logs, title") \
+            .select("images, names, ex_card_ids, logs, title, card_types") \
             .eq("id", replay_id) \
             .limit(1) \
             .execute()
@@ -292,6 +312,7 @@ def solitaire_replay_get(replay_id):
             "images":     row["images"],
             "names":      row.get("names") or {},
             "exCardIds":  row.get("ex_card_ids") or [],
+            "cardTypes":  row.get("card_types") or {},
             "logs":       row["logs"],
             "title":      row.get("title", ""),
         }

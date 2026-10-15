@@ -16,7 +16,7 @@ import { collectReplayCardIds } from './utils/session-resume-store.js';
 import { initializeCounter } from './components/counter-manager.js';
 import { initializeEventListeners } from './ui/event-handlers.js';
 import { initReplayUI } from './ui/replay-ui.js';
-import { registerCardImage, registerCardIsEx, registerCardName, captureReplaySession, restoreReplaySession, rebuildAtCursor, isPlaying, isReplayAnimating } from './services/replay-service.js';
+import { registerCardImage, registerCardIsEx, registerCardName, registerCardType, captureReplaySession, restoreReplaySession, rebuildAtCursor, isPlaying, isReplayAnimating } from './services/replay-service.js';
 import { initTokenGenerator } from './ui/token-generator.js';
 import { initRandomTools } from './ui/random-tools.js';
 import { initCardInfoPanel, showCardByName } from './ui/card-info-panel.js';
@@ -415,6 +415,7 @@ async function initializeApp() {
         // 名前も復元する（無いと共有リプレイの names が欠け、受け手で「不明なカード」・リンク画像で「？」になる）
         registerCardName(cardEl.id, cardEl.dataset.cardName);
         const wrapper = cardEl.closest('.tier-item-wrapper');
+        registerCardType(cardEl.id, wrapper?.dataset.cardType); // 記録の復元で上書きされた種類辞書をDOMから補う
         if (wrapper?.id.includes(' ex')) registerCardIsEx(cardEl.id);
       }
     });

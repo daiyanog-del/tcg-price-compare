@@ -9,7 +9,8 @@
  * 状態スキーマ（wrapper = .tier-item-wrapper に付与）:
  *   守備表示: data-orientation="defense" + .is-defense
  *   セット  : data-face="down"           + .is-set
- *   種別    : data-card-type = "monster"|"spell"|"trap"（deck-input-panel が付与）
+ *   種別    : data-card-type = "monster"|"spell"|"trap"（deck-input-panel が付与。リプレイの cardTypes・盤面セーブの cardType で再生・復元時に付け直す）
+ *   トークン: data-token = "1"（画像が data: URL のカード。isTokenCard / markTokenIfSrc）
  *
  * セット時の挙動:
  *   モンスター（data-card-type="monster" または EXデッキカード）
@@ -22,6 +23,28 @@
  *
  * 裏面は CSS ::after で描画するため img.src は一切変更しない。
  */
+
+import { isTokenSrc } from '../utils/token-src.js';
+export { isTokenSrc }; // 判定の実体は utils/token-src.js（replay-board.js と共有）
+
+/**
+ * カードがトークンかどうか（wrapper の data-token="1" で判定）。
+ * 印はカードを作るとき markTokenIfSrc が付ける。
+ * @param {Element|null} wrapper - .tier-item-wrapper
+ * @returns {boolean}
+ */
+export function isTokenCard(wrapper) {
+  return wrapper?.dataset?.token === '1';
+}
+
+/**
+ * src がトークンのものなら wrapper に data-token="1" を付ける（カード作成の全経路から呼ぶ）。
+ * @param {Element} wrapper - .tier-item-wrapper
+ * @param {string|null|undefined} src - 画像の src
+ */
+export function markTokenIfSrc(wrapper, src) {
+  if (isTokenSrc(src)) wrapper.dataset.token = '1';
+}
 
 /**
  * カードがモンスターかどうかを判定

@@ -10,15 +10,22 @@
  *   logs   = [ ...event ]      … 操作ログ（軽い部分。URL共有に向く）
  *
  * イベントスキーマ:
- *   { seq, actionType, cardId?, zoneId?, zIndex?, transform?, orientation?, face?, counter?, text? }
+ *   { seq, actionType, cardId?, zoneId?, zIndex?, transform?, orientation?, face?, counter?, text?,
+ *     inPlace?, beforeCardId?, op?, index? }
  *
  * actionType:
  *   moveCard       … カードをゾーンに移動（orientation/face も含む）
+ *                    inPlace=true: 同じゾーンの中で表示形式だけを変えた記録。再生は位置（重なり・並び）を動かさない
+ *                    beforeCardId: デッキ列の途中へ戻したとき、その直後に来るカードのID（無ければ末尾）
  *   draw           … デッキからドロー（cardId=ドローしたカードID）
  *   returnToDeck   … カードをデッキに戻す
  *   resetDeck      … 全カードをデッキへ戻す。現行の「リセット」ボタンは記録ごと初期化するためこのログを
  *                    残さない。旧仕様で作られた共有リプレイ（drawnIds に5ドローを含む）の再生用に残している
- *   counterChange  … カウンター値変更（counter: 新しい値）
+ *   counterChange  … カウンター（counter: 値）。cardId なしは右パネルの基準カウンター。
+ *                    カード上は op（'add' 置く / 'set' 値変更・省略時 / 'remove' 外す）と
+ *                    index（そのカード上のカウンターの並び順・省略時 0）で特定する
+ *   removeCard     … トークンを盤面から消す（zoneId=消す前にいたゾーン）。再生は要素を消し、
+ *                    巻き戻しでは画像・名前の辞書から作り直して元の位置へ戻す
  *   comment        … コメント挿入
  *   activateEffect … 効果発動（cardId のカードで発動演出を再生）
  *
@@ -28,10 +35,14 @@
  *   side-slot-0 (墓地), side-slot-1 (除外),
  *   center-slot,
  *   free-space
+ *
+ * リプレイ payload の省略可項目: cardTypes = { cardId: 'monster'|'spell'|'trap' }
+ * （再生・復元でカードを作るとき data-card-type を付け直す）
  */
 
-import { returnAllCardsToDeck, attachCardImageListeners } from '../components/card-manager.js';
-import { applyCardState, getCardState } from '../components/card-state.js';
+import { returnAllCardsToDeck, attachCardImageListeners, sortPoolCards } from '../components/card-manager.js';
+import { applyCardState, getCardState, isTokenSrc, isTokenCard, markTokenIfSrc } from '../components/card-state.js';
+import { createCardCounter } from '../components/counter-manager.js';
 import { restackCustomSlot } from '../components/slot-stack.js';
 import { playActivateEffect, flipMoveClone, playSetFlip, flyBetweenRects, prefersReducedMotion } from '../components/card-effects.js';
 import { createProxyCardElement } from '../components/proxy-card.js';
@@ -43,6 +54,7 @@ const _API_CARD_IMAGES = '/api/card-images';
 let _images = {};       // { cardId: src }
 let _names  = {};       // { cardId: cardName }
 let _exCardIds = new Set(); // EXデッキに属するカードIDの集合
+let _cardTypes = {};    // { cardId: 'monster'|'spell'|'trap' }（data-card-type の付け直し用。省略可・旧リプレイには無い）
 let _logs   = [];       // イベントログ配列（手数として扱う。setup ログは含まない）
 // D-3: 範囲共有（設計書 §D）で先頭に付く「初期配置」ログ。setup:true が付いた要素のみを
 // 保持し、_setReplayData / importReplay / importFromURLHash 時に初期配置として即時適用する。
@@ -104,6 +116,7 @@ export function initReplay() {
   _images = {};
   _names  = {};
   _exCardIds = new Set();
+  _cardTypes = {};
   _logs = [];
   _setupLogs = [];
   _cursor = -1;
@@ -127,6 +140,15 @@ export function registerCardImage(cardId, src) {
  */
 export function registerCardIsEx(cardId) {
   _exCardIds.add(cardId);
+}
+
+/**
+ * カードの種類（monster / spell / trap）を登録（再生・復元でカードを作るとき data-card-type を付け直すため）
+ * @param {string} cardId
+ * @param {string} type
+ */
+export function registerCardType(cardId, type) {
+  if (type) _cardTypes[cardId] = type;
 }
 
 /**
@@ -317,7 +339,16 @@ function _applySetupLogs() {
  * @param {Array} [logsOverride]
  */
 export function buildReplayPayload(title = 'replay', logsOverride) {
-  return { version: 1, title, images: _images, names: _names, exCardIds: [..._exCardIds], logs: logsOverride ?? [..._setupLogs, ..._logs] };
+  return {
+    version: 1, title, images: _images, names: _names, exCardIds: [..._exCardIds],
+    ..._cardTypesField(),
+    logs: logsOverride ?? [..._setupLogs, ..._logs],
+  };
+}
+
+/** payload に載せる cardTypes 項目（1件も無ければ項目ごと省略して旧形式と同じ形にする） */
+function _cardTypesField() {
+  return Object.keys(_cardTypes).length > 0 ? { cardTypes: _cardTypes } : {};
 }
 
 /** リプレイデータをエクスポート（ファイル保存用）。D-4: setup ログもそのまま含めて保存する */
@@ -343,6 +374,7 @@ async function _applyReplayPayload(payload) {
   _images = payload.images;
   _names  = payload.names || {};
   _exCardIds = new Set(payload.exCardIds || []);
+  _cardTypes = { ...(payload.cardTypes || {}) };
   const split = _splitSetupLogs(payload.logs);
   _setupLogs = split.setupLogs;
   _logs = split.logs;
@@ -383,7 +415,7 @@ export function exportAsURLHash(logsOverride) {
   if (typeof LZString === 'undefined') return null;
   try {
     const logs = logsOverride ?? [..._setupLogs, ..._logs];
-    const payload = { version: 1, images: _images, names: _names, exCardIds: [..._exCardIds], logs };
+    const payload = { version: 1, images: _images, names: _names, exCardIds: [..._exCardIds], ..._cardTypesField(), logs };
     return LZString.compressToEncodedURIComponent(JSON.stringify(payload));
   } catch {
     return null;
@@ -400,6 +432,7 @@ export async function importFromURLHash(hash) {
     _images = payload.images;
     _names  = payload.names || {};
     _exCardIds = new Set(payload.exCardIds || []);
+    _cardTypes = { ...(payload.cardTypes || {}) };
     const split = _splitSetupLogs(payload.logs);
     _setupLogs = split.setupLogs;
     _logs = split.logs;
@@ -422,6 +455,8 @@ export function getCursor() { return _cursor; }
 export function getImages() { return _images; }
 /** カード名辞書を取得（外部からの参照用） */
 export function getNames() { return _names; }
+/** カード種類の辞書を取得（外部からの参照用。共有時にサーバーへ送る） */
+export function getCardTypes() { return _cardTypes; }
 /** EXカードIDの配列を取得（外部からの参照用） */
 export function getExCardIds() { return [..._exCardIds]; }
 /** ログを取得 */
@@ -432,7 +467,7 @@ export function getSetupLogs() { return _setupLogs; }
 /**
  * ページ遷移をまたぐ退避用に、記録の状態を写しとして返す（session-resume 用）。
  * 記録（ログ・setupログ）が両方とも空なら null を返す（退避不要）。
- * @returns {{logs:Array, setupLogs:Array, cursor:number, images:Object, names:Object, exCardIds:string[]}|null}
+ * @returns {{logs:Array, setupLogs:Array, cursor:number, images:Object, names:Object, exCardIds:string[], cardTypes:Object}|null}
  */
 export function captureReplaySession() {
   if (_logs.length === 0 && _setupLogs.length === 0) return null;
@@ -443,6 +478,7 @@ export function captureReplaySession() {
     images: _images,
     names: _names,
     exCardIds: [..._exCardIds],
+    cardTypes: _cardTypes,
   };
 }
 
@@ -464,6 +500,7 @@ export function restoreReplaySession(snap) {
   _images = { ...(snap.images || {}) };
   _names = { ...(snap.names || {}) };
   _exCardIds = new Set(snap.exCardIds || []);
+  _cardTypes = { ...(snap.cardTypes || {}) };
   _resetAnimMarks();
   _updateUI();
 }
@@ -492,13 +529,23 @@ export function resetReplay() {
 /**
  * 記録（ログ・setupログ・カーソル）だけを初期化する（「リセット」用・event-handlers.js handleReset から呼ばれる）。
  * resetReplay / initReplay と違い、画像辞書・カード名辞書・EX判定は保持する
- * （読み込んだデッキは残すため）。盤面DOMは呼び出し元（returnAllCardsToDeck）が担当する。
+ * （読み込んだデッキは残すため。ただし盤面に無いトークンの項目は消す）。盤面DOMは呼び出し元（returnAllCardsToDeck）が担当する。
  */
 export function clearReplayLog() {
   _stopPlay(); // 再生中なら停止（内部で _updateUI も呼ばれる）
   _logs = [];
   _setupLogs = [];
   _cursor = -1;
+  // 盤面に無いトークン（記録を始める前に削除したもの）を辞書から消す。残すと、リセット後の
+  // 巻き戻しで _restoreRemovedTokens が削除済みのトークンをデッキへ作り直してしまう
+  for (const [cardId, src] of Object.entries(_images)) {
+    if (isTokenSrc(src) && !document.getElementById(cardId)) {
+      delete _images[cardId];
+      delete _names[cardId];
+      delete _cardTypes[cardId];
+      _exCardIds.delete(cardId);
+    }
+  }
   // 表示中のコメントトーストが残らないよう即座に隠す
   const toast = document.getElementById('replayCommentToast');
   if (toast) {
@@ -515,11 +562,14 @@ export function clearReplayLog() {
  * @param {Object} images  { cardId: src }
  * @param {Object} names   { cardId: cardName }（省略可）
  * @param {Array}  logs    イベントログ配列
+ * @param {Array}  exCardIds  EXカードID（省略可）
+ * @param {Object} cardTypes  { cardId: 'monster'|'spell'|'trap' }（省略可・旧リプレイには無い）
  */
-export async function _setReplayData(images, names, logs, exCardIds = []) {
+export async function _setReplayData(images, names, logs, exCardIds = [], cardTypes = {}) {
   _images = images;
   _names  = names || {};
   _exCardIds = new Set(exCardIds);
+  _cardTypes = { ...(cardTypes || {}) };
   const split = _splitSetupLogs(logs);
   _setupLogs = split.setupLogs;
   _logs = split.logs;
@@ -558,9 +608,29 @@ function _replayTo(target, { toast = true } = {}) {
 /**
  * デッキを再構築（全カードをプールに戻す）
  * - Fugartaの returnAllCardsToDeck を流用
+ * - カードの上のカウンターは再適用で作り直すため、先に全部片付ける
+ *   （returnAllCardsToDeck は片付けない。残すと巻き戻しのたびに増える・値が残る）
+ * - 削除されたトークンは辞書（画像・名前）から作り直す。再適用の途中で
+ *   removeCard が来た時点で改めて消える
  */
 function _rebuildDeck() {
+  document.querySelectorAll('.tier-item-wrapper > .counter-container').forEach(el => el.remove());
+  _restoreRemovedTokens();
   returnAllCardsToDeck();
+}
+
+/**
+ * 盤面に無いトークンを画像辞書から作り直してデッキ列（#poolRow）へ置く。
+ * 削除したトークンまで巻き戻したとき、削除より前の手を正しく再現するための処理。
+ * 普通のカードは削除できないため対象外（card:// の再解決は非同期で、ここは同期処理のため）。
+ */
+function _restoreRemovedTokens() {
+  const poolRow = document.getElementById('poolRow');
+  if (!poolRow) return;
+  for (const [cardId, src] of Object.entries(_images)) {
+    if (!isTokenSrc(src) || document.getElementById(cardId)) continue;
+    poolRow.appendChild(_buildReplayCard(cardId, src, false, new Map()));
+  }
 }
 
 /**
@@ -635,61 +705,80 @@ async function _createReplayCardElements() {
 
   for (const [cardId, src] of Object.entries(_images)) {
     const isEx = exCardIds.has(cardId);
-    const wrapper = document.createElement('div');
-    wrapper.classList.add('tier-item-wrapper');
-    wrapper.id = `${cardId} ${isEx ? 'ex' : 'normal'}`;
+    (isEx ? poolRow2 : poolRow).appendChild(_buildReplayCard(cardId, src, isEx, resolved));
+  }
+  // 読み込み直後のデッキ列の並びを、デッキ読込時と同じ（種類順→ID順）にそろえる
+  // （data-card-type を付け直したので、巻き戻し時の returnAllCardsToDeck の並びとも一致する）
+  sortPoolCards('poolRow');
+  sortPoolCards('poolRow2');
+}
 
-    let cardEl;
+/**
+ * 画像辞書の1件から .tier-item-wrapper を作る（_createReplayCardElements と
+ * 削除トークンの作り直しで共有）。data-card-type・data-token も付け直す。
+ * @param {string} cardId
+ * @param {string} src       辞書の画像（実URL / data: / card://名前）
+ * @param {boolean} isEx
+ * @param {Map<string,Object>} resolved  card:// の解決結果（カード名 -> {kind,...}）
+ * @returns {Element}
+ */
+function _buildReplayCard(cardId, src, isEx, resolved) {
+  const wrapper = document.createElement('div');
+  wrapper.classList.add('tier-item-wrapper');
+  wrapper.id = `${cardId} ${isEx ? 'ex' : 'normal'}`;
+  if (_cardTypes[cardId]) wrapper.dataset.cardType = _cardTypes[cardId];
+  markTokenIfSrc(wrapper, src);
 
-    if (src && src.startsWith('card://')) {
-      // card:// センチネル: 再解決結果に基づいてカード要素を生成
-      const name = src.slice('card://'.length);
-      const displayResult = resolved.get(name) || { kind: 'none' };
+  let cardEl;
 
-      if (displayResult.kind === 'image' && displayResult.url) {
-        // 発売済み or linked 後の正規画像
-        const img = document.createElement('img');
-        img.src = displayResult.url;
-        img.classList.add('tier-item');
-        img.setAttribute('draggable', 'true');
-        img.id = cardId;
-        if (_names[cardId]) img.dataset.cardName = _names[cardId];
-        cardEl = img;
-        // 発売済みクリーン画像にのみ透かし（SAMPLE画像は除外）
-        if (displayResult.source !== 'official_sample') wrapper.classList.add('wm-released');
-        else wrapper.classList.add('sample-art'); // 未発売SAMPLE（イラストぼかし設定の対象）
-      } else if (displayResult.kind === 'proxy' && displayResult.proxy) {
-        // 未発売プロキシ
-        const proxyEl = createProxyCardElement(displayResult.proxy);
-        proxyEl.setAttribute('draggable', 'true');
-        proxyEl.id = cardId;
-        if (_names[cardId]) proxyEl.dataset.cardName = _names[cardId];
-        cardEl = proxyEl;
-      } else {
-        // kind='none'（却下・削除済み等）: カード名のみのフォールバックプロキシ
-        const fallbackProxy = { name: name || _names[cardId] || '不明なカード' };
-        const proxyEl = createProxyCardElement(fallbackProxy);
-        proxyEl.setAttribute('draggable', 'true');
-        proxyEl.id = cardId;
-        if (_names[cardId]) proxyEl.dataset.cardName = _names[cardId];
-        cardEl = proxyEl;
-      }
-    } else {
-      // 通常の実URL（後方互換: 既存リプレイはこのパスを通る）。実URLは発売済みクリーン画像
+  if (src && src.startsWith('card://')) {
+    // card:// センチネル: 再解決結果に基づいてカード要素を生成
+    const name = src.slice('card://'.length);
+    const displayResult = resolved.get(name) || { kind: 'none' };
+
+    if (displayResult.kind === 'image' && displayResult.url) {
+      // 発売済み or linked 後の正規画像
       const img = document.createElement('img');
-      img.src = src;
+      img.src = displayResult.url;
       img.classList.add('tier-item');
       img.setAttribute('draggable', 'true');
       img.id = cardId;
       if (_names[cardId]) img.dataset.cardName = _names[cardId];
       cardEl = img;
-      wrapper.classList.add('wm-released');
+      // 発売済みクリーン画像にのみ透かし（SAMPLE画像は除外）
+      if (displayResult.source !== 'official_sample') wrapper.classList.add('wm-released');
+      else wrapper.classList.add('sample-art'); // 未発売SAMPLE（イラストぼかし設定の対象）
+    } else if (displayResult.kind === 'proxy' && displayResult.proxy) {
+      // 未発売プロキシ
+      const proxyEl = createProxyCardElement(displayResult.proxy);
+      proxyEl.setAttribute('draggable', 'true');
+      proxyEl.id = cardId;
+      if (_names[cardId]) proxyEl.dataset.cardName = _names[cardId];
+      cardEl = proxyEl;
+    } else {
+      // kind='none'（却下・削除済み等）: カード名のみのフォールバックプロキシ
+      const fallbackProxy = { name: name || _names[cardId] || '不明なカード' };
+      const proxyEl = createProxyCardElement(fallbackProxy);
+      proxyEl.setAttribute('draggable', 'true');
+      proxyEl.id = cardId;
+      if (_names[cardId]) proxyEl.dataset.cardName = _names[cardId];
+      cardEl = proxyEl;
     }
-
-    attachCardImageListeners(wrapper, cardEl);
-    wrapper.appendChild(cardEl);
-    (isEx ? poolRow2 : poolRow).appendChild(wrapper);
+  } else {
+    // 通常の実URL（後方互換: 既存リプレイはこのパスを通る）。実URLは発売済みクリーン画像
+    const img = document.createElement('img');
+    img.src = src;
+    img.classList.add('tier-item');
+    img.setAttribute('draggable', 'true');
+    img.id = cardId;
+    if (_names[cardId]) img.dataset.cardName = _names[cardId];
+    cardEl = img;
+    wrapper.classList.add('wm-released');
   }
+
+  attachCardImageListeners(wrapper, cardEl);
+  wrapper.appendChild(cardEl);
+  return wrapper;
 }
 
 /**
@@ -713,6 +802,9 @@ function _applyEvent(event) {
     case 'counterChange':
       _applyCounterChange(event);
       break;
+    case 'removeCard':
+      _applyRemoveCard(event);
+      break;
     case 'comment':
       // コメントはDOMに反映しない（ログのみ）
       break;
@@ -731,12 +823,20 @@ function _applyMoveCard(event) {
   const zone = _findZone(zoneId);
   if (!zone) return;
 
+  // inPlace: 同じゾーンの中で表示形式だけを変えた記録。位置（重なりの順番・手札の並び）は動かさない。
+  // （zIndex は「その時点の重なりの段」で、一番上へ移す意味ではないため、位置の決定に使わない）
+  // 別のゾーンにいるなら従来どおり移動する（記録と盤面がずれていても動作を保つ）。
+  const keepPosition = event.inPlace === true && card.parentElement === zone;
+  const place = () => {
+    if (!keepPosition) _placeCardInZone(zone, card, zIndex, event.beforeCardId);
+  };
+
   card.style.transform = transform || '';
 
   // 後退・全再構築（_replayTo経由）: アニメなしで即時適用
   if (!_animateForward) {
     applyCardState(card, { orientation, face });
-    _placeCardInZone(zone, card, zIndex);
+    place();
     return;
   }
 
@@ -756,7 +856,7 @@ function _applyMoveCard(event) {
   const fromIsEmpty  = mobilePortrait && firstRect.width === 0;
 
   if (toIsDeckPool || fromIsEmpty) {
-    _applyMoveCardWithDeckFly({ card, zone, zIndex, orientation, face, faceChanged, stateChanged, firstRect, toIsDeckPool });
+    _applyMoveCardWithDeckFly({ card, place, orientation, face, faceChanged, stateChanged, firstRect, toIsDeckPool });
     return;
   }
 
@@ -764,7 +864,7 @@ function _applyMoveCard(event) {
     // ── 同一ゾーン内の状態変更（守備/セット切替など） ──────────────────
     // 移動なし（dx≈0）のため flipMoveClone がすぐ onComplete を呼ぶ。
     // 状態はコールバック内で変更し、変化アニメ（回転/フリップ）を見せる。
-    _placeCardInZone(zone, card, zIndex);
+    place();
     flipMoveClone(card, firstRect, _trackAnim(() => {
       if (faceChanged) {
         playSetFlip(card, _trackAnim(() => applyCardState(card, { orientation, face })));
@@ -781,7 +881,7 @@ function _applyMoveCard(event) {
     const tierItem = card.querySelector('.tier-item');
     if (tierItem) tierItem.style.transition = 'none';
     applyCardState(card, { orientation, face }); // 即時・アニメなしで状態確定
-    _placeCardInZone(zone, card, zIndex);
+    place();
     flipMoveClone(card, firstRect, () => {
       // FLIP 完了後にトランジションを復元（次の操作から回転アニメが効くよう）
       if (tierItem) tierItem.style.transition = '';
@@ -790,7 +890,7 @@ function _applyMoveCard(event) {
   } else {
     // ── 状態変化なし ──────────────────────────────────────────────────
     applyCardState(card, { orientation, face });
-    _placeCardInZone(zone, card, zIndex);
+    place();
     flipMoveClone(card, firstRect, null);
   }
 }
@@ -823,7 +923,7 @@ function _getDeckAnchorRect() {
  * クローンを飛ばし終えてから DOM を確定する。出発点だけの代替（toIsDeckPool=false）は
  * 従来の「別ゾーンへ移動」と同じ順序（状態確定 → DOM配置 → 演出）を保つ。
  */
-function _applyMoveCardWithDeckFly({ card, zone, zIndex, orientation, face, faceChanged, stateChanged, firstRect, toIsDeckPool }) {
+function _applyMoveCardWithDeckFly({ card, place, orientation, face, faceChanged, stateChanged, firstRect, toIsDeckPool }) {
   const deckBtnRect = _getDeckAnchorRect(); // 第6次検収2a
   const fromRect = firstRect.width === 0 ? deckBtnRect : firstRect;
 
@@ -832,9 +932,7 @@ function _applyMoveCardWithDeckFly({ card, zone, zIndex, orientation, face, face
   if (toIsDeckPool) {
     // 到着点はデッキ錨の矩形。飛ばし終えてから DOM を確定する（既存の onComplete 経路を維持）。
     if (stateChanged) applyCardState(card, { orientation, face });
-    flyBetweenRects(card, fromRect, deckBtnRect, _trackAnim(() => {
-      _placeCardInZone(zone, card, zIndex);
-    }));
+    flyBetweenRects(card, fromRect, deckBtnRect, _trackAnim(_afterFly(card, place)));
     return;
   }
 
@@ -844,7 +942,7 @@ function _applyMoveCardWithDeckFly({ card, zone, zIndex, orientation, face, face
     if (tierItem) tierItem.style.transition = 'none';
     applyCardState(card, { orientation, face });
   }
-  _placeCardInZone(zone, card, zIndex);
+  place();
   flyBetweenRects(card, fromRect, null, () => {
     if (tierItem) tierItem.style.transition = '';
   });
@@ -862,6 +960,19 @@ function _pulseDeckBtn() {
   void btn.offsetWidth; // 再アニメのための reflow 強制
   btn.classList.add('sol-pulse');
   setTimeout(() => btn.classList.remove('sol-pulse'), 400);
+}
+
+/**
+ * 演出の完了後に配置を確定する処理を包む。演出の途中で作り直し（巻き戻し・次の手）が起きて世代が
+ * 変わった、またはカードがもう画面に無い（削除されたトークンなど）なら、何もしない。
+ * （そのまま配置すると、消えたカードが盤面に戻ってしまう）
+ */
+function _afterFly(card, fn) {
+  const gen = _animGen;
+  return () => {
+    if (gen !== _animGen || !card.isConnected) return;
+    fn();
+  };
 }
 
 const DECK_FLY_STAGGER_MS = 80; // 第6次検収2c: resetDeck等で複数枚飛ばす際のずらし幅（60→80ms）
@@ -964,7 +1075,7 @@ function _applyReturnToDeck(event) {
       // 追加の隠蔽は不要。flyBetweenRects 内の cardEl.style.visibility='hidden' に委譲する）。
       const fromRect = card.getBoundingClientRect();
       _pulseDeckBtn();
-      flyBetweenRects(card, fromRect, deckBtnRect, _trackAnim(commit));
+      flyBetweenRects(card, fromRect, deckBtnRect, _trackAnim(_afterFly(card, commit)));
       return;
     }
   }
@@ -1010,20 +1121,42 @@ function _applyResetDeck(event) {
   });
 }
 
-/** counterChange: カウンター値を更新 */
+/**
+ * counterChange: カウンターの作成・値の変更・取り外し。
+ * cardId なしは右パネルの基準カウンター（値の変更のみ）。
+ * カード上は index（そのカード上のカウンターの並び順。省略時 0）で特定し、
+ * op は 'add'（置く）/ 'remove'（外す）/ それ以外（省略含む）は値の変更。
+ */
 function _applyCounterChange(event) {
-  const { cardId, counter } = event;
-  if (cardId) {
-    // カードに付いたカウンター（id属性で探す）
-    const wrapper = _findCardWrapper(cardId);
-    if (!wrapper) return;
-    const tb = wrapper.querySelector('.counter-textbox');
-    if (tb) tb.value = counter;
-  } else {
+  const { cardId, counter, op } = event;
+  if (!cardId) {
     // 盤面カウンター（id=parent）
     const tb = document.querySelector('#parent .counter-textbox');
     if (tb) tb.value = counter;
+    return;
   }
+  // カードに付いたカウンター（id属性で探す）
+  const wrapper = _findCardWrapper(cardId);
+  if (!wrapper) return;
+  const index = Number.isInteger(event.index) ? event.index : 0;
+  const list = Array.from(wrapper.querySelectorAll(':scope > .counter-container'));
+  if (op === 'add') {
+    wrapper.appendChild(createCardCounter(counter));
+  } else if (op === 'remove') {
+    list[index]?.remove();
+  } else {
+    const tb = list[index]?.querySelector('.counter-textbox');
+    if (tb) tb.value = counter;
+  }
+}
+
+/** removeCard: トークンを盤面から消す（辞書にはカードが残るので、巻き戻しでは作り直される） */
+function _applyRemoveCard(event) {
+  const card = _findCardWrapper(event.cardId);
+  if (!card || !isTokenCard(card)) return; // トークン以外は消さない（手で作った記録などで普通のカードが消えないように）
+  const sourceSlot = card.parentElement;
+  card.remove();
+  restackCustomSlot(sourceSlot); // フィールドの重ねを詰め直す（.custom-slot 以外は何もしない）
 }
 
 // ── ゾーン/カード検索ヘルパ ──────────────────────────────
@@ -1063,15 +1196,21 @@ function _findZone(zoneId) {
   return null;
 }
 
-function _placeCardInZone(zone, card, zIndex) {
+function _placeCardInZone(zone, card, zIndex, beforeCardId) {
   const zoneCls = zone.className || '';
   // 移動元スロット（フィールドから出ていく場合に残りのカードを詰め直すため）
   const sourceSlot = card.parentElement;
 
   if (zoneCls.includes('tier-row')) {
-    // プール（並び替え）
+    // プール（並び替え）。beforeCardId があれば、そのカードの手前へ差し込む
+    // （無い・見つからない・同じプールにいない場合は従来どおり末尾）
     card.style = '';
-    zone.appendChild(card);
+    const ref = beforeCardId ? _findCardWrapper(beforeCardId) : null;
+    if (ref && ref !== card && ref.parentElement === zone) {
+      zone.insertBefore(card, ref);
+    } else {
+      zone.appendChild(card);
+    }
   } else if (zoneCls.includes('custom-slot')) {
     // フィールドスロット（重ね置き）
     // DOM 上の位置だけ決め、z-index / top は restackCustomSlot が DOM 順から詰め直す。

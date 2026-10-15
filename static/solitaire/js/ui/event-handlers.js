@@ -82,13 +82,15 @@ export function handleLoadGame() {
 
 /**
  * リセットボタンのイベントハンドラ
- * 場・手札・墓地・除外のカードをすべてデッキ（EXはEXデッキ）に戻し、記録（再生バー）も初期化する。
+ * 場・手札・墓地・除外のカードをすべてデッキ（EXはEXデッキ）に戻し（カードの上のカウンターも外す）、記録（再生バー）も初期化する。
  * 5枚は引かない。確認ダイアログは出さない（2026-10-15 ユーザー指定）。
  * 読み込んだデッキ（カード・画像辞書・名前辞書・EX判定）は残す。
  * 全ログが空＝全カードがデッキの状態が初期状態になるため、setup ログ(resetDeck)は残さない。
  */
 export function handleReset() {
   returnAllCardsToDeck();
+  // 場を離れたカードのカウンターは無くなる（ルール上）。記録は0件になるため、残すと巻き戻しで戻せない
+  document.querySelectorAll('.tier-item-wrapper > .counter-container').forEach(el => el.remove());
   clearReplayLog();
   // 録画状態（PC: replay-ui.js / スマホ: mobile-ui.js）を破棄させる。
   // 'sol-board-cleared'（クリア用）はデッキ消去を含意するため使わず、専用イベントで通知する。

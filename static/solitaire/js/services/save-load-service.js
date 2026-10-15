@@ -3,13 +3,13 @@
  * カード配置とゲーム状態をlocalStorageに保存・復元
  */
 
-import { getCardState, applyCardState } from '../components/card-state.js';
+import { getCardState, applyCardState, markTokenIfSrc } from '../components/card-state.js';
 import { attachCardImageListeners, syncCardIdCounter } from '../components/card-manager.js';
 import { createProxyCardElement } from '../components/proxy-card.js';
 import { addCounterDeleteButton, initializeCounter } from '../components/counter-manager.js';
 import { showToast } from '../utils/toast.js';
 import { restackCustomSlot } from '../components/slot-stack.js';
-import { registerCardName } from './replay-service.js';
+import { registerCardName, registerCardType } from './replay-service.js';
 import { clearSessionResume, stripVisibility, storeSessionResume, takeSessionResume } from '../utils/session-resume-store.js';
 
 const API_CARD_IMAGES = '/api/card-images';
@@ -56,6 +56,8 @@ function getCardsFromSlot(slot) {
         style:    stripVisibility(wrapper.getAttribute('style')), // 演出中の visibility:hidden は残さない
         cardName,
         state,   // { orientation, face }
+        // 旧セーブデータには無いキー（省略時は種別不明＝従来どおり）。「場に出す」メニューの出し分けに使う
+        ...(wrapper.dataset.cardType ? { cardType: wrapper.dataset.cardType } : {}),
         // 旧セーブデータには無いキー（省略時は従来どおり発売済み扱い）。
         // url は card:// 再解決が通信失敗したときだけ使う SAMPLE 画像の実URL
         ...(isSample ? { source: 'official_sample', url: cardEl.src || '' } : {}),
@@ -242,6 +244,8 @@ async function restoreCardsToSlot(slot, cards) {
     const wrapper = document.createElement('div');
     wrapper.className = 'tier-item-wrapper';
     wrapper.id = cardData.id;
+    if (cardData.cardType) wrapper.dataset.cardType = cardData.cardType; // data-card-type を付け直す
+    markTokenIfSrc(wrapper, cardData.src); // data: URL の画像はトークン（data-token="1"）
     if (cardData.style) {
       wrapper.setAttribute('style', stripVisibility(cardData.style)); // 過去のセーブに残った visibility:hidden 対策
     }
@@ -638,7 +642,11 @@ async function _applyState(state) {
   syncCardIdCounter(domIds);
 
   // 復元したカードの名前をリプレイ辞書へ（セッション復元・スロットのロード共通。無いと共有で名前が欠ける）
-  document.querySelectorAll('.tier-item[id]').forEach(el => registerCardName(el.id, el.dataset.cardName));
+  document.querySelectorAll('.tier-item[id]').forEach(el => {
+    registerCardName(el.id, el.dataset.cardName);
+    // 復元したカードの種類もリプレイ辞書へ（無いと共有・保存した記録の再生で data-card-type が失われる）
+    registerCardType(el.id, el.closest('.tier-item-wrapper')?.dataset.cardType);
+  });
 
   restoreCounters(state.counters);
 }
