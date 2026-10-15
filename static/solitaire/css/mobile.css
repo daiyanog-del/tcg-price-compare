@@ -949,10 +949,15 @@
     border-color: var(--gold);
     box-shadow: 0 0 0 2px var(--gold);
   }
-  /* ?newcards=1&focus= の強調。選択中（金の実線）と区別するアクセント色の破線（PC のデッキ欄と同じ） */
+  /* ?newcards=1&focus= の強調（B+D）。強調中は focus と選択中以外を暗くし、focus は大きく浮かせる */
+  body.sol-newcard-focus-active .sol-mobile-deck-cell:not(.sol-newcard-focus):not(.selected) {
+    filter: brightness(.45);
+  }
   .sol-mobile-deck-cell.sol-newcard-focus {
-    outline: 3px dashed var(--accent);
-    outline-offset: 1px;
+    transform: scale(1.12);
+    box-shadow: 0 10px 22px rgba(0, 0, 0, .7);
+    z-index: 3;
+    position: relative;
   }
   .sol-mobile-deck-thumb {
     width: 100%;

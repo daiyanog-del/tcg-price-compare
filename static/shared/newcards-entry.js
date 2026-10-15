@@ -4,6 +4,8 @@
 // カード名の上限・改行禁止は deck-handoff.js の validateHandoff と同じ。
 const CARD_NAME_MAX=50;
 export const FOCUS_CLASS='sol-newcard-focus';
+// 強調中だけ body に付く。CSS が「強調中は focus 以外を暗くする」のに使う（解除では必ず外す）。
+export const ACTIVE_CLASS='sol-newcard-focus-active';
 
 /** focus 名の検証。使えない値は null（focus なしとして扱う）。 */
 export function validateFocus(value){
@@ -53,13 +55,15 @@ async function isResolvable(fetchFn,name,timeoutMs){
 /** 強調を全カードから外す（盤面へ移った強調が残らないよう、最初のカード操作などで呼ぶ）。 */
 export function clearFocus(doc=document){
   doc.querySelectorAll('.'+FOCUS_CLASS).forEach(el=>el.classList.remove(FOCUS_CLASS));
+  doc.body?.classList.remove(ACTIVE_CLASS);
 }
 
 // 最初のカード操作（クリック/ドラッグ開始 dragstart/ドロー/リセット）・別のデッキ読込・盤面消去で強調を外す。
 const CLEAR_EVENTS=['sol-deck-load-start','sol-board-cleared','sol-replay-reset'];
 // pointerdown では外さない: 強調の前面表示（z-index）が消えると、押した瞬間に重なっている隣のカードを掴んでしまう。
 const OP_EVENTS=['click','dragstart'];
-const OPERATION_TARGETS='.tier-item, #randomButton, #resetButton';
+// 操作とみなす対象: カード・ドロー・リセット・スマホのデッキシートのカード選択と操作ボタン（閉じる/検索は含めない）
+const OPERATION_TARGETS='.tier-item, #randomButton, #resetButton, .sol-mobile-deck-cell, #solMobileDeckSheet .sol-mobile-deck-primary-btn, #solMobileDeckSheet .sol-mobile-menu-item';
 function clearOnFirstOperation(doc){
   const onPointer=e=>{if(e.target?.closest?.(OPERATION_TARGETS))done();};
   const onEvent=()=>done();
@@ -117,6 +121,7 @@ export async function receiveNewCards({loadDeck,clearDeck,showCard,notify=()=>{}
     const wrapper=target?.closest('.tier-item-wrapper');
     if(wrapper){
       wrapper.classList.add(FOCUS_CLASS);
+      doc.body?.classList.add(ACTIVE_CLASS);
       clearOnFirstOperation(doc);
       wrapper.scrollIntoView({block:'nearest',inline:'center'});
       showCard(target);

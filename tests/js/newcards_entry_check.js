@@ -19,14 +19,14 @@ function fixture(href,{newCards=['新A','新B'],resolvable={}}={}){
   const classes=new Set();let scrolled=0;
   const wrapper={classList:{add:c=>classes.add(c)},scrollIntoView(o){scrolled++;wrapper.scrollOpts=o;}};
   let loaded=[];
-  const handlers={};
-  const doc={querySelectorAll:sel=>sel.startsWith('.')?(classes.has(sel.slice(1))?[wrapper]:[]):loaded.map(name=>({dataset:{cardName:name},closest:()=>wrapper})),
+  const handlers={},bodyClasses=new Set();
+  const doc={body:{classList:{add:c=>bodyClasses.add(c),remove:c=>bodyClasses.delete(c)}},querySelectorAll:sel=>sel.startsWith('.')?(classes.has(sel.slice(1))?[wrapper]:[]):loaded.map(name=>({dataset:{cardName:name},closest:()=>wrapper})),
     addEventListener:(t,fn)=>{(handlers[t]??=new Set()).add(fn);},
     removeEventListener:(t,fn)=>{handlers[t]?.delete(fn);},
     emit:(t,ev={})=>[...(handlers[t]??[])].forEach(fn=>fn(ev))};
   wrapper.classList.remove=c=>classes.delete(c);
   const shown=[],notices=[];
-  return {notices,calls,loc,hist,fetched,fetchFn,classes,doc,shown,wrapper,get scrolled(){return scrolled;},
+  return {bodyClasses,notices,calls,loc,hist,fetched,fetchFn,classes,doc,shown,wrapper,get scrolled(){return scrolled;},
     async clearDeck(){calls.push(['clear']);return true;},
     async loadDeck(main,ex){calls.push(['load',main,ex]);loaded=main.split('\n').map(l=>l.slice(2));},
     showCard:el=>shown.push(el.dataset.cardName)};
@@ -98,8 +98,22 @@ const run=(mod,f,extra={})=>mod.receiveNewCards({loadDeck:f.loadDeck,clearDeck:f
   for(const [type,ev] of [['click',{target:{closest:()=>true}}],['dragstart',{target:{closest:()=>true}},],['sol-deck-load-start'],['sol-board-cleared'],['sol-replay-reset']]){
     f=fixture('https://e.test/solitaire?newcards=1&focus='+encodeURIComponent('新A'));
     await run(mod,f);assert(f.classes.has(mod.FOCUS_CLASS),type);
+    assert(f.bodyClasses.has(mod.ACTIVE_CLASS),'強調中は body に active が付く');
     f.doc.emit(type,ev);assert(!f.classes.has(mod.FOCUS_CLASS),type+' で強調が残った');
+    assert(!f.bodyClasses.has(mod.ACTIVE_CLASS),type+' で body の active が残った');
   }
+  // スマホのデッキシート: カード選択・操作ボタンで外れる。閉じる・検索・シートの開閉では外れない
+  const sel=['.sol-mobile-deck-cell','#solMobileDeckSheet .sol-mobile-deck-primary-btn','#solMobileDeckSheet .sol-mobile-menu-item'];
+  for(const target of sel){
+    f=fixture('https://e.test/solitaire?newcards=1&focus='+encodeURIComponent('新A'));
+    await run(mod,f);
+    f.doc.emit('click',{target:{closest:q=>q.includes(target)?{}:null}});
+    assert(!f.classes.has(mod.FOCUS_CLASS)&&!f.bodyClasses.has(mod.ACTIVE_CLASS),target);
+  }
+  f=fixture('https://e.test/solitaire?newcards=1&focus='+encodeURIComponent('新A'));
+  await run(mod,f);
+  f.doc.emit('click',{target:{closest:q=>(q.includes('.sol-mobile-sheet-close-btn')||q.includes('#solMobileCipClose'))?{}:null}});
+  assert(f.classes.has(mod.FOCUS_CLASS)&&f.bodyClasses.has(mod.ACTIVE_CLASS),'閉じる操作では外さない');
   // pointerdown では外さない（前面表示が消えて隣のカードを掴むのを防ぐ）
   f=fixture('https://e.test/solitaire?newcards=1&focus='+encodeURIComponent('新A'));
   await run(mod,f);f.doc.emit('pointerdown',{target:{closest:()=>true}});assert(f.classes.has(mod.FOCUS_CLASS));
