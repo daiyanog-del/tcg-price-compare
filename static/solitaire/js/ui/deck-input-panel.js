@@ -54,7 +54,21 @@ function _currentPoolCounts() {
 const SAVED_DECKS_KEY = 'cardprice_saved_decks';
 
 export function savedDecksGet() {
-  try { return JSON.parse(localStorage.getItem(SAVED_DECKS_KEY)) || []; } catch { return []; }
+  let raw;
+  try { raw = JSON.parse(localStorage.getItem(SAVED_DECKS_KEY)); } catch { return []; }
+  if (raw == null) return [];
+  // 読み取り時の正規化のみ（保存側へは書き戻さない）。壊れたデータで初期化を止めない
+  if (!Array.isArray(raw)) {
+    console.warn('[deck-input-panel] 保存デッキが配列ではないため無視しました');
+    return [];
+  }
+  const list = raw
+    .filter(d => d && typeof d === 'object' && !Array.isArray(d))
+    .map(d => ({ ...d, name: String(d.name ?? '') }));
+  if (list.length !== raw.length) {
+    console.warn(`[deck-input-panel] 保存デッキの不正な要素を${raw.length - list.length}件無視しました`);
+  }
+  return list;
 }
 
 export function savedDecksSet(list) {
@@ -654,7 +668,7 @@ function renderMyDeckList() {
 
 /** ニューロン取り込みの入口（マイデッキページへのリンク）と補足 */
 function _importEntryHtml(big) {
-  return `<a class="mydeck-import-entry${big ? ' big' : ''}" href="/#mydeck-import">＋ ニューロンから取り込む ↗</a>`
+  return `<a class="mydeck-import-entry${big ? ' big' : ''}" href="/#mydeck-import">＋ ニューロンから取り込む</a>`
     + '<small class="mydeck-import-note">取り込んで保存すると、ここに並びます</small>';
 }
 

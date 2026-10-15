@@ -381,20 +381,20 @@
 .mydeck-import-entry {
   display: block;
   box-sizing: border-box;
-  padding: 7px 4px;
-  text-align: center;
+  padding: 7px 8px;
   border: 1px dashed #aec5ff;
   border-radius: 6px;
   color: #aec5ff;
-  font-size: 0.68rem;
-  white-space: nowrap;
+  font-size: 0.8rem;
   font-family: var(--font);
   text-decoration: none;
   margin-bottom: 3px;
 }
 .mydeck-import-entry:hover { background: rgba(174,197,255,0.1); }
 .mydeck-import-entry.big {
-  padding: 14px 4px;
+  padding: 14px 8px;
+  text-align: center;
+  font-size: 0.86rem;
 }
 .mydeck-import-note {
   display: block;
