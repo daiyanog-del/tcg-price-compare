@@ -27,6 +27,7 @@ import { initSidebarToggle } from './ui/sidebar-toggle.js';
 import { initMobileUI } from './ui/mobile-ui.js';
 import { isMobilePortrait } from './utils/viewport.js';
 import { showToast } from './utils/toast.js';
+import { hasReplayInUrl as isReplayInUrl } from './utils/replay-url.js';
 import { loadDeckFromNeuron, clearEverything } from './ui/deck-input-panel.js';
 import { receiveDeckHandoff } from '../../shared/deck-handoff.js';
 
@@ -276,6 +277,11 @@ let _fitTimer = null;
  * アプリケーション初期化
  */
 async function initializeApp() {
+  // URL にリプレイ指定（?replay= / #replay= / ?saved=）があるかは、ここで一度だけ評価する。
+  // initReplayUI() 内の読み込み処理は URL を書き換える（?saved= を外す）ため、それより後で
+  // location を見ると判定がぶれ、前回盤面の復元が開いたリプレイを上書きしてしまう（順序依存の根絶）。
+  const hasReplayInUrl = isReplayInUrl();
+
   // 端末間同期（P2）: 一人回しページを開いたときも pull する（設計文書 §11）。
   // 保存デッキは savedDecksSet/renderSavedDecks 経由で適用されデッキ一覧に反映される。
   // 購入候補はこのページに適用先(wishSave等)が無いため、sync-client.js側でrevを
@@ -337,9 +343,9 @@ async function initializeApp() {
   initCardImageRegistration();
 
   // ページ遷移後の盤面復元（card:// センチネル対応のため await が必要）
-  // URL に共有リプレイ（?replay=ID / #replay=）が付いているときは前回の盤面を復元しない。
+  // URL に共有リプレイ（?replay=ID / #replay=）または端末保存（?saved=ID）が付いているときは前回の盤面を復元しない。
   // 復元が共有データを上書きし、受け手側で再生モードが開かない競合があった（2026-09-04 実測）。
-  const hasReplayInUrl = /[?&]replay=/.test(location.search) || location.hash.startsWith('#replay=');
+  // hasReplayInUrl は initializeApp の先頭で評価済み（理由はそこのコメント）
   const handedOff = await receiveDeckHandoff({
     loadDeck: loadDeckFromNeuron, clearDeck: clearEverything,
     getCounts: () => ({

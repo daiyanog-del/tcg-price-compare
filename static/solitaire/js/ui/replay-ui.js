@@ -25,12 +25,16 @@ import {
   getLogs,
   getSetupLogs,
   registerCardName,
+  buildReplayPayload,
+  loadReplayFromCompressedData,
 } from '../services/replay-service.js';
 import { buildBoardFromLogs } from '../services/replay-board.js';
 import { setPcPlaybackMode } from '../components/drag-drop.js';
 import { initPcRecording, _getPcRecordingRange, updatePcShareRecordingSection, _resetPcRecording, _syncPcRecordingEndIdxAfterComment } from './pc-recording.js';
 import { clearEverything } from './deck-input-panel.js';
 import { showToast } from '../utils/toast.js';
+import { addSharedReplay } from '../services/shared-replays.js';
+import { savedReplaysGet, saveReplayEntry } from '../services/saved-replays.js';
 
 const REPLAY_TITLE_MAX_LEN = 100;
 
@@ -54,6 +58,19 @@ function _getReplayTitle() {
 }
 
 /**
+ * リプレイ一覧への移動前の確認。今の記録（setup込み）があるときだけ confirm を出し、
+ * キャンセルなら移動を止める。Ctrl/Cmd/Shift+クリック等（新しいタブ・ウィンドウ）は今のページが残るので確認しない。
+ * @param {MouseEvent} ev
+ */
+function _confirmLeaveForReplayList(ev) {
+  if (ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.altKey || ev.button !== 0) return;
+  if (getLogLength() + getSetupLogs().length === 0) return;
+  if (!confirm('今の記録は、移動すると消えます（端末に保存・共有したものは一覧から開けます）。リプレイ一覧へ移動しますか？')) {
+    ev.preventDefault();
+  }
+}
+
+/**
  * 現在の再生速度倍率に応じて速度ボタンの選択中スタイル（active クラス）を更新する
  */
 function _updateSpeedButtons() {
@@ -71,6 +88,12 @@ function _updateSpeedButtons() {
  */
 export function initReplayUI() {
   initReplay();
+
+  // 「リプレイ一覧」へのリンク（PCリプレイバー・スマホ⋯メニュー・スマホ共有シート）は、
+  // 記録が残っているときだけ移動前に確認する（<a> のまま。新しいタブで開く操作は確認なし）
+  document.querySelectorAll('[data-replay-list-link]').forEach((a) => {
+    a.addEventListener('click', _confirmLeaveForReplayList);
+  });
 
   // window.replayLog を replay-service の logEvent にバインド
   window.replayLog = (event) => logEvent(event);
@@ -167,6 +190,10 @@ export function initReplayUI() {
   // リプレイ共有（URL or Supabase）
   document.getElementById('replayShare')
     ?.addEventListener('click', handleShare);
+
+  // 端末に保存（PC共有シート。スマホの共有シートと同じ saveReplayToDevice を使う）
+  document.getElementById('pcShareSaveLocalBtn')
+    ?.addEventListener('click', handleSaveToDevice);
 
   // X に投稿
   document.getElementById('replayShareX')
@@ -322,6 +349,13 @@ async function _saveAndGetShortURL(title, logsOverride) {
     throw new Error(errData.error || `HTTP ${res.status}`);
   }
   const { id } = await res.json();
+  // 共有履歴（リプレイ一覧ページ用）に控える。記録に失敗しても共有自体は成功させる。
+  try {
+    const steps = logs.filter(ev => !ev.setup).length; // setup（初期配置）を除いた手数
+    addSharedReplay({ id, title, steps });
+  } catch (e) {
+    console.warn('共有履歴の記録に失敗（共有は成功）:', e);
+  }
   return `${location.origin}/solitaire?replay=${id}`;
 }
 
@@ -336,6 +370,66 @@ async function _saveAndGetShortURL(title, logsOverride) {
  */
 export function buildRangeLogsForPayload(range) {
   return [...getSetupLogs(), ..._buildRangeLogs(getLogs(), range)];
+}
+
+// ══════════════════ 端末保存（スマホ・PC共通） ══════════════════
+
+/** タイトル欄が空のときの既定タイトル（YYYY-MM-DD HH:MM） */
+function _formatDefaultReplayTitle() {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/**
+ * 現在の記録（setup込みの手数・メイン/EX枚数）を返す。
+ * 共有シート冒頭の「現在の記録」表示（スマホ）と、端末保存の両方で使う。
+ * @returns {{total:number, main:number, ex:number}}
+ */
+export function getReplayCounts() {
+  const total = getLogLength() + getSetupLogs().length; // Low-13: setupのみの盤面も1手以上として扱う
+  const exCount = new Set(getExCardIds()).size;
+  const mainCount = Math.max(0, Object.keys(getImages()).length - exCount);
+  return { total, main: mainCount, ex: exCount };
+}
+
+/**
+ * 現在のリプレイを「このブラウザ」の保存一覧（saved-replays.js）へ追加する。
+ * スマホの共有シート（mobile-ui.js）とPCの共有シートの両方から使う共通処理。
+ * 範囲が渡されればその範囲のログだけを、無ければ全体を exportReplay と同じ payload で保存する。
+ * 通知（トースト／alert）は呼び出し側で行う。
+ * @param {{title?:string, range?:{start:number,end:number}|null}} [opts]
+ * @returns {{ok:boolean, removedCount:number, reason?:'empty'|'no_lzstring'|'quota'|'too_large'}}
+ */
+export function saveReplayToDevice({ title, range } = {}) {
+  const { total, main, ex } = getReplayCounts();
+  if (total === 0) return { ok: false, removedCount: 0, reason: 'empty' };
+  if (typeof LZString === 'undefined') return { ok: false, removedCount: 0, reason: 'no_lzstring' };
+
+  const finalTitle = (title || '').trim().slice(0, REPLAY_TITLE_MAX_LEN) || _formatDefaultReplayTitle();
+  const logsOverride = range ? buildRangeLogsForPayload(range) : undefined;
+  const steps = range ? (range.end - range.start + 1) : getLogLength(); // 共有履歴と同じく setup を除いた手数
+
+  const payload = buildReplayPayload(finalTitle, logsOverride);
+  const compressed = LZString.compress(JSON.stringify(payload));
+  return saveReplayEntry({ title: finalTitle, main, ex, steps, data: compressed });
+}
+
+/**
+ * saveReplayToDevice の結果を、利用者向けの通知文にする（スマホ・PC共通）。
+ * @param {{ok:boolean, removedCount:number, reason?:string}} result
+ * @returns {string}
+ */
+export function describeSaveResult(result) {
+  if (!result.ok) {
+    if (result.reason === 'empty') return '記録がありません';
+    if (result.reason === 'too_large') return 'このリプレイは大きすぎて保存できません';
+    if (result.reason === 'quota') return '保存できませんでした（端末の空き容量）';
+    return '保存に失敗しました';
+  }
+  return result.removedCount > 0
+    ? `端末に保存しました（上限のため古い${result.removedCount}件を削除）。「リプレイ一覧」から開けます`
+    : '端末に保存しました。「リプレイ一覧」から開けます';
 }
 
 /**
@@ -381,6 +475,15 @@ async function handleShare() {
   } finally {
     if (btn) btn.disabled = false;
   }
+}
+
+/**
+ * PC共有シートの「端末に保存」。停止済みの録画があればその範囲だけを、無ければ全体を保存する。
+ * タイトルは入力欄が無いため日時の既定タイトルになる（一覧で見分けられるようにするため）。
+ */
+function handleSaveToDevice() {
+  const result = saveReplayToDevice({ range: _getPcRecordingRange() });
+  showToast(describeSaveResult(result));
 }
 
 /**
@@ -458,8 +561,16 @@ async function _tryLoadFromURL() {
     return;
   }
 
-  // Supabase ID 方式
   const params = new URLSearchParams(location.search);
+
+  // 端末保存（?saved=<端末保存のid>）: リプレイ一覧ページから開く
+  const savedId = params.get('saved');
+  if (savedId) {
+    await _loadSavedFromURL(savedId);
+    return;
+  }
+
+  // Supabase ID 方式
   const replayId = params.get('replay');
   if (!replayId) return;
 
@@ -479,5 +590,33 @@ async function _tryLoadFromURL() {
     document.dispatchEvent(new CustomEvent('sol-replay-loaded-from-url'));
   } catch (e) {
     console.warn('リプレイの読み込みに失敗:', e.message);
+  }
+}
+
+/**
+ * ?saved=<id> で端末保存のリプレイを開く（リプレイ一覧ページからの遷移）。
+ * 読込後の扱いは ?replay= と同じ（録画状態のリセット＋ sol-replay-loaded-from-url の発行。
+ * スマホでは mobile-ui.js がこれを受けて再生モードを開く）。
+ * 再読込で盤面が上書きされるのを防ぐため、読込の成否に関わらず URL から saved を消す。
+ * @param {string} savedId
+ */
+async function _loadSavedFromURL(savedId) {
+  const item = savedReplaysGet().find(r => r.id === savedId);
+  // URL から saved を外す（再読込で同じリプレイが盤面を上書きし続けるのを防ぐ）
+  const url = new URL(location.href);
+  url.searchParams.delete('saved');
+  history.replaceState(null, '', url.pathname + url.search + url.hash);
+
+  if (!item) {
+    showToast('保存済みリプレイが見つかりません（別のブラウザで保存したものは開けません）');
+    return;
+  }
+  try {
+    await loadReplayFromCompressedData(item.data);
+    _resetPcRecording(); // JSON読込と同様、古い録画範囲の残留を防ぐ
+    document.dispatchEvent(new CustomEvent('sol-replay-loaded-from-url'));
+  } catch (e) {
+    console.warn('保存済みリプレイの読み込みに失敗:', e);
+    showToast('保存済みリプレイを開けませんでした');
   }
 }

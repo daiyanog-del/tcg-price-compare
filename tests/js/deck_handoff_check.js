@@ -71,13 +71,16 @@ function fixture(){
 
   // main.jsの実際の分岐を抽出し、持込・失敗・リプレイ・通常復元の優先順を検証する。
   const main=fs.readFileSync(path.join(root,'static/solitaire/js/main.js'),'utf8');
-  const start=main.indexOf('  const hasReplayInUrl ='),end=main.indexOf('  if (restored)',start);
+  const start=main.indexOf('  const handedOff ='),end=main.indexOf('  if (restored)',start);
   assert(start>=0&&end>start);
+  // URL判定は共通モジュール（utils/replay-url.js）。main.jsは initializeApp 先頭で評価した値を使う。
+  const replayUrlSrc=fs.readFileSync(path.join(root,'static/solitaire/js/utils/replay-url.js'),'utf8').replace('export function','function');
+  const hasReplayInUrlFn=vm.runInNewContext(replayUrlSrc+';hasReplayInUrl',{URLSearchParams});
   async function boot(url,fail=false){
     const env=fixture();env.loc.href=url;env.storage.setItem(HANDOFF_KEY,snapshot);
     const parsed=new URL(url);let resumed=0;
     const context={
-      location:{search:parsed.search,hash:parsed.hash},
+      hasReplayInUrl:hasReplayInUrlFn({search:parsed.search,hash:parsed.hash}),
       loadDeckFromNeuron:fail?async()=>{throw Error('通信失敗');}:env.loadDeck,
       clearEverything:env.clearDeck,
       document:{querySelectorAll:selector=>({length:env.getCounts()[selector.includes('poolRow2')?'ex':'main']})},
@@ -91,7 +94,7 @@ function fixture(){
   assert.equal(successful.resumed,0);assert.equal(successful.restored,false);
   const failed=await boot('https://example.test/solitaire?from=mydeck',true);
   assert.equal(failed.resumed,0);assert.equal(failed.env.storage.getItem(HANDOFF_KEY),snapshot);
-  for(const url of ['https://example.test/solitaire?from=mydeck&replay=abc','https://example.test/solitaire?from=mydeck#replay=abc']){
+  for(const url of ['https://example.test/solitaire?from=mydeck&replay=abc','https://example.test/solitaire?from=mydeck#replay=abc','https://example.test/solitaire?from=mydeck&saved=r_1']){
     const replay=await boot(url);assert.equal(replay.resumed,0);assert.equal(replay.env.calls.length,0);
     assert.equal(replay.env.storage.getItem(HANDOFF_KEY),snapshot);
   }

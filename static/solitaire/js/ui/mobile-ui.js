@@ -38,20 +38,17 @@ import { playActivateEffect, flipMoveClone } from '../components/card-effects.js
 import { _renderCard, _showUnknown, _showLoading } from './card-info-panel.js';
 import { isMobilePortrait, watchMobilePortrait, isMobileLandscape, watchMobileLandscape } from '../utils/viewport.js';
 import { showToast } from '../utils/toast.js';
-import { generateShareURL, buildShareTweetUrl, buildRangeLogsForPayload } from './replay-ui.js';
+import { generateShareURL, buildShareTweetUrl, getReplayCounts, saveReplayToDevice, describeSaveResult } from './replay-ui.js';
 import { clearEverything } from './deck-input-panel.js';
 import {
   getLogLength,
   getSetupLogs,
-  buildReplayPayload,
-  getImages,
-  getExCardIds,
-  loadReplayFromCompressedData,
   getCursor,
   seekTo,
   truncateAfterCursor,
 } from '../services/replay-service.js';
-import { savedReplaysGet, saveReplayEntry, deleteReplayEntry } from '../services/saved-replays.js';
+import { savedReplaysGet } from '../services/saved-replays.js';
+import { sharedReplaysGet } from '../services/shared-replays.js';
 
 const API_CARD_INFO = '/api/card-info';
 
@@ -95,7 +92,6 @@ function resetMobileUI() {
   closeCardDetailOverlay();
   closeDeckSheet();   // フェーズ2: デッキ一覧シート
   closeShareSheet();  // フェーズ3: 共有シート
-  closeSavedReplaysSheet(); // E-3: 保存済みリプレイ一覧シート
   // タスクB: portrait を外れる際は再生モードも強制終了。第6次検収-1: 回転時は
   // origin（'share'等）に関係なく共有シートへ戻らせない（この直後に setHidden で強制的に閉じる）。
   exitPlaybackMode({ returnToOrigin: false });
@@ -112,7 +108,6 @@ function resetMobileUI() {
   setHidden('solMobileUndoBtn', true);
   setHidden('solMobileDeckSheet', true);
   setHidden('solMobileShareSheet', true);
-  setHidden('solMobileSavedReplaysSheet', true);
   setHidden('solMobileEmptyCta', true);
   setDeckBtnLoading(false); // 読込中表示のまま portrait を外れた場合の保険
 }
@@ -221,7 +216,6 @@ const MENU_ACTIONS = {
   deckinput:() => { openSidebarSheet(); },
   playback: () => { enterPlaybackMode('menu'); }, // タスクB-1: 旧「リプレイ操作」オーバーレイを廃止し再生モードへ
   share:    () => { openShareSheet(); },    // タスクA-5: 下部バーから外した共有導線
-  savedreplays: () => { openSavedReplaysSheet(); }, // E-3
   help:     () => { openHelpSheet(); },
   feedback: () => { document.getElementById('feedbackOpenBtn')?.click(); },
 };
@@ -1037,7 +1031,7 @@ function openShareSheet() {
   if (xLink) xLink.href = '#';
   _updateShareRecordingSection(); // タスクA-3: ①録画した範囲 / 全記録の表示を更新
   _updateShareCurrentInfo(); // タスクA: 「現在の記録: N手（メインM枚・EX E枚）」
-  _updateShareOpenSavedButton(); // タスクA: 保存済みが1件以上あれば③に「保存済みリプレイを開く」を出す
+  _updateShareOpenSavedButton(); // 保存済みが1件以上あれば③に「リプレイ一覧を開く」を出す
   setHidden('solMobileShareSheet', false);
 }
 function closeShareSheet() {
@@ -1244,240 +1238,43 @@ function initShareSheet() {
 
   // E-2: 端末に保存
   document.getElementById('solMobileShareSaveLocalBtn')?.addEventListener('click', _saveReplayToDevice);
-
-  // タスクA: ③「保存済みリプレイを開く（n件）」→ 保存済み一覧シートへ切り替える
-  document.getElementById('solMobileShareOpenSavedBtn')?.addEventListener('click', () => {
-    closeShareSheet();
-    openSavedReplaysSheet();
-  });
 }
 
 // ══════════════════ E-1/E-2: リプレイの端末保存（設計書 §E） ══════════════════
-
-/** タイトル欄が空のときの既定タイトル（YYYY-MM-DD HH:MM） */
-function _formatDefaultReplayTitle() {
-  const d = new Date();
-  const pad = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-/**
- * タスクA: 現在の記録（setup込みの手数・メイン/EX枚数）をまとめて返す。
- * 共有シート冒頭の「現在の記録」表示と、端末保存（_saveReplayToDevice）の両方で使う
- * （手数・メイン/EX枚数の算出ロジックを二重に持たない）。
- */
-function _getReplayCounts() {
-  const total = getLogLength() + getSetupLogs().length; // Low-13: setupのみの盤面も1手以上として扱う
-  const images = getImages();
-  const exCount = new Set(getExCardIds()).size;
-  const mainCount = Math.max(0, Object.keys(images).length - exCount);
-  return { total, main: mainCount, ex: exCount };
-}
+// 保存処理本体（スマホ・PC共通）は replay-ui.js の saveReplayToDevice。
+// 保存したリプレイは /solitaire/replays（リプレイ一覧ページ）から開く。
 
 /** タスクA: 共有シート冒頭の「現在の記録: N手（メインM枚・EX E枚）」を更新する */
 function _updateShareCurrentInfo() {
   const el = document.getElementById('solMobileShareCurrentInfo');
   if (!el) return;
-  const { total, main, ex } = _getReplayCounts();
+  const { total, main, ex } = getReplayCounts();
   el.textContent = `現在の記録: ${total}手（メイン${main}枚・EX${ex}枚）`;
 }
 
-/** タスクA: ③に「保存済みリプレイを開く（n件）」を出す（0件なら隠す） */
+/** ③に「リプレイ一覧を開く（n件）」リンクを出す（件数は端末保存＋共有履歴の合計。0件なら隠す） */
 function _updateShareOpenSavedButton() {
   const btn = document.getElementById('solMobileShareOpenSavedBtn');
   if (!btn) return;
-  const n = savedReplaysGet().length;
+  const n = savedReplaysGet().length + sharedReplaysGet().length;
   if (n === 0) {
     btn.setAttribute('hidden', '');
     return;
   }
-  btn.textContent = `保存済みリプレイを開く（${n}件）`;
+  btn.textContent = `リプレイ一覧を開く（${n}件）`;
   btn.removeAttribute('hidden');
 }
 
 /**
  * E-2/タスクA-4: 共有シートの「端末に保存」。録画（停止済み）があればその範囲だけを、
- * 無ければリプレイ全体を exportReplay と同じ payload（buildReplayPayload）で組み立て、
- * LZString 圧縮して saved-replays.js の localStorage 一覧に追加する。
+ * 無ければリプレイ全体を保存する（実処理は replay-ui.js の saveReplayToDevice）。
  */
 function _saveReplayToDevice() {
-  const { total, main: mainCount, ex: exCount } = _getReplayCounts();
-  if (total === 0) { showToast('記録がありません'); return; }
-  if (typeof LZString === 'undefined') { showToast('保存に失敗しました'); return; }
+  const title = document.getElementById('solMobileShareTitleInput')?.value;
+  const result = saveReplayToDevice({ title, range: _getRecordingRange() });
 
-  const titleInput = document.getElementById('solMobileShareTitleInput');
-  const title = titleInput?.value?.trim() || _formatDefaultReplayTitle();
-
-  // タスクA-4: 録画があればその範囲のログだけを保存する
-  const range = _getRecordingRange();
-  const logsOverride = range ? buildRangeLogsForPayload(range) : undefined;
-  const steps = range ? (range.end - range.start + 1) : total;
-
-  const payload = buildReplayPayload(title, logsOverride);
-  const compressed = LZString.compress(JSON.stringify(payload));
-
-  const result = saveReplayEntry({
-    title,
-    main: mainCount,
-    ex: exCount,
-    steps,
-    data: compressed,
-  });
-
-  // High-3: 保存失敗時は理由に応じたトーストを出す
-  if (!result.ok) {
-    if (result.reason === 'too_large') {
-      showToast('このリプレイは大きすぎて保存できません');
-    } else {
-      showToast('保存できませんでした（端末の空き容量）');
-    }
-    return;
-  }
-  // タスクA: 保存先とたどり方が分かる文言に変更
-  showToast(result.removedCount > 0
-    ? `端末に保存しました（上限のため古い${result.removedCount}件を削除）。⋯メニュー →「保存済みリプレイ」から開けます`
-    : '端末に保存しました。⋯メニュー →「保存済みリプレイ」から開けます');
+  showToast(describeSaveResult(result));
   _updateShareOpenSavedButton(); // 保存直後に件数を反映
-}
-
-// ══════════════════ E-3: 保存済みリプレイ一覧シート（設計書 §E） ══════════════════
-
-function openSavedReplaysSheet() {
-  _renderSavedReplaysList();
-  setHidden('solMobileSavedReplaysSheet', false);
-}
-function closeSavedReplaysSheet() {
-  setHidden('solMobileSavedReplaysSheet', true);
-}
-
-/**
- * E-3: 保存済みリプレイを開く。importReplay と同じ経路（loadReplayFromCompressedData）で読み込む。
- * Medium-4: 呼び出し元が成否で分岐できるよう Promise<boolean> を返す。
- * Medium-5: 現在の記録（setup込み）が残っている場合は上書き前に確認する。
- * @param {{data:string, title?:string}} item
- * @returns {Promise<boolean>}
- */
-async function _openSavedReplay(item) {
-  const hasCurrentRecord = (getLogLength() + getSetupLogs().length) > 0;
-  if (hasCurrentRecord && !confirm('現在の記録を破棄して開きます。よろしいですか？')) {
-    return false;
-  }
-  try {
-    await loadReplayFromCompressedData(item.data);
-    _resetRecording(); // タスクA-1: 保存済みリプレイを開く で録画状態を破棄
-    closeSavedReplaysSheet();
-    showToast('リプレイを復元しました');
-    return true;
-  } catch (e) {
-    console.warn('[mobile-ui] 保存済みリプレイの復元に失敗:', e);
-    showToast('復元に失敗しました');
-    return false;
-  }
-}
-
-/** 一覧を再描画する（削除後・開くたびに呼ぶ）。カード名等ユーザー由来文字列は textContent で入れる（XSS対策）。 */
-function _renderSavedReplaysList() {
-  const listEl = document.getElementById('solMobileSavedReplaysList');
-  const emptyEl = document.getElementById('solMobileSavedReplaysEmpty');
-  if (!listEl) return;
-
-  const items = savedReplaysGet().slice().sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
-  listEl.innerHTML = '';
-
-  if (items.length === 0) {
-    if (emptyEl) emptyEl.hidden = false;
-    return;
-  }
-  if (emptyEl) emptyEl.hidden = true;
-
-  items.forEach(item => {
-    // タスクA: 行全体をタップで「開く」、右端「…」で共有/削除のミニメニュー。
-    // 行の中に共有/削除の<button>を含めるため、行自体は<button>ではなくrole="button"のdivにする
-    // （<button>の中に<button>を入れるとブラウザがDOM構造を勝手に組み替えてしまうため）。
-    const row = document.createElement('div');
-    row.className = 'sol-mobile-saved-replay-row';
-    row.setAttribute('role', 'button');
-    row.setAttribute('tabindex', '0');
-    // タスクB-1: 行タップで開いたときは再生モードを自動で開く
-    const openAndPlay = async () => {
-      const ok = await _openSavedReplay(item);
-      if (ok) enterPlaybackMode('saved');
-    };
-    row.addEventListener('click', openAndPlay);
-    row.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openAndPlay(); }
-    });
-
-    const info = document.createElement('div');
-    info.className = 'sol-mobile-saved-replay-info';
-    const titleEl = document.createElement('span');
-    titleEl.className = 'sol-mobile-saved-replay-title';
-    titleEl.textContent = item.title || '無題';
-    const metaEl = document.createElement('span');
-    metaEl.className = 'sol-mobile-saved-replay-meta';
-    const dateStr = item.savedAt
-      ? new Date(item.savedAt).toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
-      : '';
-    metaEl.textContent = `${dateStr} ・ ${item.steps ?? 0}手・メイン${item.main ?? 0}・EX${item.ex ?? 0}`;
-    info.appendChild(titleEl);
-    info.appendChild(metaEl);
-
-    const actions = document.createElement('div');
-    actions.className = 'sol-mobile-saved-replay-actions';
-
-    const moreBtn = document.createElement('button');
-    moreBtn.type = 'button';
-    moreBtn.className = 'sol-mobile-saved-replay-more';
-    moreBtn.textContent = '…';
-    moreBtn.setAttribute('aria-label', 'その他の操作');
-
-    const menu = document.createElement('div');
-    menu.className = 'sol-mobile-saved-replay-menu';
-    menu.hidden = true;
-
-    const shareBtn = document.createElement('button');
-    shareBtn.type = 'button';
-    shareBtn.textContent = '共有';
-    shareBtn.addEventListener('click', async (ev) => {
-      ev.stopPropagation(); // 行タップ（開く）を誘発しない
-      // Medium-4: 復元成功時（true）だけ共有シートを開く
-      const ok = await _openSavedReplay(item);
-      if (!ok) return;
-      closeSavedReplaysSheet();
-      openShareSheet();
-    });
-
-    const delBtn = document.createElement('button');
-    delBtn.type = 'button';
-    delBtn.textContent = '削除';
-    delBtn.addEventListener('click', (ev) => {
-      ev.stopPropagation(); // 行タップ（開く）を誘発しない
-      if (!confirm(`「${item.title || '無題'}」を削除します。よろしいですか？`)) return;
-      deleteReplayEntry(item.id);
-      _renderSavedReplaysList();
-    });
-
-    moreBtn.addEventListener('click', (ev) => {
-      ev.stopPropagation(); // 行タップ（開く）を誘発しない
-      menu.hidden = !menu.hidden;
-    });
-
-    menu.appendChild(shareBtn);
-    menu.appendChild(delBtn);
-    actions.appendChild(moreBtn);
-    actions.appendChild(menu);
-    row.appendChild(info);
-    row.appendChild(actions);
-    listEl.appendChild(row);
-  });
-}
-
-function initSavedReplaysSheet() {
-  const sheet = document.getElementById('solMobileSavedReplaysSheet');
-  if (!sheet) return;
-  sheet.querySelectorAll('[data-sol-saved-replays-close]').forEach(el => {
-    el.addEventListener('click', closeSavedReplaysSheet);
-  });
 }
 
 // ══════════════════ 初見導線（設計書 §3.5） ══════════════════
@@ -1675,7 +1472,6 @@ function enterPlaybackMode(origin = null, range = null) {
   // M-5: イベント経由に頼らず全シート・オーバーレイを明示的に閉じる
   closeMenuSheet();
   closeShareSheet();
-  closeSavedReplaysSheet();
   closeDeckSheet();
   setHidden('solMobileActionSheet', true);
   closeCardDetailOverlay();
@@ -1846,7 +1642,6 @@ export function initMobileUI() {
   initActionSheet();
   initDeckSheet();
   initShareSheet();
-  initSavedReplaysSheet();
   initEmptyCta();
   initClearEverything();
   initLandscapeHint(); // A-3: portrait 判定とは独立（横向きスマホでのみ表示するため）
