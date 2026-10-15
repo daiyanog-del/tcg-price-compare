@@ -51,6 +51,12 @@ REREAD_SYSTEM = """\
 REREAD_USER_TEXT = ("この画像はカード下部の効果欄を切り出して拡大したものです。"
                     "効果欄の本文を、ルールに従って書き起こしてください（カード名はここには写っていません）。")
 
+def user_text_with_name(name: str) -> str:
+    """カード名のヒントを添えた指示文（効果文の中の自分のカード名の誤読対策。評価: tools/eval_effect_text.py の P2H）。"""
+    return (REREAD_USER_TEXT + f"\nこのカードの名前は「{name}」です。効果文の中の自分のカード名は、この表記と同じです。"
+            "ただし画像の文字がこれと違って見えるときは、画像に見える文字を書いてください。")
+
+
 REREAD_SCHEMA = {"type": "object", "properties": {
     "effect_text": {"type": "string"}, "unreadable": {"type": "boolean"}}}
 
@@ -93,12 +99,12 @@ def _mark_uncertain(raw: dict, *fields: str) -> None:
     raw["uncertain_fields"] = current
 
 
-def _read_one(client, model, crop_png: bytes):
+def _read_one(client, model, crop_png: bytes, name: str = ""):
     import unreleased_quality as quality
     content = [
         {"type": "image", "source": {"type": "base64", "media_type": "image/png",
                                      "data": base64.standard_b64encode(crop_png).decode("ascii")}},
-        {"type": "text", "text": REREAD_USER_TEXT},
+        {"type": "text", "text": user_text_with_name(name) if name else REREAD_USER_TEXT},
     ]
     return quality.structured_request(client, model=model, system=REREAD_SYSTEM, content=content,
                                       schema=REREAD_SCHEMA, max_tokens=_MAX_TOKENS, effort=REREAD_EFFORT)
@@ -146,7 +152,8 @@ def reread_effect_texts(rows: list[dict], *, client, encoded_images: list[dict],
     def work(job):
         row, crop = job
         try:
-            return row, _read_one(client, model, crop), None
+            # 1回目で読んだカード名をヒントに添える（効果文中の自分のカード名の誤読対策。評価 P2H）
+            return row, _read_one(client, model, crop, (row.get("name") or "").strip()), None
         except Exception as exc:  # noqa: BLE001 — API エラー・未完了応答・JSON 不正など
             return row, None, exc
 

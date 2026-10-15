@@ -394,6 +394,14 @@ def run_p2(client, model, card, crop_png):
     return call_structured(client, model, rr.REREAD_SYSTEM, content, rr.REREAD_SCHEMA)
 
 
+def run_p2h(client, model, card, crop_png, name):
+    """P2 ＋ カード名ヒント（名前は P1 Opus が読んだもの＝本番の1回目と同じ条件。正解名は使わない）。"""
+    import effect_text_reread as rr
+    img = {"media_type": "image/png", "data": base64.standard_b64encode(crop_png).decode("ascii")}
+    content = [image_block(img), {"type": "text", "text": rr.user_text_with_name(name)}]
+    return call_structured(client, model, rr.REREAD_SYSTEM, content, rr.REREAD_SCHEMA)
+
+
 def run_p0(client, batch_cards, imgs, html_cache):
     """現行 _extract_cards の1バッチ分と同じ呼び出し（拡大再読 enrich_rows は含めない）。"""
     import unreleased_extractor as ue
@@ -478,6 +486,12 @@ def cmd_run(a) -> None:
             if "P2" in methods:
                 crop = make_crop(raws[c["code"]], c["kind"])
                 jobs.append((f"P2|{m}|{c['code']}", m, [c], lambda m=m, c=c, crop=crop: run_p2(client, m, c, crop)))
+            if "P2H" in methods:
+                p1 = (jload(os.path.join(out, "results_full.json"), {}).get(f"P1|claude-opus-5-5|{c['code']}") or {}).get("data")
+                if not p1 or not p1.get("name"):
+                    continue  # ヒントに使う P1 Opus の名前が無いカードは対象外
+                crop = make_crop(raws[c["code"]], c["kind"])
+                jobs.append((f"P2H|{m}|{c['code']}", m, [c], lambda m=m, c=c, crop=crop, n=p1["name"]: run_p2h(client, m, c, crop, n)))
 
     todo = [j for j in jobs if j[0] not in res]
     print(f"ジョブ {len(jobs)}件 / 未実行 {len(todo)}件")
@@ -670,7 +684,7 @@ def cmd_report(a) -> None:
     groups: dict[tuple, list] = {}
     for (method, model, code), rec in per_card.items():
         groups.setdefault((method, model), []).append(rec)
-    order = {"P0": 0, "P1": 1, "P2": 2}
+    order = {"P0": 0, "P1": 1, "P2": 2, "P2H": 3}
     summary = {}
     for (method, model), rows in sorted(groups.items(), key=lambda kv: (order[kv[0][0]], MODELS.index(kv[0][1]))):
         summary[f"{method}|{model}"] = summarize(rows)

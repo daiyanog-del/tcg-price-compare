@@ -106,6 +106,14 @@ def test_agreed_keeps_text_and_not_uncertain(monkeypatch):
     assert [c["type"] for c in calls[0]["content"]] == ["image", "text"]
 
 
+def test_first_pass_card_name_is_passed_as_hint(monkeypatch):
+    calls = []
+    _fake_read(monkeypatch, text="①：このカードを特殊召喚できる。", calls=calls)
+    rr.reread_effect_texts([_row()], client=object(), encoded_images=_images())
+    text = calls[0]["content"][1]["text"]
+    assert "「テスト」" in text and "画像に見える文字" in text
+
+
 def test_normalization_ignores_width_whitespace_but_keeps_circled_digits(monkeypatch):
     # 半角コロン・改行の違いは一致扱い（正規化後に比べる）
     _fake_read(monkeypatch, text="①:このカードを\n特殊召喚できる。")
