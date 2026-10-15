@@ -1,6 +1,6 @@
 """テスト用の最小インメモリ Supabase クライアント（unreleased_x_post / auto_approve のテストで共用）。
 
-対応: select / insert / update / delete / eq / neq / lt / gte / is_ / in_ / or_ / order / range / limit
+対応: select / insert / upsert / update / delete / eq / neq / lt / gte / is_ / in_ / or_ / order / range / limit
 - insert の主キー衝突は、pks に指定した列で code=23505 の例外を送出する（Supabase の APIError 相当）。
 - or_ は日付絞り込み（release_date.is.null,release_date.gte.YYYY-MM-DD）だけを解釈する。
 """
@@ -32,6 +32,13 @@ class Query:
 
     def update(self, payload):
         self.op, self.payload = "update", payload
+        return self
+
+    def upsert(self, payload, on_conflict=None, ignore_duplicates=False):
+        """on_conflict の列（カンマ区切り可）が同じ行があれば、ignore_duplicates なら何もせず、そうでなければ上書き。"""
+        self.op, self.payload = "upsert", payload
+        self._on_conflict = [c.strip() for c in (on_conflict or "").split(",") if c.strip()]
+        self._ignore_dup = ignore_duplicates
         return self
 
     def delete(self):
@@ -88,6 +95,17 @@ class Query:
             pk = self.db.pks.get(self.name)
             if pk and any(r.get(pk) == self.payload.get(pk) for r in rows):
                 raise DuplicateKey()
+            row = dict(self.payload)
+            rows.append(row)
+            return SimpleNamespace(data=[dict(row)])
+        if self.op == "upsert":
+            cols = self._on_conflict
+            hit = next((r for r in rows if cols and all(r.get(c) == self.payload.get(c) for c in cols)), None)
+            if hit is not None:
+                if self._ignore_dup:
+                    return SimpleNamespace(data=[])
+                hit.update(self.payload)
+                return SimpleNamespace(data=[dict(hit)])
             row = dict(self.payload)
             rows.append(row)
             return SimpleNamespace(data=[dict(row)])

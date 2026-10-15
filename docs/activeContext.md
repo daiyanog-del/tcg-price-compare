@@ -1,6 +1,11 @@
 # activeContext — 今どこ・次何
 
-> 更新: 2026-10-15（記録のセッション復元）
+> 更新: 2026-10-15（自動承認の開始）
+
+## 2026-10-15: 自動承認の開始に向けた3機能（branch feat/auto-approve-go・未push）
+
+- 誤り報告（カード詳細のボタン→`POST /api/card-text-report`→管理画面の札と「対応済みにする」）、言い回しの照合（`unknown_phrase`。強の誤検知 0.31%・擬似誤りを3連鎖が見逃した分の11.2%を追加検出）、自動承認（`unreleased_approve.py`・`AUTO_APPROVE_ENABLED`・1日10件）と非公開時のX投稿削除を実装。詳細・数字は decisions.md。
+- 次: 本番手順（TASKS.md の先頭項目）。SQL適用→デプロイ→環境変数は1経路ずつ。実X削除・自宅PC実走は未検証。
 
 ## 2026-10-15: シミュレーターのセッション復元に記録を含める（branch feat/replay-session-resume）
 

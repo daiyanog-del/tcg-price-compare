@@ -739,6 +739,56 @@ def post_tweet_ex(text, image_paths=None, reply_to_id=None, require_media=False)
         return None, (_classify_create_error(e) if sending else ERR_PRE_SEND)
 
 
+def delete_tweet_ex(tweet_id):
+    """X API v2 で投稿を削除する。(ok, error_kind) を返す（OAuth1 のユーザー認証）。
+
+    成功: (True, None)。削除済み（404 NotFound）も目的は達成済みなので (True, None)。
+    失敗: (False, ERR_*)。429 は ERR_RATE_LIMITED、その他の 4xx は ERR_REJECTED、
+          応答なし・5xx・予期しない応答は ERR_UNKNOWN、認証情報なしは ERR_NOT_CONFIGURED。
+    API が 200 で deleted=false を返した場合（既に手動で消した投稿などが考えられるが断定できない）は
+    成功扱いにせず ERR_UNKNOWN（人が確認する）。
+    X_POST_DRY_RUN=1 のときは削除せず (False, ERR_DRY_RUN)。例外は投げない。
+    """
+    api_key = os.environ.get("X_API_KEY")
+    api_secret = os.environ.get("X_API_SECRET")
+    access_token = os.environ.get("X_ACCESS_TOKEN")
+    access_token_secret = os.environ.get("X_ACCESS_TOKEN_SECRET")
+
+    if not all([api_key, api_secret, access_token, access_token_secret]):
+        print("  X API認証情報が未設定のため投稿を削除できない")
+        return False, ERR_NOT_CONFIGURED
+    if os.environ.get("X_POST_DRY_RUN") == "1":
+        print(f"  [DRY_RUN] 投稿の削除をスキップ (id={tweet_id})")
+        return False, ERR_DRY_RUN
+    try:
+        import tweepy
+        client = tweepy.Client(
+            consumer_key=api_key,
+            consumer_secret=api_secret,
+            access_token=access_token,
+            access_token_secret=access_token_secret,
+        )
+        client.session = _TimeoutSession()
+        response = client.delete_tweet(str(tweet_id), user_auth=True)
+        deleted = bool(response.data and response.data.get("deleted"))
+        if deleted:
+            print(f"  投稿を削除 (id={tweet_id})")
+            return True, None
+        print(f"  削除の応答が deleted=false (id={tweet_id})")
+        return False, ERR_UNKNOWN
+    except Exception as e:
+        code = _http_status(e)
+        if code == 404:
+            print(f"  削除対象の投稿が見つからない＝削除済み扱い (id={tweet_id})")
+            return True, None
+        print(f"  投稿の削除失敗: {type(e).__name__}: {e}")
+        if code == 429:
+            return False, ERR_RATE_LIMITED
+        if code is not None and 400 <= code < 500:
+            return False, ERR_REJECTED
+        return False, ERR_UNKNOWN
+
+
 def post_tweet(text, image_paths=None, reply_to_id=None, require_media=False):
     """X API v2でツイートを投稿。成功時はtweet_idを返す、失敗時はNone。
     image_paths: ファイルパスのリスト（最大4枚）。Noneまたは空リストで画像なし。

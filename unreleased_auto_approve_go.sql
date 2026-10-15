@@ -38,5 +38,12 @@ COMMENT ON COLUMN unreleased_text_reports.status     IS 'open=未対応 / resolv
 ALTER TABLE unreleased_text_reports ENABLE ROW LEVEL SECURITY;
 
 -- ──────────────────────────────────────────────
--- 2. X 投稿の削除失敗の印（unreleased_x_posts）は機能3のコミットで追記
+-- 2. unreleased_x_posts.status に delete_failed を追加（CHECK 制約の作り直し・冪等）
+--    非公開にしたカードの X 投稿を削除できなかった行の印。行は残し、人が X で消してから行を削除する
+--    （unreleased_x_posts.sql 側の制約も同じ値に更新済み。どちらの順で再実行しても delete_failed は残る）
 -- ──────────────────────────────────────────────
+ALTER TABLE unreleased_x_posts DROP CONSTRAINT IF EXISTS unreleased_x_posts_status_check;
+ALTER TABLE unreleased_x_posts ADD CONSTRAINT unreleased_x_posts_status_check
+    CHECK (status IN ('posting', 'posted', 'failed', 'rate_limited', 'unknown', 'skipped_duplicate', 'skipped_legacy', 'delete_failed'));
+
+COMMENT ON COLUMN unreleased_x_posts.status IS 'posting=処理中 / posted=投稿済み / failed=失敗（attempts<3で再試行）/ rate_limited=429（再挑戦）/ unknown=結果不明（自動再試行しない）/ skipped_duplicate=同名で投稿済み / skipped_legacy=導入前の承認済み / delete_failed=非公開時の投稿削除に失敗';

@@ -1,5 +1,41 @@
 このファイルの目的: 重要な決定を「いつ・何を・なぜ」で記録する。新しい決定は上に追記
 
+## 2026-10-15: 自動承認の開始（誤り報告・言い回しの照合・自動承認と非公開時のX投稿削除）
+
+ユーザー決定: 自動承認を始める前に、次の3つを作る。ブランチ feat/auto-approve-go（未push・未デプロイ）。自動承認そのものは環境変数 `AUTO_APPROVE_ENABLED=1` を入れるまで動かない（既定は無効）。
+
+### 1. 利用者からの「テキストの誤り報告」
+
+- 何を: 未発売カード（`/api/card-info` が kind:'proxy'）の詳細に専用ボタン「テキストの誤りを報告」。カードページ（`index-main.js` の `_renderProxyDetail`）・シミュレーターPC（`card-info-panel.js` の `_renderCard`、8番目の引数 `isUnreleased`）・スマホ詳細（`mobile-ui.js`）。フォームは共通部品 `static/shared/text-report.js/.css`（欄の選択＋ひとこと500字＋送信。スマホは下から出るシート）。API は `POST /api/card-text-report`、受付ロジックは `unreleased_text_report.py`（app.py は Origin 確認・専用レート制限バケット `_last_text_report`（IPごと30秒・`_all_rate_limit_buckets()` 登録済み）・配線だけ）。
+- 保存: 新テーブル `unreleased_text_reports`（`unreleased_auto_approve_go.sql`）。生IPは保存せず、ソルト付き SHA-256（`TEXT_REPORT_IP_SALT`。未設定なら ADMIN_KEY → SUPABASE_KEY から派生、全部無ければ固定値で警告）。公開中（approved/linked かつ hidden=false）のカード名（完全一致→fuzzy_key）以外は404。ひとことが500字を超えたら黙って切らずエラー。
+- 通知: Discord（`send_discord_message(no_mentions=True)` で `allowed_mentions: {parse: []}`。本文は300字で切り詰め）。既存の通知は挙動不変（既定 False）。
+- 管理画面: 承認待ち・公開中に「報告 N件（未対応）」札（gold。赤は使わない）、編集画面に報告一覧と「対応済みにする」。`GET /api/admin/unreleased/<id>/text-reports`・`POST /api/admin/text-reports/<id>/resolve`（どちらも ADMIN_KEY 必須。ip_hash は返さない）。SQL未適用でも一覧は壊れない（件数0・警告ログ）。
+- 報告だけでカードを非公開にはしない（ユーザー決定）。
+
+### 2. 公式テキストに無い「言い回し」の照合（kind="unknown_phrase"）
+
+- 何を: 「名詞＋助詞（を/へ/に/から/で/として）＋動詞」の組み合わせを公式コーパス（ygores_cards 13,785効果文）の出現数と比べる。形態素解析器は入れない（依存追加なし）。助詞の直後の漢字連続＋その直後のひらがなが活用語尾なら動詞、助詞なら名詞と判定する正規表現（`phrase_occurrences`）と、辞書 `data/text_check_dict.json.gz` に同梱した出現数表（`phrase`: 動詞168種・組み合わせ929種。辞書は 206,570→215,316 バイト、+約9KB）。`unreleased_text_check.VERSION=2`、`unreleased_auto_approve.VERSION=3`。
+- 強（自動承認不可・`text_suspect`）: ①動詞語幹が公式の「助詞の後の動詞」に1度も出ない（例: 「墓地へ返って」の「返」＝公式に「返」を動詞語幹にした例が0）②動詞自体は20回以上出るのに、その助詞との組が0。弱（参考表示のみ）: 名詞＋助詞が50回以上・動詞が20回以上・助詞＋動詞が5回以上と十分頻出なのに、3つの組み合わせだけが無い。強には「この後に公式でよく使われる動詞」を候補に出す（例: 「送」）。同じ位置を文字3連鎖の強い疑義が指しているときは二重計上しない。
+- 計測（`tools/text_check_calibrate.py` (a-1)(c)・2026-10-15）: 公式コーパス leave-one-out（効果文のある13,000枚）で、言い回しの強の誤検知は 0.31%（40枚。文字3連鎖の強と重なるものを除いた数。単体では 0.56%＝73枚）、弱は 0.53%（69枚）。比較として文字3連鎖の強は 1.51%。公式の効果文の動詞を別の動詞（公式に実在する語幹）に差し替えた擬似誤り3,918件では、文字3連鎖の強が43.6%、言い回しの強が単体で28.1%、3連鎖が見逃した分を言い回しが追加で拾ったのが11.2%（どちらかの強で54.8%）。人が確認済み（approved/linked）66件では、言い回しの強が1件（id 547「墓地へ行かず」＝公式表記は「墓地へは行かず」なので読み落としの可能性。要目視）・弱が1件。
+- id 529: 現行テキスト（人が確認済み）は疑義なし。「墓地へ返って発動」に戻した版は、**文字3連鎖の強でも「返」が検出される**（依頼文では「3-gram では見つからない」だったが、現行辞書では見つかる）。言い回しの照合を単体で実行しても強（「返」・候補「送」）。重なるため統合結果では文字3連鎖の1件として数える（`tests/test_unreleased_text_phrase.py`）。
+- 強にした根拠: 強の誤検知 0.31〜0.56% は文字3連鎖の強（1.51%）より低く、誤検知の例は公式の古い・特殊な動詞（「誇」「串刺」など）。誤検知のコスト（自動承認されず人が見る）は、見逃しのコスト（誤りがそのまま公開・X投稿される）より小さい。弱にした3語の組み合わせは、公式の正しい文でも名詞と動詞が離れている場合に外れるため（`」を攻撃` など）参考表示にとどめた。
+- 限界（未検証）: 擬似誤りの差し替え先は公式に実在する動詞のみ。実際の誤りの傾向を網羅した数字ではない。新しい動詞が入る新ギミックのカードは強の誤検知になりうる（人が見る）。仮置き値（`PHRASE_*`）は `TODO: calibrate from data`。
+
+### 3. 自動承認の開始と、非公開時のX投稿削除
+
+- 承認処理の切り出し: `admin_unreleased.py` の単体承認の中身を Flask 非依存の `unreleased_approve.approve_card(sb, card_id, via, ...)` に移動（状態確認→発売日補完と警告→status+approved_at→キャッシュ無効化→承認記録→画像取込→画像OKなら `start_post_thread`）。画像取込の2関数と `execute_approve_update`・`backfill_release_date` も同モジュールへ（移動のみ）。admin 側には同名の薄い委譲関数を残した（一括承認・手動画像取込・既存テストの差し替え点がそのまま使える）。一括承認の流れは変更していない（`_bg_fetch_images` はそのまま）。`start_post_thread` は X 認証が無い process（自宅PCなど）では何もしない（回収ジョブが拾う）。
+- 自動承認: `AUTO_APPROVE_ENABLED=1`（既定は無効。無効のときは DB も触らない）。取込3経路（`watch_x_unreleased`・`watch_unreleased`・admin の `fetch-x-post`）が挿入（と画像保存）の後に `maybe_auto_approve` を呼ぶ。判定（`auto_approve_verdict.eligible`）が通ったものだけ `approve_card(via="auto")`。承認のたびに Discord 通知（カード名・商品名・管理画面リンク）。失敗は警告ログ＋Discord で、取込・X の since_id の進行は止めない（`maybe_auto_approve` は例外を投げない）。
+- 1日の上限: `AUTO_APPROVE_DAILY_LIMIT=10`（JST当日。`approved_at` が当日0時以降かつ `approval_snapshot.via=="auto"` を数える。後から非公開に戻した分も数える）。超えた分は pending のまま、Discord に1日1回だけ通知（記録は `app_settings` の `AUTO_APPROVE_CAP_NOTIFIED`）。上限を数えられないときは承認しない（安全側）。仮置き（`TODO: calibrate from data`）。
+- 非公開にしたら X 投稿を削除: 承認待ちに戻す・却下（単体）・非表示にする・削除の4経路で、`unreleased_x_posts` に posted（と delete_failed）の行があれば `x_poster.delete_tweet_ex` で投稿を削除して行を消す（誤字を直して再承認すれば再投稿される）。応答は待たせずバックグラウンド。DELETE は CASCADE で行が消えるので、行を消す前に tweet_id を読む。NotFound(404) は削除済み扱い、429・その他は失敗＝行を `delete_failed` にして残し Discord 通知（`deleted:false` の応答も失敗扱い）。DRY_RUN 中は削除せずログのみ。X認証が無い process は行を残して警告（Discord にも出す）。`delete_failed` は同名の重複判定に使う（X 上に投稿が残っているため）。再表示（hidden=false）では削除しない。
+- 管理画面: 公開中一覧に「自動承認」札（`approval_snapshot.via=="auto"`。title に非公開の手段を明記）と、タブ上部に「自動承認 N件」の帯。
+- 比較して採らなかったもの: ①削除をレスポンスの中で同期実行 → X の遅延で管理操作が詰まる。②`delete_failed` を自動再試行 → 誤字の投稿が残る状況は人が判断するほうが安全で、まず通知で十分（再度の非公開操作で再試行はされる）。
+
+### 影響範囲
+unreleased_approve.py（新規）・unreleased_text_report.py（新規）・unreleased_text_check.py（④）・unreleased_auto_approve.py（VERSION=3・文言）・unreleased_x_post.py（削除・認証のない process の投稿スキップ）・x_poster.py（`delete_tweet_ex`）・discord_notify.py（`no_mentions`）・admin_unreleased.py（委譲・4経路の削除・報告API・一覧に `open_report_count` / `approval_via`）・app.py（報告API・専用バケット）・watch_x_unreleased.py / watch_unreleased.py（配線）・static/shared/text-report.*・index-main.js・card-info-panel.js・mobile-ui.js・static/admin・templates・tools/build_text_check_dict.py / text_check_calibrate.py / auto_approve_report.py・SQL `unreleased_auto_approve_go.sql`（＋`unreleased_x_posts.sql` の CHECK）。
+
+### 未検証
+実際の X API での削除（tweepy をモックして検証。429/404/403/5xx/応答なしの分類）・Discord の実送信・本番DBでの SQL 適用・Render cron / 自宅PCでの自動承認の実走。画面は Playwright（5062・API モック）でカードページとシミュレーターの PC/スマホ、管理画面を確認。iPhone実機は未確認。
+
 ## 2026-10-15: 未発売カードX投稿の文面を「公式発表の新カードを試せる場所」に変更し、リンクをシミュレーター直行へ
 
 - 何を: 本文を「公式発表の新カード「{カード名}」が、TCGYMのシミュレーターで使えるようになりました。」＋「収録：{商品名}／発売日：{日付}」（片方が無ければその項目だけ、両方無ければ行ごと省略）＋リンク＋ハッシュタグに変更（`build_tweet_text`）。【新カード情報】見出しは廃止。リンクはカードページ `/card/{名}` から `/solitaire?newcards=1&focus={カード名}`（`quote(name, safe="")` でエンコード）へ。開くと新着の未発売カード（トップの新着欄と同じ /api/new-cards、最大36枚）がデッキ欄に読み込まれ、focus のカードが強調・詳細表示される（`static/shared/newcards-entry.js`）。

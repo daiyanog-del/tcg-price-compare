@@ -1,9 +1,11 @@
-"""未発売カードの「自動承認してよいか」の判定（シャドーモード）。
+"""未発売カードの「自動承認してよいか」の判定と記録。
 
-2026-10-15 追加。この段階では承認は行わず、判定結果を記録するだけ。
+2026-10-15 追加。このモジュールは判定と記録だけを行う（承認そのものは unreleased_approve.py）。
   - 取込時（3経路）: extraction_raw.auto_approve_verdict と extracted_snapshot を保存
-  - 承認時（単体/一括）: extraction_raw.approval_snapshot を保存
+  - 承認時（単体/一括/自動）: extraction_raw.approval_snapshot を保存（via = single / bulk / auto）
   - 集計: tools/auto_approve_report.py で「候補なのに手直し/却下された」件数を見て閾値を校正する
+  - 自動承認の実行: AUTO_APPROVE_ENABLED=1 のとき、取込3経路が挿入（と画像保存）の後に
+    unreleased_approve.maybe_auto_approve を呼ぶ。判定が通ったものだけ approve_card(via="auto")
 
 Flask / Supabase 接続に依存しない（Cron・自宅PC・管理画面のどこからでも import できる）。
 """
@@ -256,8 +258,8 @@ def annotate_row(row: dict, other_names, text_context=None) -> dict:
     if not isinstance(raw, dict):
         raw = {}
         row["extraction_raw"] = raw
-    # TODO: 将来の自動承認の差し込み位置。ここで verdict["eligible"] を見て status を approved にする
-    #       （今回はシャドーモード＝記録のみ。実際に承認するスイッチは作っていない）。
+    # ここでは記録だけ。自動承認（AUTO_APPROVE_ENABLED=1）は、呼び出し側が挿入と画像の保存を終えた後に
+    # unreleased_approve.maybe_auto_approve を呼んで行う（承認は画像が揃ってからでないと X 投稿に進めないため）
     raw["auto_approve_verdict"] = verdict
     raw["text_check"] = text_check
     # 記録の作成で取込を止めない（文字列でない値などが混ざっていても警告ログだけで続ける）

@@ -16,6 +16,10 @@
     上限で止めた分は予約行を作らない（回収ジョブが後で拾う）。
   - 既定は無効。環境変数 UNRELEASED_X_POST_ENABLED=1 のときだけ動く。
   - X_POST_DRY_RUN=1 のときは投稿せず本文をログに出すだけ（予約行も作らない）。
+  - 非公開にしたときの投稿削除（2026-10-15 追加）: 承認済みカードを非公開にする操作（承認待ちに戻す・却下・
+    非表示・削除）で、posted の行があれば X の投稿を削除して行を消す（誤字を直して再承認すれば再投稿される）。
+    削除は承認操作の応答を待たせないようバックグラウンド。失敗は行を delete_failed にして残し Discord 通知。
+    DRY_RUN 中は削除もしない（ログのみ）。X認証が無い process では行を残して警告する。
 
 Flask に依存しない。Supabase クライアントは引数で受け取る。
 """
@@ -100,6 +104,9 @@ _clock = time.monotonic
 
 # 認証情報未設定の警告を1プロセスで1回だけ出すための印
 _warned_not_configured = False
+
+# 非公開時の投稿削除に失敗した行の印（行は残す。X 上の投稿はまだ生きている可能性がある）
+STATUS_DELETE_FAILED = "delete_failed"
 
 # 順番投稿を途中で打ち切る結果（続けても同じ理由で失敗する、または人の確認が要る）
 _STOP_RESULTS = frozenset({"rate_limited", "daily_limit", "not_configured", "unknown"})
@@ -496,8 +503,12 @@ def _fetch_all(query_builder_fn) -> list[dict]:
 
 
 def _posted_name_keys(sb, exclude_id: int | None = None) -> dict[str, int]:
-    """投稿済み（posted / unknown）カードの fuzzy_key → card_id。unknown は実際には投稿済みかもしれないので含める。"""
-    rows = _fetch_all(lambda: sb.table(TABLE).select("card_id").in_("status", ["posted", "unknown"]).order("card_id"))
+    """投稿済み（posted / unknown / delete_failed）カードの fuzzy_key → card_id。
+
+    unknown は実際には投稿済みかもしれないので含める。delete_failed は削除に失敗して X 上に投稿が残っているので含める。
+    """
+    rows = _fetch_all(lambda: sb.table(TABLE).select("card_id")
+                      .in_("status", ["posted", "unknown", STATUS_DELETE_FAILED]).order("card_id"))
     ids = [r["card_id"] for r in rows if r["card_id"] != exclude_id]
     keys: dict[str, int] = {}
     for i in range(0, len(ids), _IN_CHUNK):
@@ -745,14 +756,127 @@ def post_cards_sequential(sb, card_ids, *, interval: float | None = None, post_f
 
 
 def start_post_thread(sb, card_ids) -> threading.Thread | None:
-    """バックグラウンドで投稿する（承認レスポンスを待たせない）。無効時は何もしない。"""
+    """バックグラウンドで投稿する（承認レスポンスを待たせない）。
+
+    無効時、またはこの process に X の認証情報（4つ）が無いとき（DRY_RUN を除く）は何もしない。
+    認証の無い process（自宅PCの監視など）で承認したカードは、回収ジョブ（tools/post_unreleased_x.py・3時間ごと）が拾う。
+    """
     ids = list(card_ids)
     if not ids or not is_enabled():
+        return None
+    if not _is_dry_run() and not _x_configured():
+        logger.info("[unreleased_x_post] この process に X の認証情報が無いため即時投稿しない（回収ジョブが投稿する）")
         return None
     t = threading.Thread(target=post_cards_sequential, args=(sb, ids),
                          kwargs={"max_cards": MAX_BULK_POST_PER_RUN}, daemon=True, name="unreleased-x-post")
     t.start()
     return t
+
+
+# ──────────────────────────────────────────────
+# 非公開にしたときの投稿削除
+# ──────────────────────────────────────────────
+
+def collect_posted(sb, card_ids) -> list[dict]:
+    """card_ids のうち X に投稿済み（posted）か、削除に失敗している（delete_failed）カードの行を返す。
+
+    [{"card_id", "tweet_id", "name", "status"}]。tweet_id の無い行は返さない（削除できないため）。
+    DELETE（行ごと消える）の前に呼ぶこと: ON DELETE CASCADE で unreleased_x_posts の行も消え、tweet_id を読めなくなる。
+    """
+    ids = list(card_ids)
+    if not ids:
+        return []
+    rows = (sb.table(TABLE).select("card_id, status, tweet_id").in_("card_id", ids)
+            .in_("status", ["posted", STATUS_DELETE_FAILED]).execute().data or [])
+    rows = [r for r in rows if r.get("tweet_id")]
+    names: dict = {}
+    if rows:
+        try:
+            resp = sb.table("unreleased_cards").select("id, name").in_("id", [r["card_id"] for r in rows]).execute()
+            names = {r["id"]: r.get("name") or "" for r in (resp.data or [])}
+        except Exception as e:
+            logger.warning("[unreleased_x_post] 削除通知用のカード名の取得に失敗（無視）: %s", e)
+    return [{"card_id": r["card_id"], "tweet_id": str(r["tweet_id"]), "name": names.get(r["card_id"], ""),
+             "status": r.get("status")} for r in rows]
+
+
+def _mark_delete_failed(sb, row: dict, error: str) -> None:
+    """削除に失敗した行を delete_failed にする（行が既に無い＝DELETE 経路のときは何もしない）。"""
+    try:
+        (sb.table(TABLE).update({"status": STATUS_DELETE_FAILED, "last_error": error[:500], "updated_at": _now_iso()})
+         .eq("card_id", row["card_id"]).eq("tweet_id", row["tweet_id"]).execute())
+    except Exception as e:
+        logger.error("[unreleased_x_post] delete_failed の記録に失敗 card_id=%s: %s", row["card_id"], e)
+
+
+def delete_posts(sb, rows, *, delete_fn=None) -> dict:
+    """collect_posted の行の X 投稿を順に削除する。結果コードの件数を返す。例外は投げない。
+
+    成功（削除済み=404 を含む）→ unreleased_x_posts の行を消す（再承認で再投稿できる）。
+    失敗 → 行を delete_failed にして残し、Discord に通知（tweet_id つき。DELETE 経路は行が無いので通知が唯一の手がかり）。
+    DRY_RUN → 削除せずログのみ。X認証が無い process → 行を残して警告（Discord にも出す）。
+    delete_fn は (tweet_id) → (ok, error_kind)（x_poster.delete_tweet_ex）。テスト用に差し替えられる。
+    """
+    rows = list(rows)
+    counts: dict[str, int] = {}
+
+    def bump(k):
+        counts[k] = counts.get(k, 0) + 1
+
+    if not rows:
+        return counts
+    if _is_dry_run():
+        for r in rows:
+            logger.info("[unreleased_x_post] DRY_RUN: 投稿の削除をしない card_id=%s tweet_id=%s", r["card_id"], r["tweet_id"])
+            bump("dry_run")
+        return counts
+    if delete_fn is None and not _x_configured():
+        msg = ("[未発売X投稿] X の認証情報が無い process で非公開にしたため、投稿を削除できません（行は残します）: "
+               + ", ".join(f"card_id={r['card_id']} {r['name']} tweet_id={r['tweet_id']}" for r in rows[:10]))
+        logger.warning(msg)
+        _notify(msg)
+        counts["not_configured"] = len(rows)
+        return counts
+    if delete_fn is None:
+        from x_poster import delete_tweet_ex as delete_fn
+    for r in rows:
+        try:
+            ok, kind = delete_fn(r["tweet_id"])
+        except Exception as e:  # delete_tweet_ex は投げない設計。投げられたら結果不明として失敗扱い
+            ok, kind = False, f"exception:{type(e).__name__}: {e}"
+        if ok:
+            try:
+                (sb.table(TABLE).delete().eq("card_id", r["card_id"]).eq("tweet_id", r["tweet_id"]).execute())
+            except Exception as e:
+                logger.error("[unreleased_x_post] 削除済みの行の削除に失敗 card_id=%s: %s", r["card_id"], e)
+            logger.info("[unreleased_x_post] 非公開に伴い X の投稿を削除 card_id=%s tweet_id=%s", r["card_id"], r["tweet_id"])
+            bump("deleted")
+            continue
+        _mark_delete_failed(sb, r, f"X の投稿の削除に失敗: {kind}")
+        _notify(f"[未発売X投稿] 非公開にしたカードの X 投稿を削除できませんでした card_id={r['card_id']} {r['name']} "
+                f"tweet_id={r['tweet_id']} 理由={kind}。X で手動削除し、unreleased_x_posts の該当行を削除してください"
+                f"（削除済みなのに失敗が出た場合も、行を削除すれば再承認で再投稿できます）")
+        bump("failed")
+    return counts
+
+
+def start_delete_thread(sb, rows) -> threading.Thread | None:
+    """バックグラウンドで投稿を削除する（管理画面の操作の応答を待たせない）。対象が無ければ何もしない。"""
+    rows = list(rows)
+    if not rows:
+        return None
+    t = threading.Thread(target=delete_posts, args=(sb, rows), daemon=True, name="unreleased-x-delete")
+    t.start()
+    return t
+
+
+def collect_posted_safe(sb, card_ids) -> list[dict]:
+    """collect_posted の例外を握りつぶす版（管理画面の非公開操作を、X側の状態が読めないことで止めない）。"""
+    try:
+        return collect_posted(sb, card_ids)
+    except Exception as e:
+        logger.warning("[unreleased_x_post] X投稿の状態を読めず削除対象を集められなかった（非公開操作は続行）: %s", e)
+        return []
 
 
 # ──────────────────────────────────────────────

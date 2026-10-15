@@ -44,8 +44,10 @@ Flask app.py (3,200行規模) ＋ solitaire_routes.py (Blueprint)
 | unreleased_extractor.py / admin_unreleased.py / unreleased_image_store.py / reconcile_unreleased.py | 未発売カードの抽出・承認画面・画像取込・発売済み照合 |
 | x_poster.py + chart_renderer.py | 値動きランキングのX自動投稿＋グラフ生成 |
 | unreleased_x_post.py / tools/post_unreleased_x.py | 承認された未発売カードのX自動投稿（予約テーブルで二重投稿防止、承認時＋3時間ごとの回収）。既定は無効 |
-| unreleased_auto_approve.py / tools/auto_approve_report.py | 自動承認の判定（シャドーモード: 記録のみ）と集計。取込3経路が `extraction_raw.auto_approve_verdict` / `extracted_snapshot` を保存、承認時に `approval_snapshot` を保存 |
-| unreleased_text_check.py / tools/build_text_check_dict.py / tools/text_check_calibrate.py / data/text_check_dict.json.gz | 未発売カードの効果テキストの誤字検証（決定的）。公式テキスト由来の辞書で3-gram・「」内の名前・書式を検査し、強/弱の疑義を返す。強い疑義は自動承認の条件（`text_suspect`）、結果は `extraction_raw.text_check`、管理画面に一覧と再検査ボタン |
+| unreleased_auto_approve.py / tools/auto_approve_report.py | 自動承認の判定と記録・集計。取込3経路が `extraction_raw.auto_approve_verdict` / `extracted_snapshot` を保存、承認時に `approval_snapshot`（via = single / bulk / auto）を保存 |
+| unreleased_approve.py | 承認処理（`approve_card`・Flask非依存。単体承認と自動承認が共用）・承認時の画像取込・自動承認（`maybe_auto_approve`。`AUTO_APPROVE_ENABLED=1` のときだけ。1日(JST)10件まで・Discord通知）。取込3経路が挿入と画像保存の後に呼ぶ |
+| unreleased_text_report.py / static/shared/text-report.js | 未発売カードの「テキストの誤り報告」（受付・IPハッシュ保存・Discord通知・管理画面用の集計）。カードページとシミュレーター（PC/スマホ）の詳細にボタン |
+| unreleased_text_check.py / tools/build_text_check_dict.py / tools/text_check_calibrate.py / data/text_check_dict.json.gz | 未発売カードの効果テキストの誤字検証（決定的）。公式テキスト由来の辞書で3-gram・「」内の名前・書式・言い回し（名詞＋助詞＋動詞の組み合わせ、kind=unknown_phrase）を検査し、強/弱の疑義を返す。強い疑義は自動承認の条件（`text_suspect`）、結果は `extraction_raw.text_check`、管理画面に一覧と再検査ボタン |
 | notify.py | Web Push 値下がり通知（-5% かつ -50円、同一購読20時間間隔） |
 | meta_scraper.py | 環境Tier表（キャッシュ: Tier 3h / デッキ 6h、期限切れ後7日フォールバック、集計窓30→60日アダプティブ） |
 | monitor.py | ErrorTracker（連続失敗をDiscord通知）・run_health_check |
@@ -66,7 +68,8 @@ Flask app.py (3,200行規模) ＋ solitaire_routes.py (Blueprint)
 | メタ・パック | `/api/meta` `/api/meta/deck` `/api/packs` `/api/packs/cards` `/api/featured` |
 | カード情報・画像 | `/api/card-info` `/api/card-infos` `/api/card-image` `/api/card-images` `/api/card-types` `/api/card-image-proxy` |
 | デッキ取込・出力 | `/api/import-neuron` `/api/parse-deck-pdf` `/api/deck-image` |
-| Push・その他 | `/api/push/vapid-key` `/api/push/subscribe` `/api/push/unsubscribe` `/api/feedback` `/api/health` `/api/config` |
+| Push・その他 | `/api/push/vapid-key` `/api/push/subscribe` `/api/push/unsubscribe` `/api/feedback` `/api/card-text-report`（未発売カードのテキスト誤り報告。Origin確認・IPごと30秒） `/api/health` `/api/config` |
+| 管理（要 X-Admin-Key） | `/admin` `/api/admin/unreleased` 系（一覧・承認・一括承認・却下・非公開・編集・画像取込・Xポスト取込）・`/api/admin/unreleased/<id>/text-check`（再検査）・`/api/admin/unreleased/<id>/text-reports`（誤り報告の一覧）・`/api/admin/text-reports/<id>/resolve`（対応済み）。公開中にする操作の逆（承認待ちに戻す・却下・非表示・削除）は X 投稿済みなら投稿も削除する |
 | 一人回し | `/api/solitaire/replay` (POST) `/api/solitaire/replay/<id>` (GET) |
 
 ※ `/api/deck` `/api/deck-buy` `/api/deck-estimate` は GET/POST 両対応（gunicorn**デフォルト**の `limit_request_line=4094` で長いGETが400になるため。明示設定ではない点と、ローカルFlask dev serverでは再現しない点に注意）
@@ -87,6 +90,7 @@ Flask app.py (3,200行規模) ＋ solitaire_routes.py (Blueprint)
 | ygores_cards / ygores_qa / ygores_blobs / ygores_sync_meta | ygoresources キャッシュ・同期メタ |
 | tweet_log | X投稿ログ・インプレッション計測（x_poster.py / collect_x_metrics.py） |
 | unreleased_x_posts | 未発売カードのX投稿状態（card_id 主キー。posting/posted/failed/rate_limited/unknown/skipped_*。投稿対象は unreleased_cards.approved_at の有無で判定）。スキーマは `unreleased_x_posts.sql` |
+| unreleased_text_reports | 未発売カードの誤り報告（利用者から。id, unreleased_card_id, card_name, field, note, created_at, ip_hash（生IPは保存しない）, status open/resolved）。スキーマは `unreleased_auto_approve_go.sql`。`unreleased_x_posts.status` には delete_failed（非公開時の投稿削除に失敗）も入る |
 | featured_pack / pack_cards_cache | 新弾フィーチャー設定・パック収録キャッシュ（featured_pack.py） |
 
 RPC（DB側集計関数）: `get_price_movers` / `get_buyback_movers`（値動きランキング）
@@ -137,6 +141,16 @@ card_dim/shop_dim/rarity_dim を辞書表として分離）。`price_history` �
 | `DISCORD_WEBHOOK_URL` | 既存 | 投稿失敗の通知 |
 
 有効化の順序: ① `unreleased_x_posts.sql` を実行（`unreleased_cards.approved_at` 等の列追加。冪等。**コードのデプロイより先**。導入前の承認済みカードは approved_at が NULL のまま＝投稿対象外なので、有効化の直前に再実行する必要はない） ② コードをデプロイ ③ `X_POST_DRY_RUN=1` を付けて有効化しログで本文を確認 ④ DRY_RUN を外す。
+
+## 環境変数（自動承認・誤り報告、2026-10-15〜）
+
+| 変数 | 置き場所 | 内容 |
+|---|---|---|
+| `AUTO_APPROVE_ENABLED` | 取込を動かす process ごと: Render Cron `tcg-watch-x-unreleased` / Render Web Service（Xポスト取込）/ 自宅PC（`~/.cardsouba/watcher.env`） | `1` で自動承認が有効。未設定=無効（既定）。判定が通ったカードを `approve_card(via="auto")` で承認し、1日(JST)`AUTO_APPROVE_DAILY_LIMIT`=10件まで。Discord通知あり |
+| `TEXT_REPORT_IP_SALT` | Render Web Service（任意） | 誤り報告のIPハッシュのソルト。未設定なら ADMIN_KEY → SUPABASE_KEY から派生 |
+| X認証4つ・`UNRELEASED_X_POST_ENABLED` | 上記 process | 自動承認直後の即時X投稿に必要（無い process は回収ジョブが3時間以内に投稿）。非公開時の投稿削除にも認証が必要（管理画面の操作は Render Web Service なので設定済み） |
+
+有効化の順序: ① `unreleased_auto_approve_go.sql` を実行（冪等・コードより先） ② デプロイ ③ 管理画面で誤り報告ボタン・件数札の動作を確認 ④ `AUTO_APPROVE_ENABLED=1` を（まず Render Cron だけ等、1経路ずつ）設定。止めたいときは環境変数を消すだけで、以降の取込は承認待ちに入る。
 
 ## デプロイ構成
 
