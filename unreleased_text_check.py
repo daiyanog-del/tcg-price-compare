@@ -508,6 +508,10 @@ PHRASE_MIN_VERB_FOR_PAIR = 20     # 「動詞は頻出なのに、その助詞�
 PHRASE_WEAK_MIN_NP = 50           # 弱: 名詞＋助詞の出現数の下限
 PHRASE_WEAK_MIN_VERB = 20         # 弱: 動詞の出現数の下限
 PHRASE_WEAK_MIN_PAIR = 5          # 弱: 助詞＋動詞の出現数の下限
+# 言い回しの照合をする文章の長さの上限（字）。これを超える文章（異常に長い抽出結果・貼り付けの暴走など）は
+# 照合せず、弱い注記だけを出す。公式の効果文の最長は約1,000字台なので十分余裕がある
+# TODO: calibrate from data
+PHRASE_MAX_TEXT_LEN = 3000
 
 
 def _is_verb_follow(h1: str, h2: str) -> bool:
@@ -671,7 +675,10 @@ def check_text(text: str, *, card_name: str = "", extra_names=(), dictionary=Non
         out += _check_ngrams(text, d, card_name)
         # 同じ場所を文字3連鎖の強い疑義が既に指しているときは、同じ誤りの二重計上を避けて④の強は出さない
         covered = [(x["start"], x["end"]) for x in out if x["severity"] == SEVERITY_STRONG]
-        for x in _check_phrases(text, d, card_name):
+        if len(text) > PHRASE_MAX_TEXT_LEN:
+            out.append(_suspect("text_too_long", SEVERITY_WEAK, text, 0, 1,
+                                f"効果テキストが{len(text)}字と長いため、言い回しの照合をしていません（参考）"))
+        for x in ([] if len(text) > PHRASE_MAX_TEXT_LEN else _check_phrases(text, d, card_name)):
             if x["severity"] == SEVERITY_STRONG and any(x["start"] < e and s0 < x["end"] for s0, e in covered):
                 continue
             out.append(x)

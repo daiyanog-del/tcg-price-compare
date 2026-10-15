@@ -362,7 +362,8 @@ def reserve(sb, card_id: int) -> str:
 def _notify(message: str) -> None:
     try:
         from discord_notify import send_discord_message
-        send_discord_message(message)
+        # カード名など外部由来の文字列を載せるので、メンション（@everyone 等）は無効化する
+        send_discord_message(message, no_mentions=True)
     except Exception as e:
         logger.warning("[unreleased_x_post] Discord通知失敗: %s", e)
 
@@ -643,10 +644,47 @@ def _post_card(sb, card_id: int, *, post_fn, today: date, interval: float, sleep
         if reserved == "error":
             return "error"
         _wait_interval(interval, sleep)
+        # 予約〜間隔待ちの間（最大 POST_INTERVAL_SEC×件数）に、管理者が非公開にしたかもしれない。
+        # 送る直前にカードを読み直して投稿条件を再判定し、不可なら予約行を消して送らない
+        fresh = _fetch_card(sb, card_id)
+        fresh_image = _fetch_visible_image_url(sb, card_id) if fresh else ""
+        ok_now, reason_now = (is_postable(fresh, bool(fresh_image), today) if fresh else (False, "missing"))
+        if not ok_now:
+            logger.info("[unreleased_x_post] 送信直前の再判定で投稿しない card_id=%s: %s", card_id, reason_now)
+            _release_reservation(sb, card_id)
+            return "not_postable"
         try:
-            return _send(sb, card, text, image_url, post_fn)
+            result = _send(sb, fresh, text, fresh_image or image_url, post_fn)
         finally:
             _mark_attempt_time()
+    if result == "posted":
+        _delete_if_unpublished_after_post(sb, card_id)
+    return result
+
+
+def _release_reservation(sb, card_id: int) -> None:
+    """送らなかった予約行（posting）を消す。他の状態の行は触らない。"""
+    try:
+        sb.table(TABLE).delete().eq("card_id", card_id).eq("status", "posting").execute()
+    except Exception as e:
+        logger.error("[unreleased_x_post] 予約行の解除に失敗 card_id=%s: %s", card_id, e)
+
+
+def _delete_if_unpublished_after_post(sb, card_id: int) -> None:
+    """投稿が成功した直後にカードを確認し、送信中に非公開にされていたら投稿を削除する。
+
+    非公開化の操作時点では行が posting（tweet_id なし）で削除できなかった場合の取りこぼしを塞ぐ。
+    """
+    try:
+        card = _fetch_card(sb, card_id)
+        if card and card.get("status") == "approved" and not card.get("hidden"):
+            return
+        logger.warning("[unreleased_x_post] 送信中に非公開にされたため、投稿済みの投稿を削除する card_id=%s", card_id)
+        delete_posts(sb, collect_posted(sb, [card_id]))
+    except Exception as e:
+        logger.error("[unreleased_x_post] 投稿後の公開状態の確認に失敗 card_id=%s: %s", card_id, e)
+        _notify(f"[未発売X投稿] 投稿後の公開状態を確認できませんでした card_id={card_id}: {e}。"
+                f"非公開にしていたなら X 投稿を手動で確認してください")
 
 
 def _wait_interval(interval: float, sleep) -> None:
@@ -778,17 +816,20 @@ def start_post_thread(sb, card_ids) -> threading.Thread | None:
 # ──────────────────────────────────────────────
 
 def collect_posted(sb, card_ids) -> list[dict]:
-    """card_ids のうち X に投稿済み（posted）か、削除に失敗している（delete_failed）カードの行を返す。
+    """card_ids のうち X への投稿に関わる行を返す。
 
-    [{"card_id", "tweet_id", "name", "status"}]。tweet_id の無い行は返さない（削除できないため）。
+    [{"card_id", "tweet_id", "name", "status"}]。
+    posted / delete_failed（tweet_id あり）は削除対象。posting / unknown（投稿中・結果不明。tweet_id は無いことが多い）は
+    削除できないが、非公開にした時点で通知するために返す（delete_posts が通知する）。
+    tweet_id の無い posted / delete_failed は削除できないので返さない。
     DELETE（行ごと消える）の前に呼ぶこと: ON DELETE CASCADE で unreleased_x_posts の行も消え、tweet_id を読めなくなる。
     """
     ids = list(card_ids)
     if not ids:
         return []
     rows = (sb.table(TABLE).select("card_id, status, tweet_id").in_("card_id", ids)
-            .in_("status", ["posted", STATUS_DELETE_FAILED]).execute().data or [])
-    rows = [r for r in rows if r.get("tweet_id")]
+            .in_("status", ["posted", STATUS_DELETE_FAILED, "posting", "unknown"]).execute().data or [])
+    rows = [r for r in rows if r.get("tweet_id") or r.get("status") in ("posting", "unknown")]
     names: dict = {}
     if rows:
         try:
@@ -796,8 +837,8 @@ def collect_posted(sb, card_ids) -> list[dict]:
             names = {r["id"]: r.get("name") or "" for r in (resp.data or [])}
         except Exception as e:
             logger.warning("[unreleased_x_post] 削除通知用のカード名の取得に失敗（無視）: %s", e)
-    return [{"card_id": r["card_id"], "tweet_id": str(r["tweet_id"]), "name": names.get(r["card_id"], ""),
-             "status": r.get("status")} for r in rows]
+    return [{"card_id": r["card_id"], "tweet_id": str(r["tweet_id"]) if r.get("tweet_id") else None,
+             "name": names.get(r["card_id"], ""), "status": r.get("status")} for r in rows]
 
 
 def _mark_delete_failed(sb, row: dict, error: str) -> None:
@@ -823,6 +864,14 @@ def delete_posts(sb, rows, *, delete_fn=None) -> dict:
     def bump(k):
         counts[k] = counts.get(k, 0) + 1
 
+    # 投稿中（posting）・結果不明（unknown）のまま非公開にした行は削除できない。人が X を確認できるよう通知する
+    # （posting は送信直前の再判定と投稿後の確認が取りこぼしを塞ぐが、unknown は人の確認が要る）
+    in_flight = [r for r in rows if r.get("status") in ("posting", "unknown") and not r.get("tweet_id")]
+    if in_flight:
+        _notify("[未発売X投稿] 投稿中／結果不明のまま非公開にしたカードがあります。X に投稿が出ていれば手動で削除してください: "
+                + ", ".join(f"card_id={r['card_id']} {r['name']}（{r['status']}）" for r in in_flight[:10]))
+        counts["in_flight"] = len(in_flight)
+    rows = [r for r in rows if r.get("tweet_id")]
     if not rows:
         return counts
     if _is_dry_run():

@@ -237,3 +237,20 @@ def test_report_counts_phrase_as_reliable_strong():
     snap = {"text_check": {"strong_by_kind": {"unknown_phrase": 1}}}
     report._tally_text_check(text, {"id": 1, "name": "A"}, raw, snap, [])
     assert len(text["approval_flagged_unedited"]) == 1
+
+
+# ── 長すぎる文章は言い回しの照合をしない（reviewer 指摘）──
+
+def test_overlong_text_skips_phrase_check_with_weak_note():
+    d = tc.TextCheckDict([], [], [], {}, _table())
+    long_text = "①：モンスター1体を墓地へ返って発動できる。" + "あ" * (tc.PHRASE_MAX_TEXT_LEN + 1)
+    res = tc.check_text(long_text, dictionary=d)
+    assert not [x for x in res if x["kind"] == "unknown_phrase"]
+    notes = [x for x in res if x["kind"] == "text_too_long"]
+    assert len(notes) == 1 and notes[0]["severity"] == "weak"
+    # 上限ちょうどは照合する
+    ok_text = ("①：モンスター1体を墓地へ返って発動できる。" + "あ" * tc.PHRASE_MAX_TEXT_LEN)[:tc.PHRASE_MAX_TEXT_LEN]
+    d2 = tc.TextCheckDict(sorted(tc.ngram_set(tc.token_string(tc.tokenize(ok_text)))), [], [], {}, _table())
+    res2 = tc.check_text(ok_text, dictionary=d2)
+    assert [x["severity"] for x in res2 if x["kind"] == "unknown_phrase"] == ["strong"]
+    assert not [x for x in res2 if x["kind"] == "text_too_long"]

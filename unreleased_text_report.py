@@ -13,7 +13,8 @@ import hashlib
 import logging
 import os
 import threading
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone
 
 from name_normalize import fuzzy_key
 
@@ -40,6 +41,19 @@ _DISCORD_NOTE_MAX = 300
 
 # 公開中（サイトのカード詳細に出る）とみなす status。card_display の未発売取得条件と同じ
 _PUBLIC_STATUSES = ("approved", "linked")
+
+# 乱用対策（IP を変えても1ホストから大量に送られても、DB と Discord が埋まらないようにする）
+# 同じ IP（ハッシュ）が同じカードに送れるのは1日1件まで
+PER_IP_CARD_WINDOW = timedelta(days=1)
+# 全体の受付は1時間あたりこの件数まで。超えたら保存せず 429
+# TODO: calibrate from data
+REPORT_HOURLY_LIMIT = 30
+# Discord 通知は最短この間隔に1通。間の分は件数にまとめて、窓の終わりに1通送る
+# TODO: calibrate from data
+NOTIFY_WINDOW_SEC = 300
+# 公開中カード名の読み込み結果を使い回す秒数（存在しない名前の照合のたびに全件を読まないため）
+# TODO: calibrate from data
+PUBLIC_NAMES_TTL_SEC = 60
 
 _warned_salt = False
 
@@ -104,20 +118,34 @@ def find_public_card(sb, name: str) -> dict | None:
     key = fuzzy_key(name)
     if not key:
         return None
-    # 記号・全半角のゆれを吸収した再照合。公開中の名前だけを読む（数百件規模）
-    rows, offset = [], 0
-    while True:
-        batch = (sb.table("unreleased_cards").select("id, name")
-                 .in_("status", list(_PUBLIC_STATUSES)).eq("hidden", False)
-                 .order("id").range(offset, offset + 999).execute().data or [])
-        rows.extend(batch)
-        if len(batch) < 1000:
-            break
-        offset += 1000
-    for r in rows:
+    # 記号・全半角のゆれを吸収した再照合。公開中の名前は短時間キャッシュする
+    for r in _public_names(sb):
         if fuzzy_key(r.get("name") or "") == key:
             return r
     return None
+
+
+_names_cache: dict = {"at": 0.0, "sb": None, "rows": []}
+_names_lock = threading.Lock()
+
+
+def _public_names(sb, *, clock=time.monotonic) -> list[dict]:
+    """公開中カードの [{id, name}]。PUBLIC_NAMES_TTL_SEC 秒キャッシュする（存在しない名前を連打されても全件読みは1回）。"""
+    with _names_lock:
+        now = clock()
+        if _names_cache["sb"] is sb and now - _names_cache["at"] < PUBLIC_NAMES_TTL_SEC:
+            return _names_cache["rows"]
+        rows, offset = [], 0
+        while True:
+            batch = (sb.table("unreleased_cards").select("id, name")
+                     .in_("status", list(_PUBLIC_STATUSES)).eq("hidden", False)
+                     .order("id").range(offset, offset + 999).execute().data or [])
+            rows.extend(batch)
+            if len(batch) < 1000:
+                break
+            offset += 1000
+        _names_cache.update(at=now, sb=sb, rows=rows)
+        return rows
 
 
 def build_discord_message(card_name: str, field: str, note: str, card_id, base_url: str = "") -> str:
@@ -132,15 +160,82 @@ def build_discord_message(card_name: str, field: str, note: str, card_id, base_u
     return "\n".join(lines)
 
 
-def _notify_async(message: str) -> None:
-    """Discord 通知をバックグラウンドで送る（外部HTTPの遅延で応答を待たせない）。メンションは無効。"""
-    def run():
-        try:
-            from discord_notify import send_discord_message
-            send_discord_message(message, no_mentions=True)
-        except Exception as e:
-            logger.warning("[text_report] Discord通知失敗: %s", e)
-    threading.Thread(target=run, daemon=True, name="text-report-notify").start()
+def _send_discord(message: str) -> None:
+    try:
+        from discord_notify import send_discord_message
+        send_discord_message(message, no_mentions=True)
+    except Exception as e:
+        logger.warning("[text_report] Discord通知失敗: %s", e)
+
+
+class NotifyBatcher:
+    """Discord 通知を最短 window 秒に1通にまとめる。
+
+    窓が開いていないときの報告は即送信して窓を開く。窓の間の報告は件数だけ数え、窓の終わりに
+    「直近N分に M件」を1通送る（その後、また窓を開く）。同じ process の中だけの制御。
+    send / timer_factory は差し替えられる（テスト用）。外部HTTPで応答を待たせないよう送信は別スレッド。
+    """
+
+    def __init__(self, send=_send_discord, window: float | None = None, timer_factory=threading.Timer):
+        self.send = send
+        self.window = NOTIFY_WINDOW_SEC if window is None else window
+        self.timer_factory = timer_factory
+        self.lock = threading.Lock()
+        self.open = False
+        self.suppressed: list[str] = []
+
+    def _send_async(self, message: str) -> None:
+        threading.Thread(target=self.send, args=(message,), daemon=True, name="text-report-notify").start()
+
+    def _arm(self) -> None:
+        self.open = True
+        t = self.timer_factory(self.window, self._flush)
+        t.daemon = True
+        t.start()
+
+    def submit(self, message: str, label: str = "") -> bool:
+        """報告を1件通知する。即送信したら True、まとめに回したら False。"""
+        with self.lock:
+            if self.open:
+                self.suppressed.append(label)
+                return False
+            self._arm()
+        self._send_async(message)
+        return True
+
+    def _flush(self) -> None:
+        with self.lock:
+            labels, self.suppressed = self.suppressed, []
+            if not labels:
+                self.open = False
+                return
+            self._arm()   # まとめを送った後も次の窓を開く（連続しても1窓1通）
+        shown = "、".join(dict.fromkeys(x for x in labels if x))[:300]
+        self._send_async(f"[未発売テキスト誤り報告] 直近{int(self.window // 60)}分にさらに{len(labels)}件の報告がありました"
+                         f"（{shown}）。詳細は管理画面で確認してください")
+
+
+_batcher = NotifyBatcher()
+
+
+def _notify_async(message: str, label: str = "") -> None:
+    """Discord 通知（短時間に複数来たらまとめる）。メンションは無効。"""
+    _batcher.submit(message, label)
+
+
+def over_limits(sb, card_id, ip_hash: str, *, now: datetime | None = None) -> str | None:
+    """乱用対策の上限に当たっていれば理由コード（"duplicate" / "hourly"）、なければ None。保存前に呼ぶ。"""
+    now = now or datetime.now(timezone.utc)
+    since_day = (now - PER_IP_CARD_WINDOW).isoformat()
+    dup = (sb.table(TABLE).select("id").eq("ip_hash", ip_hash).eq("unreleased_card_id", card_id)
+           .gte("created_at", since_day).limit(1).execute().data)
+    if dup:
+        return "duplicate"
+    since_hour = (now - timedelta(hours=1)).isoformat()
+    recent = (sb.table(TABLE).select("id").gte("created_at", since_hour).limit(REPORT_HOURLY_LIMIT).execute().data or [])
+    if len(recent) >= REPORT_HOURLY_LIMIT:
+        return "hourly"
+    return None
 
 
 def process_report(sb, body, ip: str, *, notify=None, base_url: str = "") -> tuple[dict, int]:
@@ -154,15 +249,26 @@ def process_report(sb, body, ip: str, *, notify=None, base_url: str = "") -> tup
     card = find_public_card(sb, clean["name"])
     if not card:
         return {"error": "対象のカードが見つかりません"}, 404
+    ip_hash = hash_ip(ip)
+    limited = over_limits(sb, card["id"], ip_hash)
+    if limited == "duplicate":
+        return {"error": "このカードへの報告は受け付け済みです。明日以降にまたお知らせください"}, 429
+    if limited == "hourly":
+        return {"error": "現在報告が集中しています。しばらく待ってからもう一度お試しください"}, 429
     sb.table(TABLE).insert({
         "unreleased_card_id": card["id"],
         "card_name": card["name"],
         "field": clean["field"],
         "note": clean["note"],
-        "ip_hash": hash_ip(ip),
+        "ip_hash": ip_hash,
         "status": "open",
+        "created_at": datetime.now(timezone.utc).isoformat(),   # 上限の集計と同じ時計で明示する
     }).execute()
-    (notify or _notify_async)(build_discord_message(card["name"], clean["field"], clean["note"], card["id"], base_url))
+    message = build_discord_message(card["name"], clean["field"], clean["note"], card["id"], base_url)
+    if notify is not None:
+        notify(message)
+    else:
+        _notify_async(message, card["name"])
     return {"ok": True}, 200
 
 

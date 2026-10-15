@@ -39,8 +39,10 @@ def _card(cid=1, status="pending", eligible=True, **over):
 
 
 def _sb(cards=None, **tables):
-    t = {"unreleased_cards": cards if cards is not None else [], "unreleased_x_posts": [], "app_settings": [],
-         "official_card_images": []}
+    cards = cards if cards is not None else []
+    # 自動承認は公開用の画像があることが前提なので、既定ではどのカードにも可視画像を付ける
+    images = [{"id": c["id"], "unreleased_card_id": c["id"], "hidden": False, "deleted_at": None} for c in cards]
+    t = {"unreleased_cards": cards, "unreleased_x_posts": [], "app_settings": [], "official_card_images": images}
     t.update(tables)
     return FakeSB(t, pks={"unreleased_cards": "id", "unreleased_x_posts": "card_id", "app_settings": "key"})
 
@@ -160,7 +162,7 @@ def test_count_auto_approved_today_uses_jst_day_and_via():
     now = datetime(2026, 10, 15, 10, 0, tzinfo=JST)
 
     def r(i, at, via):
-        return {"id": i, "approved_at": at, "extraction_raw": {"approval_snapshot": {"via": via}}}
+        return {"id": i, "approved_at": at, "approved_via": via, "extraction_raw": {}}
 
     sb = _sb([
         r(1, "2026-10-14T14:59:59+00:00", "auto"),   # JST 14日 23:59:59 → 前日
@@ -503,6 +505,7 @@ def test_toggle_hidden_deletes_only_when_hiding(admin):
 
 
 def test_delete_reads_tweet_id_before_row_is_deleted(admin, monkeypatch):
+    admin.sb.tables["unreleased_cards"][0]["status"] = "pending"   # 物理削除になるのは公開中以外
     seen = {}
     orig = admin_module._x_post.collect_posted_safe
 
@@ -554,3 +557,187 @@ def test_admin_list_exposes_approval_via(admin):
     row["extracted_at"] = "2026-10-15T00:00:00+00:00"
     resp = admin.get("/api/admin/unreleased?status=approved", headers=admin.h)
     assert resp.status_code == 200 and resp.get_json()["cards"][0]["approval_via"] == "auto"
+
+
+# ── reviewer 指摘の修正 ──
+
+def test_delete_of_public_card_becomes_reject_and_keeps_row(admin):
+    """公開中のカードは物理削除せず却下にする（行を残す）。X 投稿の削除は従来どおり。"""
+    resp = admin.delete("/api/admin/unreleased/1", headers=admin.h)
+    assert resp.status_code == 200 and resp.get_json()["rejected_instead"] is True
+    assert [r["status"] for r in admin.sb.tables["unreleased_cards"]] == ["rejected"]
+    assert _tweets(admin.captured) == [[(1, "111")]]
+
+
+def test_approve_records_approved_via_and_bulk_route_too(monkeypatch):
+    sb = _sb([_card(1), _card(2)])
+    ap.approve_card(sb, 1, "auto", fetch_image=lambda **kw: (False, "x"), invalidate_cache=lambda: None)
+    assert sb.tables["unreleased_cards"][0]["approved_via"] == "auto"
+    src = Path(admin_module.__file__).read_text(encoding="utf-8")
+    assert '"approved_via": "bulk"' in src
+
+
+def test_execute_approve_update_drops_missing_columns_one_by_one():
+    calls = []
+
+    class Q:
+        def __init__(self, fields):
+            self.fields = fields
+
+        def execute(self):
+            calls.append(dict(self.fields))
+            if "approved_via" in self.fields:
+                raise RuntimeError('column "approved_via" of relation does not exist')
+            if "approved_at" in self.fields:
+                raise RuntimeError('column "approved_at" of relation does not exist')
+            return "ok"
+
+    out = ap.execute_approve_update(Q, {"status": "approved", "approved_at": "t", "approved_via": "auto"})
+    assert out == "ok" and calls[-1] == {"status": "approved"} and len(calls) == 3
+    with pytest.raises(RuntimeError):
+        ap.execute_approve_update(lambda f: type("X", (), {"execute": lambda self: (_ for _ in ()).throw(RuntimeError("other"))})(),
+                                  {"status": "approved", "approved_via": "auto"})
+
+
+def test_count_ignores_cards_without_approved_via_column_value():
+    sb = _sb([{"id": 1, "approved_at": "2026-10-15T02:00:00+00:00", "approved_via": None, "extraction_raw": {}}])
+    assert ap.count_auto_approved_today(sb, datetime(2026, 10, 15, 10, 0, tzinfo=JST)) == 0
+
+
+def test_auto_approve_skips_reentry_of_same_source_and_name(monkeypatch, notes):
+    monkeypatch.setenv("AUTO_APPROVE_ENABLED", "1")
+    old = _card(1, status="rejected", source_url="https://x.com/a/status/1",
+                extraction_raw={"extracted_snapshot": {"name": "同名カード"}})
+    new = _card(2, name="同名カード", source_url="https://x.com/a/status/1",
+                extraction_raw={"extracted_snapshot": {"name": "同名カード"},
+                                "auto_approve_verdict": {"eligible": True, "reasons": []}})
+    sb = _sb([old, new])
+    called = []
+    out = ap.maybe_auto_approve(sb, [new], approve=lambda *a: called.append(a) or {"status": "ok"})
+    assert called == [] and out == {"skipped": 1}
+    v = sb.tables["unreleased_cards"][1]["extraction_raw"]["auto_approve_verdict"]
+    assert v["eligible"] is False and "same_source_name_seen" in v["reasons"]
+    from unreleased_auto_approve import reason_label
+    assert reason_label("same_source_name_seen") != "same_source_name_seen"
+
+
+def test_auto_approve_other_card_same_source_is_fine(monkeypatch):
+    monkeypatch.setenv("AUTO_APPROVE_ENABLED", "1")
+    a = _card(1, source_url="https://x.com/a/status/1", extraction_raw={"extracted_snapshot": {"name": "別A"}})
+    b = _card(2, source_url="https://x.com/a/status/1",
+              extraction_raw={"extracted_snapshot": {"name": "別B"}, "auto_approve_verdict": {"eligible": True, "reasons": []}})
+    sb = _sb([a, b])
+    out = ap.maybe_auto_approve(sb, [b], approve=lambda *a: {"status": "ok"})
+    assert out == {"approved": 1}
+
+
+def test_auto_approve_requires_visible_image(monkeypatch, notes):
+    monkeypatch.setenv("AUTO_APPROVE_ENABLED", "1")
+    sb = _sb([_card(1)], official_card_images=[])
+    fetched = []
+    monkeypatch.setattr(ap, "try_fetch_image_from_extraction", lambda *a, **k: fetched.append(a) or (False, "ng"))
+    called = []
+    out = ap.maybe_auto_approve(sb, sb.tables["unreleased_cards"], approve=lambda *a: called.append(a) or {"status": "ok"})
+    assert called == [] and out == {"skipped": 1} and fetched          # 承認前に取り込みを試み、無ければ見送り
+    v = sb.tables["unreleased_cards"][0]["extraction_raw"]["auto_approve_verdict"]
+    assert "no_visible_image" in v["reasons"] and sb.tables["unreleased_cards"][0]["status"] == "pending"
+
+
+def test_auto_approve_fetches_image_before_approval_for_official_route(monkeypatch):
+    monkeypatch.setenv("AUTO_APPROVE_ENABLED", "1")
+    sb = _sb([_card(1)], official_card_images=[])
+
+    def fake_fetch(sb_, cid, url, raw, *a, **k):
+        sb_.tables["official_card_images"].append({"id": 1, "unreleased_card_id": cid, "hidden": False, "deleted_hit": 0, "deleted_at": None})
+        return True, "ok"
+
+    monkeypatch.setattr(ap, "try_fetch_image_from_extraction", fake_fetch)
+    out = ap.maybe_auto_approve(sb, sb.tables["unreleased_cards"], approve=lambda *a: {"status": "ok"})
+    assert out == {"approved": 1}
+
+
+def test_auto_approve_notification_includes_release_date_warning(monkeypatch, notes):
+    monkeypatch.setenv("AUTO_APPROVE_ENABLED", "1")
+    sb = _sb([_card(1)])
+    ap.maybe_auto_approve(sb, sb.tables["unreleased_cards"],
+                          approve=lambda *a: {"status": "ok", "release_date_warning": "発売日が過去日です"})
+    assert "発売日が過去日です" in notes[0]
+
+
+# 投稿待ち中の非公開（高1）
+
+def _post_setup(monkeypatch, sb):
+    monkeypatch.setenv("UNRELEASED_X_POST_ENABLED", "1")
+    _creds(monkeypatch)
+    monkeypatch.setattr(xp, "_download_image", lambda url: __import__("tempfile").mkstemp()[1])
+    monkeypatch.setattr(xp, "_is_released_name", lambda n: False)
+    sb.tables["official_card_images"][0]["public_url"] = "https://img.test/1.jpg"
+    return []
+
+
+def _approved_postable(cid=1):
+    return _card(cid, status="approved", approved_at="2026-10-15T00:00:00+00:00")
+
+
+def test_post_rechecks_card_just_before_sending_and_releases_reservation(monkeypatch):
+    sb = _sb([_approved_postable()])
+    _post_setup(monkeypatch, sb)
+    sent = []
+
+    def sleep_then_unpublish(sec):
+        sb.tables["unreleased_cards"][0]["status"] = "pending"   # 間隔待ちの間に非公開にされた
+
+    monkeypatch.setattr(xp, "_last_attempt_at", 0.0)
+    monkeypatch.setattr(xp, "_clock", lambda: 1.0)
+    out = xp.post_card(sb, 1, post_fn=lambda *a, **k: sent.append(1) or ("999", None), sleep=sleep_then_unpublish, interval=20)
+    assert out == "not_postable" and sent == [] and sb.tables["unreleased_x_posts"] == []
+
+
+def test_post_deletes_tweet_if_unpublished_during_send(monkeypatch):
+    sb = _sb([_approved_postable()])
+    _post_setup(monkeypatch, sb)
+    deleted = []
+    monkeypatch.setattr(x_poster, "delete_tweet_ex", lambda tid: deleted.append(tid) or (True, None))
+
+    def post(*a, **k):
+        sb.tables["unreleased_cards"][0]["hidden"] = True          # 送信中に非表示にされた
+        return "555", None
+
+    out = xp.post_card(sb, 1, post_fn=post, interval=0, sleep=lambda s: None)
+    assert out == "posted" and deleted == ["555"] and sb.tables["unreleased_x_posts"] == []
+
+
+def test_post_keeps_tweet_when_still_public(monkeypatch):
+    sb = _sb([_approved_postable()])
+    _post_setup(monkeypatch, sb)
+    monkeypatch.setattr(x_poster, "delete_tweet_ex", lambda tid: (_ for _ in ()).throw(AssertionError("消さない")))
+    assert xp.post_card(sb, 1, post_fn=lambda *a, **k: ("555", None), interval=0, sleep=lambda s: None) == "posted"
+    assert sb.tables["unreleased_x_posts"][0]["status"] == "posted"
+
+
+def test_collect_posted_includes_in_flight_and_notifies_no_mentions(monkeypatch):
+    sent = []
+    import discord_notify
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://d.test/h")
+    monkeypatch.setattr(discord_notify.requests, "post",
+                        lambda url, json=None, timeout=None: sent.append(json) or type("R", (), {"status_code": 204})())
+    sb = _sb([_card(1, status="approved"), _card(2, status="approved")])
+    sb.tables["unreleased_x_posts"] += [{"card_id": 1, "status": "posting", "tweet_id": None},
+                                        {"card_id": 2, "status": "unknown", "tweet_id": None}]
+    rows = xp.collect_posted(sb, [1, 2])
+    assert [(r["card_id"], r["status"], r["tweet_id"]) for r in rows] == [(1, "posting", None), (2, "unknown", None)]
+    out = xp.delete_posts(sb, rows, delete_fn=lambda t: (_ for _ in ()).throw(AssertionError("消せない")))
+    assert out == {"in_flight": 2}
+    assert len(sent) == 1 and sent[0]["allowed_mentions"] == {"parse": []} and "投稿中" in sent[0]["content"]
+
+
+def test_delete_failure_notification_disables_mentions(monkeypatch):
+    import discord_notify
+    sent = []
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://d.test/h")
+    monkeypatch.setattr(discord_notify.requests, "post",
+                        lambda url, json=None, timeout=None: sent.append(json) or type("R", (), {"status_code": 204})())
+    sb = _sb([_card(1, status="approved", name="@everyone")])
+    _posted(sb, 1, "111")
+    xp.delete_posts(sb, xp.collect_posted(sb, [1]), delete_fn=lambda t: (False, "unknown"))
+    assert sent and all(m["allowed_mentions"] == {"parse": []} for m in sent)

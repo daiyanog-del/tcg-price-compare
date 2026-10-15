@@ -1,5 +1,6 @@
 """未発売カードの「テキストの誤り報告」（unreleased_text_report.py・POST /api/card-text-report・管理API）のテスト。"""
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -112,7 +113,7 @@ def client(monkeypatch):
     app_module._reset_rate_limits()
     sb = _sb()
     monkeypatch.setattr(app_module, "_supabase_client", sb)
-    monkeypatch.setattr(tr, "_notify_async", lambda m: None)
+    monkeypatch.setattr(tr, "_notify_async", lambda m, label="": None)
     c = app_module.app.test_client()
     c.sb = sb
     return c
@@ -209,3 +210,103 @@ def test_js_text_report_ui():
     result = subprocess.run(["node", os.path.join(root, "tests", "js", "text_report_check.js")],
                             cwd=root, capture_output=True, text=True, encoding="utf-8")
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+# ── 乱用対策（reviewer 指摘）──
+
+def _body(name="公開カードA"):
+    return {"name": name, "field": "other", "note": "x"}
+
+
+def test_same_ip_same_card_only_once_per_day():
+    sb = _sb()
+    assert tr.process_report(sb, _body(), "1.1.1.1", notify=lambda m: None)[1] == 200
+    result, status = tr.process_report(sb, _body(), "1.1.1.1", notify=lambda m: None)
+    assert status == 429 and len(sb.tables["unreleased_text_reports"]) == 1
+    # 別IP・別カードは受け付ける
+    assert tr.process_report(sb, _body(), "2.2.2.2", notify=lambda m: None)[1] == 200
+    assert tr.process_report(sb, _body("ＳＰ－ｃａｒｄ"), "1.1.1.1", notify=lambda m: None)[1] == 200
+
+
+def test_same_ip_same_card_allowed_again_after_a_day():
+    old = {"id": 1, "unreleased_card_id": 1, "card_name": "公開カードA", "field": "other", "note": "", "status": "open",
+           "ip_hash": tr.hash_ip("1.1.1.1"),
+           "created_at": (datetime.now(timezone.utc) - timedelta(days=1, minutes=1)).isoformat()}
+    sb = _sb({"unreleased_text_reports": [old]})
+    assert tr.process_report(sb, _body(), "1.1.1.1", notify=lambda m: None)[1] == 200
+
+
+def test_hourly_global_limit_returns_429_without_saving(monkeypatch):
+    monkeypatch.setattr(tr, "REPORT_HOURLY_LIMIT", 3)
+    now = datetime.now(timezone.utc).isoformat()
+    rows = [{"id": i, "unreleased_card_id": 99, "card_name": "x", "field": "other", "note": "", "status": "open",
+             "ip_hash": f"h{i}", "created_at": now} for i in range(3)]
+    sb = _sb({"unreleased_text_reports": rows})
+    result, status = tr.process_report(sb, _body(), "9.9.9.9", notify=lambda m: None)
+    assert status == 429 and len(sb.tables["unreleased_text_reports"]) == 3
+
+
+def test_hourly_limit_ignores_old_reports(monkeypatch):
+    monkeypatch.setattr(tr, "REPORT_HOURLY_LIMIT", 2)
+    old = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    rows = [{"id": i, "unreleased_card_id": 99, "card_name": "x", "field": "other", "note": "", "status": "open",
+             "ip_hash": f"h{i}", "created_at": old} for i in range(5)]
+    sb = _sb({"unreleased_text_reports": rows})
+    assert tr.process_report(sb, _body(), "9.9.9.9", notify=lambda m: None)[1] == 200
+
+
+class _FakeTimer:
+    created = []
+
+    def __init__(self, interval, fn):
+        self.interval, self.fn, self.daemon = interval, fn, False
+        _FakeTimer.created.append(self)
+
+    def start(self):
+        pass
+
+
+def test_notify_batcher_sends_first_then_summarises():
+    _FakeTimer.created.clear()
+    sent = []
+    b = tr.NotifyBatcher(send=sent.append, window=300, timer_factory=_FakeTimer)
+    import threading as _t
+    real_thread = _t.Thread
+    # 送信スレッドを同期実行にする
+    b._send_async = lambda m: sent.append(m)
+    sent.clear()
+    assert b.submit("m1", "A") is True
+    assert b.submit("m2", "B") is False and b.submit("m3", "B") is False
+    assert sent == ["m1"] and len(_FakeTimer.created) == 1
+    _FakeTimer.created[0].fn()            # 窓の終わり
+    assert len(sent) == 2 and "2件" in sent[1] and "B" in sent[1]
+    assert len(_FakeTimer.created) == 2   # まとめを送ったので次の窓を開く
+    _FakeTimer.created[1].fn()            # 何も溜まっていなければ窓を閉じるだけ
+    assert len(sent) == 2 and b.open is False
+    assert b.submit("m4", "C") is True and sent[-1] == "m4"
+    assert real_thread
+
+
+def test_public_names_cached_for_ttl(monkeypatch):
+    sb = _sb()
+    reads = []
+    orig = sb.table
+
+    def counting(name):
+        if name == "unreleased_cards":
+            reads.append(1)
+        return orig(name)
+
+    monkeypatch.setattr(sb, "table", counting)
+    tr._names_cache.update(at=0.0, sb=None, rows=[])
+    for _ in range(5):
+        assert tr.find_public_card(sb, "存在しない名前") is None
+    # 毎回の完全一致の問い合わせ（5回）＋ fuzzy 用の全件読み（キャッシュで1回だけ）
+    assert len(reads) == 5 + 1
+    tr._names_cache.update(at=0.0, sb=None, rows=[])
+    tr._public_names(sb, clock=lambda: 1000.0)
+    n = len(reads)
+    tr._public_names(sb, clock=lambda: 1001.0)                          # TTL 内→読まない
+    assert len(reads) == n
+    tr._public_names(sb, clock=lambda: 1000.0 + tr.PUBLIC_NAMES_TTL_SEC + 1)   # TTL 超過→読み直す
+    assert len(reads) == n + 1

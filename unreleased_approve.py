@@ -52,22 +52,32 @@ def backfill_release_date(product_name: str, exclude_id: int) -> str | None:
     return evidence['release_date'] if evidence['status'] == 'verified' else None
 
 
-def execute_approve_update(build_query, fields: dict):
-    """status を approved にする UPDATE を実行する。fields には approved_at を含める。
+# 承認の UPDATE に同梱する、後から追加された列（SQL 未適用の間は外して承認を成立させる）
+_OPTIONAL_APPROVE_COLUMNS = ("approved_at", "approved_via")
 
-    approved_at 列が未作成（SQL の適用前にコードだけ先にデプロイされた）ときは、承認自体を止めないよう
-    approved_at 抜きで再実行する（警告ログ）。その間に承認されたカードは approved_at が NULL のため
-    X に投稿されない。根本対応は unreleased_x_posts.sql の適用（手順は SQL 冒頭に記載）。
+
+def execute_approve_update(build_query, fields: dict):
+    """status を approved にする UPDATE を実行する。fields には approved_at / approved_via を含める。
+
+    approved_at / approved_via 列が未作成（SQL の適用前にコードだけ先にデプロイされた）ときは、承認自体を止めないよう
+    エラーに名前が出た列を抜いて再実行する（警告ログ）。
+      - approved_at が NULL の間に承認されたカードは X に投稿されない（根本対応は unreleased_x_posts.sql の適用）
+      - approved_via が NULL の間の承認は、自動承認の1日の上限に数えられない
+        （根本対応は unreleased_auto_approve_go.sql の適用。自動承認を有効にする前に適用すること）
     build_query(fields) は execute 前のクエリを返す関数。
     """
-    try:
-        return build_query(fields).execute()
-    except Exception as e:
-        if "approved_at" not in fields or "approved_at" not in str(e):
-            raise
-        logger.warning(f"[approve] approved_at 列が無いため approved_at 抜きで承認します"
-                       f"（unreleased_x_posts.sql を適用してください。それまで承認分は X に投稿されません）: {e}")
-        return build_query({k: v for k, v in fields.items() if k != "approved_at"}).execute()
+    fields = dict(fields)
+    while True:
+        try:
+            return build_query(fields).execute()
+        except Exception as e:
+            missing = [c for c in _OPTIONAL_APPROVE_COLUMNS if c in fields and c in str(e)]
+            if not missing:
+                raise
+            logger.warning(f"[approve] {'/'.join(missing)} 列が無いため抜きで承認します"
+                           f"（unreleased_x_posts.sql / unreleased_auto_approve_go.sql を適用してください）: {e}")
+            for c in missing:
+                fields.pop(c)
 
 
 def _default_invalidate_cache():
@@ -112,7 +122,10 @@ def approve_card(sb, card_id: int, via: str, *, fetch_image=None, invalidate_cac
     release_date = card_data.get("release_date")
     product_name = card_data.get("product_name") or ""
     # approved_at は X 自動投稿の対象判定に使う。status と同じ UPDATE で入れる
-    update_fields = {"status": "approved", "approved_at": datetime.now(timezone.utc).isoformat()}
+    # approved_via（承認の経路）は自動承認の1日の上限を数えるのに使う。approval_snapshot.via は後から失敗しうる
+    # 別の書き込みなので、数える根拠は承認の UPDATE と同じ文で書く列にする
+    update_fields = {"status": "approved", "approved_at": datetime.now(timezone.utc).isoformat(),
+                     "approved_via": via}
     release_date_note = None
     release_date_warning = None
 
@@ -401,20 +414,18 @@ def _jst_day_start_utc(now: datetime | None = None) -> str:
 
 
 def count_auto_approved_today(sb, now: datetime | None = None) -> int:
-    """JST の当日に自動承認した件数（approved_at が当日0時(JST)以降で approval_snapshot.via=="auto"）。
+    """JST の当日に自動承認した件数（approved_via=='auto' かつ approved_at が当日0時(JST)以降）。
 
     後から非公開に戻した分も数える（上限は「その日に自動で出した件数」の安全弁のため）。
-    読めなければ例外を投げる（呼び出し側は安全側＝承認しない、に倒す）。
+    approved_via 列が無い（SQL 未適用）などで読めなければ例外を投げる（呼び出し側は安全側＝承認しない、に倒す）。
+    注意: 数える→承認、の間は排他していないので、複数の取込が同時に動くと上限を数件超えうる（許容。decisions.md 参照）。
     """
     start = _jst_day_start_utc(now)
     total, offset = 0, 0
     while True:
-        rows = (sb.table("unreleased_cards").select("id, extraction_raw").gte("approved_at", start)
+        rows = (sb.table("unreleased_cards").select("id").eq("approved_via", "auto").gte("approved_at", start)
                 .order("id").range(offset, offset + 999).execute().data or [])
-        for r in rows:
-            snap = (r.get("extraction_raw") or {}).get("approval_snapshot")
-            if isinstance(snap, dict) and snap.get("via") == "auto":
-                total += 1
+        total += len(rows)
         if len(rows) < 1000:
             return total
         offset += 1000
@@ -440,13 +451,81 @@ def _notify_cap_once(sb, today: str) -> None:
         logger.warning("[auto_approve] 上限通知の記録に失敗（同じ日に重複通知する可能性）: %s", e)
 
 
+def _name_key(name) -> str:
+    from name_normalize import fuzzy_key
+    return fuzzy_key(name or "")
+
+
+def same_source_history(sb, card: dict) -> bool:
+    """同じ source_url の別の行（rejected を含む）で、抽出時の名前が今回と一致するものがあるか。
+
+    管理画面で却下・削除したカードを、次の取込でもう一度自動承認してしまう（入り直し）のを防ぐ。
+    手動登録（source_url が manual）や source_url が無いものは対象外。
+    """
+    url = (card.get("source_url") or "").strip()
+    if not url or url == "manual":
+        return False
+    raw = card.get("extraction_raw") or {}
+    mine = _name_key(((raw.get("extracted_snapshot") or {}).get("name")) or card.get("name"))
+    if not mine:
+        return False
+    rows = (sb.table("unreleased_cards").select("id, name, extraction_raw")
+            .eq("source_url", url).neq("id", card["id"]).execute().data or [])
+    for r in rows:
+        snap_name = ((r.get("extraction_raw") or {}).get("extracted_snapshot") or {}).get("name") or r.get("name")
+        if _name_key(snap_name) == mine:
+            return True
+    return False
+
+
+def has_visible_image(sb, card_id) -> bool:
+    """公開用の画像（official_card_images で hidden=false・deleted_at が NULL）があるか。"""
+    resp = (sb.table("official_card_images").select("id").eq("unreleased_card_id", card_id)
+            .eq("hidden", False).is_("deleted_at", "null").execute())
+    return bool(resp.data)
+
+
+def _record_ineligible(sb, card: dict, code: str) -> None:
+    """自動承認しなかった理由を判定（auto_approve_verdict）に追記する（管理画面の札に出る）。失敗は握りつぶす。"""
+    try:
+        from unreleased_image_store import _merge_extraction_raw
+        verdict = dict((card.get("extraction_raw") or {}).get("auto_approve_verdict") or {})
+        verdict["eligible"] = False
+        verdict["reasons"] = list(verdict.get("reasons") or []) + [code]
+        _merge_extraction_raw(sb, card["id"], {"auto_approve_verdict": verdict})
+    except Exception as e:
+        logger.warning("[auto_approve] 見送り理由の記録に失敗 card_id=%s: %s", card.get("id"), e)
+
+
+def precheck_auto_approve(sb, card: dict) -> str | None:
+    """承認前の確認。自動承認してはいけないなら理由コード、よければ None。
+
+    - same_source_name_seen: 同じ投稿元で同名のカードを以前取り込み済み（却下・削除の履歴の可能性）
+    - no_visible_image: 公開用の画像が無い。X 経由は取込時に保存済み。公式経由は承認時取込だったが、
+      自動承認は画像が揃っていることを前提にするため、ここで先に取り込みを試みて、無ければ pending のまま
+    """
+    if same_source_history(sb, card):
+        return "same_source_name_seen"
+    if not has_visible_image(sb, card["id"]):
+        try:
+            try_fetch_image_from_extraction(sb, card["id"], card.get("source_url", ""),
+                                            card.get("extraction_raw") or {})
+        except Exception as e:
+            logger.warning("[auto_approve] 承認前の画像取込に失敗 card_id=%s: %s", card["id"], e)
+        if not has_visible_image(sb, card["id"]):
+            return "no_visible_image"
+    return None
+
+
 def maybe_auto_approve(sb, cards, *, approve=None, now: datetime | None = None) -> dict:
     """取込・挿入した直後のカード行の中から、判定が通ったものを自動承認する。結果コードの件数を返す。
 
     cards: 挿入した行（id と extraction_raw.auto_approve_verdict を含むもの。name / product_name は通知に使う）。
     無効（AUTO_APPROVE_ENABLED が1でない）なら何もしない。例外は投げない（取込・since_id の進行を止めないため）。
     画像: X 経由は取込時に保存済み（呼び出し側は画像の保存後に呼ぶこと）、公式経由は approve_card が承認時に取り込む。
-    戻り値のキー: approved / not_eligible / limit / failed / error
+    戻り値のキー: approved / not_eligible / skipped / limit / failed / error
+    承認前に precheck_auto_approve（同じ投稿元の再取込・公開用の画像なし）を確認し、該当したら pending のまま
+    理由を判定に記録する（skipped）。
     """
     counts: dict[str, int] = {}
 
@@ -484,6 +563,17 @@ def maybe_auto_approve(sb, cards, *, approve=None, now: datetime | None = None) 
                 break
             name = card.get("name", "?")
             try:
+                skip = precheck_auto_approve(sb, card)
+            except Exception as e:
+                logger.warning("[auto_approve] 承認前の確認に失敗したため自動承認しない card_id=%s %s: %s", card["id"], name, e)
+                bump("failed")
+                continue
+            if skip:
+                logger.info("[auto_approve] 自動承認を見送り（承認待ちのまま） card_id=%s %s: %s", card["id"], name, skip)
+                _record_ineligible(sb, card, skip)
+                bump("skipped")
+                continue
+            try:
                 result = approve(sb, card["id"], "auto")
             except Exception as e:
                 logger.warning("[auto_approve] 自動承認に失敗（取込は続行） card_id=%s %s: %s", card["id"], name, e)
@@ -498,9 +588,10 @@ def maybe_auto_approve(sb, cards, *, approve=None, now: datetime | None = None) 
             done_today += 1
             bump("approved")
             product = card.get("product_name") or ""
+            warn = result.get("release_date_warning")
             _notify(f"[自動承認] 「{name}」" + (f"（{product}）" if product else "")
                     + f" を自動承認して公開しました（card_id={card['id']}）。問題があれば管理画面の公開中一覧で"
-                      f"「承認待ちに戻す」: {ADMIN_URL}")
+                      f"「承認待ちに戻す」: {ADMIN_URL}" + (f"\n注意: {warn}" if warn else ""))
     except Exception as e:  # 想定外でも取込を止めない
         logger.warning("[auto_approve] 想定外のエラー（取込は続行）: %s", e)
         _notify(f"[自動承認] 想定外のエラー: {type(e).__name__}: {e}")

@@ -45,7 +45,7 @@ Flask app.py (3,200行規模) ＋ solitaire_routes.py (Blueprint)
 | x_poster.py + chart_renderer.py | 値動きランキングのX自動投稿＋グラフ生成 |
 | unreleased_x_post.py / tools/post_unreleased_x.py | 承認された未発売カードのX自動投稿（予約テーブルで二重投稿防止、承認時＋3時間ごとの回収）。既定は無効 |
 | unreleased_auto_approve.py / tools/auto_approve_report.py | 自動承認の判定と記録・集計。取込3経路が `extraction_raw.auto_approve_verdict` / `extracted_snapshot` を保存、承認時に `approval_snapshot`（via = single / bulk / auto）を保存 |
-| unreleased_approve.py | 承認処理（`approve_card`・Flask非依存。単体承認と自動承認が共用）・承認時の画像取込・自動承認（`maybe_auto_approve`。`AUTO_APPROVE_ENABLED=1` のときだけ。1日(JST)10件まで・Discord通知）。取込3経路が挿入と画像保存の後に呼ぶ |
+| unreleased_approve.py | 承認処理（`approve_card`・Flask非依存。単体承認と自動承認が共用）・承認時の画像取込・自動承認（`maybe_auto_approve`。`AUTO_APPROVE_ENABLED=1` のときだけ。1日(JST)10件まで（`unreleased_cards.approved_via='auto'` で数える）・公開用の画像が前提・Discord通知）。取込3経路が挿入と画像保存の後に呼ぶ |
 | unreleased_text_report.py / static/shared/text-report.js | 未発売カードの「テキストの誤り報告」（受付・IPハッシュ保存・Discord通知・管理画面用の集計）。カードページとシミュレーター（PC/スマホ）の詳細にボタン |
 | unreleased_text_check.py / tools/build_text_check_dict.py / tools/text_check_calibrate.py / data/text_check_dict.json.gz | 未発売カードの効果テキストの誤字検証（決定的）。公式テキスト由来の辞書で3-gram・「」内の名前・書式・言い回し（名詞＋助詞＋動詞の組み合わせ、kind=unknown_phrase）を検査し、強/弱の疑義を返す。強い疑義は自動承認の条件（`text_suspect`）、結果は `extraction_raw.text_check`、管理画面に一覧と再検査ボタン |
 | notify.py | Web Push 値下がり通知（-5% かつ -50円、同一購読20時間間隔） |

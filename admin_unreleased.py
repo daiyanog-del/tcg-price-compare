@@ -876,7 +876,7 @@ def admin_bulk_approve_unreleased():
         # approved_at は X 自動投稿の対象判定に使う。status と同じ UPDATE で入れる
         _execute_approve_update(
             lambda f: _supabase.table("unreleased_cards").update(f).in_("id", target_ids),
-            {"status": "approved", "approved_at": datetime.now(timezone.utc).isoformat()},
+            {"status": "approved", "approved_at": datetime.now(timezone.utc).isoformat(), "approved_via": "bulk"},
         )
 
         approved_count = len(target_ids)
@@ -1228,7 +1228,9 @@ def admin_toggle_hidden(card_id: int):
         current_hidden = get_resp.data[0]["hidden"]
         new_hidden = not current_hidden
 
-        # 非表示にしたら X の投稿も削除する（再表示しても自動では再投稿されない。再投稿したいときは承認し直す）
+        # 非表示にしたら X の投稿も削除する（行も消す）。再表示すると、公開中（approved）・approved_at あり・
+        # 投稿行なしの条件を満たすので、回収ジョブ（tools/post_unreleased_x.py・3時間ごと）が再投稿しうる。
+        # 内容を確認した上での再表示なので、これは意図した挙動（decisions.md 参照）
         posted = _x_post.collect_posted_safe(_supabase, [card_id]) if new_hidden else []
         upd_resp = (
             _supabase.table("unreleased_cards")
@@ -1254,6 +1256,10 @@ def admin_delete_unreleased(card_id: int):
     """
     指定IDのカードを物理削除する（誤登録の取り消し用）。
     official_card_images は ON DELETE CASCADE で自動削除される。
+
+    ただし公開中（approved/linked）のカードは物理削除せず、却下（rejected）扱いにして行を残す。
+    行を消すと、同じ投稿元の再取込が新規カードとして入り直し、自動承認で再び公開されてしまうため
+    （rejected の行が「取り込み済み」の目印になる）。X 投稿の削除は従来どおり行う。
     """
     err = _require_admin_key()
     if err:
@@ -1263,6 +1269,17 @@ def admin_delete_unreleased(card_id: int):
         return jsonify({"error": "Supabase 未接続"}), 503
 
     try:
+        cur = _supabase.table("unreleased_cards").select("id, status").eq("id", card_id).execute()
+        if cur.data and cur.data[0].get("status") in ("approved", "linked"):
+            posted = _x_post.collect_posted_safe(_supabase, [card_id])
+            upd = _supabase.table("unreleased_cards").update({"status": "rejected"}).eq("id", card_id).execute()
+            if not upd.data:
+                return jsonify({"error": "対象レコードが見つかりません"}), 404
+            _card_display.invalidate_cache()
+            _x_post.start_delete_thread(_supabase, posted)
+            return jsonify({"ok": True, "deleted_id": card_id, "rejected_instead": True,
+                            "note": "公開中のカードは物理削除せず却下にしました（再取込で入り直さないため）"})
+
         # 退避した元画像のパスは、行を消す前でないと extraction_raw を読めない
         original_paths: list[str] = []
         try:

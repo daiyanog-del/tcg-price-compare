@@ -10,6 +10,9 @@
 -- 含むもの:
 --   1. unreleased_text_reports  ユーザーからの「テキストの誤り報告」（unreleased_text_report.py）
 --   2. unreleased_x_posts.status に 'delete_failed' を追加（非公開時の X 投稿削除に失敗した行の印）
+--   3. unreleased_cards.approved_via（承認の経路 single/bulk/auto）。自動承認の1日の上限を数える根拠
+--      ★自動承認（AUTO_APPROVE_ENABLED=1）を有効にする前に必ず適用すること。列が無いと上限を数えられず、
+--        自動承認は安全側で何も承認しない（警告ログ＋Discord）
 
 -- ──────────────────────────────────────────────
 -- 1. 誤り報告
@@ -47,3 +50,10 @@ ALTER TABLE unreleased_x_posts ADD CONSTRAINT unreleased_x_posts_status_check
     CHECK (status IN ('posting', 'posted', 'failed', 'rate_limited', 'unknown', 'skipped_duplicate', 'skipped_legacy', 'delete_failed'));
 
 COMMENT ON COLUMN unreleased_x_posts.status IS 'posting=処理中 / posted=投稿済み / failed=失敗（attempts<3で再試行）/ rate_limited=429（再挑戦）/ unknown=結果不明（自動再試行しない）/ skipped_duplicate=同名で投稿済み / skipped_legacy=導入前の承認済み / delete_failed=非公開時の投稿削除に失敗';
+
+-- ──────────────────────────────────────────────
+-- 3. 承認の経路（承認の UPDATE と同じ文で書かれる）。既存の承認済み行は NULL のまま
+-- ──────────────────────────────────────────────
+ALTER TABLE unreleased_cards ADD COLUMN IF NOT EXISTS approved_via TEXT NULL;
+COMMENT ON COLUMN unreleased_cards.approved_via IS '承認の経路: single=管理画面の単体承認 / bulk=一括承認 / auto=自動承認（NULL=導入前の承認）。自動承認の1日の上限の集計に使う';
+CREATE INDEX IF NOT EXISTS unreleased_cards_approved_via_idx ON unreleased_cards (approved_via, approved_at);
