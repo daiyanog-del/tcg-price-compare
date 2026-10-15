@@ -29,6 +29,7 @@ class _NoDbClient:
 def _isolate_reread_trust(monkeypatch):
     import reread_trust
     monkeypatch.setattr(reread_trust, "_client_override", _NoDbClient())
+    monkeypatch.setattr(reread_trust, "_forced_off", False)
     reread_trust.invalidate_cache()
     yield
     reread_trust.invalidate_cache()

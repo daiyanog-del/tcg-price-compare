@@ -151,7 +151,7 @@ def _tally_confidence(conf: dict, card: dict, raw: dict, status: str, edited) ->
 def _tally_trusted(trust: dict, card: dict, raw: dict, snap: dict, reported_ids: set) -> None:
     """食い違いで読み直し側を信じて通したカードの集計。承認済み/紐付け済みのみ（呼び出し側で却下を除く）。
 
-    「後で直された」= 抽出時の読み直し文（effect_text_reread.text）と現在の effect_text が違うこと。
+    「後で直された」= 抽出時の読み直し文（effect_text_reread.text）と現在の effect_text が norm() 後に違うこと。
     承認時の手直しも含む（編集の時期までは区別しない）。
     """
     if raw.get("reread_trusted_on_disagree") is not True:
@@ -160,7 +160,8 @@ def _tally_trusted(trust: dict, card: dict, raw: dict, snap: dict, reported_ids:
     trust["trusted"].append(item)
     reread = raw.get("effect_text_reread") if isinstance(raw.get("effect_text_reread"), dict) else {}
     original = reread.get("text")
-    if isinstance(original, str) and (card.get("effect_text") or "") != original:
+    from effect_text_reread import norm
+    if isinstance(original, str) and norm(card.get("effect_text") or "") != norm(original):
         trust["fixed_later"].append(item)
     if card.get("id") in reported_ids:
         trust["reported"].append(item)

@@ -28,6 +28,7 @@ REPORT_FIELDS = ("effect_text", "other")
 
 _lock = threading.Lock()
 _cache: dict = {"at": 0.0, "value": None}
+_forced_off = False       # DB に "0" を書けなかったとき、少なくともこのプロセスでは無効にする
 _client_override = None   # テスト用
 _client_cache = None
 
@@ -63,6 +64,8 @@ def parse_value(value) -> bool:
 
 def is_enabled(sb=None) -> bool:
     """食い違い時に読み直し側を信じてよいか。読めない・失敗時は False（安全側）。"""
+    if _forced_off:
+        return False
     now = time.monotonic()
     with _lock:
         if _cache["value"] is not None and now - _cache["at"] < CACHE_TTL_SEC:
@@ -86,6 +89,11 @@ def is_trusted_card(raw) -> bool:
     return isinstance(raw, dict) and raw.get(FLAG) is True
 
 
+def _notify_async(message: str) -> None:
+    """Discord 通知を別スレッドで送る（外部 HTTP で管理画面・報告の応答を待たせない）。まとめ送信はしない（重要通知のため）。"""
+    threading.Thread(target=_notify, args=(message,), daemon=True, name="reread-trust-notify").start()
+
+
 def _notify(message: str) -> None:
     try:
         from discord_notify import send_discord_message
@@ -99,6 +107,7 @@ def disable(sb, card_name: str, reason: str) -> bool:
 
     DB に書けなかったときも通知は出す（人に知らせるのが最優先）。戻り値: 今回新たに無効にした/試みたら True。
     """
+    global _forced_off
     invalidate_cache()
     try:
         sb = sb or _get_client()
@@ -110,21 +119,37 @@ def disable(sb, card_name: str, reason: str) -> bool:
         sb.table("app_settings").upsert({"key": SETTING_KEY, "value": "0"}, on_conflict="key").execute()
         written = True
     except Exception as e:  # noqa: BLE001
-        logger.error("[reread_trust] 設定の無効化に失敗: %s", e)
+        logger.error("[reread_trust] 設定の無効化に失敗（このプロセスでは無効にする）: %s", e)
+        _forced_off = True
         written = False
     invalidate_cache()
     status = ("「食い違っても読み直しを信じる」設定を自動で無効にしました（従来の厳しい条件に戻ります）。"
               if written else "設定の無効化に失敗しました。app_settings の TRUST_REREAD_ON_DISAGREE を手動で \"0\" にしてください。")
-    _notify(f"[読み直し採用] {status}\nカード: {card_name}\n理由: {reason}\n"
+    _notify_async(f"[読み直し採用] {status}\nカード: {card_name}\n理由: {reason}\n"
             f"再び有効にするには app_settings の {SETTING_KEY} を \"1\" にします（docs/decisions.md 参照）。")
     return True
 
 
-def on_effect_text_edited(sb, card_id, card_name: str, old_raw, old_text, new_text) -> bool:
-    """管理画面の編集で効果テキストが変わったとき。読み直し採用のカードなら設定を無効にする。"""
-    if not is_trusted_card(old_raw) or (old_text or "") == (new_text or ""):
+def on_effect_text_edited(sb, card_id, card_name: str, saved_raw, new_text) -> bool:
+    """管理画面の編集の保存後。読み直し採用のカードで、新しい effect_text が信じた読み直し文と（norm() 後に）違えば無効にする。
+
+    saved_raw は保存後の行の extraction_raw（信じた読み直し文は effect_text_reread.text）。
+    """
+    if not is_trusted_card(saved_raw):
         return False
-    return disable(sb, card_name, f"読み直し採用で通したカード（id={card_id}）の効果テキストが管理画面で編集されました")
+    from effect_text_reread import norm
+    info = saved_raw.get("effect_text_reread")
+    trusted_text = info.get("text") if isinstance(info, dict) else None
+    if norm(trusted_text or "") == norm(new_text or ""):
+        return False
+    return disable(sb, card_name, f"読み直し採用で通したカード（id={card_id}）の効果テキストが、信じた読み直し文から変わる編集をされました")
+
+
+def on_withdrawn(sb, card_id, card_name: str, status, raw, action: str) -> bool:
+    """公開中（approved/linked）の読み直し採用カードを非公開・却下・削除したとき。外れたとみなして無効にする。"""
+    if status not in ("approved", "linked") or not is_trusted_card(raw):
+        return False
+    return disable(sb, card_name, f"読み直し採用で通した公開中のカード（id={card_id}）が管理画面で{action}されました")
 
 
 def on_report(sb, card_id, card_name: str, field: str) -> bool:

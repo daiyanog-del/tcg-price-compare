@@ -13,14 +13,15 @@ import unreleased_text_report as tr
 from tests.fake_supabase import FakeSB
 from tests.test_effect_text_reread import _fake_read, _images, _row
 
-FIRST = "の①の方法での特殊召喚は1ターンに1度しかできない。"
-REREAD = "1ターンに1度、融合召喚及び以下の方法でのみ特殊召喚できる。"
+# 本番の食い違いと同じ型（1〜2文字の置換）: され→し
+FIRST = "①：このカードが墓地へ送られた場合に発動できる。自分フィールドのモンスター1体を選んで破壊され、デッキから1枚ドローする。"
+REREAD = "①：このカードが墓地へ送られた場合に発動できる。自分フィールドのモンスター1体を選んで破壊し、デッキから1枚ドローする。"
 
 
 @pytest.fixture
 def notices(monkeypatch):
     sent = []
-    monkeypatch.setattr(reread_trust, "_notify", sent.append)
+    monkeypatch.setattr(reread_trust, "_notify_async", sent.append)
     return sent
 
 
@@ -157,6 +158,57 @@ def test_default_without_db_is_safe_side(monkeypatch, clean_check):
     assert "effect_text" in row["extraction_raw"]["uncertain_fields"]
 
 
+# ---- 差分の大きさの上限 ----
+
+BASE = "①：このカードが墓地へ送られた場合に発動できる。自分フィールドのモンスター1体を選んで破壊し、デッキから1枚ドローする。②：このカードが除外された場合、自分は500LP回復する。"
+
+
+@pytest.mark.parametrize("first,reread", [
+    ("相手は自分のカードを1枚選び、それを破壊されて、その後デッキから1枚引くことができる。", "相手は自分のカードを1枚選び、それを破壊して、その後デッキから1枚引くことができる。"),   # され→し
+    ("「サンプル」・モンスター1体を選んで特殊召喚する。この効果は1ターンに1度しか使用できない。", "「サンプル」か モンスター1体を選んで特殊召喚する。この効果は1ターンに1度しか使用できない。"),   # ・→か
+    ("このカードは召喚したは、自分フィールドにモンスターが存在しない場合に特殊召喚できる。", "このカードは召喚した後、自分フィールドにモンスターが存在しない場合に特殊召喚できる。"),   # は→後
+])
+def test_production_style_disagreements_are_within_limits(first, reread):
+    assert rr.diff_within_trust_limits(rr.norm(first), rr.norm(reread)) is True
+
+
+def test_limits_reject_missing_line():
+    # 行（②の効果）がまるごと欠けた読み取り
+    first = BASE
+    reread = BASE.split("②")[0]
+    assert rr.diff_within_trust_limits(rr.norm(first), rr.norm(reread)) is False
+
+
+def test_limits_reject_other_card_text():
+    other = "①：自分メインフェイズに発動できる。手札からレベル4以下のモンスター1体を特殊召喚する。②：自分の墓地のこのカードを除外して発動できる。"
+    assert rr.diff_within_trust_limits(rr.norm(BASE), rr.norm(other)) is False
+
+
+def test_limits_reject_large_fabrication_same_length():
+    # 文字数はほぼ同じだが中身が大きく違う（作り話）
+    fake = BASE[:20] + "相手フィールドの全てのモンスターを破壊し、自分はデッキから2枚ドローする。" + BASE[-30:]
+    fake = fake[:len(BASE)]
+    assert rr.diff_within_trust_limits(rr.norm(BASE), rr.norm(fake)) is False
+
+
+def test_limits_reject_edge_insert_and_too_many_chars():
+    a = rr.norm(BASE)
+    assert rr.diff_within_trust_limits(a, a + "。") is True   # 1文字の端の追加は許容
+    assert rr.diff_within_trust_limits(a, a + "その後ドローする。") is False   # 端にまとまった追加
+    assert rr.diff_within_trust_limits(a, a.replace("自分は500LP回復する", "相手は800LP失う", 1)) is False   # 非一致が5文字以上（長さの比は範囲内）
+
+
+def test_limits_reject_length_ratio():
+    a = rr.norm(BASE)
+    assert rr.diff_within_trust_limits(a, a[:-8]) is False
+    assert rr.diff_within_trust_limits("", a) is False
+
+
+def test_big_disagreement_not_trusted_in_pipeline(monkeypatch, clean_check):
+    raw = _run(monkeypatch, _disagree_row(), text="1ターンに1度、融合召喚及び以下の方法でのみ特殊召喚できる。")
+    assert "effect_text" in raw["uncertain_fields"] and "reread_trusted_on_disagree" not in raw
+
+
 # ---- 設定の読み取り ----
 
 def _settings_sb(value=None, present=True):
@@ -198,7 +250,7 @@ def test_is_enabled_without_client_is_false(monkeypatch):
 # ---- 自動復帰 ----
 
 def _trusted_raw():
-    return {"reread_trusted_on_disagree": True}
+    return {"reread_trusted_on_disagree": True, "effect_text_reread": {"text": "信じた読み直し文", "agreed": False}}
 
 
 def test_disable_writes_zero_and_notifies_once(notices):
@@ -222,6 +274,21 @@ def test_disable_notifies_even_if_write_fails(notices):
     assert len(notices) == 1 and "手動" in notices[0]
 
 
+def test_write_failure_still_disables_in_process(notices):
+    reread_trust.disable(None, "カードA", "理由")
+    assert reread_trust._forced_off is True
+    # DB 側が "1" のままでも、このプロセスでは無効
+    assert reread_trust.is_enabled(_settings_sb("1")) is False
+
+
+def test_notify_async_sends_in_thread(monkeypatch):
+    import threading
+    done = threading.Event()
+    monkeypatch.setattr(reread_trust, "_notify", lambda m: done.set())
+    reread_trust._notify_async("x")
+    assert done.wait(2)
+
+
 def test_notify_disables_mentions(monkeypatch):
     import discord_notify
     calls = []
@@ -230,7 +297,7 @@ def test_notify_disables_mentions(monkeypatch):
     assert calls == [{"no_mentions": True}]
 
 
-def _admin_setup(monkeypatch, raw, effect="旧"):
+def _admin_setup(monkeypatch, raw, effect="信じた読み直し文"):
     sb = FakeSB({"unreleased_cards": [{"id": 1, "name": "カードA", "effect_text": effect, "status": "approved",
                                        "extraction_raw": raw}],
                  "app_settings": [{"key": reread_trust.SETTING_KEY, "value": "1"}]},
@@ -256,9 +323,10 @@ def test_admin_edit_of_trusted_card_disables(monkeypatch, notices):
     assert _setting(sb) == "0" and len(notices) == 1 and "カードA" in notices[0]
 
 
-def test_admin_edit_same_value_or_other_field_keeps(monkeypatch, notices):
-    sb, client = _admin_setup(monkeypatch, _trusted_raw())
-    assert _put(client, {"effect_text": "旧"}).status_code == 200
+def test_admin_edit_compares_normalized_with_trusted_reread_text(monkeypatch, notices):
+    # 信じた読み直し文と norm() 後に同じ（空白・全角半角の違いだけ）なら外れではない。他の欄の編集も同様
+    sb, client = _admin_setup(monkeypatch, _trusted_raw(), effect="旧")
+    assert _put(client, {"effect_text": "信じた 読み直し文"}).status_code == 200
     assert _put(client, {"atk": 1000}).status_code == 200
     assert _setting(sb) == "1" and notices == []
 
@@ -266,6 +334,48 @@ def test_admin_edit_same_value_or_other_field_keeps(monkeypatch, notices):
 def test_admin_edit_of_untrusted_card_keeps(monkeypatch, notices):
     sb, client = _admin_setup(monkeypatch, {})
     assert _put(client, {"effect_text": "新"}).status_code == 200
+    assert _setting(sb) == "1" and notices == []
+
+
+def test_on_effect_text_edited_without_reread_text_disables(notices):
+    sb = _settings_sb("1")
+    assert reread_trust.on_effect_text_edited(sb, 1, "A", {"reread_trusted_on_disagree": True}, "何か") is True
+
+
+@pytest.mark.parametrize("path,method,body,status,action", [
+    ("/api/admin/unreleased/1/unpublish", "post", None, "approved", "非公開"),
+    ("/api/admin/unreleased/1/reject", "post", None, "approved", "却下"),
+    ("/api/admin/unreleased/1/reject", "post", None, "linked", "却下"),
+    ("/api/admin/unreleased/1", "delete", None, "approved", "削除"),
+])
+def test_withdrawing_published_trusted_card_disables(monkeypatch, notices, path, method, body, status, action):
+    sb, client = _admin_setup(monkeypatch, _trusted_raw())
+    sb.tables["unreleased_cards"][0]["status"] = status
+    monkeypatch.setattr(admin_module._x_post, "collect_posted_safe", lambda *a, **k: [])
+    monkeypatch.setattr(admin_module._x_post, "start_delete_thread", lambda *a, **k: None)
+    resp = getattr(client, method)(path, headers={"X-Admin-Key": "k"})
+    assert resp.status_code == 200
+    assert _setting(sb) == "0" and len(notices) == 1
+
+
+@pytest.mark.parametrize("path,method,status", [
+    ("/api/admin/unreleased/1/reject", "post", "pending"),     # 未公開の却下は対象外
+    ("/api/admin/unreleased/1/reject", "post", "needs_review"),
+])
+def test_rejecting_unpublished_trusted_card_keeps(monkeypatch, notices, path, method, status):
+    sb, client = _admin_setup(monkeypatch, _trusted_raw())
+    sb.tables["unreleased_cards"][0]["status"] = status
+    monkeypatch.setattr(admin_module._x_post, "collect_posted_safe", lambda *a, **k: [])
+    monkeypatch.setattr(admin_module._x_post, "start_delete_thread", lambda *a, **k: None)
+    assert getattr(client, method)(path, headers={"X-Admin-Key": "k"}).status_code == 200
+    assert _setting(sb) == "1" and notices == []
+
+
+def test_withdrawing_untrusted_published_card_keeps(monkeypatch, notices):
+    sb, client = _admin_setup(monkeypatch, {})
+    monkeypatch.setattr(admin_module._x_post, "collect_posted_safe", lambda *a, **k: [])
+    monkeypatch.setattr(admin_module._x_post, "start_delete_thread", lambda *a, **k: None)
+    assert client.post("/api/admin/unreleased/1/unpublish", headers={"X-Admin-Key": "k"}).status_code == 200
     assert _setting(sb) == "1" and notices == []
 
 
@@ -322,13 +432,25 @@ def test_report_summary_counts_trusted_fixed_reported():
         if trusted:
             raw["reread_trusted_on_disagree"] = True
         return {"id": i, "name": f"c{i}", "status": "approved", "effect_text": text, "extraction_raw": raw}
-    cards = [card(1, "読み直し文"), card(2, "直した文"), card(3, "読み直し文"), card(4, "他", trusted=False)]
+    cards = [card(1, "読み直し文"), card(2, "直した文"), card(3, "読み直し 文"), card(4, "他", trusted=False)]
     out = rep.summarize(cards, reported_ids={3, 4})
     t = out["reread_trust"]
     assert [x["id"] for x in t["trusted"]] == [1, 2, 3]
     assert [x["id"] for x in t["fixed_later"]] == [2]
     assert [x["id"] for x in t["reported"]] == [3]
     rep.print_report(out)
+
+
+def test_admin_list_exposes_flag_for_pending_too(monkeypatch):
+    sb = FakeSB({"unreleased_cards": [{"id": 1, "name": "A", "status": "pending", "extracted_at": "2026-10-15",
+                                       "extraction_raw": _trusted_raw()}],
+                 "official_card_images": [], "unreleased_text_reports": []}, pks={"unreleased_cards": "id"})
+    monkeypatch.setattr(admin_module, "_supabase", sb, raising=False)
+    monkeypatch.setattr(admin_module, "_ADMIN_KEY", "k", raising=False)
+    import app as app_module
+    app_module.app.config.update(TESTING=True)
+    resp = app_module.app.test_client().get("/api/admin/unreleased?status=pending", headers={"X-Admin-Key": "k"})
+    assert resp.get_json()["cards"][0]["reread_trusted_on_disagree"] is True
 
 
 def test_admin_list_exposes_flag(monkeypatch):
