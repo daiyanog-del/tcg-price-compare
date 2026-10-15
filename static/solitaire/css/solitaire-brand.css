@@ -391,6 +391,9 @@
   margin-bottom: 3px;
 }
 .mydeck-import-entry:hover { background: rgba(174,197,255,0.1); }
+/* 「取り込む」を単語の途中で折り返さない。components.css の `span { color:#333 }` が
+   直接効いて暗く見えていたため、リンクの文字色を引き継がせる（2026-10-15 本番で発見） */
+.mydeck-import-word { white-space: nowrap; color: inherit; }
 .mydeck-import-entry.big {
   padding: 14px 8px;
   text-align: center;

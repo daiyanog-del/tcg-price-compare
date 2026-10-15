@@ -675,7 +675,7 @@ function renderMyDeckList() {
 
 /** ニューロン取り込みの入口（マイデッキページへのリンク）と補足 */
 function _importEntryHtml(big) {
-  return `<a class="mydeck-import-entry${big ? ' big' : ''}" href="/#mydeck-import">＋ ニューロンから<span style="white-space:nowrap">取り込む</span></a>`
+  return `<a class="mydeck-import-entry${big ? ' big' : ''}" href="/#mydeck-import">＋ ニューロンから<span class="mydeck-import-word">取り込む</span></a>`
     + '<small class="mydeck-import-note">取り込んで保存すると、ここに並びます</small>';
 }
 
