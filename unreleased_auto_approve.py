@@ -18,13 +18,18 @@ from datetime import datetime, timezone
 
 import unreleased_text_check
 from name_normalize import fuzzy_key
-from unreleased_quality import lacks_card_body
+from unreleased_quality import (
+    IMPORTANT_UNCERTAIN_FIELDS, UNCERTAIN_FIELD_LABELS, lacks_card_body,
+)
 
 logger = logging.getLogger(__name__)
 
 # 2: 効果テキストの誤字検証（text_suspect / text_unchecked）を条件に追加（2026-10-15）
 # 3: 誤字検証に言い回しの照合（unknown_phrase の強い疑義も text_suspect になる）を追加（2026-10-15）
-VERSION = 3
+# 4: confidence が medium でも、AI が「不確か」とした欄（uncertain_fields）が重要欄と重ならなければ通す（2026-10-15）。
+#    理由コード confidence_not_high は low 専用の confidence_low に分け、medium は
+#    medium_uncertain_fields / medium_uncertain_unknown にした
+VERSION = 4
 
 # ──────────────────────────────────────────────
 # 閾値（実データでの校正が必要な仮置き値）
@@ -48,6 +53,12 @@ _WHOLE_IMAGE_EPS = 1e-6
 # ──────────────────────────────────────────────
 
 REASON_LABELS = {
+    "confidence_low": "抽出の信頼度が低",
+    "confidence_missing": "抽出の信頼度が記録されていない",
+    "uncertain_important_fields": "AIが不確かとした欄に重要な欄がある",
+    "medium_uncertain_fields": "抽出の信頼度が中で、AIが不確かとした欄に重要な欄がある",
+    "medium_uncertain_unknown": "抽出の信頼度が中で、どの欄が不確かか分からない",
+    # VERSION 3 以前の判定記録に残っているコード（表示のため残す。新規の判定では出さない）
     "confidence_not_high": "抽出の信頼度が高ではない",
     "recognition_not_verified": "上部拡大での数値再読が確認済みではない",
     "release_date_not_verified": "発売日が公式情報で確認できていない",
@@ -78,6 +89,55 @@ SNAPSHOT_FIELDS = (
 def reason_label(code: str) -> str:
     """理由コードの日本語ラベル。未知コードはコードをそのまま返す。"""
     return REASON_LABELS.get(code, code)
+
+
+def uncertain_field_labels(fields) -> list[str]:
+    """uncertain_fields の日本語ラベル一覧。未知の値はそのまま返す。リスト以外は空。"""
+    if not isinstance(fields, (list, tuple)):
+        return []
+    return [UNCERTAIN_FIELD_LABELS.get(f, str(f)) for f in fields]
+
+
+def verdict_reason_labels(verdict) -> list[str]:
+    """判定の理由コードを日本語ラベルにする。medium_uncertain_fields には不確かな欄名を添える。"""
+    if not isinstance(verdict, dict):
+        return []
+    out = []
+    for code in verdict.get("reasons") or []:
+        label = reason_label(code)
+        if code in ("medium_uncertain_fields", "uncertain_important_fields"):
+            names = uncertain_field_labels(verdict.get("uncertain_fields"))
+            if names:
+                label += "（" + "、".join(names) + "）"
+        out.append(label)
+    return out
+
+
+def _confidence_reasons(card: dict, raw: dict) -> tuple[list[str], list[str]]:
+    """信頼度に関する理由コードと、重要欄に重なる不確かな欄を返す。
+
+    - 信頼度: low は不適格、high は通過、medium は uncertain_fields が1つ以上あることが必要
+      （無い＝旧データ・AI が出さなかった medium は何が不確かか分からないので不適格）。
+      信頼度が無い・想定外の値は confidence_missing（low とは別物として区別する）。
+    - 不確かな欄: 信頼度に関係なく、AI が挙げた uncertain_fields が重要欄
+      （IMPORTANT_UNCERTAIN_FIELDS）と重なれば不適格。medium は medium_uncertain_fields、
+      それ以外（high で重要欄を挙げた矛盾した応答など）は uncertain_important_fields。
+      スキーマ外の値は重要欄として扱う（安全側）。
+    """
+    conf = card.get("confidence")
+    fields = raw.get("uncertain_fields")
+    fields = list(dict.fromkeys(fields)) if isinstance(fields, list) else []
+    important = [f for f in fields if f not in UNCERTAIN_FIELD_LABELS or f in IMPORTANT_UNCERTAIN_FIELDS]
+    reasons: list[str] = []
+    if conf == "low":
+        reasons.append("confidence_low")
+    elif conf not in ("high", "medium"):
+        reasons.append("confidence_missing")
+    elif conf == "medium" and not fields:
+        reasons.append("medium_uncertain_unknown")
+    if important:
+        reasons.append("medium_uncertain_fields" if conf == "medium" else "uncertain_important_fields")
+    return reasons, important
 
 
 # ──────────────────────────────────────────────
@@ -190,8 +250,8 @@ def evaluate(card: dict, *, other_names=None, text_check=None, text_context=None
     reasons: list[str] = []
     raw = card.get("extraction_raw") or {}
 
-    if card.get("confidence") != "high":
-        reasons.append("confidence_not_high")
+    conf_reasons, important_uncertain = _confidence_reasons(card, raw)
+    reasons.extend(conf_reasons)
 
     review = raw.get("recognition_review")
     if not (isinstance(review, dict) and review.get("status") == "verified"):
@@ -231,12 +291,15 @@ def evaluate(card: dict, *, other_names=None, text_check=None, text_context=None
         if key and any(fuzzy_key(n) == key for n in other_names if n):
             reasons.append("same_name_exists")
 
-    return {
+    verdict = {
         "eligible": not reasons,
         "reasons": reasons,
         "version": VERSION,
         "at": datetime.now(timezone.utc).isoformat(),
     }
+    if important_uncertain:
+        verdict["uncertain_fields"] = important_uncertain  # 表示用（medium_uncertain_fields の内訳）
+    return verdict
 
 
 # ──────────────────────────────────────────────

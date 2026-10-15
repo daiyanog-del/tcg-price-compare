@@ -413,6 +413,15 @@ a:hover {
   padding: 1px 5px;
 }
 
+/* AIが不確かとした欄: 注意を促す情報だが危険ではないので、信頼度「中」と同じ注意色（gold）の枠線のみ。赤は使わない */
+.uncertain-fields-badge {
+  border: 1px solid var(--gold);
+  border-radius: 3px;
+  color: var(--main-color);
+  font-size: 0.72rem;
+  padding: 1px 5px;
+}
+
 .auto-verdict-badge--eligible {
   background-color: var(--green);
   color: #fff;

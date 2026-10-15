@@ -35,6 +35,8 @@ from urllib.parse import urlparse, urljoin
 
 from bs4 import BeautifulSoup
 
+from unreleased_quality import UNCERTAIN_FIELDS
+
 logger = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────
@@ -81,6 +83,28 @@ _RUSH_ONLY_TERMS = (
     "マキシマム", "MAXIMUM", "ラッシュデュエル", "RUSH DUEL",
     "【条件】", "【効果】",
 )
+
+# 公式の効果文で常に全角なのに、画像からの抽出で半角になりやすい記号。
+# 根拠（2026-10-15 ygores_cards 公式コーパス 14,655 テキストで「」の外を集計）:
+#   半角→全角の出現数  ( ) 2→1,217 / : 0→10,250 / ! 0→31 / ? 0→27 / & 0→542 / / 0→347 / ~ 0→60
+#   （半角の ( ) 2件はコーパス側の例外。括弧を含む 1,198 枚のうち半角は 2 枚のみ）
+# 半角が実在する + , - . は全角との差が小さい・または半角が実在するため対象にしない。
+_FULLWIDTH_FIX = str.maketrans({
+    "(": "（", ")": "）", ":": "：", "!": "！", "?": "？", "&": "＆", "/": "／", "~": "～",
+})
+_QUOTE_SPLIT_RE = re.compile(r"(「[^「」]*」)")
+
+
+def normalize_effect_punct(text: str) -> str:
+    """効果文・P効果の半角記号を全角へ補正する。「」の中（カード名・語）には触れない。"""
+    if not text:
+        return text
+    return "".join(
+        part if part.startswith("「") and part.endswith("」") and len(part) >= 2
+        else part.translate(_FULLWIDTH_FIX)
+        for part in _QUOTE_SPLIT_RE.split(text)
+    )
+
 
 # システムプロンプト（固定・日本語）
 _SYSTEM_PROMPT = """\
@@ -161,6 +185,13 @@ _SYSTEM_PROMPT = """\
 3. confidence の判断基準:
    - 必須情報（card_typeまたはeffect_text）が欠落している場合は最大でもmedium
    - 画像からの読み取りに推測・補完が必要な場合はlowまたはmedium
+
+3-2. uncertain_fields（不確かだった欄）:
+   - confidence を high 以外にする場合、読みに自信が持てなかった欄を必ず列挙する（1つ以上）。
+     high のときは空配列にする
+   - 使える値: name, effect_text, pendulum_effect, card_type, attribute, race,
+     level_rank_link（レベル・ランク・リンク値）, atk, def, pendulum_scale, product_name, release_date
+   - 列挙は実際に迷った欄に限る。全部を挙げたり、迷っていない欄を挙げたりしない
 
 4. 出力はJSONのみ。説明文は不要。
 """
@@ -339,6 +370,8 @@ def _get_pydantic_models():
             "pydantic が必要です。pip install pydantic でインストールしてください。"
         ) from e
 
+    UncertainField = Literal[UNCERTAIN_FIELDS]
+
     class ExtractedCard(BaseModel):
         name: str
         reading: str = ""
@@ -362,6 +395,8 @@ def _get_pydantic_models():
         # ラッシュデュエル（価格比較対象外）なら True。判別不能時は False（OCG扱い）。
         is_rush: bool = False
         confidence: Literal["high", "medium", "low"] = "medium"
+        # confidence が high でないとき、読みに自信が持てなかった欄（high なら空）
+        uncertain_fields: list[UncertainField] = []
 
         model_config = {"populate_by_name": True}
 
@@ -395,7 +430,8 @@ def _validate_and_fix(card: Any, page_url: str) -> dict | None:
     confidence = card.confidence
 
     card_type = (card.card_type or "").strip()
-    effect_text = (card.effect_text or "").strip()
+    effect_text = normalize_effect_punct((card.effect_text or "").strip())
+    pendulum_effect = normalize_effect_punct((card.pendulum_effect or "").strip())
 
     # 保険フィルタ: Claude の is_rush 判定をすり抜けても、ラッシュ専用語が
     # card_type / effect_text に現れたカードは OCG に存在しないため除外する。
@@ -433,7 +469,7 @@ def _validate_and_fix(card: Any, page_url: str) -> dict | None:
         "atk": card.atk,
         "def": (card.def_ or "").strip(),
         "pendulum_scale": card.pendulum_scale,
-        "pendulum_effect": (card.pendulum_effect or "").strip(),
+        "pendulum_effect": pendulum_effect,
         "effect_text": effect_text,
         "product_name": (card.product_name or "").strip(),
         "release_date": (card.release_date or "").strip() or None,
@@ -598,7 +634,8 @@ def _build_vision_message(processed_text: str, encoded_images: list[dict]) -> li
         '      "image_urls": ["読み取り元画像のURL"],\n'
         '      "image_url": "このカードの絵柄・カード名が写っている画像のURL（渡されたURLを正確にコピー。1枚のみ）",\n'
         '      "is_rush": false,\n'
-        '      "confidence": "high|medium|low"\n'
+        '      "confidence": "high|medium|low",\n'
+        '      "uncertain_fields": ["high 以外のとき不確かな欄名（name/effect_text/pendulum_effect/card_type/attribute/race/level_rank_link/atk/def/pendulum_scale/product_name/release_date）。high なら空配列"]\n'
         "    }\n"
         "  ]\n"
         "}\n\n"
@@ -643,7 +680,8 @@ def _build_text_message(processed_text: str) -> list[dict]:
         '      "release_date": "YYYY-MM-DD または空文字",\n'
         '      "image_urls": [],\n'
         '      "is_rush": false,\n'
-        '      "confidence": "high|medium|low"\n'
+        '      "confidence": "high|medium|low",\n'
+        '      "uncertain_fields": ["high 以外のとき不確かな欄名（name/effect_text/pendulum_effect/card_type/attribute/race/level_rank_link/atk/def/pendulum_scale/product_name/release_date）。high なら空配列"]\n'
         "    }\n"
         "  ]\n"
         "}\n\n"
@@ -727,6 +765,8 @@ def _extract_cards(processed_text: str, encoded_images: list[dict], source_url: 
                 'model': EXTRACTOR_MODEL, **usage, 'vision_mode': bool(images),
                 'source': 'x_tweet' if from_x else 'official_html',
                 'quality_version': 1,
+                # AI が「読みに自信がない」とした欄（confidence が high なら空）
+                'uncertain_fields': list(dict.fromkeys(card.uncertain_fields)),
             }
             output.append(row)
     return enrich_rows(output, client=client, model=EXTRACTOR_MODEL, encoded_images=encoded_images)
