@@ -602,9 +602,12 @@ def format_tweet(movers, direction, date_old, date_new):
     return text
 
 
-def post_tweet(text, image_paths=None, reply_to_id=None):
+def post_tweet(text, image_paths=None, reply_to_id=None, require_media=False):
     """X API v2でツイートを投稿。成功時はtweet_idを返す、失敗時はNone。
     image_paths: ファイルパスのリスト（最大4枚）。Noneまたは空リストで画像なし。
+    require_media: True のとき、画像が1枚も添付できなければ投稿せず None を返す
+        （画像アップロードに全部失敗しても本文だけで成功を返す従来動作を止めたい呼び出し側用。
+        既定 False は従来どおり）。
     """
     api_key = os.environ.get("X_API_KEY")
     api_secret = os.environ.get("X_API_SECRET")
@@ -643,6 +646,11 @@ def post_tweet(text, image_paths=None, reply_to_id=None):
                     if hasattr(e, "api_codes"):
                         print(f"    api_codes={e.api_codes} api_messages={e.api_messages}")
             media_status = f"添付済{len(media_ids)}枚" if media_ids else "アップロード失敗"
+
+        # 画像必須の呼び出しで1枚も付かなかったら、本文だけで投稿せず失敗扱いにする
+        if require_media and not media_ids:
+            print(f"  [X] 画像が1枚も添付できないため投稿しない (画像={media_status})")
+            return None
 
         # DRY_RUNモード: 投稿直前でスキップ（ログのみ出力）
         if os.environ.get("X_POST_DRY_RUN") == "1":

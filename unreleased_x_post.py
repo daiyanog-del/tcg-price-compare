@@ -358,7 +358,8 @@ def _send(sb, card: dict, text: str, image_url: str, post_fn) -> str:
     path = None
     try:
         path = _download_image(image_url)
-        tweet_id = post_fn(text, [path])
+        # 画像なし投稿を防ぐため画像必須で呼ぶ（添付に全部失敗したら None が返る）
+        tweet_id = post_fn(text, [path], require_media=True)
     except Exception as e:
         _mark_failed(sb, card_id, f"{type(e).__name__}: {e}", card.get("name", ""))
         return "failed"
@@ -370,7 +371,7 @@ def _send(sb, card: dict, text: str, image_url: str, post_fn) -> str:
                 pass
     if not tweet_id:
         # post_tweet は認証未設定・API失敗・DRY_RUN で None を返す。成功扱いにしない
-        _mark_failed(sb, card_id, "post_tweet が None を返した（認証情報未設定またはAPI失敗）", card.get("name", ""))
+        _mark_failed(sb, card_id, "post_tweet が None を返した（認証情報未設定・API失敗・画像添付失敗のいずれか。画像必須のため本文のみの投稿はしない）", card.get("name", ""))
         return "failed"
     _mark_posted(sb, card_id, tweet_id)
     logger.info("[unreleased_x_post] 投稿成功 card_id=%s tweet_id=%s", card_id, tweet_id)

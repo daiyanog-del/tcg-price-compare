@@ -41,8 +41,9 @@ class Poster:
     def __init__(self, result="111"):
         self.result, self.calls = result, []
 
-    def __call__(self, text, paths):
+    def __call__(self, text, paths, **kwargs):
         self.calls.append((text, list(paths)))
+        self.kwargs = kwargs
         return self.result
 
 
@@ -110,6 +111,7 @@ def test_is_postable(card, img, ok, reason):
 def test_post_success_records_posted():
     sb, poster = _sb(), Poster("999")
     assert xp.post_card(sb, 1, post_fn=poster, today=TODAY) == "posted"
+    assert poster.kwargs == {"require_media": True}  # 画像必須で呼ぶ
     row = sb.tables["unreleased_x_posts"][0]
     assert row["status"] == "posted" and row["tweet_id"] == "999"
     assert len(poster.calls) == 1 and poster.calls[0][1]  # 画像パスが渡る
@@ -133,7 +135,7 @@ def test_none_from_post_tweet_is_failure():
     sb = _sb()
     assert xp.post_card(sb, 1, post_fn=Poster(None), today=TODAY) == "failed"
     row = sb.tables["unreleased_x_posts"][0]
-    assert row["status"] == "failed" and row["attempts"] == 1 and row["last_error"]
+    assert row["status"] == "failed" and row["attempts"] == 1 and "画像添付失敗" in row["last_error"]
 
 
 def test_failed_retried_until_limit():
@@ -154,7 +156,7 @@ def test_failed_then_success():
 
 
 def test_exception_in_post_fn_is_failure():
-    def boom(text, paths):
+    def boom(text, paths, **kwargs):
         raise RuntimeError("API down")
     sb = _sb()
     assert xp.post_card(sb, 1, post_fn=boom, today=TODAY) == "failed"
