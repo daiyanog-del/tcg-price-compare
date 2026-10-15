@@ -17,6 +17,7 @@ import base64
 import difflib
 import logging
 import os
+import time
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 
@@ -27,6 +28,11 @@ REREAD_MODEL = os.environ.get("EFFECT_REREAD_MODEL", "claude-opus-5-5")
 REREAD_EFFORT = "medium"
 _MAX_TOKENS = 8000
 _WORKERS = 4  # TODO: calibrate from data（1カード1回の呼び出し。記事あたり最大30枚）
+
+# 一致したとき、1回目のAI自己申告で入っていた effect_text の不確かを外すか。
+# 計測（tools/eval_effect_text.py の firstpass。docs/decisions.md）の結果で決める。外した場合は
+# extraction_raw.uncertain_cleared_by_reread=True を残す（自動承認の判定が「不確かを出さない medium」と区別するため）。
+CLEAR_UNCERTAIN_ON_AGREE = False
 
 UNREADABLE = "〓"
 
@@ -90,6 +96,17 @@ def diff_summary(a: str, b: str, limit: int = 400) -> str:
     return text if len(text) <= limit else text[:limit] + "…"
 
 
+def _is_pendulum(row: dict) -> bool:
+    """種別名だけでなく、スケール・ペンデュラム効果が読めている場合もペンデュラムとして扱う（読み直さない）。"""
+    return ("ペンデュラム" in (row.get("card_type") or "")
+            or row.get("pendulum_scale") is not None or bool((row.get("pendulum_effect") or "").strip()))
+
+
+def _uncertain_list(raw: dict) -> list:
+    value = raw.get("uncertain_fields")
+    return list(value) if isinstance(value, list) else []
+
+
 def _mark_uncertain(raw: dict, *fields: str) -> None:
     current = raw.get("uncertain_fields")
     current = list(current) if isinstance(current, list) else []
@@ -128,7 +145,7 @@ def reread_effect_texts(rows: list[dict], *, client, encoded_images: list[dict],
         raw = row["extraction_raw"]
         raw["effect_text_first_pass"] = row.get("effect_text", "")
         card_type = row.get("card_type", "")
-        if "ペンデュラム" in card_type:
+        if _is_pendulum(row):
             # 切り出し位置を校正・評価していない種別。読み直さず人の確認へ回す。
             raw["effect_text_reread"] = {"skipped": "pendulum_not_evaluated", "agreed": False, "model": model}
             _mark_uncertain(raw, "effect_text", "pendulum_effect")
@@ -152,8 +169,13 @@ def reread_effect_texts(rows: list[dict], *, client, encoded_images: list[dict],
     def work(job):
         row, crop = job
         try:
-            # 1回目で読んだカード名をヒントに添える（効果文中の自分のカード名の誤読対策。評価 P2H）
-            return row, _read_one(client, model, crop, (row.get("name") or "").strip()), None
+            # 1回目で読んだカード名をヒントに添える（効果文中の自分のカード名の誤読対策。評価 P2H）。
+            # 1回目が name を不確かとしたときは、誤った名前に引きずられないようヒントを付けない。
+            name = "" if "name" in _uncertain_list(row["extraction_raw"]) else (row.get("name") or "").strip()
+            t0 = time.time()
+            result = _read_one(client, model, crop, name)
+            row["extraction_raw"]["_reread_seconds"] = time.time() - t0
+            return row, result, None
         except Exception as exc:  # noqa: BLE001 — API エラー・未完了応答・JSON 不正など
             return row, None, exc
 
@@ -174,20 +196,27 @@ def reread_effect_texts(rows: list[dict], *, client, encoded_images: list[dict],
             continue
         a, b = norm(first), norm(text)
         has_unreadable = UNREADABLE in text or bool(data.get("unreadable"))
-        agreed = a == b and not has_unreadable
+        # 両方空は「読めた」の証拠にならない（空同士の一致を一致扱いしない）
+        agreed = bool(a) and a == b and not has_unreadable
+        seconds = raw.pop("_reread_seconds", None)
         raw["effect_text_reread"] = {
             "text": text, "model": model, "effort": REREAD_EFFORT, "agreed": agreed,
             "unreadable": has_unreadable, "diff_summary": "" if a == b else diff_summary(a, b), "usage": usage,
+            **({"seconds": round(seconds, 1)} if seconds is not None else {}),
         }
         row["effect_text"] = text
-        if agreed:
-            # 評価（n=30）で「同じモデルの1回目と読み直しが一致したカードに誤りは0枚」だったため、
-            # 1回目のAI自己申告で入っていた effect_text の不確かを外す。
-            # 他の欄（atk など）の不確かには触れない。ペンデュラム・失敗は上の分岐で従来どおり不確かのまま。
-            raw["uncertain_fields"] = [f for f in raw.get("uncertain_fields", []) if f != "effect_text"]
-        else:
+        uncertain = _uncertain_list(raw)
+        # 一致で自己申告の不確かを外してよいのは、(1) 設定で有効 (2) 1回目と読み直しが同じモデル
+        # （別モデル同士の一致は独立性の意味が違うので評価の外） (3) 1回目が name を不確かとしていない場合だけ
+        can_clear = (CLEAR_UNCERTAIN_ON_AGREE and raw.get("model") == model and "name" not in uncertain)
+        if agreed and can_clear:
+            if "effect_text" in uncertain:
+                raw["uncertain_fields"] = [f for f in uncertain if f != "effect_text"]
+                raw["uncertain_cleared_by_reread"] = True
+        elif not agreed:
             _mark_uncertain(raw, "effect_text")
-            logger.warning("効果テキストが1回目と食い違い/〓あり: %s", row.get("name"))
+            logger.warning("効果テキストが1回目と食い違い/〓あり/空: %s", row.get("name"))
+        logger.info("[Reread] %s agreed=%s model=%s %.1f秒", row.get("name"), agreed, model, seconds or 0.0)
 
 
 def _fail(row: dict, model: str, reason: str, usage: dict | None = None) -> None:

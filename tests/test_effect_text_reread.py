@@ -193,12 +193,99 @@ def test_x_without_crop_suggestion_is_uncertain_but_official_reads_whole_image(m
     assert "effect_text" not in official["extraction_raw"]["uncertain_fields"]
 
 
-def test_agreed_clears_effect_text_uncertain_but_keeps_other_fields(monkeypatch):
-    _fake_read(monkeypatch, text="①：このカードを特殊召喚できる。")
+def _agreed_row(unc=("effect_text", "atk"), first_model="claude-opus-5-5"):
     row = _row()
-    row["extraction_raw"]["uncertain_fields"] = ["effect_text", "atk"]
+    row["extraction_raw"]["uncertain_fields"] = list(unc)
+    row["extraction_raw"]["model"] = first_model
+    return row
+
+
+def test_clear_on_agree_is_off_by_default(monkeypatch):
+    assert rr.CLEAR_UNCERTAIN_ON_AGREE is False
+    _fake_read(monkeypatch, text="①：このカードを特殊召喚できる。")
+    row = _agreed_row()
+    rr.reread_effect_texts([row], client=object(), encoded_images=_images())
+    assert row["extraction_raw"]["uncertain_fields"] == ["effect_text", "atk"]
+    assert "uncertain_cleared_by_reread" not in row["extraction_raw"]
+
+
+def test_agreed_clears_effect_text_uncertain_but_keeps_other_fields(monkeypatch):
+    monkeypatch.setattr(rr, "CLEAR_UNCERTAIN_ON_AGREE", True)
+    _fake_read(monkeypatch, text="①：このカードを特殊召喚できる。")
+    row = _agreed_row()
     rr.reread_effect_texts([row], client=object(), encoded_images=_images())
     assert row["extraction_raw"]["uncertain_fields"] == ["atk"]
+    assert row["extraction_raw"]["uncertain_cleared_by_reread"] is True
+
+
+def test_no_clear_when_models_differ_or_name_uncertain(monkeypatch):
+    monkeypatch.setattr(rr, "CLEAR_UNCERTAIN_ON_AGREE", True)
+    calls = []
+    _fake_read(monkeypatch, text="①：このカードを特殊召喚できる。", calls=calls)
+    other_model = _agreed_row(first_model="claude-sonnet-5-5")
+    name_unc = _agreed_row(unc=("effect_text", "name"))
+    rr.reread_effect_texts([other_model, name_unc], client=object(), encoded_images=_images())
+    assert "effect_text" in other_model["extraction_raw"]["uncertain_fields"]
+    assert "effect_text" in name_unc["extraction_raw"]["uncertain_fields"]
+    # name が不確かなカードには名前ヒントを付けない
+    texts = [c["content"][1]["text"] for c in calls]
+    assert sum("「テスト」" in t for t in texts) == 1
+
+
+def test_evaluate_does_not_flag_unknown_when_cleared_by_reread():
+    import unreleased_auto_approve as aa
+    reasons, _ = aa._confidence_reasons({"confidence": "medium"}, {"uncertain_fields": []})
+    assert "medium_uncertain_unknown" in reasons
+    reasons, _ = aa._confidence_reasons({"confidence": "medium"}, {"uncertain_fields": [], "uncertain_cleared_by_reread": True})
+    assert reasons == []
+
+
+def test_pendulum_detected_by_scale_or_effect_too(monkeypatch):
+    calls = []
+    _fake_read(monkeypatch, text="x", calls=calls)
+    a = _row(card_type="効果モンスター")
+    a["pendulum_scale"] = 5
+    b = _row(card_type="効果モンスター")
+    b["pendulum_effect"] = "①：…"
+    rr.reread_effect_texts([a, b], client=object(), encoded_images=_images())
+    assert calls == []
+    assert a["extraction_raw"]["effect_text_reread"]["skipped"] == "pendulum_not_evaluated"
+    assert "pendulum_effect" in b["extraction_raw"]["uncertain_fields"]
+
+
+def test_uncertain_fields_none_does_not_crash(monkeypatch):
+    monkeypatch.setattr(rr, "CLEAR_UNCERTAIN_ON_AGREE", True)
+    _fake_read(monkeypatch, text="①：このカードを特殊召喚できる。")
+    row = _row()
+    row["extraction_raw"]["uncertain_fields"] = None
+    row["extraction_raw"]["model"] = "claude-opus-5-5"
+    rr.reread_effect_texts([row], client=object(), encoded_images=_images())
+    _fake_read(monkeypatch, text="違う。")
+    row2 = _row()
+    row2["extraction_raw"]["uncertain_fields"] = None
+    rr.reread_effect_texts([row2], client=object(), encoded_images=_images())
+    assert row2["extraction_raw"]["uncertain_fields"] == ["effect_text"]
+
+
+def test_both_empty_is_not_agreed(monkeypatch):
+    _fake_read(monkeypatch, text="")
+    row = _row(effect="")
+    rr.reread_effect_texts([row], client=object(), encoded_images=_images())
+    assert row["extraction_raw"]["effect_text_reread"]["agreed"] is False
+    assert "effect_text" in row["extraction_raw"]["uncertain_fields"]
+
+
+def test_reread_records_seconds(monkeypatch):
+    _fake_read(monkeypatch, text="①：このカードを特殊召喚できる。")
+    row = _row()
+    rr.reread_effect_texts([row], client=object(), encoded_images=_images())
+    assert "seconds" in row["extraction_raw"]["effect_text_reread"]
+    assert "_reread_seconds" not in row["extraction_raw"]
+
+
+def test_quality_model_is_separate_from_extractor_model():
+    assert extractor.QUALITY_MODEL == "claude-sonnet-5-5"
+    assert extractor._DEFAULT_MODEL == "claude-opus-5-5"
 
 
 def test_agreed_with_unreadable_flag_keeps_uncertain(monkeypatch):

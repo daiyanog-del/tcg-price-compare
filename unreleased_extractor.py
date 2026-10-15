@@ -30,6 +30,7 @@ import json
 import logging
 import os
 import re
+import time
 from typing import Any
 from urllib.parse import urlparse, urljoin
 
@@ -48,6 +49,9 @@ logger = logging.getLogger(__name__)
 # 注意: 自宅PCの watcher.env などに EXTRACTOR_MODEL が明示されている環境ではそちらが優先される。
 _DEFAULT_MODEL = "claude-opus-5-5"
 EXTRACTOR_MODEL = os.environ.get("EXTRACTOR_MODEL", _DEFAULT_MODEL)
+# 数値の再読（unreleased_quality.enrich_rows）とAI枠（crop_suggestion_service）のモデル。
+# 1回目（EXTRACTOR_MODEL）とは切り離し、従来どおり Sonnet 5.5（評価していない工程を高価なモデルに巻き込まない）。
+QUALITY_MODEL = os.environ.get("QUALITY_MODEL", "claude-sonnet-5-5")
 # 1回目の読み取りの effort（評価と同じ medium）。Opus 5.5 は thinking を無効化できないため thinking は指定しない。
 EXTRACTOR_EFFORT = "medium"
 
@@ -731,7 +735,8 @@ def _extract_cards(processed_text: str, encoded_images: list[dict], source_url: 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         raise ValueError("環境変数 ANTHROPIC_API_KEY が設定されていません。")
-    client = Anthropic(api_key=api_key, timeout=180.0, max_retries=1)
+    # Opus 5.5（thinking 無効化不可）の1回目は長引くことがあるため 300 秒
+    client = Anthropic(api_key=api_key, timeout=300.0, max_retries=1)
     _, Result = _get_pydantic_models()
     context = f"[処理日時: {datetime.now(ZoneInfo('Asia/Tokyo')).isoformat()}。これは発売日の根拠ではありません]\n{processed_text}"
     # 大量画像の関連付けと応答切れを避ける。最大4枚は未校正。
@@ -741,11 +746,14 @@ def _extract_cards(processed_text: str, encoded_images: list[dict], source_url: 
     seen = set()
     for images in batches:
         content = _build_vision_message(context, images) if images else _build_text_message(context)
+        t_first = time.time()
         data, text, usage = structured_request(
             client, model=EXTRACTOR_MODEL, system=_SYSTEM_PROMPT_X if from_x else _SYSTEM_PROMPT,
             content=content, schema=Result.model_json_schema(), max_tokens=_MAX_TOKENS,
             effort=EXTRACTOR_EFFORT,
         )
+        logger.info('[Extractor] 1回目 model=%s effort=%s images=%s %.1f秒', EXTRACTOR_MODEL, EXTRACTOR_EFFORT,
+                    len(images), time.time() - t_first)
         result = Result.model_validate(data)
         urls = [image['url'] for image in images]
         logger.info('[Extractor] model=%s source=%s images=%s cards=%s', EXTRACTOR_MODEL, source_url, len(images), len(result.cards))
@@ -774,7 +782,7 @@ def _extract_cards(processed_text: str, encoded_images: list[dict], source_url: 
                 'uncertain_fields': list(dict.fromkeys(card.uncertain_fields)),
             }
             output.append(row)
-    return enrich_rows(output, client=client, model=EXTRACTOR_MODEL, encoded_images=encoded_images)
+    return enrich_rows(output, client=client, model=QUALITY_MODEL, encoded_images=encoded_images)
 
 
 def extract_cards_from_html(html: str, page_url: str = "") -> list[dict]:

@@ -79,10 +79,10 @@ def test_service_generates_box_with_configured_model(monkeypatch):
     monkeypatch.setattr(service, 'structured_request', lambda client, **kwargs: calls.append(kwargs) or ({'bbox': [0, 0, 100, 150]}, '', {}))
     result = service.suggest_crop('対象カード', url)
     assert result['source_image_url'] == url
-    assert result['model'] == extractor.EXTRACTOR_MODEL
+    assert result['model'] == extractor.QUALITY_MODEL
     assert result['needs_review'] is True
     assert result['right'] == 1
-    assert calls[0]['model'] == extractor.EXTRACTOR_MODEL
+    assert calls[0]['model'] == extractor.QUALITY_MODEL
     array_schema = calls[0]['schema']['properties']['bbox']['anyOf'][0]
     assert 'minItems' not in array_schema
     assert 'maxItems' not in array_schema
