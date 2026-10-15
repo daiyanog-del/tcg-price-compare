@@ -51,12 +51,19 @@ def strict_schema(schema):
     return schema
 
 
-def structured_request(client, *, model, system, content, schema, max_tokens=16000):
-    """不完全な応答は成功0件に変換せず失敗として呼出側に伝える。"""
+def structured_request(client, *, model, system, content, schema, max_tokens=16000, effort=None):
+    """不完全な応答は成功0件に変換せず失敗として呼出側に伝える。
+
+    effort（"low"/"medium"/"high"）を渡すと output_config.effort に入れる。None なら送らない（モデル既定）。
+    thinking・temperature などサンプリング指定は送らない（Opus 5.5 は thinking を無効化できない）。
+    """
+    output_config = {'format': {'type': 'json_schema', 'schema': strict_schema(schema)}}
+    if effort:
+        output_config['effort'] = effort
     message = client.messages.create(
         model=model, max_tokens=max_tokens, system=system,
         messages=[{'role': 'user', 'content': content}],
-        extra_body={'output_config': {'format': {'type': 'json_schema', 'schema': strict_schema(schema)}}},
+        extra_body={'output_config': output_config},
     )
     if message.stop_reason != 'end_turn':
         raise ValueError(f'抽出応答が未完了です: {message.stop_reason}')

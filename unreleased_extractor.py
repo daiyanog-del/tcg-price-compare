@@ -44,8 +44,12 @@ logger = logging.getLogger(__name__)
 # ──────────────────────────────────────────────
 
 # 使用モデル（環境変数で切替可能）
-_DEFAULT_MODEL = "claude-sonnet-5-5"
+# 2026-10-15 sonnet-5-5 → opus-5-5（効果テキスト読み取りの評価 n=30: 1回読みの CER 0.74%→0.12%・作り話率 6.7%→0%）。
+# 注意: 自宅PCの watcher.env などに EXTRACTOR_MODEL が明示されている環境ではそちらが優先される。
+_DEFAULT_MODEL = "claude-opus-5-5"
 EXTRACTOR_MODEL = os.environ.get("EXTRACTOR_MODEL", _DEFAULT_MODEL)
+# 1回目の読み取りの effort（評価と同じ medium）。Opus 5.5 は thinking を無効化できないため thinking は指定しない。
+EXTRACTOR_EFFORT = "medium"
 
 # Claude API のパラメータ
 _MAX_TOKENS = 16000
@@ -740,6 +744,7 @@ def _extract_cards(processed_text: str, encoded_images: list[dict], source_url: 
         data, text, usage = structured_request(
             client, model=EXTRACTOR_MODEL, system=_SYSTEM_PROMPT_X if from_x else _SYSTEM_PROMPT,
             content=content, schema=Result.model_json_schema(), max_tokens=_MAX_TOKENS,
+            effort=EXTRACTOR_EFFORT,
         )
         result = Result.model_validate(data)
         urls = [image['url'] for image in images]
