@@ -57,6 +57,23 @@ export function _syncPcRecordingEndIdxAfterComment() {
   }
 }
 
+/** 録画状態の写しを返す（ページ遷移をまたぐ退避用） */
+export function getPcRecordingState() {
+  return { ..._pcRecording };
+}
+
+/** 退避した録画状態を戻し、ボタンと共有シート内の表示を更新する */
+export function setPcRecordingState(state) {
+  if (!state) return;
+  _pcRecording = {
+    recording: !!state.recording,
+    startIdx: state.startIdx ?? null,
+    endIdx: state.endIdx ?? null,
+  };
+  _updatePcRecordBtn();
+  updatePcShareRecordingSection();
+}
+
 /**
  * 録画状態を破棄する（デッキ再読込・JSON/共有リンク読込などで、別セッションの
  * 録画範囲が残留し誤った範囲を共有してしまうのを防ぐため、replay-ui.js から呼ぶ）。

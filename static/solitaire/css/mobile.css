@@ -224,7 +224,8 @@
   /* ════════ B-11: セッション復元トースト（main.js _showToast）が下部バーに重なるのを防ぐ ════════
      .sol-toast 自体（main.js の実装、bottom:24px）は変更せず、CSS の上書きだけで対応する。 */
   .sol-toast {
-    bottom: calc(52px + 12px);
+    /* 再生モード中は下部の予約量が 88px に増える（mobile-ui.js enterPlaybackMode）ので、それに合わせて上げる */
+    bottom: calc(var(--sol-mobile-bottom-reserve, 52px) + 12px);
   }
 
   /* ════════ C-2: 移動の演出（設計書 §C）════════

@@ -59,6 +59,42 @@ let _speedMultiplier = 1;
 // _replayTo 経由の後退・全再構築では false のまま（瞬間適用）。
 let _animateForward = false;
 
+// 再生による演出のうち「完了コールバックで DOM を確定するもの」の進行中の数。
+// ページ離脱時に盤面が中間状態かの判定（isReplayAnimating）に使う。
+// 全作り直し（_replayTo・initReplay・restoreReplaySession）で 0 に戻し、世代を進めて
+// 古い完了コールバックが後から数を狂わせないようにする。
+let _pendingReplayAnims = 0;
+let _animGen = 0;
+
+function _resetAnimMarks() {
+  _pendingReplayAnims = 0;
+  _animGen++;
+}
+
+/**
+ * 完了コールバックを包み、呼ばれるまで _pendingReplayAnims を1つ上げておく。
+ * 返した関数は何度呼ばれても1回しか数えない。作り直し後（世代が変わった後）の呼び出しは数に影響しない。
+ */
+function _trackAnim(cb) {
+  _pendingReplayAnims++;
+  const gen = _animGen;
+  let done = false;
+  return (...args) => {
+    if (done) return;
+    done = true;
+    try {
+      if (cb) cb(...args);
+    } finally {
+      if (gen === _animGen) _pendingReplayAnims = Math.max(0, _pendingReplayAnims - 1);
+    }
+  };
+}
+
+/** 再生の演出が進行中か（完了コールバックで盤面を確定する演出が未完了か） */
+export function isReplayAnimating() {
+  return _pendingReplayAnims > 0;
+}
+
 // ── 外部API ──────────────────────────────────────────────
 
 /**
@@ -72,6 +108,7 @@ export function initReplay() {
   _setupLogs = [];
   _cursor = -1;
   _playing = false;
+  _resetAnimMarks();
   _updateUI();
 }
 
@@ -393,6 +430,55 @@ export function getLogs() { return _logs; }
 export function getSetupLogs() { return _setupLogs; }
 
 /**
+ * ページ遷移をまたぐ退避用に、記録の状態を写しとして返す（session-resume 用）。
+ * 記録（ログ・setupログ）が両方とも空なら null を返す（退避不要）。
+ * @returns {{logs:Array, setupLogs:Array, cursor:number, images:Object, names:Object, exCardIds:string[]}|null}
+ */
+export function captureReplaySession() {
+  if (_logs.length === 0 && _setupLogs.length === 0) return null;
+  return {
+    logs: _logs,
+    setupLogs: _setupLogs,
+    cursor: _cursor,
+    images: _images,
+    names: _names,
+    exCardIds: [..._exCardIds],
+  };
+}
+
+/**
+ * captureReplaySession の写しを状態へ戻す。
+ * 盤面は呼び出し側が別途（盤面の写しから）復元済みで、その盤面はカーソル位置の盤面そのものなので、
+ * ここでは変数に代入して UI を更新するだけにする（盤面の再構築・_replayTo・seekTo は呼ばない。
+ * 呼ぶと二重適用になりカーソルも動く）。再生は停止状態のまま。
+ * @param {Object} snap captureReplaySession の戻り値
+ */
+export function restoreReplaySession(snap) {
+  if (!snap) return;
+  _stopPlay();
+  _logs = Array.isArray(snap.logs) ? snap.logs : [];
+  _setupLogs = Array.isArray(snap.setupLogs) ? snap.setupLogs : [];
+  const maxCursor = _logs.length - 1;
+  const cur = Number.isInteger(snap.cursor) ? snap.cursor : maxCursor;
+  _cursor = Math.max(-1, Math.min(cur, maxCursor));
+  _images = { ...(snap.images || {}) };
+  _names = { ...(snap.names || {}) };
+  _exCardIds = new Set(snap.exCardIds || []);
+  _resetAnimMarks();
+  _updateUI();
+}
+
+/**
+ * 現在のカーソル位置の盤面を、演出なしで最初から作り直す（session-resume 用）。
+ * 演出（飛行クローン等）の途中でページを離れた退避は、盤面の写しが中間状態の可能性があるため
+ * 復元後にこれで正しい盤面へ直す。再生は停止し、カーソルは動かさない。
+ */
+export function rebuildAtCursor() {
+  _stopPlay();
+  _replayTo(_cursor, { toast: false }); // 復元直後にコメントトーストを出さない
+}
+
+/**
  * リプレイ記録を初期化する（「すべて消去」用・deck-input-panel.js clearEverything から呼ばれる）。
  * 再生中なら停止してから、ページロード時と同じ initReplay() で状態を空に戻す
  * （ロジック複製を避け、状態リセット自体は initReplay に委譲する）。
@@ -456,7 +542,8 @@ function _safeCloneEvent(event) {
  * 手番Nまでを最初から再適用（後退・seekTo で使う）
  * @param {number} target  -1 = 初期盤面
  */
-function _replayTo(target) {
+function _replayTo(target, { toast = true } = {}) {
+  _resetAnimMarks(); // 全作り直し: 古い演出の完了待ちは無効にする
   _rebuildDeck();
   // D-3: setup ログ（初期配置）を通常ログより先に、演出なしで再適用する
   _applySetupLogs();
@@ -464,7 +551,7 @@ function _replayTo(target) {
     _applyEvent(_logs[i]);
   }
   _cursor = target;
-  _maybeShowCommentToast(_cursor);
+  if (toast) _maybeShowCommentToast(_cursor);
   _updateUI();
 }
 
@@ -678,13 +765,13 @@ function _applyMoveCard(event) {
     // 移動なし（dx≈0）のため flipMoveClone がすぐ onComplete を呼ぶ。
     // 状態はコールバック内で変更し、変化アニメ（回転/フリップ）を見せる。
     _placeCardInZone(zone, card, zIndex);
-    flipMoveClone(card, firstRect, () => {
+    flipMoveClone(card, firstRect, _trackAnim(() => {
       if (faceChanged) {
-        playSetFlip(card, () => applyCardState(card, { orientation, face }));
+        playSetFlip(card, _trackAnim(() => applyCardState(card, { orientation, face })));
       } else {
         applyCardState(card, { orientation, face }); // CSS transition が回転を担う
       }
-    });
+    }));
 
   } else if (!sameZone && stateChanged) {
     // ── 別ゾーンへ移動 ＋ 状態変化（初期配置で守備/セット など） ───────
@@ -745,9 +832,9 @@ function _applyMoveCardWithDeckFly({ card, zone, zIndex, orientation, face, face
   if (toIsDeckPool) {
     // 到着点はデッキ錨の矩形。飛ばし終えてから DOM を確定する（既存の onComplete 経路を維持）。
     if (stateChanged) applyCardState(card, { orientation, face });
-    flyBetweenRects(card, fromRect, deckBtnRect, () => {
+    flyBetweenRects(card, fromRect, deckBtnRect, _trackAnim(() => {
       _placeCardInZone(zone, card, zIndex);
-    });
+    }));
     return;
   }
 
@@ -877,7 +964,7 @@ function _applyReturnToDeck(event) {
       // 追加の隠蔽は不要。flyBetweenRects 内の cardEl.style.visibility='hidden' に委譲する）。
       const fromRect = card.getBoundingClientRect();
       _pulseDeckBtn();
-      flyBetweenRects(card, fromRect, deckBtnRect, commit);
+      flyBetweenRects(card, fromRect, deckBtnRect, _trackAnim(commit));
       return;
     }
   }

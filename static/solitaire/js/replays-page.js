@@ -11,6 +11,22 @@
 
 import { savedReplaysGet, deleteReplayEntry } from './services/saved-replays.js';
 import { sharedReplaysGet, deleteSharedReplay } from './services/shared-replays.js';
+import { shouldConfirmOpen } from './utils/session-resume-store.js';
+
+/**
+ * 行リンクを開くと、シミュレーターに退避中の記録が置き換わる場合は確認する。
+ * 新しいタブで開く操作（修飾キー付き）は今のページが残るので確認しない。
+ */
+function confirmReplaceSessionRecord(ev) {
+  let r;
+  try { r = shouldConfirmOpen(ev, sessionStorage); } catch (e) { return; }
+  if (!r.ask) return;
+  // 0手（setup ログだけ）のときは手数を出さない
+  const what = r.steps > 0 ? `今の記録（${r.steps}手）` : '今の記録';
+  if (!confirm(`シミュレーターの${what}は、このリプレイに置き換わります。開きますか？`)) {
+    ev.preventDefault();
+  }
+}
 
 /** 日時を「10/15 13:05」形式にする（不明なら空文字） */
 function formatDateTime(ms) {
@@ -74,6 +90,7 @@ function renderSaved() {
     // 行を押すとシミュレーターで開く（本物のリンクにして、新しいタブで開く等も使えるようにする）
     const link = el('a', 'rp-row-link');
     link.href = '/solitaire?saved=' + encodeURIComponent(item.id);
+    link.addEventListener('click', confirmReplaceSessionRecord);
     const info = el('span', 'rp-row-info');
     info.appendChild(el('span', 'rp-row-title', item.title || '無題'));
     const date = formatDateTime(item.savedAt);
@@ -110,6 +127,7 @@ function renderShared() {
 
     const link = el('a', 'rp-row-link');
     link.href = '/solitaire?replay=' + idParam;
+    link.addEventListener('click', confirmReplaceSessionRecord);
 
     const thumb = document.createElement('img');
     thumb.className = 'rp-thumb';
