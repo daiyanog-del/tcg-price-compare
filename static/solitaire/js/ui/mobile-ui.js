@@ -38,7 +38,7 @@ import { playActivateEffect, flipMoveClone } from '../components/card-effects.js
 import { _renderCard, _showUnknown, _showLoading } from './card-info-panel.js';
 import { isMobilePortrait, watchMobilePortrait, isMobileLandscape, watchMobileLandscape } from '../utils/viewport.js';
 import { showToast } from '../utils/toast.js';
-import { generateShareURL, checkPublicTitle, buildShareTweetUrl, getReplayCounts, saveReplayToDevice, describeSaveResult, exportReplayFile } from './replay-ui.js';
+import { generateShareURL, checkPublicTitle, resetShareUrlMemo, buildShareTweetUrl, getReplayCounts, saveReplayToDevice, describeSaveResult, exportReplayFile } from './replay-ui.js';
 import { clearEverything } from './deck-input-panel.js';
 import {
   getLogLength,
@@ -1224,6 +1224,10 @@ function openShareSheet(mode) {
       ? '空欄なら日時が入ります'
       : '空欄なら「共有リプレイ」になります（公開するときはタイトルが必要です）';
   }
+  // 開くたびに公開はオフに戻す（前回のチェックが残って意図せず公開しないように）。共有URLの使い回しも止める
+  const publicCheck = document.getElementById('solMobileSharePublic');
+  if (publicCheck) publicCheck.checked = false;
+  resetShareUrlMemo();
   // 前回の結果・エラー表示を残さない
   setHidden('solMobileShareResult', true);
   setHidden('solMobileShareError', true);

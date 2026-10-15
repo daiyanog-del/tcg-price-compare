@@ -44,6 +44,24 @@ export function sharedReplaysSet(list) {
 }
 
 /**
+ * 上限（MAX_SHARED_REPLAYS）を超えた分を捨てる。公開中の項目は取り下げの鍵を持つので飛ばし、
+ * 通常の項目の古いほう（末尾）から捨てる。公開中だけで上限を超えるときに限り、最後の手段として一番古い公開中を捨てる。
+ * @param {Array} list 新しい順の一覧
+ * @returns {Array}
+ */
+export function trimSharedReplays(list) {
+  const out = list.slice();
+  while (out.length > MAX_SHARED_REPLAYS) {
+    let idx = -1;
+    for (let i = out.length - 1; i >= 0; i--) {
+      if (!out[i].public) { idx = i; break; }
+    }
+    out.splice(idx >= 0 ? idx : out.length - 1, 1);
+  }
+  return out;
+}
+
+/**
  * 共有リンクを作った記録を1件、先頭に追加する。同じ id が既にあれば置き換える。
  * 上限を超えた分は古いものから落とす。
  * @param {{id:string, title:string, steps:number, public?:boolean, deleteToken?:string}} entry
@@ -61,7 +79,7 @@ export function addSharedReplay(entry) {
     item.public = true;
     item.deleteToken = String(entry.deleteToken);
   }
-  const list = [item, ...sharedReplaysGet().filter(r => r.id !== item.id)].slice(0, MAX_SHARED_REPLAYS);
+  const list = trimSharedReplays([item, ...sharedReplaysGet().filter(r => r.id !== item.id)]);
   return sharedReplaysSet(list);
 }
 

@@ -1870,27 +1870,41 @@ def admin_suggest_crop(card_id: int):
 # 公開リプレイ（みんなのリプレイ）の管理
 # ──────────────────────────────────────────────
 
-_PUBLIC_REPLAY_ADMIN_LIMIT = 100  # 1回に返す件数の上限（仮置き。TODO: calibrate from data）
+_PUBLIC_REPLAY_ADMIN_LIMIT = 100  # 1回に返す件数（仮置き。TODO: calibrate from data）。続きは before で読む
+from solitaire_routes import _BEFORE_RE as _PUBLIC_BEFORE_RE  # published_at の続き読み位置の形式（公開一覧と同じ）
+import replay_og_image as _replay_og_image
 
 
 @admin_bp.route("/api/admin/public-replays", methods=["GET"])
 def admin_list_public_replays():
-    """公開中のリプレイを新しい順に返す（非表示のものも含め hidden の状態を付ける）。"""
+    """公開中のリプレイを新しい順に返す（非表示のものも含め hidden の状態を付ける）。
+    ?before=<published_at> で続きを読む。?id=<id> は、その1件だけを返す（直接探す用）。
+    戻り値: {"items": [...], "next": 続きを読むときの before、無ければ null}"""
     err = _require_admin_key()
     if err:
         return err
     if not _supabase:
         return jsonify({"error": "Supabase 未接続"}), 503
+    before = request.args.get("before", "").strip().replace(" ", "+")
+    if before and not _PUBLIC_BEFORE_RE.match(before):
+        return jsonify({"error": "before が不正です"}), 400
+    replay_id = request.args.get("id", "").strip()
     try:
-        resp = (
+        q = (
             _supabase.table("solitaire_replays")
             .select("id, title, card_names, steps, published_at, hidden")
             .eq("is_public", True)
-            .order("published_at", desc=True)
-            .limit(_PUBLIC_REPLAY_ADMIN_LIMIT)
-            .execute()
         )
-        return jsonify({"items": resp.data or []})
+        if replay_id:
+            rows = q.eq("id", replay_id).limit(1).execute().data or []
+            return jsonify({"items": rows, "next": None})
+        if before:
+            q = q.lt("published_at", before)
+        # 続きの有無を知るため1件多く読む
+        rows = q.order("published_at", desc=True).limit(_PUBLIC_REPLAY_ADMIN_LIMIT + 1).execute().data or []
+        has_more = len(rows) > _PUBLIC_REPLAY_ADMIN_LIMIT
+        rows = rows[:_PUBLIC_REPLAY_ADMIN_LIMIT]
+        return jsonify({"items": rows, "next": rows[-1]["published_at"] if has_more and rows else None})
     except Exception as e:
         logger.error(f"[admin] 公開リプレイ一覧エラー: {e}")
         return jsonify({"error": "公開リプレイの取得に失敗しました"}), 500
@@ -1898,7 +1912,8 @@ def admin_list_public_replays():
 
 @admin_bp.route("/api/admin/public-replays/<replay_id>/toggle-hidden", methods=["POST"])
 def admin_toggle_public_replay_hidden(replay_id: str):
-    """公開リプレイの hidden を反転する（非表示にすると一覧から消える。行は残る）。"""
+    """公開リプレイの hidden を反転する。非表示にすると一覧・直リンク（API・OGメタ情報・共有画像）とも
+    「無いもの」として扱われる。戻すと元どおり。行は残る。"""
     err = _require_admin_key()
     if err:
         return err
@@ -1921,6 +1936,9 @@ def admin_toggle_public_replay_hidden(replay_id: str):
             .eq("id", replay_id)
             .execute()
         )
+        if new_hidden:
+            # タイトル入りの共有画像が残って見え続けないよう、キャッシュを消す
+            _replay_og_image.purge_cache(replay_id)
         return jsonify({"ok": True, "hidden": new_hidden})
     except Exception as e:
         logger.error(f"[admin] 公開リプレイ非表示切替エラー id={replay_id}: {e}")
@@ -1945,6 +1963,7 @@ def admin_delete_public_replay(replay_id: str):
         )
         if not resp.data:
             return jsonify({"error": "対象レコードが見つかりません"}), 404
+        _replay_og_image.purge_cache(replay_id)
         return jsonify({"ok": True, "deleted_id": replay_id})
     except Exception as e:
         logger.error(f"[admin] 公開リプレイ削除エラー id={replay_id}: {e}")

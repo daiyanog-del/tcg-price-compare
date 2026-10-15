@@ -226,14 +226,18 @@ async function unpublishItem(item) {
       loadPublic(true); // 一覧から外れたことを上の区画にも反映する
       return;
     }
-    if (res.status === 403) {
+    const data = await res.json().catch(() => ({}));
+    // 鍵を捨てるのは、サーバーが「取り下げできない（鍵違い・すでに非公開・運営の削除）」と目印を付けたときだけ。
+    // プロキシ等の別の 403 では、鍵を残して後で再試行できるようにする
+    if (res.status === 403 && data.code === 'not_unpublishable') {
       unpublishSharedReplay(item.id);
       renderShared();
       showSharedError('このリプレイはすでに公開されていないようです。表示を更新しました。');
       return;
     }
-    const data = await res.json().catch(() => ({}));
-    showSharedError(data.error || '公開をやめられませんでした。しばらくしてからもう一度お試しください');
+    showSharedError(res.status === 403
+      ? '通信に失敗しました。時間をおいて試してください'
+      : (data.error || '公開をやめられませんでした。しばらくしてからもう一度お試しください'));
   } catch {
     showSharedError('通信に失敗しました。しばらくしてからもう一度お試しください');
   }

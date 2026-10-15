@@ -241,6 +241,13 @@ function _initPcSheet(sheetId, openBtnId, closeIds) {
 
   const open = () => {
     updatePcShareRecordingSection(); // 範囲の表示を開く直前に最新化する
+    // 開くたびに公開はオフに戻す（前回のチェックが残って、意図せず公開しないように）。共有URLの使い回しも止める
+    if (sheetId === 'pcShareSheet') {
+      const pub = document.getElementById('pcSharePublic');
+      if (pub) pub.checked = false;
+      _showPcPublicError('');
+    }
+    resetShareUrlMemo();
     sheet.hidden = false;
   };
   const close = () => { sheet.hidden = true; };
@@ -346,6 +353,8 @@ async function _saveAndGetShortURL(title, logsOverride, isPublic = false) {
     throw new Error(errData.error || `HTTP ${res.status}`);
   }
   const { id, deleteToken } = await res.json();
+  // 公開で保存したのに鍵が返らなければ、公開できたと言えない（通知を出さずエラーにする）
+  if (isPublic && !deleteToken) throw new Error('公開を確認できませんでした');
   // 共有履歴（リプレイ一覧ページ用）に控える。記録に失敗しても共有自体は成功させる。
   // 公開したものは取り下げの鍵（deleteToken）も控える（このブラウザからだけ取り下げられる）
   try {
@@ -444,22 +453,49 @@ export async function generateShareURL(range, { public: isPublic = false } = {})
   if (isPublic) {
     const err = checkPublicTitle();
     if (err) throw new Error(err);
-    return await _saveAndGetShortURL(_getTypedReplayTitle(), logs, true);
+    const title = _getTypedReplayTitle();
+    return await _memoShareUrl(_shareMemoKey('pub', range, title, logs), () => _saveAndGetShortURL(title, logs, true));
   }
   const title = _getReplayTitle();
-
-  // 常にSupabase ID方式（?replay=8文字ID）で短いURLを発行する
-  try {
-    return await _saveAndGetShortURL(title, logs);
-  } catch (e) {
-    // Supabase未接続など保存失敗時のみハッシュ方式にフォールバック
-    console.warn('Supabase保存失敗。ハッシュ方式にフォールバック:', e.message);
-    const hash = exportAsURLHash(logs);
-    if (hash) {
-      return `${location.origin}/solitaire#replay=${hash}`;
+  return await _memoShareUrl(_shareMemoKey('link', range, title, logs), async () => {
+    // 常にSupabase ID方式（?replay=8文字ID）で短いURLを発行する
+    try {
+      return await _saveAndGetShortURL(title, logs);
+    } catch (e) {
+      // Supabase未接続など保存失敗時のみハッシュ方式にフォールバック
+      console.warn('Supabase保存失敗。ハッシュ方式にフォールバック:', e.message);
+      const hash = exportAsURLHash(logs);
+      if (hash) {
+        return `${location.origin}/solitaire#replay=${hash}`;
+      }
+      throw new Error('共有URLの生成に失敗しました');
     }
-    throw new Error('共有URLの生成に失敗しました');
-  }
+  });
+}
+
+// ── 共有URLの使い回し ──
+// 「リンクを作ってコピー」と「Xに投稿」（PC）、「共有リンクを作成」の連打（スマホ）は、共有シートを開いている間、
+// 範囲・タイトル・公開の有無が同じなら最後に作ったURLを使い回す（保存のPOSTを1回にする。公開が重複して
+// 2件できないように）。シートを開くたびに resetShareUrlMemo() で破棄する。
+// 作成中の呼び出しも同じ Promise を返すので、先に押したほうの完了を待つ。失敗したものは覚えない。
+let _shareMemo = null;   // {key, promise}
+
+/** 共有シートを開くときに呼ぶ（前回の共有URLの使い回しを止める） */
+export function resetShareUrlMemo() {
+  _shareMemo = null;
+}
+
+function _shareMemoKey(kind, range, title, logs) {
+  return JSON.stringify([kind, range ? [range.start, range.end] : null, title, logs.length]);
+}
+
+function _memoShareUrl(key, make) {
+  if (_shareMemo && _shareMemo.key === key) return _shareMemo.promise;
+  const promise = make();
+  const entry = { key, promise };
+  _shareMemo = entry;
+  promise.catch(() => { if (_shareMemo === entry) _shareMemo = null; });
+  return promise;
 }
 
 /**
@@ -528,8 +564,13 @@ function handleSaveToDevice() {
  */
 async function _generateShortURL(range, isPublic = false) {
   const logs = buildRangeLogsForPayload(range);
-  if (isPublic) return await _saveAndGetShortURL(_getTypedReplayTitle(), logs, true);
-  return await _saveAndGetShortURL(_getReplayTitle(), logs);
+  if (isPublic) {
+    // 「リンクを作ってコピー」と同じ公開の共有URLを使い回す（POSTは1回）
+    const title = _getTypedReplayTitle();
+    return await _memoShareUrl(_shareMemoKey('pub', range, title, logs), () => _saveAndGetShortURL(title, logs, true));
+  }
+  const title = _getReplayTitle();
+  return await _memoShareUrl(_shareMemoKey('x', range, title, logs), () => _saveAndGetShortURL(title, logs));
 }
 
 /**

@@ -66,6 +66,16 @@ class _Query:
         return self
 
     def contains(self, col, vals):
+        # 本番は配列リテラルの文字列 '{"…"}' で渡す（引用符・バックスラッシュのエスケープも解く）
+        if isinstance(vals, str):
+            assert vals.startswith('{"') and vals.endswith('"}'), vals
+            body, out, i = vals[2:-2], [], 0
+            while i < len(body):
+                if body[i] == chr(92):
+                    i += 1
+                out.append(body[i])
+                i += 1
+            vals = ["".join(out)]
         self._filters.append(lambda r: all(v in (r.get(col) or []) for v in vals))
         return self
 
@@ -374,6 +384,8 @@ def test_unpublish_with_wrong_token_is_403_and_changes_nothing(monkeypatch):
     for bad in ({"token": "wrong"}, {"token": ""}, {"token": 123}, {}, None):
         resp = client.post(f"/api/solitaire/replay/{rid}/unpublish", json=bad)
         assert resp.status_code == 403, bad
+        # クライアントが鍵を捨てる目印（別の 403 と見分ける）
+        assert resp.get_json()["code"] == "not_unpublishable", bad
     assert sb.rows[0] == before
 
 

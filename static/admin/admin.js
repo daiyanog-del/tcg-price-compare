@@ -171,7 +171,7 @@ document.getElementById('reload-pending-btn').addEventListener('click', _loadPen
 document.getElementById('reload-approved-btn').addEventListener('click', _loadApproved);
 document.getElementById('reload-rejected-btn').addEventListener('click', _loadRejected);
 document.getElementById('reload-settings-btn').addEventListener('click', _loadSettings);
-document.getElementById('reload-public-replays-btn').addEventListener('click', _loadPublicReplays);
+document.getElementById('reload-public-replays-btn').addEventListener('click', () => _loadPublicReplays());
 
 // ──────────────────────────────────────────────
 // ユーティリティ
@@ -2449,31 +2449,68 @@ _init();
 // 公開リプレイタブ（みんなのリプレイ）
 // ──────────────────────────────────────────────
 
-/** 公開リプレイ一覧を読み込んで描画する */
-async function _loadPublicReplays() {
+let _publicReplaysNext = null;   // 続きを読むときの before（無ければ null）
+let _publicReplaysFindId = '';   // id で探している間はその id（空なら通常の一覧）
+
+/**
+ * 公開リプレイ一覧を読み込んで描画する。append=true なら「もっと見る」（続きを末尾に足す）。
+ * id 検索中は、その1件だけを表示する。
+ */
+async function _loadPublicReplays(append = false) {
   const listEl = document.getElementById('public-replays-list');
-  listEl.textContent = '読み込み中...';
+  const moreBtn = document.getElementById('public-replays-more');
+  if (!append) { listEl.textContent = '読み込み中...'; _publicReplaysNext = null; }
+  const params = new URLSearchParams();
+  if (_publicReplaysFindId) params.set('id', _publicReplaysFindId);
+  else if (append && _publicReplaysNext) params.set('before', _publicReplaysNext);
   try {
-    const resp = await apiFetch('/api/admin/public-replays');
+    const resp = await apiFetch('/api/admin/public-replays' + (params.toString() ? '?' + params : ''));
     if (!resp.ok) {
       const data = await resp.json().catch(() => ({}));
       listEl.textContent = `エラー: ${data.error || resp.status}`;
       return;
     }
-    const { items } = await resp.json();
-    _renderPublicReplays(listEl, items);
+    const { items, next } = await resp.json();
+    _renderPublicReplays(listEl, items, append);
+    _publicReplaysNext = next || null;
+    moreBtn.hidden = !_publicReplaysNext;
   } catch (e) {
     if (e.message !== '認証エラー') listEl.textContent = '読み込みに失敗しました。';
   }
 }
 
+document.getElementById('public-replays-more').addEventListener('click', () => _loadPublicReplays(true));
+
+/** 探す欄の入力（id そのもの、または ?replay=<id> を含むリンク）から id を取り出す */
+function _extractReplayId(text) {
+  const t = (text || '').trim();
+  const m = t.match(/[?&#]replay=([A-Za-z0-9_-]+)/);
+  return m ? m[1] : t;
+}
+
+document.getElementById('public-replays-find').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const id = _extractReplayId(document.getElementById('public-replays-find-input').value);
+  if (!id) return;
+  _publicReplaysFindId = id;
+  document.getElementById('public-replays-find-clear').hidden = false;
+  _loadPublicReplays();
+});
+
+document.getElementById('public-replays-find-clear').addEventListener('click', () => {
+  _publicReplaysFindId = '';
+  document.getElementById('public-replays-find-input').value = '';
+  document.getElementById('public-replays-find-clear').hidden = true;
+  _loadPublicReplays();
+});
+
 /** 公開リプレイの行を描画する。ユーザー由来の文字列（タイトル・カード名）は textContent で入れる */
-function _renderPublicReplays(listEl, items) {
-  listEl.textContent = '';
-  if (!items || items.length === 0) {
+function _renderPublicReplays(listEl, items, append = false) {
+  if (!append) listEl.textContent = '';
+  if (!append && (!items || items.length === 0)) {
     const p = document.createElement('p');
     p.className = 'loading-text';
-    p.textContent = '公開されているリプレイはありません。';
+    p.textContent = _publicReplaysFindId ? 'その id の公開リプレイはありません。' : '公開されているリプレイはありません。';
     listEl.appendChild(p);
     return;
   }

@@ -165,7 +165,7 @@ def _lookup_replay_og_meta(replay_id):
         return ("unknown",)
     try:
         resp = (sb.table("solitaire_replays")
-                .select("title, board")
+                .select("title, board, hidden")
                 .eq("id", replay_id)
                 .limit(1)
                 .execute())
@@ -174,6 +174,9 @@ def _lookup_replay_og_meta(replay_id):
         return ("unknown",)
     rows = resp.data if resp.data else []
     if not rows:
+        return ("missing",)
+    if rows[0].get("hidden"):
+        # 運営が非表示にしたもの（悪質な投稿への対処）は「無いもの」として扱う（OGメタ情報・画像とも汎用）
         return ("missing",)
     return ("found", (rows[0].get("title") or "").strip(), rows[0].get("board"))
 
@@ -277,6 +280,14 @@ _PUBLIC_CARD_QUERY_MAX_LEN = 100
 _BEFORE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}(:?\d{2})?)?$")
 
 
+def _pg_array_literal(value: str) -> str:
+    """text[] の1要素を PostgreSQL の配列リテラル '{"…"}' にする。postgrest-py は Python の list を
+    引用符なしの {a,b} に組み立てるため、カンマ・引用符・{}・バックスラッシュ・NULL を含む名前が誤動作する。
+    バックスラッシュと " をエスケープして引用符で囲んだ文字列を、そのまま渡す。"""
+    escaped = value.replace(chr(92), chr(92) * 2).replace('"', chr(92) + '"')
+    return '{"' + escaped + '"}'
+
+
 def _hash_delete_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
@@ -347,7 +358,8 @@ def solitaire_replay_save():
         ex_card_ids = data.get("exCardIds", [])
         card_types_in = data.get("cardTypes")   # 省略可（旧クライアントは送らない）
         logs = data.get("logs", [])
-        title = str(data.get("title", ""))[:100]
+        raw_title = data.get("title")
+        title = raw_title[:100] if isinstance(raw_title, str) else ""   # 文字列でなければ空（None が「None」にならないように）
         is_public = data.get("public") is True
         # 型チェック: 期待型でなければ拒否
         if not isinstance(logs, list) or not isinstance(images, dict) \
@@ -362,13 +374,18 @@ def solitaire_replay_save():
         # board（リンク画像用の最後の盤面）。不備があっても共有自体は失敗させない（捨てて保存する）
         if is_public:
             # 公開はタイトル必須（誰でも見られる一覧に載るため）。不適切な語は断る
-            title = title.strip()
+            title = replay_moderation.sanitize_title(title)   # 改行・制御文字・文字の向きを変える制御文字を除く
             if not title:
                 return {"error": "公開するにはタイトルを入れてください"}, 400
             if len(title) > PUBLIC_TITLE_MAX_LEN:
                 return {"error": f"公開するタイトルは{PUBLIC_TITLE_MAX_LEN}文字以内にしてください"}, 400
-            if replay_moderation.contains_ng_word(title):
-                return {"error": "タイトルに使えない言葉が含まれています"}, 400
+            try:
+                if replay_moderation.contains_ng_word(title):
+                    return {"error": "タイトルに使えない言葉が含まれています"}, 400
+            except replay_moderation.NgListUnavailable:
+                # 禁止語リストが使えないときは公開だけを断る（普通の共有は通す）。根本対応はリストの配置の修正
+                logger.error("禁止語リストが使えないため、公開を断りました（data/replay_ng_words.txt を確認）")
+                return {"error": "現在公開できません"}, 503
         board_in = data.get("board")
         board = validate_board(board_in)
         if board_in is not None and board is None:
@@ -422,13 +439,13 @@ def solitaire_replay_get(replay_id):
         return {"error": "データベース未接続"}, 503
     try:
         resp = _supabase_client.table("solitaire_replays") \
-            .select("images, names, ex_card_ids, logs, title, card_types") \
+            .select("images, names, ex_card_ids, logs, title, card_types, hidden") \
             .eq("id", replay_id) \
             .limit(1) \
             .execute()
         rows = resp.data if resp.data else []
-        if not rows:
-            return {"error": "見つかりません"}, 404
+        if not rows or rows[0].get("hidden"):
+            return {"error": "見つかりません"}, 404   # 非表示（運営の対処）は無いものとして扱う
         row = rows[0]
         return {
             "images":     row["images"],
@@ -478,7 +495,7 @@ def solitaire_public_list():
              .eq("is_public", True)
              .eq("hidden", False))
         if card:
-            q = q.contains("card_names", [card])
+            q = q.contains("card_names", _pg_array_literal(card))
         if before:
             q = q.lt("published_at", before)
         # 続きがあるかを知るため1件多く読む
@@ -501,6 +518,11 @@ def solitaire_public_list():
     return {"items": items, "next": items[-1]["published_at"] if has_more and items else None}
 
 
+# 取り下げできない（鍵違い・id なし・公開でない）ときの応答。クライアントは code のあるときだけ手元の鍵を捨てる
+# （プロキシ等の別の 403 で鍵を失わないため）
+_NOT_UNPUBLISHABLE = ({"error": "取り下げできません", "code": "not_unpublishable"}, 403)
+
+
 @solitaire_bp.route("/api/solitaire/replay/<replay_id>/unpublish", methods=["POST"])
 def solitaire_replay_unpublish(replay_id):
     """公開の取り下げ。本文 {token}（公開時に返した deleteToken）。鍵のハッシュが一致したときだけ、
@@ -513,7 +535,7 @@ def solitaire_replay_unpublish(replay_id):
     data = request.get_json(silent=True)
     token = data.get("token") if isinstance(data, dict) else None
     if not isinstance(token, str) or not token or len(token) > 200:
-        return {"error": "取り下げできません"}, 403
+        return _NOT_UNPUBLISHABLE
     sb = _get_supabase()
     if not sb:
         return {"error": "データベース未接続"}, 503
@@ -528,7 +550,7 @@ def solitaire_replay_unpublish(replay_id):
         stored = (rows[0].get("delete_token_hash") if rows else None) or ""
         # id が無い・公開でない・鍵が違うは同じ応答にする（id の有無を推測させない）
         if not stored or not hmac.compare_digest(_hash_delete_token(token), stored):
-            return {"error": "取り下げできません"}, 403
+            return _NOT_UNPUBLISHABLE
         (sb.table("solitaire_replays")
          .update({"is_public": False, "published_at": None, "delete_token_hash": None})
          .eq("id", replay_id)
