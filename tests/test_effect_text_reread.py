@@ -185,6 +185,32 @@ def test_x_without_crop_suggestion_is_uncertain_but_official_reads_whole_image(m
     assert "effect_text" not in official["extraction_raw"]["uncertain_fields"]
 
 
+def test_agreed_clears_effect_text_uncertain_but_keeps_other_fields(monkeypatch):
+    _fake_read(monkeypatch, text="①：このカードを特殊召喚できる。")
+    row = _row()
+    row["extraction_raw"]["uncertain_fields"] = ["effect_text", "atk"]
+    rr.reread_effect_texts([row], client=object(), encoded_images=_images())
+    assert row["extraction_raw"]["uncertain_fields"] == ["atk"]
+
+
+def test_agreed_with_unreadable_flag_keeps_uncertain(monkeypatch):
+    _fake_read(monkeypatch, text="①：このカードを特殊召喚できる。", unreadable=True)
+    row = _row()
+    row["extraction_raw"]["uncertain_fields"] = ["effect_text"]
+    rr.reread_effect_texts([row], client=object(), encoded_images=_images())
+    assert row["extraction_raw"]["uncertain_fields"] == ["effect_text"]
+
+
+def test_failure_and_pendulum_keep_first_pass_uncertain(monkeypatch):
+    _fake_read(monkeypatch, error=RuntimeError("x"))
+    row = _row()
+    row["extraction_raw"]["uncertain_fields"] = ["effect_text"]
+    pend = _row(card_type="ペンデュラム効果モンスター")
+    rr.reread_effect_texts([row, pend], client=object(), encoded_images=_images())
+    assert "effect_text" in row["extraction_raw"]["uncertain_fields"]
+    assert {"effect_text", "pendulum_effect"} <= set(pend["extraction_raw"]["uncertain_fields"])
+
+
 def test_existing_uncertain_fields_are_kept_without_duplicates(monkeypatch):
     _fake_read(monkeypatch, text="違う文。")
     row = _row()

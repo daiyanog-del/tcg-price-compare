@@ -173,7 +173,12 @@ def reread_effect_texts(rows: list[dict], *, client, encoded_images: list[dict],
             "unreadable": has_unreadable, "diff_summary": "" if a == b else diff_summary(a, b), "usage": usage,
         }
         row["effect_text"] = text
-        if not agreed:
+        if agreed:
+            # 評価（n=30）で「同じモデルの1回目と読み直しが一致したカードに誤りは0枚」だったため、
+            # 1回目のAI自己申告で入っていた effect_text の不確かを外す。
+            # 他の欄（atk など）の不確かには触れない。ペンデュラム・失敗は上の分岐で従来どおり不確かのまま。
+            raw["uncertain_fields"] = [f for f in raw.get("uncertain_fields", []) if f != "effect_text"]
+        else:
             _mark_uncertain(raw, "effect_text")
             logger.warning("効果テキストが1回目と食い違い/〓あり: %s", row.get("name"))
 
