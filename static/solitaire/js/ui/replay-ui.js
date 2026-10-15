@@ -36,7 +36,7 @@ const REPLAY_TITLE_MAX_LEN = 100;
  * リプレイのタイトルを決定する。
  * 優先順位: (1) スマホ共有シートのタイトル入力欄（#solMobileShareTitleInput、値があれば）
  *          → (2) PC側の .title 見出し要素（存在する場合）
- *          → (3) 既定値 '一人回し'
+ *          → (3) 既定値 '共有リプレイ'
  * #solMobileShareTitleInput は PC には存在しないため、PC では従来どおり (2)→(3) の挙動になる。
  * @returns {string}
  */
@@ -48,7 +48,7 @@ function _getReplayTitle() {
   const pageTitle = document.querySelector('.title')?.textContent;
   if (pageTitle) return pageTitle;
 
-  return '一人回し';
+  return '共有リプレイ';
 }
 
 /**
@@ -86,12 +86,12 @@ export function initReplayUI() {
   document.getElementById('replayUndo')
     ?.addEventListener('click', () => undoLast());
 
-  // すべて消去: PC版「すべて消去」ボタン。モバイル版⋯メニューの
-  // 「すべて消去」（deck-input-panel.js clearEverything）と同じ処理を使い、盤面も含めて
+  // クリア: 右パネル「盤面操作」のクリアボタン。モバイル版⋯メニューの
+  // 「クリア」（deck-input-panel.js clearEverything）と同じ処理を使い、盤面も含めて
   // 完全に初期状態へ戻す。誤操作防止のため確認ダイアログを必須にする。
-  document.getElementById('replayResetAll')
+  document.getElementById('clearButton')
     ?.addEventListener('click', async () => {
-      if (!confirm('デッキ・盤面・記録をすべて消去します。よろしいですか？')) return;
+      if (!confirm('読み込んだデッキ・盤面・記録をすべて消去します。元に戻せません。よろしいですか？')) return;
       // clearEverything() はデッキ読込中だと何もせず false を返す。その場合に
       // _resetPcRecording() だけ実行すると「盤面は残るが録画範囲だけ消える」
       // 中途半端な状態になるため、成功時のみ後続処理を行う。
@@ -99,7 +99,7 @@ export function initReplayUI() {
         // clearEverything() は PC版の録画状態（pc-recording.js）を知らないため、ここで明示的にリセットする
         _resetPcRecording();
       } else {
-        showToast('デッキ読込中のため消去できませんでした');
+        showToast('デッキ読込中のためクリアできませんでした');
       }
     });
 
@@ -189,6 +189,14 @@ export function initReplayUI() {
   // deck-input-panel.js が dispatch する sol-deck-load-start（読込開始時点）で破棄する。
   document.addEventListener('sol-deck-load-start', () => _resetPcRecording());
 
+  // 「リセット」(event-handlers.js handleReset) は記録も初期化するため、録画状態も破棄する。
+  // 共有シートが開いたままでも録画セクション表示が追従するよう updatePcShareRecordingSection も呼ぶ。
+  // （依存方向: event-handlers → イベント通知 → replay-ui → pc-recording。import の循環は作らない）
+  document.addEventListener('sol-replay-reset', () => {
+    _resetPcRecording();
+    updatePcShareRecordingSection();
+  });
+
   // PC版 再生中の操作無効化: #replayPlay の再生状態（play-active クラス。
   // replay-service.js の _updateUI が togglePlay/stepForward/stepBack/seekTo/undo・
   // 自動再生タイマーの各経路から更新する）を監視し、drag-drop.js の
@@ -230,7 +238,7 @@ function _initPcShareSheet() {
  * body.sol-playback には含まれないが、PC版は常時表示されるため独自に追加が必要
  * （#imagePool 内カードの dblclick=効果発動 が再生中に window.replayLog() を呼ぶと
  * 　logEvent() の「巻き戻し後は未来ログを切り捨てる」処理でリプレイ記録が壊れるため）。
- * #solRightPanel（1ドロー/リセット&5ドロー/盤面ロード/カウンター/トークン等）も同じ理由で
+ * #solRightPanel（1ドロー/リセット/盤面ロード/カウンター/トークン等）も同じ理由で
  * 必須。右パネルはモバイル版に存在しないため、モバイル版の body.sol-playback を参考にした
  * 棚卸しでは構造上見落とされていた。
  */
@@ -383,7 +391,7 @@ async function _generateShortURL(range) {
  * @returns {string} tweet intent URL
  */
 export function buildShareTweetUrl(shareUrl) {
-  const text = '一人回しのリプレイを共有しました #TCGYM';
+  const text = 'リプレイを共有しました #TCGYM';
   return `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(shareUrl)}`;
 }
 

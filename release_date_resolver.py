@@ -107,17 +107,31 @@ def resolve_release_date(product_name: str, *, source_text: str = "") -> dict:
             return result
         urls = set()
         list_dates = set()
+        # 詳細ページ未公開（url が空 or '#'始まり）の行の一覧日付（生文字列）
+        nodetail_raw = []
         for row in matches:
             path = _field(row, "url")
+            raw_list_date = _field(row, "release-date")
+            list_dates.update(_dates(raw_list_date))
             if not path or path.startswith("#"):
-                result["reason"] = "一致商品の独立した公式詳細ページがない"
-                return result
+                nodetail_raw.append(raw_list_date)
+                continue
             url = urljoin(PRODUCTS_URL, path)
             if not url.endswith("/"):
                 url += "/"
             _validate_url(url)
             urls.add(url)
-            list_dates.update(_dates(_field(row, "release-date")))
+        if not urls:
+            # 発表直後の新商品: 詳細ページが無いので公式商品一覧の発売日だけを根拠にする。
+            result["evidence"] = " / ".join(raw for raw in nodetail_raw if raw)
+            if not list_dates:
+                result["reason"] = "公式商品一覧に発売日が完全な年月日で載っていない（詳細ページ未公開）"
+            elif len(list_dates) != 1:
+                result.update(status="conflict", reason="公式の商品一覧で発売日が食い違っている（詳細ページ未公開）")
+            else:
+                result.update(release_date=next(iter(list_dates)), status="verified",
+                              source_url=PRODUCTS_URL, reason="公式商品一覧の発売日（詳細ページ未公開）")
+            return result
         if len(urls) != 1:
             result["reason"] = "同名商品が複数あり詳細ページを一意に選べない"
             return result

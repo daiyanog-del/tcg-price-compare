@@ -191,6 +191,34 @@ def _upsert_cards(sb: Client, rows: list[dict]) -> list[dict]:
 # ポスト処理
 # ──────────────────────────────────────────────
 
+def _lacks_card_body(row: dict) -> bool:
+    """抽出結果が「カード本体（枠・文字）を読めていない」か判定する。
+
+    イラストのみ・ティザー画像の投稿は、カード名しか分からず次をすべて満たす:
+      - effect_text と pendulum_effect が空（効果・フレーバーとも読めていない）
+      - atk / level / rank / link_val がすべて None（数値欄が読めていない）
+    通常モンスターは効果がなくてもフレーバーテキストと ATK/DEF・レベルが印刷されており、
+    魔法・罠は効果文が必ずあるため、本体が写っていれば上記のどれかは埋まる。
+    1つでも埋まっていれば「本体あり」とみなし、誤って保留しない（保留は後続投稿を待つだけで
+    データは失わないが、誤判定を減らして従来動作を保つ）。
+    実例: 2026-10-14「竜魔導の降霊師」21:30 イラストのみ投稿が先に挿入され、
+    21:00 の本体画像投稿が取込済みとしてスキップされた。
+    """
+    if (row.get("effect_text") or "").strip():
+        return False
+    if (row.get("pendulum_effect") or "").strip():
+        return False
+    return all(row.get(k) is None for k in ("atk", "level", "rank", "link_val"))
+
+
+def _tweet_id_key(tweet: dict) -> int:
+    """ツイートidを数値化（文字列比較だと桁数違いで順序が狂うため）。不正値は末尾へ。"""
+    try:
+        return int(tweet.get("id", ""))
+    except (TypeError, ValueError):
+        return 1 << 80
+
+
 def process_tweets(
     tweets: list[dict],
     media_map: dict[str, str],
@@ -200,10 +228,33 @@ def process_tweets(
     """ツイートリストを処理してDBに挿入する。戻り値: 挿入件数合計"""
     from unreleased_extractor import extract_cards_from_tweet
 
+    from unreleased_image_store import ingest_x_card_image
+
     known = _get_known_fuzzy_keys()
     total_inserted = 0
+    # カード本体が読めなかった行の保留（fuzzy_key → (行, 採用元tweet_url)）。
+    # 同名の別投稿に本体があればそちらを採用し、無ければバッチ末に挿入する。
+    pending: dict[str, tuple[dict, str]] = {}
 
-    for tweet in tweets:
+    def _insert_row(row: dict, row_tweet_url: str) -> int:
+        """1行を挿入し、挿入できたら画像も同じ出所（row_tweet_url）で保存する。"""
+        inserted_rows = _upsert_cards(sb, [row])
+        # 新規取込分をキャッシュに追加（同一実行内の重複処理防止）
+        existing_keys.add(fuzzy_key(row.get("name", "")))
+        for card in inserted_rows:
+            cid = card.get("id")
+            raw = card.get("extraction_raw") or {}
+            img_url = (raw.get("card_image_url") or "").strip()
+            if not img_url:
+                img_url = (raw.get("card_image_urls") or [""])[0]
+            if cid and img_url:
+                ok, reason = ingest_x_card_image(sb, cid, img_url, row_tweet_url)
+                logger.info(f"[X-Watcher] 画像保存: card_id={cid}, ok={ok}, reason={reason!r}")
+        return len(inserted_rows)
+
+    # 古い投稿から処理する（同名カードで本体画像の投稿を先に採用するため）。
+    # since_id の更新は main 側で全ツイートの最大idから行うので影響しない。
+    for tweet in sorted(tweets, key=_tweet_id_key):
         text = tweet.get("text", "")
         tweet_id = tweet.get("id", "")
         tweet_url = f"https://x.com/{ACCOUNT_USERNAME}/status/{tweet_id}"
@@ -257,24 +308,36 @@ def process_tweets(
 
         # ⑦⑧カード単位で挿入と画像保存を完了する。
         # 後続カードの挿入が失敗しても、成功済みカードの画像処理を失わない。
-        from unreleased_image_store import ingest_x_card_image
         n = 0
         for row in filtered:
-            inserted_rows = _upsert_cards(sb, [row])
-            n += len(inserted_rows)
-            total_inserted += len(inserted_rows)
-            # 新規取込分をキャッシュに追加（同一実行内の重複処理防止）
-            existing_keys.add(fuzzy_key(row.get("name", "")))
-            for card in inserted_rows:
-                cid = card.get("id")
-                raw = card.get("extraction_raw") or {}
-                img_url = (raw.get("card_image_url") or "").strip()
-                if not img_url:
-                    img_url = (raw.get("card_image_urls") or [""])[0]
-                if cid and img_url:
-                    ok, reason = ingest_x_card_image(sb, cid, img_url, tweet_url)
-                    logger.info(f"[X-Watcher] 画像保存: card_id={cid}, ok={ok}, reason={reason!r}")
+            key = fuzzy_key(row.get("name", ""))
+            if _lacks_card_body(row):
+                # カード本体が読めない行は挿入せず、同名の別投稿を待つ（最初の1件だけ保留）
+                if key not in pending:
+                    pending[key] = (row, tweet_url)
+                logger.info(
+                    f"[X-Watcher] カード本体が読めないため同名の別投稿を待つ: "
+                    f"{row.get('name', '?')!r} ({tweet_url})"
+                )
+                continue
+            if key in pending:
+                logger.info(
+                    f"[X-Watcher] 同名の別投稿でカード本体を採用: "
+                    f"{row.get('name', '?')!r} 採用元={tweet_url}"
+                )
+                del pending[key]
+            n += _insert_row(row, tweet_url)
+        total_inserted += n
         logger.info(f"[X-Watcher] 挿入: {n}件 ({tweet_url})")
+
+    # バッチ末: 同名の本体ありが来なかった保留行は従来どおり挿入する
+    for key, (row, row_url) in list(pending.items()):
+        logger.info(
+            f"[X-Watcher] 同名の本体ありが無いため保留行を挿入: "
+            f"{row.get('name', '?')!r} 採用元={row_url}"
+        )
+        total_inserted += _insert_row(row, row_url)
+        del pending[key]
 
     return total_inserted
 

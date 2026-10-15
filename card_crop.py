@@ -99,7 +99,11 @@ def _edge_line_box(edges, box, *, nearest=False):
 
 
 def refine_card_box(image_bytes: bytes, bbox: list[float]) -> dict | None:
-    """元画像ピクセル座標を補正する。保存はせず、常に人による確認を要求する。"""
+    """元画像ピクセル座標を補正する。この関数自体は保存しない。
+
+    返した枠は取り込み時に自動クロップとして適用される（method が vision のAI枠も対象）。
+    管理者は承認時に画像を確認し、ずれていれば手動クロップ・元画像への復元で直す。
+    """
     try:
         image = _open_image(image_bytes)
         width, height = image.size

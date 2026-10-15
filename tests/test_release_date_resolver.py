@@ -72,11 +72,57 @@ def test_conflicting_dates(monkeypatch, page):
     assert result["status"] == "conflict"
 
 
-@pytest.mark.parametrize("index", ["構造変更", index_row(path=""), index_row(path="#modal"),
+@pytest.mark.parametrize("index", ["構造変更",
     index_row() + index_row(path="different", number=2), index_row(day="2026年2月30日")])
 def test_unresolvable_index(monkeypatch, index):
     mock_pages(monkeypatch, index=index)
     assert resolver.resolve_release_date("IMMORTAL PHOENIX")["status"] == "unverified"
+
+
+@pytest.mark.parametrize("path", ["", "#cg1234"])
+def test_no_detail_page_adopts_official_list_date(monkeypatch, path):
+    fetch = mock_pages(monkeypatch, index=index_row(path=path))
+    result = resolver.resolve_release_date("IMMORTAL PHOENIX")
+    assert result["status"] == "verified"
+    assert result["release_date"] == "2026-10-31"
+    assert result["source_url"] == resolver.PRODUCTS_URL
+    assert result["evidence"] == "2026年10月31日(土)"
+    assert "詳細ページ未公開" in result["reason"]
+    assert fetch.call_count == 1  # 詳細ページは取得しない
+
+
+@pytest.mark.parametrize("day", ["", "2026年12月", "発売日未定"])
+def test_no_detail_page_without_full_date_is_unverified(monkeypatch, day):
+    mock_pages(monkeypatch, index=index_row(path="", day=day))
+    result = resolver.resolve_release_date("IMMORTAL PHOENIX")
+    assert result["status"] == "unverified"
+    assert result["release_date"] is None
+    assert "詳細ページ未公開" in result["reason"]
+
+
+def test_no_detail_page_with_different_dates_conflicts(monkeypatch):
+    mock_pages(monkeypatch, index=index_row(path="", day="2026年12月5日") + index_row(path="#x", day="2026年12月19日", number=2))
+    result = resolver.resolve_release_date("IMMORTAL PHOENIX")
+    assert result["status"] == "conflict"
+    assert result["release_date"] is None
+
+
+def test_no_detail_page_same_date_rows_are_verified(monkeypatch):
+    mock_pages(monkeypatch, index=index_row(path="", day="2026年12月5日(土)") + index_row(path="#x", day="2026年12月5日", number=2))
+    result = resolver.resolve_release_date("IMMORTAL PHOENIX")
+    assert result["status"] == "verified"
+    assert result["release_date"] == "2026-12-05"
+
+
+def test_detail_row_still_checked_against_detail_less_row_date(monkeypatch):
+    # 詳細あり行は従来どおり詳細ページで照合し、詳細なし行の一覧日付も矛盾チェックに含める
+    mock_pages(monkeypatch, index=index_row() + index_row(path="", day="2026年11月1日", number=2))
+    assert resolver.resolve_release_date("IMMORTAL PHOENIX")["status"] == "conflict"
+    resolver._cache.clear()
+    mock_pages(monkeypatch, index=index_row() + index_row(path="", number=2))
+    result = resolver.resolve_release_date("IMMORTAL PHOENIX")
+    assert result["status"] == "verified"
+    assert result["source_url"].endswith("/imph/")
 
 
 @pytest.mark.parametrize("url", ["https://evil.example/test/", "http://www.yugioh-card.com/japan/products/imph/",

@@ -49,6 +49,7 @@ import {
   loadReplayFromCompressedData,
   getCursor,
   seekTo,
+  truncateAfterCursor,
 } from '../services/replay-service.js';
 import { savedReplaysGet, saveReplayEntry, deleteReplayEntry } from '../services/saved-replays.js';
 
@@ -202,11 +203,11 @@ function closeMenuSheet() {
   setHidden('solMobileMenuSheet', true);
 }
 
-/** 「すべて消去」。確認ダイアログでOKされた場合のみ deck-input-panel.js の clearEverything を呼ぶ。 */
+/** 「クリア」。確認ダイアログでOKされた場合のみ deck-input-panel.js の clearEverything を呼ぶ。 */
 async function handleClearEverything() {
-  if (!confirm('デッキ・盤面・記録をすべて消去します。よろしいですか？')) return;
+  if (!confirm('読み込んだデッキ・盤面・記録をすべて消去します。元に戻せません。よろしいですか？')) return;
   await clearEverything();
-  showToast('すべて消去しました');
+  showToast('クリアしました');
 }
 
 const MENU_ACTIONS = {
@@ -552,12 +553,12 @@ function initActionSheet() {
 }
 
 // ══════════════════ C-2: 移動の演出（設計書 §C） ══════════════════
-// デッキ一覧シート／1ドロー／リセット&5ドロー／B-1の移動時に、カードのサムネイル複製を
+// デッキ一覧シート／1ドロー／B-1の移動時に、カードのサムネイル複製を
 // 出発点（シートのセル。取れなければ下部バーの「デッキ」ボタン）から行き先ゾーンへ
 // 300ms で飛ばす（position:fixed の clone。到着後に自身を消す）。
 // 実際の移動は必ず executeDrop を先に完了させてから演出するため、演出の有無で
 // リプレイ記録・DOM の最終状態は変わらない（C-1調査の結果、既存のドラッグ操作・
-// 1ドロー・リセット&5ドローには元々このような移動演出は無い＝ゼロから追加）。
+// 1ドロー・リセットには元々このような移動演出は無い＝ゼロから追加）。
 
 const FLY_DURATION_MS = 300;
 const FLY_STAGGER_MS = 60;
@@ -645,7 +646,7 @@ function _moveWithFlyEffect(items, executeFn) {
 }
 
 /**
- * 1ドロー／リセット&5ドローのように「移動対象のカードが呼び出し前には分からない」操作向け。
+ * 1ドローのように「移動対象のカードが呼び出し前には分からない」操作向け。
  * targetContainer 内の実行前 wrapper id 集合との差分で新規カードを検出し、演出を飛ばす。
  * @param {Element|null} targetContainer  移動先の実コンテナ（例: .center-slot）
  * @param {Set<string>} beforeIds
@@ -675,7 +676,7 @@ function _buildDeckCell(wrapper) {
   cell.dataset.cardId = cardEl.id;
   cell.dataset.cardName = name || '';
   // H-2: 元wrapperが自サイト透かし対象（発売済みクリーン画像）のときだけ透かしを付ける。
-  // self-watermark.css の [data-self-wm] .wm-released::before は position:relative の
+  // self-watermark.css の [data-self-wm] .wm-released::after は position:relative の
   // 祖先に依存するが .sol-mobile-deck-cell は既に position:relative なのでそのまま効く。
   if (wrapper.classList.contains('wm-released')) cell.classList.add('wm-released');
   // 未発売SAMPLE画像のイラストぼかし（sample-blur.css）。.sol-mobile-deck-cell は position:relative 済み
@@ -878,8 +879,8 @@ function initDeckSheet() {
   document.getElementById('solMobileDeckToFieldBtn')
     ?.addEventListener('click', _moveSelectedDeckCardToField);
 
-  // 副ボタン: 1ドロー・リセット&5ドロー（既存ボタンをclickするだけ。ロジックを複製しない）。
-  // C-2: 移動先（手札 .center-slot）の実行前 wrapper id 集合との差分で新規カードを検出して演出する。
+  // 副ボタン: 1ドロー・リセット（既存ボタンをclickするだけ。ロジックを複製しない）。
+  // C-2: 1ドローは移動先（手札 .center-slot）の実行前 wrapper id 集合との差分で新規カードを検出して演出する。
   document.getElementById('solMobileDeckDrawBtn')?.addEventListener('click', () => {
     const handSlot = document.querySelector('.sol-hand-area .center-slot');
     const beforeIds = new Set(Array.from(handSlot?.querySelectorAll('.tier-item-wrapper') || []).map(w => w.id));
@@ -887,11 +888,9 @@ function initDeckSheet() {
     _flyNewlyAddedCards(handSlot, beforeIds);
     _buildDeckGrid();
   });
+  // リセットは全カードをデッキへ戻すだけ（手札へ移るカードが無いので移動演出は不要）。
   document.getElementById('solMobileDeckResetBtn')?.addEventListener('click', () => {
-    const handSlot = document.querySelector('.sol-hand-area .center-slot');
-    const beforeIds = new Set(Array.from(handSlot?.querySelectorAll('.tier-item-wrapper') || []).map(w => w.id));
     document.getElementById('resetButton')?.click();
-    _flyNewlyAddedCards(handSlot, beforeIds);
     _buildDeckGrid();
   });
 
@@ -1159,7 +1158,7 @@ function _copyShareUrl() {
 function _nativeShareUrl() {
   const url = document.getElementById('solMobileShareUrlInput')?.value || '';
   if (!url || typeof navigator.share !== 'function') return;
-  const title = document.getElementById('solMobileShareTitleInput')?.value?.trim() || '一人回し';
+  const title = document.getElementById('solMobileShareTitleInput')?.value?.trim() || '共有リプレイ';
   navigator.share({ title, url }).catch(() => { /* ユーザーキャンセル等は無視 */ });
 }
 
@@ -1200,11 +1199,25 @@ function initShareSheet() {
     closeShareSheet();
     _startRecording();
   });
-  // 第6次検収-3: 「録画をやり直す」も _startRecording と同じ経路にする（新規に開始する。
-  // 停止済み録画は _startRecording が無条件で新しいオブジェクトに差し替えるため自動的に破棄される。
-  // 共有前なら confirm 不要＝録画は軽い操作として扱う）。
+  // 「録画をやり直す」: 停止済み録画の開始位置（startIdx＝録画開始時点までの手数）へ盤面を巻き戻してから、
+  // その位置で新規に録画を開始する（startIdx は元と同じ値になる）。
+  // 巻き戻し直後に truncateAfterCursor() で未来ログを切り捨てる（0手目からのやり直しでも確実に消す）。
+  // 共有シートが開いている時点で再生モードは終了済み（enterPlaybackMode が閉じ、
+  // exitPlaybackMode が開く）なので、再生モード中にここへ来ることは無い。
   document.getElementById('solMobileShareRedoRecordingBtn')?.addEventListener('click', () => {
+    const stopped = _hasStoppedRecording();
+    const prevStart = stopped ? _recording.startIdx : null;
+    // 録画停止後に打った手（endIdx より先）まで消えるときだけ確認する
+    if (stopped) {
+      const extra = getLogLength() - _recording.endIdx;
+      if (extra > 0 && !confirm(`録画を始めた位置まで戻ります。録画範囲より後の${extra}手も消えます。よろしいですか？`)) return;
+    }
     closeShareSheet();
+    if (prevStart !== null) {
+      _stopAutoPlayIfNeeded(); // 自動再生中なら先に止める
+      seekTo(prevStart - 1);
+      truncateAfterCursor();
+    }
     _startRecording();
   });
   document.getElementById('solMobileSharePlaybackBtn')?.addEventListener('click', () => {
@@ -1497,6 +1510,19 @@ function initClearEverything() {
     updateDeckCountBadge();
     updateReplayBarMobile();
     _resetRecording(); // タスクA-1: 「すべて消去」で録画状態を破棄する
+  });
+
+  // 「リセット」(event-handlers.js handleReset): 記録も初期化されるので録画状態を破棄し、
+  // 再生バー（取消ボタン）・デッキ枚数バッジ・開いたままの共有シートの録画表示を追従させる。
+  document.addEventListener('sol-replay-reset', () => {
+    // 通常は再生モード中に⋯メニュー/デッキシートへ届かないが、念のため抜けて整合を取る
+    if (_playbackMode) exitPlaybackMode({ returnToOrigin: false });
+    _resetRecording();
+    if (!isMobilePortrait()) return;
+    updateDeckCountBadge();
+    updateReplayBarMobile();
+    _updateShareRecordingSection();
+    _updateShareCurrentInfo();
   });
 }
 

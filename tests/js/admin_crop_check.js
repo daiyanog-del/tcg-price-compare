@@ -16,7 +16,7 @@ for (const left of [NaN, Infinity, true, '0.1', -1]) {
 }
 assert.equal(context.validate(null, candidate.source_image_url), null);
 const hint = {};
-Object.assign(context.modal, {img: {}, el: {querySelector: () => hint}, selEl: {style: {}}, confirmBtn: {}, suggestBtn: {}, resultEl: {}});
+Object.assign(context.modal, {img: {}, el: {querySelector: () => hint}, selEl: {style: {}}, confirmBtn: {}, suggestBtn: {}, restoreBtn: {}, resultEl: {}});
 context.modal.open(1, {}, candidate.source_image_url, candidate);
 assert.equal(context.modal._sel.left, .1);
 assert.equal(context.modal.selEl.hidden, false);

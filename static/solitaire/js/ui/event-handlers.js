@@ -3,7 +3,7 @@ import {
   drawRandomCards,
 } from '../components/card-manager.js';
 import { SaveLoadModal } from './save-load-modal.js';
-import { registerCardImage, logSetupEvent, getLogLength, getCursor } from '../services/replay-service.js';
+import { registerCardImage, clearReplayLog } from '../services/replay-service.js';
 import { initDeckInputPanel, loadDeckFromNeuron, savedDecksGet, savedDecksSet, parseDeckList } from './deck-input-panel.js';
 import { parseNeuronPdf } from '/static/shared/neuron-pdf-parser.js';
 import { NeuronPreviewModal } from '/static/shared/neuron-preview-modal.js';
@@ -81,33 +81,18 @@ export function handleLoadGame() {
 }
 
 /**
- * リセット&5ドローボタンのイベントハンドラ
+ * リセットボタンのイベントハンドラ
+ * 場・手札・墓地・除外のカードをすべてデッキ（EXはEXデッキ）に戻し、記録（再生バー）も初期化する。
+ * 5枚は引かない。確認ダイアログは出さない（2026-10-15 ユーザー指定）。
+ * 読み込んだデッキ（カード・画像辞書・名前辞書・EX判定）は残す。
+ * 全ログが空＝全カードがデッキの状態が初期状態になるため、setup ログ(resetDeck)は残さない。
  */
-export function handleResetAndDraw() {
-  // 記録0件（デッキ読込直後）かどうかを先に判定しておく（returnAllCardsToDeck/drawRandomCardsは
-  // DOM移動と抽選のみでログ記録を行わないため前後どちらで判定しても結果は変わらないが、
-  // 意図を明確にするためログ記録直前ではなく処理冒頭で判定する）
-  const isInitialState = getLogLength() === 0 && getCursor() === -1;
-
+export function handleReset() {
   returnAllCardsToDeck();
-  const selectedCards = drawRandomCards('poolRow', 5);
-  const centerSlot = document.querySelector('.center-slot');
-  // リセット&5ドローは盤面の初期化操作として手数（取消・巻き戻しの対象）には記録しない仕様。
-  // ただし開始直後（記録0件）のみは例外: 案B（2026-09-14承認）として setup ログに記録し、
-  // 共有リンク・巻き戻し・取消の後でも初期手札5枚が復元されるようにする。
-  // 元々（本変更前）は途中でのリセット&5ドローも通常ログ（window.replayLog経由）として記録していたが、
-  // 2026-09-14にユーザーの判断で「途中リセットは記録しない」仕様に変更した。
-  // 理由: 取消・共有リンクで手札が復元されない副作用は許容し、リセット操作自体を手数として
-  // カウントしない体験を優先するため。
-  const drawnIds = selectedCards
-    .map(card => card.querySelector('.tier-item')?.id)
-    .filter(Boolean);
-  selectedCards.forEach(card => {
-    centerSlot.appendChild(card);
-  });
-  if (isInitialState && drawnIds.length) {
-    logSetupEvent({ actionType: 'resetDeck', drawnIds, setup: true });
-  }
+  clearReplayLog();
+  // 録画状態（PC: replay-ui.js / スマホ: mobile-ui.js）を破棄させる。
+  // 'sol-board-cleared'（クリア用）はデッキ消去を含意するため使わず、専用イベントで通知する。
+  document.dispatchEvent(new CustomEvent('sol-replay-reset'));
 }
 
 /**
@@ -145,7 +130,7 @@ export function initializeEventListeners() {
     ?.addEventListener('change', handleNeuronPdfSelect);
 
   document.getElementById('resetButton')
-    ?.addEventListener('click', handleResetAndDraw);
+    ?.addEventListener('click', handleReset);
 
   document.getElementById('randomButton')
     ?.addEventListener('click', handleDrawOne);

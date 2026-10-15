@@ -148,8 +148,7 @@
   #replayShare,
   #replayShareX,
   #pcShareSheetOpen,
-  #pcRecordBtn,
-  #replayResetAll {
+  #pcRecordBtn {
     display: none;
   }
   /* 読込ラベル（input[type=file] を内包） */
@@ -161,13 +160,6 @@
   #replayCommentToast {
     max-width: 92vw;
     font-size: 1.05rem;
-  }
-
-  /* サイドパネルのトグルボタンを少し大きく */
-  .sol-panel-toggle {
-    width: 28px;
-    min-height: 48px;
-    font-size: 0.9rem;
   }
 
   /* ════════════════════════════════════════════════════
@@ -333,8 +325,7 @@
   #replayShare,
   #replayShareX,
   #pcShareSheetOpen,
-  #pcRecordBtn,
-  #replayResetAll {
+  #pcRecordBtn {
     display: none;
   }
   .replay-bar > label {

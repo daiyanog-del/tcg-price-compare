@@ -8,7 +8,7 @@
  * 範囲終了での自動停止は実装しない）。
  */
 
-import { getCursor, getLogLength, seekTo, isPlaying, togglePlay } from '../services/replay-service.js';
+import { getCursor, getLogLength, seekTo, isPlaying, togglePlay, truncateAfterCursor } from '../services/replay-service.js';
 
 /** 録画の状態: {recording, startIdx, endIdx}（startIdx/endIdx は1-indexed手数） */
 let _pcRecording = { recording: false, startIdx: null, endIdx: null };
@@ -31,14 +31,16 @@ function _hasStoppedPcRecording() {
 /**
  * @returns {{start:number, end:number}|null} 1-indexed 手数の範囲。録画（停止済み）が無ければ null（＝全範囲扱い）。
  * 停止後の取消（undo）で手数が減っていても壊れないよう、表示・送信の直前で
- * endIdx を現在の手数以下へ、startIdx を endIdx 以下へクランプする（_pcRecording 自体は書き換えない）。
+ * endIdx を現在の手数以下へクランプする（_pcRecording 自体は書き換えない）。
+ * 取消や巻き戻した位置からの操作で録画範囲の手がすべて消えた場合は null（＝全範囲扱い）を返す。
+ * 空範囲を返すと「2手目〜1手目（0手）」のような逆順表示になり、共有側（_buildRangeLogs）の丸めとも食い違うため。
  */
 export function _getPcRecordingRange() {
   if (!_hasStoppedPcRecording()) return null;
   const total = getLogLength();
   const end = Math.min(_pcRecording.endIdx, total);
-  const start = Math.min(_pcRecording.startIdx, end);
-  return { start: start + 1, end };
+  if (_pcRecording.startIdx >= end) return null;
+  return { start: _pcRecording.startIdx + 1, end };
 }
 
 /**
@@ -187,6 +189,29 @@ function _playPcRecordingRange() {
 }
 
 /**
+ * 「録画をやり直す」: 停止済み録画の開始位置へ盤面を巻き戻してから新規録画を始める。
+ * 停止済み録画が無い場合（通常は呼ばれない）は巻き戻さず、現在位置から開始する。
+ */
+function _redoPcRecordingFromSheet() {
+  const stopped = _hasStoppedPcRecording();
+  const prevStart = stopped ? _pcRecording.startIdx : null;
+  // 録画停止後に打った手（endIdx より先）まで消えるときだけ確認する（録画範囲だけなら確認なし）
+  if (stopped) {
+    const extra = getLogLength() - _pcRecording.endIdx;
+    if (extra > 0 && !confirm(`録画を始めた位置まで戻ります。録画範囲より後の${extra}手も消えます。よろしいですか？`)) return;
+  }
+  if (typeof _closeShareSheet === 'function') _closeShareSheet();
+  if (prevStart !== null) {
+    // 再生中に seekTo すると自動再生が続いてしまうため、先に止める（_playPcRecordingRange と同じ注意）
+    if (isPlaying()) togglePlay();
+    seekTo(prevStart - 1); // startIdx = getCursor()+1 なので cursor = startIdx-1 が録画開始時の盤面
+    // 未来ログをここで確定的に切り捨てる（録画開始の操作より前に、先の記録を消しておく）
+    truncateAfterCursor();
+  }
+  _startPcRecording();
+}
+
+/**
  * PC版録画機能を初期化する（#replayBarContainer の #pcRecordBtn・#pcShareSheet 内の
  * 録画セクションのボタン配線・#replayCounter の変化監視）。
  * @param {{ openShareSheet?: () => void, closeShareSheet?: () => void }} [deps]
@@ -200,7 +225,7 @@ export function initPcRecording(deps = {}) {
   document.getElementById('pcRecordBtn')
     ?.addEventListener('click', togglePcRecording);
 
-  // 「録画を始める/やり直す」: モバイル版（mobile-ui.js の
+  // 「録画を始める」: モバイル版（mobile-ui.js の
   // solMobileShareStartRecordingBtn 等）と同じく、共有シートを閉じてから録画を開始する。
   // 閉じないままだと全画面モーダルが盤面を覆い、録画開始直後に1手も打てない。
   const _startRecordingFromSheet = () => {
@@ -211,10 +236,11 @@ export function initPcRecording(deps = {}) {
     ?.addEventListener('click', _startRecordingFromSheet);
   document.getElementById('pcShareStopRecordingBtn')
     ?.addEventListener('click', _stopPcRecording);
-  // 「録画をやり直す」も同じ経路にする（無条件で新規開始。
-  // 停止済み録画は _startPcRecording が無条件で新しいオブジェクトに差し替えるため自動的に破棄される）。
+  // 「録画をやり直す」: 共有シートを閉じ、停止済み録画の開始位置（startIdx＝録画開始時点までの手数）へ
+  // 盤面を巻き戻してから、その位置で新規に録画を開始する（startIdx は元と同じ値になる）。
+  // 巻き戻し直後に truncateAfterCursor() で未来ログを切り捨てる（0手目からのやり直しでも確実に消す）。
   document.getElementById('pcShareRedoRecordingBtn')
-    ?.addEventListener('click', _startRecordingFromSheet);
+    ?.addEventListener('click', _redoPcRecordingFromSheet);
   document.getElementById('pcShareRangePlayBtn')
     ?.addEventListener('click', _playPcRecordingRange);
 
