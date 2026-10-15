@@ -23,9 +23,17 @@ import {
 import { COMMENT_MAX_LEN, CUTIN_MAX_LEN, CUTIN_PRESETS, listComments } from '../services/comment-model.js';
 import { isCardInPool } from './context-menu.js';
 import { showToast } from '../utils/toast.js';
+import { isMobilePortrait } from '../utils/viewport.js';
+import { hideCutin } from '../services/comment-view.js';
 
 /** 縦向きスマホ用の差し込み口。true を返したら入力欄は出さない（mobile-ui.js が代わりに開いた） */
 let _cardCommentOpener = null;
+
+/** 縦向きスマホ用: 盤面メモの全文を下から出るシートで出す処理（mobile-ui.js から差し込む） */
+let _memoFullOpener = null;
+export function setMemoFullOpener(fn) {
+  _memoFullOpener = fn;
+}
 
 /**
  * カードの吹き出し入力を別の UI で開く処理を登録する（mobile-ui.js から）。
@@ -319,7 +327,11 @@ export function initCommentUI() {
     if (!_addCutin(cutinInput?.value ?? '')) cutinInput?.focus();
   });
   cutinInput?.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeCommentInputs(); }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeCommentInputs(); return; }
+    if (e.key === 'Enter') {
+      e.preventDefault(); // 日本語入力の変換確定の Enter でフォームが送られないよう、既定の送信は止める
+      if (_isCommitEnter(e) && !_addCutin(cutinInput.value)) cutinInput.focus();
+    }
   });
 
   document.getElementById('solCommentBoardForm')?.addEventListener('submit', (e) => {
@@ -333,7 +345,13 @@ export function initCommentUI() {
 
   // 盤面メモの付箋: 押す（クリック・Enter・Space）と全文が開閉する（同じ付箋が広がって重なるだけで、盤面の配置は動かない）
   const memo = document.getElementById('solBoardMemo');
+  const closeMemo = () => {
+    memo?.classList.remove('is-open');
+    memo?.setAttribute('aria-expanded', 'false');
+  };
   const toggleMemo = () => {
+    // 縦向きスマホは付箋を広げず、全文を下から出るシートで出す（見本の「押すと全文を下から出す」）
+    if (isMobilePortrait() && _memoFullOpener) { _memoFullOpener(memo.querySelector('.sol-board-memo-text')?.textContent ?? ''); return; }
     const open = !memo.classList.contains('is-open');
     memo.classList.toggle('is-open', open);
     memo.setAttribute('aria-expanded', String(open));
@@ -345,10 +363,15 @@ export function initCommentUI() {
 
   // 全文を開いたまま、下のカードをドラッグし始めたら閉じる（広がった付箋がドロップ先を覆わないように）
   document.addEventListener('dragstart', () => {
-    if (!memo?.classList.contains('is-open')) return;
-    memo.classList.remove('is-open');
-    memo.setAttribute('aria-expanded', 'false');
+    if (memo?.classList.contains('is-open')) closeMemo();
   }, true);
+  // 開いた付箋は、外を押したら閉じる
+  document.addEventListener('pointerdown', (e) => {
+    if (memo?.classList.contains('is-open') && !memo.contains(e.target)) closeMemo();
+  }, true);
+  // 画面サイズの変更・回転で、出ているカットインの帯は消す（位置が古くなるため）
+  window.addEventListener('resize', hideCutin);
+  window.addEventListener('orientationchange', hideCutin);
 
   subscribeReplay('changed', renderCommentList);
   renderCommentList();

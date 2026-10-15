@@ -55,55 +55,83 @@
 /* 付箋の位置の基準（縦向きスマホは mobile.css が同じ指定を持つ。PC・横向きにも同じ基準を与える） */
 .custom-layout { position: relative; }
 .custom-layout > .sol-board-memo {
+  /* 高さの上限は（本体 .sol-board-memo-body で）「行数 × 行の高さ」、余白を足すと「余白×2 ＋ 行数 × 行の高さ」になる。行数・余白・文字の大きさを変数にして、画面ごとに互いに合わせる
+     （上限が行の途中で切れず、末尾に … が出る）。+1px は小数の丸めで最終行が欠けないための余裕 */
+  --memo-lines: 5;                       /* PC は5行まで */
+  --memo-pad: 9px;
+  --memo-lh: 1.45;
+  --memo-fs: clamp(8px, calc(var(--slot-width) * 0.134), 13px);
   position: absolute;
   left: -1px;                /* スロットは枠(1px)の分だけ列からはみ出すので、見本（左330・幅205）に合わせて少し広げる */
   top: 8px;
   z-index: 15;               /* カード（スロット内）より前。カード詳細欄(10)・案内帯(30)・メニュー類より後ろ */
   box-sizing: border-box;
   width: calc(var(--slot-width) * 2 + var(--gap) + 3px);
-  max-height: calc(var(--slot-height) - 12px);
-  padding: 9px 11px;
+  padding: var(--memo-pad) 11px;
   overflow: hidden;
-  background: rgba(32, 44, 66, 0.94);   /* --bg-hover 相当 */
+  background: color-mix(in srgb, var(--bg-hover) 94%, transparent);
   border-radius: 8px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
   color: var(--main-color);
   font-family: var(--font);
-  font-size: clamp(8px, calc(var(--slot-width) * 0.134), 13px);
-  line-height: 1.45;
+  font-size: var(--memo-fs);
+  line-height: var(--memo-lh);
   overflow-wrap: anywhere;
   cursor: pointer;
   pointer-events: auto;      /* 再生中に盤面へ掛ける pointer-events:none（body.sol-playback など）の中でも開閉できる */
+}
+/* 省略は余白の内側の本体（body）で行う。外側（余白つき）で行うと、省略された次の行が下の余白に透けて見えるため */
+.sol-board-memo-body {
+  max-height: calc(var(--memo-lines) * var(--memo-lh) * var(--memo-fs) + 1px);
+  overflow: hidden;
   display: -webkit-box;
-  -webkit-line-clamp: 5;     /* PC は5行まで。あふれた分は … で省略（全文は押すと開く・title にも入る） */
+  -webkit-line-clamp: var(--memo-lines);   /* あふれた分は … で省略（全文は押すと開く・title にも入る） */
   -webkit-box-orient: vertical;
 }
 .custom-layout > .sol-board-memo[hidden] { display: none; }
 .sol-board-memo-icon { margin-right: 4px; }
-/* 押すと全文。同じ付箋が下へ広がって重なるだけ（盤面の配置は動かさない）。幅の狭い盤面でも読めるよう最低幅を取る */
+/* 押すと全文（PC・横向き）。同じ付箋が下へ広がって重なるだけ（盤面の配置は動かさない）。幅の狭い盤面でも読めるよう最低幅を取る。
+   外を押すと閉じる（comment-ui.js）。縦向きスマホは広げず、下から出るシートで全文を出す（mobile-ui.js） */
 .custom-layout > .sol-board-memo.is-open {
-  display: block;
   z-index: 40;
   width: max(calc(var(--slot-width) * 2 + var(--gap) + 3px), min(220px, 60vw));
+  overflow: visible;
+}
+.custom-layout > .sol-board-memo.is-open .sol-board-memo-body {
+  display: block;
   max-height: none;
   overflow: visible;
   -webkit-line-clamp: unset;
 }
+/* 横向きスマホ（高さ500px以下）: 盤面が小さいので余白と行数を減らす */
+@media (max-height: 500px) {
+  .custom-layout > .sol-board-memo {
+    --memo-lines: 3;
+    --memo-pad: 5px;
+  }
+}
 @media (max-width: 767px) and (orientation: portrait) {
   .custom-layout > .sol-board-memo {
+    --memo-lines: 6;         /* スマホは6行まで */
+    --memo-pad: 6px;
+    --memo-lh: 1.35;
+    --memo-fs: clamp(8px, calc(var(--slot-width) * 0.157), 11px);
     left: calc((100% - var(--slot-width) * 5 - 40px) / 2 - 2px);  /* 5列グリッド（列の間 10px）の1列目 */
     top: 2px;
     width: calc(var(--slot-width) + 4px);
-    max-height: calc(var(--slot-height) - 4px);
-    padding: 6px;
+    padding: var(--memo-pad);
     border-radius: 7px;
-    font-size: clamp(8px, calc(var(--slot-width) * 0.157), 11px);
-    line-height: 1.35;
-    -webkit-line-clamp: 6;   /* スマホは6行まで */
   }
-  .custom-layout > .sol-board-memo.is-open {
-    width: min(220px, calc(100vw - 24px));
-  }
+}
+/* 縦向きスマホで全文を出すシートの本文（components.css の `p { color:#333 }` を避ける） */
+.sol-mobile-memo-full {
+  margin: 0;
+  color: var(--main-color);
+  font-family: var(--font);
+  font-size: 0.95rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* ── カットイン（2026-10-15。見本の 2章 案X）──
@@ -120,15 +148,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(90deg, rgba(16, 22, 38, 0) 0%, rgba(16, 22, 38, 0.9) 12%, rgba(16, 22, 38, 0.9) 88%, rgba(16, 22, 38, 0) 100%);
-  border-top: 1px solid rgba(239, 243, 251, 0.25);
-  border-bottom: 1px solid rgba(239, 243, 251, 0.25);
+  background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--bg-color) 90%, transparent) 12%, color-mix(in srgb, var(--bg-color) 90%, transparent) 88%, transparent 100%);
+  border-top: 1px solid color-mix(in srgb, var(--main-color) 25%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--main-color) 25%, transparent);
   pointer-events: none;
   opacity: 0;
-  animation: solCutIn 1.9s ease both;
+  animation: solCutIn 1.9s ease both;   /* 1.9s は既定値。実際の長さは JS の CUTIN_DURATION_MS を comment-view.js が animationDuration で渡す */
 }
 .sol-cutin .sol-cutin-text {
-  color: #fff;               /* components.css の `span { color:#333 }` に負けないよう明示 */
+  color: var(--main-color);  /* components.css の `span { color:#333 }` に負けないよう明示 */
   font-family: var(--font);
   font-size: 34px;
   font-weight: 900;

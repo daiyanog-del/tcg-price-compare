@@ -452,6 +452,7 @@ async function _applyReplayPayload(payload) {
   _names  = payload.names || {};
   _exCardIds = new Set(payload.exCardIds || []);
   _cardTypes = { ...(payload.cardTypes || {}) };
+  hideCutin(); // 読み込み直しでは、出ているカットインを残さない
   const split = _splitSetupLogs(payload.logs);
   _setupLogs = split.setupLogs;
   _logs = split.logs;
@@ -502,6 +503,7 @@ export async function importFromURLHash(hash) {
     _names  = payload.names || {};
     _exCardIds = new Set(payload.exCardIds || []);
     _cardTypes = { ...(payload.cardTypes || {}) };
+    hideCutin(); // 読み込み直しでは、出ているカットインを残さない
     const split = _splitSetupLogs(payload.logs);
     _setupLogs = split.setupLogs;
     _logs = split.logs;
@@ -570,6 +572,7 @@ export function restoreReplaySession(snap) {
   _names = { ...(snap.names || {}) };
   _exCardIds = new Set(snap.exCardIds || []);
   _cardTypes = { ...(snap.cardTypes || {}) };
+  hideCutin(); // 復元では出さず、出ているものも残さない（カーソルの番号が偶然同じでも消える）
   _resetAnimMarks();
   _updateUI();
 }
@@ -632,6 +635,7 @@ export async function _setReplayData(images, names, logs, exCardIds = [], cardTy
   _names  = names || {};
   _exCardIds = new Set(exCardIds);
   _cardTypes = { ...(cardTypes || {}) };
+  hideCutin(); // 読み込み直しでは、出ているカットインを残さない
   const split = _splitSetupLogs(logs);
   _setupLogs = split.setupLogs;
   _logs = split.logs;

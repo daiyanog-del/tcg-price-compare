@@ -50,7 +50,7 @@ import {
   addComment,
 } from '../services/replay-service.js';
 import { shiftRangeAfterInsert, shiftRangeAfterRemove, COMMENT_MAX_LEN, CUTIN_MAX_LEN, CUTIN_PRESETS } from '../services/comment-model.js';
-import { setCardCommentOpener } from './comment-ui.js';
+import { setCardCommentOpener, setMemoFullOpener } from './comment-ui.js';
 import { getCurrentBubbleText } from '../services/comment-view.js';
 import { savedReplaysGet } from '../services/saved-replays.js';
 import { sharedReplaysGet } from '../services/shared-replays.js';
@@ -115,6 +115,7 @@ function resetMobileUI() {
   setHidden('solMobileDeckSheet', true);
   setHidden('solMobileShareSheet', true);
   setHidden('solMobileCommentSheet', true);
+  setHidden('solMobileMemoSheet', true);
   setHidden('solMobileEmptyCta', true);
   setDeckBtnLoading(false); // 読込中表示のまま portrait を外れた場合の保険
 }
@@ -1213,6 +1214,15 @@ function initCommentSheet() {
       e.preventDefault();
       _submitMobileComment();
     }
+  });
+  // 盤面メモの付箋を押したら、全文を下から出るシートに出す（textContent。本文は他人が作れる共有リプレイ由来のため）
+  document.querySelectorAll('[data-sol-memo-sheet-close]').forEach((el) => {
+    el.addEventListener('click', () => setHidden('solMobileMemoSheet', true));
+  });
+  setMemoFullOpener((text) => {
+    const p = document.getElementById('solMobileMemoFullText');
+    if (p) p.textContent = text;
+    setHidden('solMobileMemoSheet', false);
   });
   // 縦向きスマホでは、右クリック/長押しメニューの「吹き出しを付ける」もこのシートで入力させる
   setCardCommentOpener((wrapper) => {

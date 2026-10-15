@@ -216,7 +216,7 @@
 
             <!-- 盤面メモの付箋（2026-10-15）: 盤面の1段目の空いた角に重ねる（位置は css/comments.css・配置は動かさない）。
                  押すと全文が開閉する（配線は comment-ui.js・表示は services/comment-view.js） -->
-            <div id="solBoardMemo" class="sol-board-memo" role="button" tabindex="0" aria-expanded="false" hidden><span class="sol-board-memo-icon" aria-hidden="true">&#128221;</span><span id="solBoardMemoText" class="sol-board-memo-text"></span></div>
+            <div id="solBoardMemo" class="sol-board-memo" role="button" tabindex="0" aria-expanded="false" hidden><div class="sol-board-memo-body"><span class="sol-board-memo-icon" aria-hidden="true">&#128221;</span><span id="solBoardMemoText" class="sol-board-memo-text"></span></div></div>
 
             <!-- スマホ縦向き専用: 初見導線（フェーズ3・§3.5）。デッキ0枚かつ手札0枚のときだけ表示 -->
             <button type="button" id="solMobileEmptyCta" class="sol-mobile-empty-cta" hidden>デッキを読み込む</button>
@@ -502,6 +502,20 @@
               <input type="text" id="solMobileCommentInput" class="sol-mobile-share-input" maxlength="60" placeholder="コメント" aria-label="コメント">
               <button type="button" id="solMobileCommentAddBtn" class="sol-mobile-menu-item">付ける</button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 盤面メモの全文シート（縦向きスマホ）: 付箋を押すと下から出る。本文は textContent。mobile-ui.js の initCommentSheet -->
+      <div id="solMobileMemoSheet" class="sol-mobile-sheet" hidden>
+        <div class="sol-mobile-sheet-scrim" data-sol-memo-sheet-close></div>
+        <div class="sol-mobile-sheet-panel sol-mobile-comment-panel">
+          <div class="sol-mobile-sheet-header">
+            <span>盤面のメモ</span>
+            <button type="button" class="sol-mobile-sheet-close-btn" data-sol-memo-sheet-close aria-label="閉じる">&times;</button>
+          </div>
+          <div class="sol-mobile-sheet-body">
+            <p id="solMobileMemoFullText" class="sol-mobile-memo-full"></p>
           </div>
         </div>
       </div>

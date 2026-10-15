@@ -169,6 +169,7 @@ export function showCutin(text) {
   const el = document.createElement('div');
   el.className = 'sol-cutin';
   el.setAttribute('aria-hidden', 'true'); // 記録は一覧に残る。スクリーンリーダーには読ませない
+  el.style.animationDuration = `${CUTIN_DURATION_MS}ms`; // 長さの正本は JS 側（CSS の 1.9s は既定値）
   el.style.left = `${a.left}px`;
   el.style.width = `${a.width}px`;
   el.style.top = `${b.top + b.height / 2}px`; // 帯の高さの半分だけ上へずらすのは CSS（margin-top）
