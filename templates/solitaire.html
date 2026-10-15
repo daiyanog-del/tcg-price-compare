@@ -399,7 +399,7 @@
           <div class="sol-mobile-sheet-body">
             <button type="button" class="sol-mobile-menu-item" data-menu-action="save">セーブ<span class="sol-mobile-menu-desc">今の盤面を保存します</span></button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="load">ロード<span class="sol-mobile-menu-desc">保存した盤面を呼び出します</span></button>
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="reset">リセット<span class="sol-mobile-menu-desc">カードをデッキに戻して5枚引き直します（記録は残ります）</span></button>
+            <button type="button" class="sol-mobile-menu-item" data-menu-action="reset">リセット<span class="sol-mobile-menu-desc">カードをすべてデッキに戻します（記録は残ります）</span></button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="clearall">クリア<span class="sol-mobile-menu-desc">デッキ・盤面・記録をすべて消します</span></button>
             <label class="sol-mobile-menu-item sol-sample-blur-toggle">
               <input type="checkbox" id="solMobileSampleBlurToggle" data-sample-blur-toggle>
@@ -445,7 +445,7 @@
             </div>
             <div class="sol-mobile-deck-sub-actions">
               <button type="button" id="solMobileDeckDrawBtn" class="sol-mobile-menu-item">1ドロー</button>
-              <button type="button" id="solMobileDeckResetBtn" class="sol-mobile-menu-item">リセット&amp;5ドロー</button>
+              <button type="button" id="solMobileDeckResetBtn" class="sol-mobile-menu-item">リセット</button>
             </div>
           </div>
           <div id="solMobileDeckEmpty" class="sol-mobile-deck-empty" hidden>
@@ -559,7 +559,7 @@
           <!-- リセット／クリアは即時表示の自前ツールチップ（CSSのみ: :hover / :focus-visible）。title属性は二重表示になるため使わない -->
           <div class="sol-tip-wrap">
             <button id="resetButton" class="action-btn reset-btn" aria-describedby="resetButtonTip">リセット</button>
-            <span id="resetButtonTip" class="sol-tip sol-tip-up" role="tooltip">場・手札・墓地・除外のカードをデッキ（EXカードはEXデッキ）に戻してシャッフルし、5枚引き直します。読み込んだデッキと記録は消えません。</span>
+            <span id="resetButtonTip" class="sol-tip sol-tip-up" role="tooltip">場・手札・墓地・除外のカードをすべてデッキ（EXカードはEXデッキ）に戻します。読み込んだデッキと記録は消えません。</span>
           </div>
           <div class="sol-tip-wrap">
             <button id="clearButton" class="action-btn clear-btn" aria-describedby="clearButtonTip">クリア</button>

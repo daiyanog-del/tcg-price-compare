@@ -553,12 +553,12 @@ function initActionSheet() {
 }
 
 // ══════════════════ C-2: 移動の演出（設計書 §C） ══════════════════
-// デッキ一覧シート／1ドロー／リセット&5ドロー／B-1の移動時に、カードのサムネイル複製を
+// デッキ一覧シート／1ドロー／B-1の移動時に、カードのサムネイル複製を
 // 出発点（シートのセル。取れなければ下部バーの「デッキ」ボタン）から行き先ゾーンへ
 // 300ms で飛ばす（position:fixed の clone。到着後に自身を消す）。
 // 実際の移動は必ず executeDrop を先に完了させてから演出するため、演出の有無で
 // リプレイ記録・DOM の最終状態は変わらない（C-1調査の結果、既存のドラッグ操作・
-// 1ドロー・リセット&5ドローには元々このような移動演出は無い＝ゼロから追加）。
+// 1ドロー・リセットには元々このような移動演出は無い＝ゼロから追加）。
 
 const FLY_DURATION_MS = 300;
 const FLY_STAGGER_MS = 60;
@@ -646,7 +646,7 @@ function _moveWithFlyEffect(items, executeFn) {
 }
 
 /**
- * 1ドロー／リセット&5ドローのように「移動対象のカードが呼び出し前には分からない」操作向け。
+ * 1ドローのように「移動対象のカードが呼び出し前には分からない」操作向け。
  * targetContainer 内の実行前 wrapper id 集合との差分で新規カードを検出し、演出を飛ばす。
  * @param {Element|null} targetContainer  移動先の実コンテナ（例: .center-slot）
  * @param {Set<string>} beforeIds
@@ -879,8 +879,8 @@ function initDeckSheet() {
   document.getElementById('solMobileDeckToFieldBtn')
     ?.addEventListener('click', _moveSelectedDeckCardToField);
 
-  // 副ボタン: 1ドロー・リセット&5ドロー（既存ボタンをclickするだけ。ロジックを複製しない）。
-  // C-2: 移動先（手札 .center-slot）の実行前 wrapper id 集合との差分で新規カードを検出して演出する。
+  // 副ボタン: 1ドロー・リセット（既存ボタンをclickするだけ。ロジックを複製しない）。
+  // C-2: 1ドローは移動先（手札 .center-slot）の実行前 wrapper id 集合との差分で新規カードを検出して演出する。
   document.getElementById('solMobileDeckDrawBtn')?.addEventListener('click', () => {
     const handSlot = document.querySelector('.sol-hand-area .center-slot');
     const beforeIds = new Set(Array.from(handSlot?.querySelectorAll('.tier-item-wrapper') || []).map(w => w.id));
@@ -888,11 +888,9 @@ function initDeckSheet() {
     _flyNewlyAddedCards(handSlot, beforeIds);
     _buildDeckGrid();
   });
+  // リセットは全カードをデッキへ戻すだけ（手札へ移るカードが無いので移動演出は不要）。
   document.getElementById('solMobileDeckResetBtn')?.addEventListener('click', () => {
-    const handSlot = document.querySelector('.sol-hand-area .center-slot');
-    const beforeIds = new Set(Array.from(handSlot?.querySelectorAll('.tier-item-wrapper') || []).map(w => w.id));
     document.getElementById('resetButton')?.click();
-    _flyNewlyAddedCards(handSlot, beforeIds);
     _buildDeckGrid();
   });
 
