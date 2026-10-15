@@ -2,7 +2,6 @@ import {
   returnAllCardsToDeck,
   drawRandomCards,
 } from '../components/card-manager.js';
-import { SaveLoadModal } from './save-load-modal.js';
 import { registerCardImage, clearReplayLog } from '../services/replay-service.js';
 import { initDeckInputPanel, loadDeckFromNeuron, savedDecksGet, savedDecksSet, parseDeckList } from './deck-input-panel.js';
 import { parseNeuronPdf } from '/static/shared/neuron-pdf-parser.js';
@@ -65,22 +64,6 @@ export async function handleNeuronPdfSelect(event) {
 }
 
 /**
- * セーブボタンのイベントハンドラ
- */
-export function handleSaveGame() {
-  const modal = new SaveLoadModal('save');
-  modal.show();
-}
-
-/**
- * ロードボタンのイベントハンドラ
- */
-export function handleLoadGame() {
-  const modal = new SaveLoadModal('load');
-  modal.show();
-}
-
-/**
  * リセットボタンのイベントハンドラ
  * 場・手札・墓地・除外のカードをすべてデッキ（EXはEXデッキ）に戻し（カードの上のカウンターも外す）、記録（再生バー）も初期化する。
  * 5枚は引かない。確認ダイアログは出さない（2026-10-15 ユーザー指定）。
@@ -136,11 +119,6 @@ export function initializeEventListeners() {
 
   document.getElementById('randomButton')
     ?.addEventListener('click', handleDrawOne);
-
-  document.getElementById('saveButton2')
-    ?.addEventListener('click', handleSaveGame);
-  document.getElementById('loadButton')
-    ?.addEventListener('click', handleLoadGame);
 
   // フリースペースと除外ゾーンのダブルクリック切り替え
   const sideSlotGroups = document.querySelectorAll('.side-slot-group');

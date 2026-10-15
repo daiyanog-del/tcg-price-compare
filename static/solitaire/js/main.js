@@ -22,6 +22,7 @@ import { initRandomTools } from './ui/random-tools.js';
 import { initCardInfoPanel, showCardByName } from './ui/card-info-panel.js';
 import { initSampleBlur } from './ui/sample-blur.js';
 import { saveSessionResume, loadSessionResume } from './services/save-load-service.js';
+import { migrateSlotsToReplays } from './services/slot-migration.js';
 import { initOpponentTray, updateCipWidth } from './ui/opponent-tray.js';
 import { initFeedbackModal } from './ui/feedback-modal.js';
 import { initSidebarToggle } from './ui/sidebar-toggle.js';
@@ -433,6 +434,17 @@ async function initializeApp() {
   // M-3: 復元の有無に関わらず、盤面確定後に mobile-ui.js の初見導線CTA判定を確定させる
   // （restored=false でも updateEmptyCta() は呼ぶ必要があるため if の外に出す）。
   document.dispatchEvent(new CustomEvent('sol-session-restored'));
+
+  // 廃止した盤面セーブ（スロット1〜5）を、0手のリプレイとしてリプレイ一覧へ移す（失敗したスロットは残して次回再試行）。
+  // 復元トーストと重ならないよう、復元の後に知らせる。リプレイ一覧ページ側でも同じ移行を呼ぶ（何度呼んでも同じ結果）
+  const slotMigration = migrateSlotsToReplays();
+  if (slotMigration.migrated > 0) {
+    _showToast(`盤面セーブ（${slotMigration.migrated}件）をリプレイ一覧に移しました`);
+  }
+  // 移せなかったスロットは消さずに残してある。利用者が気づけるよう、読み込みのたびに知らせる
+  if (slotMigration.failed > 0) {
+    _showToast(`移せなかった盤面セーブが${slotMigration.failed}件あります（リプレイ一覧で確認できます）`);
+  }
 
   // ビューポートに合わせて --slot-width を初期設定
   // ※ fitFieldToViewport 内の RAF でパネル幅（--cip-width）も更新される

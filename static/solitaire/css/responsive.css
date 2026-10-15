@@ -148,12 +148,14 @@
   #replayShare,
   #replayShareX,
   #pcShareSheetOpen,
+  #pcRangeClearBtn,
   #pcRecordBtn {
     display: none;
   }
-  /* 読込ラベル（input[type=file] を内包） */
-  .replay-bar > label {
-    display: none;
+  /* 整理③でボタンを「見る／戻す／残す」のまとまり（.replay-group）に入れたため、
+     ここでは囲みを無いものとして扱い、上の order 指定を従来どおり効かせる */
+  #replayBarContainer .replay-group {
+    display: contents;
   }
 
   /* コメントトーストをモバイルで読みやすく */
@@ -267,9 +269,6 @@
     #replayShareX {
       display: revert;
     }
-    .replay-bar > label {
-      display: revert;
-    }
   }
 }
 
@@ -325,11 +324,14 @@
   #replayShare,
   #replayShareX,
   #pcShareSheetOpen,
+  #pcRangeClearBtn,
   #pcRecordBtn {
     display: none;
   }
-  .replay-bar > label {
-    display: none;
+  /* 整理③でボタンを「見る／戻す／残す」のまとまり（.replay-group）に入れたため、
+     ここでは囲みを無いものとして扱い、上の order 指定を従来どおり効かせる */
+  #replayBarContainer .replay-group {
+    display: contents;
   }
 }
 

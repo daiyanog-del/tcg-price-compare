@@ -1,6 +1,8 @@
 /**
  * pc-recording.js
- * PC版「一人回し」の録画（共有する範囲の切り出し）状態機械。
+ * PC版「一人回し」の範囲選択（保存・共有する場面の切り出し。旧称「録画」）状態機械。
+ * 画面上の呼び名は「範囲」（2026-10-15 整理③。「録画」は動画の書き出しと誤解されたため）。
+ * 内部の変数名・関数名（recording 等）は退避データとの互換のため変えていない。
  * モバイル版の _recording 系（mobile-ui.js 879〜987行付近）を参考にした PC 専用実装。
  * モバイル版のコード（mobile-ui.js / mobile.css）には一切触れない。
  *
@@ -8,18 +10,17 @@
  * 範囲終了での自動停止は実装しない）。
  */
 
-import { getCursor, getLogLength, seekTo, isPlaying, togglePlay, truncateAfterCursor } from '../services/replay-service.js';
+import { getCursor, getLogLength, seekTo, isPlaying, togglePlay } from '../services/replay-service.js';
 
 /** 録画の状態: {recording, startIdx, endIdx}（startIdx/endIdx は1-indexed手数） */
 let _pcRecording = { recording: false, startIdx: null, endIdx: null };
 
-/** 録画停止時に呼ぶコールバック（共有シートを自動で開く。initPcRecording で受け取る） */
-let _onStopCallback = null;
+/** 範囲が決まったときに呼ぶコールバック（通知の表示。initPcRecording で受け取る） */
+let _onRangeDecided = null;
 
 /**
- * 共有シートを閉じるコールバック（initPcRecording で受け取る）。
- * 「この範囲を再生」の直前、および共有シート内「録画を始める/やり直す」クリック時の
- * 双方から使う（どちらもシートを閉じてから本処理に進む必要があるため）。
+ * 保存・共有シートを閉じるコールバック（initPcRecording で受け取る）。
+ * 「この範囲を再生」の直前に使う（シートが盤面を覆ったままだと再生が見えないため）。
  */
 let _closeShareSheet = null;
 
@@ -53,6 +54,25 @@ export function _getPcRecordingRange() {
 export function _syncPcRecordingEndIdxAfterComment() {
   if (_hasStoppedPcRecording()) {
     _pcRecording.endIdx = getLogLength();
+    updatePcShareRecordingSection();
+  }
+}
+
+/**
+ * 決まった範囲が、取消（undo）・巻き戻しからの新しい操作で古くなっていないかを確かめて直す。
+ *   - 開始位置（startIdx）が手数以上になった（範囲の手がすべて消えた）: 状態ごと捨てる。
+ *     残すと、あとで手が増えたときに古い範囲が復活する。
+ *   - 終了位置（endIdx）が手数を超えた: endIdx を手数まで下げる（クランプを表示時だけでなく状態にも反映）。
+ * 手数が変わるたび（#replayCounter の監視）に呼ぶ。
+ */
+function _prunePcRange() {
+  if (!_hasStoppedPcRecording()) return;
+  const total = getLogLength();
+  if (_pcRecording.startIdx >= total) {
+    _resetPcRecording();
+    updatePcShareRecordingSection();
+  } else if (_pcRecording.endIdx > total) {
+    _pcRecording.endIdx = total;
     updatePcShareRecordingSection();
   }
 }
@@ -95,9 +115,8 @@ function _startPcRecording() {
 }
 
 /**
- * 録画停止: 停止時点までを録画範囲として確定し、共有シートを自動で開く。
- * 1手も録画されていない（endIdx <= startIdx）場合は不成立として状態を破棄するのみで、
- * 共有シートは開かない。
+ * 範囲の確定: この時点までを範囲として確定し、通知する（保存か共有かは利用者が選ぶので、
+ * シートは自動で開かない）。1手も含まれない（endIdx <= startIdx）場合は不成立として破棄する。
  */
 function _stopPcRecording() {
   if (!_pcRecording.recording) return;
@@ -105,86 +124,74 @@ function _stopPcRecording() {
   if (endIdx <= _pcRecording.startIdx) {
     _resetPcRecording();
     updatePcShareRecordingSection();
+    if (typeof _onRangeDecided === 'function') _onRangeDecided(null); // 手が1つも入っていない通知（スマホと同じ）
     return;
   }
   _pcRecording.endIdx = endIdx;
   _pcRecording.recording = false;
   _updatePcRecordBtn();
   updatePcShareRecordingSection();
-  if (typeof _onStopCallback === 'function') _onStopCallback();
+  const range = _getPcRecordingRange();
+  if (range && typeof _onRangeDecided === 'function') _onRangeDecided(range);
 }
 
-/** リプレイバーの「● 録画」ボタン（トグル） */
+/** リプレイバーの「✂ 範囲を選ぶ」ボタン（トグル。範囲が決まった後に押すと選び直し） */
 export function togglePcRecording() {
   if (_pcRecording.recording) _stopPcRecording();
   else _startPcRecording();
 }
 
 /**
- * 録画ボタンの見た目・手数バッジを更新する。
- * 録画中に取消（undo）や巻き戻し（前ボタン・スライダー）で現在位置が startIdx より
- * 前に戻ったら startIdx をその値にクランプする。
+ * 範囲ボタンの見た目を更新する。3状態:
+ *   - 待機（範囲なし）: 「✂ 範囲を選ぶ」
+ *   - 選んでいる間: 「■ ここまで（N手）」（.recording。accent の枠）
+ *   - 範囲が決まった後: 「範囲 s〜e手目」（.has-range）＋ 隣の ✕（範囲を外す）
+ * 選んでいる間に取消（undo）や巻き戻しで現在位置が startIdx より前に戻ったら、
+ * startIdx をその値にクランプする。
  */
 function _updatePcRecordBtn() {
   const btn = document.getElementById('pcRecordBtn');
-  const dot = document.getElementById('pcRecordDot');
   const label = document.getElementById('pcRecordLabel');
+  const clearBtn = document.getElementById('pcRangeClearBtn');
   if (!btn || !label) return;
+  const range = _pcRecording.recording ? null : _getPcRecordingRange();
   if (_pcRecording.recording) {
     const cur = getCursor() + 1;
     if (cur < _pcRecording.startIdx) _pcRecording.startIdx = cur; // クランプ
     const n = Math.max(0, cur - _pcRecording.startIdx);
-    label.textContent = `■ ${n}手`;
-    btn.classList.add('recording');
-    if (dot) dot.hidden = false;
+    label.textContent = `■ ここまで（${n}手）`;
+  } else if (range) {
+    label.textContent = `範囲 ${range.start}〜${range.end}手目`;
   } else {
-    label.textContent = '録画';
-    btn.classList.remove('recording');
-    if (dot) dot.hidden = false;
+    label.textContent = '✂ 範囲を選ぶ';
   }
+  btn.classList.toggle('recording', _pcRecording.recording);
+  btn.classList.toggle('has-range', !!range);
+  if (clearBtn) clearBtn.hidden = !range;
 }
 
 /**
- * 共有シート（#pcShareSheet）内の①録画セクションの表示を更新する。3状態:
- *   - 録画中（停止前）: 「録画中（N手）」＋「ここで停止して範囲を確定」
- *   - 録画（停止済み）あり: 「録画した範囲: s手目〜e手目（N手）」＋「録画をやり直す」＋「この範囲を再生」
- *   - 録画なし: 「全記録（N手）を共有します。…」＋「● 録画を始める」
- * replay-ui.js が共有シートを開く直前に呼ぶ。
+ * 保存・共有シート内の範囲表示（[data-pc-range-info]、文言の動詞は data-verb）と
+ * 「この範囲を再生」（[data-pc-range-play]）を更新する。3状態:
+ *   - 選んでいる間: 「範囲を選んでいます（N手）…」
+ *   - 範囲あり: 「s〜e手目を◯◯します」＋「この範囲を再生」
+ *   - 範囲なし: 「全部の手（N手）を◯◯します」
+ * replay-ui.js がシートを開く直前にも呼ぶ。
  */
 export function updatePcShareRecordingSection() {
-  const infoEl = document.getElementById('pcShareRecordingInfo');
-  const startBtn = document.getElementById('pcShareStartRecordingBtn');
-  const stopBtn = document.getElementById('pcShareStopRecordingBtn');
-  const redoBtn = document.getElementById('pcShareRedoRecordingBtn');
-  const playBtn = document.getElementById('pcShareRangePlayBtn');
-  if (!infoEl) return;
-
-  if (_pcRecording.recording) {
-    const n = Math.max(0, getCursor() + 1 - _pcRecording.startIdx);
-    infoEl.textContent = `録画中（${n}手）`;
-    if (startBtn) startBtn.hidden = true;
-    if (stopBtn) stopBtn.hidden = false;
-    if (redoBtn) redoBtn.hidden = true;
-    if (playBtn) playBtn.hidden = true;
-    return;
-  }
-
-  const range = _getPcRecordingRange();
-  if (range) {
-    const n = range.end - range.start + 1;
-    infoEl.textContent = `録画した範囲: ${range.start}手目〜${range.end}手目（${n}手）`;
-    if (startBtn) startBtn.hidden = true;
-    if (stopBtn) stopBtn.hidden = true;
-    if (redoBtn) redoBtn.hidden = false;
-    if (playBtn) playBtn.hidden = false;
-  } else {
-    const total = getLogLength();
-    infoEl.textContent = `全記録（${total}手）を共有します。特定の場面だけ共有するには上のリプレイバーの ● 録画 を使ってください。`;
-    if (startBtn) startBtn.hidden = false;
-    if (stopBtn) stopBtn.hidden = true;
-    if (redoBtn) redoBtn.hidden = true;
-    if (playBtn) playBtn.hidden = true;
-  }
+  const range = _pcRecording.recording ? null : _getPcRecordingRange();
+  document.querySelectorAll('[data-pc-range-info]').forEach((el) => {
+    const verb = el.dataset.verb || '保存';
+    if (_pcRecording.recording) {
+      const n = Math.max(0, getCursor() + 1 - _pcRecording.startIdx);
+      el.textContent = `範囲を選んでいます（${n}手）。リプレイバーの「■ ここまで」で決まります`;
+    } else if (range) {
+      el.textContent = `${range.start}〜${range.end}手目を${verb}します`;
+    } else {
+      el.textContent = `全部の手（${getLogLength()}手）を${verb}します`;
+    }
+  });
+  document.querySelectorAll('[data-pc-range-play]').forEach((el) => { el.hidden = !range; });
 }
 
 /**
@@ -206,67 +213,33 @@ function _playPcRecordingRange() {
 }
 
 /**
- * 「録画をやり直す」: 停止済み録画の開始位置へ盤面を巻き戻してから新規録画を始める。
- * 停止済み録画が無い場合（通常は呼ばれない）は巻き戻さず、現在位置から開始する。
- */
-function _redoPcRecordingFromSheet() {
-  const stopped = _hasStoppedPcRecording();
-  const prevStart = stopped ? _pcRecording.startIdx : null;
-  // 録画停止後に打った手（endIdx より先）まで消えるときだけ確認する（録画範囲だけなら確認なし）
-  if (stopped) {
-    const extra = getLogLength() - _pcRecording.endIdx;
-    if (extra > 0 && !confirm(`録画を始めた位置まで戻ります。録画範囲より後の${extra}手も消えます。よろしいですか？`)) return;
-  }
-  if (typeof _closeShareSheet === 'function') _closeShareSheet();
-  if (prevStart !== null) {
-    // 再生中に seekTo すると自動再生が続いてしまうため、先に止める（_playPcRecordingRange と同じ注意）
-    if (isPlaying()) togglePlay();
-    seekTo(prevStart - 1); // startIdx = getCursor()+1 なので cursor = startIdx-1 が録画開始時の盤面
-    // 未来ログをここで確定的に切り捨てる（録画開始の操作より前に、先の記録を消しておく）
-    truncateAfterCursor();
-  }
-  _startPcRecording();
-}
-
-/**
- * PC版録画機能を初期化する（#replayBarContainer の #pcRecordBtn・#pcShareSheet 内の
- * 録画セクションのボタン配線・#replayCounter の変化監視）。
- * @param {{ openShareSheet?: () => void, closeShareSheet?: () => void }} [deps]
- *   openShareSheet: 録画停止時に共有シートを自動で開くコールバック
- *   closeShareSheet: 「この範囲を再生」実行直前に共有シートを閉じるコールバック
+ * PC版の範囲選択を初期化する（#pcRecordBtn・#pcRangeClearBtn・[data-pc-range-play] の配線と、
+ * #replayCounter の変化監視）。
+ * @param {{ onRangeDecided?: (range:{start:number,end:number}) => void, closeShareSheet?: () => void }} [deps]
+ *   onRangeDecided: 範囲が決まったときの通知
+ *   closeShareSheet: 「この範囲を再生」の直前に保存・共有シートを閉じる
  */
 export function initPcRecording(deps = {}) {
-  _onStopCallback = deps.openShareSheet;
+  _onRangeDecided = deps.onRangeDecided;
   _closeShareSheet = deps.closeShareSheet;
 
   document.getElementById('pcRecordBtn')
     ?.addEventListener('click', togglePcRecording);
-
-  // 「録画を始める」: モバイル版（mobile-ui.js の
-  // solMobileShareStartRecordingBtn 等）と同じく、共有シートを閉じてから録画を開始する。
-  // 閉じないままだと全画面モーダルが盤面を覆い、録画開始直後に1手も打てない。
-  const _startRecordingFromSheet = () => {
-    if (typeof _closeShareSheet === 'function') _closeShareSheet();
-    _startPcRecording();
-  };
-  document.getElementById('pcShareStartRecordingBtn')
-    ?.addEventListener('click', _startRecordingFromSheet);
-  document.getElementById('pcShareStopRecordingBtn')
-    ?.addEventListener('click', _stopPcRecording);
-  // 「録画をやり直す」: 共有シートを閉じ、停止済み録画の開始位置（startIdx＝録画開始時点までの手数）へ
-  // 盤面を巻き戻してから、その位置で新規に録画を開始する（startIdx は元と同じ値になる）。
-  // 巻き戻し直後に truncateAfterCursor() で未来ログを切り捨てる（0手目からのやり直しでも確実に消す）。
-  document.getElementById('pcShareRedoRecordingBtn')
-    ?.addEventListener('click', _redoPcRecordingFromSheet);
-  document.getElementById('pcShareRangePlayBtn')
-    ?.addEventListener('click', _playPcRecordingRange);
+  document.getElementById('pcRangeClearBtn')
+    ?.addEventListener('click', () => {
+      _resetPcRecording();
+      updatePcShareRecordingSection();
+    });
+  document.querySelectorAll('[data-pc-range-play]')
+    .forEach((el) => el.addEventListener('click', _playPcRecordingRange));
 
   // #replayCounter のテキスト変化（stepForward/stepBack/seekTo/undo 等、既存の手数更新経路）を
-  // 監視し、録画中バッジの N手・クランプを追従させる（mobile-ui.js の initRecording と同じ手法）。
+  // 監視し、選んでいる間の N手・クランプと、取消で範囲が縮んだときの表示を追従させる。
   const counterEl = document.getElementById('replayCounter');
   if (counterEl) {
     new MutationObserver(() => {
-      if (_pcRecording.recording) _updatePcRecordBtn();
+      _prunePcRange();
+      if (_pcRecording.recording || _hasStoppedPcRecording()) _updatePcRecordBtn();
     }).observe(counterEl, { childList: true, characterData: true, subtree: true });
   }
 }

@@ -253,32 +253,41 @@
       </div>
 
       <!-- リプレイバー -->
+      <!-- リプレイバー: 「見る／戻す／残す」の3まとまり（2026-10-15 整理③。モック mocks/sim-reorg-pc-20261015.html） -->
       <div id="replayBarContainer" class="replay-bar">
-        <button class="replay-btn" id="replayBack">&#9664; 前</button>
-        <input type="range" class="replay-slider" id="replaySlider" min="0" max="0" value="0" disabled>
-        <span class="replay-counter" id="replayCounter">0/0</span>
-        <button class="replay-btn" id="replayFwd">次 &#9654;</button>
-        <button class="replay-btn" id="replayPlay" disabled>再生</button>
-        <div class="replay-speed-group" id="replaySpeedGroup">
-          <button class="replay-btn replay-speed-btn" id="replaySpeed05" data-speed="0.5">0.5x</button>
-          <button class="replay-btn replay-speed-btn active" id="replaySpeed1" data-speed="1">1x</button>
-          <button class="replay-btn replay-speed-btn" id="replaySpeed2" data-speed="2">2x</button>
+        <div class="replay-group" aria-label="見る">
+          <button class="replay-btn" id="replayBack" aria-label="前の手">&#9664;</button>
+          <input type="range" class="replay-slider" id="replaySlider" min="0" max="0" value="0" disabled>
+          <span class="replay-counter" id="replayCounter">0/0</span>
+          <button class="replay-btn" id="replayFwd" aria-label="次の手">&#9654;</button>
+          <button class="replay-btn" id="replayPlay" disabled>再生</button>
+          <div class="replay-speed-group" id="replaySpeedGroup">
+            <button class="replay-btn replay-speed-btn" id="replaySpeed05" data-speed="0.5">0.5x</button>
+            <button class="replay-btn replay-speed-btn active" id="replaySpeed1" data-speed="1">1x</button>
+            <button class="replay-btn replay-speed-btn" id="replaySpeed2" data-speed="2">2x</button>
+          </div>
         </div>
-        <button class="replay-btn" id="replayUndo" disabled>取消</button>
-        <input type="text" class="replay-comment-input" id="replayCommentInput" placeholder="コメント（任意）">
-        <button class="replay-btn" id="replayAddComment">追加</button>
-        <!-- PC版 録画: 状態機械は static/solitaire/js/ui/pc-recording.js に分離。
-             クリックで開始、録画中は赤色表示に変化、再クリックで終了→共有シート自動オープン。 -->
-        <button class="replay-btn pc-record-btn" id="pcRecordBtn" type="button">
-          <span id="pcRecordDot" class="pc-record-dot" aria-hidden="true"></span>
-          <span id="pcRecordLabel">録画</span>
-        </button>
-        <a class="replay-btn pc-replay-list-link" id="pcReplayListLink" data-replay-list-link href="/solitaire/replays">リプレイ一覧</a>
-        <button class="replay-share-btn" id="pcShareSheetOpen">共有</button>
+        <div class="replay-group" aria-label="戻す">
+          <button class="replay-btn" id="replayUndo" disabled>&#8630; 1手戻す</button>
+          <!-- コメント入力は整理④（吹き出し・盤面メモ）で右パネルへ移すまでの間ここに置く -->
+          <input type="text" class="replay-comment-input" id="replayCommentInput" placeholder="コメント（任意）">
+          <button class="replay-btn" id="replayAddComment">追加</button>
+        </div>
+        <div class="replay-group" aria-label="残す">
+          <!-- 範囲を選ぶ: 状態機械は static/solitaire/js/ui/pc-recording.js。
+               押すとこの手から範囲を選び始め、もう一度押すとそこまでで範囲が決まる。 -->
+          <button class="replay-btn pc-record-btn" id="pcRecordBtn" type="button">
+            <span id="pcRecordLabel">&#9986; 範囲を選ぶ</span>
+          </button>
+          <button class="replay-btn pc-range-clear-btn" id="pcRangeClearBtn" type="button" aria-label="範囲を外す" hidden>&#10005;</button>
+          <button class="replay-save-btn" id="pcSaveSheetOpen" type="button">保存</button>
+          <button class="replay-btn" id="pcShareSheetOpen" type="button">共有</button>
+          <a class="replay-btn pc-replay-list-link" id="pcReplayListLink" data-replay-list-link href="/solitaire/replays">一覧</a>
+        </div>
       </div>
 
       <!-- PC版 共有シート: モバイル版(#solMobileShareSheet)とは別実装・IDも別。
-           既存の共有4機能(リンクコピー/X投稿/JSON保存/JSON読込)を1つのシートにまとめる。
+           既存の共有3機能(リンクコピー/X投稿/JSON保存)を1つのシートにまとめる。
            ボタンのIDは既存のまま(#replayShare等)にして replay-ui.js の initReplayUI() の
            配線を変更せずに使い回す。 -->
       <div id="pcShareSheet" class="sol-fb-overlay pc-share-sheet" hidden>
@@ -289,22 +298,34 @@
             <button type="button" class="sol-fb-close" id="pcShareSheetCloseBtn" aria-label="閉じる">&times;</button>
           </div>
           <div class="sol-fb-body pc-share-body">
-            <!-- ①録画セクション: 状態機械は pc-recording.js。3状態表示はモバイル版
-                 #solMobileShareRecordingInfo と同じ考え方（録画なし/録画中/停止済み）。 -->
-            <p id="pcShareRecordingInfo" class="pc-share-note">全記録（0手）を共有します。特定の場面だけ共有するには上のリプレイバーの ● 録画 を使ってください。</p>
-            <button type="button" id="pcShareStartRecordingBtn" class="replay-btn">&#9679; 録画を始める</button>
-            <button type="button" id="pcShareStopRecordingBtn" class="replay-btn" hidden>ここで停止して範囲を確定</button>
-            <button type="button" id="pcShareRedoRecordingBtn" class="replay-btn" hidden>録画をやり直す</button>
-            <button type="button" id="pcShareRangePlayBtn" class="replay-btn" hidden>この範囲を再生</button>
-            <hr class="pc-share-divider">
-            <button class="replay-share-btn" id="replayShare">共有リンクをコピー</button>
+            <input type="text" class="pc-share-title-input" data-replay-title maxlength="100" placeholder="タイトル" aria-label="タイトル">
+            <p class="pc-share-note">空欄なら日時が入ります</p>
+            <!-- 範囲の表示: 状態機械は pc-recording.js（updatePcShareRecordingSection） -->
+            <p class="pc-range-info" data-pc-range-info data-verb="共有">全部の手（0手）を共有します</p>
+            <button type="button" class="replay-btn" data-pc-range-play hidden>この範囲を再生</button>
+            <button class="replay-share-btn" id="replayShare">リンクを作ってコピー</button>
             <button class="replay-share-x-btn" id="replayShareX">X に投稿</button>
-            <button class="replay-btn" id="pcShareSaveLocalBtn" type="button">端末に保存</button>
-            <p class="pc-share-note">このブラウザの中に保存されます（他の端末には同期されません）。リプレイバーの「リプレイ一覧」から開けます。</p>
-            <button class="replay-btn" id="replayExport">JSON保存</button>
-            <label class="replay-btn pc-share-import-label">
-              JSON読込<input type="file" id="replayImportFile" accept=".json" style="display:none">
-            </label>
+            <p class="pc-share-note">リンクを知っている人なら誰でも見られます。90日で消えます</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- PC版 保存シート（整理③）: このブラウザに保存／ファイルに書き出す。開閉は replay-ui.js _initPcSheet -->
+      <div id="pcSaveSheet" class="sol-fb-overlay pc-share-sheet" hidden>
+        <div class="sol-fb-backdrop" id="pcSaveSheetClose"></div>
+        <div class="sol-fb-dialog pc-share-dialog" role="dialog" aria-modal="true" aria-labelledby="pcSaveTitle">
+          <div class="sol-fb-header">
+            <h2 id="pcSaveTitle">保存</h2>
+            <button type="button" class="sol-fb-close" id="pcSaveSheetCloseBtn" aria-label="閉じる">&times;</button>
+          </div>
+          <div class="sol-fb-body pc-share-body">
+            <input type="text" class="pc-share-title-input" data-replay-title maxlength="100" placeholder="タイトル" aria-label="タイトル">
+            <p class="pc-share-note">空欄なら日時が入ります</p>
+            <p class="pc-range-info" data-pc-range-info data-verb="保存">全部の手（0手）を保存します</p>
+            <button type="button" class="replay-btn" data-pc-range-play hidden>この範囲を再生</button>
+            <button class="replay-share-btn" id="pcShareSaveLocalBtn" type="button">このブラウザに保存</button>
+            <button class="replay-btn" id="replayExport" type="button">ファイルに書き出す</button>
+            <p class="pc-share-note">保存したものは［一覧］から開けます。盤面もいっしょに保存されます</p>
           </div>
         </div>
       </div>
@@ -358,12 +379,13 @@
           <button id="solMobileDeckBtn" type="button" class="sol-mobile-bar-btn">
             デッキ <span id="solMobileDeckCount">0</span>
           </button>
-          <!-- タスクA-2: 録画開始/停止。録画中は「■ 停止 ・ N手」に変わる（赤系・ドット点滅） -->
+          <!-- 範囲（旧「録画」）の開始/確定。選んでいる間は「■ N手」、決まった後は「範囲 s〜e」（accent） -->
           <button id="solMobileRecordBtn" type="button" class="sol-mobile-bar-btn sol-mobile-record-btn">
-            <span id="solMobileRecordDot" class="sol-mobile-record-dot" aria-hidden="true"></span>
-            <span id="solMobileRecordLabel">録画</span>
+            <span id="solMobileRecordLabel">&#9986; 範囲</span>
           </button>
-          <button id="solMobileUndoBtn" type="button" class="sol-mobile-bar-btn" hidden>取消</button>
+          <!-- 整理③: 保存（主操作・黄）。共有シートを「保存」の用途で開く -->
+          <button id="solMobileSaveBtn" type="button" class="sol-mobile-bar-btn sol-mobile-save-btn">保存</button>
+          <button id="solMobileUndoBtn" type="button" class="sol-mobile-bar-btn" hidden>1手戻す</button>
           <button id="solMobileMenuBtn" type="button" class="sol-mobile-bar-btn sol-mobile-bar-menu">
             &#8943;
             <span id="solMobileMenuBadge" class="sol-mobile-badge" hidden></span>
@@ -390,8 +412,8 @@
             <button type="button" class="sol-mobile-sheet-close-btn" data-sol-sheet-close aria-label="閉じる">&times;</button>
           </div>
           <div class="sol-mobile-sheet-body">
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="save">セーブ<span class="sol-mobile-menu-desc">今の盤面を保存します</span></button>
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="load">ロード<span class="sol-mobile-menu-desc">保存した盤面を呼び出します</span></button>
+            <button type="button" class="sol-mobile-menu-item" data-menu-action="share">共有</button>
+            <a href="/solitaire/replays" data-replay-list-link class="sol-mobile-menu-item sol-mobile-menu-link">リプレイ一覧</a>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="reset">リセット<span class="sol-mobile-menu-desc">カードをデッキに戻し、記録もリセットします</span></button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="clearall">クリア<span class="sol-mobile-menu-desc">デッキ・盤面・記録をすべて消します</span></button>
             <label class="sol-mobile-menu-item sol-sample-blur-toggle">
@@ -405,8 +427,6 @@
             </button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="deckinput">デッキを読み込む</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="playback">リプレイを再生</button>
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="share">共有・保存</button>
-            <a href="/solitaire/replays" data-replay-list-link class="sol-mobile-menu-item sol-mobile-menu-link">リプレイ一覧</a>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="help">操作方法</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="feedback">不具合・要望を送る</button>
             <!-- E-2: デッキ読込シート内のページナビを非表示にする代わりの導線 -->
@@ -454,37 +474,39 @@
         <div class="sol-mobile-sheet-scrim" data-sol-share-sheet-close></div>
         <div class="sol-mobile-sheet-panel sol-mobile-share-panel">
           <div class="sol-mobile-sheet-header">
-            <span>記録の共有・保存</span>
+            <span id="solMobileShareSheetTitle">共有</span>
             <button type="button" class="sol-mobile-sheet-close-btn" data-sol-share-sheet-close aria-label="閉じる">&times;</button>
           </div>
           <div class="sol-mobile-sheet-body">
             <p id="solMobileShareCurrentInfo" class="sol-mobile-share-current">現在の記録: 0手（メイン0枚・EX0枚）</p>
 
-            <!-- ① 録画（タスクA-3: 「共有する範囲」スライダーを廃止し、録画状態の表示に置き換え） -->
+            <!-- タイトル（保存・共有で共通。[data-replay-title] は PC のシートの欄と入力を写し合う） -->
             <div class="sol-mobile-share-section">
-              <p class="sol-mobile-share-heading">① 録画</p>
-              <p id="solMobileShareRecordingInfo" class="sol-mobile-share-note">全記録（0手）を共有します。特定の場面だけ共有するには下部バーの ● 録画 を使ってください。</p>
-              <button type="button" id="solMobileShareStartRecordingBtn" class="sol-mobile-menu-item">&#9679; 録画を始める</button>
-              <!-- M-3: 録画中に共有シートを開いた場合のみ表示（停止処理を行い①の表示を更新する） -->
-              <button type="button" id="solMobileShareStopRecordingBtn" class="sol-mobile-menu-item" hidden>ここで停止して範囲を確定</button>
-              <button type="button" id="solMobileShareRedoRecordingBtn" class="sol-mobile-menu-item" hidden>録画をやり直す</button>
+              <input type="text" id="solMobileShareTitleInput" class="sol-mobile-share-input" data-replay-title maxlength="100" placeholder="タイトル" aria-label="タイトル">
+              <p class="sol-mobile-share-note">空欄なら日時が入ります</p>
+            </div>
+
+            <!-- 範囲（旧「録画」。保存・共有で共通） -->
+            <div class="sol-mobile-share-section">
+              <p class="sol-mobile-share-heading">範囲</p>
+              <p id="solMobileShareRecordingInfo" class="sol-mobile-share-note">全部の手（0手）が対象です。一部だけにするには、下のバーの ✂ 範囲 を使います。</p>
+              <!-- M-3: 範囲を選んでいる途中でシートを開いた場合のみ表示 -->
+              <button type="button" id="solMobileShareStopRecordingBtn" class="sol-mobile-menu-item" hidden>ここまでで範囲を決める</button>
+              <button type="button" id="solMobileShareRedoRecordingBtn" class="sol-mobile-menu-item" hidden>範囲を選び直す</button>
               <button type="button" id="solMobileSharePlaybackBtn" class="sol-mobile-menu-item">再生して確認</button>
             </div>
 
-            <!-- ② 共有する -->
-            <div class="sol-mobile-share-section">
-              <p class="sol-mobile-share-heading">② 共有する</p>
-              <label class="sol-mobile-share-label" for="solMobileShareTitleInput">タイトル（任意）</label>
-              <input type="text" id="solMobileShareTitleInput" class="sol-mobile-share-input" placeholder="タイトル">
+            <!-- 共有する（共有の用途で開いたときだけ表示） -->
+            <div class="sol-mobile-share-section" data-share-mode="share">
               <label class="sol-mobile-share-label" for="solMobileShareCommentInput">今の手にコメント</label>
               <div class="sol-mobile-share-comment-row">
                 <input type="text" id="solMobileShareCommentInput" class="sol-mobile-share-input" placeholder="コメント（任意）">
                 <button type="button" id="solMobileShareCommentAddBtn" class="sol-mobile-menu-item">追加</button>
               </div>
-              <p class="sol-mobile-share-note">リンクを知っている人は誰でも閲覧できます。</p>
+              <p class="sol-mobile-share-note">リンクを知っている人なら誰でも見られます。90日で消えます。</p>
 
               <!-- H-1: リンク作成は明示ボタン→結果表示の2段階（iOSのuser activation対策） -->
-              <button type="button" id="solMobileShareGenerateBtn" class="sol-mobile-menu-item">共有リンクを作成</button>
+              <button type="button" id="solMobileShareGenerateBtn" class="sol-mobile-menu-item sol-mobile-deck-primary-btn">共有リンクを作成</button>
               <div id="solMobileShareResult" class="sol-mobile-share-result" hidden>
                 <input type="text" id="solMobileShareUrlInput" class="sol-mobile-share-input" readonly>
                 <div class="sol-mobile-share-result-actions">
@@ -496,22 +518,13 @@
               <p id="solMobileShareError" class="sol-mobile-share-error" hidden></p>
             </div>
 
-            <!-- ③ この端末に保存する -->
-            <div class="sol-mobile-share-section">
-              <p class="sol-mobile-share-heading">③ この端末に保存する</p>
-              <!-- E-2/タスクA-4: リプレイの端末保存（localStorage）。①録画があればその範囲だけを、
-                   無ければ全ログを保存する（mobile-ui.js _saveReplayToDevice が range を渡す） -->
-              <button type="button" id="solMobileShareSaveLocalBtn" class="sol-mobile-menu-item">端末に保存</button>
-              <p class="sol-mobile-share-note">このブラウザの中に保存されます（他の端末には同期されません）。開くには ⋯メニュー →「リプレイ一覧」。</p>
+            <!-- このブラウザに保存・ファイルに書き出す（保存の用途で開いたときだけ表示） -->
+            <div class="sol-mobile-share-section" data-share-mode="save">
+              <button type="button" id="solMobileShareSaveLocalBtn" class="sol-mobile-menu-item sol-mobile-deck-primary-btn">このブラウザに保存</button>
+              <button type="button" id="solMobileShareExportBtn" class="sol-mobile-menu-item">ファイルに書き出す</button>
+              <p class="sol-mobile-share-note">保存したものは ⋯メニュー →「リプレイ一覧」から開けます。盤面もいっしょに保存されます。</p>
               <a id="solMobileShareOpenSavedBtn" data-replay-list-link class="sol-mobile-menu-item sol-mobile-menu-link" href="/solitaire/replays" hidden>リプレイ一覧を開く</a>
             </div>
-
-            <!-- ④ ファイル（折りたたみ・目立たせない） -->
-            <details class="sol-mobile-share-section">
-              <summary class="sol-mobile-share-heading">④ ファイル</summary>
-              <button type="button" id="solMobileShareExportBtn" class="sol-mobile-menu-item">JSONを保存</button>
-              <button type="button" id="solMobileShareImportBtn" class="sol-mobile-menu-item">JSONを読み込む</button>
-            </details>
           </div>
         </div>
       </div>
@@ -531,8 +544,6 @@
                   aria-label="右パネルを畳む">▶</button>
         </div>
         <div class="sol-right-actions">
-          <button id="saveButton2" class="action-btn save-btn">セーブ</button>
-          <button id="loadButton"  class="action-btn load-btn">ロード</button>
           <button id="randomButton" class="action-btn draw-btn">ドロー</button>
           <!-- リセット／クリアは即時表示の自前ツールチップ（CSSのみ: :hover / :focus-visible）。title属性は二重表示になるため使わない -->
           <div class="sol-tip-wrap">

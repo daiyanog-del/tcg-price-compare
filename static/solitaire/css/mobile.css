@@ -345,43 +345,23 @@
   }
   .sol-mobile-badge[hidden] { display: none; }
 
-  /* ════════ タスクA-2: 録画ボタン（下部バー） ════════
-     録画中は赤系トーン＋ドット点滅。@keyframes は prefers-reduced-motion で無効化する（タスクC）。
-     L-10: ラベルは「■ N手」に短縮済み（mobile-ui.js）。375px幅で折り返さないよう nowrap を付ける。 */
-  /* 第5次検収①: 待機中の「録画」が暗いグレーで見つけづらい → 白・太字・赤みの枠に */
-  .sol-mobile-record-btn {
-    color: #fff;
-    font-weight: 700;
-    border-color: #8a3a3a;
-  }
+  /* ════════ 範囲ボタン（下部バー。旧「録画」。2026-10-15 整理③） ════════
+     選んでいる間・範囲が決まった後は accent（青系）で示す。赤は危険操作専用のため使わない。
+     L-10: ラベルは「■ N手」「範囲 s〜e」と短くし、375px幅で折り返さないよう nowrap を付ける。 */
+  .sol-mobile-record-btn { font-weight: 700; }
   .sol-mobile-record-btn.recording {
-    border-color: #dc3c3c;
-    color: #ff9b9b;
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .sol-mobile-record-btn.has-range {
+    color: var(--accent);
+    background: rgba(174, 197, 255, 0.12);
   }
   #solMobileRecordLabel {
     white-space: nowrap;
-    color: #fff; /* 別の規則で span に #333 が当たり暗いグレーになっていたため明示（第5次検収①） */
+    color: inherit; /* 別の規則で span に #333 が当たり暗いグレーになるため明示（第5次検収①） */
   }
-  .sol-mobile-record-dot {
-    display: inline-block;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: #dc3c3c;
-  }
-  .sol-mobile-record-dot[hidden] { display: none; }
-  .sol-mobile-record-btn.recording .sol-mobile-record-dot {
-    animation: solRecordDotBlink 1s ease-in-out infinite;
-  }
-  @keyframes solRecordDotBlink {
-    0%, 100% { opacity: 1; }
-    50%      { opacity: 0.15; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .sol-mobile-record-btn.recording .sol-mobile-record-dot {
-      animation: none;
-    }
-  }
+  .sol-mobile-save-btn { font-weight: 700; }
 
   /* ════════ タスクB-2/C: 再生モードのスライダー帯・下部バー ════════ */
 
@@ -663,6 +643,9 @@
     color: var(--main-color);
     font-weight: 700;
   }
+  /* components.css の `p, span, li { color:#333 }` が見出しの span に直接効き、
+     暗い灰色で読めなかったため、見出しの文字色を引き継がせる（2026-10-15 整理③で発見） */
+  .sol-mobile-sheet-header > span { color: inherit; }
   .sol-mobile-sheet-body {
     display: flex;
     flex-direction: column;
@@ -1069,29 +1052,6 @@
     font-weight: 700;
     color: var(--main-color);
   }
-  /* タスクA: ④ファイルは<details>で折りたたみ、目立たせない */
-  details.sol-mobile-share-section {
-    cursor: default;
-  }
-  details.sol-mobile-share-section summary.sol-mobile-share-heading {
-    cursor: pointer;
-    list-style: none;
-  }
-  details.sol-mobile-share-section summary.sol-mobile-share-heading::-webkit-details-marker {
-    display: none;
-  }
-  details.sol-mobile-share-section summary.sol-mobile-share-heading::after {
-    content: '▾';
-    float: right;
-    color: #94a3b8;
-  }
-  details.sol-mobile-share-section[open] summary.sol-mobile-share-heading::after {
-    content: '▴';
-  }
-  details.sol-mobile-share-section .sol-mobile-menu-item {
-    margin-top: 6px;
-  }
-
   .sol-mobile-share-note {
     margin: 0 0 10px;
     font-size: 0.76rem;

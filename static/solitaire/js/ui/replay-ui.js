@@ -15,7 +15,6 @@ import {
   setPlaySpeed,
   getPlaySpeed,
   exportReplay,
-  importReplay,
   exportAsURLHash,
   getLogLength,
   getCursor,
@@ -36,26 +35,41 @@ import { clearEverything } from './deck-input-panel.js';
 import { showToast } from '../utils/toast.js';
 import { addSharedReplay } from '../services/shared-replays.js';
 import { savedReplaysGet, saveReplayEntry } from '../services/saved-replays.js';
+import { isReplayAtEnd } from '../utils/replay-url.js';
 
 const REPLAY_TITLE_MAX_LEN = 100;
 
 /**
- * リプレイのタイトルを決定する。
- * 優先順位: (1) スマホ共有シートのタイトル入力欄（#solMobileShareTitleInput、値があれば）
- *          → (2) PC側の .title 見出し要素（存在する場合）
- *          → (3) 既定値 '共有リプレイ'
- * #solMobileShareTitleInput は PC には存在しないため、PC では従来どおり (2)→(3) の挙動になる。
+ * 利用者が入力したタイトル（保存・共有シートのタイトル欄 [data-replay-title]）を返す。
+ * 欄は PC の保存・共有シートとスマホのシートにあり、入力は _initReplayTitleMirror で
+ * 互いに写しているので、最初に見つかった値を使う。空なら ''。
+ * @returns {string}
+ */
+function _getTypedReplayTitle() {
+  for (const el of document.querySelectorAll('[data-replay-title]')) {
+    const v = el.value?.trim();
+    if (v) return v.slice(0, REPLAY_TITLE_MAX_LEN);
+  }
+  return '';
+}
+
+/**
+ * 共有（リンク作成・X投稿）に使うタイトル。入力が無ければ従来どおり「共有リプレイ」。
+ * 日時を既定にするのは「このブラウザに保存」とファイルへの書き出しだけ（一覧・ファイル名で見分けるため）。
  * @returns {string}
  */
 function _getReplayTitle() {
-  const mobileInput = document.getElementById('solMobileShareTitleInput');
-  const mobileTitle = mobileInput?.value?.trim();
-  if (mobileTitle) return mobileTitle.slice(0, REPLAY_TITLE_MAX_LEN);
+  return _getTypedReplayTitle() || '共有リプレイ';
+}
 
-  const pageTitle = document.querySelector('.title')?.textContent;
-  if (pageTitle) return pageTitle;
-
-  return '共有リプレイ';
+/** タイトル欄（[data-replay-title]）どうしで入力を写し合う（保存と共有で同じタイトルを使うため） */
+function _initReplayTitleMirror() {
+  const inputs = [...document.querySelectorAll('[data-replay-title]')];
+  inputs.forEach((el) => {
+    el.addEventListener('input', () => {
+      inputs.forEach((other) => { if (other !== el) other.value = el.value; });
+    });
+  });
 }
 
 /**
@@ -68,6 +82,19 @@ function _updateSpeedButtons() {
       const speed = parseFloat(btn.dataset.speed);
       btn.classList.toggle('active', speed === current);
     });
+}
+
+/**
+ * リプレイをファイルに書き出す（PC の #replayExport とスマホの書き出しボタン共通）。
+ * 範囲が渡されればその範囲のログだけを書き出す（保存・共有と同じ buildRangeLogsForPayload）。
+ * タイトルは入力があればそれ、無ければ日時。
+ * @param {{start:number, end:number}|null} [range]
+ */
+export function exportReplayFile(range) {
+  // Low-13: setup（初期配置）だけの盤面も保存できるよう、setup込みの手数で判定する
+  if (getLogLength() + getSetupLogs().length === 0) { alert('記録がありません'); return; }
+  const title = _getTypedReplayTitle() || _formatDefaultReplayTitle();
+  exportReplay(title, range ? buildRangeLogsForPayload(range) : undefined);
 }
 
 /**
@@ -145,29 +172,9 @@ export function initReplayUI() {
       _syncPcRecordingEndIdxAfterComment(); // 中2対応: 停止済み録画があれば endIdx を追従させる
     });
 
-  // リプレイエクスポート（ファイル保存）
+  // リプレイエクスポート（ファイル保存）。範囲が決まっていればその範囲だけを書き出す
   document.getElementById('replayExport')
-    ?.addEventListener('click', () => {
-      // Low-13: setup（初期配置）だけの盤面も保存できるよう、setup込みの手数で判定する
-      if (getLogLength() + getSetupLogs().length === 0) { alert('記録がありません'); return; }
-      const title = _getReplayTitle();
-      exportReplay(title);
-    });
-
-  // リプレイインポート（ファイル読込）
-  document.getElementById('replayImportFile')
-    ?.addEventListener('change', async (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      try {
-        await importReplay(file);
-        _resetPcRecording(); // 重大4対応: JSON読込で古い録画範囲(_pcRecording)が残留するのを防ぐ
-        alert('リプレイを読み込みました');
-      } catch (err) {
-        alert('読み込み失敗: ' + err.message);
-      }
-      e.target.value = ''; // リセット
-    });
+    ?.addEventListener('click', () => exportReplayFile(_getPcRecordingRange()));
 
   // リプレイ共有（URL or Supabase）
   document.getElementById('replayShare')
@@ -184,15 +191,21 @@ export function initReplayUI() {
   // URLハッシュからリプレイを読み込む
   _tryLoadFromURL();
 
-  // PC版共有シート（#pcShareSheet）の開閉。中身のボタン(#replayShare等)は
-  // 上で既にイベント配線済みなので、ここでは表示/非表示のトグルのみ行う。
-  const pcShareSheet = _initPcShareSheet();
+  _initReplayTitleMirror();
 
-  // PC版 録画→再生モードUI: 状態機械は pc-recording.js に分離。録画停止時に
-  // 共有シートを自動で開くコールバックだけをここから渡す。
+  // PC版の保存シート（#pcSaveSheet）・共有シート（#pcShareSheet）の開閉。中身のボタン
+  // （#replayShare・#pcShareSaveLocalBtn 等）は上で配線済みなので、ここでは表示/非表示のみ。
+  const pcShareSheet = _initPcSheet('pcShareSheet', 'pcShareSheetOpen', ['pcShareSheetClose', 'pcShareSheetCloseBtn']);
+  const pcSaveSheet = _initPcSheet('pcSaveSheet', 'pcSaveSheetOpen', ['pcSaveSheetClose', 'pcSaveSheetCloseBtn']);
+
+  // PC版の範囲選択: 状態機械は pc-recording.js。範囲が決まったら通知だけ出す
+  // （保存か共有かは利用者が選ぶので、シートは自動で開かない）。
   initPcRecording({
-    openShareSheet: () => pcShareSheet?.open(),
-    closeShareSheet: () => pcShareSheet?.close(),
+    // range が null のときは、手が1つも入っていない範囲（0手のまま決めた等）で不成立になった通知
+    onRangeDecided: (range) => showToast(range
+      ? `範囲を決めました（${range.start}〜${range.end}手目）。保存・共有で使えます`
+      : '範囲に手が1つも入っていません'),
+    closeShareSheet: () => { pcShareSheet?.close(); pcSaveSheet?.close(); },
   });
 
   // 重大4対応: デッキ再読込で古い録画範囲(_pcRecording)が残留すると、別セッションの
@@ -216,24 +229,26 @@ export function initReplayUI() {
 }
 
 /**
- * PC版共有シートの開閉トグルを初期化する。
+ * PC版の保存・共有シートの開閉トグルを初期化する。
  * モバイル版の共有シート(#solMobileShareSheet, mobile-ui.js)とは別要素・別IDのため
  * 干渉しない。
+ * @param {string} sheetId
+ * @param {string} openBtnId
+ * @param {string[]} closeIds  背景・×ボタンなど、押すと閉じる要素の id
  * @returns {{open: () => void, close: () => void}|null}
  */
-function _initPcShareSheet() {
-  const sheet = document.getElementById('pcShareSheet');
+function _initPcSheet(sheetId, openBtnId, closeIds) {
+  const sheet = document.getElementById(sheetId);
   if (!sheet) return null;
 
   const open = () => {
-    updatePcShareRecordingSection(); // ①録画セクションの表示を開く直前に最新化する
+    updatePcShareRecordingSection(); // 範囲の表示を開く直前に最新化する
     sheet.hidden = false;
   };
   const close = () => { sheet.hidden = true; };
 
-  document.getElementById('pcShareSheetOpen')?.addEventListener('click', open);
-  document.getElementById('pcShareSheetClose')?.addEventListener('click', close);
-  document.getElementById('pcShareSheetCloseBtn')?.addEventListener('click', close);
+  document.getElementById(openBtnId)?.addEventListener('click', open);
+  closeIds.forEach((id) => document.getElementById(id)?.addEventListener('click', close));
 
   // Escapeキーで閉じる（feedback-modal.js等、既存の他モーダルと同じ作法に合わせる）
   document.addEventListener('keydown', (e) => {
@@ -411,8 +426,8 @@ export function describeSaveResult(result) {
     return '保存に失敗しました';
   }
   return result.removedCount > 0
-    ? `端末に保存しました（上限のため古い${result.removedCount}件を削除）。「リプレイ一覧」から開けます`
-    : '端末に保存しました。「リプレイ一覧」から開けます';
+    ? `このブラウザに保存しました（上限のため古い${result.removedCount}件を削除）。「リプレイ一覧」から開けます`
+    : 'このブラウザに保存しました。「リプレイ一覧」から開けます';
 }
 
 /**
@@ -461,12 +476,13 @@ async function handleShare() {
 }
 
 /**
- * PC共有シートの「端末に保存」。停止済みの録画があればその範囲だけを、無ければ全体を保存する。
- * タイトルは入力欄が無いため日時の既定タイトルになる（一覧で見分けられるようにするため）。
+ * PC保存シートの「このブラウザに保存」。範囲が決まっていればその範囲だけを、無ければ全体を保存する。
+ * タイトルは保存シートの入力欄。空なら日時が既定（一覧で見分けられるようにするため）。
  */
 function handleSaveToDevice() {
-  const result = saveReplayToDevice({ range: _getPcRecordingRange() });
+  const result = saveReplayToDevice({ title: _getTypedReplayTitle(), range: _getPcRecordingRange() });
   showToast(describeSaveResult(result));
+  if (result.ok) document.getElementById('pcSaveSheet')?.setAttribute('hidden', '');
 }
 
 /**
@@ -537,25 +553,26 @@ async function _tryLoadFromURL() {
     // card:// センチネル対応のため await が必要（非同期関数）
     if (await importFromURLHash(encoded)) {
       console.log('URLハッシュからリプレイを読み込みました');
-      _resetPcRecording(); // 重大4対応: JSON読込で古い録画範囲(_pcRecording)が残留するのを防ぐ
-      // タスクB-1: 共有リンクから開いたときは mobile-ui.js が再生モードを自動で開く
-      document.dispatchEvent(new CustomEvent('sol-replay-loaded-from-url'));
+      _finishLoadFromURL(false);
     }
     return;
   }
 
   const params = new URLSearchParams(location.search);
+  // ?at=end（最後の盤面から続ける）。URL を書き換える前に読み取る
+  const atEnd = isReplayAtEnd();
 
   // 端末保存（?saved=<端末保存のid>）: リプレイ一覧ページから開く
   const savedId = params.get('saved');
   if (savedId) {
-    await _loadSavedFromURL(savedId);
+    await _loadSavedFromURL(savedId, atEnd);
     return;
   }
 
   // Supabase ID 方式
   const replayId = params.get('replay');
   if (!replayId) return;
+  if (atEnd) _removeParamsFromURL(['at']); // 読み込みに成功したら replay も外す（下）。失敗したときは replay を残す
 
   try {
     const res = await fetch(`/api/solitaire/replay/${replayId}`);
@@ -568,26 +585,50 @@ async function _tryLoadFromURL() {
       await _setReplayData(images, names || {}, logs, exCardIds || [], cardTypes || {});
     }
     console.log(`リプレイID ${replayId} を読み込みました`);
-    _resetPcRecording(); // 重大4対応: JSON読込で古い録画範囲(_pcRecording)が残留するのを防ぐ
-    // タスクB-1: 共有リンクから開いたときは mobile-ui.js が再生モードを自動で開く
-    document.dispatchEvent(new CustomEvent('sol-replay-loaded-from-url'));
+    _finishLoadFromURL(atEnd);
+    // 続きから遊ぶ（at=end）場合は、再読込でサーバーのリプレイを最初から読み直さないよう replay も外す
+    // （?saved= と同じ扱い。通常の共有リンクの ?replay= は従来どおり残す）
+    if (atEnd) _removeParamsFromURL(['replay']);
   } catch (e) {
     console.warn('リプレイの読み込みに失敗:', e.message);
   }
 }
 
 /**
- * ?saved=<id> で端末保存のリプレイを開く（リプレイ一覧ページからの遷移）。
- * 読込後の扱いは ?replay= と同じ（録画状態のリセット＋ sol-replay-loaded-from-url の発行。
- * スマホでは mobile-ui.js がこれを受けて再生モードを開く）。
- * 再読込で盤面が上書きされるのを防ぐため、読込の成否に関わらず URL から saved を消す。
- * @param {string} savedId
+ * URL からリプレイを読み込んだ後の共通の締め。
+ * 録画状態を捨て、atEnd なら最後の手まで進めてから、読み込み完了を知らせる。
+ * 通常は mobile-ui.js が受けて再生モードを自動で開く（タスクB-1）。atEnd のときは detail.atEnd で
+ * 「再生モードに入らず、そのまま操作を続ける」ことを伝える。
+ * 最後の手にカーソルがあるので、続けて1手打っても記録は切り捨てられない（logEvent は末尾でのみ追記）。
+ * @param {boolean} atEnd
  */
-async function _loadSavedFromURL(savedId) {
+function _finishLoadFromURL(atEnd) {
+  _resetPcRecording(); // 重大4対応: JSON読込で古い録画範囲(_pcRecording)が残留するのを防ぐ
+  if (atEnd) seekTo(getLogLength() - 1);
+  document.dispatchEvent(new CustomEvent('sol-replay-loaded-from-url', { detail: { atEnd } }));
+}
+
+/** URL から指定のクエリを外す（他のクエリ・ハッシュは残す） */
+function _removeParamsFromURL(names) {
+  const url = new URL(location.href);
+  names.forEach((n) => url.searchParams.delete(n));
+  history.replaceState(null, '', url.pathname + url.search + url.hash);
+}
+
+/**
+ * ?saved=<id> で端末保存のリプレイを開く（リプレイ一覧ページからの遷移）。
+ * 読込後の扱いは ?replay= と同じ（_finishLoadFromURL。スマホでは mobile-ui.js がイベントを受けて再生モードを開く。
+ * atEnd のときは最後の手まで進めて再生モードには入らない）。
+ * 再読込で盤面が上書きされるのを防ぐため、読込の成否に関わらず URL から saved と at を消す。
+ * @param {string} savedId
+ * @param {boolean} [atEnd]
+ */
+async function _loadSavedFromURL(savedId, atEnd = false) {
   const item = savedReplaysGet().find(r => r.id === savedId);
-  // URL から saved を外す（再読込で同じリプレイが盤面を上書きし続けるのを防ぐ）
+  // URL から saved・at を外す（再読込で同じリプレイが盤面を上書きし続けるのを防ぐ）
   const url = new URL(location.href);
   url.searchParams.delete('saved');
+  url.searchParams.delete('at');
   history.replaceState(null, '', url.pathname + url.search + url.hash);
 
   if (!item) {
@@ -596,8 +637,7 @@ async function _loadSavedFromURL(savedId) {
   }
   try {
     await loadReplayFromCompressedData(item.data);
-    _resetPcRecording(); // JSON読込と同様、古い録画範囲の残留を防ぐ
-    document.dispatchEvent(new CustomEvent('sol-replay-loaded-from-url'));
+    _finishLoadFromURL(atEnd);
   } catch (e) {
     console.warn('保存済みリプレイの読み込みに失敗:', e);
     showToast('保存済みリプレイを開けませんでした');

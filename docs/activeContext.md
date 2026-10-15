@@ -45,6 +45,15 @@
 - ブラウザ検証: 1280×800、1024×768、800×800、390×844、844×390。通常幅の横溢れなし。サンプル青眼55枚読込、ドロー、通常マスとPゾーンへのドラッグ成功。iOS実機は未確認。
 - tests/js/solitaire_width_check.js 5ケース、replay_board_check.mjs、tests/test_solitaire_replay.py 6件成功。公開状態は最終チャット参照。
 
+## 2026-10-15: シミュレーター整理③（保存・共有・一覧・範囲）
+
+- リプレイバーを「見る／戻す／残す」の3まとまりに（.replay-group。狭い画面では display:contents で従来の order を保つ）。黄は「保存」だけ、選択中の速度・再生中は accent に変更。
+- 保存シート（#pcSaveSheet：このブラウザに保存・ファイルに書き出す）と共有シート（リンク・X）を分離。スマホは #solMobileShareSheet を data-share-mode で保存/共有に切替。タイトル欄は [data-replay-title] で写し合い、既定タイトルは保存・書き出し＝日時、共有＝「共有リプレイ」。
+- 「録画」→「範囲」。範囲を決めても自動でシートを開かず通知のみ。PCは ✕ で外せる。取消で範囲が空になったら状態を捨てる（_prunePcRange / _pruneRange）。
+- セーブ/ロード（card-sim-save-slot-*）を廃止。services/slot-migration.js が起動時に0手リプレイへ移す（origin で二重登録防止・origin 付きは自動の切り詰めで消さない・失敗分はキーを残し一覧から元データを書き出せる）。
+- 一覧に「最初から再生」「最後の盤面から続ける」（?at=end。末尾へ進めて再生モードに入らず、URL から saved/replay と at を外す）、「ファイルから開く」。
+- 検証: pytest 116件・tests/js・Playwright（PC 1440・スマホ 375・横向き 812×375/1400×400）。reviewer 指摘（高2・中6ほか）修正済み。実機 iPhone 未確認。
+
 ## 2026-10-15: リプレイ一覧ページ（公開ライブラリ化の段階1）
 
 - `/solitaire/replays` を新設。区画は「端末に保存したリプレイ」（`sol-saved-replays`）と「共有リンクを作ったリプレイ」（新設 `sol-shared-replays`・最大50件・サムネイルは `/solitaire/og/<id>.png`）。noindex。

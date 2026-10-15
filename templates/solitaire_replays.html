@@ -25,6 +25,8 @@
 <link rel="stylesheet" href="{{ static_url('solitaire/css/replays-page.css') }}">
 <!-- import map: replays-page.js の相対importを内容ハッシュ付きURLへ写像する（solitaire.html と同じ方式）。
      必ず最初のmodule scriptより前に置く -->
+<!-- 盤面セーブの移行・端末保存の圧縮に使う。solitaire.html と同じ版 -->
+<script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
 <script type="importmap">{{ static_import_map(['solitaire/js', 'shared']) | safe }}</script>
 </head>
 
@@ -46,10 +48,23 @@
     <h1 class="rp-title">リプレイ一覧</h1>
     <p class="rp-lead">このブラウザに残っているリプレイです。別のブラウザや端末で保存したものは表示されません。</p>
 
+    <div id="rpSlotNotice" class="rp-notice" hidden>
+      <span id="rpSlotNoticeText"></span>
+      <button type="button" id="rpSlotExportBtn" class="rp-btn">元のデータを書き出す</button>
+    </div>
+
+    <div class="rp-toolbar">
+      <label class="rp-btn rp-file-label">ファイルから開く
+        <input type="file" id="rpOpenFile" accept=".json,application/json" hidden>
+      </label>
+      <span class="rp-toolbar-note">シミュレーターの「ファイルに書き出す」で保存したファイルを、このブラウザに保存して開きます。</span>
+    </div>
+    <p id="rpOpenError" class="rp-error" role="alert" hidden></p>
+
     <section class="rp-section" aria-labelledby="rpSavedHeading">
       <h2 class="rp-heading" id="rpSavedHeading">端末に保存したリプレイ</h2>
-      <p class="rp-note">このブラウザの中に保存したものです。押すとシミュレーターで開きます。</p>
-      <p id="rpSavedEmpty" class="rp-empty" hidden>シミュレーターの共有から「端末に保存」すると、ここに並びます。</p>
+      <p class="rp-note">このブラウザの中に保存したものです。行を押すか「最初から再生」で最初から、「最後の盤面から続ける」で最後の盤面からシミュレーターで開きます。</p>
+      <p id="rpSavedEmpty" class="rp-empty" hidden>シミュレーターの保存から「このブラウザに保存」すると、ここに並びます。</p>
       <ul id="rpSavedList" class="rp-list"></ul>
     </section>
 

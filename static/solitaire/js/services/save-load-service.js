@@ -1,6 +1,7 @@
 /**
- * セーブ&ロードサービス
- * カード配置とゲーム状態をlocalStorageに保存・復元
+ * 盤面の保存・復元サービス
+ * カード配置とゲーム状態を、ページ遷移をまたぐセッション復元（sessionStorage）用に写し取り・書き戻す。
+ * （スロット保存 card-sim-save-slot-* は廃止。既存分は slot-migration.js がリプレイ一覧へ移す）
  */
 
 import { getCardState, applyCardState, markTokenIfSrc } from '../components/card-state.js';
@@ -13,9 +14,6 @@ import { registerCardName, registerCardType } from './replay-service.js';
 import { clearSessionResume, stripVisibility, storeSessionResume, takeSessionResume } from '../utils/session-resume-store.js';
 
 const API_CARD_IMAGES = '/api/card-images';
-
-const SAVE_KEY_PREFIX = 'card-sim-save-slot-';
-const MAX_SLOTS = 5;
 
 /**
  * スロット内のカード情報を取得
@@ -99,70 +97,6 @@ function getCounterStates() {
   });
 
   return counters;
-}
-
-/**
- * 現在のゲーム状態を保存
- * @param {number} slotNumber - 保存スロット番号（1-5）
- * @param {string} slotName - スロット名（オプション）
- * @returns {boolean} - 保存成功/失敗
- */
-export function saveGameState(slotNumber, slotName = '') {
-  if (slotNumber < 1 || slotNumber > MAX_SLOTS) {
-    throw new Error('無効なスロット番号です');
-  }
-
-  try {
-    const gameState = {
-      timestamp: Date.now(),
-      slotName: slotName || `スロット ${slotNumber}`,
-      slots: {},
-      counters: getCounterStates(),
-    };
-
-    // デッキプール
-    gameState.slots.poolRow = getCardsFromSlot(document.getElementById('poolRow'));
-    gameState.slots.poolRow2 = getCardsFromSlot(document.getElementById('poolRow2'));
-
-    // カスタムスロット（フィールド）
-    const customSlots = document.querySelectorAll('.custom-slot');
-    customSlots.forEach(slot => {
-      const slotNum = slot.getAttribute('data-slot');
-      if (slotNum) {
-        gameState.slots[`custom-slot-${slotNum}`] = getCardsFromSlot(slot);
-      }
-    });
-
-    // サイドスロット（墓地、除外など）
-    const sideSlots = document.querySelectorAll('.side-slot');
-    sideSlots.forEach((slot, index) => {
-      gameState.slots[`side-slot-${index}`] = getCardsFromSlot(slot);
-    });
-
-    // 手札スロット
-    const centerSlot = document.querySelector('.center-slot');
-    if (centerSlot) {
-      gameState.slots['center-slot'] = getCardsFromSlot(centerSlot);
-    }
-
-    // フリースペース
-    const freeSpace = document.getElementById('free-space');
-    if (freeSpace) {
-      gameState.slots['free-space'] = getCardsFromSlot(freeSpace);
-    }
-
-    // localStorageに保存（圧縮して容量を削減）
-    const key = SAVE_KEY_PREFIX + slotNumber;
-    const jsonString = JSON.stringify(gameState);
-    const compressed = LZString.compress(jsonString);
-    localStorage.setItem(key, compressed);
-
-    console.log(`ゲーム状態をスロット${slotNumber}に保存しました（圧縮前: ${(jsonString.length / 1024).toFixed(2)}KB, 圧縮後: ${(compressed.length / 1024).toFixed(2)}KB）`);
-    return true;
-  } catch (error) {
-    console.error('保存エラー:', error);
-    return false;
-  }
 }
 
 /**
@@ -332,7 +266,7 @@ function restoreCounters(counters) {
   existingCounters.forEach(counter => counter.remove());
 
   // 旧形式データ等で復元先が見つからずスキップした件数。1件でもあればトーストで通知する
-  // （console.warnだけだとセーブスロットを永続ロードするたびに無言でカウンターが消える）。
+  // （console.warnだけだと復元のたびに無言でカウンターが消える）。
   let skippedCount = 0;
 
   // カウンターを復元
@@ -414,131 +348,6 @@ function restoreCounters(counters) {
   if (skippedCount > 0) {
     showToast('古い保存データのためカウンターを復元できませんでした');
   }
-}
-
-/**
- * ゲーム状態をロード（非同期版: card:// センチネルの再解決を含む）
- * @param {number} slotNumber - ロードスロット番号（1-5）
- * @returns {Promise<boolean>} - ロード成功/失敗
- */
-export async function loadGameState(slotNumber) {
-  if (slotNumber < 1 || slotNumber > MAX_SLOTS) {
-    throw new Error('無効なスロット番号です');
-  }
-
-  try {
-    const key = SAVE_KEY_PREFIX + slotNumber;
-    const data = localStorage.getItem(key);
-
-    if (!data) {
-      throw new Error('セーブデータが見つかりません');
-    }
-
-    // 圧縮データを解凍
-    const decompressed = LZString.decompress(data);
-
-    // 旧形式（圧縮されていない）との互換性を保つ
-    const gameState = JSON.parse(decompressed || data);
-
-    await _applyState(gameState);
-
-    console.log(`ゲーム状態をスロット${slotNumber}からロードしました`);
-    return true;
-  } catch (error) {
-    console.error('ロードエラー:', error);
-    throw error;
-  }
-}
-
-/**
- * 保存されているスロット情報を取得
- * @returns {Array} - スロット情報の配列
- */
-export function getSaveSlots() {
-  const slots = [];
-
-  for (let i = 1; i <= MAX_SLOTS; i++) {
-    const key = SAVE_KEY_PREFIX + i;
-    const data = localStorage.getItem(key);
-
-    if (data) {
-      try {
-        // 圧縮データを解凍（旧形式との互換性も保つ）
-        const decompressed = LZString.decompress(data);
-        const gameState = JSON.parse(decompressed || data);
-        const date = new Date(gameState.timestamp);
-        slots.push({
-          number: i,
-          exists: true,
-          timestamp: gameState.timestamp,
-          dateString: date.toLocaleString('ja-JP'),
-          slotName: gameState.slotName || `スロット ${i}`,
-        });
-      } catch {
-        slots.push({
-          number: i,
-          exists: false,
-          slotName: `スロット ${i}`,
-        });
-      }
-    } else {
-      slots.push({
-        number: i,
-        exists: false,
-        slotName: `スロット ${i}`,
-      });
-    }
-  }
-
-  return slots;
-}
-
-/**
- * スロット名を更新
- * @param {number} slotNumber - スロット番号（1-5）
- * @param {string} newName - 新しいスロット名
- */
-export function updateSlotName(slotNumber, newName) {
-  if (slotNumber < 1 || slotNumber > MAX_SLOTS) {
-    throw new Error('無効なスロット番号です');
-  }
-
-  const key = SAVE_KEY_PREFIX + slotNumber;
-  const data = localStorage.getItem(key);
-
-  if (!data) {
-    throw new Error('セーブデータが見つかりません');
-  }
-
-  try {
-    // 圧縮データを解凍（旧形式との互換性も保つ）
-    const decompressed = LZString.decompress(data);
-    const gameState = JSON.parse(decompressed || data);
-    gameState.slotName = newName || `スロット ${slotNumber}`;
-
-    // 圧縮して保存
-    const compressed = LZString.compress(JSON.stringify(gameState));
-    localStorage.setItem(key, compressed);
-    console.log(`スロット${slotNumber}の名前を「${gameState.slotName}」に変更しました`);
-    return true;
-  } catch (error) {
-    console.error('スロット名更新エラー:', error);
-    throw error;
-  }
-}
-
-/**
- * セーブスロットをクリア
- * @param {number} slotNumber - クリアするスロット番号（1-5）
- */
-export function clearSaveSlot(slotNumber) {
-  if (slotNumber < 1 || slotNumber > MAX_SLOTS) {
-    throw new Error('無効なスロット番号です');
-  }
-
-  const key = SAVE_KEY_PREFIX + slotNumber;
-  localStorage.removeItem(key);
-  console.log(`スロット${slotNumber}をクリアしました`);
 }
 
 // ── セッション復元（ページ遷移をまたいだ盤面の自動保存・復元） ──
@@ -641,7 +450,7 @@ async function _applyState(state) {
   const domIds = [...document.querySelectorAll('.tier-item-wrapper')].map(w => w.id);
   syncCardIdCounter(domIds);
 
-  // 復元したカードの名前をリプレイ辞書へ（セッション復元・スロットのロード共通。無いと共有で名前が欠ける）
+  // 復元したカードの名前をリプレイ辞書へ（無いと共有で名前が欠ける）
   document.querySelectorAll('.tier-item[id]').forEach(el => {
     registerCardName(el.id, el.dataset.cardName);
     // 復元したカードの種類もリプレイ辞書へ（無いと共有・保存した記録の再生で data-card-type が失われる）

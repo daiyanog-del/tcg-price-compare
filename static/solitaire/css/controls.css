@@ -107,30 +107,6 @@
   box-shadow: 0 3px 6px rgba(0, 0, 0, 0.2);
 }
 
-/* セーブボタン（青系） */
-.save-btn {
-  background: linear-gradient(135deg, #4a90e2 0%, #357abd 100%);
-  border-color: #2e5f8d;
-  color: white;
-}
-
-.save-btn:hover {
-  background: linear-gradient(135deg, #357abd 0%, #2e5f8d 100%);
-  border-color: #1e4a6f;
-}
-
-/* ロードボタン（緑系） */
-.load-btn {
-  background: linear-gradient(135deg, #52c41a 0%, #3a9b15 100%);
-  border-color: #2d7a10;
-  color: white;
-}
-
-.load-btn:hover {
-  background: linear-gradient(135deg, #3a9b15 0%, #2d7a10 100%);
-  border-color: #1f5c0b;
-}
-
 /* ドローボタン（紫系） */
 .draw-btn {
   background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%);

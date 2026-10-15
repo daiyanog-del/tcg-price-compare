@@ -992,12 +992,6 @@ html, body {
 }
 .action-btn::before { display: none; }
 
-.save-btn  { background: var(--bg-card); border-color: var(--accent); color: var(--accent); }
-.save-btn:hover  { background: var(--accent); color: #fff; transform: translateY(-1px); }
-
-.load-btn  { background: var(--bg-card); border-color: var(--green); color: var(--green); }
-.load-btn:hover  { background: var(--green); color: #fff; transform: translateY(-1px); }
-
 .draw-btn  { background: var(--bg-card); border-color: var(--gold); color: var(--gold); }
 .draw-btn:hover  { background: var(--gold); color: #111; transform: translateY(-1px); }
 
@@ -1050,7 +1044,6 @@ html, body {
 /* ── モーダル ── */
 .modal-overlay { background: rgba(0,0,0,0.7); }
 .modal-content,
-.save-load-modal,
 .image-browser-modal {
   background: var(--bg-card) !important;
   border: 1px solid var(--border) !important;
@@ -1143,47 +1136,50 @@ a.replay-btn { display: inline-block; text-decoration: none; }
 .replay-share-x-btn:hover { background: #222; }
 .replay-share-x-btn:disabled { opacity: 0.35; cursor: default; }
 
-/* ── PC版 録画ボタン（#pcRecordBtn） ──
-   待機中はやや赤みの枠、録画中は赤背景＋点滅ドットで明確に区別する。
-   モバイル版 .sol-mobile-record-btn（mobile.css）とは別のクラス・見た目。 */
-.pc-record-btn {
-  display: inline-flex;
+/* ── リプレイバーのまとまり（見る／戻す／残す。2026-10-15 整理③） ──
+   まとまりの間だけ縦線で区切る。「見る」はスライダーを伸ばすため残りの幅を取る。 */
+.replay-group {
+  display: flex;
   align-items: center;
   gap: 5px;
-  border-color: #8a3a3a;
-  color: #ffd2d2;
+}
+.replay-group:first-child { flex: 1 1 auto; min-width: 0; }
+.replay-group + .replay-group {
+  border-left: 1px solid var(--border);
+  padding-left: 8px;
+  margin-left: 3px;
+}
+
+/* 保存（主操作・黄）。色は site-theme.css の主操作の規則でそろえる */
+.replay-save-btn {
+  padding: 4px 12px;
+  background: var(--gold);
+  color: #111;
+  border: none;
+  border-radius: 5px;
+  font-size: 0.8rem;
   font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: var(--font);
 }
+
+/* ── PC版 範囲ボタン（#pcRecordBtn。旧「録画」） ──
+   選んでいる間・範囲が決まった後は accent（青系）で示す。赤は危険操作専用のため使わない。 */
+.pc-record-btn { font-weight: 700; }
 /* components.css の `p, span, li { color:#333 }` が中の #pcRecordLabel(span)に
-   直接効き、親のcolor継承より優先されて暗いグレーに見えていたため明示指定する
-   （モバイル版 .sol-mobile-record-btn span でも同じ問題があり同様に対処済み）。 */
-.pc-record-btn span {
-  color: inherit;
-}
+   直接効き、親のcolor継承より優先されて暗いグレーに見えていたため明示指定する。 */
+.pc-record-btn span { color: inherit; }
 .pc-record-btn.recording {
-  background: #4a1414;
-  border-color: #dc3c3c;
-  color: #ff9b9b;
+  border-color: var(--accent);
+  color: var(--accent);
 }
-.pc-record-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #dc3c3c;
+.pc-record-btn.has-range {
+  color: var(--accent);
+  background: rgba(174, 197, 255, 0.12);
 }
-.pc-record-btn.recording .pc-record-dot {
-  animation: solPcRecordDotBlink 1s ease-in-out infinite;
-}
-@keyframes solPcRecordDotBlink {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.15; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .pc-record-btn.recording .pc-record-dot {
-    animation: none;
-  }
-}
+.pc-range-clear-btn { padding: 4px 7px; }
+.pc-range-clear-btn[hidden] { display: none; }
 
 /* PC版 再生中の操作ロック（replay-ui.js が #replayPlay の再生状態に連動して付け外しする）。
    PC専用クラス。mobile.css の body.sol-playback（スマホ縦向き専用の再生モード）とは
@@ -1909,20 +1905,27 @@ a.replay-btn { display: inline-block; text-decoration: none; }
   padding: 9px 10px;
   font-size: 0.85rem;
 }
-.pc-share-import-label {
-  cursor: pointer;
-  margin: 0;
+/* 保存・共有シートのタイトル欄と範囲の表示 */
+.pc-share-title-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg-color);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--main-color);
+  font-size: 0.85rem;
+  padding: 7px 9px;
+  font-family: var(--font);
 }
-/* ①録画セクション（モバイル版 .sol-mobile-share-note 相当の見た目をPC共有シート向けに移植） */
+.pc-range-info {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--main-color);
+}
 .pc-share-note {
   margin: 0;
   font-size: 0.78rem;
   color: #94a3b8;
   line-height: 1.4;
-}
-.pc-share-divider {
-  width: 100%;
-  border: none;
-  border-top: 1px solid var(--border);
-  margin: 2px 0;
 }
