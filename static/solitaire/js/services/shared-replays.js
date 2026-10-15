@@ -19,7 +19,8 @@ const MAX_SHARED_REPLAYS = 50;
 export function sharedReplaysGet() {
   try {
     const list = JSON.parse(localStorage.getItem(SHARED_REPLAYS_KEY));
-    return Array.isArray(list) ? list : [];
+    // 壊れた中身（配列でない・null 等の要素）で一覧や保存が落ちないようにする
+    return Array.isArray(list) ? list.filter(r => r && typeof r === 'object') : [];
   } catch {
     return [];
   }

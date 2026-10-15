@@ -27,7 +27,9 @@ const MAX_EVICT_RETRY = 3;
  */
 export function savedReplaysGet() {
   try {
-    return JSON.parse(localStorage.getItem(SAVED_REPLAYS_KEY)) || [];
+    const list = JSON.parse(localStorage.getItem(SAVED_REPLAYS_KEY));
+    // 壊れた中身（配列でない・null 等の要素）で一覧や保存が落ちないようにする
+    return Array.isArray(list) ? list.filter(r => r && typeof r === 'object') : [];
   } catch {
     return [];
   }

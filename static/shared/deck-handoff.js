@@ -44,7 +44,7 @@ function readHandoff(storage){
 export async function receiveDeckHandoff({loadDeck,clearDeck,getCounts,storage=sessionStorage,doc=document,loc=location,hist=history}){
   const url=new URL(loc.href);
   // 共有リプレイは最優先。通常のアクセスでは一時データがあっても取り込まない。
-  if(url.searchParams.has('replay')||url.hash.startsWith('#replay=')||url.searchParams.get('from')!=='mydeck')return false;
+  if(url.searchParams.has('replay')||url.searchParams.has('saved')||url.hash.startsWith('#replay=')||url.searchParams.get('from')!=='mydeck')return false;
   const panel=doc.createElement('div');panel.setAttribute('role','status');
   panel.id='deckHandoffStatus';
   panel.style.cssText='padding:8px 12px;font-family:var(--font);font-size:13px;line-height:1.6;overflow-wrap:anywhere;background:var(--bg-card,#171f31);color:var(--main-color,#eff3fb)';

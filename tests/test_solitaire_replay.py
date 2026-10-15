@@ -101,6 +101,12 @@ def test_replays_page_disabled_returns_503(monkeypatch):
     import app as app_module
     importlib.reload(app_module)
     app_module.app.config.update(TESTING=True)
-    resp = app_module.app.test_client().get("/solitaire/replays")
-    assert resp.status_code == 503
-    assert "ご利用いただけません" in resp.get_data(as_text=True)
+    try:
+        resp = app_module.app.test_client().get("/solitaire/replays")
+        assert resp.status_code == 503
+        assert "ご利用いただけません" in resp.get_data(as_text=True)
+    finally:
+        # 後続のテストに無効状態を持ち越さない（フラグは import 時評価のため ON に戻して reload）
+        monkeypatch.setenv("ENABLE_VISUAL_SOLO_PLAY", "1")
+        importlib.reload(solitaire_routes)
+        importlib.reload(app_module)

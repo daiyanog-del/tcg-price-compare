@@ -48,6 +48,7 @@ import {
   truncateAfterCursor,
 } from '../services/replay-service.js';
 import { savedReplaysGet } from '../services/saved-replays.js';
+import { sharedReplaysGet } from '../services/shared-replays.js';
 
 const API_CARD_INFO = '/api/card-info';
 
@@ -1251,11 +1252,11 @@ function _updateShareCurrentInfo() {
   el.textContent = `現在の記録: ${total}手（メイン${main}枚・EX${ex}枚）`;
 }
 
-/** ③に「リプレイ一覧を開く（n件）」リンクを出す（0件なら隠す） */
+/** ③に「リプレイ一覧を開く（n件）」リンクを出す（件数は端末保存＋共有履歴の合計。0件なら隠す） */
 function _updateShareOpenSavedButton() {
   const btn = document.getElementById('solMobileShareOpenSavedBtn');
   if (!btn) return;
-  const n = savedReplaysGet().length;
+  const n = savedReplaysGet().length + sharedReplaysGet().length;
   if (n === 0) {
     btn.setAttribute('hidden', '');
     return;
