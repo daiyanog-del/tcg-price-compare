@@ -1202,3 +1202,11 @@
     display: none !important;
   }
 }
+
+/* 幅340px以下（320px級のスマホ）: 下部バーに5つ並べると1つ約57pxになり、
+   「デッキ N」が「デッ／キ」と単語の途中で折れていたため、字と間隔を詰めて1行に収める
+   （2026-10-15 整理③で「保存」を足して5つになった。320/360/375px で実測） */
+@media (max-width: 340px) {
+  .sol-mobile-bar-btn { font-size: 0.76rem; gap: 2px; }
+  #solMobileDeckBtn { white-space: nowrap; }
+}
