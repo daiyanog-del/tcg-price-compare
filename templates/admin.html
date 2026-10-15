@@ -264,6 +264,7 @@
         <span class="card-row__type"></span>
         <span class="confidence-badge"></span>
         <span class="auto-verdict-badge" hidden></span>
+        <span class="text-check-badge" hidden></span>
         <span class="card-row__extracted-at"></span>
       </div>
       <div class="card-row__meta">
@@ -382,6 +383,15 @@
             <div class="form-group form-group--full">
               <label class="form-label">効果テキスト</label>
               <textarea name="effect_text" class="form-textarea edit-field" rows="4"></textarea>
+            </div>
+
+            <div class="form-group form-group--full text-check" hidden>
+              <div class="text-check__head">
+                <span class="text-check__title">効果テキストの誤字チェック</span>
+                <button type="button" class="btn btn-ghost btn-sm text-check__recheck">編集後の値で再検査</button>
+              </div>
+              <p class="text-check__note"></p>
+              <ul class="text-check__list"></ul>
             </div>
 
           </div>
@@ -553,6 +563,15 @@
             <div class="form-group form-group--full">
               <label class="form-label">効果テキスト</label>
               <textarea name="effect_text" class="form-textarea edit-field" rows="4"></textarea>
+            </div>
+
+            <div class="form-group form-group--full text-check" hidden>
+              <div class="text-check__head">
+                <span class="text-check__title">効果テキストの誤字チェック</span>
+                <button type="button" class="btn btn-ghost btn-sm text-check__recheck">編集後の値で再検査</button>
+              </div>
+              <p class="text-check__note"></p>
+              <ul class="text-check__list"></ul>
             </div>
 
           </div>

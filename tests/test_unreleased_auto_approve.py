@@ -8,12 +8,16 @@ from tests.fake_supabase import FakeSB
 from tools import auto_approve_report as report
 
 
+# 公式の効果文らしい（誤字検証で疑義が付かない）文章
+CLEAN_TEXT = "①：このカードが特殊召喚に成功した場合に発動できる。自分のデッキからカード1枚を手札に加える。"
+
+
 def _card(**over):
     """全条件を満たすX経由カード。"""
     card = {
         "name": "テスト竜", "card_type": "効果モンスター", "attribute": "闇", "race": "ドラゴン族",
         "level": 4, "rank": None, "link_val": None, "atk": 1800, "def": "1000",
-        "effect_text": "効果あり", "pendulum_scale": None, "pendulum_effect": "",
+        "effect_text": CLEAN_TEXT, "pendulum_scale": None, "pendulum_effect": "",
         "product_name": "パック", "release_date": "2026-11-01", "confidence": "high",
         "extraction_raw": {
             "source": "x_tweet",
@@ -37,7 +41,7 @@ def _ev(card, others=()):
 
 def test_all_conditions_met():
     v = _ev(_card())
-    assert v["eligible"] is True and v["reasons"] == [] and v["version"] == 1 and v["at"]
+    assert v["eligible"] is True and v["reasons"] == [] and v["version"] == aa.VERSION == 2 and v["at"]
 
 
 @pytest.mark.parametrize("conf", ["medium", "low", None])
@@ -166,7 +170,7 @@ def test_load_active_names_failure_returns_none():
 
 def test_edited_fields_diff():
     snap = aa.build_extracted_snapshot(_card())
-    current = _card(atk=2000, effect_text=" 効果あり ", release_date="2026-11-02")
+    current = _card(atk=2000, effect_text=" " + CLEAN_TEXT + " ", release_date="2026-11-02")
     assert aa.compute_edited_fields(snap, current) == ["atk", "release_date"]
 
 
@@ -187,7 +191,8 @@ def test_build_approval_snapshot():
     card["atk"] = 9999
     snap = aa.build_approval_snapshot(card, "bulk", "2026-10-15T00:00:00+00:00")
     assert snap == {"at": "2026-10-15T00:00:00+00:00", "via": "bulk", "edited_fields": ["atk"],
-                    "crop_mode": "manual", "verdict_eligible": True}
+                    "crop_mode": "manual", "verdict_eligible": True,
+                    "text_check": {"version": 1, "status": "checked", "strong": 0, "weak": 0, "strong_by_kind": {}}}
 
 
 def test_build_approval_snapshot_legacy_card():

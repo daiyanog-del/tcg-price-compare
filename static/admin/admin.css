@@ -1367,3 +1367,98 @@ a:hover {
   font-size: 0.72rem;
   margin-left: 4px;
 }
+
+/* 効果テキストの誤字チェック
+ * 強い疑義（要確認）= 信頼度「中」と同じ注意色（gold）。参考 = 枠線のみの中立表示。
+ * 赤は危険・エラー用なので使わない */
+.text-check-badge {
+  border-radius: 3px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 1px 5px;
+}
+
+.text-check-badge--strong {
+  background-color: var(--gold);
+  color: var(--bg-color);
+}
+
+.text-check-badge--neutral {
+  border: 1px solid var(--border);
+  color: var(--main-color);
+  font-weight: 400;
+}
+
+.text-check {
+  background-color: var(--bg-surface);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  font-size: 0.8rem;
+}
+
+.text-check__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.text-check__title {
+  font-weight: 600;
+}
+
+.text-check__note {
+  margin: 4px 0;
+  color: color-mix(in srgb, var(--main-color) 70%, var(--border) 30%);
+}
+
+.text-check__note:empty {
+  display: none;
+}
+
+.text-check__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.text-check__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 3px 0;
+  border-top: 1px solid var(--border);
+}
+
+.text-check__tag {
+  border-radius: 3px;
+  font-size: 0.72rem;
+  padding: 1px 5px;
+}
+
+.text-check__tag--strong {
+  background-color: var(--gold);
+  color: var(--bg-color);
+  font-weight: 600;
+}
+
+.text-check__tag--weak {
+  border: 1px solid var(--border);
+  color: var(--main-color);
+}
+
+.text-check__mark {
+  background-color: color-mix(in srgb, var(--gold) 40%, transparent);
+  color: inherit;
+  padding: 0 1px;
+}
+
+.text-check__suggestion {
+  font-weight: 600;
+}
+
+.text-check__message,
+.text-check__field {
+  color: color-mix(in srgb, var(--main-color) 70%, var(--border) 30%);
+}

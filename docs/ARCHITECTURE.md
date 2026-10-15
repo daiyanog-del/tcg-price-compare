@@ -45,6 +45,7 @@ Flask app.py (3,200行規模) ＋ solitaire_routes.py (Blueprint)
 | x_poster.py + chart_renderer.py | 値動きランキングのX自動投稿＋グラフ生成 |
 | unreleased_x_post.py / tools/post_unreleased_x.py | 承認された未発売カードのX自動投稿（予約テーブルで二重投稿防止、承認時＋3時間ごとの回収）。既定は無効 |
 | unreleased_auto_approve.py / tools/auto_approve_report.py | 自動承認の判定（シャドーモード: 記録のみ）と集計。取込3経路が `extraction_raw.auto_approve_verdict` / `extracted_snapshot` を保存、承認時に `approval_snapshot` を保存 |
+| unreleased_text_check.py / tools/build_text_check_dict.py / tools/text_check_calibrate.py / data/text_check_dict.json.gz | 未発売カードの効果テキストの誤字検証（決定的）。公式テキスト由来の辞書で3-gram・「」内の名前・書式を検査し、強/弱の疑義を返す。強い疑義は自動承認の条件（`text_suspect`）、結果は `extraction_raw.text_check`、管理画面に一覧と再検査ボタン |
 | notify.py | Web Push 値下がり通知（-5% かつ -50円、同一購読20時間間隔） |
 | meta_scraper.py | 環境Tier表（キャッシュ: Tier 3h / デッキ 6h、期限切れ後7日フォールバック、集計窓30→60日アダプティブ） |
 | monitor.py | ErrorTracker（連続失敗をDiscord通知）・run_health_check |

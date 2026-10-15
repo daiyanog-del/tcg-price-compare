@@ -12,12 +12,14 @@ import logging
 import math
 from datetime import datetime, timezone
 
+import unreleased_text_check
 from name_normalize import fuzzy_key
 from unreleased_quality import lacks_card_body
 
 logger = logging.getLogger(__name__)
 
-VERSION = 1
+# 2: 効果テキストの誤字検証（text_suspect / text_unchecked）を条件に追加（2026-10-15）
+VERSION = 2
 
 # ──────────────────────────────────────────────
 # 閾値（実データでの校正が必要な仮置き値）
@@ -51,6 +53,8 @@ REASON_LABELS = {
     "lacks_card_body": "カード本体（効果・数値）を読めていない",
     "same_name_exists": "同名のカードが他にも登録されている",
     "same_name_unchecked": "同名カードの有無を確認できなかった",
+    "text_suspect": "効果テキストに誤字の強い疑いがある",
+    "text_unchecked": "効果テキストの誤字を検証できなかった（辞書なし・フレーバーテキスト等）",
     "evaluation_error": "判定中にエラーが起きた",
 }
 
@@ -128,12 +132,45 @@ def _crop_reason(raw: dict) -> str | None:
 # 判定本体
 # ──────────────────────────────────────────────
 
-def evaluate(card: dict, *, other_names=None) -> dict:
+def compute_text_check(card: dict, other_names=None, text_context=None, *, context_has_self=False) -> dict:
+    """効果テキストの誤字検証（unreleased_text_check.check_card）。例外は握りつぶさず「未検証」として返す。
+
+    戻り値は extraction_raw.text_check にそのまま保存できる形（version つき）。
+    context_has_self: text_context に検査対象カード自身が含まれているか（DB登録済みのカードの再検査は True）。
+    """
+    try:
+        return unreleased_text_check.check_card(
+            card, extra_names=[n for n in (other_names or []) if n], context=text_context,
+            context_has_self=context_has_self)
+    except Exception as e:  # 取込本体を止めない。検証できなかった事実は残す（疑義なし扱いにはしない）
+        logger.warning("[auto_approve] 効果テキスト検証に失敗 (%s): %s", card.get("name", "?"), e)
+        return {"version": unreleased_text_check.VERSION, "status": "unchecked", "reason": "error",
+                "strong": 0, "weak": 0, "suspects": [], "unverified_fields": []}
+
+
+def _text_reason(text_check) -> str | None:
+    """text_check の結果から理由コードを返す。問題なければ None。
+
+    強い疑義が無いことだけを条件にする（弱い疑義は参考表示で、承認条件に使わない）。
+    n-gram 照合できなかった欄（通常モンスターのフレーバー等）がある場合は未検証として不適格にする。
+    """
+    if not isinstance(text_check, dict) or text_check.get("status") != "checked":
+        return "text_unchecked"
+    if text_check.get("unverified_fields"):
+        return "text_unchecked"
+    if text_check.get("strong"):
+        return "text_suspect"
+    return None
+
+
+def evaluate(card: dict, *, other_names=None, text_check=None, text_context=None) -> dict:
     """1枚のカード行（unreleased_cards 形式の dict）が自動承認の条件を満たすか判定する。
 
     other_names: 同名判定の対象にする「他カード」の名前一覧（rejected を除く。自分自身は含めない）。
                  None のときは同名確認ができなかったものとして不適格にする。
-    戻り値: {"eligible": bool, "reasons": [理由コード...], "version": 1, "at": ISO(UTC)}
+    text_check: compute_text_check の結果（呼び出し側で計算済みのとき）。None なら内部で計算する。
+    text_context: 内部で計算するときの TextContext（他の未発売カードの「」内語）。
+    戻り値: {"eligible": bool, "reasons": [理由コード...], "version": VERSION, "at": ISO(UTC)}
 
     recognition_review の扱い:
       enrich_rows（unreleased_quality.py）は魔法・罠も含む全カードに上部拡大の再読をかけ、
@@ -162,6 +199,12 @@ def evaluate(card: dict, *, other_names=None) -> dict:
     if lacks_card_body(card):
         reasons.append("lacks_card_body")
 
+    if text_check is None:
+        text_check = compute_text_check(card, other_names, text_context)
+    text_reason = _text_reason(text_check)
+    if text_reason:
+        reasons.append(text_reason)
+
     if other_names is None:
         reasons.append("same_name_unchecked")
     else:
@@ -186,13 +229,15 @@ def build_extracted_snapshot(row: dict) -> dict:
     return {k: row.get(k) for k in SNAPSHOT_FIELDS}
 
 
-def annotate_row(row: dict, other_names) -> dict:
-    """挿入直前の行に auto_approve_verdict と extracted_snapshot を付ける。判定結果を返す。
+def annotate_row(row: dict, other_names, text_context=None) -> dict:
+    """挿入直前の行に auto_approve_verdict・extracted_snapshot・text_check を付ける。判定結果を返す。
 
     判定が例外で落ちても取込は止めない（evaluation_error として記録する）。
+    text_context: load_text_context の結果（省略可）。渡した場合、この行の「」内語も文脈に足す。
     """
+    text_check = compute_text_check(row, other_names, text_context)
     try:
-        verdict = evaluate(row, other_names=other_names)
+        verdict = evaluate(row, other_names=other_names, text_check=text_check)
     except Exception as e:  # 取込本体を止めない
         logger.warning("[auto_approve] 判定失敗 (%s): %s", row.get("name", "?"), e)
         verdict = {"eligible": False, "reasons": ["evaluation_error"], "version": VERSION,
@@ -205,6 +250,9 @@ def annotate_row(row: dict, other_names) -> dict:
     #       （今回はシャドーモード＝記録のみ。実際に承認するスイッチは作っていない）。
     raw["auto_approve_verdict"] = verdict
     raw["extracted_snapshot"] = build_extracted_snapshot(row)
+    raw["text_check"] = text_check
+    if text_context is not None:
+        text_context.add_card(row)
     return verdict
 
 
@@ -227,6 +275,29 @@ def load_active_names(sb) -> list[str] | None:
             offset += _NAME_PAGE
     except Exception as e:
         logger.warning("[auto_approve] 既存カード名の取得に失敗（同名確認なしで記録）: %s", e)
+        return None
+
+
+def load_text_context(sb):
+    """rejected 以外の全カードの「」内語を集めた TextContext を返す。取得に失敗したら None。
+
+    新弾の新カード名・テーマ名は同じ弾の複数のカードに出るので、②（「」内の名前）で既知扱いにする材料。
+    """
+    ctx = unreleased_text_check.TextContext()
+    try:
+        offset = 0
+        while True:
+            resp = (sb.table("unreleased_cards").select("effect_text, pendulum_effect")
+                    .neq("status", "rejected")
+                    .range(offset, offset + _NAME_PAGE - 1).execute())
+            rows = list(resp.data or [])
+            for r in rows:
+                ctx.add_card(r)
+            if len(rows) < _NAME_PAGE:
+                return ctx
+            offset += _NAME_PAGE
+    except Exception as e:
+        logger.warning("[auto_approve] 既存テキストの取得に失敗（「」内語の文脈なしで検証）: %s", e)
         return None
 
 
@@ -261,13 +332,33 @@ def build_approval_snapshot(card: dict, via: str, now_iso: str | None = None) ->
     raw = card.get("extraction_raw") or {}
     verdict = raw.get("auto_approve_verdict")
     crop_state = raw.get("crop_state")
+    # 承認時点（手直し後）の値での疑義数。「疑義ありだったが直さず承認」＝誤検知の数え上げに使う。
+    # 辞書だけで数える（取込時の文脈は使わない）ため、取込時の text_check と数が違うことがある
+    now_check = compute_text_check(card, None, None)
     return {
         "at": now_iso or datetime.now(timezone.utc).isoformat(),
         "via": via,
         "edited_fields": compute_edited_fields(raw.get("extracted_snapshot"), card),
         "crop_mode": crop_state.get("mode") if isinstance(crop_state, dict) else None,
         "verdict_eligible": verdict.get("eligible") if isinstance(verdict, dict) else None,
+        "text_check": {
+            "version": now_check.get("version"),
+            "status": now_check.get("status"),
+            "strong": now_check.get("strong", 0),
+            "weak": now_check.get("weak", 0),
+            # 種別ごとの強の数。承認時は他カード名の文脈が無く unknown_name が増えるので、
+            # 集計では unknown_ngram / format を主に見る
+            "strong_by_kind": _count_by_kind(now_check, "strong"),
+        },
     }
+
+
+def _count_by_kind(text_check: dict, severity: str) -> dict:
+    out: dict = {}
+    for sus in text_check.get("suspects") or []:
+        if sus.get("severity") == severity:
+            out[sus.get("kind")] = out.get(sus.get("kind"), 0) + 1
+    return out
 
 
 _CHUNK = 100

@@ -542,6 +542,141 @@ function _renderAutoVerdict(el, card) {
   el.hidden = false;
 }
 
+/**
+ * 効果テキストの誤字チェックの表示（unreleased_text_check.py の結果）。
+ * 値は textContent / createTextNode だけで設定する（innerHTML 不使用）。
+ * 強い疑義 = 自動承認の条件に使うもの。弱い疑義 = 参考表示のみ。
+ * @param {{status?: string, reason?: string, strong?: number, weak?: number, suspects?: Array, unverified_fields?: string[]}|null|undefined} tc
+ */
+const TEXT_CHECK_FIELD_LABELS = { effect_text: '効果テキスト', pendulum_effect: 'ペンデュラム効果' };
+
+function _renderTextCheckBadge(el, tc) {
+  if (!el) return;
+  if (!tc || typeof tc !== 'object') return;  // 旧データは札なし
+  if (tc.status !== 'checked') {
+    el.textContent = '誤字チェック未実施';
+    el.classList.add('text-check-badge--neutral');
+  } else if (tc.strong > 0) {
+    el.textContent = `誤字の疑い ${tc.strong}件`;
+    el.classList.add('text-check-badge--strong');
+  } else if (tc.weak > 0) {
+    el.textContent = `誤字チェック 参考${tc.weak}件`;
+    el.classList.add('text-check-badge--neutral');
+  } else {
+    return;  // 疑義なしは出さない
+  }
+  el.hidden = false;
+}
+
+function _appendHighlighted(parent, context, target) {
+  // 前後の文脈の中で該当文字列を強調する（最初の一致のみ）
+  const idx = target ? context.indexOf(target) : -1;
+  if (idx < 0) {
+    parent.appendChild(document.createTextNode(context));
+    return;
+  }
+  parent.appendChild(document.createTextNode(context.slice(0, idx)));
+  const mark = document.createElement('mark');
+  mark.className = 'text-check__mark';
+  mark.textContent = target;
+  parent.appendChild(mark);
+  parent.appendChild(document.createTextNode(context.slice(idx + target.length)));
+}
+
+function _renderTextCheckPanel(editForm, tc, stale) {
+  const panel = editForm.querySelector('.text-check');
+  if (!panel) return;
+  const note = panel.querySelector('.text-check__note');
+  const list = panel.querySelector('.text-check__list');
+  list.replaceChildren();
+  note.textContent = '';
+  if (!tc || typeof tc !== 'object') {
+    panel.hidden = true;  // 旧データ（検査の記録なし）は再検査ボタンも出さない
+    return;
+  }
+  panel.hidden = false;
+  if (tc.status !== 'checked') {
+    note.textContent = '誤字チェックを実施できませんでした（辞書なし等）。疑義なしの意味ではありません。';
+    return;
+  }
+  const suspects = Array.isArray(tc.suspects) ? tc.suspects : [];
+  const unverified = Array.isArray(tc.unverified_fields) ? tc.unverified_fields : [];
+  const notes = [];
+  if (stale) notes.push('取込時の検査結果です。編集した場合は「再検査」で確認できます。');
+  if (!suspects.length) notes.push('疑わしい箇所はありません。');
+  if (unverified.length) {
+    notes.push(`${unverified.map(f => TEXT_CHECK_FIELD_LABELS[f] || f).join('・')}は文章の型が違うため、文字の並びの照合はしていません。`);
+  }
+  note.textContent = notes.join(' ');
+  // 強い疑義を先に
+  const sorted = suspects.slice().sort((a, b) => (a.severity === 'strong' ? 0 : 1) - (b.severity === 'strong' ? 0 : 1));
+  for (const sus of sorted) {
+    const li = document.createElement('li');
+    li.className = 'text-check__item';
+    const tag = document.createElement('span');
+    tag.className = `text-check__tag text-check__tag--${sus.severity === 'strong' ? 'strong' : 'weak'}`;
+    tag.textContent = sus.severity === 'strong' ? '要確認' : '参考';
+    li.appendChild(tag);
+    const field = document.createElement('span');
+    field.className = 'text-check__field';
+    field.textContent = TEXT_CHECK_FIELD_LABELS[sus.field] || '';
+    li.appendChild(field);
+    const ctx = document.createElement('span');
+    ctx.className = 'text-check__context';
+    ctx.appendChild(document.createTextNode('…'));
+    _appendHighlighted(ctx, String(sus.context || sus.text || ''), String(sus.text || ''));
+    ctx.appendChild(document.createTextNode('…'));
+    li.appendChild(ctx);
+    if (sus.suggestion) {
+      const sug = document.createElement('span');
+      sug.className = 'text-check__suggestion';
+      sug.textContent = `候補: ${sus.suggestion}`;
+      li.appendChild(sug);
+    }
+    const msg = document.createElement('span');
+    msg.className = 'text-check__message';
+    msg.textContent = sus.message || '';
+    li.appendChild(msg);
+    list.appendChild(li);
+  }
+}
+
+/**
+ * 編集フォームの誤字チェック欄を初期化し、「再検査」ボタンを配線する。
+ * 再検査は編集中の値（カード名・効果テキスト・ペンデュラム効果）で行い、結果は保存しない。
+ */
+function _setupTextCheck(editForm, card) {
+  const tc = card.text_check;
+  _renderTextCheckPanel(editForm, tc, true);
+  const btn = editForm.querySelector('.text-check__recheck');
+  if (!btn || !tc) return;
+  btn.addEventListener('click', async () => {
+    const current = _collectFormData(editForm);
+    btn.disabled = true;
+    try {
+      const resp = await apiFetch(`/api/admin/unreleased/${card.id}/text-check`, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: current.name,
+          effect_text: current.effect_text,
+          pendulum_effect: current.pendulum_effect,
+        }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && data.text_check) {
+        _renderTextCheckPanel(editForm, data.text_check, false);
+      } else {
+        alert(data.error || '再検査に失敗しました');
+      }
+    } catch (e) {
+      if (e.message !== '認証エラー') alert('通信エラーが発生しました');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
+
 function _renderPendingList(listEl, cards) {
   listEl.innerHTML = '';
 
@@ -575,6 +710,7 @@ function _renderPendingList(listEl, cards) {
 
     // 自動承認の判定（シャドーモード: 表示のみ）
     _renderAutoVerdict(row.querySelector('.auto-verdict-badge'), card);
+    _renderTextCheckBadge(row.querySelector('.text-check-badge'), card.text_check);
 
     // 抽出元リンク
     const link = row.querySelector('.card-row__source-link');
@@ -622,6 +758,7 @@ function _renderPendingList(listEl, cards) {
     // 抽出元画像があればそれを、無ければプロキシ表示を初期表示にする
     _setActiveMedia(editForm, hasSource ? 'source' : 'proxy');
     _showRecognitionEvidence(card, editForm);
+    _setupTextCheck(editForm, card);
 
     // 抽出元画像がある場合のみクロップUIを配線
     if (hasSource) {
@@ -1104,6 +1241,7 @@ function _renderApprovedList(listEl, cards) {
       if (val != null) input.value = val;
     });
 
+    _setupTextCheck(editForm, card);
     // プレビュー初期描画
     const slot = editForm.querySelector('.edit-preview__slot');
     _renderPreview(slot, card);

@@ -26,7 +26,7 @@ import requests
 from supabase import create_client, Client
 
 from name_normalize import fuzzy_key
-from unreleased_auto_approve import annotate_row, load_active_names
+from unreleased_auto_approve import annotate_row, load_active_names, load_text_context
 from unreleased_quality import lacks_card_body
 from ygores_repository import repository as _ygores_repo
 
@@ -224,15 +224,16 @@ def process_tweets(
     pending: dict[str, tuple[dict, str]] = {}
 
     # 自動承認判定用の既存カード名（rejected以外）。最初の挿入時に1回だけ読み、以後は挿入分を足す。
-    active = {"loaded": False, "names": None}
+    active = {"loaded": False, "names": None, "text": None}
 
     def _insert_row(row: dict, row_tweet_url: str) -> int:
         """1行を挿入し、挿入できたら画像も同じ出所（row_tweet_url）で保存する。"""
         if not active["loaded"]:
             active["names"] = load_active_names(sb)
+            active["text"] = load_text_context(sb)  # 効果テキスト検証用（他カードの「」内語）
             active["loaded"] = True
         # 挿入前に自動承認の判定（シャドーモード: 記録のみ）と抽出時スナップショットを付ける
-        annotate_row(row, active["names"])
+        annotate_row(row, active["names"], active["text"])
         inserted_rows = _upsert_cards(sb, [row])
         if inserted_rows and active["names"] is not None:
             active["names"].append(row.get("name", ""))

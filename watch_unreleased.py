@@ -421,14 +421,15 @@ def _upsert_cards(sb: Client, rows: list[dict]) -> int:
     if not rows:
         return 0
 
-    from unreleased_auto_approve import annotate_row, load_active_names
+    from unreleased_auto_approve import annotate_row, load_active_names, load_text_context
     # 自動承認判定用（シャドーモード: 記録のみ）。rejected以外の既存カード名を1回読む
     active_names = load_active_names(sb)
+    text_context = load_text_context(sb)  # 効果テキスト検証用（他カードの「」内語）
 
     inserted = 0
     for row in rows:
         try:
-            annotate_row(row, active_names)
+            annotate_row(row, active_names, text_context)
             sb.table("unreleased_cards").upsert(
                 row,
                 on_conflict="name,product_name",

@@ -274,7 +274,7 @@ def admin_list_unreleased():
                 fallback_list = raw.get("card_image_urls") or []
                 card_img_url = fallback_list[0] if fallback_list else ""
             card["card_image_url"] = card_img_url
-            for key in ("crop_suggestion", "crop_state", "release_date_evidence", "recognition_review", "auto_approve_verdict"):
+            for key in ("crop_suggestion", "crop_state", "release_date_evidence", "recognition_review", "auto_approve_verdict", "text_check"):
                 card[key] = raw.get(key)
             # 自動承認判定の理由コードを日本語ラベルにして添える（ラベルの正本は Python 側のみ）
             verdict = card.get("auto_approve_verdict")
@@ -418,6 +418,57 @@ def admin_update_unreleased(card_id: int):
     except Exception as e:
         logger.error(f"[admin] unreleased_cards 更新エラー id={card_id}: {e}")
         return jsonify({"error": "更新に失敗しました"}), 500
+
+
+# ──────────────────────────────────────────────
+# POST /api/admin/unreleased/<id>/text-check — 効果テキストの再検査（保存はしない）
+# ──────────────────────────────────────────────
+
+_TEXT_CHECK_FIELDS = ("name", "effect_text", "pendulum_effect")
+
+
+@admin_bp.route("/api/admin/unreleased/<int:card_id>/text-check", methods=["POST"])
+def admin_recheck_text(card_id: int):
+    """編集中の値（body）で効果テキストの誤字検証をやり直して結果を返す。DBには書かない。
+
+    body に無い項目は DB の現在値を使う。同名・「」内語の文脈は取込時と同じ材料（他の未発売カード）。
+    """
+    err = _require_admin_key()
+    if err:
+        return err
+
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+
+    body = request.get_json(silent=True) or {}
+    try:
+        resp = (
+            _supabase.table("unreleased_cards")
+            .select("id, name, effect_text, pendulum_effect")
+            .eq("id", card_id)
+            .execute()
+        )
+        if not resp.data:
+            return jsonify({"error": "対象レコードが見つかりません"}), 404
+        stored = dict(resp.data[0])
+        card = dict(stored)
+        for key in _TEXT_CHECK_FIELDS:
+            if key in body and (body[key] is None or isinstance(body[key], str)):
+                card[key] = body[key] or ""
+
+        from unreleased_auto_approve import compute_text_check, load_active_names, load_text_context
+        names = load_active_names(_supabase)
+        others = [n for n in (names or []) if n != card.get("name")]
+        # 文脈（他カードの「」内語）にはこのカードの登録済みの内容も入っているので、先に取り除く
+        # （編集後の値で検査するので、DB 側の古い内容が「他にも出る語」として効かないようにする）
+        context = load_text_context(_supabase)
+        if context is not None:
+            context.remove_card(stored)
+        result = compute_text_check(card, others, context, context_has_self=False)
+        return jsonify({"ok": True, "text_check": result})
+    except Exception as e:
+        logger.error(f"[admin] 効果テキスト再検査エラー id={card_id}: {e}")
+        return jsonify({"error": "再検査に失敗しました"}), 500
 
 
 def _backfill_release_date(product_name: str, exclude_id: int) -> str | None:
@@ -1804,13 +1855,14 @@ def admin_fetch_x_post():
         return jsonify({"ok": True, "inserted": 0, "cards": [], "reason": "SAMPLEウォーターマークなし（発売済みカードの可能性）"})
 
     # upsert
-    from unreleased_auto_approve import annotate_row, load_active_names
+    from unreleased_auto_approve import annotate_row, load_active_names, load_text_context
     # 自動承認判定用（シャドーモード: 記録のみ）。rejected以外の既存カード名を1回読む
     active_names = load_active_names(_supabase)
+    text_context = load_text_context(_supabase)  # 効果テキスト検証用（他カードの「」内語）
     inserted_cards = []
     for row in card_rows:
         try:
-            annotate_row(row, active_names)
+            annotate_row(row, active_names, text_context)
             ins_resp = _supabase.table("unreleased_cards").upsert(
                 row,
                 on_conflict="name,product_name",
