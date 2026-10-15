@@ -28,7 +28,7 @@ const f5 = b.field.find(f => f.slot === 'custom-slot-5');
 assert.equal(f5.name, 'A'); assert.equal(f5.n, undefined);
 const f6 = b.field.find(f => f.slot === 'custom-slot-6');
 assert.deepEqual([f6.pos, f6.face], ['def', 'down']);
-assert.equal(b.grave.count, 1); assert.equal(b.grave.top.name, 'E');
+assert.equal(b.grave.count, 1); assert.deepEqual(b.grave.cards.map(c => c.name), ['E']);
 assert.deepEqual(b.hand.map(h => h.name), ['B']);
 assert.equal(b.ex.count, 0); assert.equal(b.deckCount, 2);
 
@@ -69,6 +69,13 @@ assert.equal(b.field.length, 0); assert.equal(b.deckCount, 5);
 
 // 裏向きのまま墓地に置かれたカードが一番上なら face:'down'
 b = buildBoardFromLogs([mv('a', 'side-slot-0', { face: 'down' }), mv('c', 'side-slot-1')], dict);
-assert.equal(b.grave.top.face, 'down'); assert.equal(b.banish.top.face, undefined);
+assert.equal(b.grave.cards[0].face, 'down'); assert.equal(b.banish.cards[0].face, undefined);
+
+// 墓地は末尾（一番上）から最大4枚・奥から上の順。count は全枚数
+b = buildBoardFromLogs([mv('a', 'side-slot-0'), mv('b', 'side-slot-0'), mv('c', 'side-slot-0'), mv('e', 'side-slot-0'), mv('t', 'side-slot-0', { face: 'down' })], dict);
+assert.equal(b.grave.count, 5);
+assert.deepEqual(b.grave.cards.map(c => c.name), ['B', 'C', 'E', 'トークン']);
+assert.equal(b.grave.cards[3].face, 'down'); assert.equal(b.grave.cards[3].token, true);
+assert.deepEqual(b.banish, { count: 0, cards: [] });
 
 console.log('replay_board_check OK');

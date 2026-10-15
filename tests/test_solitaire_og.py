@@ -14,6 +14,7 @@ tests/test_solitaire_og.py — 共有リプレイのリンク画像（OGP）
 
 import importlib
 import io
+import os
 import sys
 from pathlib import Path
 
@@ -37,8 +38,8 @@ def _board(**over):
             {"slot": "custom-slot-7", "name": "トークン", "token": True, "pos": "atk", "face": "up"},
         ],
         "hand": [{"name": "手札A"}, {"name": "手札B"}],
-        "grave": {"count": 7, "top": {"name": "墓地の上"}},
-        "banish": {"count": 1, "top": {"name": "裏の除外", "face": "down"}},
+        "grave": {"count": 7, "cards": [{"name": "墓地の奥"}, {"name": "墓地の上"}]},
+        "banish": {"count": 1, "cards": [{"name": "裏の除外", "face": "down"}]},
         "ex": {"count": 15}, "deckCount": 30,
     }
     b.update(over)
@@ -55,7 +56,7 @@ class TestValidateBoard:
         assert out is not None
         assert "evil" not in out["field"][0]
         assert out["field"][1]["n"] == 2
-        assert out["banish"]["top"] == {"name": "裏の除外", "face": "down"}
+        assert out["banish"]["cards"] == [{"name": "裏の除外", "face": "down"}]
 
     def test_none_returns_none(self):
         assert validate_board(None) is None
@@ -91,7 +92,7 @@ class TestValidateBoard:
         b = _board()
         b["hand"][0]["img"] = img
         b["field"][0]["img"] = img
-        b["grave"]["top"]["img"] = img
+        b["grave"]["cards"][0]["img"] = img
         out = validate_board(b)
         assert out is not None
         assert "img" not in str(out) and img not in str(out)
@@ -103,18 +104,44 @@ class TestValidateBoard:
         b["hand"].insert(0, {"name": "x", "token": "yes"})   # token が真偽値でない
         b["field"].insert(0, {"slot": "custom-slot-99", "name": "x", "pos": "atk", "face": "up"})
         b["field"].insert(0, {"slot": "custom-slot-5", "name": "重複", "pos": "atk", "face": "up"})
-        b["grave"]["top"] = {"name": 123}
+        b["grave"]["cards"] = [{"name": 123}]
         out = validate_board(b)
         assert out is not None
         assert [c["name"] for c in out["hand"]] == ["手札A", "手札B"]
         assert [f["slot"] for f in out["field"]][0] == "custom-slot-5" and len(out["field"]) == 4
         assert out["field"][0]["name"] == "重複"   # 先勝ち（同じマスの2つ目は除外される）
-        assert out["grave"]["top"] is None and out["grave"]["count"] == 7
+        assert out["grave"]["cards"] == [] and out["grave"]["count"] == 7
 
     def test_token_and_pile_face_are_kept(self):
         out = validate_board(_board())
         assert out["field"][3]["token"] is True
-        assert out["banish"]["top"] == {"name": "裏の除外", "face": "down"}
+        assert out["banish"]["cards"] == [{"name": "裏の除外", "face": "down"}]
+
+    def test_pile_keeps_last_cards_only(self):
+        """墓地・除外の cards は末尾（一番上）側の最大 PILE_MAX_CARDS 枚。count は元の枚数のまま"""
+        cards = [{"name": f"c{i}"} for i in range(replay_board.PILE_MAX_CARDS + 3)]
+        out = validate_board(_board(grave={"count": 30, "cards": cards}))
+        assert [c["name"] for c in out["grave"]["cards"]] == [c["name"] for c in cards[-replay_board.PILE_MAX_CARDS:]]
+        assert out["grave"]["count"] == 30
+
+    def test_pile_cards_over_input_limit_is_malformed(self):
+        cards = [{"name": "a"}] * (replay_board.PILE_MAX_INPUT + 1)
+        assert validate_board(_board(grave={"count": 5, "cards": cards})) is None
+        assert validate_board(_board(grave={"count": 5, "cards": "x"})) is None
+
+    def test_pile_count_is_at_least_cards(self):
+        out = validate_board(_board(grave={"count": 1, "cards": [{"name": "a"}, {"name": "b"}, {"name": "c"}]}))
+        assert out["grave"]["count"] == 3
+
+    def test_legacy_top_only_pile_is_converted(self):
+        """旧形式（top だけ）の board も受け取り、cards=[top] に直す（本番に保存済みの旧 board）"""
+        out = validate_board(_board(grave={"count": 7, "top": {"name": "旧"}},
+                                    banish={"count": 1, "top": {"name": "旧裏", "face": "down"}}))
+        assert out["grave"] == {"count": 7, "cards": [{"name": "旧"}]}
+        assert out["banish"]["cards"] == [{"name": "旧裏", "face": "down"}]
+        assert "top" not in out["grave"]
+        out = validate_board(_board(grave={"count": 0, "cards": []}))
+        assert out["grave"] == {"count": 0, "cards": []}
 
     @pytest.mark.parametrize("slot", ["custom-slot-0", "custom-slot-15", "custom-slot-x", "side-slot-0", "poolRow", 5,
                                       "custom-slot-5\n"])
@@ -351,7 +378,7 @@ def test_images_are_resolved_from_card_names_only(env, net):
 def test_dangerous_img_is_never_fetched(env, net, evil):
     """保存API→DB→OG ルートの全経路で、利用者の送った img を一切取りに行かない。"""
     board = _board()
-    for c in (board["hand"][0], board["field"][0], board["grave"]["top"]):
+    for c in (board["hand"][0], board["field"][0], board["grave"]["cards"][0]):
         c["img"] = evil
     resp = env.client.post("/api/solitaire/replay", json={"logs": [1], "board": board})
     saved = env.sb.store["inserted"][-1]
@@ -368,7 +395,7 @@ def test_dangerous_img_is_never_fetched(env, net, evil):
 
 def test_token_board_renders_without_fetching_tokens(env, fake_fetch):
     board = _board(field=[{"slot": "custom-slot-5", "name": "トークン", "token": True, "pos": "atk", "face": "up"}],
-                   hand=[{"name": "手札トークン", "token": True}], grave={"count": 1, "top": {"name": "墓", "token": True}})
+                   hand=[{"name": "手札トークン", "token": True}], grave={"count": 1, "cards": [{"name": "墓", "token": True}]})
     _seed(env, board=board)
     resp = env.client.get("/solitaire/og/abcDEF123_-.png")
     assert resp.status_code == 200 and _png_size(resp.data) == (1200, 630)
@@ -384,7 +411,7 @@ def test_token_among_other_cards_keeps_whole_board(env, fake_fetch):
 
 def test_hand_is_capped_and_shows_plus_n(env, fake_fetch):
     _seed(env, board=_board(hand=[{"name": f"手札{i}"} for i in range(60)], field=[],
-                            grave={"count": 0, "top": None}, banish={"count": 0, "top": None}))
+                            grave={"count": 0, "cards": []}, banish={"count": 0, "cards": []}))
     resp = env.client.get("/solitaire/og/abcDEF123_-.png")
     assert resp.status_code == 200
     assert len(fake_fetch) == env.og.HAND_DRAW_MAX   # 手札60枚でも取りに行くのは先頭10枚だけ
@@ -519,7 +546,7 @@ def test_render_handles_empty_and_extreme_boards(env, fake_fetch):
                   hand=[{"name": "手"}] * 60, moves=0)
     png, _ = env.og.render_replay_og(validate_board(full), "長" * 100)
     assert _png_size(png) == (1200, 630)
-    empty = _board(field=[], hand=[], grave={"count": 0, "top": None})
+    empty = _board(field=[], hand=[], grave={"count": 0, "cards": []})
     png, _ = env.og.render_replay_og(validate_board(empty), "")
     assert _png_size(png) == (1200, 630)
 
@@ -599,7 +626,7 @@ def test_unresolved_names_do_not_hit_external_search(env, monkeypatch):
     monkeypatch.setattr(scraper, "kanabell_card_image_url", lambda n: calls.append(("kanabell", n)) or "https://x/y.png")
     monkeypatch.setattr(requests, "get", lambda *a, **k: calls.append(("get", a)) or None)
     board = _board(field=[{"slot": "custom-slot-5", "name": "見つからないN", "pos": "atk", "face": "up"}],
-                   hand=[{"name": "未発売P"}], grave={"count": 0, "top": None}, banish={"count": 0, "top": None})
+                   hand=[{"name": "未発売P"}], grave={"count": 0, "cards": []}, banish={"count": 0, "cards": []})
     _seed(env, board=board)
     r = env.client.get("/solitaire/og/abcDEF123_-.png")
     assert r.status_code == 200 and _png_size(r.data) == (1200, 630)
@@ -660,3 +687,70 @@ def test_card_display_availability_helpers(monkeypatch):
     assert card_display.unreleased_data_available() is False
     monkeypatch.setattr(card_display, "_get_unreleased", lambda *, strict=False: {})
     assert card_display.unreleased_data_available() is True
+
+
+def test_legacy_top_board_renders_directly(env, fake_fetch):
+    """検証を通さない旧形式（top のみ）の board を直接渡しても描ける（墓地の1枚だけ取りに行く）"""
+    board = _board(grave={"count": 7, "top": {"name": "旧墓地"}}, banish={"count": 0, "top": None},
+                   field=[], hand=[])
+    png, degraded = env.og.render_replay_og(board, "旧")
+    assert _png_size(png) == (1200, 630)
+    assert fake_fetch == ["旧墓地"]
+
+
+def test_pile_fetches_only_the_top_card(env, fake_fetch):
+    """墓地・除外は最後の PILE_DRAW_MAX 枚を描くが、画像を取りに行くのは一番上の1枚だけ（下は名前の帯）"""
+    n = env.og.PILE_DRAW_MAX
+    cards = [{"name": f"墓{i}"} for i in range(n + 3)]
+    board = _board(grave={"count": 40, "cards": cards}, banish={"count": 0, "cards": []}, field=[], hand=[])
+    png, _ = env.og.render_replay_og(board, "t")
+    assert _png_size(png) == (1200, 630)
+    assert fake_fetch == [cards[-1]["name"]]
+
+
+def test_fetch_count_upper_bound_is_26(env, fake_fetch):
+    """外部へ取りに行く画像は、フィールド14＋手札10＋墓地・除外の一番上2＝26枚以下"""
+    field = [{"slot": f"custom-slot-{i}", "name": f"場{i}", "pos": "atk", "face": "up"} for i in range(1, 15)]
+    pile = lambda t: {"count": 9, "cards": [{"name": f"{t}{i}"} for i in range(4)]}
+    board = _board(field=field, hand=[{"name": f"手{i}"} for i in range(30)], grave=pile("墓"), banish=pile("除"))
+    png, _ = env.og.render_replay_og(board, "t")
+    assert _png_size(png) == (1200, 630)
+    assert len(fake_fetch) == 26 and len(set(fake_fetch)) == 26
+
+
+def test_cache_dir_is_versioned():
+    """見た目を変えたら古い画像を使わないよう、ディスクキャッシュのディレクトリ名にバージョンを入れている"""
+    import replay_og_image
+    assert os.path.basename(replay_og_image._OG_CACHE_DIR) == "cardprice_replay_og_v3"
+
+
+def test_zone_icons_exist():
+    import replay_og_image as og
+    for name in ("grave", "banish", "field", "pendulum"):
+        assert (REPO_ROOT / "static" / "og" / f"zone-{name}.png").is_file()
+        assert og._load_zone_icon(name, 32) is not None
+
+
+def test_missing_icons_make_render_degraded_and_are_not_remembered(env, fake_fetch, monkeypatch, tmp_path):
+    """アイコンを読めない描画は degraded（ディスクに固定しない）。読めなかった下地は覚えず、読めたら通常に戻る"""
+    og = env.og
+    monkeypatch.setattr(og, "_base_cache", None)
+    monkeypatch.setattr(og, "_ICON_DIR", str(tmp_path / "none"))
+    board = _board(field=[], hand=[])
+    _, degraded = og.render_replay_og(board, "t")
+    assert degraded is True and og._base_cache is None
+    monkeypatch.setattr(og, "_ICON_DIR", os.path.join(os.path.dirname(og.__file__), "static", "og"))
+    _, degraded = og.render_replay_og(board, "t")
+    assert degraded is False and og._base_cache is not None
+
+
+def test_base_layer_is_built_once(env, fake_fetch, monkeypatch):
+    """盤面によらない下地は1回だけ作って使い回す（描画ごとに大きな画像を作らない）"""
+    og = env.og
+    monkeypatch.setattr(og, "_base_cache", None)
+    calls = []
+    real = og._build_base
+    monkeypatch.setattr(og, "_build_base", lambda: calls.append(1) or real())
+    for _ in range(3):
+        og.render_replay_og(_board(), "t")
+    assert len(calls) == 1

@@ -26,6 +26,8 @@ from urllib.parse import urlparse
 from flask import Blueprint, request, jsonify, render_template
 
 import card_display as _card_display
+import unreleased_x_post as _x_post
+from unreleased_auto_approve import reason_label as _auto_approve_label
 import fetch_guard as _fetch_guard
 from constants import JST as _JST
 from client_ip import _client_ip
@@ -272,8 +274,14 @@ def admin_list_unreleased():
                 fallback_list = raw.get("card_image_urls") or []
                 card_img_url = fallback_list[0] if fallback_list else ""
             card["card_image_url"] = card_img_url
-            for key in ("crop_suggestion", "crop_state", "release_date_evidence", "recognition_review"):
+            for key in ("crop_suggestion", "crop_state", "release_date_evidence", "recognition_review", "auto_approve_verdict", "text_check"):
                 card[key] = raw.get(key)
+            # 自動承認判定の理由コードを日本語ラベルにして添える（ラベルの正本は Python 側のみ）
+            verdict = card.get("auto_approve_verdict")
+            if isinstance(verdict, dict):
+                card["auto_approve_reason_labels"] = [
+                    _auto_approve_label(code) for code in (verdict.get("reasons") or [])
+                ]
             # extraction_raw はフロントエンドに不要なので除外する（サイズ削減）
             card.pop("extraction_raw", None)
 
@@ -405,11 +413,109 @@ def admin_update_unreleased(card_id: int):
         if not resp.data:
             return jsonify({"error": "対象レコードが見つかりません"}), 404
         _card_display.invalidate_cache()
+        # 編集後の値で誤字チェックと自動承認判定を取り直す（失敗しても保存は成立）
+        _recompute_checks_after_edit(resp.data[0])
         return jsonify({"ok": True, "card": resp.data[0]})
 
     except Exception as e:
         logger.error(f"[admin] unreleased_cards 更新エラー id={card_id}: {e}")
         return jsonify({"error": "更新に失敗しました"}), 500
+
+
+def _execute_approve_update(build_query, fields: dict):
+    """status を approved にする UPDATE を実行する。fields には approved_at を含める。
+
+    approved_at 列が未作成（SQL の適用前にコードだけ先にデプロイされた）ときは、承認自体を止めないよう
+    approved_at 抜きで再実行する（警告ログ）。その間に承認されたカードは approved_at が NULL のため
+    X に投稿されない。根本対応は unreleased_x_posts.sql の適用（手順は SQL 冒頭に記載）。
+    build_query(fields) は execute 前のクエリを返す関数。
+    """
+    try:
+        return build_query(fields).execute()
+    except Exception as e:
+        if "approved_at" not in fields or "approved_at" not in str(e):
+            raise
+        logger.warning(f"[admin] approved_at 列が無いため approved_at 抜きで承認します"
+                       f"（unreleased_x_posts.sql を適用してください。それまで承認分は X に投稿されません）: {e}")
+        return build_query({k: v for k, v in fields.items() if k != "approved_at"}).execute()
+
+
+def _recompute_checks_after_edit(card: dict) -> None:
+    """編集保存後のカード行で extraction_raw.text_check / auto_approve_verdict を計算し直して保存する。
+
+    一覧の札は取込時の値を表示するため、編集して直しても「誤字の疑い」が残り続けてしまうのを防ぐ。
+    - 取込時に判定が付いたカード（どちらかのキーが既にある）だけが対象。手動登録など旧データには札を新設しない
+    - 全件読み込みが要る文脈（他カードの名前・「」内語）は短時間キャッシュ（自分自身は除いて使う）
+    - 例外は警告ログのみ（保存を失敗させない）。card（応答に載せる行）の extraction_raw も更新する
+    """
+    try:
+        raw = card.get("extraction_raw")
+        if not (isinstance(raw, dict) and ("auto_approve_verdict" in raw or "text_check" in raw)):
+            return
+        from unreleased_auto_approve import recompute_card_checks
+        from unreleased_image_store import _merge_extraction_raw
+        checks = recompute_card_checks(_supabase, card)
+        # 判定の計算中に他の書き込み（クロップ状態・承認記録など）が入っていても消さないよう、
+        # 書き込み直前に最新の extraction_raw を読み直して、判定の2キーだけ差し替える
+        if not _merge_extraction_raw(_supabase, card["id"], checks):
+            return
+        new_raw = dict(raw)
+        new_raw.update(checks)
+        card["extraction_raw"] = new_raw
+    except Exception as e:
+        logger.warning(f"[admin] 編集後の再判定に失敗（保存は成立） id={card.get('id')}: {e}")
+
+
+# ──────────────────────────────────────────────
+# POST /api/admin/unreleased/<id>/text-check — 効果テキストの再検査（保存はしない）
+# ──────────────────────────────────────────────
+
+_TEXT_CHECK_FIELDS = ("name", "effect_text", "pendulum_effect")
+
+
+@admin_bp.route("/api/admin/unreleased/<int:card_id>/text-check", methods=["POST"])
+def admin_recheck_text(card_id: int):
+    """編集中の値（body）で効果テキストの誤字検証をやり直して結果を返す。DBには書かない。
+
+    body に無い項目は DB の現在値を使う。同名・「」内語の文脈は取込時と同じ材料（他の未発売カード）。
+    """
+    err = _require_admin_key()
+    if err:
+        return err
+
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+
+    body = request.get_json(silent=True) or {}
+    try:
+        resp = (
+            _supabase.table("unreleased_cards")
+            .select("id, name, effect_text, pendulum_effect")
+            .eq("id", card_id)
+            .execute()
+        )
+        if not resp.data:
+            return jsonify({"error": "対象レコードが見つかりません"}), 404
+        stored = dict(resp.data[0])
+        card = dict(stored)
+        for key in _TEXT_CHECK_FIELDS:
+            if key in body and (body[key] is None or isinstance(body[key], str)):
+                card[key] = body[key] or ""
+
+        from unreleased_auto_approve import compute_text_check, load_card_context
+        # 全件の読み込みは1回（名前と「」内語を同時に）。必ず最新を読む（ユーザー操作の検査なのでキャッシュしない）。
+        # このカード自身は id で除く: 登録済みの内容（編集前）を「他にも出る語」に数えず、
+        # 元から文脈に入っていないカード（rejected など）の分を誤って引くこともない
+        ctx = load_card_context(_supabase)
+        if ctx is not None:
+            others, context = ctx.excluding(card_id)
+        else:
+            others, context = [], None
+        result = compute_text_check(card, others, context, context_has_self=False)
+        return jsonify({"ok": True, "text_check": result})
+    except Exception as e:
+        logger.error(f"[admin] 効果テキスト再検査エラー id={card_id}: {e}")
+        return jsonify({"error": "再検査に失敗しました"}), 500
 
 
 def _backfill_release_date(product_name: str, exclude_id: int) -> str | None:
@@ -419,6 +525,14 @@ def _backfill_release_date(product_name: str, exclude_id: int) -> str | None:
         return None
     evidence = resolve_release_date(product_name)
     return evidence['release_date'] if evidence['status'] == 'verified' else None
+
+
+# 承認時に読む列。後半は approval_snapshot（抽出時スナップショットとの差分）の計算に使う。
+_APPROVE_SELECT_COLUMNS = (
+    "id, name, source_url, extraction_raw, status, release_date, product_name, "
+    "card_type, attribute, race, level, rank, link_val, atk, def, "
+    "effect_text, pendulum_scale, pendulum_effect"
+)
 
 
 # ──────────────────────────────────────────────
@@ -451,7 +565,7 @@ def admin_approve_unreleased(card_id: int):
         # まずカードの extraction_raw を取得
         card_resp = (
             _supabase.table("unreleased_cards")
-            .select("id, name, source_url, extraction_raw, status, release_date, product_name")
+            .select(_APPROVE_SELECT_COLUMNS)
             .eq("id", card_id)
             .execute()
         )
@@ -465,7 +579,8 @@ def admin_approve_unreleased(card_id: int):
         # release_date ガード判定
         release_date = card_data.get("release_date")
         product_name = card_data.get("product_name") or ""
-        update_fields = {"status": "approved"}
+        # approved_at は X 自動投稿の対象判定に使う。status と同じ UPDATE で入れる
+        update_fields = {"status": "approved", "approved_at": datetime.now(timezone.utc).isoformat()}
         release_date_note = None
         release_date_warning = None
 
@@ -500,16 +615,18 @@ def admin_approve_unreleased(card_id: int):
                 )
 
         # ステータスを承認済みに更新（release_date 補完がある場合は同時に更新）
-        upd_resp = (
-            _supabase.table("unreleased_cards")
-            .update(update_fields)
-            .eq("id", card_id)
-            .execute()
+        upd_resp = _execute_approve_update(
+            lambda f: _supabase.table("unreleased_cards").update(f).eq("id", card_id),
+            update_fields,
         )
         if not upd_resp.data:
             return jsonify({"error": "承認処理に失敗しました"}), 500
 
         _card_display.invalidate_cache()
+
+        # 承認時の記録（手直しの有無・切り抜き方法・判定結果）。計測用で、失敗しても承認も投稿も止めない
+        from unreleased_auto_approve import record_approval_snapshots
+        record_approval_snapshots(_supabase, [card_data], "single")
 
         # 画像取込を試みる（失敗しても承認は成立）
         image_fetched, image_reason = _try_fetch_image_from_extraction(
@@ -517,6 +634,10 @@ def admin_approve_unreleased(card_id: int):
             source_url=card_data.get("source_url", ""),
             extraction_raw=card_data.get("extraction_raw") or {},
         )
+
+        # X自動投稿（無効時は何もしない）。画像取込に成功したときだけ。失敗分は回収ジョブが拾う
+        if image_fetched:
+            _x_post.start_post_thread(_supabase, [card_id])
 
         result = {
             "ok": True,
@@ -859,6 +980,19 @@ def _fetch_and_store_image(
 _bulk_image_lock = threading.Lock()
 
 
+def _notify_snapshot_failed(card_ids: list[int]) -> None:
+    """承認記録（計測用データ）を保存できなかったカードを Discord に1通でまとめて知らせる。通知失敗は握りつぶす。"""
+    ids = sorted(card_ids)
+    shown = ", ".join(str(i) for i in ids[:50]) + (f" ほか{len(ids) - 50}件" if len(ids) > 50 else "")
+    logger.warning(f"[admin] 一括承認・承認記録を保存できなかったカード: {shown}")
+    try:
+        from discord_notify import send_discord_message
+        send_discord_message(f"[未発売承認] 一括承認の承認記録（approval_snapshot）を保存できなかったカードが{len(ids)}件あります"
+                             f"（承認・X投稿は成立。自動承認の校正用データが欠けます）: card_id={shown}")
+    except Exception as exc:
+        logger.warning(f"[admin] 承認記録の欠落通知に失敗: {exc}")
+
+
 @admin_bp.route("/api/admin/unreleased/bulk-approve", methods=["POST"])
 def admin_bulk_approve_unreleased():
     """
@@ -904,7 +1038,7 @@ def admin_bulk_approve_unreleased():
         # pending/needs_review/rejected のもののみ対象（既承認・linked は除外）
         target_resp = (
             _supabase.table("unreleased_cards")
-            .select("id, name, source_url, extraction_raw, status, release_date, product_name")
+            .select(_APPROVE_SELECT_COLUMNS)
             .in_("id", ids)
             .in_("status", ["pending", "needs_review", "rejected"])
             .execute()
@@ -917,9 +1051,11 @@ def admin_bulk_approve_unreleased():
         target_ids = [c["id"] for c in target_cards]
 
         # ステータスを一括更新
-        _supabase.table("unreleased_cards").update({"status": "approved"}).in_(
-            "id", target_ids
-        ).execute()
+        # approved_at は X 自動投稿の対象判定に使う。status と同じ UPDATE で入れる
+        _execute_approve_update(
+            lambda f: _supabase.table("unreleased_cards").update(f).in_("id", target_ids),
+            {"status": "approved", "approved_at": datetime.now(timezone.utc).isoformat()},
+        )
 
         approved_count = len(target_ids)
         logger.info(f"[admin] 一括承認: {approved_count}件 (ids={target_ids})")
@@ -987,8 +1123,21 @@ def admin_bulk_approve_unreleased():
 
         # 画像取込をバックグラウンドスレッドで起動
         def _bg_fetch_images(cards: list[dict]) -> None:
-            """バックグラウンドで各カードの画像を順次取込する。"""
+            """バックグラウンドで各カードの承認記録を保存し、画像を順次取込し、X投稿する。"""
+            fetched_ids: list[int] = []
             with _bulk_image_lock:
+                # 承認時の記録（補完前の値で差分を取る）。作成も保存もここ（バックグラウンド）で行い、
+                # レスポンスを待たせない。失敗しても画像取込は続ける（record_approval_snapshots は例外を投げない）。
+                # 承認記録は計測用で投稿条件ではない。保存できなかったカードは Discord にまとめて1通知らせる
+                snapshot_failed: list[int] = []
+                try:
+                    from unreleased_auto_approve import record_approval_snapshots
+                    record_approval_snapshots(_supabase, cards, "bulk", failed_ids=snapshot_failed)
+                except Exception as exc:
+                    logger.warning(f"[admin] 一括承認・承認記録の保存エラー: {exc}")
+                    snapshot_failed = [c["id"] for c in cards]
+                if snapshot_failed:
+                    _notify_snapshot_failed(snapshot_failed)
                 for card_data in cards:
                     try:
                         success, reason = _try_fetch_image_from_extraction(
@@ -996,6 +1145,8 @@ def admin_bulk_approve_unreleased():
                             source_url=card_data.get("source_url", ""),
                             extraction_raw=card_data.get("extraction_raw") or {},
                         )
+                        if success:
+                            fetched_ids.append(card_data["id"])
                         logger.info(
                             f"[admin] 一括承認・画像取込: card_id={card_data['id']}, "
                             f"success={success}, reason={reason!r}"
@@ -1004,6 +1155,12 @@ def admin_bulk_approve_unreleased():
                         logger.error(
                             f"[admin] 一括承認・画像取込エラー card_id={card_data['id']}: {exc}"
                         )
+            # X自動投稿（無効時は何もしない）。画像取込に成功した分だけ、間隔を空けて1枚ずつ。
+            # 画像取込のロックは先に手放す（投稿の待ち時間で次の一括承認の画像取込を止めないため）。
+            # 取込に失敗した分は回収ジョブ（tools/post_unreleased_x.py）が拾う
+            # 1回の件数は MAX_BULK_POST_PER_RUN まで。超えた分は予約せず回収ジョブに回る
+            if fetched_ids:
+                _x_post.post_cards_sequential(_supabase, fetched_ids, max_cards=_x_post.MAX_BULK_POST_PER_RUN)
 
         t = threading.Thread(
             target=_bg_fetch_images,
@@ -1761,9 +1918,14 @@ def admin_fetch_x_post():
         return jsonify({"ok": True, "inserted": 0, "cards": [], "reason": "SAMPLEウォーターマークなし（発売済みカードの可能性）"})
 
     # upsert
+    from unreleased_auto_approve import annotate_row, load_active_names, load_text_context
+    # 自動承認判定用（シャドーモード: 記録のみ）。rejected以外の既存カード名を1回読む
+    active_names = load_active_names(_supabase)
+    text_context = load_text_context(_supabase)  # 効果テキスト検証用（他カードの「」内語）
     inserted_cards = []
     for row in card_rows:
         try:
+            annotate_row(row, active_names, text_context)
             ins_resp = _supabase.table("unreleased_cards").upsert(
                 row,
                 on_conflict="name,product_name",
@@ -1771,6 +1933,8 @@ def admin_fetch_x_post():
             ).execute()
             if ins_resp.data:
                 inserted_cards.extend(ins_resp.data)
+                if active_names is not None:
+                    active_names.append(row.get("name", ""))
         except Exception as e:
             logger.warning(f"[admin] fetch-x-post upsert失敗 ({row.get('name', '?')}): {e}")
 

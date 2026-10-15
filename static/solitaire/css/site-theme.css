@@ -12,7 +12,7 @@
   --border:#2b3549;
 }
 .sol-sidebar,.sol-right-panel{background:#141c2c;border-color:transparent}
-.sol-sidebar-section,.sol-right-section,.sol-neuron-section,.sol-neuron-divider,
+.sol-sidebar-section,.sol-right-section,.sol-neuron-divider,
 .replay-bar,.deck-card-row{border-color:transparent}
 .sol-sidebar-links{background:transparent}
 .sol-sidebar-links a{color:#a8b4c9}
@@ -39,7 +39,7 @@
 .sol-nav-title .nav-brand{color:#eff3fb}
 .sol-nav-title .nav-brand .nav-g{color:#f3ce46}
 /* 既存の明色背景＋白文字を避け、操作中の状態を明瞭にする。 */
-.mydeck-goto-neuron,.sol-ext-link,.sol-ops-key{background:#202c42;border-color:transparent;color:#aec5ff}
+.sol-ext-link,.sol-ops-key{background:#202c42;border-color:transparent;color:#aec5ff}
 button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 select:focus-visible,.deck-card-row:focus-visible{outline:2px solid #f3ce46;outline-offset:2px}
 /* 枠は透明化だけにとどめるため、盤面の計測値やドラッグ領域は変わらない。 */

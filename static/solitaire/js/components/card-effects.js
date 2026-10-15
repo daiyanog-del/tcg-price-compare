@@ -151,7 +151,7 @@ export function flipMoveClone(wrapper, firstRect, onComplete = null) {
   if (cloneTierItem) {
     cloneTierItem.style.transition = 'none';
     if (clone.classList.contains('is-defense')) {
-      cloneTierItem.style.transform = 'rotate(90deg)';
+      cloneTierItem.style.transform = 'rotate(-90deg)';
     } else {
       cloneTierItem.style.transform = '';
     }
@@ -280,7 +280,7 @@ export function flyBetweenRects(cardEl, fromRect, toRect, onComplete = null) {
   if (cloneTierItem) {
     cloneTierItem.style.transition = 'none';
     if (clone.classList.contains('is-defense')) {
-      cloneTierItem.style.transform = 'rotate(90deg)';
+      cloneTierItem.style.transform = 'rotate(-90deg)';
     } else {
       cloneTierItem.style.transform = '';
     }

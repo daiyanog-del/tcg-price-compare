@@ -34,3 +34,18 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python tools/refetch_missing_images.py
+
+      # 画像回収の後段: 承認済み・未投稿の未発売カードを X に投稿する（取りこぼしの回収）。
+      # UNRELEASED_X_POST_ENABLED が 1 でなければ何もしない（既定は無効）。
+      - name: Post unreleased cards to X
+        if: ${{ !cancelled() }}  # 画像回収が一部失敗しても、画像のあるカードの投稿は進める
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          UNRELEASED_X_POST_ENABLED: ${{ vars.UNRELEASED_X_POST_ENABLED }}
+        run: python tools/post_unreleased_x.py

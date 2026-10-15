@@ -37,6 +37,7 @@
 <link rel="stylesheet" href="{{ static_url('css/self-watermark.css') }}">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/sample-blur.css') }}">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/site-theme.css') }}">
+<link rel="stylesheet" href="{{ static_url('solitaire/css/relief-theme.css') }}">
 <!-- import map: solitaire/js・shared 配下の相対importを内容ハッシュ付きURLへ写像する
      （静的な相対specifierはstatic_url()を通せないため、ここでブラウザ解決を上書きする）。
      必ず最初のmodule scriptより前に置く -->
@@ -93,28 +94,14 @@
       <div id="deckInputContainer" class="deck-input-panel">
         <!-- タブ（縦並び） -->
         <div class="deck-input-tabs">
-          <button class="deck-input-tab" data-pane="deckPaneMyDeck">マイデッキ</button>
-          <button class="deck-input-tab active" data-pane="deckPaneNeuron">ニューロン</button>
+          <button class="deck-input-tab active" data-pane="deckPaneMyDeck">マイデッキ</button>
           <button class="deck-input-tab" data-pane="deckPanePreset">サンプルデッキ</button>
         </div>
 
         <!-- マイデッキ -->
-        <div class="deck-input-pane" id="deckPaneMyDeck">
+        <div class="deck-input-pane active" id="deckPaneMyDeck">
           <div class="my-deck-list" id="myDeckList">
-            <span class="deck-loading-msg">タブを開くと読み込みます</span>
-          </div>
-        </div>
-
-        <!-- ニューロン -->
-        <div class="deck-input-pane active" id="deckPaneNeuron">
-
-          <!-- ニューロン取込（Chrome拡張・PDF・URL）はマイデッキページに統一。ここでは誘導のみ -->
-          <div class="sol-neuron-section">
-            <p class="sol-upload-note">ニューロンのデッキ取り込み（Chrome拡張・PDF・URL）は「マイデッキ」ページで行えます。取り込んだデッキは「保存」すると、このシミュレーター画面の「マイデッキ」タブに反映されます。</p>
-            <a class="sol-ext-link ready" href="/#mydeck-import">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-              マイデッキページで取り込む
-            </a>
+            <span class="deck-loading-msg">読み込み中…</span>
           </div>
         </div>
 

@@ -152,32 +152,20 @@ function fitFieldToViewport() {
     slotW_h = Math.floor(available / 7.25);
   }
 
-  // 横幅基準: .sol-main の実測幅を使う。サイドバー開閉で幅が変わるため実測値を使用。
-  // ・縦向きスマホ: CSS で side-slots-container が縦積みになるため 7.2 列 / 88px
-  //     (6列グリッド + 1.2列サイド) × slot + (グリッドgap50 + mainContentgap10 + 側面padding16 + 各種余白12)
-  // ・横向きスマホ: side-slots-container が横並びのため 8.4 列 / 126px
-  //     (6列グリッド + 2.4列サイド×2) × slot + (gap50 + gap10 + gap10 + 側面padding32 + 各種余白24)
-  // ・PC/タブレット: 既存の 7.1 列 / 86px
-  const mainEl  = document.querySelector('.sol-main');
-  const availW  = mainEl ? mainEl.clientWidth : window.innerWidth;
-
-  let slotW_w;
-  if (isPortraitMobile) {
-    // 2026-09-04 5列化: 盤面を6列→5列グリッドに変更（フィールド魔法をEXゾーン2つの間の
-    // 最上段中央へ移動、slot9は非表示）。gap 10px×4=40px を差し引く。
-    // 実測: 375×660 では高さ制約（slotW_h側）が支配するため 52px のまま変わらず、
-    // 412×780 では幅制約（slotW_w側）が緩み従来の59pxより拡大する。
-    slotW_w = Math.floor((availW - 8 - 40) / 5);
-  } else if (isPhone && isLandscape) {
-    slotW_w = Math.floor((availW - 126) / 8.4);
-  } else {
-    slotW_w = Math.floor((availW - 86) / 7.1);
-  }
+  // 縦向きスマホは5列固定。PC/横向きは適用後の実寸から横幅を決める。
+  const mainEl = document.querySelector('.sol-field-area');
+  const availW = mainEl ? mainEl.clientWidth : window.innerWidth;
+  const slotW_w = isPortraitMobile
+    ? Math.floor((availW - 8 - 40) / 5)
+    : Infinity;
 
   const minW = isPhone ? 26 : 60;
   const maxW = isPhone ? 200 : 124;
   let slotW = Math.max(minW, Math.min(maxW, Math.min(slotW_h, slotW_w)));
   applySlotWidth(slotW);
+  if (!isPortraitMobile) {
+    slotW = fitBoardWidthByMeasurement(slotW, minW);
+  }
 
   // 実測補正: 推定で適用後、.sol-field-area の下端がビューポートを超えていれば縮小。
   // 横向きスマホは「盤面3行のみフィット・手札/デッキはスクロール許容」が仕様のため除外。
@@ -197,6 +185,46 @@ function fitFieldToViewport() {
 
   // パネル幅は最終 slotW 確定後に1回だけ再計算
   requestAnimationFrame(() => updateCipWidth());
+}
+
+/**
+ * 盤面6列・サイド領域・カード詳細用余白の実寸から、収まる最大カード幅を探す。
+ * .sol-main は右操作パネルも含むため幅の基準にしない。
+ * 最小幅でも収まらない場合はカードの操作性を優先し、横スクロールを残す。
+ */
+function fitBoardWidthByMeasurement(slotW, minW) {
+  const field = document.querySelector('.sol-field-area');
+  const board = document.getElementById('mainContainer');
+  const content = board?.querySelector('.main-content');
+  if (!field || !board || !content) return slotW;
+
+  const fits = () => {
+    const fieldStyle = getComputedStyle(field);
+    const boardStyle = getComputedStyle(board);
+    const contentStyle = getComputedStyle(content);
+    const children = [...content.children].filter(el => getComputedStyle(el).display !== 'none');
+    const padding = style => parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+    const available = field.clientWidth - padding(fieldStyle) - padding(boardStyle);
+    // flex の中央揃えで左にもはみ出すため、scrollWidth だけでは超過を測れない。
+    const required = children.reduce((sum, el) => {
+      const style = getComputedStyle(el);
+      return sum + Math.max(el.getBoundingClientRect().width, el.scrollWidth)
+        + parseFloat(style.marginLeft) + parseFloat(style.marginRight);
+    }, 0) + (parseFloat(contentStyle.columnGap) || 0) * Math.max(0, children.length - 1);
+    return required <= available;
+  };
+
+  if (fits()) return slotW;
+  let low = minW;
+  let high = slotW - 1;
+  while (low < high) {
+    const candidate = Math.ceil((low + high) / 2);
+    applySlotWidth(candidate);
+    if (fits()) low = candidate;
+    else high = candidate - 1;
+  }
+  applySlotWidth(low);
+  return low;
 }
 
 /**

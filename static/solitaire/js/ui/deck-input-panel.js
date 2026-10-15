@@ -55,7 +55,21 @@ function _currentPoolCounts() {
 const SAVED_DECKS_KEY = 'cardprice_saved_decks';
 
 export function savedDecksGet() {
-  try { return JSON.parse(localStorage.getItem(SAVED_DECKS_KEY)) || []; } catch { return []; }
+  let raw;
+  try { raw = JSON.parse(localStorage.getItem(SAVED_DECKS_KEY)); } catch { return []; }
+  if (raw == null) return [];
+  // 読み取り時の正規化のみ（保存側へは書き戻さない）。壊れたデータで初期化を止めない
+  if (!Array.isArray(raw)) {
+    console.warn('[deck-input-panel] 保存デッキが配列ではないため無視しました');
+    return [];
+  }
+  const list = raw
+    .filter(d => d && typeof d === 'object' && !Array.isArray(d))
+    .map(d => ({ ...d, name: String(d.name ?? '') }));
+  if (list.length !== raw.length) {
+    console.warn(`[deck-input-panel] 保存デッキの不正な要素を${raw.length - list.length}件無視しました`);
+  }
+  return list;
 }
 
 export function savedDecksSet(list) {
@@ -560,6 +574,9 @@ export function initDeckInputPanel() {
       if (paneId === 'deckPaneMyDeck') renderMyDeckList();
     });
   });
+
+  // 初期表示はマイデッキタブなので、読み込み時点で一覧を描画する
+  renderMyDeckList();
 }
 
 /**
@@ -616,16 +633,9 @@ function renderMyDeckList() {
   if (decks.length === 0) {
     listEl.innerHTML =
       '<div class="mydeck-empty">'
-      + '<p class="sol-upload-note" style="margin:0 0 8px">保存済みデッキがありません。<br>'
-      + 'ニューロンの拡張機能またはPDFからデッキを取り込むと、ここに表示されます。</p>'
-      + '<button type="button" class="mydeck-goto-neuron">ニューロンタブへ</button>'
+      + '<p class="mydeck-empty-title">まだデッキがありません</p>'
+      + _importEntryHtml(true)
       + '</div>';
-    const btn = listEl.querySelector('.mydeck-goto-neuron');
-    if (btn) {
-      btn.addEventListener('click', () => {
-        document.querySelector('[data-pane="deckPaneNeuron"]')?.click();
-      });
-    }
     return;
   }
 
@@ -650,6 +660,17 @@ function renderMyDeckList() {
       row.addEventListener('click', () => loadDeckFromText(deck.text || '', row));
       listEl.appendChild(row);
     });
+
+  // 一覧の最後に取り込みの入口
+  const entry = document.createElement('div');
+  entry.innerHTML = _importEntryHtml(false);
+  listEl.appendChild(entry);
+}
+
+/** ニューロン取り込みの入口（マイデッキページへのリンク）と補足 */
+function _importEntryHtml(big) {
+  return `<a class="mydeck-import-entry${big ? ' big' : ''}" href="/#mydeck-import">＋ ニューロンから<span style="white-space:nowrap">取り込む</span></a>`
+    + '<small class="mydeck-import-note">取り込んで保存すると、ここに並びます</small>';
 }
 
 function _esc(str) {

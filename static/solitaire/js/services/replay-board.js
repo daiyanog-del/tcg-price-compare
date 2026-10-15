@@ -9,7 +9,8 @@
  *
  * 出力 board の形（サーバー replay_board.py が検証する）:
  *   { v:1, moves, field:[{slot:'custom-slot-N', name, token?, pos:'atk'|'def', face:'up'|'down', n?}],
- *     hand:[{name, token?}], grave:{count, top:{name, token?, face?:'down'}|null}, banish:{count, top}, ex:{count}, deckCount }
+ *     hand:[{name, token?}], grave:{count, cards:[{name, token?, face?:'down'}]}, banish:{count, cards}, ex:{count}, deckCount }
+ *   - grave/banish の cards は DOM の並び順の末尾（最前面）側から最大 PILE_CARDS 枚（先頭が奥・末尾が一番上）
  *   - field は 1マスにつき最上段の1枚のみ（n = そのマスの重なり枚数。2枚以上のときだけ付く）
  *   - 画像のURLは送らない（サーバーがカード名から解決する）。token は data: 画像のトークン（名前入りの枠で描かれる）
  */
@@ -20,6 +21,7 @@ const isFieldSlot = (z) => {
   return !!m && Number(m[1]) >= 1 && Number(m[1]) <= 14; // 実盤面は 1〜14 のみ（それ以外のマスは存在しない）
 };
 const HAND_MAX = 60; // サーバー側の上限と揃える
+const PILE_CARDS = 4; // 墓地・除外で送る枚数（サーバー replay_board.PILE_MAX_CARDS と揃える）
 
 /**
  * @param {Array}  logs        保存APIへ送る logs（setup:true を含む）
@@ -113,11 +115,12 @@ export function buildBoardFromLogs(logs, dict) {
   }
   const pile = (zoneId) => {
     const arr = zones.get(zoneId) || [];
-    if (!arr.length) return { count: 0, top: null };
-    const top = arr[arr.length - 1];
-    const topRef = ref(top);
-    if (state.get(top)?.face === 'down') topRef.face = 'down'; // 裏向きのまま置かれたカードは裏面で描く
-    return { count: arr.length, top: topRef };
+    const cards = arr.slice(-PILE_CARDS).map((cid) => {
+      const r = ref(cid);
+      if (state.get(cid)?.face === 'down') r.face = 'down'; // 裏向きのまま置かれたカードは裏面で描く
+      return r;
+    });
+    return { count: arr.length, cards };
   };
 
   return {
