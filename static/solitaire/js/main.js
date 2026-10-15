@@ -441,6 +441,10 @@ async function initializeApp() {
   if (slotMigration.migrated > 0) {
     _showToast(`盤面セーブ（${slotMigration.migrated}件）をリプレイ一覧に移しました`);
   }
+  // 移せなかったスロットは消さずに残してある。利用者が気づけるよう、読み込みのたびに知らせる
+  if (slotMigration.failed > 0) {
+    _showToast(`移せなかった盤面セーブが${slotMigration.failed}件あります（リプレイ一覧で確認できます）`);
+  }
 
   // ビューポートに合わせて --slot-width を初期設定
   // ※ fitFieldToViewport 内の RAF でパネル幅（--cip-width）も更新される

@@ -54,12 +54,12 @@ function _getTypedReplayTitle() {
 }
 
 /**
- * 共有・書き出しに使うタイトル。入力が無ければ日時（端末保存と同じ既定値）にする
- * （以前の既定値「共有リプレイ」は、一覧で見分けがつかなかったため）。
+ * 共有（リンク作成・X投稿）に使うタイトル。入力が無ければ従来どおり「共有リプレイ」。
+ * 日時を既定にするのは「このブラウザに保存」とファイルへの書き出しだけ（一覧・ファイル名で見分けるため）。
  * @returns {string}
  */
 function _getReplayTitle() {
-  return _getTypedReplayTitle() || _formatDefaultReplayTitle();
+  return _getTypedReplayTitle() || '共有リプレイ';
 }
 
 /** タイトル欄（[data-replay-title]）どうしで入力を写し合う（保存と共有で同じタイトルを使うため） */
@@ -82,6 +82,19 @@ function _updateSpeedButtons() {
       const speed = parseFloat(btn.dataset.speed);
       btn.classList.toggle('active', speed === current);
     });
+}
+
+/**
+ * リプレイをファイルに書き出す（PC の #replayExport とスマホの書き出しボタン共通）。
+ * 範囲が渡されればその範囲のログだけを書き出す（保存・共有と同じ buildRangeLogsForPayload）。
+ * タイトルは入力があればそれ、無ければ日時。
+ * @param {{start:number, end:number}|null} [range]
+ */
+export function exportReplayFile(range) {
+  // Low-13: setup（初期配置）だけの盤面も保存できるよう、setup込みの手数で判定する
+  if (getLogLength() + getSetupLogs().length === 0) { alert('記録がありません'); return; }
+  const title = _getTypedReplayTitle() || _formatDefaultReplayTitle();
+  exportReplay(title, range ? buildRangeLogsForPayload(range) : undefined);
 }
 
 /**
@@ -159,14 +172,9 @@ export function initReplayUI() {
       _syncPcRecordingEndIdxAfterComment(); // 中2対応: 停止済み録画があれば endIdx を追従させる
     });
 
-  // リプレイエクスポート（ファイル保存）
+  // リプレイエクスポート（ファイル保存）。範囲が決まっていればその範囲だけを書き出す
   document.getElementById('replayExport')
-    ?.addEventListener('click', () => {
-      // Low-13: setup（初期配置）だけの盤面も保存できるよう、setup込みの手数で判定する
-      if (getLogLength() + getSetupLogs().length === 0) { alert('記録がありません'); return; }
-      const title = _getReplayTitle();
-      exportReplay(title);
-    });
+    ?.addEventListener('click', () => exportReplayFile(_getPcRecordingRange()));
 
   // リプレイ共有（URL or Supabase）
   document.getElementById('replayShare')
@@ -193,7 +201,10 @@ export function initReplayUI() {
   // PC版の範囲選択: 状態機械は pc-recording.js。範囲が決まったら通知だけ出す
   // （保存か共有かは利用者が選ぶので、シートは自動で開かない）。
   initPcRecording({
-    onRangeDecided: (range) => showToast(`範囲を決めました（${range.start}〜${range.end}手目）。保存・共有で使えます`),
+    // range が null のときは、手が1つも入っていない範囲（0手のまま決めた等）で不成立になった通知
+    onRangeDecided: (range) => showToast(range
+      ? `範囲を決めました（${range.start}〜${range.end}手目）。保存・共有で使えます`
+      : '範囲に手が1つも入っていません'),
     closeShareSheet: () => { pcShareSheet?.close(); pcSaveSheet?.close(); },
   });
 
@@ -415,8 +426,8 @@ export function describeSaveResult(result) {
     return '保存に失敗しました';
   }
   return result.removedCount > 0
-    ? `端末に保存しました（上限のため古い${result.removedCount}件を削除）。「リプレイ一覧」から開けます`
-    : '端末に保存しました。「リプレイ一覧」から開けます';
+    ? `このブラウザに保存しました（上限のため古い${result.removedCount}件を削除）。「リプレイ一覧」から開けます`
+    : 'このブラウザに保存しました。「リプレイ一覧」から開けます';
 }
 
 /**
@@ -465,8 +476,8 @@ async function handleShare() {
 }
 
 /**
- * PC共有シートの「端末に保存」。停止済みの録画があればその範囲だけを、無ければ全体を保存する。
- * タイトルは入力欄が無いため日時の既定タイトルになる（一覧で見分けられるようにするため）。
+ * PC保存シートの「このブラウザに保存」。範囲が決まっていればその範囲だけを、無ければ全体を保存する。
+ * タイトルは保存シートの入力欄。空なら日時が既定（一覧で見分けられるようにするため）。
  */
 function handleSaveToDevice() {
   const result = saveReplayToDevice({ title: _getTypedReplayTitle(), range: _getPcRecordingRange() });
@@ -561,7 +572,7 @@ async function _tryLoadFromURL() {
   // Supabase ID 方式
   const replayId = params.get('replay');
   if (!replayId) return;
-  if (atEnd) _removeAtFromURL(); // 再読込のたびに最後へ進めないよう at だけ外す（replay はそのまま）
+  if (atEnd) _removeParamsFromURL(['at']); // 読み込みに成功したら replay も外す（下）。失敗したときは replay を残す
 
   try {
     const res = await fetch(`/api/solitaire/replay/${replayId}`);
@@ -575,6 +586,9 @@ async function _tryLoadFromURL() {
     }
     console.log(`リプレイID ${replayId} を読み込みました`);
     _finishLoadFromURL(atEnd);
+    // 続きから遊ぶ（at=end）場合は、再読込でサーバーのリプレイを最初から読み直さないよう replay も外す
+    // （?saved= と同じ扱い。通常の共有リンクの ?replay= は従来どおり残す）
+    if (atEnd) _removeParamsFromURL(['replay']);
   } catch (e) {
     console.warn('リプレイの読み込みに失敗:', e.message);
   }
@@ -594,10 +608,10 @@ function _finishLoadFromURL(atEnd) {
   document.dispatchEvent(new CustomEvent('sol-replay-loaded-from-url', { detail: { atEnd } }));
 }
 
-/** URL の ?at を外す（他のクエリ・ハッシュは残す） */
-function _removeAtFromURL() {
+/** URL から指定のクエリを外す（他のクエリ・ハッシュは残す） */
+function _removeParamsFromURL(names) {
   const url = new URL(location.href);
-  url.searchParams.delete('at');
+  names.forEach((n) => url.searchParams.delete(n));
   history.replaceState(null, '', url.pathname + url.search + url.hash);
 }
 

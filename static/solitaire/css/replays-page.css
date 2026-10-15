@@ -132,6 +132,8 @@ a.rp-btn { display: inline-flex; align-items: center; text-decoration: none; }
 .rp-toolbar-note { color: #a8b4c9; font-size: 0.78rem; }
 .rp-error { margin: 0 0 16px; color: var(--red); font-size: 0.85rem; }
 .rp-error[hidden] { display: none; }
+.rp-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 12px; padding: 10px 12px; background: var(--bg-surface); border-radius: var(--radius); font-size: 0.85rem; }
+.rp-notice[hidden] { display: none; }
 .rp-btn-danger { color: var(--red); }
 
 a:focus-visible, button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }

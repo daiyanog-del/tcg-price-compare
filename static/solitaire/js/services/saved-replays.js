@@ -67,7 +67,8 @@ function _byteLength(str) {
  * keepExisting: true を渡すと既存の保存分を一切消さない（盤面セーブの移行用）。
  *   - 上限20件を超えても古いものを間引かない（超過したまま登録する）。
  *   - 容量超過でも最古を落として再試行せず、そのまま reason:'quota' で失敗を返す。
- *   次に通常の保存（keepExisting なし）が行われたときに、上限を超えた分は古い順に整理される。
+ *   移行元の印（origin）付きの項目は、通常の保存の自動整理でも容量不足の再試行でも消さない
+ *   （上限を超えたまま残る。利用者が一覧から削除するまで残す）。
  *
  * @param {{title:string, main:number, ex:number, steps:number, data:string, savedAt?:number, origin?:string}} entry
  *   savedAt: 保存日時（ミリ秒）。省略時は今。origin: 移行元の印（同じ移行元の二重登録を防ぐ）
@@ -95,12 +96,18 @@ export function saveReplayEntry(entry, opts = {}) {
 
   // 通常の上限20件超過による整理（保存成功前提の間引き）はここで先に行う
   for (let attempt = 0; attempt <= MAX_EVICT_RETRY; attempt++) {
-    const candidate = [...baseList, newItem];
+    let candidate = [...baseList, newItem];
     let removedByLimit = 0;
     if (!keepExisting && candidate.length > MAX_SAVED_REPLAYS) {
-      candidate.sort((a, b) => (a.savedAt || 0) - (b.savedAt || 0));
-      removedByLimit = candidate.length - MAX_SAVED_REPLAYS;
-      candidate.splice(0, removedByLimit);
+      // 古い順に整理する。移行元の印（origin）付き＝盤面セーブから移したものは対象外
+      // （移行で上限を超えた分を、次の通常の保存で押し出さないため）。印の無い項目が尽きたら、超過したまま残す
+      const dropIds = new Set(
+        candidate.filter(r => !r.origin && r !== newItem) // 今保存するものは消さない
+          .sort((a, b) => (a.savedAt || 0) - (b.savedAt || 0))
+          .slice(0, candidate.length - MAX_SAVED_REPLAYS)
+          .map(r => r.id));
+      removedByLimit = dropIds.size;
+      candidate = candidate.filter(r => !dropIds.has(r.id));
     }
 
     const result = savedReplaysSet(candidate);
@@ -110,8 +117,10 @@ export function saveReplayEntry(entry, opts = {}) {
 
     // 保存失敗（容量超過等）: 既存を守る指定なら諦め、通常は最古の1件を落として再試行
     if (keepExisting) break;
-    if (baseList.length === 0) break; // これ以上削れない
-    baseList = baseList.slice().sort((a, b) => (a.savedAt || 0) - (b.savedAt || 0)).slice(1);
+    // 最古の1件（移行元の印付きは除く）を落として再試行
+    const oldest = baseList.filter(r => !r.origin).sort((a, b) => (a.savedAt || 0) - (b.savedAt || 0))[0];
+    if (!oldest) break; // これ以上削れない
+    baseList = baseList.filter(r => r !== oldest);
   }
 
   return { ok: false, removedCount: 0, reason: 'quota' };

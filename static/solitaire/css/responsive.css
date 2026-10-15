@@ -148,7 +148,6 @@
   #replayShare,
   #replayShareX,
   #pcShareSheetOpen,
-  #pcSaveSheetOpen,
   #pcRangeClearBtn,
   #pcRecordBtn {
     display: none;
@@ -157,10 +156,6 @@
      ここでは囲みを無いものとして扱い、上の order 指定を従来どおり効かせる */
   #replayBarContainer .replay-group {
     display: contents;
-  }
-  /* 読込ラベル（input[type=file] を内包） */
-  .replay-bar > label {
-    display: none;
   }
 
   /* コメントトーストをモバイルで読みやすく */
@@ -274,9 +269,6 @@
     #replayShareX {
       display: revert;
     }
-    .replay-bar > label {
-      display: revert;
-    }
   }
 }
 
@@ -332,7 +324,6 @@
   #replayShare,
   #replayShareX,
   #pcShareSheetOpen,
-  #pcSaveSheetOpen,
   #pcRangeClearBtn,
   #pcRecordBtn {
     display: none;
@@ -341,9 +332,6 @@
      ここでは囲みを無いものとして扱い、上の order 指定を従来どおり効かせる */
   #replayBarContainer .replay-group {
     display: contents;
-  }
-  .replay-bar > label {
-    display: none;
   }
 }
 

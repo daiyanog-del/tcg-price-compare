@@ -58,6 +58,25 @@ export function _syncPcRecordingEndIdxAfterComment() {
   }
 }
 
+/**
+ * 決まった範囲が、取消（undo）・巻き戻しからの新しい操作で古くなっていないかを確かめて直す。
+ *   - 開始位置（startIdx）が手数以上になった（範囲の手がすべて消えた）: 状態ごと捨てる。
+ *     残すと、あとで手が増えたときに古い範囲が復活する。
+ *   - 終了位置（endIdx）が手数を超えた: endIdx を手数まで下げる（クランプを表示時だけでなく状態にも反映）。
+ * 手数が変わるたび（#replayCounter の監視）に呼ぶ。
+ */
+function _prunePcRange() {
+  if (!_hasStoppedPcRecording()) return;
+  const total = getLogLength();
+  if (_pcRecording.startIdx >= total) {
+    _resetPcRecording();
+    updatePcShareRecordingSection();
+  } else if (_pcRecording.endIdx > total) {
+    _pcRecording.endIdx = total;
+    updatePcShareRecordingSection();
+  }
+}
+
 /** 録画状態の写しを返す（ページ遷移をまたぐ退避用） */
 export function getPcRecordingState() {
   return { ..._pcRecording };
@@ -105,6 +124,7 @@ function _stopPcRecording() {
   if (endIdx <= _pcRecording.startIdx) {
     _resetPcRecording();
     updatePcShareRecordingSection();
+    if (typeof _onRangeDecided === 'function') _onRangeDecided(null); // 手が1つも入っていない通知（スマホと同じ）
     return;
   }
   _pcRecording.endIdx = endIdx;
@@ -218,6 +238,7 @@ export function initPcRecording(deps = {}) {
   const counterEl = document.getElementById('replayCounter');
   if (counterEl) {
     new MutationObserver(() => {
+      _prunePcRange();
       if (_pcRecording.recording || _hasStoppedPcRecording()) _updatePcRecordBtn();
     }).observe(counterEl, { childList: true, characterData: true, subtree: true });
   }

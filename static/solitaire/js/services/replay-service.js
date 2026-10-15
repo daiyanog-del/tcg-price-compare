@@ -351,14 +351,17 @@ function _cardTypesField() {
   return Object.keys(_cardTypes).length > 0 ? { cardTypes: _cardTypes } : {};
 }
 
-/** リプレイデータをエクスポート（ファイル保存用）。D-4: setup ログもそのまま含めて保存する */
-export function exportReplay(title = 'replay') {
-  const payload = buildReplayPayload(title);
+/**
+ * リプレイデータをエクスポート（ファイル保存用）。D-4: setup ログもそのまま含めて保存する。
+ * logsOverride: 範囲だけを書き出すときの加工済みログ（replay-ui.js の buildRangeLogsForPayload）。省略時は全ログ
+ */
+export function exportReplay(title = 'replay', logsOverride) {
+  const payload = buildReplayPayload(title, logsOverride);
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${title.replace(/\s/g, '_')}.json`;
+  a.download = `${title.replace(/[\s:]/g, '_')}.json`; // 既定タイトルは日時（: はファイル名に使えない）
   a.click();
   URL.revokeObjectURL(url);
 }

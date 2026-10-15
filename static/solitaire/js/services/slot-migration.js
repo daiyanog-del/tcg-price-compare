@@ -35,6 +35,13 @@ function isBoardZoneKey(key) {
     || key === 'center-slot' || key === 'free-space';
 }
 
+/** 文字列の簡単なハッシュ（djb2。移行元の印で「同じ中身か」を見分けるためだけに使う。暗号用途ではない） */
+function hashString(str) {
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) h = ((h * 33) ^ str.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+
 /** スロットの保存文字列を読む（圧縮形式。旧形式の生 JSON も読む）。読めなければ例外 */
 function decodeSlot(raw) {
   let text = null;
@@ -191,7 +198,7 @@ export function migrateSlotsToReplays() {
 
       const state = decodeSlot(raw);
       const timestamp = Number.isFinite(state?.timestamp) && state.timestamp > 0 ? state.timestamp : null;
-      const origin = `slot${n}:${timestamp ?? raw.length}`;
+      const origin = `slot${n}:${timestamp ?? hashString(raw)}`; // 日時が無い旧データは中身のハッシュで見分ける
 
       if (hasReplayOrigin(origin)) { // 登録済み（前回、キーを消す前に中断された）
         localStorage.removeItem(key);
@@ -226,4 +233,35 @@ export function migrateSlotsToReplays() {
     }
   }
   return result;
+}
+
+/** 移行されずに残っているスロットのキー（card-sim-save-slot-1〜5 のうち保存文字列があるもの） */
+export function getRemainingSlotKeys() {
+  const keys = [];
+  for (let n = 1; n <= MAX_SLOTS; n++) {
+    const key = SAVE_KEY_PREFIX + n;
+    try {
+      if (localStorage.getItem(key)) keys.push(key);
+    } catch { /* localStorage が使えない */ }
+  }
+  return keys;
+}
+
+/**
+ * 残っているスロットの中身を、そのまま読める JSON 文字列にして返す（データを捨てないための書き出し用）。
+ * キーごとに { キー: 中身 } とし、圧縮形式は展開した JSON を、展開できないものは保存文字列のまま入れる。
+ * 残っているスロットが無ければ null。
+ * @returns {string|null}
+ */
+export function exportRemainingSlotsJson() {
+  const out = {};
+  for (const key of getRemainingSlotKeys()) {
+    const raw = localStorage.getItem(key);
+    try {
+      out[key] = decodeSlot(raw);
+    } catch {
+      out[key] = raw;
+    }
+  }
+  return Object.keys(out).length > 0 ? JSON.stringify(out, null, 2) : null;
 }

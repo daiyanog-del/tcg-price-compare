@@ -309,7 +309,7 @@
         </div>
       </div>
 
-      <!-- PC版 保存シート（整理③）: このブラウザに保存／ファイルに書き出す。開閉は replay-ui.js _initPcSaveSheet -->
+      <!-- PC版 保存シート（整理③）: このブラウザに保存／ファイルに書き出す。開閉は replay-ui.js _initPcSheet -->
       <div id="pcSaveSheet" class="sol-fb-overlay pc-share-sheet" hidden>
         <div class="sol-fb-backdrop" id="pcSaveSheetClose"></div>
         <div class="sol-fb-dialog pc-share-dialog" role="dialog" aria-modal="true" aria-labelledby="pcSaveTitle">
@@ -505,7 +505,7 @@
               <p class="sol-mobile-share-note">リンクを知っている人なら誰でも見られます。90日で消えます。</p>
 
               <!-- H-1: リンク作成は明示ボタン→結果表示の2段階（iOSのuser activation対策） -->
-              <button type="button" id="solMobileShareGenerateBtn" class="sol-mobile-menu-item">共有リンクを作成</button>
+              <button type="button" id="solMobileShareGenerateBtn" class="sol-mobile-menu-item sol-mobile-deck-primary-btn">共有リンクを作成</button>
               <div id="solMobileShareResult" class="sol-mobile-share-result" hidden>
                 <input type="text" id="solMobileShareUrlInput" class="sol-mobile-share-input" readonly>
                 <div class="sol-mobile-share-result-actions">

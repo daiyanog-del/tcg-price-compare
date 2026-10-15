@@ -12,7 +12,7 @@
  */
 
 import { savedReplaysGet, deleteReplayEntry, assertReplayPayload, saveReplayPayload } from './services/saved-replays.js';
-import { migrateSlotsToReplays } from './services/slot-migration.js';
+import { migrateSlotsToReplays, getRemainingSlotKeys, exportRemainingSlotsJson } from './services/slot-migration.js';
 import { sharedReplaysGet, deleteSharedReplay } from './services/shared-replays.js';
 import { shouldConfirmOpen } from './utils/session-resume-store.js';
 
@@ -225,6 +225,10 @@ async function handleOpenFile(e) {
       ? payload.title : file.name.replace(/\.json$/i, '');
     const saved = saveReplayPayload(payload, { title });
     if (!saved.ok) throw new Error(SAVE_FAIL_MESSAGES[saved.reason] || '保存に失敗しました');
+    // 上限20件の整理で古い保存が消えたときは、移動する前に知らせる（移動すると画面ごと切り替わるため確認を挟む）
+    if (saved.removedCount > 0) {
+      alert(`保存の上限のため、古い${saved.removedCount}件を削除しました。`);
+    }
     location.href = '/solitaire?saved=' + encodeURIComponent(saved.id);
   } catch (err) {
     showOpenError('開けませんでした: ' + err.message);
@@ -235,7 +239,35 @@ async function handleOpenFile(e) {
 
 document.getElementById('rpOpenFile')?.addEventListener('change', handleOpenFile);
 
+// ── 4. 移せなかった盤面セーブの案内 ──
+
+/**
+ * 移行に失敗して残っているスロットがあれば、一覧の上部に1行出す。
+ * 「元のデータを書き出す」で、残っているスロットの中身を JSON ファイルにそのまま保存できる（データを捨てないための手段）。
+ */
+function showSlotMigrationNotice() {
+  const box = document.getElementById('rpSlotNotice');
+  const text = document.getElementById('rpSlotNoticeText');
+  if (!box || !text) return;
+  const n = getRemainingSlotKeys().length;
+  box.hidden = n === 0;
+  if (n === 0) return;
+  text.textContent = `移せなかった盤面セーブが${n}件あります。元のデータは消していません。`;
+}
+
+document.getElementById('rpSlotExportBtn')?.addEventListener('click', () => {
+  const json = exportRemainingSlotsJson();
+  if (!json) { showSlotMigrationNotice(); return; }
+  const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'card-sim-save-slots.json';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
 // 廃止した盤面セーブ（スロット1〜5）が残っていれば、0手のリプレイとして先に一覧へ移す
 migrateSlotsToReplays();
+showSlotMigrationNotice();
 renderSaved();
 renderShared();

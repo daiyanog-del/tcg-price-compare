@@ -632,7 +632,7 @@ const MOBILE_UI_IGNORE_SELECTOR =
   '#solMobileActionSheet, #solMobileCip, #solMobileBar, ' +
   '#solMobileMenuSheet, .sol-context-menu, #solSidebar, #solSidebarScrim, #opponentTray, ' +
   '.pool-label, #replayBarContainer, .sol-ops-details, .sol-mobile-help-scrim, .counter-container, ' +
-  '#solMobileDeckSheet, #solMobileShareSheet, #pcShareSheet';
+  '#solMobileDeckSheet, #solMobileShareSheet, #pcShareSheet, #pcSaveSheet';
 
 /**
  * カード名を取得する。

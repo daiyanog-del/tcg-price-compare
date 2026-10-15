@@ -1052,29 +1052,6 @@
     font-weight: 700;
     color: var(--main-color);
   }
-  /* タスクA: ④ファイルは<details>で折りたたみ、目立たせない */
-  details.sol-mobile-share-section {
-    cursor: default;
-  }
-  details.sol-mobile-share-section summary.sol-mobile-share-heading {
-    cursor: pointer;
-    list-style: none;
-  }
-  details.sol-mobile-share-section summary.sol-mobile-share-heading::-webkit-details-marker {
-    display: none;
-  }
-  details.sol-mobile-share-section summary.sol-mobile-share-heading::after {
-    content: '▾';
-    float: right;
-    color: #94a3b8;
-  }
-  details.sol-mobile-share-section[open] summary.sol-mobile-share-heading::after {
-    content: '▴';
-  }
-  details.sol-mobile-share-section .sol-mobile-menu-item {
-    margin-top: 6px;
-  }
-
   .sol-mobile-share-note {
     margin: 0 0 10px;
     font-size: 0.76rem;

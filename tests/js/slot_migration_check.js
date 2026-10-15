@@ -107,9 +107,20 @@ const b64 = (src) => 'data:text/javascript;base64,' + Buffer.from(src).toString(
   assert.deepEqual(r, { migrated: 1, failed: 1 });
   assert(!store.has('card-sim-save-slot-5'));
 
-  // ── 通常の保存は従来どおり上限20件に整理する ──
+  // ── 通常の保存は上限20件に整理するが、移行元の印（origin）付きは消さない ──
+  const originIds = saved.savedReplaysGet().filter(x => x.origin).map(x => x.id);
+  assert.equal(originIds.length, 3);
   const res = saved.saveReplayEntry({ title: 'x', main: 1, ex: 0, steps: 1, data: '{}' });
-  assert.equal(res.ok, true); assert.equal(saved.savedReplaysGet().length, 20);
+  assert.equal(res.ok, true);
+  const after = saved.savedReplaysGet();
+  for (const id of originIds) assert(after.some(x => x.id === id), '通常の保存のあとも移行分が残る');
+  assert.equal(after.length, 20, '印の無い既存分が古い順に整理され、合計が20件になる');
+  assert(after.some(x => x.id === res.id), '今保存した項目は残る');
+  // 印の無い項目が尽きても、今の項目は消えず移行分も残る
+  store.set('sol-saved-replays', JSON.stringify(after.filter(x => x.origin)));
+  const res2 = saved.saveReplayEntry({ title: 'y', main: 1, ex: 0, steps: 1, data: '{}' });
+  assert.equal(res2.ok, true); assert.equal(res2.removedCount, 0);
+  assert.equal(saved.savedReplaysGet().length, originIds.length + 1);
 
   // ── ファイルの検証 ──
   assert.throws(() => saved.assertReplayPayload(null));

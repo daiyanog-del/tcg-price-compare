@@ -65,7 +65,7 @@ select:focus-visible,.deck-card-row:focus-visible{outline:2px solid #f3ce46;outl
 /* 領域は背景で分け、通常時の囲み線は置かない。枠幅は維持する。 */
 #imagePool,.custom-slot,.custom-slot[data-slot="9"],#free-space .side-slot,
 .opp-slot,.opp-slot.filled,.cip-effect,.cip-price,.sol-footer,.sol-toast,
-.sol-fb-dialog,.sol-fb-header,.sol-fb-footer,.pc-share-divider,
+.sol-fb-dialog,.sol-fb-header,.sol-fb-footer,
 .sol-recommend-badge,.opp-search-suggest{border-color:transparent}
 /* ホバー時もマスを線で囲まず、面の変化で置き場所を示す。 */
 .custom-slot:hover,.opp-slot:hover{border-color:transparent;background-color:#202c42}

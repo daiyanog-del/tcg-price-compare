@@ -1929,9 +1929,3 @@ a.replay-btn { display: inline-block; text-decoration: none; }
   color: #94a3b8;
   line-height: 1.4;
 }
-.pc-share-divider {
-  width: 100%;
-  border: none;
-  border-top: 1px solid var(--border);
-  margin: 2px 0;
-}

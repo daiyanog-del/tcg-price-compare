@@ -38,7 +38,7 @@ import { playActivateEffect, flipMoveClone } from '../components/card-effects.js
 import { _renderCard, _showUnknown, _showLoading } from './card-info-panel.js';
 import { isMobilePortrait, watchMobilePortrait, isMobileLandscape, watchMobileLandscape } from '../utils/viewport.js';
 import { showToast } from '../utils/toast.js';
-import { generateShareURL, buildShareTweetUrl, getReplayCounts, saveReplayToDevice, describeSaveResult } from './replay-ui.js';
+import { generateShareURL, buildShareTweetUrl, getReplayCounts, saveReplayToDevice, describeSaveResult, exportReplayFile } from './replay-ui.js';
 import { clearEverything } from './deck-input-panel.js';
 import {
   getLogLength,
@@ -917,14 +917,33 @@ function _hasStoppedRecording() {
 /**
  * @returns {{start:number, end:number}|null} 1-indexed 手数の範囲。録画（停止済み）が無ければ null（＝全範囲扱い）。
  * M-2: 停止後の取消（undo）で手数が減っていても壊れないよう、表示・送信の直前で
- * endIdx を現在の手数以下へ、startIdx を endIdx 以下へクランプする（_recording 自体は書き換えない）。
+ * endIdx を現在の手数以下へクランプする（_recording 自体は書き換えない。状態の掃除は _pruneRange）。
+ * 範囲の手がすべて消えて空になった場合は null（PC版 _getPcRecordingRange と同じ）。
  */
 function _getRecordingRange() {
   if (!_hasStoppedRecording()) return null;
   const total = getLogLength();
   const end = Math.min(_recording.endIdx, total);
-  const start = Math.min(_recording.startIdx, end);
-  return { start: start + 1, end };
+  if (_recording.startIdx >= end) return null; // 空の範囲（取消で手が消えた）は全範囲扱い。「範囲 3〜2」の逆順表示を出さない
+  return { start: _recording.startIdx + 1, end };
+}
+
+/**
+ * 決まった範囲が、取消・巻き戻しからの新しい操作で古くなっていないかを確かめて直す
+ * （PC版 pc-recording.js の _prunePcRange と同じ）。開始位置が手数以上なら状態ごと捨て、
+ * 終了位置が手数を超えていれば手数まで下げる。手数が変わるたび（initRecording の監視）に呼ぶ。
+ */
+function _pruneRange() {
+  if (!_hasStoppedRecording()) return;
+  const total = getLogLength();
+  if (_recording.startIdx >= total) {
+    _resetRecording();
+    _updateShareRecordingSection();
+  } else if (_recording.endIdx > total) {
+    _recording.endIdx = total;
+    _updateRecordBtn();
+    _updateShareRecordingSection();
+  }
 }
 
 /** 録画状態の写しを返す（ページ遷移をまたぐ退避用） */
@@ -1047,7 +1066,8 @@ function _updateRecordBtn() {
     const n = Math.max(0, cur - _recording.startIdx);
     label.textContent = `■ ${n}手`;
   } else if (range) {
-    label.textContent = `範囲 ${range.start}〜${range.end}`;
+    // 手数だけを出す（「範囲 3〜12」は375px幅の下部バーではみ出すため。何手目から何手目かはシートの中で伝える）
+    label.textContent = `範囲 ${range.end - range.start + 1}手`;
   } else {
     label.textContent = '✂ 範囲';
   }
@@ -1063,6 +1083,7 @@ function initRecording() {
   const counterEl = document.getElementById('replayCounter');
   if (counterEl) {
     new MutationObserver(() => {
+      _pruneRange();
       if (_recording.recording || _hasStoppedRecording()) _updateRecordBtn();
     }).observe(counterEl, { childList: true, characterData: true, subtree: true });
   }
@@ -1075,10 +1096,10 @@ function initRecording() {
 //     clipboard/window.open が沈黙失敗するため）。結果は readonly input に表示し、
 //     「共有…」（navigator.share）／「コピー」／「Xに投稿」（本物の<a>）をタップイベント
 //     ハンドラの中で同期的に扱う。
-// (2) 「JSONを保存」「今の手にコメント」は従来どおり既存ボタンを
-//     .click() で発火させるだけ（ロジックを複製しない）。
-// タイトル入力欄: replay-ui.js の _getReplayTitle() が #solMobileShareTitleInput を最優先で
-// 読む（PC には無いため PC は従来どおり .title→既定値 の挙動）。
+// (2) 「今の手にコメント」は従来どおり既存ボタンを .click() で発火させるだけ（ロジックを複製しない）。
+//     「ファイルに書き出す」は範囲を渡すため replay-ui.js の exportReplayFile を直接呼ぶ。
+// タイトル入力欄: [data-replay-title]（PC・スマホのシートに1つずつ。入力は互いに写される）。
+//     replay-ui.js が、共有では「共有リプレイ」、保存・書き出しでは日時を既定値にする。
 
 /** シートの用途（'save'＝保存 / 'share'＝共有）。再生して確認から戻るときは前回の用途で開き直す */
 let _shareSheetMode = 'share';
@@ -1293,8 +1314,9 @@ function initShareSheet() {
   // #solMobileShareXLink は本物の <a href> なのでリスナー登録は不要（href は _generateShareLink が設定）
 
   // (2) 従来どおり .click() 配線
+  // ファイルへの書き出し: 範囲が決まっていればその範囲だけ（replay-ui.js の exportReplayFile）
   document.getElementById('solMobileShareExportBtn')?.addEventListener('click', () => {
-    document.getElementById('replayExport')?.click();
+    exportReplayFile(_getRecordingRange());
   });
 
   // E-2: このブラウザに保存
