@@ -16,7 +16,7 @@
  *   moveCard       … カードをゾーンに移動（orientation/face も含む）
  *   draw           … デッキからドロー（cardId=ドローしたカードID）
  *   returnToDeck   … カードをデッキに戻す
- *   resetDeck      … 全リセット&5ドロー
+ *   resetDeck      … リセット（全カードをデッキへ戻す。旧仕様の共有リプレイは drawnIds に5ドローを含む）
  *   counterChange  … カウンター値変更（counter: 新しい値）
  *   comment        … コメント挿入
  *   activateEffect … 効果発動（cardId のカードで発動演出を再生）
@@ -114,8 +114,9 @@ export function getCardSrc(cardId) {
  * @param {Object} event  - イベントオブジェクト（seq自動付与）
  */
 export function logEvent(event) {
-  // 再生中の巻き戻し後は未来ログを切り捨て
-  if (_cursor < _logs.length - 1 && _cursor >= 0) {
+  // 巻き戻した位置で操作したら、それより先のログは確認なしで切り捨てる
+  // （cursor=-1 の0手目・読み込み直後も同じ。-1 なら全ログが空になる）
+  if (_cursor < _logs.length - 1) {
     _logs = _logs.slice(0, _cursor + 1);
   }
   const seq = _logs.length;
@@ -127,8 +128,8 @@ export function logEvent(event) {
 /**
  * 現在位置（_cursor）より先のログを切り捨てる（cursor=-1 なら全ログを空にする）。
  * 「録画をやり直す」で録画開始時点へ巻き戻した直後に呼び、未来ログの切り捨てを確定させる。
- * logEvent の切り捨ては `_cursor >= 0` 条件のため、cursor=-1（0手目）から1手打っても
- * 未来ログが残る。取消（undoLast）が盤面を末尾へ飛ばす原因にもなるため、先に確定させる。
+ * logEvent も同じ切り捨てを行うが、録画やり直しでは操作の前に切り捨てを確定させたいので
+ * 単独の関数として残している。
  * 盤面は _cursor の位置のまま変わらない（巻き戻し済み前提）。
  */
 export function truncateAfterCursor() {
@@ -138,14 +139,14 @@ export function truncateAfterCursor() {
 }
 
 /**
- * 案B: 開始直後（記録0件の状態）のリセット&5ドローのみを setup ログとして記録する。
+ * 案B: 開始直後（記録0件の状態）のリセットのみを setup ログとして記録する。
  * logEvent と違い _logs ではなく _setupLogs に積む（手数カウンターに数えない・取消の対象外）。
  * 呼び出し元（event-handlers.js）が「記録0件かどうか」を判定してから呼ぶこと。
  * @param {Object} event  - イベントオブジェクト（setup:true を強制付与）
  */
 export function logSetupEvent(event) {
   const cloned = { ..._safeCloneEvent(event), setup: true, seq: -1 };
-  // 開始直後のリセット&5ドローを連打すると呼び出し元の判定（記録0件）が
+  // 開始直後のリセットを連打すると呼び出し元の判定（記録0件）が
   // 毎回成立してしまうため、末尾が同じ resetDeck であれば追加せず置換する。
   // setupログ全体には範囲共有由来の counterChange 等が混在し得るため、
   // truncateはせず「末尾が同種actionTypeの場合のみ置換」に限定する。
@@ -158,12 +159,15 @@ export function logSetupEvent(event) {
   _updateUI();
 }
 
-/** undo: 最後のイベントを1件取り消し */
+/**
+ * undo: いま見ている手（_cursor の手）とそれより先を消し、1手前の盤面に戻す。
+ * 末尾にいる場合は最後の1手を取り消すのと同じ。0手目（_cursor=-1）では何もしない。
+ * 自動再生中も何もしない（再生途中の手を基準に消すと、見ていない記録まで大量に消えるため）。
+ */
 export function undoLast() {
-  if (_logs.length === 0) return;
-  _logs.pop();
-  _cursor = _logs.length - 1;
-  _replayTo(_cursor);
+  if (_cursor <= -1 || _playing) return;
+  _logs = _logs.slice(0, _cursor);
+  _replayTo(_logs.length - 1);
 }
 
 /** 1手進む */
@@ -874,7 +878,7 @@ function _applyReturnToDeck(event) {
 }
 
 /**
- * resetDeck: 全戻し&5ドロー
+ * resetDeck: 全戻し（旧仕様のログは drawnIds のカードを手札へ引く）
  * タスクB追補: 前進再生かつ縦向きスマホでは、引いた各カードをデッキ演出の錨
  * （_getDeckAnchorRect）から 80ms ずつずらして飛ばす（既存の draw/moveCard の演出と同じ考え方。
  * 第6次検収2c: 60→80ms）。
@@ -1036,7 +1040,7 @@ function _updateUI() {
   }
   if (btnBack) btnBack.disabled = cur <= -1 || total === 0;
   if (btnFwd)  btnFwd.disabled  = cur >= total - 1 || total === 0;
-  if (btnUndo) btnUndo.disabled = total === 0;
+  if (btnUndo) btnUndo.disabled = total === 0 || cur <= -1 || _playing;
   if (btnPlay) {
     btnPlay.textContent = _playing ? '停止' : '再生';
     btnPlay.classList.toggle('play-active', _playing);
