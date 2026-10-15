@@ -5,7 +5,7 @@
  */
 
 import { addCardToPool, sortPoolCards } from '../components/card-manager.js';
-import { registerCardImage, registerCardName, registerCardType, resetReplay } from '../services/replay-service.js';
+import { registerCardImage, registerCardName, registerCardType, resetReplay, getLogLength, getSetupLogs } from '../services/replay-service.js';
 import { setCardName } from './card-info-panel.js';
 import { clearSessionResume } from '../utils/session-resume-store.js';
 
@@ -123,6 +123,30 @@ async function clearAllCards() {
     const pool = document.getElementById(poolId);
     if (pool) pool.innerHTML = '';
   });
+}
+
+/**
+ * 新しいデッキに入れ替えてよいかを確かめる。記録（setup込みで1手以上）があるときだけ確認を出す。
+ * 入れ替えると、前のデッキのカードを指す記録は再生しても何も動かなくなり、共有すると
+ * 前のデッキのカードまで受け手のデッキに混ざるため、入れ替えと同時に記録を消す（_clearForNewDeck）。
+ * @returns {boolean} 続けてよければ true
+ */
+function _confirmReplaceDeck() {
+  const steps = getLogLength() + getSetupLogs().length;
+  if (steps === 0) return true;
+  return confirm(`今の記録（${steps}手）は消えます。新しいデッキを読み込みますか？`);
+}
+
+/**
+ * 新しいデッキを読み込む直前の片付け。盤面・プールのカードに加えて、リプレイの記録と
+ * カードの辞書（画像・名前・EX判定・種類）も初期化する。
+ * 以前は clearAllCards だけで記録と辞書が残り、読み込み直すたびに前のデッキの分が辞書に
+ * 積み重なっていた（2026-10-15 ユーザー報告: 記録を再生してもカードが動かない／共有リンクで
+ * デッキとEXデッキが崩れる。原因の記録は同じデッキ4回分の辞書を持っていた）。
+ */
+async function _clearForNewDeck() {
+  await clearAllCards();
+  resetReplay();
 }
 
 /**
@@ -384,6 +408,7 @@ export async function loadDeckFromText(text, triggerBtn = null) {
   }
   const cards = parseDeckList(text);
   if (cards.length === 0) { alert('デッキリストが空です'); return; }
+  if (!_confirmReplaceDeck()) return;
 
   _deckLoadInFlight = true;
   _setDeckRowsLoading(triggerBtn, true);
@@ -391,7 +416,7 @@ export async function loadDeckFromText(text, triggerBtn = null) {
   let ok = false;
   let error = null;
   try {
-    await clearAllCards();
+    await _clearForNewDeck();
 
     // デッキ・EXデッキ両エリアにロード中インジケータを表示（EXカードも振り分けられるため）
     setPoolLoading(['imagePool', 'imagePool2'], true);
@@ -473,6 +498,8 @@ export async function loadDeckFromNeuron(mainText, exText) {
   const mainCards = mainText ? parseDeckList(mainText) : [];
   const exCards = exText ? parseDeckList(exText) : [];
   if (mainCards.length === 0 && exCards.length === 0) return;
+  // メインがあるときだけデッキを入れ替える（EXだけのときは足すだけなので記録は消さない）
+  if (mainCards.length > 0 && !_confirmReplaceDeck()) return;
 
   _deckLoadInFlight = true;
   _setDeckRowsLoading(null, true);
@@ -481,7 +508,7 @@ export async function loadDeckFromNeuron(mainText, exText) {
   let error = null;
   try {
     if (mainCards.length > 0) {
-      await clearAllCards();
+      await _clearForNewDeck();
       setPoolLoading(['imagePool', 'imagePool2'], true);
       try {
         await addCardsBatch(mainCards, null);
@@ -522,6 +549,7 @@ export async function loadMetaDeck(theme, triggerBtn = null) {
     console.warn('[deck-input-panel] デッキ読込が進行中のため無視しました（loadMetaDeck）');
     return;
   }
+  if (!_confirmReplaceDeck()) return;
   _deckLoadInFlight = true;
   _setDeckRowsLoading(triggerBtn, true);
   document.dispatchEvent(new CustomEvent('sol-deck-load-start'));
@@ -538,7 +566,7 @@ export async function loadMetaDeck(theme, triggerBtn = null) {
     const fullDeck = data.full_deck;  // [{name, qty, is_ex}]
     if (!fullDeck || fullDeck.length === 0) throw new Error('デッキリストが取得できませんでした');
 
-    await clearAllCards();
+    await _clearForNewDeck();
 
     // is_ex が各カードに付与済みなので defaultIsEx=null にして card.is_ex を優先させる
     // addCardsBatch が card.is_ex !== undefined の場合それを使う
