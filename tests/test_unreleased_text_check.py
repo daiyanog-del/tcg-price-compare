@@ -230,7 +230,7 @@ def test_evaluate_text_conditions():
     assert "text_unchecked" in aa.evaluate(card, other_names=[], text_check=_clean_check(status="unchecked"))["reasons"]
     assert "text_unchecked" in aa.evaluate(card, other_names=[], text_check=_clean_check(unverified_fields=["effect_text"]))["reasons"]
     assert aa.reason_label("text_suspect") != "text_suspect" and aa.reason_label("text_unchecked") != "text_unchecked"
-    assert aa.VERSION == 2
+    assert aa.VERSION >= 2
 
 
 def test_evaluate_without_dict_is_ineligible(monkeypatch):

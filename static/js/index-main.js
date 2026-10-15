@@ -227,7 +227,7 @@ function _showCardDetail(){
   document.getElementById('cardDetailDetails')?.removeAttribute('hidden');
 }
 
-function _renderProxyDetail(p){
+function _renderProxyDetail(p,name){
   const det=document.getElementById('cardDetail');
   if(!det) return;
   let html='<div class="card-detail-meta">';
@@ -249,6 +249,8 @@ function _renderProxyDetail(p){
   const meta=[p.product_name,p.release_date].filter(Boolean).join(' / ');
   if(meta) html+=`<div class="card-detail-print" style="margin-top:6px">${esc(meta)}</div>`;
   det.innerHTML=html;
+  // 未発売カード専用: 読み取り・転記ミスを利用者が知らせる窓口（発売済みカードには出さない）
+  if(window.TextReport) window.TextReport.attach(det,p.name||name);
   _showCardDetail();
 }
 
@@ -257,7 +259,7 @@ function _fetchCardInfo(cardName){
     .then(r=>r.json())
     .then(data=>{
       // 未発売カード（proxy）は専用描画。found:false でもカード情報を表示する
-      if(data.kind==='proxy'&&data.proxy){_renderProxyDetail(data.proxy);return;}
+      if(data.kind==='proxy'&&data.proxy){_renderProxyDetail(data.proxy,cardName);return;}
       if(!data.found){fetchCardImage(cardName);return;}
       if(data.konami_id) _applyKonamiLink(data.konami_id);
       const det=document.getElementById('cardDetail');

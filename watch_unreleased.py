@@ -421,25 +421,33 @@ def _upsert_cards(sb: Client, rows: list[dict]) -> int:
     if not rows:
         return 0
 
+    from unreleased_approve import maybe_auto_approve
     from unreleased_auto_approve import annotate_row, load_active_names, load_text_context
-    # 自動承認判定用（シャドーモード: 記録のみ）。rejected以外の既存カード名を1回読む
+    # 自動承認の判定用。rejected以外の既存カード名を1回読む
     active_names = load_active_names(sb)
     text_context = load_text_context(sb)  # 効果テキスト検証用（他カードの「」内語）
 
     inserted = 0
+    inserted_rows: list[dict] = []   # 実際に新規挿入された行（既存と重複して無視された行は含まない）
     for row in rows:
         try:
             annotate_row(row, active_names, text_context)
-            sb.table("unreleased_cards").upsert(
+            resp = sb.table("unreleased_cards").upsert(
                 row,
                 on_conflict="name,product_name",
                 ignore_duplicates=True,
             ).execute()
             inserted += 1
+            if resp.data:
+                inserted_rows.extend(resp.data)
             if active_names is not None:
                 active_names.append(row.get("name", ""))
         except Exception as e:
             logger.warning(f"[Watcher] upsert失敗 ({row.get('name', '?')}): {e}")
+
+    # 自動承認（AUTO_APPROVE_ENABLED=1 のときだけ）。公式経由は画像を承認時に取り込む
+    # （この PC は住宅IPなので yu-gi-oh.jp の画像を取得できる）。失敗しても取込は止めない
+    maybe_auto_approve(sb, inserted_rows)
 
     logger.info(f"[Watcher] unreleased_cards upsert: {inserted}/{len(rows)}件")
     return inserted

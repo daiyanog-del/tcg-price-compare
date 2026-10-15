@@ -86,7 +86,7 @@ async function _fetchAndShow(name, imgSrc, isSample = false) {
       _renderCard(data, imgSrc, name, priceData, undefined, true, isSample);
     } else if (data.kind === 'proxy' && data.proxy) {
       // 未発売カード: 実データは proxy の中にある（フィールド名は _renderCard と一致）
-      _renderCard(data.proxy, imgSrc, name, priceData, undefined, true, isSample);
+      _renderCard(data.proxy, imgSrc, name, priceData, undefined, true, isSample, true);
     } else {
       _showUnknown(imgSrc, name, priceData, undefined, true, isSample);
     }
@@ -105,8 +105,11 @@ async function _fetchAndShow(name, imgSrc, isSample = false) {
  *   スマホ詳細パネル（#solMobileCip）から再利用するための最小限の引数追加（mobile-ui.js が使用）。
  *   引数省略時の挙動は従来と完全に同じ（後方互換）。
  * @param {boolean} [showPrice=true]  価格ブロックを生成するか。スマホは false でブロック自体を作らない（B-12）。
+ * @param {boolean} [isSample=false]  公式SAMPLE画像か（透かし・ぼかしの出し分け用）。
+ * @param {boolean} [isUnreleased=false]  未発売カード（/api/card-info が kind:'proxy' を返したもの）か。
+ *   true のときだけ「テキストの誤りを報告」ボタンを置く（発売済みカードには出さない）。
  */
-export function _renderCard(data, imgSrc, name, priceData, targetPanel, showPrice = true, isSample = false) {
+export function _renderCard(data, imgSrc, name, priceData, targetPanel, showPrice = true, isSample = false, isUnreleased = false) {
   const panel = targetPanel || document.getElementById('cardInfoPanel');
   if (!panel) return;
 
@@ -164,6 +167,8 @@ export function _renderCard(data, imgSrc, name, priceData, targetPanel, showPric
     <div class="cip-effect">${_esc(_normalizeBreaks(data.effect_text || '')).replace(/\n/g, '<br>')}</div>
     ${showPrice ? _buildPriceHtml(name, priceData) : ''}
   `;
+  // 未発売カード専用: 読み取り・転記ミスを利用者が知らせる窓口。ボタンは DOM 生成（innerHTML に名前を入れない）
+  if (isUnreleased && window.TextReport) window.TextReport.attach(panel, data.name || name);
 }
 
 /**

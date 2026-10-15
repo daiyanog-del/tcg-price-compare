@@ -26,6 +26,7 @@ import requests
 from supabase import create_client, Client
 
 from name_normalize import fuzzy_key
+from unreleased_approve import maybe_auto_approve
 from unreleased_auto_approve import annotate_row, load_active_names, load_text_context
 from unreleased_quality import lacks_card_body
 from ygores_repository import repository as _ygores_repo
@@ -248,6 +249,9 @@ def process_tweets(
             if cid and img_url:
                 ok, reason = ingest_x_card_image(sb, cid, img_url, row_tweet_url)
                 logger.info(f"[X-Watcher] 画像保存: card_id={cid}, ok={ok}, reason={reason!r}")
+        # 自動承認（AUTO_APPROVE_ENABLED=1 のときだけ。画像の保存後に呼ぶ）。失敗しても取込・since_id は進める
+        # （maybe_auto_approve は例外を投げず、失敗は警告ログと Discord に出す）
+        maybe_auto_approve(sb, inserted_rows)
         return len(inserted_rows)
 
     # 古い投稿から処理する（同名カードで本体画像の投稿を先に採用するため）。

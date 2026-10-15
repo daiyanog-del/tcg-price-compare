@@ -1,9 +1,11 @@
-"""未発売カードの「自動承認してよいか」の判定（シャドーモード）。
+"""未発売カードの「自動承認してよいか」の判定と記録。
 
-2026-10-15 追加。この段階では承認は行わず、判定結果を記録するだけ。
+2026-10-15 追加。このモジュールは判定と記録だけを行う（承認そのものは unreleased_approve.py）。
   - 取込時（3経路）: extraction_raw.auto_approve_verdict と extracted_snapshot を保存
-  - 承認時（単体/一括）: extraction_raw.approval_snapshot を保存
+  - 承認時（単体/一括/自動）: extraction_raw.approval_snapshot を保存（via = single / bulk / auto）
   - 集計: tools/auto_approve_report.py で「候補なのに手直し/却下された」件数を見て閾値を校正する
+  - 自動承認の実行: AUTO_APPROVE_ENABLED=1 のとき、取込3経路が挿入（と画像保存）の後に
+    unreleased_approve.maybe_auto_approve を呼ぶ。判定が通ったものだけ approve_card(via="auto")
 
 Flask / Supabase 接続に依存しない（Cron・自宅PC・管理画面のどこからでも import できる）。
 """
@@ -21,7 +23,8 @@ from unreleased_quality import lacks_card_body
 logger = logging.getLogger(__name__)
 
 # 2: 効果テキストの誤字検証（text_suspect / text_unchecked）を条件に追加（2026-10-15）
-VERSION = 2
+# 3: 誤字検証に言い回しの照合（unknown_phrase の強い疑義も text_suspect になる）を追加（2026-10-15）
+VERSION = 3
 
 # ──────────────────────────────────────────────
 # 閾値（実データでの校正が必要な仮置き値）
@@ -55,9 +58,12 @@ REASON_LABELS = {
     "lacks_card_body": "カード本体（効果・数値）を読めていない",
     "same_name_exists": "同名のカードが他にも登録されている",
     "same_name_unchecked": "同名カードの有無を確認できなかった",
-    "text_suspect": "効果テキストに誤字の強い疑いがある",
+    "text_suspect": "効果テキストに誤字・言い回しの誤りの強い疑いがある",
     "text_unchecked": "効果テキストの誤字を検証できなかった（辞書なし・フレーバーテキスト等）",
     "empty_text": "効果テキストが空（通常モンスターのフレーバーテキストも含め、読めていない）",
+    "same_source_name_seen": "同じ投稿元で同名のカードを以前取り込み済み（却下・削除済みの再取込の可能性）",
+    "no_visible_image": "公開用の画像がまだ無い（画像が揃うまで自動承認しない）",
+    "text_too_long": "効果テキストが長すぎて言い回しを照合していない",
     "evaluation_error": "判定中にエラーが起きた",
 }
 
@@ -213,6 +219,10 @@ def evaluate(card: dict, *, other_names=None, text_check=None, text_context=None
     text_reason = _text_reason(text_check)
     if text_reason:
         reasons.append(text_reason)
+    # 長すぎて言い回しの照合をスキップした文章は、検証できていないので自動承認しない
+    if isinstance(text_check, dict) and any(
+            s.get("kind") == "text_too_long" for s in (text_check.get("suspects") or [])):
+        reasons.append("text_too_long")
 
     if other_names is None:
         reasons.append("same_name_unchecked")
@@ -255,8 +265,8 @@ def annotate_row(row: dict, other_names, text_context=None) -> dict:
     if not isinstance(raw, dict):
         raw = {}
         row["extraction_raw"] = raw
-    # TODO: 将来の自動承認の差し込み位置。ここで verdict["eligible"] を見て status を approved にする
-    #       （今回はシャドーモード＝記録のみ。実際に承認するスイッチは作っていない）。
+    # ここでは記録だけ。自動承認（AUTO_APPROVE_ENABLED=1）は、呼び出し側が挿入と画像の保存を終えた後に
+    # unreleased_approve.maybe_auto_approve を呼んで行う（承認は画像が揃ってからでないと X 投稿に進めないため）
     raw["auto_approve_verdict"] = verdict
     raw["text_check"] = text_check
     # 記録の作成で取込を止めない（文字列でない値などが混ざっていても警告ログだけで続ける）
@@ -449,7 +459,7 @@ def build_approval_snapshot(card: dict, via: str, now_iso: str | None = None) ->
             "strong": now_check.get("strong", 0),
             "weak": now_check.get("weak", 0),
             # 種別ごとの強の数。承認時は他カード名の文脈が無く unknown_name が増えるので、
-            # 集計では unknown_ngram / format を主に見る
+            # 集計では unknown_ngram / unknown_phrase / format を主に見る
             "strong_by_kind": _count_by_kind(now_check, "strong"),
         },
     }

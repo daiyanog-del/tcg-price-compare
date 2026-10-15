@@ -20,15 +20,23 @@ import requests
 logger = logging.getLogger(__name__)
 
 
-def send_discord_message(message: str) -> None:
-    """Discord Webhook へテキスト通知を送る（DISCORD_WEBHOOK_URL 未設定なら何もしない）"""
+def send_discord_message(message: str, *, no_mentions: bool = False) -> None:
+    """Discord Webhook へテキスト通知を送る（DISCORD_WEBHOOK_URL 未設定なら何もしない）
+
+    no_mentions=True のとき allowed_mentions を空にし、本文に @everyone や @ユーザー が含まれても
+    通知（メンション）を飛ばさない。利用者の入力やカード名など、外部由来の文字列を載せる通知で使う。
+    既定（False）は従来どおりで、既存の通知の挙動は変えない。
+    """
     webhook_url = os.environ.get("DISCORD_WEBHOOK_URL", "")
     if not webhook_url:
         return
+    payload = {"content": message[:1900]}  # Discordの2000文字制限に余裕を持たせる
+    if no_mentions:
+        payload["allowed_mentions"] = {"parse": []}
     try:
         resp = requests.post(
             webhook_url,
-            json={"content": message[:1900]},  # Discordの2000文字制限に余裕を持たせる
+            json=payload,
             timeout=10,
         )
         logger.info(f"[discord_notify] 通知送信: status={resp.status_code}")

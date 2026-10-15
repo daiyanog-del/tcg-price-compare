@@ -11,6 +11,9 @@ Blueprint prefix:
   - /api/admin/*     → 全REST API
 
 状態変更系エンドポイントは全て card_display.invalidate_cache() を呼ぶ。
+
+公開中のカードを非公開にする操作（承認待ちに戻す・却下・非表示・削除）は、X に投稿済みなら投稿も削除する
+（unreleased_x_post.collect_posted_safe で対象を集め、DB 更新の成功後にバックグラウンドで削除）。
 """
 
 import io
@@ -21,12 +24,13 @@ import logging
 import threading
 from collections import Counter
 from datetime import datetime, timezone
-from urllib.parse import urlparse
 
 from flask import Blueprint, request, jsonify, render_template
 
 import card_display as _card_display
 import unreleased_x_post as _x_post
+import unreleased_text_report as _text_report
+import unreleased_approve as _approve
 from unreleased_auto_approve import reason_label as _auto_approve_label
 import fetch_guard as _fetch_guard
 from constants import JST as _JST
@@ -263,8 +267,12 @@ def admin_list_unreleased():
             for row in (img_resp.data or [])
         }
 
+        # 利用者からのテキスト誤り報告（未対応）の件数。テーブルが無い等で読めなければ全て0
+        open_reports = _text_report.count_open_by_card(_supabase)
+
         for card in cards:
             card["has_image"] = card["id"] in ids_with_image
+            card["open_report_count"] = open_reports.get(card["id"], 0)
             card["source_image_url"] = source_url_by_id.get(card["id"], "")
             # extraction_raw からカード個別画像URLを取り出してトップレベルに付加
             raw = card.get("extraction_raw") or {}
@@ -274,8 +282,16 @@ def admin_list_unreleased():
                 fallback_list = raw.get("card_image_urls") or []
                 card_img_url = fallback_list[0] if fallback_list else ""
             card["card_image_url"] = card_img_url
-            for key in ("crop_suggestion", "crop_state", "release_date_evidence", "recognition_review", "auto_approve_verdict", "text_check"):
+            for key in ("crop_suggestion", "crop_state", "release_date_evidence", "recognition_review", "auto_approve_verdict",
+                        "auto_approve_skip", "text_check"):
                 card[key] = raw.get(key)
+            # 承認前確認で自動承認を見送った理由（判定とは別キー）の日本語ラベル
+            skip = card.get("auto_approve_skip")
+            if isinstance(skip, dict) and skip.get("reason"):
+                card["auto_approve_skip_label"] = _auto_approve_label(skip["reason"])
+            # 承認の経路（single / bulk / auto）。公開中一覧で自動承認の札を出すのに使う
+            snap = raw.get("approval_snapshot")
+            card["approval_via"] = snap.get("via") if isinstance(snap, dict) else None
             # 自動承認判定の理由コードを日本語ラベルにして添える（ラベルの正本は Python 側のみ）
             verdict = card.get("auto_approve_verdict")
             if isinstance(verdict, dict):
@@ -423,21 +439,8 @@ def admin_update_unreleased(card_id: int):
 
 
 def _execute_approve_update(build_query, fields: dict):
-    """status を approved にする UPDATE を実行する。fields には approved_at を含める。
-
-    approved_at 列が未作成（SQL の適用前にコードだけ先にデプロイされた）ときは、承認自体を止めないよう
-    approved_at 抜きで再実行する（警告ログ）。その間に承認されたカードは approved_at が NULL のため
-    X に投稿されない。根本対応は unreleased_x_posts.sql の適用（手順は SQL 冒頭に記載）。
-    build_query(fields) は execute 前のクエリを返す関数。
-    """
-    try:
-        return build_query(fields).execute()
-    except Exception as e:
-        if "approved_at" not in fields or "approved_at" not in str(e):
-            raise
-        logger.warning(f"[admin] approved_at 列が無いため approved_at 抜きで承認します"
-                       f"（unreleased_x_posts.sql を適用してください。それまで承認分は X に投稿されません）: {e}")
-        return build_query({k: v for k, v in fields.items() if k != "approved_at"}).execute()
+    """status を approved にする UPDATE を実行する（本体は unreleased_approve.execute_approve_update）。"""
+    return _approve.execute_approve_update(build_query, fields)
 
 
 def _recompute_checks_after_edit(card: dict) -> None:
@@ -518,21 +521,54 @@ def admin_recheck_text(card_id: int):
         return jsonify({"error": "再検査に失敗しました"}), 500
 
 
+# ──────────────────────────────────────────────
+# 利用者からの「テキストの誤り報告」
+# ──────────────────────────────────────────────
+
+@admin_bp.route("/api/admin/unreleased/<int:card_id>/text-reports", methods=["GET"])
+def admin_list_text_reports(card_id: int):
+    """カード1枚への誤り報告の一覧（新しい順）。生IPのハッシュは返さない。"""
+    err = _require_admin_key()
+    if err:
+        return err
+
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+
+    try:
+        return jsonify({"ok": True, "reports": _text_report.list_reports(_supabase, card_id)})
+    except Exception as e:
+        logger.error(f"[admin] text-reports 取得エラー id={card_id}: {e}")
+        return jsonify({"error": "報告の取得に失敗しました"}), 500
+
+
+@admin_bp.route("/api/admin/text-reports/<int:report_id>/resolve", methods=["POST"])
+def admin_resolve_text_report(report_id: int):
+    """報告を対応済みにする。カードの公開状態は変えない。"""
+    err = _require_admin_key()
+    if err:
+        return err
+
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+
+    try:
+        row = _text_report.resolve_report(_supabase, report_id)
+        if not row:
+            return jsonify({"error": "対象の報告が見つかりません"}), 404
+        return jsonify({"ok": True, "report": row})
+    except Exception as e:
+        logger.error(f"[admin] text-report resolve エラー id={report_id}: {e}")
+        return jsonify({"error": "対応済みにできませんでした"}), 500
+
+
 def _backfill_release_date(product_name: str, exclude_id: int) -> str | None:
-    """他カードの多数決を使わず、商品に紐付く公式発売日だけを補完する。"""
-    from release_date_resolver import resolve_release_date
-    if not product_name:
-        return None
-    evidence = resolve_release_date(product_name)
-    return evidence['release_date'] if evidence['status'] == 'verified' else None
+    """他カードの多数決を使わず、商品に紐付く公式発売日だけを補完する（本体は unreleased_approve）。"""
+    return _approve.backfill_release_date(product_name, exclude_id)
 
 
-# 承認時に読む列。後半は approval_snapshot（抽出時スナップショットとの差分）の計算に使う。
-_APPROVE_SELECT_COLUMNS = (
-    "id, name, source_url, extraction_raw, status, release_date, product_name, "
-    "card_type, attribute, race, level, rank, link_val, atk, def, "
-    "effect_text, pendulum_scale, pendulum_effect"
-)
+# 承認時に読む列（本体は unreleased_approve.APPROVE_SELECT_COLUMNS）。
+_APPROVE_SELECT_COLUMNS = _approve.APPROVE_SELECT_COLUMNS
 
 
 # ──────────────────────────────────────────────
@@ -544,6 +580,7 @@ def admin_approve_unreleased(card_id: int):
     """
     指定IDのカードを承認する（status='approved'）。
     rejected / pending / needs_review から変更可。
+    承認の本体は unreleased_approve.approve_card（Flask 非依存。自動承認と共用）。このルートは呼ぶだけ。
     承認成功後、extraction_raw の image_urls から最初の1枚を取り込もうとする。
     画像取込失敗は承認自体を失敗させない。
     レスポンスに image_fetched: true/false と reason を含める。
@@ -562,93 +599,29 @@ def admin_approve_unreleased(card_id: int):
         return jsonify({"error": "Supabase 未接続"}), 503
 
     try:
-        # まずカードの extraction_raw を取得
-        card_resp = (
-            _supabase.table("unreleased_cards")
-            .select(_APPROVE_SELECT_COLUMNS)
-            .eq("id", card_id)
-            .execute()
+        outcome = _approve.approve_card(
+            _supabase, card_id, "single",
+            # 画像取込は admin 側の関数を毎回引く（テストの差し替え・従来の呼び出し形を保つ）
+            fetch_image=lambda **kw: _try_fetch_image_from_extraction(**kw),
+            invalidate_cache=_card_display.invalidate_cache,
         )
-        if not card_resp.data:
+        status = outcome.get("status")
+        if status == "not_found":
             return jsonify({"error": "対象レコードが見つかりません"}), 404
-
-        card_data = card_resp.data[0]
-        if card_data["status"] not in ("pending", "rejected", "needs_review"):
+        if status == "not_approvable":
             return jsonify({"error": "対象レコードが見つかりません（既に承認済みか存在しない可能性があります）"}), 404
-
-        # release_date ガード判定
-        release_date = card_data.get("release_date")
-        product_name = card_data.get("product_name") or ""
-        # approved_at は X 自動投稿の対象判定に使う。status と同じ UPDATE で入れる
-        update_fields = {"status": "approved", "approved_at": datetime.now(timezone.utc).isoformat()}
-        release_date_note = None
-        release_date_warning = None
-
-        if not release_date:
-            backfilled = _backfill_release_date(product_name, card_id)
-            if backfilled:
-                update_fields["release_date"] = backfilled
-                release_date = backfilled
-                release_date_note = f"発売日を公式商品情報から補完しました: {backfilled}"
-                logger.info(
-                    f"[admin] release_date 補完: card_id={card_id}, "
-                    f"product_name={product_name!r}, release_date={backfilled}"
-                )
-            else:
-                release_date_warning = (
-                    "発売日が未設定です。発売日を過ぎても未発売扱いのままになるため、"
-                    "判明したら編集で設定してください"
-                )
-                logger.warning(
-                    f"[admin] release_date 未設定のまま承認: card_id={card_id}, "
-                    f"product_name={product_name!r}"
-                )
-
-        if release_date:
-            today = datetime.now(_JST).strftime("%Y-%m-%d")
-            if release_date < today:
-                release_date_warning = (
-                    f"発売日が過去日です（{release_date}）。抽出時の年誤りの可能性があります"
-                )
-                logger.warning(
-                    f"[admin] release_date が過去日: card_id={card_id}, release_date={release_date}"
-                )
-
-        # ステータスを承認済みに更新（release_date 補完がある場合は同時に更新）
-        upd_resp = _execute_approve_update(
-            lambda f: _supabase.table("unreleased_cards").update(f).eq("id", card_id),
-            update_fields,
-        )
-        if not upd_resp.data:
+        if status != "ok":
             return jsonify({"error": "承認処理に失敗しました"}), 500
-
-        _card_display.invalidate_cache()
-
-        # 承認時の記録（手直しの有無・切り抜き方法・判定結果）。計測用で、失敗しても承認も投稿も止めない
-        from unreleased_auto_approve import record_approval_snapshots
-        record_approval_snapshots(_supabase, [card_data], "single")
-
-        # 画像取込を試みる（失敗しても承認は成立）
-        image_fetched, image_reason = _try_fetch_image_from_extraction(
-            card_id=card_id,
-            source_url=card_data.get("source_url", ""),
-            extraction_raw=card_data.get("extraction_raw") or {},
-        )
-
-        # X自動投稿（無効時は何もしない）。画像取込に成功したときだけ。失敗分は回収ジョブが拾う
-        if image_fetched:
-            _x_post.start_post_thread(_supabase, [card_id])
 
         result = {
             "ok": True,
-            "card": upd_resp.data[0],
-            "image_fetched": image_fetched,
-            "image_reason": image_reason,
+            "card": outcome["card"],
+            "image_fetched": outcome["image_fetched"],
+            "image_reason": outcome["image_reason"],
         }
-        if release_date_note:
-            result["release_date_note"] = release_date_note
-        if release_date_warning:
-            result["release_date_warning"] = release_date_warning
+        for key in ("release_date_note", "release_date_warning"):
+            if outcome.get(key):
+                result[key] = outcome[key]
         return jsonify(result)
 
     except Exception as e:
@@ -811,53 +784,9 @@ def _try_fetch_image_from_extraction(
     source_url: str,
     extraction_raw: dict,
 ) -> tuple[bool, str]:
-    """
-    extraction_raw からこのカード個別の画像URLを決定して取り込む。
-
-    X カード（source_domain="x.com"）は取り込み時点で画像保存済みのため、
-    official_card_images に既存レコードがあればスキップする。
-
-    URL の決定順:
-      1. card_image_url（各カード固有の画像URL・新形式）があればそれを使う
-      2. なければ card_image_urls（記事全体の画像URL一覧）の先頭を使う（後方互換）
-
-    Returns:
-        (成功フラグ, 理由文字列)
-    """
-    if not _supabase:
-        return False, "Supabase 未接続"
-
-    # 既存の画像レコードがあればスキップ（X取り込み時に保存済み）
-    try:
-        existing = (
-            _supabase.table("official_card_images")
-            .select("id")
-            .eq("unreleased_card_id", card_id)
-            .is_("deleted_at", "null")
-            .execute()
-        )
-        if existing.data:
-            logger.info(f"[admin] 画像取込済みのためスキップ: card_id={card_id}")
-            return True, "取込済み（スキップ）"
-    except Exception as e:
-        logger.warning(f"[admin] 既存画像確認失敗（処理継続）: {e}")
-
-    # 優先1: card_image_url（各カード固有・新形式）
-    card_image_url = (extraction_raw.get("card_image_url") or "").strip()
-    if card_image_url:
-        logger.info(f"[admin] 画像URL決定（card_image_url）: {card_image_url!r}")
-        return _fetch_and_store_image(card_id, card_image_url, source_url)
-
-    # 優先2: card_image_urls の先頭（後方互換）
-    card_image_urls = extraction_raw.get("card_image_urls", [])
-    if card_image_urls:
-        fallback_url = card_image_urls[0]
-        logger.info(
-            f"[admin] 画像URL決定（card_image_urls[0] フォールバック）: {fallback_url!r}"
-        )
-        return _fetch_and_store_image(card_id, fallback_url, source_url)
-
-    return False, "card_image_url も card_image_urls も空です"
+    """承認時の画像取込（本体は unreleased_approve.try_fetch_image_from_extraction）。"""
+    return _approve.try_fetch_image_from_extraction(
+        _supabase, card_id, source_url, extraction_raw, invalidate_cache=_card_display.invalidate_cache)
 
 
 def _fetch_and_store_image(
@@ -865,111 +794,9 @@ def _fetch_and_store_image(
     image_url: str,
     source_page_url: str,
 ) -> tuple[bool, str]:
-    """
-    指定URLの画像を取得してStorageに保存し、official_card_images にINSERTする。
-    ホワイトリスト検証・Content-Type確認・5MB上限チェックを行う。
-
-    Returns:
-        (成功フラグ, 理由文字列)
-    """
-    if not _supabase:
-        return False, "Supabase 未接続"
-
-    # ホワイトリスト検証
-    if not _fetch_guard.is_whitelisted(image_url):
-        logger.warning(f"[admin] 画像URLがホワイトリスト外のためスキップ: {image_url!r}")
-        return False, f"ホワイトリスト外のURL: {image_url!r}"
-
-    # 画像取得
-    try:
-        resp = _fetch_guard.fetch_whitelisted(image_url)
-    except _fetch_guard.WhitelistViolation as e:
-        logger.warning(f"[admin] 画像取得ホワイトリスト違反: {e}")
-        return False, f"ホワイトリスト違反: {e}"
-    except Exception as e:
-        logger.warning(f"[admin] 画像取得失敗: {e}")
-        return False, f"取得エラー: {e}"
-
-    # Content-Type の確認
-    content_type = resp.headers.get("Content-Type", "")
-    if not content_type.startswith("image/"):
-        logger.warning(f"[admin] Content-Type が image/* でない: {content_type!r} ({image_url!r})")
-        return False, f"Content-Type が image/* でない: {content_type!r}"
-
-    # サイズ上限チェック（5MB）
-    MAX_SIZE = 5 * 1024 * 1024
-    content = resp.content
-    if len(content) > MAX_SIZE:
-        logger.warning(f"[admin] 画像が5MBを超えています: {len(content):,}バイト ({image_url!r})")
-        return False, f"画像サイズ超過: {len(content):,}バイト（上限5MB）"
-
-    # 拡張子を推定（Content-Type から）
-    ext_map = {
-        "image/jpeg": "jpg",
-        "image/jpg": "jpg",
-        "image/png": "png",
-        "image/gif": "gif",
-        "image/webp": "webp",
-        "image/avif": "avif",
-    }
-    mime = content_type.split(";")[0].strip().lower()
-    ext = ext_map.get(mime, "jpg")
-
-    # Storage パスを決定
-    storage_path = f"unreleased/{card_id}.{ext}"
-
-    # Supabase Storage にアップロード（既存は上書き: upsert）
-    try:
-        # supabase-py: storage.from_(bucket).upload(path, data, options)
-        # upsert に相当するには file_options で upsert=True を指定する
-        _supabase.storage.from_("official-card-images").upload(
-            path=storage_path,
-            file=content,
-            file_options={
-                "content-type": mime,
-                "upsert": "true",
-            },
-        )
-    except Exception as e:
-        # アップロードエラーをログに記録
-        logger.error(f"[admin] Storage アップロード失敗: {e} (path={storage_path!r})")
-        return False, f"Storage アップロード失敗: {e}"
-
-    # public URL を取得
-    try:
-        url_resp = _supabase.storage.from_("official-card-images").get_public_url(storage_path)
-        # supabase-py v2: get_public_url は文字列を返す
-        if isinstance(url_resp, str):
-            public_url = url_resp
-        else:
-            public_url = url_resp.get("publicUrl", "")
-    except Exception as e:
-        logger.warning(f"[admin] public URL 取得失敗: {e}")
-        public_url = ""
-
-    # source_domain を取得
-    try:
-        source_domain = urlparse(image_url).netloc
-    except Exception:
-        source_domain = ""
-
-    # official_card_images に来歴付き INSERT
-    try:
-        _supabase.table("official_card_images").insert({
-            "unreleased_card_id": card_id,
-            "storage_path": storage_path,
-            "public_url": public_url,
-            "source_image_url": image_url,
-            "source_page_url": source_page_url,
-            "source_domain": source_domain,
-        }).execute()
-    except Exception as e:
-        logger.error(f"[admin] official_card_images INSERT 失敗: {e}")
-        return False, f"DB 登録失敗: {e}"
-
-    _card_display.invalidate_cache()
-    logger.info(f"[admin] 画像取込完了: card_id={card_id}, path={storage_path!r}")
-    return True, f"取込成功: {storage_path}"
+    """指定URLの画像を取得して保存する（本体は unreleased_approve.fetch_and_store_image）。"""
+    return _approve.fetch_and_store_image(
+        _supabase, card_id, image_url, source_page_url, invalidate_cache=_card_display.invalidate_cache)
 
 
 # ──────────────────────────────────────────────
@@ -1054,7 +881,7 @@ def admin_bulk_approve_unreleased():
         # approved_at は X 自動投稿の対象判定に使う。status と同じ UPDATE で入れる
         _execute_approve_update(
             lambda f: _supabase.table("unreleased_cards").update(f).in_("id", target_ids),
-            {"status": "approved", "approved_at": datetime.now(timezone.utc).isoformat()},
+            {"status": "approved", "approved_at": datetime.now(timezone.utc).isoformat(), "approved_via": "bulk"},
         )
 
         approved_count = len(target_ids)
@@ -1288,6 +1115,8 @@ def admin_unpublish_unreleased(card_id: int):
         if get_resp.data[0]["status"] not in ("approved", "linked"):
             return jsonify({"error": "公開中（approved/linked）のカードのみ承認待ちに戻せます"}), 400
 
+        # X に投稿済みなら、非公開にした後で投稿も削除する（誤字を直して再承認すれば再投稿される）
+        posted = _x_post.collect_posted_safe(_supabase, [card_id])
         resp = (
             _supabase.table("unreleased_cards")
             .update({"status": "pending"})
@@ -1295,6 +1124,7 @@ def admin_unpublish_unreleased(card_id: int):
             .execute()
         )
         _card_display.invalidate_cache()
+        _x_post.start_delete_thread(_supabase, posted)
         return jsonify({"ok": True, "card": resp.data[0] if resp.data else {}})
 
     except Exception as e:
@@ -1313,6 +1143,8 @@ def admin_reject_unreleased(card_id: int):
         return jsonify({"error": "Supabase 未接続"}), 503
 
     try:
+        # 承認済みを却下した場合は、X に投稿済みなら投稿も削除する（承認前のカードには投稿が無いので空）
+        posted = _x_post.collect_posted_safe(_supabase, [card_id])
         resp = (
             _supabase.table("unreleased_cards")
             .update({"status": "rejected"})
@@ -1322,6 +1154,7 @@ def admin_reject_unreleased(card_id: int):
         if not resp.data:
             return jsonify({"error": "対象レコードが見つかりません"}), 404
         _card_display.invalidate_cache()
+        _x_post.start_delete_thread(_supabase, posted)
         return jsonify({"ok": True, "card": resp.data[0]})
 
     except Exception as e:
@@ -1400,6 +1233,10 @@ def admin_toggle_hidden(card_id: int):
         current_hidden = get_resp.data[0]["hidden"]
         new_hidden = not current_hidden
 
+        # 非表示にしたら X の投稿も削除する（行も消す）。再表示すると、公開中（approved）・approved_at あり・
+        # 投稿行なしの条件を満たすので、回収ジョブ（tools/post_unreleased_x.py・3時間ごと）が再投稿しうる。
+        # 内容を確認した上での再表示なので、これは意図した挙動（decisions.md 参照）
+        posted = _x_post.collect_posted_safe(_supabase, [card_id]) if new_hidden else []
         upd_resp = (
             _supabase.table("unreleased_cards")
             .update({"hidden": new_hidden})
@@ -1407,6 +1244,7 @@ def admin_toggle_hidden(card_id: int):
             .execute()
         )
         _card_display.invalidate_cache()
+        _x_post.start_delete_thread(_supabase, posted)
         return jsonify({"ok": True, "hidden": new_hidden, "card": upd_resp.data[0] if upd_resp.data else {}})
 
     except Exception as e:
@@ -1423,6 +1261,14 @@ def admin_delete_unreleased(card_id: int):
     """
     指定IDのカードを物理削除する（誤登録の取り消し用）。
     official_card_images は ON DELETE CASCADE で自動削除される。
+
+    ただし次の場合は物理削除せず、却下（rejected）扱いにして行を残す（レスポンスに rejected_instead と note）:
+      - 公開中（approved/linked）のカード
+      - 取込由来（source_url が manual 以外）の承認待ち（pending/needs_review）のカード
+    行を消すと、同じ投稿元の再取込が新規カードとして入り直し、自動承認で再び公開されてしまうため
+    （rejected の行が「取り込み済み」の目印になり、取込の重複除外と same_source_history が効く）。
+    X 投稿の削除は従来どおり行う。manual（手動登録）の承認待ちと、却下済み（rejected）の削除は従来どおり物理削除
+    （完全に消したいときは却下タブから削除する）。
     """
     err = _require_admin_key()
     if err:
@@ -1432,6 +1278,21 @@ def admin_delete_unreleased(card_id: int):
         return jsonify({"error": "Supabase 未接続"}), 503
 
     try:
+        cur = _supabase.table("unreleased_cards").select("id, status, source_url").eq("id", card_id).execute()
+        cur_row = cur.data[0] if cur.data else {}
+        imported = (cur_row.get("source_url") or "").strip() not in ("", "manual")
+        if cur_row and (cur_row.get("status") in ("approved", "linked")
+                        or (cur_row.get("status") in ("pending", "needs_review") and imported)):
+            posted = _x_post.collect_posted_safe(_supabase, [card_id])
+            upd = _supabase.table("unreleased_cards").update({"status": "rejected"}).eq("id", card_id).execute()
+            if not upd.data:
+                return jsonify({"error": "対象レコードが見つかりません"}), 404
+            _card_display.invalidate_cache()
+            _x_post.start_delete_thread(_supabase, posted)
+            return jsonify({"ok": True, "deleted_id": card_id, "rejected_instead": True,
+                            "note": "公開中、または取込由来のカードは物理削除せず却下扱いにしました（再取込で入り直さないため）。"
+                                    "完全に消すには、却下タブから削除してください"})
+
         # 退避した元画像のパスは、行を消す前でないと extraction_raw を読めない
         original_paths: list[str] = []
         try:
@@ -1440,6 +1301,8 @@ def admin_delete_unreleased(card_id: int):
         except Exception as e:
             logger.warning(f"[admin] 退避元画像パスの収集失敗（無視）: id={card_id}: {e}")
 
+        # X の投稿IDも行を消す前に読む（unreleased_x_posts は ON DELETE CASCADE で一緒に消え、後からは読めない）
+        posted = _x_post.collect_posted_safe(_supabase, [card_id])
         resp = (
             _supabase.table("unreleased_cards")
             .delete()
@@ -1448,6 +1311,7 @@ def admin_delete_unreleased(card_id: int):
         )
         if not resp.data:
             return jsonify({"error": "対象レコードが見つかりません"}), 404
+        _x_post.start_delete_thread(_supabase, posted)
 
         # バケットは公開のため、退避元画像を残すと削除後も閲覧できてしまう。失敗しても削除は成功扱い
         if original_paths:
@@ -1953,11 +1817,16 @@ def admin_fetch_x_post():
                 ok, reason = ingest_x_card_image(_supabase, cid, img_url, tweet_url)
                 logger.info(f"[admin] fetch-x-post 画像保存: card_id={cid}, ok={ok}, reason={reason!r}")
 
+    # 自動承認（AUTO_APPROVE_ENABLED=1 のときだけ）。画像の保存後に呼ぶ。失敗しても取込の結果は返す
+    from unreleased_approve import maybe_auto_approve
+    auto = maybe_auto_approve(_supabase, inserted_cards)
+
     logger.info(f"[admin] fetch-x-post: {len(inserted_cards)}件挿入 ({tweet_url})")
     return jsonify({
         "ok": True,
         "inserted": len(inserted_cards),
         "cards": inserted_cards,
+        "auto_approved": auto.get("approved", 0),
     }), 201
 
 

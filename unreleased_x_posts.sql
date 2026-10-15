@@ -12,6 +12,7 @@
 --                      Discord 通知。X を見て、投稿済みなら posted（tweet_id も）に、未投稿なら行を削除
 --   skipped_duplicate→ 同じカード名で投稿済みのカードがあるため投稿しない
 --   skipped_legacy   → 旧版が導入前の承認済みカードに付けた印。現行は approved_at で除外するので新規には作らない（既存行は残る）
+--   delete_failed    → 非公開にしたが X の投稿を削除できなかった印（2026-10-15 追加・unreleased_auto_approve_go.sql）。行は残し Discord 通知。人が X で消して行を削除
 --
 -- 投稿対象は unreleased_cards.approved_at（承認時刻）が入っているカードだけ。
 --   approved_at は単体承認・一括承認で status='approved' にする UPDATE と同時に入る。
@@ -28,7 +29,7 @@
 
 CREATE TABLE IF NOT EXISTS unreleased_x_posts (
     card_id     BIGINT      PRIMARY KEY REFERENCES unreleased_cards(id) ON DELETE CASCADE,
-    status      TEXT        NOT NULL CHECK (status IN ('posting', 'posted', 'failed', 'rate_limited', 'unknown', 'skipped_duplicate', 'skipped_legacy')),
+    status      TEXT        NOT NULL CHECK (status IN ('posting', 'posted', 'failed', 'rate_limited', 'unknown', 'skipped_duplicate', 'skipped_legacy', 'delete_failed')),
     tweet_id    TEXT,
     attempts    INTEGER     NOT NULL DEFAULT 0,
     last_error  TEXT,
@@ -38,7 +39,7 @@ CREATE TABLE IF NOT EXISTS unreleased_x_posts (
 
 COMMENT ON TABLE  unreleased_x_posts            IS '未発売カードのX自動投稿の状態。card_id 主キーで二重投稿を防ぐ（unreleased_x_post.py）';
 COMMENT ON COLUMN unreleased_x_posts.card_id    IS 'unreleased_cards.id。主キー衝突＝他が処理中か投稿済み';
-COMMENT ON COLUMN unreleased_x_posts.status     IS 'posting=処理中 / posted=投稿済み / failed=失敗（attempts<3で再試行）/ rate_limited=429（再挑戦）/ unknown=結果不明（自動再試行しない）/ skipped_duplicate=同名で投稿済み / skipped_legacy=導入前の承認済み';
+COMMENT ON COLUMN unreleased_x_posts.status     IS 'posting=処理中 / posted=投稿済み / failed=失敗（attempts<3で再試行）/ rate_limited=429（再挑戦）/ unknown=結果不明（自動再試行しない）/ skipped_duplicate=同名で投稿済み / skipped_legacy=導入前の承認済み / delete_failed=非公開時の投稿削除に失敗';
 COMMENT ON COLUMN unreleased_x_posts.tweet_id   IS '投稿成功時のXの投稿ID';
 COMMENT ON COLUMN unreleased_x_posts.attempts   IS '失敗回数（失敗のたびに+1）';
 COMMENT ON COLUMN unreleased_x_posts.last_error IS '直近の失敗理由';
@@ -50,7 +51,7 @@ ALTER TABLE unreleased_x_posts ENABLE ROW LEVEL SECURITY;
 -- 既に旧版の CREATE TABLE を実行済みの場合に備え、status の CHECK 制約を作り直す（冪等）。
 ALTER TABLE unreleased_x_posts DROP CONSTRAINT IF EXISTS unreleased_x_posts_status_check;
 ALTER TABLE unreleased_x_posts ADD CONSTRAINT unreleased_x_posts_status_check
-    CHECK (status IN ('posting', 'posted', 'failed', 'rate_limited', 'unknown', 'skipped_duplicate', 'skipped_legacy'));
+    CHECK (status IN ('posting', 'posted', 'failed', 'rate_limited', 'unknown', 'skipped_duplicate', 'skipped_legacy', 'delete_failed'));
 
 -- 承認時刻の列（冪等）。既存行は NULL のまま。
 ALTER TABLE unreleased_cards ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ NULL;

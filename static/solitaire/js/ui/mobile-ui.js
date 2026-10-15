@@ -417,7 +417,7 @@ async function showMobileCardInfo(name, imgSrc) {
     if (data.found) {
       _renderCard(data, imgSrc, name, null, body, false);
     } else if (data.kind === 'proxy' && data.proxy) {
-      _renderCard(data.proxy, imgSrc, name, null, body, false);
+      _renderCard(data.proxy, imgSrc, name, null, body, false, false, true);
     } else {
       _showUnknown(imgSrc, name, null, body, false);
     }
