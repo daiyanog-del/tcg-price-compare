@@ -222,6 +222,12 @@ EFFECT_BOX_RATIO = {
     "spell_trap": (0.035, 0.735, 0.965, 0.955),
 }
 EFFECT_CROP_SCALE = 3
+# カード枠候補（輪郭・縁の線から求めた枠）は実際のカード外縁より2〜4%内側に寄ることがあり、校正した比率をそのまま
+# 当てると文の端が切れる（実例 IMPH-JPS11 ラーの翼神竜－不死鳥: 枠が上下2%・左右3.7%内側で、最後の行が欠けた）。
+# 枠候補を使うときだけ、切り出し範囲を枠の幅・高さに対するこの割合だけ外へ広げる。
+# TODO: calibrate from data（IMPH-JPS11 の1例から決めた仮置き。X画像の枠候補で分布を見て調整する）
+EFFECT_CROP_PAD_X = 0.035
+EFFECT_CROP_PAD_Y = 0.02
 
 
 def effect_box_kind(card_type: str) -> str | None:
@@ -247,6 +253,7 @@ def make_effect_crop(image_bytes: bytes, card_type: str, suggestion: dict | None
         raise ValueError(f"効果欄の切り出し位置が未定義のカード種別です: {card_type!r}")
     try:
         image = _open_image(image_bytes)
+        pad_x = pad_y = 0.0
         if suggestion is None:
             left, top, right, bottom = 0.0, 0.0, 1.0, 1.0
         else:
@@ -254,11 +261,15 @@ def make_effect_crop(image_bytes: bytes, card_type: str, suggestion: dict | None
             if not _valid_box(box, 1, 1):
                 raise ValueError("カード枠候補の座標が不正です")
             left, top, right, bottom = box
+            # 画像全体が枠（image_boundary）なら校正時と同じ条件なので広げない
+            if not (left <= 0.005 and top <= 0.005 and right >= 0.995 and bottom >= 0.995):
+                pad_x, pad_y = EFFECT_CROP_PAD_X, EFFECT_CROP_PAD_Y
         card_left, card_top = left * image.width, top * image.height
         card_w, card_h = (right - left) * image.width, (bottom - top) * image.height
         rl, rt, rr, rb = EFFECT_BOX_RATIO[kind]
-        region = (round(card_left + card_w * rl), round(card_top + card_h * rt),
-                  round(card_left + card_w * rr), round(card_top + card_h * rb))
+        region = (max(0, round(card_left + card_w * (rl - pad_x))), max(0, round(card_top + card_h * (rt - pad_y))),
+                  min(image.width, round(card_left + card_w * (rr + pad_x))),
+                  min(image.height, round(card_top + card_h * (rb + pad_y))))
         if region[2] <= region[0] or region[3] <= region[1]:
             raise ValueError("効果欄の切り出し範囲が空です")
         crop = image.crop(region)

@@ -68,6 +68,16 @@ def test_crop_inside_suggested_card_box():
     assert abs(w - 3 * round(407 * 0.93)) <= 6
 
 
+def test_crop_pads_inward_shifted_suggestion_but_not_image_boundary():
+    # 枠候補が実際の外縁より内側に寄る場合のみ、切り出し範囲を外へ広げる（最後の行が欠けた実例の対策）
+    base = Image.open(io.BytesIO(card_crop.make_effect_crop(_png(407, 593), "効果モンスター"))).size
+    boundary = {"left": 0, "top": 0, "right": 1, "bottom": 1}
+    assert Image.open(io.BytesIO(card_crop.make_effect_crop(_png(407, 593), "効果モンスター", boundary))).size == base
+    inner = {"left": 0.037, "top": 0.02, "right": 0.966, "bottom": 0.978}
+    padded = Image.open(io.BytesIO(card_crop.make_effect_crop(_png(407, 593), "効果モンスター", inner))).size
+    assert padded[1] > base[1] - 12 and padded[0] > base[0] - 12  # 枠が小さくても、広げた分で元の大きさ近くになる
+
+
 @pytest.mark.parametrize("card_type", ["ペンデュラム効果モンスター", "", "不明"])
 def test_crop_rejects_unsupported_type(card_type):
     with pytest.raises(ValueError):
