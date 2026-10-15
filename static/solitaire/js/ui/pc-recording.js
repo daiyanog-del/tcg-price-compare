@@ -11,7 +11,7 @@
  */
 
 import { getCursor, getLogLength, seekTo, isPlaying, togglePlay, subscribeReplay } from '../services/replay-service.js';
-import { shiftRangeAfterRemove } from '../services/comment-model.js';
+import { shiftRangeAfterInsert, shiftRangeAfterRemove } from '../services/comment-model.js';
 
 /** 録画の状態: {recording, startIdx, endIdx}（startIdx/endIdx は1-indexed手数） */
 let _pcRecording = { recording: false, startIdx: null, endIdx: null };
@@ -46,16 +46,15 @@ export function _getPcRecordingRange() {
 }
 
 /**
- * 中2対応: 停止済み録画がある場合、endIdx を現在の手数へ追従させる。
- * コメントは範囲が決まった後も付けられるため、追加で手数が増えても endIdx が古いままだと
- * 共有範囲にコメントが含まれない（モバイル版 mobile-ui.js も同じ追従をする）。
- * replay-service の addComment が 'commentAdded' を通知したときに initPcRecording の購読から呼ばれる。
+ * 記録にコメントが1つ差し込まれた（巻き戻した位置でも付けられる）ときに、範囲の開始・終了をずらす。
+ * 範囲より前なら開始も終わりも1つ後ろへ、範囲の中なら終わりだけ1つ後ろへ、後ろなら変えない
+ * （ずらし方の本体は comment-model.js の shiftRangeAfterInsert）。
+ * @param {number} insertedIdx 差し込まれた位置（0始まり）
  */
-export function _syncPcRecordingEndIdxAfterComment() {
-  if (_hasStoppedPcRecording()) {
-    _pcRecording.endIdx = getLogLength();
-    updatePcShareRecordingSection();
-  }
+function _shiftPcRangeAfterInsert(insertedIdx) {
+  _pcRecording = shiftRangeAfterInsert(_pcRecording, insertedIdx);
+  _updatePcRecordBtn();
+  updatePcShareRecordingSection();
 }
 
 /**
@@ -235,7 +234,7 @@ export function initPcRecording(deps = {}) {
   _onRangeDecided = deps.onRangeDecided;
   _closeShareSheet = deps.closeShareSheet;
 
-  subscribeReplay('commentAdded', _syncPcRecordingEndIdxAfterComment);
+  subscribeReplay('commentAdded', _shiftPcRangeAfterInsert);
   subscribeReplay('removed', _shiftPcRangeAfterRemove);
 
   document.getElementById('pcRecordBtn')

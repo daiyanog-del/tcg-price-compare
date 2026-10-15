@@ -50,7 +50,7 @@ import { playActivateEffect, flipMoveClone, playSetFlip, flyBetweenRects, prefer
 import { createProxyCardElement } from '../components/proxy-card.js';
 import { isMobilePortrait } from '../utils/viewport.js';
 import { renderCommentView } from './comment-view.js';
-import { clampCommentText, cursorAfterRemove } from './comment-model.js';
+import { clampCommentText, cursorAfterRemove, isSameComment } from './comment-model.js';
 
 const _API_CARD_IMAGES = '/api/card-images';
 
@@ -212,12 +212,13 @@ export function logEvent(event) {
 }
 
 /**
- * コメント（吹き出し・盤面メモ）を、今の位置で手を打つのと同じ扱いで記録に追記する。
+ * コメント（吹き出し・盤面メモ）を、いま見ている位置（カーソルの次）に差し込む。
  *   - 自動再生中なら止める
- *   - カーソルが末尾でなければ末尾まで進めてから追加する（logEvent の「未来ログの切り捨て」を起こさない）
+ *   - カーソルを動かさず、巻き戻した位置ならその位置の盤面に付く。後ろの手は切り捨てず、1つ後ろへずれる
+ *   - コメントは盤面を変えないので、盤面の作り直しはしない。カーソルは差し込んだコメントへ進む
  *   - 本文は上限（COMMENT_MAX_LEN）で切る。空なら何もしない
- * 範囲（旧録画）の終わりの追従は、呼び出し元ではなく購読側（pc-recording.js・mobile-ui.js）が
- * 'commentAdded' を受けて行う。
+ * 範囲（旧録画）のずらしは、呼び出し元ではなく購読側（pc-recording.js・mobile-ui.js）が
+ * 'commentAdded'（引数 = 差し込んだ位置）を受けて行う。
  * @param {{kind:'card'|'board', cardId?:string, text:string}} comment
  * @returns {boolean} 追加できたか
  */
@@ -226,36 +227,35 @@ export function addComment({ kind, cardId, text }) {
   if (!t) return false;
   if (kind === 'card' && !cardId) return false;
   if (_playing) _stopPlay();
-  if (_cursor < _logs.length - 1) seekTo(_logs.length - 1);
-  logEvent(kind === 'card'
+  const at = _cursor + 1;
+  const ev = kind === 'card'
     ? { actionType: 'comment', kind: 'card', cardId, text: t }
-    : { actionType: 'comment', kind: 'board', text: t });
-  _emit('commentAdded');
+    : { actionType: 'comment', kind: 'board', text: t };
+  _logs = [..._logs.slice(0, at), ev, ..._logs.slice(at)].map((e, i) => ({ ...e, seq: i }));
+  _cursor = at;
+  _emit('commentAdded', at);
+  _updateUI();
   return true;
 }
 
 /**
- * 通常ログの index 番目の手を取り除く（コメントの削除用）。
- * カーソルは、取り除く手がカーソル以前なら1つ前へずらす。コメントは盤面に影響しないので盤面はそのまま、
- * コメント以外の手を取り除いた場合は盤面を最初から作り直す。seq は 0 から振り直す。
- * 範囲（PC の _pcRecording・スマホの _recording）は 'removed' の購読側がずらす。
+ * 通常ログの index 番目のコメントを取り除く（コメントの削除用）。コメント以外の手は取り除かない（false を返す）。
+ * expected を渡すと、その位置のコメントが expected（一覧の行の内容 {kind, cardId, text}）と同じときだけ取り除く
+ * （古い一覧の ✕ や素早い2回押しで、別のコメントを消さないため）。
+ * カーソルは、取り除く手がカーソル以前なら1つ前へずらす。コメントは盤面に影響しないので盤面はそのまま。
+ * seq は 0 から振り直す。範囲（PC の _pcRecording・スマホの _recording）は 'removed' の購読側がずらす。
  * @param {number} index
+ * @param {{kind:'card'|'board', cardId:string|null, text:string}} [expected]
  * @returns {boolean} 取り除けたか
  */
-export function removeEventAt(index) {
+export function removeEventAt(index, expected) {
   if (!Number.isInteger(index) || index < 0 || index >= _logs.length) return false;
+  if (!isSameComment(_logs[index], expected)) return false;
   if (_playing) _stopPlay();
-  const removed = _logs[index];
-  const newCursor = cursorAfterRemove(_cursor, index);
+  _cursor = cursorAfterRemove(_cursor, index);
   _logs = _logs.filter((_, i) => i !== index).map((ev, i) => ({ ...ev, seq: i }));
-  if (removed?.actionType === 'comment') {
-    _cursor = newCursor;
-    _emit('removed', index);
-    _updateUI();
-  } else {
-    _emit('removed', index);
-    _replayTo(newCursor);
-  }
+  _emit('removed', index);
+  _updateUI();
   return true;
 }
 

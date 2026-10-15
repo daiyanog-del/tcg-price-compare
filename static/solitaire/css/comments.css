@@ -58,8 +58,28 @@
   font-family: var(--font);
   font-size: 0.78rem;
   line-height: 1.4;
+  position: relative;       /* 全文（.sol-board-memo-full）をこの帯の下に重ねる */
+  cursor: pointer;
 }
 .sol-board-memo[hidden] { display: none; }
+/* 押すと開く全文。帯の高さは変えず（盤面を縮め直さず）、下に重ねて出す */
+.sol-board-memo-full {
+  position: absolute;
+  left: -3px;               /* 左の線の分 */
+  right: 0;
+  top: 100%;
+  z-index: 35;
+  margin-top: 2px;
+  padding: 6px 8px 6px 11px;
+  background: var(--bg-card);
+  border-left: 3px solid var(--gold);
+  border-radius: 4px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: auto;
+}
+.sol-board-memo-full[hidden] { display: none; }
 .sol-board-memo-icon { flex: 0 0 auto; }
 .sol-board-memo-text {
   flex: 1 1 auto;
@@ -83,7 +103,8 @@
   right: 0;
   top: 4px;
   padding: 4px 8px;
-  background: #223052;      /* 暗色の面に accent の線と文字（accent 15% を背景に乗せた色） */
+  /* accent 15% を暗色の面に乗せた色。下のカードが透けて文字が読みにくくならないよう、地の色を敷いて不透明にする */
+  background: linear-gradient(rgba(174, 197, 255, 0.15), rgba(174, 197, 255, 0.15)), var(--bg-color);
   border: 1px solid var(--accent);
   border-radius: 6px;
   color: var(--accent);
@@ -107,7 +128,7 @@ body.sol-comment-picking .tier-item-wrapper .tier-item {
 }
 .sol-comment-btn {
   padding: 5px 9px;
-  background: #202c42;
+  background: var(--bg-hover, #202c42);
   border: 1px solid transparent;
   border-radius: 6px;
   color: var(--main-color);
@@ -117,7 +138,7 @@ body.sol-comment-picking .tier-item-wrapper .tier-item {
   cursor: pointer;
   white-space: nowrap;
 }
-.sol-comment-btn:hover { background: #2b3549; }
+.sol-comment-btn:hover { background: var(--border); }
 /* 入力中・選択中の状態は accent（黄は主な操作の印だけに使う） */
 .sol-comment-btn.is-active {
   background: var(--accent);
@@ -225,3 +246,22 @@ body.sol-comment-picking .tier-item-wrapper .tier-item {
 .sol-comment-row-text {
   color: inherit;
 }
+
+/* ── スマホのカード詳細に出す、そのカードの今の吹き出し（全文） ── */
+.sol-mobile-cip-bubble {
+  margin: 0 0 10px;
+  padding: 6px 10px;
+  background: var(--main-color, #eff3fb);
+  color: #101626;
+  border-radius: 8px;
+}
+.sol-mobile-cip-bubble[hidden] { display: none; }
+.sol-mobile-cip-bubble-label,
+.sol-mobile-cip-bubble-text {
+  margin: 0;
+  color: inherit;            /* components.css の `p, span, li { color:#333 }` を避ける */
+  font-family: var(--font);
+}
+.sol-mobile-cip-bubble-label { font-size: 0.68rem; font-weight: 700; opacity: 0.7; }
+.sol-mobile-cip-bubble-text { font-size: 0.85rem; line-height: 1.5; overflow-wrap: anywhere; }
+.sol-mobile-cip-main { flex: 1; min-width: 0; }  /* パネルは横並びの flex。吹き出しと本体を縦に積む入れ物 */

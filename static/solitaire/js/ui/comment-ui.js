@@ -34,39 +34,64 @@ export function setCardCommentOpener(fn) {
   _cardCommentOpener = fn;
 }
 
-// ── カード選択モード ──────────────────────────────────────
+// ── カードの操作止め（選択モード中・カードの近くの入力欄が開いている間） ──
+// 選んだ押下の続き（ダブルクリックの2回目など）が通常の動作（効果発動の記録・詳細表示・移動）を起こさないよう、
+// 入力欄が閉じるまでカード上のイベントを止め続ける。
 let _picking = false;
+let _blocking = false;
+let _holdTimer = null;       // 外を押して閉じたとき、その押下の続きを少しの間だけ止め続ける
+let _popupOpenedAt = 0;
 
-/** 選択モード中に、カードへの通常の動作（移動・詳細・効果発動・右クリック）を起こさせないために止めるイベント */
-const _PICK_BLOCKED_EVENTS = ['pointerdown', 'mousedown', 'mouseup', 'dblclick', 'dragstart', 'contextmenu', 'touchstart'];
+const _BLOCKED_EVENTS = ['pointerdown', 'mousedown', 'mouseup', 'click', 'dblclick', 'dragstart', 'contextmenu', 'touchstart'];
+const _DOUBLE_CLICK_WINDOW_MS = 600;
 
 function _wrapperOf(target) {
   return target instanceof Element ? target.closest('.tier-item-wrapper') : null;
 }
 
-/** 選択モード中、カード上のイベントをその場で止める（カードの listener に届かせない） */
-function _blockCardEvent(e) {
-  if (!_wrapperOf(e.target)) return;
-  // タッチの touchstart は preventDefault すると、その後の click（カードを選ぶ押下）まで消えるので止めるだけにする
-  if (e.type !== 'touchstart') e.preventDefault();
-  e.stopImmediatePropagation();
+function _needBlock() {
+  return _picking || !!_popupEl || !!_holdTimer;
 }
 
-function _onPickClick(e) {
+/** 止めが必要かを見直して、リスナーを付け外しする */
+function _updateBlock() {
+  const need = _needBlock();
+  if (need === _blocking) return;
+  _blocking = need;
+  const fn = need ? 'addEventListener' : 'removeEventListener';
+  _BLOCKED_EVENTS.forEach((t) => document[fn](t, _guard, true));
+  document[fn]('keydown', _guardKeydown, true);
+}
+
+function _guard(e) {
+  // 入力欄の外を押したら入力欄を閉じる。開いた直後（ダブルクリックの2回目）の押下では閉じない
+  if (e.type === 'mousedown' && _popupEl && !_popupEl.contains(e.target)
+      && Date.now() - _popupOpenedAt > _DOUBLE_CLICK_WINDOW_MS) {
+    closeCardCommentPopup(_wrapperOf(e.target) ? { holdGesture: true } : undefined);
+  }
   const wrapper = _wrapperOf(e.target);
-  if (!wrapper) return; // カード以外は何もしない（Esc か、もう一度ボタンでやめる）
-  e.preventDefault();
+  if (!wrapper) return;
+  // touchstart を preventDefault すると、その後の click（カードを選ぶ押下）まで消える。pointerdown を preventDefault すると
+  // 続く mousedown が出なくなる（入力欄の外を押したら閉じる判定が働かない）。この2つは止めるだけにする
+  if (e.type !== 'touchstart' && e.type !== 'pointerdown') e.preventDefault();
   e.stopImmediatePropagation();
+  if (e.type === 'click' && _picking) _pickCard(wrapper);
+}
+
+function _guardKeydown(e) {
+  if (e.key !== 'Escape') return;
+  if (_popupEl) { e.stopPropagation(); closeCardCommentPopup(); }
+  else if (_picking) { e.stopPropagation(); stopPickingCard(); }
+}
+
+function _pickCard(wrapper) {
   if (isCardInPool(wrapper)) {
     showToast('デッキの中のカードには付けられません');
     return;
   }
-  stopPickingCard();
+  stopPickingCard({ keepBlock: true }); // 入力欄が閉じるまで止めは外さない（openCardCommentInput が入力欄を開く）
   openCardCommentInput(wrapper);
-}
-
-function _onPickKeydown(e) {
-  if (e.key === 'Escape') stopPickingCard();
+  _updateBlock();
 }
 
 function startPickingCard() {
@@ -75,20 +100,16 @@ function startPickingCard() {
   document.getElementById('solCommentGuide')?.removeAttribute('hidden');
   document.body.classList.add('sol-comment-picking');
   document.getElementById('solCommentCardBtn')?.classList.add('is-active');
-  _PICK_BLOCKED_EVENTS.forEach((t) => document.addEventListener(t, _blockCardEvent, true));
-  document.addEventListener('click', _onPickClick, true);
-  document.addEventListener('keydown', _onPickKeydown, true);
+  _updateBlock();
 }
 
-function stopPickingCard() {
+function stopPickingCard({ keepBlock = false } = {}) {
   if (!_picking) return;
   _picking = false;
   document.getElementById('solCommentGuide')?.setAttribute('hidden', '');
   document.body.classList.remove('sol-comment-picking');
   document.getElementById('solCommentCardBtn')?.classList.remove('is-active');
-  _PICK_BLOCKED_EVENTS.forEach((t) => document.removeEventListener(t, _blockCardEvent, true));
-  document.removeEventListener('click', _onPickClick, true);
-  document.removeEventListener('keydown', _onPickKeydown, true);
+  if (!keepBlock) _updateBlock();
 }
 
 // ── 入力欄 ────────────────────────────────────────────────
@@ -99,11 +120,19 @@ function _isCommitEnter(e) {
 }
 
 let _popupEl = null;
-let _popupCleanup = null;
 
-function closeCardCommentPopup() {
-  if (_popupCleanup) { _popupCleanup(); _popupCleanup = null; }
+/**
+ * カードの近くの入力欄を閉じる。
+ * @param {{holdGesture?: boolean}} [opts] holdGesture: カードを押して閉じたとき。その押下の続き（ダブルクリックなど）が
+ *   カードに届かないよう、少しの間だけ止めを残す
+ */
+function closeCardCommentPopup({ holdGesture = false } = {}) {
   if (_popupEl) { _popupEl.remove(); _popupEl = null; }
+  if (holdGesture) {
+    clearTimeout(_holdTimer);
+    _holdTimer = setTimeout(() => { _holdTimer = null; _updateBlock(); }, _DOUBLE_CLICK_WINDOW_MS);
+  }
+  _updateBlock();
 }
 
 /** 開いている入力欄（カードの近く・盤面メモ）と選択モードをすべて閉じる */
@@ -121,7 +150,7 @@ function _placePopup(popup, wrapper) {
   const margin = 6;
   const w = popup.offsetWidth;
   const h = popup.offsetHeight;
-  let left = Math.min(Math.max(margin, r.left), window.innerWidth - w - margin);
+  const left = Math.min(Math.max(margin, r.left), window.innerWidth - w - margin);
   let top = r.bottom + 4;
   if (top + h > window.innerHeight - margin) top = Math.max(margin, r.top - h - 4); // 下に収まらなければカードの上へ
   popup.style.left = `${left}px`;
@@ -130,7 +159,8 @@ function _placePopup(popup, wrapper) {
 
 /**
  * カードの吹き出しを入力する小さな欄を、そのカードの近くに出す（右クリックメニュー・カード選択モードから）。
- * デッキ内のカードには付けない。縦向きスマホでは mobile-ui.js のシートが代わりに開く。
+ * デッキ内のカードには付けない（判定は今の盤面＝カーソル位置のもの）。縦向きスマホでは mobile-ui.js のシートが代わりに開く。
+ * 欄が開いている間は、カードの操作（移動・詳細・効果発動など）を止める。
  * @param {Element} wrapper  .tier-item-wrapper
  */
 export function openCardCommentInput(wrapper) {
@@ -164,18 +194,15 @@ export function openCardCommentInput(wrapper) {
   };
   popup.addEventListener('submit', (e) => { e.preventDefault(); submit(); });
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { e.preventDefault(); closeCardCommentPopup(); return; }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeCardCommentPopup(); return; }
     if (_isCommitEnter(e)) { e.preventDefault(); submit(); }
   });
 
   document.body.appendChild(popup);
   _popupEl = popup;
+  _popupOpenedAt = Date.now();
   _placePopup(popup, wrapper);
-
-  // 欄の外を押したら閉じる（開いた押下そのもので閉じないよう、登録は次のタスクへ）
-  const onOutside = (e) => { if (!popup.contains(e.target)) closeCardCommentPopup(); };
-  const tid = setTimeout(() => document.addEventListener('mousedown', onOutside, true), 0);
-  _popupCleanup = () => { clearTimeout(tid); document.removeEventListener('mousedown', onOutside, true); };
+  _updateBlock();
   setTimeout(() => input.focus(), 0); // 右クリックメニューが閉じて消えた後にフォーカスを取る
 }
 
@@ -226,7 +253,8 @@ function renderCommentList() {
     del.className = 'sol-comment-del';
     del.textContent = '✕';
     del.setAttribute('aria-label', `${c.index + 1}手目のコメントを削除`);
-    del.addEventListener('click', () => removeEventAt(c.index)); // 確認は出さない（コメントなので）
+    // 確認は出さない（コメントなので）。一覧の行の内容も渡し、記録の同じ位置が別のコメントに変わっていたら消さない
+    del.addEventListener('click', () => removeEventAt(c.index, { kind: c.kind, cardId: c.cardId, text: c.text }));
     li.append(text, del);
     ul.appendChild(li);
   }
@@ -250,8 +278,22 @@ export function initCommentUI() {
     _submitBoardMemo();
   });
   boardInput?.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { e.preventDefault(); closeCommentInputs(); return; }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeCommentInputs(); return; }
     if (_isCommitEnter(e)) { e.preventDefault(); _submitBoardMemo(); }
+  });
+
+  // 盤面メモの帯: 押す（クリック・Enter・Space）と全文が開閉する
+  const memo = document.getElementById('solBoardMemo');
+  const toggleMemo = () => {
+    const open = !memo.classList.contains('is-open');
+    memo.classList.toggle('is-open', open);
+    memo.setAttribute('aria-expanded', String(open));
+    const full = document.getElementById('solBoardMemoFull');
+    if (full) full.hidden = !open;
+  };
+  memo?.addEventListener('click', toggleMemo);
+  memo?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleMemo(); }
   });
 
   subscribeReplay('changed', renderCommentList);

@@ -26,6 +26,7 @@ const isMobilePortrait=()=>globalThis.__mobile===true;
 const renderCommentView=()=>{};
 const clampCommentText=(t)=>t;
 const cursorAfterRemove=(c,i)=>(i<=c?c-1:c);
+const isSameComment=()=>true;
 `;
   let src = fs.readFileSync(path.join(js, 'services/replay-service.js'), 'utf8');
   const before = src;

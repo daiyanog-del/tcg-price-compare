@@ -4,6 +4,7 @@
   --bg-color:#101626;
   --bg-card:#171f31;
   --bg-surface:#141c2c;
+  --bg-hover:#202c42;     /* 押せる面のホバー・通常ボタンの地（コメントの区画で使用。他の画面の同名変数と同じ値） */
   --accent:#aec5ff;
   --accent-hover:#d0ddff;
   --gold:#f3ce46;

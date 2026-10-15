@@ -49,8 +49,9 @@ import {
   subscribeReplay,
   addComment,
 } from '../services/replay-service.js';
-import { shiftRangeAfterRemove, COMMENT_MAX_LEN } from '../services/comment-model.js';
+import { shiftRangeAfterInsert, shiftRangeAfterRemove, COMMENT_MAX_LEN } from '../services/comment-model.js';
 import { setCardCommentOpener } from './comment-ui.js';
+import { getCurrentBubbleText } from '../services/comment-view.js';
 import { savedReplaysGet } from '../services/saved-replays.js';
 import { sharedReplaysGet } from '../services/shared-replays.js';
 
@@ -440,11 +441,18 @@ function openCardDetailOverlay() {
   const sel = getMobileSelection();
   if (!sel) return;
   const { name, src } = getCardNameAndSrc(sel.element);
+  // そのカードの今の吹き出しを全文で出す（盤面上の吹き出しは2行で省略されるため）
+  const bubbleText = getCurrentBubbleText(sel.element.querySelector('.tier-item')?.id || '');
+  const bubbleEl = document.getElementById('solMobileCipBubble');
+  const bubbleTextEl = document.getElementById('solMobileCipBubbleText');
+  if (bubbleTextEl) bubbleTextEl.textContent = bubbleText || ''; // 本文は textContent で入れる
+  if (bubbleEl) bubbleEl.hidden = !bubbleText;
   setHidden('solMobileCip', false);
   showMobileCardInfo(name, src);
 }
 /** 選択状態なしで名前と画像から詳細を開く（?newcards=1&focus= の自動表示用。同じ #solMobileCip を使う）。 */
 export function openCardDetailByName(name, src) {
+  setHidden('solMobileCipBubble', true); // 選択したカードが無いので吹き出しは出さない
   setHidden('solMobileCip', false);
   showMobileCardInfo(name, src);
 }
@@ -1088,9 +1096,9 @@ function _updateRecordBtn() {
  * 監視し、録画中バッジの N手・クランプを追従させる。
  */
 function initRecording() {
-  // コメントを付けた（手数が1増える）ときは、停止済みの範囲の終わりを手数へ追従させる（PC版 pc-recording.js と同じ）
-  subscribeReplay('commentAdded', () => {
-    if (_hasStoppedRecording()) _recording.endIdx = getLogLength();
+  // コメントを差し込んだ（手数が1増える）ときは、範囲の開始・終了をずらす（PC版 pc-recording.js と同じ）
+  subscribeReplay('commentAdded', (insertedIdx) => {
+    _recording = shiftRangeAfterInsert(_recording, insertedIdx);
     _updateRecordBtn();
     _updateShareRecordingSection();
     _updateShareCurrentInfo();

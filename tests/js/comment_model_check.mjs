@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import {
   COMMENT_MAX_LEN, clampCommentText, commentKind, computeCommentView, listComments,
-  cursorAfterRemove, shiftRangeAfterRemove,
+  cursorAfterRemove, shiftRangeAfterRemove, shiftRangeAfterInsert, isSameComment,
 } from '../../static/solitaire/js/services/comment-model.js';
 
 const mv = (cardId, extra = {}) => ({ actionType: 'moveCard', cardId, zoneId: 'custom-slot-1', ...extra });
@@ -123,5 +123,33 @@ assert.equal(view(ls).bubbles.length, 1);
 ls = ls.filter((_, i) => i !== 1);
 assert.equal(view(ls, cursorAfterRemove(2, 1)).bubbles.length, 0);
 assert.equal(view(ls, cursorAfterRemove(2, 1)).memo, 'm');
+
+// ── 差し込みで位置がずれる（削除の逆） ──
+const r2 = { recording: false, startIdx: 3, endIdx: 7 };
+assert.deepEqual(shiftRangeAfterInsert(r2, 1), { recording: false, startIdx: 4, endIdx: 8 }, '範囲より前に差し込む: 開始も終わりも1つ後ろ');
+assert.deepEqual(shiftRangeAfterInsert(r2, 2), { recording: false, startIdx: 4, endIdx: 8 });
+assert.deepEqual(shiftRangeAfterInsert(r2, 3), { recording: false, startIdx: 3, endIdx: 8 }, '範囲の先頭に差し込む: 範囲に入る（終わりだけ後ろ）');
+assert.deepEqual(shiftRangeAfterInsert(r2, 5), { recording: false, startIdx: 3, endIdx: 8 }, '範囲の中: 終わりだけ1つ後ろ');
+assert.deepEqual(shiftRangeAfterInsert(r2, 7), { recording: false, startIdx: 3, endIdx: 8 }, '範囲の終わり直後（末尾で付けた）: 範囲に入る');
+assert.deepEqual(shiftRangeAfterInsert(r2, 8), r2, '範囲より後ろ: そのまま');
+assert.deepEqual(shiftRangeAfterInsert({ recording: true, startIdx: 3, endIdx: null }, 1), { recording: true, startIdx: 4, endIdx: null }, '選んでいる最中: 開始より前なら開始が後ろへ');
+assert.deepEqual(shiftRangeAfterInsert({ recording: true, startIdx: 3, endIdx: null }, 3), { recording: true, startIdx: 3, endIdx: null }, '開始と同じ位置: 開始はそのまま');
+assert.deepEqual(shiftRangeAfterInsert({ recording: true, startIdx: 3, endIdx: null }, 5), { recording: true, startIdx: 3, endIdx: null });
+assert.deepEqual(shiftRangeAfterInsert({ recording: false, startIdx: null, endIdx: null }, 0), { recording: false, startIdx: null, endIdx: null });
+assert.notEqual(shiftRangeAfterInsert(r2, 1), r2);
+assert.equal(r2.startIdx, 3);
+// 差し込みと削除は逆の操作
+for (const i of [0, 2, 3, 5, 7, 9]) {
+  assert.deepEqual(shiftRangeAfterRemove(shiftRangeAfterInsert(r2, i), i), r2, `差し込み→削除で元に戻る(${i})`);
+}
+
+// ── 一覧の行と記録の手が同じか ──
+assert.equal(isSameComment(bub('a', 'x'), { kind: 'card', cardId: 'a', text: 'x' }), true);
+assert.equal(isSameComment(bub('a', 'x'), { kind: 'card', cardId: 'b', text: 'x' }), false);
+assert.equal(isSameComment(bub('a', 'x'), { kind: 'board', cardId: null, text: 'x' }), false);
+assert.equal(isSameComment(memo('y'), { kind: 'board', cardId: null, text: 'z' }), false);
+assert.equal(isSameComment(mv('a'), { kind: 'board', cardId: null, text: '' }), false, 'コメント以外は別物');
+assert.equal(isSameComment(undefined, { kind: 'board', cardId: null, text: 'x' }), false);
+assert.equal(isSameComment({ actionType: 'comment', text: 'z' }, { kind: 'board', cardId: null, text: 'z' }), true, '古いコメント（kind 無し）は盤面メモ');
 
 console.log('comment-model: 吹き出し（動いたら消える・inPlace・setup）、盤面メモ、削除でのずれを確認');

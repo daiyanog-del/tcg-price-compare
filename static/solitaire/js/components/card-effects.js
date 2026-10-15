@@ -29,6 +29,7 @@ export function playActivateEffect(wrapper) {
 
   // カードの見た目ごとコピーした fixed クローン（守備回転・is-set裏面も再現）
   const clone = wrapper.cloneNode(true);
+  _stripCommentBubble(clone);
   clone.classList.add('sol-activate-glow');
   // inline style を上書きして fixed 配置に固定。
   // position はクラス(.sol-activate-glow)側の定義に任せず、ここで明示的に指定する。
@@ -142,6 +143,7 @@ export function flipMoveClone(wrapper, firstRect, onComplete = null) {
 
   // クローン生成（class/data属性ごとコピー → 守備回転・is-set裏面も再現）
   const clone = wrapper.cloneNode(true);
+  _stripCommentBubble(clone);
   clone.classList.add('sol-flip-clone');
 
   // クローンの .tier-item: トランジションを抑制し最終状態に固定する。
@@ -274,6 +276,7 @@ export function flyBetweenRects(cardEl, fromRect, toRect, onComplete = null) {
   if (prevClone && prevClone._cleanup) prevClone._cleanup();
 
   const clone = cardEl.cloneNode(true);
+  _stripCommentBubble(clone);
   clone.classList.add('sol-flip-clone', 'sol-deck-fly-clone');
 
   const cloneTierItem = clone.querySelector('.tier-item');
@@ -328,4 +331,16 @@ export function flyBetweenRects(cardEl, fromRect, toRect, onComplete = null) {
   clone._cleanup = cleanup; // 連打ガードで後発から直接呼べるように保持しておく
   clone.addEventListener('transitionend', cleanup, { once: true });
   setTimeout(cleanup, 510); // 450ms + フェイルセーフ余裕
+}
+
+/**
+ * 演出用のクローンから、コメントの吹き出しを除く（吹き出しは盤面のカードにだけ出し、飛ぶ・光るクローンには写さない）。
+ * title も外す（クローンの上にツールチップを出さない）。
+ * @param {Element} clone  .tier-item-wrapper の cloneNode
+ */
+function _stripCommentBubble(clone) {
+  clone.querySelectorAll('.sol-bubble').forEach((el) => el.remove());
+  clone.classList.remove('has-sol-bubble');
+  clone.removeAttribute('title');
+  clone.querySelectorAll('[title]').forEach((el) => el.removeAttribute('title'));
 }

@@ -129,3 +129,42 @@ export function shiftRangeAfterRemove(state, removedIdx) {
   }
   return next;
 }
+
+/**
+ * ログの insertedIdx 番目にコメントを差し込んだとき、範囲（recording 状態）の開始・終了がどうずれるか
+ * （shiftRangeAfterRemove の逆）。範囲は logs[startIdx..endIdx-1]。insertedIdx は差し込んだ後の位置。
+ *   - 範囲より前（insertedIdx < startIdx）: 開始も終わりも1つ後ろへ
+ *   - 範囲の中・範囲の終わり直後（startIdx <= insertedIdx <= endIdx）: 終わりだけ1つ後ろへ（コメントは範囲に入る）
+ *   - それより後ろ: そのまま
+ * 範囲を選んでいる最中（endIdx が null）は、開始より前に差し込んだときだけ開始を1つ後ろへ
+ * （開始と同じ位置への差し込みは、これから決まる範囲の最初の手になるので開始はそのまま）。
+ * 元のオブジェクトは変更しない。
+ * @param {{recording:boolean, startIdx:number|null, endIdx:number|null}} state
+ * @param {number} insertedIdx
+ * @returns {{recording:boolean, startIdx:number|null, endIdx:number|null}}
+ */
+export function shiftRangeAfterInsert(state, insertedIdx) {
+  const next = { ...state };
+  if (next.startIdx === null || next.startIdx === undefined) return next;
+  const hasEnd = next.endIdx !== null && next.endIdx !== undefined;
+  if (insertedIdx < next.startIdx) {
+    next.startIdx += 1;
+    if (hasEnd) next.endIdx += 1;
+  } else if (hasEnd && insertedIdx <= next.endIdx) {
+    next.endIdx += 1;
+  }
+  return next;
+}
+
+/**
+ * 一覧の行が指している内容と、記録の手が同じコメントかどうか（削除の取り違え防止）。
+ * @param {Object|undefined} ev  記録の手
+ * @param {{kind:'card'|'board', cardId:string|null, text:string}|undefined} expected 一覧の行の内容
+ */
+export function isSameComment(ev, expected) {
+  if (!ev || ev.actionType !== 'comment') return false;
+  if (!expected) return true;
+  return commentKind(ev) === expected.kind
+    && (commentKind(ev) === 'card' ? ev.cardId : null) === (expected.cardId ?? null)
+    && clampCommentText(ev.text) === expected.text;
+}
