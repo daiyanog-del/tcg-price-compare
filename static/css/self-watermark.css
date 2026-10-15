@@ -61,8 +61,8 @@
   transition: transform 0.3s ease-in-out;  /* img と同じ */
 }
 
-/* 守備表示: img(.tier-item)と同じ90度回転に追従（components.css の .is-defense .tier-item） */
+/* 守備表示: img(.tier-item)と同じ反時計回りの90度回転に追従（components.css の .is-defense .tier-item） */
 [data-self-wm] .tier-item-wrapper.is-defense.wm-released:not(.is-set)::after {
-  transform: rotate(90deg);
+  transform: rotate(-90deg);
   transform-origin: center center;
 }

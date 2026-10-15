@@ -425,9 +425,9 @@
   z-index: 6;
 }
 
-/* 守備表示: 90度回転 */
+/* 守備表示: 反時計回りに90度回転 */
 .tier-item-wrapper.is-defense .tier-item {
-  transform: rotate(90deg);
+  transform: rotate(-90deg);
   transform-origin: center center;
 }
 
@@ -449,9 +449,9 @@
   box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.55);
 }
 
-/* 守備かつ裏（リバースセット）: 裏面オーバーレイも 90° 回す */
+/* 守備かつ裏（リバースセット）: 裏面オーバーレイも反時計回りに90°回す */
 .tier-item-wrapper.is-defense.is-set::after {
-  transform: rotate(90deg);
+  transform: rotate(-90deg);
   transform-origin: center center;
 }
 

@@ -412,7 +412,7 @@ def render_replay_og(board: dict, title: str = "") -> tuple:
             src = imgs.get(card_dict["name"]) if _wants_image(card_dict) else None
             im = _card_face(src, card_dict.get("name", ""), w, h, r)
         if rotate:
-            im = im.rotate(-90, expand=True)   # 守備表示は時計回りに90度（CSS rotate(90deg) と同じ向き）
+            im = im.rotate(90, expand=True)   # 守備表示は反時計回りに90度（CSS rotate(-90deg) と同じ向き）
         canvas.alpha_composite(im, (round(cx - im.width / 2), round(cy - im.height / 2)))
 
     # ── フィールドのカード（守備表示は隣のマスへはみ出すので、本番の z-index と同じく最後に描いて前面に出す）──
@@ -494,7 +494,7 @@ def render_replay_og(board: dict, title: str = "") -> tuple:
 # ── キャッシュ・生成の入口 ──
 
 _REPLAY_ID_RE = re.compile(r"[A-Za-z0-9_-]{6,16}")   # secrets.token_urlsafe(8) は11文字
-_OG_CACHE_DIR = os.path.join(tempfile.gettempdir(), "cardprice_replay_og_v2")   # 見た目を変えたらバージョンを上げる（古い画像を使わない）
+_OG_CACHE_DIR = os.path.join(tempfile.gettempdir(), "cardprice_replay_og_v3")   # 見た目を変えたらバージョンを上げる（古い画像を使わない）
 os.makedirs(_OG_CACHE_DIR, exist_ok=True)
 
 # 同時描画数の上限（メモリ保護。本番は gunicorn 1ワーカー・8スレッドで約330MB常用）。
