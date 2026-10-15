@@ -10,6 +10,8 @@ Flask / Supabase 接続に依存しない（Cron・自宅PC・管理画面のど
 
 import logging
 import math
+import threading
+import time
 from datetime import datetime, timezone
 
 import unreleased_text_check
@@ -55,6 +57,7 @@ REASON_LABELS = {
     "same_name_unchecked": "同名カードの有無を確認できなかった",
     "text_suspect": "効果テキストに誤字の強い疑いがある",
     "text_unchecked": "効果テキストの誤字を検証できなかった（辞書なし・フレーバーテキスト等）",
+    "empty_text": "効果テキストが空（通常モンスターのフレーバーテキストも含め、読めていない）",
     "evaluation_error": "判定中にエラーが起きた",
 }
 
@@ -199,6 +202,12 @@ def evaluate(card: dict, *, other_names=None, text_check=None, text_context=None
     if lacks_card_body(card):
         reasons.append("lacks_card_body")
 
+    # 効果テキストが空のカードは（魔法・罠・モンスターを問わず）自動承認しない。
+    # 通常モンスターのフレーバーテキストも effect_text に入るので、空なら読み落とし
+    effect = card.get("effect_text")
+    if not (isinstance(effect, str) and effect.strip()):
+        reasons.append("empty_text")
+
     if text_check is None:
         text_check = compute_text_check(card, other_names, text_context)
     text_reason = _text_reason(text_check)
@@ -249,10 +258,17 @@ def annotate_row(row: dict, other_names, text_context=None) -> dict:
     # TODO: 将来の自動承認の差し込み位置。ここで verdict["eligible"] を見て status を approved にする
     #       （今回はシャドーモード＝記録のみ。実際に承認するスイッチは作っていない）。
     raw["auto_approve_verdict"] = verdict
-    raw["extracted_snapshot"] = build_extracted_snapshot(row)
     raw["text_check"] = text_check
+    # 記録の作成で取込を止めない（文字列でない値などが混ざっていても警告ログだけで続ける）
+    try:
+        raw["extracted_snapshot"] = build_extracted_snapshot(row)
+    except Exception as e:
+        logger.warning("[auto_approve] 抽出時スナップショット作成失敗 (%s): %s", row.get("name", "?"), e)
     if text_context is not None:
-        text_context.add_card(row)
+        try:
+            text_context.add_card(row)
+        except Exception as e:
+            logger.warning("[auto_approve] 文脈への追加失敗 (%s): %s", row.get("name", "?"), e)
     return verdict
 
 
@@ -299,6 +315,92 @@ def load_text_context(sb):
     except Exception as e:
         logger.warning("[auto_approve] 既存テキストの取得に失敗（「」内語の文脈なしで検証）: %s", e)
         return None
+
+
+class CardContext:
+    """全カード（rejected 以外）の名前と「」内語を id 別に持つ読み込み結果。
+
+    編集保存・再検査では「このカード自身を除いた」他カードの材料が要る。id 別に持っておけば、
+    自分を除く処理が正確になり（rejected など元から含まれていないカードの分を誤って引かない）、
+    一度の全件読み込みを短時間キャッシュして使い回せる。
+    """
+
+    def __init__(self, names: dict, quotes: dict):
+        self.names = names      # {id: name}
+        self.quotes = quotes    # {id: 「」内語キーの集合}
+
+    def excluding(self, card_id):
+        """(自分を除いた他カードの名前一覧, 自分を除いた TextContext)。"""
+        ctx = unreleased_text_check.TextContext()
+        for cid, keys in self.quotes.items():
+            if cid == card_id:
+                continue
+            for k in keys:
+                ctx.word_df[k] = ctx.word_df.get(k, 0) + 1
+        others = [n for cid, n in self.names.items() if cid != card_id and n]
+        return others, ctx
+
+
+def load_card_context(sb) -> "CardContext | None":
+    """rejected 以外の全カードを1回だけ読んで CardContext にする（名前・「」内語を同時に）。失敗したら None。"""
+    names: dict = {}
+    quotes: dict = {}
+    try:
+        offset = 0
+        while True:
+            resp = (sb.table("unreleased_cards").select("id, name, effect_text, pendulum_effect")
+                    .neq("status", "rejected")
+                    .range(offset, offset + _NAME_PAGE - 1).execute())
+            rows = list(resp.data or [])
+            for r in rows:
+                names[r["id"]] = r.get("name") or ""
+                try:
+                    quotes[r["id"]] = unreleased_text_check.TextContext.contrib(r)
+                except Exception:
+                    quotes[r["id"]] = set()
+            if len(rows) < _NAME_PAGE:
+                return CardContext(names, quotes)
+            offset += _NAME_PAGE
+    except Exception as e:
+        logger.warning("[auto_approve] 既存カードの文脈取得に失敗: %s", e)
+        return None
+
+
+# 編集保存のたびに全件を読み直さないためのキャッシュ（秒）。他カードの変化は最大この秒数遅れて反映される。
+# TODO: calibrate from data
+CONTEXT_CACHE_TTL_SEC = 60
+_context_cache = {"at": 0.0, "sb": None, "ctx": None}
+_context_cache_lock = threading.Lock()
+
+
+def get_card_context_cached(sb, *, ttl: float | None = None, clock=time.monotonic):
+    """load_card_context の結果を ttl 秒キャッシュして返す。ttl=0 なら必ず読み直す。失敗時は None。"""
+    ttl = CONTEXT_CACHE_TTL_SEC if ttl is None else ttl
+    with _context_cache_lock:
+        now = clock()
+        if (ttl > 0 and _context_cache["ctx"] is not None and _context_cache["sb"] is sb
+                and now - _context_cache["at"] < ttl):
+            return _context_cache["ctx"]
+        ctx = load_card_context(sb)
+        if ctx is not None:
+            _context_cache.update(at=now, sb=sb, ctx=ctx)
+        return ctx
+
+
+def recompute_card_checks(sb, card: dict) -> dict:
+    """編集後のカード行で text_check と auto_approve_verdict を計算し直して返す（保存はしない）。
+
+    card は編集後の全列を含む行（extraction_raw も）。文脈は短時間キャッシュ（自分自身は id で除く）。
+    文脈が取れないときは同名確認不可（other_names=None）として不適格側に倒す。
+    """
+    ctx = get_card_context_cached(sb)
+    if ctx is not None:
+        others, tctx = ctx.excluding(card.get("id"))
+    else:
+        others, tctx = None, None
+    text_check = compute_text_check(card, others, tctx, context_has_self=False)
+    verdict = evaluate(card, other_names=others, text_check=text_check)
+    return {"text_check": text_check, "auto_approve_verdict": verdict}
 
 
 # ──────────────────────────────────────────────
@@ -359,6 +461,33 @@ def _count_by_kind(text_check: dict, severity: str) -> dict:
         if sus.get("severity") == severity:
             out[sus.get("kind")] = out.get(sus.get("kind"), 0) + 1
     return out
+
+
+def build_approval_snapshot_safe(card: dict, via: str) -> dict:
+    """build_approval_snapshot が例外でも、最低限の記録 {"at","via","error"} を返す。
+
+    X 自動投稿は approval_snapshot があるカードだけを対象にする（このデプロイ以降の承認の印）ため、
+    記録の作成失敗で承認済みなのに永久に投稿されなくなることを避ける。詳細が無いだけで印は残る。
+    """
+    try:
+        return build_approval_snapshot(card, via)
+    except Exception as e:
+        logger.warning("[auto_approve] 承認記録の作成に失敗（最小記録で代替）card_id=%s: %s", card.get("id"), e)
+        return {"at": datetime.now(timezone.utc).isoformat(), "via": via, "error": f"{type(e).__name__}: {e}"[:300]}
+
+
+def record_approval_snapshots(sb, cards: list[dict], via: str) -> int:
+    """承認したカードの承認記録を作って保存する。例外は投げない（承認・画像取込・投稿を止めない）。
+
+    保存できた件数を返す。書き込みに失敗したカードは approval_snapshot が無いままになり、
+    X 自動投稿の対象にならない（安全側）。
+    """
+    try:
+        entries = [(c["id"], build_approval_snapshot_safe(c, via)) for c in cards]
+        return save_approval_snapshots(sb, entries)
+    except Exception as e:
+        logger.warning("[auto_approve] 承認記録の保存でエラー（承認は成立済み・X投稿の対象外になる）: %s", e)
+        return 0
 
 
 _CHUNK = 100

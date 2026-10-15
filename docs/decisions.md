@@ -26,6 +26,19 @@
 - 比較: 既存の admin 手動承認だけの運用に比べ、投稿は手間が減る反面、承認ミスがそのままXに出る（削除はX側で手動）。シャドーモードは判定の質を測れる一方、実際の自動承認までは時間がかかる。
 - 影響範囲: admin_unreleased.py（承認2系統・一覧API）、watch_x_unreleased.py / watch_unreleased.py / admin fetch-x-post（取込前の判定記録）、unreleased_quality.py（`lacks_card_body` を共用のため移動）、static/admin（判定の札）、backfill-images.yml。
 
+### 追記 2026-10-15: レビュー指摘の修正（X投稿の上限・結果不明・過去分除外ほか）
+
+- 前提: X API はこのアカウントでは pay-per-use（従量課金。1投稿ごとに課金、作成上限は 100件/15分/ユーザー・10,000件/日/アプリ）。Free プランの17件/日ではない。
+- 件数の上限: 一括承認1回 `MAX_BULK_POST_PER_RUN=10`・回収1回 `MAX_BACKFILL_PER_RUN=10`・全経路で1日(JST) `DAILY_POST_LIMIT=30`（posted と unknown の件数を unreleased_x_posts から数える）。いずれも仮置き（TODO: calibrate from data）。上限で止めた分は予約行を作らず、回収ジョブ（3時間ごと）が後で拾う。課金が従量なので、暴走時の被害上限を自前で持つ意味がある。
+- 失敗の3分類（`x_poster.post_tweet_ex` が `(tweet_id, error_kind)` を返す。`post_tweet` はそれを包む後方互換版）: 送信前の失敗（認証未設定・画像アップロード失敗・画像必須で添付ゼロ）と X の明確な拒否(429以外の4xx)は `failed`（attempts+1、3回まで再試行）／429 は `rate_limited`（attempts を増やさず回収で再挑戦。行を消さず残すのは、いつ制限に当たったかの記録と、予約の主キーによる二重投稿防止を途切れさせないため）／結果不明（HTTP応答なしの例外・タイムアウト・5xx・応答にid無し）は `unknown`（自動再試行しない・Discord通知。人が X を見て posted にするか行を消す）。
+- タイムアウト: tweepy 4.14 のソースで確認。`Client` は `self.session.request(...)` を timeout なしで呼ぶため `client.session` を既定30秒の `_TimeoutSession` に差し替え、v1 の `tweepy.API(timeout=)`（media_upload で `timeout=self.timeout` が使われる）にも30秒を指定。requests の timeout は接続・読み取りごとの待ち上限で、全体の所要時間の上限ではない。
+- 投稿対象は `extraction_raw.approval_snapshot` があるカードだけ（＝このデプロイ以降に承認された）。SQL 実行と有効化の間にずれがあっても過去分は流れない（SQL の skipped_legacy 一括登録は二重の保険として残す）。回収候補も同じ条件。承認記録の作成に失敗しても最小の `{at, via, error}` を書くので、承認済みなのに永久に投稿されない事態は避ける（書き込み自体が失敗したら投稿しない＝安全側）。
+- 重複・発売済み: 同じ fuzzy_key のカード名で posted / unknown の行があれば `skipped_duplicate` として記録して投稿しない。発売済みカード名の索引（data/cardnames_ja.json。name_normalize.load_cardnames_index）に載っていれば投稿しない。週次更新のため発売直後の反映遅れは残る。
+- 取り残し: 回収ジョブが 1時間以上更新されていない `posting` と `unknown` の行をまとめて Discord に通知（自動再投稿はしない）。
+- 認証情報: X の4環境変数が揃っていなければ予約せず `not_configured`（警告ログは1プロセス1回）。
+- 同時実行: 投稿の「日次上限確認→予約→間隔待ち→送信」を同一プロセス内のロックで直列化し、最終投稿時刻も共有（複数の一括承認スレッドでも `POST_INTERVAL_SEC` を守る）。別プロセス（Render と GitHub Actions）間は守れない。
+- 自動承認判定: 効果テキストが空のカードは `empty_text` で不適格（`check_card` も空なら `unchecked`/reason=empty）。編集保存(PUT)時に text_check と auto_approve_verdict を再計算して保存（取込時に判定が付いたカードのみ。他カードの名前・「」内語は id 別に持って60秒キャッシュし、自分自身は id で除く）。一覧の札には「取込時（編集して保存した場合は保存時）の判定」の注記。誤字の強調は start/end の位置（`context_start` を追加）で行う。再検査APIは全件読み込み1回で、文脈に入っていないカード（rejected 等）の分を引かない。
+
 ## 2026-10-04: クロップの内枠誤採用と保存座標を修正
 
 - 根拠: ユーザーの精度指摘。表示座標の共通ずれは未再現だが、実画像で閉輪郭不足による内枠採用とカード単体への不要補正を再現。保存時の浮動小数点切捨ても1pxずれを発生。

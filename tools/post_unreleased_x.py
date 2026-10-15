@@ -5,8 +5,11 @@ post_unreleased_x.py — 承認済み・未投稿の未発売カードを X に�
   承認時の自動投稿（unreleased_x_post.start_post_thread / post_cards_sequential）は、
   画像取込に失敗した・Renderが再起動してスレッドが途切れた・X APIが一時的に失敗した、
   といった場合に取りこぼす。backfill-images.yml が画像を回収した後にこのスクリプトを実行し、
-  「投稿条件を満たし、未投稿（unreleased_x_posts に行なし）か failed で attempts<3」のカードを投稿する。
-  導入前から承認済みのカードは、マイグレーション（unreleased_x_posts.sql）で skipped_legacy 済みのため対象外。
+  「投稿条件を満たし、未投稿（unreleased_x_posts に行なし）か 再試行待ち（failed で attempts<3 / rate_limited）」の
+  カードを投稿する。1回 MAX_BACKFILL_PER_RUN 件・1日(JST) DAILY_POST_LIMIT 件まで。
+  投稿対象は extraction_raw.approval_snapshot があるカード（このデプロイ以降の承認）だけ。導入前から承認済みの
+  カードは、これに加えてマイグレーション（unreleased_x_posts.sql）の skipped_legacy でも二重に対象外。
+  1時間以上 posting / unknown のまま残っている行は Discord に通知する（自動再投稿はしない）。
 
 実行:
   python tools/post_unreleased_x.py            # 実投稿（UNRELEASED_X_POST_ENABLED=1 のときだけ）

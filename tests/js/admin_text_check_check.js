@@ -59,4 +59,33 @@ const b1 = fakeEl('span'); context.badge(b1, {status: 'checked', strong: 2, weak
 assert.equal(b1.hidden, false); assert.match(b1.textContent, /2件/); assert.ok(b1.classList.items.includes('text-check-badge--strong'));
 const b2 = fakeEl('span'); b2.hidden = true; context.badge(b2, {status: 'checked', strong: 0, weak: 0});
 assert.equal(b2.hidden, true);
+
+// 札には「取込時」の注記（title）が付く
+assert.match(b1.title, /取込時/);
+
+// 強調は start/end の位置で行う: 文脈に同じ文字列が2回あっても、疑義の位置のほうを強調する
+const marks = n => n.tag === 'mark' ? [n] : (n.children || []).flatMap(marks);
+const beforeMark = n => {  // mark より前のテキスト
+  let acc = '';
+  (function walk(x) { if (x.tag === 'mark') return true; if (x.tag !== 'span' && x.textContent && !x.children) acc += x.textContent;
+    for (const c of x.children || []) if (walk(c)) return true; return false; })(n);
+  return acc;
+};
+context.panel(form, {
+  status: 'checked', strong: 1, weak: 0, unverified_fields: [],
+  suspects: [{severity: 'strong', kind: 'unknown_ngram', field: 'effect_text', text: 'ab', start: 16, end: 18,
+              context_start: 10, context: 'xxabyyab', suggestion: null, message: 'm'}],
+}, false);
+const ctxSpan = (function find(n) { return n.className === 'text-check__context' ? n : (n.children || []).map(find).find(Boolean); })(list.children[0]);
+assert.equal(marks(ctxSpan).length, 1);
+assert.equal(beforeMark(ctxSpan), '…xxabyy');  // 2つ目の ab（文脈内の位置6）が強調される。先頭の … と手前の文字列
+
+// 位置が文脈の中身と食い違うとき（編集で文字列が変わった等）は最初の一致で代用
+context.panel(form, {
+  status: 'checked', strong: 1, weak: 0, unverified_fields: [],
+  suspects: [{severity: 'strong', kind: 'format', field: 'effect_text', text: 'ab', start: 99, end: 101,
+              context_start: 10, context: 'xxabyyab', suggestion: null, message: 'm'}],
+}, false);
+const ctxSpan2 = (function find(n) { return n.className === 'text-check__context' ? n : (n.children || []).map(find).find(Boolean); })(list.children[0]);
+assert.equal(beforeMark(ctxSpan2), '…xx');
 console.log('ok');

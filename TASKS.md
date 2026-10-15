@@ -11,7 +11,7 @@
 - [ ] **未発売カードのX自動投稿・自動承認シャドーモード（2026-10-15、branch feat/unreleased-x-post-auto-approve）** — 実装・テスト済み、未デプロイ。残り: `unreleased_x_posts.sql` の適用、Render/GitHub への環境変数設定、DRY_RUN での本文確認、有効化。シャドーモードは実データが溜まってから `tools/auto_approve_report.py` で判定条件を校正する。
 - [ ] **未発売カード効果テキストの誤字検証（2026-10-15、同ブランチ）** — 実装・テスト済み、未デプロイ。辞書 `data/text_check_dict.json.gz` をコミット済み（再生成: `python tools/build_text_check_dict.py`）。残り: 管理画面の見た目をブラウザで実機確認、承認済みカードの「基地」→「墓地」読み違い（id 453/454/455/457/520/529 ほか）を画像と照合して修正、運用で溜まった実際の誤字から似た字の表（`CONFUSABLES`）を拡充、辞書の定期再生成。
 - [ ] **誤字検証の仮置き値の校正（2026-10-15）** — `unreleased_text_check.py` の `NGRAM_N=3`・強の定義（連鎖が2つ以上かぶる位置で全て未知）・編集距離の上限（`_max_edit_distance`：5字以下は1・6字以上は2）・文末の欠けの許容文字は仮置き（TODO: calibrate from data）。`tools/text_check_calibrate.py` の結果と、承認時記録（`approval_snapshot.text_check`）の「疑義ありで直さず承認」件数が溜まったら見直す。
-- [ ] **自動承認判定・X投稿の仮置き値の校正（2026-10-15）** — `unreleased_auto_approve.py` の `MIN_CROP_AREA=0.10` / `CROP_ASPECT_MIN,MAX=0.55,0.80`、`unreleased_x_post.py` の `MAX_ATTEMPTS=3` / `POST_INTERVAL_SEC=20` / `MAX_BACKFILL_PER_RUN=10` は仮置き（TODO: calibrate from data）。承認記録（approval_snapshot）が溜まったら集計して見直す。
+- [ ] **自動承認判定・X投稿の仮置き値の校正（2026-10-15）** — `unreleased_auto_approve.py` の `MIN_CROP_AREA=0.10` / `CROP_ASPECT_MIN,MAX=0.55,0.80`、`unreleased_x_post.py` の `MAX_ATTEMPTS=3` / `POST_INTERVAL_SEC=20` / `MAX_BACKFILL_PER_RUN=10` / `MAX_BULK_POST_PER_RUN=10` / `DAILY_POST_LIMIT=30`、`unreleased_auto_approve.py` の `CONTEXT_CACHE_TTL_SEC=60`、`x_poster.py` の `X_HTTP_TIMEOUT_SEC=30` は仮置き（TODO: calibrate from data）。承認記録（approval_snapshot）が溜まったら集計して見直す。
 
 - [x] **カード詳細パネルのレリーフ調統一（2026-10-15）** — PC詳細・スマホ詳細に共通の素材/浅い陰影を適用。PCで灰流うららの名前/効果/価格リンクを確認。スマホ用の計算済み背景色も確認。公開状態は最終チャット参照。
 

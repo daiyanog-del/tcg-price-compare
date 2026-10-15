@@ -413,11 +413,34 @@ def admin_update_unreleased(card_id: int):
         if not resp.data:
             return jsonify({"error": "対象レコードが見つかりません"}), 404
         _card_display.invalidate_cache()
+        # 編集後の値で誤字チェックと自動承認判定を取り直す（失敗しても保存は成立）
+        _recompute_checks_after_edit(resp.data[0])
         return jsonify({"ok": True, "card": resp.data[0]})
 
     except Exception as e:
         logger.error(f"[admin] unreleased_cards 更新エラー id={card_id}: {e}")
         return jsonify({"error": "更新に失敗しました"}), 500
+
+
+def _recompute_checks_after_edit(card: dict) -> None:
+    """編集保存後のカード行で extraction_raw.text_check / auto_approve_verdict を計算し直して保存する。
+
+    一覧の札は取込時の値を表示するため、編集して直しても「誤字の疑い」が残り続けてしまうのを防ぐ。
+    - 取込時に判定が付いたカード（どちらかのキーが既にある）だけが対象。手動登録など旧データには札を新設しない
+    - 全件読み込みが要る文脈（他カードの名前・「」内語）は短時間キャッシュ（自分自身は除いて使う）
+    - 例外は警告ログのみ（保存を失敗させない）。card（応答に載せる行）の extraction_raw も更新する
+    """
+    try:
+        raw = card.get("extraction_raw")
+        if not (isinstance(raw, dict) and ("auto_approve_verdict" in raw or "text_check" in raw)):
+            return
+        from unreleased_auto_approve import recompute_card_checks
+        new_raw = dict(raw)
+        new_raw.update(recompute_card_checks(_supabase, card))
+        _supabase.table("unreleased_cards").update({"extraction_raw": new_raw}).eq("id", card["id"]).execute()
+        card["extraction_raw"] = new_raw
+    except Exception as e:
+        logger.warning(f"[admin] 編集後の再判定に失敗（保存は成立） id={card.get('id')}: {e}")
 
 
 # ──────────────────────────────────────────────
@@ -456,14 +479,15 @@ def admin_recheck_text(card_id: int):
             if key in body and (body[key] is None or isinstance(body[key], str)):
                 card[key] = body[key] or ""
 
-        from unreleased_auto_approve import compute_text_check, load_active_names, load_text_context
-        names = load_active_names(_supabase)
-        others = [n for n in (names or []) if n != card.get("name")]
-        # 文脈（他カードの「」内語）にはこのカードの登録済みの内容も入っているので、先に取り除く
-        # （編集後の値で検査するので、DB 側の古い内容が「他にも出る語」として効かないようにする）
-        context = load_text_context(_supabase)
-        if context is not None:
-            context.remove_card(stored)
+        from unreleased_auto_approve import compute_text_check, load_card_context
+        # 全件の読み込みは1回（名前と「」内語を同時に）。必ず最新を読む（ユーザー操作の検査なのでキャッシュしない）。
+        # このカード自身は id で除く: 登録済みの内容（編集前）を「他にも出る語」に数えず、
+        # 元から文脈に入っていないカード（rejected など）の分を誤って引くこともない
+        ctx = load_card_context(_supabase)
+        if ctx is not None:
+            others, context = ctx.excluding(card_id)
+        else:
+            others, context = [], None
         result = compute_text_check(card, others, context, context_has_self=False)
         return jsonify({"ok": True, "text_check": result})
     except Exception as e:
@@ -579,10 +603,9 @@ def admin_approve_unreleased(card_id: int):
         _card_display.invalidate_cache()
 
         # 承認時の記録（手直しの有無・切り抜き方法・判定結果）。失敗しても承認は成立
-        from unreleased_auto_approve import build_approval_snapshot, save_approval_snapshots
-        save_approval_snapshots(
-            _supabase, [(card_id, build_approval_snapshot(card_data, "single"))]
-        )
+        # （X自動投稿は approval_snapshot があるカードだけが対象なので、投稿を始める前に必ず済ませる）
+        from unreleased_auto_approve import record_approval_snapshots
+        record_approval_snapshots(_supabase, [card_data], "single")
 
         # 画像取込を試みる（失敗しても承認は成立）
         image_fetched, image_reason = _try_fetch_image_from_extraction(
@@ -1062,18 +1085,17 @@ def admin_bulk_approve_unreleased():
         if release_date_backfilled > 0:
             _card_display.invalidate_cache()
 
-        # 承認時の記録を作る（補完前の値で差分を取る。DB書き込みはバックグラウンドで行う）
-        from unreleased_auto_approve import build_approval_snapshot, save_approval_snapshots
-        approval_entries = [(c["id"], build_approval_snapshot(c, "bulk")) for c in target_cards]
-
         # 画像取込をバックグラウンドスレッドで起動
         def _bg_fetch_images(cards: list[dict]) -> None:
             """バックグラウンドで各カードの承認記録を保存し、画像を順次取込し、X投稿する。"""
             fetched_ids: list[int] = []
             with _bulk_image_lock:
-                # 件数分の書き込みになるためレスポンスを待たせない。失敗しても画像取込は続ける
+                # 承認時の記録（補完前の値で差分を取る）。作成も保存もここ（バックグラウンド）で行い、
+                # レスポンスを待たせない。失敗しても画像取込は続ける（record_approval_snapshots は例外を投げない）。
+                # X投稿は approval_snapshot があるカードだけが対象なので、必ず投稿より前に完了させる
                 try:
-                    save_approval_snapshots(_supabase, approval_entries)
+                    from unreleased_auto_approve import record_approval_snapshots
+                    record_approval_snapshots(_supabase, cards, "bulk")
                 except Exception as exc:
                     logger.warning(f"[admin] 一括承認・承認記録の保存エラー: {exc}")
                 for card_data in cards:
@@ -1096,8 +1118,9 @@ def admin_bulk_approve_unreleased():
             # X自動投稿（無効時は何もしない）。画像取込に成功した分だけ、間隔を空けて1枚ずつ。
             # 画像取込のロックは先に手放す（投稿の待ち時間で次の一括承認の画像取込を止めないため）。
             # 取込に失敗した分は回収ジョブ（tools/post_unreleased_x.py）が拾う
+            # 1回の件数は MAX_BULK_POST_PER_RUN まで。超えた分は予約せず回収ジョブに回る
             if fetched_ids:
-                _x_post.post_cards_sequential(_supabase, fetched_ids)
+                _x_post.post_cards_sequential(_supabase, fetched_ids, max_cards=_x_post.MAX_BULK_POST_PER_RUN)
 
         t = threading.Thread(
             target=_bg_fetch_images,

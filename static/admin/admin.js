@@ -531,6 +531,8 @@ function _renderAutoVerdict(el, card) {
   if (!el) return;
   const verdict = card.auto_approve_verdict;
   if (!verdict || typeof verdict.eligible !== 'boolean') return;  // 旧データ・手動登録は札なし
+  // 値は取込時（編集して保存した場合は保存時）の判定。承認前後の他の変化は反映されない
+  el.title = AUTO_VERDICT_NOTE;
   if (verdict.eligible) {
     el.textContent = '自動承認候補';
     el.classList.add('auto-verdict-badge--eligible');
@@ -549,10 +551,13 @@ function _renderAutoVerdict(el, card) {
  * @param {{status?: string, reason?: string, strong?: number, weak?: number, suspects?: Array, unverified_fields?: string[]}|null|undefined} tc
  */
 const TEXT_CHECK_FIELD_LABELS = { effect_text: '効果テキスト', pendulum_effect: 'ペンデュラム効果' };
+// 一覧の札（自動承認の判定・誤字チェック）の注記。値は取込時、または最後に編集保存した時点のもの
+const AUTO_VERDICT_NOTE = '取込時（編集して保存した場合は保存時）の判定結果です';
 
 function _renderTextCheckBadge(el, tc) {
   if (!el) return;
   if (!tc || typeof tc !== 'object') return;  // 旧データは札なし
+  el.title = AUTO_VERDICT_NOTE;
   if (tc.status !== 'checked') {
     el.textContent = '誤字チェック未実施';
     el.classList.add('text-check-badge--neutral');
@@ -568,9 +573,18 @@ function _renderTextCheckBadge(el, tc) {
   el.hidden = false;
 }
 
-function _appendHighlighted(parent, context, target) {
-  // 前後の文脈の中で該当文字列を強調する（最初の一致のみ）
-  const idx = target ? context.indexOf(target) : -1;
+function _appendHighlighted(parent, context, target, offset) {
+  // 前後の文脈の中で該当箇所を強調する。offset（文脈内での開始位置 = start - context_start）が
+  // 分かり、その位置の文字列が該当文字列と一致するときはその位置で強調する
+  // （同じ文字列が文脈に複数あっても正しい箇所を示せる）。位置が無い旧データ・食い違いは最初の一致で代用。
+  let idx = -1;
+  if (target) {
+    if (Number.isInteger(offset) && offset >= 0 && context.slice(offset, offset + target.length) === target) {
+      idx = offset;
+    } else {
+      idx = context.indexOf(target);
+    }
+  }
   if (idx < 0) {
     parent.appendChild(document.createTextNode(context));
     return;
@@ -624,7 +638,9 @@ function _renderTextCheckPanel(editForm, tc, stale) {
     const ctx = document.createElement('span');
     ctx.className = 'text-check__context';
     ctx.appendChild(document.createTextNode('…'));
-    _appendHighlighted(ctx, String(sus.context || sus.text || ''), String(sus.text || ''));
+    const susOffset = (Number.isInteger(sus.start) && Number.isInteger(sus.context_start))
+      ? sus.start - sus.context_start : null;
+    _appendHighlighted(ctx, String(sus.context || sus.text || ''), String(sus.text || ''), susOffset);
     ctx.appendChild(document.createTextNode('…'));
     li.appendChild(ctx);
     if (sus.suggestion) {

@@ -1,6 +1,6 @@
 """テスト用の最小インメモリ Supabase クライアント（unreleased_x_post / auto_approve のテストで共用）。
 
-対応: select / insert / update / delete / eq / neq / lt / is_ / in_ / or_ / order / range / limit
+対応: select / insert / update / delete / eq / neq / lt / gte / is_ / in_ / or_ / order / range / limit
 - insert の主キー衝突は、pks に指定した列で code=23505 の例外を送出する（Supabase の APIError 相当）。
 - or_ は日付絞り込み（release_date.is.null,release_date.gte.YYYY-MM-DD）だけを解釈する。
 """
@@ -48,6 +48,10 @@ class Query:
 
     def lt(self, col, val):
         self.filters.append(lambda r: r.get(col) is not None and r.get(col) < val)
+        return self
+
+    def gte(self, col, val):
+        self.filters.append(lambda r: r.get(col) is not None and r.get(col) >= val)
         return self
 
     def is_(self, col, val):

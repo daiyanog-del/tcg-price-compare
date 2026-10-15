@@ -17,10 +17,19 @@ def _fake_download(url):
     return path
 
 
+SNAP = {"approval_snapshot": {"at": "2026-10-15T00:00:00+00:00", "via": "single"}}
+
+
 @pytest.fixture(autouse=True)
 def _env(monkeypatch):
     monkeypatch.setenv("UNRELEASED_X_POST_ENABLED", "1")
     monkeypatch.delenv("X_POST_DRY_RUN", raising=False)
+    for k in xp._X_CRED_ENVS:
+        monkeypatch.setenv(k, "x")
+    monkeypatch.setattr(xp, "POST_INTERVAL_SEC", 0)           # テストで実際に待たない
+    monkeypatch.setattr(xp, "_last_attempt_at", None)          # プロセス内の最終投稿時刻を初期化
+    monkeypatch.setattr(xp, "_warned_not_configured", False)
+    monkeypatch.setattr(xp, "_is_released_name", lambda name: False)  # 実カード名索引に依存させない
     monkeypatch.setattr(xp, "_notify", lambda msg: None)
     monkeypatch.setattr(xp, "_site_url", lambda: "https://example.test")
     monkeypatch.setattr(xp, "_download_image", _fake_download)
@@ -28,7 +37,7 @@ def _env(monkeypatch):
 
 def _sb(card=None, image=True, posts=None):
     card = {"id": 1, "name": "テストカード", "product_name": "テストパック", "release_date": "2026-11-01",
-            "status": "approved", "hidden": False, **(card or {})}
+            "status": "approved", "hidden": False, "extraction_raw": dict(SNAP), **(card or {})}
     return FakeSB({
         "unreleased_cards": [card],
         "official_card_images": ([{"unreleased_card_id": card["id"], "public_url": "https://img.test/1.jpg",
@@ -103,6 +112,7 @@ def test_weighted_length_url_and_cjk():
     ({"status": "approved", "hidden": False, "release_date": None}, False, False, "no_visible_image"),
 ])
 def test_is_postable(card, img, ok, reason):
+    card = {"extraction_raw": dict(SNAP), **card}
     assert xp.is_postable(card, img, TODAY) == (ok, reason)
 
 
@@ -155,12 +165,14 @@ def test_failed_then_success():
     assert sb.tables["unreleased_x_posts"][0]["status"] == "posted"
 
 
-def test_exception_in_post_fn_is_failure():
+def test_exception_in_post_fn_is_unknown():
+    """post_fn が例外を投げた場合は送信済みかどうか分からない＝結果不明（自動再試行しない）"""
     def boom(text, paths, **kwargs):
         raise RuntimeError("API down")
     sb = _sb()
-    assert xp.post_card(sb, 1, post_fn=boom, today=TODAY) == "failed"
-    assert "API down" in sb.tables["unreleased_x_posts"][0]["last_error"]
+    assert xp.post_card(sb, 1, post_fn=boom, today=TODAY) == "unknown"
+    row = sb.tables["unreleased_x_posts"][0]
+    assert row["status"] == "unknown" and "API down" in row["last_error"]
 
 
 def test_dry_run_leaves_no_row(monkeypatch):
@@ -210,19 +222,22 @@ def test_temp_file_removed(monkeypatch):
 
 # ── 連続投稿・回収 ──
 
-def _add_card(sb, cid, *, image=True, release_date=None):
+def _add_card(sb, cid, *, image=True, release_date=None, snapshot=True):
     sb.tables["unreleased_cards"].append({"id": cid, "name": f"C{cid}", "product_name": "", "release_date": release_date,
-                                          "status": "approved", "hidden": False})
+                                          "status": "approved", "hidden": False,
+                                          "extraction_raw": dict(SNAP) if snapshot else {}})
     if image:
         sb.tables["official_card_images"].append({"unreleased_card_id": cid, "public_url": "u", "hidden": False,
                                                   "deleted_at": None})
 
 
-def test_sequential_waits_only_after_attempt():
+def test_sequential_waits_only_after_attempt(monkeypatch):
+    monkeypatch.setattr(xp, "_clock", lambda: 1000.0)  # 時間が進まない時計 → 2枚目の待ちは interval ちょうど
     sb = _sb()
     _add_card(sb, 2)
+    _add_card(sb, 3, image=False)  # 画像なし＝投稿を試みないので待たない
     sleeps = []
-    xp.post_cards_sequential(sb, [1, 2], interval=20, post_fn=Poster(), sleep=sleeps.append)
+    xp.post_cards_sequential(sb, [1, 2, 3], interval=20, post_fn=Poster(), sleep=sleeps.append)
     assert sleeps == [20]
 
 
@@ -233,6 +248,7 @@ def test_backfill_candidates():
     _add_card(sb, 4)                                 # failed attempts=1 → 候補
     _add_card(sb, 5)                                 # failed attempts=3
     _add_card(sb, 6, release_date="2026-10-01")      # 発売済み（日付絞りで除外）
+    _add_card(sb, 7, snapshot=False)                 # 承認記録なし（デプロイ前の承認）→ 除外
     sb.tables["unreleased_x_posts"] += [
         {"card_id": 3, "status": "skipped_legacy", "attempts": 0},
         {"card_id": 4, "status": "failed", "attempts": 1},

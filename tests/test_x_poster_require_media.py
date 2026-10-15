@@ -21,7 +21,7 @@ class _FakeClient:
 
 def _install_fake_tweepy(monkeypatch, upload_ok: bool):
     class _API:
-        def __init__(self, auth):
+        def __init__(self, auth, **kwargs):
             pass
 
         def media_upload(self, path):

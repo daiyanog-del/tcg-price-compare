@@ -89,7 +89,13 @@ def test_bulk_approve_saves_snapshots_and_posts_only_fetched(monkeypatch):
     monkeypatch.setattr(admin_module, "_try_fetch_image_from_extraction",
                         lambda card_id, **kw: (card_id == 1, "x"))
     posted = []
-    monkeypatch.setattr(admin_module._x_post, "post_cards_sequential", lambda sb, ids: posted.append(list(ids)))
+    limits = []
+
+    def fake_post(sb, ids, **kw):
+        posted.append(list(ids))
+        limits.append(kw.get("max_cards"))
+
+    monkeypatch.setattr(admin_module._x_post, "post_cards_sequential", fake_post)
 
     # バックグラウンドスレッドを同期実行にする
     class SyncThread:
@@ -106,3 +112,4 @@ def test_bulk_approve_saves_snapshots_and_posts_only_fetched(monkeypatch):
         snap = r["extraction_raw"]["approval_snapshot"]
         assert snap["via"] == "bulk" and snap["edited_fields"] == ["atk"]
     assert posted == [[1]]
+    assert limits == [admin_module._x_post.MAX_BULK_POST_PER_RUN]  # 一括承認の投稿には1回の上限が付く

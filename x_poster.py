@@ -602,12 +602,57 @@ def format_tweet(movers, direction, date_old, date_new):
     return text
 
 
-def post_tweet(text, image_paths=None, reply_to_id=None, require_media=False):
-    """X API v2でツイートを投稿。成功時はtweet_idを返す、失敗時はNone。
-    image_paths: ファイルパスのリスト（最大4枚）。Noneまたは空リストで画像なし。
-    require_media: True のとき、画像が1枚も添付できなければ投稿せず None を返す
-        （画像アップロードに全部失敗しても本文だけで成功を返す従来動作を止めたい呼び出し側用。
-        既定 False は従来どおり）。
+# X API への HTTP 通信のタイムアウト（秒）。requests の timeout は接続・読み取りそれぞれの待ち上限で、
+# 全体の所要時間の上限ではない。無いと応答が来ない通信で投稿処理が永久に止まる（2026-10-15 追加）。
+# TODO: calibrate from data
+X_HTTP_TIMEOUT_SEC = 30
+
+# post_tweet_ex が返す失敗の種類（呼び出し側が「再試行してよいか」を判断するための区別）
+ERR_NOT_CONFIGURED = "not_configured"  # 認証情報の環境変数が未設定（送信していない）
+ERR_PRE_SEND = "pre_send"              # 送信前の失敗（画像アップロード失敗・画像必須で添付ゼロ・初期化失敗）。送信していない
+ERR_DRY_RUN = "dry_run"                # X_POST_DRY_RUN=1 のため送信しなかった
+ERR_REJECTED = "rejected"              # X が明確に拒否した（429 以外の 4xx 応答あり）。投稿は作られていない
+ERR_RATE_LIMITED = "rate_limited"      # 429（レート制限）。投稿は作られていない。失敗回数に数えない
+ERR_UNKNOWN = "unknown"                # 結果不明（HTTP 応答なしの例外・タイムアウト・5xx・応答に id なし）。投稿されたかもしれない
+
+
+class _TimeoutSession(_requests.Session):
+    """全リクエストに既定のタイムアウトを付ける Session。
+
+    tweepy.Client は self.session.request(...) を timeout なしで呼ぶため（tweepy 4.14 の
+    BaseClient.request で確認）、Client.session をこれに差し替えて既定値を効かせる。
+    """
+
+    def request(self, *args, **kwargs):
+        kwargs.setdefault("timeout", X_HTTP_TIMEOUT_SEC)
+        return super().request(*args, **kwargs)
+
+
+def _http_status(exc):
+    """例外に付いた HTTP 応答のステータスコード。応答が無ければ None。"""
+    resp = getattr(exc, "response", None)
+    code = getattr(resp, "status_code", None) if resp is not None else None
+    return code if isinstance(code, int) else None
+
+
+def _classify_create_error(exc):
+    """create_tweet 中の例外を失敗の種類に分ける。
+
+    応答が無い例外（接続切断・タイムアウトなど）は、X 側で投稿が作られたかどうか分からないので unknown。
+    """
+    code = _http_status(exc)
+    if code == 429:
+        return ERR_RATE_LIMITED
+    if code is not None and 400 <= code < 500:
+        return ERR_REJECTED
+    return ERR_UNKNOWN
+
+
+def post_tweet_ex(text, image_paths=None, reply_to_id=None, require_media=False):
+    """X API v2でツイートを投稿。(tweet_id, error_kind) を返す。
+
+    成功: (tweet_id, None)。失敗: (None, ERR_*)。失敗理由で呼び出し側が再試行の可否を決められる。
+    引数は post_tweet と同じ。
     """
     api_key = os.environ.get("X_API_KEY")
     api_secret = os.environ.get("X_API_SECRET")
@@ -616,8 +661,9 @@ def post_tweet(text, image_paths=None, reply_to_id=None, require_media=False):
 
     if not all([api_key, api_secret, access_token, access_token_secret]):
         print("  X API認証情報が未設定のためスキップ")
-        return None
+        return None, ERR_NOT_CONFIGURED
 
+    sending = False  # create_tweet を呼び始めたら True（以降の例外は投稿済みかもしれない）
     try:
         import tweepy
         print(f"  [X] tweepyバージョン: {tweepy.__version__}")
@@ -625,9 +671,10 @@ def post_tweet(text, image_paths=None, reply_to_id=None, require_media=False):
         # メディアアップロード（v1.1 API経由、最大4枚）
         media_ids = []
         media_status = "なし"
+        media_rate_limited = False
         if image_paths:
             auth = tweepy.OAuth1UserHandler(api_key, api_secret, access_token, access_token_secret)
-            api_v1 = tweepy.API(auth)
+            api_v1 = tweepy.API(auth, timeout=X_HTTP_TIMEOUT_SEC)
             for image_path in image_paths:
                 try:
                     import os as _os
@@ -640,6 +687,8 @@ def post_tweet(text, image_paths=None, reply_to_id=None, require_media=False):
                     print(f"  メディアアップロード成功 (media_id={media_ids[-1]})")
                 except Exception as e:
                     print(f"  メディアアップロード失敗: {type(e).__name__}: {e}")
+                    if _http_status(e) == 429:
+                        media_rate_limited = True
                     if hasattr(e, "response") and e.response is not None:
                         print(f"    HTTPステータス={e.response.status_code}")
                         print(f"    レスポンス本文={e.response.text[:500]}")
@@ -650,38 +699,55 @@ def post_tweet(text, image_paths=None, reply_to_id=None, require_media=False):
         # 画像必須の呼び出しで1枚も付かなかったら、本文だけで投稿せず失敗扱いにする
         if require_media and not media_ids:
             print(f"  [X] 画像が1枚も添付できないため投稿しない (画像={media_status})")
-            return None
+            return None, (ERR_RATE_LIMITED if media_rate_limited else ERR_PRE_SEND)
 
         # DRY_RUNモード: 投稿直前でスキップ（ログのみ出力）
         if os.environ.get("X_POST_DRY_RUN") == "1":
             print(f"  [DRY_RUN] 投稿スキップ (画像={media_status}) text_len={len(text)}")
             print(f"  [DRY_RUN] 本文先頭: {text[:80]}")
-            return None
+            return None, ERR_DRY_RUN
 
-        # ツイート投稿（v2 API）
+        # ツイート投稿（v2 API）。HTTP にタイムアウトを付ける
         client = tweepy.Client(
             consumer_key=api_key,
             consumer_secret=api_secret,
             access_token=access_token,
             access_token_secret=access_token_secret,
         )
+        client.session = _TimeoutSession()
         kwargs = {"text": text}
         if media_ids:
             kwargs["media_ids"] = media_ids
         if reply_to_id:
             kwargs["in_reply_to_tweet_id"] = str(reply_to_id)
 
+        sending = True
         response = client.create_tweet(**kwargs)
         tweet_id = response.data["id"] if response.data else None
+        if not tweet_id:
+            # 2xx なのに id が読めない。投稿されたかもしれないので結果不明
+            print("  投稿結果にidが無い（結果不明）")
+            return None, ERR_UNKNOWN
         print(f"  投稿成功（画像{media_status}） (id={tweet_id}): {text[:50]}...")
-        return tweet_id
+        return tweet_id, None
 
     except Exception as e:
         print(f"  ツイート投稿失敗: {type(e).__name__}: {e}")
         if hasattr(e, "response") and e.response is not None:
             print(f"    HTTPステータス={e.response.status_code}")
             print(f"    レスポンス本文={e.response.text[:500]}")
-        return None
+        return None, (_classify_create_error(e) if sending else ERR_PRE_SEND)
+
+
+def post_tweet(text, image_paths=None, reply_to_id=None, require_media=False):
+    """X API v2でツイートを投稿。成功時はtweet_idを返す、失敗時はNone。
+    image_paths: ファイルパスのリスト（最大4枚）。Noneまたは空リストで画像なし。
+    require_media: True のとき、画像が1枚も添付できなければ投稿せず None を返す
+        （画像アップロードに全部失敗しても本文だけで成功を返す従来動作を止めたい呼び出し側用。
+        既定 False は従来どおり）。
+    失敗理由を区別したい呼び出し側は post_tweet_ex を使う（こちらはそれを包んだ後方互換版）。
+    """
+    return post_tweet_ex(text, image_paths, reply_to_id, require_media)[0]
 
 
 def _already_posted_today(sb, content_type_prefix: str) -> bool:

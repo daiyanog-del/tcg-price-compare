@@ -256,11 +256,16 @@ def load_dict(path: str | None = None):
 # ① n-gram 照合
 # ──────────────────────────────────────────────
 
-def _suspect(kind, severity, text, start, end, message, suggestion=None, context=None):
+def _suspect(kind, severity, text, start, end, message, suggestion=None, context=None, context_start=None):
+    """疑義1件。context は前後の文脈、context_start はその文脈が元テキストの何文字目から始まるか
+    （表示側が start/end の位置で強調するため。同じ文字列が文脈に複数あっても正しい箇所を示せる）。"""
+    if context is None:
+        context_start = max(0, start - 4)
+        context = text[context_start:end + 4]
     return {
         "kind": kind, "severity": severity, "start": start, "end": end, "text": text[start:end],
         "suggestion": suggestion, "message": message,
-        "context": context if context is not None else text[max(0, start - 4):end + 4],
+        "context": context, "context_start": context_start,
     }
 
 
@@ -313,13 +318,14 @@ def _check_ngrams(text: str, d: TextCheckDict, card_name: str) -> list:
         suggestion = _suggest_confusable(s, known, a, b, d)
         start, end = tokens[a][1], tokens[b - 1][2]
         ctx_a, ctx_b = max(0, a - 3), min(len(tokens), b + 3)
-        context = text[tokens[ctx_a][1]:tokens[ctx_b - 1][2]]
+        context_start = tokens[ctx_a][1]
+        context = text[context_start:tokens[ctx_b - 1][2]]
         msg = ("公式の効果文に例のない文字の並びです" if sev == SEVERITY_STRONG
                else "公式の効果文にあまり例のない文字の並びです（参考）")
         if suggestion:
             msg += f"。「{suggestion['from']}」→「{suggestion['to']}」の読み違いの可能性"
         out.append(_suspect("unknown_ngram", sev, text, start, end, msg,
-                            suggestion["replaced"] if suggestion else None, context))
+                            suggestion["replaced"] if suggestion else None, context, context_start))
     return out
 
 
@@ -569,6 +575,9 @@ def check_card(card: dict, *, extra_names=(), dictionary=None, context: "TextCon
         for s in check_text(t, card_name=name, extra_names=extra_names, dictionary=d, name_text=other + " " + name, recur_word=recur_word):
             s["field"] = f
             suspects.append(s)
+    if not any(t.strip() for t in texts.values()):
+        # 調べる文章が1つも無い（魔法・罠・モンスターを問わず空）。疑義なしの意味ではないので未検証で返す
+        return {**base, "status": "unchecked", "reason": "empty"}
     return {
         **base,
         "status": "checked",
