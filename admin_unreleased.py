@@ -27,6 +27,7 @@ from flask import Blueprint, request, jsonify, render_template
 
 import card_display as _card_display
 import unreleased_x_post as _x_post
+import unreleased_text_report as _text_report
 from unreleased_auto_approve import reason_label as _auto_approve_label
 import fetch_guard as _fetch_guard
 from constants import JST as _JST
@@ -263,8 +264,12 @@ def admin_list_unreleased():
             for row in (img_resp.data or [])
         }
 
+        # 利用者からのテキスト誤り報告（未対応）の件数。テーブルが無い等で読めなければ全て0
+        open_reports = _text_report.count_open_by_card(_supabase)
+
         for card in cards:
             card["has_image"] = card["id"] in ids_with_image
+            card["open_report_count"] = open_reports.get(card["id"], 0)
             card["source_image_url"] = source_url_by_id.get(card["id"], "")
             # extraction_raw からカード個別画像URLを取り出してトップレベルに付加
             raw = card.get("extraction_raw") or {}
@@ -276,6 +281,9 @@ def admin_list_unreleased():
             card["card_image_url"] = card_img_url
             for key in ("crop_suggestion", "crop_state", "release_date_evidence", "recognition_review", "auto_approve_verdict", "text_check"):
                 card[key] = raw.get(key)
+            # 承認の経路（single / bulk / auto）。公開中一覧で自動承認の札を出すのに使う
+            snap = raw.get("approval_snapshot")
+            card["approval_via"] = snap.get("via") if isinstance(snap, dict) else None
             # 自動承認判定の理由コードを日本語ラベルにして添える（ラベルの正本は Python 側のみ）
             verdict = card.get("auto_approve_verdict")
             if isinstance(verdict, dict):
@@ -516,6 +524,47 @@ def admin_recheck_text(card_id: int):
     except Exception as e:
         logger.error(f"[admin] 効果テキスト再検査エラー id={card_id}: {e}")
         return jsonify({"error": "再検査に失敗しました"}), 500
+
+
+# ──────────────────────────────────────────────
+# 利用者からの「テキストの誤り報告」
+# ──────────────────────────────────────────────
+
+@admin_bp.route("/api/admin/unreleased/<int:card_id>/text-reports", methods=["GET"])
+def admin_list_text_reports(card_id: int):
+    """カード1枚への誤り報告の一覧（新しい順）。生IPのハッシュは返さない。"""
+    err = _require_admin_key()
+    if err:
+        return err
+
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+
+    try:
+        return jsonify({"ok": True, "reports": _text_report.list_reports(_supabase, card_id)})
+    except Exception as e:
+        logger.error(f"[admin] text-reports 取得エラー id={card_id}: {e}")
+        return jsonify({"error": "報告の取得に失敗しました"}), 500
+
+
+@admin_bp.route("/api/admin/text-reports/<int:report_id>/resolve", methods=["POST"])
+def admin_resolve_text_report(report_id: int):
+    """報告を対応済みにする。カードの公開状態は変えない。"""
+    err = _require_admin_key()
+    if err:
+        return err
+
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+
+    try:
+        row = _text_report.resolve_report(_supabase, report_id)
+        if not row:
+            return jsonify({"error": "対象の報告が見つかりません"}), 404
+        return jsonify({"ok": True, "report": row})
+    except Exception as e:
+        logger.error(f"[admin] text-report resolve エラー id={report_id}: {e}")
+        return jsonify({"error": "対応済みにできませんでした"}), 500
 
 
 def _backfill_release_date(product_name: str, exclude_id: int) -> str | None:

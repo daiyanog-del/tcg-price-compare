@@ -465,7 +465,7 @@ def _all_rate_limit_buckets() -> list[dict]:
     テスト側は _reset_rate_limits() を呼ぶだけにする。
     """
     return [_last_search, _last_import, _last_buyback, _last_deck, _last_deck_image, _last_packs,
-            _last_sync, _last_sync_link, _last_feedback, _last_mercari]
+            _last_sync, _last_sync_link, _last_feedback, _last_mercari, _last_text_report]
 
 
 def _reset_rate_limits() -> None:
@@ -536,6 +536,9 @@ FEEDBACK_RATE_LIMIT_SEC    = 30    # 同一IP 30秒に1回まで
 MAX_FEEDBACK_BODY_CHARS    = 2000
 MAX_FEEDBACK_CONTACT_CHARS = 200
 _last_feedback: dict[str, float] = {}  # _consume_rate_limit の共有バケットとして使う
+# 未発売カードの「テキストの誤り報告」専用バケット（IPごと30秒に1回。フィードバックと枠を奪い合わない）
+TEXT_REPORT_RATE_LIMIT_SEC = 30  # TODO: calibrate from data
+_last_text_report: dict[str, float] = {}
 _DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 
 _ranking_lock = Lock()
@@ -3991,6 +3994,30 @@ def api_feedback():
         Thread(target=_notify_feedback_discord, args=(record,), daemon=True).start()
 
     return jsonify({"ok": True})
+
+
+@app.route("/api/card-text-report", methods=["POST"])
+def api_card_text_report():
+    """未発売カードの「テキストの誤り報告」を受け付ける。入力: {name, field, note}
+    ロジックは unreleased_text_report.py（ここは Origin 確認・レート制限・配線だけ）。
+    報告だけではカードを非公開にしない。
+    """
+    if not _same_origin_ok():
+        return jsonify({"error": "不正なリクエストです"}), 403
+    rate_error = _consume_rate_limit(bucket=_last_text_report, interval=TEXT_REPORT_RATE_LIMIT_SEC,
+                                      message="しばらく待ってから再度送信してください")
+    if rate_error:
+        return rate_error
+    if not _supabase_client:
+        return jsonify({"error": "現在受け付けられません"}), 503
+    try:
+        import unreleased_text_report
+        result, status = unreleased_text_report.process_report(
+            _supabase_client, request.get_json(silent=True), _client_ip(), base_url=_public_base_url())
+        return jsonify(result), status
+    except Exception as e:
+        logger.warning(f"[text-report] 受付失敗: {e}")
+        return jsonify({"error": "受け付けに失敗しました。時間を置いて再度お試しください"}), 500
 
 
 def _notify_feedback_discord(record: dict):

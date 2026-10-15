@@ -692,6 +692,106 @@ function _setupTextCheck(editForm, card) {
   });
 }
 
+// ──────────────────────────────────────────────
+// 利用者からの「テキストの誤り報告」（未対応の件数の札・編集フォームの一覧）
+// 報告だけではカードの公開状態は変わらない。値は textContent だけで設定する。
+// ──────────────────────────────────────────────
+
+/** 未対応の報告件数の札。0件・未取得は出さない。 */
+function _renderReportBadge(el, count) {
+  if (!el) return;
+  const n = Number(count) || 0;
+  if (n <= 0) {
+    el.hidden = true;
+    el.textContent = '';
+    return;
+  }
+  el.textContent = `報告 ${n}件（未対応）`;
+  el.hidden = false;
+}
+
+/** 報告一覧を描く。reports は新しい順。resolve は対応済みにするコールバック（id, button）。 */
+function _renderReportList(panel, reports, resolve) {
+  const list = panel.querySelector('.report-panel__list');
+  list.replaceChildren();
+  if (!Array.isArray(reports) || reports.length === 0) {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+  for (const r of reports) {
+    const li = document.createElement('li');
+    li.className = 'report-panel__item' + (r.status === 'resolved' ? ' report-panel__item--resolved' : '');
+    const field = document.createElement('span');
+    field.className = 'report-panel__field';
+    field.textContent = r.field_label || r.field || '';
+    li.appendChild(field);
+    const note = document.createElement('span');
+    note.className = 'report-panel__note';
+    note.textContent = r.note || '（ひとことなし）';
+    li.appendChild(note);
+    const at = document.createElement('span');
+    at.className = 'report-panel__at';
+    at.textContent = _formatDate(r.created_at);
+    li.appendChild(at);
+    if (r.status === 'resolved') {
+      const done = document.createElement('span');
+      done.className = 'report-panel__at';
+      done.textContent = '対応済み';
+      li.appendChild(done);
+    } else {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-ghost btn-sm';
+      btn.textContent = '対応済みにする';
+      btn.addEventListener('click', () => resolve(r.id, btn));
+      li.appendChild(btn);
+    }
+    list.appendChild(li);
+  }
+}
+
+/**
+ * 札と編集フォームの報告一覧を配線する。未対応の報告があるカードだけ、一覧を読み込む。
+ * 対応済みにしたら札の件数も更新する。
+ */
+function _setupReportPanel(row, editForm, card) {
+  const badge = row.querySelector('.report-badge');
+  let open = Number(card.open_report_count) || 0;
+  _renderReportBadge(badge, open);
+  const panel = editForm.querySelector('.report-panel');
+  if (!panel || open <= 0) return;
+  const load = async () => {
+    try {
+      const resp = await apiFetch(`/api/admin/unreleased/${card.id}/text-reports`);
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) return;
+      _renderReportList(panel, data.reports, resolve);
+    } catch (e) {
+      if (e.message !== '認証エラー') console.warn('報告の取得に失敗しました', e);
+    }
+  };
+  const resolve = async (reportId, btn) => {
+    btn.disabled = true;
+    try {
+      const resp = await apiFetch(`/api/admin/text-reports/${reportId}/resolve`, { method: 'POST' });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        alert(data.error || '対応済みにできませんでした');
+        btn.disabled = false;
+        return;
+      }
+      open = Math.max(0, open - 1);
+      _renderReportBadge(badge, open);
+      await load();
+    } catch (e) {
+      btn.disabled = false;
+      if (e.message !== '認証エラー') alert('通信エラーが発生しました');
+    }
+  };
+  load();
+}
+
 
 function _renderPendingList(listEl, cards) {
   listEl.innerHTML = '';
@@ -775,6 +875,7 @@ function _renderPendingList(listEl, cards) {
     _setActiveMedia(editForm, hasSource ? 'source' : 'proxy');
     _showRecognitionEvidence(card, editForm);
     _setupTextCheck(editForm, card);
+    _setupReportPanel(row, editForm, card);
 
     // 抽出元画像がある場合のみクロップUIを配線
     if (hasSource) {
@@ -1174,6 +1275,13 @@ function _renderApprovedList(listEl, cards) {
     summaryEl.textContent = `要確認 ${flagged.length}件`;
     listEl.appendChild(summaryEl);
   }
+  const autoCount = cards.filter((c) => c.approval_via === 'auto' && c.status === 'approved').length;
+  if (autoCount > 0) {
+    const autoEl = document.createElement('div');
+    autoEl.className = 'review-summary review-summary--auto';
+    autoEl.textContent = `自動承認 ${autoCount}件（問題があれば各行の「承認待ちに戻す」ですぐ非公開にできます）`;
+    listEl.appendChild(autoEl);
+  }
 
   for (const card of cards) {
     const row = tmpl.content.cloneNode(true).querySelector('.card-row');
@@ -1187,6 +1295,11 @@ function _renderApprovedList(listEl, cards) {
     const statusBadge = row.querySelector('.card-row__status-badge');
     statusBadge.textContent = card.status === 'linked' ? 'linked' : '公開中';
     statusBadge.className = `status-badge status-badge--${card.status}`;
+
+    // 自動承認で公開されたカードの札
+    if (card.approval_via === 'auto') {
+      row.querySelector('.auto-approved-badge').hidden = false;
+    }
 
     // 画像ありバッジ / 画像なし警告バッジ
     if (card.has_image) {
@@ -1258,6 +1371,7 @@ function _renderApprovedList(listEl, cards) {
     });
 
     _setupTextCheck(editForm, card);
+    _setupReportPanel(row, editForm, card);
     // プレビュー初期描画
     const slot = editForm.querySelector('.edit-preview__slot');
     _renderPreview(slot, card);

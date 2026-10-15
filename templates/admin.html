@@ -265,6 +265,7 @@
         <span class="confidence-badge"></span>
         <span class="auto-verdict-badge" hidden></span>
         <span class="text-check-badge" hidden></span>
+        <span class="report-badge" hidden></span>
         <span class="card-row__extracted-at"></span>
       </div>
       <div class="card-row__meta">
@@ -394,6 +395,13 @@
               <ul class="text-check__list"></ul>
             </div>
 
+            <div class="form-group form-group--full report-panel" hidden>
+              <div class="report-panel__head">
+                <span class="report-panel__title">利用者からの誤り報告</span>
+              </div>
+              <ul class="report-panel__list"></ul>
+            </div>
+
           </div>
 
           <div class="form-actions">
@@ -418,6 +426,8 @@
         <span class="card-row__product"></span>
         <span class="card-row__type"></span>
         <span class="card-row__status-badge"></span>
+        <span class="auto-approved-badge" hidden title="自動承認で公開されたカードです。問題があれば「承認待ちに戻す」で非公開にできます（Xに投稿済みなら投稿も削除されます）">自動承認</span>
+        <span class="report-badge" hidden></span>
         <span class="card-row__has-image has-image-badge" hidden>画像あり</span>
         <span class="card-row__no-image no-image-badge" hidden>画像なし</span>
       </div>
@@ -572,6 +582,13 @@
               </div>
               <p class="text-check__note"></p>
               <ul class="text-check__list"></ul>
+            </div>
+
+            <div class="form-group form-group--full report-panel" hidden>
+              <div class="report-panel__head">
+                <span class="report-panel__title">利用者からの誤り報告</span>
+              </div>
+              <ul class="report-panel__list"></ul>
             </div>
 
           </div>

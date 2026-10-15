@@ -1,0 +1,136 @@
+/* 未発売カードの「テキストの誤りを報告」ボタンとフォーム（カードページ・シミュレーター共通）
+ * 配色はサイト共通の規則に合わせる: 面の濃淡で分け、通常操作には枠線を付けない。
+ * 主操作 = 金 #f3ce46＋濃色文字 / 副操作 = 面 #202c42＋薄青文字 / 入力だけ枠線を残す / フォーカス = 金のアウトライン */
+.tr-open-wrap { margin-top: 10px; }
+
+.tr-open-btn {
+  background: #202c42;
+  border: 0;
+  border-radius: 6px;
+  color: #aec5ff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 6px 12px;
+}
+.tr-open-btn:hover { background: #2a3956; }
+/* シミュレーターPCの左パネルは細い。ボタンを幅いっぱいにして、2行までに収める */
+.sol-card-info-panel .tr-open-btn { width: 100%; font-size: 0.68rem; line-height: 1.35; padding: 5px 4px; }
+
+.tr-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tr-overlay[hidden] { display: none; }
+
+.tr-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(6, 10, 20, 0.7);
+}
+
+.tr-dialog {
+  position: relative;
+  background: #171f31;
+  border-radius: 10px;
+  box-sizing: border-box;
+  color: #eff3fb;
+  display: flex;
+  flex-direction: column;
+  font-family: 'Noto Sans JP', system-ui, sans-serif;
+  max-height: 90vh;
+  overflow-y: auto;
+  width: min(440px, calc(100vw - 24px));
+}
+
+.tr-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  padding: 14px 16px 6px;
+}
+.tr-title { font-size: 1rem; font-weight: 700; margin: 0; }
+.tr-close {
+  background: none;
+  border: 0;
+  color: #a8b4c9;
+  cursor: pointer;
+  font-size: 1.4rem;
+  line-height: 1;
+  padding: 4px 8px;
+}
+.tr-close:hover { color: #eff3fb; }
+
+.tr-body { padding: 4px 16px 8px; }
+.tr-card-name {
+  background: #101626;
+  color: #eff3fb; /* シミュレーター側に p 要素の既定色（暗い灰）があるため明示する */
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin: 0 0 10px;
+  overflow-wrap: anywhere;
+  padding: 8px 10px;
+}
+.tr-label { color: #a8b4c9; display: block; font-size: 0.78rem; margin: 10px 0 4px; }
+
+.tr-select,
+.tr-textarea {
+  background: #101626;
+  border: 1px solid #3a4863;
+  border-radius: 6px;
+  box-sizing: border-box;
+  color: #eff3fb;
+  font: inherit;
+  font-size: 16px; /* iOS Safari の入力時の自動ズームを避ける */
+  padding: 8px 10px;
+  width: 100%;
+}
+.tr-textarea { resize: vertical; }
+.tr-count { color: #a8b4c9; font-size: 0.72rem; text-align: right; }
+
+.tr-status { border-radius: 6px; font-size: 0.8rem; margin: 8px 0 0; padding: 8px 10px; }
+.tr-status[hidden] { display: none; }
+.tr-status--ok { background: rgba(99, 211, 174, 0.15); color: #63d3ae; }
+.tr-status--err { background: rgba(248, 113, 113, 0.15); color: #f87171; }
+
+.tr-foot { display: flex; gap: 8px; justify-content: flex-end; padding: 8px 16px 14px; }
+.tr-cancel,
+.tr-submit {
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 9px 16px;
+}
+.tr-cancel[hidden] { display: none; }
+.tr-cancel { background: #202c42; color: #aec5ff; }
+.tr-cancel:hover { background: #2a3956; }
+.tr-submit { background: #f3ce46; color: #242013; font-weight: 700; }
+.tr-submit:hover { background: #ffe16d; }
+.tr-submit:disabled { cursor: not-allowed; opacity: 0.5; }
+
+.tr-open-btn:focus-visible,
+.tr-close:focus-visible,
+.tr-select:focus-visible,
+.tr-textarea:focus-visible,
+.tr-cancel:focus-visible,
+.tr-submit:focus-visible { outline: 2px solid #f3ce46; outline-offset: 2px; }
+
+/* スマホ: 画面下から出るシート。親指で押しやすい高さを確保する */
+@media (max-width: 600px) {
+  .tr-overlay { align-items: flex-end; }
+  .tr-dialog {
+    border-radius: 14px 14px 0 0;
+    max-height: 92vh;
+    width: 100vw;
+  }
+  .tr-foot { padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+  .tr-cancel, .tr-submit { flex: 1; padding: 12px 16px; }
+  .tr-open-btn { padding: 9px 14px; }
+}

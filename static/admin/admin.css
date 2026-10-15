@@ -1462,3 +1462,68 @@ a:hover {
 .text-check__field {
   color: color-mix(in srgb, var(--main-color) 70%, var(--border) 30%);
 }
+
+/* 利用者からの誤り報告（未対応の件数の札と、編集フォームの一覧）
+ * 未対応 = 注意色（gold）。赤は危険・エラー用なので使わない。報告だけでは公開状態は変わらない */
+.report-badge {
+  background-color: var(--gold);
+  border-radius: 3px;
+  color: var(--bg-color);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 1px 5px;
+}
+
+/* 自動承認で公開されたカードの札。承認待ちに戻す操作が近くにあることを title で示す */
+.auto-approved-badge {
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  color: var(--main-color);
+  font-size: 0.72rem;
+  padding: 1px 5px;
+}
+
+/* 自動承認の件数は「要確認」（gold）と区別して accent の線にする */
+.review-summary--auto {
+  border-left-color: var(--accent);
+  font-weight: 400;
+}
+
+.report-panel {
+  background-color: var(--bg-surface);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  font-size: 0.8rem;
+}
+
+.report-panel__title {
+  font-weight: 600;
+}
+
+.report-panel__list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+
+.report-panel__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 3px 0;
+  border-top: 1px solid var(--border);
+}
+
+.report-panel__field {
+  font-weight: 600;
+}
+
+.report-panel__note,
+.report-panel__at {
+  color: color-mix(in srgb, var(--main-color) 70%, var(--border) 30%);
+}
+
+.report-panel__item--resolved {
+  opacity: 0.6;
+}
