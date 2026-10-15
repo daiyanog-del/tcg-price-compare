@@ -520,6 +520,179 @@ document.getElementById('bulk-reject-btn').addEventListener('click', async () =>
  * @param {HTMLElement} listEl
  * @param {Array} cards
  */
+/**
+ * 自動承認の判定の札を描く（表示のみ。承認操作には影響しない）。
+ * 理由の日本語ラベルはサーバーが返す auto_approve_reason_labels を使う。
+ * 値は textContent だけで設定する（innerHTML 不使用）。
+ * @param {HTMLElement|null} el
+ * @param {{auto_approve_verdict?: {eligible: boolean, reasons: string[]}|null, auto_approve_reason_labels?: string[]}} card
+ */
+function _renderAutoVerdict(el, card) {
+  if (!el) return;
+  const verdict = card.auto_approve_verdict;
+  if (!verdict || typeof verdict.eligible !== 'boolean') return;  // 旧データ・手動登録は札なし
+  // 値は取込時（編集して保存した場合は保存時）の判定。承認前後の他の変化は反映されない
+  el.title = AUTO_VERDICT_NOTE;
+  if (verdict.eligible) {
+    el.textContent = '自動承認候補';
+    el.classList.add('auto-verdict-badge--eligible');
+  } else {
+    const labels = Array.isArray(card.auto_approve_reason_labels) ? card.auto_approve_reason_labels : [];
+    el.textContent = '自動承認不可: ' + (labels.length ? labels.join(' / ') : '理由不明');
+    el.classList.add('auto-verdict-badge--ineligible');
+  }
+  el.hidden = false;
+}
+
+/**
+ * 効果テキストの誤字チェックの表示（unreleased_text_check.py の結果）。
+ * 値は textContent / createTextNode だけで設定する（innerHTML 不使用）。
+ * 強い疑義 = 自動承認の条件に使うもの。弱い疑義 = 参考表示のみ。
+ * @param {{status?: string, reason?: string, strong?: number, weak?: number, suspects?: Array, unverified_fields?: string[]}|null|undefined} tc
+ */
+const TEXT_CHECK_FIELD_LABELS = { effect_text: '効果テキスト', pendulum_effect: 'ペンデュラム効果' };
+// 一覧の札（自動承認の判定・誤字チェック）の注記。値は取込時、または最後に編集保存した時点のもの
+const AUTO_VERDICT_NOTE = '取込時（編集して保存した場合は保存時）の判定結果です';
+
+function _renderTextCheckBadge(el, tc) {
+  if (!el) return;
+  if (!tc || typeof tc !== 'object') return;  // 旧データは札なし
+  el.title = AUTO_VERDICT_NOTE;
+  if (tc.status !== 'checked') {
+    el.textContent = '誤字チェック未実施';
+    el.classList.add('text-check-badge--neutral');
+  } else if (tc.strong > 0) {
+    el.textContent = `誤字の疑い ${tc.strong}件`;
+    el.classList.add('text-check-badge--strong');
+  } else if (tc.weak > 0) {
+    el.textContent = `誤字チェック 参考${tc.weak}件`;
+    el.classList.add('text-check-badge--neutral');
+  } else {
+    return;  // 疑義なしは出さない
+  }
+  el.hidden = false;
+}
+
+function _appendHighlighted(parent, context, target, offset) {
+  // 前後の文脈の中で該当箇所を強調する。offset（文脈内での開始位置 = start - context_start）が
+  // 分かり、その位置の文字列が該当文字列と一致するときはその位置で強調する
+  // （同じ文字列が文脈に複数あっても正しい箇所を示せる）。位置が無い旧データ・食い違いは最初の一致で代用。
+  let idx = -1;
+  if (target) {
+    if (Number.isInteger(offset) && offset >= 0 && context.slice(offset, offset + target.length) === target) {
+      idx = offset;
+    } else {
+      idx = context.indexOf(target);
+    }
+  }
+  if (idx < 0) {
+    parent.appendChild(document.createTextNode(context));
+    return;
+  }
+  parent.appendChild(document.createTextNode(context.slice(0, idx)));
+  const mark = document.createElement('mark');
+  mark.className = 'text-check__mark';
+  mark.textContent = target;
+  parent.appendChild(mark);
+  parent.appendChild(document.createTextNode(context.slice(idx + target.length)));
+}
+
+function _renderTextCheckPanel(editForm, tc, stale) {
+  const panel = editForm.querySelector('.text-check');
+  if (!panel) return;
+  const note = panel.querySelector('.text-check__note');
+  const list = panel.querySelector('.text-check__list');
+  list.replaceChildren();
+  note.textContent = '';
+  if (!tc || typeof tc !== 'object') {
+    panel.hidden = true;  // 旧データ（検査の記録なし）は再検査ボタンも出さない
+    return;
+  }
+  panel.hidden = false;
+  if (tc.status !== 'checked') {
+    note.textContent = '誤字チェックを実施できませんでした（辞書なし等）。疑義なしの意味ではありません。';
+    return;
+  }
+  const suspects = Array.isArray(tc.suspects) ? tc.suspects : [];
+  const unverified = Array.isArray(tc.unverified_fields) ? tc.unverified_fields : [];
+  const notes = [];
+  if (stale) notes.push('取込時の検査結果です。編集した場合は「再検査」で確認できます。');
+  if (!suspects.length) notes.push('疑わしい箇所はありません。');
+  if (unverified.length) {
+    notes.push(`${unverified.map(f => TEXT_CHECK_FIELD_LABELS[f] || f).join('・')}は文章の型が違うため、文字の並びの照合はしていません。`);
+  }
+  note.textContent = notes.join(' ');
+  // 強い疑義を先に
+  const sorted = suspects.slice().sort((a, b) => (a.severity === 'strong' ? 0 : 1) - (b.severity === 'strong' ? 0 : 1));
+  for (const sus of sorted) {
+    const li = document.createElement('li');
+    li.className = 'text-check__item';
+    const tag = document.createElement('span');
+    tag.className = `text-check__tag text-check__tag--${sus.severity === 'strong' ? 'strong' : 'weak'}`;
+    tag.textContent = sus.severity === 'strong' ? '要確認' : '参考';
+    li.appendChild(tag);
+    const field = document.createElement('span');
+    field.className = 'text-check__field';
+    field.textContent = TEXT_CHECK_FIELD_LABELS[sus.field] || '';
+    li.appendChild(field);
+    const ctx = document.createElement('span');
+    ctx.className = 'text-check__context';
+    ctx.appendChild(document.createTextNode('…'));
+    const susOffset = (Number.isInteger(sus.start) && Number.isInteger(sus.context_start))
+      ? sus.start - sus.context_start : null;
+    _appendHighlighted(ctx, String(sus.context || sus.text || ''), String(sus.text || ''), susOffset);
+    ctx.appendChild(document.createTextNode('…'));
+    li.appendChild(ctx);
+    if (sus.suggestion) {
+      const sug = document.createElement('span');
+      sug.className = 'text-check__suggestion';
+      sug.textContent = `候補: ${sus.suggestion}`;
+      li.appendChild(sug);
+    }
+    const msg = document.createElement('span');
+    msg.className = 'text-check__message';
+    msg.textContent = sus.message || '';
+    li.appendChild(msg);
+    list.appendChild(li);
+  }
+}
+
+/**
+ * 編集フォームの誤字チェック欄を初期化し、「再検査」ボタンを配線する。
+ * 再検査は編集中の値（カード名・効果テキスト・ペンデュラム効果）で行い、結果は保存しない。
+ */
+function _setupTextCheck(editForm, card) {
+  const tc = card.text_check;
+  _renderTextCheckPanel(editForm, tc, true);
+  const btn = editForm.querySelector('.text-check__recheck');
+  if (!btn || !tc) return;
+  btn.addEventListener('click', async () => {
+    const current = _collectFormData(editForm);
+    btn.disabled = true;
+    try {
+      const resp = await apiFetch(`/api/admin/unreleased/${card.id}/text-check`, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: current.name,
+          effect_text: current.effect_text,
+          pendulum_effect: current.pendulum_effect,
+        }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && data.text_check) {
+        _renderTextCheckPanel(editForm, data.text_check, false);
+      } else {
+        alert(data.error || '再検査に失敗しました');
+      }
+    } catch (e) {
+      if (e.message !== '認証エラー') alert('通信エラーが発生しました');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
+
 function _renderPendingList(listEl, cards) {
   listEl.innerHTML = '';
 
@@ -550,6 +723,10 @@ function _renderPendingList(listEl, cards) {
     const badge = row.querySelector('.confidence-badge');
     badge.textContent = _confidenceLabel(card.confidence);
     badge.classList.add(_confidenceClass(card.confidence));
+
+    // 自動承認の判定（シャドーモード: 表示のみ）
+    _renderAutoVerdict(row.querySelector('.auto-verdict-badge'), card);
+    _renderTextCheckBadge(row.querySelector('.text-check-badge'), card.text_check);
 
     // 抽出元リンク
     const link = row.querySelector('.card-row__source-link');
@@ -597,6 +774,7 @@ function _renderPendingList(listEl, cards) {
     // 抽出元画像があればそれを、無ければプロキシ表示を初期表示にする
     _setActiveMedia(editForm, hasSource ? 'source' : 'proxy');
     _showRecognitionEvidence(card, editForm);
+    _setupTextCheck(editForm, card);
 
     // 抽出元画像がある場合のみクロップUIを配線
     if (hasSource) {
@@ -1079,6 +1257,7 @@ function _renderApprovedList(listEl, cards) {
       if (val != null) input.value = val;
     });
 
+    _setupTextCheck(editForm, card);
     // プレビュー初期描画
     const slot = editForm.querySelector('.edit-preview__slot');
     _renderPreview(slot, card);

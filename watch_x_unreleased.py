@@ -26,6 +26,8 @@ import requests
 from supabase import create_client, Client
 
 from name_normalize import fuzzy_key
+from unreleased_auto_approve import annotate_row, load_active_names, load_text_context
+from unreleased_quality import lacks_card_body
 from ygores_repository import repository as _ygores_repo
 
 logger = logging.getLogger(__name__)
@@ -191,24 +193,9 @@ def _upsert_cards(sb: Client, rows: list[dict]) -> list[dict]:
 # ポスト処理
 # ──────────────────────────────────────────────
 
-def _lacks_card_body(row: dict) -> bool:
-    """抽出結果が「カード本体（枠・文字）を読めていない」か判定する。
-
-    イラストのみ・ティザー画像の投稿は、カード名しか分からず次をすべて満たす:
-      - effect_text と pendulum_effect が空（効果・フレーバーとも読めていない）
-      - atk / level / rank / link_val がすべて None（数値欄が読めていない）
-    通常モンスターは効果がなくてもフレーバーテキストと ATK/DEF・レベルが印刷されており、
-    魔法・罠は効果文が必ずあるため、本体が写っていれば上記のどれかは埋まる。
-    1つでも埋まっていれば「本体あり」とみなし、誤って保留しない（保留は後続投稿を待つだけで
-    データは失わないが、誤判定を減らして従来動作を保つ）。
-    実例: 2026-10-14「竜魔導の降霊師」21:30 イラストのみ投稿が先に挿入され、
-    21:00 の本体画像投稿が取込済みとしてスキップされた。
-    """
-    if (row.get("effect_text") or "").strip():
-        return False
-    if (row.get("pendulum_effect") or "").strip():
-        return False
-    return all(row.get(k) is None for k in ("atk", "level", "rank", "link_val"))
+# 判定本体は unreleased_quality.lacks_card_body に移動（自動承認の判定と共用）。
+# 既存の呼び出し・テストが参照する名前を残すための別名。
+_lacks_card_body = lacks_card_body
 
 
 def _tweet_id_key(tweet: dict) -> int:
@@ -236,9 +223,20 @@ def process_tweets(
     # 同名の別投稿に本体があればそちらを採用し、無ければバッチ末に挿入する。
     pending: dict[str, tuple[dict, str]] = {}
 
+    # 自動承認判定用の既存カード名（rejected以外）。最初の挿入時に1回だけ読み、以後は挿入分を足す。
+    active = {"loaded": False, "names": None, "text": None}
+
     def _insert_row(row: dict, row_tweet_url: str) -> int:
         """1行を挿入し、挿入できたら画像も同じ出所（row_tweet_url）で保存する。"""
+        if not active["loaded"]:
+            active["names"] = load_active_names(sb)
+            active["text"] = load_text_context(sb)  # 効果テキスト検証用（他カードの「」内語）
+            active["loaded"] = True
+        # 挿入前に自動承認の判定（シャドーモード: 記録のみ）と抽出時スナップショットを付ける
+        annotate_row(row, active["names"], active["text"])
         inserted_rows = _upsert_cards(sb, [row])
+        if inserted_rows and active["names"] is not None:
+            active["names"].append(row.get("name", ""))
         # 新規取込分をキャッシュに追加（同一実行内の重複処理防止）
         existing_keys.add(fuzzy_key(row.get("name", "")))
         for card in inserted_rows:

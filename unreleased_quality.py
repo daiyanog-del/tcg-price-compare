@@ -41,6 +41,26 @@ def structured_request(client, *, model, system, content, schema, max_tokens=160
     return data, text, {'input_tokens': message.usage.input_tokens, 'output_tokens': message.usage.output_tokens}
 
 
+def lacks_card_body(row: dict) -> bool:
+    """抽出結果が「カード本体（枠・文字）を読めていない」か判定する。
+
+    イラストのみ・ティザー画像の投稿は、カード名しか分からず次をすべて満たす:
+      - effect_text と pendulum_effect が空（効果・フレーバーとも読めていない）
+      - atk / level / rank / link_val がすべて None（数値欄が読めていない）
+    通常モンスターは効果がなくてもフレーバーテキストと ATK/DEF・レベルが印刷されており、
+    魔法・罠は効果文が必ずあるため、本体が写っていれば上記のどれかは埋まる。
+    1つでも埋まっていれば「本体あり」とみなし、誤って保留しない（保留は後続投稿を待つだけで
+    データは失わないが、誤判定を減らして従来動作を保つ）。
+    実例: 2026-10-14「竜魔導の降霊師」21:30 イラストのみ投稿が先に挿入され、
+    21:00 の本体画像投稿が取込済みとしてスキップされた。
+    """
+    if (row.get("effect_text") or "").strip():
+        return False
+    if (row.get("pendulum_effect") or "").strip():
+        return False
+    return all(row.get(k) is None for k in ("atk", "level", "rank", "link_val"))
+
+
 # 記事内の日付を補助採用する上限（今日から何日先まで）。AIの年誤り（過去日）対策の範囲。
 # TODO: calibrate from data
 _ARTICLE_DATE_MAX_DAYS = 400

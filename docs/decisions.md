@@ -1,5 +1,46 @@
 このファイルの目的: 重要な決定を「いつ・何を・なぜ」で記録する。新しい決定は上に追記
 
+## 2026-10-15: 未発売カード効果テキストの誤字検証（決定的・AI不使用）と、画像なし投稿の防止
+
+- 何を: `unreleased_text_check.py`（検査）・`tools/build_text_check_dict.py`（辞書生成）・`tools/text_check_calibrate.py`（誤検知の計測）・辞書 `data/text_check_dict.json.gz`（約200KB、コミット済み）を追加。お手本は ygores_cards の日本語公式テキスト（効果文13,785件・カード名14,274・「」内語3,996）。①文字3連鎖（3-gram）の照合 ②「」内の名前（既存カード名との編集距離）③書式（連番の飛び・括弧の不対応・半角記号・連続句読点・文末の欠け）。自動承認の条件に「強い疑義なし」（`text_suspect`）、辞書なし・フレーバーテキスト等は `text_unchecked` で不適格を追加（判定 version 2）。
+- なぜ: 画像からAIで読んだ効果テキストの読み違いを、AIを使わず（再現可能・無料）に拾いたい。実測で、人が承認した公開済みカードに「墓地」→「基地」の読み違いが複数枚残っていた（検出できた）。
+- 強弱に分けた理由と閾値の決め方: 全部を疑義にすると承認済みの約4割に付く（計測値は下記）。そこで **強**（周囲のどの3-gramも公式に無い文字位置＝誤字1字なら必ずここに当たる／書式の明白な崩れ／既存語と編集距離1〜2で一度しか出ない「」内語）だけを自動承認の条件にし、**弱**（未知の3-gramが1つだけ等）は参考表示にした。n=3 は leave-one-out で比べて決定（n=2: 検出力不足、n=4: 強の誤検知が増え辞書も約2倍、n=3: 強の誤検知 約2%）。
+- 計測（2026-10-15 実データ）: 公式コーパス leave-one-out（3000〜4000枚サンプル）で強の誤検知 1.6〜2.2%・弱 約22%。似た字の置換を1字入れた擬似誤字は強で位置を捉えられたのが約91%・元の字を候補に出せたのが約98%（置換は表にある字のみなので上限寄りの数字）。承認済み/紐付け済み66件では強が8件(12.1%)・弱が付いたのは20件(30.3%)・強弱いずれかが27件(約41%)。強8件のうち6件は実際の読み違い（墓→基）と思われ、残り2件は新用語（「邪心教義カウンター」）と新カード名「不死なる太陽神」の誤検知。
+- 比較して採らなかったもの: ①他の未発売カードにも出る並びは「新語」として弱に下げる案 → 読み違い（墓→基）は同じ弾の複数カードに繰り返し出るので本物の誤字を隠す。不採用（「」内の語にだけ使う）。②LLMによる校正 → 再現性とコストの面で今回は対象外。
+- 仕様の判断: トークン名（〜トークン）はカードごとに作られるため新語として許容（これを入れる前は公式の誤検知の大半がトークン名だった）。数字は全角/半角・丸数字を伏せ字にして比べる（公式は全角、未発売の抽出結果は半角が多いため）。通常モンスターのフレーバー等は公式効果文のコーパスで照合できないので n-gram 照合を行わず「未検証」扱い（自動承認は不可）。
+- 辞書が無い・壊れているときは検査を「未検証」で返す（疑義なし扱いにしない）。再生成は ygores 同期で新カードが増えた後（数ヶ月に1回）。
+- 保存: 取込3経路が `extraction_raw.text_check`（version つき）を保存。承認時の `approval_snapshot.text_check` に承認時点の疑義数（種別別）を保存し、`tools/auto_approve_report.py` で「疑義ありだったが本文を直さず承認＝誤検知または見落とし」を数える。管理画面は承認待ち・公開中の編集欄に疑義一覧（該当文字列・前後の文脈・候補）と「編集後の値で再検査」ボタン（`POST /api/admin/unreleased/<id>/text-check`、保存しない）。強は既存の注意色（gold）、赤は使わない。
+- 画像なし投稿の防止: `x_poster.post_tweet(require_media=False)` を追加。True で画像が1枚も付かなければ投稿せず None。未発売カード投稿は True（失敗として last_error に記録）。既存呼び出しは挙動不変。
+- 影響範囲: unreleased_auto_approve.py（条件追加・VERSION=2）、admin_unreleased.py（一覧に text_check・再検査API）、watch_x_unreleased.py / watch_unreleased.py / admin fetch-x-post（text_check 保存）、static/admin、tools/auto_approve_report.py、x_poster.py・unreleased_x_post.py。
+- 限界（未検証）: 承認済み66件での計測で件数が少ない。擬似誤字は表にある似た字のみ。実際の誤字傾向は運用で溜めて表を足す。管理画面の見た目は実機（ブラウザ）で未確認。
+
+## 2026-10-15: 未発売カードのX自動投稿・自動承認シャドーモード
+
+- いつ・何を: 承認（=公開）された未発売カードを X へ自動投稿する機能（`unreleased_x_post.py`）と、「人手の承認なしで承認してよいか」の判定を記録するだけのシャドーモード（`unreleased_auto_approve.py`）を追加。承認そのものを自動化するスイッチは作っていない。
+- なぜ（投稿）: 承認から公開までに時間差があると新カード情報の鮮度が落ちる。承認直後に画像付きで出せば、サイトへの流入と検索経由の認知に使える。
+- 二重投稿防止: 新テーブル `unreleased_x_posts`（card_id 主キー）に投稿前に予約行を入れ、主キー衝突なら他が処理中/済みとして何もしない。`tweet_log` は content_type 単位の日次チェック用でカード識別子を持てないため流用しない。導入前の承認済みカードは `unreleased_cards.approved_at` が NULL のまま＝投稿対象外（旧版の skipped_legacy 一括登録は不要になり削除。既存の skipped_legacy 行と CHECK 値は残す）。失敗は attempts<3 の間だけ条件付き UPDATE で再試行権を奪う。
+- 既定は無効（`UNRELEASED_X_POST_ENABLED=1` で有効）。DRY_RUN は予約行も作らない。`post_tweet` の None（認証未設定・API失敗）は成功扱いにしない。
+- 配線: 単体承認は画像取込成功後にバックグラウンドで投稿。一括承認は既存の画像取込スレッドの後に 20 秒間隔で順に投稿（画像取込のロックは先に手放す）。画像取込に失敗した分とRender再起動で途切れた分は、backfill-images.yml（3時間ごと）の後段 `tools/post_unreleased_x.py` が回収する（1回10件まで）。
+- なぜ（シャドーモード）: 自動承認の閾値を推測で決めない。まず取込時に判定を `extraction_raw.auto_approve_verdict`、抽出時の値を `extracted_snapshot` に記録し、承認時に `approval_snapshot`（手直しした項目・切り抜き方法）を記録して、`tools/auto_approve_report.py` で「候補なのに手直し/却下された」件数を実測してから判断する。
+- 判定条件（全部満たせば候補）: 信頼度high / 数値再読verified（魔法罠も再読対象なので対象外の例外は設けない。enrich_rows は全カードに再読をかける）/ 発売日が公式で確認済み / 切り抜き（X経由は候補なしか輪郭検出contourで座標・面積・縦横比が妥当。公式経由は承認時に切り抜かれないため候補なしか画像全体のみ）/ カード本体を読めている / rejected以外に同名（fuzzy_key）が無い。閾値（面積・縦横比）は仮置きで `TODO: calibrate from data`。
+- 比較: 既存の admin 手動承認だけの運用に比べ、投稿は手間が減る反面、承認ミスがそのままXに出る（削除はX側で手動）。シャドーモードは判定の質を測れる一方、実際の自動承認までは時間がかかる。
+- 影響範囲: admin_unreleased.py（承認2系統・一覧API）、watch_x_unreleased.py / watch_unreleased.py / admin fetch-x-post（取込前の判定記録）、unreleased_quality.py（`lacks_card_body` を共用のため移動）、static/admin（判定の札）、backfill-images.yml。
+
+### 追記 2026-10-15: レビュー指摘の修正（X投稿の上限・結果不明・過去分除外ほか）
+
+- 前提: X API はこのアカウントでは pay-per-use（従量課金。1投稿ごとに課金、作成上限は 100件/15分/ユーザー・10,000件/日/アプリ）。Free プランの17件/日ではない。
+- 件数の上限: 一括承認1回 `MAX_BULK_POST_PER_RUN=10`・回収1回 `MAX_BACKFILL_PER_RUN=10`・全経路で1日(JST) `DAILY_POST_LIMIT=30`（posted と unknown の件数を unreleased_x_posts から数える）。いずれも仮置き（TODO: calibrate from data）。上限で止めた分は予約行を作らず、回収ジョブ（3時間ごと）が後で拾う。課金が従量なので、暴走時の被害上限を自前で持つ意味がある。
+- 失敗の3分類（`x_poster.post_tweet_ex` が `(tweet_id, error_kind)` を返す。`post_tweet` はそれを包む後方互換版）: 送信前の失敗（認証未設定・画像アップロード失敗・画像必須で添付ゼロ）と X の明確な拒否(429以外の4xx)は `failed`（attempts+1、3回まで再試行）／429 は `rate_limited`（attempts を増やさず回収で再挑戦。行を消さず残すのは、いつ制限に当たったかの記録と、予約の主キーによる二重投稿防止を途切れさせないため）／結果不明（HTTP応答なしの例外・タイムアウト・5xx・応答にid無し）は `unknown`（自動再試行しない・Discord通知。人が X を見て posted にするか行を消す）。
+- タイムアウト: tweepy 4.14 のソースで確認。`Client` は `self.session.request(...)` を timeout なしで呼ぶため `client.session` を既定30秒の `_TimeoutSession` に差し替え、v1 の `tweepy.API(timeout=)`（media_upload で `timeout=self.timeout` が使われる）にも30秒を指定。requests の timeout は接続・読み取りごとの待ち上限で、全体の所要時間の上限ではない。
+- 投稿対象は新列 `unreleased_cards.approved_at`（timestamptz NULL）が入っているカードだけ（2026-10-15 再レビューで approval_snapshot 方式から変更）。単体承認・一括承認で status を approved にする**同じ UPDATE** に入れるので、承認と同時に確定し、バックグラウンドの記録書き込みの失敗・遅れで投稿対象から漏れない（旧方式の欠点: 記録の書き込み失敗で永久に投稿されない／承認直後の編集保存の読み書きで記録が消えうる）。既存行は NULL のまま＝導入前の承認は投稿されない。再承認（unpublish→approve）でも更新するが、再投稿は unreleased_x_posts の行で防がれる。`approval_snapshot` は自動承認の校正用の計測データとして残し、投稿条件からは外した。一括承認で記録を保存できなかったカードは Discord に1通まとめて通知する。回収候補も `approved_at` 条件に加え、発売済み名・同名で投稿済みのカードは選定段階で除く。
+- 適用順序（本番）: ① `unreleased_x_posts.sql`（列追加・冪等）→ ② コードをデプロイ → ③ `UNRELEASED_X_POST_ENABLED=1`。コードが先に出ても承認は壊れない: `approved_at` 列が無いエラーを検知したら approved_at 抜きで承認 UPDATE を再実行して警告ログを出す（その間に承認したカードは NULL のため投稿されない。SQL 適用後に unpublish→再承認か approved_at を直接 UPDATE）。
+- 回収・通知の上限（2026-10-15 再レビュー）: `max_cards` は「実際に送信を試みた件数」（posted/failed/rate_limited/unknown/dry_run）で数え、行を作らない結果（missing/not_postable/already/skipped_duplicate）は枠を消費しない。429 の再挑戦は初回の予約から24時間または累計8回で打ち切り failed（attempts=MAX_ATTEMPTS）にして通知1回（列 rate_limit_count）。取り残し通知は同じ行につき1日1回（列 stuck_notified_at）。同名重複の判定は `_post_lock` の内側で行い、同名2枚の同時投稿を防ぐ。unknown 通知には「未投稿だった場合は同名で skipped_duplicate になったカードの行も消す」注意を添える。
+- 重複・発売済み: 同じ fuzzy_key のカード名で posted / unknown の行があれば `skipped_duplicate` として記録して投稿しない。発売済みカード名の索引（data/cardnames_ja.json。name_normalize.load_cardnames_index）に載っていれば投稿しない。週次更新のため発売直後の反映遅れは残る。
+- 取り残し: 回収ジョブが 1時間以上更新されていない `posting` と `unknown` の行をまとめて Discord に通知（自動再投稿はしない）。
+- 認証情報: X の4環境変数が揃っていなければ予約せず `not_configured`（警告ログは1プロセス1回）。
+- 同時実行: 投稿の「日次上限確認→予約→間隔待ち→送信」を同一プロセス内のロックで直列化し、最終投稿時刻も共有（複数の一括承認スレッドでも `POST_INTERVAL_SEC` を守る）。別プロセス（Render と GitHub Actions）間は守れない。
+- 自動承認判定: 効果テキストが空のカードは `empty_text` で不適格（`check_card` も空なら `unchecked`/reason=empty）。編集保存(PUT)時に text_check と auto_approve_verdict を再計算して保存（取込時に判定が付いたカードのみ。他カードの名前・「」内語は id 別に持って60秒キャッシュし、自分自身は id で除く）。一覧の札には「取込時（編集して保存した場合は保存時）の判定」の注記。誤字の強調は start/end の位置（`context_start` を追加）で行う。再検査APIは全件読み込み1回で、文脈に入っていないカード（rejected 等）の分を引かない。
+
 ## 2026-10-04: クロップの内枠誤採用と保存座標を修正
 
 - 根拠: ユーザーの精度指摘。表示座標の共通ずれは未再現だが、実画像で閉輪郭不足による内枠採用とカード単体への不要補正を再現。保存時の浮動小数点切捨ても1pxずれを発生。
