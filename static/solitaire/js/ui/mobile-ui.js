@@ -112,6 +112,7 @@ function resetMobileUI() {
   setHidden('solMobileCip', true);
   setHidden('solSidebarScrim', true);
   setHidden('solMobileUndoBtn', true);
+  setHidden('solMobilePlayBtn', true);
   setHidden('solMobileDeckSheet', true);
   setHidden('solMobileShareSheet', true);
   setHidden('solMobileCommentSheet', true);
@@ -167,6 +168,10 @@ function initBarButtons() {
   document.getElementById('solMobileUndoBtn')
     ?.addEventListener('click', () => { document.getElementById('replayUndo')?.click(); });
 
+  // 再生: ⋯メニュー「リプレイを再生」と同じ再生モードに入る（2026-10-16 案A）
+  document.getElementById('solMobilePlayBtn')
+    ?.addEventListener('click', () => { enterPlaybackMode('menu'); });
+
   // タスクA-2: 録画開始/停止（トグル）
   document.getElementById('solMobileRecordBtn')
     ?.addEventListener('click', () => { toggleRecording(); });
@@ -180,13 +185,17 @@ function initBarButtons() {
  * A-4: 旧リプレイバーは縦向きスマホでは常時 display:none（mobile.css）。
  * 取消は下部バーの #solMobileUndoBtn だけが表示を担う。
  * リプレイの手数（#replayUndo の disabled 属性）を見て表示を切り替える。
- * タスクA-5: 共有ボタンは下部バーから外したため、ここでは取消のみを扱う。
+ * タスクA-5: 共有ボタンは下部バーから外した。2026-10-16 から再生ボタンもここで出し入れする
+ * （#replayPlay の disabled＝記録0件を見る）。
  */
 function updateReplayBarMobile() {
   if (!isMobilePortrait()) return;
   const undoBtn = document.getElementById('replayUndo');
   if (!undoBtn) return;
   setHidden('solMobileUndoBtn', undoBtn.disabled);
+  // 再生は記録が1手以上あれば出す（#replayPlay の disabled は「記録0件」のときだけ立つ）
+  const playBtn = document.getElementById('replayPlay');
+  if (playBtn) setHidden('solMobilePlayBtn', playBtn.disabled);
 }
 
 function initReplayBarMobile() {
@@ -194,6 +203,8 @@ function initReplayBarMobile() {
   if (!undoBtn) return;
   updateReplayBarMobile();
   new MutationObserver(updateReplayBarMobile).observe(undoBtn, { attributes: true, attributeFilter: ['disabled'] });
+  const playBtn = document.getElementById('replayPlay');
+  if (playBtn) new MutationObserver(updateReplayBarMobile).observe(playBtn, { attributes: true, attributeFilter: ['disabled'] });
 }
 
 // ══════════════════ ⋯ メニューシート ══════════════════
