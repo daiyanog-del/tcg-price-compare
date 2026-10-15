@@ -183,19 +183,12 @@
         </div>
       </section>
 
-      <!-- コメント（整理④）: カードの選択案内と盤面メモ。どちらも普段は hidden で場所を取らない。
-           表示の制御は static/solitaire/js/ui/comment-ui.js（案内）と services/comment-view.js（メモ） -->
+      <!-- コメント（整理④）: カードの選択案内。普段は hidden で場所を取らない。表示の制御は static/solitaire/js/ui/comment-ui.js。
+           盤面メモの付箋は盤面（.custom-layout）の中、カットインは services/comment-view.js が body 直下に一時的に出す -->
       <!-- 案内帯は高さ0の足場に重ねて出す（出し入れで盤面の大きさが変わり、押そうとしたカードが動くのを避ける） -->
       <div class="sol-comment-guide-anchor">
         <div id="solCommentGuide" class="sol-comment-guide" role="status" hidden>コメントを付けるカードを選んでください（Escでやめる）</div>
       </div>
-      <!-- 盤面メモ: 押すと全文が下に重なって開く（スマホでは title が見えないため。配線は comment-ui.js） -->
-      <div id="solBoardMemo" class="sol-board-memo" role="button" tabindex="0" aria-expanded="false" hidden>
-        <span class="sol-board-memo-icon" aria-hidden="true">&#128221;</span>
-        <span id="solBoardMemoText" class="sol-board-memo-text"></span>
-        <div id="solBoardMemoFull" class="sol-board-memo-full" hidden></div>
-      </div>
-
       <div id="mainContainer">
         <div class="main-content">
           <!-- フィールド -->
@@ -220,6 +213,10 @@
               <div class="custom-slot" data-slot="13" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
               <div class="custom-slot" data-slot="14" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
             </div>
+
+            <!-- 盤面メモの付箋（2026-10-15）: 盤面の1段目の空いた角に重ねる（位置は css/comments.css・配置は動かさない）。
+                 押すと全文が開閉する（配線は comment-ui.js・表示は services/comment-view.js） -->
+            <div id="solBoardMemo" class="sol-board-memo" role="button" tabindex="0" aria-expanded="false" hidden><span class="sol-board-memo-icon" aria-hidden="true">&#128221;</span><span id="solBoardMemoText" class="sol-board-memo-text"></span></div>
 
             <!-- スマホ縦向き専用: 初見導線（フェーズ3・§3.5）。デッキ0枚かつ手札0枚のときだけ表示 -->
             <button type="button" id="solMobileEmptyCta" class="sol-mobile-empty-cta" hidden>デッキを読み込む</button>
@@ -431,7 +428,8 @@
           </div>
           <div class="sol-mobile-sheet-body">
             <button type="button" class="sol-mobile-menu-item" data-menu-action="share">共有</button>
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="boardmemo">盤面にメモ<span class="sol-mobile-menu-desc">盤面の上端に一言を表示します</span></button>
+            <button type="button" class="sol-mobile-menu-item" data-menu-action="boardmemo">盤面にメモ<span class="sol-mobile-menu-desc">盤面の空いた角に付箋で一言を表示します</span></button>
+            <button type="button" class="sol-mobile-menu-item" data-menu-action="cutin">カットイン<span class="sol-mobile-menu-desc">その手に進んだとき、盤面に一瞬ことばを出します</span></button>
             <a href="/solitaire/replays" data-replay-list-link class="sol-mobile-menu-item sol-mobile-menu-link">リプレイ一覧</a>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="reset">リセット<span class="sol-mobile-menu-desc">カードをデッキに戻し、記録もリセットします</span></button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="clearall">クリア<span class="sol-mobile-menu-desc">デッキ・盤面・記録をすべて消します</span></button>
@@ -498,6 +496,8 @@
           </div>
           <div class="sol-mobile-sheet-body">
             <p id="solMobileCommentTarget" class="sol-mobile-share-note"></p>
+            <!-- カットインのときだけ出す言葉の札（mobile-ui.js の openCommentSheet）。押すとその場で入る -->
+            <div id="solMobileCutinChips" class="sol-cutin-chips" hidden></div>
             <div class="sol-mobile-share-comment-row">
               <input type="text" id="solMobileCommentInput" class="sol-mobile-share-input" maxlength="60" placeholder="コメント" aria-label="コメント">
               <button type="button" id="solMobileCommentAddBtn" class="sol-mobile-menu-item">付ける</button>
@@ -595,11 +595,20 @@
         <div class="sol-comment-actions">
           <button type="button" id="solCommentCardBtn" class="sol-comment-btn">&#128172; カードに吹き出し</button>
           <button type="button" id="solCommentBoardBtn" class="sol-comment-btn">&#128221; 盤面にメモ</button>
+          <button type="button" id="solCommentCutinBtn" class="sol-comment-btn">&#127916; カットイン</button>
         </div>
         <form id="solCommentBoardForm" class="sol-comment-form" hidden>
           <input type="text" id="solCommentBoardInput" class="sol-comment-input" maxlength="60" placeholder="盤面のメモ" aria-label="盤面のメモ">
           <button type="submit" class="sol-comment-btn sol-comment-submit">付ける</button>
         </form>
+        <!-- カットイン: 言葉の札（押すとその場で入る）と自由入力（20字）。札は comment-ui.js が作る -->
+        <div id="solCommentCutinForm" class="sol-cutin-form" hidden>
+          <div id="solCommentCutinChips" class="sol-cutin-chips"></div>
+          <form id="solCommentCutinInputRow" class="sol-comment-form">
+            <input type="text" id="solCommentCutinInput" class="sol-comment-input" maxlength="20" placeholder="自由に書く（20字まで）" aria-label="カットインの文字">
+            <button type="submit" class="sol-comment-btn sol-comment-submit">出す</button>
+          </form>
+        </div>
         <ul id="solCommentList" class="sol-comment-list" aria-label="この記録のコメント"></ul>
       </div>
 

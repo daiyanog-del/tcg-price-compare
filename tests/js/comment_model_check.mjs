@@ -1,9 +1,10 @@
-// コメント（吹き出し・盤面メモ）の純粋ロジック（services/comment-model.js）の確認。
+// コメント（吹き出し・盤面メモ・カットイン）の純粋ロジック（services/comment-model.js）の確認。
 // 実行: node tests/js/comment_model_check.mjs
 import assert from 'node:assert/strict';
 import {
   COMMENT_MAX_LEN, clampCommentText, commentKind, computeCommentView, listComments,
   cursorAfterRemove, shiftRangeAfterRemove, shiftRangeAfterInsert, isSameComment,
+  CUTIN_MAX_LEN, CUTIN_DURATION_MS, CUTIN_PRESETS, clampCutinText, commentText, cutinToShow, playPauseMs,
 } from '../../static/solitaire/js/services/comment-model.js';
 
 const mv = (cardId, extra = {}) => ({ actionType: 'moveCard', cardId, zoneId: 'custom-slot-1', ...extra });
@@ -152,4 +153,51 @@ assert.equal(isSameComment(mv('a'), { kind: 'board', cardId: null, text: '' }), 
 assert.equal(isSameComment(undefined, { kind: 'board', cardId: null, text: 'x' }), false);
 assert.equal(isSameComment({ actionType: 'comment', text: 'z' }, { kind: 'board', cardId: null, text: 'z' }), true, '古いコメント（kind 無し）は盤面メモ');
 
-console.log('comment-model: 吹き出し（動いたら消える・inPlace・setup）、盤面メモ、削除でのずれを確認');
+// ── カットイン ──
+const cut = (text) => ({ actionType: 'comment', kind: 'cutin', text });
+assert.equal(CUTIN_MAX_LEN, 20);
+assert.equal(CUTIN_DURATION_MS, 1900);
+assert.deepEqual(CUTIN_PRESETS, ['ターン終了', '相手ターン', '自分ターン', 'バトルフェイズ', 'メインフェイズ2', 'エンドフェイズ']);
+assert.equal(commentKind(cut('ターン終了')), 'cutin');
+assert.equal(commentKind({ actionType: 'comment', kind: 'unknown', text: 'x' }), 'board', '未知の kind は今までどおり盤面メモ');
+assert.equal(commentKind({ actionType: 'comment', kind: 'cutin', cardId: 'a', text: 'x' }), 'cutin');
+// 20字で切る（絵文字を割らない・前後の空白は除く）
+assert.equal(clampCutinText('あ'.repeat(21)).length, 20);
+assert.equal(Array.from(clampCutinText('😀'.repeat(30))).length, 20, '絵文字を途中で割らない');
+assert.equal(clampCutinText('  ターン終了  '), 'ターン終了');
+assert.equal(clampCutinText(undefined), '');
+assert.equal(commentText(cut('あ'.repeat(50))).length, 20, '記録に長い本文があっても表示は20字');
+assert.equal(commentText(memo('あ'.repeat(50))).length, 50, '盤面メモは60字まで（20字に切らない）');
+// 盤面に残らない: 吹き出し・盤面メモの表示に影響しない（盤面メモを置き換えない）
+v = view([mv('a'), memo('メモ'), bub('a', 'G受け'), cut('ターン終了')]);
+assert.equal(v.memo, 'メモ', 'カットインが盤面メモを置き換えない');
+assert.deepEqual(v.bubbles, [{ cardId: 'a', text: 'G受け' }], 'カットインは吹き出しを消さない');
+// 一覧: kind='cutin'・本文は20字
+assert.deepEqual(listComments([mv('a'), cut('あ'.repeat(30))]), [{ index: 1, kind: 'cutin', cardId: null, text: 'あ'.repeat(20) }]);
+// 一覧の行との照合（削除の取り違え防止）
+assert.equal(isSameComment(cut('ターン終了'), { kind: 'cutin', cardId: null, text: 'ターン終了' }), true);
+assert.equal(isSameComment(cut('ターン終了'), { kind: 'board', cardId: null, text: 'ターン終了' }), false, '種類が違えば別物');
+assert.equal(isSameComment(cut('相手ターン'), { kind: 'cutin', cardId: null, text: 'ターン終了' }), false);
+assert.equal(isSameComment(cut('あ'.repeat(30)), { kind: 'cutin', cardId: null, text: 'あ'.repeat(20) }), true, '長い本文は切った形で照合');
+
+// 「進んだときだけ出す」判定: 前進でその手に来たときだけ
+assert.equal(cutinToShow(cut('ターン終了'), true), 'ターン終了', '前進（付けた直後・次へ・自動再生）で来たら出す');
+assert.equal(cutinToShow(cut('ターン終了'), false), null, '巻き戻し・スライダー・取消・復元・読み込み直後は出さない');
+assert.equal(cutinToShow(cut('あ'.repeat(40)), true).length, 20, '出す本文も20字');
+assert.equal(cutinToShow(cut('   '), true), null, '空のカットインは出さない');
+assert.equal(cutinToShow(memo('メモ'), true), null, '盤面メモは出さない');
+assert.equal(cutinToShow(bub('a', 'x'), true), null, '吹き出しは出さない');
+assert.equal(cutinToShow(mv('a'), true), null, 'コメント以外の手は出さない');
+assert.equal(cutinToShow(undefined, true), null, 'カーソルが先頭（手が無い）でも落ちない');
+assert.equal(cutinToShow({ actionType: 'comment', kind: 'unknown', text: 'x' }, true), null, '未知の kind は盤面メモ扱いなので出さない');
+
+// 自動再生の待ち時間: カットインは動きが終わるまで、吹き出し・メモは倍率、ふつうの手は基本
+assert.equal(playPauseMs(mv('a'), 900, 2.5), 900);
+assert.equal(playPauseMs(memo('m'), 900, 2.5), 2250);
+assert.equal(playPauseMs(bub('a', 'x'), 900, 2.5), 2250);
+assert.equal(playPauseMs(cut('ターン終了'), 900, 2.5), 1900, 'カットイン: 動きの時間（約1.9秒）');
+assert.equal(playPauseMs(cut('ターン終了'), 450, 2.5), 1900, '2倍速でも動きの時間は縮めない');
+assert.equal(playPauseMs(cut('ターン終了'), 1800, 2.5), 1900, '0.5倍速（1.8秒）でも動きが終わるまで');
+assert.equal(playPauseMs(cut('ターン終了'), 3000, 2.5), 3000, '基本の待ちが長ければそちら');
+
+console.log('comment-model: 吹き出し（動いたら消える・inPlace・setup）、盤面メモ、カットイン（20字・進んだときだけ・待ち時間）、削除でのずれを確認');

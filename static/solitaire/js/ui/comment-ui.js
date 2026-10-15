@@ -1,10 +1,11 @@
 /**
  * comment-ui.js
- * コメント（カードの吹き出し・盤面のメモ）の入力と一覧（PC。右パネルの「コメント」区画）。
+ * コメント（カードの吹き出し・盤面のメモ・カットイン）の入力と一覧（PC。右パネルの「コメント」区画）。
  *
  * 記録への追加・削除は replay-service の addComment / removeEventAt に任せる
  * （自動再生の停止・末尾への移動・範囲の追従はそちらと、購読側の pc-recording.js が行う）。
- * 吹き出し・メモの表示は記録の位置から計算して描く（services/comment-view.js）ので、ここでは描かない。
+ * 吹き出し・メモ・カットインの表示は services/comment-view.js が描く（吹き出し・メモは記録の位置から計算、カットインは
+ * 前進でその手に来たときに replay-service が出す）ので、ここでは描かない。
  *
  * 「カードに吹き出し」の流れ:
  *   ボタン → 案内帯「コメントを付けるカードを選んでください（Escでやめる）」→ 次に押したカードが対象
@@ -19,7 +20,7 @@ import {
   getLogs,
   subscribeReplay,
 } from '../services/replay-service.js';
-import { COMMENT_MAX_LEN, listComments } from '../services/comment-model.js';
+import { COMMENT_MAX_LEN, CUTIN_MAX_LEN, CUTIN_PRESETS, listComments } from '../services/comment-model.js';
 import { isCardInPool } from './context-menu.js';
 import { showToast } from '../utils/toast.js';
 
@@ -142,6 +143,9 @@ function closeCommentInputs() {
   const form = document.getElementById('solCommentBoardForm');
   if (form) form.hidden = true;
   document.getElementById('solCommentBoardBtn')?.classList.remove('is-active');
+  const cutinForm = document.getElementById('solCommentCutinForm');
+  if (cutinForm) cutinForm.hidden = true;
+  document.getElementById('solCommentCutinBtn')?.classList.remove('is-active');
 }
 
 /** 入力欄をカードの近く（画面からはみ出さない位置）に置く */
@@ -226,6 +230,27 @@ function _submitBoardMemo() {
   closeCommentInputs();
 }
 
+// ── カットイン（右パネル区画の中の、言葉の札＋自由入力） ──────────
+function _toggleCutinForm() {
+  const form = document.getElementById('solCommentCutinForm');
+  if (!form) return;
+  const open = form.hidden;
+  closeCommentInputs();
+  if (!open) return;
+  form.hidden = false;
+  document.getElementById('solCommentCutinBtn')?.classList.add('is-active'); // 開いている間は「入力中」と同じ accent の面
+  document.getElementById('solCommentCutinInput')?.focus();
+}
+
+/** カットインを入れる。入れたら入力欄を閉じる（札は押すとその場で入る） */
+function _addCutin(text) {
+  if (!addComment({ kind: 'cutin', text })) return false;
+  const input = document.getElementById('solCommentCutinInput');
+  if (input) input.value = '';
+  closeCommentInputs();
+  return true;
+}
+
 // ── 一覧 ──────────────────────────────────────────────────
 
 /** 区画の一覧を、いまの記録から作り直す（「N手目 💬/📝 本文」＋行末の ✕） */
@@ -233,6 +258,7 @@ function renderCommentList() {
   const ul = document.getElementById('solCommentList');
   if (!ul) return;
   const items = listComments(getLogs());
+  const KIND_ICON = { card: '💬', board: '📝', cutin: '🎬' };
   ul.replaceChildren();
   if (items.length === 0) {
     const li = document.createElement('li');
@@ -246,7 +272,7 @@ function renderCommentList() {
     li.className = 'sol-comment-row';
     const text = document.createElement('span');
     text.className = 'sol-comment-row-text';
-    text.textContent = `${c.index + 1}手目 ${c.kind === 'card' ? '💬' : '📝'} ${c.text}`;
+    text.textContent = `${c.index + 1}手目 ${KIND_ICON[c.kind] ?? '📝'} ${c.text}`;
     text.title = c.text;
     const del = document.createElement('button');
     del.type = 'button';
@@ -273,6 +299,29 @@ export function initCommentUI() {
   });
   document.getElementById('solCommentBoardBtn')?.addEventListener('click', _toggleBoardMemoForm);
 
+  // カットイン: 言葉の札（押すとその場で入る）・自由入力（20字）・［出す］
+  document.getElementById('solCommentCutinBtn')?.addEventListener('click', _toggleCutinForm);
+  const cutinInput = document.getElementById('solCommentCutinInput');
+  if (cutinInput) cutinInput.maxLength = CUTIN_MAX_LEN;
+  const chips = document.getElementById('solCommentCutinChips');
+  if (chips) {
+    for (const label of CUTIN_PRESETS) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'sol-cutin-chip';
+      chip.textContent = label;
+      chip.addEventListener('click', () => _addCutin(label));
+      chips.appendChild(chip);
+    }
+  }
+  document.getElementById('solCommentCutinInputRow')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (!_addCutin(cutinInput?.value ?? '')) cutinInput?.focus();
+  });
+  cutinInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeCommentInputs(); }
+  });
+
   document.getElementById('solCommentBoardForm')?.addEventListener('submit', (e) => {
     e.preventDefault();
     _submitBoardMemo();
@@ -282,19 +331,24 @@ export function initCommentUI() {
     if (_isCommitEnter(e)) { e.preventDefault(); _submitBoardMemo(); }
   });
 
-  // 盤面メモの帯: 押す（クリック・Enter・Space）と全文が開閉する
+  // 盤面メモの付箋: 押す（クリック・Enter・Space）と全文が開閉する（同じ付箋が広がって重なるだけで、盤面の配置は動かない）
   const memo = document.getElementById('solBoardMemo');
   const toggleMemo = () => {
     const open = !memo.classList.contains('is-open');
     memo.classList.toggle('is-open', open);
     memo.setAttribute('aria-expanded', String(open));
-    const full = document.getElementById('solBoardMemoFull');
-    if (full) full.hidden = !open;
   };
   memo?.addEventListener('click', toggleMemo);
   memo?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleMemo(); }
   });
+
+  // 全文を開いたまま、下のカードをドラッグし始めたら閉じる（広がった付箋がドロップ先を覆わないように）
+  document.addEventListener('dragstart', () => {
+    if (!memo?.classList.contains('is-open')) return;
+    memo.classList.remove('is-open');
+    memo.setAttribute('aria-expanded', 'false');
+  }, true);
 
   subscribeReplay('changed', renderCommentList);
   renderCommentList();

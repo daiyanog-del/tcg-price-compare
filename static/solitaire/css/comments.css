@@ -1,8 +1,8 @@
 /**
- * comments.css — コメント（カードの吹き出し・盤面メモ）の見た目（2026-10-15 整理④）
- * 見本: mocks/sim-reorg-20261015.html の「3. コメント」。
+ * comments.css — コメント（カードの吹き出し・盤面メモの付箋・カットイン）の見た目（2026-10-15 整理④）
+ * 見本: mocks/sim-reorg-20261015.html の「3. コメント」・mocks/sim-memo-cutin-20261015.html（付箋とカットイン）。
  * 配色は site-theme.css の変数（--main-color / --bg-card / --bg-color / --accent / --gold / --border）に合わせる。
- * 黄色（--gold）は主な操作の印なので、盤面メモの左線以外では使わない。赤は使わない。
+ * 黄色（--gold）・色の付いた実線は状態の目印（選択中・触れている間）なので、コメントの表示には使わない。赤は使わない。
  */
 
 /* ── 吹き出し（カードの右上に重ねる。.tier-item-wrapper の中に置かれる） ──
@@ -44,50 +44,141 @@
   overflow-wrap: anywhere;
 }
 
-/* ── 盤面メモの帯（相手の想定妨害の直下・盤面グリッドの上） ── */
-.sol-board-memo {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 4px 0 0;
-  padding: 4px 8px;
-  background: var(--bg-card);
-  border-left: 3px solid var(--gold);
-  border-radius: 4px;
+/* ── 盤面メモの付箋（2026-10-15。見本: mocks/sim-memo-cutin-20261015.html の 1章 案A）──
+   盤面（.custom-layout）の1段目の「もともとカードを置かない空いた角」に position:absolute で重ねる。
+   帯のように差し込まないので、出ても消えても盤面の配置・大きさは変わらない（fitFieldToViewport も見積もらない）。
+   位置と大きさは、盤面の実際の列の幅（--slot-width・--gap）から calc で決める（固定の px で置かない）:
+     PC・横向き: 1段目の1〜2列目（EXモンスターゾーンの左。カード詳細欄の右）
+     縦向きスマホ（5列グリッド）: 1段目の1列目（mobile.css の @media と同じ条件）
+   色の付いた線は付けない（金の実線＝選択中・accent の実線＝触れている間と区別するため。面と影だけで表す）。
+   付箋そのものだけ操作を受ける（pointer-events:auto）。ほかの部分はカードの操作・ドロップ先の判定を妨げない。 */
+/* 付箋の位置の基準（縦向きスマホは mobile.css が同じ指定を持つ。PC・横向きにも同じ基準を与える） */
+.custom-layout { position: relative; }
+.custom-layout > .sol-board-memo {
+  position: absolute;
+  left: -1px;                /* スロットは枠(1px)の分だけ列からはみ出すので、見本（左330・幅205）に合わせて少し広げる */
+  top: 8px;
+  z-index: 15;               /* カード（スロット内）より前。カード詳細欄(10)・案内帯(30)・メニュー類より後ろ */
+  box-sizing: border-box;
+  width: calc(var(--slot-width) * 2 + var(--gap) + 3px);
+  max-height: calc(var(--slot-height) - 12px);
+  padding: 9px 11px;
+  overflow: hidden;
+  background: rgba(32, 44, 66, 0.94);   /* --bg-hover 相当 */
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
   color: var(--main-color);
   font-family: var(--font);
-  font-size: 0.78rem;
-  line-height: 1.4;
-  position: relative;       /* 全文（.sol-board-memo-full）をこの帯の下に重ねる */
+  font-size: clamp(8px, calc(var(--slot-width) * 0.134), 13px);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  pointer-events: auto;      /* 再生中に盤面へ掛ける pointer-events:none（body.sol-playback など）の中でも開閉できる */
+  display: -webkit-box;
+  -webkit-line-clamp: 5;     /* PC は5行まで。あふれた分は … で省略（全文は押すと開く・title にも入る） */
+  -webkit-box-orient: vertical;
+}
+.custom-layout > .sol-board-memo[hidden] { display: none; }
+.sol-board-memo-icon { margin-right: 4px; }
+/* 押すと全文。同じ付箋が下へ広がって重なるだけ（盤面の配置は動かさない）。幅の狭い盤面でも読めるよう最低幅を取る */
+.custom-layout > .sol-board-memo.is-open {
+  display: block;
+  z-index: 40;
+  width: max(calc(var(--slot-width) * 2 + var(--gap) + 3px), min(220px, 60vw));
+  max-height: none;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+}
+@media (max-width: 767px) and (orientation: portrait) {
+  .custom-layout > .sol-board-memo {
+    left: calc((100% - var(--slot-width) * 5 - 40px) / 2 - 2px);  /* 5列グリッド（列の間 10px）の1列目 */
+    top: 2px;
+    width: calc(var(--slot-width) + 4px);
+    max-height: calc(var(--slot-height) - 4px);
+    padding: 6px;
+    border-radius: 7px;
+    font-size: clamp(8px, calc(var(--slot-width) * 0.157), 11px);
+    line-height: 1.35;
+    -webkit-line-clamp: 6;   /* スマホは6行まで */
+  }
+  .custom-layout > .sol-board-memo.is-open {
+    width: min(220px, calc(100vw - 24px));
+  }
+}
+
+/* ── カットイン（2026-10-15。見本の 2章 案X）──
+   盤面を横切る帯。その手に前進で来たときだけ約1.9秒（CUTIN_DURATION_MS と同じ）で入って抜け、盤面には残らない。
+   置き場所は comment-view.js が出す時点の盤面の実位置から決める（横=盤面の入れ物の幅いっぱい・縦=盤面の中央の高さ）。
+   position:fixed なので盤面の配置に影響しない。操作の邪魔をしない（pointer-events:none）。 */
+.sol-cutin {
+  --cutin-h: 76px;
+  position: fixed;
+  z-index: 9000;
+  box-sizing: border-box;
+  height: var(--cutin-h);
+  margin-top: calc(var(--cutin-h) / -2);   /* top は帯の中心。半分だけ上へ */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(90deg, rgba(16, 22, 38, 0) 0%, rgba(16, 22, 38, 0.9) 12%, rgba(16, 22, 38, 0.9) 88%, rgba(16, 22, 38, 0) 100%);
+  border-top: 1px solid rgba(239, 243, 251, 0.25);
+  border-bottom: 1px solid rgba(239, 243, 251, 0.25);
+  pointer-events: none;
+  opacity: 0;
+  animation: solCutIn 1.9s ease both;
+}
+.sol-cutin .sol-cutin-text {
+  color: #fff;               /* components.css の `span { color:#333 }` に負けないよう明示 */
+  font-family: var(--font);
+  font-size: 34px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+/* スマホ縦向き・横向きスマホ（短辺 500px 未満）は小さく */
+@media (max-width: 767px) and (orientation: portrait), (max-height: 500px) {
+  .sol-cutin { --cutin-h: 56px; }
+  .sol-cutin .sol-cutin-text { font-size: 24px; }
+}
+@keyframes solCutIn {
+  0%   { opacity: 0; transform: translateX(-60px); }
+  14%  { opacity: 1; transform: translateX(0); }
+  80%  { opacity: 1; transform: translateX(0); }
+  100% { opacity: 0; transform: translateX(60px); }
+}
+/* 動きを減らす設定: 動かさず、フェードだけにする（長さは同じ） */
+@media (prefers-reduced-motion: reduce) {
+  .sol-cutin { animation-name: solCutInFade; }
+  @keyframes solCutInFade {
+    0%   { opacity: 0; }
+    14%  { opacity: 1; }
+    80%  { opacity: 1; }
+    100% { opacity: 0; }
+  }
+}
+
+/* ── カットインの言葉の札（PC の右パネル区画・スマホのシートで共通。見本の 3章） ── */
+.sol-cutin-form[hidden], .sol-cutin-chips[hidden] { display: none; }
+.sol-cutin-form { margin-top: 6px; }
+.sol-cutin-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 8px;
+}
+.sol-cutin-chip {
+  padding: 5px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--main-color);
+  font-family: var(--font);
+  font-size: 0.75rem;
+  line-height: 1.3;
   cursor: pointer;
 }
-.sol-board-memo[hidden] { display: none; }
-/* 押すと開く全文。帯の高さは変えず（盤面を縮め直さず）、下に重ねて出す */
-.sol-board-memo-full {
-  position: absolute;
-  left: -3px;               /* 左の線の分 */
-  right: 0;
-  top: 100%;
-  z-index: 35;
-  margin-top: 2px;
-  padding: 6px 8px 6px 11px;
-  background: var(--bg-card);
-  border-left: 3px solid var(--gold);
-  border-radius: 4px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
-  white-space: normal;
-  overflow-wrap: anywhere;
-  cursor: auto;
-}
-.sol-board-memo-full[hidden] { display: none; }
-.sol-board-memo-icon { flex: 0 0 auto; }
-.sol-board-memo-text {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;  /* 全文は帯の title */
-}
+.sol-cutin-chip:hover { background: var(--border); }
+.sol-mobile-comment-panel .sol-cutin-chip { padding: 8px 14px; font-size: 0.875rem; }
 
 /* ── カード選択の案内帯 ──
    高さ0の足場に重ねて出し入れしても盤面の大きさが変わらないようにする。クリックは下のカードへ通す。 */

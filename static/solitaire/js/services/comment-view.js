@@ -1,13 +1,13 @@
 /**
  * comment-view.js
- * コメント（吹き出し・盤面メモ）を盤面へ描く。計算は comment-model.js の computeCommentView（純粋関数）。
+ * コメント（吹き出し・盤面メモの付箋・カットイン）を盤面へ描く。計算は comment-model.js の computeCommentView（純粋関数）。
  * replay-service.js の _updateUI から、カーソルが変わるたびに呼ばれる（操作・取消・巻き戻し・再生・
  * セッション復元・共有リンクで開いたときのすべてで、記録の位置から表示を作り直す）。
  *
  * 本文はすべて textContent で入れる（共有リプレイの本文は他人が作れるため innerHTML には入れない）。
  */
 
-import { computeCommentView } from './comment-model.js';
+import { computeCommentView, CUTIN_DURATION_MS } from './comment-model.js';
 
 /** 重ねたカードの下側の吹き出しを、一番上のカードの位置に出すときの本文の頭に付ける印 */
 export const UNDER_PREFIX = '下：';
@@ -109,33 +109,78 @@ function _renderBubbles(bubbles) {
   }
 }
 
-/** 盤面メモの帯（#solBoardMemo）を更新する。メモが無いときは帯ごと隠して場所を取らない */
+/**
+ * 盤面メモの付箋（#solBoardMemo）を更新する。メモが無いときは隠す。
+ * 付箋は盤面（.custom-layout）の空いた角に position:absolute で重ねるだけなので、出入りしても盤面の配置・大きさは
+ * 変わらない（位置は css/comments.css。盤面の列の幅から calc で決める）。長い文は途中で省略し、押すと全文が開く
+ * （開いた全文も同じ付箋が広がって重なるだけ）。
+ */
 function _renderMemo(memo) {
-  const band = document.getElementById('solBoardMemo');
-  if (!band) return;
+  const note = document.getElementById('solBoardMemo');
+  if (!note) return;
   const textEl = document.getElementById('solBoardMemoText');
-  const fullEl = document.getElementById('solBoardMemoFull');
-  const wasHidden = band.hidden;
   const changed = (textEl ? textEl.textContent : '') !== (memo || '');
   if (memo) {
     if (textEl) textEl.textContent = memo;
-    if (fullEl) fullEl.textContent = memo; // タップ・クリックで開く全文
-    band.title = memo;
-    band.hidden = false;
+    note.title = memo;
+    note.hidden = false;
   } else {
     if (textEl) textEl.textContent = '';
-    if (fullEl) fullEl.textContent = '';
-    band.removeAttribute('title');
-    band.hidden = true;
+    note.removeAttribute('title');
+    note.hidden = true;
   }
   // メモが変わったら、開いていた全文は閉じる
   if (changed || !memo) {
-    band.classList.remove('is-open');
-    band.setAttribute('aria-expanded', 'false');
-    if (fullEl) fullEl.hidden = true;
+    note.classList.remove('is-open');
+    note.setAttribute('aria-expanded', 'false');
   }
-  // 帯が出入りすると盤面の使える高さが変わるので、カードの大きさを測り直させる（相手の想定妨害の開閉と同じ通知）
-  if (band.hidden !== wasHidden) window.dispatchEvent(new Event('opp-tray-resize'));
+}
+
+// ── カットイン ─────────────────────────────────────────────
+
+let _cutinEl = null;
+let _cutinTimer = null;
+
+/** 出ているカットインを消す（盤面には何も残らない） */
+export function hideCutin() {
+  clearTimeout(_cutinTimer);
+  _cutinTimer = null;
+  if (_cutinEl) { _cutinEl.remove(); _cutinEl = null; }
+}
+
+/**
+ * カットインを出す。出ているものがあれば消して、新しいものを出す。約1.9秒の動き（css/comments.css の cutIn）で
+ * 入って抜け、終わったら要素ごと消える。操作の邪魔をしない（pointer-events:none）。
+ * 置き場所は、出す時点の盤面の実際の要素の位置から決める:
+ *   - 横: 盤面の入れ物（#mainContainer。縦向きスマホは .sol-field-area）の幅いっぱい（モックどおり、カード詳細欄の下にも薄く伸びる）
+ *   - 縦: 盤面（.custom-layout）の中央の高さ（PC は3段の真ん中、スマホ縦向きは真ん中の段の高さ）
+ * 画面に固定（position:fixed）で body 直下に置くので、盤面の配置には影響しない。
+ * @param {string} text
+ */
+export function showCutin(text) {
+  hideCutin();
+  const board = document.querySelector('.custom-layout');
+  if (!board || !text) return;
+  // 横の基準: 盤面の入れ物（#mainContainer）。縦向きスマホでは display:contents で矩形を持たないので .sol-field-area
+  let area = document.getElementById('mainContainer');
+  if (!area || area.getBoundingClientRect().width === 0) area = document.querySelector('.sol-field-area') || board;
+  const b = board.getBoundingClientRect();
+  const a = area.getBoundingClientRect();
+  const el = document.createElement('div');
+  el.className = 'sol-cutin';
+  el.setAttribute('aria-hidden', 'true'); // 記録は一覧に残る。スクリーンリーダーには読ませない
+  el.style.left = `${a.left}px`;
+  el.style.width = `${a.width}px`;
+  el.style.top = `${b.top + b.height / 2}px`; // 帯の高さの半分だけ上へずらすのは CSS（margin-top）
+  const span = document.createElement('span');
+  span.className = 'sol-cutin-text';
+  span.textContent = text; // 本文は他人が作れるので textContent
+  el.appendChild(span);
+  el.addEventListener('animationend', () => { if (_cutinEl === el) hideCutin(); });
+  document.body.appendChild(el);
+  _cutinEl = el;
+  // animationend が来ない環境（動きを止めている等）でも消えるように、保険のタイマーを置く
+  _cutinTimer = setTimeout(() => { if (_cutinEl === el) hideCutin(); }, CUTIN_DURATION_MS + 300);
 }
 
 /**

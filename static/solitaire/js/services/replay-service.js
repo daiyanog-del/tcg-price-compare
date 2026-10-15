@@ -26,8 +26,9 @@
  *                    index（そのカード上のカウンターの並び順・省略時 0）で特定する
  *   removeCard     … トークンを盤面から消す（zoneId=消す前にいたゾーン）。再生は要素を消し、
  *                    巻き戻しでは画像・名前の辞書から作り直して元の位置へ戻す
- *   comment        … コメント。kind:'card'（cardId のカードの吹き出し）／kind:'board'（盤面メモ）。
- *                    kind が無い古い記録は盤面メモ。盤面には反映せず、表示は comment-view.js が
+ *   comment        … コメント。kind:'card'（cardId のカードの吹き出し）／kind:'board'（盤面メモ）／
+ *                    kind:'cutin'（カットイン。20字まで。その手に前進で来たときだけ一瞬出る）。
+ *                    kind が無い古い記録・未知の kind は盤面メモ。盤面には反映せず、表示は comment-view.js が
  *                    カーソル位置までの記録から計算する（カードが動くまで・次のメモが来るまで）
  *   activateEffect … 効果発動（cardId のカードで発動演出を再生）
  *
@@ -49,8 +50,8 @@ import { restackCustomSlot } from '../components/slot-stack.js';
 import { playActivateEffect, flipMoveClone, playSetFlip, flyBetweenRects, prefersReducedMotion } from '../components/card-effects.js';
 import { createProxyCardElement } from '../components/proxy-card.js';
 import { isMobilePortrait } from '../utils/viewport.js';
-import { renderCommentView } from './comment-view.js';
-import { clampCommentText, cursorAfterRemove, isSameComment } from './comment-model.js';
+import { renderCommentView, showCutin, hideCutin } from './comment-view.js';
+import { clampCommentText, clampCutinText, cutinToShow, playPauseMs, cursorAfterRemove, isSameComment } from './comment-model.js';
 
 const _API_CARD_IMAGES = '/api/card-images';
 
@@ -68,7 +69,7 @@ let _cursor = -1;       // 現在の再生位置（-1 = ログ先頭の盤面外
 let _playing = false;
 let _playTimer = null;
 const DEFAULT_INTERVAL_MS = 900;
-// 自動再生でコメントの手に来たとき、通常の何倍止まるか（吹き出し・メモを読む時間）
+// 自動再生でコメント（吹き出し・メモ）の手に来たとき、通常の何倍止まるか（読む時間）。カットインは動きが終わるまで待つ（comment-model.js の playPauseMs）
 const COMMENT_PAUSE_FACTOR = 2.5;
 // 再生速度倍率（有効値: 0.5 / 1 / 2）。実際の再生間隔は DEFAULT_INTERVAL_MS / _speedMultiplier
 let _speedMultiplier = 1;
@@ -208,33 +209,34 @@ export function logEvent(event) {
   const seq = _logs.length;
   _logs.push({ seq, ..._safeCloneEvent(event) });
   _cursor = _logs.length - 1;
-  _updateUI();
+  _updateUI(true);
 }
 
 /**
- * コメント（吹き出し・盤面メモ）を、いま見ている位置（カーソルの次）に差し込む。
+ * コメント（吹き出し・盤面メモ・カットイン）を、いま見ている位置（カーソルの次）に差し込む。
  *   - 自動再生中なら止める
  *   - カーソルを動かさず、巻き戻した位置ならその位置の盤面に付く。後ろの手は切り捨てず、1つ後ろへずれる
  *   - コメントは盤面を変えないので、盤面の作り直しはしない。カーソルは差し込んだコメントへ進む
- *   - 本文は上限（COMMENT_MAX_LEN）で切る。空なら何もしない
+ *   - 本文は上限（吹き出し・メモは COMMENT_MAX_LEN、カットインは CUTIN_MAX_LEN）で切る。空なら何もしない
+ *   - カットインは、付けた直後（カーソルがその手に進んだとき）にその場で一度出る
  * 範囲（旧録画）のずらしは、呼び出し元ではなく購読側（pc-recording.js・mobile-ui.js）が
  * 'commentAdded'（引数 = 差し込んだ位置）を受けて行う。
- * @param {{kind:'card'|'board', cardId?:string, text:string}} comment
+ * @param {{kind:'card'|'board'|'cutin', cardId?:string, text:string}} comment
  * @returns {boolean} 追加できたか
  */
 export function addComment({ kind, cardId, text }) {
-  const t = clampCommentText(text);
+  const t = kind === 'cutin' ? clampCutinText(text) : clampCommentText(text);
   if (!t) return false;
   if (kind === 'card' && !cardId) return false;
   if (_playing) _stopPlay();
   const at = _cursor + 1;
   const ev = kind === 'card'
     ? { actionType: 'comment', kind: 'card', cardId, text: t }
-    : { actionType: 'comment', kind: 'board', text: t };
+    : { actionType: 'comment', kind: kind === 'cutin' ? 'cutin' : 'board', text: t };
   _logs = [..._logs.slice(0, at), ev, ..._logs.slice(at)].map((e, i) => ({ ...e, seq: i }));
   _cursor = at;
   _emit('commentAdded', at);
-  _updateUI();
+  _updateUI(true);
   return true;
 }
 
@@ -245,7 +247,7 @@ export function addComment({ kind, cardId, text }) {
  * カーソルは、取り除く手がカーソル以前なら1つ前へずらす。コメントは盤面に影響しないので盤面はそのまま。
  * seq は 0 から振り直す。範囲（PC の _pcRecording・スマホの _recording）は 'removed' の購読側がずらす。
  * @param {number} index
- * @param {{kind:'card'|'board', cardId:string|null, text:string}} [expected]
+ * @param {{kind:'card'|'board'|'cutin', cardId:string|null, text:string}} [expected]
  * @returns {boolean} 取り除けたか
  */
 export function removeEventAt(index, expected) {
@@ -312,7 +314,7 @@ export function stepForward() {
   _applyEvent(_logs[next]);
   _animateForward = false;
   _cursor = next;
-  _updateUI();
+  _updateUI(true); // 次へ・自動再生で手に進んだ（カットインはここで出る）
 }
 
 /** 1手戻る */
@@ -1320,14 +1322,19 @@ function _playNext() {
     return;
   }
   stepForward();
-  // コメントの手は、吹き出し・メモを読めるよう通常より長く止まる
-  const pause = _logs[_cursor]?.actionType === 'comment' ? COMMENT_PAUSE_FACTOR : 1;
-  _playTimer = setTimeout(_playNext, (DEFAULT_INTERVAL_MS / _speedMultiplier) * pause);
+  // コメントの手は、吹き出し・メモを読めるよう通常より長く止まる。カットインの手は動きが終わるまで待つ
+  _playTimer = setTimeout(_playNext, playPauseMs(_logs[_cursor], DEFAULT_INTERVAL_MS / _speedMultiplier, COMMENT_PAUSE_FACTOR));
 }
 
 // ── UI同期 ──────────────────────────────────────────────
 
-function _updateUI() {
+let _lastUiCursor = -1; // 前回の _updateUI のカーソル（前進以外で動いたとき、出ているカットインを消すため）
+
+/**
+ * @param {boolean} [arrivedForward]  前進でカーソルがその手に来た（手を打った直後・コメントを付けた直後・次へ・自動再生）。
+ *   true のときだけ、その手がカットインなら出す。巻き戻し・スライダー・取消・セッション復元・読み込み直後は false
+ */
+function _updateUI(arrivedForward = false) {
   const total = _logs.length;
   const cur = _cursor;
 
@@ -1356,5 +1363,10 @@ function _updateUI() {
   }
   // 吹き出し・盤面メモは、記録の位置（カーソルまで）から毎回計算して描く
   renderCommentView(_setupLogs, _logs, cur);
+  // カットイン: 前進でその手に来たときだけ出す。前進以外でカーソルが動いたら、出ているものは消す
+  const cutinText = cutinToShow(_logs[cur], arrivedForward);
+  if (cutinText) showCutin(cutinText);
+  else if (!arrivedForward && cur !== _lastUiCursor) hideCutin();
+  _lastUiCursor = cur;
   _emit('changed');
 }

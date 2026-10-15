@@ -15,6 +15,8 @@ const createCardCounter=${noop}; const restackCustomSlot=${noop};
 const playActivateEffect=${noop}; const flipMoveClone=${noop}; const playSetFlip=${noop}; const flyBetweenRects=${noop};
 const prefersReducedMotion=()=>true; const createProxyCardElement=${noop}; const isMobilePortrait=()=>false;
 const renderCommentView=${noop};
+// カットイン: 出した本文を shown に、消した回数を hidden に数える
+globalThis.__cut={shown:[],hidden:0}; const showCutin=(t)=>{globalThis.__cut.shown.push(t);}; const hideCutin=()=>{globalThis.__cut.hidden++;};
 `;
   const model = fs.readFileSync(path.join(js, 'services/comment-model.js'), 'utf8').replace(/^export /gm, '');
   let src = fs.readFileSync(path.join(js, 'services/replay-service.js'), 'utf8');
@@ -105,5 +107,43 @@ const renderCommentView=${noop};
   svc.addComment({ kind: 'board', text: 'very first' }); // 位置0 < startIdx
   assert.deepEqual(range, { recording: false, startIdx: 2, endIdx: 4 });
 
-  console.log('replay-service: addComment（カーソルの次へ差し込み・未来を切らない）、removeEventAt（コメントのみ・内容一致）、範囲のずれを確認');
+  // ── カットイン: 前進でその手に来たときだけ出る ──
+  const cut = globalThis.__cut;
+  const reset = () => { cut.shown.length = 0; cut.hidden = 0; };
+  fresh(); reset();
+  assert.equal(svc.addComment({ kind: 'cutin', text: 'ターン終了' }), true);
+  assert.deepEqual(cut.shown, ['ターン終了'], '付けた直後に出る');
+  assert.equal(svc.getLogs()[3].kind, 'cutin');
+  assert.equal(svc.addComment({ kind: 'cutin', text: 'あ'.repeat(40) }), true);
+  assert.equal(Array.from(svc.getLogs()[4].text).length, 20, '記録も20字で切る');
+  assert.equal(cut.shown[1].length, 20);
+  assert.equal(svc.addComment({ kind: 'cutin', text: '  ' }), false, '空は付けない');
+  // 前へ・スライダー・取消では出ない（先頭へ戻ってから、手の上を通って戻る）
+  reset();
+  svc.stepBack(); svc.stepBack(); // cursor 4 → 2（コメントの手の手前）
+  svc.seekTo(3);                  // スライダーでカットインの手へ飛ぶ
+  assert.deepEqual(cut.shown, [], '前へ・スライダーでは出ない');
+  svc.seekTo(0); svc.seekTo(4);   // 前進でも seekTo（スライダー）は出さない
+  assert.deepEqual(cut.shown, [], 'スライダーで前に飛んでも出ない');
+  svc.undoLast();                 // 取消
+  assert.deepEqual(cut.shown, [], '取消では出ない');
+  // 次へで1手進んだときは出る
+  fresh(); svc.addComment({ kind: 'cutin', text: 'A' }); svc.seekTo(2); reset(); // [a,b,c,cut]、cursor は c
+  svc.stepForward(); // cursor 2 → 3（カットインの手）
+  assert.deepEqual(cut.shown, ['A'], '次へで進んだら出る');
+  svc.stepForward(); // 次の手は普通の手（無ければ何もしない）
+  assert.deepEqual(cut.shown, ['A']);
+  // 前進以外でカーソルが動くと、出ているカットインを消す
+  reset(); svc.stepBack();
+  assert.equal(cut.hidden >= 1, true, '巻き戻しで出ているカットインを消す');
+  // 盤面メモ・吹き出しの追加では出ない
+  fresh(); reset();
+  svc.addComment({ kind: 'board', text: 'm' }); svc.addComment({ kind: 'card', cardId: 'a', text: 'b' });
+  assert.deepEqual(cut.shown, []);
+  // セッション復元では出ない
+  reset();
+  svc.restoreReplaySession({ logs: [{ actionType: 'comment', kind: 'cutin', text: 'Z', seq: 0 }], setupLogs: [], cursor: 0, images: {}, names: {}, exCardIds: [], cardTypes: {} });
+  assert.deepEqual(cut.shown, [], 'セッション復元では出ない');
+
+  console.log('replay-service: addComment（カーソルの次へ差し込み・未来を切らない）、removeEventAt（コメントのみ・内容一致）、範囲のずれ、カットイン（進んだときだけ）を確認');
 })().catch((e) => { console.error(e); process.exitCode = 1; });
