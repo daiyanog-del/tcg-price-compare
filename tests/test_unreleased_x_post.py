@@ -1,6 +1,5 @@
 """未発売カードのX自動投稿（unreleased_x_post.py）のテスト。"""
-import os
-import tempfile
+import re
 from datetime import date
 
 import pytest
@@ -9,12 +8,6 @@ import unreleased_x_post as xp
 from tests.fake_supabase import FakeSB
 
 TODAY = date(2026, 10, 15)
-
-
-def _fake_download(url):
-    fd, path = tempfile.mkstemp(suffix=".jpg")
-    os.close(fd)
-    return path
 
 
 APPROVED_AT = "2026-10-15T00:00:00+00:00"  # 投稿条件は approved_at（approval_snapshot は計測用）
@@ -33,7 +26,7 @@ def _env(monkeypatch):
     monkeypatch.setattr(xp, "_is_released_name", lambda name: False)  # 実カード名索引に依存させない
     monkeypatch.setattr(xp, "_notify", lambda msg: None)
     monkeypatch.setattr(xp, "_site_url", lambda: "https://example.test")
-    monkeypatch.setattr(xp, "_download_image", _fake_download)
+    monkeypatch.setattr(xp, "_verify_og_image", lambda card_id: (True, ""))   # OG 画像の生成確認（本番サイトへは行かない）
 
 
 def _sb(card=None, image=True, posts=None):
@@ -52,8 +45,8 @@ class Poster:
     def __init__(self, result="111"):
         self.result, self.calls = result, []
 
-    def __call__(self, text, paths, **kwargs):
-        self.calls.append((text, list(paths)))
+    def __call__(self, text, *args, **kwargs):
+        self.calls.append((text, list(args)))
         self.kwargs = kwargs
         return self.result
 
@@ -61,34 +54,50 @@ class Poster:
 # ── 本文 ──
 
 def test_text_full():
-    t = xp.build_tweet_text("テストカード", "テストパック", "2026-11-01", site_url="https://example.test")
+    t = xp.build_tweet_text("テストカード", "テストパック", "2026-11-01", "https://x.com/YuGiOh_OCG_INFO/status/123",
+                            site_url="https://example.test")
     assert t.split("\n") == [
-        "公式発表の新カード「テストカード」が、TCGYMのシミュレーターで使えるようになりました。",
-        "収録：テストパック／発売日：2026年11月1日",
+        "「テストカード」を入れた展開、シミュレーターで回せます。",
+        "テストパック（11月1日発売）",
+        "情報元：https://x.com/YuGiOh_OCG_INFO/status/123",
         "https://example.test/solitaire?newcards=1&focus=%E3%83%86%E3%82%B9%E3%83%88%E3%82%AB%E3%83%BC%E3%83%89",
         "#遊戯王 #OCG"]
-    assert "【新カード情報】" not in t
+    assert "▼ 登録なし" not in t
+
+
+def test_text_tcgym_link_is_last_url():
+    # X のリンクカードは最後の URL で作られるとされるので、TCGYM のリンクを情報元より後ろに置く
+    t = xp.build_tweet_text("A", "P", "2026-11-01", "https://yu-gi-oh.jp/news/abc/", site_url="https://example.test")
+    urls = re.findall(r"https?://\S+", t)
+    assert urls == ["https://yu-gi-oh.jp/news/abc/", "https://example.test/solitaire?newcards=1&focus=A"]
+
+
+@pytest.mark.parametrize("src", ["", "manual", "  ", None, "ftp://x", "javascript:alert(1)"])
+def test_text_source_line_omitted_unless_http_url(src):
+    t = xp.build_tweet_text("A", "P", "2026-11-01", src, site_url="https://example.test")
+    assert "情報元" not in t
+    assert t.split("\n")[2].startswith("https://example.test/solitaire")
 
 
 def test_text_without_date_and_product():
     t = xp.build_tweet_text("A", "", None, site_url="https://example.test")
-    # 商品名・発売日が両方無いときは情報行ごと出さない
+    # 商品名・発売日が両方無いときは行ごと出さない
     assert t.split("\n") == [
-        "公式発表の新カード「A」が、TCGYMのシミュレーターで使えるようになりました。",
+        "「A」を入れた展開、シミュレーターで回せます。",
         "https://example.test/solitaire?newcards=1&focus=A", "#遊戯王 #OCG"]
 
 
 def test_text_product_only_and_date_only():
     only_product = xp.build_tweet_text("A", "P", None, site_url="https://example.test").split("\n")
-    assert only_product[1] == "収録：P"
+    assert only_product[1] == "P"
     only_date = xp.build_tweet_text("A", "", "2026-11-01", site_url="https://example.test").split("\n")
-    assert only_date[1] == "発売日：2026年11月1日"
+    assert only_date[1] == "11月1日発売"
 
 
 def test_text_invalid_date_omitted():
     t = xp.build_tweet_text("A", "P", "bad", site_url="https://example.test")
-    assert "発売日" not in t
-    assert t.split("\n")[1] == "収録：P"
+    assert "発売" not in t
+    assert t.split("\n")[1] == "P"
 
 
 def test_text_url_encodes_reserved_characters():
@@ -104,8 +113,9 @@ def test_text_url_encodes_reserved_characters():
 def test_text_truncated_within_limit():
     name = "あ" * 60
     product = "商品名" * 80
-    t = xp.build_tweet_text(name, product, "2026-11-01", site_url="https://example.test")
-    assert xp.weighted_length(t) <= xp.TWEET_WEIGHT_LIMIT
+    t = xp.build_tweet_text(name, product, "2026-11-01", "https://x.com/YuGiOh_OCG_INFO/status/123456789012345678",
+                            site_url="https://example.test")
+    assert xp.weighted_length(t) <= xp.TWEET_WEIGHT_LIMIT   # URL 2本（各23）を含めて収まる
     assert "…" in t
     # 商品名を先に詰めるので、カード名は残る
     assert name in t
@@ -149,10 +159,51 @@ def test_is_postable(card, img, ok, reason):
 def test_post_success_records_posted():
     sb, poster = _sb(), Poster("999")
     assert xp.post_card(sb, 1, post_fn=poster, today=TODAY) == "posted"
-    assert poster.kwargs == {"require_media": True}  # 画像必須で呼ぶ
+    assert poster.kwargs == {}  # 画像は添付しない（require_media も付けない）
     row = sb.tables["unreleased_x_posts"][0]
     assert row["status"] == "posted" and row["tweet_id"] == "999"
-    assert len(poster.calls) == 1 and poster.calls[0][1]  # 画像パスが渡る
+    assert len(poster.calls) == 1 and poster.calls[0][1] == []  # 画像パスは渡さない
+
+
+def test_og_check_failure_skips_post_and_marks_failed(monkeypatch):
+    # OG 画像の生成が確認できなければ投稿せず failed（回収で再試行）
+    monkeypatch.setattr(xp, "_verify_og_image", lambda card_id: (False, "OG画像が HTTP 500"))
+    sb, poster = _sb(), Poster("999")
+    assert xp.post_card(sb, 1, post_fn=poster, today=TODAY) == "failed"
+    row = sb.tables["unreleased_x_posts"][0]
+    assert poster.calls == [] and row["status"] == "failed" and row["attempts"] == 1 and "HTTP 500" in row["last_error"]
+
+
+def test_og_check_exception_marks_failed(monkeypatch):
+    def boom(card_id):
+        raise RuntimeError("net")
+    monkeypatch.setattr(xp, "_verify_og_image", boom)
+    sb, poster = _sb(), Poster("999")
+    assert xp.post_card(sb, 1, post_fn=poster, today=TODAY) == "failed"
+    assert poster.calls == []
+
+
+def _fake_resp(status=200, kind="card", ctype="image/png"):
+    class R:
+        status_code = status
+        headers = {"Content-Type": ctype, **({"X-OG-Kind": kind} if kind else {})}
+    return R()
+
+
+@pytest.mark.parametrize("resp,ok", [
+    (_fake_resp(), True),
+    (_fake_resp(status=500), False),
+    (_fake_resp(kind=None), False),          # 汎用画像への退避
+    (_fake_resp(ctype="text/html"), False),
+])
+def test_verify_og_image_checks_response(monkeypatch, resp, ok):
+    import requests
+    monkeypatch.undo()   # autouse の差し替えを戻して本物を呼ぶ
+    monkeypatch.setattr(xp, "_site_url", lambda: "https://example.test")
+    seen = []
+    monkeypatch.setattr(requests, "get", lambda url, **kw: (seen.append(url), resp)[1])
+    assert xp._verify_og_image(7)[0] is ok
+    assert seen == ["https://example.test/solitaire/og/card/7.png"]
 
 
 def test_double_post_prevented():
@@ -173,7 +224,7 @@ def test_none_from_post_tweet_is_failure():
     sb = _sb()
     assert xp.post_card(sb, 1, post_fn=Poster(None), today=TODAY) == "failed"
     row = sb.tables["unreleased_x_posts"][0]
-    assert row["status"] == "failed" and row["attempts"] == 1 and "画像添付失敗" in row["last_error"]
+    assert row["status"] == "failed" and row["attempts"] == 1 and "None を返した" in row["last_error"]
 
 
 def test_failed_retried_until_limit():
@@ -195,7 +246,7 @@ def test_failed_then_success():
 
 def test_exception_in_post_fn_is_unknown():
     """post_fn が例外を投げた場合は送信済みかどうか分からない＝結果不明（自動再試行しない）"""
-    def boom(text, paths, **kwargs):
+    def boom(text, *args, **kwargs):
         raise RuntimeError("API down")
     sb = _sb()
     assert xp.post_card(sb, 1, post_fn=boom, today=TODAY) == "unknown"
@@ -234,18 +285,6 @@ def test_reserve_takeover_only_failed_under_limit():
     assert xp.reserve(sb, 1) == "reserved"
     assert sb.tables["unreleased_x_posts"][0]["status"] == "posting"
     assert xp.reserve(sb, 1) == "taken"
-
-
-def test_temp_file_removed(monkeypatch):
-    made = []
-
-    def dl(url):
-        p = _fake_download(url)
-        made.append(p)
-        return p
-    monkeypatch.setattr(xp, "_download_image", dl)
-    xp.post_card(_sb(), 1, post_fn=Poster(), today=TODAY)
-    assert made and not os.path.exists(made[0])
 
 
 # ── 連続投稿・回収 ──

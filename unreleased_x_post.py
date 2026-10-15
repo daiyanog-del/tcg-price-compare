@@ -27,7 +27,6 @@ Flask に依存しない。Supabase クライアントは引数で受け取る�
 import logging
 import os
 import re
-import tempfile
 import threading
 import time
 import urllib.parse
@@ -121,9 +120,7 @@ _MIN_NAME_WEIGHT = 10
 
 _URL_RE = re.compile(r"https?://\S+")
 _ELLIPSIS = "…"
-_MAX_IMAGE_BYTES = 5 * 1024 * 1024
-_EXT_BY_MIME = {"image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png",
-                "image/gif": ".gif", "image/webp": ".webp"}
+OG_CHECK_TIMEOUT_SEC = 30   # 投稿前の OG 画像の生成確認（初回は画像取得＋描画が入る）。TODO: calibrate from data
 
 
 def is_enabled() -> bool:
@@ -174,15 +171,21 @@ def truncate_to_weight(s: str, max_weight: int) -> str:
     return "".join(out) + _ELLIPSIS
 
 
-def _format_release_date(release_date) -> str | None:
-    """'YYYY-MM-DD' を 'YYYY年M月D日' に。None・不正値は None。"""
+def _format_release_short(release_date) -> str | None:
+    """'YYYY-MM-DD' を 'M月D日' に。None・不正値は None。"""
     if not release_date:
         return None
     try:
         d = date.fromisoformat(str(release_date)[:10])
     except ValueError:
         return None
-    return f"{d.year}年{d.month}月{d.day}日"
+    return f"{d.month}月{d.day}日"
+
+
+def _usable_source_url(source_url) -> str:
+    """本文に載せる情報元URL。http(s) の URL だけ（空・manual・その他は空文字）。"""
+    u = (source_url or "").strip()
+    return u if re.fullmatch(r"https?://\S+", u) else ""
 
 
 def _site_url() -> str:
@@ -190,27 +193,36 @@ def _site_url() -> str:
     return SITE_URL
 
 
-def build_tweet_text(name: str, product_name: str = "", release_date=None, *, site_url: str | None = None) -> str:
+def build_tweet_text(name: str, product_name: str = "", release_date=None, source_url: str = "", *,
+                     site_url: str | None = None) -> str:
     """投稿本文を作る。280加重文字を超える場合は商品名→カード名の順に省略記号で詰める。
 
-    情報の出所は公式で、TCGYM は「試せる場所」という立場の文面（docs/decisions.md 2026-10-15）。
+    画像は添付せず、リンクのプレビュー（OG 画像）で誘導する（docs/decisions.md 2026-10-16）。
+    文面:
+        「{カード名}」を入れた展開、シミュレーターで回せます。
+        {商品名}（{M月D日}発売）        ← 商品名・発売日のどちらかが無ければ残る方だけ、両方無ければ行ごと省略
+        情報元：{情報元URL}             ← http(s) の URL だけ。manual・空なら行ごと省略
+        {TCGYMリンク}                   ← 必ず最後の URL（X のカード表示は最後の URL を使うとされる。初回投稿で要確認）
+        #遊戯王 #OCG
     リンク先はシミュレーター直行（/solitaire?newcards=1&focus=カード名）。
     focus は & # ? / なども含めて必ずエンコードする（quote の safe=""）。
-    URL は常に完全なカード名で作る（本文側だけ詰める）。
+    URL は常に完全なカード名で作る（本文側だけ詰める）。URL は2本（各23加重）で数える。
     """
     base = site_url if site_url is not None else _site_url()
     url = f"{base}/solitaire?newcards=1&focus={urllib.parse.quote(name, safe='')}"
-    date_text = _format_release_date(release_date)
+    date_text = _format_release_short(release_date)
+    source = _usable_source_url(source_url)
 
     def render(n: str, p: str) -> str:
-        lines = [f"公式発表の新カード「{n}」が、TCGYMのシミュレーターで使えるようになりました。"]
-        info = []
-        if p:
-            info.append(f"収録：{p}")
-        if date_text:
-            info.append(f"発売日：{date_text}")
-        if info:
-            lines.append("／".join(info))
+        lines = [f"「{n}」を入れた展開、シミュレーターで回せます。"]
+        if p and date_text:
+            lines.append(f"{p}（{date_text}発売）")
+        elif p:
+            lines.append(p)
+        elif date_text:
+            lines.append(f"{date_text}発売")
+        if source:
+            lines.append(f"情報元：{source}")
         lines += [url, "#遊戯王 #OCG"]
         return "\n".join(lines)
 
@@ -307,7 +319,7 @@ def _is_released_name(name: str) -> bool:
 # DB 操作
 # ──────────────────────────────────────────────
 
-_CARD_COLUMNS = "id, name, product_name, release_date, status, hidden, approved_at"
+_CARD_COLUMNS = "id, name, product_name, release_date, status, hidden, approved_at, source_url"
 
 
 def _fetch_card(sb, card_id: int) -> dict | None:
@@ -543,27 +555,28 @@ def count_posted_today(sb) -> int:
 
 
 # ──────────────────────────────────────────────
-# 画像ダウンロード
+# リンク画像（OG 画像）の生成確認
 # ──────────────────────────────────────────────
 
-def _download_image(url: str) -> str:
-    """画像を一時ファイルに保存してパスを返す。呼び出し側が削除する。"""
+def _verify_og_image(card_id: int) -> tuple[bool, str]:
+    """本番サイトのカード用 OG 画像（/solitaire/og/card/<id>.png）が生成できるか確認する。(成功, 失敗理由)。
+
+    X のクローラーが実際に取りに行く経路を一度通して確かめる（描画のキャッシュも温まる）。
+    カード画像から作られていれば X-OG-Kind: card が付く。汎用画像への退避（非公開・描画の混雑・失敗）は失敗扱い。
+    """
     import requests
-    resp = requests.get(url, timeout=30)
-    resp.raise_for_status()
-    mime = resp.headers.get("Content-Type", "").split(";")[0].strip().lower()
-    if not mime.startswith("image/"):
-        raise ValueError(f"Content-Type が image/* でない: {mime!r}")
-    if len(resp.content) > _MAX_IMAGE_BYTES:
-        raise ValueError(f"画像サイズ超過: {len(resp.content):,}バイト")
-    fd, path = tempfile.mkstemp(suffix=_EXT_BY_MIME.get(mime, ".jpg"))
+    url = f"{_site_url()}/solitaire/og/card/{card_id}.png"
     try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(resp.content)
-    except Exception:
-        os.remove(path)
-        raise
-    return path
+        resp = requests.get(url, timeout=OG_CHECK_TIMEOUT_SEC, headers={"User-Agent": "TCGYM-OG-Check/1.0"})
+    except Exception as e:
+        return False, f"OG画像の取得に失敗 {type(e).__name__}: {e}"
+    if resp.status_code != 200:
+        return False, f"OG画像が HTTP {resp.status_code}"
+    if resp.headers.get("X-OG-Kind") != "card":
+        return False, "OG画像がカード用ではなく汎用画像に退避された（描画の混雑・失敗・非公開のいずれか）"
+    if not resp.headers.get("Content-Type", "").lower().startswith("image/png"):
+        return False, f"OG画像の Content-Type が image/png でない: {resp.headers.get('Content-Type')!r}"
+    return True, ""
 
 
 # ──────────────────────────────────────────────
@@ -607,7 +620,8 @@ def _post_card(sb, card_id: int, *, post_fn, today: date, interval: float, sleep
         logger.info("[unreleased_x_post] 投稿しない card_id=%s: 発売済みカード名 %r", card_id, card.get("name"))
         return "not_postable"
 
-    text = build_tweet_text(card["name"], card.get("product_name") or "", card.get("release_date"))
+    text = build_tweet_text(card["name"], card.get("product_name") or "", card.get("release_date"),
+                           card.get("source_url") or "")
 
     if not _is_dry_run() and not _x_configured():
         # 認証情報が無いまま予約すると失敗回数だけ増える。予約せずログのみ（警告は1プロセス1回）
@@ -665,9 +679,10 @@ def _post_card(sb, card_id: int, *, post_fn, today: date, interval: float, sleep
                         card_id, dup_now)
             _mark_skipped_duplicate(sb, card_id, dup_now)
             return "skipped_duplicate"
-        text = build_tweet_text(fresh["name"], fresh.get("product_name") or "", fresh.get("release_date"))
+        text = build_tweet_text(fresh["name"], fresh.get("product_name") or "", fresh.get("release_date"),
+                               fresh.get("source_url") or "")
         try:
-            result = _send(sb, fresh, text, fresh_image or image_url, post_fn)
+            result = _send(sb, fresh, text, post_fn)
         finally:
             _mark_attempt_time()
     if result == "posted":
@@ -724,41 +739,39 @@ def _mark_attempt_time() -> None:
     _last_attempt_at = _clock()
 
 
-_LEGACY_NONE_MESSAGE = ("post_tweet が None を返した（認証情報未設定・API失敗・画像添付失敗のいずれか。"
-                        "画像必須のため本文のみの投稿はしない）")
+_LEGACY_NONE_MESSAGE = "post_tweet が None を返した（認証情報未設定・API失敗のいずれか）"
 
 
-def _send(sb, card: dict, text: str, image_url: str, post_fn) -> str:
+def _send(sb, card: dict, text: str, post_fn) -> str:
     """送信して結果を記録する。戻り値: posted / failed / rate_limited / unknown。
 
+    画像は添付しない（リンクの OG 画像で誘導）。送る前に OG 画像の生成を確認し、失敗なら送らず failed にする
+    （回収ジョブが再試行する）。
     post_fn は (tweet_id, error_kind) を返す関数（x_poster.post_tweet_ex）。
     tweet_id だけを返す旧形式の関数も受け付け、None は送信前の失敗として扱う。
     """
     card_id = card["id"]
     name = card.get("name", "")
-    path = None
+    # ここまでは送信前。失敗しても X には何も送っていない
     try:
-        # ここまでは送信前。失敗しても X には何も送っていない
-        try:
-            if post_fn is None:
-                from x_poster import post_tweet_ex as post_fn
-            path = _download_image(image_url)
-        except Exception as e:
-            _mark_failed(sb, card_id, f"{type(e).__name__}: {e}", name)
-            return "failed"
-        try:
-            # 画像なし投稿を防ぐため画像必須で呼ぶ（添付に全部失敗したら失敗が返る）
-            result = post_fn(text, [path], require_media=True)
-        except Exception as e:
-            # post_tweet_ex は例外を投げない設計。投げられたら送信済みかどうか分からない
-            _mark_unknown(sb, card_id, f"投稿呼び出しで例外 {type(e).__name__}: {e}", name)
-            return "unknown"
-    finally:
-        if path:
-            try:
-                os.remove(path)
-            except OSError:
-                pass
+        ok, reason = _verify_og_image(card_id)
+    except Exception as e:
+        ok, reason = False, f"OG画像の確認で例外 {type(e).__name__}: {e}"
+    if not ok:
+        _mark_failed(sb, card_id, reason, name)
+        return "failed"
+    try:
+        if post_fn is None:
+            from x_poster import post_tweet_ex as post_fn
+    except Exception as e:
+        _mark_failed(sb, card_id, f"{type(e).__name__}: {e}", name)
+        return "failed"
+    try:
+        result = post_fn(text)
+    except Exception as e:
+        # post_tweet_ex は例外を投げない設計。投げられたら送信済みかどうか分からない
+        _mark_unknown(sb, card_id, f"投稿呼び出しで例外 {type(e).__name__}: {e}", name)
+        return "unknown"
     tweet_id, kind = result if isinstance(result, tuple) else (result, None)
     if tweet_id:
         _mark_posted(sb, card_id, tweet_id)

@@ -20,7 +20,7 @@ import x_poster
 from tests.fake_supabase import FakeSB
 # autouse フィクスチャ _env（有効化・認証情報・間隔0・発売済み名の無効化）を共用する
 from tests.test_unreleased_x_post import (  # noqa: F401
-    SNAP, TODAY, Poster, _add_card, _env, _fake_download, _sb,
+    SNAP, TODAY, Poster, _add_card, _env, _sb,
 )
 from tests.test_admin_unreleased_release_date_guard import FUTURE, HEADERS, _client
 from tests.test_unreleased_auto_approve import CLEAN_TEXT, _card, _ev
@@ -370,10 +370,8 @@ def test_x_poster_import_failure_is_pre_send_failure(monkeypatch):
     assert _rows(sb)[0]["status"] == "failed"
 
 
-def test_download_failure_is_pre_send_failure(monkeypatch):
-    def bad(url):
-        raise OSError("dl")
-    monkeypatch.setattr(xp, "_download_image", bad)
+def test_og_check_failure_is_pre_send_failure(monkeypatch):
+    monkeypatch.setattr(xp, "_verify_og_image", lambda card_id: (False, "OG画像の取得に失敗"))
     sb = _sb()
     poster = Poster()
     assert xp.post_card(sb, 1, post_fn=poster, today=TODAY) == "failed"
@@ -820,7 +818,7 @@ def test_interval_shared_across_threads(monkeypatch):
     sleeps, inflight, peak = [], [0], [0]
     guard = threading.Lock()
 
-    def poster(text, paths, **kw):
+    def poster(text, *args, **kw):
         with guard:
             inflight[0] += 1
             peak[0] = max(peak[0], inflight[0])

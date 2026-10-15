@@ -177,7 +177,7 @@ def test_same_name_concurrent_posts_only_one():
     _add_card(sb, 2)
     sb.tables["unreleased_cards"][1]["name"] = "同名カード"
 
-    def slow_poster(text, paths, **kw):
+    def slow_poster(text, *args, **kw):
         time.sleep(0.2)   # 1枚目の送信中に2枚目が重複判定へ来る
         return ("t1", None)
 
