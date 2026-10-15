@@ -1,0 +1,137 @@
+/* リプレイ一覧ページ（/solitaire/replays）
+   配色は variables.css / site-theme.css の変数だけを使う（新しい色は作らない）。 */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg-color);
+  color: var(--main-color);
+  font-family: var(--font);
+  font-size: var(--font-size);
+  line-height: 1.6;
+}
+
+.rp-page {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 16px 16px 48px;
+}
+
+/* ── ヘッダー ── */
+.rp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+.rp-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: var(--main-color);
+}
+.rp-brand-icon { height: 32px; width: auto; display: block; }
+.rp-brand-name { display: inline-flex; align-items: flex-end; font-family: 'Bungee', sans-serif; font-size: 22px; line-height: 1; }
+.rp-brand-g { color: var(--gold); font-size: 1.28em; }
+.rp-back {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.9rem;
+  padding: 8px 4px;
+  white-space: nowrap;
+}
+.rp-back:hover { color: var(--accent-hover); text-decoration: underline; }
+
+/* ── 見出し・説明 ── */
+.rp-title { margin: 0 0 4px; font-size: var(--title-font-size); }
+.rp-lead { margin: 0 0 24px; color: #a8b4c9; font-size: 0.88rem; }
+.rp-section { margin-bottom: 32px; }
+.rp-heading {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+  padding-left: 10px;
+  border-left: 3px solid var(--gold);
+}
+.rp-note { margin: 0 0 10px; color: #a8b4c9; font-size: 0.8rem; }
+.rp-empty {
+  margin: 0;
+  padding: 16px;
+  background: var(--bg-surface);
+  border-radius: var(--radius);
+  color: #a8b4c9;
+  font-size: 0.88rem;
+}
+.rp-empty[hidden] { display: none; }
+
+/* ── 一覧 ── */
+.rp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.rp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  padding: 4px 10px 4px 4px;
+}
+.rp-row:hover { background: #202c42; }
+.rp-row-link {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+  color: var(--main-color);
+  text-decoration: none;
+  border-radius: var(--radius);
+}
+.rp-row-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.rp-row-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rp-row-meta { font-size: 0.78rem; color: #a8b4c9; }
+.rp-thumb {
+  flex: none;
+  width: 120px;
+  height: auto;
+  aspect-ratio: 1200 / 630;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--bg-surface);
+}
+.rp-thumb[hidden] { display: none; }
+.rp-row-actions { flex: none; display: flex; gap: 6px; }
+
+.rp-btn {
+  padding: 8px 12px;
+  background: #202c42;
+  color: var(--main-color);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font-family: var(--font);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.rp-btn:hover { background: #2b3549; }
+.rp-btn-danger { color: var(--red); }
+
+a:focus-visible, button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+/* ── スマホ幅: 操作ボタンを行の下へ折り返す ── */
+@media (max-width: 600px) {
+  .rp-page { padding: 12px 12px 40px; }
+  .rp-row { flex-wrap: wrap; padding: 4px; }
+  .rp-row-link { flex: 1 1 100%; }
+  .rp-row-actions { flex: 1 1 100%; justify-content: flex-end; padding: 0 8px 8px; }
+  .rp-thumb { width: 96px; }
+}

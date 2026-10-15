@@ -8,7 +8,8 @@
  *
  * 端末間同期（SyncClient）は行わない（将来課題。マイデッキ/購入候補と違い同期経路が未整備のため、
  * このモジュールは savedDecksSet のような window.SyncClient 連携を持たない）。
- * PC には配線しない（呼び出し元は mobile-ui.js のみ・設計書 E-4）。
+ * 保存はスマホ・PC両方の共有シートから（replay-ui.js の saveReplayToDevice）、
+ * 一覧・開く・削除は /solitaire/replays（replays-page.js）と ?saved=<id>（replay-ui.js）から行う。
  */
 
 const SAVED_REPLAYS_KEY = 'sol-saved-replays';

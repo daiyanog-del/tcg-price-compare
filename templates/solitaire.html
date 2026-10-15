@@ -285,6 +285,7 @@
           <span id="pcRecordDot" class="pc-record-dot" aria-hidden="true"></span>
           <span id="pcRecordLabel">録画</span>
         </button>
+        <a class="replay-btn pc-replay-list-link" id="pcReplayListLink" href="/solitaire/replays">リプレイ一覧</a>
         <button class="replay-share-btn" id="pcShareSheetOpen">共有</button>
       </div>
 
@@ -310,6 +311,8 @@
             <hr class="pc-share-divider">
             <button class="replay-share-btn" id="replayShare">共有リンクをコピー</button>
             <button class="replay-share-x-btn" id="replayShareX">X に投稿</button>
+            <button class="replay-btn" id="pcShareSaveLocalBtn" type="button">端末に保存</button>
+            <p class="pc-share-note">このブラウザの中に保存されます（他の端末には同期されません）。ヘッダーの「リプレイ一覧」から開けます。</p>
             <button class="replay-btn" id="replayExport">JSON保存</button>
             <label class="replay-btn pc-share-import-label">
               JSON読込<input type="file" id="replayImportFile" accept=".json" style="display:none">
@@ -415,7 +418,7 @@
             <button type="button" class="sol-mobile-menu-item" data-menu-action="deckinput">デッキを読み込む</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="playback">リプレイを再生</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="share">共有・保存</button>
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="savedreplays">保存済みリプレイ</button>
+            <a href="/solitaire/replays" class="sol-mobile-menu-item sol-mobile-menu-link">リプレイ一覧</a>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="help">操作方法</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="feedback">不具合・要望を送る</button>
             <!-- E-2: デッキ読込シート内のページナビを非表示にする代わりの導線 -->
@@ -511,8 +514,8 @@
               <!-- E-2/タスクA-4: リプレイの端末保存（localStorage）。①録画があればその範囲だけを、
                    無ければ全ログを保存する（mobile-ui.js _saveReplayToDevice が range を渡す） -->
               <button type="button" id="solMobileShareSaveLocalBtn" class="sol-mobile-menu-item">端末に保存</button>
-              <p class="sol-mobile-share-note">このブラウザの中に保存されます（他の端末には同期されません）。開くには ⋯メニュー →「保存済みリプレイ」。</p>
-              <button type="button" id="solMobileShareOpenSavedBtn" class="sol-mobile-menu-item" hidden>保存済みリプレイを開く</button>
+              <p class="sol-mobile-share-note">このブラウザの中に保存されます（他の端末には同期されません）。開くには ⋯メニュー →「リプレイ一覧」。</p>
+              <a id="solMobileShareOpenSavedBtn" class="sol-mobile-menu-item sol-mobile-menu-link" href="/solitaire/replays" hidden>リプレイ一覧を開く</a>
             </div>
 
             <!-- ④ ファイル（折りたたみ・目立たせない） -->
@@ -521,21 +524,6 @@
               <button type="button" id="solMobileShareExportBtn" class="sol-mobile-menu-item">JSONを保存</button>
               <button type="button" id="solMobileShareImportBtn" class="sol-mobile-menu-item">JSONを読み込む</button>
             </details>
-          </div>
-        </div>
-      </div>
-
-      <!-- 保存済みリプレイ一覧シート（E-3） -->
-      <div id="solMobileSavedReplaysSheet" class="sol-mobile-sheet" hidden>
-        <div class="sol-mobile-sheet-scrim" data-sol-saved-replays-close></div>
-        <div class="sol-mobile-sheet-panel">
-          <div class="sol-mobile-sheet-header">
-            <span>保存済みリプレイ</span>
-            <button type="button" class="sol-mobile-sheet-close-btn" data-sol-saved-replays-close aria-label="閉じる">&times;</button>
-          </div>
-          <div class="sol-mobile-sheet-body">
-            <p id="solMobileSavedReplaysEmpty" class="sol-mobile-share-note" hidden>保存したリプレイはありません。共有シートの「端末に保存」で保存できます。</p>
-            <div id="solMobileSavedReplaysList"></div>
           </div>
         </div>
       </div>

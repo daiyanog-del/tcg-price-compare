@@ -337,9 +337,9 @@ async function initializeApp() {
   initCardImageRegistration();
 
   // ページ遷移後の盤面復元（card:// センチネル対応のため await が必要）
-  // URL に共有リプレイ（?replay=ID / #replay=）が付いているときは前回の盤面を復元しない。
+  // URL に共有リプレイ（?replay=ID / #replay=）または端末保存（?saved=ID）が付いているときは前回の盤面を復元しない。
   // 復元が共有データを上書きし、受け手側で再生モードが開かない競合があった（2026-09-04 実測）。
-  const hasReplayInUrl = /[?&]replay=/.test(location.search) || location.hash.startsWith('#replay=');
+  const hasReplayInUrl = /[?&](replay|saved)=/.test(location.search) || location.hash.startsWith('#replay=');
   const handedOff = await receiveDeckHandoff({
     loadDeck: loadDeckFromNeuron, clearDeck: clearEverything,
     getCounts: () => ({

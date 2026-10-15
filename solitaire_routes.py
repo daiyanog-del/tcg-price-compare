@@ -8,6 +8,7 @@ self-contained な Blueprint として提供する。IP 停止要請が来た際
 
 OFF 時の挙動:
   - GET /solitaire                      → 503 + solo_disabled.html（案内ページ）
+  - GET /solitaire/replays              → 503 + solo_disabled.html（リプレイ一覧ページ）
   - POST /api/solitaire/replay          → 404
   - GET  /api/solitaire/replay/<id>     → 404
   - GET  /solitaire/og/<id>.png         → 404
@@ -149,6 +150,18 @@ def solitaire_page():
             og_image_path = f"/solitaire/og/{replay_id}.png"   # 生成ルート側で board 無し等なら汎用画像を返す
     return render_template("solitaire.html", og_image_path=og_image_path, og_title=og_title,
                            og_url_path=og_url_path)
+
+
+@solitaire_bp.route("/solitaire/replays")
+def solitaire_replays_page():
+    """リプレイ一覧ページ。このブラウザ（localStorage）に残した端末保存・共有履歴を並べる。
+
+    一覧の中身はすべてブラウザ側（static/solitaire/js/replays-page.js）で組み立てるため、
+    サーバーは枠だけを返す（ユーザーごとの情報は持たない）。
+    """
+    if not ENABLE_VISUAL_SOLO_PLAY:
+        return render_template("solo_disabled.html"), 503
+    return render_template("solitaire_replays.html")
 
 
 @solitaire_bp.route("/solitaire/og/<replay_id>.png")

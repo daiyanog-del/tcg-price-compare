@@ -78,3 +78,29 @@ def test_replay_save_rate_limit_blocks_eleventh_request(monkeypatch):
 
     resp = client.post("/api/solitaire/replay", json={"logs": [1]})
     assert resp.status_code == 429
+
+
+# ── リプレイ一覧ページ（GET /solitaire/replays） ──
+
+def test_replays_page_enabled_returns_200(monkeypatch):
+    """一人回しが有効なら一覧ページは200で、検索対象外(noindex)・専用JSを読む"""
+    _, client = _load_app(monkeypatch)
+    resp = client.get("/solitaire/replays")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert 'content="noindex"' in html
+    assert "replays-page.js" in html
+    assert 'href="/solitaire"' in html  # シミュレーターに戻るリンク
+
+
+def test_replays_page_disabled_returns_503(monkeypatch):
+    """kill-switch(ENABLE_VISUAL_SOLO_PLAY=0)では /solitaire と同じく案内ページを503で返す"""
+    monkeypatch.setenv("ENABLE_VISUAL_SOLO_PLAY", "0")
+    import solitaire_routes
+    importlib.reload(solitaire_routes)
+    import app as app_module
+    importlib.reload(app_module)
+    app_module.app.config.update(TESTING=True)
+    resp = app_module.app.test_client().get("/solitaire/replays")
+    assert resp.status_code == 503
+    assert "ご利用いただけません" in resp.get_data(as_text=True)
