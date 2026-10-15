@@ -74,7 +74,7 @@ function fixture(){
   const start=main.indexOf('  const handedOff ='),end=main.indexOf('  if (restored)',start);
   assert(start>=0&&end>start);
   // URL判定は共通モジュール（utils/replay-url.js）。main.jsは initializeApp 先頭で評価した値を使う。
-  const replayUrlSrc=fs.readFileSync(path.join(root,'static/solitaire/js/utils/replay-url.js'),'utf8').replace('export function','function');
+  const replayUrlSrc=fs.readFileSync(path.join(root,'static/solitaire/js/utils/replay-url.js'),'utf8').replace(/export function/g,'function');
   const hasReplayInUrlFn=vm.runInNewContext(replayUrlSrc+';hasReplayInUrl',{URLSearchParams});
   async function boot(url,fail=false){
     const env=fixture();env.loc.href=url;env.storage.setItem(HANDOFF_KEY,snapshot);
