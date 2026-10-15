@@ -16,7 +16,8 @@
  *   moveCard       … カードをゾーンに移動（orientation/face も含む）
  *   draw           … デッキからドロー（cardId=ドローしたカードID）
  *   returnToDeck   … カードをデッキに戻す
- *   resetDeck      … リセット（全カードをデッキへ戻す。旧仕様の共有リプレイは drawnIds に5ドローを含む）
+ *   resetDeck      … 全カードをデッキへ戻す。現行の「リセット」ボタンは記録ごと初期化するためこのログを
+ *                    残さない。旧仕様で作られた共有リプレイ（drawnIds に5ドローを含む）の再生用に残している
  *   counterChange  … カウンター値変更（counter: 新しい値）
  *   comment        … コメント挿入
  *   activateEffect … 効果発動（cardId のカードで発動演出を再生）
@@ -400,6 +401,26 @@ export function getSetupLogs() { return _setupLogs; }
 export function resetReplay() {
   _stopPlay();
   initReplay();
+}
+
+/**
+ * 記録（ログ・setupログ・カーソル）だけを初期化する（「リセット」用・event-handlers.js handleReset から呼ばれる）。
+ * resetReplay / initReplay と違い、画像辞書・カード名辞書・EX判定は保持する
+ * （読み込んだデッキは残すため）。盤面DOMは呼び出し元（returnAllCardsToDeck）が担当する。
+ */
+export function clearReplayLog() {
+  _stopPlay(); // 再生中なら停止（内部で _updateUI も呼ばれる）
+  _logs = [];
+  _setupLogs = [];
+  _cursor = -1;
+  // 表示中のコメントトーストが残らないよう即座に隠す
+  const toast = document.getElementById('replayCommentToast');
+  if (toast) {
+    clearTimeout(toast._hideTimer);
+    toast.classList.remove('rct-show');
+    toast.classList.add('rct-hide');
+  }
+  _updateUI();
 }
 
 /**

@@ -1511,6 +1511,19 @@ function initClearEverything() {
     updateReplayBarMobile();
     _resetRecording(); // タスクA-1: 「すべて消去」で録画状態を破棄する
   });
+
+  // 「リセット」(event-handlers.js handleReset): 記録も初期化されるので録画状態を破棄し、
+  // 再生バー（取消ボタン）・デッキ枚数バッジ・開いたままの共有シートの録画表示を追従させる。
+  document.addEventListener('sol-replay-reset', () => {
+    // 通常は再生モード中に⋯メニュー/デッキシートへ届かないが、念のため抜けて整合を取る
+    if (_playbackMode) exitPlaybackMode({ returnToOrigin: false });
+    _resetRecording();
+    if (!isMobilePortrait()) return;
+    updateDeckCountBadge();
+    updateReplayBarMobile();
+    _updateShareRecordingSection();
+    _updateShareCurrentInfo();
+  });
 }
 
 // ══════════════════ タスクB: 再生モード（設計書 §B） ══════════════════

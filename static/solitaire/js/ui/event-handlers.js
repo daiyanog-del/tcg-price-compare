@@ -3,7 +3,7 @@ import {
   drawRandomCards,
 } from '../components/card-manager.js';
 import { SaveLoadModal } from './save-load-modal.js';
-import { registerCardImage, logSetupEvent, getLogLength, getCursor } from '../services/replay-service.js';
+import { registerCardImage, clearReplayLog } from '../services/replay-service.js';
 import { initDeckInputPanel, loadDeckFromNeuron, savedDecksGet, savedDecksSet, parseDeckList } from './deck-input-panel.js';
 import { parseNeuronPdf } from '/static/shared/neuron-pdf-parser.js';
 import { NeuronPreviewModal } from '/static/shared/neuron-preview-modal.js';
@@ -82,21 +82,17 @@ export function handleLoadGame() {
 
 /**
  * リセットボタンのイベントハンドラ
- * 場・手札・墓地・除外のカードをすべてデッキ（EXはEXデッキ）に戻すだけ。5枚は引かない。
+ * 場・手札・墓地・除外のカードをすべてデッキ（EXはEXデッキ）に戻し、記録（再生バー）も初期化する。
+ * 5枚は引かない。確認ダイアログは出さない（2026-10-15 ユーザー指定）。
+ * 読み込んだデッキ（カード・画像辞書・名前辞書・EX判定）は残す。
+ * 全ログが空＝全カードがデッキの状態が初期状態になるため、setup ログ(resetDeck)は残さない。
  */
 export function handleReset() {
-  // 記録0件（デッキ読込直後）かどうかを先に判定しておく
-  const isInitialState = getLogLength() === 0 && getCursor() === -1;
-
   returnAllCardsToDeck();
-  // リセットは盤面の初期化操作として手数（取消・巻き戻しの対象）には記録しない仕様
-  // （2026-09-14 ユーザー判断）。
-  // ただし開始直後（記録0件）のみは例外: setup ログ（引いたカード無し）を残す。
-  // logSetupEvent は末尾の resetDeck を置換するため、過去の setup ログがあっても上書きされ、
-  // 共有リンク・巻き戻し・取消の後でも「全カードがデッキにある」状態から再生される。
-  if (isInitialState) {
-    logSetupEvent({ actionType: 'resetDeck', drawnIds: [], setup: true });
-  }
+  clearReplayLog();
+  // 録画状態（PC: replay-ui.js / スマホ: mobile-ui.js）を破棄させる。
+  // 'sol-board-cleared'（クリア用）はデッキ消去を含意するため使わず、専用イベントで通知する。
+  document.dispatchEvent(new CustomEvent('sol-replay-reset'));
 }
 
 /**
