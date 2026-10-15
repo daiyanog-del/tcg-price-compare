@@ -1395,6 +1395,11 @@ function _renderApprovedList(listEl, cards) {
       row.querySelector('.auto-approved-badge').hidden = false;
     }
 
+    // 食い違いのまま読み直し側を信じて通したカードの札
+    if (card.reread_trusted_on_disagree) {
+      row.querySelector('.reread-trusted-badge').hidden = false;
+    }
+
     // 画像ありバッジ / 画像なし警告バッジ
     if (card.has_image) {
       row.querySelector('.card-row__has-image').hidden = false;

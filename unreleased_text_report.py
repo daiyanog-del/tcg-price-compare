@@ -269,6 +269,12 @@ def process_report(sb, body, ip: str, *, notify=None, base_url: str = "") -> tup
         "status": "open",
         "created_at": datetime.now(timezone.utc).isoformat(),   # 上限の集計と同じ時計で明示する
     }).execute()
+    # 読み直し採用（食い違っても読み直し側を信じて通した）カードへの効果テキスト報告は、設定を自動で無効にする
+    try:
+        import reread_trust
+        reread_trust.on_report(sb, card["id"], card["name"], clean["field"])
+    except Exception as e:  # 報告の受付は成立させる
+        logger.warning("[text_report] 読み直し採用の自動復帰処理に失敗: %s", e)
     message = build_discord_message(card["name"], clean["field"], clean["note"], card["id"], base_url)
     if notify is not None:
         notify(message)

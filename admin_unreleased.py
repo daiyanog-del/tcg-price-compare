@@ -287,6 +287,8 @@ def admin_list_unreleased():
             for key in ("crop_suggestion", "crop_state", "release_date_evidence", "recognition_review", "auto_approve_verdict",
                         "auto_approve_skip", "text_check"):
                 card[key] = raw.get(key)
+            # 食い違いのまま読み直し側を信じて通したカードの札用
+            card["reread_trusted_on_disagree"] = raw.get("reread_trusted_on_disagree") is True
             # 承認前確認で自動承認を見送った理由（判定とは別キー）の日本語ラベル
             skip = card.get("auto_approve_skip")
             if isinstance(skip, dict) and skip.get("reason"):
@@ -427,6 +429,16 @@ def admin_update_unreleased(card_id: int):
                         or ("release_date" in updates and new_rd != old_rd)):
                     updates["review_candidates"] = None
 
+        # 効果テキストを編集するときは、読み直し採用のカードの値が変わったかを後で判定するため編集前を控える
+        before = None
+        if "effect_text" in updates:
+            try:
+                prev = (_supabase.table("unreleased_cards").select("name, effect_text, extraction_raw")
+                        .eq("id", card_id).execute())
+                before = prev.data[0] if prev.data else None
+            except Exception as e:
+                logger.warning(f"[admin] 編集前の効果テキスト取得に失敗（読み直し採用の復帰判定ができない） id={card_id}: {e}")
+
         resp = (
             _supabase.table("unreleased_cards")
             .update(updates)
@@ -436,6 +448,14 @@ def admin_update_unreleased(card_id: int):
         if not resp.data:
             return jsonify({"error": "対象レコードが見つかりません"}), 404
         _card_display.invalidate_cache()
+        if before is not None:
+            try:
+                import reread_trust
+                reread_trust.on_effect_text_edited(
+                    _supabase, card_id, before.get("name") or "", before.get("extraction_raw"),
+                    before.get("effect_text"), resp.data[0].get("effect_text"))
+            except Exception as e:  # 保存は成立させる
+                logger.warning(f"[admin] 読み直し採用の自動復帰処理に失敗 id={card_id}: {e}")
         # 編集後の値で誤字チェックと自動承認判定を取り直す（失敗しても保存は成立）
         _recompute_checks_after_edit(resp.data[0])
         return jsonify({"ok": True, "card": resp.data[0]})

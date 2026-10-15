@@ -1556,3 +1556,16 @@ rarity_pref 基準に統一。`items_map` のキーも rarity_pref で作る。
 - 外さない条件: 1回目と読み直しのモデルが違う場合、1回目が name を不確かとした場合（このときは名前ヒントも付けない）。不一致・〓・失敗・ペンデュラム（種別名・スケール・P効果のいずれかで判定）は不確かのまま。両方空は不一致。
 - 監視用: 1回目・読み直しの所要秒数を INFO ログ（`[Extractor] 1回目 …秒`、`[Reread] … 秒`）と `effect_text_reread.seconds` に出す。
 - reviewer 低指摘の記録（対応は上記または TASKS）: 低1 ペンデュラム判定を拡張（対応）、低2 uncertain_fields が None でも落ちない（対応）、低3 両方空は不一致（対応）、低4 既知カード除外の前に読み直しが走り、既知カードにも費用がかかる（`watch_unreleased._filter_known_cards` は抽出後。順序変更は大きいので TASKS に記録）、低5 `_WORKERS=4` は仮置き（TODO: calibrate from data・TASKS に記載）、低6 記録のみ。
+
+
+## 2026-10-15: 1回目と読み直しが食い違っても、読み直し側に問題がなければ自動承認の対象にする（安全装置つき）
+
+- 何を: `effect_text_reread.reread_effect_texts` の突き合わせで食い違ったとき、次を**すべて**満たせば effect_text を uncertain にしない（`extraction_raw.reread_trusted_on_disagree=true` と `reread_trust_diff_summary` を残す）。(1) 設定が有効 (2) 読み直しに〓が無い・unreadable でない (3) 読み直し文の誤字検査（`compute_text_check`）が checked かつ強い疑い0 (4) 1回目と読み直しが同じモデル (5) 1回目が name を不確かとしていない (6) ペンデュラムでない (7) 1回目・読み直しの両方に文がある。1つでも欠ければ従来どおり不確か。`agreed` は False のまま（一致とは扱わない）。
+- なぜ: 評価（`tools/eval_effect_text.py`、30枚）で読み直しは30/30全問正解、本番の食い違い4件もすべて読み直し側が正しかった。食い違いを全部人に回すと、正しい読み直しを毎回人が追認することになる。ユーザー判断で**最初から有効**にする。
+- 限界（未検証）: n=30、YAC1（再録・特別版）に偏る、ペンデュラム未評価。食い違い4件は件数が少ない（読み直しが正しい確率の95%信頼区間の下限は約51%）。誤字検査は取込前に呼ぶため他カードの文脈（名前・「」内語）なしで行う＝新語は強い疑いが出やすい側（安全側）。最終の自動承認判定（`annotate_row`）は文脈つきでもう一度 text_check を見て、強い疑いがあれば別途不適格にする。1回目が自己申告した effect_text の不確かは、食い違い時には外さない（一致時だけ外す既存の挙動のまま）。
+- 設定: DB `app_settings` のキー `TRUST_REREAD_ON_DISAGREE`、value は文字列 `"1"`=有効 / `"0"`=無効。**行が無ければ既定の有効**（本番にSQLの適用は不要）。読めない・取得失敗・想定外の値は無効（安全側）。読み取りは `reread_trust.is_enabled`（30秒キャッシュ、失敗はキャッシュしない）。
+- 自動で元に戻す（`reread_trust.py`）: `reread_trusted_on_disagree=true` のカードについて、(a) 管理画面の PUT で effect_text の値が変わった、(b) 利用者のテキスト誤り報告（field が effect_text または other）が届いた、のいずれかで設定を `"0"` に更新し、Discord に通知（`no_mentions=True`、カード名と理由）。すでに無効なら通知を重ねない。DB に書けなかったときも通知は出し、手動で "0" にするよう案内する。**自動では再有効化しない**。
+- 戻し方・再有効化: 無効化の通知が来たら、(1) 該当カードと食い違いの中身を管理画面で確認し、読み直し側が本当に誤っていたかを判断する。(2) 続けてよいと判断したときだけ、Supabase の SQL で `insert into app_settings (key, value) values ('TRUST_REREAD_ON_DISAGREE', '"1"') on conflict (key) do update set value = '"1"', updated_at = now();`（value は JSONB なので文字列 "1" として入れる）。(3) 最初から止めたいときは同じ SQL で `'"0"'`。反映は最大30秒（プロセス内キャッシュ）。
+- 集計: `python tools/auto_approve_report.py` に「食い違いで信じて通した枚数」「うち後で効果テキストを直された（現在値が読み直し文と違う）」「うち効果テキスト/その他の誤り報告が付いた」を追加。
+- 管理画面: 公開中一覧に札「読み直し採用」（自動承認の札と同じ accent 線。赤は使わない）。
+- 判断点: (a) の編集検知は承認前（pending）のカードの編集も含む（人が直した＝読み直しの外れの可能性として厳しめに倒した）。誤作動が多ければ status が approved/linked のときだけに絞る。
