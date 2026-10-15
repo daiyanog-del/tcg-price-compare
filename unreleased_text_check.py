@@ -672,7 +672,13 @@ def check_text(text: str, *, card_name: str = "", extra_names=(), dictionary=Non
         raise RuntimeError("辞書が無いため検査できません（check_card を使うと未検証として返ります）")
     out = _check_format(text)
     if is_effect_like(text):
-        out += _check_ngrams(text, d, card_name)
+        # 書式の強い疑い（半角「(」など）と同じ場所を n-gram 照合も未知の並びとして指す（同じ原因の二重計上）。
+        # 書式側のほうが原因（半角記号）と直し方（全角へ）を具体的に示せるので、書式を残し n-gram 側を捨てる。
+        # 重なり判定は位置の完全一致でなく交差にする（n-gram は記号を含む前後の領域をまとめて指すため）。
+        fmt_strong = [(x["start"], x["end"]) for x in out if x["severity"] == SEVERITY_STRONG]
+        out += [x for x in _check_ngrams(text, d, card_name)
+                if not (x["severity"] == SEVERITY_STRONG
+                        and any(x["start"] < e and s0 < x["end"] for s0, e in fmt_strong))]
         # 同じ場所を文字3連鎖の強い疑義が既に指しているときは、同じ誤りの二重計上を避けて④の強は出さない
         covered = [(x["start"], x["end"]) for x in out if x["severity"] == SEVERITY_STRONG]
         if len(text) > PHRASE_MAX_TEXT_LEN:
