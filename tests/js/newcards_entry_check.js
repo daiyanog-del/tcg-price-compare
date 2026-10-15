@@ -19,14 +19,19 @@ function fixture(href,{newCards=['新A','新B'],resolvable={}}={}){
   const classes=new Set();let scrolled=0;
   const wrapper={classList:{add:c=>classes.add(c)},scrollIntoView(o){scrolled++;wrapper.scrollOpts=o;}};
   let loaded=[];
-  const doc={querySelectorAll:()=>loaded.map(name=>({dataset:{cardName:name},closest:()=>wrapper}))};
-  const shown=[];
-  return {calls,loc,hist,fetched,fetchFn,classes,doc,shown,wrapper,get scrolled(){return scrolled;},
+  const handlers={};
+  const doc={querySelectorAll:sel=>sel.startsWith('.')?(classes.has(sel.slice(1))?[wrapper]:[]):loaded.map(name=>({dataset:{cardName:name},closest:()=>wrapper})),
+    addEventListener:(t,fn)=>{(handlers[t]??=new Set()).add(fn);},
+    removeEventListener:(t,fn)=>{handlers[t]?.delete(fn);},
+    emit:(t,ev={})=>[...(handlers[t]??[])].forEach(fn=>fn(ev))};
+  wrapper.classList.remove=c=>classes.delete(c);
+  const shown=[],notices=[];
+  return {notices,calls,loc,hist,fetched,fetchFn,classes,doc,shown,wrapper,get scrolled(){return scrolled;},
     async clearDeck(){calls.push(['clear']);return true;},
     async loadDeck(main,ex){calls.push(['load',main,ex]);loaded=main.split('\n').map(l=>l.slice(2));},
     showCard:el=>shown.push(el.dataset.cardName)};
 }
-const run=(mod,f,extra={})=>mod.receiveNewCards({loadDeck:f.loadDeck,clearDeck:f.clearDeck,showCard:f.showCard,fetchFn:f.fetchFn,doc:f.doc,loc:f.loc,hist:f.hist,...extra});
+const run=(mod,f,extra={})=>mod.receiveNewCards({loadDeck:f.loadDeck,clearDeck:f.clearDeck,showCard:f.showCard,notify:(m,o)=>f.notices.push([m,o]),fetchFn:f.fetchFn,doc:f.doc,loc:f.loc,hist:f.hist,...extra});
 
 (async()=>{
   const source=fs.readFileSync(path.join(root,'static/shared/newcards-entry.js'),'utf8');
@@ -66,14 +71,41 @@ const run=(mod,f,extra={})=>mod.receiveNewCards({loadDeck:f.loadDeck,clearDeck:f
     assert.equal(await run(mod,f),true);
     assert.equal(f.calls[1][1],'1 新A\n1 新B');
     assert.equal(f.classes.size,0);assert.equal(f.shown.length,0);
+    assert.equal(f.notices.length,1);assert.deepEqual(f.notices[0][1],{afterLoad:true});
   }
 
   // 新着0件＋focus解決不可 → 何もしない（盤面を消さず、通常起動＝前回盤面の復元に任せる）
   f=fixture('https://e.test/solitaire?newcards=1&focus='+encodeURIComponent('不明'),{newCards:[]});
   assert.equal(await run(mod,f),false);assert.equal(f.calls.length,0);assert(f.loc.href.includes('newcards=1'));
-  // new-cards 取得失敗でも focus が解決できれば focus だけ読む
+  assert.equal(f.notices.length,1);assert.match(f.notices[0][0],/まだありません|読み込めませんでした/);
+  // new-cards 取得失敗（HTTPエラー）は通知して通常起動。盤面を消さず、パラメータも残す
   f=fixture('https://e.test/solitaire?newcards=1&focus='+encodeURIComponent('不明'),{newCards:null,resolvable:{不明:'u'}});
-  assert.equal(await run(mod,f),true);assert.equal(f.calls[1][1],'1 不明');
+  assert.equal(await run(mod,f),false);assert.equal(f.calls.length,0);assert(f.loc.href.includes('newcards=1'));
+  assert.match(f.notices[0][0],/取得できませんでした/);
+  // タイムアウト: 応答が来ない fetch は AbortController で打ち切り、同じく通常起動
+  f=fixture('https://e.test/solitaire?newcards=1');
+  f.fetchFn=(url,init)=>new Promise((_,reject)=>init.signal.addEventListener('abort',()=>reject(Error('abort'))));
+  assert.equal(await run(mod,f,{timeoutMs:20}),false);assert.equal(f.calls.length,0);assert(f.loc.href.includes('newcards=1'));
+  assert.equal(f.notices.length,1);
+  // 取得待ちの間に別のデッキ読込が始まったら中止（clearDeck しない・盤面を消さない）
+  f=fixture('https://e.test/solitaire?newcards=1');
+  const inner=f.fetchFn;f.fetchFn=async(u,i)=>{f.doc.emit('sol-deck-load-start');return inner(u,i);};
+  assert.equal(await run(mod,f),false);assert.equal(f.calls.length,0);assert(f.loc.href.includes('newcards=1'));
+  // 同名の重複は1枚にまとめる（focus との重複も）
+  f=fixture('https://e.test/solitaire?newcards=1&focus='+encodeURIComponent('新A'),{newCards:['新A','新B','新A','新B']});
+  await run(mod,f);assert.equal(f.calls[1][1],'1 新A\n1 新B');
+  // 強調は最初のカード操作・別デッキ読込・盤面消去・ドロー/リセットで全カードから外れる
+  for(const [type,ev] of [['click',{target:{closest:()=>true}}],['dragstart',{target:{closest:()=>true}},],['sol-deck-load-start'],['sol-board-cleared'],['sol-replay-reset']]){
+    f=fixture('https://e.test/solitaire?newcards=1&focus='+encodeURIComponent('新A'));
+    await run(mod,f);assert(f.classes.has(mod.FOCUS_CLASS),type);
+    f.doc.emit(type,ev);assert(!f.classes.has(mod.FOCUS_CLASS),type+' で強調が残った');
+  }
+  // pointerdown では外さない（前面表示が消えて隣のカードを掴むのを防ぐ）
+  f=fixture('https://e.test/solitaire?newcards=1&focus='+encodeURIComponent('新A'));
+  await run(mod,f);f.doc.emit('pointerdown',{target:{closest:()=>true}});assert(f.classes.has(mod.FOCUS_CLASS));
+  // 操作と無関係なクリックでは外れない
+  f=fixture('https://e.test/solitaire?newcards=1&focus='+encodeURIComponent('新A'));
+  await run(mod,f);f.doc.emit('click',{target:{closest:()=>null}});assert(f.classes.has(mod.FOCUS_CLASS));
   // 新着0件でも focus が解決できれば読む
   f=fixture('https://e.test/solitaire?newcards=1&focus='+encodeURIComponent('不明'),{newCards:[],resolvable:{不明:'u'}});
   assert.equal(await run(mod,f),true);
@@ -90,6 +122,7 @@ const run=(mod,f,extra={})=>mod.receiveNewCards({loadDeck:f.loadDeck,clearDeck:f
   f=fixture('https://e.test/solitaire?newcards=1');
   f.loadDeck=async()=>{throw Error('通信失敗');};
   assert.equal(await run(mod,f),true);assert(f.loc.href.includes('newcards=1'));
+  assert.deepEqual(f.notices.map(n=>n[1]),[{afterLoad:true}]);
   // 読込中で clearDeck が false
   f=fixture('https://e.test/solitaire?newcards=1');
   f.clearDeck=async()=>false;
@@ -129,7 +162,7 @@ const run=(mod,f,extra={})=>mod.receiveNewCards({loadDeck:f.loadDeck,clearDeck:f
   const mui=fs.readFileSync(path.join(root,'static/solitaire/js/ui/mobile-ui.js'),'utf8');
   assert(/export function openCardDetailByName/.test(mui));
   assert(/wrapper\.classList\.contains\('sol-newcard-focus'\)\) cell\.classList\.add\('sol-newcard-focus'\)/.test(mui));
-  assert(/_toggleDeckCardSelection\(cell\) \{\s*\/\/[^\n]*\s*document\.querySelectorAll\('\.sol-newcard-focus'\)/.test(mui));
+  assert(!/_toggleDeckCardSelection\(cell\) \{[\s\S]{0,200}sol-newcard-focus/.test(mui),'選択で強調を外さない（選択とは別の目印）');
   assert(/setHidden\('solMobileDeckSheet', false\);[\s\S]{0,120}scrollIntoView/.test(mui));
   console.log('新着直行: URLパース・focus検証・優先順位・URL除去・解決不可focus・失敗時・起動分岐を確認');
 })().catch(error=>{console.error(error);process.exitCode=1;});

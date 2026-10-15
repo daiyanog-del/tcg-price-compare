@@ -569,9 +569,21 @@ p, span, li {
   color: #333;
 }
 
-/* ?newcards=1&focus= で開いたときに強調するカード。モバイルの選択中（.selected）と同じ金色の枠。
-   プールのカードは70%重なるため、前面に出して枠を見せる。赤（危険色）は使わない。 */
-.tier-item-wrapper.sol-newcard-focus {
-  box-shadow: 0 0 0 3px var(--gold), 0 8px 20px rgba(0, 0, 0, 0.5);
-  z-index: 400;
+/* ?newcards=1&focus= で開いたときに強調するカード。選択中（金の実線）と区別するため、アクセント色の破線の枠。
+   デッキ欄（#poolRow / #poolRow2）の中だけに効かせる（盤面へ移ったカードに残さない）。赤・金は使わない。
+   プールのカードは70%重なるため、枠が隣に隠れないよう少しだけ前面に出す。 */
+#poolRow .tier-item-wrapper.sol-newcard-focus,
+#poolRow2 .tier-item-wrapper.sol-newcard-focus {
+  z-index: 2;
+}
+/* 枠はカードの内側に描く（デッキ欄の上下がクリップされても見える。画像は z-index:1 なのでその上に重ねる） */
+#poolRow .tier-item-wrapper.sol-newcard-focus::after,
+#poolRow2 .tier-item-wrapper.sol-newcard-focus::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  border: 3px dashed var(--accent);
+  border-radius: 8px;
+  pointer-events: none;
 }

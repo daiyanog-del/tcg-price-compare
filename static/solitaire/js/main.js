@@ -387,6 +387,8 @@ async function initializeApp() {
   // ?newcards=1（X投稿などからの直行）。リプレイ指定・持込があれば何もしない（判定は receiveNewCards 内でも行う）
   const newCardsLoaded = hasReplayInUrl || handedOff ? false : await receiveNewCards({
     loadDeck: loadDeckFromNeuron, clearDeck: clearEverything,
+    // 状態表示。スマホ縦の読込後の失敗は sol-deck-load-end の既存トーストが出るので重ねない
+    notify: (msg, opt) => { if (!(opt?.afterLoad && isMobilePortrait())) showToast(msg); },
     // スマホ縦は既存のスマホ用詳細UI、それ以外は左パネル（カードをタップ/クリックした時と同じ表示）
     showCard: el => isMobilePortrait()
       ? openCardDetailByName(el.dataset.cardName, el.src || '')

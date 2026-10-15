@@ -707,8 +707,6 @@ function _buildDeckCell(wrapper) {
 }
 
 function _toggleDeckCardSelection(cell) {
-  // 通常操作（選択）をしたら newcards の強調は役目を終える
-  document.querySelectorAll('.sol-newcard-focus').forEach(el => el.classList.remove('sol-newcard-focus'));
   const id = cell.dataset.cardId;
   if (_selectedDeckCardIds.has(id)) {
     _selectedDeckCardIds.delete(id);

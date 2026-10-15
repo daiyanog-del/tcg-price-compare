@@ -945,10 +945,14 @@
     cursor: pointer;
   }
   .sol-mobile-deck-cell[hidden] { display: none; }
-  .sol-mobile-deck-cell.selected,
-  .sol-mobile-deck-cell.sol-newcard-focus {
+  .sol-mobile-deck-cell.selected {
     border-color: var(--gold);
     box-shadow: 0 0 0 2px var(--gold);
+  }
+  /* ?newcards=1&focus= の強調。選択中（金の実線）と区別するアクセント色の破線（PC のデッキ欄と同じ） */
+  .sol-mobile-deck-cell.sol-newcard-focus {
+    outline: 3px dashed var(--accent);
+    outline-offset: 1px;
   }
   .sol-mobile-deck-thumb {
     width: 100%;
