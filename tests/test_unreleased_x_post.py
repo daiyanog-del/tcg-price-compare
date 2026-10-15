@@ -26,7 +26,8 @@ def _env(monkeypatch):
     monkeypatch.setattr(xp, "_is_released_name", lambda name: False)  # 実カード名索引に依存させない
     monkeypatch.setattr(xp, "_notify", lambda msg: None)
     monkeypatch.setattr(xp, "_site_url", lambda: "https://example.test")
-    monkeypatch.setattr(xp, "_verify_og_image", lambda card_id: (True, ""))   # OG 画像の生成確認（本番サイトへは行かない）
+    monkeypatch.setattr(xp, "_verify_og_image", lambda card_id, link_url=None: (True, ""))   # OG 画像の生成確認（本番サイトへは行かない）
+    monkeypatch.setattr(xp, "_prepare_watermark", lambda sb, card_id: None)   # ロゴ判定の事前計算（DB・画像取得なし）
 
 
 def _sb(card=None, image=True, posts=None):
@@ -72,7 +73,8 @@ def test_text_tcgym_link_is_last_url():
     assert urls == ["https://yu-gi-oh.jp/news/abc/", "https://example.test/solitaire?newcards=1&focus=A"]
 
 
-@pytest.mark.parametrize("src", ["", "manual", "  ", None, "ftp://x", "javascript:alert(1)"])
+@pytest.mark.parametrize("src", ["", "manual", "  ", None, "ftp://x", "javascript:alert(1)", "https://localhost/x",
+                                 "https://exa mple.com/x", "https://x.com/" + "a" * 2000, "https:///path.only/x"])
 def test_text_source_line_omitted_unless_http_url(src):
     t = xp.build_tweet_text("A", "P", "2026-11-01", src, site_url="https://example.test")
     assert "情報元" not in t
@@ -165,45 +167,137 @@ def test_post_success_records_posted():
     assert len(poster.calls) == 1 and poster.calls[0][1] == []  # 画像パスは渡さない
 
 
-def test_og_check_failure_skips_post_and_marks_failed(monkeypatch):
-    # OG 画像の生成が確認できなければ投稿せず failed（回収で再試行）
-    monkeypatch.setattr(xp, "_verify_og_image", lambda card_id: (False, "OG画像が HTTP 500"))
+def test_og_check_failure_is_og_unavailable_not_counted_as_attempt(monkeypatch):
+    # OG 画像の生成が確認できなければ投稿せず og_unavailable。attempts は増やさず、行を残して回収で再挑戦（rate_limited と同じ扱い）
+    notes = []
+    monkeypatch.setattr(xp, "_notify", notes.append)
+    monkeypatch.setattr(xp, "_verify_og_image", lambda card_id, link_url=None: (False, "OG画像が HTTP 500"))
     sb, poster = _sb(), Poster("999")
-    assert xp.post_card(sb, 1, post_fn=poster, today=TODAY) == "failed"
+    assert xp.post_card(sb, 1, post_fn=poster, today=TODAY) == "og_unavailable"
     row = sb.tables["unreleased_x_posts"][0]
-    assert poster.calls == [] and row["status"] == "failed" and row["attempts"] == 1 and "HTTP 500" in row["last_error"]
+    assert poster.calls == [] and row["status"] == "rate_limited" and row["attempts"] == 0
+    assert row["rate_limit_count"] == 1 and "HTTP 500" in row["last_error"]
+    assert len(notes) == 1 and "OG画像の生成確認の失敗" in notes[0]
+    assert xp.find_backfill_candidates(sb, TODAY) == [1]   # 回収で再挑戦される
+    # 直ったら次の回収で投稿できる
+    monkeypatch.setattr(xp, "_verify_og_image", lambda card_id, link_url=None: (True, ""))
+    assert xp.post_card(sb, 1, post_fn=poster, today=TODAY) == "posted"
 
 
-def test_og_check_exception_marks_failed(monkeypatch):
-    def boom(card_id):
+def test_og_check_gives_up_after_limit(monkeypatch):
+    notes = []
+    monkeypatch.setattr(xp, "_notify", notes.append)
+    monkeypatch.setattr(xp, "RATE_LIMIT_MAX_COUNT", 3)
+    monkeypatch.setattr(xp, "_verify_og_image", lambda card_id, link_url=None: (False, "x"))
+    sb, poster = _sb(), Poster("999")
+    results = [xp.post_card(sb, 1, post_fn=poster, today=TODAY) for _ in range(3)]
+    assert results == ["og_unavailable"] * 3
+    row = sb.tables["unreleased_x_posts"][0]
+    assert row["status"] == "failed" and row["attempts"] == xp.MAX_ATTEMPTS   # 打ち切り（以後は再挑戦しない）
+    assert "打ち切りました" in notes[-1]
+    assert xp.find_backfill_candidates(sb, TODAY) == []
+
+
+def test_og_unavailable_stops_sequence_with_one_notice(monkeypatch):
+    # 最初の1件で順番投稿を打ち切り、通知は1通だけ
+    notes = []
+    monkeypatch.setattr(xp, "_notify", notes.append)
+    monkeypatch.setattr(xp, "_verify_og_image", lambda card_id, link_url=None: (False, "x"))
+    sb, poster = _sb(), Poster("999")
+    _add_card(sb, 2)
+    _add_card(sb, 3)
+    counts = xp.post_cards_sequential(sb, [1, 2, 3], post_fn=poster)
+    assert counts == {"og_unavailable": 1}
+    assert [r["card_id"] for r in sb.tables["unreleased_x_posts"]] == [1]   # 2・3枚目は予約もしていない
+    assert len(notes) == 1 and poster.calls == []
+
+
+def test_og_check_exception_is_og_unavailable(monkeypatch):
+    def boom(card_id, link_url=None):
         raise RuntimeError("net")
     monkeypatch.setattr(xp, "_verify_og_image", boom)
     sb, poster = _sb(), Poster("999")
-    assert xp.post_card(sb, 1, post_fn=poster, today=TODAY) == "failed"
+    assert xp.post_card(sb, 1, post_fn=poster, today=TODAY) == "og_unavailable"
     assert poster.calls == []
 
 
-def _fake_resp(status=200, kind="card", ctype="image/png"):
+def test_og_check_receives_the_posted_link(monkeypatch):
+    seen = []
+    monkeypatch.setattr(xp, "_verify_og_image",
+                        lambda card_id, link_url=None: (seen.append((card_id, link_url)), (True, ""))[1])
+    sb, poster = _sb(), Poster("999")
+    assert xp.post_card(sb, 1, post_fn=poster, today=TODAY) == "posted"
+    (cid, link), = seen
+    assert cid == 1 and link in poster.calls[0][0] and link.startswith("https://example.test/solitaire?newcards=1&focus=")
+
+
+def test_prepare_watermark_called_before_og_check(monkeypatch):
+    order = []
+    monkeypatch.setattr(xp, "_prepare_watermark", lambda sb, cid: order.append("prepare"))
+    monkeypatch.setattr(xp, "_verify_og_image", lambda cid, link=None: (order.append("verify"), (True, ""))[1])
+    xp.post_card(_sb(), 1, post_fn=Poster("1"), today=TODAY)
+    assert order == ["prepare", "verify"]
+
+
+def test_prepare_watermark_failure_does_not_raise(monkeypatch):
+    import card_og_image
+    monkeypatch.undo()
+    monkeypatch.setattr(card_og_image, "prepare_watermark", lambda sb, cid: (_ for _ in ()).throw(OSError("dl")))
+    xp._prepare_watermark(None, 1)   # 例外を外に出さない（投稿は止めない）
+
+
+def _fake_resp(status=200, kind="card", ctype="image/png", text=""):
     class R:
-        status_code = status
-        headers = {"Content-Type": ctype, **({"X-OG-Kind": kind} if kind else {})}
-    return R()
+        pass
+    r = R()
+    r.status_code = status
+    r.text = text
+    r.headers = {"Content-Type": ctype, **({"X-OG-Kind": kind} if kind else {})}
+    return r
 
 
-@pytest.mark.parametrize("resp,ok", [
-    (_fake_resp(), True),
-    (_fake_resp(status=500), False),
-    (_fake_resp(kind=None), False),          # 汎用画像への退避
-    (_fake_resp(ctype="text/html"), False),
+def _page(og):
+    return f'<html><head><meta property="og:title" content="t"><meta property="og:image" content="{og}"></head></html>'
+
+
+GOOD_OG = "https://example.test/solitaire/og/card/7.png?v=abc"
+
+
+def _html(text="", status=200):
+    return _fake_resp(status=status, ctype="text/html", kind=None, text=text)
+
+
+@pytest.mark.parametrize("img,page,ok", [
+    (_fake_resp(), _html(_page(GOOD_OG)), True),
+    (_fake_resp(status=500), _html(_page(GOOD_OG)), False),
+    (_fake_resp(kind=None), _html(_page(GOOD_OG)), False),            # 汎用画像への退避
+    (_fake_resp(ctype="text/html"), _html(_page(GOOD_OG)), False),
+    # ページの og:image が汎用画像・別カードのまま
+    (_fake_resp(), _html(_page("https://example.test/static/og-solitaire.png")), False),
+    (_fake_resp(), _html(_page("https://example.test/solitaire/og/card/8.png?v=abc")), False),
+    (_fake_resp(), _html("<html></html>"), False),
+    (_fake_resp(), _html(status=503), False),
 ])
-def test_verify_og_image_checks_response(monkeypatch, resp, ok):
+def test_verify_og_image_checks_image_and_page(monkeypatch, img, page, ok):
     import requests
     monkeypatch.undo()   # autouse の差し替えを戻して本物を呼ぶ
     monkeypatch.setattr(xp, "_site_url", lambda: "https://example.test")
     seen = []
-    monkeypatch.setattr(requests, "get", lambda url, **kw: (seen.append(url), resp)[1])
-    assert xp._verify_og_image(7)[0] is ok
-    assert seen == ["https://example.test/solitaire/og/card/7.png"]
+    link = "https://example.test/solitaire?newcards=1&focus=A"
+    monkeypatch.setattr(requests, "get",
+                        lambda url, **kw: (seen.append(url), img if url.endswith(".png") else page)[1])
+    assert xp._verify_og_image(7, link)[0] is ok
+    assert seen[0] == "https://example.test/solitaire/og/card/7.png"
+    if ok:
+        assert seen[1] == link
+
+
+def test_verify_og_image_without_link_skips_page_check(monkeypatch):
+    import requests
+    monkeypatch.undo()
+    monkeypatch.setattr(xp, "_site_url", lambda: "https://example.test")
+    monkeypatch.setattr(requests, "get", lambda url, **kw: _fake_resp())
+    assert xp._verify_og_image(7)[0] is True
 
 
 def test_double_post_prevented():
@@ -330,3 +424,16 @@ def test_run_backfill_posts_candidates(monkeypatch):
     poster = Poster()
     assert xp.run_backfill(sb, post_fn=poster, sleep=lambda s: None) == {"posted": 1}
     assert len(poster.calls) == 1
+
+
+def test_source_url_non_ascii_is_percent_encoded():
+    t = xp.build_tweet_text("A", "P", None, "https://example.com/ニュース/記事?x=日本", site_url="https://example.test")
+    line = [ln for ln in t.split("\n") if ln.startswith("情報元：")][0]
+    body = line[len("情報元："):]
+    assert body.isascii() and body.startswith("https://example.com/") and "%E3%83%8B" in body
+
+
+def test_source_url_length_limit():
+    ok = "https://example.com/" + "a" * (xp.SOURCE_URL_MAX_LEN - len("https://example.com/"))
+    assert xp._usable_source_url(ok) == ok
+    assert xp._usable_source_url(ok + "a") == ""

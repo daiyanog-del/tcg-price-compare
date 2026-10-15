@@ -108,7 +108,7 @@ _warned_not_configured = False
 STATUS_DELETE_FAILED = "delete_failed"
 
 # 順番投稿を途中で打ち切る結果（続けても同じ理由で失敗する、または人の確認が要る）
-_STOP_RESULTS = frozenset({"rate_limited", "daily_limit", "not_configured", "unknown"})
+_STOP_RESULTS = frozenset({"rate_limited", "og_unavailable", "daily_limit", "not_configured", "unknown"})
 
 # X の加重文字数上限。日本語など多くの文字は2、URLは23で数える
 TWEET_WEIGHT_LIMIT = 280
@@ -120,6 +120,7 @@ _MIN_NAME_WEIGHT = 10
 
 _URL_RE = re.compile(r"https?://\S+")
 _ELLIPSIS = "…"
+SOURCE_URL_MAX_LEN = 2000
 OG_CHECK_TIMEOUT_SEC = 30   # 投稿前の OG 画像の生成確認（初回は画像取得＋描画が入る）。TODO: calibrate from data
 
 
@@ -183,9 +184,30 @@ def _format_release_short(release_date) -> str | None:
 
 
 def _usable_source_url(source_url) -> str:
-    """本文に載せる情報元URL。http(s) の URL だけ（空・manual・その他は空文字）。"""
+    """本文に載せる情報元URL（満たさなければ空文字＝情報元の行を省く）。
+
+    条件: 空白を含まない・scheme が http/https・ホスト名にドットがある・2000字以下・ASCII のみ。
+    非 ASCII（日本語のパス等）は % エンコードに直す（X の URL 判定と加重文字数 23 の前提を崩さないため）。
+    """
     u = (source_url or "").strip()
-    return u if re.fullmatch(r"https?://\S+", u) else ""
+    if not u or len(u) > SOURCE_URL_MAX_LEN or re.search(r"\s", u):
+        return ""
+    if not u.isascii():
+        u = urllib.parse.quote(u, safe="%/:?#[]@!$&'()*+,;=~-._")
+    try:
+        p = urllib.parse.urlparse(u)
+        host = p.hostname or ""
+    except ValueError:
+        return ""
+    if p.scheme not in ("http", "https") or "." not in host or len(u) > SOURCE_URL_MAX_LEN:
+        return ""
+    return u
+
+
+def _card_link_url(name: str, base: str | None = None) -> str:
+    """投稿に載せる TCGYM のリンク（シミュレーター直行）。focus は & # ? / なども含めて必ずエンコードする。"""
+    base = base if base is not None else _site_url()
+    return f"{base}/solitaire?newcards=1&focus={urllib.parse.quote(name, safe='')}"
 
 
 def _site_url() -> str:
@@ -208,8 +230,7 @@ def build_tweet_text(name: str, product_name: str = "", release_date=None, sourc
     focus は & # ? / なども含めて必ずエンコードする（quote の safe=""）。
     URL は常に完全なカード名で作る（本文側だけ詰める）。URL は2本（各23加重）で数える。
     """
-    base = site_url if site_url is not None else _site_url()
-    url = f"{base}/solitaire?newcards=1&focus={urllib.parse.quote(name, safe='')}"
+    url = _card_link_url(name, site_url)
     date_text = _format_release_short(release_date)
     source = _usable_source_url(source_url)
 
@@ -411,8 +432,11 @@ def _mark_failed(sb, card_id: int, error: str, name: str = "") -> None:
     _notify(f"[未発売X投稿] 失敗 card_id={card_id} {name} attempts={attempts}/{MAX_ATTEMPTS}: {error[:200]} {tail}")
 
 
-def _mark_rate_limited(sb, card_id: int, error: str, name: str = "", *, now: datetime | None = None) -> None:
-    """429。投稿は作られていないので attempts は増やさず、status=rate_limited にして回収で再挑戦させる。
+def _mark_rate_limited(sb, card_id: int, error: str, name: str = "", *, now: datetime | None = None,
+                       label: str = "レート制限(429)") -> None:
+    """429。OG 画像の生成確認の失敗（og_unavailable）も同じ扱い（label だけ変える。status は CHECK 制約の都合で rate_limited）。
+
+    投稿は作られていないので attempts は増やさず、status=rate_limited にして回収で再挑戦させる。
 
     予約行を消す案もあるが、行を残す方を採る: いつ・どう制限に当たったか（updated_at / last_error）が
     残り、同じ card_id の主キーによる二重投稿防止の予約も途切れない（消すと再予約までの隙間に他者が割り込める）。
@@ -434,7 +458,7 @@ def _mark_rate_limited(sb, card_id: int, error: str, name: str = "", *, now: dat
         logger.warning("[unreleased_x_post] rate_limit_count 取得失敗 card_id=%s: %s", card_id, e)
     count += 1
     if count >= RATE_LIMIT_MAX_COUNT or age_sec >= RATE_LIMIT_MAX_AGE_SEC:
-        reason = (f"レート制限(429)の再挑戦が上限に達したため諦めました（累計{count}回・初回から{age_sec / 3600:.1f}時間）: "
+        reason = (f"{label}の再挑戦が上限に達したため諦めました（累計{count}回・初回から{age_sec / 3600:.1f}時間）: "
                   f"{error}")
         try:
             sb.table(TABLE).update({
@@ -443,8 +467,8 @@ def _mark_rate_limited(sb, card_id: int, error: str, name: str = "", *, now: dat
             }).eq("card_id", card_id).execute()
         except Exception as e:
             logger.error("[unreleased_x_post] rate_limited 打ち切りの記録に失敗 card_id=%s: %s", card_id, e)
-        _notify(f"[未発売X投稿] レート制限(429)が続いたため再挑戦を打ち切りました card_id={card_id} {name}: "
-                f"累計{count}回・初回から{age_sec / 3600:.1f}時間。X の制限状況を確認し、投稿したければ "
+        _notify(f"[未発売X投稿] {label}が続いたため再挑戦を打ち切りました card_id={card_id} {name}: "
+                f"累計{count}回・初回から{age_sec / 3600:.1f}時間。原因（X の制限状況・OG画像の生成）を確認し、投稿したければ "
                 f"unreleased_x_posts の該当行を削除してください")
         return
     try:
@@ -453,7 +477,7 @@ def _mark_rate_limited(sb, card_id: int, error: str, name: str = "", *, now: dat
         }).eq("card_id", card_id).execute()
     except Exception as e:
         logger.error("[unreleased_x_post] rate_limited の記録に失敗 card_id=%s: %s", card_id, e)
-    _notify(f"[未発売X投稿] レート制限(429) card_id={card_id} {name}: 失敗回数には数えず、次回の回収で再挑戦します"
+    _notify(f"[未発売X投稿] {label} card_id={card_id} {name}: 失敗回数には数えず、次回の回収で再挑戦します"
             f"（{count}/{RATE_LIMIT_MAX_COUNT}回目）")
 
 
@@ -558,16 +582,24 @@ def count_posted_today(sb) -> int:
 # リンク画像（OG 画像）の生成確認
 # ──────────────────────────────────────────────
 
-def _verify_og_image(card_id: int) -> tuple[bool, str]:
-    """本番サイトのカード用 OG 画像（/solitaire/og/card/<id>.png）が生成できるか確認する。(成功, 失敗理由)。
+_OG_IMAGE_META_RE = re.compile(r"<meta[^>]+property=[\"']og:image[\"'][^>]*>", re.I)
+_META_CONTENT_RE = re.compile(r"content=[\"']([^\"']*)[\"']", re.I)
 
-    X のクローラーが実際に取りに行く経路を一度通して確かめる（描画のキャッシュも温まる）。
-    カード画像から作られていれば X-OG-Kind: card が付く。汎用画像への退避（非公開・描画の混雑・失敗）は失敗扱い。
+
+def _verify_og_image(card_id: int, link_url: str | None = None) -> tuple[bool, str]:
+    """本番サイトのカード用 OG 画像が生成できるか確認する。(成功, 失敗理由)。
+
+    ① /solitaire/og/card/<id>.png を取得（X のクローラーが取りに行く経路を一度通す。描画のキャッシュも温まる）。
+       カード画像から作られていれば X-OG-Kind: card が付く。汎用画像への退避（非公開・描画の混雑・失敗）は失敗扱い。
+    ② link_url（投稿に載せるリンクそのもの）のページを取得し、og:image が ①の画像を指しているか確認する
+       （ページ側のメタ情報が汎用画像のままだと、X のカードが汎用画像になるため）。
     """
     import requests
+    from urllib.parse import urlparse
     url = f"{_site_url()}/solitaire/og/card/{card_id}.png"
+    hdr = {"User-Agent": "TCGYM-OG-Check/1.0"}
     try:
-        resp = requests.get(url, timeout=OG_CHECK_TIMEOUT_SEC, headers={"User-Agent": "TCGYM-OG-Check/1.0"})
+        resp = requests.get(url, timeout=OG_CHECK_TIMEOUT_SEC, headers=hdr)
     except Exception as e:
         return False, f"OG画像の取得に失敗 {type(e).__name__}: {e}"
     if resp.status_code != 200:
@@ -576,7 +608,29 @@ def _verify_og_image(card_id: int) -> tuple[bool, str]:
         return False, "OG画像がカード用ではなく汎用画像に退避された（描画の混雑・失敗・非公開のいずれか）"
     if not resp.headers.get("Content-Type", "").lower().startswith("image/png"):
         return False, f"OG画像の Content-Type が image/png でない: {resp.headers.get('Content-Type')!r}"
+    if link_url:
+        try:
+            page = requests.get(link_url, timeout=OG_CHECK_TIMEOUT_SEC, headers=hdr)
+        except Exception as e:
+            return False, f"投稿リンクのページ取得に失敗 {type(e).__name__}: {e}"
+        if page.status_code != 200:
+            return False, f"投稿リンクのページが HTTP {page.status_code}"
+        tag = _OG_IMAGE_META_RE.search(page.text or "")
+        m = _META_CONTENT_RE.search(tag.group(0)) if tag else None
+        path = urlparse(m.group(1)).path if m else ""
+        if path != f"/solitaire/og/card/{card_id}.png":
+            return False, f"投稿リンクのページの og:image がこのカードの画像を指していない: {(m.group(1) if m else '(なし)')[:120]}"
     return True, ""
+
+
+def _prepare_watermark(sb, card_id: int) -> None:
+    """投稿の直前に、ロゴ判定を先に計算して保存しておく（公開の GET で DB 書き込みが起きる機会を減らす）。
+    失敗しても投稿は止めない（OG 画像の確認と GET 側の計算が拾う）。"""
+    try:
+        import card_og_image
+        card_og_image.prepare_watermark(sb, card_id)
+    except Exception as e:
+        logger.warning("[unreleased_x_post] ロゴ判定の事前計算に失敗（無視） card_id=%s: %s", card_id, e)
 
 
 # ──────────────────────────────────────────────
@@ -592,7 +646,7 @@ def post_card(sb, card_id: int, *, post_fn=None, today: date | None = None,
               interval: float | None = None, sleep=time.sleep) -> str:
     """1枚を投稿する。結果コード:
       disabled / missing / not_postable / skipped_duplicate / dry_run / not_configured / daily_limit /
-      already（他が処理中か済み）/ posted / failed / rate_limited / unknown / error
+      already（他が処理中か済み）/ posted / failed / rate_limited / og_unavailable / unknown / error
     例外は投げない（承認処理や回収を止めないため）。
     """
     if not is_enabled():
@@ -743,23 +797,26 @@ _LEGACY_NONE_MESSAGE = "post_tweet が None を返した（認証情報未設定
 
 
 def _send(sb, card: dict, text: str, post_fn) -> str:
-    """送信して結果を記録する。戻り値: posted / failed / rate_limited / unknown。
+    """送信して結果を記録する。戻り値: posted / failed / rate_limited / og_unavailable / unknown。
 
-    画像は添付しない（リンクの OG 画像で誘導）。送る前に OG 画像の生成を確認し、失敗なら送らず failed にする
-    （回収ジョブが再試行する）。
+    画像は添付しない（リンクの OG 画像で誘導）。送る前に OG 画像の生成を確認し、失敗なら送らず og_unavailable にする
+    （attempts は増やさず、回収ジョブが再挑戦する）。
     post_fn は (tweet_id, error_kind) を返す関数（x_poster.post_tweet_ex）。
     tweet_id だけを返す旧形式の関数も受け付け、None は送信前の失敗として扱う。
     """
     card_id = card["id"]
     name = card.get("name", "")
     # ここまでは送信前。失敗しても X には何も送っていない
+    _prepare_watermark(sb, card_id)
     try:
-        ok, reason = _verify_og_image(card_id)
+        ok, reason = _verify_og_image(card_id, _card_link_url(name))
     except Exception as e:
         ok, reason = False, f"OG画像の確認で例外 {type(e).__name__}: {e}"
     if not ok:
-        _mark_failed(sb, card_id, reason, name)
-        return "failed"
+        # サイト側の一時的な不調（描画の混雑・デプロイ途中など）が多いので、失敗回数(attempts)には数えず、
+        # rate_limited と同じく行を残して回収で再挑戦する（経過時間・回数の上限で打ち切り）。順番投稿は最初の1件で打ち切る
+        _mark_rate_limited(sb, card_id, reason, name, label="OG画像の生成確認の失敗")
+        return "og_unavailable"
     try:
         if post_fn is None:
             from x_poster import post_tweet_ex as post_fn
@@ -797,7 +854,7 @@ def _send(sb, card: dict, text: str, post_fn) -> str:
 # 「実際に送信を試みた」結果。max_cards の枠はこれだけを数える
 # （missing / error / not_postable / already / skipped_duplicate などは送信せず、枠を消費しない）。
 # dry_run は本番なら送信していた分なので数える。
-_ATTEMPT_RESULTS = frozenset({"posted", "failed", "rate_limited", "unknown", "dry_run"})
+_ATTEMPT_RESULTS = frozenset({"posted", "failed", "rate_limited", "og_unavailable", "unknown", "dry_run"})
 
 
 def post_cards_sequential(sb, card_ids, *, interval: float | None = None, post_fn=None, sleep=time.sleep,

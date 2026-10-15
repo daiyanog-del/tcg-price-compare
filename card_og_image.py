@@ -16,6 +16,7 @@ import os
 import re
 import tempfile
 import threading
+import time
 from datetime import date, datetime, timezone
 
 import numpy as np
@@ -60,14 +61,19 @@ _MIN_DOT_BREAK_RATIO = 0.4   # 「・」の直後で折るとき、1行目がこ
 
 _IMAGE_MAX_BYTES = 10 * 1024 * 1024
 _IMAGE_MAX_PIXELS = 20_000_000
-_IMAGE_TIMEOUT_SEC = 8
+_IMAGE_TIMEOUT_SEC = 8   # TODO: calibrate from data
 
 # ── キャッシュ・描画枠 ──
 _CACHE_DIR = os.path.join(tempfile.gettempdir(), "cardprice_card_og_v1")
 os.makedirs(_CACHE_DIR, exist_ok=True)
 _CACHE_MAX_FILES = 300   # TODO: calibrate from data
-_CACHE_PRUNE_TO = 200
+_CACHE_PRUNE_TO = 200   # TODO: calibrate from data
 _render_sem = threading.BoundedSemaphore(2)
+# 描画に失敗した key を短時間だけ覚え、同じ画像の再描画（画像取得のタイムアウト待ち等）を連打で繰り返さない
+FAILURE_MEMO_SEC = 60.0   # TODO: calibrate from data
+_FAILURE_MEMO_MAX = 64
+_failure_lock = threading.Lock()
+_failures: dict = {}   # key -> 期限（time.monotonic）
 RENDER_WAIT_SEC = 3.0    # TODO: calibrate from data
 
 _PUBLIC_STATUSES = ("approved", "linked")
@@ -109,7 +115,8 @@ def version_key(card: dict, blur_enabled: bool) -> str:
     """見た目を決める入力から作る短いキー（キャッシュのファイル名と、リンク画像URLの ?v= に使う）。"""
     src = "\x1f".join([DESIGN_VERSION, str(card["id"]), card.get("name") or "", card.get("product_name") or "",
                        str(card.get("release_date") or ""), card.get("card_type") or "",
-                       card.get("image_key") or "", "blur" if blur_enabled else "noblur"])
+                       card.get("image_key") or "", "blur" if blur_enabled else "noblur",
+                       no_repost_logo.DETECT_VERSION, str(no_repost_logo.MATCH_THRESHOLD)])
     return hashlib.sha1(src.encode("utf-8")).hexdigest()[:12]
 
 
@@ -302,17 +309,30 @@ def _download(url: str) -> Image.Image:
 def _watermark_for(sb, card: dict, img: Image.Image) -> dict:
     """保存済みのロゴ判定（同じ画像に対するもの）を返す。無い・画像が変わっていれば計算して保存する。"""
     wm = card.get("watermark")
-    if isinstance(wm, dict) and wm.get("image_key") == card.get("image_key") and isinstance(wm.get("detected"), bool):
-        return wm
+    if (isinstance(wm, dict) and wm.get("image_key") == card.get("image_key")
+            and wm.get("v") == no_repost_logo.DETECT_VERSION
+            and isinstance(wm.get("score"), (int, float)) and not isinstance(wm.get("score"), bool)):
+        # 保存済み（同じ画像・同じ検出の版）。detected は保存値を信じず、score を現行の閾値で判定し直す
+        return {**wm, "detected": no_repost_logo.is_detected(wm["score"])}
     detected, score = no_repost_logo.detect(img)
     wm = {"detected": detected, "score": score, "at": datetime.now(timezone.utc).isoformat(),
-          "image_key": card.get("image_key")}
+          "image_key": card.get("image_key"), "v": no_repost_logo.DETECT_VERSION}
     try:
         from unreleased_image_store import _merge_extraction_raw
         _merge_extraction_raw(sb, card["id"], {"watermark_no_repost": wm})
     except Exception as e:
         logger.warning(f"[card_og] ロゴ判定の保存に失敗（無視） card_id={card['id']}: {e}")
     return wm
+
+
+def prepare_watermark(sb, card_id: int) -> bool:
+    """ロゴ判定を計算して保存しておく（X 投稿の直前に呼ぶ。公開の GET で DB 書き込みが起きる機会を減らす）。
+    公開中のカードでなければ何もせず False。画像取得などの失敗は例外のまま（呼び出し側が無視する）。"""
+    card = fetch_public_card(sb, card_id)
+    if card is None:
+        return False
+    _watermark_for(sb, card, _download(card["image_url"]))
+    return True
 
 
 def render_card(sb, card: dict, blur_enabled: bool) -> bytes:
@@ -349,6 +369,22 @@ def _prune_cache() -> None:
         logger.warning(f"[card_og] キャッシュの整理に失敗（無視）: {e}")
 
 
+def _recently_failed(key: str) -> bool:
+    now = time.monotonic()
+    with _failure_lock:
+        return _failures.get(key, 0.0) > now
+
+
+def _remember_failure(key: str) -> None:
+    now = time.monotonic()
+    with _failure_lock:
+        for k in [k for k, t in _failures.items() if t <= now]:
+            del _failures[k]
+        while len(_failures) >= _FAILURE_MEMO_MAX:
+            del _failures[min(_failures, key=_failures.get)]
+        _failures[key] = now + FAILURE_MEMO_SEC
+
+
 def get_or_render(sb, card: dict, blur_enabled: bool) -> bytes:
     """キャッシュ優先で OG 画像（PNG）を返す。
 
@@ -358,6 +394,8 @@ def get_or_render(sb, card: dict, blur_enabled: bool) -> bytes:
     hit = read_cached(key)
     if hit is not None:
         return hit
+    if _recently_failed(key):
+        raise replay_og_image.RenderBusy(f"recent-failure:card:{card['id']}")
     if not _render_sem.acquire(timeout=RENDER_WAIT_SEC):
         raise replay_og_image.RenderBusy(f"card:{card['id']}")
     try:
@@ -366,7 +404,11 @@ def get_or_render(sb, card: dict, blur_enabled: bool) -> bytes:
             return hit
         if not replay_og_image.consume_render_budget():
             raise replay_og_image.RenderBusy(f"budget:card:{card['id']}")
-        png = render_card(sb, card, blur_enabled)
+        try:
+            png = render_card(sb, card, blur_enabled)
+        except Exception:
+            _remember_failure(key)
+            raise
     finally:
         _render_sem.release()
     tmp = _cache_path(key) + f".{os.getpid()}.{threading.get_ident()}.tmp"

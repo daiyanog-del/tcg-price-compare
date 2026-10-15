@@ -339,3 +339,83 @@ def test_page_meta_generic_when_card_not_public(web):
     web["card"] = None
     html = web["client"].get("/solitaire?newcards=1&focus=テスト").get_data(as_text=True)
     assert "/solitaire/og/card/" not in html
+
+
+# ── レビュー指摘（低1・低2・低3）──
+
+def test_saved_score_is_rejudged_with_current_threshold(pipeline, monkeypatch):
+    # 保存済みの detected ではなく score を、現行の閾値で判定し直す（閾値だけ変えても再計算は要らない）
+    wm = {"detected": True, "score": 0.7, "at": "T", "image_key": _card()["image_key"], "v": n.DETECT_VERSION}
+    pipeline["img"] = _card_image(False)   # 画像自体にはロゴが無い。保存値が使われていることの確認
+    g.render_card(None, _card(watermark=wm), True)
+    assert pipeline["blurred"] == ["通常魔法"] and pipeline["saved"] == []
+    monkeypatch.setattr(n, "MATCH_THRESHOLD", 0.8)
+    pipeline["blurred"].clear()
+    g.render_card(None, _card(watermark=wm), True)
+    assert pipeline["blurred"] == [] and pipeline["saved"] == []   # 閾値を上げたので判定が変わる（再保存はしない）
+
+
+def test_saved_judgement_with_old_detect_version_is_recomputed(pipeline):
+    wm = {"detected": True, "score": 0.99, "at": "T", "image_key": _card()["image_key"], "v": "old"}
+    pipeline["img"] = _card_image(False)
+    g.render_card(None, _card(watermark=wm), True)
+    (cid, upd), = pipeline["saved"]
+    assert upd["watermark_no_repost"]["v"] == n.DETECT_VERSION and upd["watermark_no_repost"]["detected"] is False
+    assert pipeline["blurred"] == []
+    # 版の無い旧形式（score なし）も再計算
+    pipeline["saved"].clear()
+    g.render_card(None, _card(watermark={"detected": True, "image_key": _card()["image_key"]}), True)
+    assert len(pipeline["saved"]) == 1
+
+
+def test_version_key_reflects_threshold_and_detect_version(monkeypatch):
+    base = g.version_key(_card(), True)
+    monkeypatch.setattr(n, "MATCH_THRESHOLD", 0.9)
+    assert g.version_key(_card(), True) != base
+    monkeypatch.undo()
+    monkeypatch.setattr(n, "DETECT_VERSION", "2")
+    assert g.version_key(_card(), True) != base
+
+
+def test_prepare_watermark_saves_judgement(pipeline, monkeypatch):
+    monkeypatch.setattr(g, "fetch_public_card", lambda sb, cid: _card() if cid == 5 else None)
+    assert g.prepare_watermark(None, 5) is True
+    (cid, upd), = pipeline["saved"]
+    assert cid == 5 and upd["watermark_no_repost"]["detected"] is True
+    assert g.prepare_watermark(None, 99) is False   # 公開中でなければ何もしない
+    assert len(pipeline["saved"]) == 1
+
+
+def test_render_failure_is_remembered_briefly(pipeline, monkeypatch):
+    g._failures.clear()
+    calls = []
+
+    def boom(sb, card, blur):
+        calls.append(1)
+        raise OSError("画像取得失敗")
+    monkeypatch.setattr(g, "render_card", boom)
+    with pytest.raises(OSError):
+        g.get_or_render(None, _card(), True)
+    # 同じ key の再描画は60秒ほど抑える（描画せず RenderBusy）
+    with pytest.raises(replay_og_image.RenderBusy):
+        g.get_or_render(None, _card(), True)
+    assert len(calls) == 1
+    # 別の key（編集された・設定が違う）は抑えない
+    with pytest.raises(OSError):
+        g.get_or_render(None, _card(name="別名"), True)
+    assert len(calls) == 2
+    # 期限が切れれば再び試す
+    real_mono = g.time.monotonic
+    monkeypatch.setattr(g.time, "monotonic", lambda: real_mono() + g.FAILURE_MEMO_SEC + 1)
+    with pytest.raises(OSError):
+        g.get_or_render(None, _card(), True)
+    assert len(calls) == 3
+    g._failures.clear()
+
+
+def test_busy_is_not_remembered_as_failure(pipeline, monkeypatch):
+    g._failures.clear()
+    monkeypatch.setattr(replay_og_image, "consume_render_budget", lambda: False)
+    with pytest.raises(replay_og_image.RenderBusy):
+        g.get_or_render(None, _card(), True)
+    assert g._failures == {}

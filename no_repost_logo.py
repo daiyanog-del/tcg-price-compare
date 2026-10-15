@@ -30,6 +30,10 @@ SCALES = (0.88, 0.94, 1.0, 1.06, 1.12)
 # この値以上ならロゴありと判定する
 MATCH_THRESHOLD = 0.65   # TODO: calibrate from data
 
+# 検出の仕組み（テンプレート・特徴量・探索範囲・倍率）を変えたら上げる。保存済みの判定はこの版が違えば捨てて再計算する。
+# 閾値だけの変更なら上げなくてよい（保存済みの score を現行の閾値で判定し直す）
+DETECT_VERSION = "1"
+
 _template_feature = None
 
 
@@ -54,6 +58,11 @@ def _to_pil(image) -> Image.Image:
     return Image.open(io.BytesIO(image)).convert("RGB")
 
 
+def is_detected(score) -> bool:
+    """保存済みの score を現行の閾値で判定し直す。"""
+    return isinstance(score, (int, float)) and not isinstance(score, bool) and score >= MATCH_THRESHOLD
+
+
 def detect(image) -> tuple[bool, float]:
     """(ロゴありか, 照合スコア)。image は PIL.Image か画像バイト列。スコアは最大の正規化相関（-1〜1）。"""
     im = _to_pil(image)
@@ -73,12 +82,13 @@ def detect(image) -> tuple[bool, float]:
         res = cv2.matchTemplate(region, tpl, cv2.TM_CCOEFF_NORMED)
         res = np.nan_to_num(res, nan=-1.0, posinf=-1.0, neginf=-1.0)
         best = max(best, float(res.max()))
-    return best >= MATCH_THRESHOLD, round(best, 4)
+    return is_detected(best), round(best, 4)
 
 
 # ── イラスト部分のぼかし ──
 # イラスト枠（暗い縁を含む）の位置。カード画像の幅・高さに対する割合 (左, 上, 右, 下)。
 # 実画像（公開中の未発売カード71枚）に重ねて確かめた値。ロゴは枠の下端にかかるため、枠ごと含める。
+# TODO: calibrate from data（実画像は通常63・リンク7・ペンデュラム1枚のみ。ペンデュラム・リンクのロゴ入りは未確認）
 ART_BOX = {
     "normal": (0.105, 0.168, 0.905, 0.713),     # 通常・効果・儀式・融合・シンクロ・エクシーズ・魔法・罠
     "pendulum": (0.055, 0.168, 0.945, 0.655),   # ペンデュラム（横長の広い枠）

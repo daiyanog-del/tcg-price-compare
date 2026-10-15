@@ -370,12 +370,12 @@ def test_x_poster_import_failure_is_pre_send_failure(monkeypatch):
     assert _rows(sb)[0]["status"] == "failed"
 
 
-def test_og_check_failure_is_pre_send_failure(monkeypatch):
-    monkeypatch.setattr(xp, "_verify_og_image", lambda card_id: (False, "OG画像の取得に失敗"))
+def test_og_check_failure_is_pre_send_and_not_an_attempt(monkeypatch):
+    monkeypatch.setattr(xp, "_verify_og_image", lambda card_id, link_url=None: (False, "OG画像の取得に失敗"))
     sb = _sb()
     poster = Poster()
-    assert xp.post_card(sb, 1, post_fn=poster, today=TODAY) == "failed"
-    assert poster.calls == [] and _rows(sb)[0]["attempts"] == 1
+    assert xp.post_card(sb, 1, post_fn=poster, today=TODAY) == "og_unavailable"
+    assert poster.calls == [] and _rows(sb)[0]["attempts"] == 0
 
 
 # ══════════════════════════════════════════════
