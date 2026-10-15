@@ -183,3 +183,21 @@ def _fail(row: dict, model: str, reason: str, usage: dict | None = None) -> None
     logger.warning("効果テキストの読み直しに失敗（1回目の結果を残して不確かにする）: %s: %s", row.get("name"), reason)
     raw["effect_text_reread"] = {"error": reason, "model": model, "agreed": False, **({"usage": usage} if usage else {})}
     _mark_uncertain(raw, "effect_text")
+
+
+def admin_view(raw: dict) -> dict | None:
+    """管理画面に出す「1回目と読み直しの食い違い」の表示用データ。一致した・旧データ（読み直し前）は None。
+
+    texts は比較のため norm() をかけた文字列（空白・改行を除き全角半角をそろえた形）。
+    ops は [[tag, 1回目の部分, 読み直しの部分], ...]（tag: equal / replace / delete / insert）。
+    """
+    info = raw.get("effect_text_reread") if isinstance(raw, dict) else None
+    if not isinstance(info, dict) or info.get("agreed") is not False:
+        return None
+    if info.get("skipped"):
+        return {"status": "skipped", "reason": str(info["skipped"])}
+    if info.get("error"):
+        return {"status": "error", "reason": str(info["error"])[:300]}
+    first, text = norm(raw.get("effect_text_first_pass") or ""), norm(info.get("text") or "")
+    return {"status": "disagree", "first": first, "reread": text, "ops": diff_ops(first, text),
+            "unreadable": bool(info.get("unreadable")), "model": info.get("model")}

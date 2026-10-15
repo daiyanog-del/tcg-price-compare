@@ -236,3 +236,35 @@ def test_enrich_rows_runs_reread_for_every_row(monkeypatch):
     out = quality.enrich_rows([row], client=None, model="m", encoded_images=_images())
     assert out[0]["extraction_raw"]["effect_text_reread"]["agreed"] is False
     assert out[0]["effect_text"] == "別の文。"
+
+
+# ---- 管理画面の表示データ ----
+
+def test_admin_view_none_when_agreed_or_old_data():
+    assert rr.admin_view({}) is None
+    assert rr.admin_view({"effect_text_reread": {"agreed": True, "text": "a"}}) is None
+
+
+def test_admin_view_disagree_has_ops_over_normalized_text():
+    raw = {"effect_text_first_pass": "①：特殊召喚された場合",
+           "effect_text_reread": {"agreed": False, "text": "①：特殊召喚した場合", "unreadable": False, "model": "m"}}
+    view = rr.admin_view(raw)
+    assert view["status"] == "disagree"
+    assert view["first"] == "①:特殊召喚された場合" and view["reread"] == "①:特殊召喚した場合"
+    assert [op for op in view["ops"] if op[0] != "equal"] == [["replace", "され", "し"]]
+
+
+def test_admin_view_error_and_skipped():
+    assert rr.admin_view({"effect_text_reread": {"agreed": False, "error": "boom"}}) == {"status": "error", "reason": "boom"}
+    assert rr.admin_view({"effect_text_reread": {"agreed": False, "skipped": "pendulum_not_evaluated"}})["status"] == "skipped"
+
+
+def test_admin_reread_panel_js():
+    import shutil
+    import subprocess
+    if shutil.which("node") is None:
+        pytest.skip("node が見つかりません")
+    root = Path(__file__).resolve().parent.parent
+    result = subprocess.run(["node", str(root / "tests/js/admin_reread_panel_check.js")], cwd=root,
+                            capture_output=True, text=True, encoding="utf-8", timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
