@@ -520,3 +520,13 @@ def test_admin_page_has_public_replays_tab():
     app_module.app.config.update(TESTING=True)
     html = app_module.app.test_client().get("/admin").get_data(as_text=True)
     assert 'data-tab="public-replays"' in html and 'id="tab-public-replays"' in html
+
+
+def test_public_card_names_drop_ng_word_names_but_still_save(monkeypatch):
+    """禁止語を含むカード名は card_names から外す（保存自体は断らない）"""
+    _, client, sb = _load_app(monkeypatch)
+    images = {"a": "https://e/a.png", "b": "https://e/b.png", "c": "https://e/c.png"}
+    names = {"a": "灰流うらら", "b": "Ｆｕｃｋ カード", "c": "死 ね"}
+    resp = client.post("/api/solitaire/replay", json=_body(public=True, images=images, names=names))
+    assert resp.status_code == 200
+    assert sb.rows[0]["card_names"] == ["灰流うらら"]

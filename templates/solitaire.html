@@ -309,7 +309,7 @@
           </div>
           <div class="sol-fb-body pc-share-body">
             <input type="text" class="pc-share-title-input" data-replay-title maxlength="100" placeholder="タイトル" aria-label="タイトル">
-            <p class="pc-share-note">空欄なら日時が入ります</p>
+            <p class="pc-share-note">空欄なら「共有リプレイ」になります（公開するときはタイトルが必要です）</p>
             <!-- 範囲の表示: 状態機械は pc-recording.js（updatePcShareRecordingSection） -->
             <p class="pc-range-info" data-pc-range-info data-verb="共有">全部の手（0手）を共有します</p>
             <button type="button" class="replay-btn" data-pc-range-play hidden>この範囲を再生</button>
@@ -527,7 +527,8 @@
             <!-- タイトル（保存・共有で共通。[data-replay-title] は PC のシートの欄と入力を写し合う） -->
             <div class="sol-mobile-share-section">
               <input type="text" id="solMobileShareTitleInput" class="sol-mobile-share-input" data-replay-title maxlength="100" placeholder="タイトル" aria-label="タイトル">
-              <p class="sol-mobile-share-note">空欄なら日時が入ります</p>
+              <!-- 説明は用途で切り替える（mobile-ui.js openShareSheet）。保存=日時 / 共有=「共有リプレイ」 -->
+              <p class="sol-mobile-share-note" id="solMobileShareTitleNote">空欄なら「共有リプレイ」になります（公開するときはタイトルが必要です）</p>
             </div>
 
             <!-- 範囲（旧「録画」。保存・共有で共通） -->

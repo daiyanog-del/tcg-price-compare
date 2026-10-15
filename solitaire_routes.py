@@ -283,7 +283,8 @@ def _hash_delete_token(token: str) -> str:
 
 def _build_card_names(names, images):
     """names の値から公開用のカード名一覧を作る。トークン（画像が data:）と重複を除き、
-    1件は PUBLIC_CARD_NAME_MAX_LEN 文字までで切り、PUBLIC_CARD_NAMES_MAX 件まで。"""
+    1件は PUBLIC_CARD_NAME_MAX_LEN 文字までで切り、PUBLIC_CARD_NAMES_MAX 件まで。
+    禁止語を含む名前は外す。"""
     out, seen = [], set()
     for card_id, name in names.items():
         if not isinstance(name, str):
@@ -293,6 +294,9 @@ def _build_card_names(names, images):
             continue
         name = name.strip()[:PUBLIC_CARD_NAME_MAX_LEN]
         if not name or name in seen:
+            continue
+        # カード名も利用者が送る値なので、タイトルと同じ禁止語チェックを掛ける。当たった名前は外す（保存は断らない）
+        if replay_moderation.contains_ng_word(name):
             continue
         seen.add(name)
         out.append(name)

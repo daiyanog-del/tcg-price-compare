@@ -1217,6 +1217,13 @@ function openShareSheet(mode) {
   document.querySelectorAll('#solMobileShareSheet [data-share-mode]').forEach((el) => {
     el.hidden = el.dataset.shareMode !== _shareSheetMode;
   });
+  // タイトル欄の説明は実際の動きに合わせる（保存は日時が既定、共有は「共有リプレイ」。公開はタイトル必須）
+  const titleNote = document.getElementById('solMobileShareTitleNote');
+  if (titleNote) {
+    titleNote.textContent = _shareSheetMode === 'save'
+      ? '空欄なら日時が入ります'
+      : '空欄なら「共有リプレイ」になります（公開するときはタイトルが必要です）';
+  }
   // 前回の結果・エラー表示を残さない
   setHidden('solMobileShareResult', true);
   setHidden('solMobileShareError', true);
