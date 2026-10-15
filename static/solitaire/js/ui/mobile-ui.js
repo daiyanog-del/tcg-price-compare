@@ -169,8 +169,12 @@ function initBarButtons() {
     ?.addEventListener('click', () => { document.getElementById('replayUndo')?.click(); });
 
   // 再生: ⋯メニュー「リプレイを再生」と同じ再生モードに入る（2026-10-16 案A）
+  // 押したらすぐ再生も始める（再生モードに入るだけだと、もう一度押す必要があったため）
   document.getElementById('solMobilePlayBtn')
-    ?.addEventListener('click', () => { enterPlaybackMode('menu'); });
+    ?.addEventListener('click', () => {
+      enterPlaybackMode('menu');
+      document.getElementById('solMobilePlayToggleBtn')?.click();
+    });
 
   // タスクA-2: 録画開始/停止（トグル）
   document.getElementById('solMobileRecordBtn')
@@ -1096,7 +1100,8 @@ function _updateRecordBtn() {
     label.textContent = `■ ${n}手`;
   } else if (range) {
     // 手数だけを出す（「範囲 3〜12」は375px幅の下部バーではみ出すため。何手目から何手目かはシートの中で伝える）
-    label.textContent = `範囲 ${range.end - range.start + 1}手`;
+    // 下部バーが6つ並ぶので短く（2026-10-16）。範囲であることは accent の面で分かる
+    label.textContent = `✂ ${range.end - range.start + 1}手`;
   } else {
     label.textContent = '✂ 範囲';
   }

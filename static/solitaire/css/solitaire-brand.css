@@ -1155,6 +1155,8 @@ a.replay-btn { display: inline-block; text-decoration: none; }
   font-weight: 700;
 }
 .replay-btn.replay-play-btn:not(.play-active) { background: var(--border); }
+/* ホバーは面を少し明るく（--border に文字色を少し混ぜる。新しい色は作らない） */
+.replay-btn.replay-play-btn:not(.play-active):not(:disabled):hover { background: color-mix(in srgb, var(--border) 82%, var(--main-color)); }
 .replay-play-btn::before { content: '▶'; color: var(--accent); font-size: 0.78em; }
 .replay-play-btn.play-active::before { content: '■'; color: inherit; }
 
@@ -1960,7 +1962,11 @@ a.replay-btn { display: inline-block; text-decoration: none; }
 }
 .sol-replay-start-card p { margin: 0; color: inherit; }
 .sol-replay-start-label { font-size: 0.78rem; color: #a8b4c9 !important; }
-.sol-replay-start-title { margin-top: 6px !important; font-size: 1.1rem; font-weight: 700; color: var(--main-color) !important; overflow-wrap: anywhere; }
+.sol-replay-start-title {
+  margin-top: 6px !important; font-size: 1.1rem; font-weight: 700; color: var(--main-color) !important; overflow-wrap: anywhere;
+  /* 長いタイトルで「再生する」が画面の外に出ないよう3行まで */
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
 .sol-replay-start-meta { margin-top: 2px !important; font-size: 0.82rem; color: #a8b4c9 !important; }
 .sol-replay-start-play {
   display: flex; align-items: center; justify-content: center; gap: 8px;
