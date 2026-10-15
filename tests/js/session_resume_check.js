@@ -23,6 +23,9 @@ const flyBetweenRects=(c,f,t,cb)=>{globalThis.__rebuild.push('flyBetweenRects');
 const prefersReducedMotion=()=>true;
 const createProxyCardElement=${spy('createProxyCardElement')};
 const isMobilePortrait=()=>globalThis.__mobile===true;
+const renderCommentView=()=>{};
+const clampCommentText=(t)=>t;
+const cursorAfterRemove=(c,i)=>(i<=c?c-1:c);
 `;
   let src = fs.readFileSync(path.join(js, 'services/replay-service.js'), 'utf8');
   const before = src;
@@ -200,8 +203,9 @@ const isMobilePortrait=()=>globalThis.__mobile===true;
   assert.equal(svc.isReplayAnimating(), false);
   globalThis.__mobile = false;
   const svcSrc = fs.readFileSync(path.join(js, 'services/replay-service.js'), 'utf8');
-  assert(/_replayTo\(_cursor, \{ toast: false \}\)/.test(svcSrc), 'rebuildAtCursor がトースト抑制していない');
-  assert(/if \(toast\) _maybeShowCommentToast/.test(svcSrc));
+  // コメントのトーストは廃止（吹き出し・盤面メモの表示に置き換え。_updateUI が記録の位置から描く）
+  assert(!/_maybeShowCommentToast|replayCommentToast/.test(svcSrc), 'コメントのトーストが残っている');
+  assert(/renderCommentView\(_setupLogs, _logs, cur\)/.test(svcSrc), '_updateUI がコメント表示を描いていない');
 
   // restoreCardsToSlot が style 適用前に visibility を除く／mobile-ui の末尾送りトースト／0手の確認文
   assert(/setAttribute\('style', stripVisibility\(cardData\.style\)\)/.test(slSrc));

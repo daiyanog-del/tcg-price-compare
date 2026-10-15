@@ -46,7 +46,11 @@ import {
   getCursor,
   seekTo,
   truncateAfterCursor,
+  subscribeReplay,
+  addComment,
 } from '../services/replay-service.js';
+import { shiftRangeAfterRemove, COMMENT_MAX_LEN } from '../services/comment-model.js';
+import { setCardCommentOpener } from './comment-ui.js';
 import { savedReplaysGet } from '../services/saved-replays.js';
 import { sharedReplaysGet } from '../services/shared-replays.js';
 
@@ -92,6 +96,7 @@ function resetMobileUI() {
   closeCardDetailOverlay();
   closeDeckSheet();   // フェーズ2: デッキ一覧シート
   closeShareSheet();  // フェーズ3: 共有シート
+  closeCommentSheet(); // 整理④: コメント入力シート
   // タスクB: portrait を外れる際は再生モードも強制終了。第6次検収-1: 回転時は
   // origin（'share'等）に関係なく共有シートへ戻らせない（この直後に setHidden で強制的に閉じる）。
   exitPlaybackMode({ returnToOrigin: false });
@@ -108,6 +113,7 @@ function resetMobileUI() {
   setHidden('solMobileUndoBtn', true);
   setHidden('solMobileDeckSheet', true);
   setHidden('solMobileShareSheet', true);
+  setHidden('solMobileCommentSheet', true);
   setHidden('solMobileEmptyCta', true);
   setDeckBtnLoading(false); // 読込中表示のまま portrait を外れた場合の保険
 }
@@ -214,6 +220,7 @@ const MENU_ACTIONS = {
   deckinput:() => { openSidebarSheet(); },
   playback: () => { enterPlaybackMode('menu'); }, // タスクB-1: 旧「リプレイ操作」オーバーレイを廃止し再生モードへ
   share:    () => { openShareSheet('share'); }, // ⋯メニューの「共有」
+  boardmemo:() => { openCommentSheet({ kind: 'board' }); }, // 整理④: 盤面にメモ
   help:     () => { openHelpSheet(); },
   feedback: () => { document.getElementById('feedbackOpenBtn')?.click(); },
 };
@@ -486,6 +493,7 @@ const ACTION_HANDLERS = {
   grave:   (wrapper) => { moveSelectionOrWarn(wrapper, getSideSlot(true), '墓地'); },
   banish:  (wrapper) => { moveSelectionOrWarn(wrapper, getSideSlot(false), '除外'); },
   return:  (wrapper) => { returnCardToDeckMenu(wrapper); clearMobileSelection(); },
+  bubble:  (wrapper) => { openCardCommentSheet(wrapper); clearMobileSelection(); }, // 整理④: カードに吹き出し
   activate:(wrapper) => {
     playActivateEffect(wrapper);
     const cardEl = wrapper.querySelector('.tier-item');
@@ -500,7 +508,7 @@ const ACTION_HANDLERS = {
  * A-3: ヘッダ行（カード名＋詳細ボタン）＋操作行。
  * 選択カードがプール内（#poolRow/#poolRow2 の子）の場合は、操作行のうち意味を持つ
  * 「墓地へ」「除外へ」だけを表示し、フィールド専用の「守備表示」「セット」「効果発動」と
- * 既にデッキ内のため無意味な「デッキに戻す」は隠す（context-menu.js の isCardInPool を共有。
+ * 既にデッキ内のため無意味な「デッキに戻す」、デッキ内には付けない「吹き出し」は隠す（context-menu.js の isCardInPool を共有。
  * 判定を二重に持たない）。
  * 「手札に戻す」「場に出す」はここでは追加しない: プール内カードは drag-drop.js の
  * selectMobileCard()（タップ選択）→ _onDocTouchEnd（移動先スロットをタップして確定）という
@@ -518,7 +526,7 @@ function updateActionSheetForSelection(wrapper) {
   if (opsEl) {
     opsEl.hidden = false;
     const inPool = isCardInPool(wrapper);
-    ['defense', 'set', 'return', 'activate'].forEach(action => {
+    ['defense', 'set', 'return', 'activate', 'bubble'].forEach(action => {
       const btn = opsEl.querySelector(`[data-action="${action}"]`);
       if (btn) btn.hidden = inPool;
     });
@@ -1080,6 +1088,22 @@ function _updateRecordBtn() {
  * 監視し、録画中バッジの N手・クランプを追従させる。
  */
 function initRecording() {
+  // コメントを付けた（手数が1増える）ときは、停止済みの範囲の終わりを手数へ追従させる（PC版 pc-recording.js と同じ）
+  subscribeReplay('commentAdded', () => {
+    if (_hasStoppedRecording()) _recording.endIdx = getLogLength();
+    _updateRecordBtn();
+    _updateShareRecordingSection();
+    _updateShareCurrentInfo();
+  });
+  // コメントを取り除いた（PC版で削除した）ときは、範囲の開始・終了をずらす。スマホには削除の操作は無いが、
+  // 状態は PC 版と同じく記録に合わせて保つ
+  subscribeReplay('removed', (removedIdx) => {
+    _recording = shiftRangeAfterRemove(_recording, removedIdx);
+    _updateRecordBtn();
+    _updateShareRecordingSection();
+    _updateShareCurrentInfo();
+  });
+
   const counterEl = document.getElementById('replayCounter');
   if (counterEl) {
     new MutationObserver(() => {
@@ -1089,6 +1113,76 @@ function initRecording() {
   }
 }
 
+// ══════════════════ コメント（カードの吹き出し・盤面のメモ。整理④） ══════════════════
+// 入力は下から出る小さなシート（#solMobileCommentSheet）。記録への追加は replay-service の addComment
+// （自動再生の停止・末尾への移動・本文の切り詰めを含む）に任せ、範囲の終わりの追従は
+// 'commentAdded' の購読（initRecording）が行う。コメント一覧・削除はスマホには作らない
+// （消したいときは「1手戻す」）。
+
+/** @type {{kind:'card', cardId:string, name:string}|{kind:'board'}|null} */
+let _commentTarget = null;
+
+function openCommentSheet(target) {
+  _commentTarget = target;
+  const isCard = target.kind === 'card';
+  const titleEl = document.getElementById('solMobileCommentSheetTitle');
+  if (titleEl) titleEl.textContent = isCard ? '吹き出しを付ける' : '盤面にメモ';
+  const targetEl = document.getElementById('solMobileCommentTarget');
+  if (targetEl) {
+    targetEl.textContent = isCard ? `対象: ${target.name || '名称不明'}` : '盤面の上端に表示されます。次のメモが付くまで残ります';
+  }
+  const input = document.getElementById('solMobileCommentInput');
+  if (input) input.value = '';
+  setHidden('solMobileCommentSheet', false);
+  input?.focus(); // タップの中で同期的に呼ぶ（iOS はこの場でしかキーボードを出せない）
+}
+
+function closeCommentSheet() {
+  _commentTarget = null;
+  setHidden('solMobileCommentSheet', true);
+}
+
+/** カードを選んで「吹き出し」を押したとき。デッキ内のカードには付けない */
+function openCardCommentSheet(wrapper) {
+  if (!wrapper || isCardInPool(wrapper)) return;
+  const cardEl = wrapper.querySelector('.tier-item');
+  if (!cardEl?.id) return;
+  openCommentSheet({ kind: 'card', cardId: cardEl.id, name: getCardNameAndSrc(wrapper).name });
+}
+
+function _submitMobileComment() {
+  const input = document.getElementById('solMobileCommentInput');
+  const target = _commentTarget;
+  if (!input || !target) return;
+  const ok = target.kind === 'card'
+    ? addComment({ kind: 'card', cardId: target.cardId, text: input.value })
+    : addComment({ kind: 'board', text: input.value });
+  if (!ok) return; // 空欄は何もしない（シートは開いたまま）
+  closeCommentSheet();
+  showToast(target.kind === 'card' ? '吹き出しを付けました' : 'メモを付けました');
+}
+
+function initCommentSheet() {
+  const input = document.getElementById('solMobileCommentInput');
+  if (input) input.maxLength = COMMENT_MAX_LEN;
+  document.querySelectorAll('[data-sol-comment-sheet-close]').forEach((el) => {
+    el.addEventListener('click', closeCommentSheet);
+  });
+  document.getElementById('solMobileCommentAddBtn')?.addEventListener('click', _submitMobileComment);
+  input?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { // 日本語入力の変換確定の Enter では付けない
+      e.preventDefault();
+      _submitMobileComment();
+    }
+  });
+  // 縦向きスマホでは、右クリック/長押しメニューの「吹き出しを付ける」もこのシートで入力させる
+  setCardCommentOpener((wrapper) => {
+    if (!isMobilePortrait()) return false;
+    openCardCommentSheet(wrapper);
+    return true;
+  });
+}
+
 // ══════════════════ 共有シート（フェーズ3・設計書 §3.4／H-1で2段階構成に変更／
 //                     2026-09-04 タスクA-3: ①を「共有する範囲」スライダーから録画状態表示へ） ══════════════════
 // (1) 「共有リンクを作成」→ replay-ui.js の generateShareURL() を直接呼ぶ（.click() 配線を
@@ -1096,7 +1190,7 @@ function initRecording() {
 //     clipboard/window.open が沈黙失敗するため）。結果は readonly input に表示し、
 //     「共有…」（navigator.share）／「コピー」／「Xに投稿」（本物の<a>）をタップイベント
 //     ハンドラの中で同期的に扱う。
-// (2) 「今の手にコメント」は従来どおり既存ボタンを .click() で発火させるだけ（ロジックを複製しない）。
+// (2) コメントは共有シートから外した（整理④）。カードの吹き出し・盤面メモは下の「コメント」節のシートで付ける。
 //     「ファイルに書き出す」は範囲を渡すため replay-ui.js の exportReplayFile を直接呼ぶ。
 // タイトル入力欄: [data-replay-title]（PC・スマホのシートに1つずつ。入力は互いに写される）。
 //     replay-ui.js が、共有では「共有リプレイ」、保存・書き出しでは日時を既定値にする。
@@ -1251,25 +1345,6 @@ function initShareSheet() {
 
   sheet.querySelectorAll('[data-sol-share-sheet-close]').forEach(el => {
     el.addEventListener('click', closeShareSheet);
-  });
-
-  // 今の手にコメントを付ける: 既存の #replayCommentInput に値を入れて #replayAddComment を叩く
-  document.getElementById('solMobileShareCommentAddBtn')?.addEventListener('click', () => {
-    const input = document.getElementById('solMobileShareCommentInput');
-    const target = document.getElementById('replayCommentInput');
-    if (!input || !target) return;
-    // H-2: logEvent は「カーソルが末尾でない状態」で呼ばれると未来ログを切り捨てる。
-    // 巻き戻し中にコメントを追加すると記録が壊れるため、先に末尾までseekToしてから追加する。
-    const total = getLogLength();
-    if (getCursor() + 1 < total) seekTo(total - 1);
-    target.value = input.value;
-    document.getElementById('replayAddComment')?.click();
-    input.value = '';
-    // H-2: 停止済み録画があれば endIdx をコメント追加後の手数へ追従させる（範囲が古いままにならないよう）
-    if (_hasStoppedRecording()) _recording.endIdx = getLogLength();
-    // High-2: コメント追加で手数が1増えるため、①録画セクション・現在の記録の表示を追従させる
-    _updateShareRecordingSection();
-    _updateShareCurrentInfo();
   });
 
   // M-3: 録画中に共有シートを開いた場合の「ここで停止して範囲を確定」（停止処理＝表示更新）
@@ -1731,6 +1806,7 @@ export function initMobileUI() {
   initActionSheet();
   initDeckSheet();
   initShareSheet();
+  initCommentSheet();
   initEmptyCta();
   initClearEverything();
   initLandscapeHint(); // A-3: portrait 判定とは独立（横向きスマホでのみ表示するため）

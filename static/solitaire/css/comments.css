@@ -1,0 +1,227 @@
+/**
+ * comments.css — コメント（カードの吹き出し・盤面メモ）の見た目（2026-10-15 整理④）
+ * 見本: mocks/sim-reorg-20261015.html の「3. コメント」。
+ * 配色は site-theme.css の変数（--main-color / --bg-card / --bg-color / --accent / --gold / --border）に合わせる。
+ * 黄色（--gold）は主な操作の印なので、盤面メモの左線以外では使わない。赤は使わない。
+ */
+
+/* ── 吹き出し（カードの右上に重ねる。.tier-item-wrapper の中に置かれる） ──
+   カードの内側に収めるので、wrapper の overflow:hidden や各ゾーンの切り取りに隠れない。
+   文字の大きさはカード幅（wrapper は container-type:inline-size）に比例させる。 */
+.tier-item-wrapper > .sol-bubble {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 12;              /* 画像(1)・セットの裏面(3)・カウンター(10)より前 */
+  box-sizing: border-box;
+  max-width: calc(100% - 8px);
+  padding: 2px 6px;
+  background: var(--main-color, #eff3fb);
+  color: #101626;
+  border-radius: 8px;
+  font-family: var(--font);
+  font-size: clamp(8px, 12cqw, 11px);
+  font-weight: 500;
+  line-height: 1.3;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  pointer-events: none;     /* カードの移動・右クリック・ダブルクリックを妨げない（全文はカードの title） */
+}
+/* カードを指す小さな三角 */
+.tier-item-wrapper > .sol-bubble::after {
+  content: "";
+  position: absolute;
+  right: 10px;
+  bottom: -5px;
+  border: 5px solid transparent;
+  border-top-color: var(--main-color, #eff3fb);
+  border-bottom: 0;
+}
+.sol-bubble-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;    /* 最大2行。あふれた分は … で省略 */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+/* ── 盤面メモの帯（相手の想定妨害の直下・盤面グリッドの上） ── */
+.sol-board-memo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 0;
+  padding: 4px 8px;
+  background: var(--bg-card);
+  border-left: 3px solid var(--gold);
+  border-radius: 4px;
+  color: var(--main-color);
+  font-family: var(--font);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+.sol-board-memo[hidden] { display: none; }
+.sol-board-memo-icon { flex: 0 0 auto; }
+.sol-board-memo-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;  /* 全文は帯の title */
+}
+
+/* ── カード選択の案内帯 ──
+   高さ0の足場に重ねて出し入れしても盤面の大きさが変わらないようにする。クリックは下のカードへ通す。 */
+.sol-comment-guide-anchor {
+  position: relative;
+  height: 0;
+  z-index: 30;
+  pointer-events: none;
+}
+.sol-comment-guide {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 4px;
+  padding: 4px 8px;
+  background: #223052;      /* 暗色の面に accent の線と文字（accent 15% を背景に乗せた色） */
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: var(--accent);
+  font-family: var(--font);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+.sol-comment-guide[hidden] { display: none; }
+/* 選択中はカードを押せる印にする */
+body.sol-comment-picking .tier-item-wrapper,
+body.sol-comment-picking .tier-item-wrapper .tier-item {
+  cursor: crosshair;
+}
+
+/* ── 右パネル「コメント」区画 ── */
+.sol-comment-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+}
+.sol-comment-btn {
+  padding: 5px 9px;
+  background: #202c42;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--main-color);
+  font-family: var(--font);
+  font-size: 0.75rem;
+  line-height: 1.3;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sol-comment-btn:hover { background: #2b3549; }
+/* 入力中・選択中の状態は accent（黄は主な操作の印だけに使う） */
+.sol-comment-btn.is-active {
+  background: var(--accent);
+  color: #101626;
+}
+.sol-comment-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+.sol-comment-form[hidden] { display: none; }
+.sol-comment-input {
+  flex: 1 1 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 5px 7px;
+  background: var(--bg-color);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--main-color);
+  font-family: var(--font);
+  font-size: 0.78rem;
+}
+.sol-comment-input:focus { outline: none; border-color: var(--accent); }
+.sol-comment-submit { padding: 3px 10px; }
+
+.sol-comment-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.sol-comment-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 3px 4px 3px 7px;
+  background: var(--bg-card);
+  border-radius: 6px;
+  color: var(--main-color);
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+.sol-comment-row-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.sol-comment-del {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: #a8b4c9;
+  font-size: 0.6rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.sol-comment-del:hover { color: var(--main-color); border-color: var(--accent); }
+.sol-comment-empty {
+  padding: 2px 2px;
+  color: #a8b4c9;
+  font-size: 0.7rem;
+}
+
+/* ── カードの近くに出す入力欄（body 直下の fixed） ── */
+.sol-comment-popup {
+  position: fixed;
+  z-index: 9500;
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  max-width: calc(100vw - 12px);
+  padding: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+}
+.sol-comment-popup .sol-comment-input {
+  flex: 1 1 auto;
+  width: 190px;
+}
+
+/* ── スマホの入力シート ── */
+.sol-mobile-comment-panel .sol-mobile-share-note { margin: 0 0 8px; }
+
+/* components.css の `p, span, li { color:#333 }` が中の span に直接効き、親の color より優先されて暗いグレーになるため、
+   コメントの span は親の色を継承させる（吹き出しは暗色の文字、メモ・一覧は明色の文字） */
+.sol-bubble-text,
+.sol-board-memo-icon,
+.sol-board-memo-text,
+.sol-comment-row-text {
+  color: inherit;
+}

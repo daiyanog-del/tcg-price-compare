@@ -15,3 +15,4 @@
 @import './proxy-card.css';
 @import './responsive.css'; /* 最後にインポートして上書きを確実に適用 */
 @import './mobile.css'; /* スマホ縦向き専用UI（下部バー等）。responsive.css より後段で上書きを確実にする */
+@import './comments.css'; /* コメント（カードの吹き出し・盤面メモ）。配色は site-theme.css の変数に合わせる */

@@ -142,8 +142,6 @@
   #replayFwd   { order: 6; flex: 1 1 0; }
 
   /* 編集系コントロールはモバイルで非表示（視聴に特化） */
-  #replayCommentInput,
-  #replayAddComment,
   #replayExport,
   #replayShare,
   #replayShareX,
@@ -156,12 +154,6 @@
      ここでは囲みを無いものとして扱い、上の order 指定を従来どおり効かせる */
   #replayBarContainer .replay-group {
     display: contents;
-  }
-
-  /* コメントトーストをモバイルで読みやすく */
-  #replayCommentToast {
-    max-width: 92vw;
-    font-size: 1.05rem;
   }
 
   /* ════════════════════════════════════════════════════
@@ -259,11 +251,8 @@
     /* フェーズ3で追加・タスクB-1で経路のみ廃止: 上の767pxブロックにある編集系コントロールの
        display:none を打ち消す指定。#replayBarContainer 自体は mobile.css で縦向きスマホでは
        常時 display:none のため、この打ち消し自体は現在どの経路でも画面に効果を及ぼさない
-       （旧オーバーレイ .sol-mobile-fullbar-open は廃止済み）。#replayCommentInput 等は
-       共有シート側のボタンから .click() で発火させる設計のため、display 状態は無関係に動作する。
-       実害が無いため据え置き（削除するとしても本ブロックのみで完結する）。 */
-    #replayCommentInput,
-    #replayAddComment,
+       （旧オーバーレイ .sol-mobile-fullbar-open は廃止済み）。実害が無いため据え置き
+       （削除するとしても本ブロックのみで完結する）。 */
     #replayExport,
     #replayShare,
     #replayShareX {
@@ -318,8 +307,6 @@
   }
 
   /* 編集系は非表示 */
-  #replayCommentInput,
-  #replayAddComment,
   #replayExport,
   #replayShare,
   #replayShareX,

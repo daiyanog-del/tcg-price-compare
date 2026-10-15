@@ -10,7 +10,8 @@
  * 範囲終了での自動停止は実装しない）。
  */
 
-import { getCursor, getLogLength, seekTo, isPlaying, togglePlay } from '../services/replay-service.js';
+import { getCursor, getLogLength, seekTo, isPlaying, togglePlay, subscribeReplay } from '../services/replay-service.js';
+import { shiftRangeAfterRemove } from '../services/comment-model.js';
 
 /** 録画の状態: {recording, startIdx, endIdx}（startIdx/endIdx は1-indexed手数） */
 let _pcRecording = { recording: false, startIdx: null, endIdx: null };
@@ -46,16 +47,27 @@ export function _getPcRecordingRange() {
 
 /**
  * 中2対応: 停止済み録画がある場合、endIdx を現在の手数へ追従させる。
- * PC版はリプレイバーの #replayCommentInput/#replayAddComment が録画停止後も常時使えるため、
- * コメント追加で手数が増えても endIdx が古いままだと共有範囲にコメントが含まれない
- * （モバイル版 mobile-ui.js の `if (_hasStoppedRecording()) _recording.endIdx = getLogLength();` と同じ発想）。
- * replay-ui.js の #replayAddComment クリック処理の後に呼ぶ。
+ * コメントは範囲が決まった後も付けられるため、追加で手数が増えても endIdx が古いままだと
+ * 共有範囲にコメントが含まれない（モバイル版 mobile-ui.js も同じ追従をする）。
+ * replay-service の addComment が 'commentAdded' を通知したときに initPcRecording の購読から呼ばれる。
  */
 export function _syncPcRecordingEndIdxAfterComment() {
   if (_hasStoppedPcRecording()) {
     _pcRecording.endIdx = getLogLength();
     updatePcShareRecordingSection();
   }
+}
+
+/**
+ * 記録から手が1つ取り除かれた（コメントの削除）ときに、範囲の開始・終了をずらす。
+ * 範囲より前を消したら開始も終わりも1つ前へ、範囲の中を消したら終わりだけ1つ前へ
+ * （ずらし方の本体は comment-model.js の shiftRangeAfterRemove）。
+ * @param {number} removedIdx 取り除かれた手の位置（0始まり）
+ */
+function _shiftPcRangeAfterRemove(removedIdx) {
+  _pcRecording = shiftRangeAfterRemove(_pcRecording, removedIdx);
+  _updatePcRecordBtn();
+  updatePcShareRecordingSection();
 }
 
 /**
@@ -222,6 +234,9 @@ function _playPcRecordingRange() {
 export function initPcRecording(deps = {}) {
   _onRangeDecided = deps.onRangeDecided;
   _closeShareSheet = deps.closeShareSheet;
+
+  subscribeReplay('commentAdded', _syncPcRecordingEndIdxAfterComment);
+  subscribeReplay('removed', _shiftPcRangeAfterRemove);
 
   document.getElementById('pcRecordBtn')
     ?.addEventListener('click', togglePcRecording);

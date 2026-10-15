@@ -26,7 +26,9 @@
  *                    index（そのカード上のカウンターの並び順・省略時 0）で特定する
  *   removeCard     … トークンを盤面から消す（zoneId=消す前にいたゾーン）。再生は要素を消し、
  *                    巻き戻しでは画像・名前の辞書から作り直して元の位置へ戻す
- *   comment        … コメント挿入
+ *   comment        … コメント。kind:'card'（cardId のカードの吹き出し）／kind:'board'（盤面メモ）。
+ *                    kind が無い古い記録は盤面メモ。盤面には反映せず、表示は comment-view.js が
+ *                    カーソル位置までの記録から計算する（カードが動くまで・次のメモが来るまで）
  *   activateEffect … 効果発動（cardId のカードで発動演出を再生）
  *
  * ゾーンID（Fugartaの要素に対応）:
@@ -47,6 +49,8 @@ import { restackCustomSlot } from '../components/slot-stack.js';
 import { playActivateEffect, flipMoveClone, playSetFlip, flyBetweenRects, prefersReducedMotion } from '../components/card-effects.js';
 import { createProxyCardElement } from '../components/proxy-card.js';
 import { isMobilePortrait } from '../utils/viewport.js';
+import { renderCommentView } from './comment-view.js';
+import { clampCommentText, cursorAfterRemove } from './comment-model.js';
 
 const _API_CARD_IMAGES = '/api/card-images';
 
@@ -64,6 +68,8 @@ let _cursor = -1;       // 現在の再生位置（-1 = ログ先頭の盤面外
 let _playing = false;
 let _playTimer = null;
 const DEFAULT_INTERVAL_MS = 900;
+// 自動再生でコメントの手に来たとき、通常の何倍止まるか（吹き出し・メモを読む時間）
+const COMMENT_PAUSE_FACTOR = 2.5;
 // 再生速度倍率（有効値: 0.5 / 1 / 2）。実際の再生間隔は DEFAULT_INTERVAL_MS / _speedMultiplier
 let _speedMultiplier = 1;
 
@@ -105,6 +111,26 @@ function _trackAnim(cb) {
 /** 再生の演出が進行中か（完了コールバックで盤面を確定する演出が未完了か） */
 export function isReplayAnimating() {
   return _pendingReplayAnims > 0;
+}
+
+// ── 変更通知（UI 側が購読する。DOM イベントにしないのは node の単体テストで使えるようにするため） ──
+// changed: 記録・カーソル・再生状態が変わった（_updateUI のたび）／commentAdded: addComment で追記した直後／
+// removed: removeEventAt で手を取り除いた直後（引数 = 取り除いた位置）
+const _listeners = { changed: [], commentAdded: [], removed: [] };
+
+/**
+ * リプレイの変更通知を購読する。
+ * @param {'changed'|'commentAdded'|'removed'} type
+ * @param {Function} fn
+ */
+export function subscribeReplay(type, fn) {
+  if (_listeners[type] && typeof fn === 'function') _listeners[type].push(fn);
+}
+
+function _emit(type, ...args) {
+  for (const fn of _listeners[type]) {
+    try { fn(...args); } catch (e) { console.warn(`[replay] ${type} の購読処理でエラー:`, e); }
+  }
 }
 
 // ── 外部API ──────────────────────────────────────────────
@@ -186,6 +212,54 @@ export function logEvent(event) {
 }
 
 /**
+ * コメント（吹き出し・盤面メモ）を、今の位置で手を打つのと同じ扱いで記録に追記する。
+ *   - 自動再生中なら止める
+ *   - カーソルが末尾でなければ末尾まで進めてから追加する（logEvent の「未来ログの切り捨て」を起こさない）
+ *   - 本文は上限（COMMENT_MAX_LEN）で切る。空なら何もしない
+ * 範囲（旧録画）の終わりの追従は、呼び出し元ではなく購読側（pc-recording.js・mobile-ui.js）が
+ * 'commentAdded' を受けて行う。
+ * @param {{kind:'card'|'board', cardId?:string, text:string}} comment
+ * @returns {boolean} 追加できたか
+ */
+export function addComment({ kind, cardId, text }) {
+  const t = clampCommentText(text);
+  if (!t) return false;
+  if (kind === 'card' && !cardId) return false;
+  if (_playing) _stopPlay();
+  if (_cursor < _logs.length - 1) seekTo(_logs.length - 1);
+  logEvent(kind === 'card'
+    ? { actionType: 'comment', kind: 'card', cardId, text: t }
+    : { actionType: 'comment', kind: 'board', text: t });
+  _emit('commentAdded');
+  return true;
+}
+
+/**
+ * 通常ログの index 番目の手を取り除く（コメントの削除用）。
+ * カーソルは、取り除く手がカーソル以前なら1つ前へずらす。コメントは盤面に影響しないので盤面はそのまま、
+ * コメント以外の手を取り除いた場合は盤面を最初から作り直す。seq は 0 から振り直す。
+ * 範囲（PC の _pcRecording・スマホの _recording）は 'removed' の購読側がずらす。
+ * @param {number} index
+ * @returns {boolean} 取り除けたか
+ */
+export function removeEventAt(index) {
+  if (!Number.isInteger(index) || index < 0 || index >= _logs.length) return false;
+  if (_playing) _stopPlay();
+  const removed = _logs[index];
+  const newCursor = cursorAfterRemove(_cursor, index);
+  _logs = _logs.filter((_, i) => i !== index).map((ev, i) => ({ ...ev, seq: i }));
+  if (removed?.actionType === 'comment') {
+    _cursor = newCursor;
+    _emit('removed', index);
+    _updateUI();
+  } else {
+    _emit('removed', index);
+    _replayTo(newCursor);
+  }
+  return true;
+}
+
+/**
  * 現在位置（_cursor）より先のログを切り捨てる（cursor=-1 なら全ログを空にする）。
  * 「録画をやり直す」で録画開始時点へ巻き戻した直後に呼び、未来ログの切り捨てを確定させる。
  * logEvent も同じ切り捨てを行うが、録画やり直しでは操作の前に切り捨てを確定させたいので
@@ -238,7 +312,6 @@ export function stepForward() {
   _applyEvent(_logs[next]);
   _animateForward = false;
   _cursor = next;
-  _maybeShowCommentToast(_cursor);
   _updateUI();
 }
 
@@ -266,7 +339,6 @@ export function seekTo(n) {
     // 後退：最初から再適用
     _replayTo(target);
   }
-  _maybeShowCommentToast(_cursor);
   _updateUI();
 }
 
@@ -507,7 +579,7 @@ export function restoreReplaySession(snap) {
  */
 export function rebuildAtCursor() {
   _stopPlay();
-  _replayTo(_cursor, { toast: false }); // 復元直後にコメントトーストを出さない
+  _replayTo(_cursor);
 }
 
 /**
@@ -541,14 +613,7 @@ export function clearReplayLog() {
       _exCardIds.delete(cardId);
     }
   }
-  // 表示中のコメントトーストが残らないよう即座に隠す
-  const toast = document.getElementById('replayCommentToast');
-  if (toast) {
-    clearTimeout(toast._hideTimer);
-    toast.classList.remove('rct-show');
-    toast.classList.add('rct-hide');
-  }
-  _updateUI();
+  _updateUI(); // 吹き出し・盤面メモも記録が空になった表示へ作り直される
 }
 
 /**
@@ -587,7 +652,7 @@ function _safeCloneEvent(event) {
  * 手番Nまでを最初から再適用（後退・seekTo で使う）
  * @param {number} target  -1 = 初期盤面
  */
-function _replayTo(target, { toast = true } = {}) {
+function _replayTo(target) {
   _resetAnimMarks(); // 全作り直し: 古い演出の完了待ちは無効にする
   _rebuildDeck();
   // D-3: setup ログ（初期配置）を通常ログより先に、演出なしで再適用する
@@ -596,7 +661,6 @@ function _replayTo(target, { toast = true } = {}) {
     _applyEvent(_logs[i]);
   }
   _cursor = target;
-  if (toast) _maybeShowCommentToast(_cursor);
   _updateUI();
 }
 
@@ -801,7 +865,7 @@ function _applyEvent(event) {
       _applyRemoveCard(event);
       break;
     case 'comment':
-      // コメントはDOMに反映しない（ログのみ）
+      // コメントは盤面（カードの配置）に反映しない。吹き出し・盤面メモの表示は _updateUI が記録から計算する
       break;
     case 'activateEffect':
       _applyActivateEffect(event);
@@ -1256,7 +1320,9 @@ function _playNext() {
     return;
   }
   stepForward();
-  _playTimer = setTimeout(_playNext, DEFAULT_INTERVAL_MS / _speedMultiplier);
+  // コメントの手は、吹き出し・メモを読めるよう通常より長く止まる
+  const pause = _logs[_cursor]?.actionType === 'comment' ? COMMENT_PAUSE_FACTOR : 1;
+  _playTimer = setTimeout(_playNext, (DEFAULT_INTERVAL_MS / _speedMultiplier) * pause);
 }
 
 // ── UI同期 ──────────────────────────────────────────────
@@ -1288,32 +1354,7 @@ function _updateUI() {
     btnPlay.classList.toggle('play-active', _playing);
     btnPlay.disabled = total === 0;
   }
-}
-
-/**
- * カーソル位置のイベントがコメントなら トーストを表示する
- * @param {number} cursor
- */
-function _maybeShowCommentToast(cursor) {
-  if (cursor < 0 || cursor >= _logs.length) return;
-  const ev = _logs[cursor];
-  if (ev?.actionType !== 'comment') return;
-  _showCommentToast(ev.text);
-}
-
-function _showCommentToast(text) {
-  let toast = document.getElementById('replayCommentToast');
-  if (!toast) {
-    toast = document.createElement('div');
-    toast.id = 'replayCommentToast';
-    document.body.appendChild(toast);
-  }
-  toast.textContent = text;
-  toast.classList.remove('rct-hide');
-  toast.classList.add('rct-show');
-  clearTimeout(toast._hideTimer);
-  toast._hideTimer = setTimeout(() => {
-    toast.classList.remove('rct-show');
-    toast.classList.add('rct-hide');
-  }, 3500);
+  // 吹き出し・盤面メモは、記録の位置（カーソルまで）から毎回計算して描く
+  renderCommentView(_setupLogs, _logs, cur);
+  _emit('changed');
 }

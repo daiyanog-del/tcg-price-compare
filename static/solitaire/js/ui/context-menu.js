@@ -14,6 +14,7 @@
  *               一番下に重ねる・デッキに戻すは既にデッキ内のカードには意味がないため出さない）
  *              （初期カード isInitial は現状維持で何も出さない。昔の設計の名残でスコープ外）
  *   その他    : 墓地送り / 除外 / 手札に戻す / デッキに戻す / 削除（トークンのみ）
+ *   プール以外のすべてのカードに「吹き出しを付ける」（整理④。comment-ui.js の入力欄を開く）
  *
  * 「削除」は普通のカードには出さない（盤面は記録（リプレイ）だけで再現できるようにするため、
  * 記録に残せない消え方を作らない）。トークンだけは出せて、消すと removeCard として記録される。
@@ -44,6 +45,7 @@ import {
 import { playSetFlip, flipMoveClone } from '../components/card-effects.js';
 import { getDropZoneInfo, executeDrop, getZoneId } from '../components/drag-drop.js';
 import { restackCustomSlot } from '../components/slot-stack.js';
+import { openCardCommentInput } from './comment-ui.js';
 
 // ── 単一インスタンス ──────────────────────────────────────────────
 let _menuEl          = null;
@@ -361,6 +363,13 @@ function _buildMenuItems(wrapper, img, parent, isInPool, isInitial, isTouch = fa
     items.push({ separator: true });
     items.push(...fixedZoneItems);
   }
+
+  // 吹き出しを付ける（整理④。デッキ内のカードには付けないので、上のプール内の分岐には入れない）
+  items.push({ separator: true });
+  items.push({
+    label: '吹き出しを付ける',
+    action: () => { openCardCommentInput(wrapper); },
+  });
 
   items.push({ separator: true });
 
