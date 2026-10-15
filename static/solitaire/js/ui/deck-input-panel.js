@@ -7,6 +7,7 @@
 import { addCardToPool, sortPoolCards } from '../components/card-manager.js';
 import { registerCardImage, registerCardName, resetReplay } from '../services/replay-service.js';
 import { setCardName } from './card-info-panel.js';
+import { clearSessionResume } from '../utils/session-resume-store.js';
 
 const API_CARD_IMAGE  = '/api/card-image';   // 単数版（フォールバック用）
 const API_CARD_IMAGES = '/api/card-images';  // バッチ版（POST）
@@ -136,7 +137,7 @@ export async function clearEverything() {
   }
   await clearAllCards();          // 盤面・手札等のカードをデッキに戻し、プールも空にする
   resetReplay();                  // リプレイ記録（ログ・画像辞書・カード名辞書）を初期化
-  sessionStorage.removeItem('sol-session-resume'); // 次回アクセス時の自動復元を止める
+  clearSessionResume(sessionStorage); // 退避と「記録を落とした」フラグを両方消す。 次回アクセス時の自動復元を止める
   document.dispatchEvent(new CustomEvent('sol-board-cleared'));
   return true;
 }

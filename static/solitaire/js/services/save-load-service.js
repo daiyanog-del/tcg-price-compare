@@ -10,12 +10,12 @@ import { addCounterDeleteButton, initializeCounter } from '../components/counter
 import { showToast } from '../utils/toast.js';
 import { restackCustomSlot } from '../components/slot-stack.js';
 import { registerCardName } from './replay-service.js';
+import { clearSessionResume, stripVisibility, storeSessionResume, takeSessionResume } from '../utils/session-resume-store.js';
 
 const API_CARD_IMAGES = '/api/card-images';
 
 const SAVE_KEY_PREFIX = 'card-sim-save-slot-';
 const MAX_SLOTS = 5;
-const SESSION_RESUME_KEY = 'sol-session-resume';
 
 /**
  * スロット内のカード情報を取得
@@ -53,7 +53,7 @@ function getCardsFromSlot(slot) {
       cards.push({
         id:       wrapper.id,
         src,
-        style:    wrapper.getAttribute('style') || '',
+        style:    stripVisibility(wrapper.getAttribute('style')), // 演出中の visibility:hidden は残さない
         cardName,
         state,   // { orientation, face }
         // 旧セーブデータには無いキー（省略時は従来どおり発売済み扱い）。
@@ -243,7 +243,7 @@ async function restoreCardsToSlot(slot, cards) {
     wrapper.className = 'tier-item-wrapper';
     wrapper.id = cardData.id;
     if (cardData.style) {
-      wrapper.setAttribute('style', cardData.style);
+      wrapper.setAttribute('style', stripVisibility(cardData.style)); // 過去のセーブに残った visibility:hidden 対策
     }
 
     let cardEl;
@@ -542,19 +542,25 @@ export function clearSaveSlot(slotNumber) {
 /**
  * 現在の盤面状態をsessionStorageに保存（pagehide時に呼ぶ）
  * デッキが空なら保存しない
+ * リプレイ記録は ui/ を import すると循環依存になるため、呼び出し側（main.js）が集めて渡す。
+ * @param {Object|null} [replay] - リプレイ退避データ（記録が空なら省略）
  */
-export function saveSessionResume() {
+export function saveSessionResume(replay = null) {
   try {
     const state = _captureCurrentState();
     const hasContent = (
       state.slots.poolRow?.length > 0 ||
       state.slots.poolRow2?.length > 0 ||
       Object.keys(state.slots).some(k => k.startsWith('custom-slot-') && state.slots[k].length > 0) ||
-      state.slots['center-slot']?.length > 0
+      state.slots['center-slot']?.length > 0 ||
+      Object.keys(state.slots).some(k => k.startsWith('side-slot-') && state.slots[k].length > 0) || // 墓地・除外だけでも盤面として意味がある
+      state.slots['free-space']?.length > 0 ||
+      !!replay                                  // 記録があるなら保存する
     );
     if (!hasContent) return;
 
-    sessionStorage.setItem(SESSION_RESUME_KEY, LZString.compress(JSON.stringify(state)));
+    // 全体を1つの圧縮データで保存。容量超過なら記録を外して盤面のみ保存（詳細は session-resume-store.js）
+    storeSessionResume(sessionStorage, (s) => LZString.compress(s), state, replay);
   } catch (e) {
     console.warn('セッション保存失敗:', e);
   }
@@ -563,20 +569,19 @@ export function saveSessionResume() {
 /**
  * sessionStorageから盤面を復元して盤面に反映する（非同期版）
  * 呼び出し後にデータは削除される
- * @returns {Promise<boolean>} 復元できたか
+ * リプレイ記録の適用は呼び出し側（main.js）が行うため、退避データを返す。
+ * @returns {Promise<false|{replay:Object|null, replayDropped:boolean}>} 復元できなければ false
  */
 export async function loadSessionResume() {
   try {
-    const raw = sessionStorage.getItem(SESSION_RESUME_KEY);
-    if (!raw) return false;
-    sessionStorage.removeItem(SESSION_RESUME_KEY);
+    const taken = takeSessionResume(sessionStorage, (s) => LZString.decompress(s));
+    if (!taken) return false;
 
-    const state = JSON.parse(LZString.decompress(raw));
-    await _applyState(state);
-    return true;
+    await _applyState(taken.state);
+    return { replay: taken.state.replay || null, replayDropped: taken.replayDropped };
   } catch (e) {
     console.warn('セッション復元失敗:', e);
-    sessionStorage.removeItem(SESSION_RESUME_KEY);
+    clearSessionResume(sessionStorage);
     return false;
   }
 }

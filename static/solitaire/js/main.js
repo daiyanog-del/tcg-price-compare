@@ -11,11 +11,12 @@
  */
 
 import { initializeDesktopDragDrop, enableTouchDrag } from './components/drag-drop.js';
-import { initializeCards } from './components/card-manager.js';
+import { initializeCards, syncCardIdCounter } from './components/card-manager.js';
+import { collectReplayCardIds } from './utils/session-resume-store.js';
 import { initializeCounter } from './components/counter-manager.js';
 import { initializeEventListeners } from './ui/event-handlers.js';
 import { initReplayUI } from './ui/replay-ui.js';
-import { registerCardImage, registerCardIsEx, registerCardName } from './services/replay-service.js';
+import { registerCardImage, registerCardIsEx, registerCardName, captureReplaySession, restoreReplaySession, rebuildAtCursor, isPlaying, isReplayAnimating } from './services/replay-service.js';
 import { initTokenGenerator } from './ui/token-generator.js';
 import { initRandomTools } from './ui/random-tools.js';
 import { initCardInfoPanel } from './ui/card-info-panel.js';
@@ -24,7 +25,8 @@ import { saveSessionResume, loadSessionResume } from './services/save-load-servi
 import { initOpponentTray, updateCipWidth } from './ui/opponent-tray.js';
 import { initFeedbackModal } from './ui/feedback-modal.js';
 import { initSidebarToggle } from './ui/sidebar-toggle.js';
-import { initMobileUI } from './ui/mobile-ui.js';
+import { initMobileUI, getMobileRecordingState, setMobileRecordingState, isMobilePlaybackMode, resumePlaybackModeIfNeeded } from './ui/mobile-ui.js';
+import { getPcRecordingState, setPcRecordingState } from './ui/pc-recording.js';
 import { isMobilePortrait } from './utils/viewport.js';
 import { showToast } from './utils/toast.js';
 import { hasReplayInUrl as isReplayInUrl } from './utils/replay-url.js';
@@ -382,6 +384,16 @@ async function initializeApp() {
     }),
   });
   const restored = hasReplayInUrl || handedOff ? false : await loadSessionResume();
+  // リプレイ記録の復元（盤面は loadSessionResume が写しから復元済み。ここでは記録の変数を戻すだけ）。
+  // 画像辞書は保存されていた辞書を先に入れ、次の DOM からの登録で上書き・追加する（順序を変えない）
+  const replaySnap = restored && restored.replay ? restored.replay : null;
+  if (replaySnap) {
+    restoreReplaySession(replaySnap);
+    // 記録に出てくるカードID（DOM に無いものも含む）を使わないよう、ID カウンターを進める
+    syncCardIdCounter(collectReplayCardIds(replaySnap));
+    setPcRecordingState(replaySnap.pcRecording);
+    setMobileRecordingState(replaySnap.mobileRecording);
+  }
   if (restored) {
     // 復元したカードをリプレイ画像辞書に登録
     // img.tier-item（発売済み）または div.tier-item（プロキシ）どちらも .tier-item で取れる
@@ -395,7 +407,16 @@ async function initializeApp() {
         if (wrapper?.id.includes(' ex')) registerCardIsEx(cardEl.id);
       }
     });
-    _showToast('前回の盤面を復元しました');
+    // 記録を容量超過で落としていた場合は、2つのトーストが重ならないよう1つにまとめる
+    _showToast(restored.replayDropped
+      ? '前回の盤面を復元しました（記録は大きすぎて引き継げませんでした）'
+      : replaySnap ? '前回の盤面と記録を復元しました' : '前回の盤面を復元しました');
+    // スマホで再生モード中に離れていたなら、同じ手を表示したまま再生モードへ入り直す
+    // 自動再生・演出の途中で離れた退避は盤面が中間状態の可能性があるので、カーソル位置で作り直す
+    if (replaySnap?.needsRebuild) {
+      rebuildAtCursor();
+    }
+    if (replaySnap) resumePlaybackModeIfNeeded(!!replaySnap.mobilePlayback);
   }
   // M-3: 復元の有無に関わらず、盤面確定後に mobile-ui.js の初見導線CTA判定を確定させる
   // （restored=false でも updateEmptyCta() は呼ぶ必要があるため if の外に出す）。
@@ -514,7 +535,16 @@ function initZoneCounts() {
 
 /** ページ遷移直前に盤面をsessionStorageへ退避 */
 window.addEventListener('pagehide', () => {
-  saveSessionResume();
+  // リプレイ記録は main.js で集めて渡す（save-load-service が ui/ を import すると循環依存になるため）
+  const replay = captureReplaySession();
+  if (replay) {
+    replay.pcRecording = getPcRecordingState();
+    replay.mobileRecording = getMobileRecordingState();
+    replay.mobilePlayback = isMobilePlaybackMode();
+    // 自動再生中・再生の演出（完了で盤面を確定する飛行等）の途中なら、盤面が中間状態の可能性がある。復元時に作り直させる
+    if (isPlaying() || isReplayAnimating()) replay.needsRebuild = true;
+  }
+  saveSessionResume(replay);
 });
 
 /**

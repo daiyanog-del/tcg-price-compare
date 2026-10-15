@@ -920,6 +920,54 @@ function _getRecordingRange() {
   return { start: start + 1, end };
 }
 
+/** 録画状態の写しを返す（ページ遷移をまたぐ退避用） */
+export function getMobileRecordingState() {
+  return { ..._recording };
+}
+
+/** 退避した録画状態を戻し、ボタン表示を更新する */
+export function setMobileRecordingState(state) {
+  if (!state) return;
+  _recording = {
+    recording: !!state.recording,
+    startIdx: state.startIdx ?? null,
+    endIdx: state.endIdx ?? null,
+  };
+  _updateRecordBtn();
+  _updateShareRecordingSection();
+}
+
+/** 再生モード中かどうか（ページ遷移をまたぐ退避用） */
+export function isMobilePlaybackMode() {
+  return _playbackMode;
+}
+
+/**
+ * 復元後、退避時にスマホの再生モード中だった（または縦向きスマホで途中の手を復元した）なら再生モードへ入り直す。
+ * 縦向きスマホで、記録があり、カーソルが末尾より前（途中の手）のときだけ入る。
+ * 範囲なしで入るので seekTo は呼ばれず、カーソルは動かない。
+ * 仕様: 範囲再生（_playbackRange）と入口（_playbackOrigin。'share' 等）は退避しない。
+ *   復元後は「範囲なし・入口なし」の通常の再生モードになる（終了しても共有シートへは戻らない）。
+ * 縦向きスマホでないため入り直せない場合は、回転時の exitPlaybackMode と同じ H-4 規則で
+ * 記録の末尾まで進める（途中の手のまま通常画面に残さない）。
+ * @param {boolean} wasPlayback 退避時に再生モード中だったか
+ * @returns {boolean} 入り直したか
+ */
+export function resumePlaybackModeIfNeeded(wasPlayback) {
+  if (getLogLength() + getSetupLogs().length === 0) return false;
+  if (getCursor() >= getLogLength() - 1) return false;
+  // PC幅で途中の手を見たまま退避し、縦向きスマホで復元した場合（wasPlayback=false）も、
+  // 縦向きの通常画面は常に末尾という前提（H-4）を守るため、カーソルを保ったまま再生モードに入る
+  if (!wasPlayback && !isMobilePortrait()) return false;
+  if (!isMobilePortrait()) {
+    seekTo(getLogLength() - 1); // H-4: 入り直せないときは末尾へ
+    showToast('最後の手まで進めました'); // 回転時（exitPlaybackMode）と同じ文言
+    return false;
+  }
+  enterPlaybackMode(null, null);
+  return _playbackMode;
+}
+
 /**
  * 録画状態を破棄する。「すべて消去」／デッキ再読込／保存済みリプレイを開く／
  * 共有リンクから開く の各経路（それぞれの呼び出し箇所）から呼ぶ。

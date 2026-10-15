@@ -58,19 +58,6 @@ function _getReplayTitle() {
 }
 
 /**
- * リプレイ一覧への移動前の確認。今の記録（setup込み）があるときだけ confirm を出し、
- * キャンセルなら移動を止める。Ctrl/Cmd/Shift+クリック等（新しいタブ・ウィンドウ）は今のページが残るので確認しない。
- * @param {MouseEvent} ev
- */
-function _confirmLeaveForReplayList(ev) {
-  if (ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.altKey || ev.button !== 0) return;
-  if (getLogLength() + getSetupLogs().length === 0) return;
-  if (!confirm('今の記録は、移動すると消えます（端末に保存・共有したものは一覧から開けます）。リプレイ一覧へ移動しますか？')) {
-    ev.preventDefault();
-  }
-}
-
-/**
  * 現在の再生速度倍率に応じて速度ボタンの選択中スタイル（active クラス）を更新する
  */
 function _updateSpeedButtons() {
@@ -88,12 +75,6 @@ function _updateSpeedButtons() {
  */
 export function initReplayUI() {
   initReplay();
-
-  // 「リプレイ一覧」へのリンク（PCリプレイバー・スマホ⋯メニュー・スマホ共有シート）は、
-  // 記録が残っているときだけ移動前に確認する（<a> のまま。新しいタブで開く操作は確認なし）
-  document.querySelectorAll('[data-replay-list-link]').forEach((a) => {
-    a.addEventListener('click', _confirmLeaveForReplayList);
-  });
 
   // window.replayLog を replay-service の logEvent にバインド
   window.replayLog = (event) => logEvent(event);
