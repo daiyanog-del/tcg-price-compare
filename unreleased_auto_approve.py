@@ -476,29 +476,36 @@ def build_approval_snapshot_safe(card: dict, via: str) -> dict:
         return {"at": datetime.now(timezone.utc).isoformat(), "via": via, "error": f"{type(e).__name__}: {e}"[:300]}
 
 
-def record_approval_snapshots(sb, cards: list[dict], via: str) -> int:
+def record_approval_snapshots(sb, cards: list[dict], via: str, failed_ids: list | None = None) -> int:
     """承認したカードの承認記録を作って保存する。例外は投げない（承認・画像取込・投稿を止めない）。
 
-    保存できた件数を返す。書き込みに失敗したカードは approval_snapshot が無いままになり、
-    X 自動投稿の対象にならない（安全側）。
+    保存できた件数を返す。承認記録は計測用で、X 投稿の条件ではない（条件は approved_at）。
+    failed_ids を渡すと、保存できなかったカードの id がそこに追加される（欠落の通知用）。
     """
     try:
         entries = [(c["id"], build_approval_snapshot_safe(c, via)) for c in cards]
-        return save_approval_snapshots(sb, entries)
+        return save_approval_snapshots(sb, entries, failed_ids)
     except Exception as e:
-        logger.warning("[auto_approve] 承認記録の保存でエラー（承認は成立済み・X投稿の対象外になる）: %s", e)
+        logger.warning("[auto_approve] 承認記録の保存でエラー（承認は成立済み）: %s", e)
+        if failed_ids is not None:
+            failed_ids.extend(c["id"] for c in cards if c["id"] not in failed_ids)
         return 0
 
 
 _CHUNK = 100
 
 
-def save_approval_snapshots(sb, entries: list[tuple[int, dict]]) -> int:
+def save_approval_snapshots(sb, entries: list[tuple[int, dict]], failed_ids: list | None = None) -> int:
     """approval_snapshot を extraction_raw に保存する。保存できた件数を返す。失敗は警告ログのみ。
 
     他の書き込み（クロップ状態など）を消さないよう、100件ずつ最新の extraction_raw を
     まとめて読み直してから、1件ずつ書き戻す（読みは100件=1回、書きは1件=1回）。
+    保存できなかったカード id は failed_ids（渡されたとき）に追加する。
     """
+    def _fail(*cids):
+        if failed_ids is not None:
+            failed_ids.extend(c for c in cids if c not in failed_ids)
+
     saved = 0
     for start in range(0, len(entries), _CHUNK):
         chunk = entries[start:start + _CHUNK]
@@ -508,9 +515,11 @@ def save_approval_snapshots(sb, entries: list[tuple[int, dict]]) -> int:
             latest = {r["id"]: dict(r.get("extraction_raw") or {}) for r in (resp.data or [])}
         except Exception as e:
             logger.warning("[auto_approve] extraction_raw 読み直し失敗（承認記録を保存できず）: %s", e)
+            _fail(*ids)
             continue
         for cid, snap in chunk:
             if cid not in latest:
+                _fail(cid)
                 continue
             raw = latest[cid]
             raw["approval_snapshot"] = snap
@@ -519,4 +528,5 @@ def save_approval_snapshots(sb, entries: list[tuple[int, dict]]) -> int:
                 saved += 1
             except Exception as e:
                 logger.warning("[auto_approve] 承認記録の保存失敗 card_id=%s: %s", cid, e)
+                _fail(cid)
     return saved

@@ -18,7 +18,7 @@
 
 - いつ・何を: 承認（=公開）された未発売カードを X へ自動投稿する機能（`unreleased_x_post.py`）と、「人手の承認なしで承認してよいか」の判定を記録するだけのシャドーモード（`unreleased_auto_approve.py`）を追加。承認そのものを自動化するスイッチは作っていない。
 - なぜ（投稿）: 承認から公開までに時間差があると新カード情報の鮮度が落ちる。承認直後に画像付きで出せば、サイトへの流入と検索経由の認知に使える。
-- 二重投稿防止: 新テーブル `unreleased_x_posts`（card_id 主キー）に投稿前に予約行を入れ、主キー衝突なら他が処理中/済みとして何もしない。`tweet_log` は content_type 単位の日次チェック用でカード識別子を持てないため流用しない。導入前の承認済み/紐付け済みは SQL 内で `skipped_legacy` として一括登録し、過去分が流れない。失敗は attempts<3 の間だけ条件付き UPDATE で再試行権を奪う。
+- 二重投稿防止: 新テーブル `unreleased_x_posts`（card_id 主キー）に投稿前に予約行を入れ、主キー衝突なら他が処理中/済みとして何もしない。`tweet_log` は content_type 単位の日次チェック用でカード識別子を持てないため流用しない。導入前の承認済みカードは `unreleased_cards.approved_at` が NULL のまま＝投稿対象外（旧版の skipped_legacy 一括登録は不要になり削除。既存の skipped_legacy 行と CHECK 値は残す）。失敗は attempts<3 の間だけ条件付き UPDATE で再試行権を奪う。
 - 既定は無効（`UNRELEASED_X_POST_ENABLED=1` で有効）。DRY_RUN は予約行も作らない。`post_tweet` の None（認証未設定・API失敗）は成功扱いにしない。
 - 配線: 単体承認は画像取込成功後にバックグラウンドで投稿。一括承認は既存の画像取込スレッドの後に 20 秒間隔で順に投稿（画像取込のロックは先に手放す）。画像取込に失敗した分とRender再起動で途切れた分は、backfill-images.yml（3時間ごと）の後段 `tools/post_unreleased_x.py` が回収する（1回10件まで）。
 - なぜ（シャドーモード）: 自動承認の閾値を推測で決めない。まず取込時に判定を `extraction_raw.auto_approve_verdict`、抽出時の値を `extracted_snapshot` に記録し、承認時に `approval_snapshot`（手直しした項目・切り抜き方法）を記録して、`tools/auto_approve_report.py` で「候補なのに手直し/却下された」件数を実測してから判断する。
@@ -32,7 +32,9 @@
 - 件数の上限: 一括承認1回 `MAX_BULK_POST_PER_RUN=10`・回収1回 `MAX_BACKFILL_PER_RUN=10`・全経路で1日(JST) `DAILY_POST_LIMIT=30`（posted と unknown の件数を unreleased_x_posts から数える）。いずれも仮置き（TODO: calibrate from data）。上限で止めた分は予約行を作らず、回収ジョブ（3時間ごと）が後で拾う。課金が従量なので、暴走時の被害上限を自前で持つ意味がある。
 - 失敗の3分類（`x_poster.post_tweet_ex` が `(tweet_id, error_kind)` を返す。`post_tweet` はそれを包む後方互換版）: 送信前の失敗（認証未設定・画像アップロード失敗・画像必須で添付ゼロ）と X の明確な拒否(429以外の4xx)は `failed`（attempts+1、3回まで再試行）／429 は `rate_limited`（attempts を増やさず回収で再挑戦。行を消さず残すのは、いつ制限に当たったかの記録と、予約の主キーによる二重投稿防止を途切れさせないため）／結果不明（HTTP応答なしの例外・タイムアウト・5xx・応答にid無し）は `unknown`（自動再試行しない・Discord通知。人が X を見て posted にするか行を消す）。
 - タイムアウト: tweepy 4.14 のソースで確認。`Client` は `self.session.request(...)` を timeout なしで呼ぶため `client.session` を既定30秒の `_TimeoutSession` に差し替え、v1 の `tweepy.API(timeout=)`（media_upload で `timeout=self.timeout` が使われる）にも30秒を指定。requests の timeout は接続・読み取りごとの待ち上限で、全体の所要時間の上限ではない。
-- 投稿対象は `extraction_raw.approval_snapshot` があるカードだけ（＝このデプロイ以降に承認された）。SQL 実行と有効化の間にずれがあっても過去分は流れない（SQL の skipped_legacy 一括登録は二重の保険として残す）。回収候補も同じ条件。承認記録の作成に失敗しても最小の `{at, via, error}` を書くので、承認済みなのに永久に投稿されない事態は避ける（書き込み自体が失敗したら投稿しない＝安全側）。
+- 投稿対象は新列 `unreleased_cards.approved_at`（timestamptz NULL）が入っているカードだけ（2026-10-15 再レビューで approval_snapshot 方式から変更）。単体承認・一括承認で status を approved にする**同じ UPDATE** に入れるので、承認と同時に確定し、バックグラウンドの記録書き込みの失敗・遅れで投稿対象から漏れない（旧方式の欠点: 記録の書き込み失敗で永久に投稿されない／承認直後の編集保存の読み書きで記録が消えうる）。既存行は NULL のまま＝導入前の承認は投稿されない。再承認（unpublish→approve）でも更新するが、再投稿は unreleased_x_posts の行で防がれる。`approval_snapshot` は自動承認の校正用の計測データとして残し、投稿条件からは外した。一括承認で記録を保存できなかったカードは Discord に1通まとめて通知する。回収候補も `approved_at` 条件に加え、発売済み名・同名で投稿済みのカードは選定段階で除く。
+- 適用順序（本番）: ① `unreleased_x_posts.sql`（列追加・冪等）→ ② コードをデプロイ → ③ `UNRELEASED_X_POST_ENABLED=1`。コードが先に出ても承認は壊れない: `approved_at` 列が無いエラーを検知したら approved_at 抜きで承認 UPDATE を再実行して警告ログを出す（その間に承認したカードは NULL のため投稿されない。SQL 適用後に unpublish→再承認か approved_at を直接 UPDATE）。
+- 回収・通知の上限（2026-10-15 再レビュー）: `max_cards` は「実際に送信を試みた件数」（posted/failed/rate_limited/unknown/dry_run）で数え、行を作らない結果（missing/not_postable/already/skipped_duplicate）は枠を消費しない。429 の再挑戦は初回の予約から24時間または累計8回で打ち切り failed（attempts=MAX_ATTEMPTS）にして通知1回（列 rate_limit_count）。取り残し通知は同じ行につき1日1回（列 stuck_notified_at）。同名重複の判定は `_post_lock` の内側で行い、同名2枚の同時投稿を防ぐ。unknown 通知には「未投稿だった場合は同名で skipped_duplicate になったカードの行も消す」注意を添える。
 - 重複・発売済み: 同じ fuzzy_key のカード名で posted / unknown の行があれば `skipped_duplicate` として記録して投稿しない。発売済みカード名の索引（data/cardnames_ja.json。name_normalize.load_cardnames_index）に載っていれば投稿しない。週次更新のため発売直後の反映遅れは残る。
 - 取り残し: 回収ジョブが 1時間以上更新されていない `posting` と `unknown` の行をまとめて Discord に通知（自動再投稿はしない）。
 - 認証情報: X の4環境変数が揃っていなければ予約せず `not_configured`（警告ログは1プロセス1回）。

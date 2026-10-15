@@ -414,17 +414,20 @@ def test_dry_run_does_not_need_credentials(monkeypatch):
 # 項目6: 承認記録の無いカード・同名重複
 # ══════════════════════════════════════════════
 
-def test_no_approval_snapshot_not_posted():
-    for raw in ({}, None, {"approval_snapshot": None}, {"approval_snapshot": "x"}):
-        sb = _sb(card={"extraction_raw": raw})
+def test_no_approved_at_not_posted():
+    """approved_at が無い（導入前の承認）カードは、approval_snapshot があっても投稿しない"""
+    for approved_at in (None, ""):
+        sb = _sb(card={"approved_at": approved_at})
         poster = Poster()
         assert xp.post_card(sb, 1, post_fn=poster, today=TODAY) == "not_postable"
         assert poster.calls == [] and _rows(sb) == []
 
 
-def test_snapshot_with_only_error_is_postable():
-    sb = _sb(card={"extraction_raw": {"approval_snapshot": {"at": "t", "via": "bulk", "error": "x"}}})
-    assert xp.post_card(sb, 1, post_fn=Poster(), today=TODAY) == "posted"
+def test_approved_at_alone_is_postable_without_snapshot():
+    """approval_snapshot が無くても approved_at があれば投稿できる（記録は計測用で投稿条件ではない）"""
+    for raw in ({}, None, {"approval_snapshot": "x"}):
+        sb = _sb(card={"extraction_raw": raw})
+        assert xp.post_card(sb, 1, post_fn=Poster(), today=TODAY) == "posted"
 
 
 def test_duplicate_name_is_skipped_and_recorded():

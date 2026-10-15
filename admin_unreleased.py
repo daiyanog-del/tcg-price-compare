@@ -422,6 +422,24 @@ def admin_update_unreleased(card_id: int):
         return jsonify({"error": "更新に失敗しました"}), 500
 
 
+def _execute_approve_update(build_query, fields: dict):
+    """status を approved にする UPDATE を実行する。fields には approved_at を含める。
+
+    approved_at 列が未作成（SQL の適用前にコードだけ先にデプロイされた）ときは、承認自体を止めないよう
+    approved_at 抜きで再実行する（警告ログ）。その間に承認されたカードは approved_at が NULL のため
+    X に投稿されない。根本対応は unreleased_x_posts.sql の適用（手順は SQL 冒頭に記載）。
+    build_query(fields) は execute 前のクエリを返す関数。
+    """
+    try:
+        return build_query(fields).execute()
+    except Exception as e:
+        if "approved_at" not in fields or "approved_at" not in str(e):
+            raise
+        logger.warning(f"[admin] approved_at 列が無いため approved_at 抜きで承認します"
+                       f"（unreleased_x_posts.sql を適用してください。それまで承認分は X に投稿されません）: {e}")
+        return build_query({k: v for k, v in fields.items() if k != "approved_at"}).execute()
+
+
 def _recompute_checks_after_edit(card: dict) -> None:
     """編集保存後のカード行で extraction_raw.text_check / auto_approve_verdict を計算し直して保存する。
 
@@ -435,9 +453,14 @@ def _recompute_checks_after_edit(card: dict) -> None:
         if not (isinstance(raw, dict) and ("auto_approve_verdict" in raw or "text_check" in raw)):
             return
         from unreleased_auto_approve import recompute_card_checks
+        from unreleased_image_store import _merge_extraction_raw
+        checks = recompute_card_checks(_supabase, card)
+        # 判定の計算中に他の書き込み（クロップ状態・承認記録など）が入っていても消さないよう、
+        # 書き込み直前に最新の extraction_raw を読み直して、判定の2キーだけ差し替える
+        if not _merge_extraction_raw(_supabase, card["id"], checks):
+            return
         new_raw = dict(raw)
-        new_raw.update(recompute_card_checks(_supabase, card))
-        _supabase.table("unreleased_cards").update({"extraction_raw": new_raw}).eq("id", card["id"]).execute()
+        new_raw.update(checks)
         card["extraction_raw"] = new_raw
     except Exception as e:
         logger.warning(f"[admin] 編集後の再判定に失敗（保存は成立） id={card.get('id')}: {e}")
@@ -556,7 +579,8 @@ def admin_approve_unreleased(card_id: int):
         # release_date ガード判定
         release_date = card_data.get("release_date")
         product_name = card_data.get("product_name") or ""
-        update_fields = {"status": "approved"}
+        # approved_at は X 自動投稿の対象判定に使う。status と同じ UPDATE で入れる
+        update_fields = {"status": "approved", "approved_at": datetime.now(timezone.utc).isoformat()}
         release_date_note = None
         release_date_warning = None
 
@@ -591,19 +615,16 @@ def admin_approve_unreleased(card_id: int):
                 )
 
         # ステータスを承認済みに更新（release_date 補完がある場合は同時に更新）
-        upd_resp = (
-            _supabase.table("unreleased_cards")
-            .update(update_fields)
-            .eq("id", card_id)
-            .execute()
+        upd_resp = _execute_approve_update(
+            lambda f: _supabase.table("unreleased_cards").update(f).eq("id", card_id),
+            update_fields,
         )
         if not upd_resp.data:
             return jsonify({"error": "承認処理に失敗しました"}), 500
 
         _card_display.invalidate_cache()
 
-        # 承認時の記録（手直しの有無・切り抜き方法・判定結果）。失敗しても承認は成立
-        # （X自動投稿は approval_snapshot があるカードだけが対象なので、投稿を始める前に必ず済ませる）
+        # 承認時の記録（手直しの有無・切り抜き方法・判定結果）。計測用で、失敗しても承認も投稿も止めない
         from unreleased_auto_approve import record_approval_snapshots
         record_approval_snapshots(_supabase, [card_data], "single")
 
@@ -959,6 +980,19 @@ def _fetch_and_store_image(
 _bulk_image_lock = threading.Lock()
 
 
+def _notify_snapshot_failed(card_ids: list[int]) -> None:
+    """承認記録（計測用データ）を保存できなかったカードを Discord に1通でまとめて知らせる。通知失敗は握りつぶす。"""
+    ids = sorted(card_ids)
+    shown = ", ".join(str(i) for i in ids[:50]) + (f" ほか{len(ids) - 50}件" if len(ids) > 50 else "")
+    logger.warning(f"[admin] 一括承認・承認記録を保存できなかったカード: {shown}")
+    try:
+        from discord_notify import send_discord_message
+        send_discord_message(f"[未発売承認] 一括承認の承認記録（approval_snapshot）を保存できなかったカードが{len(ids)}件あります"
+                             f"（承認・X投稿は成立。自動承認の校正用データが欠けます）: card_id={shown}")
+    except Exception as exc:
+        logger.warning(f"[admin] 承認記録の欠落通知に失敗: {exc}")
+
+
 @admin_bp.route("/api/admin/unreleased/bulk-approve", methods=["POST"])
 def admin_bulk_approve_unreleased():
     """
@@ -1017,9 +1051,11 @@ def admin_bulk_approve_unreleased():
         target_ids = [c["id"] for c in target_cards]
 
         # ステータスを一括更新
-        _supabase.table("unreleased_cards").update({"status": "approved"}).in_(
-            "id", target_ids
-        ).execute()
+        # approved_at は X 自動投稿の対象判定に使う。status と同じ UPDATE で入れる
+        _execute_approve_update(
+            lambda f: _supabase.table("unreleased_cards").update(f).in_("id", target_ids),
+            {"status": "approved", "approved_at": datetime.now(timezone.utc).isoformat()},
+        )
 
         approved_count = len(target_ids)
         logger.info(f"[admin] 一括承認: {approved_count}件 (ids={target_ids})")
@@ -1092,12 +1128,16 @@ def admin_bulk_approve_unreleased():
             with _bulk_image_lock:
                 # 承認時の記録（補完前の値で差分を取る）。作成も保存もここ（バックグラウンド）で行い、
                 # レスポンスを待たせない。失敗しても画像取込は続ける（record_approval_snapshots は例外を投げない）。
-                # X投稿は approval_snapshot があるカードだけが対象なので、必ず投稿より前に完了させる
+                # 承認記録は計測用で投稿条件ではない。保存できなかったカードは Discord にまとめて1通知らせる
+                snapshot_failed: list[int] = []
                 try:
                     from unreleased_auto_approve import record_approval_snapshots
-                    record_approval_snapshots(_supabase, cards, "bulk")
+                    record_approval_snapshots(_supabase, cards, "bulk", failed_ids=snapshot_failed)
                 except Exception as exc:
                     logger.warning(f"[admin] 一括承認・承認記録の保存エラー: {exc}")
+                    snapshot_failed = [c["id"] for c in cards]
+                if snapshot_failed:
+                    _notify_snapshot_failed(snapshot_failed)
                 for card_data in cards:
                     try:
                         success, reason = _try_fetch_image_from_extraction(

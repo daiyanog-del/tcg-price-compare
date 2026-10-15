@@ -17,6 +17,7 @@ def _fake_download(url):
     return path
 
 
+APPROVED_AT = "2026-10-15T00:00:00+00:00"  # 投稿条件は approved_at（approval_snapshot は計測用）
 SNAP = {"approval_snapshot": {"at": "2026-10-15T00:00:00+00:00", "via": "single"}}
 
 
@@ -37,7 +38,8 @@ def _env(monkeypatch):
 
 def _sb(card=None, image=True, posts=None):
     card = {"id": 1, "name": "テストカード", "product_name": "テストパック", "release_date": "2026-11-01",
-            "status": "approved", "hidden": False, "extraction_raw": dict(SNAP), **(card or {})}
+            "status": "approved", "hidden": False, "approved_at": APPROVED_AT, "extraction_raw": dict(SNAP),
+            **(card or {})}
     return FakeSB({
         "unreleased_cards": [card],
         "official_card_images": ([{"unreleased_card_id": card["id"], "public_url": "https://img.test/1.jpg",
@@ -112,7 +114,7 @@ def test_weighted_length_url_and_cjk():
     ({"status": "approved", "hidden": False, "release_date": None}, False, False, "no_visible_image"),
 ])
 def test_is_postable(card, img, ok, reason):
-    card = {"extraction_raw": dict(SNAP), **card}
+    card = {"approved_at": APPROVED_AT, **card}
     assert xp.is_postable(card, img, TODAY) == (ok, reason)
 
 
@@ -222,10 +224,11 @@ def test_temp_file_removed(monkeypatch):
 
 # ── 連続投稿・回収 ──
 
-def _add_card(sb, cid, *, image=True, release_date=None, snapshot=True):
+def _add_card(sb, cid, *, image=True, release_date=None, approved=True):
     sb.tables["unreleased_cards"].append({"id": cid, "name": f"C{cid}", "product_name": "", "release_date": release_date,
                                           "status": "approved", "hidden": False,
-                                          "extraction_raw": dict(SNAP) if snapshot else {}})
+                                          "approved_at": APPROVED_AT if approved else None,
+                                          "extraction_raw": dict(SNAP)})
     if image:
         sb.tables["official_card_images"].append({"unreleased_card_id": cid, "public_url": "u", "hidden": False,
                                                   "deleted_at": None})
@@ -248,7 +251,7 @@ def test_backfill_candidates():
     _add_card(sb, 4)                                 # failed attempts=1 → 候補
     _add_card(sb, 5)                                 # failed attempts=3
     _add_card(sb, 6, release_date="2026-10-01")      # 発売済み（日付絞りで除外）
-    _add_card(sb, 7, snapshot=False)                 # 承認記録なし（デプロイ前の承認）→ 除外
+    _add_card(sb, 7, approved=False)                 # approved_at なし（導入前の承認）→ 除外
     sb.tables["unreleased_x_posts"] += [
         {"card_id": 3, "status": "skipped_legacy", "attempts": 0},
         {"card_id": 4, "status": "failed", "attempts": 1},

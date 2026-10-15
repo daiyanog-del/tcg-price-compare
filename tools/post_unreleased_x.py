@@ -7,8 +7,9 @@ post_unreleased_x.py — 承認済み・未投稿の未発売カードを X に�
   といった場合に取りこぼす。backfill-images.yml が画像を回収した後にこのスクリプトを実行し、
   「投稿条件を満たし、未投稿（unreleased_x_posts に行なし）か 再試行待ち（failed で attempts<3 / rate_limited）」の
   カードを投稿する。1回 MAX_BACKFILL_PER_RUN 件・1日(JST) DAILY_POST_LIMIT 件まで。
-  投稿対象は extraction_raw.approval_snapshot があるカード（このデプロイ以降の承認）だけ。導入前から承認済みの
-  カードは、これに加えてマイグレーション（unreleased_x_posts.sql）の skipped_legacy でも二重に対象外。
+  投稿対象は unreleased_cards.approved_at が入っているカード（承認 UPDATE と同時に入る）だけ。導入前から承認済みの
+  カードは approved_at が NULL のままなので対象外（マイグレーション unreleased_x_posts.sql を先に適用すること）。
+  発売済み名・同名で投稿済みのカードは候補選定の段階で除く。
   1時間以上 posting / unknown のまま残っている行は Discord に通知する（自動再投稿はしない）。
 
 実行:

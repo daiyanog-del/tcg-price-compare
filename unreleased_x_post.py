@@ -5,12 +5,14 @@
   - 二重投稿防止: テーブル unreleased_x_posts（card_id が主キー）に投稿前に「予約」行を入れる。
     主キー衝突＝他が処理中/済みなので何もしない。例外は「failed かつ attempts<3」と「rate_limited」の再試行だけ
     （条件付き UPDATE で1つの呼び出しだけが奪える）。
-  - 投稿対象は extraction_raw.approval_snapshot があるカードだけ（このデプロイ以降に承認されたものの印）。
+  - 投稿対象は unreleased_cards.approved_at が入っているカードだけ（承認の UPDATE と同時に入る列。
+    導入前の承認済みカードは NULL のまま＝過去分は流れない）。approval_snapshot は計測用で投稿条件ではない。
     同じ名前（fuzzy_key）で投稿済みがあれば skipped_duplicate、発売済みカード名なら投稿しない。
   - 失敗の扱い: 送信前の失敗・Xの明確な拒否(4xx)は failed（attempts+1、3回まで再試行）、
     429 は rate_limited（attempts を増やさず回収で再挑戦）、結果不明（応答なし・タイムアウト・5xx）は
     unknown（自動再試行しない・Discord通知。人が X を見て判断）。
   - 件数の上限: 1回の一括承認 MAX_BULK_POST_PER_RUN 件・回収 MAX_BACKFILL_PER_RUN 件・全経路で1日(JST) DAILY_POST_LIMIT 件。
+    1回の上限は「実際に送信を試みた件数」で数える（行を作らない結果では枠を消費しない）。
     上限で止めた分は予約行を作らない（回収ジョブが後で拾う）。
   - 既定は無効。環境変数 UNRELEASED_X_POST_ENABLED=1 のときだけ動く。
   - X_POST_DRY_RUN=1 のときは投稿せず本文をログに出すだけ（予約行も作らない）。
@@ -46,6 +48,21 @@ MAX_ATTEMPTS = 3
 # 連続投稿の間隔（秒）。一括承認・回収でタイムラインを埋め尽くさないため。
 # TODO: calibrate from data
 POST_INTERVAL_SEC = 20
+
+# 429（rate_limited）の再挑戦の上限。初回の予約（行の created_at）から経過時間か累計回数のどちらかを
+# 超えたら failed にして諦める（Discord通知は1回）。無限に再挑戦し続けないため。
+# TODO: calibrate from data
+RATE_LIMIT_MAX_AGE_SEC = 24 * 3600
+RATE_LIMIT_MAX_COUNT = 8
+
+# 取り残し行（posting / unknown）の通知は、同じ行について最短でこの間隔を空ける（1日1回まで）
+STUCK_RENOTIFY_SEC = 24 * 3600
+
+# 結果不明(unknown)の通知に添える確認手順。unknown は同名の重複判定に使われるため、
+# 未投稿だった場合は同名で skipped_duplicate になったカードの行も消さないと永久に投稿されない
+UNKNOWN_GUIDE = ("X のアカウントで投稿されたか確認してください。投稿済みなら unreleased_x_posts を posted に（tweet_id も）、"
+                 "未投稿なら該当行を削除（自動再試行はしません）。未投稿だった場合は、同名で skipped_duplicate に"
+                 "なったカードが無いかも確認し、あればその行も削除してください（unknown が同名の重複判定に使われたため）")
 
 # 回収1回あたりの投稿上限（有効化直後などの取りこぼし大量発生時の暴走防止）
 # TODO: calibrate from data
@@ -218,16 +235,15 @@ def build_tweet_text(name: str, product_name: str = "", release_date=None, *, si
 def is_postable(card: dict, has_visible_image: bool, today: date) -> tuple[bool, str]:
     """投稿してよいカードか。(可否, 理由コード)。DBの予約状態は見ない。
 
-    approval_snapshot（承認時の記録）があるカードだけが対象。これは「このデプロイ以降に承認された」印で、
-    SQL の実行と有効化の間に承認されて skipped_legacy 行が無いカードでも、過去分が流れないようにする。
+    approved_at（承認 UPDATE と同時に入る時刻）があるカードだけが対象。導入前の承認済みカードは NULL なので、
+    SQL の実行・有効化のタイミングに関係なく過去分は流れない。
     """
     if card.get("status") != "approved":
         return False, "status_not_approved"
     if card.get("hidden"):
         return False, "hidden"
-    raw = card.get("extraction_raw")
-    if not (isinstance(raw, dict) and isinstance(raw.get("approval_snapshot"), dict)):
-        return False, "no_approval_snapshot"
+    if not card.get("approved_at"):
+        return False, "no_approved_at"
     if not has_visible_image:
         return False, "no_visible_image"
     rd = card.get("release_date")
@@ -279,7 +295,7 @@ def _is_released_name(name: str) -> bool:
 # DB 操作
 # ──────────────────────────────────────────────
 
-_CARD_COLUMNS = "id, name, product_name, release_date, status, hidden, extraction_raw"
+_CARD_COLUMNS = "id, name, product_name, release_date, status, hidden, approved_at"
 
 
 def _fetch_card(sb, card_id: int) -> dict | None:
@@ -370,19 +386,61 @@ def _mark_failed(sb, card_id: int, error: str, name: str = "") -> None:
     _notify(f"[未発売X投稿] 失敗 card_id={card_id} {name} attempts={attempts}/{MAX_ATTEMPTS}: {error[:200]} {tail}")
 
 
-def _mark_rate_limited(sb, card_id: int, error: str, name: str = "") -> None:
+def _mark_rate_limited(sb, card_id: int, error: str, name: str = "", *, now: datetime | None = None) -> None:
     """429。投稿は作られていないので attempts は増やさず、status=rate_limited にして回収で再挑戦させる。
 
     予約行を消す案もあるが、行を残す方を採る: いつ・どう制限に当たったか（updated_at / last_error）が
     残り、同じ card_id の主キーによる二重投稿防止の予約も途切れない（消すと再予約までの隙間に他者が割り込める）。
+
+    再挑戦には上限がある: 初回の予約(created_at)から RATE_LIMIT_MAX_AGE_SEC 経過、または累計
+    RATE_LIMIT_MAX_COUNT 回に達したら failed（attempts=MAX_ATTEMPTS）にして諦め、通知は1回だけ出す。
     """
+    now = now or datetime.now(timezone.utc)
+    count = 0
+    age_sec = 0.0
+    try:
+        resp = sb.table(TABLE).select("created_at, rate_limit_count").eq("card_id", card_id).execute()
+        if resp.data:
+            count = int(resp.data[0].get("rate_limit_count") or 0)
+            created = _parse_ts(resp.data[0].get("created_at"))
+            if created is not None:
+                age_sec = (now - created).total_seconds()
+    except Exception as e:
+        logger.warning("[unreleased_x_post] rate_limit_count 取得失敗 card_id=%s: %s", card_id, e)
+    count += 1
+    if count >= RATE_LIMIT_MAX_COUNT or age_sec >= RATE_LIMIT_MAX_AGE_SEC:
+        reason = (f"レート制限(429)の再挑戦が上限に達したため諦めました（累計{count}回・初回から{age_sec / 3600:.1f}時間）: "
+                  f"{error}")
+        try:
+            sb.table(TABLE).update({
+                "status": "failed", "attempts": MAX_ATTEMPTS, "rate_limit_count": count,
+                "last_error": reason[:500], "updated_at": _now_iso(),
+            }).eq("card_id", card_id).execute()
+        except Exception as e:
+            logger.error("[unreleased_x_post] rate_limited 打ち切りの記録に失敗 card_id=%s: %s", card_id, e)
+        _notify(f"[未発売X投稿] レート制限(429)が続いたため再挑戦を打ち切りました card_id={card_id} {name}: "
+                f"累計{count}回・初回から{age_sec / 3600:.1f}時間。X の制限状況を確認し、投稿したければ "
+                f"unreleased_x_posts の該当行を削除してください")
+        return
     try:
         sb.table(TABLE).update({
-            "status": "rate_limited", "last_error": error[:500], "updated_at": _now_iso(),
+            "status": "rate_limited", "rate_limit_count": count, "last_error": error[:500], "updated_at": _now_iso(),
         }).eq("card_id", card_id).execute()
     except Exception as e:
         logger.error("[unreleased_x_post] rate_limited の記録に失敗 card_id=%s: %s", card_id, e)
-    _notify(f"[未発売X投稿] レート制限(429) card_id={card_id} {name}: 失敗回数には数えず、次回の回収で再挑戦します")
+    _notify(f"[未発売X投稿] レート制限(429) card_id={card_id} {name}: 失敗回数には数えず、次回の回収で再挑戦します"
+            f"（{count}/{RATE_LIMIT_MAX_COUNT}回目）")
+
+
+def _parse_ts(value) -> datetime | None:
+    """ISO 文字列を timezone つき datetime に。解釈できなければ None。"""
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
 def _mark_unknown(sb, card_id: int, error: str, name: str = "") -> None:
@@ -393,9 +451,7 @@ def _mark_unknown(sb, card_id: int, error: str, name: str = "") -> None:
         }).eq("card_id", card_id).execute()
     except Exception as e:
         logger.error("[unreleased_x_post] unknown の記録に失敗 card_id=%s: %s", card_id, e)
-    _notify(f"[未発売X投稿] 結果不明 card_id={card_id} {name}: {error[:200]} "
-            f"X のアカウントで投稿されたか確認してください。投稿済みなら unreleased_x_posts を posted に、"
-            f"未投稿なら該当行を削除（自動再試行はしません）")
+    _notify(f"[未発売X投稿] 結果不明 card_id={card_id} {name}: {error[:200]} {UNKNOWN_GUIDE}")
 
 
 def _record_skip(sb, card_id: int, status: str, detail: str) -> None:
@@ -434,6 +490,21 @@ def _fetch_all(query_builder_fn) -> list[dict]:
         offset += _PAGE
 
 
+def _posted_name_keys(sb, exclude_id: int | None = None) -> dict[str, int]:
+    """投稿済み（posted / unknown）カードの fuzzy_key → card_id。unknown は実際には投稿済みかもしれないので含める。"""
+    rows = _fetch_all(lambda: sb.table(TABLE).select("card_id").in_("status", ["posted", "unknown"]).order("card_id"))
+    ids = [r["card_id"] for r in rows if r["card_id"] != exclude_id]
+    keys: dict[str, int] = {}
+    for i in range(0, len(ids), _IN_CHUNK):
+        chunk = ids[i:i + _IN_CHUNK]
+        resp = sb.table("unreleased_cards").select("id, name").in_("id", chunk).execute()
+        for r in resp.data or []:
+            k = fuzzy_key(r.get("name") or "")
+            if k:
+                keys.setdefault(k, r["id"])
+    return keys
+
+
 def find_duplicate_posted(sb, card: dict) -> int | None:
     """同じカード名（fuzzy_key）で投稿済み（posted / unknown）の別カードの id。無ければ None。
 
@@ -442,15 +513,7 @@ def find_duplicate_posted(sb, card: dict) -> int | None:
     key = fuzzy_key(card.get("name") or "")
     if not key:
         return None
-    rows = _fetch_all(lambda: sb.table(TABLE).select("card_id").in_("status", ["posted", "unknown"]).order("card_id"))
-    ids = [r["card_id"] for r in rows if r["card_id"] != card["id"]]
-    for i in range(0, len(ids), _IN_CHUNK):
-        chunk = ids[i:i + _IN_CHUNK]
-        resp = sb.table("unreleased_cards").select("id, name").in_("id", chunk).execute()
-        for r in resp.data or []:
-            if fuzzy_key(r.get("name") or "") == key:
-                return r["id"]
-    return None
+    return _posted_name_keys(sb, exclude_id=card["id"]).get(key)
 
 
 def count_posted_today(sb) -> int:
@@ -527,21 +590,9 @@ def _post_card(sb, card_id: int, *, post_fn, today: date, interval: float, sleep
         logger.info("[unreleased_x_post] 投稿しない card_id=%s: 発売済みカード名 %r", card_id, card.get("name"))
         return "not_postable"
 
-    dup = find_duplicate_posted(sb, card)
-    if dup is not None:
-        logger.info("[unreleased_x_post] 同名で投稿済みのためスキップ card_id=%s (投稿済み card_id=%s)", card_id, dup)
-        if not _is_dry_run():
-            _record_skip(sb, card_id, "skipped_duplicate", f"同名で投稿済み card_id={dup}")
-        return "skipped_duplicate"
-
     text = build_tweet_text(card["name"], card.get("product_name") or "", card.get("release_date"))
 
-    if _is_dry_run():
-        # 予約行は作らない（posted にも posting にも残さない）
-        logger.info("[unreleased_x_post] DRY_RUN card_id=%s weight=%s\n%s", card_id, weighted_length(text), text)
-        return "dry_run"
-
-    if not _x_configured():
+    if not _is_dry_run() and not _x_configured():
         # 認証情報が無いまま予約すると失敗回数だけ増える。予約せずログのみ（警告は1プロセス1回）
         if not _warned_not_configured:
             _warned_not_configured = True
@@ -549,9 +600,22 @@ def _post_card(sb, card_id: int, *, post_fn, today: date, interval: float, sleep
                            "/".join(_X_CRED_ENVS))
         return "not_configured"
 
-    # 日次上限の確認〜予約〜間隔待ち〜送信までをプロセス内で直列化する。
-    # 複数の一括承認スレッドが同時に動いても、上限の数え漏れと連続投稿を防ぐ。
+    # 同名重複の確認〜日次上限の確認〜予約〜間隔待ち〜送信までをプロセス内で直列化する。
+    # 重複確認もロックの中で行う: 外だと、同名の2枚が同時に動いたとき双方が「投稿済みなし」と判定して
+    # 両方投稿してしまう。複数の一括承認スレッドが同時に動いても、上限の数え漏れと連続投稿も防ぐ。
     with _post_lock:
+        dup = find_duplicate_posted(sb, card)
+        if dup is not None:
+            logger.info("[unreleased_x_post] 同名で投稿済みのためスキップ card_id=%s (投稿済み card_id=%s)", card_id, dup)
+            if not _is_dry_run():
+                _record_skip(sb, card_id, "skipped_duplicate", f"同名で投稿済み card_id={dup}")
+            return "skipped_duplicate"
+
+        if _is_dry_run():
+            # 予約行は作らない（posted にも posting にも残さない）
+            logger.info("[unreleased_x_post] DRY_RUN card_id=%s weight=%s\n%s", card_id, weighted_length(text), text)
+            return "dry_run"
+
         posted_today = count_posted_today(sb)
         if posted_today >= DAILY_POST_LIMIT:
             logger.warning("[unreleased_x_post] 本日(JST)の投稿上限 %d 件に達したため投稿しません card_id=%s"
@@ -640,24 +704,34 @@ def _send(sb, card: dict, text: str, image_url: str, post_fn) -> str:
     return "failed"
 
 
+# 「実際に送信を試みた」結果。max_cards の枠はこれだけを数える
+# （missing / error / not_postable / already / skipped_duplicate などは送信せず、枠を消費しない）。
+# dry_run は本番なら送信していた分なので数える。
+_ATTEMPT_RESULTS = frozenset({"posted", "failed", "rate_limited", "unknown", "dry_run"})
+
+
 def post_cards_sequential(sb, card_ids, *, interval: float | None = None, post_fn=None, sleep=time.sleep,
                           max_cards: int | None = None) -> dict:
     """複数枚を順に投稿する。結果コードの件数を返す。
 
-    max_cards: 先頭から何枚まで試すか。超えた分は予約しない（回収ジョブが後で拾う）。
+    max_cards: 実際に送信を試みた件数の上限（_ATTEMPT_RESULTS）。到達したら残りは予約せず回収ジョブに回す。
+    送信に至らなかった結果（対象外・行なし・同名スキップなど）は枠を消費しない。
     連続投稿の間隔は post_card 側（プロセス共有）で守る。上限・制限・未設定・結果不明が出たら以降は打ち切る。
     """
     if not is_enabled():
         return {}
     ids = list(card_ids)
-    if max_cards is not None and len(ids) > max_cards:
-        logger.warning("[unreleased_x_post] 対象が上限(%d)を超えたため先頭のみ投稿: %d件中。残りは回収ジョブへ",
-                       max_cards, len(ids))
-        ids = ids[:max_cards]
     counts: dict[str, int] = {}
+    attempted = 0
     for i, cid in enumerate(ids):
+        if max_cards is not None and attempted >= max_cards:
+            logger.warning("[unreleased_x_post] 送信試行が上限(%d)に達したため残り%d件は回収ジョブへ",
+                           max_cards, len(ids) - i)
+            break
         result = post_card(sb, cid, post_fn=post_fn, interval=interval, sleep=sleep)
         counts[result] = counts.get(result, 0) + 1
+        if result in _ATTEMPT_RESULTS:
+            attempted += 1
         if result in _STOP_RESULTS:
             logger.warning("[unreleased_x_post] %s のため残り%d件の投稿を打ち切り（回収ジョブで再挑戦）",
                            result, len(ids) - i - 1)
@@ -683,10 +757,13 @@ def start_post_thread(sb, card_ids) -> threading.Thread | None:
 def find_backfill_candidates(sb, today: date | None = None) -> list[int]:
     """投稿条件を満たし、未投稿（行なし）か 再試行待ち（failed で attempts<上限 / rate_limited）のカードID（古い順）。
 
-    approval_snapshot が無いカード（このデプロイ以前の承認）は含めない。
+    approved_at が無いカード（導入前の承認）は含めない。さらに、発売済みカード名・同名で投稿済み・
+    その他 is_postable が偽のものも選定の段階で除いておく（post_card で必ず落ちるカードが
+    max_cards の枠を食い潰さないように）。
     """
     today = today or _today_jst()
-    cards = _fetch_all(lambda: sb.table("unreleased_cards").select("id, release_date")
+    cards = _fetch_all(lambda: sb.table("unreleased_cards")
+                       .select("id, name, release_date, status, hidden, approved_at")
                        .eq("status", "approved").eq("hidden", False)
                        .or_(f"release_date.is.null,release_date.gte.{today.isoformat()}")
                        .order("id"))
@@ -703,19 +780,13 @@ def find_backfill_candidates(sb, today: date | None = None) -> list[int]:
             return True
         return row.get("status") == "failed" and int(row.get("attempts") or 0) < MAX_ATTEMPTS
 
-    pending = [c["id"] for c in cards if retryable(c["id"])]
-    if not pending:
+    # 画像の有無は後で見るので、ここでは has_visible_image=True として他の条件だけを判定する
+    pending_cards = [c for c in cards if retryable(c["id"]) and is_postable(c, True, today)[0]
+                     and not _is_released_name(c.get("name") or "")]
+    if not pending_cards:
         return []
-    # 承認記録のあるカードだけ（このデプロイ以降の承認）。候補になりうる分だけ extraction_raw を読む
-    with_snapshot: set[int] = set()
-    for i in range(0, len(pending), _IN_CHUNK):
-        chunk = pending[i:i + _IN_CHUNK]
-        resp = sb.table("unreleased_cards").select("id, extraction_raw").in_("id", chunk).execute()
-        for r in resp.data or []:
-            raw = r.get("extraction_raw")
-            if isinstance(raw, dict) and isinstance(raw.get("approval_snapshot"), dict):
-                with_snapshot.add(r["id"])
-    pending = [cid for cid in pending if cid in with_snapshot]
+    posted_keys = _posted_name_keys(sb)
+    pending = [c["id"] for c in pending_cards if fuzzy_key(c.get("name") or "") not in posted_keys]
     if not pending:
         return []
     with_image: set[int] = set()
@@ -728,21 +799,34 @@ def find_backfill_candidates(sb, today: date | None = None) -> list[int]:
 
 
 def notify_stuck_rows(sb, *, now: datetime | None = None) -> int:
-    """STUCK_AFTER_SEC 以上前に更新されたきり posting / unknown の行を Discord に通知する。件数を返す。
+    """STUCK_AFTER_SEC 以上前に更新されたきり posting / unknown の行を Discord に通知する。通知した件数を返す。
 
     自動で再投稿はしない（投稿済みかもしれないので、人が X を見て posted にするか行を消す）。
+    同じ行の通知は STUCK_RENOTIFY_SEC（1日）に1回まで（回収は3時間ごとに動くため、放置しても通知が溢れない）。
+    最終通知時刻は行の stuck_notified_at に記録する。
     """
-    cutoff = ((now or datetime.now(timezone.utc)) - timedelta(seconds=STUCK_AFTER_SEC)).isoformat()
-    rows = _fetch_all(lambda: sb.table(TABLE).select("card_id, status, updated_at, last_error")
+    now = now or datetime.now(timezone.utc)
+    cutoff = (now - timedelta(seconds=STUCK_AFTER_SEC)).isoformat()
+    rows = _fetch_all(lambda: sb.table(TABLE).select("card_id, status, updated_at, last_error, stuck_notified_at")
                       .in_("status", ["posting", "unknown"]).lt("updated_at", cutoff).order("card_id"))
-    if not rows:
+    due = []
+    for r in rows:
+        last = _parse_ts(r.get("stuck_notified_at"))
+        if last is None or (now - last).total_seconds() >= STUCK_RENOTIFY_SEC:
+            due.append(r)
+    if not due:
         return 0
-    lines = [f"card_id={r['card_id']} {r['status']} (最終更新 {str(r.get('updated_at'))[:16]})" for r in rows[:20]]
-    more = f" ほか{len(rows) - 20}件" if len(rows) > 20 else ""
+    lines = [f"card_id={r['card_id']} {r['status']} (最終更新 {str(r.get('updated_at'))[:16]})" for r in due[:20]]
+    more = f" ほか{len(due) - 20}件" if len(due) > 20 else ""
     _notify("[未発売X投稿] 1時間以上 posting / unknown のままの行があります（自動再投稿はしません）。"
-            "Xで投稿の有無を確認し、投稿済みなら posted に、未投稿なら行を削除してください:\n"
-            + "\n".join(lines) + more)
-    return len(rows)
+            + UNKNOWN_GUIDE + ":\n" + "\n".join(lines) + more)
+    stamp = now.isoformat()
+    for r in due:
+        try:
+            sb.table(TABLE).update({"stuck_notified_at": stamp}).eq("card_id", r["card_id"]).execute()
+        except Exception as e:
+            logger.warning("[unreleased_x_post] 通知時刻の記録に失敗 card_id=%s: %s", r["card_id"], e)
+    return len(due)
 
 
 def run_backfill(sb, *, post_fn=None, sleep=time.sleep) -> dict:
