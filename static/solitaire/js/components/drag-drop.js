@@ -2,6 +2,7 @@ import { initializeCounter, addCounterDeleteButton } from './counter-manager.js'
 import { applyDefense, applySet, toggleDefense, getCardState, applyCardState } from './card-state.js';
 import { openCardContextMenu, closeContextMenu, cancelFieldPlacement } from '../ui/context-menu.js';
 import { isMobilePortrait } from '../utils/viewport.js';
+import { restackCustomSlot } from './slot-stack.js';
 
 /**
  * ドラッグ&ドロップ統合管理
@@ -76,41 +77,21 @@ function resetCardStyle(card, resetTop = true) {
  * @param {boolean} [opts.under=false] - true=最背面（下重ね）に配置
  */
 function placeCardInCustomSlot(slot, card, { under = false } = {}) {
-  const existingItems = Array.from(slot.querySelectorAll('.tier-item-wrapper'));
+  const existingItems = Array.from(slot.querySelectorAll(':scope > .tier-item-wrapper'));
 
   // 同じ場所にドロップした場合は何もしない
   if (existingItems.length === 1 && existingItems[0] === card) {
     return;
   }
 
-  const baseZIndex = 1;
-
+  // DOM 上の位置だけ決め、z-index / top は restackCustomSlot が DOM 順から一括で詰め直す
+  // （先頭＝最背面。下重ね=先頭へ、通常=末尾＝最前面へ）
   if (under && existingItems.length > 0) {
-    // 下重ね: 既存カードを 2..N に底上げ、新規カードを 1（最背面）に
-    const others = existingItems.filter(el => el !== card);
-    // 既存カードを1段ずつ下へずらし、差し込むカードをスロット上端に置く。
-    // 通常積みと同じ方向（上端に古いカード、下へ向かって新しいカード）になる。
-    others.forEach((item, index) => {
-      item.style.position = 'absolute';
-      item.style.zIndex   = String(baseZIndex + 1 + index);
-      item.style.top      = `calc(var(--slot-width) * 0.${index + 1})`;
-    });
-    card.style.position = 'absolute';
-    card.style.zIndex   = String(baseZIndex);
-    card.style.top      = '0';
     slot.insertBefore(card, slot.firstChild);
   } else {
-    // 通常（上重ね）: 既存カードを整列し、新規カードを最前面に
-    existingItems.forEach((item, index) => {
-      item.style.position = 'absolute';
-      item.style.zIndex   = `${baseZIndex + index}`;
-    });
-
-    card.style.position = 'absolute';
-    card.style.top      = `calc(var(--slot-width) * 0.${existingItems.length})`;
-    card.style.zIndex   = `${baseZIndex + existingItems.length}`;
     slot.appendChild(card);
   }
+  restackCustomSlot(slot);
 }
 
 /**
@@ -227,6 +208,8 @@ export function executeDrop(draggedInfo, dropZoneInfo, dropTarget, modifiers = {
   if (dragType === 'card') {
     const { type: dropType, element: dropZone } = dropZoneInfo;
     let zIndex;
+    // 移動元スロット（フィールドから出ていく場合に残りのカードを詰め直すため）
+    const sourceSlot = draggedElement.parentElement;
 
     // 同一ゾーン（デッキ/EXデッキ/手札）内への置き直しは意味のない操作なので、
     // 配置もリプレイ記録（手数）もしない。デッキ内の並べ替えも行わない。
@@ -273,6 +256,11 @@ export function executeDrop(draggedInfo, dropZoneInfo, dropTarget, modifiers = {
       case 'SIDE_SLOT':
         placeCardInNormalSlot(dropZone, draggedElement);
         break;
+    }
+
+    // フィールドスロットから別ゾーンへ出た場合、元スロットの残りを詰め直す
+    if (sourceSlot && sourceSlot !== dropZone) {
+      restackCustomSlot(sourceSlot);
     }
 
     // リプレイログ記録（img.tier-item または div.tier-item（プロキシ）どちらでも対応）

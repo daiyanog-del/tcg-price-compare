@@ -31,6 +31,7 @@
 
 import { returnAllCardsToDeck, attachCardImageListeners } from '../components/card-manager.js';
 import { applyCardState, getCardState } from '../components/card-state.js';
+import { restackCustomSlot } from '../components/slot-stack.js';
 import { playActivateEffect, flipMoveClone, playSetFlip, flyBetweenRects, prefersReducedMotion } from '../components/card-effects.js';
 import { createProxyCardElement } from '../components/proxy-card.js';
 import { isMobilePortrait } from '../utils/viewport.js';
@@ -788,9 +789,11 @@ function _applyDraw(event) {
   if (!card) return;
   const center = document.querySelector('.center-slot');
   if (!center) return;
+  const sourceSlot = card.parentElement;
   card.style = '';
   applyCardState(card, {}); // 守備・セット状態をクリア
   center.appendChild(card);
+  restackCustomSlot(sourceSlot);
 
   if (_shouldMobileFly()) {
     const deckBtnRect = _getDeckAnchorRect(); // 第6次検収2a
@@ -821,9 +824,11 @@ function _applyReturnToDeck(event) {
 
   // 状態クリア＋DOM確定（PC/モバイル/EX/非EXの全分岐で共通）
   const commit = () => {
+    const sourceSlot = card.parentElement;
     card.style = '';
     applyCardState(card, {}); // 守備・セット状態をクリア
     pool.appendChild(card);
+    restackCustomSlot(sourceSlot);
   };
 
   if (!isEx && _shouldMobileFly()) {
@@ -935,51 +940,36 @@ function _findZone(zoneId) {
 
 function _placeCardInZone(zone, card, zIndex) {
   const zoneCls = zone.className || '';
+  // 移動元スロット（フィールドから出ていく場合に残りのカードを詰め直すため）
+  const sourceSlot = card.parentElement;
+
   if (zoneCls.includes('tier-row')) {
     // プール（並び替え）
     card.style = '';
     zone.appendChild(card);
   } else if (zoneCls.includes('custom-slot')) {
     // フィールドスロット（重ね置き）
-    const existingItems = Array.from(zone.querySelectorAll('.tier-item-wrapper'));
+    // DOM 上の位置だけ決め、z-index / top は restackCustomSlot が DOM 順から詰め直す。
+    // 下重ね = 自分以外の既存カードがあり、かつログの zIndex が 1 以下 → 先頭（最背面）へ。
+    // それ以外 → 末尾（最前面）へ。
+    // 空スロットでも card.style='' はせず drag-drop 側と同じ（absolute / top 0）にそろえる。
+    // 表示形式（守備・裏）は data 属性／クラスと transform で保持され、呼び出し側が先に適用済み。
     const zNum = parseInt(zIndex ?? '1', 10);
-
-    if (existingItems.length > 0 && existingItems[0] !== card) {
-      const baseZ = 1;
-
-      if (zNum <= 1 && existingItems.length > 0) {
-        // 下重ね（zIndex=1 かつ既存カードがある場合）
-        const others = existingItems.filter(el => el !== card);
-        // 既存カードを1段ずつ下へずらし、差し込むカードをスロット上端に置く。
-        // 通常積みと同じ方向（上端に古いカード、下へ向かって新しいカード）になる。
-        others.forEach((el, idx) => {
-          el.style.position = 'absolute';
-          el.style.zIndex   = String(baseZ + 1 + idx);
-          el.style.top      = `calc(var(--slot-width) * 0.${idx + 1})`;
-        });
-        card.style.position = 'absolute';
-        card.style.zIndex   = String(baseZ);
-        card.style.top      = '0';
-        zone.insertBefore(card, zone.firstChild);
-      } else {
-        // 通常の上重ね
-        existingItems.forEach((item, idx) => {
-          item.style.position = 'absolute';
-          item.style.zIndex   = `${baseZ + idx}`;
-        });
-        card.style.position = 'absolute';
-        card.style.top      = `calc(var(--slot-width) * 0.${existingItems.length})`;
-        card.style.zIndex   = zIndex ?? `${baseZ + existingItems.length}`;
-        zone.appendChild(card);
-      }
+    const others = Array.from(zone.querySelectorAll(':scope > .tier-item-wrapper')).filter(el => el !== card);
+    if (others.length > 0 && zNum <= 1) {
+      zone.insertBefore(card, zone.firstChild);
     } else {
-      card.style = '';
       zone.appendChild(card);
     }
+    restackCustomSlot(zone);
   } else {
     // center-slot / side-slot / free-space
     card.style = '';
     zone.appendChild(card);
+  }
+
+  if (sourceSlot && sourceSlot !== zone) {
+    restackCustomSlot(sourceSlot);
   }
 }
 
