@@ -54,6 +54,8 @@ _WHOLE_IMAGE_EPS = 1e-6
 
 REASON_LABELS = {
     "confidence_low": "抽出の信頼度が低",
+    "confidence_missing": "抽出の信頼度が記録されていない",
+    "uncertain_important_fields": "AIが不確かとした欄に重要な欄がある",
     "medium_uncertain_fields": "抽出の信頼度が中で、AIが不確かとした欄に重要な欄がある",
     "medium_uncertain_unknown": "抽出の信頼度が中で、どの欄が不確かか分からない",
     # VERSION 3 以前の判定記録に残っているコード（表示のため残す。新規の判定では出さない）
@@ -103,7 +105,7 @@ def verdict_reason_labels(verdict) -> list[str]:
     out = []
     for code in verdict.get("reasons") or []:
         label = reason_label(code)
-        if code == "medium_uncertain_fields":
+        if code in ("medium_uncertain_fields", "uncertain_important_fields"):
             names = uncertain_field_labels(verdict.get("uncertain_fields"))
             if names:
                 label += "（" + "、".join(names) + "）"
@@ -114,23 +116,28 @@ def verdict_reason_labels(verdict) -> list[str]:
 def _confidence_reasons(card: dict, raw: dict) -> tuple[list[str], list[str]]:
     """信頼度に関する理由コードと、重要欄に重なる不確かな欄を返す。
 
-    low は不適格、high は通過。medium は AI が出した uncertain_fields が重要欄
-    （IMPORTANT_UNCERTAIN_FIELDS）と重ならなければ通す。uncertain_fields が無い
-    （旧データ・AI が出さなかった）medium は、何が不確かか分からないので不適格にする。
-    unknown な値（スキーマ外）は重要欄として扱う（安全側）。
+    - 信頼度: low は不適格、high は通過、medium は uncertain_fields が1つ以上あることが必要
+      （無い＝旧データ・AI が出さなかった medium は何が不確かか分からないので不適格）。
+      信頼度が無い・想定外の値は confidence_missing（low とは別物として区別する）。
+    - 不確かな欄: 信頼度に関係なく、AI が挙げた uncertain_fields が重要欄
+      （IMPORTANT_UNCERTAIN_FIELDS）と重なれば不適格。medium は medium_uncertain_fields、
+      それ以外（high で重要欄を挙げた矛盾した応答など）は uncertain_important_fields。
+      スキーマ外の値は重要欄として扱う（安全側）。
     """
     conf = card.get("confidence")
-    if conf == "high":
-        return [], []
-    if conf != "medium":
-        return ["confidence_low"], []
     fields = raw.get("uncertain_fields")
-    if not isinstance(fields, list) or not fields:
-        return ["medium_uncertain_unknown"], []
-    important = [f for f in dict.fromkeys(fields) if f not in UNCERTAIN_FIELD_LABELS or f in IMPORTANT_UNCERTAIN_FIELDS]
+    fields = list(dict.fromkeys(fields)) if isinstance(fields, list) else []
+    important = [f for f in fields if f not in UNCERTAIN_FIELD_LABELS or f in IMPORTANT_UNCERTAIN_FIELDS]
+    reasons: list[str] = []
+    if conf == "low":
+        reasons.append("confidence_low")
+    elif conf not in ("high", "medium"):
+        reasons.append("confidence_missing")
+    elif conf == "medium" and not fields:
+        reasons.append("medium_uncertain_unknown")
     if important:
-        return ["medium_uncertain_fields"], important
-    return [], []
+        reasons.append("medium_uncertain_fields" if conf == "medium" else "uncertain_important_fields")
+    return reasons, important
 
 
 # ──────────────────────────────────────────────

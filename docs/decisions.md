@@ -1511,5 +1511,7 @@ rarity_pref 基準に統一。`items_map` のキーも rarity_pref で作る。
 - 何を: (1) 抽出直後に効果文・P効果の半角 `( ) : ! ? & / ~` を全角へ補正（「」の中は触れない）。(2) 抽出スキーマに `uncertain_fields`（enum 配列）を追加し extraction_raw に保存。evaluate（VERSION 4）は low=不適格、high=通過、medium は不確かな欄が重要欄 {name, effect_text, pendulum_effect, card_type, level_rank_link, atk, def, pendulum_scale} と重ならなければ通す。uncertain_fields が無い medium は不適格（medium_uncertain_unknown）。理由コード `confidence_not_high` は low 専用の `confidence_low` に分け、旧コードのラベルは旧判定記録の表示用に残す。(3) 誤字検査で、書式の強い疑い（半角記号）と位置が交差する n-gram の強い疑いは書式側に一本化。(4) 管理画面に「AIが不確かとした欄」の札、auto_approve_report に信頼度×不確か欄の集計。
 - なぜ: 公式記事の新カードが全て自動承認されなかった。原因は (a) AI 自己申告の medium、(b) 半角括弧の抽出で format と unknown_ngram が同じ位置を二重に強い疑いにしていた。
 - 根拠（公式コーパス ygores_cards 14,655 テキスト、「」の外）: 半角→全角の出現数が `( )` 2→1,217、`:` 0→10,250、`!` 0→31、`?` 0→27、`&` 0→542、`/` 0→347、`~` 0→60。`+ , - .` は半角が実在する（2/19/16/22 件）ので補正しない。
-- 重要欄に含めない欄: release_date（公式の発売日表と別途照合）、product_name（その照合に使われ不一致は発売日側で落ちる）、attribute / race（内容を左右する度合いが小さく、公開画像と見比べて直しやすい）。この線引きは仮置き（TODO: calibrate from data。auto_approve_report の「不確か欄ごとの手直し率」で見直す）。
+- 重要欄に含めない欄は release_date（公式の発売日表と別途照合）と product_name（その照合に使われ不一致は発売日側で落ちる）のみ。attribute / race は重要欄に含める（レビュー指摘: データが溜まるまでは安全側）。緩めるのは auto_approve_report の「不確か欄ごとの手直し率」を見てから（TODO: calibrate from data）。
+- 不確か欄の判定は信頼度に関係なく行う。high でも重要欄が挙がっていれば不適格（uncertain_important_fields）。信頼度が無い行は confidence_low と区別して confidence_missing。
 - 限界: uncertain_fields は AI の自己申告。AI が「不確か」を挙げない medium は通さないが、「確か」と言った欄が実際は誤読という場合は拾えない（従来の high と同じ限界）。実 API の実測では不確か欄の大半が effect_text で、medium の自動承認増には限定的（効果文は誤字検査が見る）。出力は実行ごとに揺れる（同じ記事で high/medium の内訳が変わった）。
+- レビューで挙がった限界（記録のみ・対応しない）: 低1 編集保存で verdict を再計算しても保存済みの uncertain_fields を使うため、人が直した欄が不確かのまま残る。低2 管理画面の札は偽 DOM の node テストまでで実画面は未確認。低4 JS テストは pytest に組み込まず手動実行。

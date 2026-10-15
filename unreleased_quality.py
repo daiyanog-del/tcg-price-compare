@@ -14,14 +14,14 @@ UNCERTAIN_FIELDS = (
     "level_rank_link", "atk", "def", "pendulum_scale", "product_name", "release_date",
 )
 
-# 不確かだと自動承認しない欄（効果・数値・名前・種別。読み違いがそのまま公開内容の誤りになる）。
-# 重要欄に含めない欄の根拠:
+# 不確かだと自動承認しない欄。データが溜まるまでは安全側に倒し、attribute / race も含める。
+# 外すのは次の2つだけ:
 #   release_date: 取込時に公式の発売日表と別途照合する（release_date_not_verified）ので自己申告に頼らない
-#   product_name: 発売日の公式照合に使われ、不一致は発売日側の照合で落ちる
-#   attribute / race: 効果・数値ほど内容を左右せず、公開画像（カード画像そのもの）と見比べて訂正しやすい
+#   product_name: その照合に使われ、不一致は発売日側で落ちる
+# 緩める判断は tools/auto_approve_report.py の「不確か欄ごとの手直し率」を見てから行う。
 IMPORTANT_UNCERTAIN_FIELDS = frozenset({
-    "name", "effect_text", "pendulum_effect", "card_type", "level_rank_link",
-    "atk", "def", "pendulum_scale",
+    "name", "effect_text", "pendulum_effect", "card_type", "attribute", "race",
+    "level_rank_link", "atk", "def", "pendulum_scale",
 })
 
 UNCERTAIN_FIELD_LABELS = {
