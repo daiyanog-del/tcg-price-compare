@@ -30,9 +30,11 @@ _MAX_TOKENS = 8000
 _WORKERS = 4  # TODO: calibrate from data（1カード1回の呼び出し。記事あたり最大30枚）
 
 # 一致したとき、1回目のAI自己申告で入っていた effect_text の不確かを外すか。
-# 計測（tools/eval_effect_text.py の firstpass。docs/decisions.md）の結果で決める。外した場合は
+# 計測（tools/eval_effect_text.py の firstpass、n=30。docs/decisions.md）: 1回目が自己申告した22枚のうち一致12枚、
+# 一致した12枚に正解と違うものは0（一致した17枚全体でも0）だったので有効。1枚でも誤りが出たら False にして無効化する。
+# 外した場合は
 # extraction_raw.uncertain_cleared_by_reread=True を残す（自動承認の判定が「不確かを出さない medium」と区別するため）。
-CLEAR_UNCERTAIN_ON_AGREE = False
+CLEAR_UNCERTAIN_ON_AGREE = True
 
 UNREADABLE = "〓"
 

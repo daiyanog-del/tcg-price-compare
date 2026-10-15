@@ -19,6 +19,7 @@ eval_effect_text.py — 未発売カードの効果テキスト読み取り方�
   crops    効果欄の切り出し画像を保存（目視確認用）
   schema   構造化出力スキーマが実 API で通るか 1 件ずつ確認
   run      API 実行（--tag trial/full、--limit N、--models、--methods、--budget USD）。結果は逐次保存・再開可
+  firstpass 本番の流れ（1回目Opus→名前ヒント付き読み直し）で、不確かの自己申告と一致の関係を計測
   report   指標の集計（JSON + Markdown）と差分の保存
 
 使い方の例:
@@ -792,9 +793,112 @@ def cmd_report(a) -> None:
     print("\n".join(L))
 
 
+def cmd_firstpass(a) -> None:
+    """本番の流れの計測: 1回目（Opus・uncertain_fields を出す現行プロンプト・1枚ずつ）→ 読み直し（名前ヒント付き）。
+
+    出す数字: 1回目が effect_text を不確かと自己申告した枚数 / そのうち読み直しと一致した枚数 /
+    一致したもののうち正解（ygores）と違った枚数。DB には書かない。
+    """
+    import unreleased_extractor as ue
+    import effect_text_reread as rr
+    from card_crop import refine_card_box
+    from unreleased_quality import structured_request
+    from anthropic import Anthropic
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    sel = jload(os.path.join(a.out, "selection.json"))["cards"]
+    cards = sel[: a.limit] if a.limit else sel
+    path = os.path.join(a.out, f"results_firstpass{'_' + a.tag if a.tag != 'full' else ''}.json")
+    res = jload(path, {})
+    client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"], timeout=300.0, max_retries=2)
+    _, Result = ue._get_pydantic_models()
+    budget = Budget(a.budget, sum(v.get("cost", 0) for v in res.values()))
+    lock = threading.Lock()
+    model = ue.EXTRACTOR_MODEL if os.environ.get("EXTRACTOR_MODEL") else "claude-opus-5-5"
+
+    def work(c):
+        if c["code"] in res or budget.exceeded():
+            return
+        rec = {"code": c["code"]}
+        try:
+            raw_bytes = open(c["image_file"], "rb").read()
+            img = encode_image(raw_bytes, c["image_url"])
+            context = f"[処理日時: {datetime.now(ZoneInfo('Asia/Tokyo')).isoformat()}。これは発売日の根拠ではありません]\n[ページURL: {c['article']}]"
+            t0 = time.time()
+            data, text, usage = retryable(lambda: structured_request(
+                client, model=model, system=ue._SYSTEM_PROMPT, content=ue._build_vision_message(context, [img]),
+                schema=Result.model_json_schema(), max_tokens=ue._MAX_TOKENS, effort=ue.EXTRACTOR_EFFORT))
+            rec["first_seconds"] = time.time() - t0
+            rec["first_cost"] = cost_of(model, usage)
+            result = Result.model_validate(data)
+            card = next((x for x in result.cards if (x.image_url or "").strip() == img["url"]), None) or (result.cards[0] if result.cards else None)
+            if card is None:
+                raise ValueError("1回目がカードを返さなかった")
+            row = ue._validate_and_fix(card, c["article"])
+            if row is None:
+                raise ValueError("1回目の結果が除外された")
+            row.pop("image_url", None)
+            raw = {"source_image_url": img["url"], "card_bbox": card.card_bbox, "source": "official_html",
+                   "model": model, "uncertain_fields": list(dict.fromkeys(card.uncertain_fields))}
+            sug = refine_card_box(raw_bytes, card.card_bbox) if card.card_bbox else None
+            if sug:
+                sug["source_image_url"] = img["url"]
+                raw["crop_suggestion"] = sug
+            row["extraction_raw"] = raw
+            rec.update({"first_name": row["name"], "first_text": row["effect_text"], "first_card_type": row["card_type"],
+                        "first_confidence": row["confidence"], "first_uncertain": list(raw["uncertain_fields"]),
+                        "had_crop_suggestion": bool(sug)})
+            rr.reread_effect_texts([row], client=client, encoded_images=[img])
+            info = raw.get("effect_text_reread", {})
+            rec["reread"] = {k: info.get(k) for k in ("agreed", "text", "error", "skipped", "unreadable", "seconds")}
+            rec["reread_cost"] = cost_of(rr.REREAD_MODEL, info["usage"]) if info.get("usage") else 0.0
+            rec["final_text"] = row["effect_text"]
+            rec["cost"] = rec["first_cost"] + rec["reread_cost"]
+        except Exception as e:  # noqa: BLE001
+            rec["error"] = f"{type(e).__name__}: {str(e)[:300]}"
+            rec["cost"] = rec.get("first_cost", 0.0)
+        budget.add(rec["cost"])
+        with lock:
+            res[c["code"]] = rec
+            jsave(path, res)
+        print(f"  {c['code']:12s} ${rec['cost']:.4f} {'ERR ' + rec['error'] if 'error' in rec else 'agreed=' + str(rec['reread'].get('agreed')) + ' unc=' + str(rec['first_uncertain'])}", flush=True)
+
+    with ThreadPoolExecutor(max_workers=a.workers) as ex:
+        list(ex.map(work, cards))
+
+    by_code = {c["code"]: c for c in cards}
+    ok = [r for r in res.values() if "error" not in r and r["code"] in by_code]
+    flagged = [r for r in ok if "effect_text" in r["first_uncertain"]]
+    flagged_agreed = [r for r in flagged if r["reread"].get("agreed")]
+
+    def wrong(r):
+        c = by_code[r["code"]]
+        return norm(r["final_text"]) != norm(c["effect_text"])
+    all_agreed = [r for r in ok if r["reread"].get("agreed")]
+    out = {
+        "n_cards": len(cards), "n_ok": len(ok), "n_error": len(res) - len(ok),
+        "first_flagged_effect_text": len(flagged),
+        "flagged_and_agreed": len(flagged_agreed),
+        "flagged_agreed_and_wrong": sum(wrong(r) for r in flagged_agreed),
+        "agreed_total": len(all_agreed), "agreed_total_wrong": sum(wrong(r) for r in all_agreed),
+        "first_flagged_name": sum("name" in r["first_uncertain"] for r in ok),
+        "first_exact": sum(norm(r["first_text"]) == norm(by_code[r["code"]]["effect_text"]) for r in ok),
+        "reread_exact": sum(norm(r["reread"].get("text") or "") == norm(by_code[r["code"]]["effect_text"]) for r in ok),
+        "first_name_exact": sum(norm(r["first_name"]) == norm(by_code[r["code"]]["name"]) for r in ok),
+        "confidence": {k: sum(r["first_confidence"] == k for r in ok) for k in ("high", "medium", "low")},
+        "total_cost": sum(r.get("cost", 0) for r in res.values()),
+        "first_seconds_mean": statistics.mean(r["first_seconds"] for r in ok) if ok else None,
+        "reread_seconds_mean": statistics.mean(r["reread"]["seconds"] for r in ok if r["reread"].get("seconds")) if ok else None,
+        "wrong_agreed": [r["code"] for r in all_agreed if wrong(r)],
+    }
+    jsave(os.path.join(a.out, f"report_firstpass{'_' + a.tag if a.tag != 'full' else ''}.json"), out)
+    print(json.dumps(out, ensure_ascii=False, indent=1))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["select", "crops", "schema", "run", "report"])
+    ap.add_argument("cmd", choices=["select", "crops", "schema", "run", "report", "firstpass"])
     ap.add_argument("--out", default=DEFAULT_OUT)
     ap.add_argument("--n", type=int, default=30)
     ap.add_argument("--tag", default="full")
@@ -805,7 +909,7 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=4)
     a = ap.parse_args()
     load_env()
-    {"select": cmd_select, "crops": cmd_crops, "schema": cmd_schema, "run": cmd_run, "report": cmd_report}[a.cmd](a)
+    {"select": cmd_select, "crops": cmd_crops, "schema": cmd_schema, "run": cmd_run, "report": cmd_report, "firstpass": cmd_firstpass}[a.cmd](a)
 
 
 if __name__ == "__main__":

@@ -200,8 +200,9 @@ def _agreed_row(unc=("effect_text", "atk"), first_model="claude-opus-5-5"):
     return row
 
 
-def test_clear_on_agree_is_off_by_default(monkeypatch):
-    assert rr.CLEAR_UNCERTAIN_ON_AGREE is False
+def test_clear_on_agree_can_be_disabled_by_flag(monkeypatch):
+    # 計測で誤りが出たときはこのフラグを False にして無効化する（既定は計測結果により True）
+    monkeypatch.setattr(rr, "CLEAR_UNCERTAIN_ON_AGREE", False)
     _fake_read(monkeypatch, text="①：このカードを特殊召喚できる。")
     row = _agreed_row()
     rr.reread_effect_texts([row], client=object(), encoded_images=_images())
@@ -210,7 +211,7 @@ def test_clear_on_agree_is_off_by_default(monkeypatch):
 
 
 def test_agreed_clears_effect_text_uncertain_but_keeps_other_fields(monkeypatch):
-    monkeypatch.setattr(rr, "CLEAR_UNCERTAIN_ON_AGREE", True)
+    assert rr.CLEAR_UNCERTAIN_ON_AGREE is True
     _fake_read(monkeypatch, text="①：このカードを特殊召喚できる。")
     row = _agreed_row()
     rr.reread_effect_texts([row], client=object(), encoded_images=_images())
