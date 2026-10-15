@@ -103,6 +103,11 @@ function fitFieldToViewport() {
   const navH    = 0;
   const trayH   = tray.offsetHeight;   // 閉=28px 開=閉+ボディ高さ
   const replayH = replay ? replay.offsetHeight + 4 : 36; // margin-top(4px)込み
+  // 盤面メモの帯（コメント。出ているときだけ高さを取る）。帯の上の余白(margin-top)も込み
+  const memoEl  = document.getElementById('solBoardMemo');
+  const memoH   = memoEl && !memoEl.hidden
+    ? memoEl.offsetHeight + (parseFloat(getComputedStyle(memoEl).marginTop) || 0)
+    : 0;
 
   // スマホ検出: 短辺 < 500px → スマホ（縦/横向き問わず検知）。横向き分岐はこの基準のまま（司令塔決定A-1）。
   const isPhone     = Math.min(window.innerWidth, window.innerHeight) < 500;
@@ -121,7 +126,7 @@ function fitFieldToViewport() {
   if (isPhone && isLandscape) {
     // mainContainer padding-top(4) + row-gaps(20) + sol-field-area padding-bottom(6)
     const BOARD_FIXED = 30;
-    const availForBoard = window.innerHeight - navH - trayH - replayH - BOARD_FIXED;
+    const availForBoard = window.innerHeight - navH - trayH - memoH - replayH - BOARD_FIXED;
     slotW_h = Math.floor(availForBoard / 4.35);
   } else if (isPortraitMobile) {
     // 設計書 §A-2（2026-09-03 第2次実機検収対応）: 墓地｜除外の左右2分割をやめ、
@@ -139,7 +144,7 @@ function fitFieldToViewport() {
     const MOBILE_PORTRAIT_FIXED_BASE = 74; // 126 - 52（下部バー分を除いた固定分）
     mobileBottomReserve = getMobileBottomReserve();
     const MOBILE_PORTRAIT_FIXED = MOBILE_PORTRAIT_FIXED_BASE + mobileBottomReserve;
-    slotW_h = Math.floor((window.innerHeight - MOBILE_PORTRAIT_FIXED) / 10.15);
+    slotW_h = Math.floor((window.innerHeight - MOBILE_PORTRAIT_FIXED - memoH) / 10.15);
   } else {
     // slot-width に依存しない固定オーバーヘッド（実測ベースに引き直し）:
     //   mainContainer padding-top              :  4px
@@ -149,7 +154,7 @@ function fitFieldToViewport() {
     //   sol-field-area padding-bottom          :  6px
     // ※やや大きめ(アンダーシュート寄り)に置き、実測補正の縮小ループを避ける
     const FIXED_MISC = 4 + 8 + 22 + 22 + 6; // 62px
-    const fixed      = navH + trayH + replayH + FIXED_MISC;
+    const fixed      = navH + trayH + memoH + replayH + FIXED_MISC;
     const available  = window.innerHeight - fixed;
     slotW_h = Math.floor(available / 7.25);
   }

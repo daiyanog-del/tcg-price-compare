@@ -11,13 +11,11 @@ import {
   seekTo,
   undoLast,
   togglePlay,
-  isPlaying,
   setPlaySpeed,
   getPlaySpeed,
   exportReplay,
   exportAsURLHash,
   getLogLength,
-  getCursor,
   getImages,
   getNames,
   getExCardIds,
@@ -30,7 +28,8 @@ import {
 } from '../services/replay-service.js';
 import { buildBoardFromLogs } from '../services/replay-board.js';
 import { setPcPlaybackMode } from '../components/drag-drop.js';
-import { initPcRecording, _getPcRecordingRange, updatePcShareRecordingSection, _resetPcRecording, _syncPcRecordingEndIdxAfterComment } from './pc-recording.js';
+import { initPcRecording, _getPcRecordingRange, updatePcShareRecordingSection, _resetPcRecording } from './pc-recording.js';
+import { initCommentUI } from './comment-ui.js';
 import { clearEverything } from './deck-input-panel.js';
 import { showToast } from '../utils/toast.js';
 import { addSharedReplay } from '../services/shared-replays.js';
@@ -154,23 +153,8 @@ export function initReplayUI() {
       seekTo(n);
     });
 
-  // コメント挿入
-  document.getElementById('replayAddComment')
-    ?.addEventListener('click', () => {
-      const input = document.getElementById('replayCommentInput');
-      const text = input?.value?.trim();
-      if (!text) return; // 空入力なら盤面をシークする副作用も起こさない
-
-      // 再生中に停止しただけではカーソルが再生途中の位置に残ったままで、直後の logEvent() が
-      // 「カーソルより先の未来ログを切り捨てる」処理（replay-service.js）を発火させてしまい、
-      // 記録の後半が消える。再生中は先に停止し、カーソルが末尾でなければ末尾までシークしてから
-      // コメントを追加する（＝コメントは常に記録の末尾に追記される）。
-      if (isPlaying()) togglePlay();
-      if (getCursor() < getLogLength() - 1) seekTo(getLogLength() - 1);
-      logEvent({ actionType: 'comment', text });
-      input.value = '';
-      _syncPcRecordingEndIdxAfterComment(); // 中2対応: 停止済み録画があれば endIdx を追従させる
-    });
+  // コメント（吹き出し・盤面メモ）: 右パネル「コメント」区画の入力と一覧（comment-ui.js）
+  initCommentUI();
 
   // リプレイエクスポート（ファイル保存）。範囲が決まっていればその範囲だけを書き出す
   document.getElementById('replayExport')

@@ -596,8 +596,10 @@
   .sol-mobile-action-ops[hidden] { display: none; }
   .sol-mobile-action-btn[hidden] { display: none; }
   .sol-mobile-action-btn {
-    flex: 1 1 30%;
-    min-width: 88px;
+    /* 整理④で「吹き出し」を足して7つになったため、1段4つ・2段に収める
+       （3段目は max-height:110px を超えて下部バーに重なっていた） */
+    flex: 1 1 22%;
+    min-width: 60px;   /* 幅320pxでも1段4つに収める（4×60+隙間12+左右の余白16=268px） */
     padding: 6px 4px;
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -1199,4 +1201,12 @@
   .sol-fly-clone {
     display: none !important;
   }
+}
+
+/* 幅340px以下（320px級のスマホ）: 下部バーに5つ並べると1つ約57pxになり、
+   「デッキ N」が「デッ／キ」と単語の途中で折れていたため、字と間隔を詰めて1行に収める
+   （2026-10-15 整理③で「保存」を足して5つになった。320/360/375px で実測） */
+@media (max-width: 340px) {
+  .sol-mobile-bar-btn { font-size: 0.76rem; gap: 2px; }
+  #solMobileDeckBtn { white-space: nowrap; }
 }

@@ -183,6 +183,19 @@
         </div>
       </section>
 
+      <!-- コメント（整理④）: カードの選択案内と盤面メモ。どちらも普段は hidden で場所を取らない。
+           表示の制御は static/solitaire/js/ui/comment-ui.js（案内）と services/comment-view.js（メモ） -->
+      <!-- 案内帯は高さ0の足場に重ねて出す（出し入れで盤面の大きさが変わり、押そうとしたカードが動くのを避ける） -->
+      <div class="sol-comment-guide-anchor">
+        <div id="solCommentGuide" class="sol-comment-guide" role="status" hidden>コメントを付けるカードを選んでください（Escでやめる）</div>
+      </div>
+      <!-- 盤面メモ: 押すと全文が下に重なって開く（スマホでは title が見えないため。配線は comment-ui.js） -->
+      <div id="solBoardMemo" class="sol-board-memo" role="button" tabindex="0" aria-expanded="false" hidden>
+        <span class="sol-board-memo-icon" aria-hidden="true">&#128221;</span>
+        <span id="solBoardMemoText" class="sol-board-memo-text"></span>
+        <div id="solBoardMemoFull" class="sol-board-memo-full" hidden></div>
+      </div>
+
       <div id="mainContainer">
         <div class="main-content">
           <!-- フィールド -->
@@ -269,9 +282,6 @@
         </div>
         <div class="replay-group" aria-label="戻す">
           <button class="replay-btn" id="replayUndo" disabled>&#8630; 1手戻す</button>
-          <!-- コメント入力は整理④（吹き出し・盤面メモ）で右パネルへ移すまでの間ここに置く -->
-          <input type="text" class="replay-comment-input" id="replayCommentInput" placeholder="コメント（任意）">
-          <button class="replay-btn" id="replayAddComment">追加</button>
         </div>
         <div class="replay-group" aria-label="残す">
           <!-- 範囲を選ぶ: 状態機械は static/solitaire/js/ui/pc-recording.js。
@@ -340,7 +350,14 @@
         <div class="sol-mobile-cip-scrim" data-sol-cip-close></div>
         <div class="sol-mobile-cip-panel">
           <button id="solMobileCipClose" class="sol-mobile-cip-close" type="button" data-sol-cip-close aria-label="閉じる">&times;</button>
-          <div id="solMobileCipBody" class="sol-mobile-cip-body"></div>
+          <div class="sol-mobile-cip-main">
+            <!-- そのカードの今の吹き出し（全文）。mobile-ui.js の openCardDetailOverlay が入れる -->
+            <div id="solMobileCipBubble" class="sol-mobile-cip-bubble" hidden>
+              <p class="sol-mobile-cip-bubble-label">吹き出し</p>
+              <p id="solMobileCipBubbleText" class="sol-mobile-cip-bubble-text"></p>
+            </div>
+            <div id="solMobileCipBody" class="sol-mobile-cip-body"></div>
+          </div>
         </div>
       </div>
 
@@ -355,8 +372,9 @@
           <button type="button" class="sol-mobile-action-btn" data-action="set">セット</button>
           <button type="button" class="sol-mobile-action-btn" data-action="grave">墓地へ</button>
           <button type="button" class="sol-mobile-action-btn" data-action="banish">除外へ</button>
-          <button type="button" class="sol-mobile-action-btn" data-action="return">デッキに戻す</button>
+          <button type="button" class="sol-mobile-action-btn" data-action="return">デッキへ</button>
           <button type="button" class="sol-mobile-action-btn" data-action="activate">効果発動</button>
+          <button type="button" class="sol-mobile-action-btn" data-action="bubble">吹き出し</button>
         </div>
       </div>
 
@@ -413,6 +431,7 @@
           </div>
           <div class="sol-mobile-sheet-body">
             <button type="button" class="sol-mobile-menu-item" data-menu-action="share">共有</button>
+            <button type="button" class="sol-mobile-menu-item" data-menu-action="boardmemo">盤面にメモ<span class="sol-mobile-menu-desc">盤面の上端に一言を表示します</span></button>
             <a href="/solitaire/replays" data-replay-list-link class="sol-mobile-menu-item sol-mobile-menu-link">リプレイ一覧</a>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="reset">リセット<span class="sol-mobile-menu-desc">カードをデッキに戻し、記録もリセットします</span></button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="clearall">クリア<span class="sol-mobile-menu-desc">デッキ・盤面・記録をすべて消します</span></button>
@@ -469,6 +488,24 @@
         </div>
       </div>
 
+      <!-- コメント入力シート（整理④）: カードの吹き出し・盤面メモをスマホで付ける小さな下シート。mobile-ui.js の initCommentSheet -->
+      <div id="solMobileCommentSheet" class="sol-mobile-sheet" hidden>
+        <div class="sol-mobile-sheet-scrim" data-sol-comment-sheet-close></div>
+        <div class="sol-mobile-sheet-panel sol-mobile-comment-panel">
+          <div class="sol-mobile-sheet-header">
+            <span id="solMobileCommentSheetTitle">吹き出しを付ける</span>
+            <button type="button" class="sol-mobile-sheet-close-btn" data-sol-comment-sheet-close aria-label="閉じる">&times;</button>
+          </div>
+          <div class="sol-mobile-sheet-body">
+            <p id="solMobileCommentTarget" class="sol-mobile-share-note"></p>
+            <div class="sol-mobile-share-comment-row">
+              <input type="text" id="solMobileCommentInput" class="sol-mobile-share-input" maxlength="60" placeholder="コメント" aria-label="コメント">
+              <button type="button" id="solMobileCommentAddBtn" class="sol-mobile-menu-item">付ける</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- 共有シート（フェーズ3・設計書 §3.4／H-1: iOS対応で2段階構成／2026-09-04 タスクA: 「わかる」構成に再編 -->
       <div id="solMobileShareSheet" class="sol-mobile-sheet" hidden>
         <div class="sol-mobile-sheet-scrim" data-sol-share-sheet-close></div>
@@ -498,11 +535,6 @@
 
             <!-- 共有する（共有の用途で開いたときだけ表示） -->
             <div class="sol-mobile-share-section" data-share-mode="share">
-              <label class="sol-mobile-share-label" for="solMobileShareCommentInput">今の手にコメント</label>
-              <div class="sol-mobile-share-comment-row">
-                <input type="text" id="solMobileShareCommentInput" class="sol-mobile-share-input" placeholder="コメント（任意）">
-                <button type="button" id="solMobileShareCommentAddBtn" class="sol-mobile-menu-item">追加</button>
-              </div>
               <p class="sol-mobile-share-note">リンクを知っている人なら誰でも見られます。90日で消えます。</p>
 
               <!-- H-1: リンク作成は明示ボタン→結果表示の2段階（iOSのuser activation対策） -->
@@ -555,6 +587,20 @@
             <span id="clearButtonTip" class="sol-tip" role="tooltip">読み込んだデッキ・盤面・記録をすべて消して、最初の状態に戻します。元に戻せません。</span>
           </div>
         </div>
+      </div>
+
+      <!-- コメント（整理④）: カードに吹き出し／盤面にメモ。配線は static/solitaire/js/ui/comment-ui.js -->
+      <div class="sol-right-section" id="solCommentSection">
+        <p class="sol-right-heading">コメント</p>
+        <div class="sol-comment-actions">
+          <button type="button" id="solCommentCardBtn" class="sol-comment-btn">&#128172; カードに吹き出し</button>
+          <button type="button" id="solCommentBoardBtn" class="sol-comment-btn">&#128221; 盤面にメモ</button>
+        </div>
+        <form id="solCommentBoardForm" class="sol-comment-form" hidden>
+          <input type="text" id="solCommentBoardInput" class="sol-comment-input" maxlength="60" placeholder="盤面のメモ" aria-label="盤面のメモ">
+          <button type="submit" class="sol-comment-btn sol-comment-submit">付ける</button>
+        </form>
+        <ul id="solCommentList" class="sol-comment-list" aria-label="この記録のコメント"></ul>
       </div>
 
       <div class="sol-right-section">

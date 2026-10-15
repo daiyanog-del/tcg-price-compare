@@ -78,7 +78,11 @@ function _updateCipWidth() {
 }
 
 /** main.js から呼べるよう export */
-export function updateCipWidth() { _updateCipWidth(); }
+export function updateCipWidth() {
+  _updateCipWidth();
+  // 盤面の上に出入りする帯（コメントの盤面メモ。整理④）で #mainContainer が上下するので、詳細パネルの上端も合わせ直す
+  _syncCipPosition();
+}
 
 function _syncCipPosition() {
   requestAnimationFrame(() => {

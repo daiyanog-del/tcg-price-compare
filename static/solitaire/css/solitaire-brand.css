@@ -391,6 +391,9 @@
   margin-bottom: 3px;
 }
 .mydeck-import-entry:hover { background: rgba(174,197,255,0.1); }
+/* 「取り込む」を単語の途中で折り返さない。components.css の `span { color:#333 }` が
+   直接効いて暗く見えていたため、リンクの文字色を引き継がせる（2026-10-15 本番で発見） */
+.mydeck-import-word { white-space: nowrap; color: inherit; }
 .mydeck-import-entry.big {
   padding: 14px 8px;
   text-align: center;
@@ -1097,17 +1100,6 @@ a.replay-btn { display: inline-block; text-decoration: none; }
 
 .replay-slider { flex: 1 1 100px; min-width: 60px; accent-color: var(--accent); }
 .replay-counter { font-size: 0.78rem; color: #94a3b8; white-space: nowrap; font-family: var(--mono); }
-.replay-comment-input {
-  flex: 1 1 70px;
-  min-width: 50px;
-  background: var(--bg-color);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  color: var(--main-color);
-  font-size: 0.8rem;
-  padding: 4px 7px;
-  font-family: var(--font);
-}
 .replay-share-btn {
   padding: 4px 10px;
   background: var(--gold);
@@ -1191,29 +1183,6 @@ a.replay-btn { display: inline-block; text-decoration: none; }
 .sol-playback-pc #sidebarToggleRight {
   pointer-events: auto;
 }
-
-/* ── リプレイコメントトースト ── */
-#replayCommentToast {
-  position: fixed;
-  top: 72px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(20, 20, 30, 0.88);
-  color: #fff;
-  padding: 8px 20px;
-  border-radius: 6px;
-  font-size: 0.95rem;
-  font-family: var(--font);
-  max-width: 480px;
-  text-align: center;
-  white-space: pre-wrap;
-  pointer-events: none;
-  z-index: 9999;
-  opacity: 0;
-  transition: opacity 0.25s ease;
-}
-#replayCommentToast.rct-show { opacity: 1; }
-#replayCommentToast.rct-hide { opacity: 0; }
 
 /* ── トークン生成UI ── */
 .sol-token-controls {
