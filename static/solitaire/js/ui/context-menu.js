@@ -4,8 +4,8 @@
  *
  * 表示項目（ゾーン別）:
  *   フィールド: 攻撃/守備の切替 / セット・表にする / 場に出す（攻撃/守備/裏側守備/表側/セット）※カード種別で出し分け
- *              / 一番下に重ねる / 墓地送り / 除外 / 手札に戻す / デッキに戻す / 削除
- *   プール    : 墓地送り / 除外 / 場に出す（カード種別で出し分け） / 削除
+ *              / 一番下に重ねる / 墓地送り / 除外 / 手札に戻す / デッキに戻す / 削除（トークンのみ）
+ *   プール    : 墓地送り / 除外 / 場に出す（カード種別で出し分け） / 削除（トークンのみ）
  *              （通常デッキ #poolRow のみ手札に戻すも表示。EXデッキ #poolRow2 は通常プレイで
  *               手札に加えることがほぼ無いため、誤操作防止のため手札に戻すを出さない
  *               （ドラッグ操作ではEXデッキのカードも手札へ置けるが、それとは別に、
@@ -13,7 +13,10 @@
  *               攻撃/守備トグル・セット・
  *               一番下に重ねる・デッキに戻すは既にデッキ内のカードには意味がないため出さない）
  *              （初期カード isInitial は現状維持で何も出さない。昔の設計の名残でスコープ外）
- *   その他    : 墓地送り / 除外 / 手札に戻す / デッキに戻す / 削除
+ *   その他    : 墓地送り / 除外 / 手札に戻す / デッキに戻す / 削除（トークンのみ）
+ *
+ * 「削除」は普通のカードには出さない（盤面は記録（リプレイ）だけで再現できるようにするため、
+ * 記録に残せない消え方を作らない）。トークンだけは出せて、消すと removeCard として記録される。
  *
  * 「場に出す」系はマウス操作専用（isTouch=trueの呼び出し元には出さない。タッチの長押しメニューは
  * mousedown/keydownしか見ていない配置待ち状態機械と噛み合わず操作不能に陥りうるため）。
@@ -36,6 +39,7 @@ import {
   applyCardState,
   getCardState,
   isMonsterCard,
+  isTokenCard,
 } from '../components/card-state.js';
 import { playSetFlip, flipMoveClone } from '../components/card-effects.js';
 import { getDropZoneInfo, executeDrop, getZoneId } from '../components/drag-drop.js';
@@ -152,7 +156,7 @@ export function isCardInPool(wrapper) {
 export function toggleCardDefense(wrapper) {
   const isDefense = wrapper.dataset.orientation === 'defense';
   applyDefense(wrapper, !isDefense);
-  _logState(wrapper);
+  _logState(wrapper, { inPlace: true });
 }
 
 /**
@@ -165,7 +169,7 @@ export function toggleCardSet(wrapper) {
   const isSet = wrapper.dataset.face === 'down';
   playSetFlip(wrapper, () => {
     applySet(wrapper, !isSet);
-    _logState(wrapper);
+    _logState(wrapper, { inPlace: true });
   });
 }
 
@@ -179,7 +183,28 @@ export function returnCardToDeckMenu(wrapper) {
 }
 
 // L-2: removeCardMenu は A-3 でアクションシートから「削除」を外した際に未使用になったため削除。
-// カードの削除は引き続き _buildMenuItems 内の長押しメニュー項目（PC 右クリックメニューと共通）が担う。
+// トークンの削除は _buildMenuItems 内の長押しメニュー項目（PC 右クリックメニューと共通）が担う。
+
+/**
+ * トークンを盤面から消す。消す前にいたゾーンと一緒に removeCard として記録する。
+ * 画像・名前の辞書（リプレイ側）にはカードが残るため、巻き戻したときは辞書から作り直せる。
+ * 普通のカードは消せない（呼ばれても何もしない）。
+ * @param {Element} wrapper - .tier-item-wrapper
+ */
+export function deleteTokenCard(wrapper) {
+  if (!isTokenCard(wrapper)) return;
+  const cardEl = wrapper.querySelector('.tier-item');
+  const sourceSlot = wrapper.parentElement;
+  if (cardEl?.id && typeof window.replayLog === 'function') {
+    window.replayLog({
+      actionType: 'removeCard',
+      cardId: cardEl.id,
+      zoneId: sourceSlot ? getZoneId(sourceSlot) : 'unknown', // 消す前にいたゾーン
+    });
+  }
+  wrapper.remove();
+  restackCustomSlot(sourceSlot); // フィールドの重ねを詰め直す（.custom-slot 以外は何もしない）
+}
 
 /**
  * 現在のコンテキストメニューを閉じる
@@ -235,8 +260,10 @@ function _buildMenuItems(wrapper, img, parent, isInPool, isInitial, isTouch = fa
       items.push(..._fieldPlacementItems(wrapper));
     }
 
-    items.push({ separator: true });
-    items.push({ label: '削除', action: () => { wrapper.remove(); } });
+    if (isTokenCard(wrapper)) {
+      items.push({ separator: true });
+      items.push({ label: '削除', action: () => { deleteTokenCard(wrapper); } });
+    }
     return items;
   }
 
@@ -249,7 +276,7 @@ function _buildMenuItems(wrapper, img, parent, isInPool, isInitial, isTouch = fa
     label: isDefense ? '攻撃表示にする' : '守備表示にする',
     action: () => {
       applyDefense(wrapper, !isDefense);
-      _logState(wrapper);
+      _logState(wrapper, { inPlace: true });
     },
   });
 
@@ -261,7 +288,7 @@ function _buildMenuItems(wrapper, img, parent, isInPool, isInitial, isTouch = fa
       action: () => {
         playSetFlip(wrapper, () => {
           applySet(wrapper, false);
-          _logState(wrapper);
+          _logState(wrapper, { inPlace: true });
         });
       },
     });
@@ -270,7 +297,7 @@ function _buildMenuItems(wrapper, img, parent, isInPool, isInitial, isTouch = fa
       action: () => {
         playSetFlip(wrapper, () => {
           applyCardState(wrapper, { orientation: 'defense', face: '' });
-          _logState(wrapper);
+          _logState(wrapper, { inPlace: true });
         });
       },
     });
@@ -280,7 +307,7 @@ function _buildMenuItems(wrapper, img, parent, isInPool, isInitial, isTouch = fa
       action: () => {
         playSetFlip(wrapper, () => {
           applySet(wrapper, !isSet);
-          _logState(wrapper);
+          _logState(wrapper, { inPlace: true });
         });
       },
     });
@@ -343,15 +370,13 @@ function _buildMenuItems(wrapper, img, parent, isInPool, isInitial, isTouch = fa
     action: () => { _returnToDeck(wrapper, img); },
   });
 
-  // 削除
-  items.push({
-    label: '削除',
-    action: () => {
-      const sourceSlot = wrapper.parentElement;
-      wrapper.remove();
-      restackCustomSlot(sourceSlot); // フィールドの重ねを詰め直す（.custom-slot 以外は何もしない）
-    },
-  });
+  // 削除（トークンのみ。普通のカードは盤面から消せない）
+  if (isTokenCard(wrapper)) {
+    items.push({
+      label: '削除',
+      action: () => { deleteTokenCard(wrapper); },
+    });
+  }
 
   return items;
 }
@@ -568,8 +593,12 @@ function _placeUnder(wrapper, slot) {
 
 /**
  * 現在のゾーン・状態でリプレイログを記録
+ * @param {Element} wrapper
+ * @param {{inPlace?: boolean}} [opts] inPlace=true は「同じゾーンの中で表示形式だけを変えた」記録。
+ *   再生側は位置（重なりの順番・手札の並び）を動かさず、状態だけを適用する。
+ *   省略（一番下に重ねる等、位置も変える操作）は従来どおり zIndex から位置を決める。
  */
-function _logState(wrapper) {
+function _logState(wrapper, { inPlace = false } = {}) {
   if (typeof window.replayLog !== 'function') return;
   // img.tier-item または div.tier-item（プロキシ）どちらでも .tier-item で取れる
   const cardEl = wrapper.querySelector('.tier-item');
@@ -586,5 +615,6 @@ function _logState(wrapper) {
     transform:   wrapper.style.transform || '',
     orientation: state.orientation,
     face:        state.face,
+    ...(inPlace ? { inPlace: true } : {}),
   });
 }

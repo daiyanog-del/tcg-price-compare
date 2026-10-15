@@ -1,4 +1,4 @@
-import { initializeCounter, addCounterDeleteButton } from './counter-manager.js';
+import { createCardCounter, logCounterAdd } from './counter-manager.js';
 import { applyDefense, applySet, toggleDefense, getCardState, applyCardState } from './card-state.js';
 import { openCardContextMenu, closeContextMenu, cancelFieldPlacement } from '../ui/context-menu.js';
 import { isMobilePortrait } from '../utils/viewport.js';
@@ -133,32 +133,10 @@ function placeCounterOnCard(card, counter) {
   const srcTextbox = counter.querySelector('.counter-textbox');
   const currentValue = srcTextbox ? srcTextbox.value : '1';
 
-  // カード上では [−][N][+] のフラット構造に再構成
-  const newCounter = document.createElement('div');
-  newCounter.className = 'counter-container';
-  newCounter.id = `clonedCounter-${Date.now()}`;
-
-  const downBtn = document.createElement('button');
-  downBtn.className = 'triangle-button down';
-  downBtn.textContent = '−';
-
-  const textbox = document.createElement('input');
-  textbox.type = 'text';
-  textbox.className = 'counter-textbox';
-  textbox.value = currentValue;
-  textbox.readOnly = true;
-
-  const upBtn = document.createElement('button');
-  upBtn.className = 'triangle-button up';
-  upBtn.textContent = '+';
-
-  newCounter.appendChild(downBtn);
-  newCounter.appendChild(textbox);
-  newCounter.appendChild(upBtn);
-
-  initializeCounter(newCounter);
-  addCounterDeleteButton(newCounter); // カード上のカウンターのみ×で即削除できるようにする
+  // カード上では [−][N][+] のフラット構造に再構成（リプレイ再生と同じ作り方を共有する）
+  const newCounter = createCardCounter(currentValue);
   card.appendChild(newCounter);
+  logCounterAdd(newCounter); // 置いたことをリプレイへ記録（cardId・index・初期値）
 }
 
 /**
@@ -208,6 +186,7 @@ export function executeDrop(draggedInfo, dropZoneInfo, dropTarget, modifiers = {
   if (dragType === 'card') {
     const { type: dropType, element: dropZone } = dropZoneInfo;
     let zIndex;
+    let beforeCardId; // デッキ列の途中へ戻したとき、その直後に来るカードのID
     // 移動元スロット（フィールドから出ていく場合に残りのカードを詰め直すため）
     const sourceSlot = draggedElement.parentElement;
 
@@ -234,6 +213,10 @@ export function executeDrop(draggedInfo, dropZoneInfo, dropTarget, modifiers = {
       case 'POOL': {
         const targetCard = dropTarget.closest('.tier-item-wrapper');
         placeCardInPool(dropZone, draggedElement, targetCard);
+        // デッキ列の途中へ差し込んだ位置（そのカードの手前）を記録する。末尾に置いたときは undefined
+        if (targetCard && targetCard !== draggedElement && targetCard.parentElement === dropZone) {
+          beforeCardId = targetCard.querySelector('.tier-item')?.id;
+        }
         break;
       }
       case 'CUSTOM_SLOT': {
@@ -276,6 +259,8 @@ export function executeDrop(draggedInfo, dropZoneInfo, dropTarget, modifiers = {
           transform:   draggedElement.style.transform || '',
           orientation: state.orientation,
           face:        state.face,
+          // デッキ列の途中への差し込み位置（省略可。無い記録は従来どおり末尾へ置く）
+          ...(beforeCardId ? { beforeCardId } : {}),
         });
       }
     }

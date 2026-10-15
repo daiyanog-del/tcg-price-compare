@@ -2,7 +2,7 @@
  * replay-board.js
  * 共有するログ配列から「最後の時点の盤面」を求める（OGP画像用の board。DOM・演出に触れない純粋関数）。
  *
- * 設計: replay-service.js の _applyEvent 系（moveCard/draw/returnToDeck/resetDeck）と同じ意味で、
+ * 設計: replay-service.js の _applyEvent 系（moveCard/draw/returnToDeck/resetDeck/removeCard）と同じ意味で、
  * DOM を使わずカードの居場所だけを追う。保存APIへ送る logs と同じ配列を入力にするため、
  * 「共有範囲の最後の時点」と必ず一致し、seekTo による一時移動（演出・トースト・再生状態への干渉）が不要。
  * replay-service.js の適用規則を変えたらここも合わせること（tests/ にDOMとの突き合わせ手順あり）。
@@ -44,8 +44,15 @@ export function buildBoardFromLogs(logs, dict) {
   const where = new Map();   // cardId -> zoneId
   const zoneList = (z) => { if (!zones.has(z)) zones.set(z, []); return zones.get(z); };
 
-  const place = (cardId, zoneId, { orientation = '', face = '' } = {}, zIndex) => {
+  const removed = new Set(); // removeCard で消えたトークン（resetDeck で戻さない）
+  // opts.inPlace: 同じゾーンの中で表示形式だけを変えた記録。並びは動かさず状態だけ更新する
+  // opts.beforeCardId: デッキ列の途中へ差し込む位置（_placeCardInZone と同じ）
+  const place = (cardId, zoneId, { orientation = '', face = '' } = {}, zIndex, opts = {}) => {
     const prev = where.get(cardId);
+    if (opts.inPlace === true && prev === zoneId) {
+      state.set(cardId, { orientation, face });
+      return;
+    }
     if (prev) {
       const arr = zoneList(prev);
       const i = arr.indexOf(cardId);
@@ -55,6 +62,8 @@ export function buildBoardFromLogs(logs, dict) {
     // _placeCardInZone と同じ: フィールドで他カードがあり zIndex<=1 なら最背面へ、それ以外は最前面
     if (isFieldSlot(zoneId) && arr.length > 0 && parseInt(zIndex ?? '1', 10) <= 1) {
       arr.unshift(cardId);
+    } else if ((zoneId === 'poolRow' || zoneId === 'poolRow2') && opts.beforeCardId && arr.includes(opts.beforeCardId)) {
+      arr.splice(arr.indexOf(opts.beforeCardId), 0, cardId);
     } else {
       arr.push(cardId);
     }
@@ -74,7 +83,8 @@ export function buildBoardFromLogs(logs, dict) {
         if (!where.has(id)) break;
         const z = ev.zoneId;
         if (!KNOWN_ZONES.has(z) && !isFieldSlot(z)) break; // _findZone が null の場合は何もしない
-        place(id, z, { orientation: ev.orientation, face: ev.face }, ev.zIndex);
+        place(id, z, { orientation: ev.orientation, face: ev.face }, ev.zIndex,
+          { inPlace: ev.inPlace, beforeCardId: ev.beforeCardId });
         break;
       }
       case 'draw':
@@ -83,8 +93,19 @@ export function buildBoardFromLogs(logs, dict) {
       case 'returnToDeck':
         if (where.has(id)) place(id, ev.isEx ? 'poolRow2' : 'poolRow');
         break;
+      case 'removeCard': {
+        // トークンの削除。盤面から外す（辞書には残る）。居なければ何もしない
+        if (!where.has(id)) break;
+        const arr = zoneList(where.get(id));
+        const i = arr.indexOf(id);
+        if (i >= 0) arr.splice(i, 1);
+        where.delete(id);
+        state.delete(id);
+        removed.add(id);
+        break;
+      }
       case 'resetDeck':
-        for (const cid of cardIds) place(cid, poolOf(cid));
+        for (const cid of cardIds) if (!removed.has(cid)) place(cid, poolOf(cid));
         for (const cid of (ev.drawnIds || [])) if (where.has(cid)) place(cid, 'center-slot');
         break;
       default:

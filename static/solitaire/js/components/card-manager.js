@@ -1,5 +1,5 @@
 import { enableTouchDrag } from './drag-drop.js';
-import { applyCardState } from './card-state.js';
+import { applyCardState, markTokenIfSrc } from './card-state.js';
 import { openCardContextMenu } from '../ui/context-menu.js';
 import { playActivateEffect } from './card-effects.js';
 import { createProxyCardElement } from './proxy-card.js';
@@ -114,6 +114,7 @@ function createCardElement(srcOrDisplay, isEx = false) {
     img.setAttribute('draggable', 'true');
     cardEl = img;
     isReleasedImage = true;
+    markTokenIfSrc(wrapper, srcOrDisplay); // data: URL の画像はトークン（data-token="1"）
   } else if (srcOrDisplay && srcOrDisplay.kind === 'image') {
     // {kind:'image', url, source?} オブジェクト。source==='official_sample' は未発売SAMPLE
     const img = document.createElement('img');

@@ -80,6 +80,105 @@ def test_replay_save_rate_limit_blocks_eleventh_request(monkeypatch):
     assert resp.status_code == 429
 
 
+# ── カード種類（cardTypes）の保存・取得（省略可の項目） ──
+
+class _RecordingTable:
+    """insert の内容を残し、列が無い DB を真似て card_types 付きの insert/select を失敗させられるフェイク"""
+
+    def __init__(self, log, missing_column=False, row=None):
+        self.log, self.missing_column, self.row = log, missing_column, row
+        self._select = None
+
+    def insert(self, payload):
+        self._payload = payload
+        self._op = "insert"
+        return self
+
+    def select(self, cols):
+        self._select = cols
+        self._op = "select"
+        return self
+
+    def eq(self, *a):
+        return self
+
+    def limit(self, *a):
+        return self
+
+    def execute(self):
+        if self._op == "insert":
+            if self.missing_column and "card_types" in self._payload:
+                raise RuntimeError("column card_types does not exist")
+            self.log.append(self._payload)
+            return None
+        if self.missing_column and "card_types" in self._select:
+            raise RuntimeError("column card_types does not exist")
+
+        class _R:
+            data = [self.row]
+        return _R()
+
+
+def _load_app_with(monkeypatch, table_factory):
+    app_module, client = _load_app(monkeypatch)
+
+    class _Sb:
+        def table(self, name):
+            return table_factory()
+    app_module._supabase_client = _Sb()
+    return client
+
+
+def test_replay_save_keeps_valid_card_types_only(monkeypatch):
+    """cardTypes は images にあるカードの monster/spell/trap だけ保存し、それ以外は捨てる"""
+    log = []
+    client = _load_app_with(monkeypatch, lambda: _RecordingTable(log))
+    resp = client.post("/api/solitaire/replay", json={
+        "logs": [1], "images": {"a": "x", "b": "y"},
+        "cardTypes": {"a": "monster", "b": "bogus", "zzz": "spell"},
+    })
+    assert resp.status_code == 200
+    assert log[0]["card_types"] == {"a": "monster"}
+
+
+def test_replay_save_without_card_types_is_unchanged(monkeypatch):
+    """cardTypes を送らない旧クライアントの保存は、card_types 列を含めない"""
+    log = []
+    client = _load_app_with(monkeypatch, lambda: _RecordingTable(log))
+    resp = client.post("/api/solitaire/replay", json={"logs": [1], "images": {"a": "x"}})
+    assert resp.status_code == 200
+    assert "card_types" not in log[0]
+
+
+def test_replay_save_card_types_not_dict_returns_400(monkeypatch):
+    client = _load_app_with(monkeypatch, lambda: _RecordingTable([]))
+    resp = client.post("/api/solitaire/replay", json={"logs": [1], "cardTypes": ["monster"]})
+    assert resp.status_code == 400
+
+
+def test_replay_save_retries_without_card_types_when_column_missing(monkeypatch):
+    """列追加SQL未適用の本番でも共有は成功する（card_types だけ落として再試行）"""
+    log = []
+    client = _load_app_with(monkeypatch, lambda: _RecordingTable(log, missing_column=True))
+    resp = client.post("/api/solitaire/replay", json={
+        "logs": [1], "images": {"a": "x"}, "cardTypes": {"a": "monster"}})
+    assert resp.status_code == 200
+    assert "card_types" not in log[0]
+
+
+def test_replay_get_returns_card_types_and_survives_missing_column(monkeypatch):
+    row = {"images": {"a": "x"}, "names": {}, "ex_card_ids": [], "logs": [{}], "title": "t",
+           "card_types": {"a": "spell"}}
+    client = _load_app_with(monkeypatch, lambda: _RecordingTable([], row=row))
+    body = client.get("/api/solitaire/replay/abc").get_json()
+    assert body["cardTypes"] == {"a": "spell"}
+    # 列が無いDB: card_types なしで読み、cardTypes は空
+    row2 = {k: v for k, v in row.items() if k != "card_types"}
+    client2 = _load_app_with(monkeypatch, lambda: _RecordingTable([], missing_column=True, row=row2))
+    body2 = client2.get("/api/solitaire/replay/abc").get_json()
+    assert body2["cardTypes"] == {} and body2["images"] == {"a": "x"}
+
+
 # ── リプレイ一覧ページ（GET /solitaire/replays） ──
 
 def test_replays_page_enabled_returns_200(monkeypatch):

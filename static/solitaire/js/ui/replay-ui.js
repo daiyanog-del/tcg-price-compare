@@ -22,6 +22,7 @@ import {
   getImages,
   getNames,
   getExCardIds,
+  getCardTypes,
   getLogs,
   getSetupLogs,
   registerCardName,
@@ -310,6 +311,7 @@ async function _saveAndGetShortURL(title, logsOverride) {
   const images = getImages();
   const names = getNames();
   const exCardIds = getExCardIds();
+  const cardTypes = getCardTypes();
   // 共有する logs の最後の時点の盤面（リンク画像用）。求められなくても共有自体は続ける。
   // PC・スマホの共有・X投稿はすべてこの関数を通る。
   let board = null;
@@ -321,7 +323,7 @@ async function _saveAndGetShortURL(title, logsOverride) {
   const res = await fetch('/api/solitaire/replay', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, images, names, exCardIds, logs, board }),
+    body: JSON.stringify({ title, images, names, exCardIds, cardTypes, logs, board }),
   });
   if (!res.ok) {
     // サーバーが返すJSONのerrorメッセージ（レート制限・型不正等の理由）を優先して使う。
@@ -558,12 +560,12 @@ async function _tryLoadFromURL() {
   try {
     const res = await fetch(`/api/solitaire/replay/${replayId}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const { images, names, logs, exCardIds } = await res.json();
+    const { images, names, logs, exCardIds, cardTypes } = await res.json();
 
     const { _setReplayData } = await import('../services/replay-service.js');
     if (typeof _setReplayData === 'function') {
       // card:// センチネル対応のため await が必要（非同期関数）
-      await _setReplayData(images, names || {}, logs, exCardIds || []);
+      await _setReplayData(images, names || {}, logs, exCardIds || [], cardTypes || {});
     }
     console.log(`リプレイID ${replayId} を読み込みました`);
     _resetPcRecording(); // 重大4対応: JSON読込で古い録画範囲(_pcRecording)が残留するのを防ぐ

@@ -9,7 +9,8 @@
  * 状態スキーマ（wrapper = .tier-item-wrapper に付与）:
  *   守備表示: data-orientation="defense" + .is-defense
  *   セット  : data-face="down"           + .is-set
- *   種別    : data-card-type = "monster"|"spell"|"trap"（deck-input-panel が付与）
+ *   種別    : data-card-type = "monster"|"spell"|"trap"（deck-input-panel が付与。リプレイの cardTypes・盤面セーブの cardType で再生・復元時に付け直す）
+ *   トークン: data-token = "1"（画像が data: URL のカード。isTokenCard / markTokenIfSrc）
  *
  * セット時の挙動:
  *   モンスター（data-card-type="monster" または EXデッキカード）
@@ -22,6 +23,39 @@
  *
  * 裏面は CSS ::after で描画するため img.src は一切変更しない。
  */
+
+/**
+ * 画像の src がトークン（トークン生成が canvas.toDataURL() で作る data: URL）かを判定する。
+ * トークンかどうかの判定の根拠はこの1か所だけに置く。理由:
+ *   - 実カードの画像は https のURL、未発売カードは card:// センチネル・プロキシ（div）で、
+ *     data: URL の画像を作るのはトークン生成だけ（replay-board.js の token 判定と同じ根拠）。
+ *   - リプレイの画像辞書（images）・盤面セーブの src にも data: URL がそのまま残るため、
+ *     再生・セッション復元・JSON読込・盤面ロードでカードを作り直すときも同じ判定で復元できる。
+ * @param {string|null|undefined} src
+ * @returns {boolean}
+ */
+export function isTokenSrc(src) {
+  return typeof src === 'string' && src.startsWith('data:');
+}
+
+/**
+ * カードがトークンかどうか（wrapper の data-token="1" で判定）。
+ * 印はカードを作るとき markTokenIfSrc が付ける。
+ * @param {Element|null} wrapper - .tier-item-wrapper
+ * @returns {boolean}
+ */
+export function isTokenCard(wrapper) {
+  return wrapper?.dataset?.token === '1';
+}
+
+/**
+ * src がトークンのものなら wrapper に data-token="1" を付ける（カード作成の全経路から呼ぶ）。
+ * @param {Element} wrapper - .tier-item-wrapper
+ * @param {string|null|undefined} src - 画像の src
+ */
+export function markTokenIfSrc(wrapper, src) {
+  if (isTokenSrc(src)) wrapper.dataset.token = '1';
+}
 
 /**
  * カードがモンスターかどうかを判定
