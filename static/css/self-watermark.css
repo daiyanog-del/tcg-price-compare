@@ -14,8 +14,11 @@
  * on/off : ルート要素の data-self-wm 属性（無ければ透かしを出さない）
  * 強度   : --self-watermark-opacity（既定 0.12）
  *
- * 注意: 一人回しの裏面は .tier-item-wrapper.is-set::after（z-index 3）で描画される。
- *       透かしは ::before（z-index 2）で実装し競合を避ける。裏面時は明示的に非表示。
+ * 重ね順: 透かしは ::after・z-index 1（img と同じ）。wrapper は重ね順の層を作らないため、
+ *         img より上の値にするとカードが重なったとき後続カードの img より手前に出て、
+ *         隣のカードに透かしがかかる。同値なら文書順で「自分の img → 透かし → 次のカード」。
+ * 裏面: 一人回しの裏面は .tier-item-wrapper.is-set::after（z-index 3）が同じ ::after を使うため、
+ *       透かしは :not(.is-set) で裏面カードから外す（裏面には透かしを出さない）。
  */
 
 .wm-released {
@@ -25,13 +28,13 @@
   container-type: inline-size;
 }
 
-[data-self-wm] .wm-released::before {
+[data-self-wm] .wm-released:not(.is-set)::after {
   content: "TCGYM";
   position: absolute;
   /* wrapper 全体に敷く（守備表示の90度回転を img と同じ transform で追従させるため。
      sample-blur.css と同じ方式）。文字は内側でテキスト欄の位置に置く */
   inset: 0;
-  z-index: 2;                 /* img(1) より上・裏面オーバーレイ(3) より下 */
+  z-index: 1;                 /* img と同じ（上の「重ね順」参照） */
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -59,12 +62,7 @@
 }
 
 /* 守備表示: img(.tier-item)と同じ90度回転に追従（components.css の .is-defense .tier-item） */
-[data-self-wm] .tier-item-wrapper.is-defense.wm-released::before {
+[data-self-wm] .tier-item-wrapper.is-defense.wm-released:not(.is-set)::after {
   transform: rotate(90deg);
   transform-origin: center center;
-}
-
-/* 裏面（セット）カードには透かしを出さない */
-.tier-item-wrapper.is-set.wm-released::before {
-  display: none;
 }

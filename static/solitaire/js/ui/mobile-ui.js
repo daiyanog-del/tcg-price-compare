@@ -675,7 +675,7 @@ function _buildDeckCell(wrapper) {
   cell.dataset.cardId = cardEl.id;
   cell.dataset.cardName = name || '';
   // H-2: 元wrapperが自サイト透かし対象（発売済みクリーン画像）のときだけ透かしを付ける。
-  // self-watermark.css の [data-self-wm] .wm-released::before は position:relative の
+  // self-watermark.css の [data-self-wm] .wm-released::after は position:relative の
   // 祖先に依存するが .sol-mobile-deck-cell は既に position:relative なのでそのまま効く。
   if (wrapper.classList.contains('wm-released')) cell.classList.add('wm-released');
   // 未発売SAMPLE画像のイラストぼかし（sample-blur.css）。.sol-mobile-deck-cell は position:relative 済み
