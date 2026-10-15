@@ -992,12 +992,6 @@ html, body {
 }
 .action-btn::before { display: none; }
 
-.save-btn  { background: var(--bg-card); border-color: var(--accent); color: var(--accent); }
-.save-btn:hover  { background: var(--accent); color: #fff; transform: translateY(-1px); }
-
-.load-btn  { background: var(--bg-card); border-color: var(--green); color: var(--green); }
-.load-btn:hover  { background: var(--green); color: #fff; transform: translateY(-1px); }
-
 .draw-btn  { background: var(--bg-card); border-color: var(--gold); color: var(--gold); }
 .draw-btn:hover  { background: var(--gold); color: #111; transform: translateY(-1px); }
 
@@ -1050,7 +1044,6 @@ html, body {
 /* ── モーダル ── */
 .modal-overlay { background: rgba(0,0,0,0.7); }
 .modal-content,
-.save-load-modal,
 .image-browser-modal {
   background: var(--bg-card) !important;
   border: 1px solid var(--border) !important;
@@ -1908,10 +1901,6 @@ a.replay-btn { display: inline-block; text-decoration: none; }
   text-align: center;
   padding: 9px 10px;
   font-size: 0.85rem;
-}
-.pc-share-import-label {
-  cursor: pointer;
-  margin: 0;
 }
 /* ①録画セクション（モバイル版 .sol-mobile-share-note 相当の見た目をPC共有シート向けに移植） */
 .pc-share-note {

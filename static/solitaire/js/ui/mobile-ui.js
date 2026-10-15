@@ -206,8 +206,6 @@ async function handleClearEverything() {
 }
 
 const MENU_ACTIONS = {
-  save:     () => { document.getElementById('saveButton2')?.click(); },
-  load:     () => { document.getElementById('loadButton')?.click(); },
   reset:    () => { document.getElementById('resetButton')?.click(); },
   clearall: () => { handleClearEverything(); },
   coin:     () => { document.getElementById('coinTossBtn')?.click(); },
@@ -1073,7 +1071,7 @@ function initRecording() {
 //     clipboard/window.open が沈黙失敗するため）。結果は readonly input に表示し、
 //     「共有…」（navigator.share）／「コピー」／「Xに投稿」（本物の<a>）をタップイベント
 //     ハンドラの中で同期的に扱う。
-// (2) 「JSONを保存」「JSONを読み込む」「今の手にコメント」は従来どおり既存ボタンを
+// (2) 「JSONを保存」「今の手にコメント」は従来どおり既存ボタンを
 //     .click() で発火させるだけ（ロジックを複製しない）。
 // タイトル入力欄: replay-ui.js の _getReplayTitle() が #solMobileShareTitleInput を最優先で
 // 読む（PC には無いため PC は従来どおり .title→既定値 の挙動）。
@@ -1288,9 +1286,6 @@ function initShareSheet() {
   // (2) 従来どおり .click() 配線
   document.getElementById('solMobileShareExportBtn')?.addEventListener('click', () => {
     document.getElementById('replayExport')?.click();
-  });
-  document.getElementById('solMobileShareImportBtn')?.addEventListener('click', () => {
-    document.getElementById('replayImportFile')?.click();
   });
 
   // E-2: 端末に保存
@@ -1647,9 +1642,11 @@ function initPlaybackBar() {
  * （このタイミングでは盤面・ログは既に反映済み）。
  */
 function initPlaybackURLAutoOpen() {
-  document.addEventListener('sol-replay-loaded-from-url', () => {
+  document.addEventListener('sol-replay-loaded-from-url', (e) => {
     if (!isMobilePortrait()) return;
     _resetRecording(); // タスクA-1: 共有リンクから開く で録画状態を破棄
+    // 「最後の盤面から続ける」（?at=end）は再生モードに入らず、通常の操作画面のまま続ける
+    if (e.detail?.atEnd) return;
     enterPlaybackMode('url');
   });
 }

@@ -15,7 +15,6 @@ import {
   setPlaySpeed,
   getPlaySpeed,
   exportReplay,
-  importReplay,
   exportAsURLHash,
   getLogLength,
   getCursor,
@@ -36,6 +35,7 @@ import { clearEverything } from './deck-input-panel.js';
 import { showToast } from '../utils/toast.js';
 import { addSharedReplay } from '../services/shared-replays.js';
 import { savedReplaysGet, saveReplayEntry } from '../services/saved-replays.js';
+import { isReplayAtEnd } from '../utils/replay-url.js';
 
 const REPLAY_TITLE_MAX_LEN = 100;
 
@@ -152,21 +152,6 @@ export function initReplayUI() {
       if (getLogLength() + getSetupLogs().length === 0) { alert('記録がありません'); return; }
       const title = _getReplayTitle();
       exportReplay(title);
-    });
-
-  // リプレイインポート（ファイル読込）
-  document.getElementById('replayImportFile')
-    ?.addEventListener('change', async (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      try {
-        await importReplay(file);
-        _resetPcRecording(); // 重大4対応: JSON読込で古い録画範囲(_pcRecording)が残留するのを防ぐ
-        alert('リプレイを読み込みました');
-      } catch (err) {
-        alert('読み込み失敗: ' + err.message);
-      }
-      e.target.value = ''; // リセット
     });
 
   // リプレイ共有（URL or Supabase）
@@ -537,25 +522,26 @@ async function _tryLoadFromURL() {
     // card:// センチネル対応のため await が必要（非同期関数）
     if (await importFromURLHash(encoded)) {
       console.log('URLハッシュからリプレイを読み込みました');
-      _resetPcRecording(); // 重大4対応: JSON読込で古い録画範囲(_pcRecording)が残留するのを防ぐ
-      // タスクB-1: 共有リンクから開いたときは mobile-ui.js が再生モードを自動で開く
-      document.dispatchEvent(new CustomEvent('sol-replay-loaded-from-url'));
+      _finishLoadFromURL(false);
     }
     return;
   }
 
   const params = new URLSearchParams(location.search);
+  // ?at=end（最後の盤面から続ける）。URL を書き換える前に読み取る
+  const atEnd = isReplayAtEnd();
 
   // 端末保存（?saved=<端末保存のid>）: リプレイ一覧ページから開く
   const savedId = params.get('saved');
   if (savedId) {
-    await _loadSavedFromURL(savedId);
+    await _loadSavedFromURL(savedId, atEnd);
     return;
   }
 
   // Supabase ID 方式
   const replayId = params.get('replay');
   if (!replayId) return;
+  if (atEnd) _removeAtFromURL(); // 再読込のたびに最後へ進めないよう at だけ外す（replay はそのまま）
 
   try {
     const res = await fetch(`/api/solitaire/replay/${replayId}`);
@@ -568,26 +554,47 @@ async function _tryLoadFromURL() {
       await _setReplayData(images, names || {}, logs, exCardIds || [], cardTypes || {});
     }
     console.log(`リプレイID ${replayId} を読み込みました`);
-    _resetPcRecording(); // 重大4対応: JSON読込で古い録画範囲(_pcRecording)が残留するのを防ぐ
-    // タスクB-1: 共有リンクから開いたときは mobile-ui.js が再生モードを自動で開く
-    document.dispatchEvent(new CustomEvent('sol-replay-loaded-from-url'));
+    _finishLoadFromURL(atEnd);
   } catch (e) {
     console.warn('リプレイの読み込みに失敗:', e.message);
   }
 }
 
 /**
- * ?saved=<id> で端末保存のリプレイを開く（リプレイ一覧ページからの遷移）。
- * 読込後の扱いは ?replay= と同じ（録画状態のリセット＋ sol-replay-loaded-from-url の発行。
- * スマホでは mobile-ui.js がこれを受けて再生モードを開く）。
- * 再読込で盤面が上書きされるのを防ぐため、読込の成否に関わらず URL から saved を消す。
- * @param {string} savedId
+ * URL からリプレイを読み込んだ後の共通の締め。
+ * 録画状態を捨て、atEnd なら最後の手まで進めてから、読み込み完了を知らせる。
+ * 通常は mobile-ui.js が受けて再生モードを自動で開く（タスクB-1）。atEnd のときは detail.atEnd で
+ * 「再生モードに入らず、そのまま操作を続ける」ことを伝える。
+ * 最後の手にカーソルがあるので、続けて1手打っても記録は切り捨てられない（logEvent は末尾でのみ追記）。
+ * @param {boolean} atEnd
  */
-async function _loadSavedFromURL(savedId) {
+function _finishLoadFromURL(atEnd) {
+  _resetPcRecording(); // 重大4対応: JSON読込で古い録画範囲(_pcRecording)が残留するのを防ぐ
+  if (atEnd) seekTo(getLogLength() - 1);
+  document.dispatchEvent(new CustomEvent('sol-replay-loaded-from-url', { detail: { atEnd } }));
+}
+
+/** URL の ?at を外す（他のクエリ・ハッシュは残す） */
+function _removeAtFromURL() {
+  const url = new URL(location.href);
+  url.searchParams.delete('at');
+  history.replaceState(null, '', url.pathname + url.search + url.hash);
+}
+
+/**
+ * ?saved=<id> で端末保存のリプレイを開く（リプレイ一覧ページからの遷移）。
+ * 読込後の扱いは ?replay= と同じ（_finishLoadFromURL。スマホでは mobile-ui.js がイベントを受けて再生モードを開く。
+ * atEnd のときは最後の手まで進めて再生モードには入らない）。
+ * 再読込で盤面が上書きされるのを防ぐため、読込の成否に関わらず URL から saved と at を消す。
+ * @param {string} savedId
+ * @param {boolean} [atEnd]
+ */
+async function _loadSavedFromURL(savedId, atEnd = false) {
   const item = savedReplaysGet().find(r => r.id === savedId);
-  // URL から saved を外す（再読込で同じリプレイが盤面を上書きし続けるのを防ぐ）
+  // URL から saved・at を外す（再読込で同じリプレイが盤面を上書きし続けるのを防ぐ）
   const url = new URL(location.href);
   url.searchParams.delete('saved');
+  url.searchParams.delete('at');
   history.replaceState(null, '', url.pathname + url.search + url.hash);
 
   if (!item) {
@@ -596,8 +603,7 @@ async function _loadSavedFromURL(savedId) {
   }
   try {
     await loadReplayFromCompressedData(item.data);
-    _resetPcRecording(); // JSON読込と同様、古い録画範囲の残留を防ぐ
-    document.dispatchEvent(new CustomEvent('sol-replay-loaded-from-url'));
+    _finishLoadFromURL(atEnd);
   } catch (e) {
     console.warn('保存済みリプレイの読み込みに失敗:', e);
     showToast('保存済みリプレイを開けませんでした');

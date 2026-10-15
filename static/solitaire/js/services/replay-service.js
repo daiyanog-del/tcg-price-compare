@@ -57,7 +57,7 @@ let _exCardIds = new Set(); // EXデッキに属するカードIDの集合
 let _cardTypes = {};    // { cardId: 'monster'|'spell'|'trap' }（data-card-type の付け直し用。省略可・旧リプレイには無い）
 let _logs   = [];       // イベントログ配列（手数として扱う。setup ログは含まない）
 // D-3: 範囲共有（設計書 §D）で先頭に付く「初期配置」ログ。setup:true が付いた要素のみを
-// 保持し、_setReplayData / importReplay / importFromURLHash 時に初期配置として即時適用する。
+// 保持し、_setReplayData / _applyReplayPayload / importFromURLHash 時に初期配置として即時適用する。
 // カウンター・スライダー・前後/再生の対象は _logs のみで、_setupLogs は手数に数えない。
 let _setupLogs = [];
 let _cursor = -1;       // 現在の再生位置（-1 = ログ先頭の盤面外）
@@ -365,8 +365,8 @@ export function exportReplay(title = 'replay') {
 
 /**
  * リプレイ payload（{images, names, logs, exCardIds}）を盤面に反映する共通処理。
- * importReplay（ファイル読込）と E-3 保存済みリプレイの「開く」の両方から呼ぶ
- * （「開く」は importReplay と同じ経路で読み込む、という設計書の指示のための共通化）。
+ * E-3 保存済みリプレイの「開く」（loadReplayFromCompressedData）から呼ぶ。
+ * （JSON ファイルはリプレイ一覧ページで端末保存に登録してから、この経路で開く）
  * D-4: setup 付きログもそのまま通す（加工しない）。
  * @param {{images:Object, names?:Object, exCardIds?:Array, logs:Array}} payload
  */
@@ -385,17 +385,9 @@ async function _applyReplayPayload(payload) {
   _updateUI();
 }
 
-/** リプレイJSONをインポートして盤面に反映。D-4: setup 付きログもそのまま通す（加工しない） */
-export async function importReplay(file) {
-  const text = await file.text();
-  const payload = JSON.parse(text);
-  if (!payload.logs || !payload.images) throw new Error('不正なリプレイファイルです');
-  await _applyReplayPayload(payload);
-}
-
 /**
  * E-3: 端末保存された圧縮リプレイデータ（LZString.compress の出力）を復元する。
- * importReplay と同じ _applyReplayPayload を経由する（ロジックを複製しない）。
+ * 他の読込経路と同じ _applyReplayPayload を経由する（ロジックを複製しない）。
  * @param {string} compressed
  */
 export async function loadReplayFromCompressedData(compressed) {

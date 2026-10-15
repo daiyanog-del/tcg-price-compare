@@ -32,8 +32,8 @@
 }
 .deck-load-btn:hover,.draw-btn:hover,.sol-mobile-deck-primary-btn:hover,
 .replay-share-btn:hover{background:#ffe16d;color:#242013}
-.save-btn,.load-btn,.reset-btn{background:#202c42;color:#eff3fb;border-color:transparent}
-.save-btn:hover,.load-btn:hover,.reset-btn:hover{background:#2b3549;color:#eff3fb;border-color:transparent}
+.reset-btn{background:#202c42;color:#eff3fb;border-color:transparent}
+.reset-btn:hover{background:#2b3549;color:#eff3fb;border-color:transparent}
 .sol-cip-toggle:hover,.sol-panel-toggle:hover,
 .replay-btn.play-active,.replay-speed-btn.active{background:#f3ce46;color:#242013;border-color:transparent}
 .sol-nav-title .nav-brand{color:#eff3fb}
@@ -43,7 +43,7 @@
 button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 select:focus-visible,.deck-card-row:focus-visible{outline:2px solid #f3ce46;outline-offset:2px}
 /* 枠は透明化だけにとどめるため、盤面の計測値やドラッグ領域は変わらない。 */
-.modal-content,.save-load-modal,.image-browser-modal{border-color:transparent!important}
+.modal-content,.image-browser-modal{border-color:transparent!important}
 @media(max-width:768px){
   .sol-mobile-toolbar,.sol-mobile-sheet-header,.sol-mobile-deck-actions{border-color:transparent}
 }

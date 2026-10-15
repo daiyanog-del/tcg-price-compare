@@ -8,7 +8,8 @@
  *
  * 端末間同期（SyncClient）は行わない（将来課題。マイデッキ/購入候補と違い同期経路が未整備のため、
  * このモジュールは savedDecksSet のような window.SyncClient 連携を持たない）。
- * 保存はスマホ・PC両方の共有シートから（replay-ui.js の saveReplayToDevice）、
+ * 保存は、スマホ・PC両方の共有シート（replay-ui.js の saveReplayToDevice）、廃止した盤面セーブの移行
+ * （slot-migration.js）、一覧ページの「ファイルから開く」（replays-page.js）から行う。
  * 一覧・開く・削除は /solitaire/replays（replays-page.js）と ?saved=<id>（replay-ui.js）から行う。
  */
 
@@ -62,22 +63,32 @@ function _byteLength(str) {
  *   - 1件の圧縮サイズが MAX_ENTRY_BYTES を超える場合は保存前に reason:'too_large' で失敗を返す。
  *   - savedReplaysSet が失敗した場合（localStorage 容量超過等）は、最古の1件を落として
  *     再試行する（最大 MAX_EVICT_RETRY 回）。それでも失敗すれば reason:'quota' で失敗を返す。
- * @param {{title:string, main:number, ex:number, steps:number, data:string}} entry
- * @returns {{ok:boolean, removedCount:number, reason?:'quota'|'too_large'}}
+ *
+ * keepExisting: true を渡すと既存の保存分を一切消さない（盤面セーブの移行用）。
+ *   - 上限20件を超えても古いものを間引かない（超過したまま登録する）。
+ *   - 容量超過でも最古を落として再試行せず、そのまま reason:'quota' で失敗を返す。
+ *   次に通常の保存（keepExisting なし）が行われたときに、上限を超えた分は古い順に整理される。
+ *
+ * @param {{title:string, main:number, ex:number, steps:number, data:string, savedAt?:number, origin?:string}} entry
+ *   savedAt: 保存日時（ミリ秒）。省略時は今。origin: 移行元の印（同じ移行元の二重登録を防ぐ）
+ * @param {{keepExisting?:boolean}} [opts]
+ * @returns {{ok:boolean, removedCount:number, id?:string, reason?:'quota'|'too_large'}}
  */
-export function saveReplayEntry(entry) {
+export function saveReplayEntry(entry, opts = {}) {
   if (_byteLength(entry.data) > MAX_ENTRY_BYTES) {
     return { ok: false, removedCount: 0, reason: 'too_large' };
   }
+  const keepExisting = opts.keepExisting === true;
 
   const newItem = {
     id: 'r_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
     title: entry.title,
-    savedAt: Date.now(),
+    savedAt: Number.isFinite(entry.savedAt) ? entry.savedAt : Date.now(),
     main: entry.main,
     ex: entry.ex,
     steps: entry.steps,
     data: entry.data,
+    ...(entry.origin ? { origin: entry.origin } : {}),
   };
 
   let baseList = savedReplaysGet();
@@ -86,7 +97,7 @@ export function saveReplayEntry(entry) {
   for (let attempt = 0; attempt <= MAX_EVICT_RETRY; attempt++) {
     const candidate = [...baseList, newItem];
     let removedByLimit = 0;
-    if (candidate.length > MAX_SAVED_REPLAYS) {
+    if (!keepExisting && candidate.length > MAX_SAVED_REPLAYS) {
       candidate.sort((a, b) => (a.savedAt || 0) - (b.savedAt || 0));
       removedByLimit = candidate.length - MAX_SAVED_REPLAYS;
       candidate.splice(0, removedByLimit);
@@ -94,15 +105,66 @@ export function saveReplayEntry(entry) {
 
     const result = savedReplaysSet(candidate);
     if (result.ok) {
-      return { ok: true, removedCount: removedByLimit };
+      return { ok: true, removedCount: removedByLimit, id: newItem.id };
     }
 
-    // 保存失敗（容量超過等）: 最古の1件を落として再試行
+    // 保存失敗（容量超過等）: 既存を守る指定なら諦め、通常は最古の1件を落として再試行
+    if (keepExisting) break;
     if (baseList.length === 0) break; // これ以上削れない
     baseList = baseList.slice().sort((a, b) => (a.savedAt || 0) - (b.savedAt || 0)).slice(1);
   }
 
   return { ok: false, removedCount: 0, reason: 'quota' };
+}
+
+/**
+ * 指定の移行元の印（origin）で登録済みのリプレイがあるか。
+ * 盤面セーブの移行で、キーを消す前に処理が中断されても二重登録しないために使う。
+ * @param {string} origin
+ * @returns {boolean}
+ */
+export function hasReplayOrigin(origin) {
+  return savedReplaysGet().some(r => r.origin === origin);
+}
+
+/**
+ * リプレイ payload（exportReplay / buildReplayPayload と同じ構造）を検証する。
+ * 「ファイルから開く」の検証を一箇所に置く（旧 replay-service の importReplay の検証
+ * 「logs と images がある」＋ 型の確認）。
+ * @param {*} payload
+ * @throws {Error} 読めない形のとき
+ */
+export function assertReplayPayload(payload) {
+  const ok = payload && typeof payload === 'object' && !Array.isArray(payload)
+    && payload.images && typeof payload.images === 'object' && !Array.isArray(payload.images)
+    && Array.isArray(payload.logs);
+  // 画像辞書の値は文字列（実URL / card://名前 / data:）、ログの要素はオブジェクトであること
+  const valuesOk = ok && Object.values(payload.images).every(v => typeof v === 'string')
+    && payload.logs.every(ev => ev && typeof ev === 'object');
+  if (!valuesOk) throw new Error('不正なリプレイファイルです');
+}
+
+/**
+ * リプレイ payload を圧縮して端末保存の一覧に登録する（メイン/EX枚数・手数は payload から数える）。
+ * 枚数は共有シートの端末保存（replay-ui.js getReplayCounts）と同じ数え方
+ * （画像辞書の件数 − EXの件数 = メイン、手数は setup を除いたログ数）。
+ * LZString はグローバル（solitaire.html / solitaire_replays.html が CDN から読み込む）。
+ * @param {Object} payload
+ * @param {{title?:string, savedAt?:number, origin?:string, keepExisting?:boolean}} [opts]
+ * @returns {{ok:boolean, removedCount:number, id?:string, reason?:'quota'|'too_large'|'no_lzstring'}}
+ */
+export function saveReplayPayload(payload, opts = {}) {
+  if (typeof LZString === 'undefined') return { ok: false, removedCount: 0, reason: 'no_lzstring' };
+  const ex = new Set(payload.exCardIds || []).size;
+  const main = Math.max(0, Object.keys(payload.images || {}).length - ex);
+  const steps = (payload.logs || []).filter(ev => !ev?.setup).length;
+  const title = String(opts.title ?? payload.title ?? '').trim().slice(0, 100) || '無題';
+  return saveReplayEntry({
+    title, main, ex, steps,
+    data: LZString.compress(JSON.stringify(payload)),
+    savedAt: opts.savedAt,
+    origin: opts.origin,
+  }, { keepExisting: opts.keepExisting });
 }
 
 /**

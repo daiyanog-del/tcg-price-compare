@@ -277,7 +277,7 @@
       </div>
 
       <!-- PC版 共有シート: モバイル版(#solMobileShareSheet)とは別実装・IDも別。
-           既存の共有4機能(リンクコピー/X投稿/JSON保存/JSON読込)を1つのシートにまとめる。
+           既存の共有3機能(リンクコピー/X投稿/JSON保存)を1つのシートにまとめる。
            ボタンのIDは既存のまま(#replayShare等)にして replay-ui.js の initReplayUI() の
            配線を変更せずに使い回す。 -->
       <div id="pcShareSheet" class="sol-fb-overlay pc-share-sheet" hidden>
@@ -301,9 +301,6 @@
             <button class="replay-btn" id="pcShareSaveLocalBtn" type="button">端末に保存</button>
             <p class="pc-share-note">このブラウザの中に保存されます（他の端末には同期されません）。リプレイバーの「リプレイ一覧」から開けます。</p>
             <button class="replay-btn" id="replayExport">JSON保存</button>
-            <label class="replay-btn pc-share-import-label">
-              JSON読込<input type="file" id="replayImportFile" accept=".json" style="display:none">
-            </label>
           </div>
         </div>
       </div>
@@ -389,8 +386,6 @@
             <button type="button" class="sol-mobile-sheet-close-btn" data-sol-sheet-close aria-label="閉じる">&times;</button>
           </div>
           <div class="sol-mobile-sheet-body">
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="save">セーブ<span class="sol-mobile-menu-desc">今の盤面を保存します</span></button>
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="load">ロード<span class="sol-mobile-menu-desc">保存した盤面を呼び出します</span></button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="reset">リセット<span class="sol-mobile-menu-desc">カードをデッキに戻し、記録もリセットします</span></button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="clearall">クリア<span class="sol-mobile-menu-desc">デッキ・盤面・記録をすべて消します</span></button>
             <label class="sol-mobile-menu-item sol-sample-blur-toggle">
@@ -509,7 +504,6 @@
             <details class="sol-mobile-share-section">
               <summary class="sol-mobile-share-heading">④ ファイル</summary>
               <button type="button" id="solMobileShareExportBtn" class="sol-mobile-menu-item">JSONを保存</button>
-              <button type="button" id="solMobileShareImportBtn" class="sol-mobile-menu-item">JSONを読み込む</button>
             </details>
           </div>
         </div>
@@ -530,8 +524,6 @@
                   aria-label="右パネルを畳む">▶</button>
         </div>
         <div class="sol-right-actions">
-          <button id="saveButton2" class="action-btn save-btn">セーブ</button>
-          <button id="loadButton"  class="action-btn load-btn">ロード</button>
           <button id="randomButton" class="action-btn draw-btn">ドロー</button>
           <!-- リセット／クリアは即時表示の自前ツールチップ（CSSのみ: :hover / :focus-visible）。title属性は二重表示になるため使わない -->
           <div class="sol-tip-wrap">
