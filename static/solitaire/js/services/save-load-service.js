@@ -9,6 +9,7 @@ import { createProxyCardElement } from '../components/proxy-card.js';
 import { addCounterDeleteButton, initializeCounter } from '../components/counter-manager.js';
 import { showToast } from '../utils/toast.js';
 import { restackCustomSlot } from '../components/slot-stack.js';
+import { registerCardName } from './replay-service.js';
 
 const API_CARD_IMAGES = '/api/card-images';
 
@@ -630,6 +631,9 @@ async function _applyState(state) {
   // 実際にDOM上へ存在する全カードのIDを対象にすることで、残存・復元・プロキシいずれも漏らさず拾う。
   const domIds = [...document.querySelectorAll('.tier-item-wrapper')].map(w => w.id);
   syncCardIdCounter(domIds);
+
+  // 復元したカードの名前をリプレイ辞書へ（セッション復元・スロットのロード共通。無いと共有で名前が欠ける）
+  document.querySelectorAll('.tier-item[id]').forEach(el => registerCardName(el.id, el.dataset.cardName));
 
   restoreCounters(state.counters);
 }

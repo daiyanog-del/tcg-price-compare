@@ -10,6 +10,7 @@ OFF 時の挙動:
   - GET /solitaire                      → 503 + solo_disabled.html（案内ページ）
   - POST /api/solitaire/replay          → 404
   - GET  /api/solitaire/replay/<id>     → 404
+  - GET  /solitaire/og/<id>.png         → 404
 
 依存注入（循環 import 回避）:
   app.py は _supabase_client を保持するため、起動時に init_solitaire() で
@@ -24,9 +25,11 @@ import logging
 import threading
 from datetime import datetime, timezone
 
-from flask import Blueprint, render_template, request, abort
+from flask import Blueprint, render_template, request, abort, Response, send_file
 
 from client_ip import _client_ip
+from replay_board import validate_board
+import replay_og_image
 
 logger = logging.getLogger(__name__)
 
@@ -93,13 +96,98 @@ def init_solitaire(get_supabase):
 
 # ── 一人回しシミュレータ ──
 
+REPLAY_DEFAULT_TITLE = "共有リプレイ"
+
+
+def _lookup_replay_og_meta(replay_id):
+    """共有リプレイの (title, board) を DB から引く。
+
+    戻り値: ("found", title, board_or_None) / ("missing",) / ("unknown",)
+    unknown は DB 未接続・取得失敗（ページ側は一過性の失敗を固定しないよう、生成ルートに任せる）。
+    """
+    sb = _get_supabase()
+    if not sb:
+        return ("unknown",)
+    try:
+        resp = (sb.table("solitaire_replays")
+                .select("title, board")
+                .eq("id", replay_id)
+                .limit(1)
+                .execute())
+    except Exception as e:
+        logger.warning(f"リプレイのOGP情報取得エラー: {e}")
+        return ("unknown",)
+    rows = resp.data if resp.data else []
+    if not rows:
+        return ("missing",)
+    return ("found", (rows[0].get("title") or "").strip(), rows[0].get("board"))
+
+
+# ── 一人回しシミュレータ ──
+
 @solitaire_bp.route("/solitaire")
 def solitaire_page():
-    """一人回しシミュレータ"""
+    """一人回しシミュレータ。?replay=<id> 付きなら、リンク画像（og:image）をそのリプレイの盤面画像にする。
+
+    og:title のためにリプレイ名を DB から1件引く（主キー検索・数十バイトのため許容。
+    取得失敗時は既定の題名のまま続行する）。#replay=（ハッシュ方式）はサーバーから見えないので汎用画像のまま。
+    """
     if not ENABLE_VISUAL_SOLO_PLAY:
         return render_template("solo_disabled.html"), 503
-    return render_template("solitaire.html")
+    og_image_path = None   # None = 汎用画像（static/og-solitaire.png）
+    og_title = None
+    og_url_path = None     # None = /solitaire（?replay= 付きのときはそのURL）
+    replay_id = request.args.get("replay", "")
+    if replay_og_image.is_valid_replay_id(replay_id):
+        og_url_path = f"/solitaire?replay={replay_id}"
+        meta = _lookup_replay_og_meta(replay_id)
+        if meta[0] == "found":
+            og_title = meta[1] or REPLAY_DEFAULT_TITLE
+            if validate_board(meta[2]):
+                og_image_path = f"/solitaire/og/{replay_id}.png"
+        elif meta[0] == "unknown":
+            og_image_path = f"/solitaire/og/{replay_id}.png"   # 生成ルート側で board 無し等なら汎用画像を返す
+    return render_template("solitaire.html", og_image_path=og_image_path, og_title=og_title,
+                           og_url_path=og_url_path)
 
+
+@solitaire_bp.route("/solitaire/og/<replay_id>.png")
+def solitaire_og_image(replay_id):
+    """共有リプレイのリンク画像（1200x630）。board があれば盤面画像、無ければ汎用画像。"""
+    if not ENABLE_VISUAL_SOLO_PLAY:
+        abort(404)
+    if not replay_og_image.is_valid_replay_id(replay_id):
+        abort(404)
+
+    hit = replay_og_image.read_any_cached(replay_id)
+    if hit is not None:
+        png, degraded = hit
+        # 画像取得に失敗して不完全だった描画（メモリの短期キャッシュ）は、ブラウザ側の期限も短くする
+        return _og_png_response(png, 60 if degraded else 86400)
+
+    meta = _lookup_replay_og_meta(replay_id)
+    board = validate_board(meta[2]) if meta[0] == "found" else None
+    if board is None:
+        # 旧リプレイ（board 無し）・存在しない id・DB 失敗: 汎用画像。一過性の失敗を長く固定しないため短い期限にする
+        return _generic_og_response(86400 if meta[0] == "found" else 300)
+
+    try:
+        png, degraded = replay_og_image.get_or_render(replay_id, board, meta[1])
+    except replay_og_image.RenderBusy:
+        return _generic_og_response(60)   # 描画枠が空かない・描画の予算超過: 待たずに汎用画像
+    except Exception as e:
+        logger.error(f"リプレイ画像の生成エラー {replay_id}: {e}")
+        return _generic_og_response(60)
+    # カード画像が一部取れなかった描画は期限を短くする（次の取得で復旧できるように）
+    return _og_png_response(png, 60 if degraded else 86400)
+
+
+def _og_png_response(png, max_age):
+    return Response(png, mimetype="image/png", headers={"Cache-Control": f"public, max-age={max_age}"})
+
+
+def _generic_og_response(max_age):
+    return send_file(replay_og_image.GENERIC_IMAGE_PATH, mimetype="image/png", max_age=max_age)
 
 
 # TODO: calibrate from data — 上限値（logs件数・本文サイズ）は実データ未収集のため仮置き。
@@ -141,6 +229,11 @@ def solitaire_replay_save():
             return {"error": "logsが空です"}, 400
         if len(logs) > REPLAY_MAX_LOG_ENTRIES:
             return {"error": "logsが多すぎます"}, 400
+        # board（リンク画像用の最後の盤面）。不備があっても共有自体は失敗させない（捨てて保存する）
+        board_in = data.get("board")
+        board = validate_board(board_in)
+        if board_in is not None and board is None:
+            logger.warning("リプレイ保存: board が不正のため破棄して保存を続行")
         replay_id = secrets.token_urlsafe(8)
         now_iso = datetime.now(timezone.utc).isoformat()
         payload = {
@@ -152,7 +245,12 @@ def solitaire_replay_save():
             "logs": logs,
             "created_at": now_iso,
         }
+        if board:
+            payload["board"] = board
         _supabase_client.table("solitaire_replays").insert(payload).execute()
+        if board:
+            # X のクローラーは待ち時間が短いので、投稿される前に画像を先に描いてキャッシュを温める
+            replay_og_image.warm_cache_async(replay_id, board, title)
         return {"id": replay_id}
     except Exception as e:
         logger.error(f"リプレイ保存エラー: {e}")

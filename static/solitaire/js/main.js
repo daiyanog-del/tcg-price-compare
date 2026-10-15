@@ -15,7 +15,7 @@ import { initializeCards } from './components/card-manager.js';
 import { initializeCounter } from './components/counter-manager.js';
 import { initializeEventListeners } from './ui/event-handlers.js';
 import { initReplayUI } from './ui/replay-ui.js';
-import { registerCardImage, registerCardIsEx } from './services/replay-service.js';
+import { registerCardImage, registerCardIsEx, registerCardName } from './services/replay-service.js';
 import { initTokenGenerator } from './ui/token-generator.js';
 import { initRandomTools } from './ui/random-tools.js';
 import { initCardInfoPanel } from './ui/card-info-panel.js';
@@ -63,6 +63,7 @@ function initCardImageRegistration() {
             //   先に発火した場合のフォールバック。実際は deck-input-panel.js の方が先）
             const src = registrySrcOf(cardEl);
             if (src) registerCardImage(cardEl.id, src);
+            registerCardName(cardEl.id, cardEl.dataset?.cardName); // 名前も記録（共有リプレイの names・リンク画像に必要）
             if (poolId === 'poolRow2') registerCardIsEx(cardEl.id);
           }
         });
@@ -354,6 +355,8 @@ async function initializeApp() {
       const src = registrySrcOf(cardEl);
       if (cardEl.id && src) {
         registerCardImage(cardEl.id, src);
+        // 名前も復元する（無いと共有リプレイの names が欠け、受け手で「不明なカード」・リンク画像で「？」になる）
+        registerCardName(cardEl.id, cardEl.dataset.cardName);
         const wrapper = cardEl.closest('.tier-item-wrapper');
         if (wrapper?.id.includes(' ex')) registerCardIsEx(cardEl.id);
       }
