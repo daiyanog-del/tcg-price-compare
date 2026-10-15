@@ -44,7 +44,9 @@ class _NoApprovedAtColumnQuery(Query):
 
     def execute(self):
         if self.op == "update" and "approved_at" in (self.payload or {}):
-            raise RuntimeError("column unreleased_cards.approved_at does not exist")
+            err = RuntimeError("column unreleased_cards.approved_at does not exist")
+            err.code = "42703"   # PostgreSQL の undefined_column（本物のエラーに付くコード）
+            raise err
         return super().execute()
 
 

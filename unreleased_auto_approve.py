@@ -63,6 +63,7 @@ REASON_LABELS = {
     "empty_text": "効果テキストが空（通常モンスターのフレーバーテキストも含め、読めていない）",
     "same_source_name_seen": "同じ投稿元で同名のカードを以前取り込み済み（却下・削除済みの再取込の可能性）",
     "no_visible_image": "公開用の画像がまだ無い（画像が揃うまで自動承認しない）",
+    "text_too_long": "効果テキストが長すぎて言い回しを照合していない",
     "evaluation_error": "判定中にエラーが起きた",
 }
 
@@ -218,6 +219,10 @@ def evaluate(card: dict, *, other_names=None, text_check=None, text_context=None
     text_reason = _text_reason(text_check)
     if text_reason:
         reasons.append(text_reason)
+    # 長すぎて言い回しの照合をスキップした文章は、検証できていないので自動承認しない
+    if isinstance(text_check, dict) and any(
+            s.get("kind") == "text_too_long" for s in (text_check.get("suspects") or [])):
+        reasons.append("text_too_long")
 
     if other_names is None:
         reasons.append("same_name_unchecked")

@@ -653,6 +653,19 @@ def _post_card(sb, card_id: int, *, post_fn, today: date, interval: float, sleep
             logger.info("[unreleased_x_post] 送信直前の再判定で投稿しない card_id=%s: %s", card_id, reason_now)
             _release_reservation(sb, card_id)
             return "not_postable"
+        # 待っている間に名前・収録商品・発売日が編集されたかもしれないので、投稿文は読み直したカードで作り直し、
+        # 発売済み名・同名重複の確認も新しい名前でやり直す（古い名前で投稿するのを防ぐ）
+        if _is_released_name(fresh.get("name") or ""):
+            logger.info("[unreleased_x_post] 再判定で投稿しない card_id=%s: 発売済みカード名 %r", card_id, fresh.get("name"))
+            _release_reservation(sb, card_id)
+            return "not_postable"
+        dup_now = find_duplicate_posted(sb, fresh)
+        if dup_now is not None:
+            logger.info("[unreleased_x_post] 再判定で同名の投稿済みがあるためスキップ card_id=%s (投稿済み card_id=%s)",
+                        card_id, dup_now)
+            _mark_skipped_duplicate(sb, card_id, dup_now)
+            return "skipped_duplicate"
+        text = build_tweet_text(fresh["name"], fresh.get("product_name") or "", fresh.get("release_date"))
         try:
             result = _send(sb, fresh, text, fresh_image or image_url, post_fn)
         finally:
@@ -660,6 +673,16 @@ def _post_card(sb, card_id: int, *, post_fn, today: date, interval: float, sleep
     if result == "posted":
         _delete_if_unpublished_after_post(sb, card_id)
     return result
+
+
+def _mark_skipped_duplicate(sb, card_id: int, dup_id) -> None:
+    """予約済み（posting）の行を skipped_duplicate に変える（送信直前の再判定で同名の投稿済みが見つかったとき）。"""
+    try:
+        (sb.table(TABLE).update({"status": "skipped_duplicate", "last_error": f"同名で投稿済み card_id={dup_id}",
+                                 "updated_at": _now_iso()})
+         .eq("card_id", card_id).eq("status", "posting").execute())
+    except Exception as e:
+        logger.error("[unreleased_x_post] skipped_duplicate の記録に失敗 card_id=%s: %s", card_id, e)
 
 
 def _release_reservation(sb, card_id: int) -> None:
@@ -866,9 +889,11 @@ def delete_posts(sb, rows, *, delete_fn=None) -> dict:
 
     # 投稿中（posting）・結果不明（unknown）のまま非公開にした行は削除できない。人が X を確認できるよう通知する
     # （posting は送信直前の再判定と投稿後の確認が取りこぼしを塞ぐが、unknown は人の確認が要る）
-    in_flight = [r for r in rows if r.get("status") in ("posting", "unknown") and not r.get("tweet_id")]
+    # posting は、送信が成功すれば送信後の確認（_delete_if_unpublished_after_post）が自動で削除するので通知しない。
+    # unknown（結果不明）だけは自動で確かめられないため人に知らせる
+    in_flight = [r for r in rows if r.get("status") == "unknown" and not r.get("tweet_id")]
     if in_flight:
-        _notify("[未発売X投稿] 投稿中／結果不明のまま非公開にしたカードがあります。X に投稿が出ていれば手動で削除してください: "
+        _notify("[未発売X投稿] 結果不明のまま非公開にしたカードがあります。X に投稿が出ていれば手動で削除してください: "
                 + ", ".join(f"card_id={r['card_id']} {r['name']}（{r['status']}）" for r in in_flight[:10]))
         counts["in_flight"] = len(in_flight)
     rows = [r for r in rows if r.get("tweet_id")]

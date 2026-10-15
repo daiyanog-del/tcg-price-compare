@@ -137,5 +137,21 @@ const find = (n, cls) => (n.className || '').split(' ').includes(cls) ? n : (n.c
   assert.deepEqual(resolved, [7]);
   adminCtx.list(panel, [], () => {});
   assert.equal(panel.hidden, true);
+  // 承認前確認の見送り理由（auto_approve_skip）は判定とは別キー。札は両方を読み、見送りなら「不可」として出す
+  const a = src.indexOf('function _renderAutoVerdict(');
+  const a2 = src.indexOf('/**', a);
+  assert.ok(a > 0 && a2 > a);
+  const vctx = vm.createContext({AUTO_VERDICT_NOTE: '注記'});
+  vm.runInContext(src.slice(a, a2) + '\nglobalThis.verdict = _renderAutoVerdict;', vctx);
+  const v1 = fakeEl('span'); v1.hidden = true;
+  vctx.verdict(v1, {auto_approve_verdict: {eligible: true, reasons: []}});
+  assert.equal(v1.textContent, '自動承認候補');
+  const v2 = fakeEl('span'); v2.hidden = true;
+  vctx.verdict(v2, {auto_approve_verdict: {eligible: true, reasons: []}, auto_approve_skip_label: '公開用の画像がまだ無い'});
+  assert.match(v2.textContent, /自動承認不可.*見送り.*画像/);
+  assert.ok(v2.classList.items.includes('auto-verdict-badge--ineligible') && v2.hidden === false);
+  const v3 = fakeEl('span'); v3.hidden = true;
+  vctx.verdict(v3, {});
+  assert.equal(v3.hidden, true);
   console.log('ok');
 })().catch(err => { console.error(err); process.exit(1); });

@@ -39,6 +39,14 @@
 - 誤り報告の乱用対策（中4）: 同じ IP（ハッシュ）×同じカードは1日1件、全体は1時間 `REPORT_HOURLY_LIMIT=30` 件まで。超過は保存せず429。Discord 通知は最短5分に1通（窓の間の報告は件数にまとめて窓の終わりに1通。同じ process 内のみの制御）。存在しない名前の照合は、完全一致の1問い合わせ＋公開中カード名の60秒キャッシュ（全件読みは60秒に1回）。値はすべて仮置き（`TODO: calibrate from data`）。
 - 軽微: 自動承認の通知に `release_date_warning` を載せる（低1）。言い回しの照合は3,000字超の文章をスキップして弱い注記（kind `text_too_long`）だけ出す（低3）。
 
+### 追記: 再レビュー指摘の修正（同日・追加コミット）
+
+- 取込由来の承認待ちの削除（中1）: source_url が manual 以外の承認待ち（pending/needs_review）も、公開中と同様に物理削除せず rejected にして行を残す（取込の重複除外と `same_source_history` が効くように）。manual の承認待ちと、却下済みからの削除は従来どおり物理削除。管理画面の確認文は実際の挙動に合わせて切り替え、却下済みタブに「完全に削除」ボタンを追加（完全に消す手段）。`rejected_instead` のときはサーバーの note をダイアログで表示（低3）。
+- 自動承認は approved_via を外して承認しない（中2）: `execute_approve_update(forbid_column_drop=True)`（via=="auto"）は列欠落を例外にし、`maybe_auto_approve` が failed に数えて Discord 通知する。手動・一括は従来のフォールバック。列を外す再試行は「列が無い」エラー（PGRST204 / 42703）のときに限る（低1）。
+- 送信直前の再判定の後、読み直したカードで投稿文を作り直し、発売済み名・同名重複の確認も新しい名前でやり直す（低2）。重複なら予約行を skipped_duplicate にする。
+- 承認前確認の見送り理由は `extraction_raw.auto_approve_skip {reason, at}` に記録し、`auto_approve_verdict` は書き換えない（`tools/auto_approve_report.py` の判定精度の集計を汚さない）。管理画面の札は両方を読む（低4）。
+- 他: 承認前確認の例外も Discord 通知、3000字超（`text_too_long`）は自動承認の対象外（理由コードあり）、delete_posts の通知は unknown 行のみ（posting は送信後の確認が自動で消す）、NotifyBatcher はタイマー起動失敗時に窓を閉じる（低5）。
+
 ### 影響範囲
 unreleased_approve.py（新規）・unreleased_text_report.py（新規）・unreleased_text_check.py（④）・unreleased_auto_approve.py（VERSION=3・文言）・unreleased_x_post.py（削除・認証のない process の投稿スキップ）・x_poster.py（`delete_tweet_ex`）・discord_notify.py（`no_mentions`）・admin_unreleased.py（委譲・4経路の削除・報告API・一覧に `open_report_count` / `approval_via`）・app.py（報告API・専用バケット）・watch_x_unreleased.py / watch_unreleased.py（配線）・static/shared/text-report.*・index-main.js・card-info-panel.js・mobile-ui.js・static/admin・templates・tools/build_text_check_dict.py / text_check_calibrate.py / auto_approve_report.py・SQL `unreleased_auto_approve_go.sql`（＋`unreleased_x_posts.sql` の CHECK）。
 

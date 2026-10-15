@@ -188,10 +188,15 @@ class NotifyBatcher:
         threading.Thread(target=self.send, args=(message,), daemon=True, name="text-report-notify").start()
 
     def _arm(self) -> None:
+        """窓を開いて終わりのタイマーを起動する。起動に失敗したら窓を閉じる（閉じ忘れると以後ずっと通知されない）。"""
         self.open = True
-        t = self.timer_factory(self.window, self._flush)
-        t.daemon = True
-        t.start()
+        try:
+            t = self.timer_factory(self.window, self._flush)
+            t.daemon = True
+            t.start()
+        except Exception as e:
+            self.open = False
+            logger.warning("[text_report] 通知のまとめタイマーを起動できず窓を閉じた: %s", e)
 
     def submit(self, message: str, label: str = "") -> bool:
         """報告を1件通知する。即送信したら True、まとめに回したら False。"""

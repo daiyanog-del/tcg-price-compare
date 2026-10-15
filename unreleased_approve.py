@@ -56,11 +56,24 @@ def backfill_release_date(product_name: str, exclude_id: int) -> str | None:
 _OPTIONAL_APPROVE_COLUMNS = ("approved_at", "approved_via")
 
 
-def execute_approve_update(build_query, fields: dict):
+# 「列が無い」を表すエラーコード（PostgREST の PGRST204 = スキーマキャッシュに列なし / PostgreSQL の 42703 = undefined_column）。
+# 列名がエラー文に出るだけの別のエラー（制約違反など）で列を外して再試行してしまわないよう、これに限る
+_MISSING_COLUMN_CODES = ("PGRST204", "42703")
+
+
+def _is_missing_column_error(e: Exception, column: str) -> bool:
+    code = str(getattr(e, "code", "") or "")
+    text = str(e)
+    return column in text and any(c == code or c in text for c in _MISSING_COLUMN_CODES)
+
+
+def execute_approve_update(build_query, fields: dict, *, forbid_column_drop: bool = False):
     """status を approved にする UPDATE を実行する。fields には approved_at / approved_via を含める。
 
     approved_at / approved_via 列が未作成（SQL の適用前にコードだけ先にデプロイされた）ときは、承認自体を止めないよう
-    エラーに名前が出た列を抜いて再実行する（警告ログ）。
+    エラーに名前が出た列を抜いて再実行する（警告ログ）。「列が無い」エラー（PGRST204 / 42703）のときに限る。
+    forbid_column_drop=True（自動承認）のときは列を外さず例外にする: approved_via が無いまま自動承認すると
+    1日の上限を数えられず、上限が効かなくなるため。
       - approved_at が NULL の間に承認されたカードは X に投稿されない（根本対応は unreleased_x_posts.sql の適用）
       - approved_via が NULL の間の承認は、自動承認の1日の上限に数えられない
         （根本対応は unreleased_auto_approve_go.sql の適用。自動承認を有効にする前に適用すること）
@@ -71,9 +84,12 @@ def execute_approve_update(build_query, fields: dict):
         try:
             return build_query(fields).execute()
         except Exception as e:
-            missing = [c for c in _OPTIONAL_APPROVE_COLUMNS if c in fields and c in str(e)]
+            missing = [c for c in _OPTIONAL_APPROVE_COLUMNS if c in fields and _is_missing_column_error(e, c)]
             if not missing:
                 raise
+            if forbid_column_drop:
+                raise RuntimeError(f"自動承認の承認 UPDATE に必要な列がありません（{'/'.join(missing)}）。"
+                                   f"unreleased_auto_approve_go.sql を適用してください: {e}") from e
             logger.warning(f"[approve] {'/'.join(missing)} 列が無いため抜きで承認します"
                            f"（unreleased_x_posts.sql / unreleased_auto_approve_go.sql を適用してください）: {e}")
             for c in missing:
@@ -163,6 +179,7 @@ def approve_card(sb, card_id: int, via: str, *, fetch_image=None, invalidate_cac
     upd_resp = execute_approve_update(
         lambda f: sb.table("unreleased_cards").update(f).eq("id", card_id),
         update_fields,
+        forbid_column_drop=(via == "auto"),   # 自動承認は approved_via（上限の根拠）が書けないなら承認しない
     )
     if not upd_resp.data:
         return {"status": "update_failed"}
@@ -486,13 +503,15 @@ def has_visible_image(sb, card_id) -> bool:
 
 
 def _record_ineligible(sb, card: dict, code: str) -> None:
-    """自動承認しなかった理由を判定（auto_approve_verdict）に追記する（管理画面の札に出る）。失敗は握りつぶす。"""
+    """承認前確認で自動承認を見送った理由を extraction_raw.auto_approve_skip {reason, at} に記録する（管理画面の札に出る）。
+
+    判定（auto_approve_verdict）は書き換えない: 判定は取込時の「条件を満たしたか」の記録で、
+    tools/auto_approve_report.py の判定精度の集計に使うため、承認前確認の結果で汚さない。失敗は握りつぶす。
+    """
     try:
         from unreleased_image_store import _merge_extraction_raw
-        verdict = dict((card.get("extraction_raw") or {}).get("auto_approve_verdict") or {})
-        verdict["eligible"] = False
-        verdict["reasons"] = list(verdict.get("reasons") or []) + [code]
-        _merge_extraction_raw(sb, card["id"], {"auto_approve_verdict": verdict})
+        _merge_extraction_raw(sb, card["id"], {"auto_approve_skip": {
+            "reason": code, "at": datetime.now(timezone.utc).isoformat()}})
     except Exception as e:
         logger.warning("[auto_approve] 見送り理由の記録に失敗 card_id=%s: %s", card.get("id"), e)
 
@@ -566,6 +585,8 @@ def maybe_auto_approve(sb, cards, *, approve=None, now: datetime | None = None) 
                 skip = precheck_auto_approve(sb, card)
             except Exception as e:
                 logger.warning("[auto_approve] 承認前の確認に失敗したため自動承認しない card_id=%s %s: %s", card["id"], name, e)
+                _notify(f"[自動承認] 承認前の確認に失敗したため承認待ちのままにしました card_id={card['id']} 「{name}」: "
+                        f"{type(e).__name__}: {e}")
                 bump("failed")
                 continue
             if skip:

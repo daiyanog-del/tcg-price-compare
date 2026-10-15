@@ -530,14 +530,18 @@ document.getElementById('bulk-reject-btn').addEventListener('click', async () =>
 function _renderAutoVerdict(el, card) {
   if (!el) return;
   const verdict = card.auto_approve_verdict;
-  if (!verdict || typeof verdict.eligible !== 'boolean') return;  // 旧データ・手動登録は札なし
+  // 承認前の確認で見送った理由（判定とは別キー auto_approve_skip）。判定が候補でも、見送ったら不可として出す
+  const skipLabel = card.auto_approve_skip_label || '';
+  const hasVerdict = !!verdict && typeof verdict.eligible === 'boolean';
+  if (!hasVerdict && !skipLabel) return;  // 旧データ・手動登録は札なし
   // 値は取込時（編集して保存した場合は保存時）の判定。承認前後の他の変化は反映されない
   el.title = AUTO_VERDICT_NOTE;
-  if (verdict.eligible) {
+  if (hasVerdict && verdict.eligible && !skipLabel) {
     el.textContent = '自動承認候補';
     el.classList.add('auto-verdict-badge--eligible');
   } else {
-    const labels = Array.isArray(card.auto_approve_reason_labels) ? card.auto_approve_reason_labels : [];
+    const labels = Array.isArray(card.auto_approve_reason_labels) ? card.auto_approve_reason_labels.slice() : [];
+    if (skipLabel) labels.push('承認前の確認で見送り: ' + skipLabel);
     el.textContent = '自動承認不可: ' + (labels.length ? labels.join(' / ') : '理由不明');
     el.classList.add('auto-verdict-badge--ineligible');
   }
@@ -926,7 +930,7 @@ function _renderPendingList(listEl, cards) {
 
     // 削除ボタン
     row.querySelector('.action-delete').addEventListener('click', () => {
-      _deleteCard(card.id, row);
+      _deleteCard(card.id, row, card);
     });
 
     // 一括承認チェックボックス変更時に件数ラベルを更新
@@ -1211,11 +1215,27 @@ async function _rejectApprovedCard(cardId, row) {
   }
 }
 
-async function _deleteCard(cardId, row) {
-  if (!confirm(`ID ${cardId} のカードを完全削除しますか？\nこの操作は取り消せません。`)) return;
+/**
+ * カードを削除する。サーバーの挙動に合わせて確認文を変える:
+ *  - 手動登録（source_url が manual）の承認待ち・却下済み: 物理削除（取り消せない）
+ *  - 取込由来の承認待ち: 物理削除せず却下扱いにして行を残す（再取込で入り直さないため）。完全に消すには却下タブから削除
+ * @param {number} cardId
+ * @param {HTMLElement} row
+ * @param {{status?: string, source_url?: string}} [card]
+ */
+async function _deleteCard(cardId, row, card = {}) {
+  const imported = card.status !== 'rejected' && !!card.source_url && card.source_url !== 'manual';
+  const message = imported
+    ? `ID ${cardId} のカードを却下扱いにして一覧から外しますか？\n取込元の記録として「却下済み」タブに残り、同じ投稿の再取込では入り直しません。\n完全に消すには、却下済みタブから削除してください。`
+    : (card.status === 'rejected'
+      ? `ID ${cardId} のカードを完全削除しますか？\nこの操作は取り消せません。同じ投稿が再取込されると、新しいカードとして入り直す可能性があります。`
+      : `ID ${cardId} のカードを完全削除しますか？\nこの操作は取り消せません。`);
+  if (!confirm(message)) return;
   try {
     const resp = await apiFetch(`/api/admin/unreleased/${cardId}`, { method: 'DELETE' });
     if (resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      if (data.rejected_instead && data.note) alert(data.note);
       row.remove();
     } else {
       const data = await resp.json().catch(() => ({}));
@@ -1647,6 +1667,11 @@ function _renderRejectedList(listEl, cards) {
     // 承認待ちに戻すボタン
     row.querySelector('.action-restore').addEventListener('click', () => {
       _restoreCard(card.id, row);
+    });
+
+    // 完全削除（却下済みからは物理削除。取り消せない）
+    row.querySelector('.action-delete').addEventListener('click', () => {
+      _deleteCard(card.id, row, { status: 'rejected', source_url: card.source_url });
     });
 
     listEl.appendChild(row);

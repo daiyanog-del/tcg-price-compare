@@ -310,3 +310,18 @@ def test_public_names_cached_for_ttl(monkeypatch):
     assert len(reads) == n
     tr._public_names(sb, clock=lambda: 1000.0 + tr.PUBLIC_NAMES_TTL_SEC + 1)   # TTL 超過→読み直す
     assert len(reads) == n + 1
+
+
+def test_notify_batcher_timer_start_failure_closes_window():
+    class BoomTimer:
+        def __init__(self, *a):
+            self.daemon = False
+
+        def start(self):
+            raise RuntimeError("can't start new thread")
+
+    sent = []
+    b = tr.NotifyBatcher(send=sent.append, window=300, timer_factory=BoomTimer)
+    b._send_async = lambda m: sent.append(m)
+    assert b.submit("m1", "A") is True and b.open is False
+    assert b.submit("m2", "B") is True and sent == ["m1", "m2"]   # 窓が閉じているので次も即送信される

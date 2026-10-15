@@ -282,8 +282,13 @@ def admin_list_unreleased():
                 fallback_list = raw.get("card_image_urls") or []
                 card_img_url = fallback_list[0] if fallback_list else ""
             card["card_image_url"] = card_img_url
-            for key in ("crop_suggestion", "crop_state", "release_date_evidence", "recognition_review", "auto_approve_verdict", "text_check"):
+            for key in ("crop_suggestion", "crop_state", "release_date_evidence", "recognition_review", "auto_approve_verdict",
+                        "auto_approve_skip", "text_check"):
                 card[key] = raw.get(key)
+            # 承認前確認で自動承認を見送った理由（判定とは別キー）の日本語ラベル
+            skip = card.get("auto_approve_skip")
+            if isinstance(skip, dict) and skip.get("reason"):
+                card["auto_approve_skip_label"] = _auto_approve_label(skip["reason"])
             # 承認の経路（single / bulk / auto）。公開中一覧で自動承認の札を出すのに使う
             snap = raw.get("approval_snapshot")
             card["approval_via"] = snap.get("via") if isinstance(snap, dict) else None
@@ -1257,9 +1262,13 @@ def admin_delete_unreleased(card_id: int):
     指定IDのカードを物理削除する（誤登録の取り消し用）。
     official_card_images は ON DELETE CASCADE で自動削除される。
 
-    ただし公開中（approved/linked）のカードは物理削除せず、却下（rejected）扱いにして行を残す。
+    ただし次の場合は物理削除せず、却下（rejected）扱いにして行を残す（レスポンスに rejected_instead と note）:
+      - 公開中（approved/linked）のカード
+      - 取込由来（source_url が manual 以外）の承認待ち（pending/needs_review）のカード
     行を消すと、同じ投稿元の再取込が新規カードとして入り直し、自動承認で再び公開されてしまうため
-    （rejected の行が「取り込み済み」の目印になる）。X 投稿の削除は従来どおり行う。
+    （rejected の行が「取り込み済み」の目印になり、取込の重複除外と same_source_history が効く）。
+    X 投稿の削除は従来どおり行う。manual（手動登録）の承認待ちと、却下済み（rejected）の削除は従来どおり物理削除
+    （完全に消したいときは却下タブから削除する）。
     """
     err = _require_admin_key()
     if err:
@@ -1269,8 +1278,11 @@ def admin_delete_unreleased(card_id: int):
         return jsonify({"error": "Supabase 未接続"}), 503
 
     try:
-        cur = _supabase.table("unreleased_cards").select("id, status").eq("id", card_id).execute()
-        if cur.data and cur.data[0].get("status") in ("approved", "linked"):
+        cur = _supabase.table("unreleased_cards").select("id, status, source_url").eq("id", card_id).execute()
+        cur_row = cur.data[0] if cur.data else {}
+        imported = (cur_row.get("source_url") or "").strip() not in ("", "manual")
+        if cur_row and (cur_row.get("status") in ("approved", "linked")
+                        or (cur_row.get("status") in ("pending", "needs_review") and imported)):
             posted = _x_post.collect_posted_safe(_supabase, [card_id])
             upd = _supabase.table("unreleased_cards").update({"status": "rejected"}).eq("id", card_id).execute()
             if not upd.data:
@@ -1278,7 +1290,8 @@ def admin_delete_unreleased(card_id: int):
             _card_display.invalidate_cache()
             _x_post.start_delete_thread(_supabase, posted)
             return jsonify({"ok": True, "deleted_id": card_id, "rejected_instead": True,
-                            "note": "公開中のカードは物理削除せず却下にしました（再取込で入り直さないため）"})
+                            "note": "公開中、または取込由来のカードは物理削除せず却下扱いにしました（再取込で入り直さないため）。"
+                                    "完全に消すには、却下タブから削除してください"})
 
         # 退避した元画像のパスは、行を消す前でないと extraction_raw を読めない
         original_paths: list[str] = []

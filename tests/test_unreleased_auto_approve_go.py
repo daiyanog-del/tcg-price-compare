@@ -586,10 +586,11 @@ def test_execute_approve_update_drops_missing_columns_one_by_one():
 
         def execute(self):
             calls.append(dict(self.fields))
-            if "approved_via" in self.fields:
-                raise RuntimeError('column "approved_via" of relation does not exist')
-            if "approved_at" in self.fields:
-                raise RuntimeError('column "approved_at" of relation does not exist')
+            for col in ("approved_via", "approved_at"):
+                if col in self.fields:
+                    err = RuntimeError(f'column "{col}" of relation does not exist')
+                    err.code = "42703"
+                    raise err
             return "ok"
 
     out = ap.execute_approve_update(Q, {"status": "approved", "approved_at": "t", "approved_via": "auto"})
@@ -615,8 +616,9 @@ def test_auto_approve_skips_reentry_of_same_source_and_name(monkeypatch, notes):
     called = []
     out = ap.maybe_auto_approve(sb, [new], approve=lambda *a: called.append(a) or {"status": "ok"})
     assert called == [] and out == {"skipped": 1}
-    v = sb.tables["unreleased_cards"][1]["extraction_raw"]["auto_approve_verdict"]
-    assert v["eligible"] is False and "same_source_name_seen" in v["reasons"]
+    raw = sb.tables["unreleased_cards"][1]["extraction_raw"]
+    assert raw["auto_approve_skip"]["reason"] == "same_source_name_seen" and raw["auto_approve_skip"]["at"]
+    assert raw["auto_approve_verdict"] == {"eligible": True, "reasons": []}   # 判定は書き換えない（集計を汚さない）
     from unreleased_auto_approve import reason_label
     assert reason_label("same_source_name_seen") != "same_source_name_seen"
 
@@ -639,8 +641,9 @@ def test_auto_approve_requires_visible_image(monkeypatch, notes):
     called = []
     out = ap.maybe_auto_approve(sb, sb.tables["unreleased_cards"], approve=lambda *a: called.append(a) or {"status": "ok"})
     assert called == [] and out == {"skipped": 1} and fetched          # 承認前に取り込みを試み、無ければ見送り
-    v = sb.tables["unreleased_cards"][0]["extraction_raw"]["auto_approve_verdict"]
-    assert "no_visible_image" in v["reasons"] and sb.tables["unreleased_cards"][0]["status"] == "pending"
+    raw = sb.tables["unreleased_cards"][0]["extraction_raw"]
+    assert raw["auto_approve_skip"]["reason"] == "no_visible_image" and raw["auto_approve_verdict"]["eligible"] is True
+    assert sb.tables["unreleased_cards"][0]["status"] == "pending"
 
 
 def test_auto_approve_fetches_image_before_approval_for_official_route(monkeypatch):
@@ -727,8 +730,9 @@ def test_collect_posted_includes_in_flight_and_notifies_no_mentions(monkeypatch)
     rows = xp.collect_posted(sb, [1, 2])
     assert [(r["card_id"], r["status"], r["tweet_id"]) for r in rows] == [(1, "posting", None), (2, "unknown", None)]
     out = xp.delete_posts(sb, rows, delete_fn=lambda t: (_ for _ in ()).throw(AssertionError("消せない")))
-    assert out == {"in_flight": 2}
-    assert len(sent) == 1 and sent[0]["allowed_mentions"] == {"parse": []} and "投稿中" in sent[0]["content"]
+    assert out == {"in_flight": 1}     # 通知は結果不明（unknown）だけ。posting は送信後の確認が自動で削除する
+    assert len(sent) == 1 and sent[0]["allowed_mentions"] == {"parse": []}
+    assert "card_id=2" in sent[0]["content"] and "card_id=1" not in sent[0]["content"]
 
 
 def test_delete_failure_notification_disables_mentions(monkeypatch):
@@ -741,3 +745,127 @@ def test_delete_failure_notification_disables_mentions(monkeypatch):
     _posted(sb, 1, "111")
     xp.delete_posts(sb, xp.collect_posted(sb, [1]), delete_fn=lambda t: (False, "unknown"))
     assert sent and all(m["allowed_mentions"] == {"parse": []} for m in sent)
+
+
+# ── 再レビュー指摘の修正 ──
+
+def test_delete_pending_imported_card_becomes_reject_but_manual_is_physical(admin):
+    admin.sb.tables["unreleased_cards"][0].update(status="pending", source_url="https://x.com/a/status/1")
+    resp = admin.delete("/api/admin/unreleased/1", headers=admin.h)
+    assert resp.get_json()["rejected_instead"] is True and "却下タブ" in resp.get_json()["note"]
+    assert [r["status"] for r in admin.sb.tables["unreleased_cards"]] == ["rejected"]
+    # 却下済みからの削除は物理削除（従来どおり）
+    assert admin.delete("/api/admin/unreleased/1", headers=admin.h).get_json() == {"ok": True, "deleted_id": 1}
+    assert admin.sb.tables["unreleased_cards"] == []
+
+
+def test_delete_pending_manual_card_is_physical(admin):
+    admin.sb.tables["unreleased_cards"][0].update(status="pending", source_url="manual")
+    assert admin.delete("/api/admin/unreleased/1", headers=admin.h).get_json() == {"ok": True, "deleted_id": 1}
+    assert admin.sb.tables["unreleased_cards"] == []
+
+
+def _no_via_sb():
+    from tests.fake_supabase import Query
+
+    class NoViaQuery(Query):
+        def execute(self):
+            if self.op == "update" and "approved_via" in (self.payload or {}):
+                err = RuntimeError('column "approved_via" does not exist')
+                err.code = "PGRST204"
+                raise err
+            return super().execute()
+
+    class NoViaSB(FakeSB):
+        def table(self, name):
+            return NoViaQuery(self, name)
+
+    return NoViaSB({"unreleased_cards": [_card(1)], "unreleased_x_posts": [], "app_settings": [],
+                    "official_card_images": [{"id": 1, "unreleased_card_id": 1, "hidden": False, "deleted_at": None}]},
+                   pks={"unreleased_cards": "id", "unreleased_x_posts": "card_id", "app_settings": "key"})
+
+
+def test_auto_approve_never_drops_approved_via_column(notes, monkeypatch):
+    """自動承認は approved_via が書けないとき、列を外して承認せず失敗にする。手動は従来どおり外して承認する。"""
+    sb = _no_via_sb()
+    with pytest.raises(RuntimeError):
+        ap.approve_card(sb, 1, "auto", fetch_image=lambda **kw: (False, "x"), invalidate_cache=lambda: None)
+    assert sb.tables["unreleased_cards"][0]["status"] == "pending"
+    monkeypatch.setenv("AUTO_APPROVE_ENABLED", "1")
+    sb = _no_via_sb()
+    out = ap.maybe_auto_approve(sb, sb.tables["unreleased_cards"])
+    assert out == {"failed": 1} and any("失敗" in n for n in notes)
+    sb = _no_via_sb()
+    res = ap.approve_card(sb, 1, "single", fetch_image=lambda **kw: (False, "x"), invalidate_cache=lambda: None)
+    assert res["status"] == "ok" and sb.tables["unreleased_cards"][0]["status"] == "approved"
+
+
+def test_column_drop_only_for_missing_column_codes():
+    class Q:
+        def __init__(self, f):
+            self.f = f
+
+        def execute(self):
+            raise RuntimeError('duplicate key value violates unique constraint "approved_via_idx" (23505)')
+
+    with pytest.raises(RuntimeError):   # 列名がエラー文に出るだけでは外さない
+        ap.execute_approve_update(Q, {"status": "approved", "approved_via": "single"})
+    err = RuntimeError('Could not find the "approved_via" column of "unreleased_cards" in the schema cache')
+    assert ap._is_missing_column_error(err, "approved_via") is False   # コードが無ければ外さない
+    err.code = "PGRST204"
+    assert ap._is_missing_column_error(err, "approved_via") is True
+
+
+def test_post_rebuilds_text_with_fresh_name(monkeypatch):
+    sb = _sb([_approved_postable(), _approved_postable(2)])
+    _post_setup(monkeypatch, sb)
+    texts = []
+
+    def rename(sec):
+        sb.tables["unreleased_cards"][0]["name"] = "改名後カード"
+
+    monkeypatch.setattr(xp, "_last_attempt_at", 0.0)
+    monkeypatch.setattr(xp, "_clock", lambda: 1.0)
+    out = xp.post_card(sb, 1, post_fn=lambda text, *a, **k: texts.append(text) or ("999", None), sleep=rename, interval=20)
+    assert out == "posted" and "「改名後カード」" in texts[0] and "「カード1」" not in texts[0]
+
+
+def test_post_skips_when_renamed_to_already_posted_name(monkeypatch):
+    sb = _sb([_approved_postable(), _approved_postable(2)])
+    _post_setup(monkeypatch, sb)
+    sb.tables["unreleased_x_posts"].append({"card_id": 2, "status": "posted", "tweet_id": "222", "attempts": 0})
+    sent = []
+
+    def rename(sec):
+        sb.tables["unreleased_cards"][0]["name"] = "カード2"   # 投稿済みの同名になった
+
+    monkeypatch.setattr(xp, "_last_attempt_at", 0.0)
+    monkeypatch.setattr(xp, "_clock", lambda: 1.0)
+    out = xp.post_card(sb, 1, post_fn=lambda *a, **k: sent.append(1) or ("9", None), sleep=rename, interval=20)
+    assert out == "skipped_duplicate" and sent == []
+    assert [r["status"] for r in sb.tables["unreleased_x_posts"] if r["card_id"] == 1] == ["skipped_duplicate"]
+
+
+def test_precheck_exception_notifies(monkeypatch, notes):
+    monkeypatch.setenv("AUTO_APPROVE_ENABLED", "1")
+    sb = _sb([_card(1)])
+    monkeypatch.setattr(ap, "precheck_auto_approve", lambda sb_, c: (_ for _ in ()).throw(RuntimeError("db")))
+    out = ap.maybe_auto_approve(sb, sb.tables["unreleased_cards"], approve=lambda *a: {"status": "ok"})
+    assert out == {"failed": 1} and any("承認前の確認に失敗" in n for n in notes)
+
+
+def test_text_too_long_is_not_eligible():
+    import unreleased_auto_approve as aa
+    chk = {"version": 2, "status": "checked", "reason": None, "strong": 0, "weak": 1, "unverified_fields": [],
+           "suspects": [{"kind": "text_too_long", "severity": "weak"}]}
+    card = {"name": "A", "effect_text": "効果", "confidence": "high", "extraction_raw": {}}
+    v = aa.evaluate(card, other_names=[], text_check=chk)
+    assert "text_too_long" in v["reasons"] and aa.reason_label("text_too_long") != "text_too_long"
+
+
+def test_admin_list_exposes_skip_label(admin):
+    row = admin.sb.tables["unreleased_cards"][0]
+    row["extraction_raw"]["auto_approve_skip"] = {"reason": "no_visible_image", "at": "x"}
+    row["extracted_at"] = "2026-10-15T00:00:00+00:00"
+    card = admin.get("/api/admin/unreleased?status=approved", headers=admin.h).get_json()["cards"][0]
+    assert card["auto_approve_skip"]["reason"] == "no_visible_image" and "画像" in card["auto_approve_skip_label"]
