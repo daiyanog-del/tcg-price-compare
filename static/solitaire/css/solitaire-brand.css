@@ -372,53 +372,34 @@
 .mydeck-empty {
   padding: 4px 0;
 }
-.mydeck-goto-neuron {
+.mydeck-empty-title {
+  margin: 14px 0 10px;
+  text-align: center;
+  font-size: 0.83rem;
+  color: #eff3fb;
+}
+.mydeck-import-entry {
   display: block;
-  width: 100%;
-  padding: 8px 10px;
-  background: rgba(74,124,255,0.12);
-  border: 1px solid rgba(74,124,255,0.3);
-  border-radius: 8px;
-  color: var(--accent);
+  box-sizing: border-box;
+  padding: 7px 8px;
+  border: 1px dashed #aec5ff;
+  border-radius: 6px;
+  color: #aec5ff;
   font-size: 0.8rem;
   font-family: var(--font);
-  cursor: pointer;
+  text-decoration: none;
+  margin-bottom: 3px;
+}
+.mydeck-import-entry:hover { background: rgba(174,197,255,0.1); }
+.mydeck-import-entry.big {
+  padding: 14px 8px;
   text-align: center;
-  transition: background 0.15s, border-color 0.15s;
+  font-size: 0.86rem;
 }
-.mydeck-goto-neuron:hover {
-  background: rgba(74,124,255,0.2);
-  border-color: var(--accent);
-}
-
-/* ニューロン取り込みセクション */
-.sol-neuron-section {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px;
-  margin-bottom: 8px;
-}
-.sol-neuron-section:last-child {
-  margin-bottom: 0;
-}
-.sol-neuron-section .sol-upload-note {
-  margin: 4px 0 8px;
-}
-.sol-neuron-section .sol-ext-link,
-.sol-neuron-section .sol-upload-label {
-  margin-top: 0;
-}
-.sol-neuron-method-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 5px;
-}
-.sol-neuron-method-title {
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: #cbd5e1;
+.mydeck-import-note {
+  display: block;
+  color: #a8b4c9;
+  font-size: 0.68rem;
 }
 .sol-recommend-badge {
   font-size: 0.65rem;
