@@ -1425,6 +1425,44 @@ def admin_toggle_official_image():
 
 
 # ──────────────────────────────────────────────
+# POST /api/admin/settings/og-blur-no-repost — リンク画像の「無断転載禁止」ぼかしトグル
+# ──────────────────────────────────────────────
+
+@admin_bp.route("/api/admin/settings/og-blur-no-repost", methods=["POST"])
+def admin_toggle_og_blur_no_repost():
+    """
+    OG_BLUR_NO_REPOST 設定を更新する。
+    リクエストボディ: {"enabled": true/false}
+    有効（行なしも有効扱い）だと、公式画像に「無断転載禁止」ロゴが入っているカードのリンク画像（OG画像）は
+    イラスト部分をぼかす。キャッシュのキーに設定値が入るので、切り替えれば新しい画像が作られる。
+    """
+    err = _require_admin_key()
+    if err:
+        return err
+
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+
+    body = request.get_json(silent=True) or {}
+    enabled = body.get("enabled")
+    if not isinstance(enabled, bool):
+        return jsonify({"error": "enabled は true または false で指定してください"}), 400
+
+    try:
+        (
+            _supabase.table("app_settings")
+            .upsert({"key": "OG_BLUR_NO_REPOST", "value": {"enabled": enabled}}, on_conflict="key")
+            .execute()
+        )
+        _card_display.invalidate_cache()   # 30秒待たずに反映
+        return jsonify({"ok": True, "enabled": enabled})
+
+    except Exception as e:
+        logger.error(f"[admin] og-blur-no-repost 更新エラー: {e}")
+        return jsonify({"error": "設定更新に失敗しました"}), 500
+
+
+# ──────────────────────────────────────────────
 # POST /api/admin/unreleased/<id>/fetch-image — 手動画像取込
 # ──────────────────────────────────────────────
 

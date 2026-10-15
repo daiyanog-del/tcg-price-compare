@@ -2308,6 +2308,11 @@ async function _loadSettings() {
       toggle.checked = Boolean(imageDisplaySetting.value?.enabled);
     }
     toggle.disabled = false;
+    // リンク画像のぼかし: 行が無いときは有効（サーバー側の既定と同じ）
+    const blurSetting = settings.find((s) => s.key === 'OG_BLUR_NO_REPOST');
+    const blurToggle = document.getElementById('og-blur-toggle');
+    blurToggle.checked = blurSetting ? blurSetting.value?.enabled !== false : true;
+    blurToggle.disabled = false;
   } catch (e) {
     if (e.message !== '認証エラー') {
       _showResult(resultEl, '通信エラーが発生しました', 'error');
@@ -2469,6 +2474,39 @@ document.getElementById('official-image-toggle').addEventListener('change', asyn
   } catch (e) {
     toggle.checked = !enabled;
     if (e.message !== '認証エラー') {
+      _showResult(resultEl, '通信エラーが発生しました', 'error');
+    }
+  } finally {
+    toggle.disabled = false;
+  }
+});
+
+document.getElementById('og-blur-toggle').addEventListener('change', async (e) => {
+  const toggle = e.target;
+  const resultEl = document.getElementById('settings-result');
+  const enabled = toggle.checked;
+  toggle.disabled = true;
+  resultEl.hidden = true;
+
+  try {
+    const resp = await apiFetch('/api/admin/settings/og-blur-no-repost', {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (resp.ok) {
+      _showResult(
+        resultEl,
+        `リンク画像の無断転載ロゴのぼかしを${enabled ? '有効' : '無効'}にしました。最大30秒以内に反映されます。`,
+        'ok',
+      );
+    } else {
+      toggle.checked = !enabled;
+      _showResult(resultEl, data.error || '設定更新に失敗しました', 'error');
+    }
+  } catch (err) {
+    toggle.checked = !enabled;
+    if (err.message !== '認証エラー') {
       _showResult(resultEl, '通信エラーが発生しました', 'error');
     }
   } finally {

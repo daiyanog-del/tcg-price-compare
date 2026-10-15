@@ -14,6 +14,7 @@ OFF 時の挙動:
   - GET  /api/solitaire/public          → 404（みんなのリプレイの一覧）
   - POST /api/solitaire/replay/<id>/unpublish → 404（公開の取り下げ）
   - GET  /solitaire/og/<id>.png         → 404
+  - GET  /solitaire/og/card/<id>.png    → 404（未発売カードのリンク画像）
 
 依存注入（循環 import 回避）:
   app.py は _supabase_client を保持するため、起動時に init_solitaire() で
@@ -35,6 +36,8 @@ from flask import Blueprint, render_template, request, abort, Response, send_fil
 
 from client_ip import _client_ip
 from replay_board import validate_board
+import card_display
+import card_og_image
 import replay_og_image
 import replay_moderation
 
@@ -205,8 +208,34 @@ def solitaire_page():
                 og_image_path = f"/solitaire/og/{replay_id}.png"
         elif meta[0] == "unknown":
             og_image_path = f"/solitaire/og/{replay_id}.png"   # 生成ルート側で board 無し等なら汎用画像を返す
+    og_title_full = None   # 指定時は og:title / twitter:title をそのまま使う（カード用）
+    if not og_image_path and request.args.get("newcards") == "1":
+        card_meta = _lookup_focus_card_og(request.args.get("focus", ""))
+        if card_meta:
+            og_image_path, og_title_full = card_meta
     return render_template("solitaire.html", og_image_path=og_image_path, og_title=og_title,
-                           og_url_path=og_url_path)
+                           og_url_path=og_url_path, og_title_full=og_title_full)
+
+
+def _lookup_focus_card_og(focus):
+    """?newcards=1&focus=<カード名> のリンク画像・題名。focus が公開中の未発売カード（画像あり）なら
+    (og_image_path, og_title)、そうでなければ None（汎用のまま）。失敗しても例外は投げない。"""
+    focus = (focus or "").strip()
+    if not focus or len(focus) > 200:
+        return None
+    try:
+        rec = card_display.get_unreleased_record(focus)
+        sb = _get_supabase()
+        if not rec or not sb:
+            return None
+        card = card_og_image.fetch_public_card(sb, rec["id"])
+        if not card:
+            return None
+        blur = card_display.is_setting_enabled(card_og_image.SETTING_KEY, True)
+        return card_og_image.og_image_path(card, blur), f"{card['name']}を一人回しで試す｜TCGYM"
+    except Exception as e:
+        logger.warning(f"カードのOGP情報取得エラー: {e}")
+        return None
 
 
 @solitaire_bp.route("/solitaire/replays")
@@ -250,6 +279,38 @@ def solitaire_og_image(replay_id):
         return _generic_og_response(60)
     # カード画像が一部取れなかった描画は期限を短くする（次の取得で復旧できるように）
     return _og_png_response(png, 60 if degraded else 86400)
+
+
+@solitaire_bp.route("/solitaire/og/card/<int:card_id>.png")
+def solitaire_card_og_image(card_id):
+    """未発売カードのリンク画像（1200x630）。公開中のカードだけ。それ以外・失敗時は汎用画像。
+
+    カード画像から作った画像には X-OG-Kind: card を付ける（X 投稿前の生成確認が、汎用画像への退避と見分けるため）。
+    URL の ?v= はページ側が付ける版キー（編集・画像差し替え・設定切替で変わる）。付いていれば長めに、無ければ短めにキャッシュさせる。
+    """
+    if not ENABLE_VISUAL_SOLO_PLAY:
+        abort(404)
+    sb = _get_supabase()
+    if not sb:
+        return _generic_og_response(60)
+    try:
+        card = card_og_image.fetch_public_card(sb, card_id)
+    except Exception as e:
+        logger.warning(f"カード画像の元情報取得エラー card_id={card_id}: {e}")
+        return _generic_og_response(60)
+    if card is None:
+        return _generic_og_response(300)   # 非公開・存在しない・画像なし
+    blur = card_display.is_setting_enabled(card_og_image.SETTING_KEY, True)
+    try:
+        png = card_og_image.get_or_render(sb, card, blur)
+    except replay_og_image.RenderBusy:
+        return _generic_og_response(60)
+    except Exception as e:
+        logger.error(f"カードのリンク画像の生成エラー card_id={card_id}: {e}")
+        return _generic_og_response(60)
+    resp = _og_png_response(png, 86400 if request.args.get("v") else 3600)
+    resp.headers["X-OG-Kind"] = "card"
+    return resp
 
 
 def _og_png_response(png, max_age):

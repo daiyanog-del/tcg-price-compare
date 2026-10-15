@@ -672,7 +672,8 @@ def test_auto_approve_notification_includes_release_date_warning(monkeypatch, no
 def _post_setup(monkeypatch, sb):
     monkeypatch.setenv("UNRELEASED_X_POST_ENABLED", "1")
     _creds(monkeypatch)
-    monkeypatch.setattr(xp, "_download_image", lambda url: __import__("tempfile").mkstemp()[1])
+    monkeypatch.setattr(xp, "_verify_og_image", lambda card_id, link_url=None: (True, ""))
+    monkeypatch.setattr(xp, "_prepare_watermark", lambda sb, card_id: None)
     monkeypatch.setattr(xp, "_is_released_name", lambda n: False)
     sb.tables["official_card_images"][0]["public_url"] = "https://img.test/1.jpg"
     return []
