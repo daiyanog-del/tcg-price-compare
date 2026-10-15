@@ -50,7 +50,8 @@ export async function findNewCard(doc,name,{timeoutMs=6000,intervalMs=150,sleep=
       if(more&&!more.hidden){more.click();continue;} // 6件ずつ表示を増やす（同期で描画される）
       return null; // 全件出ているのに無い
     }
-    if(/取得できませんでした/.test(doc.getElementById('newCardsStatus')?.textContent||''))return null;
+    // 取得失敗・新着0件（描画完了で表示カードなし）は待たずに終える。読み込み中の文言のときだけ待つ。
+    if(/取得できませんでした|表示できる未発売カードはありません/.test(doc.getElementById('newCardsStatus')?.textContent||''))return null;
     await sleep(intervalMs);
   }
   return null;
@@ -71,31 +72,42 @@ if(typeof document!=='undefined'&&typeof window!=='undefined'){
     chip.textContent='追加するカード: '+name;
     chip.title=name;
     document.body.appendChild(chip);
-    // ピッカーが閉じたら（追加先を選んだ・外側クリック・Esc）一緒に消す。
+    return chip;
+  };
+  // チップは「開いた時点のピッカー要素」を覚え、その要素が DOM から外れたら（追加先を選んだ・外側クリック・Esc）消す。
+  // 別のピッカーが開いたときに残らないよう、クラスではなく要素そのものを見る。
+  const bindChipToPicker=(chip,picker)=>{
+    if(!picker){chip.remove();return;}
     const watcher=new MutationObserver(()=>{
-      if(!document.querySelector('.deck-add-picker')){chip.remove();watcher.disconnect();}
+      if(!picker.isConnected){chip.remove();watcher.disconnect();}
     });
     watcher.observe(document.body,{childList:true});
-    return chip;
+  };
+  const openWithChip=name=>{
+    const chip=makeChip(name);
+    window.deckOpenAddPicker(name,chip);
+    bindChipToPicker(chip,document.querySelector('.deck-add-picker'));
   };
   const openFor=async name=>{
     if(typeof window.deckOpenAddPicker!=='function'){
       console.warn('[add-to-deck-entry] 追加先ピッカー(deckOpenAddPicker)が未読込です');
       return;
     }
-    // まず新着欄のそのカードを探し、画面中央へ寄せて、既存の「+ デッキに追加」ボタンを押したのと同じ処理で開く。
-    const card=await findNewCard(document,name);
-    const btn=card&&card.querySelector('.new-card-add');
-    if(btn){
-      card.scrollIntoView({block:'center',behavior:'instant'});
-      btn.click();
-      return;
+    try{
+      // まず新着欄のそのカードを探し、画面中央へ寄せて、既存の「+ デッキに追加」ボタンを押したのと同じ処理で開く。
+      const card=await findNewCard(document,name);
+      const btn=card&&card.querySelector('.new-card-add');
+      // 非表示（offsetParent===null）の枠は位置が取れずピッカーが画面外になるので使わない。
+      if(btn&&card.offsetParent!==null){
+        card.scrollIntoView({block:'center'});
+        btn.click();
+        return;
+      }
+      console.warn('[add-to-deck-entry] 新着欄に表示中の対象カードが無いため、起点チップで追加先を開きます:',name);
+    }catch(error){
+      console.warn('[add-to-deck-entry] 新着欄からの追加先表示に失敗したため、起点チップで開きます:',error);
     }
-    console.warn('[add-to-deck-entry] 新着欄に対象カードが無いため、起点チップで追加先を開きます:',name);
-    const chip=makeChip(name);
-    window.deckOpenAddPicker(name,chip);
-    // ピッカーが開かなかったときに表示だけが残らないようにする。
-    if(!document.querySelector('.deck-add-picker'))chip.remove();
+    openWithChip(name);
   };
   const start=()=>{receiveAddToDeck({open:openFor});};
   if(document.readyState==='complete')start();

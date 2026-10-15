@@ -593,7 +593,8 @@ body.sol-newcard-focus-active #poolRow2 {
 }
 
 /* 新着直行のとき出す「自分のデッキで回す」案内（static/shared/mydeck-hint.js）。
-   一人回しの汎用 span/a の色が当たらないよう、子要素の文字色まで明示する。色は site-theme.css の変数（--gold）を使う。 */
+   site-theme.css の規則「黄は主操作だけ」に従い、補助リンクは青系（既存 .sol-ext-link と同じ #202c42 / #aec5ff）にする。金は使わない。
+   一人回しの汎用 span/a の色が当たらないよう、子要素の文字色まで明示する。 */
 .pool-label .sol-mydeck-hint {
   margin-left: 14px;
   font-size: 12px;
@@ -601,9 +602,9 @@ body.sol-newcard-focus-active #poolRow2 {
   letter-spacing: 0;
   text-transform: none;
 }
-.pool-label .sol-mydeck-hint-text { color: #c9d2e3; }
+.pool-label .sol-mydeck-hint-text { color: #a8b4c9; }
 .pool-label .sol-mydeck-hint-link {
-  color: var(--gold);
+  color: #aec5ff;
   font-weight: 700;
   text-decoration: none;
   margin-left: 4px;
@@ -618,16 +619,16 @@ body.sol-newcard-focus-active #poolRow2 {
   margin: 12px 0 4px;
   padding: 10px 12px;
   border-radius: 10px;
-  background: rgba(243, 206, 70, .10);
-  border: 1px solid rgba(243, 206, 70, .35);
+  background: #18233a;
+  border: none;
   font-size: 14px;
   line-height: 1.5;
 }
-.sol-mydeck-hint-box .sol-mydeck-hint-box-text { color: #dfe5f1; }
+.sol-mydeck-hint-box .sol-mydeck-hint-box-text { color: #eff3fb; }
 .sol-mydeck-hint-box .sol-mydeck-hint-box-btn {
   flex: none;
-  color: #141822;
-  background: var(--gold);
+  color: #aec5ff;
+  background: #202c42;
   font-weight: 700;
   text-decoration: none;
   padding: 6px 12px;

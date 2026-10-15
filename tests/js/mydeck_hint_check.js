@@ -118,10 +118,23 @@ function fakeDoc(){
   ld=listDoc({visible:0,total:names});let t=0;
   assert.equal(await entry.findNewCard(ld,'C2',{intervalMs:0,sleep:async()=>{},now:()=>(t+=1000)}),null);
 
+  // 新着0件（表示できる未発売カードはありません）は待たず即 null（sleep が呼ばれない）
+  ld=listDoc({visible:0,total:names,status:'現在、表示できる未発売カードはありません。'});let slept=0;
+  assert.equal(await entry.findNewCard(ld,'C1',{intervalMs:0,sleep:async()=>{slept++;}}),null);assert.equal(slept,0,'0件でも待った');
+
   // 配線（ソース確認）: 未発売(proxy)の描画直後だけ呼ぶ・index.html は module 1行・innerHTML を使わない
   const mui=fs.readFileSync(path.join(root,'static/solitaire/js/ui/mobile-ui.js'),'utf8');
   assert(/_renderCard\(data\.proxy[^\n]*\n[^\n]*\n\s*appendMobileHintBox\(body, name\);/.test(mui));
   assert.equal((mui.match(/appendMobileHintBox\(/g)||[]).length,1,'呼び出しは1箇所だけ');
+  const ent=fs.readFileSync(path.join(root,'static/shared/add-to-deck-entry.js'),'utf8');
+  assert(/scrollIntoView\(\{block:'center'\}\)/.test(ent)&&!/behavior/.test(ent),'scrollIntoView は block:center のみ');
+  assert(/card\.offsetParent!==null/.test(ent),'非表示カードの判定が無い');
+  assert(/const openFor=async name=>\{[\s\S]*try\{[\s\S]*\}catch\(error\)\{[\s\S]*openWithChip\(name\);/.test(ent),'openFor の try/catch→チップが無い');
+  assert(/picker\.isConnected/.test(ent),'チップが開いた時点のピッカー要素を見ていない');
+  const mcss=fs.readFileSync(path.join(root,'static/solitaire/css/mobile.css'),'utf8');
+  assert(/\.pool-label \.sol-mydeck-hint \{ display: none; \}/.test(mcss),'スマホ縦で PC の一文を隠していない');
+  const ccss=fs.readFileSync(path.join(root,'static/solitaire/css/components.css'),'utf8').split('/* 新着直行のとき出す')[1];
+  assert(!/--gold|#f3ce46|243, 206, 70/i.test(ccss),'案内に金色が残っている');
   const idx=fs.readFileSync(path.join(root,'templates/index.html'),'utf8');
   assert(/<script type="module" src="\{\{ static_url\('shared\/add-to-deck-entry\.js'\) \}\}"><\/script>/.test(idx));
   for(const f of ['static/shared/mydeck-hint.js','static/shared/add-to-deck-entry.js'])
