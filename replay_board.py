@@ -9,8 +9,12 @@ replay_board.py — 共有リプレイの「最後の盤面（board）」の検�
 board の形（カードは名前と種類だけ。画像 URL は受け取らない）:
   {v:1, moves:int,
    field:[{slot:'custom-slot-N', name, token?:true, pos:'atk'|'def', face:'up'|'down', n?:int}],
-   hand:[{name, token?}], grave:{count, top:{name, token?, face?:'down'}|None}, banish:{count, top},
+   hand:[{name, token?}],
+   grave:{count, cards:[{name, token?, face?:'down'}, ...]}, banish:{count, cards},
    ex:{count}, deckCount:int}
+
+grave/banish の cards は「上から最大 PILE_MAX_CARDS 枚」ではなく、DOM の並び順で末尾（最前面）側の最大 PILE_MAX_CARDS 枚
+（先頭が一番奥・末尾が一番上）。旧形式（top だけ・1枚）の board も受け取り、cards=[top] に正規化する。
 
 img など未知のキーは捨てる。画像はサーバーがカード名から解決するため、利用者が指定した URL を
 サーバーが取りに行くことはない（任意URL取得＝SSRF と、名前で引く共通キャッシュの汚染を避ける）。
@@ -25,6 +29,8 @@ BOARD_MAX_HAND = 60
 BOARD_MAX_COUNT = 200     # 枚数系フィールドの上限（デッキ60+EX15 を十分に超える値）
 BOARD_MAX_MOVES = 2000    # logs 上限（solitaire_routes.REPLAY_MAX_LOG_ENTRIES）と同じ
 BOARD_MAX_NAME_LEN = 100
+PILE_MAX_CARDS = 4        # 墓地・除外で描く枚数（最後の数枚）。画像1枚で取りに行く枚数の上限にもなる
+PILE_MAX_INPUT = 20       # 入力の cards の上限（これを超える配列は構造不正）
 
 _SLOT_RE = re.compile(r"custom-slot-(\d{1,2})")  # 実盤面は 1〜14 の14マス
 
@@ -79,13 +85,26 @@ def _field_entry(e):
     return item
 
 
+def _pile_card(d):
+    """墓地・除外の1枚。不正なら None。裏向きのまま置かれたカードは face:'down' を残す。"""
+    card = _card(d)
+    if card is not None and d.get("face") == "down":
+        card["face"] = "down"
+    return card
+
+
 def _pile(d) -> dict:
     if not isinstance(d, dict):
         raise BoardInvalid("pile")
-    top = _card(d.get("top"))   # 一番上のカードが不正ならカードだけ無しにする
-    if top is not None and d["top"].get("face") == "down":
-        top["face"] = "down"
-    return {"count": _count(d.get("count")), "top": top}
+    if "cards" in d:
+        cards_in = d["cards"]
+        if not isinstance(cards_in, list) or len(cards_in) > PILE_MAX_INPUT:
+            raise BoardInvalid("pile.cards")
+    else:
+        cards_in = [d.get("top")] if d.get("top") is not None else []   # 旧形式（top のみ）
+    cards = [c for c in map(_pile_card, cards_in) if c is not None]   # 不正な1枚はそのカードだけ除外
+    count = max(_count(d.get("count")), len(cards))   # 枚数と cards の食い違いを防ぐ（旧形式 top のみ・count 0 は 1 になる）
+    return {"count": count, "cards": cards[-PILE_MAX_CARDS:]}
 
 
 def validate_board(board):

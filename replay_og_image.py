@@ -4,11 +4,12 @@ replay_og_image.py — 共有リプレイのリンク画像（OGP, 1200x630）�
 共有リプレイ（/solitaire?replay=<id>）を X などに投稿したとき、リプレイの最後の盤面が
 カード画像つきで出るようにする。盤面データ（board）の形は replay_board.py を参照。
 
-レイアウト（承認済みモックA）:
-  上部   ロゴ・リプレイ名・手数の黄色バッジ
-  左     フィールド（5列×3行。フィールド魔法・EXモンスターゾーンの並びは mobile.css の5列配置に合わせる）
-  右     墓地・除外（枚数と一番上のカード）
-  下部   手札（枚数と小さいカード）＋ デッキ/EX の残り枚数
+レイアウト（承認済みモック v2。本番のシミュレーター画面の盤面（PC版 1440x900 で実測）を縮尺して再現する）:
+  上部   ロゴ・リプレイ名・手数の黄色バッジ（盤面の左右端にそろえる）
+  中央   盤面。EXモンスターゾーン2マス・中段6マス・下段6マス・墓地・除外を本番の座標のまま拡大して描く
+         （空きマスのゾーンアイコンは本番CSSの線画SVGを透過PNG化した static/og/zone-*.png）
+         墓地・除外は枠の中にカードを縦にずらして重ねる（最後の数枚）
+  下部   手札（枚数と、少し重ねて並べた小さいカード）＋ デッキ/EX の残り枚数
 
 再利用: 画像ダウンロード・ディスクキャッシュ・フォント取得は deck_image のものを import する（複製しない）。
 カード画像の URL は利用者が送った値を使わず、カード名から card_display の画像解決で求める
@@ -16,6 +17,7 @@ replay_og_image.py — 共有リプレイのリンク画像（OGP, 1200x630）�
 """
 
 import io
+import math
 import os
 import re
 import logging
@@ -23,8 +25,9 @@ import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
+from functools import lru_cache
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 
 from deck_image import _download_card_image, _get_font
 
@@ -32,7 +35,12 @@ logger = logging.getLogger(__name__)
 
 # ── 配色（承認モックと同じ値） ──
 _BG = (0x0b, 0x12, 0x21)
-_ZONE = (0x1b, 0x25, 0x39)
+# 本番（relief-theme.css）のマス・墓地・除外の面と、手札・デッキのトレイの色
+_FACE = (0x25, 0x31, 0x43)   # --relief-face
+_TRAY = (0x20, 0x2c, 0x3d)   # --relief-tray
+# 本番は面に細かい粒子（feTurbulence・opacity .07）を重ねている。粒子の細かい凹凸は縮小すると消える（本番画面の実測で
+# 標準偏差 約1.5/255）ので省き、粒子による平均の明るさの上がり分だけを色に足す（実測: 面 +5・トレイ +5.5 前後）。
+_GRAIN_SHIFT = (5, 5, 4)
 _TEXT = (0xef, 0xf3, 0xfb)
 _SUB = (0xa8, 0xb4, 0xc9)
 _YELLOW = (0xf3, 0xce, 0x46)
@@ -44,13 +52,34 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _LOGO_PATH = os.path.join(_HERE, "static", "og-logo.png")
 GENERIC_IMAGE_PATH = os.path.join(_HERE, "static", "og-solitaire.png")
 
-# 5列配置（mobile.css の slot→grid 対応と同じ）。slot9 はPCのEXデッキ位置の空きマスで、
-# 5列には居場所が無いため左上の余りマスに置く
-_SLOT_CELL = {
-    1: (0, 1), 3: (0, 2), 2: (0, 3), 9: (0, 0),
-    4: (1, 0), 5: (1, 1), 6: (1, 2), 7: (1, 3), 8: (1, 4),
-    10: (2, 0), 11: (2, 1), 12: (2, 2), 13: (2, 3), 14: (2, 4),
+_ICON_DIR = os.path.join(_HERE, "static", "og")
+_COUNT = (0x64, 0x74, 0x8b)   # 墓地・除外の枚数（本番の .zone-count の色）
+
+# ── 本番の盤面の実測値（PC版 1440x900 の /solitaire。単位は画面の px）──
+# 盤面の領域（EXモンスターゾーン〜墓地・除外）をこの範囲で切り出し、縦横比を保って 1200x630 の中へ拡大する
+_SRC_X0, _SRC_X1, _SRC_Y0, _SRC_Y1 = 320, 1254, 30, 480
+_SCALE = 492 / (_SRC_Y1 - _SRC_Y0)           # 盤面の高さを 492px にする
+_BX = (W - (_SRC_X1 - _SRC_X0) * _SCALE) / 2  # 左右中央
+_BY = 70
+_SLOT_W, _SLOT_H = 98, 141.19                  # PR#56 後の実測（--slot-width 96px）
+_COLS = [330.81 + 106 * i for i in range(6)]   # 中段・下段の6列
+_ROWS = (33, 184.19, 335.38)
+_SLOTS = {                                      # slot番号 -> (x, y)。1・2 は EXモンスターゾーン（中段の3列目・5列目の真上）
+    1: (_COLS[2], _ROWS[0]), 2: (_COLS[4], _ROWS[0]),
+    **{3 + i: (_COLS[i], _ROWS[1]) for i in range(6)},
+    **{9 + i: (_COLS[i], _ROWS[2]) for i in range(6)},
 }
+# 空きマスの刻印アイコン: (slot, 名前, 本番の background-size に当たる幅px)。slot3=フィールド・10/14=ペンデュラムとも 76%（相対はマスの内側 96px）
+_SLOT_ICONS = [(3, "field", 96 * 0.76), (10, "pendulum", 96 * 0.76), (14, "pendulum", 96 * 0.76)]
+_ICON_SIDE_RATIO = 0.72                        # 墓地・除外の刻印は side-slot 幅の 72%
+_CARD_W, _CARD_H = 96, 139.19                  # .tier-item の実寸
+_GRAVE_RECT = (966.81, 33, 133.19, 443.56)     # 墓地 .sol-grave
+_BANISH_RECT = (1110, 33, 133.19, 443.56)      # 除外 .sol-banish
+_SIDE_TOP, _SIDE_W, _SIDE_H = 27, 115.19, 409.56  # 枠の中の .side-slot（カードを積む領域）
+_PILE_STEP = 23.92                             # 墓地・除外でカードを縦にずらす幅（本番で5枚置いて実測）
+PILE_DRAW_MAX = 4                              # 墓地・除外で描く枚数（最後の数枚）
+_BAND_Y, _BAND_H = 570, 56                     # 下の帯（手札・デッキ/EX）
+_HAND_GAP = 5                                  # 手札カードの間隔（収まるときは重ねずにこの間を空ける。収まらないときだけ重ねる）
 
 # カード画像の取得待ち上限（秒）。Xのクローラーは待ち時間が短いので、超えた分は枠で代用して描画を続ける。
 # TODO: calibrate from data（クローラーの実際の待ち時間は未計測）
@@ -134,13 +163,12 @@ def _fetch_all(names: list) -> tuple:
 
 # ── 描画ヘルパ ──
 
-def _name_frame(name: str, height: int) -> Image.Image:
+def _name_frame(name: str, w: int, h: int) -> Image.Image:
     """画像の無いカード（未発売プロキシ・取得失敗）の代用: カード名を書いた暗色の枠（RGB）。"""
-    w = round(height * 0.686)
-    im = Image.new("RGB", (w, height), (0x26, 0x30, 0x4a))
+    im = Image.new("RGB", (w, h), (0x26, 0x30, 0x4a))
     d = ImageDraw.Draw(im)
-    d.rectangle([0, 0, w - 1, height - 1], outline=(0x5a, 0x68, 0x88), width=2)
-    size = max(9, height // 9)
+    d.rectangle([0, 0, w - 1, h - 1], outline=(0x5a, 0x68, 0x88), width=2)
+    size = max(9, h // 9)
     font = _get_font(size, True)
     lines, buf = [], ""
     for ch in (name or "？"):
@@ -151,48 +179,176 @@ def _name_frame(name: str, height: int) -> Image.Image:
     if buf:
         lines.append(buf)
     lh = round(size * 1.3)
-    lines = lines[: max(1, (height - 12) // lh)]
-    y = (height - len(lines) * lh) // 2
+    lines = lines[: max(1, (h - 12) // lh)]
+    y = (h - len(lines) * lh) // 2
     for ln in lines:
         d.text((w / 2, y + lh / 2), ln, fill=_TEXT, font=font, anchor="mm")
         y += lh
     return im
 
 
-def _card_face(src, name: str, height: int) -> Image.Image:
-    """表向きカード（RGBA・角丸）。src が None なら名前入りの枠で代用。"""
-    base = src if src is not None else _name_frame(name, height)
-    w = max(1, round(base.width * height / base.height))
-    im = base.resize((w, height), Image.LANCZOS).convert("RGBA")
-    mask = Image.new("L", im.size, 0)
-    ImageDraw.Draw(mask).rounded_rectangle([0, 0, im.width - 1, im.height - 1],
-                                           radius=max(2, height // 28), fill=255)
-    im.putalpha(mask)
+def _rounded_alpha(im: Image.Image, radius: int) -> Image.Image:
+    """角丸のアルファを付ける（4倍で描いて縮小し、縁をなめらかにする）。"""
+    w, h = im.size
+    mask = Image.new("L", (w * 4, h * 4), 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, w * 4 - 1, h * 4 - 1], radius=radius * 4, fill=255)
+    im = im.convert("RGBA")
+    im.putalpha(mask.resize((w, h), Image.BOX))   # LANCZOS だと縁に明るいリンギングが出る
     return im
 
 
-def _card_back(height: int) -> Image.Image:
-    """裏側（セット）のカード。カード裏の絵の代わりに暗色の枠＋楕円で描く。"""
-    w = round(height * 0.686)
-    im = Image.new("RGBA", (w, height), (0, 0, 0, 0))
+def _card_face(src, name: str, w: int, h: int, radius: int) -> Image.Image:
+    """表向きカード（RGBA・角丸）。本番の .tier-item（object-fit: cover）と同じく w×h いっぱいに描く。
+    src が None なら名前入りの枠で代用。"""
+    if src is None:
+        base = _name_frame(name, w, h)
+    else:
+        # cover: 縦横比が違うときは中央を切り出す
+        k = max(w / src.width, h / src.height)
+        rw, rh = max(w, round(src.width * k)), max(h, round(src.height * k))
+        base = src.convert("RGB").resize((rw, rh), Image.LANCZOS)
+        left, top = (rw - w) // 2, (rh - h) // 2
+        base = base.crop((left, top, left + w, top + h))
+    return _rounded_alpha(base, radius)
+
+
+@lru_cache(maxsize=64)
+def _name_band(name: str, w: int, h: int, radius: int) -> Image.Image:
+    """画像を取りに行かない重なりカード（墓地・除外の下側）: カード上部の名前欄に近い橙の枠に名前を書く。
+    下のカードは上のカードの下に隠れ、上端の数十pxだけが見える。"""
+    im = Image.new("RGB", (w, h), (0xb2, 0x6c, 0x3a))
     d = ImageDraw.Draw(im)
-    d.rounded_rectangle([0, 0, w - 1, height - 1], radius=max(2, height // 28),
-                        fill=(0x3a, 0x2a, 0x22), outline=(0x8a, 0x6a, 0x3a), width=max(1, height // 60))
-    m = w // 6
-    d.ellipse([m, height // 2 - w // 3, w - m, height // 2 + w // 3], fill=(0x5a, 0x1f, 0x2a),
-              outline=(0xb0, 0x8a, 0x4a), width=max(1, height // 60))
-    return im
+    d.rectangle([0, 0, w - 1, h - 1], outline=(0x6e, 0x40, 0x20), width=max(1, round(w / 50)))
+    size = max(8, round(h / 12))
+    font = _get_font(size, True)
+    d.text((max(3, w // 22), max(2, round(h / 30))), _fit_text(d, name or "？", font, w - 2 * max(3, w // 22)),
+           fill=(0x1b, 0x12, 0x0a), font=font)
+    return _rounded_alpha(im, radius)
 
 
-def _paste(canvas: Image.Image, im: Image.Image, cx: int, cy: int):
-    canvas.paste(im, (round(cx - im.width / 2), round(cy - im.height / 2)), im)
+@lru_cache(maxsize=8)
+def _card_back(w: int, h: int, radius: int) -> Image.Image:
+    """裏側（セット）のカード。components.css の .tier-item-wrapper.is-set::after と同じ配色
+    （145度のグラデーション・金茶の枠・中央の楕円）で描く。"""
+    dx, dy = math.sin(math.radians(145)), -math.cos(math.radians(145))
+    length = abs(w * dx) + abs(h * dy)
+    stops = [(0.0, (0x5a, 0x30, 0x18)), (0.4, (0x7d, 0x4d, 0x25)), (1.0, (0x3e, 0x20, 0x10))]
+    im = Image.new("RGB", (w, h))
+    px = im.load()
+    for y in range(h):
+        for x in range(w):
+            t = min(1.0, max(0.0, ((x + 0.5 - w / 2) * dx + (y + 0.5 - h / 2) * dy) / length + 0.5))
+            for (t0, c0), (t1, c1) in zip(stops, stops[1:]):
+                if t <= t1:
+                    f = (t - t0) / (t1 - t0)
+                    px[x, y] = tuple(round(a + (b - a) * f) for a, b in zip(c0, c1))
+                    break
+    d = ImageDraw.Draw(im)
+    ew, eh = w * 0.78 * 0.36, h * 0.78 * 0.393   # viewBox 100x145 の rx36 ry57 の楕円を、幅の78%に拡縮して描く
+    d.ellipse([w / 2 - ew, h / 2 - eh, w / 2 + ew, h / 2 + eh], fill=(0x2a, 0x15, 0x08))
+    bw = max(1, round(2 * w / 99))
+    d.rounded_rectangle([0, 0, w - 1, h - 1], radius=radius, outline=(0xb8, 0x7f, 0x28), width=bw)
+    return _rounded_alpha(im, radius)
 
 
-def _shadow(canvas: Image.Image, im: Image.Image, cx: int, cy: int):
-    """カードの影（簡易）。"""
-    sh = Image.new("RGBA", im.size, (0, 0, 0, 0))
-    sh.putalpha(im.getchannel("A").point(lambda a: int(a * 0.45)))
-    canvas.paste(sh, (round(cx - im.width / 2) + 2, round(cy - im.height / 2) + 4), sh)
+def _load_zone_icon(name: str, size: int):
+    """ゾーンの線画アイコン（static/og/zone-*.png。本番CSSのSVGを透過PNG化したもの）。読めなければ None。
+    失敗は覚えない（lru_cache を使わない）。下地側は、読めなかったときキャッシュせず次回また読みに行く。"""
+    try:
+        im = Image.open(os.path.join(_ICON_DIR, f"zone-{name}.png")).convert("RGBA")
+    except Exception as e:
+        logger.warning(f"[replay_og] ゾーンアイコン読み込み失敗 {name}: {e}")
+        return None
+    return im.resize((size, size), Image.LANCZOS)
+
+
+def _X(x):
+    return _BX + (x - _SRC_X0) * _SCALE
+
+
+def _Y(y):
+    return _BY + (y - _SRC_Y0) * _SCALE
+
+
+def _paste_panel(img: Image.Image, x0: float, y0: float, w: float, h: float, radius: float, tray: bool = False):
+    """本番の面（relief-theme.css）を、その面ぶんだけ4倍の角丸マスクで縁をなめらかにして貼る。
+    色＝面（トレイ）の色＋粒子の平均分・145度の白→黒の薄いグラデーション・内側の縁の光と影（各約1px）。
+    盤面全体を高解像度で作らないので、メモリはほとんど増えない。下地を作る1回だけ呼ばれる。"""
+    ss = 4
+    ix, iy = math.floor(x0), math.floor(y0)
+    fx, fy = x0 - ix, y0 - iy
+    tw, th = math.ceil(w + fx) + 1, math.ceil(h + fy) + 1
+    box = [fx * ss, fy * ss, (fx + w) * ss - 1, (fy + h) * ss - 1]
+    mask = Image.new("L", (tw * ss, th * ss), 0)
+    ImageDraw.Draw(mask).rounded_rectangle(box, radius=radius * ss, fill=255)
+
+    base = tuple(min(255, c + g) for c, g in zip(_TRAY if tray else _FACE, _GRAIN_SHIFT))
+    tile = Image.new("RGBA", (tw, th), base + (255,))
+    # linear-gradient(145deg, #ffffff05, #0000000c): 白 α.02 → 黒 α.047（箱 w×h に対する 145度）
+    dx, dy = math.sin(math.radians(145)), -math.cos(math.radians(145))
+    length = abs(w * dx) + abs(h * dy)
+    ov = []
+    for y in range(th):
+        for x in range(tw):
+            t = min(1.0, max(0.0, ((x + 0.5 - fx - w / 2) * dx + (y + 0.5 - fy - h / 2) * dy) / length + 0.5))
+            a = 0.02 + (0.047 - 0.02) * t
+            ov.append((round(255 * 0.02 * (1 - t) / a), round(255 * 0.02 * (1 - t) / a), round(255 * 0.02 * (1 - t) / a), round(a * 255)))
+    grad = Image.new("RGBA", (tw, th))
+    grad.putdata(ov)
+    tile = Image.alpha_composite(tile, grad)
+
+    # 内側の縁: 面=上に光(169,189,213 α.15)・下に影(7,15,28 α.4)／トレイ=上に影(7,14,24 α.35・約2px)・下に光(169,189,213 α.12)
+    off = lambda dy_: ImageChops.offset(mask, 0, dy_)
+    if tray:
+        top = (7, 14, 24, 0.35, 2)
+        bot = (169, 189, 213, 0.12, 1)
+    else:
+        top = (169, 189, 213, 0.15, 1)
+        bot = (7, 15, 28, 0.4, 1)
+    for (r, g, b_, al, px), sign in ((top, 1), (bot, -1)):
+        edge = ImageChops.subtract(mask, off(sign * px * ss)).resize((tw, th), Image.BOX)
+        edge = edge.point(lambda v, al=al: round(v * al))
+        tile.paste((r, g, b_, 255), (0, 0), edge)
+    img.paste(tile, (ix, iy), mask.resize((tw, th), Image.BOX))
+
+
+_base_lock = threading.Lock()
+_base_cache = None   # 盤面によらない下地（背景・マス・墓地・除外・帯・アイコン）。1200x630 の RGBA を1枚だけ持つ
+
+
+def _build_base() -> tuple:
+    """下地を作る。戻り値: (画像, アイコンを全部読めたか)。"""
+    s = _SCALE
+    img = Image.new("RGBA", (W, H), _BG + (255,))
+    for sx, sy in _SLOTS.values():
+        _paste_panel(img, _X(sx), _Y(sy), _SLOT_W * s, _SLOT_H * s, 8 * s)
+    for rect in (_GRAVE_RECT, _BANISH_RECT):
+        _paste_panel(img, _X(rect[0]), _Y(rect[1]), rect[2] * s, rect[3] * s, 8 * s)
+    _paste_panel(img, _X(_SRC_X0), _BAND_Y, (_SRC_X1 - _SRC_X0) * s, _BAND_H, 6, tray=True)   # 手札の帯は本番の手札トレイの色
+
+    ok = True
+    icons = [(name, _SLOTS[slot][0] + _SLOT_W / 2, _SLOTS[slot][1] + _SLOT_H / 2, size) for slot, name, size in _SLOT_ICONS]
+    icons += [(name, r[0] + r[2] / 2, r[1] + _SIDE_TOP + _SIDE_H / 2, _SIDE_W * _ICON_SIDE_RATIO)
+              for name, r in (("grave", _GRAVE_RECT), ("banish", _BANISH_RECT))]
+    for name, cx, cy, size in icons:   # 本番は背景画像なので、カードの下に描く
+        im = _load_zone_icon(name, max(1, round(size * s)))
+        if im is None:
+            ok = False
+            continue
+        img.alpha_composite(im, (round(_X(cx) - im.width / 2), round(_Y(cy) - im.height / 2)))
+    return img, ok
+
+
+def _get_base() -> tuple:
+    """下地のコピーと「アイコンを全部読めたか」を返す。読めたときだけプロセス内に1枚キャッシュする。"""
+    global _base_cache
+    with _base_lock:
+        if _base_cache is None:
+            img, ok = _build_base()
+            if not ok:
+                return img, False   # 読めなかった下地は覚えない（次の描画でまた読みに行く）
+            _base_cache = img
+        return _base_cache.copy(), True
 
 
 def _fit_text(draw, text: str, font, max_w: int) -> str:
@@ -209,6 +365,15 @@ def _wants_image(c: dict) -> bool:
     return bool(c.get("name")) and not c.get("token")
 
 
+def pile_cards(pile: dict) -> list:
+    """墓地・除外に描くカード（奥→手前の順・最大 PILE_DRAW_MAX 枚）。旧形式（top のみ）の board も受ける。"""
+    if "cards" in pile:
+        cards = list(pile.get("cards") or [])
+    else:
+        cards = [pile["top"]] if pile.get("top") else []
+    return cards[-PILE_DRAW_MAX:]
+
+
 def render_replay_og(board: dict, title: str = "") -> tuple:
     """盤面画像（PNG バイト列）を描く。戻り値: (png_bytes, degraded)。
 
@@ -218,104 +383,108 @@ def render_replay_og(board: dict, title: str = "") -> tuple:
     """
     title = (title or "").strip() or "共有リプレイ"
 
-    # 取得対象: フィールド最上段・手札の先頭 HAND_DRAW_MAX 枚・墓地/除外の一番上（裏向き・トークンは取りに行かない）
+    # 取得対象: フィールド最上段(最大14)・手札の先頭 HAND_DRAW_MAX 枚・墓地/除外の一番上(2)＝最大26枚（裏向き・トークンは取りに行かない）
     hand = board["hand"][:HAND_DRAW_MAX]
+    piles = [pile_cards(board["grave"]), pile_cards(board["banish"])]
     cands = [e for e in board["field"] if e["face"] == "up"] + hand
-    for pile in (board["grave"], board["banish"]):
-        if pile["top"] and pile["top"].get("face") != "down":
-            cands.append(pile["top"])
+    for cards in piles:   # 墓地・除外で取りに行くのは一番上の1枚だけ（下に重なる分は名前の帯で描く）
+        if cards and cards[-1].get("face") != "down":
+            cands.append(cards[-1])
     imgs, degraded = _fetch_all([c["name"] for c in cands if _wants_image(c)])
 
-    canvas = Image.new("RGBA", (W, H), _BG + (255,))
+    canvas, base_ok = _get_base()
+    degraded = degraded or not base_ok   # アイコンを読めなかった描画はディスクに固定しない
     d = ImageDraw.Draw(canvas)
+    s = _SCALE
+    X, Y = _X, _Y
+    band_x0, band_x1 = X(_SRC_X0), X(_SRC_X1)
 
-    def put(card_dict, height, cx, cy, face_down=False, rotate=False):
+    cw, ch, rad = round(_CARD_W * s), round(_CARD_H * s), max(2, round(8 * s))
+
+    def put(card_dict, cx, cy, face_down=False, rotate=False, w=None, h=None, r=None, band=False):
+        """カードを中心 (cx, cy)（キャンバス座標）に描く。"""
+        w, h, r = w or cw, h or ch, r or rad
         if face_down:
-            im = _card_back(height)
+            im = _card_back(w, h, r)
+        elif band:
+            im = _name_band(card_dict.get("name", ""), w, h, r)
         else:
             src = imgs.get(card_dict["name"]) if _wants_image(card_dict) else None
-            im = _card_face(src, card_dict.get("name", ""), height)
+            im = _card_face(src, card_dict.get("name", ""), w, h, r)
         if rotate:
-            im = im.rotate(-90, expand=True)   # 守備表示は時計回りに90度
-        _shadow(canvas, im, cx, cy)
-        _paste(canvas, im, cx, cy)
+            im = im.rotate(-90, expand=True)   # 守備表示は時計回りに90度（CSS rotate(90deg) と同じ向き）
+        canvas.alpha_composite(im, (round(cx - im.width / 2), round(cy - im.height / 2)))
 
-    # ── 上部: ロゴ・タイトル・手数バッジ ──
-    x = 36
+    # ── フィールドのカード（守備表示は隣のマスへはみ出すので、本番の z-index と同じく最後に描いて前面に出す）──
+    for e in sorted(board["field"], key=lambda e: e["pos"] == "def"):
+        no = int(e["slot"].rsplit("-", 1)[1])
+        if no not in _SLOTS:
+            continue
+        sx, sy = _SLOTS[no]
+        put(e, X(sx + _SLOT_W / 2), Y(sy + _SLOT_H / 2), face_down=(e["face"] == "down"), rotate=(e["pos"] == "def"))
+        if e.get("n", 1) > 1:   # 重なり枚数（エクシーズ素材など）
+            nx, ny = X(sx + _SLOT_W) - 18, Y(sy) + 16
+            d.ellipse([nx - 13, ny - 13, nx + 13, ny + 13], fill=_YELLOW)
+            d.text((nx, ny), str(e["n"]), fill=_BADGE_FG, font=_get_font(16, True), anchor="mm")
+
+    # ── 墓地・除外: 見出しと、枠の中に縦にずらして重ねたカード ──
+    lf, cf = _get_font(round(11 * s), True), _get_font(round(11 * s))
+    for (label, pile, rect), cards in zip((("墓地", board["grave"], _GRAVE_RECT), ("除外", board["banish"], _BANISH_RECT)), piles):
+        rx, ry = rect[0], rect[1]
+        lx, ly = X(rx + 9), Y(ry + 15)   # 見出し（本番は枠の左上から (9, 7)・高さ16の行の中央）
+        d.text((lx, ly), label, fill=_SUB, font=lf, anchor="lm")
+        d.text((lx + d.textlength(label, font=lf) + 5 * s, ly), str(pile["count"]), fill=_COUNT, font=cf, anchor="lm")
+        for i, c in enumerate(cards):
+            put(c, X(rx + 9 + _SIDE_W / 2), Y(ry + _SIDE_TOP + i * _PILE_STEP + _CARD_H / 2),
+                face_down=(c.get("face") == "down"), band=(i < len(cards) - 1))   # 一番上以外は名前の帯
+
+    # ── 上部: ロゴ・タイトル・手数バッジ（盤面の左右端にそろえる）──
+    left, right = round(band_x0), round(band_x1)
+    cy0 = 34
+    lh = 30
     try:
         logo = Image.open(_LOGO_PATH).convert("RGBA")
-        lh = 40
         logo = logo.resize((round(logo.width * lh / logo.height), lh), Image.LANCZOS)
-        canvas.paste(logo, (36, 39 - lh // 2), logo)
-        x = 36 + logo.width + 18
+        canvas.alpha_composite(logo, (left, cy0 - lh // 2))
+        x = left + logo.width + 18
     except Exception as e:
         logger.warning(f"[replay_og] ロゴ読み込み失敗: {e}")
-        d.text((36, 39), "TCGYM", fill=_TEXT, font=_get_font(30, True), anchor="lm")
-        x = 36 + 120 + 18
+        d.text((left, cy0), "TCGYM", fill=_TEXT, font=_get_font(26, True), anchor="lm")
+        x = left + 100 + 18
     badge_w = 0
     moves = board.get("moves", 0)
     if moves > 0:
         bf = _get_font(24, True)
         txt = f"{moves}手"
-        tw = d.textlength(txt, font=bf)
-        badge_w = round(tw) + 32
-        bx1 = W - 36
-        d.rounded_rectangle([bx1 - badge_w, 39 - 22, bx1, 39 + 22], radius=8, fill=_YELLOW)
-        d.text((bx1 - badge_w / 2, 39), txt, fill=_BADGE_FG, font=bf, anchor="mm")
+        badge_w = round(d.textlength(txt, font=bf)) + 32
+        d.rounded_rectangle([right - badge_w, cy0 - 20, right, cy0 + 20], radius=8, fill=_YELLOW)
+        d.text((right - badge_w / 2, cy0), txt, fill=_BADGE_FG, font=bf, anchor="mm")
     tf = _get_font(30, True)
-    d.text((x, 39), _fit_text(d, title, tf, W - 36 - badge_w - 18 - x), fill=_TEXT, font=tf, anchor="lm")
+    d.text((x, cy0), _fit_text(d, title, tf, right - badge_w - 18 - x), fill=_TEXT, font=tf, anchor="lm")
 
-    # ── フィールド（5列×3行） ──
-    fx, fy, fw, fh, gap = 36, 96, 900, 430, 10
-    cw = (fw - gap * 4) / 5
-    ch = (fh - gap * 2) / 3
-    for r in range(3):
-        for c in range(5):
-            x0 = fx + c * (cw + gap)
-            y0 = fy + r * (ch + gap)
-            d.rounded_rectangle([x0, y0, x0 + cw, y0 + ch], radius=6, fill=_ZONE)
-    for e in board["field"]:
-        cell = _SLOT_CELL.get(int(e["slot"].rsplit("-", 1)[1]))
-        if not cell:
-            continue
-        r, c = cell
-        cx = fx + c * (cw + gap) + cw / 2
-        cy = fy + r * (ch + gap) + ch / 2
-        put(e, 126, cx, cy, face_down=(e["face"] == "down"), rotate=(e["pos"] == "def"))
-        if e.get("n", 1) > 1:   # 重なり枚数（エクシーズ素材など）
-            nx, ny = fx + (c + 1) * cw + c * gap - 18, fy + r * (ch + gap) + 16
-            d.ellipse([nx - 13, ny - 13, nx + 13, ny + 13], fill=_YELLOW)
-            d.text((nx, ny), str(e["n"]), fill=_BADGE_FG, font=_get_font(16, True), anchor="mm")
-
-    # ── 右: 墓地・除外 ──
-    sx, sw = 956, 208
-    sh = (fh - gap) / 2
-    for i, (label, pile) in enumerate((("墓地", board["grave"]), ("除外", board["banish"]))):
-        y0 = fy + i * (sh + gap)
-        d.rounded_rectangle([sx, y0, sx + sw, y0 + sh], radius=6, fill=_ZONE)
-        d.text((sx + 12, y0 + 18), label, fill=_SUB, font=_get_font(15, True), anchor="lm")
-        d.text((sx + sw - 12, y0 + 18), str(pile["count"]), fill=_SUB, font=_get_font(15), anchor="rm")
-        if pile["top"]:
-            put(pile["top"], 110, sx + sw / 2, y0 + sh - 12 - 55, face_down=(pile["top"].get("face") == "down"))
-
-    # ── 下部: 手札 ──
-    hy0, hh = 540, 70
-    d.rounded_rectangle([36, hy0, W - 36, hy0 + hh], radius=6, fill=_ZONE)
+    # ── 下部: 手札（本番の手札の帯と同じく、カードを少し重ねて並べる）──
+    mid = _BAND_Y + _BAND_H / 2
     lab = f"手札 {len(board['hand'])}"
-    d.text((50, hy0 + hh / 2), lab, fill=_SUB, font=_get_font(15, True), anchor="lm")
-    right = f"デッキ {board['deckCount']}  /  EX {board['ex']['count']}"
-    rf = _get_font(16)
-    rw = d.textlength(right, font=rf)
-    d.text((W - 36 - 14, hy0 + hh / 2), right, fill=_SUB, font=rf, anchor="rm")
-    hx0 = 50 + d.textlength(lab, font=_get_font(15, True)) + 18
+    labf = _get_font(18, True)
+    d.text((band_x0 + 14, mid), lab, fill=_SUB, font=labf, anchor="lm")
+    right_txt = f"デッキ {board['deckCount']} / EX {board['ex']['count']}"
+    rf = _get_font(18)
+    d.text((band_x1 - 14, mid), right_txt, fill=_SUB, font=rf, anchor="rm")
+    hh = _BAND_H - 6   # 帯の高さの範囲でできるだけ大きく
+    hw = round(hh * _CARD_W / _CARD_H)
+    rest = len(board["hand"]) - len(hand)
+    rest_f = _get_font(20, True)
+    rest_w = d.textlength(f"+{rest}", font=rest_f) + 8 if rest > 0 else 0   # 「+N」の置き場
+    hx0 = band_x0 + 14 + d.textlength(lab, font=labf) + 16
+    avail = band_x1 - 14 - d.textlength(right_txt, font=rf) - 16 - hx0 - rest_w   # 手札カードを並べられる幅
     n = len(hand)
-    cardw = round(56 * 0.686)
-    step = cardw + 10
+    step = hw + _HAND_GAP   # 収まるなら重ねずに少し間を空けて並べる
+    if n > 1 and (n - 1) * step + hw > avail:
+        step = max(1.0, (avail - hw) / (n - 1))   # 収まらないときだけ、収まる幅まで重ねる
     for i, c in enumerate(hand):
-        put(c, 56, hx0 + cardw / 2 + i * step, hy0 + hh / 2)
-    rest = len(board["hand"]) - n
+        put(c, hx0 + hw / 2 + i * step, mid, w=hw, h=hh, r=max(2, round(hh / 18)))
     if rest > 0:   # 描き切らなかった手札の枚数
-        d.text((hx0 + n * step + 4, hy0 + hh / 2), f"+{rest}", fill=_TEXT, font=_get_font(20, True), anchor="lm")
+        d.text((hx0 + (n - 1) * step + hw + 8, mid), f"+{rest}", fill=_TEXT, font=rest_f, anchor="lm")
 
     out = io.BytesIO()
     canvas.convert("RGB").save(out, "PNG", optimize=True)
@@ -325,7 +494,7 @@ def render_replay_og(board: dict, title: str = "") -> tuple:
 # ── キャッシュ・生成の入口 ──
 
 _REPLAY_ID_RE = re.compile(r"[A-Za-z0-9_-]{6,16}")   # secrets.token_urlsafe(8) は11文字
-_OG_CACHE_DIR = os.path.join(tempfile.gettempdir(), "cardprice_replay_og_v1")
+_OG_CACHE_DIR = os.path.join(tempfile.gettempdir(), "cardprice_replay_og_v2")   # 見た目を変えたらバージョンを上げる（古い画像を使わない）
 os.makedirs(_OG_CACHE_DIR, exist_ok=True)
 
 # 同時描画数の上限（メモリ保護。本番は gunicorn 1ワーカー・8スレッドで約330MB常用）。
