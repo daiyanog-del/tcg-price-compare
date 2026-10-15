@@ -132,9 +132,9 @@ async function clearAllCards() {
  * @returns {boolean} 続けてよければ true
  */
 function _confirmReplaceDeck() {
-  const steps = getLogLength() + getSetupLogs().length;
-  if (steps === 0) return true;
-  return confirm(`今の記録（${steps}手）は消えます。新しいデッキを読み込みますか？`);
+  // 手数は出さない（setup＝範囲共有の初期配置も記録に含むので、再生バーの「N手」と食い違うことがある）
+  if (getLogLength() + getSetupLogs().length === 0) return true;
+  return confirm('今の記録は消えます。新しいデッキを読み込みますか？');
 }
 
 /**
@@ -159,8 +159,7 @@ export async function clearEverything() {
     console.warn('[deck-input-panel] デッキ読込が進行中のため「すべて消去」を無視しました');
     return false;
   }
-  await clearAllCards();          // 盤面・手札等のカードをデッキに戻し、プールも空にする
-  resetReplay();                  // リプレイ記録（ログ・画像辞書・カード名辞書）を初期化
+  await _clearForNewDeck();       // 盤面・プールのカードと、リプレイ記録・辞書を初期化
   clearSessionResume(sessionStorage); // 退避と「記録を落とした」フラグを両方消す。 次回アクセス時の自動復元を止める
   document.dispatchEvent(new CustomEvent('sol-board-cleared'));
   return true;

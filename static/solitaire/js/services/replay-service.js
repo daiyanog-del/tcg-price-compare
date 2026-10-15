@@ -583,7 +583,8 @@ export function rebuildAtCursor() {
 }
 
 /**
- * リプレイ記録を初期化する（「すべて消去」用・deck-input-panel.js clearEverything から呼ばれる）。
+ * リプレイ記録と辞書を初期化する。呼び出し元は deck-input-panel.js の _clearForNewDeck
+ * （新しいデッキへの入れ替え・「クリア」の clearEverything の両方がここを通る）。
  * 再生中なら停止してから、ページロード時と同じ initReplay() で状態を空に戻す
  * （ロジック複製を避け、状態リセット自体は initReplay に委譲する）。
  * 盤面DOMの掃除は呼び出し元（clearAllCards）が担当するため、ここでは行わない。
