@@ -945,7 +945,8 @@
     cursor: pointer;
   }
   .sol-mobile-deck-cell[hidden] { display: none; }
-  .sol-mobile-deck-cell.selected {
+  .sol-mobile-deck-cell.selected,
+  .sol-mobile-deck-cell.sol-newcard-focus {
     border-color: var(--gold);
     box-shadow: 0 0 0 2px var(--gold);
   }

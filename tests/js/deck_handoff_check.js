@@ -87,7 +87,7 @@ function fixture(){
       receiveDeckHandoff:args=>receiveDeckHandoff({...env,...args}),
       loadSessionResume:async()=>{resumed++;return true;},
       // 新着直行（?newcards=1）は newcards_entry_check.js で検証。ここでは対象外として何もしない。
-      receiveNewCards:async()=>false,showCardByName(){},isMobilePortrait:()=>false,
+      receiveNewCards:async()=>false,showCardByName(){},openCardDetailByName(){},isMobilePortrait:()=>false,
     };
     const restored=await vm.runInNewContext('(async()=>{'+main.slice(start,end)+'return restored;})()',context);
     return {env,resumed,restored};

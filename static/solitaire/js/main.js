@@ -25,7 +25,7 @@ import { saveSessionResume, loadSessionResume } from './services/save-load-servi
 import { initOpponentTray, updateCipWidth } from './ui/opponent-tray.js';
 import { initFeedbackModal } from './ui/feedback-modal.js';
 import { initSidebarToggle } from './ui/sidebar-toggle.js';
-import { initMobileUI, getMobileRecordingState, setMobileRecordingState, isMobilePlaybackMode, resumePlaybackModeIfNeeded } from './ui/mobile-ui.js';
+import { initMobileUI, getMobileRecordingState, setMobileRecordingState, isMobilePlaybackMode, resumePlaybackModeIfNeeded, openCardDetailByName } from './ui/mobile-ui.js';
 import { getPcRecordingState, setPcRecordingState } from './ui/pc-recording.js';
 import { isMobilePortrait } from './utils/viewport.js';
 import { showToast } from './utils/toast.js';
@@ -387,8 +387,10 @@ async function initializeApp() {
   // ?newcards=1（X投稿などからの直行）。リプレイ指定・持込があれば何もしない（判定は receiveNewCards 内でも行う）
   const newCardsLoaded = hasReplayInUrl || handedOff ? false : await receiveNewCards({
     loadDeck: loadDeckFromNeuron, clearDeck: clearEverything,
-    showCard: el => showCardByName(el.dataset.cardName, el.src || '', el.closest('.sample-art') ? 'official_sample' : ''),
-    canShowCard: () => !isMobilePortrait(), // スマホ縦の詳細は別UI（下部シート）なので自動では開かない
+    // スマホ縦は既存のスマホ用詳細UI、それ以外は左パネル（カードをタップ/クリックした時と同じ表示）
+    showCard: el => isMobilePortrait()
+      ? openCardDetailByName(el.dataset.cardName, el.src || '')
+      : showCardByName(el.dataset.cardName, el.src || '', el.closest('.sample-art') ? 'official_sample' : ''),
   });
   const restored = hasReplayInUrl || handedOff || newCardsLoaded ? false : await loadSessionResume();
   // リプレイ記録の復元（盤面は loadSessionResume が写しから復元済み。ここでは記録の変数を戻すだけ）。

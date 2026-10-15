@@ -95,11 +95,6 @@ const run=(mod,f,extra={})=>mod.receiveNewCards({loadDeck:f.loadDeck,clearDeck:f
   f.clearDeck=async()=>false;
   assert.equal(await run(mod,f),true);
 
-  // スマホ縦: 詳細は自動で開かないが、強調とスクロールは行う
-  f=fixture('https://e.test/solitaire?newcards=1&focus='+encodeURIComponent('新A'));
-  await run(mod,f,{canShowCard:()=>false});
-  assert(f.classes.has(mod.FOCUS_CLASS));assert.equal(f.scrolled,1);assert.equal(f.shown.length,0);
-
   // 新着名に不正な名前（改行・51字）が混じっても読み込み文に入れない
   f=fixture('https://e.test/solitaire?newcards=1',{newCards:['正常','悪い\n9 別','あ'.repeat(51)]});
   await run(mod,f);assert.equal(f.calls[1][1],'1 正常');
@@ -110,7 +105,7 @@ const run=(mod,f,extra={})=>mod.receiveNewCards({loadDeck:f.loadDeck,clearDeck:f
   assert(start>=0&&end>start);
   async function boot(hasReplayInUrl,handedOff,newCardsResult){
     let resumed=0,newCardsCalls=0;
-    const context={hasReplayInUrl,handedOff,loadDeckFromNeuron(){},clearEverything(){},showCardByName(){},isMobilePortrait:()=>false,
+    const context={hasReplayInUrl,handedOff,loadDeckFromNeuron(){},clearEverything(){},showCardByName(){},openCardDetailByName(){},isMobilePortrait:()=>false,
       receiveNewCards:async()=>{newCardsCalls++;return newCardsResult;},
       loadSessionResume:async()=>{resumed++;return true;}};
     const restored=await vm.runInNewContext('(async()=>{'+main.slice(start,end)+'return restored;})()',context);
@@ -120,5 +115,21 @@ const run=(mod,f,extra={})=>mod.receiveNewCards({loadDeck:f.loadDeck,clearDeck:f
   r=await boot(false,false,false);assert.deepEqual(r,{resumed:1,newCardsCalls:1,restored:true});
   r=await boot(true,false,true);assert.deepEqual(r,{resumed:0,newCardsCalls:0,restored:false});
   r=await boot(false,true,true);assert.deepEqual(r,{resumed:0,newCardsCalls:0,restored:false});
+  // 詳細の呼び分け: スマホ縦は既存のスマホ用詳細UI、PCは左パネル
+  for(const [mobile,expected] of [[true,'mobile'],[false,'pc']]){
+    const seen=[];
+    const el={dataset:{cardName:'新A'},src:'u.jpg',closest:()=>null};
+    const ctx={hasReplayInUrl:false,handedOff:false,loadDeckFromNeuron(){},clearEverything(){},isMobilePortrait:()=>mobile,
+      openCardDetailByName:(n,s)=>seen.push(['mobile',n,s]),showCardByName:(n,s,k)=>seen.push(['pc',n,s,k]),
+      receiveNewCards:async a=>{a.showCard(el);return true;},loadSessionResume:async()=>true};
+    await vm.runInNewContext('(async()=>{'+main.slice(start,end)+'})()',ctx);
+    assert.equal(seen.length,1);assert.equal(seen[0][0],expected);assert.equal(seen[0][1],'新A');
+  }
+  // mobile-ui.js: デッキシートへの強調の引き継ぎ・選択時の解除・表示後スクロール（ソースの配線確認。実挙動は Playwright で確認）
+  const mui=fs.readFileSync(path.join(root,'static/solitaire/js/ui/mobile-ui.js'),'utf8');
+  assert(/export function openCardDetailByName/.test(mui));
+  assert(/wrapper\.classList\.contains\('sol-newcard-focus'\)\) cell\.classList\.add\('sol-newcard-focus'\)/.test(mui));
+  assert(/_toggleDeckCardSelection\(cell\) \{\s*\/\/[^\n]*\s*document\.querySelectorAll\('\.sol-newcard-focus'\)/.test(mui));
+  assert(/setHidden\('solMobileDeckSheet', false\);[\s\S]{0,120}scrollIntoView/.test(mui));
   console.log('新着直行: URLパース・focus検証・優先順位・URL除去・解決不可focus・失敗時・起動分岐を確認');
 })().catch(error=>{console.error(error);process.exitCode=1;});

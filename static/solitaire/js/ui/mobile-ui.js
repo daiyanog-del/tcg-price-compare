@@ -438,6 +438,11 @@ function openCardDetailOverlay() {
   setHidden('solMobileCip', false);
   showMobileCardInfo(name, src);
 }
+/** 選択状態なしで名前と画像から詳細を開く（?newcards=1&focus= の自動表示用。同じ #solMobileCip を使う）。 */
+export function openCardDetailByName(name, src) {
+  setHidden('solMobileCip', false);
+  showMobileCardInfo(name, src);
+}
 function closeCardDetailOverlay() {
   setHidden('solMobileCip', true);
 }
@@ -675,6 +680,8 @@ function _buildDeckCell(wrapper) {
   if (wrapper.classList.contains('wm-released')) cell.classList.add('wm-released');
   // 未発売SAMPLE画像のイラストぼかし（sample-blur.css）。.sol-mobile-deck-cell は position:relative 済み
   if (wrapper.classList.contains('sample-art')) cell.classList.add('sample-art');
+  // ?newcards=1&focus= の強調を引き継ぐ（シートは開くたびに作り直されるため）
+  if (wrapper.classList.contains('sol-newcard-focus')) cell.classList.add('sol-newcard-focus');
 
   if (src) {
     const thumb = document.createElement('img');
@@ -700,6 +707,8 @@ function _buildDeckCell(wrapper) {
 }
 
 function _toggleDeckCardSelection(cell) {
+  // 通常操作（選択）をしたら newcards の強調は役目を終える
+  document.querySelectorAll('.sol-newcard-focus').forEach(el => el.classList.remove('sol-newcard-focus'));
   const id = cell.dataset.cardId;
   if (_selectedDeckCardIds.has(id)) {
     _selectedDeckCardIds.delete(id);
@@ -845,6 +854,8 @@ function openDeckSheet() {
   if (search) search.value = '';
   _buildDeckGrid();
   setHidden('solMobileDeckSheet', false);
+  // 強調カードが見える位置へ（表示後でないとスクロールできない）
+  document.querySelector('#solMobileDeckGrid .sol-newcard-focus')?.scrollIntoView({ block: 'center' });
 }
 function closeDeckSheet() {
   setHidden('solMobileDeckSheet', true);

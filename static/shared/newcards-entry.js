@@ -46,7 +46,7 @@ async function isResolvable(fetchFn,name){
 /**
  * @returns {Promise<boolean>} 新着を読み込んだら true（呼び出し側は前回盤面を復元しない）。何もしなければ false。
  */
-export async function receiveNewCards({loadDeck,clearDeck,showCard,canShowCard=()=>true,fetchFn=fetch,doc=document,loc=location,hist=history}){
+export async function receiveNewCards({loadDeck,clearDeck,showCard,fetchFn=fetch,doc=document,loc=location,hist=history}){
   const url=new URL(loc.href);
   const request=parseNewCardsRequest(url);
   if(!request)return false;
@@ -75,7 +75,7 @@ export async function receiveNewCards({loadDeck,clearDeck,showCard,canShowCard=(
     if(wrapper){
       wrapper.classList.add(FOCUS_CLASS);
       wrapper.scrollIntoView({block:'nearest',inline:'center'});
-      if(canShowCard())showCard(target);
+      showCard(target);
     }
   }
   return true;
