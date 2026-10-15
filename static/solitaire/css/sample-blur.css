@@ -37,7 +37,10 @@
   content: "";
   position: absolute;
   inset: 0;
-  z-index: 2;                 /* img(1) より上・裏面オーバーレイ(3) より下 */
+  /* img と同じ 1。wrapper は重ね順の層を作らないため、2 にすると後続の重なったカードの
+     img(1) より手前に出て隣のカードまでぼかす。同値なら文書順で「自分の img → ぼかし →
+     次のカード」の順に描かれる。裏面オーバーレイ(3) より下 */
+  z-index: 1;
   pointer-events: none;       /* クリック・ドラッグを阻害しない */
   clip-path: var(--sample-blur-inset);
   -webkit-backdrop-filter: blur(var(--sample-blur-radius));
