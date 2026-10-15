@@ -39,6 +39,7 @@ import {
 } from '../components/card-state.js';
 import { playSetFlip, flipMoveClone } from '../components/card-effects.js';
 import { getDropZoneInfo, executeDrop, getZoneId } from '../components/drag-drop.js';
+import { restackCustomSlot } from '../components/slot-stack.js';
 
 // ── 単一インスタンス ──────────────────────────────────────────────
 let _menuEl          = null;
@@ -345,7 +346,11 @@ function _buildMenuItems(wrapper, img, parent, isInPool, isInitial, isTouch = fa
   // 削除
   items.push({
     label: '削除',
-    action: () => { wrapper.remove(); },
+    action: () => {
+      const sourceSlot = wrapper.parentElement;
+      wrapper.remove();
+      restackCustomSlot(sourceSlot); // フィールドの重ねを詰め直す（.custom-slot 以外は何もしない）
+    },
   });
 
   return items;
@@ -490,8 +495,10 @@ function _returnToDeck(wrapper, img) {
   wrapper.style = '';
   applyCardState(wrapper, {});
 
+  const sourceSlot = wrapper.parentElement;
   const pool = document.getElementById(isEx ? 'poolRow2' : 'poolRow');
   pool.appendChild(wrapper);
+  restackCustomSlot(sourceSlot); // 元がフィールドスロットなら残りを詰め直す
 
   flipMoveClone(wrapper, firstRect);
 }
@@ -551,22 +558,9 @@ function _placeUnder(wrapper, slot) {
   const items = Array.from(slot.querySelectorAll('.tier-item-wrapper'));
   if (items.length <= 1) return;
 
-  const others = items.filter(el => el !== wrapper);
-
-  // 既存カードを1段ずつ下へずらし、差し込むカードをスロット上端に置く。
-  // 通常積みと同じ方向（上端に古いカード、下へ向かって新しいカード）になる。
-  others.forEach((el, i) => {
-    el.style.position = 'absolute';
-    el.style.zIndex   = String(2 + i);
-    el.style.top      = `calc(var(--slot-width) * 0.${i + 1})`;
-  });
-
-  wrapper.style.position = 'absolute';
-  wrapper.style.zIndex   = '1';
-  wrapper.style.top      = '0';
-
-  // DOMの先頭に移動（視覚的な重なり順と一致させる）
+  // DOMの先頭に移動（先頭＝最背面）し、z-index / top は共通関数で詰め直す
   slot.insertBefore(wrapper, slot.firstChild);
+  restackCustomSlot(slot);
 
   // リプレイ記録
   _logState(wrapper);

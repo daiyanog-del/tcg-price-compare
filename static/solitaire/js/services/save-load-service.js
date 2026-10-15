@@ -8,6 +8,7 @@ import { attachCardImageListeners, syncCardIdCounter } from '../components/card-
 import { createProxyCardElement } from '../components/proxy-card.js';
 import { addCounterDeleteButton, initializeCounter } from '../components/counter-manager.js';
 import { showToast } from '../utils/toast.js';
+import { restackCustomSlot } from '../components/slot-stack.js';
 
 const API_CARD_IMAGES = '/api/card-images';
 
@@ -309,6 +310,9 @@ async function restoreCardsToSlot(slot, cards) {
       applyCardState(wrapper, cardData.state);
     }
   }
+
+  // 旧データの縦位置のずれを詰め直す（フィールドスロット以外では何もしない）
+  restackCustomSlot(slot);
 }
 
 /**
