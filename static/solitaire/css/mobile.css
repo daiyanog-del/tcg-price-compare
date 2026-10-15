@@ -596,8 +596,10 @@
   .sol-mobile-action-ops[hidden] { display: none; }
   .sol-mobile-action-btn[hidden] { display: none; }
   .sol-mobile-action-btn {
-    flex: 1 1 30%;
-    min-width: 88px;
+    /* 整理④で「吹き出し」を足して7つになったため、1段4つ・2段に収める
+       （3段目は max-height:110px を超えて下部バーに重なっていた） */
+    flex: 1 1 22%;
+    min-width: 76px;
     padding: 6px 4px;
     background: var(--bg-card);
     border: 1px solid var(--border);
