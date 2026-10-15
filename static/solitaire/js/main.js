@@ -34,6 +34,7 @@ import { hasReplayInUrl as isReplayInUrl } from './utils/replay-url.js';
 import { loadDeckFromNeuron, clearEverything } from './ui/deck-input-panel.js';
 import { receiveDeckHandoff } from '../../shared/deck-handoff.js';
 import { receiveNewCards } from '../../shared/newcards-entry.js';
+import { startHint } from '../../shared/mydeck-hint.js';
 
 /**
  * リプレイ画像辞書に登録する src を決める。
@@ -390,6 +391,8 @@ async function initializeApp() {
     loadDeck: loadDeckFromNeuron, clearDeck: clearEverything,
     // 状態表示。スマホ縦の読込後の失敗は sol-deck-load-end の既存トーストが出るので重ねない
     notify: (msg, opt) => { if (!(opt?.afterLoad && isMobilePortrait())) showToast(msg); },
+    // 新着を読み込めたときだけ「自分のデッキで回す」案内を出す（PC は見出し行・スマホは詳細シート）
+    onLoaded: ({ focus }) => startHint({ focus, showPc: !isMobilePortrait() }),
     // スマホ縦は既存のスマホ用詳細UI、それ以外は左パネル（カードをタップ/クリックした時と同じ表示）
     showCard: el => isMobilePortrait()
       ? openCardDetailByName(el.dataset.cardName, el.src || '')

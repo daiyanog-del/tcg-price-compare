@@ -5,6 +5,7 @@
 
 ## 進行中
 
+- [ ] **新着直行から「マイデッキに追加」へ気づかせる案内（2026-10-16、branch feat/sim-mydeck-hint、未push・未デプロイ）** — `/solitaire?newcards=1` の読込成功後だけ、PC=デッキ欄見出しに一文＋青系リンク（focus のカード対象）、スマホ=未発売カードの詳細シート下部に青系の箱。押すと `/?addToDeck=<名>` でトップを開き、既存の追加先ピッカー（deckOpenAddPicker）を起点チップ付きで開く。新規 `static/shared/mydeck-hint.js`・`add-to-deck-entry.js`、tests/js/mydeck_hint_check.js。**未検証**: 実機のiPhone/Android、本番データ（実カード）での表示、シミュレーター→トップ遷移後に戻ったときの盤面復元、保存済みデッキが多数ある場合のピッカー位置。**残り**: デプロイ後に本番でPC/スマホ確認、X投稿経由の到達率（GA4）で効果を見る。
 - [ ] **食い違っても読み直し側を信じる＋自動で元に戻す安全装置（2026-10-15、branch feat/trust-reread、未push・未デプロイ）** — 実装・テスト済み（`reread_trust.py`、設定 app_settings.TRUST_REREAD_ON_DISAGREE、既定有効・行なしで有効＝SQL不要）。デプロイ後: 取込で「読み直し採用」の札が付くか、`tools/auto_approve_report.py` の新セクション、無効化の Discord 通知を確認。無効になったら decisions.md の手順で人が戻す。校正: 通した枚数が溜まったら後で直された率を見て条件を見直す。
 - [ ] **読み直し採用の仮置き値の校正（2026-10-15）** — `effect_text_reread.py` の `TRUST_MAX_DIFF_CHARS=4` / `TRUST_LEN_RATIO=(0.95,1.05)` / `TRUST_MAX_EDGE_INDEL=1`、`reread_trust.py` の `CACHE_TTL_SEC=30`。根拠は本番の食い違い4件（1〜2文字の置換）のみ。事例が溜まったら信じた後の訂正率で見直す。
 - [ ] **読み直し採用カードが linked になったときの公式文との比較（2026-10-15・記録のみ）** — linked 化で公式の効果文と突き合わせられる場合、読み直し文が公式文と違えば外れとみなして設定を無効にする案。未実装。

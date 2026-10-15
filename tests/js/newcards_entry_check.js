@@ -58,6 +58,21 @@ const run=(mod,f,extra={})=>mod.receiveNewCards({loadDeck:f.loadDeck,clearDeck:f
   assert.deepEqual(f.fetched,['/api/new-cards']);
   assert(f.classes.has(mod.FOCUS_CLASS));assert.equal(f.scrolled,1);assert.deepEqual(f.shown,['新B']);
   assert.equal(await run(mod,f),false,'URLから消えた後に再度読み込んだ');
+  // onLoaded: 読込成功時だけ1回・focus 付き・詳細表示（showCard）より前。失敗・対象外では呼ばない
+  {
+    const order=[];
+    let g=fixture('https://e.test/solitaire?newcards=1&focus='+encodeURIComponent('新B'));
+    assert.equal(await run(mod,g,{onLoaded:a=>order.push(['loaded',a.focus]),showCard:el=>order.push(['show',el.dataset.cardName])}),true);
+    assert.deepEqual(order,[['loaded','新B'],['show','新B']]);
+    let n=0;
+    g=fixture('https://e.test/solitaire?newcards=1',{newCards:null});
+    assert.equal(await run(mod,g,{onLoaded:()=>n++}),false);
+    g=fixture('https://e.test/solitaire');
+    assert.equal(await run(mod,g,{onLoaded:()=>n++}),false);
+    g=fixture('https://e.test/solitaire?newcards=1');
+    await run(mod,g,{loadDeck:async()=>{throw Error('x');},onLoaded:()=>n++});
+    assert.equal(n,0,'失敗・対象外で onLoaded が呼ばれた');
+  }
 
   // 新着に無い focus: 解決できれば先頭に追加（重複なし）
   f=fixture('https://e.test/solitaire?newcards=1&focus='+encodeURIComponent('既知X'),{resolvable:{既知X:'https://img/x.jpg'}});

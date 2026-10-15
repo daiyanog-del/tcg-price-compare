@@ -65,6 +65,9 @@
     gap: 4px;
   }
 
+  /* 新着直行の案内の一文（mydeck-hint.js）は縦書きの小タブに置けないので隠す。スマホ縦は詳細シートの箱で案内する */
+  .pool-label .sol-mydeck-hint { display: none; }
+
   .pool-label {
     writing-mode: vertical-rl;
     text-orientation: mixed;

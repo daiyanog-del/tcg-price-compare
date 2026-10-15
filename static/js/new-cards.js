@@ -22,6 +22,7 @@ window.NewCards = (() => {
   function cardElement(card){
     const wrap=document.createElement('div');
     wrap.className='new-card';
+    wrap.dataset.cardName=card.name; // /?addToDeck=<名> の受け口（add-to-deck-entry.js）が、対象カードの枠を探すのに使う
     const link=document.createElement('a');
     link.className='new-card-link';
     link.href='/card/'+encodeURIComponent(card.name);
