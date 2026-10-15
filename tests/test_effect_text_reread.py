@@ -65,7 +65,8 @@ def test_crop_inside_suggested_card_box():
     img = _png(814, 593)
     s = {"left": 0.5, "top": 0, "right": 1, "bottom": 1}
     w, h = Image.open(io.BytesIO(card_crop.make_effect_crop(img, "効果モンスター", s))).size
-    assert abs(w - 3 * round(407 * 0.93)) <= 6
+    # 枠候補のときは左右を3.5%ずつ広げる: 幅は枠(407px)の 0.93+0.07 倍を3倍
+    assert abs(w - 3 * round(407 * (0.93 + 2 * card_crop.EFFECT_CROP_PAD_X))) <= 6
 
 
 def test_crop_pads_inward_shifted_suggestion_but_not_image_boundary():
