@@ -9,7 +9,7 @@ function block(start,end){
 }
 function element(tag='div'){
   const classes=new Set();
-  return {tag,children:[],attributes:{},listeners:{},hidden:false,value:'',textContent:'',
+  return {tag,dataset:{},children:[],attributes:{},listeners:{},hidden:false,value:'',textContent:'',
     classList:{contains:name=>classes.has(name),add:name=>classes.add(name),remove:name=>classes.delete(name),
       toggle:(name,on)=>{if(on)classes.add(name);else classes.delete(name);}},
     // HTMLパーサーに入力を渡す実装へ退行した場合は、名前の内容に関係なく失敗させる。
@@ -59,6 +59,7 @@ function click(link,flags={}){
   let links=wraps.map(w=>w.children[0]);
   assert.equal(links.length,6);assert.equal(get('newCardsMore').hidden,false);
   assert.equal(wraps[0].className,'new-card');
+  assert.equal(wraps[0].dataset.cardName,cards[0].name,'/?addToDeck= の受け口が探すための data-card-name が無い');
   assert.equal(links[0].tag,'a');
   assert.equal(wraps[0].children[1].tag,'button');
   assert.equal(wraps[0].children[1].textContent,'+ デッキに追加');
