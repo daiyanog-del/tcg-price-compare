@@ -50,7 +50,7 @@
 
 /* 守備表示: 画像(.tier-item)と同じ90度回転に追従 */
 [data-sample-blur] .tier-item-wrapper.is-defense.sample-art:not(.is-set)::after {
-  transform: rotate(90deg);
+  transform: rotate(-90deg);
   transform-origin: center center;
 }
 
