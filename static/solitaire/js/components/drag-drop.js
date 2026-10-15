@@ -230,9 +230,21 @@ export function executeDrop(draggedInfo, dropZoneInfo, dropTarget, modifiers = {
 
     // 同一ゾーン（デッキ/EXデッキ/手札）内への置き直しは意味のない操作なので、
     // 配置もリプレイ記録（手数）もしない。デッキ内の並べ替えも行わない。
-    // フィールド（CUSTOM_SLOT）は修飾キーで守備/セット等の状態変更があるため対象外。
-    if ((dropType === 'POOL' || dropType === 'CENTER_SLOT') && draggedElement.parentElement === dropZone) {
-      return;
+    // フィールド（CUSTOM_SLOT）は修飾キーで守備/セット等の状態変更があるため、
+    // 修飾キーなしで、かつ既にそのスロットの最前面（末尾）にあるカードの置き直しだけを対象にする。
+    // 墓地/除外（SIDE_SLOT）も、既にそのスロットの一番上（末尾）にあるカードの置き直しだけを対象にする。
+    // 重なりの下のカードを一番上へ移す操作や修飾キーありの操作は従来どおり配置＋記録する。
+    if (draggedElement.parentElement === dropZone) {
+      if (dropType === 'POOL' || dropType === 'CENTER_SLOT') {
+        return;
+      }
+      if (dropType === 'CUSTOM_SLOT' || dropType === 'SIDE_SLOT') {
+        const noModifier = dropType === 'SIDE_SLOT' || (!modifiers.shift && !modifiers.ctrl);
+        const wrappers = dropZone.querySelectorAll(':scope > .tier-item-wrapper');
+        if (noModifier && wrappers.length > 0 && wrappers[wrappers.length - 1] === draggedElement) {
+          return;
+        }
+      }
     }
 
     switch (dropType) {
