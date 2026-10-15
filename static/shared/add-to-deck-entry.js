@@ -36,15 +36,36 @@ export function receiveAddToDeck({open,loc=location,hist=history}){
   return true;
 }
 
+// 新着欄（static/js/new-cards.js が /api/new-cards の応答後に描画する）から対象カードの枠を探す。
+// 描画待ち（タイムアウト付き）→ 無ければ「もっと見る」を押して先へ進める。見つからなければ null。
+export async function findNewCard(doc,name,{timeoutMs=6000,intervalMs=150,sleep=ms=>new Promise(r=>setTimeout(r,ms)),now=()=>Date.now()}={}){
+  const deadline=now()+timeoutMs;
+  const find=()=>[...doc.querySelectorAll('.new-card')].find(el=>el.dataset&&el.dataset.cardName===name)||null;
+  for(let guard=0;guard<100&&now()<deadline;guard++){
+    const hit=find();
+    if(hit)return hit;
+    const rendered=doc.querySelectorAll('.new-card').length>0;
+    const more=doc.getElementById('newCardsMore');
+    if(rendered){
+      if(more&&!more.hidden){more.click();continue;} // 6件ずつ表示を増やす（同期で描画される）
+      return null; // 全件出ているのに無い
+    }
+    if(/取得できませんでした/.test(doc.getElementById('newCardsStatus')?.textContent||''))return null;
+    await sleep(intervalMs);
+  }
+  return null;
+}
+
 // ブラウザで読み込まれたときだけ配線する（node のテストでは document が無いので動かない）。
 // deck-edit.js の _init（DOMContentLoaded）より後に走るよう、同じイベントを使う（登録順で後になる）。
 if(typeof document!=='undefined'&&typeof window!=='undefined'){
-  // ピッカーの起点＋「どのカードを追加するか」の表示。ピッカーだけでは対象のカードが分からないため。
+  // 新着欄に無いカード用のフォールバック。ピッカーの起点＋「どのカードを追加するか」の表示。
+  // ヘッダ・ナビに重ならないよう画面の中ほどに置き、ピッカーはその下に出る。
   // 配色は index の CSS 変数（--bg-card / --border / --text）。カード名は textContent で入れる。
   const makeChip=name=>{
     const chip=document.createElement('div');
     chip.className='add-to-deck-entry-chip';
-    chip.style.cssText='position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:1100;max-width:min(320px,calc(100vw - 24px));'
+    chip.style.cssText='position:fixed;top:40%;left:50%;transform:translateX(-50%);z-index:1100;max-width:min(320px,calc(100vw - 24px));'
       +'box-sizing:border-box;padding:8px 14px;border-radius:var(--radius);background:var(--bg-card);border:1px solid var(--border);'
       +'color:var(--text);font-size:.8rem;line-height:1.4;box-shadow:0 6px 20px rgba(0,0,0,.5);overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
     chip.textContent='追加するカード: '+name;
@@ -57,18 +78,26 @@ if(typeof document!=='undefined'&&typeof window!=='undefined'){
     watcher.observe(document.body,{childList:true});
     return chip;
   };
-  const start=()=>{
-    receiveAddToDeck({open:name=>{
-      if(typeof window.deckOpenAddPicker!=='function'){
-        console.warn('[add-to-deck-entry] 追加先ピッカー(deckOpenAddPicker)が未読込です');
-        return;
-      }
-      const chip=makeChip(name);
-      window.deckOpenAddPicker(name,chip);
-      // ピッカーが開かなかった（名前が不正など）ときに表示だけが残らないようにする。
-      if(!document.querySelector('.deck-add-picker'))chip.remove();
-    }});
+  const openFor=async name=>{
+    if(typeof window.deckOpenAddPicker!=='function'){
+      console.warn('[add-to-deck-entry] 追加先ピッカー(deckOpenAddPicker)が未読込です');
+      return;
+    }
+    // まず新着欄のそのカードを探し、画面中央へ寄せて、既存の「+ デッキに追加」ボタンを押したのと同じ処理で開く。
+    const card=await findNewCard(document,name);
+    const btn=card&&card.querySelector('.new-card-add');
+    if(btn){
+      card.scrollIntoView({block:'center',behavior:'instant'});
+      btn.click();
+      return;
+    }
+    console.warn('[add-to-deck-entry] 新着欄に対象カードが無いため、起点チップで追加先を開きます:',name);
+    const chip=makeChip(name);
+    window.deckOpenAddPicker(name,chip);
+    // ピッカーが開かなかったときに表示だけが残らないようにする。
+    if(!document.querySelector('.deck-add-picker'))chip.remove();
   };
+  const start=()=>{receiveAddToDeck({open:openFor});};
   if(document.readyState==='complete')start();
   else document.addEventListener('DOMContentLoaded',start);
 }

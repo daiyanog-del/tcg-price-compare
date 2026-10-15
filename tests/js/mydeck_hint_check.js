@@ -89,6 +89,35 @@ function fakeDoc(){
   hint.appendMobileHintBox(d.body,'a\nb',d);
   assert.equal(d.body.querySelectorAll('.sol-mydeck-hint-box').length,0,'不正名で古い箱が残った');
 
+  // 新着欄の探索: 描画待ち→見つかる／「もっと見る」で先へ／全件出ていて無い→null／取得失敗→null／描画されないままタイムアウト→null
+  const mkCards=names=>names.map(n=>({dataset:{cardName:n},n}));
+  function listDoc({visible,total,status='',step=6}){
+    // visible 件が描画済みから始まる。more.click() で step 件ずつ増える。
+    let shown=visible,clicks=0;
+    const all=mkCards(total);
+    const more={get hidden(){return shown>=all.length;},click(){clicks++;shown=Math.min(all.length,shown+step);}};
+    return {get clicks(){return clicks;},setShown:n=>{shown=n;},
+      querySelectorAll:()=>all.slice(0,shown),
+      getElementById:id=>id==='newCardsMore'?more:id==='newCardsStatus'?{textContent:status}:null};
+  }
+  const names=Array.from({length:20},(_,i)=>'C'+i);
+  const fast={sleep:async()=>{},intervalMs:0};
+  let ld=listDoc({visible:6,total:names});
+  assert.equal((await entry.findNewCard(ld,'C3',fast)).n,'C3');assert.equal(ld.clicks,0);
+  ld=listDoc({visible:6,total:names});
+  assert.equal((await entry.findNewCard(ld,'C14',fast)).n,'C14');assert.equal(ld.clicks,2,'もっと見る で先へ進めなかった');
+  ld=listDoc({visible:6,total:names});
+  assert.equal(await entry.findNewCard(ld,'無い',fast),null);assert.equal(ld.clicks,3,'全件表示後に探索を止めなかった');
+  ld=listDoc({visible:0,total:names,status:'新着カードを取得できませんでした。'});
+  assert.equal(await entry.findNewCard(ld,'C1',fast),null);
+  // 描画待ち: 3回目の待ちの後に描画される
+  ld=listDoc({visible:0,total:names});let waits=0;
+  const slow={intervalMs:0,sleep:async()=>{if(++waits===3)ld.setShown(6);}};
+  assert.equal((await entry.findNewCard(ld,'C2',slow)).n,'C2');assert.equal(waits,3);
+  // タイムアウト: 描画されないまま時間切れ
+  ld=listDoc({visible:0,total:names});let t=0;
+  assert.equal(await entry.findNewCard(ld,'C2',{intervalMs:0,sleep:async()=>{},now:()=>(t+=1000)}),null);
+
   // 配線（ソース確認）: 未発売(proxy)の描画直後だけ呼ぶ・index.html は module 1行・innerHTML を使わない
   const mui=fs.readFileSync(path.join(root,'static/solitaire/js/ui/mobile-ui.js'),'utf8');
   assert(/_renderCard\(data\.proxy[^\n]*\n[^\n]*\n\s*appendMobileHintBox\(body, name\);/.test(mui));
