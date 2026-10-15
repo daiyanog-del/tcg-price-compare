@@ -1,6 +1,11 @@
 # activeContext — 今どこ・次何
 
-> 更新: 2026-10-15（自動承認の開始）
+> 更新: 2026-10-15（効果テキストの拡大読み直し）
+
+## 2026-10-15: 効果テキストの拡大読み直し＋Opus 5.5（branch tools/eval-effect-text・未push）
+
+- 1回目の既定モデルを Opus 5.5（effort=medium）に。`enrich_rows` が効果欄を3倍拡大して Opus 5.5 で読み直し、1回目と突き合わせて不一致・〓・失敗・ペンデュラムは uncertain_fields（effect_text）へ。管理画面に差分表示。詳細・限界は docs/decisions.md、残りは TASKS.md 先頭項目。
+- 評価ツール `tools/eval_effect_text.py`（本番と同じ切り出し・プロンプトを共有）で測り直せる。
 
 ## 2026-10-15: 自動承認の開始に向けた3機能（branch feat/auto-approve-go・未push）
 

@@ -1515,3 +1515,12 @@ rarity_pref 基準に統一。`items_map` のキーも rarity_pref で作る。
 - 不確か欄の判定は信頼度に関係なく行う。high でも重要欄が挙がっていれば不適格（uncertain_important_fields）。信頼度が無い行は confidence_low と区別して confidence_missing。
 - 限界: uncertain_fields は AI の自己申告。AI が「不確か」を挙げない medium は通さないが、「確か」と言った欄が実際は誤読という場合は拾えない（従来の high と同じ限界）。実 API の実測では不確か欄の大半が effect_text で、medium の自動承認増には限定的（効果文は誤字検査が見る）。出力は実行ごとに揺れる（同じ記事で high/medium の内訳が変わった）。
 - レビューで挙がった限界（記録のみ・対応しない）: 低1 編集保存で verdict を再計算しても保存済みの uncertain_fields を使うため、人が直した欄が不確かのまま残る。低2 管理画面の札は偽 DOM の node テストまでで実画面は未確認。低4 JS テストは pytest に組み込まず手動実行。
+
+## 2026-10-15: 効果テキストを「Opus 5.5で1回目＋拡大して読み直し(P2)＋突き合わせ(P3)」にする
+
+- 何を: (1) 1回目の読み取り（`unreleased_extractor.EXTRACTOR_MODEL` の既定）を claude-sonnet-5-5 → claude-opus-5-5、effort=medium を明示（`structured_request(effort=)` を追加。thinking・temperature は送らない）。(2) `unreleased_quality.enrich_rows` の最後に `effect_text_reread.reread_effect_texts` を追加。全カードの効果欄を `card_crop.make_effect_crop`（モンスター 0.69〜0.915・魔法罠 0.735〜0.955、3倍 LANCZOS、枠候補があればその枠内。枠候補のときだけ左右3.5%・上下2%広げる）で切り出し、テキスト欄のみを Opus 5.5 に読ませて effect_text に採用。1回目は `extraction_raw.effect_text_first_pass`、結果と比較は `effect_text_reread {text, model, effort, agreed, unreadable, diff_summary, usage}`。NFKC・空白除去（丸数字は保持）で比べ、食い違い・〓・失敗・ペンデュラムは `uncertain_fields` に effect_text を入れて自動承認から外す。(3) 管理画面の編集欄に、食い違い時の両方の文を差分つきで表示。
+- なぜ: 公式画像は縦7〜8px の文字で、1回目が読めない箇所を定型文で補う作り話をする（実例 IMPH-JP031）。評価 `tools/eval_effect_text.py`（30枚）: 1回読みの文字誤り率（CER）は sonnet 0.74%・opus 0.12%、作り話率は sonnet 6.7%・opus 0%。拡大して読ませる P2 は opus 0.01%・完全一致 96.7%（P1 opus は 83.3%）。同モデルの P1 と P2 の食い違いは、誤りのあるカードを取りこぼさなかった（再現率 100%、opus の誤警報率 0〜14%）。費用は opus で P1 $0.0145・P2 $0.0114/枚（現行 P0 は記事HTMLを毎回送るため $0.0167/枚）。
+- テキスト欄のみにした理由: 全体画像を足すとぼやけた全体像や記憶から補う経路が残り、P1 と誤りが相関して食い違いの信号が弱まるため。
+- 限界（採用判断の前提）: n=30。再録・特別版の YAC1 に約半数が偏る。ペンデュラム未評価（評価セットに0枚）なので、ペンデュラムは読み直さず effect_text と pendulum_effect を常に不確かにする。160〜260字の長文が中心で短文は1枚だけ。正解は ygores の現行テキスト（初収録か過去印刷が2019年以降の再録に限定）。評価は全体画像（約407x593）の比率で校正しており、X画像の枠候補は未評価（広げ幅 `EFFECT_CROP_PAD_*` は IMPH-JPS11 の1例から決めた仮置き）。
+- 実 API（記事 y1y2k8qfq9, 10枚）の観察: 読み直しでも誤読が出る（カード名「鉄檻」を「鉄槌」、「ヘルポエマー」を「ヘルボエマー」）。1回目が正しく読み直しが誤った例もあるため、食い違い時は人の確認を前提にしている。読み直し結果を採用するのは評価で P2 の方が正確だったため。〓を含む読み直しも採用する（1回目の補完より、読めない箇所が見える方が安全）。
+- 影響範囲: `EXTRACTOR_MODEL` を参照する `enrich_rows` の数値再読と `crop_suggestion_service`（AI枠）も既定では Opus 5.5 になる（effort は未指定）。環境変数 `EXTRACTOR_MODEL` が明示された環境（自宅PC watcher.env は claude-sonnet-5-5 を設定済み）ではそちらが優先される。読み直しのモデルは `EFFECT_REREAD_MODEL`（既定 claude-opus-5-5）。
