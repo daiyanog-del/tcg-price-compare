@@ -125,6 +125,19 @@ export function logEvent(event) {
 }
 
 /**
+ * 現在位置（_cursor）より先のログを切り捨てる（cursor=-1 なら全ログを空にする）。
+ * 「録画をやり直す」で録画開始時点へ巻き戻した直後に呼び、未来ログの切り捨てを確定させる。
+ * logEvent の切り捨ては `_cursor >= 0` 条件のため、cursor=-1（0手目）から1手打っても
+ * 未来ログが残る。取消（undoLast）が盤面を末尾へ飛ばす原因にもなるため、先に確定させる。
+ * 盤面は _cursor の位置のまま変わらない（巻き戻し済み前提）。
+ */
+export function truncateAfterCursor() {
+  if (_cursor >= _logs.length - 1) return;
+  _logs = _logs.slice(0, _cursor + 1);
+  _updateUI();
+}
+
+/**
  * 案B: 開始直後（記録0件の状態）のリセット&5ドローのみを setup ログとして記録する。
  * logEvent と違い _logs ではなく _setupLogs に積む（手数カウンターに数えない・取消の対象外）。
  * 呼び出し元（event-handlers.js）が「記録0件かどうか」を判定してから呼ぶこと。

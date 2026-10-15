@@ -679,6 +679,16 @@
     position: relative;
   }
 
+  /* ⋯メニュー項目の下に出す1行の説明（小さめ・控えめ色） */
+  .sol-mobile-menu-desc {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.72rem;
+    font-weight: 400;
+    line-height: 1.4;
+    color: #94a3b8;
+  }
+
   .sol-mobile-sheet-close-btn {
     width: 30px;
     height: 30px;

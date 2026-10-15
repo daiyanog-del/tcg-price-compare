@@ -47,13 +47,14 @@ export async function receiveDeckHandoff({loadDeck,clearDeck,getCounts,storage=s
   if(url.searchParams.has('replay')||url.hash.startsWith('#replay=')||url.searchParams.get('from')!=='mydeck')return false;
   const panel=doc.createElement('div');panel.setAttribute('role','status');
   panel.id='deckHandoffStatus';
-  panel.style.cssText='padding:8px 12px;font-size:14px;line-height:1.6;overflow-wrap:anywhere;background:var(--bg-card,#171f31);color:var(--main-color,#eff3fb)';
+  panel.style.cssText='padding:8px 12px;font-family:var(--font);font-size:13px;line-height:1.6;overflow-wrap:anywhere;background:var(--bg-card,#171f31);color:var(--main-color,#eff3fb)';
   const message=doc.createElement('span');
   // 一人回しの汎用span色を上書きし、通知パネルの文字色を引き継ぐ。
   message.style.color='inherit';
   const retry=doc.createElement('button');retry.type='button';retry.textContent='再試行';retry.hidden=true;
   const back=doc.createElement('a');back.href='/#mydeck';back.textContent='マイデッキに戻る';
-  back.style.cssText='margin-left:12px;color:var(--accent,#aec5ff);text-decoration:underline;display:inline-block;padding:8px 0;outline-offset:3px';
+  // シミュレーターの .sol-ext-link 系（背景#202c42・文字#aec5ff・枠なし）と同じ見た目の小さいリンクボタン。<a> のまま維持する。
+  back.style.cssText='margin-left:12px;display:inline-block;padding:6px 12px;background:#202c42;color:#aec5ff;border:0;border-radius:8px;text-decoration:none;font:inherit;outline-offset:3px';
   retry.style.cssText='margin-left:12px;padding:8px 12px;min-height:40px;color:var(--main-color,#eff3fb);background:transparent;border:1px solid currentColor;border-radius:4px;font:inherit;cursor:pointer;outline-offset:3px';
   panel.append(message,retry,back);doc.body.prepend(panel);
   let running=false;

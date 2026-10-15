@@ -138,22 +138,20 @@
   display: none;
 }
 
-/* 画面端固定のトグルボタン（#cipToggle の見た目を踏襲、少し大きめ） */
+/* 見出し行内の開閉ボタン（開いている時だけ見える。盤面の上には何も浮かせない） */
 .sol-panel-toggle {
-  position: fixed;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 50;
+  flex-shrink: 0;
   width: 22px;
-  height: 52px;
+  height: 22px;
   background: var(--bg-card);
   border: 1px solid #2d4a7a;
+  border-radius: 4px;
   color: #7aaff0;
   cursor: pointer;
   font-size: 0.7rem;
   padding: 0;
   line-height: 1;
-  transition: background 0.15s, color 0.15s, border-color 0.15s, left 0.2s ease, right 0.2s ease;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 .sol-panel-toggle:hover {
   background: var(--accent);
@@ -161,14 +159,47 @@
   border-color: var(--accent);
 }
 
-/* 初期位置（JSが開閉に応じて left/right を更新する） */
-.sol-panel-toggle-left  {
-  left: 180px;
-  border-radius: 0 4px 4px 0;
+/* 左: ロゴ行の右端 / 右: 「盤面操作」見出し行の右端 */
+.sol-sidebar-head,
+.sol-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
 }
-.sol-panel-toggle-right {
-  right: 180px;
-  border-radius: 4px 0 0 4px;
+.sol-sidebar-head { margin-bottom: 10px; }
+.sol-panel-head .sol-right-heading { margin: 0; }
+.sol-panel-head { margin-bottom: 7px; }
+
+/* 畳んだ時に画面端へ残す縦帯（盤面レイアウトのフロー内・帯全体が開くボタン） */
+.sol-panel-rail {
+  flex-shrink: 0;
+  width: 24px;
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  background: var(--bg-surface);
+  border: 0;
+  color: #a8b4c9;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.sol-panel-rail[hidden] { display: none; }
+.sol-panel-rail:hover { background: #202c42; color: #f3ce46; }
+.sol-rail-arrow { font-size: 0.7rem; line-height: 1; }
+.sol-rail-label {
+  writing-mode: vertical-rl;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1;
 }
 
 /* 初回表示時のパルスアニメーション（ボタンの存在を知らせる） */
@@ -695,7 +726,7 @@ html, body {
 
 /* ── ナビ（サイドバー上部に統合） ── */
 /* ロゴ + ページリンクを縦配置。旧 .sol-nav 横長ヘッダーは廃止 */
-.sol-sidebar-nav .sol-nav-title { margin-bottom: 10px; }
+/* ロゴ下の余白は .sol-sidebar-head の margin-bottom(10px) が持つ（ロゴ側に持たせるとボタンと縦中心がずれる） */
 /* アイコン付きメニューバー化: ナビ全体を一つの「箱」として視認できるように
    背景・角丸・内側パディングを持たせる。デッキ選択タブ(.deck-input-tab)は
    背景を塗りつぶす方式のため、ナビ側は左アクセントバーのみ・矢印(::after)併用の
@@ -984,6 +1015,48 @@ html, body {
 .reset-btn { background: var(--bg-card); border-color: #94a3b8; color: #94a3b8; }
 .reset-btn:hover { background: #94a3b8; color: #0a1024; transform: translateY(-1px); }
 
+/* クリア: 取り返しのつかない操作なので危険色（.replay-btn-danger と同じ赤） */
+.clear-btn { background: var(--bg-card); border-color: var(--red); color: var(--red); }
+.clear-btn:hover { background: rgba(239,68,68,0.12); border-color: var(--red); color: var(--red); transform: translateY(-1px); }
+
+/* 即時表示の吹き出し（title属性は遅延＋二重表示になるため使わない）。
+   右パネルは overflow-y:auto で横にはみ出すと切れるため、ボタン幅いっぱいの下向きに出す。 */
+.sol-tip-wrap { position: relative; }
+.sol-tip {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 60;
+  padding: 7px 9px;
+  background: #202c42;
+  color: #eff3fb;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  text-align: left;
+  pointer-events: none;
+  visibility: hidden;
+  opacity: 0;
+}
+/* リセットの吹き出しは上側に出す（下に出すと直下のクリアボタンを隠すため） */
+.sol-tip-up {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+/* :hover はホバー可能な端末だけ（タッチで出っぱなしにならないように）。:focus-visible は常に有効 */
+@media (hover: hover) {
+  .sol-tip-wrap > button:hover + .sol-tip {
+    visibility: visible;
+    opacity: 1;
+  }
+}
+.sol-tip-wrap > button:focus-visible + .sol-tip {
+  visibility: visible;
+  opacity: 1;
+}
+
 
 /* ── モーダル ── */
 .modal-overlay { background: rgba(0,0,0,0.7); }
@@ -1025,7 +1098,7 @@ html, body {
 .replay-btn:disabled { opacity: 0.35; cursor: default; }
 .replay-btn.play-active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
-/* 破壊的操作（すべて消去）用: 赤系で視覚的に危険操作だと分かるようにする */
+/* 破壊的操作用: 赤系で視覚的に危険操作だと分かるようにする */
 .replay-btn-danger {
   margin-left: 12px; /* バー末尾に配置し、頻用する「取消」等から間隔を空けて誤操作を防ぐ */
   color: var(--red);
@@ -1126,6 +1199,10 @@ html, body {
    別物で、互いに参照し合わない。 */
 .sol-playback-pc {
   pointer-events: none;
+}
+/* 再生中でも右パネルの開閉ボタンだけは押せるようにする（親の none を子の auto で上書き） */
+.sol-playback-pc #sidebarToggleRight {
+  pointer-events: auto;
 }
 
 /* ── リプレイコメントトースト ── */

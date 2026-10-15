@@ -2,7 +2,10 @@
  * sidebar-toggle.js — 左サイドバー・右パネルの開閉制御
  *
  * 機能:
- *   - 画面端固定トグルボタン (#sidebarToggleLeft / #sidebarToggleRight) で個別に開閉
+ *   - 開いている時: 各パネルの見出し行内のボタン (#sidebarToggleLeft=ロゴ行右端 /
+ *     #sidebarToggleRight=「盤面操作」見出し行右端) で畳む
+ *   - 畳んでいる時: 盤面レイアウトのフロー内に残る縦帯 (#solRailLeft / #solRailRight) 全体が開くボタン
+ *     （盤面の上に fixed で浮かせない。カード詳細パネルとも重ならない）
  *   - matchMedia による画面幅での自動開閉
  *       >= 1280px: 左右とも自動展開
  *       1000–1279px: 右パネルのみ自動で畳む
@@ -64,28 +67,26 @@ function resolveCollapsed(side) {
 }
 
 /**
- * パネルの開閉状態を DOM に反映し、トグルボタンの位置・aria を更新する。
+ * パネルの開閉状態を DOM に反映し、見出し内ボタン・縦帯の表示と aria を更新する。
  * @param {'left'|'right'} side
  * @param {boolean} collapsed
  */
 function applyCollapsed(side, collapsed) {
   const panelId = side === 'left' ? 'solSidebar' : 'solRightPanel';
   const btnId   = side === 'left' ? 'sidebarToggleLeft' : 'sidebarToggleRight';
+  const railId  = side === 'left' ? 'solRailLeft' : 'solRailRight';
   const panel   = document.getElementById(panelId);
   const btn     = document.getElementById(btnId);
+  const rail    = document.getElementById(railId);
   if (!panel || !btn) return;
 
   panel.classList.toggle('collapsed', collapsed);
+  // 見出し内ボタンは開いている時だけ見える（畳むとパネルごと display:none になる）
   btn.setAttribute('aria-expanded', String(!collapsed));
-
-  // トグルボタンの位置を更新（開時: パネル幅分ずらす / 閉時: 0px）
-  const PANEL_W = 180;
-  if (side === 'left') {
-    btn.style.left = collapsed ? '0px' : `${PANEL_W}px`;
-    btn.textContent = collapsed ? '▶' : '◀';
-  } else {
-    btn.style.right = collapsed ? '0px' : `${PANEL_W}px`;
-    btn.textContent = collapsed ? '◀' : '▶';
+  // 縦帯は畳んでいる時だけ出す（hidden 属性で出し分け。フロー内なので再計算は opp-tray-resize で行う）
+  if (rail) {
+    rail.hidden = !collapsed;
+    rail.setAttribute('aria-expanded', String(!collapsed));
   }
 }
 
@@ -94,13 +95,16 @@ function triggerRefit() {
   window.dispatchEvent(new Event('opp-tray-resize'));
 }
 
-/** スマホ縦向きでは左右トグルボタンを非表示、それ以外（PC・横向きスマホ）では既存表示に戻す */
+/**
+ * スマホ縦向きでは開閉UI（見出し内ボタン・縦帯）を非表示、それ以外（PC・横向きスマホ）では既存表示に戻す。
+ * 縦帯は hidden 属性で出し分けているため、ここでは inline の display:none だけを重ねる
+ * （'' に戻せば hidden 属性による非表示がそのまま効く）。
+ */
 function applyMobileToggleVisibility() {
   const hide = isMobilePortrait();
-  const btnL = document.getElementById('sidebarToggleLeft');
-  const btnR = document.getElementById('sidebarToggleRight');
-  [btnL, btnR].forEach(btn => {
-    if (btn) btn.style.display = hide ? 'none' : '';
+  ['sidebarToggleLeft', 'sidebarToggleRight', 'solRailLeft', 'solRailRight'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = hide ? 'none' : '';
   });
 }
 
@@ -122,6 +126,12 @@ function togglePanel(side) {
   saveState();
 
   applyCollapsed(side, nextCollapsed);
+  // 押したボタンは display:none になりフォーカスを失うため、入れ替わりで出た側へフォーカスを移す
+  // （キーボード操作でも続けて開閉できるように）
+  const nextFocusId = side === 'left'
+    ? (nextCollapsed ? 'solRailLeft' : 'sidebarToggleLeft')
+    : (nextCollapsed ? 'solRailRight' : 'sidebarToggleRight');
+  document.getElementById(nextFocusId)?.focus();
   triggerRefit();
 }
 
@@ -148,13 +158,17 @@ export function initSidebarToggle() {
   // トグルボタンのクリックハンドラ
   const btnL = document.getElementById('sidebarToggleLeft');
   const btnR = document.getElementById('sidebarToggleRight');
+  const railL = document.getElementById('solRailLeft');
+  const railR = document.getElementById('solRailRight');
   if (btnL) btnL.addEventListener('click', () => togglePanel('left'));
   if (btnR) btnR.addEventListener('click', () => togglePanel('right'));
+  if (railL) railL.addEventListener('click', () => togglePanel('left'));
+  if (railR) railR.addEventListener('click', () => togglePanel('right'));
 
-  // 初回表示時のみパルスアニメーションでボタンの存在を知らせる
+  // 初回表示時のみパルスアニメーションでボタンの存在を知らせる（見えているものだけが光る）
   if (!localStorage.getItem('sol-toggle-seen')) {
     setTimeout(() => {
-      [btnL, btnR].filter(Boolean).forEach(btn => {
+      [btnL, btnR, railL, railR].filter(Boolean).forEach(btn => {
         btn.classList.add('sol-panel-toggle-pulse');
         btn.addEventListener('animationend', () => {
           btn.classList.remove('sol-panel-toggle-pulse');
