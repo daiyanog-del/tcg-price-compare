@@ -1569,4 +1569,4 @@ rarity_pref 基準に統一。`items_map` のキーも rarity_pref で作る。
 - 集計: `python tools/auto_approve_report.py` に「食い違いで信じて通した枚数」「うち後で効果テキストを直された（現在値が読み直し文と違う）」「うち効果テキスト/その他の誤り報告が付いた」を追加。
 - 管理画面: 公開中一覧に札「読み直し採用」（自動承認の札と同じ accent 線。赤は使わない）。
 - 判断点: (a) の編集検知は承認前（pending）のカードの編集も含む（人が直した＝読み直しの外れの可能性として厳しめに倒した）。誤作動が多ければ status が approved/linked のときだけに絞る。
-- 追補（同日・司令塔指示）: 食い違いを信じる条件を満たしたときは、1回目の自己申告による effect_text の不確かも外す。根拠: 採用するのは読み直し文であり、自己申告は「1回目の読み取りへの自信」の話だから。**本番の食い違い4件はいずれも1回目が自己申告していた**ので、外さないとこの機能は実質効かない。外したことは `reread_trusted_on_disagree` と `uncertain_cleared_by_reread` の印で残し、`_confidence_reasons` が fields 空でも medium_uncertain_unknown にしない。name の自己申告があるときは従来どおり信じない（条件(5)）。
+- 追補（同日・司令塔指示）: 食い違いを信じる条件を満たしたときは、1回目の自己申告による effect_text の不確かも外す。根拠: 採用するのは読み直し文であり、自己申告は「1回目の読み取りへの自信」の話だから。**本番の食い違い4件のうち3件（ヘルポエマー・マキュラ・鉄檻）は1回目が effect_text を自己申告していた**（ギル・ガースは high・申告なし。raw_response で確認）ので、外さないとこの機能は大半のケースで効かない。外したことは `reread_trusted_on_disagree` と `uncertain_cleared_by_reread` の印で残し、`_confidence_reasons` が fields 空でも medium_uncertain_unknown にしない。name の自己申告があるときは従来どおり信じない（条件(5)）。
