@@ -27,15 +27,16 @@
 .replay-counter,.sol-cip-toggle,.sol-panel-toggle{color:#a8b4c9}
 .sol-panel-toggle{border-color:#2b3549}
 /* 主操作だけを黄色で強調する。通常操作と危険操作の識別は維持する。 */
-.deck-load-btn,.draw-btn,.sol-mobile-deck-primary-btn,.replay-share-btn{
+.deck-load-btn,.draw-btn,.sol-mobile-deck-primary-btn,.replay-share-btn,.replay-save-btn,.sol-mobile-save-btn{
   background:#f3ce46;color:#242013;border-color:transparent;box-shadow:none;
 }
 .deck-load-btn:hover,.draw-btn:hover,.sol-mobile-deck-primary-btn:hover,
-.replay-share-btn:hover{background:#ffe16d;color:#242013}
+.replay-share-btn:hover,.replay-save-btn:hover{background:#ffe16d;color:#242013}
 .reset-btn{background:#202c42;color:#eff3fb;border-color:transparent}
 .reset-btn:hover{background:#2b3549;color:#eff3fb;border-color:transparent}
-.sol-cip-toggle:hover,.sol-panel-toggle:hover,
-.replay-btn.play-active,.replay-speed-btn.active{background:#f3ce46;color:#242013;border-color:transparent}
+.sol-cip-toggle:hover,.sol-panel-toggle:hover{background:#f3ce46;color:#242013;border-color:transparent}
+/* 選択中・再生中の状態は accent（黄は主操作の「保存」だけにするため。2026-10-15 整理③） */
+.replay-btn.play-active,.replay-speed-btn.active{background:#aec5ff;color:#101626;border-color:transparent}
 .sol-nav-title .nav-brand{color:#eff3fb}
 .sol-nav-title .nav-brand .nav-g{color:#f3ce46}
 /* 既存の明色背景＋白文字を避け、操作中の状態を明瞭にする。 */
@@ -70,7 +71,7 @@ select:focus-visible,.deck-card-row:focus-visible{outline:2px solid #f3ce46;outl
 .custom-slot:hover,.opp-slot:hover{border-color:transparent;background-color:#202c42}
 /* 通常操作の外枠を面へ置換。選択・危険操作・録画状態は対象外。 */
 .sol-cip-toggle,.sol-panel-toggle,.sol-sidebar-actions button,
-.replay-btn:not(.replay-btn-danger):not(.play-active):not(.active):not(#pcRecordBtn),
+.replay-btn:not(.replay-btn-danger):not(.play-active):not(.active):not(#pcRecordBtn.recording),
 .cip-price-link,.sol-random-btn,.sol-feedback-open-btn,.sol-fb-cancel,
 .opp-preset-chip{border-color:transparent}
 .sol-random-btn:hover,.sol-feedback-open-btn:hover,.opp-preset-chip:hover{
@@ -82,6 +83,6 @@ select:focus-visible,.deck-card-row:focus-visible{outline:2px solid #f3ce46;outl
   .sol-mobile-deck-sheet-panel,.sol-mobile-share-section,
   .sol-ops-details.sol-mobile-help-open,
   #solSidebar.sol-sheet-open,#opponentTray.sol-opp-sheet-open{border-color:transparent}
-  .sol-mobile-bar-btn:not(.sol-mobile-record-btn),.sol-mobile-play-deck-badge,
+  .sol-mobile-bar-btn:not(.sol-mobile-record-btn.recording),.sol-mobile-play-deck-badge,
   .sol-mobile-action-detail-btn,.sol-mobile-action-btn,.sol-mobile-menu-item{border-color:transparent}
 }

@@ -40,22 +40,36 @@ import { isReplayAtEnd } from '../utils/replay-url.js';
 const REPLAY_TITLE_MAX_LEN = 100;
 
 /**
- * リプレイのタイトルを決定する。
- * 優先順位: (1) スマホ共有シートのタイトル入力欄（#solMobileShareTitleInput、値があれば）
- *          → (2) PC側の .title 見出し要素（存在する場合）
- *          → (3) 既定値 '共有リプレイ'
- * #solMobileShareTitleInput は PC には存在しないため、PC では従来どおり (2)→(3) の挙動になる。
+ * 利用者が入力したタイトル（保存・共有シートのタイトル欄 [data-replay-title]）を返す。
+ * 欄は PC の保存・共有シートとスマホのシートにあり、入力は _initReplayTitleMirror で
+ * 互いに写しているので、最初に見つかった値を使う。空なら ''。
+ * @returns {string}
+ */
+function _getTypedReplayTitle() {
+  for (const el of document.querySelectorAll('[data-replay-title]')) {
+    const v = el.value?.trim();
+    if (v) return v.slice(0, REPLAY_TITLE_MAX_LEN);
+  }
+  return '';
+}
+
+/**
+ * 共有・書き出しに使うタイトル。入力が無ければ日時（端末保存と同じ既定値）にする
+ * （以前の既定値「共有リプレイ」は、一覧で見分けがつかなかったため）。
  * @returns {string}
  */
 function _getReplayTitle() {
-  const mobileInput = document.getElementById('solMobileShareTitleInput');
-  const mobileTitle = mobileInput?.value?.trim();
-  if (mobileTitle) return mobileTitle.slice(0, REPLAY_TITLE_MAX_LEN);
+  return _getTypedReplayTitle() || _formatDefaultReplayTitle();
+}
 
-  const pageTitle = document.querySelector('.title')?.textContent;
-  if (pageTitle) return pageTitle;
-
-  return '共有リプレイ';
+/** タイトル欄（[data-replay-title]）どうしで入力を写し合う（保存と共有で同じタイトルを使うため） */
+function _initReplayTitleMirror() {
+  const inputs = [...document.querySelectorAll('[data-replay-title]')];
+  inputs.forEach((el) => {
+    el.addEventListener('input', () => {
+      inputs.forEach((other) => { if (other !== el) other.value = el.value; });
+    });
+  });
 }
 
 /**
@@ -169,15 +183,18 @@ export function initReplayUI() {
   // URLハッシュからリプレイを読み込む
   _tryLoadFromURL();
 
-  // PC版共有シート（#pcShareSheet）の開閉。中身のボタン(#replayShare等)は
-  // 上で既にイベント配線済みなので、ここでは表示/非表示のトグルのみ行う。
-  const pcShareSheet = _initPcShareSheet();
+  _initReplayTitleMirror();
 
-  // PC版 録画→再生モードUI: 状態機械は pc-recording.js に分離。録画停止時に
-  // 共有シートを自動で開くコールバックだけをここから渡す。
+  // PC版の保存シート（#pcSaveSheet）・共有シート（#pcShareSheet）の開閉。中身のボタン
+  // （#replayShare・#pcShareSaveLocalBtn 等）は上で配線済みなので、ここでは表示/非表示のみ。
+  const pcShareSheet = _initPcSheet('pcShareSheet', 'pcShareSheetOpen', ['pcShareSheetClose', 'pcShareSheetCloseBtn']);
+  const pcSaveSheet = _initPcSheet('pcSaveSheet', 'pcSaveSheetOpen', ['pcSaveSheetClose', 'pcSaveSheetCloseBtn']);
+
+  // PC版の範囲選択: 状態機械は pc-recording.js。範囲が決まったら通知だけ出す
+  // （保存か共有かは利用者が選ぶので、シートは自動で開かない）。
   initPcRecording({
-    openShareSheet: () => pcShareSheet?.open(),
-    closeShareSheet: () => pcShareSheet?.close(),
+    onRangeDecided: (range) => showToast(`範囲を決めました（${range.start}〜${range.end}手目）。保存・共有で使えます`),
+    closeShareSheet: () => { pcShareSheet?.close(); pcSaveSheet?.close(); },
   });
 
   // 重大4対応: デッキ再読込で古い録画範囲(_pcRecording)が残留すると、別セッションの
@@ -201,24 +218,26 @@ export function initReplayUI() {
 }
 
 /**
- * PC版共有シートの開閉トグルを初期化する。
+ * PC版の保存・共有シートの開閉トグルを初期化する。
  * モバイル版の共有シート(#solMobileShareSheet, mobile-ui.js)とは別要素・別IDのため
  * 干渉しない。
+ * @param {string} sheetId
+ * @param {string} openBtnId
+ * @param {string[]} closeIds  背景・×ボタンなど、押すと閉じる要素の id
  * @returns {{open: () => void, close: () => void}|null}
  */
-function _initPcShareSheet() {
-  const sheet = document.getElementById('pcShareSheet');
+function _initPcSheet(sheetId, openBtnId, closeIds) {
+  const sheet = document.getElementById(sheetId);
   if (!sheet) return null;
 
   const open = () => {
-    updatePcShareRecordingSection(); // ①録画セクションの表示を開く直前に最新化する
+    updatePcShareRecordingSection(); // 範囲の表示を開く直前に最新化する
     sheet.hidden = false;
   };
   const close = () => { sheet.hidden = true; };
 
-  document.getElementById('pcShareSheetOpen')?.addEventListener('click', open);
-  document.getElementById('pcShareSheetClose')?.addEventListener('click', close);
-  document.getElementById('pcShareSheetCloseBtn')?.addEventListener('click', close);
+  document.getElementById(openBtnId)?.addEventListener('click', open);
+  closeIds.forEach((id) => document.getElementById(id)?.addEventListener('click', close));
 
   // Escapeキーで閉じる（feedback-modal.js等、既存の他モーダルと同じ作法に合わせる）
   document.addEventListener('keydown', (e) => {
@@ -450,8 +469,9 @@ async function handleShare() {
  * タイトルは入力欄が無いため日時の既定タイトルになる（一覧で見分けられるようにするため）。
  */
 function handleSaveToDevice() {
-  const result = saveReplayToDevice({ range: _getPcRecordingRange() });
+  const result = saveReplayToDevice({ title: _getTypedReplayTitle(), range: _getPcRecordingRange() });
   showToast(describeSaveResult(result));
+  if (result.ok) document.getElementById('pcSaveSheet')?.setAttribute('hidden', '');
 }
 
 /**

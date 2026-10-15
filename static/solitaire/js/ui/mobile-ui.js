@@ -213,7 +213,7 @@ const MENU_ACTIONS = {
   opptray:  () => { openOppTraySheet(); },
   deckinput:() => { openSidebarSheet(); },
   playback: () => { enterPlaybackMode('menu'); }, // タスクB-1: 旧「リプレイ操作」オーバーレイを廃止し再生モードへ
-  share:    () => { openShareSheet(); },    // タスクA-5: 下部バーから外した共有導線
+  share:    () => { openShareSheet('share'); }, // ⋯メニューの「共有」
   help:     () => { openHelpSheet(); },
   feedback: () => { document.getElementById('feedbackOpenBtn')?.click(); },
 };
@@ -1007,17 +1007,20 @@ function _stopRecording() {
   const endIdx = getCursor() + 1;
   if (endIdx <= _recording.startIdx) {
     _resetRecording();
-    showToast('1手も録画されていません');
+    showToast('範囲に手が1つも入っていません');
     _updateShareRecordingSection();
     return;
   }
   _recording.endIdx = endIdx;
   _recording.recording = false;
   _updateRecordBtn();
-  openShareSheet();
+  _updateShareRecordingSection(); // シートを開いたまま「ここまでで範囲を決める」を押した場合の表示更新
+  // 整理③: 保存か共有かは利用者が選ぶので、シートは自動で開かず通知だけ出す
+  const range = _getRecordingRange();
+  if (range) showToast(`範囲を決めました（${range.start}〜${range.end}手目）。保存・共有で使えます`);
 }
 
-/** 下部バーの「● 録画」ボタン（トグル） */
+/** 下部バーの「✂ 範囲」ボタン（トグル。範囲が決まった後に押すと選び直し） */
 function toggleRecording() {
   if (_recording.recording) _stopRecording();
   else _startRecording();
@@ -1033,22 +1036,23 @@ function toggleRecording() {
  */
 function _updateRecordBtn() {
   const btn = document.getElementById('solMobileRecordBtn');
-  const dot = document.getElementById('solMobileRecordDot');
   const label = document.getElementById('solMobileRecordLabel');
   if (!btn || !label) return;
+  // 整理③: 呼び名を「範囲」に（旧「録画」）。選んでいる間「■ N手」、決まった後「範囲 s〜e」、待機「✂ 範囲」。
+  // 375px幅で折り返さない短さにしている（L-10）。
+  const range = _recording.recording ? null : _getRecordingRange();
   if (_recording.recording) {
     const cur = getCursor() + 1; // M-4: 現在の再生位置基準
     if (cur < _recording.startIdx) _recording.startIdx = cur; // A-1/M-4: クランプ
     const n = Math.max(0, cur - _recording.startIdx);
     label.textContent = `■ ${n}手`;
-    btn.classList.add('recording');
-    if (dot) dot.hidden = false;
+  } else if (range) {
+    label.textContent = `範囲 ${range.start}〜${range.end}`;
   } else {
-    // 待機中も赤いドットを常時表示（第5次検収: 「録画」が暗いグレーで見つけづらい）
-    label.textContent = '録画';
-    btn.classList.remove('recording');
-    if (dot) dot.hidden = false;
+    label.textContent = '✂ 範囲';
   }
+  btn.classList.toggle('recording', _recording.recording);
+  btn.classList.toggle('has-range', !!range);
 }
 
 /**
@@ -1059,7 +1063,7 @@ function initRecording() {
   const counterEl = document.getElementById('replayCounter');
   if (counterEl) {
     new MutationObserver(() => {
-      if (_recording.recording) _updateRecordBtn();
+      if (_recording.recording || _hasStoppedRecording()) _updateRecordBtn();
     }).observe(counterEl, { childList: true, characterData: true, subtree: true });
   }
 }
@@ -1076,7 +1080,20 @@ function initRecording() {
 // タイトル入力欄: replay-ui.js の _getReplayTitle() が #solMobileShareTitleInput を最優先で
 // 読む（PC には無いため PC は従来どおり .title→既定値 の挙動）。
 
-function openShareSheet() {
+/** シートの用途（'save'＝保存 / 'share'＝共有）。再生して確認から戻るときは前回の用途で開き直す */
+let _shareSheetMode = 'share';
+
+/**
+ * 保存・共有シートを開く（整理③で1つのシートを用途で切り替える形にした）。
+ * @param {'save'|'share'} [mode] 省略時は前回の用途
+ */
+function openShareSheet(mode) {
+  if (mode) _shareSheetMode = mode;
+  const titleEl = document.getElementById('solMobileShareSheetTitle');
+  if (titleEl) titleEl.textContent = _shareSheetMode === 'save' ? '保存' : '共有';
+  document.querySelectorAll('#solMobileShareSheet [data-share-mode]').forEach((el) => {
+    el.hidden = el.dataset.shareMode !== _shareSheetMode;
+  });
   // 前回の結果・エラー表示を残さない
   setHidden('solMobileShareResult', true);
   setHidden('solMobileShareError', true);
@@ -1101,23 +1118,21 @@ function _showShareError(msg) {
 }
 
 /**
- * タスクA-3/M-3: ①録画セクションの表示を更新する。3状態:
- *   - 録画中（stop前）: 「録画中（N手）」＋「ここで停止して範囲を確定」
- *   - 録画（停止済み）あり: 「録画した範囲: s手目〜e手目（N手）」＋「録画をやり直す」
- *   - 録画なし: 「全記録（N手）を共有します。…」＋「● 録画を始める」
+ * 範囲セクション（旧①録画）の表示を更新する。3状態:
+ *   - 選んでいる途中: 「範囲を選んでいます（N手）」＋「ここまでで範囲を決める」
+ *   - 範囲あり: 「s〜e手目（N手）が対象です」＋「範囲を選び直す」
+ *   - 範囲なし: 「全部の手（N手）が対象です。…」
  */
 function _updateShareRecordingSection() {
   const infoEl = document.getElementById('solMobileShareRecordingInfo');
-  const startBtn = document.getElementById('solMobileShareStartRecordingBtn');
   const stopBtn = document.getElementById('solMobileShareStopRecordingBtn');
   const redoBtn = document.getElementById('solMobileShareRedoRecordingBtn');
   if (!infoEl) return;
 
   if (_recording.recording) {
-    // M-3: 録画中に共有シートを開いた場合（⋯メニュー「共有・保存」経由等）
+    // M-3: 範囲を選んでいる途中でシートを開いた場合（⋯メニュー「共有」経由等）
     const n = Math.max(0, getCursor() + 1 - _recording.startIdx);
-    infoEl.textContent = `録画中（${n}手）`;
-    if (startBtn) startBtn.hidden = true;
+    infoEl.textContent = `範囲を選んでいます（${n}手）`;
     if (stopBtn) stopBtn.hidden = false;
     if (redoBtn) redoBtn.hidden = true;
     return;
@@ -1126,14 +1141,12 @@ function _updateShareRecordingSection() {
   const range = _getRecordingRange();
   if (range) {
     const n = range.end - range.start + 1;
-    infoEl.textContent = `録画した範囲: ${range.start}手目〜${range.end}手目（${n}手）`;
-    if (startBtn) startBtn.hidden = true;
+    infoEl.textContent = `${range.start}〜${range.end}手目（${n}手）が対象です`;
     if (stopBtn) stopBtn.hidden = true;
     if (redoBtn) redoBtn.hidden = false;
   } else {
     const total = getLogLength();
-    infoEl.textContent = `全記録（${total}手）を共有します。特定の場面だけ共有するには下部バーの ● 録画 を使ってください。`;
-    if (startBtn) startBtn.hidden = false;
+    infoEl.textContent = `全部の手（${total}手）が対象です。一部だけにするには、下のバーの ✂ 範囲 を使います。`;
     if (stopBtn) stopBtn.hidden = true;
     if (redoBtn) redoBtn.hidden = true;
   }
@@ -1243,11 +1256,7 @@ function initShareSheet() {
     _stopRecording();
   });
 
-  // タスクA-3: ①録画セクション（「● 録画を始める」／「録画をやり直す」／「再生して確認」）
-  document.getElementById('solMobileShareStartRecordingBtn')?.addEventListener('click', () => {
-    closeShareSheet();
-    _startRecording();
-  });
+  // 範囲セクション（「範囲を選び直す」／「再生して確認」）
   // 「録画をやり直す」: 停止済み録画の開始位置（startIdx＝録画開始時点までの手数）へ盤面を巻き戻してから、
   // その位置で新規に録画を開始する（startIdx は元と同じ値になる）。
   // 巻き戻し直後に truncateAfterCursor() で未来ログを切り捨てる（0手目からのやり直しでも確実に消す）。
@@ -1259,7 +1268,7 @@ function initShareSheet() {
     // 録画停止後に打った手（endIdx より先）まで消えるときだけ確認する
     if (stopped) {
       const extra = getLogLength() - _recording.endIdx;
-      if (extra > 0 && !confirm(`録画を始めた位置まで戻ります。録画範囲より後の${extra}手も消えます。よろしいですか？`)) return;
+      if (extra > 0 && !confirm(`範囲を選び始めた位置まで戻ります。範囲より後の${extra}手も消えます。よろしいですか？`)) return;
     }
     closeShareSheet();
     if (prevStart !== null) {
@@ -1288,8 +1297,10 @@ function initShareSheet() {
     document.getElementById('replayExport')?.click();
   });
 
-  // E-2: 端末に保存
+  // E-2: このブラウザに保存
   document.getElementById('solMobileShareSaveLocalBtn')?.addEventListener('click', _saveReplayToDevice);
+  // 整理③: 下部バーの「保存」は、同じシートを保存の用途で開く
+  document.getElementById('solMobileSaveBtn')?.addEventListener('click', () => { openShareSheet('save'); });
 }
 
 // ══════════════════ E-1/E-2: リプレイの端末保存（設計書 §E） ══════════════════
@@ -1490,7 +1501,7 @@ function _updatePlaybackRangeBadge(range) {
   const el = document.getElementById('solMobilePlayRangeBadge');
   if (!el) return;
   if (range) {
-    el.textContent = `録画範囲を再生中（${range.start}〜${range.end}手目）`;
+    el.textContent = `範囲を再生中（${range.start}〜${range.end}手目）`;
     el.hidden = false;
   } else {
     el.hidden = true;
@@ -1583,8 +1594,10 @@ function exitPlaybackMode({ forceOpenShare = false, returnToOrigin = true } = {}
   window.dispatchEvent(new Event('resize'));
 
   // 第6次検収-1: 「再生して確認」から入った場合は共有シートへ自動的に戻る
-  if (forceOpenShare || (returnToOrigin && origin === 'share')) {
-    openShareSheet();
+  if (forceOpenShare) {
+    openShareSheet('share'); // 再生バーの「共有」
+  } else if (returnToOrigin && origin === 'share') {
+    openShareSheet(); // 「再生して確認」の前に開いていた用途（保存／共有）へ戻る
   }
 }
 
