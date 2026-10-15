@@ -326,6 +326,15 @@
   .sol-mobile-play-deck-badge.sol-pulse {
     animation: solDeckBtnPulse 0.4s ease-in-out;
   }
+  /* 再生（2026-10-16 案A）: 明るい面＋accent の ▶。1手戻す は印だけの細いボタン */
+  .sol-mobile-bar-play { font-weight: 700; background: var(--border); }
+  .sol-mobile-bar-play::before { content: '▶'; color: var(--accent); font-size: 0.72em; }
+  .sol-mobile-bar-icon { flex: 0 0 40px; font-size: 1.15rem; }
+  /* 6つ並ぶので、⋯ も少し細くし、デッキの「デッキ N」が途中で折り返さないようにする */
+  #solMobileBarNormal .sol-mobile-bar-menu { flex-basis: 40px; }
+  #solMobileDeckBtn { white-space: nowrap; flex-grow: 1.3; } /* 「デッキ N」は他より文字が多いので少し広く */
+  /* 範囲を選んでいる間・決まった後は「■ N手」「✂ N手」になるので、範囲ボタンも少し広く */
+  .sol-mobile-record-btn.recording, .sol-mobile-record-btn.has-range { flex-grow: 1.25; }
   .sol-mobile-bar-menu {
     flex: 0 0 46px;
     font-size: 1.3rem;
@@ -1212,4 +1221,9 @@
 @media (max-width: 340px) {
   .sol-mobile-bar-btn { font-size: 0.76rem; gap: 2px; }
   #solMobileDeckBtn { white-space: nowrap; }
+  /* 2026-10-16: 再生を足して6つになったため、印だけのボタン（↶・⋯）を細くし、間隔と余白を詰める */
+  #solMobileBarNormal { gap: 4px; }
+  /* 上の 0.76rem と、縦向きブロックの #solMobileBarNormal .sol-mobile-bar-menu（ID付き）に負けないよう、ID付きで指定する */
+  #solMobileBarNormal .sol-mobile-bar-icon, #solMobileBarNormal .sol-mobile-bar-menu { flex-basis: 34px; font-size: 1.05rem; }
+  .sol-mobile-bar-btn { padding: 0 2px; }
 }

@@ -31,6 +31,7 @@ import { setPcPlaybackMode } from '../components/drag-drop.js';
 import { initPcRecording, _getPcRecordingRange, updatePcShareRecordingSection, _resetPcRecording } from './pc-recording.js';
 import { initCommentUI } from './comment-ui.js';
 import { clearEverything } from './deck-input-panel.js';
+import { initReplayStartPrompt } from './replay-start-prompt.js';
 import { showToast } from '../utils/toast.js';
 import { addSharedReplay } from '../services/shared-replays.js';
 import { savedReplaysGet, saveReplayEntry } from '../services/saved-replays.js';
@@ -185,6 +186,9 @@ export function initReplayUI() {
   // X に投稿
   document.getElementById('replayShareX')
     ?.addEventListener('click', handleShareToX);
+
+  // 共有リンク・保存したリプレイを開いた直後の「▶ 再生する」の案内（読み込みより先に受け口を用意する）
+  initReplayStartPrompt();
 
   // URLハッシュからリプレイを読み込む
   _tryLoadFromURL();
@@ -632,7 +636,7 @@ async function _tryLoadFromURL() {
     // card:// センチネル対応のため await が必要（非同期関数）
     if (await importFromURLHash(encoded)) {
       console.log('URLハッシュからリプレイを読み込みました');
-      _finishLoadFromURL(false);
+      _finishLoadFromURL(false, { source: 'shared' });
     }
     return;
   }
@@ -656,7 +660,7 @@ async function _tryLoadFromURL() {
   try {
     const res = await fetch(`/api/solitaire/replay/${replayId}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const { images, names, logs, exCardIds, cardTypes } = await res.json();
+    const { images, names, logs, exCardIds, cardTypes, title } = await res.json();
 
     const { _setReplayData } = await import('../services/replay-service.js');
     if (typeof _setReplayData === 'function') {
@@ -664,7 +668,7 @@ async function _tryLoadFromURL() {
       await _setReplayData(images, names || {}, logs, exCardIds || [], cardTypes || {});
     }
     console.log(`リプレイID ${replayId} を読み込みました`);
-    _finishLoadFromURL(atEnd);
+    _finishLoadFromURL(atEnd, { source: 'shared', title });
     // 続きから遊ぶ（at=end）場合は、再読込でサーバーのリプレイを最初から読み直さないよう replay も外す
     // （?saved= と同じ扱い。通常の共有リンクの ?replay= は従来どおり残す）
     if (atEnd) _removeParamsFromURL(['replay']);
@@ -679,12 +683,17 @@ async function _tryLoadFromURL() {
  * 通常は mobile-ui.js が受けて再生モードを自動で開く（タスクB-1）。atEnd のときは detail.atEnd で
  * 「再生モードに入らず、そのまま操作を続ける」ことを伝える。
  * 最後の手にカーソルがあるので、続けて1手打っても記録は切り捨てられない（logEvent は末尾でのみ追記）。
+ * detail の source（'shared'＝共有リンク／'saved'＝このブラウザに保存したもの）と title は、
+ * 読み込み直後に出す「▶ 再生する」の案内（replay-start-prompt.js）が使う。
  * @param {boolean} atEnd
+ * @param {{source?:'shared'|'saved', title?:string}} [info]
  */
-function _finishLoadFromURL(atEnd) {
+function _finishLoadFromURL(atEnd, info = {}) {
   _resetPcRecording(); // 重大4対応: JSON読込で古い録画範囲(_pcRecording)が残留するのを防ぐ
   if (atEnd) seekTo(getLogLength() - 1);
-  document.dispatchEvent(new CustomEvent('sol-replay-loaded-from-url', { detail: { atEnd } }));
+  document.dispatchEvent(new CustomEvent('sol-replay-loaded-from-url', {
+    detail: { atEnd, source: info.source || 'shared', title: typeof info.title === 'string' ? info.title : '' },
+  }));
 }
 
 /** URL から指定のクエリを外す（他のクエリ・ハッシュは残す） */
@@ -716,7 +725,7 @@ async function _loadSavedFromURL(savedId, atEnd = false) {
   }
   try {
     await loadReplayFromCompressedData(item.data);
-    _finishLoadFromURL(atEnd);
+    _finishLoadFromURL(atEnd, { source: 'saved', title: item.title });
   } catch (e) {
     console.warn('保存済みリプレイの読み込みに失敗:', e);
     showToast('保存済みリプレイを開けませんでした');

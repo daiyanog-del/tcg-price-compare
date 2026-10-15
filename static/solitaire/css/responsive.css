@@ -120,6 +120,9 @@
     font-size: 0.95rem;
     padding: 8px 14px;
   }
+  /* 再生ボタン（solitaire-brand.css の .replay-btn.replay-play-btn）は詳細度が高く上の指定に勝つため、
+     ここでも同じ大きさを指定して、隣より小さく見えないようにする（2026-10-16） */
+  .replay-btn.replay-play-btn { font-size: 0.95rem; padding: 8px 14px; }
 
   /* 行1: スライダー (幅いっぱい) + カウンター */
   #replaySlider {
