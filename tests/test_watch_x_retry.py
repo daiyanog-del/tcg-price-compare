@@ -38,7 +38,7 @@ def batch(monkeypatch):
 
 
 def test_extract_failure_keeps_cursor_and_retry_skips_successful_tweet(batch):
-    first = {"name": "カード0", "product_name": "商品"}
+    first = {"name": "カード0", "product_name": "商品", "effect_text": "効果", "atk": 1000}  # 本体ありの行（保留されない）
     second = {"name": "カード1", "product_name": "商品"}
     batch.extract.side_effect = [[first], RuntimeError("星の再読に失敗")]
 
