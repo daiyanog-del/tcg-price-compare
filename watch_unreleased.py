@@ -421,15 +421,22 @@ def _upsert_cards(sb: Client, rows: list[dict]) -> int:
     if not rows:
         return 0
 
+    from unreleased_auto_approve import annotate_row, load_active_names
+    # 自動承認判定用（シャドーモード: 記録のみ）。rejected以外の既存カード名を1回読む
+    active_names = load_active_names(sb)
+
     inserted = 0
     for row in rows:
         try:
+            annotate_row(row, active_names)
             sb.table("unreleased_cards").upsert(
                 row,
                 on_conflict="name,product_name",
                 ignore_duplicates=True,
             ).execute()
             inserted += 1
+            if active_names is not None:
+                active_names.append(row.get("name", ""))
         except Exception as e:
             logger.warning(f"[Watcher] upsert失敗 ({row.get('name', '?')}): {e}")
 

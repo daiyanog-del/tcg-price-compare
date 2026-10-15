@@ -520,6 +520,28 @@ document.getElementById('bulk-reject-btn').addEventListener('click', async () =>
  * @param {HTMLElement} listEl
  * @param {Array} cards
  */
+/**
+ * 自動承認の判定の札を描く（表示のみ。承認操作には影響しない）。
+ * 理由の日本語ラベルはサーバーが返す auto_approve_reason_labels を使う。
+ * 値は textContent だけで設定する（innerHTML 不使用）。
+ * @param {HTMLElement|null} el
+ * @param {{auto_approve_verdict?: {eligible: boolean, reasons: string[]}|null, auto_approve_reason_labels?: string[]}} card
+ */
+function _renderAutoVerdict(el, card) {
+  if (!el) return;
+  const verdict = card.auto_approve_verdict;
+  if (!verdict || typeof verdict.eligible !== 'boolean') return;  // 旧データ・手動登録は札なし
+  if (verdict.eligible) {
+    el.textContent = '自動承認候補';
+    el.classList.add('auto-verdict-badge--eligible');
+  } else {
+    const labels = Array.isArray(card.auto_approve_reason_labels) ? card.auto_approve_reason_labels : [];
+    el.textContent = '自動承認不可: ' + (labels.length ? labels.join(' / ') : '理由不明');
+    el.classList.add('auto-verdict-badge--ineligible');
+  }
+  el.hidden = false;
+}
+
 function _renderPendingList(listEl, cards) {
   listEl.innerHTML = '';
 
@@ -550,6 +572,9 @@ function _renderPendingList(listEl, cards) {
     const badge = row.querySelector('.confidence-badge');
     badge.textContent = _confidenceLabel(card.confidence);
     badge.classList.add(_confidenceClass(card.confidence));
+
+    // 自動承認の判定（シャドーモード: 表示のみ）
+    _renderAutoVerdict(row.querySelector('.auto-verdict-badge'), card);
 
     // 抽出元リンク
     const link = row.querySelector('.card-row__source-link');

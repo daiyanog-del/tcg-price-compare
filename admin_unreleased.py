@@ -26,6 +26,8 @@ from urllib.parse import urlparse
 from flask import Blueprint, request, jsonify, render_template
 
 import card_display as _card_display
+import unreleased_x_post as _x_post
+from unreleased_auto_approve import reason_label as _auto_approve_label
 import fetch_guard as _fetch_guard
 from constants import JST as _JST
 from client_ip import _client_ip
@@ -272,8 +274,14 @@ def admin_list_unreleased():
                 fallback_list = raw.get("card_image_urls") or []
                 card_img_url = fallback_list[0] if fallback_list else ""
             card["card_image_url"] = card_img_url
-            for key in ("crop_suggestion", "crop_state", "release_date_evidence", "recognition_review"):
+            for key in ("crop_suggestion", "crop_state", "release_date_evidence", "recognition_review", "auto_approve_verdict"):
                 card[key] = raw.get(key)
+            # 自動承認判定の理由コードを日本語ラベルにして添える（ラベルの正本は Python 側のみ）
+            verdict = card.get("auto_approve_verdict")
+            if isinstance(verdict, dict):
+                card["auto_approve_reason_labels"] = [
+                    _auto_approve_label(code) for code in (verdict.get("reasons") or [])
+                ]
             # extraction_raw はフロントエンドに不要なので除外する（サイズ削減）
             card.pop("extraction_raw", None)
 
@@ -421,6 +429,14 @@ def _backfill_release_date(product_name: str, exclude_id: int) -> str | None:
     return evidence['release_date'] if evidence['status'] == 'verified' else None
 
 
+# 承認時に読む列。後半は approval_snapshot（抽出時スナップショットとの差分）の計算に使う。
+_APPROVE_SELECT_COLUMNS = (
+    "id, name, source_url, extraction_raw, status, release_date, product_name, "
+    "card_type, attribute, race, level, rank, link_val, atk, def, "
+    "effect_text, pendulum_scale, pendulum_effect"
+)
+
+
 # ──────────────────────────────────────────────
 # POST /api/admin/unreleased/<id>/approve — 承認
 # ──────────────────────────────────────────────
@@ -451,7 +467,7 @@ def admin_approve_unreleased(card_id: int):
         # まずカードの extraction_raw を取得
         card_resp = (
             _supabase.table("unreleased_cards")
-            .select("id, name, source_url, extraction_raw, status, release_date, product_name")
+            .select(_APPROVE_SELECT_COLUMNS)
             .eq("id", card_id)
             .execute()
         )
@@ -511,12 +527,22 @@ def admin_approve_unreleased(card_id: int):
 
         _card_display.invalidate_cache()
 
+        # 承認時の記録（手直しの有無・切り抜き方法・判定結果）。失敗しても承認は成立
+        from unreleased_auto_approve import build_approval_snapshot, save_approval_snapshots
+        save_approval_snapshots(
+            _supabase, [(card_id, build_approval_snapshot(card_data, "single"))]
+        )
+
         # 画像取込を試みる（失敗しても承認は成立）
         image_fetched, image_reason = _try_fetch_image_from_extraction(
             card_id=card_id,
             source_url=card_data.get("source_url", ""),
             extraction_raw=card_data.get("extraction_raw") or {},
         )
+
+        # X自動投稿（無効時は何もしない）。画像取込に成功したときだけ。失敗分は回収ジョブが拾う
+        if image_fetched:
+            _x_post.start_post_thread(_supabase, [card_id])
 
         result = {
             "ok": True,
@@ -904,7 +930,7 @@ def admin_bulk_approve_unreleased():
         # pending/needs_review/rejected のもののみ対象（既承認・linked は除外）
         target_resp = (
             _supabase.table("unreleased_cards")
-            .select("id, name, source_url, extraction_raw, status, release_date, product_name")
+            .select(_APPROVE_SELECT_COLUMNS)
             .in_("id", ids)
             .in_("status", ["pending", "needs_review", "rejected"])
             .execute()
@@ -985,10 +1011,20 @@ def admin_bulk_approve_unreleased():
         if release_date_backfilled > 0:
             _card_display.invalidate_cache()
 
+        # 承認時の記録を作る（補完前の値で差分を取る。DB書き込みはバックグラウンドで行う）
+        from unreleased_auto_approve import build_approval_snapshot, save_approval_snapshots
+        approval_entries = [(c["id"], build_approval_snapshot(c, "bulk")) for c in target_cards]
+
         # 画像取込をバックグラウンドスレッドで起動
         def _bg_fetch_images(cards: list[dict]) -> None:
-            """バックグラウンドで各カードの画像を順次取込する。"""
+            """バックグラウンドで各カードの承認記録を保存し、画像を順次取込し、X投稿する。"""
+            fetched_ids: list[int] = []
             with _bulk_image_lock:
+                # 件数分の書き込みになるためレスポンスを待たせない。失敗しても画像取込は続ける
+                try:
+                    save_approval_snapshots(_supabase, approval_entries)
+                except Exception as exc:
+                    logger.warning(f"[admin] 一括承認・承認記録の保存エラー: {exc}")
                 for card_data in cards:
                     try:
                         success, reason = _try_fetch_image_from_extraction(
@@ -996,6 +1032,8 @@ def admin_bulk_approve_unreleased():
                             source_url=card_data.get("source_url", ""),
                             extraction_raw=card_data.get("extraction_raw") or {},
                         )
+                        if success:
+                            fetched_ids.append(card_data["id"])
                         logger.info(
                             f"[admin] 一括承認・画像取込: card_id={card_data['id']}, "
                             f"success={success}, reason={reason!r}"
@@ -1004,6 +1042,11 @@ def admin_bulk_approve_unreleased():
                         logger.error(
                             f"[admin] 一括承認・画像取込エラー card_id={card_data['id']}: {exc}"
                         )
+            # X自動投稿（無効時は何もしない）。画像取込に成功した分だけ、間隔を空けて1枚ずつ。
+            # 画像取込のロックは先に手放す（投稿の待ち時間で次の一括承認の画像取込を止めないため）。
+            # 取込に失敗した分は回収ジョブ（tools/post_unreleased_x.py）が拾う
+            if fetched_ids:
+                _x_post.post_cards_sequential(_supabase, fetched_ids)
 
         t = threading.Thread(
             target=_bg_fetch_images,
@@ -1761,9 +1804,13 @@ def admin_fetch_x_post():
         return jsonify({"ok": True, "inserted": 0, "cards": [], "reason": "SAMPLEウォーターマークなし（発売済みカードの可能性）"})
 
     # upsert
+    from unreleased_auto_approve import annotate_row, load_active_names
+    # 自動承認判定用（シャドーモード: 記録のみ）。rejected以外の既存カード名を1回読む
+    active_names = load_active_names(_supabase)
     inserted_cards = []
     for row in card_rows:
         try:
+            annotate_row(row, active_names)
             ins_resp = _supabase.table("unreleased_cards").upsert(
                 row,
                 on_conflict="name,product_name",
@@ -1771,6 +1818,8 @@ def admin_fetch_x_post():
             ).execute()
             if ins_resp.data:
                 inserted_cards.extend(ins_resp.data)
+                if active_names is not None:
+                    active_names.append(row.get("name", ""))
         except Exception as e:
             logger.warning(f"[admin] fetch-x-post upsert失敗 ({row.get('name', '?')}): {e}")
 

@@ -404,6 +404,26 @@ a:hover {
   color: #fff;
 }
 
+/* 自動承認の判定（シャドーモード: 記録のみで、承認操作には影響しない）
+ * 候補 = 信頼度「高」と同じ緑（良い状態）。対象外 = 枠線のみの中立表示（赤は危険・エラー用なので使わない） */
+.auto-verdict-badge {
+  border-radius: 3px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 1px 5px;
+}
+
+.auto-verdict-badge--eligible {
+  background-color: var(--green);
+  color: #fff;
+}
+
+.auto-verdict-badge--ineligible {
+  border: 1px solid var(--border);
+  color: var(--main-color);
+  font-weight: 400;
+}
+
 /* 画像ありバッジ */
 .has-image-badge {
   background-color: var(--accent);

@@ -8,6 +8,8 @@
 - [x] **守備表示を左向きへ（2026-10-15）** — 本体・裏面・透かし・ぼかし・演出・共有画像を反時計回り90度に統一。ブラウザで通常操作/リプレイ復元を確認、pytest100件・replay_board_check成功。公開状態は最終チャット参照。
 
 - [x] **手札/EXの間隔統一（2026-10-15）** — .center-row のgapを10pxから4pxに変更。PC実測で盤面→手札/手札→デッキ/手札→EXがすべて4px。公開状態は最終チャット参照。
+- [ ] **未発売カードのX自動投稿・自動承認シャドーモード（2026-10-15、branch feat/unreleased-x-post-auto-approve）** — 実装・テスト済み、未デプロイ。残り: `unreleased_x_posts.sql` の適用、Render/GitHub への環境変数設定、DRY_RUN での本文確認、有効化。シャドーモードは実データが溜まってから `tools/auto_approve_report.py` で判定条件を校正する。
+- [ ] **自動承認判定・X投稿の仮置き値の校正（2026-10-15）** — `unreleased_auto_approve.py` の `MIN_CROP_AREA=0.10` / `CROP_ASPECT_MIN,MAX=0.55,0.80`、`unreleased_x_post.py` の `MAX_ATTEMPTS=3` / `POST_INTERVAL_SEC=20` / `MAX_BACKFILL_PER_RUN=10` は仮置き（TODO: calibrate from data）。承認記録（approval_snapshot）が溜まったら集計して見直す。
 
 - [x] **カード詳細パネルのレリーフ調統一（2026-10-15）** — PC詳細・スマホ詳細に共通の素材/浅い陰影を適用。PCで灰流うららの名前/効果/価格リンクを確認。スマホ用の計算済み背景色も確認。公開状態は最終チャット参照。
 

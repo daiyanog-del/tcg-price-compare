@@ -43,6 +43,8 @@ Flask app.py (3,200行規模) ＋ solitaire_routes.py (Blueprint)
 | watch_x_unreleased.py | X(@YuGiOh_OCG_INFO) 監視→未発売カード抽出（Render Cron） |
 | unreleased_extractor.py / admin_unreleased.py / unreleased_image_store.py / reconcile_unreleased.py | 未発売カードの抽出・承認画面・画像取込・発売済み照合 |
 | x_poster.py + chart_renderer.py | 値動きランキングのX自動投稿＋グラフ生成 |
+| unreleased_x_post.py / tools/post_unreleased_x.py | 承認された未発売カードのX自動投稿（予約テーブルで二重投稿防止、承認時＋3時間ごとの回収）。既定は無効 |
+| unreleased_auto_approve.py / tools/auto_approve_report.py | 自動承認の判定（シャドーモード: 記録のみ）と集計。取込3経路が `extraction_raw.auto_approve_verdict` / `extracted_snapshot` を保存、承認時に `approval_snapshot` を保存 |
 | notify.py | Web Push 値下がり通知（-5% かつ -50円、同一購読20時間間隔） |
 | meta_scraper.py | 環境Tier表（キャッシュ: Tier 3h / デッキ 6h、期限切れ後7日フォールバック、集計窓30→60日アダプティブ） |
 | monitor.py | ErrorTracker（連続失敗をDiscord通知）・run_health_check |
@@ -83,6 +85,7 @@ Flask app.py (3,200行規模) ＋ solitaire_routes.py (Blueprint)
 | unreleased_cards / watched_pages / official_card_images / app_settings | 未発売カードパイプライン |
 | ygores_cards / ygores_qa / ygores_blobs / ygores_sync_meta | ygoresources キャッシュ・同期メタ |
 | tweet_log | X投稿ログ・インプレッション計測（x_poster.py / collect_x_metrics.py） |
+| unreleased_x_posts | 未発売カードのX投稿状態（card_id 主キー。posting/posted/failed/skipped_legacy）。スキーマは `unreleased_x_posts.sql` |
 | featured_pack / pack_cards_cache | 新弾フィーチャー設定・パック収録キャッシュ（featured_pack.py） |
 
 RPC（DB側集計関数）: `get_price_movers` / `get_buyback_movers`（値動きランキング）
@@ -116,12 +119,23 @@ card_dim/shop_dim/rarity_dim を辞書表として分離）。`price_history` �
 | X値動き投稿 (x_poster.py) | GitHub Actions `post-x.yml` | 毎日 JST 20:07 |
 | 新弾フィーチャー投稿 | GitHub Actions `post-featured.yml` | 毎日 JST 21:07 |
 | Xメトリクス収集 | GitHub Actions `collect-x-metrics.yml` | 15分ごと |
-| 画像バックフィル | GitHub Actions `backfill-images.yml` | 3時間ごと |
+| 画像バックフィル＋未発売カードのX投稿回収 | GitHub Actions `backfill-images.yml` | 3時間ごと（画像回収→`tools/post_unreleased_x.py`。投稿は `UNRELEASED_X_POST_ENABLED=1` のときだけ） |
 | ygores差分同期 | GitHub Actions `sync-ygores.yml` | 6時間ごと |
 | yu-gi-oh.jp 未発売Watcher | ローカルPC（run_watcher_local.bat、タスクスケジューラ） | 日1回 |
 | （停止済・手動フォールバックのみ） | GitHub Actions collect-prices.yml / collect-buyback.yml | Render Cron へ移行済み（理由は各yml冒頭コメント） |
 
 ※ Render Cron の3ジョブ名・時刻は 2026-07-10 に Render ダッシュボード実設定で確認（`tcg-collect-prices`=UTC20:00 / `tcg-collect-buyback`=UTC22:00 / `tcg-watch-x-unreleased`=UTC14:00）。リポジトリ内のコードには現れないため、Render側を変更したらこの表も更新すること。
+
+## 環境変数（未発売カードのX自動投稿、2026-10-15〜）
+
+| 変数 | 置き場所 | 内容 |
+|---|---|---|
+| `UNRELEASED_X_POST_ENABLED` | Render Web Service / GitHub Actions の Variables | `1` で有効。未設定=無効（既定） |
+| `X_POST_DRY_RUN` | 同上（任意） | `1` で投稿せず本文をログに出すだけ（予約行も作らない） |
+| `X_API_KEY` `X_API_SECRET` `X_ACCESS_TOKEN` `X_ACCESS_TOKEN_SECRET` | Render Web Service（承認時の投稿に必要）/ GitHub Actions secrets（回収。post-x.yml と同名） | X API v2 の OAuth1 認証情報 |
+| `DISCORD_WEBHOOK_URL` | 既存 | 投稿失敗の通知 |
+
+有効化の順序: ① `unreleased_x_posts.sql` を実行 ② 有効化の直前にもう一度同SQLの末尾INSERT（skipped_legacy）を実行して、それまでに承認されたカードを除外 ③ `X_POST_DRY_RUN=1` を付けて有効化しログで本文を確認 ④ DRY_RUN を外す。
 
 ## デプロイ構成
 
