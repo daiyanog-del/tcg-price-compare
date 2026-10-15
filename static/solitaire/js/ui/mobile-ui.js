@@ -38,6 +38,7 @@ import { playActivateEffect, flipMoveClone } from '../components/card-effects.js
 import { _renderCard, _showUnknown, _showLoading } from './card-info-panel.js';
 import { isMobilePortrait, watchMobilePortrait, isMobileLandscape, watchMobileLandscape } from '../utils/viewport.js';
 import { showToast } from '../utils/toast.js';
+import { appendMobileHintBox } from '../../../shared/mydeck-hint.js';
 import { generateShareURL, checkPublicTitle, resetShareUrlMemo, buildShareTweetUrl, getReplayCounts, saveReplayToDevice, describeSaveResult, exportReplayFile } from './replay-ui.js';
 import { clearEverything } from './deck-input-panel.js';
 import {
@@ -426,6 +427,8 @@ async function showMobileCardInfo(name, imgSrc) {
       _renderCard(data, imgSrc, name, null, body, false);
     } else if (data.kind === 'proxy' && data.proxy) {
       _renderCard(data.proxy, imgSrc, name, null, body, false, false, true);
+      // 新着直行で来たときだけ、未発売カードの詳細の下に「マイデッキに追加」の案内を足す
+      appendMobileHintBox(body, name);
     } else {
       _showUnknown(imgSrc, name, null, body, false);
     }

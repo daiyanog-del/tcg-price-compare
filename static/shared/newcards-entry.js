@@ -77,10 +77,11 @@ function clearOnFirstOperation(doc){
 }
 
 /**
+ * @param onLoaded ({focus}) 新着の読込に成功した直後（focus の詳細表示より前）に1回呼ぶ。失敗・中止では呼ばない
  * @param notify (メッセージ, {afterLoad}) 状態表示。afterLoad=読込を試みた後の通知（スマホは既存のトーストが出るので呼び出し側で抑える）
  * @returns {Promise<boolean>} 新着を読み込んだら true（呼び出し側は前回盤面を復元しない）。何もしなければ false。
  */
-export async function receiveNewCards({loadDeck,clearDeck,showCard,notify=()=>{},fetchFn=fetch,timeoutMs=FETCH_TIMEOUT_MS,doc=document,loc=location,hist=history}){
+export async function receiveNewCards({loadDeck,clearDeck,showCard,notify=()=>{},onLoaded=()=>{},fetchFn=fetch,timeoutMs=FETCH_TIMEOUT_MS,doc=document,loc=location,hist=history}){
   const url=new URL(loc.href);
   const request=parseNewCardsRequest(url);
   if(!request)return false;
@@ -116,6 +117,7 @@ export async function receiveNewCards({loadDeck,clearDeck,showCard,notify=()=>{}
   url.searchParams.delete('newcards');url.searchParams.delete('focus');
   hist.replaceState(hist.state,'',url.pathname+url.search+url.hash);
   if(request.focusUnresolved)notify('指定のカードは読み込めませんでした',{afterLoad:true});
+  onLoaded({focus});
   if(focus){
     const target=[...doc.querySelectorAll('#poolRow .tier-item, #poolRow2 .tier-item')].find(el=>el.dataset.cardName===focus);
     const wrapper=target?.closest('.tier-item-wrapper');
