@@ -210,3 +210,65 @@ def make_level_zoom(image_bytes: bytes, suggestion: dict) -> bytes:
             Image.DecompressionBombWarning) as exc:
         logger.warning("レベル確認用の拡大画像を生成できません: %s", exc)
         raise ValueError("レベル確認用の拡大画像を生成できません") from exc
+
+
+# 効果欄の位置（カード枠に対する比率 left, top, right, bottom）。
+# tools/eval_effect_text.py で実画像（407x593 / 480x700 の公式カード画像）を目視して校正した値（2026-10-15）。
+#  - モンスター: 枠上端 約0.69 〜 ATK/DEF 行の上 約0.915。先頭の【種族／種類】行を含む
+#  - 魔法・罠 : 枠上端 約0.735 〜 枠下端 約0.955（下部全体）
+# ペンデュラムは位置を校正・評価していないため用意しない（呼び出し側で別扱いにする）。
+EFFECT_BOX_RATIO = {
+    "monster": (0.035, 0.69, 0.965, 0.915),
+    "spell_trap": (0.035, 0.735, 0.965, 0.955),
+}
+EFFECT_CROP_SCALE = 3
+
+
+def effect_box_kind(card_type: str) -> str | None:
+    """カード種別の文字列から効果欄の切り出し方を決める。ペンデュラム・不明は None。"""
+    card_type = card_type or ""
+    if "ペンデュラム" in card_type:
+        return None
+    if "モンスター" in card_type:
+        return "monster"
+    if "魔法" in card_type or "罠" in card_type:
+        return "spell_trap"
+    return None
+
+
+def make_effect_crop(image_bytes: bytes, card_type: str, suggestion: dict | None = None) -> bytes:
+    """効果欄を切り出して3倍（長辺1568px以下・LANCZOS）のPNGにする。
+
+    suggestion（refine_card_box の正規化座標 left/top/right/bottom）があればそのカード枠の中の比率で、
+    無ければ画像全体を1枚のカードとして切り出す。種別が不明・ペンデュラム、座標が不正なら ValueError。
+    """
+    kind = effect_box_kind(card_type)
+    if kind is None:
+        raise ValueError(f"効果欄の切り出し位置が未定義のカード種別です: {card_type!r}")
+    try:
+        image = _open_image(image_bytes)
+        if suggestion is None:
+            left, top, right, bottom = 0.0, 0.0, 1.0, 1.0
+        else:
+            box = [suggestion.get(k) for k in ("left", "top", "right", "bottom")]
+            if not _valid_box(box, 1, 1):
+                raise ValueError("カード枠候補の座標が不正です")
+            left, top, right, bottom = box
+        card_left, card_top = left * image.width, top * image.height
+        card_w, card_h = (right - left) * image.width, (bottom - top) * image.height
+        rl, rt, rr, rb = EFFECT_BOX_RATIO[kind]
+        region = (round(card_left + card_w * rl), round(card_top + card_h * rt),
+                  round(card_left + card_w * rr), round(card_top + card_h * rb))
+        if region[2] <= region[0] or region[3] <= region[1]:
+            raise ValueError("効果欄の切り出し範囲が空です")
+        crop = image.crop(region)
+        # 元画像が大きいX画像では長辺1568pxを超えないよう倍率を下げる（超えてもAPI側で縮小されるだけ）
+        scale = min(EFFECT_CROP_SCALE, 1568 / max(crop.size))
+        crop = crop.resize((max(1, round(crop.width * scale)), max(1, round(crop.height * scale))),
+                           Image.Resampling.LANCZOS)
+        output = io.BytesIO()
+        crop.save(output, format="PNG")
+        return output.getvalue()
+    except (ValueError, OSError, Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+        logger.warning("効果欄の拡大画像を生成できません: %s", exc)
+        raise ValueError("効果欄の拡大画像を生成できません") from exc

@@ -270,32 +270,14 @@ def cmd_select(a) -> None:
 # crops: 効果欄の切り出し
 # ---------------------------------------------------------------------------
 
-# 効果欄の位置（カード画像に対する比率 left, top, right, bottom）。実画像(407x593 / 480x700)で目視校正:
-#  - モンスター: 枠上端 約0.69、ATK/DEF 行の上（約0.915）まで。先頭の【種族／種類】行を含む
-#  - 魔法・罠 : 枠上端 約0.735〜枠下端 約0.955（下部全体）
-# ペンデュラムは評価セットに入らなかったため未実装（TODO: 実カードで校正）
-CROP_RATIO = {
-    "monster": (0.035, 0.69, 0.965, 0.915),
-    "spell": (0.035, 0.735, 0.965, 0.955),
-}
-CROP_SCALE = 3
-
-
-def crop_kind(kind: str) -> str:
-    return "monster" if kind not in ("spell", "trap") else "spell"
+# 切り出しは本番と同じ関数（card_crop.make_effect_crop。比率の校正値と根拠はそちらを参照）。
+# ペンデュラムは評価セットに入らなかったため未評価。
+_KIND_TO_CARD_TYPE = {"spell": "通常魔法", "trap": "通常罠"}
 
 
 def make_crop(content: bytes, kind: str) -> bytes:
-    from PIL import Image, ImageOps
-    with Image.open(BytesIO(content)) as src:
-        im = ImageOps.exif_transpose(src).convert("RGB")
-    w, h = im.size
-    l, t, r, b = CROP_RATIO[crop_kind(kind)]
-    box = (round(w * l), round(h * t), round(w * r), round(h * b))
-    c = im.crop(box).resize(((box[2] - box[0]) * CROP_SCALE, (box[3] - box[1]) * CROP_SCALE), Image.LANCZOS)
-    buf = BytesIO()
-    c.save(buf, format="PNG")
-    return buf.getvalue()
+    from card_crop import make_effect_crop
+    return make_effect_crop(content, _KIND_TO_CARD_TYPE.get(kind, "効果モンスター"))
 
 
 def cmd_crops(a) -> None:
@@ -333,15 +315,10 @@ IMPROVED_SYSTEM = """\
 
 P1_USER_TEXT = ("この画像は遊戯王OCGのカード1枚です。カード名（name）と効果欄の本文を、"
                 "ルールに従って書き起こしてください。カード名も読めない文字は「〓」にしてください。")
-P2_USER_TEXT = ("この画像はカード下部の効果欄を切り出して拡大したものです。"
-                "効果欄の本文を、ルールに従って書き起こしてください（カード名はここには写っていません）。")
 
 SCHEMA_P1 = {"type": "object", "properties": {
     "name": {"type": "string"}, "effect_text": {"type": "string"},
     "pendulum_effect": {"type": "string"}, "unreadable": {"type": "boolean"}}}
-SCHEMA_P2 = {"type": "object", "properties": {
-    "effect_text": {"type": "string"}, "pendulum_effect": {"type": "string"},
-    "unreadable": {"type": "boolean"}}}
 
 
 class EffortClient:
@@ -410,9 +387,11 @@ def run_p1(client, model, card, img):
 
 
 def run_p2(client, model, card, crop_png):
+    # P2 は本番（effect_text_reread）と同じプロンプト・スキーマ・effort で測る
+    import effect_text_reread as rr
     img = {"media_type": "image/png", "data": base64.standard_b64encode(crop_png).decode("ascii")}
-    content = [image_block(img), {"type": "text", "text": P2_USER_TEXT}]
-    return call_structured(client, model, IMPROVED_SYSTEM, content, SCHEMA_P2)
+    content = [image_block(img), {"type": "text", "text": rr.REREAD_USER_TEXT}]
+    return call_structured(client, model, rr.REREAD_SYSTEM, content, rr.REREAD_SCHEMA)
 
 
 def run_p0(client, batch_cards, imgs, html_cache):
@@ -537,16 +516,9 @@ UNREADABLE = "〓"
 
 
 def norm(s: str) -> str:
-    """NFKC・空白改行除去。丸数字（①〜⑳）は NFKC で数字になるため除外して保持する。"""
-    out = []
-    for ch in s or "":
-        if "\u2460" <= ch <= "\u2473":
-            out.append(ch)
-        else:
-            out.append(unicodedata.normalize("NFKC", ch))
-    t = "".join(out)
-    t = t.replace("\u301c", "~").replace("\uff5e", "~")
-    return "".join(t.split())
+    """本番の突き合わせと同じ正規化（effect_text_reread.norm）。"""
+    from effect_text_reread import norm as _norm
+    return _norm(s)
 
 
 def levenshtein(a: str, b: str) -> int:

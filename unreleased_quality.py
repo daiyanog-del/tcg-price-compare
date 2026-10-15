@@ -124,7 +124,7 @@ _REVIEW_SCHEMA = {
 
 
 def enrich_rows(rows, *, client, model, encoded_images):
-    """初回候補を元画像の境界で補正し、上部拡大で数値を読み直す。"""
+    """初回候補を元画像の境界で補正し、上部拡大で数値を、効果欄の拡大で効果テキストを読み直す。"""
     from card_crop import refine_card_box, make_level_zoom
     from release_date_resolver import resolve_release_date
     images = {image['url']: image for image in encoded_images}
@@ -210,4 +210,7 @@ def enrich_rows(rows, *, client, model, encoded_images):
             if not valid:
                 row['confidence'] = 'low'
                 logger.warning('数値要確認: %s', row['name'])
+    # 効果テキストの拡大読み直しと1回目との突き合わせ（全カード。X・公式・管理画面の取込すべてがここを通る）
+    from effect_text_reread import reread_effect_texts
+    reread_effect_texts(rows, client=client, encoded_images=encoded_images)
     return rows
