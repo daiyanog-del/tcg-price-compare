@@ -568,3 +568,26 @@
 p, span, li {
   color: #333;
 }
+
+/* ?newcards=1&focus= で開いたときの強調（B+D）。強調中だけ body に sol-newcard-focus-active が付く。
+   B: デッキ欄の focus 以外を暗くする  D: focus カードを少し大きくして影で浮かせる（デッキ欄の中だけで前面に）。
+   選択中（金の実線）・触れている間（アクセントの実線）・置き場所の案内（アクセントの破線）とは重ねない。 */
+body.sol-newcard-focus-active #poolRow .tier-item-wrapper:not(.sol-newcard-focus),
+body.sol-newcard-focus-active #poolRow2 .tier-item-wrapper:not(.sol-newcard-focus) {
+  filter: brightness(.45);
+}
+/* 拡大した focus の上下がデッキ欄（overflow-y:hidden）で切れないよう、強調中だけ余白を足す。
+   負のマージンで相殺するので、盤面の他の部分は動かない。 */
+body.sol-newcard-focus-active #poolRow,
+body.sol-newcard-focus-active #poolRow2 {
+  padding-top: 8px;
+  margin-top: -8px;
+  padding-bottom: 8px;
+  margin-bottom: -6px;
+}
+#poolRow .tier-item-wrapper.sol-newcard-focus,
+#poolRow2 .tier-item-wrapper.sol-newcard-focus {
+  transform: scale(1.06);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, .7);
+  z-index: 3;
+}

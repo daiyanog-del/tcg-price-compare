@@ -186,19 +186,24 @@ def _site_url() -> str:
 def build_tweet_text(name: str, product_name: str = "", release_date=None, *, site_url: str | None = None) -> str:
     """投稿本文を作る。280加重文字を超える場合は商品名→カード名の順に省略記号で詰める。
 
-    URL のカード名は x_poster.format_bigmove_tweet と同じ urllib.parse.quote。
+    情報の出所は公式で、TCGYM は「試せる場所」という立場の文面（docs/decisions.md 2026-10-15）。
+    リンク先はシミュレーター直行（/solitaire?newcards=1&focus=カード名）。
+    focus は & # ? / なども含めて必ずエンコードする（quote の safe=""）。
     URL は常に完全なカード名で作る（本文側だけ詰める）。
     """
     base = site_url if site_url is not None else _site_url()
-    url = f"{base}/card/{urllib.parse.quote(name)}"
+    url = f"{base}/solitaire?newcards=1&focus={urllib.parse.quote(name, safe='')}"
     date_text = _format_release_date(release_date)
 
     def render(n: str, p: str) -> str:
-        lines = ["【新カード情報】", n]
+        lines = [f"公式発表の新カード「{n}」が、TCGYMのシミュレーターで使えるようになりました。"]
+        info = []
         if p:
-            lines.append(f"収録：{p}")
+            info.append(f"収録：{p}")
         if date_text:
-            lines.append(f"発売日：{date_text}")
+            info.append(f"発売日：{date_text}")
+        if info:
+            lines.append("／".join(info))
         lines += [url, "#遊戯王 #OCG"]
         return "\n".join(lines)
 
