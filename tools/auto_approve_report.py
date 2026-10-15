@@ -117,7 +117,7 @@ def _tally_text_check(text: dict, card: dict, raw: dict, snap: dict, edited) -> 
     # 承認時点でも強い疑義が残っているのに本文を直さず承認したもの
     now = snap.get("text_check") if isinstance(snap.get("text_check"), dict) else {}
     by_kind = now.get("strong_by_kind") or {}
-    reliable = by_kind.get("unknown_ngram", 0) + by_kind.get("format", 0)
+    reliable = by_kind.get("unknown_ngram", 0) + by_kind.get("unknown_phrase", 0) + by_kind.get("format", 0)
     if reliable and edited is not None and not any(f in _TEXT_FIELDS for f in edited):
         text["approval_flagged_unedited"].append(item)
 
@@ -166,7 +166,7 @@ def print_report(result: dict) -> None:
         print(f"  強い疑義が付いたが、本文を手直しせず承認した（誤検知、または人の見落とし）: {len(tx['flagged_unfixed'])} 件")
         for r in tx["flagged_unfixed"]:
             print(f"    - id={r['id']} {r['name']}: {', '.join(map(str, r['examples']))}")
-        print(f"  承認時点でも n-gram/書式の強い疑義が残り、本文を直さず承認した: {len(tx['approval_flagged_unedited'])} 件")
+        print(f"  承認時点でも n-gram/言い回し/書式の強い疑義が残り、本文を直さず承認した: {len(tx['approval_flagged_unedited'])} 件")
         print("  ※「直さず承認」が誤検知かは目視で判定が必要。多ければ tools/text_check_calibrate.py で閾値を見直す。")
 
 

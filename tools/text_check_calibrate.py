@@ -6,6 +6,11 @@ text_check_calibrate.py — 効果テキスト誤字検証（unreleased_text_che
       強疑義で見つけられる率（検出率）と、置換前の字を候補に出せた率を出す。
   (b) unreleased_cards の status が approved/linked（人が確認済み）の全件を検査し、
       疑義件数の分布と具体例を出す。
+  (c) 語の組み合わせ（kind="unknown_phrase"）の計測（2026-10-15）:
+      (c-1) 公式コーパス leave-one-out で、規則ごとの誤検知率（カード単位）
+      (c-2) 公式テキストの動詞を別の動詞に差し替えた擬似誤り（言い回しの誤り）の検出率と、
+            文字3連鎖の強い疑義だけでは見つからなかった分を言い回しの照合がどれだけ追加で拾うか
+      (c-3) id 529「墓地へ送って発動」を「墓地へ返って発動」に戻した版の検出
 
 使い方（Supabase は読むだけ）:
   python tools/text_check_calibrate.py [--sample 3000] [--seed 0] [--examples 15]
@@ -40,12 +45,39 @@ class _LooNgrams:
         return self.df.get(g, 0) - (1 if g in self.own else 0) > 0
 
 
+class LooPhrase(tc.PhraseTable):
+    """leave-one-out 用の語の組み合わせ表。注目中のカード（own_triples）の寄与を引いて数える。"""
+
+    def __init__(self, full: tc.PhraseTable):
+        super().__init__(full.verbs, full.pairs, full.nps, full.triples)
+        self.set_own(set())
+
+    def set_own(self, triples: set):
+        self.own_triples = triples
+        self._own_verbs = {v for _, _, v in triples}
+        self._own_pairs = {(p, v) for _, p, v in triples}
+        self._own_nps = {(n, p) for n, p, _ in triples}
+
+    def verb_count(self, v):
+        return self.verbs.get(v, 0) - (1 if v in self._own_verbs else 0)
+
+    def pair_count(self, p, v):
+        return self.pairs.get((p, v), 0) - (1 if (p, v) in self._own_pairs else 0)
+
+    def np_count(self, n, p):
+        return self.nps.get((n, p), 0) - (1 if (n, p) in self._own_nps else 0)
+
+    def triple_count(self, n, p, v):
+        return self.triples.get((n, p, v), 0) - (1 if (n, p, v) in self.own_triples else 0)
+
+
 class LooDict(tc.TextCheckDict):
     """leave-one-out 用。注目中のカードの寄与（n-gram・カード名・「」内語）を除いて照合する。"""
 
-    def __init__(self, ngram_df: Counter, word_df: Counter, words_raw: dict):
+    def __init__(self, ngram_df: Counter, word_df: Counter, words_raw: dict, phrase=None):
         # 親の __init__ は使わず、必要な属性だけ用意する
         self.ngrams = _LooNgrams(ngram_df)
+        self.phrase = phrase
         self.meta = {}
         self.word_df = word_df
         self.own_keys: set = set()
@@ -70,9 +102,11 @@ def build_loo(corpus):
     word_df: Counter = Counter()
     words_raw: dict = {}
     per_card = []
+    phrase_sets = []
     for c in corpus:
         grams: set = set()
         keys: set = set()
+        triples: set = set()
         if c["name"]:
             keys.add(tc.name_key(c["name"]))
             words_raw.setdefault(tc.name_key(c["name"]), c["name"])
@@ -84,10 +118,12 @@ def build_loo(corpus):
                     words_raw.setdefault(tc.name_key(w), w)
             if tc.is_effect_like(t):
                 grams |= tc.ngram_set(tc.token_string(tc.tokenize(t, c["name"])))
+                triples |= tc.phrase_triples(t, c["name"])
         ngram_df.update(grams)
         word_df.update(keys)
-        per_card.append((grams, keys))
-    return ngram_df, word_df, words_raw, per_card
+        per_card.append((grams, keys, triples))
+        phrase_sets.append(triples)
+    return ngram_df, word_df, words_raw, per_card, tc.PhraseTable.from_triple_sets(phrase_sets)
 
 
 def _card_of(c) -> dict:
@@ -96,18 +132,26 @@ def _card_of(c) -> dict:
 
 
 def run_loo(corpus, sample: int, seed: int, n_examples: int):
-    ngram_df, word_df, words_raw, per_card = build_loo(corpus)
-    d = LooDict(ngram_df, word_df, words_raw)
+    ngram_df, word_df, words_raw, per_card, phrase_full = build_loo(corpus)
+    d = LooDict(ngram_df, word_df, words_raw, LooPhrase(phrase_full))
     rnd = random.Random(seed)
     idx = [i for i, c in enumerate(corpus) if any(tc.is_effect_like(t) for t in c["texts"])]
     idx = rnd.sample(idx, min(sample, len(idx)))
     strong_cards = weak_cards = 0
+    cards_by_kind: Counter = Counter()   # (種別, 強弱) → その疑義が付いたカード数
+    phrase_alone = Counter()             # 言い回しの照合を単体で実行したときの、強/弱が付いたカード数（重なり除去の前）
     by_kind: Counter = Counter()
     examples = []
     for i in idx:
         c = corpus[i]
-        d.ngrams.own, d.own_keys = per_card[i]
+        d.ngrams.own, d.own_keys, own_triples = per_card[i]
+        d.phrase.set_own(own_triples)
         res = tc.check_card(_card_of(c), dictionary=d)
+        for key in {(s["kind"], s["severity"]) for s in res["suspects"]}:
+            cards_by_kind[key] += 1
+        alone = [x for t in c["texts"] if tc.is_effect_like(t) for x in tc._check_phrases(t, d, c["name"])]
+        for sev in {x["severity"] for x in alone}:
+            phrase_alone[sev] += 1
         if res["strong"]:
             strong_cards += 1
             for s in res["suspects"]:
@@ -121,6 +165,11 @@ def run_loo(corpus, sample: int, seed: int, n_examples: int):
     print(f"=== (a-1) 公式コーパス leave-one-out 誤検知率（{n}枚サンプル）===")
     print(f"強い疑義が付いた: {strong_cards}枚 ({strong_cards / n:.1%})   種別（件数）: {dict(by_kind)}")
     print(f"弱い疑義が付いた: {weak_cards}枚 ({weak_cards / n:.1%})")
+    print("種別×強弱ごとに疑義が付いたカード数（誤検知率）:")
+    for (kind, sev), cnt in sorted(cards_by_kind.items()):
+        print(f"  {kind}/{sev}: {cnt}枚 ({cnt / n:.2%})")
+    print(f"言い回しの照合を単体で実行（文字3連鎖の強と重なっても数える）: 強 {phrase_alone['strong']}枚 "
+          f"({phrase_alone['strong'] / n:.2%}) / 弱 {phrase_alone['weak']}枚 ({phrase_alone['weak'] / n:.2%})")
     print("強い疑義の誤検知例（公式の正しい文章）:")
     for name, kind, msg, ctx in examples:
         print(f"  - {name} [{kind}] {msg} / …{ctx}…")
@@ -143,7 +192,8 @@ def run_injection(corpus, d, per_card, idx, seed: int):
         p = rnd.choice(cand)
         alt = rnd.choice(tc.CONFUSABLES[t[p]])
         bad = t[:p] + alt + t[p + 1:]
-        d.ngrams.own, d.own_keys = per_card[i]
+        d.ngrams.own, d.own_keys, own_triples = per_card[i]
+        d.phrase.set_own(own_triples)
         res = tc.check_card({"name": c["name"], "effect_text": bad}, dictionary=d)
         tried += 1
         hits = [s for s in res["suspects"] if s["kind"] == "unknown_ngram" and s["start"] <= p < s["end"]]
@@ -156,6 +206,78 @@ def run_injection(corpus, d, per_card, idx, seed: int):
     print(f"強い疑義で位置を捉えた: {found}件 ({found / max(tried, 1):.1%})")
     print(f"元の字を候補（suggestion）に出せた: {suggested}件 ({suggested / max(tried, 1):.1%})")
     print("※ 置換は表にある似た字のみ。実際の誤字傾向を網羅した数字ではありません。")
+
+
+def run_phrase_injection(corpus, d, per_card, idx, seed: int):
+    """公式テキストの動詞を、別の動詞（公式に実在する動詞語幹）に差し替えた擬似「言い回しの誤り」の検出率。
+
+    差し替え後の文章は文字の並びとしては自然なことが多く、文字3連鎖の照合では見つからないものが出る。
+    その分を言い回しの照合が追加で拾えるかを見る。差し替え先は語幹の実在語なので「別の正しい動詞が入った」
+    ケース（言い回しの誤りの上限寄りの想定）。字の形の誤読（返→送 など）は (a-2) と (c-3) で見る。
+    """
+    rnd = random.Random(seed + 2)
+    vocab = sorted(d.phrase.verbs)
+    tried = ngram_strong = phrase_strong = phrase_any = either_strong = added = 0
+    for i in idx:
+        c = corpus[i]
+        t = next((x for x in c["texts"] if tc.is_effect_like(x)), None)
+        if not t:
+            continue
+        toks = tc.tokenize(t, c["name"])
+        s = tc.token_string(toks)
+        occ = tc.phrase_occurrences(s)
+        if not occ:
+            continue
+        noun, p, v, a, b = rnd.choice(occ)
+        alt = rnd.choice([x for x in vocab if x != v and d.phrase.verbs[x] >= 5])
+        start, end = toks[a][1], toks[b - 1][2]
+        bad = t[:start] + alt + t[end:]
+        d.ngrams.own, d.own_keys, own_triples = per_card[i]
+        d.phrase.set_own(own_triples)
+        res = tc.check_card({"name": c["name"], "effect_text": bad}, dictionary=d)
+        lo, hi = start, start + len(alt)
+        near = [x for x in res["suspects"] if x["start"] < hi + 1 and lo - 1 < x["end"]]
+        ng = any(x["kind"] == "unknown_ngram" and x["severity"] == "strong" for x in near)
+        # 重なり除去で④の強が落ちるので、④は単体でも数える
+        ph_only = tc._check_phrases(bad, d, c["name"])
+        ph_near = [x for x in ph_only if x["start"] < hi + 1 and lo - 1 < x["end"]]
+        ph_s = any(x["severity"] == "strong" for x in ph_near)
+        ph_a = bool(ph_near)
+        tried += 1
+        ngram_strong += ng
+        phrase_strong += ph_s
+        phrase_any += ph_a
+        either_strong += (ng or ph_s)
+        added += (ph_s and not ng)
+    print()
+    print(f"=== (c-2) 動詞を別の動詞に差し替えた擬似誤りの検出率（{tried}件）===")
+    print(f"文字3連鎖の強い疑義で捉えた:            {ngram_strong}件 ({ngram_strong / max(tried, 1):.1%})")
+    print(f"言い回しの強い疑義で捉えた（単体）:        {phrase_strong}件 ({phrase_strong / max(tried, 1):.1%})")
+    print(f"言い回しの強弱いずれかで捉えた（単体）:    {phrase_any}件 ({phrase_any / max(tried, 1):.1%})")
+    print(f"どちらかの強で捉えた:                    {either_strong}件 ({either_strong / max(tried, 1):.1%})")
+    print(f"言い回しの強が追加で拾った（3連鎖では未検出）: {added}件 ({added / max(tried, 1):.1%})")
+    print("※ 差し替え先は公式に実在する動詞語幹。実際の誤りの傾向を網羅した数字ではありません。")
+
+
+def run_case_529(rows):
+    """id 529（ケペルの金字塔）の「墓地へ送って発動」を「墓地へ返って発動」に戻した版が検出できるか。"""
+    d = tc.load_dict()
+    r = next((x for x in rows if x["id"] == 529), None)
+    if d is None or r is None:
+        print("(c-3) id 529 が取得できないので実行できません")
+        return
+    bad = dict(r, effect_text=r["effect_text"].replace("墓地へ送って発動", "墓地へ返って発動"))
+    print()
+    print("=== (c-3) id 529「墓地へ返って発動」に戻した版 ===")
+    for label, card in (("現行テキスト", r), ("戻した版", bad)):
+        res = tc.check_card(card, dictionary=d)
+        print(f"{label}: 強{res['strong']}件・弱{res['weak']}件")
+        for sus in res["suspects"]:
+            print(f"   [{sus['severity']}/{sus['kind']}] 「{sus['text']}」 候補={sus['suggestion']} / {sus['message']}")
+    only = tc._check_phrases(bad["effect_text"], d, bad["name"])
+    print("言い回しの照合だけを単体で実行した結果:")
+    for sus in only:
+        print(f"   [{sus['severity']}/{sus['kind']}] 「{sus['text']}」 候補={sus['suggestion']} / {sus['message']}")
 
 
 def fetch_unreleased(sb):
@@ -256,7 +378,10 @@ def main(argv=None) -> int:
     corpus = fetch_corpus(sb)
     d, per_card, idx = run_loo(corpus, sample, seed, n_ex)
     run_injection(corpus, d, per_card, idx, seed)
-    run_approved(fetch_unreleased(sb), n_ex)
+    run_phrase_injection(corpus, d, per_card, idx, seed)
+    rows = fetch_unreleased(sb)
+    run_case_529(rows)
+    run_approved(rows, n_ex)
     return 0
 
 

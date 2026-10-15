@@ -4,6 +4,7 @@ import copy
 import pytest
 
 import unreleased_auto_approve as aa
+import unreleased_text_check as tc
 from tests.fake_supabase import FakeSB
 from tools import auto_approve_report as report
 
@@ -41,7 +42,7 @@ def _ev(card, others=()):
 
 def test_all_conditions_met():
     v = _ev(_card())
-    assert v["eligible"] is True and v["reasons"] == [] and v["version"] == aa.VERSION == 2 and v["at"]
+    assert v["eligible"] is True and v["reasons"] == [] and v["version"] == aa.VERSION and v["at"]
 
 
 @pytest.mark.parametrize("conf", ["medium", "low", None])
@@ -192,7 +193,7 @@ def test_build_approval_snapshot():
     snap = aa.build_approval_snapshot(card, "bulk", "2026-10-15T00:00:00+00:00")
     assert snap == {"at": "2026-10-15T00:00:00+00:00", "via": "bulk", "edited_fields": ["atk"],
                     "crop_mode": "manual", "verdict_eligible": True,
-                    "text_check": {"version": 1, "status": "checked", "strong": 0, "weak": 0, "strong_by_kind": {}}}
+                    "text_check": {"version": tc.VERSION, "status": "checked", "strong": 0, "weak": 0, "strong_by_kind": {}}}
 
 
 def test_build_approval_snapshot_legacy_card():

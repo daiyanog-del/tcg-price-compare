@@ -21,7 +21,8 @@ from unreleased_quality import lacks_card_body
 logger = logging.getLogger(__name__)
 
 # 2: 効果テキストの誤字検証（text_suspect / text_unchecked）を条件に追加（2026-10-15）
-VERSION = 2
+# 3: 誤字検証に言い回しの照合（unknown_phrase の強い疑義も text_suspect になる）を追加（2026-10-15）
+VERSION = 3
 
 # ──────────────────────────────────────────────
 # 閾値（実データでの校正が必要な仮置き値）
@@ -55,7 +56,7 @@ REASON_LABELS = {
     "lacks_card_body": "カード本体（効果・数値）を読めていない",
     "same_name_exists": "同名のカードが他にも登録されている",
     "same_name_unchecked": "同名カードの有無を確認できなかった",
-    "text_suspect": "効果テキストに誤字の強い疑いがある",
+    "text_suspect": "効果テキストに誤字・言い回しの誤りの強い疑いがある",
     "text_unchecked": "効果テキストの誤字を検証できなかった（辞書なし・フレーバーテキスト等）",
     "empty_text": "効果テキストが空（通常モンスターのフレーバーテキストも含め、読めていない）",
     "evaluation_error": "判定中にエラーが起きた",
@@ -449,7 +450,7 @@ def build_approval_snapshot(card: dict, via: str, now_iso: str | None = None) ->
             "strong": now_check.get("strong", 0),
             "weak": now_check.get("weak", 0),
             # 種別ごとの強の数。承認時は他カード名の文脈が無く unknown_name が増えるので、
-            # 集計では unknown_ngram / format を主に見る
+            # 集計では unknown_ngram / unknown_phrase / format を主に見る
             "strong_by_kind": _count_by_kind(now_check, "strong"),
         },
     }

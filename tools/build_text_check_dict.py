@@ -8,6 +8,7 @@ build_text_check_dict.py — 効果テキスト誤字検証（unreleased_text_ch
   ngrams       公式の効果文に現れる3文字連鎖の集合（「」の中身・数字・丸数字は伏せ字化したもの）
   card_names   全カード名
   quote_words  公式テキストの「」内に出てくる語
+  phrase       「名詞＋助詞＋動詞」の組み合わせの出現数（カード単位）。言い回しの照合用（kind="unknown_phrase"）
   meta         作成日時・元の枚数・n など
 
 使い方（書き込みはローカルのファイルだけ。Supabase は読むだけ）:
@@ -90,8 +91,10 @@ def build_dict(corpus: list[dict]) -> dict:
     ngrams: set = set()
     names: set = set()
     quote_words: set = set()
+    phrase_sets: list = []
     used = 0
     for c in corpus:
+        card_triples: set = set()
         if c.get("name"):
             names.add(c["name"])
         for t in c["texts"]:
@@ -103,12 +106,16 @@ def build_dict(corpus: list[dict]) -> dict:
             if not tc.is_effect_like(t):
                 continue
             ngrams |= tc.ngram_set(tc.token_string(tc.tokenize(t, c.get("name", ""))))
+            card_triples |= tc.phrase_triples(t, c.get("name", ""))
             used += 1
+        phrase_sets.append(card_triples)
+    phrase = tc.PhraseTable.from_triple_sets(phrase_sets)
     # 伏せ字が絡む連鎖も辞書に入る（「」の外の文脈を照合するため）。改行は含まれない
     return {
         "ngrams": "\n".join(sorted(ngrams)),
         "card_names": sorted(names),
         "quote_words": sorted(quote_words),
+        "phrase": phrase.to_json(),
         "meta": {
             "version": tc.VERSION,
             "n": tc.NGRAM_N,
@@ -116,6 +123,8 @@ def build_dict(corpus: list[dict]) -> dict:
             "cards": len(corpus),
             "effect_texts_used": used,
             "ngram_count": len(ngrams),
+            "phrase_verbs": len(phrase.verbs),
+            "phrase_triples": len(phrase.triples),
         },
     }
 
@@ -149,7 +158,8 @@ def main(argv=None) -> int:
     size = write_dict(data, out)
     m = data["meta"]
     print(f"書き出し: {out} ({size:,} バイト)  カード{m['cards']}枚 / 効果文{m['effect_texts_used']}件 / "
-          f"3-gram {m['ngram_count']:,} / カード名 {len(data['card_names']):,} / 「」内語 {len(data['quote_words']):,}")
+          f"3-gram {m['ngram_count']:,} / カード名 {len(data['card_names']):,} / 「」内語 {len(data['quote_words']):,} / "
+          f"動詞 {m['phrase_verbs']:,} / 語の組み合わせ {m['phrase_triples']:,}")
     return 0
 
 

@@ -11,6 +11,11 @@
      既存カード名・既存の「」内語・他の未発売カード名に無い名前を疑い、近い既存語を候補にする。
   ③ 書式（kind="format"）
      連番の飛び、括弧の不対応、半角記号の混入、連続句読点、文末の欠け など。
+  ④ 語の組み合わせ（kind="unknown_phrase"）
+     「名詞＋助詞（を/へ/に/から/で/として）＋動詞」の組み合わせを公式コーパスと比べる。字の形の誤読ではなく
+     言い回しそのものが違う誤り（例: 「墓地へ返って」は正しくは「墓地へ送って」）は、文字3連鎖では見つからないため。
+     形態素解析器は使わず、正規表現（助詞の直後の漢字連続＋その直後のひらがなで動詞と判定）と、公式コーパスから
+     数えた出現数の表（辞書の phrase）だけで判定する。
 
 強弱（severity）:
   strong = 誤検知が少ないと実測で確認できた疑義。自動承認の条件に使う。
@@ -30,7 +35,8 @@ import threading
 
 logger = logging.getLogger(__name__)
 
-VERSION = 1
+# 2: 語の組み合わせ（unknown_phrase）を追加（2026-10-15）
+VERSION = 2
 
 # 辞書の既定位置（リポジトリ直下の data/）
 DICT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "text_check_dict.json.gz")
@@ -169,9 +175,11 @@ def name_key(s: str) -> str:
 class TextCheckDict:
     """読み込み済みの辞書。"""
 
-    def __init__(self, ngrams, names, quote_words, meta=None):
+    def __init__(self, ngrams, names, quote_words, meta=None, phrase=None):
         self.ngrams = set(ngrams)
         self.meta = meta or {}
+        # 語の組み合わせの出現数表（PhraseTable）。None のときは④の検査をしない
+        self.phrase = phrase
         # キー → 表示用の元の語。近い語の探索用に長さごとの索引も持つ
         self.words: dict = {}
         for w in list(names) + list(quote_words):
@@ -242,7 +250,11 @@ def load_dict(path: str | None = None):
             d = TextCheckDict(
                 data["ngrams"].split("\n") if isinstance(data["ngrams"], str) else data["ngrams"],
                 data.get("card_names", []), data.get("quote_words", []), data.get("meta"),
+                PhraseTable.from_json(data["phrase"]) if data.get("phrase") else None,
             )
+            if d.phrase is None:
+                logger.warning("[text_check] 辞書に語の組み合わせの表（phrase）が無い。④の検査をしない"
+                               "（tools/build_text_check_dict.py で作り直すこと）")
             if data.get("meta", {}).get("n") not in (None, NGRAM_N):
                 raise ValueError(f"辞書の n={data['meta'].get('n')} が NGRAM_N={NGRAM_N} と違う")
         except Exception as e:
@@ -479,6 +491,164 @@ def _check_format(text: str) -> list:
 
 
 # ──────────────────────────────────────────────
+# ④ 語の組み合わせ（名詞＋助詞＋動詞）
+# ──────────────────────────────────────────────
+
+# 助詞（長いものを先に）。「と」「が」「は」「の」などは動詞との組み合わせが安定しないので対象にしない
+_PHRASE_NOUN_RE = re.compile(r"([一-鿿々ァ-ヴー]+|」)(として|から|を|へ|に|で)")
+# 助詞の直後の「漢字の連続（動詞の語幹）＋ひらがな」。ひらがなが助詞なら名詞（例: 墓地へ）で、動詞ではない
+_PHRASE_VERB_RE = re.compile(r"([一-鿿]{1,6})([ぁ-ん])([ぁ-ん]?)")
+# 名詞の末尾を何字で切るか（長い複合語・カタカナ語は末尾だけで比べて表を小さく保つ）
+_PHRASE_NOUN_TAIL = 4
+
+# 強い疑義にする条件。いずれも2026-10-15の公式コーパス leave-one-out 実測（tools/text_check_calibrate.py）で
+# 誤検知率を確認して決めた。根拠の数字は docs/decisions.md（2026-10-15 言い回しの照合）
+# TODO: calibrate from data
+PHRASE_MIN_VERB_FOR_PAIR = 20     # 「動詞は頻出なのに、その助詞との組が0」を強にする動詞の出現数の下限
+PHRASE_WEAK_MIN_NP = 50           # 弱: 名詞＋助詞の出現数の下限
+PHRASE_WEAK_MIN_VERB = 20         # 弱: 動詞の出現数の下限
+PHRASE_WEAK_MIN_PAIR = 5          # 弱: 助詞＋動詞の出現数の下限
+
+
+def _is_verb_follow(h1: str, h2: str) -> bool:
+    """動詞語幹の直後のひらがな（h1, h2）が活用語尾なら True、助詞（名詞だった）なら False。"""
+    if h1 in "をへにとがはのもや":
+        return False
+    if h1 == "で" and h2 != "き":      # 「で」は助詞。「できる」「でき」は動詞（使用できる）
+        return False
+    if h1 == "か" and h2 == "ら":      # 「から」は助詞。「置かれ」などの「か」は活用
+        return False
+    return True
+
+
+def phrase_occurrences(s: str):
+    """トークン文字列 s から (名詞末尾, 助詞, 動詞語幹, 動詞の開始位置, 動詞の終了位置) を全て返す。位置は s の添字。"""
+    out = []
+    for m in _PHRASE_NOUN_RE.finditer(s):
+        v = _PHRASE_VERB_RE.match(s, m.end())
+        if not v or not _is_verb_follow(v.group(2), v.group(3)):
+            continue
+        noun = m.group(1)
+        if noun != "」":
+            noun = noun[-_PHRASE_NOUN_TAIL:]
+        out.append((noun, m.group(2), v.group(1), v.start(1), v.end(1)))
+    return out
+
+
+def phrase_triples(text: str, card_name: str = "") -> set:
+    """テキスト1つの (名詞末尾, 助詞, 動詞語幹) の集合（辞書づくり用）。"""
+    return {(n, p, v) for n, p, v, _, _ in phrase_occurrences(token_string(tokenize(text, card_name)))}
+
+
+class PhraseTable:
+    """公式コーパスでの語の組み合わせの出現数（カード単位。同じカードで何度出ても1）。
+
+    verbs: 動詞語幹 → 数 / pairs: (助詞, 動詞) → 数 / nps: (名詞末尾, 助詞) → 数 / triples: (名詞末尾, 助詞, 動詞) → 数
+    """
+
+    def __init__(self, verbs=None, pairs=None, nps=None, triples=None):
+        self.verbs = verbs or {}
+        self.pairs = pairs or {}
+        self.nps = nps or {}
+        self.triples = triples or {}
+        self._top: dict = {}
+        for (n, p, v), c in self.triples.items():
+            self._top.setdefault((n, p), []).append((c, v))
+        for k in self._top:
+            self._top[k].sort(key=lambda x: (-x[0], x[1]))
+
+    # 件数の取得（校正ツールの leave-one-out 版がここを差し替える）
+    def verb_count(self, v):
+        return self.verbs.get(v, 0)
+
+    def pair_count(self, p, v):
+        return self.pairs.get((p, v), 0)
+
+    def np_count(self, n, p):
+        return self.nps.get((n, p), 0)
+
+    def triple_count(self, n, p, v):
+        return self.triples.get((n, p, v), 0)
+
+    def top_verbs(self, n, p, limit=3):
+        """その名詞＋助詞の後に公式でよく使われる動詞（多い順）。"""
+        return [v for c, v in self._top.get((n, p), [])[:limit] if self.verb_count(v) > 0]
+
+    @classmethod
+    def from_triple_sets(cls, triple_sets):
+        """カードごとの (名詞, 助詞, 動詞) の集合のリストから数える。"""
+        verbs, pairs, nps, triples = {}, {}, {}, {}
+        for ts in triple_sets:
+            for t in ts:
+                triples[t] = triples.get(t, 0) + 1
+            for v in {v for _, _, v in ts}:
+                verbs[v] = verbs.get(v, 0) + 1
+            for pv in {(p, v) for _, p, v in ts}:
+                pairs[pv] = pairs.get(pv, 0) + 1
+            for np_ in {(n, p) for n, p, _ in ts}:
+                nps[np_] = nps.get(np_, 0) + 1
+        return cls(verbs, pairs, nps, triples)
+
+    def to_json(self) -> dict:
+        """辞書ファイル用。キーは区切り「|」で連結（名詞末尾・助詞・動詞語幹には「|」が現れない）。"""
+        return {
+            "verbs": dict(sorted(self.verbs.items())),
+            "pairs": {"|".join(k): c for k, c in sorted(self.pairs.items())},
+            "nps": {"|".join(k): c for k, c in sorted(self.nps.items())},
+            "triples": {"|".join(k): c for k, c in sorted(self.triples.items())},
+        }
+
+    @classmethod
+    def from_json(cls, data: dict):
+        def split(d):
+            return {tuple(k.split("|")): c for k, c in (d or {}).items()}
+        return cls(dict(data.get("verbs") or {}), split(data.get("pairs")), split(data.get("nps")),
+                   split(data.get("triples")))
+
+
+def _check_phrases(text: str, d: TextCheckDict, card_name: str) -> list:
+    """④: 公式に例のない動詞・助詞との組み合わせ・名詞との組み合わせを疑義にする。
+
+    強: 動詞語幹が公式の「助詞の後の動詞」に1度も現れない（例: 「墓地へ返って」の「返」）、または
+        動詞自体は頻出なのにその助詞と組み合わさった例が0（例: 「墓地を送って」の を＋送）。
+    弱: 名詞＋助詞も助詞＋動詞も動詞も十分に頻出なのに、3つの組み合わせだけが公式に無い（参考表示）。
+    """
+    ph = d.phrase
+    if ph is None:
+        return []
+    tokens = tokenize(text, card_name)
+    s = token_string(tokens)
+    out = []
+    for noun, p, v, a, b in phrase_occurrences(s):
+        vc = ph.verb_count(v)
+        pc = ph.pair_count(p, v)
+        sev = msg = None
+        if vc == 0:
+            sev = SEVERITY_STRONG
+            msg = f"「{v}」は公式の効果文で「{p}」の後に使われる動詞の例がありません（言い回しの誤りの可能性）"
+        elif pc == 0 and vc >= PHRASE_MIN_VERB_FOR_PAIR:
+            sev = SEVERITY_STRONG
+            msg = f"「{p}{v}」という組み合わせは公式の効果文に例がありません（言い回しの誤りの可能性）"
+        elif (ph.triple_count(noun, p, v) == 0 and ph.np_count(noun, p) >= PHRASE_WEAK_MIN_NP
+              and vc >= PHRASE_WEAK_MIN_VERB and pc >= PHRASE_WEAK_MIN_PAIR):
+            sev = SEVERITY_WEAK
+            msg = f"「{noun}{p}{v}…」という言い回しは公式の効果文にあまり例がありません（参考）"
+        if sev is None:
+            continue
+        suggestion = None
+        alts = ph.top_verbs(noun, p) if sev == SEVERITY_STRONG else []
+        if alts:
+            suggestion = alts[0]
+            msg += "。この後に公式でよく使われる動詞: " + "、".join(f"「{x}」" for x in alts)
+        start, end = tokens[a][1], tokens[b - 1][2]
+        ctx_a, ctx_b = max(0, a - 8), min(len(tokens), b + 4)
+        context_start = tokens[ctx_a][1]
+        context = text[context_start:tokens[ctx_b - 1][2]]
+        out.append(_suspect("unknown_phrase", sev, text, start, end, msg, suggestion, context, context_start))
+    return out
+
+
+# ──────────────────────────────────────────────
 # 公開API
 # ──────────────────────────────────────────────
 
@@ -499,6 +669,12 @@ def check_text(text: str, *, card_name: str = "", extra_names=(), dictionary=Non
     out = _check_format(text)
     if is_effect_like(text):
         out += _check_ngrams(text, d, card_name)
+        # 同じ場所を文字3連鎖の強い疑義が既に指しているときは、同じ誤りの二重計上を避けて④の強は出さない
+        covered = [(x["start"], x["end"]) for x in out if x["severity"] == SEVERITY_STRONG]
+        for x in _check_phrases(text, d, card_name):
+            if x["severity"] == SEVERITY_STRONG and any(x["start"] < e and s0 < x["end"] for s0, e in covered):
+                continue
+            out.append(x)
     out += _check_names(text, d, card_name, extra_names, text + name_text, recur_word)
     out.sort(key=lambda x: (x["start"], x["end"]))
     return out
