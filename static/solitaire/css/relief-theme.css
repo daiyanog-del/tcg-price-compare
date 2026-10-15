@@ -10,7 +10,9 @@
 .side-slots-container > .sol-side-area,
 .sol-hand-area,
 #imagePool,
-#imagePool2 {
+#imagePool2,
+.sol-card-info-panel,
+.sol-mobile-cip-panel {
   background-color: var(--relief-face);
   background-image: var(--relief-grain), linear-gradient(145deg, #ffffff05, #0000000c);
   background-repeat: repeat, no-repeat;
@@ -19,8 +21,9 @@
     0 2px 3px #080f1b33;
 }
 
-/* 手札・デッキは同素材の浅いトレイ。広い面に強い外枠を追加しない。 */
-.sol-hand-area, #imagePool, #imagePool2 {
+/* 手札・デッキ・カード詳細は同素材の浅いトレイ。文字は陰影を付けず読みやすく保つ。 */
+.sol-hand-area, #imagePool, #imagePool2,
+.sol-card-info-panel, .sol-mobile-cip-panel {
   background-color: var(--relief-tray);
   box-shadow: inset 0 2px 4px #070e1859, inset 0 -1px 1px #a9bdd51f;
 }
