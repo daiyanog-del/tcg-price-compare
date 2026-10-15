@@ -245,6 +245,11 @@ def reread_effect_texts(rows: list[dict], *, client, encoded_images: list[dict],
         elif not agreed and _can_trust_on_disagree(row, raw, model, a, b, text, has_unreadable, trust_on_disagree):
             # 食い違ったが、読み直し側に問題が見当たらないので不確かにしない（外れたら設定が自動で無効になる）
             raw["reread_trusted_on_disagree"] = True
+            # 採用するのは読み直し文。1回目の自己申告による effect_text の不確かは1回目の読み取りへの自信の話なので外す
+            # （name の自己申告があるときは条件側で信じない）。fields が空でも medium_uncertain_unknown にしない印を残す
+            if "effect_text" in uncertain:
+                raw["uncertain_fields"] = [f for f in uncertain if f != "effect_text"]
+                raw["uncertain_cleared_by_reread"] = True
             raw["reread_trust_diff_summary"] = raw["effect_text_reread"]["diff_summary"]
             logger.info("効果テキストが食い違ったが読み直し側を採用: %s %s", row.get("name"), raw["reread_trust_diff_summary"])
         elif not agreed:

@@ -53,6 +53,25 @@ def test_trusted_when_all_conditions_met(monkeypatch, clean_check):
     assert raw["effect_text_reread"]["agreed"] is False   # 一致扱いにはしない
 
 
+def test_trusted_clears_self_reported_uncertain(monkeypatch, clean_check):
+    import unreleased_auto_approve as aa2
+    raw = _run(monkeypatch, _disagree_row(unc=("effect_text", "atk")))
+    assert raw["uncertain_fields"] == ["atk"]
+    assert raw["reread_trusted_on_disagree"] is True and raw["uncertain_cleared_by_reread"] is True
+    # effect_text だけだった場合、fields が空でも medium_uncertain_unknown にならない
+    raw2 = _run(monkeypatch, _disagree_row(unc=("effect_text",)))
+    assert raw2["uncertain_fields"] == []
+    reasons, _ = aa2._confidence_reasons({"confidence": "medium"}, raw2)
+    assert reasons == []
+
+
+def test_not_trusted_keeps_self_reported_uncertain(monkeypatch, clean_check):
+    raw = _run(monkeypatch, _disagree_row(unc=("effect_text",)), trust=False)
+    assert raw["uncertain_fields"] == ["effect_text"] and "uncertain_cleared_by_reread" not in raw
+    raw = _run(monkeypatch, _disagree_row(unc=("effect_text", "name")))
+    assert "effect_text" in raw["uncertain_fields"] and "uncertain_cleared_by_reread" not in raw
+
+
 def test_not_trusted_when_setting_off(monkeypatch, clean_check):
     raw = _run(monkeypatch, _disagree_row(), trust=False)
     assert "effect_text" in raw["uncertain_fields"] and "reread_trusted_on_disagree" not in raw
