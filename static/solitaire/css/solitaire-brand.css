@@ -842,18 +842,18 @@ html, body {
 
 /* ── ゾーンアイコン（同系色ウォーターマーク） ── */
 
-/* ペンデュラムゾーン: 横長ひし形 */
+/* ペンデュラムゾーン: クリスタルの振り子（線画） */
 .custom-slot[data-slot="10"],
 .custom-slot[data-slot="14"] {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 40'%3E%3Cpolygon points='40,2 78,20 40,38 2,20' fill='%234a7cff' fill-opacity='0.3'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%234a7cff%22%20stroke-opacity%3D%220.65%22%20stroke-width%3D%222.6%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M50%208v16m0%2010L31%2060l19%2031%2019-31-19-26Zm0%200v57M31%2060l19-9%2019%209M19%2080q31%2030%2062%200%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2229%22%20r%3D%225%22%2F%3E%3Ccircle%20cx%3D%2219%22%20cy%3D%2280%22%20r%3D%221.5%22%2F%3E%3Ccircle%20cx%3D%2281%22%20cy%3D%2280%22%20r%3D%221.5%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E");
   background-repeat: no-repeat;
   background-position: center;
   background-size: 72% auto;
 }
 
-/* フィールド魔法ゾーン: 風車45°回転＋円 */
+/* フィールド魔法ゾーン: 四方の紋章を備えた魔法陣（線画） */
 .custom-slot[data-slot="3"] {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='46' fill='none' stroke='%234a7cff' stroke-opacity='0.3' stroke-width='3'/%3E%3Cg transform='rotate(45 50 50)'%3E%3Cpolygon points='50,50 15,35 8,8 35,15' fill='%234a7cff' fill-opacity='0.3'/%3E%3Cpolygon points='50,50 65,15 92,8 85,35' fill='%234a7cff' fill-opacity='0.3'/%3E%3Cpolygon points='50,50 85,65 92,92 65,85' fill='%234a7cff' fill-opacity='0.3'/%3E%3Cpolygon points='50,50 35,85 8,92 15,65' fill='%234a7cff' fill-opacity='0.3'/%3E%3C/g%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%234a7cff%22%20stroke-opacity%3D%220.65%22%20stroke-width%3D%222.6%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2225%22%2F%3E%3Cpath%20d%3D%22M40%2012a39%2039%200%200%200-28%2028m0%2020a39%2039%200%200%200%2028%2028m20%200a39%2039%200%200%200%2028-28m0-20a39%2039%200%200%200-28-28M50%205l6%2010-6%2010-6-10ZM95%2050l-10%206-10-6%2010-6ZM50%2095l-6-10%206-10%206%2010ZM5%2050l10-6%2010%206-10%206Z%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E");
   background-repeat: no-repeat;
   background-position: center;
   background-size: 65%;
@@ -898,9 +898,17 @@ html, body {
   overflow: hidden;
 }
 
-/* 墓地: 墓石アイコン（sol-side-area .side-slot より後に記述して優先） */
+/* 墓地: アーチ形の墓石と刻印（線画） */
 .sol-grave .side-slot {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='8' y='10' width='8' height='10' rx='1' fill='%234a7cff' fill-opacity='0.28'/%3E%3Crect x='9' y='4' width='6' height='8' rx='3' fill='%234a7cff' fill-opacity='0.28'/%3E%3Crect x='4' y='19' width='16' height='2' rx='1' fill='%234a7cff' fill-opacity='0.28'/%3E%3Cline x1='12' y1='12' x2='12' y2='16' stroke='%234a7cff' stroke-opacity='0.45' stroke-width='1.5' stroke-linecap='round'/%3E%3Cline x1='10' y1='14' x2='14' y2='14' stroke='%234a7cff' stroke-opacity='0.45' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%234a7cff%22%20stroke-opacity%3D%220.65%22%20stroke-width%3D%222.6%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M27%2079V39h5a18%2018%200%200%201%2036%200h5v40M34%2079V45h5v-6a11%2011%200%200%201%2022%200v6h5v34M24%2079h52v7H24Zm-5%207h62l4%207H15ZM50%2049q3%2011%2010%2014-7%203-10%2014-3-11-10-14%207-3%2010-14Z%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 55%;
+}
+
+/* 除外: 異次元へ消えるカード（線画）。自由スペースには適用しない。 */
+.sol-banish .side-slot {
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%234a7cff%22%20stroke-opacity%3D%220.65%22%20stroke-width%3D%222.6%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m35%2055%2010-39a3%203%200%200%201%204-2l25%207a3%203%200%200%201%202%204L65%2065M42%2055l9-33%2018%205-9%2033M31%2051c-28%203-23%2013%2019%2013s47-10%2028-13M41%2073l5%205-1%207-5-5ZM60%2076l5%205-1%207-5-5ZM51%2088l4%204-1%205-4-4Z%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E");
   background-repeat: no-repeat;
   background-position: center;
   background-size: 55%;

@@ -122,10 +122,11 @@
     margin-left: 0;
   }
 
-  /* ════════ A-1: 墓地の墓石アイコン（透かし）を縦向きスマホでは非表示にする ════════
+  /* ════════ A-1: 墓地・除外のアイコン（透かし）を縦向きスマホでは非表示にする ════════
      solitaire-brand.css の .sol-grave .side-slot の background-image を打ち消す。
      PC・横向きスマホは変更しない（brand.css 自体は触らない）。 */
-  .sol-grave .side-slot {
+  .sol-grave .side-slot,
+  .sol-banish .side-slot {
     background-image: none;
   }
 
