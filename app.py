@@ -227,6 +227,8 @@ def _ygores_image_url(card_name):
 # 注意: 注入するのはメモリ内索引の ygoresources のみ。カーナベルは外部ES検索で遅いため、
 # 従来どおり各エンドポイント側でフォールバックする（バッチAPIの並列化を維持）。
 _card_display.register_released_resolver(_ygores_image_url)
+# 索引の取得失敗（resolver は None を返す）と「見つからない」を区別するため、索引の有無を返す probe も登録する
+_card_display.register_released_index_probe(lambda: bool(_ygores_name_index))
 
 FAVICON_FILES = {
     'favicon.svg', 'favicon-32.png', 'favicon-16.png',

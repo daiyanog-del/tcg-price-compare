@@ -48,6 +48,31 @@ logger = logging.getLogger(__name__)
 _released_resolver: Callable[[str], str | None] | None = None
 
 
+# 発売済み名前索引が使える状態か（True/False）を返す関数。app.py が登録する（任意）。
+# 索引の取得失敗時、resolver は「見つからない」と同じ None を返してしまうため、両者を区別する用。
+_released_index_probe: Callable[[], bool] | None = None
+
+
+def register_released_index_probe(fn: Callable[[], bool]) -> None:
+    """発売済み名前索引が使える状態かを返す関数を登録する（app.py の起動時に一度だけ）。"""
+    global _released_index_probe
+    _released_index_probe = fn
+
+
+def released_index_available() -> bool:
+    """発売済み名前索引が使えるか。probe 未登録なら True（判定不能のため疑わない）。"""
+    return True if _released_index_probe is None else bool(_released_index_probe())
+
+
+def unreleased_data_available() -> bool:
+    """未発売カード辞書を（キャッシュまたは再取得で）読めるか。読めない＝「見つからない」と区別すべき状態。"""
+    try:
+        _get_unreleased(strict=True)
+        return True
+    except DisplayDataUnavailable:
+        return False
+
+
 def register_released_resolver(fn: Callable[[str], str | None]) -> None:
     """
     発売済みカード URL 解決関数を登録する。

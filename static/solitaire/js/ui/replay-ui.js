@@ -24,7 +24,9 @@ import {
   getExCardIds,
   getLogs,
   getSetupLogs,
+  registerCardName,
 } from '../services/replay-service.js';
+import { buildBoardFromLogs } from '../services/replay-board.js';
 import { setPcPlaybackMode } from '../components/drag-drop.js';
 import { initPcRecording, _getPcRecordingRange, updatePcShareRecordingSection, _resetPcRecording, _syncPcRecordingEndIdxAfterComment } from './pc-recording.js';
 import { clearEverything } from './deck-input-panel.js';
@@ -292,16 +294,26 @@ function _buildRangeLogs(allLogs, range) {
  * @returns {Promise<string>} 短縮URL
  */
 async function _saveAndGetShortURL(title, logsOverride) {
+  const logs = logsOverride ?? getLogs();
+  // 保険: 名前が辞書に無いカードは DOM の dataset.cardName で補う（復元・ロード等の経路で漏れても共有に名前を載せる）
+  document.querySelectorAll('.tier-item[id]').forEach(el => {
+    if (!getNames()[el.id] && el.dataset.cardName) registerCardName(el.id, el.dataset.cardName);
+  });
+  const images = getImages();
+  const names = getNames();
+  const exCardIds = getExCardIds();
+  // 共有する logs の最後の時点の盤面（リンク画像用）。求められなくても共有自体は続ける。
+  // PC・スマホの共有・X投稿はすべてこの関数を通る。
+  let board = null;
+  try {
+    board = buildBoardFromLogs(logs, { images, names, exCardIds });
+  } catch (e) {
+    console.warn('盤面の算出に失敗（board なしで共有）:', e);
+  }
   const res = await fetch('/api/solitaire/replay', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      title,
-      images: getImages(),
-      names: getNames(),
-      exCardIds: getExCardIds(),
-      logs: logsOverride ?? getLogs(),
-    }),
+    body: JSON.stringify({ title, images, names, exCardIds, logs, board }),
   });
   if (!res.ok) {
     // サーバーが返すJSONのerrorメッセージ（レート制限・型不正等の理由）を優先して使う。
