@@ -10,7 +10,7 @@
 {% endif %}
 <title>一人回しシミュレーター | TCGYM</title>
 <meta name="description" content="発売前のカードもOK。マイデッキや環境デッキからワンタップで読み込める遊戯王OCGの一人回しシミュレーター。ニューロン画像・テキストにも対応し、ドラッグ&ドロップで展開を再現。リプレイ保存・URL共有対応。">
-<meta property="og:title" content="{{ og_title ~ ' | TCGYM シミュレーター' if og_title else '一人回しシミュレーター | TCGYM' }}">
+<meta property="og:title" content="{{ og_title_full or (og_title ~ ' | TCGYM シミュレーター' if og_title else '一人回しシミュレーター | TCGYM') }}">
 <meta property="og:description" content="遊戯王の展開をシミュレート。リプレイ保存・共有対応。">
 <meta property="og:image" content="{{ public_base_url }}{{ og_image_path or static_url('og-solitaire.png') }}">
 <meta property="og:image:width" content="1200">
@@ -20,7 +20,7 @@
 <meta property="og:locale" content="ja_JP">
 <meta property="og:site_name" content="TCGYM">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="{{ og_title ~ ' | TCGYM シミュレーター' if og_title else '一人回しシミュレーター | TCGYM' }}">
+<meta name="twitter:title" content="{{ og_title_full or (og_title ~ ' | TCGYM シミュレーター' if og_title else '一人回しシミュレーター | TCGYM') }}">
 <meta name="twitter:image" content="{{ public_base_url }}{{ og_image_path or static_url('og-solitaire.png') }}">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="{{ public_base_url }}/solitaire">

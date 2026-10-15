@@ -435,15 +435,8 @@ def get_unreleased_release_map() -> dict[str, str]:
             for name, card in _get_unreleased().items()}
 
 
-def get_unreleased_proxy(name: str) -> dict | None:
-    """
-    表示種別（画像 / プロキシ）に関わらず、未発売カード（approved / linked かつ
-    hidden=false）のカード情報（proxy データ dict）を返す。無ければ None。
-
-    resolve_card_display は「画像で見せるか / プロキシ描画か」という表示判定のため、
-    公式画像があるカードは proxy データを返さない。一方カード情報パネルは画像の有無に
-    関係なくテキスト情報（効果・種別等）が必要なため、その用途で使う専用の入口。
-    """
+def _find_unreleased_card(name: str) -> dict | None:
+    """名前から未発売カードの行（approved / linked かつ hidden=false。id・_image_url を含む）を引く。無ければ None。"""
     if not name or not _is_enabled():
         return None
     cards = _get_unreleased()
@@ -458,6 +451,32 @@ def get_unreleased_proxy(name: str) -> dict | None:
                 if fuzzy_key(cand_name) == fk:
                     card = cand
                     break
+    return card
+
+
+def get_unreleased_record(name: str) -> dict | None:
+    """名前から公開中の未発売カードの行（id を含む）を返す。無ければ None（OG 画像・ページのメタ情報用）。"""
+    return _find_unreleased_card(name)
+
+
+def is_setting_enabled(key: str, default: bool = True) -> bool:
+    """app_settings の {"enabled": bool} 形式の設定を返す。行が無い・取得失敗は default。"""
+    val = _get_settings().get(key)
+    if isinstance(val, dict) and isinstance(val.get("enabled"), bool):
+        return val["enabled"]
+    return default
+
+
+def get_unreleased_proxy(name: str) -> dict | None:
+    """
+    表示種別（画像 / プロキシ）に関わらず、未発売カード（approved / linked かつ
+    hidden=false）のカード情報（proxy データ dict）を返す。無ければ None。
+
+    resolve_card_display は「画像で見せるか / プロキシ描画か」という表示判定のため、
+    公式画像があるカードは proxy データを返さない。一方カード情報パネルは画像の有無に
+    関係なくテキスト情報（効果・種別等）が必要なため、その用途で使う専用の入口。
+    """
+    card = _find_unreleased_card(name)
     if card is None:
         return None
     return _build_proxy_data(card)
