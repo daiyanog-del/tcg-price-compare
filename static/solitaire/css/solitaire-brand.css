@@ -836,7 +836,7 @@ html, body {
 .center-row {
   display: flex;
   align-items: stretch;   /* EXデッキを手札エリアと同じ高さに引き伸ばす */
-  gap: var(--gap);
+  gap: 4px; /* 上下のパネル間隔（margin-top）と揃える */
   margin: 4px 0 0;
   padding: 0;
   justify-content: flex-start;
