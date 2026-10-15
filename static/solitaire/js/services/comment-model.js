@@ -1,12 +1,13 @@
 /**
  * comment-model.js
- * コメント（カードの吹き出し・盤面のメモ）の純粋ロジック。DOM・他モジュールに依存しない
+ * コメント（カードの吹き出し・盤面のメモ・カットイン）の純粋ロジック。DOM・他モジュールに依存しない
  * （node の単体テストから直接読み込める。tests/js/comment_model_check.mjs）。
  *
- * 記録の形（どちらも actionType:'comment'。古いリプレイと互換）:
+ * 記録の形（すべて actionType:'comment'。古いリプレイと互換）:
  *   吹き出し: { actionType:'comment', kind:'card',  cardId, text }
  *   盤面メモ: { actionType:'comment', kind:'board', text }
- *   kind が無い古いコメントは盤面メモとして扱う。
+ *   カットイン: { actionType:'comment', kind:'cutin', text }（本文は20字まで。その手に「進んだとき」だけ一瞬出る）
+ *   kind が無い古いコメント・未知の kind は盤面メモとして扱う。
  */
 
 /** コメント本文の文字数の上限（入力欄の制限・記録時・表示時のすべてで同じ値を使う） */
@@ -17,19 +18,68 @@ export const COMMENT_MAX_LEN = 60;
  * @param {unknown} text
  * @returns {string}
  */
-export function clampCommentText(text) {
+export function clampCommentText(text, max = COMMENT_MAX_LEN) {
   const s = typeof text === 'string' ? text.trim() : '';
   const chars = Array.from(s);
-  return chars.length > COMMENT_MAX_LEN ? chars.slice(0, COMMENT_MAX_LEN).join('') : s;
+  return chars.length > max ? chars.slice(0, max).join('') : s;
+}
+
+/** カットインの本文の文字数の上限（入力欄・記録時・表示時のすべてで同じ値を使う） */
+export const CUTIN_MAX_LEN = 20;
+
+/** カットインを画面に出している時間（ms）。css/comments.css の cutIn アニメーションの長さと同じ値にする */
+export const CUTIN_DURATION_MS = 1900;
+
+/** カットインの言葉の札（押すとその場で入る） */
+export const CUTIN_PRESETS = ['ターン終了', '相手ターン', '自分ターン', 'バトルフェイズ', 'メインフェイズ2', 'エンドフェイズ'];
+
+/** カットインの本文を整える（前後の空白を除き、20字で切る） */
+export function clampCutinText(text) {
+  return clampCommentText(text, CUTIN_MAX_LEN);
 }
 
 /**
- * コメントの種類。kind が 'card' で cardId があるときだけ吹き出し。それ以外（kind 無しの古い記録を含む）は盤面メモ。
+ * コメントの種類。kind が 'card' で cardId があるときだけ吹き出し、kind が 'cutin' ならカットイン。
+ * それ以外（kind 無しの古い記録・未知の kind を含む）は盤面メモ。
  * @param {Object} ev
- * @returns {'card'|'board'}
+ * @returns {'card'|'board'|'cutin'}
  */
 export function commentKind(ev) {
+  if (ev && ev.kind === 'cutin') return 'cutin';
   return ev && ev.kind === 'card' && typeof ev.cardId === 'string' && ev.cardId ? 'card' : 'board';
+}
+
+/** コメントの手の本文を、種類ごとの上限で整えて返す（カットインは20字、ほかは60字） */
+export function commentText(ev) {
+  return commentKind(ev) === 'cutin' ? clampCutinText(ev?.text) : clampCommentText(ev?.text);
+}
+
+/**
+ * 「その手に進んだとき」に出すカットインの本文を返す（出さないときは null）。
+ * 出すのは、前進で（手を打った直後・付けた直後・次へ・自動再生）その手に来たときだけ。
+ * 巻き戻し・スライダーで飛んだとき・取消・セッション復元・読み込み直後は arrivedForward を false にして呼ぶ。
+ * @param {Object|undefined} ev  カーソルが来た手
+ * @param {boolean} arrivedForward  前進でその手に来たか
+ * @returns {string|null}
+ */
+export function cutinToShow(ev, arrivedForward) {
+  if (!arrivedForward || !ev || ev.actionType !== 'comment' || commentKind(ev) !== 'cutin') return null;
+  return commentText(ev) || null;
+}
+
+/**
+ * 自動再生で、いまの手のあとに待つ時間（ms）。
+ * カットインの手は、動きが終わるまで（CUTIN_DURATION_MS）待つ。それ以外のコメント（吹き出し・メモ）は
+ * 読めるよう commentFactor 倍、ふつうの手は baseMs。
+ * @param {Object|undefined} ev
+ * @param {number} baseMs  ふつうの手の待ち時間（再生速度を反映済み）
+ * @param {number} commentFactor  吹き出し・メモの倍率
+ * @returns {number}
+ */
+export function playPauseMs(ev, baseMs, commentFactor) {
+  if (ev?.actionType !== 'comment') return baseMs;
+  if (commentKind(ev) === 'cutin') return Math.max(baseMs, CUTIN_DURATION_MS);
+  return baseMs * commentFactor;
 }
 
 /**
@@ -53,8 +103,9 @@ export function computeCommentView(setupLogs, logs, cursor) {
     if (!ev) continue;
     switch (ev.actionType) {
       case 'comment': {
-        const text = clampCommentText(ev.text);
+        const text = commentText(ev);
         if (!text) break;
+        if (commentKind(ev) === 'cutin') break; // カットインは盤面に残らない（盤面メモを置き換えない）
         if (commentKind(ev) === 'card') {
           bubbles.delete(ev.cardId); // 同じカードの新しい吹き出しは末尾へ（並びを記録順にする）
           bubbles.set(ev.cardId, text);
@@ -84,14 +135,14 @@ export function computeCommentView(setupLogs, logs, cursor) {
 /**
  * 通常ログの中のコメント一覧（右パネルの一覧用）。
  * @param {Array} logs
- * @returns {Array<{index:number, kind:'card'|'board', cardId:string|null, text:string}>}
+ * @returns {Array<{index:number, kind:'card'|'board'|'cutin', cardId:string|null, text:string}>}
  */
 export function listComments(logs) {
   const out = [];
   (logs || []).forEach((ev, index) => {
     if (ev?.actionType !== 'comment') return;
     const kind = commentKind(ev);
-    out.push({ index, kind, cardId: kind === 'card' ? ev.cardId : null, text: clampCommentText(ev.text) });
+    out.push({ index, kind, cardId: kind === 'card' ? ev.cardId : null, text: commentText(ev) });
   });
   return out;
 }
@@ -159,12 +210,12 @@ export function shiftRangeAfterInsert(state, insertedIdx) {
 /**
  * 一覧の行が指している内容と、記録の手が同じコメントかどうか（削除の取り違え防止）。
  * @param {Object|undefined} ev  記録の手
- * @param {{kind:'card'|'board', cardId:string|null, text:string}|undefined} expected 一覧の行の内容
+ * @param {{kind:'card'|'board'|'cutin', cardId:string|null, text:string}|undefined} expected 一覧の行の内容
  */
 export function isSameComment(ev, expected) {
   if (!ev || ev.actionType !== 'comment') return false;
   if (!expected) return true;
   return commentKind(ev) === expected.kind
     && (commentKind(ev) === 'card' ? ev.cardId : null) === (expected.cardId ?? null)
-    && clampCommentText(ev.text) === expected.text;
+    && commentText(ev) === expected.text;
 }

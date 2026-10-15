@@ -49,8 +49,8 @@ import {
   subscribeReplay,
   addComment,
 } from '../services/replay-service.js';
-import { shiftRangeAfterInsert, shiftRangeAfterRemove, COMMENT_MAX_LEN } from '../services/comment-model.js';
-import { setCardCommentOpener } from './comment-ui.js';
+import { shiftRangeAfterInsert, shiftRangeAfterRemove, COMMENT_MAX_LEN, CUTIN_MAX_LEN, CUTIN_PRESETS } from '../services/comment-model.js';
+import { setCardCommentOpener, setMemoFullOpener } from './comment-ui.js';
 import { getCurrentBubbleText } from '../services/comment-view.js';
 import { savedReplaysGet } from '../services/saved-replays.js';
 import { sharedReplaysGet } from '../services/shared-replays.js';
@@ -115,6 +115,7 @@ function resetMobileUI() {
   setHidden('solMobileDeckSheet', true);
   setHidden('solMobileShareSheet', true);
   setHidden('solMobileCommentSheet', true);
+  setHidden('solMobileMemoSheet', true);
   setHidden('solMobileEmptyCta', true);
   setDeckBtnLoading(false); // 読込中表示のまま portrait を外れた場合の保険
 }
@@ -222,6 +223,7 @@ const MENU_ACTIONS = {
   playback: () => { enterPlaybackMode('menu'); }, // タスクB-1: 旧「リプレイ操作」オーバーレイを廃止し再生モードへ
   share:    () => { openShareSheet('share'); }, // ⋯メニューの「共有」
   boardmemo:() => { openCommentSheet({ kind: 'board' }); }, // 整理④: 盤面にメモ
+  cutin:    () => { openCommentSheet({ kind: 'cutin' }); },  // カットイン: 言葉の札＋自由入力のシート
   help:     () => { openHelpSheet(); },
   feedback: () => { document.getElementById('feedbackOpenBtn')?.click(); },
 };
@@ -1121,26 +1123,37 @@ function initRecording() {
   }
 }
 
-// ══════════════════ コメント（カードの吹き出し・盤面のメモ。整理④） ══════════════════
+// ══════════════════ コメント（カードの吹き出し・盤面のメモ・カットイン。整理④） ══════════════════
 // 入力は下から出る小さなシート（#solMobileCommentSheet）。記録への追加は replay-service の addComment
 // （自動再生の停止・末尾への移動・本文の切り詰めを含む）に任せ、範囲の終わりの追従は
 // 'commentAdded' の購読（initRecording）が行う。コメント一覧・削除はスマホには作らない
 // （消したいときは「1手戻す」）。
 
-/** @type {{kind:'card', cardId:string, name:string}|{kind:'board'}|null} */
+/** @type {{kind:'card', cardId:string, name:string}|{kind:'board'}|{kind:'cutin'}|null} */
 let _commentTarget = null;
 
 function openCommentSheet(target) {
   _commentTarget = target;
   const isCard = target.kind === 'card';
+  const isCutin = target.kind === 'cutin';
   const titleEl = document.getElementById('solMobileCommentSheetTitle');
-  if (titleEl) titleEl.textContent = isCard ? '吹き出しを付ける' : '盤面にメモ';
+  if (titleEl) titleEl.textContent = isCard ? '吹き出しを付ける' : (isCutin ? 'カットイン' : '盤面にメモ');
   const targetEl = document.getElementById('solMobileCommentTarget');
   if (targetEl) {
-    targetEl.textContent = isCard ? `対象: ${target.name || '名称不明'}` : '盤面の上端に表示されます。次のメモが付くまで残ります';
+    targetEl.textContent = isCard
+      ? `対象: ${target.name || '名称不明'}`
+      : (isCutin ? 'その手に進んだとき、盤面に一瞬出ます（残りません）' : '盤面の空いた角に付箋で表示されます。次のメモが付くまで残ります');
   }
+  const chips = document.getElementById('solMobileCutinChips');
+  if (chips) chips.hidden = !isCutin; // 言葉の札はカットインのときだけ
   const input = document.getElementById('solMobileCommentInput');
-  if (input) input.value = '';
+  if (input) {
+    input.value = '';
+    input.maxLength = isCutin ? CUTIN_MAX_LEN : COMMENT_MAX_LEN;
+    input.placeholder = isCutin ? '自由に書く（20字まで）' : 'コメント';
+  }
+  const addBtn = document.getElementById('solMobileCommentAddBtn');
+  if (addBtn) addBtn.textContent = isCutin ? '出す' : '付ける';
   setHidden('solMobileCommentSheet', false);
   input?.focus(); // タップの中で同期的に呼ぶ（iOS はこの場でしかキーボードを出せない）
 }
@@ -1164,10 +1177,18 @@ function _submitMobileComment() {
   if (!input || !target) return;
   const ok = target.kind === 'card'
     ? addComment({ kind: 'card', cardId: target.cardId, text: input.value })
-    : addComment({ kind: 'board', text: input.value });
+    : addComment({ kind: target.kind === 'cutin' ? 'cutin' : 'board', text: input.value });
   if (!ok) return; // 空欄は何もしない（シートは開いたまま）
   closeCommentSheet();
-  showToast(target.kind === 'card' ? '吹き出しを付けました' : 'メモを付けました');
+  // カットインは付けた直後にその場で出る（動きが見えるので通知は出さない）
+  if (target.kind !== 'cutin') showToast(target.kind === 'card' ? '吹き出しを付けました' : 'メモを付けました');
+}
+
+/** カットインの言葉の札（押すとその場で入る） */
+function _addCutinFromChip(label) {
+  if (_commentTarget?.kind !== 'cutin') return;
+  if (!addComment({ kind: 'cutin', text: label })) return;
+  closeCommentSheet();
 }
 
 function initCommentSheet() {
@@ -1177,11 +1198,31 @@ function initCommentSheet() {
     el.addEventListener('click', closeCommentSheet);
   });
   document.getElementById('solMobileCommentAddBtn')?.addEventListener('click', _submitMobileComment);
+  const chips = document.getElementById('solMobileCutinChips');
+  if (chips) {
+    for (const label of CUTIN_PRESETS) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'sol-cutin-chip';
+      chip.textContent = label;
+      chip.addEventListener('click', () => _addCutinFromChip(label));
+      chips.appendChild(chip);
+    }
+  }
   input?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { // 日本語入力の変換確定の Enter では付けない
       e.preventDefault();
       _submitMobileComment();
     }
+  });
+  // 盤面メモの付箋を押したら、全文を下から出るシートに出す（textContent。本文は他人が作れる共有リプレイ由来のため）
+  document.querySelectorAll('[data-sol-memo-sheet-close]').forEach((el) => {
+    el.addEventListener('click', () => setHidden('solMobileMemoSheet', true));
+  });
+  setMemoFullOpener((text) => {
+    const p = document.getElementById('solMobileMemoFullText');
+    if (p) p.textContent = text;
+    setHidden('solMobileMemoSheet', false);
   });
   // 縦向きスマホでは、右クリック/長押しメニューの「吹き出しを付ける」もこのシートで入力させる
   setCardCommentOpener((wrapper) => {
