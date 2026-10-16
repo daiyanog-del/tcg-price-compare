@@ -1,0 +1,21 @@
+/**
+ * 一人回しシミュレータ - メインスタイルシート
+ * ベース: Solo Mode (Fugarta, MIT) を改変
+ *
+ * 2026-10-16 から solitaire.html はこのファイルを参照せず、下の各ファイルを <link> で直接読む
+ * （@import の直列読込をなくすため）。デプロイ直後に古い HTML をキャッシュから開いた人が
+ * 404 で崩れないよう1リリース分だけ残している。次のリリースで削除する（TASKS.md 参照）。
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap');
+
+@import './variables.css';
+@import './layout.css';
+@import './components.css';
+@import './controls.css';
+@import './modal.css';
+@import './solitaire-brand.css';
+@import './proxy-card.css';
+@import './responsive.css'; /* 最後にインポートして上書きを確実に適用 */
+@import './mobile.css'; /* スマホ縦向き専用UI（下部バー等）。responsive.css より後段で上書きを確実にする */
+@import './comments.css'; /* コメント（カードの吹き出し・盤面メモ）。配色は site-theme.css の変数に合わせる */

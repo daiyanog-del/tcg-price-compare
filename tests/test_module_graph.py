@@ -46,6 +46,11 @@ def test_solitaire_page_preloads_every_statically_imported_module():
         expected = [app_module.static_url(p) for p in ['solitaire/js/main.js', *deps]]
     assert preloads == expected
     assert all('?v=' in url for url in preloads)
+    # 先読みURLは import map の写像先と一致しないと二重取得になる
+    import json
+    raw = html[html.index('type="importmap">') + len('type="importmap">'):]
+    importmap_urls = set(json.loads(raw[:raw.index('</script>')])['imports'].values())
+    assert set(preloads) <= importmap_urls
     importmap = html.index('type="importmap"')
     assert importmap < html.index('rel="modulepreload"')
     # 旧 main.css の @import 直列は無くなり、個別 <link> が順に並ぶ

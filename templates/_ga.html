@@ -1,14 +1,22 @@
 {% if ga_measurement_id %}
 <!-- Google Analytics 4（環境変数 GA_MEASUREMENT_ID 設定時のみ出力）
-     gtag.js 本体は load 後の空き時間に読む。読込直後にメインスレッドを約0.8秒占有するため
-     （スマホ相当 CPU4倍で実測・2026-10-16）、初期表示・初期化と重ねない。
+     gtag.js 本体は HTML 解析が終わった後の空き時間に読む。読込直後にメインスレッドを約0.8秒占有するため
+     （スマホ相当 CPU4倍で実測・2026-10-16）、解析・初期化と重ねない。
+     load（画像まで読み終わる）を起点にしないのは、画像の多いトップでは低速回線で15秒以上かかり、
+     その前に離脱した訪問のページビューが送られなくなるため。
      gtag() はここで定義するので、読込前の呼び出し（config・_ga のイベント）は dataLayer に溜まり、
-     gtag.js が読まれた時点でまとめて送られる。 -->
+     gtag.js が読まれた時点でまとめて送られる。
+     ga_preload（既定は真）: 取得だけは preload で修正前と同じく早めに始める（後から差し込むスクリプトは
+     優先度が低く、画像の多いトップでは低速回線で画像の後ろに並び15秒以上遅れたため）。preload は取得のみで実行はしない。
+     シミュレーターは偽で呼ぶ（先読みが ES module と回線を取り合い、初期化が約0.6秒遅れたため）。 -->
+{% if ga_preload is not defined or ga_preload %}
+<link rel="preload" as="script" href="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}">
+{% endif %}
 <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','{{ ga_measurement_id }}');
 (function(){
   function inject(){var s=document.createElement('script');s.async=true;s.src='https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}';document.head.appendChild(s);}
   // 空き時間が来なくても3秒で読む（離脱前にページビューを送れるように）。Safari は requestIdleCallback が無いので setTimeout
   function later(){if(window.requestIdleCallback)requestIdleCallback(inject,{timeout:3000});else setTimeout(inject,1000);}
-  if(document.readyState==='complete')later();else addEventListener('load',later,{once:true});
+  if(document.readyState!=='loading')later();else document.addEventListener('DOMContentLoaded',later,{once:true});
 })();</script>
 {% endif %}

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-{% include '_ga.html' %}
+{% with ga_preload=false %}{% include '_ga.html' %}{% endwith %}
 <title>一人回しシミュレーター | TCGYM</title>
 <meta name="description" content="発売前のカードもOK。マイデッキや環境デッキからワンタップで読み込める遊戯王OCGの一人回しシミュレーター。ニューロン画像・テキストにも対応し、ドラッグ&ドロップで展開を再現。リプレイ保存・URL共有対応。">
 <meta property="og:title" content="{{ og_title_full or (og_title ~ ' | TCGYM シミュレーター' if og_title else '一人回しシミュレーター | TCGYM') }}">

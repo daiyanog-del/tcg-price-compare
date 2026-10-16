@@ -125,7 +125,8 @@ def _is_enabled() -> bool:
 _CACHE_TTL = 30.0  # 秒
 # TTL 切れでもこの秒数以内なら古い値を返して裏で取り直す。超えたら従来どおり同期で取り直す
 # （DB 障害時に古い値を際限なく出し続けず、strict 呼び出しへ取得失敗を伝えるための上限）。
-# 方針値: app の _cache_warmer が 5 分ごとに取り直すので、通常はこの上限に届かない。
+# データから導く値ではなく方針値（障害を何分まで古い値で覆うか）。app の _cache_warmer が
+# 5 分ごとに取り直すので、通常はこの上限に届かない。
 _CACHE_STALE_MAX = 600.0  # 秒
 
 _cache_lock = threading.Lock()
@@ -302,7 +303,13 @@ def _start_background_refresh(name: str, refresh: Callable[[], None]) -> None:
             with _cache_lock:
                 _refreshing.discard(name)
 
-    threading.Thread(target=run, daemon=True, name=f"card_display_refresh_{name}").start()
+    try:
+        threading.Thread(target=run, daemon=True, name=f"card_display_refresh_{name}").start()
+    except RuntimeError:
+        # スレッドを作れないときは名前を外して古い値を返す（残すと以後の裏更新が永久に止まる）
+        logger.exception(f"[card_display] {name} の裏更新スレッドを起動できません")
+        _refreshing.discard(name)
+        _refresh_failed_at[name] = time.monotonic()
 
 
 def _refresh_settings() -> None:
@@ -338,10 +345,17 @@ def refresh_caches() -> None:
     with _cache_lock:
         has_settings = _settings_cache is not None
         has_unreleased = _unreleased_cache is not None
-    if has_settings:
-        _refresh_settings()
-    if has_unreleased:
-        _refresh_unreleased()
+    errors = []
+    # 片方の失敗でもう片方の取り直しを飛ばさない
+    for has, refresh in ((has_settings, _refresh_settings), (has_unreleased, _refresh_unreleased)):
+        if not has:
+            continue
+        try:
+            refresh()
+        except Exception as e:
+            errors.append(e)
+    if errors:
+        raise errors[0]
 
 
 def _get_settings(*, strict: bool = False) -> dict:

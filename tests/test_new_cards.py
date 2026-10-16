@@ -335,3 +335,31 @@ def test_refresh_caches_refetches_only_existing_caches(database):
     count = len(database.calls)
     assert len(display.get_new_cards()["cards"]) == 2
     assert len(database.calls) == count
+
+
+def test_refresh_caches_keeps_going_when_settings_fail(database):
+    database.rows["unreleased_cards"] = [card(1)]
+    display.get_new_cards()
+    database.rows["unreleased_cards"].append(card(2))
+    database.fail.add("app_settings")
+    with pytest.raises(display.DisplayDataUnavailable):
+        display.refresh_caches()
+    database.fail.clear()
+    # settings が失敗しても unreleased は取り直されている
+    assert len(display._get_unreleased()) == 2
+
+
+def test_thread_start_failure_does_not_block_future_refresh(database, fresh_refresh_state, monkeypatch):
+    database.rows["unreleased_cards"] = [card(1)]
+    display.get_new_cards()
+    _age_caches(display._CACHE_TTL + 1)
+
+    class BrokenThread:
+        def __init__(self, *a, **k):
+            pass
+
+        def start(self):
+            raise RuntimeError("can't start new thread")
+    monkeypatch.setattr(display.threading, "Thread", BrokenThread)
+    assert display.get_new_cards()["cards"]  # 古い値は返る
+    assert display._refreshing == set()
