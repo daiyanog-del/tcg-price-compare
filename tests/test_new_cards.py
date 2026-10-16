@@ -363,3 +363,21 @@ def test_thread_start_failure_does_not_block_future_refresh(database, fresh_refr
     monkeypatch.setattr(display.threading, "Thread", BrokenThread)
     assert display.get_new_cards()["cards"]  # 古い値は返る
     assert display._refreshing == set()
+    assert "unreleased" in display._refresh_failed_at
+    # 失敗の待ち（_CACHE_TTL 秒）が過ぎれば、次のリクエストでまた裏更新が起動する
+    started = []
+
+    class HeldThread:
+        def __init__(self, *a, name=None, **k):
+            self.name = name
+
+        def start(self):
+            started.append(self.name)
+    monkeypatch.setattr(display.threading, "Thread", HeldThread)
+    display.get_new_cards()
+    assert started == []  # 待ちの間は起動しない
+    with display._cache_lock:
+        for name in list(display._refresh_failed_at):
+            display._refresh_failed_at[name] -= display._CACHE_TTL + 1
+    display.get_new_cards()
+    assert "card_display_refresh_unreleased" in started

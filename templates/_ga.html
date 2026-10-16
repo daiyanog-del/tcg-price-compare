@@ -7,10 +7,11 @@
      gtag() はここで定義するので、読込前の呼び出し（config・_ga のイベント）は dataLayer に溜まり、
      gtag.js が読まれた時点でまとめて送られる。
      ga_preload（既定は真）: 取得だけは preload で修正前と同じく早めに始める（後から差し込むスクリプトは
-     優先度が低く、画像の多いトップでは低速回線で画像の後ろに並び15秒以上遅れたため）。preload は取得のみで実行はしない。
+     見つかるのが遅く、画像の多いトップでは低速回線で画像の後ろに並び15秒以上遅れたため）。preload は取得のみで実行はしない。
+     fetchpriority="low" は修正前の async スクリプトと同じ優先度（画像と取り合わせない。LCP は修正前と同等を実測）。
      シミュレーターは偽で呼ぶ（先読みが ES module と回線を取り合い、初期化が約0.6秒遅れたため）。 -->
 {% if ga_preload is not defined or ga_preload %}
-<link rel="preload" as="script" href="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}">
+<link rel="preload" as="script" fetchpriority="low" href="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}">
 {% endif %}
 <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','{{ ga_measurement_id }}');
 (function(){
