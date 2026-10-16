@@ -84,10 +84,10 @@ const lastSource = () => sources[sources.length - 1];
   assert.equal(get('mercariRef').open, false, '検索中は閉じた見出しだけで出る');
   assert(!body().includes('class="scard fin"') && body().includes('メルカリで見る') && !body().includes('確認中'), 'D空: タイルなし・リンクのみ: ' + body());
 
-  // 3) shop_done で店舗結果が溜まるたびに描き直す（再取得なし・開いたまま）
+  // 3) shop_done では描き直さない（結果は done で一度だけ描く。2026-10-16 表の跳ね対策）・再取得もしない
   send(sources[0], { type: 'shop_done', shop: 'A', status: 'ok', count: 1, results: [row('ウルトラ')] });
   assert.equal(mercariCalls().length, 1, '再取得しない');
-  assert(body().split('class="scard fin"').length - 1 === 1 && body().includes('mref-ghead">ウルトラ<') && !body().includes('ノーマル') && !body().includes('確認中'), body());
+  assert(!body().includes('class="scard fin"'), 'done 前はタイルを出さない: ' + body());
   assert.equal(get('mercariRef').open, false, '検索中は閉じたまま');
   send(sources[0], { type: 'shop_done', shop: 'B', status: 'ok', count: 0, results: [] });
   assert(!body().includes('>ノーマル<'));
@@ -121,8 +121,8 @@ const lastSource = () => sources[sources.length - 1];
   send(lastSource(), { type: 'shop_done', shop: 'A', status: 'ok', count: 1, results: [row('ウルトラ')] });
   only.resolve(okResp({ 'ウルトラ': { count: 1, min: 111, median: null, min_is_floor: false, set: null } }));
   await tick(); await tick();
-  assert(body().includes('ウルトラ'), body());
   send(lastSource(), { type: 'done', total: 1, corrected_name: '灰流うらら', results: [row('ウルトラ')] });
+  assert(body().includes('ウルトラ'), body());
   assert.equal(mercariCalls().length, 3, 'done.corrected_name でも取り直さない');
   // 次の検索を始めると、前の検索の応答は世代管理で捨てられる
   get('q').value = 'next';

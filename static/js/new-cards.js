@@ -106,6 +106,7 @@ window.NewCards = (() => {
     const grid=get('newCardsGrid');
     const list=isListPage();
     grid.replaceChildren();
+    grid.removeAttribute('aria-busy');
     grid.classList.toggle('is-grouped',list);
     get('newCardsHeading').textContent=list?'未発売カード一覧':'新着の未発売カード';
     if(list){
@@ -127,7 +128,8 @@ window.NewCards = (() => {
     if(!section)return Promise.resolve();
     section.hidden=false;
     get('newCardsRetry').hidden=true;
-    if(!cards.length)get('newCardsStatus').textContent='新着カードを読み込み中…';
+    // HTMLの仮枠（または前回の表示）が残っている間は文言を足さない（足すと枠の下が押し下げられる）
+    if(!get('newCardsGrid').children.length)get('newCardsStatus').textContent='新着カードを読み込み中…';
     const list=isListPage();
     pending=fetch(list?'/api/new-cards?all=1':'/api/new-cards').then(async response=>{
       if(!response.ok)throw new Error('新着カード取得失敗');
@@ -136,7 +138,7 @@ window.NewCards = (() => {
       cards=data.cards;truncated=!!data.has_more;shown=PAGE_SIZE;render();
     }).catch(()=>{
       // 失敗前の画像を最新情報のように残さない。
-      cards=[];get('newCardsGrid').replaceChildren();get('newCardsMore').hidden=true;
+      cards=[];get('newCardsGrid').replaceChildren();get('newCardsGrid').removeAttribute('aria-busy');get('newCardsMore').hidden=true;
       get('newCardsAll').hidden=true;
       get('newCardsStatus').textContent='新着カードを取得できませんでした。';
       get('newCardsRetry').hidden=false;
@@ -144,7 +146,8 @@ window.NewCards = (() => {
     return pending;
   }
   document.addEventListener('DOMContentLoaded',()=>{
-    get('newCardsMore')?.addEventListener('click',()=>{shown+=PAGE_SIZE;render();});
+    // 読込前（仮枠の間）に押されても空の一覧で描き直さない
+    get('newCardsMore')?.addEventListener('click',()=>{if(!cards.length)return;shown+=PAGE_SIZE;render();});
     get('newCardsRetry')?.addEventListener('click',load);
     if(!document.getElementById('empty')?.classList.contains('hidden'))load();
   });

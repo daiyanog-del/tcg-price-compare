@@ -18,7 +18,7 @@ function element(tag='div'){
     append(...children){children.forEach(child=>this.appendChild(child));},
     replaceChildren(...children){this.children.forEach(child=>child.parent=null);this.children=[];this.append(...children);},
     remove(){this.parent.children=this.parent.children.filter(child=>child!==this);this.parent=null;},
-    setAttribute(key,value){this.attributes[key]=value;},
+    setAttribute(key,value){this.attributes[key]=value;},removeAttribute(key){delete this.attributes[key];},
     addEventListener(event,handler){this.listeners[event]=handler;},
   };
 }
