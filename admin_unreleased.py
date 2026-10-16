@@ -438,12 +438,13 @@ def admin_update_unreleased(card_id: int):
         if not resp.data:
             return jsonify({"error": "対象レコードが見つかりません"}), 404
         _card_display.invalidate_cache()
-        if "effect_text" in updates:
+        if "effect_text" in updates or "pendulum_effect" in updates:
             try:
                 import reread_trust
                 saved = resp.data[0]
                 reread_trust.on_effect_text_edited(
-                    _supabase, card_id, saved.get("name") or "", saved.get("extraction_raw"), saved.get("effect_text"))
+                    _supabase, card_id, saved.get("name") or "", saved.get("extraction_raw"), saved.get("effect_text"),
+                    saved.get("pendulum_effect"))
             except Exception as e:  # 保存は成立させる
                 logger.warning(f"[admin] 読み直し採用の自動復帰処理に失敗 id={card_id}: {e}")
         # 編集後の値で誤字チェックと自動承認判定を取り直す（失敗しても保存は成立）

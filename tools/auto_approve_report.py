@@ -158,10 +158,9 @@ def _tally_trusted(trust: dict, card: dict, raw: dict, snap: dict, reported_ids:
         return
     item = {"id": card.get("id"), "name": card.get("name")}
     trust["trusted"].append(item)
-    reread = raw.get("effect_text_reread") if isinstance(raw.get("effect_text_reread"), dict) else {}
-    original = reread.get("text")
-    from effect_text_reread import norm
-    if isinstance(original, str) and norm(card.get("effect_text") or "") != norm(original):
+    from effect_text_reread import current_combined, reread_combined
+    original = reread_combined(raw)  # ペンデュラムは2欄をつないだ形
+    if original is not None and current_combined(raw, card.get("effect_text") or "", card.get("pendulum_effect") or "") != original:
         trust["fixed_later"].append(item)
     if card.get("id") in reported_ids:
         trust["reported"].append(item)
