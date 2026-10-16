@@ -223,8 +223,8 @@ def build_tweet_text(name: str, product_name: str = "", release_date=None, sourc
     文面:
         「{カード名}」を入れた展開、シミュレーターで回せます。
         {商品名}（{M月D日}発売）        ← 商品名・発売日のどちらかが無ければ残る方だけ、両方無ければ行ごと省略
+        {TCGYMリンク}                   ← 必ず最初の URL（2026-10-16 の実投稿で、X は先頭の URL のカードを出すと確認）
         情報元：{情報元URL}             ← http(s) の URL だけ。manual・空なら行ごと省略
-        {TCGYMリンク}                   ← 必ず最後の URL（X のカード表示は最後の URL を使うとされる。初回投稿で要確認）
         #遊戯王 #OCG
     リンク先はシミュレーター直行（/solitaire?newcards=1&focus=カード名）。
     focus は & # ? / なども含めて必ずエンコードする（quote の safe=""）。
@@ -242,9 +242,10 @@ def build_tweet_text(name: str, product_name: str = "", release_date=None, sourc
             lines.append(p)
         elif date_text:
             lines.append(f"{date_text}発売")
+        lines.append(url)
         if source:
             lines.append(f"情報元：{source}")
-        lines += [url, "#遊戯王 #OCG"]
+        lines.append("#遊戯王 #OCG")
         return "\n".join(lines)
 
     product = (product_name or "").strip()
