@@ -1739,7 +1739,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  _restoreLocation('pageload');
+  // フラッシュ防止用の一時スタイル（#mydeck では本文も隠している）を外す。以降のタブ切替を正常に動かすため、
+  // 復元の途中で例外が出ても必ず外す
+  try{
+    _restoreLocation('pageload');
+  }finally{
+    document.getElementById('fouc-prevent')?.remove();
+  }
 
   // 管理者のブラウザ（localStorage に admin_key がある）だけフッターに「管理」リンクを出す。
   // キー名は static/admin/admin.js の STORAGE_KEY と同じ。
@@ -1751,9 +1757,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }catch(e){ /* 参照不可なら非表示のまま */ }
 
-  // フラッシュ防止用の一時スタイルを削除（以降のタブ切替を正常に動かすため）
-  const _fp=document.getElementById('fouc-prevent');
-  if(_fp) _fp.remove();
 });
 
 // SEO: 検索完了時にURLをpushStateで書き換え（ブラウザ履歴対応）

@@ -730,7 +730,8 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
     '#mode-'+h+'{display:block!important}'+
     // マイデッキは保存済みデッキ一覧などを端末内の保存から初期化時に組み立てる。組み立て前の空の状態を見せると
     // 一覧が入った瞬間に全体が動くため、タブと同じく初期化完了（この style の削除）まで見せない（場所は取る）
-    (h==='mydeck'?'#mode-mydeck{visibility:hidden}':'')+
+    // JS が読めなかった場合も10秒後には CSS だけで表示に戻す（シミュレーターの盤面と同じ保険。短いと低速端末で先に効く）
+    (h==='mydeck'?'#mode-mydeck{visibility:hidden;animation:fouc-reveal 0s 10s forwards}@keyframes fouc-reveal{to{visibility:visible}}':'')+
     '.mode-tabs{visibility:hidden!important}';
   document.head.appendChild(s);
 })();

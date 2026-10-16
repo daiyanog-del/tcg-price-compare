@@ -106,6 +106,7 @@ body {
 
 /* 初回の盤面フィット（main.js の fitFieldToViewport）までは盤面を見せない。既定の大きさで描いてから
    縮めると盤面全体が跳ねるため（2026-10-16 表示のズレ対策）。場所は取るので周囲は動かない。
-   main.js が読めなかった場合でも3秒後には CSS だけで表示に戻す */
-.sol-field-area.sol-fitting { visibility: hidden; animation: sol-fit-reveal 0s 3s forwards; }
+   main.js が読めなかった場合でも10秒後には CSS だけで表示に戻す（低速端末では初期化に約4秒かかるため、
+   短いと保険が先に効いて既定の大きさで見えてから縮む。2026-10-16 CPU4倍遅延で実測） */
+.sol-field-area.sol-fitting { visibility: hidden; animation: sol-fit-reveal 0s 10s forwards; }
 @keyframes sol-fit-reveal { to { visibility: visible; } }
