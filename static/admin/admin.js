@@ -697,7 +697,8 @@ function _renderRereadPanel(editForm, card) {
   }
   panel.hidden = false;
   if (view.status === 'skipped') {
-    note.textContent = 'ペンデュラムは効果欄の拡大読み直しが未対応です。画像を見て効果テキストを確認してください。';
+    // 2026-10-16 以前に取り込んだペンデュラム（読み直し未対応だった時期）
+    note.textContent = 'ペンデュラムは効果欄の拡大読み直しが未対応だった時期の取込です。画像を見て効果テキストを確認してください。';
     return;
   }
   if (view.status === 'error') {
@@ -706,6 +707,7 @@ function _renderRereadPanel(editForm, card) {
   }
   note.textContent = '1回目と拡大して読み直した結果が食い違いました。効果テキスト欄は読み直し結果です。'
     + (view.unreadable ? '読めない文字は「〓」になっています。' : '')
+    + (view.pendulum ? 'ペンデュラムは「ペンデュラム効果‖モンスター効果」の順に並べています。' : '')
     + '（取込時の結果です。編集後は反映されません。比較のため空白・改行を除き全角半角をそろえた表示）';
   const ops = Array.isArray(view.ops) ? view.ops : [];
   const addRow = (label, index) => {

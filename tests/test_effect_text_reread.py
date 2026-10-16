@@ -35,13 +35,17 @@ def _row(card_type="効果モンスター", effect="①：このカードを特�
     return {"name": "テスト", "card_type": card_type, "effect_text": effect, "extraction_raw": raw}
 
 
-def _fake_read(monkeypatch, text="", unreadable=False, error=None, calls=None):
+def _fake_read(monkeypatch, text="", unreadable=False, error=None, calls=None, ptext=None, scale=4):
     def fake(client, *, model, system, content, schema, max_tokens=16000, effort=None):
         if calls is not None:
-            calls.append({"model": model, "effort": effort, "content": content, "system": system})
+            calls.append({"model": model, "effort": effort, "content": content, "system": system, "schema": schema})
         if error:
             raise error
-        return {"effect_text": text, "unreadable": unreadable}, "{}", {"input_tokens": 10, "output_tokens": 5}
+        data = {"effect_text": text, "unreadable": unreadable}
+        if ptext is not None:
+            data["pendulum_effect"] = ptext
+            data["pendulum_scale"] = scale
+        return data, "{}", {"input_tokens": 10, "output_tokens": 5}
     monkeypatch.setattr(quality, "structured_request", fake)
 
 
@@ -79,7 +83,18 @@ def test_crop_pads_inward_shifted_suggestion_but_not_image_boundary():
     assert padded[1] > base[1] - 12 and padded[0] > base[0] - 12  # 枠が小さくても、広げた分で元の大きさ近くになる
 
 
-@pytest.mark.parametrize("card_type", ["ペンデュラム効果モンスター", "", "不明"])
+def test_pendulum_crop_ratio_and_kind_override():
+    # 0.035〜0.965 / 0.615〜0.915 を3倍。種別名に「ペンデュラム」が無くても kind で指定できる
+    for data in (card_crop.make_effect_crop(_png(407, 593), "ペンデュラム効果モンスター"),
+                 card_crop.make_effect_crop(_png(407, 593), "エクシーズモンスター", kind="pendulum")):
+        w, h = Image.open(io.BytesIO(data)).size
+        assert abs(w - 3 * round(407 * 0.93)) <= 6
+        assert abs(h - 3 * round(593 * 0.30)) <= 6
+    with pytest.raises(ValueError):
+        card_crop.make_effect_crop(_png(), "効果モンスター", kind="unknown")
+
+
+@pytest.mark.parametrize("card_type", ["", "不明"])
 def test_crop_rejects_unsupported_type(card_type):
     with pytest.raises(ValueError):
         card_crop.make_effect_crop(_png(), card_type)
@@ -163,16 +178,99 @@ def test_empty_reread_is_failure_not_adopted(monkeypatch):
     assert "effect_text" in row["extraction_raw"]["uncertain_fields"]
 
 
-def test_pendulum_is_not_read_and_both_fields_uncertain(monkeypatch):
+def _pend_row(card_type="ペンデュラム効果モンスター", effect="①：このカードを特殊召喚できる。", pend="①：1ターンに1度、発動できる。"):
+    row = _row(card_type=card_type, effect=effect)
+    row["pendulum_effect"] = pend
+    row["pendulum_scale"] = 4
+    row["extraction_raw"]["model"] = rr.REREAD_MODEL
+    return row
+
+
+def test_pendulum_reads_both_fields_and_agreement_clears_uncertain(monkeypatch):
+    monkeypatch.setattr(rr, "CLEAR_UNCERTAIN_ON_AGREE", True)
     calls = []
-    _fake_read(monkeypatch, text="x", calls=calls)
-    row = _row(card_type="ペンデュラム効果モンスター")
+    _fake_read(monkeypatch, text="①:このカードを特殊召喚できる。", ptext="①:1ターンに1度、発動できる。", calls=calls)
+    row = _pend_row()
+    row["extraction_raw"]["uncertain_fields"] = ["effect_text", "pendulum_effect", "atk"]
     rr.reread_effect_texts([row], client=object(), encoded_images=_images())
     raw = row["extraction_raw"]
-    assert calls == []
-    assert raw["effect_text_reread"]["skipped"] == "pendulum_not_evaluated"
-    assert set(raw["uncertain_fields"]) >= {"effect_text", "pendulum_effect"}
-    assert raw["effect_text_first_pass"] == row["effect_text"]
+    assert calls[0]["system"] == rr.PENDULUM_REREAD_SYSTEM and "pendulum_effect" in calls[0]["schema"]["properties"]
+    assert raw["effect_text_reread"]["agreed"] is True and raw["effect_text_reread"]["pendulum"] is True
+    assert row["pendulum_effect"] == "①：1ターンに1度、発動できる。"  # 全角化して採用
+    assert raw["pendulum_effect_first_pass"] == "①：1ターンに1度、発動できる。"
+    assert raw["uncertain_fields"] == ["atk"] and raw["uncertain_cleared_by_reread"] is True
+
+
+def test_pendulum_prompt_replacements_took_effect():
+    # 通常用ルール7の文面が変わると replace が空振りするので、置換後の文面を固定する
+    assert "上の欄" in rr.PENDULUM_REREAD_SYSTEM and "pendulum_scale" in rr.PENDULUM_REREAD_SYSTEM
+    assert "モンスター効果欄（effect_text）だけにする" not in rr.PENDULUM_REREAD_SYSTEM
+    assert "どちらかの欄の文字" in rr.PENDULUM_REREAD_SYSTEM
+
+
+@pytest.mark.parametrize("scale", [7, None])
+def test_pendulum_scale_mismatch_or_unreadable_marks_scale_uncertain(monkeypatch, scale):
+    monkeypatch.setattr(rr, "CLEAR_UNCERTAIN_ON_AGREE", True)
+    _fake_read(monkeypatch, text="①：このカードを特殊召喚できる。", ptext="①：1ターンに1度、発動できる。", scale=scale)
+    row = _pend_row()
+    rr.reread_effect_texts([row], client=object(), encoded_images=_images())
+    raw = row["extraction_raw"]
+    assert raw["effect_text_reread"]["agreed"] is True  # 効果文は一致
+    assert raw["effect_text_reread"]["scale_agreed"] is False
+    assert row["pendulum_scale"] == 4  # 1回目を残す
+    assert "pendulum_scale" in raw["uncertain_fields"]
+
+
+def test_trust_rejects_sentence_moved_across_boxes():
+    # 区切りの位置ずれは差の字数に表れないので信じない（P効果の文がモンスター効果へ移った）
+    a = rr.combined_text("①：このカードを特殊召喚できる。", "①：発動できる。攻撃力は500アップする。", True)
+    b = rr.combined_text("攻撃力は500アップする。①：このカードを特殊召喚できる。", "①：発動できる。", True)
+    assert rr.diff_within_trust_limits(a, b) is False
+
+
+def test_pendulum_disagreement_in_pendulum_box_marks_both_fields(monkeypatch):
+    _fake_read(monkeypatch, text="①：このカードを特殊召喚できる。", ptext="①：まったく別の文章をここに書いている。")
+    row = _pend_row()
+    rr.reread_effect_texts([row], client=object(), encoded_images=_images(), trust_on_disagree=False)
+    raw = row["extraction_raw"]
+    assert raw["effect_text_reread"]["agreed"] is False
+    assert raw["effect_text_reread"]["diff_summary"]
+    assert {"effect_text", "pendulum_effect"} <= set(raw["uncertain_fields"])
+    view = rr.admin_view(raw)
+    assert view["pendulum"] is True and rr.PENDULUM_SEPARATOR in view["first"]
+
+
+def test_pendulum_empty_box_on_reread_is_failure(monkeypatch):
+    _fake_read(monkeypatch, text="①：このカードを特殊召喚できる。", ptext="")
+    row = _pend_row()
+    rr.reread_effect_texts([row], client=object(), encoded_images=_images())
+    raw = row["extraction_raw"]
+    assert "error" in raw["effect_text_reread"]
+    assert row["pendulum_effect"] == "①：1ターンに1度、発動できる。"  # 1回目を残す
+    assert {"effect_text", "pendulum_effect"} <= set(raw["uncertain_fields"])
+
+
+def test_pendulum_small_diff_trusted_with_combined_text(monkeypatch):
+    _fake_read(monkeypatch, text="①：このカードを特殊召喚できる。", ptext="①：1ターンに1度、発動する。")
+    row = _pend_row(pend="①：1ターンに1度、発動できる。")
+    row["extraction_raw"]["uncertain_fields"] = ["pendulum_effect"]
+    rr.reread_effect_texts([row], client=object(), encoded_images=_images(), trust_on_disagree=True)
+    raw = row["extraction_raw"]
+    assert raw.get("reread_trusted_on_disagree") is True
+    assert "pendulum_effect" not in raw["uncertain_fields"]
+
+
+def test_pendulum_trust_checks_reread_pendulum_text_for_typos(monkeypatch):
+    seen = {}
+    import unreleased_auto_approve as aa_mod
+    monkeypatch.setattr(aa_mod, "compute_text_check",
+                        lambda r: seen.update(r) or {"status": "checked", "strong": True})
+    _fake_read(monkeypatch, text="①：このカードを特殊召喚できる。", ptext="①：1ターンに1度、発動する。")
+    row = _pend_row(pend="①：1ターンに1度、発動できる。")
+    rr.reread_effect_texts([row], client=object(), encoded_images=_images(), trust_on_disagree=True)
+    assert seen["pendulum_effect"] == "①：1ターンに1度、発動する。"
+    assert row["extraction_raw"].get("reread_trusted_on_disagree") is not True
+    assert "pendulum_effect" in row["extraction_raw"]["uncertain_fields"]
 
 
 def test_missing_image_is_uncertain(monkeypatch):
@@ -242,16 +340,17 @@ def test_evaluate_does_not_flag_unknown_when_cleared_by_reread():
 
 
 def test_pendulum_detected_by_scale_or_effect_too(monkeypatch):
+    # 1回目の種別から「ペンデュラム」が抜けても（評価で 5/28）、スケールかペンデュラム効果があればペンデュラム扱い
     calls = []
-    _fake_read(monkeypatch, text="x", calls=calls)
-    a = _row(card_type="効果モンスター")
+    _fake_read(monkeypatch, text="x", ptext="y", calls=calls)
+    a = _row(card_type="エクシーズモンスター")
     a["pendulum_scale"] = 5
-    b = _row(card_type="効果モンスター")
+    b = _row(card_type="儀式モンスター")
     b["pendulum_effect"] = "①：…"
     rr.reread_effect_texts([a, b], client=object(), encoded_images=_images())
-    assert calls == []
-    assert a["extraction_raw"]["effect_text_reread"]["skipped"] == "pendulum_not_evaluated"
-    assert "pendulum_effect" in b["extraction_raw"]["uncertain_fields"]
+    assert len(calls) == 2 and all(c["system"] == rr.PENDULUM_REREAD_SYSTEM for c in calls)
+    assert a["extraction_raw"]["effect_text_reread"]["pendulum"] is True
+    assert b["extraction_raw"]["effect_text_reread"]["pendulum"] is True
 
 
 def test_uncertain_fields_none_does_not_crash(monkeypatch):

@@ -45,6 +45,19 @@ def test_all_conditions_met():
     assert v["eligible"] is True and v["reasons"] == [] and v["version"] == aa.VERSION and v["at"]
 
 
+@pytest.mark.parametrize("card_type,scale,pend,mismatch", [
+    ("効果モンスター", 4, "", True),               # 種別から「ペンデュラム」が抜けた（エクシーズ等で起きる）
+    ("エクシーズモンスター", None, "①：…", True),   # P効果だけ読めている
+    ("ペンデュラム効果モンスター", None, "", True),  # 種別にだけペンデュラム
+    ("ペンデュラム効果モンスター", 4, "", False),
+    ("効果モンスター", None, "", False),
+])
+def test_pendulum_type_mismatch_is_ineligible(card_type, scale, pend, mismatch):
+    v = _ev(_card(card_type=card_type, pendulum_scale=scale, pendulum_effect=pend))
+    assert ("pendulum_type_mismatch" in v["reasons"]) is mismatch
+    assert aa.reason_label("pendulum_type_mismatch") != "pendulum_type_mismatch"
+
+
 def test_low_confidence_is_ineligible():
     assert _ev(_card(confidence="low"))["reasons"] == ["confidence_low"]
 

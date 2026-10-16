@@ -24,7 +24,7 @@ FLAG = "reread_trusted_on_disagree"   # extraction_raw に残す印
 CACHE_TTL_SEC = 30
 
 # 利用者の報告のうち、読み直し採用の根拠が外れた可能性を示す欄
-REPORT_FIELDS = ("effect_text", "other")
+REPORT_FIELDS = ("effect_text", "pendulum_effect", "other")
 
 _lock = threading.Lock()
 _cache: dict = {"at": 0.0, "value": None}
@@ -130,17 +130,17 @@ def disable(sb, card_name: str, reason: str) -> bool:
     return True
 
 
-def on_effect_text_edited(sb, card_id, card_name: str, saved_raw, new_text) -> bool:
-    """管理画面の編集の保存後。読み直し採用のカードで、新しい effect_text が信じた読み直し文と（norm() 後に）違えば無効にする。
+def on_effect_text_edited(sb, card_id, card_name: str, saved_raw, new_text, new_pendulum_effect=None) -> bool:
+    """管理画面の編集の保存後。読み直し採用のカードで、新しい効果テキストが信じた読み直し文と（norm() 後に）違えば無効にする。
 
-    saved_raw は保存後の行の extraction_raw（信じた読み直し文は effect_text_reread.text）。
+    saved_raw は保存後の行の extraction_raw（信じた読み直し文は effect_text_reread.text。ペンデュラムは pendulum_text も）。
+    ペンデュラムはペンデュラム効果の編集も比べる（new_pendulum_effect は保存後の行の値）。
     """
     if not is_trusted_card(saved_raw):
         return False
-    from effect_text_reread import norm
-    info = saved_raw.get("effect_text_reread")
-    trusted_text = info.get("text") if isinstance(info, dict) else None
-    if norm(trusted_text or "") == norm(new_text or ""):
+    from effect_text_reread import current_combined, reread_combined
+    trusted = reread_combined(saved_raw)
+    if (trusted or "") == current_combined(saved_raw, new_text or "", new_pendulum_effect or ""):
         return False
     return disable(sb, card_name, f"読み直し採用で通したカード（id={card_id}）の効果テキストが、信じた読み直し文から変わる編集をされました")
 
