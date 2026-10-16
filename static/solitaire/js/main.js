@@ -373,6 +373,14 @@ async function initializeApp() {
   // カード追加時の画像登録
   initCardImageRegistration();
 
+  // 盤面の大きさを先に画面へ合わせてから見せる（それまでは .sol-field-area.sol-fitting で非表示）。
+  // 下の引き継ぎ・新着読込・復元は通信を待つため、その前に行う（待っている間も盤面と読込中表示が見える）。
+  // 盤面の大きさは画面サイズで決まりデッキの枚数には依存しない。読込後に下で再フィットする
+  fitFieldToViewport();
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    document.querySelector('.sol-field-area')?.classList.remove('sol-fitting');
+  }));
+
   // ページ遷移後の盤面復元（card:// センチネル対応のため await が必要）
   // URL に共有リプレイ（?replay=ID / #replay=）または端末保存（?saved=ID）が付いているときは前回の盤面を復元しない。
   // 復元が共有データを上書きし、受け手側で再生モードが開かない競合があった（2026-09-04 実測）。

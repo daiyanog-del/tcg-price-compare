@@ -150,7 +150,8 @@ function _ga(name,params){ if(typeof gtag==='function') gtag('event',name,params
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;background-image:radial-gradient(ellipse at 50% 0%,rgba(74,124,255,.06) 0%,transparent 60%)}
 a{color:var(--accent-l);text-decoration:none}a:hover{text-decoration:underline}
-.wrap{max-width:1140px;margin:0 auto;padding:0 20px;position:relative;z-index:1}
+.wrap{max-width:1140px;margin:0 auto;padding:0 20px;position:relative;z-index:1;min-height:100vh}
+/* ↑ min-height: 中身（ランキング・デッキ・Tier表など）が後から届くたびにフッターが画面内で上下しないよう、最初から画面外に置く（2026-10-16 表示のズレ対策） */
 
 /* ── Header ── */
 header{padding:24px 0 8px;text-align:center;position:relative}
@@ -719,12 +720,18 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   if(h==='mydeck-import')h='mydeck';
   // S-1: 買取価格タブは「価格」タブへ統合されたため、#buybackは常時表示のmode-searchのまま
   // （非表示にする対象から除外。除外しないとmode-buyback要素が無くコンテンツが消える）
+  // /featured（新商品の特集）はハッシュなしで packs を開くので同じく先に切り替える（価格比較を一瞬描いて跳ねないように）
+  if(!h&&location.pathname==='/featured')h='packs';
   if(!h||['mydeck','meta','packs','wishlist'].indexOf(h)<0)return;
   var s=document.createElement('style');
   s.id='fouc-prevent';
   s.textContent=
     '#mode-search{display:none!important}'+
     '#mode-'+h+'{display:block!important}'+
+    // マイデッキは保存済みデッキ一覧などを端末内の保存から初期化時に組み立てる。組み立て前の空の状態を見せると
+    // 一覧が入った瞬間に全体が動くため、タブと同じく初期化完了（この style の削除）まで見せない（場所は取る）
+    // JS が読めなかった場合も10秒後には CSS だけで表示に戻す（シミュレーターの盤面と同じ保険。短いと低速端末で先に効く）
+    (h==='mydeck'?'#mode-mydeck{visibility:hidden;animation:fouc-reveal 0s 10s forwards}@keyframes fouc-reveal{to{visibility:visible}}':'')+
     '.mode-tabs{visibility:hidden!important}';
   document.head.appendChild(s);
 })();
