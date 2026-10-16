@@ -221,10 +221,10 @@ def build_tweet_text(name: str, product_name: str = "", release_date=None, sourc
 
     画像は添付せず、リンクのプレビュー（OG 画像）で誘導する（docs/decisions.md 2026-10-16）。
     文面:
-        「{カード名}」を入れた展開、シミュレーターで回せます。
+        新カード追加！「{カード名}」
         {商品名}（{M月D日}発売）        ← 商品名・発売日のどちらかが無ければ残る方だけ、両方無ければ行ごと省略
         {TCGYMリンク}                   ← 必ず最初の URL（2026-10-16 の実投稿で、X は先頭の URL のカードを出すと確認）
-        情報元：{情報元URL}             ← http(s) の URL だけ。manual・空なら行ごと省略
+        {情報元URL}                     ← 公式の投稿/記事。http(s) の URL だけ。manual・空なら行ごと省略（「情報元：」の文字は付けない。2026-10-16 ユーザー判断）
         #遊戯王 #OCG
     リンク先はシミュレーター直行（/solitaire?newcards=1&focus=カード名）。
     focus は & # ? / なども含めて必ずエンコードする（quote の safe=""）。
@@ -235,7 +235,7 @@ def build_tweet_text(name: str, product_name: str = "", release_date=None, sourc
     source = _usable_source_url(source_url)
 
     def render(n: str, p: str) -> str:
-        lines = [f"「{n}」を入れた展開、シミュレーターで回せます。"]
+        lines = [f"新カード追加！「{n}」"]
         if p and date_text:
             lines.append(f"{p}（{date_text}発売）")
         elif p:
@@ -244,7 +244,7 @@ def build_tweet_text(name: str, product_name: str = "", release_date=None, sourc
             lines.append(f"{date_text}発売")
         lines.append(url)
         if source:
-            lines.append(f"情報元：{source}")
+            lines.append(source)
         lines.append("#遊戯王 #OCG")
         return "\n".join(lines)
 

@@ -58,10 +58,10 @@ def test_text_full():
     t = xp.build_tweet_text("テストカード", "テストパック", "2026-11-01", "https://x.com/YuGiOh_OCG_INFO/status/123",
                             site_url="https://example.test")
     assert t.split("\n") == [
-        "「テストカード」を入れた展開、シミュレーターで回せます。",
+        "新カード追加！「テストカード」",
         "テストパック（11月1日発売）",
         "https://example.test/solitaire?newcards=1&focus=%E3%83%86%E3%82%B9%E3%83%88%E3%82%AB%E3%83%BC%E3%83%89",
-        "情報元：https://x.com/YuGiOh_OCG_INFO/status/123",
+        "https://x.com/YuGiOh_OCG_INFO/status/123",
         "#遊戯王 #OCG"]
     assert "▼ 登録なし" not in t
 
@@ -77,7 +77,8 @@ def test_text_tcgym_link_is_first_url():
                                  "https://exa mple.com/x", "https://x.com/" + "a" * 2000, "https:///path.only/x"])
 def test_text_source_line_omitted_unless_http_url(src):
     t = xp.build_tweet_text("A", "P", "2026-11-01", src, site_url="https://example.test")
-    assert "情報元" not in t
+    # 情報元の行が省かれ、URL は TCGYM のリンク1本だけになる
+    assert re.findall(r"https?://\S+", t) == ["https://example.test/solitaire?newcards=1&focus=A"]
     assert t.split("\n")[2].startswith("https://example.test/solitaire")
 
 
@@ -85,7 +86,7 @@ def test_text_without_date_and_product():
     t = xp.build_tweet_text("A", "", None, site_url="https://example.test")
     # 商品名・発売日が両方無いときは行ごと出さない
     assert t.split("\n") == [
-        "「A」を入れた展開、シミュレーターで回せます。",
+        "新カード追加！「A」",
         "https://example.test/solitaire?newcards=1&focus=A", "#遊戯王 #OCG"]
 
 
@@ -428,8 +429,7 @@ def test_run_backfill_posts_candidates(monkeypatch):
 
 def test_source_url_non_ascii_is_percent_encoded():
     t = xp.build_tweet_text("A", "P", None, "https://example.com/ニュース/記事?x=日本", site_url="https://example.test")
-    line = [ln for ln in t.split("\n") if ln.startswith("情報元：")][0]
-    body = line[len("情報元："):]
+    body = [ln for ln in t.split("\n") if ln.startswith("https://example.com/")][0]
     assert body.isascii() and body.startswith("https://example.com/") and "%E3%83%8B" in body
 
 
