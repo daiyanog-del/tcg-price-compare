@@ -1714,11 +1714,34 @@ function _flushRankingImageQueue(){
         const url=_batchImgUrl(images[el.dataset.card]);
         if(!url||!safeUrl(url)) return;
         const thumb=el.querySelector('.'+thumbClass);
-        if(thumb) thumb.innerHTML='<img src="'+escAttr(safeUrl(url))+'" alt="" loading="lazy">';
+        if(thumb) _deferRankingImage(thumb,safeUrl(url));
       });
     });
   })
   .catch(()=>{});
+}
+// ランキングの縮小画像は、画面に近づいてから読み込む。
+// loading="lazy" だと低速回線では画面から約2500px先まで先読みされ、スマホのトップで
+// 画面外のランキング画像（別ホストのため優先度で譲らない）が新着カード画像と回線を
+// 取り合い、LCP を数秒遅らせていた（2026-10-16 実測）。
+let _rankingImageObserver=null;
+function _deferRankingImage(thumb,src){
+  const html='<img src="'+escAttr(src)+'" alt="">';
+  if(!('IntersectionObserver' in window)){thumb.innerHTML=html.replace('<img','<img loading="lazy"');return;}
+  if(!_rankingImageObserver){
+    _rankingImageObserver=new IntersectionObserver(entries=>{
+      entries.forEach(entry=>{
+        // タブ切替などで一覧から外れた枠は、登録直後の最初の通知で見張りから外す
+        if(!entry.target.isConnected){_rankingImageObserver.unobserve(entry.target);return;}
+        if(!entry.isIntersecting) return;
+        _rankingImageObserver.unobserve(entry.target);
+        entry.target._showRankingImage?.();
+      });
+    },{rootMargin:'200px'});
+  }
+  // 同じ枠に後から別の URL が来たら最後のものを出すため、差し込み処理は要素に持たせる
+  thumb._showRankingImage=()=>{thumb.innerHTML=html;};
+  _rankingImageObserver.observe(thumb);
 }
 
 // 初期ロード・モード復元
