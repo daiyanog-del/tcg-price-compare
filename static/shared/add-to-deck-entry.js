@@ -40,11 +40,13 @@ export function receiveAddToDeck({open,loc=location,hist=history}){
 // 描画待ち（タイムアウト付き）→ 無ければ「もっと見る」を押して先へ進める。見つからなければ null。
 export async function findNewCard(doc,name,{timeoutMs=6000,intervalMs=150,sleep=ms=>new Promise(r=>setTimeout(r,ms)),now=()=>Date.now()}={}){
   const deadline=now()+timeoutMs;
-  const find=()=>[...doc.querySelectorAll('.new-card')].find(el=>el.dataset&&el.dataset.cardName===name)||null;
+  // HTMLの読込前の仮枠（.new-card-skel）は描画済みと数えない（数えると「もっと見る」を空のまま押してしまう）
+  const CARD='.new-card:not(.new-card-skel)';
+  const find=()=>[...doc.querySelectorAll(CARD)].find(el=>el.dataset&&el.dataset.cardName===name)||null;
   for(let guard=0;guard<100&&now()<deadline;guard++){
     const hit=find();
     if(hit)return hit;
-    const rendered=doc.querySelectorAll('.new-card').length>0;
+    const rendered=doc.querySelectorAll(CARD).length>0;
     const more=doc.getElementById('newCardsMore');
     if(rendered){
       if(more&&!more.hidden){more.click();continue;} // 6件ずつ表示を増やす（同期で描画される）

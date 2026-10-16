@@ -897,54 +897,54 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 
   </div>
 
-  <div id="empty" class="empty">
+  <div id="empty" class="empty{% if card_name %} hidden{% endif %}">
     <!-- Q-10: 検索エラー/タイムアウトの表示専用要素。#empty のinnerHTMLを丸ごと
          置き換えると下のランキングDOMごと消えて復帰できなくなるため、ここだけを書き換える -->
     <div id="emptyError" class="movers-fail hidden"></div>
 
-    <section id="newCardsSection" class="new-cards" aria-labelledby="newCardsHeading" hidden>
+    <section id="newCardsSection" class="new-cards" aria-labelledby="newCardsHeading">
       <a class="new-cards-back" href="/">← トップへ戻る</a>
       <div class="new-cards-head">
         <h2 id="newCardsHeading">新着の未発売カード</h2>
         <a class="new-cards-head-link" href="/new-cards">すべて見る →</a>
       </div>
       <p class="new-cards-help">発売前のカードも、デッキに追加してテストプレイできます。</p>
-      <div id="newCardsGrid" class="new-cards-grid"></div>
+      <div id="newCardsGrid" class="new-cards-grid" aria-busy="true">{% for _ in range(6) %}<div class="new-card new-card-skel" aria-hidden="true"><span class="new-card-picture"></span><span class="new-card-meta"><span class="new-card-badge">発売前</span></span><span class="new-card-link"><strong>&nbsp;</strong></span><span class="new-card-add"></span></div>{% endfor %}</div>
       <p id="newCardsStatus" class="new-cards-status" role="status"></p>
       <a id="newCardsAll" class="new-cards-all" href="/new-cards" hidden>未発売カードをすべて見る →</a>
       <button id="newCardsRetry" class="new-cards-button" hidden>再試行</button>
-      <button id="newCardsMore" class="new-cards-button" aria-controls="newCardsGrid" hidden>もっと見る</button>
+      <button id="newCardsMore" class="new-cards-button" aria-controls="newCardsGrid">もっと見る</button>
     </section>
 
     <div class="movers-row">
       <!-- N-2: 価格推移ランキング（共通店舗ガードのみ・最安¥1,000以上） -->
-      <div id="topMoversSection" class="movers hidden">
+      <div id="topMoversSection" class="movers">
         <h3 class="market-panel-title">販売価格</h3>
         <div class="movers-tabs">
           <button class="movers-tab" onclick="switchTopMovers('up')">値上がり</button>
           <button class="movers-tab active" onclick="switchTopMovers('down')">値下がり</button>
         </div>
         <div id="topMoversPeriod" class="movers-period"></div>
-        <div class="movers-list" id="topMoversList"></div>
+        <div class="movers-list" id="topMoversList" aria-busy="true">{% for _ in range(10) %}<div class="movers-item movers-skel" aria-hidden="true"><span class="movers-rank"></span><span class="movers-thumb"></span><span class="movers-name"><span class="movers-name-text">&nbsp;</span><span class="movers-rarity"><span class="rb">&nbsp;</span></span></span><span class="movers-price"><span class="movers-price-now">&nbsp;</span><span class="movers-diff">&nbsp;</span></span></div>{% endfor %}</div>
       </div>
 
       <!-- S-1: 買取価格タブ廃止に伴い、買取の値上がり/値下がりランキングだけをここへ移設
            （既存実装をそのまま移設。販売/買取の1ウィジェット統合はしない） -->
-      <div id="buybackMoversSection" class="movers hidden">
+      <div id="buybackMoversSection" class="movers">
         <h3 class="market-panel-title">買取価格</h3>
         <div class="movers-tabs">
           <button class="movers-tab active" onclick="switchBuybackMovers('up')">買取UP</button>
           <button class="movers-tab" onclick="switchBuybackMovers('down')">買取DOWN</button>
         </div>
         <div id="buybackMoversPeriod" class="movers-period"></div>
-        <div class="movers-list" id="buybackMoversList"></div>
+        <div class="movers-list" id="buybackMoversList" aria-busy="true">{% for _ in range(10) %}<div class="movers-item movers-skel" aria-hidden="true"><span class="movers-rank"></span><span class="movers-thumb"></span><span class="movers-name"><span class="movers-name-text">&nbsp;</span><span class="movers-rarity"><span class="rb">&nbsp;</span></span></span><span class="movers-price"><span class="movers-price-now">&nbsp;</span><span class="movers-diff">&nbsp;</span></span></div>{% endfor %}</div>
       </div>
 
       <!-- 2026-09-04: オーバーフレーム(OF)／シリアル付きオーバーフレーム(グランドマスターレア)
            専用ランキング。1段目タブでOF(値動き)⇔グランドマスター(高額順・タブ表記はユーザー指定で「グランドマスター」)を切替、
            OF側だけ2段目タブ(値上がり/値下がり)を出す。
            配置は既存2つ（価格推移・買取）の後ろ＝3番目（ユーザー裁定A・2026-09-04） -->
-      <div id="ofMoversSection" class="movers hidden">
+      <div id="ofMoversSection" class="movers">
         <h3 class="market-panel-title">高レアリティ</h3>
         <!-- 2026-09-04: 方向タブを1段目の右側に詰めて他2枚と一覧の開始位置を揃える。
              4つ並べると本番実測で451px（枠343px）に収まらないため、方向は「上昇/下落」の短い表記＋余白を詰める -->
@@ -959,7 +959,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
           </div>
         </div>
         <div id="ofMoversPeriod" class="movers-period"></div>
-        <div class="movers-list" id="ofMoversList"></div>
+        <div class="movers-list" id="ofMoversList" aria-busy="true">{% for _ in range(10) %}<div class="movers-item movers-skel" aria-hidden="true"><span class="movers-rank"></span><span class="movers-thumb"></span><span class="movers-name"><span class="movers-name-text">&nbsp;</span><span class="movers-rarity"><span class="rb">&nbsp;</span></span></span><span class="movers-price"><span class="movers-price-now">&nbsp;</span><span class="movers-diff">&nbsp;</span></span></div>{% endfor %}</div>
       </div>
     </div>
 

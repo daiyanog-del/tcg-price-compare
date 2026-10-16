@@ -12,8 +12,20 @@ function _setSearchLayout(hasResult){
   if(!hasResult)Promise.resolve().then(()=>{
     // 履歴復元中の一時的な初期状態ではなく、画面切替完了後の表示状態を見る。
     if(!document.getElementById('mode-search').classList.contains('hidden')&&
-       !document.getElementById('empty').classList.contains('hidden'))window.NewCards?.load();
+       !document.getElementById('empty').classList.contains('hidden'))_loadTopPanels();
   });
+}
+
+// トップ用の欄の読込。ランキングは初回だけ（従来どおり以後はタブ操作で更新）、新着は表示のたびに取り直す。
+let _topMoversLoaded=false;
+function _loadTopPanels(){
+  if(!_topMoversLoaded){
+    _topMoversLoaded=true;
+    loadTopMovers('down');
+    loadOfMovers('down');
+    loadBuybackMovers('up');
+  }
+  window.NewCards?.load();
 }
 
 // ── アフィリエイトリンク変換 ──
@@ -359,6 +371,12 @@ function _newSearchGen(){ // 世代加算＝旧ストリーム破棄、を不可
   return ++_searchGen;
 }
 
+// 検索を始めずに終わった時、結果も初期表示も無い白紙を残さない（/card/ 直アクセスは #empty を隠して始めるため）
+function _showEmptyIfNoResults(){
+  if(!document.getElementById('results').classList.contains('hidden'))return;
+  document.getElementById('empty').classList.remove('hidden');
+  _setSearchLayout(false);
+}
 function doSearch(opts){
   closeSuggest();
   // opts: {validated:true} サジェスト選択やvalidate済み, {confirmed:true} DB未登録を承認済み,
@@ -395,15 +413,15 @@ function doSearch(opts){
           if(confirm('もしかして: '+d.suggestion+'\n\nこのカード名で検索しますか?')){
             document.getElementById('q').value=d.suggestion;
             doSearch({validated:true,trigger:trigger,_gen:gen});
-          }else{ _mercariPending=false; if(window.MercariRef) MercariRef.clear(); }
+          }else{ _mercariPending=false; if(window.MercariRef) MercariRef.clear(); _showEmptyIfNoResults(); }
         }else{
           // TODO: _correct_cardname()が部分一致候補を返せるようになったらsuggestion分岐が有効になる
           if(confirm('該当するカード名が見つかりません。\nそのまま検索しますか?')){
             doSearch({confirmed:true,trigger:trigger,_gen:gen});
-          }else{ _mercariPending=false; if(window.MercariRef) MercariRef.clear(); }
+          }else{ _mercariPending=false; if(window.MercariRef) MercariRef.clear(); _showEmptyIfNoResults(); }
         }
       })
-      .catch(()=>{if(gen!==_searchGen)return;btn.disabled=false;btn.textContent='検索';});
+      .catch(()=>{if(gen!==_searchGen)return;btn.disabled=false;btn.textContent='検索';_showEmptyIfNoResults();});
     return;
   }
   // 世代管理: 古い検索の /api/validate の戻りが後から来た場合は、画面状態（ボタン無効化・
@@ -465,6 +483,7 @@ function doSearch(opts){
   _mercariPending=true;
   _syncMercariView();
   let mercariStarted=false;
+  let trendName='';
   // 60秒で応答がなければタイムアウト
   function _searchTimeoutFail(){
     if(gen!==_searchGen) return; // 世代管理: 別カードの検索で世代が進んでいたら無視
@@ -479,13 +498,17 @@ function doSearch(opts){
     _setSearchLayout(!document.getElementById('results').classList.contains('hidden'));
   }
   _searchTimeoutId=setTimeout(_searchTimeoutFail,60000);
-  let partialShown=false;
   es.onmessage=e=>{
     if(gen!==_searchGen) return; // 世代管理: closeしても配送されうる旧世代のイベントを無効化する
     clearTimeout(_searchTimeoutId);
     _searchTimeoutId=setTimeout(_searchTimeoutFail,60000);
     const d=JSON.parse(e.data);
-    if(!mercariStarted){ mercariStarted=true; if(window.MercariRef) MercariRef.load(q); }
+    if(!mercariStarted){
+      mercariStarted=true;
+      if(window.MercariRef) MercariRef.load(q);
+      // 価格推移も店舗検索と並行して取る（完了後に取り始めると、表示済みの表の上に後から差し込まれて表が跳ねる）
+      if(window.PriceTrend){ trendName=q; PriceTrend.load(q); }
+    }
     if(d.type==='corrected'){
       // カード名が自動補正された場合、検索欄を更新して通知
       document.getElementById('q').value=d.corrected;
@@ -501,17 +524,8 @@ function doSearch(opts){
     }else if(d.type==='shop_done'){
       const el=_searchProgStep(d.shop);
       el.className=d.status==='partial'?'pstep error':'pstep done';el.querySelector('.pstat').textContent=d.status==='partial'?(d.count?d.count+'件・一部失敗':'取得失敗'):d.count+'件'+(d.cached?' (cache)':'');
-      // 逐次表示: 結果が届いたらテーブルに追加
-      if(d.results&&d.results.length>0){
-        D=D.concat(d.results);
-        if(!partialShown){
-          document.getElementById('results').classList.remove('hidden');
-          document.getElementById('empty').classList.add('hidden');
-          partialShown=true;
-        }
-        renderTable();
-        _syncMercariView(); // 店舗で確認できたレアリティが増えたので、メルカリの表示を描き直す（再取得はしない）
-      }
+      // 結果の表は全店そろった done で一度だけ描く（店舗ごとに描き直すと、並べ替えと後から入る
+      // カード画像・集計で表が上下に跳ねるため。2026-10-16 ユーザー裁定）。途中は上の進捗行で件数だけ見せる
     }else if(d.type==='shop_error'){
       const el=_searchProgStep(d.shop);
       el.className='pstep error';el.querySelector('.pstat').textContent='エラー';
@@ -527,10 +541,14 @@ function doSearch(opts){
       _mercariPending=false;
       if(d.total>0) _syncMercariView(); // メルカリ参考相場は最初のイベント受信時に取得済み。最終の店舗レアリティで絞り直す
       else if(window.MercariRef) MercariRef.clear(); // 全店0件ならメルカリも出さない
-      if(d.total>0&&window.PriceTrend){ _syncPriceTrendView(); PriceTrend.load(_currentCardName); } // 価格推移グラフも別fetchで非同期表示
+      if(window.PriceTrend){
+        // 開始時に並行取得済み。補正などで表示カード名が変わった時だけ取り直す。0件なら出さない
+        if(d.total===0) PriceTrend.clear();
+        else{ _syncPriceTrendView(); if(_currentCardName!==trendName) PriceTrend.load(_currentCardName); }
+      }
       btn.disabled=false;btn.textContent='検索';
       _setSearchLayout(d.total>0);
-      setTimeout(()=>{prog.style.display='none';},1200);
+      prog.style.display='none'; // 結果と同じフレームで消す（遅らせて消すと表示済みの結果が上へずれる）
     }
   };
   es.onerror=()=>{
@@ -1390,13 +1408,24 @@ function switchTopMovers(dir){
   document.querySelectorAll('#topMoversSection .movers-tab').forEach(b=>b.classList.toggle('active',b.textContent.includes(dir==='up'?'上がり':'下がり')));
   loadTopMovers(dir);
 }
+// ランキング枠の中身を差し替える（読込中の薄表示・仮枠の aria-busy もここで解く）
+function _setMoversHtml(list,html){
+  list.classList.remove('is-loading');
+  list.removeAttribute('aria-busy');
+  list.innerHTML=html;
+}
+// 読込開始。既に行（仮枠を含む）があれば高さを保ったまま薄くするだけにし、空の時だけ文言を出す
+function _setMoversLoading(list){
+  if(list.querySelector('.movers-item'))list.classList.add('is-loading');
+  else list.innerHTML='<div class="movers-fail">読込中...</div>';
+}
 function loadTopMovers(dir,retry){
   retry=retry||0;
   const sec=document.getElementById('topMoversSection');
   const list=document.getElementById('topMoversList');
   const period=document.getElementById('topMoversPeriod');
   sec.classList.remove('hidden');
-  if(!retry) list.innerHTML='<div class="movers-fail">読込中...</div>';
+  if(!retry) _setMoversLoading(list);
   fetch(`/api/top-movers?direction=${dir||_topMoversDir}&limit=10`)
     .then(r=>r.json())
     .then(data=>{
@@ -1405,22 +1434,22 @@ function loadTopMovers(dir,retry){
         // キャッシュ後0.2秒になったため、応急で8回×3秒に延ばしていた再試行を戻す。
         // 待っている間であることが分かる文言は残す（キャッシュ失効直後は数百ms待つため）。
         if(retry<3){
-          list.innerHTML='<div class="movers-fail">集計中です。少しお待ちください…</div>';
+          _setMoversHtml(list,'<div class="movers-fail">集計中です。少しお待ちください…</div>');
           setTimeout(()=>loadTopMovers(dir,retry+1),2000);
           return;
         }
-        list.innerHTML='<div class="movers-fail">価格推移ランキングの取得に失敗しました</div>';
+        _setMoversHtml(list,'<div class="movers-fail">価格推移ランキングの取得に失敗しました</div>');
         return;
       }
       const items=data.items||[];
-      if(!items.length){sec.classList.add('hidden');return;}
+      if(!items.length){_setMoversHtml(list,'');sec.classList.add('hidden');return;}
       if(data.date_old&&data.date_new){
         const upd=data.updated_at?` · ${data.updated_at}収集`:'';
         // Q-11: 定着チェック（前日データ）が無い回は、精度が落ちていることが分かるよう明示する
         const stabilityNote=data.stability_checked===false?'（定着確認なし）':'';
         period.textContent=_fmtDate(data.date_old)+' → '+_fmtDate(data.date_new)+' の価格変動（共通店舗のみ）'+stabilityNote+upd;
       }
-      list.innerHTML=items.map((item,i)=>{
+      _setMoversHtml(list,items.map((item,i)=>{
         const isUp=item.diff>0;
         const sign=isUp?'+':'';
         const cls=isUp?'up':'down';
@@ -1435,12 +1464,12 @@ function loadTopMovers(dir,retry){
             <span class="movers-diff ${cls}">${sign}${item.diff.toLocaleString()} (${sign}${item.pct}%)</span>
           </span>
         </a>`;
-      }).join('');
+      }).join(''));
       loadRankingImages('#topMoversList .movers-item','movers-thumb');
     })
     .catch(()=>{
       if(retry<2){setTimeout(()=>loadTopMovers(dir,retry+1),2000);return;}
-      list.innerHTML='<div class="movers-fail">価格推移ランキングの取得に失敗しました</div>';
+      _setMoversHtml(list,'<div class="movers-fail">価格推移ランキングの取得に失敗しました</div>');
     });
 }
 function openTopMover(name,rank){
@@ -1482,30 +1511,30 @@ function loadOfMovers(dir,retry){
   const list=document.getElementById('ofMoversList');
   const period=document.getElementById('ofMoversPeriod');
   sec.classList.remove('hidden');
-  if(!retry){list.innerHTML='<div class="movers-fail">読込中...</div>';period.textContent='';}  // L-4: 前タブの期間表示を引き継がない
+  if(!retry){_setMoversLoading(list);period.textContent='';}  // L-4: 前タブの期間表示を引き継がない
   fetch(`/api/top-movers?group=of&direction=${dir||_ofMoversDir}&limit=10`)
     .then(r=>r.json())
     .then(data=>{
       if(seq!==_ofMoversSeq) return;  // 切替済み・この応答は捨てる
       if(data.error){
         if(retry<3){
-          list.innerHTML='<div class="movers-fail">集計中です。少しお待ちください…</div>';
+          _setMoversHtml(list,'<div class="movers-fail">集計中です。少しお待ちください…</div>');
           setTimeout(()=>{ if(seq!==_ofMoversSeq) return; loadOfMovers(dir,retry+1); },2000);
           return;
         }
-        list.innerHTML='<div class="movers-fail">ランキングの取得に失敗しました</div>';
+        _setMoversHtml(list,'<div class="movers-fail">ランキングの取得に失敗しました</div>');
         return;
       }
       const items=data.items||[];
       // M-1修正: 空データでもセクションごと隠さず、リスト内にメッセージを出す
       // （隠すと他タブへの導線ごと消えて復帰できなくなるため）
-      if(!items.length){list.innerHTML='<div class="movers-fail">該当するカードがありません</div>';period.textContent='';return;}
+      if(!items.length){_setMoversHtml(list,'<div class="movers-fail">該当するカードがありません</div>');period.textContent='';return;}
       if(data.date_old&&data.date_new){
         const upd=data.updated_at?` · ${data.updated_at}収集`:'';
         const stabilityNote=data.stability_checked===false?'（定着確認なし）':'';
         period.textContent=_fmtDate(data.date_old)+' → '+_fmtDate(data.date_new)+' の価格変動（共通店舗のみ）'+stabilityNote+upd;
       }
-      list.innerHTML=items.map((item,i)=>{
+      _setMoversHtml(list,items.map((item,i)=>{
         const isUp=item.diff>0;
         const sign=isUp?'+':'';
         const cls=isUp?'up':'down';
@@ -1519,13 +1548,13 @@ function loadOfMovers(dir,retry){
             <span class="movers-diff ${cls}">${sign}${item.diff.toLocaleString()} (${sign}${item.pct}%)</span>
           </span>
         </a>`;
-      }).join('');
+      }).join(''));
       loadRankingImages('#ofMoversList .movers-item','movers-thumb');
     })
     .catch(()=>{
       if(seq!==_ofMoversSeq) return;
       if(retry<2){setTimeout(()=>{ if(seq!==_ofMoversSeq) return; loadOfMovers(dir,retry+1); },2000);return;}
-      list.innerHTML='<div class="movers-fail">ランキングの取得に失敗しました</div>';
+      _setMoversHtml(list,'<div class="movers-fail">ランキングの取得に失敗しました</div>');
     });
 }
 function loadGmrPriced(retry){
@@ -1535,23 +1564,23 @@ function loadGmrPriced(retry){
   const list=document.getElementById('ofMoversList');
   const period=document.getElementById('ofMoversPeriod');
   sec.classList.remove('hidden');
-  if(!retry){list.innerHTML='<div class="movers-fail">読込中...</div>';period.textContent='';}  // L-4: 前タブの期間表示を引き継がない
+  if(!retry){_setMoversLoading(list);period.textContent='';}  // L-4: 前タブの期間表示を引き継がない
   fetch(`/api/top-priced?group=gmr&limit=10`)
     .then(r=>r.json())
     .then(data=>{
       if(seq!==_ofMoversSeq) return;  // 切替済み・この応答は捨てる
       if(data.error){
         if(retry<3){
-          list.innerHTML='<div class="movers-fail">集計中です。少しお待ちください…</div>';
+          _setMoversHtml(list,'<div class="movers-fail">集計中です。少しお待ちください…</div>');
           setTimeout(()=>{ if(seq!==_ofMoversSeq) return; loadGmrPriced(retry+1); },2000);
           return;
         }
-        list.innerHTML='<div class="movers-fail">ランキングの取得に失敗しました</div>';
+        _setMoversHtml(list,'<div class="movers-fail">ランキングの取得に失敗しました</div>');
         return;
       }
       const items=data.items||[];
       // M-1修正: 空データでもセクションごと隠さず、リスト内にメッセージを出す
-      if(!items.length){list.innerHTML='<div class="movers-fail">該当するカードがありません</div>';period.textContent='';return;}
+      if(!items.length){_setMoversHtml(list,'<div class="movers-fail">該当するカードがありません</div>');period.textContent='';return;}
       if(data.date_new){
         const upd=data.updated_at?` · ${data.updated_at}収集`:'';
         // M-4修正: 差額(diffがnullでない、または「変動なし」の0)を持つ行が
@@ -1562,7 +1591,7 @@ function loadGmrPriced(retry){
         const compareNote=hasAnyDiff?`・差額は${_fmtDate(data.date_old)}比`:'';
         period.textContent=_fmtDate(data.date_new)+' の最安値（高い順'+compareNote+'）'+upd;
       }
-      list.innerHTML=items.map((item,i)=>{
+      _setMoversHtml(list,items.map((item,i)=>{
         // diff が null（共通店舗が無く比較不能）と 0（7日前と同額）は区別して表示する。
         // 0 を「+0 (0%)」と出しても意味が無いため「変動なし」の文言に置き換える
         const hasDiff=item.diff!==null&&item.diff!==undefined&&item.diff!==0;
@@ -1581,13 +1610,13 @@ function loadGmrPriced(retry){
             ${diffHtml}
           </span>
         </a>`;
-      }).join('');
+      }).join(''));
       loadRankingImages('#ofMoversList .movers-item','movers-thumb');
     })
     .catch(()=>{
       if(seq!==_ofMoversSeq) return;
       if(retry<2){setTimeout(()=>{ if(seq!==_ofMoversSeq) return; loadGmrPriced(retry+1); },2000);return;}
-      list.innerHTML='<div class="movers-fail">ランキングの取得に失敗しました</div>';
+      _setMoversHtml(list,'<div class="movers-fail">ランキングの取得に失敗しました</div>');
     });
 }
 function openOfMover(name,rank){
@@ -1615,13 +1644,13 @@ function loadBuybackMovers(dir,retry){
       const sec=document.getElementById('buybackMoversSection');
       const list=document.getElementById('buybackMoversList');
       const period=document.getElementById('buybackMoversPeriod');
-      if(!items.length){sec.classList.add('hidden');return;}
+      if(!items.length){_setMoversHtml(list,'');sec.classList.add('hidden');return;}
       sec.classList.remove('hidden');
       if(data.date_old&&data.date_new){
         const upd=data.updated_at?` · ${data.updated_at}収集`:'';
         period.textContent=_fmtDate(data.date_old)+' → '+_fmtDate(data.date_new)+' の買取価格変動'+upd;
       }
-      list.innerHTML=items.map((item,i)=>{
+      _setMoversHtml(list,items.map((item,i)=>{
         const isUp=item.diff>0;
         const sign=isUp?'+':'';
         // 買取は値上がり=緑(お得)、値下がり=赤 と色反転するため buyback-diff クラスを使用
@@ -1636,10 +1665,14 @@ function loadBuybackMovers(dir,retry){
             <span class="movers-diff buyback-diff ${cls}">${sign}${item.diff.toLocaleString()} (${sign}${item.pct}%)</span>
           </span>
         </a>`;
-      }).join('');
+      }).join(''));
       loadRankingImages('#buybackMoversList .movers-item','movers-thumb');
     })
-    .catch(()=>{if(retry<2)setTimeout(()=>loadBuybackMovers(dir,retry+1),2000);});
+    .catch(()=>{
+      if(retry<2){setTimeout(()=>loadBuybackMovers(dir,retry+1),2000);return;}
+      // 最後まで失敗したら仮枠を残さず、他の2枠と同じく文言に置き換える
+      _setMoversHtml(document.getElementById('buybackMoversList'),'<div class="movers-fail">買取ランキングの取得に失敗しました</div>');
+    });
 }
 
 // ── ランキング用カード画像の一括取得（旧: 1件ずつ200ms間隔→バッチで1回→
@@ -1692,11 +1725,6 @@ function _flushRankingImageQueue(){
 // DOMContentLoaded で実行することで、スクリプト末尾の const/let 宣言が
 // 全て初期化された後に switchMode() を呼び出し、TDZ ReferenceError を防ぐ。
 document.addEventListener('DOMContentLoaded', () => {
-  // 初期ロード
-  loadTopMovers('down');
-  loadOfMovers('down');
-  loadBuybackMovers('up');
-
   // G-7: 「一人回し」リンクはinline onclickではなくaddEventListenerで配線
   // （将来のCSP導入でinline onclickが無効化されても壊れないように）
   document.getElementById('headerSoloLink')?.addEventListener('click', () => _ga('solo_play_open'));
@@ -1742,7 +1770,9 @@ function _updateUrl(cardName, mode){
 }
 
 // URLを正本にして、初期表示と戻る・進むを同じ処理で復元する。
-function _resetSearchView(){
+// searching=true は直後に検索を始める場合（/card/・/buy/ の復元）。トップ用の欄を一瞬出して
+// すぐ隠す往復（表示のズレと不要な取得）を避けるため、#empty は隠したまま検索中の配置にする。
+function _resetSearchView(searching){
   SearchStatus.show({});
   _newSearchGen();
   _resetBuyInline();
@@ -1752,10 +1782,10 @@ function _resetSearchView(){
   document.getElementById('btn').textContent='検索';
   document.getElementById('q').value='';
   document.getElementById('results').classList.add('hidden');
-  document.getElementById('empty').classList.remove('hidden');
+  document.getElementById('empty').classList.toggle('hidden',!!searching);
   document.getElementById('emptyError').classList.add('hidden');
   document.getElementById('prog').style.display='none';
-  _setSearchLayout(false);
+  _setSearchLayout(!!searching);
 }
 // 未発売カード一覧ページ（/new-cards）の表示状態。ランキング等のトップ要素を隠し、一覧を主役にする。
 function _setNewCardsPage(on){
@@ -1763,9 +1793,15 @@ function _setNewCardsPage(on){
 }
 function _restoreLocation(trigger){
   _setNewCardsPage(location.pathname==='/new-cards');
-  _resetSearchView();
   const hash=location.hash.slice(1);
   const mode=hash==='mydeck-import'?'mydeck':hash;
+  const cardPath=location.pathname.match(/^\/(card|buy)\/(.+)$/);
+  let cardName=null;
+  if(cardPath&&!['mydeck','meta','packs','wishlist'].includes(mode)){
+    try{cardName=decodeURIComponent(cardPath[2]);}catch{cardName=null;}
+    if(cardName!==null&&cardName.trim().length<2)cardName=null; // doSearch が受け付けない長さは検索中の配置にしない
+  }
+  _resetSearchView(!!cardName);
   if(['mydeck','meta','packs','wishlist'].includes(mode)){
     switchMode(mode,trigger);
     if(hash==='mydeck-import'){
@@ -1793,10 +1829,10 @@ function _restoreLocation(trigger){
     return;
   }
   switchMode('search',trigger);
-  const cardPath=location.pathname.match(/^\/(card|buy)\/(.+)$/);
   if(cardPath){
-    let name;
-    try{name=decodeURIComponent(cardPath[2]);}catch{return;}
+    // 復号できないURL・2文字未満の名前は検索せずトップの表示のまま（2文字未満は旧来 alert が出ていた）
+    if(cardName===null)return;
+    const name=cardName;
     document.getElementById('q').value=name;
     _pendingBuyInlineOpen=cardPath[1]==='buy';
     doSearch({trigger:trigger});

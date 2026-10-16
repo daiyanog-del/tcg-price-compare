@@ -118,6 +118,15 @@ function fakeDoc(){
   ld=listDoc({visible:0,total:names});let t=0;
   assert.equal(await entry.findNewCard(ld,'C2',{intervalMs:0,sleep:async()=>{},now:()=>(t+=1000)}),null);
 
+  // HTMLの仮枠（.new-card-skel）の間は描画済みと数えず待つ（「もっと見る」を押さない）
+  {
+    let real=[];const skel=[1,2,3,4,5,6].map(()=>({dataset:{}}));let clicks=0,w=0;
+    const sd={querySelectorAll:sel=>sel.includes(':not(.new-card-skel)')?real:skel.concat(real),
+      getElementById:id=>id==='newCardsMore'?{hidden:false,click(){clicks++;}}:id==='newCardsStatus'?{textContent:''}:null};
+    const r=await entry.findNewCard(sd,'C2',{intervalMs:0,sleep:async()=>{if(++w===2)real=mkCards(names.slice(0,6));}});
+    assert.equal(r&&r.n,'C2','仮枠の後に描画されたカードを見つけられなかった');assert.equal(clicks,0,'仮枠の間に もっと見る を押した');
+  }
+
   // 新着0件（表示できる未発売カードはありません）は待たず即 null（sleep が呼ばれない）
   ld=listDoc({visible:0,total:names,status:'現在、表示できる未発売カードはありません。'});let slept=0;
   assert.equal(await entry.findNewCard(ld,'C1',{intervalMs:0,sleep:async()=>{slept++;}}),null);assert.equal(slept,0,'0件でも待った');
