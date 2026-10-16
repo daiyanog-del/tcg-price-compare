@@ -146,7 +146,8 @@ window.NewCards = (() => {
     return pending;
   }
   document.addEventListener('DOMContentLoaded',()=>{
-    get('newCardsMore')?.addEventListener('click',()=>{shown+=PAGE_SIZE;render();});
+    // 読込前（仮枠の間）に押されても空の一覧で描き直さない
+    get('newCardsMore')?.addEventListener('click',()=>{if(!cards.length)return;shown+=PAGE_SIZE;render();});
     get('newCardsRetry')?.addEventListener('click',load);
     if(!document.getElementById('empty')?.classList.contains('hidden'))load();
   });

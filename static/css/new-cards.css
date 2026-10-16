@@ -27,6 +27,8 @@
 /* 読込前の仮枠（実カードと同じ骨組み）。名前は2行分を確保する */
 .new-card-skel .new-card-meta,.new-card-skel .new-card-add{visibility:hidden}
 .new-card-skel .new-card-add{display:block}
+/* 「もっと見る」は場所だけ取って読込完了まで見せない（押せない） */
+#newCardsGrid[aria-busy="true"]~#newCardsMore{visibility:hidden}
 .new-card-skel strong{min-height:3.1em;background:linear-gradient(var(--bg-hover),var(--bg-hover)) 0 .2em/80% 1.1em no-repeat}
 .new-cards-all{display:inline-block;margin-top:16px;font-size:14px;color:var(--accent-l);text-decoration:none}
 .new-cards-all[hidden]{display:none}

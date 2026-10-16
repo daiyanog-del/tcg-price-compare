@@ -1442,7 +1442,7 @@ function loadTopMovers(dir,retry){
         return;
       }
       const items=data.items||[];
-      if(!items.length){sec.classList.add('hidden');return;}
+      if(!items.length){_setMoversHtml(list,'');sec.classList.add('hidden');return;}
       if(data.date_old&&data.date_new){
         const upd=data.updated_at?` · ${data.updated_at}収集`:'';
         // Q-11: 定着チェック（前日データ）が無い回は、精度が落ちていることが分かるよう明示する
@@ -1644,7 +1644,7 @@ function loadBuybackMovers(dir,retry){
       const sec=document.getElementById('buybackMoversSection');
       const list=document.getElementById('buybackMoversList');
       const period=document.getElementById('buybackMoversPeriod');
-      if(!items.length){sec.classList.add('hidden');return;}
+      if(!items.length){_setMoversHtml(list,'');sec.classList.add('hidden');return;}
       sec.classList.remove('hidden');
       if(data.date_old&&data.date_new){
         const upd=data.updated_at?` · ${data.updated_at}収集`:'';
@@ -1668,7 +1668,11 @@ function loadBuybackMovers(dir,retry){
       }).join(''));
       loadRankingImages('#buybackMoversList .movers-item','movers-thumb');
     })
-    .catch(()=>{if(retry<2)setTimeout(()=>loadBuybackMovers(dir,retry+1),2000);});
+    .catch(()=>{
+      if(retry<2){setTimeout(()=>loadBuybackMovers(dir,retry+1),2000);return;}
+      // 最後まで失敗したら仮枠を残さず、他の2枠と同じく文言に置き換える
+      _setMoversHtml(document.getElementById('buybackMoversList'),'<div class="movers-fail">買取ランキングの取得に失敗しました</div>');
+    });
 }
 
 // ── ランキング用カード画像の一括取得（旧: 1件ずつ200ms間隔→バッチで1回→
@@ -1826,7 +1830,7 @@ function _restoreLocation(trigger){
   }
   switchMode('search',trigger);
   if(cardPath){
-    // 復号できないURLは従来どおり何もしない（トップの表示のまま）
+    // 復号できないURL・2文字未満の名前は検索せずトップの表示のまま（2文字未満は旧来 alert が出ていた）
     if(cardName===null)return;
     const name=cardName;
     document.getElementById('q').value=name;
