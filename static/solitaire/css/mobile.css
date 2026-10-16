@@ -139,7 +139,7 @@
      .row-top/.row-middle/.row-bottom を display:contents にし、.custom-layout を
      5列グリッド化した上で、各 .custom-slot に data-slot 基準で grid-row/grid-column を
      直接指定する（layout.css の nth-child ベースの配置は上書きされる。詳細度が同じでも
-     mobile.css が main.css で最後にインポートされるため後勝ちで確実に上書きできる）。
+     mobile.css が solitaire.html で responsive.css より後に読まれるため後勝ちで確実に上書きできる）。
      PC・横向きスマホは layout.css の6列グリッドのまま（このブロックの外・変更なし）。 */
   .row-top,
   .row-middle,
@@ -456,7 +456,7 @@
      実走で #replayBarContainer が sticky のまま残って下部バーの裏に半分見え「取消」が
      二重になる不具合が確認された。responsive.css の #replayBarContainer.replay-bar
      { position:sticky; ... } と同じ詳細度（ID+class）のセレクタで、mobile.css が
-     main.css の import で後段に来ることを利用して確実に上書きする。
+     solitaire.html の <link> で後段に来ることを利用して確実に上書きする。
      タスクB-1: 旧オーバーレイ（.sol-mobile-fullbar-open）は廃止。#replayBack/#replayPlay/
      #replayFwd/#replaySlider/#replayCounter は再生モードのバー・帯から .click()／
      textContent 追従で使うため、DOM 自体は残し常時 display:none のままにする

@@ -1,6 +1,10 @@
 /**
  * 一人回しシミュレータ - メインスタイルシート
  * ベース: Solo Mode (Fugarta, MIT) を改変
+ *
+ * 2026-10-16 から solitaire.html はこのファイルを参照せず、下の各ファイルを <link> で直接読む
+ * （@import の直列読込をなくすため）。デプロイ直後に古い HTML をキャッシュから開いた人が
+ * 404 で崩れないよう1リリース分だけ残している。次のリリースで削除する（TASKS.md 参照）。
  */
 
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap');
