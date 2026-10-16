@@ -17,7 +17,7 @@ export function setCardName(imgEl, name) {
 
 /**
  * カード名と画像URLを直接指定してカード詳細パネルを表示する。
- * 相手の想定妨害トレイなど、委譲クリックを使わないカードから呼ぶ。
+ * 委譲クリックを使わないカード（マイデッキの一覧など）から呼ぶ。
  */
 export function showCardByName(name, imgSrc, source) {
   const isSample = source === 'official_sample';

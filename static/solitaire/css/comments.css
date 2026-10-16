@@ -185,6 +185,104 @@
   }
 }
 
+/* ── 相手の妨害のカットイン（2026-10-16。見本: mocks/sim-disruption-cutin-20261016.html の案S）──
+   帯の高さ・動き・線は文字だけのカットインと同じ。背景にカードのイラストをぼかして暗く敷き（カードの種類で
+   イラストの位置がずれても目立たない）、左にカード（帯の上下に少しはみ出す）、右に「相手の妨害／カード名 発動」。
+   画像は comment-view.js が届いてから入れる（届くまで・取れないときは文字だけ。背景は帯の暗い面のまま）。
+   金色・色付きの実線・赤は状態の目印や危険の色なので使わない。 */
+.sol-cutin--card {
+  --cutin-card-h: 128px;
+  gap: 18px;
+  padding: 0 24px;
+}
+.sol-cutin-art {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 14%, #000 86%, transparent 100%);
+          mask-image: linear-gradient(90deg, transparent 0%, #000 14%, #000 86%, transparent 100%);
+}
+.sol-cutin-art > i {
+  position: absolute;
+  inset: -12px;                 /* ぼかしの縁が透けないよう、少し外まで敷く */
+  background-size: 110% auto;
+  background-position: 50% 38%; /* カード全体の絵から、イラストのあたりを帯に入れる */
+  filter: blur(3px);
+}
+.sol-cutin-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg-color) 50%, transparent);
+}
+.sol-cutin--card:not(.has-card-image) .sol-cutin-art,
+.sol-cutin--card.no-art .sol-cutin-art { display: none; } /* 画像が無い間・未発売でぼかす設定のときは帯の暗い面だけ */
+.sol-cutin-card {
+  position: relative;
+  display: block;
+  flex: 0 0 auto;
+  line-height: 0;
+  margin: calc((var(--cutin-h) - var(--cutin-card-h)) / 2) 0; /* 帯より高いぶんを上下にはみ出させる */
+  border-radius: 4px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.6);
+}
+.sol-cutin-card:empty { display: none; }
+.sol-cutin-card > img {
+  display: block;
+  height: var(--cutin-card-h);
+  width: auto;
+  border-radius: 4px;
+}
+.sol-cutin-body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+.sol-cutin-line {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  max-width: 100%;
+}
+.sol-cutin--card .sol-cutin-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;   /* 長いカード名は省略（一覧・カード詳細では全文） */
+  letter-spacing: 0.06em;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+}
+.sol-cutin .sol-cutin-who {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--main-color) 10%, transparent);
+  color: #a8b4c9;
+  font-family: var(--font);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+}
+.sol-cutin .sol-cutin-verb {
+  flex: 0 0 auto;
+  color: #a8b4c9;
+  font-family: var(--font);
+  font-size: 20px;
+  font-weight: 700;
+  white-space: nowrap;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+}
+@media (max-width: 767px) and (orientation: portrait), (max-height: 500px) {
+  .sol-cutin--card { --cutin-card-h: 92px; gap: 10px; padding: 0 12px; }
+  .sol-cutin .sol-cutin-who { font-size: 11px; padding: 1px 8px; }
+  .sol-cutin--card .sol-cutin-text { font-size: 22px; }
+  .sol-cutin .sol-cutin-verb { font-size: 13px; }
+  .sol-cutin-line { gap: 8px; }
+}
+
 /* ── カットインの言葉の札（PC の右パネル区画・スマホのシートで共通。見本の 3章） ── */
 .sol-cutin-form[hidden], .sol-cutin-chips[hidden] { display: none; }
 .sol-cutin-form { margin-top: 6px; }
@@ -207,6 +305,75 @@
 }
 .sol-cutin-chip:hover { background: var(--border); }
 .sol-mobile-comment-panel .sol-cutin-chip { padding: 8px 14px; font-size: 0.875rem; }
+
+/* ── カットインの「言葉／相手の妨害」の切り替えと、相手の妨害の札・検索（2026-10-16。見本の 2章）──
+   選ばれている方は面（--bg-hover）と太字で示す。金・accent の実線は状態の目印なので使わない。 */
+.sol-cutin-seg[hidden], .sol-cutin-disruption[hidden], [data-cutin-pane][hidden] { display: none; }
+.sol-cutin-seg {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 8px;
+}
+.sol-cutin-seg-btn {
+  flex: 1 1 0;
+  padding: 5px 0;
+  background: var(--bg-card);
+  border: none;
+  border-radius: 6px;
+  color: #a8b4c9;
+  font-family: var(--font);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.sol-cutin-seg-btn[aria-pressed="true"] {
+  background: var(--bg-hover);
+  color: var(--main-color);
+  font-weight: 700;
+}
+.sol-cutin-cat {
+  margin: 6px 0 0;
+  color: #a8b4c9;
+  font-size: 0.7rem;
+}
+.sol-cutin-disruption .sol-cutin-chips { margin: 2px 0 6px; }
+.sol-cutin-search { position: relative; margin-top: 4px; }
+.sol-cutin-search-input { width: 100%; }
+.sol-cutin-suggest {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 2px);
+  z-index: 50;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  background: var(--bg-surface);
+  border-radius: 6px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
+  max-height: 220px;
+  overflow-y: auto;
+}
+.sol-cutin-suggest[hidden] { display: none; }
+.sol-cutin-suggest-item {
+  padding: 6px 10px;
+  color: var(--main-color);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.sol-cutin-suggest-item:hover { background: var(--bg-hover); }
+.sol-mobile-comment-panel .sol-cutin-seg-btn { padding: 8px 0; font-size: 0.875rem; }
+.sol-mobile-comment-panel .sol-cutin-cat { font-size: 0.8rem; }
+.sol-mobile-comment-panel .sol-cutin-search-input { padding: 8px 10px; font-size: 0.9rem; }
+.sol-mobile-comment-panel .sol-cutin-suggest {
+  top: auto;
+  bottom: calc(100% + 2px);   /* シートは画面の下端にあるので、候補は検索欄の上に出す */
+}
+.sol-mobile-comment-panel .sol-cutin-suggest-item { padding: 10px 12px; font-size: 0.9rem; }
+/* 相手の妨害のときは自由入力の行を隠す（mobile.css の display:flex が hidden 属性より強いので明示する） */
+#solMobileCommentInputRow[hidden] { display: none; }
+/* PC の右パネルは幅が狭いので、妨害の札は少し詰めて1行に2つ並びやすくする */
+.sol-cutin-disruption .sol-cutin-chip { padding: 4px 8px; }
+.sol-mobile-comment-panel .sol-cutin-disruption .sol-cutin-chip { padding: 8px 12px; }
 
 /* ── カード選択の案内帯 ──
    高さ0の足場に重ねて出し入れしても盤面の大きさが変わらないようにする。クリックは下のカードへ通す。 */

@@ -38,7 +38,7 @@ function applySetting(on) {
 /** 盤面にある .sample-art カードと同じ画像URLか（カード情報パネルの判定用） */
 function isSampleSrc(src) {
   if (!src) return false;
-  for (const img of document.querySelectorAll('.sample-art > img.tier-item, .sample-art > img.opp-card-img')) {
+  for (const img of document.querySelectorAll('.sample-art > img.tier-item')) {
     if (img.src === src) return true;
   }
   return false;
@@ -48,7 +48,7 @@ function isSampleSrc(src) {
 function wrapSampleCipImages(root) {
   root.querySelectorAll('img.cip-img').forEach((img) => {
     if (img.parentElement?.classList.contains('cip-img-wrap')) return;
-    // 明示フラグ（描画側が付ける img の data-sample）または盤面・トレイの .sample-art 画像とのURL一致
+    // 明示フラグ（描画側が付ける img の data-sample）または盤面の .sample-art 画像とのURL一致
     if (img.dataset.sample !== '1' && !isSampleSrc(img.src)) return;
     const wrap = document.createElement('span');
     wrap.className = 'cip-img-wrap sample-art';
@@ -100,7 +100,7 @@ function isPendulumCard(name) {
   return _pendulumCache.get(name);
 }
 
-/** .sample-art 要素からカード名を取る（盤面・トレイ・スマホセル・情報パネルの包み） */
+/** .sample-art 要素からカード名を取る（盤面・カットイン・スマホセル・情報パネルの包み） */
 function nameOfSampleEl(el) {
   const own = el.dataset.cardName || el.querySelector('[data-card-name]')?.dataset.cardName;
   if (own) return own;
@@ -136,7 +136,7 @@ function scheduleScan() {
 }
 
 function initArtFrameObserver() {
-  // ドロー・ロード・リプレイ・トレイ追加・パネル描画で後から増える要素にも付ける
+  // ドロー・ロード・リプレイ・カットイン・パネル描画で後から増える要素にも付ける
   new MutationObserver(scheduleScan).observe(document.body, {
     childList: true,
     subtree: true,

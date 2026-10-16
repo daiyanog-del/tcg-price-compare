@@ -1,6 +1,14 @@
 # activeContext — 今どこ・次何
 
-> 更新: 2026-10-15（効果テキストの拡大読み直し）
+> 更新: 2026-10-16（相手の想定妨害をカットインに一本化）
+
+## 2026-10-16: 相手の想定妨害をカットインに一本化（branch feat/disruption-cutin）
+
+- 盤面の上の想定妨害トレイ（opponent-tray.js / .css・スマホ⋯メニュー項目・⋯のバッジ）を廃止。カットインの記録に `card`（カード名）を足し、帯にカード画像＋「相手の妨害／カード名 発動」（見本 mocks/sim-disruption-cutin-20261016.html の案S）。
+- 入れ方: PC 右パネル・スマホのシートの「言葉／相手の妨害」切り替え（ui/cutin-disruption-picker.js。札＝config/disruption-presets.js、検索＝/api/suggest）。
+- 画像は名前から /api/card-image で引き直す（先読みは先の4件・本体の読み込み後に表示・取れなければ文字だけ）。未発売＋ぼかし設定のときは帯の背景の絵を出さない。
+- カード詳細欄の幅合わせは ui/cip-layout.js へ移動、レイアウト再計算のイベントは `sol-layout-resize`。
+- 検証: tests/js（comment_model・replay_service_comment ほか）・pytest 2250・Playwright（PC 1440・スマホ 375）。iOS 実機は未確認。
 
 ## 2026-10-15: 効果テキストの拡大読み直し＋Opus 5.5（branch tools/eval-effect-text・未push）
 

@@ -236,9 +236,6 @@
     /* デッキ行は非表示（中身の #poolRow は残す。既存のドロー処理・リプレイ処理を変えない） */
     #imagePool { display: none; }
 
-    /* 相手の想定妨害トレイは盤面上から外す（メニューからシートとして開く。mobile.css が開時のスタイルを持つ） */
-    #opponentTray { display: none; }
-
     /* 左右パネルと端のトグルボタンはスマホでは非表示。
        デッキ読込は #solSidebar 自体をボトムシート化して流用する（制約7）。
        左右トグルボタンの非表示は sidebar-toggle.js が isPhone && !isLandscape 判定で行う。 */

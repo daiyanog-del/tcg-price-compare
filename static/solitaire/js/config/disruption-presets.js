@@ -1,5 +1,5 @@
 /**
- * disruption-presets.js — 相手の想定妨害プリセットカードリスト
+ * disruption-presets.js — カットイン「相手の妨害」のよく使うカードの札（旧: 相手の想定妨害トレイのプリセット）
  * 出典: insert_popular_cards_v2.sql の汎用カード群をJS定数として再定義
  */
 

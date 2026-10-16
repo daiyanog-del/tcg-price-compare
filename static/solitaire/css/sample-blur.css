@@ -33,7 +33,7 @@
   position: relative;
 }
 
-[data-sample-blur] .sample-art:not(.is-set):not(.opp-slot)::after {
+[data-sample-blur] .sample-art:not(.is-set)::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -52,24 +52,6 @@
 [data-sample-blur] .tier-item-wrapper.is-defense.sample-art:not(.is-set)::after {
   transform: rotate(-90deg);
   transform-origin: center center;
-}
-
-/* 相手の想定妨害トレイ: .opp-slot は ::after を使用済みマークに使うため ::before で敷く。
-   スロットは img 直下配置なので wrapper 相当の .opp-slot 全体に敷き、clip-path で範囲を切る */
-[data-sample-blur] .opp-slot.sample-art::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  pointer-events: none;
-  clip-path: var(--sample-blur-inset);
-  -webkit-backdrop-filter: blur(var(--sample-blur-radius));
-  backdrop-filter: blur(var(--sample-blur-radius));
-}
-/* 使用済みマーク(✓)と削除ボタンはぼかしより前面に */
-[data-sample-blur] .opp-slot.sample-art::after,
-[data-sample-blur] .opp-slot.sample-art .opp-remove-btn {
-  z-index: 3;
 }
 
 /* カード情報パネルの拡大画像: img に擬似要素は付けられないので JS が .cip-img-wrap で包む */

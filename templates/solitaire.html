@@ -155,34 +155,6 @@
       <!-- トグルボタン -->
       <button id="cipToggle" class="sol-cip-toggle" title="カード情報パネルを表示/非表示">◀</button>
 
-      <!-- 相手の想定妨害ミニ盤面（開閉式） -->
-      <section id="opponentTray" class="opp-tray collapsed">
-        <!-- スマホ縦向き専用: トレイをシート表示した際の閉じるボタン -->
-        <button id="oppTraySheetClose" class="sol-mobile-sheet-close-btn" type="button" aria-label="閉じる" hidden>&times;</button>
-        <button id="oppTrayToggle" class="opp-tray-toggle" aria-expanded="false" aria-controls="oppTrayBody">
-          <i class="opp-toggle-arrow">▶</i>
-          <span>相手の想定妨害</span>
-        </button>
-        <div class="opp-tray-body" id="oppTrayBody">
-          <div class="opp-tray-inner">
-            <!-- 左：スロット5枚横一列 -->
-            <div class="opp-tray-slots" id="oppTraySlots"></div>
-            <!-- 右：プリセット候補＋検索 -->
-            <div class="opp-tray-right">
-              <div id="oppPresetChips"></div>
-              <div class="opp-search-row">
-                <div class="opp-search-wrap">
-                  <input type="text" id="oppSearchInput" class="opp-search-input"
-                         placeholder="カード名で検索して追加" autocomplete="off">
-                  <ul id="oppSearchSuggest" class="opp-search-suggest" hidden></ul>
-                </div>
-                <button id="oppTrayClear" class="opp-tray-clear">全消去</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
       <!-- コメント（整理④）: カードの選択案内。普段は hidden で場所を取らない。表示の制御は static/solitaire/js/ui/comment-ui.js。
            盤面メモの付箋は盤面（.custom-layout）の中、カットインは services/comment-view.js が body 直下に一時的に出す -->
       <!-- 案内帯は高さ0の足場に重ねて出す（出し入れで盤面の大きさが変わり、押そうとしたカードが動くのを避ける） -->
@@ -414,10 +386,7 @@
           <button id="solMobilePlayBtn" type="button" class="sol-mobile-bar-btn sol-mobile-bar-play" hidden>再生</button>
           <!-- 1手戻す: 幅を空けるため印だけにする（読み上げ・ツールチップは aria-label／title で残す） -->
           <button id="solMobileUndoBtn" type="button" class="sol-mobile-bar-btn sol-mobile-bar-icon" aria-label="1手戻す" title="1手戻す" hidden>&#8630;</button>
-          <button id="solMobileMenuBtn" type="button" class="sol-mobile-bar-btn sol-mobile-bar-menu">
-            &#8943;
-            <span id="solMobileMenuBadge" class="sol-mobile-badge" hidden></span>
-          </button>
+          <button id="solMobileMenuBtn" type="button" class="sol-mobile-bar-btn sol-mobile-bar-menu">&#8943;</button>
         </div>
         <!-- タスクB-2: 再生モード。#replayBack/#replayPlay/#replayFwd/#replayCounter を .click()／textContent 追従で使う -->
         <div id="solMobilePlayBar" class="sol-mobile-bar-row" hidden>
@@ -442,7 +411,7 @@
           <div class="sol-mobile-sheet-body">
             <button type="button" class="sol-mobile-menu-item" data-menu-action="share">共有</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="boardmemo">盤面にメモ<span class="sol-mobile-menu-desc">盤面の空いた角に付箋で一言を表示します</span></button>
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="cutin">カットイン<span class="sol-mobile-menu-desc">その手に進んだとき、盤面に一瞬ことばを出します</span></button>
+            <button type="button" class="sol-mobile-menu-item" data-menu-action="cutin">カットイン<span class="sol-mobile-menu-desc">その手に進んだとき、盤面に一瞬ことばや相手の妨害を出します</span></button>
             <a href="/solitaire/replays" data-replay-list-link class="sol-mobile-menu-item sol-mobile-menu-link">リプレイ一覧</a>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="reset">リセット<span class="sol-mobile-menu-desc">カードをデッキに戻し、記録もリセットします</span></button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="clearall">クリア<span class="sol-mobile-menu-desc">デッキ・盤面・記録をすべて消します</span></button>
@@ -452,9 +421,6 @@
             </label>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="coin">コイントス</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="dice">ダイスロール</button>
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="opptray">
-              相手の想定妨害 <span id="solMobileOppBadge" class="sol-mobile-badge" hidden></span>
-            </button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="deckinput">デッキを読み込む</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="playback">リプレイを再生</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="help">操作方法</button>
@@ -509,9 +475,14 @@
           </div>
           <div class="sol-mobile-sheet-body">
             <p id="solMobileCommentTarget" class="sol-mobile-share-note"></p>
-            <!-- カットインのときだけ出す言葉の札（mobile-ui.js の openCommentSheet）。押すとその場で入る -->
+            <!-- カットインのときだけ出す「言葉／相手の妨害」の切り替えと言葉の札（mobile-ui.js の openCommentSheet）。札は押すとその場で入る -->
+            <div id="solMobileCutinSeg" class="sol-cutin-seg" role="group" aria-label="カットインの種類" hidden>
+              <button type="button" class="sol-cutin-seg-btn" data-cutin-mode="words" aria-pressed="true">言葉</button>
+              <button type="button" class="sol-cutin-seg-btn" data-cutin-mode="disruption" aria-pressed="false">相手の妨害</button>
+            </div>
+            <div id="solMobileCutinDisruption" class="sol-cutin-disruption" data-cutin-pane="disruption" hidden></div>
             <div id="solMobileCutinChips" class="sol-cutin-chips" hidden></div>
-            <div class="sol-mobile-share-comment-row">
+            <div id="solMobileCommentInputRow" class="sol-mobile-share-comment-row">
               <input type="text" id="solMobileCommentInput" class="sol-mobile-share-input" maxlength="60" placeholder="コメント" aria-label="コメント">
               <button type="button" id="solMobileCommentAddBtn" class="sol-mobile-menu-item">付ける</button>
             </div>
@@ -636,13 +607,21 @@
           <input type="text" id="solCommentBoardInput" class="sol-comment-input" maxlength="60" placeholder="盤面のメモ" aria-label="盤面のメモ">
           <button type="submit" class="sol-comment-btn sol-comment-submit">付ける</button>
         </form>
-        <!-- カットイン: 言葉の札（押すとその場で入る）と自由入力（20字）。札は comment-ui.js が作る -->
+        <!-- カットイン: 「言葉」＝言葉の札（押すとその場で入る）と自由入力（20字）／「相手の妨害」＝よく使う妨害の札とカード名の検索
+             （ui/cutin-disruption-picker.js）。札は comment-ui.js が作る -->
         <div id="solCommentCutinForm" class="sol-cutin-form" hidden>
-          <div id="solCommentCutinChips" class="sol-cutin-chips"></div>
-          <form id="solCommentCutinInputRow" class="sol-comment-form">
-            <input type="text" id="solCommentCutinInput" class="sol-comment-input" maxlength="20" placeholder="自由に書く（20字まで）" aria-label="カットインの文字">
-            <button type="submit" class="sol-comment-btn sol-comment-submit">出す</button>
-          </form>
+          <div class="sol-cutin-seg" role="group" aria-label="カットインの種類">
+            <button type="button" class="sol-cutin-seg-btn" data-cutin-mode="words" aria-pressed="true">言葉</button>
+            <button type="button" class="sol-cutin-seg-btn" data-cutin-mode="disruption" aria-pressed="false">相手の妨害</button>
+          </div>
+          <div data-cutin-pane="words">
+            <div id="solCommentCutinChips" class="sol-cutin-chips"></div>
+            <form id="solCommentCutinInputRow" class="sol-comment-form">
+              <input type="text" id="solCommentCutinInput" class="sol-comment-input" maxlength="20" placeholder="自由に書く（20字まで）" aria-label="カットインの文字">
+              <button type="submit" class="sol-comment-btn sol-comment-submit">出す</button>
+            </form>
+          </div>
+          <div id="solCommentCutinDisruption" class="sol-cutin-disruption" data-cutin-pane="disruption" hidden></div>
         </div>
         <ul id="solCommentList" class="sol-comment-list" aria-label="この記録のコメント"></ul>
       </div>

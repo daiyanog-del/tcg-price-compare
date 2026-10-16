@@ -340,22 +340,6 @@
     font-size: 1.3rem;
     position: relative;
   }
-  .sol-mobile-badge {
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    min-width: 15px;
-    height: 15px;
-    padding: 0 3px;
-    border-radius: 8px;
-    background: var(--red);
-    color: #fff;
-    font-size: 0.6rem;
-    font-weight: 700;
-    line-height: 15px;
-    text-align: center;
-  }
-  .sol-mobile-badge[hidden] { display: none; }
 
   /* ════════ 範囲ボタン（下部バー。旧「録画」。2026-10-15 整理③） ════════
      選んでいる間・範囲が決まった後は accent（青系）で示す。赤は危険操作専用のため使わない。
@@ -750,42 +734,6 @@
     top: 0;
     margin: 8px 8px 0 0;
     z-index: 2;
-  }
-
-  /* ════════ 相手の想定妨害シート（#opponentTray 再利用・制約6） ════════ */
-
-  #opponentTray.sol-opp-sheet-open {
-    display: block !important;
-    position: fixed;
-    left: 0;
-    right: 0;
-    top: auto;
-    bottom: 0;
-    max-height: 80vh;
-    overflow-y: auto;
-    z-index: 910;
-    border-radius: 14px 14px 0 0;
-    border: none;
-    border-top: 1px solid var(--border);
-    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.5);
-    box-sizing: border-box;
-  }
-  #opponentTray .sol-mobile-sheet-close-btn {
-    display: none;
-  }
-  #opponentTray.sol-opp-sheet-open .sol-mobile-sheet-close-btn {
-    display: block;
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    z-index: 2;
-  }
-  #opponentTray.sol-opp-sheet-open .opp-tray-toggle {
-    display: none;
-  }
-  #opponentTray.sol-opp-sheet-open .opp-tray-body {
-    display: block !important;
-    padding-top: 40px;
   }
 
   /* ════════ 操作方法シート（右パネルの .sol-ops-details を流用・制約6） ════════ */

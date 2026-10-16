@@ -2,7 +2,7 @@
  * mobile-ui.js — スマホ縦向き専用UI（フェーズ1・設計書 §8。2026-09-02 reviewer監査反映）
  *
  * 下部固定バー・⋯簡易メニュー・選択中カードのアクションシート・カード詳細パネル・
- * デッキ読込ボトムシート・相手の想定妨害シート・縦タブの全幅展開を配線する。
+ * デッキ読込ボトムシート・縦タブの全幅展開を配線する。
  *
  * 方針:
  *   - isMobilePortrait()（utils/viewport.js。CSS の @media 判定と統一・A-1）以外では
@@ -52,6 +52,7 @@ import {
 } from '../services/replay-service.js';
 import { shiftRangeAfterInsert, shiftRangeAfterRemove, COMMENT_MAX_LEN, CUTIN_MAX_LEN, CUTIN_PRESETS } from '../services/comment-model.js';
 import { setCardCommentOpener, setMemoFullOpener } from './comment-ui.js';
+import { buildDisruptionPicker } from './cutin-disruption-picker.js';
 import { getCurrentBubbleText } from '../services/comment-view.js';
 import { savedReplaysGet } from '../services/saved-replays.js';
 import { sharedReplaysGet } from '../services/shared-replays.js';
@@ -84,7 +85,7 @@ function updateMobileVisibility() {
 
 /**
  * H-1: portrait を外れた瞬間に呼ぶ。開いている全シート・オーバーレイを閉じ、hidden を戻し、
- * #solSidebar.sol-sheet-open / #opponentTray のシートクラスと .collapsed、
+ * #solSidebar.sol-sheet-open のシートクラス、
  * .sol-ops-details の open、#solRightPanel.sol-mobile-help-active を全て元に戻す。
  * 選択状態（drag-drop.js 側）もクリアする。
  * 以前は resize が非該当時に早期 return するだけで hidden を戻さず、回転やウィンドウ幅変更で
@@ -93,7 +94,6 @@ function updateMobileVisibility() {
 function resetMobileUI() {
   closeMenuSheet();
   closeSidebarSheet();
-  closeOppTraySheet();
   closeHelpSheet();
   closeCardDetailOverlay();
   closeDeckSheet();   // フェーズ2: デッキ一覧シート
@@ -215,7 +215,6 @@ function initReplayBarMobile() {
 // ══════════════════ ⋯ メニューシート ══════════════════
 
 function openMenuSheet() {
-  updateOppMenuBadge();
   setHidden('solMobileMenuSheet', false);
 }
 function closeMenuSheet() {
@@ -234,7 +233,6 @@ const MENU_ACTIONS = {
   clearall: () => { handleClearEverything(); },
   coin:     () => { document.getElementById('coinTossBtn')?.click(); },
   dice:     () => { document.getElementById('diceRollBtn')?.click(); },
-  opptray:  () => { openOppTraySheet(); },
   deckinput:() => { openSidebarSheet(); },
   playback: () => { enterPlaybackMode('menu'); }, // タスクB-1: 旧「リプレイ操作」オーバーレイを廃止し再生モードへ
   share:    () => { openShareSheet('share'); }, // ⋯メニューの「共有」
@@ -256,7 +254,7 @@ function initMenuSheet() {
     btn.addEventListener('click', () => {
       const action = MENU_ACTIONS[btn.dataset.menuAction];
       if (action) action();
-      // opptray/deckinput/help/replay はそれぞれのシートへ引き継ぐため、メニュー自体は閉じる
+      // deckinput/help/replay などはそれぞれのシートへ引き継ぐため、メニュー自体は閉じる
       closeMenuSheet();
     });
   });
@@ -312,63 +310,6 @@ function initDeckLoadProgress() {
     }
     updateEmptyCta();
   });
-}
-
-// ══════════════════ 相手の想定妨害シート（#opponentTray 再利用） ══════════════════
-
-// 残件7: シートを開く直前に .collapsed だったかを控え、閉じるときに元へ戻す
-// （横向きに回転したとき、開けっぱなしのトレイが盤面上に展開状態で現れる経路の根治）。
-let _oppTrayWasCollapsed = false;
-
-function openOppTraySheet() {
-  const tray = document.getElementById('opponentTray');
-  const toggle = document.getElementById('oppTrayToggle');
-  if (!tray) return;
-  _oppTrayWasCollapsed = tray.classList.contains('collapsed');
-  tray.classList.add('sol-opp-sheet-open');
-  if (_oppTrayWasCollapsed) {
-    toggle?.click(); // opponent-tray.js 側の開閉ロジック（collapsed解除・opp-tray-resize発火）をそのまま使う
-  }
-}
-function closeOppTraySheet() {
-  const tray = document.getElementById('opponentTray');
-  const toggle = document.getElementById('oppTrayToggle');
-  tray?.classList.remove('sol-opp-sheet-open');
-  // 残件7: シートを開く前に collapsed（畳んだ状態）だった場合だけ畳み直す
-  if (_oppTrayWasCollapsed && tray && !tray.classList.contains('collapsed')) {
-    toggle?.click();
-  }
-  _oppTrayWasCollapsed = false;
-}
-
-/**
- * L-1: ⋯メニュー内の「相手の想定妨害」項目のバッジ（#solMobileOppBadge）に加え、
- * ⋯ボタン自体（#solMobileMenuBadge）にも同じ枚数を反映する。
- */
-function updateOppMenuBadge() {
-  const count = document.querySelectorAll('#oppTraySlots .opp-slot.filled').length;
-  [
-    document.getElementById('solMobileOppBadge'),
-    document.getElementById('solMobileMenuBadge'),
-  ].forEach(badge => {
-    if (!badge) return;
-    if (count > 0) {
-      badge.textContent = String(count);
-      badge.removeAttribute('hidden');
-    } else {
-      badge.setAttribute('hidden', '');
-    }
-  });
-}
-
-function initOppTraySheet() {
-  document.getElementById('oppTraySheetClose')
-    ?.addEventListener('click', closeOppTraySheet);
-  // トレイ内のカード増減にあわせてメニューバッジを更新
-  const slots = document.getElementById('oppTraySlots');
-  if (slots) {
-    new MutationObserver(updateOppMenuBadge).observe(slots, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
-  }
 }
 
 // ══════════════════ 操作方法シート（.sol-ops-details 再利用） ══════════════════
@@ -1151,6 +1092,32 @@ function initRecording() {
 /** @type {{kind:'card', cardId:string, name:string}|{kind:'board'}|{kind:'cutin'}|null} */
 let _commentTarget = null;
 
+/** カットインのシートの「相手の妨害」の部品（buildDisruptionPicker の戻り値） */
+let _mobileDisruptionPicker = null;
+/** カットインのシートの切り替え（言葉／相手の妨害）。シートを閉じても次に開いたときはこのまま */
+let _mobileCutinMode = 'words';
+
+/**
+ * カットインのシートの「言葉／相手の妨害」を出し分ける。言葉＝言葉の札と自由入力、相手の妨害＝妨害の札と検索。
+ * カットイン以外（吹き出し・盤面メモ）のシートでは、切り替えも妨害の部品も出さず、入力欄だけを出す。
+ */
+function _applyMobileCutinMode(isCutin) {
+  const mode = isCutin ? _mobileCutinMode : 'words';
+  document.querySelectorAll('#solMobileCutinSeg [data-cutin-mode]').forEach((btn) => {
+    btn.setAttribute('aria-pressed', String(btn.dataset.cutinMode === mode));
+  });
+  setHidden('solMobileCutinSeg', !isCutin);
+  setHidden('solMobileCutinChips', !isCutin || mode !== 'words'); // 言葉の札はカットインの「言葉」のときだけ
+  setHidden('solMobileCutinDisruption', !isCutin || mode !== 'disruption');
+  setHidden('solMobileCommentInputRow', isCutin && mode === 'disruption');
+  const targetEl = document.getElementById('solMobileCommentTarget');
+  if (targetEl && isCutin) {
+    targetEl.textContent = mode === 'disruption'
+      ? 'カードを選ぶと、その手に進んだとき盤面に一瞬出ます（残りません）'
+      : 'その手に進んだとき、盤面に一瞬出ます（残りません）';
+  }
+}
+
 function openCommentSheet(target) {
   _commentTarget = target;
   const isCard = target.kind === 'card';
@@ -1163,8 +1130,8 @@ function openCommentSheet(target) {
       ? `対象: ${target.name || '名称不明'}`
       : (isCutin ? 'その手に進んだとき、盤面に一瞬出ます（残りません）' : '盤面の空いた角に付箋で表示されます。次のメモが付くまで残ります');
   }
-  const chips = document.getElementById('solMobileCutinChips');
-  if (chips) chips.hidden = !isCutin; // 言葉の札はカットインのときだけ
+  _mobileDisruptionPicker?.reset();
+  _applyMobileCutinMode(isCutin);
   const input = document.getElementById('solMobileCommentInput');
   if (input) {
     input.value = '';
@@ -1174,11 +1141,13 @@ function openCommentSheet(target) {
   const addBtn = document.getElementById('solMobileCommentAddBtn');
   if (addBtn) addBtn.textContent = isCutin ? '出す' : '付ける';
   setHidden('solMobileCommentSheet', false);
-  input?.focus(); // タップの中で同期的に呼ぶ（iOS はこの場でしかキーボードを出せない）
+  // タップの中で同期的に呼ぶ（iOS はこの場でしかキーボードを出せない）。相手の妨害は札を押す想定なのでキーボードは出さない
+  if (!(isCutin && _mobileCutinMode === 'disruption')) input?.focus();
 }
 
 function closeCommentSheet() {
   _commentTarget = null;
+  _mobileDisruptionPicker?.reset();
   setHidden('solMobileCommentSheet', true);
 }
 
@@ -1210,6 +1179,13 @@ function _addCutinFromChip(label) {
   closeCommentSheet();
 }
 
+/** カットインの相手の妨害（札・検索で選ぶとその場で入る） */
+function _addDisruptionCutin(name) {
+  if (_commentTarget?.kind !== 'cutin') return;
+  if (!addComment({ kind: 'cutin', card: name })) return;
+  closeCommentSheet();
+}
+
 function initCommentSheet() {
   const input = document.getElementById('solMobileCommentInput');
   if (input) input.maxLength = COMMENT_MAX_LEN;
@@ -1228,6 +1204,18 @@ function initCommentSheet() {
       chips.appendChild(chip);
     }
   }
+  document.querySelectorAll('#solMobileCutinSeg [data-cutin-mode]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      _mobileCutinMode = btn.dataset.cutinMode === 'disruption' ? 'disruption' : 'words';
+      _applyMobileCutinMode(true);
+      // 相手の妨害は札を押すのでキーボードを閉じる。言葉に戻したら自由入力へ（タップの中で同期的に。iOS の制約）
+      const input = document.getElementById('solMobileCommentInput');
+      if (_mobileCutinMode === 'disruption') input?.blur();
+      else input?.focus();
+    });
+  });
+  const disruption = document.getElementById('solMobileCutinDisruption');
+  if (disruption) _mobileDisruptionPicker = buildDisruptionPicker(disruption, _addDisruptionCutin);
   input?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { // 日本語入力の変換確定の Enter では付けない
       e.preventDefault();
@@ -1889,7 +1877,6 @@ export function initMobileUI() {
   initMenuSheet();
   initSidebarSheet();
   initDeckLoadProgress();
-  initOppTraySheet();
   initCardDetailPanel();
   initActionSheet();
   initDeckSheet();

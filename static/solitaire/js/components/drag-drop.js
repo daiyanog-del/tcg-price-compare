@@ -630,7 +630,7 @@ const MOBILE_SCROLL_ZONE_SELECTOR = '#imagePool, #imagePool2, .sol-hand-area, .s
  */
 const MOBILE_UI_IGNORE_SELECTOR =
   '#solMobileActionSheet, #solMobileCip, #solMobileBar, ' +
-  '#solMobileMenuSheet, .sol-context-menu, #solSidebar, #solSidebarScrim, #opponentTray, ' +
+  '#solMobileMenuSheet, .sol-context-menu, #solSidebar, #solSidebarScrim, ' +
   '.pool-label, #replayBarContainer, .sol-ops-details, .sol-mobile-help-scrim, .counter-container, ' +
   '#solMobileDeckSheet, #solMobileShareSheet, #pcShareSheet, #pcSaveSheet';
 

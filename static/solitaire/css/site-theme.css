@@ -50,8 +50,8 @@ select:focus-visible,.deck-card-row:focus-visible{outline:2px solid #f3ce46;outl
   .sol-mobile-toolbar,.sol-mobile-sheet-header,.sol-mobile-deck-actions{border-color:transparent}
 }
 
-.opp-tray,.opp-tray:not(.collapsed) .opp-tray-toggle,.sol-card-info-panel{border-color:transparent}
-.opp-tray-toggle,.opp-tray-toggle span,.cip-empty,.sol-token-hint{color:#a8b4c9}
+.sol-card-info-panel{border-color:transparent}
+.cip-empty,.sol-token-hint{color:#a8b4c9}
 .sol-fb-submit,#solMobileEmptyCta{background:#f3ce46;color:#242013}
 .sol-fb-submit:hover,#solMobileEmptyCta:hover{background:#ffe16d;color:#242013}
 @keyframes solDeckBtnPulse {
@@ -65,17 +65,16 @@ select:focus-visible,.deck-card-row:focus-visible{outline:2px solid #f3ce46;outl
 .sol-hand-area,.side-slots-container>.sol-side-area,#imagePool2{border-color:transparent}
 /* 領域は背景で分け、通常時の囲み線は置かない。枠幅は維持する。 */
 #imagePool,.custom-slot,.custom-slot[data-slot="9"],#free-space .side-slot,
-.opp-slot,.opp-slot.filled,.cip-effect,.cip-price,.sol-footer,.sol-toast,
+.cip-effect,.cip-price,.sol-footer,.sol-toast,
 .sol-fb-dialog,.sol-fb-header,.sol-fb-footer,
-.sol-recommend-badge,.opp-search-suggest{border-color:transparent}
+.sol-recommend-badge{border-color:transparent}
 /* ホバー時もマスを線で囲まず、面の変化で置き場所を示す。 */
-.custom-slot:hover,.opp-slot:hover{border-color:transparent;background-color:#202c42}
+.custom-slot:hover{border-color:transparent;background-color:#202c42}
 /* 通常操作の外枠を面へ置換。選択・危険操作・録画状態は対象外。 */
 .sol-cip-toggle,.sol-panel-toggle,.sol-sidebar-actions button,
 .replay-btn:not(.replay-btn-danger):not(.play-active):not(.active):not(#pcRecordBtn.recording),
-.cip-price-link,.sol-random-btn,.sol-feedback-open-btn,.sol-fb-cancel,
-.opp-preset-chip{border-color:transparent}
-.sol-random-btn:hover,.sol-feedback-open-btn:hover,.opp-preset-chip:hover{
+.cip-price-link,.sol-random-btn,.sol-feedback-open-btn,.sol-fb-cancel{border-color:transparent}
+.sol-random-btn:hover,.sol-feedback-open-btn:hover{
   background-color:#202c42;border-color:transparent;
 }
 @media(max-width:768px){
@@ -83,7 +82,7 @@ select:focus-visible,.deck-card-row:focus-visible{outline:2px solid #f3ce46;outl
   .sol-mobile-action-sheet,.sol-mobile-sheet-panel,.sol-mobile-sheet-header,
   .sol-mobile-deck-sheet-panel,.sol-mobile-share-section,
   .sol-ops-details.sol-mobile-help-open,
-  #solSidebar.sol-sheet-open,#opponentTray.sol-opp-sheet-open{border-color:transparent}
+  #solSidebar.sol-sheet-open{border-color:transparent}
   .sol-mobile-bar-btn:not(.sol-mobile-record-btn.recording),.sol-mobile-play-deck-badge,
   .sol-mobile-action-detail-btn,.sol-mobile-action-btn,.sol-mobile-menu-item{border-color:transparent}
 }
