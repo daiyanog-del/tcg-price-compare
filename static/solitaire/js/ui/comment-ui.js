@@ -25,6 +25,7 @@ import { isCardInPool } from './context-menu.js';
 import { showToast } from '../utils/toast.js';
 import { isMobilePortrait } from '../utils/viewport.js';
 import { hideCutin } from '../services/comment-view.js';
+import { buildDisruptionPicker, setCutinMode } from './cutin-disruption-picker.js';
 
 /** 縦向きスマホ用の差し込み口。true を返したら入力欄は出さない（mobile-ui.js が代わりに開いた） */
 let _cardCommentOpener = null;
@@ -130,6 +131,9 @@ function _isCommitEnter(e) {
 
 let _popupEl = null;
 
+/** カットインの「相手の妨害」の部品（buildDisruptionPicker の戻り値）。閉じるときに検索欄を空にする */
+let _disruptionPicker = null;
+
 /**
  * カードの近くの入力欄を閉じる。
  * @param {{holdGesture?: boolean}} [opts] holdGesture: カードを押して閉じたとき。その押下の続き（ダブルクリックなど）が
@@ -153,6 +157,7 @@ function closeCommentInputs() {
   document.getElementById('solCommentBoardBtn')?.classList.remove('is-active');
   const cutinForm = document.getElementById('solCommentCutinForm');
   if (cutinForm) cutinForm.hidden = true;
+  _disruptionPicker?.reset();
   document.getElementById('solCommentCutinBtn')?.classList.remove('is-active');
 }
 
@@ -247,12 +252,16 @@ function _toggleCutinForm() {
   if (!open) return;
   form.hidden = false;
   document.getElementById('solCommentCutinBtn')?.classList.add('is-active'); // 開いている間は「入力中」と同じ accent の面
-  document.getElementById('solCommentCutinInput')?.focus();
+  // 前回の切り替え（言葉／相手の妨害）のまま開く。言葉のときだけ自由入力欄にフォーカス
+  if (!form.querySelector('[data-cutin-pane="words"]')?.hidden) document.getElementById('solCommentCutinInput')?.focus();
 }
 
-/** カットインを入れる。入れたら入力欄を閉じる（札は押すとその場で入る） */
-function _addCutin(text) {
-  if (!addComment({ kind: 'cutin', text })) return false;
+/**
+ * カットインを入れる。入れたら入力欄を閉じる（札は押すとその場で入る）。
+ * card を渡すと相手の妨害のカットイン（text は使わない）。
+ */
+function _addCutin(text, card) {
+  if (!addComment({ kind: 'cutin', text, card })) return false;
   const input = document.getElementById('solCommentCutinInput');
   if (input) input.value = '';
   closeCommentInputs();
@@ -280,7 +289,7 @@ function renderCommentList() {
     li.className = 'sol-comment-row';
     const text = document.createElement('span');
     text.className = 'sol-comment-row-text';
-    text.textContent = `${c.index + 1}手目 ${KIND_ICON[c.kind] ?? '📝'} ${c.text}`;
+    text.textContent = `${c.index + 1}手目 ${KIND_ICON[c.kind] ?? '📝'} ${c.text}${c.disruption ? '（相手の妨害）' : ''}`;
     text.title = c.text;
     const del = document.createElement('button');
     del.type = 'button';
@@ -288,7 +297,7 @@ function renderCommentList() {
     del.textContent = '✕';
     del.setAttribute('aria-label', `${c.index + 1}手目のコメントを削除`);
     // 確認は出さない（コメントなので）。一覧の行の内容も渡し、記録の同じ位置が別のコメントに変わっていたら消さない
-    del.addEventListener('click', () => removeEventAt(c.index, { kind: c.kind, cardId: c.cardId, text: c.text }));
+    del.addEventListener('click', () => removeEventAt(c.index, { kind: c.kind, cardId: c.cardId, text: c.text, disruption: c.disruption }));
     li.append(text, del);
     ul.appendChild(li);
   }
@@ -321,6 +330,18 @@ export function initCommentUI() {
       chip.addEventListener('click', () => _addCutin(label));
       chips.appendChild(chip);
     }
+  }
+  // 言葉／相手の妨害の切り替え。相手の妨害は、札・検索で選ぶとその場で入る
+  const cutinForm = document.getElementById('solCommentCutinForm');
+  cutinForm?.querySelectorAll('[data-cutin-mode]').forEach((btn) => {
+    btn.addEventListener('click', () => setCutinMode(cutinForm, btn.dataset.cutinMode));
+  });
+  const disruption = document.getElementById('solCommentCutinDisruption');
+  if (disruption) {
+    _disruptionPicker = buildDisruptionPicker(disruption, (name) => _addCutin('', name));
+    disruption.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeCommentInputs(); }
+    });
   }
   document.getElementById('solCommentCutinInputRow')?.addEventListener('submit', (e) => {
     e.preventDefault();

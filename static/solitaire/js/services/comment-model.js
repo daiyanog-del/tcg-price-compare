@@ -7,6 +7,10 @@
  *   吹き出し: { actionType:'comment', kind:'card',  cardId, text }
  *   盤面メモ: { actionType:'comment', kind:'board', text }
  *   カットイン: { actionType:'comment', kind:'cutin', text }（本文は20字まで。その手に「進んだとき」だけ一瞬出る）
+ *   相手の妨害のカットイン: { actionType:'comment', kind:'cutin', card, text }
+ *     card はカード名（60字まで）。帯にカード画像と「相手の妨害／カード名 発動」を出す。
+ *     text には card を20字で切ったものを入れておく（card を知らない古い画面でも文字のカットインとして出るように）。
+ *     画像のURLは記録に残さず、出すときに名前から引き直す（comment-view.js）。
  *   kind が無い古いコメント・未知の kind は盤面メモとして扱う。
  */
 
@@ -38,6 +42,33 @@ export function clampCutinText(text) {
   return clampCommentText(text, CUTIN_MAX_LEN);
 }
 
+/** 相手の妨害のカットインの帯に出す言葉（2026-10-16 ユーザー決定） */
+export const CUTIN_DISRUPTION_LABEL = '相手の妨害';
+export const CUTIN_DISRUPTION_VERB = '発動';
+
+/**
+ * 相手の妨害のカットインならカード名（60字で切ったもの）、そうでなければ null。
+ * @param {Object} ev
+ * @returns {string|null}
+ */
+export function cutinCard(ev) {
+  if (!ev || ev.kind !== 'cutin') return null;
+  return clampCommentText(ev.card) || null;
+}
+
+/**
+ * 記録に入れるカットインの手を作る（本文が空なら null）。
+ * card を渡すと相手の妨害のカットイン（text には card を20字で切ったものを入れる）。
+ * @param {{text?:string, card?:string}} opts
+ * @returns {Object|null}
+ */
+export function buildCutinEvent({ text, card } = {}) {
+  const name = clampCommentText(card);
+  if (name) return { actionType: 'comment', kind: 'cutin', card: name, text: clampCutinText(name) };
+  const t = clampCutinText(text);
+  return t ? { actionType: 'comment', kind: 'cutin', text: t } : null;
+}
+
 /**
  * コメントの種類。kind が 'card' で cardId があるときだけ吹き出し、kind が 'cutin' ならカットイン。
  * それ以外（kind 無しの古い記録・未知の kind を含む）は盤面メモ。
@@ -49,22 +80,43 @@ export function commentKind(ev) {
   return ev && ev.kind === 'card' && typeof ev.cardId === 'string' && ev.cardId ? 'card' : 'board';
 }
 
-/** コメントの手の本文を、種類ごとの上限で整えて返す（カットインは20字、ほかは60字） */
+/** コメントの手の本文を、種類ごとの上限で整えて返す（カットインは20字、ほかは60字。相手の妨害のカットインはカード名） */
 export function commentText(ev) {
-  return commentKind(ev) === 'cutin' ? clampCutinText(ev?.text) : clampCommentText(ev?.text);
+  if (commentKind(ev) !== 'cutin') return clampCommentText(ev?.text);
+  return cutinCard(ev) || clampCutinText(ev?.text);
 }
 
 /**
- * 「その手に進んだとき」に出すカットインの本文を返す（出さないときは null）。
+ * 「その手に進んだとき」に出すカットインを返す（出さないときは null）。
  * 出すのは、前進で（手を打った直後・付けた直後・次へ・自動再生）その手に来たときだけ。
  * 巻き戻し・スライダーで飛んだとき・取消・セッション復元・読み込み直後は arrivedForward を false にして呼ぶ。
  * @param {Object|undefined} ev  カーソルが来た手
  * @param {boolean} arrivedForward  前進でその手に来たか
- * @returns {string|null}
+ * @returns {{text:string, card:string|null}|null}  card があれば相手の妨害のカットイン（text はカード名）
  */
 export function cutinToShow(ev, arrivedForward) {
   if (!arrivedForward || !ev || ev.actionType !== 'comment' || commentKind(ev) !== 'cutin') return null;
-  return commentText(ev) || null;
+  const text = commentText(ev);
+  return text ? { text, card: cutinCard(ev) } : null;
+}
+
+/**
+ * 記録の start 番目以降にある、相手の妨害のカットインのカード名（重複なし・記録順で limit 件まで。画像の先読み用）。
+ * @param {Array} logs
+ * @param {number} [start]
+ * @param {number} [limit]
+ * @returns {string[]}
+ */
+export function cutinCardsIn(logs, start = 0, limit = Infinity) {
+  const names = new Set();
+  const list = logs || [];
+  for (let i = Math.max(0, start); i < list.length && names.size < limit; i++) {
+    const ev = list[i];
+    if (ev?.actionType !== 'comment') continue;
+    const name = cutinCard(ev);
+    if (name) names.add(name);
+  }
+  return [...names];
 }
 
 /**
@@ -135,14 +187,15 @@ export function computeCommentView(setupLogs, logs, cursor) {
 /**
  * 通常ログの中のコメント一覧（右パネルの一覧用）。
  * @param {Array} logs
- * @returns {Array<{index:number, kind:'card'|'board'|'cutin', cardId:string|null, text:string}>}
+ * disruption は相手の妨害のカットインか（一覧で「（相手の妨害）」と添える）。
+ * @returns {Array<{index:number, kind:'card'|'board'|'cutin', cardId:string|null, text:string, disruption:boolean}>}
  */
 export function listComments(logs) {
   const out = [];
   (logs || []).forEach((ev, index) => {
     if (ev?.actionType !== 'comment') return;
     const kind = commentKind(ev);
-    out.push({ index, kind, cardId: kind === 'card' ? ev.cardId : null, text: commentText(ev) });
+    out.push({ index, kind, cardId: kind === 'card' ? ev.cardId : null, text: commentText(ev), disruption: !!cutinCard(ev) });
   });
   return out;
 }
@@ -210,12 +263,14 @@ export function shiftRangeAfterInsert(state, insertedIdx) {
 /**
  * 一覧の行が指している内容と、記録の手が同じコメントかどうか（削除の取り違え防止）。
  * @param {Object|undefined} ev  記録の手
- * @param {{kind:'card'|'board'|'cutin', cardId:string|null, text:string}|undefined} expected 一覧の行の内容
+ * disruption（相手の妨害のカットインか）は、渡されたときだけ照合する（文字の「灰流うらら」と妨害の「灰流うらら」を区別する）。
+ * @param {{kind:'card'|'board'|'cutin', cardId:string|null, text:string, disruption?:boolean}|undefined} expected 一覧の行の内容
  */
 export function isSameComment(ev, expected) {
   if (!ev || ev.actionType !== 'comment') return false;
   if (!expected) return true;
   return commentKind(ev) === expected.kind
     && (commentKind(ev) === 'card' ? ev.cardId : null) === (expected.cardId ?? null)
-    && commentText(ev) === expected.text;
+    && commentText(ev) === expected.text
+    && (expected.disruption === undefined || !!cutinCard(ev) === expected.disruption);
 }

@@ -5,6 +5,7 @@ import {
   COMMENT_MAX_LEN, clampCommentText, commentKind, computeCommentView, listComments,
   cursorAfterRemove, shiftRangeAfterRemove, shiftRangeAfterInsert, isSameComment,
   CUTIN_MAX_LEN, CUTIN_DURATION_MS, CUTIN_PRESETS, clampCutinText, commentText, cutinToShow, playPauseMs,
+  cutinCard, buildCutinEvent, cutinCardsIn,
 } from '../../static/solitaire/js/services/comment-model.js';
 
 const mv = (cardId, extra = {}) => ({ actionType: 'moveCard', cardId, zoneId: 'custom-slot-1', ...extra });
@@ -93,9 +94,9 @@ assert.equal(v.memo, '新しい');
 
 // ── 一覧 ──
 assert.deepEqual(listComments([mv('a'), bub('a', 'x'), memo('y'), { actionType: 'comment', text: 'z' }]), [
-  { index: 1, kind: 'card', cardId: 'a', text: 'x' },
-  { index: 2, kind: 'board', cardId: null, text: 'y' },
-  { index: 3, kind: 'board', cardId: null, text: 'z' },
+  { index: 1, kind: 'card', cardId: 'a', text: 'x', disruption: false },
+  { index: 2, kind: 'board', cardId: null, text: 'y', disruption: false },
+  { index: 3, kind: 'board', cardId: null, text: 'z', disruption: false },
 ]);
 
 // ── 削除で位置がずれる ──
@@ -173,7 +174,7 @@ v = view([mv('a'), memo('メモ'), bub('a', 'G受け'), cut('ターン終了')])
 assert.equal(v.memo, 'メモ', 'カットインが盤面メモを置き換えない');
 assert.deepEqual(v.bubbles, [{ cardId: 'a', text: 'G受け' }], 'カットインは吹き出しを消さない');
 // 一覧: kind='cutin'・本文は20字
-assert.deepEqual(listComments([mv('a'), cut('あ'.repeat(30))]), [{ index: 1, kind: 'cutin', cardId: null, text: 'あ'.repeat(20) }]);
+assert.deepEqual(listComments([mv('a'), cut('あ'.repeat(30))]), [{ index: 1, kind: 'cutin', cardId: null, text: 'あ'.repeat(20), disruption: false }]);
 // 一覧の行との照合（削除の取り違え防止）
 assert.equal(isSameComment(cut('ターン終了'), { kind: 'cutin', cardId: null, text: 'ターン終了' }), true);
 assert.equal(isSameComment(cut('ターン終了'), { kind: 'board', cardId: null, text: 'ターン終了' }), false, '種類が違えば別物');
@@ -181,9 +182,9 @@ assert.equal(isSameComment(cut('相手ターン'), { kind: 'cutin', cardId: null
 assert.equal(isSameComment(cut('あ'.repeat(30)), { kind: 'cutin', cardId: null, text: 'あ'.repeat(20) }), true, '長い本文は切った形で照合');
 
 // 「進んだときだけ出す」判定: 前進でその手に来たときだけ
-assert.equal(cutinToShow(cut('ターン終了'), true), 'ターン終了', '前進（付けた直後・次へ・自動再生）で来たら出す');
+assert.deepEqual(cutinToShow(cut('ターン終了'), true), { text: 'ターン終了', card: null }, '前進（付けた直後・次へ・自動再生）で来たら出す');
 assert.equal(cutinToShow(cut('ターン終了'), false), null, '巻き戻し・スライダー・取消・復元・読み込み直後は出さない');
-assert.equal(cutinToShow(cut('あ'.repeat(40)), true).length, 20, '出す本文も20字');
+assert.equal(cutinToShow(cut('あ'.repeat(40)), true).text.length, 20, '出す本文も20字');
 assert.equal(cutinToShow(cut('   '), true), null, '空のカットインは出さない');
 assert.equal(cutinToShow(memo('メモ'), true), null, '盤面メモは出さない');
 assert.equal(cutinToShow(bub('a', 'x'), true), null, '吹き出しは出さない');
@@ -199,5 +200,30 @@ assert.equal(playPauseMs(cut('ターン終了'), 900, 2.5), 1900, 'カットイ�
 assert.equal(playPauseMs(cut('ターン終了'), 450, 2.5), 1900, '2倍速でも動きの時間は縮めない');
 assert.equal(playPauseMs(cut('ターン終了'), 1800, 2.5), 1900, '0.5倍速（1.8秒）でも動きが終わるまで');
 assert.equal(playPauseMs(cut('ターン終了'), 3000, 2.5), 3000, '基本の待ちが長ければそちら');
+
+// ── 相手の妨害のカットイン（card つき）──
+const dis = (card, text) => ({ actionType: 'comment', kind: 'cutin', card, text });
+assert.deepEqual(buildCutinEvent({ card: ' 灰流うらら ' }), { actionType: 'comment', kind: 'cutin', card: '灰流うらら', text: '灰流うらら' });
+assert.deepEqual(buildCutinEvent({ text: 'ターン終了' }), { actionType: 'comment', kind: 'cutin', text: 'ターン終了' });
+assert.equal(buildCutinEvent({ card: '  ', text: '' }), null, '空なら作らない');
+assert.equal(buildCutinEvent({ card: '', text: 'ターン終了' }).card, undefined, 'card が空なら言葉のカットイン');
+assert.equal(buildCutinEvent({ card: 'ア'.repeat(70) }).card.length, 60, 'カード名は60字まで');
+assert.equal(cutinCard(dis('増殖するG', '増殖するG')), '増殖するG');
+assert.equal(cutinCard(cut('ターン終了')), null);
+assert.equal(cutinCard({ actionType: 'comment', kind: 'card', cardId: 'a', card: 'x', text: 'y' }), null, 'カットイン以外の card は見ない');
+const longCard = 'ア'.repeat(30);
+assert.equal(commentText(dis(longCard, 'ア'.repeat(20))), longCard, '一覧・照合の本文はカード名の全文');
+assert.deepEqual(cutinToShow(dis('無限泡影', '無限泡影'), true), { text: '無限泡影', card: '無限泡影' });
+assert.deepEqual(cutinToShow({ actionType: 'comment', kind: 'cutin', card: 'x' }, true), { text: 'x', card: 'x' }, 'text が無くても card で出す');
+assert.equal(cutinToShow(dis('無限泡影', '無限泡影'), false), null, '前進以外では出さない');
+assert.deepEqual(listComments([mv('a'), dis('灰流うらら', '灰流うらら')]), [{ index: 1, kind: 'cutin', cardId: null, text: '灰流うらら', disruption: true }]);
+assert.equal(isSameComment(dis('灰流うらら', '灰流うらら'), { kind: 'cutin', cardId: null, text: '灰流うらら' }), true);
+assert.deepEqual(cutinCardsIn([dis('A', 'A'), cut('B'), dis('A', 'A'), dis('C', 'C'), mv('a')]), ['A', 'C'], '先読みはカード名を重複なしで');
+assert.deepEqual(cutinCardsIn([dis('A', 'A'), dis('B', 'B'), dis('B', 'B'), dis('C', 'C'), dis('D', 'D')], 1, 2), ['B', 'C'], '先読みはいまの手より先の数件だけ');
+assert.deepEqual(cutinCardsIn([dis('A', 'A')], 5, 4), [], '末尾より先は空');
+assert.equal(isSameComment(cut('灰流うらら'), { kind: 'cutin', cardId: null, text: '灰流うらら', disruption: true }), false, '文字のカットインと妨害を区別する');
+assert.equal(isSameComment(dis('灰流うらら', '灰流うらら'), { kind: 'cutin', cardId: null, text: '灰流うらら', disruption: true }), true);
+assert.equal(playPauseMs(dis('A', 'A'), 450, 2.5), 1900, '相手の妨害も動きが終わるまで待つ');
+assert.deepEqual(computeCommentView([], [memo('m'), dis('A', 'A')], 1), { bubbles: [], memo: 'm' }, '盤面には残らず、盤面メモも置き換えない');
 
 console.log('comment-model: 吹き出し（動いたら消える・inPlace・setup）、盤面メモ、カットイン（20字・進んだときだけ・待ち時間）、削除でのずれを確認');

@@ -23,7 +23,7 @@ import { initCardInfoPanel, showCardByName } from './ui/card-info-panel.js';
 import { initSampleBlur } from './ui/sample-blur.js';
 import { saveSessionResume, loadSessionResume } from './services/save-load-service.js';
 import { migrateSlotsToReplays } from './services/slot-migration.js';
-import { initOpponentTray, updateCipWidth } from './ui/opponent-tray.js';
+import { updateCipWidth, syncCipPosition } from './ui/cip-layout.js';
 import { initFeedbackModal } from './ui/feedback-modal.js';
 import { initSidebarToggle } from './ui/sidebar-toggle.js';
 import { initMobileUI, getMobileRecordingState, setMobileRecordingState, isMobilePlaybackMode, resumePlaybackModeIfNeeded, openCardDetailByName } from './ui/mobile-ui.js';
@@ -86,23 +86,21 @@ function initCardImageRegistration() {
  * ビューポート高さに合わせて --slot-width を動的に設定する。
  *
  * 全縦スペースの内訳:
- *   固定:    nav高さ + トレイヘッダ高さ + リプレイバー + 各種パディング/マージン
+ *   固定:    nav高さ + リプレイバー + 各種パディング/マージン
  *   比例:    slot_w × 7.25
  *            = フィールド3行(slot_w×1.45×3) + center-row(slot_w×1.45)
  *              + imagePool(slot_w×1.45)
  *   (デッキ/EX行の余分な×1.1空白を撤去したため 7.54→7.25)
+ *   （2026-10-16: 盤面の上の「相手の想定妨害」トレイを廃止し、その高さを固定分から外した）
  *
- * トレイ開閉・ウィンドウリサイズのたびに再計算し、
+ * 左右パネルの開閉・ウィンドウリサイズのたびに再計算し、
  * 常にスクロールなしで全体が収まるよう自動調整する。
  */
 function fitFieldToViewport() {
-  const tray   = document.getElementById('opponentTray');
   const replay = document.getElementById('replayBarContainer');
-  if (!tray) return;
 
   // 旧ヘッダー(.sol-nav)はサイドバーへ統合し廃止。盤面上部に占有高さは無い。
   const navH    = 0;
-  const trayH   = tray.offsetHeight;   // 閉=28px 開=閉+ボディ高さ
   const replayH = replay ? replay.offsetHeight + 4 : 36; // margin-top(4px)込み
 
   // スマホ検出: 短辺 < 500px → スマホ（縦/横向き問わず検知）。横向き分岐はこの基準のまま（司令塔決定A-1）。
@@ -122,7 +120,7 @@ function fitFieldToViewport() {
   if (isPhone && isLandscape) {
     // mainContainer padding-top(4) + row-gaps(20) + sol-field-area padding-bottom(6)
     const BOARD_FIXED = 30;
-    const availForBoard = window.innerHeight - navH - trayH - replayH - BOARD_FIXED;
+    const availForBoard = window.innerHeight - navH - replayH - BOARD_FIXED;
     slotW_h = Math.floor(availForBoard / 4.35);
   } else if (isPortraitMobile) {
     // 設計書 §A-2（2026-09-03 第2次実機検収対応）: 墓地｜除外の左右2分割をやめ、
@@ -150,7 +148,7 @@ function fitFieldToViewport() {
     //   sol-field-area padding-bottom          :  6px
     // ※やや大きめ(アンダーシュート寄り)に置き、実測補正の縮小ループを避ける
     const FIXED_MISC = 4 + 8 + 22 + 22 + 6; // 62px
-    const fixed      = navH + trayH + replayH + FIXED_MISC;
+    const fixed      = navH + replayH + FIXED_MISC;
     const available  = window.innerHeight - fixed;
     slotW_h = Math.floor(available / 7.25);
   }
@@ -356,8 +354,8 @@ async function initializeApp() {
   // 未発売SAMPLE画像のぼかし設定（localStorage復元・トグル配線）
   initSampleBlur();
 
-  // 相手の想定妨害ミニ盤面を初期化
-  initOpponentTray();
+  // カード詳細パネルの上端を盤面に合わせる（旧 initOpponentTray の初期化時の処理を引き継ぐ）
+  syncCipPosition();
 
   // 左サイドバー・右パネルの開閉を初期化
   initSidebarToggle();
@@ -468,8 +466,8 @@ async function initializeApp() {
     });
   }
 
-  // 相手妨害トレイの開閉に連動して再計算
-  window.addEventListener('opp-tray-resize', fitFieldToViewport);
+  // 左右パネルの開閉など、盤面の入れ物の大きさが変わったら再計算（sidebar-toggle.js が発火）
+  window.addEventListener('sol-layout-resize', fitFieldToViewport);
 
   console.log('一人回しシミュレータ initialized');
 }
