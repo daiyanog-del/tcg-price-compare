@@ -59,9 +59,8 @@ def test_text_full():
                             site_url="https://example.test")
     assert t.split("\n") == [
         "新カード追加！「テストカード」",
-        "テストパック（11月1日発売）",
+        "テストパック（11月1日発売）｜公式Xより",
         "https://example.test/solitaire?newcards=1&focus=%E3%83%86%E3%82%B9%E3%83%88%E3%82%AB%E3%83%BC%E3%83%89",
-        "公式Xの発表より",
         "#遊戯王 #OCG"]
     assert "▼ 登録なし" not in t
 
@@ -443,17 +442,23 @@ def test_official_x_source_is_text_not_url():
     # 公式 X の投稿 URL は本文に貼ると引用埋め込みになり TCGYM のプレビューが消えるので、文字で書く
     t = xp.build_tweet_text("A", "P", "2026-11-01", "https://x.com/YuGiOh_OCG_INFO/status/123", site_url="https://example.test")
     assert re.findall(r"https?://\S+", t) == ["https://example.test/solitaire?newcards=1&focus=A"]
-    assert t.splitlines()[3] == "公式Xの発表より"
+    assert t.splitlines()[1] == "P（11月1日発売）｜公式Xより"
     t2 = xp.build_tweet_text("A", "P", "2026-11-01", "https://twitter.com/yugioh_ocg_info/status/9", site_url="https://example.test")
-    assert "公式Xの発表より" in t2 and "twitter.com" not in t2
+    assert "公式Xより" in t2 and "twitter.com" not in t2
 
 
 def test_other_x_account_source_is_omitted():
     t = xp.build_tweet_text("A", "P", "2026-11-01", "https://x.com/someone/status/123", site_url="https://example.test")
-    assert "公式Xの発表より" not in t and "x.com" not in t
+    assert "公式X" not in t and "x.com" not in t
     assert re.findall(r"https?://\S+", t) == ["https://example.test/solitaire?newcards=1&focus=A"]
 
 
 def test_official_site_source_is_url_after_tcgym_link():
     t = xp.build_tweet_text("A", "P", "2026-11-01", "https://yu-gi-oh.jp/news/abc/", site_url="https://example.test")
     assert re.findall(r"https?://\S+", t) == ["https://example.test/solitaire?newcards=1&focus=A", "https://yu-gi-oh.jp/news/abc/"]
+
+
+def test_official_x_source_without_info_goes_to_head():
+    t = xp.build_tweet_text("A", "", None, "https://x.com/YuGiOh_OCG_INFO/status/1", site_url="https://example.test")
+    assert t.splitlines()[0] == "新カード追加！「A」（公式Xより）"
+    assert t.splitlines()[1].startswith("https://example.test/solitaire")

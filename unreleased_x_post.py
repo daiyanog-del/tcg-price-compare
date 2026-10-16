@@ -207,7 +207,7 @@ def _usable_source_url(source_url) -> str:
 # 公式 X アカウント（X 監視の対象）。この投稿から取り込んだカードは出典を文字で書く。
 _OFFICIAL_X_ACCOUNT = "yugioh_ocg_info"
 _X_HOSTS = {"x.com", "www.x.com", "twitter.com", "www.twitter.com", "mobile.twitter.com", "mobile.x.com"}
-OFFICIAL_X_SOURCE_TEXT = "公式Xの発表より"
+OFFICIAL_X_SOURCE_TEXT = "公式Xより"
 
 
 def _source_line(source_url) -> str:
@@ -215,7 +215,7 @@ def _source_line(source_url) -> str:
 
     X の投稿 URL は、本文にあると X が引用として埋め込み、TCGYM のリンクのプレビューが出なくなる
     （2026-10-16 の実投稿で確認）。そのため X の投稿 URL は貼らず、公式アカウントの投稿なら
-    「公式Xの発表より」と文字で書き、それ以外のアカウントなら出典の行を省く（ユーザー判断）。
+    「公式Xより」と文字で書き、それ以外のアカウントなら出典の行を省く（ユーザー判断）。
     公式サイトの記事などそれ以外の URL は、従来どおり _usable_source_url を通して貼る。
     """
     u = (source_url or "").strip()
@@ -250,10 +250,13 @@ def build_tweet_text(name: str, product_name: str = "", release_date=None, sourc
     画像は添付せず、リンクのプレビュー（OG 画像）で誘導する（docs/decisions.md 2026-10-16）。
     文面:
         新カード追加！「{カード名}」
-        {商品名}（{M月D日}発売）        ← 商品名・発売日のどちらかが無ければ残る方だけ、両方無ければ行ごと省略
+        {商品名}（{M月D日}発売）｜公式Xより  ← 商品名・発売日のどちらかが無ければ残る方だけ。「｜公式Xより」は公式 X の投稿由来のときだけ
         {TCGYMリンク}                   ← 必ず最初の URL（2026-10-16 の実投稿で、X は先頭の URL のカードを出すと確認）
-        {情報元}                        ← 公式サイトの記事は URL（http(s) のみ）。公式 X の投稿は URL を貼らず「公式Xの発表より」（引用埋め込みで TCGYM のプレビューが消えるため）。他アカウントの X・manual・空なら行ごと省略
+        {公式サイトの記事URL}           ← 公式サイト由来のときだけ（http(s) のみ）。他アカウントの X・manual・空なら省略
         #遊戯王 #OCG
+    公式 X の投稿 URL は貼らない（引用として埋め込まれ TCGYM のプレビューが消えるため）。代わりに「公式Xより」を
+    商品の行の末尾に添える（単独の行だと浮いて見えるため。2026-10-16 ユーザー判断）。商品・発売日の行が無いときは
+    1行目の末尾に「（公式Xより）」と添える。
     リンク先はシミュレーター直行（/solitaire?newcards=1&focus=カード名）。
     focus は & # ? / なども含めて必ずエンコードする（quote の safe=""）。
     URL は常に完全なカード名で作る（本文側だけ詰める）。URL は2本（各23加重）で数える。
@@ -262,16 +265,29 @@ def build_tweet_text(name: str, product_name: str = "", release_date=None, sourc
     date_text = _format_release_short(release_date)
     source = _source_line(source_url)
 
+    source_is_text = source == OFFICIAL_X_SOURCE_TEXT
+
     def render(n: str, p: str) -> str:
-        lines = [f"新カード追加！「{n}」"]
+        head = f"新カード追加！「{n}」"
         if p and date_text:
-            lines.append(f"{p}（{date_text}発売）")
+            info = f"{p}（{date_text}発売）"
         elif p:
-            lines.append(p)
+            info = p
         elif date_text:
-            lines.append(f"{date_text}発売")
+            info = f"{date_text}発売"
+        else:
+            info = ""
+        # 「公式Xより」は単独の行だと浮いて見えるので、商品の行の末尾（無ければ1行目の末尾）に添える
+        if source_is_text:
+            if info:
+                info = f"{info}｜{source}"
+            else:
+                head = f"{head}（{source}）"
+        lines = [head]
+        if info:
+            lines.append(info)
         lines.append(url)
-        if source:
+        if source and not source_is_text:
             lines.append(source)
         lines.append("#遊戯王 #OCG")
         return "\n".join(lines)
