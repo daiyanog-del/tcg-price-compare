@@ -1110,6 +1110,7 @@ function _applyMobileCutinMode(isCutin) {
   setHidden('solMobileCutinChips', !isCutin || mode !== 'words'); // 言葉の札はカットインの「言葉」のときだけ
   setHidden('solMobileCutinDisruption', !isCutin || mode !== 'disruption');
   setHidden('solMobileCommentInputRow', isCutin && mode === 'disruption');
+  if (isCutin && mode === 'disruption') _mobileDisruptionPicker?.prefetch(); // よく使う札の画像を先に読み込む
   const targetEl = document.getElementById('solMobileCommentTarget');
   if (targetEl && isCutin) {
     targetEl.textContent = mode === 'disruption'

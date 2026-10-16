@@ -10,6 +10,7 @@
  */
 
 import { DISRUPTION_PRESETS } from '../config/disruption-presets.js';
+import { prefetchCutinCard } from '../services/comment-view.js';
 
 /** 検索の候補を問い合わせるまでの待ち時間（ms。トレイと同じ値） */
 const SUGGEST_DEBOUNCE_MS = 200;
@@ -35,7 +36,8 @@ export function setCutinMode(root, mode) {
  * 部品を container の中に作る。
  * @param {HTMLElement} container
  * @param {(name: string) => void} onPick  カード名を選んだとき
- * @returns {{reset: () => void, focusSearch: () => void}}  reset: 検索欄と候補を空にする
+ * @returns {{reset: () => void, focusSearch: () => void, prefetch: () => void}}
+ *   reset: 検索欄と候補を空にする／prefetch: よく使う札のカード画像を先に読み込む（欄を開いたときに呼ぶ）
  */
 export function buildDisruptionPicker(container, onPick) {
   container.replaceChildren();
@@ -138,5 +140,18 @@ export function buildDisruptionPicker(container, onPick) {
     }
   });
 
-  return { reset, focusSearch: () => input.focus() };
+  // よく使う札の画像は、欄を開いたときに1度だけ先に読み込む（押してから帯に絵がそろうまでの待ちを無くすため）。
+  // 検索の候補は、ポインタを載せた・触れた時点で読み込み始める
+  let prefetched = false;
+  const prefetch = () => {
+    if (prefetched) return;
+    prefetched = true;
+    for (const group of DISRUPTION_PRESETS) group.cards.forEach(prefetchCutinCard);
+  };
+  list.addEventListener('pointerover', (e) => {
+    const li = e.target instanceof Element ? e.target.closest('.sol-cutin-suggest-item') : null;
+    if (li) prefetchCutinCard(li.textContent);
+  });
+
+  return { reset, focusSearch: () => input.focus(), prefetch };
 }
