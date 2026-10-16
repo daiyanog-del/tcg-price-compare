@@ -418,6 +418,28 @@ def _get_pydantic_models():
 # 抽出結果の検証・補正
 # ──────────────────────────────────────────────
 
+# ペンデュラムを補うとき「ペンデュラム」をこの召喚種別の直後に置く（公式の【エクシーズ／ペンデュラム／効果】の順）
+_PENDULUM_SUMMON_KINDS = ("融合", "儀式", "シンクロ", "エクシーズ")
+
+
+def add_pendulum_to_card_type(card_type: str) -> str:
+    """ペンデュラムスケールのあるモンスターの種別に「ペンデュラム」が無ければ補う。
+
+    1回目の抽出は、エクシーズ・儀式・融合のペンデュラムで種別を「エクシーズモンスター」等と返し
+    「ペンデュラム」が抜けることがある（発売済み28枚の評価で 5/28。スケールは 28/28 正解）。
+    表記は app.py の ygoprodeck 対応表に合わせる（例: エクシーズ・ペンデュラムモンスター、
+    エクシーズ・ペンデュラム・効果モンスター、ペンデュラム・効果モンスター）。
+    モンスターでない・リンク（ペンデュラムのリンクは無い）・形が読めない種別はそのまま返す。
+    """
+    t = card_type.strip()
+    if not t.endswith("モンスター") or "ペンデュラム" in t or "リンク" in t:
+        return card_type
+    tokens = [tok for tok in t[:-len("モンスター")].split("・") if tok]
+    pos = next((i + 1 for i, tok in enumerate(tokens) if tok in _PENDULUM_SUMMON_KINDS), 0)
+    tokens.insert(pos, "ペンデュラム")
+    return "・".join(tokens) + "モンスター"
+
+
 def _validate_and_fix(card: Any, page_url: str) -> dict | None:
     """抽出済みカードデータを検証・補正してdictを返す。
     無効なカード（name空等）は None を返す。
@@ -438,6 +460,11 @@ def _validate_and_fix(card: Any, page_url: str) -> dict | None:
     confidence = card.confidence
 
     card_type = (card.card_type or "").strip()
+    if card.pendulum_scale is not None:
+        fixed_type = add_pendulum_to_card_type(card_type)
+        if fixed_type != card_type:
+            logger.info(f"[Extractor] {name!r}: スケールがあるので種別にペンデュラムを補う {card_type!r} → {fixed_type!r}")
+            card_type = fixed_type
     effect_text = normalize_effect_punct((card.effect_text or "").strip())
     pendulum_effect = normalize_effect_punct((card.pendulum_effect or "").strip())
 
@@ -781,6 +808,9 @@ def _extract_cards(processed_text: str, encoded_images: list[dict], source_url: 
                 # AI が「読みに自信がない」とした欄（confidence が high なら空）
                 'uncertain_fields': list(dict.fromkeys(card.uncertain_fields)),
             }
+            if (card.card_type or '').strip() != row['card_type']:
+                # 種別に「ペンデュラム」を補った（_validate_and_fix）。1回目の種別を残す
+                row['extraction_raw']['card_type_first_pass'] = (card.card_type or '').strip()
             output.append(row)
     return enrich_rows(output, client=client, model=QUALITY_MODEL, encoded_images=encoded_images)
 
