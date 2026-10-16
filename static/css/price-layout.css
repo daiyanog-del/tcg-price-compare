@@ -28,8 +28,6 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
 #mode-search .search:focus-within{border-color:#f3ce46}
 #mode-search .suggest-dropdown{right:0;margin-top:4px}
 #mode-search.has-search-result .price-search-label{display:none}
-/* 検索中・結果表示中はフッターを画面外に置く（結果が出た瞬間にフッターが押し下げられて画面が跳ねないように） */
-#mode-search.has-search-result{min-height:100vh}
 #mode-search .empty{padding:0;text-align:left}
 #mode-search .movers-row{grid-template-columns:1fr;gap:20px;max-width:none}
 #mode-search .movers-row>.movers{max-width:none;min-width:0;width:100%;margin:0;background:var(--bg-card);border:0;border-radius:8px;overflow:hidden}

@@ -452,6 +452,10 @@ async function initializeApp() {
   // ビューポートに合わせて --slot-width を初期設定
   // ※ fitFieldToViewport 内の RAF でパネル幅（--cip-width）も更新される
   fitFieldToViewport();
+  // パネル幅の更新（上の RAF）が済んだ次のフレームで盤面を見せる（それまでは .sol-fitting で非表示）
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    document.querySelector('.sol-field-area')?.classList.remove('sol-fitting');
+  }));
 
   // ウィンドウリサイズ時に再計算（デバウンス 150ms）
   window.addEventListener('resize', () => {
