@@ -7,7 +7,9 @@
  * 本文はすべて textContent で入れる（共有リプレイの本文は他人が作れるため innerHTML には入れない）。
  */
 
-import { computeCommentView, CUTIN_DURATION_MS } from './comment-model.js';
+import {
+  computeCommentView, cutinCardsIn, CUTIN_DURATION_MS, CUTIN_DISRUPTION_LABEL, CUTIN_DISRUPTION_VERB,
+} from './comment-model.js';
 
 /** 重ねたカードの下側の吹き出しを、一番上のカードの位置に出すときの本文の頭に付ける印 */
 export const UNDER_PREFIX = '下：';
@@ -148,6 +150,77 @@ export function hideCutin() {
   if (_cutinEl) { _cutinEl.remove(); _cutinEl = null; }
 }
 
+// 相手の妨害のカットインのカード画像。記録には URL を残さないので、カード名から /api/card-image で引き直す。
+// 名前ごとに1回だけ問い合わせる。失敗（画像の無いカード・通信の失敗）も覚えておき、ページを開き直すまで文字だけで出す
+// （手を動かすたびに先読みが走るので、失敗を覚えないと同じ問い合わせを繰り返すため）。
+const _cardImageCache = new Map(); // カード名 -> Promise<{url:string, sample:boolean}|null>
+
+/**
+ * カード名から画像の URL を引く（取れなければ null。そのときは帯に文字だけを出す）。
+ * @param {string} name
+ * @returns {Promise<{url:string, sample:boolean}|null>}
+ */
+function _cardImage(name) {
+  if (!_cardImageCache.has(name)) {
+    const p = fetch(`/api/card-image?name=${encodeURIComponent(name)}`)
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((data) => {
+        const url = data && data.kind === 'image' ? (data.url || data.image_url) : null;
+        return url ? { url, sample: data.source === 'official_sample' } : null; // プロキシ（画像なし）は文字だけ
+      })
+      .catch((err) => {
+        console.warn('[cutin] カード画像の取得に失敗（文字だけで出す）', name, err);
+        return null;
+      });
+    _cardImageCache.set(name, p);
+  }
+  return _cardImageCache.get(name);
+}
+
+/**
+ * 相手の妨害のカットインの帯の中身を作る。
+ * 背景にカードのイラストをぼかして暗く敷き、左にカード、右に「相手の妨害／カード名 発動」（見本:
+ * mocks/sim-disruption-cutin-20261016.html の案S）。画像は届いたら入れる（届く前は文字だけ）。
+ */
+function _fillDisruptionCutin(el, name) {
+  el.classList.add('sol-cutin--card');
+  const art = document.createElement('div');
+  art.className = 'sol-cutin-art';
+  const artImg = document.createElement('i');
+  art.appendChild(artImg);
+  // カードは img を包む枠に .sample-art を付ける（未発売 SAMPLE のぼかし設定を、盤面と同じ sample-blur.css で効かせる）
+  const cardWrap = document.createElement('span');
+  cardWrap.className = 'sol-cutin-card';
+  cardWrap.dataset.cardName = name;
+  const body = document.createElement('div');
+  body.className = 'sol-cutin-body';
+  const who = document.createElement('span');
+  who.className = 'sol-cutin-who';
+  who.textContent = CUTIN_DISRUPTION_LABEL;
+  const line = document.createElement('span');
+  line.className = 'sol-cutin-line';
+  const nameEl = document.createElement('span');
+  nameEl.className = 'sol-cutin-text';
+  nameEl.textContent = name; // カード名も共有リプレイ由来なので textContent
+  const verb = document.createElement('span');
+  verb.className = 'sol-cutin-verb';
+  verb.textContent = CUTIN_DISRUPTION_VERB;
+  line.append(nameEl, verb);
+  body.append(who, line);
+  el.append(art, cardWrap, body);
+
+  _cardImage(name).then((img) => {
+    if (!img || _cutinEl !== el) return; // 取れない・もう消えた（次のカットインに替わった）
+    artImg.style.backgroundImage = `url(${JSON.stringify(img.url)})`; // 引用符で囲んだ CSS の文字列として渡す
+    const cardImg = document.createElement('img');
+    cardImg.src = img.url;
+    cardImg.alt = '';
+    cardWrap.classList.toggle('sample-art', img.sample);
+    cardWrap.appendChild(cardImg);
+    el.classList.add('has-card-image');
+  });
+}
+
 /**
  * カットインを出す。出ているものがあれば消して、新しいものを出す。約1.9秒の動き（css/comments.css の cutIn）で
  * 入って抜け、終わったら要素ごと消える。操作の邪魔をしない（pointer-events:none）。
@@ -155,9 +228,9 @@ export function hideCutin() {
  *   - 横: 盤面の入れ物（#mainContainer。縦向きスマホは .sol-field-area）の幅いっぱい（モックどおり、カード詳細欄の下にも薄く伸びる）
  *   - 縦: 盤面（.custom-layout）の中央の高さ（PC は3段の真ん中、スマホ縦向きは真ん中の段の高さ）
  * 画面に固定（position:fixed）で body 直下に置くので、盤面の配置には影響しない。
- * @param {string} text
+ * @param {{text:string, card?:string|null}} cutin  card があれば相手の妨害のカットイン（text はカード名）
  */
-export function showCutin(text) {
+export function showCutin({ text, card } = {}) {
   hideCutin();
   const board = document.querySelector('.custom-layout');
   if (!board || !text) return;
@@ -173,13 +246,18 @@ export function showCutin(text) {
   el.style.left = `${a.left}px`;
   el.style.width = `${a.width}px`;
   el.style.top = `${b.top + b.height / 2}px`; // 帯の高さの半分だけ上へずらすのは CSS（margin-top）
-  const span = document.createElement('span');
-  span.className = 'sol-cutin-text';
-  span.textContent = text; // 本文は他人が作れるので textContent
-  el.appendChild(span);
-  el.addEventListener('animationend', () => { if (_cutinEl === el) hideCutin(); });
+  _cutinEl = el; // 画像の到着時に「まだ出ているか」を見るので、中身を作る前に控える
+  if (card) {
+    _fillDisruptionCutin(el, card);
+  } else {
+    const span = document.createElement('span');
+    span.className = 'sol-cutin-text';
+    span.textContent = text; // 本文は他人が作れるので textContent
+    el.appendChild(span);
+  }
+  // 子（カードの img など）の animationend も泡立って来るので、帯自身の動きの終わりだけを見る
+  el.addEventListener('animationend', (e) => { if (e.target === el && _cutinEl === el) hideCutin(); });
   document.body.appendChild(el);
-  _cutinEl = el;
   // animationend が来ない環境（動きを止めている等）でも消えるように、保険のタイマーを置く
   _cutinTimer = setTimeout(() => { if (_cutinEl === el) hideCutin(); }, CUTIN_DURATION_MS + 300);
 }
@@ -191,6 +269,8 @@ export function showCutin(text) {
  * @param {number} cursor
  */
 export function renderCommentView(setupLogs, logs, cursor) {
+  // 相手の妨害のカットインの画像を先に引いておく（共有リンクを開いた直後でも、帯の動きに画像が間に合うように）
+  for (const name of cutinCardsIn(logs)) _cardImage(name);
   _lastView = computeCommentView(setupLogs, logs, cursor);
   _renderBubbles(_lastView.bubbles);
   _renderMemo(_lastView.memo);

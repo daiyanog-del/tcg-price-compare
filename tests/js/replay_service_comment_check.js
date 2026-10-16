@@ -16,7 +16,7 @@ const playActivateEffect=${noop}; const flipMoveClone=${noop}; const playSetFlip
 const prefersReducedMotion=()=>true; const createProxyCardElement=${noop}; const isMobilePortrait=()=>false;
 const renderCommentView=${noop};
 // カットイン: 出した本文を shown に、消した回数を hidden に数える
-globalThis.__cut={shown:[],hidden:0}; const showCutin=(t)=>{globalThis.__cut.shown.push(t);}; const hideCutin=()=>{globalThis.__cut.hidden++;};
+globalThis.__cut={shown:[],cards:[],hidden:0}; const showCutin=(t)=>{globalThis.__cut.shown.push(t.text);globalThis.__cut.cards.push(t.card);}; const hideCutin=()=>{globalThis.__cut.hidden++;};
 `;
   const model = fs.readFileSync(path.join(js, 'services/comment-model.js'), 'utf8').replace(/^export /gm, '');
   let src = fs.readFileSync(path.join(js, 'services/replay-service.js'), 'utf8');
@@ -109,7 +109,7 @@ globalThis.__cut={shown:[],hidden:0}; const showCutin=(t)=>{globalThis.__cut.sho
 
   // ── カットイン: 前進でその手に来たときだけ出る ──
   const cut = globalThis.__cut;
-  const reset = () => { cut.shown.length = 0; cut.hidden = 0; };
+  const reset = () => { cut.shown.length = 0; cut.cards.length = 0; cut.hidden = 0; };
   fresh(); reset();
   assert.equal(svc.addComment({ kind: 'cutin', text: 'ターン終了' }), true);
   assert.deepEqual(cut.shown, ['ターン終了'], '付けた直後に出る');
@@ -144,6 +144,22 @@ globalThis.__cut={shown:[],hidden:0}; const showCutin=(t)=>{globalThis.__cut.sho
   reset();
   svc.restoreReplaySession({ logs: [{ actionType: 'comment', kind: 'cutin', text: 'Z', seq: 0 }], setupLogs: [], cursor: 0, images: {}, names: {}, exCardIds: [], cardTypes: {} });
   assert.deepEqual(cut.shown, [], 'セッション復元では出ない');
+
+  // ── 相手の妨害のカットイン（card つき）──
+  fresh(); reset();
+  assert.equal(svc.addComment({ kind: 'cutin', card: '灰流うらら' }), true);
+  assert.deepEqual(svc.getLogs()[3], { actionType: 'comment', kind: 'cutin', card: '灰流うらら', text: '灰流うらら', seq: 3 },
+    'card と、古い画面向けの text（同じ名前）を記録する');
+  assert.deepEqual(cut.shown, ['灰流うらら'], '付けた直後に出る');
+  assert.deepEqual(cut.cards, ['灰流うらら'], 'カードとして出す');
+  const longName = 'ア'.repeat(30);
+  assert.equal(svc.addComment({ kind: 'cutin', card: longName, text: '無視される' }), true);
+  assert.equal(svc.getLogs()[4].card, longName, 'カード名は20字で切らない');
+  assert.equal(Array.from(svc.getLogs()[4].text).length, 20, 'text は20字で切る（古い画面向け）');
+  assert.equal(svc.addComment({ kind: 'cutin', card: '  ' }), false, '空のカード名は付けない');
+  reset();
+  svc.addComment({ kind: 'cutin', text: 'ターン終了' });
+  assert.deepEqual(cut.cards, [null], '言葉のカットインは card なし');
 
   console.log('replay-service: addComment（カーソルの次へ差し込み・未来を切らない）、removeEventAt（コメントのみ・内容一致）、範囲のずれ、カットイン（進んだときだけ）を確認');
 })().catch((e) => { console.error(e); process.exitCode = 1; });

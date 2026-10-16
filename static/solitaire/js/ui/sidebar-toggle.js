@@ -13,7 +13,7 @@
  *   - 手動操作 (override) を自動より優先
  *   - localStorage で override 状態を永続化 (キー: sol-panel-state)
  *
- * 開閉後は opp-tray-resize イベントを発火し、fitFieldToViewport（横幅含む）と
+ * 開閉後は sol-layout-resize イベントを発火し、fitFieldToViewport（横幅含む）と
  * updateCipWidth を既存の仕組みで自動再計算させる。
  */
 
@@ -83,7 +83,7 @@ function applyCollapsed(side, collapsed) {
   panel.classList.toggle('collapsed', collapsed);
   // 見出し内ボタンは開いている時だけ見える（畳むとパネルごと display:none になる）
   btn.setAttribute('aria-expanded', String(!collapsed));
-  // 縦帯は畳んでいる時だけ出す（hidden 属性で出し分け。フロー内なので再計算は opp-tray-resize で行う）
+  // 縦帯は畳んでいる時だけ出す（hidden 属性で出し分け。フロー内なので再計算は sol-layout-resize で行う）
   if (rail) {
     rail.hidden = !collapsed;
     rail.setAttribute('aria-expanded', String(!collapsed));
@@ -92,7 +92,7 @@ function applyCollapsed(side, collapsed) {
 
 /** 開閉確定後に fitFieldToViewport + updateCipWidth を再実行させる */
 function triggerRefit() {
-  window.dispatchEvent(new Event('opp-tray-resize'));
+  window.dispatchEvent(new Event('sol-layout-resize'));
 }
 
 /**

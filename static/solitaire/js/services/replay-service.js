@@ -27,7 +27,8 @@
  *   removeCard     … トークンを盤面から消す（zoneId=消す前にいたゾーン）。再生は要素を消し、
  *                    巻き戻しでは画像・名前の辞書から作り直して元の位置へ戻す
  *   comment        … コメント。kind:'card'（cardId のカードの吹き出し）／kind:'board'（盤面メモ）／
- *                    kind:'cutin'（カットイン。20字まで。その手に前進で来たときだけ一瞬出る）。
+ *                    kind:'cutin'（カットイン。20字まで。その手に前進で来たときだけ一瞬出る。card があれば
+ *                    相手の妨害のカットインで、帯にカード画像とカード名を出す）。
  *                    kind が無い古い記録・未知の kind は盤面メモ。盤面には反映せず、表示は comment-view.js が
  *                    カーソル位置までの記録から計算する（カードが動くまで・次のメモが来るまで）
  *   activateEffect … 効果発動（cardId のカードで発動演出を再生）
@@ -51,7 +52,7 @@ import { playActivateEffect, flipMoveClone, playSetFlip, flyBetweenRects, prefer
 import { createProxyCardElement } from '../components/proxy-card.js';
 import { isMobilePortrait } from '../utils/viewport.js';
 import { renderCommentView, showCutin, hideCutin } from './comment-view.js';
-import { clampCommentText, clampCutinText, cutinToShow, playPauseMs, cursorAfterRemove, isSameComment } from './comment-model.js';
+import { clampCommentText, buildCutinEvent, cutinToShow, playPauseMs, cursorAfterRemove, isSameComment } from './comment-model.js';
 
 const _API_CARD_IMAGES = '/api/card-images';
 
@@ -219,20 +220,24 @@ export function logEvent(event) {
  *   - コメントは盤面を変えないので、盤面の作り直しはしない。カーソルは差し込んだコメントへ進む
  *   - 本文は上限（吹き出し・メモは COMMENT_MAX_LEN、カットインは CUTIN_MAX_LEN）で切る。空なら何もしない
  *   - カットインは、付けた直後（カーソルがその手に進んだとき）にその場で一度出る
+ *   - カットインに card（カード名）を渡すと、相手の妨害のカットインになる（記録の形は comment-model.js の buildCutinEvent）
  * 範囲（旧録画）のずらしは、呼び出し元ではなく購読側（pc-recording.js・mobile-ui.js）が
  * 'commentAdded'（引数 = 差し込んだ位置）を受けて行う。
- * @param {{kind:'card'|'board'|'cutin', cardId?:string, text:string}} comment
+ * @param {{kind:'card'|'board'|'cutin', cardId?:string, text?:string, card?:string}} comment
  * @returns {boolean} 追加できたか
  */
-export function addComment({ kind, cardId, text }) {
-  const t = kind === 'cutin' ? clampCutinText(text) : clampCommentText(text);
-  if (!t) return false;
-  if (kind === 'card' && !cardId) return false;
+export function addComment({ kind, cardId, text, card }) {
+  let ev;
+  if (kind === 'cutin') {
+    ev = buildCutinEvent({ text, card });
+  } else {
+    const t = clampCommentText(text);
+    if (t && kind === 'card' && cardId) ev = { actionType: 'comment', kind: 'card', cardId, text: t };
+    else if (t && kind !== 'card') ev = { actionType: 'comment', kind: 'board', text: t };
+  }
+  if (!ev) return false;
   if (_playing) _stopPlay();
   const at = _cursor + 1;
-  const ev = kind === 'card'
-    ? { actionType: 'comment', kind: 'card', cardId, text: t }
-    : { actionType: 'comment', kind: kind === 'cutin' ? 'cutin' : 'board', text: t };
   _logs = [..._logs.slice(0, at), ev, ..._logs.slice(at)].map((e, i) => ({ ...e, seq: i }));
   _cursor = at;
   _emit('commentAdded', at);
@@ -1369,8 +1374,8 @@ function _updateUI(arrivedForward = false) {
   // 吹き出し・盤面メモは、記録の位置（カーソルまで）から毎回計算して描く
   renderCommentView(_setupLogs, _logs, cur);
   // カットイン: 前進でその手に来たときだけ出す。前進以外でカーソルが動いたら、出ているものは消す
-  const cutinText = cutinToShow(_logs[cur], arrivedForward);
-  if (cutinText) showCutin(cutinText);
+  const cutin = cutinToShow(_logs[cur], arrivedForward);
+  if (cutin) showCutin(cutin);
   else if (!arrivedForward && cur !== _lastUiCursor) hideCutin();
   _lastUiCursor = cur;
   _emit('changed');

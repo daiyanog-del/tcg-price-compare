@@ -752,42 +752,6 @@
     z-index: 2;
   }
 
-  /* ════════ 相手の想定妨害シート（#opponentTray 再利用・制約6） ════════ */
-
-  #opponentTray.sol-opp-sheet-open {
-    display: block !important;
-    position: fixed;
-    left: 0;
-    right: 0;
-    top: auto;
-    bottom: 0;
-    max-height: 80vh;
-    overflow-y: auto;
-    z-index: 910;
-    border-radius: 14px 14px 0 0;
-    border: none;
-    border-top: 1px solid var(--border);
-    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.5);
-    box-sizing: border-box;
-  }
-  #opponentTray .sol-mobile-sheet-close-btn {
-    display: none;
-  }
-  #opponentTray.sol-opp-sheet-open .sol-mobile-sheet-close-btn {
-    display: block;
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    z-index: 2;
-  }
-  #opponentTray.sol-opp-sheet-open .opp-tray-toggle {
-    display: none;
-  }
-  #opponentTray.sol-opp-sheet-open .opp-tray-body {
-    display: block !important;
-    padding-top: 40px;
-  }
-
   /* ════════ 操作方法シート（右パネルの .sol-ops-details を流用・制約6） ════════ */
 
   /* .sol-ops-details は display:none の #solRightPanel の子孫にあるため、
