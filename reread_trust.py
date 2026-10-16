@@ -24,7 +24,7 @@ FLAG = "reread_trusted_on_disagree"   # extraction_raw に残す印
 CACHE_TTL_SEC = 30
 
 # 利用者の報告のうち、読み直し採用の根拠が外れた可能性を示す欄
-REPORT_FIELDS = ("effect_text", "other")
+REPORT_FIELDS = ("effect_text", "pendulum_effect", "other")
 
 _lock = threading.Lock()
 _cache: dict = {"at": 0.0, "value": None}

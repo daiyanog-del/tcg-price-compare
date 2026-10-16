@@ -409,14 +409,14 @@ def _report_sb(raw):
                   pks={"unreleased_cards": "id", "app_settings": "key"})
 
 
-@pytest.mark.parametrize("field", ["effect_text", "other"])
+@pytest.mark.parametrize("field", ["effect_text", "pendulum_effect", "other"])
 def test_report_on_trusted_card_disables(notices, field):
     sb = _report_sb(_trusted_raw())
     _, status = _report(sb, field)
     assert status == 200 and _setting(sb) == "0" and len(notices) == 1
 
 
-@pytest.mark.parametrize("field", ["card_name", "stats", "pendulum_effect"])
+@pytest.mark.parametrize("field", ["card_name", "stats"])
 def test_report_on_other_fields_keeps(notices, field):
     sb = _report_sb(_trusted_raw())
     _, status = _report(sb, field)

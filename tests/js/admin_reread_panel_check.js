@@ -54,4 +54,9 @@ assert.equal(t.rows.children.length, 4);  // dt, dd, dt, dd
 const first = t.rows.children[1].children, reread = t.rows.children[3].children;
 assert.deepEqual(first.map(c => c.tag === 'mark' ? 'M:' + c.textContent : c.text), ['A', 'M:され', 'た']);
 assert.deepEqual(reread.map(c => c.tag === 'mark' ? 'M:' + c.textContent : c.text), ['A', 'M:し', 'た', 'M:<i>']);
+assert.ok(!t.note.textContent.includes('‖'));  // 通常カードには並び順の注記を出さない
+
+t = form();
+context.render(t.f, {effect_reread: {status: 'disagree', pendulum: true, ops: [['equal', 'P‖M', 'P‖M']]}});
+assert.ok(t.note.textContent.includes('ペンデュラム効果‖モンスター効果'));
 console.log('ok');

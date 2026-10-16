@@ -29,7 +29,8 @@ logger = logging.getLogger(__name__)
 # 4: confidence が medium でも、AI が「不確か」とした欄（uncertain_fields）が重要欄と重ならなければ通す（2026-10-15）。
 #    理由コード confidence_not_high は low 専用の confidence_low に分け、medium は
 #    medium_uncertain_fields / medium_uncertain_unknown にした
-VERSION = 4
+# 5: ペンデュラムの拡大読み直しに合わせ、種別とペンデュラムの手がかり（スケール・P効果）の食い違いを不適格にする（2026-10-16）
+VERSION = 5
 
 # ──────────────────────────────────────────────
 # 閾値（実データでの校正が必要な仮置き値）
@@ -75,6 +76,7 @@ REASON_LABELS = {
     "same_source_name_seen": "同じ投稿元で同名のカードを以前取り込み済み（却下・削除済みの再取込の可能性）",
     "no_visible_image": "公開用の画像がまだ無い（画像が揃うまで自動承認しない）",
     "text_too_long": "効果テキストが長すぎて言い回しを照合していない",
+    "pendulum_type_mismatch": "ペンデュラムの手がかり（スケール・ペンデュラム効果）と種別が食い違う",
     "evaluation_error": "判定中にエラーが起きた",
 }
 
@@ -233,6 +235,18 @@ def _text_reason(text_check) -> str | None:
     return None
 
 
+def pendulum_type_mismatch(card: dict) -> bool:
+    """種別名の「ペンデュラム」と、スケール・ペンデュラム効果の有無が食い違うか。
+
+    1回目の種別から「ペンデュラム」が抜けることがある（評価で 5/28。エクシーズ・儀式・融合のペンデュラム）。
+    逆に種別にだけ「ペンデュラム」があってスケールが無いのも読み違い。どちらも人の確認へ回す。
+    """
+    in_type = "ペンデュラム" in (card.get("card_type") or "")
+    has_clue = card.get("pendulum_scale") is not None or bool((card.get("pendulum_effect") or "").strip())
+    has_scale = card.get("pendulum_scale") is not None
+    return (has_clue and not in_type) or (in_type and not has_scale)
+
+
 def evaluate(card: dict, *, other_names=None, text_check=None, text_context=None) -> dict:
     """1枚のカード行（unreleased_cards 形式の dict）が自動承認の条件を満たすか判定する。
 
@@ -268,6 +282,9 @@ def evaluate(card: dict, *, other_names=None, text_check=None, text_context=None
 
     if lacks_card_body(card):
         reasons.append("lacks_card_body")
+
+    if pendulum_type_mismatch(card):
+        reasons.append("pendulum_type_mismatch")
 
     # 効果テキストが空のカードは（魔法・罠・モンスターを問わず）自動承認しない。
     # 通常モンスターのフレーバーテキストも effect_text に入るので、空なら読み落とし

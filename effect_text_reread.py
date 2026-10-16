@@ -75,16 +75,18 @@ def user_text_with_name(name: str, base: str | None = None) -> str:
 REREAD_SCHEMA = {"type": "object", "properties": {
     "effect_text": {"type": "string"}, "unreadable": {"type": "boolean"}}}
 
-# ペンデュラム用（ルール7・8と出力欄だけが通常と違う。評価は scratchpad の pend_eval と同じ文面）
+# ペンデュラム用（ルール7・8・9と出力欄だけが通常と違う）。スケールも切り出しに写っているので読ませて1回目と突き合わせる
 PENDULUM_REREAD_SYSTEM = REREAD_SYSTEM.replace(
     "7. ペンデュラム効果欄が写っていても、書き起こすのはカード最下部のモンスター効果欄（effect_text）だけにする。\n",
     "7. この画像には2つの欄がある。上の欄（左右に青と赤のスケールの数字がある欄）の本文を pendulum_effect に、\n"
     "   下の欄（【】の種別の行で始まる欄）の本文を effect_text に入れる。スケールの数字は書かない。\n"
     "   上の欄が空なら pendulum_effect は空文字。\n").replace(
-    "8. 効果欄の文字を1文字でも", "8. どちらかの欄の文字を1文字でも")
+    "8. 効果欄の文字を1文字でも", "8. どちらかの欄の文字を1文字でも") + (
+    "9. 上の欄の左右にある青と赤のスケールの数字を pendulum_scale に入れる（左右は同じ値。読めなければ null）。\n")
 
 PENDULUM_REREAD_SCHEMA = {"type": "object", "properties": {
-    "pendulum_effect": {"type": "string"}, "effect_text": {"type": "string"}, "unreadable": {"type": "boolean"}}}
+    "pendulum_effect": {"type": "string"}, "effect_text": {"type": "string"},
+    "pendulum_scale": {"type": ["integer", "null"]}, "unreadable": {"type": "boolean"}}}
 
 # combined_text の区切り（効果文に出てこない記号。管理画面の差分表示でも欄の境目として見える）
 PENDULUM_SEPARATOR = "‖"
@@ -192,6 +194,9 @@ def diff_within_trust_limits(a: str, b: str) -> bool:
     if not (TRUST_LEN_RATIO[0] <= len(b) / len(a) <= TRUST_LEN_RATIO[1]):
         return False
     ops = diff_ops(a, b)
+    # ペンデュラムの区切りが食い違いに含まれる＝文が欄をまたいで移った。差の字数に表れないので信じない
+    if any(PENDULUM_SEPARATOR in x + y for tag, x, y in ops if tag != "equal"):
+        return False
     mismatch = sum(max(len(x), len(y)) for tag, x, y in ops if tag != "equal")
     if mismatch > TRUST_MAX_DIFF_CHARS:
         return False
@@ -214,7 +219,8 @@ def _can_trust_on_disagree(row: dict, raw: dict, model: str, a: str, b: str, tex
     誤字検査は取込前なので他カードの文脈（名前・「」内語）なしで行う。文脈なしのほうが強い疑いが出やすい（安全側）。
     最終的な自動承認の判定（annotate_row）は文脈つきで text_check をやり直し、強い疑いがあれば別途不適格にする。
     """
-    if has_unreadable or not a or not b:
+    # ペンデュラムは区切りだけの文字列にならないよう、区切りを除いて中身があるかを見る
+    if has_unreadable or not a.replace(PENDULUM_SEPARATOR, "") or not b.replace(PENDULUM_SEPARATOR, ""):
         return False
     if not diff_within_trust_limits(a, b):
         return False
@@ -323,6 +329,15 @@ def reread_effect_texts(rows: list[dict], *, client, encoded_images: list[dict],
         row["effect_text"] = text
         if pendulum:
             row["pendulum_effect"] = ptext
+            # スケールも読み直しで確かめる（切り出しに写っている）。食い違い・読めないときは 1回目を残して不確かにする
+            rescale = data.get("pendulum_scale")
+            rescale = rescale if isinstance(rescale, int) and not isinstance(rescale, bool) else None
+            scale_agreed = rescale is not None and rescale == row.get("pendulum_scale")
+            raw["effect_text_reread"].update({"pendulum_scale": rescale, "scale_agreed": scale_agreed})
+            if not scale_agreed:
+                _mark_uncertain(raw, "pendulum_scale")
+                logger.warning("ペンデュラムスケールが読み直しと食い違い: %s 1回目=%s 読み直し=%s",
+                               row.get("name"), row.get("pendulum_scale"), rescale)
         fields = _effect_fields(pendulum)
         uncertain = _uncertain_list(raw)
         # 一致で自己申告の不確かを外してよいのは、(1) 設定で有効 (2) 1回目と読み直しが同じモデル
