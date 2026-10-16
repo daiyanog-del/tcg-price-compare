@@ -28,6 +28,8 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
 #mode-search .search:focus-within{border-color:#f3ce46}
 #mode-search .suggest-dropdown{right:0;margin-top:4px}
 #mode-search.has-search-result .price-search-label{display:none}
+/* 検索中・結果表示中はフッターを画面外に置く（結果が出た瞬間にフッターが押し下げられて画面が跳ねないように） */
+#mode-search.has-search-result{min-height:100vh}
 #mode-search .empty{padding:0;text-align:left}
 #mode-search .movers-row{grid-template-columns:1fr;gap:20px;max-width:none}
 #mode-search .movers-row>.movers{max-width:none;min-width:0;width:100%;margin:0;background:var(--bg-card);border:0;border-radius:8px;overflow:hidden}
@@ -51,6 +53,14 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
 #mode-search .movers-price{grid-column:4;grid-row:1;text-align:right;flex-direction:column;align-items:flex-end;gap:4px;min-width:0;max-width:112px;font-variant-numeric:tabular-nums}
 #mode-search .movers-price-now{font-size:15px;line-height:1.5;white-space:nowrap;color:var(--text)}
 #mode-search .movers-diff{font-size:11px}
+/* 読込前の仮枠（実データの行と同じ骨組み）。データ到着で枠の高さが変わらないようにする。帯の色は面の背景より一段明るい --bg-hover */
+#mode-search .movers-skel{pointer-events:none}
+#mode-search .movers-skel .movers-name-text,#mode-search .movers-skel .movers-price-now,#mode-search .movers-skel .movers-diff{color:transparent;background:var(--bg-hover);border-radius:3px}
+#mode-search .movers-skel .movers-price-now{width:72px}
+#mode-search .movers-skel .movers-diff{width:56px}
+#mode-search .movers-skel .rb{visibility:hidden}
+/* タブ切替の再読込中は、行を消して縮めずに薄く残す */
+#mode-search .movers-list.is-loading{opacity:.5}
 #mode-search .movers-diff.down{color:#63d3ae}
 #mode-search .movers-diff.up{color:#ff8f94}
 /* 買取では値上がりが売り手に有利なため、販売と色を反転する。 */
