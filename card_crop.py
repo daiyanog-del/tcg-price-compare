@@ -216,10 +216,12 @@ def make_level_zoom(image_bytes: bytes, suggestion: dict) -> bytes:
 # tools/eval_effect_text.py で実画像（407x593 / 480x700 の公式カード画像）を目視して校正した値（2026-10-15）。
 #  - モンスター: 枠上端 約0.69 〜 ATK/DEF 行の上 約0.915。先頭の【種族／種類】行を含む
 #  - 魔法・罠 : 枠上端 約0.735 〜 枠下端 約0.955（下部全体）
-# ペンデュラムは位置を校正・評価していないため用意しない（呼び出し側で別扱いにする）。
+#  - ペンデュラム: ペンデュラム効果欄の上端 約0.615 〜 ATK/DEF 行の上 約0.915。両方の効果欄を1枚に収める
+#    （2026-10-16、公式記事画像 407x593 の発売済みペンデュラム17枚を目視。0.645 だと P効果の1行目が欠けるカードがあった）
 EFFECT_BOX_RATIO = {
     "monster": (0.035, 0.69, 0.965, 0.915),
     "spell_trap": (0.035, 0.735, 0.965, 0.955),
+    "pendulum": (0.035, 0.615, 0.965, 0.915),
 }
 EFFECT_CROP_SCALE = 3
 # カード枠候補（輪郭・縁の線から求めた枠）は実際のカード外縁より2〜4%内側に寄ることがあり、校正した比率をそのまま
@@ -231,10 +233,10 @@ EFFECT_CROP_PAD_Y = 0.02
 
 
 def effect_box_kind(card_type: str) -> str | None:
-    """カード種別の文字列から効果欄の切り出し方を決める。ペンデュラム・不明は None。"""
+    """カード種別の文字列から効果欄の切り出し方を決める。不明は None。"""
     card_type = card_type or ""
     if "ペンデュラム" in card_type:
-        return None
+        return "pendulum"
     if "モンスター" in card_type:
         return "monster"
     if "魔法" in card_type or "罠" in card_type:
@@ -242,13 +244,16 @@ def effect_box_kind(card_type: str) -> str | None:
     return None
 
 
-def make_effect_crop(image_bytes: bytes, card_type: str, suggestion: dict | None = None) -> bytes:
+def make_effect_crop(image_bytes: bytes, card_type: str, suggestion: dict | None = None, kind: str | None = None) -> bytes:
     """効果欄を切り出して3倍（長辺1568px以下・LANCZOS）のPNGにする。
 
     suggestion（refine_card_box の正規化座標 left/top/right/bottom）があればそのカード枠の中の比率で、
-    無ければ画像全体を1枚のカードとして切り出す。種別が不明・ペンデュラム、座標が不正なら ValueError。
+    無ければ画像全体を1枚のカードとして切り出す。種別が不明、座標が不正なら ValueError。
+    kind（EFFECT_BOX_RATIO のキー）を渡すと種別名より優先する（種別名に「ペンデュラム」が抜けたペンデュラム用）。
     """
-    kind = effect_box_kind(card_type)
+    kind = kind or effect_box_kind(card_type)
+    if kind is not None and kind not in EFFECT_BOX_RATIO:
+        raise ValueError(f"効果欄の切り出し方が未定義です: {kind!r}")
     if kind is None:
         raise ValueError(f"効果欄の切り出し位置が未定義のカード種別です: {card_type!r}")
     try:

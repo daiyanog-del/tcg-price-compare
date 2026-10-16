@@ -121,11 +121,13 @@ def test_not_trusted_when_name_uncertain(monkeypatch, clean_check):
     assert "effect_text" in raw["uncertain_fields"] and "name" in raw["uncertain_fields"]
 
 
-def test_not_trusted_for_pendulum(monkeypatch, clean_check):
+def test_pendulum_trusted_under_same_conditions(monkeypatch, clean_check):
+    # 2026-10-16 からペンデュラムも同じ条件で信じる（2欄をつないだ文字列で差の大きさを見る）
     row = _disagree_row()
     row["pendulum_scale"] = 5
     raw = _run(monkeypatch, row)
-    assert "effect_text" in raw["uncertain_fields"] and "reread_trusted_on_disagree" not in raw
+    assert raw.get("reread_trusted_on_disagree") is True
+    assert raw["effect_text_reread"]["pendulum"] is True
 
 
 def test_not_trusted_when_first_pass_empty(monkeypatch, clean_check):
@@ -337,6 +339,22 @@ def test_admin_edit_of_untrusted_card_keeps(monkeypatch, notices):
     assert _setting(sb) == "1" and notices == []
 
 
+def _trusted_pendulum_raw():
+    return {"reread_trusted_on_disagree": True,
+            "effect_text_reread": {"text": "信じたモンスター効果", "pendulum": True, "pendulum_text": "信じたP効果",
+                                   "agreed": False}}
+
+
+def test_admin_edit_of_trusted_pendulum_effect_disables(monkeypatch, notices):
+    # ペンデュラムは、ペンデュラム効果だけの編集でも信じた読み直し文から変われば外れとみなす
+    sb, client = _admin_setup(monkeypatch, _trusted_pendulum_raw(), effect="信じたモンスター効果")
+    sb.tables["unreleased_cards"][0]["pendulum_effect"] = "信じたP効果"
+    assert _put(client, {"pendulum_effect": "信じた P効果"}).status_code == 200  # norm() 後に同じなら外れではない
+    assert _setting(sb) == "1" and notices == []
+    assert _put(client, {"pendulum_effect": "直したP効果"}).status_code == 200
+    assert _setting(sb) == "0" and len(notices) == 1
+
+
 def test_on_effect_text_edited_without_reread_text_disables(notices):
     sb = _settings_sb("1")
     assert reread_trust.on_effect_text_edited(sb, 1, "A", {"reread_trusted_on_disagree": True}, "何か") is True
@@ -391,14 +409,14 @@ def _report_sb(raw):
                   pks={"unreleased_cards": "id", "app_settings": "key"})
 
 
-@pytest.mark.parametrize("field", ["effect_text", "other"])
+@pytest.mark.parametrize("field", ["effect_text", "pendulum_effect", "other"])
 def test_report_on_trusted_card_disables(notices, field):
     sb = _report_sb(_trusted_raw())
     _, status = _report(sb, field)
     assert status == 200 and _setting(sb) == "0" and len(notices) == 1
 
 
-@pytest.mark.parametrize("field", ["card_name", "stats", "pendulum_effect"])
+@pytest.mark.parametrize("field", ["card_name", "stats"])
 def test_report_on_other_fields_keeps(notices, field):
     sb = _report_sb(_trusted_raw())
     _, status = _report(sb, field)
