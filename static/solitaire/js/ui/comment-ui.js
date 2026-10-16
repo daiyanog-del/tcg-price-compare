@@ -252,6 +252,7 @@ function _toggleCutinForm() {
   if (!open) return;
   form.hidden = false;
   document.getElementById('solCommentCutinBtn')?.classList.add('is-active'); // 開いている間は「入力中」と同じ accent の面
+  if (!form.querySelector('[data-cutin-pane="disruption"]')?.hidden) _disruptionPicker?.prefetch();
   // 前回の切り替え（言葉／相手の妨害）のまま開く。言葉のときだけ自由入力欄にフォーカス
   if (!form.querySelector('[data-cutin-pane="words"]')?.hidden) document.getElementById('solCommentCutinInput')?.focus();
 }
@@ -334,7 +335,10 @@ export function initCommentUI() {
   // 言葉／相手の妨害の切り替え。相手の妨害は、札・検索で選ぶとその場で入る
   const cutinForm = document.getElementById('solCommentCutinForm');
   cutinForm?.querySelectorAll('[data-cutin-mode]').forEach((btn) => {
-    btn.addEventListener('click', () => setCutinMode(cutinForm, btn.dataset.cutinMode));
+    btn.addEventListener('click', () => {
+      setCutinMode(cutinForm, btn.dataset.cutinMode);
+      if (btn.dataset.cutinMode === 'disruption') _disruptionPicker?.prefetch(); // よく使う札の画像を先に読み込む
+    });
   });
   const disruption = document.getElementById('solCommentCutinDisruption');
   if (disruption) {

@@ -159,6 +159,22 @@ const _cardImageCache = new Map(); // カード名 -> Promise<{url:string, sampl
 /** 先読みする件数（いまの手より先の、相手の妨害のカットインのカード名の数）。共有リプレイを開いたとき全件を一度に引かない */
 const CUTIN_PREFETCH_AHEAD = 4;
 
+/**
+ * 相手の妨害のカットインで、画像がそろうまで帯を出すのを待つ上限（ms）。
+ * 帯は約1.9秒しか出ないので、文字だけで出してから絵が途中で現れる・間に合わない、を避けるため、絵がそろってから出す。
+ * 本番で初回の取得は 0.2〜0.5 秒（2026-10-16 PC 実測）。回線が遅くても押してから反応が無い時間が長くならないよう 1 秒で打ち切り、
+ * そのときは文字だけで出す（絵は届いた時点で入れる）。2回目以降はキャッシュ済みなので待たない。
+ */
+const CUTIN_IMAGE_WAIT_MS = 1000;
+
+/**
+ * 相手の妨害のカード画像を先に読み込んでおく（カットインの「相手の妨害」の欄を開いたときに、よく使う札の分を呼ぶ）。
+ * @param {string} name
+ */
+export function prefetchCutinCard(name) {
+  if (name) _cardImage(name);
+}
+
 /** 画像の本体を読み込み終えるまで待つ（開けなければ false） */
 function _loadImage(url) {
   return new Promise((resolve) => {
@@ -197,7 +213,9 @@ function _cardImage(name) {
 /**
  * 相手の妨害のカットインの帯の中身を作る。
  * 背景にカードのイラストをぼかして暗く敷き、左にカード、右に「相手の妨害／カード名 発動」（見本:
- * mocks/sim-disruption-cutin-20261016.html の案S）。画像は届いたら入れる（届く前は文字だけ）。
+ * mocks/sim-disruption-cutin-20261016.html の案S）。
+ * 画像を入れる関数を返す（showCutin が、画像がそろってから帯を出すために使う）。
+ * @returns {(img: {url:string, sample:boolean}) => void}
  */
 function _fillDisruptionCutin(el, name) {
   el.classList.add('sol-cutin--card');
@@ -226,8 +244,7 @@ function _fillDisruptionCutin(el, name) {
   body.append(who, line);
   el.append(art, cardWrap, body);
 
-  _cardImage(name).then((img) => {
-    if (!img || _cutinEl !== el) return; // 取れない・もう消えた（次のカットインに替わった）
+  return (img) => {
     // 未発売カードで「イラストをぼかす」設定のときは、帯いっぱいに拡大した背景の絵は出さない
     // （盤面のぼかしの強さはカード1枚の大きさで決めた値で、帯の幅では絵が見えてしまうため）。左のカードは .sample-art でぼかす
     const hideArt = img.sample && document.body.hasAttribute('data-sample-blur');
@@ -239,7 +256,7 @@ function _fillDisruptionCutin(el, name) {
     cardWrap.classList.toggle('sample-art', img.sample);
     cardWrap.appendChild(cardImg);
     el.classList.add('has-card-image');
-  });
+  };
 }
 
 /**
@@ -268,19 +285,37 @@ export function showCutin({ text, card } = {}) {
   el.style.width = `${a.width}px`;
   el.style.top = `${b.top + b.height / 2}px`; // 帯の高さの半分だけ上へずらすのは CSS（margin-top）
   _cutinEl = el; // 画像の到着時に「まだ出ているか」を見るので、中身を作る前に控える
-  if (card) {
-    _fillDisruptionCutin(el, card);
-  } else {
+  // 子（カードの img など）の animationend も泡立って来るので、帯自身の動きの終わりだけを見る
+  el.addEventListener('animationend', (e) => { if (e.target === el && _cutinEl === el) hideCutin(); });
+
+  let started = false;
+  const start = () => {
+    if (started || _cutinEl !== el) return; // 待っている間に消された（次のカットイン・巻き戻し・画面サイズの変更）
+    started = true;
+    clearTimeout(_cutinTimer);
+    document.body.appendChild(el); // ここで動き（css の solCutIn）が始まる
+    // animationend が来ない環境（動きを止めている等）でも消えるように、保険のタイマーを置く
+    _cutinTimer = setTimeout(() => { if (_cutinEl === el) hideCutin(); }, CUTIN_DURATION_MS + 300);
+  };
+
+  if (!card) {
     const span = document.createElement('span');
     span.className = 'sol-cutin-text';
     span.textContent = text; // 本文は他人が作れるので textContent
     el.appendChild(span);
+    start();
+    return;
   }
-  // 子（カードの img など）の animationend も泡立って来るので、帯自身の動きの終わりだけを見る
-  el.addEventListener('animationend', (e) => { if (e.target === el && _cutinEl === el) hideCutin(); });
-  document.body.appendChild(el);
-  // animationend が来ない環境（動きを止めている等）でも消えるように、保険のタイマーを置く
-  _cutinTimer = setTimeout(() => { if (_cutinEl === el) hideCutin(); }, CUTIN_DURATION_MS + 300);
+
+  // 相手の妨害: 画像がそろってから帯を出す（上限 CUTIN_IMAGE_WAIT_MS。過ぎたら文字だけで出し、絵は届いた時点で入れる）。
+  // キャッシュ済みなら then はすぐ（同じ描画の前に）来るので、待ちは生じない
+  const applyImage = _fillDisruptionCutin(el, card);
+  _cutinTimer = setTimeout(start, CUTIN_IMAGE_WAIT_MS);
+  _cardImage(card).then((img) => {
+    if (_cutinEl !== el) return;
+    if (img) applyImage(img);
+    start();
+  });
 }
 
 /**
