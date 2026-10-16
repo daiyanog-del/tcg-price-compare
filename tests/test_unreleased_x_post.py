@@ -60,17 +60,17 @@ def test_text_full():
     assert t.split("\n") == [
         "「テストカード」を入れた展開、シミュレーターで回せます。",
         "テストパック（11月1日発売）",
-        "情報元：https://x.com/YuGiOh_OCG_INFO/status/123",
         "https://example.test/solitaire?newcards=1&focus=%E3%83%86%E3%82%B9%E3%83%88%E3%82%AB%E3%83%BC%E3%83%89",
+        "情報元：https://x.com/YuGiOh_OCG_INFO/status/123",
         "#遊戯王 #OCG"]
     assert "▼ 登録なし" not in t
 
 
-def test_text_tcgym_link_is_last_url():
-    # X のリンクカードは最後の URL で作られるとされるので、TCGYM のリンクを情報元より後ろに置く
+def test_text_tcgym_link_is_first_url():
+    # 2026-10-16 の実投稿で X は先頭の URL のカードを出したので、TCGYM のリンクを情報元より前に置く
     t = xp.build_tweet_text("A", "P", "2026-11-01", "https://yu-gi-oh.jp/news/abc/", site_url="https://example.test")
     urls = re.findall(r"https?://\S+", t)
-    assert urls == ["https://yu-gi-oh.jp/news/abc/", "https://example.test/solitaire?newcards=1&focus=A"]
+    assert urls == ["https://example.test/solitaire?newcards=1&focus=A", "https://yu-gi-oh.jp/news/abc/"]
 
 
 @pytest.mark.parametrize("src", ["", "manual", "  ", None, "ftp://x", "javascript:alert(1)", "https://localhost/x",
