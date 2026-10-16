@@ -1,6 +1,11 @@
 # activeContext — 今どこ・次何
 
-> 更新: 2026-10-16（相手の想定妨害をカットインに一本化）
+> 更新: 2026-10-16（メインスレッドと読み込みの重さ: new-cards 裏更新・GA 遅延読込・シミュレーター直列読込解消）
+
+## 2026-10-16: メインスレッドと読み込みの重さ（branch perf/main-thread-followups）
+
+- ① card_display を stale-while-revalidate 化（/api/new-cards の TTL 切れ同期取得 1.4〜2.2秒を解消）＋ warmer で5分ごと取り直し ② GA を解析後の空き時間に遅延読込（templates/_ga.html・トップは preload あり／シミュレーターなし） ③ シミュレーターの CSS @import 直列を <link> へ・main.js の依存41本を modulepreload（module_graph.py）。
+- 手元の前後比較はスマホ相当でシミュレーター初期化 5.46→4.24秒・トップ long task 2.35→2.06秒・CLS 悪化なし（数値は decisions.md）。残りは TASKS（旧 main.css 削除・リプレイ一覧の GA・GA 前後比較・④⑤⑥）。
 
 ## 2026-10-16: 相手の想定妨害をカットインに一本化（branch feat/disruption-cutin）
 
