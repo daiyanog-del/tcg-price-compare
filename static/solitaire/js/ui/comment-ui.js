@@ -297,7 +297,7 @@ function renderCommentList() {
     del.textContent = '✕';
     del.setAttribute('aria-label', `${c.index + 1}手目のコメントを削除`);
     // 確認は出さない（コメントなので）。一覧の行の内容も渡し、記録の同じ位置が別のコメントに変わっていたら消さない
-    del.addEventListener('click', () => removeEventAt(c.index, { kind: c.kind, cardId: c.cardId, text: c.text }));
+    del.addEventListener('click', () => removeEventAt(c.index, { kind: c.kind, cardId: c.cardId, text: c.text, disruption: c.disruption }));
     li.append(text, del);
     ul.appendChild(li);
   }

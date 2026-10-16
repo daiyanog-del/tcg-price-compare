@@ -151,25 +151,42 @@ export function hideCutin() {
 }
 
 // 相手の妨害のカットインのカード画像。記録には URL を残さないので、カード名から /api/card-image で引き直す。
-// 名前ごとに1回だけ問い合わせる。失敗（画像の無いカード・通信の失敗）も覚えておき、ページを開き直すまで文字だけで出す
-// （手を動かすたびに先読みが走るので、失敗を覚えないと同じ問い合わせを繰り返すため）。
+// 名前ごとに1回だけ問い合わせ、画像の本体も読み込み終えてから帯に入れる（帯の途中で絵が後から出ないように）。
+// 「画像の無いカード」（プロキシ・HTTP エラー・画像が開けない）は覚えておき、ページを開き直すまで文字だけで出す
+// （手を動かすたびに先読みが走るので、覚えないと同じ問い合わせを繰り返すため）。通信の失敗だけは次の機会に試し直す。
 const _cardImageCache = new Map(); // カード名 -> Promise<{url:string, sample:boolean}|null>
 
+/** 先読みする件数（いまの手より先の、相手の妨害のカットインのカード名の数）。共有リプレイを開いたとき全件を一度に引かない */
+const CUTIN_PREFETCH_AHEAD = 4;
+
+/** 画像の本体を読み込み終えるまで待つ（開けなければ false） */
+function _loadImage(url) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(true);
+    img.onerror = () => resolve(false);
+    img.src = url;
+  });
+}
+
 /**
- * カード名から画像の URL を引く（取れなければ null。そのときは帯に文字だけを出す）。
+ * カード名から画像を引く（取れなければ null。そのときは帯に文字だけを出す）。
  * @param {string} name
  * @returns {Promise<{url:string, sample:boolean}|null>}
  */
 function _cardImage(name) {
   if (!_cardImageCache.has(name)) {
     const p = fetch(`/api/card-image?name=${encodeURIComponent(name)}`)
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
-      .then((data) => {
+      .then(async (res) => {
+        if (!res.ok) return null;
+        const data = await res.json();
         const url = data && data.kind === 'image' ? (data.url || data.image_url) : null;
-        return url ? { url, sample: data.source === 'official_sample' } : null; // プロキシ（画像なし）は文字だけ
+        if (!url) return null; // プロキシ（画像なし）は文字だけ
+        return (await _loadImage(url)) ? { url, sample: data.source === 'official_sample' } : null;
       })
       .catch((err) => {
         console.warn('[cutin] カード画像の取得に失敗（文字だけで出す）', name, err);
+        _cardImageCache.delete(name); // 通信の失敗は、次に出すとき・先読みのときに試し直す
         return null;
       });
     _cardImageCache.set(name, p);
@@ -211,7 +228,11 @@ function _fillDisruptionCutin(el, name) {
 
   _cardImage(name).then((img) => {
     if (!img || _cutinEl !== el) return; // 取れない・もう消えた（次のカットインに替わった）
-    artImg.style.backgroundImage = `url(${JSON.stringify(img.url)})`; // 引用符で囲んだ CSS の文字列として渡す
+    // 未発売カードで「イラストをぼかす」設定のときは、帯いっぱいに拡大した背景の絵は出さない
+    // （盤面のぼかしの強さはカード1枚の大きさで決めた値で、帯の幅では絵が見えてしまうため）。左のカードは .sample-art でぼかす
+    const hideArt = img.sample && document.body.hasAttribute('data-sample-blur');
+    if (!hideArt) artImg.style.backgroundImage = `url(${JSON.stringify(img.url)})`; // 引用符で囲んだ CSS の文字列として渡す
+    el.classList.toggle('no-art', hideArt);
     const cardImg = document.createElement('img');
     cardImg.src = img.url;
     cardImg.alt = '';
@@ -269,8 +290,8 @@ export function showCutin({ text, card } = {}) {
  * @param {number} cursor
  */
 export function renderCommentView(setupLogs, logs, cursor) {
-  // 相手の妨害のカットインの画像を先に引いておく（共有リンクを開いた直後でも、帯の動きに画像が間に合うように）
-  for (const name of cutinCardsIn(logs)) _cardImage(name);
+  // 相手の妨害のカットインの画像を、いまの手より先の数件だけ先に引いておく（帯の動きに画像が間に合うように）
+  for (const name of cutinCardsIn(logs, cursor + 1, CUTIN_PREFETCH_AHEAD)) _cardImage(name);
   _lastView = computeCommentView(setupLogs, logs, cursor);
   _renderBubbles(_lastView.bubbles);
   _renderMemo(_lastView.memo);

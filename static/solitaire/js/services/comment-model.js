@@ -101,13 +101,17 @@ export function cutinToShow(ev, arrivedForward) {
 }
 
 /**
- * 記録の中の、相手の妨害のカットインのカード名（重複なし。画像の先読み用）。
+ * 記録の start 番目以降にある、相手の妨害のカットインのカード名（重複なし・記録順で limit 件まで。画像の先読み用）。
  * @param {Array} logs
+ * @param {number} [start]
+ * @param {number} [limit]
  * @returns {string[]}
  */
-export function cutinCardsIn(logs) {
+export function cutinCardsIn(logs, start = 0, limit = Infinity) {
   const names = new Set();
-  for (const ev of logs || []) {
+  const list = logs || [];
+  for (let i = Math.max(0, start); i < list.length && names.size < limit; i++) {
+    const ev = list[i];
     if (ev?.actionType !== 'comment') continue;
     const name = cutinCard(ev);
     if (name) names.add(name);
@@ -259,12 +263,14 @@ export function shiftRangeAfterInsert(state, insertedIdx) {
 /**
  * 一覧の行が指している内容と、記録の手が同じコメントかどうか（削除の取り違え防止）。
  * @param {Object|undefined} ev  記録の手
- * @param {{kind:'card'|'board'|'cutin', cardId:string|null, text:string}|undefined} expected 一覧の行の内容
+ * disruption（相手の妨害のカットインか）は、渡されたときだけ照合する（文字の「灰流うらら」と妨害の「灰流うらら」を区別する）。
+ * @param {{kind:'card'|'board'|'cutin', cardId:string|null, text:string, disruption?:boolean}|undefined} expected 一覧の行の内容
  */
 export function isSameComment(ev, expected) {
   if (!ev || ev.actionType !== 'comment') return false;
   if (!expected) return true;
   return commentKind(ev) === expected.kind
     && (commentKind(ev) === 'card' ? ev.cardId : null) === (expected.cardId ?? null)
-    && commentText(ev) === expected.text;
+    && commentText(ev) === expected.text
+    && (expected.disruption === undefined || !!cutinCard(ev) === expected.disruption);
 }

@@ -97,8 +97,10 @@ export function buildDisruptionPicker(container, onPick) {
       li.className = 'sol-cutin-suggest-item';
       li.setAttribute('role', 'option');
       li.textContent = name; // 候補はサーバーの値だが、ほかと同じく textContent で入れる
-      // blur より先に選ぶ（mousedown）。タッチでも pointerdown が先に来る
-      li.addEventListener('pointerdown', (e) => { e.preventDefault(); pick(name); });
+      // 押した時点では入力欄のフォーカスを外さないだけにして（blur で一覧が閉じないように）、選ぶのは click で行う。
+      // pointerdown で選ぶと、スマホで一覧を指でスクロールしようと触れただけで選ばれてしまう
+      li.addEventListener('pointerdown', (e) => e.preventDefault());
+      li.addEventListener('click', () => pick(name));
       list.appendChild(li);
     }
     list.hidden = false;

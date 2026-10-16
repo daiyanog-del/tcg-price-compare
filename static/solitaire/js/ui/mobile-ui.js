@@ -1208,6 +1208,10 @@ function initCommentSheet() {
     btn.addEventListener('click', () => {
       _mobileCutinMode = btn.dataset.cutinMode === 'disruption' ? 'disruption' : 'words';
       _applyMobileCutinMode(true);
+      // 相手の妨害は札を押すのでキーボードを閉じる。言葉に戻したら自由入力へ（タップの中で同期的に。iOS の制約）
+      const input = document.getElementById('solMobileCommentInput');
+      if (_mobileCutinMode === 'disruption') input?.blur();
+      else input?.focus();
     });
   });
   const disruption = document.getElementById('solMobileCutinDisruption');

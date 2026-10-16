@@ -219,6 +219,10 @@ assert.equal(cutinToShow(dis('無限泡影', '無限泡影'), false), null, '前
 assert.deepEqual(listComments([mv('a'), dis('灰流うらら', '灰流うらら')]), [{ index: 1, kind: 'cutin', cardId: null, text: '灰流うらら', disruption: true }]);
 assert.equal(isSameComment(dis('灰流うらら', '灰流うらら'), { kind: 'cutin', cardId: null, text: '灰流うらら' }), true);
 assert.deepEqual(cutinCardsIn([dis('A', 'A'), cut('B'), dis('A', 'A'), dis('C', 'C'), mv('a')]), ['A', 'C'], '先読みはカード名を重複なしで');
+assert.deepEqual(cutinCardsIn([dis('A', 'A'), dis('B', 'B'), dis('B', 'B'), dis('C', 'C'), dis('D', 'D')], 1, 2), ['B', 'C'], '先読みはいまの手より先の数件だけ');
+assert.deepEqual(cutinCardsIn([dis('A', 'A')], 5, 4), [], '末尾より先は空');
+assert.equal(isSameComment(cut('灰流うらら'), { kind: 'cutin', cardId: null, text: '灰流うらら', disruption: true }), false, '文字のカットインと妨害を区別する');
+assert.equal(isSameComment(dis('灰流うらら', '灰流うらら'), { kind: 'cutin', cardId: null, text: '灰流うらら', disruption: true }), true);
 assert.equal(playPauseMs(dis('A', 'A'), 450, 2.5), 1900, '相手の妨害も動きが終わるまで待つ');
 assert.deepEqual(computeCommentView([], [memo('m'), dis('A', 'A')], 1), { bubbles: [], memo: 'm' }, '盤面には残らず、盤面メモも置き換えない');
 

@@ -215,7 +215,8 @@
   inset: 0;
   background: color-mix(in srgb, var(--bg-color) 50%, transparent);
 }
-.sol-cutin--card:not(.has-card-image) .sol-cutin-art { display: none; } /* 画像が無い間は帯の暗い面だけ */
+.sol-cutin--card:not(.has-card-image) .sol-cutin-art,
+.sol-cutin--card.no-art .sol-cutin-art { display: none; } /* 画像が無い間・未発売でぼかす設定のときは帯の暗い面だけ */
 .sol-cutin-card {
   position: relative;
   display: block;

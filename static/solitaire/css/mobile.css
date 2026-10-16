@@ -340,22 +340,6 @@
     font-size: 1.3rem;
     position: relative;
   }
-  .sol-mobile-badge {
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    min-width: 15px;
-    height: 15px;
-    padding: 0 3px;
-    border-radius: 8px;
-    background: var(--red);
-    color: #fff;
-    font-size: 0.6rem;
-    font-weight: 700;
-    line-height: 15px;
-    text-align: center;
-  }
-  .sol-mobile-badge[hidden] { display: none; }
 
   /* ════════ 範囲ボタン（下部バー。旧「録画」。2026-10-15 整理③） ════════
      選んでいる間・範囲が決まった後は accent（青系）で示す。赤は危険操作専用のため使わない。
