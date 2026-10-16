@@ -1,5 +1,5 @@
 /* レスポンシブデザイン */
-/* main.css では最後にインポートされるため、!important なしで上書きが有効 */
+/* solitaire.html で後段に読まれるため、!important なしで上書きが有効（後ろは mobile.css・comments.css） */
 
 /* プール行の最小高さ（デスクトップ向け: 現行レイアウトで有効） */
 @media (min-width: 1000px) {

@@ -3,11 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-{% if ga_measurement_id %}
-<!-- Google Analytics 4（環境変数 GA_MEASUREMENT_ID 設定時のみ出力） -->
-<script async src="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}"></script>
-<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','{{ ga_measurement_id }}');</script>
-{% endif %}
+{% include '_ga.html' %}
 <title>一人回しシミュレーター | TCGYM</title>
 <meta name="description" content="発売前のカードもOK。マイデッキや環境デッキからワンタップで読み込める遊戯王OCGの一人回しシミュレーター。ニューロン画像・テキストにも対応し、ドラッグ&ドロップで展開を再現。リプレイ保存・URL共有対応。">
 <meta property="og:title" content="{{ og_title_full or (og_title ~ ' | TCGYM シミュレーター' if og_title else '一人回しシミュレーター | TCGYM') }}">
@@ -31,9 +27,24 @@
 <link rel="manifest" href="{{ static_url('manifest.json') }}">
 <meta name="theme-color" content="#101626">
 
-<script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
-<link href="https://fonts.googleapis.com/css2?family=Bungee&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="{{ static_url('solitaire/css/main.css') }}">
+<!-- lz-string は module（main.js 以下）からしか使わない。defer にして HTML 解析を止めない
+     （defer と type=module は文書順に実行されるので、main.js より先に必ず読み終わる） -->
+<script defer src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<!-- 一人回しのスタイル。旧 main.css の @import を並べ直したもの（@import は main.css を読み終えてから
+     次を取りに行くため直列になり、内容ハッシュも付かなかった・2026-10-16）。後ろほど優先されるので順序を変えないこと -->
+<link rel="stylesheet" href="{{ static_url('solitaire/css/variables.css') }}">
+<link rel="stylesheet" href="{{ static_url('solitaire/css/layout.css') }}">
+<link rel="stylesheet" href="{{ static_url('solitaire/css/components.css') }}">
+<link rel="stylesheet" href="{{ static_url('solitaire/css/controls.css') }}">
+<link rel="stylesheet" href="{{ static_url('solitaire/css/modal.css') }}">
+<link rel="stylesheet" href="{{ static_url('solitaire/css/solitaire-brand.css') }}">
+<link rel="stylesheet" href="{{ static_url('solitaire/css/proxy-card.css') }}">
+<link rel="stylesheet" href="{{ static_url('solitaire/css/responsive.css') }}">
+<link rel="stylesheet" href="{{ static_url('solitaire/css/mobile.css') }}">
+<link rel="stylesheet" href="{{ static_url('solitaire/css/comments.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/self-watermark.css') }}">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/sample-blur.css') }}">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/site-theme.css') }}">
@@ -43,7 +54,11 @@
      （静的な相対specifierはstatic_url()を通せないため、ここでブラウザ解決を上書きする）。
      必ず最初のmodule scriptより前に置く -->
 <script type="importmap">{{ static_import_map(['solitaire/js', 'shared']) | safe }}</script>
-</head>
+<!-- main.js が静的 import でたどる全ファイルを先読みする。import の連鎖（読んでから次に気づく）を
+     待たずに一度に取りに行かせる。URL は import map の写像先と同じ（module_graph.py） -->
+<link rel="modulepreload" href="{{ static_url('solitaire/js/main.js') }}">
+{% for url in static_module_preloads('solitaire/js/main.js') %}<link rel="modulepreload" href="{{ url }}">
+{% endfor %}</head>
 
 <body{% if self_watermark %} data-self-wm style="--self-watermark-opacity: {{ self_watermark_opacity }}"{% endif %}>
 

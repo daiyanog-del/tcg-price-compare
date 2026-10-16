@@ -1854,18 +1854,29 @@ function _scrollPct(){
   if(scrollable<=0) return 0;
   return Math.round(Math.min(100,scrollTop/scrollable*100));
 }
-// 25/50/75%到達で1回ずつ発火（GA4拡張計測の90%固定より粒度を細かくする）。
-// 同一ページで重複発火しないよう到達済みしきい値をSetで管理する
+// 25/50/75%到達で1回ずつ発火。90%は GA4 拡張計測の scroll イベントが受け持つので、
+// ここでは重ねて送らない（役割分担・2026-10-16 整理）。
+// スクロールのたびに高さを読むとレイアウト計算が走るため、1フレームに1回へ間引き、
+// 3つとも送り終えたらリスナーごと外す。
+const _SCROLL_DEPTH_THRESHOLDS=[25,50,75];
 const _scrollDepthFired=new Set();
-window.addEventListener('scroll',function(){
-  const pct=_scrollPct();
-  [25,50,75].forEach(th=>{
-    if(pct>=th && !_scrollDepthFired.has(th)){
-      _scrollDepthFired.add(th);
-      _ga('scroll_depth',{percent:th});
-    }
+let _scrollDepthQueued=false;
+function _onScrollDepth(){
+  if(_scrollDepthQueued) return;
+  _scrollDepthQueued=true;
+  requestAnimationFrame(()=>{
+    _scrollDepthQueued=false;
+    const pct=_scrollPct();
+    _SCROLL_DEPTH_THRESHOLDS.forEach(th=>{
+      if(pct>=th && !_scrollDepthFired.has(th)){
+        _scrollDepthFired.add(th);
+        _ga('scroll_depth',{percent:th});
+      }
+    });
+    if(_scrollDepthFired.size===_SCROLL_DEPTH_THRESHOLDS.length) window.removeEventListener('scroll',_onScrollDepth);
   });
-},{passive:true});
+}
+window.addEventListener('scroll',_onScrollDepth,{passive:true});
 
 // ── Mode switch ──
 let _currentMode='search'; // GA4計測用: 直前のモードを保持（mode_switchのfrom_mode）

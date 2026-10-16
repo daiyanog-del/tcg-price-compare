@@ -226,3 +226,112 @@ def test_new_cards_page_renders():
     html = response.get_data(as_text=True)
     assert "<title>未発売カード一覧 | TCGYM</title>" in html
     assert 'class="new-cards-page"' in html
+
+
+def _age_caches(seconds):
+    """キャッシュの取得時刻を seconds 秒前にずらす（TTL・古さの上限の境界を試す用）。"""
+    with display._cache_lock:
+        display._unreleased_cache_at -= seconds
+        display._settings_cache_at -= seconds
+
+
+def _wait_refresh_done():
+    import time
+    for _ in range(200):
+        with display._cache_lock:
+            if not display._refreshing:
+                return
+        time.sleep(0.01)
+    raise AssertionError("裏更新が終わらない")
+
+
+@pytest.fixture
+def fresh_refresh_state(monkeypatch):
+    monkeypatch.setattr(display, "_refreshing", set())
+    monkeypatch.setattr(display, "_refresh_failed_at", {})
+
+
+def test_stale_cache_is_returned_immediately_and_refreshed_in_background(database, fresh_refresh_state, monkeypatch):
+    database.rows["unreleased_cards"] = [card(1)]
+    assert [r["name"] for r in display.get_new_cards()["cards"]] == ["新カード1"]
+    database.rows["unreleased_cards"].append(card(2))
+    _age_caches(display._CACHE_TTL + 1)
+    started = []
+    real_thread = display.threading.Thread
+
+    class HeldThread(real_thread):
+        def start(self):
+            started.append(self)
+    monkeypatch.setattr(display.threading, "Thread", HeldThread)
+    count = len(database.calls)
+    # TTL 切れでも古い値をそのまま返し、その場では DB を読まない
+    assert [r["name"] for r in display.get_new_cards()["cards"]] == ["新カード1"]
+    assert len(database.calls) == count
+    # 同じキャッシュの裏更新は多重に起動しない（unreleased と settings で1本ずつ）
+    display.get_new_cards()
+    assert sorted(t.name for t in started) == ["card_display_refresh_settings", "card_display_refresh_unreleased"]
+    for t in started:
+        real_thread.start(t)
+        t.join()
+    assert [r["name"] for r in display.get_new_cards()["cards"]] == ["新カード2", "新カード1"]
+
+
+def test_cache_older_than_stale_max_is_fetched_synchronously(database, fresh_refresh_state):
+    database.rows["unreleased_cards"] = [card(1)]
+    display.get_new_cards()
+    database.rows["unreleased_cards"][0]["hidden"] = True
+    _age_caches(display._CACHE_STALE_MAX + 1)
+    assert display.get_new_cards() == {"cards": [], "has_more": False}
+
+
+def test_failure_beyond_stale_max_still_raises(database, fresh_refresh_state):
+    import app as app_module
+    database.rows["unreleased_cards"] = [card(1)]
+    display.get_new_cards()
+    _age_caches(display._CACHE_STALE_MAX + 1)
+    database.fail.add("unreleased_cards")
+    assert app_module.app.test_client().get("/api/new-cards").status_code == 503
+
+
+def test_background_failure_keeps_stale_value_and_backs_off(database, fresh_refresh_state):
+    database.rows["unreleased_cards"] = [card(1)]
+    display.get_new_cards()
+    _age_caches(display._CACHE_TTL + 1)
+    database.fail.add("unreleased_cards")
+    assert display.get_new_cards()["cards"]
+    _wait_refresh_done()
+    assert "unreleased" in display._refresh_failed_at
+    calls = len(database.calls)
+    # 失敗直後は再試行しない（リクエストのたびに DB を叩かない）
+    assert display.get_new_cards()["cards"]
+    _wait_refresh_done()
+    assert database.calls[calls:].count("unreleased_cards") == 0
+
+
+def test_invalidation_during_background_refresh_is_not_overwritten(database, fresh_refresh_state, monkeypatch):
+    database.rows["unreleased_cards"] = [card(1)]
+    display.get_new_cards()
+    old_fetch = display._fetch_unreleased_cards
+
+    def fetch(**kwargs):
+        rows = old_fetch(**kwargs)
+        # 取得し終えた直後に管理操作で非表示＋無効化された
+        database.rows["unreleased_cards"][0]["hidden"] = True
+        display.invalidate_cache()
+        return rows
+    monkeypatch.setattr(display, "_fetch_unreleased_cards", fetch)
+    display._refresh_unreleased()
+    monkeypatch.setattr(display, "_fetch_unreleased_cards", old_fetch)
+    assert display.get_new_cards() == {"cards": [], "has_more": False}
+
+
+def test_refresh_caches_refetches_only_existing_caches(database):
+    display.refresh_caches()
+    assert database.calls == []
+    database.rows["unreleased_cards"] = [card(1)]
+    display.get_new_cards()
+    database.rows["unreleased_cards"].append(card(2))
+    display.refresh_caches()
+    count = len(database.calls)
+    assert len(display.get_new_cards()["cards"]) == 2
+    assert len(database.calls) == count

@@ -24,7 +24,10 @@ Supabase 環境変数（SUPABASE_URL/SUPABASE_KEY）が未設定の場合は
 
 キャッシュ:
   app_settings と unreleased_cards の辞書はモジュール内メモリに TTL 30 秒で保持。
+  TTL を過ぎても _CACHE_STALE_MAX 秒以内なら古い値を即返し、裏スレッドで取り直す
+  （stale-while-revalidate。取り直しは実測1.9秒かかり、/api/new-cards が待たされていたため）。
   invalidate_cache() を呼ぶと即時クリアされる（P2 管理画面トグルAPIから使用）。
+  クリア後の最初の取得は同期で行うため、管理操作の結果は古い値で隠れない。
 """
 
 import os
@@ -120,9 +123,16 @@ def _is_enabled() -> bool:
 # ──────────────────────────────────────────────
 
 _CACHE_TTL = 30.0  # 秒
+# TTL 切れでもこの秒数以内なら古い値を返して裏で取り直す。超えたら従来どおり同期で取り直す
+# （DB 障害時に古い値を際限なく出し続けず、strict 呼び出しへ取得失敗を伝えるための上限）。
+# 方針値: app の _cache_warmer が 5 分ごとに取り直すので、通常はこの上限に届かない。
+_CACHE_STALE_MAX = 600.0  # 秒
 
 _cache_lock = threading.Lock()
 _cache_generation = 0
+# 裏更新中のキャッシュ名（同じキャッシュの取り直しを多重に起動しない）と、直近の裏更新失敗時刻。
+_refreshing: set[str] = set()
+_refresh_failed_at: dict[str, float] = {}
 
 
 class DisplayDataUnavailable(RuntimeError):
@@ -265,13 +275,87 @@ def _fetch_unreleased_cards(*, strict: bool = False) -> dict[str, dict]:
 # 内部: キャッシュ付き取得
 # ──────────────────────────────────────────────
 
+def _start_background_refresh(name: str, refresh: Callable[[], None]) -> None:
+    """古い値を返した直後に呼ぶ。同じキャッシュの裏更新が走っていなければスレッドで取り直す。
+
+    _cache_lock を持った状態で呼ぶこと。直近の失敗から _CACHE_TTL 秒は再試行しない
+    （DB 障害中にリクエストのたびに取り直しが走るのを防ぐ）。
+    """
+    if name in _refreshing:
+        return
+    if time.monotonic() - _refresh_failed_at.get(name, float("-inf")) < _CACHE_TTL:
+        return
+    _refreshing.add(name)
+
+    def run():
+        try:
+            refresh()
+        except DisplayDataUnavailable:
+            # 取得関数側で warning を出し済み。古い値は _CACHE_STALE_MAX まで使い続ける。
+            with _cache_lock:
+                _refresh_failed_at[name] = time.monotonic()
+        except Exception:
+            logger.exception(f"[card_display] {name} の裏更新に失敗")
+            with _cache_lock:
+                _refresh_failed_at[name] = time.monotonic()
+        finally:
+            with _cache_lock:
+                _refreshing.discard(name)
+
+    threading.Thread(target=run, daemon=True, name=f"card_display_refresh_{name}").start()
+
+
+def _refresh_settings() -> None:
+    """app_settings を取り直してキャッシュへ入れる（取得中に無効化されたら捨てる）。"""
+    global _settings_cache, _settings_cache_at
+    with _cache_lock:
+        generation = _cache_generation
+    fresh = _fetch_app_settings(strict=True)
+    with _cache_lock:
+        if generation == _cache_generation:
+            _settings_cache = fresh
+            _settings_cache_at = time.monotonic()
+
+
+def _refresh_unreleased() -> None:
+    """unreleased_cards を取り直してキャッシュへ入れる（取得中に無効化されたら捨てる）。"""
+    global _unreleased_cache, _unreleased_cache_at
+    with _cache_lock:
+        generation = _cache_generation
+    fresh = _fetch_unreleased_cards(strict=True)
+    with _cache_lock:
+        if generation == _cache_generation:
+            _unreleased_cache = fresh
+            _unreleased_cache_at = time.monotonic()
+
+
+def refresh_caches() -> None:
+    """既にあるキャッシュを同期で取り直す（app の _cache_warmer から定期的に呼ぶ）。
+
+    まだ一度も取れていないキャッシュは対象外（コールド充填は最初のリクエストに任せる）。
+    失敗しても古い値は残る。例外は呼び出し側へ伝える。
+    """
+    with _cache_lock:
+        has_settings = _settings_cache is not None
+        has_unreleased = _unreleased_cache is not None
+    if has_settings:
+        _refresh_settings()
+    if has_unreleased:
+        _refresh_unreleased()
+
+
 def _get_settings(*, strict: bool = False) -> dict:
-    """TTL 付きキャッシュから app_settings を返す"""
+    """TTL 付きキャッシュから app_settings を返す（TTL 切れは古い値＋裏更新。冒頭の説明参照）"""
     global _settings_cache, _settings_cache_at
     now = time.monotonic()
     with _cache_lock:
-        if _settings_cache is not None and (now - _settings_cache_at) < _CACHE_TTL:
-            return _settings_cache
+        if _settings_cache is not None:
+            age = now - _settings_cache_at
+            if age < _CACHE_TTL:
+                return _settings_cache
+            if age < _CACHE_STALE_MAX:
+                _start_background_refresh("settings", _refresh_settings)
+                return _settings_cache
         generation = _cache_generation
     # キャッシュ失効 or 未初期化 → 再取得（ロック外で実行してブロックを最小化）
     try:
@@ -290,12 +374,17 @@ def _get_settings(*, strict: bool = False) -> dict:
 
 
 def _get_unreleased(*, strict: bool = False) -> dict[str, dict]:
-    """TTL 付きキャッシュから unreleased_cards 辞書を返す"""
+    """TTL 付きキャッシュから unreleased_cards 辞書を返す（TTL 切れは古い値＋裏更新）"""
     global _unreleased_cache, _unreleased_cache_at
     now = time.monotonic()
     with _cache_lock:
-        if _unreleased_cache is not None and (now - _unreleased_cache_at) < _CACHE_TTL:
-            return _unreleased_cache
+        if _unreleased_cache is not None:
+            age = now - _unreleased_cache_at
+            if age < _CACHE_TTL:
+                return _unreleased_cache
+            if age < _CACHE_STALE_MAX:
+                _start_background_refresh("unreleased", _refresh_unreleased)
+                return _unreleased_cache
         generation = _cache_generation
     try:
         fresh = _fetch_unreleased_cards(strict=True)

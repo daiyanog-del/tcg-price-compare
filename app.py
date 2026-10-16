@@ -94,6 +94,7 @@ from monitor import tracker, run_health_check
 from constants import JST, VAPID_CLAIMS
 from ygores_repository import repository as _ygores_repo
 import card_display as _card_display
+import module_graph as _module_graph
 from admin_unreleased import admin_bp as _admin_bp
 from neuron_deck_parser import import_neuron as _import_neuron
 from neuron_link import resolve_card_name
@@ -354,6 +355,28 @@ def static_import_map(prefixes: list[str]) -> str:
 
 
 app.jinja_env.globals['static_import_map'] = static_import_map
+
+
+# entry -> 先読みするURL一覧。static_import_map と同じく本番はプロセス内でメモ化する
+_static_module_preloads_cache: dict[str, list[str]] = {}
+
+
+def static_module_preloads(entry: str) -> list[str]:
+    """ES module の入口 entry から静的 import でたどれる全ファイルの、内容ハッシュ付きURL一覧。
+
+    テンプレートが <link rel="modulepreload"> に並べ、import の連鎖を待たずに一度に読ませる
+    （一人回しの初期化短縮・2026-10-16）。URL は static_import_map の写像先と同じにして、
+    先読みした取得結果がそのまま使われるようにする。
+    """
+    if not _is_debug_mode() and entry in _static_module_preloads_cache:
+        return _static_module_preloads_cache[entry]
+    urls = [static_url(rel) for rel in _module_graph.module_dependencies(app.static_folder, entry)]
+    if not _is_debug_mode():
+        _static_module_preloads_cache[entry] = urls
+    return urls
+
+
+app.jinja_env.globals['static_module_preloads'] = static_module_preloads
 
 
 @app.after_request
@@ -5031,6 +5054,11 @@ _CACHE_WARMER_FAIL_BACKOFF_SEC = 600  # 直近の失敗からこの秒数は同�
 # 本番実測ではブート後7秒程度で完了するため30秒あれば十分に余裕がある値。
 # 実測値そのものではなく安全マージンを含めた仮置きのため校正対象として残す
 _CACHE_WARMER_ESTIMATE_WAIT_SEC = 30  # TODO: calibrate from data（本番実測: 相場キャッシュ完了はブート後7秒）
+# 未発売カード表示キャッシュ（card_display・TTL30秒）の定期取り直し間隔。
+# card_display は TTL 切れでも _CACHE_STALE_MAX(600秒) 以内なら古い値を返して裏で取り直すため、
+# アクセスが途切れてもその上限に届かないよう、上限の半分の間隔で取り直す。
+# 1回の転送は約84KB（2026-10-16 本番75件）で、5分ごとなら1日約24MB。
+_CARD_DISPLAY_REFRESH_SEC = 300
 
 _cache_warmer_lock_path = os.path.join(os.path.dirname(__file__), ".cache", "startup_cache_warmer.lock")
 
@@ -5062,6 +5090,7 @@ def _cache_warmer():
     """
     have_lock = False
     claim_failed_logged = False
+    card_display_refreshed_at = time.time()  # 初回プリロード直後は取り直さない
     while True:
         if not have_lock:
             have_lock = _claim_startup_job("cache_warmer")
@@ -5089,6 +5118,12 @@ def _cache_warmer():
                 logger.info("YGOResources名前インデックスをプリロードしました")
             except Exception as e:
                 logger.warning(f"YGOResources名前インデックスプリロード失敗: {e}")
+            try:
+                # 新着の未発売カード（/api/new-cards）。初回の同期取得を誰かに待たせない
+                _card_display.get_new_cards()
+                logger.info("未発売カード表示キャッシュをプリロードしました")
+            except Exception as e:
+                logger.warning(f"未発売カード表示キャッシュプリロード失敗: {e}")
             try:
                 _get_top_movers_cached(None)
                 logger.info("価格推移ランキング(全体)をプリロードしました")
@@ -5163,6 +5198,15 @@ def _cache_warmer():
                     on_failed=_mark_top_decks_refresh_failed,
                     fn_kwargs={"force": True},
                 )
+
+        now = time.time()
+        if now - card_display_refreshed_at >= _CARD_DISPLAY_REFRESH_SEC:
+            # 失敗しても古い値は card_display 側に残り、次の周期でまた試す（5分間隔なので多重発火しない）
+            card_display_refreshed_at = now
+            try:
+                _card_display.refresh_caches()
+            except Exception as e:
+                logger.warning(f"未発売カード表示キャッシュ裏更新失敗: {e}")
 
         now = time.time()
         if _buyback_movers_cache and now - _buyback_movers_cache_time > _BUYBACK_MOVERS_CACHE_SEC - _CACHE_WARMER_MARGIN_SEC:
