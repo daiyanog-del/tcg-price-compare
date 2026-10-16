@@ -204,6 +204,34 @@ def _usable_source_url(source_url) -> str:
     return u
 
 
+# 公式 X アカウント（X 監視の対象）。この投稿から取り込んだカードは出典を文字で書く。
+_OFFICIAL_X_ACCOUNT = "yugioh_ocg_info"
+_X_HOSTS = {"x.com", "www.x.com", "twitter.com", "www.twitter.com", "mobile.twitter.com", "mobile.x.com"}
+OFFICIAL_X_SOURCE_TEXT = "公式Xの発表より"
+
+
+def _source_line(source_url) -> str:
+    """本文の出典の行（空文字なら行ごと省く）。
+
+    X の投稿 URL は、本文にあると X が引用として埋め込み、TCGYM のリンクのプレビューが出なくなる
+    （2026-10-16 の実投稿で確認）。そのため X の投稿 URL は貼らず、公式アカウントの投稿なら
+    「公式Xの発表より」と文字で書き、それ以外のアカウントなら出典の行を省く（ユーザー判断）。
+    公式サイトの記事などそれ以外の URL は、従来どおり _usable_source_url を通して貼る。
+    """
+    u = (source_url or "").strip()
+    try:
+        p = urllib.parse.urlparse(u)
+        host = (p.hostname or "").lower()
+    except ValueError:
+        return ""
+    if host in _X_HOSTS:
+        parts = [s for s in p.path.split("/") if s]
+        if len(parts) >= 3 and parts[1] == "status" and parts[0].lower() == _OFFICIAL_X_ACCOUNT:
+            return OFFICIAL_X_SOURCE_TEXT
+        return ""
+    return _usable_source_url(u)
+
+
 def _card_link_url(name: str, base: str | None = None) -> str:
     """投稿に載せる TCGYM のリンク（シミュレーター直行）。focus は & # ? / なども含めて必ずエンコードする。"""
     base = base if base is not None else _site_url()
@@ -224,7 +252,7 @@ def build_tweet_text(name: str, product_name: str = "", release_date=None, sourc
         新カード追加！「{カード名}」
         {商品名}（{M月D日}発売）        ← 商品名・発売日のどちらかが無ければ残る方だけ、両方無ければ行ごと省略
         {TCGYMリンク}                   ← 必ず最初の URL（2026-10-16 の実投稿で、X は先頭の URL のカードを出すと確認）
-        {情報元URL}                     ← 公式の投稿/記事。http(s) の URL だけ。manual・空なら行ごと省略（「情報元：」の文字は付けない。2026-10-16 ユーザー判断）
+        {情報元}                        ← 公式サイトの記事は URL（http(s) のみ）。公式 X の投稿は URL を貼らず「公式Xの発表より」（引用埋め込みで TCGYM のプレビューが消えるため）。他アカウントの X・manual・空なら行ごと省略
         #遊戯王 #OCG
     リンク先はシミュレーター直行（/solitaire?newcards=1&focus=カード名）。
     focus は & # ? / なども含めて必ずエンコードする（quote の safe=""）。
@@ -232,7 +260,7 @@ def build_tweet_text(name: str, product_name: str = "", release_date=None, sourc
     """
     url = _card_link_url(name, site_url)
     date_text = _format_release_short(release_date)
-    source = _usable_source_url(source_url)
+    source = _source_line(source_url)
 
     def render(n: str, p: str) -> str:
         lines = [f"新カード追加！「{n}」"]
