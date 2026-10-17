@@ -9,7 +9,7 @@
     pip install Pillow
 
 入力:
-    static/brand/symbol-source.png / wordmark-A.png（確定ロゴの書き出し）
+    static/brand/symbol-source.png / wordmark-A.png / favicon-source.png（確定素材）
 出力（tcg-web/static/ 配下に上書き）:
     favicon-16.png / favicon-32.png
     apple-touch-icon.png (180x180)
@@ -25,6 +25,7 @@ from pathlib import Path
 import argparse
 import base64
 import hashlib
+import io
 import json
 import math
 import re
@@ -131,6 +132,7 @@ def update_icon_references(background):
 
 def build_favicons():
     rgba = load_navy_rgba(clean_background=True)
+    favicon = Image.open(STATIC / 'brand/favicon-source.png').convert('RGBA')
     background = theme_background()
     for name, size, opaque, maskable in [
         ('favicon-16.png', 16, False, False),
@@ -142,11 +144,19 @@ def build_favicons():
         ('icon-maskable-512.png', 512, True, True),
         ('tcgym-icon-base.png', 1024, False, False),
     ]:
-        make_icon(rgba, size, background=background if opaque else None,
-                  maskable=maskable).save(STATIC / name, optimize=True)
+        if name.startswith('favicon-'):
+            # 承認済みの小サイズ用図柄。余白や輪郭を追加せず縮小する。
+            icon = favicon.resize((size, size), Image.Resampling.LANCZOS)
+        else:
+            icon = make_icon(rgba, size, background=background if opaque else None,
+                             maskable=maskable)
+        icon.save(STATIC / name, optimize=True)
         print(f'  {name} ({size}px)')
 
-    encoded = base64.b64encode((STATIC / 'tcgym-icon-base.png').read_bytes()).decode('ascii')
+    # タブ向けSVGも簡略版に統一。128pxで高密度表示をカバーする。
+    buffer = io.BytesIO()
+    favicon.resize((128, 128), Image.Resampling.LANCZOS).save(buffer, format='PNG', optimize=True)
+    encoded = base64.b64encode(buffer.getvalue()).decode('ascii')
     svg = ('<svg width="1024" height="1024" viewBox="0 0 1024 1024" '
            'xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
            'role="img" aria-label="強欲なラボ">\n  <title>強欲なラボ</title>\n'

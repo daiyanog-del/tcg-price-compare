@@ -73,7 +73,7 @@ def test_svg_embeds_high_resolution_transparent_artwork():
     svg = (STATIC / 'favicon.svg').read_text(encoding='utf-8')
     data = base64.b64decode(re.search(r'base64,([^"\s]+)', svg).group(1))
     with Image.open(io.BytesIO(data)) as image:
-        assert image.size == (1024, 1024)
+        assert image.size == (128, 128)
         assert image.mode == 'RGBA'
 
 
