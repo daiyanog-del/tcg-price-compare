@@ -212,9 +212,19 @@ def process_tweets(
     media_map: dict[str, str],
     sb: Client,
     existing_keys: set[str],
+    replace_queue=None,
 ) -> int:
-    """ツイートリストを処理してDBに挿入する。戻り値: 挿入件数合計"""
+    """ツイートリストを処理してDBに挿入する。戻り値: 挿入件数合計
+
+    replace_queue: 画像アップロード由来で公式版を待っている行（unreleased_upload.ReplaceQueue）。
+    同名のカードは新規登録せず、その行の画像（承認待ちなら内容も）を公式版に差し替える。
+    existing_keys からは呼び出し側で除いておくこと（除かないと Vision 前にスキップされる）。
+    """
     from unreleased_extractor import extract_cards_from_tweet
+    from unreleased_upload import ReplaceQueue, split_replaceable
+
+    if replace_queue is None:
+        replace_queue = ReplaceQueue()
 
     from unreleased_image_store import ingest_x_card_image
 
@@ -313,6 +323,15 @@ def process_tweets(
         n = 0
         for row in filtered:
             key = fuzzy_key(row.get("name", ""))
+            if replace_queue.handles(row.get("name", "")):
+                # 画像取込のカードの公式版。カード本体が読めない投稿（イラストのみ等）では差し替えない
+                if _lacks_card_body(row):
+                    logger.info(f"[X-Watcher] 画像取込カードの公式版だがカード本体が読めないため見送り: "
+                                f"{row.get('name', '?')!r} ({tweet_url})")
+                    continue
+                split_replaceable(sb, [row], replace_queue, tweet_url)
+                existing_keys.add(key)
+                continue
             if _lacks_card_body(row):
                 # カード本体が読めない行は挿入せず、同名の別投稿を待つ（最初の1件だけ保留）
                 if key not in pending:
@@ -334,6 +353,9 @@ def process_tweets(
 
     # バッチ末: 同名の本体ありが来なかった保留行は従来どおり挿入する
     for key, (row, row_url) in list(pending.items()):
+        if replace_queue.handles(row.get("name", "")):
+            del pending[key]
+            continue
         logger.info(
             f"[X-Watcher] 同名の本体ありが無いため保留行を挿入: "
             f"{row.get('name', '?')!r} 採用元={row_url}"
@@ -394,8 +416,13 @@ def main() -> None:
     existing_keys = _load_existing_fuzzy_keys(sb)
     logger.info(f"[X-Watcher] 既存カード数: {len(existing_keys)}件")
 
+    # 画像アップロード由来で公式版を待っているカード（同名の投稿が来たら画像を差し替える）
+    from unreleased_upload import load_replaceable
+    replace_queue = load_replaceable(sb)
+    existing_keys -= replace_queue.keys()
+
     # 処理
-    total = process_tweets(tweets, media_map, sb, existing_keys)
+    total = process_tweets(tweets, media_map, sb, existing_keys, replace_queue)
 
     # since_id を最大値で更新（数値比較で最大値を取る）
     max_id = max(tweets, key=lambda t: int(t["id"]))["id"]

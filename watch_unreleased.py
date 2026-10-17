@@ -421,6 +421,16 @@ def _upsert_cards(sb: Client, rows: list[dict]) -> int:
     if not rows:
         return 0
 
+    # 画像アップロード由来で公式版を待っているカードと同名なら、新規登録せず画像（承認待ちなら内容も）を差し替える。
+    # 公式サイトの画像はこの PC（住宅IP）から取得できる。差し替えた行は挿入件数に数えない
+    from unreleased_upload import load_replaceable, split_replaceable
+    replace_queue = load_replaceable(sb)
+    if replace_queue:
+        page_url = (rows[0].get("source_url") or "") if rows else ""
+        rows = split_replaceable(sb, rows, replace_queue, page_url)
+        if not rows:
+            return 0
+
     from unreleased_approve import maybe_auto_approve
     from unreleased_auto_approve import annotate_row, load_active_names, load_text_context
     # 自動承認の判定用。rejected以外の既存カード名を1回読む

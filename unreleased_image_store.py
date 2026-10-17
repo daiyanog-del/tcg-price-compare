@@ -247,6 +247,122 @@ def ingest_x_card_image(
     if len(image_bytes) > MAX_SIZE:
         return False, f"画像サイズ超過: {len(image_bytes):,}バイト（上限5MB）"
 
+    return _store_card_image(sb, card_id, image_bytes, mime, image_url, tweet_url,
+                             urlparse(image_url).netloc)
+
+
+def ingest_uploaded_card_image(
+    sb: Client,
+    card_id: int,
+    image_bytes: bytes,
+    mime: str,
+    image_key: str,
+    source_page_url: str,
+    source_domain: str,
+) -> tuple[bool, str]:
+    """
+    管理画面からアップロードした画像（配信のキャプチャ等）を保存する。保存・退避・自動クロップは X と同じ。
+    image_key は抽出時に画像を区別した識別子（crop_suggestion.source_image_url と一致させる）。
+    呼び出し側で画像の検証（形式・サイズ）を済ませてから渡すこと。
+    """
+    try:
+        existing = (
+            sb.table("official_card_images")
+            .select("id")
+            .eq("unreleased_card_id", card_id)
+            .is_("deleted_at", "null")
+            .execute()
+        )
+        if existing.data:
+            logger.info(f"[image_store] 画像取込済みのためスキップ: card_id={card_id}")
+            return True, "取込済み"
+    except Exception as e:
+        logger.warning(f"[image_store] 既存確認失敗（処理継続）: {e}")
+    return _store_card_image(sb, card_id, image_bytes, mime, image_key, source_page_url, source_domain)
+
+
+def store_replacement_image(
+    sb: Client,
+    card_id: int,
+    image_url: str,
+    page_url: str,
+    *,
+    official_site: bool,
+) -> tuple[bool, str]:
+    """
+    画像取込のカードを公式版に差し替えるときの保存。既存の画像行があっても保存する（古い行の論理削除は呼び出し側）。
+    official_site=True（公式サイトの画像）は承認時と同じく fetch_guard の許可リストで取得する。
+    ここでは切り抜かない。X の画像は、呼び出し側が古い行を消した後に apply_auto_crop で切り抜く。
+    """
+    if official_site:
+        import fetch_guard
+        if not fetch_guard.is_whitelisted(image_url):
+            return False, f"ホワイトリスト外のURL: {image_url!r}"
+        try:
+            resp = fetch_guard.fetch_whitelisted(image_url)
+        except Exception as e:
+            return False, f"画像取得失敗: {e}"
+    else:
+        try:
+            resp = requests.get(image_url, timeout=30)
+            resp.raise_for_status()
+        except Exception as e:
+            return False, f"画像取得失敗: {e}"
+    if getattr(resp, "status_code", 200) != 200:
+        return False, f"画像取得失敗: HTTP {resp.status_code}"
+    mime = resp.headers.get("Content-Type", "").split(";")[0].strip().lower()
+    if not mime.startswith("image/"):
+        return False, f"Content-Type が image/* でない: {mime!r}"
+    data = resp.content
+    if len(data) > _MAX_IMAGE_BYTES:
+        return False, f"画像サイズ超過: {len(data):,}バイト（上限5MB）"
+    # 切り抜きはここではしない。古い画像行が見えている間に切り抜くと、古い行のファイルを相手にしてしまう
+    # （呼び出し側が古い行を論理削除してから apply_auto_crop を呼ぶ）
+    return _store_card_image(sb, card_id, data, mime, image_url, page_url, urlparse(image_url).netloc,
+                             auto_crop=False)
+
+
+def apply_auto_crop(sb: Client, card_id: int, image_url: str) -> None:
+    """クロップが必要な候補（画像全体でない・URL一致・座標が正しい）なら自動で切り抜く。失敗しても元画像のまま続行。
+
+    crop_and_save_image は見えている画像行を相手にするので、見えている行が1行のときに呼ぶこと
+    （画像取込の差し替えでは、古い行を論理削除してから呼ぶ）。
+    """
+    # 元画像は退避済みで管理画面から戻せる。最新の extraction_raw を読み直す
+    raw_now = _read_extraction_raw(sb, card_id)
+    box, skip_reason = _is_auto_crop_candidate(raw_now, image_url)
+    if not box:
+        logger.info(f"[image_store] 自動クロップ見送り: card_id={card_id}: {skip_reason}")
+        return
+    sug = raw_now.get("crop_suggestion") or {}
+    try:
+        # この時点の Storage は未クロップなので、元画像取得失敗時に public_url を使ってよい
+        ok, result = crop_and_save_image(
+            sb, card_id, box["left"], box["top"], box["right"], box["bottom"], mode="auto",
+            state_extra={"method": sug.get("method"), "refinement": sug.get("refinement")},
+            allow_public_fallback=True,
+        )
+        if not ok:
+            logger.warning(f"[image_store] 自動クロップ失敗（元画像のまま継続）: card_id={card_id}: {result}")
+    except Exception as e:
+        logger.warning(f"[image_store] 自動クロップ例外（元画像のまま継続）: card_id={card_id}: {e}")
+
+
+def _store_card_image(
+    sb: Client,
+    card_id: int,
+    image_bytes: bytes,
+    mime: str,
+    image_url: str,
+    tweet_url: str,
+    source_domain: str,
+    *,
+    auto_crop: bool = True,
+) -> tuple[bool, str]:
+    """取得済みの画像を Storage に保存し、来歴を登録して、元画像の退避と自動クロップを行う。
+
+    auto_crop=False は差し替え用（古い画像行を消した後に呼び出し側が apply_auto_crop を呼ぶ）。
+    """
     ext = _EXT_MAP.get(mime, "jpg")
     storage_path = f"unreleased/{card_id}.{ext}"
 
@@ -276,7 +392,7 @@ def ingest_x_card_image(
             "public_url": public_url,
             "source_image_url": image_url,
             "source_page_url": tweet_url,
-            "source_domain": urlparse(image_url).netloc,
+            "source_domain": source_domain,
         }).execute()
     except Exception as e:
         return False, f"DB 登録失敗: {e}"
@@ -292,25 +408,10 @@ def ingest_x_card_image(
     if updates:
         _merge_extraction_raw(sb, card_id, updates)
 
-    # クロップが必要な候補（画像全体でない・URL一致・座標が正しい）は常に自動適用する
-    # （元画像は退避済みで管理画面から戻せる。最新の extraction_raw を読み直す）
-    raw_now = _read_extraction_raw(sb, card_id)
-    box, skip_reason = _is_auto_crop_candidate(raw_now, image_url)
-    if not box:
-        logger.info(f"[image_store] 自動クロップ見送り: card_id={card_id}: {skip_reason}")
+    if auto_crop:
+        apply_auto_crop(sb, card_id, image_url)
     else:
-        sug = raw_now.get("crop_suggestion") or {}
-        try:
-            # この時点の Storage は未クロップなので、元画像取得失敗時に public_url を使ってよい
-            ok, result = crop_and_save_image(
-                sb, card_id, box["left"], box["top"], box["right"], box["bottom"], mode="auto",
-                state_extra={"method": sug.get("method"), "refinement": sug.get("refinement")},
-                allow_public_fallback=True,
-            )
-            if not ok:
-                logger.warning(f"[image_store] 自動クロップ失敗（元画像のまま継続）: card_id={card_id}: {result}")
-        except Exception as e:
-            logger.warning(f"[image_store] 自動クロップ例外（元画像のまま継続）: card_id={card_id}: {e}")
+        logger.info(f"[image_store] 自動クロップ見送り: card_id={card_id}: 保存時には切り抜かない")
 
     logger.info(f"[image_store] 画像保存完了: card_id={card_id}, path={storage_path!r}")
     return True, f"取込成功: {storage_path}"

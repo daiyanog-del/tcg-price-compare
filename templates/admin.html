@@ -46,6 +46,7 @@
     <button class="tab-btn" data-tab="rejected">却下済み</button>
     <button class="tab-btn" data-tab="manual">手動登録</button>
     <button class="tab-btn" data-tab="x-fetch">Xポスト取込</button>
+    <button class="tab-btn" data-tab="image-import">画像取込</button>
     <button class="tab-btn" data-tab="public-replays">公開リプレイ</button>
     <button class="tab-btn" data-tab="settings">設定</button>
   </nav>
@@ -209,6 +210,34 @@
     </form>
   </section>
 
+  <!-- ──── 画像取込タブ（公式配信のキャプチャ等） ──── -->
+  <section id="tab-image-import" class="tab-section" hidden>
+    <div class="section-header">
+      <h2 class="section-title">画像から取り込む</h2>
+    </div>
+    <p class="bulk-approve-hint">公式配信（遊戯王OCGタイムズの「新規カード一覧」など）の画面キャプチャから、カードを読み取って承認待ちに追加します。1枚ずつ順に読みます（1枚20〜60秒）。自動承認はしません。同じ名前のカードが公式Xや公式サイトに出たら、画像を公式版に差し替えます（承認待ちなら内容も公式版にします）。</p>
+    <form id="image-import-form" class="manual-form">
+      <div class="form-row">
+        <label class="form-label" for="image-import-files">画像（PNG・JPEG・WebP、1枚5MBまで。複数可）</label>
+        <input class="form-input" id="image-import-files" type="file" accept="image/png,image/jpeg,image/webp" multiple required>
+      </div>
+      <div class="form-row">
+        <label class="form-label" for="image-import-source">出典URL（必須。配信なら時刻つきのURL）</label>
+        <input class="form-input" id="image-import-source" type="url"
+          placeholder="https://www.youtube.com/watch?v=...&amp;t=6448s" required>
+      </div>
+      <div class="form-row">
+        <label class="form-label" for="image-import-note">メモ（任意。AIに渡します。例: 2026年10月31日発売「IMMORTAL PHOENIX」）</label>
+        <input class="form-input" id="image-import-note" type="text" maxlength="500">
+      </div>
+      <div class="form-row">
+        <button type="submit" class="btn btn-primary" id="image-import-btn">読み取って追加する</button>
+      </div>
+      <ul id="image-import-log" class="image-import-log" hidden></ul>
+      <p id="image-import-result" class="form-result" hidden></p>
+    </form>
+  </section>
+
   <!-- ──── 設定タブ ──── -->
   <!-- ──── 公開リプレイタブ（みんなのリプレイ） ──── -->
   <section id="tab-public-replays" class="tab-section" hidden>
@@ -300,6 +329,7 @@
         <span class="auto-verdict-badge" hidden></span>
         <span class="text-check-badge" hidden></span>
         <span class="reread-trusted-badge" hidden title="1回目と拡大読み直しの効果テキストが食い違いましたが、読み直し側に問題が見当たらないため自動承認の対象にしたカードです。効果テキストを直す・利用者から誤り報告が来ると、この方式は自動で無効になります">読み直し採用</span>
+        <span class="upload-badge" hidden></span>
         <span class="report-badge" hidden></span>
         <span class="card-row__extracted-at"></span>
       </div>
@@ -471,6 +501,7 @@
         <span class="card-row__status-badge"></span>
         <span class="auto-approved-badge" hidden title="自動承認で公開されたカードです。問題があれば「承認待ちに戻す」で非公開にできます（Xに投稿済みなら投稿も削除されます）">自動承認</span>
         <span class="reread-trusted-badge" hidden title="1回目と拡大読み直しの効果テキストが食い違いましたが、読み直し側に問題が見当たらないため自動承認の対象にしたカードです。効果テキストを直す・利用者から誤り報告が来ると、この方式は自動で無効になります">読み直し採用</span>
+        <span class="upload-badge" hidden></span>
         <span class="report-badge" hidden></span>
         <span class="card-row__has-image has-image-badge" hidden>画像あり</span>
         <span class="card-row__no-image no-image-badge" hidden>画像なし</span>

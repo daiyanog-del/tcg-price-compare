@@ -307,6 +307,9 @@ def admin_list_unreleased():
             # 効果テキストの1回目と拡大読み直しの食い違い（一致・旧データは None）
             from effect_text_reread import admin_view as _reread_view
             card["effect_reread"] = _reread_view(raw)
+            # 画像アップロード由来の札（公式版待ち / 公式版に差し替え済み・差分あり）
+            from unreleased_upload import admin_view as _upload_view
+            card["upload_view"] = _upload_view(raw, card)
             # extraction_raw はフロントエンドに不要なので除外する（サイズ削減）
             card.pop("extraction_raw", None)
 
@@ -1824,11 +1827,16 @@ def admin_fetch_x_post():
             "reason": "◤◢ パターンが見つかりません。force=true で強制実行できます",
         })
 
+    # 画像アップロード由来で公式版を待っているカード（同名なら新規登録せず差し替える）
+    from unreleased_upload import load_replaceable, split_replaceable
+    replace_queue = load_replaceable(_supabase)
+
     # 重複チェック（force=False のときのみ）
     if not force and names:
         from name_normalize import fuzzy_key
         existing_resp = _supabase.table("unreleased_cards").select("name").execute()
         existing_keys = {fuzzy_key(r["name"]) for r in (existing_resp.data or []) if r.get("name")}
+        existing_keys -= replace_queue.keys()
         if all(fuzzy_key(n) in existing_keys for n in names):
             return jsonify({
                 "ok": False,
@@ -1852,6 +1860,13 @@ def admin_fetch_x_post():
 
     if not card_rows:
         return jsonify({"ok": True, "inserted": 0, "cards": [], "reason": "SAMPLEウォーターマークなし（発売済みカードの可能性）"})
+
+    # 画像取込のカードと同名の行は、新規登録せず公式版として差し替える
+    n_done = len(replace_queue.done)
+    card_rows = split_replaceable(_supabase, card_rows, replace_queue, tweet_url)
+    replaced = len(replace_queue.done) - n_done
+    if replaced:
+        _card_display.invalidate_cache()
 
     # upsert
     from unreleased_auto_approve import annotate_row, load_active_names, load_text_context
@@ -1899,6 +1914,55 @@ def admin_fetch_x_post():
         "inserted": len(inserted_cards),
         "cards": inserted_cards,
         "auto_approved": auto.get("approved", 0),
+        "replaced": replaced,
+    }), 201
+
+
+# ──────────────────────────────────────────────
+# POST /api/admin/unreleased/import-image — 画像アップロードから取込
+# ──────────────────────────────────────────────
+
+@admin_bp.route("/api/admin/unreleased/import-image", methods=["POST"])
+def admin_import_image():
+    """
+    手元の画像（公式配信のキャプチャ等）1枚からカードを抽出して承認待ちに登録する。
+    リクエストボディ: {"image": "data:image/png;base64,...", "source_url": "https://...",
+                      "note": "（任意）商品名などのメモ", "filename": "（任意）"}
+    自動承認はしない（必ず人が確認する）。同名カードが公式X・公式サイトで届いたら画像を差し替える
+    （unreleased_upload.py）。1回 17〜53 秒かかるため、管理画面は1枚ずつ順に送る。
+    """
+    err = _require_admin_key()
+    if err:
+        return err
+
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+
+    body = request.get_json(silent=True) or {}
+    from unreleased_upload import UploadError, import_uploaded_image
+    try:
+        result = import_uploaded_image(
+            _supabase,
+            data_url=body.get("image") or "",
+            source_url=body.get("source_url") or "",
+            note=body.get("note") or "",
+            filename=body.get("filename") or "",
+        )
+    except UploadError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.error(f"[admin] 画像取込失敗: {e}")
+        return jsonify({"error": f"抽出に失敗しました: {e}"}), 500
+
+    if result["inserted"]:
+        _card_display.invalidate_cache()
+    return jsonify({
+        "ok": True,
+        "extracted": result["extracted"],
+        "inserted": len(result["inserted"]),
+        "cards": [{"id": c.get("id"), "name": c.get("name"),
+                   "image": result["images"].get(c.get("id"), "")} for c in result["inserted"]],
+        "skipped": result["skipped"],
     }), 201
 
 
