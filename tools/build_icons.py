@@ -178,12 +178,12 @@ def build_og_image():
     logo = Image.new('RGBA', (1024, 200))
     logo.alpha_composite(symbol.resize((200, 200), Image.Resampling.LANCZOS), (0, 0))
     fitted = ImageOps.contain(word, (800, 200), Image.Resampling.LANCZOS)
-    logo.alpha_composite(fitted, (224, (200 - fitted.height) // 2))
+    logo.alpha_composite(fitted, (224, (200 - fitted.height) // 2 + 30))
     logo.save(STATIC / 'og-logo.png', optimize=True)
     canvas = Image.new('RGBA', (1200, 630), theme_background())
     canvas.alpha_composite(symbol.resize((400, 400), Image.Resampling.LANCZOS), (60, 115))
     fitted = ImageOps.contain(word, (650, 300), Image.Resampling.LANCZOS)
-    canvas.alpha_composite(fitted, (490, (630 - fitted.height) // 2))
+    canvas.alpha_composite(fitted, (490, (630 - fitted.height) // 2 + 60))
     canvas.convert('RGB').save(STATIC / 'og-image.png', optimize=True)
 
 

@@ -779,7 +779,7 @@ html, body {
   isolation: isolate;
 }
 .sol-nav-title .nav-icon {
-  height: 36px;
+  height: 44px;
   width: auto;
   display: block;
   mix-blend-mode: normal;
@@ -1985,4 +1985,4 @@ a.replay-btn { display: inline-block; text-decoration: none; }
 .sol-replay-start-later:hover { color: var(--main-color); }
 
 /* 狭いサイドバーに合わせた共通ブランド素材。 */
-.sol-nav-title .nav-brand-image { width:96px; height:auto; display:block; }
+.sol-nav-title .nav-brand-image { width:88px; height:auto; display:block; transform:translateY(7px); }

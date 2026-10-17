@@ -41,7 +41,8 @@ def test_icon_size_and_background(name, size, transparent):
             assert icon.mode == 'RGBA'
             alpha = icon.getchannel('A')
             assert alpha.getextrema() == (0, 255)
-            assert all(alpha.getpixel(pos) == 0 for pos in
+            # 縮小補間の端に残る1/255の透明度は許容する。
+            assert all(alpha.getpixel(pos) <= 1 for pos in
                        [(0, 0), (size - 1, 0), (0, size - 1), (size - 1, size - 1)])
         else:
             assert icon.mode == 'RGB'

@@ -35,7 +35,7 @@ body {
   text-decoration: none;
   color: var(--main-color);
 }
-.rp-brand-icon { height: 52px; width: auto; display: block; }
+.rp-brand-icon { height: 64px; width: auto; display: block; }
 .rp-brand-name { display: inline-flex; align-items: flex-end; font-family: 'Bungee', sans-serif; font-size: 22px; line-height: 1; }
 .rp-brand-g { color: var(--gold); font-size: 1.28em; }
 .rp-back {
@@ -286,6 +286,6 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--gold); outline-
 .rp-row-actions { margin-left: auto; }
 .rp-row-title { min-width: 0; }
 
-.rp-brand-name-image { width:125px; height:auto; display:block; }
+.rp-brand-name-image { width:125px; height:auto; display:block; transform:translateY(10px); }
 
 @media (max-width:600px) { .rp-header { flex-wrap:wrap; } }
