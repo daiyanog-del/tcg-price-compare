@@ -59,4 +59,15 @@ assert.ok(!t.note.textContent.includes('‖'));  // 通常カードには並び�
 t = form();
 context.render(t.f, {effect_reread: {status: 'disagree', pendulum: true, ops: [['equal', 'P‖M', 'P‖M']]}});
 assert.ok(t.note.textContent.includes('ペンデュラム効果‖モンスター効果'));
+
+// 紹介場面の取込（ocgtimes_reveal.admin_view）: 言葉はサーバーの labels を使う
+t = form();
+context.render(t.f, {effect_reread: {status: 'disagree', ops: [['equal', 'A', 'A'], ['replace', '壁', '鷲']],
+  labels: {first: '字幕（採用中）', reread: 'カード画像の効果欄の読み直し', note: '紹介場面の字幕と…'}}});
+assert.ok(t.note.textContent.startsWith('紹介場面の字幕と'));
+assert.equal(t.rows.children[0].textContent, '字幕（採用中）');
+assert.equal(t.rows.children[2].textContent, 'カード画像の効果欄の読み直し');
+t = form();
+context.render(t.f, {effect_reread: {status: 'error', reason: 'x', labels: {first: 'a', reread: 'b', note: 'c'}}});
+assert.ok(t.note.textContent.includes('字幕の文です'));
 console.log('ok');

@@ -702,10 +702,15 @@ function _renderRereadPanel(editForm, card) {
     return;
   }
   if (view.status === 'error') {
-    note.textContent = '拡大読み直しに失敗しました（1回目の読み取り結果のままです）。画像を見て確認してください。理由: ' + String(view.reason || '');
+    note.textContent = (view.labels
+      ? 'カード画像の効果欄の読み直しに失敗しました（効果テキスト欄は字幕の文です）。画像を見て確認してください。理由: '
+      : '拡大読み直しに失敗しました（1回目の読み取り結果のままです）。画像を見て確認してください。理由: ')
+      + String(view.reason || '');
     return;
   }
-  note.textContent = '1回目と拡大して読み直した結果が食い違いました。効果テキスト欄は読み直し結果です。'
+  // 紹介場面の取込は「字幕（採用中）とカード画像の読み直し」の比較なので、言葉をサーバーの labels で差し替える
+  const labels = (view.labels && typeof view.labels === 'object') ? view.labels : null;
+  note.textContent = (labels ? String(labels.note || '') : '1回目と拡大して読み直した結果が食い違いました。効果テキスト欄は読み直し結果です。')
     + (view.unreadable ? '読めない文字は「〓」になっています。' : '')
     + (view.pendulum ? 'ペンデュラムは「ペンデュラム効果‖モンスター効果」の順に並べています。' : '')
     + '（取込時の結果です。編集後は反映されません。比較のため空白・改行を除き全角半角をそろえた表示）';
@@ -731,8 +736,8 @@ function _renderRereadPanel(editForm, card) {
     rows.appendChild(dt);
     rows.appendChild(dd);
   };
-  addRow('1回目の読み取り', 1);
-  addRow('読み直し（採用中）', 2);
+  addRow(labels ? String(labels.first || '') : '1回目の読み取り', 1);
+  addRow(labels ? String(labels.reread || '') : '読み直し（採用中）', 2);
 }
 
 /**
@@ -2325,6 +2330,8 @@ document.getElementById('image-import-form').addEventListener('submit', async (e
   const files = Array.from(document.getElementById('image-import-files').files || []);
   const sourceUrl = document.getElementById('image-import-source').value.trim();
   const note = document.getElementById('image-import-note').value.trim();
+  const layout = document.getElementById('image-import-layout').value;
+  const productName = document.getElementById('image-import-product').value.trim();
   resultEl.hidden = true;
   log.replaceChildren();
   log.hidden = true;
@@ -2350,7 +2357,9 @@ document.getElementById('image-import-form').addEventListener('submit', async (e
         const image = await _readAsDataUrl(file);
         const resp = await apiFetch('/api/admin/unreleased/import-image', {
           method: 'POST',
-          body: JSON.stringify({ image, source_url: sourceUrl, note, filename: file.name }),
+          body: JSON.stringify({
+            image, source_url: sourceUrl, note, filename: file.name, layout, product_name: productName,
+          }),
         });
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok) {

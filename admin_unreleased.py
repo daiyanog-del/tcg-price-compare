@@ -306,7 +306,9 @@ def admin_list_unreleased():
             card["uncertain_field_labels"] = _uncertain_field_labels(uncertain)
             # 効果テキストの1回目と拡大読み直しの食い違い（一致・旧データは None）
             from effect_text_reread import admin_view as _reread_view
-            card["effect_reread"] = _reread_view(raw)
+            from ocgtimes_reveal import admin_view as _reveal_view
+            # 紹介場面の取込は「字幕とカード画像の読み直し」の食い違い（同じ欄に言葉を変えて出す）
+            card["effect_reread"] = _reveal_view(raw) if isinstance(raw, dict) and raw.get("reveal") else _reread_view(raw)
             # 画像アップロード由来の札（公式版待ち / 公式版に差し替え済み・差分あり）
             from unreleased_upload import admin_view as _upload_view
             card["upload_view"] = _upload_view(raw, card)
@@ -1927,7 +1929,10 @@ def admin_import_image():
     """
     手元の画像（公式配信のキャプチャ等）1枚からカードを抽出して承認待ちに登録する。
     リクエストボディ: {"image": "data:image/png;base64,...", "source_url": "https://...",
-                      "note": "（任意）商品名などのメモ", "filename": "（任意）"}
+                      "note": "（任意）商品名などのメモ", "filename": "（任意）",
+                      "layout": "list"（既定・カードが並んだ画面）| "reveal"（OCGタイムズの紹介場面）,
+                      "product_name": "（reveal のとき任意）収録商品名"}
+    reveal は1画面だけで読む（同じカードの複数場面のまとめ・一覧との突き合わせは tools/ocgtimes_watch.py import）。
     自動承認はしない（必ず人が確認する）。同名カードが公式X・公式サイトで届いたら画像を差し替える
     （unreleased_upload.py）。1回 17〜53 秒かかるため、管理画面は1枚ずつ順に送る。
     """
@@ -1939,15 +1944,29 @@ def admin_import_image():
         return jsonify({"error": "Supabase 未接続"}), 503
 
     body = request.get_json(silent=True) or {}
-    from unreleased_upload import UploadError, import_uploaded_image
+    layout = body.get("layout") or "list"
+    if layout not in ("list", "reveal"):
+        return jsonify({"error": "画面の種類が不正です"}), 400
+    from unreleased_upload import UploadError, decode_upload, import_reveal_frames, import_uploaded_image
     try:
-        result = import_uploaded_image(
-            _supabase,
-            data_url=body.get("image") or "",
-            source_url=body.get("source_url") or "",
-            note=body.get("note") or "",
-            filename=body.get("filename") or "",
-        )
+        if layout == "reveal":
+            data, _mime = decode_upload(body.get("image") or "")
+            result = import_reveal_frames(
+                _supabase,
+                reveal_images=[(data, None)],
+                video_url=body.get("source_url") or "",
+                note=body.get("note") or "",
+                product_name=str(body.get("product_name") or "")[:200],
+                filename_prefix=(str(body.get("filename") or "")[:150] + ":") if body.get("filename") else "",
+            )
+        else:
+            result = import_uploaded_image(
+                _supabase,
+                data_url=body.get("image") or "",
+                source_url=body.get("source_url") or "",
+                note=body.get("note") or "",
+                filename=body.get("filename") or "",
+            )
     except UploadError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:

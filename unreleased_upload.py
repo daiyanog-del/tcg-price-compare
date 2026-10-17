@@ -127,13 +127,17 @@ def mark_upload_rows(rows: list[dict], source_url: str, note: str, filename: str
 
 
 def import_uploaded_image(sb, *, data_url: str, source_url: str, note: str = "",
-                          filename: str = "", extract=None, store_image=None, known_keys=None) -> dict:
+                          filename: str = "", extract=None, store_image=None, known_keys=None,
+                          only_keys=None, product_name=None) -> dict:
     """1枚の画像から未発売カードを抽出して承認待ちに登録し、カードごとの画像を保存する。
 
     - 発売済み（ygoresources 既知）のカードは登録しない（X監視・公式サイト巡回と同じ扱い）。
     - 同名のカードが既にあれば新しく登録しない。ただしそれが画像取込の行で画像が無い（前回の保存失敗）なら、
       今回の画像で画像だけ付け直す。
     - 自動承認は呼ばない（判定記録には upload_source が付く）。
+    - only_keys（fuzzy_key の集合）を渡すと、その名前（または近い名前。ocgtimes_reveal と同じ近さ）のカードだけを
+      登録する（紹介場面の取込で、一覧にだけあったカードを一覧画面から補うとき）。
+    - product_name を渡すと、収録商品をその値にして発売日を照合し直す（紹介場面の取込の --product に揃える）。
     extract / store_image / known_keys はテスト用の差し替え口。
     戻り値: {"inserted": [行...], "skipped": [{"name","reason"}...], "images": {id: 結果}, "extracted": 件数}
     """
@@ -150,11 +154,46 @@ def import_uploaded_image(sb, *, data_url: str, source_url: str, note: str = "",
 
     if extract is None:
         from unreleased_extractor import extract_cards_from_uploaded_image as extract
-    if store_image is None:
-        from unreleased_image_store import ingest_uploaded_card_image as store_image
 
     rows = extract(image, source_url, note)
     mark_upload_rows(rows, source_url, note, filename)
+    extracted = len(rows)
+    skipped = []
+    if only_keys is not None:
+        from ocgtimes_reveal import near_name
+        keep = [r for r in rows
+                if any(near_name(fuzzy_key(r.get("name", "")), k) for k in only_keys)]
+        skipped += [{"name": r.get("name", ""), "reason": "紹介場面から登録済み（一覧からは補わない）"}
+                    for r in rows if r not in keep]
+        rows = keep
+    if product_name:
+        from unreleased_quality import attach_release_date
+        dates: dict = {}
+        for r in rows:
+            r["product_name"] = product_name
+            # 抽出時に別の商品名で照合した日付を「記事の日付」として持ち越さない（候補は抽出時のものに戻す）
+            ev = (r.get("extraction_raw") or {}).get("release_date_evidence")
+            r["release_date"] = ev.get("candidate_date") if isinstance(ev, dict) else None
+            attach_release_date(r, dates)
+    result = register_rows(sb, rows, {key: image["png"]}, store_image=store_image, known_keys=known_keys,
+                           default_key=key)
+    result["skipped"] = skipped + result["skipped"]
+    result["extracted"] = extracted
+    logger.info(f"[upload] 取込: 抽出={extracted}件 登録={len(result['inserted'])}件 "
+                f"スキップ={result['skipped']} ({source_url})")
+    return result
+
+
+def register_rows(sb, rows: list[dict], pngs: dict[str, bytes], *, store_image=None, known_keys=None,
+                  default_key=None) -> dict:
+    """抽出済みの行（画像取込の印つき）を承認待ちに登録し、カードごとの画像を保存する。
+
+    pngs は画像の識別子（行の extraction_raw.source_image_url）→ PNG バイト列。保存する画像は行ごとに選ぶ
+    （紹介場面の取込では、カードごとに別の場面の画像を保存する）。行の識別子が pngs に無ければ default_key の画像。
+    戻り値: {"inserted": [行...], "skipped": [{"name","reason"}...], "images": {id: 結果}}
+    """
+    if store_image is None:
+        from unreleased_image_store import ingest_uploaded_card_image as store_image
 
     from unreleased_auto_approve import annotate_row, load_active_names, load_text_context
     active_names = load_active_names(sb)
@@ -162,11 +201,18 @@ def import_uploaded_image(sb, *, data_url: str, source_url: str, note: str = "",
     existing = _load_existing_by_key(sb)
     known = _known_released_keys() if known_keys is None else known_keys
 
-    png = image["png"]
-    domain = (urlparse(source_url).hostname or "").lower()
     inserted, skipped, images = [], [], {}
 
-    def store(cid) -> bool:
+    def store(cid, row) -> bool:
+        key = row["extraction_raw"].get("source_image_url")
+        if key not in pngs:
+            key = default_key
+        png = pngs.get(key)
+        if png is None:
+            images[cid] = "失敗: 保存する画像がありません"
+            return False
+        source_url = row.get("source_url") or ""
+        domain = (urlparse(source_url).hostname or "").lower()
         ok, reason = store_image(sb, cid, png, "image/png", key, source_url, domain)
         images[cid] = reason if ok else f"失敗: {reason}"
         logger.info(f"[upload] 画像保存: card_id={cid}, ok={ok}, reason={reason!r}")
@@ -185,7 +231,7 @@ def import_uploaded_image(sb, *, data_url: str, source_url: str, note: str = "",
                 _merge_raw(sb, prev["id"], {k: row["extraction_raw"][k] for k in
                                             ("crop_suggestion", "card_bbox", "source_image_url", "card_image_url")
                                             if k in row["extraction_raw"]})
-                ok = store(prev["id"])
+                ok = store(prev["id"], row)
                 skipped.append({"name": name, "reason": "登録済みのため画像だけ付け直し" if ok
                                 else f"登録済み・画像の付け直しに失敗（{images[prev['id']]}）"})
             else:
@@ -204,9 +250,104 @@ def import_uploaded_image(sb, *, data_url: str, source_url: str, note: str = "",
             if active_names is not None:
                 active_names.append(name)
             if card.get("id"):
-                store(card["id"])
-    logger.info(f"[upload] 取込: 抽出={len(rows)}件 登録={len(inserted)}件 スキップ={skipped} ({source_url})")
-    return {"inserted": inserted, "skipped": skipped, "images": images, "extracted": len(rows)}
+                store(card["id"], row)
+    return {"inserted": inserted, "skipped": skipped, "images": images}
+
+
+def _with_t(url: str, t) -> str:
+    """動画URLに再生位置（秒）を付ける。t が None ならそのまま。"""
+    if t is None:
+        return url
+    return f"{url}{'&' if '?' in url else '?'}t={int(t)}s"
+
+
+def import_reveal_frames(sb, *, reveal_images, list_images=(), video_url: str, note: str = "",
+                         product_name: str = "", filename_prefix: str = "",
+                         extract=None, store_image=None, known_keys=None, list_extract=None) -> dict:
+    """OCGタイムズの紹介場面（と一覧画面）の画像から未発売カードを登録する（ocgtimes_reveal 参照）。
+
+    reveal_images / list_images: [(画像のバイト列, 秒 or None), ...]。PNG・JPEG・WebP。
+    - 紹介場面のカードを名前でまとめて1行ずつ登録する。画像はカードごとに選んだ場面を保存し、カードの枠で自動クロップする。
+    - 一覧画面にあって紹介場面に無いカードは、その一覧画面を従来の読み方（extract_cards_from_uploaded_image）で読み、
+      そのカードだけを登録する（list_fallback）。
+    - 自動承認は呼ばない。突き合わせの結果は extraction_raw.reveal に記録する（auto_approve_candidate は記録だけ）。
+    extract は ocgtimes_reveal.extract_reveal、list_extract は一覧画面の読み方の差し替え口（テスト用）。
+    戻り値: {"inserted", "skipped", "images", "extracted", "list_only", "list_fallback"（missing＝補えなかった名前）,
+            "no_card_frames", "failed_frames"}
+    """
+    from unreleased_extractor import normalize_uploaded_image
+    video_url = validate_source_url(video_url)
+    note = (note or "").strip()[:NOTE_MAX_LEN]
+
+    def prepare(items):
+        out = []
+        for data, t in items:
+            if not data:
+                raise UploadError(f"画像データが空です（{t}秒）")
+            if len(data) > MAX_UPLOAD_BYTES:
+                raise UploadError(f"画像が大きすぎます（{t}秒）: {len(data):,}バイト（上限5MB）")
+            try:
+                out.append({"image": normalize_uploaded_image(data, image_key_for(data)), "t": t, "data": data})
+            except Exception as e:
+                raise UploadError(f"画像を処理できません（{t}秒）: {e}") from None
+        return out
+
+    reveal = prepare(reveal_images)
+    lists = prepare(list_images)
+    if not reveal:
+        raise UploadError("紹介場面の画像がありません")
+    if extract is None:
+        from ocgtimes_reveal import extract_reveal as extract
+    result = extract(reveal, lists, video_url=video_url, product_name=product_name)
+    rows = result["rows"]
+    for row in rows:
+        t = (row["extraction_raw"].get("reveal") or {}).get("saved_frame_t")
+        mark_upload_rows([row], row["source_url"], note,
+                         f"{filename_prefix}reveal" + (f"_t{t}" if t is not None else ""))
+    pngs = {f["image"]["url"]: f["image"]["png"] for f in reveal}
+    reg = register_rows(sb, rows, pngs, store_image=store_image, known_keys=known_keys)
+
+    # 一覧にだけあったカードを一覧画面から補う（紹介場面が撮れていない・紹介されなかったカード）
+    fallback = []
+    missing_by_t: dict = {}
+    for c in result["list_only"]:
+        missing_by_t.setdefault(c.get("list_t"), set()).add(fuzzy_key(c["name"]))
+    for f in lists:
+        keys = missing_by_t.get(f["t"])
+        if not keys:
+            continue
+        try:
+            r = import_uploaded_image(sb, data_url=_data_url(f["data"]), source_url=_with_t(video_url, f["t"]),
+                                      note=note, extract=list_extract,
+                                      filename=f"{filename_prefix}list" + (f"_t{f['t']}" if f["t"] is not None else ""),
+                                      store_image=store_image, known_keys=known_keys, only_keys=keys,
+                                      product_name=product_name or None)
+            reg["inserted"] += r["inserted"]
+            reg["skipped"] += r["skipped"]
+            reg["images"].update(r["images"])
+            # 一覧の読み直しで見つからなかった名前（2回の読みで名前が大きく揺れた等）は黙って落とさず返す
+            from ocgtimes_reveal import near_name
+            handled = [fuzzy_key(c.get("name") or "") for c in r["inserted"]]
+            handled += [fuzzy_key(x.get("name") or "") for x in r["skipped"]
+                        if not str(x.get("reason", "")).startswith("紹介場面から登録済み")]
+            missing = sorted(k for k in keys if not any(near_name(k, h) for h in handled))
+            fallback.append({"t": f["t"], "names": sorted(keys), "inserted": [c.get("name") for c in r["inserted"]],
+                             **({"missing": missing} if missing else {})})
+        except Exception as e:  # noqa: BLE001 — 補いの失敗で紹介場面の登録結果を捨てない
+            logger.warning(f"[upload] 一覧画面からの補いに失敗: t={f['t']}: {e}")
+            fallback.append({"t": f["t"], "names": sorted(keys), "error": repr(e)[:300]})
+    logger.info(f"[upload] 紹介場面の取込: 場面={len(reveal)} 一覧={len(lists)} 行={len(rows)} "
+                f"登録={len(reg['inserted'])} 一覧のみ={[c['name'] for c in result['list_only']]}")
+    return {**reg, "extracted": len(rows), "list_only": [c["name"] for c in result["list_only"]],
+            "list_fallback": fallback, "no_card_frames": result.get("no_card_frames", []),
+            "failed_frames": result.get("failed_frames", [])}
+
+
+def _data_url(data: bytes) -> str:
+    with Image.open(io.BytesIO(data)) as im:
+        fmt = (im.format or "png").lower()
+    mime = {"jpeg": "image/jpeg", "webp": "image/webp"}.get(fmt, "image/png")
+    return f"data:{mime};base64," + base64.b64encode(data).decode()
 
 
 def _load_existing_by_key(sb) -> dict[str, dict]:

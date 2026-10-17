@@ -1,5 +1,12 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-17: OCGタイムズの取込を紹介場面方式に（branch feat/ocgtimes-reveal）
+
+- 効果文は紹介場面の右下の字幕から、種別・数値・名前はカード画像から（`ocgtimes_reveal.py`）。同じカードの場面を名前でまとめ、数値の食い違いは多数決（一覧画面も1票）＋不確か。カード画像の効果欄の拡大読み直しと字幕が一致したカードを自動承認候補として記録（自動承認はしない）。
+- 登録は `unreleased_upload.register_rows` に共通化（`import_uploaded_image` と `import_reveal_frames` が使う）。一覧にだけあるカードは一覧画面の読み方で補う（`only_keys`）。
+- ツール: `ocgtimes_watch.py status/pending` が `reveal_sections`（目次の「カード…公開」の章）を出す。`import` は `--times` の L 付き＝一覧画面、`--product`、`--layout list` で従来方式。手順書は docs/ocgtimes_import_procedure.md。
+- 評価: 10-16 配信 16/16（効果文・数値）。手順書の場面検出 JS は内蔵ブラウザで実動画に当てて確認（結果は PR 本文）。本番 DB への書き込み・本番デプロイはしていない。
+
 ## 2026-10-17: 画像取込と公式版への差し替え（branch feat/unreleased-image-import）
 
 - 管理画面「画像取込」タブ → POST /api/admin/unreleased/import-image（1画像1回・17〜53秒）。本体は unreleased_upload.py、抽出は extract_cards_from_uploaded_image、保存は ingest_uploaded_card_image（ingest_x_card_image から保存部分を分けた）。

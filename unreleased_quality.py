@@ -123,29 +123,38 @@ _REVIEW_SCHEMA = {
 }
 
 
+def attach_release_date(row, dates):
+    """収録商品の公式発売日を照合して row['release_date'] と extraction_raw.release_date_evidence を決める。
+
+    dates は商品名 → resolve_release_date の結果のキャッシュ（同じ実行内で使い回す dict）。
+    """
+    from release_date_resolver import resolve_release_date
+    raw = row['extraction_raw']
+    product = row.get('product_name') or ''
+    if product not in dates:
+        dates[product] = resolve_release_date(product)
+    evidence = copy.deepcopy(dates[product])
+    evidence['product_name'] = product
+    evidence['candidate_date'] = row.get('release_date')
+    raw['release_date_evidence'] = evidence
+    row['release_date'] = evidence['release_date'] if evidence['status'] == 'verified' else None
+    if evidence['status'] != 'verified':
+        # 公式で確認できない場合のみ、記事内の日付を範囲内なら補助採用（conflictは採用しない）。
+        if evidence['status'] != 'conflict' and _article_date_adoptable(evidence['candidate_date']):
+            row['release_date'] = evidence['candidate_date']
+            evidence['adopted_from'] = 'article'
+        logger.warning('発売日要確認: %s: %s', row['name'], evidence['reason'])
+
+
 def enrich_rows(rows, *, client, model, encoded_images):
     """初回候補を元画像の境界で補正し、上部拡大で数値を、効果欄の拡大で効果テキストを読み直す。"""
     from card_crop import refine_card_box, make_level_zoom
-    from release_date_resolver import resolve_release_date
     images = {image['url']: image for image in encoded_images}
     pending = []
     dates = {}
     for index, row in enumerate(rows):
         raw = row['extraction_raw']
-        product = row.get('product_name') or ''
-        if product not in dates:
-            dates[product] = resolve_release_date(product)
-        evidence = copy.deepcopy(dates[product])
-        evidence['product_name'] = product
-        evidence['candidate_date'] = row.get('release_date')
-        raw['release_date_evidence'] = evidence
-        row['release_date'] = evidence['release_date'] if evidence['status'] == 'verified' else None
-        if evidence['status'] != 'verified':
-            # 公式で確認できない場合のみ、記事内の日付を範囲内なら補助採用（conflictは採用しない）。
-            if evidence['status'] != 'conflict' and _article_date_adoptable(evidence['candidate_date']):
-                row['release_date'] = evidence['candidate_date']
-                evidence['adopted_from'] = 'article'
-            logger.warning('発売日要確認: %s: %s', row['name'], evidence['reason'])
+        attach_release_date(row, dates)
         raw['recognition_review'] = {'status': 'needs_review', 'reason': '拡大再読の対象画像・枠が確認できません'}
         image = images.get(raw.get('source_image_url'))
         bbox = raw.get('card_bbox')
