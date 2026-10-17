@@ -160,9 +160,9 @@ def import_uploaded_image(sb, *, data_url: str, source_url: str, note: str = "",
     extracted = len(rows)
     skipped = []
     if only_keys is not None:
-        from ocgtimes_reveal import _close
+        from ocgtimes_reveal import near_name
         keep = [r for r in rows
-                if any(_close(fuzzy_key(r.get("name", "")), k) for k in only_keys)]
+                if any(near_name(fuzzy_key(r.get("name", "")), k) for k in only_keys)]
         skipped += [{"name": r.get("name", ""), "reason": "紹介場面から登録済み（一覧からは補わない）"}
                     for r in rows if r not in keep]
         rows = keep
@@ -171,6 +171,9 @@ def import_uploaded_image(sb, *, data_url: str, source_url: str, note: str = "",
         dates: dict = {}
         for r in rows:
             r["product_name"] = product_name
+            # 抽出時に別の商品名で照合した日付を「記事の日付」として持ち越さない（候補は抽出時のものに戻す）
+            ev = (r.get("extraction_raw") or {}).get("release_date_evidence")
+            r["release_date"] = ev.get("candidate_date") if isinstance(ev, dict) else None
             attach_release_date(r, dates)
     result = register_rows(sb, rows, {key: image["png"]}, store_image=store_image, known_keys=known_keys,
                            default_key=key)
@@ -323,10 +326,11 @@ def import_reveal_frames(sb, *, reveal_images, list_images=(), video_url: str, n
             reg["skipped"] += r["skipped"]
             reg["images"].update(r["images"])
             # 一覧の読み直しで見つからなかった名前（2回の読みで名前が大きく揺れた等）は黙って落とさず返す
-            from ocgtimes_reveal import _close
-            handled = [fuzzy_key(c.get("name") or "") for c in r["inserted"]] +                 [fuzzy_key(x.get("name") or "") for x in r["skipped"]
-                 if not str(x.get("reason", "")).startswith("紹介場面から登録済み")]
-            missing = sorted(k for k in keys if not any(_close(k, h) for h in handled))
+            from ocgtimes_reveal import near_name
+            handled = [fuzzy_key(c.get("name") or "") for c in r["inserted"]]
+            handled += [fuzzy_key(x.get("name") or "") for x in r["skipped"]
+                        if not str(x.get("reason", "")).startswith("紹介場面から登録済み")]
+            missing = sorted(k for k in keys if not any(near_name(k, h) for h in handled))
             fallback.append({"t": f["t"], "names": sorted(keys), "inserted": [c.get("name") for c in r["inserted"]],
                              **({"missing": missing} if missing else {})})
         except Exception as e:  # noqa: BLE001 — 補いの失敗で紹介場面の登録結果を捨てない

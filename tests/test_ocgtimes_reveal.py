@@ -280,6 +280,11 @@ def test_decide_values_ignores_empty_list_and_frame_values():
     # 魔法・罠は全部空のまま
     values, conflicts = rv.decide_values([_read(TX, 1, level=None), _read(TX, 2, level=None)], empty_list)
     assert values["level"] is None and "level" not in conflicts
+    # 紹介場面がどれも空（魔法・罠）なら、一覧の誤読の数値を入れずに食い違いとして残す
+    values, conflicts = rv.decide_values([_read(TX, 1, level=None, atk=None), _read(TX, 2, level=None, atk=None)],
+                                         {"name": TX, "level": 4, "atk": 1800})
+    assert values["level"] is None and values["atk"] is None
+    assert conflicts["level"] == {"votes": {}, "list": 4, "empty_frames": 2} and "atk" in conflicts
     # 1200 と "1200" は同じ値
     values, conflicts = rv.decide_values([_read(TX, 1, **{"def": "2100"})], {"name": TX, "def": 2100})
     assert "def" not in conflicts
@@ -341,6 +346,29 @@ def test_import_reveal_frames_fallback_tolerates_name_wobble_and_reports_missing
     added = next(r for r in sb.tables["unreleased_cards"] if r["name"] == "アマゾネスの格闘戦士－蹴殺の舞ぃ－")
     assert added["product_name"] == "IMMORTAL PHOENIX" and added["release_date"] == "2026-10-31"
     assert out["list_fallback"][0]["missing"] == [fuzzy_key("見つからないカード")]
+
+
+def test_near_name_rejects_similar_but_longer_names():
+    assert rv.near_name(fuzzy_key("アマゾネスの剣聖"), fuzzy_key("アマゾネスの剣聖"))
+    assert rv.near_name(fuzzy_key("アマゾネスの格闘戦士－蹴殺の舞い－"), fuzzy_key("アマゾネスの格闘戦士－蹴殺の舞ぃ－"))
+    assert not rv.near_name(fuzzy_key("六花精シクラン"), fuzzy_key("六花精シクラメンス"))
+
+
+def test_import_uploaded_image_product_override_drops_previous_verified_date(no_context, monkeypatch):
+    # 抽出時に別商品で照合した日付を、上書き後の商品で照合できないときに「記事の日付」として採らない
+    import release_date_resolver
+    monkeypatch.setattr(release_date_resolver, "resolve_release_date", lambda p: {
+        "release_date": None, "status": "unverified", "reason": "x", "source_url": None})
+    sb = _SB({"unreleased_cards": []})
+    extract = MagicMock(return_value=[
+        {"name": "カードX", "product_name": "別の商品", "release_date": "2026-11-20", "card_type": "通常罠",
+         "effect_text": "x", "confidence": "medium",
+         "extraction_raw": {"release_date_evidence": {"status": "verified", "candidate_date": None}}}])
+    up.import_uploaded_image(sb, data_url=up._data_url(_png()), source_url=VIDEO, extract=extract,
+                             store_image=MagicMock(return_value=(True, "ok")), known_keys=set(),
+                             product_name="IMMORTAL PHOENIX")
+    row = sb.tables["unreleased_cards"][0]
+    assert row["product_name"] == "IMMORTAL PHOENIX" and row["release_date"] is None
 
 
 def test_admin_import_image_reveal_layout(monkeypatch):

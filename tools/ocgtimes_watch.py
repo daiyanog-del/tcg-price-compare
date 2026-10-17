@@ -379,7 +379,8 @@ def cmd_import(args) -> dict:
                 "no_card_frames": r["no_card_frames"], "failed_frames": r.get("failed_frames", [])}]
     sheet = _contact_sheet(results, keep) if not args.no_sheet else None
     img_fail = sum(1 for c in inserted if str(c["image"]).startswith("失敗"))
-    missing = [m for fb in r["list_fallback"] for m in fb.get("missing", [])] +         [n for fb in r["list_fallback"] if fb.get("error") for n in fb.get("names", [])]
+    missing = [m for fb in r["list_fallback"] for m in fb.get("missing", [])]
+    missing += [n for fb in r["list_fallback"] if fb.get("error") for n in fb.get("names", [])]
     failed = r.get("failed_frames", [])
     summary = (f"紹介場面{len(reveal)}画面・一覧{len(lists)}画面・追加{len(inserted)}枚"
                + (f"・一覧にだけあった{len(r['list_only'])}枚" if r["list_only"] else "")

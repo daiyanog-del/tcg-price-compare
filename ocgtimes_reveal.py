@@ -135,6 +135,11 @@ def _close(a: str, b: str) -> bool:
     return bool(a and b) and (a == b or difflib.SequenceMatcher(None, a, b, autojunk=False).ratio() >= NAME_MERGE_RATIO)
 
 
+def near_name(a: str, b: str) -> bool:
+    """fuzzy_key どうしが同じか、1字の読み違い程度（近い・長さの差1字以内）か。ふりがなが無い照合（一覧画面）用。"""
+    return a == b or (_close(a, b) and abs(len(a) - len(b)) <= 1)
+
+
 def _same_card(key: str, reading: str, group: dict) -> bool:
     """この読み取りを group（最初の場面の名前とふりがな）と同じカードとみなすか。
 
@@ -179,7 +184,7 @@ def match_list_card(key: str, list_cards: list[dict]) -> dict | None:
     exact = [c for c in list_cards if fuzzy_key(c["name"]) == key]
     if exact:
         return exact[0]
-    near = [c for c in list_cards if _close(key, fuzzy_key(c["name"]))]
+    near = [c for c in list_cards if near_name(key, fuzzy_key(c["name"]))]
     return near[0] if near else None
 
 
@@ -187,7 +192,8 @@ def decide_values(reads: list[dict], list_card: dict | None) -> tuple[dict, dict
     """場面ごとの値（と一覧の値1票）の多数決で各欄を決める。
 
     - 一覧画面の空値（小さくて読めなかった）は票に数えない。紹介場面の空値も、読めた場面があれば票に数えない
-      （読めた値を空で消さない）。どの場面も空なら空。
+      （読めた値を空で消さない）。紹介場面がどれも空なら空のまま（紹介場面の読みを正とする。魔法・罠に一覧の
+      誤読の数値を入れない）で、一覧にだけ値があれば食い違いとして残す。
     - 同数のときは、空でない一覧の値 → 空でない最初の場面の値。
     - 食い違い: 空でない値が2種類以上、または紹介場面に空と値が混ざるとき（魔法・罠を数値つきで読んだ可能性）。
     値は表記（str）で比べる（1200 と "1200" は同じ値）。
@@ -197,10 +203,12 @@ def decide_values(reads: list[dict], list_card: dict | None) -> tuple[dict, dict
     for field in VALUE_FIELDS:
         frame_values = [_clean(r.get(field)) for r in reads]
         list_value = _clean(list_card.get(field)) if list_card and field in list_card else None
-        votes = [v for v in frame_values if v is not None] + ([list_value] if list_value is not None else [])
-        if not votes:
+        if all(v is None for v in frame_values):
             values[field] = None
+            if list_value is not None:
+                conflicts[field] = {"votes": {}, "list": list_value, "empty_frames": len(frame_values)}
             continue
+        votes = [v for v in frame_values if v is not None] + ([list_value] if list_value is not None else [])
         rep = {}
         for v in votes:
             rep.setdefault(str(v), v)
