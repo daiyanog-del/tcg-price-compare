@@ -1,5 +1,11 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-18: 投稿画像・シミュレーターロゴをGREEDY LABへ
+
+- ユーザー承認によりシミュレーター左上と未発売カード自動ポスト画像だけ英語化。英文字はアウトラインSVGで固定。既存の日本語共有画像を上書きせず、投稿用og-post-logo.pngをbuild_icons.py --ogで再生成する。
+- カードOGのDESIGN_VERSIONをv4にして既存のサーバー画像キャッシュを更新。過去ポストのXキャッシュ更新は保証できない。
+- 関連105テスト通過。本番配信確認中。requirements.txt・delete_all_tweets.pyは対象外。
+
 ## 2026-10-17: 泡つき白抜きA（e56981c・ddc01bf 本番確認済み）
 
 - 承認画像 exec-364fe030 のAをトレースし、形を描き直さず `static/brand/symbol-bubbles.svg` と `wordmark-A.svg` に保存。ロゴ表記はゴーヨクなラボ、正式名称とページタイトルは強欲なラボを維持。

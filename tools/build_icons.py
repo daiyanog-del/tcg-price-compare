@@ -180,6 +180,13 @@ def build_og_image():
     fitted = ImageOps.contain(word, (800, 200), Image.Resampling.LANCZOS)
     logo.alpha_composite(fitted, (224, (200 - fitted.height) // 2 + 30))
     logo.save(STATIC / 'og-logo.png', optimize=True)
+    # 自動ポストではカード名を主役にするため、英語ロゴを小さくまとめる。
+    english = Image.open(STATIC / 'brand/wordmark-en.png').convert('RGBA')
+    post_logo = Image.new('RGBA', (880, 200))
+    post_logo.alpha_composite(symbol.resize((200, 200), Image.Resampling.LANCZOS), (0, 0))
+    fitted_en = ImageOps.contain(english, (640, 110), Image.Resampling.LANCZOS)
+    post_logo.alpha_composite(fitted_en, (224, (200 - fitted_en.height) // 2 + 30))
+    post_logo.save(STATIC / 'og-post-logo.png', optimize=True)
     canvas = Image.new('RGBA', (1200, 630), theme_background())
     canvas.alpha_composite(symbol.resize((400, 400), Image.Resampling.LANCZOS), (60, 115))
     fitted = ImageOps.contain(word, (650, 300), Image.Resampling.LANCZOS)

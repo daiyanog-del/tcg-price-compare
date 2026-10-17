@@ -30,7 +30,7 @@ from deck_image import _get_font
 logger = logging.getLogger(__name__)
 
 W, H = 1200, 630
-DESIGN_VERSION = "v3"   # 見た目を変えたら上げる（古い画像を使わない）
+DESIGN_VERSION = "v4"   # 見た目を変えたら上げる（古い画像を使わない）
 SETTING_KEY = "OG_BLUR_NO_REPOST"
 
 # ── 配色（replay_og_image と og-solitaire.png に合わせる）──
@@ -42,7 +42,7 @@ _BTN_FG = (0x14, 0x18, 0x22)
 _GLOW = (0x2a, 0x3d, 0x68)
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_LOGO_PATH = os.path.join(_HERE, "static", "og-logo.png")
+_LOGO_PATH = os.path.join(_HERE, "static", "og-post-logo.png")
 
 _LEFT = 72
 _TEXT_MAX_W = 620            # 左カラムの文字の最大幅（カード画像は x=733 から）
@@ -259,7 +259,7 @@ def render_png(card: dict, card_img: Image.Image) -> bytes:
         canvas.alpha_composite(logo, (_LEFT, 80))
     except Exception as e:
         logger.warning(f"[card_og] ロゴ読み込み失敗: {e}")
-        d.text((_LEFT, 108), "強欲なラボ", fill=_TEXT, font=_get_font(40, True), anchor="lm")
+        d.text((_LEFT, 108), "GREEDY LAB", fill=_TEXT, font=_get_font(40, True), anchor="lm")
 
     d.text((_LEFT, 170), HEADLINE, fill=_GOLD, font=_get_font(30, True), anchor="lm")
 
