@@ -215,11 +215,22 @@
     <div class="section-header">
       <h2 class="section-title">画像から取り込む</h2>
     </div>
-    <p class="bulk-approve-hint">公式配信（遊戯王OCGタイムズの「新規カード一覧」など）の画面キャプチャから、カードを読み取って承認待ちに追加します。1枚ずつ順に読みます（1枚20〜60秒）。自動承認はしません。同じ名前のカードが公式Xや公式サイトに出たら、画像を公式版に差し替えます（承認待ちなら内容も公式版にします）。</p>
+    <p class="bulk-approve-hint">公式配信（遊戯王OCGタイムズの紹介場面・「新規カード一覧」など）の画面キャプチャから、カードを読み取って承認待ちに追加します。1枚ずつ順に読みます（1枚20〜60秒）。自動承認はしません。同じ名前のカードが公式Xや公式サイトに出たら、画像を公式版に差し替えます（承認待ちなら内容も公式版にします）。配信1本ぶんの取込（同じカードの複数場面をまとめる・一覧画面と突き合わせる）は tools/ocgtimes_watch.py の import で行います。</p>
     <form id="image-import-form" class="manual-form">
       <div class="form-row">
         <label class="form-label" for="image-import-files">画像（PNG・JPEG・WebP、1枚5MBまで。複数可）</label>
         <input class="form-input" id="image-import-files" type="file" accept="image/png,image/jpeg,image/webp" multiple required>
+      </div>
+      <div class="form-row">
+        <label class="form-label" for="image-import-layout">画面の種類</label>
+        <select class="form-input" id="image-import-layout">
+          <option value="reveal">紹介場面（左に大きいカード・右下に効果文の字幕。効果文は字幕から読みます）</option>
+          <option value="list">カードが並んだ画面（新規カード一覧・公式画像など）</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label class="form-label" for="image-import-product">収録商品名（紹介場面のとき。例: IMMORTAL PHOENIX。発売日を公式で照合します）</label>
+        <input class="form-input" id="image-import-product" type="text" maxlength="200">
       </div>
       <div class="form-row">
         <label class="form-label" for="image-import-source">出典URL（必須。配信なら時刻つきのURL）</label>

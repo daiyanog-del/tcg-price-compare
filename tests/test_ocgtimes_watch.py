@@ -135,7 +135,8 @@ def test_cmd_import_uses_times_and_keeps_frames(tmp_path, monkeypatch):
     notes = []
     monkeypatch.setattr(ow, "_notify", notes.append)
     args = types.SimpleNamespace(video_id="v-QIhn_zLoM", since=since.isoformat(), times="6448,6458",
-                                 note="メモ", dir=str(tmp_path), no_sheet=True, no_notify=False)
+                                 note="メモ", dir=str(tmp_path), no_sheet=True, no_notify=False,
+                                 layout="list", product="")
 
     out = ow.cmd_import(args)
 

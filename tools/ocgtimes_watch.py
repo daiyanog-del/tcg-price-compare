@@ -6,7 +6,9 @@ ocgtimes_watch.py — 公式配信「遊戯王OCGタイムズ」の告知の検�
   （information/ocgtimes<商品コード>/）が配信の約1週間前に出る（7月版 07-03、10月版 10-09→配信 10-16）。
   番組ページには配信動画のリンクがあり、YouTube の動画ページから配信の開始・終了時刻と、概要欄の
   「本日の新規カードまとめ」の時刻が取れる。初公開カードは公式Xや公式サイトにすぐ出ないことがあるため、
-  一覧画面のキャプチャを unreleased_upload.import_uploaded_image で承認待ちに入れる。
+  配信のキャプチャを unreleased_upload.import_reveal_frames で承認待ちに入れる（2026-10-17 から）。
+  主に使うのは各カードの紹介場面（左に大きいカード・右下に効果文の全文字幕。目次の「…カード公開」の章）で、
+  終盤の一覧画面（新規カード一覧①〜④）は網羅確認と数値の突き合わせに使う（ocgtimes_reveal.py 参照）。
 
 この PC で動く Claude の定期タスクがこのツールを呼ぶ（週2回の告知確認 ocgtimes-watch と、毎晩の取込 ocgtimes-import）。
 無人の回ではアプリが定期タスクの作成を拒否するので、配信後の取込は予約せず「取込待ち」として状態ファイルに残す:
@@ -15,9 +17,10 @@ ocgtimes_watch.py — 公式配信「遊戯王OCGタイムズ」の告知の検�
                         告知を処理済みにする。--video を付けると、その動画を「取込待ち」に入れる
   pending               取込待ちの動画と、配信が終わったか（ready）を JSON で出す
   done <video_id>       取込待ちから外す（取込が済んだら・取込めないと決めたら）
-  status <video_id>     配信が終わったか、「新規カードまとめ」の時刻はどこかを JSON で出す
-  import <video_id> --since <ISO> --times 6448,6458,...
-                        ダウンロードフォルダの since 以降の画像（PNG/JPEG）を、時刻の順に取込む
+  status <video_id>     配信が終わったか、紹介場面の章（reveal_sections）と「新規カードまとめ」の時刻を JSON で出す
+  import <video_id> --since <ISO> --times 816,885,...,L6448,L6458,... [--product 商品名]
+                        ダウンロードフォルダの since 以降の画像（PNG/JPEG）を、保存した順に --times と対応させて取込む。
+                        L 付きの時刻は一覧画面、付かない時刻は紹介場面。--layout list で従来の一覧画面だけの取込
 
 状態は ~/.cardsouba/ocgtimes_state.json（git 管理外）。認証は ~/.cardsouba/watcher.env（SUPABASE_URL/KEY 等）。
 キャプチャそのものは内蔵ブラウザで行う（動画のダウンロードはしない。YouTube の規約上、第三者ツールでの
@@ -54,6 +57,8 @@ UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.3
 
 _SLUG_RE = re.compile(r'href="(?:/japan/)?information/(ocgtimes[a-z0-9]+)/"[^>]*>([^<]*)<')
 _VIDEO_RE = re.compile(r'youtu(?:\.be/|be\.com/(?:live/|watch\?v=|embed/))([A-Za-z0-9_-]{11})')
+# 紹介場面の章の見出し（新規「六花」カード公開／新規カード「パワー・オブ・ザ・デュエリスト」公開）
+_REVEAL_RE = re.compile(r"カード.*公開")
 _CHAPTER_RE = re.compile(r'^\s*((?:\d{1,2}:)?\d{1,2}:\d{2})\s*[┗└・\s]*(.+?)\s*$')
 
 
@@ -122,8 +127,11 @@ def _seconds(ts: str) -> int:
 def parse_watch(html: str) -> dict:
     """YouTube の動画ページから、配信の状態・時刻・概要欄の目次を取り出す。
 
-    戻り値: {title, is_live_now, start, end, scheduled_start, chapters:[{seconds, label}], summary_seconds}
+    戻り値: {title, is_live_now, start, end, scheduled_start, chapters:[{seconds, label}], summary_seconds,
+            reveal_sections:[{start, end, label}]}
     summary_seconds は「新規カード」と「まとめ」または「一覧」を含む目次の時刻（無ければ None）。
+    reveal_sections は「カード…公開」（例: 新規「六花」カード公開・新規カード「…」公開）の章の範囲（end は次の章の時刻。最後の章なら None）。
+    10-16 配信の例: 772〜1155（六花）・4561〜5402（ハーピィ・アマゾネス）・5922〜6200（パワー・オブ・ザ・デュエリスト）。
     """
     details = _json_after(html, "liveBroadcastDetails") or {}
     video = _json_after(html, "videoDetails") or {}
@@ -136,6 +144,9 @@ def parse_watch(html: str) -> dict:
             chapters.append({"seconds": _seconds(m.group(1)), "label": m.group(2)})
     summary = next((c["seconds"] for c in reversed(chapters)
                     if "新規カード" in c["label"] and ("まとめ" in c["label"] or "一覧" in c["label"])), None)
+    reveal = [{"start": c["seconds"], "end": chapters[i + 1]["seconds"] if i + 1 < len(chapters) else None,
+               "label": c["label"]}
+              for i, c in enumerate(chapters) if _REVEAL_RE.search(c["label"])]
     return {
         "title": video.get("title") or "",
         "is_live_now": bool(details.get("isLiveNow")),
@@ -145,6 +156,7 @@ def parse_watch(html: str) -> dict:
                             if sched else None),
         "chapters": chapters,
         "summary_seconds": summary,
+        "reveal_sections": reveal,
     }
 
 
@@ -235,7 +247,8 @@ def cmd_pending(args) -> dict:
         if started:
             try:
                 info = parse_watch(_get(WATCH_URL.format(vid=vid)))
-                entry.update(ended=is_ended(info), summary_seconds=info["summary_seconds"], end=info["end"])
+                entry.update(ended=is_ended(info), summary_seconds=info["summary_seconds"], end=info["end"],
+                             reveal_sections=info["reveal_sections"])
                 entry["ready"] = entry["ended"]
             except Exception as e:  # noqa: BLE001 — 取れなければ次の晩にまた見る
                 entry["error"] = repr(e)
@@ -294,19 +307,35 @@ def collect_frames(folder: str, since: datetime) -> list[tuple[str, bytes, str]]
     return out
 
 
+def parse_times(spec: str) -> list[tuple[str, int]]:
+    """--times の値を [(種類, 秒)] にする。L 付き（L6448）は一覧画面（"list"）、付かないものは紹介場面（"reveal"）。"""
+    out = []
+    for tok in (spec or "").split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        kind = "list" if tok[0] in "Ll" else "reveal"
+        num = tok[1:] if kind == "list" else tok
+        if not num.isdigit():
+            raise SystemExit(f"--times の値が読めません: {tok!r}（例: 816,885,L6448）")
+        out.append((kind, int(num)))
+    return out
+
+
 def cmd_import(args) -> dict:
-    import base64
     _load_env()
     since = datetime.fromisoformat(args.since)
     if since.tzinfo is None:
         raise SystemExit("--since はタイムゾーンつきの ISO 形式で（例: 2026-10-16T22:30:00+09:00）")
-    times = [t.strip() for t in (args.times or "").split(",") if t.strip()]
+    times = parse_times(args.times)
     frames = collect_frames(args.dir, since)
     if not frames:
         return {"error": "取込む画像が見つかりません", "dir": args.dir, "since": args.since}
     if times and len(times) != len(frames):
         return {"error": f"画像の数（{len(frames)}）と --times の数（{len(times)}）が合いません",
                 "frames": [p for p, _, _ in frames]}
+    if args.layout == "reveal" and not any(k == "reveal" for k, _ in times):
+        return {"error": "紹介場面の時刻がありません（--times に L の付かない時刻を入れる。一覧画面だけなら --layout list）"}
     keep = os.path.join(FRAMES_ROOT, args.video_id)
     os.makedirs(keep, exist_ok=True)
 
@@ -314,12 +343,56 @@ def cmd_import(args) -> dict:
     import unreleased_upload as up
     sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
     note = args.note or ""
+    video_url = WATCH_URL.format(vid=args.video_id)
+
+    if args.layout == "list":
+        return _import_lists(args, sb, up, frames, [t for _, t in times], keep, note)
+
+    reveal, lists, kept = [], [], []
+    for (path, data, kind), (fkind, t) in zip(frames, times):
+        name = f"{fkind}_t{t}" + (".png" if kind == "image/png" else ".jpg")
+        shutil.copyfile(path, os.path.join(keep, name))
+        kept.append(name)
+        (reveal if fkind == "reveal" else lists).append((data, t))
+    try:
+        r = up.import_reveal_frames(sb, reveal_images=reveal, list_images=lists, video_url=video_url, note=note,
+                                    product_name=args.product or "")
+    except Exception as e:  # noqa: BLE001 — 失敗は報告に回す（取込待ちから外さなければ翌晩に再試行される）
+        if not args.no_notify:
+            _notify(f"[OCGタイムズ] 取込に失敗しました: {repr(e)[:200]}（{video_url}）")
+        return {"video_id": args.video_id, "frames_kept": keep, "error": repr(e)[:500]}
+    inserted = []
+    for c in r["inserted"]:
+        raw = c.get("extraction_raw") or {}
+        rv = raw.get("reveal") or {}
+        inserted.append({"id": c.get("id"), "name": c.get("name"), "image": r["images"].get(c.get("id"), ""),
+                         "uncertain_fields": raw.get("uncertain_fields"),
+                         "card_text_check": (rv.get("card_text_check") or {}).get("status"),
+                         "auto_approve_candidate": rv.get("auto_approve_candidate"),
+                         "frames": [f.get("t") for f in rv.get("frames") or []]})
+    results = [{"frame": "reveal", "extracted": r["extracted"], "inserted": inserted, "skipped": r["skipped"],
+                "list_only": r["list_only"], "list_fallback": r["list_fallback"],
+                "no_card_frames": r["no_card_frames"]}]
+    sheet = _contact_sheet(results, keep) if not args.no_sheet else None
+    img_fail = sum(1 for c in inserted if str(c["image"]).startswith("失敗"))
+    summary = (f"紹介場面{len(reveal)}画面・一覧{len(lists)}画面・追加{len(inserted)}枚"
+               + (f"・一覧にだけあった{len(r['list_only'])}枚" if r["list_only"] else "")
+               + (f"・画像保存失敗{img_fail}枚" if img_fail else ""))
+    if not args.no_notify:
+        _notify(f"[OCGタイムズ] 取込: {summary}。承認待ちで画像と照合してください（{video_url}）")
+    return {"video_id": args.video_id, "frames_kept": keep, "kept_files": kept, "results": results,
+            "summary": summary, "contact_sheet": sheet}
+
+
+def _import_lists(args, sb, up, frames, times, keep, note) -> dict:
+    """従来の一覧画面だけの取込（紹介場面の無い配信のとき。1画面ずつ import_uploaded_image）。"""
+    import base64
     results = []
     for i, (path, data, kind) in enumerate(frames):
         t = times[i] if times else ""
-        name = f"list{i + 1}" + (f"_t{t}" if t else "") + (".png" if kind == "image/png" else ".jpg")
+        name = f"list{i + 1}" + (f"_t{t}" if t != "" else "") + (".png" if kind == "image/png" else ".jpg")
         shutil.copyfile(path, os.path.join(keep, name))
-        source = WATCH_URL.format(vid=args.video_id) + (f"&t={t}s" if t else "")
+        source = WATCH_URL.format(vid=args.video_id) + (f"&t={t}s" if t != "" else "")
         try:
             r = up.import_uploaded_image(sb, data_url=f"data:{kind};base64," + base64.b64encode(data).decode(),
                                          source_url=source, note=note, filename=name)
@@ -417,6 +490,9 @@ def main(argv=None) -> int:
     i.add_argument("--since", required=True)
     i.add_argument("--times", default="")
     i.add_argument("--note", default="")
+    i.add_argument("--product", default="", help="収録商品名（発売日を公式で照合する。例: IMMORTAL PHOENIX）")
+    i.add_argument("--layout", choices=("reveal", "list"), default="reveal",
+                   help="reveal=紹介場面＋一覧画面（既定）／list=一覧画面だけ（従来の方式）")
     i.add_argument("--dir", default=os.path.join(os.path.expanduser("~"), "Downloads"))
     i.add_argument("--no-sheet", action="store_true")
     i.add_argument("--no-notify", action="store_true")
