@@ -145,8 +145,8 @@ def build_favicons():
         ('tcgym-icon-base.png', 1024, False, False),
     ]:
         if name.startswith('favicon-'):
-            # 承認済みの小サイズ用図柄。余白や輪郭を追加せず縮小する。
-            icon = favicon.resize((size, size), Image.Resampling.LANCZOS)
+            # 白いタブ背景でも白抜き図柄が消えないよう既存の濃色縁を付ける。
+            icon = make_icon(favicon, size)
         else:
             icon = make_icon(rgba, size, background=background if opaque else None,
                              maskable=maskable)
@@ -155,7 +155,7 @@ def build_favicons():
 
     # タブ向けSVGも簡略版に統一。128pxで高密度表示をカバーする。
     buffer = io.BytesIO()
-    favicon.resize((128, 128), Image.Resampling.LANCZOS).save(buffer, format='PNG', optimize=True)
+    make_icon(favicon, 128).save(buffer, format='PNG', optimize=True)
     encoded = base64.b64encode(buffer.getvalue()).decode('ascii')
     svg = ('<svg width="1024" height="1024" viewBox="0 0 1024 1024" '
            'xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
