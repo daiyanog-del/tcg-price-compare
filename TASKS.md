@@ -5,7 +5,7 @@
 
 ## 進行中
 
-- [ ] **強欲なラボへブランド更新（2026-10-17）** — ユーザー本番反映承認済み。トップ64/52px、シミュレーター・リプレイ一覧、favicon/PWA/共有画像・表示名称を更新。関連209テスト通過。本番反映の確認待ち。
+- [x] **強欲なラボへブランド更新（2026-10-17）** — ユーザー本番反映承認済み。トップ64/52px、シミュレーター・リプレイ一覧、favicon/PWA/共有画像・表示名称を更新。関連209テスト通過。188296eを本番反映、3ページPC/390pxとアイコン等12資産の内容一致を確認。
 
 - [ ] **OCGタイムズの告知検知と配信後の自動取込（2026-10-17）** — Claude の定期タスク `ocgtimes-watch`（月・木 9:00、このPCのアプリが開いている間）が `tools/ocgtimes_watch.py check` で公式サイトのトップを見て、新しい「遊戯王OCGタイムズ○月版」があれば Google カレンダー（daiyanog@gmail.com）に配信予定を入れ、「取込待ち」に記録。毎晩 23:30 の `ocgtimes-import` が配信終了を確かめて取込む（無人の回は定期タスクを作れないため予約方式はやめた）。取込は docs/ocgtimes_import_procedure.md（10-17 から紹介場面方式: 目次の「カード公開」の章で字幕のある場面を切り出し＋一覧画面で網羅確認→承認待ち、自動承認なし。branch feat/ocgtimes-reveal）。状態は ~/.cardsouba/ocgtimes_state.json。**未検証**: 配信前の動画ページで開始予定時刻が取れるか（取れなければ番組ページの画像から読む）、無人での切り出しの初回。次は2027年1月ごろの新弾。
 - [ ] **OCGタイムズの紹介場面方式（2026-10-17、branch feat/ocgtimes-reveal・PR）** — `ocgtimes_reveal.py`・`unreleased_upload.import_reveal_frames`・`tools/ocgtimes_watch.py import --times 816,...,L6448 --product`・管理画面「画像取込」の画面の種類（紹介場面/一覧）。評価 `tools/eval_ocgtimes_reveal.py` で 10-16 配信 16/16 一致（docs/decisions.md）。**残り**: ① マージ後に定期タスク ocgtimes-import の SKILL.md の「一覧画面の画像」という許可の書き方を紹介場面も含む形に直す（ユーザー確認） ② 無人での場面の切り出しの初回（次は2027年1月ごろ）③ ペンデュラムの字幕の出し方の確認（今は突き合わせなし・不確か）④ 自動承認候補（`extraction_raw.reveal.auto_approve_candidate`）を承認後の訂正率で見て、自動承認の対象にするか判断 ⑤ 仮置き値の校正（TODO: calibrate from data）: `ocgtimes_reveal.NAME_MERGE_RATIO=0.88`・`_WORKERS=4`、手順書の字幕判定（dark>0.45・white 0.02〜0.4・カード欄の差>6）は10-16配信1本の実測 ⑥ 管理画面の差分欄の言葉の実画面確認（node テストなし・目視のみ）。
