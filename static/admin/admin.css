@@ -1515,6 +1515,50 @@ a:hover {
   padding: 1px 5px;
 }
 
+/* 画像取込由来の札。公式版待ち・差し替え済み＝情報なので自動承認の札と同じ accent の線。
+ * 差し替え後に公開中の内容と違いがある＝要確認なので誤り報告の札と同じ gold（赤は危険・エラー用） */
+.upload-badge {
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  color: var(--main-color);
+  font-size: 0.72rem;
+  padding: 1px 5px;
+}
+
+.upload-badge--attention {
+  background-color: var(--gold);
+  border-color: var(--gold);
+  color: var(--bg-color);
+  font-weight: 600;
+}
+
+/* 画像取込の経過（ファイルごとに1行。成否の色は .form-result と同じ） */
+.image-import-log {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+}
+
+.image-import-log__item {
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  background-color: var(--bg-surface);
+}
+
+.image-import-log__item--ok {
+  background-color: color-mix(in srgb, var(--green) 15%, var(--bg-surface) 85%);
+  color: var(--green);
+}
+
+.image-import-log__item--error {
+  background-color: color-mix(in srgb, var(--red) 15%, var(--bg-surface) 85%);
+  color: var(--red);
+}
+
 /* 自動承認の件数は「要確認」（gold）と区別して accent の線にする */
 .review-summary--auto {
   border-left-color: var(--accent);

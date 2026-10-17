@@ -838,3 +838,42 @@ def extract_cards_from_tweet(tweet_text: str, image_urls: list[str], tweet_url: 
         raise ValueError('X画像の一部を取得できません。再試行が必要です。')
     context = f'[ポストURL: {tweet_url}]\n[ポスト本文]\n{tweet_text}'
     return _extract_cards(context, images, tweet_url, from_x=True)
+
+
+def normalize_uploaded_image(content: bytes, image_key: str) -> dict:
+    """アップロード画像を X・公式サイトの取得画像と同じ形にする（_download_and_encode_images と同じ前処理）。
+
+    EXIF の向きを補正して RGB の PNG にし、幅・高さを付ける。card_bbox は元画像のピクセル座標で答えさせるので
+    モデルに画像サイズを伝える必要がある。保存する元画像もこの PNG にして、クロップ座標の向きを揃える。
+    不正・大きすぎる画像は ValueError。戻り値: {"url", "media_type", "data"(base64), "width", "height", "png"(bytes)}
+    """
+    from io import BytesIO
+    from PIL import Image, ImageOps
+    with Image.open(BytesIO(content)) as source:
+        if source.width * source.height > 20_000_000:
+            raise ValueError("画像の画素数が大きすぎます")
+        image = ImageOps.exif_transpose(source).convert("RGB")
+        width, height = image.size
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+    normalized = buffer.getvalue()
+    if len(normalized) > _MAX_IMAGE_BYTES:
+        raise ValueError("PNG変換後の画像が5MBを超えています（JPEGで保存し直すか、画面を小さく切り出してください）")
+    return {"url": image_key, "media_type": "image/png",
+            "data": base64.standard_b64encode(normalized).decode("ascii"),
+            "width": width, "height": height, "png": normalized}
+
+
+def extract_cards_from_uploaded_image(image: dict, source_url: str, note: str = "") -> list[dict]:
+    """管理画面からアップロードした1枚の画像（公式配信のキャプチャ等）を構造化抽出する。
+
+    image は normalize_uploaded_image の戻り値。X画像と同じ指示（from_x=True）で読む。
+    2026-10-17 に遊戯王OCGタイムズの「新規カード一覧」4画面・16枚をこの設定で試し、名前・種別・数値は全件読めた
+    （効果文は1回目が空になりやすく、拡大読み直しが主になる）。
+    """
+    images = [{k: image[k] for k in ("url", "media_type", "data", "width", "height")}]
+    lines = [f'[出典URL: {source_url}]',
+             '[画像: 公式の配信・資料の画面キャプチャ。複数のカードが並ぶことがある。1枚ずつ別のカードとして抽出する]']
+    if note:
+        lines.append(f'[取込時のメモ]\n{note}')
+    return _extract_cards('\n'.join(lines), images, source_url, from_x=True)

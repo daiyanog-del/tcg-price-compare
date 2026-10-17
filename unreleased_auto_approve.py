@@ -78,6 +78,7 @@ REASON_LABELS = {
     "text_too_long": "効果テキストが長すぎて言い回しを照合していない",
     "pendulum_type_mismatch": "ペンデュラムの手がかり（スケール・ペンデュラム効果）と種別が食い違う",
     "evaluation_error": "判定中にエラーが起きた",
+    "upload_source": "画像アップロードからの取込（配信のキャプチャ等）は人が確認して承認する",
 }
 
 # 抽出時点で保存する値（承認時の手直し検出に使う）
@@ -264,6 +265,12 @@ def evaluate(card: dict, *, other_names=None, text_check=None, text_context=None
     """
     reasons: list[str] = []
     raw = card.get("extraction_raw") or {}
+
+    # 画像アップロード（配信のキャプチャ等）は1回目の効果文が空になりやすく、拡大読み直しが実質1回読みになる
+    # （2026-10-17 の試験で16枚中10枚）。誤りを突き合わせで見つけられないので、自動承認しない
+    # 公式版で内容を置き換えた行も、画像取込から来た記録（upload）があれば同じ扱いにする
+    if raw.get("source") == "image_upload" or raw.get("upload"):
+        reasons.append("upload_source")
 
     conf_reasons, important_uncertain = _confidence_reasons(card, raw)
     reasons.extend(conf_reasons)

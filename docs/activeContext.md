@@ -1,5 +1,14 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-17: 画像取込と公式版への差し替え（branch feat/unreleased-image-import）
+
+- 管理画面「画像取込」タブ → POST /api/admin/unreleased/import-image（1画像1回・17〜53秒）。本体は unreleased_upload.py、抽出は extract_cards_from_uploaded_image、保存は ingest_uploaded_card_image（ingest_x_card_image から保存部分を分けた）。
+- 差し替え: watch_x_unreleased / watch_unreleased / fetch-x-post が load_replaceable → split_replaceable を通す。管理画面の札「画像取込・公式版待ち」「公式版に差し替え済み」「公式版と差分あり（gold）」。
+- 差し替えの順番: 公式版の枠候補を記録へ→新画像を保存（切り抜かない）→古い画像行を論理削除→X画像だけ自動クロップ→内容・記録を更新。途中で失敗しても画像は必ず1枚見える（reviewer 2回の指摘で直した。古い行が見えたまま切り抜くと古い行のファイルを相手にする）。
+- 検証: pytest 2337 通過（新規38）、ローカル管理画面で送信・経過表示・札（API は差し替え応答）、本物フレームで新入口の抽出とクロップ枠の位置、本番DBで JSON 絞り込み（読み取りのみ）。**未検証**: 本番 Storage への保存と自動クロップ（最初の実取込で確認）、実際の公式版到着での差し替え。
+- 残した小さな点（reviewer 低）: Storage 保存後に DB 登録だけ失敗すると同じパスの中身が先に変わる／同じカードの並行差し替え／出典の YouTube URL が X 投稿本文に載る（プレビューへの影響は未確認）／名前を1文字読み違えると公式版が別行で入る（承認時に却下）／取込時の既知カード索引がキャッシュ切れだと最大30秒かかる。
+- ⚠ watch_unreleased は自宅PCの `tcg-web` 作業ツリーで動くので、本番反映後に作業ツリーも進めること。
+
 ## 2026-10-16: スマホのトップ LCP 12.5→5.7秒（PR #89・#91 本番済み）
 
 - 原因は画像の大きさより回線の取り合い。①画面外ランキングの縮小画像12枚が lazy でも低速回線では先読みされていた → IntersectionObserver（200px手前）で後回し（#89・12.5→11.0秒）。②和文 Web フォント Noto Sans JP 約40ファイル・約1.1MB → マウス操作で幅768px以上の端末だけ読み、スマホ・タブレットは端末フォント（#91・11.0→5.7秒、本番5.9秒、CLS 0）。

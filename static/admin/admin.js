@@ -909,6 +909,7 @@ function _renderPendingList(listEl, cards) {
     if (card.reread_trusted_on_disagree) {
       row.querySelector('.reread-trusted-badge').hidden = false;
     }
+    _renderUploadBadge(row.querySelector('.upload-badge'), card);
 
     // 抽出元リンク
     const link = row.querySelector('.card-row__source-link');
@@ -1404,6 +1405,7 @@ function _renderApprovedList(listEl, cards) {
     if (card.reread_trusted_on_disagree) {
       row.querySelector('.reread-trusted-badge').hidden = false;
     }
+    _renderUploadBadge(row.querySelector('.upload-badge'), card);
 
     // 画像ありバッジ / 画像なし警告バッジ
     if (card.has_image) {
@@ -2268,11 +2270,12 @@ document.getElementById('x-fetch-form').addEventListener('submit', async (e) => 
     if (resp.ok || resp.status === 201) {
       if (data.skipped) {
         _showResult(resultEl, `スキップ: ${data.reason}`, 'error');
-      } else if (data.inserted === 0) {
+      } else if (data.inserted === 0 && !data.replaced) {
         _showResult(resultEl, `抽出0件（SAMPLEウォーターマークなし、または既発売カードの可能性）${data.reason ? ` — ${data.reason}` : ''}`, 'error');
       } else {
         const names = (data.cards || []).map((c) => c.name).filter(Boolean).join('、');
-        _showResult(resultEl, `${data.inserted}件取り込みました: ${names || '（名前なし）'}`, 'ok');
+        const replaced = data.replaced ? `／画像取込のカード${data.replaced}件を公式版に差し替え` : '';
+        _showResult(resultEl, `${data.inserted}件取り込みました: ${names || '（名前なし）'}${replaced}`, 'ok');
       }
     } else {
       _showResult(resultEl, data.error || '取り込みに失敗しました', 'error');
@@ -2286,6 +2289,129 @@ document.getElementById('x-fetch-form').addEventListener('submit', async (e) => 
     btn.textContent = '取り込む';
   }
 });
+
+// ──────────────────────────────────────────────
+// 画像取込タブ（公式配信のキャプチャ等）
+// ──────────────────────────────────────────────
+
+/** File を data URL に読む */
+function _readAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error || new Error('読み込み失敗'));
+    reader.readAsDataURL(file);
+  });
+}
+
+/** 取込の経過を1行足す（5秒で消える _showResult と違い、全ファイル分を残す） */
+function _imageImportLog(text, type) {
+  const log = document.getElementById('image-import-log');
+  const li = document.createElement('li');
+  li.className = `image-import-log__item image-import-log__item--${type}`;
+  li.textContent = text;
+  log.appendChild(li);
+  log.hidden = false;
+  return li;
+}
+
+const _IMAGE_IMPORT_MAX_BYTES = 5 * 1024 * 1024;
+
+document.getElementById('image-import-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('image-import-btn');
+  const resultEl = document.getElementById('image-import-result');
+  const log = document.getElementById('image-import-log');
+  const files = Array.from(document.getElementById('image-import-files').files || []);
+  const sourceUrl = document.getElementById('image-import-source').value.trim();
+  const note = document.getElementById('image-import-note').value.trim();
+  resultEl.hidden = true;
+  log.replaceChildren();
+  log.hidden = true;
+
+  if (!files.length || !sourceUrl) {
+    _showResult(resultEl, '画像と出典URLを指定してください', 'error');
+    return;
+  }
+
+  btn.disabled = true;
+  let total = 0;
+  try {
+    // サーバーの1リクエストは最大1分ほどかかるので、1枚ずつ順に送る
+    for (let i = 0; i < files.length; i += 1) {
+      const file = files[i];
+      btn.textContent = `読み取り中...（${i + 1}/${files.length}）`;
+      if (file.size > _IMAGE_IMPORT_MAX_BYTES) {
+        _imageImportLog(`${file.name}: 5MBを超えているため送りませんでした`, 'error');
+        continue;
+      }
+      const line = _imageImportLog(`${file.name}: 読み取り中...`, 'pending');
+      try {
+        const image = await _readAsDataUrl(file);
+        const resp = await apiFetch('/api/admin/unreleased/import-image', {
+          method: 'POST',
+          body: JSON.stringify({ image, source_url: sourceUrl, note, filename: file.name }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          line.textContent = `${file.name}: ${data.error || '取り込みに失敗しました'}`;
+          line.className = 'image-import-log__item image-import-log__item--error';
+          continue;
+        }
+        total += data.inserted || 0;
+        const names = (data.cards || []).map((c) => c.name).filter(Boolean).join('、');
+        // 画像の保存に失敗したカード（同じ画像を送り直すと画像だけ付け直す）
+        const imageFailed = (data.cards || []).filter((c) => String(c.image || '').startsWith('失敗'))
+          .map((c) => c.name);
+        const skipped = (data.skipped || []).map((s) => `${s.name}（${s.reason}）`).join('、');
+        line.textContent = `${file.name}: 読み取り${data.extracted}枚・追加${data.inserted}枚${names ? `（${names}）` : ''}`
+          + `${skipped ? `／追加しなかった: ${skipped}` : ''}`
+          + `${imageFailed.length ? `／画像の保存に失敗: ${imageFailed.join('、')}（同じ画像を送り直すと画像だけ付け直します）` : ''}`;
+        const okLine = data.inserted && !imageFailed.length;
+        line.className = `image-import-log__item image-import-log__item--${okLine ? 'ok' : 'error'}`;
+      } catch (err) {
+        if (err.message === '認証エラー') return;
+        line.textContent = `${file.name}: 通信エラーが発生しました`;
+        line.className = 'image-import-log__item image-import-log__item--error';
+      }
+    }
+    _imageImportLog(`完了: 合計${total}枚を承認待ちに追加しました。「承認待ち」タブで内容を確認してください`, total ? 'ok' : 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '読み取って追加する';
+  }
+});
+
+/**
+ * 画像取込由来の札。公式版待ち＝情報（アクセント色の線）、差し替え済みで内容に違い＝要確認（gold）。
+ * @param {HTMLElement|null} el
+ * @param {object} card
+ */
+function _renderUploadBadge(el, card) {
+  const v = card.upload_view;
+  if (!el || !v) return;
+  el.hidden = false;
+  el.classList.remove('upload-badge--attention');
+  if (v.state === 'replaced') {
+    const diff = v.diff_fields || [];
+    if (diff.length) {
+      el.textContent = '公式版と差分あり';
+      el.classList.add('upload-badge--attention');
+      el.title = `画像取込のカードを公式版の画像に差し替えました。公開中の内容と公式版の読み取りに違いがある欄: ${diff.join('・')}。内容を確認してください`;
+    } else {
+      el.textContent = '公式版に差し替え済み';
+      el.title = v.mode === 'content_replaced'
+        ? '画像取込のカードを、公式版の画像と内容に置き換えました'
+        : '画像取込のカードの画像を公式版に差し替えました（内容の違いなし）';
+    }
+    return;
+  }
+  el.textContent = v.error ? '公式版への差し替え失敗' : '画像取込・公式版待ち';
+  if (v.error) el.classList.add('upload-badge--attention');
+  el.title = v.error
+    ? `画像取込のカードです。公式版への差し替えに失敗しました（${v.error}）。画像は取込時のままです。公式版: ${v.official_page || '不明'}`
+    : '画像取込のカードです。同じ名前のカードが公式Xや公式サイトに出たら、画像を公式版に差し替えます';
+}
 
 // ──────────────────────────────────────────────
 // 設定タブ
