@@ -43,7 +43,8 @@ def _read(name, t, **kw):
 # ──────────────────────────────────────────────
 
 def test_group_reads_merges_near_names_and_skips_empty():
-    reads = [_read(TX, 1), _read("ハーピィ・レディ三姉妺・TX", 2), _read(TX, 3), _read("", 4),
+    yomi = "ハーピィ・レディさんしまいトライアングル・エクスタシー"
+    reads = [_read(TX, 1, reading=yomi), _read("ハーピィ・レディ三姉妺・TX", 2, reading=yomi), _read(TX, 3), _read("", 4),
              _read("誘惑の鏡壁", 5)]
     groups = rv.group_reads(reads)
     assert [g["name"] for g in groups] == [TX, "誘惑の鏡壁"]
@@ -254,6 +255,119 @@ def test_import_reveal_frames_registers_and_stores_each_cards_frame(no_context):
     assert out["list_only"] == ["カードC"] and out["list_fallback"][0]["inserted"] == ["カードC"]
     assert out["no_card_frames"] == [30]
     assert extract.call_args.kwargs["product_name"] == "IMMORTAL PHOENIX"
+
+
+def test_group_reads_does_not_merge_near_names_without_same_reading():
+    # 末尾だけ違う別カード（比 0.92）。ふりがなが違えばまとめない／ふりがなが無ければ迷ったら分ける
+    groups = rv.group_reads([_read("真紅眼の黒竜", 1, reading="レッドアイズ・ブラックドラゴン"),
+                             _read("真紅眼の黒炎竜", 2, reading="レッドアイズ・ブラックフレアドラゴン")])
+    assert len(groups) == 2
+    assert len(rv.group_reads([_read(TX, 1), _read("ハーピィ・レディ三姉妺・TX", 2)])) == 2
+    # 長さが2字以上違えば、ふりがなが同じでもまとめない
+    assert len(rv.group_reads([_read("六花精シクラン", 1, reading="x"), _read("六花精シクラメンス", 2, reading="x")])) == 2
+
+
+def test_decide_values_ignores_empty_list_and_frame_values():
+    # 一覧画面が小さくて読めなかった（空）ときに、紹介場面で読めた数値を消さない
+    empty_list = {"name": TX, "level": None, "atk": None, "def": None}
+    values, conflicts = rv.decide_values([_read(TX, 1, level=4, atk=1800, **{"def": "1200"})], empty_list)
+    assert (values["level"], values["atk"], values["def"]) == (4, 1800, "1200") and conflicts == {}
+    values, conflicts = rv.decide_values([_read(TX, 1, level=8), _read(TX, 2, level=9)], empty_list)
+    assert values["level"] == 8 and conflicts["level"]["votes"] == {"8": 1, "9": 1}
+    # 紹介場面の空と値が混ざる → 値を採って食い違いに残す
+    values, conflicts = rv.decide_values([_read(TX, 1, atk=None), _read(TX, 2, atk=1800)], None)
+    assert values["atk"] == 1800 and conflicts["atk"]["empty_frames"] == 1
+    # 魔法・罠は全部空のまま
+    values, conflicts = rv.decide_values([_read(TX, 1, level=None), _read(TX, 2, level=None)], empty_list)
+    assert values["level"] is None and "level" not in conflicts
+    # 1200 と "1200" は同じ値
+    values, conflicts = rv.decide_values([_read(TX, 1, **{"def": "2100"})], {"name": TX, "def": 2100})
+    assert "def" not in conflicts
+
+
+def test_extract_reveal_name_uncertain_when_list_name_differs_or_missing(fake_api):
+    _set(fake_api, "a", 1, TX)
+    _set(fake_api, "b", 2, "誘惑の鏡壁", card_type="永続罠", attribute="", race="", level=None, atk=None, **{"def": None})
+    fake_api["list"] = [{"name": "ハーピィ・レディ三姉妺・TX", "card_type": "融合モンスター", "level": 8}]
+    fake_api["card_text"] = {TX: TX_EFFECT, "誘惑の鏡壁": TX_EFFECT}
+    rows = rv.extract_reveal([_frame("a", 1), _frame("b", 2)], [_frame("L", 9)], video_url=VIDEO,
+                             client=object())["rows"]
+    tx, mirror = rows
+    assert tx["extraction_raw"]["reveal"]["list_check"]["status"] == "matched"
+    assert "name" in tx["extraction_raw"]["uncertain_fields"]
+    assert tx["extraction_raw"]["reveal"]["auto_approve_candidate"] is False
+    assert mirror["extraction_raw"]["reveal"]["list_check"]["status"] == "not_in_list"
+    assert "name" in mirror["extraction_raw"]["uncertain_fields"]
+
+
+def test_extract_reveal_continues_when_a_frame_fails(fake_api, monkeypatch):
+    _set(fake_api, "a", 1, TX)
+    fake_api["card_text"] = {TX: TX_EFFECT}
+    real = rv.read_reveal_frame
+
+    def flaky(client, image):
+        if image["url"] == "bad":
+            raise RuntimeError("overloaded")
+        return real(client, image)
+    monkeypatch.setattr(rv, "read_reveal_frame", flaky)
+    monkeypatch.setattr(rv, "read_list_frame", MagicMock(side_effect=RuntimeError("overloaded")))
+    out = rv.extract_reveal([_frame("a", 1), _frame("bad", 2)], [_frame("L", 9)], video_url=VIDEO, client=object())
+    assert [r["name"] for r in out["rows"]] == [TX]
+    assert {(x["kind"], x["t"]) for x in out["failed_frames"]} == {("reveal", 2), ("list", 9)}
+    assert out["rows"][0]["extraction_raw"]["reveal"]["list_check"]["status"] == "list_unavailable"
+    with pytest.raises(RuntimeError, match="すべて読めません"):
+        rv.extract_reveal([_frame("bad", 2)], [], video_url=VIDEO, client=object())
+
+
+def test_import_reveal_frames_fallback_tolerates_name_wobble_and_reports_missing(no_context, monkeypatch):
+    import release_date_resolver
+    monkeypatch.setattr(release_date_resolver, "resolve_release_date", lambda p: {
+        "release_date": "2026-10-31", "status": "verified", "reason": "", "source_url": None})
+    sb = _SB({"unreleased_cards": []})
+    a, lst = _png((1, 0, 0)), _png((3, 0, 0))
+    extract = MagicMock(return_value={"rows": [_reveal_row("カードA", up.image_key_for(a), 10)],
+                                      "list_only": [{"name": "アマゾネスの格闘戦士－蹴殺の舞い－", "list_t": 99},
+                                                    {"name": "見つからないカード", "list_t": 99}],
+                                      "no_card_frames": []})
+    # 一覧画面の読み直しで名前が1字揺れても補う。収録商品は --product に揃える
+    list_extract = MagicMock(return_value=[
+        {"name": "アマゾネスの格闘戦士－蹴殺の舞ぃ－", "product_name": "", "card_type": "効果モンスター",
+         "effect_text": "x", "confidence": "medium", "extraction_raw": {}},
+        {"name": "カードA", "product_name": "", "card_type": "通常罠", "effect_text": "y", "confidence": "medium",
+         "extraction_raw": {}}])
+    out = up.import_reveal_frames(sb, reveal_images=[(a, 10)], list_images=[(lst, 99)], video_url=VIDEO,
+                                  product_name="IMMORTAL PHOENIX", extract=extract, list_extract=list_extract,
+                                  store_image=MagicMock(return_value=(True, "ok")), known_keys=set())
+    added = next(r for r in sb.tables["unreleased_cards"] if r["name"] == "アマゾネスの格闘戦士－蹴殺の舞ぃ－")
+    assert added["product_name"] == "IMMORTAL PHOENIX" and added["release_date"] == "2026-10-31"
+    assert out["list_fallback"][0]["missing"] == [fuzzy_key("見つからないカード")]
+
+
+def test_admin_import_image_reveal_layout(monkeypatch):
+    import base64
+    from flask import Flask
+    import admin_unreleased as au
+    app = Flask(__name__)
+    app.register_blueprint(au.admin_bp)
+    monkeypatch.setattr(au, "_require_admin_key", lambda: None)
+    monkeypatch.setattr(au, "_supabase", object())
+    calls = []
+
+    def fake(sb, **kw):
+        calls.append(kw)
+        return {"inserted": [{"id": 5, "name": TX}], "skipped": [], "images": {5: "取込成功"}, "extracted": 1}
+    monkeypatch.setattr(up, "import_reveal_frames", fake)
+    client = app.test_client()
+    img = "data:image/png;base64," + base64.b64encode(_png()).decode()
+    resp = client.post("/api/admin/unreleased/import-image", json={
+        "image": img, "source_url": VIDEO, "layout": "reveal", "product_name": "IMMORTAL PHOENIX"})
+    assert resp.status_code == 201 and resp.get_json()["inserted"] == 1
+    assert calls[0]["reveal_images"][0][1] is None and calls[0]["product_name"] == "IMMORTAL PHOENIX"
+    assert client.post("/api/admin/unreleased/import-image",
+                       json={"image": img, "source_url": VIDEO, "layout": "x"}).status_code == 400
+    bad = client.post("/api/admin/unreleased/import-image",
+                      json={"image": "data:image/png;base64,@@", "source_url": VIDEO, "layout": "reveal"})
+    assert bad.status_code == 400
 
 
 def test_import_reveal_frames_requires_reveal_frames():

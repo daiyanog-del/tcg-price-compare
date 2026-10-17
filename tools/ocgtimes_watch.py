@@ -351,6 +351,10 @@ def cmd_import(args) -> dict:
     reveal, lists, kept = [], [], []
     for (path, data, kind), (fkind, t) in zip(frames, times):
         name = f"{fkind}_t{t}" + (".png" if kind == "image/png" else ".jpg")
+        n = 2
+        while name in kept:   # 同じ秒を2回撮ったときに上書きしない
+            name = f"{fkind}_t{t}_{n}" + (".png" if kind == "image/png" else ".jpg")
+            n += 1
         shutil.copyfile(path, os.path.join(keep, name))
         kept.append(name)
         (reveal if fkind == "reveal" else lists).append((data, t))
@@ -372,11 +376,15 @@ def cmd_import(args) -> dict:
                          "frames": [f.get("t") for f in rv.get("frames") or []]})
     results = [{"frame": "reveal", "extracted": r["extracted"], "inserted": inserted, "skipped": r["skipped"],
                 "list_only": r["list_only"], "list_fallback": r["list_fallback"],
-                "no_card_frames": r["no_card_frames"]}]
+                "no_card_frames": r["no_card_frames"], "failed_frames": r.get("failed_frames", [])}]
     sheet = _contact_sheet(results, keep) if not args.no_sheet else None
     img_fail = sum(1 for c in inserted if str(c["image"]).startswith("失敗"))
+    missing = [m for fb in r["list_fallback"] for m in fb.get("missing", [])] +         [n for fb in r["list_fallback"] if fb.get("error") for n in fb.get("names", [])]
+    failed = r.get("failed_frames", [])
     summary = (f"紹介場面{len(reveal)}画面・一覧{len(lists)}画面・追加{len(inserted)}枚"
                + (f"・一覧にだけあった{len(r['list_only'])}枚" if r["list_only"] else "")
+               + (f"・一覧から補えなかった{len(missing)}枚（{'、'.join(missing)}）" if missing else "")
+               + (f"・読めなかった画面{len(failed)}（{','.join(str(x['t']) for x in failed)}秒）" if failed else "")
                + (f"・画像保存失敗{img_fail}枚" if img_fail else ""))
     if not args.no_notify:
         _notify(f"[OCGタイムズ] 取込: {summary}。承認待ちで画像と照合してください（{video_url}）")

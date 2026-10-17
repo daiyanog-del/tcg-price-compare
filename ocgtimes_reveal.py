@@ -135,6 +135,21 @@ def _close(a: str, b: str) -> bool:
     return bool(a and b) and (a == b or difflib.SequenceMatcher(None, a, b, autojunk=False).ratio() >= NAME_MERGE_RATIO)
 
 
+def _same_card(key: str, reading: str, group: dict) -> bool:
+    """この読み取りを group（最初の場面の名前とふりがな）と同じカードとみなすか。
+
+    名前が同じならまとめる。違うときは、近い（NAME_MERGE_RATIO 以上）・長さの差が1字以内・ふりがなが両方あって
+    同じ、のすべてを満たすときだけまとめる（1字の読み違いだけを吸収する）。
+    「真紅眼の黒竜」と「真紅眼の黒炎竜」のような末尾だけ違う別カードは比が0.9を超えるので、ふりがなで分ける。
+    迷ったら分ける: 分けすぎた行は一覧との突き合わせで name が不確かになって人が見るが、まとめすぎるとカードが消える。
+    """
+    first = group["first_key"]
+    if key == first:
+        return True
+    return (_close(key, first) and abs(len(key) - len(first)) <= 1
+            and bool(reading) and reading == group["first_reading"])
+
+
 def group_reads(reads: list[dict]) -> list[dict]:
     """名前のある読み取りを、名前の近さでまとめる。戻り値: [{"key", "name", "names", "reads": [...]}]（出た順）。
 
@@ -146,9 +161,10 @@ def group_reads(reads: list[dict]) -> list[dict]:
         key = fuzzy_key(name)
         if not key:
             continue
-        g = next((g for g in groups if any(_close(key, fuzzy_key(n)) for n in g["names"])), None)
+        reading = fuzzy_key((r.get("reading") or "").strip())
+        g = next((g for g in groups if _same_card(key, reading, g)), None)
         if g is None:
-            g = {"names": [], "reads": []}
+            g = {"names": [], "reads": [], "first_key": key, "first_reading": reading}
             groups.append(g)
         g["names"].append(name)
         g["reads"].append(r)
@@ -170,21 +186,35 @@ def match_list_card(key: str, list_cards: list[dict]) -> dict | None:
 def decide_values(reads: list[dict], list_card: dict | None) -> tuple[dict, dict]:
     """場面ごとの値（と一覧の値1票）の多数決で各欄を決める。
 
-    戻り値: (値, 食い違い {欄: {"votes": {値: 票数}, "list": 一覧の値}})。同数のときは一覧の値、無ければ最初の場面の値。
+    - 一覧画面の空値（小さくて読めなかった）は票に数えない。紹介場面の空値も、読めた場面があれば票に数えない
+      （読めた値を空で消さない）。どの場面も空なら空。
+    - 同数のときは、空でない一覧の値 → 空でない最初の場面の値。
+    - 食い違い: 空でない値が2種類以上、または紹介場面に空と値が混ざるとき（魔法・罠を数値つきで読んだ可能性）。
+    値は表記（str）で比べる（1200 と "1200" は同じ値）。
+    戻り値: (値, 食い違い {欄: {"votes": {値: 票数}, "list": 一覧の値, "empty_frames": 空の場面数}})
     """
     values, conflicts = {}, {}
     for field in VALUE_FIELDS:
-        votes = [_clean(r.get(field)) for r in reads]
+        frame_values = [_clean(r.get(field)) for r in reads]
         list_value = _clean(list_card.get(field)) if list_card and field in list_card else None
-        counted = Counter(votes + ([list_value] if list_card and field in list_card else []))
+        votes = [v for v in frame_values if v is not None] + ([list_value] if list_value is not None else [])
+        if not votes:
+            values[field] = None
+            continue
+        rep = {}
+        for v in votes:
+            rep.setdefault(str(v), v)
+        counted = Counter(str(v) for v in votes)
         top = counted.most_common()
         best = top[0][0]
         if len(top) > 1 and top[0][1] == top[1][1]:
-            best = list_value if list_card and field in list_card else votes[0]
-        values[field] = best
-        if len(counted) > 1:
-            conflicts[field] = {"votes": {str(k): n for k, n in counted.items()},
-                                **({"list": list_value} if list_card and field in list_card else {})}
+            best = str(list_value) if list_value is not None else next(str(v) for v in frame_values if v is not None)
+        values[field] = rep[best]
+        empty_frames = sum(v is None for v in frame_values)
+        if len(counted) > 1 or (empty_frames and empty_frames < len(frame_values)):
+            conflicts[field] = {"votes": dict(counted),
+                                **({"list": list_value} if list_card and field in list_card else {}),
+                                **({"empty_frames": empty_frames} if empty_frames else {})}
     return values, conflicts
 
 
@@ -278,7 +308,8 @@ def extract_reveal(reveal_frames: list[dict], list_frames: list[dict] | None = N
 
     reveal_frames / list_frames: [{"image": normalize_uploaded_image の戻り値, "t": 秒 or None}]
     戻り値: {"rows": [行...], "list_only": [一覧にあって紹介場面に無いカード], "list_cards": [...],
-            "reads": [各画面の読み取り], "no_card_frames": [カードの無い場面の t]}
+            "reads": [各画面の読み取り], "no_card_frames": [カードの無い場面の t],
+            "failed_frames": [{"kind", "t", "error"}]（読み取りに失敗した画面。紹介場面が全部失敗したら例外）}
     各行の extraction_raw.source_image_url は保存する場面の画像の識別子（image["url"]）。
     """
     from card_crop import refine_card_box
@@ -292,16 +323,27 @@ def extract_reveal(reveal_frames: list[dict], list_frames: list[dict] | None = N
     list_frames = list_frames or []
 
     def read(job):
+        # 1画面の失敗（API の一時的な過負荷など）で配信1本ぶんを止めない。失敗した画面は failed_frames で返す
         kind, f = job
-        if kind == "reveal":
-            return kind, f, read_reveal_frame(client, f["image"])
-        return kind, f, read_list_frame(client, f["image"])
+        try:
+            if kind == "reveal":
+                return kind, f, read_reveal_frame(client, f["image"]), None
+            return kind, f, read_list_frame(client, f["image"]), None
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[reveal] 画面の読み取りに失敗: %s t=%s: %s", kind, f.get("t"), exc)
+            return kind, f, None, f"{type(exc).__name__}: {str(exc)[:200]}"
 
     jobs = [("reveal", f) for f in reveal_frames] + [("list", f) for f in list_frames]
     with ThreadPoolExecutor(max_workers=_WORKERS) as ex:
         results = list(ex.map(read, jobs))
+    failed = [{"kind": kind, "t": f.get("t"), "error": err} for kind, f, _, err in results if err]
+    if reveal_frames and all(err for kind, _, _, err in results if kind == "reveal"):
+        raise RuntimeError(f"紹介場面をすべて読めませんでした: {failed[0]['error'] if failed else ''}")
+    list_failed = any(x["kind"] == "list" for x in failed)
     reads, list_cards, by_key = [], [], {}
-    for kind, f, data in results:
+    for kind, f, data, err in results:
+        if err:
+            continue
         if kind == "reveal":
             reads.append({**data, "t": f.get("t"), "image_key": f["image"]["url"]})
             by_key[f["image"]["url"]] = f["image"]
@@ -355,7 +397,18 @@ def extract_reveal(reveal_frames: list[dict], list_frames: list[dict] | None = N
                 check = {"status": "skipped", "reason": "突き合わせなし（指定）"}
         if check["status"] in ("disagree", "error") and "effect_text" not in uncertain:
             uncertain.append("effect_text")
-        list_status = "matched" if list_card is not None else ("no_list" if not list_frames else "not_in_list")
+        if list_card is not None:
+            list_status = "matched"
+            if fuzzy_key(list_card["name"]) != g["key"] and "name" not in uncertain:
+                uncertain.append("name")   # 一覧とは近いだけで名前が違う
+        elif not list_frames:
+            list_status = "no_list"
+        elif list_failed:
+            list_status = "list_unavailable"   # 一覧画面の一部を読めなかった（name は不確かにしない）
+        else:
+            list_status = "not_in_list"
+            if "name" not in uncertain:
+                uncertain.append("name")   # 一覧があるのに見つからない＝名前の読み違いで割れた可能性
         candidate = (check["status"] == "agreed" and not uncertain and list_status == "matched")
 
         reading = Counter((r.get("reading") or "").strip() for r in g["reads"]
@@ -410,7 +463,7 @@ def extract_reveal(reveal_frames: list[dict], list_frames: list[dict] | None = N
 
     list_only = [c for c in list_cards if id(c) not in matched_list]
     return {"rows": rows, "list_only": list_only, "list_cards": list_cards, "reads": reads,
-            "no_card_frames": no_card}
+            "no_card_frames": no_card, "failed_frames": failed}
 
 
 def admin_view(raw: dict) -> dict | None:

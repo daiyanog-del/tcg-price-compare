@@ -128,15 +128,16 @@ def mark_upload_rows(rows: list[dict], source_url: str, note: str, filename: str
 
 def import_uploaded_image(sb, *, data_url: str, source_url: str, note: str = "",
                           filename: str = "", extract=None, store_image=None, known_keys=None,
-                          only_keys=None) -> dict:
+                          only_keys=None, product_name=None) -> dict:
     """1枚の画像から未発売カードを抽出して承認待ちに登録し、カードごとの画像を保存する。
 
     - 発売済み（ygoresources 既知）のカードは登録しない（X監視・公式サイト巡回と同じ扱い）。
     - 同名のカードが既にあれば新しく登録しない。ただしそれが画像取込の行で画像が無い（前回の保存失敗）なら、
       今回の画像で画像だけ付け直す。
     - 自動承認は呼ばない（判定記録には upload_source が付く）。
-    - only_keys（fuzzy_key の集合）を渡すと、その名前のカードだけを登録する（紹介場面の取込で、一覧にだけ
-      あったカードを一覧画面から補うとき）。
+    - only_keys（fuzzy_key の集合）を渡すと、その名前（または近い名前。ocgtimes_reveal と同じ近さ）のカードだけを
+      登録する（紹介場面の取込で、一覧にだけあったカードを一覧画面から補うとき）。
+    - product_name を渡すと、収録商品をその値にして発売日を照合し直す（紹介場面の取込の --product に揃える）。
     extract / store_image / known_keys はテスト用の差し替え口。
     戻り値: {"inserted": [行...], "skipped": [{"name","reason"}...], "images": {id: 結果}, "extracted": 件数}
     """
@@ -159,10 +160,18 @@ def import_uploaded_image(sb, *, data_url: str, source_url: str, note: str = "",
     extracted = len(rows)
     skipped = []
     if only_keys is not None:
-        keep = [r for r in rows if fuzzy_key(r.get("name", "")) in only_keys]
+        from ocgtimes_reveal import _close
+        keep = [r for r in rows
+                if any(_close(fuzzy_key(r.get("name", "")), k) for k in only_keys)]
         skipped += [{"name": r.get("name", ""), "reason": "紹介場面から登録済み（一覧からは補わない）"}
                     for r in rows if r not in keep]
         rows = keep
+    if product_name:
+        from unreleased_quality import attach_release_date
+        dates: dict = {}
+        for r in rows:
+            r["product_name"] = product_name
+            attach_release_date(r, dates)
     result = register_rows(sb, rows, {key: image["png"]}, store_image=store_image, known_keys=known_keys,
                            default_key=key)
     result["skipped"] = skipped + result["skipped"]
@@ -260,7 +269,8 @@ def import_reveal_frames(sb, *, reveal_images, list_images=(), video_url: str, n
       そのカードだけを登録する（list_fallback）。
     - 自動承認は呼ばない。突き合わせの結果は extraction_raw.reveal に記録する（auto_approve_candidate は記録だけ）。
     extract は ocgtimes_reveal.extract_reveal、list_extract は一覧画面の読み方の差し替え口（テスト用）。
-    戻り値: {"inserted", "skipped", "images", "extracted", "list_only", "list_fallback", "no_card_frames"}
+    戻り値: {"inserted", "skipped", "images", "extracted", "list_only", "list_fallback"（missing＝補えなかった名前）,
+            "no_card_frames", "failed_frames"}
     """
     from unreleased_extractor import normalize_uploaded_image
     video_url = validate_source_url(video_url)
@@ -307,18 +317,26 @@ def import_reveal_frames(sb, *, reveal_images, list_images=(), video_url: str, n
             r = import_uploaded_image(sb, data_url=_data_url(f["data"]), source_url=_with_t(video_url, f["t"]),
                                       note=note, extract=list_extract,
                                       filename=f"{filename_prefix}list" + (f"_t{f['t']}" if f["t"] is not None else ""),
-                                      store_image=store_image, known_keys=known_keys, only_keys=keys)
+                                      store_image=store_image, known_keys=known_keys, only_keys=keys,
+                                      product_name=product_name or None)
             reg["inserted"] += r["inserted"]
             reg["skipped"] += r["skipped"]
             reg["images"].update(r["images"])
-            fallback.append({"t": f["t"], "names": sorted(keys), "inserted": [c.get("name") for c in r["inserted"]]})
+            # 一覧の読み直しで見つからなかった名前（2回の読みで名前が大きく揺れた等）は黙って落とさず返す
+            from ocgtimes_reveal import _close
+            handled = [fuzzy_key(c.get("name") or "") for c in r["inserted"]] +                 [fuzzy_key(x.get("name") or "") for x in r["skipped"]
+                 if not str(x.get("reason", "")).startswith("紹介場面から登録済み")]
+            missing = sorted(k for k in keys if not any(_close(k, h) for h in handled))
+            fallback.append({"t": f["t"], "names": sorted(keys), "inserted": [c.get("name") for c in r["inserted"]],
+                             **({"missing": missing} if missing else {})})
         except Exception as e:  # noqa: BLE001 — 補いの失敗で紹介場面の登録結果を捨てない
             logger.warning(f"[upload] 一覧画面からの補いに失敗: t={f['t']}: {e}")
             fallback.append({"t": f["t"], "names": sorted(keys), "error": repr(e)[:300]})
     logger.info(f"[upload] 紹介場面の取込: 場面={len(reveal)} 一覧={len(lists)} 行={len(rows)} "
                 f"登録={len(reg['inserted'])} 一覧のみ={[c['name'] for c in result['list_only']]}")
     return {**reg, "extracted": len(rows), "list_only": [c["name"] for c in result["list_only"]],
-            "list_fallback": fallback, "no_card_frames": result.get("no_card_frames", [])}
+            "list_fallback": fallback, "no_card_frames": result.get("no_card_frames", []),
+            "failed_frames": result.get("failed_frames", [])}
 
 
 def _data_url(data: bytes) -> str:
