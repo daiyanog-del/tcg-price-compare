@@ -8,9 +8,13 @@ ocgtimes_watch.py — 公式配信「遊戯王OCGタイムズ」の告知の検�
   「本日の新規カードまとめ」の時刻が取れる。初公開カードは公式Xや公式サイトにすぐ出ないことがあるため、
   一覧画面のキャプチャを unreleased_upload.import_uploaded_image で承認待ちに入れる。
 
-この PC で動く Claude の定期タスク（週2回）がこのツールを呼ぶ:
+この PC で動く Claude の定期タスクがこのツールを呼ぶ（週2回の告知確認 ocgtimes-watch と、毎晩の取込 ocgtimes-import）。
+無人の回ではアプリが定期タスクの作成を拒否するので、配信後の取込は予約せず「取込待ち」として状態ファイルに残す:
   check                 公式サイトのトップから新しい告知を探す（AI不要）。見つけたら番組ページと配信時刻を JSON で出す
-  mark <slug> [...]     告知を処理済みにする（カレンダー登録・取込タスクの予約が済んだら呼ぶ）
+  mark <slug> [...] [--video ID --start ISO --url URL --heading 見出し]
+                        告知を処理済みにする。--video を付けると、その動画を「取込待ち」に入れる
+  pending               取込待ちの動画と、配信が終わったか（ready）を JSON で出す
+  done <video_id>       取込待ちから外す（取込が済んだら・取込めないと決めたら）
   status <video_id>     配信が終わったか、「新規カードまとめ」の時刻はどこかを JSON で出す
   import <video_id> --since <ISO> --times 6448,6458,...
                         ダウンロードフォルダの since 以降の画像（PNG/JPEG）を、時刻の順に取込む
@@ -201,10 +205,52 @@ def cmd_check(args) -> dict:
 
 def cmd_mark(args) -> dict:
     state = load_state()
+    now = datetime.now(timezone.utc).isoformat()
     for slug in args.slugs:
-        state["seen"][slug] = {"at": datetime.now(timezone.utc).isoformat(), "note": args.note or ""}
+        state["seen"][slug] = {"at": now, "note": args.note or ""}
+    if getattr(args, "video", None):
+        if len(args.slugs) != 1:
+            raise SystemExit("--video を付けるときは告知を1つだけ指定する")
+        state.setdefault("pending", {})[args.video] = {
+            "slug": args.slugs[0], "start": args.start or None, "url": args.url or WATCH_URL.format(vid=args.video),
+            "heading": args.heading or "", "added_at": now}
     save_state(state)
-    return {"marked": args.slugs}
+    return {"marked": args.slugs, "pending": sorted(state.get("pending", {}))}
+
+
+def cmd_pending(args) -> dict:
+    """取込待ちの動画。開始時刻を過ぎたものは YouTube で配信が終わったかを見る（ready = 取込んでよい）。"""
+    state = load_state()
+    now = datetime.now(timezone.utc)
+    items = []
+    for vid, item in sorted(state.get("pending", {}).items()):
+        entry = {"video_id": vid, **item, "ready": False}
+        start = item.get("start")
+        started = True
+        if start:
+            try:
+                started = datetime.fromisoformat(start) <= now
+            except ValueError:
+                started = True
+        if started:
+            try:
+                info = parse_watch(_get(WATCH_URL.format(vid=vid)))
+                entry.update(ended=is_ended(info), summary_seconds=info["summary_seconds"], end=info["end"])
+                entry["ready"] = entry["ended"]
+            except Exception as e:  # noqa: BLE001 — 取れなければ次の晩にまた見る
+                entry["error"] = repr(e)
+        items.append(entry)
+    return {"checked_at": now.isoformat(), "pending": items}
+
+
+def cmd_done(args) -> dict:
+    state = load_state()
+    item = state.get("pending", {}).pop(args.video_id, None)
+    if item is not None:
+        item.update(done_at=datetime.now(timezone.utc).isoformat(), note=args.note or "")
+        state.setdefault("done", {})[args.video_id] = item
+    save_state(state)
+    return {"done": args.video_id, "found": item is not None}
 
 
 def cmd_status(args) -> dict:
@@ -356,6 +402,14 @@ def main(argv=None) -> int:
     m = sub.add_parser("mark")
     m.add_argument("slugs", nargs="+")
     m.add_argument("--note", default="")
+    m.add_argument("--video", default="")
+    m.add_argument("--start", default="")
+    m.add_argument("--url", default="")
+    m.add_argument("--heading", default="")
+    sub.add_parser("pending")
+    dn = sub.add_parser("done")
+    dn.add_argument("video_id")
+    dn.add_argument("--note", default="")
     s = sub.add_parser("status")
     s.add_argument("video_id")
     i = sub.add_parser("import")
@@ -367,7 +421,8 @@ def main(argv=None) -> int:
     i.add_argument("--no-sheet", action="store_true")
     i.add_argument("--no-notify", action="store_true")
     args = ap.parse_args(argv)
-    result = {"check": cmd_check, "mark": cmd_mark, "status": cmd_status, "import": cmd_import}[args.cmd](args)
+    result = {"check": cmd_check, "mark": cmd_mark, "pending": cmd_pending, "done": cmd_done,
+              "status": cmd_status, "import": cmd_import}[args.cmd](args)
     print(json.dumps(result, ensure_ascii=False, indent=1))
     return 0
 

@@ -14,6 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 
 import ocgtimes_watch as ow  # noqa: E402
 
+ow._load, ow._save = ow.load_state, ow.save_state
+
 TOP = """
 <li><a href="information/ocgtimesimph/" class=""><img src="/japan/assets/banner/ocgtimes-imph.jpg" alt="遊戯王OCGタイムズ"></a></li>
 <li class="other"><a href="information/ocgtimesimph/" class="">「遊戯王OCGタイムズ2026年10月版」配信情報公開</a></li>
@@ -153,3 +155,28 @@ def test_cmd_import_rejects_mismatched_times(tmp_path, monkeypatch):
                                  times="1,2", note="", dir=str(tmp_path), no_sheet=True, no_notify=True)
     monkeypatch.setattr(ow, "_load_env", lambda: None)
     assert "合いません" in ow.cmd_import(args)["error"]
+
+
+def test_pending_flow(tmp_path, monkeypatch):
+    import types
+    monkeypatch.setattr(ow, "STATE_PATH", str(tmp_path / "state.json"))
+    monkeypatch.setattr(ow, "load_state", lambda path=None: ow.__dict__["_load"](str(tmp_path / "state.json")))
+    monkeypatch.setattr(ow, "save_state", lambda st, path=None: ow.__dict__["_save"](st, str(tmp_path / "state.json")))
+    ended = {"v": False}
+    html = lambda: _watch_html({"isLiveNow": not ended["v"], "startTimestamp": "x",
+                                **({"endTimestamp": "y"} if ended["v"] else {})}, DESC)
+    monkeypatch.setattr(ow, "_get", lambda url: html())
+    future = (datetime.now(timezone.utc) + timedelta(days=3)).isoformat()
+    past = (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat()
+
+    ow.cmd_mark(types.SimpleNamespace(slugs=["ocgtimesnext"], note="", video="VID00000001", start=future, url="", heading="1月版"))
+    ow.cmd_mark(types.SimpleNamespace(slugs=["ocgtimesnow"], note="", video="VID00000002", start=past, url="", heading="今"))
+    out = {p["video_id"]: p for p in ow.cmd_pending(None)["pending"]}
+    assert out["VID00000001"]["ready"] is False and "ended" not in out["VID00000001"]   # まだ始まっていない
+    assert out["VID00000002"]["ready"] is False and out["VID00000002"]["ended"] is False  # 配信中
+    ended["v"] = True
+    out = {p["video_id"]: p for p in ow.cmd_pending(None)["pending"]}
+    assert out["VID00000002"]["ready"] is True and out["VID00000002"]["summary_seconds"] == 6433
+
+    assert ow.cmd_done(types.SimpleNamespace(video_id="VID00000002", note="取込済み"))["found"] is True
+    assert [p["video_id"] for p in ow.cmd_pending(None)["pending"]] == ["VID00000001"]
