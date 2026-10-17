@@ -110,7 +110,7 @@ function _buildShareOptions(cardName, data, results){
 }
 
 function _shareToX(text){
-  window.open('https://x.com/intent/tweet?text='+encodeURIComponent(text+' #TCGYM '+location.origin),'_blank');
+  window.open('https://x.com/intent/tweet?text='+encodeURIComponent(text+' #強欲なラボ '+location.origin),'_blank');
 }
 function _shareToLine(text){
   window.open('https://social-plugins.line.me/lineit/share?url='+encodeURIComponent(location.origin)+'&text='+encodeURIComponent(text),'_blank');
@@ -1792,7 +1792,7 @@ function _updateUrl(cardName, mode){
   }
   // ページタイトルも更新
   const suffix=mode==='buyback'?' の買取価格比較':' の価格比較';
-  document.title=cardName+suffix+' | TCGYM';
+  document.title=cardName+suffix+' | 強欲なラボ';
 }
 
 // URLを正本にして、初期表示と戻る・進むを同じ処理で復元する。
@@ -1837,12 +1837,12 @@ function _restoreLocation(trigger){
       if(typeof window.switchDeckPane==='function')window.switchDeckPane('tools');
       if(details)details.scrollIntoView({block:'start'});
     }
-    document.title='TCGYM';
+    document.title='強欲なラボ';
     return;
   }
   if(location.pathname==='/new-cards'){
     switchMode('search',trigger);
-    document.title='未発売カード一覧 | TCGYM';
+    document.title='未発売カード一覧 | 強欲なラボ';
     return;
   }
   if(location.pathname==='/featured'){
@@ -1863,7 +1863,7 @@ function _restoreLocation(trigger){
     _pendingBuyInlineOpen=cardPath[1]==='buy';
     doSearch({trigger:trigger});
   }else{
-    document.title='TCGYM';
+    document.title='強欲なラボ';
   }
 }
 window.addEventListener('popstate',()=>_restoreLocation('popstate'));
@@ -1958,7 +1958,7 @@ function switchMode(mode, trigger){
       history.pushState(null,'',url);
       // 一覧ページからタブ操作でトップ等へ移った場合は、一覧専用の表示状態を解除する。
       _setNewCardsPage(false);
-      document.title='TCGYM';
+      document.title='強欲なラボ';
     }
   }
 }

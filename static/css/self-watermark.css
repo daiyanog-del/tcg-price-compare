@@ -1,6 +1,6 @@
 /* self-watermark.css — 自サイト透かし（cosmetic mitigation）
  *
- * 発売済みクリーン画像にのみ低不透明度の「TCGYM」透かしを、カード下部の効果テキスト欄の
+ * 発売済みクリーン画像にのみ低不透明度の「強欲なラボ」透かしを、カード下部の効果テキスト欄の
  * 中央に横書きで重ね、「明確に非公式」を示す。Konami の "SAMPLE" は模倣しない。
  *
  * テキスト欄の範囲（実カード画像 480x700 で実測。通常/効果/リンク/魔法罠/ペンデュラムで共通）:
@@ -29,7 +29,7 @@
 }
 
 [data-self-wm] .wm-released:not(.is-set)::after {
-  content: "TCGYM";
+  content: "強欲なラボ";
   position: absolute;
   /* wrapper 全体に敷く（守備表示の90度回転を img と同じ transform で追従させるため。
      sample-blur.css と同じ方式）。文字は内側でテキスト欄の位置に置く */

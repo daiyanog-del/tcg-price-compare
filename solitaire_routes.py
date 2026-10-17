@@ -232,7 +232,7 @@ def _lookup_focus_card_og(focus):
         if not card:
             return None
         blur = card_display.is_setting_enabled(card_og_image.SETTING_KEY, True)
-        return card_og_image.og_image_path(card, blur), f"{card['name']}を一人回しで試す｜TCGYM"
+        return card_og_image.og_image_path(card, blur), f"{card['name']}を一人回しで試す｜強欲なラボ"
     except Exception as e:
         logger.warning(f"カードのOGP情報取得エラー: {e}")
         return None

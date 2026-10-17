@@ -584,7 +584,7 @@ async function _generateShortURL(range, isPublic = false) {
  * @returns {string} tweet intent URL
  */
 export function buildShareTweetUrl(shareUrl) {
-  const text = 'リプレイを共有しました #TCGYM';
+  const text = 'リプレイを共有しました #強欲なラボ';
   return `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(shareUrl)}`;
 }
 

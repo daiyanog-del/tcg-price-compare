@@ -27,27 +27,27 @@ function _ga(name,params){ if(typeof gtag==='function') gtag('event',name,params
 </script>
 {% include '_ga.html' %}
 {% if card_name and page_mode == 'search' %}
-<title>{{ card_name }} の価格比較 | TCGYM</title>
+<title>{{ card_name }} の価格比較 | 強欲なラボ</title>
 <meta name="description" content="{{ card_name }}の最安値を遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボ・まんぞく屋の6店舗から一括比較。{% if best_price %}現在の最安値は¥{{ '{:,}'.format(best_price) }}。{% endif %}リアルタイム価格検索。">
-<meta property="og:title" content="{{ card_name }} の価格比較 | TCGYM">
+<meta property="og:title" content="{{ card_name }} の価格比較 | 強欲なラボ">
 <meta property="og:description" content="{{ card_name }}の最安値を6店舗で比較{% if best_price %}。最安¥{{ '{:,}'.format(best_price) }}{% endif %}">
 <link rel="canonical" href="{{ public_base_url }}/card/{{ card_name | urlencode }}">
 {% elif card_name and page_mode == 'buyback' %}
-<title>{{ card_name }} の買取価格比較 | TCGYM</title>
+<title>{{ card_name }} の買取価格比較 | 強欲なラボ</title>
 <meta name="description" content="{{ card_name }}の買取価格をカードラッシュ・カーナベル・遊々亭・トレコロCB・カードラボの5店舗で一括比較。{% if best_price %}最高買取額¥{{ '{:,}'.format(best_price) }}。{% endif %}一番高く売れるお店が見つかります。">
-<meta property="og:title" content="{{ card_name }} の買取価格比較 | TCGYM">
+<meta property="og:title" content="{{ card_name }} の買取価格比較 | 強欲なラボ">
 <meta property="og:description" content="{{ card_name }}の買取価格を5店舗で比較{% if best_price %}。最高¥{{ '{:,}'.format(best_price) }}{% endif %}">
 <link rel="canonical" href="{{ public_base_url }}/buy/{{ card_name | urlencode }}">
 {% elif page_mode == 'new_cards' %}
-<title>未発売カード一覧 | TCGYM</title>
+<title>未発売カード一覧 | 強欲なラボ</title>
 <meta name="description" content="発売前の遊戯王OCGカードを収録商品ごとに一覧。デッキに追加してテストプレイもできます。">
-<meta property="og:title" content="未発売カード一覧 | TCGYM">
+<meta property="og:title" content="未発売カード一覧 | 強欲なラボ">
 <meta property="og:description" content="発売前のカードを収録商品ごとに一覧。">
 <link rel="canonical" href="{{ public_base_url }}/new-cards">
 {% else %}
-<title>TCGYM — 遊戯王OCG プレイヤーサポート</title>
+<title>強欲なラボ — 遊戯王OCG プレイヤーサポート</title>
 <meta name="description" content="遊戯王OCGプレイヤーのサポートサイト。価格比較・デッキ計算・環境デッキ・最新弾情報をひとつに。">
-<meta property="og:title" content="TCGYM — 遊戯王OCG プレイヤーサポート">
+<meta property="og:title" content="強欲なラボ — 遊戯王OCG プレイヤーサポート">
 <meta property="og:description" content="価格比較・デッキ・環境・最新弾をひとつに。">
 <link rel="canonical" href="{{ public_base_url }}/">
 {% endif %}
@@ -55,13 +55,13 @@ function _ga(name,params){ if(typeof gtag==='function') gtag('event',name,params
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="TCGYM — 遊戯王OCG プレイヤーサポート">
+<meta name="twitter:title" content="強欲なラボ — 遊戯王OCG プレイヤーサポート">
 <meta name="twitter:description" content="価格比較・デッキ・環境・最新弾をひとつに。">
 <meta name="twitter:image" content="{{ public_base_url }}{{ static_url('og-image.png') }}">
 <meta property="og:type" content="website">
 <meta property="og:url" content="{{ public_base_url }}/">
 <meta property="og:locale" content="ja_JP">
-<meta property="og:site_name" content="TCGYM">
+<meta property="og:site_name" content="強欲なラボ">
 <meta name="robots" content="index, follow">
 <link rel="icon" type="image/svg+xml" href="{{ static_url('favicon.svg') }}">
 <link rel="icon" type="image/png" sizes="32x32" href="{{ static_url('favicon-32.png') }}">
@@ -83,11 +83,7 @@ function _ga(name,params){ if(typeof gtag==='function') gtag('event',name,params
 <noscript><link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"></noscript>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='(min-width:768px) and (hover:hover) and (pointer:fine)'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;800&display=swap" rel="stylesheet" media="(min-width:768px) and (hover:hover) and (pointer:fine)"></noscript>
-<!-- Bungeeは.brand-nameの"TCGYM"5文字にしか使わない。Google Fontsのtext=は1リクエスト中の
-     全ファミリに適用されてしまうため、Noto/JetBrainsと同居させるとそちらの文字も5文字に
-     絞られて壊れる。そのためBungeeだけ別リクエストのまま維持し、text=TCGYMでグリフを絞る -->
-<link href="https://fonts.googleapis.com/css2?family=Bungee&text=TCGYM&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
-<noscript><link href="https://fonts.googleapis.com/css2?family=Bungee&text=TCGYM&display=swap" rel="stylesheet"></noscript>
+
 {% if card_name %}
 <script type="application/ld+json">
 {
@@ -770,15 +766,11 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 <div class="wrap">
   <header>
     <h1>
-      <a href="/" class="brand-header-link">
+      <a href="/" class="brand-header-link" aria-label="強欲なラボ トップ">
         <div class="brand-header-inner">
-          <picture>
-            <source srcset="{{ static_url('tcgym-icon-small.webp') }}" type="image/webp">
-            <img src="{{ static_url('tcgym-icon-small.png') }}" alt="" class="brand-header-icon" width="144" height="176" fetchpriority="high">
-          </picture>
-          <div>
-            <span style="display:inline-flex;align-items:flex-start"><span class="brand-name">TC<span class="brand-g">G</span>YM</span><span class="brand-beta">β</span></span>
-          </div>
+          <img src="{{ static_url('brand/symbol-C.png') }}" alt="" class="brand-header-icon" width="128" height="128" fetchpriority="high">
+          <img src="{{ static_url('brand/wordmark-A.svg') }}" alt="強欲なラボ" class="brand-wordmark" width="1967" height="610">
+          <span class="brand-beta">β</span>
         </div>
       </a>
     </h1>
@@ -1228,7 +1220,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 <!-- フッター -->
 <footer class="site-footer">
   <a onclick="openLegalModal('privacy')">プライバシーポリシー</a>｜<a onclick="openLegalModal('terms')">利用規約</a>｜<a onclick="openLegalModal('shop')">ショップ運営者様へ</a>｜<a href="mailto:tcg.price.compare@gmail.com">お問い合わせ</a>｜<a onclick="openServiceQrDialog()">QRコード</a><span id="footerAdminLink" hidden>｜<a href="/admin">管理</a></span>
-  <div class="footer-copy">&copy; 2025 TCGYM</div>
+  <div class="footer-copy">&copy; 2025 強欲なラボ</div>
   <div class="footer-rights" style="font-size:.72rem;color:var(--text-d);margin-top:4px">遊戯王OCGカードの著作権は&copy;スタジオ・ダイス／集英社・テレビ東京・KONAMIに帰属します。当サイトはKONAMI社とは無関係の非公認ファンサイトです。</div>
 </footer>
 
@@ -1255,7 +1247,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
       <button class="legal-modal-close" onclick="closeLegalModal('privacy')">&times;</button>
     </div>
     <div class="legal-modal-body">
-      <p>TCGYM（以下「本サービス」）は、個人が運営するWebサービスです。本サービスにおけるユーザー情報の取扱いについて、以下のとおり定めます。</p>
+      <p>強欲なラボ（以下「本サービス」）は、個人が運営するWebサービスです。本サービスにおけるユーザー情報の取扱いについて、以下のとおり定めます。</p>
 
       <h3>1. 収集する情報</h3>
       <p>本サービスでは、以下の情報を取得する場合があります。</p>
@@ -1309,7 +1301,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
       <button class="legal-modal-close" onclick="closeLegalModal('terms')">&times;</button>
     </div>
     <div class="legal-modal-body">
-      <p>本利用規約（以下「本規約」）は、TCGYM（以下「本サービス」）の利用条件を定めるものです。本サービスを利用された時点で、本規約に同意したものとみなします。</p>
+      <p>本利用規約（以下「本規約」）は、強欲なラボ（以下「本サービス」）の利用条件を定めるものです。本サービスを利用された時点で、本規約に同意したものとみなします。</p>
 
       <h3>1. サービスの概要</h3>
       <p>本サービスは、遊戯王OCGカードの販売価格および買取価格を複数のショップ（遊々亭、カードラッシュ、トレコロCB、カーナベル、カードラボ、まんぞく屋）から取得し、比較表示する個人運営のWebサービスです。</p>
@@ -1406,11 +1398,11 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 <div class="legal-overlay" id="serviceQrOverlay" onclick="if(event.target===this)closeServiceQrDialog()">
   <div class="legal-modal" style="max-width:380px">
     <div class="legal-modal-head">
-      <h2>TCGYMを紹介する</h2>
+      <h2>強欲なラボを紹介する</h2>
       <button class="legal-modal-close" onclick="closeServiceQrDialog()">&times;</button>
     </div>
     <div class="legal-modal-body" style="text-align:center">
-      <p style="color:var(--text-m);font-size:.85rem;margin-bottom:14px">スマホのカメラで読み取るとTCGYMのトップページが開きます。</p>
+      <p style="color:var(--text-m);font-size:.85rem;margin-bottom:14px">スマホのカメラで読み取ると強欲なラボのトップページが開きます。</p>
       <div id="serviceQrCode" style="display:flex;justify-content:center;margin:14px 0;min-height:40px"></div>
       <div style="display:flex;gap:8px">
         <input type="text" id="serviceQrUrl" readonly onclick="this.select()" style="flex:1;min-width:0;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-input);color:var(--text);font-size:.78rem">

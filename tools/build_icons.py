@@ -9,14 +9,14 @@
     pip install Pillow
 
 入力:
-    自作画像など/ベース（反転）縦80％.png  ← 黒背景+白線画の元素材
+    static/brand/symbol-source.png / wordmark-A.png（確定ロゴの書き出し）
 出力（tcg-web/static/ 配下に上書き）:
     favicon-16.png / favicon-32.png
     apple-touch-icon.png (180x180)
     icon-192.png / icon-512.png
     icon-maskable-192.png / icon-maskable-512.png
     tcgym-icon-base.png (1024x1024) / favicon.svg
-    tcgym-icon-small.png / tcgym-icon-small.webp (288x352)
+    tcgym-icon-small.png / tcgym-icon-small.webp (256x256)
     manifest.json / sw.js のアイコンURL（内容ハッシュ付き）
     og-image.png (1200x630、--og 指定時のみ)
 """
@@ -29,33 +29,17 @@ import json
 import math
 import re
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
+from PIL import Image, ImageFilter, ImageOps
 
 APP_ROOT = Path(__file__).resolve().parent.parent
-ROOT   = APP_ROOT.parent
-SRC    = ROOT / '自作画像など' / 'ベース（反転）縦80％.png'
 # CIや別名のチェックアウトでも、生成スクリプトが属するリポジトリを参照する。
 STATIC = APP_ROOT / 'static'
-HEADER_SRC = ROOT / '自作画像など' / 'ベース（反転）_w_trans_よさそう.png'
 
-# ---- 元画像を紺地+白線に変換 ----
+# ---- 確定ブランド素材の読込 ----
 def load_navy_rgba(*, clean_background=False):
-    """黒背景+白線画を「白線・透明背景」RGBAに変換して返す"""
-    img  = Image.open(SRC).convert('RGB')
-    gray = img.convert('L')
-    if clean_background:
-        # 図柄の無い四隅（短辺の1/20四方）から背景のノイズ上限を実測する。
-        w, h = gray.size
-        edge = min(w, h) // 20
-        corners = [(0, 0, edge, edge), (w - edge, 0, w, edge),
-                   (0, h - edge, edge, h), (w - edge, h - edge, w, h)]
-        black = max(gray.crop(box).getextrema()[1] for box in corners)
-        if black >= 128:
-            raise ValueError('元素材の四隅に図柄があります。背景サンプル領域を確認してください')
-        gray = gray.point(lambda value: max(0, round((value - black) * 255 / (255 - black))))
-    rgba = Image.new('RGBA', img.size, (255, 255, 255, 0))
-    rgba.putalpha(gray)
-    return rgba
+    """確定したCシンボルを透過RGBAで返す（引数は既存呼出し互換）。"""
+    return Image.open(STATIC / 'brand/symbol-source.png').convert('RGBA')
+
 
 def theme_background():
     """共通CSSの背景色を正とし、アイコンと起動画面の色ずれを防ぐ。"""
@@ -165,80 +149,36 @@ def build_favicons():
     encoded = base64.b64encode((STATIC / 'tcgym-icon-base.png').read_bytes()).decode('ascii')
     svg = ('<svg width="1024" height="1024" viewBox="0 0 1024 1024" '
            'xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
-           'role="img" aria-label="TCGYM">\n  <title>TCGYM</title>\n'
+           'role="img" aria-label="強欲なラボ">\n  <title>強欲なラボ</title>\n'
            f'  <image width="1024" height="1024" xlink:href="data:image/png;base64,{encoded}"/>\n</svg>\n')
     (STATIC / 'favicon.svg').write_text(svg, encoding='utf-8', newline='\n')
 
-    # ヘッダーは従来と同一の透過原画。72 CSS pxでの3倍密度まで原寸未満で表示できる。
-    with Image.open(HEADER_SRC) as header:
-        small = ImageOps.contain(header.convert('RGBA'), (288, 352), Image.Resampling.LANCZOS)
+    # 高密度画面でも承認サイズ64pxを鮮明に表示する。
+    small = rgba.resize((256, 256), Image.Resampling.LANCZOS)
     small.save(STATIC / 'tcgym-icon-small.png', optimize=True)
     small.save(STATIC / 'tcgym-icon-small.webp', lossless=True, method=6)
+    small.save(STATIC / 'brand/symbol-C.png', optimize=True)
     update_icon_references(background)
 
 
 def build_og_image():
-    rgba = load_navy_rgba()
-    W, H = 1200, 630
-    canvas = Image.new('RGBA', (W, H), (10, 16, 36, 255))
-    iw, ih = rgba.size
-    TW, TH = 420, 690
-    scale = min(TW / iw, TH / ih)
-    nw, nh = int(iw * scale), int(ih * scale)
-    icon_r = rgba.resize((nw, nh), Image.LANCZOS)
-    px = 30 + (TW - nw) // 2
-    py = -30 + (TH - nh) // 2
-    canvas.alpha_composite(icon_r, (max(0, px), max(0, py)))
-    img = canvas.convert('RGB')
-    draw = ImageDraw.Draw(img)
-
-    def load_font(names, size):
-        for d in [r'C:\Windows\Fonts', '/usr/share/fonts/truetype']:
-            for n in names:
-                p = Path(d) / n
-                if p.exists():
-                    try:
-                        return ImageFont.truetype(str(p), size)
-                    except Exception:
-                        pass
-        return ImageFont.load_default()
-
-    f_xl  = load_font(['ariblk.ttf', 'arialbd.ttf'], 165)
-    f_g   = load_font(['ariblk.ttf', 'arialbd.ttf'], 205)
-    f_sub = load_font(['YuGothB.ttc', 'msgothic.ttc', 'meiryo.ttc'], 26)
-
-    tx = 470
-    tc_w = int(draw.textlength('TC', font=f_xl))
-    g_w  = int(draw.textlength('G',  font=f_g))
-    ym_w = int(draw.textlength('YM', font=f_xl))
-
-    # 実際の描画範囲（textbbox）から縦配置を計算する。基準はベースライン（anchor='ls'）。
-    # 大きな「G」(205px) は下端がベースライン付近まで伸びるため、固定オフセットで下線・小見出しを
-    # 置くと重なる（以前の不具合）。G の bbox 下端・小見出しの bbox 上端から間隔を取る。
-    SUB_TEXT = '遊戯王OCG 総合プレイヤーサイト'
-    g_box   = draw.textbbox((0, 0), 'G', font=f_g, anchor='ls')   # (l, t, r, b) ベースライン原点
-    sub_box = draw.textbbox((0, 0), SUB_TEXT, font=f_sub, anchor='ls')
-    GAP_LINE = 30   # G下端 → 下線
-    GAP_SUB  = 26   # 下線 → 小見出し上端
-    block_h = (g_box[3] - g_box[1]) + GAP_LINE + 1 + GAP_SUB + (sub_box[3] - sub_box[1])
-    top = (H - block_h) // 2 - 10          # アイコン(縦中心 約315)に合わせ、ブロックを上下中央寄せ
-    base = top - g_box[1]                  # G 上端が top に来るベースライン
-    draw.text((tx,              base), 'TC', fill='white',   font=f_xl, anchor='ls')
-    draw.text((tx + tc_w,       base), 'G',  fill='#facc15', font=f_g,  anchor='ls')
-    draw.text((tx + tc_w + g_w, base), 'YM', fill='white',   font=f_xl, anchor='ls')
-    line_y = base + g_box[3] + GAP_LINE
-    draw.line([(tx, line_y), (min(W - 30, tx + tc_w + g_w + ym_w + 20), line_y)],
-              fill=(148, 163, 184, 100), width=1)
-    sub_base = line_y + 1 + GAP_SUB - sub_box[1]
-    draw.text((tx + 2, sub_base), SUB_TEXT, fill='#94a3b8', font=f_sub, anchor='ls')
-    draw.line([(0, 580), (W, 580)], fill=(250, 204, 21, 25), width=1)
-
-    img.save(str(STATIC / 'og-image.png'))
-    print('  og-image.png (1200x630)')
+    # 字形は確定版の画像を使い、実行環境のフォントに依存させない。
+    symbol = load_navy_rgba()
+    word = Image.open(STATIC / 'brand/wordmark-A.png').convert('RGBA')
+    logo = Image.new('RGBA', (1024, 200))
+    logo.alpha_composite(symbol.resize((200, 200), Image.Resampling.LANCZOS), (0, 0))
+    fitted = ImageOps.contain(word, (800, 200), Image.Resampling.LANCZOS)
+    logo.alpha_composite(fitted, (224, (200 - fitted.height) // 2))
+    logo.save(STATIC / 'og-logo.png', optimize=True)
+    canvas = Image.new('RGBA', (1200, 630), theme_background())
+    canvas.alpha_composite(symbol.resize((400, 400), Image.Resampling.LANCZOS), (60, 115))
+    fitted = ImageOps.contain(word, (650, 300), Image.Resampling.LANCZOS)
+    canvas.alpha_composite(fitted, (490, (630 - fitted.height) // 2))
+    canvas.convert('RGB').save(STATIC / 'og-image.png', optimize=True)
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='TCGYMの用途別アイコンを生成する')
+    parser = argparse.ArgumentParser(description='強欲なラボの用途別アイコンを生成する')
     parser.add_argument('--og', action='store_true', help='アイコンは変更せずOGP画像だけ生成する')
     args = parser.parse_args()
     if args.og:

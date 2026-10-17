@@ -51,7 +51,7 @@ try:
 except ValueError:
     _WM_OPACITY = 0.10
 _WM_OPACITY = max(0.0, min(1.0, _WM_OPACITY))   # 0〜1 にクランプ
-_WM_TEXT = "TCGYM"   # 自サイト名。Konami の "SAMPLE" は模倣しない
+_WM_TEXT = "強欲なラボ"   # 自サイト名。Konami の "SAMPLE" は模倣しない
 
 # ── フォントキャッシュ（プロセス内シングルトン） ──
 _font_lock = threading.Lock()
@@ -307,7 +307,7 @@ def generate_deck_image(deck_name: str, cards: list, total: int,
 
     # ── フッター描画 ──
     font_footer = _get_font(16)
-    footer_text = f"TCGYM  {site_url}" if site_url else "TCGYM"
+    footer_text = f"強欲なラボ  {site_url}" if site_url else "強欲なラボ"
     fy = canvas_h - _FOOTER_H + 12
     draw.text((_MARGIN, fy), footer_text, fill=_FOOTER_COL, font=font_footer)
 

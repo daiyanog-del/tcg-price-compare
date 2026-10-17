@@ -563,7 +563,7 @@ def test_page_default_uses_generic_page_image(env):
     html = env.client.get("/solitaire").get_data(as_text=True)
     assert "/static/og-solitaire.png" in _og(html, "og:image")
     assert "/static/og-solitaire.png" in _og(html, "twitter:image")
-    assert _og(html, "og:title") == "一人回しシミュレーター | TCGYM"
+    assert _og(html, "og:title") == "一人回しシミュレーター | 強欲なラボ"
     assert _og(html, "og:url").endswith("/solitaire")
 
 
@@ -573,8 +573,8 @@ def test_page_with_replay_uses_replay_image_title_and_url(env):
     img = _og(html, "og:image")
     assert img.endswith("/solitaire/og/abcDEF123_-.png") and img.startswith("http")
     assert _og(html, "twitter:image") == img
-    assert _og(html, "og:title") == "閃刀姫 展開 | TCGYM シミュレーター"
-    assert _og(html, "twitter:title") == "閃刀姫 展開 | TCGYM シミュレーター"
+    assert _og(html, "og:title") == "閃刀姫 展開 | 強欲なラボ シミュレーター"
+    assert _og(html, "twitter:title") == "閃刀姫 展開 | 強欲なラボ シミュレーター"
     assert _og(html, "og:url").endswith("/solitaire?replay=abcDEF123_-")
 
 
@@ -588,7 +588,7 @@ def test_page_replay_without_board_uses_generic_image_but_keeps_title(env):
     env.sb.store["rows"]["oldReplay01"] = {"title": "", "board": None}
     html = env.client.get("/solitaire?replay=oldReplay01").get_data(as_text=True)
     assert "/static/og-solitaire.png" in _og(html, "og:image")
-    assert _og(html, "og:title") == "共有リプレイ | TCGYM シミュレーター"
+    assert _og(html, "og:title") == "共有リプレイ | 強欲なラボ シミュレーター"
 
 
 def test_page_replay_missing_or_invalid_id_uses_generic(env):
@@ -604,7 +604,7 @@ def test_page_db_failure_points_to_og_route(env):
     _seed(env)
     html = env.client.get("/solitaire?replay=abcDEF123_-").get_data(as_text=True)
     assert _og(html, "og:image").endswith("/solitaire/og/abcDEF123_-.png")
-    assert _og(html, "og:title") == "一人回しシミュレーター | TCGYM"
+    assert _og(html, "og:title") == "一人回しシミュレーター | 強欲なラボ"
 
 
 def _patch_displays(monkeypatch, env, kinds, index_ok=True, unreleased_ok=True):
@@ -721,7 +721,7 @@ def test_fetch_count_upper_bound_is_26(env, fake_fetch):
 def test_cache_dir_is_versioned():
     """見た目を変えたら古い画像を使わないよう、ディスクキャッシュのディレクトリ名にバージョンを入れている"""
     import replay_og_image
-    assert os.path.basename(replay_og_image._OG_CACHE_DIR) == "cardprice_replay_og_v3"
+    assert os.path.basename(replay_og_image._OG_CACHE_DIR) == "cardprice_replay_og_v4"
 
 
 def test_zone_icons_exist():

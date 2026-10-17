@@ -8,7 +8,7 @@
 <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}"></script>
 <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','{{ ga_measurement_id }}');</script>
 {% endif %}
-<title>リプレイ一覧 | 一人回しシミュレーター | TCGYM</title>
+<title>リプレイ一覧 | 一人回しシミュレーター | 強欲なラボ</title>
 <meta name="description" content="このブラウザに保存したリプレイと、共有リンクを作ったリプレイの一覧です。">
 <!-- 個人の一覧（このブラウザの中身だけ）なので検索対象にしない -->
 <meta name="robots" content="noindex">
@@ -34,12 +34,9 @@
 <div class="rp-page">
 
   <header class="rp-header">
-    <a href="/" class="rp-brand" aria-label="TCGYM トップへ">
-      <picture>
-        <source srcset="{{ static_url('tcgym-icon-small.webp') }}" type="image/webp">
-        <img src="{{ static_url('tcgym-icon-small.png') }}" alt="" class="rp-brand-icon" width="144" height="176">
-      </picture>
-      <span class="rp-brand-name">TC<span class="rp-brand-g">G</span>YM</span>
+    <a href="/" class="rp-brand" aria-label="強欲なラボ トップへ">
+      <img src="{{ static_url('brand/symbol-C.png') }}" alt="" class="rp-brand-icon" width="128" height="128">
+      <img src="{{ static_url('brand/wordmark-A.svg') }}" alt="強欲なラボ" class="rp-brand-name-image" width="1967" height="610">
     </a>
     <a href="/solitaire" class="rp-back">&larr; シミュレーターに戻る</a>
   </header>

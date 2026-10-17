@@ -283,7 +283,7 @@ def main():
             lines.append(f"…他{len(drop_cards)-3}件")
 
         payload = {
-            "title": f"値下がり {len(drop_cards)}件 | TCGYM",
+            "title": f"値下がり {len(drop_cards)}件 | 強欲なラボ",
             "body":  "\n".join(lines),
             "url":   "/?tab=wishlist",
         }

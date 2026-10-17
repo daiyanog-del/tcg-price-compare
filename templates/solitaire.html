@@ -4,9 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 {% with ga_preload=false %}{% include '_ga.html' %}{% endwith %}
-<title>一人回しシミュレーター | TCGYM</title>
+<title>一人回しシミュレーター | 強欲なラボ</title>
 <meta name="description" content="発売前のカードもOK。マイデッキや環境デッキからワンタップで読み込める遊戯王OCGの一人回しシミュレーター。ニューロン画像・テキストにも対応し、ドラッグ&ドロップで展開を再現。リプレイ保存・URL共有対応。">
-<meta property="og:title" content="{{ og_title_full or (og_title ~ ' | TCGYM シミュレーター' if og_title else '一人回しシミュレーター | TCGYM') }}">
+<meta property="og:title" content="{{ og_title_full or (og_title ~ ' | 強欲なラボ シミュレーター' if og_title else '一人回しシミュレーター | 強欲なラボ') }}">
 <meta property="og:description" content="遊戯王の展開をシミュレート。リプレイ保存・共有対応。">
 <meta property="og:image" content="{{ public_base_url }}{{ og_image_path or static_url('og-solitaire.png') }}">
 <meta property="og:image:width" content="1200">
@@ -14,9 +14,9 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="{{ public_base_url }}{{ og_url_path or '/solitaire' }}">
 <meta property="og:locale" content="ja_JP">
-<meta property="og:site_name" content="TCGYM">
+<meta property="og:site_name" content="強欲なラボ">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="{{ og_title_full or (og_title ~ ' | TCGYM シミュレーター' if og_title else '一人回しシミュレーター | TCGYM') }}">
+<meta name="twitter:title" content="{{ og_title_full or (og_title ~ ' | 強欲なラボ シミュレーター' if og_title else '一人回しシミュレーター | 強欲なラボ') }}">
 <meta name="twitter:image" content="{{ public_base_url }}{{ og_image_path or static_url('og-solitaire.png') }}">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="{{ public_base_url }}/solitaire">
@@ -81,11 +81,8 @@
     <div class="sol-sidebar-section sol-sidebar-nav">
       <div class="sol-sidebar-head">
       <a href="/" class="sol-nav-title">
-        <picture>
-          <source srcset="{{ static_url('tcgym-icon-small.webp') }}" type="image/webp">
-          <img src="{{ static_url('tcgym-icon-small.png') }}" alt="" class="nav-icon" width="144" height="176">
-        </picture>
-        <span class="nav-brand">TC<span class="nav-g">G</span>YM</span>
+        <img src="{{ static_url('brand/symbol-C.png') }}" alt="" class="nav-icon" width="128" height="128">
+        <img src="{{ static_url('brand/wordmark-A.svg') }}" alt="強欲なラボ" class="nav-brand-image" width="1967" height="610">
       </a>
       <!-- ロゴ行の右端に左サイドバー開閉ボタン（畳んだ時は #solRailLeft が画面端に残る） -->
       <button id="sidebarToggleLeft" type="button"
@@ -441,7 +438,7 @@
             <button type="button" class="sol-mobile-menu-item" data-menu-action="help">操作方法</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="feedback">不具合・要望を送る</button>
             <!-- E-2: デッキ読込シート内のページナビを非表示にする代わりの導線 -->
-            <a href="/" class="sol-mobile-menu-item sol-mobile-menu-link">TCGYM トップへ</a>
+            <a href="/" class="sol-mobile-menu-item sol-mobile-menu-link">強欲なラボ トップへ</a>
           </div>
         </div>
       </div>

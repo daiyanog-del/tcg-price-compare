@@ -224,7 +224,7 @@ def test_new_cards_page_renders():
     response = app_module.app.test_client().get("/new-cards")
     assert response.status_code == 200
     html = response.get_data(as_text=True)
-    assert "<title>未発売カード一覧 | TCGYM</title>" in html
+    assert "<title>未発売カード一覧 | 強欲なラボ</title>" in html
     assert 'class="new-cards-page"' in html
 
 

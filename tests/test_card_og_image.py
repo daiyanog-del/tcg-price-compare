@@ -322,7 +322,7 @@ def test_page_meta_uses_card_image_for_focus(web):
     html = web["client"].get("/solitaire?newcards=1&focus=テスト").get_data(as_text=True)
     key = g.version_key(web["card"], True)
     assert f"/solitaire/og/card/5.png?v={key}" in html
-    assert 'property="og:title" content="テストを一人回しで試す｜TCGYM"' in html
+    assert 'property="og:title" content="テストを一人回しで試す｜強欲なラボ"' in html
     assert 'name="twitter:card" content="summary_large_image"' in html
     assert html.count(f"/solitaire/og/card/5.png?v={key}") >= 2   # og:image と twitter:image
 
@@ -332,7 +332,7 @@ def test_page_meta_uses_card_image_for_focus(web):
 def test_page_meta_generic_otherwise(web, url):
     html = web["client"].get(url).get_data(as_text=True)
     assert "/solitaire/og/card/" not in html
-    assert "一人回しシミュレーター | TCGYM" in html
+    assert "一人回しシミュレーター | 強欲なラボ" in html
 
 
 def test_page_meta_generic_when_card_not_public(web):

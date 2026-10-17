@@ -3,7 +3,8 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
 .price-redesign> .wrap>header{display:flex;align-items:center;flex-wrap:wrap;gap:0 28px;padding:20px 0 0;text-align:left;border-bottom:1px solid #2b3549;margin-bottom:0}
 .price-redesign header h1{flex-shrink:0;margin-bottom:16px}
 .price-redesign .brand-header-inner{gap:9px}
-.price-redesign .brand-header-icon{height:40px}
+.price-redesign .brand-header-icon{height:64px;width:auto;mix-blend-mode:normal}
+.price-redesign .brand-wordmark{display:block;width:150px;height:auto}
 .price-redesign .brand-name{font-size:28px}
 .price-redesign .brand-g{color:#f3ce46}
 .price-redesign .brand-beta{font-size:10px}
@@ -104,7 +105,8 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
  .price-redesign header h1{padding-right:90px}
  .price-redesign .mode-tabs .nav-wishlist{position:absolute;top:16px;right:0;min-height:40px;margin-left:0;padding:8px;border:1px solid #2b3549;border-radius:6px}
  .price-redesign .mode-tabs .nav-wishlist.active{border-color:#f3ce46}
- .price-redesign .brand-header-icon{height:34px}
+ .price-redesign .brand-header-icon{height:52px}
+ .price-redesign .brand-wordmark{width:125px}
  .price-redesign .brand-name{font-size:25px}
  #mode-search .search input{font-size:16px;padding:8px}
  #mode-search .search button{padding-inline:16px}

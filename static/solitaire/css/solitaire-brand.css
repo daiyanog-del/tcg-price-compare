@@ -782,7 +782,7 @@ html, body {
   height: 36px;
   width: auto;
   display: block;
-  mix-blend-mode: screen;
+  mix-blend-mode: normal;
 }
 .sol-nav-title .nav-brand {
   display: inline-flex;
@@ -1983,3 +1983,6 @@ a.replay-btn { display: inline-block; text-decoration: none; }
   font-family: var(--font); font-size: 0.85rem; cursor: pointer;
 }
 .sol-replay-start-later:hover { color: var(--main-color); }
+
+/* 狭いサイドバーに合わせた共通ブランド素材。 */
+.sol-nav-title .nav-brand-image { width:96px; height:auto; display:block; }

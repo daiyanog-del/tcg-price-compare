@@ -3,14 +3,14 @@ const CACHE_NAME = 'tcgym-v2';
 // tools/build_icons.py が画像と同時に更新する。
 // BEGIN GENERATED ICON URLS
 const ICON_ASSETS = {
-  "favicon.svg": "/static/favicon.svg?v=d72d4d065613",
-  "favicon-16.png": "/static/favicon-16.png?v=5e0582f1fbc0",
-  "favicon-32.png": "/static/favicon-32.png?v=7177d19ffdaf",
-  "apple-touch-icon.png": "/static/apple-touch-icon.png?v=ef57391b09f0",
-  "icon-192.png": "/static/icon-192.png?v=731d046325e8",
-  "icon-512.png": "/static/icon-512.png?v=a7552c8ee432",
-  "icon-maskable-192.png": "/static/icon-maskable-192.png?v=760917454e71",
-  "icon-maskable-512.png": "/static/icon-maskable-512.png?v=a473e85ca419"
+  "favicon.svg": "/static/favicon.svg?v=363e659f1820",
+  "favicon-16.png": "/static/favicon-16.png?v=ce98a7f099bc",
+  "favicon-32.png": "/static/favicon-32.png?v=88a8cabba4b1",
+  "apple-touch-icon.png": "/static/apple-touch-icon.png?v=ca29e44036fa",
+  "icon-192.png": "/static/icon-192.png?v=4466b14bb557",
+  "icon-512.png": "/static/icon-512.png?v=29c3611bc290",
+  "icon-maskable-192.png": "/static/icon-maskable-192.png?v=3cce105e1c71",
+  "icon-maskable-512.png": "/static/icon-maskable-512.png?v=0231e5a1dd30"
 };
 // END GENERATED ICON URLS
 const PRECACHE = Object.values(ICON_ASSETS);

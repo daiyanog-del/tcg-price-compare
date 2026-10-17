@@ -97,7 +97,7 @@ def test_manifest_and_service_worker_reference_current_content():
 def test_header_has_enough_pixels_for_high_density_displays():
     with Image.open(STATIC / 'tcgym-icon-small.png') as png, Image.open(STATIC / 'tcgym-icon-small.webp') as webp:
         assert png.height >= 72 * 3
-        assert abs(png.width / png.height - 144 / 176) < 0.01
+        assert abs(png.width / png.height - 1) < 0.01
         assert png.size == webp.size
         for color in ('white', 'black'):
             background = Image.new('RGBA', png.size, color)
@@ -115,7 +115,7 @@ def test_error_and_disabled_pages_use_content_hash_urls():
         for template in ('error.html', 'solo_disabled.html'):
             html = render_template(template, title='確認', message='確認')
             assert expected in html
-            assert 'favicon.svg?v=3' not in html
+            assert 'favicon.svg?v=3"' not in html
 
 
 def test_new_icons_receive_existing_cache_policy():
