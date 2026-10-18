@@ -5,8 +5,9 @@
 - approved-white-green/greedy-lab-approved.png（黄色を白へ変えた元のC案）を採用。輪郭をSVG化して微細な色むらを除去、白#fffbed・深緑#003c32で固定。文字も原画から輪郭化。旧緑金はprevious-site-brandとapproved-bcに保持。
 - トップ・シミュレーター・リプレイ一覧をwordmark-lockup.svg（英語主、日本語補助）で統一。日本語ランダム表示は廃止。サイト全体の機能色は維持。faviconは明背景用の暗色縁、ホーム画面用は安全領域を維持。cardOG v6/replayOG v7へ更新。
 - icons/brand/cardOG 58件、replayOG 94件、unreleasedX 65件＝217件通過。PC/390px・シミュレーターのローカル表示確認。ローカルではデータ取得失敗あり、ロゴ表示とレイアウトのみ確認。
-- 拡張は1.2.2、名称GREEDY LAB（強欲なラボ）— ニューロン連携。表示/配色/アイコンのみ更新、処理・権限不変を旧ZIPとの比較で検証。extension-store-1.2.2に再提出素材。実画面の新ボタン撮影はChrome拡張再読み込み待ち。
-- X用1024pxアイコン・1500×500ヘッダーはapproved-white-green/x-profile-icon.pngとx-header.png。Xプロフィールへのアップロードとストアへの提出は未実施。本番配信確認を続行。
+- 拡張は1.2.2、名称GREEDY LAB（強欲なラボ）— ニューロン連携。表示/配色/アイコンのみ更新、処理・権限不変を旧ZIPとの比較で検証。ユーザー再読み込み後、新名称/深緑ボタンと強欲な壺の価格ページ遷移を確認。extension-store-1.2.2に1280×800実画面込みの再提出素材。greedy-lab-extension-store-kit-1.2.2.zipを再生成・整合性検証済み。
+- 2aaed6dを本番反映。公開15素材の内容一致、PC/390px実画面と横溢れなしを確認。approved-white-green/live-home.jpg、live-home-mobile.jpg、live-verification.jsonへ保存。
+- X用1024pxアイコン・1500×500ヘッダーはapproved-white-green/x-profile-icon.pngとx-header.png。Xプロフィールへのアップロードとストアへの提出は未実施。
 
 ## 2026-10-18: 拡張機能のストア再提出セット
 
