@@ -30,7 +30,7 @@ from deck_image import _get_font
 logger = logging.getLogger(__name__)
 
 W, H = 1200, 630
-DESIGN_VERSION = "v4"   # 見た目を変えたら上げる（古い画像を使わない）
+DESIGN_VERSION = "v5"   # 見た目を変えたら上げる（古い画像を使わない）
 SETTING_KEY = "OG_BLUR_NO_REPOST"
 
 # ── 配色（replay_og_image と og-solitaire.png に合わせる）──
