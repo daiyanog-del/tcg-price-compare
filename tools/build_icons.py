@@ -9,7 +9,7 @@
     pip install Pillow
 
 入力:
-    static/brand/symbol-source.png / wordmark-A.png / favicon-source.png（確定素材）
+    static/brand/symbol-source.png / wordmark-lockup.png / favicon-source.png（確定素材）
 出力（tcg-web/static/ 配下に上書き）:
     favicon-16.png / favicon-32.png
     apple-touch-icon.png (180x180)
@@ -174,23 +174,22 @@ def build_favicons():
 def build_og_image():
     # 字形は確定版の画像を使い、実行環境のフォントに依存させない。
     symbol = load_navy_rgba()
-    word = Image.open(STATIC / 'brand/wordmark-A.png').convert('RGBA')
+    word = Image.open(STATIC / 'brand/wordmark-lockup.png').convert('RGBA')
     logo = Image.new('RGBA', (1024, 200))
     logo.alpha_composite(symbol.resize((200, 200), Image.Resampling.LANCZOS), (0, 0))
-    fitted = ImageOps.contain(word, (800, 200), Image.Resampling.LANCZOS)
-    logo.alpha_composite(fitted, (224, (200 - fitted.height) // 2 + 30))
+    fitted = ImageOps.contain(word, (780, 160), Image.Resampling.LANCZOS)
+    logo.alpha_composite(fitted, (224, (200 - fitted.height) // 2 + 15))
     logo.save(STATIC / 'og-logo.png', optimize=True)
-    # 自動ポストではカード名を主役にするため、英語ロゴを小さくまとめる。
-    english = Image.open(STATIC / 'brand/wordmark-en.png').convert('RGBA')
+    # 自動ポストでも英語を主表記、日本語を添える採用版を使う。
     post_logo = Image.new('RGBA', (880, 200))
     post_logo.alpha_composite(symbol.resize((200, 200), Image.Resampling.LANCZOS), (0, 0))
-    fitted_en = ImageOps.contain(english, (640, 110), Image.Resampling.LANCZOS)
-    post_logo.alpha_composite(fitted_en, (224, (200 - fitted_en.height) // 2 + 30))
+    fitted_en = ImageOps.contain(word, (640, 145), Image.Resampling.LANCZOS)
+    post_logo.alpha_composite(fitted_en, (224, (200 - fitted_en.height) // 2 + 15))
     post_logo.save(STATIC / 'og-post-logo.png', optimize=True)
     canvas = Image.new('RGBA', (1200, 630), theme_background())
     canvas.alpha_composite(symbol.resize((400, 400), Image.Resampling.LANCZOS), (60, 115))
     fitted = ImageOps.contain(word, (650, 300), Image.Resampling.LANCZOS)
-    canvas.alpha_composite(fitted, (490, (630 - fitted.height) // 2 + 60))
+    canvas.alpha_composite(fitted, (490, (630 - fitted.height) // 2 + 35))
     canvas.convert('RGB').save(STATIC / 'og-image.png', optimize=True)
 
 

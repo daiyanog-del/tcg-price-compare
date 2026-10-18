@@ -286,6 +286,6 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--gold); outline-
 .rp-row-actions { margin-left: auto; }
 .rp-row-title { min-width: 0; }
 
-.rp-brand-name-image { width:125px; height:auto; display:block; transform:translateY(10px); }
+.rp-brand-name-image { width:125px; height:auto; display:block; transform:translateY(8px); }
 
 @media (max-width:600px) { .rp-header { flex-wrap:wrap; } }

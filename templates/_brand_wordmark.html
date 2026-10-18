@@ -1,5 +1,4 @@
-{# 日本語ロゴはページの描画時に等確率で選ぶ。表示後の切替やちらつきを起こさない。 #}
-{% macro japanese_wordmark(css_class) -%}
-  {% set variant = [('brand/wordmark-kanji.svg', '強欲なラボ'), ('brand/wordmark-A.svg', 'ゴーヨクなラボ')] | random %}
-  <img src="{{ static_url(variant[0]) }}" alt="{{ variant[1] }}" class="{{ css_class }}" width="1000" height="190">
+{# 英語を主役に日本語名を添えた採用ロゴを、すべての画面で固定表示する。 #}
+{% macro brand_wordmark(css_class) -%}
+  <img src="{{ static_url('brand/wordmark-lockup.svg') }}" alt="GREEDY LAB — 強欲なラボ" class="{{ css_class }}" width="1000" height="218">
 {%- endmacro %}

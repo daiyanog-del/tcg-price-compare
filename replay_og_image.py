@@ -494,7 +494,7 @@ def render_replay_og(board: dict, title: str = "") -> tuple:
 # ── キャッシュ・生成の入口 ──
 
 _REPLAY_ID_RE = re.compile(r"[A-Za-z0-9_-]{6,16}")   # secrets.token_urlsafe(8) は11文字
-_OG_CACHE_DIR = os.path.join(tempfile.gettempdir(), "cardprice_replay_og_v6")   # 見た目を変えたらバージョンを上げる（古い画像を使わない）
+_OG_CACHE_DIR = os.path.join(tempfile.gettempdir(), "cardprice_replay_og_v7")   # 見た目を変えたらバージョンを上げる（古い画像を使わない）
 os.makedirs(_OG_CACHE_DIR, exist_ok=True)
 
 # 同時描画数の上限（メモリ保護。本番は gunicorn 1ワーカー・8スレッドで約330MB常用）。

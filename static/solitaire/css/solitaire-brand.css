@@ -1985,4 +1985,4 @@ a.replay-btn { display: inline-block; text-decoration: none; }
 .sol-replay-start-later:hover { color: var(--main-color); }
 
 /* 狭いサイドバーに合わせた共通ブランド素材。 */
-.sol-nav-title .nav-brand-image { width:88px; height:auto; display:block; transform:translateY(7px); }
+.sol-nav-title .nav-brand-image { width:88px; height:auto; display:block; transform:translateY(5px); }

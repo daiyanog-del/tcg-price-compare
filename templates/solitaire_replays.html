@@ -36,8 +36,8 @@
   <header class="rp-header">
     <a href="/" class="rp-brand" aria-label="強欲なラボ トップへ">
       <img src="{{ static_url('brand/symbol-C.png') }}" alt="" class="rp-brand-icon" width="128" height="128">
-      {% from "_brand_wordmark.html" import japanese_wordmark with context %}
-          {{ japanese_wordmark('rp-brand-name-image') }}
+      {% from "_brand_wordmark.html" import brand_wordmark with context %}
+          {{ brand_wordmark('rp-brand-name-image') }}
     </a>
     <a href="/solitaire" class="rp-back">&larr; シミュレーターに戻る</a>
   </header>
