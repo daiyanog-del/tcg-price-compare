@@ -1,5 +1,11 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-18: ニューロン拡張 v1.2.1
+
+- ../tcgym-neuron-extension（git管理外）の表示名をゴーヨクなラボへ、アイコンは採用した緑・金版の16/48/128pxに更新。CSSはサイトの紺/金に合わせた。内部識別子・保存キー・URL・権限・ロジックは維持。
+- Documents/gouyoku-lab-brand/approved-bc/greedy-lab-neuron-extension-1.2.1.zipを作成、旧版も同所にバックアップ。JS3本の構文・旧版との名称以外の処理一致・manifest権限不変・ZIP整合性を確認。
+- Chrome接続不可。ユーザーがchrome://extensionsで再読み込みし、ニューロンのタブも再読込する必要あり。ブラウザ内動作は未確認。
+
 ## 2026-10-18: 緑・金B/C中間案へ更新
 
 - ユーザーがB/C中間案を採用、本番反映と漢字/カタカナのランダム表示を承認。原画3版はDocuments/gouyoku-lab-brand/approved-bc、旧白抜き素材はwhite-brand-backupに保存。
