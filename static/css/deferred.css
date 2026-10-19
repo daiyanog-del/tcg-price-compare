@@ -39,76 +39,85 @@
 .wish-price-info{font:.72rem var(--mono);color:var(--text-d);white-space:nowrap;flex-shrink:0}
 .wish-price-drop{color:var(--green);font-weight:700}
 
-/* ── まとめ買い最安店舗ランキング ── */
-.wish-shop-ranking{margin:16px 0;padding:14px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px}
-.wish-shop-ranking.hidden{display:none}
-.wish-shop-ranking-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
-.wish-shop-ranking-title{font:.85rem var(--font);font-weight:700;color:var(--text-m)}
-.wish-shop-ranking-close{background:none;border:none;color:var(--text-d);font-size:1.2rem;cursor:pointer;padding:0 6px;line-height:1}
-.wish-shop-ranking-close:hover{color:var(--text-m)}
-.wish-shop-ranking-loading,.wish-shop-ranking-error{padding:12px;text-align:center;font-size:.85rem;color:var(--text-d)}
-.wish-shop-ranking-error{color:var(--red)}
-.wish-shop-ranking-status{font-size:.72rem;color:var(--accent-l);margin-bottom:8px;padding:4px 8px;background:rgba(74,124,255,.08);border-radius:4px}
-.wish-shop-ranking-warn{font-size:.72rem;color:var(--text-d);margin-top:8px;padding:6px 10px;background:rgba(255,200,50,.07);border-left:3px solid #d4a017;border-radius:3px}
-.wish-shop-ranking-foot{font-size:.7rem;color:var(--text-d);margin-top:8px;text-align:right}
-.wish-shop-list{display:flex;flex-direction:column;gap:6px}
-.wish-shop-row{border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--bg)}
-.wish-shop-row-summary{display:grid;grid-template-columns:28px 1fr auto auto auto 18px;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;font-size:.82rem;transition:background .15s}
-.wish-shop-row-summary:hover{background:rgba(74,124,255,.04)}
-.wish-shop-rank{font:700 .85rem var(--mono);color:var(--accent-l);text-align:center}
-.wish-shop-name{font-weight:600;color:var(--text-m)}
-.wish-shop-total{font:700 .9rem var(--mono);color:var(--text-m);white-space:nowrap}
-.wish-shop-cov{font:.72rem var(--mono);color:var(--text-d);white-space:nowrap}
-.wish-shop-badge{font:.66rem var(--font);font-weight:700;padding:2px 7px;border-radius:10px;white-space:nowrap}
-.wish-shop-badge.ok{background:rgba(52,211,153,.15);color:var(--green)}
-.wish-shop-badge.ng{background:rgba(255,200,50,.12);color:#d4a017}
-.wish-shop-toggle{color:var(--text-d);font-size:.7rem}
-.wish-shop-detail{padding:8px 12px 12px;border-top:1px solid var(--border);background:var(--bg-card)}
-.wish-shop-detail-row{display:grid;grid-template-columns:36px 1fr auto;gap:8px;align-items:center;padding:4px 0;font-size:.78rem;border-bottom:1px dashed rgba(255,255,255,.05)}
-.wish-shop-detail-row:last-of-type{border-bottom:none}
-.wish-shop-detail-qty{font:700 .78rem var(--mono);color:var(--accent-l)}
-.wish-shop-detail-name{color:var(--text-m);text-decoration:none}
-.wish-shop-detail-name:hover{color:var(--accent-l);text-decoration:underline}
-.wish-shop-detail-rarity{font:.66rem var(--font);font-weight:600;padding:1px 6px;border:1px solid var(--border);border-radius:8px;color:var(--text-d);white-space:nowrap}
-.wish-shop-detail-price{font:.78rem var(--mono);color:var(--text-m);white-space:nowrap}
-.wish-shop-detail-unit{font-size:.65rem;color:var(--text-d);margin-left:6px}
-.wish-shop-detail-missing{font-size:.7rem;color:var(--text-d);margin-top:6px;padding:6px 8px;background:rgba(255,200,50,.06);border-radius:3px}
-/* 送料・送料込み合計の行はカード明細と違い枚数列を持たない（2列） */
-.wish-shop-detail-ship,.wish-shop-detail-sum{grid-template-columns:1fr auto}
-.wish-shop-detail-ship .wish-shop-detail-name,.wish-shop-detail-sum .wish-shop-detail-name{color:var(--text-d)}
-.wish-shop-detail-ship{border-top:1px solid var(--border);margin-top:4px;padding-top:8px}
-.wish-shop-detail-sum .wish-shop-detail-name,.wish-shop-detail-sum .wish-shop-detail-price{font-weight:700;color:var(--text-m)}
-/* 送料込み合計の下に出す内訳（商品◯円＋送料◯円） */
-.wish-shop-breakdown{display:block;font:.62rem var(--font);font-weight:400;color:var(--text-d);margin-top:2px}
-/* 最低注文金額に届かない店舗は、順位を下げたうえで見た目でも区別する */
-.wish-shop-row.unorderable{opacity:.72}
-.wish-shop-notice{font-size:.68rem;color:var(--text-d);padding:0 12px 8px}
-.wish-shop-notice.ng{color:#d4a017}
-/* 複数店に分けた場合の最安ヒント（1行）。クリックで買い物指示書が開く */
-.wish-shop-split-hint{font-size:.74rem;color:var(--green);margin-top:8px;padding:7px 10px;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.25);border-radius:5px}
-.wish-shop-split-hint.clickable{cursor:pointer;display:flex;align-items:center;gap:8px;transition:background .15s}
-.wish-shop-split-hint.clickable:hover{background:rgba(52,211,153,.14)}
-.wish-shop-split-hint.clickable>span:first-child{flex:1}
-/* 買い物指示書（分割プランの内訳） */
-.wish-split-detail{border:1px solid rgba(52,211,153,.25);border-top:none;border-radius:0 0 5px 5px;margin:0 6px}
-.wish-split-shop{margin-bottom:10px}
-.wish-split-shop-head{display:flex;align-items:center;gap:10px;padding:6px 0 4px;border-bottom:1px solid var(--border);font-size:.78rem}
-.wish-split-shop-name{font-weight:700;color:var(--text-m)}
-.wish-split-shop-count{font:.7rem var(--mono);color:var(--text-d)}
-.wish-split-shop-sub{margin-left:auto;font:.72rem var(--mono);color:var(--text-d);white-space:nowrap}
-.wish-split-shop-link{font-size:.68rem;font-weight:600;padding:2px 8px;border:1px solid var(--accent);border-radius:4px;color:var(--accent-l);text-decoration:none;white-space:nowrap}
-.wish-split-shop-link:hover{background:var(--accent);color:#fff}
-@media(max-width:520px){
-  .wish-split-shop-head{flex-wrap:wrap;row-gap:2px}
-  .wish-split-shop-sub{margin-left:0;width:100%}
-}
-.wish-shop-detail-foot{margin-top:10px;text-align:right}
-.wish-shop-detail-link{font-size:.72rem;font-weight:600;padding:5px 11px;border:1px solid var(--accent);border-radius:4px;color:var(--accent-l);text-decoration:none;transition:background .15s}
-.wish-shop-detail-link:hover{background:var(--accent);color:#fff}
-@media(max-width:520px){
-  .wish-shop-row-summary{grid-template-columns:22px 1fr auto 16px;grid-template-rows:auto auto;row-gap:4px}
-  .wish-shop-cov,.wish-shop-badge{grid-column:2/4}
-  .wish-shop-toggle{grid-row:1/3;grid-column:4}
+/* ── どこで買うと安いか（まとめ買い比較・2026-10-19 作り直し） ── */
+.wb-panel{margin:0 0 16px;padding:14px;background:var(--bg-card);border-radius:8px}
+.wb-panel.hidden{display:none}
+.wb-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.wb-title{font-weight:700;color:var(--text)}
+.wb-close{background:none;border:none;color:var(--text-d);font-size:1.2rem;cursor:pointer;padding:0 6px;line-height:1}
+.wb-close:hover{color:var(--text)}
+.wb-loading,.wb-error{padding:12px;text-align:center;font-size:.85rem;color:var(--text-d)}
+.wb-error{color:var(--red)}
+.wb-status{font-size:.78rem;color:var(--accent-l);margin-bottom:10px}
+.wb-warn{font-size:.78rem;color:#d4a017;margin-top:10px}
+.wb-num{font-family:var(--mono);font-weight:700;font-variant-numeric:tabular-nums}
+/* 一番安くそろう買い方（主役なのでこの枠だけ線で囲む） */
+.wb-reco{border:1px solid var(--accent);border-radius:8px;background:var(--bg);padding:14px}
+.wb-reco-label{display:inline-block;font-size:.7rem;font-weight:700;background:var(--accent);color:#242013;padding:2px 8px;border-radius:10px}
+.wb-reco-main{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-top:8px}
+.wb-reco-head{font-size:1.1rem;font-weight:700;color:var(--text)}
+.wb-reco-price{margin-left:auto;text-align:right}
+.wb-reco-price .wb-num{font-size:1.5rem;color:var(--text)}
+.wb-reco-bd{display:block;font-size:.72rem;color:var(--text-d)}
+.wb-buy-shops{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.wb-buy-shop{background:var(--bg-card);border-radius:6px;padding:10px 12px}
+.wb-buy-head{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px}
+.wb-buy-no{display:inline-flex;align-items:center;justify-content:center;align-self:center;width:20px;height:20px;border-radius:50%;background:var(--bg-hover);font:700 .75rem var(--mono);color:var(--text)}
+.wb-buy-name{font-weight:700;color:var(--text)}
+.wb-buy-cnt{font-size:.78rem;color:var(--text-m)}
+.wb-buy-sub{font-size:.74rem;color:var(--text-d);margin-left:auto}
+.wb-buy-tot{font:700 1rem var(--mono);color:var(--text)}
+.wb-buy-list{margin-top:6px}
+.wb-buy-list>summary{cursor:pointer;font-size:.78rem;font-weight:600;color:var(--accent-l)}
+.wb-reco-miss{margin-top:8px;font-size:.78rem;color:#d4a017}
+.wb-reco-alt{margin-top:12px;font-size:.8rem;color:var(--text-m)}
+.wb-reco-alt b{font-family:var(--mono);color:var(--text)}
+/* 店ごとの支払い */
+.wb-sec{font-size:.8rem;font-weight:700;color:var(--text-m);margin:18px 0 8px}
+.wb-shops{display:flex;flex-direction:column;gap:6px}
+.wb-shop{background:var(--bg);border-radius:6px;overflow:hidden}
+.wb-shop.ng{opacity:.75}
+.wb-row{display:grid;grid-template-columns:24px 1fr auto auto;gap:10px;align-items:center;padding:10px 12px;cursor:pointer;list-style:none}
+.wb-row::-webkit-details-marker{display:none}
+.wb-row:hover{background:var(--bg-hover)}
+.wb-rank{font:700 .85rem var(--mono);color:var(--text-d);text-align:center}
+.wb-name{font-weight:600;color:var(--text)}
+.wb-name small{display:block;font-weight:400;font-size:.72rem;color:#d4a017;margin-top:2px}
+.wb-total{text-align:right;white-space:nowrap}
+.wb-total .wb-num{font-size:.95rem;color:var(--text)}
+.wb-total small{display:block;font-size:.7rem;color:var(--text-d)}
+.wb-diff{font:.72rem var(--mono);color:var(--text-d);margin-left:6px}
+.wb-toggle{display:inline-flex;align-items:center;gap:4px;font-size:.72rem;color:var(--text-m);white-space:nowrap}
+.wb-chev{transition:transform .15s}
+.wb-shop[open] .wb-chev{transform:rotate(180deg)}
+.wb-note{grid-column:2/-1;font-size:.74rem;color:var(--green)}
+.wb-note.ng{color:#d4a017}
+.wb-detail{background:var(--bg-card);padding:6px 12px 12px}
+/* 明細の行: 名前とレアリティを1セルにまとめ、金額は右列に固定 */
+.wb-item{display:grid;grid-template-columns:34px 1fr auto;gap:8px;align-items:center;padding:6px 0;font-size:.82rem}
+.wb-item-qty{font:700 .8rem var(--mono);color:var(--accent-l)}
+.wb-item-name a{color:var(--text);text-decoration:none}
+.wb-item-name a:hover{text-decoration:underline}
+.wb-rar{display:inline-block;margin-left:6px;font-size:.68rem;font-weight:600;padding:0 6px;background:var(--bg-hover);border-radius:8px;color:var(--text-m);white-space:nowrap}
+.wb-item-price{text-align:right;font:.82rem var(--mono);white-space:nowrap;color:var(--text)}
+.wb-item-price small{display:block;font-size:.68rem;color:var(--text-d)}
+.wb-sum{display:flex;justify-content:space-between;font-size:.82rem;padding:6px 0;color:var(--text-m)}
+.wb-sum span:last-child{font-family:var(--mono)}
+.wb-sum.total{font-weight:700;color:var(--text)}
+.wb-missing{font-size:.76rem;color:#d4a017;margin-top:6px}
+.wb-link-row{text-align:right;margin-top:10px}
+.wb-shop-link{display:inline-block;font-size:.78rem;font-weight:600;padding:6px 12px;border-radius:6px;background:var(--bg-hover);color:var(--accent-l);text-decoration:none}
+.wb-shop-link:hover{color:var(--text)}
+.wb-foot{font-size:.72rem;color:var(--text-d);margin-top:14px}
+@media(max-width:600px){
+  .wb-reco-price{margin-left:0;text-align:left;width:100%}
+  .wb-buy-sub{margin-left:0;width:100%;order:5}
+  .wb-buy-tot{margin-left:auto}
+  .wb-row{grid-template-columns:22px 1fr auto;gap:8px}
+  .wb-toggle{grid-column:3;grid-row:1}
+  .wb-total{grid-column:2/4;grid-row:2;text-align:left;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+  .wb-total small{display:inline}
+  .wb-diff{margin-left:0}
 }
 
 @media(max-width:767px){

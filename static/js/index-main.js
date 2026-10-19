@@ -1987,15 +1987,6 @@ const DECK_CTX = {
     getText:()=>_lastMetaDeckText,
     getCards:()=>parseDeckSections(_lastMetaDeckText),
     getName:()=>_currentDeckName||'環境デッキ'
-  },
-  // 購入候補リスト用：wishGet() を直列化して calcDeckEstimate に渡す
-  wishlist:{
-    results:'wishResults', list:'wishCardList', total:'wishTotalPrice',
-    prog:'wishProgress', rowPrefix:'wish-row-',
-    shareArea:'wishShareArea',
-    getText:()=>(typeof wishGet==='function'?wishGet():[]).map(c=>c.qty>1?`${c.qty} ${c.name}`:c.name).join('\n'),
-    getCards:()=>({main:(typeof wishGet==='function'?wishGet():[]).map(c=>({qty:c.qty,name:c.name})),ex:[]}),
-    getName:()=>'購入候補リスト'
   }
 };
 
@@ -2594,7 +2585,7 @@ async function calcDeckEstimate(ctx, opts){
   if(![...main,...ex].length) return;
   // デッキ価格計算の利用計測（一覧表示だけのプレビューは計算していないので数えない）
   if(!opts.previewOnly) _ga('deck_calc',{
-    deck:ctx===DECK_CTX.meta?'meta':ctx===DECK_CTX.wishlist?'wishlist':'mydeck',
+    deck:ctx===DECK_CTX.meta?'meta':'mydeck',
     method:opts.dbOnly?'db':'db_then_shop', side:'sell',
     card_count:[...main,...ex].reduce((s,c)=>s+(c.qty||1),0)});
 
