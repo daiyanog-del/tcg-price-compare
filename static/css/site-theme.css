@@ -17,11 +17,9 @@ body.price-redesign {
  .meta-deck-detail,.meta-deck-btn,.meta-card-chip,.pack-card-item,
  .deck-total,.deck-card-row,.deck-counter-bar,.deck-import-details,.deck-calc,
  .neuron-hint,.deck-share-area,.saved-deck-card-btn,.deck-added-row,
- .wish-card-row,.wish-shop-ranking,.wish-shop-row,.push-notify-box,
- .wish-shop-split-hint,.wish-split-detail,.fmx-scroll,.legal-modal) {border:0;border-radius:8px}
+ .wish-card-row,.push-notify-box,.fmx-scroll,.legal-modal) {border:0;border-radius:8px}
 .price-redesign :is(.suggest-item,.deck-suggest-item,.meta-deck-sep,
  .import-method,.neuron-hint-method-row,.deck-import-details[open]>summary,
- .wish-shop-detail,.wish-shop-detail-row,.wish-shop-detail-ship,.wish-split-shop-head,
  .cip-effect,.cip-price,.legal-modal-head,.legal-modal-body h3) {border:0}
 .price-redesign .neuron-hint-method-row+.neuron-hint-method-row {border-top:0}
 .price-redesign .deck-grid-cell:not(.error):not(.drag-over),.price-redesign .card-hero-img {border:0}
@@ -31,7 +29,7 @@ body.price-redesign {
 .price-redesign #metaDeckDetail>div[style*="border-top"]>a {border:0!important;background:var(--bg-hover)}
 
 /* 一覧は余白で行を分け、操作対象の背景だけを変える。交互背景は使わない。 */
-.price-redesign :is(.meta-deck-list,.saved-deck-grid,.pack-card-grid,.wish-shop-list) {gap:10px}
+.price-redesign :is(.meta-deck-list,.saved-deck-grid,.pack-card-grid) {gap:10px}
 .price-redesign :is(.meta-deck-btn,.saved-deck-card-btn,.pack-card-item) {padding:12px}
 /* 環境デッキは画像・名前・率が折り返しにくい列幅を確保する。 */
 .price-redesign #metaTierList .meta-deck-list {grid-template-columns:repeat(auto-fill,minmax(min(220px,100%),1fr))}
@@ -39,14 +37,13 @@ body.price-redesign {
 .price-redesign :is(.wish-card-row,.deck-card-row) {padding-block:14px;margin-bottom:10px;background:transparent}
 .price-redesign .wish-card-row.wish-drop {background:rgba(99,211,174,.07)}
 .price-redesign .deck-added-row {padding-block:10px}
-.price-redesign .wish-shop-detail-row {padding-block:9px}
 .price-redesign :is(.meta-deck-btn,.saved-deck-card-btn,.pack-card-item,.wish-card-row,.deck-card-row,
- .wish-shop-row-summary,.wish-shop-detail-row,.trending-item,.ritem):is(:hover,:focus-within) {background:var(--bg-hover);transform:none}
+ .trending-item,.ritem):is(:hover,:focus-within) {background:var(--bg-hover);transform:none}
 .price-redesign #mode-search .movers-item:focus-within {background:var(--bg-hover)}
-.price-redesign :is(.wish-shop-total,.wish-shop-detail-price,.wish-price-info,.deck-card-price,
+.price-redesign :is(.wish-price-info,.deck-card-price,
  .meta-deck-price-now,.sprice,.rprice,.fmx-cell) {font-variant-numeric:tabular-nums}
-.price-redesign :is(.wish-shop-total,.wish-shop-detail-price,.wish-price-info,.deck-card-price) {text-align:right}
-.price-redesign :is(.wish-card-name,.deck-card-name,.pack-card-name,.wish-shop-name) {color:var(--text)}
+.price-redesign :is(.wish-price-info,.deck-card-price) {text-align:right}
+.price-redesign :is(.wish-card-name,.deck-card-name,.pack-card-name) {color:var(--text)}
 .price-redesign .meta-tier-group {margin-bottom:24px}
 .price-redesign .meta-deck-sep {padding-top:16px}
 .price-redesign .import-method+.import-method {margin-top:8px}
@@ -61,12 +58,12 @@ body.price-redesign {
 
 /* 通常操作は面、選択状態は黄色の印と明るい文字、主操作は黄色で統一。 */
 .price-redesign :is(.deck-btn-secondary,.deck-btn-outline,.deck-preset,.wish-action-btn,
- .wish-card-link,.wish-shop-detail-link,.wish-split-shop-link,.tbl-more-btn,
+ .wish-card-link,.tbl-more-btn,
  .rf-banner-clear,.share-btn,.cip-price-link,.wish-add) {border:0;background:var(--bg-hover);border-radius:6px}
 .price-redesign :is(.deck-btn-primary,.neuron-url-btn,.pwa-banner-btn),
-.price-redesign .wish-action-btn[onclick="wishToEstimate()"] {background:#f3ce46;color:#242013;box-shadow:none}
+.price-redesign .wish-action-btn.primary {background:#f3ce46;color:#242013;box-shadow:none}
 .price-redesign :is(.deck-btn-primary,.neuron-url-btn,.pwa-banner-btn):hover,
-.price-redesign .wish-action-btn[onclick="wishToEstimate()"]:hover {background:#ffe16d;color:#242013}
+.price-redesign .wish-action-btn.primary:hover {background:#ffe16d;color:#242013}
 .price-redesign :is(.deck-btn-primary,.neuron-url-btn,.pwa-banner-btn):disabled {background:var(--border);color:var(--text-m)}
 .price-redesign :is(.movers-tab,.deck-input-tab,.deck-build-tab,.rf-btn) {border:0;background:var(--bg-card);color:var(--text-m)}
 .price-redesign :is(.movers-tab,.deck-input-tab,.deck-build-tab,.rf-btn).active,
@@ -78,7 +75,7 @@ body.price-redesign {
 .price-redesign #mode-search .rf-btn.active {background:var(--bg-hover)}
 .price-redesign :is(.deck-build-tab-badge,.import-method-no) {background:#2b3549;color:var(--text)}
 .price-redesign .meta-card-chip.clickable:hover {background:var(--bg-hover);color:var(--text)}
-.price-redesign :is(.wish-card-link,.wish-shop-detail-link,.wish-split-shop-link):hover {background:#2b3549;color:var(--text)}
+.price-redesign .wish-card-link:hover {background:#2b3549;color:var(--text)}
 .price-redesign .deck-edit-btn:hover {background:#f3ce46;color:#242013}
 .price-redesign .deck-drop-zone:is(:hover,.drag-over) {background:var(--bg-hover)}
 .price-redesign #mode-search .share-btns>button {border:0!important;background:var(--bg-hover)}

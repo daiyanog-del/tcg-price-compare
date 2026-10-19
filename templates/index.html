@@ -1180,8 +1180,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     <div class="deck-builder">
       <div class="deck-input-area">
         <div class="wish-actions" id="wishActions" style="display:none">
-          <button class="wish-action-btn" onclick="wishToEstimate()">このリストで見積もり</button>
-          <button class="wish-action-btn" onclick="wishCheapestStores()">まとめ買いの最安店舗を調査</button>
+          <button class="wish-action-btn primary" onclick="wishCheapestStores()">どこで買うと安いか調べる</button>
           <button class="wish-action-btn" onclick="openSyncShareDialog()">他の端末でも見る</button>
           <button class="wish-action-btn danger" onclick="wishClearAll()">すべて削除</button>
         </div>
@@ -1189,21 +1188,10 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
         <div id="wishSyncStatus" class="hidden" style="margin:0 0 12px;padding:8px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;font-size:.78rem;color:var(--text-d)">
           他の端末と同期中　<a href="#" onclick="unlinkThisDeviceSync();return false;">同期を解除</a>
         </div>
+        <!-- どこで買うと安いか（「どこで買うと安いか調べる」押下後に表示）。押した直後に目に入るようリストの上に置く -->
+        <div id="wishShopRanking" class="wb-panel hidden"></div>
+
         <div id="wishList"></div>
-
-        <!-- 全店舗ランキング（「まとめ買いの最安店舗を調査」ボタン押下後に表示） -->
-        <div id="wishShopRanking" class="wish-shop-ranking hidden"></div>
-
-        <!-- 見積結果（「このリストで見積もり」ボタン押下後に表示） -->
-        <div id="wishResults" class="deck-results hidden">
-          <div class="deck-total">
-            <span class="deck-total-label">購入候補 合計最安値（推定）</span>
-            <span class="deck-total-price" id="wishTotalPrice">-</span>
-          </div>
-          <div class="deck-progress" id="wishProgress"></div>
-          <div id="wishShareArea" class="deck-share-area"></div>
-          <div id="wishCardList"></div>
-        </div>
 
       </div>
       <!-- プッシュ通知設定 -->

@@ -288,8 +288,7 @@ function wishSetRarity(name,oldRarity,newRarity){
     target.rarity=newRarity;
   }
   wishSave(list);
-  // 古い見積結果・店舗ランキングは無効になるので片付ける
-  const wr=document.getElementById('wishResults');if(wr)wr.classList.add('hidden');
+  // 古い比較結果は無効になるので片付ける
   const wsr=document.getElementById('wishShopRanking');if(wsr){wsr.classList.add('hidden');wsr.innerHTML='';}
   renderWishlist();
 }
@@ -332,8 +331,7 @@ function renderWishlist(){
   if(!list.length){
     el.innerHTML='<div class="wish-empty">購入候補はまだありません<br><span style="font-size:.78rem;margin-top:8px;display:block">検索結果やマイデッキから「+ 候補」ボタンで追加できます</span></div>';
     actions.style.display='none';
-    // リストが空になったら見積結果・店舗ランキングも片付ける
-    const wr=document.getElementById('wishResults');if(wr)wr.classList.add('hidden');
+    // リストが空になったら比較結果も片付ける
     const wsr=document.getElementById('wishShopRanking');if(wsr){wsr.classList.add('hidden');wsr.innerHTML='';}
     return;
   }
@@ -375,194 +373,10 @@ function renderWishlist(){
     </div>`}).join('');
 }
 
-function wishToEstimate(){
-  const list=wishGet();
-  if(!list.length)return;
-  // 全店舗ランキングが既に開いていれば閉じる（同時表示で画面が混雑するのを避ける）
-  const rankEl=document.getElementById('wishShopRanking');
-  if(rankEl){rankEl.classList.add('hidden');rankEl.innerHTML='';}
-  // 専用関数を呼ぶ。/api/wish-shop-totals + /api/deck SSE で rarity 対応の見積を出す
-  calcWishEstimate();
-}
-
-// 購入候補リスト専用の見積。/api/wish-shop-totals の全店舗集計から各エントリの最安店を抽出し、
-// DB未収録のエントリは /api/deck SSE で realtime 補完する（rarity フィルタ付き）。
-async function calcWishEstimate(){
-  const list=wishGet();
-  if(!list.length)return;
-  const resultsEl=document.getElementById('wishResults');
-  const listEl=document.getElementById('wishCardList');
-  const totalEl=document.getElementById('wishTotalPrice');
-  const progEl=document.getElementById('wishProgress');
-  const shareEl=document.getElementById('wishShareArea');
-  const totalLabel=document.querySelector('#wishResults .deck-total-label');
-  resultsEl.classList.remove('hidden');
-  resultsEl.scrollIntoView({block:'start'});
-  totalEl.textContent='取得中...';
-  if(totalLabel) totalLabel.textContent='デッキ相場（直近データ）';
-  progEl.textContent='';
-  shareEl.innerHTML='';
-
-  // 既存 renderDeckGrid を流用（rarity は wishlist 行UIで表示するのでグリッドはカード名+枚数のみ）
-  const cards=list.map(c=>({name:c.name,qty:c.qty}));
-  renderDeckGrid(cards,DECK_CTX.wishlist,cards.length);
-  loadDeckGridImages(listEl);
-
-  // Phase 1: DB集計（/api/wish-shop-totals）
-  let resp;
-  try{
-    const res=await fetch('/api/wish-shop-totals',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({cards:list.map(c=>({name:c.name,qty:c.qty,rarity:c.rarity||""}))})
-    });
-    resp=await res.json();
-  }catch(e){
-    progEl.textContent='エラーが発生しました。再度お試しください。';
-    return;
-  }
-  if(resp.error){progEl.textContent=resp.error;return;}
-
-  // 照合はサーバ正本（entries：名前補正・レアリティ正規化・重複統合済み）で行う。
-  // list（localStorageの生データ）のまま突合すると、保存値がサーバの正規化形と
-  // 食い違ったとき（例: rarity:"ウルトラレア"）DBに価格があるのに「データなし」扱いで
-  // 総額から丸ごと落ちるバグがあった（2026-08-19 修正、まとめ買い機能と同根の原因）。
-  // entries は重複統合で件数・順序が変わりうるため、list と完全一致しない場合だけ
-  // グリッド（wish-row-<i>）を entries ベースで描き直す（一致するときは通常ケースとして
-  // 描き直さず、画像の再取得やちらつきを避ける）。
-  const srvEntries=resp.entries;
-  let workingList=list;
-  if(Array.isArray(srvEntries)&&srvEntries.length){
-    const built=WishEstimate.buildWorkingList(list,srvEntries);
-    workingList=built.workingList;
-    if(built.needsRedraw){
-      const redrawnCards=workingList.map(c=>({name:c.name,qty:c.qty}));
-      renderDeckGrid(redrawnCards,DECK_CTX.wishlist,redrawnCards.length);
-      loadDeckGridImages(listEl);
-    }
-  }else if(Array.isArray(srvEntries)){
-    // entries が空配列で返るのは全カードがサーバ側バリデーションで弾かれた場合（カード名が
-    // 長すぎる等）。突合キーが作れないので list をそのまま使うが、原因調査ができるよう警告する
-    console.warn('[wish-estimate] サーバから entries が空で返りました。list をそのまま使います。',list);
-  }
-
-  // 各エントリ (name,rarity) について、全店舗の中で最安を抽出する（照合ロジックは
-  // wish-estimate.js に集約。テストが本番ロジックを直接検証できるようにするため）
-  const entryBest=workingList.map(e=>WishEstimate.findBestPrice(e,resp.shops||[]));
-  const missingIdxs=[];
-  entryBest.forEach((best,i)=>{ if(!best) missingIdxs.push(i); });
-
-  // db_missing（サーバ側が正当に「どの店にも無い」と判定したキー）に無いのに突合できな
-  // かったエントリが残っていたら、照合キー不一致の疑いがある。「落ちたことが分からない」
-  // のが本来の問題なので、必ずコンソールに警告する
-  const suspicious=WishEstimate.detectSuspiciousMisses(workingList,entryBest,resp.db_missing||[]);
-  if(suspicious.length){
-    console.warn('[wish-estimate] DBに価格があるはずなのに突合できなかったエントリがあります（照合キー不一致の疑い）:',suspicious);
-  }
-
-  // Phase 1 描画
-  let total=0, found=0;
-  for(let i=0;i<workingList.length;i++){
-    const row=document.getElementById('wish-row-'+i);
-    if(!row)continue;
-    const best=entryBest[i];
-    const c=workingList[i];
-    if(best){
-      const lineTotal=best.price*c.qty;
-      total+=lineTotal; found++;
-      row.className='deck-grid-cell';
-      row.title=best.shop+(best.rarity?` (${best.rarity})`:'');
-      row.querySelector('.deck-card-price').textContent=`¥${lineTotal.toLocaleString()}`;
-      row.querySelector('.deck-card-shop').textContent=best.shop;
-      row.querySelector('.deck-card-status').textContent=c.qty>1?`@¥${best.price.toLocaleString()}`:'';
-      const u=_wishShopSearchUrl(best.shop,c.name);
-      row.querySelector('.deck-card-name').innerHTML=u
-        ?`<a href="${escAttr(u)}" target="_blank" rel="noopener">${esc(c.name)}</a>`:esc(c.name);
-    }
-  }
-  totalEl.textContent=`¥${total.toLocaleString()}`;
-  if(!missingIdxs.length){
-    progEl.textContent=`完了 — ${found}/${workingList.length}枚の相場を取得`;
-    return;
-  }
-
-  // Phase 2: 不足エントリだけリアルタイム検索
-  totalEl.innerHTML=`¥${total.toLocaleString()} <span style="font-size:.7em;color:var(--text-d)">+ ${missingIdxs.length}枚検索中</span>`;
-  progEl.textContent=`${found}枚を即時取得 / 残り${missingIdxs.length}枚をリアルタイム検索中...`;
-
-  const missingCardsParam=missingIdxs.map(i=>{
-    const c=workingList[i]; return c.qty>1?`${c.qty} ${c.name}`:c.name;
-  }).join('|');
-  const url='/api/deck?include_per_shop=1&cards='+encodeURIComponent(missingCardsParam);
-  let sseFound=0, sseNotFound=0;
-  try{
-    const sseRes=await fetch(url);
-    const reader=sseRes.body.getReader();
-    const decoder=new TextDecoder();
-    let buffer='';
-    while(true){
-      const{done,value}=await reader.read();
-      if(done)break;
-      buffer+=decoder.decode(value,{stream:true});
-      const chunks=buffer.split('\n\n');
-      buffer=chunks.pop()||'';
-      for(const chunk of chunks){
-        if(!chunk.startsWith('data: '))continue;
-        const d=JSON.parse(chunk.slice(6));
-        if(d.type==='card_done'){
-          const entryIdx=missingIdxs[d.index];
-          if(entryIdx==null)continue;
-          const entry=workingList[entryIdx];
-          const perShop=d.per_shop||{};
-          // per_shop は {店舗名:{レアリティ:{price,url,rarity,...}}}。店ごとの採用候補は
-          // pickPerShopItem に集約（rarity 指定があれば一致店舗だけ採用、未指定なら
-          // その店の全 rarity から最安）。テストが本番ロジックを直接検証できるようにする
-          let chosen=null;
-          for(const shop of Object.keys(perShop)){
-            const info=WishEstimate.pickPerShopItem(perShop[shop],entry.rarity);
-            if(!info)continue;
-            if(!chosen||info.price<chosen.price){
-              chosen={price:info.price,shop,rarity:info.rarity||"",url:info.url||""};
-            }
-          }
-          const row=document.getElementById('wish-row-'+entryIdx);
-          if(!row)continue;
-          if(chosen){
-            const lineTotal=chosen.price*entry.qty;
-            total+=lineTotal; sseFound++;
-            row.className='deck-grid-cell';
-            row.title=chosen.shop+(chosen.rarity?` (${chosen.rarity})`:'');
-            row.querySelector('.deck-card-price').textContent=`¥${lineTotal.toLocaleString()}`;
-            row.querySelector('.deck-card-shop').textContent=chosen.shop;
-            row.querySelector('.deck-card-status').textContent=entry.qty>1?`@¥${chosen.price.toLocaleString()}`:'';
-            row.querySelector('.deck-card-name').innerHTML=chosen.url
-              ?`<a href="${escAttr(safeUrl(chosen.url))}" target="_blank" rel="noopener">${esc(entry.name)}</a>`:esc(entry.name);
-          }else{
-            sseNotFound++;
-            row.className='deck-grid-cell error';
-            const priceEl=row.querySelector('.deck-card-price');
-            if(priceEl) priceEl.textContent=entry.rarity?`${entry.rarity}データなし`:'データなし';
-          }
-          SearchStatus.annotate(row,d);
-          const remaining=missingIdxs.length-(sseFound+sseNotFound);
-          if(remaining>0){
-            totalEl.innerHTML=`¥${total.toLocaleString()} <span style="font-size:.7em;color:var(--text-d)">+ ${remaining}枚検索中</span>`;
-          }else{
-            totalEl.textContent=`¥${total.toLocaleString()}`;
-          }
-          progEl.textContent=`${found}枚を即時取得 / 残り${missingIdxs.length}枚中${sseFound+sseNotFound}枚完了`;
-        }else if(d.type==='done'){
-          totalEl.textContent=`¥${total.toLocaleString()}`;
-          const totalFound=found+sseFound;
-          progEl.textContent=`完了 — ${totalFound}/${workingList.length}枚の価格を取得${sseNotFound>0?` (${sseNotFound}枚未取得)`:''}`;
-        }
-      }
-    }
-  }catch(e){
-    progEl.textContent='リアルタイム検索でエラーが発生しました。';
-  }
-}
-
-// ── 全店舗ランキング（まとめ買い最安店舗） ──
+// ── どこで買うと安いか（まとめ買い比較） ──
+// 2026-10-19 作り直し: 旧「このリストで見積もり」（送料抜きでカードごとの最安店を足した額）と
+// 「まとめ買いの最安店舗を調査」を1つに統合。先頭に「一番安くそろう買い方」（送料込みの最安。
+// 複数店に分かれるなら最初から店ごとに並べる）、その下に店ごとの支払いを出す。
 // 販売店舗ごとのカード検索URLを生成する。バックエンドの _shop_search_url と同じURLパターンを再現する。
 function _wishShopSearchUrl(shop, name){
   const q=encodeURIComponent((name||'').normalize('NFKC'));
@@ -578,20 +392,19 @@ function _wishShopSearchUrl(shop, name){
 }
 
 // (name, rarity) から一意のマップキーを作るヘルパ
-function _wishEntryKey(name,rarity){return (name||'')+''+(rarity||'');}
+function _wishEntryKey(name,rarity){return (name||'')+''+(rarity||'');}
 
-// まとめ買い最安店舗を調査するボタンのハンドラ
+const _wishYen=n=>'¥'+n.toLocaleString();
+const _WISH_CHEV='<svg class="wb-chev" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 4l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+// 「どこで買うと安いか調べる」ボタンのハンドラ
 async function wishCheapestStores(){
   const list=wishGet();
   if(!list.length)return;
 
-  // 見積結果が出ていれば閉じる（同時表示で画面が混雑するのを避ける）
-  const resultsEl=document.getElementById('wishResults');
-  if(resultsEl)resultsEl.classList.add('hidden');
-
   const rankEl=document.getElementById('wishShopRanking');
   rankEl.classList.remove('hidden');
-  rankEl.innerHTML='<div class="wish-shop-ranking-loading">集計中...</div>';
+  rankEl.innerHTML='<div class="wb-loading">調べています…</div>';
   rankEl.scrollIntoView({block:'start'});
 
   // Step 1: DB相場で各店舗の合計を即時集計
@@ -604,7 +417,7 @@ async function wishCheapestStores(){
     });
     dbData=await res.json();
   }catch(e){
-    rankEl.innerHTML='<div class="wish-shop-ranking-error">集計に失敗しました。再度お試しください。</div>';
+    rankEl.innerHTML='<div class="wb-error">調べられませんでした。もう一度お試しください。</div>';
     return;
   }
 
@@ -613,21 +426,19 @@ async function wishCheapestStores(){
   // 黙って脱落するバグがあった（2026-08-19 修正）。list は表示・localStorage操作用に残す
   const srvEntries=(dbData&&dbData.entries)||[];
   if(!dbData||!dbData.shops||!dbData.shops.length||!srvEntries.length){
-    rankEl.innerHTML='<div class="wish-shop-ranking-error">店舗データが取得できませんでした。</div>';
+    rankEl.innerHTML='<div class="wb-error">店の価格を取得できませんでした。</div>';
     return;
   }
 
   // 送料ルールはサーバから配られる（shipping.py が正本）。リアルタイム検索で合計が
   // 後から増え、送料無料しきい値をまたぐと送料が変わるため、フロントでも同じ計算をやり直す。
   const shippingRules=dbData.shipping_rules||{};
-  const shippingCheckedOn=dbData.shipping_checked_on||'';
 
   // 商品代金の合計から、送料・注文可否をまとめて求める
   const _wishShipping=(shop,subtotal)=>{
     const r=shippingRules[shop];
     if(!r)return{fee:null,total:subtotal,freeAt:null,shortBy:null,orderable:true};
-    // 1枚も揃わない店舗（subtotal=0）は送料も最低注文金額も判定対象外。
-    // 「金額が足りない」ではなく「買う物が無い」ためで、揃う枚数の表示で伝わる。
+    // 1枚も揃わない店舗（subtotal=0）は送料も最低注文金額も判定対象外
     if(subtotal<=0)return{fee:0,total:0,freeAt:null,shortBy:null,orderable:true};
     const free=(r.free_threshold!==null&&r.free_threshold!==undefined&&subtotal>=r.free_threshold);
     const fee=free?0:r.base_fee;
@@ -658,27 +469,19 @@ async function wishCheapestStores(){
     shopState[s.shop]={
       total:s.total||0,
       covered_qty:s.covered_qty||0,
-      covered_cards:s.covered_cards||0,
       total_qty:s.total_qty||0,
-      total_cards:s.total_cards||0,
       missing_set,
       items_map,
     };
   }
-  // db_missing は {name, rarity} オブジェクト配列
+  // db_missing は {name, rarity} オブジェクト配列。リアルタイム検索の結果が出るまで「調べ中」
   const dbMissingEntries=(dbData.db_missing||[]).map(m=>({name:m.name,rarity:m.rarity||""}));
-  const dbMissingKeys=new Set(dbMissingEntries.map(m=>_wishEntryKey(m.name,m.rarity)));
-  // 枚数・種類数もサーバ正本（srvEntries）から算出する。list（localStorage生データ）は
+  const pendingKeys=new Set(dbMissingEntries.map(m=>_wishEntryKey(m.name,m.rarity)));
+  const notFoundKeys=new Set();   // リアルタイム検索でもどの店にも無かったエントリ
+  let shopFailed=false;           // 一部の店で取得に失敗した（比較が不完全かもしれない）
+  // 枚数もサーバ正本（srvEntries）から算出する。list（localStorage生データ）は
   // サーバの重複統合（同名同レアリティのqty加算）を経ていないためズレうる
   const totalQty=srvEntries.reduce((s,c)=>s+c.qty,0);
-  const totalCards=srvEntries.length;
-
-  // 買い物指示書（分割プラン内訳）の開閉状態。SSE更新の再描画で閉じ戻らないよう閉包で持つ
-  let splitOpen=false;
-  // 照合キー不一致の検出（droppedEntries）を初回renderRanking呼び出しだけに抑えるフラグ。
-  // dbMissingKeys はSSE経路でカードが見つかるたびに delete されるため、SSEの再描画時に
-  // 判定するとリアルタイムで見つからなかった正当な欠落まで誤検知する（2026-08-19レビュー指摘）
-  let baselineDropCheckDone=false;
 
   // エントリの逆引きテーブル（サーバ正本のentriesから作る）
   const entryByKey=new Map(srvEntries.map(c=>[_wishEntryKey(c.name,c.rarity||""),{name:c.name,qty:c.qty,rarity:c.rarity||""}]));
@@ -687,165 +490,147 @@ async function wishCheapestStores(){
     if(!e) return key;
     return e.rarity ? `${e.name}(${e.rarity})` : e.name;
   };
+  // 照合キー不一致の検出を初回描画だけに抑えるフラグ（SSEで見つからなかった正当な欠落を誤検知しないため）
+  let baselineDropCheckDone=false;
 
-  const renderRanking=(opts)=>{
-    const shops=Object.entries(shopState).map(([shop,st])=>{
-      // total は商品代金の合計。SSE で増えるたびにここで送料を計算し直す
-      const sh=_wishShipping(shop,st.total);
-      return {shop,...st,ship:sh};
-    });
-    // 並び順: 全枚数そろう店舗を優先 → 注文できる店舗を優先 → 送料込み合計が安い順
-    shops.sort((a,b)=>{
-      const af=a.covered_qty===totalQty?0:1;
-      const bf=b.covered_qty===totalQty?0:1;
-      if(af!==bf)return af-bf;
-      if(a.covered_qty!==b.covered_qty)return b.covered_qty-a.covered_qty;
-      const ao=a.ship.orderable?0:1;
-      const bo=b.ship.orderable?0:1;
-      if(ao!==bo)return ao-bo;
-      return a.ship.total-b.ship.total;
-    });
+  const render=()=>{
+    // 再描画（SSE更新）で開いている内訳が閉じないよう、開閉状態を data-k ごとに引き継ぐ
+    const openKeys=new Set([...rankEl.querySelectorAll('details[data-k]')].filter(d=>d.open).map(d=>d.dataset.k));
 
-    const realtimeBanner=opts.realtimePending
-      ?`<div class="wish-shop-ranking-status">リアルタイム検索中... 残り${opts.realtimePending}枚`+(opts.realtimeError?` (一部失敗 ${opts.realtimeError}枚)`:'')+`</div>`
-      :(opts.realtimeDone?`<div class="wish-shop-ranking-status">完了`+(opts.realtimeError?` (取得できなかったカード ${opts.realtimeError}枚)`:'')+`</div>`:'');
-
-    const rowsHtml=shops.map((s,i)=>{
-      const allCovered=s.covered_qty===s.total_qty;
-      const badge=allCovered?'<span class="wish-shop-badge ok">✓ すべて揃う</span>':`<span class="wish-shop-badge ng">${s.missing_set.size}種類欠け</span>`;
-      // 表示する合計は送料込み。内訳（商品＋送料）を下に添える
-      const totalText=s.total>0?`¥${s.ship.total.toLocaleString()}`:'-';
-      let breakdown='';
-      if(s.total>0&&s.ship.fee!==null){
-        breakdown=s.ship.fee===0
-          ?`商品¥${s.total.toLocaleString()}＋送料無料`
-          :`商品¥${s.total.toLocaleString()}＋送料¥${s.ship.fee.toLocaleString()}`;
-      }else if(s.total>0){
-        breakdown=`商品¥${s.total.toLocaleString()}（送料不明）`;
+    // entries/priceTable のキーはサーバ正本（srvEntries）から作る（2026-08-19 修正の本体）
+    const entries=srvEntries.map(c=>({key:_wishEntryKey(c.name,c.rarity||""),qty:c.qty}));
+    const shopNames=Object.keys(shopState);
+    const priceTable={};
+    for(const e of entries){
+      priceTable[e.key]={};
+      for(const shop of shopNames){
+        const it=shopState[shop].items_map.get(e.key);
+        if(it)priceTable[e.key][shop]=it.price;
       }
-      // 注文できない店舗と、あと少しで送料無料になる店舗は行内で理由を出す
-      let notice='';
-      if(s.total>0&&!s.ship.orderable){
-        notice=`<div class="wish-shop-notice ng">最低注文金額に¥${s.ship.shortBy.toLocaleString()}足りないため注文できません</div>`;
-      }else if(s.total>0&&s.ship.freeAt!==null){
-        notice=`<div class="wish-shop-notice">あと¥${s.ship.freeAt.toLocaleString()}で送料無料</div>`;
-      }
-      return `
-        <div class="wish-shop-row${s.ship.orderable?'':' unorderable'}" data-shop-idx="${i}">
-          <div class="wish-shop-row-summary" onclick="_wishToggleShopDetail(${i})">
-            <span class="wish-shop-rank">${i+1}</span>
-            <span class="wish-shop-name">${esc(s.shop)}</span>
-            <span class="wish-shop-total">${totalText}${breakdown?`<span class="wish-shop-breakdown">${breakdown}</span>`:''}</span>
-            <span class="wish-shop-cov">${s.covered_qty}/${s.total_qty}枚</span>
-            ${badge}
-            <span class="wish-shop-toggle">▾</span>
-          </div>
-          ${notice}
-          <div class="wish-shop-detail" id="wishShopDetail-${i}" hidden>${_wishShopDetailHtml(s,_missingLabel)}</div>
-        </div>`;
-    }).join('');
-
-    const dbMissingHtml=dbMissingKeys.size>0
-      ?`<div class="wish-shop-ranking-warn">どの店舗にもデータが無いカード: ${[...dbMissingKeys].map(k=>esc(_missingLabel(k))).join('、')}</div>`
-      :'';
-
-    // 複数店に分けた場合の最安プラン（wish-split.js）。ヒント行をクリックすると
-    // 「どのカードをどの店で買うか」の買い物指示書が開く（2026-08-05 実データで
-    // ¥1,000規模の差額を確認したため本実装）。
-    // 表示額は実行可能なプランの合計なので過大表示にはならない（控えめに出る側にしか外れない）。
-    let splitHtml='';
-    if(window.WishSplit){
-      // entries/priceTable のキーはサーバ正本（srvEntries）から作る。list（localStorage
-      // 生データ）から作ると、サーバの名前補正・レアリティ正規化とキーが食い違い、
-      // 分割プランからカードが警告無しで脱落する（2026-08-19 修正の本体）
-      const entries=srvEntries.map(c=>({key:_wishEntryKey(c.name,c.rarity||""),qty:c.qty}));
-      const priceTable={};
-      for(const e of entries){
-        priceTable[e.key]={};
-        for(const [shop,st] of Object.entries(shopState)){
-          const it=st.items_map.get(e.key);
-          if(it)priceTable[e.key][shop]=it.price;
-        }
-      }
-      // priceTableを組んだ直後に、どの店にも価格が無いエントリを検出する。DB側の正当な
-      // 欠落（dbMissingKeys）は除外し、それ以外が残ったら照合キーの不一致を疑って警告する。
-      // dbMissingKeys はSSEでカードが見つかるたびに delete される（4531行付近）ため、
-      // SSEで削られた後に判定すると「リアルタイム検索で見つからなかった正当な欠落」まで
-      // 誤検知してしまう。SSEが始まる前の初回renderRanking呼び出し（=dbMissingKeysが
-      // まだ無傷）でのみ、1回だけ判定する（2026-08-19レビュー指摘）
-      if(!baselineDropCheckDone){
-        baselineDropCheckDone=true;
-        const droppedEntries=entries.filter(e=>Object.keys(priceTable[e.key]).length===0&&!dbMissingKeys.has(e.key));
-        if(droppedEntries.length){
-          console.warn('[wish-split] priceTableでどの店にも価格が見つからないエントリがあります（照合キー不一致の疑い）:',droppedEntries.map(e=>e.key));
-        }
-      }
-      const split=WishSplit.computeBestSplit(entries,priceTable,Object.keys(shopState),shippingRules);
-      if(split&&split.used.length>=2){
-        const shopNames=split.used.map(u=>esc(u.shop)).join('＋');
-        // 比較対象（baseline）: 分割プランと同じカード集合（キー）を1店舗で全部揃えられる店の
-        // うち、その集合ぶんの小計（店の全カード合計 s.total ではない）で送料・注文可否を判定
-        // した上での最安（送料込み）。covered_qty の一致だけで選ぶと中身が違う店と比較して
-        // しまう（2026-08-19 修正: カードラボの別集合8枚と比較していたバグ）。
-        // 純関数へ切り出し済み（wish-split.js）。テストが本番ロジックを直接検証できるように
-        // するため、index.htmlにはキー集合を組んで呼ぶだけの配線しか置かない
-        const splitKeys=[...split.assign.keys()];
-        const qtyByKey=new Map(entries.map(e=>[e.key,e.qty]));
-        const{hasAll,baseline}=WishSplit.selectSingleShopBaseline(
-          splitKeys,qtyByKey,priceTable,Object.keys(shopState),shippingRules);
-        let hintText='';
-        if(!hasAll){
-          hintText=`1店舗ではそろいませんが、${shopNames} の${split.used.length}店舗に分ければ${split.coveredQty}枚そろって ¥${split.total.toLocaleString()}（送料込み）で買えます`;
-        }else if(baseline===null){
-          // splitKeysを全部持つ店はあるが、その集合ぶんの小計が最低注文金額に届かず注文
-          // できない（＝比較対象が無い）。「1店舗ではそろいません」は事実と違うため使わない。
-          // 節約額も比較対象が無い以上主張できないため「安くなる」とは書かない
-          hintText=`1店舗でそろう店はありますが最低注文金額に届きません。${shopNames} の${split.used.length}店舗に分ければ${split.coveredQty}枚そろって ¥${split.total.toLocaleString()}（送料込み）で買えます`;
-        }else if(baseline-split.total>0){
-          hintText=`${shopNames} の${split.used.length}店舗に分けて買うと ¥${split.total.toLocaleString()}（送料込み・${split.coveredQty}枚）— 同じ${split.coveredQty}枚を1店舗でまとめる最安より¥${(baseline-split.total).toLocaleString()}安くなる買い方があります`;
-        }
-        if(hintText){
-          splitHtml=`
-            <div class="wish-shop-split-hint clickable" onclick="_wishToggleSplitDetail()">
-              <span>${hintText}</span>
-              <span class="wish-shop-toggle">${splitOpen?'▴':'▾'}</span>
-            </div>
-            <div class="wish-shop-detail wish-split-detail" id="wishSplitDetail" ${splitOpen?'':'hidden'}>${_wishSplitDetailHtml(split,shopState)}</div>`;
-        }
+    }
+    if(!baselineDropCheckDone){
+      baselineDropCheckDone=true;
+      const dropped=entries.filter(e=>Object.keys(priceTable[e.key]).length===0&&!pendingKeys.has(e.key));
+      if(dropped.length){
+        console.warn('[wish-split] priceTableでどの店にも価格が見つからないエントリがあります（照合キー不一致の疑い）:',dropped.map(e=>e.key));
       }
     }
 
+    // 一番安くそろう買い方。computeBestSplit は1店だけの組合せも含めて全組合せを比べるので、
+    // 1店で買うのが最安ならその1店が返る（wish-split.js）
+    const best=window.WishSplit?WishSplit.computeBestSplit(entries,priceTable,shopNames,shippingRules):null;
+
+    const shops=shopNames.map(shop=>{
+      const st=shopState[shop];
+      return {shop,...st,ship:_wishShipping(shop,st.total)};
+    }).filter(s=>s.covered_qty>0);   // このリストのカードが1枚も無い店は並べない
+    // 並び順: そろう枚数が多い順 → 送料込みの支払いが安い順
+    const byCost=(a,b)=>(b.covered_qty-a.covered_qty)||(a.ship.total-b.ship.total);
+    const orderable=shops.filter(s=>s.ship.orderable).sort(byCost);
+    const unorderable=shops.filter(s=>!s.ship.orderable).sort(byCost);
+    const top=orderable[0];
+
+    let recoHtml='';
+    if(best){
+      const parts=best.used.map(u=>{
+        const keys=[...best.assign.entries()].filter(([,s])=>s===u.shop).map(([k])=>k);
+        const items=keys.map(k=>shopState[u.shop].items_map.get(k)).filter(Boolean);
+        return {...u,items,qty:items.reduce((s,it)=>s+it.qty,0)};
+      });
+      const n=parts.length;
+      const head=n===1?`${esc(parts[0].shop)}で買う`:`${parts.map(p=>esc(p.shop)).join(' と ')} の${n}店で買う`;
+      const blocks=parts.map((p,i)=>{
+        const feeTxt=p.shipping===0?'送料無料':`送料${_wishYen(p.shipping)}`;
+        const headHtml=n===1?'':`<div class="wb-buy-head">
+            <span class="wb-buy-no">${i+1}</span>
+            <span class="wb-buy-name">${esc(p.shop)}</span>
+            <span class="wb-buy-cnt">${p.items.length}種${p.qty}枚</span>
+            <span class="wb-buy-sub">商品${_wishYen(p.subtotal)}＋${feeTxt}</span>
+            <span class="wb-buy-tot">${_wishYen(p.subtotal+p.shipping)}</span>
+          </div>`;
+        return `<div class="wb-buy-shop">${headHtml}
+          <details class="wb-buy-list" data-k="buy:${escAttr(p.shop)}"><summary>この店で買うカードを見る</summary>
+            ${_wishItemRowsHtml(p.shop,p.items)}
+            ${_wishShopLinkHtml(p.shop)}
+          </details></div>`;
+      }).join('');
+      // 1店でまとめたい人向けの比較（最安が1店のときは出さない）
+      let compare='';
+      if(n>1){
+        const qtyByKey=new Map(entries.map(e=>[e.key,e.qty]));
+        const{hasAll,baseline,shop}=WishSplit.selectSingleShopBaseline(
+          [...best.assign.keys()],qtyByKey,priceTable,shopNames,shippingRules);
+        if(baseline!==null){
+          compare=`1店でまとめるなら ${esc(shop)} ${_wishYen(baseline)}（<b>+${_wishYen(baseline-best.total)}</b>）`;
+        }else if(!hasAll){
+          compare='1店ではそろいません';
+        }
+      }
+      recoHtml=`<div class="wb-reco">
+        <span class="wb-reco-label">一番安くそろう買い方</span>
+        <div class="wb-reco-main">
+          <div class="wb-reco-head">${head}</div>
+          <div class="wb-reco-price"><span class="wb-num">${_wishYen(best.total)}</span><span class="wb-reco-bd">送料込み</span></div>
+        </div>
+        ${notFoundKeys.size?`<div class="wb-reco-miss">見つからなかったカード：${[...notFoundKeys].map(k=>esc(_missingLabel(k))).join('、')}（この金額に含みません）</div>`:''}
+        <div class="wb-buy-shops">${blocks}</div>
+        ${compare?`<div class="wb-reco-alt">${compare}</div>`:''}
+      </div>`;
+    }
+
+    // どの店にも無いカード（見つからなかった・まだ調べ中）は全店共通なので、店ごとの欠けには数えない
+    const nowhere=new Set([...notFoundKeys,...pendingKeys]);
+    const reachableQty=totalQty-[...nowhere].reduce((n,k)=>n+((entryByKey.get(k)||{}).qty||0),0);
+    const rowHtml=(s,rank)=>{
+      const full=s.covered_qty>=reachableQty;
+      const diff=(rank>1&&full&&top&&top.covered_qty>=reachableQty)?`<span class="wb-diff">+${_wishYen(s.ship.total-top.ship.total)}</span>`:'';
+      const lackKinds=[...s.missing_set].filter(k=>!nowhere.has(k)).length;
+      const sub=full?'':`<small>${lackKinds?`${lackKinds}種そろいません`:`${reachableQty-s.covered_qty}枚そろいません`}</small>`;
+      let breakdown;
+      if(s.ship.fee===null)breakdown=`商品${_wishYen(s.total)}（送料不明）`;
+      else breakdown=`商品${_wishYen(s.total)}＋${s.ship.fee===0?'送料無料':'送料'+_wishYen(s.ship.fee)}`;
+      let note='';
+      if(!s.ship.orderable){
+        note=`<span class="wb-note ng">あと${_wishYen(s.ship.shortBy)}で注文できます（最低${_wishYen(s.total+s.ship.shortBy)}）</span>`;
+      }else if(full&&best&&s.ship.freeAt!==null&&s.ship.fee&&s.ship.freeAt<s.ship.fee&&s.total+s.ship.freeAt<best.total){
+        // 買い足すと一番安い買い方より安くなる店にだけ、送料無料までの額を出す
+        note=`<span class="wb-note">あと${_wishYen(s.ship.freeAt)}買うと送料無料で${_wishYen(s.total+s.ship.freeAt)}</span>`;
+      }
+      return `<details class="wb-shop${s.ship.orderable?'':' ng'}" data-k="shop:${escAttr(s.shop)}">
+        <summary class="wb-row">
+          <span class="wb-rank">${rank||'–'}</span>
+          <span class="wb-name">${esc(s.shop)}${sub}</span>
+          <span class="wb-total"><span class="wb-num">${_wishYen(s.ship.total)}</span>${diff}<small>${breakdown}</small></span>
+          <span class="wb-toggle">内訳${_WISH_CHEV}</span>
+          ${note}
+        </summary>
+        <div class="wb-detail">${_wishShopDetailHtml(s,_missingLabel)}</div>
+      </details>`;
+    };
+
+    const status=pendingKeys.size
+      ?`<div class="wb-status">残り${pendingKeys.size}枚の価格を調べています…</div>`:'';
+    const warns=[];
+    if(notFoundKeys.size&&!best)warns.push(`見つからなかったカード：${[...notFoundKeys].map(k=>esc(_missingLabel(k))).join('、')}`);
+    if(shopFailed&&!pendingKeys.size)warns.push('一部の店で価格を取れませんでした');
+    const warnHtml=warns.map(w=>`<div class="wb-warn">${w}</div>`).join('');
+
     rankEl.innerHTML=`
-      <div class="wish-shop-ranking-head">
-        <div class="wish-shop-ranking-title">まとめ買い最安店舗（直近7日のDB相場${opts.realtimeDone||opts.realtimePending?'＋リアルタイム検索':''}）</div>
-        <button class="wish-shop-ranking-close" onclick="document.getElementById('wishShopRanking').classList.add('hidden')" aria-label="閉じる">&times;</button>
+      <div class="wb-head">
+        <span class="wb-title">どこで買うと安いか</span>
+        <button class="wb-close" onclick="document.getElementById('wishShopRanking').classList.add('hidden')" aria-label="閉じる">&times;</button>
       </div>
-      ${realtimeBanner}
-      <div class="wish-shop-list">${rowsHtml}</div>
-      ${splitHtml}
-      ${dbMissingHtml}
-      <div class="wish-shop-ranking-foot">対象: ${totalCards}種類 / ${totalQty}枚${shippingCheckedOn?`　／　送料は各店で最も安い配送方法・最小の厚さを前提にした${esc(shippingCheckedOn)}時点の情報です（地域・枚数により実際は高くなる場合があります）`:''}</div>
-      <div class="wish-shop-ranking-foot">価格は取得時点のものです。購入前に各店の商品ページでご確認ください。</div>
+      ${status}
+      ${recoHtml||(pendingKeys.size?'':'<div class="wb-error">どの店にも見つかりませんでした。</div>')}
+      ${warnHtml}
+      ${orderable.length?`<div class="wb-sec">店ごとの支払い（送料込み）</div><div class="wb-shops">${orderable.map((s,i)=>rowHtml(s,i+1)).join('')}</div>`:''}
+      ${unorderable.length?`<div class="wb-sec">このままでは注文できない店</div><div class="wb-shops">${unorderable.map(s=>rowHtml(s,0)).join('')}</div>`:''}
+      <div class="wb-foot">価格・送料は変わることがあります。購入前に各店で確かめてください。</div>
     `;
+    rankEl.querySelectorAll('details[data-k]').forEach(d=>{if(openKeys.has(d.dataset.k))d.open=true;});
   };
 
-  // window 公開（行クリック時の展開用）
-  window._wishShopState=shopState;
-  window._wishToggleShopDetail=(idx)=>{
-    const el=document.getElementById('wishShopDetail-'+idx);
-    if(!el)return;
-    el.hidden=!el.hidden;
-  };
-  // 買い物指示書の開閉。開閉状態は閉包の splitOpen に保存し、SSE更新の再描画でも維持する
-  window._wishToggleSplitDetail=()=>{
-    splitOpen=!splitOpen;
-    const el=document.getElementById('wishSplitDetail');
-    if(el)el.hidden=!splitOpen;
-    const arrow=document.querySelector('.wish-shop-split-hint .wish-shop-toggle');
-    if(arrow)arrow.textContent=splitOpen?'▴':'▾';
-  };
-
-  renderRanking({realtimePending:dbMissingEntries.length});
+  render();
 
   // Step 2: DB に無いエントリだけリアルタイム補完（rarity 一致でフィルタ）
   if(!dbMissingEntries.length)return;
@@ -859,7 +644,6 @@ async function wishCheapestStores(){
   const shopParams=Object.keys(shopState).map(s=>'shops='+encodeURIComponent(s)).join('&');
   const url='/api/deck?include_per_shop=1&cards='+encodeURIComponent(missingCardsParam)+(shopParams?'&'+shopParams:'');
 
-  let sseError=0;
   try{
     const sseRes=await fetch(url);
     const reader=sseRes.body.getReader();
@@ -891,97 +675,57 @@ async function wishCheapestStores(){
             st.items_map.set(key,{name:entry.name,qty:entry.qty,price:info.price,rarity:info.rarity||entry.rarity||"",url:info.url||''});
             st.total+=info.price*entry.qty;
             st.covered_qty+=entry.qty;
-            st.covered_cards+=1;
             st.missing_set.delete(key);
           }
         }
-        if(!anyShop||(d.failed_shops||[]).length)sseError+=1;
-        dbMissingKeys.delete(key);
-        renderRanking({realtimePending:dbMissingKeys.size,realtimeError:sseError});
+        if(!anyShop)notFoundKeys.add(key);
+        if((d.failed_shops||[]).length)shopFailed=true;
+        pendingKeys.delete(key);
+        render();
       }
     }
-    renderRanking({realtimePending:0,realtimeDone:true,realtimeError:sseError});
   }catch(e){
-    renderRanking({realtimePending:0,realtimeDone:true,realtimeError:sseError});
+    shopFailed=true;
   }
+  // 途中で切れた場合も「調べています」を残さない
+  for(const k of pendingKeys)notFoundKeys.add(k);
+  pendingKeys.clear();
+  render();
 }
 
-// 買い物指示書のHTML（複数店分割プランの内訳。店舗ごとに買うカード・小計・送料を並べる）
-function _wishSplitDetailHtml(split, shopState){
-  const shopBlocks=split.used.map(u=>{
-    const st=shopState[u.shop]||{items_map:new Map()};
-    // この店舗に割り当てられたエントリ（assign の挿入順＝リスト順を保つ）
-    const keys=[...split.assign.entries()].filter(([,s])=>s===u.shop).map(([k])=>k);
-    let qtySum=0;
-    const rows=keys.map(k=>{
-      const it=st.items_map.get(k);
-      if(!it)return '';
-      qtySum+=it.qty;
-      const url=safeUrl(it.url||_wishShopSearchUrl(u.shop,it.name));
-      const rarityLabel=it.rarity?`<span class="wish-shop-detail-rarity">${esc(it.rarity)}</span>`:'';
-      return `<div class="wish-shop-detail-row">
-        <span class="wish-shop-detail-qty">${it.qty}x</span>
-        <a class="wish-shop-detail-name" href="${escAttr(url)}" target="_blank" rel="noopener">${esc(it.name)}</a>
-        ${rarityLabel}
-        <span class="wish-shop-detail-price">¥${(it.price*it.qty).toLocaleString()}<span class="wish-shop-detail-unit">@¥${it.price.toLocaleString()}</span></span>
-      </div>`;
-    }).join('');
-    const feeText=u.shipping===0?'送料無料':`送料¥${u.shipping.toLocaleString()}`;
-    const shopUrl=_wishShopSearchUrl(u.shop,'');
-    const shopLink=shopUrl?`<a class="wish-split-shop-link" href="${escAttr(safeUrl(shopUrl))}" target="_blank" rel="noopener">開く</a>`:'';
-    return `<div class="wish-split-shop">
-      <div class="wish-split-shop-head">
-        <span class="wish-split-shop-name">${esc(u.shop)}</span>
-        <span class="wish-split-shop-count">${u.entryCount}種${qtySum}枚</span>
-        <span class="wish-split-shop-sub">商品¥${u.subtotal.toLocaleString()}＋${feeText}</span>
-        ${shopLink}
-      </div>
-      ${rows}
+// 明細の行（名前とレアリティを1つのセルに入れ、金額の列が次の行へ落ちないようにする）
+function _wishItemRowsHtml(shop, items){
+  return items.map(it=>{
+    const url=safeUrl(it.url||_wishShopSearchUrl(shop,it.name));
+    const rarity=it.rarity?`<span class="wb-rar">${esc(it.rarity)}</span>`:'';
+    const unit=it.qty>1?`<small>${_wishYen(it.price)} × ${it.qty}</small>`:'';
+    return `<div class="wb-item">
+      <span class="wb-item-qty">${it.qty}枚</span>
+      <span class="wb-item-name"><a href="${escAttr(url)}" target="_blank" rel="noopener">${esc(it.name)}</a>${rarity}</span>
+      <span class="wb-item-price">${_wishYen(it.price*it.qty)}${unit}</span>
     </div>`;
   }).join('');
-  return shopBlocks+`
-    <div class="wish-shop-detail-row wish-shop-detail-sum">
-      <span class="wish-shop-detail-name">合計（送料込み・${split.used.length}店舗）</span>
-      <span class="wish-shop-detail-price">¥${split.total.toLocaleString()}</span>
-    </div>`;
 }
 
-// 店舗詳細パネルのHTML（カード一覧と購入リンク）
+function _wishShopLinkHtml(shop){
+  const u=_wishShopSearchUrl(shop,'');
+  return u?`<div class="wb-link-row"><a class="wb-shop-link" href="${escAttr(safeUrl(u))}" target="_blank" rel="noopener">${esc(shop)}で探す ↗</a></div>`:'';
+}
+
+// 店舗の内訳（買うカード・送料・支払い・この店に無いカード）
 function _wishShopDetailHtml(shopRow, missingLabel){
-  const entries=[...shopRow.items_map.entries()];  // [[key, {name,qty,price,rarity,url?}], ...]
-  const itemsHtml=entries.map(([key,it])=>{
-    const url=safeUrl(it.url||_wishShopSearchUrl(shopRow.shop,it.name));
-    const rarityLabel=it.rarity?`<span class="wish-shop-detail-rarity">${esc(it.rarity)}</span>`:'';
-    return `<div class="wish-shop-detail-row">
-      <span class="wish-shop-detail-qty">${it.qty}x</span>
-      <a class="wish-shop-detail-name" href="${escAttr(url)}" target="_blank" rel="noopener">${esc(it.name)}</a>
-      ${rarityLabel}
-      <span class="wish-shop-detail-price">¥${(it.price*it.qty).toLocaleString()}<span class="wish-shop-detail-unit">@¥${it.price.toLocaleString()}</span></span>
-    </div>`;
-  }).join('');
-  // 送料・最低注文金額の行（商品明細の下に、支払額の内訳として出す）
-  let shipHtml='';
+  let html=_wishItemRowsHtml(shopRow.shop,[...shopRow.items_map.values()]);
   const sh=shopRow.ship;
   if(sh&&shopRow.total>0){
-    const feeText=sh.fee===null?'不明':(sh.fee===0?'無料':`¥${sh.fee.toLocaleString()}`);
-    shipHtml=`<div class="wish-shop-detail-row wish-shop-detail-ship">
-      <span class="wish-shop-detail-name">送料</span>
-      <span class="wish-shop-detail-price">${feeText}</span>
-    </div>
-    <div class="wish-shop-detail-row wish-shop-detail-sum">
-      <span class="wish-shop-detail-name">合計（送料込み）</span>
-      <span class="wish-shop-detail-price">¥${sh.total.toLocaleString()}</span>
-    </div>`;
-    if(!sh.orderable){
-      shipHtml+=`<div class="wish-shop-detail-missing">この店舗は最低注文金額に¥${sh.shortBy.toLocaleString()}足りないため、このリストだけでは注文できません</div>`;
-    }
+    const feeText=sh.fee===null?'不明':(sh.fee===0?'無料':_wishYen(sh.fee));
+    html+=`<div class="wb-sum"><span>商品の合計</span><span>${_wishYen(shopRow.total)}</span></div>
+      <div class="wb-sum"><span>送料</span><span>${feeText}</span></div>
+      <div class="wb-sum total"><span>支払い（送料込み）</span><span>${_wishYen(sh.total)}</span></div>`;
   }
-  const missingHtml=shopRow.missing_set.size>0
-    ?`<div class="wish-shop-detail-missing">この店舗にデータが無いカード: ${[...shopRow.missing_set].map(k=>esc(missingLabel?missingLabel(k):k)).join('、')}</div>`
-    :'';
-  const shopTopUrl=_wishShopSearchUrl(shopRow.shop,'');
-  const openHref=shopTopUrl?`<a class="wish-shop-detail-link" href="${escAttr(safeUrl(shopTopUrl))}" target="_blank" rel="noopener">${esc(shopRow.shop)}を開く</a>`:'';
-  return itemsHtml+shipHtml+missingHtml+`<div class="wish-shop-detail-foot">${openHref}</div>`;
+  if(shopRow.missing_set.size>0){
+    html+=`<div class="wb-missing">この店に無いカード：${[...shopRow.missing_set].map(k=>esc(missingLabel?missingLabel(k):k)).join('、')}</div>`;
+  }
+  return html+_wishShopLinkHtml(shopRow.shop);
 }
 
 // 追加ボタンのHTMLを生成するヘルパー
