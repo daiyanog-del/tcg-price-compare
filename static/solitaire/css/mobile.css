@@ -127,14 +127,6 @@
     margin-left: 0;
   }
 
-  /* ════════ A-1: 墓地・除外のアイコン（透かし）を縦向きスマホでは非表示にする ════════
-     solitaire-brand.css の .sol-grave .side-slot の background-image を打ち消す。
-     PC・横向きスマホは変更しない（brand.css 自体は触らない）。 */
-  .sol-grave .side-slot,
-  .sol-banish .side-slot {
-    background-image: none;
-  }
-
   /* ════════ 2026-09-04 5列化（盤面を6列→5列グリッドへ・DOMは動かさない） ════════
      フィールド魔法（slot3）をEXモンスターゾーン2つ（slot1・slot2）の間、最上段の
      中央へ移動。中段=モンスターゾーン slot4〜8（5列）、下段=魔法罠ゾーン slot10〜14（5列）。

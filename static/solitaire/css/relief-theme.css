@@ -104,9 +104,11 @@
 .sol-page-layout ::-webkit-scrollbar-thumb:hover { background: #6b7f9b; }
 .sol-page-layout ::-webkit-scrollbar-corner { background: #151e2d; }
 
-/* 縦向きでは墓地・除外の横長領域へ刻印を重ねない従来仕様を維持する。 */
+/* スマホの横長領域でも、手札と同じマス幅を基準に刻印を表示する。 */
 @media (max-width: 767px) and (orientation: portrait) {
-  .sol-grave .side-slot, .sol-banish .side-slot { background-image: none; }
+  .sol-grave .side-slot, .sol-banish .side-slot {
+    background-size: calc(var(--slot-width) * .76) auto;
+  }
 }
 
 /* 両サイドを開いた狭いPC幅でも各トレイを列の中に収め、カードだけをスクロールする。 */
