@@ -19,7 +19,7 @@
 (function(){
   'use strict';
 
-  // タッチ端末ではドラッグを無効化し、ボタン操作のみにフォールバックする
+  // タッチ端末ではドラッグを無効化し、カードのタップで選んで上の欄で増減する（deck-card-ops.js）
   var _isTouch = (window.matchMedia && window.matchMedia('(pointer:coarse)').matches) ||
                  (navigator.maxTouchPoints > 0);
 
@@ -401,8 +401,6 @@
       // 編集UIを除去
       cells.forEach(function(cell){
         cell.removeAttribute('draggable');
-        var bar = cell.querySelector('.deck-edit-bar');
-        if(bar) bar.remove();
         var wrap = cell.querySelector('.deck-grid-img-wrap');
         if(wrap) wrap.removeAttribute('draggable');
       });
@@ -426,17 +424,7 @@
         if(wrap) wrap.setAttribute('draggable', 'false');
       }
 
-      // 操作バー（既存があれば作り直し）
-      var old = cell.querySelector('.deck-edit-bar');
-      if(old) old.remove();
-      var bar = document.createElement('div');
-      bar.className = 'deck-edit-bar';
-      bar.innerHTML =
-        '<button type="button" class="deck-edit-btn deck-edit-dec" data-act="dec" title="1枚減らす">−</button>' +
-        '<span class="deck-edit-q">' + card.qty + '</span>' +
-        '<button type="button" class="deck-edit-btn deck-edit-inc" data-act="inc" title="1枚増やす">+</button>' +
-        '<button type="button" class="deck-edit-btn deck-edit-del" data-act="del" title="削除">×</button>';
-      cell.appendChild(bar);
+      // カードの上の操作は「×N」の札だけ（増減は右クリックメニュー・タッチは選んだカードの欄。deck-card-ops.js）
     });
 
     // 直近追加したカードを一瞬ハイライトする（PC幅限定のCSSで視覚効果、900px以下では無効）
@@ -455,9 +443,11 @@
       });
       _deckPendingHighlight = null;
     }
+    // 選択の印・選んだカードの欄・「×N」の札を付け直す（dataset.sec を付けた後に呼ぶ）
+    if(ctx === DECK_CTX.mydeck && window.DeckCardOps) window.DeckCardOps.afterRender();
   }
 
-  // ── イベント委譲（操作バー・ドラッグ）────────────
+  // ── イベント委譲（ドラッグ）────────────
   function _cellSecIdx(cell){
     var fi = parseInt(cell.dataset.fi, 10);
     var sec = cell.dataset.sec || (fi < _deckMainCount ? 'main' : 'ex');
@@ -466,22 +456,6 @@
   }
 
   function _initDelegation(listEl){
-    // 操作バーのクリック
-    listEl.addEventListener('click', function(e){
-      var btn = e.target.closest('.deck-edit-btn');
-      if(!btn) return;
-      e.preventDefault();
-      e.stopPropagation();
-      var cell = btn.closest('.deck-grid-cell');
-      if(!cell) return;
-      var name = cell.dataset.card;
-      var sec = cell.dataset.sec || 'main';
-      var act = btn.dataset.act;
-      if(act === 'inc') deckInc(name, sec);
-      else if(act === 'dec') deckDec(name, sec);
-      else if(act === 'del') deckRemove(name, sec);
-    });
-
     if(_isTouch) return; // ドラッグはPCのみ
 
     var dragFrom = null; // {sec, idx}
@@ -1169,6 +1143,8 @@
 
   // index.html のインライン <script> が参照するフック・関数を公開
   window._persistDeckOwnership = function(){ _persistDeck(true); };
+  // deck-card-ops.js（右クリックメニュー・選んだカードの欄）から枚数を変える
+  window._deckOps = { inc: deckInc, dec: deckDec, remove: deckRemove, isTouch: _isTouch };
   window._deckPersist = function(){ _persistDeck(); }; // deck-head.js（登録・名前の変更・削除の後に下書きとひも付けを書き直す）
   window._deckAfterRender = _deckAfterRender;
   window._deckMutate = _deckMutate;

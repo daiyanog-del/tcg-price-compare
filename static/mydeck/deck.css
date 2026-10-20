@@ -111,16 +111,10 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
 .deck-suggest-item:hover,.deck-suggest-item.active{background:var(--bg-hover);color:var(--accent-l)}
 .deck-suggest-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .deck-suggest-badge{flex-shrink:0;font:.6rem var(--font);font-weight:700;color:var(--gold);background:rgba(232,200,72,.12);border:1px solid rgba(232,200,72,.4);border-radius:3px;padding:1px 5px}
-/* セルに重ねる操作バー */
+/* 編集中のカード（PC はドラッグで並べ替え。増減は deck-card-ops.js） */
 #deckCardList.edit-mode .deck-grid-cell{cursor:grab}
 #deckCardList.edit-mode .deck-grid-cell.dragging{opacity:.4}
 #deckCardList.edit-mode .deck-grid-cell.drag-over{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent) inset}
-#deckCardList.edit-mode .deck-grid-badge{display:none}
-.deck-edit-bar{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:2px;padding:2px;background:linear-gradient(to bottom,rgba(0,0,0,.72),transparent);z-index:3}
-.deck-edit-btn{width:18px;height:18px;padding:0;line-height:1;font:.85rem/1 var(--font);font-weight:700;color:#fff;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);border-radius:3px;cursor:pointer;display:flex;align-items:center;justify-content:center}
-.deck-edit-btn:hover{background:var(--accent);border-color:var(--accent)}
-.deck-edit-q{font:.7rem var(--mono);font-weight:700;color:#fff;min-width:14px;text-align:center;text-shadow:0 1px 2px rgba(0,0,0,.8)}
-.deck-edit-del{margin-left:auto}
 
 /* ── マイデッキ保存 ── */
 .saved-deck-label{font:.72rem var(--font);font-weight:700;color:var(--text-d);margin:10px 0 6px}
@@ -189,9 +183,6 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
 .deck-suggest-thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .deck-suggest-drop{max-height:360px}
 
-/* 操作バーのボタンを少し大きく（タップしやすく） */
-#deckCardList.edit-mode .deck-edit-btn{width:21px;height:21px;font-size:.95rem}
-#deckCardList.edit-mode .deck-edit-q{font-size:.74rem;min-width:16px}
 
 /* セクション間ドラッグ: ドロップ可能セクションのハイライト */
 #deckCardList.edit-mode .deck-grid-section.drop-target{outline:2px dashed var(--accent);outline-offset:3px;border-radius:6px}
@@ -411,3 +402,24 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
   .deck-more-sort{display:block}
   .deck-more-item{padding:11px 14px}
 }
+
+/* ── カード操作（deck-card-ops.js・2026-10-21 ユーザー承認のモック _mocks/mydeck-refresh-20261020 の C）。
+   カードの上は「×N」の札だけ（シミュレーターのデッキ編集と同じ）。選択中は金の実線（シミュレーターの「金の実線＝選択中」と同じ意味）。 ── */
+#deckCardList .deck-grid-badge{top:3px;right:3px;padding:1px 5px;border-radius:4px;background:rgba(0,0,0,.78);font:700 11px var(--mono)}
+#deckCardList .deck-grid-cell.is-sel{box-shadow:0 0 0 2px var(--gold)}
+#deckCardList .deck-sec-hint{margin-left:auto;color:var(--text-m);font-size:12px;font-weight:400}
+/* 右クリックメニュー（見た目は ⋯ メニューと同じ。カード名の見出しと、右に寄せた補足「今 N枚」） */
+.deck-card-menu-head{padding:6px 12px 4px;color:var(--text-m);font-size:11.5px;font-weight:700;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.deck-more-item{display:flex;align-items:baseline;justify-content:space-between;gap:16px}
+.deck-more-sub{color:var(--text-m);font-size:12px}
+/* タッチ端末: 選んだカードの欄（スクロールしても上に残す） */
+.deck-sel-bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:8px;margin:0 0 10px;padding:8px 10px;border-radius:10px;background:#141c2c;box-shadow:0 6px 18px rgba(0,0,0,.45)}
+.deck-sel-bar[hidden]{display:none}
+.deck-sel-thumb{flex:none;width:28px;height:40px;border-radius:3px;overflow:hidden;background:var(--bg)}
+.deck-sel-thumb img{display:block;width:100%;height:100%;object-fit:cover}
+.deck-sel-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);font-size:13px;font-weight:700}
+.deck-sel-step{flex:none;display:flex;align-items:center;gap:2px}
+.deck-sel-btn{width:36px;height:36px;padding:0;border:0;border-radius:6px;background:var(--bg-hover);color:var(--text);font:17px var(--font);cursor:pointer}
+.deck-sel-qty{min-width:24px;text-align:center;color:var(--text);font:700 14px var(--mono)}
+.deck-sel-bar .deck-sel-info{flex:none;height:36px;padding:0 12px}
+.deck-sel-close{flex:none;width:32px;height:36px;padding:0;border:0;background:none;color:var(--text-m);font-size:16px;cursor:pointer}
