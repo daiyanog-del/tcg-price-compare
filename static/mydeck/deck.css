@@ -371,3 +371,11 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
 .deck-add-toast-msg{min-width:0;overflow-wrap:anywhere}
 .deck-add-toast-btn{flex-shrink:0;background:none;border:1px solid var(--accent);border-radius:4px;color:var(--accent);font-size:.76rem;font-weight:600;padding:4px 10px;cursor:pointer}
 .deck-add-toast-btn:hover{background:var(--bg-hover)}
+/* ［シミュレーターで回す］は主操作（トップの主操作と同じ黄。site-theme.css .deck-btn-primary） */
+.deck-add-toast-btn.deck-add-toast-btn-primary{background:#f3ce46;border-color:transparent;color:#242013}
+.deck-add-toast-btn.deck-add-toast-btn-primary:hover{background:#ffe16d}
+/* スマホは文を1行目、ボタンを2行目に並べる（横に並べると文の幅が足りず細かく折り返していた） */
+@media(max-width:640px){
+  .deck-add-toast{flex-wrap:wrap;justify-content:flex-end;width:calc(100vw - 24px);box-sizing:border-box;gap:8px 10px}
+  .deck-add-toast-msg{flex:1 1 100%}
+}
