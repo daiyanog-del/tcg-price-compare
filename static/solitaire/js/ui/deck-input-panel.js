@@ -8,6 +8,7 @@ import { addCardToPool, sortPoolCards } from '../components/card-manager.js';
 import { registerCardImage, registerCardName, registerCardType, resetReplay, getLogLength, getSetupLogs } from '../services/replay-service.js';
 import { setCardName } from './card-info-panel.js';
 import { clearSessionResume } from '../utils/session-resume-store.js';
+import { setDeckLink } from '../services/deck-link.js';
 
 const API_CARD_IMAGE  = '/api/card-image';   // 単数版（フォールバック用）
 const API_CARD_IMAGES = '/api/card-images';  // バッチ版（POST）
@@ -411,7 +412,8 @@ export async function loadDeckFromText(text, triggerBtn = null) {
 
   _deckLoadInFlight = true;
   _setDeckRowsLoading(triggerBtn, true);
-  document.dispatchEvent(new CustomEvent('sol-deck-load-start'));
+  // replace: デッキを入れ替える読込か（deck-edit-ui.js がマイデッキとのひも付けを外すのに使う）
+  document.dispatchEvent(new CustomEvent('sol-deck-load-start', { detail: { replace: true } }));
   let ok = false;
   let error = null;
   try {
@@ -436,6 +438,7 @@ export async function loadDeckFromText(text, triggerBtn = null) {
     const { main, ex } = _currentPoolCounts();
     document.dispatchEvent(new CustomEvent('sol-deck-load-end', { detail: { ok, main, ex, error } }));
   }
+  return ok;
 }
 
 /**
@@ -457,7 +460,7 @@ export async function loadExDeckFromText(text, triggerBtn = null) {
 
   _deckLoadInFlight = true;
   _setDeckRowsLoading(triggerBtn, true);
-  document.dispatchEvent(new CustomEvent('sol-deck-load-start'));
+  document.dispatchEvent(new CustomEvent('sol-deck-load-start', { detail: { replace: false } }));
   let ok = false;
   let error = null;
   try {
@@ -502,7 +505,7 @@ export async function loadDeckFromNeuron(mainText, exText) {
 
   _deckLoadInFlight = true;
   _setDeckRowsLoading(null, true);
-  document.dispatchEvent(new CustomEvent('sol-deck-load-start'));
+  document.dispatchEvent(new CustomEvent('sol-deck-load-start', { detail: { replace: mainCards.length > 0 } }));
   let ok = false;
   let error = null;
   try {
@@ -534,6 +537,7 @@ export async function loadDeckFromNeuron(mainText, exText) {
     const { main, ex } = _currentPoolCounts();
     document.dispatchEvent(new CustomEvent('sol-deck-load-end', { detail: { ok, main, ex, error } }));
   }
+  return ok;
 }
 
 /**
@@ -551,7 +555,7 @@ export async function loadMetaDeck(theme, triggerBtn = null) {
   if (!_confirmReplaceDeck()) return;
   _deckLoadInFlight = true;
   _setDeckRowsLoading(triggerBtn, true);
-  document.dispatchEvent(new CustomEvent('sol-deck-load-start'));
+  document.dispatchEvent(new CustomEvent('sol-deck-load-start', { detail: { replace: true } }));
 
   // デッキ・EXデッキ両エリアにロード中インジケータを表示
   setPoolLoading(['imagePool', 'imagePool2'], true);
@@ -582,6 +586,34 @@ export async function loadMetaDeck(theme, triggerBtn = null) {
     const { main, ex } = _currentPoolCounts();
     document.dispatchEvent(new CustomEvent('sol-deck-load-end', { detail: { ok, main, ex, error } }));
   }
+  if (ok) setDeckLink({ name: theme }); // 環境デッキはマイデッキに無いので未登録として始める
+  return ok;
+}
+
+/**
+ * 今のデッキにカードを足す（デッキ編集の「デッキに入れる」「デッキに1枚足す」）。
+ * デッキは入れ替えず、盤面・記録もそのまま。読込と同じ addCardsBatch で画像・種別・EX判定・辞書登録を行う。
+ * 足したカードはデッキ欄（EX なら EX デッキ欄）に入り、種別順に並べ直す。
+ * @param {Array<{qty:number, name:string}>} cards
+ * @returns {Promise<Element[]|null>} 足したカードの .tier-item-wrapper（画像が取れず足せなければ空配列）。
+ *   別の読込が進行中で何もしなかったときは null。
+ */
+export async function addCardsToDeck(cards) {
+  if (_deckLoadInFlight) {
+    console.warn('[deck-input-panel] デッキ読込が進行中のため無視しました（addCardsToDeck）');
+    return null;
+  }
+  const before = new Set(document.querySelectorAll('#poolRow .tier-item-wrapper, #poolRow2 .tier-item-wrapper'));
+  _deckLoadInFlight = true;
+  try {
+    await addCardsBatch(cards, null);
+  } finally {
+    _deckLoadInFlight = false;
+  }
+  const added = [...document.querySelectorAll('#poolRow .tier-item-wrapper, #poolRow2 .tier-item-wrapper')]
+    .filter(w => !before.has(w));
+  if (added.some(w => w.parentElement?.id === 'poolRow')) sortPoolCards('poolRow');
+  return added;
 }
 
 /**
@@ -690,7 +722,10 @@ function renderMyDeckList() {
         + (date ? `<span class="deck-card-date">${date}</span>` : '')
         + `</span>`
         + `<span class="deck-card-hint">読込 ›</span>`;
-      row.addEventListener('click', () => loadDeckFromText(deck.text || '', row));
+      // 読み込めたら、このマイデッキにひも付ける（以後の「変更を保存」はこのデッキへ上書き）
+      row.addEventListener('click', async () => {
+        if (await loadDeckFromText(deck.text || '', row)) setDeckLink({ savedId: deck.id || null, name: deck.name || '無題' });
+      });
       listEl.appendChild(row);
     });
 

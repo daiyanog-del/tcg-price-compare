@@ -189,6 +189,35 @@ export function registerCardName(cardId, name) {
 }
 
 /**
+ * デッキ編集でカードを抜いたとき、辞書（画像・名前・種類・EX判定）からも消す。
+ * 残すと共有・端末保存したリプレイの受け手に、抜いたカードまで並んでしまう。
+ * 記録に出てくるカードは抜かせない（deck-link.js の pickRemovable）ので、ログは触らない。
+ * @param {string} cardId
+ */
+export function forgetCard(cardId) {
+  delete _images[cardId];
+  delete _names[cardId];
+  delete _cardTypes[cardId];
+  _exCardIds.delete(cardId);
+}
+
+/**
+ * 記録（ログ・setupログ）に出てくるカードIDの集合。
+ * 操作したカード（cardId）・まとめて引いたカード（drawnIds）・デッキ列の途中へ戻した位置の目印（beforeCardId）。
+ * @returns {Set<string>}
+ */
+export function getLoggedCardIds() {
+  const ids = new Set();
+  for (const ev of [..._setupLogs, ..._logs]) {
+    if (!ev) continue;
+    if (ev.cardId) ids.add(ev.cardId);
+    if (ev.beforeCardId) ids.add(ev.beforeCardId);
+    if (Array.isArray(ev.drawnIds)) ev.drawnIds.forEach(id => id && ids.add(id));
+  }
+  return ids;
+}
+
+/**
  * カードIDから画像ソースを取得
  * @param {string} cardId
  * @returns {string|null}

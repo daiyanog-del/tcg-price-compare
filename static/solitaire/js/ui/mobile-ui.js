@@ -38,7 +38,7 @@ import { playActivateEffect, flipMoveClone } from '../components/card-effects.js
 import { _renderCard, _showUnknown, _showLoading } from './card-info-panel.js';
 import { isMobilePortrait, watchMobilePortrait, isMobileLandscape, watchMobileLandscape } from '../utils/viewport.js';
 import { showToast } from '../utils/toast.js';
-import { appendMobileHintBox } from '../../../shared/mydeck-hint.js';
+import { resetMobileDeckMode } from './deck-edit-ui.js';
 import { generateShareURL, checkPublicTitle, resetShareUrlMemo, buildShareTweetUrl, getReplayCounts, saveReplayToDevice, describeSaveResult, exportReplayFile } from './replay-ui.js';
 import { clearEverything } from './deck-input-panel.js';
 import {
@@ -383,8 +383,6 @@ async function showMobileCardInfo(name, imgSrc) {
       _renderCard(data, imgSrc, name, null, body, false);
     } else if (data.kind === 'proxy' && data.proxy) {
       _renderCard(data.proxy, imgSrc, name, null, body, false, false, true);
-      // 新着直行で来たときだけ、未発売カードの詳細の下に「マイデッキに追加」の案内を足す
-      appendMobileHintBox(body, name);
     } else {
       _showUnknown(imgSrc, name, null, body, false);
     }
@@ -825,6 +823,7 @@ function _moveSelectedDeckCardToField() {
 function openDeckSheet() {
   const search = document.getElementById('solMobileDeckSearch');
   if (search) search.value = '';
+  resetMobileDeckMode(); // 開くたびに「回す」から（編集は deck-edit-ui.js）
   _buildDeckGrid();
   setHidden('solMobileDeckSheet', false);
   // 強調カードが見える位置へ（表示後でないとスクロールできない）
@@ -870,6 +869,11 @@ function initDeckSheet() {
   document.getElementById('solMobileDeckResetBtn')?.addEventListener('click', () => {
     document.getElementById('resetButton')?.click();
     _buildDeckGrid();
+  });
+
+  // 「編集」でカードを足した・抜いたら、「回す」の一覧も作り直す（戻ったときに古い一覧を見せない）
+  document.addEventListener('sol-deck-edited', () => {
+    if (!document.getElementById('solMobileDeckSheet')?.hidden) _buildDeckGrid();
   });
 
   // デッキ0枚時: 既存のデッキ読込シートを開く

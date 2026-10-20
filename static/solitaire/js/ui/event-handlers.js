@@ -6,6 +6,7 @@ import { registerCardImage, clearReplayLog } from '../services/replay-service.js
 import { initDeckInputPanel, loadDeckFromNeuron, savedDecksGet, savedDecksSet, parseDeckList } from './deck-input-panel.js';
 import { parseNeuronPdf } from '/static/shared/neuron-pdf-parser.js';
 import { NeuronPreviewModal } from '/static/shared/neuron-preview-modal.js';
+import { setDeckLink } from '../services/deck-link.js';
 
 /**
  * UIイベントハンドラ（カード相場向け改変版）
@@ -58,7 +59,8 @@ export async function handleNeuronPdfSelect(event) {
     onLoad: async ({ mainText, exText }) => {
       // L-8: メイン→EXの逐次読込を1組の sol-deck-load-start/end にまとめる
       // （個別に呼ぶとメイン完了時点で中間の「EX 0」トーストが出てしまうため）。
-      await loadDeckFromNeuron(mainText, exText);
+      // メインまで入れ替えたときは、取り込んだデッキとして未登録で始める（EXだけ足したときはひも付けを変えない）
+      if (await loadDeckFromNeuron(mainText, exText) && mainText) setDeckLink({ name: defaultName || 'ニューロン取込' });
     },
   }).show();
 }

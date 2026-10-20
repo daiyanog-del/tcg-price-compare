@@ -10,6 +10,8 @@ export function validateHandoff(value){
     throw new Error('引き継ぐデッキ情報が不正です。マイデッキから開き直してください。');
   }
   const result={version:1,name:value.name,main:[],ex:[]};
+  // 保存済みのマイデッキから開いたときだけ付く（シミュレーターの「変更を保存」の上書き先）。形が違えば付けないだけ
+  if(typeof value.savedId==='string'&&/^[\w-]{1,64}$/.test(value.savedId))result.savedId=value.savedId;
   for(const [section,limit] of [['main',MAIN_MAX],['ex',EX_MAX]]){
     const cards=value[section];
     if(!Array.isArray(cards)||cards.length>limit)throw new Error('メインは60枚、EXは15枚以内にしてください。');
@@ -41,7 +43,7 @@ function readHandoff(storage){
   return {raw,data:validateHandoff(JSON.parse(raw))};
 }
 
-export async function receiveDeckHandoff({loadDeck,clearDeck,getCounts,storage=sessionStorage,doc=document,loc=location,hist=history}){
+export async function receiveDeckHandoff({loadDeck,clearDeck,getCounts,onLoaded=()=>{},storage=sessionStorage,doc=document,loc=location,hist=history}){
   const url=new URL(loc.href);
   // 共有リプレイは最優先。通常のアクセスでは一時データがあっても取り込まない。
   if(url.searchParams.has('replay')||url.searchParams.has('saved')||url.hash.startsWith('#replay=')||url.searchParams.get('from')!=='mydeck')return false;
@@ -78,6 +80,7 @@ export async function receiveDeckHandoff({loadDeck,clearDeck,getCounts,storage=s
       hist.replaceState(hist.state,'',url.pathname+url.search+url.hash);
       if(storage.getItem(HANDOFF_KEY)===raw)storage.removeItem(HANDOFF_KEY);
       message.textContent='「'+name+'」を読み込みました（メイン'+actual.main+'枚・EX'+actual.ex+'枚）。';
+      onLoaded({name,savedId:data.savedId||null});
     }catch(error){
       console.warn('[deck-handoff] デッキ引継ぎ失敗',error);
       message.textContent=error instanceof SyntaxError?'デッキ情報を読み取れません。マイデッキから開き直してください。':('デッキを引き継げませんでした。'+(error.message||''));
