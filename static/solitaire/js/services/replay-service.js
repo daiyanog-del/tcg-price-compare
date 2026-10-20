@@ -951,9 +951,10 @@ function _applyMoveCard(event) {
   // タスクB: 縦向きスマホでは #poolRow（デッキ列）が display:none のため、移動元/移動先が
   // #poolRow だと矩形が0幅になり flipMoveClone の演出が成立しない。#solMobileDeckBtn の
   // 矩形を代替の出発点/到着点にして飛ばす（PC・横向き・#poolRow が絡まない移動は従来どおり）。
-  const mobilePortrait = isMobilePortrait();
-  const toIsDeckPool = zoneId === 'poolRow' && mobilePortrait;
-  const fromIsEmpty  = mobilePortrait && firstRect.width === 0;
+  // 2026-10-20: 画面録画用の表示（PC でもデッキ列を隠す）も同じ扱いにする
+  const deckHidden = _isDeckHidden();
+  const toIsDeckPool = zoneId === 'poolRow' && deckHidden;
+  const fromIsEmpty  = deckHidden && firstRect.width === 0;
 
   if (toIsDeckPool || fromIsEmpty) {
     _applyMoveCardWithDeckFly({ card, place, orientation, face, faceChanged, stateChanged, firstRect, toIsDeckPool });
@@ -1005,6 +1006,9 @@ function _applyMoveCard(event) {
  * @returns {Element|null}
  */
 function _getDeckAnchorEl() {
+  // 画面録画用の表示では帯の「デッキ N」の札（rec-view.js）を錨にする
+  const recDeck = document.getElementById('solRecDeck');
+  if (recDeck && recDeck.getBoundingClientRect().width > 0) return recDeck;
   const deckBtn = document.getElementById('solMobileDeckBtn');
   if (deckBtn && deckBtn.getBoundingClientRect().width > 0) return deckBtn;
   return document.getElementById('solMobilePlayDeckBadge');
@@ -1083,7 +1087,15 @@ const DECK_FLY_STAGGER_MS = 80; // 第6次検収2c: resetDeck等で複数枚飛�
  * PC・横向き・後退（_animateForwardがfalse。_replayTo経由の全再構築やstepBack）では false。
  */
 function _shouldMobileFly() {
-  return _animateForward && isMobilePortrait();
+  return _animateForward && _isDeckHidden();
+}
+
+/**
+ * デッキ列（#poolRow）が画面に出ていないか。縦向きスマホ、または画面録画用の表示（rec-view.js が
+ * body に sol-recview を付け、PC でもデッキ列を隠す）。このときデッキとの間の移動は錨から／へ飛ばす。
+ */
+function _isDeckHidden() {
+  return isMobilePortrait() || document.body.classList.contains('sol-recview');
 }
 
 /**

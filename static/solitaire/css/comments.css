@@ -143,8 +143,10 @@
   position: fixed;
   z-index: 9000;
   box-sizing: border-box;
-  height: var(--cutin-h);
-  margin-top: calc(var(--cutin-h) / -2);   /* top は帯の中心。半分だけ上へ */
+  /* 長い文は2行に折り返すので高さは中身に合わせる（最低 --cutin-h）。top は帯の中心なので、
+     自分の高さの半分だけ上へ（translate は動きの transform と別の指定なので重ならない） */
+  min-height: var(--cutin-h);
+  translate: 0 -50%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -162,6 +164,18 @@
   font-weight: 900;
   letter-spacing: 0.08em;
   white-space: nowrap;
+}
+/* 文字だけのカットイン: 帯の幅に収まらない長い文（最大20文字）は折り返す。
+   1行のままだとスマホで両端が画面の外に出て読めなかった（2026-10-20 ユーザー指摘）。
+   カードつき（相手の妨害）はカード名を省略表示する作りのまま */
+.sol-cutin:not(.sol-cutin--card) { padding: 6px 16px; }
+.sol-cutin:not(.sol-cutin--card) .sol-cutin-text {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: auto-phrase;  /* 文節で折り返す（対応ブラウザのみ。非対応は1字単位） */
+  text-wrap: balance;       /* 2行の長さをそろえる */
+  text-align: center;
+  line-height: 1.25;
 }
 /* スマホ縦向き・横向きスマホ（短辺 500px 未満）は小さく */
 @media (max-width: 767px) and (orientation: portrait), (max-height: 500px) {
@@ -192,6 +206,7 @@
    金色・色付きの実線・赤は状態の目印や危険の色なので使わない。 */
 .sol-cutin--card {
   --cutin-card-h: 128px;
+  height: var(--cutin-h);   /* カード名は1行で省略表示するので、帯の高さは固定のまま（上下の線の分も含めて --cutin-h） */
   gap: 18px;
   padding: 0 24px;
 }
