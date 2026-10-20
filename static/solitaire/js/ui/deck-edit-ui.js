@@ -25,6 +25,7 @@ import { forgetCard, getLoggedCardIds } from '../services/replay-service.js';
 import { setExtraMenuItemsProvider } from './context-menu.js';
 import { showToast } from '../utils/toast.js';
 import { openDeckImageDialog } from '../../../shared/deck-image.js';
+import { wishCount, addOneToWish, offerRemoveFromWish, openShortagePanel, closeShortagePanel, markAddedNotOwned } from './deck-wish-ui.js';
 
 const SUGGEST_DEBOUNCE_MS = 200; // カットインの検索と同じ待ち時間
 const SUGGEST_MAX = 8;
@@ -97,7 +98,10 @@ export function removeOne(name, prefer = null) {
   recordDelta(name, sec, -1);
   document.dispatchEvent(new CustomEvent('sol-deck-edited'));
   const left = countInDeck(name);
-  showToast(left ? `「${name}」を1枚抜きました（残り${left}枚）` : `「${name}」をデッキから抜きました`);
+  // 購入候補にもあれば「候補から外す」を出す（抜いたカードを買ってしまわないため）
+  if (!offerRemoveFromWish(name, left)) {
+    showToast(left ? `「${name}」を1枚抜きました（残り${left}枚）` : `「${name}」をデッキから抜きました`);
+  }
   return true;
 }
 
@@ -141,11 +145,17 @@ export function saveChanges() {
   }
   const before = captureLinkState();
   const prev = { text: deck.text, main: deck.main, ex: deck.ex };
+  // 所持枚数（保存時に markAddedNotOwned が足すことがある）も戻す。元が無ければ消す
+  // （undefined の項目を作ると、同期の写し（sync-client.js onDecksSave）で JSON.parse が落ちる）
+  const hadOwned = Object.prototype.hasOwnProperty.call(deck, 'owned') && deck.owned !== undefined;
+  const prevOwned = hadOwned ? deck.owned : null;
   // テキストを正とする（トップの normalizeDeck と同じ。テキストが空の古いデータは配列を使う）
   const next = applyDeltas(deckContents(deck), getDeltas());
   deck.main = next.main;
   deck.ex = next.ex;
   deck.text = serializeDeck(next);
+  // この画面で足したカード（所持が未入力）は「持っていない」として残す（保存で増減の記録が消えるため。deck-wish-ui.js）
+  markAddedNotOwned(deck);
   deck.updated = Date.now();
   const written = deck.updated;
   savedDecksSet(list);
@@ -159,6 +169,7 @@ export function saveChanges() {
     if (!d || d.updated !== written) { showToast('その後に変更されているため、取り消せませんでした'); return; }
     // 中身は保存前に戻し、更新時刻は新しくする（古い時刻に戻すと、端末間同期の結合で保存後の内容が勝ち、取り消しが消える）
     Object.assign(d, prev, { updated: Date.now() });
+    if (hadOwned) d.owned = prevOwned; else delete d.owned;
     savedDecksSet(cur);
     // 画面側の「変更あり」も戻す。トーストは読込・消去・編集で閉じるので、ここに来るのは保存直後の状態のときだけ
     const now = getDeckLink();
@@ -184,6 +195,9 @@ export function registerAsNew() {
   if (!name) return;
   const list = savedDecksGet();
   const deck = { id: 'd_' + Date.now(), name, text: serializeDeck(contents), main: contents.main, ex: contents.ex, updated: Date.now() };
+  // 元のデッキの所持枚数を引き継ぎ、この画面で足したカードは「持っていない」として残す（deck-wish-ui.js）
+  if (base && base.owned && typeof base.owned === 'object' && !Array.isArray(base.owned)) deck.owned = Object.assign(Object.create(null), base.owned);
+  markAddedNotOwned(deck);
   list.push(deck);
   savedDecksSet(list);
   _ga('deck_save', { where: 'sim', kind: 'new' });
@@ -267,6 +281,10 @@ function _renderSaveBar(container) {
     container.appendChild(el('span', 'sol-deck-bar-state', link?.source === 'sample' ? 'サンプルデッキ・マイデッキ未登録' : 'マイデッキ未登録'));
     acts.appendChild(button('マイデッキに登録', registerAsNew));
   }
+  // 足りない分を購入候補へ（deck-wish-ui.js）。スマホの編集の行は幅が狭いので短い名前にする
+  const sheet = container.id === 'solMobileDeckEditBar';
+  const shortBtn = button(sheet ? '足りない分を候補へ' : '足りない分を購入候補へ', () => openShortagePanel({ sheet, anchor: shortBtn }));
+  acts.appendChild(shortBtn);
   // デッキ画像（Xなどに貼る一覧画像）。盤面のカードを数えて作る。保存の状態に関係なく出す
   acts.appendChild(button('デッキ画像', openDeckImage));
   container.appendChild(acts);
@@ -526,7 +544,13 @@ function _renderMobileEdit() {
     plus.textContent = '＋';
     plus.setAttribute('aria-label', `${g.name}を1枚足す`);
     plus.addEventListener('click', () => { addOne(g.name); });
-    sel.append(_cellThumb(g.wrapper), nm, minus, cnt, plus);
+    const wish = document.createElement('button');
+    wish.type = 'button';
+    wish.className = 'sol-deck-bar-btn sol-deck-edit-wish';
+    wish.textContent = '候補へ';
+    wish.setAttribute('aria-label', `${g.name}を購入候補に1枚入れる`);
+    wish.addEventListener('click', () => { addOneToWish(g.name); });
+    sel.append(_cellThumb(g.wrapper), nm, minus, cnt, plus, wish);
   }
 
   // 一覧
@@ -588,6 +612,8 @@ function _menuItems(wrapper) {
   return [
     { label: 'デッキに1枚足す', sub: `今 ${countInDeck(name)}枚`, action: () => { addOne(name); } },
     { label: 'デッキから1枚抜く', disabled: !removable, action: () => { removeOne(name, wrapper); } },
+    { separator: true },
+    { label: '購入候補に入れる', sub: `候補に ${wishCount(name)}枚`, action: () => { addOneToWish(name); } },
   ];
 }
 
@@ -599,6 +625,7 @@ export function initDeckEditUI() {
   let appendBefore = null;
   document.addEventListener('sol-deck-load-start', (e) => {
     _dismissUndoToast();
+    closeShortagePanel();
     if (e.detail?.replace !== false) { appendBefore = null; setDeckLink({}); return; }
     appendBefore = new Set(document.querySelectorAll('.tier-item-wrapper'));
   });
@@ -612,7 +639,7 @@ export function initDeckEditUI() {
       if (name) recordDelta(name, / ex$/.test(w.id) ? 'ex' : 'main', +1);
     }
   });
-  document.addEventListener('sol-board-cleared', () => { _dismissUndoToast(); clearDeckLink(); });
+  document.addEventListener('sol-board-cleared', () => { _dismissUndoToast(); closeShortagePanel(); clearDeckLink(); });
   document.addEventListener('sol-deck-edited', _dismissUndoToast);
 
   const rerender = () => { _renderPcBar(); _renderMobileEdit(); };

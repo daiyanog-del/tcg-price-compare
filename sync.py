@@ -48,8 +48,10 @@ def merge_wishlist(server_items, client_items):
     - 同キーが両方にある場合は qty の大きい方を採用（上限 WISHLIST_QTY_MAX）
     - 片方にしかない要素はそのまま残る
     - 順序は server_items → client_items の出現順（新規に現れた要素を末尾に追加）
+    - decks（どのデッキ用に何枚か。2026-10-20）はデッキごとに大きい方を採用し、合計が qty を超える分は削る
     """
     merged: dict[tuple, int] = {}
+    merged_decks: dict[tuple, dict] = {}
     order: list[tuple] = []
     for source in (server_items or [], client_items or []):
         for it in source:
@@ -65,8 +67,42 @@ def merge_wishlist(server_items, client_items):
                 merged[key] = max(merged[key], qty)
             else:
                 merged[key] = qty
+                merged_decks[key] = {}
                 order.append(key)
-    return [{"name": k[0], "rarity": k[1], "qty": merged[k]} for k in order]
+            for deck_id, n in _clean_wish_decks(it.get("decks"), WISHLIST_QTY_MAX).items():
+                merged_decks[key][deck_id] = max(merged_decks[key].get(deck_id, 0), n)
+    out = []
+    for k in order:
+        item = {"name": k[0], "rarity": k[1], "qty": merged[k]}
+        decks = _clean_wish_decks(merged_decks[k], merged[k])
+        if decks:
+            item["decks"] = decks
+        out.append(item)
+    return out
+
+
+MAX_WISH_DECK_ID_LEN = 40   # 保存デッキの id（'d_' + ミリ秒）より十分長い
+MAX_WISH_DECKS_PER_ITEM = MAX_DECKS
+
+
+def _clean_wish_decks(decks, qty):
+    """購入候補1行の decks {デッキID: 枚数} を検証して返す（static/shared/wish-deck.js の cleanDecks と同じ規則）。
+    不正な要素は落とし、合計が qty を超える分は後ろの要素から削る。"""
+    out = {}
+    if not isinstance(decks, dict):
+        return out
+    left = qty
+    for deck_id, n in list(decks.items())[:MAX_WISH_DECKS_PER_ITEM]:
+        if not isinstance(deck_id, str) or not deck_id or len(deck_id) > MAX_WISH_DECK_ID_LEN:
+            continue
+        if isinstance(n, bool) or not isinstance(n, int) or n < 1:
+            continue
+        take = min(n, left)
+        if take < 1:
+            break
+        out[deck_id] = take
+        left -= take
+    return out
 
 
 def _deck_updated(deck) -> int:
@@ -165,7 +201,12 @@ def validate_wishlist(items):
         except (TypeError, ValueError):
             qty = 1
         qty = max(1, min(qty, WISHLIST_QTY_MAX))
-        cleaned.append({"name": name, "rarity": rarity, "qty": qty})
+        item = {"name": name, "rarity": rarity, "qty": qty}
+        # decks キーの有無は残す（空でも {}）。キーが無い行は decks を知らない古い版からの送信で、
+        # push_wishlist がサーバー側の内訳を引き継ぐ（古い版の書き戻しで内訳を消さないため）
+        if "decks" in it:
+            item["decks"] = _clean_wish_decks(it.get("decks"), qty)
+        cleaned.append(item)
     return cleaned, None
 
 
@@ -296,8 +337,38 @@ def _push(client, sync_id, base_rev, items, *, list_col, rev_col, merge_fn):
     return {"ok": False, "reason": "conflict_retry_exceeded"}
 
 
+def _carry_over_wish_decks(server_items, items):
+    """decks キーの無い行（decks を知らない古い版からの送信）に、サーバー側の同じ行の内訳を引き継ぐ。
+    空の decks（{}）は保存しない。"""
+    server = {}
+    for it in server_items or []:
+        if isinstance(it, dict):
+            server[(it.get("name", ""), it.get("rarity", "") or "")] = it.get("decks")
+    out = []
+    for it in items:
+        item = {k: v for k, v in it.items() if k != "decks"}
+        if "decks" in it:
+            decks = it["decks"]
+        else:
+            decks = _clean_wish_decks(server.get((it["name"], it["rarity"])), it["qty"])
+        if decks:
+            item["decks"] = decks
+        out.append(item)
+    return out
+
+
 def push_wishlist(client, sync_id, base_rev, items):
-    """購入候補を条件付き更新する（設計文書 §4.3）。_push の wishlist_rev 版。"""
+    """購入候補を条件付き更新する（設計文書 §4.3）。_push の wishlist_rev 版。
+    decks を知らない古い版の送信（decks キーの無い行）は、送る前にサーバー側の内訳を引き継ぐ（2026-10-20）。"""
+    if any("decks" not in it for it in items):
+        cur = (client.table("sync_accounts")
+               .select("wishlist")
+               .eq("sync_id", sync_id)
+               .execute())
+        server_items = (cur.data[0].get("wishlist") or []) if cur.data else []
+        items = _carry_over_wish_decks(server_items, items)
+    else:
+        items = _carry_over_wish_decks([], items)
     return _push(client, sync_id, base_rev, items,
                  list_col="wishlist", rev_col="wishlist_rev", merge_fn=merge_wishlist)
 

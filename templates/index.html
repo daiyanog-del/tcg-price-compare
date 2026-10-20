@@ -1190,6 +1190,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
         <!-- どこで買うと安いか（「どこで買うと安いか調べる」押下後に表示）。押した直後に目に入るようリストの上に置く -->
         <div id="wishShopRanking" class="wb-panel hidden"></div>
 
+        <div id="wishDeckFilter" class="rarity-filter wish-deck-filter" hidden></div>
         <div id="wishList"></div>
 
       </div>
@@ -1507,6 +1508,7 @@ document.addEventListener('toggle',function(e){
 },true);
 </script>
 
+<script src="{{ static_url('shared/wish-deck.js') }}" defer></script>
 <script src="{{ static_url('js/index-wish.js') }}" defer></script>
 <script src="{{ static_url('packs.js') }}" defer></script>
 <script src="{{ static_url('featured-matrix.js') }}" defer></script>

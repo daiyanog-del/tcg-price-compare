@@ -930,13 +930,29 @@
   }
 
   // 編集中デッキ（保存済み/未保存）へ追加 → 既存 deckAddCard（タブ遷移なし）
-  function _addToCurrentDeck(name, deckName, savedId){
+  // notOwned: 新着から入れたカード。まだ持っていないので所持枚数を0（持っていない）にしておく
+  // （シミュレーターの「足りない分を購入候補へ」で最初から追加の対象になる。既に入力済みなら変えない）
+  function _addToCurrentDeck(name, deckName, savedId, notOwned){
+    if(notOwned && window.DeckOwnership) window.DeckOwnership.markNotOwned(name);
     deckAddCard(name);
     _showAddedToast(deckName, function(){ _openDeckFromToast(savedId); });
   }
 
   // 別の保存済みデッキへ直接追加（開いているデッキは切り替えない）
-  function _addToOtherSavedDeck(name, id){
+  // inDeckBefore: 足す前からデッキに入っていた（元の分まで「持っていない」にしない）
+  function _markNotOwned(deck, name, inDeckBefore){
+    if(inDeckBefore) return;
+    deck.owned = deck.owned && typeof deck.owned === 'object' && !Array.isArray(deck.owned) ? deck.owned : {};
+    // カード名が __proto__ でも普通のキーとして書く（代入だとプロトタイプの差し替えになり保存されない）
+    if(!Object.prototype.hasOwnProperty.call(deck.owned, name)){
+      Object.defineProperty(deck.owned, name, { value: 0, enumerable: true, writable: true, configurable: true });
+    }
+  }
+  function _deckHasCard(deck, name){
+    return [].concat(deck.main || [], deck.ex || []).some(function(c){ return c && c.name === name; });
+  }
+
+  function _addToOtherSavedDeck(name, id, notOwned){
     _showAddToast('追加中…', null, 15000);
     _resolveSec(name).then(function(sec){
       var list = savedDecksGet();
@@ -948,6 +964,7 @@
       }
       // 待機中にそのデッキが編集中になった場合は、二重書き込みを避けエディタ経由で追加する
       if(id === window._currentSavedDeckId){
+        if(notOwned && window.DeckOwnership) window.DeckOwnership.markNotOwned(name);
         _deckPendingHighlight = { name: name, sec: sec };
         _deckMutate(function(d){ _addToSection(d, sec, name); });
         _recordAdd(name, sec);
@@ -959,7 +976,9 @@
       var nd = normalizeDeck(deck);
       deck.main = nd.main;
       deck.ex = nd.ex;
+      var inDeckBefore = _deckHasCard(deck, name);
       _addToSection(deck, sec, name);
+      if(notOwned) _markNotOwned(deck, name, inDeckBefore);
       deck.text = _serializeDeck(deck);
       deck.updated = Date.now();
       savedDecksSet(list);
@@ -970,7 +989,7 @@
   }
 
   // 新しいデッキを作って追加（開いているデッキは変更しない）
-  function _addToNewDeck(name){
+  function _addToNewDeck(name, notOwned){
     var n = null;
     var existing = savedDecksGet();
     for(;;){
@@ -991,6 +1010,7 @@
       while(cur.some(function(d){ return d.name === finalName; })){ finalName = n + ' (' + k + ')'; k++; }
       var deck = { id: 'd_' + Date.now(), name: finalName, text: '', main: [], ex: [], updated: Date.now() };
       _addToSection(deck, sec, name);
+      if(notOwned) _markNotOwned(deck, name, false);
       deck.text = _serializeDeck(deck);
       cur.push(deck);
       savedDecksSet(cur);
@@ -1019,7 +1039,9 @@
   }
 
   // ポップオーバーを開く。anchor は押されたボタン
-  function deckOpenAddPicker(name, anchor){
+  // opts.notOwned: 新着から入れる（所持枚数を0にしておく。_addToCurrentDeck の説明）
+  function deckOpenAddPicker(name, anchor, opts){
+    var notOwned = !!(opts && opts.notOwned);
     if(!name) return;
     // 同じボタンの再押下は閉じるだけ
     if(_addPickerEl && _addPickerAnchor === anchor){ _closeAddPicker(); return; }
@@ -1057,17 +1079,17 @@
 
     if(hasDraft){
       addItem('編集中のデッキ（未保存）', '編集中', function(){
-        _addToCurrentDeck(name, '編集中のデッキ', null);
+        _addToCurrentDeck(name, '編集中のデッキ', null, notOwned);
       });
     }
     list.forEach(function(d){
       var isCur = (d.id === curId);
       addItem(d.name || 'マイデッキ', isCur ? '編集中' : '', function(){
-        if(isCur) _addToCurrentDeck(name, d.name || 'マイデッキ', d.id);
-        else _addToOtherSavedDeck(name, d.id);
+        if(isCur) _addToCurrentDeck(name, d.name || 'マイデッキ', d.id, notOwned);
+        else _addToOtherSavedDeck(name, d.id, notOwned);
       });
     });
-    addItem('＋ 新しいデッキを作る', '', function(){ _addToNewDeck(name); }, 'deck-add-picker-new');
+    addItem('＋ 新しいデッキを作る', '', function(){ _addToNewDeck(name, notOwned); }, 'deck-add-picker-new');
 
     document.body.appendChild(menu);
     _addPickerEl = menu;

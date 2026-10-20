@@ -2535,9 +2535,10 @@ function clearDeck(){
   _currentDeckName='';
 }
 
-function addToDeck(name,btn){
+// opts.notOwned: 新着から入れる（まだ持っていないので所持枚数を0にしておく。deck-edit.js deckOpenAddPicker）
+function addToDeck(name,btn,opts){
   // deck-edit.js 読込時は追加先ピッカー（編集中/保存済み/新規を選択・タブ遷移なし）を使う
-  if(window.deckOpenAddPicker){ window.deckOpenAddPicker(name,btn); return; }
+  if(window.deckOpenAddPicker){ window.deckOpenAddPicker(name,btn,opts); return; }
   const ta=document.getElementById('deckTextarea');
   const lines=ta.value.split('\n').filter(l=>l.trim());
   // Check if already in list

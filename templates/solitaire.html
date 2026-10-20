@@ -856,6 +856,7 @@
 
 <!-- 端末間同期（P2）。main.js（type=module・deferされる）より前に読み込まれる通常scriptなので、
      DOM解析完了後に実行されるmodule側からは常に window.SyncClient が使える（設計文書 §11） -->
+<script src="{{ static_url('shared/wish-deck.js') }}"></script>
 <script src="{{ static_url('shared/sync-client.js') }}"></script>
 <script src="{{ static_url('shared/text-report.js') }}"></script>
 <script type="module" src="{{ static_url('solitaire/js/main.js') }}"></script>

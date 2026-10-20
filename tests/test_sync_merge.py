@@ -57,6 +57,53 @@ class TestMergeWishlist:
 
 # ── validate_wishlist ──
 
+class TestWishlistDecks:
+    """購入候補の decks（どのデッキ用に何枚か・2026-10-20）が同期で消えず、壊れた値は落ちる"""
+
+    def test_merge_keeps_decks_per_deck_max(self):
+        server = [{"name": "増殖するG", "rarity": "", "qty": 3, "decks": {"d_a": 2}}]
+        client = [{"name": "増殖するG", "rarity": "", "qty": 5, "decks": {"d_a": 1, "d_b": 3}}]
+        merged = sync.merge_wishlist(server, client)
+        assert merged == [{"name": "増殖するG", "rarity": "", "qty": 5, "decks": {"d_a": 2, "d_b": 3}}]
+
+    def test_merge_trims_decks_over_qty(self):
+        server = [{"name": "増殖するG", "rarity": "", "qty": 2, "decks": {"d_a": 2}}]
+        client = [{"name": "増殖するG", "rarity": "", "qty": 2, "decks": {"d_b": 2}}]
+        merged = sync.merge_wishlist(server, client)
+        assert merged == [{"name": "増殖するG", "rarity": "", "qty": 2, "decks": {"d_a": 2}}]
+
+    def test_merge_without_decks_unchanged(self):
+        merged = sync.merge_wishlist([{"name": "灰流うらら", "rarity": "", "qty": 1}], [])
+        assert merged == [{"name": "灰流うらら", "rarity": "", "qty": 1}]
+
+    def test_validate_keeps_and_cleans_decks(self):
+        items = [{"name": "増殖するG", "rarity": "", "qty": 3,
+                  "decks": {"d_a": 2, "": 1, "d_b": "x", "d_c": True, "d_d": 5}}]
+        cleaned, err = sync.validate_wishlist(items)
+        assert err is None
+        assert cleaned == [{"name": "増殖するG", "rarity": "", "qty": 3, "decks": {"d_a": 2, "d_d": 1}}]
+
+    def test_validate_drops_non_dict_decks(self):
+        cleaned, err = sync.validate_wishlist([{"name": "灰流うらら", "qty": 1, "decks": ["d_a"]}])
+        assert err is None and cleaned == [{"name": "灰流うらら", "rarity": "", "qty": 1, "decks": {}}]
+
+    def test_validate_keeps_absence_of_decks(self):
+        cleaned, err = sync.validate_wishlist([{"name": "灰流うらら", "qty": 1}])
+        assert err is None and cleaned == [{"name": "灰流うらら", "rarity": "", "qty": 1}]
+
+    def test_old_client_push_keeps_server_decks(self):
+        """decks を知らない古い版の送信（キー無し）はサーバーの内訳を引き継ぎ、新しい版の {} は内訳を消す"""
+        server = [{"name": "増殖するG", "rarity": "", "qty": 5, "decks": {"d_a": 2, "d_b": 3}},
+                  {"name": "灰流うらら", "rarity": "", "qty": 2, "decks": {"d_a": 2}}]
+        items = [{"name": "増殖するG", "rarity": "", "qty": 4},
+                 {"name": "灰流うらら", "rarity": "", "qty": 2, "decks": {}},
+                 {"name": "墓穴の指名者", "rarity": "", "qty": 1}]
+        out = sync._carry_over_wish_decks(server, items)
+        assert out == [{"name": "増殖するG", "rarity": "", "qty": 4, "decks": {"d_a": 2, "d_b": 2}},
+                       {"name": "灰流うらら", "rarity": "", "qty": 2},
+                       {"name": "墓穴の指名者", "rarity": "", "qty": 1}]
+
+
 class TestValidateWishlist:
     def test_over_limit_rejected_not_truncated(self):
         items = [{"name": f"カード{i}", "rarity": "", "qty": 1} for i in range(201)]
@@ -234,6 +281,16 @@ class TestPushWishlistConflictRetry:
         names = {i["name"] for i in result["items"]}
         assert names == {"既存カード", "新カード"}
         assert store["s1"]["wishlist_rev"] == 5
+
+    def test_old_client_applied_push_keeps_decks(self):
+        """decks を知らない古い版が通常経路で書き戻しても、サーバーの内訳は残る（2026-10-20）"""
+        store = {"s1": {"sync_id": "s1",
+                         "wishlist": [{"name": "A", "rarity": "", "qty": 3, "decks": {"d_a": 3}}],
+                         "wishlist_rev": 3}}
+        client = _FakeClient(store)
+        result = sync.push_wishlist(client, "s1", 3, [{"name": "A", "rarity": "", "qty": 2}])
+        assert result["status"] == "applied"
+        assert store["s1"]["wishlist"] == [{"name": "A", "rarity": "", "qty": 2, "decks": {"d_a": 2}}]
 
     def test_not_found_when_row_missing(self):
         store = {}

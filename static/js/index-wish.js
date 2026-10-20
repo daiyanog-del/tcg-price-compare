@@ -152,6 +152,14 @@ function deleteSavedDeck(id){
   if(!deck)return;
   if(!confirm(`「${deck.name}」を削除しますか？`))return;
   savedDecksSet(savedDecksGet().filter(d=>d.id!==id));
+  // そのデッキ用として入れた購入候補は「デッキ指定なし」に戻す（候補自体は消さない）
+  if(window.WishDeck){
+    const list=wishGet();
+    if(list.some(c=>WishDeck.forDeck(c,id))){
+      wishSave(WishDeck.dropDeck(list,id));
+      renderWishlist();
+    }
+  }
   renderSavedDecks();
 }
 
@@ -209,7 +217,8 @@ function wishGet(){
   try{
     const list=JSON.parse(localStorage.getItem(WISH_KEY))||[];
     // 旧形式 {name,qty} は rarity:"" として読み出し時に補完（マイグレーション不要）
-    return list.map(c=>({name:c.name,qty:c.qty,rarity:c.rarity||""}));
+    // decks（どのデッキ用か・shared/wish-deck.js）は残す。内訳の無い行はデッキ指定なし
+    return list.map(c=>window.WishDeck?WishDeck.normalizeItem(c):({name:c.name,qty:c.qty,rarity:c.rarity||""}));
   }catch{return[];}
 }
 function wishSave(list){
@@ -270,7 +279,11 @@ function wishUpdateQty(name,newQty,rarity){
   if(newQty<1)return wishRemove(name,rarity);
   const list=wishGet();
   const item=list.find(c=>_wishMatchKey(c,name,rarity));
-  if(item){item.qty=newQty;wishSave(list);renderWishlist();}
+  if(item){
+    // 減らしたときに内訳（デッキ用の枚数）の合計が枚数を超えないよう削る
+    const next=window.WishDeck?WishDeck.setQty(item,newQty):{...item,qty:newQty};
+    list[list.indexOf(item)]=next;wishSave(list);renderWishlist();
+  }
 }
 // 行のレアリティを変更する。空文字 = 未指定（最安レア）
 function wishSetRarity(name,oldRarity,newRarity){
@@ -282,7 +295,8 @@ function wishSetRarity(name,oldRarity,newRarity){
   if(!target)return;
   const collide=list.find(c=>c!==target && _wishMatchKey(c,name,newRarity));
   if(collide){
-    collide.qty=Math.min(collide.qty+target.qty,99);
+    // 内訳（どのデッキ用か）も足し合わせる
+    list[list.indexOf(collide)]=window.WishDeck?WishDeck.mergeInto(collide,target):{...collide,qty:Math.min(collide.qty+target.qty,99)};
     const idx=list.indexOf(target);
     list.splice(idx,1);
   }else{
@@ -350,7 +364,8 @@ function renderWishlist(){
       sel.outerHTML=_wishRaritySelectHtml({name,rarity:old});
     });
   });
-  el.innerHTML=list.map(c=>{
+  const shown=_renderWishDeckFilter(_wishView(list));
+  el.innerHTML=shown.map(c=>{
     const info=_wishPrices[c.name];
     const isDrop=info&&info.pct!=null&&info.pct<=-5&&info.diff!=null&&info.diff<=-50;
     const isPending=!info||info.status==='pending';
@@ -358,15 +373,17 @@ function renderWishlist(){
     const wishImgSafe=info&&info.image?safeUrl(info.image):'';
     const imgHtml=wishImgSafe?`<div class="wish-card-img"><img src="${escAttr(wishImgSafe)}" alt="" loading="lazy"></div>`:'<div class="wish-card-img"></div>';
     const rj=escAttr(escJs(c.rarity||""));
+    // デッキで絞り込んでいるときは、そのデッキ用の枚数を出し、−/＋ もその分だけ動かす
+    const shownQty=_wishDeckFilter===null?c.qty:(_wishDeckFilter===''?WishDeck.unassigned(c):WishDeck.forDeck(c,_wishDeckFilter));
     return `
     <div class="${rowClass}">
       ${imgHtml}
       <span class="wish-card-qty">
-        <button class="wish-card-remove" onclick="wishUpdateQty('${escAttr(escJs(c.name))}',${c.qty-1},'${rj}')" title="1枚減らす" style="font-size:.7rem">-</button>
-        ${c.qty}x
-        <button class="wish-card-remove" onclick="wishUpdateQty('${escAttr(escJs(c.name))}',${c.qty+1},'${rj}')" title="1枚増やす" style="font-size:.7rem">+</button>
+        <button class="wish-card-remove" onclick="wishQtyStep('${escAttr(escJs(c.name))}','${rj}',-1)" title="1枚減らす" style="font-size:.7rem">-</button>
+        ${shownQty}x
+        <button class="wish-card-remove" onclick="wishQtyStep('${escAttr(escJs(c.name))}','${rj}',1)" title="1枚増やす" style="font-size:.7rem">+</button>
       </span>
-      <span class="wish-card-name">${esc(c.name)}</span>
+      <span class="wish-card-name">${esc(c.name)}${_wishDeckTagsHtml(c)}</span>
       ${_wishRaritySelectHtml(c)}
       ${_wishPriceHtml(info)}
       <a class="wish-card-link" href="/card/${encodeURIComponent(c.name)}" target="_blank" rel="noopener">価格を見る</a>
@@ -398,6 +415,84 @@ function _wishEntryKey(name,rarity){return (name||'')+''+(rarity||'');}
 const _wishYen=n=>'¥'+n.toLocaleString();
 const _WISH_CHEV='<svg class="wb-chev" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 4l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
+// ── どのデッキ用か（shared/wish-deck.js の decks）の絞り込みと札（2026-10-20） ──
+// null = すべて／'' = デッキ指定なし／それ以外 = そのデッキID。ページを開き直したら「すべて」に戻す
+let _wishDeckFilter=null;
+// 表示・計算に使う一覧。今は無いデッキ（別の端末で削除した等）用の分はデッキ指定なしとして数える
+function _wishView(list){
+  return window.WishDeck?WishDeck.forgetUnknown(list,savedDecksGet().map(d=>d.id)):list;
+}
+// 行の −/＋。絞り込んでいなければ行全体の枚数、絞り込み中はそのデッキ用の分だけを動かす
+function wishQtyStep(name,rarity,delta){
+  if(_wishDeckFilter===null){
+    const item=wishGet().find(c=>_wishMatchKey(c,name,rarity||''));
+    if(item)wishUpdateQty(name,item.qty+delta,rarity);
+    return;
+  }
+  wishDeckStep(name,rarity,delta);
+}
+// 絞り込み中の −/＋: そのデッキ用（デッキ指定なしで絞っているならデッキ指定なし）の分だけを増減する
+function wishDeckStep(name,rarity,delta){
+  // 表示と同じく、今は無いデッキ用の分はデッキ指定なしとして扱う（外すのは押したカードの行だけ。
+  // 他の行には、別の端末で作ってまだ届いていないデッキ用の内訳があるかもしれないので触らない）
+  const list=window.WishDeck.forgetUnknown(wishGet(),savedDecksGet().map(d=>d.id),name), id=_wishDeckFilter||null;
+  let next;
+  try{
+    if(delta>0){
+      // レアリティ指定のある行で＋したときも、その行に足す（指定なしの行を新しく作らない）
+      const item=list.find(c=>_wishMatchKey(c,name,rarity));
+      if(!item)return;
+      if(item.qty>=99){alert('購入候補の枚数上限（99枚）を超えます。');return;}
+      item.qty+=1;
+      if(id){item.decks=item.decks||{};item.decks[id]=(item.decks[id]||0)+1;}
+      next=list;
+    }else{
+      // 押した行から減らす。そのデッキ用の分が無ければ何もしない
+      const idx=list.findIndex(c=>_wishMatchKey(c,name,rarity));
+      if(idx<0)return;
+      const r=WishDeck.remove([list[idx]],name,1,id,{onlyDeck:true});
+      if(!r.removed)return;
+      next=list.slice(0,idx).concat(r.list,list.slice(idx+1));
+    }
+  }catch(e){alert(e.message);return;}
+  wishSave(next);
+  const wsr=document.getElementById('wishShopRanking');if(wsr){wsr.classList.add('hidden');wsr.innerHTML='';}
+  renderWishlist();
+}
+function _wishDeckName(id){
+  const d=savedDecksGet().find(x=>x.id===id);
+  return d?(d.name||'マイデッキ'):'削除したデッキ';
+}
+// 絞り込みの札を一覧の上に描き、表示する行を返す。内訳を持つ行が無ければ札は出さない
+function _renderWishDeckFilter(list){
+  const box=document.getElementById('wishDeckFilter');
+  const ids=window.WishDeck?WishDeck.deckIds(list):[];
+  if(!box)return list;
+  if(!ids.length){box.hidden=true;box.innerHTML='';_wishDeckFilter=null;return list;}
+  if(_wishDeckFilter!==null&&_wishDeckFilter!==''&&!ids.includes(_wishDeckFilter))_wishDeckFilter=null;
+  const hasFree=list.some(c=>WishDeck.unassigned(c)>0);
+  if(_wishDeckFilter===''&&!hasFree)_wishDeckFilter=null;
+  const opts=[[null,'すべて']].concat(ids.map(id=>[id,_wishDeckName(id)]));
+  if(hasFree)opts.push(['','デッキ指定なし']);
+  box.hidden=false;
+  box.innerHTML=opts.map(([id,label])=>`<button type="button" class="rf-btn${id===_wishDeckFilter?' active':''}" data-deck="${id===null?'*':escAttr(id)}">${esc(label)}</button>`).join('');
+  box.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{
+    _wishDeckFilter=b.dataset.deck==='*'?null:b.dataset.deck;
+    const wsr=document.getElementById('wishShopRanking');if(wsr){wsr.classList.add('hidden');wsr.innerHTML='';}
+    renderWishlist();
+  }));
+  if(_wishDeckFilter===null)return list;
+  return list.filter(c=>(_wishDeckFilter===''?WishDeck.unassigned(c):WishDeck.forDeck(c,_wishDeckFilter))>0);
+}
+// 行の名前の横の札（どのデッキ用に何枚か）。内訳の無い行は出さない
+function _wishDeckTagsHtml(c){
+  if(!window.WishDeck||!c.decks)return '';
+  const tags=Object.entries(c.decks).map(([id,n])=>[_wishDeckName(id),n]);
+  const free=WishDeck.unassigned(c);
+  if(free)tags.push(['指定なし',free]);
+  return tags.map(([label,n])=>`<span class="wish-deck-tag">${esc(label)} ${n}</span>`).join('');
+}
+
 // 「どこで買うと安いか」の結果から店のページへ移ったか（流れの最後の段の計測）
 document.getElementById('wishShopRanking')?.addEventListener('click',e=>{
   const a=e.target.closest('a[target="_blank"]');
@@ -408,7 +503,8 @@ document.getElementById('wishShopRanking')?.addEventListener('click',e=>{
 
 // 「どこで買うと安いか調べる」ボタンのハンドラ
 async function wishCheapestStores(){
-  const list=wishGet();
+  // デッキで絞り込んでいるときは、そのデッキ用の枚数だけで調べる
+  const list=window.WishDeck?WishDeck.filter(_wishView(wishGet()),_wishDeckFilter):wishGet();
   if(!list.length)return;
   _ga('wish_best_split',{kinds:list.length,count:list.reduce((n,c)=>n+(c.qty||1),0)});
 
