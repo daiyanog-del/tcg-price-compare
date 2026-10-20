@@ -34,7 +34,7 @@ import { hasReplayInUrl as isReplayInUrl } from './utils/replay-url.js';
 import { loadDeckFromNeuron, clearEverything } from './ui/deck-input-panel.js';
 import { receiveDeckHandoff } from '../../shared/deck-handoff.js';
 import { receiveNewCards } from '../../shared/newcards-entry.js';
-import { startHint } from '../../shared/mydeck-hint.js';
+import { initDeckEditUI, setDeckLink, restoreLinkState, captureLinkState } from './ui/deck-edit-ui.js';
 
 /**
  * リプレイ画像辞書に登録する src を決める。
@@ -364,6 +364,9 @@ async function initializeApp() {
   // isPhone && !isLandscape 以外では内部で何もしない（フェーズ1・設計書 §8）
   initMobileUI();
 
+  // デッキ編集（カードを追加・右クリックの足す／抜く・マイデッキへの保存）
+  initDeckEditUI();
+
   // フィードバック（不具合・要望）モーダルを初期化
   initFeedbackModal();
 
@@ -391,6 +394,8 @@ async function initializeApp() {
       main: document.querySelectorAll('#poolRow .tier-item').length,
       ex: document.querySelectorAll('#poolRow2 .tier-item').length,
     }),
+    // トップのマイデッキから開いたデッキ。保存済みのデッキなら、そのデッキにひも付ける
+    onLoaded: ({ name, savedId }) => setDeckLink({ savedId, name }),
   });
   // ?newcards=1（X投稿などからの直行）。リプレイ指定・持込があれば何もしない（判定は receiveNewCards 内でも行う）
   const newCardsLoaded = hasReplayInUrl || handedOff ? false : await receiveNewCards({
@@ -398,7 +403,8 @@ async function initializeApp() {
     // 状態表示。スマホ縦の読込後の失敗は sol-deck-load-end の既存トーストが出るので重ねない
     notify: (msg, opt) => { if (!(opt?.afterLoad && isMobilePortrait())) showToast(msg); },
     // 新着を読み込めたときだけ「自分のデッキで回す」案内を出す（PC は見出し行・スマホは詳細シート）
-    onLoaded: ({ focus }) => startHint({ focus, showPc: !isMobilePortrait() }),
+    // 新着カードはマイデッキに無いデッキなので、未登録として始める（見出しに「マイデッキに新規登録」が出る）
+    onLoaded: () => setDeckLink({ name: '新着カード' }),
     // スマホ縦は既存のスマホ用詳細UI、それ以外は左パネル（カードをタップ/クリックした時と同じ表示）
     showCard: el => isMobilePortrait()
       ? openCardDetailByName(el.dataset.cardName, el.src || '')
@@ -408,6 +414,8 @@ async function initializeApp() {
   // リプレイ記録の復元（盤面は loadSessionResume が写しから復元済み。ここでは記録の変数を戻すだけ）。
   // 画像辞書は保存されていた辞書を先に入れ、次の DOM からの登録で上書き・追加する（順序を変えない）
   const replaySnap = restored && restored.replay ? restored.replay : null;
+  // マイデッキとのひも付け・保存していない増減を戻す（退避に無ければ、見出しは未登録のデッキとして出る）
+  if (restored && restored.deckLink) restoreLinkState(restored.deckLink);
   if (replaySnap) {
     restoreReplaySession(replaySnap);
     // 記録に出てくるカードID（DOM に無いものも含む）を使わないよう、ID カウンターを進める
@@ -577,7 +585,8 @@ window.addEventListener('pagehide', () => {
     // 自動再生中・再生の演出（完了で盤面を確定する飛行等）の途中なら、盤面が中間状態の可能性がある。復元時に作り直させる
     if (isPlaying() || isReplayAnimating()) replay.needsRebuild = true;
   }
-  saveSessionResume(replay);
+  // デッキとマイデッキのひも付け・保存していない増減も一緒に退避する（戻ったら続きから保存できるように）
+  saveSessionResume(replay, captureLinkState());
 });
 
 /**

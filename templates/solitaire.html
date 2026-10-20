@@ -101,6 +101,14 @@
       </nav>
     </div>
 
+    <!-- カードを追加（デッキ編集・deck-edit-ui.js。保存はデッキ欄の見出しで行う） -->
+    <div class="sol-sidebar-section sol-deck-add-section">
+      <p class="sol-sidebar-heading">カードを追加</p>
+      <input type="search" id="solDeckAddSearch" class="sol-deck-add-search" placeholder="カード名で検索"
+             autocomplete="off" aria-label="デッキに入れるカードを名前で検索" aria-controls="solDeckAddSuggest">
+      <ul id="solDeckAddSuggest" class="sol-deck-suggest" role="listbox" hidden></ul>
+    </div>
+
     <!-- デッキ選択 -->
     <div class="sol-sidebar-section">
       <p class="sol-sidebar-heading">デッキを選択</p>
@@ -450,7 +458,22 @@
         <div class="sol-mobile-deck-sheet-panel">
           <div class="sol-mobile-sheet-header">
             <span>デッキ</span>
+            <!-- 回す＝今までのデッキ操作／編集＝カードを足す・抜く・マイデッキへ保存（deck-edit-ui.js） -->
+            <div class="sol-deck-mode-tabs" role="group" aria-label="デッキの使い方">
+              <button type="button" data-deck-mode="play" aria-pressed="true">回す</button>
+              <button type="button" data-deck-mode="edit" aria-pressed="false">編集</button>
+            </div>
             <button type="button" class="sol-mobile-sheet-close-btn" data-sol-deck-sheet-close aria-label="閉じる">&times;</button>
+          </div>
+          <div id="solMobileDeckEdit" class="sol-deck-edit" hidden>
+            <div id="solMobileDeckEditBar" class="sol-deck-edit-bar"></div>
+            <div class="sol-deck-edit-search">
+              <input type="search" id="solMobileDeckEditSearch" class="sol-mobile-deck-search" placeholder="カード名で検索"
+                     autocomplete="off" aria-label="デッキに入れるカードを名前で検索">
+              <ul id="solMobileDeckEditSuggest" class="sol-deck-suggest" role="listbox" hidden></ul>
+            </div>
+            <div id="solMobileDeckEditSel" class="sol-deck-edit-sel is-empty" aria-live="polite"></div>
+            <div id="solMobileDeckEditGrid" class="sol-deck-edit-list"></div>
           </div>
           <div class="sol-mobile-deck-search-row">
             <input type="search" id="solMobileDeckSearch" class="sol-mobile-deck-search" placeholder="カード名で検索" autocomplete="off">

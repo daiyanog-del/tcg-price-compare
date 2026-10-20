@@ -357,10 +357,12 @@ function restoreCounters(counters) {
  * デッキが空なら保存しない
  * リプレイ記録は ui/ を import すると循環依存になるため、呼び出し側（main.js）が集めて渡す。
  * @param {Object|null} [replay] - リプレイ退避データ（記録が空なら省略）
+ * @param {Object|null} [deckLink] - マイデッキとのひも付けと保存していない増減（deck-link.js の captureLinkState）
  */
-export function saveSessionResume(replay = null) {
+export function saveSessionResume(replay = null, deckLink = null) {
   try {
     const state = _captureCurrentState();
+    if (deckLink) state.deckLink = deckLink;
     const hasContent = (
       state.slots.poolRow?.length > 0 ||
       state.slots.poolRow2?.length > 0 ||
@@ -383,7 +385,7 @@ export function saveSessionResume(replay = null) {
  * sessionStorageから盤面を復元して盤面に反映する（非同期版）
  * 呼び出し後にデータは削除される
  * リプレイ記録の適用は呼び出し側（main.js）が行うため、退避データを返す。
- * @returns {Promise<false|{replay:Object|null, replayDropped:boolean}>} 復元できなければ false
+ * @returns {Promise<false|{replay:Object|null, replayDropped:boolean, deckLink:Object|null}>} 復元できなければ false
  */
 export async function loadSessionResume() {
   try {
@@ -391,7 +393,7 @@ export async function loadSessionResume() {
     if (!taken) return false;
 
     await _applyState(taken.state);
-    return { replay: taken.state.replay || null, replayDropped: taken.replayDropped };
+    return { replay: taken.state.replay || null, replayDropped: taken.replayDropped, deckLink: taken.state.deckLink || null };
   } catch (e) {
     console.warn('セッション復元失敗:', e);
     clearSessionResume(sessionStorage);

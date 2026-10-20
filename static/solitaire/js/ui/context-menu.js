@@ -15,6 +15,8 @@
  *              （初期カード isInitial は現状維持で何も出さない。昔の設計の名残でスコープ外）
  *   その他    : 墓地送り / 除外 / 手札に戻す / デッキに戻す / 削除（トークンのみ）
  *   プール以外のすべてのカードに「吹き出しを付ける」（整理④。comment-ui.js の入力欄を開く）
+ *   トークン以外のすべてのカードの末尾に「デッキに1枚足す（今 N枚）／デッキから1枚抜く」
+ *              （デッキ編集。項目は deck-edit-ui.js が setExtraMenuItemsProvider で登録する）
  *
  * 「削除」は普通のカードには出さない（盤面は記録（リプレイ）だけで再現できるようにするため、
  * 記録に残せない消え方を作らない）。トークンだけは出せて、消すと removeCard として記録される。
@@ -50,6 +52,12 @@ import { openCardCommentInput } from './comment-ui.js';
 // ── 単一インスタンス ──────────────────────────────────────────────
 let _menuEl          = null;
 let _removeListeners = null;
+// 末尾に足す項目（デッキ編集の「デッキに1枚足す／抜く」。deck-edit-ui.js が登録する）。
+// deck-edit-ui.js を直接 import すると card-manager.js → 本ファイル → deck-input-panel.js → card-manager.js の
+// 循環になるため、向こうから登録してもらう。
+let _extraItemsProvider = null;
+/** @param {(wrapper: Element) => Array<{label:string, sub?:string, disabled?:boolean, action?:Function}>} fn */
+export function setExtraMenuItemsProvider(fn) { _extraItemsProvider = fn; }
 
 /**
  * コンテキストメニューを開く
@@ -74,6 +82,11 @@ export function openCardContextMenu(wrapper, cardEl, x, y, isTouch = false) {
   const isInitial = wrapper.id === 'initial';
 
   const items = _buildMenuItems(wrapper, img, parent, isInPool, isInitial, isTouch);
+  // 初期カード（昔の設計の名残）以外には、デッキ編集の項目を区切って末尾に足す
+  if (!isInitial && _extraItemsProvider) {
+    const extra = _extraItemsProvider(wrapper) || [];
+    if (extra.length) items.push({ separator: true }, ...extra);
+  }
   if (items.length === 0) return;
 
   // ── メニュー要素を生成 ────────────────────────────────────────
@@ -81,7 +94,7 @@ export function openCardContextMenu(wrapper, cardEl, x, y, isTouch = false) {
   menu.className = 'sol-context-menu';
   menu.setAttribute('role', 'menu');
 
-  items.forEach(({ label, action, separator }) => {
+  items.forEach(({ label, action, separator, sub, disabled }) => {
     if (separator) {
       const hr = document.createElement('li');
       hr.className = 'sol-context-menu-sep';
@@ -92,6 +105,23 @@ export function openCardContextMenu(wrapper, cardEl, x, y, isTouch = false) {
     li.className = 'sol-context-menu-item';
     li.textContent = label;
     li.setAttribute('role', 'menuitem');
+    // 補足（「今 3枚」など）。textContent で入れる
+    if (sub) {
+      const s = document.createElement('span');
+      s.className = 'sol-context-menu-sub';
+      s.textContent = sub;
+      li.appendChild(s);
+    }
+    // 押せない項目: 見せるが何もしない（押したらメニューだけ閉じる）
+    if (disabled) {
+      li.classList.add('is-disabled');
+      li.setAttribute('aria-disabled', 'true');
+      const closeOnly = (e) => { e.preventDefault(); e.stopPropagation(); closeContextMenu(); };
+      li.addEventListener('mousedown', closeOnly);
+      li.addEventListener('touchend', closeOnly);
+      menu.appendChild(li);
+      return;
+    }
     li.addEventListener('mousedown', (e) => {
       e.stopPropagation();
       action();

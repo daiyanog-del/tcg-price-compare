@@ -65,8 +65,10 @@
     gap: 4px;
   }
 
-  /* 新着直行の案内の一文（mydeck-hint.js）は縦書きの小タブに置けないので隠す。スマホ縦は詳細シートの箱で案内する */
-  .pool-label .sol-mydeck-hint { display: none; }
+  /* デッキ編集（deck-edit-ui.js）: PC 用のデッキ欄見出しの保存行・サイドバーの「カードを追加」は、
+     縦書きの小タブ・デッキ読込シートに置けないので隠す。スマホはデッキシートの「編集」で同じことをする */
+  .pool-label .sol-deck-bar,
+  .sol-deck-add-section { display: none !important; }
 
   .pool-label {
     writing-mode: vertical-rl;
@@ -1140,6 +1142,143 @@
     height: 18px;
     font-size: 0.62rem;
   }
+
+  /* ════════ デッキシートの「回す｜編集」（deck-edit-ui.js・2026-10-20） ════════
+     「編集」では回すための行（検索・手札へ等・一覧）を隠し、編集の欄（#solMobileDeckEdit）を出す。
+     枚数を変えられるのは選んだカード1枚だけ（上の欄）。カードの上には「×N」の札だけを出す（誤って触らないように）。 */
+  .sol-deck-mode-tabs {
+    display: flex;
+    gap: 4px;
+    margin-left: 12px;
+    margin-right: auto;
+    padding: 3px;
+    border-radius: 999px;
+    background: var(--bg-color);
+  }
+  .sol-deck-mode-tabs button {
+    padding: 4px 14px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: #a8b4c9;
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 400;
+    cursor: pointer;
+  }
+  .sol-deck-mode-tabs button[aria-pressed="true"] {
+    background: #202c42;
+    color: #eff3fb;
+    font-weight: 700;
+  }
+  .sol-mobile-deck-sheet.is-edit .sol-mobile-deck-search-row,
+  .sol-mobile-deck-sheet.is-edit .sol-mobile-deck-actions,
+  .sol-mobile-deck-sheet.is-edit #solMobileDeckEmpty,
+  .sol-mobile-deck-sheet.is-edit #solMobileDeckGrid { display: none !important; }
+  .sol-deck-edit {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .sol-deck-edit[hidden] { display: none; }
+  .sol-deck-edit-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
+    padding: 4px 14px 8px;
+    font-size: 0.85rem;
+  }
+  .sol-deck-edit-bar[hidden] { display: none; }
+  .sol-deck-edit-bar .sol-deck-bar-name { font-size: 0.95rem; max-width: 100%; margin-right: auto; }
+  .sol-deck-edit-bar .sol-deck-bar-save { height: 34px; padding: 0 16px; font-size: 0.85rem; }
+  .sol-deck-edit-bar .sol-deck-bar-alt { font-size: 0.78rem; }
+  /* 保存の行と検索の間に区切りを入れて、検索の後に保存を押すと読めないようにする */
+  .sol-deck-edit-search {
+    padding: 8px 14px 6px;
+    border-top: 1px solid var(--border);
+  }
+  .sol-deck-edit-search .sol-deck-suggest {
+    margin-top: 6px;
+    max-height: 40vh;
+    overflow-y: auto;
+  }
+  .sol-deck-edit-search .sol-deck-suggest-item { padding: 8px; font-size: 0.85rem; }
+  .sol-deck-edit-search .sol-deck-suggest-thumb { width: 28px; height: 40px; }
+  .sol-deck-edit-sel {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 4px 14px 8px;
+    padding: 8px 10px;
+    min-height: 40px;
+    border-radius: 10px;
+    background: #18233a;
+  }
+  .sol-deck-edit-sel.is-empty { justify-content: center; }
+  .sol-deck-edit-sel .sol-mobile-deck-thumb {
+    flex: none;
+    width: 26px;
+    height: 38px;
+    border-radius: 3px;
+    object-fit: cover;
+  }
+  .sol-deck-edit-sel-hint { color: #a8b4c9; font-size: 0.85rem; }
+  .sol-deck-edit-sel-name {
+    flex: 1;
+    min-width: 0;
+    color: #eff3fb;
+    font-size: 0.9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sol-deck-edit-step {
+    flex: none;
+    width: 36px;
+    height: 36px;
+    border: 0;
+    border-radius: 8px;
+    background: #202c42;
+    color: #eff3fb;
+    font-size: 1.1rem;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .sol-deck-edit-step:disabled { opacity: 0.35; cursor: default; }
+  .sol-deck-edit-count { flex: none; min-width: 18px; text-align: center; color: #eff3fb; font-size: 1rem; }
+  .sol-deck-edit-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding-bottom: 14px;
+  }
+  .sol-deck-edit-sec {
+    margin: 6px 14px 4px;
+    color: #a8b4c9;
+    font-size: 0.75rem;
+  }
+  /* 一覧の中の格子は、スクロールを外側（.sol-deck-edit-list）に任せる */
+  .sol-mobile-deck-grid.sol-deck-edit-grid {
+    flex: none;
+    overflow: visible;
+    padding: 0 14px 6px;
+  }
+  .sol-deck-edit-badge {
+    position: absolute;
+    z-index: 3; /* 透かし・ぼかしの擬似要素(z-index 2)より前面 */
+    left: 3px;
+    bottom: 3px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: rgba(16, 22, 38, 0.88);
+    color: #eff3fb;
+    font-size: 0.68rem;
+    font-weight: 700;
+  }
+  .sol-deck-edit-empty { margin: 16px 14px; color: #a8b4c9; font-size: 0.85rem; text-align: center; }
 }
 
 /* ════════ H-1: portrait を外れた瞬間の二重防御（致命的バグ対策） ════════

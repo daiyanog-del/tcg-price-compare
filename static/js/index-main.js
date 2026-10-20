@@ -2964,6 +2964,8 @@ async function openCurrentDeckInSolitaire(){
     const text=document.getElementById('deckTextarea').value;
     if(text.length>12000)throw new Error('デッキ情報が大きすぎます。メイン60枚・EX15枚以内にしてください。');
     const snapshot={version:1,name:_currentDeckName||'マイデッキ',...parseDeckSections(text)};
+    // 保存済みデッキを開いているなら、シミュレーターの「変更を保存」がそのデッキへ上書きできるよう ID も渡す
+    if(window._currentSavedDeckId)snapshot.savedId=window._currentSavedDeckId;
     const {storeHandoff}=await import('/static/shared/deck-handoff.js');
     storeHandoff(snapshot);
     location.assign('/solitaire?from=mydeck');

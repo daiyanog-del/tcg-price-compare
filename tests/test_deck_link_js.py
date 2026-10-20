@@ -1,4 +1,4 @@
-"""マイデッキ追加の案内（シミュレーター→トップ）の回帰検証。"""
+"""シミュレーターのデッキ編集（deck-link.js の保存の計算・ひも付け・抜けるカード）の回帰検証。"""
 import shutil
 import subprocess
 from pathlib import Path
@@ -7,10 +7,10 @@ import pytest
 
 
 @pytest.mark.skipif(shutil.which('node') is None, reason='node が見つかりません')
-def test_mydeck_hint():
+def test_deck_link_js():
     root = Path(__file__).resolve().parent.parent
     result = subprocess.run(
-        ['node', str(root / 'tests/js/mydeck_hint_check.js')],
+        ['node', str(root / 'tests/js/deck_link_check.js')],
         cwd=root, capture_output=True, text=True, encoding='utf-8', timeout=30,
     )
     assert result.returncode == 0, result.stdout + result.stderr
