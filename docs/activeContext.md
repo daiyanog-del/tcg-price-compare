@@ -2,6 +2,8 @@
 
 ## 2026-10-20: トレイ3種のレリーフアイコン
 
+- 追加指摘を反映: 手札/EX/デッキ/カード詳細のみ暗色・凹状にする上書きを撤去し、盤面と背景色・陰影を共通化。追加アイコンを最大100pxからマス幅×0.76へ縮小。PCで背景/影の一致と58.52pxを実測。修正版見本 C:/Users/daiya/tray-relief-matched.png。本番未反映。
+
 - hand/ex-deck/deck-relief.svgを追加。墓地アイコンのstroke6・色・彫り込みfilterを共用した図形として、扇状の札/星入り重ね札/積み札を描画。relief-theme.cssの3パネル背景へ追加。寸法・操作処理は変更なし。
 - PCと390×844で実画面確認。スマホのデッキパネル非表示は従来通り。横溢れなし、SVG3種のXML解析とgit diff --check成功。
 - プレビュー http://127.0.0.1:5094/solitaire 。見本 C:/Users/daiya/tray-relief-icons-pc.png。本番反映・外部送信は未実施、承認待ち。

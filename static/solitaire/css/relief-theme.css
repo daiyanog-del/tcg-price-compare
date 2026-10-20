@@ -1,7 +1,6 @@
 /* 承認済みD案: 青灰色のマットな面と刻印。カードより背景の主張を弱くする。 */
 :root {
   --relief-face: #253143;
-  --relief-tray: #202c3d;
   /* 2026-10-16 承認モックの値。薄い断面と、盤面から少し浮いた影。 */
   --relief-card-shadow: 0 .7px 0 #514e48, 0 2px 3px #03081099,
     2px 7px 7px #030810b3, 4px 12px 14px #03081080;
@@ -55,13 +54,6 @@
     0 2px 3px #080f1b33;
 }
 
-/* 手札・デッキ・カード詳細は同素材の浅いトレイ。文字は陰影を付けず読みやすく保つ。 */
-.sol-hand-area, #imagePool, #imagePool2,
-.sol-card-info-panel, .sol-mobile-cip-panel {
-  background-color: var(--relief-tray);
-  box-shadow: inset 0 2px 4px #070e1859, inset 0 -1px 1px #a9bdd51f;
-}
-
 /* トレイの刻印も背景として描き、カードの操作領域と枚数表示を維持する。 */
 .sol-hand-area { --relief-symbol: url('../icons/hand-relief.svg'); }
 #imagePool2 { --relief-symbol: url('../icons/ex-deck-relief.svg'); }
@@ -70,7 +62,8 @@
   background-image: var(--relief-symbol), var(--relief-grain), linear-gradient(145deg, #ffffff05, #0000000c);
   background-position: center, center, center;
   background-repeat: no-repeat, repeat, no-repeat;
-  background-size: auto min(76%, 100px), 160px 160px, 100% 100%;
+  /* 盤面の刻印と同じマス幅を基準にし、パネルの広さで拡大しない。 */
+  background-size: calc(var(--slot-width) * .76) auto, 160px 160px, 100% 100%;
 }
 
 .custom-slot[data-slot="10"], .custom-slot[data-slot="14"] {
