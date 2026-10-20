@@ -37,6 +37,7 @@ import {
 import { playActivateEffect, flipMoveClone } from '../components/card-effects.js';
 import { _renderCard, _showUnknown, _showLoading } from './card-info-panel.js';
 import { isMobilePortrait, watchMobilePortrait, isMobileLandscape, watchMobileLandscape } from '../utils/viewport.js';
+import { enterRecView, exitRecView } from './rec-view.js';
 import { showToast } from '../utils/toast.js';
 import { resetMobileDeckMode, openDeckImage } from './deck-edit-ui.js';
 import { generateShareURL, checkPublicTitle, resetShareUrlMemo, buildShareTweetUrl, getReplayCounts, saveReplayToDevice, describeSaveResult, exportReplayFile } from './replay-ui.js';
@@ -127,6 +128,9 @@ function resetMobileUI() {
  * resize/orientationchange の逐次発火はやめる＝B-13 のデバウンスも自然に不要になる）。
  */
 function handlePortraitChange(matches) {
+  // 画面録画用の表示は向きごとに作りが違う（縦向きは再生モードの上に載る）ので、切り替わったら先に閉じる。
+  // 再生モードの終了（resetMobileUI）より前に閉じ、下部の予約量を戻す順番にする
+  exitRecView();
   if (matches) {
     updateMobileVisibility();
   } else {
@@ -235,6 +239,7 @@ const MENU_ACTIONS = {
   dice:     () => { document.getElementById('diceRollBtn')?.click(); },
   deckinput:() => { openSidebarSheet(); },
   playback: () => { enterPlaybackMode('menu'); }, // タスクB-1: 旧「リプレイ操作」オーバーレイを廃止し再生モードへ
+  recview:  () => { enterRecView(); }, // 画面録画用の表示（rec-view.js が再生モードへ入れてから下部バーを隠す）
   share:    () => { openShareSheet('share'); }, // ⋯メニューの「共有」
   deckimage:() => { openDeckImage(); },          // デッキの一覧を画像にする（deck-edit-ui.js → shared/deck-image.js）
   boardmemo:() => { openCommentSheet({ kind: 'board' }); }, // 整理④: 盤面にメモ
@@ -943,6 +948,14 @@ export function setMobileRecordingState(state) {
   };
   _updateRecordBtn();
   _updateShareRecordingSection();
+}
+
+/**
+ * 画面録画用の表示（rec-view.js）から呼ぶ: 縦向きスマホの再生モードに入る（既に入っていれば何もしない）。
+ * 入口は「⋯メニュー」と同じ扱い（終了しても共有シートへは戻らない）。
+ */
+export function enterPlaybackModeForRecView() {
+  enterPlaybackMode('menu');
 }
 
 /** 再生モード中かどうか（ページ遷移をまたぐ退避用） */

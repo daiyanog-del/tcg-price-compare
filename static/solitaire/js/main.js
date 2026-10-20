@@ -26,7 +26,8 @@ import { migrateSlotsToReplays } from './services/slot-migration.js';
 import { updateCipWidth, syncCipPosition } from './ui/cip-layout.js';
 import { initFeedbackModal } from './ui/feedback-modal.js';
 import { initSidebarToggle } from './ui/sidebar-toggle.js';
-import { initMobileUI, getMobileRecordingState, setMobileRecordingState, isMobilePlaybackMode, resumePlaybackModeIfNeeded, openCardDetailByName } from './ui/mobile-ui.js';
+import { initMobileUI, getMobileRecordingState, setMobileRecordingState, isMobilePlaybackMode, resumePlaybackModeIfNeeded, openCardDetailByName, enterPlaybackModeForRecView } from './ui/mobile-ui.js';
+import { initRecView } from './ui/rec-view.js';
 import { getPcRecordingState, setPcRecordingState } from './ui/pc-recording.js';
 import { isMobilePortrait } from './utils/viewport.js';
 import { showToast } from './utils/toast.js';
@@ -110,6 +111,8 @@ function fitFieldToViewport() {
   // 完全に一致させる（司令塔決定A-1）。isPhone(短辺<500)基準のままだと500〜767px縦長で
   // CSSはモバイルレイアウトなのにJSはPC計算式を使う不整合が起きるため。
   const isPortraitMobile = isMobilePortrait();
+  // 画面録画用の表示（縦向きスマホは再生モードと同じ計算で、下部の予約量だけ rec-view.js が変える）
+  const isRecView = document.body.classList.contains('sol-recview') && !isPortraitMobile;
 
   // 高さ基準:
   //   横向きスマホ   → 盤面3行のみをビューポートに収め、手札/デッキはスクロール
@@ -120,7 +123,10 @@ function fitFieldToViewport() {
   if (isPhone && isLandscape) {
     // mainContainer padding-top(4) + row-gaps(20) + sol-field-area padding-bottom(6)
     const BOARD_FIXED = 30;
-    const availForBoard = window.innerHeight - navH - replayH - BOARD_FIXED;
+    // 画面録画用の表示では上の帯（＋余白8）の分も引く（rec-view.css の .sol-field-area の上余白）
+    const recBand = document.body.classList.contains('sol-recview')
+      ? (document.getElementById('solRecBand')?.offsetHeight || 56) + 8 : 0;
+    const availForBoard = window.innerHeight - navH - replayH - BOARD_FIXED - recBand;
     slotW_h = Math.floor(availForBoard / 4.35);
   } else if (isPortraitMobile) {
     // 設計書 §A-2（2026-09-03 第2次実機検収対応）: 墓地｜除外の左右2分割をやめ、
@@ -139,6 +145,12 @@ function fitFieldToViewport() {
     mobileBottomReserve = getMobileBottomReserve();
     const MOBILE_PORTRAIT_FIXED = MOBILE_PORTRAIT_FIXED_BASE + mobileBottomReserve;
     slotW_h = Math.floor((window.innerHeight - MOBILE_PORTRAIT_FIXED) / 10.15);
+  } else if (isRecView) {
+    // 画面録画用の表示（rec-view.js・rec-view.css）: デッキ（#imagePool）と再生バーを隠し、上に帯を置く。
+    // 盤面3段＋手札/EXの1段 → 4×1.45=5.8。固定分は下の通常時から imagePool の行（mt4＋22）を除き、帯（＋余白8）を足したもの
+    const bandH = document.getElementById('solRecBand')?.offsetHeight || 56;
+    const FIXED_REC = 4 + 4 + 22 + 6 + bandH + 8;
+    slotW_h = Math.floor((window.innerHeight - FIXED_REC) / 5.8);
   } else {
     // slot-width に依存しない固定オーバーヘッド（実測ベースに引き直し）:
     //   mainContainer padding-top              :  4px
@@ -161,7 +173,8 @@ function fitFieldToViewport() {
     : Infinity;
 
   const minW = isPhone ? 26 : 60;
-  const maxW = isPhone ? 200 : 124;
+  // 録画用の表示は左右のパネルが無い分、PC でも通常（124px）より大きく出す
+  const maxW = isPhone ? 200 : (isRecView ? 200 : 124);
   let slotW = Math.max(minW, Math.min(maxW, Math.min(slotW_h, slotW_w)));
   applySlotWidth(slotW);
   if (!isPortraitMobile) {
@@ -332,6 +345,9 @@ async function initializeApp() {
 
   // イベントリスナーを設定
   initializeEventListeners();
+
+  // 画面録画用の表示。共有リンクの題名（sol-replay-loaded-from-url）を受け取るため、読み込みを始める initReplayUI より先に用意する
+  initRecView({ enterMobilePlayback: enterPlaybackModeForRecView });
 
   // リプレイUI初期化（window.replayLog バインド含む）
   initReplayUI();

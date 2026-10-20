@@ -11,6 +11,7 @@
  */
 
 import { getLogLength } from '../services/replay-service.js';
+import { enterRecView } from './rec-view.js';
 
 const PROMPT_ID = 'solReplayStartPrompt';
 
@@ -85,7 +86,14 @@ export function showReplayStartPrompt(info = {}) {
   later.textContent = '盤面だけ見る';
   later.addEventListener('click', _close);
 
-  card.append(label, title, meta, play, later);
+  // 画面録画用の表示（rec-view.js）。スマホの再生バーには置き場所が無いので、共有リンクを開いた人の入口をここにも置く
+  const rec = document.createElement('button');
+  rec.type = 'button';
+  rec.className = 'sol-replay-start-later';
+  rec.textContent = '画面録画用に再生';
+  rec.addEventListener('click', () => { _close(); enterRecView(); });
+
+  card.append(label, title, meta, play, later, rec);
   root.append(backdrop, card);
   document.body.appendChild(root);
   document.addEventListener('keydown', _onKeydown, true);
@@ -94,6 +102,8 @@ export function showReplayStartPrompt(info = {}) {
 }
 
 export function initReplayStartPrompt() {
+  // 画面録画用の表示（rec-view.js）を開いたら案内を閉じる（Esc の受け口も外す）
+  document.addEventListener('sol-recview-open', _close);
   document.addEventListener('sol-replay-loaded-from-url', (e) => {
     if (e.detail?.atEnd) return; // 続きから遊ぶときは出さない
     showReplayStartPrompt({ source: e.detail?.source, title: e.detail?.title });

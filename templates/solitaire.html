@@ -49,6 +49,7 @@
 <link rel="stylesheet" href="{{ static_url('solitaire/css/sample-blur.css') }}">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/site-theme.css') }}">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/relief-theme.css') }}">
+<link rel="stylesheet" href="{{ static_url('solitaire/css/rec-view.css') }}">
 <link rel="stylesheet" href="{{ static_url('shared/text-report.css') }}">
 <!-- import map: solitaire/js・shared 配下の相対importを内容ハッシュ付きURLへ写像する
      （静的な相対specifierはstatic_url()を通せないため、ここでブラウザ解決を上書きする）。
@@ -272,6 +273,8 @@
             <button class="replay-btn replay-speed-btn active" id="replaySpeed1" data-speed="1">1x</button>
             <button class="replay-btn replay-speed-btn" id="replaySpeed2" data-speed="2">2x</button>
           </div>
+          <!-- 画面録画用の表示（js/ui/rec-view.js・2026-10-20）。記録が無いあいだは #replayPlay と同じく押せない -->
+          <button class="replay-btn" id="replayRecView" type="button" disabled title="端末の画面録画で動画にするための表示">画面録画用</button>
         </div>
         <div class="replay-group" aria-label="戻す">
           <button class="replay-btn" id="replayUndo" disabled>&#8630; 1手戻す</button>
@@ -445,6 +448,7 @@
             <button type="button" class="sol-mobile-menu-item" data-menu-action="dice">ダイスロール</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="deckinput">デッキを読み込む</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="playback">リプレイを再生</button>
+            <button type="button" class="sol-mobile-menu-item" data-menu-action="recview">画面録画用に再生<span class="sol-mobile-menu-desc">ボタンを隠して最初から再生します。端末の画面録画で動画にできます</span></button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="help">操作方法</button>
             <button type="button" class="sol-mobile-menu-item" data-menu-action="feedback">不具合・要望を送る</button>
             <!-- E-2: デッキ読込シート内のページナビを非表示にする代わりの導線 -->
