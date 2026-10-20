@@ -109,7 +109,7 @@ function startPickingCard() {
   _picking = true;
   document.getElementById('solCommentGuide')?.removeAttribute('hidden');
   document.body.classList.add('sol-comment-picking');
-  document.getElementById('solCommentCardBtn')?.classList.add('is-active');
+  _setDrawer('card', true); // 選んでいる間は、ボタンの下に追加済みの吹き出しも出す
   _updateBlock();
 }
 
@@ -118,7 +118,7 @@ function stopPickingCard({ keepBlock = false } = {}) {
   _picking = false;
   document.getElementById('solCommentGuide')?.setAttribute('hidden', '');
   document.body.classList.remove('sol-comment-picking');
-  document.getElementById('solCommentCardBtn')?.classList.remove('is-active');
+  _setDrawer('card', false);
   if (!keepBlock) _updateBlock();
 }
 
@@ -148,17 +148,35 @@ function closeCardCommentPopup({ holdGesture = false } = {}) {
   _updateBlock();
 }
 
-/** 開いている入力欄（カードの近く・盤面メモ）と選択モードをすべて閉じる */
+/** 右パネルのボタンと、その下に開く区画（入力＋追加済みの一覧）。kind は記録のコメントの種類 */
+const _DRAWERS = {
+  card:  { btn: 'solCommentCardBtn',  drawer: 'solCommentCardDrawer' },
+  board: { btn: 'solCommentBoardBtn', drawer: 'solCommentBoardDrawer' },
+  cutin: { btn: 'solCommentCutinBtn', drawer: 'solCommentCutinDrawer' },
+};
+
+/** 区画を開け閉めする。開いている間のボタンは「入力中」と同じ accent の面（is-active） */
+function _setDrawer(kind, open) {
+  const ids = _DRAWERS[kind];
+  const drawer = document.getElementById(ids.drawer);
+  if (drawer) drawer.hidden = !open;
+  const btn = document.getElementById(ids.btn);
+  btn?.classList.toggle('is-active', open);
+  btn?.setAttribute('aria-expanded', String(open));
+}
+
+function _isDrawerOpen(kind) {
+  const drawer = document.getElementById(_DRAWERS[kind].drawer);
+  return !!drawer && !drawer.hidden;
+}
+
+/** 開いている入力欄（カードの近く・盤面メモ・カットイン）と選択モードをすべて閉じる */
 function closeCommentInputs() {
   stopPickingCard();
   closeCardCommentPopup();
-  const form = document.getElementById('solCommentBoardForm');
-  if (form) form.hidden = true;
-  document.getElementById('solCommentBoardBtn')?.classList.remove('is-active');
-  const cutinForm = document.getElementById('solCommentCutinForm');
-  if (cutinForm) cutinForm.hidden = true;
+  _setDrawer('board', false);
+  _setDrawer('cutin', false);
   _disruptionPicker?.reset();
-  document.getElementById('solCommentCutinBtn')?.classList.remove('is-active');
 }
 
 /** 入力欄をカードの近く（画面からはみ出さない位置）に置く */
@@ -225,13 +243,10 @@ export function openCardCommentInput(wrapper) {
 
 // ── 盤面メモ（右パネル区画の中の入力欄） ──────────────────────
 function _toggleBoardMemoForm() {
-  const form = document.getElementById('solCommentBoardForm');
-  if (!form) return;
-  const open = form.hidden;
+  const open = !_isDrawerOpen('board');
   closeCommentInputs();
   if (!open) return;
-  form.hidden = false;
-  document.getElementById('solCommentBoardBtn')?.classList.add('is-active');
+  _setDrawer('board', true);
   document.getElementById('solCommentBoardInput')?.focus();
 }
 
@@ -247,11 +262,10 @@ function _submitBoardMemo() {
 function _toggleCutinForm() {
   const form = document.getElementById('solCommentCutinForm');
   if (!form) return;
-  const open = form.hidden;
+  const open = !_isDrawerOpen('cutin');
   closeCommentInputs();
   if (!open) return;
-  form.hidden = false;
-  document.getElementById('solCommentCutinBtn')?.classList.add('is-active'); // 開いている間は「入力中」と同じ accent の面
+  _setDrawer('cutin', true);
   if (!form.querySelector('[data-cutin-pane="disruption"]')?.hidden) _disruptionPicker?.prefetch();
   // 前回の切り替え（言葉／相手の妨害）のまま開く。言葉のときだけ自由入力欄にフォーカス
   if (!form.querySelector('[data-cutin-pane="words"]')?.hidden) document.getElementById('solCommentCutinInput')?.focus();
@@ -271,27 +285,40 @@ function _addCutin(text, card) {
 
 // ── 一覧 ──────────────────────────────────────────────────
 
-/** 区画の一覧を、いまの記録から作り直す（「N手目 💬/📝 本文」＋行末の ✕） */
+/**
+ * 追加済みの一覧を、いまの記録から作り直す。種類ごとに、そのボタンの下の区画の一覧（「N手目 本文」＋行末の ✕）と
+ * ボタンの丸い数字（件数・0件なら出さない）を描く。
+ */
 function renderCommentList() {
-  const ul = document.getElementById('solCommentList');
-  if (!ul) return;
   const items = listComments(getLogs());
-  const KIND_ICON = { card: '💬', board: '📝', cutin: '🎬' };
+  for (const kind of Object.keys(_DRAWERS)) {
+    const own = items.filter((c) => (c.kind in _DRAWERS ? c.kind : 'board') === kind);
+    const count = document.querySelector(`[data-comment-count="${kind}"]`);
+    if (count) { count.textContent = String(own.length); count.hidden = own.length === 0; }
+    const ul = document.querySelector(`[data-comment-list="${kind}"]`);
+    if (ul) _renderKindList(ul, own);
+  }
+}
+
+function _renderKindList(ul, items) {
   ul.replaceChildren();
   if (items.length === 0) {
     const li = document.createElement('li');
     li.className = 'sol-comment-empty';
-    li.textContent = 'まだコメントはありません';
+    li.textContent = 'まだありません';
     ul.appendChild(li);
     return;
   }
   for (const c of items) {
     const li = document.createElement('li');
     li.className = 'sol-comment-row';
+    const step = document.createElement('span');
+    step.className = 'sol-comment-row-step';
+    step.textContent = `${c.index + 1}手目`;
     const text = document.createElement('span');
     text.className = 'sol-comment-row-text';
-    text.textContent = `${c.index + 1}手目 ${KIND_ICON[c.kind] ?? '📝'} ${c.text}${c.disruption ? '（相手の妨害）' : ''}`;
-    text.title = c.text;
+    text.textContent = `${c.text}${c.disruption ? '（相手の妨害）' : ''}`;
+    text.title = text.textContent;
     const del = document.createElement('button');
     del.type = 'button';
     del.className = 'sol-comment-del';
@@ -299,7 +326,7 @@ function renderCommentList() {
     del.setAttribute('aria-label', `${c.index + 1}手目のコメントを削除`);
     // 確認は出さない（コメントなので）。一覧の行の内容も渡し、記録の同じ位置が別のコメントに変わっていたら消さない
     del.addEventListener('click', () => removeEventAt(c.index, { kind: c.kind, cardId: c.cardId, text: c.text, disruption: c.disruption }));
-    li.append(text, del);
+    li.append(step, text, del);
     ul.appendChild(li);
   }
 }

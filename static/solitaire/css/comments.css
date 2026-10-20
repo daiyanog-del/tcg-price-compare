@@ -421,12 +421,6 @@ body.sol-comment-picking .tier-item-wrapper .tier-item {
 }
 
 /* ── 右パネル「コメント」区画 ── */
-.sol-comment-actions {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 5px;
-}
 .sol-comment-btn {
   padding: 5px 9px;
   background: var(--bg-hover, #202c42);

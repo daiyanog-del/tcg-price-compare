@@ -56,7 +56,7 @@ const W=(id,name,{parent='poolRow',token=false}={})=>({
   const seen=[];const off=m.onDeckLinkChange(v=>seen.push(v));
   assert.equal(m.getDeckLink(),null);
   m.setDeckLink({savedId:'d_1',name:' 天盃龍 '});
-  assert.deepEqual(m.getDeckLink(),{savedId:'d_1',name:'天盃龍',dirty:false});
+  assert.deepEqual(m.getDeckLink(),{savedId:'d_1',name:'天盃龍',source:null,dirty:false});
   m.recordDelta('A','main',+1);assert.equal(m.getDeckLink().dirty,true);
   m.recordDelta('A','main',-1);assert.equal(m.getDeckLink().dirty,false,'足して抜いたのに変更ありのまま');
   m.recordDelta('B','ex',-1);m.recordDelta('C','main',+1);m.recordDelta('C','main',+1);
@@ -67,10 +67,10 @@ const W=(id,name,{parent='poolRow',token=false}={})=>({
   m.restoreLinkState(snap);assert.deepEqual(m.getDeltas(),[{sec:'ex',name:'B',n:-1},{sec:'main',name:'C',n:2}]);
   assert.equal(m.getDeckLink().savedId,'d_1');
   // 名前が空なら「デッキ」・消去で null
-  m.setDeckLink({});assert.deepEqual(m.getDeckLink(),{savedId:null,name:'デッキ',dirty:false});
+  m.setDeckLink({});assert.deepEqual(m.getDeckLink(),{savedId:null,name:'デッキ',source:null,dirty:false});
   m.clearDeckLink();assert.equal(m.getDeckLink(),null);assert.equal(m.captureLinkState(),null);
   // ひも付けが無いまま（共有リプレイを開いた等）足すと、未登録のデッキとして始まる
-  m.recordDelta('A','main',+1);assert.deepEqual(m.getDeckLink(),{savedId:null,name:'デッキ',dirty:true});
+  m.recordDelta('A','main',+1);assert.deepEqual(m.getDeckLink(),{savedId:null,name:'デッキ',source:null,dirty:true});
   assert(seen.length>=8,'変化を通知していない');off();
 
   // トップからの持ち込み: 保存済みデッキの ID は形が正しいときだけ引き継ぐ（変な値はひも付けないだけで読込は続ける）
@@ -89,7 +89,7 @@ const W=(id,name,{parent='poolRow',token=false}={})=>({
   assert(/'sol-deck-load-start', \(e\) => \{\r?\n\s*_dismissUndoToast\(\);/.test(ui)&&/'sol-board-cleared', \(\) => \{ _dismissUndoToast\(\);/.test(ui)&&/'sol-deck-edited', _dismissUndoToast\)/.test(ui),'読込・消去・編集で取り消しを閉じていない');
   const panel=read('static/solitaire/js/ui/deck-input-panel.js');
   assert.equal((panel.match(/new CustomEvent\('sol-deck-load-start', \{ detail: \{ replace:/g)||[]).length,4,'読込開始の4経路に replace が無い');
-  assert(/loadDeckFromText\(deck\.text \|\| '', row\)\) setDeckLink\(\{ savedId: deck\.id/.test(panel),'マイデッキの読込でひも付けていない');
+  assert(/loadDeckFromText\(deck\.text \|\| '', row\)\) \{?\s*setDeckLink\(\{ savedId: deck\.id/.test(panel),'マイデッキの読込でひも付けていない');
   const cm=read('static/solitaire/js/ui/context-menu.js');
   assert(!/background:\s*#fff/.test(read('static/solitaire/css/components.css').split('.sol-context-menu {')[1].split('}')[0]),'右クリックメニューが白のまま');
   assert(/setExtraMenuItemsProvider/.test(cm));

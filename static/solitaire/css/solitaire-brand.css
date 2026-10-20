@@ -355,42 +355,7 @@
 
 /* ── デッキ選択 ── */
 
-/* タブを縦並びラジオ風に */
-.deck-input-tabs {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-bottom: 12px;
-}
-
-.deck-input-tab {
-  display: block;
-  width: 100%;
-  padding: 7px 10px;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  color: #94a3b8;
-  font-size: 0.83rem;
-  font-family: var(--font);
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-.deck-input-tab:hover {
-  background: rgba(74,124,255,0.08);
-  color: var(--main-color);
-}
-.deck-input-tab.active {
-  background: rgba(74,124,255,0.15);
-  border-color: var(--accent);
-  color: #fff;
-  font-weight: 600;
-}
-
-/* ペインの表示切替 */
-.deck-input-pane { display: none; }
-.deck-input-pane.active { display: block; }
+/* マイデッキ・サンプルデッキのボタンと窓は side-panels.css（2026-10-20 サイドバー整理） */
 
 /* deck-input-panel 自体のデフォルトスタイルを無効化（サイドバー内では不要） */
 .sol-sidebar .deck-input-panel {
@@ -1399,33 +1364,7 @@ a.replay-btn { display: inline-block; text-decoration: none; }
   border-color: var(--green);
 }
 
-/* ── コイントス・ダイスロール（ボタン） ── */
-.sol-random-tools {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.sol-random-item {
-  display: flex;
-}
-
-.sol-random-btn {
-  width: 100%;
-  padding: 7px 6px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--main-color);
-  font-family: var(--font);
-  font-size: 0.78rem;
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-}
-.sol-random-btn:hover {
-  border-color: var(--accent);
-  background: rgba(74,124,255,0.1);
-}
+/* ── コイントス・ダイスロールのボタンは side-panels.css の .sol-side-btn ── */
 
 /* ── オーバーレイ ── */
 .sol-random-overlay {
@@ -1647,24 +1586,7 @@ a.replay-btn { display: inline-block; text-decoration: none; }
 .sol-footer a { color: #334155; }
 
 /* ── フィードバックボタン（サイドバー内） ── */
-.sol-feedback-open-btn {
-  width: 100%;
-  padding: 8px 10px;
-  background: transparent;
-  color: #94a3b8;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-size: 0.8rem;
-  font-family: var(--font);
-  cursor: pointer;
-  text-align: left;
-  transition: border-color 0.15s, color 0.15s, background 0.15s;
-}
-.sol-feedback-open-btn:hover {
-  border-color: var(--accent);
-  color: var(--main-color);
-  background: rgba(74,124,255,0.1);
-}
+/* 「不具合・要望を送る」のボタンは side-panels.css の .sol-side-btn.is-quiet */
 
 /* ── フィードバックモーダル ── */
 .sol-fb-overlay {
