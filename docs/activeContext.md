@@ -1,6 +1,6 @@
 # activeContext — 今どこ・次何
 
-## 2026-10-20: シミュレーターの演出とスマホ操作（branch fix/sim-rec-mobile-batch・本番未反映）
+## 2026-10-20: シミュレーターの演出とスマホ操作（本番 PR #105 0d834fc）
 
 - 演出: 山札との演出は写しをカードの大きさで作り札の側を縮小（card-effects.js flyBetweenRects）、移動の写しは大きさも変える（flipMoveClone）、録画用画面は帯の「デッキ N」が錨（replay-service.js _isDeckHidden）。手を当てる前に同じカードの演出を確定（_settlePendingFly）。
 - スマホ: 操作シートの ✕・手札の「場に出すとき」（drag-drop.js setMobilePlaceState）・範囲を選ぶ画面（mobile-ui.js openRangePicker）。PC の範囲は押した手から。
