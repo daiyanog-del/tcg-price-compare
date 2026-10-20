@@ -2970,6 +2970,7 @@ async function openCurrentDeckInSolitaire(){
     if(window._currentSavedDeckId)snapshot.savedId=window._currentSavedDeckId;
     const {storeHandoff}=await import('/static/shared/deck-handoff.js');
     storeHandoff(snapshot);
+    _ga('sim_open',{from:'mydeck',linked:snapshot.savedId?1:0});
     location.assign('/solitaire?from=mydeck');
   }catch(error){
     console.warn('[deck-handoff] 引継ぎデータを保存できませんでした',error);
