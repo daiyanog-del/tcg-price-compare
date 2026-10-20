@@ -990,14 +990,19 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
         <!-- ── 左ペイン: デッキ本体 ── -->
         <div class="deck-pane-main" id="deckPaneMain">
 
-          <!-- ヘッダー: 枚数カウンタ＋整列ボタン（右ペイン検索バーと上端を揃える） -->
-          <div class="deck-counter-bar">
-            <span class="deck-counter" id="deckCountMain"><span>メイン</span><span class="c-num">0</span><span class="c-max">/60</span></span>
-            <span class="deck-counter" id="deckCountEx"><span>EX</span><span class="c-num">0</span><span class="c-max">/15</span></span>
-            <span class="deck-save-status" id="deckSaveStatus"></span>
-            <button type="button" class="deck-btn-text deck-save-btn" id="deckSaveBtn" onclick="saveCurrentDeck()">保存</button>
-            {% if enable_solo_play %}<button type="button" class="deck-btn-text" onclick="openCurrentDeckInSolitaire()">このデッキでテストプレイ</button>{% endif %}
-            <button type="button" class="deck-btn-text deck-sort-btn" onclick="deckSortByType()" title="モンスター→魔法→罠の順に並べ替えます">種別順に整列</button>
+          <!-- 見出し: 左にデッキ名と状態、右に同じ形のボタン（static/mydeck/deck-head.js。枚数は各欄の見出しに出す） -->
+          <div class="deck-head" id="deckHead">
+            <div class="deck-head-title">
+              <span class="deck-head-name" id="deckHeadName">マイデッキ未登録</span>
+              <span class="deck-head-state" id="deckSaveStatus" hidden></span>
+            </div>
+            <div class="deck-head-acts">
+              {% if enable_solo_play %}<button type="button" class="deck-pill is-primary" onclick="openCurrentDeckInSolitaire()">このデッキでテストプレイ</button>{% endif %}
+              <button type="button" class="deck-pill" id="deckRegisterBtn" hidden>マイデッキに登録</button>
+              <button type="button" class="deck-pill" id="deckImageBtn" hidden>デッキ画像</button>
+              <button type="button" class="deck-pill deck-head-sort" onclick="deckSortByType()" title="モンスター→魔法→罠の順に並べ替えます">種別順に整列</button>
+              <button type="button" class="deck-pill is-more" id="deckMoreBtn" aria-haspopup="menu" aria-expanded="false" aria-label="その他の操作" title="その他の操作">⋯</button>
+            </div>
           </div>
 
           <details id="deckOwnership" class="deck-ownership">
@@ -1114,7 +1119,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
             <summary>テキストで入力・編集</summary>
             <textarea class="deck-textarea" id="deckTextarea" placeholder="カード名を入力（1行1枚、枚数指定も可）&#10;&#10;例:&#10;3 灰流うらら&#10;2 増殖するG&#10;1 サンダー・ボルト&#10;ブラック・マジシャン"></textarea>
             <div style="text-align:right;margin-top:4px;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
-              <button class="deck-btn-text" onclick="saveCurrentDeck()">保存</button>
+              <button type="button" class="deck-btn-text" id="deckTextRegisterBtn" hidden>マイデッキに登録</button>
               <button class="deck-btn-text" onclick="clearDeck()">入力をクリア</button>
             </div>
           </details>
@@ -1524,6 +1529,7 @@ const _SERVICE_URL = "{{ public_base_url }}/";
 <script src="{{ static_url('js/index-sync.js') }}" defer></script>
 <script src="{{ static_url('mydeck/deck-ownership.js') }}" defer></script>
 <script src="{{ static_url('mydeck/deck-edit.js') }}" defer></script>
+<script src="{{ static_url('mydeck/deck-head.js') }}" defer></script>
 <script type="module" src="{{ static_url('mydeck/deck-card-info.js') }}"></script>
 <script type="module" src="{{ static_url('shared/neuron-pdf-entry.js') }}"></script>
 <script type="module" src="{{ static_url('shared/neuron-url-entry.js') }}"></script>

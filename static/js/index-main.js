@@ -2802,6 +2802,8 @@ function renderDeckShareUI(ctx,deckName,total,cards,info){
 
   // 価格を計算する前（デッキを選んだだけ）は、合計の入る投稿文は出さず画像だけ作れるようにする
   if(total==null){
+    // マイデッキは見出しの「デッキ画像」から作れるので、計算前は出さない（deck-head.js。_deckShareData は上で用意済み）
+    if(ctx===DECK_CTX.mydeck){el.innerHTML='';return;}
     el.innerHTML=`
     <div class="deck-share-title">シェア・投稿</div>
     <div class="share-btns">${imgBtn}</div>`;

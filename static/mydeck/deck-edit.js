@@ -331,27 +331,13 @@
     }
   }
 
-  // ── 枚数カウンタ・空状態ヒントの更新 ──────────────
-  // 1セクションのカウンタ表示（現在枚数/上限）を更新し、警告色クラスを切り替える
-  function _setCounter(id, qty, max, state){
-    var el = document.getElementById(id);
-    if(!el) return;
-    var num = el.querySelector('.c-num');
-    if(num) num.textContent = qty;
-    el.classList.toggle('warn', state === 'warn');
-    el.classList.toggle('over', state === 'over');
-  }
-  // _currentMydeckCards を読み、カウンタと空状態ヒントを現在の内容に合わせる
+  // ── 見出し・空状態ヒントの更新 ──────────────
+  // _currentMydeckCards を読み、見出し・枚数と空状態ヒントを現在の内容に合わせる
   function _refreshDeckChrome(){
     if(window.DeckOwnership) window.DeckOwnership.render();
     var main = _currentMydeckCards.main || [];
     var ex = _currentMydeckCards.ex || [];
-    var sum = function(a){ return a.reduce(function(s, c){ return s + (c.qty || 0); }, 0); };
-    var mq = sum(main), eq = sum(ex);
-    // メイン: 1枚以上40枚未満は warn、60枚超は over（遊戯王ルール）
-    _setCounter('deckCountMain', mq, 60, (mq > 60) ? 'over' : ((mq > 0 && mq < 40) ? 'warn' : ''));
-    // EX: 15枚超は over
-    _setCounter('deckCountEx', eq, 15, (eq > 15) ? 'over' : '');
+    // 枚数（メイン N / 60・EX N / 15 と 40枚未満・上限超えの色）は各欄の見出しに出す（deck-head.js _refreshSectionLabels）
     var empty = !(main.length || ex.length);
     var hint = document.getElementById('deckEmptyHint');
     if(hint) hint.style.display = empty ? '' : 'none';
@@ -370,35 +356,9 @@
     _renderAddedList();
   }
 
-  // 保存ステータス表示（#deckSaveStatus）の更新: 未保存 / どのデッキに自動反映されているか
+  // 見出し（デッキ名・状態・登録ボタン）と各欄の枚数の更新は deck-head.js に任せる
   function _updateDeckSaveBar(){
-    var status = document.getElementById('deckSaveStatus');
-    var btn = document.getElementById('deckSaveBtn');
-    if(!status && !btn) return;
-    // 保存ボタンは未保存/自動保存中どちらでも常に表示する（後者は明示的な再保存を可能にするため）
-    if(btn) btn.hidden = false;
-    var id = window._currentSavedDeckId;
-    if(id == null){
-      if(status){
-        status.textContent = '未保存のデッキ';
-        status.classList.remove('linked');
-      }
-    }else{
-      if(status){
-        // 表示名は保存済みリストの実データを正とする（_currentDeckName は loadSavedDeck 経由でしか
-        // 更新されず、saveCurrentDeck 直後は古い値のままになるため、保存済みリストを優先して引く）
-        var nm = '';
-        try{
-          if(typeof savedDecksGet === 'function'){
-            var d = savedDecksGet().find(function(x){ return x.id === id; });
-            if(d && d.name) nm = d.name;
-          }
-        }catch(_){}
-        if(!nm) nm = (typeof _currentDeckName !== 'undefined' && _currentDeckName) ? _currentDeckName : 'マイデッキ';
-        status.textContent = nm + '・自動保存中';
-        status.classList.add('linked');
-      }
-    }
+    if(window.DeckHead) window.DeckHead.refresh();
   }
 
   // モバイルタブ「デッキ」の枚数バッジ（#deckBuildTabBadge）を更新
@@ -1209,6 +1169,7 @@
 
   // index.html のインライン <script> が参照するフック・関数を公開
   window._persistDeckOwnership = function(){ _persistDeck(true); };
+  window._deckPersist = function(){ _persistDeck(); }; // deck-head.js（登録・名前の変更・削除の後に下書きとひも付けを書き直す）
   window._deckAfterRender = _deckAfterRender;
   window._deckMutate = _deckMutate;
   window.deckAddCard = deckAddCard;
