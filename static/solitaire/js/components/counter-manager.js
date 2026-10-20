@@ -5,6 +5,8 @@
 //   index（そのカード上の .counter-container の並び順）で特定する。
 //   op: 'add'（置く）/ 'set'（値を変える・省略時）/ 'remove'（外す）。
 //   右パネルの基準カウンター（#parent）は cardId なし・index なしの 'set' のみ。
+//   （#parent は 2026-10-20 に撤去。カードの右クリックメニュー「カウンターを置く」に置き換えた。
+//     古い記録の 'set'（cardId なし）は再生側で何もしない）
 
 /** 重複しない id を作るための連番（同じミリ秒に複数作っても id がぶつからないように） */
 let _counterSeq = 0;
@@ -148,4 +150,17 @@ export function addCounterDeleteButton(container) {
   });
 
   container.appendChild(deleteBtn);
+}
+
+/**
+ * カードにカウンターを1つ置き、リプレイへ記録する（右クリックメニュー「カウンターを置く」）。
+ * @param {Element} wrapper - .tier-item-wrapper
+ * @param {string|number} [value=1] - 初期値
+ * @returns {Element} 置いた .counter-container
+ */
+export function addCounterToCard(wrapper, value = 1) {
+  const counter = createCardCounter(value);
+  wrapper.appendChild(counter);
+  logCounterAdd(counter); // 置いたことをリプレイへ記録（cardId・index・初期値）
+  return counter;
 }

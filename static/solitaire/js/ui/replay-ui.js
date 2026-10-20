@@ -273,7 +273,7 @@ function _initPcSheet(sheetId, openBtnId, closeIds) {
  * body.sol-playback には含まれないが、PC版は常時表示されるため独自に追加が必要
  * （#imagePool 内カードの dblclick=効果発動 が再生中に window.replayLog() を呼ぶと
  * 　logEvent() の「巻き戻し後は未来ログを切り捨てる」処理でリプレイ記録が壊れるため）。
- * #solRightPanel（1ドロー/リセット/盤面ロード/カウンター/トークン等）も同じ理由で
+ * #solRightPanel（1ドロー/リセット/盤面ロード等）も同じ理由で
  * 必須。右パネルはモバイル版に存在しないため、モバイル版の body.sol-playback を参考にした
  * 棚卸しでは構造上見落とされていた。
  */

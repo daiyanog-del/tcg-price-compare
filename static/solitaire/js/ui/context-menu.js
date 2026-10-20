@@ -15,6 +15,9 @@
  *              （初期カード isInitial は現状維持で何も出さない。昔の設計の名残でスコープ外）
  *   その他    : 墓地送り / 除外 / 手札に戻す / デッキに戻す / 削除（トークンのみ）
  *   プール以外のすべてのカードに「吹き出しを付ける」（整理④。comment-ui.js の入力欄を開く）
+ *              と「カウンターを置く」（値1で置き、カード上の＋−×で操作する）
+ *   空いたマス（カードの無い .custom-slot の地）の右クリックは「トークンを出す」
+ *              （token-generator.js が openContextMenuAt で開く）
  *   トークン以外のすべてのカードの末尾に「デッキに1枚足す（今 N枚）／デッキから1枚抜く」
  *              （デッキ編集。項目は deck-edit-ui.js が setExtraMenuItemsProvider で登録する）
  *
@@ -48,6 +51,7 @@ import { playSetFlip, flipMoveClone } from '../components/card-effects.js';
 import { getDropZoneInfo, executeDrop, getZoneId } from '../components/drag-drop.js';
 import { restackCustomSlot } from '../components/slot-stack.js';
 import { openCardCommentInput } from './comment-ui.js';
+import { addCounterToCard } from '../components/counter-manager.js';
 
 // ── 単一インスタンス ──────────────────────────────────────────────
 let _menuEl          = null;
@@ -88,23 +92,63 @@ export function openCardContextMenu(wrapper, cardEl, x, y, isTouch = false) {
     if (extra.length) items.push({ separator: true }, ...extra);
   }
   if (items.length === 0) return;
+  _showMenu(items, x, y);
+}
 
+/**
+ * 項目を指定してメニューを開く（カード以外の場所の右クリック用。空いたマスの「トークンを出す」など）。
+ * 項目の形は openCardContextMenu と同じ。加えて { heading } は見出し、{ element } は中身を自分で作った行。
+ * @param {Array<Object>} items
+ * @param {number} x - 表示位置 clientX
+ * @param {number} y - 表示位置 clientY
+ */
+export function openContextMenuAt(items, x, y) {
+  closeContextMenu();
+  cancelFieldPlacement();
+  if (!items.length) return;
+  _showMenu(items, x, y);
+}
+
+function _showMenu(items, x, y) {
   // ── メニュー要素を生成 ────────────────────────────────────────
   const menu = document.createElement('ul');
   menu.className = 'sol-context-menu';
   menu.setAttribute('role', 'menu');
 
-  items.forEach(({ label, action, separator, sub, disabled }) => {
+  items.forEach(({ label, action, separator, sub, disabled, heading, element, swatch }) => {
     if (separator) {
       const hr = document.createElement('li');
       hr.className = 'sol-context-menu-sep';
       menu.appendChild(hr);
       return;
     }
+    // 見出し（押せない）
+    if (heading) {
+      const h = document.createElement('li');
+      h.className = 'sol-context-menu-heading';
+      h.textContent = heading;
+      menu.appendChild(h);
+      return;
+    }
+    // 中身を呼び出し側が作った行（入力欄など。押しても閉じない）
+    if (element) {
+      const row = document.createElement('li');
+      row.className = 'sol-context-menu-row';
+      row.appendChild(element);
+      menu.appendChild(row);
+      return;
+    }
     const li = document.createElement('li');
     li.className = 'sol-context-menu-item';
     li.textContent = label;
     li.setAttribute('role', 'menuitem');
+    // 色見本（トークンの色など）。項目名の前に置く
+    if (swatch) {
+      const sw = document.createElement('span');
+      sw.className = 'sol-context-menu-swatch';
+      sw.style.background = swatch;
+      li.prepend(sw);
+    }
     // 補足（「今 3枚」など）。textContent で入れる
     if (sub) {
       const s = document.createElement('span');
@@ -399,6 +443,11 @@ function _buildMenuItems(wrapper, img, parent, isInPool, isInitial, isTouch = fa
   items.push({
     label: '吹き出しを付ける',
     action: () => { openCardCommentInput(wrapper); },
+  });
+  // カウンターを置く（2026-10-20 右パネルのドラッグで置くカウンターから置き換え。1から始め、カード上の＋−で増減）
+  items.push({
+    label: 'カウンターを置く',
+    action: () => { addCounterToCard(wrapper); },
   });
 
   items.push({ separator: true });
