@@ -1,5 +1,11 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-20: シミュレーターの演出とスマホ操作（branch fix/sim-rec-mobile-batch・本番未反映）
+
+- 演出: 山札との演出は写しをカードの大きさで作り札の側を縮小（card-effects.js flyBetweenRects）、移動の写しは大きさも変える（flipMoveClone）、録画用画面は帯の「デッキ N」が錨（replay-service.js _isDeckHidden）。手を当てる前に同じカードの演出を確定（_settlePendingFly）。
+- スマホ: 操作シートの ✕・手札の「場に出すとき」（drag-drop.js setMobilePlaceState）・範囲を選ぶ画面（mobile-ui.js openRangePicker）。PC の範囲は押した手から。
+- 確認: 動きのコマごとの大きさ、2手を素早く続けたときの置き場所（作り直しと比較）、配置の記録が1手・形つき、範囲 5〜20 手目が共有シートに渡ること、PC 6手目で押すと 6〜21。モックは _mocks/sim-mobile-ux-20261020。
+
 ## 2026-10-20: 画面録画用の表示（本番 PR #103 6a7c299）
 
 - 発端: Xで他サイトの一人回しを画面録画した投稿を見て、動画で投稿したい需要への対応を検討。動画の書き出しは重いので、まず「画面録画しやすい表示」を出して GA4 で使われ方を見る（ユーザーがモックを見て PC=案A・スマホ=案C を承認）。
