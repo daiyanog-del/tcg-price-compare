@@ -44,6 +44,7 @@ let _enteredFullscreen = false;
 let _savedBottomReserve = null;
 let _cursorBeforeEnter = null; // PC: 開く前の手。閉じるときにここへ戻す（0手目のまま操作すると先の記録が消えるため）
 let _deckObserver = null;      // デッキ列（#poolRow）の中身の変化を見て「デッキ N」を数え直す
+let _rowObserver = null;       // 盤面・手札/EX の行の大きさの変化を見て、手札/EX の境目を合わせ直す
 let _enteredPortrait = false;  // 縦向きスマホで開いたか（スマホは再生モードのまま戻るので手は戻さない）
 
 function _ga(name, params) {
@@ -275,11 +276,49 @@ export function enterRecView() {
     _deckObserver = new MutationObserver(_syncProgress);
     _deckObserver.observe(pool, { childList: true });
   }
+  // 盤面の大きさが決まり直すたび（開いた直後・全画面・ウィンドウの大きさの変更）に境目を合わせ直す
+  if (typeof ResizeObserver === 'function') {
+    _rowObserver = new ResizeObserver(() => requestAnimationFrame(_alignHandExLine));
+    ['.custom-layout', '.center-row'].forEach((s) => { const el = document.querySelector(s); if (el) _rowObserver.observe(el); });
+  }
   document.addEventListener('keydown', _onKeydown, true);
   document.addEventListener('pointerdown', _onPointer, true);
   document.addEventListener('mousemove', _onPointer, true);
   window.dispatchEvent(new Event('resize')); // 盤面を広げ直す（main.js fitFieldToViewport）
   _ga('recview_open', { steps: getLogLength() });
+}
+
+/**
+ * PC: 手札と EX の境目（縦の線）を、真上の盤面の列の境目に合わせる（2026-10-20 ユーザー指摘）。
+ * 手札と EX の幅は「手札＝カード6枚分、EX＝残り」の割合で決まり盤面の列と無関係なので、画面幅によって
+ * 境目が真上の境目から数px〜数十pxずれる。一番近い盤面の境目（マスどうし・盤面と墓地・墓地と除外の隙間）の
+ * 中心に、手札と EX の隙間の中心を合わせる（隙間の幅は盤面 --gap と手札/EX で違うので、両端ではなく中心をそろえる）。
+ * 手札の幅だけを変え、EX は残りに広がる（今の flex の作りのまま）。
+ */
+function _alignHandExLine() {
+  const hand = document.querySelector('.sol-hand-area');
+  const ex = document.getElementById('imagePool2');
+  if (!hand || !ex) return;
+  hand.style.removeProperty('flex');
+  if (!_active || isMobilePortrait()) return;
+  const cols = [...document.querySelectorAll('.custom-slot, .side-slots-container > .sol-side-area')]
+    .map((e) => e.getBoundingClientRect()).filter((b) => b.width > 0);
+  const rights = [...new Set(cols.map((b) => Math.round(b.right)))].sort((a, b) => a - b);
+  const lefts = [...new Set(cols.map((b) => Math.round(b.left)))].sort((a, b) => a - b);
+  // 隙間 = ある列の右端と、その右にある一番近い列の左端
+  const gaps = rights.map((r) => { const l = lefts.find((x) => x > r); return l === undefined ? null : (r + l) / 2; })
+    .filter((g) => g !== null);
+  const hb = hand.getBoundingClientRect();
+  const eb = ex.getBoundingClientRect();
+  if (!gaps.length || !hb.width || !eb.width) return;
+  const line = (hb.right + eb.left) / 2;
+  const target = gaps.reduce((a, g) => (Math.abs(g - line) < Math.abs(a - line) ? g : a), gaps[0]);
+  // flex-basis は内側の幅で効く（content-box）ので、余白・枠の分を引いて指定する
+  const cs = getComputedStyle(hand);
+  const extra = cs.boxSizing === 'border-box' ? 0
+    : ['paddingLeft', 'paddingRight', 'borderLeftWidth', 'borderRightWidth'].reduce((sum, k) => sum + (parseFloat(cs[k]) || 0), 0);
+  const w = hb.width + (target - line) - extra;
+  if (w > 0) hand.style.flex = `0 0 ${w}px`;
 }
 
 /** 画面録画用の表示を閉じる。盤面は今の手のまま（縦向きスマホは再生モードに戻る） */
@@ -295,7 +334,10 @@ export function exitRecView() {
   ['solRecBand', 'solRecProgress', 'solRecControls', 'solRecGuide'].forEach((id) => document.getElementById(id)?.remove());
   _deckObserver?.disconnect();
   _deckObserver = null;
+  _rowObserver?.disconnect();
+  _rowObserver = null;
   document.body.classList.remove(ROOT_CLASS);
+  _alignHandExLine(); // 閉じたので手札の幅を元の割合に戻す（_active が false なので戻すだけ）
   _setMobileReserve(false);
   document.removeEventListener('keydown', _onKeydown, true);
   document.removeEventListener('pointerdown', _onPointer, true);
