@@ -36,6 +36,7 @@ import { showToast } from '../utils/toast.js';
 import { addSharedReplay } from '../services/shared-replays.js';
 import { savedReplaysGet, saveReplayEntry } from '../services/saved-replays.js';
 import { isReplayAtEnd } from '../utils/replay-url.js';
+import { enterRecView, isRecViewActive } from './rec-view.js';
 
 const REPLAY_TITLE_MAX_LEN = 100;
 /** 公開（みんなのリプレイ）に使えるタイトルの長さ。サーバー（solitaire_routes.PUBLIC_TITLE_MAX_LEN）と同じ */
@@ -187,6 +188,18 @@ export function initReplayUI() {
   document.getElementById('replayShareX')
     ?.addEventListener('click', handleShareToX);
 
+  // 画面録画用の表示（rec-view.js）。押せるかどうかは再生ボタン（記録0件のとき disabled）に合わせる
+  const recViewBtn = document.getElementById('replayRecView');
+  const playBtn = document.getElementById('replayPlay');
+  if (recViewBtn) {
+    recViewBtn.addEventListener('click', () => enterRecView());
+    if (playBtn) {
+      const syncRecView = () => { recViewBtn.disabled = playBtn.disabled; };
+      syncRecView();
+      new MutationObserver(syncRecView).observe(playBtn, { attributes: true, attributeFilter: ['disabled'] });
+    }
+  }
+
   // 共有リンク・保存したリプレイを開いた直後の「▶ 再生する」の案内（読み込みより先に受け口を用意する）
   initReplayStartPrompt();
 
@@ -289,8 +302,10 @@ function _initPcPlaybackModeWatcher() {
   const btnPlay = document.getElementById('replayPlay');
   if (!btnPlay) return;
 
+  // 画面録画用の表示（rec-view.js）の間も、再生中と同じく盤面を触れなくする（カウントダウン中・再生の後に
+  // 盤面を動かすと、途中の手から先の記録が消えたり末尾に手が足されたりするため）
   const sync = () => {
-    const playing = btnPlay.classList.contains('play-active');
+    const playing = btnPlay.classList.contains('play-active') || isRecViewActive();
     setPcPlaybackMode(playing);
     document.querySelectorAll(PC_PLAYBACK_LOCK_SELECTOR).forEach((el) => {
       el.classList.toggle('sol-playback-pc', playing);
@@ -298,6 +313,7 @@ function _initPcPlaybackModeWatcher() {
   };
 
   new MutationObserver(sync).observe(btnPlay, { attributes: true, attributeFilter: ['class'] });
+  new MutationObserver(sync).observe(document.body, { attributes: true, attributeFilter: ['class'] });
 }
 
 /**

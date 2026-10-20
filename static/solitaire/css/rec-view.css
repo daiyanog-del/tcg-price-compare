@@ -1,0 +1,98 @@
+/* 画面録画用の表示（js/ui/rec-view.js。2026-10-20 ユーザー承認 PC=案A・スマホ=案C）
+   操作ボタン類を隠し、上の帯（ロゴ・題名・手数）と下端の進み具合の線だけにする。
+   色はサイトの変数（site-theme.css）と、手数の札は共有画像（replay_og_image.py の黄色の札）にそろえる。 */
+
+:root { --sol-rec-band-h: 56px; }
+
+/* 録画に映したくないもの: 左右のパネル・カード詳細・デッキ・再生バー・スマホの下部バー・通知 */
+body.sol-recview #solSidebar,
+body.sol-recview #solRightPanel,
+body.sol-recview .sol-cip-col,
+body.sol-recview #cipToggle,
+body.sol-recview #imagePool,
+body.sol-recview #replayBarContainer,
+body.sol-recview #solMobileBar,
+body.sol-recview #solMobileReplayStrip,
+body.sol-recview .sol-toast {
+  display: none !important;
+}
+
+body.sol-recview .sol-field-area { padding-top: calc(var(--sol-rec-band-h) + 8px); }
+
+.sol-rec-band {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 1100;
+  height: var(--sol-rec-band-h);
+  display: flex; align-items: center; gap: 16px;
+  padding: 0 20px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font);
+}
+.sol-rec-logo { height: 34px; width: auto; flex: none; }
+.sol-rec-title {
+  flex: 1; min-width: 0;
+  text-align: center; color: var(--main-color);
+  font-size: 1.25rem; font-weight: 700;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sol-rec-count {
+  flex: none;
+  padding: 4px 14px; border-radius: 999px;
+  background: var(--gold); color: #242013;
+  font-size: 0.95rem; font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.sol-rec-progress {
+  position: fixed; left: 0; bottom: 0; z-index: 1100;
+  height: 4px; width: 0;
+  background: var(--gold);
+  transition: width .3s ease;
+}
+
+/* 開いた直後の案内（.sol-replay-start の見た目を使う） */
+.sol-rec-guide .sol-replay-start-card { width: min(400px, 100%); text-align: left; }
+.sol-rec-guide .sol-replay-start-label,
+.sol-rec-guide .sol-replay-start-title { text-align: center; }
+.sol-rec-guide-steps {
+  margin: 14px 0 0; padding-left: 1.3em;
+  color: var(--main-color); font-size: 0.85rem; line-height: 1.6;
+}
+/* components.css の汎用 `p, span, li { color:#333 }` が暗い地に当たるので、項目に直接色を付ける */
+.sol-rec-guide-steps li { color: var(--main-color); }
+.sol-rec-guide-steps li + li { margin-top: 6px; }
+.sol-rec-guide .sol-replay-start-later { display: block; margin: 8px auto 0; }
+
+.sol-rec-countdown {
+  position: fixed; inset: 0; z-index: 1150;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+  color: var(--gold); font-family: var(--font);
+  font-size: 7rem; font-weight: 800;
+  text-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
+}
+
+/* 画面に触れた・マウスを動かしたときだけ少しの間出す操作 */
+.sol-rec-controls {
+  position: fixed; right: 16px; bottom: 20px; z-index: 1160;
+  display: flex; gap: 8px;
+}
+.sol-rec-controls[hidden] { display: none; }
+.sol-rec-ctl {
+  padding: 10px 16px; border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-card); color: var(--main-color);
+  font-family: var(--font); font-size: 0.95rem; font-weight: 700; cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.sol-rec-ctl:hover { background: var(--bg-hover); }
+
+/* 縦向きスマホ（mobile.css と同じ条件） */
+@media (max-width: 767px) and (orientation: portrait) {
+  :root { --sol-rec-band-h: 46px; }
+  .sol-rec-band { gap: 8px; padding: 0 10px; }
+  .sol-rec-logo { height: 24px; }
+  .sol-rec-title { font-size: 0.95rem; }
+  .sol-rec-count { padding: 3px 10px; font-size: 0.75rem; }
+  .sol-rec-controls { left: 12px; right: 12px; justify-content: center; }
+}
