@@ -115,12 +115,12 @@ export function _resetPcRecording() {
 }
 
 /**
- * 録画開始: この時点までの手数を基準にする。
- * 巻き戻し中（cursor がログ末尾より前）に開始した場合でも表示と一致させるため、
- * 全ログ長ではなく現在の再生位置（getCursor()+1）を基準にする。
+ * 範囲を選び始める: 今見ている手（getCursor()+1 手目）を範囲の最初の手に含める
+ * （startIdx は範囲より前の手数なので getCursor()。0手目＝何も進めていないときは1手目から）。
+ * 2026-10-20 ユーザー指示: 以前は押した手の「次の手」から数えたため、6手目で押すと7手目から始まり分かりにくかった。
  */
 function _startPcRecording() {
-  _pcRecording = { recording: true, startIdx: getCursor() + 1, endIdx: null };
+  _pcRecording = { recording: true, startIdx: Math.max(0, getCursor()), endIdx: null };
   _updatePcRecordBtn();
   updatePcShareRecordingSection(); // 共有シートを開いたまま呼ばれた場合も表示を追従させる
 }
@@ -168,7 +168,8 @@ function _updatePcRecordBtn() {
   const range = _pcRecording.recording ? null : _getPcRecordingRange();
   if (_pcRecording.recording) {
     const cur = getCursor() + 1;
-    if (cur < _pcRecording.startIdx) _pcRecording.startIdx = cur; // クランプ
+    // 今見ている手より後から始まらないようにする（開始の手は今見ている手を含むので cur-1 まで）
+    if (cur - 1 < _pcRecording.startIdx) _pcRecording.startIdx = Math.max(0, cur - 1);
     const n = Math.max(0, cur - _pcRecording.startIdx);
     label.textContent = `■ ここまで（${n}手）`;
   } else if (range) {

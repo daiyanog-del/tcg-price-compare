@@ -27,7 +27,9 @@ import {
   executeDrop,
   selectMobileCard,
   setMobilePlaybackMode,
+  setMobilePlaceState,
 } from '../components/drag-drop.js';
+import { isMonsterCard } from '../components/card-state.js';
 import {
   toggleCardDefense,
   toggleCardSet,
@@ -47,7 +49,6 @@ import {
   getSetupLogs,
   getCursor,
   seekTo,
-  truncateAfterCursor,
   subscribeReplay,
   addComment,
 } from '../services/replay-service.js';
@@ -131,6 +132,7 @@ function handlePortraitChange(matches) {
   // 画面録画用の表示は向きごとに作りが違う（縦向きは再生モードの上に載る）ので、切り替わったら先に閉じる。
   // 再生モードの終了（resetMobileUI）より前に閉じ、下部の予約量を戻す順番にする
   exitRecView();
+  closeRangePicker({ silent: true }); // 範囲を選ぶ画面も縦向きスマホ専用なので閉じる
   if (matches) {
     updateMobileVisibility();
   } else {
@@ -303,6 +305,7 @@ function initDeckLoadProgress() {
     setDeckBtnLoading(true);
     // M-3: clearAllCards 中は一瞬盤面が空になり得るため、CTAが誤って一瞬出るのを防ぐ
     setHidden('solMobileEmptyCta', true);
+    closeRangePicker({ silent: true });
     _resetRecording(); // タスクA-1: デッキ再読込で録画状態を破棄する
   });
   document.addEventListener('sol-deck-load-end', (ev) => {
@@ -496,21 +499,58 @@ function updateActionSheetForSelection(wrapper) {
   if (nameEl) nameEl.textContent = name || '名称不明';
 
   const opsEl = document.getElementById('solMobileActionOps');
+  const inHand = !!wrapper.parentElement?.classList.contains('center-slot');
   if (opsEl) {
     opsEl.hidden = false;
     const inPool = isCardInPool(wrapper);
     ['defense', 'set', 'return', 'activate', 'bubble'].forEach(action => {
       const btn = opsEl.querySelector(`[data-action="${action}"]`);
-      if (btn) btn.hidden = inPool;
+      // 手札では守備表示・セットの代わりに「場に出すとき」で形を選ぶ（手札のまま形を変えても意味が無いため）
+      if (btn) btn.hidden = inPool || (inHand && (action === 'defense' || action === 'set'));
     });
   }
+  _renderPlaceRow(inHand ? wrapper : null);
 
   setHidden('solMobileActionSheet', false);
+}
+
+/**
+ * 手札のカードを選んだときの「場に出すとき」（2026-10-20 ユーザー承認の案A。モック _mocks/sim-mobile-ux-20261020）。
+ * 形は PC の右クリック「場に出す」と同じ: モンスター＝攻撃／守備／裏側守備、魔法・罠＝表側／セット。
+ * 選んでからマスをタップすると、その形で1手として置く（drag-drop.js setMobilePlaceState）。
+ * @param {Element|null} wrapper  手札のカード。null なら行を隠す
+ */
+function _renderPlaceRow(wrapper) {
+  const row = document.getElementById('solMobilePlaceRow');
+  const seg = document.getElementById('solMobilePlaceSeg');
+  const sheet = document.getElementById('solMobileActionSheet');
+  setMobilePlaceState(null);
+  if (!row || !seg) return;
+  row.hidden = !wrapper;
+  sheet?.classList.toggle('has-place-row', !!wrapper);
+  seg.replaceChildren();
+  if (!wrapper) return;
+  const choices = isMonsterCard(wrapper)
+    ? [['攻撃', '', ''], ['守備', 'defense', ''], ['裏側守備', 'defense', 'down']]
+    : [['表側', '', ''], ['セット', '', 'down']];
+  choices.forEach(([label, orientation, face], i) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = label;
+    btn.setAttribute('aria-pressed', String(i === 0));
+    btn.addEventListener('click', () => {
+      seg.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+      setMobilePlaceState({ orientation, face });
+    });
+    seg.appendChild(btn);
+  });
 }
 
 function initActionSheet() {
   const sheet = document.getElementById('solMobileActionSheet');
   if (!sheet) return;
+  // ✕: 選択をやめる（何もない所のタップと同じ。解除の通知でシートも閉じる）
+  document.getElementById('solMobileActionCloseBtn')?.addEventListener('click', () => clearMobileSelection());
   sheet.querySelectorAll('[data-action]').forEach(btn => {
     btn.addEventListener('click', () => {
       const sel = getMobileSelection();
@@ -941,11 +981,10 @@ export function getMobileRecordingState() {
 /** 退避した録画状態を戻し、ボタン表示を更新する */
 export function setMobileRecordingState(state) {
   if (!state) return;
-  _recording = {
-    recording: !!state.recording,
-    startIdx: state.startIdx ?? null,
-    endIdx: state.endIdx ?? null,
-  };
+  // 2026-10-20 から範囲は「範囲を選ぶ画面」で一度に決めるので、選んでいる途中（recording）の状態は戻さない
+  _recording = state.recording
+    ? { recording: false, startIdx: null, endIdx: null }
+    : { recording: false, startIdx: state.startIdx ?? null, endIdx: state.endIdx ?? null };
   _updateRecordBtn();
   _updateShareRecordingSection();
 }
@@ -998,16 +1037,6 @@ function _resetRecording() {
   _updateRecordBtn();
 }
 
-/**
- * 録画開始: この時点までの手が初期配置（setup）になる（A-1）。
- * M-4: 巻き戻し中（cursor がログ末尾より前）に開始した場合でも表示と一致させるため、
- * 全ログ長（getLogLength）ではなく現在の再生位置（getCursor()+1）を基準にする
- * （通常はカーソルが末尾にあるため両者は一致する）。
- */
-function _startRecording() {
-  _recording = { recording: true, startIdx: getCursor() + 1, endIdx: null };
-  _updateRecordBtn();
-}
 
 /**
  * 録画停止: 停止時点までを録画範囲として確定し、共有シートを開く（A-3）。
@@ -1034,10 +1063,141 @@ function _stopRecording() {
   if (range) showToast(`範囲を決めました（${range.start}〜${range.end}手目）。保存・共有で使えます`);
 }
 
-/** 下部バーの「✂ 範囲」ボタン（トグル。範囲が決まった後に押すと選び直し） */
+/**
+ * 下部バーの「✂ 範囲」ボタン。範囲を選ぶ画面を開く（範囲が決まっていれば選び直し）。
+ * 2026-10-20 ユーザー承認の案A: 以前は「押した後に動かした手」を記録する方式で、説明も無く、
+ * 回し終えた手から選べなかった（スマホの通常画面は常に最後の手のため）。
+ * 古い退避データで選んでいる途中（recording）の状態が残っていれば、従来どおり確定だけ行う。
+ */
 function toggleRecording() {
   if (_recording.recording) _stopRecording();
-  else _startRecording();
+  else openRangePicker();
+}
+
+// ══════════════════ 範囲を選ぶ画面（2026-10-20 案A） ══════════════════
+// 再生モードに入り、手を動かして「ここから」「ここまで」で選ぶ。決めたら _recording（startIdx＝範囲より前の手数、
+// endIdx＝範囲の最後の手）へ入れる。保存・共有・書き出しは今までどおり _getRecordingRange を使う。
+// 「ここから」「ここまで」は、今見ている手（getCursor()+1 手目）をその端に含める（PC の範囲選択と同じ数え方）。
+
+/** @type {{s:number|null, e:number|null, fromSheet:boolean}|null} 選んでいる途中の範囲（1-indexed の手） */
+let _rangePick = null;
+
+function _rangeNow() {
+  return getCursor() + 1; // 今見ている手（0 は何も進めていない最初の盤面）
+}
+
+/** 範囲を選ぶ画面を開く */
+function openRangePicker({ fromSheet = false } = {}) {
+  if (getLogLength() === 0) { showToast('記録がありません'); return; }
+  const current = _getRecordingRange();
+  enterPlaybackMode('menu');
+  if (!_playbackMode) return;
+  _stopAutoPlayIfNeeded();
+  _rangePick = { s: current?.start ?? null, e: current?.end ?? null, fromSheet };
+  seekTo((current?.start ?? 1) - 1); // 今の範囲の最初の手（無ければ1手目）を見せる
+  document.body.classList.add('sol-range-pick');
+  setHidden('solMobileRangePanel', false);
+  _fitRangePanel();
+  _renderRangePanel();
+}
+
+/** パネルの高さだけ盤面の下を空けて、盤面を収め直す（再生モードの帯・バーの代わり） */
+function _fitRangePanel() {
+  const panel = document.getElementById('solMobileRangePanel');
+  if (!panel) return;
+  document.documentElement.style.setProperty('--sol-mobile-bottom-reserve', `${Math.ceil(panel.offsetHeight)}px`);
+  window.dispatchEvent(new Event('resize'));
+}
+
+/**
+ * 範囲を選ぶ画面を閉じる。
+ * @param {{confirm?: boolean, silent?: boolean}} opts  confirm: 範囲を決めて保存・共有シートを開く／
+ *   silent: 画面の回転などで閉じるときはシートを開かない
+ */
+function closeRangePicker({ confirm = false, silent = false } = {}) {
+  if (!_rangePick) return;
+  const pick = _rangePick;
+  _rangePick = null;
+  if (confirm && pick.s && pick.e) {
+    _recording = { recording: false, startIdx: pick.s - 1, endIdx: pick.e };
+    _updateRecordBtn();
+  }
+  document.body.classList.remove('sol-range-pick');
+  setHidden('solMobileRangePanel', true);
+  if (_playbackMode) {
+    // 通常の画面は常に最後の手（H-4）。先に最後へ進めて「最後の手まで進めました」の通知を出さない
+    _stopAutoPlayIfNeeded();
+    seekTo(getLogLength() - 1);
+    exitPlaybackMode({ returnToOrigin: false });
+  }
+  if (silent) return;
+  if (confirm || pick.fromSheet) openShareSheet();
+}
+
+function _renderRangePanel() {
+  if (!_rangePick) return;
+  const { s, e } = _rangePick;
+  const total = getLogLength();
+  const now = _rangeNow();
+  const label = document.getElementById('solMobileRangeLabel');
+  if (label) {
+    label.textContent = s && e ? `範囲 ${s}〜${e}手目（${e - s + 1}手）`
+      : s ? `${s}手目から。「ここまで」で終わりを決めます`
+        : '手を動かして「ここから」を押します';
+  }
+  const nowEl = document.getElementById('solMobileRangeNow');
+  if (nowEl) nowEl.textContent = `今 ${now} / ${total}手`;
+  const slider = document.getElementById('solMobileRangeSlider');
+  if (slider) {
+    slider.min = '0';
+    slider.max = String(total);
+    slider.value = String(now);
+  }
+  // 金色の帯: 記録全体（0〜total）のうち、選んだ範囲（s-1〜e。s手目の手前から e手目まで）
+  const fill = document.getElementById('solMobileRangeBandFill');
+  if (fill) {
+    const a = s ? s - 1 : null;
+    const b = e ?? (s ? Math.max(now, s) : null);
+    const pct = (v) => (total > 0 ? (v / total) * 100 : 0);
+    fill.style.left = a === null ? '0' : `${pct(a)}%`;
+    fill.style.width = a === null ? '0' : `${Math.max(0, pct(b) - pct(a))}%`;
+  }
+  const fromBtn = document.getElementById('solMobileRangeFromBtn');
+  const toBtn = document.getElementById('solMobileRangeToBtn');
+  const okBtn = document.getElementById('solMobileRangeOkBtn');
+  if (fromBtn) fromBtn.disabled = now === 0;
+  if (toBtn) toBtn.disabled = now === 0;
+  if (okBtn) okBtn.disabled = !(s && e);
+  const prev = document.getElementById('solMobileRangePrevBtn');
+  const next = document.getElementById('solMobileRangeNextBtn');
+  if (prev) prev.disabled = now === 0;
+  if (next) next.disabled = now >= total;
+}
+
+function initRangePicker() {
+  const on = (id, fn) => document.getElementById(id)?.addEventListener('click', fn);
+  on('solMobileRangePrevBtn', () => { if (_rangePick) seekTo(getCursor() - 1); });
+  on('solMobileRangeNextBtn', () => { if (_rangePick) document.getElementById('replayFwd')?.click(); });
+  on('solMobileRangeFromBtn', () => {
+    if (!_rangePick || _rangeNow() === 0) return;
+    _rangePick.s = _rangeNow();
+    if (_rangePick.e && _rangePick.e < _rangePick.s) _rangePick.e = null;
+    _renderRangePanel();
+  });
+  on('solMobileRangeToBtn', () => {
+    if (!_rangePick || _rangeNow() === 0) return;
+    const now = _rangeNow();
+    if (!_rangePick.s) _rangePick.s = 1; // 「ここから」を押していなければ1手目から
+    if (now < _rangePick.s) { _rangePick.e = _rangePick.s; _rangePick.s = now; } // 前へ戻って押したら入れ替える
+    else _rangePick.e = now;
+    _renderRangePanel();
+  });
+  on('solMobileRangeCancelBtn', () => closeRangePicker());
+  on('solMobileRangeOkBtn', () => closeRangePicker({ confirm: true }));
+  document.getElementById('solMobileRangeSlider')?.addEventListener('input', (e) => {
+    if (_rangePick) seekTo(parseInt(e.target.value, 10) - 1);
+  });
+  subscribeReplay('changed', _renderRangePanel);
 }
 
 /**
@@ -1344,12 +1504,12 @@ function _updateShareRecordingSection() {
     const n = range.end - range.start + 1;
     infoEl.textContent = `${range.start}〜${range.end}手目（${n}手）が対象です`;
     if (stopBtn) stopBtn.hidden = true;
-    if (redoBtn) redoBtn.hidden = false;
+    if (redoBtn) { redoBtn.hidden = false; redoBtn.textContent = '範囲を選び直す'; }
   } else {
     const total = getLogLength();
-    infoEl.textContent = `全部の手（${total}手）が対象です。一部だけにするには、下のバーの ✂ 範囲 を使います。`;
+    infoEl.textContent = `全部の手（${total}手）が対象です。`;
     if (stopBtn) stopBtn.hidden = true;
-    if (redoBtn) redoBtn.hidden = true;
+    if (redoBtn) { redoBtn.hidden = total === 0; redoBtn.textContent = '範囲を選ぶ'; }
   }
 }
 
@@ -1447,27 +1607,12 @@ function initShareSheet() {
     _stopRecording();
   });
 
-  // 範囲セクション（「範囲を選び直す」／「再生して確認」）
-  // 「録画をやり直す」: 停止済み録画の開始位置（startIdx＝録画開始時点までの手数）へ盤面を巻き戻してから、
-  // その位置で新規に録画を開始する（startIdx は元と同じ値になる）。
-  // 巻き戻し直後に truncateAfterCursor() で未来ログを切り捨てる（0手目からのやり直しでも確実に消す）。
-  // 共有シートが開いている時点で再生モードは終了済み（enterPlaybackMode が閉じ、
-  // exitPlaybackMode が開く）なので、再生モード中にここへ来ることは無い。
+  // 範囲セクション（「範囲を選ぶ／選び直す」／「再生して確認」）
+  // 2026-10-20 から範囲を選ぶ画面を開く（以前は開始位置まで巻き戻し、その後の手を消してから選び直していた）。
+  // やめた・決めたあとは共有シートへ戻る。
   document.getElementById('solMobileShareRedoRecordingBtn')?.addEventListener('click', () => {
-    const stopped = _hasStoppedRecording();
-    const prevStart = stopped ? _recording.startIdx : null;
-    // 録画停止後に打った手（endIdx より先）まで消えるときだけ確認する
-    if (stopped) {
-      const extra = getLogLength() - _recording.endIdx;
-      if (extra > 0 && !confirm(`範囲を選び始めた位置まで戻ります。範囲より後の${extra}手も消えます。よろしいですか？`)) return;
-    }
     closeShareSheet();
-    if (prevStart !== null) {
-      _stopAutoPlayIfNeeded(); // 自動再生中なら先に止める
-      seekTo(prevStart - 1);
-      truncateAfterCursor();
-    }
-    _startRecording();
+    openRangePicker({ fromSheet: true });
   });
   document.getElementById('solMobileSharePlaybackBtn')?.addEventListener('click', () => {
     closeShareSheet();
@@ -1568,6 +1713,7 @@ function initClearEverything() {
   // 再生バー（取消ボタン）・デッキ枚数バッジ・開いたままの共有シートの録画表示を追従させる。
   document.addEventListener('sol-replay-reset', () => {
     // 通常は再生モード中に⋯メニュー/デッキシートへ届かないが、念のため抜けて整合を取る
+    closeRangePicker({ silent: true });
     if (_playbackMode) exitPlaybackMode({ returnToOrigin: false });
     _resetRecording();
     if (!isMobilePortrait()) return;
@@ -1891,6 +2037,7 @@ export function initMobileUI() {
   initBarButtons();
   initReplayBarMobile();
   initRecording(); // タスクA
+  initRangePicker(); // 範囲を選ぶ画面（2026-10-20）
   initPlaybackBar(); // タスクB
   initPlaybackURLAutoOpen(); // タスクB-1
   initMenuSheet();

@@ -361,6 +361,48 @@
   }
   .sol-mobile-save-btn { font-weight: 700; }
 
+  /* ════════ 範囲を選ぶ画面（2026-10-20 案A。mobile-ui.js openRangePicker） ════════
+     表示中は body.sol-range-pick。下部バー・再生の帯の代わりに画面下へ出す。高さは JS が測って
+     --sol-mobile-bottom-reserve に入れ、盤面をその上に収める。 */
+  body.sol-range-pick #solMobileBar,
+  body.sol-range-pick #solMobileReplayStrip { display: none !important; }
+  .sol-mobile-range-panel[hidden] { display: none; }
+  .sol-mobile-range-panel {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 200;
+    padding: 8px 10px 10px;
+    box-sizing: border-box;
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border);
+    font-family: var(--font);
+  }
+  .sol-mobile-range-head { display: flex; align-items: baseline; gap: 8px; }
+  .sol-mobile-range-label { flex: 1; min-width: 0; color: var(--main-color); font-size: 0.85rem; font-weight: 700; }
+  .sol-mobile-range-now { flex: none; color: #a8b4c9; font-size: 0.72rem; }
+  .sol-mobile-range-band { position: relative; height: 4px; margin: 8px 9px 0; border-radius: 2px; background: var(--border); }
+  .sol-mobile-range-band > i { position: absolute; top: 0; bottom: 0; left: 0; width: 0; border-radius: 2px; background: var(--gold); }
+  .sol-mobile-range-slider { display: block; width: 100%; height: 24px; margin: 2px 0 6px; }
+  .sol-mobile-range-btns { display: flex; gap: 6px; }
+  .sol-mobile-range-btns + .sol-mobile-range-btns { margin-top: 6px; }
+  .sol-mobile-range-btns button {
+    flex: 1;
+    min-width: 0;
+    height: 38px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--main-color);
+    font-family: var(--font);
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+  .sol-mobile-range-btns button:disabled { opacity: .45; }
+  /* 主操作は黄（site-theme.css の主操作と同じ色） */
+  .sol-mobile-range-btns button.is-primary { flex: 2; background: #f3ce46; color: #242013; border-color: transparent; font-weight: 700; }
+
   /* ════════ タスクB-2/C: 再生モードのスライダー帯・下部バー ════════ */
 
   .sol-mobile-replay-strip {
@@ -586,6 +628,55 @@
     font-weight: 600;
   }
 
+  /* 選択をやめる ✕（詳細ボタンと同じ地・枠。他のシートの閉じるボタンと同じ印） */
+  .sol-mobile-action-close-btn {
+    flex: 0 0 auto;
+    width: 32px;
+    height: 26px;
+    margin-left: -4px;
+    padding: 0;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--main-color);
+    font-family: var(--font);
+    font-size: 0.9rem;
+    line-height: 1;
+  }
+  /* 手札のカードの「場に出すとき」。見た目はデッキシートの「回す｜編集」（.sol-deck-mode-tabs）と同じ */
+  .sol-mobile-place-row[hidden] { display: none; }
+  .sol-mobile-place-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .sol-mobile-place-label { flex: none; font-size: 0.76rem; color: #a8b4c9; }
+  .sol-mobile-place-seg {
+    display: flex;
+    flex: 1;
+    gap: 4px;
+    padding: 3px;
+    border-radius: 999px;
+    background: var(--bg-color);
+  }
+  .sol-mobile-place-seg button {
+    flex: 1;
+    padding: 4px 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: #a8b4c9;
+    font: inherit;
+    font-size: 0.8rem;
+  }
+  .sol-mobile-place-seg button[aria-pressed="true"] {
+    background: #202c42;
+    color: #eff3fb;
+    font-weight: 700;
+  }
+  /* 「場に出すとき」の行がある間は1段ぶん高くする（ボタンは手札では守備表示・セットを隠すので2段のまま） */
+  .sol-mobile-action-sheet.has-place-row { max-height: 146px; }
   .sol-mobile-action-ops {
     display: flex;
     flex-wrap: wrap;
