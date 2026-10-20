@@ -106,8 +106,18 @@
 
 /* スマホの横長領域でも、手札と同じマス幅を基準に刻印を表示する。 */
 @media (max-width: 767px) and (orientation: portrait) {
+  .sol-grave { --relief-symbol: url('../icons/grave-relief.svg'); }
+  .sol-banish { --relief-symbol: url('../icons/banish-relief.svg'); }
+  /* 縦ラベルを含むパネル全体の中央に揃える。内側のカード列は基準にしない。 */
+  .side-slots-container > .sol-grave,
+  .side-slots-container > .sol-banish {
+    background-image: var(--relief-symbol), var(--relief-grain), linear-gradient(145deg, #ffffff05, #0000000c);
+    background-position: center;
+    background-repeat: no-repeat, repeat, no-repeat;
+    background-size: calc(var(--slot-width) * .76) auto, 160px 160px, 100% 100%;
+  }
   .sol-grave .side-slot, .sol-banish .side-slot {
-    background-size: calc(var(--slot-width) * .76) auto;
+    background-image: none;
   }
 }
 
