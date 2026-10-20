@@ -487,7 +487,7 @@ def _all_rate_limit_buckets() -> list[dict]:
     分離で test_deck_per_shop_rarity が5件落ちた）。一覧をここに集約して
     テスト側は _reset_rate_limits() を呼ぶだけにする。
     """
-    return [_last_search, _last_import, _last_buyback, _last_deck, _last_deck_image, _last_packs,
+    return [_last_search, _last_import, _last_buyback, _last_deck, _last_packs,
             _last_sync, _last_sync_link, _last_feedback, _last_mercari, _last_text_report]
 
 
@@ -4941,72 +4941,6 @@ def _build_done(results: list[dict], corrected_name: str = "") -> dict:
     if corrected_name:
         d["corrected_name"] = corrected_name
     return d
-
-
-_last_deck_image = {}
-# TODO: calibrate from data — 同時生成数の増加は本番相当のメモリ計測後に判断する。
-_deck_image_slot = threading.BoundedSemaphore(1)
-_deck_image_metrics_lock = threading.Lock()
-_deck_image_metrics_log_errors = 0
-
-
-def _log_deck_image_metrics(event, **values):
-    """計測の失敗でPNGや混雑時の応答を壊さず、次のログに失敗数を残す。"""
-    global _deck_image_metrics_log_errors
-    with _deck_image_metrics_lock:
-        errors = _deck_image_metrics_log_errors
-    try:
-        logger.info('deck_image_metrics %s', json.dumps({
-            "event": event, "pid": os.getpid(), "log_errors": errors, **values,
-        }))
-    except Exception:
-        # 出力先自体の障害なので同じloggerで警告を再帰出力しない。
-        with _deck_image_metrics_lock:
-            _deck_image_metrics_log_errors += 1
-
-
-@app.route("/api/deck-image", methods=["POST"])
-def api_deck_image():
-    """デッキ画像を生成して PNG バイナリを返す。
-    リクエスト: {"name": "デッキ名", "cards": [{"name": str, "qty": int}, ...], "total": int}
-    レスポンス: image/png
-    """
-    from deck_image_request import validate_deck_image_request
-    try:
-        deck_name, cards, total = validate_deck_image_request(request.get_json(silent=True))
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    rate_error = _consume_rate_limit(bucket=_last_deck_image)
-    if rate_error:
-        return rate_error
-    # 画像合成は1件ずつ実行し、Webスレッドを待ち行列で埋めない。
-    if not _deck_image_slot.acquire(blocking=False):
-        _log_deck_image_metrics("capacity_rejected")
-        response = jsonify({"error": "画像を作成中です。少し待って再度お試しください"})
-        response.headers["Retry-After"] = str(RATE_LIMIT_SEC)
-        return response, 503
-
-    image_started = time.monotonic()
-    image_outcome = "failed"
-    try:
-        from deck_image import generate_deck_image
-        site_url = request.host_url.rstrip("/")
-        # _ygores_image_url を resolver として渡す（起動時ロード済みの名前インデックスを共有）
-        img_bytes = generate_deck_image(
-            deck_name, cards, total, site_url,
-            image_url_resolver=_ygores_image_url,
-        )
-        resp = Response(img_bytes, content_type="image/png")
-        resp.headers["Cache-Control"] = "public, max-age=300"
-        image_outcome = "completed"
-        return resp
-    except Exception as e:
-        logger.error(f"[deck-image] {e}", exc_info=True)
-        return jsonify({"error": "画像生成に失敗しました"}), 500
-    finally:
-        _deck_image_slot.release()
-        # デッキ名・カード名を含めず、実行時間と枠不足を本番で集計する。
-        _log_deck_image_metrics(image_outcome, duration_sec=round(time.monotonic() - image_started, 6))
 
 
 # ── 起動時プリロード ──
