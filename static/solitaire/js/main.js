@@ -413,7 +413,7 @@ async function initializeApp() {
     // 状態表示。スマホ縦の読込後の失敗は sol-deck-load-end の既存トーストが出るので重ねない
     notify: (msg, opt) => { if (!(opt?.afterLoad && isMobilePortrait())) showToast(msg); },
     // 新着を読み込めたときだけ「自分のデッキで回す」案内を出す（PC は見出し行・スマホは詳細シート）
-    // 新着カードはマイデッキに無いデッキなので、未登録として始める（見出しに「マイデッキに新規登録」が出る）
+    // 新着カードはマイデッキに無いデッキなので、未登録として始める（見出しに「マイデッキに登録」が出る）
     onLoaded: () => setDeckLink({ name: '新着カード' }),
     // スマホ縦は既存のスマホ用詳細UI、それ以外は左パネル（カードをタップ/クリックした時と同じ表示）
     showCard: el => isMobilePortrait()
