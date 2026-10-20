@@ -44,7 +44,8 @@ let _enteredFullscreen = false;
 let _savedBottomReserve = null;
 let _cursorBeforeEnter = null; // PC: 開く前の手。閉じるときにここへ戻す（0手目のまま操作すると先の記録が消えるため）
 let _deckObserver = null;      // デッキ列（#poolRow）の中身の変化を見て「デッキ N」を数え直す
-let _rowObserver = null;       // 盤面・手札/EX の行の大きさの変化を見て、手札/EX の境目を合わせ直す
+let _rowObserver = null;
+let _wakeLock = null;          // 画面を消さない（Screen Wake Lock）。表示の間だけ持ち、閉じたら手放す       // 盤面・手札/EX の行の大きさの変化を見て、手札/EX の境目を合わせ直す
 let _enteredPortrait = false;  // 縦向きスマホで開いたか（スマホは再生モードのまま戻るので手は戻さない）
 
 function _ga(name, params) {
@@ -121,6 +122,8 @@ function _buildGuide() {
     '先に端末の画面録画を始めます（iPhone: コントロールセンターの画面収録／Android: クイック設定のスクリーンレコード／Windows: Win+Alt+R／Mac: Shift+⌘+5）',
     '「始める」を押すと、3秒数えてから最初の手から再生します',
     '画面に触れる（マウスを動かす）と「もう一度」「終わる」が出ます。録画中は触らずにおくときれいに撮れます',
+    // 画面を消さない機能（_keepScreenOn）が使えない端末では、自動ロックで画面が消えて録画が止まることがある
+    ...('wakeLock' in navigator ? [] : ['この端末では途中で画面が消えることがあります。端末の自動ロックを長め（または「なし」）にしてから撮ってください']),
   ].forEach((t) => steps.append(_el('li', '', t)));
   card.append(steps);
   const start = _el('button', 'sol-replay-start-play', '始める');
@@ -212,6 +215,30 @@ function _countdownThenPlay() {
   tick();
 }
 
+/**
+ * 表示の間は画面を消さない（2026-10-20 ユーザー報告: スマホで録画中に画面が暗くなり録画が止まった）。
+ * 録画中は画面に触れないので、端末の自動ロックが働いて画面が消える（iPhone は画面がロックされると画面収録も止まる。
+ * 未検証の前提: 報告の現象はこれによるもの）。Screen Wake Lock に対応していない端末では何もしない
+ * （案内に自動ロックの設定を書く。_buildGuide）。ページが裏に回ると手放されるので、戻ったときに取り直す（initRecView）。
+ */
+async function _keepScreenOn() {
+  if (!_active || _wakeLock || !('wakeLock' in navigator) || document.visibilityState !== 'visible') return;
+  try {
+    const lock = await navigator.wakeLock.request('screen');
+    if (!_active) { lock.release().catch(() => {}); return; } // 取れる前に閉じられた
+    _wakeLock = lock;
+    lock.addEventListener('release', () => { if (_wakeLock === lock) _wakeLock = null; });
+  } catch (_) {
+    _wakeLock = null; // 断られても（省電力モード等）表示は続ける
+  }
+}
+
+function _releaseScreenOn() {
+  const lock = _wakeLock;
+  _wakeLock = null;
+  lock?.release().catch(() => {});
+}
+
 async function _requestFullscreen() {
   if (isMobilePortrait()) return; // 縦向きスマホはページの全画面に対応しない端末が多い（iPhone の Safari 等）
   const el = document.documentElement;
@@ -226,6 +253,7 @@ async function _requestFullscreen() {
 
 function _start() {
   document.getElementById('solRecGuide')?.remove();
+  _keepScreenOn(); // 開いたときに取れていなくても、押した操作の中でもう一度頼む
   _requestFullscreen(); // 押した操作の中で呼ぶ（全画面はユーザー操作が必要）
   _rewind();
   _ga('recview_start', { steps: getLogLength() });
@@ -285,6 +313,7 @@ export function enterRecView() {
   document.addEventListener('pointerdown', _onPointer, true);
   document.addEventListener('mousemove', _onPointer, true);
   window.dispatchEvent(new Event('resize')); // 盤面を広げ直す（main.js fitFieldToViewport）
+  _keepScreenOn();
   _ga('recview_open', { steps: getLogLength() });
 }
 
@@ -336,6 +365,7 @@ export function exitRecView() {
   _deckObserver = null;
   _rowObserver?.disconnect();
   _rowObserver = null;
+  _releaseScreenOn();
   document.body.classList.remove(ROOT_CLASS);
   _alignHandExLine(); // 閉じたので手札の幅を元の割合に戻す（_active が false なので戻すだけ）
   _setMobileReserve(false);
@@ -361,6 +391,10 @@ export function isRecViewActive() {
 export function initRecView(opts = {}) {
   _enterMobilePlayback = typeof opts.enterMobilePlayback === 'function' ? opts.enterMobilePlayback : null;
   subscribeReplay('changed', _syncProgress);
+  // 画面を消さない頼みは、ページが裏に回る（アプリの切り替え等）と手放されるので、戻ったら取り直す
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') _keepScreenOn();
+  });
   // PC で自分が入った全画面が解けたら（全画面中の Esc はページに届かず全画面の解除にだけ使われる）表示も閉じる
   document.addEventListener('fullscreenchange', () => {
     if (_active && _enteredFullscreen && !document.fullscreenElement) {
