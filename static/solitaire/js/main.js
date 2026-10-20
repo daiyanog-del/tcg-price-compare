@@ -10,7 +10,7 @@
  * 共有したい関数は utils/ 配下の独立モジュールに切り出すこと（例: utils/toast.js）。
  */
 
-import { initializeDesktopDragDrop, enableTouchDrag } from './components/drag-drop.js';
+import { initializeDesktopDragDrop } from './components/drag-drop.js';
 import { initializeCards, syncCardIdCounter } from './components/card-manager.js';
 import { collectReplayCardIds } from './utils/session-resume-store.js';
 import { initializeCounter } from './components/counter-manager.js';
@@ -330,19 +330,13 @@ async function initializeApp() {
     initializeCounter(container);
   });
 
-  // タッチ対応
-  const parentCounter = document.querySelector('#parent.counter-container');
-  if (parentCounter) {
-    parentCounter.addEventListener('touchstart', enableTouchDrag, { passive: false });
-  }
-
   // イベントリスナーを設定
   initializeEventListeners();
 
   // リプレイUI初期化（window.replayLog バインド含む）
   initReplayUI();
 
-  // トークン生成UI初期化
+  // トークン生成（空いたマスの右クリックメニュー）初期化
   initTokenGenerator();
 
   // コイントス・ダイスロール初期化

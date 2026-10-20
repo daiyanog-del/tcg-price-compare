@@ -295,32 +295,6 @@
   min-width: 46px;
 }
 
-#parent.counter-container {
-  cursor: default;
-  margin: 0 auto;
-}
-
-.counter-drag-handle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  cursor: grab;
-  color: rgba(226, 232, 240, 0.45);
-  font-size: 0.9rem;
-  padding: 0 2px;
-  flex-shrink: 0;
-  border-right: 1px solid rgba(74, 124, 255, 0.3);
-  user-select: none;
-  transition: background 0.12s, color 0.12s;
-}
-
-.counter-drag-handle:hover {
-  background: rgba(74, 124, 255, 0.2);
-  color: rgba(226, 232, 240, 0.9);
-}
-
 .counter-textbox {
   width: 1.6rem;
   height: 22px;
@@ -551,6 +525,46 @@
   cursor: default;
 }
 .sol-context-menu-item.is-disabled:hover { background: transparent; }
+
+/* 見出し（空いたマスの「トークンを出す」） */
+.sol-context-menu-heading {
+  padding: 6px 12px 4px;
+  color: #a8b4c9;
+  font-size: 0.72rem;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+/* 中身を作った行（トークン名の入力欄） */
+.sol-context-menu-row {
+  padding: 2px 8px 6px;
+}
+.sol-context-menu-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  background: var(--bg-color);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--main-color);
+  font-family: var(--font);
+  font-size: 0.82rem;
+}
+.sol-context-menu-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* 項目名の前の色見本（トークンの色） */
+.sol-context-menu-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 8px;
+  border-radius: 3px;
+  vertical-align: -1px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
 
 /* 項目の補足（「今 3枚」） */
 .sol-context-menu-sub {
