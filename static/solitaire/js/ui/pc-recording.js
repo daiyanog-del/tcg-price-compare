@@ -249,8 +249,10 @@ function _onPickOk() {
 
 function _onPickKeydown(ev) {
   if (ev.key !== 'Escape' || !_pick) return;
-  // 保存・共有シートや問い合わせの窓など、上に重なっているものがあればそちらの Esc に任せる
-  if (document.querySelector('.sol-fb-overlay:not([hidden])')) return;
+  // 保存・共有シートや問い合わせの窓など、上に重なっているものがあればそちらの Esc に任せる。
+  // 問い合わせの窓（#feedbackModal）は hidden 属性ではなく CSS で隠すので、実際に画面に出ているか（大きさがあるか）で見る
+  // （hidden 属性だけで見ていたため、閉じている問い合わせの窓に毎回引っかかり Esc で閉じなかった。2026-10-20 本番で発見）
+  if ([...document.querySelectorAll('.sol-fb-overlay')].some((el) => el.getClientRects().length > 0)) return;
   closePcRangePicker();
 }
 
