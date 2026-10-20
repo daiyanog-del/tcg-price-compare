@@ -1,19 +1,26 @@
 /**
  * token-generator.js
- * プレビュー画像をドラッグして盤面に直接トークンを配置する
+ * 盤面の空いたマスを右クリック → メニューで名前と色を選ぶと、そのマスにトークンを出す
+ *
+ * 2026-10-20 右パネルの「トークン」欄（プレビュー画像をドラッグして盤面へ）から置き換え。
  *
  * 仕組み:
- *  dragstart 時に tokenDataURL から新しい .tier-item-wrapper を poolRow に追加し、
- *  その img の ID を dataTransfer にセットする。
- *  既存の drop 処理がそのままカードをフィールドへ移動する。
- *  ドロップが無効な場所なら poolRow に残る（再利用可）。
+ *  色を選んだ時点で tokenDataURL から新しい .tier-item-wrapper を poolRow に作り、
+ *  executeDrop で右クリックしたマスへ移す（ドラッグで置いたときと同じ配置・リプレイ記録の経路）。
+ *  対象は .custom-slot の地（カードの上の右クリックはカードのメニューになる）。
+ *  スマホ縦向きは対象外（右パネルの欄もスマホでは出していなかった）。
  */
 
 import { addCardToPool } from '../components/card-manager.js';
+import { getDropZoneInfo, executeDrop } from '../components/drag-drop.js';
 import { registerCardImage } from '../services/replay-service.js';
+import { openContextMenuAt, closeContextMenu } from './context-menu.js';
+import { isMobilePortrait } from '../utils/viewport.js';
 
 const CARD_W = 106;
 const CARD_H = 154;
+const NAME_MAX = 12;
+const DEFAULT_NAME = 'トークン';
 
 const TOKEN_COLORS = [
   { label: '緑', value: '#2d6040' },
@@ -22,7 +29,9 @@ const TOKEN_COLORS = [
   { label: '赤', value: '#6b1a2a' },
 ];
 
-let _selectedColor = TOKEN_COLORS[0].value;
+// 前回の名前・色（同じトークンを続けて出すときに打ち直さなくてよいように。ページ内だけ覚える）
+let _lastName  = DEFAULT_NAME;
+let _lastColor = TOKEN_COLORS[0].value;
 
 function generateTokenDataURL(name, color) {
   const canvas = document.createElement('canvas');
@@ -86,52 +95,93 @@ function _roundRect(ctx, x, y, w, h, r, fill, stroke) {
   if (stroke) ctx.stroke();
 }
 
-/** プレビュー画像を現在の設定で更新 */
-function refreshPreview() {
-  const img = document.getElementById('tokenPreviewImg');
-  if (!img) return;
-  const name = (document.getElementById('tokenName')?.value || 'トークン').trim() || 'トークン';
-  img.src = generateTokenDataURL(name, _selectedColor);
+/**
+ * トークンを作ってマスに出す（ドラッグで置いたときと同じく executeDrop で配置・記録する）。
+ * @param {Element} slot - .custom-slot
+ * @param {string} name
+ * @param {string} color
+ */
+function placeToken(slot, name, color) {
+  if (!slot.isConnected) return; // メニューを開いている間に盤面が作り直された
+  const src = generateTokenDataURL(name, color);
+
+  // poolRow に新カードを作り、その最後のカードを取る（従来のドラッグと同じ作り方）
+  addCardToPool(src, false, false);
+  const pool = document.getElementById('poolRow');
+  const wrapper = pool?.querySelector('.tier-item-wrapper:last-child');
+  const cardEl = wrapper?.querySelector('.tier-item');
+  if (!cardEl?.id) return;
+  registerCardImage(cardEl.id, src);
+
+  const dropZoneInfo = getDropZoneInfo(slot);
+  if (!dropZoneInfo) {
+    console.warn('[token-generator] マスの種別を判定できませんでした');
+    return;
+  }
+  executeDrop({ type: 'card', element: wrapper }, dropZoneInfo, slot, {});
+}
+
+/** メニューの名前欄の値（空なら既定の名前） */
+function _nameOf(input) {
+  return input.value.trim().slice(0, NAME_MAX) || DEFAULT_NAME;
+}
+
+/**
+ * 空いたマスのメニューを開く: 見出し・名前欄・色4つ（押すとその色で出す）。
+ * 名前欄で Enter を押すと前回の色で出す。
+ */
+function openTokenMenu(slot, x, y) {
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'sol-context-menu-input';
+  input.value = _lastName;
+  input.maxLength = NAME_MAX;
+  input.placeholder = 'トークン名';
+  input.setAttribute('aria-label', 'トークン名');
+
+  const place = (color) => {
+    _lastName  = _nameOf(input);
+    _lastColor = color;
+    placeToken(slot, _lastName, color);
+  };
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      place(_lastColor);
+      closeContextMenu();
+    } else if (e.key === 'Escape') {
+      closeContextMenu();
+    }
+  });
+
+  openContextMenuAt([
+    { heading: 'トークンを出す' },
+    { element: input },
+    ...TOKEN_COLORS.map(({ label, value }) => ({
+      label,
+      swatch: value,
+      sub: value === _lastColor ? '前回' : '',
+      action: () => place(value),
+    })),
+  ], x, y);
+
+  // すぐ名前を打ち直せるように（色を押すだけなら関係ない）
+  input.focus();
+  input.select();
 }
 
 export function initTokenGenerator() {
-  // 初期プレビュー描画
-  refreshPreview();
+  const layout = document.querySelector('.custom-layout');
+  if (!layout) return;
 
-  // 名前入力で即時更新
-  document.getElementById('tokenName')?.addEventListener('input', refreshPreview);
-
-  // カラーボタン
-  document.querySelectorAll('.sol-token-color-btn').forEach(btn => {
-    if (btn.dataset.color === _selectedColor) btn.classList.add('active');
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.sol-token-color-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      _selectedColor = btn.dataset.color;
-      refreshPreview();
-    });
-  });
-
-  // プレビュー画像のドラッグ開始
-  // → 新しいカード要素を poolRow に生成してその ID を dataTransfer に渡す
-  const preview = document.getElementById('tokenPreviewImg');
-  if (!preview) return;
-
-  preview.addEventListener('dragstart', (ev) => {
-    const name = (document.getElementById('tokenName')?.value || 'トークン').trim() || 'トークン';
-    const src  = generateTokenDataURL(name, _selectedColor);
-
-    // poolRow に新カードを追加
-    addCardToPool(src, false, false);
-
-    // 追加された最後のカードの ID を取得
-    const pool = document.getElementById('poolRow');
-    const lastImg = pool?.querySelector('.tier-item-wrapper:last-child img');
-    if (!lastImg?.id) { ev.preventDefault(); return; }
-
-    registerCardImage(lastImg.id, src);
-
-    // 既存の drop 処理に渡す ID をセット
-    ev.dataTransfer.setData('text/plain', lastImg.id);
+  layout.addEventListener('contextmenu', (e) => {
+    if (e.defaultPrevented) return;                     // カードのメニューなど、先に処理済み
+    if (e.target.closest('.tier-item-wrapper')) return; // カードの上はカードのメニュー
+    const slot = e.target.closest('.custom-slot');
+    if (!slot) return;                                  // マスの間の隙間はブラウザのメニューのまま
+    if (isMobilePortrait()) return;
+    e.preventDefault();
+    openTokenMenu(slot, e.clientX, e.clientY);
   });
 }

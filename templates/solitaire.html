@@ -605,7 +605,7 @@
 
     </div><!-- /.sol-field-area -->
 
-    <!-- 右パネル: 操作ボタン + カウンター -->
+    <!-- 右パネル: 操作ボタン・コメント・ランダム・操作方法 -->
     <aside class="sol-right-panel" id="solRightPanel">
 
       <div class="sol-right-section">
@@ -670,37 +670,6 @@
         </label>
       </div>
 
-      <div class="sol-right-section">
-        <p class="sol-right-heading">カウンター</p>
-        <p class="sol-ops-desc" style="margin:0 0 6px">カードへドロップで付与</p>
-        <div class="counter-container" id="parent" draggable="true" ondragstart="drag(event)">
-          <span class="counter-drag-handle">⠿</span>
-          <button class="triangle-button up">+</button>
-          <input type="text" class="counter-textbox" value="1" readonly>
-          <button class="triangle-button down">−</button>
-        </div>
-      </div>
-
-      <!-- トークン生成 -->
-      <div class="sol-right-section">
-        <p class="sol-right-heading">トークン</p>
-        <div class="sol-token-controls">
-          <input type="text" id="tokenName" class="sol-token-name-input"
-            value="トークン" placeholder="トークン名" maxlength="12">
-          <div class="sol-token-colors">
-            <button class="sol-token-color-btn" data-color="#2d6040" title="緑" style="background:#2d6040"></button>
-            <button class="sol-token-color-btn" data-color="#7a6020" title="金" style="background:#7a6020"></button>
-            <button class="sol-token-color-btn" data-color="#1a3d6b" title="青" style="background:#1a3d6b"></button>
-            <button class="sol-token-color-btn" data-color="#6b1a2a" title="赤" style="background:#6b1a2a"></button>
-          </div>
-          <!-- プレビュー: ここからドラッグして盤面へ -->
-          <div class="sol-token-preview-wrap">
-            <img id="tokenPreviewImg" class="sol-token-preview-img" draggable="true" src="" alt="トークン">
-            <p class="sol-token-hint">ドラッグして盤面へ</p>
-          </div>
-        </div>
-      </div>
-
       <!-- コイントス・ダイスロール -->
       <div class="sol-right-section">
         <p class="sol-right-heading">ランダム</p>
@@ -738,6 +707,10 @@
             <div class="sol-ops-item">
               <span class="sol-ops-key">右クリック / 長押し</span>
               <span class="sol-ops-desc">操作メニュー</span>
+            </div>
+            <div class="sol-ops-item">
+              <span class="sol-ops-key">空いたマスを右クリック</span>
+              <span class="sol-ops-desc">トークンを出す</span>
             </div>
             <div class="sol-ops-item">
               <span class="sol-ops-key">重ね置き</span>
