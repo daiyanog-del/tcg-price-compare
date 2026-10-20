@@ -8,7 +8,8 @@ import { addCardToPool, sortPoolCards } from '../components/card-manager.js';
 import { registerCardImage, registerCardName, registerCardType, resetReplay, getLogLength, getSetupLogs } from '../services/replay-service.js';
 import { setCardName } from './card-info-panel.js';
 import { clearSessionResume } from '../utils/session-resume-store.js';
-import { setDeckLink } from '../services/deck-link.js';
+import { setDeckLink, getDeckLink, onDeckLinkChange } from '../services/deck-link.js';
+import { isMobilePortrait, watchMobilePortrait } from '../utils/viewport.js';
 
 const API_CARD_IMAGE  = '/api/card-image';   // 単数版（フォールバック用）
 const API_CARD_IMAGES = '/api/card-images';  // バッチ版（POST）
@@ -75,6 +76,7 @@ export function savedDecksGet() {
 
 export function savedDecksSet(list) {
   localStorage.setItem(SAVED_DECKS_KEY, JSON.stringify(list));
+  _updateMyDeckCount(list.length);
   // 端末間同期（P2）。sync-client.js 側でデバウンス・無限ループ防止を行う
   if (window.SyncClient) window.SyncClient.onDecksSave(list);
 }
@@ -586,7 +588,7 @@ export async function loadMetaDeck(theme, triggerBtn = null) {
     const { main, ex } = _currentPoolCounts();
     document.dispatchEvent(new CustomEvent('sol-deck-load-end', { detail: { ok, main, ex, error } }));
   }
-  if (ok) setDeckLink({ name: theme }); // 環境デッキはマイデッキに無いので未登録として始める
+  if (ok) setDeckLink({ name: theme, source: 'sample' }); // 環境デッキはマイデッキに無いので未登録として始める
   return ok;
 }
 
@@ -624,31 +626,145 @@ export async function addCardsToDeck(cards) {
 }
 
 /**
- * デッキ入力パネルを初期化
+ * デッキ入力パネルを初期化。
+ * 2026-10-20 サイドバー整理: 「マイデッキ」「サンプルデッキ」のボタンを押すと一覧の窓（.deck-pick-pop）を開く。
+ * PC はサイドバーの右に重ねる窓（外を押す・Esc・×・読み込みで閉じる）。縦向きスマホのデッキ読込シートでは
+ * 窓を浮かせず、ボタンの下にその場で開く（mobile.css。シートの中なので外を押しても閉じない）。
  */
 export function initDeckInputPanel() {
   const container = document.getElementById('deckInputContainer');
   if (!container) return;
 
-  // タブ切り替え
-  container.querySelectorAll('.deck-input-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      container.querySelectorAll('.deck-input-tab').forEach(t => t.classList.remove('active'));
-      container.querySelectorAll('.deck-input-pane').forEach(p => p.classList.remove('active'));
-      tab.classList.add('active');
-      const paneId = tab.dataset.pane;
-      const pane = document.getElementById(paneId);
-      if (pane) pane.classList.add('active');
-
-      // 環境デッキタブに切り替えた時はティアリストを取得
-      if (paneId === 'deckPanePreset') loadMetaTierList();
-      // マイデッキタブに切り替えた時は一覧を描画
-      if (paneId === 'deckPaneMyDeck') renderMyDeckList();
+  container.querySelectorAll('[data-pane]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const paneId = btn.dataset.pane;
+      if (_openPaneId === paneId) closeDeckPicker();
+      else _openDeckPicker(paneId);
     });
   });
+  container.querySelectorAll('.deck-pick-pop-close').forEach(b => b.addEventListener('click', closeDeckPicker));
 
-  // 初期表示はマイデッキタブなので、読み込み時点で一覧を描画する
+  // 外を押したら閉じる（PC の浮いた窓のときだけ）。ボタン自身の押下はボタンのクリックで開閉する
+  document.addEventListener('pointerdown', (e) => {
+    if (!_openPaneId || isMobilePortrait()) return;
+    const pane = document.getElementById(_openPaneId);
+    if (pane?.contains(e.target) || e.target.closest?.(`[data-pane="${_openPaneId}"]`)) return;
+    closeDeckPicker();
+  }, true);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && _openPaneId && !isMobilePortrait()) closeDeckPicker();
+  });
+  // 窓の位置はボタンの位置から決めるので、画面の大きさが変わったら置き直す
+  window.addEventListener('resize', () => { if (_openPaneId) _placeDeckPicker(_openPaneId); });
+  // 縦向きスマホとの切り替えでは置き場所（body 直下／シートの中）が変わるので、一度閉じる
+  watchMobilePortrait((portrait) => {
+    closeDeckPicker();
+    if (portrait) _openDeckPicker('deckPaneMyDeck');
+  });
+  document.getElementById('solSidebar')?.addEventListener('scroll', () => { if (_openPaneId) _placeDeckPicker(_openPaneId); });
+
+  // 今のデッキが変わったら「使用中」を付け直す（縦向きスマホのシートは開いたまま残り、描き直されないため）
+  onDeckLinkChange(() => { _markCurrentMyDeck(); _markCurrentMeta(); });
+
   renderMyDeckList();
+  // 縦向きスマホのデッキ読込シートは、今までどおりマイデッキの一覧を開いた状態で始める
+  if (isMobilePortrait()) _openDeckPicker('deckPaneMyDeck');
+}
+
+/** いま開いている窓の id（無ければ null） */
+let _openPaneId = null;
+/** body 直下へ移した窓の元の場所（閉じたら戻す） */
+const _paneHome = new Map();
+
+function _openDeckPicker(paneId) {
+  closeDeckPicker();
+  const pane = document.getElementById(paneId);
+  if (!pane) return;
+  _openPaneId = paneId;
+  // PC: 左サイドバーは独立した重なり順（sticky）を持ち、中の窓は盤面の下に隠れる。開いている間だけ body 直下へ移す
+  if (!isMobilePortrait()) {
+    _paneHome.set(pane, { parent: pane.parentNode, next: pane.nextSibling });
+    document.body.appendChild(pane);
+  }
+  pane.hidden = false;
+  const btn = document.querySelector(`#deckInputContainer [data-pane="${paneId}"]`);
+  btn?.classList.add('is-active');
+  btn?.setAttribute('aria-expanded', 'true');
+  if (paneId === 'deckPaneMyDeck') renderMyDeckList();
+  if (paneId === 'deckPanePreset') { loadMetaTierList(); _markCurrentMeta(); }
+  _placeDeckPicker(paneId);
+  // PC は窓を body の末尾へ移すので、Tab でたどり着けるよう窓へフォーカスを移す（閉じたらボタンへ戻す）
+  if (!isMobilePortrait()) pane.querySelector('.deck-pick-pop-close')?.focus({ preventScroll: true });
+}
+
+/** デッキの窓を閉じる（デッキを読み込んだ後にも呼ぶ） */
+export function closeDeckPicker() {
+  if (!_openPaneId) return;
+  const pane = document.getElementById(_openPaneId);
+  const btn = document.querySelector(`#deckInputContainer [data-pane="${_openPaneId}"]`);
+  if (pane?.contains(document.activeElement)) btn?.focus({ preventScroll: true });
+  if (pane) {
+    pane.hidden = true;
+    const home = _paneHome.get(pane);
+    if (home) { home.parent.insertBefore(pane, home.next); _paneHome.delete(pane); }
+  }
+  btn?.classList.remove('is-active');
+  btn?.setAttribute('aria-expanded', 'false');
+  _openPaneId = null;
+}
+
+/** PC: サイドバーの右に、ボタンの高さに合わせて置く（画面の下にはみ出すなら上へずらす）。スマホのシートでは置かない */
+function _placeDeckPicker(paneId) {
+  const pane = document.getElementById(paneId);
+  if (!pane) return;
+  if (isMobilePortrait()) { pane.style.left = ''; pane.style.top = ''; return; }
+  const btn = document.querySelector(`#deckInputContainer [data-pane="${paneId}"]`);
+  const side = document.getElementById('solSidebar');
+  if (!btn || !side) return;
+  const margin = 16;
+  const b = btn.getBoundingClientRect();
+  pane.style.left = `${side.getBoundingClientRect().right + 8}px`;
+  const h = pane.offsetHeight;
+  pane.style.top = `${Math.max(margin, Math.min(b.top - 8, window.innerHeight - h - margin))}px`;
+}
+
+/** 読み込めたら、読み込みを始めた窓を閉じる（PC。読込中に別の窓へ切り替えていたらそちらは閉じない）。
+ *  縦向きスマホのシートは閉じずに残す（シートの開け閉めは mobile-ui.js） */
+function _closeAfterLoad(paneId) {
+  if (!isMobilePortrait() && _openPaneId === paneId) closeDeckPicker();
+}
+
+/** マイデッキのボタンの丸い数字（保存件数。0件なら出さない） */
+function _updateMyDeckCount(n) {
+  const el = document.getElementById('myDeckCount');
+  if (!el) return;
+  el.textContent = String(n);
+  el.hidden = !n;
+}
+
+/** 一覧の行に「使用中」の印を付ける（いま並んでいるデッキの出どころと同じ行） */
+function _setRowCurrent(row, current) {
+  row.classList.toggle('is-current', current);
+  const hint = row.querySelector('.deck-card-hint');
+  if (hint) hint.textContent = current ? '使用中' : '読込 ›';
+}
+
+/** マイデッキの一覧の「使用中」を付け直す（描き直さない。読込中の行の「読込中…」を消さないため） */
+function _markCurrentMyDeck() {
+  const link = getDeckLink();
+  document.querySelectorAll('#myDeckList .deck-card-row').forEach(row => {
+    if (row.disabled) return; // 読込中の行は読み込み処理が戻す
+    _setRowCurrent(row, !!link?.savedId && link.savedId === row.dataset.savedId);
+  });
+}
+
+/** サンプルデッキの一覧の「使用中」を付け直す（一覧は一度だけ取得するので、開くたびに見直す） */
+function _markCurrentMeta() {
+  const link = getDeckLink();
+  document.querySelectorAll('#metaTierList .deck-card-row').forEach(row => {
+    if (row.disabled) return; // 読込中（「読込中…」を出している間）は読み込み処理が戻す
+    _setRowCurrent(row, !!link && !link.savedId && link.source === 'sample' && link.name === row.dataset.theme);
+  });
 }
 
 /**
@@ -660,6 +776,7 @@ async function loadMetaTierList() {
   if (listEl.dataset.loaded === 'true') return;
 
   listEl.innerHTML = '<span class="deck-loading-msg">読み込み中...</span>';
+  let rendered = false;
   try {
     const res = await fetch(API_META);
     if (!res.ok) throw new Error('環境データ取得失敗');
@@ -676,9 +793,13 @@ async function loadMetaTierList() {
       row.innerHTML =
         `<span class="deck-card-info"><span class="deck-card-name">${_esc(String(theme))}</span></span>`
         + `<span class="deck-card-hint">読込 ›</span>`;
-      row.addEventListener('click', () => loadMetaDeck(theme, row));
+      row.dataset.theme = String(theme);
+      row.addEventListener('click', async () => {
+        if (await loadMetaDeck(theme, row)) _closeAfterLoad('deckPanePreset');
+      });
       listEl.appendChild(row);
     });
+    rendered = true;
     // 更新失敗時の退避データはタブを再度開いたときに再取得する。
     const stale = data.metadata?.stale || data.metadata?.refresh_error;
     listEl.dataset.loaded = stale ? 'false' : 'true';
@@ -691,16 +812,24 @@ async function loadMetaTierList() {
   } catch (e) {
     listEl.innerHTML = `<span class="deck-loading-msg">取得失敗: ${e.message}</span>`;
   }
+  // 「使用中」の印と窓の位置は、取得の成否と分けて後から付ける（ここで起きた不具合を「取得失敗」と出さない）
+  if (rendered) {
+    _markCurrentMeta();
+    if (_openPaneId === 'deckPanePreset') _placeDeckPicker('deckPanePreset'); // 中身が入って高さが変わったので置き直す
+  }
 }
 
 /**
- * マイデッキ一覧を描画（タブを開くたびに最新を反映）
+ * マイデッキ一覧を描画（窓を開くたびに最新を反映。端末間同期の適用後にも window.renderSavedDecks で呼ばれる）。
+ * ボタンの件数も直す。ニューロン取り込みの入口は窓の下（#myDeckImportFoot）に置く。
  */
 function renderMyDeckList() {
   const listEl = document.getElementById('myDeckList');
   if (!listEl) return;
+  const foot = document.getElementById('myDeckImportFoot');
 
   const decks = savedDecksGet();
+  _updateMyDeckCount(decks.length);
 
   if (decks.length === 0) {
     listEl.innerHTML =
@@ -708,9 +837,11 @@ function renderMyDeckList() {
       + '<p class="mydeck-empty-title">まだデッキがありません</p>'
       + _importEntryHtml(true)
       + '</div>';
+    if (foot) { foot.replaceChildren(); foot.hidden = true; }
     return;
   }
 
+  const link = getDeckLink();
   listEl.innerHTML = '';
   decks
     .slice()
@@ -729,17 +860,21 @@ function renderMyDeckList() {
         + (date ? `<span class="deck-card-date">${date}</span>` : '')
         + `</span>`
         + `<span class="deck-card-hint">読込 ›</span>`;
+      row.dataset.savedId = deck.id || '';
+      _setRowCurrent(row, !!link?.savedId && link.savedId === deck.id);
       // 読み込めたら、このマイデッキにひも付ける（以後の「変更を保存」はこのデッキへ上書き）
       row.addEventListener('click', async () => {
-        if (await loadDeckFromText(deck.text || '', row)) setDeckLink({ savedId: deck.id || null, name: deck.name || '無題' });
+        if (await loadDeckFromText(deck.text || '', row)) {
+          setDeckLink({ savedId: deck.id || null, name: deck.name || '無題' });
+          _closeAfterLoad('deckPaneMyDeck');
+        }
       });
       listEl.appendChild(row);
     });
 
-  // 一覧の最後に取り込みの入口
-  const entry = document.createElement('div');
-  entry.innerHTML = _importEntryHtml(false);
-  listEl.appendChild(entry);
+  // 窓の下に取り込みの入口
+  if (foot) { foot.innerHTML = _importEntryHtml(false); foot.hidden = false; }
+  if (_openPaneId === 'deckPaneMyDeck') _placeDeckPicker('deckPaneMyDeck');
 }
 
 /** ニューロン取り込みの入口（マイデッキページへのリンク）と補足 */

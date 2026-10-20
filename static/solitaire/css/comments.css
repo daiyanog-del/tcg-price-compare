@@ -421,12 +421,6 @@ body.sol-comment-picking .tier-item-wrapper .tier-item {
 }
 
 /* ── 右パネル「コメント」区画 ── */
-.sol-comment-actions {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 5px;
-}
 .sol-comment-btn {
   padding: 5px 9px;
   background: var(--bg-hover, #202c42);
@@ -440,11 +434,6 @@ body.sol-comment-picking .tier-item-wrapper .tier-item {
   white-space: nowrap;
 }
 .sol-comment-btn:hover { background: var(--border); }
-/* 入力中・選択中の状態は accent（黄は主な操作の印だけに使う） */
-.sol-comment-btn.is-active {
-  background: var(--accent);
-  color: #101626;
-}
 .sol-comment-form {
   display: flex;
   flex-wrap: wrap;

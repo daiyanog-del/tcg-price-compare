@@ -19,8 +19,9 @@ function indexContext(payload,storage=new Map()){
 }
 function solitaireContext(payload){
   const el={dataset:{},innerHTML:'',children:[],appendChild(child){this.children.push(child);}};let calls=0;
-  const context={API_META:'/api/meta',document:{getElementById:()=>el,createElement:()=>({addEventListener(){}})},
-    fetch:async()=>{calls++;return {ok:true,json:async()=>payload};},_esc:String};
+  const context={API_META:'/api/meta',document:{getElementById:()=>el,createElement:()=>({dataset:{},addEventListener(){}})},
+    fetch:async()=>{calls++;return {ok:true,json:async()=>payload};},_esc:String,
+    _markCurrentMeta(){},_placeDeckPicker(){},_openPaneId:null};
   vm.createContext(context);
   vm.runInContext(block(solitaire,'async function loadMetaTierList()', '/**\n * マイデッキ一覧').replace(/\r/g,''),context);
   return {context,el,get calls(){return calls;}};

@@ -48,6 +48,8 @@
 <link rel="stylesheet" href="{{ static_url('css/self-watermark.css') }}">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/sample-blur.css') }}">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/site-theme.css') }}">
+<!-- 左右サイドバーのボタン・コメントの区画・デッキの窓（2026-10-20 サイドバー整理） -->
+<link rel="stylesheet" href="{{ static_url('solitaire/css/side-panels.css') }}">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/relief-theme.css') }}">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/rec-view.css') }}">
 <link rel="stylesheet" href="{{ static_url('shared/text-report.css') }}">
@@ -114,24 +116,33 @@
     <div class="sol-sidebar-section">
       <p class="sol-sidebar-heading">デッキを選択</p>
 
+      <!-- 2026-10-20 サイドバー整理: 一覧は常に出さず、ボタンを押すと窓（.deck-pick-pop）で出す。
+           PC はサイドバーの右に重ねる窓、縦向きスマホのデッキ読込シートではボタンの下にその場で開く（deck-input-panel.js） -->
       <div id="deckInputContainer" class="deck-input-panel">
-        <!-- タブ（縦並び） -->
-        <div class="deck-input-tabs">
-          <button class="deck-input-tab active" data-pane="deckPaneMyDeck">マイデッキ</button>
-          <button class="deck-input-tab" data-pane="deckPanePreset">サンプルデッキ</button>
-        </div>
-
-        <!-- マイデッキ -->
-        <div class="deck-input-pane active" id="deckPaneMyDeck">
-          <div class="my-deck-list" id="myDeckList">
-            <span class="deck-loading-msg">読み込み中…</span>
+        <div class="sol-side-stack">
+          <button type="button" class="sol-side-btn" data-pane="deckPaneMyDeck" aria-expanded="false" aria-controls="deckPaneMyDeck">
+            <svg class="sol-side-btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+            <span class="sol-side-btn-label">マイデッキ</span><span class="sol-side-btn-count" id="myDeckCount" hidden></span><span class="sol-side-btn-chev" aria-hidden="true">›</span>
+          </button>
+          <!-- マイデッキの窓（一覧＋ニューロン取り込み） -->
+          <div class="deck-pick-pop" id="deckPaneMyDeck" role="dialog" aria-label="マイデッキ" hidden>
+            <div class="deck-pick-pop-head"><span class="deck-pick-pop-title">マイデッキ</span><button type="button" class="deck-pick-pop-close" aria-label="閉じる">&times;</button></div>
+            <div class="my-deck-list deck-pick-pop-body" id="myDeckList">
+              <span class="deck-loading-msg">読み込み中…</span>
+            </div>
+            <div class="deck-pick-pop-foot" id="myDeckImportFoot"></div>
           </div>
-        </div>
 
-        <!-- 環境デッキ -->
-        <div class="deck-input-pane" id="deckPanePreset">
-          <div class="meta-tier-list" id="metaTierList">
-            <span class="deck-loading-msg">タブを開くと読み込みます</span>
+          <button type="button" class="sol-side-btn" data-pane="deckPanePreset" aria-expanded="false" aria-controls="deckPanePreset">
+            <svg class="sol-side-btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+            <span class="sol-side-btn-label">サンプルデッキ</span><span class="sol-side-btn-chev" aria-hidden="true">›</span>
+          </button>
+          <!-- サンプルデッキ（環境デッキ）の窓 -->
+          <div class="deck-pick-pop" id="deckPanePreset" role="dialog" aria-label="サンプルデッキ" hidden>
+            <div class="deck-pick-pop-head"><span class="deck-pick-pop-title">サンプルデッキ</span><button type="button" class="deck-pick-pop-close" aria-label="閉じる">&times;</button></div>
+            <div class="meta-tier-list deck-pick-pop-body" id="metaTierList">
+              <span class="deck-loading-msg">開くと読み込みます</span>
+            </div>
           </div>
         </div>
       </div>
@@ -139,7 +150,7 @@
 
     <!-- フィードバック -->
     <div class="sol-sidebar-section">
-      <button id="feedbackOpenBtn" class="sol-feedback-open-btn">不具合・要望を送る</button>
+      <button type="button" id="feedbackOpenBtn" class="sol-side-btn is-quiet"><span class="sol-side-btn-label">不具合・要望を送る</span></button>
     </div>
 
     <!-- クレジット -->
@@ -664,35 +675,60 @@
         </div>
       </div>
 
-      <!-- コメント（整理④）: カードに吹き出し／盤面にメモ。配線は static/solitaire/js/ui/comment-ui.js -->
+      <!-- コメント（整理④）: カードに吹き出し／盤面にメモ／カットイン。配線は static/solitaire/js/ui/comment-ui.js
+           2026-10-20 サイドバー整理: 追加済みの一覧は常に出さず、各ボタンを押すと下に開く区画（.sol-comment-drawer）の中に入れる。
+           ボタンの丸い数字は追加済みの件数 -->
       <div class="sol-right-section" id="solCommentSection">
         <p class="sol-right-heading">コメント</p>
-        <div class="sol-comment-actions">
-          <button type="button" id="solCommentCardBtn" class="sol-comment-btn">&#128172; カードに吹き出し</button>
-          <button type="button" id="solCommentBoardBtn" class="sol-comment-btn">&#128221; 盤面にメモ</button>
-          <button type="button" id="solCommentCutinBtn" class="sol-comment-btn">&#127916; カットイン</button>
-        </div>
-        <form id="solCommentBoardForm" class="sol-comment-form" hidden>
-          <input type="text" id="solCommentBoardInput" class="sol-comment-input" maxlength="60" placeholder="盤面のメモ" aria-label="盤面のメモ">
-          <button type="submit" class="sol-comment-btn sol-comment-submit">付ける</button>
-        </form>
-        <!-- カットイン: 「言葉」＝言葉の札（押すとその場で入る）と自由入力（20字）／「相手の妨害」＝よく使う妨害の札とカード名の検索
-             （ui/cutin-disruption-picker.js）。札は comment-ui.js が作る -->
-        <div id="solCommentCutinForm" class="sol-cutin-form" hidden>
-          <div class="sol-cutin-seg" role="group" aria-label="カットインの種類">
-            <button type="button" class="sol-cutin-seg-btn" data-cutin-mode="words" aria-pressed="true">言葉</button>
-            <button type="button" class="sol-cutin-seg-btn" data-cutin-mode="disruption" aria-pressed="false">相手の妨害</button>
+        <div class="sol-side-stack">
+          <button type="button" id="solCommentCardBtn" class="sol-side-btn" aria-expanded="false" aria-controls="solCommentCardDrawer">
+            <svg class="sol-side-btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            <span class="sol-side-btn-label">吹き出し</span><span class="sol-side-btn-count" data-comment-count="card" hidden></span><span class="sol-side-btn-chev" aria-hidden="true">▾</span>
+          </button>
+          <div id="solCommentCardDrawer" class="sol-comment-drawer" hidden>
+            <p class="sol-comment-hint">盤面のカードを押すと、吹き出しを付けられます</p>
+            <p class="sol-comment-done-head">追加済み</p>
+            <ul class="sol-comment-list" data-comment-list="card" aria-label="追加済みの吹き出し"></ul>
           </div>
-          <div data-cutin-pane="words">
-            <div id="solCommentCutinChips" class="sol-cutin-chips"></div>
-            <form id="solCommentCutinInputRow" class="sol-comment-form">
-              <input type="text" id="solCommentCutinInput" class="sol-comment-input" maxlength="20" placeholder="自由に書く（20字まで）" aria-label="カットインの文字">
-              <button type="submit" class="sol-comment-btn sol-comment-submit">出す</button>
+
+          <button type="button" id="solCommentBoardBtn" class="sol-side-btn" aria-expanded="false" aria-controls="solCommentBoardDrawer">
+            <svg class="sol-side-btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5z"/><path d="M15 3v6h6"/></svg>
+            <span class="sol-side-btn-label">盤面メモ</span><span class="sol-side-btn-count" data-comment-count="board" hidden></span><span class="sol-side-btn-chev" aria-hidden="true">▾</span>
+          </button>
+          <div id="solCommentBoardDrawer" class="sol-comment-drawer" hidden>
+            <form id="solCommentBoardForm" class="sol-comment-form">
+              <input type="text" id="solCommentBoardInput" class="sol-comment-input" maxlength="60" placeholder="盤面のメモ" aria-label="盤面のメモ">
+              <button type="submit" class="sol-comment-btn sol-comment-submit">付ける</button>
             </form>
+            <p class="sol-comment-done-head">追加済み</p>
+            <ul class="sol-comment-list" data-comment-list="board" aria-label="追加済みの盤面メモ"></ul>
           </div>
-          <div id="solCommentCutinDisruption" class="sol-cutin-disruption" data-cutin-pane="disruption" hidden></div>
+
+          <button type="button" id="solCommentCutinBtn" class="sol-side-btn" aria-expanded="false" aria-controls="solCommentCutinDrawer">
+            <svg class="sol-side-btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3Z"/><path d="m6.2 5.3 3.1 3.9"/><path d="m12.4 3.4 3.1 4"/><path d="M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>
+            <span class="sol-side-btn-label">カットイン</span><span class="sol-side-btn-count" data-comment-count="cutin" hidden></span><span class="sol-side-btn-chev" aria-hidden="true">▾</span>
+          </button>
+          <div id="solCommentCutinDrawer" class="sol-comment-drawer" hidden>
+            <!-- カットイン: 「言葉」＝言葉の札（押すとその場で入る）と自由入力（20字）／「相手の妨害」＝よく使う妨害の札とカード名の検索
+                 （ui/cutin-disruption-picker.js）。札は comment-ui.js が作る -->
+            <div id="solCommentCutinForm" class="sol-cutin-form">
+              <div class="sol-cutin-seg" role="group" aria-label="カットインの種類">
+                <button type="button" class="sol-cutin-seg-btn" data-cutin-mode="words" aria-pressed="true">言葉</button>
+                <button type="button" class="sol-cutin-seg-btn" data-cutin-mode="disruption" aria-pressed="false">相手の妨害</button>
+              </div>
+              <div data-cutin-pane="words">
+                <div id="solCommentCutinChips" class="sol-cutin-chips"></div>
+                <form id="solCommentCutinInputRow" class="sol-comment-form">
+                  <input type="text" id="solCommentCutinInput" class="sol-comment-input" maxlength="20" placeholder="自由に書く（20字まで）" aria-label="カットインの文字">
+                  <button type="submit" class="sol-comment-btn sol-comment-submit">出す</button>
+                </form>
+              </div>
+              <div id="solCommentCutinDisruption" class="sol-cutin-disruption" data-cutin-pane="disruption" hidden></div>
+            </div>
+            <p class="sol-comment-done-head">追加済み</p>
+            <ul class="sol-comment-list" data-comment-list="cutin" aria-label="追加済みのカットイン"></ul>
+          </div>
         </div>
-        <ul id="solCommentList" class="sol-comment-list" aria-label="この記録のコメント"></ul>
       </div>
 
       <div class="sol-right-section">
@@ -706,13 +742,15 @@
       <!-- コイントス・ダイスロール -->
       <div class="sol-right-section">
         <p class="sol-right-heading">ランダム</p>
-        <div class="sol-random-tools">
-          <div class="sol-random-item">
-            <button id="coinTossBtn" class="sol-random-btn">コイントス</button>
-          </div>
-          <div class="sol-random-item">
-            <button id="diceRollBtn" class="sol-random-btn">ダイスロール</button>
-          </div>
+        <div class="sol-side-stack">
+          <button type="button" id="coinTossBtn" class="sol-side-btn">
+            <svg class="sol-side-btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/></svg>
+            <span class="sol-side-btn-label">コイントス</span>
+          </button>
+          <button type="button" id="diceRollBtn" class="sol-side-btn">
+            <svg class="sol-side-btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect width="12" height="12" x="2" y="10" rx="2"/><path d="m17.92 14 3.5-3.5a2.24 2.24 0 0 0 0-3l-5-4.92a2.24 2.24 0 0 0-3 0L10 6"/><path d="M6 18h.01"/><path d="M10 14h.01"/></svg>
+            <span class="sol-side-btn-label">ダイスロール</span>
+          </button>
         </div>
       </div>
 

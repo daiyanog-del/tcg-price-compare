@@ -2,7 +2,8 @@
  * deck-link.js — シミュレーターのデッキと「マイデッキ」のひも付け・編集の差分（2026-10-20）
  *
  * 状態:
- *   _link   … いま並んでいるデッキの出どころ。{ savedId, name }
+ *   _link   … いま並んでいるデッキの出どころ。{ savedId, name, source }
+ *              source = 'sample'（サンプルデッキから読み込んだ）のときだけ値が入る。見出しと一覧の「使用中」に使う。
  *              savedId があればマイデッキのそのデッキにひも付いている（「変更を保存」で上書き）。
  *              無ければ未登録（新着・環境デッキ・持ち込み・共有リプレイ等。「マイデッキに登録」）。
  *              デッキが無いときは null。
@@ -40,15 +41,15 @@ export function onDeckLinkChange(fn) {
 /** いまの状態。デッキが無ければ null。dirty = 保存していない増減があるか */
 export function getDeckLink() {
   if (!_link) return null;
-  return { savedId: _link.savedId, name: _link.name, dirty: isDirty() };
+  return { savedId: _link.savedId, name: _link.name, source: _link.source, dirty: isDirty() };
 }
 
 /**
  * デッキを読み込んだ（入れ替えた）ときに呼ぶ。差分は空に戻す。
- * @param {{savedId?:string|null, name?:string}} link
+ * @param {{savedId?:string|null, name?:string, source?:'sample'|null}} link
  */
-export function setDeckLink({ savedId = null, name = '' } = {}) {
-  _link = { savedId: savedId || null, name: String(name || '').trim() || 'デッキ' };
+export function setDeckLink({ savedId = null, name = '', source = null } = {}) {
+  _link = { savedId: savedId || null, name: String(name || '').trim() || 'デッキ', source: source || null };
   _deltas = new Map();
   _emit();
 }
@@ -67,7 +68,7 @@ export function clearDeckLink() {
  * @param {number} n  +1 / -1
  */
 export function recordDelta(name, sec, n) {
-  if (!_link) _link = { savedId: null, name: 'デッキ' };
+  if (!_link) _link = { savedId: null, name: 'デッキ', source: null };
   const key = sec + SEP + name;
   const v = (_deltas.get(key) || 0) + n;
   if (v === 0) _deltas.delete(key); else _deltas.set(key, v);
@@ -91,7 +92,7 @@ export function getDeltas() {
  * @param {{savedId:string, name:string}} link
  */
 export function markSaved({ savedId, name }) {
-  _link = { savedId, name: String(name || '').trim() || 'デッキ' };
+  _link = { savedId, name: String(name || '').trim() || 'デッキ', source: null };
   _deltas = new Map();
   _emit();
 }

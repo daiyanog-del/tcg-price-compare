@@ -247,10 +247,11 @@ function _renderSaveBar(container) {
   container.hidden = false;
   // 2026-10-20 ユーザー承認の案A（モック _mocks/deck-bar-20261020）: 左に名前と状態（文字だけ）、右に同じ形のボタン。
   // 以前は太字の名前・点つきの状態・塗りのピル・枠線のピル・下線の文字が混ざり、未登録のときは欄の名前「デッキ」と
-  // 同じ「デッキ」が名前として続いていた。名前はマイデッキに登録済みのときだけ出す。
+  // 同じ「デッキ」が名前として続いていた。名前が無いひも付け（既定名「デッキ」）のときは名前を出さない。
+  // 2026-10-20 サイドバー整理: 今のデッキがどれか分かるよう、未登録（サンプルデッキ・ニューロン取込など）でも名前を出す。
   const el = (tag, cls, text) => { const e = document.createElement(tag); e.className = cls; e.textContent = text; return e; };
   const button = (text, onClick) => { const b = el('button', 'sol-deck-bar-btn', text); b.type = 'button'; b.addEventListener('click', onClick); return b; };
-  if (link?.savedId && link.name) {
+  if (link?.name && (link.savedId || link.name !== 'デッキ')) {
     const name = el('span', 'sol-deck-bar-name', link.name);
     name.title = link.name;
     container.appendChild(name);
@@ -263,7 +264,7 @@ function _renderSaveBar(container) {
       acts.append(button('変更を保存', saveChanges), button('別のデッキとして保存', registerAsNew));
     }
   } else {
-    container.appendChild(el('span', 'sol-deck-bar-state', 'マイデッキ未登録'));
+    container.appendChild(el('span', 'sol-deck-bar-state', link?.source === 'sample' ? 'サンプルデッキ・マイデッキ未登録' : 'マイデッキ未登録'));
     acts.appendChild(button('マイデッキに登録', registerAsNew));
   }
   // デッキ画像（Xなどに貼る一覧画像）。盤面のカードを数えて作る。保存の状態に関係なく出す

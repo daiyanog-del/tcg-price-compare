@@ -18,10 +18,8 @@
 .sol-sidebar-links{background:transparent}
 .sol-sidebar-links a{color:#a8b4c9}
 .sol-sidebar-links a.active{color:#eff3fb;border-left-color:#f3ce46}
-.sol-sidebar-links a:hover,.deck-input-tab:hover,.deck-card-row:hover,
+.sol-sidebar-links a:hover,.deck-card-row:hover,
 .deck-card-row:focus-visible{background:#202c42;color:#eff3fb}
-.deck-input-tab{color:#a8b4c9}
-.deck-input-tab.active{background:#202c42;border-color:transparent;color:#f3ce46}
 .sol-right-heading,.sol-sidebar-heading,.pool-label,.center-slot-label,
 .side-slot-label,.left-rectangle-label,.deck-card-date,.deck-card-hint,
 .sol-upload-note,.sol-sidebar-explain,.sol-sidebar-explain p,.sol-ops-desc,
@@ -73,10 +71,7 @@ select:focus-visible,.deck-card-row:focus-visible{outline:2px solid #f3ce46;outl
 /* 通常操作の外枠を面へ置換。選択・危険操作・録画状態は対象外。 */
 .sol-cip-toggle,.sol-panel-toggle,.sol-sidebar-actions button,
 .replay-btn:not(.replay-btn-danger):not(.play-active):not(.active):not(#pcRecordBtn.recording),
-.cip-price-link,.sol-random-btn,.sol-feedback-open-btn,.sol-fb-cancel{border-color:transparent}
-.sol-random-btn:hover,.sol-feedback-open-btn:hover{
-  background-color:#202c42;border-color:transparent;
-}
+.cip-price-link,.sol-fb-cancel{border-color:transparent}
 @media(max-width:768px){
   .sol-mobile-bar,.sol-mobile-replay-strip,.sol-mobile-cip-panel,
   .sol-mobile-action-sheet,.sol-mobile-sheet-panel,.sol-mobile-sheet-header,
