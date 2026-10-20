@@ -15,7 +15,7 @@ body.price-redesign {
 /* 面の濃淡でまとめ、カードや明細を一つずつ囲まない。 */
 .price-redesign :is(.scard,.scard.best,.tbl-wrap,.price-chart,.ritem,.trending-item,
  .meta-deck-detail,.meta-deck-btn,.meta-card-chip,.pack-card-item,
- .deck-total,.deck-card-row,.deck-counter-bar,.deck-import-details,.deck-calc,
+ .deck-total,.deck-card-row,.deck-import-details,.deck-calc,
  .neuron-hint,.deck-share-area,.saved-deck-card-btn,.deck-added-row,
  .wish-card-row,.push-notify-box,.fmx-scroll,.legal-modal) {border:0;border-radius:8px}
 .price-redesign :is(.suggest-item,.deck-suggest-item,.meta-deck-sep,
@@ -101,11 +101,6 @@ body.price-redesign {
 #mode-mydeck .saved-deck-grid{grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
 #mode-mydeck .deck-panes{gap:28px}
 #mode-mydeck .deck-pane-tools{width:300px}
-#mode-mydeck .deck-counter-bar{padding:0 0 12px;gap:12px;background:none;flex-wrap:wrap;margin-bottom:0}
-#mode-mydeck .deck-save-status{flex:1;min-width:100px}
-#mode-mydeck .deck-counter-bar .deck-sort-btn{margin-left:0}
-#mode-mydeck .deck-save-btn,#mode-mydeck .deck-sort-btn{min-height:36px;padding:6px 8px;font-size:12px}
-#mode-mydeck .deck-save-btn{background:var(--bg-hover);border-radius:6px;color:var(--text)}
 #mode-mydeck .deck-empty-hint{border:0;background:var(--bg-card);min-height:180px;display:flex;align-items:center;justify-content:center;padding:24px;font-size:13px;line-height:1.8}
 #mode-mydeck .deck-calc{background:none;padding:16px 0 0;margin-top:0}
 #mode-mydeck .deck-calc-title{font-size:12px;margin-bottom:10px;letter-spacing:0}
@@ -125,8 +120,6 @@ body.price-redesign {
  #mode-mydeck #savedDeckList{margin-bottom:20px}
  #mode-mydeck .saved-deck-label{gap:4px 12px}
  #mode-mydeck .deck-library-actions{gap:14px;margin-left:0;flex-basis:100%}
- #mode-mydeck .deck-counter-bar{gap:6px 8px}
- #mode-mydeck .deck-save-status{order:3;flex-basis:100%}
  #mode-mydeck .deck-empty-hint{min-height:150px;padding:20px}
  .price-redesign .mode-tabs .nav-wishlist{padding:8px 0;min-height:36px}
 }

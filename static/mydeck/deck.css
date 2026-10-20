@@ -163,15 +163,6 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
 .deck-pane-tools{width:340px;flex-shrink:0;position:sticky;top:12px}
 .deck-pane-tools .deck-results{margin-top:0}
 
-/* 左ペイン: 枚数カウンタバー */
-.deck-counter-bar{display:flex;align-items:center;gap:16px;margin-bottom:12px;padding:9px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius)}
-.deck-counter{font:.78rem var(--font);font-weight:700;color:var(--text-m);display:flex;align-items:baseline;gap:5px}
-.deck-counter .c-num{font:1rem var(--mono);font-weight:700;color:var(--text)}
-.deck-counter .c-max{font:.72rem var(--mono);color:var(--text-d)}
-.deck-counter.warn .c-num{color:var(--gold)}
-.deck-counter.over .c-num{color:var(--red)}
-.deck-counter-bar .deck-sort-btn{margin-left:auto}
-
 /* 左ペイン: 空状態ヒント */
 .deck-empty-hint{padding:28px 16px;text-align:center;color:var(--text-d);font-size:.84rem;line-height:1.7;border:1px dashed var(--border);border-radius:var(--radius);margin-bottom:14px}
 
@@ -211,19 +202,9 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
 .deck-build-tab.active{color:#fff;border-color:var(--accent);background:rgba(74,124,255,.18)}
 
 /* ── 左右ペインの上端を揃える（ヘッダーバーと検索バーの高さを統一） ── */
-.deck-counter-bar{min-height:44px;box-sizing:border-box}
 .deck-pane-tools .deck-search-box{margin:0 0 16px}
 .deck-pane-tools .deck-search-row input,
 .deck-pane-tools .deck-search-row select{height:44px;box-sizing:border-box}
-
-/* 保存ステータス（狭幅での折返し）。同一詳細度の無条件ルール（167行付近）より後に置き、
-   カスケードで負けないようにする（reviewer中1指摘: 旧位置＝138行台のブロックは
-   167行台のルールに上書きされ gap / margin-left が無効化されていた） */
-@media(max-width:640px){
-  .deck-counter-bar{flex-wrap:wrap;gap:8px 14px}
-  .deck-counter-bar .deck-sort-btn{margin-left:0}
-  .deck-save-status{flex-basis:100%;order:3}
-}
 
 /* ── 価格計算ブロック（トリガー・説明・結果を1か所に集約） ── */
 .deck-calc{margin-top:16px;padding:14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius)}
@@ -255,10 +236,6 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
 /* ── 新規デッキ作成ボタン（保存済みデッキ見出しの右側に常設） ── */
 .saved-deck-label{display:flex;justify-content:space-between;align-items:center}
 .saved-deck-new-btn{flex-shrink:0}
-
-/* ── 保存ステータス（枚数カウンタバー内） ── */
-.deck-save-status{font:.72rem var(--font);color:var(--text-d)}
-.deck-save-status.linked{color:var(--accent-l)}
 
 /* ── モバイルタブ「デッキ」の枚数バッジ ── */
 .deck-build-tab-badge{display:inline-block;margin-left:5px;padding:1px 6px;font:.65rem var(--mono);font-weight:700;color:#fff;background:var(--accent);border-radius:10px;line-height:1.4}
@@ -371,3 +348,58 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
 .deck-add-toast-msg{min-width:0;overflow-wrap:anywhere}
 .deck-add-toast-btn{flex-shrink:0;background:none;border:1px solid var(--accent);border-radius:4px;color:var(--accent);font-size:.76rem;font-weight:600;padding:4px 10px;cursor:pointer}
 .deck-add-toast-btn:hover{background:var(--bg-hover)}
+
+/* ── 見出し（デッキ名・状態・ボタン）と保存まわり（deck-head.js・2026-10-20 ユーザー承認のモック
+   _mocks/mydeck-refresh-20261020 の A＋B）。シミュレーターのデッキ欄の見出し（components.css .sol-deck-bar-*）と
+   右クリックメニュー（案Y: 地 #141c2c・薄い縁取りと影）にそろえる。主操作だけ黄（site-theme.css の主操作と同じ）。 ── */
+.deck-head{display:flex;align-items:center;flex-wrap:wrap;gap:10px 14px;min-height:44px;margin-bottom:12px}
+.deck-head-title{display:flex;align-items:baseline;gap:10px;min-width:0}
+.deck-head-name{min-width:0;max-width:18em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);font-size:16px;font-weight:700}
+.deck-head-name.is-unregistered{color:var(--text-m);font-size:14px;font-weight:400}
+.deck-head-state{color:var(--text-m);font-size:12px;white-space:nowrap}
+.deck-head-state[hidden]{display:none}
+.deck-head-acts{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-left:auto}
+.deck-pill{height:28px;padding:0 14px;border:0;border-radius:999px;background:#202c42;color:#aec5ff;font:700 12.5px var(--font);white-space:nowrap;cursor:pointer}
+.deck-pill:hover,.deck-pill:focus-visible{background:#2b3549}
+.deck-pill[hidden]{display:none}
+.deck-pill.is-primary{background:var(--gold);color:#101626}
+.deck-pill.is-primary:hover,.deck-pill.is-primary:focus-visible{background:#f7da6b}
+.deck-pill.is-more{padding:0 10px;letter-spacing:1px}
+/* 各欄の見出し「メインデッキ 40 / 60」（40枚未満は黄・上限超えは赤。以前の枚数の行と同じ意味の色） */
+#deckCardList .deck-sec-label{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;text-transform:none;letter-spacing:0;font-size:12px;color:var(--text-m)}
+#deckCardList .deck-sec-name{color:var(--text);font-size:13px}
+#deckCardList .deck-sec-n{font:700 13px var(--mono);color:var(--text)}
+#deckCardList .deck-sec-n.warn{color:var(--gold)}
+#deckCardList .deck-sec-n.over{color:var(--red)}
+#deckCardList .deck-sec-max{font:12px var(--mono);color:var(--text-m)}
+/* 浮かせる窓（登録・名前・⋯ メニュー） */
+.deck-head-pop{position:fixed;z-index:1200;background:#141c2c;border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.65),0 0 0 1px rgba(174,197,255,.08);color:var(--text)}
+.deck-more-menu{display:flex;flex-direction:column;min-width:200px;padding:4px}
+.deck-more-item{padding:8px 12px;border:0;border-radius:4px;background:none;color:var(--text);font:13.5px var(--font);text-align:left;white-space:nowrap;cursor:pointer}
+.deck-more-item:hover,.deck-more-item:focus-visible{background:#202c42;outline:none}
+.deck-more-sep{height:1px;margin:4px 6px;background:var(--border)}
+.deck-more-sort{display:none}
+.deck-name-pop{width:min(300px,calc(100vw - 16px));padding:12px}
+.deck-name-pop-label{display:block;color:var(--text-m);font-size:12px}
+.deck-name-pop-input{display:block;width:100%;height:36px;box-sizing:border-box;margin-top:6px;padding:0 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font:14px var(--font)}
+/* 入力中の印は黄の枠だけ（site-theme.css の :focus-visible の外枠と重ねない） */
+.deck-head-pop .deck-name-pop-input:focus,.deck-head-pop .deck-name-pop-input:focus-visible{outline:none;border-color:var(--gold)}
+.deck-name-pop-err{margin-top:6px;color:var(--red);font-size:12px;line-height:1.5}
+.deck-name-pop-err[hidden]{display:none}
+.deck-name-pop-row{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
+/* 計算前は共有欄を空にする（デッキ画像は見出しから。index-main.js renderDeckShareUI）ので、空の地を出さない */
+#mode-mydeck .deck-share-area:empty{display:none}
+/* お知らせ（削除の取り消しなど） */
+.deck-head-toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:1250;display:flex;align-items:center;gap:14px;width:max-content;max-width:calc(100vw - 24px);box-sizing:border-box;padding:10px 12px 10px 16px;background:#202c42;border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.5);color:var(--text);font-size:13px}
+.deck-head-toast span{min-width:0;overflow-wrap:anywhere}
+.deck-head-toast-btn{flex:none;padding:4px 6px;border:0;background:none;color:#aec5ff;font:700 13px var(--font);cursor:pointer}
+@media(max-width:640px){
+  .deck-head-title{flex-basis:100%;flex-wrap:wrap;gap:2px 8px}
+  /* 登録済みは1行（テストプレイ・デッキ画像・⋯）。未登録で「マイデッキに登録」が増えると2行に折り返す */
+  .deck-head-acts{flex-basis:100%;margin-left:0}
+  .deck-pill{height:36px;font-size:13px}
+  .deck-head-acts .deck-pill.is-primary{flex:1 1 auto}
+  .deck-head-sort{display:none}
+  .deck-more-sort{display:block}
+  .deck-more-item{padding:11px 14px}
+}
