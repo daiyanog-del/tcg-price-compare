@@ -1282,10 +1282,10 @@
     font-size: 0.85rem;
   }
   .sol-deck-edit-bar[hidden] { display: none; }
-  .sol-deck-edit-bar .sol-deck-bar-name { font-size: 0.95rem; max-width: 100%; margin-right: auto; }
-  .sol-deck-edit-bar .sol-deck-bar-save { height: 34px; padding: 0 16px; font-size: 0.85rem; }
-  .sol-deck-edit-bar .sol-deck-bar-alt { font-size: 0.78rem; }
-  .sol-deck-edit-bar .sol-deck-bar-img { height: 34px; padding: 0 16px; font-size: 0.85rem; }
+  .sol-deck-edit-bar .sol-deck-bar-name { font-size: 0.95rem; max-width: 100%; }
+  /* ボタンは右へ寄せ、入りきらなければ折り返す（PC の見出しと同じ並び） */
+  .sol-deck-edit-bar .sol-deck-bar-acts { flex-wrap: wrap; justify-content: flex-end; }
+  .sol-deck-edit-bar .sol-deck-bar-btn { height: 34px; padding: 0 16px; font-size: 0.85rem; }
   /* 保存の行と検索の間に区切りを入れて、検索の後に保存を押すと読めないようにする */
   .sol-deck-edit-search {
     padding: 8px 14px 6px;

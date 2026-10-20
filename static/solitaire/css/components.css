@@ -629,11 +629,17 @@ body.sol-newcard-focus-active #poolRow2 {
    （下のリプレイバーの黄色い「保存」と取り違えないため。文言も「変更を保存」「マイデッキに新規登録」にしている）。
    一人回しの汎用 span/li の色（#333）が当たらないよう、子要素の文字色まで明示する。 */
 
-/* デッキ欄の見出し: デッキ名・状態・保存 */
+/* デッキ欄の見出し: 左に名前（登録済みのときだけ）と状態、右に同じ形のボタン（2026-10-20 ユーザー承認の案A。
+   モック _mocks/deck-bar-20261020）。ボタンは「変更を保存」「別のデッキとして保存」「マイデッキに登録」「デッキ画像」を
+   すべて同じ塗りのピルにする（以前は塗り・枠線だけ・下線の文字が混ざり、枠線のピルは枠が背景に溶けて文字に見えた）。 */
+@media (min-width: 768px) {
+  #imagePool > .pool-label { display: flex; align-items: center; }
+}
 .pool-label .sol-deck-bar {
   display: inline-flex;
+  flex: 1;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   margin-left: 12px;
   min-width: 0;
   font-size: 12px;
@@ -651,18 +657,13 @@ body.sol-newcard-focus-active #poolRow2 {
   white-space: nowrap;
 }
 .sol-deck-bar-state { color: #a8b4c9; white-space: nowrap; }
-/* 「変更あり」「未登録」の前の小さな点（accent）。状態の目印（金の実線＝選択中など）とは別の形にする */
-.sol-deck-bar-state::before {
-  content: '';
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #aec5ff;
-  margin-right: 5px;
-  vertical-align: 1px;
+.sol-deck-bar-acts {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }
-.sol-deck-bar-save {
+.sol-deck-bar-btn {
   height: 22px;
   padding: 0 12px;
   border: 0;
@@ -674,33 +675,7 @@ body.sol-newcard-focus-active #poolRow2 {
   white-space: nowrap;
   cursor: pointer;
 }
-.sol-deck-bar-save:hover, .sol-deck-bar-save:focus-visible { background: #2b3549; }
-.sol-deck-bar-alt {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: #a8b4c9;
-  font: inherit;
-  font-size: 11px;
-  text-decoration: underline;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.sol-deck-bar-alt:hover, .sol-deck-bar-alt:focus-visible { color: #eff3fb; }
-/* デッキ画像（2026-10-20）: 保存と同じ補助ボタンの青系だが、塗らずに縁だけにして「変更を保存」と見分ける */
-.sol-deck-bar-img {
-  height: 22px;
-  padding: 0 12px;
-  border: 1px solid #2b3549;
-  border-radius: 999px;
-  background: none;
-  color: #aec5ff;
-  font: inherit;
-  font-weight: 700;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.sol-deck-bar-img:hover, .sol-deck-bar-img:focus-visible { background: #202c42; }
+.sol-deck-bar-btn:hover, .sol-deck-bar-btn:focus-visible { background: #2b3549; }
 
 /* 左サイドバー「カードを追加」 */
 .sol-deck-add-search {
