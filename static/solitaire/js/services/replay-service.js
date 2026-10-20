@@ -402,6 +402,11 @@ export function togglePlay() {
   }
 }
 
+/** 再生バーの表示（手数・スライダー・各ボタンの押せる状態）を今の状態に合わせ直す */
+export function refreshReplayUI() {
+  _updateUI();
+}
+
 /** 現在自動再生中かどうか（PC版「この範囲を再生」等、再生中の判定が必要な呼び出し元用） */
 export function isPlaying() {
   return _playing;

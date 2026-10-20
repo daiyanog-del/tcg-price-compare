@@ -132,8 +132,10 @@ export function initReplayUI() {
   document.getElementById('replayPlay')
     ?.addEventListener('click', () => togglePlay());
 
+  // 範囲を選ぶパネル（pc-recording.js）を開いている間は受け付けない。‹ › で途中の手にいるので、
+  // ここで取り消すとその先の記録が消える（2026-10-20 reviewer 指摘。表示の無効化は pc-recording.js）
   document.getElementById('replayUndo')
-    ?.addEventListener('click', () => undoLast());
+    ?.addEventListener('click', () => { if (!document.body.classList.contains('sol-pc-range-pick')) undoLast(); });
 
   // クリア: 右パネル「盤面操作」のクリアボタン。モバイル版⋯メニューの
   // 「クリア」（deck-input-panel.js clearEverything）と同じ処理を使い、盤面も含めて

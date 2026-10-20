@@ -10,7 +10,8 @@
  * 範囲終了での自動停止は実装しない）。
  */
 
-import { getCursor, getLogLength, seekTo, isPlaying, togglePlay, subscribeReplay } from '../services/replay-service.js';
+import { getCursor, getLogLength, seekTo, isPlaying, togglePlay, subscribeReplay, refreshReplayUI } from '../services/replay-service.js';
+import { showToast } from '../utils/toast.js';
 import { shiftRangeAfterInsert, shiftRangeAfterRemove } from '../services/comment-model.js';
 
 /** 録画の状態: {recording, startIdx, endIdx}（startIdx/endIdx は1-indexed手数） */
@@ -121,6 +122,7 @@ export function _resetPcRecording() {
 // body.sol-pc-range-pick を見て再生中と同じロックを掛ける）。閉じたら開く前の手へ戻す。
 
 const PICK_CLASS = 'sol-pc-range-pick';
+const DOUBLE_CLICK_MS = 400;
 /** @type {{s:number|null, e:number|null, step:1|2, cursorBefore:number}|null} 選んでいる途中（s/e は 1-indexed の手） */
 let _pick = null;
 
@@ -171,6 +173,7 @@ function _placePanel() {
   const bar = document.getElementById('replayBarContainer');
   if (!panel || !bar) return;
   const b = bar.getBoundingClientRect();
+  if (!b.width || !b.height) { closePcRangePicker(); return; } // ロックだけ残さない（reviewer 指摘）
   panel.style.left = `${Math.round(b.left + 8)}px`;
   panel.style.top = `${Math.round(b.top - panel.offsetHeight - 14)}px`;
   const band = document.getElementById('solPcRangeBand');
@@ -181,12 +184,14 @@ function _placePanel() {
   const e = _pick.e ?? (s ? Math.max(_now(), s) : null);
   const r = slider.getBoundingClientRect();
   if (!s || !total || !r.width) { band.hidden = true; return; }
-  // スライダーの値は 0〜手数（今見ている手）。つまみの幅の分だけ内側に寄せて、つまみの中心の位置に合わせる
+  // スライダーは値 max(0, カーソル)・最大 手数-1（replay-service.js _updateUI）なので、h 手目のつまみは (h-1)/(手数-1)。
+  // つまみの中心から中心へ帯を引く。つまみの幅（ブラウザ標準で約16px。未検証の前提）の分だけ内側に寄せる
   const THUMB = 16;
-  const x = (v) => r.left + THUMB / 2 + (r.width - THUMB) * (v / total);
+  const pos = (h) => (total <= 1 ? 0 : (h - 1) / (total - 1));
+  const x = (h) => r.left + THUMB / 2 + (r.width - THUMB) * pos(h);
   band.hidden = false;
-  band.style.left = `${Math.round(x(s - 1))}px`;
-  band.style.width = `${Math.max(4, Math.round(x(e) - x(s - 1)))}px`;
+  band.style.left = `${Math.round(x(s)) - 2}px`;
+  band.style.width = `${Math.max(4, Math.round(x(e) - x(s)) + 4)}px`;
   band.style.top = `${Math.round(r.top - 6)}px`;
 }
 
@@ -208,6 +213,8 @@ function _renderPick() {
     ok.textContent = _pick.step === 1 ? 'この手から' : 'この手まで';
     ok.disabled = now === 0; // 0手目（何も進めていない盤面）は範囲の端にできない
   }
+  const undo = document.getElementById('replayUndo');
+  if (undo) undo.disabled = true; // 開いている間は取り消せない（replay-ui.js でも受け付けない）
   _placePanel();
 }
 
@@ -215,10 +222,13 @@ function _onPickOk() {
   if (!_pick) return;
   const now = _now();
   if (now === 0) return;
+  // ①を押した直後の同じ手での②は受け付けない（「この手から」のダブルクリックで1手の範囲が決まって閉じないように）
+  if (_pick.step === 2 && now === _pick.s && performance.now() - _pick.stepAt < DOUBLE_CLICK_MS) return;
   if (_pick.step === 1) {
     _pick.s = now;
     _pick.e = null;
     _pick.step = 2;
+    _pick.stepAt = performance.now();
     _renderPick();
     return;
   }
@@ -239,17 +249,20 @@ function _onPickOk() {
 
 function _onPickKeydown(ev) {
   if (ev.key !== 'Escape' || !_pick) return;
-  ev.stopPropagation();
+  // 保存・共有シートや問い合わせの窓など、上に重なっているものがあればそちらの Esc に任せる
+  if (document.querySelector('.sol-fb-overlay:not([hidden])')) return;
   closePcRangePicker();
 }
 
 /** 「✂ 範囲を選ぶ」: パネルを開く（開いていれば閉じる） */
 export function togglePcRecording() {
   if (_pick) { closePcRangePicker(); return; }
-  if (getLogLength() === 0) return;
+  if (getLogLength() === 0) { showToast('範囲を選べる手がありません'); return; }
   if (isPlaying()) togglePlay();
-  _pick = { s: null, e: null, step: 1, cursorBefore: getCursor() };
+  _pick = { s: null, e: null, step: 1, stepAt: 0, cursorBefore: getCursor() };
   document.body.classList.add(PICK_CLASS); // 盤面のロック（replay-ui.js）
+  // 右パネル（コメントの入力など）は Tab キーでも触れないようにする（途中の手にコメントが差し込まれないように）
+  document.getElementById('solRightPanel')?.setAttribute('inert', '');
   const band = _el('div', 'sol-pc-range-band');
   band.id = 'solPcRangeBand';
   band.hidden = true;
@@ -270,25 +283,30 @@ export function closePcRangePicker() {
   document.removeEventListener('keydown', _onPickKeydown, true);
   window.removeEventListener('resize', _placePanel);
   document.body.classList.remove(PICK_CLASS);
+  document.getElementById('solRightPanel')?.removeAttribute('inert');
   if (isPlaying()) togglePlay();
   seekTo(Math.min(before, getLogLength() - 1));
+  refreshReplayUI(); // 「1手戻す」の押せる状態などを戻す（同じ手への seekTo は表示を更新しないため）
   _updatePcRecordBtn();
+}
+
+/** 範囲を選ぶパネルを開いているか（ページ離脱の退避で使う。main.js） */
+export function isPcRangePicking() {
+  return !!_pick;
 }
 
 /**
  * 範囲ボタンの見た目を更新する。3状態:
  *   - 待機（範囲なし）: 「✂ 範囲を選ぶ」
- *   - 選んでいる間: 「■ ここまで（N手）」（.recording。accent の枠）
+ *   - パネルを開いている間: 「✂ 範囲を選んでいます」（.recording。accent の枠）
  *   - 範囲が決まった後: 「範囲 s〜e手目」（.has-range）＋ 隣の ✕（範囲を外す）
- * 選んでいる間に取消（undo）や巻き戻しで現在位置が startIdx より前に戻ったら、
- * startIdx をその値にクランプする。
  */
 function _updatePcRecordBtn() {
   const btn = document.getElementById('pcRecordBtn');
   const label = document.getElementById('pcRecordLabel');
   const clearBtn = document.getElementById('pcRangeClearBtn');
   if (!btn || !label) return;
-  const range = _pcRecording.recording ? null : _getPcRecordingRange();
+  const range = _getPcRecordingRange();
   if (_pick) {
     label.textContent = '✂ 範囲を選んでいます';
   } else if (range) {
@@ -303,14 +321,13 @@ function _updatePcRecordBtn() {
 
 /**
  * 保存・共有シート内の範囲表示（[data-pc-range-info]、文言の動詞は data-verb）と
- * 「この範囲を再生」（[data-pc-range-play]）を更新する。3状態:
- *   - 選んでいる間: 「範囲を選んでいます（N手）…」
+ * 「この範囲を再生」（[data-pc-range-play]）を更新する。2状態:
  *   - 範囲あり: 「s〜e手目を◯◯します」＋「この範囲を再生」
  *   - 範囲なし: 「全部の手（N手）を◯◯します」
  * replay-ui.js がシートを開く直前にも呼ぶ。
  */
 export function updatePcShareRecordingSection() {
-  const range = _pcRecording.recording ? null : _getPcRecordingRange();
+  const range = _getPcRecordingRange();
   document.querySelectorAll('[data-pc-range-info]').forEach((el) => {
     const verb = el.dataset.verb || '保存';
     if (range) {
@@ -378,4 +395,5 @@ export function initPcRecording(deps = {}) {
   // 記録が消えた（リセット・別のデッキの読込）ら閉じる
   document.addEventListener('sol-replay-reset', () => closePcRangePicker());
   document.addEventListener('sol-deck-load-start', () => closePcRangePicker());
+  document.addEventListener('sol-recview-open', () => closePcRangePicker());
 }
