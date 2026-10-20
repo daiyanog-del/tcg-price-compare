@@ -141,3 +141,46 @@ def test_outer_decoration_does_not_expand_area_qualified_closed_contour():
               [('left', 800), ('top', 700), ('right', 800), ('bottom', 700)]]
     assert max(abs(a - b) for a, b in zip(actual, bbox)) <= 1
     assert 'refinement' not in result
+
+
+def neighbor_card_image(inner_closed):
+    """隣のカードとの隙間が辺の探索半径より狭い、並び画像の再現（2026-10-20 鬼神 夜魅・コダイダロス）。
+
+    対象カードの外周は四隅が開いていて閉輪郭にならず、内側に額縁がある。
+    左隣のカードは閉輪郭として検出される。外周は59:86に合わせる。
+    """
+    image = Image.new('RGB', (900, 600), 'white')
+    draw = ImageDraw.Draw(image)
+    # 実画像の隣カードは塗りの面として閉輪郭になる。
+    draw.rectangle((40, 40, 383, 540), fill='gray', outline='black', width=2)
+    for line in [(400, 70, 400, 510), (743, 70, 743, 510),
+                 (430, 40, 713, 40), (430, 540, 713, 540)]:
+        draw.line(line, fill='black', width=2)
+    if inner_closed:
+        draw.rectangle((413, 53, 730, 527), outline='black', width=3)
+    else:
+        for line in [(413, 83, 413, 497), (730, 83, 730, 497),
+                     (443, 53, 700, 53), (443, 527, 700, 527)]:
+            draw.line(line, fill='black', width=2)
+    output = io.BytesIO()
+    image.save(output, 'PNG')
+    return output.getvalue()
+
+
+def crop_pixels(result, size=(900, 600)):
+    return [result['left'] * size[0], result['top'] * size[1],
+            result['right'] * size[0], result['bottom'] * size[1]]
+
+
+def test_closed_inner_frame_does_not_expand_into_neighbor_card_edge():
+    # 鬼神 夜魅: 内側の額縁だけ閉輪郭になり、外へ広げる時に隣のカードの右端を左辺に採っていた。
+    result = card_crop.refine_card_box(neighbor_card_image(inner_closed=True), [400, 43, 743, 555])
+    assert result['refinement'] == 'edge_lines'
+    assert max(abs(a - b) for a, b in zip(crop_pixels(result), [400, 40, 744, 541])) <= 2
+
+
+def test_vision_box_on_inner_frame_bottom_keeps_outer_edge():
+    # コダイダロス: AI枠の下辺が額縁に乗り、AI枠寄りの補正が外周を捨てていた。
+    result = card_crop.refine_card_box(neighbor_card_image(inner_closed=False), [401, 41, 742, 528])
+    assert result['refinement'] == 'edge_lines'
+    assert max(abs(a - b) for a, b in zip(crop_pixels(result), [400, 40, 744, 541])) <= 2

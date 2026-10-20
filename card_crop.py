@@ -48,12 +48,31 @@ def _contains(outer, inner):
             and outer[2] >= inner[2] and outer[3] >= inner[3])
 
 
-def _edge_line_box(edges, box, *, nearest=False):
-    """途切れた外周を四辺別々の直線支持から検出する。出力を固定比率ではずらさない。"""
+# 遊戯王OCGカードの物理寸法 59x86mm。AI寄せの補正と外周候補のどちらを採るかの比較に使う。
+CARD_ASPECT = 59 / 86
+
+
+def _aspect_gap(box):
+    return abs((box[2] - box[0]) / (box[3] - box[1]) - CARD_ASPECT)
+
+
+def _edge_line_box(edges, box, *, nearest=False, other_cards=()):
+    """途切れた外周を四辺別々の直線支持から検出する。出力を固定比率ではずらさない。
+
+    other_cards（別カードとして検出済みの閉輪郭）の範囲にある線は辺の候補にしない。
+    並んだカードの隙間は探索半径より狭いことがあり、隣のカードの縁を拾うため。
+    """
     x1, y1, x2, y2 = box
     width, height = x2 - x1, y2 - y1
 
     def locate(position, start, end, vertical, radius, first):
+        # 縦線（左右の辺）なら x、横線（上下の辺）なら y の範囲。
+        # 辺の探索帯と交差する別カードだけを対象にする。
+        # 二重エッジ許容の2pxを含めて隣のカードの縁を除外する。TODO: calibrate from data
+        blocked = [(other[0] - 2, other[2] + 2) if vertical else (other[1] - 2, other[3] + 2)
+                   for other in other_cards
+                   if (other[1] < end and other[3] > start if vertical
+                       else other[0] < end and other[2] > start)]
         length = edges.shape[0 if vertical else 1]
         start, end = max(0, int(start)), min(length, int(end))
         if end <= start:
@@ -67,7 +86,7 @@ def _edge_line_box(edges, box, *, nearest=False):
         # TODO: calibrate from data
         groups = []
         for index in range(lower, upper):
-            if support[index] < .5:
+            if support[index] < .5 or any(low <= index <= high for low, high in blocked):
                 continue
             if groups and index - groups[-1][-1] <= 3 and index - groups[-1][0] <= 4:
                 groups[-1].append(index)
@@ -143,17 +162,26 @@ def refine_card_box(image_bytes: bytes, bbox: list[float]) -> dict | None:
                     and bbox[0] <= (box[0] + box[2]) / 2 <= bbox[2]
                     and bbox[1] <= (box[1] + box[3]) / 2 <= bbox[3]]
         box = max(eligible, key=lambda b: _iou(bbox, b)) if eligible else bbox
+        # 対象と重ならない閉輪郭は別のカード。その縁を対象の辺として拾わない。
+        # TODO: calibrate from data
+        other_cards = [other for other in outer_boxes
+                       if _iou(bbox, other) < .1 and not _contains(other, box)
+                       and not (other[0] <= (bbox[0] + bbox[2]) / 2 <= other[2]
+                                and other[1] <= (bbox[1] + bbox[3]) / 2 <= other[3])]
         method = "contour" if eligible else "vision"
         refinement = None
         # 全画面がカードの場合は、その内側の額縁へ切り縮めない。
         if box != [0, 0, width, height]:
-            line_box = _edge_line_box(edges, box)
+            line_box = _edge_line_box(edges, box, other_cards=other_cards)
             if not eligible:
-                nearby = _edge_line_box(edges, bbox, nearest=True)
+                nearby = _edge_line_box(edges, bbox, nearest=True, other_cards=other_cards)
                 # 細い線は閉輪郭の面積条件を満たさない場合がある。四辺すべてが
                 # AI枠の二重エッジ許容2px以内で支持されるなら、外側の装飾線より優先。
+                # ただしAI枠の一辺がカード内の額縁に乗ることがあるため、
+                # 縦横比がカードから外周候補より離れるなら採らない。
                 # TODO: calibrate from data
-                if nearby is not None and max(abs(a - b) for a, b in zip(nearby, bbox)) <= 2:
+                if (nearby is not None and max(abs(a - b) for a, b in zip(nearby, bbox)) <= 2
+                        and (line_box is None or _aspect_gap(nearby) <= _aspect_gap(line_box))):
                     line_box = nearby
             if (line_box is not None and _valid_box(line_box, width, height)
                     and .60 < (line_box[2] - line_box[0]) / (line_box[3] - line_box[1]) < .76
