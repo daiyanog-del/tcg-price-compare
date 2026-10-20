@@ -61,6 +61,7 @@
 
   // ══════════════ PC: 右クリックメニュー ══════════════
   var _menu = null; // { el, cell, cleanup }
+  var _refocus = null; // メニューで操作したカード。描き直しの後にフォーカスを戻す（キーボードで続けて操作できるように）
   function _closeMenu(){
     if(!_menu) return;
     var m = _menu;
@@ -83,7 +84,8 @@
     head.textContent = name;
     el.appendChild(head);
     var items = [];
-    function item(label, sub, fn){
+    // mutates: 枚数を変える（一覧が描き直されるので、描き直しの後にフォーカスを戻す）。それ以外はすぐ戻す（詳細はドロワーへ）
+    function item(label, sub, fn, mutates){
       var b = document.createElement('button');
       b.type = 'button';
       b.className = 'deck-more-item';
@@ -97,19 +99,25 @@
         s.textContent = sub;
         b.appendChild(s);
       }
-      b.addEventListener('click', function(){ _closeMenu(); fn(); });
+      b.addEventListener('click', function(){
+        if(mutates) _refocus = { name: name, sec: sec, until: Date.now() + 1500 };
+        _closeMenu();
+        if(!mutates && fn !== info && document.body.contains(cell)){ try{ cell.focus({ preventScroll: true }); }catch(_){} }
+        fn();
+      });
       el.appendChild(b);
       items.push(b);
     }
     function sep(){ var s = document.createElement('div'); s.className = 'deck-more-sep'; el.appendChild(s); }
     var n = _qty(name, sec);
-    item('デッキに1枚足す', '今 ' + n + '枚', function(){ o.inc(name, sec); });
-    item('デッキから1枚抜く', '', function(){ o.dec(name, sec); });
-    item('デッキから外す', '', function(){ o.remove(name, sec); });
+    var src = _cellImg(cell);
+    function info(){ _openInfo(name, src); }
+    item('デッキに1枚足す', '今 ' + n + '枚', function(){ o.inc(name, sec); }, true);
+    item('デッキから1枚抜く', '', function(){ o.dec(name, sec); }, true);
+    item('デッキから外す', '', function(){ o.remove(name, sec); }, true);
     sep();
     item('購入候補に入れる', '候補に ' + _wishCount(name) + '枚', function(){ _addToWish(name); });
-    var src = _cellImg(cell);
-    item('カードの詳細', '', function(){ _openInfo(name, src); });
+    item('カードの詳細', '', info);
     item('価格を比べる', '', function(){ window.open('/card/' + encodeURIComponent(name), '_blank', 'noopener'); });
 
     document.body.appendChild(el);
@@ -124,7 +132,7 @@
 
     function onDown(e){ if(!el.contains(e.target)) _closeMenu(); }
     function onKey(e){
-      if(e.key === 'Escape'){ e.preventDefault(); _closeMenu(); return; }
+      if(e.key === 'Escape'){ e.preventDefault(); var c = cell; _closeMenu(); if(c && document.body.contains(c)) c.focus({ preventScroll: true }); return; }
       var i = items.indexOf(document.activeElement);
       if(e.key === 'ArrowDown'){ e.preventDefault(); (items[i + 1] || items[0]).focus(); }
       else if(e.key === 'ArrowUp'){ e.preventDefault(); (items[i - 1] || items[items.length - 1]).focus(); }
@@ -228,14 +236,38 @@
     if(_sel && _qty(_sel.name, _sel.sec) <= 0) _sel = null;
     _markSel();
     _renderBar();
+    _restoreFocus();
     // カードの上は「×N」の札だけ（シミュレーターと同じ書き方）
     var list = $('deckCardList');
     if(list){
       list.querySelectorAll('.deck-grid-cell').forEach(function(cell){
         var b = cell.querySelector('.deck-grid-badge');
         if(b && !/^×/.test(b.textContent)) b.textContent = '×' + b.textContent.trim();
+        // PC は Tab でカードを選び、メニューキー（Shift+F10）で右クリックメニューを開けるようにする（以前の ± ボタンは Tab で押せた）
+        if(!isTouch() && !cell.hasAttribute('tabindex')){
+          cell.setAttribute('tabindex', '0');
+          cell.setAttribute('aria-label', cell.dataset.card + '（メニューキーで枚数を変える）');
+        }
       });
     }
+    _restoreFocus();
+  }
+
+  function _restoreFocus(){
+    if(!_refocus) return;
+    // 一覧はすぐ1回と、少し後の価格プレビュー（deck-edit.js の 350ms 後）でもう1回描き直されるので、しばらく戻し続ける
+    if(Date.now() > _refocus.until){ _refocus = null; return; }
+    var want = _refocus;
+    var list = $('deckCardList');
+    if(!list) return;
+    var cell = null;
+    list.querySelectorAll('.deck-grid-cell').forEach(function(c){
+      if(!cell && c.dataset.card === want.name && (c.dataset.sec || 'main') === want.sec) cell = c;
+    });
+    // 外したカード・詳細を開いたとき（ドロワーにフォーカスがある）は戻さない
+    if(!cell || document.querySelector('.deck-card-drawer.open')){ _refocus = null; return; }
+    if(!cell.hasAttribute('tabindex')) return; // 札と tabindex を付けた後（下の処理の後）にもう一度呼ばれる
+    try{ cell.focus({ preventScroll: true }); }catch(_){}
   }
 
   // ── 配線 ──
@@ -247,7 +279,10 @@
       var cell = e.target.closest('.deck-grid-cell');
       if(!cell || !cell.dataset.card) return;
       e.preventDefault();
-      _openMenu(cell, e.clientX, e.clientY);
+      // キーボード（メニューキー・Shift+F10）で開いたときは位置が無いので、カードの右下寄りに出す
+      var x = e.clientX, y = e.clientY;
+      if(!x && !y){ var r = cell.getBoundingClientRect(); x = r.left + r.width * 0.6; y = r.top + r.height * 0.4; }
+      _openMenu(cell, x, y);
     });
     // タッチ端末: タップは選択（詳細ドロワーを開く deck-card-info.js より先に受け取り、そちらへは流さない）
     list.addEventListener('click', function(e){
