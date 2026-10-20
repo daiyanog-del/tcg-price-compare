@@ -283,7 +283,7 @@ export function showCutin({ text, card } = {}) {
   el.style.animationDuration = `${CUTIN_DURATION_MS}ms`; // 長さの正本は JS 側（CSS の 1.9s は既定値）
   el.style.left = `${a.left}px`;
   el.style.width = `${a.width}px`;
-  el.style.top = `${b.top + b.height / 2}px`; // 帯の高さの半分だけ上へずらすのは CSS（margin-top）
+  el.style.top = `${b.top + b.height / 2}px`; // 帯の高さの半分だけ上へずらすのは CSS（translate）
   _cutinEl = el; // 画像の到着時に「まだ出ているか」を見るので、中身を作る前に控える
   // 子（カードの img など）の animationend も泡立って来るので、帯自身の動きの終わりだけを見る
   el.addEventListener('animationend', (e) => { if (e.target === el && _cutinEl === el) hideCutin(); });

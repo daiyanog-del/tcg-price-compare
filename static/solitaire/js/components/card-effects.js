@@ -182,9 +182,14 @@ export function flipMoveClone(wrapper, firstRect, onComplete = null) {
   // 次フレームで transition を付与し最終位置へ移動
   requestAnimationFrame(() => {
     void clone.offsetWidth; // reflow 強制（initial 位置を確定させる）
-    clone.style.transition = 'left 0.45s cubic-bezier(0.4,0,0.2,1), top 0.45s cubic-bezier(0.4,0,0.2,1)';
+    // 大きさも到着点に合わせて変える（場のマスのカードは relief-theme.css で 97% に縮めて置くため、
+    // 位置だけ動かすと着いた瞬間に縮んで「カクっ」と見えた。2026-10-20 ユーザー指摘）
+    const ease = '0.45s cubic-bezier(0.4,0,0.2,1)';
+    clone.style.transition = `left ${ease}, top ${ease}, width ${ease}, height ${ease}`;
     clone.style.left = `${lastRect.left}px`;
     clone.style.top  = `${lastRect.top}px`;
+    clone.style.width  = `${lastRect.width}px`;
+    clone.style.height = `${lastRect.height}px`;
   });
 
   // クリーンアップ: クローン除去・本体再表示・コールバック呼び出し
@@ -226,8 +231,8 @@ export function prefersReducedMotion() {
  * moveCard 前進適用）で、デッキ演出の錨（#solMobileDeckBtn or #solMobilePlayDeckBadge）の
  * 矩形を代替の出発点/到着点として渡すために使う（現状の呼び出し元はこの用途のみ）。
  * クローン生成方法・sol-flip-clone クラスは flipMoveClone と同じ。
- * 第6次実機検収-2c: 所要時間を 300→450ms に延長し、出発時に少し拡大(scale 1.1)して
- * 到着で通常サイズ(1.0)へ収束させ、影を付けて出発点が目に留まるようにする
+ * 第6次実機検収-2c: 所要時間を 300→450ms に延長し、影を付けて出発点が目に留まるようにする。
+ * 2026-10-20: クローンはカードの大きさで作り、山札の札の側は縮小で表す（札の形のまま飛ばすと潰れて見えた）
  * （sol-deck-fly-clone は .sol-flip-clone に追加する専用クラス。.sol-flip-clone 自体
  * ＝PC の flipMoveClone とも共有する共通クラスは変更しない）。
  * 実カード（cardEl）は飛行中 visibility:hidden にし、到着（cleanup）で元に戻す
@@ -289,19 +294,33 @@ export function flyBetweenRects(cardEl, fromRect, toRect, onComplete = null) {
     }
   }
 
+  // クローンは常にカードの大きさで作り、山札の札（横長の小さな札）の側は縮小（scale）で表す。
+  // 以前は札の矩形をそのまま幅・高さにしていたため、横に潰れた形で出てきて、着いた瞬間に
+  // カードの大きさへ跳んでいた（2026-10-20 ユーザー指摘「潰れながら出てくる」）。
+  // 前提: 片側は必ず山札の札（呼び出し元は replay-service.js のデッキ演出だけ）。
+  // toRect が無い＝山札から来る（カードは lastRect）／ある＝山札へ戻る（カードは fromRect）。
+  // 山札と関係ない2点の移動に使うときは、どちらを縮めるかを引数で渡す形に変えること。
+  const card = toRect ? fromRect : lastRect;
+  const deck = toRect ? toRect : fromRect;
+  // 札の高さとカードの高さの比で縮める。下限は小さすぎて見えなくならないための値
+  // （実測: スマホのデッキボタン 31/89≈0.35・録画用の帯の札 PC 26/136≈0.19・スマホ 22/91≈0.24）
+  const deckScale = Math.max(0.15, Math.min(1, deck.height / card.height));
+  const at = (r) => ({ left: r.left + r.width / 2 - card.width / 2, top: r.top + r.height / 2 - card.height / 2 });
+  const start = at(fromRect);
+  const end = at(lastRect);
   clone.style.cssText = [
     'position: fixed',
-    `left: ${fromRect.left}px`,
-    `top: ${fromRect.top}px`,
-    `width: ${fromRect.width}px`,
-    `height: ${fromRect.height}px`,
+    `left: ${start.left}px`,
+    `top: ${start.top}px`,
+    `width: ${card.width}px`,
+    `height: ${card.height}px`,
     'margin: 0',
     'z-index: 9000',
     'pointer-events: none',
     'overflow: visible',
     'transition: none',
   ].join('; ');
-  clone.style.transform = 'scale(1.1)'; // 出発時は少し拡大（第6次検収2c）
+  clone.style.transform = `scale(${toRect ? 1 : deckScale})`;
 
   // 実カードは飛ばし始める直前（クローンをbodyへ追加する直前）に隠す
   cardEl.style.visibility = 'hidden';
@@ -311,9 +330,9 @@ export function flyBetweenRects(cardEl, fromRect, toRect, onComplete = null) {
   requestAnimationFrame(() => {
     void clone.offsetWidth; // reflow 強制（initial 位置を確定させる）
     clone.style.transition = 'left 0.45s cubic-bezier(0.4,0,0.2,1), top 0.45s cubic-bezier(0.4,0,0.2,1), transform 0.45s cubic-bezier(0.4,0,0.2,1)';
-    clone.style.left = `${lastRect.left}px`;
-    clone.style.top  = `${lastRect.top}px`;
-    clone.style.transform = 'scale(1.0)'; // 到着で通常サイズへ収束
+    clone.style.left = `${end.left}px`;
+    clone.style.top  = `${end.top}px`;
+    clone.style.transform = `scale(${toRect ? deckScale : 1})`; // 山札から来るときはカードの大きさへ、戻るときは札の大きさへ
   });
 
   let _done = false;

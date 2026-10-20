@@ -43,6 +43,7 @@ let _controlsTimer = null;
 let _enteredFullscreen = false;
 let _savedBottomReserve = null;
 let _cursorBeforeEnter = null; // PC: 開く前の手。閉じるときにここへ戻す（0手目のまま操作すると先の記録が消えるため）
+let _deckObserver = null;      // デッキ列（#poolRow）の中身の変化を見て「デッキ N」を数え直す
 let _enteredPortrait = false;  // 縦向きスマホで開いたか（スマホは再生モードのまま戻るので手は戻さない）
 
 function _ga(name, params) {
@@ -79,6 +80,8 @@ function _syncProgress() {
   if (badge) badge.textContent = `${done} / ${total}手`;
   const bar = document.getElementById('solRecProgress');
   if (bar) bar.style.width = total > 0 ? `${(done / total) * 100}%` : '0%';
+  const deck = document.getElementById('solRecDeckCount');
+  if (deck) deck.textContent = String(document.querySelectorAll('#poolRow .tier-item-wrapper').length);
 }
 
 function _buildBand() {
@@ -90,7 +93,13 @@ function _buildBand() {
   const title = _el('div', 'sol-rec-title', _title());
   const count = _el('div', 'sol-rec-count');
   count.id = 'solRecCount';
-  band.append(logo, title, count);
+  // デッキの残り枚数。デッキ列を隠すので、ドローなどの演出はこの札から飛ぶ（replay-service.js _getDeckAnchorEl）
+  const deck = _el('div', 'sol-rec-deck', 'デッキ ');
+  deck.id = 'solRecDeck';
+  const deckCount = _el('span', 'sol-rec-deck-count');
+  deckCount.id = 'solRecDeckCount';
+  deck.append(deckCount);
+  band.append(logo, title, deck, count);
   return band;
 }
 
@@ -260,6 +269,12 @@ export function enterRecView() {
   document.body.append(_buildBand(), _el('div', 'sol-rec-progress'), _buildControls(), _buildGuide());
   document.querySelector('.sol-rec-progress').id = 'solRecProgress';
   _syncProgress();
+  // 山札へ戻す手は飛び終えてからデッキ列に入るので、手の切り替わり（changed）だけでは数え遅れる
+  const pool = document.getElementById('poolRow');
+  if (pool) {
+    _deckObserver = new MutationObserver(_syncProgress);
+    _deckObserver.observe(pool, { childList: true });
+  }
   document.addEventListener('keydown', _onKeydown, true);
   document.addEventListener('pointerdown', _onPointer, true);
   document.addEventListener('mousemove', _onPointer, true);
@@ -278,6 +293,8 @@ export function exitRecView() {
   if (!_enteredPortrait && _cursorBeforeEnter !== null) seekTo(_cursorBeforeEnter);
   _cursorBeforeEnter = null;
   ['solRecBand', 'solRecProgress', 'solRecControls', 'solRecGuide'].forEach((id) => document.getElementById(id)?.remove());
+  _deckObserver?.disconnect();
+  _deckObserver = null;
   document.body.classList.remove(ROOT_CLASS);
   _setMobileReserve(false);
   document.removeEventListener('keydown', _onKeydown, true);

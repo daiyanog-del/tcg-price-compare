@@ -744,6 +744,7 @@ function clearPendingDrop() {
  * （タップ移動用の別経路を作らず、既存の状態機械の遷移関数をそのまま再利用する）。
  */
 export function selectMobileCard(wrapper) {
+  _mPlaceState = null; // 場に出す形は選び直すたびに既定（攻撃・表側）へ戻す
   // 残件4: 金枠（.selected）の二重残留を防ぐため、付ける前に全て外す
   document.querySelectorAll('.tier-item-wrapper.selected').forEach(el => el.classList.remove('selected'));
   _mState = 'selected';
@@ -754,9 +755,31 @@ export function selectMobileCard(wrapper) {
   document.dispatchEvent(new CustomEvent('sol-mobile-card-selected', { detail: { wrapper } }));
 }
 
+/**
+ * 手札のカードを場に出すときの形（2026-10-20 ユーザー承認の案A。操作シートの「場に出すとき」で選ぶ）。
+ * null は既定（攻撃表示・表側）。値は context-menu.js の「場に出す」と同じ {orientation, face}。
+ */
+let _mPlaceState = null;
+
+/** 操作シートから場に出す形を設定する（mobile-ui.js） */
+export function setMobilePlaceState(state) {
+  _mPlaceState = state && (state.orientation || state.face) ? { orientation: state.orientation || '', face: state.face || '' } : null;
+}
+
+/**
+ * 手札から場のマスへ置くときだけ、選んだ形を先に当てる。PC の「場に出す」（context-menu.js _confirmFieldPlacement）と
+ * 同じく、状態を先に確定してから executeDrop に渡すので、記録は形まで含めた1手になる。
+ */
+function _applyMobilePlaceState(wrapper, dropZoneInfo, state = _mPlaceState) {
+  if (!state || dropZoneInfo?.type !== 'CUSTOM_SLOT') return;
+  if (!wrapper?.parentElement?.classList.contains('center-slot')) return;
+  applyCardState(wrapper, state);
+}
+
 /** selected を解除して idle へ戻す */
 function clearMobileSelectionInternal() {
   const wasSelected = _mState === 'selected';
+  _mPlaceState = null;
   if (_mWrapper) _mWrapper.classList.remove('selected');
   hideMobileDropHints();
   hideTouchLabel();
@@ -796,11 +819,15 @@ function _handleMobileCardTouchStart(ev, wrapper) {
   // 保留ドロップの確定/破棄・選択状態の復元に使う（H-2）。
   let pendingWrapper = null;
   let pendingZone = null;
+  // 選んでいたカードをそのままドラッグして置くときも「場に出すとき」の形を当てる（reviewer 指摘。
+  // 選び直すと既定に戻るので、このセッションの始まりの値を控えておく）
+  let dragPlaceState = null;
 
   if (_mState === 'selected') {
     if (_mWrapper === wrapper) {
       // M-9: 同じカードの再タップも pressed フローに乗せる（即解除しない）。
       // 見た目上いったん selected を解いて pressed に入り直す。
+      dragPlaceState = _mPlaceState;
       wrapper.classList.remove('selected');
       hideMobileDropHints();
       _mState = 'idle';
@@ -953,6 +980,7 @@ function _handleMobileCardTouchStart(ev, wrapper) {
         const dropZoneInfo = getDropZoneInfo(dropTarget);
         if (dropZoneInfo) {
           shouldResetTop = dropZoneInfo.type !== 'CUSTOM_SLOT';
+          _applyMobilePlaceState(wrapper, dropZoneInfo, dragPlaceState);
           executeDrop({ type: 'card', element: wrapper }, dropZoneInfo, dropTarget, {});
         }
       }
@@ -975,8 +1003,10 @@ function _handleMobileCardTouchStart(ev, wrapper) {
         _pendingDropWrapper = null;
         _pendingDropZone = null;
         if (dropZoneInfo) {
+          _applyMobilePlaceState(dropWrapper, dropZoneInfo);
           executeDrop({ type: 'card', element: dropWrapper }, dropZoneInfo, dropZoneEl, {});
         }
+        _mPlaceState = null; // 置いたら既定へ戻す（他の経路の clearMobileSelectionInternal と同じ）
         dropWrapper.classList.remove('selected');
         hideMobileDropHints();
         _mState = 'idle';
@@ -1088,6 +1118,7 @@ function _onDocTouchEnd(ev) {
   const dropZoneInfo = getDropZoneInfo(_tapTargetEl);
   if (dropZoneInfo) {
     ev.preventDefault();
+    _applyMobilePlaceState(_mWrapper, dropZoneInfo);
     executeDrop({ type: 'card', element: _mWrapper }, dropZoneInfo, _tapTargetEl, {});
   }
   clearMobileSelectionInternal();

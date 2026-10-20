@@ -369,6 +369,13 @@
         <div class="sol-mobile-action-header">
           <span id="solMobileActionCardName" class="sol-mobile-action-name"></span>
           <button type="button" id="solMobileActionDetailBtn" class="sol-mobile-action-detail-btn">詳細</button>
+          <!-- 選択をやめる（2026-10-20 案A。何もない所のタップも今までどおり使える） -->
+          <button type="button" id="solMobileActionCloseBtn" class="sol-mobile-action-close-btn" aria-label="選択をやめる" title="選択をやめる">&#10005;</button>
+        </div>
+        <!-- 手札のカードを選んだときだけ: 場に出す形（2026-10-20 案A。中身は mobile-ui.js がカードの種類で作る） -->
+        <div id="solMobilePlaceRow" class="sol-mobile-place-row" hidden>
+          <span class="sol-mobile-place-label">場に出すとき</span>
+          <div id="solMobilePlaceSeg" class="sol-mobile-place-seg" role="group" aria-label="場に出す形"></div>
         </div>
         <div id="solMobileActionOps" class="sol-mobile-action-ops">
           <button type="button" class="sol-mobile-action-btn" data-action="defense">守備表示</button>
@@ -421,6 +428,28 @@
           <!-- 第6次実機検収-1: 「再生して確認」からでも共有導線に戻れるよう、終了の左に共有ボタンを置く -->
           <button id="solMobilePlayShareBtn" type="button" class="sol-mobile-bar-btn sol-mobile-play-share-btn">共有</button>
           <button id="solMobilePlayExitBtn" type="button" class="sol-mobile-bar-btn">&#10005; 終了</button>
+        </div>
+      </div>
+
+      <!-- 範囲を選ぶ画面（2026-10-20 ユーザー承認の案A。モック _mocks/sim-mobile-ux-20261020）。
+           「✂ 範囲」で再生モードに入り、手を動かして「ここから」「ここまで」で選ぶ。表示中は下部バーと再生の帯を隠す（mobile-ui.js openRangePicker） -->
+      <div id="solMobileRangePanel" class="sol-mobile-range-panel" hidden>
+        <div class="sol-mobile-range-head">
+          <span id="solMobileRangeLabel" class="sol-mobile-range-label"></span>
+          <span id="solMobileRangeNow" class="sol-mobile-range-now"></span>
+        </div>
+        <!-- 選んだ範囲を記録全体の上に金色の帯で示す（金＝選んでいるもの。幅は mobile-ui.js が % で入れる） -->
+        <div class="sol-mobile-range-band" aria-hidden="true"><i id="solMobileRangeBandFill"></i></div>
+        <input type="range" id="solMobileRangeSlider" class="sol-mobile-range-slider" min="0" max="0" value="0" aria-label="見ている手">
+        <div class="sol-mobile-range-btns">
+          <button type="button" id="solMobileRangePrevBtn">&#9664; 前</button>
+          <button type="button" id="solMobileRangeNextBtn">次 &#9654;</button>
+          <button type="button" id="solMobileRangeFromBtn">ここから</button>
+          <button type="button" id="solMobileRangeToBtn">ここまで</button>
+        </div>
+        <div class="sol-mobile-range-btns">
+          <button type="button" id="solMobileRangeCancelBtn">やめる</button>
+          <button type="button" id="solMobileRangeOkBtn" class="is-primary">この範囲で保存・共有</button>
         </div>
       </div>
 
@@ -566,10 +595,10 @@
             <!-- 範囲（旧「録画」。保存・共有で共通） -->
             <div class="sol-mobile-share-section">
               <p class="sol-mobile-share-heading">範囲</p>
-              <p id="solMobileShareRecordingInfo" class="sol-mobile-share-note">全部の手（0手）が対象です。一部だけにするには、下のバーの ✂ 範囲 を使います。</p>
+              <p id="solMobileShareRecordingInfo" class="sol-mobile-share-note">全部の手（0手）が対象です。</p>
               <!-- M-3: 範囲を選んでいる途中でシートを開いた場合のみ表示 -->
               <button type="button" id="solMobileShareStopRecordingBtn" class="sol-mobile-menu-item" hidden>ここまでで範囲を決める</button>
-              <button type="button" id="solMobileShareRedoRecordingBtn" class="sol-mobile-menu-item" hidden>範囲を選び直す</button>
+              <button type="button" id="solMobileShareRedoRecordingBtn" class="sol-mobile-menu-item">範囲を選ぶ</button>
               <button type="button" id="solMobileSharePlaybackBtn" class="sol-mobile-menu-item">再生して確認</button>
             </div>
 
