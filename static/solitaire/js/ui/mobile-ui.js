@@ -1067,7 +1067,8 @@ function _stopRecording() {
  * 下部バーの「✂ 範囲」ボタン。範囲を選ぶ画面を開く（範囲が決まっていれば選び直し）。
  * 2026-10-20 ユーザー承認の案A: 以前は「押した後に動かした手」を記録する方式で、説明も無く、
  * 回し終えた手から選べなかった（スマホの通常画面は常に最後の手のため）。
- * 古い退避データで選んでいる途中（recording）の状態が残っていれば、従来どおり確定だけ行う。
+ * 選んでいる途中（recording）の状態はもう作らない（setMobileRecordingState も戻さない）ので、
+ * _stopRecording・共有シートの「ここまでで範囲を決める」は届かない古い経路として残っている。
  */
 function toggleRecording() {
   if (_recording.recording) _stopRecording();
@@ -1102,10 +1103,12 @@ function openRangePicker({ fromSheet = false } = {}) {
 }
 
 /** パネルの高さだけ盤面の下を空けて、盤面を収め直す（再生モードの帯・バーの代わり） */
+let _rangePanelH = 0;
 function _fitRangePanel() {
   const panel = document.getElementById('solMobileRangePanel');
   if (!panel) return;
-  document.documentElement.style.setProperty('--sol-mobile-bottom-reserve', `${Math.ceil(panel.offsetHeight)}px`);
+  _rangePanelH = Math.ceil(panel.offsetHeight);
+  document.documentElement.style.setProperty('--sol-mobile-bottom-reserve', `${_rangePanelH}px`);
   window.dispatchEvent(new Event('resize'));
 }
 
@@ -1147,6 +1150,9 @@ function _renderRangePanel() {
   }
   const nowEl = document.getElementById('solMobileRangeNow');
   if (nowEl) nowEl.textContent = `今 ${now} / ${total}手`;
+  // 文言が折り返してパネルの高さが変わったら、盤面の下の空きも合わせ直す（reviewer 指摘）
+  const panel = document.getElementById('solMobileRangePanel');
+  if (panel && Math.ceil(panel.offsetHeight) !== _rangePanelH) _fitRangePanel();
   const slider = document.getElementById('solMobileRangeSlider');
   if (slider) {
     slider.min = '0';

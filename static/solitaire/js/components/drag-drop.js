@@ -770,10 +770,10 @@ export function setMobilePlaceState(state) {
  * 手札から場のマスへ置くときだけ、選んだ形を先に当てる。PC の「場に出す」（context-menu.js _confirmFieldPlacement）と
  * 同じく、状態を先に確定してから executeDrop に渡すので、記録は形まで含めた1手になる。
  */
-function _applyMobilePlaceState(wrapper, dropZoneInfo) {
-  if (!_mPlaceState || dropZoneInfo?.type !== 'CUSTOM_SLOT') return;
+function _applyMobilePlaceState(wrapper, dropZoneInfo, state = _mPlaceState) {
+  if (!state || dropZoneInfo?.type !== 'CUSTOM_SLOT') return;
   if (!wrapper?.parentElement?.classList.contains('center-slot')) return;
-  applyCardState(wrapper, _mPlaceState);
+  applyCardState(wrapper, state);
 }
 
 /** selected を解除して idle へ戻す */
@@ -819,11 +819,15 @@ function _handleMobileCardTouchStart(ev, wrapper) {
   // 保留ドロップの確定/破棄・選択状態の復元に使う（H-2）。
   let pendingWrapper = null;
   let pendingZone = null;
+  // 選んでいたカードをそのままドラッグして置くときも「場に出すとき」の形を当てる（reviewer 指摘。
+  // 選び直すと既定に戻るので、このセッションの始まりの値を控えておく）
+  let dragPlaceState = null;
 
   if (_mState === 'selected') {
     if (_mWrapper === wrapper) {
       // M-9: 同じカードの再タップも pressed フローに乗せる（即解除しない）。
       // 見た目上いったん selected を解いて pressed に入り直す。
+      dragPlaceState = _mPlaceState;
       wrapper.classList.remove('selected');
       hideMobileDropHints();
       _mState = 'idle';
@@ -976,6 +980,7 @@ function _handleMobileCardTouchStart(ev, wrapper) {
         const dropZoneInfo = getDropZoneInfo(dropTarget);
         if (dropZoneInfo) {
           shouldResetTop = dropZoneInfo.type !== 'CUSTOM_SLOT';
+          _applyMobilePlaceState(wrapper, dropZoneInfo, dragPlaceState);
           executeDrop({ type: 'card', element: wrapper }, dropZoneInfo, dropTarget, {});
         }
       }
@@ -1001,6 +1006,7 @@ function _handleMobileCardTouchStart(ev, wrapper) {
           _applyMobilePlaceState(dropWrapper, dropZoneInfo);
           executeDrop({ type: 'card', element: dropWrapper }, dropZoneInfo, dropZoneEl, {});
         }
+        _mPlaceState = null; // 置いたら既定へ戻す（他の経路の clearMobileSelectionInternal と同じ）
         dropWrapper.classList.remove('selected');
         hideMobileDropHints();
         _mState = 'idle';
