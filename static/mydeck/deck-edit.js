@@ -33,6 +33,8 @@
   var _deckPendingHighlight = null; // {name, sec}
   // 追加したカードのミニログ（新しい順・最大5件）。各要素: {key, name, sec, ts}
   var _deckAddedLog = [];
+  // deckAddCard の「自動」で EX へ直す通信。終わるまで［シミュレーターで回す］は待つ（_openSimFromToast）
+  var _deckAddPending = null;
 
   // ── デッキ直列化 ──────────────────────────────
   // main/ex 構造を textarea テキストへ。ex があれば [EX] 区切りを付与（parseDeckSections と往復可能）
@@ -121,7 +123,7 @@
     _recordAdd(name, sec);
 
     if(dest === 'auto'){
-      fetch('/api/card-info?name=' + encodeURIComponent(name))
+      _deckAddPending = fetch('/api/card-info?name=' + encodeURIComponent(name))
         .then(function(r){ return r.ok ? r.json() : null; })
         .then(function(info){
           if(info && info.is_ex){
@@ -813,8 +815,12 @@
     }
   }
 
-  // トースト表示。onOpen があれば［デッキを開く］ボタンを付ける。ms 経過で自動的に消える
-  function _showAddToast(msgText, onOpen, ms){
+  // ボタン付きのお知らせを出している時間（選ぶボタンが2つあるので、ボタン無しの5秒より長くする。2026-10-20 ユーザー決定）
+  var ADD_TOAST_ACTION_MS = 8000;
+
+  // トースト表示。onOpen があれば［デッキを開く］、onSim があれば［シミュレーターで回す］（主操作・黄）を付ける。
+  // ms 経過で自動的に消える（省略時はボタンがあれば8秒・無ければ5秒）
+  function _showAddToast(msgText, onOpen, ms, onSim){
     if(_addToastEl && _addToastEl.parentNode) _addToastEl.parentNode.removeChild(_addToastEl);
     clearTimeout(_addToastTimer);
     var el = document.createElement('div');
@@ -836,28 +842,65 @@
       });
       el.appendChild(btn);
     }
+    if(onSim){
+      var sim = document.createElement('button');
+      sim.type = 'button';
+      sim.className = 'deck-add-toast-btn deck-add-toast-btn-primary';
+      sim.textContent = 'シミュレーターで回す';
+      sim.addEventListener('click', function(){
+        if(el.parentNode) el.parentNode.removeChild(el);
+        clearTimeout(_addToastTimer);
+        onSim();
+      });
+      el.appendChild(sim);
+    }
+    if(!ms) ms = (onOpen || onSim) ? ADD_TOAST_ACTION_MS : 5000;
     document.body.appendChild(el);
     _addToastEl = el;
     _addToastTimer = setTimeout(function(){
       if(el.parentNode) el.parentNode.removeChild(el);
       if(_addToastEl === el) _addToastEl = null;
-    }, ms || 5000);
+    }, ms);
   }
-  function _showAddedToast(deckName, onOpen){
-    _showAddToast('『' + deckName + '』に追加しました', onOpen);
+  // savedId: 追加先の保存済みデッキ（未保存の編集中デッキなら null）。［デッキを開く］［シミュレーターで回す］を付ける
+  function _showAddedToast(deckName, savedId){
+    _showAddToast('『' + deckName + '』に追加しました',
+      function(){ _openDeckFromToast(savedId); }, 0,
+      _simAvailable() ? function(){ _openSimFromToast(savedId); } : null);
   }
 
   // トーストの［デッキを開く］: 保存済みデッキ(savedId)を開く／未保存の作業デッキならタブ遷移のみ。
   // 別デッキを開くことで未保存の作業デッキを失う場合は確認する（deckCreateNew と同趣旨）
   function _openDeckFromToast(savedId){
+    if(!_loadDeckForToast(savedId)) return;
+    switchMode('mydeck', 'auto');
+  }
+
+  // 追加先のデッキを編集欄に読み込む（もう開いていれば何もしない）。保存していない編集を捨てるときは確認し、やめたら false
+  function _loadDeckForToast(savedId){
     if(savedId && window._currentSavedDeckId !== savedId){
       var ta = document.getElementById('deckTextarea');
       var hasUnsavedWork = ta && ta.value.trim() && (window._currentSavedDeckId == null);
       if(hasUnsavedWork &&
-         !confirm('保存されていない編集中のデッキがあります。破棄してこのデッキを開きますか？')) return;
+         !confirm('保存されていない編集中のデッキがあります。破棄してこのデッキを開きますか？')) return false;
       if(typeof loadSavedDeck === 'function') loadSavedDeck(savedId);
     }
-    switchMode('mydeck', 'auto');
+    return true;
+  }
+
+  // シミュレーターが使えるページか（「このデッキでテストプレイ」と同じ条件。enable_solo_play が偽ならボタンを出さない）
+  function _simAvailable(){
+    return typeof window.openCurrentDeckInSolitaire === 'function' &&
+      !!document.querySelector('[onclick="openCurrentDeckInSolitaire()"]');
+  }
+
+  // ［シミュレーターで回す］: 追加先のデッキを読み込み、EX へ直す通信が終わってから「このデッキでテストプレイ」と同じ経路で開く
+  function _openSimFromToast(savedId){
+    if(!_loadDeckForToast(savedId)) return;
+    if(typeof _ga === 'function') _ga('add_toast_sim');
+    Promise.resolve(_deckAddPending).catch(function(){}).then(function(){
+      window.openCurrentDeckInSolitaire();
+    });
   }
 
   // card-info の is_ex でセクションを決める。失敗時は main + console.warn
@@ -895,7 +938,7 @@
   function _addToCurrentDeck(name, deckName, savedId, notOwned){
     if(notOwned && window.DeckOwnership) window.DeckOwnership.markNotOwned(name);
     deckAddCard(name);
-    _showAddedToast(deckName, function(){ _openDeckFromToast(savedId); });
+    _showAddedToast(deckName, savedId);
   }
 
   // 別の保存済みデッキへ直接追加（開いているデッキは切り替えない）
@@ -928,7 +971,7 @@
         _deckPendingHighlight = { name: name, sec: sec };
         _deckMutate(function(d){ _addToSection(d, sec, name); });
         _recordAdd(name, sec);
-        _showAddedToast(deck.name || 'マイデッキ', function(){ _openDeckFromToast(id); });
+        _showAddedToast(deck.name || 'マイデッキ', id);
         return;
       }
       // normalizeDeck は main/ex が text と食い違うとき text を正とする
@@ -944,7 +987,7 @@
       savedDecksSet(list);
       trackDeckCards([{ name: name }]);
       _refreshSavedDeckList();
-      _showAddedToast(deck.name || 'マイデッキ', function(){ _openDeckFromToast(id); });
+      _showAddedToast(deck.name || 'マイデッキ', id);
     });
   }
 
@@ -976,7 +1019,7 @@
       savedDecksSet(cur);
       trackDeckCards([{ name: name }]);
       _refreshSavedDeckList();
-      _showAddedToast(finalName, function(){ _openDeckFromToast(deck.id); });
+      _showAddedToast(finalName, deck.id);
     });
   }
 

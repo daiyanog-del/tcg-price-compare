@@ -775,9 +775,9 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     </h1>
     <nav class="mode-tabs" aria-label="メインナビゲーション">
       <button class="mode-tab active" data-mode="search" aria-current="page" onclick="switchMode('search','tab')">価格比較</button>
-      <button class="mode-tab" data-mode="meta" onclick="switchMode('meta','tab')">環境デッキ</button>
-      <button class="mode-tab" data-mode="mydeck" onclick="switchMode('mydeck','tab')">マイデッキ</button>
       {% if enable_solo_play %}<a class="header-solo-link" id="headerSoloLink" href="/solitaire" aria-label="シミュレーターを開く">シミュレーター</a>{% endif %}
+      <button class="mode-tab" data-mode="mydeck" onclick="switchMode('mydeck','tab')">マイデッキ</button>
+      <button class="mode-tab" data-mode="meta" onclick="switchMode('meta','tab')">環境デッキ</button>
       <button class="mode-tab" data-mode="packs" onclick="switchMode('packs','tab')">新商品</button>
       <button class="mode-tab nav-wishlist" data-mode="wishlist" onclick="switchMode('wishlist','tab')">購入候補<span class="wish-badge" id="wishTabBadge" style="display:none">0</span></button>
     </nav>

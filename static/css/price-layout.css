@@ -41,10 +41,11 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
 #mode-search .of-tabs-row .movers-tabs{margin-bottom:8px}
 #mode-search #ofMoversDirTabs .movers-tab{padding:5px 14px;min-height:30px}
 #mode-search .movers-list{gap:0}
-#mode-search .movers-item{color:inherit;text-decoration:none;display:grid;grid-template-columns:18px 38px minmax(0,1fr) auto;align-items:center;gap:8px;padding:14px 12px;background:none;border:0;border-radius:0;min-width:0;transform:none;transition:background .15s}
+#mode-search .movers-item{color:inherit;text-decoration:none;display:grid;grid-template-columns:18px 50px minmax(0,1fr) auto;align-items:center;gap:8px;padding:10px 12px;background:none;border:0;border-radius:0;min-width:0;transform:none;transition:background .15s}
 #mode-search .movers-item:hover{background:var(--bg-hover);transform:none}
 #mode-search .movers-rank{grid-column:1;grid-row:1;min-width:0;font-size:11px}
-#mode-search .movers-thumb{grid-column:2;grid-row:1}
+/* ランキング画像は絵柄が見分けられる大きさに（2026-10-20 ユーザー選定 案B: PC 50px・スマホ 44px） */
+#mode-search .movers-thumb{grid-column:2;grid-row:1;width:50px;height:73px}
 #mode-search .movers-name{grid-column:3;grid-row:1;gap:5px}
 #mode-search .movers-name-text{font-size:13px;line-height:1.6;font-weight:400;color:var(--text)}
 #mode-search .movers-rarity{line-height:1.5}
@@ -110,8 +111,8 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
  .price-redesign .brand-name{font-size:25px}
  #mode-search .search input{font-size:16px;padding:8px}
  #mode-search .search button{padding-inline:16px}
- #mode-search .movers-item{grid-template-columns:14px 32px minmax(0,1fr) auto;gap:6px}
- #mode-search .movers-thumb{width:32px;height:45px}
+ #mode-search .movers-item{grid-template-columns:14px 44px minmax(0,1fr) auto;gap:6px}
+ #mode-search .movers-thumb{width:44px;height:64px}
  #mode-search .movers-price{max-width:104px}
  #mode-search .movers-name-text{font-size:12px}
  #mode-search .card-hero{gap:14px;margin-bottom:20px}
