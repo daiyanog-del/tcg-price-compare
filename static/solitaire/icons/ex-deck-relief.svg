@@ -4,5 +4,5 @@
     <feDropShadow dx="0" dy="1.4" stdDeviation="0.65" flood-color="#8da0b7" flood-opacity="0.48"/>
     <feDropShadow dx="0" dy="-1.3" stdDeviation="0.85" flood-color="#070e18" flood-opacity="0.95"/>
   </filter></defs>
-  <g fill="none" stroke="#152030" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" filter="url(#engrave)"><path d="M29 70h-5a4 4 0 0 1-4-4V23a4 4 0 0 1 4-4h29"/><rect x="33" y="30" width="43" height="54" rx="4"/><path d="m54.5 42 4.5 10 11 5-11 5-4.5 10-4.5-10-11-5 11-5Z"/></g>
+<g fill="none" stroke="#152030" stroke-width="6" stroke-linecap="round" filter="url(#engrave)"><path d="M77 26C59 10 27 16 18 38C8 62 29 85 53 80C74 76 83 55 71 41C62 30 45 31 39 42C34 51 40 61 49 61"/><path d="M23 74C41 90 73 84 82 62C92 38 71 15 47 20C26 24 17 45 29 59C38 70 55 69 61 58C66 49 60 39 51 39"/></g>
 </svg>

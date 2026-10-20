@@ -4,5 +4,13 @@
     <feDropShadow dx="0" dy="1.4" stdDeviation="0.65" flood-color="#8da0b7" flood-opacity="0.48"/>
     <feDropShadow dx="0" dy="-1.3" stdDeviation="0.85" flood-color="#070e18" flood-opacity="0.95"/>
   </filter></defs>
-  <g fill="none" stroke="#152030" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" filter="url(#engrave)"><path d="M30 77 17 37a4 4 0 0 1 3-5l13-4M70 77l13-40a4 4 0 0 0-3-5l-13-4"/><rect x="35" y="20" width="30" height="59" rx="4"/></g>
+<!-- 3枚に絞り、奥の2枚は見える端だけを描く。右からの片手と親指の形を保つ。 -->
+<g stroke="#152030" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" filter="url(#engrave)">
+  <g fill="none">
+    <path d="M14 49l-4 9 24 10M19 69v10h22"/>
+    <path d="m34 13 32 25a3 3 0 0 1 1 4L47 67a3 3 0 0 1-4 0L12 42a3 3 0 0 1-1-4l19-24a3 3 0 0 1 4-1Z"/>
+    <path d="M68 38q11 3 13 17l10 14"/>
+  </g>
+  <path fill="#253143" d="m91 69-12-9-30-17c-8-4-13 5-6 10l17 11c2 10 10 17 22 21"/>
+</g>
 </svg>

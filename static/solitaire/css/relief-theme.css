@@ -55,8 +55,8 @@
 }
 
 /* トレイの刻印も背景として描き、カードの操作領域と枚数表示を維持する。 */
-.sol-hand-area { --relief-symbol: url('../icons/hand-relief.svg'); }
-#imagePool2 { --relief-symbol: url('../icons/ex-deck-relief.svg'); }
+.sol-hand-area { --relief-symbol: url('../icons/hand-relief.svg?v=9'); }
+#imagePool2 { --relief-symbol: url('../icons/ex-deck-relief.svg?v=4'); }
 #imagePool { --relief-symbol: url('../icons/deck-relief.svg'); }
 .sol-hand-area, #imagePool, #imagePool2 {
   background-image: var(--relief-symbol), var(--relief-grain), linear-gradient(145deg, #ffffff05, #0000000c);
