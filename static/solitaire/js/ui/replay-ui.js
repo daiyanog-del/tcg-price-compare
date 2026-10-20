@@ -11,6 +11,7 @@ import {
   seekTo,
   undoLast,
   togglePlay,
+  isPlaying,
   setPlaySpeed,
   getPlaySpeed,
   exportReplay,
@@ -171,6 +172,10 @@ export function initReplayUI() {
       seekTo(n);
     });
 
+  // リプレイバーの上でマウスホイールを回すと1手ずつ進む（下）・戻る（上）（2026-10-20 ユーザー要望）。
+  // 手札・EX の欄はホイールで横に流す作りなので、範囲はリプレイバーの上だけにする。
+  _initReplayWheel();
+
   // コメント（吹き出し・盤面メモ）: 右パネル「コメント」区画の入力と一覧（comment-ui.js）
   initCommentUI();
 
@@ -243,6 +248,29 @@ export function initReplayUI() {
   // 自動再生タイマーの各経路から更新する）を監視し、drag-drop.js の
   // setPcPlaybackMode／盤面の pointer-events を連動させる。
   _initPcPlaybackModeWatcher();
+}
+
+/** ホイールの量をためて1手ぶんとみなす量。マウスの1目盛り（Chrome で約100）で1手、トラックパッドの細かい動きはためてから1手 */
+const WHEEL_STEP = 60;
+
+function _initReplayWheel() {
+  const bar = document.getElementById('replayBarContainer');
+  if (!bar) return;
+  let acc = 0;
+  bar.addEventListener('wheel', (e) => {
+    if (getLogLength() === 0) return;
+    // 横向きの動き（トラックパッドの横スワイプ等）は使わない
+    if (Math.abs(e.deltaY) < Math.abs(e.deltaX)) return;
+    e.preventDefault(); // ページのスクロールにしない
+    const unit = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? 400 : 1; // 行・ページ単位の環境は px に直す
+    acc += e.deltaY * unit;
+    if (Math.abs(acc) < WHEEL_STEP) return;
+    const dir = Math.sign(acc);
+    acc = 0; // 1回の動きで進むのは1手まで（勢いよく回しても飛ばない）
+    if (isPlaying()) togglePlay(); // 自動再生中なら止めてから動かす
+    if (dir > 0) stepForward();
+    else stepBack();
+  }, { passive: false });
 }
 
 /**
