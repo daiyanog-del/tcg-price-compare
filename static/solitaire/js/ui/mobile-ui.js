@@ -38,7 +38,7 @@ import { playActivateEffect, flipMoveClone } from '../components/card-effects.js
 import { _renderCard, _showUnknown, _showLoading } from './card-info-panel.js';
 import { isMobilePortrait, watchMobilePortrait, isMobileLandscape, watchMobileLandscape } from '../utils/viewport.js';
 import { showToast } from '../utils/toast.js';
-import { resetMobileDeckMode } from './deck-edit-ui.js';
+import { resetMobileDeckMode, openDeckImage } from './deck-edit-ui.js';
 import { generateShareURL, checkPublicTitle, resetShareUrlMemo, buildShareTweetUrl, getReplayCounts, saveReplayToDevice, describeSaveResult, exportReplayFile } from './replay-ui.js';
 import { clearEverything } from './deck-input-panel.js';
 import {
@@ -236,6 +236,7 @@ const MENU_ACTIONS = {
   deckinput:() => { openSidebarSheet(); },
   playback: () => { enterPlaybackMode('menu'); }, // タスクB-1: 旧「リプレイ操作」オーバーレイを廃止し再生モードへ
   share:    () => { openShareSheet('share'); }, // ⋯メニューの「共有」
+  deckimage:() => { openDeckImage(); },          // デッキの一覧を画像にする（deck-edit-ui.js → shared/deck-image.js）
   boardmemo:() => { openCommentSheet({ kind: 'board' }); }, // 整理④: 盤面にメモ
   cutin:    () => { openCommentSheet({ kind: 'cutin' }); },  // カットイン: 言葉の札＋自由入力のシート
   help:     () => { openHelpSheet(); },

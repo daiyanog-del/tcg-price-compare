@@ -415,8 +415,6 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 /* デッキシェアエリア */
 .deck-share-area{margin:10px 0 6px;padding:10px 12px;border:1px solid var(--border);border-radius:6px;background:rgba(255,255,255,.02)}
 .deck-share-title{font:.72rem var(--font);color:var(--text-d);margin-bottom:6px;letter-spacing:.04em}
-.deck-img-loading{font:.8rem var(--font);color:var(--text-d);padding:8px 0}
-.deck-img-wrap{padding-top:10px}
 .share-btn-copy{color:var(--accent-l);border-color:var(--accent);background:rgba(74,124,255,.06)}
 .share-btn-copy:hover{background:rgba(74,124,255,.15)}
 .share-menu-wrap{position:relative;display:inline-block}
@@ -753,6 +751,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 {
   "imports": {
     "/static/shared/deck-handoff.js": {{ static_url('shared/deck-handoff.js') | tojson }},
+    "/static/shared/deck-image.js": {{ static_url('shared/deck-image.js') | tojson }},
     "/static/shared/neuron-pdf-parser.js": {{ static_url('shared/neuron-pdf-parser.js') | tojson }},
     "/static/shared/neuron-preview-modal.js": {{ static_url('shared/neuron-preview-modal.js') | tojson }},
     "/static/shared/neuron-import-shared.js": {{ static_url('shared/neuron-import-shared.js') | tojson }},
