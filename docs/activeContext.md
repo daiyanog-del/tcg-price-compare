@@ -1,5 +1,11 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-20: トレイ3種のレリーフアイコン
+
+- hand/ex-deck/deck-relief.svgを追加。墓地アイコンのstroke6・色・彫り込みfilterを共用した図形として、扇状の札/星入り重ね札/積み札を描画。relief-theme.cssの3パネル背景へ追加。寸法・操作処理は変更なし。
+- PCと390×844で実画面確認。スマホのデッキパネル非表示は従来通り。横溢れなし、SVG3種のXML解析とgit diff --check成功。
+- プレビュー http://127.0.0.1:5094/solitaire 。見本 C:/Users/daiya/tray-relief-icons-pc.png。本番反映・外部送信は未実施、承認待ち。
+
 ## 2026-10-20: シミュレーターの演出とスマホ操作（branch fix/sim-rec-mobile-batch・本番未反映）
 
 - 演出: 山札との演出は写しをカードの大きさで作り札の側を縮小（card-effects.js flyBetweenRects）、移動の写しは大きさも変える（flipMoveClone）、録画用画面は帯の「デッキ N」が錨（replay-service.js _isDeckHidden）。手を当てる前に同じカードの演出を確定（_settlePendingFly）。

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- 暗い彫り溝の上縁と、下縁の反射で浅い刻印を表現する。 -->
+  <defs><filter id="engrave" x="-25%" y="-25%" width="150%" height="150%" color-interpolation-filters="sRGB">
+    <feDropShadow dx="0" dy="1.4" stdDeviation="0.65" flood-color="#8da0b7" flood-opacity="0.48"/>
+    <feDropShadow dx="0" dy="-1.3" stdDeviation="0.85" flood-color="#070e18" flood-opacity="0.95"/>
+  </filter></defs>
+  <g fill="none" stroke="#152030" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" filter="url(#engrave)"><path d="M30 77 17 37a4 4 0 0 1 3-5l13-4M70 77l13-40a4 4 0 0 0-3-5l-13-4"/><rect x="35" y="20" width="30" height="59" rx="4"/></g>
+</svg>
