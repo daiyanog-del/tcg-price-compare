@@ -118,6 +118,16 @@
     if (global.DeckOwnership) global.DeckOwnership.applyReceived(items || []);
   }
 
+  // 購入候補の送信形式。decks（どのデッキ用か・shared/wish-deck.js・2026-10-20）は空でも必ず付ける。
+  // サーバーは decks キーの無い行を「decks を知らない古い版からの送信」とみなしてサーバー側の内訳を引き継ぐので、
+  // 新しい版が内訳を消したとき（空になった）に古い内訳が戻らないよう、空は {} で明示する
+  function _wishWire(list) {
+    return (list || []).map(function (c) {
+      const decks = c.decks && typeof c.decks === 'object' && !Array.isArray(c.decks) ? c.decks : {};
+      return { name: c.name, rarity: c.rarity || '', qty: c.qty, decks: JSON.parse(JSON.stringify(decks)) };
+    });
+  }
+
   // 種別ごとの正規化（無変化判定・送信内容の比較用）
   function _canonicalize(kind, list) {
     if (kind === 'decks') {
@@ -127,9 +137,7 @@
                  ...(Object.prototype.hasOwnProperty.call(d, 'owned') ? {owned: JSON.parse(JSON.stringify(d.owned))} : {}) };
       }));
     }
-    return JSON.stringify((list || []).map(function (c) {
-      return { name: c.name, rarity: c.rarity || '', qty: c.qty };
-    }));
+    return JSON.stringify(_wishWire(list));
   }
 
   function _sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
@@ -223,7 +231,7 @@
     const decks = _readLocalList('decks');
     if (!wishlist.length && !decks.length) return Promise.resolve(null);
 
-    _ensureAccountInFlight = _postJson('/api/sync/init', { wishlist: wishlist, decks: decks })
+    _ensureAccountInFlight = _postJson('/api/sync/init', { wishlist: _wishWire(wishlist), decks: decks })
       .then(function (res) {
         if (!res.ok) return null;
         return res.json().catch(function () { return {}; });
@@ -285,7 +293,7 @@
         _notifyReissued();
         const siblingItems = _readLocalList(siblingKind);
         if (siblingItems.length) {
-          _doPush(siblingKind, siblingItems);
+          _doPush(siblingKind, siblingKind === 'wishlist' ? _wishWire(siblingItems) : siblingItems);
         }
         return;
       }
@@ -301,8 +309,10 @@
           // 内容を適用しなかった応答のrevも採用しない。次のpushを競合合流にして、
           // サーバーだけにあるデッキが通常置換で消えることを防ぐ。
           if (data.rev < (next[revKey] || 0) || !_applyReceivedDecks(data.items, expectedDecks)) return;
-        } else {
-          _applyReceivedWishlist(data.items);
+        } else if (!_applyReceivedWishlist(data.items)) {
+          // 結合の結果を手元に適用できなかったら rev も進めない（rev だけ進むと、次の pull が「変化なし」になり
+          // サーバーだけにある候補を取り込めず、次の通常 push でそれを消してしまう）
+          return;
         }
         next[revKey] = Math.max(next[revKey] || 0, data.rev);
         if (kind === 'decks') delete next.decks_dirty;
@@ -356,9 +366,7 @@
     if (_applying) return;
     const ks = _kindState.wishlist;
     if (ks.debounceTimer) clearTimeout(ks.debounceTimer);
-    const snapshot = (list || []).map(function (c) {
-      return { name: c.name, rarity: c.rarity || '', qty: c.qty };
-    });
+    const snapshot = _wishWire(list);
     ks.debounceTimer = setTimeout(function () { _doPush('wishlist', snapshot); }, DEBOUNCE_MS);
   }
 
@@ -399,7 +407,7 @@
     const staleDecks = !state.decks_rev;
     if (staleWishlist) {
       const local = _readLocalList('wishlist');
-      if (local.length) _doPush('wishlist', local);
+      if (local.length) _doPush('wishlist', _wishWire(local));
     }
     if (staleDecks) {
       const local = _readLocalList('decks');
@@ -606,7 +614,7 @@
     const wishlist = _readLocalList('wishlist');
     const decks = _readLocalList('decks');
     return _postJson('/api/sync/link/redeem', {
-      token: token, wishlist: wishlist, decks: decks, old_sync_id: oldSyncId,
+      token: token, wishlist: _wishWire(wishlist), decks: decks, old_sync_id: oldSyncId,
     }).then(function (res) {
       if (res.status === 429) return { ok: false, reason: 'rate_limited' };
       return res.json().catch(function () { return { ok: false, reason: 'invalid_response' }; });

@@ -735,6 +735,97 @@ body.sol-newcard-focus-active #poolRow2 {
 }
 .sol-pc-range-band[hidden] { display: none; }
 
+/* 足りない分を購入候補へ（deck-wish-ui.js・2026-10-20 ユーザー承認のモック _mocks/wish-from-sim-20261020）
+   面・縁・影は範囲を選ぶパネルと同じ。主操作（追加）は黄、［全部ある］［持ってない］の選ばれた側は accent の面
+   （金の実線＝選択中・アクセント色の実線＝触れている間 の目印とは重ねない）。追加する枚数は金の文字。 */
+.sol-wish-panel {
+  position: fixed;
+  z-index: 1300;
+  width: 560px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .55);
+  font-family: var(--font);
+  color: #eff3fb;
+}
+.sol-wish-panel.is-sheet {
+  left: 0; right: 0; bottom: 0; top: auto;
+  width: auto; max-width: none; max-height: 86vh;
+  border: 0;
+  border-radius: 16px 16px 0 0;
+  padding: 14px 14px calc(18px + env(safe-area-inset-bottom));
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, .55);
+}
+.sol-wish-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.sol-wish-title { color: #eff3fb !important; font-size: 14px; font-weight: 700; }
+.sol-wish-deck { margin-left: auto; color: #a8b4c9 !important; font-size: 12px; }
+.sol-wish-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.sol-wish-table th { color: #a8b4c9; font-weight: 400; text-align: right; padding: 4px; font-size: 11.5px; white-space: nowrap; }
+.sol-wish-table td { padding: 4px; text-align: right; border-top: 1px solid #202c42; color: #eff3fb; }
+.sol-wish-table .c-name { text-align: left; }
+.sol-wish-table .c-own { white-space: nowrap; }
+.sol-wish-table td.is-zero, .sol-wish-table td.c-add:not(.is-add) { color: #a8b4c9; }
+.sol-wish-table td.c-add.is-add { color: var(--gold); font-weight: 700; }
+.sol-wish-group td { border-top: 0; padding: 10px 4px 2px; color: #a8b4c9; font-size: 11.5px; text-align: left; }
+.sol-wish-own {
+  width: 42px;
+  box-sizing: border-box;
+  padding: 2px 6px;
+  background: var(--bg-color);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--main-color);
+  font: inherit;
+  text-align: right;
+  -moz-appearance: textfield;
+}
+.sol-wish-own::-webkit-inner-spin-button, .sol-wish-own::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.sol-wish-own:focus { outline: none; border-color: var(--accent); }
+.sol-wish-q {
+  margin-left: 4px;
+  height: 20px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: #202c42;
+  color: #aec5ff;
+  font: 700 11px var(--font);
+  vertical-align: middle;
+  cursor: pointer;
+}
+.sol-wish-q:hover { background: #2b3549; }
+.sol-wish-q.is-on { background: #aec5ff; color: #101626; }
+.sol-wish-hint { margin: 8px 0 10px; color: #a8b4c9 !important; font-size: 12px; line-height: 1.5; }
+.sol-wish-btns { display: flex; justify-content: flex-end; gap: 8px; }
+.sol-wish-btns button {
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.sol-wish-cancel { background: #202c42; color: #aec5ff; }
+.sol-wish-cancel:hover { background: #2b3549; }
+.sol-wish-ok { background: #f3ce46; color: #242013; }
+.sol-wish-ok:hover { background: #ffe16d; }
+.sol-wish-ok:disabled { opacity: .45; cursor: default; }
+/* スマホのシートは幅が足りないので「デッキ」「候補にある」を省く（追加する枚数の計算には入っている） */
+.sol-wish-panel.is-sheet .sol-wish-table { font-size: 13px; }
+.sol-wish-panel.is-sheet .c-need, .sol-wish-panel.is-sheet .c-wish { display: none; }
+.sol-wish-panel.is-sheet .sol-wish-own { width: 36px; }
+.sol-wish-panel.is-sheet .sol-wish-btns button { flex: 1; }
+/* スマホ編集の選んだカードの欄の［候補へ］ */
+.sol-deck-edit-wish { margin-left: 8px; height: 28px; flex-shrink: 0; }
+
 /* 左サイドバー「カードを追加」 */
 .sol-deck-add-search {
   width: 100%;
@@ -798,6 +889,13 @@ body.sol-newcard-focus-active #poolRow2 {
   pointer-events: auto;
 }
 .sol-toast-action span { color: var(--main-color); }
+/* 購入候補のお知らせ（deck-wish-ui.js）は文が長いので、狭い画面では折り返す（ボタンが画面の外に出ないように） */
+.sol-toast.sol-toast-wrap {
+  white-space: normal;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  box-sizing: border-box;
+}
 .sol-toast-undo {
   flex: none;
   padding: 3px 10px;

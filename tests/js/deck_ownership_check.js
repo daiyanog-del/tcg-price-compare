@@ -14,6 +14,7 @@ const sandbox={console,navigator:{maxTouchPoints:0},setTimeout:()=>1,clearTimeou
   savedDecksGet:()=>JSON.parse(data.get('cardprice_saved_decks')||'[]'),
   savedDecksSet:list=>data.set('cardprice_saved_decks',JSON.stringify(list))};
 sandbox.window=sandbox;vm.createContext(sandbox);
+vm.runInContext(source('static/shared/wish-deck.js'),sandbox);
 vm.runInContext(source('static/mydeck/deck-ownership.js'),sandbox);
 const own=sandbox.DeckOwnership;
 const deck={main:[{name:'A',qty:3},{name:'B',qty:2}],ex:[{name:'A',qty:1},{name:'__proto__',qty:1}]};

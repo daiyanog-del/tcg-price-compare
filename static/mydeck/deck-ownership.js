@@ -25,30 +25,18 @@
     });
     return totals;
   }
-  function plan(deck,values,wishlist){
-    const clean=validateOwned(values), totals=requiredCards(deck), candidates=new Map();
+  // 「候補にある」は、このデッキ用＋デッキ指定なしの分（shared/wish-deck.js・2026-10-20 合計で数える）
+  function plan(deck,values,wishlist,deckId){
+    const clean=validateOwned(values), totals=requiredCards(deck);
     wishlist.forEach(c=>{
       if(!c||typeof c.name!=='string'||!Number.isInteger(c.qty)||c.qty<1||c.qty>99)throw Error('購入候補に不正な枚数があります。購入候補画面で確認してください。');
-      const rows=candidates.get(c.name)||[];rows.push(c);candidates.set(c.name,rows);
     });
-    return [...totals].map(([name,required])=>{
-      const checked=has(clean,name), inWish=candidates.get(name)||[];
-      const candidate=inWish.reduce((sum,c)=>sum+c.qty,0);
-      const shortage=checked?Math.max(0,required-clean[name]):null;
-      return {name,required,owned:checked?clean[name]:null,shortage,candidate,
-        rarities:inWish.map(c=>({rarity:c.rarity||'',qty:c.qty})),
-        add:checked?Math.max(0,shortage-candidate):0};
-    });
+    // 今は無いデッキ（削除したデッキ）用の分はデッキ指定なしとして数える
+    const known=typeof global.savedDecksGet==='function'?global.savedDecksGet().map(d=>d.id):[];
+    return global.WishDeck.plan(totals,clean,global.WishDeck.forgetUnknown(wishlist,known),deckId||null);
   }
-  function supplement(wishlist,rows){
-    const next=wishlist.map(c=>({...c}));
-    rows.filter(r=>r.add>0).forEach(r=>{
-      const item=next.find(c=>c.name===r.name&&!(c.rarity||''));
-      if((item?item.qty:0)+r.add>99)throw Error('購入候補の枚数上限（99枚）を超えます。');
-      if(item)item.qty+=r.add;else next.push({name:r.name,qty:r.add,rarity:''});
-    });
-    if(next.length>200)throw Error('購入候補は最大200件です。先に候補を整理してください。');
-    return next;
+  function supplement(wishlist,rows,deckId){
+    return global.WishDeck.supplement(wishlist,rows,deckId||null);
   }
   function current(){
     const ta=document.getElementById('deckTextarea');
@@ -106,11 +94,11 @@
       });
       owned=validateOwned(pending);
       if(JSON.stringify(owned)!==before&&!save())return;
-      const rows=plan(current(),owned,wishGet());
-      supplement(wishGet(),rows); // 上限違反は確認画面を出す前に通知する
+      const rows=plan(current(),owned,wishGet(),global._currentSavedDeckId);
+      supplement(wishGet(),rows,global._currentSavedDeckId); // 上限違反は確認画面を出す前に通知する
       preview=JSON.stringify(rows);box.replaceChildren();
       const title=el('h3','購入候補への追加内容');title.tabIndex=-1;box.append(title);
-      box.append(el('p','候補済みは同名カードの全レアリティの合計です。追加分はレアリティ指定なしになり、既存の指定は維持します。'));
+      box.append(el('p','候補済みは、このデッキ用とデッキ指定なしの分の合計です（他のデッキ用の分は数えません）。追加分はこのデッキ用・レアリティ指定なしになり、既存の指定は維持します。'));
       rows.forEach(r=>{
         const line=el('div',undefined,'deck-owned-review');line.append(el('strong',r.name));
         line.append(el('span','必要 '+r.required+' / 所持 '+(r.owned===null?'未確認':r.owned)+' / 不足 '+(r.shortage===null?'未確認':r.shortage)+' / 候補済み '+r.candidate+' / 追加 '+r.add+'枚'));
@@ -127,9 +115,9 @@
   }
   function commitPreview(){
     try{
-      const list=wishGet(),rows=plan(current(),owned,list);
+      const list=wishGet(),rows=plan(current(),owned,list,global._currentSavedDeckId);
       if(!preview||JSON.stringify(rows)!==preview){showPreview();message('デッキまたは購入候補が変わりました。追加内容をもう一度確認してください。',false);return;}
-      const next=supplement(list,rows), count=rows.reduce((n,r)=>n+r.add,0);
+      const next=supplement(list,rows,global._currentSavedDeckId), count=rows.reduce((n,r)=>n+r.add,0);
       if(!count){invalidate();return;}
       wishSave(next);
       // 保存完了後だけ成功を表示。通常のwishAddの加算経路は通さない。
@@ -148,7 +136,13 @@
     set(deck.owned);
     render();
   }
-  global.DeckOwnership={validateOwned,requiredCards,plan,supplement,set,snapshot,render,applyReceived,
+  // 新着から入れたカードを「持っていない（0枚）」にする。入力済みなら変えない（保存は呼び出し側のデッキ更新で行う）
+  // デッキに元から入っているカードなら変えない（元の分まで「持っていない」にしないため）
+  function markNotOwned(name){
+    try{if(!has(owned,name)&&!requiredCards(current()).has(name)){owned[name]=0;rendered='';}}
+    catch(e){console.warn('[deck-ownership] 所持枚数を0にできませんでした（デッキの入力欄を確認してください）',e);}
+  }
+  global.DeckOwnership={validateOwned,requiredCards,plan,supplement,set,snapshot,render,applyReceived,markNotOwned,
     saveError:e=>message('所持枚数を保存できませんでした。'+e.message,true)};
   function init(){
     const box=document.getElementById('deckOwnership');if(!box)return;
