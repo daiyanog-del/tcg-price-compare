@@ -145,7 +145,9 @@ const playPauseMs=(ev,base,f)=>base;
   const mainSrc = fs.readFileSync(path.join(js, 'main.js'), 'utf8');
   assert(/if \(replaySnap\?\.needsRebuild\) \{\s*rebuildAtCursor\(\);/.test(mainSrc), 'needsRebuild ガード付きの rebuildAtCursor 呼び出しが無い');
   assert.equal((mainSrc.match(/rebuildAtCursor\(\)/g) || []).length, 1, 'rebuildAtCursor の呼び出しが複数ある');
-  assert(/if \(isPlaying\(\) \|\| isReplayAnimating\(\)\) replay\.needsRebuild = true;/.test(mainSrc));
+  // 範囲を選ぶパネル（pc-recording.js）を開いたまま離れたときも作り直す（2026-10-20）
+  assert(/if \(isPlaying\(\) \|\| isReplayAnimating\(\)( \|\| wasPicking)?\) replay\.needsRebuild = true;/.test(mainSrc));
+  assert(/if \(wasPicking\) closePcRangePicker\(\);/.test(mainSrc), 'パネルを開いたまま離れたときに閉じていない');
   assert(/syncCardIdCounter\(collectReplayCardIds\(replaySnap\)\)/.test(mainSrc));
 
   // ── 純粋関数: visibility 除去・カードID収集・フラグ消去 ──

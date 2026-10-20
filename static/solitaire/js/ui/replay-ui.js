@@ -132,8 +132,10 @@ export function initReplayUI() {
   document.getElementById('replayPlay')
     ?.addEventListener('click', () => togglePlay());
 
+  // 範囲を選ぶパネル（pc-recording.js）を開いている間は受け付けない。‹ › で途中の手にいるので、
+  // ここで取り消すとその先の記録が消える（2026-10-20 reviewer 指摘。表示の無効化は pc-recording.js）
   document.getElementById('replayUndo')
-    ?.addEventListener('click', () => undoLast());
+    ?.addEventListener('click', () => { if (!document.body.classList.contains('sol-pc-range-pick')) undoLast(); });
 
   // クリア: 右パネル「盤面操作」のクリアボタン。モバイル版⋯メニューの
   // 「クリア」（deck-input-panel.js clearEverything）と同じ処理を使い、盤面も含めて
@@ -305,7 +307,8 @@ function _initPcPlaybackModeWatcher() {
   // 画面録画用の表示（rec-view.js）の間も、再生中と同じく盤面を触れなくする（カウントダウン中・再生の後に
   // 盤面を動かすと、途中の手から先の記録が消えたり末尾に手が足されたりするため）
   const sync = () => {
-    const playing = btnPlay.classList.contains('play-active') || isRecViewActive();
+    // 範囲を選ぶパネル（pc-recording.js）を開いている間も同じくロックする（途中の手で操作すると先の記録が消えるため）
+    const playing = btnPlay.classList.contains('play-active') || isRecViewActive() || document.body.classList.contains('sol-pc-range-pick');
     setPcPlaybackMode(playing);
     document.querySelectorAll(PC_PLAYBACK_LOCK_SELECTOR).forEach((el) => {
       el.classList.toggle('sol-playback-pc', playing);

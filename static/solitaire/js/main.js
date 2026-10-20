@@ -28,7 +28,7 @@ import { initFeedbackModal } from './ui/feedback-modal.js';
 import { initSidebarToggle } from './ui/sidebar-toggle.js';
 import { initMobileUI, getMobileRecordingState, setMobileRecordingState, isMobilePlaybackMode, resumePlaybackModeIfNeeded, openCardDetailByName, enterPlaybackModeForRecView } from './ui/mobile-ui.js';
 import { initRecView } from './ui/rec-view.js';
-import { getPcRecordingState, setPcRecordingState } from './ui/pc-recording.js';
+import { getPcRecordingState, setPcRecordingState, isPcRangePicking, closePcRangePicker } from './ui/pc-recording.js';
 import { isMobilePortrait } from './utils/viewport.js';
 import { showToast } from './utils/toast.js';
 import { hasReplayInUrl as isReplayInUrl } from './utils/replay-url.js';
@@ -587,13 +587,16 @@ function initZoneCounts() {
 /** ページ遷移直前に盤面をsessionStorageへ退避 */
 window.addEventListener('pagehide', () => {
   // リプレイ記録は main.js で集めて渡す（save-load-service が ui/ を import すると循環依存になるため）
+  // 範囲を選ぶパネルを開いたまま離れたら、先に閉じて開く前の手へ戻す（途中の手のままロックなしで戻らないように）
+  const wasPicking = isPcRangePicking();
+  if (wasPicking) closePcRangePicker();
   const replay = captureReplaySession();
   if (replay) {
     replay.pcRecording = getPcRecordingState();
     replay.mobileRecording = getMobileRecordingState();
     replay.mobilePlayback = isMobilePlaybackMode();
     // 自動再生中・再生の演出（完了で盤面を確定する飛行等）の途中なら、盤面が中間状態の可能性がある。復元時に作り直させる
-    if (isPlaying() || isReplayAnimating()) replay.needsRebuild = true;
+    if (isPlaying() || isReplayAnimating() || wasPicking) replay.needsRebuild = true;
   }
   // デッキとマイデッキのひも付け・保存していない増減も一緒に退避する（戻ったら続きから保存できるように）
   saveSessionResume(replay, captureLinkState());
