@@ -359,7 +359,7 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
 
 /* ── 見出し（デッキ名・状態・ボタン）と保存まわり（deck-head.js・2026-10-20 ユーザー承認のモック
    _mocks/mydeck-refresh-20261020 の A＋B）。シミュレーターのデッキ欄の見出し（components.css .sol-deck-bar-*）と
-   右クリックメニュー（案Y: 地 #141c2c・薄い縁取りと影）にそろえる。主操作だけ黄（site-theme.css の主操作と同じ）。 ── */
+   右クリックメニュー（案Y: 地 #141c2c・薄い縁取りと影）にそろえる。主操作だけ黄（site-theme.css .deck-btn-primary と同じ #f3ce46・文字 #242013・ホバー #ffe16d）。 ── */
 .deck-head{display:flex;align-items:center;flex-wrap:wrap;gap:10px 14px;min-height:44px;margin-bottom:12px}
 .deck-head-title{display:flex;align-items:baseline;gap:10px;min-width:0}
 .deck-head-name{min-width:0;max-width:18em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);font-size:16px;font-weight:700}
@@ -367,11 +367,11 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
 .deck-head-state{color:var(--text-m);font-size:12px;white-space:nowrap}
 .deck-head-state[hidden]{display:none}
 .deck-head-acts{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-left:auto}
-.deck-pill{height:28px;padding:0 14px;border:0;border-radius:999px;background:#202c42;color:#aec5ff;font:700 12.5px var(--font);white-space:nowrap;cursor:pointer}
-.deck-pill:hover,.deck-pill:focus-visible{background:#2b3549}
+.deck-pill{height:28px;padding:0 14px;border:0;border-radius:999px;background:var(--bg-hover);color:var(--accent-l);font:700 12.5px var(--font);white-space:nowrap;cursor:pointer}
+.deck-pill:hover,.deck-pill:focus-visible{background:var(--border)}
 .deck-pill[hidden]{display:none}
-.deck-pill.is-primary{background:var(--gold);color:#101626}
-.deck-pill.is-primary:hover,.deck-pill.is-primary:focus-visible{background:#f7da6b}
+.deck-pill.is-primary{background:#f3ce46;color:#242013}
+.deck-pill.is-primary:hover,.deck-pill.is-primary:focus-visible{background:#ffe16d}
 .deck-pill.is-more{padding:0 10px;letter-spacing:1px}
 /* 各欄の見出し「メインデッキ 40 / 60」（40枚未満は黄・上限超えは赤。以前の枚数の行と同じ意味の色） */
 #deckCardList .deck-sec-label{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;text-transform:none;letter-spacing:0;font-size:12px;color:var(--text-m)}
@@ -384,7 +384,7 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
 .deck-head-pop{position:fixed;z-index:1200;background:#141c2c;border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.65),0 0 0 1px rgba(174,197,255,.08);color:var(--text)}
 .deck-more-menu{display:flex;flex-direction:column;min-width:200px;padding:4px}
 .deck-more-item{padding:8px 12px;border:0;border-radius:4px;background:none;color:var(--text);font:13.5px var(--font);text-align:left;white-space:nowrap;cursor:pointer}
-.deck-more-item:hover,.deck-more-item:focus-visible{background:#202c42;outline:none}
+.deck-more-item:hover,.deck-more-item:focus-visible{background:var(--bg-hover);outline:none}
 .deck-more-sep{height:1px;margin:4px 6px;background:var(--border)}
 .deck-more-sort{display:none}
 .deck-name-pop{width:min(300px,calc(100vw - 16px));padding:12px}
@@ -398,9 +398,11 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
 /* 計算前は共有欄を空にする（デッキ画像は見出しから。index-main.js renderDeckShareUI）ので、空の地を出さない */
 #mode-mydeck .deck-share-area:empty{display:none}
 /* お知らせ（削除の取り消しなど） */
-.deck-head-toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:1250;display:flex;align-items:center;gap:14px;width:max-content;max-width:calc(100vw - 24px);box-sizing:border-box;padding:10px 12px 10px 16px;background:#202c42;border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.5);color:var(--text);font-size:13px}
+.deck-head-toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:1250;display:flex;align-items:center;gap:14px;width:max-content;max-width:calc(100vw - 24px);box-sizing:border-box;padding:10px 12px 10px 16px;background:var(--bg-hover);border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.5);color:var(--text);font-size:13px}
 .deck-head-toast span{min-width:0;overflow-wrap:anywhere}
-.deck-head-toast-btn{flex:none;padding:4px 6px;border:0;background:none;color:#aec5ff;font:700 13px var(--font);cursor:pointer}
+.deck-head-toast-btn{flex:none;padding:4px 6px;border:0;background:none;color:var(--accent-l);font:700 13px var(--font);cursor:pointer}
+/* 取り消しを待っている間の普通のお知らせは、その上に出す */
+.deck-head-toast.is-stacked{bottom:80px}
 @media(max-width:640px){
   .deck-head-title{flex-basis:100%;flex-wrap:wrap;gap:2px 8px}
   /* 登録済みは1行（テストプレイ・デッキ画像・⋯）。未登録で「マイデッキに登録」が増えると2行に折り返す */

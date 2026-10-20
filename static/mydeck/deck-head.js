@@ -241,6 +241,7 @@
   }
 
   function openRegister(anchor){
+    _currentContents(); // テキスト欄だけ変えた直後でも今の中身で判定する
     if(!_hasCards()){ _toast('デッキにカードがありません'); return; }
     var initial = '';
     try{ if(typeof _currentDeckName !== 'undefined' && _currentDeckName && !_dupMessage(_currentDeckName)) initial = _currentDeckName; }catch(_){}
@@ -298,12 +299,38 @@
   }
 
   // ── A: 削除（確認窓なし・6秒間の取り消し） ─────────────────
+  // 取り消しで名前がぶつかったら（取り消すまでの間に同じ名前で登録・名前の変更をした）「名前 (2)」にする（sync.py merge_decks と同じ付け方）
+  function _freeName(n){
+    var names = {};
+    _decks().forEach(function(d){ names[d.name] = true; });
+    if(!names[n]) return n;
+    for(var k = 2; ; k++){ var c = n + ' (' + k + ')'; if(!names[c]) return c; }
+  }
+  // そのデッキ用として入れた購入候補を「デッキ指定なし」に戻す（候補自体は消さない。以前の deleteSavedDeck と同じ）
+  function _dropWishDeck(id){
+    if(!window.WishDeck || typeof wishGet !== 'function' || typeof wishSave !== 'function') return;
+    if(_decks().some(function(d){ return d.id === id; })) return; // 取り消しや同期で戻っていれば何もしない
+    var list = wishGet();
+    if(list.some(function(c){ return WishDeck.forDeck(c, id); })){
+      wishSave(WishDeck.dropDeck(list, id));
+      _renderWish();
+    }
+  }
+  function _renderWish(){ try{ if(typeof renderWishlist === 'function') renderWishlist(); }catch(_){} }
+
   function deleteDeck(id){
     var list = _decks();
     var idx = list.findIndex(function(d){ return d.id === id; });
     if(idx < 0) return;
-    var deck = list[idx];
     var wasCurrent = (id === _curId());
+    // 開いているデッキなら、自動保存（入力から400ms後）を待たずに今の中身を書き出してから消す（取り消しで最新の中身が戻るように）
+    if(wasCurrent){
+      _persist();
+      list = _decks();
+      idx = list.findIndex(function(d){ return d.id === id; });
+      if(idx < 0) return;
+    }
+    var deck = list[idx];
     list.splice(idx, 1);
     savedDecksSet(list);
     if(wasCurrent){
@@ -313,25 +340,29 @@
     }
     _rerenderList();
     _chrome();
+    _renderWish(); // 購入候補の「どのデッキ用か」の札から消えたデッキを外す（内訳は取り消しの期限で戻す）
     var name = deck.name || 'マイデッキ';
     _undoToast('「' + name + '」を削除しました', function(){
       var cur = _decks();
       if(cur.some(function(d){ return d.id === deck.id; })){ _toast('すでに戻っています'); return; }
+      var restoredName = _freeName(name);
       // 更新時刻は新しくする（古い時刻のままだと端末間同期で削除後の一覧が勝つことがある）
-      var restored = Object.assign({}, deck, { updated: Date.now() });
+      var restored = Object.assign({}, deck, { name: restoredName, updated: Date.now() });
       cur.splice(Math.min(idx, cur.length), 0, restored);
       savedDecksSet(cur);
-      // 削除したデッキを開いたまま、他のデッキに切り替えていなければ、ひも付けも戻す
+      // 削除したデッキを開いたまま、他のデッキに切り替えておらず中身も変えていなければ、ひも付けも戻す
       var ta = $('deckTextarea');
       if(wasCurrent && _curId() == null && ta && ta.value.replace(/\r/g, '') === String(deck.text || '').replace(/\r/g, '')){
         window._currentSavedDeckId = deck.id;
-        _setDeckName(name);
+        _setDeckName(restoredName);
         _persist();
       }
       _rerenderList();
       _chrome();
-      _toast('「' + name + '」を元に戻しました');
-    });
+      _renderWish();
+      _toast(restoredName === name ? '「' + name + '」を元に戻しました'
+        : '「' + restoredName + '」として元に戻しました（同じ名前のデッキがあるため）');
+    }, function(){ _dropWishDeck(deck.id); });
   }
 
   // ── ⋯ メニュー ─────────────────────────────────
@@ -383,18 +414,30 @@
   }
 
   // ── B: デッキ画像 ───────────────────────────────
-  // 価格計算・プレビューの描画で用意される値（index-main.js _deckShareData）を使う。まだ無ければ今のデッキから作る
+  // 価格計算・プレビューの描画で用意される値（index-main.js _deckShareData。合計を入れられる）を使う。
+  // 名前は登録・名前の変更の後に描き直されないので、今の名前で上書きする。中身が描き直し前（入力から350ms以内）なら今のデッキから作る
+  function _curName(){
+    var d = _curDeck();
+    if(d && d.name) return d.name;
+    try{ if(typeof _currentDeckName !== 'undefined' && _currentDeckName) return _currentDeckName; }catch(_){}
+    return 'デッキ';
+  }
+  function _sameCards(a, b){
+    var key = function(list){ return (list || []).map(function(c){ return c.name + '×' + c.qty; }).join('\n'); };
+    return key(a) === key(b);
+  }
   function openImage(){
+    var c = _currentContents();
+    var nm = _curName();
     try{
-      if(typeof _deckShareData !== 'undefined' && _deckShareData.deckShareArea && typeof generateDeckImageUI === 'function'){
+      var sd = (typeof _deckShareData !== 'undefined') ? _deckShareData.deckShareArea : null;
+      if(sd && typeof generateDeckImageUI === 'function' && _sameCards(sd.main, c.main) && _sameCards(sd.ex, c.ex)){
+        sd.deckName = nm;
         generateDeckImageUI('deckShareArea');
         return;
       }
     }catch(_){}
-    var c = _currentContents();
     import('/static/shared/deck-image.js').then(function(m){
-      var nm = 'デッキ';
-      try{ if(typeof _currentDeckName !== 'undefined' && _currentDeckName) nm = _currentDeckName; }catch(_){}
       m.openDeckImageDialog({ deckName: nm, main: c.main, ex: c.ex });
     }).catch(function(){
       alert('デッキ画像の機能を読み込めませんでした。ページを再読み込みしてお試しください。');
@@ -402,36 +445,63 @@
   }
 
   // ── お知らせ ─────────────────────────────────
-  var _toastEl = null, _toastTimer = null;
-  function _showToast(msg, onUndo){
-    if(_toastEl && _toastEl.parentNode) _toastEl.parentNode.removeChild(_toastEl);
-    clearTimeout(_toastTimer);
+  // 取り消し付き（削除）と普通のお知らせは別の要素にし、取り消しを待っている間の普通のお知らせはその上に出す
+  // （同じ要素だと「登録しました」などで「取り消す」が消えていた）。
+  // 取り消し付きが続いたら、前のものはその時点で期限切れ（onExpire）にする。
+  var _plain = null;   // { el, timer }
+  var _undo = null;    // { el, timer, onExpire }
+  function _mkToast(msg){
     var el = document.createElement('div');
     el.className = 'deck-head-toast';
     el.setAttribute('role', 'status');
     var t = document.createElement('span');
     t.textContent = msg;
     el.appendChild(t);
-    var done = false;
-    function close(){
-      done = true;
-      if(el.parentNode) el.parentNode.removeChild(el);
-      if(_toastEl === el) _toastEl = null;
-    }
-    if(onUndo){
-      var b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'deck-head-toast-btn';
-      b.textContent = '取り消す';
-      b.addEventListener('click', function(){ if(done) return; close(); clearTimeout(_toastTimer); onUndo(); });
-      el.appendChild(b);
-    }
-    document.body.appendChild(el);
-    _toastEl = el;
-    _toastTimer = setTimeout(close, onUndo ? UNDO_TOAST_MS : 4000);
+    return el;
   }
-  function _toast(msg){ _showToast(msg, null); }
-  function _undoToast(msg, onUndo){ _showToast(msg, onUndo); }
+  function _placeToasts(){
+    if(_plain) _plain.el.classList.toggle('is-stacked', !!_undo);
+  }
+  function _closePlain(){
+    if(!_plain) return;
+    clearTimeout(_plain.timer);
+    if(_plain.el.parentNode) _plain.el.parentNode.removeChild(_plain.el);
+    _plain = null;
+  }
+  function _closeUndo(expired){
+    if(!_undo) return;
+    var u = _undo;
+    _undo = null;
+    clearTimeout(u.timer);
+    if(u.el.parentNode) u.el.parentNode.removeChild(u.el);
+    _placeToasts();
+    if(expired && u.onExpire){ try{ u.onExpire(); }catch(e){ console.warn('[deck-head] 削除の後始末に失敗しました', e); } }
+  }
+  function _toast(msg){
+    _closePlain();
+    var el = _mkToast(msg);
+    document.body.appendChild(el);
+    _plain = { el: el, timer: setTimeout(_closePlain, 4000) };
+    _placeToasts();
+  }
+  function _undoToast(msg, onUndo, onExpire){
+    _closeUndo(true);
+    var el = _mkToast(msg);
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'deck-head-toast-btn';
+    b.textContent = '取り消す';
+    el.appendChild(b);
+    var me = { el: el, onExpire: onExpire, timer: setTimeout(function(){ if(_undo === me) _closeUndo(true); }, UNDO_TOAST_MS) };
+    b.addEventListener('click', function(){
+      if(_undo !== me) return;
+      _closeUndo(false);
+      onUndo();
+    });
+    document.body.appendChild(el);
+    _undo = me;
+    _placeToasts();
+  }
 
   // ── 配線 ─────────────────────────────────────
   function _init(){
@@ -443,10 +513,14 @@
     if(img) img.addEventListener('click', openImage);
     var taReg = $('deckTextRegisterBtn');
     if(taReg) taReg.addEventListener('click', function(){ openRegister(taReg); });
+    // テキスト欄に貼る・打つだけではカードの一覧が描き直されないので、ここで読み直して「マイデッキに登録」を出し分ける
+    var ta = $('deckTextarea');
+    if(ta) ta.addEventListener('input', function(){ _currentContents(); refresh(); });
     refresh();
   }
 
-  window.DeckHead = { refresh: refresh, deleteDeck: deleteDeck, openRegister: openRegister };
+  window.DeckHead = { refresh: refresh, deleteDeck: deleteDeck, openRegister: openRegister,
+    _createFromEditor: _createFromEditor, _freeName: _freeName }; // _ で始まるものはテスト用（tests/js/deck_head_check.js）
   // 保存済み一覧の × も確認窓をやめて取り消しにする（index-wish.js の deleteSavedDeck を置き換える）
   window.deleteSavedDeck = deleteDeck;
 
