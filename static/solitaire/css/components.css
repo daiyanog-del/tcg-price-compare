@@ -677,6 +677,64 @@ body.sol-newcard-focus-active #poolRow2 {
 }
 .sol-deck-bar-btn:hover, .sol-deck-bar-btn:focus-visible { background: #2b3549; }
 
+/* 範囲を選ぶパネル（pc-recording.js・2026-10-20 ユーザー承認の案A。モック _mocks/pc-range-20261020）
+   今の段（① か ②）は地の明るさで示す（金の実線＝選択中・アクセント色の実線＝触れている間 と重ねない）。
+   選んだ範囲はスライダーの上の金色の帯（金＝選んでいるもの）。主操作は黄（site-theme.css の主操作と同じ）。 */
+.sol-pc-range-panel {
+  position: fixed;
+  z-index: 1200;
+  width: 440px;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .55);
+  font-family: var(--font);
+}
+.sol-pc-range-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.sol-pc-range-title { color: #eff3fb; font-size: 14px; font-weight: 700; }
+.sol-pc-range-now { margin-left: auto; color: #a8b4c9; font-size: 12px; }
+.sol-pc-range-steps { display: flex; gap: 8px; margin-bottom: 10px; }
+.sol-pc-range-step {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+.sol-pc-range-step.is-current { background: #202c42; border-color: #202c42; }
+.sol-pc-range-step-label { display: block; color: #a8b4c9; font-size: 12px; }
+.sol-pc-range-step.is-current .sol-pc-range-step-label { color: #eff3fb; }
+.sol-pc-range-step-val { display: block; margin-top: 2px; color: #eff3fb; font-size: 14px; }
+#solPcRangeStep1:not(.is-current) .sol-pc-range-step-val { color: var(--gold); }
+.sol-pc-range-hint { margin: 0 0 10px; color: #a8b4c9 !important; font-size: 12px; line-height: 1.5; }
+.sol-pc-range-btns { display: flex; justify-content: flex-end; gap: 8px; }
+.sol-pc-range-btns button {
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.sol-pc-range-cancel { background: #202c42; color: #aec5ff; }
+.sol-pc-range-cancel:hover { background: #2b3549; }
+.sol-pc-range-ok { background: #f3ce46; color: #242013; }
+.sol-pc-range-ok:hover { background: #ffe16d; }
+.sol-pc-range-ok:disabled { opacity: .45; cursor: default; }
+.sol-pc-range-band {
+  position: fixed;
+  z-index: 1150;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--gold);
+  pointer-events: none;
+}
+.sol-pc-range-band[hidden] { display: none; }
+
 /* 左サイドバー「カードを追加」 */
 .sol-deck-add-search {
   width: 100%;

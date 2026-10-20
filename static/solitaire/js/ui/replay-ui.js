@@ -305,7 +305,8 @@ function _initPcPlaybackModeWatcher() {
   // 画面録画用の表示（rec-view.js）の間も、再生中と同じく盤面を触れなくする（カウントダウン中・再生の後に
   // 盤面を動かすと、途中の手から先の記録が消えたり末尾に手が足されたりするため）
   const sync = () => {
-    const playing = btnPlay.classList.contains('play-active') || isRecViewActive();
+    // 範囲を選ぶパネル（pc-recording.js）を開いている間も同じくロックする（途中の手で操作すると先の記録が消えるため）
+    const playing = btnPlay.classList.contains('play-active') || isRecViewActive() || document.body.classList.contains('sol-pc-range-pick');
     setPcPlaybackMode(playing);
     document.querySelectorAll(PC_PLAYBACK_LOCK_SELECTOR).forEach((el) => {
       el.classList.toggle('sol-playback-pc', playing);
