@@ -2,7 +2,7 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# 日本語フォント（deck_image.py のデッキ画像生成で使用）
+# 日本語フォント（card_og_image.py・replay_og_image.py の共有画像で使用。取得は deck_image._get_font）
 RUN apt-get update && apt-get install -y --no-install-recommends fonts-noto-cjk && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies

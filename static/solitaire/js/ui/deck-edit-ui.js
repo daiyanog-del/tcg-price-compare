@@ -20,10 +20,11 @@ import {
   markSaved, restoreLinkState, captureLinkState,
   serializeDeck, deckContents, applyDeltas, collectDeckFromDom, pickRemovable, BOARD_WRAPPERS,
 } from '../services/deck-link.js';
-import { addCardsToDeck, savedDecksGet, savedDecksSet } from './deck-input-panel.js';
+import { addCardsToDeck, savedDecksGet, savedDecksSet, isDeckLoading } from './deck-input-panel.js';
 import { forgetCard, getLoggedCardIds } from '../services/replay-service.js';
 import { setExtraMenuItemsProvider } from './context-menu.js';
 import { showToast } from '../utils/toast.js';
+import { openDeckImageDialog } from '../../../shared/deck-image.js';
 
 const SUGGEST_DEBOUNCE_MS = 200; // カットインの検索と同じ待ち時間
 const SUGGEST_MAX = 8;
@@ -241,13 +242,20 @@ function _renderSaveBar(container) {
   name.title = name.textContent;
   container.appendChild(name);
 
+  // デッキ画像（Xなどに貼る一覧画像）。盤面のカードを数えて作る。保存の状態に関係なく出す
+  const img = document.createElement('button');
+  img.type = 'button';
+  img.className = 'sol-deck-bar-img';
+  img.textContent = 'デッキ画像';
+  img.addEventListener('click', openDeckImage);
+
   const state = document.createElement('span');
   state.className = 'sol-deck-bar-state';
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'sol-deck-bar-save';
   if (link?.savedId) {
-    if (!link.dirty) return; // 変更が無ければ名前だけ（押す必要の無いボタンは出さない）
+    if (!link.dirty) { container.append(img); return; } // 変更が無ければ保存のボタンは出さない（押す必要が無い）
     state.textContent = '変更あり';
     btn.textContent = '変更を保存';
     btn.addEventListener('click', saveChanges);
@@ -256,13 +264,22 @@ function _renderSaveBar(container) {
     alt.className = 'sol-deck-bar-alt';
     alt.textContent = '別のデッキとして保存';
     alt.addEventListener('click', registerAsNew);
-    container.append(state, btn, alt);
+    container.append(state, btn, alt, img);
   } else {
     state.textContent = 'マイデッキ未登録';
     btn.textContent = 'マイデッキに新規登録';
     btn.addEventListener('click', registerAsNew);
-    container.append(state, btn);
+    container.append(state, btn, img);
   }
+}
+
+/** 盤面のデッキ（場・手札・墓地なども含む・トークン除く）でデッキ画像を作る。盤面の並びは崩れているので種別順に直す。
+ *  PC のデッキ欄の見出し・スマホの編集の行・スマホの ⋯メニュー（mobile-ui.js）から呼ぶ */
+export function openDeckImage() {
+  if (isDeckLoading()) { showToast('デッキを読み込み中です。読み込みが終わってからもう一度押してください'); return; }
+  const deck = collectDeckFromDom(document);
+  if (!deck.main.length && !deck.ex.length) { showToast('デッキを読み込むと、デッキ画像を作れます'); return; }
+  openDeckImageDialog({ deckName: getDeckLink()?.name || 'デッキ', main: deck.main, ex: deck.ex, sort: true });
 }
 
 function _renderPcBar() {

@@ -54,7 +54,7 @@ Flask app.py (3,200行規模) ＋ solitaire_routes.py (Blueprint)
 | ygores_repository.py / sync_ygores.py | ygoresources カード情報のローカルキャッシュと差分同期 |
 | rarity.py / name_normalize.py | レアリティ正規化（50種以上）・カード名正規化 |
 | fetch_guard.py | 外部取得先ホワイトリスト（yu-gi-oh.jp ＋ pbs.twimg.com のみ許可） |
-| deck_image.py / neuron_deck_parser.py | デッキ画像生成・ニューロン/PDF取込 |
+| deck_image.py / neuron_deck_parser.py | 共有画像用のフォント・カード画像取得（デッキ画像はブラウザ内合成 static/shared/deck-image.js）・ニューロン/PDF取込 |
 | featured_pack.py | 新弾フィーチャー |
 
 ## API エンドポイント（グループ別）
@@ -67,7 +67,7 @@ Flask app.py (3,200行規模) ＋ solitaire_routes.py (Blueprint)
 | 価格データ | `/api/price-history` `/api/trending` `/api/movers` `/api/buyback-movers` `/api/track` `/api/track-batch` |
 | メタ・パック | `/api/meta` `/api/meta/deck` `/api/packs` `/api/packs/cards` `/api/featured` |
 | カード情報・画像 | `/api/card-info` `/api/card-infos` `/api/card-image` `/api/card-images` `/api/card-types` `/api/card-image-proxy` |
-| デッキ取込・出力 | `/api/import-neuron` `/api/parse-deck-pdf` `/api/deck-image` |
+| デッキ取込・出力 | `/api/import-neuron` `/api/parse-deck-pdf`（デッキ画像はブラウザ内で合成） |
 | Push・その他 | `/api/push/vapid-key` `/api/push/subscribe` `/api/push/unsubscribe` `/api/feedback` `/api/card-text-report`（未発売カードのテキスト誤り報告。Origin確認・IPごと30秒） `/api/health` `/api/config` |
 | 管理（要 X-Admin-Key） | `/admin` `/api/admin/unreleased` 系（一覧・承認・一括承認・却下・非公開・編集・画像取込・Xポスト取込）・`/api/admin/unreleased/<id>/text-check`（再検査）・`/api/admin/unreleased/<id>/text-reports`（誤り報告の一覧）・`/api/admin/text-reports/<id>/resolve`（対応済み）。公開中にする操作の逆（承認待ちに戻す・却下・非表示・削除）は X 投稿済みなら投稿も削除する |
 | 一人回し | `/api/solitaire/replay` (POST) `/api/solitaire/replay/<id>` (GET) |

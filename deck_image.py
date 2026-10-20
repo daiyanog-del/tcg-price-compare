@@ -1,16 +1,16 @@
 """
-デッキ画像生成モジュール
-========================
-Pillow を使用してデッキリストのカード画像グリッドを合成し、
-デッキ名・合計額・フッターを付けた PNG を生成する。
+カード画像の取得・フォントの共通部品
+====================================
+共有画像（card_og_image.py のカードOG画像・replay_og_image.py のリプレイOG画像）が使う、
+日本語フォントの取得とカード画像のダウンロード（ディスクキャッシュ付き）。
 
 export:
-    generate_deck_image(deck_name, cards, total, site_url, image_url_resolver) -> bytes
+    _get_font(size, bold) -> ImageFont
+    _download_card_image(card_name, url) -> PIL.Image | None
 
-設計方針:
-  カード画像URLの解決は呼び出し元（app.py）の _ygores_image_url() に委譲する。
-  これにより app.py が起動時にロード済みの名前インデックスを再利用でき、
-  外部からの重複ダウンロードを防いでタイムアウトを回避する。
+経緯: もとはデッキ画像（/api/deck-image）をサーバーで合成するモジュールだった。
+2026-10-20 にデッキ画像はブラウザ内の合成（static/shared/deck-image.js）へ移し、
+合成処理（generate_deck_image・透かし・枚数バッジ）は削除した。モジュール名は利用側の import を保つため残している。
 """
 
 import io
@@ -18,40 +18,11 @@ import os
 import hashlib
 import tempfile
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests as _requests
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageFont
 
-# ── レイアウト定数 ──
-_CARD_W = 100          # カード1枚の幅（px）
-_CARD_H = 140          # カード1枚の高さ（px）
-_COLS = 10             # 1行あたりの最大枚数
-_GAP = 5               # カード間の隙間
-_MARGIN = 10           # キャンバス外周の余白
-_HEADER_H = 92         # ヘッダー部分の高さ（デッキ名 + 合計額）
-_FOOTER_H = 42         # フッター部分の高さ（サービス名 + URL）
-_BG = (18, 18, 28)
-_TEXT = (235, 235, 240)
-_PRICE = (255, 200, 60)
-_FOOTER_COL = (110, 110, 130)
-_PLACEHOLDER_BG = (38, 38, 52)
-_PLACEHOLDER_FG = (160, 160, 180)
-_BADGE_BG = (240, 240, 240)   # 白系背景：カード絵柄に関わらず目立つ
-_BADGE_FG = (20, 20, 30)      # バッジテキスト色（濃紺）
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
-
-# ── ウォーターマーク設定（env で on/off・強度を制御。orthogonal な mitigation） ──
-# サーバー側で PNG バイトに焼き込むため、デッキ画像はクリーンな抽出元にならない。
-# 既定 OFF: デッキ画像生成はメモリ消費が大きく、Render のベースライン(約330MB)に対し
-# 余裕が少ないため。十分なメモリのある環境でのみ DECK_WATERMARK_ENABLED=1 で有効化する。
-_WM_ENABLED = os.environ.get("DECK_WATERMARK_ENABLED", "0") == "1"
-try:
-    _WM_OPACITY = float(os.environ.get("DECK_WATERMARK_OPACITY", "0.10"))
-except ValueError:
-    _WM_OPACITY = 0.10
-_WM_OPACITY = max(0.0, min(1.0, _WM_OPACITY))   # 0〜1 にクランプ
-_WM_TEXT = "強欲なラボ"   # 自サイト名。Konami の "SAMPLE" は模倣しない
 
 # ── フォントキャッシュ（プロセス内シングルトン） ──
 _font_lock = threading.Lock()
@@ -98,9 +69,7 @@ def _get_font(size: int = 16, bold: bool = False):
 # コミット 8983439 2026-06-08）に伴い旧v1キャッシュと形式が変わるため名前を分けた。
 # v2にした具体的理由（キャッシュ内容の非互換性の詳細）はコミットメッセージに記録なし。
 _CARD_CACHE_DIR = os.path.join(tempfile.gettempdir(), "cardprice_card_imgs_v2")
-_DECK_CACHE_DIR = os.path.join(tempfile.gettempdir(), "cardprice_deck_imgs_v2")
 os.makedirs(_CARD_CACHE_DIR, exist_ok=True)
-os.makedirs(_DECK_CACHE_DIR, exist_ok=True)
 
 
 def _card_cache_path(card_name: str) -> str:
@@ -128,196 +97,3 @@ def _download_card_image(card_name: str, url: str):
     except Exception:
         pass
     return None
-
-
-def _placeholder(card_name: str) -> Image.Image:
-    """画像取得失敗時のプレースホルダカード（暗色矩形 + カード名テキスト）"""
-    img = Image.new("RGB", (_CARD_W, _CARD_H), _PLACEHOLDER_BG)
-    draw = ImageDraw.Draw(img)
-    font = _get_font(11)
-    lines = []
-    buf = ""
-    for ch in card_name:
-        buf += ch
-        if len(buf) >= 7:
-            lines.append(buf)
-            buf = ""
-    if buf:
-        lines.append(buf)
-    line_h = 14
-    y = max(4, (_CARD_H - len(lines) * line_h) // 2)
-    for line in lines:
-        draw.text((4, y), line, fill=_PLACEHOLDER_FG, font=font)
-        y += line_h
-    return img
-
-
-def _draw_badge(img: Image.Image, qty: int) -> Image.Image:
-    """右上に枚数バッジを描画して返す（白背景・濃紺テキスト）"""
-    draw = ImageDraw.Draw(img)
-    font = _get_font(15, bold=True)
-    text = str(qty)
-    bw, bh = 28, 22
-    x, y = _CARD_W - bw - 2, 2
-    draw.rounded_rectangle([x, y, x + bw, y + bh], radius=4, fill=_BADGE_BG)
-    bbox = draw.textbbox((0, 0), text, font=font)
-    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    draw.text((x + (bw - tw) // 2, y + (bh - th) // 2), text, fill=_BADGE_FG, font=font)
-    return img
-
-
-def _apply_watermark(canvas: Image.Image) -> Image.Image:
-    """
-    canvas（RGB）全面に低不透明度の斜めタイル透かしを焼き込んで返す。
-    無効時・不透明度0の場合は canvas をそのまま返す。
-
-    実装方針:
-      テキスト1枚分の RGBA タイルを作って回転し、市松にずらして敷き詰める。
-      最後に alpha_composite で元 canvas に合成する。
-    """
-    if not _WM_ENABLED or _WM_OPACITY <= 0:
-        return canvas
-
-    w, h = canvas.size
-    alpha = int(round(255 * _WM_OPACITY))
-    font = _get_font(28, bold=True)
-
-    # テキストの寸法を測ってタイルサイズを決める
-    probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
-    bbox = probe.textbbox((0, 0), _WM_TEXT, font=font)
-    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    pad_x, pad_y = 90, 80   # タイル間の余白（透かし密度）
-    tile = Image.new("RGBA", (tw + pad_x, th + pad_y), (0, 0, 0, 0))
-    ImageDraw.Draw(tile).text(
-        (pad_x // 2 - bbox[0], pad_y // 2 - bbox[1]),
-        _WM_TEXT, font=font, fill=(255, 255, 255, alpha),
-    )
-    tile = tile.rotate(30, expand=True, resample=Image.BICUBIC)
-
-    overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    step_x, step_y = tile.width, tile.height
-    row = 0
-    y = -step_y
-    while y < h:
-        x = -step_x + (step_x // 2 if row % 2 else 0)   # 奇数行は半タイルずらす
-        while x < w:
-            overlay.alpha_composite(tile, (x, y))
-            x += step_x
-        y += step_y
-        row += 1
-
-    # overlay を RGB canvas に直接貼り付け（mask=overlayのアルファ）。
-    # canvas を RGBA に複製せず in-place 合成するためメモリ確保を最小化する。
-    canvas.paste(overlay, (0, 0), overlay)
-    return canvas
-
-
-def generate_deck_image(deck_name: str, cards: list, total: int,
-                         site_url: str = "",
-                         image_url_resolver=None) -> bytes:
-    """
-    デッキ画像を生成して PNG バイト列を返す。
-
-    Args:
-        deck_name          : デッキ名
-        cards              : [{"name": str, "qty": int}, ...]
-        total              : 合計金額（円）
-        site_url           : フッターに表示するURL
-        image_url_resolver : callable(card_name: str) -> str | None
-                             app.py の _ygores_image_url を渡すこと。
-                             None の場合は全カードをプレースホルダ表示。
-
-    Returns:
-        PNG バイト列
-    """
-    # ── キャッシュチェック ──
-    sig = "|".join(f"{c['name']}:{c['qty']}" for c in cards)
-    # 透かしを焼く場合のみキャッシュキーに設定を含める。
-    # 無効時は従来どおりのキー（透かし導入前のキャッシュをそのまま再利用＝再生成を避ける）。
-    key_src = f"{deck_name}|{total}|{sig}"
-    if _WM_ENABLED:
-        key_src += f"|wm{_WM_OPACITY:.2f}"
-    cache_key = hashlib.md5(key_src.encode()).hexdigest()
-    cache_path = os.path.join(_DECK_CACHE_DIR, f"{cache_key}.png")
-    if os.path.exists(cache_path):
-        with open(cache_path, "rb") as f:
-            return f.read()
-
-    # ── カード画像URLをメモリ上で一括解決（名前インデックスはapp.pyがロード済み） ──
-    unique_names = list(dict.fromkeys(c["name"] for c in cards))
-    urls: dict = {}
-    if image_url_resolver:
-        for name in unique_names:
-            try:
-                urls[name] = image_url_resolver(name)
-            except Exception:
-                urls[name] = None
-
-    # ── 画像を並列ダウンロード ──
-    card_imgs: dict = {}
-    dl_targets = [(name, url) for name, url in urls.items() if url]
-    if dl_targets:
-        def _dl(item):
-            name, url = item
-            return name, _download_card_image(name, url)
-
-        with ThreadPoolExecutor(max_workers=min(len(dl_targets), 12)) as ex:
-            for fut in as_completed(
-                {ex.submit(_dl, item): item for item in dl_targets}, timeout=25
-            ):
-                try:
-                    name, img = fut.result()
-                    card_imgs[name] = img
-                except Exception:
-                    pass
-
-    # ── レイアウト計算 ──
-    n = len(cards)
-    cols = min(n, _COLS)
-    rows = (n + cols - 1) // cols
-    cell_w = _CARD_W + _GAP
-    cell_h = _CARD_H + _GAP
-
-    canvas_w = _MARGIN * 2 + cols * cell_w - _GAP
-    canvas_h = _HEADER_H + rows * cell_h - _GAP + _MARGIN + _FOOTER_H
-    canvas = Image.new("RGB", (canvas_w, canvas_h), _BG)
-    draw = ImageDraw.Draw(canvas)
-
-    # ── ヘッダー描画 ──
-    font_title = _get_font(30, bold=True)
-    font_price = _get_font(24)
-    draw.text((_MARGIN, 8), deck_name or "デッキ", fill=_TEXT, font=font_title)
-    draw.text((_MARGIN, 52), f"合計 ¥{total:,}", fill=_PRICE, font=font_price)
-
-    # ── カードグリッド描画 ──
-    for i, card in enumerate(cards):
-        col = i % cols
-        row = i // cols
-        x = _MARGIN + col * cell_w
-        y = _HEADER_H + row * cell_h
-
-        raw = card_imgs.get(card["name"])
-        if raw:
-            cell = raw.resize((_CARD_W, _CARD_H), Image.LANCZOS).copy()
-        else:
-            cell = _placeholder(card["name"])
-        if card["qty"] > 1:
-            _draw_badge(cell, card["qty"])
-        canvas.paste(cell, (x, y))
-
-    # ── フッター描画 ──
-    font_footer = _get_font(16)
-    footer_text = f"強欲なラボ  {site_url}" if site_url else "強欲なラボ"
-    fy = canvas_h - _FOOTER_H + 12
-    draw.text((_MARGIN, fy), footer_text, fill=_FOOTER_COL, font=font_footer)
-
-    # ── 透かし焼き込み（config 有効時のみ） ──
-    canvas = _apply_watermark(canvas)
-
-    # ── PNG 出力 & キャッシュ保存 ──
-    buf = io.BytesIO()
-    canvas.save(buf, "PNG", optimize=True)
-    data = buf.getvalue()
-    with open(cache_path, "wb") as f:
-        f.write(data)
-    return data

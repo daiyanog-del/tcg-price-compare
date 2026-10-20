@@ -590,6 +590,11 @@ export async function loadMetaDeck(theme, triggerBtn = null) {
   return ok;
 }
 
+/** デッキを読み込んでいる途中か（途中で数えると EX などが欠けるため、デッキ画像の作成はこの間止める） */
+export function isDeckLoading() {
+  return _deckLoadInFlight;
+}
+
 /**
  * 今のデッキにカードを足す（デッキ編集の「デッキに入れる」「デッキに1枚足す」）。
  * デッキは入れ替えず、盤面・記録もそのまま。読込と同じ addCardsBatch で画像・種別・EX判定・辞書登録を行う。

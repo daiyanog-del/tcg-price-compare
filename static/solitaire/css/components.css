@@ -687,6 +687,20 @@ body.sol-newcard-focus-active #poolRow2 {
   cursor: pointer;
 }
 .sol-deck-bar-alt:hover, .sol-deck-bar-alt:focus-visible { color: #eff3fb; }
+/* デッキ画像（2026-10-20）: 保存と同じ補助ボタンの青系だが、塗らずに縁だけにして「変更を保存」と見分ける */
+.sol-deck-bar-img {
+  height: 22px;
+  padding: 0 12px;
+  border: 1px solid #2b3549;
+  border-radius: 999px;
+  background: none;
+  color: #aec5ff;
+  font: inherit;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.sol-deck-bar-img:hover, .sol-deck-bar-img:focus-visible { background: #202c42; }
 
 /* 左サイドバー「カードを追加」 */
 .sol-deck-add-search {

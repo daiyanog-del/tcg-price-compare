@@ -2584,6 +2584,9 @@ async function calcDeckEstimate(ctx, opts){
   }
   if(![...main,...ex].length) return;
   // デッキ価格計算の利用計測（一覧表示だけのプレビューは計算していないので数えない）
+  // 前のデッキの共有欄・画像データを消す（この計算が失敗したときに、前のデッキの画像を作れてしまわないように）
+  delete _deckShareData[ctx.shareArea];
+  {const shareEl=document.getElementById(ctx.shareArea); if(shareEl) shareEl.innerHTML='';}
   if(!opts.previewOnly) _ga('deck_calc',{
     deck:ctx===DECK_CTX.meta?'meta':'mydeck',
     method:opts.dbOnly?'db':'db_then_shop', side:'sell',
@@ -2621,6 +2624,9 @@ async function calcDeckEstimate(ctx, opts){
     progEl.textContent=ctx===DECK_CTX.mydeck
       ?'「相場で計算」または「店舗から取得」で価格を表示します'
       :'「簡易計算（DB相場）」または「リアルタイム計算」を押すと価格を取得します';
+    // 価格を計算する前でもデッキ画像は作れる（合計は画像作成側が DB 相場から取る。並びは保存順なので種別順に直す）
+    // マイデッキの編集モード中は手で並べた順を尊重する（計算後の経路と同じ扱い）
+    renderDeckShareUI(ctx,ctx.getName(),null,cards,{mainCount,sort:!(window._deckEditMode&&ctx===DECK_CTX.mydeck)});
     return;
   }
 
@@ -2662,7 +2668,7 @@ async function calcDeckEstimate(ctx, opts){
 
     if(!missing.length){
       progEl.textContent=`完了 — ${found}/${cards.length}枚の相場を取得`;
-      renderDeckShareUI(ctx,ctx.getName(),total,cards);
+      renderDeckShareUI(ctx,ctx.getName(),total,cards,{mainCount,missingKinds:0});
       return;
     }
 
@@ -2677,7 +2683,7 @@ async function calcDeckEstimate(ctx, opts){
         if(priceEl) priceEl.textContent='データなし';
       });
       progEl.textContent=`完了 — ${found}/${cards.length}枚の相場を取得（${missing.length}枚はDB未収録）`;
-      renderDeckShareUI(ctx,ctx.getName(),total,cards);
+      renderDeckShareUI(ctx,ctx.getName(),total,cards,{mainCount,missingKinds:missing.length});
       return;
     }
 
@@ -2746,7 +2752,7 @@ async function calcDeckEstimate(ctx, opts){
           const totalFound=found+sseFound;
           const totalMissing=sseNotFound;
           progEl.textContent=`完了 — ${totalFound}/${cards.length}枚の価格を取得${totalMissing>0?` (${totalMissing}枚未取得)`:''}`;
-          renderDeckShareUI(ctx,ctx.getName(),total,cards);
+          renderDeckShareUI(ctx,ctx.getName(),total,cards,{mainCount,missingKinds:sseNotFound});
         }
       }
     }
@@ -2780,11 +2786,26 @@ function _updateSectionSubtotals(ctx){
   });
 }
 
-function renderDeckShareUI(ctx,deckName,total,cards){
+function renderDeckShareUI(ctx,deckName,total,cards,info){
+  info=info||{};
   _updateSectionSubtotals(ctx); // セクション小計を最新化（簡易計算・リアルタイム両方の確定時に通る）
   const el=document.getElementById(ctx.shareArea);
   if(!el)return;
-  _deckShareData[ctx.shareArea]={deckName,total,cards};
+  const mainCount=Number.isInteger(info.mainCount)?info.mainCount:cards.length;
+  _deckShareData[ctx.shareArea]={
+    deckName,total,
+    main:cards.slice(0,mainCount),ex:cards.slice(mainCount),
+    missingKinds:info.missingKinds||0,sort:!!info.sort,
+  };
+  const imgBtn=`<button class="share-btn share-btn-img" onclick="generateDeckImageUI('${escAttr(escJs(ctx.shareArea))}')">デッキ画像を作成</button>`;
+
+  // 価格を計算する前（デッキを選んだだけ）は、合計の入る投稿文は出さず画像だけ作れるようにする
+  if(total==null){
+    el.innerHTML=`
+    <div class="deck-share-title">シェア・投稿</div>
+    <div class="share-btns">${imgBtn}</div>`;
+    return;
+  }
 
   // 投稿テキスト: デッキ名 + 合計 + サービスURL
   const totalCards=cards.reduce((s,c)=>s+c.qty,0);
@@ -2799,41 +2820,22 @@ function renderDeckShareUI(ctx,deckName,total,cards){
       <a class="share-btn share-btn-x" href="${tweetHref}" target="_blank" rel="noopener">𝕏 テキスト投稿</a>
       <a class="share-btn share-btn-line" href="${lineHref}" target="_blank" rel="noopener">LINE</a>
       <button class="share-btn share-btn-copy" onclick="_shareCopy('${escAttr(escJs(shareText))}',this)">コピー</button>
-      <button class="share-btn share-btn-img" onclick="generateDeckImageUI('${escAttr(escJs(ctx.shareArea))}')">デッキ画像を作成</button>
-    </div>
-    <div class="deck-img-area" id="imgarea-${escAttr(ctx.shareArea)}"></div>`;
+      ${imgBtn}
+    </div>`;
 }
 
+// デッキ画像はブラウザの中で作る（static/shared/deck-image.js。以前のサーバー合成 /api/deck-image は廃止）
 async function generateDeckImageUI(shareAreaId){
   const data=_deckShareData[shareAreaId];
   if(!data)return;
-  const area=document.getElementById('imgarea-'+shareAreaId);
-  if(!area)return;
-
-  area.innerHTML='<div class="deck-img-loading">デッキ画像を生成中（30〜60秒かかる場合があります）...</div>';
-  const btn=area.previousElementSibling?.querySelector('.share-btn-img');
-  if(btn)btn.disabled=true;
-
   try{
-    const res=await fetch('/api/deck-image',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({name:data.deckName,cards:data.cards,total:data.total})
+    const {openDeckImageDialog}=await import('/static/shared/deck-image.js');
+    openDeckImageDialog({
+      deckName:data.deckName,main:data.main,ex:data.ex,
+      total:data.total,missingKinds:data.missingKinds,sort:data.sort,
     });
-    if(!res.ok){const problem=await res.json().catch(()=>({}));throw new Error(problem.error||'画像の生成に失敗しました。再度お試しください。');}
-    const blob=await res.blob();
-    const url=URL.createObjectURL(blob);
-    const fname=`${data.deckName}_デッキ画像.png`;
-    area.innerHTML=`
-      <div class="deck-img-wrap">
-        <img src="${url}" alt="デッキ画像" style="max-width:100%;border-radius:6px;display:block;margin-bottom:8px">
-        <div style="font:.8rem var(--font);color:var(--text-d);margin-bottom:8px">この画像を保存してXの投稿画面で添付してください</div>
-        <a href="${url}" download="${escAttr(fname)}" class="share-btn">画像をダウンロード</a>
-      </div>`;
   }catch(e){
-    area.innerHTML=`<div role="alert" style="color:var(--error,#f55);font-size:.85rem">${esc(e.message||'画像の生成に失敗しました。再度お試しください。')}</div>`;
-  }finally{
-    if(btn)btn.disabled=false;
+    alert('デッキ画像の機能を読み込めませんでした。ページを再読み込みしてお試しください。');
   }
 }
 
