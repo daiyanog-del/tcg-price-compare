@@ -137,7 +137,19 @@ undo.children[1].dispatch('click');
 assert.ok(sandbox.savedDecksGet().some(d => d.id === d2.id), '取り消しでデッキが戻らない');
 assert.equal(sandbox._currentSavedDeckId, null, '中身を変えたのにひも付けを戻した');
 
+// ── 5b. 続けて削除すると、前の削除はその時点で期限切れ（購入候補の後始末）になり、新しい方の内訳は残る ──
+advance(1); const e1 = H._createFromEditor('連続1');
+advance(1); const e2 = H._createFromEditor('連続2');
+wish = [{ name: '灰流うらら', qty: 2, decks: { [e1.id]: 1, [e2.id]: 1 } }];
+H.deleteDeck(e1.id);
+H.deleteDeck(e2.id);
+assert.ok(!(e1.id in wish[0].decks), '次の削除で前の削除の後始末が走らない');
+assert.equal(wish[0].decks[e2.id], 1, '新しく消したデッキの内訳まで消した');
+assert.equal(allToasts().filter(t => t.children[1]).length, 1, '取り消しのお知らせが2つ残っている');
+advance(6000);
+
 // ── 6. 名前の空き ──
+assert.equal(H._freeName('constructor'), 'constructor', '「constructor」を使用中と取り違えた');
 assert.equal(H._freeName('新しい名前'), '新しい名前');
 assert.equal(H._freeName('ドラグマ'), 'ドラグマ (2)'); // 「ドラグマ (2)」は4で削除済み
 

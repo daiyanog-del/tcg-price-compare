@@ -401,8 +401,6 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
 .deck-head-toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:1250;display:flex;align-items:center;gap:14px;width:max-content;max-width:calc(100vw - 24px);box-sizing:border-box;padding:10px 12px 10px 16px;background:var(--bg-hover);border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.5);color:var(--text);font-size:13px}
 .deck-head-toast span{min-width:0;overflow-wrap:anywhere}
 .deck-head-toast-btn{flex:none;padding:4px 6px;border:0;background:none;color:var(--accent-l);font:700 13px var(--font);cursor:pointer}
-/* 取り消しを待っている間の普通のお知らせは、その上に出す */
-.deck-head-toast.is-stacked{bottom:80px}
 @media(max-width:640px){
   .deck-head-title{flex-basis:100%;flex-wrap:wrap;gap:2px 8px}
   /* 登録済みは1行（テストプレイ・デッキ画像・⋯）。未登録で「マイデッキに登録」が増えると2行に折り返す */

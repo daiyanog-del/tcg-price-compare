@@ -56,7 +56,8 @@
   function _chrome(){ if(typeof window._refreshDeckChrome === 'function') window._refreshDeckChrome(); else refresh(); }
 
   // ── 見出し ─────────────────────────────────────
-  function refresh(){
+  // buttonsOnly: テキスト欄の入力中。カードの一覧はまだ描き直されないので、欄の見出しの枚数は変えずにボタンの出し分けだけ直す
+  function refresh(buttonsOnly){
     var nameEl = $('deckHeadName');
     var stateEl = $('deckSaveStatus');
     var regBtn = $('deckRegisterBtn');
@@ -76,7 +77,7 @@
     var taReg = $('deckTextRegisterBtn');
     if(taReg) taReg.hidden = !!d || !has;
     if(imgBtn) imgBtn.hidden = !has;
-    _refreshSectionLabels();
+    if(buttonsOnly !== true) _refreshSectionLabels();
   }
 
   // 各欄の見出しを「メインデッキ 40 / 60」の形に直す（renderDeckGrid は他の画面と共通なのでここで書き換える）。
@@ -301,7 +302,7 @@
   // ── A: 削除（確認窓なし・6秒間の取り消し） ─────────────────
   // 取り消しで名前がぶつかったら（取り消すまでの間に同じ名前で登録・名前の変更をした）「名前 (2)」にする（sync.py merge_decks と同じ付け方）
   function _freeName(n){
-    var names = {};
+    var names = Object.create(null); // 「constructor」などの名前を空きと取り違えない
     _decks().forEach(function(d){ names[d.name] = true; });
     if(!names[n]) return n;
     for(var k = 2; ; k++){ var c = n + ' (' + k + ')'; if(!names[c]) return c; }
@@ -459,8 +460,14 @@
     el.appendChild(t);
     return el;
   }
+  // 取り消し付き → 普通 の順に下から積む。カード追加のお知らせ（deck-edit.js .deck-add-toast）が出ていればその上から
+  // （高さは実際の大きさで測る。スマホで長いデッキ名が折り返しても重ならないように）
   function _placeToasts(){
-    if(_plain) _plain.el.classList.toggle('is-stacked', !!_undo);
+    var y = 24;
+    var add = document.querySelector('.deck-add-toast');
+    if(add && add.offsetHeight) y = 20 + add.offsetHeight + 8;
+    if(_undo){ _undo.el.style.bottom = y + 'px'; y += _undo.el.offsetHeight + 8; }
+    if(_plain) _plain.el.style.bottom = y + 'px';
   }
   function _closePlain(){
     if(!_plain) return;
@@ -515,7 +522,7 @@
     if(taReg) taReg.addEventListener('click', function(){ openRegister(taReg); });
     // テキスト欄に貼る・打つだけではカードの一覧が描き直されないので、ここで読み直して「マイデッキに登録」を出し分ける
     var ta = $('deckTextarea');
-    if(ta) ta.addEventListener('input', function(){ _currentContents(); refresh(); });
+    if(ta) ta.addEventListener('input', function(){ _currentContents(); refresh(true); });
     refresh();
   }
 
