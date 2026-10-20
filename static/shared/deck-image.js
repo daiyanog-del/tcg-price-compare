@@ -7,8 +7,9 @@
  *
  * 以前はサーバー（/api/deck-image・Pillow）で合成していたが、30〜60秒かかり Render のメモリも圧迫するため
  * canvas に移した。カード画像の配信元（ygoresources・Supabase Storage）は Access-Control-Allow-Origin: * なので
- * crossOrigin で読めば書き出せる。それ以外の配信元（カーナベル）は自サイトの中継 /api/card-image-proxy から読む。
- * 読めなかったカードはカード名の札で代わりに描く（書き出しが止まらないように）。
+ * crossOrigin で読めば書き出せる。それ以外の配信元（カーナベル）は CORS を許可しておらず canvas に描くと書き出せないため、
+ * カード名の札で描く（自サイトの中継 /api/card-image-proxy は 2026-10-20 時点でカーナベルに 403 で拒否され常に失敗するので使わない）。
+ * 読めなかったカードも同じ札で代わりに描く（書き出しが止まらないように）。
  *
  * 使い方: openDeckImageDialog({ deckName, main:[{name,qty}], ex:[{name,qty}], total?, missingKinds?, sort? })
  *   total を渡さなければ、合計は /api/deck-estimate（DB相場）から取る。
@@ -33,10 +34,8 @@ const MAX_CARDS = 200;          // これより多いデッキは作らない（
 const MAX_KINDS = 80;           // サーバーの MAX_DECK_CARDS（/api/card-images・/api/deck-estimate が受け付ける種類数）と同じ
 // 画像1枚の読み込みを打ち切る時間。超えたらカード名の札で描く（「作成中」のまま止まらないように）
 const IMAGE_TIMEOUT_MS = 10000; // TODO: calibrate from data
-// 同時に読む枚数。中継（/api/card-image-proxy）は1件ごとにサーバーがカーナベルを検索・取得し、
-// 本番は1プロセス8スレッドなので、ほかの利用者の検索を詰まらせないよう少なく絞る
-const DIRECT_CONCURRENCY = 8;   // TODO: calibrate from data
-const PROXY_CONCURRENCY = 2;    // TODO: calibrate from data
+// 同時に読む枚数（配信元への同時接続を抑える）
+const IMAGE_CONCURRENCY = 8;    // TODO: calibrate from data
 const JPEG_QUALITY = 0.92;      // PNG だと約3MB。JPEG にして X の上限（5MB）に余裕を持たせる
 const TYPE_ORDER = { monster: 0, spell: 1, trap: 2 }; // トップの _DECK_TYPE_ORDER と同じ
 
@@ -76,13 +75,8 @@ export function imageSource(value, name) {
     u.searchParams.set('dki', '1');
     return u.toString();
   }
-  // それ以外（カーナベル）は自サイトの中継から読む（同じ配信元なので書き出しが止まらない）
-  return '/api/card-image-proxy?name=' + encodeURIComponent(name);
-}
-
-/** 中継（サーバーが外へ取りに行く）経由か */
-export function isProxied(src) {
-  return typeof src === 'string' && src.startsWith('/api/card-image-proxy');
+  // それ以外（カーナベル）は canvas に描けないので札にする
+  return null;
 }
 
 /**
@@ -163,14 +157,11 @@ function _loadImage(src) {
   });
 }
 
-/** 名前ごとに画像を読む。直接読めるものと中継経由を別々の同時数で */
+/** 名前ごとに画像を読む（同時に IMAGE_CONCURRENCY 件まで） */
 async function _loadCardImages(names, imageValues) {
-  const srcs = names.map(n => [n, imageSource(imageValues?.[n], n)]);
-  const direct = srcs.filter(([, s]) => s && !isProxied(s));
-  const proxied = srcs.filter(([, s]) => isProxied(s));
+  const srcs = names.map(n => [n, imageSource(imageValues?.[n], n)]).filter(([, s]) => s);
   const imgs = new Map();
-  const load = async ([n, s]) => { imgs.set(n, await _loadImage(s)); };
-  await Promise.all([mapLimited(direct, DIRECT_CONCURRENCY, load), mapLimited(proxied, PROXY_CONCURRENCY, load)]);
+  await mapLimited(srcs, IMAGE_CONCURRENCY, async ([n, s]) => { imgs.set(n, await _loadImage(s)); });
   return imgs;
 }
 

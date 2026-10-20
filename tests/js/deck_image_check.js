@@ -14,22 +14,19 @@ const load=async file=>import('data:text/javascript;base64,'+Buffer.from(fs.read
   assert.deepEqual(m.expandCards(null),[]);
 
   // 画像の読み先: CORS を許可している配信元はそのまま（canvas 用の印 dki=1 を付けて画面の画像とキャッシュを分ける）、
-  // それ以外（カーナベル）は自サイトの中継、読めないものは null
+  // それ以外（カーナベル）と読めないものは null（札で描く）
   const yg='https://artworks-jp-n.ygoresources.com/1/29/50_1.png';
   assert.equal(m.imageSource(yg,'灰流うらら'),yg+'?dki=1');
   assert.equal(m.imageSource({kind:'image',source:'official_sample',url:'https://nlfnnbrusbiizuodomyf.supabase.co/storage/v1/object/public/official-card-images/unreleased/629.jpg?t=1'},'X'),
     'https://nlfnnbrusbiizuodomyf.supabase.co/storage/v1/object/public/official-card-images/unreleased/629.jpg?t=1&dki=1');
-  // Supabase は公開バケットのパスで見る（別プロジェクトでも直接読む）。公開でないパスは中継へ
+  // Supabase は公開バケットのパスで見る（別プロジェクトでも直接読む）。公開でないパスは札
   assert.equal(m.imageSource('https://other.supabase.co/storage/v1/object/public/a/b.jpg','Y'),'https://other.supabase.co/storage/v1/object/public/a/b.jpg?dki=1');
-  assert.equal(m.imageSource('https://other.supabase.co/rest/v1/x','Z'),'/api/card-image-proxy?name=Z');
-  assert.equal(m.imageSource('https://www.ka-nabell.com/img/card/x.jpg','増殖するG'),'/api/card-image-proxy?name='+encodeURIComponent('増殖するG'));
+  assert.equal(m.imageSource('https://other.supabase.co/rest/v1/x','Z'),null);
+  assert.equal(m.imageSource('https://www.ka-nabell.com/img/card/x.jpg','増殖するG'),null,'CORS の無い配信元は札');
   assert.equal(m.imageSource({kind:'proxy',url:null,proxy:{}},'未発売'),null);
   assert.equal(m.imageSource(null,'不明'),null);
   assert.equal(m.imageSource('http://artworks-jp-n.ygoresources.com/a.png','平文'),null,'http は読まない');
   assert.equal(m.imageSource('javascript:alert(1)','x'),null);
-  assert.equal(m.isProxied('/api/card-image-proxy?name=a'),true);
-  assert.equal(m.isProxied(yg),false);
-  assert.equal(m.isProxied(null),false);
 
   // 同時数の制限: 同時に動くのは limit 件まで・結果は元の順
   {
