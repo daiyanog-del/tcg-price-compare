@@ -57,7 +57,7 @@ window.NewCards = (() => {
     add.className='new-card-add';
     add.textContent='+ デッキに追加';
     // 保存処理は既存の addToDeck（追加先ピッカー）に任せる。
-    add.addEventListener('click',()=>addToDeck(card.name,add));
+    add.addEventListener('click',()=>{_ga('new_card_add_deck');addToDeck(card.name,add);});
     wrap.append(link,add);
     return wrap;
   }

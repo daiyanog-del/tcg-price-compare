@@ -44,6 +44,7 @@ sandbox.applyMetaDeckToTextarea=sandbox.onDeckImported;
 const wishSource=source('static/js/index-wish.js');
 sandbox.prompt=()=> '保存テスト';sandbox.alert=message=>{throw Error(message);};
 sandbox.trackDeckCards=()=>{};sandbox.renderSavedDecks=()=>{};
+const gaEvents=[];sandbox._ga=(name,params)=>gaEvents.push({name,params});
 sandbox.normalizeDeck=d=>({main:d.main||[],ex:d.ex||[]});sandbox.DECK_CTX={mydeck:{}};
 vm.runInContext(wishSource.slice(wishSource.indexOf('function saveCurrentDeck(){'),wishSource.indexOf('function deleteSavedDeck(')),sandbox);
 vm.runInContext(source('static/mydeck/deck-edit.js'),sandbox);
@@ -55,6 +56,7 @@ const savedId=sandbox._currentSavedDeckId;
 own.set({A:0});sandbox.saveCurrentDeck();
 assert.equal(sandbox.savedDecksGet()[0].owned.A,0,'上書きで0枚を保持できない');
 assert.equal(sandbox._currentSavedDeckId,savedId);
+assert.deepEqual(gaEvents.filter(e=>e.name==='deck_save').map(e=>e.params.kind),['new','update'],'デッキ保存の計測が新規/上書きを区別していない');
 sandbox.clearDeck();sandbox.loadSavedDeck(savedId);assert.equal(own.snapshot().A,0);
 // ownedのない旧デッキへ切り替えると、前の所持枚数を引き継がない。
 sandbox.savedDecksSet([{id:'old',name:'旧',text:JSON.stringify(deck),main:deck.main,ex:deck.ex}]);

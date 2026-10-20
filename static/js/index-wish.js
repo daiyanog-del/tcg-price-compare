@@ -122,6 +122,7 @@ function saveCurrentDeck(){
   }
   if(typeof _currentDeckName !== 'undefined') _currentDeckName = n;
   savedDecksSet(list);
+  _ga('deck_save',{where:'top',kind:existing?'update':'new'});
   trackDeckCards([...main, ...ex]);
   renderSavedDecks();
 }
@@ -397,10 +398,19 @@ function _wishEntryKey(name,rarity){return (name||'')+''+(rarity||'');}
 const _wishYen=n=>'¥'+n.toLocaleString();
 const _WISH_CHEV='<svg class="wb-chev" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 4l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
+// 「どこで買うと安いか」の結果から店のページへ移ったか（流れの最後の段の計測）
+document.getElementById('wishShopRanking')?.addEventListener('click',e=>{
+  const a=e.target.closest('a[target="_blank"]');
+  if(!a)return;
+  const shop=a.closest('.wb-shop')?.dataset.k?.replace(/^shop:/,'')||'';
+  _ga('wish_shop_click',{link:a.classList.contains('wb-shop-link')?'shop':'item',shop});
+});
+
 // 「どこで買うと安いか調べる」ボタンのハンドラ
 async function wishCheapestStores(){
   const list=wishGet();
   if(!list.length)return;
+  _ga('wish_best_split',{kinds:list.length,count:list.reduce((n,c)=>n+(c.qty||1),0)});
 
   const rankEl=document.getElementById('wishShopRanking');
   rankEl.classList.remove('hidden');
@@ -734,6 +744,7 @@ function wishBtnHtml(name,qty){
 }
 function wishAddFromBtn(btn,name,qty,rarity){
   wishAdd(name,qty,rarity);
+  _ga('wish_add',{source:'card',count:qty||1});
   const orig=btn.textContent;
   btn.classList.add('added');
   btn.textContent='\u2713 \u8ffd\u52a0';
@@ -864,6 +875,7 @@ updatePushUI(!!localStorage.getItem(PUSH_SUB_KEY));
 
 // 所持確認からの追加は不足数を計算済み。一括保存後に価格キャッシュだけ更新する。
 function wishOwnershipAdded(rows){
+  _ga('wish_add',{source:'deck_shortage',count:rows.reduce((n,r)=>n+(r.add||0),0)});
   _wishPrices=null;
   _clearWishPricesCache();
   trackDeckCards(rows);

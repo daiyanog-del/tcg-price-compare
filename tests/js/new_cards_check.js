@@ -26,12 +26,14 @@ const ids=['newCardsSection','newCardsGrid','newCardsMore','newCardsStatus','new
 const elements=new Map(ids.map(id=>[id,element()]));
 const get=id=>elements.get(id)||null;
 const pending=[],searches=[],added=[],events={};
+const gaEvents=[];
 const sandbox={console,URL,Intl,Date,Number,Promise,encodeURIComponent,
   location:{origin:'https://example.test'},window:{},
   document:{getElementById:get,createElement:element,addEventListener:(event,fn)=>events[event]=fn},
   fetch(url){return new Promise((resolve,reject)=>pending.push({url,resolve,reject}));},
   doSearch(opts){searches.push({name:get('q').value,opts});},
   addToDeck(name,button){added.push({name,button});},
+  _ga(name,params){gaEvents.push({name,params});},
 };
 vm.createContext(sandbox);
 vm.runInContext(block('function safeUrl(', 'function searchCard('),sandbox);
@@ -79,6 +81,7 @@ function click(link,flags={}){
   // デッキ追加ボタンは既存の addToDeck を呼ぶだけ。
   wraps[1].children[1].listeners.click();
   assert.equal(added.length,1);assert.equal(added[0].name,cards[1].name);assert.equal(added[0].button,wraps[1].children[1]);
+  assert.deepEqual(gaEvents.map(e=>e.name),['new_card_add_deck'],'新着からのデッキ追加が計測されていない');
   assert.equal(get('newCardsAll').hidden,true,'has_moreが偽なのに全件リンクが出ている');
 
   // 通常クリックだけ既存検索へ渡し、別タブ・別ウィンドウ操作は妨げない。

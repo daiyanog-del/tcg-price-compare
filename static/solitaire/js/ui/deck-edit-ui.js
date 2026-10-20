@@ -149,6 +149,7 @@ export function saveChanges() {
   deck.updated = Date.now();
   const written = deck.updated;
   savedDecksSet(list);
+  _ga('deck_save', { where: 'sim', kind: 'update' });
   markSaved({ savedId: deck.id, name: deck.name });
   window.renderSavedDecks?.();
   _showUndoToast(`「${deck.name || 'マイデッキ'}」に保存しました`, () => {
@@ -185,9 +186,17 @@ export function registerAsNew() {
   const deck = { id: 'd_' + Date.now(), name, text: serializeDeck(contents), main: contents.main, ex: contents.ex, updated: Date.now() };
   list.push(deck);
   savedDecksSet(list);
+  _ga('deck_save', { where: 'sim', kind: 'new' });
   markSaved({ savedId: deck.id, name });
   window.renderSavedDecks?.();
   showToast(`「${name}」をマイデッキに登録しました`);
+}
+
+/** GA4 へ送る（新着→シミュレーター→マイデッキ→購入候補の流れの計測）。計測の失敗で保存を止めない */
+function _ga(name, params) {
+  try {
+    if (typeof window.gtag === 'function') window.gtag('event', name, params || {});
+  } catch (_) { /* 何もしない */ }
 }
 
 // ══════════════════ 表示: トースト（取り消し付き） ══════════════════
