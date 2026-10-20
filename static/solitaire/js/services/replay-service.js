@@ -44,7 +44,7 @@
  * （再生・復元でカードを作るとき data-card-type を付け直す）
  */
 
-import { returnAllCardsToDeck, attachCardImageListeners, sortPoolCards } from '../components/card-manager.js';
+import { returnAllCardsToDeck, attachCardImageListeners, sortPoolCards, syncCardIdCounter } from '../components/card-manager.js';
 import { applyCardState, getCardState, isTokenSrc, isTokenCard, markTokenIfSrc } from '../components/card-state.js';
 import { createCardCounter } from '../components/counter-manager.js';
 import { restackCustomSlot } from '../components/slot-stack.js';
@@ -826,6 +826,10 @@ function _buildReplayCard(cardId, src, isEx, resolved) {
   const wrapper = document.createElement('div');
   wrapper.classList.add('tier-item-wrapper');
   wrapper.id = `${cardId} ${isEx ? 'ex' : 'normal'}`;
+  // 記録の番号のまま作るので、新しく作るカード（デッキに足す・トークン）の番号がこれと重ならないよう連番を進める。
+  // 以前は進めておらず、共有リンク・保存したリプレイを開いた後にカードを足すと既存のカードと同じ番号になり、
+  // 番号で探す処理（getElementById）が別のカードを拾っていた（2026-10-20 ユーザー報告）
+  syncCardIdCounter([cardId]);
   if (_cardTypes[cardId]) wrapper.dataset.cardType = _cardTypes[cardId];
   markTokenIfSrc(wrapper, src);
 

@@ -10,7 +10,7 @@
  *
  * 保存の考え方（deck-link.js）:
  *   - マイデッキから読み込んだデッキ … 「変更を保存」で、そのデッキの最新に今回の増減を重ねて上書き（取り消しあり）
- *   - それ以外（新着・環境デッキ・持ち込み等） … 「マイデッキに新規登録」で名前を付けて新しく登録し、以後ひも付く
+ *   - それ以外（新着・環境デッキ・持ち込み等） … 「マイデッキに登録」で名前を付けて新しく登録し、以後ひも付く
  *
  * 抜けるのはデッキ欄（EXデッキ欄）に残っていて、リプレイ記録に出てこないカードだけ（deck-link.js の pickRemovable）。
  */
@@ -236,41 +236,30 @@ function _renderSaveBar(container) {
   const link = getDeckLink();
   if (!link && !_hasDeckCards()) { container.hidden = true; return; }
   container.hidden = false;
-  const name = document.createElement('span');
-  name.className = 'sol-deck-bar-name';
-  name.textContent = link?.name || 'デッキ';
-  name.title = name.textContent;
-  container.appendChild(name);
-
-  // デッキ画像（Xなどに貼る一覧画像）。盤面のカードを数えて作る。保存の状態に関係なく出す
-  const img = document.createElement('button');
-  img.type = 'button';
-  img.className = 'sol-deck-bar-img';
-  img.textContent = 'デッキ画像';
-  img.addEventListener('click', openDeckImage);
-
-  const state = document.createElement('span');
-  state.className = 'sol-deck-bar-state';
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'sol-deck-bar-save';
-  if (link?.savedId) {
-    if (!link.dirty) { container.append(img); return; } // 変更が無ければ保存のボタンは出さない（押す必要が無い）
-    state.textContent = '変更あり';
-    btn.textContent = '変更を保存';
-    btn.addEventListener('click', saveChanges);
-    const alt = document.createElement('button');
-    alt.type = 'button';
-    alt.className = 'sol-deck-bar-alt';
-    alt.textContent = '別のデッキとして保存';
-    alt.addEventListener('click', registerAsNew);
-    container.append(state, btn, alt, img);
-  } else {
-    state.textContent = 'マイデッキ未登録';
-    btn.textContent = 'マイデッキに新規登録';
-    btn.addEventListener('click', registerAsNew);
-    container.append(state, btn, img);
+  // 2026-10-20 ユーザー承認の案A（モック _mocks/deck-bar-20261020）: 左に名前と状態（文字だけ）、右に同じ形のボタン。
+  // 以前は太字の名前・点つきの状態・塗りのピル・枠線のピル・下線の文字が混ざり、未登録のときは欄の名前「デッキ」と
+  // 同じ「デッキ」が名前として続いていた。名前はマイデッキに登録済みのときだけ出す。
+  const el = (tag, cls, text) => { const e = document.createElement(tag); e.className = cls; e.textContent = text; return e; };
+  const button = (text, onClick) => { const b = el('button', 'sol-deck-bar-btn', text); b.type = 'button'; b.addEventListener('click', onClick); return b; };
+  if (link?.savedId && link.name) {
+    const name = el('span', 'sol-deck-bar-name', link.name);
+    name.title = link.name;
+    container.appendChild(name);
   }
+  const acts = el('span', 'sol-deck-bar-acts', '');
+  if (link?.savedId) {
+    // 変更が無ければ保存のボタンは出さない（押す必要が無い）
+    if (link.dirty) {
+      container.appendChild(el('span', 'sol-deck-bar-state', '変更あり'));
+      acts.append(button('変更を保存', saveChanges), button('別のデッキとして保存', registerAsNew));
+    }
+  } else {
+    container.appendChild(el('span', 'sol-deck-bar-state', 'マイデッキ未登録'));
+    acts.appendChild(button('マイデッキに登録', registerAsNew));
+  }
+  // デッキ画像（Xなどに貼る一覧画像）。盤面のカードを数えて作る。保存の状態に関係なく出す
+  acts.appendChild(button('デッキ画像', openDeckImage));
+  container.appendChild(acts);
 }
 
 /** 盤面のデッキ（場・手札・墓地なども含む・トークン除く）でデッキ画像を作る。盤面の並びは崩れているので種別順に直す。
