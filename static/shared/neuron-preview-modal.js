@@ -113,7 +113,7 @@ function _injectStyles() {
  * @param {string} opts.defaultName  デフォルトのデッキ名
  * @param {function({name:string, mainText:string, exText:string}):void} [opts.onSave]
  *        保存ボタン押下時のコールバック
- * @param {function({mainText:string, exText:string}):void} [opts.onLoad]
+ * @param {function({mainText:string, exText:string, name:string}):void} [opts.onLoad]
  *        「読み込む」ボタン押下時のコールバック（solitaireのみ。省略時はボタン非表示）
  */
 export class NeuronPreviewModal {
@@ -232,7 +232,9 @@ export class NeuronPreviewModal {
     el.querySelector('#npmLoadBtn')?.addEventListener('click', () => {
       const mainText = el.querySelector('#npmMainText').value.trim();
       const exText   = el.querySelector('#npmExText').value.trim();
-      this.onLoad?.({ mainText, exText });
+      // デッキ名も渡す（シミュレーターが「読み込んだデッキの名前」として見出しに出す）
+      const name = el.querySelector('#npmDeckName')?.value.trim() || '';
+      this.onLoad?.({ mainText, exText, name });
       this.hide();
     });
   }

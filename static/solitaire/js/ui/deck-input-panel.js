@@ -603,7 +603,9 @@ export async function addCardsToDeck(cards) {
     console.warn('[deck-input-panel] デッキ読込が進行中のため無視しました（addCardsToDeck）');
     return null;
   }
-  const before = new Set(document.querySelectorAll('#poolRow .tier-item-wrapper, #poolRow2 .tier-item-wrapper'));
+  // 「新しく作られたカード」で見分ける（デッキ欄に戻ってきただけの既存カードを、足したカードと取り違えないため）
+  const before = new Set(document.querySelectorAll('.tier-item-wrapper'));
+  const names = new Set(cards.map(c => c.name));
   _deckLoadInFlight = true;
   try {
     await addCardsBatch(cards, null);
@@ -611,7 +613,7 @@ export async function addCardsToDeck(cards) {
     _deckLoadInFlight = false;
   }
   const added = [...document.querySelectorAll('#poolRow .tier-item-wrapper, #poolRow2 .tier-item-wrapper')]
-    .filter(w => !before.has(w));
+    .filter(w => !before.has(w) && names.has(w.querySelector('.tier-item')?.dataset.cardName));
   if (added.some(w => w.parentElement?.id === 'poolRow')) sortPoolCards('poolRow');
   return added;
 }

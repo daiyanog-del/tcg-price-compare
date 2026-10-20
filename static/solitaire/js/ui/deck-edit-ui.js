@@ -18,7 +18,7 @@
 import {
   onDeckLinkChange, getDeckLink, setDeckLink, clearDeckLink, recordDelta, getDeltas,
   markSaved, restoreLinkState, captureLinkState,
-  serializeDeck, parseDeckSections, applyDeltas, collectDeckFromDom, pickRemovable,
+  serializeDeck, deckContents, applyDeltas, collectDeckFromDom, pickRemovable, BOARD_WRAPPERS,
 } from '../services/deck-link.js';
 import { addCardsToDeck, savedDecksGet, savedDecksSet } from './deck-input-panel.js';
 import { forgetCard, getLoggedCardIds } from '../services/replay-service.js';
@@ -33,7 +33,7 @@ const UNDO_TOAST_MS = 6000;      // 「取り消し」を押せる時間
 // ══════════════════ デッキの中身を数える・足す・抜く ══════════════════
 
 function _wrappersByName(name) {
-  return [...document.querySelectorAll('.tier-item-wrapper')].filter(w =>
+  return [...document.querySelectorAll(BOARD_WRAPPERS)].filter(w =>
     w.dataset.token !== '1' && w.querySelector('.tier-item')?.dataset.cardName === name);
 }
 
@@ -43,7 +43,7 @@ export function countInDeck(name) {
 }
 
 function _hasDeckCards() {
-  return [...document.querySelectorAll('.tier-item-wrapper')].some(w => w.dataset.token !== '1');
+  return [...document.querySelectorAll(BOARD_WRAPPERS)].some(w => w.dataset.token !== '1');
 }
 
 /** 抜けるカード（無ければ null）。prefer を先に見る（右クリックしたそのカード） */
@@ -53,27 +53,29 @@ function _findRemovable(name, prefer = null) {
   return pickRemovable(ordered, getLoggedCardIds());
 }
 
-let _busy = false; // 足す処理（通信あり）の二重実行を防ぐ
+// 足す処理（通信あり）は順番に1つずつ行う。素早く「＋」を3回押したら3枚入る（捨てない）
+let _addQueue = Promise.resolve();
 
 /**
  * デッキに1枚足す。
  * @returns {Promise<boolean>} 足せたか
  */
-export async function addOne(name) {
-  if (!name || _busy) return false;
-  _busy = true;
-  try {
-    const added = await addCardsToDeck([{ qty: 1, name }]);
-    if (added === null) { showToast('デッキを読み込み中のため、入れられませんでした'); return false; }
-    if (!added.length) { showToast(`「${name}」の画像を取得できず、デッキに入れられませんでした`); return false; }
-    const sec = / ex$/.test(added[0].id) ? 'ex' : 'main';
-    recordDelta(name, sec, +1);
-    document.dispatchEvent(new CustomEvent('sol-deck-edited'));
-    showToast(`「${name}」を${sec === 'ex' ? 'EXデッキ' : 'デッキ'}に入れました（${countInDeck(name)}枚）`);
-    return true;
-  } finally {
-    _busy = false;
-  }
+export function addOne(name) {
+  if (!name) return Promise.resolve(false);
+  const run = _addQueue.then(() => _addOneNow(name));
+  _addQueue = run.catch(() => false);
+  return run;
+}
+
+async function _addOneNow(name) {
+  const added = await addCardsToDeck([{ qty: 1, name }]);
+  if (added === null) { showToast('デッキを読み込み中のため、入れられませんでした'); return false; }
+  if (!added.length) { showToast(`「${name}」の画像を取得できず、デッキに入れられませんでした`); return false; }
+  const sec = / ex$/.test(added[0].id) ? 'ex' : 'main';
+  recordDelta(name, sec, +1);
+  document.dispatchEvent(new CustomEvent('sol-deck-edited'));
+  showToast(`「${name}」を${sec === 'ex' ? 'EXデッキ' : 'デッキ'}に入れました（${countInDeck(name)}枚）`);
+  return true;
 }
 
 /**
@@ -137,9 +139,9 @@ export function saveChanges() {
     return;
   }
   const before = captureLinkState();
-  const prev = { text: deck.text, main: deck.main, ex: deck.ex, updated: deck.updated };
-  // テキストを正とする（トップの normalizeDeck と同じ。main/ex 配列が古いまま残った保存データがあるため）
-  const next = applyDeltas(parseDeckSections(deck.text), getDeltas());
+  const prev = { text: deck.text, main: deck.main, ex: deck.ex };
+  // テキストを正とする（トップの normalizeDeck と同じ。テキストが空の古いデータは配列を使う）
+  const next = applyDeltas(deckContents(deck), getDeltas());
   deck.main = next.main;
   deck.ex = next.ex;
   deck.text = serializeDeck(next);
@@ -153,9 +155,12 @@ export function saveChanges() {
     const d = cur.find(x => x.id === deck.id);
     // 取り消しまでの間に別の場所で変えられていたら戻さない（その変更を消さないため）
     if (!d || d.updated !== written) { showToast('その後に変更されているため、取り消せませんでした'); return; }
-    Object.assign(d, prev);
+    // 中身は保存前に戻し、更新時刻は新しくする（古い時刻に戻すと、端末間同期の結合で保存後の内容が勝ち、取り消しが消える）
+    Object.assign(d, prev, { updated: Date.now() });
     savedDecksSet(cur);
-    restoreLinkState(before);
+    // 画面側の「変更あり」も戻す。トーストは読込・消去・編集で閉じるので、ここに来るのは保存直後の状態のときだけ
+    const now = getDeckLink();
+    if (now?.savedId === deck.id && !now.dirty) restoreLinkState(before);
     window.renderSavedDecks?.();
     showToast('保存を取り消しました');
   });
@@ -168,7 +173,7 @@ export function registerAsNew() {
   const base = link?.savedId ? savedDecksGet().find(d => d.id === link.savedId) : null;
   if (base) {
     // ひも付きのデッキを別名で保存: 元のデッキ（最新）に今回の増減を重ねたもの（並ばなかったカードも落とさない）
-    contents = applyDeltas(parseDeckSections(base.text), getDeltas());
+    contents = applyDeltas(deckContents(base), getDeltas());
   } else {
     contents = collectDeckFromDom(document);
   }
@@ -186,7 +191,15 @@ export function registerAsNew() {
 
 // ══════════════════ 表示: トースト（取り消し付き） ══════════════════
 
+let _closeUndoToast = null;
+
+/** 取り消しを押せなくする（別のデッキの読込・消去・編集の後に押すと、関係ない盤面へ古い状態を戻してしまうため） */
+function _dismissUndoToast() {
+  if (_closeUndoToast) _closeUndoToast();
+}
+
 function _showUndoToast(msg, onUndo) {
+  _dismissUndoToast();
   document.querySelectorAll('.sol-toast-action').forEach(el => el.remove());
   const el = document.createElement('div');
   el.className = 'sol-toast sol-toast-action';
@@ -198,10 +211,13 @@ function _showUndoToast(msg, onUndo) {
   btn.textContent = '取り消し';
   let done = false;
   const close = () => {
+    done = true;
+    if (_closeUndoToast === close) _closeUndoToast = null;
     el.classList.remove('sol-toast-visible');
     setTimeout(() => el.remove(), 400);
   };
-  btn.addEventListener('click', () => { if (done) return; done = true; close(); onUndo(); });
+  _closeUndoToast = close;
+  btn.addEventListener('click', () => { if (done) return; close(); onUndo(); });
   el.append(text, btn);
   document.body.appendChild(el);
   requestAnimationFrame(() => el.classList.add('sol-toast-visible'));
@@ -366,7 +382,11 @@ function _wireCardSearch(input, list, { floating = false } = {}) {
       if (!list.hidden && el) pick(el.dataset.name);
     }
   });
-  if (floating) window.addEventListener('resize', () => { if (!list.hidden) place(); });
+  // サイドバーや画面のスクロール・大きさの変化に合わせて位置を直す（PC は body 直下に重ねているため）
+  if (floating) {
+    window.addEventListener('resize', () => { if (!list.hidden) place(); });
+    window.addEventListener('scroll', (e) => { if (!list.hidden && !list.contains(e.target)) place(); }, true);
+  }
 }
 
 /** 候補のカード画像を /api/card-images でまとめて取って差し込む */
@@ -559,10 +579,25 @@ export function initDeckEditUI() {
   setExtraMenuItemsProvider(_menuItems);
 
   // デッキの入れ替え・消去でひも付けを付け直す（読込元が成功後に setDeckLink で上書きする）
+  // EX だけの追加読込（ニューロン取込で EX のみ等）は入れ替えではないので、増えたカードを増減として記録する
+  let appendBefore = null;
   document.addEventListener('sol-deck-load-start', (e) => {
-    if (e.detail?.replace !== false) setDeckLink({});
+    _dismissUndoToast();
+    if (e.detail?.replace !== false) { appendBefore = null; setDeckLink({}); return; }
+    appendBefore = new Set(document.querySelectorAll('.tier-item-wrapper'));
   });
-  document.addEventListener('sol-board-cleared', () => clearDeckLink());
+  document.addEventListener('sol-deck-load-end', () => {
+    if (!appendBefore) return;
+    const before = appendBefore;
+    appendBefore = null;
+    for (const w of document.querySelectorAll(BOARD_WRAPPERS)) {
+      if (before.has(w) || w.dataset.token === '1') continue;
+      const name = w.querySelector('.tier-item')?.dataset.cardName;
+      if (name) recordDelta(name, / ex$/.test(w.id) ? 'ex' : 'main', +1);
+    }
+  });
+  document.addEventListener('sol-board-cleared', () => { _dismissUndoToast(); clearDeckLink(); });
+  document.addEventListener('sol-deck-edited', _dismissUndoToast);
 
   const rerender = () => { _renderPcBar(); _renderMobileEdit(); };
   onDeckLinkChange(rerender);

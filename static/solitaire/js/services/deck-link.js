@@ -18,6 +18,9 @@
  */
 
 const SEP = '\u0000';
+/** デッキに数えるカードの置き場所（デッキ欄・EXデッキ欄・盤面（墓地・除外を含む）・手札）。
+ *  body 直下に一時的に出る演出用の複製（card-effects.js）を数えないよう、置き場所で絞る */
+export const BOARD_WRAPPERS = '#poolRow .tier-item-wrapper, #poolRow2 .tier-item-wrapper, .main-content .tier-item-wrapper, .center-slot .tier-item-wrapper';
 let _link = null;
 let _deltas = new Map();
 const _listeners = new Set();
@@ -156,10 +159,15 @@ export function applyDeltas(deck, deltas) {
   for (const { sec, name, n } of deltas) {
     const s = sec === 'ex' ? 'ex' : 'main';
     // 同じカードが反対側（メイン⇔EX）に入っている保存データもあるので、まずそちらを探す
+    // 足すときも同じ: [EX] 無しで貼り付けたデッキなど、EX のカードがメイン側にある保存データでは
+    // そちらの行を増やす（同じカードがメインと EX に分かれて保存されないように）
     const other = s === 'ex' ? 'main' : 'ex';
     let arr = out[s];
     let hit = arr.find(c => c.name === name);
-    if (!hit && n < 0) { arr = out[other]; hit = arr.find(c => c.name === name); }
+    if (!hit) {
+      const alt = out[other].find(c => c.name === name);
+      if (alt) { arr = out[other]; hit = alt; }
+    }
     if (hit) {
       hit.qty += n;
       if (hit.qty <= 0) arr.splice(arr.indexOf(hit), 1);
@@ -171,6 +179,18 @@ export function applyDeltas(deck, deltas) {
 }
 
 /**
+ * 保存済みデッキの中身（{main,ex}）。テキストを正とし、テキストが空なら main/ex 配列を使う
+ * （トップの normalizeDeck と同じ規則。配列だけの古いデータで「変更を保存」すると中身が消えるのを防ぐ）。
+ */
+export function deckContents(deck) {
+  if (String(deck?.text || '').trim()) return parseDeckSections(deck.text);
+  const norm = arr => (Array.isArray(arr) ? arr : [])
+    .filter(c => c && typeof c.name === 'string' && c.name.trim() && Number(c.qty) > 0)
+    .map(c => ({ qty: Number(c.qty), name: c.name.trim() }));
+  return { main: norm(deck?.main), ex: norm(deck?.ex) };
+}
+
+/**
  * 盤面全体（デッキ・EX・場・手札・墓地・除外）からデッキの中身を数える。トークンは数えない。
  * EX かどうかはカードの id（"item-NNN ex"）で見る（場に出ても変わらない）。
  * @param {ParentNode} root
@@ -178,7 +198,7 @@ export function applyDeltas(deck, deltas) {
  */
 export function collectDeckFromDom(root) {
   const out = { main: [], ex: [] };
-  for (const w of root.querySelectorAll('.tier-item-wrapper')) {
+  for (const w of root.querySelectorAll(BOARD_WRAPPERS)) {
     if (w.dataset.token === '1') continue;
     const name = w.querySelector('.tier-item')?.dataset.cardName;
     if (!name) continue;

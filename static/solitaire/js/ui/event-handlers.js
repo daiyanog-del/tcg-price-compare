@@ -56,11 +56,11 @@ export async function handleNeuronPdfSelect(event) {
         console.error('マイデッキ保存エラー:', e);
       }
     },
-    onLoad: async ({ mainText, exText }) => {
+    onLoad: async ({ mainText, exText, name }) => {
       // L-8: メイン→EXの逐次読込を1組の sol-deck-load-start/end にまとめる
       // （個別に呼ぶとメイン完了時点で中間の「EX 0」トーストが出てしまうため）。
       // メインまで入れ替えたときは、取り込んだデッキとして未登録で始める（EXだけ足したときはひも付けを変えない）
-      if (await loadDeckFromNeuron(mainText, exText) && mainText) setDeckLink({ name: defaultName || 'ニューロン取込' });
+      if (await loadDeckFromNeuron(mainText, exText) && mainText) setDeckLink({ name: name || defaultName || 'ニューロン取込' });
     },
   }).show();
 }

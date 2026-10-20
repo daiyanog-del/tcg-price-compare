@@ -30,13 +30,19 @@ const W=(id,name,{parent='poolRow',token=false}={})=>({
   assert.deepEqual(m.applyDeltas({main:[{qty:1,name:'A'}],ex:[]},[{sec:'main',name:'Z',n:-1}]),{main:[{qty:1,name:'A'}],ex:[]});
   // 保存データでは反対側（メイン⇔EX）にあるカードを抜く → そちらから減らす
   assert.deepEqual(m.applyDeltas({main:[{qty:1,name:'E'}],ex:[]},[{sec:'ex',name:'E',n:-1}]),{main:[],ex:[]});
+  // 足すときも、保存データでは反対側にあるカード（[EX] 無しで貼り付けた EX）はその行を増やす（メインと EX に分けない）
+  assert.deepEqual(m.applyDeltas({main:[{qty:3,name:'A'},{qty:2,name:'E'}],ex:[]},[{sec:'ex',name:'E',n:1}]),{main:[{qty:3,name:'A'},{qty:3,name:'E'}],ex:[]});
+  // 保存済みの中身: テキストを正とし、空なら配列（古いデータで「変更を保存」すると中身が消えるのを防ぐ）
+  assert.deepEqual(m.deckContents({text:'2 A',main:[{qty:9,name:'Z'}]}),{main:[{qty:2,name:'A'}],ex:[]});
+  assert.deepEqual(m.deckContents({text:'',main:[{qty:2,name:'A'},{qty:0,name:'B'},null],ex:[{qty:'1',name:' E '}]}),{main:[{qty:2,name:'A'}],ex:[{qty:1,name:'E'}]});
+  assert.deepEqual(m.deckContents({}),{main:[],ex:[]});
   // 別の場所で増えていた分は消さずに今回の増減だけ重ねる（読み込み時3枚→別タブで4枚→ここで1枚抜く＝3枚）
   assert.deepEqual(m.applyDeltas({main:[{qty:4,name:'A'}],ex:[]},[{sec:'main',name:'A',n:-1}]).main,[{qty:3,name:'A'}]);
 
   // 盤面から数える: トークン・名前の無いものは数えない。EX は id の末尾で見る（場に出ても変わらない）
-  const dom={querySelectorAll:()=>[
+  const dom={querySelectorAll:sel=>{assert.equal(sel,m.BOARD_WRAPPERS,'置き場所で絞っていない（演出の複製まで数える）');return [
     W('item-001 normal','A'),W('item-002 normal','A',{parent:'center-slot'}),W('item-003 ex','E',{parent:'custom-slot-3'}),
-    W('item-004 normal','トークン',{token:true}),W('item-005 normal',undefined)]};
+    W('item-004 normal','トークン',{token:true}),W('item-005 normal',undefined)];}};
   assert.deepEqual(m.collectDeckFromDom(dom),{main:[{qty:2,name:'A'}],ex:[{qty:1,name:'E'}]});
 
   // 抜けるカード: デッキ欄にあって記録に出てこないもの。右クリックしたカードを先に見る
@@ -78,7 +84,9 @@ const W=(id,name,{parent='poolRow',token=false}={})=>({
   const read=f=>fs.readFileSync(path.join(root,f),'utf8');
   const ui=read('static/solitaire/js/ui/deck-edit-ui.js');
   assert(!/innerHTML|insertAdjacentHTML/.test(ui),'deck-edit-ui.js に innerHTML（カード名は textContent で入れる）');
-  assert(/applyDeltas\(parseDeckSections\(deck\.text\), getDeltas\(\)\)/.test(ui),'上書き保存が「保存済み＋差分」になっていない');
+  assert(/applyDeltas\(deckContents\(deck\), getDeltas\(\)\)/.test(ui),'上書き保存が「保存済み＋差分」になっていない');
+  assert(/Object\.assign\(d, prev, \{ updated: Date\.now\(\) \}\)/.test(ui),'取り消しで更新時刻を古い値に戻している（同期で取り消しが消える）');
+  assert(/'sol-deck-load-start', \(e\) => \{\r?\n\s*_dismissUndoToast\(\);/.test(ui)&&/'sol-board-cleared', \(\) => \{ _dismissUndoToast\(\);/.test(ui)&&/'sol-deck-edited', _dismissUndoToast\)/.test(ui),'読込・消去・編集で取り消しを閉じていない');
   const panel=read('static/solitaire/js/ui/deck-input-panel.js');
   assert.equal((panel.match(/new CustomEvent\('sol-deck-load-start', \{ detail: \{ replace:/g)||[]).length,4,'読込開始の4経路に replace が無い');
   assert(/loadDeckFromText\(deck\.text \|\| '', row\)\) setDeckLink\(\{ savedId: deck\.id/.test(panel),'マイデッキの読込でひも付けていない');
