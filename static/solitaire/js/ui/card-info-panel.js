@@ -7,6 +7,8 @@
  *  - ニューロン画像読込: 名前なし（未対応）
  */
 
+import { setCipExpanded } from './cip-layout.js';
+
 const API_CARD_INFO = '/api/card-info';
 const API_PRICE_HISTORY = '/api/price-history';
 
@@ -35,6 +37,8 @@ export function initCardInfoPanel() {
     const col  = document.querySelector('.sol-cip-col');
     const area = document.querySelector('.sol-field-area');
     const btn  = document.getElementById('cipToggle');
+    // 盤面の上へ広げているときの ◀ は、隙間に戻すだけ（パネルは消さない）
+    if (col.classList.contains('is-expanded')) { setCipExpanded(false); return; }
     const hide = !col.classList.contains('hidden');
     col.classList.toggle('hidden', hide);
     area.classList.toggle('cip-hidden', hide);
@@ -56,6 +60,24 @@ export function initCardInfoPanel() {
       // 名前不明（ニューロン画像等）: サムネだけ表示
       _showUnknown(imgSrc, undefined, undefined, undefined, true, isSample);
     }
+    // 狭い画面では盤面の上へ広げて読めるようにする（広い画面では何もしない）
+    setCipExpanded(true);
+  });
+
+  // ── 狭い画面で広げた詳細を閉じる（隙間の小さい表示に戻す）──
+  // 誤ってカードを選んでも、次の操作の邪魔をしないように閉じる:
+  //   ドラッグを始めた（隠れている盤面のマスへ置けるように）・盤面などカード以外を押した・Esc・ダブルクリック（効果発動）
+  document.addEventListener('dragstart', () => setCipExpanded(false), true);
+  document.addEventListener('dblclick', () => setCipExpanded(false));
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setCipExpanded(false); });
+  document.addEventListener('pointerdown', (e) => {
+    const t = e.target instanceof Element ? e.target : null;
+    if (!t || t.closest('.sol-cip-col, #cipToggle, .tier-item, .sol-context-menu')) return;
+    setCipExpanded(false);
+  }, true);
+  // 隙間の小さい表示を押したら、表示中のカードの詳細を広げる
+  document.querySelector('.sol-cip-col')?.addEventListener('click', () => {
+    if (document.querySelector('#cardInfoPanel .cip-header')) setCipExpanded(true);
   });
 
   // 初期状態

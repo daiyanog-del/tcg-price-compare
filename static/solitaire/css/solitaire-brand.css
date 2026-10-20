@@ -104,6 +104,41 @@
   border-radius: 4px;
 }
 
+/* ── 狭い画面の詳細パネル（2026-10-20 案A。cip-layout.js が data-overlay を付ける）──
+   普段は盤面の左の隙間に収まる小さい表示（画像と名前だけ）。カードを選んだときだけ盤面の上へ 300px に広げる。
+   広げたときの浮かせ方は右クリックメニュー（案Y）と同じ影と薄い縁取りにそろえる。 */
+.sol-cip-col.is-expanded {
+  width: 300px;
+  z-index: 40;
+  border-radius: var(--radius);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(174, 197, 255, 0.08);
+}
+.sol-field-area.cip-expanded .sol-cip-toggle {
+  left: 310px;
+  z-index: 41;
+}
+.sol-cip-col[data-overlay]:not(.is-expanded) { cursor: pointer; }
+.sol-cip-col[data-overlay]:not(.is-expanded) .cip-header {
+  flex-direction: column;
+  align-items: stretch;
+}
+.sol-cip-col[data-overlay]:not(.is-expanded) .cip-img { width: 100%; }
+.sol-cip-col[data-overlay]:not(.is-expanded) .cip-type,
+.sol-cip-col[data-overlay]:not(.is-expanded) .cip-attr,
+.sol-cip-col[data-overlay]:not(.is-expanded) .cip-stats,
+.sol-cip-col[data-overlay]:not(.is-expanded) .cip-pendulum,
+.sol-cip-col[data-overlay]:not(.is-expanded) .cip-effect,
+.sol-cip-col[data-overlay]:not(.is-expanded) .cip-price,
+.sol-cip-col[data-overlay]:not(.is-expanded) .tr-open-wrap { display: none; }
+/* 小さい表示のときだけ、押せば読めることを一言で示す（カードを表示しているときだけ） */
+.sol-cip-col[data-overlay]:not(.is-expanded) .sol-card-info-panel:has(.cip-header)::after {
+  content: '押すと詳しく ›';
+  margin-top: auto;
+  color: #aec5ff;
+  font-size: 0.9em;
+  text-align: center;
+}
+
 /* 右パネル */
 .sol-right-panel {
   width: 180px;
