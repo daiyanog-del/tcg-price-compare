@@ -886,6 +886,7 @@ function _buildReplayCard(cardId, src, isEx, resolved) {
  * @param {Object} event
  */
 function _applyEvent(event) {
+  _settlePendingFly(event);
   switch (event.actionType) {
     case 'moveCard':
       _applyMoveCard(event);
@@ -912,6 +913,20 @@ function _applyEvent(event) {
       _applyActivateEffect(event);
       break;
   }
+}
+
+/**
+ * この手が動かすカードの演出がまだ飛んでいる途中なら、先に終わらせて前の手の配置を確定する。
+ * 山札へ戻す手は飛び終えてから DOM を確定するため、速い再生（2倍速は 450ms 間隔で演出と同じ長さ）で
+ * 同じカードを次の手が動かすと、後から前の手の確定が走ってカードが山札へ戻り、盤面と記録が食い違った
+ * （2026-10-20 reviewer 指摘。縦向きスマホ・録画用の表示で起きうる）。
+ */
+function _settlePendingFly(event) {
+  const ids = [event.cardId, ...(Array.isArray(event.drawnIds) ? event.drawnIds : [])].filter(Boolean);
+  ids.forEach((id) => {
+    const card = _findCardWrapper(id);
+    card?._flipClone?._cleanup?.();
+  });
 }
 
 /** moveCard: cardId のカードを zoneId に移動（守備・セット状態も復元） */

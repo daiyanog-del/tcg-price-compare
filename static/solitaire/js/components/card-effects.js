@@ -297,10 +297,14 @@ export function flyBetweenRects(cardEl, fromRect, toRect, onComplete = null) {
   // クローンは常にカードの大きさで作り、山札の札（横長の小さな札）の側は縮小（scale）で表す。
   // 以前は札の矩形をそのまま幅・高さにしていたため、横に潰れた形で出てきて、着いた瞬間に
   // カードの大きさへ跳んでいた（2026-10-20 ユーザー指摘「潰れながら出てくる」）。
+  // 前提: 片側は必ず山札の札（呼び出し元は replay-service.js のデッキ演出だけ）。
   // toRect が無い＝山札から来る（カードは lastRect）／ある＝山札へ戻る（カードは fromRect）。
+  // 山札と関係ない2点の移動に使うときは、どちらを縮めるかを引数で渡す形に変えること。
   const card = toRect ? fromRect : lastRect;
   const deck = toRect ? toRect : fromRect;
-  const deckScale = Math.max(0.35, Math.min(1, deck.height / card.height));
+  // 札の高さとカードの高さの比で縮める。下限は小さすぎて見えなくならないための値
+  // （実測: スマホのデッキボタン 31/89≈0.35・録画用の帯の札 PC 26/136≈0.19・スマホ 22/91≈0.24）
+  const deckScale = Math.max(0.15, Math.min(1, deck.height / card.height));
   const at = (r) => ({ left: r.left + r.width / 2 - card.width / 2, top: r.top + r.height / 2 - card.height / 2 });
   const start = at(fromRect);
   const end = at(lastRect);

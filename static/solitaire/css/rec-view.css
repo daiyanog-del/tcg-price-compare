@@ -53,6 +53,13 @@ body.sol-recview .sol-field-area { padding-top: calc(var(--sol-rec-band-h) + 8px
 }
 /* components.css の汎用 `p, span, li { color:#333 }` が当たるので、数字に直接色を付ける */
 .sol-rec-deck-count { color: var(--main-color); }
+/* 山札との演出の間だけ光らせる（replay-service.js _pulseDeckBtn。スマホのデッキボタンの solDeckBtnPulse と同じ見た目。
+   あちらは縦向きスマホの条件の中で定義されているので、PC でも効くようここにも置く） */
+@keyframes solRecDeckPulse {
+  0%, 100% { box-shadow: none; }
+  50% { box-shadow: 0 0 0 3px var(--accent); background: var(--accent); color: #fff; }
+}
+.sol-rec-deck.sol-pulse { animation: solRecDeckPulse 0.4s ease-in-out; }
 
 .sol-rec-progress {
   position: fixed; left: 0; bottom: 0; z-index: 1100;
