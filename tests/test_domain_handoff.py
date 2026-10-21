@@ -8,7 +8,7 @@ tests/test_domain_handoff.py — 独自ドメイン移行の振り分け（domai
   - X 投稿・通知の URL は環境変数で切り替わる
 """
 
-import importlib
+import subprocess
 import sys
 from pathlib import Path
 
@@ -57,7 +57,8 @@ def test_before_switch_site_url_is_legacy(monkeypatch):
 
 # ── 切り替え後: 旧URL ──
 
-@pytest.mark.parametrize("path", ["/", "/new-cards", "/featured", "/solitaire", "/admin",
+@pytest.mark.parametrize("path", ["/", "/new-cards", "/featured", "/solitaire", "/solitaire/replays", "/admin",
+                                  "/share-target", "/card/by-cid/1",
                                   "/card/%E7%81%B0%E6%B5%81%E3%81%86%E3%82%89%E3%82%89", "/buy/x"])
 def test_legacy_pages_serve_handoff(client, switched, path):
     res = _get(client, LEGACY, path)
@@ -65,8 +66,25 @@ def test_legacy_pages_serve_handoff(client, switched, path):
     assert res.status_code == 200
     assert 'data-mode="send"' in body
     assert f'data-canonical-base="{NEW}"' in body
-    # 引き継ぎページは保存領域の中身を # で運ぶので GA を載せない
+    # 引き継ぎページは保存領域の中身を # で運ぶので GA を載せない・保存させない
     assert "googletagmanager" not in body
+    assert res.headers["Cache-Control"] == "no-store"
+    # 旧URLの Search Console の所有確認と、共有リンクのプレビュー
+    assert 'name="google-site-verification"' in body
+    assert f'property="og:image" content="{NEW}/static/og-image.png' in body
+
+
+def test_legacy_handoff_head_and_host_case(client, switched):
+    head = client.head("/", base_url=LEGACY)
+    assert head.status_code == 200 and head.headers["Cache-Control"] == "no-store"
+    body = _get(client, "https://TCG-PRICE-COMPARE.onrender.com", "/").get_data(as_text=True)
+    assert 'data-mode="send"' in body
+
+
+def test_legacy_card_page_og_title(client, switched):
+    body = _get(client, LEGACY, "/card/%E7%81%B0%E6%B5%81%E3%81%86%E3%82%89%E3%82%89").get_data(as_text=True)
+    assert '<meta property="og:title" content="灰流うらら の価格比較 | 強欲なラボ">' in body
+    assert f'<link rel="canonical" href="{NEW}/card/%E7%81%B0%E6%B5%81%E3%81%86%E3%82%89%E3%82%89">' in body
 
 
 def test_legacy_handoff_keeps_query_for_extension_import(client, switched):
@@ -109,10 +127,29 @@ def test_receive_page_lists_legacy_origin(client, switched):
     res = _get(client, NEW, "/handoff?next=/")
     body = res.get_data(as_text=True)
     assert res.status_code == 200
+    assert res.headers["Cache-Control"] == "no-store"
     assert 'data-mode="receive"' in body
     assert f'data-legacy-origins="{LEGACY}"' in body
     assert 'noindex' in body
     assert "googletagmanager" not in body
+
+
+def test_receive_page_only_on_canonical_host(client, switched):
+    # 旧URLの /handoff を返すと、旧URL内の細工リンクで referrer の判定をすり抜けられる
+    assert _get(client, LEGACY, "/handoff").status_code == 404
+    assert _get(client, "https://other.example", "/handoff").status_code == 404
+
+
+def test_receive_page_absent_before_switch(client, monkeypatch):
+    monkeypatch.delenv("CANONICAL_BASE_URL", raising=False)
+    assert _get(client, LEGACY, "/handoff").status_code == 404
+    assert _get(client, NEW, "/handoff").status_code == 404
+
+
+def test_canonical_host_in_legacy_hosts_is_not_handed_off(client, monkeypatch):
+    monkeypatch.setenv("CANONICAL_BASE_URL", NEW)
+    monkeypatch.setenv("LEGACY_HOSTS", "tcg-price-compare.onrender.com,greedy-lab.com")
+    assert "handoffConfig" not in _get(client, NEW, "/").get_data(as_text=True)
 
 
 def test_robots_and_sitemap_point_to_new_domain_even_on_legacy(client, switched):
@@ -132,14 +169,17 @@ def test_local_hosts_for_e2e(client, monkeypatch):
 
 # ── 定期実行が載せる URL ──
 
-def test_x_poster_and_admin_url_follow_env(monkeypatch):
-    import x_poster
-    import unreleased_approve
+def test_site_url_follows_env(monkeypatch):
     monkeypatch.setenv("CANONICAL_BASE_URL", NEW + "/")
-    try:
-        assert importlib.reload(x_poster).SITE_URL == NEW
-        assert importlib.reload(unreleased_approve).ADMIN_URL == NEW + "/admin"
-    finally:
-        monkeypatch.delenv("CANONICAL_BASE_URL")
-        importlib.reload(x_poster)
-        importlib.reload(unreleased_approve)
+    assert site_urls.site_url() == NEW
+    monkeypatch.setenv("CANONICAL_BASE_URL", "")
+    assert site_urls.site_url() == LEGACY
+
+
+# ── 送る側・受け取る側の JS（tests/js/domain_handoff_check.js） ──
+
+def test_domain_handoff_js():
+    root = Path(__file__).resolve().parent.parent
+    res = subprocess.run(['node', str(root / 'tests/js/domain_handoff_check.js')],
+                         capture_output=True, text=True, encoding='utf-8', timeout=60)
+    assert res.returncode == 0, res.stdout + res.stderr

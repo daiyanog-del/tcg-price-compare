@@ -46,6 +46,8 @@ jobs:
           X_API_SECRET: ${{ secrets.X_API_SECRET }}
           X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          # 投稿に載せるサイトのURL（独自ドメイン・2026-10-21）。未設定なら旧URL
+          CANONICAL_BASE_URL: ${{ vars.CANONICAL_BASE_URL }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           UNRELEASED_X_POST_ENABLED: ${{ vars.UNRELEASED_X_POST_ENABLED }}
         run: python tools/post_unreleased_x.py

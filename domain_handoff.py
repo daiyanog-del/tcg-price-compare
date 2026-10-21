@@ -11,7 +11,9 @@ API・静的ファイル・/sync・robots・sitemap は旧URLでもそのまま�
 CANONICAL_BASE_URL が未設定のあいだは何もしない（切り替え前の本番の動きは変わらない）。
 """
 
-from flask import render_template, request
+from urllib.parse import quote
+
+from flask import abort, g, render_template, request
 
 import site_urls
 
@@ -39,25 +41,43 @@ def _target_path() -> str:
     return request.path + (f"?{qs}" if qs else "")
 
 
+def _og_title(path: str) -> str:
+    """旧URLの共有リンクのプレビュー用の見出し（X・LINE 等は旧URLの OGP を読みに来る）。"""
+    if path.startswith("/card/") and len(path) > 6:
+        return f"{path[6:]} の価格比較 | 強欲なラボ"
+    if path.startswith("/buy/") and len(path) > 5:
+        return f"{path[5:]} の買取価格比較 | 強欲なラボ"
+    return "強欲なラボ — 遊戯王OCG プレイヤーサポート"
+
+
 def maybe_handoff():
     """before_request から呼ぶ。引き継ぎページを返すときだけ応答を返す。"""
     if not handoff_active() or request.method not in ("GET", "HEAD"):
         return None
     if not is_legacy_host(request.host) or not is_page_path(request.path):
         return None
+    g.no_store = True
     canonical = site_urls.canonical_base_url_env()
-    target = _target_path()
     return render_template(
         "handoff.html",
         mode="send",
         canonical_base=canonical,
-        target_path=target,
-        canonical_url=canonical + request.path,
+        target_path=_target_path(),
+        canonical_url=canonical + quote(request.path, safe="/"),
+        og_title=_og_title(request.path),
     )
 
 
 def receive_page():
-    """正のURLの /handoff。旧URLから運ばれたデータを書き戻す。"""
+    """正のURLの /handoff。旧URLから運ばれたデータを書き戻す。
+
+    正のURLのホストで、切り替え後のときだけ返す。旧URLでも返すと、旧URLの中で
+    /handoff へ移る細工リンク（referrer が旧URLになる）で、他人の同期の状態を
+    書き込ませる経路ができる（2026-10-21 reviewer 指摘）。
+    """
+    if not handoff_active() or (request.host or "").lower() != site_urls.canonical_host():
+        abort(404)
+    g.no_store = True
     legacy_origins = sorted(
         f"{'http' if h.split(':')[0] in ('localhost', '127.0.0.1') else 'https'}://{h}"
         for h in site_urls.legacy_hosts()

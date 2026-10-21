@@ -1546,7 +1546,7 @@ document.addEventListener('toggle',function(e){
 <script src="{{ static_url('wish-estimate.js') }}" defer></script>
 <script src="{{ static_url('wish-split.js') }}" defer></script>
 <script src="{{ static_url('shared/sync-client.js') }}" defer></script>
-<!-- 旧URLから運ばれたデッキ・購入候補の合流。index-sync.js の pull より先に動かす（2026-10-21） -->
+<!-- 旧URLから運ばれたデッキ・購入候補の合流（2026-10-21）。呼ぶのは index-sync.js（pull の後） -->
 <script src="{{ static_url('shared/handoff-apply.js') }}" defer></script>
 <script>
 // qrcode.js の動的読み込み先URL（内容ハッシュ付き。static_url()はサーバー側で計算する）

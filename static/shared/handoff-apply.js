@@ -6,9 +6,10 @@
  * gl_handoff_pending に置くだけにする。ここで index のグローバル関数
  * （savedDecksGet/Set・wishGet/wishSave）を通して足すことで、端末間同期にも載せる。
  *
- * index-sync.js の pull より先に動かすため、index.html では sync-client.js と
- * index-sync.js のあいだで読み込む（DOMContentLoaded の登録順＝実行順）。
- * 先に保存して同期の送信待ちにしておけば、pull は手元を上書きしない（sync-client.js の pullIfNeeded）。
+ * 呼ぶのは index-sync.js（同期の pull が終わってから）。先に合流させると、購入候補には
+ * 保存デッキのような「送信待ち」の保護が無いので、サーバー側が新しいときに pull が合流後の
+ * 手元を上書きし、その後の送信がサーバーにだけあった候補を消す（2026-10-21 reviewer 指摘）。
+ * pull の後なら、合流させた内容は最新の rev の上に送られる。
  */
 (function () {
   'use strict';
@@ -53,5 +54,5 @@
     try { localStorage.removeItem(PENDING_KEY); } catch (e) {}
   }
 
-  document.addEventListener('DOMContentLoaded', applyPending);
+  window.GLHandoff = { applyPending: applyPending };
 })();

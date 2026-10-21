@@ -7,6 +7,22 @@
      ブラウザ保存領域の中身を URL の # 以降で運ぶので、Google Analytics のタグは含めない。 -->
 {% if mode == 'send' %}
 <link rel="canonical" href="{{ canonical_url }}">
+<!-- 旧URLの Search Console の所有確認（アドレス変更ツールで旧のプロパティを使うため）と、
+     旧URLで共有されたリンクのプレビュー（X・LINE 等は旧URLのまま OGP を読みに来る） -->
+<meta name="google-site-verification" content="7SBMfipn1AANFZK-55AZRO3tvCcB5j9iZ9h3sm7r5r0">
+<meta property="og:title" content="{{ og_title }}">
+<meta property="og:description" content="価格比較・デッキ・環境・最新弾をひとつに。">
+<meta property="og:image" content="{{ canonical_base }}{{ static_url('og-image.png') }}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ canonical_url }}">
+<meta property="og:locale" content="ja_JP">
+<meta property="og:site_name" content="強欲なラボ">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{{ og_title }}">
+<meta name="twitter:description" content="価格比較・デッキ・環境・最新弾をひとつに。">
+<meta name="twitter:image" content="{{ canonical_base }}{{ static_url('og-image.png') }}">
 {% else %}
 <meta name="robots" content="noindex, nofollow">
 {% endif %}

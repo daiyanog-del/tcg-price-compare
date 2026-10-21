@@ -426,6 +426,9 @@ def add_cache_headers(response):
         # ただしハンドラ側が g.no_cache=True を立てた場合（error付き・空データ応答）は
         # 意味のない失敗応答をCDN等に公開キャッシュしないよう付けない
         response.headers['Cache-Control'] = 'public, max-age=300'
+    if getattr(g, 'no_store', False):
+        # 独自ドメインの引き継ぎページ（domain_handoff.py）は端末ごとの保存領域を運ぶ入口なので保存させない
+        response.headers['Cache-Control'] = 'no-store'
     if response.status_code >= 400:
         # エラーレスポンス（HTMLエラーページ含む）が上記の public キャッシュ指定を
         # 引き継いだままCDN等に公開キャッシュされないよう、常に上書きで無効化する
