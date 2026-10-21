@@ -227,6 +227,23 @@ async function scenario_rate_limit_invalid_stale() {
   d.client.onWishSave(WISH.concat([{ name: '増殖するG', qty: 1, rarity: '' }]));
   await sleep(200);
   check('新しい送信が届いていれば、古い再試行が諦めても印は付かない', delivered >= 1 && !st4.getItem('cardprice_sync_unsent'), JSON.stringify(unsentOf(st4)));
+
+  // 古い内容が 429 で待っている間に新しい内容が届いたら、古い再試行は送らない（サーバーを古い内容に戻さない）
+  const st5 = mk(); st5.removeItem('cardprice_sync_unsent');
+  let calls = 0; const accepted = [];
+  const e = load({ storage: st5, fetchImpl: (url, opt) => {
+    calls++;
+    if (calls === 1) return Promise.resolve({ status: 429, ok: false, json: () => Promise.resolve({}) });
+    accepted.push(JSON.parse(opt.body).items.length);
+    return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({ ok: true, status: 'applied', rev: 9 }) });
+  } });
+  e.client.onWishSave(WISH); // 1件 → 429 で 55ms 待ち
+  await sleep(25);
+  const newer = WISH.concat([{ name: '増殖するG', qty: 1, rarity: '' }]);
+  st5.setItem('cardprice_wishlist', JSON.stringify(newer));
+  e.client.onWishSave(newer); // 2件 → 届く
+  await sleep(150);
+  check('古い再試行はサーバーを古い内容に戻さない', JSON.stringify(accepted) === '[2]', JSON.stringify(accepted));
 }
 
 async function scenario_resend_and_ui() {

@@ -306,13 +306,15 @@
     const revKey = kind === 'decks' ? 'decks_rev' : 'wishlist_rev';
     const expectedDecks = kind === 'decks' ? _canonicalize('decks', items) : undefined;
     if (kind === 'decks') _deckPushInFlight++;
-    let undelivered = false; // サーバーが受け付けなかった（db_unavailable）
+    let undelivered = false; // サーバーが受け付けなかった（入力エラー・同一オリジン判定以外の ok:false）
+    let httpStatus = 0;
     return _postJson('/api/sync/push', {
       sync_id: state.sync_id,
       kind: kind,
       base_rev: state[revKey] || 0,
       items: items,
     }).then(function (res) {
+      httpStatus = res.status;
       if (res.status === 429 || res.status >= 500) {
         const err = new Error('sync push retryable failure: ' + res.status);
         err.retryable = true;
@@ -322,10 +324,10 @@
       return res.json().catch(function () { return {}; });
     }).then(function (data) {
       if (!data || (_getState() || {}).sync_id !== state.sync_id) return;
-      // 受け付けられた（applied・merged・再発行）ら届いている。db_unavailable は届いていない。
-      // 入力検証エラー（invalid 等）は送り直しても届かないので「通信の失敗」の印は付けない（従来どおり黙る）
+      // 受け付けられた（applied・merged・再発行）ら届いている。db_unavailable・競合の打ち切り・読めない応答は届いていない。
+      // 入力検証エラー（400 invalid）・同一オリジン判定（403）は送り直しても届かないので印は付けない（従来どおり黙る）
       if (data.reissued || data.ok) _setUnsent(kind, false);
-      else if (data.reason === 'db_unavailable') undelivered = true;
+      else if (httpStatus !== 400 && httpStatus !== 403 && data.reason !== 'invalid') undelivered = true;
       if (data.reissued) {
         // 再発行＝サーバー側で新しい行が作られた（今回pushした種別のデータのみを持つ。
         // app.pyのpush再発行経路はkind単体しか受け取れない仕様のため）。
@@ -387,7 +389,10 @@
       const wait = e && e.status === 429 ? RATE_LIMIT_WAIT_MS : BACKOFF_BASE_MS * Math.pow(2, attempt - 1);
       return _sleep(wait).then(function () {
         if (kind === 'decks') _deckRetryWaiting--;
-        return _pushWithRetry(kind, kind === 'decks' ? _readLocalList('decks') : items, attempt, seq);
+        // 待っている間に後から送信が始まっていたら、そちらに任せてやめる（古い内容で新しい内容を上書きしない）
+        if (seq !== _pushSeq[kind]) return;
+        // 購入候補も手元を読み直して送る（待っている間の編集を古い内容で戻さない）
+        return _pushWithRetry(kind, kind === 'decks' ? _readLocalList('decks') : _wishWire(_readLocalList('wishlist')), attempt, seq);
       });
     });
   }
