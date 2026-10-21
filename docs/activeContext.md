@@ -1,5 +1,13 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-21: マイデッキのカード操作（C・branch feat/mydeck-card-ops）
+
+- カードの上は「×N」だけ・PC は右クリックメニュー（キーボードはメニューキー）・指のタップは選択して上の欄で増減。決定は decisions.md 2026-10-21。ロジックは static/mydeck/deck-card-ops.js。
+- 確認: ローカル Playwright で PC（右クリック・キーボード・ドラッグ）とスマホ（タップ・欄・0枚・外を押す）、has_touch の 1440 幅（マウス右クリック→メニュー・指タップ→選択・新しく作る→欄が消える）。JS テスト（deck_card_ops_check 追加）・pytest 2374件。
+- reviewer 2回: 1回目 高2・中3・低4 → 全部修正。2回目 中1（タッチ付きノートで案内とドラッグの判定が食い違う）・低2 → 修正、低1（キーボードで開いたかを座標0で判定）は記録のみ。
+- 未確認: 実機のタッチ付きノート PC・iPhone/Android。
+- 次: D＋E。
+
 ## 2026-10-20〜21: マイデッキの見出しと保存（A＋B・branch feat/mydeck-head）
 
 - 決定は decisions.md 2026-10-20「マイデッキの見出しと保存のしかたをシミュレーターにそろえる」。新しいロジックは static/mydeck/deck-head.js。

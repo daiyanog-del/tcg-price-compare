@@ -25,12 +25,19 @@ import { showCardByName } from '/static/solitaire/js/ui/card-info-panel.js';
     drawer.setAttribute('aria-hidden', 'true');
   }
 
+  // 右クリックメニュー・タッチの選んだカードの欄の「詳細」から開く（deck-card-ops.js）
+  window.openDeckCardInfo = (name, src) => {
+    showCardByName(name, src || '');
+    openDrawer();
+  };
+
   // ── デッキ内カードのクリック → ドロワー表示 ──
+  // タッチ端末のタップは選択（deck-card-ops.js が先に受け取ってここへは流さない）
   // renderDeckGrid() は <a class="deck-grid-img-wrap" href="/card/..."> を生成する。
   // 左クリックのみ乗っ取り、修飾キー/中クリックは素通し（別タブ遷移を温存）。
   list.addEventListener('click', (e) => {
     const wrap = e.target.closest('.deck-grid-img-wrap');
-    if (!wrap) return; // 編集モードの ±/× ボタンは wrap の外なので自然に除外される
+    if (!wrap) return;
     // 別タブで開きたいユーザー操作はそのまま通す
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
 

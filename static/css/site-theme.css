@@ -76,7 +76,6 @@ body.price-redesign {
 .price-redesign :is(.deck-build-tab-badge,.import-method-no) {background:#2b3549;color:var(--text)}
 .price-redesign .meta-card-chip.clickable:hover {background:var(--bg-hover);color:var(--text)}
 .price-redesign .wish-card-link:hover {background:#2b3549;color:var(--text)}
-.price-redesign .deck-edit-btn:hover {background:#f3ce46;color:#242013}
 .price-redesign .deck-drop-zone:is(:hover,.drag-over) {background:var(--bg-hover)}
 .price-redesign #mode-search .share-btns>button {border:0!important;background:var(--bg-hover)}
 .price-redesign #mode-search :is(.scard,.scard.best,.price-chart,.tbl-wrap,.ritem) {border:0}

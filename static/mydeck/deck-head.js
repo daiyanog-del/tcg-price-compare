@@ -109,6 +109,13 @@
       mx.textContent = '/ ' + max;
       label.append(nm, num, mx);
       if(sub) label.appendChild(sub);
+      // PC は増減を右クリックメニューに移したので、気づけるよう一言添える（マウスで指せる環境だけ。指で使う端末はタップで選ぶ）
+      if(sec === 'main' && window.DeckCardOps && window.DeckCardOps.finePointer()){
+        var hint = document.createElement('span');
+        hint.className = 'deck-sec-hint';
+        hint.textContent = '右クリックで枚数を変える・ドラッグで並べ替え';
+        label.appendChild(hint);
+      }
     });
   }
 
@@ -527,6 +534,7 @@
   }
 
   window.DeckHead = { refresh: refresh, deleteDeck: deleteDeck, openRegister: openRegister,
+    toast: function(msg){ _toast(msg); }, // deck-card-ops.js（購入候補に入れた知らせ）
     _createFromEditor: _createFromEditor, _freeName: _freeName }; // _ で始まるものはテスト用（tests/js/deck_head_check.js）
   // 保存済み一覧の × も確認窓をやめて取り消しにする（index-wish.js の deleteSavedDeck を置き換える）
   window.deleteSavedDeck = deleteDeck;
