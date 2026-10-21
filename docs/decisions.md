@@ -1978,3 +1978,12 @@ rarity_pref 基準に統一。`items_map` のキーも rarity_pref で作る。
 - **原因**: ページを開くと起動時に価格を取りに行く（index-wish.js の末尾）。この取得は、届いたあとにタブの札しか直さない。取得の途中で購入候補を開くと、一覧は `_wishPrices` が `{}`（試した印）なので取得済みとみなし、自分では取りに行かずに全行「相場データ収集中」で描く。そのまま、次に何か操作するか10分経つまで直らなかった。購入候補のモックを撮っていて見つけた。
 - **直し方**: 取得中の Promise を覚える（`_wishPricesLoading`。同時に2回取りに行かない）。一覧を描くときは `_wishEnsurePrices` で、価格がまだ・古い・取得中なら、届いたあとに1回だけ描き直す。取得中にカードが足されて価格が捨てられたら、古い結果を残さず描き直しで取り直す。
 - **確認**: tests/js/wish_prices_rerender_check.js。応答を3秒遅らせた Playwright で、直す前の本番は6秒後も全行「収集中」、修正版は価格と画像が出る（取得は1回）。
+
+## 2026-10-21 新着画像の縮小版（PR #146）
+- **何を**: 未発売カード画像を書き込むたび（unreleased_approve.fetch_and_store_image・unreleased_image_store._store_card_image／crop_and_save_image／restore_original_image）に、幅300px・WebP 画質75の縮小版を unreleased/thumbs/<id>.webp に作り、official_card_images.thumb_url に `?v=<中身のsha1先頭12桁>` 付きで記録。/api/new-cards が thumb_url を返し、new-cards.js は縮小版→原寸→カード名の札の順。collect_original_paths が縮小版のパスも返し、削除の各流れで消える。
+- **なぜ**: スマホのトップ LCP の要素は新着画像。元画像の幅はもともと290〜410pxで、重さの大半は形式（PNG 1枚200〜350KB）。Supabase 無料プランでは画像変換が使えないので、書き込み時に作る。
+- **結果（本番・スマホ相当・各5回）**: LCP 中央値 4.64秒（4.46〜4.65）→ 3.72秒（3.58〜4.05）。新着画像6枚 756KB→160KB。CLS 0。
+- **決めたこと**: 幅300px（スマホの表示幅約113px×2.65倍。3倍画面相当で原寸と並べて差が見えないことを確認）。Cache-Control は既定のまま（1年にすると削除後も CDN・ブラウザに残るため。reviewer 指摘）。?v= は中身のハッシュ（秒単位の時刻では取り込み直後の自動切り抜きで切り抜き前後が同じ URL になりうるため）。ICC は引き継ぐ（CMYK を除く）。
+- **採らなかった案**: Flask で表示時に縮小（Render の小さいインスタンスに負担・再起動直後に遅い）。元画像自体を WebP に置き換え（切り抜きのやり直し・OG・カードページの画質に波及）。
+- **未検証の前提**: Supabase CDN が ?v= をキャッシュキーに含めること（原寸の ?t= と同じ前提）。
+
