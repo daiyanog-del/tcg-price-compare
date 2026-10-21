@@ -453,6 +453,8 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
 
 /* 右の欄: 3区画（カードを追加・取り込み・編集・デッキの値段）を1枚の面に */
 #mode-mydeck .deck-pane-tools{display:flex;flex-direction:column;gap:8px;padding:12px 10px;border-radius:8px;background:#141c2c;box-sizing:border-box}
+/* スマホのタブ表示で「デッキ」を選んでいる間は右の欄を隠す（上の display:flex が id つきで .deck-panes:not(.show-tools) の規則より強いため、同じ強さで書き直す） */
+@media(max-width:900px){#mode-mydeck .deck-panes:not(.show-tools) .deck-pane-tools{display:none}}
 .deck-tools-h{margin:8px 0 0;color:var(--text-m);font-size:11px;font-weight:700}
 .deck-tools-h:first-child{margin-top:0}
 .deck-tools-h[hidden]{display:none}
