@@ -108,13 +108,14 @@
               aria-expanded="true" aria-controls="solSidebar"
               aria-label="左パネルを畳む">◀</button>
       </div>
-      <nav class="sol-sidebar-links">
-        <a href="/"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>価格</a>
-        <a href="/#mydeck"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>マイデッキ</a>
-        <a href="/#meta"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>環境デッキ</a>
-        <a href="/#packs"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>最新弾</a>
-        <a href="/#wishlist"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>購入候補</a>
-        <a href="/solitaire" class="active" aria-current="page"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="M2.6 16.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83"/><path d="M2.6 11.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83"/></svg>シミュレーター</a>
+      <!-- 2026-10-22 ヘッダー（index.html の .mode-tabs）と言葉・順番をそろえる。文字だけ・↗なし -->
+      <nav class="sol-sidebar-links" aria-label="メインナビゲーション">
+        <a href="/">価格比較</a>
+        <a href="/solitaire" class="active" aria-current="page">シミュレーター</a>
+        <a href="/#mydeck">マイデッキ</a>
+        <a href="/#meta">環境デッキ</a>
+        <a href="/#packs">新商品</a>
+        <a href="/#wishlist">購入候補</a>
       </nav>
     </div>
 
@@ -175,9 +176,8 @@
 
     <!-- クレジット -->
     <div class="sol-sidebar-section">
-      <p style="font-size:0.68rem;color:#2d3f5a;line-height:1.5;margin:0">
-        <a href="https://github.com/Fugarta/solo-mode" target="_blank" rel="noopener noreferrer"
-           style="color:#2d3f5a">Solo Mode (Fugarta, MIT)</a> を基に改変
+      <p class="sol-credit">
+        <a href="https://github.com/Fugarta/solo-mode" target="_blank" rel="noopener noreferrer">Solo Mode (Fugarta, MIT)</a> を基に改変
       </p>
     </div>
 
