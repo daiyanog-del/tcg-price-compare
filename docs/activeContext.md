@@ -1,5 +1,14 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-21: 独自ドメイン greedy-lab.com（branch feat/custom-domain・未取り込み）
+
+- 取得・開通済み（Render のカスタムドメイン・Cloudflare DNS only・証明書発行済み・未告知）。
+- 旧URLの画面→引き継ぎページ→新ドメインの /handoff でブラウザ保存領域を運ぶ仕組みを実装。CANONICAL_BASE_URL を設定するまで本番の動きは変わらない。
+- reviewer: 高3（旧URLの /handoff で referrer をすり抜け・next のオープンリダイレクト・送る側の印で失敗時に届かない）・中5 → 反映。sync_id が # に載る件は受け入れ（設計書 §2 既知の制約）。
+- 確認: pytest 2437・JS 単体・Playwright 結合 31/31（tools/check_domain_handoff.py）。
+- 拡張 v1.4.0 は ..	cgym-neuron-extension を書き換え・zip 作成済み。提出は切り替えの後。
+- 次: 取り込み→環境変数の設定（切り替え）→本番確認→拡張提出→外部の登録先。TASKS の該当項目。
+
 ## 2026-10-21: 購入候補の改修（モック wish-refresh-20261021 の A〜E をユーザー承認）
 
 - 先に不具合を直した（本番 PR #145 e6e0328）: 起動時の価格の取得の途中に購入候補を開くと、届いても「相場データ収集中」のまま止まっていた。取得中の Promise を覚え、届いたら一覧を1回描き直す（index-wish.js の _wishEnsurePrices）。応答を3秒遅らせた Playwright で、直す前の本番は止まったまま、修正後の本番は価格と画像が出ることを確認。
