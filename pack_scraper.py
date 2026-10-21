@@ -11,7 +11,7 @@ import json
 import time
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -58,7 +58,11 @@ def _cache_write(key: str, data: dict):
 
 _KONAMI_PRODUCTS_URL = "https://www.yugioh-card.com/japan/products/"
 _PACK_CATEGORIES = ["basic", "special", "concept"]
-_MAX_PACKS = 4  # 表示するパック数
+_MAX_PACKS = 4  # 収集用に選ぶパック数（表示用は下の2つで決める）
+# 表示用（/api/packs）: 発売前（公式取得時点で60日以内に絞り済み）は全部、発売済みは直近この件数。
+# 以前は表示も _MAX_PACKS の直近4件だったため、発売前が4件あると発売済みが一覧から消えていた（2026-10-21 実測）。
+_DISPLAY_RELEASED_PACKS = 4
+_JST_OFFSET = timedelta(hours=9)
 
 
 def _fetch_latest_packs_from_official() -> list[dict]:
@@ -82,6 +86,11 @@ def _fetch_latest_packs_from_official() -> list[dict]:
 
                 title = title_m.group(1)
                 raw_date = date_m.group(1)
+                # 商品ページ（"detail":"page" のときだけ "url" に英字の略号が入る。例: "dbgv"）。
+                # 略号は収録カードの型番の頭（DBGV-JP001）と同じなので、画面で「このパックの版」を見分けるのに使う
+                url_m = re.search(r'"url":"([a-z0-9]+)"', content)
+                detail_m = re.search(r'"detail":"([^"]*)"', content)
+                slug = url_m.group(1) if (url_m and detail_m and detail_m.group(1) == "page") else ""
 
                 # 日付を解析（例: "2025年3月22日(土)"）
                 date_match = re.search(r'(\d{4})\D+(\d{1,2})\D+(\d{1,2})', raw_date)
@@ -108,6 +117,8 @@ def _fetch_latest_packs_from_official() -> list[dict]:
                     "tcg_name": "",
                     "date": iso_date,
                     "category": cat,
+                    "code": slug.upper(),
+                    "product_url": f"{_KONAMI_PRODUCTS_URL}{slug}/" if slug else "",
                 })
         except Exception as e:
             print(f"  pack_scraper 公式サイト取得失敗 ({cat}): {e}")
@@ -176,15 +187,16 @@ def get_pack_list(include_empty: bool = True) -> list[dict]:
 
     include_empty:
         True（既定・表示用 /api/packs, save_pack_list）:
-            Wikiにカードリスト未掲載（発売前など）のパックも含め、
-            直近 _MAX_PACKS 件をそのまま返す。サイトの最新弾リストから
-            発売前パックが消えないようにするための表示用挙動。
+            Wikiにカードリスト未掲載（発売前など）のパックも含め、発売前（60日以内）は全部、
+            発売済みは直近 _DISPLAY_RELEASED_PACKS 件を返す。発売前パックが一覧から消えず、
+            発売前が多い時期にも発売済みパックが押し出されないようにするための表示用挙動。
         False（収集用 collect_prices.sync_latest_packs）:
             カードリスト未掲載パックは除外し、_MAX_PACKS の枠を消費させない
             （0枚パックが収録数の多い既発売パックを圏外に押し出し、収集対象が
             痩せる問題の回避。2026-07-07 の買取収集激減の一因。TASKS.md 参照）。
     """
-    cache_key = "pack_list_auto" if include_empty else "pack_list_collect"
+    # 表示用は 2026-10-21 に選び方を変えたためキーも変える（旧キーの24時間キャッシュを読まないように）
+    cache_key = "pack_list_display_v2" if include_empty else "pack_list_collect"
     cached = _cache_read(cache_key, timedelta(hours=24))
     if cached and "packs" in cached and len(cached["packs"]) > 0:
         return cached["packs"]
@@ -198,9 +210,12 @@ def get_pack_list(include_empty: bool = True) -> list[dict]:
         return []
 
     if include_empty:
-        # 表示用: カードリスト有無にかかわらず、直近 _MAX_PACKS 件をそのまま返す
+        # 表示用: カードリスト有無にかかわらず、発売前は全部＋発売済みは直近 _DISPLAY_RELEASED_PACKS 件
+        today = (datetime.now(timezone.utc) + _JST_OFFSET).strftime("%Y-%m-%d")
+        upcoming = [p for p in official_packs if p["date"] > today]
+        released = [p for p in official_packs if p["date"] <= today][:_DISPLAY_RELEASED_PACKS]
         valid_packs = []
-        for pack in official_packs[:_MAX_PACKS]:
+        for pack in upcoming + released:
             wiki_page, has_cards = _resolve_wiki_page(pack["name"])
             valid_packs.append({
                 "name": pack["name"],
@@ -208,6 +223,10 @@ def get_pack_list(include_empty: bool = True) -> list[dict]:
                 "tcg_name": pack.get("tcg_name", ""),
                 "date": pack["date"],
                 "has_cards": bool(has_cards),
+                "code": pack.get("code", ""),
+                "product_url": pack.get("product_url", ""),
+                # 遊戯王Wikiのページ（ページ名は EUC-JP で URL にするのでブラウザ側では作れない）
+                "wiki_url": f"{WIKI_BASE}?{quote(wiki_page.replace('－', '-'), encoding='euc-jp', errors='ignore')}" if has_cards else "",
             })
     else:
         # 収集用: 直近パックのうち、Wikiでカードリストが取れるものを_MAX_PACKS個選ぶ。
