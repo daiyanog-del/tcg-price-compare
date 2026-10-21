@@ -18,7 +18,7 @@
   function _norm(d){ return (typeof normalizeDeck === 'function') ? normalizeDeck(d) : { main: d.main || [], ex: d.ex || [] }; }
   function _sum(a){ return (a || []).reduce(function(s, c){ return s + (c.qty || 0); }, 0); }
   function _isSheet(){ return window.matchMedia ? window.matchMedia('(max-width: 900px)').matches : false; }
-  function _date(t){ if(!t) return ''; var d = new Date(t); return (d.getMonth() + 1) + '/' + d.getDate() + ' 更新'; }
+  function _date(t){ if(!t) return ''; var d = new Date(t); if(isNaN(d.getTime())) return ''; return (d.getMonth() + 1) + '/' + d.getDate() + ' 更新'; }
 
   // ── 先頭カードの画像（/api/card-images。同じ名前は一度だけ取りに行く） ──
   var _thumbs = Object.create(null); // 名前 → URL（'' は取れなかった）
@@ -37,7 +37,8 @@
         });
         done();
       })
-      .catch(function(){ done(); });
+      // 通信に失敗した名前は覚えない（次に開いたときに取り直す）
+      .catch(function(){ need.forEach(function(n){ delete _thumbs[n]; }); done(); });
   }
 
   // ── ボタンの件数 ──
@@ -84,7 +85,8 @@
     }
     var sub = document.createElement('span');
     sub.className = 'deck-lib-sub';
-    sub.textContent = 'メイン ' + _sum(nd.main) + '・EX ' + _sum(nd.ex) + (d.updated ? '・' + _date(d.updated) : '');
+    var when = _date(d.updated);
+    sub.textContent = 'メイン ' + _sum(nd.main) + '・EX ' + _sum(nd.ex) + (when ? '・' + when : '');
     meta.append(nm, sub);
     open.append(th, meta);
     open.addEventListener('click', function(){ _openDeck(d.id); });
@@ -106,6 +108,8 @@
   function _renderRows(){
     if(!_pop) return;
     var body = _pop.body;
+    // 同期などで描き直してもフォーカスを窓の中に残す（消えたボタンにあったら閉じるボタンへ）
+    var hadFocus = _pop.el.contains(document.activeElement) && body.contains(document.activeElement);
     body.textContent = '';
     var list = _decks();
     var curId = window._currentSavedDeckId || null;
@@ -117,6 +121,7 @@
       return;
     }
     list.forEach(function(d){ body.appendChild(_row(d, curId)); });
+    if(hadFocus){ var x0 = _pop.el.querySelector('.deck-lib-x'); if(x0) x0.focus({ preventScroll: true }); }
     var names = list.map(function(d){ var nd = _norm(d); return (nd.main[0] || nd.ex[0] || {}).name || ''; });
     _loadThumbs(names, function(){
       if(!_pop) return;
@@ -204,7 +209,18 @@
       if(e.target.closest && e.target.closest('.deck-head-toast, .deck-head-pop')) return; // 取り消しのお知らせ・名前の小窓
       close(false);
     }
-    function onKey(e){ if(e.key === 'Escape'){ e.preventDefault(); e.stopImmediatePropagation(); close(true); } }
+    function onKey(e){
+      if(e.key !== 'Escape') return;
+      // 上に重なっている窓（名前の小窓・メニュー）があれば、そちらの Esc に任せる
+      if(document.querySelector('.deck-name-pop, .deck-more-menu, .deck-card-menu, .npm-overlay')) return;
+      e.preventDefault(); e.stopImmediatePropagation(); close(true);
+    }
+    // Tab で窓の外へ出たら閉じる（⋯ メニューと同じ）
+    el.addEventListener('focusout', function(e){
+      var to = e.relatedTarget;
+      if(!to || el.contains(to) || btn.contains(to) || (to.closest && to.closest('.deck-head-pop, .deck-head-toast'))) return;
+      close(false);
+    });
     function onScroll(e){
       if(sheet || el.contains(e.target)) return;
       var r2 = btn.getBoundingClientRect();
@@ -244,6 +260,14 @@
   }
 
   function _init(){
+    // 別の画面へ切り替えたら（戻る操作など）閉じる（窓・暗幕は body 直下なので、残ると別の画面の上に出る）
+    var origSwitch = window.switchMode;
+    if(typeof origSwitch === 'function'){
+      window.switchMode = function(mode){
+        if(mode !== 'mydeck') close(false);
+        return origSwitch.apply(this, arguments);
+      };
+    }
     var btn = $('deckLibBtn');
     if(btn) btn.addEventListener('click', function(){ if(_pop) close(true); else open(); });
     // 画面の幅で窓とシートが入れ替わるので、幅をまたいだら閉じる
@@ -256,7 +280,8 @@
   }
 
   window.renderSavedDecks = render;
-  window.DeckLibrary = { open: open, close: close, isOpen: isOpen, render: render };
+  window.DeckLibrary = { open: open, close: close, isOpen: isOpen, render: render,
+    _openDeck: _openDeck }; // _ で始まるものはテスト用（tests/js/deck_library_check.js）
 
   if(document.readyState === 'complete') _init();
   else document.addEventListener('DOMContentLoaded', _init);

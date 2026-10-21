@@ -58,11 +58,23 @@
 
     function onDown(e){
       if(pop.contains(e.target) || btn.contains(e.target)) return;
-      // ニューロン取り込みの確認窓・ファイル選択・お知らせを押したときは閉じない
-      if(e.target.closest && e.target.closest('.deck-head-toast, .neuron-preview-modal, .neuron-modal, [role="dialog"]')) return;
+      // ニューロン取り込みの確認窓（neuron-preview-modal.js の .npm-overlay）・名前の小窓・お知らせを押したときは閉じない
+      if(e.target.closest && e.target.closest('.deck-head-toast, .npm-overlay, .deck-head-pop')) return;
       closePop(false);
     }
-    function onKey(e){ if(e.key === 'Escape'){ e.preventDefault(); e.stopImmediatePropagation(); closePop(true); } }
+    function onKey(e){
+      if(e.key !== 'Escape') return;
+      // 上に重なっている窓（名前の小窓・メニュー・取り込みの確認窓）があれば、そちらの Esc に任せる
+      if(document.querySelector('.deck-name-pop, .deck-more-menu, .deck-card-menu, .npm-overlay')) return;
+      e.preventDefault(); e.stopImmediatePropagation(); closePop(true);
+    }
+    // Tab で窓の外へ出たら閉じる（⋯ メニューと同じ。上に重なる窓へ移ったときは閉じない）
+    function onFocusOut(e){
+      var to = e.relatedTarget;
+      if(!to || pop.contains(to) || btn.contains(to) || (to.closest && to.closest('.deck-head-pop, .npm-overlay'))) return;
+      closePop(false);
+    }
+    pop.addEventListener('focusout', onFocusOut);
     function onMove(e){ if(e && e.type === 'scroll' && pop.contains(e.target)) return; _place(pop, btn); }
     document.addEventListener('pointerdown', onDown, true);
     document.addEventListener('keydown', onKey, true);
@@ -73,6 +85,7 @@
       document.removeEventListener('keydown', onKey, true);
       window.removeEventListener('scroll', onMove, true);
       window.removeEventListener('resize', onMove);
+      pop.removeEventListener('focusout', onFocusOut);
       // テキストを変えて閉じたら、一覧にも反映しておく（入力中の反映を待たずに閉じた場合）
       if(kind === 'text' && ($('deckTextarea') || {}).value !== textBefore) _previewNow();
     } };
@@ -98,7 +111,10 @@
     clearTimeout(_previewTimer);
     var ta = $('deckTextarea');
     if(!ta) return;
-    if(ta.value.trim()){
+    // 読み取って0枚（「[EX]」だけ等）も空として扱う（calcDeckEstimate は0枚だと何もせず戻り、古い一覧が残るため）
+    var parsed = (typeof parseDeckSections === 'function') ? parseDeckSections(ta.value) : null;
+    var has = parsed ? (parsed.main.length + parsed.ex.length) > 0 : !!ta.value.trim();
+    if(has){
       if(typeof calcDeckEstimate === 'function' && typeof DECK_CTX !== 'undefined') calcDeckEstimate(DECK_CTX.mydeck, { previewOnly: true });
     }else{
       try{ _currentMydeckCards = { main: [], ex: [] }; _currentMydeckText = ''; }catch(_){}
@@ -126,10 +142,17 @@
       if(x) x.addEventListener('click', function(){ closePop(true); });
     });
     var ta = $('deckTextarea');
-    if(ta) ta.addEventListener('input', function(){
-      clearTimeout(_previewTimer);
-      _previewTimer = setTimeout(_previewNow, 600);
-    });
+    if(ta){
+      ta.addEventListener('input', function(e){
+        clearTimeout(_previewTimer);
+        if(e.isComposing) return; // 日本語の変換中は反映しない（書きかけの名前で画像を取りに行かない）。確定で反映
+        _previewTimer = setTimeout(_previewNow, 600);
+      });
+      ta.addEventListener('compositionend', function(){
+        clearTimeout(_previewTimer);
+        _previewTimer = setTimeout(_previewNow, 600);
+      });
+    }
     // 取り込めたら窓を閉じる（取り込んだデッキが一覧に出る）
     var orig = window.onDeckImported;
     if(typeof orig === 'function'){
@@ -137,6 +160,14 @@
         var r = orig.apply(this, arguments);
         if(_open && _open.kind === 'import') closePop(false);
         return r;
+      };
+    }
+    // 別の画面へ切り替えたら（戻る操作など）窓を閉じる
+    var origSwitch = window.switchMode;
+    if(typeof origSwitch === 'function'){
+      window.switchMode = function(mode){
+        if(mode !== 'mydeck') closePop(false);
+        return origSwitch.apply(this, arguments);
       };
     }
     _placeCalc();

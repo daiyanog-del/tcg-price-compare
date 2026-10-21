@@ -903,8 +903,8 @@
 
   // 保存済みデッキ一覧のサムネ等を最新化（描画済みのときのみ）
   function _refreshSavedDeckList(){
-    var el = document.getElementById('savedDeckList');
-    if(!el || !el.children.length || typeof renderSavedDecks !== 'function') return;
+    // 一覧は「マイデッキ ▾」の窓（deck-library.js が renderSavedDecks を置き換え、開いているときだけ描き直す）
+    if(typeof renderSavedDecks !== 'function') return;
     renderSavedDecks();
     // 再描画で選択状態が消えるため、編集中デッキの選択表示を戻す
     var cur = window._currentSavedDeckId;

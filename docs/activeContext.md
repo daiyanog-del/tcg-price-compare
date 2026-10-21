@@ -1,5 +1,12 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-21: マイデッキの一覧と右の欄（D＋E・branch feat/mydeck-library-tools）
+
+- 一覧は「マイデッキ ▾」の窓／シート、右の欄は3区画（取り込み・テキストは窓・価格計算は PC で右へ）、見出しは左右の欄をまたいで一番上。決定は decisions.md 2026-10-21。ロジックは static/mydeck/deck-library.js・deck-tools.js。
+- 確認: ローカル Playwright で PC（一覧の開閉・開く・削除と取り消し・Esc・取り込み/テキストの窓・入力の反映・#mydeck-import・Esc の重なり）とスマホ（シート・タブで右の欄が隠れる・はみ出しなし）。JS テスト（deck_library_check 追加）・pytest 2374件（初回だけ1件落ちて名前を取れず、以後3回は全件通過）。
+- reviewer: 高1（スマホで右の欄が隠れない＝自分でも発見済み）・中3・低6 → 低5の一部（計算中のテキスト入力）以外を修正。
+- 未確認: iPhone/Android 実機（シートとソフトキーボード）。
+
 ## 2026-10-21: マイデッキのカード操作（C・branch feat/mydeck-card-ops）
 
 - カードの上は「×N」だけ・PC は右クリックメニュー（キーボードはメニューキー）・指のタップは選択して上の欄で増減。決定は decisions.md 2026-10-21。ロジックは static/mydeck/deck-card-ops.js。

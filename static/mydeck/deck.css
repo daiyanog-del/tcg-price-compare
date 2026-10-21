@@ -470,15 +470,18 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
 .deck-side-btn.is-active{background:var(--accent-l);color:#101626}
 .deck-side-btn.is-active .deck-side-ico,.deck-side-btn.is-active .deck-side-chev{color:#101626}
 /* 右の欄に移した価格計算（PC） */
-#deckCalcSlotTools .deck-calc{padding:0}
-#deckCalcSlotTools .deck-calc-title{display:none}
-#deckCalcSlotTools .deck-calc .deck-actions{flex-wrap:nowrap;gap:6px}
-#deckCalcSlotTools .deck-calc .deck-btn{flex:1;min-height:38px;padding:8px 6px}
-#deckCalcSlotTools .deck-calc-help{margin-top:8px}
-#deckCalcSlotTools .deck-results{margin-top:8px}
-#deckCalcSlotTools .deck-total{padding:8px 10px;gap:8px}
-#deckCalcSlotTools .deck-total-label{font-size:12px}
-#deckCalcSlotTools .deck-total-price{font-size:15px}
+/* site-theme.css（deck.css より後に読む）の #mode-mydeck .deck-calc* に負けないよう #mode-mydeck を付ける */
+#mode-mydeck #deckCalcSlotTools .deck-calc{padding:0}
+#mode-mydeck #deckCalcSlotTools .deck-calc-title{display:none}
+#mode-mydeck #deckCalcSlotTools .deck-calc .deck-actions{flex-wrap:nowrap;gap:6px}
+#mode-mydeck #deckCalcSlotTools .deck-calc .deck-btn{flex:1;min-height:38px;padding:8px 6px}
+#mode-mydeck #deckCalcSlotTools .deck-calc-help{margin-top:8px}
+#mode-mydeck #deckCalcSlotTools .deck-results{margin-top:8px}
+#mode-mydeck #deckCalcSlotTools .deck-total{padding:8px 10px;gap:8px}
+#mode-mydeck #deckCalcSlotTools .deck-total-label{font-size:12px}
+#mode-mydeck #deckCalcSlotTools .deck-total-price{font-size:15px}
+/* 右の欄が画面より高くなったら欄の中でスクロール（貼り付いたまま下の計算結果が見えなくならないように） */
+@media(min-width:901px){#mode-mydeck .deck-pane-tools{max-height:calc(100vh - 24px);overflow-y:auto}}
 
 /* 取り込み・テキストの窓 */
 .deck-tool-pop{display:flex;flex-direction:column;width:min(360px,calc(100vw - 16px));overflow-y:auto}
