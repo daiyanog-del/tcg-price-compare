@@ -1894,3 +1894,8 @@ rarity_pref 基準に統一。`items_map` のキーも rarity_pref で作る。
 - **リスト**: テーマごとの代表レシピ1件では霆王の閃光（DDD など3テーマ）が漏れた（ユーザー指摘）ので、TCG PORTAL の大会結果 API（hasDeckData）の全レシピを数える。名前にテーマ名を含むカード（テーマ名の揺れで複数テーマに数えられたテーマ専用カード）は外す。週1回作り直して staple_cards に保存（毎回約120ページ読むため投稿のたびには作らない）。
 - **仕組み**: staple_cards.py・staple_cards.sql・staple_post.py・update-staple-cards.yml（月曜 JST 10:30）・post-staple-movers.yml（毎日 JST 20:07・手動実行は既定で試し実行＝画像を成果物に残す）。GitHub Actions で動くので Render のビルド時間は使わない。
 - **未検証**: RPC は過去の日付で再実行できないので、投稿の頻度は自前の再計算（60日で値下がり十数件・値上がり数件）からの見込み。RPC の方が厳しいので実際は少ない可能性。
+
+## 2026-10-21 汎用カード投稿の毎日の実行を GitHub Actions から Render の cron へ（ユーザー承認・JST 20:00）
+- **なぜ**: GitHub の予約実行がこのリポジトリでは4〜9時間遅れる（新弾ポスト cron JST 21:07 の直近15回の実開始が JST 1:08〜6:12。X の記録も 1:30〜3:22）。時間帯による反応の差は今のデータ（24時間表示回数の中央値10前後）では判断できないので、まず「狙った時間に確実に出す」を優先。
+- **何を**: Render cron `tcg-post-staple-movers`（crn-dbc4bujbc2fs73b8m0a0・UTC 11:00＝JST 20:00・starter）。**自動デプロイは切ってある**（main の更新ごとのビルドで Render のビルド時間を使わないため。10-21 に上限を使い切った）。staple_post.py を変えたら Render の画面か API で手動デプロイする。書体はビルド時に google/fonts から .fonts/ へ取得。鍵（SUPABASE_URL/KEY・X_*）は Render の環境変数（ユーザーが設定）。
+- GitHub の post-staple-movers.yml は手動の試し実行用に残し、schedule は外した（戻すと二重に動く）。リストの作り直し（update-staple-cards.yml・週1）は遅れても困らないので GitHub のまま。

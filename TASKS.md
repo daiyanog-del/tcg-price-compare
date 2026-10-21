@@ -5,7 +5,7 @@
 
 ## 進行中
 
-- [ ] **汎用カードの値動き X 投稿（2026-10-21 開始・PR #126）** — 毎日 JST 20:07（post-staple-movers.yml）・リストは月曜作り直し（update-staple-cards.yml・staple_cards 158枚）。基準 値下がり -100円/-15%・値上がり +200円/+20%。**未確認**: GitHub 上での画像作り（候補が出た初回で確認。失敗した日は投稿せず見送る）／実際の投稿頻度（見込みは自前の再計算）。仮置き値の校正（TODO: calibrate from data）: staple_cards.WINDOW_DAYS=90・MIN_THEMES=3。M PLUS 2 にも Noto Sans JP にも無い字のカード名5件は字が抜ける。
+- [ ] **汎用カードの値動き X 投稿（2026-10-21 開始・PR #126）** — 毎日 JST 20:00（Render cron tcg-post-staple-movers・自動デプロイなし＝コード変更時は手動デプロイ。GitHub の post-staple-movers.yml は試し実行用）・リストは月曜作り直し（update-staple-cards.yml・staple_cards 158枚）。基準 値下がり -100円/-15%・値上がり +200円/+20%。**未確認**: GitHub 上での画像作り（候補が出た初回で確認。失敗した日は投稿せず見送る）／実際の投稿頻度（見込みは自前の再計算）。仮置き値の校正（TODO: calibrate from data）: staple_cards.WINDOW_DAYS=90・MIN_THEMES=3。M PLUS 2 にも Noto Sans JP にも無い字のカード名5件は字が抜ける。
 
 - [x] **マイデッキの洗練（2026-10-20〜・decisions 同日・モック _mocks/mydeck-refresh-20261020 を A〜E 全部承認）** — A 保存のしかた＋B 見出し（10-21 本番 PR #122 a7a460e）→ C カードの ±× をやめ右クリック／選んだカードだけ増減（10-21 本番 PR #123 6774814）→ D 保存済み一覧を「マイデッキ ▾」の窓・シートへ＋E 右の道具の欄（取り込みは窓・価格計算を右へ・カード 88px）（10-21 本番 PR #125 dce6e3f）。アーク完了。
 
