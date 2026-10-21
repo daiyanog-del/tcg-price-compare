@@ -12,27 +12,60 @@
  * ユーザー由来の文字列（タイトル等）は必ず textContent で入れる（innerHTML には入れない）。
  */
 
-import { savedReplaysGet, deleteReplayEntry, assertReplayPayload, saveReplayPayload } from './services/saved-replays.js';
+import { savedReplaysGet, savedReplaysSet, deleteReplayEntry, assertReplayPayload, saveReplayPayload } from './services/saved-replays.js';
 import { migrateSlotsToReplays, getRemainingSlotKeys, exportRemainingSlotsJson } from './services/slot-migration.js';
-import { sharedReplaysGet, deleteSharedReplay, unpublishSharedReplay } from './services/shared-replays.js';
-import { shouldConfirmOpen } from './utils/session-resume-store.js';
+import { sharedReplaysGet, sharedReplaysSet, deleteSharedReplay, unpublishSharedReplay } from './services/shared-replays.js';
+import { shouldConfirmOpen, copyResumeToUndo, UNDO_OFFER_KEY, NOTICE_KEY } from './utils/session-resume-store.js';
+import { showActionToast, openConfirm } from './ui/inline-ui.js';
 
 /**
- * 行リンクを開くと、シミュレーターに退避中の記録が置き換わる場合は確認する。
- * 新しいタブで開く操作（修飾キー付き）は今のページが残るので確認しない。
+ * 行リンクを開くと、シミュレーターに退避中の記録が置き換わる場合の準備。
+ * 以前は確認窓を出していたが、今は退避を「元に戻す」用に写しておき、開いた先（シミュレーター）で6秒間「元に戻す」を出す
+ * （ui/undo-point.js consumeStartupOffers）。新しいタブで開く操作（修飾キー付き）は今のページが残るので何もしない。
  */
 function confirmReplaceSessionRecord(ev) {
-  if (!askReplaceSessionRecord(ev)) ev.preventDefault();
+  askReplaceSessionRecord(ev);
 }
 
-/** 置き換わる確認を出し、開いてよければ true（確認が要らない場合も true） */
+/** 置き換わるなら写しを取って、開いた先で「元に戻す」を出す印を付ける。常に true（開いてよい） */
 function askReplaceSessionRecord(ev) {
   let r;
   try { r = shouldConfirmOpen(ev, sessionStorage); } catch (e) { return true; }
   if (!r.ask) return true;
-  // 0手（setup ログだけ）のときは手数を出さない
-  const what = r.steps > 0 ? `今の記録（${r.steps}手）` : '今の記録';
-  return confirm(`シミュレーターの${what}は、このリプレイに置き換わります。開きますか？`);
+  try {
+    if (copyResumeToUndo(sessionStorage)) {
+      // 0手（setup ログだけ）のときは手数を出さない
+      const what = r.steps > 0 ? `前の記録（${r.steps}手）` : '前の記録';
+      sessionStorage.setItem(UNDO_OFFER_KEY, `リプレイを開きました（${what}に戻せます）`);
+    }
+  } catch (e) { /* 元に戻せないだけで、開くのは止めない */ }
+  return true;
+}
+
+/**
+ * 一覧から1件消して、6秒間「元に戻す」を出す（以前は確認窓）。元に戻すと同じ位置へ戻す。
+ * @param {Function} getList  一覧を読む関数
+ * @param {Function} setList  一覧を書く関数
+ * @param {Function} remove   1件消す関数（id を受ける）
+ * @param {Object} item
+ * @param {Function} rerender 描き直す関数
+ * @param {string} msg
+ */
+function removeWithUndo(getList, setList, remove, item, rerender, msg) {
+  const before = getList();
+  const idx = before.findIndex(x => x.id === item.id);
+  remove(item.id);
+  rerender();
+  showActionToast(msg, {
+    label: '元に戻す',
+    onClick: () => {
+      const cur = getList();
+      if (cur.some(x => x.id === item.id)) return;
+      cur.splice(idx < 0 ? 0 : Math.min(idx, cur.length), 0, before[idx]);
+      setList(cur);
+      rerender();
+    },
+  });
 }
 
 /** 日時を「10/15 13:05」形式にする（不明なら空文字） */
@@ -166,9 +199,7 @@ function renderSaved() {
     actions.appendChild(openLinkButton('最初から再生', openHref));
     actions.appendChild(openLinkButton('最後の盤面から続ける', openHref + '&at=end'));
     actions.appendChild(actionButton('削除', 'rp-btn-danger', () => {
-      if (!confirm(`「${item.title || '無題'}」を削除します。元に戻せません。よろしいですか？`)) return;
-      deleteReplayEntry(item.id);
-      renderSaved();
+      removeWithUndo(savedReplaysGet, savedReplaysSet, deleteReplayEntry, item, renderSaved, `「${item.title || '無題'}」を削除しました`);
     }));
     li.appendChild(actions);
     listEl.appendChild(li);
@@ -227,17 +258,25 @@ function renderShared() {
     actions.appendChild(copyBtn);
     if (item.public && item.deleteToken) {
       // 赤は文字色だけ（取り消せない操作ではないので枠・背景は付けない）
-      actions.appendChild(actionButton('公開をやめる', 'rp-btn-unpublish', () => { unpublishItem(item); }));
+      const unpubBtn = actionButton('公開をやめる', 'rp-btn-unpublish', () => { unpublishItem(item, unpubBtn); });
+      actions.appendChild(unpubBtn);
     }
-    actions.appendChild(actionButton('履歴から消す', 'rp-btn-danger', () => {
+    const forgetBtn = actionButton('履歴から消す', 'rp-btn-danger', () => {
       const isPublic = item.public && item.deleteToken;
-      const msg = isPublic
-        ? `「${item.title || '無題'}」は公開中です。この一覧から消すと、このブラウザから公開をやめられなくなります（先に「公開をやめる」を押してください）。それでも消しますか？`
-        : `「${item.title || '無題'}」をこの一覧から消します。共有リンクは作成から90日で自動的に消えます。よろしいですか？`;
-      if (!confirm(msg)) return;
-      deleteSharedReplay(item.id);
-      renderShared();
-    }));
+      if (isPublic) {
+        // 公開中は、消すとこのブラウザから公開をやめられなくなる（鍵を失う）。元に戻せても見落としやすいので、その場で確かめる
+        openConfirm(forgetBtn, {
+          message: `「${item.title || '無題'}」は公開中です。履歴から消すと、このブラウザから公開をやめられなくなります（先に「公開をやめる」を押してください）。`,
+          okLabel: 'それでも消す',
+          danger: true,
+          onOk: () => removeWithUndo(sharedReplaysGet, sharedReplaysSet, deleteSharedReplay, item, renderShared, `「${item.title || '無題'}」を履歴から消しました`),
+        });
+        return;
+      }
+      removeWithUndo(sharedReplaysGet, sharedReplaysSet, deleteSharedReplay, item, renderShared,
+        `「${item.title || '無題'}」を履歴から消しました（共有リンクは作成から90日で消えます）`);
+    });
+    actions.appendChild(forgetBtn);
     li.appendChild(actions);
     listEl.appendChild(li);
   }
@@ -255,8 +294,17 @@ function showSharedError(message) {
  * 公開をやめる。確認のあと、公開時にこのブラウザへ控えた鍵で取り下げ API を呼び、成功したら「公開中」の札を外す。
  * 403 は「鍵が合わない・すでに公開されていない（運営の削除を含む）」なので、控えを外して状況を伝える。
  */
-async function unpublishItem(item) {
-  if (!confirm(`「${item.title || '無題'}」の公開をやめます。みんなのリプレイの一覧から外れ、共有リンクは作成から90日で消えます。よろしいですか？`)) return;
+function unpublishItem(item, anchor) {
+  // サーバー側の操作で、元に戻す手段が無い（もう一度公開するには共有し直す）ので、ページ内の小窓で確かめる（以前は確認窓）
+  openConfirm(anchor || null, {
+    message: `「${item.title || '無題'}」の公開をやめます。みんなのリプレイの一覧から外れ、共有リンクは作成から90日で消えます。`,
+    okLabel: '公開をやめる',
+    danger: true,
+    onOk: () => { doUnpublish(item); },
+  });
+}
+
+async function doUnpublish(item) {
   showSharedError('');
   try {
     const res = await fetch('/api/solitaire/replay/' + encodeURIComponent(item.id) + '/unpublish', {
@@ -529,9 +577,9 @@ async function handleOpenFile(e) {
       ? payload.title : file.name.replace(/\.json$/i, '');
     const saved = saveReplayPayload(payload, { title });
     if (!saved.ok) throw new Error(SAVE_FAIL_MESSAGES[saved.reason] || '保存に失敗しました');
-    // 上限20件の整理で古い保存が消えたときは、移動する前に知らせる（移動すると画面ごと切り替わるため確認を挟む）
+    // 上限20件の整理で古い保存が消えたときは、移った先（シミュレーター）で知らせる（以前は移る前に知らせの窓を出していた）
     if (saved.removedCount > 0) {
-      alert(`保存の上限のため、古い${saved.removedCount}件を削除しました。`);
+      try { sessionStorage.setItem(NOTICE_KEY, `保存の上限のため、古い${saved.removedCount}件を削除しました`); } catch (e) { /* 知らせられないだけ */ }
     }
     location.href = '/solitaire?saved=' + encodeURIComponent(saved.id);
   } catch (err) {

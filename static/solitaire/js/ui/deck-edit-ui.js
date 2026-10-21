@@ -24,6 +24,7 @@ import { addCardsToDeck, savedDecksGet, savedDecksSet, isDeckLoading } from './d
 import { forgetCard, getLoggedCardIds } from '../services/replay-service.js';
 import { setExtraMenuItemsProvider } from './context-menu.js';
 import { showToast } from '../utils/toast.js';
+import { showActionToast, openNameDialog } from './inline-ui.js';
 import { openDeckImageDialog } from '../../../shared/deck-image.js';
 import { wishCount, addOneToWish, offerRemoveFromWish, openShortagePanel, closeShortagePanel, markAddedNotOwned } from './deck-wish-ui.js';
 
@@ -114,33 +115,39 @@ function _whyNotRemovable(name) {
 
 // ══════════════════ 保存 ══════════════════
 
-/** 名前を聞く（キャンセル・空は null）。既にある名前は聞き直す */
-function _askName(initial) {
-  const existing = new Set(savedDecksGet().map(d => d.name));
-  let def = initial;
-  for (;;) {
-    const input = prompt('マイデッキに登録する名前', def);
-    if (input === null) return null;
-    const n = input.trim().slice(0, NAME_MAX);
-    if (!n) return null;
-    if (existing.has(n)) {
-      alert(`「${n}」はすでにマイデッキにあります。別の名前にしてください。`);
-      def = n;
-      continue;
-    }
-    return n;
-  }
+/**
+ * 名前を聞く小窓（inline-ui.js。以前はブラウザの入力窓で、同じ名前だとエラーの窓→入力窓をくり返していた）。
+ * 同じ名前はその場で知らせて閉じない。決まったら onName(名前) を呼ぶ。
+ * @param {Element|null} anchor  押されたボタン（小窓をその下に出す）
+ */
+function _askName(anchor, initial, onName) {
+  openNameDialog(anchor, {
+    title: 'マイデッキに登録する名前',
+    okLabel: '登録する',
+    initial,
+    maxLength: NAME_MAX,
+    onOk: (n) => {
+      if (savedDecksGet().some(d => d.name === n)) return `「${n}」はすでにマイデッキにあります。別の名前にしてください。`;
+      onName(n);
+    },
+  });
+}
+
+/** クリックの出どころ（ボタン）を小窓の起点に使う */
+function _anchorOf(ev) {
+  return (ev && (ev.currentTarget || ev.target)) || null;
 }
 
 /** 今の増減を、ひも付いたマイデッキへ上書き保存する（取り消しあり） */
-export function saveChanges() {
+export function saveChanges(ev) {
   const link = getDeckLink();
-  if (!link?.savedId) { registerAsNew(); return; }
+  if (!link?.savedId) { registerAsNew(ev); return; }
   const list = savedDecksGet();
   const deck = list.find(d => d.id === link.savedId);
   if (!deck) {
-    alert(`保存先のマイデッキ「${link.name}」が見つかりません（削除された可能性があります）。新しいデッキとして登録します。`);
-    registerAsNew();
+    // 知らせの窓をやめ、お知らせを出してから登録の小窓を開く
+    showActionToast(`保存先のマイデッキ「${link.name}」が見つかりません（削除された可能性があります）。新しいデッキとして登録してください`);
+    registerAsNew(ev);
     return;
   }
   const before = captureLinkState();
@@ -180,7 +187,16 @@ export function saveChanges() {
 }
 
 /** 新しいマイデッキとして登録する（未登録のデッキ／「別のデッキとして保存」） */
-export function registerAsNew() {
+export function registerAsNew(ev) {
+  const link0 = getDeckLink();
+  const base0 = link0?.savedId ? savedDecksGet().find(d => d.id === link0.savedId) : null;
+  const preview = base0 ? applyDeltas(deckContents(base0), getDeltas()) : collectDeckFromDom(document);
+  if (!preview.main.length && !preview.ex.length) { showToast('デッキにカードがありません'); return; }
+  _askName(_anchorOf(ev), base0 ? `${base0.name || 'マイデッキ'} のコピー` : (link0?.name || 'デッキ'), (name) => _registerAs(name));
+}
+
+/** 名前が決まった後の登録（小窓を開いている間にデッキが変わることがあるので、中身はここで読み直す） */
+function _registerAs(name) {
   const link = getDeckLink();
   let contents;
   const base = link?.savedId ? savedDecksGet().find(d => d.id === link.savedId) : null;
@@ -190,9 +206,7 @@ export function registerAsNew() {
   } else {
     contents = collectDeckFromDom(document);
   }
-  if (!contents.main.length && !contents.ex.length) { alert('デッキにカードがありません'); return; }
-  const name = _askName(base ? `${base.name || 'マイデッキ'} のコピー` : (link?.name || 'デッキ'));
-  if (!name) return;
+  if (!contents.main.length && !contents.ex.length) { showToast('デッキにカードがありません'); return; }
   const list = savedDecksGet();
   const deck = { id: 'd_' + Date.now(), name, text: serializeDeck(contents), main: contents.main, ex: contents.ex, updated: Date.now() };
   // 元のデッキの所持枚数を引き継ぎ、この画面で足したカードは「持っていない」として残す（deck-wish-ui.js）

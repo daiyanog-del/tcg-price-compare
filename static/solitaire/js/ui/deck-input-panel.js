@@ -10,6 +10,9 @@ import { setCardName } from './card-info-panel.js';
 import { clearSessionResume } from '../utils/session-resume-store.js';
 import { setDeckLink, getDeckLink, onDeckLinkChange } from '../services/deck-link.js';
 import { isMobilePortrait, watchMobilePortrait } from '../utils/viewport.js';
+import { showToast } from '../utils/toast.js';
+import { showActionToast } from './inline-ui.js';
+import { saveUndoPoint, offerUndo, discardUndoPoint } from './undo-point.js';
 
 const API_CARD_IMAGE  = '/api/card-image';   // 単数版（フォールバック用）
 const API_CARD_IMAGES = '/api/card-images';  // バッチ版（POST）
@@ -128,16 +131,29 @@ async function clearAllCards() {
   });
 }
 
+// 記録のあるデッキを入れ替えている途中（読み込みが終わったら「元に戻す」を出す）
+let _replaceUndoPending = false;
+
 /**
- * 新しいデッキに入れ替えてよいかを確かめる。記録（setup込みで1手以上）があるときだけ確認を出す。
+ * 新しいデッキに入れ替える前の準備。記録（setup込みで1手以上）があるときは、以前は確認窓を出していたが、
+ * 今は直前の写しを取っておき、読み込みが終わったら6秒間「元に戻す」を出す（undo-point.js）。
  * 入れ替えると、前のデッキのカードを指す記録は再生しても何も動かなくなり、共有すると
  * 前のデッキのカードまで受け手のデッキに混ざるため、入れ替えと同時に記録を消す（_clearForNewDeck）。
- * @returns {boolean} 続けてよければ true
+ * 呼んだ後は必ず sol-deck-load-end を出すこと（3つの読み込みとも finally で出している）。
+ * @returns {boolean} 続けてよければ true（今は常に true。呼び出し側の形を変えないため残す）
  */
 function _confirmReplaceDeck() {
-  // 手数は出さない（setup＝範囲共有の初期配置も記録に含むので、再生バーの「N手」と食い違うことがある）
   if (getLogLength() + getSetupLogs().length === 0) return true;
-  return confirm('今の記録は消えます。新しいデッキを読み込みますか？');
+  if (!saveUndoPoint()) return true;
+  _replaceUndoPending = true;
+  document.addEventListener('sol-deck-load-end', (e) => {
+    _replaceUndoPending = false;
+    const d = (e && e.detail) || {};
+    if (d.ok) offerUndo('デッキを読み込みました（前の記録は消えました）');
+    else if (d.error) offerUndo('デッキを読み込めませんでした: ' + d.error);
+    else discardUndoPoint();
+  }, { once: true });
+  return true;
 }
 
 /**
@@ -409,7 +425,7 @@ export async function loadDeckFromText(text, triggerBtn = null) {
     return;
   }
   const cards = parseDeckList(text);
-  if (cards.length === 0) { alert('デッキリストが空です'); return; }
+  if (cards.length === 0) { showToast('デッキリストが空です'); return; }
   if (!_confirmReplaceDeck()) return;
 
   _deckLoadInFlight = true;
@@ -580,7 +596,8 @@ export async function loadMetaDeck(theme, triggerBtn = null) {
     ok = true;
   } catch (e) {
     error = e?.message || String(e);
-    alert(`環境デッキの読み込みに失敗しました: ${e.message}`);
+    // 記録を消して入れ替えている途中なら、読み込み終わりの「元に戻す」の知らせに失敗の理由を載せる（重ねて出さない）
+    if (!_replaceUndoPending) showActionToast(`環境デッキの読み込みに失敗しました: ${e.message}`, { error: true });
   } finally {
     setPoolLoading(['imagePool', 'imagePool2'], false);
     _deckLoadInFlight = false;

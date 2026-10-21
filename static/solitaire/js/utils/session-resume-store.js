@@ -113,3 +113,80 @@ export function takeSessionResume(storage, decompress) {
   storage.removeItem(SESSION_RESUME_KEY);
   return { state: JSON.parse(decompress(raw)), replayDropped: dropped };
 }
+
+// ── 元に戻す（2026-10-21・ブラウザ標準の確認窓をやめて「すぐ実行して元に戻すを出す」にした。ui/undo-point.js） ──
+// 消す・入れ替える操作の直前の盤面と記録を、退避と同じ形で別のキーに写しておき、
+// 「元に戻す」で退避のキーへ戻してからシミュレーターを開き直す（ページを移ったときの復元と同じ道を通す）。
+export const UNDO_RESUME_KEY = 'sol-undo-resume';
+export const UNDO_REPLAY_DROPPED_KEY = 'sol-undo-resume-replay-dropped';
+export const UNDO_STEPS_KEY = 'sol-undo-resume-steps';
+// ページを移った先（シミュレーター）で「元に戻す」を出すための文言（リプレイ一覧から開いた等）
+export const UNDO_OFFER_KEY = 'sol-undo-offer';
+// 元に戻して開き直したことの印（復元のお知らせを「元に戻しました」にする）
+export const UNDO_RESTORED_KEY = 'sol-undo-restored';
+// ページを移る前に出せなかったお知らせ（移った先で出す）
+export const NOTICE_KEY = 'sol-notice';
+
+const _PAIRS = [
+  [SESSION_RESUME_KEY, UNDO_RESUME_KEY],
+  [SESSION_REPLAY_DROPPED_KEY, UNDO_REPLAY_DROPPED_KEY],
+  [SESSION_RESUME_STEPS_KEY, UNDO_STEPS_KEY],
+];
+
+/** 元に戻すための写しを消す */
+export function clearUndo(storage) {
+  for (const [, u] of _PAIRS) storage.removeItem(u);
+  storage.removeItem(UNDO_OFFER_KEY);
+}
+
+/** 元に戻すための写しがあるか */
+export function hasUndo(storage) {
+  return !!storage.getItem(UNDO_RESUME_KEY);
+}
+
+/**
+ * 今の退避（セッション復元のキー）を、元に戻すための写しへ移す。退避が無ければ何もせず false。
+ * 移したあと退避のキーは消す（次に開いたときに古い退避が復元されないように）。
+ */
+export function moveResumeToUndo(storage) {
+  if (!storage.getItem(SESSION_RESUME_KEY)) return false;
+  clearUndo(storage);
+  for (const [r, u] of _PAIRS) {
+    const v = storage.getItem(r);
+    if (v !== null) storage.setItem(u, v);
+    storage.removeItem(r);
+  }
+  return true;
+}
+
+/** 今の退避を残したまま、元に戻すための写しへ複製する（リプレイ一覧から開くとき。退避はシミュレーター側で上書きされる） */
+export function copyResumeToUndo(storage) {
+  if (!storage.getItem(SESSION_RESUME_KEY)) return false;
+  clearUndo(storage);
+  for (const [r, u] of _PAIRS) {
+    const v = storage.getItem(r);
+    if (v !== null) storage.setItem(u, v);
+  }
+  return true;
+}
+
+/** 元に戻すための写しを退避のキーへ戻す（次に開いたときに復元される）。写しが無ければ false */
+export function moveUndoToResume(storage) {
+  if (!storage.getItem(UNDO_RESUME_KEY)) return false;
+  clearSessionResume(storage);
+  for (const [r, u] of _PAIRS) {
+    const v = storage.getItem(u);
+    if (v !== null) storage.setItem(r, v);
+    storage.removeItem(u);
+  }
+  storage.removeItem(UNDO_OFFER_KEY);
+  storage.setItem(UNDO_RESTORED_KEY, '1');
+  return true;
+}
+
+/** 一度だけ読む値（読んだら消す） */
+export function takeOnce(storage, key) {
+  const v = storage.getItem(key);
+  if (v !== null) storage.removeItem(key);
+  return v;
+}

@@ -1436,6 +1436,15 @@ function _updateUI(arrivedForward = false) {
     btnPlay.classList.toggle('play-active', _playing);
     btnPlay.disabled = total === 0;
   }
+  // 記録が無いときは保存・共有を押せなくする（以前は押すと「記録がありません」の窓が出た）。
+  // 保存・共有は初期配置（setup）だけでもできる。X 投稿は手（logs）が要る
+  const nothing = total === 0 && _setupLogs.length === 0;
+  for (const id of ['pcSaveSheetOpen', 'pcShareSheetOpen', 'solMobileSaveBtn']) {
+    const b = document.getElementById(id);
+    if (b) b.disabled = nothing;
+  }
+  const btnX = document.getElementById('replayShareX');
+  if (btnX && !btnX.dataset.busy) btnX.disabled = total === 0;
   // 吹き出し・盤面メモは、記録の位置（カーソルまで）から毎回計算して描く
   renderCommentView(_setupLogs, _logs, cur);
   // カットイン: 前進でその手に来たときだけ出す。前進以外でカーソルが動いたら、出ているものは消す

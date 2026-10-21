@@ -16,27 +16,28 @@ import { collectReplayCardIds } from './utils/session-resume-store.js';
 import { initializeCounter } from './components/counter-manager.js';
 import { initializeEventListeners } from './ui/event-handlers.js';
 import { initReplayUI } from './ui/replay-ui.js';
-import { registerCardImage, registerCardIsEx, registerCardName, registerCardType, captureReplaySession, restoreReplaySession, rebuildAtCursor, isPlaying, isReplayAnimating } from './services/replay-service.js';
+import { registerCardImage, registerCardIsEx, registerCardName, registerCardType, restoreReplaySession, rebuildAtCursor } from './services/replay-service.js';
 import { initTokenGenerator } from './ui/token-generator.js';
 import { initRandomTools } from './ui/random-tools.js';
 import { initCardInfoPanel, showCardByName } from './ui/card-info-panel.js';
 import { initSampleBlur } from './ui/sample-blur.js';
-import { saveSessionResume, loadSessionResume } from './services/save-load-service.js';
+import { loadSessionResume } from './services/save-load-service.js';
 import { migrateSlotsToReplays } from './services/slot-migration.js';
 import { updateCipWidth, syncCipPosition } from './ui/cip-layout.js';
 import { initFeedbackModal } from './ui/feedback-modal.js';
 import { initSidebarToggle } from './ui/sidebar-toggle.js';
-import { initMobileUI, getMobileRecordingState, setMobileRecordingState, isMobilePlaybackMode, resumePlaybackModeIfNeeded, openCardDetailByName, enterPlaybackModeForRecView } from './ui/mobile-ui.js';
+import { initMobileUI, setMobileRecordingState, resumePlaybackModeIfNeeded, openCardDetailByName, enterPlaybackModeForRecView } from './ui/mobile-ui.js';
 import { initRecView } from './ui/rec-view.js';
-import { getPcRecordingState, setPcRecordingState, isPcRangePicking, closePcRangePicker } from './ui/pc-recording.js';
+import { setPcRecordingState } from './ui/pc-recording.js';
 import { isMobilePortrait } from './utils/viewport.js';
 import { showToast } from './utils/toast.js';
 import { hasReplayInUrl as isReplayInUrl } from './utils/replay-url.js';
 import { loadDeckFromNeuron, clearEverything } from './ui/deck-input-panel.js';
 import { receiveDeckHandoff } from '../../shared/deck-handoff.js';
 import { receiveNewCards } from '../../shared/newcards-entry.js';
-import { initDeckEditUI, setDeckLink, restoreLinkState, captureLinkState } from './ui/deck-edit-ui.js';
+import { initDeckEditUI, setDeckLink, restoreLinkState } from './ui/deck-edit-ui.js';
 import { initDeckReplaysUI } from './ui/deck-replays-ui.js';
+import { captureSessionToResume, consumeStartupOffers, takeUndoRestored } from './ui/undo-point.js';
 
 /**
  * リプレイ画像辞書に登録する src を決める。
@@ -439,6 +440,8 @@ async function initializeApp() {
     setMobileRecordingState(replaySnap.mobileRecording);
   }
   if (restored) {
+    // 「元に戻す」で開き直した直後か（復元のお知らせを「元に戻しました」にする。印は一度だけ読む。残った印は consumeStartupOffers が捨てる）
+    const undoRestored = takeUndoRestored();
     // 復元したカードをリプレイ画像辞書に登録
     // img.tier-item（発売済み）または div.tier-item（プロキシ）どちらも .tier-item で取れる
     document.querySelectorAll('.tier-item').forEach(cardEl => {
@@ -453,7 +456,8 @@ async function initializeApp() {
       }
     });
     // 記録を容量超過で落としていた場合は、2つのトーストが重ならないよう1つにまとめる
-    _showToast(restored.replayDropped
+    _showToast(undoRestored ? '元に戻しました'
+      : restored.replayDropped
       ? '前回の盤面を復元しました（記録は大きすぎて引き継げませんでした）'
       : replaySnap ? '前回の盤面と記録を復元しました' : '前回の盤面を復元しました');
     // スマホで再生モード中に離れていたなら、同じ手を表示したまま再生モードへ入り直す
@@ -477,6 +481,8 @@ async function initializeApp() {
   if (slotMigration.failed > 0) {
     _showToast(`移せなかった盤面セーブが${slotMigration.failed}件あります（リプレイ一覧で確認できます）`);
   }
+  // 前のページから引き継いだお知らせと「元に戻す」（リプレイ一覧から開いた・記録を置き換えて開いた等。ui/undo-point.js）
+  consumeStartupOffers();
 
   // ビューポートに合わせて --slot-width を初期設定
   // ※ fitFieldToViewport 内の RAF でパネル幅（--cip-width）も更新される
@@ -589,22 +595,11 @@ function initZoneCounts() {
   }
 }
 
-/** ページ遷移直前に盤面をsessionStorageへ退避 */
+/** ページ遷移直前に盤面をsessionStorageへ退避（中身は ui/undo-point.js captureSessionToResume。「元に戻す」の写しと共通） */
 window.addEventListener('pagehide', () => {
-  // リプレイ記録は main.js で集めて渡す（save-load-service が ui/ を import すると循環依存になるため）
-  // 範囲を選ぶパネルを開いたまま離れたら、先に閉じて開く前の手へ戻す（途中の手のままロックなしで戻らないように）
-  const wasPicking = isPcRangePicking();
-  if (wasPicking) closePcRangePicker();
-  const replay = captureReplaySession();
-  if (replay) {
-    replay.pcRecording = getPcRecordingState();
-    replay.mobileRecording = getMobileRecordingState();
-    replay.mobilePlayback = isMobilePlaybackMode();
-    // 自動再生中・再生の演出（完了で盤面を確定する飛行等）の途中なら、盤面が中間状態の可能性がある。復元時に作り直させる
-    if (isPlaying() || isReplayAnimating() || wasPicking) replay.needsRebuild = true;
-  }
-  // デッキとマイデッキのひも付け・保存していない増減も一緒に退避する（戻ったら続きから保存できるように）
-  saveSessionResume(replay, captureLinkState());
+  // 「元に戻す」で開き直すときは、写しを戻した退避を今の盤面（消した後・入れ替えた後）で上書きしない
+  if (window.__solSkipResumeSave) return;
+  captureSessionToResume();
 });
 
 /**

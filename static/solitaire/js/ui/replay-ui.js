@@ -34,6 +34,8 @@ import { initCommentUI } from './comment-ui.js';
 import { clearEverything } from './deck-input-panel.js';
 import { initReplayStartPrompt } from './replay-start-prompt.js';
 import { showToast } from '../utils/toast.js';
+import { showActionToast } from './inline-ui.js';
+import { saveUndoPoint, offerUndo, discardUndoPoint } from './undo-point.js';
 import { addSharedReplay } from '../services/shared-replays.js';
 import { savedReplaysGet, saveReplayEntry } from '../services/saved-replays.js';
 import { getDeckLink, getDeltas, deckContents, applyDeltas } from '../services/deck-link.js';
@@ -110,7 +112,8 @@ function _updateSpeedButtons() {
  */
 export function exportReplayFile(range) {
   // Low-13: setup（初期配置）だけの盤面も保存できるよう、setup込みの手数で判定する
-  if (getLogLength() + getSetupLogs().length === 0) { alert('記録がありません'); return; }
+  // 記録が無いときはボタン自体を押せなくしている（replay-service.js _updateUI）。念のための知らせ
+  if (getLogLength() + getSetupLogs().length === 0) { showToast('記録がありません'); return; }
   const title = _getTypedReplayTitle() || _formatDefaultReplayTitle();
   exportReplay(title, range ? buildRangeLogsForPayload(range) : undefined);
 }
@@ -142,17 +145,20 @@ export function initReplayUI() {
 
   // クリア: 右パネル「盤面操作」のクリアボタン。モバイル版⋯メニューの
   // 「クリア」（deck-input-panel.js clearEverything）と同じ処理を使い、盤面も含めて
-  // 完全に初期状態へ戻す。誤操作防止のため確認ダイアログを必須にする。
+  // 完全に初期状態へ戻す。以前は確認窓を出していたが、今は直前の写しを取ってすぐ消し、6秒間「元に戻す」を出す（undo-point.js）。
   document.getElementById('clearButton')
     ?.addEventListener('click', async () => {
-      if (!confirm('読み込んだデッキ・盤面・記録をすべて消去します。元に戻せません。よろしいですか？')) return;
+      const undoable = saveUndoPoint();
       // clearEverything() はデッキ読込中だと何もせず false を返す。その場合に
       // _resetPcRecording() だけ実行すると「盤面は残るが録画範囲だけ消える」
       // 中途半端な状態になるため、成功時のみ後続処理を行う。
       if (await clearEverything()) {
         // clearEverything() は PC版の録画状態（pc-recording.js）を知らないため、ここで明示的にリセットする
         _resetPcRecording();
+        if (undoable) offerUndo('デッキ・盤面・記録をすべて消しました');
+        else showToast('クリアしました');
       } else {
+        discardUndoPoint();
         showToast('デッキ読込中のためクリアできませんでした');
       }
     });
@@ -563,7 +569,7 @@ function _memoShareUrl(key, make) {
  */
 async function handleShare() {
   // Low-13: setup（初期配置）だけの盤面も共有できるよう、setup込みの手数で判定する
-  if (getLogLength() + getSetupLogs().length === 0) { alert('記録がありません'); return; }
+  if (getLogLength() + getSetupLogs().length === 0) { showToast('記録がありません'); return; }
   const isPublic = _isPcPublicChecked();
   if (!_checkPcPublicTitle(isPublic)) return;
   const btn = document.getElementById('replayShare');
@@ -572,11 +578,13 @@ async function handleShare() {
     // PC版: 停止済みの録画があればその範囲だけを共有する（無ければ range=null で全範囲）
     const url = await generateShareURL(_getPcRecordingRange(), { public: isPublic });
     await _copyToClipboard(url);
-    alert(isPublic ? '共有リンクをコピーしました。みんなのリプレイに公開しました' : '共有リンクをコピーしました');
+    // 知らせの窓をやめ、画面下のお知らせに（押さないと先へ進めない窓は、コピーできた知らせには重い）
+    showActionToast(isPublic ? '共有リンクをコピーしました（みんなのリプレイにも公開）' : '共有リンクをコピーしました',
+      { label: 'リンクを開く', onClick: () => window.open(url, '_blank', 'noopener') });
   } catch (e) {
     // 公開の失敗（禁止語・タイトル不備など）は、チェックの下にその場で出す
     if (isPublic) _showPcPublicError(e.message);
-    else alert('共有リンクの作成に失敗しました: ' + e.message);
+    else showActionToast('共有リンクの作成に失敗しました: ' + e.message, { error: true });
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -648,11 +656,11 @@ export function buildShareTweetUrl(shareUrl) {
  * X（Twitter）への投稿
  */
 async function handleShareToX() {
-  if (getLogLength() === 0) { alert('記録がありません'); return; }
+  if (getLogLength() === 0) { showToast('記録がありません'); return; }
   const isPublic = _isPcPublicChecked();
   if (!_checkPcPublicTitle(isPublic)) return;
   const btn = document.getElementById('replayShareX');
-  if (btn) btn.disabled = true;
+  if (btn) { btn.disabled = true; btn.dataset.busy = '1'; } // 通信中は replay-service.js の切り替えで押せるように戻さない
   try {
     // 中1対応: 「共有リンクをコピー」と同じくPC版の停止済み録画範囲を反映する
     const url = await _generateShortURL(_getPcRecordingRange(), isPublic);
@@ -660,9 +668,9 @@ async function handleShareToX() {
     if (isPublic) showToast('みんなのリプレイに公開しました');
   } catch (e) {
     if (isPublic) _showPcPublicError(e.message);
-    else alert('X投稿の準備に失敗しました: ' + e.message);
+    else showActionToast('X投稿の準備に失敗しました: ' + e.message, { error: true });
   } finally {
-    if (btn) btn.disabled = false;
+    if (btn) { delete btn.dataset.busy; btn.disabled = getLogLength() === 0; }
   }
 }
 

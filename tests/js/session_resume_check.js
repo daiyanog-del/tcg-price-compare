@@ -146,8 +146,11 @@ const playPauseMs=(ev,base,f)=>base;
   assert(/if \(replaySnap\?\.needsRebuild\) \{\s*rebuildAtCursor\(\);/.test(mainSrc), 'needsRebuild ガード付きの rebuildAtCursor 呼び出しが無い');
   assert.equal((mainSrc.match(/rebuildAtCursor\(\)/g) || []).length, 1, 'rebuildAtCursor の呼び出しが複数ある');
   // 範囲を選ぶパネル（pc-recording.js）を開いたまま離れたときも作り直す（2026-10-20）
-  assert(/if \(isPlaying\(\) \|\| isReplayAnimating\(\)( \|\| wasPicking)?\) replay\.needsRebuild = true;/.test(mainSrc));
-  assert(/if \(wasPicking\) closePcRangePicker\(\);/.test(mainSrc), 'パネルを開いたまま離れたときに閉じていない');
+  // 退避の中身は ui/undo-point.js captureSessionToResume（「元に戻す」の写しと共通。2026-10-21）。main.js の pagehide はそれを呼ぶ
+  const undoSrc = fs.readFileSync(path.join(js, 'ui', 'undo-point.js'), 'utf8');
+  assert(/if \(isPlaying\(\) \|\| isReplayAnimating\(\)( \|\| wasPicking)?\) replay\.needsRebuild = true;/.test(undoSrc));
+  assert(/if \(wasPicking\) closePcRangePicker\(\);/.test(undoSrc), 'パネルを開いたまま離れたときに閉じていない');
+  assert(/addEventListener\('pagehide', \(\) => \{[^]*?if \(window\.__solSkipResumeSave\) return;\s*captureSessionToResume\(\);/.test(mainSrc), 'pagehide が退避を呼んでいない（元に戻すときは書かない）');
   assert(/syncCardIdCounter\(collectReplayCardIds\(replaySnap\)\)/.test(mainSrc));
 
   // ── 純粋関数: visibility 除去・カードID収集・フラグ消去 ──

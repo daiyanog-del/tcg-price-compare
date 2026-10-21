@@ -41,6 +41,7 @@ import { _renderCard, _showUnknown, _showLoading } from './card-info-panel.js';
 import { isMobilePortrait, watchMobilePortrait, isMobileLandscape, watchMobileLandscape } from '../utils/viewport.js';
 import { enterRecView, exitRecView } from './rec-view.js';
 import { showToast } from '../utils/toast.js';
+import { saveUndoPoint, offerUndo, discardUndoPoint } from './undo-point.js';
 import { resetMobileDeckMode, openDeckImage } from './deck-edit-ui.js';
 import { generateShareURL, checkPublicTitle, resetShareUrlMemo, buildShareTweetUrl, getReplayCounts, saveReplayToDevice, describeSaveResult, exportReplayFile } from './replay-ui.js';
 import { clearEverything } from './deck-input-panel.js';
@@ -227,11 +228,19 @@ function closeMenuSheet() {
   setHidden('solMobileMenuSheet', true);
 }
 
-/** 「クリア」。確認ダイアログでOKされた場合のみ deck-input-panel.js の clearEverything を呼ぶ。 */
+/**
+ * 「クリア」。以前は確認窓を出していたが、今は直前の写しを取ってすぐ消し、6秒間「元に戻す」を出す（undo-point.js。PC の clearButton と同じ）。
+ * clearEverything はデッキ読込中だと何もせず false を返す。
+ */
 async function handleClearEverything() {
-  if (!confirm('読み込んだデッキ・盤面・記録をすべて消去します。元に戻せません。よろしいですか？')) return;
-  await clearEverything();
-  showToast('クリアしました');
+  const undoable = saveUndoPoint();
+  if (!(await clearEverything())) {
+    discardUndoPoint();
+    showToast('デッキ読込中のためクリアできませんでした');
+    return;
+  }
+  if (undoable) offerUndo('デッキ・盤面・記録をすべて消しました');
+  else showToast('クリアしました');
 }
 
 const MENU_ACTIONS = {

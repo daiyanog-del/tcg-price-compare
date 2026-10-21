@@ -16,6 +16,7 @@
 import { getDeckLink, setDeckLink, onDeckLinkChange, deckContents } from '../services/deck-link.js';
 import { savedDecksGet } from './deck-input-panel.js';
 import { getLogLength } from '../services/replay-service.js';
+import { saveUndoPoint, markUndoOffer } from './undo-point.js';
 
 const DR = () => window.DeckReplays;
 
@@ -35,11 +36,14 @@ function _linkedDeck() {
   return id ? savedDecksGet().find(d => d.id === id) || null : null;
 }
 
-/** 今の記録が置き換わるときは確認して開く */
+/**
+ * リプレイを開く。今の記録が置き換わるときは、以前は確認窓を出していたが、今は直前の写しを取っておき、
+ * 開いた先で6秒間「元に戻す」を出す（undo-point.js）。
+ */
 function _open(item) {
   let steps = 0;
   try { steps = getLogLength(); } catch (e) { steps = 0; }
-  if (steps > 0 && !confirm(`今の記録（${steps}手）は、このリプレイ「${item.title || '無題'}」に置き換わります。開きますか？`)) return;
+  if (steps > 0 && saveUndoPoint()) markUndoOffer(`リプレイ「${item.title || '無題'}」を開きました（前の記録に戻せます）`);
   location.href = '/solitaire?saved=' + encodeURIComponent(item.id);
 }
 
