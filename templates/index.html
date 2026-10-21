@@ -755,6 +755,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 <link rel="stylesheet" href="{{ static_url('css/site-theme.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/wish-list.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/meta-deck.css') }}">
+<link rel="stylesheet" href="{{ static_url('css/packs.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/new-cards.css') }}">
 <link rel="stylesheet" href="{{ static_url('shared/text-report.css') }}">
 <!-- import map: モジュールから相対importされるファイルを内容ハッシュ付きURLへ写像する
@@ -1211,10 +1212,17 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 
   <!-- ===== 最新弾モード ===== -->
   <div id="mode-packs" class="hidden">
+    <!-- 新商品（2026-10-21 モック _mocks/packs-refresh-20261021 の A〜E）。PC は左に一覧・右に詳細、
+         900px 以下は詳細を全面で開く（#packPane.is-open。packs.js _openPackSheet）。見た目は css/packs.css -->
     <div class="deck-builder">
       <div class="deck-input-area">
-        <div id="packList" class="meta-loading">パック情報を読込中...</div>
-        <div id="packDetail" class="meta-deck-detail hidden"></div>
+        <div class="pk-panes">
+          <div class="pk-pane-list"><div id="packList" class="meta-loading">パック情報を読込中...</div></div>
+          <div class="pk-pane-detail" id="packPane">
+            <div class="pk-sheet-bar"><button type="button" class="meta-back" onclick="closePackSheet()"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>一覧へ</button></div>
+            <div id="packDetail"><div class="meta-empty">パックを選ぶと、収録カードと価格がここに出ます</div></div>
+          </div>
+        </div>
       </div>
     </div>
   </div><!-- /mode-packs -->
