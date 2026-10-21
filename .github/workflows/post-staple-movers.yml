@@ -1,0 +1,58 @@
+# 汎用カードの値動き X 投稿（2026-10-21〜・staple_post.py）
+# 毎日 JST 20:07 ごろ。対象は staple_cards（update-staple-cards.yml が週1回作り直す）。
+# 手動実行で dry_run にすると X には投稿せず、画像を成果物（artifact）に残す。
+
+name: Post Staple Card Movers
+
+on:
+  schedule:
+    - cron: '7 11 * * *'  # 毎日 UTC 11:07 = JST 20:07（毎時0分は混雑するため数分ずらす）
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'X投稿をスキップして画像とログだけ確認する'
+        type: boolean
+        default: true
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests supabase tweepy pillow beautifulsoup4
+
+      # 画像の書体はサイトと同じ（和文 Noto Sans JP・数字 Outfit）。google/fonts から取得する
+      - name: Fetch fonts
+        run: |
+          mkdir -p "$RUNNER_TEMP/fonts"
+          curl -fsSL -o "$RUNNER_TEMP/fonts/NotoSansJP.ttf" "https://github.com/google/fonts/raw/main/ofl/notosansjp/NotoSansJP%5Bwght%5D.ttf"
+          curl -fsSL -o "$RUNNER_TEMP/fonts/Outfit.ttf" "https://github.com/google/fonts/raw/main/ofl/outfit/Outfit%5Bwght%5D.ttf"
+
+      - name: Post staple movers to X
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          X_POST_DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+          STAPLE_FONT_DIR: ${{ runner.temp }}/fonts
+        run: python staple_post.py
+
+      - name: Upload preview images (dry run)
+        if: ${{ inputs.dry_run }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: staple-post-preview
+          path: staple_post_preview/
+          if-no-files-found: ignore
