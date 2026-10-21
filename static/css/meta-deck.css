@@ -27,7 +27,8 @@
 #metaTierList .meta-tier-group { margin-bottom: 14px; }
 #metaTierList .mt-group-h { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; }
 /* Tier の札（元の見出し .meta-tier-label の中だけに効いていた指定を、新しい見出しでも効かせる） */
-#metaTierList .mt-group-h .tier-badge { display: inline-block; margin: 0; padding: 1px 8px; border-radius: 4px; color: #fff; font: 800 .7rem var(--mono); letter-spacing: .04em; text-transform: uppercase; }
+/* 行の高さは Outfit の normal（1.26）に固定する（.mt-price と同じ理由。札が 17→16px に縮み、各グループの見出しが 1px ずつ縮んでいた） */
+#metaTierList .mt-group-h .tier-badge { display: inline-block; margin: 0; padding: 1px 8px; border-radius: 4px; color: #fff; font: 800 .7rem/1.26 var(--mono); letter-spacing: .04em; text-transform: uppercase; }
 #metaTierList .mt-group-h small { color: var(--text-m); font-size: .72rem; }
 #metaTierList .mt-list { display: flex; flex-direction: column; gap: 4px; }
 #metaTierList .meta-deck-btn.mt-row {
@@ -54,7 +55,8 @@
 #metaTierList .mt-name { min-width: 0; overflow: hidden; color: var(--text); font-size: .84rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 #metaTierList .mt-share { display: flex; align-items: center; gap: 6px; color: var(--text-m); font: .72rem var(--mono); white-space: nowrap; }
 #metaTierList .mt-share i { display: block; flex: none; height: 4px; border-radius: 2px; background: var(--accent-l); opacity: .7; }
-#metaTierList .mt-price { text-align: right; color: var(--text); font: 700 .84rem var(--mono); white-space: nowrap; }
+/* 行の高さは Outfit の normal（hhea 1000+260／1000＝1.26）に固定する。font の一括指定だと normal になり、Outfit が届く前の代わりのフォントとの差で一覧が 3px 動いていた（2026-10-21 スマホで CLS 0.002） */
+#metaTierList .mt-price { text-align: right; color: var(--text); font: 700 .84rem/1.26 var(--mono); white-space: nowrap; }
 #metaTierList .mt-price small { display: block; color: var(--text-m); font: .64rem var(--font); }
 #metaTierList .mt-price.is-none { color: var(--text-m); font-weight: 400; }
 #metaTierList .meta-deck-sep { margin: 8px 2px 4px; color: var(--text-m); font-size: .72rem; }
