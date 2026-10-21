@@ -75,7 +75,7 @@
 
 <!-- マイデッキから開いたときの通知の欄（中身は static/shared/deck-handoff.js が入れる）。JS が後から差し込むと
      盤面全体が押し下がり CLS が出るので、高さを固定した空の欄を最初から置く（2026-10-21 スマホで CLS 0.19） -->
-{% if request.args.get('from') == 'mydeck' and 'replay' not in request.args and 'saved' not in request.args %}
+{% if request.args.get('from') in ('mydeck', 'meta') and 'replay' not in request.args and 'saved' not in request.args %}
 <div id="deckHandoffStatus" class="sol-handoff-status" role="status"></div>
 {% endif %}
 

@@ -1,0 +1,126 @@
+/* 環境デッキ（2026-10-21 ユーザー承認のモック _mocks/meta-refresh-20261021 の A〜E）。
+   A: PC は左に一覧・右に詳細（右は画面に付いてくる）。900px 以下は1列で、詳細は全面で開く（#metaPane.is-open）。
+   B: 詳細の見出しと操作。C: カードのメニューは購入候補と同じ部品（.wl-menu）。D: 一覧の詰めた行。E: データの出どころ。
+   描くのは static/js/index-main.js（renderMetaTiers・loadMetaDeck）。境目の 900px はマイデッキの2ペインと同じ。 */
+#mode-meta .deck-builder { max-width: 1120px; }
+.meta-panes { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 20px; align-items: start; }
+.meta-pane-list { min-width: 0; }
+.meta-pane-detail {
+  position: sticky;
+  top: 12px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px;
+  border-radius: 10px;
+  background: var(--bg-card);
+}
+.meta-sheet-bar { display: none; }
+.meta-empty { padding: 40px 12px; color: var(--text-m); font-size: .85rem; text-align: center; }
+.meta-empty[hidden] { display: none; }
+#mode-meta #metaSortTabs { justify-content: flex-start; margin: 0 0 12px; }
+/* 一覧の箱には読み込み中の表示用の余白（.meta-loading の padding 24px）が付いたまま残るので外す */
+#mode-meta #metaTierList { padding: 0; text-align: left; }
+#mode-meta #metaTierList > .meta-loading { padding: 24px; text-align: center; }
+
+/* D: 一覧の行（画像・名前・使用率の短い棒・価格）。選んでいるデッキは金の実線 */
+#metaTierList .meta-tier-group { margin-bottom: 14px; }
+#metaTierList .mt-group-h { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; }
+/* Tier の札（元の見出し .meta-tier-label の中だけに効いていた指定を、新しい見出しでも効かせる） */
+#metaTierList .mt-group-h .tier-badge { display: inline-block; margin: 0; padding: 1px 8px; border-radius: 4px; color: #fff; font: 800 .7rem var(--mono); letter-spacing: .04em; text-transform: uppercase; }
+#metaTierList .mt-group-h small { color: var(--text-m); font-size: .72rem; }
+#metaTierList .mt-list { display: flex; flex-direction: column; gap: 4px; }
+#metaTierList .meta-deck-btn.mt-row {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 72px 84px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  margin: 0;
+  padding: 4px 10px 4px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+#metaTierList .meta-deck-btn.mt-row:hover { background: var(--bg-hover); }
+#metaTierList .meta-deck-btn.mt-row.selected { box-shadow: inset 0 0 0 1px #f3ce46; background: var(--bg-card); }
+#metaTierList .meta-deck-btn.mt-row:focus-visible { outline: 2px solid #f3ce46; outline-offset: 2px; }
+#metaTierList .mt-row img, #metaTierList .mt-row .mt-noimg { display: block; width: 30px; height: 43px; border-radius: 2px; object-fit: cover; background: var(--bg-hover); }
+#metaTierList .mt-name { min-width: 0; overflow: hidden; color: var(--text); font-size: .84rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+#metaTierList .mt-share { display: flex; align-items: center; gap: 6px; color: var(--text-m); font: .72rem var(--mono); white-space: nowrap; }
+#metaTierList .mt-share i { display: block; flex: none; height: 4px; border-radius: 2px; background: var(--accent-l); opacity: .7; }
+#metaTierList .mt-price { text-align: right; color: var(--text); font: 700 .84rem var(--mono); white-space: nowrap; }
+#metaTierList .mt-price small { display: block; color: var(--text-m); font: .64rem var(--font); }
+#metaTierList .mt-price.is-none { color: var(--text-m); font-weight: 400; }
+#metaTierList .meta-deck-sep { margin: 8px 2px 4px; color: var(--text-m); font-size: .72rem; }
+/* E: データの出どころ（左寄せ・小さめ） */
+#metaTierList .meta-note { margin-top: 10px; text-align: left; color: var(--text-m); font-size: .72rem; line-height: 1.6; }
+
+/* B: 詳細の見出しと操作 */
+#metaDeckDetail.meta-deck-detail { margin: 0; padding: 0; border: 0; background: none; }
+#metaDeckDetail .mt-head { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 14px; align-items: center; }
+#metaDeckDetail .mt-head img { display: block; width: 48px; height: 69px; border-radius: 3px; object-fit: cover; }
+#metaDeckDetail .mt-title { margin: 0; color: var(--text); font-size: 1.15rem; font-weight: 700; }
+#metaDeckDetail .mt-meta { margin-top: 4px; color: var(--text-m); font-size: .78rem; }
+#metaDeckDetail .mt-meta b { color: var(--text); font-family: var(--mono); }
+#metaDeckDetail .mt-total { text-align: right; }
+#metaDeckDetail .mt-total small { display: block; color: var(--text-m); font-size: .7rem; }
+#metaDeckDetail .mt-total b { color: #f3ce46; font: 700 1.5rem var(--mono); white-space: nowrap; }
+#metaDeckDetail .mt-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 12px; }
+#metaDeckDetail .mt-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; padding: 0 16px; border: 0; border-radius: 6px; background: var(--bg-hover); color: var(--text); font: 700 .8rem var(--font); cursor: pointer; }
+#metaDeckDetail .mt-btn:hover { background: #2b3549; }
+#metaDeckDetail .mt-btn.is-primary { background: #f3ce46; color: #242013; }
+#metaDeckDetail .mt-btn.is-primary:hover { background: #ffe16d; }
+#metaDeckDetail .mt-btn.is-icon { width: 36px; padding: 0; }
+#metaDeckDetail .mt-btn.is-open { box-shadow: inset 0 0 0 1px var(--accent-l); }
+#metaDeckDetail .mt-recipes { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+#metaDeckDetail .mt-recipe { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 999px; background: var(--bg-hover); color: var(--accent-l); font-size: .74rem; font-weight: 700; text-decoration: none; }
+#metaDeckDetail .mt-recipe:hover { background: #2b3549; }
+#metaDeckDetail .meta-note { margin: 0 0 10px; color: var(--text-m); font-size: .72rem; }
+
+/* 計算結果: 合計は見出しに写したので隠す。共有の欄は ⋯ から使うので隠す。進み具合は小さく残す */
+#metaPane #metaDeckResults { margin: 0; padding: 0; border: 0; background: none; }
+#metaPane #metaDeckResults .deck-total, #metaPane #metaDeckShareArea { display: none; }
+#metaPane #metaDeckProgress { margin: 0 0 8px; color: var(--text-m); font-size: .72rem; }
+#metaPane .deck-grid { grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); }
+/* C: メニューを開いているカード（金の実線＝選択中） */
+#metaPane .deck-grid-cell.is-menu { box-shadow: 0 0 0 2px #f3ce46; border-radius: 4px; }
+
+/* 900px 以下: 1列。詳細は全面で開く（カードの詳細の引き出し #deckCardDrawer は z-index 1000 なので、その下に置く） */
+@media (max-width: 900px) {
+  #mode-meta .deck-builder { max-width: 800px; }
+  .meta-panes { display: block; }
+  .meta-pane-detail { display: none; }
+  .meta-pane-detail.is-open {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 900;
+    max-height: none;
+    padding: 0 12px 24px;
+    border-radius: 0;
+    background: var(--bg);
+  }
+  .meta-pane-detail.is-open .meta-sheet-bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; height: 52px; margin: 0 -12px 8px; padding: 0 8px; background: var(--bg); }
+  .meta-back { display: inline-flex; align-items: center; gap: 4px; height: 36px; padding: 0 10px; border: 0; border-radius: 6px; background: none; color: var(--accent-l); font: 700 .85rem var(--font); cursor: pointer; }
+  .meta-pane-detail.is-open #metaDeckDetail, .meta-pane-detail.is-open #metaDeckResults { padding: 0 2px; }
+  #metaDeckDetail .mt-head { grid-template-columns: 44px minmax(0, 1fr); }
+  #metaDeckDetail .mt-head img { width: 44px; height: 63px; }
+  #metaDeckDetail .mt-total { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 8px; text-align: left; }
+  #metaDeckDetail .mt-total small { display: inline; }
+  #metaDeckDetail .mt-total b { font-size: 1.3rem; }
+  #metaDeckDetail .mt-btn.is-primary { flex: 1 1 100%; }
+  #metaDeckDetail .mt-btn:not(.is-primary):not(.is-icon) { flex: 1 1 auto; }
+  #metaPane .deck-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  #metaTierList .meta-deck-btn.mt-row { grid-template-columns: 30px minmax(0, 1fr) 64px 78px; }
+}
+/* 全面の詳細を開いている間: 後ろのページを動かさない・アプリ追加の案内を重ねない（狭い幅のときだけ。広い幅へ変わっても残らないように） */
+@media (max-width: 900px) {
+  html.meta-sheet-open, html.meta-sheet-open body { overflow: hidden; }
+  html.meta-sheet-open .pwa-banner { display: none !important; }
+}
