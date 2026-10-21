@@ -1970,6 +1970,7 @@ function switchMode(mode, trigger){
   }
   if(mode==='meta'){loadMetaTiers();loadMetaDeckPrices();}
   else if(typeof closeMetaSheet==='function') closeMetaSheet(true); // スマホの全面の詳細は閉じる（履歴は戻さない）
+  if(mode!=='packs'&&typeof closePackSheet==='function') closePackSheet(true); // 新商品の全面の詳細も同じ（packs.js）
   if(mode==='mydeck'){
     renderSavedDecks();
     // 端末間同期（P2）: マイデッキタブを開いたときだけ pull する（カード個別ページ閲覧では走らせない）
@@ -2762,7 +2763,7 @@ function _setupThumbObserver(containerSelector){
 
 // 最新弾タブ（パック）関連の処理は static/packs.js へ切り出し済み。
 // 一括価格検索（bulkSearchPackPrices）もそちらに実装。
-// 関数: loadPacks / renderPacks / loadPackCards / _loadFeaturedIntoPackDetail / bulkSearchPackPrices
+// 関数: loadPacks / renderPacks / loadPackCards / bulkSearchPackPrices / closePackSheet
 
 
 
