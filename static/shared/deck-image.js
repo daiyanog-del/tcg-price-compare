@@ -8,7 +8,7 @@
  * 以前はサーバー（/api/deck-image・Pillow）で合成していたが、30〜60秒かかり Render のメモリも圧迫するため
  * canvas に移した。カード画像の配信元（ygoresources・Supabase Storage）は Access-Control-Allow-Origin: * なので
  * crossOrigin で読めば書き出せる。それ以外の配信元（カーナベル）は CORS を許可しておらず canvas に描くと書き出せないため、
- * カード名の札で描く（自サイトの中継 /api/card-image-proxy は 2026-10-20 時点でカーナベルに 403 で拒否され常に失敗するので使わない）。
+ * カード名の札で描く（自サイトの中継 /api/card-image-proxy はカーナベルに 403 で拒否され常に失敗したので 2026-10-21 に撤去した）。
  * 読めなかったカードも同じ札で代わりに描く（書き出しが止まらないように）。
  *
  * 使い方: openDeckImageDialog({ deckName, main:[{name,qty}], ex:[{name,qty}], total?, missingKinds?, sort? })

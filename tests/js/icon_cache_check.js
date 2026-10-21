@@ -9,7 +9,9 @@ const card = origin + '/api/card-image?name=test';
 const otherImage = origin + '/static/og-image.png';
 const oldIcon = origin + '/static/icon-192.png';
 const oldVersion = origin + '/static/favicon.svg?v=3';
-const entries = new Map([card, otherImage, oldIcon, oldVersion].map(url => [url, '既存']));
+// 2026-10-21 に撤去した中継の画像（更新時に消える）
+const removedProxy = origin + '/api/card-image-proxy?name=test';
+const entries = new Map([card, otherImage, oldIcon, oldVersion, removedProxy].map(url => [url, '既存']));
 const listeners = {};
 let claimed = false;
 let notification;
@@ -47,9 +49,10 @@ async function dispatch(name) {
   assert.equal(entries.get(otherImage), '既存');
   assert.equal(entries.has(oldIcon), false);
   assert.equal(entries.has(oldVersion), false);
+  assert.equal(entries.has(removedProxy), false, '撤去した中継の画像が残った');
   assert.equal(entries.size, 10);
   await dispatch('push');
   assert.match(notification.icon, /icon-192\.png\?v=[a-f0-9]{12}$/);
   assert.match(notification.badge, /favicon-32\.png\?v=[a-f0-9]{12}$/);
-  console.log('アイコン更新・カード画像保持・通知参照の検証成功');
+  console.log('アイコン更新・撤去した中継の画像の片付け・カード画像保持・通知参照の検証成功');
 })().catch(error => { console.error(error); process.exitCode = 1; });

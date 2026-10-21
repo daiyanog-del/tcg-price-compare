@@ -4616,37 +4616,6 @@ def api_card_types():
     return jsonify({"types": result})
 
 
-@app.route("/api/card-image-proxy")
-def api_card_image_proxy():
-    """カーナベル画像をRenderサーバー経由でバイナリ転送する（GitHub Actions向け）。
-    GitHub ActionsのIPではカーナベル画像が403で弾かれるため、
-    RenderサーバーのIPを中継役として使う。
-    """
-    name = request.args.get("name", "").strip()
-    if not name:
-        return "name required", 400
-    image_url = kanabell_card_image_url(name)
-    if not image_url:
-        return "not found", 404
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Referer": "https://www.ka-nabell.com/",
-        }
-        img_resp = _http.get(image_url, headers=headers, timeout=10)
-        logger.info(f"[card-image-proxy] {name}: HTTP {img_resp.status_code} url={image_url}")
-        if img_resp.status_code != 200:
-            return f"upstream {img_resp.status_code}", 502
-        ct = img_resp.headers.get("Content-Type", "image/jpeg")
-        proxy_resp = Response(img_resp.content, content_type=ct)
-        # 画像実体は不変のため長期キャッシュ可
-        proxy_resp.headers["Cache-Control"] = "public, max-age=604800"
-        return proxy_resp
-    except Exception as e:
-        logger.error(f"[card-image-proxy] {name}: {e}")
-        return f"error: {e}", 500
-
-
 @app.route("/api/import-neuron", methods=["POST"])
 def api_import_neuron():
     """ニューロンのデッキ/カードURLをサーバー側で取得・解析して返す。

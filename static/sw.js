@@ -1,5 +1,7 @@
 // カード画像のキャッシュを保持し、アイコンだけ内容ハッシュで更新する。
 const CACHE_NAME = 'tcgym-v2';
+// 2026-10-21 に撤去した中継。以前に溜め込んだ画像を更新時に片付ける（名前を変えるとカード画像まで消えるので、この URL だけ消す）
+const REMOVED_PATHS = new Set(['/api/card-image-proxy']);
 // tools/build_icons.py が画像と同時に更新する。
 // BEGIN GENERATED ICON URLS
 const ICON_ASSETS = {
@@ -24,7 +26,7 @@ self.addEventListener('install', e => {
   );
 });
 
-// 同じキャッシュ内の旧アイコンだけ削除し、蓄積済みのカード画像は残す。
+// 同じキャッシュ内の旧アイコンと撤去した中継の画像だけ削除し、蓄積済みのカード画像は残す。
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys =>
@@ -36,7 +38,8 @@ self.addEventListener('activate', e => {
       const requests = await cache.keys();
       await Promise.all(requests.filter(req => {
         const url = new URL(req.url);
-        return url.origin === self.location.origin && iconPaths.has(url.pathname) && !current.has(url.href);
+        if (url.origin !== self.location.origin) return false;
+        return REMOVED_PATHS.has(url.pathname) || (iconPaths.has(url.pathname) && !current.has(url.href));
       }).map(req => cache.delete(req)));
     }).then(() => self.clients.claim())
   );
@@ -79,7 +82,7 @@ self.addEventListener('fetch', e => {
   // GETリクエストのみ対象（POSTバッチはCache APIがキャッシュしないためHTTPヘッダに委ねる）
   if (
     e.request.method === 'GET' &&
-    (url.pathname === '/api/card-image' || url.pathname === '/api/card-image-proxy')
+    url.pathname === '/api/card-image'
   ) {
     e.respondWith(
       caches.open(CACHE_NAME).then(async cache => {
