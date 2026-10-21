@@ -33,11 +33,18 @@ window.NewCards = (() => {
     placeholder.className='new-card-placeholder';
     placeholder.textContent=card.name;
     picture.appendChild(placeholder);
-    const url=safeUrl(card.image_url);
+    // 新着欄は小さく並べるので縮小版（WebP）を優先する。無いカードは原寸のまま。
+    const thumb=safeUrl(card.thumb_url),full=safeUrl(card.image_url);
+    const url=thumb||full;
     if(url){
       const img=document.createElement('img');
       img.src=url;img.alt='';img.loading='lazy';img.decoding='async';
-      img.addEventListener('error',()=>img.remove(),{once:true});
+      // 縮小版が読めなければ原寸に1回だけ切り替え、それも駄目ならカード名の札に戻す
+      let fellBack=!(thumb&&full&&thumb!==full);
+      img.addEventListener('error',()=>{
+        if(!fellBack){fellBack=true;img.src=full;return;}
+        img.remove();
+      });
       picture.appendChild(img);
     }
     const meta=document.createElement('span');meta.className='new-card-meta';

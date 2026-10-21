@@ -33,6 +33,7 @@ class FakeSB:
             self.images.append({'id': 1, 'unreleased_card_id': 1, 'storage_path': 'unreleased/1.png',
                                 'public_url': public_url, 'source_image_url': SRC})
         self.uploads = []  # (path, bytes)
+        self.thumb_uploads = []  # (path, bytes, file_options)
         self.storage_files = {}
         self.downloads = []
         self.download_data = download_data
@@ -44,8 +45,12 @@ class FakeSB:
     def upload(self, path, file, file_options=None):
         if path in self.upload_fail_paths:
             raise RuntimeError('upload failed')
-        self.uploads.append((path, file))
         self.storage_files[path] = file
+        if path.startswith('unreleased/thumbs/'):
+            # 縮小版は本体の書き込み順を見るテストと分けて記録する
+            self.thumb_uploads.append((path, file, dict(file_options or {})))
+            return
+        self.uploads.append((path, file))
 
     def download(self, path):
         self.downloads.append(path)
@@ -283,6 +288,85 @@ def test_late_backup_from_source(http):
     assert sb.raw['keep'] == 1
 
 
+# ── 縮小版（新着欄用） ───────────────────────────────
+
+def _thumb_size(sb, i=-1):
+    path, data, opts = sb.thumb_uploads[i]
+    im = Image.open(io.BytesIO(data))
+    assert path == 'unreleased/thumbs/1.webp' and im.format == 'WEBP'
+    assert opts['content-type'] == 'image/webp' and 'cache-control' not in opts  # 原寸と同じ既定（1時間）
+    return im.size
+
+
+def test_thumbnail_follows_auto_crop(http):
+    sb = FakeSB(raw={'crop_suggestion': _suggestion()})
+    ok, _ = store.ingest_x_card_image(sb, 1, SRC, 'https://x.com/t/1')
+    assert ok
+    # 取り込み時（原寸）と切り抜き後の2回作り、最後は切り抜き後の大きさ
+    assert len(sb.thumb_uploads) == 2
+    assert _thumb_size(sb, 0) == (100, 100) and _thumb_size(sb) == (50, 80)
+    thumb = sb.images[0]['thumb_url']
+    assert thumb.startswith('https://s.test/unreleased/thumbs/1.webp?v=')
+    # 同じ秒の中でも、切り抜き前と後の縮小版は別の URL になる（中身のハッシュ）
+    first = store.hashlib.sha1(sb.thumb_uploads[0][1]).hexdigest()[:12]
+    last = store.hashlib.sha1(sb.thumb_uploads[1][1]).hexdigest()[:12]
+    assert first != last and thumb.endswith('?v=' + last)
+
+
+def test_thumbnail_failure_keeps_ingest_and_clears_url(http):
+    sb = FakeSB(raw={'crop_suggestion': _suggestion()}, upload_fail_paths=('unreleased/thumbs/1.webp',))
+    ok, _ = store.ingest_x_card_image(sb, 1, SRC, 'https://x.com/t/1')
+    assert ok and sb.raw['crop_state']['mode'] == 'auto'
+    assert sb.images[0]['thumb_url'] is None and '?t=' in sb.images[0]['public_url']
+
+
+def test_crop_thumbnail_failure_does_not_leave_uncropped_thumb(http):
+    sb = FakeSB(with_image_row=True)
+    sb.images[0]['thumb_url'] = 'https://s.test/unreleased/thumbs/1.webp?t=old'
+    sb.upload_fail_paths = ('unreleased/thumbs/1.webp',)
+    ok, _ = store.crop_and_save_image(sb, 1, .1, .1, .6, .9)
+    assert ok
+    assert sb.images[0]['thumb_url'] is None  # 切り抜き前の縮小版を出し続けない
+
+
+def test_restore_rebuilds_thumbnail(http):
+    original = _png(80, 60)
+    sb = FakeSB(raw={'original_image': {'storage_path': 'unreleased/originals/1.png', 'mime': 'image/png'}},
+                with_image_row=True, download_data=original)
+    ok, _ = store.restore_original_image(sb, 1)
+    assert ok and _thumb_size(sb) == (80, 60)
+    assert '?v=' in sb.images[0]['thumb_url']
+
+
+def test_make_thumbnail_scales_down_keeps_alpha_and_orientation():
+    def enc(img, fmt, **kw):
+        b = io.BytesIO(); img.save(b, fmt, **kw); return b.getvalue()
+    big = Image.open(io.BytesIO(store.make_thumbnail(enc(Image.new('RGB', (600, 874), 'red'), 'PNG'))))
+    assert big.format == 'WEBP' and big.size == (300, 437)
+    small = Image.open(io.BytesIO(store.make_thumbnail(enc(Image.new('RGB', (200, 291)), 'JPEG'))))
+    assert small.size == (200, 291)  # 拡大はしない
+    alpha = Image.open(io.BytesIO(store.make_thumbnail(enc(Image.new('RGBA', (40, 60), (0, 0, 0, 0)), 'PNG'))))
+    assert alpha.mode == 'RGBA'
+    palette = Image.new('P', (40, 60)); palette.info['transparency'] = 0
+    assert Image.open(io.BytesIO(store.make_thumbnail(enc(palette, 'PNG')))).mode == 'RGBA'
+    # EXIF の向き（6 = 90度回転）を反映してから縮める。ブラウザの表示と同じ向きになる
+    exif = Image.Exif(); exif[0x0112] = 6
+    rotated = Image.open(io.BytesIO(store.make_thumbnail(enc(Image.new('RGB', (60, 40)), 'JPEG', exif=exif))))
+    assert rotated.size == (40, 60)
+    # 色の基準（ICC）は引き継ぐ。CMYK は付けない
+    from PIL import ImageCms
+    icc = ImageCms.ImageCmsProfile(ImageCms.createProfile('sRGB')).tobytes()
+    kept = Image.open(io.BytesIO(store.make_thumbnail(enc(Image.new('RGB', (40, 60)), 'PNG', icc_profile=icc))))
+    assert kept.info.get('icc_profile') == icc
+    cmyk = Image.open(io.BytesIO(store.make_thumbnail(enc(Image.new('CMYK', (40, 60)), 'JPEG', icc_profile=icc))))
+    assert cmyk.mode == 'RGB' and not cmyk.info.get('icc_profile')
+
+
+def test_collect_paths_include_thumbnail():
+    sb = FakeSB(raw={'original_image': {'storage_path': 'unreleased/originals/1.jpg', 'mime': 'image/jpeg'}})
+    assert store.collect_original_paths(sb, [1]) == ['unreleased/originals/1.jpg', 'unreleased/thumbs/1.webp']
+
+
 # ── 復元 ─────────────────────────────────────────
 
 def test_restore_writes_original_bytes_as_is(http):
@@ -439,9 +523,9 @@ def test_no_broken_url_when_public_url_empty(http):
 
 def test_collect_original_paths_uses_record_or_candidates():
     sb = FakeSB(raw={'original_image': {'storage_path': 'unreleased/originals/1.webp', 'mime': 'image/webp'}})
-    assert store.collect_original_paths(sb, [1]) == ['unreleased/originals/1.webp']
+    assert store.collect_original_paths(sb, [1]) == ['unreleased/originals/1.webp', 'unreleased/thumbs/1.webp']
     sb = FakeSB(raw={})
-    assert store.collect_original_paths(sb, [1]) == [f'unreleased/originals/1.{e}' for e in ('jpg', 'png', 'gif', 'webp')]
+    assert store.collect_original_paths(sb, [1]) == [f'unreleased/originals/1.{e}' for e in ('jpg', 'png', 'gif', 'webp')] + ['unreleased/thumbs/1.webp']
 
 
 def test_reconcile_delete_images_removes_originals():
@@ -456,7 +540,7 @@ def test_reconcile_delete_images_removes_originals():
             return q
     sb = SB(raw={'original_image': {'storage_path': 'unreleased/originals/1.png', 'mime': 'image/png'}})
     rec._delete_images_for_cards(sb, [1])
-    assert sb.removed == ['unreleased/1.png', 'unreleased/originals/1.png']
+    assert sb.removed == ['unreleased/1.png', 'unreleased/originals/1.png', 'unreleased/thumbs/1.webp']
 
 
 def test_purge_domain_endpoint_removes_originals(client, monkeypatch):
@@ -477,7 +561,7 @@ def test_purge_domain_endpoint_removes_originals(client, monkeypatch):
     r = client.post('/api/admin/images/purge-domain', json={'domain': 'pbs.twimg.com', 'physical': True},
                     headers={'X-Admin-Key': 'k'})
     assert r.status_code == 200, r.get_data(as_text=True)
-    assert store_sb.removed == ['unreleased/1.png', 'unreleased/originals/1.png']
+    assert store_sb.removed == ['unreleased/1.png', 'unreleased/originals/1.png', 'unreleased/thumbs/1.webp']
 
 
 def _delete_sb(raw, remove_fail=False):
@@ -510,7 +594,7 @@ def test_delete_endpoint_removes_originals_after_row_delete(client, monkeypatch)
     monkeypatch.setattr(admin, '_supabase', sb)
     r = client.delete('/api/admin/unreleased/1', headers={'X-Admin-Key': 'k'})
     assert r.status_code == 200 and r.get_json()['ok'] is True
-    assert sb.removed == ['unreleased/originals/1.png']
+    assert sb.removed == ['unreleased/originals/1.png', 'unreleased/thumbs/1.webp']
     assert order == ['delete', 'remove']  # パスは削除前に収集済みで、remove は行削除の後
 
 

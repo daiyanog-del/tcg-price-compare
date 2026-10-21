@@ -238,7 +238,7 @@ def _fetch_unreleased_cards(*, strict: bool = False) -> dict[str, dict]:
         for offset in range(0, len(card_ids), 500):
             images.extend(_read_all_rows(
                 _supabase_client.table("official_card_images")
-                .select("unreleased_card_id, public_url")
+                .select("unreleased_card_id, public_url, thumb_url")
                 .in_("unreleased_card_id", card_ids[offset:offset + 500])
                 .eq("hidden", False)
                 .is_("deleted_at", "null")
@@ -246,14 +246,17 @@ def _fetch_unreleased_cards(*, strict: bool = False) -> dict[str, dict]:
 
         # カードIDごとに最初の画像を紐付け（複数ある場合は先頭を使用）
         id_to_image_url: dict[int, str] = {}
+        id_to_thumb_url: dict[int, str | None] = {}
         for img in images:
             cid = img["unreleased_card_id"]
             if cid not in id_to_image_url:
                 id_to_image_url[cid] = img["public_url"]
+                id_to_thumb_url[cid] = img.get("thumb_url")
 
         # 画像情報をカードレコードにマージ
         for cid, card in id_to_card.items():
             card["_image_url"] = id_to_image_url.get(cid)  # None の場合は画像なし
+            card["_thumb_url"] = id_to_thumb_url.get(cid)  # 新着欄用の縮小版。None なら原寸を使う
 
         # name → レコード の辞書を返す（同名複数ある場合は先勝ち）
         result: dict[str, dict] = {}
@@ -447,6 +450,8 @@ def get_new_cards(limit: int | None = 36) -> dict:
             "release_date": release_date or None,
             "product_name": card.get("product_name") or None,
             "image_url": (card.get("_image_url") or None) if image_enabled else None,
+            # 縮小版（幅300px の WebP）。原寸が無ければ出さない
+            "thumb_url": (card.get("_thumb_url") or None) if image_enabled and card.get("_image_url") else None,
         }))
     rows.sort(key=lambda row: (row[0], row[1]["name"]), reverse=True)
     if limit is None:

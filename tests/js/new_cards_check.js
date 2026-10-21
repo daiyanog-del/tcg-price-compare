@@ -46,6 +46,8 @@ cards[0].image_url='javascript:globalThis.injected=true';
 cards[1].image_url='data:image/svg+xml,<svg onload="alert(1)"/>';
 cards[2].image_url='';
 cards[3].added_at='不正な日付';
+cards[5].thumb_url='https://example.test/thumbs/5.webp';
+cards[2].thumb_url='javascript:globalThis.injected=true'; // 縮小版も原寸も使えない
 function click(link,flags={}){
   const event={button:0,prevented:false,preventDefault(){this.prevented=true;},...flags};
   link.listeners.click(event);return event;
@@ -73,6 +75,12 @@ function click(link,flags={}){
   for(const link of links.slice(0,3))assert.equal(link.children[0].children.length,1,'不正・空URLからimgが作成された');
   const picture=links[4].children[0],image=picture.children[1];
   assert.equal(image.tag,'img');assert.equal(image.src,cards[4].image_url);
+  // 縮小版があればそちらを使い、無ければ原寸（cards[4]）
+  assert.equal(links[5].children[0].children[1].src,cards[5].thumb_url,'縮小版が使われていない');
+  {const img5=links[5].children[0].children[1];
+   img5.listeners.error();assert.equal(img5.src,cards[5].image_url,'縮小版が読めないとき原寸に切り替わらない');
+   assert.equal(links[5].children[0].children.length,2);
+   img5.listeners.error();assert.equal(links[5].children[0].children.length,1,'原寸も読めないときカード名の札に戻らない');}
   image.listeners.error();assert.equal(picture.children.length,1);
   assert.equal(picture.children[0].textContent,cards[4].name,'画像失敗時の代替カード名が消えた');
   assert.equal(links[0].children[1].children[1].textContent,'10/02 追加','JSTの日付境界が反映されていない');

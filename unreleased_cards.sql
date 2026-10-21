@@ -180,6 +180,10 @@ COMMENT ON COLUMN official_card_images.fetched_at         IS '画像をStorage�
 COMMENT ON COLUMN official_card_images.hidden             IS 'TRUE=即時非表示（ドメイン一括削除の第1段階）';
 COMMENT ON COLUMN official_card_images.deleted_at         IS 'Storage物理削除日時。NULLなら未削除';
 
+-- 2026-10-21 追加: 新着欄用の縮小版（unreleased/thumbs/<id>.webp・幅300px）。NULL なら原寸の public_url で表示する
+ALTER TABLE official_card_images ADD COLUMN IF NOT EXISTS thumb_url TEXT;
+COMMENT ON COLUMN official_card_images.thumb_url          IS '新着欄用の縮小版の public URL（?t= 付き）。NULL=未作成・作成失敗';
+
 -- インデックス（表示解決クエリの高速化）
 CREATE INDEX IF NOT EXISTS idx_official_card_images_card_hidden
     ON official_card_images (unreleased_card_id, hidden)
