@@ -12,6 +12,7 @@
 - 編集前に必ず `git pull` する（update-cardnames.yml が毎週月曜に cardnames_ja.json を自動コミットするため）
 - コード変更後は コミット → push → Renderデプロイ確認 まで完了させる
 - 本番で動くものが変わらないコミット（docs/・TASKS.md・テストだけの「記録」など）は、コミットメッセージに `[skip render]` を付けて Render のビルドを飛ばす。PR のタイトルには付けない（マージのコミットに入り、本番に出すべき変更まで飛ばしてしまう）。Render のビルド時間には月の上限があり、2026-10-21 に記録のコミットまで毎回ビルドして使い切り、本番に出せなくなった
+- Render の定期実行4つ（tcg-collect-prices / -buyback / -featured / tcg-watch-x-unreleased）は Build Filters の Included paths（`*.py` `requirements.txt` `data/**` `tools/**` `static/og/**` `static/brand/**`）に当たる変更のときだけ組み立てる（2026-10-21 設定）。定期実行が読む新しいファイルをこれ以外の場所に置くときは、4つの Included paths にも足す（足さないと古いまま動く）
 - ローカル開発時は `FLASK_DEBUG=1` を明示設定する（`_is_debug_mode()` の既定はフェイルクローズで"0"＝本番扱いのため、未設定だとヘルスチェック等が本番モードで動く）
 
 ## 巨大ファイルの扱い（2026-07-10 改訂）
