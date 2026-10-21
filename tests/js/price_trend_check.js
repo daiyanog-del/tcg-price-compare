@@ -162,12 +162,15 @@ const DATA = [
   reply(pending[1], { data: [row('2026-01-01', 'A', 'ウルトラ', 1)] }); await tick();
   reply(pending[2], { data: DATA }); await tick();
   assert(body.innerHTML.includes('<svg'), '古い応答(A)は捨てられ、Bの描画が残る');
-  api.load('C'); reply(pending[3], { data: [] }); await tick();
-  assert(classes.has('hidden') && body.innerHTML === '');
+  // 相場の箱の中で欄が出たり消えたりしないよう、読み込み中・0件・失敗も案内1行を出す（0件と失敗は文言を分ける）
+  api.load('C');
+  assert(!classes.has('hidden') && body.innerHTML.includes('価格推移を読み込み中'), '読み込み中も欄を出す');
+  reply(pending[3], { data: [] }); await tick();
+  assert(!classes.has('hidden') && body.innerHTML.includes('価格推移はまだありません'));
   api.load('D'); reply(pending[4], { error: 'x' }, 500); await tick();
-  assert(classes.has('hidden'));
+  assert(!classes.has('hidden') && body.innerHTML.includes('価格推移を取得できませんでした'));
   api.load('E'); pending[5].reject(new Error('net')); await tick();
-  assert(classes.has('hidden'));
+  assert(!classes.has('hidden') && body.innerHTML.includes('価格推移を取得できませんでした'));
   api.load('F'); api.clear(); reply(pending[6], { data: DATA }); await tick();
   assert(classes.has('hidden') && body.innerHTML === '', 'clear 後に届いた応答は捨てる');
   // 7) 月の区切りと年またぎ: 期間が月をまたぐと「N月」、年をまたぐと1月だけ「2027年1月」

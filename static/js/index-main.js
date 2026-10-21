@@ -203,6 +203,7 @@ function showUnreleasedCard(name){
 
   const hero=document.getElementById('cardHero');
   hero.classList.remove('hidden');
+  hero.classList.add('cr-unreleased'); // 相場の箱を出さないので、その列を取らずに効果テキストを全幅で開く
   document.getElementById('heroImgWrap').innerHTML='<div class="cr-img-ph"></div>';
   const heroInfo=document.getElementById('heroInfo');
   heroInfo.innerHTML=`<div class="card-hero-name">${esc(name)} <span class="pack-unreleased-badge">発売前</span></div>
@@ -436,7 +437,7 @@ function doSearch(opts){
   const heroWrap=document.getElementById('heroImgWrap');
   if(heroWrap) heroWrap.innerHTML='';
   const cardHero=document.getElementById('cardHero');
-  if(cardHero) cardHero.classList.add('hidden');
+  if(cardHero){ cardHero.classList.add('hidden'); cardHero.classList.remove('cr-unreleased'); }
   const tbody=document.getElementById('tbody');
   if(tbody) tbody.innerHTML='';
 
@@ -737,6 +738,9 @@ function renderAll(d){
   tableShowCount=TABLE_PAGE_SIZE;
   listView='shop'; // 新しいカードは「店ごとの最安」から見せる
   _syncListViewButtons();
+  sort={k:'price',a:true}; // 一覧の先頭がヒーローの最安と同じ行になるよう、並べ替えも価格順に戻す（F-14）
+  const soCheck=document.getElementById('soCheck');
+  if(soCheck) soCheck.checked=false; // 「すべて」でしか見えないチェックを前のカードから持ち越さない
   // G-4: 「変更していないのにchange」で集計が濁らないようイベント名を分ける（自動設定=rarity_filter_default）。
   // 発火はレアリティUIが実際に出るケース（realRarities.length>1）だけに限定し、
   // 単一レアリティのカードで毎回発火して分母が壊れるのを防ぐ。C-1(i)判断のため
@@ -788,13 +792,14 @@ function _summaryShopItems(){
 // 行そのものは renderTable() が listView に合わせて描く（旧・店舗カード #sumCards は一覧に統合した）
 function renderSummary(){
   const shopItems=_summaryShopItems();
+  const shownRarity=_shownRarity();
   const showSO=!!document.getElementById('soCheck')?.checked;
   const scoped=rarityFilter?D.filter(r=>r.rarity===rarityFilter):D;
   const inStockCount=scoped.filter(r=>!r.sold_out).length;
   const soldCount=scoped.length-inStockCount;
   const allCount=showSO?scoped.length:inStockCount;
   const title=document.getElementById('crListTitle');
-  if(title) title.textContent=rarityFilter?`${rarityFilter}の出品`:'すべてのレアリティの出品';
+  if(title) title.textContent=shownRarity?`${shownRarity}の出品`:'すべてのレアリティの出品';
   const cs=document.getElementById('crCountShop');
   if(cs) cs.textContent=shopItems.length;
   const ca=document.getElementById('crCountAll');
@@ -807,7 +812,7 @@ function renderSummary(){
     let msg='';
     if(inStockCount===0){
       msg=rarityFilter?'このレアリティは在庫切れです':'在庫のある出品はありません';
-      if(soldCount>0) msg+=`（売切${soldCount}件）`+(listView==='all'&&!showSO?'。「売り切れも表示」で見られます':'');
+      if(soldCount>0) msg+=`（売切${soldCount}件）`+(listView==='shop'?'。「すべて」の「売り切れも表示」で見られます':(!showSO?'。「売り切れも表示」で見られます':''));
     }
     note.textContent=msg;
     note.classList.toggle('hidden',!msg||(listView==='all'&&showSO));
@@ -861,9 +866,9 @@ function _resetBuyInline(){
   if(body) body.innerHTML='';
 }
 
-// U-1: 表側の「買取価格も表示する」ボタン経由か、#buyInline summaryを直接開いたのかをGA上で
-// 区別するためのフラグ。既定は'inline'。ボタン側がdet.open=trueする直前だけ'table_button'に
-// 差し替え、toggleリスナーが読み取ったら'inline'に戻す（イベントの二重発火はさせない）
+// #buyInline を開いた経路を GA で区別するためのフラグ。既定は'inline'（利用者が見出しを押した）。
+// /buy/ 直リンクの自動オープンだけ 'deeplink' に差し替え、toggleリスナーが読み取ったら'inline'に戻す。
+// （表の「買取価格も表示する」ボタン＝'table_button' は 2026-10-21 案C で廃止）
 let _buyInlineOpenTrigger='inline';
 
 document.getElementById('buyInline')?.addEventListener('toggle',function(){
@@ -1099,15 +1104,16 @@ function _updateHeroSummary(){
   const soCountEl=document.getElementById('soCount');
   const items=_summaryShopItems();
   const best=items.length?items[0]:null;
+  const shownRarity=_shownRarity();
   if(heroLabel){
     heroLabel.textContent=best
-      ?(rarityFilter?`${rarityFilter}の最安`:'最安（すべてのレアリティ）')
-      :(rarityFilter?`${rarityFilter}の在庫`:'在庫');
+      ?(shownRarity?`${shownRarity}の最安`:'最安（すべてのレアリティ）')
+      :(shownRarity?`${shownRarity}の在庫`:'在庫');
   }
   if(heroBest){
     if(best){
       // 「すべて」のときは別レアリティの最安になりうるので、レアリティも並べて出す（J-5 と同じ理由）
-      const sub=[rarityFilter?'':best.rarity,_looksLikeCardCode(best.code)?best.code:''].filter(Boolean).join('・');
+      const sub=[shownRarity?'':best.rarity,_looksLikeCardCode(best.code)?best.code:''].filter(Boolean).join('・');
       heroBest.innerHTML=`<span class="cr-best-price">¥${best.price.toLocaleString()}</span><span class="cr-best-shop">${esc(best.shop)}</span>`+
         (sub?`<span class="cr-best-sub">${esc(sub)}</span>`:'');
     }else{
@@ -1148,6 +1154,14 @@ function _rarityTilesHtml(rarities,active){
   return h;
 }
 
+// 画面に出すレアリティ名。選んでいるレアリティ、または出品が1種類のレアリティしか無いカードのその名前。
+// 複数のレアリティが混ざる「すべて」のときは空（別レアリティ同士で最安と言い切らない J-5）
+function _shownRarity(){
+  if(rarityFilter) return rarityFilter;
+  const kinds=[...new Set(D.map(r=>r.rarity||''))];
+  return kinds.length===1&&kinds[0]&&kinds[0]!=='(不明)'?kinds[0]:'';
+}
+
 // 店舗の出品名がカード名と違うとき（「灰流うらら(既存イラスト)」など）だけ、違う部分を札にする
 function _variantLabel(name,cardName){
   if(!name||!cardName||name===cardName) return '';
@@ -1166,8 +1180,9 @@ function renderTable(){
     data=showSO?D:D.filter(r=>!r.sold_out);
     if(rarityFilter) data=data.filter(r=>r.rarity===rarityFilter);
   }
-  // J-5: 「最安」の印はレアリティを選んでいるときだけ（別レアリティ同士で最安と断言しない）
-  const bestRow=rarityFilter?(_summaryShopItems()[0]||null):null;
+  // J-5: 「最安」の印は同じレアリティ同士のときだけ（別レアリティ同士で最安と断言しない）
+  const shownRarity=_shownRarity();
+  const bestRow=shownRarity?(_summaryShopItems()[0]||null):null;
   const cardName=_currentCardName||document.getElementById('q').value.trim();
   const sorted=[...data].sort((a,b)=>{
     // U-1: 「この型番の最高買取」は値の無い行（buyMax=null）を、昇順・降順どちらでも
@@ -1200,10 +1215,12 @@ function renderTable(){
     const cond=r.condition==='セール'?'<span class="cr-sale">セール</span>':(r.condition&&r.condition!=='-'?esc(r.condition):'');
     const variant=_variantLabel(r.name,cardName);
     const tags=(isBest?'<span class="cr-best-tag">最安</span>':'')+
-      (rarityFilter?'':`<span class="cr-tag">${esc(r.rarity||'-')}</span>`)+
+      (shownRarity?'':`<span class="cr-tag">${esc(r.rarity||'-')}</span>`)+
       (variant?`<span class="cr-tag">${esc(variant)}</span>`:'');
+    // K-1/L-1: 型番は「型番らしい形」の値だけ出す（カーナベルの弾の略号・壊れた値を型番として見せない）
+    const code=_looksLikeCardCode(r.code)?esc(r.code):'';
     // スマホでは状態・型番・在庫の列を隠し、店名の下の1行（.cr-sub）にまとめて出す
-    const sub=[esc(r.code||''),cond,r.sold_out?'':(r.stock>0?'在庫'+r.stock:'')].filter(Boolean).join('・');
+    const sub=[code,cond,r.sold_out?'':(r.stock>0?'在庫'+r.stock:'')].filter(Boolean).join('・');
     const rowClass=[so,isBest?'cr-best-row':'',linkUrl?'row-clickable':''].filter(Boolean).join(' ');
     const rowHref=linkUrl?`data-href="${escAttr(linkUrl)}"`:'';
     // U-1: 買取が未取得のうちは列自体を出さない（thのhidden切り替えと対にする）。
@@ -1215,7 +1232,7 @@ function renderTable(){
       <td class="cr-num cr-price">¥${r.price.toLocaleString()}</td>
       <td class="cr-shop"><span class="cr-shop-name">${esc(r.shop)}${isAff?AFF_PR_BADGE:''}</span>${tags}${sub?`<span class="cr-sub">${sub}</span>`:''}</td>
       <td class="cr-cond">${cond}</td>
-      <td class="cr-code">${esc(r.code||'')}</td>
+      <td class="cr-code">${code}</td>
       <td class="cr-num cr-stock">${stockStr}</td>${buyMaxCell}
       <td class="cr-act">${go}${wishBtnHtml(r.name,1)}</td></tr>`;
   }).join('');

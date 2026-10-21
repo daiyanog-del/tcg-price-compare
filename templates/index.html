@@ -235,12 +235,8 @@ header{padding:24px 0 8px;text-align:center;position:relative}
 .scard .scard-link::after{content:"";position:absolute;inset:0;z-index:1}
 
 /* ── Controls row ── */
-.tbtn:hover{color:var(--text)}.tbtn.active{color:var(--accent-l);border-bottom-color:var(--accent)}
-.toggle{display:flex;align-items:center;gap:6px;font-size:.78rem;color:var(--text-m);cursor:pointer;user-select:none;margin-left:auto}
 .toggle input{accent-color:var(--accent);width:15px;height:15px}
-.count-badge{font:.68rem var(--mono);padding:2px 7px;border-radius:4px;background:rgba(255,82,82,.12);color:var(--red)}
 .cache-badge{font:.68rem var(--mono);padding:2px 7px;border-radius:4px;background:rgba(108,92,231,.15);color:var(--accent-l)}
-.tpanel{display:none;padding-top:12px}.tpanel.active{display:block}
 
 /* ── Table ── */
 .tbl-wrap{border-radius:8px;border:1px solid var(--border)}
@@ -295,6 +291,8 @@ header{padding:24px 0 8px;text-align:center;position:relative}
 .rf-btn{padding:3px 10px;font:.72rem var(--font);font-weight:600;color:var(--text-d);background:var(--bg-card);border:1px solid var(--border);border-radius:14px;cursor:pointer;transition:all .15s;white-space:nowrap}
 .rf-btn:hover{border-color:var(--text-m);color:var(--text-m)}
 .rf-btn.active{color:var(--text);border-color:var(--accent);background:rgba(74,124,255,.08)}
+/* .rarity-filter は購入候補の「デッキで絞り込む札」（#wishDeckFilter）が使う。検索結果のレアリティ欄は 2026-10-21 から .cr-rarity（card-result.css） */
+.rarity-filter{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:12px;padding:10px 0}
 /* C-1(iii): レアリティ既定フィルタの明示バナー */
 
 /* Empty */
@@ -570,25 +568,18 @@ header{padding:24px 0 8px;text-align:center;position:relative}
   .scard .sprice{font-size:1.3rem}
 
   /* コントロール・タブ */
-  .toggle{justify-content:center;margin-left:0;min-height:44px}
 
   /* レアリティフィルター（14ボタン常時展開だと縦に嵩張るため横スクロール1行に収める） */
+  .rarity-filter{gap:4px;padding:8px 0;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch}
   .rf-btn{padding:6px 10px;font-size:.72rem;min-height:36px;flex-shrink:0}
 
   /* テーブル → カード型レイアウト */
   .tbl-wrap{overflow-x:visible;border:0}
-  /* stretched-link: row-linkのa::afterでカード全体をタップ領域に */
-  /* カード名は横幅いっぱい使う */
-  /* 価格を目立たせる */
-  /* 画像・コード列は非表示 */
-  /* 売り切れ行 */
 
   /* カードヒーロー */
   .card-hero{flex-direction:column;align-items:center;text-align:center;gap:12px}
   .card-hero-img{width:140px}
   .card-hero-name{font-size:1rem}
-
-  /* レアリティ別グリッド */
 
   /* シェアボタン */
   .share-btns{flex-wrap:wrap;justify-content:center}

@@ -5,7 +5,9 @@
 
 /* ── 名前・最安・操作 ── */
 #mode-search .card-hero{display:grid;grid-template-columns:128px minmax(0,1fr) minmax(300px,340px);gap:0 24px;align-items:start;margin:0 0 28px;text-align:left}
-#mode-search .card-hero-img{width:128px;border-radius:6px;overflow:hidden;background:var(--bg-card)}
+#mode-search .card-hero-img{width:128px;aspect-ratio:140/204;border-radius:6px;overflow:hidden;background:var(--bg-card)}
+/* 未発売カードは相場の箱を出さないので、その列を取らない（効果テキストを全幅で開く） */
+#mode-search .card-hero.cr-unreleased{grid-template-columns:128px minmax(0,1fr)}
 #mode-search .card-hero-img img{display:block;width:100%;height:auto}
 #mode-search .cr-img-ph{width:100%;aspect-ratio:140/204;background:var(--bg-card)}
 #mode-search .card-hero-info{min-width:0}
@@ -34,8 +36,13 @@
 #mode-search .cr-acts .card-detail{max-width:680px;margin-top:10px;padding:12px 14px;border:0;border-radius:8px;background:var(--bg-card)}
 
 /* ── 相場の箱（相場の動き・メルカリ・買取） ── */
-#mode-search .cr-market{min-width:0;padding:2px 16px;border-radius:8px;background:var(--bg-card)}
+/* 相場の動き・メルカリは検索結果の後から届くことがある。届いて箱が伸びると下のレアリティ欄と一覧が押し下げられる
+   （本番データで 65→331px・CLS 0.045 を実測）ので、全部そろったときの高さを最初から取っておく */
+#mode-search .cr-market{min-width:0;min-height:332px;padding:2px 16px;border-radius:8px;background:var(--bg-card)}
+#mode-search .cr-market:not(.hidden){display:flex;flex-direction:column}
 #mode-search .cr-market>*{margin:0;padding:12px 0}
+/* 買取は箱の底に置く。上の相場の動き・メルカリが後から届いても動かない */
+#mode-search .cr-market>#buyInline{margin-top:auto}
 #mode-search .cr-market>:not(.hidden)~:not(.hidden){box-shadow:inset 0 1px 0 var(--border)}
 #mode-search .cr-market>.price-chart{border:0;border-radius:0;background:none;padding:12px 0}
 #mode-search .cr-market .chart-title{margin:0;font-size:12px;font-weight:700;color:var(--text-m)}
@@ -110,7 +117,7 @@
 #mode-search .cr-table :is(th,td):first-child{padding-left:16px}
 #mode-search .cr-table :is(th,td):last-child{padding-right:16px}
 #mode-search .cr-table .cr-num{text-align:right}
-#mode-search .cr-table tbody tr:hover td{background:var(--bg-hover)}
+#mode-search .cr-table tbody tr:is(:hover,:focus-within) td{background:var(--bg-hover)}
 #mode-search .cr-table tr.row-clickable{cursor:pointer}
 #mode-search .cr-table tr.cr-best-row td{background:rgba(243,206,70,.06)}
 #mode-search .cr-table tr.cr-best-row:hover td{background:var(--bg-hover)}
@@ -119,7 +126,7 @@
 #mode-search .cr-price{font:600 16px var(--mono);color:var(--text)}
 #mode-search .cr-best-row .cr-price{color:var(--gold)}
 #mode-search .cr-shop-name{font-weight:700}
-#mode-search :is(.cr-tag,.cr-best-tag){display:inline-block;margin-left:8px;padding:1px 6px;border-radius:4px;background:var(--bg-hover);color:var(--text-m);font-size:11px;font-weight:700;line-height:1.5;vertical-align:1px}
+#mode-search :is(.cr-tag,.cr-best-tag){display:inline-block;max-width:16em;margin-left:8px;padding:1px 6px;overflow:hidden;border-radius:4px;background:var(--bg-hover);color:var(--text-m);font-size:11px;font-weight:700;line-height:1.5;white-space:nowrap;text-overflow:ellipsis;vertical-align:middle}
 #mode-search .cr-best-tag{background:#f3ce46;color:#242013}
 #mode-search .cr-sub{display:none}
 #mode-search .cr-cond{font-size:12px;color:var(--text-m)}
@@ -167,7 +174,7 @@
   #mode-search :is(.cr-table,.cr-table tbody){display:block}
   #mode-search .cr-table tr{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;column-gap:10px;padding:9px 16px}
   #mode-search .cr-table tr.cr-best-row{background:rgba(243,206,70,.06)}
-  #mode-search .cr-table tbody tr:hover{background:var(--bg-hover)}
+  #mode-search .cr-table tbody tr:is(:hover,:focus-within){background:var(--bg-hover)}
   #mode-search .cr-table td{display:block;height:auto;padding:0!important;white-space:normal;background:none!important}
   #mode-search .cr-table td.cr-shop{grid-column:1;grid-row:1}
   #mode-search .cr-table td.cr-price{grid-column:2;grid-row:1}

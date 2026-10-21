@@ -23,6 +23,11 @@
   // 色はSVG属性ではなくCSSクラス(.pt-line など)で指定する（index.html）
   const MSG_NONE='このレアリティの価格推移はまだありません';
   const MSG_PICK='レアリティを選ぶと価格推移を表示します';
+  // 名前の右の相場の箱では、この欄が後から出たり消えたりすると下の欄が押し下げられる（CLS）。
+  // 読み込み中・データ無し・取得失敗も同じ場所に1行の案内を出し、欄は隠さない（2026-10-21 案C）
+  const MSG_LOADING='価格推移を読み込み中';
+  const MSG_EMPTY='価格推移はまだありません';
+  const MSG_FAIL='価格推移を取得できませんでした';
 
   function box(){return document.getElementById('priceTrend');}
   function bodyEl(){return document.getElementById('priceTrendBody');}
@@ -267,18 +272,20 @@
     if(!box()||!name) return;
     const my=++gen;
     series=null;
-    hide();
+    show(`<p class="pt-note">${esc(MSG_LOADING)}</p>`);
     fetch('/api/price-history?card='+encodeURIComponent(name)).then(async res=>{
       if(my!==gen) return;
       let d=null;
       try{d=await res.json();}catch(e){d=null;}
       if(my!==gen) return;
-      if(!res.ok||!d||!Array.isArray(d.data)||!d.data.length){hide();return;} // 空・失敗は枠ごと非表示
+      // 0件と取得失敗は文言を分ける（枠は隠さない）
+      if(!res.ok||!d||!Array.isArray(d.data)){show(`<p class="pt-note">${esc(MSG_FAIL)}</p>`);return;}
+      if(!d.data.length){show(`<p class="pt-note">${esc(MSG_EMPTY)}</p>`);return;}
       series=aggregate(d.data);
       render();
     }).catch(()=>{
       if(my!==gen) return;
-      hide();
+      show(`<p class="pt-note">${esc(MSG_FAIL)}</p>`);
     });
   }
 

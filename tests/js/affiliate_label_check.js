@@ -46,7 +46,7 @@ vm.runInContext([
   block('function _buyInlineFilteredData(', '// S-1:'),
   block('function _looksLikeCardCode(', '// U-1: 販売テーブル'),
   block('function _renderBuyInline(', '// F-5/F-14'),
-  block('function _variantLabel(', 'function renderTable('),
+  block('function _shownRarity(', 'function renderTable('),
   block('function renderTable(', '// B-4: 「もっと見る」'),
 ].join('\n'), sandbox);
 const run = c => vm.runInContext(c, sandbox);

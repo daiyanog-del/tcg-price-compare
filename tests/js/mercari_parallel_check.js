@@ -45,7 +45,7 @@ vm.runInContext(fs.readFileSync(path.join(root, 'static/js/mercari-ref.js'), 'ut
 sandbox.MercariRef = sandbox.window.MercariRef; // ブラウザでは window のプロパティが素の識別子で参照できる
 vm.runInContext([
   block('let _searchES=null;', '// ── Autocomplete'),
-  block('function _resetBuyInline(', '// U-1:'),
+  block('function _resetBuyInline(', '// #buyInline を開いた経路を GA で区別するためのフラグ'),
   block('function _syncMercariView(', 'function esc('),
 ].join('\n'), sandbox);
 const run = (c) => vm.runInContext(c, sandbox);
