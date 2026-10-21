@@ -30,6 +30,10 @@ CSV_FIELDS = ["source", "recorded_at", "card_id", "shop_id", "rarity_id", "card_
               "min_price", "min_price_any", "max_price", "code", "url", "findings"]
 RD_CODE = re.compile(r"(?:^|[\s{（(])RD[/\-]", re.I)
 OTHER_CODE = re.compile(r"^(?:DM|DLC|PXR-|GBF[-/])", re.I)
+# 遊戯王 OCG の日本語版の型番（DMMD-JP001 など）。「DM」で始まっても他のゲームではない
+# （2026-10-21 監査で、トレコロCB のブラック・マジシャン・ガール DMMD-JP001 が候補に挙がり、遊々亭の遊戯王売り場・
+#   カードラッシュ・カーナベルに同じ型番があることで遊戯王と確認した）
+OCG_JP_CODE = re.compile(r"^[A-Z0-9]+-JP\d{3}", re.I)
 
 
 class IncompleteRead(RuntimeError):
@@ -63,7 +67,7 @@ def classify_row(source: str, row: dict) -> list[dict]:
         elif (shop == "トレコロCB" and row.get("card_name") == "真実の名"
               and code in {"DMX12AS1-S3", "DMBD0613-19"}):
             add("historically_verified_dm_code", "confirmed", "min_price")
-        elif shop in {"トレコロCB", "カードラボ"} and OTHER_CODE.search(code):
+        elif shop in {"トレコロCB", "カードラボ"} and OTHER_CODE.search(code) and not OCG_JP_CODE.search(code):
             add("code_requires_source_check", "candidate", "min_price")
         url = row.get("url") or ""
         if url:

@@ -2399,6 +2399,31 @@ def api_top_movers():
     })
 
 
+@app.route("/api/staple-movers")
+def api_staple_movers():
+    """トップのランキング3列目「汎用カード」（2026-10-21）。集計は staple_ranking.py。
+
+    sort: drop（1週間で値下がりした金額順・既定）/ themes（採用テーマが多い順）
+    """
+    import staple_ranking
+    sort = request.args.get("sort", "drop")
+    if sort not in staple_ranking.SORTS:
+        return jsonify({"error": "sort は drop または themes"}), 400
+    limit, limit_error = _parse_limit_param(10, 20)
+    if limit_error:
+        return limit_error
+    data = staple_ranking.get_cached(_supabase_client)
+    if data.get("error"):
+        g.no_cache = True
+    return jsonify({
+        "items": data.get(sort, [])[:limit],
+        "date_old": data.get("date_old"),
+        "date_new": data.get("date_new"),
+        "total": data.get("total", 0),
+        "error": data.get("error"),
+    })
+
+
 _top_priced_cache: dict[str, dict] = {}
 _top_priced_cache_time: dict[str, float] = {}
 _top_priced_locks: dict[str, threading.Lock] = {g: threading.Lock() for g in _top_page.RARITY_GROUPS}
@@ -4589,37 +4614,6 @@ def api_card_types():
             executor.shutdown(wait=False, cancel_futures=True)
 
     return jsonify({"types": result})
-
-
-@app.route("/api/card-image-proxy")
-def api_card_image_proxy():
-    """カーナベル画像をRenderサーバー経由でバイナリ転送する（GitHub Actions向け）。
-    GitHub ActionsのIPではカーナベル画像が403で弾かれるため、
-    RenderサーバーのIPを中継役として使う。
-    """
-    name = request.args.get("name", "").strip()
-    if not name:
-        return "name required", 400
-    image_url = kanabell_card_image_url(name)
-    if not image_url:
-        return "not found", 404
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Referer": "https://www.ka-nabell.com/",
-        }
-        img_resp = _http.get(image_url, headers=headers, timeout=10)
-        logger.info(f"[card-image-proxy] {name}: HTTP {img_resp.status_code} url={image_url}")
-        if img_resp.status_code != 200:
-            return f"upstream {img_resp.status_code}", 502
-        ct = img_resp.headers.get("Content-Type", "image/jpeg")
-        proxy_resp = Response(img_resp.content, content_type=ct)
-        # 画像実体は不変のため長期キャッシュ可
-        proxy_resp.headers["Cache-Control"] = "public, max-age=604800"
-        return proxy_resp
-    except Exception as e:
-        logger.error(f"[card-image-proxy] {name}: {e}")
-        return f"error: {e}", 500
 
 
 @app.route("/api/import-neuron", methods=["POST"])

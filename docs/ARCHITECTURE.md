@@ -66,7 +66,7 @@ Flask app.py (3,200行規模) ＋ solitaire_routes.py (Blueprint)
 | 検索補助 | `/api/suggest` `/api/validate` `/api/deck-estimate` `/api/card-rarities` `/api/wish-prices` `/api/wish-shop-totals` |
 | 価格データ | `/api/price-history` `/api/trending` `/api/movers` `/api/buyback-movers` `/api/track` `/api/track-batch` |
 | メタ・パック | `/api/meta` `/api/meta/deck` `/api/packs` `/api/packs/cards` `/api/featured` |
-| カード情報・画像 | `/api/card-info` `/api/card-infos` `/api/card-image` `/api/card-images` `/api/card-types` `/api/card-image-proxy` |
+| カード情報・画像 | `/api/card-info` `/api/card-infos` `/api/card-image` `/api/card-images` `/api/card-types` |
 | デッキ取込・出力 | `/api/import-neuron` `/api/parse-deck-pdf`（デッキ画像はブラウザ内で合成） |
 | Push・その他 | `/api/push/vapid-key` `/api/push/subscribe` `/api/push/unsubscribe` `/api/feedback` `/api/card-text-report`（未発売カードのテキスト誤り報告。Origin確認・IPごと30秒） `/api/health` `/api/config` |
 | 管理（要 X-Admin-Key） | `/admin` `/api/admin/unreleased` 系（一覧・承認・一括承認・却下・非公開・編集・画像取込・Xポスト取込）・`/api/admin/unreleased/<id>/text-check`（再検査）・`/api/admin/unreleased/<id>/text-reports`（誤り報告の一覧）・`/api/admin/text-reports/<id>/resolve`（対応済み）。公開中にする操作の逆（承認待ちに戻す・却下・非表示・削除）は X 投稿済みなら投稿も削除する |

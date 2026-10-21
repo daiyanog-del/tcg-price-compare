@@ -1,0 +1,35 @@
+# 毎日の価格収集（販売・買取）が抜けていないかを見張る（check_collection.py）
+# Render の定期実行が起動しなかった日（2026-09-17〜21 に買取で5日間）に気づくため、Render とは別のここで動かす。
+# 販売はふだん JST 8:46〜10:02、買取は 9:27〜11:06 に終わる（2026-10 の実測）ので、余裕を見て JST 13:00。
+# 問題があれば Discord に知らせ、この実行を失敗にする（GitHub からの失敗のメールでも気づける）。DB は読むだけ。
+
+name: Check Collection
+
+on:
+  schedule:
+    - cron: '0 4 * * *'   # UTC 4:00 = JST 13:00
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install supabase requests
+
+      - name: Check today's collection
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python check_collection.py

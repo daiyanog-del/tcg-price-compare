@@ -53,7 +53,7 @@ def test_normalized_rarity_is_only_a_candidate(rarity):
     assert audit.classify_row("sale", row(rarity=rarity))[0]["level"] == "candidate"
 
 
-@pytest.mark.parametrize("code", ["39913299", "G6-B1", "MA-51SR", "DL5-090R", "P4-06", ""])
+@pytest.mark.parametrize("code", ["39913299", "G6-B1", "MA-51SR", "DL5-090R", "P4-06", "", "DMMD-JP001", "DMG-JP001"])
 def test_ocg_non_jp_and_missing_codes_are_not_flagged(code):
     assert audit.classify_row("sale", row(shop="トレコロCB", card_name="ラッシュ・ウォリアー", code=code)) == []
 
