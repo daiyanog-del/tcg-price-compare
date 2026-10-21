@@ -96,7 +96,7 @@ def test_order_limit_and_public_fields(database):
     assert len(result["cards"]) == 36
     assert result["has_more"] is True
     assert [row["name"] for row in result["cards"]] == [f"新カード{i}" for i in range(39, 3, -1)]
-    assert set(result["cards"][0]) == {"name", "added_at", "release_date", "product_name", "image_url"}
+    assert set(result["cards"][0]) == {"name", "added_at", "release_date", "product_name", "image_url", "thumb_url"}
     assert result["cards"][0]["added_at"] == card(39)["extracted_at"]
     assert result["cards"][0]["image_url"] is None
     assert any("extracted_at" in fields for table, fields in database.selections if table == "unreleased_cards")
@@ -126,6 +126,21 @@ def test_official_image_flags_and_global_switch(database):
     database.rows["app_settings"][0]["value"]["enabled"] = False
     display.invalidate_cache()
     assert all(row["image_url"] is None for row in display.get_new_cards()["cards"])
+    assert all(row["thumb_url"] is None for row in display.get_new_cards()["cards"])
+
+
+def test_thumb_url_is_returned_only_with_the_full_image(database):
+    database.rows["unreleased_cards"] = [card(i) for i in range(3)]
+    database.rows["official_card_images"] = [
+        image(0, thumb_url="https://example.test/thumbs/0.webp?t=1"),
+        image(1),  # 縮小版を作る前の行（列が空）
+        image(2, hidden=True, thumb_url="https://example.test/thumbs/2.webp"),
+    ]
+    rows = {row["name"]: row for row in display.get_new_cards()["cards"]}
+    assert rows["新カード0"]["thumb_url"] == "https://example.test/thumbs/0.webp?t=1"
+    assert rows["新カード0"]["image_url"] == "https://example.test/0.png"
+    assert rows["新カード1"]["thumb_url"] is None and rows["新カード1"]["image_url"] == "https://example.test/1.png"
+    assert rows["新カード2"]["thumb_url"] is None and rows["新カード2"]["image_url"] is None
 
 
 def test_cache_reused_and_admin_invalidation_hides_card(database):

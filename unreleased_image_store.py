@@ -8,6 +8,7 @@ admin_unreleased.py と watch_x_unreleased.py の両方から使用する。
 Flask に依存しないため、Cron スクリプトからも安全にインポートできる。
 """
 
+import hashlib
 import io
 import logging
 import math
@@ -59,6 +60,58 @@ def _read_extraction_raw(sb: Client, card_id: int) -> dict:
     except Exception as e:
         logger.warning(f"[image_store] extraction_raw 取得失敗（無視）: {e}")
     return {}
+
+
+# 新着欄など小さく並べる表示用の縮小版（2026-10-21）。スマホの新着欄は1枚 幅約113px で、高精細画面の2〜3倍に足りる幅にする。
+# 元画像は幅290〜410px の PNG/JPEG が多く、重さの大半は形式（PNG 1枚200〜350KB）。WebP にすると1枚20〜35KB。
+_THUMB_DIR = "unreleased/thumbs"
+_THUMB_MAX_WIDTH = 300
+_THUMB_QUALITY = 75
+# Cache-Control は原寸と同じ既定（1時間）のまま。長くすると、削除した画像が CDN・ブラウザに長く残る
+
+
+def thumb_path(card_id: int) -> str:
+    return f"{_THUMB_DIR}/{card_id}.webp"
+
+
+def make_thumbnail(image_bytes: bytes) -> bytes:
+    """画像バイトから縮小版（幅 _THUMB_MAX_WIDTH 以下の WebP）を作る。向きは EXIF を反映してから縮める（ブラウザの表示と同じ向き）。"""
+    img = ImageOps.exif_transpose(Image.open(io.BytesIO(image_bytes)))
+    # 色の基準（ICC）は引き継ぐ（広色域の画像がくすまないように）。CMYK は変換で基準が合わなくなるので付けない
+    icc = img.info.get("icc_profile") if img.mode != "CMYK" else None
+    has_alpha = "A" in img.getbands() or "transparency" in img.info
+    img = img.convert("RGBA" if has_alpha else "RGB")
+    if img.width > _THUMB_MAX_WIDTH:
+        h = max(1, round(img.height * _THUMB_MAX_WIDTH / img.width))
+        img = img.resize((_THUMB_MAX_WIDTH, h), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="WEBP", quality=_THUMB_QUALITY, method=6, **({"icc_profile": icc} if icc else {}))
+    return buf.getvalue()
+
+
+def store_thumbnail(sb: Client, card_id: int, image_bytes: bytes) -> str | None:
+    """
+    表示中の画像（切り抜き後なら切り抜き後のバイト）から縮小版を作って Storage に保存し、中身のハッシュ付きの公開URLを返す。
+    ?v= は中身から作る（時刻の秒では、取り込み直後の自動切り抜きで切り抜き前と同じ URL になりうるため）。
+    失敗したら警告ログを出して None を返す（呼び出し側は thumb_url を None にし、表示は原寸の画像に戻る）。
+    """
+    path = thumb_path(card_id)
+    try:
+        data = make_thumbnail(image_bytes)
+        sb.storage.from_(_STORAGE_BUCKET).upload(
+            path=path,
+            file=data,
+            file_options={"content-type": "image/webp", "upsert": "true"},
+        )
+        r = sb.storage.from_(_STORAGE_BUCKET).get_public_url(path)
+        base = (r if isinstance(r, str) else r.get("publicUrl", "")).split("?")[0]
+    except Exception as e:
+        logger.warning(f"[image_store] 縮小版の保存失敗（原寸の画像で表示を続ける）: card_id={card_id}: {e}")
+        return None
+    if not base:
+        logger.warning(f"[image_store] 縮小版の公開URLが不明（原寸の画像で表示を続ける）: card_id={card_id}")
+        return None
+    return f"{base}?v={hashlib.sha1(data).hexdigest()[:12]}"
 
 
 def _backup_original(sb: Client, card_id: int, image_bytes: bytes, mime: str) -> dict | None:
@@ -161,7 +214,7 @@ def _bust_url(sb: Client, storage_path: str, public_url: str) -> str:
 
 def collect_original_paths(sb: Client, card_ids: list[int]) -> list[str]:
     """
-    カード削除時に Storage から消すべき退避元画像のパスを集める。
+    カード削除時に Storage から消すべき退避元画像と縮小版のパスを集める。
     extraction_raw.original_image.storage_path があればそれ、無ければ
     unreleased/originals/{card_id}.{jpg,png,gif,webp} を候補にする（存在しなくても remove は無害）。
     行を消す（CASCADE を含む）前に呼ぶこと。
@@ -175,6 +228,7 @@ def collect_original_paths(sb: Client, card_ids: list[int]) -> list[str]:
             paths.append(path)
         else:
             paths.extend(f"unreleased/originals/{cid}.{ext}" for ext in ("jpg", "png", "gif", "webp"))
+        paths.append(thumb_path(cid))  # 縮小版も公開バケットに残さない
     return paths
 
 
@@ -384,12 +438,15 @@ def _store_card_image(
         logger.warning(f"[image_store] public URL 取得失敗: {e}")
         public_url = ""
 
+    thumb_url = store_thumbnail(sb, card_id, image_bytes)
+
     # official_card_images INSERT
     try:
         sb.table("official_card_images").insert({
             "unreleased_card_id": card_id,
             "storage_path": storage_path,
             "public_url": public_url,
+            "thumb_url": thumb_url,
             "source_image_url": image_url,
             "source_page_url": tweet_url,
             "source_domain": source_domain,
@@ -504,13 +561,17 @@ def crop_and_save_image(
 
     # キャッシュバスター付き URL を生成（Supabase CDN が古い画像をキャッシュしているため）
     cache_busted_url = _bust_url(sb, storage_path, public_url)
+    # 縮小版も切り抜き後の画像で作り直す。失敗したら None にして、切り抜き前の縮小版を出さない
+    thumb_url = store_thumbnail(sb, card_id, image_bytes)
 
-    # official_card_images.public_url を更新（公開中カードリストが参照するURL）
+    # official_card_images.public_url・thumb_url を更新（公開中カードリストが参照するURL）
+    row_updates: dict = {"thumb_url": thumb_url}
     if cache_busted_url:
-        try:
-            sb.table("official_card_images").update({"public_url": cache_busted_url}).eq("unreleased_card_id", card_id).is_("deleted_at", "null").execute()
-        except Exception as e:
-            logger.warning(f"[image_store] official_card_images.public_url 更新失敗（無視）: {e}")
+        row_updates["public_url"] = cache_busted_url
+    try:
+        sb.table("official_card_images").update(row_updates).eq("unreleased_card_id", card_id).is_("deleted_at", "null").execute()
+    except Exception as e:
+        logger.warning(f"[image_store] official_card_images の URL 更新失敗（無視）: {e}")
 
     # extraction_raw を更新（管理画面プレビュー用URL・クロップ状態・後からの退避）
     crop_state = {
@@ -575,11 +636,14 @@ def restore_original_image(sb: Client, card_id: int) -> tuple[bool, str]:
         return False, f"Storage保存失敗: {e}"
 
     new_url = _bust_url(sb, storage_path, public_url)
+    thumb_url = store_thumbnail(sb, card_id, image_bytes)
+    row_updates: dict = {"thumb_url": thumb_url}
     if new_url:
-        try:
-            sb.table("official_card_images").update({"public_url": new_url}).eq("unreleased_card_id", card_id).is_("deleted_at", "null").execute()
-        except Exception as e:
-            logger.warning(f"[image_store] official_card_images.public_url 更新失敗（無視）: {e}")
+        row_updates["public_url"] = new_url
+    try:
+        sb.table("official_card_images").update(row_updates).eq("unreleased_card_id", card_id).is_("deleted_at", "null").execute()
+    except Exception as e:
+        logger.warning(f"[image_store] official_card_images の URL 更新失敗（無視）: {e}")
 
     updates = {"crop_state": {"mode": "original", "box": None, "at": _now_iso()}}
     if new_url:
