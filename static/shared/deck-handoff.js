@@ -67,7 +67,13 @@ export async function receiveDeckHandoff({loadDeck,clearDeck,getCounts,onLoaded=
   const back=doc.createElement('a');back.href='/#mydeck';back.textContent='マイデッキに戻る';back.className='sol-handoff-back';
   panel.append(message,retry,back);
   // 失敗の文は長いので折り返して全文を見せる（高さが変わるのは失敗時だけ）
-  const show=(name,state,{counts='',failed=false}={})=>{nameEl.textContent=name;stateEl.textContent=state;countsEl.textContent=counts;panel.classList?.toggle('is-error',failed);};
+  // 読み込み中も、完了の文（「読み込みました」と枚数）の幅を見えない形で取っておく。文の幅が変わると
+  // 「マイデッキに戻る」が横に動き、PC で CLS に数えられていた（2026-10-21）。reserve は CSS の ::after で幅だけに使う
+  const show=(name,state,{reserve='',counts='',pending=false,failed=false}={})=>{
+    nameEl.textContent=name;stateEl.textContent=state;stateEl.setAttribute('data-reserve',reserve);
+    countsEl.textContent=counts;countsEl.className='sol-handoff-counts'+(pending?' is-pending':'');
+    panel.classList?.toggle('is-error',failed);
+  };
   let running=false;
   async function attempt(){
     if(running)return;
@@ -75,20 +81,21 @@ export async function receiveDeckHandoff({loadDeck,clearDeck,getCounts,onLoaded=
     try{
       const {raw,data}=readHandoff(storage);
       const name=data.name.trim()||'マイデッキ';
-      show('「'+name+'」','読み込み中…');
+      const sum=cards=>cards.reduce((total,card)=>total+card.qty,0);
+      const countsText=(main,ex)=>'（メイン'+main+'枚・EX'+ex+'枚）';
+      show('「'+name+'」','読み込み中…',{reserve:'読み込みました',counts:countsText(sum(data.main),sum(data.ex)),pending:true});
       if(await clearDeck()===false)throw new Error('別のデッキを読み込み中です。完了後に再試行してください。');
       const text=cards=>cards.map(card=>card.qty+' '+card.name).join('\n');
       await loadDeck(text(data.main),text(data.ex));
       // 既存読込は画像取得失敗のカードをスキップするため、resolveだけで成功扱いしない。
       const actual=getCounts();
-      const sum=cards=>cards.reduce((total,card)=>total+card.qty,0);
       if(actual.main!==sum(data.main)||actual.ex!==sum(data.ex)){
         throw new Error('一部のカードを読み込めませんでした。通信状態とメイン・EXの振り分けを確認して再試行してください。');
       }
       url.searchParams.delete('from');
       hist.replaceState(hist.state,'',url.pathname+url.search+url.hash);
       if(storage.getItem(HANDOFF_KEY)===raw)storage.removeItem(HANDOFF_KEY);
-      show('「'+name+'」','読み込みました',{counts:'（メイン'+actual.main+'枚・EX'+actual.ex+'枚）'});
+      show('「'+name+'」','読み込みました',{reserve:'読み込みました',counts:countsText(actual.main,actual.ex)});
       onLoaded({name,savedId:data.savedId||null});
     }catch(error){
       console.warn('[deck-handoff] デッキ引継ぎ失敗',error);

@@ -2020,6 +2020,12 @@ a.replay-btn { display: inline-block; text-decoration: none; }
   text-overflow: ellipsis;
 }
 .sol-handoff-name:not(:empty) { margin-right: .25em; }
+/* 読み込み中も完了の文の幅を取っておく（data-reserve・枚数は見えない形で先に入れる）。文の幅が変わると
+   「マイデッキに戻る」が横に動き CLS に数えられる（2026-10-21・PC） */
+.sol-handoff-state { display: inline-flex; flex-direction: column; vertical-align: top; }
+.sol-handoff-state::after { content: attr(data-reserve); height: 0; overflow: hidden; visibility: hidden; }
+.sol-handoff-counts.is-pending { visibility: hidden; }
+.sol-handoff-status.is-error .sol-handoff-state { display: inline; }
 .sol-handoff-back {
   flex: none;
   display: inline-block;

@@ -56,6 +56,18 @@ function fixture(){
     assert.equal(removed,1);
   }
 
+  // 読み込み中も完了の文と枚数の幅を取っておく（「マイデッキに戻る」が横に動かない・PC の CLS 2026-10-21）。
+  {
+    const mid=fixture();mid.storage.setItem(HANDOFF_KEY,snapshot);let seen=null;
+    const load=mid.loadDeck;
+    mid.loadDeck=async(...args)=>{const t=mid.body.children[0].children[0];
+      seen={state:t.children[1].textContent,reserve:t.children[1].attributes['data-reserve'],counts:t.children[2].textContent,cls:t.children[2].className};
+      return load(...args);};
+    await receiveDeckHandoff(mid);
+    assert.deepEqual(seen,{state:'読み込み中…',reserve:'読み込みました',counts:'（メイン2枚・EX1枚）',cls:'sol-handoff-counts is-pending'});
+    assert.equal(mid.body.children[0].children[0].children[2].className,'sol-handoff-counts');
+  }
+
   // 境界値と不正値。巨大入力はJSON解析前に拒否し、盤面に触らない。
   validateHandoff({...deck,main:[{name:'青眼',qty:60}],ex:[{name:'究極竜',qty:15}]});
   for(const bad of [null,{...deck,version:2},{...deck,name:'名'.repeat(201)},
