@@ -252,6 +252,15 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--gold); outline-
   text-decoration: none;
 }
 .rp-pcard-continue:hover { color: var(--accent-hover); text-decoration: underline; }
+/* 読み込み中の仮の枠（replays-page.js buildPublicSkeleton）。高さは本物と同じ部品で揃え、文字は見せず帯だけ出す */
+.rp-pcard-skel { pointer-events: none; }
+.rp-pcard-skel:hover { background: var(--bg-card); }
+.rp-pcard-skel .rp-pcard-title,
+.rp-pcard-skel .rp-pcard-meta,
+.rp-pcard-skel .rp-pcard-continue { align-self: flex-start; width: 60%; color: transparent; background: var(--bg-surface); border-radius: 4px; }
+.rp-pcard-skel .rp-pcard-meta { width: 40%; }
+.rp-pcard-skel .rp-pcard-continue { width: 50%; }
+.rp-pcard-skel .rp-tag { color: transparent; background: var(--bg-surface); }
 .rp-more-wrap { display: flex; justify-content: center; margin-top: 12px; }
 .rp-more[hidden] { display: none; }
 .rp-more:disabled { opacity: 0.5; cursor: default; }
