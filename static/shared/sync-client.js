@@ -12,7 +12,8 @@
  *     直接 localStorage には書かない
  *     （wishSave() がバッジ更新・プッシュ購読更新も行うため。§7.4）
  *   - 適用中は送信フックを止めて、受信→保存→再送信の無限ループを防ぐ
- *   - 失敗（ネットワーク断・429・500）は画面に何も出さず、指数バックオフで最大3回まで再送
+ *   - 失敗（ネットワーク断・429・500）は指数バックオフで最大3回まで再送。それでも届かなければ
+ *     種別ごとに「未送信」を残し（cardprice_sync_unsent）、連携済みの端末では同期の表示に出す（2026-10-21）
  *   - reissued(=sync_id再発行) を受け取ったら控えめなバナーで通知する
  *   - pullIfNeeded() は購入候補・保存デッキの両方を1回のAPI呼び出しで扱う。ページによっては
  *     片方の適用フック（wishSave/renderWishlist または savedDecksSet/renderSavedDecks）が
@@ -77,6 +78,39 @@
   }
   function _clearState() {
     try { localStorage.removeItem(STATE_KEY); } catch (e) {}
+  }
+
+  // 【2026-10-21 送信失敗の表示】再試行が尽きても届かなかった種別を {wishlist: 時刻, decks: 時刻} で残す。
+  // 同期の状態（STATE_KEY）とは別のキーにする（状態は丸ごと張り替える経路が多く、旧クライアントも読むため）。
+  // 次にその種別の送信がサーバーに受け付けられたら消す。画面（index-sync.js）は連携済みの端末でだけ出す
+  const UNSENT_KEY = 'cardprice_sync_unsent';
+  function _getUnsent() {
+    try {
+      const o = JSON.parse(localStorage.getItem(UNSENT_KEY));
+      return o && typeof o === 'object' && !Array.isArray(o) ? o : {};
+    } catch (e) {
+      return {};
+    }
+  }
+  function _setUnsent(kind, on) {
+    const u = _getUnsent();
+    if (on) u[kind] = Date.now();
+    else if (!(kind in u)) return;
+    else delete u[kind];
+    try {
+      if (Object.keys(u).length) localStorage.setItem(UNSENT_KEY, JSON.stringify(u));
+      else localStorage.removeItem(UNSENT_KEY);
+    } catch (e) {}
+    try {
+      if (typeof global.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+        global.dispatchEvent(new CustomEvent('sync-unsent-change'));
+      }
+    } catch (e) {}
+  }
+  // 届かなかった内容は「直前に送った内容」から外す（残すと、同じ内容で保存し直しても送られない）
+  function _giveUp(kind) {
+    _kindState[kind].lastSentJson = null;
+    _setUnsent(kind, true);
   }
 
   // 種別ごとの localStorage キー（index.html / 一人回し 双方で共通）
@@ -277,6 +311,9 @@
       return res.json().catch(function () { return {}; });
     }).then(function (data) {
       if (!data || (_getState() || {}).sync_id !== state.sync_id) return;
+      // 受け付けられた（applied・merged・再発行）ら届いている。db_unavailable 等は届いていない
+      if (data.reissued || data.ok) _setUnsent(kind, false);
+      else _giveUp(kind);
       if (data.reissued) {
         // 再発行＝サーバー側で新しい行が作られた（今回pushした種別のデータのみを持つ。
         // app.pyのpush再発行経路はkind単体しか受け取れない仕様のため）。
@@ -325,7 +362,11 @@
     attempt = attempt || 0;
     return _pushOnce(kind, items).catch(function (e) {
       attempt++;
-      if (attempt >= MAX_RETRY) return; // 次回ページ読み込み時に解決させる（§4.2）
+      if (attempt >= MAX_RETRY) {
+        // 次回ページ読み込み時に解決させる（§4.2）。届いていないことは同期の表示に出す
+        _giveUp(kind);
+        return;
+      }
       if (kind === 'decks') _deckRetryWaiting++;
       return _sleep(BACKOFF_BASE_MS * Math.pow(2, attempt - 1)).then(function () {
         if (kind === 'decks') _deckRetryWaiting--;
@@ -351,14 +392,13 @@
       // 読んだローカルデータに自分の分が含まれているはずだが、明示的に送ることで
       // 「デッキの内容がpushされないまま終わる」といった取りこぼしを起こさない
       const wasAlreadyInFlight = !!_ensureAccountInFlight;
-      _ensureAccount().then(function (newState) {
+      return _ensureAccount().then(function (newState) {
         if (!wasAlreadyInFlight) return; // リーダー: 追送不要
         if (!newState || !newState.sync_id) return; // 発行失敗。次回のpushで再度試みられる
-        _pushWithRetry(kind, list);
+        return _pushWithRetry(kind, list);
       });
-      return;
     }
-    _pushWithRetry(kind, list);
+    return _pushWithRetry(kind, list);
   }
 
   // wishSave() から呼ばれるフック。2秒デバウンスして push する（§4.2）
@@ -403,11 +443,14 @@
     // そのため rev=0 の種別は pull結果を適用せず、代わりにローカルの内容をpushして
     // サーバー側の和集合マージ（§4.3）で合流させる。マージ後はrevが1以上になるため、
     // 次回以降のpullは通常どおり動く（自己修復）
-    const staleWishlist = !state.wishlist_rev;
+    // 【2026-10-21】前回のページで送れなかった購入候補（未送信の印あり）も同じ扱いにする。
+    // pull結果を適用すると、届いていない手元の変更をサーバーの古い内容で上書きしてしまうため
+    const staleWishlist = !state.wishlist_rev || !!_getUnsent().wishlist;
     const staleDecks = !state.decks_rev;
     if (staleWishlist) {
       const local = _readLocalList('wishlist');
-      if (local.length) _doPush('wishlist', _wishWire(local));
+      // 未送信の印があるときは空（すべて消した）も送る
+      if (local.length || _getUnsent().wishlist) _doPush('wishlist', _wishWire(local));
     }
     if (staleDecks) {
       const local = _readLocalList('decks');
@@ -473,6 +516,19 @@
   // 「他の端末と同期中」表示の出し分けに使う。localStorageキーを直接読ませないための窓口
   function getSyncState() {
     return _getState();
+  }
+
+  // 再試行が尽きても届いていない種別（'wishlist' / 'decks'）の一覧。同期の表示に使う
+  function getUnsentKinds() {
+    return Object.keys(_getUnsent()).filter(function (k) { return k === 'wishlist' || k === 'decks'; });
+  }
+
+  // 「もう一度送る」: 届いていない種別の手元の内容を送り直す。送り終わる（または諦める）と解決する
+  function resendUnsent() {
+    return Promise.all(getUnsentKinds().map(function (kind) {
+      const local = _readLocalList(kind);
+      return _doPush(kind, kind === 'wishlist' ? _wishWire(local) : local);
+    })).then(function () {});
   }
 
   // 確認画面（/sync）向け: この端末のローカル件数（適用前に表示する）
@@ -627,6 +683,7 @@
   global.SyncClient = {
     onWishSave: onWishSave, onDecksSave: onDecksSave, pullIfNeeded: pullIfNeeded,
     getSyncState: getSyncState, getLocalCounts: getLocalCounts,
+    getUnsentKinds: getUnsentKinds, resendUnsent: resendUnsent,
     startLinkShare: startLinkShare, unlinkThisDevice: unlinkThisDevice,
     previewLink: previewLink, redeemLink: redeemLink, applyRedeemResult: applyRedeemResult,
   };

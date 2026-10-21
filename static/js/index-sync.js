@@ -50,6 +50,7 @@ function openSyncShareDialog(){
   document.getElementById('syncShareUrl').placeholder='発行中…';
   document.getElementById('syncShareTimer').textContent='発行しています…';
   _setSyncShareError('');
+  _refreshSyncStatusUI();
   if(_syncShareTimerId){ clearInterval(_syncShareTimerId); _syncShareTimerId=null; }
 
   if(!window.SyncClient){
@@ -158,7 +159,50 @@ function _refreshSyncStatusUI(){
   const el=document.getElementById('wishSyncStatus');
   if(!el || !window.SyncClient) return;
   const state=window.SyncClient.getSyncState();
-  el.classList.toggle('hidden', !(state && state.linked===true));
+  const linked=!!(state && state.linked===true);
+  el.classList.toggle('hidden', !linked);
+  _refreshSyncUnsentUI(linked);
+}
+
+// 送信の再試行が尽きても届いていない変更（2026-10-21）。連携済みの端末でだけ、
+// 購入候補タブの同期の欄と「他の端末でも見る」の窓に出す（未連携なら届け先の端末が無いので出さない）。
+// 旧版の sync-client.js（getUnsentKinds が無い）がキャッシュに残っていても何も出さないだけで壊れない
+let _syncResending=false;
+function _refreshSyncUnsentUI(linked){
+  if(!document.querySelectorAll) return;
+  const kinds=(window.SyncClient && typeof window.SyncClient.getUnsentKinds==='function')?window.SyncClient.getUnsentKinds():[];
+  const show=linked && kinds.length>0;
+  const label=kinds.map(function(k){ return k==='decks'?'デッキ':'購入候補'; }).join('・');
+  document.querySelectorAll('[data-sync-unsent]').forEach(function(box){
+    box.classList.toggle('hidden', !show);
+    if(!show){ box.textContent=''; return; }
+    box.textContent='';
+    box.appendChild(document.createTextNode(_syncResending
+      ?'送っています…'
+      :'この端末の'+label+'の変更が、まだ他の端末に届いていません（通信に失敗しました）。　'));
+    if(_syncResending) return;
+    const a=document.createElement('a');
+    a.href='#';
+    a.textContent='もう一度送る';
+    a.addEventListener('click', function(e){ e.preventDefault(); resendSyncUnsent(); });
+    box.appendChild(a);
+  });
+}
+
+function resendSyncUnsent(){
+  if(_syncResending || !window.SyncClient || typeof window.SyncClient.resendUnsent!=='function') return;
+  _syncResending=true;
+  _refreshSyncStatusUI();
+  window.SyncClient.resendUnsent().catch(function(){}).finally(function(){
+    _syncResending=false;
+    _refreshSyncStatusUI();
+  });
+}
+
+// 裏で送った結果（届いた・諦めた）で表示を更新する。別タブでの変化（storage）にも合わせる
+if(typeof window.addEventListener==='function'){
+  window.addEventListener('sync-unsent-change', function(){ _refreshSyncStatusUI(); });
+  window.addEventListener('storage', function(e){ if(e.key==='cardprice_sync_unsent') _refreshSyncStatusUI(); });
 }
 
 // ── サービス紹介用QRコード ダイアログ（フッター「QRコード」リンク）──

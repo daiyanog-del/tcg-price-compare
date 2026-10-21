@@ -1209,6 +1209,8 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
         <!-- 端末間同期の状態表示（同期中のみ表示。設計文書 §7.3） -->
         <div id="wishSyncStatus" class="hidden" style="margin:0 0 12px;padding:8px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;font-size:.78rem;color:var(--text-d)">
           他の端末と同期中　<a href="#" onclick="unlinkThisDeviceSync();return false;">同期を解除</a>
+          <!-- 再試行が尽きても届いていない変更（2026-10-21。中身は index-sync.js の _refreshSyncStatusUI） -->
+          <div class="sync-unsent hidden" data-sync-unsent style="margin-top:6px;color:var(--red)"></div>
         </div>
         <!-- どこで買うと安いか（「どこで買うと安いか調べる」押下後に表示）。押した直後に目に入るようリストの上に置く -->
         <div id="wishShopRanking" class="wb-panel hidden"></div>
@@ -1393,6 +1395,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
       <button class="legal-modal-close" onclick="closeSyncShareDialog()">&times;</button>
     </div>
     <div class="legal-modal-body" style="text-align:center">
+      <div class="sync-unsent hidden" data-sync-unsent style="color:var(--red);font-size:.82rem;margin-bottom:12px;text-align:left"></div>
       <p style="color:var(--text-m);font-size:.85rem;margin-bottom:14px">もう一方の端末でこのQRコードを読み取るか、下のリンクを開いてください。有効期限は10分です。</p>
       <div id="syncShareQr" style="display:flex;justify-content:center;margin:14px 0;min-height:40px"></div>
       <div id="syncShareTimer" style="font-size:.8rem;color:var(--text-d);margin-bottom:12px"></div>
