@@ -194,7 +194,7 @@ const lastSource = () => sources[sources.length - 1];
   }
 
   // 10) メルカリ欄の価格リンクのクリック計測（イベント委譲・affiliate 付き）。パネル本文以外のクリックは数えない
-  vm.runInContext(block('// メルカリ欄の価格リンク（タイル内の', '// U-1: 販売テーブル側'), sandbox);
+  vm.runInContext(block('// メルカリ欄の価格リンク（タイル内の', 'function _fetchBuyInline('), sandbox);
   const onClick = get('mercariRefBody').listeners.click;
   assert(onClick, '本文にクリック委譲が登録されている');
   const linkEl = (rel) => ({ getAttribute: (k) => (k === 'rel' ? rel : null) });

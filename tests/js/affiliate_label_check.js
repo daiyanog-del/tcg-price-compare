@@ -1,6 +1,7 @@
 // アフィリエイト広告表記（rel=sponsored・PRバッジ・注記）の実コード検証。
 // index-main.js の実関数を vm で実行し、_affConfig がダミー有り／空の両方で
-// 3箇所（店舗サマリー・買取カード・全件表）の出力を確認する。
+// 3箇所（出品一覧の店ごとの最安・買取カード・出品一覧のすべて）の出力を確認する。
+// 2026-10-21 案C: 旧・店舗サマリー（#sumCards）は出品一覧の「店ごとの最安」（listView='shop'）に統合した。
 'use strict';
 const fs = require('fs'), path = require('path'), vm = require('vm'), assert = require('assert/strict');
 const root = path.join(__dirname, '../..');
@@ -34,7 +35,7 @@ const sandbox = {
 };
 vm.createContext(sandbox);
 vm.runInContext(`
-let D=[],sort={k:'price',a:true},rarityFilter='',cardImgSmall='',tableShowCount=20;
+let D=[],sort={k:'price',a:true},rarityFilter='',cardImgSmall='',tableShowCount=20,listView='shop',_currentCardName='灰流うらら';
 let _buyInlineD=null,_buyInlineFetched=false,_buyInlineFailedShops=[];
 let _affConfig={};
 `, sandbox);
@@ -45,7 +46,8 @@ vm.runInContext([
   block('function _buyInlineFilteredData(', '// S-1:'),
   block('function _looksLikeCardCode(', '// U-1: 販売テーブル'),
   block('function _renderBuyInline(', '// F-5/F-14'),
-  block('function renderTable(', 'function _showMoreRows('),
+  block('function _variantLabel(', 'function renderTable('),
+  block('function renderTable(', '// B-4: 「もっと見る」'),
 ].join('\n'), sandbox);
 const run = c => vm.runInContext(c, sandbox);
 
@@ -64,7 +66,8 @@ function setData() {
     {shop:'トレコロ',name:'灰流うらら',price:40,rarity:'ウルトラ',code:'AB-JP001',condition:'-',url:'${TC}'}];`);
 }
 // 注記は廃止（PRの印と rel だけ）。どの描画でも注記文言・要素が出ないこと
-const noNote = () => assert(!get('sumCards').innerHTML.includes('aff-note') && !get('sumCards').innerHTML.includes('含みます'), '注記は出さない');
+const noNote = () => assert(!get('tbody').innerHTML.includes('aff-note') && !get('tbody').innerHTML.includes('含みます') && !get('crListNote').textContent.includes('含みます'), '注記は出さない');
+const shopCell = (name) => '<td class="cr-shop"><span class="cr-shop-name">' + name + '</span>';
 const count = (h, s) => h.split(s).length - 1;
 const PR = '<span class="aff-pr">PR</span>';
 const FULL = `_affConfig={'カーナベル':{sell:'dummyA8',buy:'dummyA8'},'駿河屋':{user_id:'9999'}}`;
@@ -85,41 +88,41 @@ assert.equal(run(`_isAffUrl('${NK}', affLink('${NK}','カーナベル','buy'))`)
 assert.equal(run(`_affRel(true)`), 'sponsored noopener');
 assert.equal(run(`_affRel(false)`), 'noopener nofollow');
 
-// 2) 店舗サマリー: ダミー設定あり
+// 2) 出品一覧の店ごとの最安: ダミー設定あり
 run(FULL);
-run(`renderSummary()`);
-let h = get('sumCards').innerHTML;
+run(`listView='shop'; renderSummary(); renderTable()`);
+let h = get('tbody').innerHTML;
 assert(h.includes('px.a8.net') && h.includes('affiliate.suruga-ya.jp'));
 assert.equal(count(h, PR), 2, 'カーナベルと駿河屋にだけPR');
-assert(h.includes('<div class="slabel">カーナベル' + PR + '</div>'));
-assert(h.includes('<div class="slabel">駿河屋' + PR + '</div>'));
-assert(h.includes('<div class="slabel">トレコロ</div>'), 'トレコロは直リンクでPRなし');
-assert.equal(count(h, 'rel="sponsored noopener"'), 4, '変換2店×(名前+価格)');
-assert.equal(count(h, 'rel="noopener nofollow"'), 2, 'トレコロ×(名前+価格)');
+assert(h.includes(shopCell('カーナベル' + PR)));
+assert(h.includes(shopCell('駿河屋' + PR)));
+assert(h.includes(shopCell('トレコロ')), 'トレコロは直リンクでPRなし');
+assert.equal(count(h, 'rel="sponsored noopener"'), 2, '変換2店×「店で見る」');
+assert.equal(count(h, 'rel="noopener nofollow"'), 1, 'トレコロ×「店で見る」');
 assert(!h.includes('<b>悪い店</b>') && h.includes('&lt;b&gt;悪い店&lt;/b&gt;'), '店名はesc済み');
 noNote();
 
 // 3) 設定が空: 直リンクのみ→PRなし・注記非表示。再描画で正しく切り替わる
 run(`_affConfig={}`);
-run(`renderSummary()`);
-h = get('sumCards').innerHTML;
+run(`renderSummary(); renderTable()`);
+h = get('tbody').innerHTML;
 assert.equal(count(h, 'aff-pr'), 0);
 assert.equal(count(h, 'sponsored'), 0);
 assert(h.includes('rel="noopener nofollow"'));
 noNote();
 run(`_affConfig={'カーナベル':{sell:'dummyA8'}}`);
-run(`renderSummary()`);
+run(`renderSummary(); renderTable()`);
 noNote();
 // レアリティ切替で変換店が消える場合（トレコロのみのレアリティ）
 run(`D.push({shop:'トレコロ',name:'y',price:10,rarity:'ノーマル',code:'',condition:'-',url:'${TC}',sold_out:false,stock:1}); rarityFilter='ノーマル'`);
-run(`renderSummary()`);
+run(`renderSummary(); renderTable()`);
 noNote();
 // 在庫切れ表示でも隠す（直前が表示状態だった場合）
 run(`rarityFilter=''`);
-run(`renderSummary()`);
+run(`renderSummary(); renderTable()`);
 noNote();
 run(`rarityFilter='存在しない'`);
-run(`renderSummary()`);
+run(`renderSummary(); renderTable()`);
 noNote();
 run(`D.pop(); rarityFilter=''`);
 
@@ -137,15 +140,15 @@ run(`_renderBuyInline()`);
 h = get('buyInlineBody').innerHTML;
 assert(!h.includes('aff-note') && !h.includes('aff-pr') && !h.includes('sponsored'));
 
-// 5) 全件表
+// 5) 出品一覧のすべて
 run(`_affConfig={'カーナベル':{sell:'dummyA8'},'駿河屋':{user_id:'9999'}}`);
-run(`renderTable()`);
+run(`listView='all'; renderTable()`);
 h = get('tbody').innerHTML;
-assert(h.includes('<td data-label="店舗">カーナベル' + PR + '</td>'));
-assert(h.includes('<td data-label="店舗">駿河屋' + PR + '</td>'));
-assert(h.includes('<td data-label="店舗">トレコロ</td>'));
-assert(h.includes('<td data-label="店舗">&lt;b&gt;悪い店&lt;/b&gt;</td>'), 'URL無し行はPRなし・esc済み');
-assert.equal(count(h, 'class="row-link"'), 3);
+assert(h.includes(shopCell('カーナベル' + PR)));
+assert(h.includes(shopCell('駿河屋' + PR)));
+assert(h.includes(shopCell('トレコロ')));
+assert(h.includes(shopCell('&lt;b&gt;悪い店&lt;/b&gt;')), 'URL無し行はPRなし・esc済み');
+assert.equal(count(h, 'class="row-link cr-go"'), 3);
 assert.equal(count(h, 'rel="sponsored noopener"'), 2);
 assert.equal(count(h, 'rel="noopener nofollow"'), 1);
 assert.equal(count(h, 'data-href="https://px.a8.net') + count(h, 'data-href="https://affiliate.suruga-ya.jp'), 2);

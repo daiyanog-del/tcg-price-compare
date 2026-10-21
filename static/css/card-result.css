@@ -1,0 +1,185 @@
+/* カードの検索結果（2026-10-21 案C。モック _mocks/card-result-layout-20261021）。
+   上から「名前と最安（右に相場の箱）→ レアリティ（安い順・在庫ありの最安）→ 出品の一覧（店ごとの最安／すべて）」。
+   色は site-theme.css の変数。文字は 22（名前）・15（見出し）・13（本文）・12（ラベル）・11（件数・札）の5段＋価格の数字。
+   index.html・price-layout.css の旧指定より後に読み、#mode-search を付けて上書きする。 */
+
+/* ── 名前・最安・操作 ── */
+#mode-search .card-hero{display:grid;grid-template-columns:128px minmax(0,1fr) minmax(300px,340px);gap:0 24px;align-items:start;margin:0 0 28px;text-align:left}
+#mode-search .card-hero-img{width:128px;border-radius:6px;overflow:hidden;background:var(--bg-card)}
+#mode-search .card-hero-img img{display:block;width:100%;height:auto}
+#mode-search .cr-img-ph{width:100%;aspect-ratio:140/204;background:var(--bg-card)}
+#mode-search .card-hero-info{min-width:0}
+#mode-search .card-hero-name{font-size:22px;font-weight:700;line-height:1.35;margin:0 0 10px;overflow-wrap:anywhere}
+#mode-search .cr-db-link{margin-left:10px;font-size:12px;font-weight:400;color:var(--accent-l);white-space:nowrap}
+#mode-search .cr-best-label{font-size:12px;line-height:1.6;color:var(--text-m)}
+#mode-search #heroBest.cr-best{display:flex;margin:0;align-items:baseline;flex-wrap:wrap;gap:2px 10px;min-height:38px}
+#mode-search .cr-best-price{font:600 30px/1.25 var(--mono);color:var(--gold)}
+#mode-search .cr-best-shop{font-size:13px;font-weight:700}
+#mode-search .cr-best-sub{font-size:12px;color:var(--text-m)}
+#mode-search .cr-best-none{font-size:15px;font-weight:700;color:var(--text-m)}
+#mode-search .card-hero-meta{margin-top:2px;font-size:12px;line-height:1.7;color:var(--text-m)}
+
+/* 操作はピルにそろえる（主操作だけ黄。マイデッキの見出しと同じ形） */
+#mode-search .cr-acts{display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px;margin-top:16px}
+#mode-search .cr-pill{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:0 16px;border:0;border-radius:18px;background:var(--bg-hover);color:var(--accent-l);font:700 12px var(--font);white-space:nowrap;cursor:pointer;list-style:none;user-select:none}
+#mode-search .cr-pill:hover{background:#2b3549;color:var(--text)}
+#mode-search .cr-pill-pri{background:#f3ce46;color:#242013}
+#mode-search .cr-pill-pri:hover{background:#ffe16d;color:#242013}
+#mode-search .cr-acts .card-info-details{margin:0}
+#mode-search .cr-acts .card-info-details>summary.cr-pill{min-height:36px;padding:0 16px;font-size:12px;color:var(--accent-l)}
+#mode-search .cr-acts .card-info-details>summary::before{content:none}
+/* 開いたら次の行に回り、本文はその下に出す */
+#mode-search .cr-acts .card-info-details[open]{flex-basis:100%;order:10}
+#mode-search .cr-acts .card-info-details[open]>summary.cr-pill{background:var(--bg-hover);color:var(--text);box-shadow:inset 0 -2px 0 #f3ce46}
+#mode-search .cr-acts .card-detail{max-width:680px;margin-top:10px;padding:12px 14px;border:0;border-radius:8px;background:var(--bg-card)}
+
+/* ── 相場の箱（相場の動き・メルカリ・買取） ── */
+#mode-search .cr-market{min-width:0;padding:2px 16px;border-radius:8px;background:var(--bg-card)}
+#mode-search .cr-market>*{margin:0;padding:12px 0}
+#mode-search .cr-market>:not(.hidden)~:not(.hidden){box-shadow:inset 0 1px 0 var(--border)}
+#mode-search .cr-market>.price-chart{border:0;border-radius:0;background:none;padding:12px 0}
+#mode-search .cr-market .chart-title{margin:0;font-size:12px;font-weight:700;color:var(--text-m)}
+#mode-search .cr-market .price-chart[open]>.chart-title{margin-bottom:8px}
+/* 相場の動き */
+#mode-search .cr-market .price-trend{margin:0}
+#mode-search .cr-market .pt-head{flex-direction:column;align-items:flex-start;gap:2px;font-size:12px}
+#mode-search .cr-market .pt-title{font-weight:700}
+#mode-search .cr-market .pt-val{font-size:12px}
+#mode-search .cr-market .pt-note{font-size:12px;color:var(--text-m)}
+/* レアリティを変えても箱の高さが大きく変わらないよう（下のレアリティ欄が上下に跳ねないよう）、
+   相場の動きはグラフのときの高さを取っておき、案内1行のときは縦の中央に置く */
+#mode-search .cr-market #priceTrendBody{display:flex;flex-direction:column;justify-content:center;min-height:138px}
+/* メルカリ: 1枚と N枚組を横に2つ */
+#mode-search .cr-market .summary{display:grid;grid-template-columns:1fr;gap:10px;margin:0}
+#mode-search .cr-market .scard{padding:0;border:0;border-radius:0;background:none;overflow:visible;transform:none}
+#mode-search #mercariRef .mref-pair{gap:12px}
+#mode-search #mercariRef .mref-ghead{margin:0 0 2px;padding-left:0;font-size:11px}
+#mode-search #mercariRef .scard .slabel{font-size:11px;color:var(--text-m)}
+#mode-search #mercariRef .scard .sprice{margin:0;font-size:16px}
+#mode-search #mercariRef .scard .sdetail{font-size:11px;white-space:normal}
+/* 「すべて」のときは全レアリティぶん並ぶので、高さに上限を付けて箱の中でスクロールする */
+#mode-search .cr-market #mercariRefBody:has(.mref-group+.mref-group){max-height:240px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2b3549 transparent}
+#mode-search .cr-market .buy-inline-note{margin-top:6px;font-size:11px}
+/* 買取: 閉じているときは1行のボタン。開くと店ごとの行 */
+#mode-search #buyInline:not([open])>summary{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border-radius:6px;background:var(--bg-hover);color:var(--text);font-size:13px}
+#mode-search #buyInline:not([open])>summary::before{content:none}
+#mode-search #buyInline:not([open])>summary::after{content:'›';color:var(--text-m)}
+#mode-search #buyInline:not([open])>summary:hover{background:#2b3549}
+#mode-search #buyInline .summary{gap:0}
+#mode-search #buyInline .scard{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:10px;padding:6px 0}
+#mode-search #buyInline .scard .slabel{grid-column:1;font-size:12px;font-weight:700;color:var(--text)}
+#mode-search #buyInline .scard .sdetail{grid-column:1;font-size:11px}
+#mode-search #buyInline .scard .sprice{grid-column:2;grid-row:1/3;align-self:center;margin:0;font-size:15px;text-align:right}
+#mode-search #buyInline .scard .sprice a{color:var(--green)}
+#mode-search #buyInline .scard .sdiff{font-size:11px}
+#mode-search #buyInline .scard .sbest-badge{margin-left:6px;font-size:10px}
+
+/* ── レアリティ（安い順・在庫ありの最安） ── */
+#mode-search .cr-rarity{margin:0 0 24px}
+#mode-search .cr-sec{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px;margin:0 0 8px}
+#mode-search .cr-sec h2{margin:0;font-size:15px;font-weight:700}
+#mode-search .cr-sec span{font-size:12px;color:var(--text-m)}
+#mode-search .cr-rtiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:6px}
+#mode-search .cr-rtile{display:flex;flex-direction:column;align-items:stretch;gap:2px;min-width:0;padding:8px 10px 7px;border:0;border-radius:6px;background:var(--bg-card);color:var(--text-m);font:inherit;text-align:left;cursor:pointer}
+#mode-search .cr-rtile:hover{background:var(--bg-hover)}
+#mode-search .cr-rtile.active{background:var(--bg-hover);color:var(--text);box-shadow:inset 0 -2px 0 #f3ce46}
+#mode-search .cr-rn{overflow:hidden;font-size:12px;font-weight:700;white-space:nowrap;text-overflow:ellipsis}
+#mode-search .cr-rp{display:flex;align-items:baseline;justify-content:space-between;gap:6px}
+#mode-search .cr-rp b{font:600 14px var(--mono);color:var(--text);white-space:nowrap}
+#mode-search .cr-rtile.active .cr-rp b{color:var(--gold)}
+#mode-search .cr-rp i{font-size:11px;font-style:normal;color:var(--text-m);white-space:nowrap}
+
+/* ── 出品の一覧 ── */
+#mode-search .cr-list{padding:4px 0 8px;border-radius:8px;background:var(--bg-card)}
+#mode-search .cr-list-head{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;padding:12px 16px 8px}
+#mode-search .cr-list-title{flex:1;min-width:0;margin:0;font-size:15px;font-weight:700}
+#mode-search .cr-seg{display:flex;gap:2px}
+#mode-search .cr-seg-btn{min-height:32px;padding:0 12px;border:0;border-radius:6px;background:none;color:var(--text-m);font:700 12px var(--font);cursor:pointer}
+#mode-search .cr-seg-btn span{margin-left:2px;font-family:var(--mono);font-weight:500}
+#mode-search .cr-seg-btn:hover{color:var(--text)}
+#mode-search .cr-seg-btn.active{background:var(--bg-hover);color:var(--text);box-shadow:inset 0 -2px 0 #f3ce46}
+#mode-search .cr-so{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-m);cursor:pointer}
+#mode-search .cr-so-count{font:11px var(--mono);color:var(--text-m)}
+#mode-search .cr-tbl-wrap{overflow-x:auto}
+#mode-search .cr-table{width:100%;border-collapse:collapse;font-size:13px}
+#mode-search .cr-table th{padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-m);text-align:left;white-space:nowrap;cursor:pointer;user-select:none}
+#mode-search .cr-table th:hover{color:var(--text)}
+#mode-search .cr-table th .arr{margin-left:2px;font-size:9px}
+#mode-search .cr-table th.cr-act-col{cursor:default}
+#mode-search .cr-table td{height:46px;padding:0 10px;white-space:nowrap;vertical-align:middle}
+#mode-search .cr-table :is(th,td):first-child{padding-left:16px}
+#mode-search .cr-table :is(th,td):last-child{padding-right:16px}
+#mode-search .cr-table .cr-num{text-align:right}
+#mode-search .cr-table tbody tr:hover td{background:var(--bg-hover)}
+#mode-search .cr-table tr.row-clickable{cursor:pointer}
+#mode-search .cr-table tr.cr-best-row td{background:rgba(243,206,70,.06)}
+#mode-search .cr-table tr.cr-best-row:hover td{background:var(--bg-hover)}
+#mode-search .cr-table tr.sold-out td{opacity:.45}
+#mode-search .cr-table tr.sold-out .cr-price{text-decoration:line-through;text-decoration-color:var(--red)}
+#mode-search .cr-price{font:600 16px var(--mono);color:var(--text)}
+#mode-search .cr-best-row .cr-price{color:var(--gold)}
+#mode-search .cr-shop-name{font-weight:700}
+#mode-search :is(.cr-tag,.cr-best-tag){display:inline-block;margin-left:8px;padding:1px 6px;border-radius:4px;background:var(--bg-hover);color:var(--text-m);font-size:11px;font-weight:700;line-height:1.5;vertical-align:1px}
+#mode-search .cr-best-tag{background:#f3ce46;color:#242013}
+#mode-search .cr-sub{display:none}
+#mode-search .cr-cond{font-size:12px;color:var(--text-m)}
+#mode-search .cr-sale{color:var(--gold)}
+#mode-search .cr-code{font:12px var(--mono);color:var(--text-m)}
+#mode-search .cr-stock{font-family:var(--mono);color:var(--text-m)}
+#mode-search .cr-buymax{font-family:var(--mono);color:var(--green)}
+#mode-search .cr-act{text-align:right}
+#mode-search .cr-go{margin-right:12px;font-size:12px;font-weight:700;color:var(--accent-l)}
+#mode-search .cr-act .wish-add{padding:6px 10px;border:0;border-radius:6px;background:var(--bg-hover);color:var(--accent-l)}
+#mode-search .cr-list-note{margin:4px 16px 8px;font-size:12px;color:var(--text-m)}
+#mode-search .cr-list .tbl-more{padding:8px 0 4px}
+#mode-search .cr-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* ── 中くらいの幅: 相場の箱は名前の下へ ── */
+@media(max-width:1023px){
+  #mode-search .card-hero{grid-template-columns:128px minmax(0,1fr)}
+  #mode-search .cr-market{grid-column:1/-1;margin-top:20px}
+}
+
+/* ── スマホ ── */
+@media(max-width:640px){
+  #mode-search .card-hero{grid-template-columns:76px minmax(0,1fr);gap:0 14px;margin-bottom:22px}
+  #mode-search .card-hero-img{grid-column:1;grid-row:1/span 4;width:76px;border-radius:4px}
+  /* 名前・最安を画像の右、操作と相場の箱を全幅に置くため、情報欄の子を直接並べる */
+  #mode-search .card-hero-info{display:contents}
+  #mode-search :is(.card-hero-name,.cr-best-label,.cr-best,.card-hero-meta){grid-column:2}
+  #mode-search .card-hero-name{margin-bottom:4px;font-size:20px}
+  #mode-search .cr-best{min-height:32px}
+  #mode-search .cr-best-price{font-size:24px}
+  #mode-search .card-hero-info>.card-info-details{grid-column:1/-1}
+  #mode-search .cr-acts{grid-column:1/-1;margin-top:14px}
+  #mode-search .cr-acts>*{flex:1 1 auto}
+  #mode-search .cr-acts>.card-info-details>summary.cr-pill,#mode-search .cr-acts .share-menu-wrap>.cr-pill{display:flex;width:100%}
+  #mode-search .cr-acts .share-menu-wrap{display:block}
+  #mode-search .cr-market{margin-top:14px}
+  /* レアリティは1行で横に送る */
+  #mode-search .cr-rtiles{display:flex;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  #mode-search .cr-rtiles::-webkit-scrollbar{display:none}
+  #mode-search .cr-rtile{flex:0 0 116px}
+  /* 一覧は2段の行（店名と型番・状態・在庫／価格）にする */
+  #mode-search .cr-list-head{padding:12px 16px 6px}
+  #mode-search .cr-list-title{flex-basis:100%}
+  #mode-search .cr-table thead{display:none}
+  #mode-search :is(.cr-table,.cr-table tbody){display:block}
+  #mode-search .cr-table tr{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;column-gap:10px;padding:9px 16px}
+  #mode-search .cr-table tr.cr-best-row{background:rgba(243,206,70,.06)}
+  #mode-search .cr-table tbody tr:hover{background:var(--bg-hover)}
+  #mode-search .cr-table td{display:block;height:auto;padding:0!important;white-space:normal;background:none!important}
+  #mode-search .cr-table td.cr-shop{grid-column:1;grid-row:1}
+  #mode-search .cr-table td.cr-price{grid-column:2;grid-row:1}
+  #mode-search .cr-table td.cr-act{grid-column:3;grid-row:1}
+  #mode-search .cr-table :is(td.cr-cond,td.cr-code,td.cr-stock){display:none}
+  #mode-search .cr-table td.cr-buymax{grid-column:1/-1;grid-row:2;font-size:12px;text-align:left}
+  #mode-search .cr-table td.cr-buymax:not(:empty)::before{content:'最高買取 ';font-family:var(--font);color:var(--text-m)}
+  #mode-search .cr-sub{display:block;font-size:12px;color:var(--text-m)}
+  #mode-search .cr-shop .cr-tag,#mode-search .cr-shop .cr-best-tag{margin-left:6px}
+  /* 行のどこを押しても店のページへ（「店で見る」の文字は隠し、当たり判定を行全体に広げる） */
+  #mode-search .cr-go{position:static;margin:0;font-size:0}
+  #mode-search .cr-go::after{content:"";position:absolute;inset:0;z-index:1}
+  #mode-search .cr-act .wish-add{position:relative;z-index:2}
+  #mode-search .cr-shop .aff-pr{position:relative;z-index:2}
+}

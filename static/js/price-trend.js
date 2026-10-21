@@ -1,4 +1,4 @@
-// 価格推移の常設グラフ（カード詳細。店舗サマリー #sumCards の直後）。
+// 価格推移の常設グラフ（カード詳細。名前の右の相場の箱 #heroMarket の先頭。2026-10-21 案C で小さくした）。
 // /api/price-history を別fetchで取り、ライブラリ不使用のインラインSVGで描く。
 // 各日・各レアリティごとに全店舗の min(price) を取る（旧Chart.js実装と同じ統計量＝監査F9）。
 // mercari-ref.js と同じ構成: 世代番号 gen で古い応答を捨て、setView() は再取得せず描き直す。
@@ -15,9 +15,9 @@
   let docDown=null;                // グラフ外タップで吹き出しを消す document リスナー（描き直すたびに付け替え）
   let ro=null;                     // ResizeObserver（初回描画時に1度だけ作る）
 
-  const H=150, PAD={l:0,t:10,b:18};        // グラフ高さと余白（下は月ラベル用。右余白は目盛り文字の長さで決める＝frame）
+  const H=96, PAD={l:0,t:10,b:18};        // グラフ高さと余白（下は月ラベル用。右余白は目盛り文字の長さで決める＝frame）
   const AX_MIN_R=58, AX_CHAR_W=6.2, AX_GAP=12;  // 右余白の下限・等幅10px文字の概算幅・左の隙間(6)＋右の余裕(6)
-  const MIN_W=320;                         // 測れない・極端に狭いときの下限幅
+  const MIN_W=240;                         // 測れない・極端に狭いときの下限幅
   // 線色はレアリティ色にしない: レアリティ色には赤系があり、騰落の赤(上昇)と意味が衝突するため。
   // 金色(--gold)は店舗最安専用なので使わない。サイト共通のアクセント色(--accent-l)に統一する。
   // 色はSVG属性ではなくCSSクラス(.pt-line など)で指定する（index.html）
@@ -187,7 +187,7 @@
     const W=Math.max(MIN_W,rawWidth()); drawnW=W;
     const F=frame(pts,W), last=pts[pts.length-1];
     const area=stepPath(pts,F)+`V${H-PAD.b}H${F.X(pts[0].n).toFixed(1)}Z`;
-    show(`<div class="pt-head"><span class="pt-title">価格推移（${esc(r)}・その日の最安値）</span><span class="pt-val">${summaryHtml(pts,F)}</span></div>`+
+    show(`<div class="pt-head"><span class="pt-title">相場の動き（${esc(r)}・日ごとの最安）</span><span class="pt-val">${summaryHtml(pts,F)}</span></div>`+
       `<div class="pt-plot" id="ptPlot"><svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="価格推移グラフ">`+
       `<defs><linearGradient id="ptGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="pt-stop" stop-opacity=".28"/><stop offset="1" class="pt-stop" stop-opacity="0"/></linearGradient></defs>`+
       gridSvg(F)+
