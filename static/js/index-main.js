@@ -214,10 +214,16 @@ function showUnreleasedCard(name){
       <summary>カード情報（効果テキスト）</summary>
       <div id="cardDetail" class="card-detail"></div>
     </details>
-    <div class="share-btns">
+    <!-- ボタンは効果テキストの欄（開いた状態で後から中身が入る）が決まってから出す。先に出すと欄が入ったときに
+         約450px 押し下げられ、CLS が出ていた（2026-10-22 スマホ 0.019・PC 0.015）。下には他に見えるものが無い -->
+    <div class="share-btns" id="unrelShareBtns" style="display:none">
       <button onclick="addToDeck('${escAttr(escJs(name))}',this)" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ デッキに追加</button>
       <button onclick="wishAddFromBtn(this,'${escAttr(escJs(name))}',1)" style="padding:4px 12px;font:.72rem var(--font);font-weight:600;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:4px;cursor:pointer">+ 購入候補に追加</button>
     </div>`;
+  // カード情報の処理が終わったら（中身あり・無し・失敗のどれでも）出す。届かないときも5秒で出す
+  const unrelBtns=document.getElementById('unrelShareBtns');
+  const revealUnrelBtns=()=>{if(unrelBtns) unrelBtns.style.display='';};
+  setTimeout(revealUnrelBtns,5000);
 
   // 画像（公式SAMPLE or プロキシ）
   fetch('/api/card-image?name='+encodeURIComponent(name))
@@ -230,7 +236,7 @@ function showUnreleasedCard(name){
     })
     .catch(()=>{});
   // カード情報（効果テキスト等）— proxy 対応
-  _fetchCardInfo(name);
+  _fetchCardInfo(name,revealUnrelBtns);
 }
 
 // 未発売カードの proxy データからカード情報パネルを描画する
@@ -271,7 +277,8 @@ function _renderProxyDetail(p,name){
   _showCardDetail();
 }
 
-function _fetchCardInfo(cardName){
+// onSettled: 欄の中身を書いた（または隠した）直後に呼ぶ（未発売カードのボタンを出す。showUnreleasedCard）
+function _fetchCardInfo(cardName,onSettled=()=>{}){
   fetch('/api/card-info?name='+encodeURIComponent(cardName))
     .then(r=>r.json())
     .then(data=>{
@@ -303,7 +310,8 @@ function _fetchCardInfo(cardName){
       det.innerHTML=html;
       _showCardDetail();
     })
-    .catch(()=>{_hideCardDetail();fetchCardImage(cardName);});
+    .catch(()=>{_hideCardDetail();fetchCardImage(cardName);})
+    .finally(onSettled);
 }
 
 function fetchCardImage(cardName){
