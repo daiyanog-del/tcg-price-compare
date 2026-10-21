@@ -7,8 +7,9 @@
  * リプレイ・同期の状態が新しいドメインから見えなくなる。そこで:
  *   送る側（旧URLの引き継ぎページ・mode=send）:
  *     運ぶ対象のキーを毎回すべて URL の # 以降に入れて、新ドメインの /handoff へ移る
- *     （# 以降はサーバーにも GA にも送られない）。送る側は印を持たない
- *     （受け取りに失敗したあとでも、次に旧URLを開けばまた全部送れるように）
+ *     （# 以降はサーバーにも GA にも送られない）。受け取りに失敗したあとでも、
+ *     次に旧URLを開けばまた全部送れるように、データについては送る側で印を持たない。
+ *     例外は同期の状態（sync_id）で、最初の1回だけ送る（collectItems）
  *   受け取る側（新ドメインの /handoff・mode=receive）:
  *     旧URLから来たときだけ（document.referrer で確かめる）書き戻して、元のページへ進む。
  *     初回（gl_handoff_received_at が無い）: 新ドメインが空なら丸ごと写す。空でなければ
@@ -26,6 +27,7 @@
   'use strict';
 
   var RECEIVED_KEY = 'gl_handoff_received_at'; // 受け取る側: 前回受け取った時刻
+  var SYNC_SENT_KEY = 'gl_handoff_sync_sent';  // 送る側: 同期の状態を送った時刻（同期の状態は最初の1回だけ送る）
   var PENDING_KEY = 'gl_handoff_pending';      // 受け取る側: トップで合流させる保存デッキ・購入候補
   var DECKS_KEY = 'cardprice_saved_decks';
   var WISH_KEY = 'cardprice_wishlist';
@@ -37,6 +39,8 @@
   var CARRY_EXACT = [DECKS_KEY, WISH_KEY, 'cardprice_deck_draft', 'rp_public_first_count', 'tcgym_sol_sample_blur']
     .concat(SYNC_KEYS);
   var CARRY_PREFIXES = ['sol-', 'card-sim-save-slot-'];
+  // 容量の上限を超えたときにも必ず運ぶもの（小さく、失うと困るもの）。受け取る側も先に書く
+  var CORE_KEYS = [DECKS_KEY, WISH_KEY, 'cardprice_deck_draft'].concat(SYNC_KEYS);
   // # 以降の長さの上限。超えたら自動では運ばず案内を出す（主要ブラウザの URL 上限より十分小さく）
   var MAX_FRAGMENT = 1000000;
 
@@ -137,33 +141,82 @@
     });
   }
 
-  function buildSendPayload() {
+  // 同期の状態（sync_id）は最初の1回だけ送る。毎回 # に載せると、旧URLを開くたびに
+  // ブラウザの閲覧履歴に残りうる（受け取る側も2回目以降は使わない）。最初の受け取りに
+  // 失敗したときは、データは次に届くが同期の連携だけが外れる（同期のリンクで連携し直せる）
+  function collectItems() {
+    var includeSync = !lsGet(SYNC_SENT_KEY);
     var items = {};
     var count = 0;
     try {
       for (var i = 0; i < localStorage.length; i++) {
         var key = localStorage.key(i);
         if (key === null || !isCarried(key)) continue;
+        if (!includeSync && SYNC_KEYS.indexOf(key) !== -1) continue;
         items[key] = localStorage.getItem(key);
         count++;
       }
     } catch (e) { return null; }
-    return count ? { v: 2, items: items } : null;
+    return count ? items : null;
+  }
+
+  // # 以降が長すぎるとき（リプレイが多い人）は、セーブ枠などを落とし、リプレイを新しい順に入る分だけ残す。
+  // それでも入らなければ CORE_KEYS だけにする。dropped は落としたリプレイの件数
+  function fitPayload(items) {
+    function enc(it) { return encodePayload({ v: 2, items: it }); }
+    return enc(items).then(function (full) {
+      if (full.length <= MAX_FRAGMENT) return { encoded: full, dropped: 0 };
+      var core = {};
+      Object.keys(items).forEach(function (k) { if (CORE_KEYS.indexOf(k) !== -1) core[k] = items[k]; });
+      var replays = [];
+      REPLAY_KEYS.forEach(function (k) {
+        if (typeof items[k] !== 'string') return;
+        parseList(items[k]).forEach(function (r) { replays.push({ key: k, r: r }); });
+      });
+      replays.sort(function (x, y) { return (Number(y.r && y.r.savedAt) || 0) - (Number(x.r && x.r.savedAt) || 0); });
+      function withReplays(n) {
+        var it = Object.assign({}, core);
+        var byKey = {};
+        replays.slice(0, n).forEach(function (e) { (byKey[e.key] = byKey[e.key] || []).push(e.r); });
+        Object.keys(byKey).forEach(function (k) { it[k] = JSON.stringify(byKey[k]); });
+        return it;
+      }
+      // 入る件数を二分探索（0件＝CORE_KEYS だけ）
+      var lo = 0, hi = replays.length, best = null;
+      function step() {
+        if (lo > hi) return Promise.resolve(best);
+        var mid = Math.floor((lo + hi) / 2);
+        return enc(withReplays(mid)).then(function (e) {
+          if (e.length <= MAX_FRAGMENT) { best = { encoded: e, dropped: replays.length - mid }; lo = mid + 1; }
+          else { hi = mid - 1; }
+          return step();
+        });
+      }
+      return step();
+    });
   }
 
   function runSend() {
     var base = cfg.canonicalBase;
     var target = cfg.targetPath || '/';
     waitForExtensionImport().then(function () {
-      var payload = buildSendPayload();
-      if (!payload) { location.replace(base + target); return; }
-      return encodePayload(payload).then(function (encoded) {
-        if (encoded.length > MAX_FRAGMENT) {
+      var items = collectItems();
+      if (!items) { location.replace(base + target); return; }
+      return fitPayload(items).then(function (fit) {
+        if (!fit) {
           setStatus('保存されたデータが大きいため、自動で引き継げませんでした。');
           showFallback('データは今のアドレスに残っています。', 'データを引き継がずに新しいアドレスへ移動する', base + target);
           return;
         }
-        location.replace(base + '/handoff?next=' + encodeURIComponent(target) + '#' + encoded);
+        var sentSync = SYNC_KEYS.some(function (k) { return typeof items[k] === 'string'; });
+        if (sentSync) { try { lsSet(SYNC_SENT_KEY, String(Date.now())); } catch (e) {} }
+        var go = function () { location.replace(base + '/handoff?next=' + encodeURIComponent(target) + '#' + fit.encoded); };
+        if (fit.dropped > 0) {
+          setStatus('容量の都合で、古いリプレイ ' + fit.dropped + ' 件は引き継げませんでした。新しいリプレイと、デッキ・購入候補は引き継ぎます。');
+          setTimeout(go, 4000);
+          return;
+        }
+        go();
       });
     }).catch(function () {
       location.replace(base + target);
@@ -223,8 +276,13 @@
       });
       if (newer.length) addPending(newer, []);
     } else if (!hasLocalData()) {
-      // 新ドメインはまだ空: 丸ごと写す（同期の状態も写るので、同じ同期アカウントを使い続ける）
-      keys.forEach(function (k) { lsSet(k, items[k]); });
+      // 新ドメインはまだ空: 丸ごと写す（同期の状態も写るので、同じ同期アカウントを使い続ける）。
+      // 小さく大事なもの（CORE_KEYS）を先に書き、失敗したら全体を失敗にする（再送される）。
+      // リプレイなど残りは容量の上限で書けなくても、そのキーだけ諦める
+      keys.filter(function (k) { return CORE_KEYS.indexOf(k) !== -1; }).forEach(function (k) { lsSet(k, items[k]); });
+      keys.filter(function (k) { return CORE_KEYS.indexOf(k) === -1; }).forEach(function (k) {
+        try { lsSet(k, items[k]); } catch (e) {}
+      });
     } else {
       // 新ドメインを先に使っていた: 保存デッキ・購入候補はトップで合流、リプレイは id で足す、
       // それ以外は新に無いものだけ足す。同期の状態は新側を残す
@@ -233,8 +291,10 @@
                  keys.indexOf(WISH_KEY) !== -1 ? parseList(items[WISH_KEY]) : []);
       keys.forEach(function (k) {
         if (k === DECKS_KEY || k === WISH_KEY || SYNC_KEYS.indexOf(k) !== -1) return;
-        if (REPLAY_KEYS.indexOf(k) !== -1) { mergeById(k, parseList(items[k])); return; }
-        if (lsGet(k) === null) lsSet(k, items[k]);
+        try {
+          if (REPLAY_KEYS.indexOf(k) !== -1) { mergeById(k, parseList(items[k])); return; }
+          if (lsGet(k) === null) lsSet(k, items[k]);
+        } catch (e) {} // 容量の上限: そのキーだけ諦める
       });
     }
     lsSet(RECEIVED_KEY, String(Date.now()));

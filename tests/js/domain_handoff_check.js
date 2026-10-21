@@ -8,13 +8,16 @@ const src = fs.readFileSync(path.join(__dirname, '../../static/shared/domain-han
 const OLD = 'https://tcg-price-compare.onrender.com';
 const NEW = 'https://greedy-lab.com';
 
-function makeStorage(init) {
+function makeStorage(init, maxValueLen) {
   const m = new Map(Object.entries(init || {}));
   return {
     get length() { return m.size; },
     key(i) { return [...m.keys()][i] ?? null; },
     getItem(k) { return m.has(k) ? m.get(k) : null; },
-    setItem(k, v) { m.set(k, String(v)); },
+    setItem(k, v) {
+      if (maxValueLen && String(v).length > maxValueLen) throw new Error('QuotaExceededError');
+      m.set(k, String(v));
+    },
     removeItem(k) { m.delete(k); },
     dump() { return Object.fromEntries(m); },
   };
@@ -33,8 +36,8 @@ function el() {
   };
 }
 
-async function run({ mode, origin, pathname = '/', search = '', hash = '', referrer = '', storage = {}, dataset = {} }) {
-  const ls = makeStorage(storage);
+async function run({ mode, origin, pathname = '/', search = '', hash = '', referrer = '', storage = {}, dataset = {}, ls: givenLs, wait = 50 }) {
+  const ls = givenLs || makeStorage(storage);
   const els = { handoffStatus: el(), handoffFallback: el(), handoffConfirm: el(), handoffNote: el() };
   els.handoffConfig = { dataset: Object.assign({ mode }, dataset) };
   const replaced = [];
@@ -48,7 +51,7 @@ async function run({ mode, origin, pathname = '/', search = '', hash = '', refer
   };
   vm.createContext(sandbox);
   vm.runInContext(src, sandbox);
-  await new Promise(r => setTimeout(r, 50));
+  await new Promise(r => setTimeout(r, wait));
   return { ls, els, replaced, location };
 }
 
@@ -147,6 +150,44 @@ const recvData = { legacyOrigins: OLD };
   r = await run({ mode: 'receive', origin: NEW, pathname: '/handoff', search: '?next=/', hash: '#z.!!!', referrer: OLD + '/', dataset: recvData });
   assert.equal(r.ls.length, 0);
   assert.ok(r.els.handoffFallback.visible);
+
+  // ── 同期の状態は最初の1回だけ送る ──
+  const oldLs = makeStorage({ cardprice_saved_decks: deck('d1', 1), cardprice_sync_state: '{"sync_id":"s"}' });
+  const decodeFrag = async u => {
+    const rr = await run({ mode: 'receive', origin: NEW, pathname: '/handoff', search: '?next=/', hash: '#' + u.split('#')[1], referrer: OLD + '/', dataset: recvData });
+    return rr.ls.dump();
+  };
+  let s1 = await run({ mode: 'send', origin: OLD, dataset: { canonicalBase: NEW, targetPath: '/' }, ls: oldLs });
+  assert.ok(oldLs.getItem('gl_handoff_sync_sent'));
+  assert.equal((await decodeFrag(s1.replaced[0])).cardprice_sync_state, '{"sync_id":"s"}');
+  s1 = await run({ mode: 'send', origin: OLD, dataset: { canonicalBase: NEW, targetPath: '/' }, ls: oldLs });
+  const second = await decodeFrag(s1.replaced[0]);
+  assert.equal(second.cardprice_sync_state, undefined);
+  assert.ok(second.cardprice_saved_decks);
+
+  // ── 大きすぎるとき: 新しいリプレイから入る分だけ・デッキと同期の状態は必ず ──
+  const crypto = require('crypto');
+  const replays = Array.from({ length: 20 }, (_, i) => ({ id: 'r' + i, savedAt: i, data: crypto.randomBytes(60000).toString('base64') }));
+  const big = await run({ mode: 'send', origin: OLD, dataset: { canonicalBase: NEW, targetPath: '/' }, wait: 4500,
+    storage: { cardprice_saved_decks: deck('d1', 1), cardprice_sync_state: '{"sync_id":"s"}', 'sol-saved-replays': JSON.stringify(replays), 'card-sim-save-slot-1': crypto.randomBytes(300000).toString('base64') } });
+  assert.equal(big.replaced.length, 1);
+  assert.ok(big.replaced[0].length < 1000100);
+  assert.ok(big.els.handoffStatus.textContent.includes('件は引き継げませんでした'), big.els.handoffStatus.textContent);
+  const got = await decodeFrag(big.replaced[0]);
+  assert.ok(got.cardprice_saved_decks && got.cardprice_sync_state);
+  const keptIds = JSON.parse(got['sol-saved-replays'] || '[]').map(r => r.id);
+  assert.ok(keptIds.length > 0 && keptIds.length < 20, keptIds.length);
+  assert.ok(keptIds.includes('r19') && !keptIds.includes('r0'), keptIds.join(','));
+  assert.equal(got['card-sim-save-slot-1'], undefined);
+
+  // ── 容量の上限で大きいキーが書けなくても、デッキ・同期の状態は写り、受け取りの印も立つ ──
+  const small = await sendAndGetFragment({ cardprice_saved_decks: deck('d1', 1), cardprice_sync_state: '{"sync_id":"s"}', 'sol-saved-replays': JSON.stringify([{ id: 'r', data: 'x'.repeat(5000) }]) });
+  const quotaLs = makeStorage({}, 1000);
+  r = await run({ mode: 'receive', origin: NEW, pathname: '/handoff', search: '?next=/', hash: '#' + small.split('#')[1], referrer: OLD + '/', dataset: recvData, ls: quotaLs });
+  d = quotaLs.dump();
+  assert.ok(d.cardprice_saved_decks && d.cardprice_sync_state && d.gl_handoff_received_at, JSON.stringify(Object.keys(d)));
+  assert.equal(d['sol-saved-replays'], undefined);
+  assert.deepEqual(r.replaced, ['/']);
 
   console.log('domain_handoff_check OK');
 })().catch(e => { console.error(e); process.exit(1); });
