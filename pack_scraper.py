@@ -225,6 +225,8 @@ def get_pack_list(include_empty: bool = True) -> list[dict]:
                 "has_cards": bool(has_cards),
                 "code": pack.get("code", ""),
                 "product_url": pack.get("product_url", ""),
+                # 遊戯王Wikiのページ（ページ名は EUC-JP で URL にするのでブラウザ側では作れない）
+                "wiki_url": f"{WIKI_BASE}?{quote(wiki_page.replace('－', '-'), encoding='euc-jp', errors='ignore')}" if has_cards else "",
             })
     else:
         # 収集用: 直近パックのうち、Wikiでカードリストが取れるものを_MAX_PACKS個選ぶ。

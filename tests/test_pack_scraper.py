@@ -151,6 +151,9 @@ class TestHasCardsField:
         assert by_name["未発売パックB"]["has_cards"] is False
         assert by_name["既発売パック1"]["has_cards"] is True
         assert by_name["既発売パック2"]["has_cards"] is True
+        # Wikiのページは収録がある（ページが見つかった）ときだけ
+        assert by_name["未発売パックA"]["wiki_url"] == ""
+        assert by_name["既発売パック1"]["wiki_url"].startswith("https://yugioh-wiki.net/index.php?")
 
 
 class TestCacheIsolation:
