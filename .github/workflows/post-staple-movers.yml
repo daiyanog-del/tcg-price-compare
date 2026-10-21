@@ -1,13 +1,13 @@
 # 汎用カードの値動き X 投稿（2026-10-21〜・staple_post.py）
-# 毎日 JST 20:07 ごろ。対象は staple_cards（update-staple-cards.yml が週1回作り直す）。
+# 毎日の投稿は Render の cron（JST 20:00）。ここは手動の試し実行用。対象は staple_cards（update-staple-cards.yml が週1回作り直す）。
 # 手動実行で dry_run にすると X には投稿せず、画像を成果物（artifact）に残す。
 
 name: Post Staple Card Movers
 
 on:
-  # 2026-10-21 ユーザー承認で開始（画像作りに失敗した日は投稿せず見送る）
-  schedule:
-    - cron: '7 11 * * *'  # 毎日 UTC 11:07 = JST 20:07（毎時0分は混雑するため数分ずらす）
+  # 毎日の投稿は Render の cron（tcg-post-staple-movers・JST 20:00）に移した（2026-10-21）。
+  # GitHub の予約実行はこのリポジトリで4〜9時間遅れ（新弾ポストの実測 JST 1:08〜6:12）、狙った時間に出せないため。
+  # ここは手動の試し実行（画像を artifact に残す）用に残す。schedule を戻すと Render と二重に動くので戻さない。
   workflow_dispatch:
     inputs:
       dry_run:
