@@ -3393,6 +3393,12 @@ def api_packs():
             p.get("name") == fp_name or
             (bool(fp_wiki) and p.get("wiki_page") == fp_wiki)
         )
+        # 収録数（一覧の行に出す）。キャッシュ済みのときだけ付け、ここでは外部サイトを読まない
+        # （起動時の _prefetch_pack_cards が一覧のパックを先読みするので、ふだんは揃っている）
+        if "card_count" not in p:
+            cached = pack_cards_cached(p.get("name", ""))
+            if cached:
+                p["card_count"] = len(cached.get("cards") or [])
 
     return jsonify(packs)
 

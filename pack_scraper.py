@@ -86,6 +86,11 @@ def _fetch_latest_packs_from_official() -> list[dict]:
 
                 title = title_m.group(1)
                 raw_date = date_m.group(1)
+                # 商品ページ（"detail":"page" のときだけ "url" に英字の略号が入る。例: "dbgv"）。
+                # 略号は収録カードの型番の頭（DBGV-JP001）と同じなので、画面で「このパックの版」を見分けるのに使う
+                url_m = re.search(r'"url":"([a-z0-9]+)"', content)
+                detail_m = re.search(r'"detail":"([^"]*)"', content)
+                slug = url_m.group(1) if (url_m and detail_m and detail_m.group(1) == "page") else ""
 
                 # 日付を解析（例: "2025年3月22日(土)"）
                 date_match = re.search(r'(\d{4})\D+(\d{1,2})\D+(\d{1,2})', raw_date)
@@ -112,6 +117,8 @@ def _fetch_latest_packs_from_official() -> list[dict]:
                     "tcg_name": "",
                     "date": iso_date,
                     "category": cat,
+                    "code": slug.upper(),
+                    "product_url": f"{_KONAMI_PRODUCTS_URL}{slug}/" if slug else "",
                 })
         except Exception as e:
             print(f"  pack_scraper 公式サイト取得失敗 ({cat}): {e}")
@@ -216,6 +223,8 @@ def get_pack_list(include_empty: bool = True) -> list[dict]:
                 "tcg_name": pack.get("tcg_name", ""),
                 "date": pack["date"],
                 "has_cards": bool(has_cards),
+                "code": pack.get("code", ""),
+                "product_url": pack.get("product_url", ""),
             })
     else:
         # 収集用: 直近パックのうち、Wikiでカードリストが取れるものを_MAX_PACKS個選ぶ。

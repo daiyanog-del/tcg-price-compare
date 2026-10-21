@@ -29,6 +29,7 @@ import pack_scraper
 # 差し替える前）の本物の関数を退避しておく。
 # TestResolveWikiPageDashlessSubtitle はこの本物を直接テストしたいため必要。
 _REAL_RESOLVE_WIKI_PAGE = pack_scraper._resolve_wiki_page
+_REAL_FETCH_OFFICIAL = pack_scraper._fetch_latest_packs_from_official
 
 
 @pytest.fixture(autouse=True)
@@ -269,3 +270,26 @@ class TestGreedyBracketMatch:
 
         cards = pack_scraper.fetch_theme_cards("ダミーテーマ")
         assert cards == ["火霊術－「紅」"]
+
+
+class TestOfficialProductCode:
+    """公式の商品データの "url"（"detail":"page" のときの略号）を型番の頭・商品ページとして読む"""
+
+    def _fake_get(self, html):
+        class R:
+            text = html
+        return lambda *a, **k: R()
+
+    def test_page_slug_becomes_code_and_url(self, monkeypatch):
+        html = ('p[0]={"title":"デッキビルドパック グロリアス・ヴィクターズ","release-date":"2026年9月5日(土)","url":"dbgv","detail":"page"}'
+                'p[1]={"title":"COMPLETE FILE","release-date":"2026年9月6日(土)","url":"#cg2156","detail":"modal"}'
+                'p[2]={"title":"PREMIUM PACK","release-date":"2026年9月7日(土)","url":"","detail":"none"}')
+        monkeypatch.setattr(pack_scraper.requests, "get", self._fake_get(html))
+        monkeypatch.setattr(pack_scraper, "_PACK_CATEGORIES", ["basic"])
+        packs = {p["name"]: p for p in _REAL_FETCH_OFFICIAL()}
+        assert packs["デッキビルドパック グロリアス・ヴィクターズ"]["code"] == "DBGV"
+        assert packs["デッキビルドパック グロリアス・ヴィクターズ"]["product_url"] == "https://www.yugioh-card.com/japan/products/dbgv/"
+        # 商品ページの無いもの（窓で開く・未定）は空
+        assert packs["COMPLETE FILE"]["code"] == "" and packs["COMPLETE FILE"]["product_url"] == ""
+        assert packs["PREMIUM PACK"]["code"] == ""
+
