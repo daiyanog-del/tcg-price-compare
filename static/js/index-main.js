@@ -239,6 +239,10 @@ function showUnreleasedCard(name){
 function _showCardDetail(){
   document.getElementById('cardDetailDetails')?.removeAttribute('hidden');
 }
+// 発売済みカードの欄は最初から出している（renderAll）。カード情報が無い・取れなかったときに隠す
+function _hideCardDetail(){
+  document.getElementById('cardDetailDetails')?.setAttribute('hidden','');
+}
 
 function _renderProxyDetail(p,name){
   const det=document.getElementById('cardDetail');
@@ -273,7 +277,7 @@ function _fetchCardInfo(cardName){
     .then(data=>{
       // 未発売カード（proxy）は専用描画。found:false でもカード情報を表示する
       if(data.kind==='proxy'&&data.proxy){_renderProxyDetail(data.proxy,cardName);return;}
-      if(!data.found){fetchCardImage(cardName);return;}
+      if(!data.found){_hideCardDetail();fetchCardImage(cardName);return;}
       if(data.konami_id) _applyKonamiLink(data.konami_id);
       const det=document.getElementById('cardDetail');
       if(!det) return;
@@ -299,7 +303,7 @@ function _fetchCardInfo(cardName){
       det.innerHTML=html;
       _showCardDetail();
     })
-    .catch(()=>{fetchCardImage(cardName);});
+    .catch(()=>{_hideCardDetail();fetchCardImage(cardName);});
 }
 
 function fetchCardImage(cardName){
@@ -687,8 +691,10 @@ function renderAll(d){
       在庫あり ${d.in_stock_count}件 / 売切 ${d.sold_out_count}件 / 計 ${d.total}件<br>
       レアリティ: ${[...new Set(D.map(r=>r.rarity).filter(Boolean))].length}種類
     </div>
-    <!-- 価格比較を先に見せ、効果テキストは必要なときに開く。未発売カードは従来どおり開く。 -->
-    <details class="card-info-details" id="cardDetailDetails" hidden>
+    <!-- 価格比較を先に見せ、効果テキストは必要なときに開く。未発売カードは従来どおり開く。
+         閉じた見出しは最初から出しておき、カード情報が無かったときだけ _hideCardDetail で隠す。
+         情報が届いてから出すと、下の共有ボタン・価格の一覧が約42px 下がり CLS 0.02 が出ていた（2026-10-21） -->
+    <details class="card-info-details" id="cardDetailDetails">
       <summary>カード情報（効果テキスト）</summary>
       <div id="cardDetail" class="card-detail"></div>
     </details>
