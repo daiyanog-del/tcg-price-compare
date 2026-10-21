@@ -16,3 +16,4 @@ anthropic>=0.25,<1
 
 # 自動クロップの候補枠補正（画像の保存は利用者の確認後）
 opencv-python-headless>=4.10,<5
+python-dotenv>=1.0,<2

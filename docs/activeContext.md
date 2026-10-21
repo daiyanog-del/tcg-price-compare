@@ -5,7 +5,7 @@
 - ../tcgym-neuron-extension（git管理外）に wiki-content.js を追加し、manifest に `https://yugioh-wiki.net/*`・名称「— ニューロン・Wiki連携」・version 1.3.0。ボタンの見た目は content.css を共用。
 - 照合: 本番 /api/card-info で Wiki のカード名135件が全件 released。/api/search も `Ｎｏ.３９ 希望皇ホープ` を `No.39 希望皇ホープ` に補正してから検索。
 - ⚠Claude in Chrome は2つのブラウザがつながる。拡張の開発版（unpacked）が入っているのは Default プロファイル側（Browser 2）。Profile 8 はストア版1.2.2のみ。
-- 提出セット: Documents/gouyoku-lab-brand/extension-store-1.3.0 と greedy-lab-extension-store-kit-1.3.0.zip。ストア提出は未実施。
+- 提出セット: Documents/gouyoku-lab-brand/extension-store-1.3.0 と greedy-lab-extension-store-kit-1.3.0.zip。10-21 ユーザーがストアへ提出（審査待ち）。
 
 ## 2026-10-21: マイデッキの一覧と右の欄（D＋E・branch feat/mydeck-library-tools）
 
