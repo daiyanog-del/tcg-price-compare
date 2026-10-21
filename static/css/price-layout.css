@@ -11,7 +11,7 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
 .price-redesign .mode-tabs{display:flex;align-items:center;flex:1;align-self:stretch;max-width:none;gap:18px;margin:0;justify-content:flex-start;flex-wrap:nowrap}
 .price-redesign .mode-tab,.price-redesign .header-solo-link{display:inline-flex;align-items:center;justify-content:center;position:static;flex:0 0 auto;min-width:0;min-height:50px;margin:0;padding:8px 0 18px;border:0;border-bottom:2px solid transparent;border-radius:0;background:none;box-shadow:none;color:#a8b4c9;font:700 12px var(--font);white-space:nowrap;text-decoration:none}
 .price-redesign .mode-tab:hover,.price-redesign .header-solo-link:hover{color:#eff3fb;background:none;border-color:transparent}
-.price-redesign .mode-tab.active{color:#eff3fb;border-bottom-color:#f3ce46;background:none;box-shadow:none}
+.price-redesign .mode-tab.active{color:#eff3fb;border-bottom-color:var(--accent-soft);background:none;box-shadow:none}
 .price-redesign .header-solo-link::after{display:none}
 .price-redesign .nav-wishlist{margin-left:auto}
 .price-redesign .wish-badge{background:#2b3549;color:#eff3fb}
@@ -26,7 +26,9 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
 #mode-search .search button{width:auto;min-height:44px;padding:10px 20px;box-shadow:none;background:#f3ce46;color:#242013;border-radius:4px;font-size:14px}
 #mode-search .search button:hover{background:#ffe16d}
 #mode-search .search button:disabled{background:#2b3549;color:#a8b4c9}
-#mode-search .search:focus-within{border-color:#f3ce46}
+/* 選択中の枠は外側の影で2px相当に太くする（border を太くすると中身が1pxずれる）。入力欄自身の縁取りは外枠と二重になるので出さない */
+#mode-search .search:focus-within{border-color:var(--accent-soft);box-shadow:0 0 0 1px var(--accent-soft)}
+#mode-search .search input:focus-visible{outline:none}
 #mode-search .suggest-dropdown{right:0;margin-top:4px}
 #mode-search.has-search-result .price-search-label{display:none}
 #mode-search .empty{padding:0;text-align:left}
@@ -105,7 +107,7 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
  /* 購入候補をロゴの横に置き、5つの主導線を1行に収める。 */
  .price-redesign header h1{padding-right:90px}
  .price-redesign .mode-tabs .nav-wishlist{position:absolute;top:16px;right:0;min-height:40px;margin-left:0;padding:8px;border:1px solid #2b3549;border-radius:6px}
- .price-redesign .mode-tabs .nav-wishlist.active{border-color:#f3ce46}
+ .price-redesign .mode-tabs .nav-wishlist.active{border-color:var(--accent-soft)}
  .price-redesign .brand-header-icon{height:64px}
  .price-redesign .brand-wordmark{width:125px;transform:translateY(8px)}
  .price-redesign .brand-name{font-size:25px}
