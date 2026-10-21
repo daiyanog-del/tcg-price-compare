@@ -119,4 +119,8 @@
   #metaPane .deck-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   #metaTierList .meta-deck-btn.mt-row { grid-template-columns: 30px minmax(0, 1fr) 64px 78px; }
 }
-html.meta-sheet-open, html.meta-sheet-open body { overflow: hidden; }
+/* 全面の詳細を開いている間: 後ろのページを動かさない・アプリ追加の案内を重ねない（狭い幅のときだけ。広い幅へ変わっても残らないように） */
+@media (max-width: 900px) {
+  html.meta-sheet-open, html.meta-sheet-open body { overflow: hidden; }
+  html.meta-sheet-open .pwa-banner { display: none !important; }
+}

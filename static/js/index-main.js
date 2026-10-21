@@ -1963,7 +1963,7 @@ function switchMode(mode, trigger){
     }
   }
   if(mode==='meta'){loadMetaTiers();loadMetaDeckPrices();}
-  else if(typeof closeMetaSheet==='function') closeMetaSheet(); // スマホの全面の詳細は閉じる
+  else if(typeof closeMetaSheet==='function') closeMetaSheet(true); // スマホの全面の詳細は閉じる（履歴は戻さない）
   if(mode==='mydeck'){
     renderSavedDecks();
     // 端末間同期（P2）: マイデッキタブを開いたときだけ pull する（カード個別ページ閲覧では走らせない）
@@ -2253,7 +2253,8 @@ function loadMetaDeckPrices(retry){
 //   取得を試みて失敗 → 「価格なし」／価格を計算していないデッキ（上位以外）→「—」（読込中は何も出さない）
 function _metaDeckPriceHtml(name){
   const d=_metaPriceMap[name];
-  if(!d) return _metaPricesLoaded?'<span class="mt-price is-none" title="価格は使用率の高い上位デッキだけ計算しています">—</span>':'<span class="mt-price"></span>';
+  // 取得に失敗したときは「—」を出さない（計算していないデッキと区別する。失敗は一覧の下の注記で知らせる）
+  if(!d) return _metaPricesLoaded&&!_metaPricesError?'<span class="mt-price is-none" title="価格は使用率の高い上位デッキだけ計算しています">—</span>':'<span class="mt-price"></span>';
   // Q-11: totalは「取れた分だけの合計」であり正確な総額ではないため、一部未取得のときは下限であることが分かるよう「〜」を付ける
   // Q-9: missing_countはカードの種類数（枚数ではない）なので「種」と表記する
   if(d.priced_count>0){
@@ -2409,7 +2410,8 @@ function renderMetaTiers(){
   // 画面から理由が分かるよう、実際に価格を出せたデッキ数を添える
   const pricedCount=Object.keys(_metaPriceMap).length;
   const priceLimitNote=(_metaPricesLoaded&&pricedCount>0&&pricedCount<_metaTiers.length)
-    ?`価格は使用率の高い上位${pricedCount}デッキだけ計算しています。<br>`:'';
+    ?`価格は使用率の高い上位${pricedCount}デッキだけ計算しています。<br>`
+    :(_metaPricesError?'デッキの価格を取得できませんでした。時間をおいて開き直してください。<br>':'');
   html+=`<div class="meta-note">${priceLimitNote}${_metaProvenanceHtml()}</div>`;
   el.innerHTML=html;
 }
@@ -2425,27 +2427,55 @@ const _META_PLAY_SVG='<svg width="13" height="13" viewBox="0 0 16 16" fill="curr
 const _META_MORE_SVG='<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="12.5" cy="8" r="1.4"/></svg>';
 function _metaToast(msg){ if(window.DeckHead&&typeof window.DeckHead.toast==='function') window.DeckHead.toast(msg); }
 
+// 900px 以下で詳細を開いたまま広い幅になったら閉じる（全面表示の指定は狭い幅のときだけなので、ページのスクロール止めが残らないように。reviewer 指摘）
+let _metaSheetMqReady=false;
+function _metaWatchSheetMq(){
+  if(_metaSheetMqReady||!window.matchMedia) return;
+  _metaSheetMqReady=true;
+  const mq=matchMedia(_META_SHEET_MQ);
+  const onChange=()=>{ if(!mq.matches) closeMetaSheet(); };
+  if(mq.addEventListener) mq.addEventListener('change',onChange); else if(mq.addListener) mq.addListener(onChange);
+}
+// ブラウザの「戻る」で全面の詳細だけを閉じる（開くときに履歴を1つ足す。reviewer 指摘。足していないと /#meta に直接来た人はサイトの外へ出ていた）
+let _metaSheetHistory=false, _metaPopReady=false;
+function _metaOnPop(){
+  if(!_metaSheetHistory) return;
+  _metaSheetHistory=false;
+  closeMetaSheet(true);
+}
 function _openMetaSheet(){
-  if(!window.matchMedia||!matchMedia(_META_SHEET_MQ).matches) return;
   const pane=document.getElementById('metaPane');
   if(!pane) return;
+  pane.scrollTop=0; // 別のデッキを選んだら、詳細は先頭から（PC の右の欄も）
+  if(!window.matchMedia||!matchMedia(_META_SHEET_MQ).matches) return;
+  _metaWatchSheetMq();
+  if(!_metaPopReady){ _metaPopReady=true; window.addEventListener('popstate',_metaOnPop); } // 最初に開いたときに1回だけ登録
+  if(!pane.classList.contains('is-open')&&history.pushState){
+    try{ history.pushState({metaSheet:1},''); _metaSheetHistory=true; }catch(_){}
+  }
   pane.classList.add('is-open');
-  pane.scrollTop=0;
   if(!_metaSheetKeyReady){ _metaSheetKeyReady=true; document.addEventListener('keydown',_metaSheetKey,true); } // 引き出しの Esc（deck-card-info.js）より先に見る
   document.documentElement.classList.add('meta-sheet-open'); // 後ろの一覧がスクロールしないように
 }
-function closeMetaSheet(){
+// fromPop: ブラウザの「戻る」で閉じたとき（履歴はもう戻っているので戻さない）
+function closeMetaSheet(fromPop){
   const pane=document.getElementById('metaPane');
+  const wasOpen=!!(pane&&pane.classList.contains('is-open'));
   if(pane) pane.classList.remove('is-open');
   document.documentElement.classList.remove('meta-sheet-open');
+  // 「一覧へ」・Esc で閉じたら、開いたときに足した履歴を戻す（「戻る」を2回押させない）。
+  // 「戻る」で閉じたとき・タブの移動で閉じたとき（fromPop=true）は戻さない（タブの移動で変わったアドレスを戻してしまうため）
+  if(fromPop){ _metaSheetHistory=false; }
+  else if(wasOpen&&_metaSheetHistory){ _metaSheetHistory=false; try{ history.back(); }catch(_){} }
 }
 // Esc で全面の詳細を閉じる（最初に開いたときに1回だけ登録）。メニューを開いているときはメニューだけ閉じる（メニューの Esc は先に受けて止めている）
 let _metaSheetKeyReady=false;
 function _metaSheetKey(e){
   if(e.key!=='Escape') return;
   const pane=document.getElementById('metaPane');
-  // カードの詳細の引き出しを開いているときは、引き出しだけ閉じる（同じ Esc で全面の詳細まで閉じない）
+  // カードの詳細の引き出し・デッキ画像の窓を開いているときは、そちらだけ閉じる（同じ Esc で全面の詳細まで閉じない）
   if(document.getElementById('deckCardDrawer')?.classList.contains('open')) return;
+  if(document.querySelector('.dki-overlay')) return;
   if(pane&&pane.classList.contains('is-open')&&!document.querySelector('.wl-menu')) closeMetaSheet();
 }
 
@@ -2477,6 +2507,13 @@ async function loadMetaDeck(theme,rank){
   document.getElementById('metaDeckEmpty')?.setAttribute('hidden','');
   detailEl.classList.remove('hidden');
   detailEl.innerHTML='<div class="meta-loading">デッキを読込中...</div>';
+  // 前のデッキの計算結果・共有の材料を片付ける（読込中・データなし・失敗のときに前のカードが残らないように）
+  _lastMetaDeckText='';
+  DECK_CTX.meta._runId=(DECK_CTX.meta._runId||0)+1; // 計算中だった前のデッキの価格計算を止める
+  document.getElementById('metaDeckResults')?.classList.add('hidden');
+  {const l=document.getElementById('metaDeckCardList'); if(l) l.innerHTML='';}
+  delete _deckShareData[DECK_CTX.meta.shareArea];
+  {const sh=document.getElementById(DECK_CTX.meta.shareArea); if(sh) sh.innerHTML='';}
   _openMetaSheet();
 
   try{
@@ -2513,12 +2550,12 @@ async function loadMetaDeck(theme,rank){
         <div class="mt-total"><small>デッキ相場</small><b id="metaHeadTotal">計算中…</b></div>
       </div>
       <div class="mt-actions">
-        <button type="button" class="mt-btn is-primary" onclick="openMetaDeckInSolitaire()">${_META_PLAY_SVG}シミュレーターで回す</button>
-        <button type="button" class="mt-btn" onclick="saveMetaDeckToMydeck()">マイデッキに保存</button>
+        ${hasFullDeck?`<button type="button" class="mt-btn is-primary" onclick="openMetaDeckInSolitaire()">${_META_PLAY_SVG}シミュレーターで回す</button>
+        <button type="button" class="mt-btn" onclick="saveMetaDeckToMydeck()">マイデッキに保存</button>`:''}
         <button type="button" class="mt-btn is-icon" id="metaMoreBtn" onclick="openMetaMore(this)" aria-label="その他の操作" aria-haspopup="menu">${_META_MORE_SVG}</button>
       </div>
       ${recipes?`<div class="mt-recipes">${recipes}</div>`:''}
-      ${hasFullDeck?'':'<div class="meta-note">採用率40%以上のカードを平均枚数で表示 / 手札誘発・汎用カード含む</div>'}`;
+      ${hasFullDeck?'':'<div class="meta-note">入賞レシピを取得できなかったため、採用率40%以上のカードを平均枚数で表示しています（手札誘発・汎用カード含む）。メインと EX の区別が無いので、シミュレーター・マイデッキへの保存はできません。</div>'}`;
     _metaWatchTotal();
     _metaInitCardMenu();
 
@@ -2556,6 +2593,7 @@ function saveMetaDeckToMydeck(){
   if(!_lastMetaDeckText) return;
   const {main,ex,all}=_metaDeckCards();
   const list=savedDecksGet();
+  if(list.length>=50){ _metaToast('マイデッキは50件までです。先に使わないデッキを削除してください'); return; }
   const names=new Set(list.map(d=>d.name));
   let name=_currentDeckName||'環境デッキ';
   if(names.has(name)){ let k=2; while(names.has(name+' ('+k+')')) k++; name=name+' ('+k+')'; }
@@ -2571,6 +2609,8 @@ function metaDeckAllToWish(){
   const {all}=_metaDeckCards();
   if(!all.length) return;
   const list=wishGet();
+  const newRows=new Set(all.filter(c=>!list.some(w=>w.name===c.name&&!(w.rarity||''))).map(c=>c.name)).size;
+  if(list.length+newRows>200){ _metaToast('購入候補は200件までです（あと'+Math.max(0,200-list.length)+'件）。先に候補を整理してください'); return; }
   let added=0;
   for(const c of all){
     const e=list.find(w=>w.name===c.name&&!(w.rarity||''));
@@ -2599,7 +2639,7 @@ function openMetaMore(btn){
     items.push('sep');
     if(x) items.push({label:'X に投稿',fn:()=>x.click()});
     if(line) items.push({label:'LINE で送る',fn:()=>line.click()});
-    if(copy) items.push({label:'投稿文をコピー',fn:()=>copy.click()});
+    if(copy) items.push({label:'投稿文をコピー',fn:()=>{ copy.click(); _metaToast('投稿文をコピーしました'); }});
   }
   _wishOpenMenu({fromBtn:btn,ownerEl:btn,ownerClass:'is-open',items});
 }
@@ -2787,6 +2827,10 @@ async function calcDeckEstimate(ctx, opts){
     ex=parsed.ex;
   }
   if(![...main,...ex].length) return;
+  // 計算ごとの番号（2026-10-21 reviewer 指摘）。待ちの間に別のデッキの計算が始まったら、古い計算はそこで止めて何も書かない
+  // （環境デッキは一覧から続けて選べるようになり、前のデッキの価格・合計・共有の文が新しいデッキの表示に入っていた）
+  const runId=ctx._runId=(ctx._runId||0)+1;
+  const stale=()=>ctx._runId!==runId;
   // デッキ価格計算の利用計測（一覧表示だけのプレビューは計算していないので数えない）
   // 前のデッキの共有欄・画像データを消す（この計算が失敗したときに、前のデッキの画像を作れてしまわないように）
   delete _deckShareData[ctx.shareArea];
@@ -2816,6 +2860,7 @@ async function calcDeckEstimate(ctx, opts){
   // プレビュー時は種別ソート用のAPI(/api/card-types)も呼ばず、保存順のまま即描画する
   const skipSort=opts.previewOnly||(window._deckEditMode&&ctx===DECK_CTX.mydeck);
   const sortedMain=skipSort?main:await sortCardsByType(main);
+  if(stale()) return;
   const cards=[...sortedMain,...ex];
   const mainCount=sortedMain.length;
 
@@ -2846,6 +2891,7 @@ async function calcDeckEstimate(ctx, opts){
       body:JSON.stringify({cards:cardsParam})
     });
     const data=await res.json();
+    if(stale()) return;
     if(data.error){progEl.textContent=data.error;return;}
 
     data.results.forEach((r,i)=>{
@@ -2900,12 +2946,14 @@ async function calcDeckEstimate(ctx, opts){
     const params=new URLSearchParams({cards:missingParam});
 
     const sseRes=await fetch('/api/deck?'+params.toString());
+    if(stale()){ try{ sseRes.body.cancel(); }catch(_){} return; }
     const reader=sseRes.body.getReader();
     const decoder=new TextDecoder();
     let buffer='',sseFound=0,sseNotFound=0;
 
     while(true){
       const{done,value}=await reader.read();
+      if(stale()){ reader.cancel().catch(()=>{}); return; }
       if(done)break;
       buffer+=decoder.decode(value,{stream:true});
       const chunks=buffer.split('\n\n');

@@ -7,7 +7,7 @@ const PAYLOAD_MAX=12000;
 
 export function validateHandoff(value){
   if(!value||typeof value!=='object'||value.version!==1||typeof value.name!=='string'||value.name.length>200){
-    throw new Error('引き継ぐデッキ情報が不正です。マイデッキから開き直してください。');
+    throw new Error('引き継ぐデッキ情報が不正です。元の画面から開き直してください。');
   }
   const result={version:1,name:value.name,main:[],ex:[]};
   // 保存済みのマイデッキから開いたときだけ付く（シミュレーターの「変更を保存」の上書き先）。形が違えば付けないだけ
@@ -38,8 +38,8 @@ export function storeHandoff(value,storage=sessionStorage){
 
 function readHandoff(storage){
   const raw=storage.getItem(HANDOFF_KEY);
-  if(!raw)throw new Error('引き継ぐデッキがありません。マイデッキから開き直してください。');
-  if(raw.length>PAYLOAD_MAX)throw new Error('引き継ぐデッキ情報が大きすぎます。マイデッキから開き直してください。');
+  if(!raw)throw new Error('引き継ぐデッキがありません。元の画面から開き直してください。');
+  if(raw.length>PAYLOAD_MAX)throw new Error('引き継ぐデッキ情報が大きすぎます。元の画面から開き直してください。');
   return {raw,data:validateHandoff(JSON.parse(raw))};
 }
 
@@ -101,7 +101,7 @@ export async function receiveDeckHandoff({loadDeck,clearDeck,getCounts,onLoaded=
       onLoaded({name,savedId:data.savedId||null});
     }catch(error){
       console.warn('[deck-handoff] デッキ引継ぎ失敗',error);
-      show('',error instanceof SyntaxError?'デッキ情報を読み取れません。マイデッキから開き直してください。':('デッキを引き継げませんでした。'+(error.message||'')),{failed:true});
+      show('',error instanceof SyntaxError?'デッキ情報を読み取れません。元の画面から開き直してください。':('デッキを引き継げませんでした。'+(error.message||'')),{failed:true});
       retry.hidden=false;
     }finally{
       running=false;retry.disabled=false;
