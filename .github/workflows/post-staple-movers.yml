@@ -5,8 +5,9 @@
 name: Post Staple Card Movers
 
 on:
-  schedule:
-    - cron: '7 11 * * *'  # 毎日 UTC 11:07 = JST 20:07（毎時0分は混雑するため数分ずらす）
+  # 試し実行の結果をユーザーが確認するまで止めておく（確認後に下の2行のコメントを外す）
+  # schedule:
+  #   - cron: '7 11 * * *'  # 毎日 UTC 11:07 = JST 20:07（毎時0分は混雑するため数分ずらす）
   workflow_dispatch:
     inputs:
       dry_run:
@@ -28,12 +29,13 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests supabase tweepy pillow beautifulsoup4
+        run: pip install requests supabase tweepy pillow beautifulsoup4 fonttools
 
-      # 画像の書体はサイトと同じ（和文 Noto Sans JP・数字 Outfit）。google/fonts から取得する
+      # 画像の書体（和文 M PLUS 2・数字 Outfit・M PLUS 2 に無い字だけ Noto Sans JP）。google/fonts から取得する
       - name: Fetch fonts
         run: |
           mkdir -p "$RUNNER_TEMP/fonts"
+          curl -fsSL -o "$RUNNER_TEMP/fonts/MPLUS2.ttf" "https://github.com/google/fonts/raw/main/ofl/mplus2/MPLUS2%5Bwght%5D.ttf"
           curl -fsSL -o "$RUNNER_TEMP/fonts/NotoSansJP.ttf" "https://github.com/google/fonts/raw/main/ofl/notosansjp/NotoSansJP%5Bwght%5D.ttf"
           curl -fsSL -o "$RUNNER_TEMP/fonts/Outfit.ttf" "https://github.com/google/fonts/raw/main/ofl/outfit/Outfit%5Bwght%5D.ttf"
 

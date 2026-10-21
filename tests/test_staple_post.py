@@ -53,7 +53,7 @@ def test_format_post_text():
     m = {"name": "聖王の粉砕", "rarity": "シークレット", "today": 280, "yesterday": 660,
          "diff": -380, "pct": -57.6, "direction": "down", "date_old": "2026-09-25", "date_new": "2026-09-26"}
     lines = staple_post.format_post_text(m).split("\n")
-    assert lines[0] == "【値下がり｜汎用】聖王の粉砕（シークレット）"
+    assert lines[0] == "【値下がり】聖王の粉砕（シークレット）"
     assert lines[1] == "¥280（9/25 ¥660から -380円）"
     assert lines[2].endswith("/card/%E8%81%96%E7%8E%8B%E3%81%AE%E7%B2%89%E7%A0%95")
 
@@ -75,3 +75,15 @@ def test_render_post_image(tmp_path):
     hist = [("2026-07-22", 1500), ("2026-08-30", 1000), ("2026-10-19", 1000), ("2026-10-20", 780)]
     out = staple_post.render_post_image(str(card), m, hist, str(tmp_path / "out.png"))
     assert Image.open(out).size == (1200, 675)
+
+
+@pytest.mark.skipif(not os.environ.get("STAPLE_FONT_DIR"), reason="STAPLE_FONT_DIR 未設定（フォントが無い）")
+def test_name_font_falls_back_when_glyph_missing():
+    pytest.importorskip("fontTools")
+    jp, _num, fallback = staple_post._font_paths()
+    assert staple_post.name_font_path("カオス・アンヘル－混沌の双翼－", jp, fallback) == jp
+    # M PLUS 2 に無い字だけを予備へ回す（どちらにも無い字はそのまま M PLUS 2）
+    missing = [c for c in "𠮟鷗髙﨑" if staple_post._missing_chars(jp, c)]
+    for c in missing:
+        if fallback and not staple_post._missing_chars(fallback, c):
+            assert staple_post.name_font_path("名" + c, jp, fallback) == fallback

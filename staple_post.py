@@ -10,10 +10,10 @@
 1日に値下がり・値上がり各1件まで。同じカード・レアリティ・向きは7日間投稿しない。
 
 投稿文（ユーザー確認済みの形）:
-  【値下がり｜汎用】聖王の粉砕（シークレット）
+  【値下がり】聖王の粉砕（シークレット）
   ¥280（9/25 ¥660から -380円）
   https://.../card/聖王の粉砕
-画像は render_post_image（カード画像＋最安値の枠＋過去の値動きのグラフ。P2案・数字は Outfit）。
+画像は render_post_image（カード画像＋最安値の枠＋過去の値動きのグラフ。P2案・和文は M PLUS 2・数字は Outfit）。
 
 python staple_post.py            … 投稿（X_POST_DRY_RUN=1 なら投稿せず画像を staple_post_preview/ に残す）
 """
@@ -98,7 +98,7 @@ def format_post_text(m):
     sign = "+" if m["diff"] > 0 else "-"
     url = f"{x_poster.SITE_URL}/card/{urllib.parse.quote(m['name'])}"
     return "\n".join([
-        f"【{label}｜汎用】{m['name']}{rarity}",
+        f"【{label}】{m['name']}{rarity}",
         f"¥{m['today']:,}（{x_poster._format_date(m['date_old'])} ¥{m['yesterday']:,}から {sign}{abs(m['diff']):,}円）",
         url,
     ])
@@ -157,14 +157,42 @@ LOGO_PATH = os.path.join(_ROOT, "static", "brand", "logo-lockup.png")
 
 
 def _font_paths():
-    """(和文, 数字) のフォントファイル。STAPLE_FONT_DIR に NotoSansJP.ttf / Outfit.ttf を置く
-    （post-staple-movers.yml が google/fonts から取得する）。"""
+    """(和文, 数字, 和文の予備) のフォントファイル。STAPLE_FONT_DIR に MPLUS2.ttf / Outfit.ttf /
+    NotoSansJP.ttf を置く（post-staple-movers.yml が google/fonts から取得する）。
+    和文は M PLUS 2（2026-10-21 ユーザー選定。英語・カタカナの多い名前でも字間が詰まって見える）。"""
     d = os.environ.get("STAPLE_FONT_DIR", "")
-    jp = os.path.join(d, "NotoSansJP.ttf")
+    jp = os.path.join(d, "MPLUS2.ttf")
     num = os.path.join(d, "Outfit.ttf")
+    fallback = os.path.join(d, "NotoSansJP.ttf")
     if not (os.path.isfile(jp) and os.path.isfile(num)):
         raise FileNotFoundError(f"フォントが見つからない: STAPLE_FONT_DIR={d!r}")
-    return jp, num
+    return jp, num, (fallback if os.path.isfile(fallback) else None)
+
+
+_CMAP_CACHE = {}
+
+
+def _missing_chars(path, text):
+    """フォントに字形が無い文字。PIL は無い字を黙って抜かすので先に調べる
+    （Zen Old Mincho で「－」が抜けた。2026-10-21）。fontTools が無ければ調べない。"""
+    try:
+        from fontTools.ttLib import TTFont
+    except ImportError:
+        return set()
+    if path not in _CMAP_CACHE:
+        _CMAP_CACHE[path] = set(TTFont(path, lazy=True).getBestCmap().keys())
+    return {c for c in text if not c.isspace() and ord(c) not in _CMAP_CACHE[path]}
+
+
+def name_font_path(name, jp, fallback):
+    """カード名を描くフォント。M PLUS 2 に無い字（難しい漢字・記号）があれば予備の Noto Sans JP。"""
+    missing = _missing_chars(jp, name)
+    if missing and fallback and not _missing_chars(fallback, name):
+        logger.info(f"M PLUS 2 に無い字 {sorted(missing)} — 名前は Noto Sans JP で描く: {name}")
+        return fallback
+    if missing:
+        logger.warning(f"カード名にフォントの無い字がある（抜けて描かれる）: {name} {sorted(missing)}")
+    return jp
 
 
 def _font(path, size, weight):
@@ -177,6 +205,45 @@ def _font(path, size, weight):
     return f
 
 
+_RARITY_CSS = os.path.join(_ROOT, "templates", "index.html")
+_DEFAULT_BADGE = ((174, 197, 255), (74, 124, 255, 0.1))  # .rb の既定（--accent-l）
+
+
+def _parse_css_color(v):
+    v = v.strip()
+    if v.startswith("#") and len(v) == 7:
+        return tuple(int(v[i:i + 2], 16) for i in (1, 3, 5)), None
+    if v.startswith("rgba("):
+        r, g, b, a = [x.strip() for x in v[5:-1].split(",")]
+        return (int(r), int(g), int(b)), float(a)
+    if v == "var(--text-m)":
+        return SUB, None
+    return None, None
+
+
+def rarity_badge_colors(rarity):
+    """サイトのレアリティの札（.rb-<slug> の --rc-color / --rc-bg）と同じ色を
+    templates/index.html から読む。(文字色, 背景色) を返す。背景は画像の地の色に重ねた結果。"""
+    import re
+    from rarity import slug_of
+    fg, bg = _DEFAULT_BADGE
+    try:
+        css = open(_RARITY_CSS, encoding="utf-8").read()
+        m = re.search(r"\.rb-" + re.escape(slug_of(rarity)) + r"\{--rc-color:([^;]+);--rc-bg:([^}]+)\}", css)
+        if m:
+            c, _ = _parse_css_color(m.group(1))
+            b, a = _parse_css_color(m.group(2))
+            if c:
+                fg = c
+            if b and a is not None:
+                bg = (*b, a)
+    except Exception as e:
+        logger.warning(f"レアリティの色を読めない（既定色で描く）: {rarity}: {e}")
+    r, g, b, a = bg
+    blended = tuple(round(BG[i] * (1 - a) + (r, g, b)[i] * a) for i in range(3))
+    return fg, blended
+
+
 def _fit(draw, text, path, size, weight, max_w, min_size):
     while size > min_size and draw.textlength(text, font=_font(path, size, weight)) > max_w:
         size -= 2
@@ -185,7 +252,7 @@ def _fit(draw, text, path, size, weight, max_w, min_size):
 
 def render_post_image(card_image_path, m, history, out_path):
     from PIL import Image, ImageDraw
-    jp, num = _font_paths()
+    jp, num, fallback = _font_paths()
     img = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(img)
     col = UP_COLOR if m["direction"] == "up" else DOWN_COLOR
@@ -196,17 +263,23 @@ def render_post_image(card_image_path, m, history, out_path):
     img.paste(card.resize((cw, ch), Image.LANCZOS), (60, 50))
     x, xr = 60 + cw + 50, W - 50
 
-    d.text((x, 56), m["name"], font=_fit(d, m["name"], jp, 34, 500, xr - x, 22), fill=TXT)
+    name_font = name_font_path(m["name"], jp, fallback)
+    d.text((x, 56), m["name"], font=_fit(d, m["name"], name_font, 34, 700, xr - x, 22), fill=TXT)
     if m["rarity"]:
-        d.text((x, 104), m["rarity"], font=_font(jp, 20, 400), fill=SUB)
+        # サイトのランキングと同じレアリティの札（色・角丸・太字）
+        fg, bg = rarity_badge_colors(m["rarity"])
+        bf = _font(jp, 22, 700)
+        tw = d.textlength(m["rarity"], font=bf)
+        d.rounded_rectangle((x, 114, x + tw + 28, 148), 6, fill=bg)
+        d.text((x + 14, 131), m["rarity"], font=bf, fill=fg, anchor="lm")
 
-    d.rounded_rectangle((x, 148, xr, 318), 10, fill=PANEL)
-    d.text((x + 24, 166), "最安値", font=_font(jp, 18, 400), fill=SUB)
-    d.text((x + 22, 188), f"¥{m['today']:,}", font=_font(num, 68, 600), fill=TXT)
+    d.rounded_rectangle((x, 172, xr, 342), 10, fill=PANEL)
+    d.text((x + 24, 190), "最安値", font=_font(jp, 18, 400), fill=SUB)
+    d.text((x + 22, 212), f"¥{m['today']:,}", font=_font(num, 68, 600), fill=TXT)
     sign = "+" if m["diff"] > 0 else "-"
     change = (f"{x_poster._format_date(m['date_old'])} ¥{m['yesterday']:,} → "
               f"{sign}¥{abs(m['diff']):,} ({sign}{abs(m['pct'])}%)")
-    d.text((x + 24, 280), change, font=_font(num, 22, 500), fill=col)
+    d.text((x + 24, 304), change, font=_font(num, 22, 500), fill=col)
 
     if len(history) >= 2:
         values = [p for _, p in history]
@@ -219,9 +292,9 @@ def render_post_image(card_image_path, m, history, out_path):
             verdict = f"　過去{span_days}日で最高"
         else:
             verdict = ""
-        d.text((x, 350), "価格推移" + verdict, font=_font(jp, 20, 500), fill=SUB)
+        d.text((x, 370), "価格推移" + verdict, font=_font(jp, 20, 500), fill=SUB)
 
-        top, bot = 394, 520
+        top, bot = 412, 530
         x0, x1 = x, xr - 100
         d0 = date.fromisoformat(history[0][0])
         total = max(span_days - 1, 1)
