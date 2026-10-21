@@ -4,6 +4,8 @@ body.price-redesign {
   --border:#2b3549; --border-hl:#f3ce46;
   --text:#eff3fb; --text-m:#a8b4c9; --text-d:#a8b4c9;
   --accent:#f3ce46; --accent-l:#aec5ff; --gold:#f3ce46; --gold-d:#b69b3d;
+  /* 落ち着いたクリーム（ロゴの #fffbed を抑えた色）。検索欄の枠・選択中の下線に使う（2026-10-21） */
+  --accent-soft:#d9d1b9;
   --green:#63d3ae; --radius:8px;
   --color-bg:#101626; --color-panel:#171f31;
   --color-text-primary:#eff3fb; --color-text-secondary:#a8b4c9; --color-text-tertiary:#a8b4c9;
@@ -66,10 +68,10 @@ body.price-redesign {
 .price-redesign :is(.movers-tab,.deck-input-tab,.deck-build-tab,.rf-btn) {border:0;background:var(--bg-card);color:var(--text-m)}
 .price-redesign :is(.movers-tab,.deck-input-tab,.deck-build-tab,.rf-btn).active,
 .price-redesign :is(.meta-deck-btn,.saved-deck-card-btn).selected {
-  background:var(--bg-hover);color:var(--text);box-shadow:inset 0 -2px 0 #f3ce46;
+  background:var(--bg-hover);color:var(--text);box-shadow:inset 0 -2px 0 var(--accent-soft);
 }
 .price-redesign #mode-search .movers-tab {border:0}
-.price-redesign #mode-search .movers-tab.active {background:var(--bg-hover);box-shadow:inset 0 -2px 0 #f3ce46}
+.price-redesign #mode-search .movers-tab.active {background:var(--bg-hover);box-shadow:inset 0 -2px 0 var(--accent-soft)}
 .price-redesign #mode-search .rf-btn.active {background:var(--bg-hover)}
 .price-redesign :is(.deck-build-tab-badge,.import-method-no) {background:#2b3549;color:var(--text)}
 .price-redesign .meta-card-chip.clickable:hover {background:var(--bg-hover);color:var(--text)}
@@ -78,7 +80,7 @@ body.price-redesign {
 .price-redesign #mode-search .share-btns>button {border:0!important;background:var(--bg-hover)}
 .price-redesign #mode-search :is(.scard,.scard.best,.price-chart,.tbl-wrap,.ritem) {border:0}
 .price-redesign .mode-tabs .nav-wishlist {background:transparent;border-radius:0;border:0;border-bottom:2px solid transparent}
-.price-redesign .mode-tabs .nav-wishlist.active {border-bottom-color:#f3ce46;box-shadow:none}
+.price-redesign .mode-tabs .nav-wishlist.active {border-bottom-color:var(--accent-soft);box-shadow:none}
 
 @media(max-width:640px) {
 }
