@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- 独自ドメインへの引き継ぎページ（設計文書 docs/design-domain-migration-2026-10-21.md）。
+     ブラウザ保存領域の中身を URL の # 以降で運ぶので、Google Analytics のタグは含めない。 -->
+{% if mode == 'send' %}
+<link rel="canonical" href="{{ canonical_url }}">
+{% else %}
+<meta name="robots" content="noindex, nofollow">
+{% endif %}
+<title>新しいアドレスへ移動しています | 強欲なラボ</title>
+<style>
+:root{--bg:#0a1024;--bg-card:#1a2547;--border:#2a3460;--text:#ffffff;--text-m:#94a3b8;--accent-l:#7da0ff}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:system-ui,-apple-system,'Segoe UI','Noto Sans JP',sans-serif;
+  background:var(--bg);color:var(--text);min-height:100vh;
+  display:flex;align-items:center;justify-content:center;padding:20px;
+}
+.card{width:100%;max-width:440px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:28px 24px}
+.brand{font-size:.85rem;color:var(--text-m);margin-bottom:12px;letter-spacing:.05em}
+p{color:var(--text-m);font-size:.9rem;line-height:1.7}
+a{color:var(--accent-l)}
+.note{font-size:.82rem;margin-top:10px}
+button{margin-top:16px;width:100%;padding:12px;border-radius:8px;border:1px solid #4a7cff;background:#4a7cff;color:#fff;font-size:.92rem;font-weight:700;cursor:pointer;font-family:inherit}
+button:disabled{opacity:.5;cursor:default}
+#handoffFallback{margin-top:14px}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand">強欲なラボ</div>
+  <p id="handoffStatus">{% if mode == 'send' %}新しいアドレス（greedy-lab.com）へ移動しています…{% else %}保存したデッキなどを引き継いでいます…{% endif %}</p>
+  <p id="handoffNote" class="hidden note">自分で開いたリンクでなければ、引き継がずに開いてください。</p>
+  <button type="button" id="handoffConfirm" class="hidden">引き継ぐ</button>
+  <p id="handoffFallback" class="hidden"></p>
+</div>
+<div id="handoffConfig" hidden
+  data-mode="{{ mode }}"
+  {% if mode == 'send' %}
+  data-canonical-base="{{ canonical_base }}"
+  data-target-path="{{ target_path }}"
+  {% else %}
+  data-legacy-origins="{{ legacy_origins | join(' ') }}"
+  {% endif %}></div>
+<script src="{{ static_url('shared/domain-handoff.js') }}"></script>
+</body>
+</html>

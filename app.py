@@ -100,6 +100,8 @@ from neuron_deck_parser import import_neuron as _import_neuron
 from neuron_link import resolve_card_name
 import sync as _sync
 from client_ip import _client_ip
+import site_urls
+import domain_handoff
 
 import re as _re
 from urllib.parse import quote as _url_quote
@@ -141,6 +143,8 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 Compress(app)
 app.register_blueprint(_admin_bp)
+# 旧URL（onrender）で開かれた画面を独自ドメインへ引き継ぐ（2026-10-21・CANONICAL_BASE_URL 設定時のみ）
+domain_handoff.register(app)
 
 # アップロード上限（デッキPDF読み取り等）。巨大ファイルによるメモリ枯渇を防ぐ
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
@@ -163,8 +167,9 @@ def inject_rarity_config():
         # canonical / OGP は request.url_root だと Render のプロキシ配下で常に http に
         # なる（TLSはプロキシで終端されアプリへは http で転送されるため）。
         # 2026-08-17 に同じ理由でワンタイムリンクが http になる不具合を直した
-        # _public_base_url() をテンプレートにも渡す（2026-09-01）
-        "public_base_url": _public_base_url(),
+        # _public_base_url() をテンプレートにも渡す（2026-09-01）。
+        # 独自ドメイン移行（2026-10-21）後は CANONICAL_BASE_URL を正とする（旧URLで開いても同じ値）
+        "public_base_url": _canonical_base_url(),
     }
 
 _BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -862,7 +867,7 @@ def buy_page(card_name):
 def sitemap():
     """動的サイトマップ — 検索されたカードを自動収集"""
     from flask import make_response
-    base_url = _public_base_url()
+    base_url = _canonical_base_url()
 
     # ランキングからカード名を取得
     cards = _get_trending(limit=30)
@@ -891,7 +896,7 @@ def sitemap():
 def robots():
     """robots.txt"""
     from flask import make_response
-    base_url = _public_base_url()
+    base_url = _canonical_base_url()
     # /sync はワンタイムリンクのトークンがクエリ文字列に載るため検索エンジンにインデックスさせない
     # （設計文書 §7.2・§12。GA4もこのページには載せていない）
     txt = f"User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /sync\n\nSitemap: {base_url}/sitemap.xml\n"
@@ -3603,6 +3608,12 @@ def _same_origin_ok() -> bool:
         return True
     from urllib.parse import urlparse
     return urlparse(origin).netloc == request.host
+
+
+def _canonical_base_url() -> str:
+    """canonical・OGP・sitemap に載せる正のURL。CANONICAL_BASE_URL が未設定なら
+    このリクエストの公開URL（同期リンクの発行は引き続き _public_base_url() を使う）。"""
+    return site_urls.canonical_base_url_env() or _public_base_url()
 
 
 def _public_base_url() -> str:
