@@ -117,6 +117,7 @@ def notify_discord(results: list[dict]):
         "movers_up": "値上がりランキング",
         "movers_down": "値下がりランキング",
         "featured_movers": "新弾フィーチャー",
+        "unreleased_card": "新カード追加",
     }
     window_map = {"30min": "投稿後30分", "24h": "投稿後24時間"}
 
