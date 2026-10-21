@@ -1,5 +1,12 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-21: スマホで共有リプレイを開いたときの CLS 0.016 を解消（branch fix/replay-cls）
+
+- 原因: 読み込み後に再生モードへ入ってから下部の予約量（--sol-mobile-bottom-reserve）を 52→88px に変え、resize で盤面全体を縮め直していた（sources＝盤面のマス・手札・墓地除外・EX の段）。
+- 修正: ?replay= / #replay= / ?saved=（?at=end を除く）をスマホ縦で開くときは、main.js が最初の盤面合わせの前に 88px を取る（mobile-ui.js reservePlaybackSpaceForUrlReplay）。読み込みに失敗した・記録が空で再生モードに入らなかったときは replay-ui.js が出す sol-replay-url-settled で 52px に戻して合わせ直す。
+- 計測（本番に main.js・replay-ui.js・mobile-ui.js を差し替えて交互に・スマホ相当）: 共有リプレイ 0.0157→0（各4回）。?at=end 0.0019→0.0019・空の盤面 0→0・PC の共有リプレイ 0.0016→0.0016。最後の画面は前後で同じ。
+- 残る点: 存在しない・消えたリプレイのリンクでは、52px に戻す合わせ直しで 0.0173 出る（前は 0。壊れたリンクだけの経路として受け入れた）。読み込み中は下部に 36px の空きが見える。
+
 ## 2026-10-21: シミュレーターをマイデッキから開いたときの CLS 0.19 を解消（branch fix/handoff-status-cls）
 
 - 原因: 通知の欄 #deckHandoffStatus を JS（static/shared/deck-handoff.js）が後から body の先頭へ差し込み、さらに「読み込みました（メイン40枚・EX15枚）。」が2行に折り返して盤面全体を押し下げていた。
