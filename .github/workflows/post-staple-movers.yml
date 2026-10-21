@@ -5,9 +5,9 @@
 name: Post Staple Card Movers
 
 on:
-  # 試し実行の結果をユーザーが確認するまで止めておく（確認後に下の2行のコメントを外す）
-  # schedule:
-  #   - cron: '7 11 * * *'  # 毎日 UTC 11:07 = JST 20:07（毎時0分は混雑するため数分ずらす）
+  # 2026-10-21 ユーザー承認で開始（画像作りに失敗した日は投稿せず見送る）
+  schedule:
+    - cron: '7 11 * * *'  # 毎日 UTC 11:07 = JST 20:07（毎時0分は混雑するため数分ずらす）
   workflow_dispatch:
     inputs:
       dry_run:
