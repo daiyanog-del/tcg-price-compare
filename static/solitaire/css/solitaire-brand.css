@@ -1928,9 +1928,9 @@ a.replay-btn { display: inline-block; text-decoration: none; }
   .replay-bar .replay-save-btn {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
     height: 32px;
-    padding: 0 12px;
+    padding: 0 8px;
     border: 0;
     border-radius: 6px;
     background: #202c42;
@@ -1968,6 +1968,15 @@ a.replay-btn { display: inline-block; text-decoration: none; }
   .replay-bar .pc-record-btn.has-range { background: rgba(174, 197, 255, 0.12); color: var(--accent); }
   .replay-bar .pc-range-clear-btn { padding: 0 9px; }
   .replay-bar .replay-ico { margin-right: 0; } /* 間は gap で取る */
+  /* 1段に収める（2026-10-21 B〜E で線アイコンを足して幅が約100px増え、1200〜1280px で2段に折り返していた）。
+     ・ボタンの間とまとまりの区切りを詰める
+     ・「見る」のまとまりの基準の幅を 0 にし、スライダーは残りの幅で伸ばす（最低 100px。入らなければ折り返す）。
+       基準が auto だと、スライダー本来の幅（約130px）で折り返しを判定してしまう */
+  .replay-bar,
+  .replay-bar .replay-group { gap: 4px; }
+  .replay-bar .replay-group + .replay-group { padding-left: 6px; margin-left: 2px; }
+  .replay-bar .replay-group:first-child { flex: 1 1 0; min-width: min-content; } /* 中身より縮めない（縮めるとボタンが重なる） */
+  .replay-bar .replay-slider { width: 0; min-width: 100px; } /* 本来の幅（約130px）で中身の幅を数えないよう width:0。幅は flex で伸ばす */
 }
 /* 線アイコン（再生バー）。components.css の span の一律の色を打ち消し、文字の色に合わせる。
    768px 未満（横向きスマホなど、ボタンが flex でない幅）は margin で文字との間を空ける */
