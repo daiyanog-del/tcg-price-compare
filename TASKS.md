@@ -144,7 +144,6 @@ anking-thumb-20261020）。本番画面に手元の CSS を差し込んで PC 50
 
 - [x] **トップページ高速化バッチB（2026-09-22 PR #2 本番済み）** — preload／cache warmer／import map／サムネ束ね＋CLS／solitaire static_url。実測は activeContext 参照
 - [x] **トップページ高速化バッチC（2026-09-22 PR #3 本番済み）** — JS/CSS外部化・起動時温め拡張・一人回し import map。実測は activeContext 参照
-- [ ] **★買取収集 cron の実行欠落を監視する（2026-09-22 発見）** — `tcg-collect-buyback`（Render cron・UTC 0:00）が 09-17〜21 の5日間実行されず（ログに起動痕跡なし・エラーなし）。buyback_history が欠けると買取値動きランキングが 0 件になる。対策案: `monitor.py`/Discord 通知に「buyback_history の当日行数が 0 なら警告」を追加、または collection_runs の日次件数チェック。原因（Render 側のスケジュール不発か）は未特定
 - [ ] **高速化 残課題（2026-09-22 起票・未着手）** — ①インラインCSS 残り38KB のミニファイ（Jinja 0・`url()` 0 なので rcssmin 等で安全。JS は Jinja 混在で不可）②`get_buyback_movers` の covering index（EXPLAIN 実測 425ms、現在は裏更新のみ）③`_cache_warmer` 定数の校正（`TODO: calibrate from data`）④独自ドメイン取得後に CDN（Cloudflare）で API JSON のエッジキャッシュ ⑤`featured_pack` テーブルへの GET が 404（起動ログ）＝機能不全の可能性、要確認
 - [ ] **カクつき対策の残り（2026-10-16 レビュー起票）** — 表示のズレ（CLS）は PR #82・#84 で全ページ 0.1 未満に済（本番実測・経緯は decisions.md 2026-10-16 の2節）。①②③は 2026-10-16 branch perf/main-thread-followups で対応（new-cards 裏更新・GA 遅延読込・シミュレーターの直列読込解消。数値は decisions.md 2026-10-16「メインスレッドと読み込みの重さ」）。残り: ④カードページ検索完了時の1フレーム0.8秒（描画側・done 一括描画で軽減済みか再計測）⑤リプレイ一覧のズレ 0.055〜0.075（みんなのリプレイの件数が読込まで不明）⑥カードページで遅れて届くメルカリ参考相場が自動で開き表を押し下げる（PC で最大0.07）
 - [ ] **リプレイ一覧（solitaire_replays.html）の GA を共通部品 templates/_ga.html へ（2026-10-16 起票）** — トップ・シミュレーターは解析後の遅延読込にしたが、リプレイ一覧だけ gtag.js を head で直接読んでいる。`{% include '_ga.html' %}` に置き換え、long task を測ってから反映
@@ -220,6 +219,8 @@ anking-thumb-20261020）。本番画面に手元の CSS を差し込んで PC 50
 - [ ] **稼働店舗2店未満の日のランキング無音** — ガード②の構造的制約（該当日は販売ランキングが空になる）。6店体制では実害小。店舗縮小時に問題化したら「データ不足」表示等を検討
 
 ## 完了
+
+- [x] 2026-10-21 **価格収集の抜けを毎日見張る（買取収集 cron の実行欠落の監視）** — `check_collection.py` を GitHub Actions `check-collection.yml`（毎日 JST 13:00）で動かし、今日の price_history / buyback_history の行数を数えて、0件（collection_runs の有無で「起動しなかった」「動いたが0件」を分ける）か、直前14日の中央値の半分未満なら Discord に知らせて実行を失敗にする（GitHub の失敗メールでも気づける）。Render の定期実行が起動しなかった日に気づくため、Render とは別の場所で動かす。2026-09-06〜10-21 の実測: 抜けは 09-17〜21（買取）だけ、少ない日は 10-11 の販売（28%）。仮置き: LOW_RATIO=0.5・HISTORY_DAYS=14（TODO: calibrate from data）。9/17〜21 の原因（Render 側のスケジュール不発か）は未特定のまま。
 
 - [x] 2026-10-21 **`/api/card-image-proxy`（カーナベル画像の中継）を撤去** — 本番のアクセス記録（約30日分）で呼ばれたのは 10-20 の確認6件だけ（どれも 502）。もとは GitHub Actions 向けで、2026-05 の Yugipedia＋YGOPRODECK への切り替え（eb74685）で呼び出しが消えていた。カーナベルが Render からの取得を 403 で拒むので直す手段がない（偽装はしない方針）。無制限にカーナベルへ2回アクセスする穴（総点検 B-8）と sw.js の無期限の溜め込み（F-7）も一緒に消えた。sw.js は更新時にこの URL の溜め込みだけを消す（CACHE_NAME は変えない。変えるとカード画像の溜め込みまで消えるため）。一緒に閉じた項目: 「403 で常に失敗」「Content-Type 透過」。
 
