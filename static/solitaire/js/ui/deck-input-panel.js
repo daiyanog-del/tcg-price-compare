@@ -12,7 +12,7 @@ import { setDeckLink, getDeckLink, onDeckLinkChange } from '../services/deck-lin
 import { isMobilePortrait, watchMobilePortrait } from '../utils/viewport.js';
 import { showToast } from '../utils/toast.js';
 import { showActionToast } from './inline-ui.js';
-import { saveUndoPoint, offerUndo, discardUndoPoint } from './undo-point.js';
+import { guardUndoable, offerUndo, discardUndoPoint } from './undo-point.js';
 
 const API_CARD_IMAGE  = '/api/card-image';   // 単数版（フォールバック用）
 const API_CARD_IMAGES = '/api/card-images';  // バッチ版（POST）
@@ -139,19 +139,31 @@ let _replaceUndoPending = false;
  * 今は直前の写しを取っておき、読み込みが終わったら6秒間「元に戻す」を出す（undo-point.js）。
  * 入れ替えると、前のデッキのカードを指す記録は再生しても何も動かなくなり、共有すると
  * 前のデッキのカードまで受け手のデッキに混ざるため、入れ替えと同時に記録を消す（_clearForNewDeck）。
- * 呼んだ後は必ず sol-deck-load-end を出すこと（3つの読み込みとも finally で出している）。
- * @returns {boolean} 続けてよければ true（今は常に true。呼び出し側の形を変えないため残す）
+ * 写しを取れない（記録が大きすぎる等）ときだけ確認の小窓を出し、やめたら false。
+ * 呼んだ後（true のとき）は必ず sol-deck-load-end を出すこと（3つの読み込みとも finally で出している）。
+ * detail.cleared（片付けまで進んだか）が偽なら、何も変わっていないので写しを捨てて失敗だけを知らせる。
+ * @returns {Promise<boolean>} 続けてよければ true
  */
-function _confirmReplaceDeck() {
+async function _confirmReplaceDeck() {
   if (getLogLength() + getSetupLogs().length === 0) return true;
-  if (!saveUndoPoint()) return true;
+  // 確認の小窓を待つ間も読み込み中として扱い、カードの追加・クリア・別の読み込みを割り込ませない（reviewer 指摘）
+  let g;
+  _deckLoadInFlight = true;
+  try {
+    g = await guardUndoable(null, '記録が大きいため、読み込むと前の記録には戻せません。新しいデッキを読み込みますか？', '読み込む');
+  } finally {
+    _deckLoadInFlight = false;
+  }
+  if (!g.ok) return false;
+  if (!g.id) return true;
   _replaceUndoPending = true;
   document.addEventListener('sol-deck-load-end', (e) => {
     _replaceUndoPending = false;
     const d = (e && e.detail) || {};
-    if (d.ok) offerUndo('デッキを読み込みました（前の記録は消えました）');
-    else if (d.error) offerUndo('デッキを読み込めませんでした: ' + d.error);
-    else discardUndoPoint();
+    if (d.ok) { offerUndo('デッキを読み込みました（前の記録は消えました）', g.id); return; }
+    if (d.cleared) { offerUndo('デッキを読み込めませんでした' + (d.error ? ': ' + d.error : ''), g.id); return; }
+    discardUndoPoint(g.id);
+    if (d.error) showActionToast('デッキを読み込めませんでした: ' + d.error, { error: true });
   }, { once: true });
   return true;
 }
@@ -426,16 +438,18 @@ export async function loadDeckFromText(text, triggerBtn = null) {
   }
   const cards = parseDeckList(text);
   if (cards.length === 0) { showToast('デッキリストが空です'); return; }
-  if (!_confirmReplaceDeck()) return;
+  if (!(await _confirmReplaceDeck())) return;
 
   _deckLoadInFlight = true;
   _setDeckRowsLoading(triggerBtn, true);
   // replace: デッキを入れ替える読込か（deck-edit-ui.js がマイデッキとのひも付けを外すのに使う）
   document.dispatchEvent(new CustomEvent('sol-deck-load-start', { detail: { replace: true } }));
   let ok = false;
+  let cleared = false; // 片付け（記録の初期化）まで進んだか。進んでいなければ「元に戻す」は出さない
   let error = null;
   try {
     await _clearForNewDeck();
+    cleared = true;
 
     // デッキ・EXデッキ両エリアにロード中インジケータを表示（EXカードも振り分けられるため）
     setPoolLoading(['imagePool', 'imagePool2'], true);
@@ -454,7 +468,7 @@ export async function loadDeckFromText(text, triggerBtn = null) {
     _deckLoadInFlight = false;
     _setDeckRowsLoading(triggerBtn, false);
     const { main, ex } = _currentPoolCounts();
-    document.dispatchEvent(new CustomEvent('sol-deck-load-end', { detail: { ok, main, ex, error } }));
+    document.dispatchEvent(new CustomEvent('sol-deck-load-end', { detail: { ok, main, ex, error, cleared } }));
   }
   return ok;
 }
@@ -519,16 +533,18 @@ export async function loadDeckFromNeuron(mainText, exText) {
   const exCards = exText ? parseDeckList(exText) : [];
   if (mainCards.length === 0 && exCards.length === 0) return;
   // メインがあるときだけデッキを入れ替える（EXだけのときは足すだけなので記録は消さない）
-  if (mainCards.length > 0 && !_confirmReplaceDeck()) return;
+  if (mainCards.length > 0 && !(await _confirmReplaceDeck())) return;
 
   _deckLoadInFlight = true;
   _setDeckRowsLoading(null, true);
   document.dispatchEvent(new CustomEvent('sol-deck-load-start', { detail: { replace: mainCards.length > 0 } }));
   let ok = false;
+  let cleared = false; // 片付け（記録の初期化）まで進んだか。進んでいなければ「元に戻す」は出さない
   let error = null;
   try {
     if (mainCards.length > 0) {
       await _clearForNewDeck();
+      cleared = true;
       setPoolLoading(['imagePool', 'imagePool2'], true);
       try {
         await addCardsBatch(mainCards, null);
@@ -553,7 +569,7 @@ export async function loadDeckFromNeuron(mainText, exText) {
     _deckLoadInFlight = false;
     _setDeckRowsLoading(null, false);
     const { main, ex } = _currentPoolCounts();
-    document.dispatchEvent(new CustomEvent('sol-deck-load-end', { detail: { ok, main, ex, error } }));
+    document.dispatchEvent(new CustomEvent('sol-deck-load-end', { detail: { ok, main, ex, error, cleared } }));
   }
   return ok;
 }
@@ -570,7 +586,7 @@ export async function loadMetaDeck(theme, triggerBtn = null) {
     console.warn('[deck-input-panel] デッキ読込が進行中のため無視しました（loadMetaDeck）');
     return;
   }
-  if (!_confirmReplaceDeck()) return;
+  if (!(await _confirmReplaceDeck())) return;
   _deckLoadInFlight = true;
   _setDeckRowsLoading(triggerBtn, true);
   document.dispatchEvent(new CustomEvent('sol-deck-load-start', { detail: { replace: true } }));
@@ -579,6 +595,7 @@ export async function loadMetaDeck(theme, triggerBtn = null) {
   setPoolLoading(['imagePool', 'imagePool2'], true);
 
   let ok = false;
+  let cleared = false; // 片付け（記録の初期化）まで進んだか。進んでいなければ「元に戻す」は出さない
   let error = null;
   try {
     const res = await fetch(`${API_META_DECK}?theme=${encodeURIComponent(theme)}`);
@@ -588,6 +605,7 @@ export async function loadMetaDeck(theme, triggerBtn = null) {
     if (!fullDeck || fullDeck.length === 0) throw new Error('デッキリストが取得できませんでした');
 
     await _clearForNewDeck();
+    cleared = true;
 
     // is_ex が各カードに付与済みなので defaultIsEx=null にして card.is_ex を優先させる
     // addCardsBatch が card.is_ex !== undefined の場合それを使う
@@ -603,7 +621,7 @@ export async function loadMetaDeck(theme, triggerBtn = null) {
     _deckLoadInFlight = false;
     _setDeckRowsLoading(triggerBtn, false);
     const { main, ex } = _currentPoolCounts();
-    document.dispatchEvent(new CustomEvent('sol-deck-load-end', { detail: { ok, main, ex, error } }));
+    document.dispatchEvent(new CustomEvent('sol-deck-load-end', { detail: { ok, main, ex, error, cleared } }));
   }
   if (ok) setDeckLink({ name: theme, source: 'sample' }); // 環境デッキはマイデッキに無いので未登録として始める
   return ok;

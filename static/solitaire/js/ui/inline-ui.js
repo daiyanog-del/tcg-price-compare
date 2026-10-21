@@ -16,6 +16,11 @@ const PLAIN_MS = 3500;
 
 let _toast = null; // { el, timer, onExpire }
 
+/** 出ているボタン付きのお知らせを閉じる（expired=true なら期限切れの後始末を走らせる） */
+export function dismissActionToast(expired = true) {
+  _closeToast(expired);
+}
+
 function _closeToast(expired) {
   if (!_toast) return;
   const t = _toast;
@@ -69,6 +74,7 @@ function _closePop(restoreFocus) {
   const p = _pop;
   _pop = null;
   p.cleanup();
+  if (p.onClose) { try { p.onClose(); } catch (e) { /* 何もしない */ } }
   p.el.remove();
   if (restoreFocus && p.anchor && document.body.contains(p.anchor)) {
     try { p.anchor.focus({ preventScroll: true }); } catch (e) { /* 何もしない */ }
@@ -186,9 +192,11 @@ export function openNameDialog(anchor, opts) {
 /**
  * 確認の小窓（元に戻せない操作だけに使う。戻せる操作は「すぐ実行して元に戻すを出す」にする）。
  * @param {Element|null} anchor
- * @param {{message:string, okLabel:string, cancelLabel?:string, danger?:boolean, onOk:Function}} opts
+ * @param {{message:string, okLabel:string, cancelLabel?:string, danger?:boolean, onOk:Function, onCancel?:Function}} opts
+ *   onCancel … やめる・Esc・外を押して閉じたとき
  */
 export function openConfirm(anchor, opts) {
+  let decided = false;
   const el = document.createElement('div');
   el.className = 'sol-inline-pop sol-inline-confirm';
   el.setAttribute('role', 'alertdialog');
@@ -200,10 +208,21 @@ export function openConfirm(anchor, opts) {
   const cancel = _pill(opts.cancelLabel || 'やめる');
   cancel.addEventListener('click', () => _closePop(true));
   const ok = _pill(opts.okLabel, !opts.danger, !!opts.danger);
-  ok.addEventListener('click', () => { _closePop(true); opts.onOk(); });
+  ok.addEventListener('click', () => { decided = true; _closePop(true); opts.onOk(); });
   row.append(cancel, ok);
   el.append(p, row);
   el.setAttribute('aria-label', opts.message);
   _openPop(el, anchor);
+  if (_pop) _pop.onClose = () => { if (!decided && typeof opts.onCancel === 'function') opts.onCancel(); };
   cancel.focus();
+}
+
+/**
+ * 確認の小窓を開き、選んだ結果を返す（true＝実行）。
+ * @returns {Promise<boolean>}
+ */
+export function confirmAsync(anchor, message, okLabel, danger = true) {
+  return new Promise((resolve) => {
+    openConfirm(anchor, { message, okLabel, danger, onOk: () => resolve(true), onCancel: () => resolve(false) });
+  });
 }

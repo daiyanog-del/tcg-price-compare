@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import {
   SESSION_RESUME_KEY, SESSION_REPLAY_DROPPED_KEY, SESSION_RESUME_STEPS_KEY,
-  UNDO_RESUME_KEY, UNDO_REPLAY_DROPPED_KEY, UNDO_STEPS_KEY, UNDO_OFFER_KEY, UNDO_RESTORED_KEY,
+  UNDO_RESUME_KEY, UNDO_REPLAY_DROPPED_KEY, UNDO_STEPS_KEY, UNDO_OFFER_KEY, UNDO_RESTORED_KEY, UNDO_ID_KEY,
   moveResumeToUndo, copyResumeToUndo, moveUndoToResume, clearUndo, hasUndo, takeOnce,
 } from '../../static/solitaire/js/utils/session-resume-store.js';
 
@@ -39,14 +39,22 @@ assert.equal(s.getItem(UNDO_OFFER_KEY), null);
 assert.equal(s.getItem(UNDO_RESTORED_KEY), '1');
 assert.equal(moveUndoToResume(s), false, '写しが無ければ何もしない');
 
-// 複製: 退避は残したまま写しを作る（リプレイ一覧から開くとき）。「記録を落とした」印も一緒に写す
+// 複製: 退避は残したまま写しを作る（リプレイ一覧から開くとき）
 s = mk();
-s.setItem(SESSION_RESUME_KEY, 'S2'); s.setItem(SESSION_REPLAY_DROPPED_KEY, '1');
+s.setItem(SESSION_RESUME_KEY, 'S2'); s.setItem(SESSION_RESUME_STEPS_KEY, '3');
 assert.equal(copyResumeToUndo(s), true);
 assert.equal(s.getItem(SESSION_RESUME_KEY), 'S2');
 assert.equal(s.getItem(UNDO_RESUME_KEY), 'S2');
-assert.equal(s.getItem(UNDO_REPLAY_DROPPED_KEY), '1');
-// 前の写しの手数が残らない
+assert.equal(s.getItem(UNDO_STEPS_KEY), '3');
+assert.ok(s.getItem(UNDO_ID_KEY), '複製した写しにも世代を付ける（reviewer 指摘）');
+// 記録を容量超過で落とした退避は写さない（元に戻しても記録が戻らないため。reviewer 指摘）
+const s3 = mk();
+s3.setItem(SESSION_RESUME_KEY, 'S3'); s3.setItem(SESSION_REPLAY_DROPPED_KEY, '1');
+assert.equal(copyResumeToUndo(s3), false);
+assert.equal(s3.getItem(UNDO_RESUME_KEY), null);
+assert.equal(s3.getItem(UNDO_REPLAY_DROPPED_KEY), null);
+// 前の写しの手数が残らない（退避に手数が無いとき）
+s.removeItem(SESSION_RESUME_STEPS_KEY);
 s.setItem(UNDO_STEPS_KEY, '9');
 copyResumeToUndo(s);
 assert.equal(s.getItem(UNDO_STEPS_KEY), null, '前の写しの手数を残さない');

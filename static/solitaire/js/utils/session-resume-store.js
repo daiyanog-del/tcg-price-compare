@@ -126,6 +126,8 @@ export const UNDO_OFFER_KEY = 'sol-undo-offer';
 export const UNDO_RESTORED_KEY = 'sol-undo-restored';
 // ページを移る前に出せなかったお知らせ（移った先で出す）
 export const NOTICE_KEY = 'sol-notice';
+// 写しの世代（新しい写しを取ったら変わる）。前の「元に戻す」の期限切れで、新しい写しを捨てないために使う
+export const UNDO_ID_KEY = 'sol-undo-id';
 
 const _PAIRS = [
   [SESSION_RESUME_KEY, UNDO_RESUME_KEY],
@@ -137,6 +139,7 @@ const _PAIRS = [
 export function clearUndo(storage) {
   for (const [, u] of _PAIRS) storage.removeItem(u);
   storage.removeItem(UNDO_OFFER_KEY);
+  storage.removeItem(UNDO_ID_KEY);
 }
 
 /** 元に戻すための写しがあるか */
@@ -151,22 +154,25 @@ export function hasUndo(storage) {
 export function moveResumeToUndo(storage) {
   if (!storage.getItem(SESSION_RESUME_KEY)) return false;
   clearUndo(storage);
-  for (const [r, u] of _PAIRS) {
-    const v = storage.getItem(r);
-    if (v !== null) storage.setItem(u, v);
-    storage.removeItem(r);
-  }
+  // 値を読む → 元を消す → 写しへ書く の順（書いてから消すと一瞬同じデータが2つ並び、容量超過になりやすい）
+  const vals = _PAIRS.map(([r]) => storage.getItem(r));
+  for (const [r] of _PAIRS) storage.removeItem(r);
+  _PAIRS.forEach(([, u], i) => { if (vals[i] !== null) storage.setItem(u, vals[i]); });
   return true;
 }
 
 /** 今の退避を残したまま、元に戻すための写しへ複製する（リプレイ一覧から開くとき。退避はシミュレーター側で上書きされる） */
 export function copyResumeToUndo(storage) {
   if (!storage.getItem(SESSION_RESUME_KEY)) return false;
+  // 記録を容量超過で落とした退避は、元に戻しても記録が戻らないので写さない
+  if (storage.getItem(SESSION_REPLAY_DROPPED_KEY) === '1') return false;
   clearUndo(storage);
   for (const [r, u] of _PAIRS) {
     const v = storage.getItem(r);
     if (v !== null) storage.setItem(u, v);
   }
+  // 世代を付ける（ui/undo-point.js の saveUndoPoint と同じ。前の「元に戻す」の期限切れで新しい写しを消さないため）
+  storage.setItem(UNDO_ID_KEY, String(Date.now()) + Math.random().toString(36).slice(2, 6));
   return true;
 }
 
@@ -180,6 +186,7 @@ export function moveUndoToResume(storage) {
     storage.removeItem(u);
   }
   storage.removeItem(UNDO_OFFER_KEY);
+  storage.removeItem(UNDO_ID_KEY);
   storage.setItem(UNDO_RESTORED_KEY, '1');
   return true;
 }

@@ -54,6 +54,9 @@ function askReplaceSessionRecord(ev) {
 function removeWithUndo(getList, setList, remove, item, rerender, msg) {
   const before = getList();
   const idx = before.findIndex(x => x.id === item.id);
+  // 別のタブで先に消えていた: 描き直すだけ（元に戻すものが無い）
+  if (idx < 0) { rerender(); return; }
+  const entry = before[idx];
   remove(item.id);
   rerender();
   showActionToast(msg, {
@@ -61,8 +64,10 @@ function removeWithUndo(getList, setList, remove, item, rerender, msg) {
     onClick: () => {
       const cur = getList();
       if (cur.some(x => x.id === item.id)) return;
-      cur.splice(idx < 0 ? 0 : Math.min(idx, cur.length), 0, before[idx]);
-      setList(cur);
+      cur.splice(Math.min(idx, cur.length), 0, entry);
+      const res = setList(cur);
+      // 保存の失敗（容量超過など）は false または { ok:false } で返る
+      if (res === false || (res && res.ok === false)) { showActionToast('元に戻せませんでした（ブラウザの保存容量を確認してください）', { error: true }); return; }
       rerender();
     },
   });
@@ -571,12 +576,12 @@ async function handleOpenFile(e) {
       throw new Error('JSON として読めませんでした');
     }
     assertReplayPayload(payload);
-    // 開くと今の記録が置き換わる場合の確認（キャンセルなら何も登録しない）
-    if (!askReplaceSessionRecord({ button: 0 })) return;
     const title = (typeof payload.title === 'string' && payload.title.trim())
       ? payload.title : file.name.replace(/\.json$/i, '');
     const saved = saveReplayPayload(payload, { title });
     if (!saved.ok) throw new Error(SAVE_FAIL_MESSAGES[saved.reason] || '保存に失敗しました');
+    // 保存できてから、今の記録が置き換わる場合の「元に戻す」の準備をする（失敗したら何も残さない）
+    askReplaceSessionRecord({ button: 0 });
     // 上限20件の整理で古い保存が消えたときは、移った先（シミュレーター）で知らせる（以前は移る前に知らせの窓を出していた）
     if (saved.removedCount > 0) {
       try { sessionStorage.setItem(NOTICE_KEY, `保存の上限のため、古い${saved.removedCount}件を削除しました`); } catch (e) { /* 知らせられないだけ */ }

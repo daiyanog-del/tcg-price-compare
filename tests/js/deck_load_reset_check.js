@@ -44,9 +44,9 @@ const setCardName = () => {};
 const clearSessionResume = () => {};
 const showToast = (m) => T.push('toast:' + m);
 const showActionToast = (m) => T.push('action:' + m);
-const saveUndoPoint = () => { T.push('undoPoint'); return true; };
-const offerUndo = (m) => T.push('offer:' + m);
-const discardUndoPoint = () => T.push('discard');
+const guardUndoable = async () => { T.push('undoPoint'); return { ok: true, id: 'u1' }; };
+const offerUndo = (m, id) => T.push('offer:' + m + '#' + id);
+const discardUndoPoint = (id) => T.push('discard#' + id);
 const setDeckLink = () => {};
 const getDeckLink = () => null;
 const onDeckLinkChange = () => {};
@@ -125,12 +125,14 @@ const watchMobilePortrait = () => {};
   assert.ok(!calls.includes('undoPoint'), 'EXだけなら写しを取らない');
   assert.ok(!calls.includes('reset'), 'EXだけなら記録を消さない');
 
-  // 6. 環境デッキは通信に失敗したら記録を消さない（取得できてから片付けるため）。失敗の知らせは「元に戻す」の知らせ1つにまとめる
+  // 6. 環境デッキは通信に失敗したら記録を消さない（取得できてから片付けるため）。
+  //    何も変わっていないので「元に戻す」は出さず、写しを捨てて失敗だけを1回知らせる（reviewer 指摘）
   reset(); fetchFails = true;
   await m.loadMetaDeck('X');
   assert.ok(!calls.includes('reset'), '環境デッキの取得に失敗したら記録は残す');
-  assert.ok(calls.some(c => c.startsWith('offer:デッキを読み込めませんでした')), `失敗でも元に戻すの知らせ（${calls.join(',')}）`);
-  assert.ok(!calls.some(c => c.startsWith('action:')), '失敗の知らせを重ねて出さない');
+  assert.ok(!calls.some(c => c.startsWith('offer:')), `片付ける前の失敗では元に戻すを出さない（${calls.join(',')}）`);
+  assert.ok(calls.includes('discard#u1'), 'その世代の写しを捨てる');
+  assert.equal(calls.filter(c => c.startsWith('action:')).length, 1, `失敗の知らせは1回（${calls.join(',')}）`);
   // 記録が無いときの失敗は、失敗だけを知らせる
   logLen = 0; reset();
   await m.loadMetaDeck('X');

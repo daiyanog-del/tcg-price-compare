@@ -35,7 +35,7 @@ import { clearEverything } from './deck-input-panel.js';
 import { initReplayStartPrompt } from './replay-start-prompt.js';
 import { showToast } from '../utils/toast.js';
 import { showActionToast } from './inline-ui.js';
-import { saveUndoPoint, offerUndo, discardUndoPoint } from './undo-point.js';
+import { guardUndoable, offerUndo, discardUndoPoint } from './undo-point.js';
 import { addSharedReplay } from '../services/shared-replays.js';
 import { savedReplaysGet, saveReplayEntry } from '../services/saved-replays.js';
 import { getDeckLink, getDeltas, deckContents, applyDeltas } from '../services/deck-link.js';
@@ -147,18 +147,20 @@ export function initReplayUI() {
   // 「クリア」（deck-input-panel.js clearEverything）と同じ処理を使い、盤面も含めて
   // 完全に初期状態へ戻す。以前は確認窓を出していたが、今は直前の写しを取ってすぐ消し、6秒間「元に戻す」を出す（undo-point.js）。
   document.getElementById('clearButton')
-    ?.addEventListener('click', async () => {
-      const undoable = saveUndoPoint();
+    ?.addEventListener('click', async (ev) => {
+      // 写しを取れない（記録が大きすぎる等）ときだけ確認の小窓を出す
+      const g = await guardUndoable(ev.currentTarget, '記録が大きいため、消すと元に戻せません。デッキ・盤面・記録をすべて消しますか？', '消す');
+      if (!g.ok) return;
       // clearEverything() はデッキ読込中だと何もせず false を返す。その場合に
       // _resetPcRecording() だけ実行すると「盤面は残るが録画範囲だけ消える」
       // 中途半端な状態になるため、成功時のみ後続処理を行う。
       if (await clearEverything()) {
         // clearEverything() は PC版の録画状態（pc-recording.js）を知らないため、ここで明示的にリセットする
         _resetPcRecording();
-        if (undoable) offerUndo('デッキ・盤面・記録をすべて消しました');
+        if (g.id) offerUndo('デッキ・盤面・記録をすべて消しました', g.id);
         else showToast('クリアしました');
       } else {
-        discardUndoPoint();
+        discardUndoPoint(g.id);
         showToast('デッキ読込中のためクリアできませんでした');
       }
     });
