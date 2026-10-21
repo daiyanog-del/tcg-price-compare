@@ -22,8 +22,9 @@ function _loadTopPanels(){
   if(!_topMoversLoaded){
     _topMoversLoaded=true;
     loadTopMovers('down');
-    loadOfMovers('down');
     loadBuybackMovers('up');
+    // 汎用カード列（staple-ranking.js）はこのファイルより後に読まれる。まだ無ければ印を残し、向こうの読込時に始める
+    if(window.StapleRanking) window.StapleRanking.load(); else window._stapleRankingPending=true;
   }
   window.NewCards?.load();
 }
@@ -1402,11 +1403,30 @@ function doBuySearchCard(name){
 function _fmtDate(s){if(!s)return'';const d=new Date(s+'T00:00:00');return (d.getMonth()+1)+'/'+d.getDate();}
 
 // ── 価格推移ランキング（最初の画面・N-2: 共通店舗ガードのみ・最安¥1,000以上） ──
+// 2026-10-21 「値動き」列: 販売価格（すべて）とオーバーフレーム・グランドマスターを1列にまとめた。
+// 1段目＝種類（all/of/gmr）、2段目＝向き（グランドマスターは高額順なので隠す）。一覧の要素は1組を共有。
 let _topMoversDir='down';
+let _moversGroup='all';
+// タブ切替のたびに増やす世代番号。3種類が同じ #topMoversList を共有しており、切替前の読込
+// （特に2秒後の再試行）が切替後の表示を上書きしないよう、応答時に世代が変わっていたら捨てる
+let _moversSeq=0;
+function switchMoversGroup(group){
+  _moversGroup=group;
+  _moversSeq++;
+  document.querySelectorAll('#moversGroupTabs .movers-tab').forEach(b=>b.classList.toggle('active',b.dataset.group===group));
+  document.getElementById('topMoversDirTabs').classList.toggle('hidden',group==='gmr');
+  loadMoversPanel();
+}
 function switchTopMovers(dir){
   _topMoversDir=dir;
-  document.querySelectorAll('#topMoversSection .movers-tab').forEach(b=>b.classList.toggle('active',b.textContent.includes(dir==='up'?'上がり':'下がり')));
-  loadTopMovers(dir);
+  _moversSeq++;
+  document.querySelectorAll('#topMoversDirTabs .movers-tab').forEach(b=>b.classList.toggle('active',b.dataset.dir===dir));
+  loadMoversPanel();
+}
+function loadMoversPanel(retry){
+  if(_moversGroup==='gmr') loadGmrPriced(retry);
+  else if(_moversGroup==='of') loadOfMovers(_topMoversDir,retry);
+  else loadTopMovers(_topMoversDir,retry);
 }
 // ランキング枠の中身を差し替える（読込中の薄表示・仮枠の aria-busy もここで解く）
 function _setMoversHtml(list,html){
@@ -1421,28 +1441,31 @@ function _setMoversLoading(list){
 }
 function loadTopMovers(dir,retry){
   retry=retry||0;
+  const seq=_moversSeq;
   const sec=document.getElementById('topMoversSection');
   const list=document.getElementById('topMoversList');
   const period=document.getElementById('topMoversPeriod');
   sec.classList.remove('hidden');
-  if(!retry) _setMoversLoading(list);
+  if(!retry){_setMoversLoading(list);period.textContent='';}
   fetch(`/api/top-movers?direction=${dir||_topMoversDir}&limit=10`)
     .then(r=>r.json())
     .then(data=>{
+      if(seq!==_moversSeq) return;  // 切替済み・この応答は捨てる
       if(data.error){
         // 2026-09-01: 集計をDB側RPC(get_top_movers)へ寄せ、本番実測で初回1.1秒・
         // キャッシュ後0.2秒になったため、応急で8回×3秒に延ばしていた再試行を戻す。
         // 待っている間であることが分かる文言は残す（キャッシュ失効直後は数百ms待つため）。
         if(retry<3){
           _setMoversHtml(list,'<div class="movers-fail">集計中です。少しお待ちください…</div>');
-          setTimeout(()=>loadTopMovers(dir,retry+1),2000);
+          setTimeout(()=>{ if(seq!==_moversSeq) return; loadTopMovers(dir,retry+1); },2000);
           return;
         }
         _setMoversHtml(list,'<div class="movers-fail">価格推移ランキングの取得に失敗しました</div>');
         return;
       }
       const items=data.items||[];
-      if(!items.length){_setMoversHtml(list,'');sec.classList.add('hidden');return;}
+      // 種類のタブを1列にまとめたので、空でも列ごと隠さず文言を出す（隠すと他のタブへ移れなくなる）
+      if(!items.length){_setMoversHtml(list,'<div class="movers-fail">該当するカードがありません</div>');return;}
       if(data.date_old&&data.date_new){
         const upd=data.updated_at?` · ${data.updated_at}収集`:'';
         // Q-11: 定着チェック（前日データ）が無い回は、精度が落ちていることが分かるよう明示する
@@ -1468,7 +1491,8 @@ function loadTopMovers(dir,retry){
       loadRankingImages('#topMoversList .movers-item','movers-thumb');
     })
     .catch(()=>{
-      if(retry<2){setTimeout(()=>loadTopMovers(dir,retry+1),2000);return;}
+      if(seq!==_moversSeq) return;
+      if(retry<2){setTimeout(()=>{ if(seq!==_moversSeq) return; loadTopMovers(dir,retry+1); },2000);return;}
       _setMoversHtml(list,'<div class="movers-fail">価格推移ランキングの取得に失敗しました</div>');
     });
 }
@@ -1478,48 +1502,23 @@ function openTopMover(name,rank){
 }
 
 // ── OF(オーバーフレーム)／シリアル付きOF(グランドマスターレア)ランキング（2026-09-04追加） ──
-// 1段目タブ: OF(値動き。get_top_movers流用) ⇔ シリアル付き(現在の最安値の高額順。get_top_priced)
-let _ofMoversGroup='of';
-let _ofMoversDir='down';
-// タブ切替のたびに増やす世代番号。OF/シリアル付きは同じ #ofMoversList を共有しており、
-// 切替前の読込（特に2秒後の再試行）が切替後の表示を上書きしてしまうため、
-// 応答時に世代が変わっていたら捨てる（ローカル検証で実際に発生したのを確認）
-let _ofMoversSeq=0;
-function switchOfMoversGroup(group){
-  _ofMoversGroup=group;
-  _ofMoversSeq++;
-  document.getElementById('ofMoversTabOf').classList.toggle('active',group==='of');
-  document.getElementById('ofMoversTabGmr').classList.toggle('active',group==='gmr');
-  // シリアル付き(高額順)には値上がり/値下がりの概念が無いため2段目タブを隠す
-  document.getElementById('ofMoversDirTabs').classList.toggle('hidden',group==='gmr');
-  loadOfMoversSection();
-}
-function switchOfMovers(dir){
-  _ofMoversDir=dir;
-  _ofMoversSeq++;
-  document.querySelectorAll('#ofMoversDirTabs .movers-tab').forEach(b=>b.classList.toggle('active',b.dataset.dir===dir));
-  loadOfMoversSection();
-}
-function loadOfMoversSection(retry){
-  if(_ofMoversGroup==='gmr') loadGmrPriced(retry);
-  else loadOfMovers(_ofMoversDir,retry);
-}
+// 2026-10-21 から「値動き」列の種類タブ（of/gmr）。表示先は #topMoversList（世代番号 _moversSeq を共有）
 function loadOfMovers(dir,retry){
   retry=retry||0;
-  const seq=_ofMoversSeq;
-  const sec=document.getElementById('ofMoversSection');
-  const list=document.getElementById('ofMoversList');
-  const period=document.getElementById('ofMoversPeriod');
+  const seq=_moversSeq;
+  const sec=document.getElementById('topMoversSection');
+  const list=document.getElementById('topMoversList');
+  const period=document.getElementById('topMoversPeriod');
   sec.classList.remove('hidden');
   if(!retry){_setMoversLoading(list);period.textContent='';}  // L-4: 前タブの期間表示を引き継がない
-  fetch(`/api/top-movers?group=of&direction=${dir||_ofMoversDir}&limit=10`)
+  fetch(`/api/top-movers?group=of&direction=${dir||_topMoversDir}&limit=10`)
     .then(r=>r.json())
     .then(data=>{
-      if(seq!==_ofMoversSeq) return;  // 切替済み・この応答は捨てる
+      if(seq!==_moversSeq) return;  // 切替済み・この応答は捨てる
       if(data.error){
         if(retry<3){
           _setMoversHtml(list,'<div class="movers-fail">集計中です。少しお待ちください…</div>');
-          setTimeout(()=>{ if(seq!==_ofMoversSeq) return; loadOfMovers(dir,retry+1); },2000);
+          setTimeout(()=>{ if(seq!==_moversSeq) return; loadOfMovers(dir,retry+1); },2000);
           return;
         }
         _setMoversHtml(list,'<div class="movers-fail">ランキングの取得に失敗しました</div>');
@@ -1549,30 +1548,30 @@ function loadOfMovers(dir,retry){
           </span>
         </a>`;
       }).join(''));
-      loadRankingImages('#ofMoversList .movers-item','movers-thumb');
+      loadRankingImages('#topMoversList .movers-item','movers-thumb');
     })
     .catch(()=>{
-      if(seq!==_ofMoversSeq) return;
-      if(retry<2){setTimeout(()=>{ if(seq!==_ofMoversSeq) return; loadOfMovers(dir,retry+1); },2000);return;}
+      if(seq!==_moversSeq) return;
+      if(retry<2){setTimeout(()=>{ if(seq!==_moversSeq) return; loadOfMovers(dir,retry+1); },2000);return;}
       _setMoversHtml(list,'<div class="movers-fail">ランキングの取得に失敗しました</div>');
     });
 }
 function loadGmrPriced(retry){
   retry=retry||0;
-  const seq=_ofMoversSeq;
-  const sec=document.getElementById('ofMoversSection');
-  const list=document.getElementById('ofMoversList');
-  const period=document.getElementById('ofMoversPeriod');
+  const seq=_moversSeq;
+  const sec=document.getElementById('topMoversSection');
+  const list=document.getElementById('topMoversList');
+  const period=document.getElementById('topMoversPeriod');
   sec.classList.remove('hidden');
   if(!retry){_setMoversLoading(list);period.textContent='';}  // L-4: 前タブの期間表示を引き継がない
   fetch(`/api/top-priced?group=gmr&limit=10`)
     .then(r=>r.json())
     .then(data=>{
-      if(seq!==_ofMoversSeq) return;  // 切替済み・この応答は捨てる
+      if(seq!==_moversSeq) return;  // 切替済み・この応答は捨てる
       if(data.error){
         if(retry<3){
           _setMoversHtml(list,'<div class="movers-fail">集計中です。少しお待ちください…</div>');
-          setTimeout(()=>{ if(seq!==_ofMoversSeq) return; loadGmrPriced(retry+1); },2000);
+          setTimeout(()=>{ if(seq!==_moversSeq) return; loadGmrPriced(retry+1); },2000);
           return;
         }
         _setMoversHtml(list,'<div class="movers-fail">ランキングの取得に失敗しました</div>');
@@ -1611,11 +1610,11 @@ function loadGmrPriced(retry){
           </span>
         </a>`;
       }).join(''));
-      loadRankingImages('#ofMoversList .movers-item','movers-thumb');
+      loadRankingImages('#topMoversList .movers-item','movers-thumb');
     })
     .catch(()=>{
-      if(seq!==_ofMoversSeq) return;
-      if(retry<2){setTimeout(()=>{ if(seq!==_ofMoversSeq) return; loadGmrPriced(retry+1); },2000);return;}
+      if(seq!==_moversSeq) return;
+      if(retry<2){setTimeout(()=>{ if(seq!==_moversSeq) return; loadGmrPriced(retry+1); },2000);return;}
       _setMoversHtml(list,'<div class="movers-fail">ランキングの取得に失敗しました</div>');
     });
 }

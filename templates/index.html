@@ -392,9 +392,9 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .of-tabs-row{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px}
 .of-tabs-row .movers-tabs{margin-bottom:0}
 .of-tabs-row .movers-tab{padding:6px 10px}
-#ofMoversDirTabs .movers-tab{padding:6px 8px}
+#topMoversDirTabs .movers-tab{padding:6px 8px}
 /* 期間表示は1行固定（折り返すと隣の2枚と一覧の開始位置がずれる） */
-#ofMoversPeriod{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#topMoversPeriod,#staplePeriod{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .buyback-diff.down{color:#ef4444}
 
 /* Fade */
@@ -920,10 +920,19 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     <div class="movers-row">
       <!-- N-2: 価格推移ランキング（共通店舗ガードのみ・最安¥1,000以上） -->
       <div id="topMoversSection" class="movers">
-        <h3 class="market-panel-title">販売価格</h3>
-        <div class="movers-tabs">
-          <button class="movers-tab" onclick="switchTopMovers('up')">値上がり</button>
-          <button class="movers-tab active" onclick="switchTopMovers('down')">値下がり</button>
+        <!-- 2026-10-21 販売価格と高レアリティ（OF/グランドマスター）を1列「値動き」にまとめた（ユーザー承認 案1）。
+             空いた3列目は汎用カード。グランドマスターは値動きではなく高額順なので2段目タブを隠す -->
+        <h3 class="market-panel-title">値動き</h3>
+        <div class="of-tabs-row">
+          <div class="movers-tabs" id="moversGroupTabs">
+            <button class="movers-tab active" data-group="all" onclick="switchMoversGroup('all')">すべて</button>
+            <button class="movers-tab" data-group="of" onclick="switchMoversGroup('of')">オーバーフレーム</button>
+            <button class="movers-tab" data-group="gmr" onclick="switchMoversGroup('gmr')">グランドマスター</button>
+          </div>
+          <div class="movers-tabs" id="topMoversDirTabs">
+            <button class="movers-tab" data-dir="up" onclick="switchTopMovers('up')" title="値上がり">値上がり</button>
+            <button class="movers-tab active" data-dir="down" onclick="switchTopMovers('down')" title="値下がり">値下がり</button>
+          </div>
         </div>
         <div id="topMoversPeriod" class="movers-period"></div>
         <div class="movers-list" id="topMoversList" aria-busy="true">{% for _ in range(10) %}<div class="movers-item movers-skel" aria-hidden="true"><span class="movers-rank"></span><span class="movers-thumb"></span><span class="movers-name"><span class="movers-name-text">&nbsp;</span><span class="movers-rarity"><span class="rb">&nbsp;</span></span></span><span class="movers-price"><span class="movers-price-now">&nbsp;</span><span class="movers-diff">&nbsp;</span></span></div>{% endfor %}</div>
@@ -941,26 +950,16 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
         <div class="movers-list" id="buybackMoversList" aria-busy="true">{% for _ in range(10) %}<div class="movers-item movers-skel" aria-hidden="true"><span class="movers-rank"></span><span class="movers-thumb"></span><span class="movers-name"><span class="movers-name-text">&nbsp;</span><span class="movers-rarity"><span class="rb">&nbsp;</span></span></span><span class="movers-price"><span class="movers-price-now">&nbsp;</span><span class="movers-diff">&nbsp;</span></span></div>{% endfor %}</div>
       </div>
 
-      <!-- 2026-09-04: オーバーフレーム(OF)／シリアル付きオーバーフレーム(グランドマスターレア)
-           専用ランキング。1段目タブでOF(値動き)⇔グランドマスター(高額順・タブ表記はユーザー指定で「グランドマスター」)を切替、
-           OF側だけ2段目タブ(値上がり/値下がり)を出す。
-           配置は既存2つ（価格推移・買取）の後ろ＝3番目（ユーザー裁定A・2026-09-04） -->
-      <div id="ofMoversSection" class="movers">
-        <h3 class="market-panel-title">高レアリティ</h3>
-        <!-- 2026-09-04: 方向タブを1段目の右側に詰めて他2枚と一覧の開始位置を揃える。
-             4つ並べると本番実測で451px（枠343px）に収まらないため、方向は「上昇/下落」の短い表記＋余白を詰める -->
-        <div class="of-tabs-row">
-          <div class="movers-tabs">
-            <button class="movers-tab active" id="ofMoversTabOf" onclick="switchOfMoversGroup('of')">オーバーフレーム</button>
-            <button class="movers-tab" id="ofMoversTabGmr" onclick="switchOfMoversGroup('gmr')">グランドマスター</button>
-          </div>
-          <div class="movers-tabs" id="ofMoversDirTabs">
-            <button class="movers-tab" data-dir="up" onclick="switchOfMovers('up')" title="値上がり">上昇</button>
-            <button class="movers-tab active" data-dir="down" onclick="switchOfMovers('down')" title="値下がり">下落</button>
-          </div>
+      <!-- 2026-10-21 汎用カード（staple_cards・直近90日の入賞デッキで3テーマ以上に採用）。
+           既定は値下がり順（1週間で下がった金額の大きい順）。読込は static/js/staple-ranking.js -->
+      <div id="stapleSection" class="movers">
+        <h3 class="market-panel-title">汎用カード</h3>
+        <div class="movers-tabs" id="stapleSortTabs">
+          <button class="movers-tab active" data-sort="drop" onclick="StapleRanking.switchSort('drop')">値下がり順</button>
+          <button class="movers-tab" data-sort="themes" onclick="StapleRanking.switchSort('themes')">採用が多い順</button>
         </div>
-        <div id="ofMoversPeriod" class="movers-period"></div>
-        <div class="movers-list" id="ofMoversList" aria-busy="true">{% for _ in range(10) %}<div class="movers-item movers-skel" aria-hidden="true"><span class="movers-rank"></span><span class="movers-thumb"></span><span class="movers-name"><span class="movers-name-text">&nbsp;</span><span class="movers-rarity"><span class="rb">&nbsp;</span></span></span><span class="movers-price"><span class="movers-price-now">&nbsp;</span><span class="movers-diff">&nbsp;</span></span></div>{% endfor %}</div>
+        <div id="staplePeriod" class="movers-period"></div>
+        <div class="movers-list" id="stapleList" aria-busy="true">{% for _ in range(10) %}<div class="movers-item movers-skel" aria-hidden="true"><span class="movers-rank"></span><span class="movers-thumb"></span><span class="movers-name"><span class="movers-name-text">&nbsp;</span><span class="movers-rarity"><span class="rb">&nbsp;</span></span></span><span class="movers-price"><span class="movers-price-now">&nbsp;</span><span class="movers-diff">&nbsp;</span></span></div>{% endfor %}</div>
       </div>
     </div>
 
@@ -1454,6 +1453,7 @@ const _pageMode={{ page_mode | tojson }};
 <script src="{{ static_url('js/search-status.js') }}" defer></script>
 <script src="{{ static_url('shared/text-report.js') }}" defer></script>
 <script src="{{ static_url('js/index-main.js') }}" defer></script>
+<script src="{{ static_url('js/staple-ranking.js') }}" defer></script>
 <script src="{{ static_url('js/mercari-ref.js') }}" defer></script>
 <script src="{{ static_url('js/price-trend.js') }}" defer></script>
 <script src="{{ static_url('js/new-cards.js') }}" defer></script>

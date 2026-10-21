@@ -2399,6 +2399,31 @@ def api_top_movers():
     })
 
 
+@app.route("/api/staple-movers")
+def api_staple_movers():
+    """トップのランキング3列目「汎用カード」（2026-10-21）。集計は staple_ranking.py。
+
+    sort: drop（1週間で値下がりした金額順・既定）/ themes（採用テーマが多い順）
+    """
+    import staple_ranking
+    sort = request.args.get("sort", "drop")
+    if sort not in staple_ranking.SORTS:
+        return jsonify({"error": "sort は drop または themes"}), 400
+    limit, limit_error = _parse_limit_param(10, 20)
+    if limit_error:
+        return limit_error
+    data = staple_ranking.get_cached(_supabase_client)
+    if data.get("error"):
+        g.no_cache = True
+    return jsonify({
+        "items": data.get(sort, [])[:limit],
+        "date_old": data.get("date_old"),
+        "date_new": data.get("date_new"),
+        "total": data.get("total", 0),
+        "error": data.get("error"),
+    })
+
+
 _top_priced_cache: dict[str, dict] = {}
 _top_priced_cache_time: dict[str, float] = {}
 _top_priced_locks: dict[str, threading.Lock] = {g: threading.Lock() for g in _top_page.RARITY_GROUPS}
