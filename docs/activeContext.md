@@ -1,13 +1,16 @@
 # activeContext — 今どこ・次何
 
-## 2026-10-21: 独自ドメイン greedy-lab.com（branch feat/custom-domain・未取り込み）
+## 2026-10-21: 独自ドメイン greedy-lab.com（本番 PR #152 5621c23・同日 18:10 切り替え）
 
 - 取得・開通済み（Render のカスタムドメイン・Cloudflare DNS only・証明書発行済み・未告知）。
 - 旧URLの画面→引き継ぎページ→新ドメインの /handoff でブラウザ保存領域を運ぶ仕組みを実装。CANONICAL_BASE_URL を設定するまで本番の動きは変わらない。
 - reviewer: 高3（旧URLの /handoff で referrer をすり抜け・next のオープンリダイレクト・送る側の印で失敗時に届かない）・中5 → 反映。sync_id が # に載る件は受け入れ（設計書 §2 既知の制約）。
 - 確認: pytest 2437・JS 単体・Playwright 結合 31/31（tools/check_domain_handoff.py）。
 - 拡張 v1.4.0 は ..	cgym-neuron-extension を書き換え・zip 作成済み。提出は切り替えの後。
-- 次: 取り込み→環境変数の設定（切り替え）→本番確認→拡張提出→外部の登録先。TASKS の該当項目。
+- 切り替え: CANONICAL_BASE_URL=https://greedy-lab.com を Render の web・tcg-watch-x-unreleased・tcg-post-staple-movers（URL を使う定期実行はこの2つだけ）・GitHub Variables・~/.cardsouba/watcher.env に設定。
+- 本番確認（Playwright・GA 遮断・使い捨てのブラウザ）: 旧のカードページ→新の同じページへ2.2秒、デッキ・購入候補・リプレイが届く・管理画面の鍵は運ばない・# が残らない・ページのエラーなし。旧の robots は新の sitemap を指す・旧の /handoff は 404。
+- 自宅 PC の watcher は main の作業コピー（tcg-web 直下）の古いコードで動くので、そこが pull されるまで通知の管理画面 URL は旧（引き継ぎページ経由で新に着くので実害なし）。
+- 次: 拡張 v1.4.0 のストア提出・Search Console・GA4・X のプロフィール・ストアの掲載ページ・プライバシーポリシーの表記（ユーザー操作）。約60日後に旧を 301。
 
 ## 2026-10-21: 購入候補の改修（モック wish-refresh-20261021 の A〜E をユーザー承認）
 
