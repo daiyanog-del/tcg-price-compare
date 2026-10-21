@@ -71,7 +71,7 @@ function _ga(name,params){ if(typeof gtag==='function') gtag('event',name,params
 <meta name="theme-color" content="#101626">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<!-- JetBrains Mono（価格の数字）はどの幅でも読む。外すと iPhone では monospace が Courier になる。
+<!-- Outfit（価格の数字・2026-10-21 JetBrains Mono から変更・ユーザー選定）はどの幅でも読む。外すと端末の標準フォントの数字になる。
      Noto Sans JP はマウスで操作する幅768px以上の端末（PC）だけ読み、スマホ（横向きを含む）・タブレットは
      端末の標準フォント（iPhone・iPad はヒラギノ、Android は Noto Sans CJK）にする。スマホのトップで和文の分割ファイル約40個・約1.1MB が
      新着カード画像と回線を取り合い、LCP を約5秒遅らせていたため（2026-10-16 実測・iPhone で見た目確認済み）。
@@ -79,8 +79,8 @@ function _ga(name,params){ if(typeof gtag==='function') gtag('event',name,params
      weight 900 は本文中で未使用のため外したが、.sbest-badge/.rank-tier-badge/.tier-badge が
      font-weight:800 を使っているため 700 までに削ると太字が代替フォントにフォールバックして
      しまう（レビュー指摘Medium・再grepで確認済み）。800 を含めて読み込む -->
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
-<noscript><link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"></noscript>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet"></noscript>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='(min-width:768px) and (hover:hover) and (pointer:fine)'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;800&display=swap" rel="stylesheet" media="(min-width:768px) and (hover:hover) and (pointer:fine)"></noscript>
 
@@ -142,11 +142,12 @@ function _ga(name,params){ if(typeof gtag==='function') gtag('event',name,params
   --cyan:       #67e8f9;
   --sold-out:   rgba(220,38,38,0.1);
   --font:       'Noto Sans JP', system-ui, sans-serif;
-  --mono:       'JetBrains Mono', monospace;
+  /* 名前は旧書体（等幅）の名残。数字の書体は Outfit（2026-10-21）。桁をそろえるため body に tabular-nums を指定 */
+  --mono:       'Outfit', system-ui, sans-serif;
   --radius:     8px;
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;background-image:radial-gradient(ellipse at 50% 0%,rgba(74,124,255,.06) 0%,transparent 60%)}
+body{font-family:var(--font);font-variant-numeric:tabular-nums;background:var(--bg);color:var(--text);min-height:100vh;background-image:radial-gradient(ellipse at 50% 0%,rgba(74,124,255,.06) 0%,transparent 60%)}
 a{color:var(--accent-l);text-decoration:none}a:hover{text-decoration:underline}
 .wrap{max-width:1140px;margin:0 auto;padding:0 20px;position:relative;z-index:1;min-height:100vh}
 /* ↑ min-height: 中身（ランキング・デッキ・Tier表など）が後から届くたびにフッターが画面内で上下しないよう、最初から画面外に置く（2026-10-16 表示のズレ対策） */

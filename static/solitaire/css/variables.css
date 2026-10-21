@@ -22,7 +22,7 @@
 
   /* フォント */
   --font: 'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic', sans-serif;
-  --mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --mono: 'Outfit', system-ui, sans-serif;  /* 数字の書体（2026-10-21 価格比較と統一） */
   --font-size: 1rem;
   --title-font-size: 1.4rem;
   --mini-font-size: 0.85rem;
