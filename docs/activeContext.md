@@ -1,5 +1,13 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-21: トップの PC で Noto Sans JP に入れ替わるときの CLS 0.016 を解消（branch fix/top-font-cls）
+
+- 測定（本番・GA 等遮断）: スマホ相当 0（3回）・PC 0.0163／0.0021（揺れる）。PC の 0.0163 はタブ（.mode-tab）の幅（例 45→60px）と新着欄・値動きの行の 4〜5px 下がり。Noto Sans JP の取得を止めると 0.0007。
+- 原因: system-ui（Windows は游ゴシック UI・かなが詰まる）で描いてから Noto Sans JP に入れ替わり、文字幅と行の高さが変わる。
+- 修正: PC だけ（Noto と同じ media の <style>）、游ゴシック・ヒラギノ（和文1文字1em）に Noto Sans JP の ascent 116%・descent 28.8% を当てた 'Noto Sans JP Fallback' を定義し、--font の2番目に入れた。
+- 計測（本番の HTML を書き換えて交互に）: PC 前 0.0021〜0.0163（6回中2回 0.0163）→後 0（6回とも）。スマホは前後とも 0・画面は1画素も同じ。PC の最終画面も同じ。Noto が届く前の約1秒の見た目は最終に近くなった（_mocks/top-font-cls-20261021.png）。
+- 未確認: Mac（ヒラギノ）での効き方。シミュレーターなど他のページは対象外（solitaire.html は別の書体指定）。
+
 ## 2026-10-21: スマホで共有リプレイを開いたときの CLS 0.016 を解消（branch fix/replay-cls）
 
 - 原因: 読み込み後に再生モードへ入ってから下部の予約量（--sol-mobile-bottom-reserve）を 52→88px に変え、resize で盤面全体を縮め直していた（sources＝盤面のマス・手札・墓地除外・EX の段）。

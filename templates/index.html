@@ -83,6 +83,15 @@ function _ga(name,params){ if(typeof gtag==='function') gtag('event',name,params
 <noscript><link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet"></noscript>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='(min-width:768px) and (hover:hover) and (pointer:fine)'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;800&display=swap" rel="stylesheet" media="(min-width:768px) and (hover:hover) and (pointer:fine)"></noscript>
+<!-- Noto Sans JP が届くまでの代わりのフォント（PC だけ）。行の高さ（ascent・descent）を Noto Sans JP に合わせ、
+     和文は1文字1em の游ゴシック・ヒラギノを使う。以前は system-ui（游ゴシック UI）で描いてから入れ替わり、
+     タブの幅と行の高さが変わって新着欄などが下がっていた（2026-10-21 PC で CLS 0.016）。
+     数値は Noto Sans JP の hhea（ascender 1160・descender 288・lineGap 0・1000 単位）。
+     media が合わないスマホ・タブレットではこの @font-face は使われず、--font の 'Noto Sans JP Fallback' は飛ばされる -->
+<style media="(min-width:768px) and (hover:hover) and (pointer:fine)">
+@font-face{font-family:'Noto Sans JP Fallback';font-weight:100 599;src:local('Hiragino Sans W3'),local('HiraginoSans-W3'),local('Yu Gothic Medium'),local('YuGothic-Medium'),local('Meiryo');ascent-override:116%;descent-override:28.8%;line-gap-override:0%}
+@font-face{font-family:'Noto Sans JP Fallback';font-weight:600 900;src:local('Hiragino Sans W6'),local('HiraginoSans-W6'),local('Yu Gothic Bold'),local('YuGothic-Bold'),local('Meiryo Bold'),local('Meiryo-Bold');ascent-override:116%;descent-override:28.8%;line-gap-override:0%}
+</style>
 
 {% if card_name %}
 <script type="application/ld+json">
@@ -141,7 +150,7 @@ function _ga(name,params){ if(typeof gtag==='function') gtag('event',name,params
   --red:        #dc2626;
   --cyan:       #67e8f9;
   --sold-out:   rgba(220,38,38,0.1);
-  --font:       'Noto Sans JP', system-ui, sans-serif;
+  --font:       'Noto Sans JP', 'Noto Sans JP Fallback', system-ui, sans-serif;
   /* 名前は旧書体（等幅）の名残。数字の書体は Outfit（2026-10-21）。桁をそろえるため body に tabular-nums を指定 */
   --mono:       'Outfit', system-ui, sans-serif;
   --radius:     8px;
