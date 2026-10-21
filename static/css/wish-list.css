@@ -1,0 +1,76 @@
+/* 購入候補の一覧の行（2026-10-21 ユーザー承認のモック _mocks/wish-refresh-20261021 の A＋B）。
+   列のそろった詰めた行: 画像・名前とデッキの札・レアリティ・価格・枚数・⋯。行は面（--bg-card）で区切る。
+   描くのは static/js/index-wish.js の renderWishlist。⋯ メニューはマイデッキのカードの右クリック（deck.css の .deck-card-menu）と同じ見た目。
+   古い行（.wish-card-row。deferred.css・site-theme.css・index.html のスマホ用 grid）とはクラス名を分けて、ぶつからないようにしている。 */
+#wishList .wl-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 156px 120px 104px 32px;
+  align-items: center;
+  gap: 14px;
+  min-height: 60px;
+  margin-bottom: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+/* 値下がり（判定は今と同じ: 5%以上かつ50円以上） */
+#wishList .wl-row.wish-drop { background: linear-gradient(90deg, rgba(99, 211, 174, .10), var(--bg-card) 40%); }
+/* メニューを開いている行（金の実線＝選択中。マイデッキ・シミュレーターと同じ印） */
+#wishList .wl-row.is-menu { box-shadow: inset 0 0 0 1px #f3ce46; }
+#wishList .wl-img { width: 40px; height: 58px; border-radius: 3px; overflow: hidden; background: var(--bg-hover); }
+#wishList .wl-img img { display: block; width: 100%; height: 100%; object-fit: cover; }
+#wishList .wl-main { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+/* カード名を押すとカードの価格ページ（行ごとの「価格を見る」は無くした） */
+#wishList .wl-name { overflow: hidden; color: var(--text); font-size: .88rem; font-weight: 700; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+#wishList .wl-name:hover { text-decoration: underline; }
+#wishList .wl-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+#wishList .wl-tags .wish-deck-tag { margin: 0; border: 0; background: var(--bg-hover); color: var(--accent-l); font-size: .68rem; font-weight: 700; }
+/* レアリティ: 今はブラウザのプルダウンのまま、札の見た目にする（選び方の作り直しは E） */
+#wishList .wl-rar {
+  justify-self: start;
+  max-width: 100%;
+  height: 28px;
+  padding: 0 26px 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--bg-hover) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' fill='none' stroke='%23a8b4c9' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 10px center;
+  color: var(--text);
+  font: 600 .74rem var(--font);
+  text-overflow: ellipsis;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+#wishList .wl-rar:focus-visible { outline: 2px solid #f3ce46; outline-offset: 2px; }
+#wishList .wl-price { justify-self: end; text-align: right; }
+#wishList .wl-price .wish-price-info { font: 700 .92rem var(--mono); color: var(--text); }
+#wishList .wl-price .wish-price-info small { font-weight: 400; }
+#wishList .wl-row.wish-pending .wl-price .wish-price-info { font: .72rem var(--font); color: var(--text-m); }
+#wishList .wl-price .wish-price-drop { color: var(--green); }
+/* 枚数: 押しやすい大きさの − N ＋（溝の中） */
+#wishList .wl-step { justify-self: end; display: inline-flex; align-items: center; gap: 2px; padding: 2px; border-radius: 6px; background: var(--bg); }
+#wishList .wl-step button { width: 28px; height: 28px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--text); font: 700 1rem var(--font); line-height: 1; cursor: pointer; }
+#wishList .wl-step button:hover { background: var(--bg-hover); }
+#wishList .wl-step b { min-width: 28px; text-align: center; font: 700 .88rem var(--mono); color: var(--text); }
+#wishList .wl-more { width: 32px; height: 32px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--text-m); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+#wishList .wl-more:hover, #wishList .wl-row.is-menu .wl-more { background: var(--bg-hover); color: var(--text); }
+/* ⋯ メニューの「購入候補から外す」（危ない操作は赤い文字） */
+.wl-menu .deck-more-item.is-danger { color: #ff8f94; }
+
+/* スマホ〜小型タブレット: 3段（名前と価格／デッキの札／レアリティ・枚数・⋯） */
+@media (max-width: 767px) {
+  #wishList .wl-row {
+    /* 枚数と ⋯ の列は幅を決めて、行ごとに位置がずれないようにする（価格は2列ぶんの右寄せ） */
+    grid-template-columns: 40px minmax(0, 1fr) 92px 32px;
+    grid-template-areas: "img main price price" "img rar step more";
+    column-gap: 8px;
+    row-gap: 8px;
+    padding: 10px;
+  }
+  #wishList .wl-img { grid-area: img; align-self: start; }
+  #wishList .wl-main { grid-area: main; }
+  #wishList .wl-rar { grid-area: rar; align-self: center; }
+  #wishList .wl-price { grid-area: price; align-self: start; white-space: nowrap; }
+  #wishList .wl-step { grid-area: step; align-self: center; }
+  #wishList .wl-more { grid-area: more; align-self: center; }
+}

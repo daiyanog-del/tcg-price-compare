@@ -535,6 +535,7 @@
 
   window.DeckHead = { refresh: refresh, deleteDeck: deleteDeck, openRegister: openRegister,
     toast: function(msg){ _toast(msg); }, // deck-card-ops.js（購入候補に入れた知らせ）
+    undoToast: function(msg, onUndo, onExpire){ _undoToast(msg, onUndo, onExpire); }, // index-wish.js（購入候補から外したときの取り消し）
     _createFromEditor: _createFromEditor, _freeName: _freeName }; // _ で始まるものはテスト用（tests/js/deck_head_check.js）
   // 保存済み一覧の × も確認窓をやめて取り消しにする（index-wish.js の deleteSavedDeck を置き換える）
   window.deleteSavedDeck = deleteDeck;
