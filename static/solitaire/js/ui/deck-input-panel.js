@@ -197,12 +197,13 @@ export async function clearEverything() {
 }
 
 /**
- * カード名からAPIで画像URLを取得してプールに追加（単枚版・フォールバック用）
+ * カード名からAPIで画像URLと種別を取得する（単枚版・フォールバック用）。盤面には触らない
  * @param {string}       name   カード名
  * @param {number}       qty    枚数
  * @param {boolean|null} isEx   EXデッキか（null=APIレスポンスから自動判定）
+ * @returns {Promise<ResolvedCard|null>} 画像が取れなければ null
  */
-async function addCardByName(name, qty, isEx) {
+async function _resolveCardByName(name, qty, isEx) {
   // 画像URLとカード種別を並列取得
   const [imageRes, infoRes] = await Promise.all([
     fetch(`${API_CARD_IMAGE}?name=${encodeURIComponent(name)}`).catch(() => null),
@@ -253,47 +254,33 @@ async function addCardByName(name, qty, isEx) {
   if (!srcOrDisplay) {
     // kind === 'none'（pending/rejected 等）はスキップ
     console.warn(`画像取得失敗またはスキップ: ${name}`);
-    return;
+    return null;
   }
-
-  const poolId = finalIsEx ? 'poolRow2' : 'poolRow';
-  // addCardToPool は srcOrDisplay を createCardElement に渡す
-  for (let i = 0; i < qty; i++) {
-    addCardToPool(srcOrDisplay, false, finalIsEx);
-    // 追加直後に最後の wrapper を取ってリプレイ辞書・カード名・種別を登録
-    const pool = document.getElementById(poolId);
-    if (pool) {
-      const lastWrapper = pool.querySelector('.tier-item-wrapper:last-child');
-      // プロキシは div.tier-item、画像は img.tier-item のどちらでも id を取れる
-      const lastCardEl  = lastWrapper?.querySelector('.tier-item');
-      if (lastCardEl?.id) {
-        // リプレイ辞書への登録:
-        //   発売済み（URL文字列）    -> 実URL（後方互換）
-        //   未発売プロキシ or 取込画像 -> 'card://カード名'（再解決センチネル）
-        const regSrc = typeof srcOrDisplay === 'string' ? srcOrDisplay : `card://${name}`;
-        registerCardImage(lastCardEl.id, regSrc);
-        registerCardName(lastCardEl.id, name);  // リプレイ共有用に名前を記録
-        setCardName(lastCardEl, name);  // カード詳細パネル用に名前を付与
-        // セット時のモンスター/魔法罠判定に使う（モンスター=裏側守備、魔法罠=伏せ）
-        if (cardType && lastWrapper) {
-          lastWrapper.dataset.cardType = cardType;
-          registerCardType(lastCardEl.id, cardType); // リプレイの再生・復元で付け直せるよう辞書にも登録
-        }
-      }
-    }
-  }
+  return { name, qty, srcOrDisplay, isEx: finalIsEx, cardType };
 }
 
 /**
- * デッキ全カードをバッチAPIで一括取得してプールに追加
+ * @typedef {Object} ResolvedCard 盤面に置く前の、取得済みのカード1種類分
+ * @property {string}         name
+ * @property {number}         qty
+ * @property {string|Object}  srcOrDisplay  createCardElement に渡す値（URL文字列 or {kind,...}）
+ * @property {boolean}        isEx
+ * @property {string|null}    cardType      "monster" | "spell" | "trap"
+ */
+
+/**
+ * デッキ全カードの画像・種別をバッチAPIで一括取得する（盤面には触らない）。
  * 往復回数を「種類数×2本」→「2往復」に削減し高速化する。
- * バッチAPIが失敗した場合は addCardByName による逐次フォールバックで保険。
+ * バッチAPIが失敗した場合は _resolveCardByName による逐次フォールバックで保険。
+ * 取得と反映（_placeCards）を分けているのは、デッキの入れ替えで「取得できてから片付ける」ため
+ * （以前は片付けの後に取得していて、通信に失敗すると記録と盤面だけが消えた）。
  *
  * @param {Array<{qty, name, is_ex?}>} cards       カードリスト
  * @param {boolean|null}               defaultIsEx  EXデッキ強制指定（null=card.is_ex/API自動判定）
+ * @returns {Promise<ResolvedCard[]>} 元の cards の順。画像が取れなかったカードは含まない
  */
-async function addCardsBatch(cards, defaultIsEx) {
-  if (cards.length === 0) return;
+async function _resolveCards(cards, defaultIsEx) {
+  if (cards.length === 0) return [];
   const names = cards.map(c => c.name);
 
   // 画像バッチとカード情報バッチを並列取得
@@ -324,14 +311,17 @@ async function addCardsBatch(cards, defaultIsEx) {
   // 画像バッチが使えない場合は逐次フォールバック（カードが全滅するより安全）
   if (!imgBatchOk) {
     console.warn('[addCardsBatch] 画像バッチAPI失敗、逐次フォールバック');
+    const resolved = [];
     for (const card of cards) {
       const fbIsEx = card.is_ex !== undefined ? !!card.is_ex : defaultIsEx;
-      await addCardByName(card.name, card.qty, fbIsEx);
+      const r = await _resolveCardByName(card.name, card.qty, fbIsEx);
+      if (r) resolved.push(r);
     }
-    return;
+    return resolved;
   }
 
-  // 取得結果を元の cards 配列順で DOM に反映（順序を保証するため配列ループ駆動）
+  // 取得結果を元の cards 配列順で並べる（順序を保証するため配列ループ駆動）
+  const resolved = [];
   for (const card of cards) {
     const { qty, name } = card;
 
@@ -393,6 +383,17 @@ async function addCardsBatch(cards, defaultIsEx) {
       }
     }
 
+    resolved.push({ name, qty, srcOrDisplay, isEx: finalIsEx, cardType });
+  }
+  return resolved;
+}
+
+/**
+ * 取得済みのカードをデッキ欄（EX なら EX デッキ欄）に置き、リプレイ辞書・名前・種別を登録する。
+ * @param {ResolvedCard[]} resolved
+ */
+function _placeCards(resolved) {
+  for (const { name, qty, srcOrDisplay, isEx: finalIsEx, cardType } of resolved) {
     const poolId = finalIsEx ? 'poolRow2' : 'poolRow';
     for (let i = 0; i < qty; i++) {
       addCardToPool(srcOrDisplay, false, finalIsEx);
@@ -421,6 +422,24 @@ async function addCardsBatch(cards, defaultIsEx) {
   }
 }
 
+/** 取得してそのまま置く（デッキを入れ替えない追加用: EX だけの読込・デッキ編集の「デッキに入れる」） */
+async function addCardsBatch(cards, defaultIsEx) {
+  _placeCards(await _resolveCards(cards, defaultIsEx));
+}
+
+/**
+ * デッキを入れ替える読込用の取得。1枚も取れなければ片付ける前に失敗にする
+ * （通信の失敗で全カードが取れないまま片付けると、記録と盤面だけが消えて空のデッキが残るため）。
+ * @returns {Promise<ResolvedCard[]>}
+ */
+async function _resolveForReplace(cards, defaultIsEx) {
+  const resolved = await _resolveCards(cards, defaultIsEx);
+  if (cards.length > 0 && resolved.length === 0) {
+    throw new Error('カードの情報を取得できませんでした。通信状況を確かめて、もう一度お試しください');
+  }
+  return resolved;
+}
+
 /**
  * L-10: テキストデッキを読み込んでプールに追加（事前にダミーをクリア）
  * 多重防止: 進行中に再度呼ばれた場合は何もしない（バグ修正・PCにも効く）。
@@ -447,24 +466,22 @@ export async function loadDeckFromText(text, triggerBtn = null) {
   let ok = false;
   let cleared = false; // 片付け（記録の初期化）まで進んだか。進んでいなければ「元に戻す」は出さない
   let error = null;
+  // デッキ・EXデッキ両エリアにロード中インジケータを表示（EXカードも振り分けられるため）
+  setPoolLoading(['imagePool', 'imagePool2'], true);
   try {
+    // 取得できてから片付ける（環境デッキ loadMetaDeck と同じ順番）。null=APIレスポンスのis_exでEX/メインを自動判定
+    const resolved = await _resolveForReplace(cards, null);
     await _clearForNewDeck();
     cleared = true;
-
-    // デッキ・EXデッキ両エリアにロード中インジケータを表示（EXカードも振り分けられるため）
-    setPoolLoading(['imagePool', 'imagePool2'], true);
-    try {
-      // null=APIレスポンスのis_exでEX/メインを自動判定
-      await addCardsBatch(cards, null);
-      sortPoolCards('poolRow');  // 種別ソート（モンスター→魔法→罠）
-      ok = true;
-    } finally {
-      setPoolLoading(['imagePool', 'imagePool2'], false);
-    }
+    _placeCards(resolved);
+    sortPoolCards('poolRow');  // 種別ソート（モンスター→魔法→罠）
+    ok = true;
   } catch (e) {
     error = e?.message || String(e);
-    throw e;
+    // 記録を消して入れ替えている途中なら、読み込み終わりの知らせに失敗の理由を載せる（重ねて出さない）
+    if (!_replaceUndoPending) showActionToast(`デッキの読み込みに失敗しました: ${error}`, { error: true });
   } finally {
+    setPoolLoading(['imagePool', 'imagePool2'], false);
     _deckLoadInFlight = false;
     _setDeckRowsLoading(triggerBtn, false);
     const { main, ex } = _currentPoolCounts();
@@ -541,31 +558,28 @@ export async function loadDeckFromNeuron(mainText, exText) {
   let ok = false;
   let cleared = false; // 片付け（記録の初期化）まで進んだか。進んでいなければ「元に戻す」は出さない
   let error = null;
+  const loadingIds = mainCards.length > 0 ? ['imagePool', 'imagePool2'] : ['imagePool2'];
+  setPoolLoading(loadingIds, true);
   try {
+    // メインも EX も取得できてから片付ける（環境デッキ loadMetaDeck と同じ順番）。
+    // メインを入れ替えるときは、メインが1枚も取れなければ片付ける前に失敗にする
+    const mainResolved = mainCards.length > 0 ? await _resolveForReplace(mainCards, null) : [];
+    const exResolved = await _resolveCards(exCards, true);
     if (mainCards.length > 0) {
       await _clearForNewDeck();
       cleared = true;
-      setPoolLoading(['imagePool', 'imagePool2'], true);
-      try {
-        await addCardsBatch(mainCards, null);
-        sortPoolCards('poolRow');
-      } finally {
-        setPoolLoading(['imagePool', 'imagePool2'], false);
-      }
     }
-    if (exCards.length > 0) {
-      setPoolLoading(['imagePool2'], true);
-      try {
-        await addCardsBatch(exCards, true);
-      } finally {
-        setPoolLoading(['imagePool2'], false);
-      }
-    }
+    _placeCards(mainResolved);
+    if (mainResolved.length > 0) sortPoolCards('poolRow');
+    _placeCards(exResolved);
     ok = true;
   } catch (e) {
     error = e?.message || String(e);
+    // 記録を消して入れ替えている途中なら、読み込み終わりの知らせが失敗を出す。呼び出し側が重ねて出さないよう印を付ける
+    if (_replaceUndoPending && e && typeof e === 'object') e.notified = true;
     throw e;
   } finally {
+    setPoolLoading(loadingIds, false);
     _deckLoadInFlight = false;
     _setDeckRowsLoading(null, false);
     const { main, ex } = _currentPoolCounts();
@@ -604,12 +618,12 @@ export async function loadMetaDeck(theme, triggerBtn = null) {
     const fullDeck = data.full_deck;  // [{name, qty, is_ex}]
     if (!fullDeck || fullDeck.length === 0) throw new Error('デッキリストが取得できませんでした');
 
+    // is_ex が各カードに付与済みなので defaultIsEx=null にして card.is_ex を優先させる
+    // （_resolveCards は card.is_ex !== undefined の場合それを使う）。カードの画像・種別も取得できてから片付ける
+    const resolved = await _resolveForReplace(fullDeck, null);
     await _clearForNewDeck();
     cleared = true;
-
-    // is_ex が各カードに付与済みなので defaultIsEx=null にして card.is_ex を優先させる
-    // addCardsBatch が card.is_ex !== undefined の場合それを使う
-    await addCardsBatch(fullDeck, null);
+    _placeCards(resolved);
     sortPoolCards('poolRow');  // 種別ソート（モンスター→魔法→罠）
     ok = true;
   } catch (e) {

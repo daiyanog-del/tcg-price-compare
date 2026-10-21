@@ -139,6 +139,37 @@ const watchMobilePortrait = () => {};
   assert.ok(calls.some(c => c.startsWith('action:環境デッキの読み込みに失敗しました')), '記録が無いときは失敗を知らせる');
   fetchFails = false; logLen = 3;
 
+  // 6b. マイデッキ・テキスト・取込（ニューロン）も、カードを取得できなければ片付けない（2026-10-21・環境デッキと同じ順番）
+  fetchFails = true;
+  reset();
+  assert.equal(await m.loadDeckFromText('1 A'), false, 'テキストの読み込みは失敗を返す');
+  assert.ok(!calls.includes('reset') && !calls.includes('add'), `テキスト: 取得失敗では記録も盤面も触らない（${calls.join(',')}）`);
+  assert.ok(calls.includes('discard#u1') && !calls.some(c => c.startsWith('offer:')), 'テキスト: 写しを捨て、元に戻すは出さない');
+  assert.equal(calls.filter(c => c.startsWith('action:')).length, 1, `テキスト: 失敗の知らせは1回（${calls.join(',')}）`);
+  const endDetail = [];
+  document.addEventListener('sol-deck-load-end', (e) => endDetail.push(e.detail));
+  reset();
+  let thrown = null;
+  try { await m.loadDeckFromNeuron('1 A', '1 B'); } catch (e) { thrown = e; }
+  assert.ok(thrown, '取込は呼び出し側へ失敗を伝える（新着・引継ぎが受け止める）');
+  assert.equal(thrown.notified, true, '記録があるときは読み込み終わりで知らせ済みの印を付ける');
+  assert.ok(!calls.includes('reset') && !calls.includes('add'), `取込: 取得失敗では記録も盤面も触らない（${calls.join(',')}）`);
+  assert.equal(endDetail.at(-1).cleared, false, '取込: 片付けていないことを読み込み終わりで伝える');
+  // 記録が無いとき: テキストは失敗を知らせる。取込は印なしで投げ、呼び出し側が知らせる
+  logLen = 0; reset();
+  assert.equal(await m.loadDeckFromText('1 A'), false);
+  assert.ok(calls.some(c => c.startsWith('action:デッキの読み込みに失敗しました')), `記録が無いテキストも失敗を知らせる（${calls.join(',')}）`);
+  reset(); thrown = null;
+  try { await m.loadDeckFromNeuron('1 A', ''); } catch (e) { thrown = e; }
+  assert.ok(thrown && !thrown.notified, '記録が無い取込は知らせ済みの印を付けない');
+  fetchFails = false; logLen = 3;
+
+  // 6c. 取得できれば、片付けてから置く（メイン→EX の両方）
+  reset();
+  assert.equal(await m.loadDeckFromNeuron('1 A', '1 B'), true);
+  const iR = calls.indexOf('reset');
+  assert.ok(iR >= 0 && calls.indexOf('add') > iR, `取込: 片付けてから置く（${calls.join(',')}）`);
+
   // 7. 「クリア」も同じ片付け（記録と辞書の初期化）を通る
   reset();
   assert.equal(await m.clearEverything(), true);
