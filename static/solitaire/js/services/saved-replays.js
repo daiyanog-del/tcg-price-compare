@@ -45,6 +45,8 @@ export function savedReplaysGet() {
 export function savedReplaysSet(list) {
   try {
     localStorage.setItem(SAVED_REPLAYS_KEY, JSON.stringify(list));
+    // 「このデッキのリプレイ」の欄（deck-replays-ui.js）を描き直す
+    try { document.dispatchEvent(new CustomEvent('sol-saved-replays-changed')); } catch (_) { /* node のテストなど document が無いとき */ }
     return { ok: true };
   } catch (e) {
     console.warn('[saved-replays] localStorage への保存に失敗しました:', e);
@@ -70,8 +72,11 @@ function _byteLength(str) {
  *   移行元の印（origin）付きの項目は、通常の保存の自動整理でも容量不足の再試行でも消さない
  *   （上限を超えたまま残る。利用者が一覧から削除するまで残す）。
  *
- * @param {{title:string, main:number, ex:number, steps:number, data:string, savedAt?:number, origin?:string}} entry
+ * @param {{title:string, main:number, ex:number, steps:number, data:string, savedAt?:number, origin?:string,
+ *          deckId?:string, deckSnap?:Object}} entry
  *   savedAt: 保存日時（ミリ秒）。省略時は今。origin: 移行元の印（同じ移行元の二重登録を防ぐ）
+ *   deckId / deckSnap: 記録したときにひも付いていたマイデッキの ID と、そのときのデッキの中身 {カード名: 枚数}
+ *   （shared/deck-replays.js。マイデッキのリプレイの一覧と「記録の後にデッキが変わった」の判定に使う）
  * @param {{keepExisting?:boolean}} [opts]
  * @returns {{ok:boolean, removedCount:number, id?:string, reason?:'quota'|'too_large'}}
  */
@@ -90,6 +95,8 @@ export function saveReplayEntry(entry, opts = {}) {
     steps: entry.steps,
     data: entry.data,
     ...(entry.origin ? { origin: entry.origin } : {}),
+    ...(entry.deckId ? { deckId: entry.deckId } : {}),
+    ...(entry.deckId && entry.deckSnap ? { deckSnap: entry.deckSnap } : {}),
   };
 
   let baseList = savedReplaysGet();

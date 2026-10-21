@@ -148,6 +148,12 @@
       </div>
     </div>
 
+    <!-- このデッキのリプレイ（deck-replays-ui.js。マイデッキにひも付いているときだけ出す） -->
+    <div class="sol-sidebar-section" id="solDeckReplays" hidden>
+      <p class="sol-sidebar-heading">このデッキのリプレイ</p>
+      <div id="solDeckReplaysBody" class="sol-drp-list"></div>
+    </div>
+
     <!-- フィードバック -->
     <div class="sol-sidebar-section">
       <button type="button" id="feedbackOpenBtn" class="sol-side-btn is-quiet"><span class="sol-side-btn-label">不具合・要望を送る</span></button>
@@ -509,6 +515,10 @@
             </div>
             <button type="button" class="sol-mobile-sheet-close-btn" data-sol-deck-sheet-close aria-label="閉じる">&times;</button>
           </div>
+          <!-- このデッキのリプレイ（deck-replays-ui.js。押すと下から一覧） -->
+          <button type="button" id="solMobileDeckReplaysBtn" class="sol-side-btn sol-drp-mobile-btn" hidden>
+            <span class="sol-side-btn-label">このデッキのリプレイ</span><span class="sol-side-btn-count" hidden></span><span class="sol-side-btn-chev" aria-hidden="true">›</span>
+          </button>
           <div id="solMobileDeckEdit" class="sol-deck-edit" hidden>
             <div id="solMobileDeckEditBar" class="sol-deck-edit-bar"></div>
             <div class="sol-deck-edit-search">
@@ -857,6 +867,7 @@
 <!-- 端末間同期（P2）。main.js（type=module・deferされる）より前に読み込まれる通常scriptなので、
      DOM解析完了後に実行されるmodule側からは常に window.SyncClient が使える（設計文書 §11） -->
 <script src="{{ static_url('shared/wish-deck.js') }}"></script>
+<script src="{{ static_url('shared/deck-replays.js') }}"></script>
 <script src="{{ static_url('shared/sync-client.js') }}"></script>
 <script src="{{ static_url('shared/text-report.js') }}"></script>
 <script type="module" src="{{ static_url('solitaire/js/main.js') }}"></script>

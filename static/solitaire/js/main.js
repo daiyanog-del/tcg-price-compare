@@ -36,6 +36,7 @@ import { loadDeckFromNeuron, clearEverything } from './ui/deck-input-panel.js';
 import { receiveDeckHandoff } from '../../shared/deck-handoff.js';
 import { receiveNewCards } from '../../shared/newcards-entry.js';
 import { initDeckEditUI, setDeckLink, restoreLinkState, captureLinkState } from './ui/deck-edit-ui.js';
+import { initDeckReplaysUI } from './ui/deck-replays-ui.js';
 
 /**
  * リプレイ画像辞書に登録する src を決める。
@@ -348,6 +349,10 @@ async function initializeApp() {
 
   // 画面録画用の表示。共有リンクの題名（sol-replay-loaded-from-url）を受け取るため、読み込みを始める initReplayUI より先に用意する
   initRecView({ enterMobilePlayback: enterPlaybackModeForRecView });
+
+  // このデッキのリプレイ（左サイドバー・スマホのデッキシート・開いたリプレイの差の帯）。
+  // 保存したリプレイを開いた知らせ（sol-replay-loaded-from-url）を受けるため、読み込みを始める initReplayUI より先に用意する
+  initDeckReplaysUI();
 
   // リプレイUI初期化（window.replayLog バインド含む）
   initReplayUI();

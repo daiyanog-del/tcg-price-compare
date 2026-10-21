@@ -36,6 +36,8 @@ import { initReplayStartPrompt } from './replay-start-prompt.js';
 import { showToast } from '../utils/toast.js';
 import { addSharedReplay } from '../services/shared-replays.js';
 import { savedReplaysGet, saveReplayEntry } from '../services/saved-replays.js';
+import { getDeckLink, getDeltas, deckContents, applyDeltas } from '../services/deck-link.js';
+import { savedDecksGet } from './deck-input-panel.js';
 import { isReplayAtEnd } from '../utils/replay-url.js';
 import { enterRecView, isRecViewActive } from './rec-view.js';
 
@@ -470,7 +472,14 @@ export function saveReplayToDevice({ title, range } = {}) {
 
   const payload = buildReplayPayload(finalTitle, logsOverride);
   const compressed = LZString.compress(JSON.stringify(payload));
-  return saveReplayEntry({ title: finalTitle, main, ex, steps, data: compressed });
+  // マイデッキにひも付いていれば、そのデッキのリプレイとして記録し、そのときのデッキの中身も残す
+  // （shared/deck-replays.js。今のデッキと違うかの判定に使う）。中身は「保存済みの最新＋今回の増減」
+  // （盤面を数えると、画像の取得に失敗して並ばなかったカードが抜け、保存した直後から違うと出るため。保存の考え方と同じ）
+  const link = getDeckLink();
+  const saved = link?.savedId ? savedDecksGet().find(d => d.id === link.savedId) : null;
+  const deckId = saved ? saved.id : null;
+  const deckSnap = saved && window.DeckReplays ? window.DeckReplays.snapshot(applyDeltas(deckContents(saved), getDeltas())) : null;
+  return saveReplayEntry({ title: finalTitle, main, ex, steps, data: compressed, deckId, deckSnap });
 }
 
 /**
@@ -739,7 +748,8 @@ function _finishLoadFromURL(atEnd, info = {}) {
   _resetPcRecording(); // 重大4対応: JSON読込で古い録画範囲(_pcRecording)が残留するのを防ぐ
   if (atEnd) seekTo(getLogLength() - 1);
   document.dispatchEvent(new CustomEvent('sol-replay-loaded-from-url', {
-    detail: { atEnd, source: info.source || 'shared', title: typeof info.title === 'string' ? info.title : '' },
+    detail: { atEnd, source: info.source || 'shared', title: typeof info.title === 'string' ? info.title : '',
+      savedReplayId: info.savedReplayId || null },
   }));
 }
 
@@ -772,7 +782,7 @@ async function _loadSavedFromURL(savedId, atEnd = false) {
   }
   try {
     await loadReplayFromCompressedData(item.data);
-    _finishLoadFromURL(atEnd, { source: 'saved', title: item.title });
+    _finishLoadFromURL(atEnd, { source: 'saved', title: item.title, savedReplayId: item.id });
   } catch (e) {
     console.warn('保存済みリプレイの読み込みに失敗:', e);
     showToast('保存済みリプレイを開けませんでした');

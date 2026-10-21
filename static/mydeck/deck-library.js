@@ -51,7 +51,9 @@
   var _pop = null; // { el, body, dim, cleanup }
   function isOpen(){ return !!_pop; }
 
-  function _row(d, curId){
+  // rpCounts: デッキごとのリプレイの数（shared/deck-replays.js countByDeck。呼び出し側で1回だけ数えて渡す）
+  function _row(d, curId, rpCounts){
+    rpCounts = rpCounts || {};
     var row = document.createElement('div');
     row.className = 'deck-lib-row' + (d.id === curId ? ' is-cur' : '');
     var open = document.createElement('button');
@@ -86,7 +88,9 @@
     var sub = document.createElement('span');
     sub.className = 'deck-lib-sub';
     var when = _date(d.updated);
-    sub.textContent = 'メイン ' + _sum(nd.main) + '・EX ' + _sum(nd.ex) + (when ? '・' + when : '');
+    // このデッキのリプレイの数（shared/deck-replays.js。端末に保存したものだけ。数えるのは行を描く前に1回）
+    var rp = rpCounts[d.id] || 0;
+    sub.textContent = 'メイン ' + _sum(nd.main) + '・EX ' + _sum(nd.ex) + (when ? '・' + when : '') + (rp ? '・リプレイ ' + rp : '');
     meta.append(nm, sub);
     open.append(th, meta);
     open.addEventListener('click', function(){ _openDeck(d.id); });
@@ -120,7 +124,8 @@
       body.appendChild(empty);
       return;
     }
-    list.forEach(function(d){ body.appendChild(_row(d, curId)); });
+    var rpCounts = window.DeckReplays ? window.DeckReplays.countByDeck(window.DeckReplays.list()) : {};
+    list.forEach(function(d){ body.appendChild(_row(d, curId, rpCounts)); });
     if(hadFocus){ var x0 = _pop.el.querySelector('.deck-lib-x'); if(x0) x0.focus({ preventScroll: true }); }
     var names = list.map(function(d){ var nd = _norm(d); return (nd.main[0] || nd.ex[0] || {}).name || ''; });
     _loadThumbs(names, function(){
@@ -281,7 +286,8 @@
 
   window.renderSavedDecks = render;
   window.DeckLibrary = { open: open, close: close, isOpen: isOpen, render: render,
-    _openDeck: _openDeck }; // _ で始まるものはテスト用（tests/js/deck_library_check.js）
+    _openDeck: _openDeck, // _ で始まるものはテスト用（tests/js/deck_library_check.js）
+    openDeck: _openDeck }; // #mydeck:<id>（index-main.js _openDeckFromHash）からも同じ手順（確認・スマホのタブ）で開く
 
   if(document.readyState === 'complete') _init();
   else document.addEventListener('DOMContentLoaded', _init);

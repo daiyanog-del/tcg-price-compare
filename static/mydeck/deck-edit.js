@@ -365,6 +365,8 @@
   // 見出し（デッキ名・状態・登録ボタン）と各欄の枚数の更新は deck-head.js に任せる
   function _updateDeckSaveBar(){
     if(window.DeckHead) window.DeckHead.refresh();
+    // 右の欄の「このデッキのリプレイ」も開いているデッキに合わせる（deck-replays-top.js）
+    if(window.DeckReplaysTop) window.DeckReplaysTop.refresh();
   }
 
   // モバイルタブ「デッキ」の枚数バッジ（#deckBuildTabBadge）を更新

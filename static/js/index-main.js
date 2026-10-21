@@ -1817,10 +1817,27 @@ function _resetSearchView(searching){
 function _setNewCardsPage(on){
   document.getElementById('mode-search').classList.toggle('new-cards-page',on);
 }
+// #mydeck:<デッキID> のデッキを開く。ページを開いたときはマイデッキの下書きの復元（deck-edit.js）より後に開くよう、
+// 読み込みの処理が一通り終わってから行う。開いたら URL は #mydeck に戻す（再読込で開き直さない）
+function _openDeckFromHash(id){
+  setTimeout(()=>{
+    try{history.replaceState(null,'',location.pathname+location.search+'#mydeck');}catch{}
+    const deck=(typeof savedDecksGet==='function'?savedDecksGet():[]).find(d=>d.id===id);
+    if(!deck){alert('このデッキはマイデッキにありません（削除したか、別の端末のデッキです）');return;}
+    // 「マイデッキ ▾」の窓から開くのと同じ手順（登録していない編集の確認・スマホはデッキのタブへ）
+    if(window.DeckLibrary&&typeof window.DeckLibrary.openDeck==='function'){window.DeckLibrary.openDeck(id);return;}
+    if(window._currentSavedDeckId===id)return;
+    if(typeof loadSavedDeck==='function')loadSavedDeck(id);
+  },0);
+}
 function _restoreLocation(trigger){
   _setNewCardsPage(location.pathname==='/new-cards');
   const hash=location.hash.slice(1);
-  const mode=hash==='mydeck-import'?'mydeck':hash;
+  // #mydeck:<デッキID> … そのマイデッキを開く（シミュレーターの「記録の後にデッキが変わっています」の［今のデッキを見る］から）
+  let openDeckId=null;
+  if(hash.startsWith('mydeck:')){try{openDeckId=decodeURIComponent(hash.slice(7))||null;}catch{openDeckId=null;}}
+  if(hash.startsWith('mydeck:')&&!openDeckId){try{history.replaceState(null,'',location.pathname+location.search+'#mydeck');}catch{}}
+  const mode=(hash==='mydeck-import'||hash.startsWith('mydeck:'))?'mydeck':hash;
   const cardPath=location.pathname.match(/^\/(card|buy)\/(.+)$/);
   let cardName=null;
   if(cardPath&&!['mydeck','meta','packs','wishlist'].includes(mode)){
@@ -1836,6 +1853,7 @@ function _restoreLocation(trigger){
       // 取り込みは右の欄のボタンで開く窓（static/mydeck/deck-tools.js）
       if(window.DeckTools)window.DeckTools.openImport();
     }
+    if(openDeckId)_openDeckFromHash(openDeckId);
     document.title='強欲なラボ';
     return;
   }

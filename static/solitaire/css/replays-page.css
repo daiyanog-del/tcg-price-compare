@@ -289,3 +289,12 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--gold); outline-
 .rp-brand-name-image { width:125px; height:auto; display:block; transform:translateY(8px); }
 
 @media (max-width:600px) { .rp-header { flex-wrap:wrap; } }
+
+/* どのマイデッキで撮ったか（2026-10-21）。札は状態の目印ではないので面の明るさだけ。
+   絞り込みで選んでいるものは accent の面（シミュレーターの選択中・再生中と同じ #aec5ff） */
+.rp-row-titleline { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rp-row-titleline .rp-row-title { min-width: 0; }
+.rp-deck-tag { flex: none; display: inline-block; padding: 1px 7px; border-radius: 999px; background: #202c42; color: #a8b4c9; font-size: 11px; font-weight: 600; vertical-align: 1px; }
+.rp-deck-filter { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.rp-deck-filter[hidden] { display: none; }
+.rp-deck-filter-btn.is-active { background: #aec5ff; color: #101626; }

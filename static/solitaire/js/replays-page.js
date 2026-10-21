@@ -92,6 +92,42 @@ async function copyText(text) {
 
 // ── 1. 端末に保存したリプレイ ──
 
+// デッキで絞り込む（null＝すべて／''＝デッキなし／それ以外＝そのデッキID）。ページを開き直したら「すべて」
+let _deckFilter = null;
+
+/** マイデッキの名前 {デッキID: 名前}（このブラウザの保存済みデッキ。消したデッキのリプレイは「デッキなし」） */
+function savedDeckNames() {
+  try {
+    const l = JSON.parse(localStorage.getItem('cardprice_saved_decks'));
+    const out = new Map();
+    if (Array.isArray(l)) for (const d of l) if (d && typeof d.id === 'string') out.set(d.id, d.name || 'マイデッキ');
+    return out;
+  } catch (e) {
+    return new Map();
+  }
+}
+
+/** 絞り込みのボタン（デッキ付きのリプレイが1件も無ければ出さない） */
+function renderDeckFilter(all, names) {
+  const box = document.getElementById('rpDeckFilter');
+  if (!box) return;
+  const ids = [...new Set(all.map(r => r.deckId).filter(id => id && names.has(id)))];
+  box.textContent = '';
+  box.hidden = ids.length === 0;
+  if (!ids.length) { _deckFilter = null; return; }
+  const opts = [[null, 'すべて'], ...ids.map(id => [id, names.get(id)])];
+  if (all.some(r => !r.deckId || !names.has(r.deckId))) opts.push(['', 'デッキなし']);
+  // 選んでいたもの（デッキなしを含む）が無くなったら「すべて」に戻す
+  if (_deckFilter !== null && !opts.some(([id]) => id === _deckFilter)) _deckFilter = null;
+  for (const [id, label] of opts) {
+    const b = el('button', 'rp-btn rp-deck-filter-btn' + (id === _deckFilter ? ' is-active' : ''), label);
+    b.type = 'button';
+    b.setAttribute('aria-pressed', id === _deckFilter ? 'true' : 'false');
+    b.addEventListener('click', () => { _deckFilter = id; renderSaved(); });
+    box.appendChild(b);
+  }
+}
+
 function renderSaved() {
   const listEl = document.getElementById('rpSavedList');
   const emptyEl = document.getElementById('rpSavedEmpty');
@@ -99,8 +135,12 @@ function renderSaved() {
   listEl.textContent = '';
 
   // 新しい順
-  const items = savedReplaysGet().slice().sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
-  if (emptyEl) emptyEl.hidden = items.length > 0;
+  const all = savedReplaysGet().slice().sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+  if (emptyEl) emptyEl.hidden = all.length > 0;
+  const names = savedDeckNames();
+  renderDeckFilter(all, names);
+  const deckOf = (r) => (r.deckId && names.has(r.deckId) ? r.deckId : '');
+  const items = _deckFilter === null ? all : all.filter(r => deckOf(r) === _deckFilter);
 
   for (const item of items) {
     const li = el('li', 'rp-row');
@@ -111,7 +151,11 @@ function renderSaved() {
     link.href = openHref;
     link.addEventListener('click', confirmReplaceSessionRecord);
     const info = el('span', 'rp-row-info');
-    info.appendChild(el('span', 'rp-row-title', item.title || '無題'));
+    const titleLine = el('span', 'rp-row-titleline');
+    titleLine.appendChild(el('span', 'rp-row-title', item.title || '無題'));
+    // どのマイデッキで撮ったか（shared/deck-replays.js の deckId）。題名の外に置く（長い題名の省略で札ごと消えないように）
+    if (deckOf(item)) titleLine.appendChild(el('span', 'rp-deck-tag', names.get(item.deckId)));
+    info.appendChild(titleLine);
     const date = formatDateTime(item.savedAt);
     info.appendChild(el('span', 'rp-row-meta',
       `${date ? date + '・' : ''}${item.steps ?? 0}手・メイン${item.main ?? 0}枚・EX${item.ex ?? 0}枚`));
