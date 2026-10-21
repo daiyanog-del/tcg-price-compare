@@ -1871,6 +1871,9 @@ function _restoreLocation(trigger){
     switchMode('packs',trigger);
     loadPacks().then(()=>{
       if(location.pathname!=='/featured'||location.hash)return;
+      // すでにパックを選んでいるとき（ブラウザの戻る・進むで来たとき）は選び直さない。スマホの全面の詳細を閉じるたびに
+      // 新弾を開き直して履歴を足し、戻るで /featured から出られなくなっていた（2026-10-21 reviewer 指摘）
+      if(typeof _pk!=='undefined'&&_pk)return;
       const f=_packData.find(p=>p.featured);
       if(f)loadPackCards(f.name,f.wiki_page||f.name,f.tcg_name||'',true);
     });
