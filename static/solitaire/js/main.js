@@ -27,12 +27,12 @@ import { updateCipWidth, syncCipPosition } from './ui/cip-layout.js';
 import { initFeedbackModal } from './ui/feedback-modal.js';
 import { initSidebarToggle } from './ui/sidebar-toggle.js';
 import { initSideTips } from './ui/side-tips.js';
-import { initMobileUI, setMobileRecordingState, resumePlaybackModeIfNeeded, openCardDetailByName, enterPlaybackModeForRecView } from './ui/mobile-ui.js';
+import { initMobileUI, setMobileRecordingState, resumePlaybackModeIfNeeded, openCardDetailByName, enterPlaybackModeForRecView, reservePlaybackSpaceForUrlReplay } from './ui/mobile-ui.js';
 import { initRecView } from './ui/rec-view.js';
 import { setPcRecordingState } from './ui/pc-recording.js';
 import { isMobilePortrait } from './utils/viewport.js';
 import { showToast } from './utils/toast.js';
-import { hasReplayInUrl as isReplayInUrl } from './utils/replay-url.js';
+import { hasReplayInUrl as isReplayInUrl, isReplayAtEnd } from './utils/replay-url.js';
 import { loadDeckFromNeuron, clearEverything } from './ui/deck-input-panel.js';
 import { receiveDeckHandoff } from '../../shared/deck-handoff.js';
 import { receiveNewCards } from '../../shared/newcards-entry.js';
@@ -328,6 +328,9 @@ async function initializeApp() {
   // initReplayUI() 内の読み込み処理は URL を書き換える（?saved= を外す）ため、それより後で
   // location を見ると判定がぶれ、前回盤面の復元が開いたリプレイを上書きしてしまう（順序依存の根絶）。
   const hasReplayInUrl = isReplayInUrl();
+  // スマホ縦で開いたリプレイは読み込み後に再生モードへ入る。盤面を後から縮め直さないよう、再生バーの分を先に取る
+  // （読み込みを始める initReplayUI と、最初の盤面合わせ fitFieldToViewport より前に呼ぶ）
+  if (hasReplayInUrl && !isReplayAtEnd()) reservePlaybackSpaceForUrlReplay();
 
   // 端末間同期（P2）: 一人回しページを開いたときも pull する（設計文書 §11）。
   // 保存デッキは savedDecksSet/renderSavedDecks 経由で適用されデッキ一覧に反映される。

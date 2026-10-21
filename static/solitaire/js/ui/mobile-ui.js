@@ -2006,6 +2006,24 @@ function initPlaybackBar() {
 }
 
 /**
+ * 共有リンク・保存したリプレイ（?replay= / #replay= / ?saved=）をスマホ縦で開くときは、読み込みより前に
+ * 下部の予約量を再生モードの 88px にしておく（main.js が最初の盤面合わせの前に呼ぶ）。
+ * 以前は読み込みの後に再生モードへ入ってから 52→88px に変えて盤面を縮め直しており、盤面全体が動いて
+ * CLS 0.016 が出ていた（2026-10-21 本番計測）。読み込みに失敗した・記録が空で再生モードに入らなかったときは
+ * 読み込みの終わり（replay-ui.js の sol-replay-url-settled）で 52px に戻して合わせ直す。
+ * ?at=end（最後の盤面から続ける）は再生モードに入らないので対象外（呼ぶ側で判定する）。
+ */
+export function reservePlaybackSpaceForUrlReplay() {
+  if (!isMobilePortrait()) return;
+  document.documentElement.style.setProperty('--sol-mobile-bottom-reserve', '88px');
+  document.addEventListener('sol-replay-url-settled', () => {
+    if (_playbackMode) return;
+    document.documentElement.style.setProperty('--sol-mobile-bottom-reserve', '52px');
+    window.dispatchEvent(new Event('resize'));
+  }, { once: true });
+}
+
+/**
  * B-1: 共有リンク（#replay=/?replay=）で開いたとき、再生モードを自動で開く。
  * replay-ui.js の _tryLoadFromURL が読み込み完了後に発火するイベントを受ける
  * （このタイミングでは盤面・ログは既に反映済み）。

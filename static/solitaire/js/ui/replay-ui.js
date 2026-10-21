@@ -691,9 +691,18 @@ async function _copyToClipboard(text) {
 }
 
 /**
- * ページロード時にURLからリプレイを読み込む
+ * ページロード時にURLからリプレイを読み込む。成否にかかわらず、終わったら sol-replay-url-settled を出す
+ * （スマホが先に取っておいた再生バーの分の高さを、再生モードに入らなかったときに戻すため。mobile-ui.js）
  */
 async function _tryLoadFromURL() {
+  try {
+    await _loadFromURL();
+  } finally {
+    document.dispatchEvent(new CustomEvent('sol-replay-url-settled'));
+  }
+}
+
+async function _loadFromURL() {
   // URLハッシュ方式
   const hash = location.hash;
   if (hash.startsWith('#replay=')) {
