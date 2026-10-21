@@ -172,7 +172,7 @@ try {
   process.exit(1);
 }
 
-for (const fnName of ['esc', 'escJs', 'escAttr', 'safeUrl', 'wishBtnHtml', '_wishRaritySelectHtml']) {
+for (const fnName of ['esc', 'escJs', 'escAttr', 'safeUrl', 'wishBtnHtml', '_wishRarityChipHtml']) {
   if (typeof ctx[fnName] !== 'function') {
     console.error(`FAIL: ${fnName} が抽出結果からグローバル関数として見つかりません（テンプレートの関数名/構造が変わった可能性）`);
     process.exit(1);
@@ -238,12 +238,19 @@ check('wishBtnHtml(): 実装関数の出力にonmouseover属性が注入され�
   !attributeEscapes(ctx.wishBtnHtml(XSS_DQ, 1)), ctx.wishBtnHtml(XSS_DQ, 1));
 check('wishBtnHtml(): 実装関数の出力にonmouseover属性が注入されない（シングルクォート版）',
   !attributeEscapes(ctx.wishBtnHtml(XSS_SQ, 1)), ctx.wishBtnHtml(XSS_SQ, 1));
-check('_wishRaritySelectHtml(): data-name属性からの脱出ペイロードを無害化する（ダブルクォート版）',
-  !attributeEscapes(ctx._wishRaritySelectHtml({ name: XSS_DQ, rarity: '' })),
-  ctx._wishRaritySelectHtml({ name: XSS_DQ, rarity: '' }));
-check('_wishRaritySelectHtml(): data-name属性からの脱出ペイロードを無害化する（シングルクォート版）',
-  !attributeEscapes(ctx._wishRaritySelectHtml({ name: XSS_SQ, rarity: '' })),
-  ctx._wishRaritySelectHtml({ name: XSS_SQ, rarity: '' }));
+check('_wishRarityChipHtml(): data-name属性からの脱出ペイロードを無害化する（ダブルクォート版）',
+  !attributeEscapes(ctx._wishRarityChipHtml({ name: XSS_DQ, rarity: '' })),
+  ctx._wishRarityChipHtml({ name: XSS_DQ, rarity: '' }));
+{
+  // data-rarity 属性は &quot; でエスケープされ、札の文字（span の中身）は < > がエスケープされる（" は文字としては無害）
+  const chip = ctx._wishRarityChipHtml({ name: 'A', rarity: XSS_DQ + '<img src=x onerror=alert(1)>' });
+  const attr = (chip.match(/data-rarity="([^"]*)"/) || [])[1] || '';
+  check('_wishRarityChipHtml(): data-rarity属性・札の文字からの脱出ペイロードを無害化する',
+    attr.includes('&quot;') && !chip.includes('<img') && /^<button [^>]*>/.test(chip) && (chip.match(/<button /g) || []).length === 1, chip);
+}
+check('_wishRarityChipHtml(): data-name属性からの脱出ペイロードを無害化する（シングルクォート版）',
+  !attributeEscapes(ctx._wishRarityChipHtml({ name: XSS_SQ, rarity: '' })),
+  ctx._wishRarityChipHtml({ name: XSS_SQ, rarity: '' }));
 
 // 5. safeUrl() のスキーム検証（javascript:/data: を拒否、http/httpsのみ許可）
 check('safeUrl(): javascript: スキームを空文字にする', ctx.safeUrl('javascript:alert(1)') === '');
@@ -256,9 +263,9 @@ check('safeUrl(): https: は通す',
 check('wishBtnHtml(): 正常なカード名で壊れず、期待どおりの属性を含む',
   ctx.wishBtnHtml('灰流うらら', 3).includes("wishAddFromBtn(this,'灰流うらら',3)"));
 {
-  const sel = ctx._wishRaritySelectHtml({ name: '青眼の白龍', rarity: 'アルティメットレア' });
-  check('_wishRaritySelectHtml(): 正常なカード名・レアリティで壊れない',
-    sel.includes('data-name="青眼の白龍"') && sel.includes('data-old="アルティメットレア"'), sel);
+  const sel = ctx._wishRarityChipHtml({ name: '青眼の白龍', rarity: 'アルティメットレア' });
+  check('_wishRarityChipHtml(): 正常なカード名・レアリティで壊れない',
+    sel.includes('data-name="青眼の白龍"') && sel.includes('data-rarity="アルティメットレア"') && sel.includes('>アルティメットレア<'), sel);
 }
 check('safeUrl(): 正常なURLはそのまま通る',
   ctx.safeUrl('https://www.cardrush.jp/product-list?keyword=abc') === 'https://www.cardrush.jp/product-list?keyword=abc');

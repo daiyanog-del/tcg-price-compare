@@ -7,6 +7,10 @@ const WISH_KEY='cardprice_wishlist';
 // null = まだロードしていない。{} 以上 = ロード試行済み（成功・失敗を問わず）
 let _wishPrices = null;
 let _wishPricesTime = 0;
+// 最後に取りに行ったカード名（2026-10-21 reviewer 指摘）。今の一覧にここに無い名前があれば古いとみなして取り直す
+// （すべて削除の取り消し・同期で届いたカードなど、wishAdd を通らずに増えた行の価格が10分出なかったため）
+let _wishPricesNames = new Set();
+let _wishPricesFailed = false; // 最後の取得が通信・応答の失敗で終わったか（「読み込めませんでした」はこのときだけ）
 const _WISH_PRICES_TTL = 10 * 60 * 1000; // 10分でキャッシュ失効
 const _WISH_PRICES_CACHE_KEY = 'cardprice_wish_prices_v1';
 
@@ -19,13 +23,14 @@ const _WISH_PRICES_CACHE_KEY = 'cardprice_wish_prices_v1';
     if(saved&&saved.data&&saved.time){
       _wishPrices=saved.data;
       _wishPricesTime=saved.time;
+      _wishPricesNames=new Set(saved.names||Object.keys(saved.data)); // 古い形（names なし）は届いた名前で代える
     }
   }catch{}
 })();
 
 function _saveWishPricesCache(){
   try{
-    localStorage.setItem(_WISH_PRICES_CACHE_KEY,JSON.stringify({data:_wishPrices,time:_wishPricesTime}));
+    localStorage.setItem(_WISH_PRICES_CACHE_KEY,JSON.stringify({data:_wishPrices,time:_wishPricesTime,names:[..._wishPricesNames]}));
   }catch{}
 }
 function _clearWishPricesCache(){
@@ -48,23 +53,31 @@ async function _loadWishPricesNow(){
   const list=wishGet();
   // ロード試行済みとしてマーク（null → {} で「試行済み」になる）
   const got={};
+  const names=[...new Set(list.map(c=>c.name))];
   _wishPrices=got;
   _wishPricesTime=Date.now();
+  _wishPricesNames=new Set(names);
+  _wishPricesFailed=false;
   if(!list.length){ _saveWishPricesCache(); return; }
   try{
     const res=await fetch('/api/wish-prices',{method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({cards:list.map(c=>c.name)})});
+      body:JSON.stringify({cards:names})});
+    if(!res.ok)throw new Error('HTTP '+res.status);
     const data=await res.json();
-    (data.cards||[]).forEach(c=>{got[c.name]=c;});
+    const cards=data.cards||[];
+    cards.forEach(c=>{got[c.name]=c;});
+    // サーバーは表記ゆれを直した名前で返す。送った順に返るので、数がそろっていれば送った名前でも引けるようにする
+    if(cards.length===names.length) cards.forEach((c,i)=>{ if(!got[names[i]]) got[names[i]]=c; });
     // 取得中にカードが足されて価格が捨てられた（null に戻った）ときは、古い一覧の結果を残さない
     if(_wishPrices===got) _saveWishPricesCache();
-  }catch(e){/* _wishPrices={} のまま（再試行しない）*/}
+  }catch(e){ if(_wishPrices===got)_wishPricesFailed=true; /* _wishPrices={} のまま（10分は取り直さない）*/ }
 }
 // 一覧を描くときに呼ぶ: 価格がまだ・古い・取得中なら（取りに行って）届いたら一覧を描き直す。描き直しの予約は1回だけ
 let _wishRerenderPending=false;
 function _wishEnsurePrices(){
-  const stale=_wishPrices===null || Date.now()-_wishPricesTime > _WISH_PRICES_TTL;
+  const stale=_wishPrices===null || Date.now()-_wishPricesTime > _WISH_PRICES_TTL
+    || wishGet().some(c=>!_wishPricesNames.has(c.name)); // まだ取りに行っていない名前がある
   if(!_wishPricesLoading && !stale) return;
   if(_wishRerenderPending){ if(!_wishPricesLoading) loadWishPrices(); return; }
   _wishRerenderPending=true;
@@ -72,22 +85,25 @@ function _wishEnsurePrices(){
 }
 
 // 価格情報の表示 HTML を生成する
+// 2026-10-21 モック wish-refresh-20261021 の D:
+//   読み込み中は読み込み中の印（以前は「相場データ収集中」と同じ文で、まだ集めていないカードと区別できなかった）
+//   動きが無いときの「(+0%)」は出さない。値下がり（5%以上かつ50円以上・判定は今までと同じ）だけ緑の ↓ 札
 function _wishPriceHtml(info){
-  if(!info||info.status==='pending'){
-    return '<span class="wish-price-info">相場データ収集中</span>';
+  if(!info){
+    if(_wishPricesLoading) return '<span class="wl-skel" role="status" aria-label="価格を読み込み中"></span>';
+    // 失敗と言い切るのは通信・応答の失敗のときだけ。応答にそのカードが無かったときは控えめに
+    return _wishPricesFailed
+      ? '<span class="wish-price-info wl-noprice">価格を読み込めませんでした</span>'
+      : '<span class="wish-price-info wl-noprice">価格が見つかりませんでした</span>';
   }
-  if(info.latest==null) return '';
+  if(info.status==='pending') return '<span class="wish-price-info wl-noprice">相場をまだ集めていません</span>';
+  if(info.latest==null) return '<span class="wish-price-info wl-noprice">価格が見つかりませんでした</span>';
   const priceStr='¥'+info.latest.toLocaleString();
-  if(info.pct==null||info.diff==null){
-    return `<span class="wish-price-info">${priceStr}</span>`;
-  }
-  const isDrop=info.pct<=-5&&info.diff<=-50;
-  const sign=info.diff>=0?'+':'';
-  const pctStr=`${sign}${info.pct}%`;
+  const isDrop=info.pct!=null&&info.diff!=null&&info.pct<=-5&&info.diff<=-50;
   if(isDrop){
-    return `<span class="wish-price-info wish-price-drop">${priceStr} <small>(${pctStr})</small></span>`;
+    return `<span class="wish-price-info">${priceStr}</span><span class="wl-drop" title="7日前から ${info.pct}%">↓${Math.abs(info.diff).toLocaleString()}円</span>`;
   }
-  return `<span class="wish-price-info">${priceStr} <small style="color:var(--text-d)">(${pctStr})</small></span>`;
+  return `<span class="wish-price-info">${priceStr}</span>`;
 }
 
 // ── マイデッキ保存（localStorage）──
@@ -297,12 +313,29 @@ function _wishRemoveAt(before,idx){
     renderWishlist();
   });
 }
+// すべて削除: すぐ消して6秒間「取り消す」（2026-10-21 モックの C。以前はブラウザの確認窓）。
+// 取り消すと元の並びに戻す（そのあいだに足したカードは後ろに残す）。価格の取っておきは期限が来たら捨てる
 function wishClearAll(){
-  if(!confirm('購入候補をすべて削除しますか？'))return;
+  const before=wishGet();
+  if(!before.length)return;
+  const total=before.reduce((n,c)=>n+(c.qty||0),0);
   wishSave([]);
-  _wishPrices=null;
-  _clearWishPricesCache();
+  const wsr=document.getElementById('wishShopRanking');if(wsr){wsr.classList.add('hidden');wsr.innerHTML='';}
   renderWishlist();
+  const toast=window.DeckHead&&window.DeckHead.undoToast;
+  if(!toast){console.warn('[wish] DeckHead.undoToast が読めないため、取り消しを出せませんでした');_wishPrices=null;_clearWishPricesCache();return;}
+  toast(`購入候補（${before.length}種 ${total}枚）をすべて削除しました`,()=>{
+    const cur=wishGet();
+    const merged=before.map(b=>{
+      const again=cur.find(c=>_wishMatchKey(c,b.name,b.rarity));
+      return again?(window.WishDeck?WishDeck.mergeInto(b,again):{...b,qty:Math.min(b.qty+again.qty,99)}):b;
+    });
+    wishSave(merged.concat(cur.filter(c=>!before.some(b=>_wishMatchKey(b,c.name,c.rarity)))));
+    renderWishlist();
+  },()=>{
+    if(wishGet().length)return; // 期限までに足し直していたら、その価格は残す
+    _wishPrices=null;_clearWishPricesCache();
+  });
 }
 function wishUpdateBadge(){
   const list=wishGet();
@@ -361,35 +394,35 @@ function wishSetRarity(name,oldRarity,newRarity){
 let _wishRarities = {};
 let _wishRaritiesNames = ''; // キャッシュ対象名のシグネチャ（カードが追加されたら再取得）
 
+let _wishRaritiesLoading=null; // { sig, p }（取得中の同じ名前の集合は1回にまとめる）
 function _loadWishRarities(names){
   // 既にキャッシュ済みのカードと一致するなら再取得しない
   const sig=[...names].sort().join('|');
   if(sig===_wishRaritiesNames) return Promise.resolve(_wishRarities);
-  return fetch('/api/card-rarities',{
+  if(_wishRaritiesLoading&&_wishRaritiesLoading.sig===sig) return _wishRaritiesLoading.p;
+  const p=fetch('/api/card-rarities',{
     method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({cards:names})
   }).then(r=>r.json()).then(d=>{
     _wishRarities=d.rarities||{};
     _wishRaritiesNames=sig;
     return _wishRarities;
-  }).catch(()=>_wishRarities);
+  }).catch(()=>_wishRarities).finally(()=>{ if(_wishRaritiesLoading&&_wishRaritiesLoading.p===p)_wishRaritiesLoading=null; });
+  _wishRaritiesLoading={sig,p};
+  return p;
 }
 
-// 1行ぶんのレアリティ ドロップダウンHTML
-function _wishRaritySelectHtml(c){
-  const candidates=_wishRarities[c.name]||[];
-  // 札に出る文字なので短く（2026-10-21 モック wish-refresh-20261021。旧「未指定（最安レア）」はスマホで潰れていた）
-  const opts=['<option value="">最安のレア</option>']
-    .concat(candidates.map(r=>`<option value="${escAttr(r)}"${r===(c.rarity||"")?' selected':''}>${esc(r)}</option>`));
-  // 選択中なのに候補リストに無い rarity は欠落しないように追加表示する
-  if(c.rarity && !candidates.includes(c.rarity)){
-    opts.splice(1,0,`<option value="${escAttr(c.rarity)}" selected>${esc(c.rarity)}</option>`);
-  }
-  return `<select class="wl-rar" data-name="${escAttr(c.name)}" data-old="${escAttr(c.rarity||"")}" onchange="wishSetRarity(this.dataset.name,this.dataset.old,this.value)" title="レアリティを指定（未指定なら最安レアリティ）">${opts.join('')}</select>`;
+// 1行ぶんのレアリティの札。押すと小窓で選ぶ（_wishOpenRarityMenu。2026-10-21 モックの E）
+const _WISH_CHEV_SM='<svg width="10" height="10" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 4l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+function _wishRarityChipHtml(c){
+  const label=c.rarity||'最安のレア';
+  return `<button type="button" class="wl-rar" data-name="${escAttr(c.name)}" data-rarity="${escAttr(c.rarity||"")}" aria-haspopup="menu" title="レアリティを選ぶ（指定しなければ最安のレア）"><span>${esc(label)}</span>${_WISH_CHEV_SM}</button>`;
 }
 
 function renderWishlist(){
-  _wishCloseMenu(); // 開いていた ⋯ メニューは描き直しで行が作り直されるので閉じる（価格・同期の描き直しでも）
+  // 一覧の中のメニュー（行の ⋯・右クリック・レアリティ）は描き直しで行が作り直されるので閉じる（価格・同期の描き直しでも）。
+  // 見出しの ⋯ は作り直されないので開いたまま
+  if(_wishMenu&&!(_wishMenu.fromBtn&&_wishMenu.fromBtn.id==='wishHeadMore'))_wishCloseMenu();
   const list=wishGet();
   updatePushUI(!!localStorage.getItem(PUSH_SUB_KEY));
   const el=document.getElementById('wishList');
@@ -402,17 +435,13 @@ function renderWishlist(){
     return;
   }
   actions.style.display='flex';
+  // 見出しの数（絞り込みに関係なく全体）
+  const cnt=document.getElementById('wishCount');
+  if(cnt)cnt.innerHTML=`<b>${list.length}</b>種 <b>${list.reduce((n,c)=>n+(c.qty||0),0)}</b>枚`;
   // 未ロード・TTL切れ・取得中（起動時の取得など）なら、届いたあとに描き直す
   _wishEnsurePrices();
-  // レアリティ候補をロード（カード名集合が変わったときだけリクエスト）。
-  // 取得後は select の option だけ最新化する（行 DOM 全体を再描画しないことでフォーカスを保つ）。
-  const uniqueNames=[...new Set(list.map(c=>c.name))];
-  _loadWishRarities(uniqueNames).then(()=>{
-    el.querySelectorAll('select.wl-rar').forEach(sel=>{
-      const name=sel.dataset.name; const old=sel.dataset.old;
-      sel.outerHTML=_wishRaritySelectHtml({name,rarity:old});
-    });
-  });
+  // レアリティ候補を先に読んでおく（札を押したときにすぐ出せるように。カード名の集合が変わったときだけ取りに行く）
+  _loadWishRarities([...new Set(list.map(c=>c.name))]);
   const shown=_renderWishDeckFilter(_wishView(list));
   el.innerHTML=shown.map(c=>{
     const info=_wishPrices[c.name];
@@ -433,7 +462,7 @@ function renderWishlist(){
         <a class="wl-name" href="/card/${encodeURIComponent(c.name)}" target="_blank" rel="noopener" title="価格を比べる">${esc(c.name)}</a>
         ${tags?`<span class="wl-tags">${tags}</span>`:''}
       </div>
-      ${_wishRaritySelectHtml(c)}
+      ${_wishRarityChipHtml(c)}
       <div class="wl-price">${_wishPriceHtml(info)}</div>
       <span class="wl-step">
         <button type="button" onclick="wishQtyStep('${nj}','${rj}',-1)" aria-label="1枚減らす" title="1枚減らす">−</button>
@@ -445,49 +474,70 @@ function renderWishlist(){
   _wishInitRowMenu(el);
 }
 
-// ── 行の ⋯ メニュー（PC は行の右クリックでも）。見た目はマイデッキのカードの右クリック（deck.css の .deck-card-menu） ──
+// ── 小さなメニュー（行の ⋯・見出しの ⋯・レアリティの札）。見た目はマイデッキのカードの右クリック（deck.css の .deck-card-menu） ──
 const _WISH_MORE_SVG='<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="12.5" cy="8" r="1.4"/></svg>';
-let _wishMenu=null; // { el, row, cleanup }
+const _WISH_CHECK_SVG='<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5"/></svg>';
+let _wishMenu=null; // { el, fromBtn, ownerEl, ownerClass, cleanup }
 function _wishCloseMenu(){
   if(!_wishMenu)return;
   const m=_wishMenu; _wishMenu=null;
   m.cleanup();
   m.el.remove();
-  m.row.classList.remove('is-menu');
+  if(m.ownerEl)m.ownerEl.classList.remove(m.ownerClass);
 }
-function _wishOpenRowMenu(row,x,y,fromBtn){
+/**
+ * メニューを開く。spec:
+ *   title       見出し（カード名など）
+ *   items       [{label, sub?, danger?, checked?, fn}] と区切り 'sep'
+ *   fromBtn     押したボタン（その下に右端をそろえて出す。null なら x, y＝右クリックの位置）
+ *   ownerEl / ownerClass  開いている間に印を付ける要素（行の金の枠・札の線）
+ *   align       'left' ならボタンの左端にそろえる（レアリティの札）
+ *   cls         足すクラス（レアリティは長いので .wl-menu-scroll）
+ *   afterPick(top)  項目を選んだあと（フォーカスを戻すため。top は選ぶ前のボタンの位置）
+ */
+function _wishOpenMenu(spec){
   _wishCloseMenu();
-  const name=row.dataset.name, rarity=row.dataset.rarity||'';
+  if(!spec.fromRarity)_wishCancelRarityWait();
+  const fromBtn=spec.fromBtn||null;
   const el=document.createElement('div');
-  el.className='deck-head-pop deck-more-menu deck-card-menu wl-menu';
+  el.className='deck-head-pop deck-more-menu deck-card-menu wl-menu'+(spec.cls?' '+spec.cls:'');
   el.setAttribute('role','menu');
-  const head=document.createElement('div');
-  head.className='deck-card-menu-head';
-  head.textContent=name;
-  el.appendChild(head);
+  if(spec.title){
+    const head=document.createElement('div');
+    head.className='deck-card-menu-head';
+    head.textContent=spec.title;
+    el.appendChild(head);
+  }
   const items=[];
-  const item=(label,fn,danger)=>{
+  spec.items.forEach(it=>{
+    if(it==='sep'){const s=document.createElement('div');s.className='deck-more-sep';el.appendChild(s);return;}
     const b=document.createElement('button');
-    b.type='button'; b.className='deck-more-item'+(danger?' is-danger':''); b.setAttribute('role','menuitem');
-    b.textContent=label;
+    b.type='button'; b.className='deck-more-item'+(it.danger?' is-danger':''); b.setAttribute('role',it.checked===undefined?'menuitem':'menuitemradio');
+    if(it.checked!==undefined)b.setAttribute('aria-checked',String(!!it.checked));
+    const l=document.createElement('span'); l.className='wl-menu-label';
+    if(it.checked!==undefined){const ck=document.createElement('span');ck.className='wl-ck';ck.innerHTML=it.checked?_WISH_CHECK_SVG:'';l.appendChild(ck);}
+    l.appendChild(document.createTextNode(it.label)); // 名前・レアリティは textContent で入れる
+    b.appendChild(l);
+    if(it.sub){const s=document.createElement('span');s.className='deck-more-sub';s.textContent=it.sub;b.appendChild(s);}
     b.addEventListener('click',()=>{
       const top=fromBtn?fromBtn.getBoundingClientRect().top:0; // 外すと行が消えるので、位置は先に測る
-      _wishCloseMenu();fn();_wishRefocus(name,fromBtn,top);
+      _wishCloseMenu(); it.fn();
+      if(spec.afterPick)spec.afterPick(top);
     });
     el.appendChild(b); items.push(b);
-  };
-  item('カードの価格ページを開く',()=>window.open('/card/'+encodeURIComponent(name),'_blank','noopener'));
-  const sep=document.createElement('div'); sep.className='deck-more-sep'; el.appendChild(sep);
-  item('購入候補から外す',()=>wishRemoveWithUndo(name,rarity),true);
+  });
   document.body.appendChild(el);
-  // ⋯ から開いたらボタンの下（右端をそろえる）、右クリックならマウスの位置。はみ出す向きなら反対側へ
+  // ボタンの下（右端をそろえる。align:'left' なら左端）、右クリックならマウスの位置。はみ出す向きなら反対側へ
   const m=8, vw=document.documentElement.clientWidth, vh=window.innerHeight, w=el.offsetWidth, h=el.offsetHeight;
-  let left=x, top=y;
-  if(fromBtn){const r=fromBtn.getBoundingClientRect(); left=r.right-w; top=r.bottom+6; if(top+h+m>vh)top=r.top-6-h;}
-  else{ if(left+w+m>vw)left=x-w; if(top+h+m>vh)top=y-h; }
+  let left=spec.x||0, top=spec.y||0;
+  if(fromBtn){
+    const r=fromBtn.getBoundingClientRect();
+    left=spec.align==='left'?r.left:r.right-w; top=r.bottom+6;
+    if(top+h+m>vh&&r.top-6-h>=m)top=r.top-6-h;
+  }else{ if(left+w+m>vw)left=left-w; if(top+h+m>vh)top=top-h; }
   el.style.left=Math.max(m,Math.min(left,vw-w-m))+'px';
-  el.style.top=Math.max(m,top)+'px';
-  row.classList.add('is-menu');
+  el.style.top=Math.max(m,Math.min(top,vh-h-m))+'px';
+  if(spec.ownerEl)spec.ownerEl.classList.add(spec.ownerClass);
   const onDown=e=>{if(!el.contains(e.target)&&!(fromBtn&&fromBtn.contains(e.target)))_wishCloseMenu();};
   const onKey=e=>{
     if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();_wishCloseMenu();if(fromBtn&&document.body.contains(fromBtn))fromBtn.focus({preventScroll:true});return;}
@@ -500,13 +550,77 @@ function _wishOpenRowMenu(row,x,y,fromBtn){
   document.addEventListener('keydown',onKey,true);
   window.addEventListener('scroll',onScroll,true);
   window.addEventListener('resize',_wishCloseMenu);
-  _wishMenu={el,row,cleanup:()=>{
+  _wishMenu={el,fromBtn,ownerEl:spec.ownerEl||null,ownerClass:spec.ownerClass,cleanup:()=>{
     document.removeEventListener('pointerdown',onDown,true);
     document.removeEventListener('keydown',onKey,true);
     window.removeEventListener('scroll',onScroll,true);
     window.removeEventListener('resize',_wishCloseMenu);
   }};
-  if(fromBtn) items[0].focus({preventScroll:true});
+  if(fromBtn){
+    // 選んでいるもの（レアリティ）があればそこへ、なければ先頭へ
+    const cur=items.find(b=>b.getAttribute('aria-checked')==='true')||items[0];
+    if(cur){cur.focus({preventScroll:true});cur.scrollIntoView({block:'nearest'});}
+  }
+}
+// 行の ⋯（PC は行の右クリックでも）
+function _wishOpenRowMenu(row,x,y,fromBtn){
+  const name=row.dataset.name, rarity=row.dataset.rarity||'';
+  _wishOpenMenu({title:name,fromBtn,x,y,ownerEl:row,ownerClass:'is-menu',
+    items:[
+      {label:'カードの価格ページを開く',fn:()=>window.open('/card/'+encodeURIComponent(name),'_blank','noopener')},
+      'sep',
+      {label:'購入候補から外す',danger:true,fn:()=>wishRemoveWithUndo(name,rarity)},
+    ],
+    afterPick:top=>_wishRefocus(name,fromBtn,top)});
+}
+// レアリティの札（2026-10-21 モック wish-refresh-20261021 の E。ブラウザのプルダウンをやめた）
+let _wishRarityWait=null; // 候補を読み込む間、開くのを待っている札 { name, rarity, cancel }
+function _wishCancelRarityWait(){ if(_wishRarityWait){ const w=_wishRarityWait; _wishRarityWait=null; w.cancel(); } }
+function _wishFindRarityChip(name,rarity){
+  return [...document.querySelectorAll('#wishList .wl-rar')].find(b=>b.dataset.name===name&&(b.dataset.rarity||'')===rarity)
+    ||[...document.querySelectorAll('#wishList .wl-rar')].find(b=>b.dataset.name===name)||null;
+}
+function _wishOpenRarityMenu(chip0){
+  const name=chip0.dataset.name, cur=chip0.dataset.rarity||'';
+  // 同じ札を待っている間にもう一度押したら取りやめる
+  if(_wishRarityWait&&_wishRarityWait.name===name&&_wishRarityWait.rarity===cur){_wishCancelRarityWait();return;}
+  _wishCancelRarityWait();
+  const open=()=>{
+    // 候補を読み込む間に描き直されたら、作り直された同じ札から開く
+    const chip=document.body.contains(chip0)?chip0:_wishFindRarityChip(name,cur);
+    if(!chip)return;
+    let picked=cur;
+    const cands=(_wishRarities[name]||[]).slice();
+    if(cur&&!cands.includes(cur))cands.unshift(cur); // 選んでいるのに候補に無いものも落とさない
+    _wishOpenMenu({fromRarity:true,title:'レアリティ',fromBtn:chip,align:'left',ownerEl:chip,ownerClass:'is-open',cls:'wl-menu-scroll',
+      items:[{label:'最安のレア（指定しない）',sub:'いちばん安いものを探す',checked:!cur,fn:()=>{picked='';wishSetRarity(name,cur,'');}}]
+        .concat(cands.length?['sep']:[])
+        .concat(cands.map(r=>({label:r,checked:r===cur,fn:()=>{picked=r;wishSetRarity(name,cur,r);}}))),
+      // 選び直した行（新しいレアリティ）の札へ戻す。同じカードが別のレアリティで並んでいても取り違えない
+      afterPick:()=>{const c=_wishFindRarityChip(name,picked);if(c)c.focus({preventScroll:true});}});
+  };
+  if(_wishRarities[name]){open();return;}
+  let canceled=false;
+  const onDown=e=>{ if(!e.target.closest('#wishList .wl-rar'))_wishCancelRarityWait(); };
+  const onKey=e=>{ if(e.key==='Escape')_wishCancelRarityWait(); };
+  document.addEventListener('pointerdown',onDown,true);
+  document.addEventListener('keydown',onKey,true);
+  const w={name,rarity:cur,cancel:()=>{canceled=true;document.removeEventListener('pointerdown',onDown,true);document.removeEventListener('keydown',onKey,true);}};
+  _wishRarityWait=w;
+  _loadWishRarities([...new Set(wishGet().map(c=>c.name))]).then(()=>{
+    if(canceled||_wishRarityWait!==w)return;
+    _wishRarityWait=null; w.cancel(); canceled=false;
+    open();
+  });
+}
+// 見出しの ⋯（2026-10-21 モックの C。主操作だけ見出しに残し、ほかはここへ）
+function _wishOpenHeadMenu(btn){
+  _wishOpenMenu({fromBtn:btn,
+    items:[
+      {label:'他の端末でも見る',fn:()=>{if(typeof openSyncShareDialog==='function')openSyncShareDialog();}},
+      'sep',
+      {label:'すべて削除',danger:true,fn:()=>wishClearAll()},
+    ]});
 }
 // メニューの項目を選んだあと、キーボードで続けて操作できるようにフォーカスを戻す
 // （開く: 元の ⋯ へ。外す: 同じ位置に来た次の行の ⋯ へ。行が無くなったら何もしない）
@@ -518,16 +632,21 @@ function _wishRefocus(name,fromBtn,top){
   const b=next&&next.querySelector('.wl-more');
   if(b)b.focus({preventScroll:true});
 }
-// 一覧の箱に1回だけ付ける（行は描き直しで作り直すので、箱で受ける）
+// 一覧の箱と見出しに1回だけ付ける（行は描き直しで作り直すので、箱で受ける）
 function _wishInitRowMenu(box){
+  const head=document.getElementById('wishHeadMore');
+  if(head&&!head.dataset.menuReady){
+    head.dataset.menuReady='1';
+    head.addEventListener('click',()=>{ if(_wishMenu&&_wishMenu.fromBtn===head){_wishCloseMenu();return;} _wishOpenHeadMenu(head); });
+  }
   if(box.dataset.menuReady)return;
   box.dataset.menuReady='1';
   box.addEventListener('click',e=>{
-    const btn=e.target.closest('.wl-more');
+    const btn=e.target.closest('.wl-more,.wl-rar');
     if(!btn)return;
-    const row=btn.closest('.wl-row');
-    if(_wishMenu&&_wishMenu.row===row){_wishCloseMenu();return;}
-    _wishOpenRowMenu(row,0,0,btn);
+    if(_wishMenu&&_wishMenu.fromBtn===btn){_wishCloseMenu();return;}
+    if(btn.classList.contains('wl-rar'))_wishOpenRarityMenu(btn);
+    else _wishOpenRowMenu(btn.closest('.wl-row'),0,0,btn);
   });
   box.addEventListener('contextmenu',e=>{
     const row=e.target.closest('.wl-row');
@@ -589,7 +708,7 @@ function wishDeckStep(name,rarity,delta){
       // レアリティ指定のある行で＋したときも、その行に足す（指定なしの行を新しく作らない）
       const item=list.find(c=>_wishMatchKey(c,name,rarity));
       if(!item)return;
-      if(item.qty>=99){alert('購入候補の枚数上限（99枚）を超えます。');return;}
+      if(item.qty>=99){if(window.DeckHead)window.DeckHead.toast('購入候補は1行99枚までです');return;}
       item.qty+=1;
       if(id){item.decks=item.decks||{};item.decks[id]=(item.decks[id]||0)+1;}
       next=list;
@@ -607,7 +726,7 @@ function wishDeckStep(name,rarity,delta){
         return;
       }
     }
-  }catch(e){alert(e.message);return;}
+  }catch(e){if(window.DeckHead)window.DeckHead.toast(e.message);else console.warn('[wish]',e);return;}
   wishSave(next);
   const wsr=document.getElementById('wishShopRanking');if(wsr){wsr.classList.add('hidden');wsr.innerHTML='';}
   renderWishlist();
