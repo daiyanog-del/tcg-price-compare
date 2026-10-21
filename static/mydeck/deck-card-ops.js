@@ -15,7 +15,13 @@
 
   function $(id){ return document.getElementById(id); }
   function ops(){ return window._deckOps || null; }
-  function isTouch(){ var o = ops(); return !!(o && o.isTouch); }
+  // 端末全体ではなく、直前に押した指の種類で決める（pointerdown で記録）。
+  // タッチ付きノート PC をマウスで使うときに右クリックメニューや Ctrl+クリックが潰れないように（reviewer 指摘）
+  var _lastPointer = '';
+  function _byTouch(){ return _lastPointer === 'touch'; }
+  // 案内の一言と Tab での選択は、マウスなど細かく指せて乗せられる環境だけ（deck-head.js の案内と同じ判定）
+  var _fineMQ = window.matchMedia ? window.matchMedia('(hover: hover) and (pointer: fine)') : null;
+  function _finePointer(){ return _fineMQ ? _fineMQ.matches : !(ops() && ops().isTouch); }
   function _cards(sec){
     var c = (typeof _currentMydeckCards !== 'undefined' && _currentMydeckCards) ? _currentMydeckCards : { main: [], ex: [] };
     return c[sec] || [];
@@ -46,14 +52,22 @@
   }
   function _addToWish(name){
     if(!window.WishDeck || typeof wishGet !== 'function' || typeof wishSave !== 'function') return;
+    var before = wishGet();
+    var isNew = !before.some(function(c){ return c.name === name; });
     var next;
-    try{ next = window.WishDeck.add(wishGet(), name, 1, window._currentSavedDeckId || null); }
+    try{ next = window.WishDeck.add(before, name, 1, window._currentSavedDeckId || null); }
     catch(e){ _toast(e.message); return; }
-    wishSave(next);
-    // 価格の収集対象に登録（wishAdd と同じ。失敗しても画面には影響させない）
-    try{
-      fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ card: name }) }).catch(function(){});
-    }catch(_){}
+    try{ wishSave(next); }
+    catch(e){ console.warn('[deck-card-ops] 購入候補を保存できませんでした', e); _toast('購入候補を保存できませんでした（ブラウザの保存容量を確認してください）'); return; }
+    if(isNew){
+      // 新しいカードは価格の控えを捨てて取り直す（wishAdd と同じ。残すと最大10分価格が空欄になる）
+      try{ if(typeof _wishPrices !== 'undefined') _wishPrices = null; }catch(_){}
+      try{ if(typeof _clearWishPricesCache === 'function') _clearWishPricesCache(); }catch(_){}
+      // 価格の収集対象に登録（新しいカードだけ。失敗しても画面には影響させない）
+      try{
+        fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ card: name }) }).catch(function(){});
+      }catch(_){}
+    }
     try{ if(typeof renderWishlist === 'function') renderWishlist(); }catch(_){}
     _ga('wish_add', { source: 'mydeck_menu', count: 1 });
     _toast('「' + name + '」を購入候補に入れました（候補に' + _wishCount(name) + '枚）');
@@ -68,7 +82,7 @@
     _menu = null;
     m.cleanup();
     if(m.el.parentNode) m.el.parentNode.removeChild(m.el);
-    if(m.cell) m.cell.classList.remove('is-sel');
+    if(m.cell && !(_sel && m.cell.dataset.card === _sel.name)) m.cell.removeAttribute('data-sel');
   }
   function _openMenu(cell, x, y){
     _closeMenu();
@@ -128,23 +142,28 @@
     var top = y + h + m > vh ? Math.max(m, y - h) : y;
     el.style.left = left + 'px';
     el.style.top = top + 'px';
-    cell.classList.add('is-sel'); // メニューの対象（金の実線＝選択中）
+    cell.setAttribute('data-sel', '1'); // メニューの対象（金の実線＝選択中）
 
     function onDown(e){ if(!el.contains(e.target)) _closeMenu(); }
     function onKey(e){
-      if(e.key === 'Escape'){ e.preventDefault(); var c = cell; _closeMenu(); if(c && document.body.contains(c)) c.focus({ preventScroll: true }); return; }
+      if(e.key === 'Escape'){
+        // 詳細ドロワーの Esc（deck-card-info.js）まで一緒に閉じないよう、ここで止める
+        e.preventDefault(); e.stopImmediatePropagation();
+        var c = cell; _closeMenu(); if(c && document.body.contains(c)) c.focus({ preventScroll: true }); return;
+      }
       var i = items.indexOf(document.activeElement);
       if(e.key === 'ArrowDown'){ e.preventDefault(); (items[i + 1] || items[0]).focus(); }
       else if(e.key === 'ArrowUp'){ e.preventDefault(); (items[i - 1] || items[items.length - 1]).focus(); }
     }
     function onScroll(e){ if(!el.contains(e.target)) _closeMenu(); }
     document.addEventListener('pointerdown', onDown, true);
-    document.addEventListener('keydown', onKey);
+    document.addEventListener('keydown', onKey, true);
     window.addEventListener('scroll', onScroll, true);
     window.addEventListener('resize', _closeMenu);
+    el.addEventListener('focusout', function(e){ if(e.relatedTarget && !el.contains(e.relatedTarget)) _closeMenu(); });
     _menu = { el: el, cell: cell, cleanup: function(){
       document.removeEventListener('pointerdown', onDown, true);
-      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('keydown', onKey, true);
       window.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', _closeMenu);
     } };
@@ -207,14 +226,15 @@
   function _markSel(){
     var list = $('deckCardList');
     if(!list) return;
-    list.querySelectorAll('.deck-grid-cell.is-sel').forEach(function(c){ c.classList.remove('is-sel'); });
+    // 印は class ではなく data-sel（価格計算が row.className を書き換えても消えないように）
+    list.querySelectorAll('.deck-grid-cell[data-sel]').forEach(function(c){ c.removeAttribute('data-sel'); });
     if(!_sel) return;
     var cell = null;
     list.querySelectorAll('.deck-grid-cell').forEach(function(c){
       if(!cell && c.dataset.card === _sel.name && (c.dataset.sec || 'main') === _sel.sec) cell = c;
     });
     if(cell){
-      cell.classList.add('is-sel');
+      cell.setAttribute('data-sel', '1');
       var src = _cellImg(cell);
       if(src) _sel.src = src;
     }
@@ -244,9 +264,12 @@
         var b = cell.querySelector('.deck-grid-badge');
         if(b && !/^×/.test(b.textContent)) b.textContent = '×' + b.textContent.trim();
         // PC は Tab でカードを選び、メニューキー（Shift+F10）で右クリックメニューを開けるようにする（以前の ± ボタンは Tab で押せた）
-        if(!isTouch() && !cell.hasAttribute('tabindex')){
+        if(_finePointer() && !cell.hasAttribute('tabindex')){
           cell.setAttribute('tabindex', '0');
-          cell.setAttribute('aria-label', cell.dataset.card + '（メニューキーで枚数を変える）');
+          cell.setAttribute('aria-label', cell.dataset.card + '（Enter で詳細・メニューキーで枚数を変える）');
+          // Tab の止まる場所をカード1つにする（中の画像リンクにも止まると40枚で約80回押すことになる）
+          var wrap = cell.querySelector('a.deck-grid-img-wrap');
+          if(wrap) wrap.setAttribute('tabindex', '-1');
         }
       });
     }
@@ -267,6 +290,9 @@
     // 外したカード・詳細を開いたとき（ドロワーにフォーカスがある）は戻さない
     if(!cell || document.querySelector('.deck-card-drawer.open')){ _refocus = null; return; }
     if(!cell.hasAttribute('tabindex')) return; // 札と tabindex を付けた後（下の処理の後）にもう一度呼ばれる
+    // 押した直後に検索欄などへ移っていたら奪わない（フォーカスが無い・一覧の中のときだけ戻す）
+    var ae = document.activeElement;
+    if(ae && ae !== document.body && !list.contains(ae)){ _refocus = null; return; }
     try{ cell.focus({ preventScroll: true }); }catch(_){}
   }
 
@@ -274,25 +300,36 @@
   function _init(){
     var list = $('deckCardList');
     if(!list) return;
+    list.addEventListener('pointerdown', function(e){ _lastPointer = e.pointerType || ''; }, true);
     list.addEventListener('contextmenu', function(e){
-      if(isTouch()) return; // タッチ端末の長押しは端末の動きに任せる（選択はタップ）
       var cell = e.target.closest('.deck-grid-cell');
       if(!cell || !cell.dataset.card) return;
+      // キーボード（メニューキー・Shift+F10）で開いたときは位置が無い
+      var byKey = !e.clientX && !e.clientY;
+      if(_byTouch() && !byKey) return; // 指の長押しは端末の動きに任せる（選択はタップ）
       e.preventDefault();
-      // キーボード（メニューキー・Shift+F10）で開いたときは位置が無いので、カードの右下寄りに出す
       var x = e.clientX, y = e.clientY;
-      if(!x && !y){ var r = cell.getBoundingClientRect(); x = r.left + r.width * 0.6; y = r.top + r.height * 0.4; }
+      if(byKey){ var r = cell.getBoundingClientRect(); x = r.left + r.width * 0.6; y = r.top + r.height * 0.4; } // カードの右下寄りに出す
       _openMenu(cell, x, y);
     });
     // タッチ端末: タップは選択（詳細ドロワーを開く deck-card-info.js より先に受け取り、そちらへは流さない）
     list.addEventListener('click', function(e){
-      if(!isTouch()) return;
+      if(!_byTouch()) return;
       var cell = e.target.closest('.deck-grid-cell');
       if(!cell || !cell.dataset.card) return;
+      // 価格計算後のカード名は店舗ページへのリンク。タップでそのまま開けるよう素通しする
+      var a = e.target.closest('a');
+      if(a && !a.classList.contains('deck-grid-img-wrap')) return;
       e.preventDefault();
       e.stopPropagation();
       select(cell);
     }, true);
+    // Tab で選んだカードで Enter → 詳細（マウスのクリックと同じ）
+    list.addEventListener('keydown', function(e){
+      if(e.key !== 'Enter' || !e.target.classList || !e.target.classList.contains('deck-grid-cell')) return;
+      e.preventDefault();
+      _openInfo(e.target.dataset.card, _cellImg(e.target));
+    });
     // カード・欄・詳細ドロワーの外を押したら選択をやめる
     document.addEventListener('click', function(e){
       if(!_sel) return;
@@ -304,7 +341,7 @@
       var orig = window[fn];
       if(typeof orig !== 'function') return;
       window[fn] = function(){
-        _sel = null;
+        select(null); // 欄も消す（空のデッキになる経路は一覧の描き直しを通らない）
         _closeMenu();
         return orig.apply(this, arguments);
       };
@@ -312,7 +349,7 @@
     _renderBar();
   }
 
-  window.DeckCardOps = { afterRender: afterRender, select: select };
+  window.DeckCardOps = { afterRender: afterRender, select: select, finePointer: _finePointer };
 
   // deck-edit.js・deck-head.js と同じく、index.html のインライン側の初期化より後に動かす
   if(document.readyState === 'complete') _init();

@@ -109,8 +109,8 @@
       mx.textContent = '/ ' + max;
       label.append(nm, num, mx);
       if(sub) label.appendChild(sub);
-      // PC は増減を右クリックメニューに移したので、気づけるよう一言添える（タッチ端末はタップで選ぶので出さない）
-      if(sec === 'main' && !(window._deckOps && window._deckOps.isTouch)){
+      // PC は増減を右クリックメニューに移したので、気づけるよう一言添える（マウスで指せる環境だけ。指で使う端末はタップで選ぶ）
+      if(sec === 'main' && window.DeckCardOps && window.DeckCardOps.finePointer()){
         var hint = document.createElement('span');
         hint.className = 'deck-sec-hint';
         hint.textContent = '右クリックで枚数を変える・ドラッグで並べ替え';

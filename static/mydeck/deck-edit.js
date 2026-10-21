@@ -348,6 +348,8 @@
       if(listEl) listEl.innerHTML = '';
       var results = document.getElementById('deckResults');
       if(results) results.classList.add('hidden');
+      // 空になった経路は renderDeckGrid を通らないので、選んだカードの欄もここで片付ける（deck-card-ops.js）
+      if(window.DeckCardOps) window.DeckCardOps.afterRender();
     }
     _updateDeckSaveBar();
     _updateBuildTabBadge();
