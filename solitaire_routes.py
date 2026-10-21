@@ -247,7 +247,36 @@ def solitaire_replays_page():
     """
     if not ENABLE_VISUAL_SOLO_PLAY:
         return render_template("solo_disabled.html"), 503
-    return render_template("solitaire_replays.html")
+    return render_template("solitaire_replays.html", public_first_count=_public_first_count())
+
+
+# 「みんなのリプレイ」の最初のページの件数（読み込み中の仮の枠の数に使う）。ページを開くたびに DB を引かないよう覚えておく。
+# 以前は前回の訪問の件数（初めては1枚）で枠を取り、実際の件数との差で下の欄が押し下がっていた（2026-10-21 PC で CLS 0.004・スマホ 0.009）。
+# 公開・取り下げ・非表示の直後は最大この秒数だけずれる（ずれても枠の数が合わないだけ）
+_PUBLIC_COUNT_TTL_SEC = 120
+_public_count_cache = {"at": 0.0, "value": None}
+
+
+def _public_first_count():
+    """最初のページ（PUBLIC_LIST_DEFAULT_LIMIT 件まで）に並ぶ公開リプレイの件数。取れなければ None（テンプレートは前回の件数を使う）。"""
+    now = time.time()
+    if _public_count_cache["value"] is not None and now - _public_count_cache["at"] < _PUBLIC_COUNT_TTL_SEC:
+        return _public_count_cache["value"]
+    sb = _get_supabase()
+    if not sb:
+        return None
+    try:
+        rows = (sb.table("solitaire_replays")
+                .select("id")
+                .eq("is_public", True)
+                .eq("hidden", False)
+                .limit(PUBLIC_LIST_DEFAULT_LIMIT)
+                .execute().data or [])
+    except Exception as e:
+        logger.warning(f"公開リプレイの件数の取得エラー: {e}")
+        return None
+    _public_count_cache.update(at=now, value=len(rows))
+    return len(rows)
 
 
 @solitaire_bp.route("/solitaire/og/<replay_id>.png")
