@@ -87,8 +87,19 @@ class TestCollectUse:
         assert names == ["既発売パック1", "既発売パック2", "既発売パック3", "既発売パック4"]
 
 
+@pytest.fixture(autouse=True)
+def _fixed_today(monkeypatch):
+    """表示用は日本時間の今日で発売前/発売済みを分けるため、今日を 2026-07-15 に固定する
+    （_make_official_packs の未発売A・Bは発売前、既発売1〜4は発売済みになる）"""
+    class _FixedDatetime(pack_scraper.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return pack_scraper.datetime(2026, 7, 15, 3, 0, tzinfo=tz)
+    monkeypatch.setattr(pack_scraper, "datetime", _FixedDatetime)
+
+
 class TestDisplayUse:
-    """表示用（include_empty=True・既定）: 0枚パックも含めて直近 _MAX_PACKS 件をそのまま返す"""
+    """表示用（include_empty=True・既定）: 発売前は全部＋発売済みは直近 _DISPLAY_RELEASED_PACKS 件"""
 
     def test_cardless_packs_included(self):
         packs = pack_scraper.get_pack_list(include_empty=True)
@@ -102,11 +113,31 @@ class TestDisplayUse:
         explicit_packs = pack_scraper.get_pack_list(include_empty=True)
         assert [p["name"] for p in default_packs] == [p["name"] for p in explicit_packs]
 
-    def test_returns_latest_max_packs_regardless_of_cards(self):
+    def test_upcoming_do_not_push_out_released(self):
+        """発売前2件があっても、発売済みは直近4件がそのまま並ぶ（2026-10-21 発売前4件で発売済みが消えた）"""
         packs = pack_scraper.get_pack_list(include_empty=True)
         names = [p["name"] for p in packs]
-        assert len(packs) == pack_scraper._MAX_PACKS
+        assert names == ["未発売パックA", "未発売パックB", "既発売パック1", "既発売パック2", "既発売パック3", "既発売パック4"]
+
+    def test_released_capped(self, monkeypatch):
+        """発売済みが多くても直近 _DISPLAY_RELEASED_PACKS 件まで"""
+        monkeypatch.setattr(pack_scraper, "_DISPLAY_RELEASED_PACKS", 2)
+        packs = pack_scraper.get_pack_list(include_empty=True)
+        names = [p["name"] for p in packs]
         assert names == ["未発売パックA", "未発売パックB", "既発売パック1", "既発売パック2"]
+
+    def test_release_day_counts_as_released(self, monkeypatch):
+        """発売日当日（日本時間）は発売済みに入る"""
+        class _D(pack_scraper.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                # UTC 2026-07-31 15:00 = 日本時間 8/1 0:00
+                return pack_scraper.datetime(2026, 7, 31, 15, 0, tzinfo=tz)
+        monkeypatch.setattr(pack_scraper, "datetime", _D)
+        monkeypatch.setattr(pack_scraper, "_DISPLAY_RELEASED_PACKS", 1)
+        names = [p["name"] for p in pack_scraper.get_pack_list(include_empty=True)]
+        # 8/1 発売の未発売Aも当日なので発売済み側に入り、発売前は0件になる
+        assert names == ["未発売パックA"]
 
 
 class TestHasCardsField:
@@ -146,7 +177,7 @@ class TestCacheIsolation:
         pack_scraper.get_pack_list(include_empty=True)
         pack_scraper.get_pack_list(include_empty=False)
         cache_files = sorted(p.name for p in pack_scraper._CACHE_DIR.glob("*.json"))
-        assert cache_files == ["pack_list_auto.json", "pack_list_collect.json"]
+        assert cache_files == ["pack_list_collect.json", "pack_list_display_v2.json"]
 
 
 class TestResolveWikiPageDashlessSubtitle:
