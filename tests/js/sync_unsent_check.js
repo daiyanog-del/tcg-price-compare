@@ -8,10 +8,12 @@
  * 固定する仕様:
  *   1. 通信失敗が続くと、再試行が尽きた時点で未送信の印が付き、sync-unsent-change が出る
  *   2. 印が付いた後は、同じ内容で保存し直しても送り直す（直前の送信内容から外す）
- *   3. 送信が受け付けられたら印が消える。db_unavailable（ok:false）は届いていないので印を付ける
- *   4. 再読込後（印あり）の pull は、購入候補のサーバー内容を適用せず、手元の内容を送り直す
- *      （送る内容は旧クライアントと同じ形。新しい項目は送らない）
- *   5. resendUnsent() は印のある種別の手元の内容を送り、終わると解決する
+ *   3. 送信が受け付けられたら印が消える。db_unavailable（ok:false）は届いていないので印を付ける。
+ *      入力検証エラー（invalid）は送り直しても届かないので印を付けない
+ *   4. 再読込後の pull: サーバーが変わっていれば従来どおり適用し、印を外す（手元を和集合で送り直すと
+ *      他の端末の削除が復活するため、救済ルールは広げない）。変わっていなければ印は残し、自動では送らない
+ *   5. resendUnsent() は印のある種別を順番に送る（同じ sync_id は5秒に1回の制限）。429 は制限より長く待つ
+ *   5b. 古い送信の再試行が、新しい送信が届いた後に諦めても印を付けない
  *   6. 表示: 連携済み＋印ありのときだけ出す。未連携なら出さない。旧版の sync-client（getUnsentKinds 無し）でも壊れない
  *
  * 実行: node tests/js/sync_unsent_check.js
@@ -88,6 +90,7 @@ function load({ storage, fetchImpl, withUi }) {
   vm.runInContext(SYNC_CLIENT, sandbox, { filename: 'sync-client.js' });
   if (withUi) {
     const start = INDEX_SYNC.indexOf('let _syncShareTimerId=null;');
+    if (start < 0) throw new Error('index-sync.js の切り出し位置（let _syncShareTimerId=null;）が見つからない');
     vm.runInContext(INDEX_SYNC.slice(start), sandbox, { filename: 'index-sync.js' });
   }
   return { client: win.SyncClient, sandbox, events, boxes, statusEl };
@@ -143,35 +146,87 @@ async function scenario_db_unavailable_marks_unsent() {
   check('decks_dirty は残る（従来どおり再読込で送り直す）', JSON.parse(storage.getItem('cardprice_sync_state')).decks_dirty === true);
 }
 
-async function scenario_reload_resends_wishlist_without_applying_pull() {
-  console.log('\n=== 4: 再読込後（印あり）の pull はサーバーの購入候補を適用せず、手元を送り直す ===');
+async function scenario_reload_pull() {
+  console.log('\n=== 4: 再読込後（印あり）の pull ===');
   const storage = makeLocalStorage({
     cardprice_sync_state: JSON.stringify({ sync_id: 's1', wishlist_rev: 2, decks_rev: 1, linked: true }),
     cardprice_wishlist: JSON.stringify(WISH),
     cardprice_sync_unsent: JSON.stringify({ wishlist: 1 }),
   });
   const bodies = [];
+  let wl = { unchanged: true };
   const fetchImpl = (url, opt) => {
-    const body = JSON.parse(opt.body);
-    bodies.push({ url, body });
-    if (url === '/api/sync/pull') {
-      // 他の端末で変わった購入候補（rev 5）。適用すると届いていない手元の変更が上書きされる
-      return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({ ok: true, linked: true, wishlist: { rev: 5, items: [{ name: '増殖するG', qty: 1 }] }, decks: { unchanged: true } }) });
-    }
-    return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({ ok: true, status: 'merged', rev: 6, items: [{ name: '増殖するG', qty: 1 }, { name: '灰流うらら', qty: 3 }] }) });
+    bodies.push({ url, body: JSON.parse(opt.body) });
+    return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({ ok: true, linked: true, wishlist: wl, decks: { unchanged: true } }) });
   };
   const appliedAll = [];
   const { client, sandbox } = load({ storage, fetchImpl });
   sandbox.window.wishSave = (items) => { appliedAll.push(items); storage.setItem('cardprice_wishlist', JSON.stringify(items)); };
   sandbox.window.renderWishlist = () => {};
+  // (a) サーバーが変わっていない: 印は残し、勝手に送らない（pull と同時に送ると回数制限に当たる）
   await client.pullIfNeeded();
   await sleep(50);
-  const push = bodies.find((b) => b.url === '/api/sync/push');
-  check('手元の購入候補を送り直す', !!push && push.body.kind === 'wishlist' && push.body.items.length === 1, JSON.stringify(push));
-  check('送る形は従来どおり（sync_id/kind/base_rev/items のみ）', push && JSON.stringify(Object.keys(push.body).sort()) === '["base_rev","items","kind","sync_id"]');
-  check('pull の購入候補（rev 5）は一度も適用しない', !appliedAll.some((a) => a.length === 1 && a[0].name === '増殖するG'), JSON.stringify(appliedAll));
-  check('送り直しの結合結果は適用する', appliedAll.length === 1 && appliedAll[0].length === 2, JSON.stringify(appliedAll));
-  check('送れたので印が消える', !storage.getItem('cardprice_sync_unsent'));
+  check('サーバーが変わっていなければ印は残る', !!unsentOf(storage).wishlist);
+  check('再読込だけでは送らない（push なし）', !bodies.some((b) => b.url === '/api/sync/push'), JSON.stringify(bodies.map((b) => b.url)));
+  // (b) サーバーが変わっていた: 従来どおり適用し、印を外す（和集合で送り直さない）
+  wl = { rev: 5, items: [{ name: '増殖するG', qty: 1 }] };
+  await client.pullIfNeeded();
+  await sleep(50);
+  check('サーバーの内容を従来どおり適用する', appliedAll.length === 1 && appliedAll[0][0].name === '増殖するG', JSON.stringify(appliedAll));
+  check('適用したら印を外す', !storage.getItem('cardprice_sync_unsent'));
+  check('手元を送り直さない（他の端末の削除を復活させない）', !bodies.some((b) => b.url === '/api/sync/push'));
+}
+
+async function scenario_rate_limit_invalid_stale() {
+  console.log('\n=== 3b・5・5b: 回数制限・入力エラー・古い再試行 ===');
+  const mk = () => makeLocalStorage({
+    cardprice_sync_state: JSON.stringify({ sync_id: 's1', wishlist_rev: 2, decks_rev: 1, linked: true }),
+    cardprice_wishlist: JSON.stringify(WISH),
+    cardprice_saved_decks: JSON.stringify([{ id: 'd1', name: 'A', text: '1 灰流うらら', updated: 1 }]),
+    cardprice_sync_unsent: JSON.stringify({ wishlist: 1, decks: 2 }),
+  });
+  // 同じ sync_id は 5秒（1/100 で 50ms）に1回。間隔が短いと 429
+  let last = -1e9; const log = [];
+  const limited = () => {
+    const now = Date.now();
+    if (now - last < 50) { log.push(429); return Promise.resolve({ status: 429, ok: false, json: () => Promise.resolve({}) }); }
+    last = now; log.push(200);
+    return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({ ok: true, status: 'applied', rev: 9 }) });
+  };
+  const st = mk();
+  const a = load({ storage: st, fetchImpl: limited });
+  await a.client.resendUnsent();
+  check('もう一度送る: 回数制限があっても両方届く', !st.getItem('cardprice_sync_unsent'), JSON.stringify(unsentOf(st)) + ' ' + log.join(','));
+
+  // 購入候補→デッキと続けて保存しても、429 を制限より長く待つので届く
+  const st2 = mk(); st2.removeItem('cardprice_sync_unsent'); last = -1e9;
+  const b = load({ storage: st2, fetchImpl: limited });
+  b.client.onWishSave(WISH.concat([{ name: '増殖するG', qty: 1, rarity: '' }]));
+  b.client.onDecksSave([{ id: 'd1', name: 'A', text: '2 灰流うらら', updated: 2 }]);
+  await sleep(300);
+  check('購入候補とデッキを続けて保存しても印は付かない', !st2.getItem('cardprice_sync_unsent'), JSON.stringify(unsentOf(st2)));
+
+  // 入力検証エラー（invalid）は印を付けない
+  const st3 = mk(); st3.removeItem('cardprice_sync_unsent');
+  const c = load({ storage: st3, fetchImpl: () => Promise.resolve({ status: 400, ok: false, json: () => Promise.resolve({ ok: false, reason: 'invalid' }) }) });
+  c.client.onWishSave(WISH);
+  await sleep(100);
+  check('invalid は印を付けない', !st3.getItem('cardprice_sync_unsent'));
+
+  // 古い送信の再試行が、新しい送信が届いた後に諦めても印を付けない
+  const st4 = mk(); st4.removeItem('cardprice_sync_unsent');
+  let delivered = 0;
+  const d = load({ storage: st4, fetchImpl: (url, opt) => {
+    const items = JSON.parse(opt.body).items;
+    if (items.length === 1) return Promise.reject(new Error('offline')); // 古い内容（1件）は常に通信失敗
+    delivered++;
+    return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve({ ok: true, status: 'applied', rev: 9 }) });
+  } });
+  d.client.onWishSave(WISH);
+  await sleep(25); // 1回目が失敗して再試行を待っている間に、新しい内容を保存
+  d.client.onWishSave(WISH.concat([{ name: '増殖するG', qty: 1, rarity: '' }]));
+  await sleep(200);
+  check('新しい送信が届いていれば、古い再試行が諦めても印は付かない', delivered >= 1 && !st4.getItem('cardprice_sync_unsent'), JSON.stringify(unsentOf(st4)));
 }
 
 async function scenario_resend_and_ui() {
@@ -225,7 +280,8 @@ async function scenario_resend_and_ui() {
 (async () => {
   await scenario_retry_exhausted_marks_unsent();
   await scenario_db_unavailable_marks_unsent();
-  await scenario_reload_resends_wishlist_without_applying_pull();
+  await scenario_reload_pull();
+  await scenario_rate_limit_invalid_stale();
   await scenario_resend_and_ui();
   if (failures) { console.error('\n' + failures + ' 件失敗'); process.exit(1); }
   console.log('\n端末同期の送信失敗表示を確認しました');

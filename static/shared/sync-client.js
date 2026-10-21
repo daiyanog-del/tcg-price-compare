@@ -53,6 +53,9 @@
   const DEBOUNCE_MS = 2000;
   const MAX_RETRY = 3;
   const BACKOFF_BASE_MS = 1000;
+  // 429（回数制限）の待ち。サーバーの制限は同じ sync_id で5秒に1回（app.py SYNC_RATE_LIMIT_SEC）。
+  // 1秒・2秒の待ちでは制限の中で再試行を使い切り、購入候補とデッキを続けて保存すると片方が必ず届かなかった
+  const RATE_LIMIT_WAIT_MS = 5500;
 
   // pull/merge結果の適用中は true。onWishSave/onDecksSave からの再送信を止め、無限ループを防ぐ
   let _applying = false;
@@ -107,8 +110,11 @@
       }
     } catch (e) {}
   }
+  // 種別ごとの送信の通し番号。古い送信の再試行が、新しい送信が届いた後に諦めても印を付けないため
+  const _pushSeq = { wishlist: 0, decks: 0 };
   // 届かなかった内容は「直前に送った内容」から外す（残すと、同じ内容で保存し直しても送られない）
-  function _giveUp(kind) {
+  function _giveUp(kind, seq) {
+    if (seq !== _pushSeq[kind]) return; // 後から始めた送信がある。結果はそちらに任せる
     _kindState[kind].lastSentJson = null;
     _setUnsent(kind, true);
   }
@@ -282,6 +288,9 @@
         };
         if (_canonicalize('decks', decks) !== _canonicalize('decks', _readLocalList('decks'))) state.decks_dirty = true;
         _setState(state);
+        // init は手元の両方を送って新しい行を作るので、それまでの未送信は届いたことになる
+        _setUnsent('wishlist', false);
+        _setUnsent('decks', false);
         return state;
       })
       .catch(function () { return null; })
@@ -297,6 +306,7 @@
     const revKey = kind === 'decks' ? 'decks_rev' : 'wishlist_rev';
     const expectedDecks = kind === 'decks' ? _canonicalize('decks', items) : undefined;
     if (kind === 'decks') _deckPushInFlight++;
+    let undelivered = false; // サーバーが受け付けなかった（db_unavailable）
     return _postJson('/api/sync/push', {
       sync_id: state.sync_id,
       kind: kind,
@@ -306,14 +316,16 @@
       if (res.status === 429 || res.status >= 500) {
         const err = new Error('sync push retryable failure: ' + res.status);
         err.retryable = true;
+        err.status = res.status;
         throw err;
       }
       return res.json().catch(function () { return {}; });
     }).then(function (data) {
       if (!data || (_getState() || {}).sync_id !== state.sync_id) return;
-      // 受け付けられた（applied・merged・再発行）ら届いている。db_unavailable 等は届いていない
+      // 受け付けられた（applied・merged・再発行）ら届いている。db_unavailable は届いていない。
+      // 入力検証エラー（invalid 等）は送り直しても届かないので「通信の失敗」の印は付けない（従来どおり黙る）
       if (data.reissued || data.ok) _setUnsent(kind, false);
-      else _giveUp(kind);
+      else if (data.reason === 'db_unavailable') undelivered = true;
       if (data.reissued) {
         // 再発行＝サーバー側で新しい行が作られた（今回pushした種別のデータのみを持つ。
         // app.pyのpush再発行経路はkind単体しか受け取れない仕様のため）。
@@ -334,7 +346,7 @@
         }
         return;
       }
-      if (!data.ok) return; // db_unavailable 等。画面には何も出さない（§4.2）
+      if (!data.ok) return; // db_unavailable 等。db_unavailable は未送信の印になる（_pushWithRetry）
       if (data.status === 'applied') {
         const next = Object.assign({}, _getState() || state);
         next[revKey] = Math.max(next[revKey] || 0, data.rev);
@@ -355,22 +367,27 @@
         if (kind === 'decks') delete next.decks_dirty;
         _setState(next);
       }
-    }).finally(function () { if (kind === 'decks') _deckPushInFlight--; });
+    }).then(function () { return undelivered; })
+      .finally(function () { if (kind === 'decks') _deckPushInFlight--; });
   }
 
-  function _pushWithRetry(kind, items, attempt) {
+  function _pushWithRetry(kind, items, attempt, seq) {
     attempt = attempt || 0;
-    return _pushOnce(kind, items).catch(function (e) {
+    if (!seq) seq = ++_pushSeq[kind];
+    return _pushOnce(kind, items).then(function (undelivered) {
+      if (undelivered) _giveUp(kind, seq);
+    }, function (e) {
       attempt++;
       if (attempt >= MAX_RETRY) {
-        // 次回ページ読み込み時に解決させる（§4.2）。届いていないことは同期の表示に出す
-        _giveUp(kind);
+        // 次回ページ読み込み時に解決させる（§4.2）。届いていないことは同期の表示に出す（2026-10-21）
+        _giveUp(kind, seq);
         return;
       }
       if (kind === 'decks') _deckRetryWaiting++;
-      return _sleep(BACKOFF_BASE_MS * Math.pow(2, attempt - 1)).then(function () {
+      const wait = e && e.status === 429 ? RATE_LIMIT_WAIT_MS : BACKOFF_BASE_MS * Math.pow(2, attempt - 1);
+      return _sleep(wait).then(function () {
         if (kind === 'decks') _deckRetryWaiting--;
-        return _pushWithRetry(kind, kind === 'decks' ? _readLocalList('decks') : items, attempt);
+        return _pushWithRetry(kind, kind === 'decks' ? _readLocalList('decks') : items, attempt, seq);
       });
     });
   }
@@ -443,14 +460,11 @@
     // そのため rev=0 の種別は pull結果を適用せず、代わりにローカルの内容をpushして
     // サーバー側の和集合マージ（§4.3）で合流させる。マージ後はrevが1以上になるため、
     // 次回以降のpullは通常どおり動く（自己修復）
-    // 【2026-10-21】前回のページで送れなかった購入候補（未送信の印あり）も同じ扱いにする。
-    // pull結果を適用すると、届いていない手元の変更をサーバーの古い内容で上書きしてしまうため
-    const staleWishlist = !state.wishlist_rev || !!_getUnsent().wishlist;
+    const staleWishlist = !state.wishlist_rev;
     const staleDecks = !state.decks_rev;
     if (staleWishlist) {
       const local = _readLocalList('wishlist');
-      // 未送信の印があるときは空（すべて消した）も送る
-      if (local.length || _getUnsent().wishlist) _doPush('wishlist', _wishWire(local));
+      if (local.length) _doPush('wishlist', _wishWire(local));
     }
     if (staleDecks) {
       const local = _readLocalList('decks');
@@ -473,6 +487,9 @@
       if (!data || (_getState() || {}).sync_id !== state.sync_id) return;
       if (data.reissued) {
         _clearState();
+        // 次の保存で init が手元の両方を送り直すので、未送信の印は残さない
+        _setUnsent('wishlist', false);
+        _setUnsent('decks', false);
         _notifyReissued();
         return;
       }
@@ -496,6 +513,9 @@
         if (_applyReceivedWishlist(wl.items)) {
           next.wishlist_rev = wl.rev;
           changed = true;
+          // 手元がサーバーの内容になったので、届いていなかった変更の印は外す
+          // （その変更は従来どおりここで失われる。救済ルールで送り直すと、和集合の結合で他の端末の削除が復活するため）
+          _setUnsent('wishlist', false);
         }
       }
       const dk = data.decks || {};
@@ -504,6 +524,7 @@
             && _applyReceivedDecks(dk.items, expectedDecks)) {
           next.decks_rev = dk.rev;
           changed = true;
+          _setUnsent('decks', false);
         }
       }
       if (changed) _setState(next);
@@ -524,11 +545,15 @@
   }
 
   // 「もう一度送る」: 届いていない種別の手元の内容を送り直す。送り終わる（または諦める）と解決する
+  // 種別は順番に送る（同じ sync_id は5秒に1回の制限があり、同時に送ると片方が429になる。429 は RATE_LIMIT_WAIT_MS 待つ）
   function resendUnsent() {
-    return Promise.all(getUnsentKinds().map(function (kind) {
-      const local = _readLocalList(kind);
-      return _doPush(kind, kind === 'wishlist' ? _wishWire(local) : local);
-    })).then(function () {});
+    return getUnsentKinds().reduce(function (prev, kind) {
+      return prev.then(function () {
+        const local = _readLocalList(kind);
+        _kindState[kind].lastSentJson = null; // 送信中の内容と同じでも送り直す
+        return _doPush(kind, kind === 'wishlist' ? _wishWire(local) : local);
+      });
+    }, Promise.resolve()).then(function () {});
   }
 
   // 確認画面（/sync）向け: この端末のローカル件数（適用前に表示する）
