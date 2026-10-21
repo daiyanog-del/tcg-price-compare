@@ -29,17 +29,18 @@ function solitaireContext(payload){
 (async()=>{
   const fresh=indexContext({tiers,metadata});
   await fresh.context.loadMetaTiers();
-  assert.match(fresh.el.innerHTML,/2026-08-05〜2026-10-04/);
-  assert.match(fresh.el.innerHTML,/データ取得: 2026-10-04T12:00:00/);
+  // 2026-10-21 日本時間の「8/5〜10/4」「10/4 12:00 取得」の形に（以前は 2026-10-04T12:00:00+09:00 のまま出ていた）
+  assert.match(fresh.el.innerHTML,/8\/5〜10\/4/);
+  assert.match(fresh.el.innerHTML,/10\/4 12:00 取得（日本時間）/);
   assert.match(fresh.el.innerHTML,/母数不明/);
   assert.doesNotMatch(fresh.el.innerHTML,/直近1ヶ月/);
   assert.equal(JSON.parse(fresh.storage.get('tcgym_meta_cache_v2')).data.metadata.from,metadata.from);
   const restored=indexContext(null,fresh.storage);await restored.context.loadMetaTiers();
-  assert.equal(restored.calls,0);assert.match(restored.el.innerHTML,/2026-08-05/);
+  assert.equal(restored.calls,0);assert.match(restored.el.innerHTML,/8\/5〜10\/4/);
   vm.runInContext("loadMetaDeckPrices=()=>{}; switchMetaSort('tier');",fresh.context);
   assert.equal(fresh.tabs[0].classList.active,true);
   vm.runInContext("_metaSort='price';_metaPriceMap={'検証テーマ':{total:100,priced_count:1,missing_count:0}};renderMetaTiers();",fresh.context);
-  assert.match(fresh.el.innerHTML,/2026-08-05〜2026-10-04/);
+  assert.match(fresh.el.innerHTML,/8\/5〜10\/4/);
   const old=indexContext(tiers,new Map([['tcgym_meta_cache',JSON.stringify({ts:Date.now(),data:tiers})]]));
   await old.context.loadMetaTiers();assert.equal(old.calls,1);
   assert.match(old.el.innerHTML,/集計期間不明/);assert.match(old.el.innerHTML,/取得日時不明/);

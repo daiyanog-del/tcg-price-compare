@@ -37,6 +37,20 @@ function fixture(){
   assert.equal(f.body.children[0].children[0].children[2].textContent,'（メイン2枚・EX1枚）');
   assert.equal(f.storage.getItem('cardprice_saved_decks'),'保存デッキは変更禁止');
   assert.equal(await receiveDeckHandoff(f),false,'消費したURLで再び取り込んだ');
+  // 環境デッキの「シミュレーターで回す」（?from=meta。2026-10-21）も受け取り、戻り先は環境デッキ
+  {
+    const m=fixture();
+    m.loc.href='https://example.test/solitaire?from=meta';
+    storeHandoff(deck,m.storage);
+    assert.equal(await receiveDeckHandoff(m),true,'?from=meta を受け取らない');
+    const back=m.body.children[0].children[2];
+    assert.equal(back.textContent,'環境デッキに戻る');
+    assert.equal(back.href,'/#meta');
+    const other=fixture();
+    other.loc.href='https://example.test/solitaire?from=other';
+    storeHandoff(deck,other.storage);
+    assert.equal(await receiveDeckHandoff(other),false,'?from=other を受け取った');
+  }
 
   // サーバーが最初から置いた欄（?from=mydeck）を使い回し、body の先頭へ新しく差し込まない（CLS 対策 2026-10-21）。
   {

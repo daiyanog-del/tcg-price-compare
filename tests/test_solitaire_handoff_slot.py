@@ -10,6 +10,8 @@ SLOT = '<div id="deckHandoffStatus" class="sol-handoff-status" role="status"></d
 
 @pytest.mark.parametrize('path, expected', [
     ('/solitaire?from=mydeck', True),
+    ('/solitaire?from=meta', True),  # 環境デッキの「シミュレーターで回す」（2026-10-21）
+    ('/solitaire?from=meta&replay=abc', False),
     ('/solitaire', False),
     ('/solitaire?from=other', False),
     # 共有リプレイ・端末保存は JS 側でも取り込まない（受け渡しより優先）

@@ -753,6 +753,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 <link rel="stylesheet" href="{{ static_url('css/price-layout.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/site-theme.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/wish-list.css') }}">
+<link rel="stylesheet" href="{{ static_url('css/meta-deck.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/new-cards.css') }}">
 <link rel="stylesheet" href="{{ static_url('shared/text-report.css') }}">
 <!-- import map: モジュールから相対importされるファイルを内容ハッシュ付きURLへ写像する
@@ -1172,31 +1173,38 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 
   <!-- ===== 環境デッキモード ===== -->
   <div id="mode-meta" class="hidden">
+    <!-- 2026-10-21 一覧と詳細を同時に見る（モック meta-refresh-20261021 の A）。PC は左に一覧・右に詳細、
+         900px 以下は詳細を全面で開く（#metaPane.is-open。index-main.js _openMetaSheet）。見た目は css/meta-deck.css -->
     <div class="deck-builder">
-      <div class="deck-input-area">
-        <!-- 環境デッキ一覧（R-1: 旧トップページのデッキ金額ランキングをここに統合。
-             既定は入賞傾向=Tier表示、安い順に切り替えると価格データがある
-             デッキ（上位シェア順にスクレイプ済みの分）だけをフラットに並べる） -->
-        <div class="movers-tabs" id="metaSortTabs">
-          <button class="movers-tab active" onclick="switchMetaSort('tier')">入賞傾向</button>
-          <button class="movers-tab" onclick="switchMetaSort('price')">安い順</button>
+      <div class="meta-panes">
+        <div class="meta-pane-list">
+          <!-- 環境デッキ一覧（R-1: 旧トップページのデッキ金額ランキングをここに統合。
+               既定は入賞傾向=Tier表示、安い順に切り替えると価格データがある
+               デッキ（上位シェア順にスクレイプ済みの分）だけをフラットに並べる） -->
+          <div class="movers-tabs" id="metaSortTabs">
+            <button class="movers-tab active" onclick="switchMetaSort('tier')">入賞傾向</button>
+            <button class="movers-tab" onclick="switchMetaSort('price')">安い順</button>
+          </div>
+          <div id="metaTierList" class="meta-loading">環境データを読込中...</div>
         </div>
-        <div id="metaTierList" class="meta-loading">環境データを読込中...</div>
-        <div id="metaDeckDetail" class="meta-deck-detail hidden"></div>
 
-      </div>
+        <div class="meta-pane-detail" id="metaPane">
+          <div class="meta-sheet-bar"><button type="button" class="meta-back" onclick="closeMetaSheet()"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>一覧へ</button></div>
+          <div id="metaDeckEmpty" class="meta-empty">デッキを選ぶと、ここにレシピと相場が出ます</div>
+          <div id="metaDeckDetail" class="meta-deck-detail hidden"></div>
 
-      <!-- 環境デッキ計算結果 -->
-      <div id="metaDeckResults" class="deck-results hidden">
-        <div class="deck-total">
-          <span class="deck-total-label">デッキ合計最安値（推定）</span>
-          <span class="deck-total-price" id="metaDeckTotalPrice">-</span>
+          <!-- 環境デッキ計算結果（合計は見出しにも写す。共有の欄は ⋯ から使うので隠す） -->
+          <div id="metaDeckResults" class="deck-results hidden">
+            <div class="deck-total">
+              <span class="deck-total-label">デッキ合計最安値（推定）</span>
+              <span class="deck-total-price" id="metaDeckTotalPrice">-</span>
+            </div>
+            <div class="deck-progress" id="metaDeckProgress"></div>
+            <div id="metaDeckShareArea" class="deck-share-area"></div>
+            <div id="metaDeckCardList"></div>
+          </div>
         </div>
-        <div class="deck-progress" id="metaDeckProgress"></div>
-        <div id="metaDeckShareArea" class="deck-share-area"></div>
-        <div id="metaDeckCardList"></div>
       </div>
-
     </div>
   </div><!-- /mode-meta -->
 
