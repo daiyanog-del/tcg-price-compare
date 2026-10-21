@@ -25,7 +25,8 @@ function _injectStyles() {
       display: flex; flex-direction: column;
       width: min(680px, 100%); max-height: 90vh;
       overflow: hidden;
-      font-family: 'Noto Sans JP', sans-serif;
+      /* 置かれたページの書体（--font）に従う。スマホでは Noto Sans JP を読まないので端末の標準フォントになる */
+      font-family: var(--font, 'Noto Sans JP', system-ui, sans-serif);
     }
     .npm-header {
       padding: 14px 20px; border-bottom: 1px solid #2d3a5a;
@@ -55,7 +56,9 @@ function _injectStyles() {
     .npm-textarea {
       width: 100%; box-sizing: border-box;
       border: 1px solid #2d3a5a; border-radius: 6px;
-      padding: 8px 10px; font-size: .82rem; font-family: 'JetBrains Mono', monospace;
+      /* 数量（数字）と欧文は Outfit（サイトの数字の書体）、和文はページの書体。桁は tabular-nums でそろえる */
+      padding: 8px 10px; font-size: .82rem; font-family: 'Outfit', var(--font, 'Noto Sans JP', system-ui, sans-serif);
+      font-variant-numeric: tabular-nums;
       resize: vertical; min-height: 80px; max-height: 200px;
       line-height: 1.6; color: #e2e8f4; background: #0a1024;
       outline: none;
@@ -68,7 +71,7 @@ function _injectStyles() {
     .npm-name-input {
       flex: 1; min-width: 160px;
       border: 1px solid #2d3a5a; border-radius: 6px;
-      padding: 6px 10px; font-size: .9rem; color: #e2e8f4;
+      padding: 6px 10px; font-size: .9rem; color: #e2e8f4; font-family: inherit;
       background: #0a1024; outline: none;
       transition: border-color .15s;
     }

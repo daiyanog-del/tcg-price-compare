@@ -7,12 +7,16 @@
 // 未定義になる。DOMContentLoaded（deferスクリプトの実行完了後に発火）の中へ移す
 // （_pageCardName は先行スクリプトのトップレベル const だが、クラシックscript間では
 // 同一グローバルレキシカル環境を共有するため参照できる）
+// 旧URLから運ばれたデッキ・購入候補の合流（handoff-apply.js・2026-10-21）は pull の後に行う
+function _applyHandoffPending(){ if(window.GLHandoff) window.GLHandoff.applyPending(); }
 document.addEventListener('DOMContentLoaded', function(){
   if(!_pageCardName && window.SyncClient){
     // pull で「他端末と連携済みか」が確定したら、同期の表示（未送信を含む）を出し直す
     const p=window.SyncClient.pullIfNeeded();
-    if(p && typeof p.then==='function') p.then(function(){ _refreshSyncStatusUI(); });
-    else _refreshSyncStatusUI();
+    if(p && typeof p.then==='function') p.then(function(){ _applyHandoffPending(); _refreshSyncStatusUI(); });
+    else { _applyHandoffPending(); _refreshSyncStatusUI(); }
+  } else {
+    _applyHandoffPending();
   }
 });
 

@@ -1,5 +1,24 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-21: シミュレーターをマイデッキから開いたときの CLS 0.19 を解消（branch fix/handoff-status-cls）
+
+- 原因: 通知の欄 #deckHandoffStatus を JS（static/shared/deck-handoff.js）が後から body の先頭へ差し込み、さらに「読み込みました（メイン40枚・EX15枚）。」が2行に折り返して盤面全体を押し下げていた。
+- 修正: ?from=mydeck（replay・saved なし）のときは templates/solitaire.html が空の欄を置き、JS はそれを使う。高さは solitaire-brand.css の .sol-handoff-status で固定。スマホ縦は デッキ名／状態 の2行（はみ出しは「…」・枚数は出さない＝同じ画面の「デッキ N」「EXデッキ N」で分かる）、PC は1行で枚数つき。失敗の文だけ折り返す。
+- 計測（本番の HTML・deck-handoff.js・solitaire-brand.css を修正版に差し替えて交互に）: スマホ相当 0.1913→0.0（各5回）・長いデッキ名 0.0967→0.0・PC 0.0601→0.0214。PC に残る 0.0197（#poolRow・#replayBarContainer）は別原因で未対応。
+- 確認: JS 単体（deck_handoff_check・deck_link_check）・pytest（新規 test_solitaire_handoff_slot ほか 118件）。
+
+## 2026-10-21: 独自ドメイン greedy-lab.com（本番 PR #152 5621c23・同日 18:10 切り替え）
+
+- 取得・開通済み（Render のカスタムドメイン・Cloudflare DNS only・証明書発行済み・未告知）。
+- 旧URLの画面→引き継ぎページ→新ドメインの /handoff でブラウザ保存領域を運ぶ仕組みを実装。CANONICAL_BASE_URL を設定するまで本番の動きは変わらない。
+- reviewer: 高3（旧URLの /handoff で referrer をすり抜け・next のオープンリダイレクト・送る側の印で失敗時に届かない）・中5 → 反映。sync_id が # に載る件は受け入れ（設計書 §2 既知の制約）。
+- 確認: pytest 2437・JS 単体・Playwright 結合 31/31（tools/check_domain_handoff.py）。
+- 拡張 v1.4.0 は ..	cgym-neuron-extension を書き換え・zip 作成済み。提出は切り替えの後。
+- 切り替え: CANONICAL_BASE_URL=https://greedy-lab.com を Render の web・tcg-watch-x-unreleased・tcg-post-staple-movers（URL を使う定期実行はこの2つだけ）・GitHub Variables・~/.cardsouba/watcher.env に設定。
+- 本番確認（Playwright・GA 遮断・使い捨てのブラウザ）: 旧のカードページ→新の同じページへ2.2秒、デッキ・購入候補・リプレイが届く・管理画面の鍵は運ばない・# が残らない・ページのエラーなし。旧の robots は新の sitemap を指す・旧の /handoff は 404。
+- 自宅 PC の watcher は main の作業コピー（tcg-web 直下）の古いコードで動くので、そこが pull されるまで通知の管理画面 URL は旧（引き継ぎページ経由で新に着くので実害なし）。
+- 次: 拡張 v1.4.0 のストア提出・Search Console・GA4・X のプロフィール・ストアの掲載ページ・プライバシーポリシーの表記（ユーザー操作）。約60日後に旧を 301。
+
 ## 2026-10-21: 購入候補の改修（モック wish-refresh-20261021 の A〜E をユーザー承認）
 
 - 先に不具合を直した（本番 PR #145 e6e0328）: 起動時の価格の取得の途中に購入候補を開くと、届いても「相場データ収集中」のまま止まっていた。取得中の Promise を覚え、届いたら一覧を1回描き直す（index-wish.js の _wishEnsurePrices）。応答を3秒遅らせた Playwright で、直す前の本番は止まったまま、修正後の本番は価格と画像が出ることを確認。
@@ -13,6 +32,9 @@
 - reviewer: 1年キャッシュ→既定に戻す・?t= 秒→中身のハッシュ・読めないときの原寸への切り替え・ICC の引き継ぎ・backfill のページ送り等を反映。
 - 本番（GA・同期・自サイトへの GET 以外を遮断した Playwright、スマホ相当・各5回）: LCP 中央値 4.64→3.72秒、新着画像 756→160KB、CLS 0、ページエラー0。
 - 未確認: Supabase CDN が ?v= をキャッシュの区別に使うか（原寸の ?t= と同じ前提）・iPhone/Android 実機。
+- 追加（本番 PR #149 27df4d6）: トップの新着欄の最初の6枚だけ loading=eager（7枚目以降・一覧ページは lazy のまま。本番で確認済み）。本番の new-cards.js を差し替えた交互計測で LCP 中央値 3.84→3.60秒（5回中4回速い）。反映後の本番単独5回は 3.80秒（3.49〜4.12）で、時間帯のばらつきに埋もれ効果ははっきりしない。
+- 追加（本番 PR #150 324f722）: シミュレーター（solitaire.html）もトップと同じ条件で Noto Sans JP を PC だけ読む。本番の HTML を差し替えた交互計測（スマホ相当・空の盤面・各5回）で LCP 中央値 4.44→3.96秒・load 5.64→4.26秒・フォント 15ファイル357KB→1ファイル32KB。反映後の本番5回は LCP 3.54秒（3.41〜3.81）、スマホは和文フォント取得0・PC は取得あり、ページエラー0。見た目はユーザーが比較ページ（Artifact）で確認しマージ。デッキを開いた状態も追加計測（共有リプレイ LCP 5.48→4.18秒・マイデッキから 4.97→3.64秒、decisions.md）。マイデッキから開くと CLS 0.19（フォントと無関係・未対応）。
+- 追加（本番 PR #151 70f49e4）: PDF デッキ取り込み確認の窓（neuron-preview-modal.js）の書体を `var(--font, …)` に・デッキ名の欄は font-family: inherit。本番のトップ・シミュレーター（スマホ幅）で窓と欄がページ本体と同じ書体の並びになることを確認、ページエラー0。数量・カード名の欄は続く PR #153（897d509）で `'Outfit', var(--font, …)`＋tabular-nums に（どのページも読んでいない JetBrains Mono の指定をやめた）。本番の両ページで確認、ページエラー0。
 
 ## 2026-10-21: シミュレーター #30（巻き戻し→リセット→打つと記録と盤面がずれる）を解決済みとして閉じた
 

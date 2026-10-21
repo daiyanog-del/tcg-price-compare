@@ -46,19 +46,28 @@ function readHandoff(storage){
 export async function receiveDeckHandoff({loadDeck,clearDeck,getCounts,onLoaded=()=>{},storage=sessionStorage,doc=document,loc=location,hist=history}){
   const url=new URL(loc.href);
   // 共有リプレイは最優先。通常のアクセスでは一時データがあっても取り込まない。
-  if(url.searchParams.has('replay')||url.searchParams.has('saved')||url.hash.startsWith('#replay=')||url.searchParams.get('from')!=='mydeck')return false;
-  const panel=doc.createElement('div');panel.setAttribute('role','status');
-  panel.id='deckHandoffStatus';
-  panel.style.cssText='padding:8px 12px;font-family:var(--font);font-size:13px;line-height:1.6;overflow-wrap:anywhere;background:var(--bg-card,#171f31);color:var(--main-color,#eff3fb)';
-  const message=doc.createElement('span');
-  // 一人回しの汎用span色を上書きし、通知パネルの文字色を引き継ぐ。
-  message.style.color='inherit';
-  const retry=doc.createElement('button');retry.type='button';retry.textContent='再試行';retry.hidden=true;
-  const back=doc.createElement('a');back.href='/#mydeck';back.textContent='マイデッキに戻る';
-  // シミュレーターの .sol-ext-link 系（背景#202c42・文字#aec5ff・枠なし）と同じ見た目の小さいリンクボタン。<a> のまま維持する。
-  back.style.cssText='margin-left:12px;display:inline-block;padding:6px 12px;background:#202c42;color:#aec5ff;border:0;border-radius:8px;text-decoration:none;font:inherit;outline-offset:3px';
-  retry.style.cssText='margin-left:12px;padding:8px 12px;min-height:40px;color:var(--main-color,#eff3fb);background:transparent;border:1px solid currentColor;border-radius:4px;font:inherit;cursor:pointer;outline-offset:3px';
-  panel.append(message,retry,back);doc.body.prepend(panel);
+  if(url.searchParams.has('replay')||url.searchParams.has('saved')||url.hash.startsWith('#replay=')||url.searchParams.get('from')!=='mydeck'){
+    // サーバーは # を見られないので、?from=mydeck#replay= では空の欄が置かれている。使わないので外す
+    doc.getElementById?.('deckHandoffStatus')?.remove();
+    return false;
+  }
+  // 欄はサーバーが最初から置く（templates/solitaire.html・?from=mydeck のとき）。後から差し込むと盤面全体が押し下がり、
+  // スマホで CLS が 0.19 出ていた（2026-10-21 計測）。高さは CSS（.sol-handoff-status）で固定し、文の長さでは変えない。
+  let panel=doc.getElementById?.('deckHandoffStatus');
+  if(!panel){panel=doc.createElement('div');panel.id='deckHandoffStatus';panel.setAttribute('role','status');doc.body.prepend(panel);}
+  panel.className='sol-handoff-status';
+  // 1行目＝デッキ名・2行目＝状態（スマホ縦）。PC は1行に並べる。はみ出しは CSS で「…」にする。
+  // 枚数はスマホ縦では出さない（2行目に収まらず切れる。同じ画面の「デッキ N」「EXデッキ N」に出ている）
+  const message=doc.createElement('span');message.className='sol-handoff-text';
+  const nameEl=doc.createElement('span');nameEl.className='sol-handoff-name';
+  const stateEl=doc.createElement('span');stateEl.className='sol-handoff-state';
+  const countsEl=doc.createElement('span');countsEl.className='sol-handoff-counts';
+  message.append(nameEl,stateEl,countsEl);
+  const retry=doc.createElement('button');retry.type='button';retry.textContent='再試行';retry.hidden=true;retry.className='sol-handoff-retry';
+  const back=doc.createElement('a');back.href='/#mydeck';back.textContent='マイデッキに戻る';back.className='sol-handoff-back';
+  panel.append(message,retry,back);
+  // 失敗の文は長いので折り返して全文を見せる（高さが変わるのは失敗時だけ）
+  const show=(name,state,{counts='',failed=false}={})=>{nameEl.textContent=name;stateEl.textContent=state;countsEl.textContent=counts;panel.classList?.toggle('is-error',failed);};
   let running=false;
   async function attempt(){
     if(running)return;
@@ -66,7 +75,7 @@ export async function receiveDeckHandoff({loadDeck,clearDeck,getCounts,onLoaded=
     try{
       const {raw,data}=readHandoff(storage);
       const name=data.name.trim()||'マイデッキ';
-      message.textContent='「'+name+'」を読み込み中…';
+      show('「'+name+'」','読み込み中…');
       if(await clearDeck()===false)throw new Error('別のデッキを読み込み中です。完了後に再試行してください。');
       const text=cards=>cards.map(card=>card.qty+' '+card.name).join('\n');
       await loadDeck(text(data.main),text(data.ex));
@@ -79,11 +88,11 @@ export async function receiveDeckHandoff({loadDeck,clearDeck,getCounts,onLoaded=
       url.searchParams.delete('from');
       hist.replaceState(hist.state,'',url.pathname+url.search+url.hash);
       if(storage.getItem(HANDOFF_KEY)===raw)storage.removeItem(HANDOFF_KEY);
-      message.textContent='「'+name+'」を読み込みました（メイン'+actual.main+'枚・EX'+actual.ex+'枚）。';
+      show('「'+name+'」','読み込みました',{counts:'（メイン'+actual.main+'枚・EX'+actual.ex+'枚）'});
       onLoaded({name,savedId:data.savedId||null});
     }catch(error){
       console.warn('[deck-handoff] デッキ引継ぎ失敗',error);
-      message.textContent=error instanceof SyntaxError?'デッキ情報を読み取れません。マイデッキから開き直してください。':('デッキを引き継げませんでした。'+(error.message||''));
+      show('',error instanceof SyntaxError?'デッキ情報を読み取れません。マイデッキから開き直してください。':('デッキを引き継げませんでした。'+(error.message||'')),{failed:true});
       retry.hidden=false;
     }finally{
       running=false;retry.disabled=false;

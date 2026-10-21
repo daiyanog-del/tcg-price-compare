@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 import fetch_guard as _fetch_guard
+import site_urls
 import unreleased_x_post as _x_post
 from constants import JST
 
@@ -407,8 +408,8 @@ AUTO_APPROVE_ENABLED_ENV = "AUTO_APPROVE_ENABLED"
 # TODO: calibrate from data（運用で1日の自動承認数と、自動承認後に非公開へ戻された数が溜まったら見直す）
 AUTO_APPROVE_DAILY_LIMIT = 10
 
-# 通知に載せる管理画面のURL
-ADMIN_URL = "https://tcg-price-compare.onrender.com/admin"
+# 通知に載せる管理画面のURL（独自ドメイン設定時はそちら・2026-10-21）
+ADMIN_URL = site_urls.site_url() + "/admin"
 
 # 上限到達の通知を1日1回にするための記録（app_settings のキー）。process をまたぐのでDBに持つ
 _CAP_NOTIFIED_KEY = "AUTO_APPROVE_CAP_NOTIFIED"

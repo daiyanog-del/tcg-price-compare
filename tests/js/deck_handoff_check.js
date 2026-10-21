@@ -32,9 +32,29 @@ function fixture(){
   assert.deepEqual(f.calls.slice(0,2),[['clear'],['load','2 青眼の白龍','1 青眼の究極竜']]);
   assert.equal(f.storage.getItem(HANDOFF_KEY),null);
   assert.equal(f.loc.href,'https://example.test/solitaire');
-  assert(f.body.children[0].children[0].textContent.includes(deck.name));
+  assert(f.body.children[0].children[0].children[0].textContent.includes(deck.name));
+  assert.equal(f.body.children[0].children[0].children[1].textContent,'読み込みました');
+  assert.equal(f.body.children[0].children[0].children[2].textContent,'（メイン2枚・EX1枚）');
   assert.equal(f.storage.getItem('cardprice_saved_decks'),'保存デッキは変更禁止');
   assert.equal(await receiveDeckHandoff(f),false,'消費したURLで再び取り込んだ');
+
+  // サーバーが最初から置いた欄（?from=mydeck）を使い回し、body の先頭へ新しく差し込まない（CLS 対策 2026-10-21）。
+  {
+    const pre=fixture();const placed=element('div');let removed=0;placed.remove=()=>{removed++;};
+    pre.doc.getElementById=id=>id==='deckHandoffStatus'?placed:null;
+    pre.storage.setItem(HANDOFF_KEY,snapshot);
+    assert.equal(await receiveDeckHandoff(pre),true);
+    assert.equal(pre.body.children.length,0,'サーバーの欄があるのに差し込んだ');
+    assert.equal(placed.className,'sol-handoff-status');
+    assert(placed.children[0].children[0].textContent.includes(deck.name));
+    assert.equal(removed,0);
+    // ?from=mydeck#replay= はサーバーが欄を置くが取り込まないので、空の欄を外す
+    const hashReplay=fixture();const spare=element('div');spare.remove=()=>{removed++;};
+    hashReplay.doc.getElementById=id=>id==='deckHandoffStatus'?spare:null;
+    hashReplay.loc.href='https://example.test/solitaire?from=mydeck#replay=abc';
+    assert.equal(await receiveDeckHandoff(hashReplay),false);
+    assert.equal(removed,1);
+  }
 
   // 境界値と不正値。巨大入力はJSON解析前に拒否し、盤面に触らない。
   validateHandoff({...deck,main:[{name:'青眼',qty:60}],ex:[{name:'究極竜',qty:15}]});
@@ -62,7 +82,7 @@ function fixture(){
   assert.equal(partial.storage.getItem(HANDOFF_KEY),snapshot);
   assert(partial.loc.href.endsWith('?from=mydeck'));
   const panel=partial.body.children[0];
-  assert.match(panel.children[0].textContent,/一部のカード/);
+  assert.match(panel.children[0].children[1].textContent,/一部のカード/);
   assert.equal(panel.children[1].hidden,false);
   await panel.children[1].listeners.click();
   assert.equal(tries,2);assert.equal(partial.calls.filter(c=>c[0]==='clear').length,2);
