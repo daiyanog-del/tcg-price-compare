@@ -1994,3 +1994,12 @@ rarity_pref 基準に統一。`items_map` のキーも rarity_pref で作る。
 - **確認**: ローカルで Chromium・WebKit とも スマホ縦・横・タブレット・PC の狭い窓は和文フォント取得0、PC は取得・適用あり。反映後の本番（各5回）LCP 3.54秒。見た目はユーザーが iPhone で比較ページ（https://claude.ai/artifact/156TAWhgfWcv21VevqjVRS）を見て承認。
 - **未計測**: デッキを開いた状態（カード名・効果文で和文の分割ファイルが増えるため、差はより大きいと見込む）。token-generator.js の canvas は "Noto Sans JP" 指定のまま（スマホでは端末の標準フォントで描かれる）。
 
+
+## 2026-10-21 独自ドメイン greedy-lab.com と旧URLからの引き継ぎ（branch feat/custom-domain）
+- **何**: ユーザーが greedy-lab.com を取得（Cloudflare Registrar・DNS only で Render に向け開通）。旧URL tcg-price-compare.onrender.com の画面を開いた人は、引き継ぎページがブラウザ保存領域を URL の # で新ドメインの /handoff へ運び、元のページへ移る。環境変数 CANONICAL_BASE_URL を設定した日が切り替え日。設計は docs/design-domain-migration-2026-10-21.md
+- **なぜこの形**: localStorage は origin ごとなので、何もしないと保存デッキ・購入候補・リプレイが新ドメインから見えない。同期のワンタイムリンクで運ぶ初版は、同期の対象外（リプレイ・下書き）を運べず、同期 API の制限と DB に左右されるのでやめた
+- **ユーザー裁定**: 名前はロゴ表記と一致する greedy-lab.com（greedylab.com は他人の売り物・greeedylab は打ち間違いと詐欺サイトに見えるので却下）／自動で移動（ボタンを押させない）／約60日後に旧を単純な 301 に／拡張は新ドメインを足して再承認を受け入れる（利用者約7人。取り込みを旧経由で残す案はシンガポール移設で旧の住所が消えるとぶつかる・取り込み画面をサイトに移す案は7人には見合わない）
+- **安全**: 受け取るのは referrer が旧URLのときだけ（細工リンクで他人の sync_id を書き込ませて以後の保存を読む攻撃を防ぐ）。旧URLの /handoff は 404（旧URL内の細工リンクで referrer をすり抜けられたため・reviewer 指摘）。referrer が無いときは確認ボタンを出し、同期の状態は写さない
+- **受け入れた制約**: sync_id が # に載り、ブラウザの閲覧履歴に残りうる（未検証）。読み書きできるのは保存デッキと購入候補だけなので受け入れた。変えるなら同期の状態だけ10分・1回限りのトークンで運ぶ
+- **CDN**: 移行が落ち着くまで Cloudflare の中継はオフ。Render 自体が Cloudflare の後ろにあり今すぐの差は無い。オンにするのは別の作業で（TASKS）
+

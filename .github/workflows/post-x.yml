@@ -61,5 +61,7 @@ jobs:
           X_API_SECRET: ${{ secrets.X_API_SECRET }}
           X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          # 投稿に載せるサイトのURL（独自ドメイン・2026-10-21）。未設定なら旧URL
+          CANONICAL_BASE_URL: ${{ vars.CANONICAL_BASE_URL }}
           X_POST_DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
         run: python x_poster.py

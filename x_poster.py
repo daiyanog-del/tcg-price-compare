@@ -11,10 +11,12 @@ import requests as _requests
 
 from constants import JST
 from name_normalize import fuzzy_key
+import site_urls
 
 logger = logging.getLogger(__name__)
 
-SITE_URL = "https://tcg-price-compare.onrender.com"
+# 投稿に載せるサイトのURL。CANONICAL_BASE_URL（独自ドメイン）が設定されていればそちら（2026-10-21）
+SITE_URL = site_urls.site_url()
 
 # 毎日の値動き投稿の判定閾値（意味のある変動に絞る、旧 post_daily_movers 用）
 # 2026-07-10 に price_history 直近60日(8,854日次ペア)で校正:
