@@ -299,8 +299,9 @@ export function isPcRangePicking() {
 
 /**
  * 範囲ボタンの見た目を更新する。3状態:
- *   - 待機（範囲なし）: 「✂ 範囲を選ぶ」
- *   - パネルを開いている間: 「✂ 範囲を選んでいます」（.recording。accent の枠）
+ *   - 待機（範囲なし）: 「範囲を選ぶ」
+ *   - パネルを開いている間: 「範囲を選んでいます」（.recording。accent の枠）
+ *   （記号は 2026-10-21 から線アイコン。文字の外の .replay-ico に置いているので、ここでは文字だけ書く）
  *   - 範囲が決まった後: 「範囲 s〜e手目」（.has-range）＋ 隣の ✕（範囲を外す）
  */
 function _updatePcRecordBtn() {
@@ -310,11 +311,11 @@ function _updatePcRecordBtn() {
   if (!btn || !label) return;
   const range = _getPcRecordingRange();
   if (_pick) {
-    label.textContent = '✂ 範囲を選んでいます';
+    label.textContent = '範囲を選んでいます';
   } else if (range) {
     label.textContent = `範囲 ${range.start}〜${range.end}手目`;
   } else {
-    label.textContent = '✂ 範囲を選ぶ';
+    label.textContent = '範囲を選ぶ';
   }
   btn.classList.toggle('recording', !!_pick);
   btn.classList.toggle('has-range', !!range);
