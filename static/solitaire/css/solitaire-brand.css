@@ -1921,8 +1921,9 @@ a.replay-btn { display: inline-block; text-decoration: none; }
 /* ── 再生バーのボタンの形と記号をそろえる（2026-10-21 モック sim-refresh-20261021 の C・ユーザー承認） ──
    まとまり（見る・戻す・残す）はそのまま。ボタンは同じ形（地 #202c42・角丸6・高さ32）、記号は線アイコン
    （.replay-ico。サイドバーと同じ線の太さ）。主操作の「保存」だけ黄。PC 幅だけ（狭い画面は responsive.css の並びのまま）。
-   起点は .replay-bar（ID にしない）: 横向きスマホで範囲・共有を隠す responsive.css の ID 指定（display:none）より弱くするため */
-@media (min-width: 769px) {
+   起点は .replay-bar（ID にしない）: 横向きスマホで範囲・共有を隠す responsive.css の ID 指定（display:none）より弱くするため。
+   境目はスマホ扱い（responsive.css の max-width:767px）の次の 768px から（iPad 縦も含める） */
+@media (min-width: 768px) {
   .replay-bar .replay-btn,
   .replay-bar .replay-save-btn {
     display: inline-flex;
@@ -1939,7 +1940,9 @@ a.replay-btn { display: inline-block; text-decoration: none; }
     box-shadow: none;
     box-sizing: border-box;
   }
-  .replay-bar .replay-btn:not(:disabled):hover { background: #2b3549; }
+  /* ホバーは状態の地（再生中・選んでいる速さ・範囲あり）を持たないボタンだけ（持つものは地を消さない） */
+  .replay-bar .replay-btn:not(:disabled):not(.play-active):not(.active):not(.has-range):hover { background: #2b3549; }
+  .replay-bar .replay-btn.play-active:not(:disabled):hover { background: var(--accent-hover); }
   .replay-bar .replay-btn:disabled,
   .replay-bar .replay-save-btn:disabled { opacity: 0.4; }
   .replay-bar .replay-btn[hidden] { display: none; }
@@ -1951,7 +1954,7 @@ a.replay-btn { display: inline-block; text-decoration: none; }
   /* 速さは溝の中で選ぶ（選んでいる速さは通常のボタンの地＋accent の文字） */
   .replay-bar .replay-speed-group { gap: 2px; padding: 2px; border-radius: 6px; background: #101626; }
   .replay-bar .replay-speed-btn { height: 28px; padding: 0 9px; background: none; color: #a8b4c9; }
-  .replay-bar .replay-speed-btn.active { background: #202c42; color: var(--accent); }
+  .replay-bar .replay-speed-btn.active { background: #202c42; color: #eff3fb; }
   /* 再生: ほかのボタンと同じ形で、▶（accent）と大きめの文字で見つけやすく。再生中は accent の面（.play-active） */
   .replay-bar .replay-btn.replay-play-btn { padding: 0 14px 0 11px; font-size: 0.85rem; }
   .replay-bar .replay-btn.replay-play-btn:not(.play-active) { background: #202c42; }
@@ -1964,7 +1967,9 @@ a.replay-btn { display: inline-block; text-decoration: none; }
   .replay-bar .pc-record-btn.recording { box-shadow: inset 0 0 0 1px var(--accent); color: var(--accent); }
   .replay-bar .pc-record-btn.has-range { background: rgba(174, 197, 255, 0.12); color: var(--accent); }
   .replay-bar .pc-range-clear-btn { padding: 0 9px; }
+  .replay-bar .replay-ico { margin-right: 0; } /* 間は gap で取る */
 }
-/* 線アイコン（再生バー）。components.css の span の一律の色を打ち消し、文字の色に合わせる */
-.replay-ico { display: inline-flex; flex: none; color: inherit; }
+/* 線アイコン（再生バー）。components.css の span の一律の色を打ち消し、文字の色に合わせる。
+   768px 未満（横向きスマホなど、ボタンが flex でない幅）は margin で文字との間を空ける */
+.replay-ico { display: inline-flex; flex: none; color: inherit; margin-right: 6px; vertical-align: -2px; }
 .replay-ico svg { display: block; }

@@ -572,6 +572,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  pointer-events: auto; /* 全文のツールチップ（title）を出すため。押しても何もしない */
+  cursor: default;
 }
 
 /* 項目の補足（「今 3枚」）。右に寄せる */

@@ -56,6 +56,7 @@ import { restackCustomSlot } from '../components/slot-stack.js';
 import { openCardCommentInput } from './comment-ui.js';
 import { addCounterToCard } from '../components/counter-manager.js';
 import { showCardByName } from './card-info-panel.js';
+import { setCipExpanded } from './cip-layout.js';
 
 // ── 単一インスタンス ──────────────────────────────────────────────
 let _menuEl          = null;
@@ -643,6 +644,8 @@ function _cardDetailItem(cardEl) {
     action: () => {
       if (col.classList.contains('hidden')) document.getElementById('cipToggle')?.click();
       showCardByName(name, cardEl.src || '', cardEl.closest('.sample-art') ? 'official_sample' : undefined);
+      // 左クリックと同じく、盤面左の隙間が狭い画面では盤面の上へ広げて効果文まで見せる（card-info-panel.js と同じ）
+      setCipExpanded(true);
     },
   };
 }

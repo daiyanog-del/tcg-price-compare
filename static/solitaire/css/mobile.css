@@ -1417,6 +1417,7 @@
 
   /* 下部バー: 「デッキ 40」の数字が components.css の span の一律の色（#333）で読めなかったのを直す */
   #solMobileDeckCount { color: inherit; font-weight: 700; }
+  .sol-mobile-record-ico { margin-right: 0; vertical-align: 0; } /* ボタンの gap で間を取る */
   .sol-mobile-record-btn.recording .sol-mobile-record-ico { display: none; }
 }
 
