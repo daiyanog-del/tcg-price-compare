@@ -1,6 +1,6 @@
 /* カードの検索結果（2026-10-21 案C。モック _mocks/card-result-layout-20261021）。
    上から「名前と最安（右に相場の箱）→ レアリティ（安い順・在庫ありの最安）→ 出品の一覧（店ごとの最安／すべて）」。
-   色は site-theme.css の変数。文字は 22（名前）・15（見出し）・13（本文）・12（ラベル）・11（件数・札）の5段＋価格の数字。
+   色は site-theme.css の変数（選んでいる印＝クリームの下線 --accent-soft・値段と主操作＝金）。文字は 22（名前）・15（見出し）・13（本文）・12（ラベル）・11（件数・札）の5段＋価格の数字。
    index.html・price-layout.css の旧指定より後に読み、#mode-search を付けて上書きする。 */
 
 /* ── 名前・最安・操作 ── */
@@ -32,7 +32,7 @@
 #mode-search .cr-acts .card-info-details>summary::before{content:none}
 /* 開いたら次の行に回り、本文はその下に出す */
 #mode-search .cr-acts .card-info-details[open]{flex-basis:100%;order:10}
-#mode-search .cr-acts .card-info-details[open]>summary.cr-pill{background:var(--bg-hover);color:var(--text);box-shadow:inset 0 -2px 0 #f3ce46}
+#mode-search .cr-acts .card-info-details[open]>summary.cr-pill{background:var(--bg-hover);color:var(--text);box-shadow:inset 0 -2px 0 var(--accent-soft)}
 #mode-search .cr-acts .card-detail{max-width:680px;margin-top:10px;padding:12px 14px;border:0;border-radius:8px;background:var(--bg-card)}
 
 /* ── 相場の箱（相場の動き・メルカリ・買取） ── */
@@ -89,7 +89,7 @@
 #mode-search .cr-rtiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:6px}
 #mode-search .cr-rtile{display:flex;flex-direction:column;align-items:stretch;gap:2px;min-width:0;padding:8px 10px 7px;border:0;border-radius:6px;background:var(--bg-card);color:var(--text-m);font:inherit;text-align:left;cursor:pointer}
 #mode-search .cr-rtile:hover{background:var(--bg-hover)}
-#mode-search .cr-rtile.active{background:var(--bg-hover);color:var(--text);box-shadow:inset 0 -2px 0 #f3ce46}
+#mode-search .cr-rtile.active{background:var(--bg-hover);color:var(--text);box-shadow:inset 0 -2px 0 var(--accent-soft)}
 #mode-search .cr-rn{overflow:hidden;font-size:12px;font-weight:700;white-space:nowrap;text-overflow:ellipsis}
 #mode-search .cr-rp{display:flex;align-items:baseline;justify-content:space-between;gap:6px}
 #mode-search .cr-rp b{font:600 14px var(--mono);color:var(--text);white-space:nowrap}
@@ -104,7 +104,7 @@
 #mode-search .cr-seg-btn{min-height:32px;padding:0 12px;border:0;border-radius:6px;background:none;color:var(--text-m);font:700 12px var(--font);cursor:pointer}
 #mode-search .cr-seg-btn span{margin-left:2px;font-family:var(--mono);font-weight:500}
 #mode-search .cr-seg-btn:hover{color:var(--text)}
-#mode-search .cr-seg-btn.active{background:var(--bg-hover);color:var(--text);box-shadow:inset 0 -2px 0 #f3ce46}
+#mode-search .cr-seg-btn.active{background:var(--bg-hover);color:var(--text);box-shadow:inset 0 -2px 0 var(--accent-soft)}
 #mode-search .cr-so{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-m);cursor:pointer}
 #mode-search .cr-so-count{font:11px var(--mono);color:var(--text-m)}
 #mode-search .cr-tbl-wrap{overflow-x:auto}
