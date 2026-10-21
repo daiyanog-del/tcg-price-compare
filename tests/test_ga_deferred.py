@@ -2,7 +2,7 @@
 import pytest
 
 
-@pytest.mark.parametrize('path', ['/', '/solitaire'])
+@pytest.mark.parametrize('path', ['/', '/solitaire', '/solitaire/replays'])
 def test_gtag_script_is_injected_after_parse_and_calls_are_queued(monkeypatch, path):
     import app as app_module
     monkeypatch.setattr(app_module, 'GA_MEASUREMENT_ID', 'G-TEST123')
@@ -12,14 +12,14 @@ def test_gtag_script_is_injected_after_parse_and_calls_are_queued(monkeypatch, p
     assert "s.src='https://www.googletagmanager.com/gtag/js?id=G-TEST123'" in html
     assert "document.addEventListener('DOMContentLoaded',later,{once:true})" in html
     # トップは取得を先に始め、差し込み時のURLと一致させる（一致しないと二重取得になる）。
-    # シミュレーターは初期化の回線を優先して先読みしない
+    # シミュレーター・リプレイ一覧（ES module のページ）は初期化の回線を優先して先読みしない
     preload = '<link rel="preload" as="script" fetchpriority="low" href="https://www.googletagmanager.com/gtag/js?id=G-TEST123">'
     assert (preload in html) == (path == '/')
     # gtag() と config は即時に定義・積まれる（読込前のイベントは dataLayer に溜まる）
     assert "function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-TEST123');" in html
 
 
-@pytest.mark.parametrize('path', ['/', '/solitaire'])
+@pytest.mark.parametrize('path', ['/', '/solitaire', '/solitaire/replays'])
 def test_no_ga_output_without_measurement_id(monkeypatch, path):
     import app as app_module
     monkeypatch.setattr(app_module, 'GA_MEASUREMENT_ID', '')
