@@ -15,6 +15,11 @@
     1回の上限は「実際に送信を試みた件数」で数える（行を作らない結果では枠を消費しない）。
     上限で止めた分は予約行を作らない（回収ジョブが後で拾う）。
   - 既定は無効。環境変数 UNRELEASED_X_POST_ENABLED=1 のときだけ動く。
+  - 投稿しない時間帯（2026-10-21 追加）: 既定は JST 1時〜7時。この間は予約行を作らずに quiet_hours を返し、
+    7時以降の回収ジョブ（3時間ごと）が投稿する。承認直後の夜の投稿（23時台など）は止めず、遅れた回収ジョブが
+    夜中に投稿するのを防ぐため。環境変数 UNRELEASED_X_POST_QUIET_HOURS（"1-7" 形式・"off" で無効）で変えられる。
+  - 投稿に成功したら tweet_log に content_type="unreleased_card" で記録する（collect_x_metrics.py が閲覧数を測り、
+    投稿時間帯の見直しに使う）。非公開にして X の投稿を消したら tweet_log の行も消す。
   - X_POST_DRY_RUN=1 のときは投稿せず本文をログに出すだけ（予約行も作らない）。
   - 非公開にしたときの投稿削除（2026-10-15 追加）: 承認済みカードを非公開にする操作（承認待ちに戻す・却下・
     非表示・削除）で、posted の行があれば X の投稿を削除して行を消す（誤字を直して再承認すれば再投稿される）。
@@ -108,7 +113,8 @@ _warned_not_configured = False
 STATUS_DELETE_FAILED = "delete_failed"
 
 # 順番投稿を途中で打ち切る結果（続けても同じ理由で失敗する、または人の確認が要る）
-_STOP_RESULTS = frozenset({"rate_limited", "og_unavailable", "daily_limit", "not_configured", "unknown"})
+_STOP_RESULTS = frozenset({"rate_limited", "og_unavailable", "daily_limit", "not_configured", "unknown",
+                           "quiet_hours"})
 
 # X の加重文字数上限。日本語など多くの文字は2、URLは23で数える
 TWEET_WEIGHT_LIMIT = 280
@@ -122,6 +128,48 @@ _URL_RE = re.compile(r"https?://\S+")
 _ELLIPSIS = "…"
 SOURCE_URL_MAX_LEN = 2000
 OG_CHECK_TIMEOUT_SEC = 30   # 投稿前の OG 画像の生成確認（初回は画像取得＋描画が入る）。TODO: calibrate from data
+
+
+# 投稿しない時間帯（JST の時。開始を含み終了を含まない）。値の形式は "1-7"、"off" で無効
+QUIET_HOURS_ENV = "UNRELEASED_X_POST_QUIET_HOURS"
+DEFAULT_QUIET_HOURS = (1, 7)
+
+# tweet_log.content_type（閲覧数の計測と時間帯の見直し用）
+TWEET_LOG_CONTENT_TYPE = "unreleased_card"
+
+
+def quiet_hours() -> tuple[int, int] | None:
+    """投稿しない時間帯 (開始時, 終了時) を返す。無効なら None。
+
+    環境変数が読めない形式なら既定値に戻す（夜中に投稿してしまう側に倒さない）。
+    """
+    raw = os.environ.get(QUIET_HOURS_ENV, "").strip().lower()
+    if not raw:
+        return DEFAULT_QUIET_HOURS
+    if raw == "off":
+        return None
+    try:
+        start_s, end_s = raw.split("-")
+        start, end = int(start_s), int(end_s)
+        if not (0 <= start <= 23 and 0 <= end <= 23) or start == end:
+            raise ValueError
+        return start, end
+    except ValueError:
+        logger.warning("[unreleased_x_post] %s=%r を読めないため既定の %d-%d 時を使います",
+                       QUIET_HOURS_ENV, raw, *DEFAULT_QUIET_HOURS)
+        return DEFAULT_QUIET_HOURS
+
+
+def in_quiet_hours(now: datetime | None = None) -> bool:
+    """今（JST）が投稿しない時間帯か。開始 > 終了（例 23-6）は日付をまたぐ時間帯として扱う。"""
+    window = quiet_hours()
+    if window is None:
+        return False
+    start, end = window
+    hour = (now or datetime.now(JST)).astimezone(JST).hour
+    if start < end:
+        return start <= hour < end
+    return hour >= start or hour < end
 
 
 def is_enabled() -> bool:
@@ -458,6 +506,19 @@ def _mark_posted(sb, card_id: int, tweet_id) -> None:
                 f" unreleased_x_posts を手動で posted に直してください")
 
 
+def _log_tweet(sb, tweet_id) -> None:
+    """tweet_log に記録する（閲覧数の計測用）。失敗しても投稿の結果には影響させない。"""
+    try:
+        sb.table("tweet_log").insert({
+            "tweet_id": str(tweet_id),
+            "posted_at": datetime.now(JST).isoformat(),
+            "content_type": TWEET_LOG_CONTENT_TYPE,
+            "parent_tweet_id": None,
+        }).execute()
+    except Exception as e:
+        logger.warning("[unreleased_x_post] tweet_log の記録に失敗（投稿自体は成功）tweet_id=%s: %s", tweet_id, e)
+
+
 def _mark_failed(sb, card_id: int, error: str, name: str = "") -> None:
     attempts = 0
     try:
@@ -691,7 +752,7 @@ def post_card(sb, card_id: int, *, post_fn=None, today: date | None = None,
               interval: float | None = None, sleep=time.sleep) -> str:
     """1枚を投稿する。結果コード:
       disabled / missing / not_postable / skipped_duplicate / dry_run / not_configured / daily_limit /
-      already（他が処理中か済み）/ posted / failed / rate_limited / og_unavailable / unknown / error
+      quiet_hours（投稿しない時間帯。予約しない・時間帯が明けた後の回収で投稿）/ already（他が処理中か済み）/ posted / failed / rate_limited / og_unavailable / unknown / error
     例外は投げない（承認処理や回収を止めないため）。
     """
     if not is_enabled():
@@ -729,6 +790,12 @@ def _post_card(sb, card_id: int, *, post_fn, today: date, interval: float, sleep
             logger.warning("[unreleased_x_post] X の認証情報(%s)が未設定のため投稿しません（予約もしません）",
                            "/".join(_X_CRED_ENVS))
         return "not_configured"
+
+    if in_quiet_hours():
+        # 予約しない（行が無いので、時間帯が明けた後の回収ジョブが拾う）
+        logger.info("[unreleased_x_post] 投稿しない時間帯(%s=%s)のため保留 card_id=%s（明けた後の回収で投稿）",
+                    QUIET_HOURS_ENV, quiet_hours(), card_id)
+        return "quiet_hours"
 
     # 同名重複の確認〜日次上限の確認〜予約〜間隔待ち〜送信までをプロセス内で直列化する。
     # 重複確認もロックの中で行う: 外だと、同名の2枚が同時に動いたとき双方が「投稿済みなし」と判定して
@@ -877,6 +944,7 @@ def _send(sb, card: dict, text: str, post_fn) -> str:
     tweet_id, kind = result if isinstance(result, tuple) else (result, None)
     if tweet_id:
         _mark_posted(sb, card_id, tweet_id)
+        _log_tweet(sb, tweet_id)
         logger.info("[unreleased_x_post] 投稿成功 card_id=%s tweet_id=%s", card_id, tweet_id)
         return "posted"
     if kind == KIND_RATE_LIMITED:
@@ -1038,6 +1106,10 @@ def delete_posts(sb, rows, *, delete_fn=None) -> dict:
                 (sb.table(TABLE).delete().eq("card_id", r["card_id"]).eq("tweet_id", r["tweet_id"]).execute())
             except Exception as e:
                 logger.error("[unreleased_x_post] 削除済みの行の削除に失敗 card_id=%s: %s", r["card_id"], e)
+            try:
+                sb.table("tweet_log").delete().eq("tweet_id", str(r["tweet_id"])).execute()
+            except Exception as e:
+                logger.warning("[unreleased_x_post] tweet_log の行の削除に失敗 tweet_id=%s: %s", r["tweet_id"], e)
             logger.info("[unreleased_x_post] 非公開に伴い X の投稿を削除 card_id=%s tweet_id=%s", r["card_id"], r["tweet_id"])
             bump("deleted")
             continue
