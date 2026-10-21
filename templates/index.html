@@ -714,7 +714,7 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   var h=location.hash.slice(1);
   // 一人回しページの「マイデッキページで取り込む」導線（#mydeck-import）は
   // #mydeckタブを開いた状態にするための特殊ハッシュなので、ここでは#mydeckとして扱う
-  if(h==='mydeck-import')h='mydeck';
+  if(h==='mydeck-import'||h.indexOf('mydeck:')===0)h='mydeck';
   // S-1: 買取価格タブは「価格」タブへ統合されたため、#buybackは常時表示のmode-searchのまま
   // （非表示にする対象から除外。除外しないとmode-buyback要素が無くコンテンツが消える）
   // /featured（新商品の特集）はハッシュなしで packs を開くので同じく先に切り替える（価格比較を一瞬描いて跳ねないように）
@@ -1076,6 +1076,9 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
           <div class="deck-tools-h">取り込み・編集</div>
           <button type="button" class="deck-side-btn" id="deckImportBtn" aria-haspopup="dialog" aria-expanded="false" aria-controls="deckImportPop"><svg class="deck-side-ico" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M3 13.5h10"/></svg><span class="deck-side-label">ニューロンから取り込む</span><span class="deck-side-chev" aria-hidden="true">›</span></button>
           <button type="button" class="deck-side-btn" id="deckTextBtn" aria-haspopup="dialog" aria-expanded="false" aria-controls="deckTextPop"><svg class="deck-side-ico" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 4h10M3 8h10M3 12h6"/></svg><span class="deck-side-label">テキストで編集</span><span class="deck-side-chev" aria-hidden="true">›</span></button>
+          <!-- このデッキのリプレイ（static/mydeck/deck-replays-top.js。保存済みのデッキを開いているときだけ出す） -->
+          <div class="deck-tools-h" id="deckReplaysH" hidden>このデッキのリプレイ</div>
+          <div id="deckReplaysBody" class="deck-drp-list" hidden></div>
 
           <div class="deck-tools-h" id="deckCalcHeading">デッキの値段</div>
           <div id="deckCalcSlotTools"></div>
@@ -1547,7 +1550,9 @@ const _SERVICE_URL = "{{ public_base_url }}/";
 <script src="{{ static_url('mydeck/deck-edit.js') }}" defer></script>
 <script src="{{ static_url('mydeck/deck-head.js') }}" defer></script>
 <script src="{{ static_url('mydeck/deck-card-ops.js') }}" defer></script>
+<script src="{{ static_url('shared/deck-replays.js') }}" defer></script>
 <script src="{{ static_url('mydeck/deck-library.js') }}" defer></script>
+<script src="{{ static_url('mydeck/deck-replays-top.js') }}" defer></script>
 <script src="{{ static_url('mydeck/deck-tools.js') }}" defer></script>
 <script type="module" src="{{ static_url('mydeck/deck-card-info.js') }}"></script>
 <script type="module" src="{{ static_url('shared/neuron-pdf-entry.js') }}"></script>

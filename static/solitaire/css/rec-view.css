@@ -115,3 +115,6 @@ body.sol-recview .sol-field-area { padding-top: calc(var(--sol-rec-band-h) + 8px
   .sol-rec-deck { padding: 2px 8px; font-size: 0.72rem; }
   .sol-rec-controls { left: 12px; right: 12px; justify-content: center; }
 }
+
+/* 記録したときのデッキとの差の帯（deck-replays-ui.js）も録画に映さない */
+body.sol-recview .sol-drp-banner { display: none !important; }

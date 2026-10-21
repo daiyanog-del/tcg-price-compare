@@ -80,6 +80,8 @@
       <h2 class="rp-heading" id="rpSavedHeading">端末に保存したリプレイ</h2>
       <p class="rp-note">このブラウザの中に保存したものです。行を押すか「最初から再生」で最初から、「最後の盤面から続ける」で最後の盤面からシミュレーターで開きます。</p>
       <p id="rpSavedEmpty" class="rp-empty" hidden>シミュレーターの保存から「このブラウザに保存」すると、ここに並びます。</p>
+      <!-- デッキで絞り込む（どのマイデッキで撮ったか。replays-page.js renderSaved。デッキ付きのリプレイがあるときだけ出す） -->
+      <div id="rpDeckFilter" class="rp-deck-filter" role="group" aria-label="デッキで絞り込む" hidden></div>
       <ul id="rpSavedList" class="rp-list"></ul>
     </section>
 
