@@ -1831,11 +1831,10 @@ function _restoreLocation(trigger){
   if(['mydeck','meta','packs','wishlist'].includes(mode)){
     switchMode(mode,trigger);
     if(hash==='mydeck-import'){
-      const details=document.getElementById('deckImportDetails');
-      if(details)details.open=true;
       document.getElementById('deckPanes')?.classList.add('show-tools');
       if(typeof window.switchDeckPane==='function')window.switchDeckPane('tools');
-      if(details)details.scrollIntoView({block:'start'});
+      // 取り込みは右の欄のボタンで開く窓（static/mydeck/deck-tools.js）
+      if(window.DeckTools)window.DeckTools.openImport();
     }
     document.title='強欲なラボ';
     return;

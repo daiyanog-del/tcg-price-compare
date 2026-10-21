@@ -112,8 +112,9 @@ setUrl('/card/'+encodeURIComponent('青眼の白龍'));listeners.popstate({state
 assert.equal(searches.at(-1).buy,false);
 setUrl('/card/'+encodeURIComponent('青眼の白龍')+'#mydeck');sandbox._restoreLocation('pageload');
 assert.equal(get('mode-mydeck').classList.contains('hidden'),false);
+let importOpened=0;(sandbox.window||sandbox).DeckTools={openImport(){importOpened++;}};
 setUrl('/#mydeck-import');sandbox._restoreLocation('pageload');
-assert.equal(get('deckImportDetails').open,true);
+assert.equal(importOpened,1,'#mydeck-import で取り込みの窓を開いていない');
 assert(get('deckPanes').classList.contains('show-tools'));
 assert(canceled>0);
 
