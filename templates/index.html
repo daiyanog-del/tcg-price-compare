@@ -975,8 +975,26 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
   <div id="mode-mydeck" class="hidden">
     <div class="deck-builder">
 
-      <!-- 保存済みデッキ一覧（常時最上部） -->
-      <div id="savedDeckList"></div>
+      <!-- 見出し: 左にマイデッキの一覧・デッキ名と状態、右に同じ形のボタン（deck-head.js・deck-library.js）。
+           左右の欄（スマホはタブ）をまたいで一番上に置く（モックどおり。左の欄の中だと名前とボタンが2行に折れた） -->
+      <div class="deck-head" id="deckHead">
+        <!-- 保存済みデッキの一覧は押すと窓（スマホはシート）。static/mydeck/deck-library.js -->
+        <button type="button" class="deck-lib-btn" id="deckLibBtn" aria-haspopup="dialog" aria-expanded="false">
+          <svg class="deck-lib-ico" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="2.5" width="8" height="11" rx="1.2"/><path d="M13 4.5v8.5a1 1 0 0 1-1 1H6"/></svg>
+          <span>マイデッキ</span><span class="deck-lib-count" id="deckLibCount">0</span><span class="deck-lib-chev" aria-hidden="true">▾</span>
+        </button>
+        <div class="deck-head-title">
+          <span class="deck-head-name" id="deckHeadName">マイデッキ未登録</span>
+          <span class="deck-head-state" id="deckSaveStatus" hidden></span>
+        </div>
+        <div class="deck-head-acts">
+          {% if enable_solo_play %}<button type="button" class="deck-pill is-primary" onclick="openCurrentDeckInSolitaire()">このデッキでテストプレイ</button>{% endif %}
+          <button type="button" class="deck-pill" id="deckRegisterBtn" hidden>マイデッキに登録</button>
+          <button type="button" class="deck-pill" id="deckImageBtn" hidden>デッキ画像</button>
+          <button type="button" class="deck-pill deck-head-sort" onclick="deckSortByType()" title="モンスター→魔法→罠の順に並べ替えます">種別順に整列</button>
+          <button type="button" class="deck-pill is-more" id="deckMoreBtn" aria-haspopup="menu" aria-expanded="false" aria-label="その他の操作" title="その他の操作">⋯</button>
+        </div>
+      </div>
 
       <!-- モバイル用ペイン切替タブ（PCでは非表示） -->
       <div class="deck-build-tabs" id="deckBuildTabs">
@@ -989,21 +1007,6 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 
         <!-- ── 左ペイン: デッキ本体 ── -->
         <div class="deck-pane-main" id="deckPaneMain">
-
-          <!-- 見出し: 左にデッキ名と状態、右に同じ形のボタン（static/mydeck/deck-head.js。枚数は各欄の見出しに出す） -->
-          <div class="deck-head" id="deckHead">
-            <div class="deck-head-title">
-              <span class="deck-head-name" id="deckHeadName">マイデッキ未登録</span>
-              <span class="deck-head-state" id="deckSaveStatus" hidden></span>
-            </div>
-            <div class="deck-head-acts">
-              {% if enable_solo_play %}<button type="button" class="deck-pill is-primary" onclick="openCurrentDeckInSolitaire()">このデッキでテストプレイ</button>{% endif %}
-              <button type="button" class="deck-pill" id="deckRegisterBtn" hidden>マイデッキに登録</button>
-              <button type="button" class="deck-pill" id="deckImageBtn" hidden>デッキ画像</button>
-              <button type="button" class="deck-pill deck-head-sort" onclick="deckSortByType()" title="モンスター→魔法→罠の順に並べ替えます">種別順に整列</button>
-              <button type="button" class="deck-pill is-more" id="deckMoreBtn" aria-haspopup="menu" aria-expanded="false" aria-label="その他の操作" title="その他の操作">⋯</button>
-            </div>
-          </div>
 
           <details id="deckOwnership" class="deck-ownership">
             <summary>所持枚数と不足分を確認</summary>
@@ -1022,8 +1025,9 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
             カードを追加するか、デッキを取り込んでください。
           </div>
 
-          <!-- 価格計算（トリガー・説明・結果を1か所に集約） -->
-          <div class="deck-calc">
+          <!-- 価格計算（トリガー・説明・結果を1か所に集約）。PC では右の欄の「デッキの値段」へ移す（static/mydeck/deck-tools.js） -->
+          <div id="deckCalcSlotMain">
+          <div class="deck-calc" id="deckCalc">
             <div class="deck-calc-title">価格を計算する</div>
             <div class="deck-actions">
               <button class="deck-btn deck-btn-primary" onclick="calcDeckEstimate(DECK_CTX.mydeck,{dbOnly:true})">相場で計算</button>
@@ -1044,11 +1048,12 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
               <div id="deckShareArea" class="deck-share-area"></div>
             </div>
           </div>
+          </div>
         </div>
 
-        <!-- ── 右ペイン: カード追加・取り込み・設定 ── -->
+        <!-- ── 右ペイン: カードを追加・取り込み・編集・デッキの値段（3区画。static/mydeck/deck-tools.js） ── -->
         <div class="deck-pane-tools" id="deckPaneTools">
-
+          <div class="deck-tools-h">カードを追加</div>
           <!-- カードを追加（右ペイン先頭の検索：左ヘッダーと上端を揃える） -->
           <div id="deckSearchBox" class="deck-search-box">
             <div class="deck-search-row">
@@ -1065,9 +1070,19 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
                伸びてもサジェスト候補ドロップダウンの位置（入力欄直下）がずれないようにする） -->
           <div id="deckAddedList" class="deck-added-list"></div>
 
-          <!-- ニューロンからデッキを取り込む（PDF / 拡張 / URL の3手段を同列で提示） -->
-          <details class="deck-import-details" id="deckImportDetails">
-            <summary>ニューロンからデッキを取り込む</summary>
+          <div class="deck-tools-h">取り込み・編集</div>
+          <button type="button" class="deck-side-btn" id="deckImportBtn" aria-haspopup="dialog" aria-expanded="false" aria-controls="deckImportPop"><svg class="deck-side-ico" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M3 13.5h10"/></svg><span class="deck-side-label">ニューロンから取り込む</span><span class="deck-side-chev" aria-hidden="true">›</span></button>
+          <button type="button" class="deck-side-btn" id="deckTextBtn" aria-haspopup="dialog" aria-expanded="false" aria-controls="deckTextPop"><svg class="deck-side-ico" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 4h10M3 8h10M3 12h6"/></svg><span class="deck-side-label">テキストで編集</span><span class="deck-side-chev" aria-hidden="true">›</span></button>
+
+          <div class="deck-tools-h" id="deckCalcHeading">デッキの値段</div>
+          <div id="deckCalcSlotTools"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ニューロンからデッキを取り込む（PDF / 拡張 / URL の3手段を同列で提示）。右の欄のボタンで開く窓（スマホはシート） -->
+    <div class="deck-head-pop deck-tool-pop" id="deckImportPop" role="dialog" aria-label="ニューロンから取り込む" hidden>
+      <div class="deck-tool-pop-head">ニューロンから取り込む<button type="button" class="deck-tool-pop-x" aria-label="閉じる">&times;</button></div>
             <div class="deck-import-body">
               <p class="deck-import-lead">遊戯王ニューロンのデッキを、次の3つの方法で取り込めます。</p>
 
@@ -1092,7 +1107,6 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
                        ondragover="event.preventDefault();this.classList.add('drag-over')"
                        ondragleave="this.classList.remove('drag-over')"
                        ondrop="event.preventDefault();this.classList.remove('drag-over');handleDeckDrop(event)">
-                    <div class="deck-drop-zone-icon">&#128196;</div>
                     <div class="deck-drop-zone-title">PDFをドラッグ&amp;ドロップ / クリックして選択</div>
                     <div class="deck-drop-zone-sub">ニューロンのデッキシートPDFを取り込みます</div>
                   </div>
@@ -1112,19 +1126,17 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
                 </div>
               </div>
             </div>
-          </details>
+    </div>
 
-          <!-- テキストで入力・編集（折りたたみ） -->
-          <details class="deck-input-details" id="deckInputDetails">
-            <summary>テキストで入力・編集</summary>
+    <!-- テキストで入力・編集（右の欄のボタンで開く窓。#deckTextarea がデッキの正本なので要素は常に残す） -->
+    <div class="deck-head-pop deck-tool-pop deck-text-pop" id="deckTextPop" role="dialog" aria-label="テキストで編集" hidden>
+      <div class="deck-tool-pop-head">テキストで編集<button type="button" class="deck-tool-pop-x" aria-label="閉じる">&times;</button></div>
+      <div class="deck-text-pop-body">
             <textarea class="deck-textarea" id="deckTextarea" placeholder="カード名を入力（1行1枚、枚数指定も可）&#10;&#10;例:&#10;3 灰流うらら&#10;2 増殖するG&#10;1 サンダー・ボルト&#10;ブラック・マジシャン"></textarea>
-            <div style="text-align:right;margin-top:4px;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
-              <button type="button" class="deck-btn-text" id="deckTextRegisterBtn" hidden>マイデッキに登録</button>
-              <button class="deck-btn-text" onclick="clearDeck()">入力をクリア</button>
+            <div class="deck-text-pop-acts">
+              <button type="button" class="deck-pill" id="deckTextRegisterBtn" hidden>マイデッキに登録</button>
+              <button type="button" class="deck-pill" onclick="clearDeck()">入力をクリア</button>
             </div>
-          </details>
-
-        </div>
       </div>
     </div>
 
@@ -1531,6 +1543,8 @@ const _SERVICE_URL = "{{ public_base_url }}/";
 <script src="{{ static_url('mydeck/deck-edit.js') }}" defer></script>
 <script src="{{ static_url('mydeck/deck-head.js') }}" defer></script>
 <script src="{{ static_url('mydeck/deck-card-ops.js') }}" defer></script>
+<script src="{{ static_url('mydeck/deck-library.js') }}" defer></script>
+<script src="{{ static_url('mydeck/deck-tools.js') }}" defer></script>
 <script type="module" src="{{ static_url('mydeck/deck-card-info.js') }}"></script>
 <script type="module" src="{{ static_url('shared/neuron-pdf-entry.js') }}"></script>
 <script type="module" src="{{ static_url('shared/neuron-url-entry.js') }}"></script>

@@ -15,11 +15,11 @@ body.price-redesign {
 /* 面の濃淡でまとめ、カードや明細を一つずつ囲まない。 */
 .price-redesign :is(.scard,.scard.best,.tbl-wrap,.price-chart,.ritem,.trending-item,
  .meta-deck-detail,.meta-deck-btn,.meta-card-chip,.pack-card-item,
- .deck-total,.deck-card-row,.deck-import-details,.deck-calc,
+ .deck-total,.deck-card-row,.deck-calc,
  .neuron-hint,.deck-share-area,.saved-deck-card-btn,.deck-added-row,
  .wish-card-row,.push-notify-box,.fmx-scroll,.legal-modal) {border:0;border-radius:8px}
 .price-redesign :is(.suggest-item,.deck-suggest-item,.meta-deck-sep,
- .import-method,.neuron-hint-method-row,.deck-import-details[open]>summary,
+ .import-method,.neuron-hint-method-row,
  .cip-effect,.cip-price,.legal-modal-head,.legal-modal-body h3) {border:0}
 .price-redesign .neuron-hint-method-row+.neuron-hint-method-row {border-top:0}
 .price-redesign .deck-grid-cell:not(.error):not(.drag-over),.price-redesign .card-hero-img {border:0}
@@ -99,7 +99,7 @@ body.price-redesign {
 #mode-mydeck .saved-deck-empty{padding:0;margin:0;font-size:12px}
 #mode-mydeck .saved-deck-grid{grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
 #mode-mydeck .deck-panes{gap:28px}
-#mode-mydeck .deck-pane-tools{width:300px}
+#mode-mydeck .deck-pane-tools{width:280px}
 #mode-mydeck .deck-empty-hint{border:0;background:var(--bg-card);min-height:180px;display:flex;align-items:center;justify-content:center;padding:24px;font-size:13px;line-height:1.8}
 #mode-mydeck .deck-calc{background:none;padding:16px 0 0;margin-top:0}
 #mode-mydeck .deck-calc-title{font-size:12px;margin-bottom:10px;letter-spacing:0}
@@ -108,10 +108,6 @@ body.price-redesign {
 #mode-mydeck .deck-calc-help{margin-top:12px;color:var(--text-m);font-size:12px;line-height:1.8}
 #mode-mydeck .deck-calc-help summary{cursor:pointer;width:fit-content}
 #mode-mydeck .deck-calc-help p{margin:6px 0}
-#mode-mydeck .deck-import-details{background:transparent;margin-bottom:10px}
-#mode-mydeck .deck-import-details>summary{padding:12px 0;font-size:12px}
-#mode-mydeck .deck-import-details .deck-import-body{padding:8px 0 16px}
-#mode-mydeck .deck-pane-tools .deck-search-box{margin-bottom:12px}
 @media(max-width:900px){
  #mode-mydeck .deck-pane-tools{width:auto}
 }
