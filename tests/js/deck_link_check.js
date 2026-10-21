@@ -88,7 +88,10 @@ const W=(id,name,{parent='poolRow',token=false}={})=>({
   assert(/Object\.assign\(d, prev, \{ updated: Date\.now\(\) \}\)/.test(ui),'取り消しで更新時刻を古い値に戻している（同期で取り消しが消える）');
   assert(/'sol-deck-load-start', \(e\) => \{\r?\n\s*_dismissUndoToast\(\);/.test(ui)&&/'sol-board-cleared', \(\) => \{ _dismissUndoToast\(\);/.test(ui)&&/'sol-deck-edited', _dismissUndoToast\)/.test(ui),'読込・消去・編集で取り消しを閉じていない');
   const panel=read('static/solitaire/js/ui/deck-input-panel.js');
-  assert.equal((panel.match(/new CustomEvent\('sol-deck-load-start', \{ detail: \{ replace:/g)||[]).length,4,'読込開始の4経路に replace が無い');
+  // 入れ替えの3経路は取得できてから _announceLoadStart(replace) で合図する（2026-10-21）。EX だけの読込は直接 replace:false
+  assert.equal((panel.match(/_announceLoadStart\((true|mainCards\.length > 0)\);/g)||[]).length,3,'入れ替えの3経路が開始の合図を出していない');
+  assert(/new CustomEvent\('sol-deck-load-start', \{ detail: \{ replace \} \}\)/.test(panel),'開始の合図に replace が無い');
+  assert.equal((panel.match(/new CustomEvent\('sol-deck-load-start', \{ detail: \{ replace: false \} \}\)/g)||[]).length,1,'EX だけの読込に replace:false が無い');
   assert(/loadDeckFromText\(deck\.text \|\| '', row\)\) \{?\s*setDeckLink\(\{ savedId: deck\.id/.test(panel),'マイデッキの読込でひも付けていない');
   const cm=read('static/solitaire/js/ui/context-menu.js');
   assert(!/background:\s*#fff/.test(read('static/solitaire/css/components.css').split('.sol-context-menu {')[1].split('}')[0]),'右クリックメニューが白のまま');
