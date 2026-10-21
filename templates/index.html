@@ -555,7 +555,8 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 #packList .meta-deck-list{grid-template-columns:1fr}
 #packList .meta-deck-btn{white-space:normal;justify-content:flex-start;align-items:center;flex-wrap:nowrap;gap:8px}
 #packList .pack-btn-name{flex:1;min-width:0;text-align:left;white-space:normal;word-break:keep-all;overflow-wrap:break-word}
-#packList .meta-deck-btn .meta-share{flex-shrink:0;white-space:nowrap;margin-left:auto}
+/* 発売日（2026/11/21 など・Outfit）の欄は幅を固定する。Outfit が届く前後で幅が 53→49px と変わり、パック名の折り返しが変わってボタンの高さが 75→58px になり、下の一覧が上がっていた（2026-10-21 スマホで CLS 0.022）。幅は Outfit で描いた日付の幅（49〜52px）に合わせた 4.7em。広いと名前が今より早く折り返す。はみ出す数px は右詰めの flex で左の gap 8px 側に出す（text-align:right だと右へはみ出す） */
+#packList .meta-deck-btn .meta-share{flex-shrink:0;white-space:nowrap;margin-left:auto;width:4.7em;display:flex;justify-content:flex-end}
 
 /* ── マイデッキ保存 CSS は static/mydeck/deck.css に分離 ── */
 
