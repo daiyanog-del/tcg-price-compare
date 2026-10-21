@@ -5,6 +5,7 @@
 - 一覧は「マイデッキ ▾」の窓／シート、右の欄は3区画（取り込み・テキストは窓・価格計算は PC で右へ）、見出しは左右の欄をまたいで一番上。決定は decisions.md 2026-10-21。ロジックは static/mydeck/deck-library.js・deck-tools.js。
 - 確認: ローカル Playwright で PC（一覧の開閉・開く・削除と取り消し・Esc・取り込み/テキストの窓・入力の反映・#mydeck-import・Esc の重なり）とスマホ（シート・タブで右の欄が隠れる・はみ出しなし）。JS テスト（deck_library_check 追加）・pytest 2374件（初回だけ1件落ちて名前を取れず、以後3回は全件通過）。
 - reviewer: 高1（スマホで右の欄が隠れない＝自分でも発見済み）・中3・低6 → 低5の一部（計算中のテキスト入力）以外を修正。
+- main 取り込み済み（PR #125 dce6e3f）。⚠ 本番未反映: 10-21 Render のビルド時間の月上限（pipeline_minutes_exhausted）でビルドが開始1秒で失敗（#125 と別セッションの #124 も）。本番は C の版（af8f16d）のまま正常。ユーザー判断待ち（上限の追加・プラン変更・月替わりの復活を待つ）。反映後に同期・収集登録・GA を止めた Playwright で本番確認（scratchpad の de_check.py・esc_nested.py と同じ手順）。
 - 未確認: iPhone/Android 実機（シートとソフトキーボード）。
 
 ## 2026-10-21: マイデッキのカード操作（C・branch feat/mydeck-card-ops）
