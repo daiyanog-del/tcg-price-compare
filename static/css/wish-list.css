@@ -68,7 +68,8 @@
 .wl-menu .deck-more-item.is-danger { color: #ff8f94; }
 .wl-menu .wl-menu-label { display: inline-flex; align-items: center; gap: 8px; color: inherit; }
 .wl-menu .wl-ck { display: inline-flex; width: 12px; color: var(--accent-l); }
-.wl-menu.wl-menu-scroll { max-height: min(420px, 60vh); overflow-y: auto; }
+/* 端までスクロールしてもページへ伝えない（伝わるとページのスクロールで小窓が閉じる） */
+.wl-menu.wl-menu-scroll { max-height: min(420px, 60vh); overflow-y: auto; overscroll-behavior: contain; }
 
 /* 見出し（C）: 数と主操作だけ。ほかは ⋯ */
 #wishActions.wl-head { align-items: center; gap: 10px; margin-bottom: 14px; }

@@ -7,6 +7,10 @@ const WISH_KEY='cardprice_wishlist';
 // null = まだロードしていない。{} 以上 = ロード試行済み（成功・失敗を問わず）
 let _wishPrices = null;
 let _wishPricesTime = 0;
+// 最後に取りに行ったカード名（2026-10-21 reviewer 指摘）。今の一覧にここに無い名前があれば古いとみなして取り直す
+// （すべて削除の取り消し・同期で届いたカードなど、wishAdd を通らずに増えた行の価格が10分出なかったため）
+let _wishPricesNames = new Set();
+let _wishPricesFailed = false; // 最後の取得が通信・応答の失敗で終わったか（「読み込めませんでした」はこのときだけ）
 const _WISH_PRICES_TTL = 10 * 60 * 1000; // 10分でキャッシュ失効
 const _WISH_PRICES_CACHE_KEY = 'cardprice_wish_prices_v1';
 
@@ -19,13 +23,14 @@ const _WISH_PRICES_CACHE_KEY = 'cardprice_wish_prices_v1';
     if(saved&&saved.data&&saved.time){
       _wishPrices=saved.data;
       _wishPricesTime=saved.time;
+      _wishPricesNames=new Set(saved.names||Object.keys(saved.data)); // 古い形（names なし）は届いた名前で代える
     }
   }catch{}
 })();
 
 function _saveWishPricesCache(){
   try{
-    localStorage.setItem(_WISH_PRICES_CACHE_KEY,JSON.stringify({data:_wishPrices,time:_wishPricesTime}));
+    localStorage.setItem(_WISH_PRICES_CACHE_KEY,JSON.stringify({data:_wishPrices,time:_wishPricesTime,names:[..._wishPricesNames]}));
   }catch{}
 }
 function _clearWishPricesCache(){
@@ -48,23 +53,31 @@ async function _loadWishPricesNow(){
   const list=wishGet();
   // ロード試行済みとしてマーク（null → {} で「試行済み」になる）
   const got={};
+  const names=[...new Set(list.map(c=>c.name))];
   _wishPrices=got;
   _wishPricesTime=Date.now();
+  _wishPricesNames=new Set(names);
+  _wishPricesFailed=false;
   if(!list.length){ _saveWishPricesCache(); return; }
   try{
     const res=await fetch('/api/wish-prices',{method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({cards:list.map(c=>c.name)})});
+      body:JSON.stringify({cards:names})});
+    if(!res.ok)throw new Error('HTTP '+res.status);
     const data=await res.json();
-    (data.cards||[]).forEach(c=>{got[c.name]=c;});
+    const cards=data.cards||[];
+    cards.forEach(c=>{got[c.name]=c;});
+    // サーバーは表記ゆれを直した名前で返す。送った順に返るので、数がそろっていれば送った名前でも引けるようにする
+    if(cards.length===names.length) cards.forEach((c,i)=>{ if(!got[names[i]]) got[names[i]]=c; });
     // 取得中にカードが足されて価格が捨てられた（null に戻った）ときは、古い一覧の結果を残さない
     if(_wishPrices===got) _saveWishPricesCache();
-  }catch(e){/* _wishPrices={} のまま（再試行しない）*/}
+  }catch(e){ if(_wishPrices===got)_wishPricesFailed=true; /* _wishPrices={} のまま（10分は取り直さない）*/ }
 }
 // 一覧を描くときに呼ぶ: 価格がまだ・古い・取得中なら（取りに行って）届いたら一覧を描き直す。描き直しの予約は1回だけ
 let _wishRerenderPending=false;
 function _wishEnsurePrices(){
-  const stale=_wishPrices===null || Date.now()-_wishPricesTime > _WISH_PRICES_TTL;
+  const stale=_wishPrices===null || Date.now()-_wishPricesTime > _WISH_PRICES_TTL
+    || wishGet().some(c=>!_wishPricesNames.has(c.name)); // まだ取りに行っていない名前がある
   if(!_wishPricesLoading && !stale) return;
   if(_wishRerenderPending){ if(!_wishPricesLoading) loadWishPrices(); return; }
   _wishRerenderPending=true;
@@ -77,12 +90,14 @@ function _wishEnsurePrices(){
 //   動きが無いときの「(+0%)」は出さない。値下がり（5%以上かつ50円以上・判定は今までと同じ）だけ緑の ↓ 札
 function _wishPriceHtml(info){
   if(!info){
-    return _wishPricesLoading
-      ? '<span class="wl-skel" role="status" aria-label="価格を読み込み中"></span>'
-      : '<span class="wish-price-info wl-noprice">価格を読み込めませんでした</span>';
+    if(_wishPricesLoading) return '<span class="wl-skel" role="status" aria-label="価格を読み込み中"></span>';
+    // 失敗と言い切るのは通信・応答の失敗のときだけ。応答にそのカードが無かったときは控えめに
+    return _wishPricesFailed
+      ? '<span class="wish-price-info wl-noprice">価格を読み込めませんでした</span>'
+      : '<span class="wish-price-info wl-noprice">価格が見つかりませんでした</span>';
   }
   if(info.status==='pending') return '<span class="wish-price-info wl-noprice">相場をまだ集めていません</span>';
-  if(info.latest==null) return '';
+  if(info.latest==null) return '<span class="wish-price-info wl-noprice">価格が見つかりませんでした</span>';
   const priceStr='¥'+info.latest.toLocaleString();
   const isDrop=info.pct!=null&&info.diff!=null&&info.pct<=-5&&info.diff<=-50;
   if(isDrop){
@@ -311,7 +326,11 @@ function wishClearAll(){
   if(!toast){console.warn('[wish] DeckHead.undoToast が読めないため、取り消しを出せませんでした');_wishPrices=null;_clearWishPricesCache();return;}
   toast(`購入候補（${before.length}種 ${total}枚）をすべて削除しました`,()=>{
     const cur=wishGet();
-    wishSave(before.concat(cur.filter(c=>!before.some(b=>_wishMatchKey(b,c.name,c.rarity)))));
+    const merged=before.map(b=>{
+      const again=cur.find(c=>_wishMatchKey(c,b.name,b.rarity));
+      return again?(window.WishDeck?WishDeck.mergeInto(b,again):{...b,qty:Math.min(b.qty+again.qty,99)}):b;
+    });
+    wishSave(merged.concat(cur.filter(c=>!before.some(b=>_wishMatchKey(b,c.name,c.rarity)))));
     renderWishlist();
   },()=>{
     if(wishGet().length)return; // 期限までに足し直していたら、その価格は残す
@@ -375,18 +394,22 @@ function wishSetRarity(name,oldRarity,newRarity){
 let _wishRarities = {};
 let _wishRaritiesNames = ''; // キャッシュ対象名のシグネチャ（カードが追加されたら再取得）
 
+let _wishRaritiesLoading=null; // { sig, p }（取得中の同じ名前の集合は1回にまとめる）
 function _loadWishRarities(names){
   // 既にキャッシュ済みのカードと一致するなら再取得しない
   const sig=[...names].sort().join('|');
   if(sig===_wishRaritiesNames) return Promise.resolve(_wishRarities);
-  return fetch('/api/card-rarities',{
+  if(_wishRaritiesLoading&&_wishRaritiesLoading.sig===sig) return _wishRaritiesLoading.p;
+  const p=fetch('/api/card-rarities',{
     method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({cards:names})
   }).then(r=>r.json()).then(d=>{
     _wishRarities=d.rarities||{};
     _wishRaritiesNames=sig;
     return _wishRarities;
-  }).catch(()=>_wishRarities);
+  }).catch(()=>_wishRarities).finally(()=>{ if(_wishRaritiesLoading&&_wishRaritiesLoading.p===p)_wishRaritiesLoading=null; });
+  _wishRaritiesLoading={sig,p};
+  return p;
 }
 
 // 1行ぶんのレアリティの札。押すと小窓で選ぶ（_wishOpenRarityMenu。2026-10-21 モックの E）
@@ -397,7 +420,9 @@ function _wishRarityChipHtml(c){
 }
 
 function renderWishlist(){
-  _wishCloseMenu(); // 開いていた ⋯ メニューは描き直しで行が作り直されるので閉じる（価格・同期の描き直しでも）
+  // 一覧の中のメニュー（行の ⋯・右クリック・レアリティ）は描き直しで行が作り直されるので閉じる（価格・同期の描き直しでも）。
+  // 見出しの ⋯ は作り直されないので開いたまま
+  if(_wishMenu&&!(_wishMenu.fromBtn&&_wishMenu.fromBtn.id==='wishHeadMore'))_wishCloseMenu();
   const list=wishGet();
   updatePushUI(!!localStorage.getItem(PUSH_SUB_KEY));
   const el=document.getElementById('wishList');
@@ -472,6 +497,7 @@ function _wishCloseMenu(){
  */
 function _wishOpenMenu(spec){
   _wishCloseMenu();
+  if(!spec.fromRarity)_wishCancelRarityWait();
   const fromBtn=spec.fromBtn||null;
   const el=document.createElement('div');
   el.className='deck-head-pop deck-more-menu deck-card-menu wl-menu'+(spec.cls?' '+spec.cls:'');
@@ -548,20 +574,44 @@ function _wishOpenRowMenu(row,x,y,fromBtn){
     afterPick:top=>_wishRefocus(name,fromBtn,top)});
 }
 // レアリティの札（2026-10-21 モック wish-refresh-20261021 の E。ブラウザのプルダウンをやめた）
-function _wishOpenRarityMenu(chip){
-  const name=chip.dataset.name, cur=chip.dataset.rarity||'';
+let _wishRarityWait=null; // 候補を読み込む間、開くのを待っている札 { name, rarity, cancel }
+function _wishCancelRarityWait(){ if(_wishRarityWait){ const w=_wishRarityWait; _wishRarityWait=null; w.cancel(); } }
+function _wishFindRarityChip(name,rarity){
+  return [...document.querySelectorAll('#wishList .wl-rar')].find(b=>b.dataset.name===name&&(b.dataset.rarity||'')===rarity)
+    ||[...document.querySelectorAll('#wishList .wl-rar')].find(b=>b.dataset.name===name)||null;
+}
+function _wishOpenRarityMenu(chip0){
+  const name=chip0.dataset.name, cur=chip0.dataset.rarity||'';
+  // 同じ札を待っている間にもう一度押したら取りやめる
+  if(_wishRarityWait&&_wishRarityWait.name===name&&_wishRarityWait.rarity===cur){_wishCancelRarityWait();return;}
+  _wishCancelRarityWait();
   const open=()=>{
-    if(!document.body.contains(chip))return; // 候補を読み込む間に描き直された
+    // 候補を読み込む間に描き直されたら、作り直された同じ札から開く
+    const chip=document.body.contains(chip0)?chip0:_wishFindRarityChip(name,cur);
+    if(!chip)return;
+    let picked=cur;
     const cands=(_wishRarities[name]||[]).slice();
     if(cur&&!cands.includes(cur))cands.unshift(cur); // 選んでいるのに候補に無いものも落とさない
-    _wishOpenMenu({title:'レアリティ',fromBtn:chip,align:'left',ownerEl:chip,ownerClass:'is-open',cls:'wl-menu-scroll',
-      items:[{label:'最安のレア（指定しない）',sub:'いちばん安いものを探す',checked:!cur,fn:()=>wishSetRarity(name,cur,'')}]
+    _wishOpenMenu({fromRarity:true,title:'レアリティ',fromBtn:chip,align:'left',ownerEl:chip,ownerClass:'is-open',cls:'wl-menu-scroll',
+      items:[{label:'最安のレア（指定しない）',sub:'いちばん安いものを探す',checked:!cur,fn:()=>{picked='';wishSetRarity(name,cur,'');}}]
         .concat(cands.length?['sep']:[])
-        .concat(cands.map(r=>({label:r,checked:r===cur,fn:()=>wishSetRarity(name,cur,r)}))),
-      afterPick:()=>{const c=[...document.querySelectorAll('#wishList .wl-rar')].find(b=>b.dataset.name===name);if(c)c.focus({preventScroll:true});}});
+        .concat(cands.map(r=>({label:r,checked:r===cur,fn:()=>{picked=r;wishSetRarity(name,cur,r);}}))),
+      // 選び直した行（新しいレアリティ）の札へ戻す。同じカードが別のレアリティで並んでいても取り違えない
+      afterPick:()=>{const c=_wishFindRarityChip(name,picked);if(c)c.focus({preventScroll:true});}});
   };
-  if(_wishRarities[name])open();
-  else _loadWishRarities([...new Set(wishGet().map(c=>c.name))]).then(open);
+  if(_wishRarities[name]){open();return;}
+  let canceled=false;
+  const onDown=e=>{ if(!e.target.closest('#wishList .wl-rar'))_wishCancelRarityWait(); };
+  const onKey=e=>{ if(e.key==='Escape')_wishCancelRarityWait(); };
+  document.addEventListener('pointerdown',onDown,true);
+  document.addEventListener('keydown',onKey,true);
+  const w={name,rarity:cur,cancel:()=>{canceled=true;document.removeEventListener('pointerdown',onDown,true);document.removeEventListener('keydown',onKey,true);}};
+  _wishRarityWait=w;
+  _loadWishRarities([...new Set(wishGet().map(c=>c.name))]).then(()=>{
+    if(canceled||_wishRarityWait!==w)return;
+    _wishRarityWait=null; w.cancel(); canceled=false;
+    open();
+  });
 }
 // 見出しの ⋯（2026-10-21 モックの C。主操作だけ見出しに残し、ほかはここへ）
 function _wishOpenHeadMenu(btn){

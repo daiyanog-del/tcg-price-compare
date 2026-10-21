@@ -18,13 +18,16 @@ assert.ok(start >= 0 && end > start, '切り出す範囲が見つからない');
   let resolveFetch = null;
   const sb = {
     localStorage: { getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k) },
-    wishGet: () => [{ name: '灰流うらら', qty: 3 }],
+    wishGet: () => sb.__list,
+    __list: [{ name: '灰流うらら', qty: 3 }],
+    __cards: () => sb.__list.map(c => ({ name: c.name, status: 'ready', latest: 180 })),
     renders: 0, badges: 0,
-    fetch: () => { fetches++; return new Promise(r => { resolveFetch = () => r({ json: async () => ({ cards: [{ name: '灰流うらら', status: 'ready', latest: 180 }] }) }); }); },
+    fetch: () => { fetches++; return new Promise(r => { resolveFetch = () => r({ ok: true, json: async () => ({ cards: sb.__cards() }) }); }); },
     Date, Promise, console,
   };
   sb.renderWishlist = () => { sb.renders++; vm.runInContext('_wishEnsurePrices()', sb); };
   sb.wishUpdateBadge = () => { sb.badges++; };
+  sb.globalThis = sb;
   vm.createContext(sb);
   vm.runInContext(src.slice(start, end) + '\n;globalThis.__get=()=>({p:_wishPrices,loading:_wishPricesLoading});', sb);
   const tick = () => new Promise(r => setTimeout(r, 0));
@@ -55,5 +58,14 @@ assert.ok(start >= 0 && end > start, '切り出す範囲が見つからない');
   resolveFetch(); await tick(); await tick();
   assert.equal(sb.__get().p['灰流うらら'].latest, 180);
 
+  // 4. wishAdd を通らずに増えた行（すべて削除の取り消し・同期で届いた）は、まだ取りに行っていない名前なので取り直す（reviewer 指摘）
+  const before = fetches;
+  sb.__list = [{ name: '灰流うらら', qty: 3 }, { name: '増殖するG', qty: 2 }];
+  sb.renderWishlist();
+  assert.equal(fetches, before + 1, 'まだ取りに行っていない名前があれば取り直す');
+  resolveFetch(); await tick(); await tick();
+  assert.equal(sb.__get().p['増殖するG'].latest, 180);
+  sb.renderWishlist(); await tick();
+  assert.equal(fetches, before + 1, '取りに行った名前だけなら取り直さない');
   console.log('購入候補の価格: 取得中に描いた一覧を届いたら描き直すことを確認しました');
 })().catch(e => { console.error(e); process.exit(1); });
