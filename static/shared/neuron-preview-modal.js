@@ -56,7 +56,9 @@ function _injectStyles() {
     .npm-textarea {
       width: 100%; box-sizing: border-box;
       border: 1px solid #2d3a5a; border-radius: 6px;
-      padding: 8px 10px; font-size: .82rem; font-family: 'JetBrains Mono', monospace;
+      /* 数量（数字）と欧文は Outfit（サイトの数字の書体）、和文はページの書体。桁は tabular-nums でそろえる */
+      padding: 8px 10px; font-size: .82rem; font-family: 'Outfit', var(--font, 'Noto Sans JP', system-ui, sans-serif);
+      font-variant-numeric: tabular-nums;
       resize: vertical; min-height: 80px; max-height: 200px;
       line-height: 1.6; color: #e2e8f4; background: #0a1024;
       outline: none;
