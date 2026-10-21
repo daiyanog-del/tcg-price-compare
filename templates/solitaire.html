@@ -32,7 +32,14 @@
 <script defer src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Noto+Sans+JP:wght@400;500;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+<!-- Bungee（ロゴ）と Outfit（数字）はどの幅でも読む。Noto Sans JP はトップ（index.html）と同じく、マウスで操作する
+     幅768px以上の端末（PC）だけ読み、スマホ（横向きを含む）・タブレットは端末の標準フォント（--font の続き。iPhone・iPad は
+     ヒラギノ、Android は Noto Sans CJK）にする。スマホ相当の本番計測で和文の分割ファイル15個・357KB が盤面の表示を遅らせ、
+     外すと LCP 中央値 4.44→3.96秒・load 5.64→4.26秒（2026-10-21・空の盤面・交互に各5回）。
+     media が合わないスタイルシートの @font-face は使われないので、フォント本体は取得されない -->
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet" media="print" onload="this.media='(min-width:768px) and (hover:hover) and (pointer:fine)'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet" media="(min-width:768px) and (hover:hover) and (pointer:fine)"></noscript>
 <!-- 一人回しのスタイル。旧 main.css の @import を並べ直したもの（@import は main.css を読み終えてから
      次を取りに行くため直列になり、内容ハッシュも付かなかった・2026-10-16）。後ろほど優先されるので順序を変えないこと -->
 <link rel="stylesheet" href="{{ static_url('solitaire/css/variables.css') }}">
