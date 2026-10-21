@@ -25,28 +25,38 @@
 #wishList .wl-name:hover { text-decoration: underline; }
 #wishList .wl-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 #wishList .wl-tags .wish-deck-tag { margin: 0; border: 0; background: var(--bg-hover); color: var(--accent-l); font-size: .68rem; font-weight: 700; }
-/* レアリティ: 今はブラウザのプルダウンのまま、札の見た目にする（選び方の作り直しは E） */
+/* レアリティの札（E）。押すと小窓（.wl-menu-scroll）で選ぶ */
 #wishList .wl-rar {
   justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   max-width: 100%;
   height: 28px;
-  padding: 0 26px 0 10px;
+  padding: 0 10px;
   border: 0;
   border-radius: 999px;
-  background: var(--bg-hover) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' fill='none' stroke='%23a8b4c9' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 10px center;
+  background: var(--bg-hover);
   color: var(--text);
   font: 600 .74rem var(--font);
-  text-overflow: ellipsis;
-  appearance: none;
-  -webkit-appearance: none;
+  white-space: nowrap;
   cursor: pointer;
 }
+#wishList .wl-rar span { overflow: hidden; color: inherit; text-overflow: ellipsis; }
+#wishList .wl-rar svg { flex: none; color: var(--text-m); }
+#wishList .wl-rar:hover { background: #2b3549; }
+#wishList .wl-rar.is-open { box-shadow: inset 0 0 0 1px var(--accent-l); }
 #wishList .wl-rar:focus-visible { outline: 2px solid #f3ce46; outline-offset: 2px; }
-#wishList .wl-price { justify-self: end; text-align: right; }
+#wishList .wl-price { justify-self: end; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; text-align: right; }
 #wishList .wl-price .wish-price-info { font: 700 .92rem var(--mono); color: var(--text); }
-#wishList .wl-price .wish-price-info small { font-weight: 400; }
-#wishList .wl-row.wish-pending .wl-price .wish-price-info { font: .72rem var(--font); color: var(--text-m); }
-#wishList .wl-price .wish-price-drop { color: var(--green); }
+/* 価格が無いとき（まだ集めていない・読み込めなかった）は小さな控えめの文字 */
+#wishList .wl-price .wl-noprice { font: .72rem var(--font); color: var(--text-m); white-space: normal; }
+/* 読み込み中の印（D。以前は「相場データ収集中」の文字） */
+#wishList .wl-skel { display: block; width: 64px; height: 14px; border-radius: 4px; background: linear-gradient(90deg, var(--bg-hover), #2b3549, var(--bg-hover)); background-size: 200% 100%; animation: wl-skel 1.2s linear infinite; }
+@keyframes wl-skel { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { #wishList .wl-skel { animation: none; } }
+/* 値下がり（D）: 緑の ↓ 札（判定は今までと同じ: 5%以上かつ50円以上） */
+#wishList .wl-drop { padding: 1px 6px; border-radius: 4px; background: var(--green); color: #101626; font: 700 .68rem var(--mono); white-space: nowrap; }
 /* 枚数: 押しやすい大きさの − N ＋（溝の中） */
 #wishList .wl-step { justify-self: end; display: inline-flex; align-items: center; gap: 2px; padding: 2px; border-radius: 6px; background: var(--bg); }
 #wishList .wl-step button { width: 28px; height: 28px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--text); font: 700 1rem var(--font); line-height: 1; cursor: pointer; }
@@ -56,6 +66,19 @@
 #wishList .wl-more:hover, #wishList .wl-row.is-menu .wl-more { background: var(--bg-hover); color: var(--text); }
 /* ⋯ メニューの「購入候補から外す」（危ない操作は赤い文字） */
 .wl-menu .deck-more-item.is-danger { color: #ff8f94; }
+.wl-menu .wl-menu-label { display: inline-flex; align-items: center; gap: 8px; color: inherit; }
+.wl-menu .wl-ck { display: inline-flex; width: 12px; color: var(--accent-l); }
+.wl-menu.wl-menu-scroll { max-height: min(420px, 60vh); overflow-y: auto; }
+
+/* 見出し（C）: 数と主操作だけ。ほかは ⋯ */
+#wishActions.wl-head { align-items: center; gap: 10px; margin-bottom: 14px; }
+#wishActions .wl-title { display: flex; align-items: baseline; gap: 10px; margin-right: auto; }
+#wishActions .wl-title h2 { margin: 0; color: var(--text); font-size: 1.05rem; font-weight: 700; }
+#wishActions .wl-count { color: var(--text-m); font-size: .8rem; }
+#wishActions .wl-count b { color: var(--text); font: 700 .8rem var(--mono); }
+#wishActions .wish-action-btn.primary { height: 36px; padding: 0 16px; }
+#wishActions .wl-head-more { width: 36px; height: 36px; padding: 0; border: 0; border-radius: 6px; background: var(--bg-hover); color: var(--text); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+#wishActions .wl-head-more:hover { background: #2b3549; }
 
 /* スマホ〜小型タブレット: 3段（名前と価格／デッキの札／レアリティ・枚数・⋯） */
 @media (max-width: 767px) {
@@ -73,4 +96,6 @@
   #wishList .wl-price { grid-area: price; align-self: start; white-space: nowrap; }
   #wishList .wl-step { grid-area: step; align-self: center; }
   #wishList .wl-more { grid-area: more; align-self: center; }
+  #wishActions .wl-title { flex: 1 1 100%; }
+  #wishActions .wish-action-btn.primary { flex: 1 1 auto; }
 }
