@@ -1068,6 +1068,8 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
           </div>
           <!-- 追加したカードのミニリスト（#deckSearchBox の外に置き、ボックスの高さが
                伸びてもサジェスト候補ドロップダウンの位置（入力欄直下）がずれないようにする） -->
+          <!-- 検索欄より下だけ欄の中でスクロールする（右の欄ごとスクロールさせると検索の候補一覧が欄の下端で切れるため） -->
+          <div class="deck-tools-scroll">
           <div id="deckAddedList" class="deck-added-list"></div>
 
           <div class="deck-tools-h">取り込み・編集</div>
@@ -1076,6 +1078,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 
           <div class="deck-tools-h" id="deckCalcHeading">デッキの値段</div>
           <div id="deckCalcSlotTools"></div>
+          </div>
         </div>
       </div>
     </div>

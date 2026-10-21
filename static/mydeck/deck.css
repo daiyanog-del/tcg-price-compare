@@ -480,8 +480,10 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
 #mode-mydeck #deckCalcSlotTools .deck-total{padding:8px 10px;gap:8px}
 #mode-mydeck #deckCalcSlotTools .deck-total-label{font-size:12px}
 #mode-mydeck #deckCalcSlotTools .deck-total-price{font-size:15px}
-/* 右の欄が画面より高くなったら欄の中でスクロール（貼り付いたまま下の計算結果が見えなくならないように） */
-@media(min-width:901px){#mode-mydeck .deck-pane-tools{max-height:calc(100vh - 24px);overflow-y:auto}}
+/* 右の欄が画面より高くなったら、検索欄より下だけ欄の中でスクロール（貼り付いたまま下の計算結果が見えなくならないように）。
+   欄ごとスクロールさせると、検索の候補一覧（position:absolute）が欄の下端で切れる */
+.deck-tools-scroll{display:flex;flex-direction:column;gap:8px;min-height:0}
+@media(min-width:901px){.deck-tools-scroll{max-height:calc(100vh - 120px);overflow-y:auto;margin-right:-6px;padding-right:6px}}
 
 /* 取り込み・テキストの窓 */
 .deck-tool-pop{display:flex;flex-direction:column;width:min(360px,calc(100vw - 16px));overflow-y:auto}
