@@ -215,10 +215,16 @@ function showUnreleasedCard(name){
       <summary>カード情報（効果テキスト）</summary>
       <div id="cardDetail" class="card-detail"></div>
     </details>
-    <div class="cr-acts">
+    <!-- ボタンは効果テキストの欄（開いた状態で後から中身が入る）が決まってから出す。先に出すと欄が入ったときに
+         約450px 押し下げられ、CLS が出ていた（2026-10-22 スマホ 0.019・PC 0.015）。下には他に見えるものが無い -->
+    <div class="cr-acts" id="unrelShareBtns" style="display:none">
       <button type="button" class="cr-pill cr-pill-pri" onclick="addToDeck('${escAttr(escJs(name))}',this)">デッキに追加</button>
       <button type="button" class="cr-pill" onclick="wishAddFromBtn(this,'${escAttr(escJs(name))}',1)">購入候補に追加</button>
     </div>`;
+  // カード情報の処理が終わったら（中身あり・無し・失敗のどれでも）出す。届かないときも5秒で出す
+  const unrelBtns=document.getElementById('unrelShareBtns');
+  const revealUnrelBtns=()=>{if(unrelBtns) unrelBtns.style.display='';};
+  setTimeout(revealUnrelBtns,5000);
 
   // 画像（公式SAMPLE or プロキシ）
   fetch('/api/card-image?name='+encodeURIComponent(name))
@@ -231,7 +237,7 @@ function showUnreleasedCard(name){
     })
     .catch(()=>{});
   // カード情報（効果テキスト等）— proxy 対応
-  _fetchCardInfo(name);
+  _fetchCardInfo(name,revealUnrelBtns);
 }
 
 // 未発売カードの proxy データからカード情報パネルを描画する
@@ -309,7 +315,8 @@ function _renderProxyDetail(p,name){
   _showCardDetail();
 }
 
-function _fetchCardInfo(cardName){
+// onSettled: 欄の中身を書いた（または隠した）直後に呼ぶ（未発売カードのボタンを出す。showUnreleasedCard）
+function _fetchCardInfo(cardName,onSettled=()=>{}){
   fetch('/api/card-info?name='+encodeURIComponent(cardName))
     .then(r=>r.json())
     .then(data=>{
@@ -342,7 +349,8 @@ function _fetchCardInfo(cardName){
       _showCardDetail();
       _clampCardDetail();
     })
-    .catch(()=>{_hideCardDetail();fetchCardImage(cardName);});
+    .catch(()=>{_hideCardDetail();fetchCardImage(cardName);})
+    .finally(onSettled);
 }
 
 function fetchCardImage(cardName){
@@ -542,7 +550,11 @@ function doSearch(opts){
       // 価格推移も店舗検索と並行して取る（完了後に取り始めると、表示済みの表の上に後から差し込まれて表が跳ねる）
       if(window.PriceTrend){ trendName=q; PriceTrend.load(q); }
     }
-    if(d.type==='corrected'){
+    if(d.type==='shops'){
+      // 調べる店の一覧（サーバーが最初に送る）。進み具合の札を全店ぶん「待機中」で先に並べる。
+      // 届くたびに1枚ずつ足すと、既存の札が細くなって店名が折り返し、画面がずれていた（2026-10-22）
+      (d.shops||[]).forEach(s=>_searchProgStep(s));
+    }else if(d.type==='corrected'){
       // カード名が自動補正された場合、検索欄を更新して通知
       document.getElementById('q').value=d.corrected;
       const notice=document.createElement('div');
@@ -1903,6 +1915,9 @@ function _restoreLocation(trigger){
     switchMode('packs',trigger);
     loadPacks().then(()=>{
       if(location.pathname!=='/featured'||location.hash)return;
+      // すでにパックを選んでいるとき（ブラウザの戻る・進むで来たとき）は選び直さない。スマホの全面の詳細を閉じるたびに
+      // 新弾を開き直して履歴を足し、戻るで /featured から出られなくなっていた（2026-10-21 reviewer 指摘）
+      if(typeof _pk!=='undefined'&&_pk)return;
       const f=_packData.find(p=>p.featured);
       if(f)loadPackCards(f.name,f.wiki_page||f.name,f.tcg_name||'',true);
     });
@@ -2002,6 +2017,7 @@ function switchMode(mode, trigger){
   }
   if(mode==='meta'){loadMetaTiers();loadMetaDeckPrices();}
   else if(typeof closeMetaSheet==='function') closeMetaSheet(true); // スマホの全面の詳細は閉じる（履歴は戻さない）
+  if(mode!=='packs'&&typeof closePackSheet==='function') closePackSheet(true); // 新商品の全面の詳細も同じ（packs.js）
   if(mode==='mydeck'){
     renderSavedDecks();
     // 端末間同期（P2）: マイデッキタブを開いたときだけ pull する（カード個別ページ閲覧では走らせない）
@@ -2794,7 +2810,7 @@ function _setupThumbObserver(containerSelector){
 
 // 最新弾タブ（パック）関連の処理は static/packs.js へ切り出し済み。
 // 一括価格検索（bulkSearchPackPrices）もそちらに実装。
-// 関数: loadPacks / renderPacks / loadPackCards / _loadFeaturedIntoPackDetail / bulkSearchPackPrices
+// 関数: loadPacks / renderPacks / loadPackCards / bulkSearchPackPrices / closePackSheet
 
 
 

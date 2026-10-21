@@ -288,11 +288,13 @@ header{padding:24px 0 8px;text-align:center;position:relative}
 .sob{font:.65rem var(--font);padding:1px 5px;border-radius:3px;background:var(--sold-out);color:var(--red)}
 
 /* Rarity grid */
+.rarity-filter{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:12px;padding:10px 0}
+/* 購入候補の「デッキで絞り込む」は hidden で隠す。上の display:flex が hidden に勝ち、使わないときも約14px の空きが残って、見出しの行が出ると押し下げられていた（2026-10-22 スマホで CLS 0.0023）。deferred.css では遅いのでここに置く */
+.wish-deck-filter[hidden]{display:none}
+.rf-label{font-size:.72rem;color:var(--text-d);margin-right:4px;white-space:nowrap}
 .rf-btn{padding:3px 10px;font:.72rem var(--font);font-weight:600;color:var(--text-d);background:var(--bg-card);border:1px solid var(--border);border-radius:14px;cursor:pointer;transition:all .15s;white-space:nowrap}
 .rf-btn:hover{border-color:var(--text-m);color:var(--text-m)}
 .rf-btn.active{color:var(--text);border-color:var(--accent);background:rgba(74,124,255,.08)}
-/* .rarity-filter は購入候補の「デッキで絞り込む札」（#wishDeckFilter）が使う。検索結果のレアリティ欄は 2026-10-21 から .cr-rarity（card-result.css） */
-.rarity-filter{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:12px;padding:10px 0}
 /* C-1(iii): レアリティ既定フィルタの明示バナー */
 
 /* Empty */
@@ -689,6 +691,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 <link rel="stylesheet" href="{{ static_url('css/site-theme.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/wish-list.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/meta-deck.css') }}">
+<link rel="stylesheet" href="{{ static_url('css/packs.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/new-cards.css') }}">
 <link rel="stylesheet" href="{{ static_url('shared/text-report.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/card-result.css') }}">
@@ -1127,10 +1130,17 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 
   <!-- ===== 最新弾モード ===== -->
   <div id="mode-packs" class="hidden">
+    <!-- 新商品（2026-10-21 モック _mocks/packs-refresh-20261021 の A〜E）。PC は左に一覧・右に詳細、
+         900px 以下は詳細を全面で開く（#packPane.is-open。packs.js _openPackSheet）。見た目は css/packs.css -->
     <div class="deck-builder">
       <div class="deck-input-area">
-        <div id="packList" class="meta-loading">パック情報を読込中...</div>
-        <div id="packDetail" class="meta-deck-detail hidden"></div>
+        <div class="pk-panes">
+          <div class="pk-pane-list"><div id="packList" class="meta-loading">パック情報を読込中...</div></div>
+          <div class="pk-pane-detail" id="packPane">
+            <div class="pk-sheet-bar"><button type="button" class="meta-back" onclick="closePackSheet()"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>一覧へ</button></div>
+            <div id="packDetail"><div class="meta-empty">パックを選ぶと、収録カードと価格がここに出ます</div></div>
+          </div>
+        </div>
       </div>
     </div>
   </div><!-- /mode-packs -->

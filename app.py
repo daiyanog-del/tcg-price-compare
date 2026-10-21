@@ -1181,6 +1181,9 @@ def api_search():
         # 補完は純粋なメモリ処理なので、キャッシュ命中の速さは損なわない。
         cached_results = infer_codes(cached_results)
         def cached_stream():
+            # 最初に調べる店の一覧を送る（画面は進み具合の札を全店ぶん先に並べる。1枚ずつ足すと既存の札が
+            # 細くなって店名が折り返し、検索中の画面がずれていた。2026-10-22 スマホで CLS 0.019）
+            yield _sse({"type": "shops", "shops": [name for name, _ in active_shops]})
             for shop_name, _ in active_shops:
                 count = len(cached_map.get(shop_name, []))
                 yield _sse({"type": "shop_done", "shop": shop_name, "count": count, "cached": True})
@@ -1193,7 +1196,10 @@ def api_search():
     def generate():
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        # 補正があった場合、補正通知を最初に送信
+        # 調べる店の一覧を最初に送る（cached_stream と同じ理由）
+        yield _sse({"type": "shops", "shops": [name for name, _ in active_shops]})
+
+        # 補正があった場合、補正通知を送信
         if corrected:
             yield _sse({"type": "corrected", "original": original_name, "corrected": corrected})
 
@@ -1292,8 +1298,12 @@ def api_deck():
     # GET=クエリ / POST=フォームボディ の双方を request.values で吸収（GET挙動は不変）
     names_raw = request.values.get("cards", "")
     shops_raw = request.values.getlist("shops") or DEFAULT_SHOPS
-    # 購入候補の「全店舗ランキング」用に各カードの店舗別最安値を返すフラグ
-    include_per_shop = request.values.get("include_per_shop", "").lower() in ("1", "true", "yes")
+    # 購入候補の「全店舗ランキング」用に各カードの店舗別最安値を返すフラグ。
+    # "version" は新商品タブ用: 店×レアリティに加えて型番の頭（DBGV-JP001 の DBGV）でも分けて返す
+    # （同じレアリティの再録版のほうが安いと、レアリティだけで最安1件に畳んだ時点でこのパックの版が消えるため。2026-10-21 reviewer 指摘）
+    per_shop_mode = request.values.get("include_per_shop", "").lower()
+    include_per_shop = per_shop_mode in ("1", "true", "yes", "version")
+    per_shop_by_version = per_shop_mode == "version"
     if not names_raw:
         return jsonify({"error": "カード名がありません"}), 400
     rate_error = _consume_rate_limit(bucket=_last_deck)
@@ -1350,10 +1360,15 @@ def api_deck():
             if not shop or shop not in selected:
                 continue
             rarity = r.get("rarity") or ""
+            key = rarity
+            if per_shop_by_version:
+                # 型番の頭ごとにも分ける（キーは画面側では使わず、各品の rarity・code を読む）
+                code = str(r.get("code") or "")
+                key = rarity + "	" + (code.split("-", 1)[0].upper() if "-" in code else code.upper())
             by_rarity = per_shop.setdefault(shop, {})
-            cur = by_rarity.get(rarity)
+            cur = by_rarity.get(key)
             if cur is None or r.get("price", 0) < cur.get("price", 0):
-                by_rarity[rarity] = r
+                by_rarity[key] = r
         return per_shop
 
     def _search_one_card(i, card_name):
@@ -3393,6 +3408,12 @@ def api_packs():
             p.get("name") == fp_name or
             (bool(fp_wiki) and p.get("wiki_page") == fp_wiki)
         )
+        # 収録数（一覧の行に出す）。キャッシュ済みのときだけ付け、ここでは外部サイトを読まない
+        # （起動時の _prefetch_pack_cards が一覧のパックを先読みするので、ふだんは揃っている）
+        if "card_count" not in p:
+            cached = pack_cards_cached(p.get("name", ""))
+            if cached:
+                p["card_count"] = len(cached.get("cards") or [])
 
     return jsonify(packs)
 
@@ -3412,7 +3433,7 @@ def api_pack_cards():
     # という正当な操作が3秒制限で429になる（2026-09-01 にユーザーから報告）。
     cached = pack_cards_cached(pack_name)
     if cached is not None:
-        return jsonify(cached)
+        return jsonify(_canonical_pack_cards(cached))
     rate_error = _consume_rate_limit(bucket=_last_packs)
     if rate_error:
         return rate_error
@@ -3422,7 +3443,28 @@ def api_pack_cards():
     except Exception as e:
         logger.error(f"パックカード取得エラー ({pack_name}): {e}")
         data = {"pack": pack_name, "cards": [], "count": 0}
-    return jsonify(data)
+    return jsonify(_canonical_pack_cards(data))
+
+
+def _canonical_pack_cards(data: dict) -> dict:
+    """収録カード名を正式名に直して返す（キャッシュそのものは書き換えない）。
+    遊戯王Wikiの表記（例: 「BF-」の半角ハイフン）のままだと、価格のデータベース・まとめて検索・購入候補が
+    正式名（「BF－」）で返す名前と一致せず、新商品タブで価格が入らなかった（2026-10-21 reviewer 指摘）。
+    直した結果が重なったら1つにする。"""
+    cards = data.get("cards") or []
+    if not cards:
+        return data
+    _load_cardnames()
+    seen, out = set(), []
+    for name in cards:
+        fixed = _correct_cardname(str(name).strip())
+        if fixed and fixed not in seen:
+            seen.add(fixed)
+            out.append(fixed)
+    result = dict(data)
+    result["cards"] = out
+    result["count"] = len(out)
+    return result
 
 
 # ── バックグラウンド環境データ プリフェッチ ──

@@ -33,3 +33,10 @@ def _isolate_reread_trust(monkeypatch):
     reread_trust.invalidate_cache()
     yield
     reread_trust.invalidate_cache()
+
+
+@pytest.fixture(autouse=True)
+def _no_x_post_quiet_hours(monkeypatch):
+    """X 投稿の「投稿しない時間帯」（既定 JST 1〜7時）でテスト結果が実行時刻に左右されないよう無効にする。
+    時間帯そのもののテストは各テストで環境変数を設定し直す。"""
+    monkeypatch.setenv("UNRELEASED_X_POST_QUIET_HOURS", "off")
