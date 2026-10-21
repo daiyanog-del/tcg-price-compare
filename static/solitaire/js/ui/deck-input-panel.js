@@ -441,6 +441,17 @@ async function _resolveForReplace(cards, defaultIsEx) {
 }
 
 /**
+ * 読込の開始の合図（sol-deck-load-start）。カードを取得できて、片付け・配置をする直前に出す（2026-10-21）。
+ * 受け手（マイデッキとのひも付け・録画の範囲・録画用の表示・リプレイのひも付け・元に戻すの知らせ等）は
+ * これを合図に状態を外すため、取得の前に出すと、通信に失敗して盤面と記録が残ったのに状態だけが外れる。
+ * 取得に失敗したときは開始の合図なしで sol-deck-load-end（ok:false・cleared:false）だけが出る。
+ * @param {boolean} replace デッキを入れ替える読込か（deck-edit-ui.js がマイデッキとのひも付けを外すのに使う）
+ */
+function _announceLoadStart(replace) {
+  document.dispatchEvent(new CustomEvent('sol-deck-load-start', { detail: { replace } }));
+}
+
+/**
  * L-10: テキストデッキを読み込んでプールに追加（事前にダミーをクリア）
  * 多重防止: 進行中に再度呼ばれた場合は何もしない（バグ修正・PCにも効く）。
  * 呼び出し元: マイデッキ一覧（renderMyDeckList）の行 → 実際に押された
@@ -461,8 +472,6 @@ export async function loadDeckFromText(text, triggerBtn = null) {
 
   _deckLoadInFlight = true;
   _setDeckRowsLoading(triggerBtn, true);
-  // replace: デッキを入れ替える読込か（deck-edit-ui.js がマイデッキとのひも付けを外すのに使う）
-  document.dispatchEvent(new CustomEvent('sol-deck-load-start', { detail: { replace: true } }));
   let ok = false;
   let cleared = false; // 片付け（記録の初期化）まで進んだか。進んでいなければ「元に戻す」は出さない
   let error = null;
@@ -471,6 +480,7 @@ export async function loadDeckFromText(text, triggerBtn = null) {
   try {
     // 取得できてから片付ける（環境デッキ loadMetaDeck と同じ順番）。null=APIレスポンスのis_exでEX/メインを自動判定
     const resolved = await _resolveForReplace(cards, null);
+    _announceLoadStart(true);
     await _clearForNewDeck();
     cleared = true;
     _placeCards(resolved);
@@ -478,15 +488,16 @@ export async function loadDeckFromText(text, triggerBtn = null) {
     ok = true;
   } catch (e) {
     error = e?.message || String(e);
-    // 記録を消して入れ替えている途中なら、読み込み終わりの知らせに失敗の理由を載せる（重ねて出さない）
-    if (!_replaceUndoPending) showActionToast(`デッキの読み込みに失敗しました: ${error}`, { error: true });
-  } finally {
-    setPoolLoading(['imagePool', 'imagePool2'], false);
-    _deckLoadInFlight = false;
-    _setDeckRowsLoading(triggerBtn, false);
-    const { main, ex } = _currentPoolCounts();
-    document.dispatchEvent(new CustomEvent('sol-deck-load-end', { detail: { ok, main, ex, error, cleared } }));
   }
+  // 記録を消して入れ替えている途中なら、読み込み終わりの知らせが失敗の理由を載せる（重ねて出さない）
+  const notifyError = !!error && !_replaceUndoPending;
+  setPoolLoading(['imagePool', 'imagePool2'], false);
+  _deckLoadInFlight = false;
+  _setDeckRowsLoading(triggerBtn, false);
+  const { main, ex } = _currentPoolCounts();
+  document.dispatchEvent(new CustomEvent('sol-deck-load-end', { detail: { ok, main, ex, error, cleared } }));
+  // 読み込み終わりの後に出す（スマホ縦の「読み込みに失敗しました」を置き換えて、知らせを1つにする）
+  if (notifyError) showActionToast(`デッキの読み込みに失敗しました: ${error}`, { error: true });
   return ok;
 }
 
@@ -554,7 +565,6 @@ export async function loadDeckFromNeuron(mainText, exText) {
 
   _deckLoadInFlight = true;
   _setDeckRowsLoading(null, true);
-  document.dispatchEvent(new CustomEvent('sol-deck-load-start', { detail: { replace: mainCards.length > 0 } }));
   let ok = false;
   let cleared = false; // 片付け（記録の初期化）まで進んだか。進んでいなければ「元に戻す」は出さない
   let error = null;
@@ -565,6 +575,7 @@ export async function loadDeckFromNeuron(mainText, exText) {
     // メインを入れ替えるときは、メインが1枚も取れなければ片付ける前に失敗にする
     const mainResolved = mainCards.length > 0 ? await _resolveForReplace(mainCards, null) : [];
     const exResolved = await _resolveCards(exCards, true);
+    _announceLoadStart(mainCards.length > 0);
     if (mainCards.length > 0) {
       await _clearForNewDeck();
       cleared = true;
@@ -603,7 +614,6 @@ export async function loadMetaDeck(theme, triggerBtn = null) {
   if (!(await _confirmReplaceDeck())) return;
   _deckLoadInFlight = true;
   _setDeckRowsLoading(triggerBtn, true);
-  document.dispatchEvent(new CustomEvent('sol-deck-load-start', { detail: { replace: true } }));
 
   // デッキ・EXデッキ両エリアにロード中インジケータを表示
   setPoolLoading(['imagePool', 'imagePool2'], true);
@@ -621,6 +631,7 @@ export async function loadMetaDeck(theme, triggerBtn = null) {
     // is_ex が各カードに付与済みなので defaultIsEx=null にして card.is_ex を優先させる
     // （_resolveCards は card.is_ex !== undefined の場合それを使う）。カードの画像・種別も取得できてから片付ける
     const resolved = await _resolveForReplace(fullDeck, null);
+    _announceLoadStart(true);
     await _clearForNewDeck();
     cleared = true;
     _placeCards(resolved);
@@ -628,15 +639,16 @@ export async function loadMetaDeck(theme, triggerBtn = null) {
     ok = true;
   } catch (e) {
     error = e?.message || String(e);
-    // 記録を消して入れ替えている途中なら、読み込み終わりの「元に戻す」の知らせに失敗の理由を載せる（重ねて出さない）
-    if (!_replaceUndoPending) showActionToast(`環境デッキの読み込みに失敗しました: ${e.message}`, { error: true });
-  } finally {
-    setPoolLoading(['imagePool', 'imagePool2'], false);
-    _deckLoadInFlight = false;
-    _setDeckRowsLoading(triggerBtn, false);
-    const { main, ex } = _currentPoolCounts();
-    document.dispatchEvent(new CustomEvent('sol-deck-load-end', { detail: { ok, main, ex, error, cleared } }));
   }
+  // 記録を消して入れ替えている途中なら、読み込み終わりの「元に戻す」の知らせに失敗の理由を載せる（重ねて出さない）
+  const notifyError = !!error && !_replaceUndoPending;
+  setPoolLoading(['imagePool', 'imagePool2'], false);
+  _deckLoadInFlight = false;
+  _setDeckRowsLoading(triggerBtn, false);
+  const { main, ex } = _currentPoolCounts();
+  document.dispatchEvent(new CustomEvent('sol-deck-load-end', { detail: { ok, main, ex, error, cleared } }));
+  // 読み込み終わりの後に出す（スマホ縦の「読み込みに失敗しました」を置き換えて、知らせを1つにする）
+  if (notifyError) showActionToast(`環境デッキの読み込みに失敗しました: ${error}`, { error: true });
   if (ok) setDeckLink({ name: theme, source: 'sample' }); // 環境デッキはマイデッキに無いので未登録として始める
   return ok;
 }

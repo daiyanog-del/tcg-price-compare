@@ -80,7 +80,7 @@ const watchMobilePortrait = () => {};
       ok: true,
       json: async () => (String(u).includes('meta/deck')
         ? { full_deck: [{ name: 'A', qty: 1, is_ex: false }] }
-        : { images: { A: 'http://x/a.jpg' }, infos: {} }),
+        : { images: { A: 'http://x/a.jpg', B: 'http://x/b.jpg' }, infos: {} }),
     };
   };
 
@@ -145,6 +145,8 @@ const watchMobilePortrait = () => {};
   assert.equal(await m.loadDeckFromText('1 A'), false, 'テキストの読み込みは失敗を返す');
   assert.ok(!calls.includes('reset') && !calls.includes('add'), `テキスト: 取得失敗では記録も盤面も触らない（${calls.join(',')}）`);
   assert.ok(calls.includes('discard#u1') && !calls.some(c => c.startsWith('offer:')), 'テキスト: 写しを捨て、元に戻すは出さない');
+  // 開始の合図はひも付け・録画の範囲などを外すので、取得に失敗したら出さない（reviewer 指摘）
+  assert.ok(!events.includes('sol-deck-load-start') && events.includes('sol-deck-load-end'), `テキスト: 失敗では開始の合図を出さない（${events.join(',')}）`);
   assert.equal(calls.filter(c => c.startsWith('action:')).length, 1, `テキスト: 失敗の知らせは1回（${calls.join(',')}）`);
   const endDetail = [];
   document.addEventListener('sol-deck-load-end', (e) => endDetail.push(e.detail));
@@ -155,6 +157,11 @@ const watchMobilePortrait = () => {};
   assert.equal(thrown.notified, true, '記録があるときは読み込み終わりで知らせ済みの印を付ける');
   assert.ok(!calls.includes('reset') && !calls.includes('add'), `取込: 取得失敗では記録も盤面も触らない（${calls.join(',')}）`);
   assert.equal(endDetail.at(-1).cleared, false, '取込: 片付けていないことを読み込み終わりで伝える');
+  assert.ok(!events.includes('sol-deck-load-start'), '取込: 失敗では開始の合図を出さない');
+  assert.equal(calls.filter(c => c.startsWith('action:')).length, 1, `取込（記録あり）: 失敗の知らせは読み込み終わりの1回だけ（${calls.join(',')}）`);
+  reset();
+  await m.loadMetaDeck('X'); // 一覧の取得も失敗する
+  assert.ok(!events.includes('sol-deck-load-start'), '環境デッキ: 失敗では開始の合図を出さない');
   // 記録が無いとき: テキストは失敗を知らせる。取込は印なしで投げ、呼び出し側が知らせる
   logLen = 0; reset();
   assert.equal(await m.loadDeckFromText('1 A'), false);
@@ -164,11 +171,13 @@ const watchMobilePortrait = () => {};
   assert.ok(thrown && !thrown.notified, '記録が無い取込は知らせ済みの印を付けない');
   fetchFails = false; logLen = 3;
 
-  // 6c. 取得できれば、片付けてから置く（メイン→EX の両方）
+  // 6c. 取得できれば、開始の合図→片付け→置く（メイン→EX の両方）
   reset();
   assert.equal(await m.loadDeckFromNeuron('1 A', '1 B'), true);
   const iR = calls.indexOf('reset');
   assert.ok(iR >= 0 && calls.indexOf('add') > iR, `取込: 片付けてから置く（${calls.join(',')}）`);
+  assert.equal(calls.filter(c => c === 'add').length, 2, `取込: メインと EX の2枚を置く（${calls.join(',')}）`);
+  assert.deepEqual(events, ['sol-deck-load-start', 'sol-deck-load-end'], '取込: 開始と終わりの合図を1組');
 
   // 7. 「クリア」も同じ片付け（記録と辞書の初期化）を通る
   reset();
