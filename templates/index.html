@@ -310,6 +310,8 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 
 /* Rarity grid */
 .rarity-filter{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:12px;padding:10px 0}
+/* 購入候補の「デッキで絞り込む」は hidden で隠す。上の display:flex が hidden に勝ち、使わないときも約14px の空きが残って、見出しの行が出ると押し下げられていた（2026-10-22 スマホで CLS 0.0023）。deferred.css では遅いのでここに置く */
+.wish-deck-filter[hidden]{display:none}
 .rf-label{font-size:.72rem;color:var(--text-d);margin-right:4px;white-space:nowrap}
 .rf-btn{padding:3px 10px;font:.72rem var(--font);font-weight:600;color:var(--text-d);background:var(--bg-card);border:1px solid var(--border);border-radius:14px;cursor:pointer;transition:all .15s;white-space:nowrap}
 .rf-btn:hover{border-color:var(--text-m);color:var(--text-m)}
