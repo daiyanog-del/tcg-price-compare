@@ -41,6 +41,7 @@ import { _renderCard, _showUnknown, _showLoading } from './card-info-panel.js';
 import { isMobilePortrait, watchMobilePortrait, isMobileLandscape, watchMobileLandscape } from '../utils/viewport.js';
 import { enterRecView, exitRecView } from './rec-view.js';
 import { showToast } from '../utils/toast.js';
+import { guardUndoable, offerUndo, discardUndoPoint } from './undo-point.js';
 import { resetMobileDeckMode, openDeckImage } from './deck-edit-ui.js';
 import { generateShareURL, checkPublicTitle, resetShareUrlMemo, buildShareTweetUrl, getReplayCounts, saveReplayToDevice, describeSaveResult, exportReplayFile } from './replay-ui.js';
 import { clearEverything } from './deck-input-panel.js';
@@ -227,11 +228,21 @@ function closeMenuSheet() {
   setHidden('solMobileMenuSheet', true);
 }
 
-/** 「クリア」。確認ダイアログでOKされた場合のみ deck-input-panel.js の clearEverything を呼ぶ。 */
+/**
+ * 「クリア」。以前は確認窓を出していたが、今は直前の写しを取ってすぐ消し、6秒間「元に戻す」を出す（undo-point.js。PC の clearButton と同じ）。
+ * clearEverything はデッキ読込中だと何もせず false を返す。
+ */
 async function handleClearEverything() {
-  if (!confirm('読み込んだデッキ・盤面・記録をすべて消去します。元に戻せません。よろしいですか？')) return;
-  await clearEverything();
-  showToast('クリアしました');
+  // 写しを取れない（記録が大きすぎる等）ときだけ確認の小窓を出す
+  const g = await guardUndoable(null, '記録が大きいため、消すと元に戻せません。デッキ・盤面・記録をすべて消しますか？', '消す');
+  if (!g.ok) return;
+  if (!(await clearEverything())) {
+    discardUndoPoint(g.id);
+    showToast('デッキ読込中のためクリアできませんでした');
+    return;
+  }
+  if (g.id) offerUndo('デッキ・盤面・記録をすべて消しました', g.id);
+  else showToast('クリアしました');
 }
 
 const MENU_ACTIONS = {

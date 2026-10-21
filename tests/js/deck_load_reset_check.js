@@ -42,17 +42,36 @@ const getLogLength = () => globalThis.LOGLEN();
 const getSetupLogs = () => ({ length: globalThis.SETUPLEN() });
 const setCardName = () => {};
 const clearSessionResume = () => {};
+const showToast = (m) => T.push('toast:' + m);
+const showActionToast = (m) => T.push('action:' + m);
+const guardUndoable = async () => { T.push('undoPoint'); return { ok: true, id: 'u1' }; };
+const offerUndo = (m, id) => T.push('offer:' + m + '#' + id);
+const discardUndoPoint = (id) => T.push('discard#' + id);
+const setDeckLink = () => {};
+const getDeckLink = () => null;
+const onDeckLinkChange = () => {};
+const isMobilePortrait = () => false;
+const watchMobilePortrait = () => {};
 `;
   const pool = { querySelector: () => ({ querySelector: () => ({ id: 'item-1' }) }), innerHTML: '' };
   globalThis.window = {};
   globalThis.localStorage = { getItem: () => null };
   globalThis.sessionStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+  // 読み込み終わり（sol-deck-load-end）で「元に戻す」を出すので、addEventListener と dispatchEvent をつなぐ
+  let listeners = [];
   globalThis.document = {
     getElementById: (id) => (id === 'poolRow' || id === 'poolRow2' ? pool : null),
     querySelectorAll: () => [],
-    dispatchEvent: (e) => events.push(e.type),
+    addEventListener: (type, fn, opts) => listeners.push({ type, fn, once: !!(opts && opts.once) }),
+    dispatchEvent: (e) => {
+      events.push(e.type);
+      for (const l of listeners.filter(x => x.type === e.type)) {
+        if (l.once) listeners = listeners.filter(x => x !== l);
+        l.fn(e);
+      }
+    },
   };
-  globalThis.CustomEvent = class { constructor(t) { this.type = t; } };
+  globalThis.CustomEvent = class { constructor(t, o) { this.type = t; this.detail = o && o.detail; } };
   globalThis.confirm = () => { confirms++; return confirmAnswer; };
   globalThis.alert = () => {};
   globalThis.fetch = async (u) => {
@@ -68,50 +87,57 @@ const clearSessionResume = () => {};
   const m = await import(b64(src + stubs));
   const reset = () => { calls.length = 0; events.length = 0; };
 
-  // 1. 記録があるときに確認でキャンセルすると、3つの読み込みとも何も起きない
-  logLen = 3; confirmAnswer = false;
-  await m.loadDeckFromText('1 A');
-  await m.loadMetaDeck('X');
-  await m.loadDeckFromNeuron('1 A', '1 B');
-  assert.equal(confirms, 3, '3つの読み込みで1回ずつ確認が出る');
-  assert.deepEqual(events, [], 'キャンセルなら読み込みのイベントは出ない');
-  assert.deepEqual(calls, [], 'キャンセルなら片付けも初期化もしない');
+  // 1. 記録があるときは確認窓を出さず、入れ替えの前に写しを取り、読み込み終わりに「元に戻す」を出す（2026-10-21）
+  logLen = 3;
+  for (const load of [() => m.loadDeckFromText('1 A'), () => m.loadMetaDeck('X'), () => m.loadDeckFromNeuron('1 A', '1 B')]) {
+    reset();
+    await load();
+    assert.equal(confirms, 0, '確認窓は出さない');
+    const iUndo = calls.indexOf('undoPoint');
+    assert.ok(iUndo >= 0 && iUndo < calls.indexOf('reset'), `写しは片付けより前（${calls.join(',')}）`);
+    assert.ok(calls.some(c => c.startsWith('offer:デッキを読み込みました')), `読み込み後に元に戻すを出す（${calls.join(',')}）`);
+    assert.ok(events.includes('sol-deck-load-end'));
+  }
 
-  // 2. 確認で OK にすると、記録の初期化が新しいカードの追加・登録より前に行われる（回帰検出の芯）
-  confirmAnswer = true; reset();
+  // 2. 記録の初期化が新しいカードの追加・登録より前に行われる（回帰検出の芯）
+  reset();
   await m.loadDeckFromText('1 A');
   const iReset = calls.indexOf('reset');
   assert.ok(iReset >= 0, '入れ替えで記録を初期化する');
   const iFirstAdd = calls.findIndex((c) => c === 'add' || c === 'regImg');
   assert.ok(iFirstAdd > iReset, `初期化は追加より前（${calls.join(',')}）`);
 
-  // 3. 記録が0件なら確認は出さない
+  // 3. 記録が0件なら写しも元に戻すも出さない
   logLen = 0; setupLen = 0; reset();
-  const before = confirms;
   await m.loadDeckFromText('1 A');
-  assert.equal(confirms, before, '記録が無ければ確認しない');
+  assert.ok(!calls.includes('undoPoint') && !calls.some(c => c.startsWith('offer:')), '記録が無ければ元に戻すは出さない');
   assert.ok(calls.includes('reset'), '記録が無くても辞書は初期化する（前のデッキの分を残さない）');
 
-  // 4. 範囲共有の初期配置（setup）だけでも記録ありとして確認する
+  // 4. 範囲共有の初期配置（setup）だけでも記録ありとして写しを取る
   setupLen = 2; reset();
-  confirmAnswer = false;
-  const before4 = confirms;
   await m.loadDeckFromText('1 A');
-  assert.equal(confirms, before4 + 1, 'setup だけの記録でも確認する');
-  setupLen = 0; confirmAnswer = true;
+  assert.ok(calls.includes('undoPoint'), 'setup だけの記録でも写しを取る');
+  setupLen = 0;
 
-  // 5. EXデッキだけの読み込みは入れ替えではないので、確認も初期化もしない
+  // 5. EXデッキだけの読み込みは入れ替えではないので、写しも初期化もしない
   logLen = 3; reset();
-  const before5 = confirms;
   await m.loadDeckFromNeuron('', '1 B');
-  assert.equal(confirms, before5, 'EXだけなら確認しない');
+  assert.ok(!calls.includes('undoPoint'), 'EXだけなら写しを取らない');
   assert.ok(!calls.includes('reset'), 'EXだけなら記録を消さない');
 
-  // 6. 環境デッキは通信に失敗したら記録を消さない（取得できてから片付けるため）
+  // 6. 環境デッキは通信に失敗したら記録を消さない（取得できてから片付けるため）。
+  //    何も変わっていないので「元に戻す」は出さず、写しを捨てて失敗だけを1回知らせる（reviewer 指摘）
   reset(); fetchFails = true;
   await m.loadMetaDeck('X');
   assert.ok(!calls.includes('reset'), '環境デッキの取得に失敗したら記録は残す');
-  fetchFails = false;
+  assert.ok(!calls.some(c => c.startsWith('offer:')), `片付ける前の失敗では元に戻すを出さない（${calls.join(',')}）`);
+  assert.ok(calls.includes('discard#u1'), 'その世代の写しを捨てる');
+  assert.equal(calls.filter(c => c.startsWith('action:')).length, 1, `失敗の知らせは1回（${calls.join(',')}）`);
+  // 記録が無いときの失敗は、失敗だけを知らせる
+  logLen = 0; reset();
+  await m.loadMetaDeck('X');
+  assert.ok(calls.some(c => c.startsWith('action:環境デッキの読み込みに失敗しました')), '記録が無いときは失敗を知らせる');
+  fetchFails = false; logLen = 3;
 
   // 7. 「クリア」も同じ片付け（記録と辞書の初期化）を通る
   reset();

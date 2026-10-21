@@ -7,6 +7,7 @@ import { initDeckInputPanel, loadDeckFromNeuron, savedDecksGet, savedDecksSet, p
 import { parseNeuronPdf } from '/static/shared/neuron-pdf-parser.js';
 import { NeuronPreviewModal } from '/static/shared/neuron-preview-modal.js';
 import { setDeckLink } from '../services/deck-link.js';
+import { showActionToast } from './inline-ui.js';
 
 /**
  * UIイベントハンドラ（カード相場向け改変版）
@@ -42,8 +43,10 @@ export async function handleNeuronPdfSelect(event) {
       try {
         const list = savedDecksGet();
         const existing = list.find(d => d.name === name);
+        let prev = null;
         if (existing) {
-          if (!confirm(`「${name}」はすでに保存されています。上書きしますか？`)) return;
+          // 以前は確認窓を出していたが、今は上書きして6秒間「元に戻す」を出す（マイデッキの削除・シミュレーターの保存と同じ）
+          prev = { id: existing.id, text: existing.text, main: existing.main, ex: existing.ex };
           existing.text = combined;
           existing.main = main;
           existing.ex = ex;
@@ -52,6 +55,22 @@ export async function handleNeuronPdfSelect(event) {
           list.push({ id: 'd_' + Date.now(), name, text: combined, main, ex, updated: Date.now() });
         }
         savedDecksSet(list);
+        if (prev) {
+          const written = existing.updated;
+          showActionToast(`マイデッキの「${name}」を上書きしました`, {
+            label: '元に戻す',
+            onClick: () => {
+              const cur = savedDecksGet();
+              const d = cur.find(x => x.id === prev.id);
+              // 元に戻すまでの間に別の場所で変えられていたら戻さない（その変更を消さないため）
+              if (!d || d.updated !== written) { showActionToast('その後に変更されているため、元に戻せませんでした'); return; }
+              // 中身は上書き前に戻し、更新時刻は新しくする（古い時刻に戻すと端末間同期で上書き後が勝つ）
+              Object.assign(d, { text: prev.text, main: prev.main, ex: prev.ex, updated: Date.now() });
+              savedDecksSet(cur);
+              showActionToast(`「${name}」を元に戻しました`);
+            },
+          });
+        }
       } catch (e) {
         console.error('マイデッキ保存エラー:', e);
       }

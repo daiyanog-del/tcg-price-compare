@@ -16,6 +16,8 @@
 import { getDeckLink, setDeckLink, onDeckLinkChange, deckContents } from '../services/deck-link.js';
 import { savedDecksGet } from './deck-input-panel.js';
 import { getLogLength } from '../services/replay-service.js';
+import { saveUndoPoint, markUndoOffer } from './undo-point.js';
+import { confirmAsync } from './inline-ui.js';
 
 const DR = () => window.DeckReplays;
 
@@ -35,11 +37,18 @@ function _linkedDeck() {
   return id ? savedDecksGet().find(d => d.id === id) || null : null;
 }
 
-/** 今の記録が置き換わるときは確認して開く */
-function _open(item) {
+/**
+ * リプレイを開く。今の記録が置き換わるときは、以前は確認窓を出していたが、今は直前の写しを取っておき、
+ * 開いた先で6秒間「元に戻す」を出す（undo-point.js）。
+ */
+async function _open(item, anchor) {
   let steps = 0;
   try { steps = getLogLength(); } catch (e) { steps = 0; }
-  if (steps > 0 && !confirm(`今の記録（${steps}手）は、このリプレイ「${item.title || '無題'}」に置き換わります。開きますか？`)) return;
+  if (steps > 0) {
+    const r = saveUndoPoint();
+    if (r.id) markUndoOffer(`リプレイ「${item.title || '無題'}」を開きました（前の記録に戻せます）`);
+    else if (r.failed && !(await confirmAsync(anchor || null, `記録が大きいため、開くと今の記録（${steps}手）には戻せません。このリプレイを開きますか？`, '開く'))) return;
+  }
   location.href = '/solitaire?saved=' + encodeURIComponent(item.id);
 }
 
@@ -52,7 +61,7 @@ function _row(item, deck) {
   const d = DR().diff(item.deckSnap, deckContents(deck));
   if (d && d.changed) b.appendChild(_el('span', 'sol-drp-meta is-drift', DR().DRIFT_SHORT));
   b.title = item.title || '無題';
-  b.addEventListener('click', () => _open(item));
+  b.addEventListener('click', () => _open(item, b));
   return b;
 }
 

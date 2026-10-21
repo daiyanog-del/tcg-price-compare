@@ -1,0 +1,95 @@
+/*
+ * inline-ui.css — ブラウザ標準の窓の代わりの部品（js/ui/inline-ui.js）。シミュレーターとリプレイ一覧ページで読み込む。
+ * 2026-10-21 ユーザー承認のモック（_mocks/sim-refresh-20261021 の A）。マイデッキ（static/mydeck/deck.css .deck-head-*）と同じ形・色。
+ * シミュレーターの `span { color:#333 }` に負けないよう、文字色はすべて明示する。
+ */
+.sol-inline-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 10050;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  box-sizing: border-box;
+  padding: 10px 12px 10px 16px;
+  border-radius: 8px;
+  background: #202c42;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+  color: #eff3fb;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.sol-inline-toast .sol-inline-toast-msg { min-width: 0; overflow-wrap: anywhere; color: #eff3fb; }
+.sol-inline-toast.is-error .sol-inline-toast-msg { color: #ffadb0; }
+.sol-inline-toast-btn {
+  flex: none;
+  padding: 4px 6px;
+  border: 0;
+  background: none;
+  color: #aec5ff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+/* スマホ縦向きは下部バーの上に出す（mobile.css の --sol-mobile-bottom-reserve と同じ値） */
+@media (max-width: 767px) {
+  .sol-inline-toast { bottom: calc(var(--sol-mobile-bottom-reserve, 52px) + 12px); }
+}
+
+.sol-inline-pop {
+  position: fixed;
+  z-index: 10040;
+  box-sizing: border-box;
+  background: #141c2c;
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(174, 197, 255, 0.08);
+  color: #eff3fb;
+  font-size: 13px;
+}
+.sol-inline-name { width: min(300px, calc(100vw - 16px)); padding: 12px; }
+.sol-inline-confirm { width: min(320px, calc(100vw - 16px)); padding: 12px 14px; }
+.sol-inline-label { display: block; margin: 0; }
+.sol-inline-label-text { display: block; color: #a8b4c9; font-size: 12px; }
+.sol-inline-input {
+  display: block;
+  width: 100%;
+  height: 36px;
+  box-sizing: border-box;
+  margin-top: 6px;
+  padding: 0 10px;
+  background: #101626;
+  border: 1px solid #2b3549;
+  border-radius: 6px;
+  color: #eff3fb;
+  font: inherit;
+  font-size: 14px;
+}
+.sol-inline-input:focus, .sol-inline-input:focus-visible { outline: none; border-color: #f3ce46; }
+.sol-inline-err { margin: 6px 0 0; color: #ff8f94; font-size: 12px; line-height: 1.5; }
+.sol-inline-err[hidden] { display: none; }
+.sol-inline-msg { margin: 0; color: #eff3fb; line-height: 1.6; overflow-wrap: anywhere; }
+.sol-inline-row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.sol-inline-pill {
+  height: 30px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: #202c42;
+  color: #aec5ff;
+  font: inherit;
+  font-weight: 700;
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.sol-inline-pill:hover, .sol-inline-pill:focus-visible { background: #2b3549; }
+.sol-inline-pill.is-primary { background: #f3ce46; color: #242013; }
+.sol-inline-pill.is-primary:hover, .sol-inline-pill.is-primary:focus-visible { background: #ffe16d; }
+.sol-inline-pill.is-danger { background: #202c42; color: #ff8f94; }
+@media (max-width: 767px) {
+  .sol-inline-pill { height: 36px; font-size: 13px; }
+}

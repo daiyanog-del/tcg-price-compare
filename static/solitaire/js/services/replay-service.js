@@ -118,11 +118,13 @@ export function isReplayAnimating() {
 // ── 変更通知（UI 側が購読する。DOM イベントにしないのは node の単体テストで使えるようにするため） ──
 // changed: 記録・カーソル・再生状態が変わった（_updateUI のたび）／commentAdded: addComment で追記した直後／
 // removed: removeEventAt で手を取り除いた直後（引数 = 取り除いた位置）
-const _listeners = { changed: [], commentAdded: [], removed: [] };
+// edited: 利用者の操作で記録が変わった直後（手の記録・コメント・取り除き・1手取り消し）。
+//         読み込み・再生・巻き戻しでは出ない（ui/undo-point.js が「元に戻す」を引っ込める合図に使う）
+const _listeners = { changed: [], commentAdded: [], removed: [], edited: [] };
 
 /**
  * リプレイの変更通知を購読する。
- * @param {'changed'|'commentAdded'|'removed'} type
+ * @param {'changed'|'commentAdded'|'removed'|'edited'} type
  * @param {Function} fn
  */
 export function subscribeReplay(type, fn) {
@@ -240,6 +242,7 @@ export function logEvent(event) {
   _logs.push({ seq, ..._safeCloneEvent(event) });
   _cursor = _logs.length - 1;
   _updateUI(true);
+  _emit('edited');
 }
 
 /**
@@ -270,6 +273,7 @@ export function addComment({ kind, cardId, text, card }) {
   _logs = [..._logs.slice(0, at), ev, ..._logs.slice(at)].map((e, i) => ({ ...e, seq: i }));
   _cursor = at;
   _emit('commentAdded', at);
+  _emit('edited');
   _updateUI(true);
   return true;
 }
@@ -291,6 +295,7 @@ export function removeEventAt(index, expected) {
   _cursor = cursorAfterRemove(_cursor, index);
   _logs = _logs.filter((_, i) => i !== index).map((ev, i) => ({ ...ev, seq: i }));
   _emit('removed', index);
+  _emit('edited');
   _updateUI();
   return true;
 }
@@ -338,6 +343,7 @@ export function undoLast() {
   if (_cursor <= -1 || _playing) return;
   _logs = _logs.slice(0, _cursor);
   _replayTo(_logs.length - 1);
+  _emit('edited');
 }
 
 /** 1手進む */
@@ -1436,6 +1442,15 @@ function _updateUI(arrivedForward = false) {
     btnPlay.classList.toggle('play-active', _playing);
     btnPlay.disabled = total === 0;
   }
+  // 記録が無いときは保存・共有を押せなくする（以前は押すと「記録がありません」の窓が出た）。
+  // 保存・共有は初期配置（setup）だけでもできる。X 投稿は手（logs）が要る
+  const nothing = total === 0 && _setupLogs.length === 0;
+  for (const id of ['pcSaveSheetOpen', 'pcShareSheetOpen', 'solMobileSaveBtn']) {
+    const b = document.getElementById(id);
+    if (b) b.disabled = nothing;
+  }
+  const btnX = document.getElementById('replayShareX');
+  if (btnX && !btnX.dataset.busy) btnX.disabled = total === 0;
   // 吹き出し・盤面メモは、記録の位置（カーソルまで）から毎回計算して描く
   renderCommentView(_setupLogs, _logs, cur);
   // カットイン: 前進でその手に来たときだけ出す。前進以外でカーソルが動いたら、出ているものは消す
