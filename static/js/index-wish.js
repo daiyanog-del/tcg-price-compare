@@ -33,10 +33,22 @@ function _clearWishPricesCache(){
 }
 
 // /api/wish-prices を呼んで _wishPrices を更新する
-async function loadWishPrices(){
+// 取得中の Promise。同時に2回取りに行かないためと、取得の途中で描いた一覧を届いたときに描き直すため
+// （2026-10-21: 起動時の取得の途中に購入候補を開くと、届いても一覧が「相場データ収集中」のまま止まっていた）
+let _wishPricesLoading=null;
+function loadWishPrices(){
+  if(_wishPricesLoading) return _wishPricesLoading;
+  const p=_loadWishPricesNow();
+  _wishPricesLoading=p;
+  // 先に登録したこの後始末が、呼び出し側の then より先に走る（届いた後の描き直しでは「取得中でない」と見える）
+  p.then(()=>{ if(_wishPricesLoading===p) _wishPricesLoading=null; });
+  return p;
+}
+async function _loadWishPricesNow(){
   const list=wishGet();
   // ロード試行済みとしてマーク（null → {} で「試行済み」になる）
-  _wishPrices={};
+  const got={};
+  _wishPrices=got;
   _wishPricesTime=Date.now();
   if(!list.length){ _saveWishPricesCache(); return; }
   try{
@@ -44,9 +56,19 @@ async function loadWishPrices(){
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({cards:list.map(c=>c.name)})});
     const data=await res.json();
-    (data.cards||[]).forEach(c=>{_wishPrices[c.name]=c;});
-    _saveWishPricesCache();
+    (data.cards||[]).forEach(c=>{got[c.name]=c;});
+    // 取得中にカードが足されて価格が捨てられた（null に戻った）ときは、古い一覧の結果を残さない
+    if(_wishPrices===got) _saveWishPricesCache();
   }catch(e){/* _wishPrices={} のまま（再試行しない）*/}
+}
+// 一覧を描くときに呼ぶ: 価格がまだ・古い・取得中なら（取りに行って）届いたら一覧を描き直す。描き直しの予約は1回だけ
+let _wishRerenderPending=false;
+function _wishEnsurePrices(){
+  const stale=_wishPrices===null || Date.now()-_wishPricesTime > _WISH_PRICES_TTL;
+  if(!_wishPricesLoading && !stale) return;
+  if(_wishRerenderPending){ if(!_wishPricesLoading) loadWishPrices(); return; }
+  _wishRerenderPending=true;
+  loadWishPrices().then(()=>{ _wishRerenderPending=false; wishUpdateBadge(); renderWishlist(); });
 }
 
 // 価格情報の表示 HTML を生成する
@@ -351,10 +373,8 @@ function renderWishlist(){
     return;
   }
   actions.style.display='flex';
-  // 未ロード or TTL切れ の場合にロードして再描画
-  if(_wishPrices===null || Date.now()-_wishPricesTime > _WISH_PRICES_TTL){
-    loadWishPrices().then(()=>{wishUpdateBadge();renderWishlist();});
-  }
+  // 未ロード・TTL切れ・取得中（起動時の取得など）なら、届いたあとに描き直す
+  _wishEnsurePrices();
   // レアリティ候補をロード（カード名集合が変わったときだけリクエスト）。
   // 取得後は select の option だけ最新化する（行 DOM 全体を再描画しないことでフォーカスを保つ）。
   const uniqueNames=[...new Set(list.map(c=>c.name))];
