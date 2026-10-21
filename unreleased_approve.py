@@ -372,12 +372,17 @@ def fetch_and_store_image(
     except Exception:
         source_domain = ""
 
+    # 新着欄用の縮小版（失敗しても取り込みは続ける。thumb_url が None なら原寸の画像で表示）
+    from unreleased_image_store import store_thumbnail
+    thumb_url = store_thumbnail(sb, card_id, content)
+
     # official_card_images に来歴付き INSERT
     try:
         sb.table("official_card_images").insert({
             "unreleased_card_id": card_id,
             "storage_path": storage_path,
             "public_url": public_url,
+            "thumb_url": thumb_url,
             "source_image_url": image_url,
             "source_page_url": source_page_url,
             "source_domain": source_domain,

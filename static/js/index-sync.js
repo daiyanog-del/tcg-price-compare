@@ -8,7 +8,12 @@
 // （_pageCardName は先行スクリプトのトップレベル const だが、クラシックscript間では
 // 同一グローバルレキシカル環境を共有するため参照できる）
 document.addEventListener('DOMContentLoaded', function(){
-  if(!_pageCardName && window.SyncClient) window.SyncClient.pullIfNeeded();
+  if(!_pageCardName && window.SyncClient){
+    // pull で「他端末と連携済みか」が確定したら、同期の表示（未送信を含む）を出し直す
+    const p=window.SyncClient.pullIfNeeded();
+    if(p && typeof p.then==='function') p.then(function(){ _refreshSyncStatusUI(); });
+    else _refreshSyncStatusUI();
+  }
 });
 
 // ── 端末間同期: 「他の端末でも見る」ダイアログ・状態表示・解除（P3。設計文書 §7.1・§7.3）──

@@ -997,6 +997,10 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
         </div>
       </div>
 
+      <!-- 端末同期で届いていない変更（2026-10-21。購入候補タブの同期の欄と同じ部品。中身は index-sync.js の _refreshSyncUnsentUI。
+           他の端末と連携済みで、送れなかった変更があるときだけ出る） -->
+      <div class="sync-unsent hidden" data-sync-unsent style="margin:0 0 10px;font-size:.78rem;color:var(--red)"></div>
+
       <!-- モバイル用ペイン切替タブ（PCでは非表示） -->
       <div class="deck-build-tabs" id="deckBuildTabs">
         <button type="button" class="deck-build-tab active" data-pane="main" onclick="switchDeckPane('main')">デッキ<span class="deck-build-tab-badge" id="deckBuildTabBadge"></span></button>
