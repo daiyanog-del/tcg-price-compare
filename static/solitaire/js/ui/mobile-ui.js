@@ -1075,7 +1075,7 @@ function _stopRecording() {
 }
 
 /**
- * 下部バーの「✂ 範囲」ボタン。範囲を選ぶ画面を開く（範囲が決まっていれば選び直し）。
+ * 下部バーの「範囲」ボタン。範囲を選ぶ画面を開く（範囲が決まっていれば選び直し）。
  * 2026-10-20 ユーザー承認の案A: 以前は「押した後に動かした手」を記録する方式で、説明も無く、
  * 回し終えた手から選べなかった（スマホの通常画面は常に最後の手のため）。
  * 選んでいる途中（recording）の状態はもう作らない（setMobileRecordingState も戻さない）ので、
@@ -1229,7 +1229,8 @@ function _updateRecordBtn() {
   const btn = document.getElementById('solMobileRecordBtn');
   const label = document.getElementById('solMobileRecordLabel');
   if (!btn || !label) return;
-  // 整理③: 呼び名を「範囲」に（旧「録画」）。選んでいる間「■ N手」、決まった後「範囲 s〜e」、待機「✂ 範囲」。
+  // 整理③: 呼び名を「範囲」に（旧「録画」）。選んでいる間「■ N手」、決まった後「N手」、待機「範囲」。
+  // 範囲の線アイコン（2026-10-21・旧 ✂）は文字の外にあり、選んでいる間だけ隠す（.recording）。
   // 375px幅で折り返さない短さにしている（L-10）。
   const range = _recording.recording ? null : _getRecordingRange();
   if (_recording.recording) {
@@ -1240,9 +1241,9 @@ function _updateRecordBtn() {
   } else if (range) {
     // 手数だけを出す（「範囲 3〜12」は375px幅の下部バーではみ出すため。何手目から何手目かはシートの中で伝える）
     // 下部バーが6つ並ぶので短く（2026-10-16）。範囲であることは accent の面で分かる
-    label.textContent = `✂ ${range.end - range.start + 1}手`;
+    label.textContent = `${range.end - range.start + 1}手`;
   } else {
-    label.textContent = '✂ 範囲';
+    label.textContent = '範囲';
   }
   btn.classList.toggle('recording', _recording.recording);
   btn.classList.toggle('has-range', !!range);

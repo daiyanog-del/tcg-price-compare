@@ -1449,6 +1449,9 @@ function _updateUI(arrivedForward = false) {
     const b = document.getElementById(id);
     if (b) b.disabled = nothing;
   }
+  // 範囲を選ぶ（PC）も手が無ければ押せない（選べる手が無いため。2026-10-21 モック C）
+  const btnRange = document.getElementById('pcRecordBtn');
+  if (btnRange) btnRange.disabled = total === 0;
   const btnX = document.getElementById('replayShareX');
   if (btnX && !btnX.dataset.busy) btnX.disabled = total === 0;
   // 吹き出し・盤面メモは、記録の位置（カーソルまで）から毎回計算して描く

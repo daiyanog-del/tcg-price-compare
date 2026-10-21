@@ -80,14 +80,7 @@
 .sol-sample-blur-toggle span {
   color: inherit;
 }
-.sol-sample-blur-toggle input {
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  flex-shrink: 0;
-  accent-color: var(--accent);
-  cursor: pointer;
-}
+/* 入力の見た目はオン・オフのスイッチ（solitaire-brand.css の .sol-public-check と共通） */
 /* スマホ⋯メニュー内は他のメニュー項目と同じ文字サイズに揃える */
 .sol-mobile-menu-item.sol-sample-blur-toggle {
   font-size: 0.92rem;

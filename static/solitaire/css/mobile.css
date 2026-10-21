@@ -1363,6 +1363,61 @@
     font-weight: 700;
   }
   .sol-deck-edit-empty { margin: 16px 14px; color: #a8b4c9; font-size: 0.85rem; text-align: center; }
+
+  /* ════════ ⋯メニューのまとまり（2026-10-21 モック sim-refresh-20261021 の E・ユーザー承認） ════════
+     見る・残す／盤面に足す／道具／デッキ／消す。項目は詰めた行（左寄せ・説明は下に小さく）、
+     別の画面へ進む項目は右に ›、消す操作は赤い文字。地はシート #141c2c の上に一段明るい面 */
+  .sol-mobile-menu-body { gap: 0; padding: 0 14px 20px; }
+  .sol-mobile-menu-group { margin-top: 10px; }
+  .sol-mobile-menu-group-h {
+    margin: 0;
+    padding: 6px 4px 4px;
+    color: #a8b4c9;
+    font-size: 0.72rem;
+    font-weight: 700;
+  }
+  .sol-mobile-menu-list { border-radius: 10px; background: #171f31; overflow: hidden; }
+  .sol-mobile-menu-list .sol-mobile-menu-item {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px;
+    width: 100%;
+    min-height: 48px;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 8px 14px;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    color: #eff3fb;
+    font-size: 0.92rem;
+    text-align: left;
+  }
+  .sol-mobile-menu-list .sol-mobile-menu-item + .sol-mobile-menu-item { border-top: 1px solid #101626; }
+  .sol-mobile-menu-list .sol-mobile-menu-item:active { background: #202c42; }
+  /* 項目名と説明は左の列に縦に並べる */
+  .sol-mobile-menu-list .sol-mobile-menu-item:not(.sol-sample-blur-toggle) { flex-wrap: wrap; align-content: center; row-gap: 0; padding-right: 32px; position: relative; }
+  .sol-mobile-menu-label { flex: 1 1 100%; color: inherit; }
+  .sol-mobile-menu-list .sol-mobile-menu-desc { flex: 1 1 100%; margin-top: 2px; color: #a8b4c9; font-size: 0.72rem; }
+  /* 別の画面へ進む項目の › */
+  .sol-mobile-menu-list .sol-mobile-menu-item:not(.is-plain)::after {
+    content: '›';
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #a8b4c9;
+    font-size: 1.05rem;
+  }
+  /* 消す操作: 赤い文字（説明は控えめの色のまま） */
+  .sol-mobile-menu-list .sol-mobile-menu-item.is-danger .sol-mobile-menu-label { color: #ff8f94; }
+  /* ぼかすのスイッチは右端 */
+  .sol-mobile-menu-list .sol-sample-blur-toggle .sol-mobile-menu-label { flex: 1 1 auto; min-width: 0; }
+
+  /* 下部バー: 「デッキ 40」の数字が components.css の span の一律の色（#333）で読めなかったのを直す */
+  #solMobileDeckCount { color: inherit; font-weight: 700; }
+  .sol-mobile-record-btn.recording .sol-mobile-record-ico { display: none; }
 }
 
 /* ════════ H-1: portrait を外れた瞬間の二重防御（致命的バグ対策） ════════

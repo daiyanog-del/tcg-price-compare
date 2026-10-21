@@ -55,6 +55,7 @@ import { getDropZoneInfo, executeDrop, getZoneId } from '../components/drag-drop
 import { restackCustomSlot } from '../components/slot-stack.js';
 import { openCardCommentInput } from './comment-ui.js';
 import { addCounterToCard } from '../components/counter-manager.js';
+import { showCardByName } from './card-info-panel.js';
 
 // ── 単一インスタンス ──────────────────────────────────────────────
 let _menuEl          = null;
@@ -95,6 +96,11 @@ export function openCardContextMenu(wrapper, cardEl, x, y, isTouch = false) {
     if (extra.length) items.push({ separator: true }, ...extra);
   }
   if (items.length === 0) return;
+  // 2026-10-21 マイデッキの右クリックと同じ形に（モック sim-refresh-20261021 の B）:
+  // 先頭にカード名の見出し、最後に「カードの詳細」
+  const detail = _cardDetailItem(img);
+  if (detail) items.push({ separator: true }, detail);
+  items.unshift({ heading: _cardNameOf(img) || 'カード', title: true });
   _showMenu(items, x, y);
 }
 
@@ -118,7 +124,7 @@ function _showMenu(items, x, y) {
   menu.className = 'sol-context-menu';
   menu.setAttribute('role', 'menu');
 
-  items.forEach(({ label, action, separator, sub, disabled, heading, element, swatch }) => {
+  items.forEach(({ label, action, separator, sub, disabled, heading, title, element, swatch }) => {
     if (separator) {
       const hr = document.createElement('li');
       hr.className = 'sol-context-menu-sep';
@@ -128,8 +134,9 @@ function _showMenu(items, x, y) {
     // 見出し（押せない）
     if (heading) {
       const h = document.createElement('li');
-      h.className = 'sol-context-menu-heading';
+      h.className = 'sol-context-menu-heading' + (title ? ' is-title' : '');
       h.textContent = heading;
+      if (title) h.title = heading; // 長い名前は省略して出すので、全文はツールチップで
       menu.appendChild(h);
       return;
     }
@@ -349,18 +356,27 @@ function _buildMenuItems(wrapper, img, parent, isInPool, isInitial, isTouch = fa
   const isDefense = wrapper.dataset.orientation === 'defense';
   const isSet     = wrapper.dataset.face === 'down';
   const isCustom  = parent?.classList.contains('custom-slot');
+  // 置き場所に合わない形の切り替えは出さない（2026-10-21 モック B。スマホのアクションシートは手札で既に隠している）。
+  //   守備表示: 場だけ。セット: 場と除外（裏側で除外することがあるため）。
+  //   今その形になっているカードは、戻せるように場所を問わず出す
+  const showDefense = isCustom || isDefense;
+  const showSet     = isCustom || parent === _getBanishZoneElement() || isSet;
 
   // 守備表示切替
-  items.push({
-    label: isDefense ? '攻撃表示にする' : '守備表示にする',
-    action: () => {
-      applyDefense(wrapper, !isDefense);
-      _logState(wrapper, { inPlace: true });
-    },
-  });
+  if (showDefense) {
+    items.push({
+      label: isDefense ? '攻撃表示にする' : '守備表示にする',
+      action: () => {
+        applyDefense(wrapper, !isDefense);
+        _logState(wrapper, { inPlace: true });
+      },
+    });
+  }
 
   // セット切替（フリップアニメ付き: scaleX=0の瞬間に状態変更）
-  if (isSet && isMonsterCard(wrapper)) {
+  if (!showSet) {
+    // 出さない
+  } else if (isSet && isMonsterCard(wrapper)) {
     // モンスターのセット解除：攻撃表示か守備表示を選べる
     items.push({
       label: '表にする（攻撃表示）',
@@ -393,13 +409,14 @@ function _buildMenuItems(wrapper, img, parent, isInPool, isInitial, isTouch = fa
   }
 
   // 場に出す（2段階クリック方式・マウス操作専用）。プール以外（フィールド/固定ゾーン）なら無条件表示。
+  // 形の切り替えを出さなかったとき（手札など）は、先頭の区切りを付けない
   // カード種別で項目を出し分ける: モンスター=攻撃/守備/裏側守備、魔法・罠=表側/セット
   // （モンスターに「セット」を出すと applyCardState の適用順の都合で裏側攻撃表示という
   //   不正な状態になるため出さない。裏側にしたい場合は「裏側守備」を使う想定）。
   // isTouch=true（タッチ長押しメニュー）では、mousedown/keydownしか見ない配置待ち状態機械
   // と噛み合わないため項目自体を出さない。
   if (!isTouch) {
-    items.push({ separator: true });
+    if (items.length) items.push({ separator: true });
     items.push(..._fieldPlacementItems(wrapper));
   }
 
@@ -437,7 +454,7 @@ function _buildMenuItems(wrapper, img, parent, isInPool, isInitial, isTouch = fa
   }
 
   if (fixedZoneItems.length > 0) {
-    items.push({ separator: true });
+    if (items.length) items.push({ separator: true });
     items.push(...fixedZoneItems);
   }
 
@@ -606,6 +623,29 @@ export function cancelFieldPlacement() {
 }
 
 // ── 内部: カード操作ヘルパ ───────────────────────────────────────
+
+/** カード名（card-info-panel.js の名前解決と同じ: data-card-name → 画像の alt） */
+function _cardNameOf(cardEl) {
+  if (!cardEl) return '';
+  return (cardEl.dataset && cardEl.dataset.cardName) || (cardEl.tagName === 'IMG' ? (cardEl.alt || '') : '') || '';
+}
+
+/**
+ * 「カードの詳細」: 左のカード情報パネルに出す（クリックしたときと同じ）。
+ * パネルを畳んでいたら開く。パネルが無い・見えない画面（スマホ縦）では出さない（スマホはアクションシートの「詳細」）。
+ */
+function _cardDetailItem(cardEl) {
+  const col = document.querySelector('.sol-cip-col');
+  if (!col || !col.getClientRects().length) return null;
+  const name = _cardNameOf(cardEl);
+  return {
+    label: 'カードの詳細',
+    action: () => {
+      if (col.classList.contains('hidden')) document.getElementById('cipToggle')?.click();
+      showCardByName(name, cardEl.src || '', cardEl.closest('.sample-art') ? 'official_sample' : undefined);
+    },
+  };
+}
 
 /**
  * カードをデッキに戻す（リプレイログ付き、状態クリア）

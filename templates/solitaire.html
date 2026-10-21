@@ -292,20 +292,21 @@
             <button class="replay-btn replay-speed-btn" id="replaySpeed2" data-speed="2">2x</button>
           </div>
           <!-- 画面録画用の表示（js/ui/rec-view.js・2026-10-20）。記録が無いあいだは #replayPlay と同じく押せない -->
-          <button class="replay-btn" id="replayRecView" type="button" disabled title="端末の画面録画で動画にするための表示">画面録画用</button>
+          <button class="replay-btn" id="replayRecView" type="button" disabled title="端末の画面録画で動画にするための表示"><span class="replay-ico"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2" y="3.5" width="12" height="9" rx="1.5"/><circle cx="8" cy="8" r="2"/></svg></span>画面録画用</button>
         </div>
         <div class="replay-group" aria-label="戻す">
-          <button class="replay-btn" id="replayUndo" disabled>&#8630; 1手戻す</button>
+          <button class="replay-btn" id="replayUndo" disabled><span class="replay-ico"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5.5 4 2.5 7l3 3"/><path d="M3 7h6.5a4 4 0 0 1 0 8H7"/></svg></span>1手戻す</button>
         </div>
         <div class="replay-group" aria-label="残す">
           <!-- 範囲を選ぶ: static/solitaire/js/ui/pc-recording.js。押すとパネルが開き、①始まりの手 → ②終わりの手 を順に選ぶ（2026-10-20 案A）。 -->
-          <button class="replay-btn pc-record-btn" id="pcRecordBtn" type="button">
-            <span id="pcRecordLabel">&#9986; 範囲を選ぶ</span>
+          <!-- 線アイコンは文字（#pcRecordLabel。pc-recording.js が書き換える）の外に置く -->
+          <button class="replay-btn pc-record-btn" id="pcRecordBtn" type="button" disabled>
+            <span class="replay-ico"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2.5 3v10M13.5 3v10"/><path d="M5 8h6M9 6l2 2-2 2"/></svg></span><span id="pcRecordLabel">範囲を選ぶ</span>
           </button>
           <button class="replay-btn pc-range-clear-btn" id="pcRangeClearBtn" type="button" aria-label="範囲を外す" hidden>&#10005;</button>
-          <button class="replay-save-btn" id="pcSaveSheetOpen" type="button">保存</button>
-          <button class="replay-btn" id="pcShareSheetOpen" type="button">共有</button>
-          <a class="replay-btn pc-replay-list-link" id="pcReplayListLink" data-replay-list-link href="/solitaire/replays">一覧</a>
+          <button class="replay-save-btn" id="pcSaveSheetOpen" type="button" disabled><span class="replay-ico"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 2.5h8l2 2v9H3z"/><path d="M5.5 2.5v3.5h5V2.5M5 13.5V9h6v4.5"/></svg></span>保存</button>
+          <button class="replay-btn" id="pcShareSheetOpen" type="button" disabled><span class="replay-ico"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="4" cy="8" r="1.8"/><circle cx="12" cy="3.5" r="1.8"/><circle cx="12" cy="12.5" r="1.8"/><path d="M5.6 7.1 10.4 4.4M5.6 8.9l4.8 2.7"/></svg></span>共有</button>
+          <a class="replay-btn pc-replay-list-link" id="pcReplayListLink" data-replay-list-link href="/solitaire/replays"><span class="replay-ico"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5.5 4h8M5.5 8h8M5.5 12h8"/><circle cx="2.8" cy="4" r=".6" fill="currentColor"/><circle cx="2.8" cy="8" r=".6" fill="currentColor"/><circle cx="2.8" cy="12" r=".6" fill="currentColor"/></svg></span>一覧</a>
         </div>
       </div>
 
@@ -328,13 +329,13 @@
             <button type="button" class="replay-btn" data-pc-range-play hidden>この範囲を再生</button>
             <!-- みんなのリプレイに公開（初期オフ）。リンク作成・X投稿の両方に効く。タイトル必須（replay-ui.js） -->
             <label class="sol-public-check">
-              <input type="checkbox" id="pcSharePublic">
+              <input type="checkbox" role="switch" id="pcSharePublic">
               <span>みんなのリプレイに公開する</span>
             </label>
             <p class="pc-share-note">一覧で誰でも見られます。このブラウザから公開をやめられます</p>
             <p class="pc-share-error" id="pcSharePublicError" role="alert" hidden></p>
             <button class="replay-share-btn" id="replayShare">リンクを作ってコピー</button>
-            <button class="replay-share-x-btn" id="replayShareX">X に投稿</button>
+            <button class="replay-share-x-btn" id="replayShareX"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.9 2H22l-6.8 7.8L23 22h-6.2l-4.8-6.3L6.4 22H3.3l7.3-8.3L1 2h6.3l4.4 5.8zM17.8 20h1.7L6.3 3.9H4.5z"/></svg><span>X に投稿</span></button>
             <p class="pc-share-note">リンクを知っている人なら誰でも見られます。公開しないリンクは90日で消えます</p>
           </div>
         </div>
@@ -426,7 +427,8 @@
           </button>
           <!-- 範囲（旧「録画」）の開始/確定。選んでいる間は「■ N手」、決まった後は「範囲 s〜e」（accent） -->
           <button id="solMobileRecordBtn" type="button" class="sol-mobile-bar-btn sol-mobile-record-btn">
-            <span id="solMobileRecordLabel">&#9986; 範囲</span>
+            <!-- 線アイコンは文字（#solMobileRecordLabel。mobile-ui.js が書き換える）の外に置く。選んでいる間は隠す（「■ N手」） -->
+            <span class="replay-ico sol-mobile-record-ico"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2.5 3v10M13.5 3v10"/><path d="M5 8h6M9 6l2 2-2 2"/></svg></span><span id="solMobileRecordLabel">範囲</span>
           </button>
           <!-- 整理③: 保存（主操作・黄）。共有シートを「保存」の用途で開く -->
           <button id="solMobileSaveBtn" type="button" class="sol-mobile-bar-btn sol-mobile-save-btn">保存</button>
@@ -478,27 +480,55 @@
             <span>メニュー</span>
             <button type="button" class="sol-mobile-sheet-close-btn" data-sol-sheet-close aria-label="閉じる">&times;</button>
           </div>
-          <div class="sol-mobile-sheet-body">
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="share">共有</button>
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="deckimage">デッキ画像<span class="sol-mobile-menu-desc">デッキの一覧を画像にして、保存・投稿できます</span></button>
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="boardmemo">盤面にメモ<span class="sol-mobile-menu-desc">盤面の空いた角に付箋で一言を表示します</span></button>
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="cutin">カットイン<span class="sol-mobile-menu-desc">その手に進んだとき、盤面に一瞬ことばや相手の妨害を出します</span></button>
-            <a href="/solitaire/replays" data-replay-list-link class="sol-mobile-menu-item sol-mobile-menu-link">リプレイ一覧</a>
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="reset">リセット<span class="sol-mobile-menu-desc">カードをデッキに戻し、記録もリセットします</span></button>
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="clearall">クリア<span class="sol-mobile-menu-desc">デッキ・盤面・記録をすべて消します</span></button>
-            <label class="sol-mobile-menu-item sol-sample-blur-toggle">
-              <input type="checkbox" id="solMobileSampleBlurToggle" data-sample-blur-toggle>
-              <span>未発売カードのイラストをぼかす</span>
-            </label>
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="coin">コイントス</button>
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="dice">ダイスロール</button>
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="deckinput">デッキを読み込む</button>
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="playback">リプレイを再生</button>
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="recview">画面録画用に再生<span class="sol-mobile-menu-desc">ボタンを隠して最初から再生します。端末の画面録画で動画にできます</span></button>
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="help">操作方法</button>
-            <button type="button" class="sol-mobile-menu-item" data-menu-action="feedback">不具合・要望を送る</button>
-            <!-- E-2: デッキ読込シート内のページナビを非表示にする代わりの導線 -->
-            <a href="/" class="sol-mobile-menu-item sol-mobile-menu-link">強欲なラボ トップへ</a>
+          <div class="sol-mobile-sheet-body sol-mobile-menu-body">
+            <!-- 2026-10-21 まとまり（見る・残す／盤面に足す／道具／デッキ／消す）で区切る（モック sim-refresh-20261021 の E）。
+                 押すと別の画面へ進む項目は右に ›（.is-plain は付けない）。消す操作は一番下に赤い文字（.is-danger）。
+                 項目の働きは data-menu-action（mobile-ui.js MENU_ACTIONS）のまま -->
+            <div class="sol-mobile-menu-group">
+              <p class="sol-mobile-menu-group-h">見る・残す</p>
+              <div class="sol-mobile-menu-list">
+                <button type="button" class="sol-mobile-menu-item" data-menu-action="playback"><span class="sol-mobile-menu-label">リプレイを再生</span></button>
+                <button type="button" class="sol-mobile-menu-item" data-menu-action="recview"><span class="sol-mobile-menu-label">画面録画用に再生</span><span class="sol-mobile-menu-desc">端末の画面録画で動画にできます</span></button>
+                <button type="button" class="sol-mobile-menu-item" data-menu-action="share"><span class="sol-mobile-menu-label">共有</span><span class="sol-mobile-menu-desc">リンクを作ってコピー・X に投稿</span></button>
+                <button type="button" class="sol-mobile-menu-item" data-menu-action="deckimage"><span class="sol-mobile-menu-label">デッキ画像</span><span class="sol-mobile-menu-desc">デッキの一覧を画像にして保存・投稿</span></button>
+                <a href="/solitaire/replays" data-replay-list-link class="sol-mobile-menu-item sol-mobile-menu-link"><span class="sol-mobile-menu-label">リプレイ一覧</span></a>
+              </div>
+            </div>
+            <div class="sol-mobile-menu-group">
+              <p class="sol-mobile-menu-group-h">盤面に足す</p>
+              <div class="sol-mobile-menu-list">
+                <button type="button" class="sol-mobile-menu-item" data-menu-action="boardmemo"><span class="sol-mobile-menu-label">盤面にメモ</span><span class="sol-mobile-menu-desc">空いた角に付箋で一言</span></button>
+                <button type="button" class="sol-mobile-menu-item" data-menu-action="cutin"><span class="sol-mobile-menu-label">カットイン</span><span class="sol-mobile-menu-desc">その手で一瞬ことばや妨害を出す</span></button>
+              </div>
+            </div>
+            <div class="sol-mobile-menu-group">
+              <p class="sol-mobile-menu-group-h">道具</p>
+              <div class="sol-mobile-menu-list">
+                <button type="button" class="sol-mobile-menu-item is-plain" data-menu-action="coin"><span class="sol-mobile-menu-label">コイントス</span></button>
+                <button type="button" class="sol-mobile-menu-item is-plain" data-menu-action="dice"><span class="sol-mobile-menu-label">ダイスロール</span></button>
+                <label class="sol-mobile-menu-item is-plain sol-sample-blur-toggle">
+                  <span class="sol-mobile-menu-label">未発売カードのイラストをぼかす</span>
+                  <input type="checkbox" role="switch" id="solMobileSampleBlurToggle" data-sample-blur-toggle>
+                </label>
+              </div>
+            </div>
+            <div class="sol-mobile-menu-group">
+              <p class="sol-mobile-menu-group-h">デッキ</p>
+              <div class="sol-mobile-menu-list">
+                <button type="button" class="sol-mobile-menu-item" data-menu-action="deckinput"><span class="sol-mobile-menu-label">デッキを読み込む</span></button>
+                <button type="button" class="sol-mobile-menu-item" data-menu-action="help"><span class="sol-mobile-menu-label">操作方法</span></button>
+                <button type="button" class="sol-mobile-menu-item" data-menu-action="feedback"><span class="sol-mobile-menu-label">不具合・要望を送る</span></button>
+                <!-- E-2: デッキ読込シート内のページナビを非表示にする代わりの導線 -->
+                <a href="/" class="sol-mobile-menu-item sol-mobile-menu-link"><span class="sol-mobile-menu-label">強欲なラボ トップへ</span></a>
+              </div>
+            </div>
+            <div class="sol-mobile-menu-group">
+              <p class="sol-mobile-menu-group-h">消す</p>
+              <div class="sol-mobile-menu-list">
+                <button type="button" class="sol-mobile-menu-item is-plain is-danger" data-menu-action="reset"><span class="sol-mobile-menu-label">リセット</span><span class="sol-mobile-menu-desc">カードをデッキに戻し、記録も最初から</span></button>
+                <button type="button" class="sol-mobile-menu-item is-plain is-danger" data-menu-action="clearall"><span class="sol-mobile-menu-label">クリア</span><span class="sol-mobile-menu-desc">デッキ・盤面・記録をすべて消す</span></button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -629,7 +659,7 @@
 
               <!-- みんなのリプレイに公開（初期オフ）。タイトル必須（replay-ui.js の checkPublicTitle） -->
               <label class="sol-public-check">
-                <input type="checkbox" id="solMobileSharePublic">
+                <input type="checkbox" role="switch" id="solMobileSharePublic">
                 <span>みんなのリプレイに公開する</span>
               </label>
               <p class="sol-mobile-share-note">一覧で誰でも見られます。このブラウザから公開をやめられます</p>
@@ -745,7 +775,7 @@
       <div class="sol-right-section">
         <p class="sol-right-heading">表示</p>
         <label class="sol-sample-blur-toggle">
-          <input type="checkbox" id="solSampleBlurToggle" data-sample-blur-toggle>
+          <input type="checkbox" role="switch" id="solSampleBlurToggle" data-sample-blur-toggle>
           <span>未発売カードのイラストをぼかす</span>
         </label>
       </div>
