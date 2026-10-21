@@ -19,7 +19,9 @@
 body{
   font-family:system-ui,-apple-system,'Segoe UI','Noto Sans JP',sans-serif;
   background:var(--bg);color:var(--text);min-height:100vh;
-  display:flex;align-items:center;justify-content:center;padding:20px;
+  /* 枠の上端を固定し、中身が入って伸びるときは下へ伸ばす。縦の中央寄せだと「確認しています…」から結果に替わるときに
+     枠の位置が上へ動き、CLS に数えられていた（2026-10-21 PC で 0.0028）。上端は確認画面（約220px）がおおむね中央に来る位置 */
+  display:flex;align-items:flex-start;justify-content:center;padding:max(20px, calc(50vh - 140px)) 20px 20px;
 }
 .card{
   width:100%;max-width:440px;background:var(--bg-card);border:1px solid var(--border);
