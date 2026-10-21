@@ -1181,6 +1181,9 @@ def api_search():
         # 補完は純粋なメモリ処理なので、キャッシュ命中の速さは損なわない。
         cached_results = infer_codes(cached_results)
         def cached_stream():
+            # 最初に調べる店の一覧を送る（画面は進み具合の札を全店ぶん先に並べる。1枚ずつ足すと既存の札が
+            # 細くなって店名が折り返し、検索中の画面がずれていた。2026-10-22 スマホで CLS 0.019）
+            yield _sse({"type": "shops", "shops": [name for name, _ in active_shops]})
             for shop_name, _ in active_shops:
                 count = len(cached_map.get(shop_name, []))
                 yield _sse({"type": "shop_done", "shop": shop_name, "count": count, "cached": True})
@@ -1193,7 +1196,10 @@ def api_search():
     def generate():
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        # 補正があった場合、補正通知を最初に送信
+        # 調べる店の一覧を最初に送る（cached_stream と同じ理由）
+        yield _sse({"type": "shops", "shops": [name for name, _ in active_shops]})
+
+        # 補正があった場合、補正通知を送信
         if corrected:
             yield _sse({"type": "corrected", "original": original_name, "corrected": corrected})
 

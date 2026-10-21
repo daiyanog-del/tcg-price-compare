@@ -514,7 +514,11 @@ function doSearch(opts){
       // 価格推移も店舗検索と並行して取る（完了後に取り始めると、表示済みの表の上に後から差し込まれて表が跳ねる）
       if(window.PriceTrend){ trendName=q; PriceTrend.load(q); }
     }
-    if(d.type==='corrected'){
+    if(d.type==='shops'){
+      // 調べる店の一覧（サーバーが最初に送る）。進み具合の札を全店ぶん「待機中」で先に並べる。
+      // 届くたびに1枚ずつ足すと、既存の札が細くなって店名が折り返し、画面がずれていた（2026-10-22）
+      (d.shops||[]).forEach(s=>_searchProgStep(s));
+    }else if(d.type==='corrected'){
       // カード名が自動補正された場合、検索欄を更新して通知
       document.getElementById('q').value=d.corrected;
       const notice=document.createElement('div');
