@@ -50,10 +50,11 @@ const playPauseMs=(ev,base,f)=>base;
   svc.initReplay();
   assert.equal(svc.captureReplaySession(), null, '空の記録は退避しない');
 
+  // setup ログ（範囲共有の初期配置）も退避・復元されることを見るため、先に setup ログだけ持つ状態にする
+  svc.restoreReplaySession({ logs: [], setupLogs: [{ actionType: 'moveCard', cardId: 'item-2', zoneId: 'free-space', setup: true, seq: -1 }], cursor: -1 });
   svc.registerCardImage('item-1', 'img1'); svc.registerCardImage('item-2', 'img2');
   svc.registerCardName('item-1', '青眼の白龍'); svc.registerCardIsEx('item-2');
   for (let i = 0; i < 5; i++) svc.logEvent({ actionType: 'moveCard', cardId: 'item-1', zoneId: 'custom-slot-' + (i + 1) });
-  svc.logSetupEvent({ actionType: 'moveCard', cardId: 'item-2', zoneId: 'free-space', setup: true });
   // 途中位置（3手目）へ。盤面の再構築は呼び出し側の責務なので、ここでは変数だけ動かす
   svc.seekTo(2);
   globalThis.__rebuild.length = 0;
