@@ -18,6 +18,7 @@
 import time
 from datetime import date, datetime
 from constants import JST
+from rarity import normalize_rarity
 
 
 def _today_jst() -> date:
@@ -301,6 +302,11 @@ def get_card_history_since(sb, card_name, since_date_str) -> list:
             if offset >= max_pages * page_size:
                 print(f"  [featured] 価格履歴が{max_pages}ページ超過のため打ち切り [{card_name}]")
                 break
+        # グラフ（chart_renderer）は ordered_canonicals() の正準名だけを描くため、
+        # DB読み出し境界で正準名に統合する（app.py・notify.py・featured_matrix.py と同じ方針）。
+        # 別表記のままだと系列がグラフから黙って消える。未知表記は normalize_rarity が WARN を出す
+        for r in rows:
+            r["rarity"] = normalize_rarity(r.get("rarity", "") or "")
         return rows
     except Exception as e:
         print(f"  [featured] 価格履歴取得失敗 [{card_name}]: {e}")
