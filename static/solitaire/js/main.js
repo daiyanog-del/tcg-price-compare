@@ -26,6 +26,7 @@ import { migrateSlotsToReplays } from './services/slot-migration.js';
 import { updateCipWidth, syncCipPosition } from './ui/cip-layout.js';
 import { initFeedbackModal } from './ui/feedback-modal.js';
 import { initSidebarToggle } from './ui/sidebar-toggle.js';
+import { initSideTips } from './ui/side-tips.js';
 import { initMobileUI, setMobileRecordingState, resumePlaybackModeIfNeeded, openCardDetailByName, enterPlaybackModeForRecView } from './ui/mobile-ui.js';
 import { initRecView } from './ui/rec-view.js';
 import { setPcRecordingState } from './ui/pc-recording.js';
@@ -375,6 +376,8 @@ async function initializeApp() {
 
   // 左サイドバー・右パネルの開閉を初期化
   initSidebarToggle();
+  // 右パネルの吹き出し（リセット・クリア）をパネルの左に出す
+  initSideTips();
 
   // スマホ縦向き専用UI（下部バー・アクションシート・詳細パネル・簡易メニュー等）を初期化。
   // isPhone && !isLandscape 以外では内部で何もしない（フェーズ1・設計書 §8）

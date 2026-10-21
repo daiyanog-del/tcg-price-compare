@@ -1031,6 +1031,14 @@ html, body {
   top: auto;
   bottom: calc(100% + 4px);
 }
+/* 右パネルの吹き出しはパネルの左に出す（side-tips.js が出すたびに top/left を置く）。
+   fixed なので overflow-y:auto のパネルに切られない（2026-10-21・上に出すと上端が切れていた） */
+.sol-tip.sol-tip-side {
+  position: fixed;
+  right: auto;
+  bottom: auto;
+  width: 240px;
+}
 /* :hover はホバー可能な端末だけ（タッチで出っぱなしにならないように）。:focus-visible は常に有効 */
 @media (hover: hover) {
   .sol-tip-wrap > button:hover + .sol-tip {
