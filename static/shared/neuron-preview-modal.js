@@ -25,7 +25,8 @@ function _injectStyles() {
       display: flex; flex-direction: column;
       width: min(680px, 100%); max-height: 90vh;
       overflow: hidden;
-      font-family: 'Noto Sans JP', sans-serif;
+      /* 置かれたページの書体（--font）に従う。スマホでは Noto Sans JP を読まないので端末の標準フォントになる */
+      font-family: var(--font, 'Noto Sans JP', system-ui, sans-serif);
     }
     .npm-header {
       padding: 14px 20px; border-bottom: 1px solid #2d3a5a;
@@ -68,7 +69,7 @@ function _injectStyles() {
     .npm-name-input {
       flex: 1; min-width: 160px;
       border: 1px solid #2d3a5a; border-radius: 6px;
-      padding: 6px 10px; font-size: .9rem; color: #e2e8f4;
+      padding: 6px 10px; font-size: .9rem; color: #e2e8f4; font-family: inherit;
       background: #0a1024; outline: none;
       transition: border-color .15s;
     }
