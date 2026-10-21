@@ -1,5 +1,13 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-21: シミュレーターのブラウザ標準の窓をやめる（A・本番 PR #134 7785441）
+
+- モック _mocks/sim-refresh-20261021（git管理外）の A〜E をユーザーが承認。A を実装。次は B＋D（右クリックメニュー・ダイアログ／切り替え）→ C＋E（再生バー・スマホの⋯メニュー／下部バー）。ユーザーの指示を待ってから進める。
+- 部品は ui/inline-ui.js（お知らせ・名前の小窓・確認の小窓）。元に戻すは ui/undo-point.js（退避と同じ形の写し＋世代 id→開き直し）。決定は decisions.md 2026-10-21。
+- reviewer 3回: 2回目の元に戻すが効かない・写せないときのデータ消失・開いた先の元に戻すがすぐ消える、などを修正→最終確認は「問題なし」。
+- 確認: JS 全件・pytest 2393・ローカル／本番 Playwright（同期・GA・共有の作成を止めて実施）で、ブラウザ標準の窓0件、入れ替え・クリア・一覧の削除・一覧から開く・スマホのクリアの元に戻す。
+- 既知: 環境デッキの取得失敗のお知らせに英語の「Failed to fetch」がそのまま出る（以前の窓と同じ）。iPhone/Android 実機は未確認。
+
 ## 2026-10-21: デッキとリプレイのひも付け（メインの流れ②・本番 PR #129 5f2006b）
 
 - 新規: shared/deck-replays.js（計算）・solitaire/js/ui/deck-replays-ui.js（左サイドバー・スマホのシート・差の帯）・mydeck/deck-replays-top.js（右の欄の区画）。配線: replay-ui.js（保存時に deckId/deckSnap・開いたリプレイの id を知らせる）・saved-replays.js（変化の知らせ）・index-main.js（#mydeck:<id>）・deck-library.js（件数）・replays-page.js（札と絞り込み）。
