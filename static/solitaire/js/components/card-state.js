@@ -51,9 +51,18 @@ export function markTokenIfSrc(wrapper, src) {
  * @param {Element} wrapper - .tier-item-wrapper
  * @returns {boolean}
  */
+/**
+ * EXデッキのカードか（読み込み時に付く wrapper.id の末尾「 ex」で見る。今どの置き場所にあるかは問わない）。
+ * 「今 EX デッキの欄にあるか」は置き場所（#poolRow2 の子か）で見る別の問いなので、そちらは context-menu.js の isExPool。
+ * @param {Element} wrapper - .tier-item-wrapper
+ */
+export function isExCard(wrapper) {
+  return / ex$/.test(wrapper?.id || '');
+}
+
 export function isMonsterCard(wrapper) {
-  // EXデッキカード（wrapper.id に "ex" を含む）は常にモンスター
-  if (wrapper.id.includes(' ex')) return true;
+  // EXデッキカードは常にモンスター
+  if (isExCard(wrapper)) return true;
   // data-card-type による判定（deck-input-panel が付与）
   const t = wrapper.dataset.cardType || '';
   return t === 'monster';
