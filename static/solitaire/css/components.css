@@ -648,7 +648,9 @@ body.sol-newcard-focus-active #poolRow2 {
    モック _mocks/deck-bar-20261020）。ボタンは「変更を保存」「別のデッキとして保存」「マイデッキに登録」「デッキ画像」を
    すべて同じ塗りのピルにする（以前は塗り・枠線だけ・下線の文字が混ざり、枠線のピルは枠が背景に溶けて文字に見えた）。 */
 @media (min-width: 768px) {
-  #imagePool > .pool-label { display: flex; align-items: center; }
+  /* 高さはボタン（.sol-deck-bar-btn 22px）に合わせて最初から取る。デッキを入れてボタンが出たときに行が 16→22px に伸び、
+     デッキ列と再生バーが 6px 下がって CLS に数えられていた（2026-10-21・PC で 0.0197） */
+  #imagePool > .pool-label { display: flex; align-items: center; min-height: 22px; }
 }
 .pool-label .sol-deck-bar {
   display: inline-flex;
