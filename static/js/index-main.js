@@ -1939,6 +1939,8 @@ function switchMode(mode, trigger){
     document.getElementById('mode-'+m).classList.toggle('hidden',m!==mode);
   });
   if(mode==='packs') loadPacks();
+  // マイデッキタブ: 端末同期で届いていない変更の表示を出し直す（pull はページを開いたときに済んでいる）
+  if(mode==='mydeck' && typeof _refreshSyncStatusUI==='function') _refreshSyncStatusUI();
   if(mode==='wishlist'){
     renderWishlist();
     // 端末間同期: 購入候補タブを開いたときだけ pull する（カード個別ページ閲覧では走らせない）。
