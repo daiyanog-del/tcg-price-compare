@@ -73,6 +73,12 @@
 
 <body{% if self_watermark %} data-self-wm style="--self-watermark-opacity: {{ self_watermark_opacity }}"{% endif %}>
 
+<!-- マイデッキから開いたときの通知の欄（中身は static/shared/deck-handoff.js が入れる）。JS が後から差し込むと
+     盤面全体が押し下がり CLS が出るので、高さを固定した空の欄を最初から置く（2026-10-21 スマホで CLS 0.19） -->
+{% if request.args.get('from') == 'mydeck' and 'replay' not in request.args and 'saved' not in request.args %}
+<div id="deckHandoffStatus" class="sol-handoff-status" role="status"></div>
+{% endif %}
+
 <!-- A-3: 横向きスマホ専用の案内帯（閉じられる。PC幅・縦向きでは常に非表示のまま） -->
 <div id="solLandscapeHint" class="sol-landscape-hint" hidden>
   <span>このページはスマホ縦向きに最適化されています</span>

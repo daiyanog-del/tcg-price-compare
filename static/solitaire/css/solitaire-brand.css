@@ -1990,3 +1990,71 @@ a.replay-btn { display: inline-block; text-decoration: none; }
    768px 未満（横向きスマホなど、ボタンが flex でない幅）は margin で文字との間を空ける */
 .replay-ico { display: inline-flex; flex: none; color: inherit; margin-right: 6px; vertical-align: -2px; }
 .replay-ico svg { display: block; }
+
+/* マイデッキから開いたときの通知の欄（#deckHandoffStatus・static/shared/deck-handoff.js）。
+   2026-10-21: 後から差し込まれ、読み込み後の文が2行に折り返して盤面全体を押し下げていた（スマホで CLS 0.19）。
+   サーバーが空の欄を最初から置き、高さはここで固定する（文の長さでは変えない・はみ出しは「…」）。
+   PC は1行（リンクの高さ＋上下8px）、スマホ縦は デッキ名／状態 の2行（枚数は出さない）。失敗の文だけは折り返して全文を見せる。
+   色は以前の JS の直書きと同じ（背景 --bg-card・文字 --main-color・リンクは .sol-ext-link と同じ #202c42／#aec5ff）。 */
+.sol-handoff-status {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: calc(1.6em + 28px);
+  padding: 8px 12px;
+  overflow: hidden;
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.6;
+  background: var(--bg-card, #171f31);
+  color: var(--main-color, #eff3fb);
+}
+/* 一人回しの汎用 span 色（#333）を上書きする */
+.sol-handoff-status span { color: inherit; }
+.sol-handoff-text {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sol-handoff-name:not(:empty) { margin-right: .25em; }
+.sol-handoff-back {
+  flex: none;
+  display: inline-block;
+  padding: 6px 12px;
+  background: #202c42;
+  color: #aec5ff;
+  border: 0;
+  border-radius: 8px;
+  text-decoration: none;
+  white-space: nowrap;
+  font: inherit;
+  outline-offset: 3px;
+}
+.sol-handoff-retry {
+  flex: none;
+  padding: 8px 12px;
+  min-height: 40px;
+  color: var(--main-color, #eff3fb);
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  font: inherit;
+  cursor: pointer;
+  outline-offset: 3px;
+}
+.sol-handoff-status.is-error { height: auto; min-height: calc(1.6em + 28px); }
+.sol-handoff-status.is-error .sol-handoff-text { white-space: normal; overflow-wrap: anywhere; }
+@media (max-width: 767px) and (orientation: portrait) {
+  .sol-handoff-status { height: calc(3.2em + 16px); }
+  .sol-handoff-status:not(.is-error) .sol-handoff-name {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* 枚数は2行目に収まらないので出さない（同じ画面の「デッキ N」「EXデッキ N」に出ている） */
+  .sol-handoff-counts { display: none; }
+  .sol-handoff-status.is-error { height: auto; min-height: calc(3.2em + 16px); }
+}
