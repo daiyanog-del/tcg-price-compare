@@ -1963,6 +1963,7 @@ function switchMode(mode, trigger){
     }
   }
   if(mode==='meta'){loadMetaTiers();loadMetaDeckPrices();}
+  else if(typeof closeMetaSheet==='function') closeMetaSheet(); // スマホの全面の詳細は閉じる
   if(mode==='mydeck'){
     renderSavedDecks();
     // 端末間同期（P2）: マイデッキタブを開いたときだけ pull する（カード個別ページ閲覧では走らせない）
@@ -2247,20 +2248,32 @@ function loadMetaDeckPrices(retry){
   return _metaPricesLoadPromise;
 }
 
+// 価格（一覧の行の右端。2026-10-21 モック meta-refresh-20261021 の D）:
+//   全部取れた → 金額だけ（以前は全行に「全カード取得済み」が付いて目立っていた）／一部未取得 → 「〜」と「N種未取得」／
+//   取得を試みて失敗 → 「価格なし」／価格を計算していないデッキ（上位以外）→「—」（読込中は何も出さない）
 function _metaDeckPriceHtml(name){
   const d=_metaPriceMap[name];
-  if(!d) return '';
-  // Q-11: totalは「取れた分だけの合計」であり正確な総額ではないため、
-  // 一部未取得のときは下限であることが分かるよう「〜」を付ける（「約」は丸めに読める）
-  const priceText=d.priced_count>0
-    ?`&yen;${d.total.toLocaleString()}${d.missing_count>0?'〜':''}`
-    :'価格情報なし';
-  // Q-9: missing_countはカードの種類数（枚数ではない）。「枚」表記だと
-  // 3枚積み1種の未取得が実態と異なり「1枚」に見えるため「種」と表記する
-  const note=d.priced_count>0
-    ?(d.missing_count>0?`${d.missing_count}種未取得`:'全カード取得済み')
-    :'';
-  return `<span class="meta-deck-price"><span class="meta-deck-price-now">${priceText}</span><span class="meta-deck-price-note">${esc(note)}</span></span>`;
+  if(!d) return _metaPricesLoaded?'<span class="mt-price is-none" title="価格は使用率の高い上位デッキだけ計算しています">—</span>':'<span class="mt-price"></span>';
+  // Q-11: totalは「取れた分だけの合計」であり正確な総額ではないため、一部未取得のときは下限であることが分かるよう「〜」を付ける
+  // Q-9: missing_countはカードの種類数（枚数ではない）なので「種」と表記する
+  if(d.priced_count>0){
+    return `<span class="mt-price">&yen;${d.total.toLocaleString()}${d.missing_count>0?`〜<small>${d.missing_count}種未取得</small>`:''}</span>`;
+  }
+  return '<span class="mt-price is-none">価格なし</span>';
+}
+
+// 一覧の1行（D）: 画像・名前・使用率（短い棒）・価格。選んでいるデッキは金の線（.selected）
+let _currentMetaTheme='';
+function _metaRowHtml(d,rank){
+  const img=d.image?safeUrl(d.image):'';
+  const max=Math.max.apply(null,_metaTiers.map(t=>Number(t.share)||0))||1;
+  const w=Math.max(3,Math.round(34*(Number(d.share)||0)/max));
+  return `<button class="meta-deck-btn mt-row${d.name===_currentMetaTheme?' selected':''}" onclick="loadMetaDeck('${escAttr(escJs(d.name))}',${rank})" id="meta-btn-${escAttr(d.name)}">
+        ${img?`<img src="${escAttr(img)}" alt="" loading="lazy">`:'<span class="mt-noimg"></span>'}
+        <span class="mt-name">${esc(d.name)}</span>
+        <span class="mt-share"><i style="width:${w}px"></i>${esc(d.share)}%</span>
+        ${_metaDeckPriceHtml(d.name)}
+      </button>`;
 }
 
 function loadMetaTiers(){
@@ -2302,14 +2315,24 @@ async function _loadMetaTiersInner(){
   }
 }
 
+// 日付を日本時間の「10/21」「10/21 21:36」の形にする（2026-10-21 モックの E。以前は 2026-10-21T12:36:19.800136+00:00 のまま出ていた）
+function _metaFmtDate(s,withTime){
+  if(!s) return '';
+  const d=new Date(/T/.test(s)?s:s+'T00:00:00+09:00');
+  if(isNaN(d)) return String(s);
+  const j=new Date(d.getTime()+9*3600e3);
+  const md=(j.getUTCMonth()+1)+'/'+j.getUTCDate();
+  return withTime?md+' '+String(j.getUTCHours()).padStart(2,'0')+':'+String(j.getUTCMinutes()).padStart(2,'0'):md;
+}
+// 不明な期間・取得日時・母数はそのまま「不明」と出す（CLAUDE.md「集計期間・取得日時はデータ由来の値を表示し、不明な母数を明示する」）
 function _metaProvenanceHtml(){
   const m=_metaMetadata;
-  const period=m.from&&m.to?`集計期間: ${m.from}〜${m.to}`:'集計期間不明';
-  const updated=m.fetched_at?`データ取得: ${m.fetched_at}`:'取得日時不明';
-  const sample=Number.isInteger(m.sample_size)&&m.sample_size>=0?`母数: ${m.sample_size}件`:'母数不明';
-  const status=m.stale?'／更新に失敗したため、以前取得したデータを表示しています':
-    (m.refresh_error?'／最新データを取得できませんでした':'');
-  return esc(`データ: TCG PORTAL 大会入賞データ／${period}／${updated}／${sample}${status}`);
+  const period=m.from&&m.to?`${_metaFmtDate(m.from)}〜${_metaFmtDate(m.to)}`:'集計期間不明';
+  const updated=m.fetched_at?`${_metaFmtDate(m.fetched_at,true)} 取得（日本時間）`:'取得日時不明';
+  const sample=Number.isInteger(m.sample_size)&&m.sample_size>=0?`母数 ${m.sample_size}件`:'母数不明';
+  const status=m.stale?'（更新に失敗したため、以前取得したデータを表示しています）':
+    (m.refresh_error?'（最新データを取得できませんでした）':'');
+  return esc(`TCG PORTAL の大会入賞データ・${period}・${updated}・${sample}${status}`);
 }
 
 function renderMetaTiers(){
@@ -2337,7 +2360,7 @@ function renderMetaTiers(){
       if(relA!==relB) return relA-relB;
       return da.total-db.total;
     });
-    let html='<div class="meta-deck-list">';
+    let html='<div class="meta-deck-list mt-list">';
     // S-3(2): 未取得カードがあるデッキ（rel=1）・価格を計算できなかったデッキ（rel=2）は
     // 金額の大小に関わらず末尾へ回している。安い順の一覧だけを見ると理由が分からないため、
     // グループが切り替わる箇所に1行だけ区切りを入れる
@@ -2353,15 +2376,10 @@ function renderMetaTiers(){
       }
       prevRel=rel;
       rank++;
-      const dImgSafe=d.image?safeUrl(d.image):'';
-      const imgHtml=dImgSafe?`<img src="${escAttr(dImgSafe)}" alt="" style="width:44px;height:62px;border-radius:2px;object-fit:cover;flex-shrink:0">`:'';
-      html+=`<button class="meta-deck-btn" onclick="loadMetaDeck('${escAttr(escJs(d.name))}',${rank})" id="meta-btn-${escAttr(d.name)}">
-        ${imgHtml} ${esc(d.name)} <span class="meta-share">${d.share}%</span>
-        ${_metaDeckPriceHtml(d.name)}
-      </button>`;
+      html+=_metaRowHtml(d,rank);
     }
     html+='</div>';
-    html+=`<div class="meta-note">環境デッキを今すぐ組むといくらか（一部未取得のカードあり・目安）／${_metaProvenanceHtml()}</div>`;
+    html+=`<div class="meta-note">環境デッキを今すぐ組むといくらか（一部未取得のカードあり・目安）。<br>${_metaProvenanceHtml()}</div>`;
     el.innerHTML=html;
     return;
   }
@@ -2379,16 +2397,11 @@ function renderMetaTiers(){
     const label=tier<=4?`Tier ${tier}`:'Other';
     const cls=tier<=4?`tier-${tier}`:'tier-4';
     html+=`<div class="meta-tier-group">
-      <div class="meta-tier-label"><span class="tier-badge ${cls}">${label}</span></div>
-      <div class="meta-deck-list">`;
+      <div class="mt-group-h"><span class="tier-badge ${cls}">${label}</span><small>${groups[tier].length}デッキ</small></div>
+      <div class="meta-deck-list mt-list">`;
     for(const d of groups[tier]){
       rank++;
-      const dImgSafe=d.image?safeUrl(d.image):'';
-      const imgHtml=dImgSafe?`<img src="${escAttr(dImgSafe)}" alt="" style="width:44px;height:62px;border-radius:2px;object-fit:cover;flex-shrink:0">`:'';
-      html+=`<button class="meta-deck-btn" onclick="loadMetaDeck('${escAttr(escJs(d.name))}',${rank})" id="meta-btn-${escAttr(d.name)}">
-        ${imgHtml} ${esc(d.name)} <span class="meta-share">${d.share}%</span>
-        ${_metaDeckPriceHtml(d.name)}
-      </button>`;
+      html+=_metaRowHtml(d,rank);
     }
     html+=`</div></div>`;
   }
@@ -2396,29 +2409,80 @@ function renderMetaTiers(){
   // 画面から理由が分かるよう、実際に価格を出せたデッキ数を添える
   const pricedCount=Object.keys(_metaPriceMap).length;
   const priceLimitNote=(_metaPricesLoaded&&pricedCount>0&&pricedCount<_metaTiers.length)
-    ?`価格は使用率が高い上位${pricedCount}デッキのみ計算しています／`:'';
+    ?`価格は使用率の高い上位${pricedCount}デッキだけ計算しています。<br>`:'';
   html+=`<div class="meta-note">${priceLimitNote}${_metaProvenanceHtml()}</div>`;
   el.innerHTML=html;
+}
+
+// ── デッキの詳細（2026-10-21 モック meta-refresh-20261021 の A・B・C） ──
+// A: PC は右の欄に出す（一覧の下へ飛ばない）。900px 以下は全面で開き、「一覧へ」で閉じる（一覧の位置はそのまま）
+// B: 見出しにデッキ名・Tier・使用率・枚数・相場、主操作「シミュレーターで回す」（CLAUDE.md の入口設計「環境デッキは価格感の確認から一人回しへ」）、
+//    ほかは「マイデッキに保存」と ⋯（デッキ全部を購入候補へ・デッキ画像・共有）
+// C: カードの並びの右クリック（指はタップ）で「購入候補に入れる・カードの詳細・価格を比べる」
+const _META_SHEET_MQ='(max-width: 900px)';
+const _META_EXT_SVG='<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M9 3h4v4M13 3 7 9M11 9v4H3V5h4"/></svg>';
+const _META_PLAY_SVG='<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg>';
+const _META_MORE_SVG='<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="12.5" cy="8" r="1.4"/></svg>';
+function _metaToast(msg){ if(window.DeckHead&&typeof window.DeckHead.toast==='function') window.DeckHead.toast(msg); }
+
+function _openMetaSheet(){
+  if(!window.matchMedia||!matchMedia(_META_SHEET_MQ).matches) return;
+  const pane=document.getElementById('metaPane');
+  if(!pane) return;
+  pane.classList.add('is-open');
+  pane.scrollTop=0;
+  if(!_metaSheetKeyReady){ _metaSheetKeyReady=true; document.addEventListener('keydown',_metaSheetKey,true); } // 引き出しの Esc（deck-card-info.js）より先に見る
+  document.documentElement.classList.add('meta-sheet-open'); // 後ろの一覧がスクロールしないように
+}
+function closeMetaSheet(){
+  const pane=document.getElementById('metaPane');
+  if(pane) pane.classList.remove('is-open');
+  document.documentElement.classList.remove('meta-sheet-open');
+}
+// Esc で全面の詳細を閉じる（最初に開いたときに1回だけ登録）。メニューを開いているときはメニューだけ閉じる（メニューの Esc は先に受けて止めている）
+let _metaSheetKeyReady=false;
+function _metaSheetKey(e){
+  if(e.key!=='Escape') return;
+  const pane=document.getElementById('metaPane');
+  // カードの詳細の引き出しを開いているときは、引き出しだけ閉じる（同じ Esc で全面の詳細まで閉じない）
+  if(document.getElementById('deckCardDrawer')?.classList.contains('open')) return;
+  if(pane&&pane.classList.contains('is-open')&&!document.querySelector('.wl-menu')) closeMetaSheet();
+}
+
+// 計算した合計（#metaDeckTotalPrice。calcDeckEstimate が書く）を見出しにも写す
+let _metaTotalObserver=null;
+function _metaWatchTotal(){
+  const src=document.getElementById('metaDeckTotalPrice');
+  if(!src) return;
+  const copy=()=>{ const head=document.getElementById('metaHeadTotal'); if(head) head.textContent=src.textContent&&src.textContent!=='-'?src.textContent:'計算中…'; };
+  copy();
+  if(_metaTotalObserver) return;
+  _metaTotalObserver=new MutationObserver(copy);
+  _metaTotalObserver.observe(src,{childList:true,characterData:true,subtree:true});
 }
 
 async function loadMetaDeck(theme,rank){
   // R-1: 旧トップページの top_deck_click を統合先の環境デッキタブに合わせて改名。
   // カード名・デッキ名は送らずクリック順位のみ（従来方針を維持）
   if(rank) _ga('meta_deck_click',{rank:rank});
+  _currentMetaTheme=theme;
   const detailEl=document.getElementById('metaDeckDetail');
   const btn=document.getElementById('meta-btn-'+theme);
   if(btn) btn.classList.add('loading');
 
-  // 選択状態を更新
+  // 選択状態を更新（金の線）
   document.querySelectorAll('.meta-deck-btn').forEach(b=>b.classList.remove('selected'));
   if(btn) btn.classList.add('selected');
 
+  document.getElementById('metaDeckEmpty')?.setAttribute('hidden','');
   detailEl.classList.remove('hidden');
-  detailEl.innerHTML='<div class="meta-loading">主要カードを読込中...</div>';
+  detailEl.innerHTML='<div class="meta-loading">デッキを読込中...</div>';
+  _openMetaSheet();
 
   try{
     const res=await fetch('/api/meta/deck?theme='+encodeURIComponent(theme));
     const data=await res.json();
+    if(_currentMetaTheme!==theme) return; // 読み込む間に別のデッキを選んだ
 
     const hasFullDeck=data.full_deck&&data.full_deck.length>0;
     if(!hasFullDeck&&(!data.cards||!data.cards.length)){
@@ -2430,43 +2494,164 @@ async function loadMetaDeck(theme,rank){
     _lastMetaDeckText=data.deck_text||'';
     _currentDeckName=theme;
 
-    // レシピリンク
-    let recipeHtml='';
-    if(data.recipes&&data.recipes.length>0){
-      recipeHtml='<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">'
-        +'<div style="font:.72rem var(--font);color:var(--text-d);margin-bottom:6px">入賞デッキレシピ:</div>';
-      for(const r of data.recipes){
-        const label=r.title||'レシピを見る';
-        const date=r.date?' ('+r.date+')':'';
-        recipeHtml+='<a href="'+escAttr(safeUrl(r.url))+'" target="_blank" rel="noopener" style="display:inline-block;margin:2px 4px 2px 0;padding:3px 8px;font:.7rem var(--font);color:var(--accent-l);border:1px solid var(--border);border-radius:4px;text-decoration:none">'+esc(label)+date+'</a>';
-      }
-      recipeHtml+='</div>';
-    }
-
+    const t=_metaTiers.find(x=>x.name===theme)||{};
+    const img=t.image?safeUrl(t.image):'';
     const cardCount=hasFullDeck?data.full_deck.length:data.cards.length;
     const totalCards=hasFullDeck?data.full_deck.reduce((s,c)=>s+c.qty,0):0;
-    const heading=hasFullDeck
-      ?esc(theme)+' — デッキレシピ（'+cardCount+'種 / '+totalCards+'枚）'
-      :esc(theme)+' — 主要カード（'+cardCount+'種）';
-    const note=hasFullDeck
-      ?'最新の入賞デッキレシピ（メイン+EXデッキ）'
-      :'採用率40%以上のカードを平均枚数で表示 / 手札誘発・汎用カード含む';
+    const meta=[t.tier&&t.tier<=4?'Tier '+t.tier:'',t.share!=null?`使用率 <b>${esc(t.share)}%</b>`:'',
+      hasFullDeck?`<b>${cardCount}</b>種 <b>${totalCards}</b>枚`:`主要カード <b>${cardCount}</b>種`].filter(Boolean).join(' ・ ');
+    // レシピ: 今のデータ（/api/meta/deck の recipes）は日付・大会名が空なので、番号で区別する（入っていれば出す）
+    const recipes=(data.recipes||[]).filter(r=>safeUrl(r.url)).map((r,i)=>{
+      const label=(r.title||('入賞レシピ '+(i+1)))+(r.date?' ('+r.date+')':'');
+      return `<a class="mt-recipe" href="${escAttr(safeUrl(r.url))}" target="_blank" rel="noopener">${esc(label)} ${_META_EXT_SVG}</a>`;
+    }).join('');
 
-    detailEl.innerHTML='<h4>'+heading+'</h4>'
-      +'<div style="margin-bottom:8px">'
-      +'<button class="deck-btn deck-btn-secondary" onclick="applyMetaDeckToTextarea()">マイデッキに送る</button>'
-      +'</div>'
-      +recipeHtml
-      +'<div class="meta-note">'+note+'</div>';
-    detailEl.scrollIntoView({behavior:'smooth',block:'start'});
+    detailEl.innerHTML=`
+      <div class="mt-head">
+        ${img?`<img src="${escAttr(img)}" alt="">`:'<span></span>'}
+        <div class="mt-head-text"><h3 class="mt-title">${esc(theme)}</h3><div class="mt-meta">${meta}</div></div>
+        <div class="mt-total"><small>デッキ相場</small><b id="metaHeadTotal">計算中…</b></div>
+      </div>
+      <div class="mt-actions">
+        <button type="button" class="mt-btn is-primary" onclick="openMetaDeckInSolitaire()">${_META_PLAY_SVG}シミュレーターで回す</button>
+        <button type="button" class="mt-btn" onclick="saveMetaDeckToMydeck()">マイデッキに保存</button>
+        <button type="button" class="mt-btn is-icon" id="metaMoreBtn" onclick="openMetaMore(this)" aria-label="その他の操作" aria-haspopup="menu">${_META_MORE_SVG}</button>
+      </div>
+      ${recipes?`<div class="mt-recipes">${recipes}</div>`:''}
+      ${hasFullDeck?'':'<div class="meta-note">採用率40%以上のカードを平均枚数で表示 / 手札誘発・汎用カード含む</div>'}`;
+    _metaWatchTotal();
+    _metaInitCardMenu();
 
     // デッキ選択後に即・見積もり開始（マイデッキと同じ挙動）
     calcDeckEstimate(DECK_CTX.meta);
   }catch(e){
-    detailEl.innerHTML='<div class="meta-loading">読込に失敗しました</div>';
+    if(_currentMetaTheme===theme) detailEl.innerHTML='<div class="meta-loading">読込に失敗しました</div>';
   }finally{
     if(btn) btn.classList.remove('loading');
   }
+}
+
+function _metaDeckCards(){
+  const {main,ex}=parseDeckSections(_lastMetaDeckText||'');
+  return {main,ex,all:[].concat(main,ex)};
+}
+
+// 「シミュレーターで回す」: マイデッキと同じ引き継ぎ（static/shared/deck-handoff.js）で、?from=meta として開く
+async function openMetaDeckInSolitaire(){
+  try{
+    if(!_lastMetaDeckText) throw new Error('デッキを選んでください。');
+    const {main,ex}=_metaDeckCards();
+    const {storeHandoff}=await import('/static/shared/deck-handoff.js');
+    storeHandoff({version:1,name:_currentDeckName||'環境デッキ',main,ex});
+    _ga('sim_open',{from:'meta'});
+    location.assign('/solitaire?from=meta');
+  }catch(error){
+    console.warn('[deck-handoff] 引継ぎデータを保存できませんでした',error);
+    _metaToast('シミュレーターを開けませんでした。'+(error.message||''));
+  }
+}
+
+// 「マイデッキに保存」: 新しいマイデッキとして保存する（同じ名前があれば「名前 (2)」。マイデッキの取り消しで使う付け方と同じ）
+function saveMetaDeckToMydeck(){
+  if(!_lastMetaDeckText) return;
+  const {main,ex,all}=_metaDeckCards();
+  const list=savedDecksGet();
+  const names=new Set(list.map(d=>d.name));
+  let name=_currentDeckName||'環境デッキ';
+  if(names.has(name)){ let k=2; while(names.has(name+' ('+k+')')) k++; name=name+' ('+k+')'; }
+  list.push({id:'d_'+Date.now(),name,text:_lastMetaDeckText,main,ex,updated:Date.now()});
+  savedDecksSet(list);
+  trackDeckCards(all);
+  _ga('deck_save',{where:'meta',kind:'new'});
+  _metaToast('「'+name+'」をマイデッキに保存しました');
+}
+
+// 「デッキ全部を購入候補に入れる」（環境デッキには所持枚数が無いので「足りない分」ではなく全部）。1行99枚まで
+function metaDeckAllToWish(){
+  const {all}=_metaDeckCards();
+  if(!all.length) return;
+  const list=wishGet();
+  let added=0;
+  for(const c of all){
+    const e=list.find(w=>w.name===c.name&&!(w.rarity||''));
+    if(e){ const before=e.qty; e.qty=Math.min(99,e.qty+c.qty); added+=e.qty-before; }
+    else{ const q=Math.min(99,c.qty); list.push({name:c.name,qty:q,rarity:''}); added+=q; }
+  }
+  wishSave(list);
+  _wishPrices=null;
+  trackDeckCards(all);
+  _ga('wish_add',{source:'meta_deck',count:added});
+  _metaToast(added?'「'+(_currentDeckName||'環境デッキ')+'」の'+added+'枚を購入候補に入れました':'すでに購入候補に入っています（1行99枚まで）');
+}
+
+// 詳細の ⋯（メニューの部品は購入候補と同じ _wishOpenMenu。index-wish.js）
+function openMetaMore(btn){
+  if(typeof _wishOpenMenu!=='function') return;
+  if(_wishMenu&&_wishMenu.fromBtn===btn){ _wishCloseMenu(); return; }
+  const n=_metaDeckCards().all.reduce((s,c)=>s+c.qty,0);
+  // 共有は今までの欄（#metaDeckShareArea。renderDeckShareUI）のボタンを使う。合計が出るまでは画像だけ
+  const share=document.getElementById('metaDeckShareArea');
+  const pick=sel=>share?share.querySelector(sel):null;
+  const x=pick('.share-btn-x'), line=pick('.share-btn-line'), copy=pick('.share-btn-copy'), image=pick('.share-btn-img');
+  const items=[{label:'デッキ全部を購入候補に入れる',sub:n+'枚',fn:metaDeckAllToWish}];
+  if(image) items.push({label:'デッキ画像を作る',fn:()=>image.click()});
+  if(x||line||copy){
+    items.push('sep');
+    if(x) items.push({label:'X に投稿',fn:()=>x.click()});
+    if(line) items.push({label:'LINE で送る',fn:()=>line.click()});
+    if(copy) items.push({label:'投稿文をコピー',fn:()=>copy.click()});
+  }
+  _wishOpenMenu({fromBtn:btn,ownerEl:btn,ownerClass:'is-open',items});
+}
+
+// カードの詳細: マイデッキの引き出し（#deckCardDrawer）を使う。マイデッキの画面の中に置かれていて、
+// 環境デッキを開いている間は隠れているので、画面の一番外へ移してから開く（固定位置の部品なのでマイデッキ側は変わらない）
+function _metaOpenCardInfo(name,src){
+  const drawer=document.getElementById('deckCardDrawer');
+  if(drawer&&drawer.parentElement!==document.body) document.body.appendChild(drawer);
+  // 押したクリックが引き出しの「外を押したら閉じる」に届いて、開いた直後に閉じないよう次の瞬間に開く（マイデッキの deck-card-ops.js と同じ）
+  if(typeof window.openDeckCardInfo==='function') setTimeout(()=>window.openDeckCardInfo(name,src||''),0);
+  else window.open('/card/'+encodeURIComponent(name),'_blank','noopener');
+}
+
+// C: カードの並び（#metaDeckCardList。行は描き直されるので箱で受ける）。PC は右クリック、指はタップでメニュー
+function _metaInitCardMenu(){
+  const list=document.getElementById('metaDeckCardList');
+  if(!list||list.dataset.menuReady) return;
+  list.dataset.menuReady='1';
+  let touch=false;
+  list.addEventListener('pointerdown',e=>{ touch=e.pointerType==='touch'; });
+  const open=(cell,x,y,fromBtn)=>{
+    if(typeof _wishOpenMenu!=='function') return;
+    const name=cell.dataset.card;
+    if(!name) return;
+    const img=cell.querySelector('img');
+    const inWish=wishGet().filter(c=>c.name===name).reduce((n,c)=>n+(c.qty||0),0);
+    _wishOpenMenu({title:name,fromBtn,x,y,ownerEl:cell,ownerClass:'is-menu',items:[
+      {label:'購入候補に入れる',sub:'候補に '+inWish+'枚',fn:()=>{
+        wishAdd(name,1,'');
+        _ga('wish_add',{source:'meta_card',count:1});
+        _metaToast('「'+name+'」を購入候補に入れました');
+      }},
+      {label:'カードの詳細',fn:()=>_metaOpenCardInfo(name,img?img.src:'')},
+      {label:'価格を比べる',fn:()=>window.open('/card/'+encodeURIComponent(name),'_blank','noopener')},
+    ]});
+  };
+  list.addEventListener('contextmenu',e=>{
+    const cell=e.target.closest('.deck-grid-cell');
+    // 店へのリンク（カード名）の上ではブラウザのメニューを残す
+    if(!cell||e.target.closest('.deck-card-name a')) return;
+    e.preventDefault();
+    open(cell,e.clientX,e.clientY,null);
+  });
+  list.addEventListener('click',e=>{
+    if(!touch) return; // マウスの左クリックは今までどおりカードの価格ページへ
+    const cell=e.target.closest('.deck-grid-cell');
+    if(!cell||e.target.closest('.deck-card-name a')) return;
+    e.preventDefault();
+    if(_wishMenu&&_wishMenu.ownerEl===cell){ _wishCloseMenu(); return; }
+    open(cell,0,0,cell);
+  });
 }
 
 let _lastMetaDeckText='';

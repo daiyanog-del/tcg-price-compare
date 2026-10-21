@@ -46,7 +46,9 @@ function readHandoff(storage){
 export async function receiveDeckHandoff({loadDeck,clearDeck,getCounts,onLoaded=()=>{},storage=sessionStorage,doc=document,loc=location,hist=history}){
   const url=new URL(loc.href);
   // 共有リプレイは最優先。通常のアクセスでは一時データがあっても取り込まない。
-  if(url.searchParams.has('replay')||url.searchParams.has('saved')||url.hash.startsWith('#replay=')||url.searchParams.get('from')!=='mydeck'){
+  // 受け取るのはマイデッキ（?from=mydeck）と環境デッキ（?from=meta。2026-10-21「シミュレーターで回す」）から開いたときだけ
+  const from=url.searchParams.get('from');
+  if(url.searchParams.has('replay')||url.searchParams.has('saved')||url.hash.startsWith('#replay=')||(from!=='mydeck'&&from!=='meta')){
     // サーバーは # を見られないので、?from=mydeck#replay= では空の欄が置かれている。使わないので外す
     doc.getElementById?.('deckHandoffStatus')?.remove();
     return false;
@@ -64,7 +66,7 @@ export async function receiveDeckHandoff({loadDeck,clearDeck,getCounts,onLoaded=
   const countsEl=doc.createElement('span');countsEl.className='sol-handoff-counts';
   message.append(nameEl,stateEl,countsEl);
   const retry=doc.createElement('button');retry.type='button';retry.textContent='再試行';retry.hidden=true;retry.className='sol-handoff-retry';
-  const back=doc.createElement('a');back.href='/#mydeck';back.textContent='マイデッキに戻る';back.className='sol-handoff-back';
+  const back=doc.createElement('a');back.href=from==='meta'?'/#meta':'/#mydeck';back.textContent=from==='meta'?'環境デッキに戻る':'マイデッキに戻る';back.className='sol-handoff-back';
   panel.append(message,retry,back);
   // 失敗の文は長いので折り返して全文を見せる（高さが変わるのは失敗時だけ）
   // 読み込み中も、完了の文（「読み込みました」と枚数）の幅を見えない形で取っておく。文の幅が変わると
