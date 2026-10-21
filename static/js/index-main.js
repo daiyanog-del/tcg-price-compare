@@ -245,6 +245,43 @@ function _hideCardDetail(){
   document.getElementById('cardDetailDetails')?.setAttribute('hidden','');
 }
 
+// PC の検索結果で最初から開いている効果テキストの高さを、右の相場の箱（1023px 以下は画像）の底までに抑える。
+// 超える分は「続きを読む」で開く。長い効果（ペンデュラム等）で名前の行だけが伸び、下のレアリティ欄と一覧が
+// 押し下げられる（後から届くので CLS にもなる）のを防ぐ。未発売カード（ヒーロー直下の全幅表示）は対象外
+function _clampCardDetail(){
+  const det=document.getElementById('cardDetail');
+  const box=document.getElementById('cardDetailDetails');
+  document.getElementById('cardDetailMore')?.remove();
+  if(!det||!box) return;
+  det.classList.remove('cr-clamped');
+  det.style.maxHeight='';
+  if(!box.closest('.cr-acts')||!box.open||box.hidden||det.dataset.expanded==='1') return;
+  if(!(window.matchMedia&&window.matchMedia('(min-width:641px)').matches)) return;
+  const top=det.getBoundingClientRect().top;
+  const img=document.getElementById('heroImgWrap');
+  const market=document.getElementById('heroMarket');
+  const wide=window.matchMedia('(min-width:1024px)').matches;
+  const bottom=Math.max(img?img.getBoundingClientRect().bottom:0,wide&&market?market.getBoundingClientRect().bottom:0);
+  if(det.scrollHeight<=bottom-top+1) return; // 全文が収まる
+  const lh=parseFloat(getComputedStyle(det).lineHeight)||20;
+  // ボタン1行ぶんを残し、行の途中で切れないよう行の高さの倍数にする（少なくとも5行は見せる）
+  const avail=Math.max(lh*5,Math.floor((bottom-top-lh-8)/lh)*lh);
+  det.style.maxHeight=avail+'px';
+  det.classList.add('cr-clamped');
+  const btn=document.createElement('button');
+  btn.type='button';btn.id='cardDetailMore';btn.className='cr-more';btn.textContent='続きを読む';
+  btn.addEventListener('click',()=>{
+    det.dataset.expanded='1';
+    det.classList.remove('cr-clamped');
+    det.style.maxHeight='';
+    btn.remove();
+    _ga('card_info_more');
+  });
+  det.after(btn);
+}
+let _clampTimer=null;
+window.addEventListener('resize',()=>{ clearTimeout(_clampTimer); _clampTimer=setTimeout(_clampCardDetail,150); });
+
 function _renderProxyDetail(p,name){
   const det=document.getElementById('cardDetail');
   if(!det) return;
@@ -303,6 +340,7 @@ function _fetchCardInfo(cardName){
       if(data.effect_text) html+=`<div class="card-detail-effect">${esc(_normalizeBreaks(data.effect_text))}</div>`;
       det.innerHTML=html;
       _showCardDetail();
+      _clampCardDetail();
     })
     .catch(()=>{_hideCardDetail();fetchCardImage(cardName);});
 }
@@ -673,19 +711,20 @@ function renderAll(d){
   document.getElementById('heroImgWrap').innerHTML='<div class="cr-img-ph"></div>';
   const inStock=D.filter(r=>!r.sold_out);
   const best=inStock.length>0?inStock.reduce((a,b)=>a.price<b.price?a:b):null;
-  const rarityKinds=[...new Set(D.map(r=>r.rarity).filter(Boolean))].length;
-  // 最安の欄（#heroBestLabel・#heroBest）は既定のレアリティが決まった後に _updateHeroSummary() が埋める
+  // PC では効果テキストを最初から開き、名前の下の空きに出す（高さの上限と「続きを読む」は _clampCardDetail）。
+  // スマホは今までどおり閉じたボタン（縦に長くなりすぎるため）
+  const detailOpen=!!(window.matchMedia&&window.matchMedia('(min-width:641px)').matches);
+  // 最安の行（#heroBest）は既定のレアリティが決まった後に _updateHeroSummary() が埋める。
+  // 在庫の件数・レアリティの種類数の行は、すぐ下のレアリティ欄（すべて N件・札の数）と重なるので出さない（2026-10-22）
   heroInfo.innerHTML=`<div class="card-hero-name">${esc(searchTerm)}</div>
-    <div class="cr-best-label" id="heroBestLabel">${best?'最安':'在庫'}</div>
     <div class="cr-best" id="heroBest">${best?'':'<span class="cr-best-none">在庫なし</span>'}</div>
-    <div class="card-hero-meta">在庫あり ${d.in_stock_count}件／全 ${d.total}件${rarityKinds>1?`・${rarityKinds} レアリティ`:''}</div>
     <div class="cr-acts">
       <button type="button" id="heroWishAdd" class="cr-pill cr-pill-pri" onclick="wishAddFromBtn(this,'${escAttr(escJs(searchTerm))}',1,rarityFilter)">購入候補に追加</button>
       <button type="button" class="cr-pill" onclick="addToDeck('${escAttr(escJs(searchTerm))}',this)">デッキに追加</button>
       <!-- 価格比較を先に見せ、効果テキストは必要なときに開く。
            閉じた見出しは最初から出しておき、カード情報が無かったときだけ _hideCardDetail で隠す。
            情報が届いてから出すと、下の一覧が約42px 下がり CLS 0.02 が出ていた（2026-10-21） -->
-      <details class="card-info-details" id="cardDetailDetails">
+      <details class="card-info-details" id="cardDetailDetails"${detailOpen?' open data-auto-open="1"':''}>
         <summary class="cr-pill">効果テキスト</summary>
         <div id="cardDetail" class="card-detail"></div>
       </details>
@@ -1100,24 +1139,21 @@ function _renderBuyInline(){
 // ヒーローとサマリー先頭カードの店舗名が食い違わないようにする
 function _updateHeroSummary(){
   const heroBest=document.getElementById('heroBest');
-  const heroLabel=document.getElementById('heroBestLabel');
   const soCountEl=document.getElementById('soCount');
   const items=_summaryShopItems();
   const best=items.length?items[0]:null;
   const shownRarity=_shownRarity();
-  if(heroLabel){
-    heroLabel.textContent=best
-      ?(shownRarity?`${shownRarity}の最安`:'最安（すべてのレアリティ）')
-      :(shownRarity?`${shownRarity}の在庫`:'在庫');
-  }
   if(heroBest){
+    // 最安の行: ［最安］の札（一覧の最安の印と同じ金）・値段・レアリティの枠線の札・店名と型番（2026-10-22 ユーザー選定）。
+    // 「すべて」のときは全レアリティの中の最安なので、その出品のレアリティを札に出す（別レアリティだと分かるように J-5）
+    const rar=shownRarity||(best?best.rarity:'');
+    const rarTag=rar?`<span class="cr-hb-rar">${esc(rar)}</span>`:'';
     if(best){
-      // 「すべて」のときは別レアリティの最安になりうるので、レアリティも並べて出す（J-5 と同じ理由）
-      const sub=[shownRarity?'':best.rarity,_looksLikeCardCode(best.code)?best.code:''].filter(Boolean).join('・');
-      heroBest.innerHTML=`<span class="cr-best-price">¥${best.price.toLocaleString()}</span><span class="cr-best-shop">${esc(best.shop)}</span>`+
-        (sub?`<span class="cr-best-sub">${esc(sub)}</span>`:'');
+      const code=_looksLikeCardCode(best.code)?`・${esc(best.code)}`:'';
+      heroBest.innerHTML=`<span class="cr-hb-best">最安</span><span class="cr-best-price">¥${best.price.toLocaleString()}</span>${rarTag}`+
+        `<span class="cr-best-shop">${esc(best.shop)}${code}</span>`;
     }else{
-      heroBest.innerHTML='<span class="cr-best-none">在庫なし</span>';
+      heroBest.innerHTML=`<span class="cr-best-none">在庫なし</span>${rarTag}`;
     }
   }
   // 売切件数はサーバー集計値（d.sold_out_count）とは別経路でクライアント側のD（rarityFilter適用後）

@@ -1470,6 +1470,8 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/static/sw.js
 // （'toggle'イベントはbubbleしないが、capture段階はDOM再生成後の要素にも常に届く）
 document.addEventListener('toggle',function(e){
   if(e.target&&e.target.classList&&e.target.classList.contains('card-info-details')&&e.target.open){
+    // PC の検索結果は最初から開いている（2026-10-22 案3）。その分は利用者が開いたのではないので数えない
+    if(e.target.dataset.autoOpen){ delete e.target.dataset.autoOpen; return; }
     _ga('card_info_open');
   }
 },true);

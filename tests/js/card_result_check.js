@@ -111,8 +111,8 @@ assert(h.includes('<td class="cr-cond">状態:SA</td>') && h.includes('<td class
 // レアリティを選んでいるときはレアリティの札を付けない
 assert(!h.includes('<span class="cr-tag">ウルトラ</span>'));
 // ヒーローの最安は一覧の先頭と同じ（F-14）
-assert.equal(get('heroBestLabel').textContent, 'ウルトラの最安');
-assert(get('heroBest').innerHTML.includes('¥180') && get('heroBest').innerHTML.includes('まんぞく屋'));
+assert.equal(get('heroBest').innerHTML,
+  '<span class="cr-hb-best">最安</span><span class="cr-best-price">¥180</span><span class="cr-hb-rar">ウルトラ</span><span class="cr-best-shop">まんぞく屋・QCAC-JP050</span>');
 
 // 3) すべて: 同じレアリティの在庫ありの出品を全部。売り切れの切替が見える
 run(`setListView('all')`);
@@ -139,16 +139,14 @@ h = get('tbody').innerHTML;
 assert.equal(count(h, 'cr-best-tag'), 0, '別レアリティ同士で最安と言い切らない');
 assert(h.includes('<span class="cr-tag">ウルトラ</span>') && h.includes('<span class="cr-tag">ノーマル</span>'));
 assert.equal(get('crListTitle').textContent, 'すべてのレアリティの出品');
-assert.equal(get('heroBestLabel').textContent, '最安（すべてのレアリティ）');
-assert(get('heroBest').innerHTML.includes('ウルトラ・QCAC-JP050'), '「すべて」のヒーローはレアリティも出す');
+assert(get('heroBest').innerHTML.includes('<span class="cr-hb-rar">ウルトラ</span>'), '「すべて」でも最安の出品のレアリティを札に出す');
 
 // 5) 在庫切れのレアリティ: 案内を出す（F-10）。店ごとの最安からは「すべて」への道も書く
 run(`rarityFilter='プリシク'; listView='shop'; renderSummary(); renderTable(); _updateHeroSummary()`);
 assert.equal(get('tbody').innerHTML, '');
 assert.equal(get('crListNote').textContent, 'このレアリティは在庫切れです（売切1件）。「すべて」の「売り切れも表示」で見られます');
 assert.equal(get('crListNote').classList.contains('hidden'), false);
-assert.equal(get('heroBestLabel').textContent, 'プリシクの在庫');
-assert(get('heroBest').innerHTML.includes('在庫なし'));
+assert.equal(get('heroBest').innerHTML, '<span class="cr-best-none">在庫なし</span><span class="cr-hb-rar">プリシク</span>');
 run(`listView='all'; renderSummary()`);
 assert.equal(get('crListNote').textContent, 'このレアリティは在庫切れです（売切1件）。「売り切れも表示」で見られます');
 get('soCheck').checked = true;
@@ -163,7 +161,7 @@ assert.equal(get('crListNote').classList.contains('hidden'), true);
 run(`D=${JSON.stringify([row('まんぞく屋', 300, 'ノーマル'), row('遊々亭', 350, 'ノーマル')])}; rarityFilter=''; renderSummary(); renderTable(); _updateHeroSummary()`);
 h = get('tbody').innerHTML;
 assert.equal(get('crListTitle').textContent, 'ノーマルの出品');
-assert.equal(get('heroBestLabel').textContent, 'ノーマルの最安');
+assert(get('heroBest').innerHTML.includes('<span class="cr-hb-rar">ノーマル</span>'));
 assert.equal(count(h, 'cr-best-tag'), 1);
 assert(!h.includes('<span class="cr-tag">ノーマル</span>'), '同じレアリティの札をくり返さない');
 

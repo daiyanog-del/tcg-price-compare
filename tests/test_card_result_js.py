@@ -40,3 +40,14 @@ def test_テンプレートの並びと部品():
     for gone in ('sumCards', 'rfBanner', 'rgrid', 'p-all', 'p-rarity', 'tblBuyBtn'):
         assert soup.find(id=gone) is None, gone
     assert any('css/card-result.css' in (l.get('href') or '') for l in soup.find_all('link'))
+
+
+def test_PCの効果テキストの配線():
+    """PC は効果テキストを最初から開き（計測には数えない）、届いたら高さの上限を当てる（2026-10-22 案3）。"""
+    js = (ROOT / 'static/js/index-main.js').read_text(encoding='utf-8')
+    html = (ROOT / 'templates/index.html').read_text(encoding='utf-8')
+    assert "detailOpen?' open data-auto-open=\"1\"':''" in js
+    i = js.index('function _fetchCardInfo(')
+    assert '_showCardDetail();\n      _clampCardDetail();' in js[i:i + 4000]
+    assert 'function _clampCardDetail()' in js and "btn.textContent='続きを読む'" in js
+    assert "if(e.target.dataset.autoOpen){ delete e.target.dataset.autoOpen; return; }" in html
