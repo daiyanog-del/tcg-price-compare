@@ -103,6 +103,9 @@ function click(link,flags={}){
   assert.equal(searches.length,1);
 
   get('newCardsMore').listeners.click();assert.equal(get('newCardsGrid').children.length,12);
+  // 最初から見える6枚（LCP の要素）だけ遅延読み込みにしない。7枚目以降は lazy のまま。
+  {const loadings=get('newCardsGrid').children.map(w=>w.children[0].children[0].children[1]?.loading);
+   assert.deepEqual(loadings,[undefined,undefined,undefined,'eager','eager','eager','lazy','lazy','lazy','lazy','lazy','lazy']);}
   assert.equal(get('newCardsMore').hidden,false);
   get('newCardsMore').listeners.click();assert.equal(get('newCardsGrid').children.length,13);
   assert.equal(get('newCardsMore').hidden,true);
@@ -136,7 +139,7 @@ function click(link,flags={}){
   // 一覧ページ: all=1 で取得し、商品ごとにグループ化（新しい順・未定は最後・発売日は最も早い日付）。
   get('mode-search').classList.add('new-cards-page');
   const listCards=[
-    {name:'A1',product_name:'商品X',added_at:'2026-10-01T00:00:00Z',release_date:'2026-12-20'},
+    {name:'A1',product_name:'商品X',added_at:'2026-10-01T00:00:00Z',release_date:'2026-12-20',image_url:'https://example.test/a1.jpg'},
     {name:'B1',product_name:'',added_at:'2026-10-09T00:00:00Z',release_date:null},
     {name:'C1',product_name:'商品Y',added_at:'2026-10-05T00:00:00Z',release_date:'2026-11-05'},
     {name:'A2',product_name:'商品X',added_at:'2026-10-03T00:00:00Z',release_date:'2026-12-01'},
@@ -147,6 +150,7 @@ function click(link,flags={}){
   const groups=get('newCardsGrid').children;
   assert.deepEqual(groups.map(g=>g.children[0].children[0].textContent),['商品Y（1件）','商品X（2件）','収録商品未定（1件）']);
   assert.equal(groups[1].children[0].children[1].textContent,'12/01 発売');
+  assert.equal(groups[1].children[1].children.find(w=>w.dataset.cardName==='A1').children[0].children[0].children[1].loading,'lazy','一覧ページの画像が遅延読み込みでない');
   assert.equal(groups[2].children[0].children.length,1,'発売日が無いのに表示された');
   assert.equal(groups[1].children[1].children.length,2);
   assert.equal(get('newCardsMore').hidden,true);assert.equal(get('newCardsAll').hidden,true);

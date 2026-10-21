@@ -19,7 +19,8 @@ window.NewCards = (() => {
     return (m[1]!==thisYear?m[1]+'/':'')+m[2]+'/'+m[3]+' 発売';
   }
   // カード1枚分（詳細リンク＋デッキ追加ボタン）。<a>の中にbuttonを入れないため外枠で包む。
-  function cardElement(card){
+  // eager=true は最初から見える枠（トップの最初の6枚）。LCP の要素なので遅延読み込みにしない。
+  function cardElement(card,eager=false){
     const wrap=document.createElement('div');
     wrap.className='new-card';
     wrap.dataset.cardName=card.name; // /?addToDeck=<名> の受け口（add-to-deck-entry.js）が、対象カードの枠を探すのに使う
@@ -38,7 +39,7 @@ window.NewCards = (() => {
     const url=thumb||full;
     if(url){
       const img=document.createElement('img');
-      img.src=url;img.alt='';img.loading='lazy';img.decoding='async';
+      img.src=url;img.alt='';img.loading=eager?'eager':'lazy';img.decoding='async';
       // 縮小版が読めなければ原寸に1回だけ切り替え、それも駄目ならカード名の札に戻す
       let fellBack=!(thumb&&full&&thumb!==full);
       img.addEventListener('error',()=>{
@@ -119,7 +120,7 @@ window.NewCards = (() => {
     if(list){
       renderGrouped(grid);
     }else{
-      cards.slice(0,shown).forEach(card=>grid.appendChild(cardElement(card)));
+      cards.slice(0,shown).forEach((card,i)=>grid.appendChild(cardElement(card,i<PAGE_SIZE)));
     }
     get('newCardsMore').hidden=list||shown>=cards.length;
     // 36件を超える分がある時だけ、全件の一覧ページへ案内する。
