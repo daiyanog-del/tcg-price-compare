@@ -22,6 +22,10 @@
   // タッチ端末ではドラッグを無効化し、カードのタップで選んで上の欄で増減する（deck-card-ops.js）
   var _isTouch = (window.matchMedia && window.matchMedia('(pointer:coarse)').matches) ||
                  (navigator.maxTouchPoints > 0);
+  // ドラッグの並べ替えは、マウスなど細かく指せて乗せられる環境で使う（タッチ付きノート PC をマウスで使う場合も含める。
+  // deck-card-ops.js の右クリックメニュー・「ドラッグで並べ替え」の案内と同じ判定）。指で押したときのドラッグは止める
+  var _fineMQ = window.matchMedia ? window.matchMedia('(hover: hover) and (pointer: fine)') : null;
+  function _canDrag(){ return _fineMQ ? _fineMQ.matches : !_isTouch; }
 
   // 編集モード状態は window 経由で公開（インライン側 calcDeckEstimate / renderDeckGrid から参照）
   window._deckEditMode = false;
@@ -420,7 +424,7 @@
       cell.dataset.fi = String(i);
 
       // ドラッグ（PCのみ）。内側リンクが代わりにドラッグされるのを防ぐ
-      if(!_isTouch){
+      if(_canDrag()){
         cell.setAttribute('draggable', 'true');
         var wrap = cell.querySelector('.deck-grid-img-wrap');
         if(wrap) wrap.setAttribute('draggable', 'false');
@@ -458,10 +462,14 @@
   }
 
   function _initDelegation(listEl){
-    if(_isTouch) return; // ドラッグはPCのみ
+    if(!_canDrag()) return; // ドラッグはマウスで使う環境のみ
 
     var dragFrom = null; // {sec, idx}
+    var lastPointer = '';
+    listEl.addEventListener('pointerdown', function(e){ lastPointer = e.pointerType || ''; }, true);
     listEl.addEventListener('dragstart', function(e){
+      // タッチ付きノート PC で指の長押しから始まったドラッグは止める（指で押したときはタップで選ぶ。deck-card-ops.js）
+      if(lastPointer === 'touch'){ e.preventDefault(); return; }
       var cell = e.target.closest('.deck-grid-cell');
       if(!cell || !window._deckEditMode || !cell.getAttribute('draggable')) return;
       dragFrom = _cellSecIdx(cell);

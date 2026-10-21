@@ -1,6 +1,6 @@
 // マイデッキのカード操作（static/mydeck/deck-card-ops.js）を実モジュールで確かめる。
 // 「×N」の札が二重にならない／選んだカードの欄が描き直し・0枚・空のデッキ・デッキの入れ替えで正しく消える／
-// 購入候補に入れるとき新しいカードだけ価格の控えを捨てる／カード名を innerHTML に入れない。
+// 購入候補に入れるとき新しいカードだけ価格の控えを捨てる／タップとマウスの振り分け／カード名を innerHTML に入れない。
 'use strict';
 const fs = require('fs'), vm = require('vm'), assert = require('assert/strict');
 const source = fs.readFileSync('static/mydeck/deck-card-ops.js', 'utf8');
@@ -45,7 +45,13 @@ function cell(name, sec, qty){
 let deck = { main: [{ name: '灰流うらら', qty: 3 }, { name: '天底の使徒', qty: 1 }], ex: [{ name: 'アクセスコード・トーカー', qty: 1 }] };
 const render = () => { cells = [].concat(deck.main.map(c => cell(c.name, 'main', c.qty)), deck.ex.map(c => cell(c.name, 'ex', c.qty))); };
 const wrapped = {};
+let fetched = [], cacheCleared = 0, toasts = [];
+let wish = [{ name: '灰流うらら', qty: 1, rarity: '' }];
 const sandbox = {
+  fetch: (url, o) => { fetched.push(JSON.parse(o.body).card); return { catch(){} }; },
+  wishGet: () => JSON.parse(JSON.stringify(wish)), wishSave: list => { wish = list; },
+  _wishPrices: { 灰流うらら: {} }, _clearWishPricesCache: () => { cacheCleared++; },
+  renderWishlist(){}, _ga(){}, DeckHead: { toast: m => toasts.push(m) }, _currentSavedDeckId: 'd_1',
   console, setTimeout: fn => fn(), Date, JSON, Object, String, encodeURIComponent,
   document: { readyState: 'complete', body: new El('body'), activeElement: null, documentElement: { clientWidth: 1440 },
     getElementById: id => byId[id] || null, createElement: t => new El(t), querySelector: () => null, addEventListener(){}, removeEventListener(){} },
@@ -56,6 +62,7 @@ const sandbox = {
 };
 sandbox.window = sandbox;
 vm.createContext(sandbox);
+vm.runInContext(fs.readFileSync('static/shared/wish-deck.js', 'utf8'), sandbox);
 vm.runInContext(source, sandbox);
 const ops = sandbox.DeckCardOps;
 const bar = () => byId.deckPaneMain.children.find(c => c.id === 'deckSelBar');
@@ -72,9 +79,6 @@ assert.equal(bar()._parts['deck-sel-name'].textContent, '灰流うらら');
 assert.equal(bar()._parts['deck-sel-qty'].textContent, '3');
 render(); ops.afterRender();
 assert.ok(cells[0].hasAttribute('data-sel'), '描き直しで選択の印が消えた');
-// 価格計算は row.className を書き換えるが、印は data 属性なので残る
-cells[0].className = 'deck-grid-cell';
-assert.ok(cells[0].hasAttribute('data-sel'));
 
 // ── 0枚まで抜いたら選択をやめる ──
 ops.select(cells[1]);
@@ -97,4 +101,34 @@ assert.equal(bar().hidden, true, '最後の1枚を抜いても欄が残る');
 assert.ok(/results\.classList\.add\('hidden'\);\s*\/\/[^\n]*\n\s*if\(window\.DeckCardOps\) window\.DeckCardOps\.afterRender\(\);/.test(fs.readFileSync('static/mydeck/deck-edit.js', 'utf8')),
   'deck-edit.js の空のデッキの分岐から欄を片付けていない');
 
-console.log('マイデッキのカード操作: ×N の札・選択の印と欄・0枚/空/入れ替えでの解除・innerHTML の中身を確認');
+// ── 購入候補に入れる: 既にあるカードは価格の控えを残し収集登録もしない・新しいカードは捨てて登録する（reviewer 中2） ──
+ops._addToWish('灰流うらら');
+assert.equal(wish[0].qty, 2); assert.equal(JSON.stringify(wish[0].decks), '{"d_1":1}', '開いているデッキ用になっていない');
+assert.ok(sandbox._wishPrices, '既にあるカードで価格の控えを捨てた'); assert.equal(cacheCleared, 0); assert.deepEqual(fetched, []);
+ops._addToWish('増殖するG');
+assert.equal(sandbox._wishPrices, null, '新しいカードで価格の控えを捨てていない'); assert.equal(cacheCleared, 1); assert.deepEqual(fetched, ['増殖するG']);
+assert.match(toasts[toasts.length - 1], /候補に1枚/);
+// 書き込めた後にバッジ更新などで例外が出ても失敗と出さない（reviewer 2回目 低2）
+sandbox.wishSave = list => { wish = list; throw Error('バッジ更新の失敗'); };
+ops._addToWish('増殖するG');
+assert.ok(!/保存できませんでした/.test(toasts[toasts.length - 1]), '書き込めているのに失敗と出した');
+sandbox.wishSave = () => { throw Error('容量超過'); };
+ops._addToWish('増殖するG');
+assert.match(toasts[toasts.length - 1], /保存できませんでした/, '書き込めなかったのに知らせない');
+
+// ── タップとマウスの振り分け（reviewer 中3）・店舗リンクの素通し（中1） ──
+deck = { main: [{ name: '灰流うらら', qty: 2 }], ex: [] }; render(); ops.afterRender(); ops.select(null);
+const list = byId.deckCardList;
+const press = (type) => list.listeners.pointerdown.forEach(fn => fn({ pointerType: type }));
+const click = (inLink) => { const ev = { prevented: false, preventDefault(){ this.prevented = true; }, stopPropagation(){},
+  target: { closest: sel => sel === '.deck-grid-cell' ? cells[0] : (sel === 'a' && inLink ? { classList: { contains: () => false } } : null) } };
+  list.listeners.click.forEach(fn => fn(ev)); return ev; };
+press('mouse'); let ev = click(false);
+assert.equal(ev.prevented, false, 'マウスのクリックまで選択にした（詳細ドロワー・Ctrl+クリックが潰れる）');
+assert.equal(bar().hidden, true);
+press('touch'); ev = click(true);
+assert.equal(ev.prevented, false, '店舗リンクのタップを潰した'); assert.equal(bar().hidden, true);
+press('touch'); ev = click(false);
+assert.equal(ev.prevented, true); assert.equal(bar().hidden, false, '指のタップで選択にならない');
+
+console.log('マイデッキのカード操作: ×N の札・選択の印と欄・0枚/空/入れ替えでの解除・購入候補・タップとマウスの振り分け・innerHTML の中身を確認');

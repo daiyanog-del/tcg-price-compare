@@ -58,7 +58,13 @@
     try{ next = window.WishDeck.add(before, name, 1, window._currentSavedDeckId || null); }
     catch(e){ _toast(e.message); return; }
     try{ wishSave(next); }
-    catch(e){ console.warn('[deck-card-ops] 購入候補を保存できませんでした', e); _toast('購入候補を保存できませんでした（ブラウザの保存容量を確認してください）'); return; }
+    catch(e){
+      // wishSave は書き込みの後にバッジ更新などもするので、書き込めていれば続ける（失敗と出さない）
+      var saved = wishGet().filter(function(c){ return c.name === name; }).reduce(function(a, c){ return a + (c.qty || 0); }, 0);
+      var was = before.filter(function(c){ return c.name === name; }).reduce(function(a, c){ return a + (c.qty || 0); }, 0);
+      console.warn('[deck-card-ops] 購入候補の保存で例外', e);
+      if(saved <= was){ _toast('購入候補を保存できませんでした（ブラウザの保存容量を確認してください）'); return; }
+    }
     if(isNew){
       // 新しいカードは価格の控えを捨てて取り直す（wishAdd と同じ。残すと最大10分価格が空欄になる）
       try{ if(typeof _wishPrices !== 'undefined') _wishPrices = null; }catch(_){}
@@ -349,7 +355,8 @@
     _renderBar();
   }
 
-  window.DeckCardOps = { afterRender: afterRender, select: select, finePointer: _finePointer };
+  window.DeckCardOps = { afterRender: afterRender, select: select, finePointer: _finePointer,
+    _addToWish: _addToWish }; // _ で始まるものはテスト用（tests/js/deck_card_ops_check.js）
 
   // deck-edit.js・deck-head.js と同じく、index.html のインライン側の初期化より後に動かす
   if(document.readyState === 'complete') _init();
