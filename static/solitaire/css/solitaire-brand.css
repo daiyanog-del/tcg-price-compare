@@ -1083,6 +1083,8 @@ html, body {
 /* <a> を .replay-btn として使う（リプレイ一覧へのリンク） */
 a.replay-btn { display: inline-block; text-decoration: none; }
 .replay-btn:disabled { opacity: 0.35; cursor: default; }
+/* 記録が無いときの「保存」（黄の主操作）も押せない見た目にする（replay-service.js _updateUI。2026-10-21） */
+.replay-save-btn:disabled, .sol-mobile-save-btn:disabled { opacity: 0.35; cursor: default; pointer-events: none; }
 .replay-btn.play-active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
 /* 破壊的操作用: 赤系で視覚的に危険操作だと分かるようにする */

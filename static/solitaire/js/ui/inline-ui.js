@@ -32,6 +32,9 @@ function _closeToast(expired) {
  */
 export function showActionToast(msg, opts = {}) {
   _closeToast(true);
+  // 既存の短いお知らせ（utils/toast.js の .sol-toast）と同じ位置に重ならないよう、出ているものは消す
+  // （取り消し付きの .sol-toast-action は消さない。そちらの取り消しが押せなくなるため）
+  document.querySelectorAll('.sol-toast:not(.sol-toast-action)').forEach(t => t.remove());
   const el = document.createElement('div');
   el.className = 'sol-inline-toast' + (opts.error ? ' is-error' : '');
   el.setAttribute('role', opts.error ? 'alert' : 'status');
