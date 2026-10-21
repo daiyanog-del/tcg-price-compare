@@ -1,5 +1,12 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-21: シミュレーターをマイデッキから開いたときの CLS 0.19 を解消（branch fix/handoff-status-cls）
+
+- 原因: 通知の欄 #deckHandoffStatus を JS（static/shared/deck-handoff.js）が後から body の先頭へ差し込み、さらに「読み込みました（メイン40枚・EX15枚）。」が2行に折り返して盤面全体を押し下げていた。
+- 修正: ?from=mydeck（replay・saved なし）のときは templates/solitaire.html が空の欄を置き、JS はそれを使う。高さは solitaire-brand.css の .sol-handoff-status で固定。スマホ縦は デッキ名／状態 の2行（はみ出しは「…」・枚数は出さない＝同じ画面の「デッキ N」「EXデッキ N」で分かる）、PC は1行で枚数つき。失敗の文だけ折り返す。
+- 計測（本番の HTML・deck-handoff.js・solitaire-brand.css を修正版に差し替えて交互に）: スマホ相当 0.1913→0.0（各5回）・長いデッキ名 0.0967→0.0・PC 0.0601→0.0214。PC に残る 0.0197（#poolRow・#replayBarContainer）は別原因で未対応。
+- 確認: JS 単体（deck_handoff_check・deck_link_check）・pytest（新規 test_solitaire_handoff_slot ほか 118件）。
+
 ## 2026-10-21: 独自ドメイン greedy-lab.com（本番 PR #152 5621c23・同日 18:10 切り替え）
 
 - 取得・開通済み（Render のカスタムドメイン・Cloudflare DNS only・証明書発行済み・未告知）。
