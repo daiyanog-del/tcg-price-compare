@@ -276,18 +276,23 @@ function wishRemove(name,rarity){
 function wishRemoveWithUndo(name,rarity){
   rarity=rarity||"";
   const before=wishGet();
-  const idx=before.findIndex(c=>_wishMatchKey(c,name,rarity));
+  _wishRemoveAt(before,before.findIndex(c=>_wishMatchKey(c,name,rarity)));
+}
+// before[idx] の行を外して取り消しを出す。戻すのは外す前の行そのもの（どのデッキ用かの内訳も含む）
+function _wishRemoveAt(before,idx){
   if(idx<0){renderWishlist();return;}
-  const item=before[idx];
+  const item=before[idx], name=item.name, rarity=item.rarity||"";
   wishSave(before.filter((_,i)=>i!==idx));
   const wsr=document.getElementById('wishShopRanking');if(wsr){wsr.classList.add('hidden');wsr.innerHTML='';}
   renderWishlist();
   const toast=window.DeckHead&&window.DeckHead.undoToast;
-  if(!toast)return;
+  if(!toast){console.warn('[wish] DeckHead.undoToast が読めないため、取り消しを出せませんでした');return;}
   toast(`「${name}」を購入候補から外しました`,()=>{
     const cur=wishGet();
     if(cur.some(c=>_wishMatchKey(c,name,rarity))){window.DeckHead.toast('すでに購入候補に入っています');return;}
     cur.splice(Math.min(idx,cur.length),0,item);
+    // 外している間に価格を取り直していたら、そのカードの価格が無い。wishAdd と同じく取り直させる
+    if(!(_wishPrices&&_wishPrices[name]))_wishPrices=null;
     wishSave(cur);
     renderWishlist();
   });
@@ -320,6 +325,7 @@ function wishUpdateBadge(){
 function wishUpdateQty(name,newQty,rarity){
   rarity=rarity||"";
   if(newQty<1)return wishRemoveWithUndo(name,rarity);
+  if(newQty>99){if(window.DeckHead)window.DeckHead.toast('購入候補は1行99枚までです');return;}
   const list=wishGet();
   const item=list.find(c=>_wishMatchKey(c,name,rarity));
   if(item){
@@ -383,6 +389,7 @@ function _wishRaritySelectHtml(c){
 }
 
 function renderWishlist(){
+  _wishCloseMenu(); // 開いていた ⋯ メニューは描き直しで行が作り直されるので閉じる（価格・同期の描き直しでも）
   const list=wishGet();
   updatePushUI(!!localStorage.getItem(PUSH_SUB_KEY));
   const el=document.getElementById('wishList');
@@ -463,7 +470,10 @@ function _wishOpenRowMenu(row,x,y,fromBtn){
     const b=document.createElement('button');
     b.type='button'; b.className='deck-more-item'+(danger?' is-danger':''); b.setAttribute('role','menuitem');
     b.textContent=label;
-    b.addEventListener('click',()=>{_wishCloseMenu();fn();});
+    b.addEventListener('click',()=>{
+      const top=fromBtn?fromBtn.getBoundingClientRect().top:0; // 外すと行が消えるので、位置は先に測る
+      _wishCloseMenu();fn();_wishRefocus(name,fromBtn,top);
+    });
     el.appendChild(b); items.push(b);
   };
   item('カードの価格ページを開く',()=>window.open('/card/'+encodeURIComponent(name),'_blank','noopener'));
@@ -497,6 +507,16 @@ function _wishOpenRowMenu(row,x,y,fromBtn){
     window.removeEventListener('resize',_wishCloseMenu);
   }};
   if(fromBtn) items[0].focus({preventScroll:true});
+}
+// メニューの項目を選んだあと、キーボードで続けて操作できるようにフォーカスを戻す
+// （開く: 元の ⋯ へ。外す: 同じ位置に来た次の行の ⋯ へ。行が無くなったら何もしない）
+function _wishRefocus(name,fromBtn,top){
+  if(!fromBtn)return;
+  if(document.body.contains(fromBtn)){fromBtn.focus({preventScroll:true});return;}
+  const rows=[...document.querySelectorAll('#wishList .wl-row')];
+  const next=rows.find(r=>r.dataset.name!==name&&r.getBoundingClientRect().bottom>top)||rows[rows.length-1];
+  const b=next&&next.querySelector('.wl-more');
+  if(b)b.focus({preventScroll:true});
 }
 // 一覧の箱に1回だけ付ける（行は描き直しで作り直すので、箱で受ける）
 function _wishInitRowMenu(box){
@@ -580,6 +600,12 @@ function wishDeckStep(name,rarity,delta){
       const r=WishDeck.remove([list[idx]],name,1,id,{onlyDeck:true});
       if(!r.removed)return;
       next=list.slice(0,idx).concat(r.list,list.slice(idx+1));
+      // 行全体が0枚になって消えるなら、取り消し付きで外す（戻すのは −を押す前の行。デッキ用の内訳も戻る）
+      if(!next.some(c=>_wishMatchKey(c,name,rarity))){
+        const orig=wishGet();
+        _wishRemoveAt(orig,orig.findIndex(c=>_wishMatchKey(c,name,rarity)));
+        return;
+      }
     }
   }catch(e){alert(e.message);return;}
   wishSave(next);
