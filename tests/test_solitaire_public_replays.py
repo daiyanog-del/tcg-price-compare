@@ -542,3 +542,41 @@ def test_public_card_names_drop_ng_word_names_but_still_save(monkeypatch):
     resp = client.post("/api/solitaire/replay", json=_body(public=True, images=images, names=names))
     assert resp.status_code == 200
     assert sb.rows[0]["card_names"] == ["灰流うらら"]
+
+
+# ──────────────────────────────────────────────
+# リプレイ一覧ページの仮の枠の数（2026-10-21 CLS 対策）
+# ──────────────────────────────────────────────
+
+def test_replays_page_skeleton_count_from_server(monkeypatch):
+    """仮の枠の数は、サーバーが数えた最初のページの件数（非公開・非表示は数えない）。"""
+    rows = [_row("a", "2026-10-03"), _row("b", "2026-10-02"),
+            _row("c", "2026-10-01", hidden=True), _row("d", None, public=False)]
+    app_module, client, _ = _load_app(monkeypatch, rows=rows)
+    import solitaire_routes
+    solitaire_routes._public_count_cache.update(at=0.0, value=None)
+    html = client.get("/solitaire/replays").get_data(as_text=True)
+    assert "var n=1;n=2;" in html
+    assert "rp_public_first_count" not in html.split("var n=1;")[1].split("for(")[0]
+
+
+def test_replays_page_skeleton_count_is_cached(monkeypatch):
+    """ページを開くたびに DB を引かない（2分覚える）。"""
+    app_module, client, sb = _load_app(monkeypatch, rows=[_row("a", "2026-10-03")])
+    import solitaire_routes
+    solitaire_routes._public_count_cache.update(at=0.0, value=None)
+    assert "n=1;" in client.get("/solitaire/replays").get_data(as_text=True).split("var n=1;")[1][:6]
+    sb.rows.append(_row("b", "2026-10-04"))
+    assert "var n=1;n=1;" in client.get("/solitaire/replays").get_data(as_text=True)
+    solitaire_routes._public_count_cache.update(at=0.0)  # 期限切れにする
+    assert "var n=1;n=2;" in client.get("/solitaire/replays").get_data(as_text=True)
+
+
+def test_replays_page_skeleton_falls_back_without_db(monkeypatch):
+    """DB に繋がらないときは、前回の件数（localStorage）・初めては1枚のまま。"""
+    app_module, client, _ = _load_app(monkeypatch)
+    import solitaire_routes
+    solitaire_routes._public_count_cache.update(at=0.0, value=None)
+    app_module._supabase_client = None
+    html = client.get("/solitaire/replays").get_data(as_text=True)
+    assert "var n=1;try{var v=parseInt(localStorage.getItem('rp_public_first_count')" in html

@@ -163,3 +163,37 @@ def test_per_shop_filters_to_selected_shops(monkeypatch):
     )
     per_shop = payload["per_shop"]
     assert "カードラボ" not in per_shop, "selected に無い店舗は per_shop に含まれないこと"
+
+
+def test_per_shop_version_mode_keeps_this_pack_print(monkeypatch):
+    """include_per_shop=version（新商品タブ）: 同じ店・同じレアリティでも型番の頭が違えば別に残す。
+    旧パックの再録版（RC04 ¥30）がこのパックの版（DBGV ¥50）より安くても、DBGV が消えないこと（2026-10-21 reviewer 指摘）。
+    "1" の形（購入候補が使う）は変えない"""
+    def fake(card_name):
+        a = _item("遊々亭", "ノーマル", 30, "u-rc04"); a["code"] = "RC04-JP001"
+        b = _item("遊々亭", "ノーマル", 50, "u-dbgv"); b["code"] = "DBGV-JP012"
+        c = _item("遊々亭", "ノーマル", 45, "u-dbgv2"); c["code"] = "DBGV-JP012"
+        return [a, b, c]
+    client = _setup(monkeypatch)
+    monkeypatch.setattr(app_module, "SHOPS", [("遊々亭", fake)], raising=False)
+    payload = _fetch_sse_payload(client, cards="テストカード", shops=["遊々亭"], include_per_shop="version")
+    items = list(payload["per_shop"]["遊々亭"].values())
+    by_code = {i["code"].split("-")[0]: i["price"] for i in items}
+    assert by_code == {"RC04": 30, "DBGV": 45}, "型番の頭ごとに最安が残ること"
+    assert all(i["rarity"] == "ノーマル" for i in items)
+    payload1 = _fetch_sse_payload(client, cards="テストカード", shops=["遊々亭"], include_per_shop="1")
+    assert set(payload1["per_shop"]["遊々亭"].keys()) == {"ノーマル"}
+    assert payload1["per_shop"]["遊々亭"]["ノーマル"]["price"] == 30
+
+
+def test_pack_cards_returns_canonical_names(monkeypatch):
+    """/api/packs/cards は収録カード名を正式名に直して返す（Wikiの「BF-」→「BF－」。重なったら1つ）"""
+    app_module._load_cardnames()
+    monkeypatch.setattr(app_module, "pack_cards_cached",
+                        lambda name: {"pack": name, "cards": ["A BF-五月雨のソハヤ", "A BF－五月雨のソハヤ", "未登録のカード"], "count": 3})
+    app_module.app.config.update(TESTING=True)
+    client = app_module.app.test_client()
+    resp = client.get("/api/packs/cards", query_string={"name": "テストパック", "wiki": "テストパック"})
+    data = resp.get_json()
+    assert data["cards"] == ["A BF－五月雨のソハヤ", "未登録のカード"]
+    assert data["count"] == 2

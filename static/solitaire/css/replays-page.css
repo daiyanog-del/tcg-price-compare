@@ -229,6 +229,12 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--gold); outline-
   white-space: nowrap;
 }
 .rp-pcard-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+/* 横に並ぶ幅では、タグの欄に3行分の高さを最初から取る（仮の枠は1行分のタグしか無く、使ったカード名が3行に折り返す本物が届くと
+   カードが 264→315px に伸び、下の欄が押し下がっていた。2026-10-21 PC で CLS 0.004）。高さ＝タグ1行（0.72rem×1.5＋上下2px）×3＋行間4px×2。
+   4行以上になるカードは従来どおり伸びる。1列のスマホでは取らない（下の欄は画面の外で、ずれに数えられない） */
+@media (min-width: 601px) {
+  .rp-pcard-tags { min-height: calc(3 * (0.72rem * 1.5 + 4px) + 8px); align-content: flex-start; }
+}
 .rp-tag {
   max-width: 100%;
   padding: 2px 8px;

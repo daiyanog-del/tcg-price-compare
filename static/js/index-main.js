@@ -514,7 +514,11 @@ function doSearch(opts){
       // 価格推移も店舗検索と並行して取る（完了後に取り始めると、表示済みの表の上に後から差し込まれて表が跳ねる）
       if(window.PriceTrend){ trendName=q; PriceTrend.load(q); }
     }
-    if(d.type==='corrected'){
+    if(d.type==='shops'){
+      // 調べる店の一覧（サーバーが最初に送る）。進み具合の札を全店ぶん「待機中」で先に並べる。
+      // 届くたびに1枚ずつ足すと、既存の札が細くなって店名が折り返し、画面がずれていた（2026-10-22）
+      (d.shops||[]).forEach(s=>_searchProgStep(s));
+    }else if(d.type==='corrected'){
       // カード名が自動補正された場合、検索欄を更新して通知
       document.getElementById('q').value=d.corrected;
       const notice=document.createElement('div');
@@ -1871,6 +1875,9 @@ function _restoreLocation(trigger){
     switchMode('packs',trigger);
     loadPacks().then(()=>{
       if(location.pathname!=='/featured'||location.hash)return;
+      // すでにパックを選んでいるとき（ブラウザの戻る・進むで来たとき）は選び直さない。スマホの全面の詳細を閉じるたびに
+      // 新弾を開き直して履歴を足し、戻るで /featured から出られなくなっていた（2026-10-21 reviewer 指摘）
+      if(typeof _pk!=='undefined'&&_pk)return;
       const f=_packData.find(p=>p.featured);
       if(f)loadPackCards(f.name,f.wiki_page||f.name,f.tcg_name||'',true);
     });
@@ -1970,6 +1977,7 @@ function switchMode(mode, trigger){
   }
   if(mode==='meta'){loadMetaTiers();loadMetaDeckPrices();}
   else if(typeof closeMetaSheet==='function') closeMetaSheet(true); // スマホの全面の詳細は閉じる（履歴は戻さない）
+  if(mode!=='packs'&&typeof closePackSheet==='function') closePackSheet(true); // 新商品の全面の詳細も同じ（packs.js）
   if(mode==='mydeck'){
     renderSavedDecks();
     // 端末間同期（P2）: マイデッキタブを開いたときだけ pull する（カード個別ページ閲覧では走らせない）
@@ -2762,7 +2770,7 @@ function _setupThumbObserver(containerSelector){
 
 // 最新弾タブ（パック）関連の処理は static/packs.js へ切り出し済み。
 // 一括価格検索（bulkSearchPackPrices）もそちらに実装。
-// 関数: loadPacks / renderPacks / loadPackCards / _loadFeaturedIntoPackDetail / bulkSearchPackPrices
+// 関数: loadPacks / renderPacks / loadPackCards / bulkSearchPackPrices / closePackSheet
 
 
 
