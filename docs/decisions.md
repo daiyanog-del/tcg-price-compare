@@ -1987,3 +1987,10 @@ rarity_pref 基準に統一。`items_map` のキーも rarity_pref で作る。
 - **採らなかった案**: Flask で表示時に縮小（Render の小さいインスタンスに負担・再起動直後に遅い）。元画像自体を WebP に置き換え（切り抜きのやり直し・OG・カードページの画質に波及）。
 - **未検証の前提**: Supabase CDN が ?v= をキャッシュキーに含めること（原寸の ?t= と同じ前提）。
 - **追記（PR #149）**: トップの新着欄の最初の6枚（LCP の要素）だけ loading=eager にした。一覧ページ（36枚以上）は画面外まで一度に読むので lazy のまま。本番の new-cards.js を Playwright で差し替えた交互計測（各5回）で LCP 中央値 3.84→3.60秒。反映後の本番単独5回は 3.80秒で、別時刻の計測とはばらつき（約±0.3秒）に埋もれて差が見えない。効果は小さい（約0.2秒）が悪化要因は無いので採用。
+
+## 2026-10-21 シミュレーターもスマホ・タブレットでは Noto Sans JP を読まない（PR #150）
+- **何を**: templates/solitaire.html の Google Fonts を2本に分け、Bungee・Outfit はどの幅でも読み、Noto Sans JP は index.html と同じ `media="(min-width:768px) and (hover:hover) and (pointer:fine)"`（print の差し替えで適用）にした。スマホ・タブレットは `--font` の続き（Hiragino Sans → Yu Gothic → sans-serif）。
+- **なぜ（本番の HTML を Playwright で差し替え、今のままと交互に各5回・スマホ相当・空の盤面）**: LCP 中央値 4.44→3.96秒（5回とも速い）、盤面の配置完了 4.40→3.93秒、load 5.64→4.26秒、フォント 15ファイル357KB→1ファイル32KB、全体 919→641KB。LCP の要素は手札の欄。
+- **確認**: ローカルで Chromium・WebKit とも スマホ縦・横・タブレット・PC の狭い窓は和文フォント取得0、PC は取得・適用あり。反映後の本番（各5回）LCP 3.54秒。見た目はユーザーが iPhone で比較ページ（https://claude.ai/artifact/156TAWhgfWcv21VevqjVRS）を見て承認。
+- **未計測**: デッキを開いた状態（カード名・効果文で和文の分割ファイルが増えるため、差はより大きいと見込む）。token-generator.js の canvas は "Noto Sans JP" 指定のまま（スマホでは端末の標準フォントで描かれる）。
+
