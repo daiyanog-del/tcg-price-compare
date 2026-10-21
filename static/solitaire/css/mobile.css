@@ -928,11 +928,14 @@
     flex-shrink: 0;
     padding: 8px 14px;
   }
+  /* PC の左サイドバーの検索欄（side-panels.css）と同じ作り: 暗い地・角丸8・左に虫眼鏡（2026-10-22）。
+     高さは指で押しやすい 40、文字は今の 0.9rem のまま */
   .sol-mobile-deck-search {
     width: 100%;
     box-sizing: border-box;
-    padding: 8px 10px;
-    background: var(--bg-color);
+    height: 40px;
+    padding: 0 12px 0 34px;
+    background: var(--bg-color) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='15' height='15' viewBox='0 0 24 24' fill='none' stroke='%23a8b4c9' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.3-4.3'/%3E%3C/svg%3E") no-repeat 12px center;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     color: var(--main-color);
