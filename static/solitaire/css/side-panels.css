@@ -14,6 +14,10 @@
 .sol-sidebar-heading, .sol-right-heading { font-size: 11px; letter-spacing: 0; text-transform: none; }
 /* ── 区画の左右の余白（左 12px・右 10px で、ボタンの幅が左右で違っていた）。右の 10px にそろえる ── */
 .sol-sidebar-section { padding-left: 10px; padding-right: 10px; }
+/* ── 縦の間隔: 見出し→中身 8px・区画の間 16px（マイデッキ右欄と同じ。2026-10-22） ── */
+.sol-sidebar-section, .sol-right-section { padding-top: 8px; padding-bottom: 8px; }
+.sol-sidebar-heading, .sol-right-heading { margin-bottom: 8px; }
+.sol-panel-head { margin-bottom: 8px; }
 
 /* ── 主な操作: 角丸はマイデッキの主ボタン（相場で計算）と同じ 8 ── */
 .sol-right-actions .action-btn { border-radius: 8px; }
@@ -29,8 +33,26 @@
   background: var(--bg-color) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23a8b4c9' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.3-4.3'/%3E%3C/svg%3E") no-repeat 11px center;
 }
 
-/* ── 操作方法: 見出しではなく開閉の文字。マイデッキの「計算方法について」と同じ薄い文字 ── */
-.sol-right-heading.sol-ops-summary { font-size: 12px; font-weight: 400; color: #a8b4c9; }
+/* ── 操作方法: 見出しではなく開閉の文字。マイデッキの「計算方法について」と同じ薄い文字・▸ は文字の前 ── */
+.sol-right-heading.sol-ops-summary { font-size: 12px; font-weight: 400; color: #a8b4c9; margin-bottom: 0; }
+.sol-ops-summary::after,
+.sol-ops-details[open] .sol-ops-summary::after { content: none; }
+.sol-ops-summary::before { content: '▸ '; }
+.sol-ops-details[open] .sol-ops-summary::before { content: '▾ '; }
+/* 中身: やりたいこと（白 12px）を先に、キーはその下に文字幅の札（マイデッキの札と同じ 地 #2b3549・白）。
+   スマホの操作方法シートも同じ部品を使う */
+.sol-ops-list { gap: 10px; }
+.sol-ops-item { align-items: flex-start; gap: 3px; }
+.sol-ops-desc { order: -1; font-size: 12px; color: var(--main-color); padding-left: 0; }
+.sol-ops-key {
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--main-color);
+  background: #2b3549;
+  border: 0;
+  border-radius: 4px;
+  padding: 1px 6px;
+}
 
 /* ── 元にしたソフトの表記: フッターと同じ薄い文字・下線なし ── */
 .sol-credit { font-size: 11px; line-height: 1.5; margin: 0; color: #a8b4c9; }

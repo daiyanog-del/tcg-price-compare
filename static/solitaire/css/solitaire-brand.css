@@ -238,9 +238,10 @@
 }
 
 /* 初回表示時のパルスアニメーション（ボタンの存在を知らせる） */
+/* 色は今の配色（accent #aec5ff）。旧配色の青 #2d4a7a・#7aaff0 をやめた（2026-10-22） */
 @keyframes sol-toggle-pulse {
-  0%, 100% { background: var(--bg-card);            border-color: #2d4a7a; color: #7aaff0; }
-  50%       { background: rgba(74,124,255,0.25);     border-color: var(--accent); color: #fff; }
+  0%, 100% { background: var(--bg-card); border-color: transparent; color: #a8b4c9; }
+  50%       { background: var(--accent);  border-color: transparent; color: #101626; }
 }
 .sol-panel-toggle-pulse {
   animation: sol-toggle-pulse 0.9s ease-in-out 3;

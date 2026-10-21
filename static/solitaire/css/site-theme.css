@@ -33,7 +33,9 @@
 .replay-share-btn:hover,.replay-save-btn:hover{background:#ffe16d;color:#242013}
 .reset-btn{background:#202c42;color:#eff3fb;border-color:transparent}
 .reset-btn:hover{background:#2b3549;color:#eff3fb;border-color:transparent}
-.sol-cip-toggle:hover,.sol-panel-toggle:hover{background:#f3ce46;color:#242013;border-color:transparent}
+.sol-cip-toggle:hover{background:#f3ce46;color:#242013;border-color:transparent}
+/* 開閉ボタンは小さな通常操作なので、金（主操作の色）で塗らず面の変化だけ（2026-10-22） */
+.sol-panel-toggle:hover{background:#202c42;color:#eff3fb;border-color:transparent}
 /* 選択中・再生中の状態は accent（黄は主操作の「保存」だけにするため。2026-10-15 整理③） */
 .replay-btn.play-active,.replay-speed-btn.active{background:#aec5ff;color:#101626;border-color:transparent}
 .sol-nav-title .nav-brand{color:#eff3fb}
