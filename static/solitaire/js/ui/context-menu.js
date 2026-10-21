@@ -30,6 +30,8 @@
  * ハイライトする。スロットクリックで初めて状態とゾーン移動の両方を確定する。
  * Esc / スロット以外への外側クリック / 別カードの右クリック / 別カードのドラッグ開始で
  * キャンセルされる（cancelFieldPlacement を export し、drag-drop.js の dragstart から呼ぶ）。
+ * 場のカードの上で押したときは、押した時点では確定せず、ドラッグせずに離した（click）ときに確定する
+ * （押した時点で確定すると、場の別のカードをドラッグし始めたときにキャンセルより先に確定してしまうため。2026-10-21）。
  *
  * 依存: card-state.js のほか、固定ゾーン移動（墓地送り/除外/手札に戻す）のために
  * drag-drop.js の getDropZoneInfo/executeDrop/getZoneId を使う（実際の配置・リプレイ記録ロジックの二重持ちを避ける）。
@@ -45,6 +47,7 @@ import {
   applyCardState,
   getCardState,
   isMonsterCard,
+  isExCard,
   isTokenCard,
 } from '../components/card-state.js';
 import { playSetFlip, flipMoveClone } from '../components/card-effects.js';
@@ -304,8 +307,8 @@ function _buildMenuItems(wrapper, img, parent, isInPool, isInitial, isTouch = fa
   if (isInPool) {
     if (isInitial) return items; // 初期カードは現状維持で何も出さない（昔の設計の名残・スコープ外）
 
-    // EXデッキ判定: #poolRow2 の直接の子かどうかで判定する（DOM構造から確定するため
-    // wrapper.id の文字列一致より確実）
+    // 今 EXデッキの欄にあるか（#poolRow2 の直接の子か）。「手札に戻す」を出すかどうかに使う。
+    // EXデッキのカードかどうか（デッキに戻すときの戻り先）は別の問いで、card-state.js の isExCard で見る
     const isExPool = parent === document.getElementById('poolRow2');
 
     // 墓地送り / 除外（通常デッキ・EXデッキ両方に表示）
@@ -517,17 +520,30 @@ function _startFieldPlacement(wrapper, state) {
   slots.forEach((slot) => slot.classList.add('pc-placement-target'));
   _pcPlacement = { wrapper, state, slots };
 
+  // 場のカードの上で押されたスロット。押した時点では確定せず、click（ドラッグしなかった）で確定する
+  let clickSlot = null;
   const onOutsideMouseDown = (e) => {
     // 左クリック（button===0）のスロットクリックのみ配置を確定する。
     // 右クリック（スロット内の既存カードへの右クリック含む）は次のコンテキストメニューを
     // 開くための操作であり、確定ではなくキャンセル扱いにする
     // （openCardContextMenu 側の cancelFieldPlacement 呼び出しと合わせて二重の安全策）。
     const slot = e.button === 0 ? e.target.closest('.custom-slot') : null;
+    clickSlot = null;
     if (slot && slots.includes(slot)) {
+      // 場のカードの上で押した: ドラッグの始まりかもしれない。ドラッグが始まれば drag-drop.js の dragstart が
+      // キャンセルし（ドラッグした後は click が来ない）、ドラッグせずに離せば下の onClick で確定する
+      if (e.target.closest('.tier-item-wrapper')) { clickSlot = slot; return; }
       _confirmFieldPlacement(slot);
     } else {
       cancelFieldPlacement();
     }
+  };
+  const onClick = (e) => {
+    if (!clickSlot) return;
+    const slot = clickSlot;
+    clickSlot = null;
+    if (_pcPlacement && e.target.closest('.custom-slot') === slot) _confirmFieldPlacement(slot);
+    else cancelFieldPlacement();
   };
   const onKeydown = (e) => {
     if (e.key === 'Escape') cancelFieldPlacement();
@@ -537,12 +553,14 @@ function _startFieldPlacement(wrapper, state) {
   // 同一クリック（mousedown→click）で即座に反応しないよう setTimeout で登録する。
   const tid = setTimeout(() => {
     document.addEventListener('mousedown', onOutsideMouseDown);
+    document.addEventListener('click', onClick);
     document.addEventListener('keydown', onKeydown);
   }, 0);
 
   _pcPlacementCleanup = () => {
     clearTimeout(tid);
     document.removeEventListener('mousedown', onOutsideMouseDown);
+    document.removeEventListener('click', onClick);
     document.removeEventListener('keydown', onKeydown);
   };
 }
@@ -593,7 +611,7 @@ export function cancelFieldPlacement() {
  * カードをデッキに戻す（リプレイログ付き、状態クリア）
  */
 function _returnToDeck(wrapper, img) {
-  const isEx   = wrapper.id.includes('ex');
+  const isEx   = isExCard(wrapper); // 今の置き場所ではなく、EXデッキのカードかどうかで戻り先を決める
   const cardId = img.id;
 
   // FLIPアニメーション用に移動前の座標を確定処理より前に取得する
