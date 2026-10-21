@@ -57,6 +57,13 @@
       <p id="rpPublicEmpty" class="rp-empty" hidden></p>
       <p id="rpPublicError" class="rp-error" role="alert" hidden></p>
       <ul id="rpPublicList" class="rp-grid"></ul>
+      <!-- 読み込み中の仮の枠（2026-10-21）。公開リプレイは通信の後に入るので、そのままだと下の欄をまとめて押し下げる
+           （本番のスマホ相当で CLS 0.285）。module の replays-page.js は最初の描画の後に動くため間に合わず、ここで同期的に入れる。
+           数は前回の最初のページの件数（replays-page.js が rp_public_first_count に覚える）。初めての訪問は1枚。
+           部品は buildPublicCard と同じで、届いたら replays-page.js が中身ごと入れ替える -->
+      <script>(function(){var n=1;try{var v=parseInt(localStorage.getItem('rp_public_first_count'),10);if(v>=0)n=Math.min(v,24);}catch(e){}
+        var ul=document.getElementById('rpPublicList'),h='<li class="rp-pcard rp-pcard-skel" aria-hidden="true"><span class="rp-pcard-link"><span class="rp-pcard-thumb"></span><span class="rp-pcard-title">　</span></span><span class="rp-pcard-tags"><span class="rp-tag">　　　</span></span><span class="rp-pcard-meta">　</span><span class="rp-pcard-continue">　</span></li>';
+        for(var i=0;i<n;i++)ul.insertAdjacentHTML('beforeend',h);})();</script>
       <div class="rp-more-wrap"><button type="button" id="rpPublicMore" class="rp-btn rp-more" hidden>もっと見る</button></div>
     </section>
 

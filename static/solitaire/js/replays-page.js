@@ -390,6 +390,13 @@ function buildPublicCard(item) {
   return li;
 }
 
+// 読み込み中の仮の枠（2026-10-21）は templates/solitaire_replays.html が最初の描画より前に入れる
+// （module のここでは間に合わない）。数はこのブラウザに覚えた前回の最初のページの件数。ここでは件数を覚えるだけ
+const PUBLIC_COUNT_KEY = 'rp_public_first_count';
+function savePublicCount(n) {
+  try { localStorage.setItem(PUBLIC_COUNT_KEY, String(n)); } catch { /* 保存できなくても表示は変わらない */ }
+}
+
 function showPublicError(message) {
   const errEl = document.getElementById('rpPublicError');
   if (!errEl) return;
@@ -423,6 +430,7 @@ async function loadPublic(reset) {
     const data = await res.json();
     if (reset) listEl.textContent = '';
     for (const item of data.items || []) listEl.appendChild(buildPublicCard(item));
+    if (reset && !publicCard) savePublicCount((data.items || []).length);
     publicNext = data.next || null;
     if (moreBtn) moreBtn.hidden = !publicNext;
     const empty = listEl.children.length === 0;
