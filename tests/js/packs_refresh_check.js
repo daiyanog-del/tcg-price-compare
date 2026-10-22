@@ -19,6 +19,8 @@ const sb = {
 };
 sb.globalThis = sb;
 vm.createContext(sb);
+// 画面と同じく、店舗検索の混雑応答の共通部品（index.html で packs.js より先に読む）を先に読み込む
+vm.runInContext(fs.readFileSync(path.join(__dirname, '..', '..', 'static', 'js', 'shop-busy.js'), 'utf8'), sb);
 vm.runInContext(src, sb);
 const run = code => vm.runInContext(code, sb);
 
@@ -237,7 +239,7 @@ check('表: 取得に失敗した店は列に残して「取得失敗」、レ�
 // まとめて検索を、作り物の通信で最後まで動かす（画面の描き直しは空にする）
 async function bulk(cards, respond) {
   const reqs = [];
-  run('_pkRefreshPrices=()=>{};_pkUpdateProgress=()=>{};_pkHm=()=>"12:00";');
+  run('_pkRefreshPrices=()=>{};_pkUpdateProgress=()=>{};_pkShowBusy=()=>{};_pkHm=()=>"12:00";');
   sb._ga = () => {};
   sb.fetch = async (url, init) => {
     const body = new URLSearchParams(init.body);

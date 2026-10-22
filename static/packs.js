@@ -726,7 +726,10 @@ async function bulkSearchPackPrices(){
       if(!isBuy) body.set('include_per_shop','version');
       let r=null;
       for(let tries=0;tries<4;tries++){
-        r=await fetch(isBuy?'/api/deck-buy':'/api/deck',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body.toString(),signal:ctl.signal});
+        // 店舗検索の混雑応答は ShopBusy が「順番待ち」を出して数秒後に取り直す（失敗にしない）
+        r=await ShopBusy.fetch(isBuy?'/api/deck-buy':'/api/deck',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body.toString(),signal:ctl.signal},{
+          onWait:()=>_pkShowBusy(true), onResume:()=>_pkShowBusy(false),
+        });
         if(r.status!==429) break;
         await new Promise(ok=>setTimeout(ok,_PK_BULK_RETRY_MS));
       }
@@ -756,9 +759,21 @@ async function bulkSearchPackPrices(){
     }
   }catch(e){
     if(e&&e.name==='AbortError') res.stopped=true;
+    else if(e&&e.message&&e.message.indexOf('混雑')>=0) res.error=e.message; // ShopBusy が上限まで待っても空かなかった
     else res.error='エラーが発生しました。再度お試しください';
   }
+  _pkShowBusy(false); // 待ちの途中で止めた・あきらめたときも「順番待ち」の札を残さない
   finish();
+}
+
+// 店舗検索の混雑で順番待ちのあいだ、進み具合の数字の横に「順番待ち」を出す
+function _pkShowBusy(on){
+  const n=document.getElementById('packProgN');
+  if(!n) return;
+  let tag=document.getElementById('packProgBusy');
+  if(!on){ if(tag) tag.remove(); return; }
+  if(!tag){ tag=document.createElement('span'); tag.id='packProgBusy'; n.after(tag); }
+  tag.textContent=' '+ShopBusy.WAIT_TEXT;
 }
 
 // 検索中の進み具合と、届いたカードの価格だけ書き換える

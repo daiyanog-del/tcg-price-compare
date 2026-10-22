@@ -31,9 +31,11 @@ from flask_compress import Compress
 
 from scraper import (
     SHOPS, DEFAULT_SHOPS, cache_get, cache_get_shops, cache_store_shops,
+    cache_get_shops_stale,
     is_target_card, run_shop_with_status,
     BUYBACK_SHOPS, DEFAULT_BUYBACK_SHOPS,
     buyback_cache_get, buyback_cache_get_shops, buyback_cache_store_shops,
+    buyback_cache_get_shops_stale,
     kanabell_card_image_url,
 )
 from rarity import normalize_rarity, config_for_frontend as _rarity_config_for_frontend
@@ -46,25 +48,156 @@ from price_history_reads import fetch_daily_rows_by_card_names, jst_days_back
 from price_persist import build_min_price_rows, upsert_price_rows
 from card_code import infer_codes
 from search_status import search_coverage
-from shop_search_pool import ShopSearchPool, PoolCapacityError
+from shop_search_pool import (
+    ShopSearchPool, PoolCapacityError, SearchAbandonedError,
+    PRIORITY_SINGLE, PRIORITY_BULK, iter_with_heartbeat,
+)
 from concurrent.futures import Future
 from weakref import WeakSet
 
-# 既存の単品検索6店舗を全リクエストで共有。待機込みで既存1デッキの5カード分。
-# TODO: calibrate from data — 本番の待ち時間・メモリ計測後に上限を校正する。
-_shop_search_pool = ShopSearchPool(max_workers=len(DEFAULT_SHOPS), max_pending=5 * len(DEFAULT_SHOPS))
+# 店舗検索の取得口（2026-10-22 作り直し）。全利用者で共有し、店ごとの列で順番に取る。
+# 数字は手元の負荷試験（ダミー店舗・gunicorn 1 worker）で決めた仮置き。
+# TODO: calibrate from data — 本番の待ち時間・店ごとの取得時間・WAF の反応・メモリを見て校正する。
+SHOP_FETCH_MAX_WORKERS = len(DEFAULT_SHOPS)  # 全体の同時取得数（作り直し前と同じ6件）
+SHOP_FETCH_PER_SHOP = 2  # 1店あたりの同時取得数（店の WAF に同時に多く当てない）
+SHOP_QUEUE_TIMEOUT_SINGLE = 45  # 単品検索が1店の順番を待つ上限（秒）。過ぎた店は「混雑で取得できず」。
+# 30秒だと単品16件同時で1件5店が欠け、いちばん遅い検索の所要はほぼ同じ（43.9秒→45.1秒）だったので45秒に（2026-10-22 ユーザー判断）
+SHOP_QUEUE_TIMEOUT_BULK = 180  # 一括検索（デッキ・買取デッキ）が1件の順番を待つ上限（秒）
+SEARCH_STREAM_LIMIT = 12  # 店舗へ取りに行く検索（SSE）の同時処理数。gunicorn 16 本のうち4本はページ表示用に残す
+# うち一括検索（デッキ・買取デッキ・新商品タブ）が使えるのは8本まで。一括検索は1本で数十秒〜数分枠を握るので、
+# 一括が重なっても単品検索が残り4本で入れるようにする（2026-10-22 reviewer 中-1・ユーザー判断）
+SEARCH_STREAM_BULK_LIMIT = 8
+SEARCH_BUSY_RETRY_SEC = 4  # 混雑応答から画面が取り直すまでの秒数（レート制限 RATE_LIMIT_SEC=3 より長くする）
+SEARCH_HEARTBEAT_SEC = 5  # 順番待ちの間に画面へ送る合図の間隔（画面の60秒無応答タイムアウトを避け、切断も早く気づく）
+# 順番待ち＋実行中の取得の安全上限。SSE の同時数（12本）× 一括検索1本の最大（5カード×6店）で頭打ちになる
+SHOP_FETCH_MAX_PENDING = SEARCH_STREAM_LIMIT * 5 * len(DEFAULT_SHOPS)
+_shop_search_pool = ShopSearchPool(
+    max_workers=SHOP_FETCH_MAX_WORKERS, per_shop_limit=SHOP_FETCH_PER_SHOP,
+    max_pending=SHOP_FETCH_MAX_PENDING,
+)
 _shop_health_lock = threading.Lock()
 _shop_health_recorded = WeakSet()
 
+SHOP_BUSY_MESSAGE = "混雑で取得できませんでした"
 
-def _submit_shop_fetch(fn, card_name):
+
+def _submit_shop_fetch(search_request, shop, fn, card_name):
     try:
-        return _shop_search_pool.submit(fn, card_name, runner=run_shop_with_status)
+        return search_request.submit(fn, card_name, shop=shop, runner=run_shop_with_status)
     except PoolCapacityError as exc:
-        logging.getLogger(__name__).warning("店舗検索の受付上限: %s", exc)
+        if not isinstance(exc, SearchAbandonedError):
+            logging.getLogger(__name__).warning("店舗検索の受付上限: %s", exc)
         future = Future()
         future.set_exception(exc)
         return future
+
+
+class _SearchStreamSlots:
+    """店舗へ取りに行く検索（SSE）の同時処理数を数える。SSE は gunicorn のスレッドを
+    検索が終わるまで握るため、上限を超えた分はすぐ「混雑中」と返してページ表示の分を残す。
+
+    全体の上限（limit）に加えて、一括検索（kind="bulk"）だけの上限（bulk_limit）を持つ。
+    単品検索（kind="single"）は全体の上限まで使えるので、limit - bulk_limit 本は単品検索だけの枠になる。"""
+
+    def __init__(self, limit: int, bulk_limit: int, log_interval: float = 60.0):
+        if not 1 <= bulk_limit <= limit:
+            raise ValueError("bulk_limit は1以上 limit 以下で指定してください")
+        self._limit = limit
+        self._bulk_limit = bulk_limit
+        self._lock = threading.Lock()
+        self._open = {"single": 0, "bulk": 0}
+        # 混雑応答の件数。1件ずつログに出すと混雑のあいだ数秒おきに出続けるので、間隔をあけてまとめて出す
+        self._busy_lock = threading.Lock()
+        self._busy_count = 0
+        self._busy_logged_at = None
+        self._log_interval = log_interval
+
+    def note_busy(self):
+        """混雑応答を1件数える。前回のログから log_interval 秒たっていれば、出すべき件数を返す（それ以外は None）。"""
+        now = time.monotonic()
+        with self._busy_lock:
+            self._busy_count += 1
+            if self._busy_logged_at is not None and now - self._busy_logged_at < self._log_interval:
+                return None
+            count, self._busy_count, self._busy_logged_at = self._busy_count, 0, now
+            return count
+
+    def try_open(self, kind: str = "single"):
+        """空きがあれば、1回だけ効く解放関数を返す。空きがなければ None。kind は "single" か "bulk"。"""
+        if kind not in self._open:
+            raise ValueError(f"kind は {sorted(self._open)} のどちらかで指定してください")
+        with self._lock:
+            if sum(self._open.values()) >= self._limit:
+                return None
+            if kind == "bulk" and self._open["bulk"] >= self._bulk_limit:
+                return None
+            self._open[kind] += 1
+        released = [False]
+
+        def release():
+            with self._lock:
+                if released[0]:
+                    return
+                released[0] = True
+                self._open[kind] -= 1
+        return release
+
+    def in_use(self) -> dict:
+        """いま開いている SSE の本数（{"single": n, "bulk": n}）。"""
+        with self._lock:
+            return dict(self._open)
+
+
+_search_stream_slots = _SearchStreamSlots(SEARCH_STREAM_LIMIT, SEARCH_STREAM_BULK_LIMIT)
+
+
+def _search_busy_response():
+    """検索の同時数が上限のときの応答。EventSource でも読めるよう 200 の SSE で1件だけ返す。
+    fetch で読む画面は X-Search-Busy ヘッダーで判別し、本文を読まずに取り直す。"""
+    count = _search_stream_slots.note_busy()
+    if count is not None:
+        logger.warning("検索の同時処理数の上限（全体%d・一括%d）で混雑応答: 前回のログから %d 件（今回 %s・使用中 %s）",
+                       SEARCH_STREAM_LIMIT, SEARCH_STREAM_BULK_LIMIT, count, request.path,
+                       _search_stream_slots.in_use())
+    response = Response(_sse({"type": "busy", "retry_after": SEARCH_BUSY_RETRY_SEC,
+                              "message": "混雑しています。数秒後に自動で再開します"}),
+                        mimetype="text/event-stream")
+    response.headers["X-Search-Busy"] = "1"
+    response.headers["Retry-After"] = str(SEARCH_BUSY_RETRY_SEC)
+    return response
+
+
+def _search_stream_response(stream, release):
+    """検索の SSE を返し、終わったら（途中で切断されても）枠を必ず返す。
+
+    生成器が一度も動かずに閉じられた場合は finally が走らないので、call_on_close でも返す
+    （release は1回だけ効く）。"""
+    def wrapped():
+        try:
+            yield from stream
+        finally:
+            release()
+    response = Response(wrapped(), mimetype="text/event-stream")
+    response.call_on_close(release)
+    return response
+
+
+def _stale_shop_fallback(stale_getter, card_name, shop_name):
+    """混雑で取れなかった店の、手元に残っている前回の結果。(結果, 取得時刻 or None)。"""
+    try:
+        entry = stale_getter(card_name, [shop_name]).get(shop_name)
+    except Exception:
+        logger.warning("前回の結果の読み出しに失敗: %s", shop_name, exc_info=True)
+        entry = None
+    if not entry:
+        return [], None
+    # 行ごとに「前回の結果」の印と取得時刻を付ける（画面・購入候補の集計が今回の値と見分けられるように）
+    return [dict(item, stale=True, stale_at=entry["timestamp"]) for item in entry["results"]], entry["timestamp"]
+
+
+def _is_shop_busy(exc):
+    """自サーバーの混雑で取れなかった（待ち時間の上限・受付件数の上限）。利用者の取り消しは含めない。"""
+    return isinstance(exc, PoolCapacityError) and not isinstance(exc, SearchAbandonedError)
 
 
 def _shop_fetch_result(future):
@@ -77,16 +210,18 @@ def _record_shop_health_once(future, shop_name, results, fetch_errors):
     """実取得1件につき1回だけ監視記録する。自サーバーの受付上限は店舗障害ではない。"""
     if isinstance(future.exception(), PoolCapacityError):
         return
-    # 同じFutureを待つリクエスト間で判定と記録を排他する。
-    # 弱参照なので、処理済みFutureを監視用集合が保持し続けることはない。
+    # 取得口は利用者ごとに別の Future を返すので、共有した実取得の目印（fetch_token）で数える。
+    token = getattr(future, "fetch_token", future)
+    # 同じ取得を待つリクエスト間で判定と記録を排他する。
+    # 弱参照なので、処理済みの取得を監視用集合が保持し続けることはない。
     with _shop_health_lock:
-        if future in _shop_health_recorded:
+        if token in _shop_health_recorded:
             return
         if fetch_errors:
             tracker.record_failure(shop_name, "店舗からの取得に失敗しました")
         else:
             tracker.record_success(shop_name, len(results))
-        _shop_health_recorded.add(future)
+        _shop_health_recorded.add(token)
 
 from meta_scraper import fetch_tier_list, fetch_deck_cards, build_deck_text, build_recipe_text, _cache_read, _DECK_CACHE_TTL, _TIER_CACHE_TTL
 import top_page as _top_page
@@ -1218,8 +1353,6 @@ def api_search():
     shops_to_scrape = [(name, fn) for name, fn in active_shops if name in missing_shops]
 
     def generate():
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-
         # 調べる店の一覧を最初に送る（cached_stream と同じ理由）
         yield _sse({"type": "shops", "shops": [name for name, _ in active_shops]})
 
@@ -1241,16 +1374,38 @@ def api_search():
         all_results = list(cached_results)
         scraped_items = []  # 今回スクレイプで得た行（persist用。キャッシュ命中分を含まない）
         scraped_ok = {}  # 取得に成功した店舗のみキャッシュする（失敗店舗は次回再試行）
+        busy_shops = []  # 混雑で順番が回ってこなかった店（前回の結果を代わりに出す）
+        stale_rows = []  # その店の前回の結果（完了の直前に結果へ足す）
+        search_request = _shop_search_pool.request(PRIORITY_SINGLE, SHOP_QUEUE_TIMEOUT_SINGLE)
+        disconnected = False
 
         try:
-            # 全利用者が共有する店舗検索枠へ投入する。
+            # 全利用者が共有する店舗検索の列へ並べる（単品検索は一括検索より先に取られる）。
             if shops_to_scrape:
                 futures = {
-                    _submit_shop_fetch(fn, card_name): name
+                    _submit_shop_fetch(search_request, name, fn, card_name): name
                     for name, fn in shops_to_scrape
                 }
-                for future in as_completed(futures):
+                for future in search_request.as_completed(futures, heartbeat=SEARCH_HEARTBEAT_SEC):
+                    if future is None:
+                        # 順番待ちの合図（画面は該当店を「順番待ち」にする。無応答タイムアウトも延びる）
+                        yield _sse({"type": "waiting", "queued_shops": [
+                            futures[f] for f in futures if search_request.is_queued(f)]})
+                        continue
                     shop_name = futures[future]
+                    if _is_shop_busy(future.exception()):
+                        # 待ち時間（または受付件数）の上限で取れなかった店だけ「混雑で取得できず」。
+                        # 手元の前回の結果で代わりに埋める（キャッシュにも DB にも書き戻さない。
+                        # 型番の補完・人気の集計にも使わないので、完了の直前まで別に持つ）
+                        stale_results, stale_at = _stale_shop_fallback(cache_get_shops_stale, card_name, shop_name)
+                        busy_shops.append(shop_name)
+                        stale_rows.extend(stale_results)
+                        yield _sse({"type": "shop_error", "shop": shop_name,
+                                    "error": SHOP_BUSY_MESSAGE, "busy": True})
+                        yield _sse({"type": "shop_done", "shop": shop_name, "count": len(stale_results),
+                                    "results": stale_results, "status": "busy",
+                                    "stale": stale_at is not None, "stale_at": stale_at})
+                        continue
                     error = None
                     try:
                         results, fetch_errors = _shop_fetch_result(future)
@@ -1296,14 +1451,26 @@ def api_search():
                     # /api/deck 由来なら ignore_duplicates=True で書かれていないこともある）
                     if scraped_items:
                         Thread(target=_persist_scrape_async, args=(card_name, list(scraped_items)), daemon=True).start()
+            # 混雑した店の前回の結果は、保存・記録が終わってから表示用に足す
+            all_results = all_results + stale_rows
+        except GeneratorExit:
+            # 利用者が画面を閉じた。まだ始まっていない取得は finally で取り消す
+            disconnected = True
+            raise
         except Exception as e:
             logger.error(f"検索処理で予期しないエラー: {e}")
         finally:
-            # エラーが起きても必ず完了メッセージを送る
-            yield _sse({**_build_done(all_results, corrected),
-                        **search_coverage(selected, set(cached_map) | set(scraped_ok), all_results)})
+            search_request.close()
+            # エラーが起きても必ず完了メッセージを送る（切断後は送れないので送らない）
+            if not disconnected:
+                yield _sse({**_build_done(all_results, corrected),
+                            **search_coverage(selected, set(cached_map) | set(scraped_ok), all_results),
+                            "busy_shops": busy_shops})
 
-    return Response(generate(), mimetype="text/event-stream")
+    release = _search_stream_slots.try_open()
+    if release is None:
+        return _search_busy_response()
+    return _search_stream_response(generate(), release)
 
 
 # ── ランキング・設定 ──
@@ -1354,6 +1521,24 @@ def api_deck():
     if parse_error:
         return parse_error
 
+    # 店舗へ取りに行く検索の同時数の枠（一括検索の枠）。混雑で断る分は、下の記録・自動登録より前に返す
+    # （画面が数秒後に取り直すので、記録が二重にならないようにする）
+    release = _search_stream_slots.try_open("bulk")
+    if release is None:
+        return _search_busy_response()
+    try:
+        return _search_stream_response(
+            _api_deck_stream(card_entries, selected, active_shops, _FAST_OVERRIDES,
+                             include_per_shop, per_shop_by_version),
+            release)
+    except BaseException:
+        release()
+        raise
+
+
+def _api_deck_stream(card_entries, selected, active_shops, _FAST_OVERRIDES,
+                     include_per_shop, per_shop_by_version):
+    """/api/deck の本体（記録・自動登録と SSE の生成）。枠を取ったあとで呼ぶ。"""
     # デッキ検索カードを収集対象候補として記録（人気ランキングには影響しない）
     _record_deck_search([e["name"] for e in card_entries])
     # デッキ内カードを tracked_cards に自動登録（次回 collect_prices で永続化）。
@@ -1378,7 +1563,9 @@ def api_deck():
         「その店にはそのレアリティが無い」と誤判定されていた）"""
         per_shop: dict = {}
         for r in items:
-            if r.get("sold_out"):
+            # 混雑で取れなかった店の前回の結果（stale）は入れない。店別価格は購入先の決定（送料込み最安）と
+            # 店舗×レアの表に使うので、古い値段で店を選ばせない（その店は failed_shops・busy_shops に残る）
+            if r.get("sold_out") or r.get("stale"):
                 continue
             shop = r.get("shop")
             if not shop or shop not in selected:
@@ -1395,7 +1582,7 @@ def api_deck():
                 by_rarity[key] = r
         return per_shop
 
-    def _search_one_card(i, card_name):
+    def _search_one_card(i, card_name, search_request):
         """1枚のカードを全店舗で検索して結果を返す"""
         # キャッシュチェック（店舗束）。デッキ検索は自身が partial な結果しか作らないため
         # partial エントリも命中扱いにする（完全版キャッシュがあればそちらが使われる）
@@ -1411,15 +1598,22 @@ def api_deck():
                 payload["per_shop"] = _aggregate_per_shop(items)
             return payload
 
-        # 不足店舗のみ並列スクレイピング
+        # 不足店舗のみ並列スクレイピング（共有の列に一括検索として並べる）
         shops_to_scrape = [(name, fn) for name, fn in active_shops if name in missing]
         scraped_items = []
         scraped_ok = {}  # 取得に成功した店舗のみキャッシュする（失敗店舗は次回再試行）
+        busy_shops = []  # 混雑で順番が回ってこなかった店（前回の結果を代わりに使う）
         if shops_to_scrape:
-            futures = {_submit_shop_fetch(fn, card_name): name
+            futures = {_submit_shop_fetch(search_request, name, fn, card_name): name
                        for name, fn in shops_to_scrape}
-            for future in as_completed(futures):
+            for future in search_request.as_completed(futures):
                 shop_name = futures[future]
+                exc = future.exception()
+                if _is_shop_busy(exc):
+                    busy_shops.append(shop_name)
+                    continue
+                if isinstance(exc, SearchAbandonedError):
+                    continue  # 利用者が画面を閉じた（結果を送る相手がいない）
                 try:
                     items, fetch_errors = _shop_fetch_result(future)
                 except Exception:
@@ -1428,6 +1622,11 @@ def api_deck():
                 scraped_items.extend(items)
                 if fetch_errors == 0:
                     scraped_ok[shop_name] = items
+        # 混雑で取れなかった店は、手元に残っている前回の結果（期限切れ・1ページ目限定も含む）で最安を出す。
+        # 表示の参考にするだけで、キャッシュにも DB にも書き戻さない
+        stale_items = []
+        for shop_name in busy_shops:
+            stale_items.extend(_stale_shop_fallback(cache_get_shops_stale, card_name, shop_name)[0])
 
         # 同じカードの今回スクレイプぶんが揃った直後に型番を補完する（保存前）。
         # カーナベルの弾略号・トレコロCBの接尾辞つき値を、他店の完全な型番で補う。
@@ -1454,44 +1653,60 @@ def api_deck():
         if _supabase_client and scraped_items:
             Thread(target=_persist_scrape_async, args=(card_name, list(scraped_items)),
                    kwargs={"ignore_duplicates": True}, daemon=True).start()
-        all_items = cached_items + scraped_items
+        all_items = cached_items + scraped_items + stale_items
         in_stock = [r for r in all_items if not r.get("sold_out")]
         best = min(in_stock, key=lambda x: x["price"]) if in_stock else None
         payload = {"type": "card_done", "index": i, "name": card_name,
                    "best": best, "count": len(in_stock),
-                   **search_coverage(selected, set(cached_map) | set(scraped_ok), all_items)}
+                   **search_coverage(selected, set(cached_map) | set(scraped_ok), all_items),
+                   "busy_shops": busy_shops}
         if include_per_shop:
             payload["per_shop"] = _aggregate_per_shop(in_stock)
         return payload
 
-    def generate():
-        # カード単位で並列検索（最大5カード同時）
-        CARD_PARALLEL = 5
+    return _deck_card_stream(card_entries, selected, _search_one_card)
 
+
+def _deck_card_stream(card_entries, selected, search_one_card):
+    """デッキ一括検索（販売・買取）の SSE。カード単位で並列に調べ、終わった順に送る。
+
+    1回の一括検索で1つの SearchRequest（一括検索の優先度）を共有する。利用者が切断したら
+    （GeneratorExit）、まだ始まっていない取得とカードを取り消す。"""
+    # カード単位で並列検索（最大5カード同時）
+    CARD_PARALLEL = 5
+    search_request = _shop_search_pool.request(PRIORITY_BULK, SHOP_QUEUE_TIMEOUT_BULK)
+    card_executor = ThreadPoolExecutor(max_workers=CARD_PARALLEL)
+    try:
         # まず全カードの card_start を送出
         for i, entry in enumerate(card_entries):
             yield _sse({"type": "card_start", "index": i, "name": entry["name"]})
 
         # 並列でカードを検索
-        with ThreadPoolExecutor(max_workers=CARD_PARALLEL) as card_executor:
-            futures = {
-                card_executor.submit(_search_one_card, i, entry["name"]): i
-                for i, entry in enumerate(card_entries)
-            }
-            for future in as_completed(futures):
-                try:
-                    result = future.result()
-                    yield _sse(result)
-                except Exception as e:
-                    idx = futures[future]
-                    yield _sse({"type": "card_done", "index": idx,
-                                "name": card_entries[idx]["name"],
-                                "best": None, "count": 0,
-                                **search_coverage(selected, [], [])})
+        futures = {
+            card_executor.submit(search_one_card, i, entry["name"], search_request): i
+            for i, entry in enumerate(card_entries)
+        }
+        for future in iter_with_heartbeat(futures, SEARCH_HEARTBEAT_SEC):
+            if future is None:
+                # 順番待ちの合図。画面は読み飛ばす（切断にも次の送信で気づける）
+                yield _sse({"type": "waiting"})
+                continue
+            try:
+                result = future.result()
+                yield _sse(result)
+            except Exception as e:
+                idx = futures[future]
+                yield _sse({"type": "card_done", "index": idx,
+                            "name": card_entries[idx]["name"],
+                            "best": None, "count": 0,
+                            **search_coverage(selected, [], [])})
 
         yield _sse({"type": "done"})
-
-    return Response(generate(), mimetype="text/event-stream")
+    finally:
+        # 切断時: 始まっていない取得を取り消し、始まっていないカードも実行しない。
+        # 実行中のカードは取り消された取得をすぐ受け取って終わるので、ここでは待たない
+        search_request.close()
+        card_executor.shutdown(wait=False, cancel_futures=True)
 
 @app.route("/api/deck-buy", methods=["GET", "POST"])
 def api_deck_buy():
@@ -1519,10 +1734,24 @@ def api_deck_buy():
     if parse_error:
         return parse_error
 
+    # 店舗へ取りに行く検索の同時数の枠（/api/deck と同じ一括検索の枠。記録より前に断る）
+    release = _search_stream_slots.try_open("bulk")
+    if release is None:
+        return _search_busy_response()
+    try:
+        return _search_stream_response(
+            _api_deck_buy_stream(card_entries, selected, active_shops), release)
+    except BaseException:
+        release()
+        raise
+
+
+def _api_deck_buy_stream(card_entries, selected, active_shops):
+    """/api/deck-buy の本体（記録と SSE の生成）。枠を取ったあとで呼ぶ。"""
     # デッキ買取検索カードを収集対象候補として記録（人気ランキングには影響しない）
     _record_deck_search([e["name"] for e in card_entries])
 
-    def _search_one_card_buy(i, card_name):
+    def _search_one_card_buy(i, card_name, search_request):
         """1枚のカードを全買取店舗で検索して最高値を返す"""
         # キャッシュチェック（店舗束）。買取デッキは全ページ取得のため partial 印は不要。
         # 将来ここに1ページ目限定の高速化を入れる場合は、販売デッキと同様に
@@ -1538,11 +1767,18 @@ def api_deck_buy():
         shops_to_scrape = [(name, fn) for name, fn in active_shops if name in missing]
         scraped_items = []
         scraped_ok = {}  # 取得に成功した店舗のみキャッシュする（失敗店舗は次回再試行）
+        busy_shops = []  # 混雑で順番が回ってこなかった店（前回の結果を代わりに使う）
         if shops_to_scrape:
-            futures = {_submit_shop_fetch(fn, card_name): name
+            futures = {_submit_shop_fetch(search_request, name, fn, card_name): name
                        for name, fn in shops_to_scrape}
-            for future in as_completed(futures):
+            for future in search_request.as_completed(futures):
                 shop_name = futures[future]
+                exc = future.exception()
+                if _is_shop_busy(exc):
+                    busy_shops.append(shop_name)
+                    continue
+                if isinstance(exc, SearchAbandonedError):
+                    continue  # 利用者が画面を閉じた
                 try:
                     items, fetch_errors = _shop_fetch_result(future)
                 except Exception:
@@ -1553,36 +1789,18 @@ def api_deck_buy():
                     scraped_ok[shop_name] = items
 
         buyback_cache_store_shops(card_name, scraped_ok)
-        all_items = cached_items + scraped_items
+        # 混雑で取れなかった店は前回の結果で最高値を出す（書き戻さない）
+        stale_items = []
+        for shop_name in busy_shops:
+            stale_items.extend(_stale_shop_fallback(buyback_cache_get_shops_stale, card_name, shop_name)[0])
+        all_items = cached_items + scraped_items + stale_items
         best = max(all_items, key=lambda x: x["price"]) if all_items else None
         return {"type": "card_done", "index": i, "name": card_name,
                 "best": best, "count": len(all_items),
-                **search_coverage(selected, set(cached_map) | set(scraped_ok), all_items)}
+                **search_coverage(selected, set(cached_map) | set(scraped_ok), all_items),
+                "busy_shops": busy_shops}
 
-    def generate():
-        CARD_PARALLEL = 5
-        for i, entry in enumerate(card_entries):
-            yield _sse({"type": "card_start", "index": i, "name": entry["name"]})
-
-        with ThreadPoolExecutor(max_workers=CARD_PARALLEL) as card_executor:
-            futures = {
-                card_executor.submit(_search_one_card_buy, i, entry["name"]): i
-                for i, entry in enumerate(card_entries)
-            }
-            for future in as_completed(futures):
-                try:
-                    result = future.result()
-                    yield _sse(result)
-                except Exception as e:
-                    idx = futures[future]
-                    yield _sse({"type": "card_done", "index": idx,
-                                "name": card_entries[idx]["name"],
-                                "best": None, "count": 0,
-                                **search_coverage(selected, [], [])})
-
-        yield _sse({"type": "done"})
-
-    return Response(generate(), mimetype="text/event-stream")
+    return _deck_card_stream(card_entries, selected, _search_one_card_buy)
 
 # ショップ名からカード検索URLを生成
 def _shop_search_url(shop: str, card_name: str) -> str:
@@ -3278,16 +3496,36 @@ def api_buyback():
 
         all_results = list(cached_results)
         scraped_ok = {}  # 取得に成功した店舗のみキャッシュする（失敗店舗は次回再試行）
+        busy_shops = []  # 混雑で順番が回ってこなかった店（前回の結果を代わりに出す）
+        stale_rows = []  # その店の前回の結果（完了の直前に結果へ足す）
+        search_request = _shop_search_pool.request(PRIORITY_SINGLE, SHOP_QUEUE_TIMEOUT_SINGLE)
+        disconnected = False
 
         try:
-            # 全利用者が共有する店舗検索枠へ投入する。
+            # 全利用者が共有する店舗検索の列へ並べる（単品検索は一括検索より先に取られる）。
             if shops_to_scrape:
                 futures = {
-                    _submit_shop_fetch(fn, card_name): name
+                    _submit_shop_fetch(search_request, name, fn, card_name): name
                     for name, fn in shops_to_scrape
                 }
-                for future in as_completed(futures):
+                for future in search_request.as_completed(futures, heartbeat=SEARCH_HEARTBEAT_SEC):
+                    if future is None:
+                        yield _sse({"type": "waiting", "queued_shops": [
+                            futures[f] for f in futures if search_request.is_queued(f)]})
+                        continue
                     shop_name = futures[future]
+                    if _is_shop_busy(future.exception()):
+                        # 販売と同じく、混雑で取れなかった店だけ前回の結果で代わりに埋める
+                        # （書き戻さない・型番の補完と人気の集計にも使わない）
+                        stale_results, stale_at = _stale_shop_fallback(
+                            buyback_cache_get_shops_stale, card_name, shop_name)
+                        busy_shops.append(shop_name)
+                        stale_rows.extend(stale_results)
+                        yield _sse({"type": "shop_error", "shop": shop_name,
+                                    "error": SHOP_BUSY_MESSAGE, "busy": True})
+                        yield _sse({"type": "shop_done", "shop": shop_name, "count": len(stale_results),
+                                    "status": "busy", "stale": stale_at is not None, "stale_at": stale_at})
+                        continue
                     error = None
                     try:
                         results, fetch_errors = _shop_fetch_result(future)
@@ -3314,13 +3552,24 @@ def api_buyback():
             buyback_cache_store_shops(card_name, scraped_ok)
             if all_results:
                 _record_search(card_name)
+            # 混雑した店の前回の結果は、保存・記録が終わってから表示用に足す
+            all_results = all_results + stale_rows
+        except GeneratorExit:
+            disconnected = True  # 利用者が画面を閉じた。始まっていない取得は finally で取り消す
+            raise
         except Exception as e:
             logger.error(f"買取検索で予期しないエラー: {e}")
         finally:
-            yield _sse({**_build_buyback_done(all_results),
-                        **search_coverage(selected, set(cached_map) | set(scraped_ok), all_results)})
+            search_request.close()
+            if not disconnected:
+                yield _sse({**_build_buyback_done(all_results),
+                            **search_coverage(selected, set(cached_map) | set(scraped_ok), all_results),
+                            "busy_shops": busy_shops})
 
-    return Response(generate(), mimetype="text/event-stream")
+    release = _search_stream_slots.try_open()
+    if release is None:
+        return _search_busy_response()
+    return _search_stream_response(generate(), release)
 
 
 @app.route("/api/config")

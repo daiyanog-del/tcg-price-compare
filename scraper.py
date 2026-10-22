@@ -363,8 +363,13 @@ _cache_lock = _Lock()
 def _cache_key(card_name: str) -> str:
     return hashlib.md5(card_name.encode()).hexdigest()
 
-def _shop_cache_load(fp: Path) -> dict:
-    """店舗束キャッシュを読み、期限内の店舗エントリだけ返す。
+# 混雑で店舗へ取りに行けなかったとき、代わりに出す「前回の結果」をどこまで古いものまで残すか。
+# 通常の命中（CACHE_TTL_MINUTES）とは別で、表示側は「前回の結果」と明示する。
+# TODO: calibrate from data — 混雑時にどの程度古い結果まで役に立つか（値動きの速さ）を測って決める
+STALE_CACHE_MAX_MINUTES = 24 * 60
+
+def _shop_cache_load(fp: Path, max_age_minutes: float = CACHE_TTL_MINUTES) -> dict:
+    """店舗束キャッシュを読み、max_age_minutes 以内の店舗エントリだけ返す（既定は通常の期限）。
     旧形式・破損・不在は {} ＝全店ミス扱い。"""
     if not fp.exists():
         return {}
@@ -380,7 +385,7 @@ def _shop_cache_load(fp: Path) -> dict:
                 ts = datetime.fromisoformat(ent["timestamp"])
             except Exception:
                 continue
-            if now - ts > timedelta(minutes=CACHE_TTL_MINUTES):
+            if now - ts > timedelta(minutes=max_age_minutes):
                 continue
             results = ent.get("results")
             if not isinstance(results, list):
@@ -418,7 +423,9 @@ def _shop_cache_store(cache_dir: Path, key: str, shop_results: dict[str, list],
     fp = cache_dir / f"{key}.json"
     # 読み直し→マージ→原子的書き込みをロック内で行い、並行する別店舗の書き込みを消さない
     with _cache_lock:
-        fresh = _shop_cache_load(fp)  # 期限切れエントリはここで間引かれる
+        # 通常の期限を過ぎたエントリも「前回の結果」として STALE_CACHE_MAX_MINUTES までは残す
+        # （混雑時の代わりの表示に使う）。それより古いものはここで間引かれる
+        fresh = _shop_cache_load(fp, STALE_CACHE_MAX_MINUTES)
         now_iso = datetime.now().isoformat()
         for shop, results in shop_results.items():
             fresh[shop] = {"timestamp": now_iso,
@@ -447,6 +454,20 @@ def cache_get_shops(card_name: str, shops: list[str],
     返り値: ({店舗名: results}, [不足店舗名])。「調べて0件」は命中（空リスト）、
     「調べていない」は不足として区別される。"""
     return _shop_cache_get(CACHE_DIR, _cache_key(card_name), shops, include_partial)
+
+def _shop_cache_get_stale(cache_dir: Path, key: str, shops: list[str]) -> dict[str, dict]:
+    if not CACHE_ENABLED:
+        return {}
+    kept = _shop_cache_load(cache_dir / f"{key}.json", STALE_CACHE_MAX_MINUTES)
+    return {shop: {"results": kept[shop]["results"], "timestamp": kept[shop]["timestamp"],
+                   "partial": kept[shop]["partial"]}
+            for shop in shops if shop in kept}
+
+def cache_get_shops_stale(card_name: str, shops: list[str]) -> dict[str, dict]:
+    """混雑で取りに行けなかった店の「前回の結果」。通常の期限切れも含めて手元に残っているものを返す。
+    返り値: {店舗名: {"results", "timestamp", "partial"}}。無い店は含まない。
+    検索の命中には使わない（命中は cache_get_shops）。キャッシュへ書き戻さないこと。"""
+    return _shop_cache_get_stale(CACHE_DIR, _cache_key(card_name), shops)
 
 def cache_store_shops(card_name: str, shop_results: dict[str, list],
                       partial_shops=frozenset()):
@@ -2232,6 +2253,10 @@ def buyback_cache_get_shops(card_name: str, shops: list[str],
     """買取版 cache_get_shops（挙動は販売と同じ・保存先が別）"""
     return _shop_cache_get(BUYBACK_CACHE_DIR, _buyback_cache_key(card_name),
                            shops, include_partial)
+
+def buyback_cache_get_shops_stale(card_name: str, shops: list[str]) -> dict[str, dict]:
+    """買取版 cache_get_shops_stale"""
+    return _shop_cache_get_stale(BUYBACK_CACHE_DIR, _buyback_cache_key(card_name), shops)
 
 def buyback_cache_store_shops(card_name: str, shop_results: dict[str, list],
                               partial_shops=frozenset()):

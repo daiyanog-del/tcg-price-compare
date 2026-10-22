@@ -1058,7 +1058,8 @@ async function wishCheapestStores(){
   const url='/api/deck?include_per_shop=1&cards='+encodeURIComponent(missingCardsParam)+(shopParams?'&'+shopParams:'');
 
   try{
-    const sseRes=await fetch(url);
+    // 混雑応答なら数秒後に取り直す（ShopBusy。待つ間は店舗の欄が「取得中」のまま）
+    const sseRes=await ShopBusy.fetch(url);
     const reader=sseRes.body.getReader();
     const decoder=new TextDecoder();
     let buffer='';
