@@ -209,6 +209,7 @@ function _pkRender(){
   else body=`<div class="pk-cards" id="packDetailGrid"${st.view==='matrix'?' hidden':''}>${_pkOrder(st).map(k=>_pkRowHtml(st,k)).join('')}</div>`
     +`<div class="pk-matrix" id="packMatrix"${st.view==='matrix'?'':' hidden'}></div>`;
   st.mxKey='';
+  _pkSyncLayout();
   el.innerHTML=`<div class="pk-head"><h3 class="pk-title">${esc(st.name)}</h3><div class="pk-meta">${meta}</div></div>`
     +`<div id="packTools">${st.loading?'':_pkToolsHtml(st)}</div>`+body;
   if(!st.loading&&!st.error){
@@ -218,10 +219,17 @@ function _pkRender(){
 }
 
 // 一覧／店舗×レアの切り替え
+// 表を開いている間は、一覧を細くして表に幅を回す（css/packs.css の #mode-packs.is-matrix）
+function _pkSyncLayout(){
+  const m=document.getElementById('mode-packs');
+  if(m) m.classList.toggle('is-matrix',!!(_pk&&_pk.view==='matrix'));
+}
+
 function _pkSetView(v){
   const st=_pk;
   if(!st||st.view===v) return;
   st.view=v;
+  _pkSyncLayout();
   const grid=document.getElementById('packDetailGrid'), mx=document.getElementById('packMatrix');
   if(grid) grid.hidden=v==='matrix';
   if(mx) mx.hidden=v!=='matrix';
@@ -335,6 +343,7 @@ function _pkRefreshPrices(){
   if(!st||st.loading||st.error) return;
   if(st.view==='matrix'&&!_pkMatrixAvailable(st)){ // 表の元が無くなった（検索をやり直し始めた等）ら一覧へ
     st.view='list';
+    _pkSyncLayout();
     const g=document.getElementById('packDetailGrid'), mx=document.getElementById('packMatrix');
     if(g) g.hidden=false;
     if(mx) mx.hidden=true;
@@ -506,6 +515,9 @@ function _pkMatrixModel(st,items,code,shopOrder,failedByCard){
   return {shops:shops.filter(s=>failedShops.has(s)||groups.some(g=>g.main.some(r=>r.cells[s])||g.other.some(r=>r.cells[s]))),groups};
 }
 
+// 狭い画面で表の見出しに使う店の短い呼び名（無い店は正式名のまま）
+const _PK_SHOP_SHORT={'カードラッシュ':'ラッシュ','トレコロCB':'トレコロ','カードラボ':'ラボ','まんぞく屋':'まんぞく','カーナベル':'ナベル'};
+
 // カードごとにまとめ、行はレアリティ。各行でいちばん安い店だけ緑。他の商品の版は畳んで「も見る」で開く
 function _pkMatrixHtml(model,sort,fromDb){
   const shops=model.shops;
@@ -523,7 +535,7 @@ function _pkMatrixHtml(model,sort,fromDb){
     const date=model.updatedAt&&c.date&&c.date<model.updatedAt?`<small class="pmx-date">${esc(_pkMd(c.date))}</small>`:'';
     return `<td class="${isMin?'is-min':''}${c.other?' is-other':''}">${url?`<a href="${escAttr(url)}" target="_blank" rel="noopener">${txt}</a>`:txt}${badge}${date}</td>`;
   };
-  let h=`<div class="pmx-scroll"><table class="pmx"><thead><tr><th class="pmx-sc">レアリティ</th>${shops.map(s=>`<th>${esc(s)}</th>`).join('')}<th><span class="sr-only">購入候補</span></th></tr></thead><tbody>`;
+  let h=`<div class="pmx-scroll"><table class="pmx"><thead><tr><th class="pmx-sc">レアリティ</th>${shops.map(s=>`<th title="${escAttr(s)}"><span class="pmx-shop-l">${esc(s)}</span><span class="pmx-shop-s" aria-hidden="true">${esc(_PK_SHOP_SHORT[s]||s)}</span></th>`).join('')}<th><span class="sr-only">購入候補</span></th></tr></thead><tbody>`;
   groups.forEach((g,gi)=>{
     h+=`<tr class="pmx-g"><td colspan="${span}"><div class="pmx-gname"><span class="pmx-thumb"><span class="pack-card-thumb" data-card="${escAttr(g.name)}"></span></span>${esc(g.name)}</div></td></tr>`;
     const f=g.failed;
