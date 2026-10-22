@@ -3438,6 +3438,20 @@ def api_meta_deck():
 
 # ── パック（最新弾）API ──
 
+# /api/packs が最後に返した一覧（新弾の印・収録数つき）。/featured の HTML に埋め込み、JS の問い合わせを待たずに描くため
+# （2026-10-22 LCP）。DB・外部サイトは待たない（覚えていなければ埋め込まない）
+_PACKS_PAYLOAD_TTL_SEC = 600
+_packs_payload = {"at": 0.0, "packs": None}
+
+
+def _cached_packs_payload():
+    """覚えているパックの一覧（10分以内）。無ければ None。"""
+    packs = _packs_payload["packs"]
+    if packs and time.time() - _packs_payload["at"] < _PACKS_PAYLOAD_TTL_SEC:
+        return packs
+    return None
+
+
 @app.route("/api/packs")
 def api_packs():
     """パック一覧を返す（スクレイピング失敗時はSupabaseから取得）"""
@@ -3483,6 +3497,8 @@ def api_packs():
             if cached:
                 p["card_count"] = len(cached.get("cards") or [])
 
+    if packs:
+        _packs_payload.update(at=time.time(), packs=packs)
     return jsonify(packs)
 
 @app.route("/api/packs/cards")
@@ -3600,7 +3616,8 @@ def featured_page():
     """新弾フィーチャーページ: 最新弾の収録カード全件と価格推移を掲載する。
     X投稿の CTA リンク先 URL として固定で使用（次回新弾でも URL は変わらない）。
     """
-    return render_template("index.html", card_name="", page_mode="featured")
+    # 覚えているパックの一覧があれば埋め込む（packs.js が API を待たずに描く。DB は待たない）
+    return render_template("index.html", card_name="", page_mode="featured", packs_initial=_cached_packs_payload())
 
 
 @app.route("/new-cards")
