@@ -154,12 +154,13 @@ python -m pytest tests/test_solo_flag.py -v
 
 | 環境変数名 | 既定値 | 説明 |
 |---|---|---|
-| `SHOP_CACHE_REDIS_URL` | 未設定（ファイル） | Render Key Value の内部 URL（同じリージョン・オレゴン）。設定すると店舗検索の結果をそこに置く（デプロイで消えない） |
+| `SHOP_CACHE_REDIS_URL` | 未設定（ファイル） | Render Key Value の内部 URL（同じリージョン・オレゴン）。設定すると店舗検索の結果をそこに置く（デプロイで消えない）。営業メールの sales-mail-redis と相乗りするので、末尾はデータベース番号 `/1`（営業メールは `/0`）。例 `redis://red-d86rkfojo89c73d0artg:6379/1` |
 | `SHOP_CACHE_KV_MAX_BYTES` | `12582912`（12MB） | Key Value の使用量（used_memory）がこれを超えたら、書き込みはファイルに戻す。相乗り先のキーを追い出さないための上限 |
 
 - 設定するのは Web サービス（tcg-price-compare）だけ。定期実行（収集）は店舗検索キャッシュを使わない
 - 未設定・届かない・上限超えでも検索は止まらず、従来のファイル（.cache・.cache_buy）で動く。ログに `[shop-cache-kv]` の警告が出る
 - 外すときは環境変数を消して再デプロイするだけ
+- ログ `[shop-cache-kv] 使用量 …・キーの数 db0=… db1=…` が10分ごと（書き込みがあるとき）に出る。db0 が営業メール・db1 がラボ。キーの中身は読まない
 
 ## 補足: Git履歴にAPIキーが残る問題
 

@@ -411,3 +411,17 @@ def test_oom_error_falls_back_without_cooldown(monkeypatch):
     assert shop_cache_kv.store("sell", "k", {"店": {"timestamp": "x"}}, 60) is False
     assert shop_cache_kv._down_until == 0.0
     assert shop_cache_kv._mem_over is True
+
+
+def test_stats_log_shows_key_counts_per_db(kv, caplog):
+    """使用量と DB ごとのキーの数を、最初の確かめでログに出す（中身は出さない）"""
+    import logging
+    if isinstance(kv, _FakeRedis):
+        kv.info = lambda section: ({"used_memory": 1_000_000} if section == "memory"
+                                   else {"db0": {"keys": 7, "expires": 7}})
+    with caplog.at_level(logging.INFO, logger="shop_cache_kv"):
+        scraper.cache_store_shops("カードA", {"遊々亭": [_row("遊々亭")]})
+    lines = [r.message for r in caplog.records if "キーの数" in r.message]
+    assert len(lines) == 1 and "使用量" in lines[0]
+    if isinstance(kv, _FakeRedis):
+        assert "db0=7" in lines[0]

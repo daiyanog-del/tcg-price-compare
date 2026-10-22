@@ -55,6 +55,10 @@ POOL_WAIT_SEC = 0.2
 # 使用量の確かめ直し間隔（INFO memory を毎回は呼ばない）
 MEMORY_CHECK_INTERVAL_SEC = 60.0
 
+# 使用量とデータベースごとのキーの数をログに出す間隔（最初の確かめは必ず出す）。
+# 相乗り先（営業メールは /0、こちらは /1）のキーの数が減っていないかを見るため。キーの中身は読まない
+STATS_LOG_INTERVAL_SEC = 600.0
+
 # 無料枠 25MB の半分。相乗り先の数え上げなどを追い出さない余白を残す
 # TODO: calibrate from data — 本番で used_memory の推移を見て決める
 DEFAULT_MAX_BYTES = 12 * 1024 * 1024
@@ -65,6 +69,7 @@ _client_url: str | None = None
 _down_until = 0.0       # 0 = 正常。>0 の間は停止中（期限が過ぎたら1スレッドだけ試す）
 _mem_checked_at = 0.0
 _mem_over = False
+_stats_logged_at = 0.0
 _last_warn_at: dict[str, float] = {}
 
 
@@ -230,11 +235,29 @@ def _over_limit(r) -> bool:
                       f"{type(e).__name__}: {e}")
         return True
     over = used >= _max_bytes()
+    _log_stats(r, used, now)
     if over:
         _warn("full", f"[shop-cache-kv] Key Value の使用量 {used / 1048576:.1f}MB が上限 "
                       f"{_max_bytes() / 1048576:.1f}MB を超えたため、書き込みはファイルに戻します")
     _mem_checked_at, _mem_over = now, over
     return over
+
+
+def _log_stats(r, used: int, now: float) -> None:
+    """使用量とデータベースごとのキーの数（INFO keyspace）を STATS_LOG_INTERVAL_SEC ごとにログへ。
+    失敗しても書き込みの判断には関わらせない。"""
+    global _stats_logged_at
+    if _stats_logged_at and now - _stats_logged_at < STATS_LOG_INTERVAL_SEC:
+        return
+    _stats_logged_at = now
+    try:
+        ks = r.info("keyspace") or {}
+        counts = " ".join(f"{db}={v.get('keys', 0) if isinstance(v, dict) else v}"
+                          for db, v in sorted(ks.items())) or "（キーなし）"
+    except Exception as e:  # noqa: BLE001
+        counts = f"（キーの数を読めず: {type(e).__name__}）"
+    logger.info(f"[shop-cache-kv] 使用量 {used / 1048576:.2f}MB / 上限 {_max_bytes() / 1048576:.1f}MB・"
+                f"キーの数 {counts}")
 
 
 def store(kind: str, key: str, entries: dict[str, dict], keep_seconds: int) -> bool:
@@ -269,11 +292,12 @@ def store(kind: str, key: str, entries: dict[str, dict], keep_seconds: int) -> b
 
 
 def _reset_for_tests() -> None:
-    global _client, _client_url, _down_until, _mem_checked_at, _mem_over
+    global _client, _client_url, _down_until, _mem_checked_at, _mem_over, _stats_logged_at
     with _lock:
         _client = None
         _client_url = None
     _down_until = 0.0
+    _stats_logged_at = 0.0
     _mem_checked_at = 0.0
     _mem_over = False
     _last_warn_at.clear()
