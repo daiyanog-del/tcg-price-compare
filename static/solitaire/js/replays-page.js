@@ -233,7 +233,7 @@ function renderShared() {
 
     const thumb = document.createElement('img');
     thumb.className = 'rp-thumb';
-    thumb.src = '/solitaire/og/' + idParam + '.png';
+    thumb.src = '/solitaire/og/thumb/' + idParam + '.webp'; // 一覧用の縮小版（2026-10-22 LCP・solitaire_routes.solitaire_og_thumb）
     thumb.alt = '';
     thumb.loading = 'lazy';
     thumb.width = 120;
@@ -361,7 +361,7 @@ function buildPublicCard(item) {
 
   const thumb = document.createElement('img');
   thumb.className = 'rp-pcard-thumb';
-  thumb.src = '/solitaire/og/' + idParam + '.png';
+  thumb.src = '/solitaire/og/thumb/' + idParam + '.webp'; // 一覧用の縮小版（2026-10-22 LCP・solitaire_routes.solitaire_og_thumb）
   thumb.alt = '';
   thumb.loading = 'lazy';
   thumb.width = 1200;
