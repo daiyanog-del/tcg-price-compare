@@ -28,6 +28,7 @@ from price_persist import build_min_price_rows, upsert_price_rows
 from clabo_catalog import collect_clabo_catalog
 from collection_run import record_collection_run, attach_host_request_counts
 from db_write_guard import ConsecutiveDbFailureGuard, DbWriteAborted, report_db_abort
+from discord_notify import send_discord_message
 from meta_scraper import fetch_tier_list, fetch_deck_cards
 from name_normalize import load_cardnames_index, canonicalize_card_name
 
