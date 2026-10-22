@@ -108,6 +108,15 @@
 .pmx th.pmx-sc { z-index: 3; }
 .pmx td.is-dim { color: #5e6a80; }
 .pmx td.is-fail { font-family: var(--font); font-size: .7rem; }
+/* 他の商品の版（2026-10-22 毎朝の収集の表から）。このパックの行でその店に他の版しか無いマスは、値段の横に版の札・最安の緑から外す。
+   他の商品の版だけのレアリティは畳み、「も見る」で開く（薄い色・版の札・+候補なし） */
+.pmx-ver { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 3px; background: var(--bg-hover); color: var(--text-m); font: 700 .62rem var(--mono); vertical-align: 1px; }
+.pmx td.is-other { color: var(--text-m); }
+.pmx tr.pmx-other td, .pmx tr.pmx-other td.pmx-sc { color: #5e6a80; }
+.pmx tr.pmx-other[hidden] { display: none; }
+.pmx tr.pmx-more-row td { padding: 0 0 4px; border-top: 0; text-align: left; }
+.pmx-more { display: inline-flex; align-items: center; margin-left: 4px; padding: 3px 8px; border: 0; border-radius: 5px; background: none; color: var(--accent-l); font: 700 .7rem var(--font); cursor: pointer; }
+.pmx-more:hover { background: var(--bg-hover); }
 /* PC: 表の中で縦にもスクロールして、店名の見出しを付いてこさせる（外側が横スクロールの箱だと、ページのスクロールでは見出しが止まらない） */
 @media (min-width: 901px) { .pmx-scroll { max-height: calc(100vh - 260px); overflow-y: auto; } }
 .pmx td.is-min { background: rgba(99, 211, 174, .10); color: var(--green); font-weight: 700; }

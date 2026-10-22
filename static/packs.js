@@ -3,7 +3,8 @@
 // - 収録カードは画像・名前・価格の行。押すと購入候補と同じメニュー（_wishOpenMenu。index-wish.js）
 // - 「価格を調べる」は /api/deck（販売。店ごと・レアリティごとの価格つき）/ /api/deck-buy（買取）をそのまま使う。
 //   結果は「このパックの版」（型番の頭＝パックの code。例 DBGV-JP001）に絞って出す（同じ名前の他の商品の再録版を混ぜない）
-// - 店舗×レアの表: 新弾の期間はデータベースの値（/api/featured/matrix）、それ以外はまとめて検索（販売）の結果から作る
+// - 店舗×レアの表: 発売済みならどのパックでも毎朝の収集の値（/api/packs/matrix）ですぐ出し、まとめて検索（販売）の後はその結果に置き換える
+//   （2026-10-22 新弾専用の表から寄せた。他の商品の版は畳んで「も見る」で開く）
 // esc / escAttr / safeUrl / _setupThumbObserver / wishGet / wishSave / wishAdd / _wishOpenMenu / _wishCloseMenu / _ga は
 // index 本体・index-wish.js のグローバル関数を参照する（このファイルは非モジュールで読み込むこと）。
 
@@ -98,7 +99,8 @@ function _pkState(packName,wikiPage,tcgName,isFeatured){
     view:'list', sort:'order', mode:'sale',
     results:{sale:null,buy:null}, // まとめて検索の結果（モードごと）
     run:null,                     // 検索中 {mode,done,total,abort}
-    fmx:null,                     // 新弾の店舗×レア（データベース）。null=未取得 / 'loading' / 'error' / {shops,rows,updated_at}
+    dbmx:null,                    // 毎朝の収集の店舗×レア（/api/packs/matrix）。null=未取得 / 'loading' / 'error' / {shops,rows,updated_at}
+    dbModel:null, dbCode:'',      // dbmx から作った表の形と、型番の頭
   };
 }
 
@@ -188,7 +190,7 @@ async function _pkLoadDbPrices(st){
 
 // 店舗×レアの表の元: まとめて検索（販売）を最後まで終えた結果があればそれ、新弾ならデータベース（reviewer 中5）
 function _pkBulkMatrix(st){ const r=st.results.sale; return r&&r.matrix&&!r.stopped&&!(st.run&&st.run.mode==='sale')?r:null; }
-function _pkMatrixAvailable(st){ return st.featured||!!_pkBulkMatrix(st); }
+function _pkMatrixAvailable(st){ return !st.unreleased&&st.cards.length>0; } // 発売済みなら毎朝の収集の値で出せる
 
 function _pkRender(){
   const el=document.getElementById('packDetail');
@@ -254,8 +256,8 @@ function _pkStatusHtml(st){
     const r=_pkBulkMatrix(st);
     if(r) return `<p class="pk-hint"><b>${esc(r.at)}</b> のまとめて検索の結果（販売）・${r.code?'このパックの版だけ（他の商品の再録版は除く）・':''}<span class="pk-green">緑</span>＝その行でいちばん安い店。価格を押すとその店の商品ページへ。`
       +(r.failedShops.length?`<br>${r.failedShops.map(esc).join('・')} は一部取得できませんでした（${r.failedCards}種）。その店の欄は「取得失敗」です。`:'')+'</p>';
-    const m=st.fmx&&typeof st.fmx==='object'?st.fmx:null;
-    return `<p class="pk-hint">データベースの最新値${m&&m.updated_at?'（'+esc(_pkMd(m.updated_at))+' 更新）':''}・<span class="pk-green">緑</span>＝その行でいちばん安い店。価格を押すとその店の商品ページへ。</p>`;
+    const m=st.dbmx&&typeof st.dbmx==='object'?st.dbmx:null;
+    return `<p class="pk-hint">毎朝の収集の値${m&&m.updated_at?'（<b>'+esc(_pkMd(m.updated_at))+'</b> 時点）':''}・${st.dbCode?'このパックの版だけ（他の商品の版は畳んであります）・':''}<span class="pk-green">緑</span>＝その行でいちばん安い店。価格を押すとその店の商品ページへ。いまの値に取り直すときは「価格を調べる」（お店から取得）。</p>`;
   }
   const r=st.results[st.mode];
   const label=st.mode==='buy'?'買取':'販売';
@@ -364,81 +366,185 @@ function _pkApplyOrder(){
 }
 
 // ── 店舗×レアの表 ──
+// 元は2つ: まとめて検索（販売）を最後まで終えた結果があればそれ、無ければ毎朝の収集（/api/packs/matrix。どの発売済みパックでも）。
+// どちらも「品」（カード・レアリティ・店・値段・型番）の並びにしてから、同じ作り（_pkMatrixModel）で表にする。
+
+// 毎朝の収集の表を読む（パックごとに1回。サーバーも1時間覚える）
+async function _pkLoadDbMatrix(st){
+  st.dbmx='loading';
+  try{
+    const res=await fetch('/api/packs/matrix',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cards:st.cards.map(c=>c.name)})});
+    const data=res.ok?await res.json():null;
+    st.dbmx=(data&&!data.error&&Array.isArray(data.rows))?data:'error';
+  }catch(_){ st.dbmx='error'; }
+}
 
 async function _pkRenderMatrix(){
   const st=_pk, el=document.getElementById('packMatrix');
   if(!st||!el) return;
-  let m=null;
   const r=_pkBulkMatrix(st);
-  if(r) m=r.matrix;
-  else if(st.featured){
-    if(st.fmx===null){
-      st.fmx='loading';
+  let model=null, src='';
+  if(r){ model=r.matrix; src='bulk:'+r.at; }
+  else{
+    if(st.dbmx===null||st.dbmx===undefined){
       el.innerHTML='<div class="meta-loading">店舗×レアの表を読込中...</div>';
-      try{
-        for(let tries=0;tries<8;tries++){
-          const res=await fetch('/api/featured/matrix');
-          const data=await res.json();
-          if(data&&data.loading){ await new Promise(r=>setTimeout(r,2500)); continue; }
-          st.fmx=(data&&!data.error&&Array.isArray(data.rows))?data:'error';
-          break;
-        }
-        if(st.fmx==='loading') st.fmx='error';
-      }catch(_){ st.fmx='error'; }
+      st.mxKey='';
+      await _pkLoadDbMatrix(st);
       if(st!==_pk) return;
       const tools=document.getElementById('packTools');
       if(tools) tools.innerHTML=_pkToolsHtml(st);
       return _pkRenderMatrix();
     }
-    if(st.fmx==='loading') return;
-    if(st.fmx==='error'){ el.innerHTML='<div class="meta-empty">店舗×レアの表を取得できませんでした</div>'; return; }
-    m=st.fmx;
+    if(st.dbmx==='loading') return;
+    if(st.dbmx==='error'){ el.innerHTML='<div class="meta-empty">店舗×レアの表を取得できませんでした。少し待ってからもう一度開いてください</div>'; st.mxKey=''; st.dbmx=null; return; }
+    if(!st.dbModel){
+      const items=_pkItemsFromDb(st.dbmx);
+      st.dbCode=_pkPackCode(st,items);
+      st.dbModel=_pkMatrixModel(st,items,st.dbCode,st.dbmx.shops||[],{});
+    }
+    model=st.dbModel; src='db';
   }
   // 同じ表を描き直さない（カード画像を読み直すので）。元のデータか並び順が変わったときだけ
-  const key=(r?'bulk:'+r.at:'db')+':'+st.sort;
+  const key=src+':'+st.sort;
   if(st.mxKey===key) return;
   st.mxKey=key;
-  if(!m||!m.shops.length||!m.rows.length){ el.innerHTML='<div class="meta-empty">店舗×レアの表のデータがまだありません</div>'; return; }
-  el.innerHTML=_pkMatrixHtml(m,st.sort);
+  if(!model||!model.shops.length||!model.groups.length){ el.innerHTML='<div class="meta-empty">店舗×レアの表のデータがまだありません</div>'; return; }
+  el.innerHTML=_pkMatrixHtml(model,st.sort,src==='db');
   _setupThumbObserver('#packMatrix');
 }
 
-// カードごとにまとめ、行はレアリティ。各行でいちばん安い店だけ緑
-function _pkMatrixHtml(m,sort){
-  const shops=m.shops, groups=[];
-  for(const r of m.rows){
-    let g=groups[groups.length-1];
-    if(!g||g.name!==r.name){ g={name:r.name,rows:[]}; groups.push(g); }
-    if(r.rarity) g.rows.push(r);
+// 毎朝の収集の表（build_matrix の形: 行＝カード×レアリティ、セル＝店）を品の並びにする
+function _pkItemsFromDb(m){
+  const items=[];
+  for(const r of (m.rows||[])){
+    for(const [shop,c] of Object.entries(r.cells||{})){
+      if(c&&c.price!=null) items.push({name:r.name,rarity:r.rarity||'',shop,price:Number(c.price),url:c.url||'',code:c.code||''});
+    }
   }
+  return items;
+}
+
+// まとめて検索の店ごと・レアリティごと・型番の頭ごとの結果を品の並びにする
+function _pkItemsFromPerShop(perShop){
+  const items=[];
+  for(const [name,ps] of Object.entries(perShop||{})){
+    for(const [shop,byKey] of Object.entries(ps||{})){
+      for(const it of Object.values(byKey||{})){
+        if(it&&it.price!=null) items.push({name,rarity:it.rarity||'',shop:it.shop||shop,price:Number(it.price),url:it.url||'',code:it.code||''});
+      }
+    }
+  }
+  return items;
+}
+
+// 品の並びから表の形を作る。
+// - レアリティごとに、このパックの版（型番の頭が一致）・型番不明・他の商品の版に分ける
+// - このパックの版があるか、他の商品の版が無いレアリティは「このパックの行」。店ごとに、このパックの版か型番不明の最安を出す。
+//   その店に他の商品の版しか無ければ（毎朝の収集は店×レアリティで最安1件しか残さないので起きる）、値段に版の札を付けて最安の緑から外す
+// - 他の商品の版だけのレアリティ（再録元の商品のレアリティ）は畳んでおく行にする。同じレアリティで両方ある店の他の版も、畳む行に入れる
+function _pkMatrixModel(st,items,code,shopOrder,failedByCard){
+  const shops=[];
+  const addShop=s=>{ if(s&&!shops.includes(s)) shops.push(s); };
+  (shopOrder||[]).forEach(addShop);
+  const byCard={};
+  for(const it of items) (byCard[it.name]=byCard[it.name]||[]).push(it);
+  const minOf=cells=>Math.min(...Object.values(cells).map(c=>c.price));
+  const groups=[];
+  for(const c of st.cards){
+    const list=byCard[c.name]||[];
+    const byR={};
+    for(const it of list){
+      const rar=it.rarity||'レアリティ不明'; // レアリティの分からない品も残す（reviewer 中3）
+      (byR[rar]=byR[rar]||[]).push(it);
+    }
+    const main=[], other=[];
+    const kind=it=>{ const p=_pkPrefixOf(it.code); return !code?'this':!p?'unk':p===code?'this':'oth'; };
+    // このカードに「このパックの版」の記録が1つでもあれば、型番不明だけのレアリティは「版不明」として畳む
+    // （例: ノーマルだけ収録の再録カードで、型番の無いアルティメットの記録がこのパックの行に見えていた）。
+    // 型番の情報がまったく無いカード（新しいパックでよくある）は、隠さずに出す
+    const hasThisAny=list.some(it=>kind(it)==='this');
+    for(const [rar,its] of Object.entries(byR)){
+      const mineIts=its.filter(it=>kind(it)!=='oth'), othIts=its.filter(it=>kind(it)==='oth');
+      const hasThis=its.some(it=>kind(it)==='this');
+      const isMine=!code||hasThis||(!othIts.length&&!hasThisAny);
+      const pick=(arr,shop)=>arr.filter(it=>it.shop===shop).sort((a,b)=>a.price-b.price)[0];
+      if(isMine){
+        const cells={};
+        const shopsHere=[...new Set(its.map(it=>it.shop))];
+        const leftover=[];
+        for(const s of shopsHere){
+          const m=pick(mineIts,s);
+          if(m){ cells[s]={price:m.price,url:m.url,code:m.code}; const o=pick(othIts,s); if(o) leftover.push(o); }
+          else{ const o=pick(othIts,s); cells[s]={price:o.price,url:o.url,code:o.code,other:true}; }
+          addShop(s);
+        }
+        main.push({rarity:rar,cells});
+        if(leftover.length){
+          const oc={}; leftover.forEach(o=>{ oc[o.shop]={price:o.price,url:o.url,code:o.code}; });
+          other.push({rarity:rar,cells:oc,vers:[...new Set(leftover.map(o=>_pkPrefixOf(o.code)))]});
+        }
+      }else{
+        const oc={};
+        for(const s of [...new Set(its.map(it=>it.shop))]){ const o=pick(its,s); oc[s]={price:o.price,url:o.url,code:o.code}; addShop(s); }
+        const vers=[...new Set(othIts.map(o=>_pkPrefixOf(o.code)))];
+        if(its.some(it=>kind(it)==='unk')) vers.push('版不明');
+        other.push({rarity:rar,cells:oc,vers});
+      }
+    }
+    main.sort((a,b)=>minOf(b.cells)-minOf(a.cells));
+    other.sort((a,b)=>minOf(b.cells)-minOf(a.cells));
+    const f=(failedByCard||{})[c.name];
+    groups.push({name:c.name,main,other,failed:f||null});
+  }
+  // 取得に失敗した店も列に残す（列ごと消すと「その店には無い」に見える。reviewer 中2）
+  const failedShops=new Set(Object.values(failedByCard||{}).flatMap(f=>f.shops));
+  failedShops.forEach(addShop);
+  return {shops:shops.filter(s=>failedShops.has(s)||groups.some(g=>g.main.some(r=>r.cells[s])||g.other.some(r=>r.cells[s]))),groups};
+}
+
+// カードごとにまとめ、行はレアリティ。各行でいちばん安い店だけ緑。他の商品の版は畳んで「も見る」で開く
+function _pkMatrixHtml(model,sort,fromDb){
+  const shops=model.shops;
+  const groups=model.groups.slice();
   if(sort==='price'){
-    const top=g=>Math.max(-1,...g.rows.flatMap(r=>Object.values(r.cells||{}).map(c=>c.price).filter(p=>p!=null)));
+    const top=g=>Math.max(-1,...g.main.flatMap(r=>Object.values(r.cells).filter(c=>!c.other).map(c=>c.price)));
     groups.sort((a,b)=>top(b)-top(a));
   }
   const span=shops.length+2;
+  const cell=(c,isMin)=>{
+    const url=c.url&&safeUrl(c.url);
+    const txt=_pkYen(c.price);
+    const badge=c.other&&_pkPrefixOf(c.code)?`<span class="pmx-ver">${esc(_pkPrefixOf(c.code))}</span>`:'';
+    return `<td class="${isMin?'is-min':''}${c.other?' is-other':''}">${url?`<a href="${escAttr(url)}" target="_blank" rel="noopener">${txt}</a>`:txt}${badge}</td>`;
+  };
   let h=`<div class="pmx-scroll"><table class="pmx"><thead><tr><th class="pmx-sc">レアリティ</th>${shops.map(s=>`<th>${esc(s)}</th>`).join('')}<th><span class="sr-only">購入候補</span></th></tr></thead><tbody>`;
-  for(const g of groups){
+  groups.forEach((g,gi)=>{
     h+=`<tr class="pmx-g"><td colspan="${span}"><div class="pmx-gname"><span class="pmx-thumb"><span class="pack-card-thumb" data-card="${escAttr(g.name)}"></span></span>${esc(g.name)}</div></td></tr>`;
-    const f=(m.failed||{})[g.name];
-    if(!g.rows.length){
-      const why=f&&f.all?'取得に失敗しました':(m.other||{})[g.name]?'このパックの版は見つかりませんでした（他の商品の版だけ）':'価格が見つかりませんでした';
-      h+=`<tr><td class="pmx-sc is-dim" colspan="${span}">${why}</td></tr>`; continue;
+    const f=g.failed;
+    if(!g.main.length){
+      const why=f&&f.all?'取得に失敗しました':g.other.length?'このパックの版は見つかりませんでした（他の商品の版だけ）':fromDb?'このパックの版の記録がありません':'価格が見つかりませんでした';
+      h+=`<tr><td class="pmx-sc is-dim" colspan="${span}">${why}</td></tr>`;
     }
-    for(const r of g.rows){
-      const cells=r.cells||{};
-      const ps=shops.map(s=>cells[s]?cells[s].price:null).filter(p=>p!=null);
+    for(const r of g.main){
+      const ps=shops.map(s=>r.cells[s]).filter(c=>c&&!c.other).map(c=>c.price);
       const min=ps.length?Math.min(...ps):null;
       h+=`<tr><td class="pmx-sc">${esc(r.rarity)}</td>`;
       for(const s of shops){
-        const c=cells[s];
-        if(!c||c.price==null){ h+=f&&f.shops.includes(s)?'<td class="is-dim is-fail">取得失敗</td>':'<td class="is-dim">—</td>'; continue; }
-        const url=c.url&&safeUrl(c.url);
-        const txt=_pkYen(c.price);
-        h+=`<td class="${c.price===min?'is-min':''}">${url?`<a href="${escAttr(url)}" target="_blank" rel="noopener">${txt}</a>`:txt}</td>`;
+        const c=r.cells[s];
+        if(!c){ h+=f&&f.shops.includes(s)?'<td class="is-dim is-fail">取得失敗</td>':'<td class="is-dim">—</td>'; continue; }
+        h+=cell(c,!c.other&&c.price===min);
       }
-      h+=`<td class="pmx-add"><button type="button" class="pmx-add-btn" data-name="${escAttr(r.name)}" data-rarity="${escAttr(r.rarity)}">+ 候補</button></td></tr>`;
+      h+=`<td class="pmx-add"><button type="button" class="pmx-add-btn" data-name="${escAttr(g.name)}" data-rarity="${escAttr(r.rarity)}">+ 候補</button></td></tr>`;
     }
-  }
+    if(g.other.length){
+      for(const r of g.other){
+        h+=`<tr class="pmx-other" data-mx-of="${gi}" hidden><td class="pmx-sc">${esc(r.rarity)}${r.vers.filter(Boolean).length?`<span class="pmx-ver">${esc(r.vers.filter(Boolean).join('・'))}</span>`:''}</td>`;
+        for(const s of shops){ const c=r.cells[s]; h+=c?cell({...c,other:false},false):'<td class="is-dim">—</td>'; }
+        h+='<td></td></tr>';
+      }
+      h+=`<tr class="pmx-more-row"><td colspan="${span}"><button type="button" class="pmx-more" data-mx-toggle="${gi}" aria-expanded="false">他の商品の版 ${g.other.length}行も見る</button></td></tr>`;
+    }
+  });
   return h+'</tbody></table></div>';
 }
 
@@ -450,66 +556,37 @@ function _pkSameVersion(packCode,code){
   return !p||p===packCode; // 頭の完全一致（前方一致だと WPP と WPP5 を同じに扱う。reviewer 低1）
 }
 
-// パックの型番の頭を決める。一覧の code（公式の商品ページの略号）が検索結果の型番に実際に出ていればそれを使い、
-// 出ていなければ（略号と型番が違う商品）、検索結果で半分を超えるカードに付いている頭を使う。どちらも無ければ絞らない
-function _pkPackCode(st,perShop){
-  const prefixOf=_pkPrefixOf;
+// パックの型番の頭を決める（items: 品の並び）。一覧の code（公式の商品ページの略号）が、型番の分かるカードの3割以上に
+// 出ていればそれを使い、出ていなければ（略号と型番が違う商品）、半分を超えるカードに付いている頭を使う。どちらも無ければ絞らない
+function _pkPackCode(st,items){
   const perCard={};
-  for(const [name,ps] of Object.entries(perShop)){
-    const set=new Set();
-    for(const byR of Object.values(ps||{})) for(const it of Object.values(byR||{})){ const p=prefixOf(it.code); if(p) set.add(p); }
-    perCard[name]=set;
-  }
-  const withCode=Object.values(perCard).filter(s=>s.size).length;
+  for(const it of items){ const p=_pkPrefixOf(it.code); (perCard[it.name]=perCard[it.name]||new Set()); if(p) perCard[it.name].add(p); }
+  const sets=Object.values(perCard);
+  const withCode=sets.filter(s=>s.size).length;
   const code=String(st.info.code||'').toUpperCase();
-  // 一覧の code は、型番の分かるカードの3割以上に出ているときだけ使う（別の商品の型番とたまたま重なったときに、大半を「版なし」にしない。reviewer 低2）
-  if(code&&withCode&&Object.values(perCard).filter(s=>s.has(code)).length*10>=withCode*3) return code;
+  if(code&&withCode&&sets.filter(s=>s.has(code)).length*10>=withCode*3) return code;
   const count={};
-  for(const s of Object.values(perCard)) for(const p of s) count[p]=(count[p]||0)+1;
+  for(const s of sets) for(const p of s) count[p]=(count[p]||0)+1;
   const best=Object.entries(count).sort((a,b)=>b[1]-a[1])[0];
   return best&&best[1]>st.cards.length/2?best[0]:'';
 }
 
-// 店ごと・レアリティごとの結果から、表と各カードの最安（このパックの版）を作る
+// まとめて検索（販売）の結果から、表と各カードの最安（このパックの版）を作る
 function _pkBuildFromPerShop(st,res){
-  const perShop=res.perShop;
-  const code=_pkPackCode(st,perShop);
+  const items=_pkItemsFromPerShop(res.perShop);
+  const code=_pkPackCode(st,items);
   res.code=code;
-  const shops=[];
-  const addShop=s=>{ if(s&&!shops.includes(s)) shops.push(s); };
-  res.shopOrder.forEach(addShop);
-  const rows=[], other={};
+  const byCard={};
+  for(const it of items) (byCard[it.name]=byCard[it.name]||[]).push(it);
   for(const c of st.cards){
-    const ps=perShop[c.name];
-    if(!ps){ if(res.items[c.name]) rows.push({name:c.name,rarity:'',cells:{}}); continue; }
-    const byRarity={};
-    let best=null, any=false;
-    for(const [shop,byR] of Object.entries(ps)){
-      for(const it of Object.values(byR||{})){
-        if(!it||it.price==null) continue;
-        any=true;
-        if(!_pkSameVersion(code,it.code)) continue;
-        addShop(shop);
-        const rar=it.rarity||'レアリティ不明'; // レアリティの分からない品も表に残す（一覧には価格が出ているので。reviewer 中3）
-        const cells=byRarity[rar]=byRarity[rar]||{};
-        if(!cells[shop]||it.price<cells[shop].price) cells[shop]={price:it.price,url:it.url||'',code:it.code||''};
-        if(!best||it.price<best.price) best=it;
-      }
-    }
     const item=res.items[c.name];
-    if(item){
-      if(best){ item.price=best.price; item.shop=best.shop||''; item.rarity=best.rarity||''; item.otherVersion=false; }
-      else if(any){ item.price=null; item.other=true; }
-    }
-    if(!best&&any) other[c.name]=true;
-    const rars=Object.keys(byRarity).sort((a,b)=>Math.min(...Object.values(byRarity[b]).map(x=>x.price))-Math.min(...Object.values(byRarity[a]).map(x=>x.price)));
-    if(!rars.length) rows.push({name:c.name,rarity:'',cells:{}});
-    for(const rar of rars) rows.push({name:c.name,rarity:rar,cells:byRarity[rar]});
+    const its=byCard[c.name];
+    if(!item||!its) continue;
+    const mine=its.filter(it=>_pkSameVersion(code,it.code)).sort((a,b)=>a.price-b.price);
+    if(mine.length){ const b=mine[0]; item.price=b.price; item.shop=b.shop||''; item.rarity=b.rarity||''; item.otherVersion=false; }
+    else if(its.length){ item.price=null; item.other=true; }
   }
-  // 取得に失敗した店も列に残す（列ごと消すと「その店には無い」に見える。reviewer 中2）
-  const failedShops=new Set(Object.values(res.failedByCard||{}).flatMap(f=>f.shops));
-  failedShops.forEach(addShop);
-  res.matrix={shops:shops.filter(s=>failedShops.has(s)||rows.some(r=>r.cells[s])),rows,failed:res.failedByCard||{},other};
+  res.matrix=_pkMatrixModel(st,items,code,res.shopOrder,res.failedByCard||{});
   res.found=Object.values(res.items).filter(it=>it.price!=null).length;
 }
 
@@ -642,6 +719,15 @@ function _pkInitDetailEvents(el){
       return;
     }
     if(t.closest('#packBulkBtn')){ bulkSearchPackPrices(); return; }
+    const tog=t.closest('[data-mx-toggle]');
+    if(tog){ // 他の商品の版の行を開く／畳む（表は作り直さない。カード画像を読み直すので）
+      const open=tog.getAttribute('aria-expanded')!=='true';
+      el.querySelectorAll(`tr[data-mx-of="${tog.dataset.mxToggle}"]`).forEach(tr=>{ tr.hidden=!open; });
+      tog.setAttribute('aria-expanded',String(open));
+      const n=el.querySelectorAll(`tr[data-mx-of="${tog.dataset.mxToggle}"]`).length;
+      tog.textContent=open?'他の商品の版をたたむ':`他の商品の版 ${n}行も見る`;
+      return;
+    }
     if(t.closest('#packBulkStop')){ if(st.run&&st.run.abort) st.run.abort.abort(); return; }
     const more=t.closest('#packMoreBtn');
     if(more){ _pkOpenMore(more); return; }

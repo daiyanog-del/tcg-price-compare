@@ -11,7 +11,8 @@ tests/test_featured_matrix.py — featured_matrix の単体テスト
     - 同一カード内のレアリティが最安セル価格の降順に並ぶこと（同価格は辞書順タイブレーク）
     - DBに観測が1行も無いカードも rows に含まれ、cells が空であること
     - セルに code（採用した行の型番）が透過されること
-  - _fetch_price_rows（fakeクライアント、ページング・例外境界）
+  - _fetch_price_rows（fakeクライアント、ページング・例外境界・カード番号＋日付の等号で引くこと）
+  - get_pack_matrix（カード名→カード番号→記録、1時間のキャッシュ）
   - _chunk_card_names_by_bytes（バイト予算でのチャンク分割）
 
 ネットワーク・実Supabaseは一切使わない。
@@ -26,7 +27,8 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from featured_matrix import build_matrix, _chunk_card_names_by_bytes, _fetch_price_rows
+import featured_matrix
+from featured_matrix import build_matrix, _chunk_card_names_by_bytes, _fetch_price_rows, get_pack_matrix
 from rarity import UNKNOWN_RARITY_LABEL
 
 TODAY = "2026-08-08"
@@ -242,6 +244,7 @@ class _FakeQuery:
     def select(self, *a, **k): return self
     def in_(self, *a, **k): return self
     def gte(self, *a, **k): return self
+    def eq(self, *a, **k): return self
     def order(self, *a, **k): return self
 
     def range(self, start, end):
@@ -282,7 +285,7 @@ class TestFetchPriceRowsPagination:
             for _ in range(1000)
         ]
         sb = _FakeSupabase(rows)
-        result = _fetch_price_rows(sb, ["カードA"], "2026-08-01")
+        result = _fetch_price_rows(sb, [1], ["2026-08-08"])
         assert len(result) == 1000
         # 1000行ちょうど→2ページ目（0件）も取得しに行っている
         assert len(sb.call_log) == 2
@@ -296,6 +299,7 @@ class TestFetchPriceRowsExceptionBoundary:
             def select(self, *a, **k): return self
             def in_(self, *a, **k): return self
             def gte(self, *a, **k): return self
+            def eq(self, *a, **k): return self
             def order(self, *a, **k): return self
             def range(self, *a, **k): return self
             def execute(self):
@@ -309,5 +313,82 @@ class TestFetchPriceRowsExceptionBoundary:
 
         with caplog.at_level(logging.WARNING, logger="featured_matrix"):
             with pytest.raises(RuntimeError):
-                _fetch_price_rows(_BoomSupabase(), ["カードA"], "2026-08-01")
+                _fetch_price_rows(_BoomSupabase(), [1], ["2026-08-01"])
         assert any("取得失敗" in rec.message for rec in caplog.records)
+
+
+# ──────────────────────────────────────────────
+# get_pack_matrix（どのパックでも作る表。2026-10-22）
+# ──────────────────────────────────────────────
+
+class _RecSupabase:
+    """card_dim と price_history の呼び出しを記録する作り物。price_history は渡した日付・カード番号で絞って返す"""
+
+    def __init__(self, names, rows):
+        self.names = names  # {card_name: card_id}
+        self.rows = rows
+        self.calls = []
+
+    def table(self, name):
+        sb = self
+
+        class Q:
+            def __init__(self):
+                self.f = {}
+
+            def select(self, *a, **k): return self
+
+            def in_(self, col, vals):
+                self.f[col] = list(vals)
+                return self
+
+            def eq(self, col, val):
+                self.f[col] = val
+                return self
+
+            def order(self, *a, **k): return self
+
+            def range(self, start, end):
+                self.f["range"] = (start, end)
+                return self
+
+            def execute(self):
+                sb.calls.append((name, dict(self.f)))
+                if name == "card_dim":
+                    return _FakeResp([{"card_id": sb.names[n], "card_name": n} for n in self.f["card_name"] if n in sb.names])
+                assert name == "price_history"
+                assert "recorded_at" in self.f and isinstance(self.f["recorded_at"], str), "日付は等号で引く"
+                assert "card_id" in self.f, "カード番号で引く（カード名で探さない）"
+                return _FakeResp([r for r in sb.rows if r["card_id"] in self.f["card_id"] and r["recorded_at"] == self.f["recorded_at"]])
+        return Q()
+
+
+class TestGetPackMatrix:
+    def setup_method(self):
+        featured_matrix._cache.clear()
+
+    def test_builds_from_card_ids_and_caches(self, monkeypatch):
+        class _D(featured_matrix.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return featured_matrix.datetime(2026, 10, 22, 9, 0, tzinfo=tz)
+        monkeypatch.setattr(featured_matrix, "datetime", _D)
+        rows = [
+            dict(_row("カードA", "遊々亭", "ウルトラ", 300, 300, "2026-10-21", code="DBGV-JP001"), card_id=1),
+            dict(_row("カードA", "遊々亭", "ウルトラ", 280, 280, "2026-10-22", code="DBGV-JP001"), card_id=1),
+            dict(_row("カードA", "カードラボ", "ウルトラ", 350, 350, "2026-10-21", code="DBGV-JP001"), card_id=1),
+            dict(_row("カードB", "遊々亭", "ノーマル", 20, 20, "2026-10-15"), card_id=2),  # 2日より前は読まない
+        ]
+        sb = _RecSupabase({"カードA": 1, "カードB": 2}, rows)
+        out = get_pack_matrix(sb, ["カードA", "カードB", "名簿に無いカード"])
+        days = sorted({c[1]["recorded_at"] for c in sb.calls if c[0] == "price_history"})
+        assert days == ["2026-10-21", "2026-10-22"]
+        a = [r for r in out["rows"] if r["name"] == "カードA"]
+        assert a[0]["cells"]["遊々亭"]["price"] == 280, "新しい日の値を使う"
+        assert a[0]["cells"]["カードラボ"]["price"] == 350, "今日の記録が無い店は昨日の値で埋める"
+        assert [r["name"] for r in out["rows"]][-2:] == ["カードB", "名簿に無いカード"]
+        assert out["updated_at"] == "2026-10-22"
+        n = len(sb.calls)
+        out2 = get_pack_matrix(sb, ["カードA", "カードB", "名簿に無いカード"])
+        assert out2 is out and len(sb.calls) == n, "1時間以内の同じパックはデータベースを読まない"
+

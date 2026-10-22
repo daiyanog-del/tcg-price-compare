@@ -1,19 +1,17 @@
 """
-新弾フィーチャー「店舗×レアリティ価格マトリクス」モジュール
+店舗×レアリティ価格マトリクス（新商品タブの「店舗×レア」）
 ================================================================
-/featured ページに、新弾収録カードの (店舗 × レアリティ) 最安値を
-DBから即時表示するためのデータを組み立てる。
+パックの収録カードについて、(店舗 × レアリティ) の最安値を毎朝の収集（price_history）から
+組み立てる。読み出し専用。2026-10-22 から新弾だけでなく、どの発売済みパックでも作る
+（以前は新弾1つ・直近7日をカード名で探していた。/api/featured/matrix は廃止）。
 
-書き込み側（新弾週の10:15 Cron）は collect_featured.py。本モジュールは
-price_history からの読み出し専用。
+読み方: カード名 → card_dim のカード番号 → price_history をカード番号＋日付（今日・昨日）で引く。
+price_history_v2 の索引 (recorded_at, card_id, ...) が両方の条件で効く形にしてある
+（2026-10-22 朝、索引の効かない問い合わせで Disk IO の持ち分を使い切りかけたため）。
+結果はカード名の並びごとに1時間覚える。
 
 集計の中核 build_matrix() は Supabase の生行 (records) を受ける純関数として
 切り出し、ネットワーク無しでテストできるようにしている。
-
-キャッシュ方式は app.py の /api/featured（_featured_cache / _load_featured_cache）と
-同じ stale-while-revalidate: キャッシュ未確立（コールド）時は即座に loading=True を
-返しつつバックグラウンドで構築、TTL切れ時は古い値を返しつつ裏で更新する。
-リクエストのたびにDB読み出しをブロッキングで待たせない。
 """
 from __future__ import annotations
 import logging
@@ -23,7 +21,6 @@ import urllib.parse
 from datetime import datetime, timedelta
 
 from constants import JST
-from featured_pack import get_featured_pack, get_featured_cards
 from rarity import UNKNOWN_RARITY_LABEL, normalize_rarity
 from scraper import DEFAULT_SHOPS
 
@@ -39,17 +36,17 @@ _PAGE_SIZE = 1000
 # URL長超過のリスクが残る）
 _CHUNK_BYTE_BUDGET = 6000
 
-# マトリクスは直近7日（JST基準）の観測を対象にする
-_LOOKBACK_DAYS = 7
+# カード番号の in_ 句の1回あたりの件数（数字だけなのでURL長は小さい）
+_ID_CHUNK = 200
 
-# モジュール内メモリキャッシュ（/api/featured と同じ stale-while-revalidate 方式）
-_CACHE_TTL_SEC = 300
+# 読む日数（今日・昨日）。朝5時の収集が途中でも、昨日の値で欠けを埋める（build_matrix が新しい日を優先）
+_LOOKBACK_DAYS = 2
+
+# パック（カード名の並び）ごとのメモリキャッシュ
+_CACHE_TTL_SEC = 3600  # TODO: calibrate from data（毎朝の収集は1日1回なので長めでよい）
+_CACHE_MAX_ENTRIES = 64
 _cache_lock = threading.Lock()
-_cache: dict = {"data": None, "ts": 0.0}
-
-# バックグラウンド構築の二重起動防止フラグ
-_building_lock = threading.Lock()
-_building = False
+_cache: dict = {}  # key: tuple(card_names) -> {"data": dict, "ts": float}
 
 
 def _today_jst() -> str:
@@ -80,38 +77,47 @@ def _chunk_card_names_by_bytes(card_names: list[str], byte_budget: int = _CHUNK_
     return chunks
 
 
-def _fetch_price_rows(sb, card_names: list[str], cutoff: str) -> list[dict]:
-    """card_names（直近 _LOOKBACK_DAYS 日、JST基準）の price_history 生行を全件取得する。
+def _fetch_card_ids(sb, card_names: list[str]) -> dict[int, str]:
+    """カード名 → card_dim のカード番号（名簿に無い名前は返らない）。"""
+    ids: dict[int, str] = {}
+    for chunk in _chunk_card_names_by_bytes(card_names):
+        resp = sb.table("card_dim").select("card_id, card_name").in_("card_name", chunk).execute()
+        for r in resp.data or []:
+            ids[int(r["card_id"])] = r["card_name"]
+    return ids
 
-    PostgRESTの1000行上限に対して range 分割し、URL長対策でカード名をバイト予算ごとに
-    チャンクして in_() を投げる。
 
-    例外は握りつぶさずログしてから再送出する（呼び出し元 _load_matrix_cache_inner が
-    捕捉し、キャッシュへエラー状態を記録して /api/featured/matrix ルートが503を
-    返せるようにするため。featured_pack.py の「捕捉して空へフォールバック」とは異なり、
-    価格データの取得失敗を空のマトリクスとして黙って見せるより、エラーとして
-    明示的に伝えるべき判断）。
+def _fetch_price_rows(sb, card_ids: list[int], days: list[str]) -> list[dict]:
+    """card_ids の price_history を、指定した日付（JST）ごとに等号で引く。
+
+    日付の範囲（gte）ではなく等号にするのは、索引 (recorded_at, card_id, ...) の2列とも条件に
+    使わせるため（範囲だと日付の範囲をなめてからカード番号で絞る計画になりうる）。
+    PostgRESTの1000行上限に対して range 分割し、order で順序を安定させる。
+
+    例外はログしてから再送出する（呼び出し元のルートが503を返す。価格データの取得失敗を
+    空の表として黙って見せない）。
     """
     try:
         all_rows: list[dict] = []
-        for chunk in _chunk_card_names_by_bytes(card_names):
-            offset = 0
-            while True:
-                resp = (sb.table("price_history")
-                        .select("card_name, shop, rarity, min_price, min_price_any, code, url, recorded_at")
-                        .in_("card_name", chunk)
-                        .gte("recorded_at", cutoff)
-                        .order("card_name", desc=False)
-                        .order("shop", desc=False)
-                        .order("rarity", desc=False)
-                        .order("recorded_at", desc=False)
-                        .range(offset, offset + _PAGE_SIZE - 1)
-                        .execute())
-                batch = resp.data or []
-                all_rows.extend(batch)
-                if len(batch) < _PAGE_SIZE:
-                    break
-                offset += _PAGE_SIZE
+        for day in days:
+            for i in range(0, len(card_ids), _ID_CHUNK):
+                chunk = card_ids[i:i + _ID_CHUNK]
+                offset = 0
+                while True:
+                    resp = (sb.table("price_history")
+                            .select("card_id, card_name, shop, rarity, min_price, min_price_any, code, url, recorded_at")
+                            .in_("card_id", chunk)
+                            .eq("recorded_at", day)
+                            .order("card_id", desc=False)
+                            .order("shop", desc=False)
+                            .order("rarity", desc=False)
+                            .range(offset, offset + _PAGE_SIZE - 1)
+                            .execute())
+                    batch = resp.data or []
+                    all_rows.extend(batch)
+                    if len(batch) < _PAGE_SIZE:
+                        break
+                    offset += _PAGE_SIZE
         return all_rows
     except Exception as e:
         logger.warning(f"[featured_matrix] price_history 取得失敗: {e}")
@@ -199,91 +205,34 @@ def build_matrix(records: list[dict], card_order: list[str], today: str) -> dict
     return {"updated_at": latest_recorded_at or today, "shops": shops, "rows": rows}
 
 
-def _load_matrix_cache_inner(sb) -> None:
-    """マトリクスを実際に構築し _cache へ格納する（バックグラウンドスレッドで実行）。"""
-    pack = get_featured_pack(sb)
-    today = _today_jst()
+def get_pack_matrix(sb, card_names: list[str]) -> dict:
+    """card_names（パックの収録カード・正式名・並び順どおり）の店舗×レアリティ表を返す。
 
-    if not pack:
-        result = {"pack": None, "updated_at": today, "shops": [], "rows": []}
-        with _cache_lock:
-            _cache["data"] = result
-            _cache["ts"] = time.time()
-        return
-
-    raw_cards = get_featured_cards(sb, pack)
+    Returns: {"updated_at": "YYYY-MM-DD", "shops": [...], "rows": [...]}（build_matrix の形）
+    例外: 価格データの取得失敗は送出する（ルートが503にする）。
+    """
     seen: set[str] = set()
-    card_order: list[str] = []
-    for name in raw_cards:
+    order: list[str] = []
+    for name in card_names:
         if name and name not in seen:
             seen.add(name)
-            card_order.append(name)
-
-    cutoff = (datetime.now(JST) - timedelta(days=_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
-    try:
-        records = _fetch_price_rows(sb, card_order, cutoff) if card_order else []
-    except Exception as e:
-        # 取得失敗はキャッシュへエラー状態を記録する。/api/featured/matrix ルートが
-        # これを検知して503を返す（無限に loading=True を返し続けるのを防ぐ）
-        result = {
-            "pack": pack, "error": f"価格データの取得に失敗しました: {e}",
-            "updated_at": today, "shops": [], "rows": [],
-        }
-        with _cache_lock:
-            _cache["data"] = result
-            _cache["ts"] = time.time()
-        return
-
-    built = build_matrix(records, card_order, today)
-    result = {"pack": pack, **built}
+            order.append(name)
+    key = tuple(order)
+    now = time.time()
     with _cache_lock:
-        _cache["data"] = result
-        _cache["ts"] = time.time()
-    logger.info(f"[featured_matrix] マトリクスキャッシュ構築完了: {pack['pack_name']} {len(built['rows'])}行")
-
-
-def _load_matrix_cache(sb) -> None:
-    """_load_matrix_cache_inner を二重起動防止つきで実行する。"""
-    global _building
-    with _building_lock:
-        if _building:
-            return  # 別スレッドが構築中
-        _building = True
-    try:
-        _load_matrix_cache_inner(sb)
-    except Exception as e:
-        logger.error(f"[featured_matrix] マトリクスキャッシュ構築失敗: {e}")
-    finally:
-        with _building_lock:
-            _building = False
-
-
-def get_matrix(sb) -> dict:
-    """新弾フィーチャーの店舗×レアリティ価格マトリクスを返す。
-
-    /api/featured と同じ stale-while-revalidate 方式でDB読みをリクエストの
-    クリティカルパスに乗せない:
-      - キャッシュ未確立（コールド）: バックグラウンド構築を起動し loading=True を即返す
-      - キャッシュが新鮮（age < TTL）: そのまま返す
-      - キャッシュが古い（age >= TTL）: 古い値を返しつつバックグラウンドで更新
-
-    Returns:
-      コールド時   : {"pack": None, "loading": True, "updated_at": "", "shops": [], "rows": []}
-      通常時       : {"pack": {...} or None, "updated_at": "YYYY-MM-DD", "shops": [...], "rows": [...]}
-      取得失敗時   : 上記に "error": str が追加される（ルート側が503に変換する）
-    """
+        hit = _cache.get(key)
+        if hit and now - hit["ts"] < _CACHE_TTL_SEC:
+            return hit["data"]
+    today_d = datetime.now(JST).date()
+    days = [(today_d - timedelta(days=k)).isoformat() for k in range(_LOOKBACK_DAYS)]
+    ids = _fetch_card_ids(sb, order) if order else {}
+    records = _fetch_price_rows(sb, sorted(ids), days) if ids else []
+    built = build_matrix(records, order, today_d.isoformat())
     with _cache_lock:
-        cached = _cache["data"]
-        ts = _cache["ts"]
-    age = time.time() - ts
-
-    if cached is not None and age < _CACHE_TTL_SEC:
-        return cached
-
-    if cached is not None and age >= _CACHE_TTL_SEC:
-        threading.Thread(target=_load_matrix_cache, args=(sb,), daemon=True).start()
-        return cached
-
-    # コールド（キャッシュ未確立）: バックグラウンドロードを起動し loading=True を返す
-    threading.Thread(target=_load_matrix_cache, args=(sb,), daemon=True).start()
-    return {"pack": None, "loading": True, "updated_at": "", "shops": [], "rows": []}
+        if len(_cache) >= _CACHE_MAX_ENTRIES:
+            # 古いものから捨てる（件数の上限を守る）
+            for k, _v in sorted(_cache.items(), key=lambda kv: kv[1]["ts"])[:len(_cache) - _CACHE_MAX_ENTRIES + 1]:
+                _cache.pop(k, None)
+        _cache[key] = {"data": built, "ts": time.time()}
+    logger.info(f"[featured_matrix] 表を作成: {len(order)}種 {len(built['rows'])}行（{len(records)}件の記録）")
+    return built
