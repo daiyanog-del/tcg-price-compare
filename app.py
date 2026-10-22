@@ -848,7 +848,16 @@ def _require_health_key():
 
 
 def _claim_startup_job(name: str, ttl_sec: int = 300) -> bool:
-    """複数worker起動時に同じプリフェッチを同時実行しないための軽いファイルロック。"""
+    """複数worker起動時に同じプリフェッチを同時実行しないための軽いファイルロック。
+
+    DISABLE_STARTUP_JOBS=1（pytest 実行時）は常に False を返し、ロックファイルにも触れない。
+    相場キャッシュ・Tier表・パック収録カードの先読みはこの関数だけで起動を判定しており、
+    ファイル末尾の _STARTUP_JOBS_DISABLED の判定が届いていなかった。ロックファイルが無い
+    新しい checkout（CI）では import 時にパック先読みが走り、テスト中に yugioh-wiki を
+    取りに行って、requests.get を差し替えた別のテストの記録に混ざっていた（2026-10-22 CI）。
+    """
+    if os.environ.get("DISABLE_STARTUP_JOBS") == "1":
+        return False
     cache_dir = os.path.join(os.path.dirname(__file__), ".cache")
     os.makedirs(cache_dir, exist_ok=True)
     path = os.path.join(cache_dir, f"startup_{name}.lock")
