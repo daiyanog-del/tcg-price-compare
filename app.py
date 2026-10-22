@@ -1821,6 +1821,28 @@ def _load_estimate_cache(startup: bool = False):
         _estimate_load_lock.release()
 
 
+class _UnexpectedJsonRouteResponse(Exception):
+    """get_card_best_prices_json が list 以外を返した（関数の定義違いの疑い）"""
+
+
+# json 経路をあきらめてページング経路へ移るのは、関数そのものが使えない設定のときだけ
+# （PostgREST: PGRST202=関数が無い・PGRST203=同名関数が複数で1つに決まらない／
+# Postgres: 42883=関数が無い・42501=権限が無い）。どれも DB の混み具合とは無関係で、
+# ページング経路は別の関数 get_card_best_prices を呼ぶので助かる見込みがある。
+# 42883 は関数本体の中の「演算子が無い」でも出るが、その場合ページング経路もすぐ失敗するだけで害は小さい
+_JSON_ROUTE_UNUSABLE_CODES = ("PGRST202", "PGRST203", "42883", "42501")
+
+
+def _is_function_unavailable_error(e: Exception) -> bool:
+    """RPC 関数が設定上使えないことを示すエラーか。postgrest の APIError は code 属性を持つ。
+    文字列でしか分からない例外も念のため見る"""
+    code = getattr(e, "code", None)
+    if code in _JSON_ROUTE_UNUSABLE_CODES:
+        return True
+    text = str(e)
+    return any(c in text for c in _JSON_ROUTE_UNUSABLE_CODES)
+
+
 def _load_estimate_cache_inner(startup: bool):
     global _estimate_cache, _estimate_cache_time
     if startup:
@@ -1842,8 +1864,13 @@ def _load_estimate_cache_inner(startup: bool):
             # ディスク並べ替え→遅延→3秒超過が原因。メモリ不足そのものの警告ではない）
             # の一因。work_mem='64MB'指定のjson一括関数なら0.8秒×1回で済む
             # （supabase_rpc_best_prices.sql参照）。ただし本番にまだ関数が未適用の環境でも
-            # 落ちないよう、失敗（PGRST202=関数未定義など任意の例外）時は警告ログを出して
-            # 従来のページング経路にフォールバックする
+            # 落ちないよう、関数が無い（PGRST202 等）か想定外の型が返ったときは警告ログを
+            # 出して従来のページング経路にフォールバックする（_JSON_ROUTE_UNUSABLE_CODES）。
+            # 2026-10-22: statement timeout（57014）など「関数はあるが重い・DBが混んでいる」
+            # 失敗ではフォールバックしない。ページング経路は同じ集計を最大4回走らせるため、
+            # 混んでいるDBへ負荷を足すだけだった（本番の起動直後に json 経路が 57014 →
+            # ページング経路で 7秒・4.5秒・3回目も 57014）。この場合は下の再試行
+            # （5秒・10秒待って json 経路をやり直す）に任せる
             route = "paged"
             rows: list = []
             try:
@@ -1855,8 +1882,10 @@ def _load_estimate_cache_inner(startup: bool):
                     route = "json"
                     pages = 1
                 else:
-                    raise ValueError(f"想定外のレスポンス型: {type(json_resp.data)}")
+                    raise _UnexpectedJsonRouteResponse(f"想定外のレスポンス型: {type(json_resp.data)}")
             except Exception as e:
+                if not (isinstance(e, _UnexpectedJsonRouteResponse) or _is_function_unavailable_error(e)):
+                    raise
                 logger.warning(
                     f"相場キャッシュ: get_card_best_prices_json 経路失敗（{e}）。"
                     "ページング経路にフォールバック")
@@ -5298,21 +5327,15 @@ def _build_done(results: list[dict], corrected_name: str = "") -> dict:
 _STARTUP_JOBS_DISABLED = os.environ.get("DISABLE_STARTUP_JOBS") == "1"
 
 
-def _preload_movers():
-    """サーバー起動直後にバックグラウンドでmoversキャッシュを作成"""
-    time.sleep(5)  # Supabase接続が確立するのを待つ
-    try:
-        _get_price_movers("up")
-        logger.info("値動きランキングをプリロードしました")
-    except Exception as e:
-        logger.warning(f"プリロード失敗: {e}")
-
-if not _STARTUP_JOBS_DISABLED and _claim_startup_job("movers_preload"):
-    threading.Thread(target=_preload_movers, daemon=True).start()
+# 2026-10-22: 販売の値動きランキング（/api/movers・RPC get_price_movers）の起動時
+# プリロードは廃止した。/api/movers は画面から参照されておらず（static・templates に
+# 呼び出しなし、Render のログで 10-20〜22 のアクセス0件）、起動直後に相場キャッシュ等と
+# 同時に重い集計を走らせて statement timeout（57014）を招くだけだった。
+# /api/movers 自体は残し、呼ばれたときに _get_price_movers が取得・1時間キャッシュする。
 
 def _preload_buyback_movers():
     """サーバー起動直後にバックグラウンドで買取moversキャッシュを作成"""
-    time.sleep(8)  # 販売moversプリロードと少しずらす
+    time.sleep(8)  # 相場キャッシュ（0〜6秒のジッター後に開始）と少しずらす
     try:
         _get_buyback_movers("up")
         logger.info("買取値動きランキングをプリロードしました")

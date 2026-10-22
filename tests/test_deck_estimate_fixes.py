@@ -65,6 +65,9 @@ class _FakeSupabaseRpc:
         self.ignore_offset = ignore_offset
 
     def rpc(self, name, params):
+        if name == "get_card_best_prices_json":
+            # json 一括関数が未適用の環境を模す（ページング経路へのフォールバックを検証するため）
+            raise Exception("PGRST202: Could not find the function public.get_card_best_prices_json")
         assert name == "get_card_best_prices"
         q = _FakeRpcQuery(self.total_rows, self.calls, self.orders)
         if self.ignore_offset:
@@ -197,6 +200,112 @@ def test_estimate_cache_falls_back_when_json_route_returns_non_list(monkeypatch,
 
     assert fake.calls == [(0, 999)]
     assert len(app_module._estimate_cache) == 30
+
+
+class _FakeSupabaseJsonTimeout(_FakeSupabaseRpc):
+    """get_card_best_prices_json が statement timeout（57014）で落ちるケース。
+    postgrest の APIError と同じく code 属性を持つ例外を投げる"""
+
+    def __init__(self, total_rows: int, fail_times: int):
+        super().__init__(total_rows)
+        self.fail_times = fail_times
+        self.json_calls = 0
+
+    def rpc(self, name, params):
+        if name == "get_card_best_prices_json":
+            self.json_calls += 1
+            if self.json_calls <= self.fail_times:
+                from postgrest.exceptions import APIError
+                raise APIError({"message": "canceling statement due to statement timeout",
+                                "code": "57014", "hint": None, "details": None})
+            rows = [{"card_name": "カードA", "shop": "店", "rarity": "レア",
+                     "min_price": 100, "recorded_at": "2026-10-22"}]
+            return SimpleNamespace(execute=lambda: SimpleNamespace(data=rows))
+        return super().rpc(name, params)
+
+
+def test_estimate_cache_timeout_does_not_fall_back_to_paging(monkeypatch, _estimate_isolated):
+    """2026-10-22: 57014 ではページング経路（同じ集計を最大4回）に入らず、待って json 経路を
+    やり直す。本番の起動直後に混んだ DB へ追加の重い集計を3回送っていた件の回帰テスト"""
+    sleeps: list = []
+    monkeypatch.setattr(app_module.time, "sleep", lambda s, *_a, **_k: sleeps.append(s))
+    fake = _FakeSupabaseJsonTimeout(total_rows=30, fail_times=1)
+    monkeypatch.setattr(app_module, "_supabase_client", fake)
+
+    app_module._load_estimate_cache()
+
+    assert fake.calls == []  # ページング経路（get_card_best_prices）は一度も呼ばれない
+    assert fake.json_calls == 2  # 1回目 57014 → 待って json 経路をやり直して成功
+    assert sleeps == [5]
+    assert app_module._estimate_cache["カードA"]["price"] == 100
+
+
+def test_estimate_cache_timeout_every_try_keeps_existing_cache(monkeypatch, _estimate_isolated):
+    """3回とも 57014 なら、ページング経路には入らずに既存キャッシュを保持する（待ちは 5秒・10秒）"""
+    sleeps: list = []
+    monkeypatch.setattr(app_module.time, "sleep", lambda s, *_a, **_k: sleeps.append(s))
+    existing = {"既存カード": {"shop": "店", "price": 1, "rarity": "", "recorded_at": ""}}
+    monkeypatch.setattr(app_module, "_estimate_cache", dict(existing))
+    fake = _FakeSupabaseJsonTimeout(total_rows=30, fail_times=99)
+    monkeypatch.setattr(app_module, "_supabase_client", fake)
+
+    app_module._load_estimate_cache()
+
+    assert fake.calls == []
+    assert fake.json_calls == 3
+    assert sleeps == [5, 10]
+    assert app_module._estimate_cache == existing
+
+
+class _FakeSupabaseJsonRaises(_FakeSupabaseRpc):
+    """get_card_best_prices_json が指定の例外を投げる（ページング経路は従来どおり）"""
+
+    def __init__(self, total_rows: int, exc: Exception):
+        super().__init__(total_rows)
+        self.exc = exc
+
+    def rpc(self, name, params):
+        if name == "get_card_best_prices_json":
+            raise self.exc
+        return super().rpc(name, params)
+
+
+def test_estimate_cache_network_timeout_does_not_fall_back(monkeypatch, _estimate_isolated):
+    """通信の時間切れ（APIError 以外）でもページング経路には入らない"""
+    import httpx
+    monkeypatch.setattr(app_module.time, "sleep", lambda *_a, **_k: None)
+    fake = _FakeSupabaseJsonRaises(total_rows=30, exc=httpx.ReadTimeout("timed out"))
+    monkeypatch.setattr(app_module, "_supabase_client", fake)
+
+    app_module._load_estimate_cache()
+
+    assert fake.calls == []
+    assert app_module._estimate_cache == {}
+
+
+@pytest.mark.parametrize("code", ["PGRST202", "PGRST203", "42883", "42501"])
+def test_estimate_cache_falls_back_on_function_unavailable_apierror(monkeypatch, _estimate_isolated, code):
+    """関数が使えない設定（APIError の code）のときはページング経路へ移って完走する"""
+    from postgrest.exceptions import APIError
+    monkeypatch.setattr(app_module.time, "sleep", lambda *_a, **_k: None)
+    fake = _FakeSupabaseJsonRaises(total_rows=30, exc=APIError({"message": "x", "code": code}))
+    monkeypatch.setattr(app_module, "_supabase_client", fake)
+
+    app_module._load_estimate_cache()
+
+    assert fake.calls == [(0, 999)]
+    assert len(app_module._estimate_cache) == 30
+
+
+def test_function_unavailable_error_detection():
+    """フォールバックの対象は関数が使えないエラーだけ（APIError の code と文字列の両方）"""
+    from postgrest.exceptions import APIError
+    assert app_module._is_function_unavailable_error(
+        APIError({"message": "Could not find the function", "code": "PGRST202"}))
+    assert app_module._is_function_unavailable_error(Exception("PGRST202: Could not find the function"))
+    assert not app_module._is_function_unavailable_error(
+        APIError({"message": "canceling statement due to statement timeout", "code": "57014"}))
+    assert not app_module._is_function_unavailable_error(Exception("Connection terminated"))
 
 
 def test_estimate_cache_preserves_existing_cache_when_zero_rows(monkeypatch, _estimate_isolated):
