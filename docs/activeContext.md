@@ -1,5 +1,10 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-22: 有料プランへ上げる合図の通知（branch feat/upgrade-signal-alerts・PR 作成済み・本番はユーザー確認待ち）
+- upgrade_signals.py（見張り）・upgrade_signals.sql（1日の集計の表2つ）・取得口に wait_observer・_SearchStreamSlots.busy_total。DB の応答は Supabase クライアントの httpx の通信部分を包んで数える。
+- SQL は 10-22 17:40 JST に適用済み。残りは PR のマージ。反映後は Render のログで「upgrade_signals」を見る（差し込めない・書けない警告が出ていないか）。
+- 次: upgrade_signal_daily が数日溜まったらしきい値を校正（TASKS）。Supabase の IO の余力の項目名を Metrics API で確かめる（未確認）。
+
 ## 2026-10-22: 店舗検索の取得口を店ごとの列に作り直した（本番 PR #207 5cdf678・16:33 JST・決定は decisions.md 同日）
 - 店ごとの列（1店2件・全体6件）・単品優先・検索ごとに交互・あふれても待たせる（単品45秒・一括180秒を過ぎた店だけ混雑扱い＋前回の結果）・切断で取り消し・16スレッド・SSE 同時12本（一括は8本まで）＋画面の自動取り直し。
 - 手元の試験: デッキ2人同時・単品8件同時・デッキ中の単品はすべて失敗0。単品16件同時は30秒の上限だと1件5店が混雑扱い・45秒なら0 → 単品の上限は45秒にした（ユーザー判断）。

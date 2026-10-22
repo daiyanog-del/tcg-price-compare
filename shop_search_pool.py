@@ -104,13 +104,17 @@ class _Job:
         self.state = 'queued'  # queued → running → done（取り消しも done）
         self.priority = None
         self.started_priority = None  # 実行を始めたときの優先度（待ち時間の集計に使う）
+        # 実行を始めたときの優先度の待ち手のうち、いちばん早く並んだ時刻（wait_observer に渡す待ち時間の起点）。
+        # 一括で受け付けた取得に単品が相乗りして繰り上がったとき、一括で待った分を単品の待ちに数えない
+        self.observed_since = accepted_at
         self.owner = None  # 列の中で、どの検索の順番として並んでいるか
         self.waiters: dict[Future, '_Waiter'] = {}
 
 
 class _Waiter:
-    def __init__(self, job, request, deadline):
+    def __init__(self, job, request, deadline, joined_at=None):
         self.job = job
+        self.joined_at = joined_at
         self.request = request
         self.deadline = deadline
 
@@ -195,7 +199,7 @@ class ShopSearchPool:
     """
 
     def __init__(self, max_workers: int, per_shop_limit: int, max_pending: int, *,
-                 clock=monotonic, logger=None, log_interval: float = 60.0):
+                 clock=monotonic, logger=None, log_interval: float = 60.0, wait_observer=None):
         if type(max_workers) is not int or max_workers < 1:
             raise ValueError('max_workers は1以上の整数で指定してください')
         if type(per_shop_limit) is not int or not 1 <= per_shop_limit <= max_workers:
@@ -223,6 +227,9 @@ class ShopSearchPool:
         self._logger = logger if logger is not None else logging.getLogger(__name__)
         # 60秒はログ出力量の制御。並列上限を校正した値ではない。
         self._log_interval = log_interval
+        # 取得を始めるたびに (優先度, 待った秒数) を渡す先（有料化の合図の見張り。upgrade_signals.py）。
+        # 集計ログは平均と最大しか持たないので、p95 を出すには1件ずつの値が要る
+        self._wait_observer = wait_observer
         self._started_at = self._last_log_at = clock()
         self._process_id = os.getpid()
         self._instance_id = uuid4().hex
@@ -284,7 +291,7 @@ class ShopSearchPool:
                         self._shop_metrics(shop)['accepted'] += 1
                         self._by_priority[request.priority]['accepted'] += 1
                 if error is None:
-                    waiter = _Waiter(job, request, now + request.queue_timeout)
+                    waiter = _Waiter(job, request, now + request.queue_timeout, joined_at=now)
                     job.waiters[waiter_future] = waiter
                     self._waiters[waiter_future] = waiter
                     request._waiters.add(waiter_future)
@@ -370,6 +377,9 @@ class ShopSearchPool:
                 return started
             job.state = 'running'
             job.started_priority = job.priority
+            joined = [w.joined_at for w in job.waiters.values()
+                      if w.request.priority == job.started_priority and w.joined_at is not None]
+            job.observed_since = min(joined) if joined else job.accepted_at
             self._running_total += 1
             self._running_by_shop[job.shop] = self._running_by_shop.get(job.shop, 0) + 1
             with self._metrics_lock:
@@ -426,6 +436,12 @@ class ShopSearchPool:
             self._observe(self._wait, waited)
             self._observe(self._shop_metrics(job.shop)['wait_seconds'], waited)
             self._observe(self._by_priority[job.started_priority]['wait_seconds'], waited)
+        if self._wait_observer is not None:
+            try:
+                self._wait_observer(job.started_priority, max(0.0, started_at - job.observed_since))
+            except Exception:
+                # 見張りの不具合で取得を止めない
+                self._logger.exception('wait_observer の呼び出しに失敗')
         failed = False
         result = error = None
         try:
