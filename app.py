@@ -804,9 +804,31 @@ def _get_trending(limit: int = 10) -> list[dict]:
         return result[:limit]
 
 
+def _new_cards_first_html(data: dict | None, count: int = 6) -> list[dict]:
+    """トップの新着欄の最初の枚数を、サーバーが本物の HTML で書くための値（new-cards.js の cardElement と同じ中身）。
+
+    画像を HTML の時点で取りに行き、JS の実行を待たずに表示する（2026-10-22 LCP）。JS は後から同じ中身で描き直す。
+    日付は new-cards.js の addedDate と同じ「MM/DD 追加」（日本時間）。画像は縮小版を優先し、無ければ原寸。
+    """
+    rows = []
+    for card in ((data or {}).get("cards") or [])[:count]:
+        added = ""
+        if card.get("added_at"):
+            try:
+                added = datetime.fromisoformat(card["added_at"]).astimezone(JST).strftime("%m/%d") + " 追加"
+            except ValueError:
+                added = ""
+        img = card.get("thumb_url") or card.get("image_url") or ""
+        rows.append({"name": card["name"], "img": img if img.startswith("https://") else "", "added": added})
+    return rows
+
+
 @app.route("/")
 def index():
-    return render_template("index.html", card_name="", page_mode="search")
+    # 新着の未発売カードを覚えていれば HTML に埋め込む（画像を早く読み始める。DB は待たない・card_display.cached_new_cards）
+    initial = _card_display.cached_new_cards(limit=36)
+    return render_template("index.html", card_name="", page_mode="search",
+                           new_cards_initial=initial, new_cards_first=_new_cards_first_html(initial))
 
 
 @app.route("/card/<path:card_name>")
@@ -3584,6 +3606,8 @@ def featured_page():
 @app.route("/new-cards")
 def new_cards_page():
     """未発売カード一覧ページ: トップの「新着の未発売カード」を商品ごとに全件表示する。"""
+    # 一覧ページは最初の一覧を埋め込まない（試したところ、一覧ページの印が付く前に描いて描き直しになり、
+    # スマホ相当で LCP が 5.6→15.6秒に悪化した。2026-10-22）
     return render_template("index.html", card_name="", page_mode="new_cards")
 
 
