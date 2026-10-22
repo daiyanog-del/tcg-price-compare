@@ -891,11 +891,9 @@ function _maybeOpenBuyInlineOnLoad(){
   _pendingBuyInlineOpen=false;
   const det=document.getElementById('buyInline');
   if(!det) return;
-  // /buy/<カード名> で着地したときの自動オープン。ユーザーが自分で開いたわけでは
-  // ないので 'inline'（＝ユーザー操作）と混ぜない。混ぜると「買取を開いた人数」が
-  // ページ着地で水増しされ、mode_switch / search_submit で潰したのと同じ汚染になる
-  _buyInlineOpenTrigger='deeplink';
-  det.open=true;
+  // /buy/<カード名> で着地したとき: 買取を取りに行き、欄は閉じたまま見出しに最高額を出す
+  // （2026-10-22 ユーザー決定「既定は折りたたみ」。以前はここで開いていた）。
+  // 開いていないので buyback_inline_open は送らない（ページ着地で「買取を開いた人数」を水増ししない）
   if(!_buyInlineFetched&&!_buyInlineFetchInFlight) _fetchBuyInline('deeplink');
 }
 
@@ -915,6 +913,18 @@ function _resetBuyInline(){
   if(window.PriceTrend) PriceTrend.clear(); // 前のカードの価格推移グラフを残さない
   const body=document.getElementById('buyInlineBody');
   if(body) body.innerHTML='';
+  _setBuyInlineHead(null);
+}
+
+// 買取の欄の見出し。閉じていても最高額が分かるよう、取れたら「〇〇の買取価格　最高 ¥X 店名」にする
+function _setBuyInlineHead(best){
+  const head=document.getElementById('buyInlineHead');
+  if(!head) return;
+  if(!best){ head.textContent='買取価格を見る（いくらで売れるか）'; return; }
+  const title=(best.rarity?best.rarity+'の':'')+'買取価格';
+  head.innerHTML=`<span class="cr-buy-t">${esc(title)}</span>`+(best.price!=null
+    ?`<span class="cr-buy-max">最高 <b>¥${best.price.toLocaleString()}</b> ${esc(best.shop)}</span>`
+    :`<span class="cr-buy-max">${esc(best.note||'')}</span>`);
 }
 
 // #buyInline を開いた経路を GA で区別するためのフラグ。既定は'inline'（利用者が見出しを押した）。
@@ -1085,11 +1095,13 @@ function _renderBuyInline(){
   if(!body) return;
   if(!_buyInlineD.length){
     body.innerHTML=`<div class="empty" style="padding:16px 0"><p>このカードの買取価格は見つかりませんでした</p></div>${_buyInlineNotes()}`;
+    _setBuyInlineHead({rarity:'',price:null,note:'見つかりませんでした'});
     return;
   }
   const filtered=_buyInlineFilteredData();
   if(!filtered.length){
     body.innerHTML=`<div class="empty" style="padding:16px 0"><p>このレアリティの買取価格は見つかりませんでした</p></div>${_buyInlineNotes()}`;
+    _setBuyInlineHead({rarity:rarityFilter,price:null,note:'見つかりませんでした'});
     return;
   }
 
@@ -1142,6 +1154,8 @@ function _renderBuyInline(){
   });
 
   body.innerHTML=`${conditionNote}<div class="summary">${cardsHtml}</div>${_buyInlineNotes()}`;
+  // H-1 と同じ理由で、「すべて」のときは最高額と言い切らず見出しに出さない
+  _setBuyInlineHead(rarityActive?{rarity:rarityFilter,price:sortedShops[0].price,shop:sortedShops[0].shop}:{rarity:'',price:null,note:'レアリティを選ぶと最高額を表示します'});
 }
 
 // F-5/F-14: ヒーローの最安値表示・売切件数バッジをrarityFilterに合わせて再計算する
