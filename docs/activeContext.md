@@ -62,6 +62,7 @@
 - 未発売カード一覧（本番 PR #189）: 本番で LCP 5.6→4.0秒・CLS 0・トップ 2.8秒のまま。
 - カードのページ（branch perf/lcp-card-preview）: 検索中にカードの画像と名前の「先出しの欄」（#searchPreview）を #prog より上・最終の欄と同じ位置で出し、終わったら同じフレームで隠す。スマホ LCP 4.45→3.47秒・PC 1.7→1.4秒・CLS 0.0005→0.0009。見た目は検索中に画像と名前が先に出る（_mocks/card-search-preview-*-20261022.png）。hidden が .card-hero の display に負けて欄が残る罠があった。
 - 新商品 /featured（branch perf/lcp-featured-inline）: /api/packs が最後に返した一覧を10分覚え /featured の HTML に埋め込む。LCP 3.57→2.49秒（各3回）・CLS 0。
+- シミュレーター（branch perf/lcp-solitaire-preload）: JS・CSS 74ファイル・約409KB を受け取るのに約2.9秒、盤面は JS が大きさを決めた直後（3.3秒）に出る＝LCP。module_graph が '/static/…' の import をたどらず neuron の2ファイルが先読みから漏れていたので直したが、LCP は 3.47→3.47秒で変わらず（回線の量で決まる）。さらに縮めるには JS の縮小・まとめ（組み立ての仕組み）か、盤面を JS より先に出す作り替えが要る。
 
 ## 2026-10-21: 他のページの CLS（夜間に順に修正・ユーザー指示「止めないから最後まで」）
 

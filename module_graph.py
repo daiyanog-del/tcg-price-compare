@@ -38,9 +38,14 @@ def module_dependencies(static_root: str, entry: str) -> list[str]:
             continue
         base_dir = os.path.dirname(current)
         for spec in _IMPORT_RE.findall(source):
-            if not spec.startswith(('./', '../')):
+            if spec.startswith('/static/'):
+                # サイトの根からの指定（例 '/static/shared/neuron-pdf-parser.js'）。static_root からの相対に直す。
+                # 以前はたどらず、シミュレーターでこの2ファイルが先読みから漏れ、JS の実行開始が約0.2秒遅れていた（2026-10-22）
+                rel = os.path.normpath(spec[len('/static/'):]).replace(os.sep, '/')
+            elif spec.startswith(('./', '../')):
+                rel = os.path.normpath(os.path.join(base_dir, spec)).replace(os.sep, '/')
+            else:
                 continue  # 外部URL・裸の指定子は対象外
-            rel = os.path.normpath(os.path.join(base_dir, spec)).replace(os.sep, '/')
             abs_path = os.path.realpath(os.path.join(root, *rel.split('/')))
             if os.path.commonpath([root, abs_path]) != root or not os.path.isfile(abs_path):
                 continue
