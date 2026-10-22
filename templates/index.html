@@ -720,7 +720,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 }
 </script>
 </head>
-<body class="price-redesign"{% if self_watermark %} data-self-wm style="--self-watermark-opacity: {{ self_watermark_opacity }}"{% endif %}>
+<body class="price-redesign"{% if suspended_shops %} data-suspended-shops="{{ suspended_shops|join(',') }}"{% endif %}{% if self_watermark %} data-self-wm style="--self-watermark-opacity: {{ self_watermark_opacity }}"{% endif %}>
 <div class="wrap">
   <header>
     <h1>
@@ -841,6 +841,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
         </table>
       </div>
       <p class="cr-list-note" id="crListNote"></p>
+      <p class="cr-list-note" id="crSuspendNote" hidden></p>
       <!-- B-4: 既定20行+もっと見る -->
       <div class="tbl-more" id="tblMore"></div>
     </section>

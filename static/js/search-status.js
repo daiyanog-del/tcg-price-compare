@@ -27,6 +27,13 @@ const SearchStatus = {
     note.textContent=message;
     note.setAttribute('role','status');
   },
+  // 休止中の店（サーバーの SUSPENDED_SHOPS。body の data-suspended-shops）。2026-10-22 カーナベル休止。
+  // 黙って1店消えると不審に見えるので、価格の対象から外していることを書く。exclude はその欄に元から無い店
+  suspendedNote(exclude=[]){
+    const v=(document.body&&document.body.dataset.suspendedShops)||'';
+    const shops=v.split(',').filter(s=>s&&!exclude.includes(s));
+    return shops.length?`${shops.join('・')}はサイトを休止中のため対象外です。`:'';
+  },
   show(data){
     const box=document.getElementById('searchCoverage');
     if(!box)return;

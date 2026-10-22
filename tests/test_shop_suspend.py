@@ -196,3 +196,19 @@ def test_estimate_cache_passes_excluded_shops(monkeypatch):
     monkeypatch.setattr(app_module, "SUSPENDED_SHOPS", frozenset())
     app_module._load_estimate_cache()
     assert "excluded_shops" not in calls[0][1]  # 休止が無ければ従来どおりの引数
+
+
+def test_page_marks_suspended_shops_for_notice():
+    """画面の「○○はサイトを休止中のため対象外です」の元（body の data-suspended-shops）"""
+    code = (
+        "import json, app\n"
+        "html = app.app.test_client().get('/').get_data(as_text=True)\n"
+        "print(json.dumps({'marked': 'data-suspended-shops=\"\u30ab\u30fc\u30ca\u30d9\u30eb\"' in html}))\n"
+    )
+    assert _run_with_env(code, "カーナベル")["marked"] is True
+    code_none = (
+        "import json, app\n"
+        "html = app.app.test_client().get('/').get_data(as_text=True)\n"
+        "print(json.dumps({'marked': 'data-suspended-shops' in html}))\n"
+    )
+    assert _run_with_env(code_none, "")["marked"] is False

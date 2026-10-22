@@ -316,6 +316,8 @@ def inject_rarity_config():
         # _public_base_url() をテンプレートにも渡す（2026-09-01）。
         # 独自ドメイン移行（2026-10-21）後は CANONICAL_BASE_URL を正とする（旧URLで開いても同じ値）
         "public_base_url": _canonical_base_url(),
+        # 休止中の店（shop_status.py）。画面の「○○はサイトを休止中のため対象外です」に使う（search-status.js）
+        "suspended_shops": sorted(SUSPENDED_SHOPS),
     }
 
 _BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"

@@ -1038,7 +1038,7 @@ async function wishCheapestStores(){
       ${warnHtml}
       ${orderable.length?`<div class="wb-sec">店ごとの支払い（送料込み）</div><div class="wb-shops">${orderable.map((s,i)=>rowHtml(s,i+1)).join('')}</div>`:''}
       ${unorderable.length?`<div class="wb-sec">このままでは注文できない店</div><div class="wb-shops">${unorderable.map(s=>rowHtml(s,0)).join('')}</div>`:''}
-      <div class="wb-foot">価格・送料は変わることがあります。購入前に各店で確かめてください。</div>
+      <div class="wb-foot">価格・送料は変わることがあります。購入前に各店で確かめてください。${typeof SearchStatus!=='undefined'?esc(SearchStatus.suspendedNote(['駿河屋'])):''}</div>
     `;
     rankEl.querySelectorAll('details[data-k]').forEach(d=>{if(openKeys.has(d.dataset.k))d.open=true;});
   };
