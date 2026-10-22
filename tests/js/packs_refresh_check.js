@@ -152,10 +152,15 @@ check('店舗×レアの表: 名前・レアリティ・店名・版の札はエ
   assert.ok(html.includes('店&lt;1&gt;'));
   assert.ok(!html.includes('javascript:'), 'javascript: のリンクを張った');
   assert.ok(html.includes('href="https://ok.example/a"'));
-  assert.equal((html.match(/is-min/g) || []).length, 1);
-  assert.ok(/is-min"[^>]*><a href="https:\/\/ok\.example\/a"/.test(html), '最安（¥80）に印が無い');
-  // スマホでは見出しの代わりにマスの頭に店名（data-shop）を出す。店名もエスケープする
-  assert.ok(html.includes('data-shop="店&lt;1&gt;"') && !html.includes('data-shop="店<1>"'), '店名の札がエスケープされていない');
+  // PC の表とスマホの表（.pmc-wrap）を同じ HTML に持つ。どちらにも最安の印は1つずつ
+  const [pc, mobile] = html.split('<div class="pmc-wrap">');
+  assert.equal((pc.match(/is-min/g) || []).length, 1);
+  assert.equal((mobile.match(/is-min/g) || []).length, 1);
+  assert.ok(/is-min"[^>]*><a href="https:\/\/ok\.example\/a"/.test(pc), '最安（¥80）に印が無い');
+  // スマホ: 行＝店（店名はエスケープ）・カード名の右に「+ 候補」1つ（data-name もエスケープ）
+  assert.ok(mobile.includes('<td class="pmc-s">店&lt;1&gt;</td>'), 'スマホの店名がエスケープされていない');
+  assert.ok(mobile.includes('class="pmc-add" data-name="&lt;img src=x onerror=alert(1)&gt;"'), 'スマホの「+ 候補」が無いかエスケープされていない');
+  assert.ok(!mobile.includes('pmx-add-btn'), 'スマホの表に列ごとの「+」が残っている');
 });
 
 check('価格の欄: 未発売・販売の値動き（上がり=赤・下がり=緑）・買取の未検索・取得失敗・このパックの版なし', () => {

@@ -169,26 +169,33 @@
   .pmx-scroll { overflow: visible; }
   .pmx th { top: 52px; }
 }
-/* 600px 以下（スマホ）: 6店の列は読める大きさで収まらない（値段が ¥24,800 のように7文字になる）ので、表の見出しをやめ、
-   レアリティの下に「店名 値段」の札を安い順に折り返して並べる（2026-10-22 ユーザー指摘「店名が上に流れる・切れる」）。
-   いちばん安い店は緑・取得失敗の店は札で残す・値の無い店は出さない */
+/* 600px 以下（スマホ）: 6店の列は読める大きさで収まらない（値段が ¥24,800 のように7文字になる）ので、カードごとに
+   行＝店・列＝レアリティの小さな表にする（2026-10-22 ユーザー選択 案C）。購入候補はカード名の右の「+ 候補」から（案C2）。
+   レアリティの多いカードは、そのカードの表だけ横にスクロールする（店名の列は付いてくる） */
+.pmc-wrap { display: none; }
 @media (max-width: 600px) {
-  .pmx thead { display: none; }
-  .pmx, .pmx tbody { display: block; }
-  .pmx tr { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 0; border-top: 1px solid rgba(255, 255, 255, .04); }
-  .pmx tr.pmx-g { padding: 12px 0 0; border-top: 0; }
-  .pmx tr.pmx-g td, .pmx tr.pmx-more-row td, .pmx td[colspan] { display: block; width: 100%; padding: 0; background: none; }
-  .pmx tr.pmx-more-row { padding: 2px 0 4px; border-top: 0; }
-  .pmx tr.pmx-other[hidden] { display: none; }
-  .pmx td { order: var(--o, 50); display: inline-flex; align-items: baseline; gap: 6px; padding: 4px 8px; border: 0; border-radius: 6px; background: var(--bg-hover); text-align: left; }
-  .pmx td::before { content: attr(data-shop); color: var(--text-m); font: .66rem var(--font); }
-  .pmx td.is-dim:not(.is-fail):not([colspan]) { display: none; }
-  .pmx td.is-min { background: rgba(99, 211, 174, .14); }
-  .pmx .pmx-sc { order: -1; position: static; display: block; width: 100%; min-width: 0; max-width: none; padding: 0 2px 2px; background: none; font-size: .74rem; }
-  .pmx td.pmx-sc::before, .pmx td[colspan]::before { content: none; }
-  .pmx-rar { justify-content: flex-start; gap: 8px; }
-  .pmx .pmx-date { display: inline; margin-left: 2px; }
+  .pmx-scroll { display: none; }
+  .pmc-wrap { display: block; }
 }
+.pmc-g { margin-bottom: 6px; }
+.pmc-head { display: flex; align-items: center; gap: 8px; margin: 14px 0 4px; }
+.pmc-name { flex: 1; min-width: 0; color: var(--text); font: 700 .84rem var(--font); }
+.pmc-add { flex: none; height: 28px; padding: 0 10px; border: 0; border-radius: 6px; background: var(--bg-hover); color: var(--accent-l); font: 700 .72rem var(--font); cursor: pointer; }
+.pmc-add.is-open { box-shadow: inset 0 0 0 1px var(--accent-l); }
+.pmc-why { margin: 2px 0 6px; color: #5e6a80; font-size: .72rem; }
+.pmc-sc { overflow-x: auto; }
+.pmc { width: 100%; border-collapse: separate; border-spacing: 0; font: .76rem var(--font); }
+.pmc th { padding: 6px 4px; color: var(--text-m); font-size: .66rem; font-weight: 700; line-height: 1.3; text-align: right; vertical-align: bottom; white-space: nowrap; }
+.pmc td { padding: 6px 4px; border-top: 1px solid rgba(255, 255, 255, .04); color: var(--text); font-family: var(--mono); text-align: right; white-space: nowrap; }
+.pmc td a { color: inherit; text-decoration: none; }
+.pmc .pmc-s { position: sticky; left: 0; z-index: 1; padding-right: 8px; background: var(--bg-card); color: var(--text-m); font-family: var(--font); font-size: .72rem; text-align: left; }
+.pmc td.is-min { background: rgba(99, 211, 174, .12); color: var(--green); font-weight: 700; }
+.pmc td.is-dim { color: #5e6a80; }
+.pmc td.is-other { color: var(--text-m); }
+.pmc.is-other td, .pmc.is-other th, .pmc.is-other .pmc-s { color: #5e6a80; }
+.pmc .pmx-ver { margin-left: 4px; }
+.pmc .pmx-date { display: block; }
+.pmc-g > .pmx-more { margin: 2px 0 0; }
 /* 全面の詳細を開いている間: 後ろのページを動かさない・アプリ追加の案内を重ねない */
 @media (max-width: 900px) {
   html.pack-sheet-open, html.pack-sheet-open body { overflow: hidden; }

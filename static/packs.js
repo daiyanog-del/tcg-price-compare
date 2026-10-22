@@ -529,48 +529,73 @@ function _pkMatrixHtml(model,sort,fromDb){
     groups.sort((a,b)=>top(b)-top(a));
   }
   const span=shops.length+1;
-  // data-shop: スマホでは見出しの代わりにマスの頭に店名を出す。--o: スマホでは安い順に並べる（css/packs.css）
-  const rankOf=r=>{ const ps=shops.map(s=>r.cells[s]).filter(Boolean).map(c=>c.price).sort((a,b)=>a-b); return p=>ps.indexOf(p); };
-  const cell=(c,isMin,shop,rank)=>{
+  const cell=(c,isMin)=>{
     const url=c.url&&safeUrl(c.url);
     const txt=_pkYen(c.price);
     const badge=c.other&&_pkPrefixOf(c.code)?`<span class="pmx-ver">${esc(_pkPrefixOf(c.code))}</span>`:'';
     // 見出しの日付より古い記録（その店の今日の収集がまだ）には日付を添える（reviewer 中3）
     const date=model.updatedAt&&c.date&&c.date<model.updatedAt?`<small class="pmx-date">${esc(_pkMd(c.date))}</small>`:'';
-    return `<td class="${isMin?'is-min':''}${c.other?' is-other':''}" data-shop="${escAttr(shop)}" style="--o:${rank|0}">${url?`<a href="${escAttr(url)}" target="_blank" rel="noopener">${txt}</a>`:txt}${badge}${date}</td>`;
+    return `<td class="${isMin?'is-min':''}${c.other?' is-other':''}">${url?`<a href="${escAttr(url)}" target="_blank" rel="noopener">${txt}</a>`:txt}${badge}${date}</td>`;
   };
+  const why=g=>{
+    const f=g.failed;
+    return f&&f.all?'取得に失敗しました':g.other.length?'このパックの版は見つかりませんでした（他の商品の版だけ）':fromDb?'このパックの版の記録がありません':'価格が見つかりませんでした';
+  };
+  const minOfRow=r=>{ const ps=Object.values(r.cells).filter(c=>c&&!c.other).map(c=>c.price); return ps.length?Math.min(...ps):null; };
+  const thumb=name=>`<span class="pmx-thumb"><span class="pack-card-thumb" data-card="${escAttr(name)}"></span></span>`;
+  const verLabel=r=>r.vers.filter(Boolean).length?`<span class="pmx-ver">${esc(r.vers.filter(Boolean).join('・'))}</span>`:'';
+  const moreBtn=(gi,n)=>`<button type="button" class="pmx-more" data-mx-toggle="${gi}" data-n="${n}" aria-expanded="false">他の商品の版 ${n}行も見る</button>`;
+
+  // PC（601px 以上）: 行＝カード×レアリティ、列＝店の表
   let h=`<div class="pmx-scroll"><table class="pmx"><thead><tr><th class="pmx-sc">レアリティ</th>${shops.map(s=>`<th title="${escAttr(s)}">${_pkShopLabel(s)}</th>`).join('')}</tr></thead><tbody>`;
   groups.forEach((g,gi)=>{
-    h+=`<tr class="pmx-g"><td colspan="${span}"><div class="pmx-gname"><span class="pmx-thumb"><span class="pack-card-thumb" data-card="${escAttr(g.name)}"></span></span>${esc(g.name)}</div></td></tr>`;
+    h+=`<tr class="pmx-g"><td colspan="${span}"><div class="pmx-gname">${thumb(g.name)}${esc(g.name)}</div></td></tr>`;
     const f=g.failed;
-    if(!g.main.length){
-      const why=f&&f.all?'取得に失敗しました':g.other.length?'このパックの版は見つかりませんでした（他の商品の版だけ）':fromDb?'このパックの版の記録がありません':'価格が見つかりませんでした';
-      h+=`<tr><td class="pmx-sc is-dim" colspan="${span}">${why}</td></tr>`;
-    }
+    if(!g.main.length) h+=`<tr><td class="pmx-sc is-dim" colspan="${span}">${why(g)}</td></tr>`;
     for(const r of g.main){
-      const ps=shops.map(s=>r.cells[s]).filter(c=>c&&!c.other).map(c=>c.price);
-      const min=ps.length?Math.min(...ps):null;
+      const min=minOfRow(r);
       // 購入候補の「+」はレアリティの列（横にスクロールしても付いてくる列）に置く。右端の列だと幅が足りないと見切れた（2026-10-22 ユーザー指摘）
       h+=`<tr><td class="pmx-sc"><span class="pmx-rar"><span>${esc(r.rarity)}</span><button type="button" class="pmx-add-btn" data-name="${escAttr(g.name)}" data-rarity="${escAttr(r.rarity)}" aria-label="${escAttr('「'+r.rarity+'」を購入候補に入れる')}" title="購入候補に入れる">+</button></span></td>`;
-      const rank=rankOf(r);
       for(const s of shops){
         const c=r.cells[s];
-        if(!c){ h+=f&&f.shops.includes(s)?`<td class="is-dim is-fail" data-shop="${escAttr(s)}" style="--o:99">取得失敗</td>`:'<td class="is-dim">—</td>'; continue; }
-        h+=cell(c,!c.other&&c.price===min,s,rank(c.price));
+        if(!c){ h+=f&&f.shops.includes(s)?'<td class="is-dim is-fail">取得失敗</td>':'<td class="is-dim">—</td>'; continue; }
+        h+=cell(c,!c.other&&c.price===min);
       }
       h+='</tr>';
     }
     if(g.other.length){
       for(const r of g.other){
-        h+=`<tr class="pmx-other" data-mx-of="${gi}" hidden><td class="pmx-sc">${esc(r.rarity)}${r.vers.filter(Boolean).length?`<span class="pmx-ver">${esc(r.vers.filter(Boolean).join('・'))}</span>`:''}</td>`;
-        const rank=rankOf(r);
-        for(const s of shops){ const c=r.cells[s]; h+=c?cell({...c,other:false},false,s,rank(c.price)):'<td class="is-dim">—</td>'; }
+        h+=`<tr class="pmx-other" data-mx-of="${gi}" hidden><td class="pmx-sc">${esc(r.rarity)}${verLabel(r)}</td>`;
+        for(const s of shops){ const c=r.cells[s]; h+=c?cell({...c,other:false},false):'<td class="is-dim">—</td>'; }
         h+='</tr>';
       }
-      h+=`<tr class="pmx-more-row"><td colspan="${span}"><button type="button" class="pmx-more" data-mx-toggle="${gi}" aria-expanded="false">他の商品の版 ${g.other.length}行も見る</button></td></tr>`;
+      h+=`<tr class="pmx-more-row"><td colspan="${span}">${moreBtn(gi,g.other.length)}</td></tr>`;
     }
   });
-  return h+'</tbody></table></div>';
+  h+='</tbody></table></div>';
+
+  // スマホ（600px 以下）: カードごとに、行＝店・列＝レアリティの小さな表（2026-10-22 ユーザー選択 案C）。
+  // 購入候補はカード名の右の「+ 候補」1つから、レアリティを選ぶメニューで入れる（案C2。列ごとの「+」ははみ出して見えた）
+  const mtable=(rows,other)=>{
+    const used=shops.filter(s=>rows.some(r=>r.cells[s]));
+    const mins=rows.map(minOfRow);
+    let t=`<div class="pmc-sc"><table class="pmc${other?' is-other':''}"><thead><tr><th class="pmc-s"><span class="sr-only">店</span></th>${rows.map(r=>`<th>${esc(r.rarity)}${other?verLabel(r):''}</th>`).join('')}</tr></thead><tbody>`;
+    for(const s of used){
+      t+=`<tr><td class="pmc-s">${esc(s)}</td>${rows.map((r,i)=>{ const c=r.cells[s]; return c?cell(other?{...c,other:false}:c,!other&&!c.other&&c.price===mins[i]):'<td class="is-dim">—</td>'; }).join('')}</tr>`;
+    }
+    return t+'</tbody></table></div>';
+  };
+  let m='<div class="pmc-wrap">';
+  groups.forEach((g,gi)=>{
+    m+=`<div class="pmc-g"><div class="pmc-head">${thumb(g.name)}<span class="pmc-name">${esc(g.name)}</span>${g.main.length?`<button type="button" class="pmc-add" data-name="${escAttr(g.name)}" aria-haspopup="menu">+ 候補</button>`:''}</div>`;
+    if(!g.main.length) m+=`<p class="pmc-why">${why(g)}</p>`;
+    else m+=mtable(g.main,false);
+    const fs=g.failed&&g.failed.shops&&g.failed.shops.length?g.failed.shops:null;
+    if(fs&&g.main.length) m+=`<p class="pmc-why">${fs.map(esc).join('・')} は取得失敗</p>`;
+    if(g.other.length) m+=`<div data-mx-of="${gi}" hidden>${mtable(g.other,true)}</div>${moreBtn(gi,g.other.length)}`;
+    m+='</div>';
+  });
+  return h+m+'</div>';
 }
 
 // 型番がこのパックの版か（型番が分からないものは残す。パックの型番の頭が分からなければ絞らない）
@@ -753,14 +778,18 @@ function _pkInitDetailEvents(el){
     }
     if(t.closest('#packBulkBtn')){ bulkSearchPackPrices(); return; }
     const tog=t.closest('[data-mx-toggle]');
-    if(tog){ // 他の商品の版の行を開く／畳む（表は作り直さない。カード画像を読み直すので）
+    if(tog){ // 他の商品の版を開く／畳む（表は作り直さない。カード画像を読み直すので）。PC の表とスマホの表の両方を同じに揃える
+      const gi=tog.dataset.mxToggle;
       const open=tog.getAttribute('aria-expanded')!=='true';
-      el.querySelectorAll(`tr[data-mx-of="${tog.dataset.mxToggle}"]`).forEach(tr=>{ tr.hidden=!open; });
-      tog.setAttribute('aria-expanded',String(open));
-      const n=el.querySelectorAll(`tr[data-mx-of="${tog.dataset.mxToggle}"]`).length;
-      tog.textContent=open?'他の商品の版をたたむ':`他の商品の版 ${n}行も見る`;
+      el.querySelectorAll(`[data-mx-of="${gi}"]`).forEach(x=>{ x.hidden=!open; });
+      el.querySelectorAll(`[data-mx-toggle="${gi}"]`).forEach(b=>{
+        b.setAttribute('aria-expanded',String(open));
+        b.textContent=open?'他の商品の版をたたむ':`他の商品の版 ${b.dataset.n}行も見る`;
+      });
       return;
     }
+    const madd=t.closest('.pmc-add');
+    if(madd){ _pkOpenMatrixAddMenu(madd); return; }
     if(t.closest('#packBulkStop')){ if(st.run&&st.run.abort) st.run.abort.abort(); return; }
     const more=t.closest('#packMoreBtn');
     if(more){ _pkOpenMore(more); return; }
@@ -790,6 +819,26 @@ function _pkInitDetailEvents(el){
     e.preventDefault();
     _pkOpenCardMenu(row,0,0,row);
   });
+}
+
+// スマホの店舗×レアの表: カード名の右の「+ 候補」から、レアリティを選んで購入候補に入れる（購入候補と同じ部品 _wishOpenMenu）
+function _pkOpenMatrixAddMenu(btn){
+  const st=_pk;
+  if(!st||typeof _wishOpenMenu!=='function') return;
+  if(typeof _wishMenu!=='undefined'&&_wishMenu&&_wishMenu.fromBtn===btn){ _wishCloseMenu(); return; }
+  const r=_pkBulkMatrix(st);
+  const model=r?r.matrix:st.dbModel;
+  const g=model&&model.groups.find(x=>x.name===btn.dataset.name);
+  if(!g||!g.main.length) return;
+  const items=g.main.map(row=>{
+    const ps=Object.values(row.cells).filter(c=>c&&!c.other).map(c=>c.price);
+    return {label:row.rarity,sub:ps.length?'最安 '+_pkYen(Math.min(...ps)):'',fn:()=>{
+      wishAdd(g.name,1,row.rarity);
+      _ga('wish_add',{source:'pack_matrix',count:1});
+      _pkToast('「'+g.name+'」（'+row.rarity+'）を購入候補に入れました');
+    }};
+  });
+  _wishOpenMenu({title:g.name+' を購入候補に',fromBtn:btn,ownerEl:btn,ownerClass:'is-open',items});
 }
 
 // C: カードのメニュー（購入候補と同じ部品）
