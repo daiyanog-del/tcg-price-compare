@@ -496,7 +496,8 @@ def _all_rate_limit_buckets() -> list[dict]:
     テスト側は _reset_rate_limits() を呼ぶだけにする。
     """
     return [_last_search, _last_import, _last_buyback, _last_deck, _last_packs,
-            _last_sync, _last_sync_link, _last_feedback, _last_mercari, _last_text_report]
+            _last_sync, _last_sync_link, _last_feedback, _last_mercari, _last_text_report,
+            _last_pack_matrix]
 
 
 def _reset_rate_limits() -> None:
@@ -3659,23 +3660,46 @@ def api_featured():
     return jsonify({"pack": None, "days_since_release": -1, "loading": True, "cards": []})
 
 
-@app.route("/api/featured/matrix")
-def api_featured_matrix():
-    """新弾の店舗×レアリティ価格マトリクスを返す（featured_matrix.py、DB読みのみ）。
-    /api/featured と同じ stale-while-revalidate 方式（キャッシュ未確立時は
-    loading=True を即返し、フロントが数秒後に再fetchする）。
-    {
-      "pack": {...} or None, "updated_at": "YYYY-MM-DD", "loading": bool(任意),
-      "shops": [店舗名, ...],
-      "rows": [{"name", "rarity", "cells": {店舗名: {"price", "url", "code", "recorded_at"}}}]
-    }
+# 新商品タブの「店舗×レア」で受け付けるカードの上限（収録100種の商品がある）
+MAX_PACK_MATRIX_CARDS = 150
+# 「店舗×レア」でデータベースを読むときの受付上限（IP ごと）
+PACK_MATRIX_RATE_LIMIT_SEC = 2  # TODO: calibrate from data
+_last_pack_matrix: dict[str, float] = {}
+
+
+@app.route("/api/packs/matrix", methods=["POST"])
+def api_packs_matrix():
+    """パックの収録カードの店舗×レアリティ表を、毎朝の収集（price_history）から返す（featured_matrix.py、DB読みのみ）。
+    入力: {"cards": ["カード名", ...]}（正式名・収録順。/api/packs/cards が返す名前）
+    返却: {"updated_at": "YYYY-MM-DD", "shops": [店舗名, ...],
+           "rows": [{"name", "rarity", "cells": {店舗名: {"price", "url", "code", "recorded_at"}}}]}
+    2026-10-22 に新弾専用の /api/featured/matrix から寄せた（新弾もこれを使う）。
+    同じカードの並びは1時間覚えるので、データベースを読むのはパックごとに1時間に1回まで。
     """
     if not _supabase_client:
         return jsonify({"error": "DBに接続できません"}), 503
-    from featured_matrix import get_matrix
-    result = get_matrix(_supabase_client)
-    if result.get("error"):
-        return jsonify(result), 503
+    data = request.get_json(silent=True) or {}
+    cards_raw = data.get("cards", [])
+    if not isinstance(cards_raw, list):
+        return jsonify({"error": "cards は配列で指定してください"}), 400
+    cards = []
+    for name in cards_raw[:MAX_PACK_MATRIX_CARDS]:
+        name = str(name).strip()
+        if name and len(name) <= MAX_CARD_NAME_LEN:
+            cards.append(name)
+    if not cards:
+        return jsonify({"updated_at": "", "shops": [], "rows": []})
+    from featured_matrix import get_pack_matrix, is_cached
+    # データベースを読むとき（覚えていない集まり）だけ受付上限を消費する。名前を変えて連打されても読み出しが積み上がらないように（reviewer 中4）
+    if not is_cached(cards):
+        rate_error = _consume_rate_limit(bucket=_last_pack_matrix, interval=PACK_MATRIX_RATE_LIMIT_SEC)
+        if rate_error:
+            return rate_error
+    try:
+        result = get_pack_matrix(_supabase_client, cards)
+    except Exception as e:
+        logger.warning(f"店舗×レアの表の取得に失敗: {e}")
+        return jsonify({"error": "価格データの取得に失敗しました"}), 503
     return jsonify(result)
 
 
