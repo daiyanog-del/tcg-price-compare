@@ -10,8 +10,15 @@ let _wishPricesTime = 0;
 // 最後に取りに行ったカード名（2026-10-21 reviewer 指摘）。今の一覧にここに無い名前があれば古いとみなして取り直す
 // （すべて削除の取り消し・同期で届いたカードなど、wishAdd を通らずに増えた行の価格が10分出なかったため）
 let _wishPricesNames = new Set();
-let _wishPricesFailed = false; // 最後の取得が通信・応答の失敗で終わったか（「読み込めませんでした」はこのときだけ）
+let _wishPricesFailed = false; // 最後の取得が通信・応答の失敗で終わったか（「読み込めませんでした」はこのときと、サーバーが status "error" を返したカードだけ）
 const _WISH_PRICES_TTL = 10 * 60 * 1000; // 10分でキャッシュ失効
+// 読み込みに失敗したカード（通信の失敗・status "error"）があったときは、この時間で取り直す
+// （2026-10-22: 失敗の結果も10分とっておき、その間ずっと「価格が見つかりませんでした」と出ていた）。
+// 続けて失敗するたびに倍に延ばし、10分で止める（DB の時間切れは毎回起きうるので、30秒ごとに重い読み込みを繰り返さない。reviewer 高1）
+const _WISH_PRICES_RETRY = 30 * 1000; // TODO: calibrate from data
+let _wishPricesTtl = _WISH_PRICES_TTL; // 最後の取得の結果に応じた有効期間
+let _wishRetryTimer = null;
+let _wishRetryCount = 0; // 続けて失敗した回数（失敗の無い取得で 0 に戻す）
 const _WISH_PRICES_CACHE_KEY = 'cardprice_wish_prices_v1';
 
 // ページロード時に localStorage から即時復元
@@ -30,7 +37,15 @@ const _WISH_PRICES_CACHE_KEY = 'cardprice_wish_prices_v1';
 
 function _saveWishPricesCache(){
   try{
-    localStorage.setItem(_WISH_PRICES_CACHE_KEY,JSON.stringify({data:_wishPrices,time:_wishPricesTime,names:[..._wishPricesNames]}));
+    // 読み込みに失敗したカードは端末にとっておかない（次に開いたときに取り直す。names からも外す）
+    const prices=_wishPrices||{}, isErr=v=>!!(v&&v.status==='error');
+    const data={};
+    for(const [k,v] of Object.entries(prices)) if(!isErr(v)) data[k]=v;
+    // 失敗を含む結果では、値の届かなかった名前も外す（送った名前と直した名前が引き当てられないときに、
+    // 失敗が「情報なし」として残らないように。reviewer 低8）
+    const anyErr=Object.values(prices).some(isErr);
+    const names=[..._wishPricesNames].filter(n=>anyErr?(data[n]!==undefined):!isErr(prices[n]));
+    localStorage.setItem(_WISH_PRICES_CACHE_KEY,JSON.stringify({data,time:_wishPricesTime,names}));
   }catch{}
 }
 function _clearWishPricesCache(){
@@ -58,6 +73,7 @@ async function _loadWishPricesNow(){
   _wishPricesTime=Date.now();
   _wishPricesNames=new Set(names);
   _wishPricesFailed=false;
+  _wishPricesTtl=_WISH_PRICES_TTL;
   if(!list.length){ _saveWishPricesCache(); return; }
   try{
     const res=await fetch('/api/wish-prices',{method:'POST',
@@ -70,13 +86,31 @@ async function _loadWishPricesNow(){
     // サーバーは表記ゆれを直した名前で返す。送った順に返るので、数がそろっていれば送った名前でも引けるようにする
     if(cards.length===names.length) cards.forEach((c,i)=>{ if(!got[names[i]]) got[names[i]]=c; });
     // 取得中にカードが足されて価格が捨てられた（null に戻った）ときは、古い一覧の結果を残さない
-    if(_wishPrices===got) _saveWishPricesCache();
-  }catch(e){ if(_wishPrices===got)_wishPricesFailed=true; /* _wishPrices={} のまま（10分は取り直さない）*/ }
+    if(_wishPrices===got){
+      _saveWishPricesCache();
+      if(cards.some(c=>c.status==='error')) _wishScheduleRetry();
+      else _wishRetryCount=0;
+    }
+  }catch(e){
+    if(_wishPrices===got){ _wishPricesFailed=true; _wishScheduleRetry(); }
+  }
+}
+// 読み込めなかったカードがあれば、少し待って取り直す（一覧が見えていれば描き直しで、見えていなければ次に開いたときに）
+function _wishScheduleRetry(){
+  const wait=Math.min(_WISH_PRICES_RETRY*2**_wishRetryCount,_WISH_PRICES_TTL);
+  _wishRetryCount++;
+  _wishPricesTtl=wait;
+  if(_wishRetryTimer) clearTimeout(_wishRetryTimer);
+  _wishRetryTimer=setTimeout(()=>{
+    _wishRetryTimer=null;
+    const el=typeof document!=='undefined'?document.getElementById('wishList'):null;
+    if(el&&el.offsetParent!==null) renderWishlist();
+  },wait+100);
 }
 // 一覧を描くときに呼ぶ: 価格がまだ・古い・取得中なら（取りに行って）届いたら一覧を描き直す。描き直しの予約は1回だけ
 let _wishRerenderPending=false;
 function _wishEnsurePrices(){
-  const stale=_wishPrices===null || Date.now()-_wishPricesTime > _WISH_PRICES_TTL
+  const stale=_wishPrices===null || Date.now()-_wishPricesTime > _wishPricesTtl
     || wishGet().some(c=>!_wishPricesNames.has(c.name)); // まだ取りに行っていない名前がある
   if(!_wishPricesLoading && !stale) return;
   if(_wishRerenderPending){ if(!_wishPricesLoading) loadWishPrices(); return; }
@@ -96,6 +130,7 @@ function _wishPriceHtml(info){
       ? '<span class="wish-price-info wl-noprice">価格を読み込めませんでした</span>'
       : '<span class="wish-price-info wl-noprice">価格が見つかりませんでした</span>';
   }
+  if(info.status==='error') return '<span class="wish-price-info wl-noprice">価格を読み込めませんでした</span>';
   if(info.status==='pending') return '<span class="wish-price-info wl-noprice">相場をまだ集めていません</span>';
   if(info.latest==null) return '<span class="wish-price-info wl-noprice">価格が見つかりませんでした</span>';
   const priceStr='¥'+info.latest.toLocaleString();
