@@ -1038,6 +1038,11 @@ function renderSummary(){
     note.textContent=msg;
     note.classList.toggle('hidden',!msg||(listView==='all'&&showSO));
   }
+  const suspendNote=document.getElementById('crSuspendNote');
+  if(suspendNote){
+    suspendNote.textContent=typeof SearchStatus!=='undefined'?SearchStatus.suspendedNote():'';
+    suspendNote.hidden=!suspendNote.textContent;
+  }
 }
 
 // ── C-2: 販売ページに買取価格を併置（#buyInline、第2弾B）──
@@ -1235,7 +1240,9 @@ function _buyInlineNotes(){
     ?`<p class="buy-inline-note">${_buyInlineFailedShops.map(esc).join('・')} は取得に失敗しました。</p>`:'';
   // 販売6店に対し買取5店（まんぞく屋は買取価格をネット非公開）。黙って1店消えると不審に見えるため明示する
   const manzoku='<p class="buy-inline-note">まんぞく屋は買取価格を公開していないため対象外です。</p>';
-  return failed+manzoku;
+  const suspendedMsg=typeof SearchStatus!=='undefined'?SearchStatus.suspendedNote(['まんぞく屋','駿河屋']):''; // 買取に元から無い店は書かない
+  const suspended=suspendedMsg?`<p class="buy-inline-note">${esc(suspendedMsg)}</p>`:'';
+  return failed+manzoku+suspended;
 }
 
 // S-1: 「買取価格の詳細を見る」ボタン（旧・買取タブへの遷移）は廃止。
