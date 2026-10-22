@@ -7,6 +7,8 @@
 
 > **2026-10-21 記録の棚卸し**: 「未push・未デプロイ」と書かれていた項目のブランチはすべて PR で本線に取り込み済み（#19〜#119）だったので、状態を実際の PR に直した。本番 DB（読むだけ）で SQL 適用と X 投稿・自動承認の稼働を確認。済み・期限切れ・重複の7件は「完了」へ移した（消してはいない）。残る項目の多くは「データが溜まったら校正」か「次に起きたときに確認」。
 
+- [ ] **価格収集を DB 保存の連続失敗で打ち切る（2026-10-22・branch fix/collect-abort-on-db-failures）** — 10-22 朝の DB 停止で collect_prices.py が約2分ずつ失敗しながら49回保存を試し続けた件。`db_write_guard.py` の見張り役で、保存（RPC upsert_price_rows）が例外で3回続けて失敗したら打ち切り、Discord（discord_notify）で知らせ、collection_runs に finished_at=NULL・shop_stats._aborted で残して終了コード1。打ち切り時はカードラボのカタログ保存・古いデータの掃除・日次レポートもしない。仮置き値の校正（TODO: calibrate from data）: `MAX_CONSECUTIVE_FAILURES=3`・`BACKOFF_SEC=(30,60)`。根拠は平常時の約1か月で失敗0件・停止時は49回連続のみで、一時的な失敗が何回続くかの実測が無い。打ち切りや一時的な失敗が実際に起きたら見直す。**未対応（報告のみ）**: collect_buyback.py（upsert_buyback_rows）・collect_featured.py（upsert_price_rows）にも同じ形の「失敗しても次へ進む」がある。
+
 - [x] **カードの検索結果ページを案Cに（2026-10-22 本番 PR #167 82fa4ce・モック _mocks/card-result-layout-20261021 をユーザー承認）** — 名前の右に相場の箱・レアリティ欄に在庫ありの最安（安い順）・出品は「店ごとの最安」（既定）／「すべて」。ユーザー指摘で PC は画像 224px・効果テキストを最初から表示（右の箱の底まで・続きを読む）・最安の行は［最安］値段［レアリティ（枠線）］。本番で PC/スマホの横はみ出し0・ページエラー0を確認（反映時は本番 DB 障害中で画像・効果テキスト・推移は空のまま＝別セッションで対応中）。**残り**: DB 復旧後に画像・効果テキスト・続きを読むを本番で確認／iPhone・Android 実機。
 
 - [ ] **汎用カードの値動き X 投稿（2026-10-21 開始・PR #126）** — 毎日 JST 20:00（Render cron tcg-post-staple-movers・自動デプロイなし＝コード変更時は手動デプロイ。GitHub の post-staple-movers.yml は試し実行用）・リストは月曜作り直し（update-staple-cards.yml・staple_cards 158枚）。基準 値下がり -100円/-15%・値上がり +200円/+20%。**未確認**: GitHub 上での画像作り（候補が出た初回で確認。失敗した日は投稿せず見送る）／実際の投稿頻度（見込みは自前の再計算）。仮置き値の校正（TODO: calibrate from data）: staple_cards.WINDOW_DAYS=90・MIN_THEMES=3。M PLUS 2 にも Noto Sans JP にも無い字のカード名5件は字が抜ける。

@@ -18,7 +18,7 @@ def record_collection_run(
     sb,
     run_type: str,
     started_at: datetime,
-    finished_at: datetime,
+    finished_at: datetime | None,
     attempted_shops: list[str],
     available_shops: list[str],
     skipped_shops: dict[str, str] | None = None,
@@ -27,8 +27,13 @@ def record_collection_run(
     fail_count: int = 0,
     cutoff_count: int = 0,
     saved_rows: int = 0,
+    aborted: dict | None = None,
 ) -> bool:
     """collection_runs に1行 insert する。
+
+    途中で打ち切った（異常終了の）ランは finished_at=None・aborted={理由などの dict} で渡す。
+    finished_at は NULL のまま（collection_runs.sql の注記「NULL=異常終了」に合わせる）、
+    aborted は shop_stats JSON の "_aborted" キーに入れる（列を足さずに残すため）。
 
     テーブル未作成・書き込みエラー時も収集本体を止めない設計のため、
     例外は握りつぶして warning ログのみ出し False を返す。
@@ -40,11 +45,11 @@ def record_collection_run(
         row = {
             "run_type": run_type,
             "started_at": started_at.isoformat(),
-            "finished_at": finished_at.isoformat(),
+            "finished_at": finished_at.isoformat() if finished_at else None,
             "attempted_shops": list(attempted_shops or []),
             "available_shops": list(available_shops or []),
             "skipped_shops": skipped_shops or {},
-            "shop_stats": shop_stats or {},
+            "shop_stats": {**(shop_stats or {}), **({"_aborted": aborted} if aborted else {})},
             "success_count": success_count,
             "fail_count": fail_count,
             "cutoff_count": cutoff_count,
