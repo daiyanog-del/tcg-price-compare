@@ -274,7 +274,6 @@ check('safeUrl(): 正常なURLはそのまま通る',
 // モジュールスコープに置き、ルール8は「既存のstripEscAttrCallsを再利用する」（重複定義しない）。
 const STATIC_CHECK_TARGETS = [
   path.join(__dirname, '..', '..', 'templates', 'index.html'),
-  path.join(__dirname, '..', '..', 'static', 'featured-matrix.js'),
   path.join(__dirname, '..', '..', 'static', 'packs.js'),
   path.join(__dirname, '..', '..', 'static', 'mydeck', 'deck-edit.js'),
   // 2026-09-22 バッチC: index.htmlから外部化した3ファイル（旧インラインscript）も
@@ -336,7 +335,7 @@ function stripEscAttrCalls(s) {
       }
     }
   }
-  check(`静的チェック: templates/index.html・featured-matrix.js・packs.js・deck-edit.js の属性文脈に未ラップの esc(/escJs( が0件`,
+  check(`静的チェック: templates/index.html・packs.js・deck-edit.js の属性文脈に未ラップの esc(/escJs( が0件`,
     staticViolations === 0, `violations=${staticViolations}`);
 }
 

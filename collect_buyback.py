@@ -34,7 +34,7 @@ from collect_prices import (
 )
 
 # ── 定数 ──
-from constants import JST, RETENTION_DAYS
+from constants import JST, BUYBACK_RETENTION_DAYS
 
 WAIT_BETWEEN_CARDS = 1.0  # 収集間隔（秒）。collect_prices.py に合わせる
 
@@ -134,7 +134,7 @@ def collect_and_save_buyback(
 
 def cleanup_old_buyback_data(sb: Client):
     """保持期間を超えた古い買取履歴データを削除"""
-    cutoff = (datetime.now(JST).date() - timedelta(days=RETENTION_DAYS)).isoformat()
+    cutoff = (datetime.now(JST).date() - timedelta(days=BUYBACK_RETENTION_DAYS)).isoformat()
     try:
         resp = sb.table("buyback_history") \
             .delete() \
