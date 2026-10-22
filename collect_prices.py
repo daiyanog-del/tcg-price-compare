@@ -35,7 +35,7 @@ from name_normalize import load_cardnames_index, canonicalize_card_name
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
-from constants import JST, RETENTION_DAYS
+from constants import JST, PRICE_RETENTION_DAYS, PRICE_DAILY_RETENTION_DAYS, REPLAY_RETENTION_DAYS
 
 WAIT_BETWEEN_CARDS = 1.0
 
@@ -854,29 +854,54 @@ def send_daily_report(
 
 def cleanup_old_data(sb: Client):
     """保持期間を超えた古いデータを削除"""
-    cutoff = (datetime.now(JST).date() - timedelta(days=RETENTION_DAYS)).isoformat()
-    # 価格履歴の削除（ビューは delete 不可のため正本テーブル price_history_v2 を直接削除）
+    today = datetime.now(JST).date()
+    cutoff = (today - timedelta(days=PRICE_RETENTION_DAYS)).isoformat()
+    # 店舗別の行を消す前に「日×カード×レアリティの全店最安」へ畳む（price_daily_rollup.sql）。
+    # 畳めなかった夜は消さない（消すと相場グラフの31日目以降が欠けるため。翌晩まとめて畳む）
+    rolled = False
     try:
-        resp = sb.table("price_history_v2") \
+        resp = sb.rpc("rollup_price_daily", {"p_before": cutoff}).execute()
+        rolled = True
+        n = (resp.data or [{}])[0].get("rolled_rows", 0) if isinstance(resp.data, list) else 0
+        if n:
+            print(f"価格履歴を日ごとの最安へ畳んだ: {n}組（{cutoff}より前）")
+    except Exception as e:
+        print(f"価格履歴の畳み込み失敗（古い店舗別の行は消さずに残す）: {e}")
+    # 価格履歴の削除（ビューは delete 不可のため正本テーブル price_history_v2 を直接削除）
+    if rolled:
+        try:
+            resp = sb.table("price_history_v2") \
+                .delete() \
+                .lt("recorded_at", cutoff) \
+                .execute()
+            deleted = len(resp.data) if resp.data else 0
+            if deleted > 0:
+                print(f"古い価格履歴を削除: {deleted}件（{cutoff}より前）")
+        except Exception as e:
+            print(f"古い価格履歴削除失敗: {e}")
+    daily_cutoff = (today - timedelta(days=PRICE_DAILY_RETENTION_DAYS)).isoformat()
+    try:
+        resp = sb.table("price_daily_min") \
             .delete() \
-            .lt("recorded_at", cutoff) \
+            .lt("recorded_at", daily_cutoff) \
             .execute()
         deleted = len(resp.data) if resp.data else 0
         if deleted > 0:
-            print(f"古い価格履歴を削除: {deleted}件（{cutoff}より前）")
+            print(f"古い日ごとの最安を削除: {deleted}件（{daily_cutoff}より前）")
     except Exception as e:
-        print(f"古い価格履歴削除失敗: {e}")
+        print(f"古い日ごとの最安の削除失敗: {e}")
     # 一人回しリプレイの削除（90日超）。公開中（みんなのリプレイ）は対象外＝取り下げか運営の削除まで残す。
     # 取り下げると is_public=false に戻るので、作成日が古ければ次の掃除で消える
+    replay_cutoff = (today - timedelta(days=REPLAY_RETENTION_DAYS)).isoformat()
     try:
         resp = sb.table("solitaire_replays") \
             .delete() \
             .eq("is_public", False) \
-            .lt("created_at", cutoff) \
+            .lt("created_at", replay_cutoff) \
             .execute()
         deleted = len(resp.data) if resp.data else 0
         if deleted > 0:
-            print(f"古いリプレイを削除: {deleted}件（{cutoff}より前）")
+            print(f"古いリプレイを削除: {deleted}件（{replay_cutoff}より前）")
     except Exception as e:
         print(f"古いリプレイ削除失敗: {e}")
 

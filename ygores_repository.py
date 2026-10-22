@@ -292,6 +292,21 @@ class CardDataRepository:
     def _now_iso() -> str:
         return datetime.now(timezone.utc).isoformat()
 
+    @staticmethod
+    def _slim_raw(raw):
+        """API形式の cardData を日本語（ja）だけにする。
+
+        cardData は10言語分あり raw の約9割を占めるが、読むのは ja だけ（_summarize・
+        tools/build_text_check_dict・tools/eval_effect_text）。DB容量対策（2026-10-22）で
+        保存前に落とす。ja が無い・ミラー形式のときはそのまま返す。
+        """
+        if not isinstance(raw, dict):
+            return raw
+        card_data = raw.get("cardData")
+        if not isinstance(card_data, dict) or "ja" not in card_data or len(card_data) == 1:
+            return raw
+        return {**raw, "cardData": {"ja": card_data["ja"]}}
+
     @classmethod
     def _card_row(cls, konami_id, raw, now):
         """raw（API形式/ミラー形式どちらでも）から ygores_cards の行dictを作る"""
@@ -300,7 +315,7 @@ class CardDataRepository:
             "konami_id": int(konami_id),
             "name": s.get("name", ""),
             "card_type": s.get("card_type", ""),
-            "raw": raw,
+            "raw": cls._slim_raw(raw),
             "fetched_at": now,
         }
 

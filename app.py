@@ -91,7 +91,7 @@ from meta_scraper import fetch_tier_list, fetch_deck_cards, build_deck_text, bui
 import top_page as _top_page
 from pack_scraper import get_pack_list, fetch_pack_cards, pack_cards_cached
 from monitor import tracker, run_health_check
-from constants import JST, VAPID_CLAIMS
+from constants import JST, VAPID_CLAIMS, PRICE_DAILY_RETENTION_DAYS
 from ygores_repository import repository as _ygores_repo
 import card_display as _card_display
 import module_graph as _module_graph
@@ -1746,6 +1746,47 @@ def api_deck_estimate():
 
     return jsonify({"results": results, "total": total})
 
+def _fetch_price_daily_rows(card_name: str, cutoff: str, skip_dates: set) -> list:
+    """price_daily（31日目以前の日ごとの全店最安）を /api/price-history の行の形で返す。
+
+    店舗別の行がある日（skip_dates）は除く（畳み込みと削除の間に両方ある日を二重にしない）。
+    ビュー未作成・取得失敗のときは空で返し、店舗別の行だけのグラフにする（ログは残す）。
+    """
+    out: list = []
+    try:
+        page_size = 1000
+        max_pages = 10  # 暴走ガード（100日×レアリティ数×同額の店で、通常は1ページに収まる）
+        offset = 0
+        while True:
+            resp = (_supabase_client.table("price_daily")
+                    .select("shop, rarity, min_price, recorded_at")
+                    .eq("card_name", card_name)
+                    .gte("recorded_at", cutoff)
+                    .order("recorded_at", desc=False)
+                    .order("shop", desc=False)
+                    .order("rarity", desc=False)
+                    .range(offset, offset + page_size - 1)
+                    .execute())
+            batch = resp.data or []
+            for r in batch:
+                d = (r.get("recorded_at") or "")[:10]
+                if d in skip_dates:
+                    continue
+                out.append({"date": d, "shop": r.get("shop", ""),
+                            "rarity": normalize_rarity(r.get("rarity", "")),
+                            "price": r.get("min_price", 0)})
+            if len(batch) < page_size:
+                break
+            offset += page_size
+            if offset >= max_pages * page_size:
+                logger.error(f"日ごとの最安取得: {max_pages}ページ超過で打ち切り [{card_name}]")
+                break
+    except Exception as e:
+        logger.warning(f"日ごとの最安取得失敗（店舗別の行だけで返す） [{card_name}]: {e}")
+        return []
+    return out
+
+
 @app.route("/api/price-history")
 def api_price_history():
     """カードの価格推移データを返す"""
@@ -1762,9 +1803,11 @@ def api_price_history():
         return jsonify({"card_name": card_name, "data": []})
 
     try:
-        cutoff = (datetime.now(JST) - timedelta(days=90)).strftime("%Y-%m-%d")
+        cutoff = (datetime.now(JST) - timedelta(days=PRICE_DAILY_RETENTION_DAYS)).strftime("%Y-%m-%d")
+        # 店舗別の行（price_history）は直近30日だけ残り、それより前は日ごとの全店最安
+        # （price_daily）に畳まれている（price_daily_rollup.sql）。両方を読んで合わせる。
         # PostgRESTの返却上限1000行を超えるカードが335枚ある（90日×6店×複数レアリティ、
-        # 最大3,345行）。旧 .limit(2000) は上限で切られ、昇順のため新しい側＝グラフの
+        # 最大3,345行・2026-08 時点）。旧 .limit(2000) は上限で切られ、昇順のため新しい側＝グラフの
         # 直近数週間が欠落していた（監査F1: docs/audit-price-logic-2026-08-06.md）。
         # ページ間の順序を安定させるため複合キーで order する
         page_size = 1000
@@ -1795,6 +1838,8 @@ def api_price_history():
              "price": r.get("min_price", 0)}
             for r in rows
         ]
+        # 畳んだ分は店舗別の行より古いので前に置く（日付の昇順を保つ）
+        data = _fetch_price_daily_rows(card_name, cutoff, {d["date"] for d in data}) + data
         return jsonify({"card_name": card_name, "data": data})
     except Exception as e:
         logger.error(f"価格推移取得失敗: {e}")
