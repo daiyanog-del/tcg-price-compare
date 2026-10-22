@@ -63,91 +63,97 @@ RETURNS TABLE (
 LANGUAGE sql
 STABLE
 AS $$
+-- 【2026-10-22 読み方の書き換え（結果は同じ）】
+-- 旧版は窓（cutoff_date 以降。呼び出し側は今日-3日＝4日分・約13.5万行）の全行をビュー
+-- price_history 経由で名前つきにしてから日別に集計し、そのうち直近2日だけを使っていた。
+-- 本番 EXPLAIN ANALYZE（10-22）で 10.4秒（索引読み 4.6秒＋集計がメモリに収まらずディスクへ
+-- 3秒＋外部並べ替え）。起動直後に statement timeout（57014・service_role は8秒）で落ちた。
+-- 新版: (1) 比較する2日を索引 (recorded_at, …) の後ろ向き読みで先に決め、
+-- (2) その2日だけを日付の等号で読み（各日 約2〜4万行）、(3) カード番号・店番号・
+-- レアリティ番号のまま突き合わせて集計し、(4) 名前は残った数十行にだけ付ける。
+-- 同じ時刻の実測で 10.4秒 → 1.15秒（可視性マップが空の状態）。
+-- 2日の決め方は旧版と同じ条件（¥10以下と正体不明レアリティを除いた行がある日）。
+-- price_history_v2 は (card_id, shop_id, rarity_id, recorded_at) が主キーなので、旧版の
+-- 「店舗×カード×レアリティ×日付の MIN(min_price)」は1行そのものと同じ。名前は card_dim・
+-- shop_dim・rarity_dim でそれぞれ一意（UNIQUE 制約）なので、番号で束ねても名前で束ねても同じ。
+-- MATERIALIZED は、日付が実行時に決まるため計画時に件数が読めず、主キーで1系列ずつ全期間を
+-- 引く計画（実測 18秒）に倒れるのを防ぐため。
 WITH
--- 店舗×カード×レアリティ×日付ごとの日次最安値を集計（10円以下の異常値を除外）
--- ガード③（正体不明レアリティの除外・2026-08-03追加）: rarity="(不明)"（フェーズ3 P3 の
--- 抽出失敗ラベル）と空文字（移行前のレガシー）は「そのレアリティが何か分からない」
--- という印であって、レアリティ名ではない。これらでグループ化すると別々の正体不明品
--- どうしを同一物として突き合わせることになり偽陽性を生む（実測: 直近7日で "(不明)" が
--- 2店に跨るカードが4枚、うちブリッツクリークは¥20〜180と幅がある）。
--- aggregations/notify の代表レアリティ選定は元々これらを除外しており、RPC側だけが
--- 未対応だったのを揃える。適用時の実測では現行の出力に変化なし（純粋に将来の
--- 偽陽性経路を塞ぐ変更。販売43系列・買取2系列が対象から外れる）。
-shop_daily AS (
-    SELECT
-        card_name,
-        rarity,
-        shop,
-        recorded_at::date::text AS rec_date,
-        MIN(min_price)          AS daily_price
-    FROM price_history
-    WHERE recorded_at >= cutoff_date::date
-      AND min_price > 10
-      AND COALESCE(rarity, '') NOT IN ('(不明)', '')
-    GROUP BY card_name, rarity, shop, recorded_at::date::text
+unk AS (
+    -- ガード③（正体不明レアリティの除外）の対象。旧版の COALESCE(rarity,'') NOT IN と同じ条件
+    SELECT rd.rarity_id FROM rarity_dim rd
+    WHERE COALESCE(rd.rarity, '') IN ('(不明)', '')
 ),
--- 比較に使う直近2日を特定
-dates AS (
-    SELECT
-        MAX(rec_date) AS date_new,
-        MIN(rec_date) AS date_old
-    FROM (
-        SELECT DISTINCT rec_date
-        FROM shop_daily
-        ORDER BY rec_date DESC
-        LIMIT 2
-    ) t
+d_new AS MATERIALIZED (
+    SELECT p.recorded_at AS d
+    FROM price_history_v2 p
+    WHERE p.recorded_at >= cutoff_date::date
+      AND p.min_price > 10
+      AND p.rarity_id NOT IN (SELECT rarity_id FROM unk)
+    ORDER BY p.recorded_at DESC
+    LIMIT 1
 ),
--- ガード①: 比較2日の両方に記録がある店舗（共通店舗）だけを横持ちで抽出
-shop_pairs AS (
-    SELECT
-        s_new.card_name,
-        s_new.rarity,
-        s_new.shop,
-        s_new.daily_price AS new_price,
-        s_old.daily_price AS old_price
-    FROM       shop_daily s_new
-    JOIN       shop_daily s_old  ON s_new.card_name = s_old.card_name
-                                 AND s_new.rarity    = s_old.rarity
-                                 AND s_new.shop      = s_old.shop
-    CROSS JOIN dates
-    WHERE s_new.rec_date = dates.date_new
-      AND s_old.rec_date = dates.date_old
+d_old AS MATERIALIZED (
+    SELECT p.recorded_at AS d
+    FROM price_history_v2 p
+    WHERE p.recorded_at >= cutoff_date::date
+      AND p.recorded_at < (SELECT d FROM d_new)
+      AND p.min_price > 10
+      AND p.rarity_id NOT IN (SELECT rarity_id FROM unk)
+    ORDER BY p.recorded_at DESC
+    LIMIT 1
 ),
+s_new AS MATERIALIZED (
+    SELECT p.card_id, p.shop_id, p.rarity_id, p.min_price
+    FROM price_history_v2 p
+    WHERE p.recorded_at = (SELECT d FROM d_new)
+      AND p.min_price > 10
+      AND p.rarity_id NOT IN (SELECT rarity_id FROM unk)
+),
+s_old AS MATERIALIZED (
+    SELECT p.card_id, p.shop_id, p.rarity_id, p.min_price
+    FROM price_history_v2 p
+    WHERE p.recorded_at = (SELECT d FROM d_old)
+      AND p.min_price > 10
+      AND p.rarity_id NOT IN (SELECT rarity_id FROM unk)
+),
+-- ガード①（共通店舗）: 比較2日の両方に記録がある店舗だけを突き合わせ、
 -- カード×レアリティごとに共通店舗内の最安値と、同方向に動いた店舗数を集計
 agg AS (
     SELECT
-        card_name,
-        rarity,
-        MIN(new_price)                                        AS today_price,
-        MIN(old_price)                                        AS prev_price,
-        COUNT(*) FILTER (WHERE new_price > old_price)          AS up_shops,
-        COUNT(*) FILTER (WHERE new_price < old_price)          AS down_shops
-    FROM shop_pairs
-    GROUP BY card_name, rarity
+        n.card_id,
+        n.rarity_id,
+        MIN(n.min_price)                                     AS today_price,
+        MIN(o.min_price)                                     AS prev_price,
+        COUNT(*) FILTER (WHERE n.min_price > o.min_price)    AS up_shops,
+        COUNT(*) FILTER (WHERE n.min_price < o.min_price)    AS down_shops
+    FROM s_new n
+    JOIN s_old o USING (card_id, shop_id, rarity_id)
+    GROUP BY n.card_id, n.rarity_id
 ),
--- カード×レアリティごとの前日比を計算。ガード②で単一店舗のみの変動を除外
+-- 前日比を計算。ガード②で単一店舗のみの変動を除外し、ここで初めて名前を付ける
 movers AS (
     SELECT
-        agg.card_name,
-        agg.rarity,
-        agg.today_price,
-        agg.prev_price,
-        agg.today_price - agg.prev_price                          AS diff,
+        c.card_name,
+        r.rarity,
+        a.today_price,
+        a.prev_price,
+        a.today_price - a.prev_price                              AS diff,
         ROUND(
-            (agg.today_price - agg.prev_price)::numeric
-            / agg.prev_price * 100, 1
+            (a.today_price - a.prev_price)::numeric
+            / a.prev_price * 100, 1
         )                                                           AS pct,
-        dates.date_new,
-        dates.date_old
-    FROM       agg
-    CROSS JOIN dates
-    WHERE agg.prev_price > 0
-      AND agg.today_price != agg.prev_price
+        (SELECT d::text FROM d_new)                                 AS date_new,
+        (SELECT d::text FROM d_old)                                 AS date_old
+    FROM agg a
+    JOIN card_dim   c ON c.card_id   = a.card_id
+    JOIN rarity_dim r ON r.rarity_id = a.rarity_id
+    WHERE a.prev_price > 0
+      AND a.today_price != a.prev_price
       AND (
-          (agg.today_price > agg.prev_price AND agg.up_shops   >= 2)
+          (a.today_price > a.prev_price AND a.up_shops   >= 2)
           OR
-          (agg.today_price < agg.prev_price AND agg.down_shops >= 2)
+          (a.today_price < a.prev_price AND a.down_shops >= 2)
       )
 ),
 -- 変動幅フィルタ + 同名カード内の代表レアリティを選出

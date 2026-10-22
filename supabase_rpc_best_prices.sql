@@ -35,18 +35,40 @@ CREATE OR REPLACE FUNCTION public.get_card_best_prices(cutoff_date text)
  SET work_mem = '64MB'
  SET search_path = public, pg_temp
 AS $function$
-  WITH latest AS (
-    SELECT DISTINCT ON (ph.card_name, ph.shop, ph.rarity)
-      ph.card_name, ph.shop, ph.rarity, ph.min_price, ph.recorded_at
-    FROM price_history ph
-    WHERE ph.recorded_at >= cutoff_date::date
-      AND ph.min_price IS NOT NULL AND ph.min_price > 10
-    ORDER BY ph.card_name, ph.shop, ph.rarity, ph.recorded_at DESC
+  -- 【2026-10-22 読み方の書き換え（最安値の定義は同じ・同じ値段のときの選び方を新たに決めた）】旧版はビュー price_history 経由で
+  -- 7日窓の全行（約28.6万行）に名前を付けてから、名前の文字列で並べ替えていた（37MB）。
+  -- 新版はカード番号・店番号・レアリティ番号のまま「系列ごとの最新日」→「カードごとの
+  -- 最安」を選び、カード名は残った1カード1行（約6,300行）にだけ付ける。名前は card_dim・
+  -- shop_dim・rarity_dim でそれぞれ一意（UNIQUE 制約）なので、番号で束ねても名前で束ねても同じ。
+  -- 同じ時刻の本番実測（10-22）で 1.0秒 → 0.45秒、並べ替え 37MB → 21MB。
+  -- win を MATERIALIZED にするのは、日付の索引 (recorded_at, …) INCLUDE (min_price) だけで
+  -- 窓を読ませるため（外すと主キーを全件なめる計画になり、実測 11秒）。
+  WITH win AS MATERIALIZED (
+    SELECT p.card_id, p.shop_id, p.rarity_id, p.min_price, p.recorded_at
+    FROM price_history_v2 p
+    WHERE p.recorded_at >= cutoff_date::date
+      AND p.min_price IS NOT NULL AND p.min_price > 10
+  ),
+  latest AS (
+    SELECT DISTINCT ON (w.card_id, w.shop_id, w.rarity_id)
+      w.card_id, w.shop_id, w.rarity_id, w.min_price, w.recorded_at
+    FROM win w
+    ORDER BY w.card_id, w.shop_id, w.rarity_id, w.recorded_at DESC
+  ),
+  -- 同じ最安値の系列が複数あるとき（10-22 実測 6,328枚中 1,850枚）、旧版は並べ替えの
+  -- 都合で決まる1つを返していた（決まった規則なし）。新版は観測日が新しい順→店名→
+  -- レアリティ名で1つに決める（同じ値段なら、より最近確かめた店を出す）。
+  best AS (
+    SELECT DISTINCT ON (l.card_id)
+      l.card_id, s.shop, r.rarity, l.min_price, l.recorded_at
+    FROM latest l
+    JOIN shop_dim   s ON s.shop_id   = l.shop_id
+    JOIN rarity_dim r ON r.rarity_id = l.rarity_id
+    ORDER BY l.card_id, l.min_price ASC, l.recorded_at DESC, s.shop, r.rarity
   )
-  SELECT DISTINCT ON (l.card_name)
-    l.card_name, l.shop, l.rarity, l.min_price, l.recorded_at::text
-  FROM latest l
-  ORDER BY l.card_name, l.min_price ASC;
+  SELECT c.card_name, b.shop, b.rarity, b.min_price, b.recorded_at::text
+  FROM best b
+  JOIN card_dim c ON c.card_id = b.card_id;
 $function$;
 
 -- get_card_best_prices の結果を1回のRPC呼び出しでjsonbに一括集約して返す。
