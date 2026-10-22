@@ -42,7 +42,7 @@ from shipping import (
     amount_to_min_order, is_orderable, rules_for_client as _shipping_rules_for_client,
 )
 from aggregations import daily_min_by_lowest_rarity, common_shop_price_change
-from price_history_reads import fetch_recent_rows_by_card_names
+from price_history_reads import fetch_daily_rows_by_card_names, fetch_recent_rows_by_card_names
 from price_persist import build_min_price_rows, upsert_price_rows
 from card_code import infer_codes
 from search_status import search_coverage
@@ -2826,10 +2826,14 @@ def api_wish_prices():
             return {}, {}, set()
         if not _supabase_client:
             return {}, {}, set(names)
-        cutoff = (datetime.now(JST) - timedelta(days=days)).strftime("%Y-%m-%d")
-        all_rows, failed = fetch_recent_rows_by_card_names(
-            _supabase_client, names, "card_name, rarity, shop, min_price, recorded_at",
-            cutoff, ("recorded_at",), "wish-prices")
+        # 窓は従来どおり今日の days 日前から今日まで。日付ごとに等号で読む（索引
+        # (recorded_at, card_id, …) を両方効かせる。2026-10-22 名前＋日付の範囲で statement timeout）
+        today = datetime.now(JST).date()
+        window = [(today - timedelta(days=d)).isoformat() for d in range(days, -1, -1)]
+        # 並べ替えに使う番号の列も select に入れる（featured_matrix と同じ形。本番で通っている形にそろえる）
+        all_rows, failed = fetch_daily_rows_by_card_names(
+            _supabase_client, names, "card_id, shop_id, rarity_id, card_name, rarity, shop, min_price, recorded_at",
+            window, "wish-prices")
         # 代表レアリティ選定は rarity 文字列でグループ化するため、DB読み出し境界で
         # 正準名に統合する（過渡期の分裂値を吸収。/api/price-history と同じ方針）
         for r in all_rows:

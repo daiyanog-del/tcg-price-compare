@@ -13,7 +13,9 @@ tests/test_wish_prices.py — /api/wish-prices の±%表示の共通店舗比較
 """
 
 import sys
+import threading
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -21,40 +23,73 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from constants import JST  # noqa: E402
+
 
 class _FakeQuery:
-    """price_history の select/in_/gte/order/range をたどるだけの最小スタブ"""
+    """card_dim と price_history の select/in_/eq/order/range をたどる最小スタブ。
 
-    def __init__(self, rows):
+    本物と同じく card_dim は名前→カード番号、price_history はカード番号の in_ と日付の等号で絞る
+    （2026-10-22 から購入候補はこの読み方。日付が窓の外の行は返らない）。
+    """
+
+    def __init__(self, table, rows, ids, log=None):
+        self._table = table
         self._rows = rows
+        self._ids = ids  # 名前 -> カード番号（行のある名前だけ＝card_dim の名簿）
+        self._filters = {}
+        self._orders = []
+        self._log = log
 
     def select(self, *_a, **_k):
         return self
 
-    def in_(self, *_a, **_k):
+    def in_(self, col, values):
+        self._filters[col] = set(values)
         return self
 
-    def gte(self, *_a, **_k):
+    def eq(self, col, value):
+        self._filters[col] = {value}
         return self
 
-    def order(self, *_a, **_k):
+    def order(self, col, **_k):
+        self._orders.append(col)
         return self
 
     def range(self, start, end):
         self._slice = (start, end)
         return self
 
+    def _matched(self):
+        if self._table == "card_dim":
+            names = self._filters.get("card_name", set())
+            return [{"card_id": cid, "card_name": n} for n, cid in self._ids.items() if n in names]
+        ids = self._filters.get("card_id", set())
+        days = self._filters.get("recorded_at", set())
+        return [r for r in self._rows if self._ids[r["card_name"]] in ids and r["recorded_at"] in days]
+
     def execute(self):
+        if self._log is not None:
+            self._log.append((self._table, dict(self._filters), list(self._orders)))
         start, end = getattr(self, "_slice", (0, 999))
-        return SimpleNamespace(data=self._rows[start:end + 1])
+        return SimpleNamespace(data=self._matched()[start:end + 1])
+
+
+def _card_ids(rows):
+    ids = {}
+    for r in rows:
+        ids.setdefault(r["card_name"], len(ids) + 1)
+    return ids
 
 
 class _FakeClient:
     def __init__(self, rows):
         self._rows = rows
+        self._ids = _card_ids(rows)
+        self.log = []
 
-    def table(self, _name):
-        return _FakeQuery(self._rows)
+    def table(self, name):
+        return _FakeQuery(name, self._rows, self._ids, self.log)
 
 
 def row(card, shop, price, date, rarity="ノーマル"):
@@ -85,7 +120,9 @@ def _by_name(payload):
     return {c["name"]: c for c in payload["cards"]}
 
 
-OLD, NEW = "2026-07-30", "2026-08-06"
+# 読み込みは「今日から N 日前まで」の日付ごとなので、テストの日付も今日を起点にする
+_TODAY = datetime.now(JST).date()
+OLD, NEW = (_TODAY - timedelta(days=7)).isoformat(), _TODAY.isoformat()
 
 
 class TestCommonShopComparisonUsedForDiff:
@@ -144,35 +181,49 @@ class TestCommonShopComparisonUsedForDiff:
 
 # ── 2026-10-22 読み込みの失敗を「値段なし」と区別する ──
 
+_errors_lock = threading.Lock()
+
+
 class _FailingQuery(_FakeQuery):
-    """execute のたびに errors から1つ取り出して投げる（空になったら rows を返す）。in_ の名前を記録する"""
+    """execute のたびに errors から1つ取り出して投げる（空なら成功）。
+    errors は card_dim が呼ばれた順の list、price_history は日付ごとの list（日付どうしは同時に読むので順番が決まらない）。
+    呼び出しをテーブルごとに記録する（price_history は (名前の集合, 日付)、card_dim は名前の並び）"""
 
-    def __init__(self, rows, errors, calls):
-        super().__init__(rows)
+    def __init__(self, table, rows, ids, errors, calls):
+        super().__init__(table, rows, ids)
         self._errors = errors
-        self._calls = calls
-
-    def in_(self, _col, names):
-        self._names = list(names)
-        return self
+        self._calls = calls.setdefault(table, [])
 
     def execute(self):
-        self._calls.append(self._names)
-        if self._errors:
-            raise self._errors.pop(0)
-        rows = [r for r in self._rows if r["card_name"] in self._names]
-        start, end = getattr(self, "_slice", (0, 999))
-        return SimpleNamespace(data=rows[start:end + 1])
+        if self._table == "card_dim":
+            self._calls.append(sorted(self._filters["card_name"]))
+            key = None
+        else:
+            id_to_name = {v: k for k, v in self._ids.items()}
+            key = next(iter(self._filters["recorded_at"]))
+            self._calls.append(({id_to_name[i] for i in self._filters["card_id"]}, key))
+        with _errors_lock:
+            queue = self._errors.get(self._table, [] if key is None else {})
+            if key is not None:
+                queue = queue.get(key, [])
+            err = queue.pop(0) if queue else None
+        if err is not None:
+            raise err
+        return super().execute()
 
 
 class _FailingClient:
-    def __init__(self, rows, errors):
+    def __init__(self, rows, errors, card_names):
         self._rows = rows
-        self.errors = errors
-        self.calls = []
+        # card_dim の名簿: 送ったカード名すべて（行の無いカードも名簿にはある）
+        self._ids = _card_ids(rows)
+        for n in card_names:
+            self._ids.setdefault(n, len(self._ids) + 1)
+        self.errors = errors  # {テーブル名: [例外 or None, ...]}
+        self.calls = {}
 
-    def table(self, _name):
-        return _FailingQuery(self._rows, self.errors, self.calls)
+    def table(self, name):
+        return _FailingQuery(name, self._rows, self._ids, self.errors, self.calls)
 
 
 @pytest.fixture
@@ -180,7 +231,7 @@ def failing_client(monkeypatch):
     import app as app_module
 
     def _make(rows, errors, card_names, cached=None):
-        fake = _FailingClient(rows, errors)
+        fake = _FailingClient(rows, errors, card_names)
         monkeypatch.setattr(app_module, "_supabase_client", fake)
         monkeypatch.setattr(app_module, "_load_cardnames", lambda: None)
         monkeypatch.setattr(app_module, "_correct_cardname", lambda n: n)
@@ -194,20 +245,29 @@ def failing_client(monkeypatch):
     return _make
 
 
+def _ph(errors, day=None):
+    """price_history の day（既定は今日）の読み込みで errors を順に投げる"""
+    return {"price_history": {day or NEW: list(errors)}}
+
+
+def _calls_on(fake, day):
+    return [c for c in fake.calls.get("price_history", []) if c[1] == day]
+
+
 class TestReadFailureIsNotNoPrice:
     def test_db_error_returns_error_status_not_ready(self, failing_client):
         # statement timeout などの失敗は再試行せず、status "error"（以前は "ready"・latest None＝「価格が見つかりませんでした」）
-        c, fake = failing_client([], [RuntimeError("canceling statement due to statement timeout")], ["カードA", "カードB"])
+        c, fake = failing_client([], _ph([RuntimeError("canceling statement due to statement timeout")]), ["カードA", "カードB"])
         res = c.post("/api/wish-prices", json={"cards": ["カードA", "カードB"]})
         cards = _by_name(res.get_json())
         assert cards["カードA"]["status"] == "error"
         assert cards["カードB"]["status"] == "error"
         assert cards["カードA"]["latest"] is None
-        assert len(fake.calls) == 1, "重い問い合わせの失敗は再試行しない"
+        assert len(_calls_on(fake, NEW)) == 1, "重い問い合わせの失敗は再試行しない"
 
     def test_no_price_rows_stays_ready_with_null(self, failing_client):
         # 読めたが行が無い＝値段なし（従来どおり ready・latest None）。失敗とは別の結果になる
-        c, _ = failing_client([], [], ["カードA"])
+        c, _ = failing_client([], {}, ["カードA"])
         info = _by_name(c.post("/api/wish-prices", json={"cards": ["カードA"]}).get_json())["カードA"]
         assert info["status"] == "ready"
         assert info["latest"] is None
@@ -215,36 +275,51 @@ class TestReadFailureIsNotNoPrice:
     def test_connection_terminated_is_retried_once(self, failing_client):
         import httpx
         rows = [row("カードA", "店舗A", 500, NEW)]
-        c, fake = failing_client(rows, [httpx.RemoteProtocolError("<ConnectionTerminated error_code:0>")], ["カードA"])
+        c, fake = failing_client(rows, _ph([httpx.RemoteProtocolError("<ConnectionTerminated error_code:0>")]), ["カードA"])
         info = _by_name(c.post("/api/wish-prices", json={"cards": ["カードA"]}).get_json())["カードA"]
         assert info["status"] == "ready"
         assert info["latest"] == 500
-        assert len(fake.calls) == 2
+        assert len(_calls_on(fake, NEW)) == 2, "同じ日をもう1回だけ読む"
+        assert len(fake.calls["price_history"]) == 9 + 1, "8日窓は今日を含めて9日。再試行の1回を足して10回"
 
     def test_connection_error_twice_gives_error(self, failing_client):
         import httpx
         errs = [httpx.RemoteProtocolError("x"), httpx.RemoteProtocolError("y")]
-        c, fake = failing_client([row("カードA", "店舗A", 500, NEW)], errs, ["カードA"])
+        c, fake = failing_client([row("カードA", "店舗A", 500, NEW)], _ph(errs), ["カードA"])
         info = _by_name(c.post("/api/wish-prices", json={"cards": ["カードA"]}).get_json())["カードA"]
         assert info["status"] == "error"
-        assert len(fake.calls) == 2, "再試行は1回だけ"
+        assert len(_calls_on(fake, NEW)) == 2, "再試行は1回だけ"
 
     def test_failed_fallback_is_error_not_pending(self, failing_client):
         # 収集済みか分からないカード（30日窓の読み直し）も、読めなければ「まだ集めていない」ではなく失敗
-        c, _ = failing_client([], [RuntimeError("boom")], ["新カード"], cached=[])
+        c, _ = failing_client([], _ph([RuntimeError("boom")]), ["新カード"], cached=[])
         info = _by_name(c.post("/api/wish-prices", json={"cards": ["新カード"]}).get_json())["新カード"]
         assert info["status"] == "error"
 
+    def test_later_day_failure_discards_the_days_already_read(self, failing_client):
+        # どれか1日で失敗したら、他の日に読めた行も捨てて error（半端な日付で最安・値動きを出さない）
+        rows = [row("カードA", "店舗A", 1000, OLD), row("カードA", "店舗A", 900, NEW)]
+        c, fake = failing_client(rows, _ph([RuntimeError("boom")], day=OLD), ["カードA"])
+        info = _by_name(c.post("/api/wish-prices", json={"cards": ["カードA"]}).get_json())["カードA"]
+        assert info["status"] == "error"
+        assert info["latest"] is None
+        assert len(_calls_on(fake, OLD)) == 1
+
+    def test_card_dim_lookup_failure_is_error(self, failing_client):
+        c, fake = failing_client([row("カードA", "店舗A", 500, NEW)], {"card_dim": [RuntimeError("boom")]}, ["カードA"])
+        info = _by_name(c.post("/api/wish-prices", json={"cards": ["カードA"]}).get_json())["カードA"]
+        assert info["status"] == "error"
+        assert not fake.calls.get("price_history")
+
     def test_names_split_by_byte_budget_and_only_failed_chunk_is_error(self, failing_client):
-        # 長い名前50枚は1回の in_ に詰めない（URL 長）。失敗した分割のカードだけ error、他は読めた値を返す
+        # 長い名前50枚は1回の in_ に詰めない（URL 長）。名前を使うのは card_dim の引き当てなので、そこで分ける。
+        # 失敗した分割のカードだけ error、他は読めた値を返す
         names = [f"とても長いカード名の{i:02d}" + "あ" * 35 for i in range(50)]  # 50文字以内（MAX_CARD_NAME_LEN）
         rows = [row(n, "店舗A", 100 + i, NEW) for i, n in enumerate(names)]
-        c, fake = failing_client(rows, [], names)
-        # 1回目の分割だけ失敗させる
-        fake.errors.append(RuntimeError("400 Bad Request"))
+        c, fake = failing_client(rows, {"card_dim": [RuntimeError("400 Bad Request")]}, names)
         cards = _by_name(c.post("/api/wish-prices", json={"cards": names}).get_json())
-        assert len(fake.calls) >= 2, "名前が分割されていない"
-        first_chunk = set(fake.calls[0])
+        assert len(fake.calls["card_dim"]) >= 2, "名前が分割されていない"
+        first_chunk = set(fake.calls["card_dim"][0])
         assert len(first_chunk) < len(names)
         for i, n in enumerate(names):
             if n in first_chunk:
@@ -252,3 +327,129 @@ class TestReadFailureIsNotNoPrice:
             else:
                 assert cards[n]["status"] == "ready"
                 assert cards[n]["latest"] == 100 + i
+
+
+class TestReadsByCardIdAndDayEquality:
+    """2026-10-22 statement timeout の根本対策: カード番号＋日付の等号で、索引の並びどおりに読む"""
+
+    def test_each_day_of_window_read_with_eq_and_index_order(self, client):
+        import app as app_module
+        rows = [row("テストカードA", "店舗A", 900, NEW)]
+        c = client(rows, ["テストカードA"])
+        c.post("/api/wish-prices", json={"cards": ["テストカードA"]})
+        ph = [x for x in app_module._supabase_client.log if x[0] == "price_history"]
+        days = sorted(next(iter(f["recorded_at"])) for _t, f, _o in ph)
+        expected = [(_TODAY - timedelta(days=d)).isoformat() for d in range(8, -1, -1)]
+        assert days == expected, "8日窓＝今日の8日前から今日までを1日ずつ（日付どうしは同時に読むので順は問わない）"
+        for _t, f, orders in ph:
+            assert "card_name" not in f, "price_history を名前で絞らない（索引が効かない）"
+            assert f["card_id"] == {1}
+            assert orders == ["card_id", "shop_id", "rarity_id"]
+
+    def test_fallback_window_is_thirty_days(self, client):
+        import app as app_module
+        rows = [row("新カード", "店舗A", 700, (_TODAY - timedelta(days=20)).isoformat())]
+        c = client(rows, [])  # estimate_cache に無い → 30日窓
+        info = _by_name(c.post("/api/wish-prices", json={"cards": ["新カード"]}).get_json())["新カード"]
+        assert info["status"] == "ready"
+        assert info["latest"] == 700
+        ph = [x for x in app_module._supabase_client.log if x[0] == "price_history"]
+        assert len(ph) == 31
+
+    def test_day_over_1000_rows_is_paged_without_gaps(self, client):
+        # 1日で1000行を超えたら range で次のページを読む（境目で行が落ちない）。最安の1行を最後に置く
+        rows = [row("テストカードA", f"店舗{i:04d}", 5000 + i, NEW) for i in range(1200)]
+        rows.append(row("テストカードA", "最安の店", 123, NEW))
+        c = client(rows, ["テストカードA"])
+        info = _by_name(c.post("/api/wish-prices", json={"cards": ["テストカードA"]}).get_json())["テストカードA"]
+        assert info["latest"] == 123
+
+    def test_name_missing_from_card_dim_is_pending(self, client):
+        # card_dim に無い名前は行が0件（ビューは card_dim との内部結合なので従来と同じ結果）
+        c = client([], [])
+        info = _by_name(c.post("/api/wish-prices", json={"cards": ["名簿に無いカード"]}).get_json())["名簿に無いカード"]
+        assert info["status"] == "pending"
+
+
+class TestFailedChunkStopsAndOthersSurvive:
+    def test_failed_chunk_reads_no_more_days(self, monkeypatch):
+        # 失敗した束の残りの日は読みに行かない（statement timeout のときに負荷を積まない）。
+        # 1本ずつ積む設定にして、時間に頼らず確かめる
+        import price_history_reads as phr
+        monkeypatch.setattr(phr, "_MAX_IN_FLIGHT", 1)
+        days = [(_TODAY - timedelta(days=d)).isoformat() for d in range(8, -1, -1)]
+        fake = _FailingClient([row("カードA", "店舗A", 500, days[-1])],
+                              {"price_history": {days[0]: [RuntimeError("timeout")]}}, ["カードA"])
+        rows, failed = phr.fetch_daily_rows_by_card_names(fake, ["カードA"], "card_name", days, "test")
+        assert failed == {"カードA"}
+        assert rows == []
+        assert len(fake.calls["price_history"]) == 1
+
+    def test_in_flight_never_exceeds_limit(self, monkeypatch):
+        # 1回の要求が同時に積むのは _MAX_IN_FLIGHT 本まで（共有の枠で新商品の表を待たせない）
+        import price_history_reads as phr
+        monkeypatch.setattr(phr, "_MAX_IN_FLIGHT", 2)
+        lock = threading.Lock()
+        state = {"now": 0, "peak": 0}
+        orig = phr._read_day
+
+        def counting(*a):
+            with lock:
+                state["now"] += 1
+                state["peak"] = max(state["peak"], state["now"])
+            try:
+                time.sleep(0.01)
+                return orig(*a)
+            finally:
+                with lock:
+                    state["now"] -= 1
+
+        monkeypatch.setattr(phr, "_read_day", counting)
+        days = [(_TODAY - timedelta(days=d)).isoformat() for d in range(30, -1, -1)]
+        fake = _FailingClient([row("カードA", "店舗A", 500, days[-1])], {}, ["カードA"])
+        rows, failed = phr.fetch_daily_rows_by_card_names(fake, ["カードA"], "card_name", days, "test")
+        assert failed == set()
+        assert len(rows) == 1
+        assert len(fake.calls["price_history"]) == 31
+        assert state["peak"] <= 2
+
+    def test_only_the_failed_chunk_is_error(self, monkeypatch):
+        # 束が分かれるとき、失敗した束だけ捨て、ほかの束の行は残す
+        import price_history_reads as phr
+        monkeypatch.setattr(phr, "_ID_CHUNK", 1)
+        days = [_TODAY.isoformat()]
+        rows_in = [row("カードA", "店舗A", 500, days[0]), row("カードB", "店舗A", 700, days[0])]
+        fake = _FailingClient(rows_in, {}, ["カードA", "カードB"])
+
+        class OneChunkFails:
+            def __init__(self, inner):
+                self.inner = inner
+
+            def table(self, name):
+                q = self.inner.table(name)
+                if name != "price_history":
+                    return q
+                orig_execute = q.execute
+
+                def execute():
+                    if q._filters.get("card_id") == {fake._ids["カードA"]}:
+                        raise RuntimeError("boom")
+                    return orig_execute()
+                q.execute = execute
+                return q
+
+        rows, failed = phr.fetch_daily_rows_by_card_names(OneChunkFails(fake), ["カードA", "カードB"],
+                                                          "card_name, min_price", days, "test")
+        assert failed == {"カードA"}
+        assert [r["card_name"] for r in rows] == ["カードB"]
+
+    def test_read_timeout_is_not_retried(self):
+        # 読み取りの時間切れは送り直さない（共有の枠を長くふさがない）
+        import httpx
+        import price_history_reads as phr
+        days = [_TODAY.isoformat()]
+        fake = _FailingClient([row("カードA", "店舗A", 500, days[0])],
+                              {"price_history": {days[0]: [httpx.ReadTimeout("slow")]}}, ["カードA"])
+        rows, failed = phr.fetch_daily_rows_by_card_names(fake, ["カードA"], "card_name", days, "test")
+        assert failed == {"カードA"}
+        assert len(fake.calls["price_history"]) == 1
