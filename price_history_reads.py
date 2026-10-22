@@ -8,12 +8,14 @@
 (1) は featured_matrix と同じバイト予算で名前を分ける、(2) は1回だけ再試行する。
 (3) は再試行しない（重い問い合わせを2回投げると負荷を積むだけ）。失敗した名前は呼び出し元に返し、
 「値段なし」と区別して扱わせる（CLAUDE.md「0件と取得失敗は区別」）。
-(3) の根本は読み方の重さで、購入候補は fetch_daily_rows_by_card_names（カード番号＋日付の等号）に移した。
-まとめ買い・レアリティ候補はまだ fetch_recent_rows_by_card_names（名前＋日付の範囲）のまま。
+(3) の根本は読み方の重さで、名前＋日付の範囲（gte）で読んでいたのをやめ、3か所とも
+fetch_daily_rows_by_card_names（カード番号＋日付の等号）に移した（購入候補 PR #204、まとめ買い・レアリティ候補はその次）。
 """
 
 import logging
+import time
 from collections import deque
+from datetime import datetime, timedelta
 from concurrent.futures import FIRST_COMPLETED, wait
 
 import httpx
@@ -21,6 +23,8 @@ import httpx
 from featured_matrix import _chunk_card_names_by_bytes
 from featured_matrix import _FETCH_WORKERS
 from featured_matrix import _executor as _db_executor
+
+from constants import JST
 
 # カード番号の in_ の1回あたりの件数。購入候補は最大50枚で、1日ぶん（2026-10-22 実測 長い名前50枚で約400〜600行）が
 # 1ページに収まる。featured_matrix の _ID_CHUNK（25）は同時に読む束を増やすための値なので借りない
@@ -34,55 +38,21 @@ _MAX_IN_FLIGHT = _FETCH_WORKERS
 # 読み取りの時間切れ（ReadTimeout）は含めない（既定120秒の待ちを2回すると、共有の枠の1本を4分ふさぐ。reviewer 低5）
 _RETRY_ERRORS = (httpx.RemoteProtocolError, httpx.ConnectError)
 
+# 1回の読み込み（fetch_daily_rows_by_card_names の呼び出し1回）の締め切り。過ぎたら、まだ読めていない束は failed にして返す
+# （DB が重いときに要求を gunicorn の120秒まで引っぱらない。購入候補は8日窓と30日窓で2回呼ぶので合わせて60秒。reviewer 中1）。
+# 2026-10-22 本番実測: 32枚 2.7秒・反映直後の冷えた状態で 17.8秒
+_READ_DEADLINE_SEC = 30  # TODO: calibrate from data
+
 logger = logging.getLogger(__name__)
 
 _PAGE_SIZE = 1000
 
 
-def fetch_recent_rows_by_card_names(sb, names: list[str], columns: str, cutoff: str,
-                                    order_by: tuple[str, ...], log_tag: str) -> tuple[list[dict], set[str]]:
-    """names の price_history を recorded_at >= cutoff で読む。
-
-    戻り値: (rows, failed_names)
-      rows: 読めた分の行（失敗した分割の行は途中まで読めていても捨てる。半端な行で最安を出さない）
-      failed_names: 読めなかった名前（呼び出し元はこれを「値段なし」ではなく失敗として扱う）
-    """
-    if not order_by:
-        # 並びの無い range はページの境目で行を落とす（監査F8）。呼び出し側の付け忘れを止める
-        raise ValueError("order_by を指定してください")
-    rows: list[dict] = []
-    failed: set[str] = set()
-    for chunk in _chunk_card_names_by_bytes(list(dict.fromkeys(names))):
-        chunk_rows: list[dict] = []
-        offset = 0
-        try:
-            while True:
-                for attempt in (1, 2):
-                    try:
-                        q = (sb.table("price_history")
-                             .select(columns)
-                             .in_("card_name", chunk)
-                             .gte("recorded_at", cutoff))
-                        for col in order_by:
-                            q = q.order(col, desc=False)
-                        resp = q.range(offset, offset + _PAGE_SIZE - 1).execute()
-                        break
-                    except httpx.TransportError as e:
-                        # 接続切れ・接続失敗・読み取りの時間切れ（ConnectionTerminated はここに入る）。1回だけ再試行
-                        if attempt == 2:
-                            raise
-                        logger.info(f"[{log_tag}] 価格履歴の読み込みを再試行: {type(e).__name__}: {e}")
-                batch = resp.data or []
-                chunk_rows.extend(batch)
-                if len(batch) < _PAGE_SIZE:
-                    break
-                offset += _PAGE_SIZE
-        except Exception as e:
-            logger.warning(f"[{log_tag}] 価格履歴取得失敗（{len(chunk)}枚）: {type(e).__name__}: {e}")
-            failed.update(chunk)
-            continue
-        rows.extend(chunk_rows)
-    return rows, failed
+def jst_days_back(days: int) -> list[str]:
+    """今日（JST）の days 日前から今日までの日付（古い順・days+1 個）。
+    以前の `recorded_at >= 今日の days 日前` と同じ日付の集合"""
+    today = datetime.now(JST).date()
+    return [(today - timedelta(days=d)).isoformat() for d in range(days, -1, -1)]
 
 
 def _read_day(sb, columns: str, id_chunk: list[int], day: str, log_tag: str) -> list[dict]:
@@ -127,11 +97,14 @@ def fetch_daily_rows_by_card_names(sb, names: list[str], columns: str, days: lis
     1回の要求が積むのは _MAX_IN_FLIGHT 本まで（1本終わるたびに次を積む）。
     実行枠のスレッドの中から呼ばないこと（枠の4本が互いの終わりを待って止まる）。
 
-    戻り値は fetch_recent_rows_by_card_names と同じ (rows, failed_names)。
+    戻り値: (rows, failed_names)
+      rows: 読めた分の行
+      failed_names: 読めなかった名前（呼び出し元はこれを「値段なし」ではなく失敗として扱う）
       - 接続切れ・接続失敗（_RETRY_ERRORS）だけ1回再試行。それ以外の失敗は再試行しない
       - カード番号の束のどこか1日でも読めなければ、その束の名前を全部 failed にし、
         読めていた他の日の行も捨てる（半端な日付で最安・値動きを出さない）。その束の残りの日は読みに行かない
       - card_dim に無い名前は行が0件になる（price_history ビューは card_dim との内部結合なので、名前で読んでも同じ）
+      - _READ_DEADLINE_SEC を過ぎたら、まだ読み終えていない束は failed にして返す（動いている読み込みは捨てるだけ）
     """
     unique = list(dict.fromkeys(names))
     failed: set[str] = set()
@@ -159,7 +132,16 @@ def fetch_daily_rows_by_card_names(sb, names: list[str], columns: str, days: lis
     in_flight = {}  # Future -> (束の番号, 日付)
     chunk_rows: dict[int, list[dict]] = {ci: [] for ci in range(len(id_chunks))}
     failed_chunks: set[int] = set()
+    deadline = time.monotonic() + _READ_DEADLINE_SEC
     while todo or in_flight:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            late = ({ci for ci, _d in todo} | {ci for ci, _d in in_flight.values()}) - failed_chunks
+            if late:
+                logger.warning(f"[{log_tag}] 価格履歴の読み込みが締め切り（{_READ_DEADLINE_SEC}秒）を過ぎた: "
+                               f"{sum(len(id_chunks[ci]) for ci in late)}枚を失敗として返す")
+            failed_chunks |= late
+            break
         while todo and len(in_flight) < _MAX_IN_FLIGHT:
             ci, day = todo.popleft()
             if ci in failed_chunks:
@@ -167,7 +149,7 @@ def fetch_daily_rows_by_card_names(sb, names: list[str], columns: str, days: lis
             in_flight[_db_executor.submit(_read_day, sb, columns, id_chunks[ci], day, log_tag)] = (ci, day)
         if not in_flight:
             break
-        done, _ = wait(in_flight, return_when=FIRST_COMPLETED)
+        done, _ = wait(in_flight, timeout=left, return_when=FIRST_COMPLETED)
         for fut in done:
             ci, day = in_flight.pop(fut)
             try:

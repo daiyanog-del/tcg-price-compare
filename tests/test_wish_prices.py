@@ -26,70 +26,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from constants import JST  # noqa: E402
 
 
-class _FakeQuery:
-    """card_dim と price_history の select/in_/eq/order/range をたどる最小スタブ。
-
-    本物と同じく card_dim は名前→カード番号、price_history はカード番号の in_ と日付の等号で絞る
-    （2026-10-22 から購入候補はこの読み方。日付が窓の外の行は返らない）。
-    """
-
-    def __init__(self, table, rows, ids, log=None):
-        self._table = table
-        self._rows = rows
-        self._ids = ids  # 名前 -> カード番号（行のある名前だけ＝card_dim の名簿）
-        self._filters = {}
-        self._orders = []
-        self._log = log
-
-    def select(self, *_a, **_k):
-        return self
-
-    def in_(self, col, values):
-        self._filters[col] = set(values)
-        return self
-
-    def eq(self, col, value):
-        self._filters[col] = {value}
-        return self
-
-    def order(self, col, **_k):
-        self._orders.append(col)
-        return self
-
-    def range(self, start, end):
-        self._slice = (start, end)
-        return self
-
-    def _matched(self):
-        if self._table == "card_dim":
-            names = self._filters.get("card_name", set())
-            return [{"card_id": cid, "card_name": n} for n, cid in self._ids.items() if n in names]
-        ids = self._filters.get("card_id", set())
-        days = self._filters.get("recorded_at", set())
-        return [r for r in self._rows if self._ids[r["card_name"]] in ids and r["recorded_at"] in days]
-
-    def execute(self):
-        if self._log is not None:
-            self._log.append((self._table, dict(self._filters), list(self._orders)))
-        start, end = getattr(self, "_slice", (0, 999))
-        return SimpleNamespace(data=self._matched()[start:end + 1])
-
-
-def _card_ids(rows):
-    ids = {}
-    for r in rows:
-        ids.setdefault(r["card_name"], len(ids) + 1)
-    return ids
-
-
-class _FakeClient:
-    def __init__(self, rows):
-        self._rows = rows
-        self._ids = _card_ids(rows)
-        self.log = []
-
-    def table(self, name):
-        return _FakeQuery(name, self._rows, self._ids, self.log)
+from fake_price_history import FakeClient as _FakeClient  # noqa: E402
+from fake_price_history import FakeQuery as _FakeQuery  # noqa: E402
+from fake_price_history import card_ids as _card_ids  # noqa: E402
 
 
 def row(card, shop, price, date, rarity="ノーマル"):
@@ -453,3 +392,30 @@ class TestFailedChunkStopsAndOthersSurvive:
         rows, failed = phr.fetch_daily_rows_by_card_names(fake, ["カードA"], "card_name", days, "test")
         assert failed == {"カードA"}
         assert len(fake.calls["price_history"]) == 1
+
+    def test_deadline_returns_unread_chunks_as_failed(self, monkeypatch):
+        # 締め切りを過ぎたら、読み終えていない束は failed にしてすぐ返す（要求を gunicorn の120秒まで引っぱらない）
+        import price_history_reads as phr
+        monkeypatch.setattr(phr, "_READ_DEADLINE_SEC", 0.05)
+        orig = phr._read_day
+
+        def slow(*a):
+            time.sleep(0.3)
+            return orig(*a)
+
+        monkeypatch.setattr(phr, "_read_day", slow)
+        days = phr.jst_days_back(8)
+        fake = _FailingClient([row("カードA", "店舗A", 500, days[-1])], {}, ["カードA"])
+        t = time.monotonic()
+        rows, failed = phr.fetch_daily_rows_by_card_names(fake, ["カードA"], "card_name", days, "test")
+        assert failed == {"カードA"}
+        assert rows == []
+        assert time.monotonic() - t < 0.25, "動いている読み込みの終わりを待たずに返す"
+
+    def test_jst_days_back_matches_old_cutoff(self):
+        # 以前の `recorded_at >= 今日の N 日前` と同じ日付の集合（今日を含めて N+1 日）
+        import price_history_reads as phr
+        days = phr.jst_days_back(7)
+        assert len(days) == 8
+        assert days[0] == (_TODAY - timedelta(days=7)).isoformat()
+        assert days[-1] == _TODAY.isoformat()

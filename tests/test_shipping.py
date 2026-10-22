@@ -14,14 +14,15 @@ tests/test_shipping.py — 送料・最低注文金額ルールのテスト
 """
 
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import shipping  # noqa: E402
+from constants import JST  # noqa: E402
 
 
 # ---------------------------------------------------------------- 純粋関数
@@ -117,39 +118,15 @@ class TestRulesForClient:
 
 # ---------------------------------------------------------------- API 結合
 
-class _FakeQuery:
-    """price_history の select/in_/gte/range をたどるだけの最小スタブ"""
+from fake_price_history import FakeClient as _FakeClient  # noqa: E402
 
-    def __init__(self, rows):
-        self._rows = rows
-
-    def select(self, *_a, **_k):
-        return self
-
-    def in_(self, *_a, **_k):
-        return self
-
-    def gte(self, *_a, **_k):
-        return self
-
-    def order(self, *_a, **_k):
-        return self
-
-    def range(self, start, end):
-        self._slice = (start, end)
-        return self
-
-    def execute(self):
-        start, end = getattr(self, "_slice", (0, 999))
-        return SimpleNamespace(data=self._rows[start:end + 1])
+# 読み込みは「今日の7日前から今日まで」の日付ごと（2026-10-22 から）なので、テストの日付も今日から数える。
+# 以前の固定日付 08-06 / 08-05 / 08-01 は、それぞれ今日・1日前・5日前に置き換えた（日付の前後関係は同じ）
+_TODAY = datetime.now(JST).date()
 
 
-class _FakeClient:
-    def __init__(self, rows):
-        self._rows = rows
-
-    def table(self, _name):
-        return _FakeQuery(self._rows)
+def _d(days_ago: int) -> str:
+    return (_TODAY - timedelta(days=days_ago)).isoformat()
 
 
 @pytest.fixture
@@ -167,11 +144,11 @@ def client(monkeypatch):
     return _make
 
 
-def _row(card, shop, price, rarity="ノーマル", recorded_at="2026-08-06"):
+def _row(card, shop, price, rarity="ノーマル", recorded_at=None):
     # recorded_at はF6修正（監査F6: 最新観測日採用）で必須になった。既存テストは
     # 全行同一日付にしておけば「最新日min」判定は従来どおり素通りする
     return {"card_name": card, "shop": shop, "rarity": rarity, "min_price": price,
-            "recorded_at": recorded_at}
+            "recorded_at": recorded_at or _d(0)}
 
 
 def _by_shop(payload):
@@ -308,8 +285,8 @@ class TestWishShopTotalsLatestDatePrice:
     def test_older_cheap_row_not_used_when_newer_row_exists(self, client):
         # 6日前(古い)は¥500、今日(最新)は¥800。従来ロジック(7日窓min)は¥500を採用していた
         c = client([
-            _row("テストカードA", "カードラボ", 500, recorded_at="2026-08-01"),
-            _row("テストカードA", "カードラボ", 800, recorded_at="2026-08-06"),
+            _row("テストカードA", "カードラボ", 500, recorded_at=_d(5)),
+            _row("テストカードA", "カードラボ", 800, recorded_at=_d(0)),
         ])
         res = c.post("/api/wish-shop-totals",
                      json={"cards": [{"name": "テストカードA", "qty": 1}]})
@@ -320,8 +297,8 @@ class TestWishShopTotalsLatestDatePrice:
     def test_newer_row_replaces_regardless_of_arrival_order(self, client):
         # DBの返却順に依存せず判定できることを確認（新しい日の行が先に来ても正しく置き換わる）
         c = client([
-            _row("テストカードA", "カードラボ", 800, recorded_at="2026-08-06"),
-            _row("テストカードA", "カードラボ", 500, recorded_at="2026-08-01"),
+            _row("テストカードA", "カードラボ", 800, recorded_at=_d(0)),
+            _row("テストカードA", "カードラボ", 500, recorded_at=_d(5)),
         ])
         res = c.post("/api/wish-shop-totals",
                      json={"cards": [{"name": "テストカードA", "qty": 1}]})
@@ -331,8 +308,8 @@ class TestWishShopTotalsLatestDatePrice:
     def test_same_date_multiple_rows_take_min(self, client):
         # 同一日内の複数行（収集の重複実行等）は min を採用する
         c = client([
-            _row("テストカードA", "カードラボ", 900, recorded_at="2026-08-06"),
-            _row("テストカードA", "カードラボ", 850, recorded_at="2026-08-06"),
+            _row("テストカードA", "カードラボ", 900, recorded_at=_d(0)),
+            _row("テストカードA", "カードラボ", 850, recorded_at=_d(0)),
         ])
         res = c.post("/api/wish-shop-totals",
                      json={"cards": [{"name": "テストカードA", "qty": 1}]})
@@ -342,9 +319,9 @@ class TestWishShopTotalsLatestDatePrice:
     def test_different_rarities_tracked_independently_by_latest_date(self, client):
         # レアリティごとに別系列として最新観測日を判定する
         c = client([
-            _row("テストカードA", "カードラボ", 300, rarity="ノーマル", recorded_at="2026-08-01"),
-            _row("テストカードA", "カードラボ", 250, rarity="ノーマル", recorded_at="2026-08-06"),
-            _row("テストカードA", "カードラボ", 3000, rarity="シク", recorded_at="2026-08-05"),
+            _row("テストカードA", "カードラボ", 300, rarity="ノーマル", recorded_at=_d(5)),
+            _row("テストカードA", "カードラボ", 250, rarity="ノーマル", recorded_at=_d(0)),
+            _row("テストカードA", "カードラボ", 3000, rarity="シク", recorded_at=_d(1)),
         ])
         res = c.post("/api/wish-shop-totals",
                      json={"cards": [{"name": "テストカードA", "qty": 1, "rarity": "ノーマル"}]})
@@ -356,8 +333,8 @@ class TestWishShopTotalsLatestDatePrice:
         # 監査M5（2026-08-07）: 10円以下は収集異常値として除外する。
         # daily_min_by_lowest_rarity 等の他経路と統一
         c = client([
-            _row("テストカードA", "カードラボ", 5, recorded_at="2026-08-06"),   # 除外される
-            _row("テストカードA", "カードラボ", 300, recorded_at="2026-08-01"),  # 唯一の有効行
+            _row("テストカードA", "カードラボ", 5, recorded_at=_d(0)),   # 除外される
+            _row("テストカードA", "カードラボ", 300, recorded_at=_d(5)),  # 唯一の有効行
         ])
         res = c.post("/api/wish-shop-totals",
                      json={"cards": [{"name": "テストカードA", "qty": 1}]})
@@ -375,9 +352,9 @@ class TestWishShopTotalsLatestDatePrice:
         """
         c = client([
             # ノーマルは8/1のみ観測（古いが安い）
-            _row("テストカードA", "カードラボ", 300, rarity="ノーマル", recorded_at="2026-08-01"),
+            _row("テストカードA", "カードラボ", 300, rarity="ノーマル", recorded_at=_d(5)),
             # シクは8/6（窓内最新日）だが高い
-            _row("テストカードA", "カードラボ", 3000, rarity="シク", recorded_at="2026-08-06"),
+            _row("テストカードA", "カードラボ", 3000, rarity="シク", recorded_at=_d(0)),
         ])
         res = c.post("/api/wish-shop-totals",
                      json={"cards": [{"name": "テストカードA", "qty": 1}]})  # rarity未指定
@@ -421,3 +398,49 @@ class TestWishShopTotalsEntries:
         payload = res.get_json()
         assert payload["entries"] == []
         assert payload["shops"] == []
+
+
+# ---------------------------------------------------------------- 読み方（2026-10-22 カード番号＋日付の等号）
+
+class TestReadsByCardIdAndDay:
+    def test_shop_totals_reads_seven_day_window_by_card_id(self, client):
+        import app as app_module
+        c = client([_row("テストカードA", "カードラボ", 500)])
+        c.post("/api/wish-shop-totals", json={"cards": [{"name": "テストカードA", "qty": 1}]})
+        ph = [x for x in app_module._supabase_client.log if x[0] == "price_history"]
+        days = sorted(next(iter(f["recorded_at"])) for _t, f, _o in ph)
+        assert days == [_d(n) for n in range(7, -1, -1)], "今日の7日前から今日まで（8日分）"
+        for _t, f, orders in ph:
+            assert "card_name" not in f
+            assert orders == ["card_id", "shop_id", "rarity_id"]
+
+    def test_shop_totals_row_older_than_window_is_not_used(self, client):
+        # 8日前の行は窓の外（以前の recorded_at >= 7日前 と同じ）
+        c = client([_row("テストカードA", "カードラボ", 500, recorded_at=_d(8))])
+        res = c.post("/api/wish-shop-totals", json={"cards": [{"name": "テストカードA", "qty": 1}]})
+        assert {"name": "テストカードA", "rarity": ""} in res.get_json()["db_missing"]
+
+    def test_card_rarities_counts_rows_in_window(self, client):
+        rows = [
+            _row("テストカードA", "カードラボ", 500, rarity="ノーマル", recorded_at=_d(0)),
+            _row("テストカードA", "遊々亭", 520, rarity="ノーマル", recorded_at=_d(1)),
+            _row("テストカードA", "カードラボ", 3000, rarity="シークレット", recorded_at=_d(2)),
+            _row("テストカードA", "カードラボ", 9000, rarity="ウルトラ", recorded_at=_d(9)),  # 窓の外
+        ]
+        c = client(rows)
+        res = c.post("/api/card-rarities", json={"cards": ["テストカードA"]})
+        assert res.get_json()["rarities"]["テストカードA"] == ["ノーマル", "シークレット"]
+
+    def test_read_failure_goes_to_db_missing_and_no_rarities(self, monkeypatch, client):
+        # 読めなかったカードは、まとめ買いでは db_missing（画面は店のリアルタイム検索で補う）、レアリティ候補は候補なし
+        import price_history_reads as phr
+
+        def boom(*_a):
+            raise RuntimeError("canceling statement due to statement timeout")
+
+        monkeypatch.setattr(phr, "_read_day", boom)
+        c = client([_row("テストカードA", "カードラボ", 500)])
+        res = c.post("/api/wish-shop-totals", json={"cards": [{"name": "テストカードA", "qty": 1}]})
+        assert {"name": "テストカードA", "rarity": ""} in res.get_json()["db_missing"]
+        res = c.post("/api/card-rarities", json={"cards": ["テストカードA"]})
+        assert res.get_json()["rarities"] == {}

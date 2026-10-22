@@ -2200,6 +2200,12 @@ rarity_pref 基準に統一。`items_map` のキーも rarity_pref で作る。
 - **値段と型番が食い違う行は版不明**: 表に出す値段は状態を問わない最安（min_price_any）、型番は通常品の最安（min_price）の出品に付く（price_persist）。2つが違う行は型番を空にして版を判定しない。
 - **reviewer（高2・中3・低4）**: 高1（カーナベルの型番がハイフン無しの略号だけ）は本番の記録では完全な型番だったが、略号だけ・アジア版の形にも備えた。ほかは対応（受付上限・覚える単位をカードの集まりに・失敗を30秒覚える・途中で失敗した検索では表を置き換えない・並べ替えを索引の順に）。
 
+## 2026-10-22: まとめ買い・レアリティ候補も同じ読み方にし、読み込みに締め切りを入れる（branch perf/wish-reads-rest）
+- 何を: /api/wish-shop-totals・/api/card-rarities の price_history の読み込みを、購入候補（#204）と同じ fetch_daily_rows_by_card_names（card_dim で名前→カード番号、日付ごとの等号）へ移す。窓は従来の `recorded_at >= 今日の7日前` と同じ8日分（price_history_reads.jst_days_back）。名前＋日付の範囲で読む fetch_recent_rows_by_card_names は使う所が無くなったので消す。
+- 締め切り: 1回の読み込みに `_READ_DEADLINE_SEC=30秒`（仮置き）。過ぎたら読み終えていない束を失敗として返し、動いている読み込みは捨てる（共有の枠で最後まで動く。1本は statement timeout で止まる）。理由: DB が重い時間帯に1往復が数秒になると、順番待ちが重なって要求が gunicorn の120秒に近づく（reviewer 中1）。購入候補は8日窓と30日窓の2回呼ぶので合わせて60秒。
+- 変えない振る舞い: まとめ買いで読めなかったカードは db_missing（画面は店のリアルタイム検索で補う）、レアリティ候補は候補なし。集計はどちらも行の並びに依存しない（まとめ買いは観測日を比べて新しい方、レアリティ候補は出現回数）。
+- VACUUM（Heap Fetches を減らす）は手で流さず autovacuum に任せる（ユーザー判断。無料 Nano の Disk IO を使うため。数日後に EXPLAIN で1回確かめる）。
+
 ## 2026-10-22: 購入候補の価格はカード番号＋日付の等号で読む（statement timeout の根本対策・branch perf/wish-prices-by-card-id・ユーザー承認）
 - 何を: /api/wish-prices の price_history の読み方を、カード名の in_＋`recorded_at >= cutoff`＋並び recorded_at（offset 送り）から、card_dim で名前→カード番号にしてから日付ごとに `eq(recorded_at)`＋`in_(card_id)`・並び `card_id, shop_id, rarity_id` に変える（price_history_reads.fetch_daily_rows_by_card_names）。窓（8日窓・30日窓とも今日の N 日前から今日まで）・latest・共通店舗の値動き・pending の判定・失敗を status "error" で返す振る舞いは変えない。
 - なぜ: 本番 EXPLAIN ANALYZE（10-22 13〜14時・読み取りのみ・長い名前50枚・30日窓 13,488行）で、変更前は 1ページ 4.76秒（主キー (card_id, shop_id, rarity_id, recorded_at) をカードごとにたどり、1行ごとに表の本体を読む）で、それを offset のページごとに最初からやり直して約14ページ。変更後は索引 idx_ph2_date_card_shop_rarity（min_price を含む）の Index Only Scan で、1日 約0.11秒・31日ぶん合計 3.44秒。1日は約400〜600行で1ページに収まる。
