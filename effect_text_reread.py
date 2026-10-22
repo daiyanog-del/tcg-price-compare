@@ -186,6 +186,18 @@ TRUST_MAX_DIFF_CHARS = 4          # 非一致文字数（置換は長い側、�
 TRUST_LEN_RATIO = (0.95, 1.05)    # len(読み直し)/len(1回目) の許容範囲
 TRUST_MAX_EDGE_INDEL = 1          # 先頭・末尾にある削除/挿入がこの文字数を超えたら（行の欠け・追加とみなして）信じない
 
+# 上の上限を超える食い違いは、同じ切り出しをもう一度（3回目）読み、読み直しと完全に一致したら読み直し側を信じる（多数決）。
+# 根拠（2026-10-22）: 10-19〜21 の公式X由来で上限を超えた3枚（1回目が「時の黒魔術師」と作り話・文の書き換え）は
+# どれも読み直しが正しく人が無修正で承認した。過去の食い違い8枚で3回目を2回ずつ読むと16回すべて読み直しと一致。
+# 3回目は同じ切り出し・同じモデルなので、切り出しや配置から毎回同じように起きる誤り（端の欠け・行の読み飛ばし・
+# ペンデュラムの欄の割り振り）は防げない。その型は3回目に回さず人へ（third_read_eligible）
+THIRD_READ_ON_LARGE_DISAGREE = os.environ.get("EFFECT_THIRD_READ", "1") != "0"
+# 3回目に回してよい食い違いの形。実測（10-15〜22 の公式X・公式サイト由来の食い違い9枚）: 長さの比 0.956〜1.045、
+# 1か所で消えた字（1回目の部分−読み直しの部分）は最大11、先頭・末尾はすべて一致。余裕を見て次の値にする
+# TODO: calibrate from data（3回目で通したカードが後で直された率と、上限で人へ回った事例を見て見直す）
+THIRD_LEN_RATIO = (0.85, 1.15)    # len(読み直し)/len(1回目)。段落の読み飛ばし（例: 比 0.55）を止める
+THIRD_MAX_OP_LOSS = 15            # 1か所で消えてよい字数。行の読み飛ばしを止める（効果欄の1行はおおむね20〜27字）
+
 
 def diff_within_trust_limits(a: str, b: str) -> bool:
     """norm() 後の a（1回目）と b（読み直し）の食い違いが、信じてよい小ささか。"""
@@ -207,35 +219,82 @@ def diff_within_trust_limits(a: str, b: str) -> bool:
     return True
 
 
-def _can_trust_on_disagree(row: dict, raw: dict, model: str, a: str, b: str, text: str,
-                           has_unreadable: bool, trust_on_disagree: bool | None, pendulum_text: str | None = None) -> bool:
-    """食い違っても読み直し側を信じて効果テキストを不確かにしないか（reread_trust.py 参照）。
+def third_read_eligible(a: str, b: str) -> bool:
+    """上限を超えた食い違いを3回目で確かめてよい形か（a=1回目、b=読み直し。どちらも combined_text）。
 
-    すべて満たすときだけ True: 食い違いが小さい（diff_within_trust_limits）／読み直しに〓が無い／両方に文がある／1回目と読み直しが同じモデル／
-    1回目が name を不確かとしていない／読み直し文に誤字検査の強い疑いが無い（検査できないときも不可）／
-    設定が有効（読めなければ無効）。安い条件から順に見て、設定の読み取りは最後にする。
+    同じ切り出しを読む3回目でも同じように起きる誤りの型は除く: 先頭・末尾の変化（切り出しの欠け・番号や
+    ATK/DEF の映り込み。置換・追加も含む）、ペンデュラムの区切りをまたぐ差（欄の割り振り）、長さの大きな変化・
+    1か所で大きく消えた文（行の読み飛ばし）。
+    """
+    if not a or not b or not (THIRD_LEN_RATIO[0] <= len(b) / len(a) <= THIRD_LEN_RATIO[1]):
+        return False
+    ops = diff_ops(a, b)
+    changed = [(x, y) for tag, x, y in ops if tag != "equal"]
+    if any(PENDULUM_SEPARATOR in x + y for x, y in changed):
+        return False
+    if any(len(x) - len(y) > THIRD_MAX_OP_LOSS for x, y in changed):
+        return False
+    return not any(ops[i][0] != "equal" and max(len(ops[i][1]), len(ops[i][2])) > TRUST_MAX_EDGE_INDEL
+                   for i in (0, len(ops) - 1))
+
+
+def _text_check_context(row: dict, batch_names=(), cache: dict | None = None):
+    """読み直し文の誤字検査に使う文脈（他カードの名前一覧, TextContext）。
+
+    最終判定（annotate_row）と同じく登録済みの未発売カードの名前・「」内語を使い、同じ取込で入るカードの名前も足す。
+    文脈が無いと、同じ弾の新カード名（例: 「不死なる太陽神」）が既存語に近いだけで強い疑いになり、
+    読み直しを信じられなかった（2026-10-15 太陽神3枚）。DB に届かないときは同じ取込の名前だけ（安全側）。
+    cache: 取込1回ぶんの使い回し用（reread_effect_texts が渡す）。DB の読み込みは失敗も含めて1回だけにする
+    （DB が詰まっているときに食い違ったカードごとに全件を読み直さない）。
+    """
+    cache = {} if cache is None else cache
+    if "ctx" not in cache:
+        try:
+            import reread_trust
+            from unreleased_auto_approve import get_card_context_cached
+            sb = reread_trust._get_client()
+            cache["ctx"] = get_card_context_cached(sb) if sb is not None else None
+        except Exception as e:  # noqa: BLE001 — 文脈なしで検査する（強い疑いが出やすい側）
+            logger.warning("読み直しの誤字検査用の文脈を取れません（文脈なしで検査）: %s", e)
+            cache["ctx"] = None
+    own = row.get("name") or ""
+    names = [n for n in batch_names if n and n != own]
+    ctx = cache["ctx"]
+    if ctx is None:
+        return names, None
+    others, tctx = ctx.excluding(row.get("id"))
+    return others + names, tctx
+
+
+def _trust_preconditions(row: dict, raw: dict, model: str, a: str, b: str, text: str,
+                         has_unreadable: bool, trust_on_disagree: bool | None, pendulum_text: str | None = None,
+                         batch_names=(), context_cache: dict | None = None) -> bool:
+    """食い違いの大きさ以外で、読み直し側を信じてよい条件をすべて満たすか（reread_trust.py 参照）。
+
+    読み直しに〓が無い／両方に文がある／1回目と読み直しが同じモデル／1回目が name を不確かとしていない／
+    読み直し文に誤字検査の強い疑いが無い（検査できないときも不可）／設定が有効（読めなければ無効）。
+    安い条件から順に見る。設定（1行）は誤字検査の文脈（全件の読み込み）より先に見る。
     a, b は combined_text（ペンデュラムは2欄をつないだ文字列なので、差の大きさは2欄の合計で見る）。
     pendulum_text はペンデュラムの読み直したペンデュラム効果（通常カードは None で、行の pendulum_effect を使う）。
-    誤字検査は取込前なので他カードの文脈（名前・「」内語）なしで行う。文脈なしのほうが強い疑いが出やすい（安全側）。
-    最終的な自動承認の判定（annotate_row）は文脈つきで text_check をやり直し、強い疑いがあれば別途不適格にする。
+    誤字検査は登録済みの未発売カードと同じ取込のカードの名前を文脈にする（_text_check_context）。
+    最終的な自動承認の判定（annotate_row）でも文脈つきで text_check をやり直し、強い疑いがあれば別途不適格にする。
     """
     # ペンデュラムは区切りだけの文字列にならないよう、区切りを除いて中身があるかを見る
     if has_unreadable or not a.replace(PENDULUM_SEPARATOR, "") or not b.replace(PENDULUM_SEPARATOR, ""):
         return False
-    if not diff_within_trust_limits(a, b):
-        return False
     if raw.get("model") != model or "name" in _uncertain_list(raw):
         return False
+    if trust_on_disagree is None:
+        import reread_trust
+        trust_on_disagree = reread_trust.is_enabled()
+    if not trust_on_disagree:
+        return False
     from unreleased_auto_approve import compute_text_check
+    others, tctx = _text_check_context(row, batch_names, context_cache)
     check = compute_text_check({"name": row.get("name") or "", "effect_text": text,
                                 "pendulum_effect": pendulum_text if pendulum_text is not None
-                                else (row.get("pendulum_effect") or "")})
-    if check.get("status") != "checked" or check.get("strong"):
-        return False
-    if trust_on_disagree is not None:
-        return trust_on_disagree
-    import reread_trust
-    return reread_trust.is_enabled()
+                                else (row.get("pendulum_effect") or "")}, others, tctx)
+    return check.get("status") == "checked" and not check.get("strong")
 
 
 def _effect_fields(pendulum: bool) -> tuple:
@@ -294,14 +353,17 @@ def reread_effect_texts(rows: list[dict], *, client, encoded_images: list[dict],
             t0 = time.time()
             result = _read_one(client, model, crop, name, pendulum=pendulum)
             row["extraction_raw"]["_reread_seconds"] = time.time() - t0
-            return row, pendulum, result, None
+            return row, crop, pendulum, result, None
         except Exception as exc:  # noqa: BLE001 — API エラー・未完了応答・JSON 不正など
-            return row, pendulum, None, exc
+            return row, crop, pendulum, None, exc
 
     with ThreadPoolExecutor(max_workers=_WORKERS) as ex:
         results = list(ex.map(work, jobs))
 
-    for row, pendulum, result, exc in results:
+    batch_names = [r.get("name") or "" for r in rows]
+    context_cache: dict = {}
+    third_jobs = []  # 食い違いが大きく、3回目で確かめるもの (row, crop, pendulum, b)
+    for row, crop, pendulum, result, exc in results:
         if exc is not None:
             _fail(row, model, f"{type(exc).__name__}: {str(exc)[:300]}")
             continue
@@ -347,22 +409,85 @@ def reread_effect_texts(rows: list[dict], *, client, encoded_images: list[dict],
             if any(f in uncertain for f in fields):
                 raw["uncertain_fields"] = [f for f in uncertain if f not in fields]
                 raw["uncertain_cleared_by_reread"] = True
-        elif not agreed and _can_trust_on_disagree(row, raw, model, a, b, text, has_unreadable, trust_on_disagree,
-                                                   pendulum_text=ptext if pendulum else None):
-            # 食い違ったが、読み直し側に問題が見当たらないので不確かにしない（外れたら設定が自動で無効になる）
-            raw["reread_trusted_on_disagree"] = True
-            # 採用するのは読み直し文。1回目の自己申告による効果欄の不確かは1回目の読み取りへの自信の話なので外す
-            # （name の自己申告があるときは条件側で信じない）。fields が空でも medium_uncertain_unknown にしない印を残す
-            if any(f in uncertain for f in fields):
-                raw["uncertain_fields"] = [f for f in uncertain if f not in fields]
-                raw["uncertain_cleared_by_reread"] = True
-            raw["reread_trust_diff_summary"] = raw["effect_text_reread"]["diff_summary"]
-            logger.info("効果テキストが食い違ったが読み直し側を採用: %s %s", row.get("name"), raw["reread_trust_diff_summary"])
+        elif not agreed and _trust_preconditions(row, raw, model, a, b, text, has_unreadable, trust_on_disagree,
+                                                 pendulum_text=ptext if pendulum else None, batch_names=batch_names,
+                                                 context_cache=context_cache):
+            if diff_within_trust_limits(a, b):
+                _trust_reread(row, raw, fields)
+            elif THIRD_READ_ON_LARGE_DISAGREE and third_read_eligible(a, b):
+                third_jobs.append((row, crop, pendulum, b))
+            else:
+                _mark_uncertain(raw, *fields)
+                logger.warning("効果テキストが1回目と大きく食い違い（3回目で確かめられない形）: %s", row.get("name"))
         elif not agreed:
             _mark_uncertain(raw, *fields)
             logger.warning("効果テキストが1回目と食い違い/〓あり/空: %s", row.get("name"))
         logger.info("[Reread] %s agreed=%s pendulum=%s model=%s %.1f秒", row.get("name"), agreed, pendulum, model,
                     seconds or 0.0)
+
+    if third_jobs:
+        _confirm_by_third_read(third_jobs, client, model)
+
+
+def _trust_reread(row: dict, raw: dict, fields, *, third: bool = False) -> None:
+    """食い違ったが読み直し側を信じて不確かにしない（外れたら設定が自動で無効になる。reread_trust.py）。"""
+    raw["reread_trusted_on_disagree"] = True
+    if third:
+        raw["reread_trusted_by_third_read"] = True
+    # 採用するのは読み直し文。1回目の自己申告による効果欄の不確かは1回目の読み取りへの自信の話なので外す
+    # （name の自己申告があるときは条件側で信じない）。fields が空でも medium_uncertain_unknown にしない印を残す
+    uncertain = _uncertain_list(raw)
+    if any(f in uncertain for f in fields):
+        raw["uncertain_fields"] = [f for f in uncertain if f not in fields]
+        raw["uncertain_cleared_by_reread"] = True
+    raw["reread_trust_diff_summary"] = raw["effect_text_reread"]["diff_summary"]
+    logger.info("効果テキストが食い違ったが読み直し側を採用%s: %s %s", "（3回目と一致）" if third else "",
+                row.get("name"), raw["reread_trust_diff_summary"])
+
+
+def _confirm_by_third_read(jobs: list, client, model: str) -> None:
+    """食い違いが大きいカードの切り出しを同じモデルでもう一度読み、読み直しと完全に一致すれば読み直しを信じる。
+
+    一致しない・〓・失敗はすべて効果欄を不確かにする（人の確認へ）。結果は effect_text_reread.third に残す。
+    """
+    from unreleased_extractor import normalize_effect_punct
+
+    def work(job):
+        row, crop, pendulum, _ = job
+        name = "" if "name" in _uncertain_list(row["extraction_raw"]) else (row.get("name") or "").strip()
+        t0 = time.time()
+        try:
+            return _read_one(client, model, crop, name, pendulum=pendulum), time.time() - t0, None
+        except Exception as exc:  # noqa: BLE001
+            return None, time.time() - t0, exc
+
+    with ThreadPoolExecutor(max_workers=_WORKERS) as ex:
+        results = list(ex.map(work, jobs))
+
+    for (row, _, pendulum, b), (result, seconds, exc) in zip(jobs, results):
+        raw = row["extraction_raw"]
+        fields = _effect_fields(pendulum)
+        info = raw["effect_text_reread"]
+        if exc is not None:
+            info["third"] = {"error": f"{type(exc).__name__}: {str(exc)[:300]}", "seconds": round(seconds, 1)}
+            _mark_uncertain(raw, *fields)
+            logger.warning("3回目の読み取りに失敗（効果欄を不確かにする）: %s: %s", row.get("name"), exc)
+            continue
+        data, _, usage = result
+        text = normalize_effect_punct((data.get("effect_text") or "").strip())
+        ptext = normalize_effect_punct((data.get("pendulum_effect") or "").strip()) if pendulum else ""
+        unreadable = UNREADABLE in text + ptext or bool(data.get("unreadable"))
+        c = combined_text(text, ptext, pendulum)
+        agreed = c == b and not unreadable
+        info["third"] = {"agreed": agreed, "text": text, **({"pendulum_text": ptext} if pendulum else {}),
+                         "diff_summary": "" if c == b else diff_summary(b, c), "usage": usage,
+                         "seconds": round(seconds, 1)}
+        if agreed:
+            _trust_reread(row, raw, fields, third=True)
+        else:
+            _mark_uncertain(raw, *fields)
+            logger.warning("3回目が読み直しと一致せず（効果欄を不確かにする）: %s %s", row.get("name"),
+                           info["third"]["diff_summary"])
 
 
 def _fail(row: dict, model: str, reason: str, usage: dict | None = None) -> None:

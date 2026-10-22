@@ -264,7 +264,7 @@ def test_pendulum_trust_checks_reread_pendulum_text_for_typos(monkeypatch):
     seen = {}
     import unreleased_auto_approve as aa_mod
     monkeypatch.setattr(aa_mod, "compute_text_check",
-                        lambda r: seen.update(r) or {"status": "checked", "strong": True})
+                        lambda r, *a, **k: seen.update(r) or {"status": "checked", "strong": True})
     _fake_read(monkeypatch, text="①：このカードを特殊召喚できる。", ptext="①：1ターンに1度、発動する。")
     row = _pend_row(pend="①：1ターンに1度、発動できる。")
     rr.reread_effect_texts([row], client=object(), encoded_images=_images(), trust_on_disagree=True)
