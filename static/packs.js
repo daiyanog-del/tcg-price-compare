@@ -516,7 +516,9 @@ function _pkMatrixModel(st,items,code,shopOrder,failedByCard){
 }
 
 // 狭い画面で表の見出しに使う店の短い呼び名（無い店は正式名のまま）
-const _PK_SHOP_SHORT={'カードラッシュ':'ラッシュ','トレコロCB':'トレコロ','カードラボ':'ラボ','まんぞく屋':'まんぞく','カーナベル':'ナベル'};
+// 表の見出しの店名は正式名のまま、狭いときは決まった位置で2行に折る（短い呼び名は名前が切れたように見えたのでやめた。2026-10-22 ユーザー指摘）
+const _PK_SHOP_BREAK={'カードラッシュ':['カード','ラッシュ'],'トレコロCB':['トレコロ','CB'],'カードラボ':['カード','ラボ'],'まんぞく屋':['まんぞく','屋'],'カーナベル':['カー','ナベル']};
+function _pkShopLabel(s){ const parts=_PK_SHOP_BREAK[s]; return parts?parts.map(esc).join('<wbr>'):esc(s); }
 
 // カードごとにまとめ、行はレアリティ。各行でいちばん安い店だけ緑。他の商品の版は畳んで「も見る」で開く
 function _pkMatrixHtml(model,sort,fromDb){
@@ -526,16 +528,18 @@ function _pkMatrixHtml(model,sort,fromDb){
     const top=g=>Math.max(-1,...g.main.flatMap(r=>Object.values(r.cells).filter(c=>!c.other).map(c=>c.price)));
     groups.sort((a,b)=>top(b)-top(a));
   }
-  const span=shops.length+2;
-  const cell=(c,isMin)=>{
+  const span=shops.length+1;
+  // data-shop: スマホでは見出しの代わりにマスの頭に店名を出す。--o: スマホでは安い順に並べる（css/packs.css）
+  const rankOf=r=>{ const ps=shops.map(s=>r.cells[s]).filter(Boolean).map(c=>c.price).sort((a,b)=>a-b); return p=>ps.indexOf(p); };
+  const cell=(c,isMin,shop,rank)=>{
     const url=c.url&&safeUrl(c.url);
     const txt=_pkYen(c.price);
     const badge=c.other&&_pkPrefixOf(c.code)?`<span class="pmx-ver">${esc(_pkPrefixOf(c.code))}</span>`:'';
     // 見出しの日付より古い記録（その店の今日の収集がまだ）には日付を添える（reviewer 中3）
     const date=model.updatedAt&&c.date&&c.date<model.updatedAt?`<small class="pmx-date">${esc(_pkMd(c.date))}</small>`:'';
-    return `<td class="${isMin?'is-min':''}${c.other?' is-other':''}">${url?`<a href="${escAttr(url)}" target="_blank" rel="noopener">${txt}</a>`:txt}${badge}${date}</td>`;
+    return `<td class="${isMin?'is-min':''}${c.other?' is-other':''}" data-shop="${escAttr(shop)}" style="--o:${rank|0}">${url?`<a href="${escAttr(url)}" target="_blank" rel="noopener">${txt}</a>`:txt}${badge}${date}</td>`;
   };
-  let h=`<div class="pmx-scroll"><table class="pmx"><thead><tr><th class="pmx-sc">レアリティ</th>${shops.map(s=>`<th title="${escAttr(s)}"><span class="pmx-shop-l">${esc(s)}</span><span class="pmx-shop-s" aria-hidden="true">${esc(_PK_SHOP_SHORT[s]||s)}</span></th>`).join('')}<th><span class="sr-only">購入候補</span></th></tr></thead><tbody>`;
+  let h=`<div class="pmx-scroll"><table class="pmx"><thead><tr><th class="pmx-sc">レアリティ</th>${shops.map(s=>`<th title="${escAttr(s)}">${_pkShopLabel(s)}</th>`).join('')}</tr></thead><tbody>`;
   groups.forEach((g,gi)=>{
     h+=`<tr class="pmx-g"><td colspan="${span}"><div class="pmx-gname"><span class="pmx-thumb"><span class="pack-card-thumb" data-card="${escAttr(g.name)}"></span></span>${esc(g.name)}</div></td></tr>`;
     const f=g.failed;
@@ -546,19 +550,22 @@ function _pkMatrixHtml(model,sort,fromDb){
     for(const r of g.main){
       const ps=shops.map(s=>r.cells[s]).filter(c=>c&&!c.other).map(c=>c.price);
       const min=ps.length?Math.min(...ps):null;
-      h+=`<tr><td class="pmx-sc">${esc(r.rarity)}</td>`;
+      // 購入候補の「+」はレアリティの列（横にスクロールしても付いてくる列）に置く。右端の列だと幅が足りないと見切れた（2026-10-22 ユーザー指摘）
+      h+=`<tr><td class="pmx-sc"><span class="pmx-rar"><span>${esc(r.rarity)}</span><button type="button" class="pmx-add-btn" data-name="${escAttr(g.name)}" data-rarity="${escAttr(r.rarity)}" aria-label="${escAttr('「'+r.rarity+'」を購入候補に入れる')}" title="購入候補に入れる">+</button></span></td>`;
+      const rank=rankOf(r);
       for(const s of shops){
         const c=r.cells[s];
-        if(!c){ h+=f&&f.shops.includes(s)?'<td class="is-dim is-fail">取得失敗</td>':'<td class="is-dim">—</td>'; continue; }
-        h+=cell(c,!c.other&&c.price===min);
+        if(!c){ h+=f&&f.shops.includes(s)?`<td class="is-dim is-fail" data-shop="${escAttr(s)}" style="--o:99">取得失敗</td>`:'<td class="is-dim">—</td>'; continue; }
+        h+=cell(c,!c.other&&c.price===min,s,rank(c.price));
       }
-      h+=`<td class="pmx-add"><button type="button" class="pmx-add-btn" data-name="${escAttr(g.name)}" data-rarity="${escAttr(r.rarity)}">+ 候補</button></td></tr>`;
+      h+='</tr>';
     }
     if(g.other.length){
       for(const r of g.other){
         h+=`<tr class="pmx-other" data-mx-of="${gi}" hidden><td class="pmx-sc">${esc(r.rarity)}${r.vers.filter(Boolean).length?`<span class="pmx-ver">${esc(r.vers.filter(Boolean).join('・'))}</span>`:''}</td>`;
-        for(const s of shops){ const c=r.cells[s]; h+=c?cell({...c,other:false},false):'<td class="is-dim">—</td>'; }
-        h+='<td></td></tr>';
+        const rank=rankOf(r);
+        for(const s of shops){ const c=r.cells[s]; h+=c?cell({...c,other:false},false,s,rank(c.price)):'<td class="is-dim">—</td>'; }
+        h+='</tr>';
       }
       h+=`<tr class="pmx-more-row"><td colspan="${span}"><button type="button" class="pmx-more" data-mx-toggle="${gi}" aria-expanded="false">他の商品の版 ${g.other.length}行も見る</button></td></tr>`;
     }

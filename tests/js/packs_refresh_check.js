@@ -107,7 +107,7 @@ check('まとめて検索の結果: 最安は「このパックの版」だけ�
   sb.__m = r.matrix;
   const html = run("_pkMatrixHtml(__m,'order',false)");
   // 最安の緑はこのパックの版（店B ¥20）。店A ¥10（他の版）には付けない
-  assert.ok(/is-min">¥20/.test(html) || /is-min"><a[^>]*>¥20/.test(html), 'このパックの最安に緑が無い');
+  assert.ok(/is-min"[^>]*>(?:<a[^>]*>)?¥20/.test(html), 'このパックの最安に緑が無い');
   assert.ok(!/is-min[^"]*"[^>]*>(?:<a[^>]*>)?¥10/.test(html), '他の版に緑を付けた');
   assert.ok(html.includes('他の商品の版 1行も見る'));
   assert.ok(html.includes('このパックの版は見つかりませんでした'));
@@ -153,7 +153,9 @@ check('店舗×レアの表: 名前・レアリティ・店名・版の札はエ
   assert.ok(!html.includes('javascript:'), 'javascript: のリンクを張った');
   assert.ok(html.includes('href="https://ok.example/a"'));
   assert.equal((html.match(/is-min/g) || []).length, 1);
-  assert.ok(/is-min"><a href="https:\/\/ok\.example\/a"/.test(html), '最安（¥80）に印が無い');
+  assert.ok(/is-min"[^>]*><a href="https:\/\/ok\.example\/a"/.test(html), '最安（¥80）に印が無い');
+  // スマホでは見出しの代わりにマスの頭に店名（data-shop）を出す。店名もエスケープする
+  assert.ok(html.includes('data-shop="店&lt;1&gt;"') && !html.includes('data-shop="店<1>"'), '店名の札がエスケープされていない');
 });
 
 check('価格の欄: 未発売・販売の値動き（上がり=赤・下がり=緑）・買取の未検索・取得失敗・このパックの版なし', () => {
