@@ -41,11 +41,13 @@ def _cache_path(key: str) -> Path:
 
 def _cache_read(key: str, ttl: timedelta) -> dict | None:
     fp = _cache_path(key)
-    if not fp.exists():
-        return None
     try:
         # Windowsでも同一プロセスの読込と置換が競合しないようにする。
+        # 存在確認も鍵の内側で行う。Windows の os.stat はファイルを共有不可で一瞬開くため、
+        # 鍵の外で exists() すると別スレッドの os.replace が PermissionError で失敗する。
         with _CACHE_IO_LOCK:
+            if not fp.exists():
+                return None
             data = json.loads(fp.read_text(encoding="utf-8"))
         ts = datetime.fromisoformat(data["_ts"])
         if datetime.now() - ts > ttl:
