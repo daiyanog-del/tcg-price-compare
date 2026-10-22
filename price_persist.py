@@ -116,7 +116,8 @@ def build_min_price_rows(card_name: str, scrape_results: list, today: str) -> li
     return rows
 
 
-def upsert_price_rows(sb, rows: list[dict], ignore_duplicates: bool = False) -> int:
+def upsert_price_rows(sb, rows: list[dict], ignore_duplicates: bool = False,
+                      raise_on_error: bool = False) -> int:
     """price_history_v2 に RPC upsert_price_rows 経由で upsert する。
 
     主キー (card_id, shop_id, rarity_id, recorded_at) に基づき、既存があれば
@@ -146,6 +147,8 @@ def upsert_price_rows(sb, rows: list[dict], ignore_duplicates: bool = False) -> 
     既存行スキップによる正常な減少と区別がつかないため warning は出さない。
 
     エラー時は 0 を返し、ERROR ログのみ出す（呼び元の処理は止めない）。
+    raise_on_error=True のときは ERROR ログを出したうえで例外をそのまま送出する
+    （夜間収集が「DBの失敗」と「保存0行」を区別して連続失敗を数えるため。db_write_guard.py）。
     """
     if not rows:
         return 0
@@ -174,6 +177,8 @@ def upsert_price_rows(sb, rows: list[dict], ignore_duplicates: bool = False) -> 
         # ERRORレベル: ここが無言で失敗し続けると価格履歴が丸ごと止まる
         # （例: RPC未作成のままコードだけデプロイした場合）
         logger.error(f"[price_persist] upsert 失敗 ({len(rows)}行): {e}")
+        if raise_on_error:
+            raise
         return 0
 
 

@@ -26,6 +26,8 @@ from pack_scraper import (
 from price_persist import build_min_price_rows, upsert_price_rows
 from clabo_catalog import collect_clabo_catalog
 from collection_run import record_collection_run, attach_host_request_counts
+from db_write_guard import ConsecutiveDbFailureGuard, DbWriteAborted
+from discord_notify import send_discord_message
 from meta_scraper import fetch_tier_list, fetch_deck_cards
 from name_normalize import load_cardnames_index, canonicalize_card_name
 
@@ -274,11 +276,15 @@ def _save_clabo_catalog_rows(sb: Client, processed: list[dict], matched: dict[st
 
 
 def collect_and_save(sb: Client, card_name: str, today: str, shop_names: list[str],
-                     shop_stats: dict | None = None) -> int:
+                     shop_stats: dict | None = None,
+                     db_guard: ConsecutiveDbFailureGuard | None = None) -> int:
     """1枚のカードの価格を取得してSupabaseに保存。保存した行数を返す。
 
     shop_stats に dict を渡すと、店舗ごとの 取得成功/0件/取得エラー を集計する。
     「0件＝在庫なし」と「取得失敗（接続エラー・セレクタ破損等）」を区別するため。
+
+    db_guard を渡すと、保存（upsert）が例外で失敗した回数を数え、続けて上限回数
+    失敗したら DbWriteAborted を送出する（呼び元で収集を打ち切る。db_write_guard.py）。
     """
     status: dict = {}
     try:
@@ -316,7 +322,14 @@ def collect_and_save(sb: Client, card_name: str, today: str, shop_names: list[st
 
     # UNIQUE(card_name, shop, rarity, recorded_at) 制約に基づく upsert。
     # 同日に複数回呼ばれても重複行が増えず last-write-wins になる。
-    saved = upsert_price_rows(sb, rows)
+    try:
+        saved = upsert_price_rows(sb, rows, raise_on_error=db_guard is not None)
+    except Exception as e:
+        print(f"  DB保存失敗 [{card_name}]")
+        db_guard.record_failure(e)  # 上限に達したら DbWriteAborted が上がる
+        return 0
+    if db_guard is not None:
+        db_guard.record_success()
     if saved:
         print(f"  保存完了 [{card_name}]: {saved}件")
         return saved
@@ -868,6 +881,43 @@ def cleanup_old_data(sb: Client):
         print(f"古いリプレイ削除失敗: {e}")
 
 
+def _abort_on_db_failure(sb: Client, err: DbWriteAborted, started_at: datetime, today: str, *,
+                         processed: int, total: int, attempted_shops: list[str],
+                         available_shops: list[str], skipped_shops: dict, shop_stats: dict,
+                         success_count: int, fail_count: int, saved_rows: int) -> None:
+    """DB保存の連続失敗で収集を打ち切ったことを、Discord と collection_runs に残す。
+
+    DB が固まっている前提なので、DB に頼らない Discord を先に送る。collection_runs への記録は
+    1回だけ試す（失敗しても record_collection_run が握りつぶす）。古いデータの掃除・日次レポートは
+    DB への問い合わせを重ねるので行わない。終了コードは呼び元が 1 にする（Render の失敗通知にも出る）。
+    """
+    elapsed_min = (datetime.now(JST) - started_at).total_seconds() / 60
+    print(f"\n=== 打ち切り（{elapsed_min:.0f}分）: {err} ===")
+    print(f"処理 {processed}/{total}件 / 成功: {success_count}件 / 失敗: {fail_count}件 / 保存行数: {saved_rows}")
+    send_discord_message(
+        f"⚠ **価格収集を打ち切りました {today}**\n"
+        f"DB保存（price_history）が {err.consecutive} 回続けて失敗したため、DB に要求を送り続けないよう止めました。\n"
+        f"処理 {processed}/{total}件・成功 {success_count}件・所要 {elapsed_min:.0f}分\n"
+        f"最後のエラー: {err.last_error[:300]}\n"
+        f"Supabase の状態（Disk IO budget・メモリ）を確認してください。残りのカードは今日分なしです。",
+        no_mentions=True,
+    )
+    record_collection_run(
+        sb, "prices", started_at, None,
+        attempted_shops=attempted_shops, available_shops=available_shops,
+        skipped_shops=skipped_shops, shop_stats=shop_stats,
+        success_count=success_count, fail_count=fail_count,
+        cutoff_count=total - processed, saved_rows=saved_rows,
+        aborted={
+            "reason": "db_write_failures",
+            "consecutive_failures": err.consecutive,
+            "last_error": err.last_error[:500],
+            "processed": processed,
+            "aborted_at": datetime.now(JST).isoformat(),
+        },
+    )
+
+
 def main():
     started_at = datetime.now(JST)
     print(f"=== 価格履歴収集 {datetime.now().strftime('%Y-%m-%d %H:%M')} ===")
@@ -972,6 +1022,10 @@ def main():
     # カタログの保存対象を「実際にループで処理されたカード」に絞るために使う（reviewer中3）
     loop_end_index = len(selected)
 
+    # DB保存の連続失敗で打ち切る（2026-10-22 DB停止時に約2分ずつ失敗しながら要求を送り続けた）
+    db_guard = ConsecutiveDbFailureGuard()
+    db_abort: DbWriteAborted | None = None
+
     # try/finally で囲む（reviewer低1）: カード単位ループ中に想定外の例外が起きても、
     # 既に巡回済みのカタログ結果（最大2万件）を失わずに保存する。例外自体は
     # finally 実行後に再送出される（catch はしない）
@@ -996,7 +1050,14 @@ def main():
                         break
 
                 print(f"[{i+1}/{len(selected)}] {card_name}")
-                saved = collect_and_save(sb, card_name, today, loop_shops, shop_stats=shop_stats)
+                try:
+                    saved = collect_and_save(sb, card_name, today, loop_shops,
+                                             shop_stats=shop_stats, db_guard=db_guard)
+                except DbWriteAborted as e:
+                    fail_count += 1
+                    db_abort = e
+                    loop_end_index = i + 1
+                    break
                 if saved > 0:
                     total_saved += saved
                     success_count += 1
@@ -1015,13 +1076,24 @@ def main():
     finally:
         # カタログ巡回が成立していれば、実際に処理されたカードだけを対象にここで保存する。
         # loop_shops が空でスキップした場合は loop_end_index が len(selected) のままなので、
-        # selected 全件が保存対象になる（正しい）
-        if clabo_matched is not None:
+        # selected 全件が保存対象になる（正しい）。
+        # DB保存の連続失敗で打ち切ったときは保存しない（固まった DB へ大きな書き込みを重ねないため）
+        if clabo_matched is not None and db_abort is None:
             processed = selected[:loop_end_index]
             clabo_saved = _save_clabo_catalog_rows(
                 sb, processed, clabo_matched, today, shop_stats, clabo_catalog_stats
             )
             total_saved += clabo_saved
+
+    if db_abort is not None:
+        _abort_on_db_failure(
+            sb, db_abort, started_at, today,
+            processed=loop_end_index, total=len(selected),
+            attempted_shops=ci_shops, available_shops=available_shops,
+            skipped_shops=skipped_shops, shop_stats=shop_stats,
+            success_count=success_count, fail_count=fail_count, saved_rows=total_saved,
+        )
+        sys.exit(1)
 
     cleanup_old_data(sb)
 
