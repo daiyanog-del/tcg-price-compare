@@ -39,6 +39,18 @@ async function loadPacks(){
       if(Date.now()-ts<TTL&&Array.isArray(data)&&data.length){_packData=data;_packsLoaded=true;renderPacks();return;}
     }
   }catch{}
+  // /featured はサーバーが最後に作った一覧を埋め込む（app.py featured_page・2026-10-22 LCP）。あれば API を待たずに描く（一度だけ）
+  const initialEl=document.getElementById('packsInitial');
+  if(initialEl){
+    let initial=null;
+    try{initial=JSON.parse(initialEl.textContent);}catch{initial=null;}
+    initialEl.remove();
+    if(Array.isArray(initial)&&initial.length){
+      _packData=initial;_packsLoaded=true;
+      try{sessionStorage.setItem(CACHE_KEY,JSON.stringify({ts:Date.now(),data:_packData}));}catch{}
+      renderPacks();return;
+    }
+  }
   el.innerHTML='<div class="meta-loading">パック情報を読込中...</div>';
   try{
     const res=await fetch('/api/packs');

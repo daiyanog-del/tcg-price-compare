@@ -1159,6 +1159,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
       <div class="deck-input-area">
         <div class="pk-panes">
           <div class="pk-pane-list"><div id="packList" class="meta-loading">パック情報を読込中...</div></div>
+          {% if packs_initial %}<script type="application/json" id="packsInitial">{{ packs_initial|tojson }}</script>{% endif %}
           <div class="pk-pane-detail" id="packPane">
             <div class="pk-sheet-bar"><button type="button" class="meta-back" onclick="closePackSheet()"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>一覧へ</button></div>
             <div id="packDetail"><div class="meta-empty">パックを選ぶと、収録カードと価格がここに出ます</div></div>
