@@ -210,8 +210,8 @@ def collect_and_save_for_shops(sb, card_name: str, today: str, shop_names: list[
     except Exception as e:
         print(f"  DB保存失敗 [{card_name}]")
         # 4xx など DB が応答しない系以外の失敗もここで数える（保存の仕組みが壊れたときも止めるため）。
-        # DB が応答しない系は見張り付きクライアント（GuardedSupabase）が数え済みなので重ねて数えない
-        if not is_db_unavailable(e):
+        # DB が応答しない系は、同じ見張り役の見張り付きクライアント（GuardedSupabase）が数え済みなので重ねて数えない
+        if not (is_db_unavailable(e) and getattr(sb, "guard", None) is db_guard):
             db_guard.record_failure(e)  # 上限に達したら DbWriteAborted が上がる
         return 0, failed_shops
     if db_guard is not None:

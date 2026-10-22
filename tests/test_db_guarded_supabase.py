@@ -335,12 +335,13 @@ class TestNoResend:
 class _Q2:
     def __init__(self, sb, name):
         self.sb, self.name = sb, name
+        self.pending = None
 
     def __getattr__(self, _):
         return lambda *a, **k: self
 
     def insert(self, row):
-        self.sb.inserted.setdefault(self.name, []).append(row)
+        self.pending = row  # 成功したときだけ行を残す
         return self
 
     def execute(self):
@@ -349,6 +350,8 @@ class _Q2:
         if left:
             self.sb.down[self.name] = left - 1
             raise httpx.ReadTimeout("The read operation timed out", request=_req())
+        if self.pending is not None:
+            self.sb.inserted.setdefault(self.name, []).append(self.pending)
         if self.name == "rpc:upsert_price_rows":
             return _Resp([{"saved_rows": 1}])
         return _Resp()
@@ -476,3 +479,109 @@ def test_featured_stops_in_sync(monkeypatch, harness):
     assert sb.calls == ["featured_pack"] * LIMIT
     assert len(harness) == 1 and "新弾フィーチャー価格収集を打ち切りました" in harness[0]
     assert "collection_runs" not in sb.inserted  # 新弾は collection_runs に記録しない
+
+
+def test_prices_record_failure_then_report_abort_still_records(run_prices, harness):
+    """正常終了の記録に失敗したあと日次レポートで止まったら、打ち切りの行を残す（記録済みと誤認しない）"""
+    sb, code = run_prices({"collection_runs": 1, "search_logs": FOREVER}, daily_report=True)
+    assert code == 1
+    runs = sb.inserted["collection_runs"]
+    assert len(runs) == 1 and runs[0]["finished_at"] is None
+    assert runs[0]["shop_stats"]["_aborted"]["phase"] == "post" and runs[0]["success_count"] == 5
+
+
+def test_prices_abort_in_catalog_save_joins_counted_report(monkeypatch, run_prices, harness):
+    """finally のカタログ保存で止まったら、件数つき（phase=post）の報告に合流し、記録は1回だけ"""
+    def fake_prepare(selected, available_shops, shop_stats):
+        return list(available_shops), {}, {"products": 0, "categories_failed": []}
+
+    def fake_save(sb, processed, matched, today, shop_stats, stats):
+        sb.rpc("upsert_price_rows_catalog", {}).execute()
+        return 0
+
+    monkeypatch.setattr(cp, "_prepare_clabo_catalog", fake_prepare)
+    monkeypatch.setattr(cp, "_save_clabo_catalog_rows", fake_save)
+    sb, code = run_prices({"rpc:upsert_price_rows_catalog": FOREVER})
+    assert code == 1
+    assert sb.calls.count("rpc:upsert_price_rows_catalog") == LIMIT
+    assert "price_history_v2" not in sb.calls  # 掃除へ進まない
+    runs = sb.inserted["collection_runs"]
+    assert len(runs) == 1 and runs[0]["finished_at"] is None
+    assert runs[0]["shop_stats"]["_aborted"]["phase"] == "post"
+    assert runs[0]["success_count"] == 5
+    assert len(harness) == 1 and "処理 5/5件・成功 5件" in harness[0] and "カード収集は終わったあと" in harness[0]
+
+
+def test_collect_and_save_statement_timeout_counted_once(monkeypatch):
+    """保存が 57014 → 見張り付きクライアントが1回だけ数えて返す（送り直さない・collect_and_save で重ねない）"""
+    calls = []
+
+    def handler(req):
+        calls.append(req.url.path)
+        return httpx.Response(500, json={"message": "canceling statement due to statement timeout",
+                                         "code": "57014", "hint": None, "details": None})
+
+    waits = []
+    sb = GuardedSupabase(_real_client(handler), ConsecutiveDbFailureGuard(sleep=waits.append))
+    monkeypatch.setattr(cp, "compare_prices", lambda card_name, shop_names=None, status_out=None: [
+        {"shop": "カーナベル", "name": card_name, "rarity": "ウルトラ", "code": "X", "condition": "-",
+         "price": 500, "stock": 1, "sold_out": False, "url": "", "image": ""}])
+    assert cp.collect_and_save(sb, "a", "2026-10-22", ["カーナベル"], db_guard=sb.guard) == 0
+    assert calls == ["/rest/v1/rpc/upsert_price_rows"]
+    assert sb.guard.consecutive == 1
+
+
+def test_unguarded_client_with_guard_still_counts(monkeypatch):
+    """包んでいないクライアントと見張り役を渡したときは、DB が応答しない系も collect_and_save が数える"""
+    class Raw:
+        def rpc(self, name, params):
+            class B:
+                def execute(self_inner):
+                    raise httpx.ReadTimeout("timed out", request=_req())
+            return B()
+
+    monkeypatch.setattr(cp, "compare_prices", lambda card_name, shop_names=None, status_out=None: [
+        {"shop": "カーナベル", "name": card_name, "rarity": "ウルトラ", "code": "X", "condition": "-",
+         "price": 500, "stock": 1, "sold_out": False, "url": "", "image": ""}])
+    guard = ConsecutiveDbFailureGuard(sleep=lambda s: None)
+    cp.collect_and_save(Raw(), "a", "2026-10-22", ["カーナベル"], db_guard=guard)
+    assert guard.consecutive == 1
+
+
+def test_buyback_abort_in_cleanup_reports_post(monkeypatch, harness):
+    sb = _Sb2({"cleanup_target": FOREVER})
+    names = [f"c{i}" for i in range(3)]
+    monkeypatch.setattr(cb, "get_supabase", lambda: sb)
+    monkeypatch.setattr(cb, "sync_latest_packs", lambda sb: (set(names), set()))
+    monkeypatch.setattr(cb, "sync_meta_decks", lambda sb: set())
+    monkeypatch.setattr(cb, "sync_regulation", lambda sb: set())
+    monkeypatch.setattr(cb, "sync_searched_cards", lambda sb, **k: set())
+    monkeypatch.setattr(cb, "fetch_tracked_cards_with_meta",
+                        lambda sb: [{"card_name": n, "last_collected_at": None} for n in names])
+    monkeypatch.setattr(cb, "BUYBACK_SHOPS", [("カードラッシュ", None)])
+    monkeypatch.setattr(cb, "SKIP_BUYBACK_SHOPS_IN_CI", set())
+    monkeypatch.setattr(cb, "check_shop_availability", lambda shops: list(shops))
+
+    def fake_buyback(card_name, shop_names=None, status_out=None):
+        if status_out is not None:
+            status_out["カードラッシュ"] = {"count": 1}
+        return [{"shop": "カードラッシュ", "name": card_name, "rarity": "ウルトラ", "price": 500, "sold_out": False}]
+
+    monkeypatch.setattr(cb, "compare_buyback", fake_buyback)
+    monkeypatch.setattr(cb.time, "sleep", lambda s: None)
+    monkeypatch.setattr(cb, "cleanup_old_buyback_data", lambda sb: sb.table("cleanup_target").delete().execute())
+    monkeypatch.setattr(cb, "get_host_request_counts", lambda: {})
+
+    code = _run(cb.main)
+    assert code == 1
+    assert sb.calls.count("cleanup_target") == LIMIT
+    runs = sb.inserted["collection_runs"]
+    assert len(runs) == 1 and runs[0]["finished_at"] is None and runs[0]["run_type"] == "buyback"
+    assert runs[0]["shop_stats"]["_aborted"]["phase"] == "post" and runs[0]["success_count"] == 3
+    assert len(harness) == 1 and "処理 3/3件・成功 3件" in harness[0]
+
+
+def test_non_builder_postgrest_values_are_not_wrapped():
+    sb = GuardedSupabase(_real_client(lambda req: httpx.Response(200, json=[])), ConsecutiveDbFailureGuard())
+    q = sb.table("t").select("a")
+    assert not isinstance(q.request, db_write_guard._GuardedBuilder)

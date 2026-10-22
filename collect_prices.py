@@ -328,8 +328,8 @@ def collect_and_save(sb: Client, card_name: str, today: str, shop_names: list[st
     except Exception as e:
         print(f"  DB保存失敗 [{card_name}]")
         # 4xx など DB が応答しない系以外の失敗もここで数える（保存の仕組みが壊れたときも止めるため）。
-        # DB が応答しない系は見張り付きクライアント（GuardedSupabase）が数え済みなので重ねて数えない
-        if not is_db_unavailable(e):
+        # DB が応答しない系は、同じ見張り役の見張り付きクライアント（GuardedSupabase）が数え済みなので重ねて数えない
+        if not (is_db_unavailable(e) and getattr(sb, "guard", None) is db_guard):
             db_guard.record_failure(e)  # 上限に達したら DbWriteAborted が上がる
         return 0
     if db_guard is not None:
@@ -1115,14 +1115,13 @@ def _main(state: dict):
     finished_at = datetime.now(JST)
     # ホスト別アクセス回数（店舗サイトへの負担の記録）。shop_stats に載せて collection_runs へ保存する
     host_count_lines = attach_host_request_counts(shop_stats, get_host_request_counts())
-    record_collection_run(
+    state["recorded"] = record_collection_run(
         sb, "prices", started_at, finished_at,
         attempted_shops=ci_shops, available_shops=available_shops,
         skipped_shops=skipped_shops, shop_stats=shop_stats,
         success_count=success_count, fail_count=fail_count,
         cutoff_count=cutoff_count, saved_rows=total_saved,
     )
-    state["recorded"] = True
 
     elapsed_min = (finished_at - started_at).total_seconds() / 60
     send_daily_report(sb, today, success_count, fail_count, cutoff_count, elapsed_min, shop_stats)

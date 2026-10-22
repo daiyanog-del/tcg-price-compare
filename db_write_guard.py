@@ -155,7 +155,10 @@ class GuardedSupabase:
 
 
 def _is_builder(obj) -> bool:
-    return type(obj).__module__.split(".")[0] in ("postgrest", "supabase")
+    """postgrest の要求ビルダーか（table() が返すものは select 等を、連鎖の途中のものは execute を持つ）。
+    RequestConfig（.request）のようなビルダーでない postgrest の値は包まない（reviewer 低C）"""
+    return (type(obj).__module__.split(".")[0] in ("postgrest", "supabase")
+            and (hasattr(obj, "execute") or hasattr(obj, "select")))
 
 
 class _GuardedBuilder:
@@ -183,7 +186,8 @@ class _GuardedBuilder:
 
     def _wrap(self, res, resend_ok: bool):
         if res is self._b:
-            return self
+            # 自分自身を返すメソッドでも、insert なら「送り直さない」印を付けた包みにする
+            return self if resend_ok == self._resend_ok else _GuardedBuilder(res, self._guard, resend_ok)
         if _is_builder(res):
             return _GuardedBuilder(res, self._guard, resend_ok)
         return res
