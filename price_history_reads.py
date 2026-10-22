@@ -8,13 +8,31 @@
 (1) は featured_matrix と同じバイト予算で名前を分ける、(2) は1回だけ再試行する。
 (3) は再試行しない（重い問い合わせを2回投げると負荷を積むだけ）。失敗した名前は呼び出し元に返し、
 「値段なし」と区別して扱わせる（CLAUDE.md「0件と取得失敗は区別」）。
+(3) の根本は読み方の重さで、購入候補は fetch_daily_rows_by_card_names（カード番号＋日付の等号）に移した。
+まとめ買い・レアリティ候補はまだ fetch_recent_rows_by_card_names（名前＋日付の範囲）のまま。
 """
 
 import logging
+from collections import deque
+from concurrent.futures import FIRST_COMPLETED, wait
 
 import httpx
 
 from featured_matrix import _chunk_card_names_by_bytes
+from featured_matrix import _FETCH_WORKERS
+from featured_matrix import _executor as _db_executor
+
+# カード番号の in_ の1回あたりの件数。購入候補は最大50枚で、1日ぶん（2026-10-22 実測 長い名前50枚で約400〜600行）が
+# 1ページに収まる。featured_matrix の _ID_CHUNK（25）は同時に読む束を増やすための値なので借りない
+_ID_CHUNK = 200
+
+# 1回の要求が実行枠に同時に積む本数。枠の本数（同時4本）までにして、1本終わるたびに次の日を積む。
+# 全部の日を先に積むと、同じ枠を使う新商品の表がその後ろで待たされる（2026-10-22 reviewer 中1）
+_MAX_IN_FLIGHT = _FETCH_WORKERS
+
+# 1回だけ送り直す失敗。接続ごと切られた（HTTP/2 ConnectionTerminated）・つながらなかったときだけ。
+# 読み取りの時間切れ（ReadTimeout）は含めない（既定120秒の待ちを2回すると、共有の枠の1本を4分ふさぐ。reviewer 低5）
+_RETRY_ERRORS = (httpx.RemoteProtocolError, httpx.ConnectError)
 
 logger = logging.getLogger(__name__)
 
@@ -65,3 +83,106 @@ def fetch_recent_rows_by_card_names(sb, names: list[str], columns: str, cutoff: 
             continue
         rows.extend(chunk_rows)
     return rows, failed
+
+
+def _read_day(sb, columns: str, id_chunk: list[int], day: str, log_tag: str) -> list[dict]:
+    """カード番号の1束・1日ぶん。1000行を超えたら range で次のページを読む。接続切れ・接続失敗だけ1回再試行。"""
+    rows: list[dict] = []
+    offset = 0
+    while True:
+        for attempt in (1, 2):
+            try:
+                resp = (sb.table("price_history")
+                        .select(columns)
+                        .in_("card_id", id_chunk)
+                        .eq("recorded_at", day)
+                        .order("card_id", desc=False)
+                        .order("shop_id", desc=False)
+                        .order("rarity_id", desc=False)
+                        .range(offset, offset + _PAGE_SIZE - 1)
+                        .execute())
+                break
+            except _RETRY_ERRORS as e:
+                if attempt == 2:
+                    raise
+                logger.info(f"[{log_tag}] 価格履歴の読み込みを再試行（{day}）: {type(e).__name__}: {e}")
+        batch = resp.data or []
+        rows.extend(batch)
+        if len(batch) < _PAGE_SIZE:
+            return rows
+        offset += _PAGE_SIZE
+
+
+def fetch_daily_rows_by_card_names(sb, names: list[str], columns: str, days: list[str],
+                                   log_tag: str) -> tuple[list[dict], set[str]]:
+    """names の price_history を、days の日付（JST の 'YYYY-MM-DD'）ごとに等号で読む。
+
+    featured_matrix と同じ読み方: card_dim で名前をカード番号にしてから、price_history を
+    「日付の等号＋カード番号の in_」で引く。索引 (recorded_at, card_id, shop_id, rarity_id) INCLUDE (min_price)
+    の2列とも条件に使わせ、並びも索引と同じ card_id, shop_id, rarity_id にする（1日の中では一意なので
+    range の境目で行が落ちない・重ならない）。2026-10-22 本番の実測（長い名前50枚）: 名前の in_＋日付の範囲は
+    1ページ 4.8秒×約14ページ、こちらは1日 0.11秒（616行で1ページに収まる）×日数。
+    日付どうしは featured_matrix と共有の実行枠で同時に読む（本番 Render オレゴン→DB 東京は1往復0.4〜1秒。
+    30日窓を順に待つと31往復になる。同時の問い合わせ数はプロセス全体で featured_matrix._FETCH_WORKERS まで）。
+    1回の要求が積むのは _MAX_IN_FLIGHT 本まで（1本終わるたびに次を積む）。
+    実行枠のスレッドの中から呼ばないこと（枠の4本が互いの終わりを待って止まる）。
+
+    戻り値は fetch_recent_rows_by_card_names と同じ (rows, failed_names)。
+      - 接続切れ・接続失敗（_RETRY_ERRORS）だけ1回再試行。それ以外の失敗は再試行しない
+      - カード番号の束のどこか1日でも読めなければ、その束の名前を全部 failed にし、
+        読めていた他の日の行も捨てる（半端な日付で最安・値動きを出さない）。その束の残りの日は読みに行かない
+      - card_dim に無い名前は行が0件になる（price_history ビューは card_dim との内部結合なので、名前で読んでも同じ）
+    """
+    unique = list(dict.fromkeys(names))
+    failed: set[str] = set()
+    id_to_name: dict[int, str] = {}
+    for chunk in _chunk_card_names_by_bytes(unique):
+        try:
+            for attempt in (1, 2):
+                try:
+                    resp = sb.table("card_dim").select("card_id, card_name").in_("card_name", chunk).execute()
+                    break
+                except _RETRY_ERRORS as e:
+                    if attempt == 2:
+                        raise
+                    logger.info(f"[{log_tag}] カード番号の読み込みを再試行: {type(e).__name__}: {e}")
+        except Exception as e:
+            logger.warning(f"[{log_tag}] カード番号の取得失敗（{len(chunk)}枚）: {type(e).__name__}: {e}")
+            failed.update(chunk)
+            continue
+        for r in resp.data or []:
+            id_to_name[int(r["card_id"])] = r["card_name"]
+
+    ids = sorted(id_to_name)
+    id_chunks = [ids[i:i + _ID_CHUNK] for i in range(0, len(ids), _ID_CHUNK)]
+    todo = deque((ci, day) for ci in range(len(id_chunks)) for day in days)
+    in_flight = {}  # Future -> (束の番号, 日付)
+    chunk_rows: dict[int, list[dict]] = {ci: [] for ci in range(len(id_chunks))}
+    failed_chunks: set[int] = set()
+    while todo or in_flight:
+        while todo and len(in_flight) < _MAX_IN_FLIGHT:
+            ci, day = todo.popleft()
+            if ci in failed_chunks:
+                continue  # 失敗した束の残りの日は読まない（重いときに負荷を積まない）
+            in_flight[_db_executor.submit(_read_day, sb, columns, id_chunks[ci], day, log_tag)] = (ci, day)
+        if not in_flight:
+            break
+        done, _ = wait(in_flight, return_when=FIRST_COMPLETED)
+        for fut in done:
+            ci, day = in_flight.pop(fut)
+            try:
+                rows = fut.result()
+            except Exception as e:
+                if ci not in failed_chunks:
+                    logger.warning(f"[{log_tag}] 価格履歴取得失敗（{len(id_chunks[ci])}枚・{day}）: {type(e).__name__}: {e}")
+                    failed_chunks.add(ci)
+                continue
+            chunk_rows[ci].extend(rows)
+
+    out: list[dict] = []
+    for ci, id_chunk in enumerate(id_chunks):
+        if ci in failed_chunks:
+            failed.update(id_to_name[c] for c in id_chunk)
+        else:
+            out.extend(chunk_rows[ci])
+    return out, failed

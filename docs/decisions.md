@@ -2200,6 +2200,15 @@ rarity_pref 基準に統一。`items_map` のキーも rarity_pref で作る。
 - **値段と型番が食い違う行は版不明**: 表に出す値段は状態を問わない最安（min_price_any）、型番は通常品の最安（min_price）の出品に付く（price_persist）。2つが違う行は型番を空にして版を判定しない。
 - **reviewer（高2・中3・低4）**: 高1（カーナベルの型番がハイフン無しの略号だけ）は本番の記録では完全な型番だったが、略号だけ・アジア版の形にも備えた。ほかは対応（受付上限・覚える単位をカードの集まりに・失敗を30秒覚える・途中で失敗した検索では表を置き換えない・並べ替えを索引の順に）。
 
+## 2026-10-22: 購入候補の価格はカード番号＋日付の等号で読む（statement timeout の根本対策・branch perf/wish-prices-by-card-id・ユーザー承認）
+- 何を: /api/wish-prices の price_history の読み方を、カード名の in_＋`recorded_at >= cutoff`＋並び recorded_at（offset 送り）から、card_dim で名前→カード番号にしてから日付ごとに `eq(recorded_at)`＋`in_(card_id)`・並び `card_id, shop_id, rarity_id` に変える（price_history_reads.fetch_daily_rows_by_card_names）。窓（8日窓・30日窓とも今日の N 日前から今日まで）・latest・共通店舗の値動き・pending の判定・失敗を status "error" で返す振る舞いは変えない。
+- なぜ: 本番 EXPLAIN ANALYZE（10-22 13〜14時・読み取りのみ・長い名前50枚・30日窓 13,488行）で、変更前は 1ページ 4.76秒（主キー (card_id, shop_id, rarity_id, recorded_at) をカードごとにたどり、1行ごとに表の本体を読む）で、それを offset のページごとに最初からやり直して約14ページ。変更後は索引 idx_ph2_date_card_shop_rarity（min_price を含む）の Index Only Scan で、1日 約0.11秒・31日ぶん合計 3.44秒。1日は約400〜600行で1ページに収まる。
+- 並び: 1日の中では (card_id, shop_id, rarity_id) が一意なので、1000行を超えても境目で行が落ちない・重ならない（reviewer 記録の「並びが recorded_at だけ」も解消）。
+- 同時に読む: 日付どうしは featured_matrix の実行枠（_executor・プロセス全体で同時4本。#202）を共有して同時に読む。本番（Render オレゴン）→DB（東京）は1往復0.4〜1秒（#202 実測）なので、順に待つと30日窓で31往復になるため。DB への同時の問い合わせ数の上限は新商品の表と合わせて4本のまま。1回の要求が枠に積むのは4本まで（1本終わるたびに次の日を積む。全部を先に積むと新商品の表がその後ろで待たされる・reviewer 中1）。実行枠の中から呼ぶと止まるので呼ばない。
+- 失敗の扱い: 接続切れ・接続失敗（RemoteProtocolError・ConnectError）だけ1回再試行。読み取りの時間切れは送り直さない（既定120秒×2回で共有の枠を長くふさぐ・reviewer 低5。PR #201 の TransportError より狭い）。カード番号の束（200件。購入候補は最大50枚なので1束）のどこか1日でも失敗したら、その束の名前を全部 error にし、読めた他の日の行も捨てる（半端な日付で最安・値動きを出さない）。その束の残りの日は読みに行かない（重いときに負荷を積まない）。card_dim の引き当てはカード名のバイト予算（6000）で分け、失敗した分割の名前を error にする。card_dim に無い名前は行0件（ビューは card_dim との内部結合なので従来と同じ）。
+- 採らなかった案: 日付を in でまとめて1回で読む（1ページ 1.18秒で offset のやり直しが残る）。price_daily_min（30日より前しか無く店舗別でもない）。
+- 未検証の前提: 本番での /api/wish-prices 全体の所要時間（手元に接続設定が無い。反映後に測る）。読み込み全体の締め切りは入れていない（reviewer 中1・実測を見てから決める）。まとめ買い・レアリティ候補は名前＋日付の範囲のまま（別の作業）。
+
 ## 2026-10-22: 購入候補の価格は読み込みの失敗を「値段なし」と分けて返す（branch fix/wish-prices-failure）
 - 何を: /api/wish-prices に status "error" を足す（"ready"・"pending" に加えて）。画面は「価格を読み込めませんでした」、失敗の結果は端末にとっておかず30秒で取り直す。price_history をカード名で読む3か所（購入候補・まとめ買い・レアリティ候補）を price_history_reads.fetch_recent_rows_by_card_names に寄せ、名前をバイト予算（6000）で分け、接続切れだけ1回再試行する。
 - なぜ: 本番で31枚すべてが「価格が見つかりませんでした」と10分出続けた。ログの失敗は (1) cloudflare 400（URL 長の可能性・未検証の前提）(2) ConnectionTerminated (3) statement timeout 57014。CLAUDE.md「0件と取得失敗は区別」。
