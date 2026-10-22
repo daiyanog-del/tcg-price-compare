@@ -102,6 +102,24 @@ def test_known_quote_word_is_ok(d):
     assert _kinds(tc.check_text("自分の墓地の「青眼の白龍」を特殊召喚できる。", dictionary=d), "unknown_name") == []
 
 
+def test_fullwidth_symbols_in_quote_match_halfwidth_dict_word():
+    # 2026-10-21 カオス・バリアンズ・チェンジ: 読み取りの「Ｎｏ．」が辞書の「No.」と一致せず強い疑いになった
+    data = builder.build_dict([{"konami_id": 1, "name": "テスト", "texts": [
+        "「No.」モンスター1体を対象として発動できる。そのモンスターを特殊召喚する。"]}])
+    dd = tc.TextCheckDict(data["ngrams"].split("\n"), data["card_names"], data["quote_words"], data["meta"])
+    res = tc.check_text("自分の墓地の「Ｎｏ．」モンスター1体を対象として発動できる。", dictionary=dd)
+    assert _kinds(res, "unknown_name") == []
+    assert tc.name_key("Ｎｏ．１０１") == tc.name_key("No.101") == "no.101"
+
+
+def test_real_dict_accepts_fullwidth_no():
+    real = tc.load_dict()
+    if real is None:
+        pytest.skip("辞書なし")
+    res = tc.check_text("ランクが1つ低い「Ｎｏ．」モンスター1体を対象として発動できる。", dictionary=real)
+    assert _kinds(res, "unknown_name", "strong") == []
+
+
 def test_unknown_name_with_close_existing_word_is_strong(d):
     res = _kinds(tc.check_text("自分の墓地の「青眼の白竜」を特殊召喚できる。", dictionary=d), "unknown_name")
     assert len(res) == 1 and res[0]["severity"] == "strong"

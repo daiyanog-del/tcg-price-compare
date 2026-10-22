@@ -61,6 +61,10 @@ _FULLWIDTH_LATIN_DIGIT = {
     ord(c): chr(ord(c) - 0xFEE0)
     for c in "ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ０１２３４５６７８９"
 }
+# 名前の比較キー用: 全角英数に加えて全角の記号（！〜～ U+FF01〜FF5E）も半角にそろえる。
+# 読み取りが「Ｎｏ．」と全角で返し、辞書の「No.」と一致しなかった（2026-10-21 カオス・バリアンズ・チェンジ）。
+# 辞書側のキーも読み込み時に name_key で作るので、辞書の作り直しは要らない
+_FULLWIDTH_ASCII = {c: c - 0xFEE0 for c in range(0xFF01, 0xFF5F)}
 _DIGITS = set("0123456789０１２３４５６７８９")
 _CIRCLED = set("①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳")
 _SKIP_CHARS = set("\n\r 　\t")
@@ -168,8 +172,8 @@ def ngram_set(s: str, n: int = NGRAM_N) -> set:
 # ──────────────────────────────────────────────
 
 def name_key(s: str) -> str:
-    """カード名・「」内語の比較用キー。全角英数を半角にし、空白を除く。"""
-    return re.sub(r"[\s　]+", "", (s or "").translate(_FULLWIDTH_LATIN_DIGIT)).lower()
+    """カード名・「」内語の比較用キー。全角英数・記号を半角にし、空白を除く。"""
+    return re.sub(r"[\s　]+", "", (s or "").translate(_FULLWIDTH_ASCII)).lower()
 
 
 class TextCheckDict:
