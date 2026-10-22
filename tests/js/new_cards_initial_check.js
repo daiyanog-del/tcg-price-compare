@@ -51,8 +51,12 @@ initialEl.textContent=JSON.stringify({cards:[{name:'埋め込み1',thumb_url:'ht
   assert.equal(wraps.length,2);
   assert.equal(wraps[0].dataset.cardName,'埋め込み1');
   assert.equal(initialEl.parent,null,'埋め込みの要素を一度使ったら外す');
-  // 再試行などで2回目に読むときは API から取り直す
   elements.delete('newCardsInitial');
+  // 直後（30秒以内）にもう一度呼ばれても取り直さない（描き直すと最初の絵が後回しになる・2026-10-22）
+  await api.load();
+  assert.equal(pending.length,0,'埋め込みを使った直後に取り直した');
+  // 30秒を過ぎたら、表示のたびに取り直す従来の動き
+  const realNow=Date.now;sandbox.Date.now=()=>realNow()+31000;
   const again=api.load();
   assert.equal(pending.length,1);assert.equal(pending[0].url,'/api/new-cards');
   pending[0].resolve({ok:true,json:async()=>({cards:[],has_more:false})});await again;

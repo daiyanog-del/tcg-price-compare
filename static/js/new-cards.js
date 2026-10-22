@@ -2,6 +2,10 @@
 window.NewCards = (() => {
   const PAGE_SIZE=6; // PCの1段分。スマホでは3列×2段。
   let pending=null, cards=[], shown=PAGE_SIZE, truncated=false;
+  // 埋め込みの一覧で描いた時刻。直後に別の処理（index-main.js の _loadTopPanels）が load() を呼んでも、
+  // この間は取り直さない（取り直すと全部描き直し、一覧ページでは最初の絵が後回しになって LCP が遅れた。2026-10-22）
+  const INITIAL_FRESH_MS=30000;
+  let initialUsedAt=-Infinity;
   const get=id=>document.getElementById(id);
   function addedDate(value){
     if(!value)return '';
@@ -88,6 +92,7 @@ window.NewCards = (() => {
     });
   }
   function renderGrouped(grid){
+    let eagerLeft=PAGE_SIZE;
     groupByProduct(cards).forEach(g=>{
       const section=document.createElement('section');
       section.className='new-card-group';
@@ -105,7 +110,8 @@ window.NewCards = (() => {
       }
       const inner=document.createElement('div');
       inner.className='new-cards-grid';
-      g.cards.forEach(card=>inner.appendChild(cardElement(card)));
+      // 一覧ページでも最初に見える枚数（PAGE_SIZE）はすぐ読む（LCP の要素。2026-10-22）
+      g.cards.forEach(card=>inner.appendChild(cardElement(card,eagerLeft-->0)));
       section.append(heading,inner);
       grid.appendChild(section);
     });
@@ -132,6 +138,7 @@ window.NewCards = (() => {
   }
   function load(){
     if(pending)return pending;
+    if(cards.length&&Date.now()-initialUsedAt<INITIAL_FRESH_MS)return Promise.resolve();
     const section=get('newCardsSection');
     if(!section)return Promise.resolve();
     section.hidden=false;
@@ -144,7 +151,9 @@ window.NewCards = (() => {
     const initialEl=get('newCardsInitial');
     let initial=null;
     if(initialEl){try{initial=JSON.parse(initialEl.textContent);}catch{initial=null;}initialEl.remove();}
-    const source=initial&&Array.isArray(initial.cards)
+    const useInitial=!!(initial&&Array.isArray(initial.cards));
+    if(useInitial)initialUsedAt=Date.now();
+    const source=useInitial
       ?Promise.resolve({ok:true,json:async()=>initial})
       :fetch(list?'/api/new-cards?all=1':'/api/new-cards');
     pending=source.then(async response=>{
