@@ -99,12 +99,15 @@
 
 /* E: 店舗×レアの表。カード名はまとまりの頭に1回、行はレアリティ。各行でいちばん安い店だけ緑 */
 .pmx-scroll { margin: 0 -4px; overflow-x: auto; }
+/* 表を開いている間（#mode-packs.is-matrix）は一覧を細くし、全体の幅を広げて表に回す（2026-10-22 ユーザー指摘「横幅が足りない」） */
+#mode-packs.is-matrix .deck-builder { max-width: 1320px; }
+#mode-packs.is-matrix .pk-panes { grid-template-columns: 260px minmax(0, 1fr); }
 .pmx { width: 100%; border-collapse: separate; border-spacing: 0; font: .8rem var(--font); white-space: nowrap; }
-.pmx th { position: sticky; top: 0; z-index: 2; padding: 6px 8px; background: var(--bg-card); color: var(--text-m); font-size: .7rem; font-weight: 700; text-align: right; }
-.pmx td { padding: 7px 8px; border-top: 1px solid rgba(255, 255, 255, .04); color: var(--text); font-family: var(--mono); text-align: right; }
+.pmx th { position: sticky; top: 0; z-index: 2; padding: 6px 6px; background: var(--bg-card); color: var(--text-m); font-size: .7rem; font-weight: 700; text-align: right; }
+.pmx td { padding: 7px 6px; border-top: 1px solid rgba(255, 255, 255, .04); color: var(--text); font-family: var(--mono); text-align: right; }
 .pmx td a { color: inherit; text-decoration: none; }
 .pmx td a:hover { text-decoration: underline; }
-.pmx .pmx-sc { position: sticky; left: 0; z-index: 1; min-width: 96px; background: var(--bg-card); color: var(--text-m); font-family: var(--font); font-size: .74rem; text-align: left; }
+.pmx .pmx-sc { position: sticky; left: 0; z-index: 1; min-width: 88px; background: var(--bg-card); color: var(--text-m); font-family: var(--font); font-size: .74rem; text-align: left; }
 .pmx th.pmx-sc { z-index: 3; }
 .pmx td.is-dim { color: #5e6a80; }
 .pmx td.is-fail { font-family: var(--font); font-size: .7rem; }
@@ -119,7 +122,11 @@
 .pmx-more { display: inline-flex; align-items: center; margin-left: 4px; padding: 3px 8px; border: 0; border-radius: 5px; background: none; color: var(--accent-l); font: 700 .7rem var(--font); cursor: pointer; }
 .pmx-more:hover { background: var(--bg-hover); }
 /* PC: 表の中で縦にもスクロールして、店名の見出しを付いてこさせる（外側が横スクロールの箱だと、ページのスクロールでは見出しが止まらない） */
-@media (min-width: 901px) { .pmx-scroll { max-height: calc(100vh - 260px); overflow-y: auto; } }
+/* PC は表の中で縦にスクロールさせない（右の欄と二重のスクロールになっていた）。横もはみ出させて右の欄のスクロール1つにまとめる。
+   見出しは右の欄の上端に付いてくる */
+@media (min-width: 901px) { .pmx-scroll { overflow: visible; } .pmx th { top: -16px; } }
+/* 店名は広い画面では正式名、狭い画面では短い呼び名（.pmx-shop-s） */
+.pmx-shop-s { display: none; }
 .pmx td.is-min { background: rgba(99, 211, 174, .10); color: var(--green); font-weight: 700; }
 .pmx tr.pmx-g td { padding: 12px 0 4px; border-top: 0; text-align: left; }
 .pmx-gname { position: sticky; left: 0; display: inline-flex; align-items: center; gap: 8px; padding-left: 4px; color: var(--text); font: 700 .84rem var(--font); }
@@ -152,6 +159,14 @@
   .pk-bar-r { flex: 1 1 100%; }
   .pk-bar-r .pk-seg + .pk-btn { flex: 1; }
   .pk-card { grid-template-columns: 22px 30px minmax(0, 1fr) 84px; gap: 8px; }
+  /* スマホ: 店名を短く・レアリティの列は折り返して、見える店を増やす */
+  .pmx-shop-l { display: none; }
+  .pmx-shop-s { display: inline; }
+  .pmx { font-size: .76rem; }
+  .pmx td { padding: 7px 5px; }
+  .pmx th { padding: 6px 5px; }
+  .pmx .pmx-sc { min-width: 78px; max-width: 78px; white-space: normal; line-height: 1.3; font-size: .7rem; }
+  .pmx .pmx-ver { margin-left: 0; }
   .pmx th { top: 0; }
 }
 /* 全面の詳細を開いている間: 後ろのページを動かさない・アプリ追加の案内を重ねない */

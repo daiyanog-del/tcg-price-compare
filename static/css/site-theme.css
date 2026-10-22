@@ -11,6 +11,17 @@ body.price-redesign {
   --color-text-primary:#eff3fb; --color-text-secondary:#a8b4c9; --color-text-tertiary:#a8b4c9;
 }
 .price-redesign :focus-visible {outline:2px solid #f3ce46;outline-offset:3px}
+/* スクロールバー: シミュレーター（solitaire/css/relief-theme.css）と同じ細い暗色に揃える（2026-10-22 ユーザー指摘）。
+   中でスクロールする箱はすべて細く・つまみ #596177（触れている間 #727a94）・溝は下の面の色のまま。
+   ページ全体のスクロールバーは幅は標準のまま色だけ合わせる（つかみやすさを残す）。
+   標準（scrollbar-color）と WebKit 系（::-webkit-scrollbar。Safari 用）の両方に書く */
+html:has(> body.price-redesign) {scrollbar-color:#596177 #101626}
+.price-redesign * {scrollbar-width:thin;scrollbar-color:#596177 transparent}
+.price-redesign *::-webkit-scrollbar {width:6px;height:6px}
+.price-redesign *::-webkit-scrollbar-track {background:transparent}
+.price-redesign *::-webkit-scrollbar-thumb {background:#596177;border-radius:3px}
+.price-redesign *::-webkit-scrollbar-thumb:hover {background:#727a94}
+.price-redesign *::-webkit-scrollbar-corner {background:transparent}
 .price-redesign>.wrap>header,.price-redesign .site-footer {border:0}
 .price-redesign :is(#mode-meta,#mode-mydeck,#mode-packs,#mode-wishlist) {padding-top:22px}
 
