@@ -8,6 +8,7 @@
 読み方: カード名 → card_dim のカード番号 → price_history をカード番号＋日付（今日・昨日）で引く。
 price_history_v2 の索引 (recorded_at, card_id, ...) が両方の条件で効く形にしてある
 （2026-10-22 朝、索引の効かない問い合わせで Disk IO の持ち分を使い切りかけたため）。
+昨日の記録は、今日の記録がまだ無い店のぶんだけ読む。カード番号の束は同時に読む（下の _fetch_price_rows）。
 結果はカード名の並びごとに1時間覚える。
 
 集計の中核 build_matrix() は Supabase の生行 (records) を受ける純関数として
@@ -18,7 +19,10 @@ import logging
 import threading
 import time
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+
+import httpx
 
 from constants import JST
 from rarity import UNKNOWN_RARITY_LABEL, normalize_rarity
@@ -36,8 +40,15 @@ _PAGE_SIZE = 1000
 # URL長超過のリスクが残る）
 _CHUNK_BYTE_BUDGET = 6000
 
-# カード番号の in_ 句の1回あたりの件数（数字だけなのでURL長は小さい）
-_ID_CHUNK = 200
+# カード番号の in_ 句の1回あたりの件数。1日ぶんが1ページ（1000行）に収まる大きさにして、束どうしを同時に読む。
+# 実測（2026-10-22・収録100種のパックで1日2,216行＝平均22行/種。40種の束で1,366行＝34行/種の偏りあり）から
+# 25種≒850行。1000行を超える束は range で次のページを読むので、外れても欠けはしない（往復が1回増えるだけ）
+_ID_CHUNK = 25
+
+# 同時に読む束の数の上限（プロセス全体で共有。何人が同時に開いても、データベースへの同時の問い合わせはこの数まで）。
+# 本番（Render オレゴン）→ DB（東京）は1往復が0.4〜1秒かかり、以前は8往復を順に待っていた（2026-10-22 実測）
+_FETCH_WORKERS = 4  # TODO: calibrate from data
+_executor = ThreadPoolExecutor(max_workers=_FETCH_WORKERS, thread_name_prefix="pack-matrix")
 
 # 読む日数（今日・昨日）。朝5時の収集が途中でも、昨日の値で欠けを埋める（build_matrix が新しい日を優先）
 _LOOKBACK_DAYS = 2
@@ -79,48 +90,83 @@ def _chunk_card_names_by_bytes(card_names: list[str], byte_budget: int = _CHUNK_
     return chunks
 
 
+def _execute(build):
+    """問い合わせを1回送る。接続ごと切られた（HTTP/2 の GOAWAY＝ConnectionTerminated）ときだけ1回送り直す。
+
+    同じ接続で並んでいた問い合わせがまとめて落ちる種類の失敗で、データベースの遅さとは別物
+    （2026-10-22 本番で3回、表が503になった）。遅い・失敗が続くときは送り直さない（負荷を積まない）。
+    """
+    try:
+        return build().execute()
+    except httpx.RemoteProtocolError as e:
+        logger.info(f"[featured_matrix] 接続が切られたので1回だけ送り直す: {e}")
+        return build().execute()
+
+
 def _fetch_card_ids(sb, card_names: list[str]) -> dict[int, str]:
-    """カード名 → card_dim のカード番号（名簿に無い名前は返らない）。"""
+    """カード名 → card_dim のカード番号（名簿に無い名前は返らない）。名前の束は同時に引く。"""
+    def one(chunk):
+        return _execute(lambda: sb.table("card_dim").select("card_id, card_name").in_("card_name", chunk)).data or []
+
     ids: dict[int, str] = {}
-    for chunk in _chunk_card_names_by_bytes(card_names):
-        resp = sb.table("card_dim").select("card_id, card_name").in_("card_name", chunk).execute()
-        for r in resp.data or []:
+    for data in _executor.map(one, _chunk_card_names_by_bytes(card_names)):
+        for r in data:
             ids[int(r["card_id"])] = r["card_name"]
     return ids
 
 
+def _fetch_day_rows(sb, chunk: list[int], day: str, skip_shop_ids: list[int]) -> list[dict]:
+    """カード番号の1束・1日ぶん。1000行を超えたら range で次のページを読む。"""
+    rows: list[dict] = []
+    offset = 0
+    while True:
+        def build(offset=offset):
+            q = (sb.table("price_history")
+                 .select("card_id, shop_id, rarity_id, card_name, shop, rarity, min_price, min_price_any, code, url, recorded_at")
+                 .in_("card_id", chunk)
+                 .eq("recorded_at", day))
+            if skip_shop_ids:
+                q = q.not_.in_("shop_id", skip_shop_ids)
+            # 索引 (recorded_at, card_id, shop_id, rarity_id) の順に並べる（名前で並べると並べ替えが入る。reviewer 低6）
+            return (q.order("card_id", desc=False)
+                    .order("shop_id", desc=False)
+                    .order("rarity_id", desc=False)
+                    .range(offset, offset + _PAGE_SIZE - 1))
+        batch = _execute(build).data or []
+        rows.extend(batch)
+        if len(batch) < _PAGE_SIZE:
+            return rows
+        offset += _PAGE_SIZE
+
+
 def _fetch_price_rows(sb, card_ids: list[int], days: list[str]) -> list[dict]:
-    """card_ids の price_history を、指定した日付（JST）ごとに等号で引く。
+    """card_ids の price_history を、新しい日付（JST）から順に等号で引く。
 
     日付の範囲（gte）ではなく等号にするのは、索引 (recorded_at, card_id, ...) の2列とも条件に
     使わせるため（範囲だと日付の範囲をなめてからカード番号で絞る計画になりうる）。
-    PostgRESTの1000行上限に対して range 分割し、order で順序を安定させる。
+    古い日は、それより新しい日に記録が1行でもある店を除いて読む（_prepare_records がどのみち捨てる行。
+    朝の収集が済んでいれば昨日はほとんど読まない。shop_id の除外は索引の上の絞り込みで済む＝EXPLAIN 確認済み）。
+    全部の店（scraper.DEFAULT_SHOPS）が揃ったら、古い日は読みに行かない。
+    カード番号の束は同時に読み（上限 _FETCH_WORKERS）、PostgRESTの1000行上限に対して range 分割する。
 
     例外はログしてから再送出する（呼び出し元のルートが503を返す。価格データの取得失敗を
     空の表として黙って見せない）。
     """
     try:
         all_rows: list[dict] = []
+        seen_shop_ids: set[int] = set()
+        seen_shops: set[str] = set()
+        chunks = [card_ids[i:i + _ID_CHUNK] for i in range(0, len(card_ids), _ID_CHUNK)]
         for day in days:
-            for i in range(0, len(card_ids), _ID_CHUNK):
-                chunk = card_ids[i:i + _ID_CHUNK]
-                offset = 0
-                while True:
-                    resp = (sb.table("price_history")
-                            .select("card_id, shop_id, rarity_id, card_name, shop, rarity, min_price, min_price_any, code, url, recorded_at")
-                            .in_("card_id", chunk)
-                            .eq("recorded_at", day)
-                            # 索引 (recorded_at, card_id, shop_id, rarity_id) の順に並べる（名前で並べると並べ替えが入る。reviewer 低6）
-                            .order("card_id", desc=False)
-                            .order("shop_id", desc=False)
-                            .order("rarity_id", desc=False)
-                            .range(offset, offset + _PAGE_SIZE - 1)
-                            .execute())
-                    batch = resp.data or []
-                    all_rows.extend(batch)
-                    if len(batch) < _PAGE_SIZE:
-                        break
-                    offset += _PAGE_SIZE
+            if seen_shops >= set(DEFAULT_SHOPS):
+                break
+            skip = sorted(seen_shop_ids)
+            day_rows = [r for rows in _executor.map(lambda c: _fetch_day_rows(sb, c, day, skip), chunks) for r in rows]
+            for r in day_rows:
+                if r.get("shop_id") is not None:
+                    seen_shop_ids.add(int(r["shop_id"]))
+                seen_shops.add(r.get("shop"))
+            all_rows.extend(day_rows)
         return all_rows
     except Exception as e:
         logger.warning(f"[featured_matrix] price_history 取得失敗: {e}")

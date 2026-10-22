@@ -338,8 +338,16 @@ class _RecSupabase:
 
             def select(self, *a, **k): return self
 
+            @property
+            def not_(self):
+                self.f["_neg"] = True
+                return self
+
             def in_(self, col, vals):
-                self.f[col] = list(vals)
+                if self.f.pop("_neg", False):
+                    self.f["not_" + col] = list(vals)
+                else:
+                    self.f[col] = list(vals)
                 return self
 
             def eq(self, col, val):
@@ -359,7 +367,9 @@ class _RecSupabase:
                 assert name == "price_history"
                 assert "recorded_at" in self.f and isinstance(self.f["recorded_at"], str), "日付は等号で引く"
                 assert "card_id" in self.f, "カード番号で引く（カード名で探さない）"
-                return _FakeResp([r for r in sb.rows if r["card_id"] in self.f["card_id"] and r["recorded_at"] == self.f["recorded_at"]])
+                skip = self.f.get("not_shop_id", [])
+                return _FakeResp([r for r in sb.rows if r["card_id"] in self.f["card_id"] and r["recorded_at"] == self.f["recorded_at"]
+                                  and r.get("shop_id") not in skip])
         return Q()
 
 
@@ -446,3 +456,67 @@ class TestPrepareRecordsAndCache:
         with pytest.raises(RuntimeError):
             get_pack_matrix(sb, ["カードC"])  # 覚えている間は読みに行かずに失敗を返す
         assert not any(c[1].get("card_name") == ["カードC"] for c in sb.calls)
+
+
+class TestFetchFewerRoundTrips:
+    """最初の読み込みが遅い件（2026-10-22）: 昨日は足りない店のぶんだけ・束は同時に・接続切れは1回だけ送り直す"""
+
+    def setup_method(self):
+        featured_matrix._cache.clear()
+
+    @staticmethod
+    def _r(card_id, shop, day):
+        shop_id = featured_matrix.DEFAULT_SHOPS.index(shop) + 1
+        return dict(_row(f"カード{card_id}", shop, "ウルトラ", 100, 100, day), card_id=card_id, shop_id=shop_id)
+
+    def test_yesterday_not_read_when_all_shops_have_today(self):
+        rows = [self._r(1, s, "2026-10-22") for s in featured_matrix.DEFAULT_SHOPS]
+        rows += [self._r(1, "遊々亭", "2026-10-21")]
+        sb = _RecSupabase({}, rows)
+        out = _fetch_price_rows(sb, [1], ["2026-10-22", "2026-10-21"])
+        assert {c[1]["recorded_at"] for c in sb.calls} == {"2026-10-22"}, "全部の店が今日揃ったら昨日は読まない"
+        assert len(out) == len(featured_matrix.DEFAULT_SHOPS)
+
+    def test_yesterday_reads_only_shops_missing_today(self):
+        rows = [self._r(1, "遊々亭", "2026-10-22"), self._r(2, "カーナベル", "2026-10-22"),
+                self._r(1, "遊々亭", "2026-10-21"), self._r(1, "カードラボ", "2026-10-21")]
+        sb = _RecSupabase({}, rows)
+        out = _fetch_price_rows(sb, [1, 2], ["2026-10-22", "2026-10-21"])
+        y = [c[1] for c in sb.calls if c[1]["recorded_at"] == "2026-10-21"]
+        assert y and all(sorted(c["not_shop_id"]) == [1, 4] for c in y), "今日の記録がある店（遊々亭・カーナベル）は昨日を読まない"
+        assert sorted((r["shop"], r["recorded_at"]) for r in out) == [
+            ("カードラボ", "2026-10-21"), ("カーナベル", "2026-10-22"), ("遊々亭", "2026-10-22")]
+        # 表の結果は全部読んだときと同じ（_prepare_records が捨てる行だけを読まない）
+        assert featured_matrix._prepare_records(out) == featured_matrix._prepare_records(
+            [r for r in rows if not (r["shop"] == "遊々亭" and r["recorded_at"] == "2026-10-21")])
+
+    def test_card_ids_are_split_into_chunks(self):
+        ids = list(range(1, featured_matrix._ID_CHUNK * 2 + 2))
+        sb = _RecSupabase({}, [])
+        _fetch_price_rows(sb, ids, ["2026-10-22"])
+        sizes = sorted(len(c[1]["card_id"]) for c in sb.calls)
+        assert sizes == [1, featured_matrix._ID_CHUNK, featured_matrix._ID_CHUNK]
+
+    def test_retries_once_on_connection_terminated(self):
+        import httpx
+        calls = {"n": 0}
+
+        class Q:
+            def execute(self):
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    raise httpx.RemoteProtocolError("<ConnectionTerminated error_code:1>")
+                return _FakeResp([1])
+        assert featured_matrix._execute(lambda: Q()).data == [1]
+        assert calls["n"] == 2
+
+    def test_other_errors_are_not_retried(self):
+        calls = {"n": 0}
+
+        class Q:
+            def execute(self):
+                calls["n"] += 1
+                raise RuntimeError("timeout")
+        with pytest.raises(RuntimeError):
+            featured_matrix._execute(lambda: Q())
+        assert calls["n"] == 1, "遅い・失敗が続くときは送り直さない"
