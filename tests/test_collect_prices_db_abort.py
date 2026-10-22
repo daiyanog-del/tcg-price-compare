@@ -205,7 +205,7 @@ def run_main(monkeypatch):
         monkeypatch.setattr(cp, "check_shop_availability", lambda shops: list(shops))
         monkeypatch.setattr(cp, "compare_prices", _fake_compare_prices)
         monkeypatch.setattr(cp.time, "sleep", lambda s: None)  # 見張り役の待ちもここを通る
-        monkeypatch.setattr(cp, "send_discord_message", lambda msg, **k: notices.append(msg))
+        monkeypatch.setattr(db_write_guard.discord_notify, "send_discord_message", lambda msg, **k: notices.append(msg))
         monkeypatch.setattr(cp, "send_daily_report", lambda *a, **k: None)
         monkeypatch.setattr(cp, "cleanup_old_data", lambda sb: cleanup_calls.append(1))
         monkeypatch.setattr(cp, "get_host_request_counts", lambda: {})

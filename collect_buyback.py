@@ -19,6 +19,7 @@ from supabase import create_client, Client
 from scraper import compare_buyback, BUYBACK_SHOPS, get_host_request_counts
 from collection_run import record_collection_run, attach_host_request_counts
 from price_persist import upsert_buyback_rows
+from db_write_guard import ConsecutiveDbFailureGuard, DbWriteAborted, report_db_abort
 from collect_prices import (
     get_supabase,
     normalize_card_name,
@@ -50,8 +51,12 @@ else:
 def collect_and_save_buyback(
     sb: Client, card_name: str, today: str, shop_names: list[str],
     shop_stats: dict | None = None,
+    db_guard: ConsecutiveDbFailureGuard | None = None,
 ) -> int:
     """1枚のカードの買取価格を取得してSupabaseに保存。保存した行数を返す。
+
+    db_guard を渡すと、保存が例外で失敗した回数を数え、続けて上限回数失敗したら
+    DbWriteAborted を送出する（collect_prices.collect_and_save と同じ。db_write_guard.py）。
 
     販売の collect_and_save とほぼ同じ構造だが、
     店舗×レアリティごとの「最大買取額(max_price)」を記録する点が異なる。
@@ -107,7 +112,14 @@ def collect_and_save_buyback(
         for (shop, rarity), price in max_prices.items()
     ]
 
-    saved = upsert_buyback_rows(sb, rows)
+    try:
+        saved = upsert_buyback_rows(sb, rows, raise_on_error=db_guard is not None)
+    except Exception as e:
+        print(f"  DB保存失敗 [{card_name}]")
+        db_guard.record_failure(e)  # 上限に達したら DbWriteAborted が上がる
+        return 0
+    if db_guard is not None:
+        db_guard.record_success()
     if saved > 0:
         print(f"  保存完了 [{card_name}]: {saved}件")
     else:
@@ -197,11 +209,30 @@ def main():
     success_count = 0
     fail_count = 0
     shop_stats: dict = {}  # 店舗別の 取得成功/0件/エラー 集計
+    # DB保存の連続失敗で打ち切る（2026-10-22 DB停止。collect_prices.py と同じ見張り役）
+    db_guard = ConsecutiveDbFailureGuard()
 
     for i, card_data in enumerate(hot_cards):
         card_name = card_data["card_name"]
         print(f"[{i+1}/{len(hot_cards)}] {card_name}")
-        saved = collect_and_save_buyback(sb, card_name, today, available_shops, shop_stats=shop_stats)
+        try:
+            saved = collect_and_save_buyback(sb, card_name, today, available_shops,
+                                             shop_stats=shop_stats, db_guard=db_guard)
+        except DbWriteAborted as e:
+            fail_count += 1
+            # 古いデータの掃除は DB への問い合わせを重ねるので行わない
+            report_db_abort(
+                sb, e, label="買取価格収集", table="buyback_history", started_at=started_at, today=today,
+                processed=i + 1, total=len(hot_cards), success_count=success_count,
+                run_type="buyback",
+                record_kwargs=dict(
+                    attempted_shops=buyback_shop_names, available_shops=available_shops,
+                    skipped_shops=skipped_shops, shop_stats=shop_stats,
+                    # cutoff_count は collect_prices.py 専用の列なので渡さない（処理件数は _aborted.processed）
+                    success_count=success_count, fail_count=fail_count, saved_rows=total_saved,
+                ),
+            )
+            sys.exit(1)
         if saved > 0:
             total_saved += saved
             success_count += 1

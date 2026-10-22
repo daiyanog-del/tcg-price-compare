@@ -155,7 +155,7 @@ class TestMainSkipsCollectedTorecolo:
     def test_first_pass_excludes_torecolo_only_for_collected_cards(self, monkeypatch):
         calls = []  # (card, shops)
 
-        def fake_collect(sb, card, today, shops, shop_stats=None):
+        def fake_collect(sb, card, today, shops, shop_stats=None, db_guard=None):
             calls.append((card, list(shops)))
             return 0, []
 
@@ -198,7 +198,7 @@ class TestAttemptedDenominatorExcludesSkipped:
         sleeps = []
         retried = []
 
-        def fake_collect(sb, card, today, shops, shop_stats=None):
+        def fake_collect(sb, card, today, shops, shop_stats=None, db_guard=None):
             if "トレコロCB" in shops and card not in done:
                 retried.append((card, list(shops)))
                 return 0, ["トレコロCB"]
