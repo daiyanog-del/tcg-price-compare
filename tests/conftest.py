@@ -14,6 +14,9 @@ conftest.py はテストモジュールのimportより先にpytestが読み込�
 import os
 
 os.environ.setdefault("DISABLE_STARTUP_JOBS", "1")
+# 店の一時休止（shop_status.py）は読み込み時に店の一覧を変える。手元に設定が残っていても、
+# 既存のテスト（カーナベルを例に使うもの）が崩れないように外す。休止のテストは別プロセスで設定する
+os.environ.pop("SUSPENDED_SHOPS", None)
 
 
 import pytest  # noqa: E402

@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from rarity import normalize_rarity  # 正規化は rarity.py に一元化
 from card_code import infer_codes  # 型番の店舗間補完（カーナベル/トレコロCB）
+from shop_status import SUSPENDED_SHOPS, is_suspended  # 店の一時休止
 
 # ── 共通設定 ──
 HEADERS = {
@@ -428,7 +429,8 @@ def _shop_cache_entries(kind: str, cache_dir: Path, key: str, shops: list[str] |
         if cur is None or (datetime.fromisoformat(ent["timestamp"])
                            > datetime.fromisoformat(cur["timestamp"])):
             fresh[shop] = ent
-    return fresh
+    # 休止中の店は、休止前に貯めた結果もキャッシュから出さない（shop_status.py）
+    return {shop: ent for shop, ent in fresh.items() if not is_suspended(shop)}
 
 def _shop_cache_get(kind: str, cache_dir: Path, key: str, shops: list[str],
                     include_partial: bool) -> tuple[dict[str, list], list[str]]:
@@ -1315,6 +1317,10 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
 def kanabell_card_image_url(card_name: str) -> str:
     """カーナベルESから最初にヒットしたカードの画像URLを返す。失敗時は空文字"""
     if not _KANABELL_CLOUD_ID or not _KANABELL_API_KEY:
+        return ""
+    # 休止中はカーナベルの画像配信も止まっている（2026-10-21〜 ka-nabell.com は 503）。
+    # 返すと画面に壊れた画像が出るので、予備に使わない
+    if is_suspended("カーナベル"):
         return ""
 
     card_name = _normalize_fullwidth(card_name)
@@ -2272,6 +2278,10 @@ BUYBACK_SHOPS = [
 
 DEFAULT_BUYBACK_SHOPS = ["カードラッシュ", "カーナベル", "遊々亭", "トレコロCB", "カードラボ"]
 
+# 休止中の店（環境変数 SUSPENDED_SHOPS）は一覧から外す。買取検索・買取の収集はこの一覧から作る
+BUYBACK_SHOPS = [(name, fn) for name, fn in BUYBACK_SHOPS if name not in SUSPENDED_SHOPS]
+DEFAULT_BUYBACK_SHOPS = [name for name in DEFAULT_BUYBACK_SHOPS if name not in SUSPENDED_SHOPS]
+
 
 # ── 買取キャッシュ（販売と分離・同じ店舗束形式）──
 
@@ -2320,6 +2330,11 @@ SHOPS = [
 
 # デフォルトで検索する店舗
 DEFAULT_SHOPS = ["遊々亭", "カードラッシュ", "トレコロCB", "カーナベル", "カードラボ", "まんぞく屋"]
+
+# 休止中の店（環境変数 SUSPENDED_SHOPS）は一覧から外す。リアルタイム検索・画面の店一覧（/api/config）・
+# 購入候補の店ごとの集計・夜間の収集は、どれもこの一覧から作る（shop_status.py）
+SHOPS = [(name, fn) for name, fn in SHOPS if name not in SUSPENDED_SHOPS]
+DEFAULT_SHOPS = [name for name in DEFAULT_SHOPS if name not in SUSPENDED_SHOPS]
 
 
 def run_shop_with_status(fn, card_name: str) -> tuple[list[dict], int]:

@@ -31,6 +31,7 @@ from db_write_guard import (
     ConsecutiveDbFailureGuard, DbWriteAborted, GuardedSupabase, is_db_unavailable, report_db_abort,
 )
 from discord_notify import send_discord_message
+from shop_status import SUSPENDED_SHOPS
 from meta_scraper import fetch_tier_list, fetch_deck_cards
 from name_normalize import load_cardnames_index, canonicalize_card_name
 
@@ -81,11 +82,48 @@ def check_shop_availability(shop_names: list[str]) -> list[str]:
         try:
             resp = _req.get(url, timeout=5, headers=headers, stream=True)
             resp.close()
-            available.append(name)
-            print(f"  OK: {name}")
+            if resp.status_code >= 500:
+                # 一瞬の 502/503 でその日の収集をまるごと落とさないよう、5xx だけ少し待って1回取り直す
+                time.sleep(5)
+                resp = _req.get(url, timeout=5, headers=headers, stream=True)
+                resp.close()
         except Exception as e:
             print(f"  NG: {name} — 当日スキップ（{type(e).__name__}）")
+            continue
+        # 5xx はサイトが止まっている（2026-10-21 カーナベルは停止のお知らせを 503 で返していた。
+        # 以前は応答があれば通していたため、裏側の検索サービスに残った在庫が DB に入った）。
+        # 4xx は通す（ボット対策の 403 でもスクレイパー側は取れている店があるため。従来どおり）
+        if resp.status_code >= 500:
+            print(f"  NG: {name} — 当日スキップ（HTTP {resp.status_code}）")
+            continue
+        available.append(name)
+        print(f"  OK: {name}")
     return available
+
+
+def watch_suspended_shops() -> None:
+    """休止中の店（SUSPENDED_SHOPS）のサイトが応答を返すようになったら Discord に知らせる。
+    再開したら新しいサイトの作りで取得できるか確かめてから SUSPENDED_SHOPS を外すため、自動では外さない。"""
+    import requests as _req
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; TCGYMBot/1.0)"}
+    for name in sorted(SUSPENDED_SHOPS):
+        url = SHOP_HEALTH_URLS.get(name)
+        if not url:
+            print(f"  休止中: {name}（確認先URLなし）")
+            continue
+        try:
+            resp = _req.get(url, timeout=10, headers=headers, stream=True)
+            resp.close()
+        except Exception as e:
+            print(f"  休止中: {name} — 応答なし（{type(e).__name__}）")
+            continue
+        print(f"  休止中: {name} — HTTP {resp.status_code}")
+        if resp.status_code < 400:
+            send_discord_message(
+                f"[ラボ] 休止中の店「{name}」のサイトが応答を返しています（HTTP {resp.status_code}・{url}）。"
+                "再開していれば、新しいサイトの作りで取得できるか確かめてから、"
+                "Render の SUSPENDED_SHOPS からこの店を外してください。",
+                no_mentions=True)
 
 
 def get_supabase() -> Client:
@@ -1038,6 +1076,9 @@ def _main(state: dict):
     ci_shops = [name for name, _ in SHOPS if name not in SKIP_SHOPS_IN_CI]
     print("\n--- 店舗ヘルスチェック ---")
     available_shops = check_shop_availability(ci_shops)
+    if SUSPENDED_SHOPS:
+        # 休止中の店は SHOPS から外れているので収集しない。再開の兆しだけ見張る（shop_status.py）
+        watch_suspended_shops()
 
     # 観測店舗集合の記録用（P5）: ヘルスチェック落ち・APIキー未設定のスキップ理由を積む
     skipped_shops: dict[str, str] = {
@@ -1052,6 +1093,9 @@ def _main(state: dict):
         print("  NG: カーナベル — KANABELL_CLOUD_ID / KANABELL_API_KEY 未設定のため当日スキップ")
         available_shops.remove("カーナベル")
         skipped_shops["カーナベル"] = "api_key_missing"
+    # 休止中の店は SHOPS に無いので収集しない。後から追えるように理由だけ残す
+    for name in sorted(SUSPENDED_SHOPS):
+        skipped_shops[name] = "suspended"
 
     if not available_shops:
         print("全店舗が応答しないため収集を中止します")

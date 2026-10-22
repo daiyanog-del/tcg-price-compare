@@ -45,6 +45,7 @@ from shipping import (
 )
 from aggregations import daily_min_by_lowest_rarity, common_shop_price_change
 from price_history_reads import fetch_daily_rows_by_card_names, jst_days_back
+from shop_status import SUSPENDED_SHOPS
 from price_persist import build_min_price_rows, upsert_price_rows
 from card_code import infer_codes
 from search_status import search_coverage
@@ -59,7 +60,7 @@ import upgrade_signals
 # 店舗検索の取得口（2026-10-22 作り直し）。全利用者で共有し、店ごとの列で順番に取る。
 # 数字は手元の負荷試験（ダミー店舗・gunicorn 1 worker）で決めた仮置き。
 # TODO: calibrate from data — 本番の待ち時間・店ごとの取得時間・WAF の反応・メモリを見て校正する。
-SHOP_FETCH_MAX_WORKERS = len(DEFAULT_SHOPS)  # 全体の同時取得数（作り直し前と同じ6件）
+SHOP_FETCH_MAX_WORKERS = 6  # 全体の同時取得数（作り直し前と同じ6件。休止中の店で DEFAULT_SHOPS が減っても変えない）
 SHOP_FETCH_PER_SHOP = 2  # 1店あたりの同時取得数（店の WAF に同時に多く当てない）
 SHOP_QUEUE_TIMEOUT_SINGLE = 45  # 単品検索が1店の順番を待つ上限（秒）。過ぎた店は「混雑で取得できず」。
 # 30秒だと単品16件同時で1件5店が欠け、いちばん遅い検索の所要はほぼ同じ（43.9秒→45.1秒）だったので45秒に（2026-10-22 ユーザー判断）
@@ -71,7 +72,7 @@ SEARCH_STREAM_BULK_LIMIT = 8
 SEARCH_BUSY_RETRY_SEC = 4  # 混雑応答から画面が取り直すまでの秒数（レート制限 RATE_LIMIT_SEC=3 より長くする）
 SEARCH_HEARTBEAT_SEC = 5  # 順番待ちの間に画面へ送る合図の間隔（画面の60秒無応答タイムアウトを避け、切断も早く気づく）
 # 順番待ち＋実行中の取得の安全上限。SSE の同時数（12本）× 一括検索1本の最大（5カード×6店）で頭打ちになる
-SHOP_FETCH_MAX_PENDING = SEARCH_STREAM_LIMIT * 5 * len(DEFAULT_SHOPS)
+SHOP_FETCH_MAX_PENDING = SEARCH_STREAM_LIMIT * 5 * SHOP_FETCH_MAX_WORKERS
 _shop_search_pool = ShopSearchPool(
     max_workers=SHOP_FETCH_MAX_WORKERS, per_shop_limit=SHOP_FETCH_PER_SHOP,
     max_pending=SHOP_FETCH_MAX_PENDING,
@@ -1914,9 +1915,14 @@ def _load_estimate_cache_inner(startup: bool):
             # （5秒・10秒待って json 経路をやり直す）に任せる
             route = "paged"
             rows: list = []
+            # 休止中の店（shop_status.py）は最安の候補から外す。外す店が無いときは引数を渡さない
+            # （関数の新しい定義 excluded_shops が本番に入る前でも、従来どおり呼べるように）
+            rpc_params = {"cutoff_date": cutoff}
+            if SUSPENDED_SHOPS:
+                rpc_params["excluded_shops"] = sorted(SUSPENDED_SHOPS)
             try:
                 json_resp = _supabase_client.rpc(
-                    "get_card_best_prices_json", {"cutoff_date": cutoff}
+                    "get_card_best_prices_json", rpc_params
                 ).execute()
                 if isinstance(json_resp.data, list):
                     rows = json_resp.data
@@ -1944,7 +1950,7 @@ def _load_estimate_cache_inner(startup: bool):
                 max_pages = 20  # 暴走ガード（現在2,688種。offsetが効かない異常時の無限ループ防止）
                 offset = 0
                 while True:
-                    resp = (_supabase_client.rpc("get_card_best_prices", {"cutoff_date": cutoff})
+                    resp = (_supabase_client.rpc("get_card_best_prices", rpc_params)
                             .order("card_name")
                             .range(offset, offset + page_size - 1)
                             .execute())
@@ -2129,7 +2135,10 @@ def api_price_history():
         ]
         # 畳んだ分は店舗別の行より古いので前に置く（日付の昇順を保つ）
         data = _fetch_price_daily_rows(card_name, cutoff, {d["date"] for d in data}) + data
-        return jsonify({"card_name": card_name, "data": data})
+        # グラフは過去の記録なので休止中の店の行も残す。「いまの最安」を選ぶ画面（シミュレーターの
+        # カード情報）が休止中の店を外せるように、店名を添える（shop_status.py）
+        return jsonify({"card_name": card_name, "data": data,
+                        "suspended_shops": sorted(SUSPENDED_SHOPS)})
     except Exception as e:
         logger.error(f"価格推移取得失敗: {e}")
         return jsonify({"card_name": card_name, "data": []})
@@ -3431,7 +3440,7 @@ def api_card_rarities():
         # 購入候補と同じく、カード番号＋日付の等号で今日の7日前から今日まで読む（price_history_reads）。
         # 読めなかったカードは候補なし扱い（従来どおり）
         rows, _failed = fetch_daily_rows_by_card_names(
-            _supabase_client, names, "card_id, shop_id, rarity_id, card_name, rarity",
+            _supabase_client, names, "card_id, shop_id, rarity_id, card_name, rarity, shop",
             jst_days_back(7), "card-rarities")
         for row in rows:
             nm = row.get("card_name")
@@ -3596,6 +3605,8 @@ def api_config():
     # アフィリエイト設定をフロントエンドに渡す
     aff = {}
     for shop, conf in AFFILIATE_CONFIG.items():
+        if shop in SUSPENDED_SHOPS:
+            continue  # 休止中の店はリンクを出さないので、広告の表示計測（affPixel）も送らない
         if conf.get("sell_a8mat") or conf.get("buy_a8mat"):
             aff[shop] = {
                 "sell": conf.get("sell_a8mat", ""),

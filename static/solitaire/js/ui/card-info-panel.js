@@ -264,7 +264,9 @@ function _buildPriceHtml(name, priceData) {
 function _bestFromHistory(data) {
   const items = data?.data;
   if (!items || items.length === 0) return null;
-  const valid = items.filter(r => r.price > 0);
+  // 休止中の店（サーバーの SUSPENDED_SHOPS）は「いまの最安」に使わない。グラフ用に行は届く（2026-10-22 カーナベル休止）
+  const suspended = new Set(data?.suspended_shops || []);
+  const valid = items.filter(r => r.price > 0 && !suspended.has(r.shop));
   if (valid.length === 0) return null;
   // 最新収集日の行のみを対象にする（過去日の特売を拾わない）
   const latestDate = valid.reduce((a, b) => a.date > b.date ? a : b).date;
