@@ -779,13 +779,16 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
           <summary class="chart-title" id="mercariRefHead">メルカリ</summary>
           <div id="mercariRefBody"></div>
         </details>
-        <!-- C-2: 買取価格。既定で閉じ、開いたときに初めて /api/buyback を叩く（第2弾B） -->
-        <details id="buyInline" class="price-chart">
-          <summary class="chart-title">買取価格を見る（いくらで売れるか）</summary>
-          <div id="buyInlineBody"></div>
-        </details>
       </div>
     </div>
+
+    <!-- C-2: 買取価格。名前の行の下に全幅で置き、既定で閉じる（2026-10-22 案A・ユーザー決定）。
+         右の相場の箱の中で開くと箱だけが下へ伸びて浮いて見えたため外へ出した。
+         通常のカードは開いたときに初めて /api/buyback を叩く（第2弾B）。/buy/ のページは着地時に取り、閉じたまま見出しに最高額を出す -->
+    <details id="buyInline" class="price-chart cr-buy">
+      <summary class="chart-title" id="buyInlineHead">買取価格を見る（いくらで売れるか）</summary>
+      <div id="buyInlineBody"></div>
+    </details>
 
     <!-- レアリティの選択欄。各レアリティの在庫ありの最安を出し、安い順に並べる（renderAll が描く） -->
     <div class="cr-rarity hidden" id="rarityFilter"></div>
