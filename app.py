@@ -49,7 +49,7 @@ from price_persist import build_min_price_rows, upsert_price_rows
 from card_code import infer_codes
 from search_status import search_coverage
 from shop_search_pool import (
-    ShopSearchPool, PoolCapacityError, PoolBusyError, SearchAbandonedError,
+    ShopSearchPool, PoolCapacityError, SearchAbandonedError,
     PRIORITY_SINGLE, PRIORITY_BULK, iter_with_heartbeat,
 )
 from concurrent.futures import Future
@@ -92,8 +92,23 @@ class _SearchStreamSlots:
     """店舗へ取りに行く検索（SSE）の同時処理数を数える。SSE は gunicorn のスレッドを
     検索が終わるまで握るため、上限を超えた分はすぐ「混雑中」と返してページ表示の分を残す。"""
 
-    def __init__(self, limit: int):
+    def __init__(self, limit: int, log_interval: float = 60.0):
         self._semaphore = threading.BoundedSemaphore(limit)
+        # 混雑応答の件数。1件ずつログに出すと混雑のあいだ数秒おきに出続けるので、間隔をあけてまとめて出す
+        self._busy_lock = threading.Lock()
+        self._busy_count = 0
+        self._busy_logged_at = None
+        self._log_interval = log_interval
+
+    def note_busy(self):
+        """混雑応答を1件数える。前回のログから log_interval 秒たっていれば、出すべき件数を返す（それ以外は None）。"""
+        now = time.monotonic()
+        with self._busy_lock:
+            self._busy_count += 1
+            if self._busy_logged_at is not None and now - self._busy_logged_at < self._log_interval:
+                return None
+            count, self._busy_count, self._busy_logged_at = self._busy_count, 0, now
+            return count
 
     def try_open(self):
         """空きがあれば、1回だけ効く解放関数を返す。空きがなければ None。"""
@@ -117,7 +132,10 @@ _search_stream_slots = _SearchStreamSlots(SEARCH_STREAM_LIMIT)
 def _search_busy_response():
     """検索の同時数が上限のときの応答。EventSource でも読めるよう 200 の SSE で1件だけ返す。
     fetch で読む画面は X-Search-Busy ヘッダーで判別し、本文を読まずに取り直す。"""
-    logger.warning("検索の同時処理数の上限（%d）で混雑応答: %s", SEARCH_STREAM_LIMIT, request.path)
+    count = _search_stream_slots.note_busy()
+    if count is not None:
+        logger.warning("検索の同時処理数の上限（%d）で混雑応答: 前回のログから %d 件（今回 %s）",
+                       SEARCH_STREAM_LIMIT, count, request.path)
     response = Response(_sse({"type": "busy", "retry_after": SEARCH_BUSY_RETRY_SEC,
                               "message": "混雑しています。数秒後に自動で再開します"}),
                         mimetype="text/event-stream")
@@ -150,7 +168,13 @@ def _stale_shop_fallback(stale_getter, card_name, shop_name):
         entry = None
     if not entry:
         return [], None
-    return [dict(item) for item in entry["results"]], entry["timestamp"]
+    # 行ごとに「前回の結果」の印と取得時刻を付ける（画面・購入候補の集計が今回の値と見分けられるように）
+    return [dict(item, stale=True, stale_at=entry["timestamp"]) for item in entry["results"]], entry["timestamp"]
+
+
+def _is_shop_busy(exc):
+    """自サーバーの混雑で取れなかった（待ち時間の上限・受付件数の上限）。利用者の取り消しは含めない。"""
+    return isinstance(exc, PoolCapacityError) and not isinstance(exc, SearchAbandonedError)
 
 
 def _shop_fetch_result(future):
@@ -1306,8 +1330,6 @@ def api_search():
     shops_to_scrape = [(name, fn) for name, fn in active_shops if name in missing_shops]
 
     def generate():
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-
         # 調べる店の一覧を最初に送る（cached_stream と同じ理由）
         yield _sse({"type": "shops", "shops": [name for name, _ in active_shops]})
 
@@ -1330,6 +1352,7 @@ def api_search():
         scraped_items = []  # 今回スクレイプで得た行（persist用。キャッシュ命中分を含まない）
         scraped_ok = {}  # 取得に成功した店舗のみキャッシュする（失敗店舗は次回再試行）
         busy_shops = []  # 混雑で順番が回ってこなかった店（前回の結果を代わりに出す）
+        stale_rows = []  # その店の前回の結果（完了の直前に結果へ足す）
         search_request = _shop_search_pool.request(PRIORITY_SINGLE, SHOP_QUEUE_TIMEOUT_SINGLE)
         disconnected = False
 
@@ -1347,17 +1370,18 @@ def api_search():
                             futures[f] for f in futures if search_request.is_queued(f)]})
                         continue
                     shop_name = futures[future]
-                    if isinstance(future.exception(), PoolBusyError):
-                        # 待ち時間の上限を過ぎた店だけ「混雑で取得できず」。手元の前回の結果で代わりに埋める
-                        # （キャッシュにも DB にも書き戻さない）
+                    if _is_shop_busy(future.exception()):
+                        # 待ち時間（または受付件数）の上限で取れなかった店だけ「混雑で取得できず」。
+                        # 手元の前回の結果で代わりに埋める（キャッシュにも DB にも書き戻さない。
+                        # 型番の補完・人気の集計にも使わないので、完了の直前まで別に持つ）
                         stale_results, stale_at = _stale_shop_fallback(cache_get_shops_stale, card_name, shop_name)
                         busy_shops.append(shop_name)
+                        stale_rows.extend(stale_results)
                         yield _sse({"type": "shop_error", "shop": shop_name,
                                     "error": SHOP_BUSY_MESSAGE, "busy": True})
                         yield _sse({"type": "shop_done", "shop": shop_name, "count": len(stale_results),
                                     "results": stale_results, "status": "busy",
                                     "stale": stale_at is not None, "stale_at": stale_at})
-                        all_results.extend(stale_results)
                         continue
                     error = None
                     try:
@@ -1389,10 +1413,8 @@ def api_search():
             for r in all_results:
                 corrected_by_shop.setdefault(r.get("shop"), []).append(r)
             scraped_ok = {name: corrected_by_shop.get(name, []) for name in scraped_ok}
-            # 混雑で前回の結果を出した店は今回取っていないので、保存の対象から外す
             scraped_items = [
-                r for name, _ in shops_to_scrape if name not in busy_shops
-                for r in corrected_by_shop.get(name, [])
+                r for name, _ in shops_to_scrape for r in corrected_by_shop.get(name, [])
             ]
 
             cache_store_shops(card_name, scraped_ok)
@@ -1406,6 +1428,8 @@ def api_search():
                     # /api/deck 由来なら ignore_duplicates=True で書かれていないこともある）
                     if scraped_items:
                         Thread(target=_persist_scrape_async, args=(card_name, list(scraped_items)), daemon=True).start()
+            # 混雑した店の前回の結果は、保存・記録が終わってから表示用に足す
+            all_results = all_results + stale_rows
         except GeneratorExit:
             # 利用者が画面を閉じた。まだ始まっていない取得は finally で取り消す
             disconnected = True
@@ -1516,7 +1540,9 @@ def _api_deck_stream(card_entries, selected, active_shops, _FAST_OVERRIDES,
         「その店にはそのレアリティが無い」と誤判定されていた）"""
         per_shop: dict = {}
         for r in items:
-            if r.get("sold_out"):
+            # 混雑で取れなかった店の前回の結果（stale）は入れない。店別価格は購入先の決定（送料込み最安）と
+            # 店舗×レアの表に使うので、古い値段で店を選ばせない（その店は failed_shops・busy_shops に残る）
+            if r.get("sold_out") or r.get("stale"):
                 continue
             shop = r.get("shop")
             if not shop or shop not in selected:
@@ -1560,7 +1586,7 @@ def _api_deck_stream(card_entries, selected, active_shops, _FAST_OVERRIDES,
             for future in search_request.as_completed(futures):
                 shop_name = futures[future]
                 exc = future.exception()
-                if isinstance(exc, PoolBusyError):
+                if _is_shop_busy(exc):
                     busy_shops.append(shop_name)
                     continue
                 if isinstance(exc, SearchAbandonedError):
@@ -1725,7 +1751,7 @@ def _api_deck_buy_stream(card_entries, selected, active_shops):
             for future in search_request.as_completed(futures):
                 shop_name = futures[future]
                 exc = future.exception()
-                if isinstance(exc, PoolBusyError):
+                if _is_shop_busy(exc):
                     busy_shops.append(shop_name)
                     continue
                 if isinstance(exc, SearchAbandonedError):
@@ -3419,6 +3445,7 @@ def api_buyback():
         all_results = list(cached_results)
         scraped_ok = {}  # 取得に成功した店舗のみキャッシュする（失敗店舗は次回再試行）
         busy_shops = []  # 混雑で順番が回ってこなかった店（前回の結果を代わりに出す）
+        stale_rows = []  # その店の前回の結果（完了の直前に結果へ足す）
         search_request = _shop_search_pool.request(PRIORITY_SINGLE, SHOP_QUEUE_TIMEOUT_SINGLE)
         disconnected = False
 
@@ -3435,16 +3462,17 @@ def api_buyback():
                             futures[f] for f in futures if search_request.is_queued(f)]})
                         continue
                     shop_name = futures[future]
-                    if isinstance(future.exception(), PoolBusyError):
-                        # 販売と同じく、待ち時間の上限を過ぎた店だけ前回の結果で代わりに埋める（書き戻さない）
+                    if _is_shop_busy(future.exception()):
+                        # 販売と同じく、混雑で取れなかった店だけ前回の結果で代わりに埋める
+                        # （書き戻さない・型番の補完と人気の集計にも使わない）
                         stale_results, stale_at = _stale_shop_fallback(
                             buyback_cache_get_shops_stale, card_name, shop_name)
                         busy_shops.append(shop_name)
+                        stale_rows.extend(stale_results)
                         yield _sse({"type": "shop_error", "shop": shop_name,
                                     "error": SHOP_BUSY_MESSAGE, "busy": True})
                         yield _sse({"type": "shop_done", "shop": shop_name, "count": len(stale_results),
                                     "status": "busy", "stale": stale_at is not None, "stale_at": stale_at})
-                        all_results.extend(stale_results)
                         continue
                     error = None
                     try:
@@ -3472,6 +3500,8 @@ def api_buyback():
             buyback_cache_store_shops(card_name, scraped_ok)
             if all_results:
                 _record_search(card_name)
+            # 混雑した店の前回の結果は、保存・記録が終わってから表示用に足す
+            all_results = all_results + stale_rows
         except GeneratorExit:
             disconnected = True  # 利用者が画面を閉じた。始まっていない取得は finally で取り消す
             raise

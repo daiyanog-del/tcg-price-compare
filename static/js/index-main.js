@@ -1170,10 +1170,14 @@ function _fetchBuyInline(trigger,busyTries){
     const d=JSON.parse(e.data);
     if(d.type==='busy'){
       // 店舗検索の混雑（販売の検索と同じ）。失敗にせず「順番待ち」を出し、数秒後に取り直す
-      clearTimeout(_buyInlineTimeoutId);_buyInlineTimeoutId=null;es.close();_buyInlineFetchInFlight=false;_buyInlineES=null;
-      if(busyTries+1>=ShopBusy.MAX_TRIES){ _renderBuyInlineError('店舗検索が混雑しています。'); return; }
+      // 待っている間も _buyInlineFetchInFlight は true のまま（欄を開き直しても二重に取りに行かない）
+      clearTimeout(_buyInlineTimeoutId);_buyInlineTimeoutId=null;es.close();_buyInlineES=null;
+      if(busyTries+1>=ShopBusy.MAX_TRIES){ _buyInlineFetchInFlight=false; _renderBuyInlineError('店舗検索が混雑しています。'); return; }
       prog.textContent=ShopBusy.WAIT_TEXT;
-      _buyInlineTimeoutId=setTimeout(()=>{ if(gen===_buyInlineGen) _fetchBuyInline(trigger,busyTries+1); },ShopBusy.retryMs(d.retry_after));
+      _buyInlineTimeoutId=setTimeout(()=>{
+        if(gen!==_buyInlineGen) return; // 別のカードに移った（_resetBuyInline が目印も戻している）
+        _buyInlineFetchInFlight=false; _fetchBuyInline(trigger,busyTries+1);
+      },ShopBusy.retryMs(d.retry_after));
       return;
     }
     if(d.type==='progress'){

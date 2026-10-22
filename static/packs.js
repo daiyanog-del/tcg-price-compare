@@ -759,12 +759,13 @@ async function bulkSearchPackPrices(){
     }
   }catch(e){
     if(e&&e.name==='AbortError') res.stopped=true;
+    else if(e&&e.message&&e.message.indexOf('混雑')>=0) res.error=e.message; // ShopBusy が上限まで待っても空かなかった
     else res.error='エラーが発生しました。再度お試しください';
   }
+  _pkShowBusy(false); // 待ちの途中で止めた・あきらめたときも「順番待ち」の札を残さない
   finish();
 }
 
-// 検索中の進み具合と、届いたカードの価格だけ書き換える
 // 店舗検索の混雑で順番待ちのあいだ、進み具合の数字の横に「順番待ち」を出す
 function _pkShowBusy(on){
   const n=document.getElementById('packProgN');
@@ -775,6 +776,7 @@ function _pkShowBusy(on){
   tag.textContent=' '+ShopBusy.WAIT_TEXT;
 }
 
+// 検索中の進み具合と、届いたカードの価格だけ書き換える
 function _pkUpdateProgress(name){
   const st=_pk;
   if(!st||!st.run) return;

@@ -254,3 +254,87 @@ def test_deck_disconnect_cancels_fetches_not_started(env, monkeypatch):
     finally:
         gate.set()
         pool.shutdown(wait=True)
+
+
+# ── レビュー指摘への対応（2026-10-22 reviewer 中2・低1・低2） ──
+
+def test_stale_rows_are_marked_and_kept_out_of_per_shop(env, monkeypatch):
+    """購入候補・新商品の店別価格（per_shop）は購入先の決定に使うので、前回の結果を入れない。
+    最安（best）には使うが、行に stale の印と取得時刻が付く"""
+    scraper.cache_store_shops("テストカード", {"店A": [_row("店A", 50)]})
+    _age_cache_entry(scraper.CACHE_DIR, scraper._cache_key("テストカード"), "店A", 60)
+    monkeypatch.setattr(app_module, "SHOPS", [("店A", lambda _: []), ("店B", lambda _: [])])
+    ok = Future()
+    ok.set_result(([_row("店B", 200)], 0))
+    monkeypatch.setattr(app_module, "_submit_shop_fetch",
+                        lambda _req, shop, _fn, _name: _busy_future() if shop == "店A" else ok)
+    events = _parse_sse(env.post("/api/deck", data={"cards": "テストカード", "shops": ["店A", "店B"],
+                                                    "include_per_shop": "1"}).get_data())
+    card = [e for e in events if e["type"] == "card_done"][0]
+    assert card["best"]["shop"] == "店A" and card["best"]["stale"] is True and card["best"]["stale_at"]
+    assert set(card["per_shop"]) == {"店B"}
+
+
+def test_capacity_limit_is_treated_as_busy(env, monkeypatch):
+    """受付件数の安全上限（PoolCapacityError）も店の障害ではないので、混雑と同じく前回の結果で埋める"""
+    from shop_search_pool import PoolCapacityError
+    scraper.cache_store_shops("テストカード", {"店A": [_row("店A", 300)]})
+    monkeypatch.setattr(app_module, "SHOPS", [("店A", lambda _: [])])
+    full = Future()
+    full.set_exception(PoolCapacityError("受付上限"))
+    monkeypatch.setattr(app_module, "_submit_shop_fetch", lambda *_: full)
+    _age_cache_entry(scraper.CACHE_DIR, scraper._cache_key("テストカード"), "店A", 60)  # 命中させず前回の結果として読む
+    events = _parse_sse(env.get("/api/search", query_string={"q": "テストカード", "confirmed": "true",
+                                                             "shops": "店A"}).get_data())
+    assert [e for e in events if e["type"] == "shop_error"][0]["busy"] is True
+    assert events[-1]["busy_shops"] == ["店A"] and events[-1]["total"] == 1
+
+
+def test_stale_rows_do_not_feed_code_inference_or_popularity(env, monkeypatch):
+    """前回の結果しか無いときは人気の集計に数えず、型番の補完の材料にも使わない"""
+    scraper.cache_store_shops("テストカード", {"店A": [dict(_row("店A", 300), code="ABCD-JP001")]})
+    _age_cache_entry(scraper.CACHE_DIR, scraper._cache_key("テストカード"), "店A", 60)
+    monkeypatch.setattr(app_module, "SHOPS", [("店A", lambda _: [])])
+    monkeypatch.setattr(app_module, "_submit_shop_fetch", lambda *_: _busy_future())
+    recorded, inferred = [], []
+    monkeypatch.setattr(app_module, "_record_search", lambda name: recorded.append(name))
+    real_infer = app_module.infer_codes
+    monkeypatch.setattr(app_module, "infer_codes", lambda rows: inferred.append(list(rows)) or real_infer(rows))
+    events = _parse_sse(env.get("/api/search", query_string={"q": "テストカード", "confirmed": "true",
+                                                             "shops": "店A"}).get_data())
+    assert events[-1]["total"] == 1  # 表示には出す
+    assert recorded == []
+    assert all(not any(r.get("stale") for r in rows) for rows in inferred)
+
+
+def test_single_search_disconnect_while_waiting_cancels_and_returns_slot(env, monkeypatch):
+    """単品検索の順番待ち中に画面を閉じたら、始まっていない取得を取り消し、枠も戻る（finally で送らない）"""
+    gate = threading.Event()
+
+    def slow(_name):
+        assert gate.wait(5)
+        return [_row("店A")]
+
+    monkeypatch.setattr(app_module, "SHOPS", [("店A", slow)])
+    monkeypatch.setattr(app_module, "SEARCH_HEARTBEAT_SEC", 0.1)
+    pool = ShopSearchPool(1, 1, 50)
+    monkeypatch.setattr(app_module, "_shop_search_pool", pool)
+    try:
+        holder = pool.request("single", 30)
+        running = holder.submit(slow, "先客", shop="店A", runner=lambda fn, n: (fn(n), 0))
+        resp = env.get("/api/search", query_string={"q": "テストカード", "confirmed": "true", "shops": "店A"},
+                       buffered=False)
+        kinds = []
+        iterator = iter(resp.response)
+        while "waiting" not in kinds:
+            kinds.append(json.loads(next(iterator).decode()[6:])["type"])
+        assert pool.snapshot()["queued"] == 1
+        resp.close()
+        snapshot = pool.snapshot()
+        assert snapshot["queued"] == 0 and snapshot["cancelled"] == 1
+        assert app_module._search_stream_slots._semaphore._value == 2
+        gate.set()
+        running.result(3)
+    finally:
+        gate.set()
+        pool.shutdown(wait=True)

@@ -239,7 +239,7 @@ check('表: 取得に失敗した店は列に残して「取得失敗」、レ�
 // まとめて検索を、作り物の通信で最後まで動かす（画面の描き直しは空にする）
 async function bulk(cards, respond) {
   const reqs = [];
-  run('_pkRefreshPrices=()=>{};_pkUpdateProgress=()=>{};_pkHm=()=>"12:00";');
+  run('_pkRefreshPrices=()=>{};_pkUpdateProgress=()=>{};_pkShowBusy=()=>{};_pkHm=()=>"12:00";');
   sb._ga = () => {};
   sb.fetch = async (url, init) => {
     const body = new URLSearchParams(init.body);
