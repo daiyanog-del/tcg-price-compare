@@ -42,7 +42,7 @@ from shipping import (
     amount_to_min_order, is_orderable, rules_for_client as _shipping_rules_for_client,
 )
 from aggregations import daily_min_by_lowest_rarity, common_shop_price_change
-from price_history_reads import fetch_daily_rows_by_card_names, fetch_recent_rows_by_card_names
+from price_history_reads import fetch_daily_rows_by_card_names, jst_days_back
 from price_persist import build_min_price_rows, upsert_price_rows
 from card_code import infer_codes
 from search_status import search_coverage
@@ -2828,12 +2828,10 @@ def api_wish_prices():
             return {}, {}, set(names)
         # 窓は従来どおり今日の days 日前から今日まで。日付ごとに等号で読む（索引
         # (recorded_at, card_id, …) を両方効かせる。2026-10-22 名前＋日付の範囲で statement timeout）
-        today = datetime.now(JST).date()
-        window = [(today - timedelta(days=d)).isoformat() for d in range(days, -1, -1)]
         # 並べ替えに使う番号の列も select に入れる（featured_matrix と同じ形。本番で通っている形にそろえる）
         all_rows, failed = fetch_daily_rows_by_card_names(
             _supabase_client, names, "card_id, shop_id, rarity_id, card_name, rarity, shop, min_price, recorded_at",
-            window, "wish-prices")
+            jst_days_back(days), "wish-prices")
         # 代表レアリティ選定は rarity 文字列でグループ化するため、DB読み出し境界で
         # 正準名に統合する（過渡期の分裂値を吸収。/api/price-history と同じ方針）
         for r in all_rows:
@@ -2988,13 +2986,12 @@ def api_wish_shop_totals():
     # 各 (card_name, shop, rarity) キーで現在採用している行の観測日（新しい日が来たら置き換える判定用）
     latest_date_by_key: dict[tuple, str] = {}
     if _supabase_client:
-        cutoff = (datetime.now(JST) - timedelta(days=7)).strftime("%Y-%m-%d")
-        # 名前はバイト予算で分けて読み、接続切れは1回だけ再試行する（price_history_reads）。
-        # 読めなかったカードは行が無いので db_missing に入り、画面は店のリアルタイム検索で補う。
-        # 並びはページ間の順序安定化のため（order無しrangeはページ境界で行を取りこぼしうる。監査F8）
-        rows_7d, _failed = fetch_recent_rows_by_card_names(
-            _supabase_client, names, "card_name, shop, rarity, min_price, recorded_at",
-            cutoff, ("card_name", "recorded_at", "shop", "rarity"), "wish-shop-totals")
+        # 購入候補と同じく、カード番号＋日付の等号で今日の7日前から今日まで読む（price_history_reads。
+        # 名前＋日付の範囲は長い名前で statement timeout になった。2026-10-22）。
+        # 読めなかったカードは行が無いので db_missing に入り、画面は店のリアルタイム検索で補う
+        rows_7d, _failed = fetch_daily_rows_by_card_names(
+            _supabase_client, names, "card_id, shop_id, rarity_id, card_name, shop, rarity, min_price, recorded_at",
+            jst_days_back(7), "wish-shop-totals")
         # recorded_at 欠落行の件数。存在すべきでない欠損だが、
         # サイレントに握りつぶさず警告する（監査 2026-08-07 追加, L10）
         missing_recorded_at = 0
@@ -3166,12 +3163,11 @@ def api_card_rarities():
     # 集計: rarity_counts[name][canonical_rarity] = 出現件数
     rarity_counts: dict[str, dict[str, int]] = {}
     if _supabase_client:
-        cutoff = (datetime.now(JST) - timedelta(days=7)).strftime("%Y-%m-%d")
-        # 名前はバイト予算で分けて読み、接続切れは1回だけ再試行する（price_history_reads）。
-        # 読めなかったカードは候補なし扱い（従来どおり）。並びはページ間の順序安定化のため（監査F8）
-        rows, _failed = fetch_recent_rows_by_card_names(
-            _supabase_client, names, "card_name, rarity",
-            cutoff, ("card_name", "recorded_at", "shop", "rarity"), "card-rarities")
+        # 購入候補と同じく、カード番号＋日付の等号で今日の7日前から今日まで読む（price_history_reads）。
+        # 読めなかったカードは候補なし扱い（従来どおり）
+        rows, _failed = fetch_daily_rows_by_card_names(
+            _supabase_client, names, "card_id, shop_id, rarity_id, card_name, rarity",
+            jst_days_back(7), "card-rarities")
         for row in rows:
             nm = row.get("card_name")
             r = normalize_rarity(row.get("rarity", "") or "")
