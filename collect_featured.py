@@ -47,7 +47,7 @@ from collect_prices import (
 from collection_run import attach_host_request_counts
 from scraper import compare_prices, SHOPS, get_host_request_counts
 from price_persist import build_min_price_rows, upsert_price_rows
-from db_write_guard import ConsecutiveDbFailureGuard, DbWriteAborted, report_db_abort
+from db_write_guard import ConsecutiveDbFailureGuard, DbWriteAborted, GuardedSupabase, report_db_abort
 from featured_pack import get_featured_pack, get_featured_cards
 
 # 403サーキットブレーカのホスト単位TTL（scraper.py _HOST_BLOCK_TTL_SEC=1800秒）を
@@ -236,6 +236,21 @@ def _resolve_pack(sb, args) -> dict | None:
 
 
 def main():
+    """_main をくるみ、DBへの要求が続けて失敗して打ち切ったとき（カード収集のループの外で止まったとき）に
+    Discord と記録に残して終了コード1で終える。ループの中で止まったときは _main 側で件数つきで知らせて終える。
+    """
+    started_at = datetime.now(JST)
+    try:
+        _main()
+    except DbWriteAborted as e:
+        report_db_abort(
+            get_supabase(), e, label="新弾フィーチャー価格収集", table="featured_pack など", started_at=started_at,
+            today=datetime.now(JST).date().isoformat(), run_type=None,
+        )
+        sys.exit(1)
+
+
+def _main():
     parser = argparse.ArgumentParser(description="新弾フィーチャー価格収集（新弾収録カード限定）")
     parser.add_argument("--dry-run", action="store_true",
                          help="書き込みを行わず、収集対象カード数とサンプルのみ表示する")
@@ -250,7 +265,9 @@ def main():
     started_at = datetime.now(JST)
     print(f"=== 新弾フィーチャー価格収集 {started_at.strftime('%Y-%m-%d %H:%M')} ===")
 
-    sb = get_supabase()
+    # DB が応答しない系の失敗はすべての DB 呼び出しで数えて待って再試行し、続けて失敗したら打ち切る
+    # （同期処理も含む。db_write_guard.GuardedSupabase）。カード単位の保存失敗も同じ見張り役で数える
+    sb = GuardedSupabase(get_supabase(), ConsecutiveDbFailureGuard())
 
     pack = _resolve_pack(sb, args)
     if not pack:
@@ -330,7 +347,7 @@ def main():
 
     # DB保存の連続失敗で打ち切る（2026-10-22 DB停止。collect_prices.py と同じ見張り役）。
     # 第1パスと再試行ラウンドで同じ見張り役を使う（どこで続けて失敗しても止める）
-    db_guard = ConsecutiveDbFailureGuard()
+    db_guard = sb.guard
     processed = 0     # 第1パスで処理したカード数（打ち切りの通知用）
     saved_cards = 0   # 第1パスで保存できたカード数（同上）
     try:

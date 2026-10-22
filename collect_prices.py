@@ -26,7 +26,7 @@ from pack_scraper import (
 from price_persist import build_min_price_rows, upsert_price_rows
 from clabo_catalog import collect_clabo_catalog
 from collection_run import record_collection_run, attach_host_request_counts
-from db_write_guard import ConsecutiveDbFailureGuard, DbWriteAborted, report_db_abort
+from db_write_guard import ConsecutiveDbFailureGuard, DbWriteAborted, GuardedSupabase, report_db_abort
 from meta_scraper import fetch_tier_list, fetch_deck_cards
 from name_normalize import load_cardnames_index, canonicalize_card_name
 
@@ -881,11 +881,29 @@ def cleanup_old_data(sb: Client):
 
 
 def main():
+    """_main をくるみ、DBへの要求が続けて失敗して打ち切ったとき（カード収集のループの外で止まったとき）に
+    Discord と記録に残して終了コード1で終える。ループの中で止まったときは _main 側で件数つきで知らせて終える。
+    """
+    started_at = datetime.now(JST)
+    try:
+        _main()
+    except DbWriteAborted as e:
+        report_db_abort(
+            get_supabase(), e, label="価格収集", table="tracked_cards など", started_at=started_at,
+            today=datetime.now(JST).date().isoformat(), run_type="prices",
+            record_kwargs=dict(attempted_shops=[], available_shops=[]),
+        )
+        sys.exit(1)
+
+
+def _main():
     started_at = datetime.now(JST)
     print(f"=== 価格履歴収集 {datetime.now().strftime('%Y-%m-%d %H:%M')} ===")
     print(f"設定: 周辺予算={DAILY_COLD_BUDGET}枚 / 時間上限={TIME_BUDGET_SEC//60}分")
 
-    sb = get_supabase()
+    # DB が応答しない系の失敗はすべての DB 呼び出しで数えて待って再試行し、続けて失敗したら打ち切る
+    # （同期処理も含む。db_write_guard.GuardedSupabase）。カード単位の保存失敗も同じ見張り役で数える
+    sb = GuardedSupabase(get_supabase(), ConsecutiveDbFailureGuard())
 
     # ── 注目カードの sync ──
     hot: set[str] = set()
@@ -985,7 +1003,7 @@ def main():
     loop_end_index = len(selected)
 
     # DB保存の連続失敗で打ち切る（2026-10-22 DB停止時に約2分ずつ失敗しながら要求を送り続けた）
-    db_guard = ConsecutiveDbFailureGuard()
+    db_guard = sb.guard
     db_abort: DbWriteAborted | None = None
 
     # try/finally で囲む（reviewer低1）: カード単位ループ中に想定外の例外が起きても、
@@ -1012,26 +1030,29 @@ def main():
                         break
 
                 print(f"[{i+1}/{len(selected)}] {card_name}")
+                saved = 0
                 try:
                     saved = collect_and_save(sb, card_name, today, loop_shops,
                                              shop_stats=shop_stats, db_guard=db_guard)
+                    if saved > 0:
+                        total_saved += saved
+                        success_count += 1
+                        # 収集完了を記録（途中タイムアウトでも進捗が保持されローテーションが正しく進む）
+                        try:
+                            sb.table("tracked_cards").update(
+                                {"last_collected_at": datetime.now(JST).isoformat()}
+                            ).eq("card_name", card_name).execute()
+                        except Exception:
+                            pass  # スキーマ未移行時は無視
+                    else:
+                        fail_count += 1
                 except DbWriteAborted as e:
-                    fail_count += 1
+                    # 保存でも tracked_cards の更新でも止まる（後者のときは保存は済んで成功に数え済み）
+                    if saved == 0:
+                        fail_count += 1
                     db_abort = e
                     loop_end_index = i + 1
                     break
-                if saved > 0:
-                    total_saved += saved
-                    success_count += 1
-                    # 収集完了を記録（途中タイムアウトでも進捗が保持されローテーションが正しく進む）
-                    try:
-                        sb.table("tracked_cards").update(
-                            {"last_collected_at": datetime.now(JST).isoformat()}
-                        ).eq("card_name", card_name).execute()
-                    except Exception:
-                        pass  # スキーマ未移行時は無視
-                else:
-                    fail_count += 1
 
                 if i < len(selected) - 1:
                     time.sleep(WAIT_BETWEEN_CARDS)
