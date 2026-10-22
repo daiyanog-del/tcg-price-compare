@@ -25,6 +25,7 @@ from featured_matrix import _FETCH_WORKERS
 from featured_matrix import _executor as _db_executor
 
 from constants import JST
+from shop_status import drop_suspended_rows
 
 # カード番号の in_ の1回あたりの件数。購入候補は最大50枚で、1日ぶん（2026-10-22 実測 長い名前50枚で約400〜600行）が
 # 1ページに収まる。featured_matrix の _ID_CHUNK（25）は同時に読む束を増やすための値なので借りない
@@ -167,4 +168,6 @@ def fetch_daily_rows_by_card_names(sb, names: list[str], columns: str, days: lis
             failed.update(id_to_name[c] for c in id_chunk)
         else:
             out.extend(chunk_rows[ci])
-    return out, failed
+    # 休止中の店の行は、休止前の観測でも「いま買える値段」として出さない（shop_status.py。
+    # 店名で判定するので columns に shop を含めること）
+    return drop_suspended_rows(out), failed

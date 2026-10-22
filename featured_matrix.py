@@ -27,6 +27,7 @@ import httpx
 from constants import JST
 from rarity import UNKNOWN_RARITY_LABEL, normalize_rarity
 from scraper import DEFAULT_SHOPS
+from shop_status import is_suspended
 
 logger = logging.getLogger(__name__)
 
@@ -199,6 +200,8 @@ def build_matrix(records: list[dict], card_order: list[str], today: str) -> dict
         shop = r.get("shop", "")
         if not card or not shop:
             continue
+        if is_suspended(shop):
+            continue  # 休止中の店は表に出さない（shop_status.py）
         rarity = normalize_rarity(r.get("rarity", "") or "")
         if rarity in ("", UNKNOWN_RARITY_LABEL):
             continue

@@ -27,13 +27,24 @@
 -- 新設し、app.py側はこちらを優先経路にしてページング呼び出しの4回実行を解消する
 -- （本関数未適用の環境向けに、旧ページング経路はapp.py側にフォールバックとして残す）。
 
-CREATE OR REPLACE FUNCTION public.get_card_best_prices(cutoff_date text)
+-- 【2026-10-22 休止中の店を外す引数 excluded_shops を追加】
+-- カーナベルが PHP の脆弱性でサイトを止めた（10-21 20:25〜）あとも、7日窓に残る休止前の観測が
+-- 「最安 カーナベル」として見積もりに出続けるため、環境変数 SUSPENDED_SHOPS の店を外せるようにした
+-- （shop_status.py）。既定は空配列で、引数を渡さない呼び出しは従来と同じ結果。
+-- 引数を足すと別の関数（多重定義）になり PostgREST が呼び分けられなくなるので、旧い1引数版は DROP する。
+-- 実行権限は旧版と同じ（anon / authenticated / service_role）を付け直す。
+-- 適用は1つのトランザクションで行う（DROP と CREATE の間に呼び出しが失敗しないように）。
+BEGIN;
+
+DROP FUNCTION IF EXISTS public.get_card_best_prices_json(text);
+DROP FUNCTION IF EXISTS public.get_card_best_prices(text);
+
+CREATE OR REPLACE FUNCTION public.get_card_best_prices(cutoff_date text, excluded_shops text[] DEFAULT '{}')
  RETURNS TABLE(card_name text, shop text, rarity text, min_price integer, recorded_at text)
  LANGUAGE sql
- STABLE
- SECURITY DEFINER
- SET work_mem = '64MB'
- SET search_path = public, pg_temp
+ STABLE SECURITY DEFINER
+ SET work_mem TO '64MB'
+ SET search_path TO 'public', 'pg_temp'
 AS $function$
   -- 【2026-10-22 読み方の書き換え（最安値の定義は同じ・同じ値段のときの選び方を新たに決めた）】旧版はビュー price_history 経由で
   -- 7日窓の全行（約28.6万行）に名前を付けてから、名前の文字列で並べ替えていた（37MB）。
@@ -58,12 +69,14 @@ AS $function$
   -- 同じ最安値の系列が複数あるとき（10-22 実測 6,328枚中 1,850枚）、旧版は並べ替えの
   -- 都合で決まる1つを返していた（決まった規則なし）。新版は観測日が新しい順→店名→
   -- レアリティ名で1つに決める（同じ値段なら、より最近確かめた店を出す）。
+  -- 休止中の店（excluded_shops）は最安の候補にしない（10-22 追加）。
   best AS (
     SELECT DISTINCT ON (l.card_id)
       l.card_id, s.shop, r.rarity, l.min_price, l.recorded_at
     FROM latest l
     JOIN shop_dim   s ON s.shop_id   = l.shop_id
     JOIN rarity_dim r ON r.rarity_id = l.rarity_id
+    WHERE s.shop <> ALL (coalesce(excluded_shops, '{}'))
     ORDER BY l.card_id, l.min_price ASC, l.recorded_at DESC, s.shop, r.rarity
   )
   SELECT c.card_name, b.shop, b.rarity, b.min_price, b.recorded_at::text
@@ -72,20 +85,31 @@ AS $function$
 $function$;
 
 -- get_card_best_prices の結果を1回のRPC呼び出しでjsonbに一括集約して返す。
--- app.py の PostgREST 1000行上限に伴う range 分割ページング（最大4回のRPC実行）を
--- 1回にまとめるための経路（2026-09-02追加）。SECURITY DEFINERは付けない
--- （内側の get_card_best_prices が既に SECURITY DEFINER であり、二重に付ける必要が無い）。
-CREATE OR REPLACE FUNCTION public.get_card_best_prices_json(cutoff_date text)
+-- SECURITY DEFINER は付けない（内側の get_card_best_prices が既に SECURITY DEFINER）。
+CREATE OR REPLACE FUNCTION public.get_card_best_prices_json(cutoff_date text, excluded_shops text[] DEFAULT '{}')
  RETURNS jsonb
  LANGUAGE sql
  STABLE
- SET work_mem = '64MB'
- SET search_path = public, pg_temp
+ SET work_mem TO '64MB'
+ SET search_path TO 'public', 'pg_temp'
 AS $function$
   SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t.card_name), '[]'::jsonb)
-  FROM public.get_card_best_prices(cutoff_date) t;
+  FROM public.get_card_best_prices(cutoff_date, excluded_shops) t;
 $function$;
 
+GRANT EXECUTE ON FUNCTION public.get_card_best_prices(text, text[]) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_card_best_prices_json(text, text[]) TO anon, authenticated, service_role;
+
+COMMIT;
+
+-- PostgREST に関数の入れ替えを知らせる（Supabase 標準のイベントトリガーがあれば不要だが、念のため）
+NOTIFY pgrst, 'reload schema';
+
+-- 【ロールバックの注意（2026-10-22〜）】
+-- 下の旧定義や10-22以前の1引数版を CREATE OR REPLACE で戻すときは、先に2引数版を消すこと。
+-- 消さないと同名の関数が2つ並び、PostgREST が呼び分けられず（PGRST203）相場キャッシュが更新されなくなる。
+--   DROP FUNCTION public.get_card_best_prices_json(text, text[]);
+--   DROP FUNCTION public.get_card_best_prices(text, text[]);
 -- 【ロールバック用: 2026-08-07以前の旧定義】
 -- CREATE OR REPLACE FUNCTION public.get_card_best_prices(cutoff_date text)
 --  RETURNS TABLE(card_name text, shop text, rarity text, min_price integer, recorded_at text)
