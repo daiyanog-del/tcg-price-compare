@@ -104,6 +104,29 @@ def format_post_text(m):
     ])
 
 
+def _fetch_daily_history(sb, name, rarity, start, date_to):
+    """price_daily（畳んだ日ごとの全店最安）の行。ビュー未作成・失敗なら空（店舗別の行だけで描く）。"""
+    rows, offset = [], 0
+    try:
+        while True:
+            resp = (sb.table("price_daily").select("min_price_over10, recorded_at")
+                    .eq("card_name", name).eq("rarity", rarity)
+                    .gte("recorded_at", start).lte("recorded_at", date_to)
+                    .order("recorded_at").order("shop").range(offset, offset + 999).execute())
+            batch = resp.data or []
+            rows.extend(batch)
+            if len(batch) < 1000:
+                break
+            offset += 1000
+            if offset >= 10000:  # 暴走ガード（/api/price-history と同じ。1枚1レアリティなら100行程度）
+                logger.error(f"日ごとの最安取得: 10ページ超過で打ち切り [{name}]")
+                break
+    except Exception as e:
+        logger.warning(f"日ごとの最安取得失敗（店舗別の行だけで描く） [{name}]: {e}")
+        return []
+    return rows
+
+
 def fetch_history(sb, name, rarity, date_to):
     """そのレアリティの日ごとの最安値（全店）。[(date, price), ...] 昇順。"""
     end = date.fromisoformat(date_to)
@@ -125,6 +148,15 @@ def fetch_history(sb, name, rarity, date_to):
         if p <= 10:
             continue
         d = r["recorded_at"][:10]
+        daily[d] = min(daily.get(d, p), p)
+    # 31日目以前は店舗別の行が消え、日ごとの全店最安（price_daily）に畳まれている。
+    # 10円以下を除いた最安（min_price_over10）を使い、上と同じ値になるようにする
+    full_dates = {r["recorded_at"][:10] for r in rows}
+    for r in _fetch_daily_history(sb, name, rarity, start, date_to):
+        d = r["recorded_at"][:10]
+        p = r.get("min_price_over10") or 0
+        if d in full_dates or p <= 10:
+            continue
         daily[d] = min(daily.get(d, p), p)
     return sorted(daily.items())
 

@@ -91,7 +91,7 @@ from meta_scraper import fetch_tier_list, fetch_deck_cards, build_deck_text, bui
 import top_page as _top_page
 from pack_scraper import get_pack_list, fetch_pack_cards, pack_cards_cached
 from monitor import tracker, run_health_check
-from constants import JST, VAPID_CLAIMS
+from constants import JST, VAPID_CLAIMS, PRICE_DAILY_RETENTION_DAYS
 from ygores_repository import repository as _ygores_repo
 import card_display as _card_display
 import module_graph as _module_graph
@@ -496,7 +496,8 @@ def _all_rate_limit_buckets() -> list[dict]:
     テスト側は _reset_rate_limits() を呼ぶだけにする。
     """
     return [_last_search, _last_import, _last_buyback, _last_deck, _last_packs,
-            _last_sync, _last_sync_link, _last_feedback, _last_mercari, _last_text_report]
+            _last_sync, _last_sync_link, _last_feedback, _last_mercari, _last_text_report,
+            _last_pack_matrix]
 
 
 def _reset_rate_limits() -> None:
@@ -1746,6 +1747,47 @@ def api_deck_estimate():
 
     return jsonify({"results": results, "total": total})
 
+def _fetch_price_daily_rows(card_name: str, cutoff: str, skip_dates: set) -> list:
+    """price_daily（31日目以前の日ごとの全店最安）を /api/price-history の行の形で返す。
+
+    店舗別の行がある日（skip_dates）は除く（畳み込みと削除の間に両方ある日を二重にしない）。
+    ビュー未作成・取得失敗のときは空で返し、店舗別の行だけのグラフにする（ログは残す）。
+    """
+    out: list = []
+    try:
+        page_size = 1000
+        max_pages = 10  # 暴走ガード（100日×レアリティ数×同額の店で、通常は1ページに収まる）
+        offset = 0
+        while True:
+            resp = (_supabase_client.table("price_daily")
+                    .select("shop, rarity, min_price, recorded_at")
+                    .eq("card_name", card_name)
+                    .gte("recorded_at", cutoff)
+                    .order("recorded_at", desc=False)
+                    .order("shop", desc=False)
+                    .order("rarity", desc=False)
+                    .range(offset, offset + page_size - 1)
+                    .execute())
+            batch = resp.data or []
+            for r in batch:
+                d = (r.get("recorded_at") or "")[:10]
+                if d in skip_dates:
+                    continue
+                out.append({"date": d, "shop": r.get("shop", ""),
+                            "rarity": normalize_rarity(r.get("rarity", "")),
+                            "price": r.get("min_price", 0)})
+            if len(batch) < page_size:
+                break
+            offset += page_size
+            if offset >= max_pages * page_size:
+                logger.error(f"日ごとの最安取得: {max_pages}ページ超過で打ち切り [{card_name}]")
+                break
+    except Exception as e:
+        logger.warning(f"日ごとの最安取得失敗（店舗別の行だけで返す） [{card_name}]: {e}")
+        return []
+    return out
+
+
 @app.route("/api/price-history")
 def api_price_history():
     """カードの価格推移データを返す"""
@@ -1762,9 +1804,11 @@ def api_price_history():
         return jsonify({"card_name": card_name, "data": []})
 
     try:
-        cutoff = (datetime.now(JST) - timedelta(days=90)).strftime("%Y-%m-%d")
-        # PostgRESTの返却上限1000行を超えるカードが335枚ある（90日×6店×複数レアリティ、
-        # 最大3,345行）。旧 .limit(2000) は上限で切られ、昇順のため新しい側＝グラフの
+        cutoff = (datetime.now(JST) - timedelta(days=PRICE_DAILY_RETENTION_DAYS)).strftime("%Y-%m-%d")
+        # 店舗別の行（price_history）は直近30日だけ残り、それより前は日ごとの全店最安
+        # （price_daily）に畳まれている（price_daily_rollup.sql）。両方を読んで合わせる。
+        # PostgRESTの返却上限1000行を超えるカードがある（2026-08 時点は90日×6店×複数レアリティで
+        # 最大3,345行。30日保持の今は約1/3）。旧 .limit(2000) は上限で切られ、昇順のため新しい側＝グラフの
         # 直近数週間が欠落していた（監査F1: docs/audit-price-logic-2026-08-06.md）。
         # ページ間の順序を安定させるため複合キーで order する
         page_size = 1000
@@ -1795,6 +1839,8 @@ def api_price_history():
              "price": r.get("min_price", 0)}
             for r in rows
         ]
+        # 畳んだ分は店舗別の行より古いので前に置く（日付の昇順を保つ）
+        data = _fetch_price_daily_rows(card_name, cutoff, {d["date"] for d in data}) + data
         return jsonify({"card_name": card_name, "data": data})
     except Exception as e:
         logger.error(f"価格推移取得失敗: {e}")
@@ -3614,23 +3660,46 @@ def api_featured():
     return jsonify({"pack": None, "days_since_release": -1, "loading": True, "cards": []})
 
 
-@app.route("/api/featured/matrix")
-def api_featured_matrix():
-    """新弾の店舗×レアリティ価格マトリクスを返す（featured_matrix.py、DB読みのみ）。
-    /api/featured と同じ stale-while-revalidate 方式（キャッシュ未確立時は
-    loading=True を即返し、フロントが数秒後に再fetchする）。
-    {
-      "pack": {...} or None, "updated_at": "YYYY-MM-DD", "loading": bool(任意),
-      "shops": [店舗名, ...],
-      "rows": [{"name", "rarity", "cells": {店舗名: {"price", "url", "code", "recorded_at"}}}]
-    }
+# 新商品タブの「店舗×レア」で受け付けるカードの上限（収録100種の商品がある）
+MAX_PACK_MATRIX_CARDS = 150
+# 「店舗×レア」でデータベースを読むときの受付上限（IP ごと）
+PACK_MATRIX_RATE_LIMIT_SEC = 2  # TODO: calibrate from data
+_last_pack_matrix: dict[str, float] = {}
+
+
+@app.route("/api/packs/matrix", methods=["POST"])
+def api_packs_matrix():
+    """パックの収録カードの店舗×レアリティ表を、毎朝の収集（price_history）から返す（featured_matrix.py、DB読みのみ）。
+    入力: {"cards": ["カード名", ...]}（正式名・収録順。/api/packs/cards が返す名前）
+    返却: {"updated_at": "YYYY-MM-DD", "shops": [店舗名, ...],
+           "rows": [{"name", "rarity", "cells": {店舗名: {"price", "url", "code", "recorded_at"}}}]}
+    2026-10-22 に新弾専用の /api/featured/matrix から寄せた（新弾もこれを使う）。
+    同じカードの並びは1時間覚えるので、データベースを読むのはパックごとに1時間に1回まで。
     """
     if not _supabase_client:
         return jsonify({"error": "DBに接続できません"}), 503
-    from featured_matrix import get_matrix
-    result = get_matrix(_supabase_client)
-    if result.get("error"):
-        return jsonify(result), 503
+    data = request.get_json(silent=True) or {}
+    cards_raw = data.get("cards", [])
+    if not isinstance(cards_raw, list):
+        return jsonify({"error": "cards は配列で指定してください"}), 400
+    cards = []
+    for name in cards_raw[:MAX_PACK_MATRIX_CARDS]:
+        name = str(name).strip()
+        if name and len(name) <= MAX_CARD_NAME_LEN:
+            cards.append(name)
+    if not cards:
+        return jsonify({"updated_at": "", "shops": [], "rows": []})
+    from featured_matrix import get_pack_matrix, is_cached
+    # データベースを読むとき（覚えていない集まり）だけ受付上限を消費する。名前を変えて連打されても読み出しが積み上がらないように（reviewer 中4）
+    if not is_cached(cards):
+        rate_error = _consume_rate_limit(bucket=_last_pack_matrix, interval=PACK_MATRIX_RATE_LIMIT_SEC)
+        if rate_error:
+            return rate_error
+    try:
+        result = get_pack_matrix(_supabase_client, cards)
+    except Exception as e:
+        logger.warning(f"店舗×レアの表の取得に失敗: {e}")
+        return jsonify({"error": "価格データの取得に失敗しました"}), 503
     return jsonify(result)
 
 

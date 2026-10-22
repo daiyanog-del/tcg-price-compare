@@ -36,13 +36,14 @@ check('型番の頭で「このパックの版」を見分ける（型番が分�
 });
 
 check('パックの型番の頭: 一覧の code が結果に出ていればそれ、出ていなければ半分を超えるカードの頭、どちらも無ければ絞らない', () => {
+  const code = () => run('_pkPackCode(__st,_pkItemsFromPerShop(__ps))');
   sb.__st = { info: { code: 'DBGV' }, cards: [{ name: 'A' }, { name: 'B' }, { name: 'C' }] };
   sb.__ps = {
     A: { 店1: { ノーマル: item('DBGV-JP001', 20) } },
     B: { 店1: { ウルトラ: item('RC04-JP001', 100) }, 店2: { ウルトラ: item('DBGV-JP002', 300) } },
     C: { 店1: { ノーマル: item('', 30) } },
   };
-  assert.equal(run('_pkPackCode(__st,__ps)'), 'DBGV');
+  assert.equal(code(), 'DBGV');
   // 公式の略号と型番が違う商品（例: 略号 26LP・型番 WCS-）は、結果で多数のカードに付いている頭を使う
   sb.__st = { info: { code: '26LP' }, cards: [{ name: 'A' }, { name: 'B' }, { name: 'C' }] };
   sb.__ps = {
@@ -50,17 +51,17 @@ check('パックの型番の頭: 一覧の code が結果に出ていればそ�
     B: { 店1: { ノーマル: item('WCS-JP002', 20) } },
     C: { 店1: { ノーマル: item('RC04-JP003', 20) } },
   };
-  assert.equal(run('_pkPackCode(__st,__ps)'), 'WCS');
+  assert.equal(code(), 'WCS');
   // 半分を超える頭が無ければ絞らない
   sb.__ps = {
     A: { 店1: { ノーマル: item('X1-JP001', 20) } },
     B: { 店1: { ノーマル: item('X2-JP002', 20) } },
     C: { 店1: { ノーマル: item('', 20) } },
   };
-  assert.equal(run('_pkPackCode(__st,__ps)'), '');
+  assert.equal(code(), '');
 });
 
-check('最安と表は「このパックの版」だけ。他の商品の版しか無いカードは「このパックの版なし」', () => {
+check('まとめて検索の結果: 最安は「このパックの版」だけ。表は他の版を畳み、他の版しか無いカードは「このパックの版なし」', () => {
   sb.__st = {
     info: { code: 'DBGV' },
     cards: [{ name: 'トライホーン・ドラゴン' }, { name: '再録だけのカード' }, { name: '型番不明' }],
@@ -73,11 +74,12 @@ check('最安と表は「このパックの版」だけ。他の商品の版し�
     },
     perShop: {
       'トライホーン・ドラゴン': {
-        店A: { ノーマル: item('RC04-JP001', 10, 'ノーマル', '店A') },
-        店B: { ノーマル: item('DBGV-JP012', 20, 'ノーマル', '店B'), シークレット: item('DBGV-JP012', 900, 'シークレット', '店B') },
+        店A: { 'ノーマル\tRC04': item('RC04-JP001', 10, 'ノーマル', '店A') },
+        店B: { 'ノーマル\tDBGV': item('DBGV-JP012', 20, 'ノーマル', '店B'), 'シークレット\tDBGV': item('DBGV-JP012', 900, 'シークレット', '店B'),
+               'ウルトラ\tTDPP': item('TDPP-JP001', 60, 'ウルトラ', '店B') },
       },
-      '再録だけのカード': { 店A: { ノーマル: item('RC04-JP002', 50, 'ノーマル', '店A') } },
-      '型番不明': { 店B: { スーパー: item('', 70, 'スーパー', '店B') } },
+      '再録だけのカード': { 店A: { 'ノーマル\tRC04': item('RC04-JP002', 50, 'ノーマル', '店A') } },
+      '型番不明': { 店B: { 'スーパー\t': item('', 70, 'スーパー', '店B') } },
     },
     shopOrder: ['店A', '店B'],
   };
@@ -90,23 +92,63 @@ check('最安と表は「このパックの版」だけ。他の商品の版し�
   assert.equal(r.items['再録だけのカード'].other, true);
   assert.equal(r.items['型番不明'].price, 70);
   assert.equal(r.found, 2);
-  // 表: 他の商品の版の店（店A）は列に出ない。同じカードのレアリティは高い順
-  assert.deepEqual(Array.from(r.matrix.shops), ['店B']); // vm の中の配列なので Array.from で比べる
-  const tri = r.matrix.rows.filter(x => x.name === 'トライホーン・ドラゴン').map(x => x.rarity);
-  assert.deepEqual(Array.from(tri), ['シークレット', 'ノーマル']);
-  assert.ok(r.matrix.rows.some(x => x.name === '再録だけのカード' && x.rarity === ''), '価格の無いカードも行に残す');
+  const g = name => r.matrix.groups.find(x => x.name === name);
+  const tri = g('トライホーン・ドラゴン');
+  // このパックのレアリティ（シークレット・ノーマル）が並び、ウルトラ（TDPP だけ）は畳む行
+  assert.deepEqual(Array.from(tri.main.map(x => x.rarity)), ['シークレット', 'ノーマル']); // vm の中の配列なので Array.from で比べる
+  assert.deepEqual(Array.from(tri.other.map(x => x.rarity)), ['ウルトラ']);
+  // ノーマルの店A は他の版しか無い → 値段に版の札（最安から外す）
+  const normal = tri.main.find(x => x.rarity === 'ノーマル');
+  assert.equal(normal.cells['店A'].other, true);
+  assert.equal(normal.cells['店B'].other, undefined);
+  assert.equal(g('再録だけのカード').main.length, 0);
+  assert.equal(g('再録だけのカード').other.length, 1);
+  assert.equal(g('型番不明').main[0].rarity, 'スーパー');
+  sb.__m = r.matrix;
+  const html = run("_pkMatrixHtml(__m,'order',false)");
+  // 最安の緑はこのパックの版（店B ¥20）。店A ¥10（他の版）には付けない
+  assert.ok(/is-min">¥20/.test(html) || /is-min"><a[^>]*>¥20/.test(html), 'このパックの最安に緑が無い');
+  assert.ok(!/is-min[^"]*"[^>]*>(?:<a[^>]*>)?¥10/.test(html), '他の版に緑を付けた');
+  assert.ok(html.includes('他の商品の版 1行も見る'));
+  assert.ok(html.includes('このパックの版は見つかりませんでした'));
 });
 
-check('店舗×レアの表: 名前・レアリティ・店名はエスケープし、http(s) 以外のリンクは張らない。各行の最安だけ印', () => {
+check('毎朝の収集の表: このパックの行で他の版のマスには札。このパックの版があるカードの型番不明だけの行は「版不明」で畳む・型番の無いカードは隠さない', () => {
+  sb.__st = { info: { code: 'DBGV' }, cards: [{ name: 'A' }, { name: 'B' }, { name: 'C' }] };
+  sb.__db = { updated_at: '2026-10-22', shops: ['店1', '店2'], rows: [
+    { name: 'A', rarity: 'ノーマル', cells: { 店1: { price: 20, code: 'DBGV-JP001' }, 店2: { price: 10, code: 'RC04-JP001' } } },
+    { name: 'A', rarity: 'ウルトラ', cells: { 店1: { price: 80, code: 'TDPP-JP001' } } },
+    { name: 'A', rarity: 'アルティメット', cells: { 店2: { price: 900, code: '' } } },
+    { name: 'B', rarity: '', cells: {} },
+    { name: 'C', rarity: 'スーパー', cells: { 店1: { price: 30, code: '' } } },
+  ] };
+  const items = run('_pkItemsFromDb(__db)');
+  sb.__items = items;
+  assert.equal(run('_pkPackCode(__st,__items)'), 'DBGV');
+  sb.__mm = run("_pkMatrixModel(__st,__items,'DBGV',['店1','店2'],{})");
+  const a = sb.__mm.groups[0];
+  assert.deepEqual(Array.from(a.main.map(x => x.rarity)), ['ノーマル']);
+  assert.deepEqual(Array.from(a.other.map(x => x.rarity)).sort(), ['アルティメット', 'ウルトラ']);
+  assert.ok(Array.from(a.other.find(x => x.rarity === 'アルティメット').vers).includes('版不明'));
+  assert.equal(sb.__mm.groups[2].main[0].rarity, 'スーパー', '型番の無いカードは隠さない');
+  assert.equal(a.main.find(x => x.rarity === 'ノーマル').cells['店2'].other, true);
+  assert.equal(sb.__mm.groups[1].main.length, 0);
+  const html = run("_pkMatrixHtml(__mm,'order',true)");
+  assert.ok(html.includes('このパックの版の記録がありません'));
+  assert.ok(html.includes('pmx-ver">RC04'), '他の版のマスに札が無い');
+});
+
+check('店舗×レアの表: 名前・レアリティ・店名・版の札はエスケープし、http(s) 以外のリンクは張らない。各行の最安だけ印', () => {
   sb.__m = {
     shops: ['店<1>', '店2'],
-    rows: [
-      { name: '<img src=x onerror=alert(1)>', rarity: '"><b>', cells: { '店<1>': { price: 100, url: 'javascript:alert(1)' }, 店2: { price: 80, url: 'https://ok.example/a' } } },
-    ],
+    groups: [{ name: '<img src=x onerror=alert(1)>', failed: null,
+      main: [{ rarity: '"><b>', cells: { '店<1>': { price: 100, url: 'javascript:alert(1)', code: '' }, 店2: { price: 80, url: 'https://ok.example/a', code: '' } } }],
+      other: [{ rarity: '<i>', vers: ['<s>'], cells: { 店2: { price: 5, url: '', code: 'X-1' } } }] }],
   };
-  const html = run("_pkMatrixHtml(__m,'order')");
+  const html = run("_pkMatrixHtml(__m,'order',false)");
   assert.ok(!html.includes('<img src=x'), 'カード名がエスケープされていない');
   assert.ok(!html.includes('"><b>'), 'レアリティがエスケープされていない');
+  assert.ok(!html.includes('<i>') && !html.includes('<s>'), '畳む行がエスケープされていない');
   assert.ok(html.includes('店&lt;1&gt;'));
   assert.ok(!html.includes('javascript:'), 'javascript: のリンクを張った');
   assert.ok(html.includes('href="https://ok.example/a"'));
@@ -142,6 +184,23 @@ check('並び順: 高い順は表示中の価格で、価格の無いカード�
   assert.deepEqual(Array.from(run('_pkOrder(__s)')), [0, 1, 2]);
 });
 
+check('型番の頭: 略号だけの店はそれを頭に、前に文字が付く形（アジア版）はその文字ごと頭に（このパックの版にしない）', () => {
+  assert.equal(run("_pkPrefixOf('DBGV-JP001')"), 'DBGV');
+  assert.equal(run("_pkPrefixOf('TTP1')"), 'TTP1');
+  assert.equal(run("_pkPrefixOf('アジアTTP1-JP079')"), 'アジアTTP1');
+  assert.equal(run("_pkSameVersion('TTP1','アジアTTP1-JP079')"), false);
+  assert.equal(run("_pkPrefixOf('')"), '');
+});
+
+check('途中で失敗・中止したまとめて検索の結果では、店舗×レアの表を置き換えない', () => {
+  sb.__s = { run: null, results: { sale: { matrix: { shops: [], groups: [] }, stopped: false, error: '' } } };
+  assert.ok(run('_pkBulkMatrix(__s)'));
+  sb.__s.results.sale.error = '通信が途中で切れました';
+  assert.equal(run('_pkBulkMatrix(__s)'), null);
+  sb.__s.results.sale.error = ''; sb.__s.results.sale.stopped = true;
+  assert.equal(run('_pkBulkMatrix(__s)'), null);
+});
+
 check('型番の頭は完全一致（WPP と WPP5 は別の商品）', () => {
   assert.equal(run("_pkSameVersion('WPP','WPP5-JP001')"), false);
   assert.equal(run("_pkSameVersion('WPP','WPP-JP001')"), true);
@@ -161,9 +220,9 @@ check('表: 取得に失敗した店は列に残して「取得失敗」、レ�
   run('_pkBuildFromPerShop(__st,__res)');
   const m = sb.__res.matrix;
   assert.deepEqual(Array.from(m.shops), ['店1', '店2']);
-  assert.ok(m.rows.some(r => r.name === 'A' && r.rarity === 'レアリティ不明'));
+  assert.ok(m.groups[0].main.some(r => r.rarity === 'レアリティ不明'));
   sb.__m = m;
-  const html = run("_pkMatrixHtml(__m,'order')");
+  const html = run("_pkMatrixHtml(__m,'order',false)");
   assert.ok(html.includes('取得失敗'), '失敗した店の欄に「取得失敗」が無い');
   assert.ok(html.includes('このパックの版は見つかりませんでした'), '版なしの理由が出ていない');
 });
