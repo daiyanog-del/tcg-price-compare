@@ -48,7 +48,8 @@ GRANT SELECT ON public.price_daily TO anon, authenticated, service_role;
 
 -- p_before より前（p_from 指定時は p_from 以上も条件）の price_history_v2 を畳んで price_daily_min へ入れる。
 -- 同じ日を2回畳んでも上書きになるだけ（冪等）。返り値は入れた（上書きした）組の数。
--- 夜間は p_from なし（消し残りの日があっても全部畳む）。初回は p_from で区切って SQL Editor から呼ぶ。
+-- 夜間は collect_prices が1日ずつ（p_from=その日, p_before=翌日）呼ぶ。初回は9日ずつ区切って SQL Editor から呼ぶ。
+-- §1 は 2026-10-22 に本番適用済み（MCP。07-23 の1日分を試しに畳み 8,613組・0.43秒・照合0件）
 CREATE OR REPLACE FUNCTION public.rollup_price_daily(p_before date, p_from date DEFAULT NULL)
 RETURNS TABLE(rolled_rows bigint)
 LANGUAGE plpgsql
