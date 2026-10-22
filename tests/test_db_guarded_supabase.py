@@ -83,7 +83,7 @@ class TestGuardedSupabaseWithRealPostgrest:
             .order("card_name").range(0, 999).execute()
         assert resp.data == [{"card_name": "a"}]
         assert len(calls) == 2 and calls[0] == calls[1]  # 同じ要求をもう一度送った
-        assert "active=eq.True" in calls[0] and "limit=1000" in calls[0]
+        assert "active=eq.true" in calls[0].lower() and "limit=1000" in calls[0]  # 版によって True/true
         assert waits == [db_write_guard.BACKOFF_SEC[0]]
         assert sb.guard.consecutive == 0  # 成功で数え直し
 
