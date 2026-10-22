@@ -658,7 +658,7 @@ def test_middle_paragraph_dropped_not_sent_to_third(monkeypatch, clean_check):
 
 
 def test_line_skip_within_length_ratio_not_sent_to_third():
-    # 長さの比は範囲内でも、1か所で20字を超えて消えたら行の読み飛ばしとみなす
+    # 長さの比は範囲内でも、1か所で15字を超えて消えたら行の読み飛ばしとみなす
     a = rr.norm(BIG_FIRST + "③：このカードが墓地へ送られた場合、自分の墓地のモンスター1体を対象として発動できる。そのモンスターを手札に加える。" * 3)
     b = a.replace("自分の墓地のモンスター1体を対象として発動できる。そのモンスターを", "", 1)
     assert 0.85 <= len(b) / len(a) <= 1.15

@@ -196,7 +196,7 @@ THIRD_READ_ON_LARGE_DISAGREE = os.environ.get("EFFECT_THIRD_READ", "1") != "0"
 # 1か所で消えた字（1回目の部分−読み直しの部分）は最大11、先頭・末尾はすべて一致。余裕を見て次の値にする
 # TODO: calibrate from data（3回目で通したカードが後で直された率と、上限で人へ回った事例を見て見直す）
 THIRD_LEN_RATIO = (0.85, 1.15)    # len(読み直し)/len(1回目)。段落の読み飛ばし（例: 比 0.55）を止める
-THIRD_MAX_OP_LOSS = 20            # 1か所で消えてよい字数。行の読み飛ばしを止める
+THIRD_MAX_OP_LOSS = 15            # 1か所で消えてよい字数。行の読み飛ばしを止める（効果欄の1行はおおむね20〜27字）
 
 
 def diff_within_trust_limits(a: str, b: str) -> bool:
