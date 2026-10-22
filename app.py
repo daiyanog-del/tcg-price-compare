@@ -3606,9 +3606,11 @@ def featured_page():
 @app.route("/new-cards")
 def new_cards_page():
     """未発売カード一覧ページ: トップの「新着の未発売カード」を商品ごとに全件表示する。"""
-    # 一覧ページは最初の一覧を埋め込まない（試したところ、一覧ページの印が付く前に描いて描き直しになり、
-    # スマホ相当で LCP が 5.6→15.6秒に悪化した。2026-10-22）
-    return render_template("index.html", card_name="", page_mode="new_cards")
+    # 覚えている新着があれば全件を埋め込み、最初の6枚の画像を先に読ませる（LCP。2026-10-22）。
+    # 一度試したときは、埋め込みで描いた直後に別の処理が取り直して全部描き直し、画像も lazy で後回しになって悪化した。
+    # new-cards.js で「埋め込みを使った直後は取り直さない」「一覧ページも最初の6枚はすぐ読む」にしてから入れている
+    return render_template("index.html", card_name="", page_mode="new_cards",
+                           new_cards_initial=_card_display.cached_new_cards(limit=None))
 
 
 # ── 新弾フィーチャーキャッシュ（メモリ） ──
