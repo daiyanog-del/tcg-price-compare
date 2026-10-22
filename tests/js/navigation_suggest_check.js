@@ -29,7 +29,7 @@ let serial=0,canceled=0;
 const location={pathname:'/',search:'',hash:''};
 function setUrl(url){const u=new URL(url,'https://example.test');Object.assign(location,{pathname:u.pathname,search:u.search,hash:u.hash});}
 const sandbox={console,encodeURIComponent,decodeURIComponent,location,
-  document:{getElementById:get,createElement:element,querySelectorAll:()=>tabs,activeElement:get('q'),title:''},
+  document:{getElementById:get,createElement:element,querySelectorAll:()=>tabs,activeElement:get('q'),title:'',documentElement:element()},
   window:{location,addEventListener:(k,fn)=>listeners[k]=fn},
   history:{pushState(state,unused,url){history.push(url);setUrl(url);}},
   setTimeout(fn){const id=++serial;timers.set(id,fn);return id;},clearTimeout(id){timers.delete(id);},
@@ -51,6 +51,7 @@ vm.runInContext([
   block('function switchMode(', '// ── Deck Builder'),
   block('function rankingLinkClick(', 'function searchCard('),
   block('function _resetBuyInline(', '// #buyInline を開いた経路を GA で区別するためのフラグ'),
+  block('let _fxSheetHistory=', '// ── スマホ: 出品を上へ'),
 ].join('\n'),sandbox);
 
 // 警告と買取通信を持った状態から戻る。実際の reset 処理で通信・状態が全て解除される。
@@ -110,6 +111,20 @@ sandbox._updateUrl('青眼の白龍','buyback');assert.equal(history.length,befo
 sandbox._updateUrl('ブラック・マジシャン','search');assert.equal(history.length,before+1);
 setUrl('/card/'+encodeURIComponent('青眼の白龍'));listeners.popstate({state:null});
 assert.equal(searches.at(-1).buy,false);
+// スマホの効果テキストのシート（2026-10-22）: 開け閉めで足した・戻した履歴の popstate では検索をやり直さない
+{
+  const n=searches.length;
+  vm.runInContext('_fxSheetPendingBack=true',sandbox); listeners.popstate({state:null});
+  assert.equal(searches.length,n,'閉じて戻した分は検索し直さない');
+  assert.equal(vm.runInContext('_fxSheetPendingBack',sandbox),false);
+  vm.runInContext('_fxSheetHistory=true',sandbox); listeners.popstate({state:null});
+  assert.equal(searches.length,n,'開いたままの「戻る」はシートを閉じるだけ');
+  assert.equal(vm.runInContext('_fxSheetHistory',sandbox),false);
+  listeners.popstate({state:{fxSheet:1}});
+  assert.equal(searches.length,n,'シートの履歴へ進んだだけでは検索し直さない');
+  listeners.popstate({state:null});
+  assert.equal(searches.length,n+1,'ふつうの「戻る」は今まで通り検索する');
+}
 setUrl('/card/'+encodeURIComponent('青眼の白龍')+'#mydeck');sandbox._restoreLocation('pageload');
 assert.equal(get('mode-mydeck').classList.contains('hidden'),false);
 let importOpened=0;(sandbox.window||sandbox).DeckTools={openImport(){importOpened++;}};

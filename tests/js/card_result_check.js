@@ -174,9 +174,9 @@ assert.equal(run(`_variantLabel('x','')`), '');
 
 // 8) 購入候補ボタンの文言はレアリティに追従
 run(`rarityFilter='ウルトラ'; _updateRarityBanner()`);
-assert.equal(get('heroWishAdd').textContent, 'ウルトラを購入候補に追加');
+assert.equal(get('heroWishAdd').textContent, 'ウルトラを購入候補へ');
 run(`rarityFilter=''; _updateRarityBanner()`);
-assert.equal(get('heroWishAdd').textContent, 'レアリティ未指定で購入候補に追加');
+assert.equal(get('heroWishAdd').textContent, 'レアリティ未指定で購入候補へ');
 
 // 9) renderAll は新しいカードで「店ごとの最安」・価格順・売り切れを隠した状態に戻す（配線の静的確認）
 const ra = block('function renderAll(', 'function _summaryShopItems(');
