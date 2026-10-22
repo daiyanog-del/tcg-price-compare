@@ -76,3 +76,13 @@ def test_solitaire_preloads_neuron_modules():
     preloads = re.findall(r'<link rel="modulepreload" href="([^"]+)">', html)
     assert any('shared/neuron-pdf-parser.js' in u for u in preloads)
     assert any('shared/neuron-preview-modal.js' in u for u in preloads)
+
+
+def test_follows_minified_imports(tmp_path):
+    """本番のイメージでは JS を縮小する（Dockerfile の assets 段）。空白の無い import / export も拾う（2026-10-22）。"""
+    _write(tmp_path, 'app/main.js',
+           'import{a as b}from"./a.js";import"./side.js";export{c}from"./c.js";const l=()=>import("./lazy.js");')
+    for rel in ['app/a.js', 'app/side.js', 'app/c.js', 'app/lazy.js']:
+        _write(tmp_path, rel, '')
+    deps = module_graph.module_dependencies(str(tmp_path), 'app/main.js')
+    assert deps == ['app/a.js', 'app/side.js', 'app/c.js']

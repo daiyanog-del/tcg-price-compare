@@ -13,8 +13,9 @@ import re
 # import x from './a.js' / import {a} from "./a.js" / import './a.js' / export {a} from './a.js'
 # （複数行にまたがる import { ... } from も拾う。文字列中やコメント中の偽一致は、
 #   実在しないファイルなら除外されるので害はない）
+# 本番のイメージでは JS を縮小する（Dockerfile の assets 段）ので、空白の無い import{a}from"./a.js"; も拾う（2026-10-22）
 _IMPORT_RE = re.compile(
-    r"""(?:^|[;\s])(?:import|export)\s+(?:[^'"();]*?\sfrom\s+)?['"]([^'"]+)['"]""",
+    r"""(?:^|[;\s}])(?:import|export)\s*(?:[^'"();]*?\s*from\s*)?['"]([^'"]+)['"]""",
     re.MULTILINE,
 )
 
