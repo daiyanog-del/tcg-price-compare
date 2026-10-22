@@ -754,3 +754,35 @@ def test_base_layer_is_built_once(env, fake_fetch, monkeypatch):
     for _ in range(3):
         og.render_replay_og(_board(), "t")
     assert len(calls) == 1
+
+
+# ── リプレイ一覧の絵の縮小版（2026-10-22 LCP）──
+
+def test_og_thumb_is_small_webp_of_same_picture_and_cached(env, fake_fetch):
+    import solitaire_routes
+    solitaire_routes._og_thumb_cache.clear()
+    _seed(env)
+    resp = env.client.get("/solitaire/og/thumb/abcDEF123_-.webp")
+    assert resp.status_code == 200 and resp.mimetype == "image/webp"
+    img = Image.open(io.BytesIO(resp.data))
+    assert img.format == "WEBP" and img.size == (640, 336)
+    assert "max-age=86400" in resp.headers["Cache-Control"]
+    full = env.client.get("/solitaire/og/abcDEF123_-.png")
+    assert len(resp.data) < len(full.data)
+    # 完成した画像の縮小版は覚えておく（2回目は縮め直さない）
+    assert "abcDEF123_-" in solitaire_routes._og_thumb_cache
+    assert env.client.get("/solitaire/og/thumb/abcDEF123_-.webp").data == resp.data
+
+
+def test_og_thumb_bad_id_is_404(env):
+    assert env.client.get("/solitaire/og/thumb/..%2Fx.webp").status_code == 404
+    assert env.client.get("/solitaire/og/thumb/bad!id.webp").status_code == 404
+
+
+def test_og_thumb_of_generic_image_is_not_cached(env):
+    """board の無いリプレイ（汎用画像・短い期限）は縮小版を返すが覚えない。"""
+    import solitaire_routes
+    solitaire_routes._og_thumb_cache.clear()
+    resp = env.client.get("/solitaire/og/thumb/noSuchReplay1.webp")
+    assert resp.status_code == 200 and resp.mimetype == "image/webp"
+    assert "noSuchReplay1" not in solitaire_routes._og_thumb_cache

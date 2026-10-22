@@ -22,6 +22,7 @@ OFF 時の挙動:
   register_released_resolver() と同じ関数注入方式。
 """
 
+import io
 import os
 import re
 import time
@@ -30,6 +31,7 @@ import hashlib
 import secrets
 import logging
 import threading
+from collections import OrderedDict
 from datetime import datetime, timezone
 
 from flask import Blueprint, render_template, request, abort, Response, send_file
@@ -308,6 +310,46 @@ def solitaire_og_image(replay_id):
         return _generic_og_response(60)
     # カード画像が一部取れなかった描画は期限を短くする（次の取得で復旧できるように）
     return _og_png_response(png, 60 if degraded else 86400)
+
+
+# リプレイ一覧の絵（縮小版）。リンク画像（1200x630 の PNG・約225KB）をそのまま一覧に出すと、
+# スマホ相当でリプレイ一覧の LCP が 4〜8秒になっていた（2026-10-22）。幅 640px の WebP にして返す。
+# 縮めるのは CPU を使うので、期限の長い（完成した）画像の縮小版だけメモリに覚える
+_OG_THUMB_WIDTH = 640
+_OG_THUMB_MAX_ENTRIES = 128   # 1枚 数十KB。TODO: calibrate from data（一覧の閲覧数を見て）
+_og_thumb_cache: "OrderedDict[str, bytes]" = OrderedDict()
+_og_thumb_lock = threading.Lock()
+
+
+@solitaire_bp.route("/solitaire/og/thumb/<replay_id>.webp")
+def solitaire_og_thumb(replay_id):
+    """リプレイ一覧に並べる絵の縮小版（幅 640px の WebP）。中身は /solitaire/og/<id>.png と同じ絵。"""
+    with _og_thumb_lock:
+        hit = _og_thumb_cache.get(replay_id)
+        if hit is not None:
+            _og_thumb_cache.move_to_end(replay_id)
+    if hit is not None:
+        return Response(hit, mimetype="image/webp", headers={"Cache-Control": "public, max-age=86400"})
+    full = solitaire_og_image(replay_id)   # 404 は abort で抜ける
+    full.direct_passthrough = False
+    max_age = full.cache_control.max_age or 60
+    try:
+        from PIL import Image
+        img = Image.open(io.BytesIO(full.get_data()))
+        img = img.convert("RGB")
+        height = round(img.height * _OG_THUMB_WIDTH / img.width)
+        out = io.BytesIO()
+        img.resize((_OG_THUMB_WIDTH, height), Image.LANCZOS).save(out, "WEBP", quality=80, method=4)
+        webp = out.getvalue()
+    except Exception as e:
+        logger.warning(f"リプレイ一覧の絵の縮小に失敗 {replay_id}: {e}")
+        return full   # 縮められなければ原寸の PNG をそのまま返す
+    if max_age >= 86400:
+        with _og_thumb_lock:
+            _og_thumb_cache[replay_id] = webp
+            while len(_og_thumb_cache) > _OG_THUMB_MAX_ENTRIES:
+                _og_thumb_cache.popitem(last=False)
+    return Response(webp, mimetype="image/webp", headers={"Cache-Control": f"public, max-age={max_age}"})
 
 
 @solitaire_bp.route("/solitaire/og/card/<int:card_id>.png")
