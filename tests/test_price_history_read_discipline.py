@@ -26,7 +26,7 @@ def _target_files():
     return [f for f in files if f.name != Path(__file__).name]
 
 
-TABLE_RE = re.compile(r"""\.table\(\s*['"](price_history_v2|price_history|buyback_history)['"]\s*\)""")
+TABLE_RE = re.compile(r"""\.table\(\s*['"](price_history_v2|price_history|buyback_history|price_daily_min|price_daily)['"]\s*\)""")
 WRITE_MARKERS = (".insert(", ".upsert(", ".update(", ".delete(")
 
 

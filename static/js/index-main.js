@@ -375,11 +375,26 @@ function fetchCardImage(cardName){
     .catch(()=>{});
 }
 
+// カードの画像の URL を、検索を始めた時点で問い合わせて画像も読み始めておく（2026-10-22 LCP）。
+// 以前は検索が終わってから URL を問い合わせ、そこから画像を取っていたので、カードのページの LCP（カード画像）が
+// 検索の時間ぶん遅れていた（スマホ相当で取得開始まで 4〜10秒）。renderAll は同じ名前ならこの結果を使う
+let _cardImgPrefetch=null; // {name, p: Promise<data>}
+function _prefetchCardImage(name){
+  const p=fetch('/api/card-image?name='+encodeURIComponent(name)).then(r=>r.json());
+  p.then(data=>{const u=data&&data.url&&safeUrl(data.url);if(u){const im=new Image();im.src=u;}}).catch(()=>{});
+  _cardImgPrefetch={name,p};
+}
+function _cardImageData(name){
+  if(_cardImgPrefetch&&_cardImgPrefetch.name===name) return _cardImgPrefetch.p;
+  return fetch('/api/card-image?name='+encodeURIComponent(name)).then(r=>r.json());
+}
+
 function _applyCardImages(heroSrc,thumbSrc,source){
   const wrap=document.getElementById('heroImgWrap');
   const safeHero=safeUrl(heroSrc);
   if(wrap&&safeHero&&!wrap.querySelector('img')){
-    wrap.innerHTML='<img src="'+escAttr(safeHero)+'" alt="" loading="lazy">';
+    // 画面の上に出るカードの画像（多くのページで LCP）なので、遅らせずに優先して読む
+    wrap.innerHTML='<img src="'+escAttr(safeHero)+'" alt="" loading="eager" fetchpriority="high">';
     // 発売済みクリーン画像にのみ自サイト透かしを付与（SAMPLE画像には付けない）
     if(source!=='official_sample'){ wrap.classList.add('wm-released'); }
     else { wrap.classList.remove('wm-released'); }
@@ -518,6 +533,7 @@ function doSearch(opts){
 
   const es=new EventSource('/api/search?'+params.toString());
   _searchES=es;
+  _prefetchCardImage(q); // カードの画像を検索と並行して読み始める（renderAll が使う）
   // メルカリ参考相場は店舗検索と並行して取得し、店舗検索の途中でもパネルを出す（レアリティは店舗結果が揃うまで「確認中」）
   // 取得はこの検索SSEの最初のイベント受信時に1回だけ開始する（/api/search が429等で失敗した検索・即破棄された検索では呼ばない）。
   // 名前の補正は /api/mercari がサーバー側で /api/search と同じ補正をかけるので、補正イベントでの取り直しはしない
@@ -760,9 +776,8 @@ function renderAll(d){
     smEl.innerHTML=sm;
   }
 
-  // 画像: YGOResources優先（カーナベルはサーバー側フォールバック）
-  fetch('/api/card-image?name='+encodeURIComponent(searchTerm))
-    .then(r=>r.json())
+  // 画像: YGOResources優先（カーナベルはサーバー側フォールバック）。検索の開始時に読み始めた結果があれば使う
+  _cardImageData(searchTerm)
     .then(data=>{
       if(data.url&&safeUrl(data.url)){
         cardImgUrl=safeUrl(data.url);
