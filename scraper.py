@@ -358,6 +358,7 @@ def dump_html(name: str, soup: BeautifulSoup):
 import tempfile
 import os
 from threading import Lock as _Lock
+import shop_cache_kv
 _cache_lock = _Lock()
 
 def _cache_key(card_name: str) -> str:
@@ -368,8 +369,39 @@ def _cache_key(card_name: str) -> str:
 # TODO: calibrate from data — 混雑時にどの程度古い結果まで役に立つか（値動きの速さ）を測って決める
 STALE_CACHE_MAX_MINUTES = 24 * 60
 
-def _shop_cache_load(fp: Path, max_age_minutes: float = CACHE_TTL_MINUTES) -> dict:
-    """店舗束キャッシュを読み、max_age_minutes 以内の店舗エントリだけ返す（既定は通常の期限）。
+# 店舗ごとの通常の期限（分）。載っていない店は CACHE_TTL_MINUTES（15分）。
+# 店ごとの値は shop-update-cycle の調査（店ごとの更新の速さ）を見てユーザーが決める。
+SHOP_CACHE_TTL_MINUTES: dict[str, float] = {}
+
+def shop_cache_ttl_minutes(shop: str) -> float:
+    return SHOP_CACHE_TTL_MINUTES.get(shop, CACHE_TTL_MINUTES)
+
+def _filter_shop_entries(shops: dict, max_age_minutes: float | None) -> dict:
+    """生の店舗エントリから期限内・形の正しいものだけ返す。
+    max_age_minutes=None は店舗ごとの通常の期限（shop_cache_ttl_minutes）。"""
+    now = datetime.now()
+    fresh = {}
+    for shop, ent in shops.items():
+        try:
+            ts = datetime.fromisoformat(ent["timestamp"])
+        except Exception:
+            continue
+        limit = shop_cache_ttl_minutes(shop) if max_age_minutes is None else max_age_minutes
+        if now - ts > timedelta(minutes=limit):
+            continue
+        results = ent.get("results")
+        if not isinstance(results, list):
+            continue
+        # 修正前に保存された販売・買取結果にも最新のゲーム種別判定を適用する。
+        if shop == "カーナベル":
+            results = [r for r in results if not _is_kanabell_excluded(r)]
+        fresh[shop] = {"timestamp": ent["timestamp"],
+                       "partial": bool(ent.get("partial")),
+                       "results": results}
+    return fresh
+
+def _shop_cache_load(fp: Path, max_age_minutes: float | None = None) -> dict:
+    """ファイルの店舗束キャッシュを読み、期限内の店舗エントリだけ返す（既定は店舗ごとの通常の期限）。
     旧形式・破損・不在は {} ＝全店ミス扱い。"""
     if not fp.exists():
         return {}
@@ -378,33 +410,31 @@ def _shop_cache_load(fp: Path, max_age_minutes: float = CACHE_TTL_MINUTES) -> di
         shops = data.get("shops")
         if not isinstance(shops, dict):
             return {}  # 旧形式
-        now = datetime.now()
-        fresh = {}
-        for shop, ent in shops.items():
-            try:
-                ts = datetime.fromisoformat(ent["timestamp"])
-            except Exception:
-                continue
-            if now - ts > timedelta(minutes=max_age_minutes):
-                continue
-            results = ent.get("results")
-            if not isinstance(results, list):
-                continue
-            # 修正前に保存された販売・買取結果にも最新のゲーム種別判定を適用する。
-            if shop == "カーナベル":
-                results = [r for r in results if not _is_kanabell_excluded(r)]
-            fresh[shop] = {"timestamp": ent["timestamp"],
-                           "partial": bool(ent.get("partial")),
-                           "results": results}
-        return fresh
+        return _filter_shop_entries(shops, max_age_minutes)
     except Exception:
         return {}
 
-def _shop_cache_get(cache_dir: Path, key: str, shops: list[str],
+def _shop_cache_entries(kind: str, cache_dir: Path, key: str, shops: list[str] | None,
+                        max_age_minutes: float | None) -> dict:
+    """Key Value とファイルの両方を読み、期限内の店舗エントリを返す（shops=None は全店）。
+    ファイルには Key Value の不調中・上限超えの間に書いた分がある。両方にある店は新しい方を採る
+    （復旧後に Key Value の古い値が「前回の結果」に出ないように）。ファイルが無ければ読みは exists だけ。"""
+    kv = shop_cache_kv.load(kind, key, shops)
+    fresh = _filter_shop_entries(kv, max_age_minutes) if kv else {}
+    for shop, ent in _shop_cache_load(cache_dir / f"{key}.json", max_age_minutes).items():
+        if shops is not None and shop not in shops:
+            continue
+        cur = fresh.get(shop)
+        if cur is None or (datetime.fromisoformat(ent["timestamp"])
+                           > datetime.fromisoformat(cur["timestamp"])):
+            fresh[shop] = ent
+    return fresh
+
+def _shop_cache_get(kind: str, cache_dir: Path, key: str, shops: list[str],
                     include_partial: bool) -> tuple[dict[str, list], list[str]]:
     if not CACHE_ENABLED:
         return {}, list(shops)
-    fresh = _shop_cache_load(cache_dir / f"{key}.json")
+    fresh = _shop_cache_entries(kind, cache_dir, key, list(shops), None)
     hit: dict[str, list] = {}
     missing: list[str] = []
     for shop in shops:
@@ -415,9 +445,15 @@ def _shop_cache_get(cache_dir: Path, key: str, shops: list[str],
             hit[shop] = ent["results"]
     return hit, missing
 
-def _shop_cache_store(cache_dir: Path, key: str, shop_results: dict[str, list],
+def _shop_cache_store(kind: str, cache_dir: Path, key: str, shop_results: dict[str, list],
                       partial_shops=frozenset()):
     if not CACHE_ENABLED or not shop_results:
+        return
+    now_iso = datetime.now().isoformat()
+    entries = {shop: {"timestamp": now_iso, "partial": shop in partial_shops, "results": results}
+               for shop, results in shop_results.items()}
+    # Key Value に置けたらファイルには書かない。キーは「前回の結果」の期間だけ残す
+    if shop_cache_kv.store(kind, key, entries, int(STALE_CACHE_MAX_MINUTES * 60)):
         return
     cache_dir.mkdir(parents=True, exist_ok=True)
     fp = cache_dir / f"{key}.json"
@@ -426,11 +462,7 @@ def _shop_cache_store(cache_dir: Path, key: str, shop_results: dict[str, list],
         # 通常の期限を過ぎたエントリも「前回の結果」として STALE_CACHE_MAX_MINUTES までは残す
         # （混雑時の代わりの表示に使う）。それより古いものはここで間引かれる
         fresh = _shop_cache_load(fp, STALE_CACHE_MAX_MINUTES)
-        now_iso = datetime.now().isoformat()
-        for shop, results in shop_results.items():
-            fresh[shop] = {"timestamp": now_iso,
-                           "partial": shop in partial_shops,
-                           "results": results}
+        fresh.update(entries)
         content = json.dumps({"shops": fresh}, ensure_ascii=False)
         # 一時ファイルに書いてからリネームすることで、書き込み途中のファイルを読まれるのを防ぐ
         tmp_name = None
@@ -453,12 +485,12 @@ def cache_get_shops(card_name: str, shops: list[str],
     """選択店舗のうちキャッシュ命中分と、スクレイプが必要な店舗を返す。
     返り値: ({店舗名: results}, [不足店舗名])。「調べて0件」は命中（空リスト）、
     「調べていない」は不足として区別される。"""
-    return _shop_cache_get(CACHE_DIR, _cache_key(card_name), shops, include_partial)
+    return _shop_cache_get("sell", CACHE_DIR, _cache_key(card_name), shops, include_partial)
 
-def _shop_cache_get_stale(cache_dir: Path, key: str, shops: list[str]) -> dict[str, dict]:
+def _shop_cache_get_stale(kind: str, cache_dir: Path, key: str, shops: list[str]) -> dict[str, dict]:
     if not CACHE_ENABLED:
         return {}
-    kept = _shop_cache_load(cache_dir / f"{key}.json", STALE_CACHE_MAX_MINUTES)
+    kept = _shop_cache_entries(kind, cache_dir, key, list(shops), STALE_CACHE_MAX_MINUTES)
     return {shop: {"results": kept[shop]["results"], "timestamp": kept[shop]["timestamp"],
                    "partial": kept[shop]["partial"]}
             for shop in shops if shop in kept}
@@ -467,12 +499,12 @@ def cache_get_shops_stale(card_name: str, shops: list[str]) -> dict[str, dict]:
     """混雑で取りに行けなかった店の「前回の結果」。通常の期限切れも含めて手元に残っているものを返す。
     返り値: {店舗名: {"results", "timestamp", "partial"}}。無い店は含まない。
     検索の命中には使わない（命中は cache_get_shops）。キャッシュへ書き戻さないこと。"""
-    return _shop_cache_get_stale(CACHE_DIR, _cache_key(card_name), shops)
+    return _shop_cache_get_stale("sell", CACHE_DIR, _cache_key(card_name), shops)
 
 def cache_store_shops(card_name: str, shop_results: dict[str, list],
                       partial_shops=frozenset()):
     """店舗ごとの結果をキャッシュへ追記する。取得失敗した店舗は渡さないこと。"""
-    _shop_cache_store(CACHE_DIR, _cache_key(card_name), shop_results, partial_shops)
+    _shop_cache_store("sell", CACHE_DIR, _cache_key(card_name), shop_results, partial_shops)
 
 def cache_get(card_name: str) -> list[dict] | None:
     """互換API: 期限内の全店舗分を平坦化して返す（メタ表示用）。1店も無ければ None。
@@ -480,7 +512,7 @@ def cache_get(card_name: str) -> list[dict] | None:
     エントリも混ざるため、検索経路では cache_get_shops を使うこと。"""
     if not CACHE_ENABLED:
         return None
-    fresh = _shop_cache_load(CACHE_DIR / f"{_cache_key(card_name)}.json")
+    fresh = _shop_cache_entries("sell", CACHE_DIR, _cache_key(card_name), None, None)
     if not fresh:
         return None
     return [r for ent in fresh.values() for r in ent["results"]]
@@ -2251,24 +2283,24 @@ def _buyback_cache_key(card_name: str) -> str:
 def buyback_cache_get_shops(card_name: str, shops: list[str],
                             include_partial: bool = False) -> tuple[dict[str, list], list[str]]:
     """買取版 cache_get_shops（挙動は販売と同じ・保存先が別）"""
-    return _shop_cache_get(BUYBACK_CACHE_DIR, _buyback_cache_key(card_name),
+    return _shop_cache_get("buy", BUYBACK_CACHE_DIR, _buyback_cache_key(card_name),
                            shops, include_partial)
 
 def buyback_cache_get_shops_stale(card_name: str, shops: list[str]) -> dict[str, dict]:
     """買取版 cache_get_shops_stale"""
-    return _shop_cache_get_stale(BUYBACK_CACHE_DIR, _buyback_cache_key(card_name), shops)
+    return _shop_cache_get_stale("buy", BUYBACK_CACHE_DIR, _buyback_cache_key(card_name), shops)
 
 def buyback_cache_store_shops(card_name: str, shop_results: dict[str, list],
                               partial_shops=frozenset()):
     """買取版 cache_store_shops。取得失敗した店舗は渡さないこと。"""
-    _shop_cache_store(BUYBACK_CACHE_DIR, _buyback_cache_key(card_name),
+    _shop_cache_store("buy", BUYBACK_CACHE_DIR, _buyback_cache_key(card_name),
                       shop_results, partial_shops)
 
 def buyback_cache_get(card_name: str) -> list[dict] | None:
     """互換API: 期限内の全店舗分を平坦化して返す（メタ表示用）。1店も無ければ None。"""
     if not CACHE_ENABLED:
         return None
-    fresh = _shop_cache_load(BUYBACK_CACHE_DIR / f"{_buyback_cache_key(card_name)}.json")
+    fresh = _shop_cache_entries("buy", BUYBACK_CACHE_DIR, _buyback_cache_key(card_name), None, None)
     if not fresh:
         return None
     return [r for ent in fresh.values() for r in ent["results"]]
