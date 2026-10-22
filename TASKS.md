@@ -4,7 +4,7 @@
 > 現在地の詳細は [docs/activeContext.md](docs/activeContext.md)、決定の経緯は [docs/decisions.md](docs/decisions.md)。
 
 ## 進行中
-- [ ] **2026-10-22 DB容量の削減（案D）** — 店舗別の行は30日・31〜100日は日ごとの全店最安（price_daily）に畳む・買取30日・ygores の raw を日本語だけに・9月の退避表を削除。PR を出したあと: price_daily_rollup.sql §1 を適用→デプロイ→§2 初回の畳み込みと照合→§3 削除→§4 ygores 縮小→§5 詰め直し（§2〜§5 はユーザーが SQL Editor で1行ずつ）。見積もり 約425MB。詳細 docs/decisions.md 同日
+- [x] **2026-10-22 DB容量の削減（案D）** — 店舗別の行は30日・31〜100日は日ごとの全店最安（price_daily）に畳む・買取30日・ygores の raw を日本語だけに・9月の退避表を削除。PR #179 本番反映、price_daily_rollup.sql §1〜§5 を同日中に適用（全件照合 581,583組で食い違い0）。**DB 846MB → 337MB**（price_history_v2 183・price_daily_min 71・buyback 36・ygores 24）。相場グラフは91日分を返すことを本番で確認。以後は毎晩の収集が1日ずつ畳む（失敗は Discord）。詳細 docs/decisions.md 同日
 
 > **2026-10-21 記録の棚卸し**: 「未push・未デプロイ」と書かれていた項目のブランチはすべて PR で本線に取り込み済み（#19〜#119）だったので、状態を実際の PR に直した。本番 DB（読むだけ）で SQL 適用と X 投稿・自動承認の稼働を確認。済み・期限切れ・重複の7件は「完了」へ移した（消してはいない）。残る項目の多くは「データが溜まったら校正」か「次に起きたときに確認」。
 
