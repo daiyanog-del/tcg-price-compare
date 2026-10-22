@@ -42,6 +42,7 @@ from shipping import (
     amount_to_min_order, is_orderable, rules_for_client as _shipping_rules_for_client,
 )
 from aggregations import daily_min_by_lowest_rarity, common_shop_price_change
+from price_history_reads import fetch_recent_rows_by_card_names
 from price_persist import build_min_price_rows, upsert_price_rows
 from card_code import infer_codes
 from search_status import search_coverage
@@ -2781,7 +2782,8 @@ def api_wish_prices():
     """購入候補カードの最新価格と7日前比を返す。
     入力: {"cards": ["カード名", ...]}  最大50件
     返却: {"cards": [{name, latest, base_7d, diff, pct, status}, ...]}
-      status: "ready" = データあり, "pending" = まだ収集されていない
+      status: "ready" = データあり, "pending" = まだ収集されていない,
+              "error" = DB の読み込みに失敗（値段なしとは別。画面は「価格を読み込めませんでした」）
     """
     global _estimate_cache_time
 
@@ -2799,53 +2801,40 @@ def api_wish_prices():
             card_names.append(_correct_cardname(name))
     if not card_names:
         return jsonify({"cards": []})
+    # 表記の違う入力が同じ名前に直ることがある。読み込みは1回にする（返す cards は送った数のまま）
+    unique_names = list(dict.fromkeys(card_names))
 
     # _estimate_cache でデータ有無を事前判定（DBクエリを最小化）
     if time.time() - _estimate_cache_time > _ESTIMATE_CACHE_SEC:
         Thread(target=_load_estimate_cache, daemon=True).start()
 
-    have_data = [n for n in card_names if n in _estimate_cache]
-    pending_set = set(card_names) - set(have_data)
+    have_data = [n for n in unique_names if n in _estimate_cache]
+    pending_set = set(unique_names) - set(have_data)
 
-    def _fetch_price_history(names: list, days: int) -> tuple[dict, dict]:
+    def _fetch_price_history(names: list, days: int) -> tuple[dict, dict, set]:
         """price_history から指定日数分の日次最安値（現在価格用）と、
         共通店舗比較による値動き（変動判定用）を取得して返す。
-        戻り値: (card_dates, card_common)
+        戻り値: (card_dates, card_common, failed)
           card_dates: {card_name: {date_str: min_price}}
             代表レアリティの全店舗min。表示する「現在価格」はこの最新日の値を使う
           card_common: {card_name: {"base_7d", "diff", "pct"}}
             共通店舗（両日に記録がある店舗）どうしで比較した値動き（監査F5）
+          failed: 読み込めなかったカード名。「値段なし」と区別して status "error" で返す
+            （2026-10-22 読み込み失敗が全件「価格が見つかりませんでした」になっていた）
         """
-        if not names or not _supabase_client:
-            return {}, {}
-        try:
-            cutoff = (datetime.now(JST) - timedelta(days=days)).strftime("%Y-%m-%d")
-            all_rows: list = []
-            page_size = 1000
-            offset = 0
-            while True:
-                resp = (
-                    _supabase_client.table("price_history")
-                    .select("card_name, rarity, shop, min_price, recorded_at")
-                    .in_("card_name", names)
-                    .gte("recorded_at", cutoff)
-                    .order("recorded_at", desc=False)
-                    .range(offset, offset + page_size - 1)
-                    .execute()
-                )
-                batch = resp.data or []
-                all_rows.extend(batch)
-                if len(batch) < page_size:
-                    break
-                offset += page_size
-            # 代表レアリティ選定は rarity 文字列でグループ化するため、DB読み出し境界で
-            # 正準名に統合する（過渡期の分裂値を吸収。/api/price-history と同じ方針）
-            for r in all_rows:
-                r["rarity"] = normalize_rarity(r.get("rarity", "") or "")
-            card_dates = _aggregate_daily_min_lowest_rarity(all_rows)
-        except Exception as e:
-            logger.warning(f"[wish-prices] 価格履歴取得失敗: {e}")
-            return {}, {}
+        if not names:
+            return {}, {}, set()
+        if not _supabase_client:
+            return {}, {}, set(names)
+        cutoff = (datetime.now(JST) - timedelta(days=days)).strftime("%Y-%m-%d")
+        all_rows, failed = fetch_recent_rows_by_card_names(
+            _supabase_client, names, "card_name, rarity, shop, min_price, recorded_at",
+            cutoff, ("recorded_at",), "wish-prices")
+        # 代表レアリティ選定は rarity 文字列でグループ化するため、DB読み出し境界で
+        # 正準名に統合する（過渡期の分裂値を吸収。/api/price-history と同じ方針）
+        for r in all_rows:
+            r["rarity"] = normalize_rarity(r.get("rarity", "") or "")
+        card_dates = _aggregate_daily_min_lowest_rarity(all_rows)
 
         # 共通店舗比較（変動判定用, 監査F5）は独立した try/except に分離する。
         # ここで例外が起きても、上で取得済みの card_dates（現在価格の表示）を
@@ -2856,23 +2845,31 @@ def api_wish_prices():
             logger.warning(f"[wish-prices] 共通店舗比較の計算失敗: {e}")
             card_common = {}
 
-        return card_dates, card_common
+        return card_dates, card_common, failed
 
     # 主クエリ: estimate_cacheにあるカードを8日分で取得
-    card_dates, card_common = _fetch_price_history(have_data, days=8)
+    card_dates, card_common, failed_set = _fetch_price_history(have_data, days=8)
 
     # フォールバック: estimateキャッシュ未収録のカードを30日分で再検索
     if pending_set:
-        fallback_dates, fallback_common = _fetch_price_history(list(pending_set), days=30)
+        fallback_dates, fallback_common, fallback_failed = _fetch_price_history(list(pending_set), days=30)
         for name, dates in fallback_dates.items():
             if dates:
                 card_dates[name] = dates
                 card_common[name] = fallback_common.get(name, {})
                 pending_set.discard(name)
                 have_data.append(name)
+        # 読めなかったカードは「まだ集めていない」とも言えないので失敗として返す
+        pending_set -= fallback_failed
+        failed_set |= fallback_failed
 
     results = []
     for name in card_names:
+        if name in failed_set:
+            results.append({"name": name, "latest": None, "base_7d": None,
+                            "diff": None, "pct": None, "status": "error",
+                            "image": _ygores_image_url(name)})
+            continue
         if name in pending_set:
             results.append({"name": name, "latest": None, "base_7d": None,
                             "diff": None, "pct": None, "status": "pending",
@@ -2987,68 +2984,48 @@ def api_wish_shop_totals():
     # 各 (card_name, shop, rarity) キーで現在採用している行の観測日（新しい日が来たら置き換える判定用）
     latest_date_by_key: dict[tuple, str] = {}
     if _supabase_client:
-        try:
-            cutoff = (datetime.now(JST) - timedelta(days=7)).strftime("%Y-%m-%d")
-            page_size = 1000
-            offset = 0
-            while True:
-                resp = (
-                    _supabase_client.table("price_history")
-                    .select("card_name, shop, rarity, min_price, recorded_at")
-                    .in_("card_name", names)
-                    .gte("recorded_at", cutoff)
-                    # ページ間の順序安定化（order無しrangeはページ境界で行を取りこぼしうる。監査F8）
-                    .order("card_name", desc=False)
-                    .order("recorded_at", desc=False)
-                    .order("shop", desc=False)
-                    .order("rarity", desc=False)
-                    .range(offset, offset + page_size - 1)
-                    .execute()
-                )
-                batch = resp.data or []
-                # recorded_at 欠落行の件数（このページ分）。存在すべきでない欠損だが、
-                # サイレントに握りつぶさずページごとに警告する（監査 2026-08-07 追加, L10）
-                missing_recorded_at = 0
-                for row in batch:
-                    name = row.get("card_name")
-                    shop = row.get("shop")
-                    price = row.get("min_price")
-                    recorded_at = row.get("recorded_at")
-                    if not recorded_at:
-                        missing_recorded_at += 1
-                        continue
-                    if not name or not shop or price is None:
-                        continue
-                    # 10円以下は収集異常値として除外（他の集計経路(daily_min_by_lowest_rarity等)と
-                    # 2026-08-07 監査で統一。監査M5）
-                    if price <= 10:
-                        continue
-                    rarity_db = normalize_rarity(row.get("rarity", "") or "")
-                    date = recorded_at[:10]
-                    key = (name, shop, rarity_db)
-                    prev_date = latest_date_by_key.get(key)
-                    by_shop = rows_by_card_shop_rarity.setdefault(name, {})
-                    by_rarity = by_shop.setdefault(shop, {})
-                    if prev_date is None or date > prev_date:
-                        # より新しい観測日 → 古い日の値を置き換える
-                        by_rarity[rarity_db] = price
-                        latest_date_by_key[key] = date
-                    elif date == prev_date:
-                        # 同一日内の複数行は min を採用
-                        if price < by_rarity[rarity_db]:
-                            by_rarity[rarity_db] = price
-                    # date < prev_date（より古い行が後から来た場合）は無視する。
-                    # DB側の order 指定でほぼ発生しないが、順序に依存せず正しくするための明示的ガード
-                if missing_recorded_at:
-                    logger.warning(
-                        f"[wish-shop-totals] recorded_at欠落で除外: {missing_recorded_at}件"
-                        f"（offset={offset}）"
-                    )
-                if len(batch) < page_size:
-                    break
-                offset += page_size
-        except Exception as e:
-            logger.warning(f"[wish-shop-totals] 価格履歴取得失敗: {e}")
+        cutoff = (datetime.now(JST) - timedelta(days=7)).strftime("%Y-%m-%d")
+        # 名前はバイト予算で分けて読み、接続切れは1回だけ再試行する（price_history_reads）。
+        # 読めなかったカードは行が無いので db_missing に入り、画面は店のリアルタイム検索で補う。
+        # 並びはページ間の順序安定化のため（order無しrangeはページ境界で行を取りこぼしうる。監査F8）
+        rows_7d, _failed = fetch_recent_rows_by_card_names(
+            _supabase_client, names, "card_name, shop, rarity, min_price, recorded_at",
+            cutoff, ("card_name", "recorded_at", "shop", "rarity"), "wish-shop-totals")
+        # recorded_at 欠落行の件数。存在すべきでない欠損だが、
+        # サイレントに握りつぶさず警告する（監査 2026-08-07 追加, L10）
+        missing_recorded_at = 0
+        for row in rows_7d:
+            name = row.get("card_name")
+            shop = row.get("shop")
+            price = row.get("min_price")
+            recorded_at = row.get("recorded_at")
+            if not recorded_at:
+                missing_recorded_at += 1
+                continue
+            if not name or not shop or price is None:
+                continue
+            # 10円以下は収集異常値として除外（他の集計経路(daily_min_by_lowest_rarity等)と
+            # 2026-08-07 監査で統一。監査M5）
+            if price <= 10:
+                continue
+            rarity_db = normalize_rarity(row.get("rarity", "") or "")
+            date = recorded_at[:10]
+            key = (name, shop, rarity_db)
+            prev_date = latest_date_by_key.get(key)
+            by_shop = rows_by_card_shop_rarity.setdefault(name, {})
+            by_rarity = by_shop.setdefault(shop, {})
+            if prev_date is None or date > prev_date:
+                # より新しい観測日 → 古い日の値を置き換える
+                by_rarity[rarity_db] = price
+                latest_date_by_key[key] = date
+            elif date == prev_date:
+                # 同一日内の複数行は min を採用
+                if price < by_rarity[rarity_db]:
+                    by_rarity[rarity_db] = price
+            # date < prev_date（より古い行が後から来た場合）は無視する。
+            # DB側の order 指定でほぼ発生しないが、順序に依存せず正しくするための明示的ガード
+        if missing_recorded_at:
+            logger.warning(f"[wish-shop-totals] recorded_at欠落で除外: {missing_recorded_at}件")
 
     def _lookup_price_and_rarity(name: str, shop: str, rarity_pref: str):
         """エントリと店舗から、その店舗の (採用価格, 採用レアリティ) を返す。
@@ -3185,37 +3162,19 @@ def api_card_rarities():
     # 集計: rarity_counts[name][canonical_rarity] = 出現件数
     rarity_counts: dict[str, dict[str, int]] = {}
     if _supabase_client:
-        try:
-            cutoff = (datetime.now(JST) - timedelta(days=7)).strftime("%Y-%m-%d")
-            page_size = 1000
-            offset = 0
-            while True:
-                resp = (
-                    _supabase_client.table("price_history")
-                    .select("card_name, rarity")
-                    .in_("card_name", names)
-                    .gte("recorded_at", cutoff)
-                    # ページ間の順序安定化（order無しrangeはページ境界で行を取りこぼしうる。監査F8）
-                    .order("card_name", desc=False)
-                    .order("recorded_at", desc=False)
-                    .order("shop", desc=False)
-                    .order("rarity", desc=False)
-                    .range(offset, offset + page_size - 1)
-                    .execute()
-                )
-                batch = resp.data or []
-                for row in batch:
-                    nm = row.get("card_name")
-                    r = normalize_rarity(row.get("rarity", "") or "")
-                    if not nm or not r:
-                        continue
-                    by_r = rarity_counts.setdefault(nm, {})
-                    by_r[r] = by_r.get(r, 0) + 1
-                if len(batch) < page_size:
-                    break
-                offset += page_size
-        except Exception as e:
-            logger.warning(f"[card-rarities] レアリティ候補取得失敗: {e}")
+        cutoff = (datetime.now(JST) - timedelta(days=7)).strftime("%Y-%m-%d")
+        # 名前はバイト予算で分けて読み、接続切れは1回だけ再試行する（price_history_reads）。
+        # 読めなかったカードは候補なし扱い（従来どおり）。並びはページ間の順序安定化のため（監査F8）
+        rows, _failed = fetch_recent_rows_by_card_names(
+            _supabase_client, names, "card_name, rarity",
+            cutoff, ("card_name", "recorded_at", "shop", "rarity"), "card-rarities")
+        for row in rows:
+            nm = row.get("card_name")
+            r = normalize_rarity(row.get("rarity", "") or "")
+            if not nm or not r:
+                continue
+            by_r = rarity_counts.setdefault(nm, {})
+            by_r[r] = by_r.get(r, 0) + 1
 
     # 出現件数の降順、同数のときは正準名のアルファベット順で安定化
     rarities = {
