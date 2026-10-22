@@ -50,6 +50,15 @@
 .new-cards-button[hidden]{display:none}
 .new-cards-button:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
 @media(max-width:900px){.new-cards-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:20px 14px}}
+/* トップの PC は小さめのカードを1列8枚（中くらいの幅は4列×2段）。「もっと見る」は出さない（右上の「すべて見る →」がある）。
+   値動きを最初の画面に入れる（2026-10-22 ユーザー承認・モック _mocks/pc-pages-20261022） */
+#mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped){grid-template-columns:repeat(8,minmax(0,1fr));gap:14px}
+#mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) .new-card-link strong{font-size:12px}
+#mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) .new-card-meta{font-size:10px}
+#mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) .new-card-add{min-height:30px;font-size:11px}
+#mode-search:not(.new-cards-page) #newCardsMore{display:none}
+#mode-search:not(.new-cards-page) .new-cards{margin-bottom:22px}
+@media(max-width:900px){#mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped){grid-template-columns:repeat(4,minmax(0,1fr))}}
 /* トップのスマホは新着を横に流れる1列にし、値動きを最初の画面に入れる（2026-10-22 ユーザー承認）。
    未発売カード一覧のページ（.new-cards-page・パックごとの .is-grouped）は今まで通りの格子 */
 @media(max-width:640px){

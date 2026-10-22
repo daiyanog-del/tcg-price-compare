@@ -90,6 +90,12 @@ function renderPacks(){
   if(rel.length) html+=`<div class="pk-group"><div class="pk-group-h">発売済み</div>${rel.map(row).join('')}</div>`;
   html+='<div class="pk-note">商品は遊戯王OCG公式サイト、収録カードは遊戯王Wikiから取得しています。</div>';
   el.innerHTML=html;
+  // PC（左右2列）では、まだ何も選んでいなければ最新の発売済みパックを開いておく（右の欄を空で始めない。2026-10-22 ユーザー承認）。
+  // 発売前のパックは値段が無いので選ばない。スマホは一覧から始める（全面で開くと一覧が見えなくなる）
+  if(!_pk&&rel.length&&window.matchMedia&&!matchMedia(_PK_SHEET_MQ).matches){
+    const p=_packData[rel[0]];
+    if(p) setTimeout(()=>{ if(!_pk) loadPackCards(p.name,p.wiki_page||p.name,p.tcg_name||'',!!p.featured); },0);
+  }
   if(!el.dataset.ready){
     el.dataset.ready='1';
     el.addEventListener('click',e=>{

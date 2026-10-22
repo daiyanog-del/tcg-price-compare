@@ -21,7 +21,10 @@
 
 /* A・B: 一覧の行（名前・収録数・発売日・あと◯日／発売済み）。選んでいるパックは金の実線 */
 .pk-group { margin-bottom: 14px; }
-.pk-group-h { margin: 0 0 6px; color: var(--text-m); font-size: .72rem; font-weight: 700; letter-spacing: .04em; }
+.pk-group-h { height: 16px; margin: 0 0 6px; color: var(--text-m); font-size: .72rem; font-weight: 700; line-height: 16px; letter-spacing: .04em; }
+/* PC（左右2列）では右の欄の上端を、左の最初のパックの行の上端にそろえる（見出し 16px＋隙間 6px ぶん下げる）。
+   見出しの文字にそろっていて、枠どうしの上端が 22px ずれて見えた（2026-10-22 ユーザー指摘） */
+@media (min-width: 901px) { #mode-packs #packPane { margin-top: 22px; } }
 .pk-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
