@@ -42,11 +42,13 @@ _ID_CHUNK = 200
 # 読む日数（今日・昨日）。朝5時の収集が途中でも、昨日の値で欠けを埋める（build_matrix が新しい日を優先）
 _LOOKBACK_DAYS = 2
 
-# パック（カード名の並び）ごとのメモリキャッシュ
+# パック（カードの集まり）ごとのメモリキャッシュ。並び順は key に含めない（同じパックで並びが違っても同じ記録を使う。reviewer 中4）
 _CACHE_TTL_SEC = 3600  # TODO: calibrate from data（毎朝の収集は1日1回なので長めでよい）
 _CACHE_MAX_ENTRIES = 64
+# 取得に失敗した集まりは、この秒数だけ失敗を覚えて読み直さない（障害の最中に負荷を積み上げない。reviewer 低7）
+_FAIL_TTL_SEC = 30  # TODO: calibrate from data
 _cache_lock = threading.Lock()
-_cache: dict = {}  # key: tuple(card_names) -> {"data": dict, "ts": float}
+_cache: dict = {}  # key: tuple(sorted(card_names)) -> {"records": list, "ts": float} または {"error": str, "ts": float}
 
 
 def _today_jst() -> str:
@@ -105,12 +107,13 @@ def _fetch_price_rows(sb, card_ids: list[int], days: list[str]) -> list[dict]:
                 offset = 0
                 while True:
                     resp = (sb.table("price_history")
-                            .select("card_id, card_name, shop, rarity, min_price, min_price_any, code, url, recorded_at")
+                            .select("card_id, shop_id, rarity_id, card_name, shop, rarity, min_price, min_price_any, code, url, recorded_at")
                             .in_("card_id", chunk)
                             .eq("recorded_at", day)
+                            # 索引 (recorded_at, card_id, shop_id, rarity_id) の順に並べる（名前で並べると並べ替えが入る。reviewer 低6）
                             .order("card_id", desc=False)
-                            .order("shop", desc=False)
-                            .order("rarity", desc=False)
+                            .order("shop_id", desc=False)
+                            .order("rarity_id", desc=False)
                             .range(offset, offset + _PAGE_SIZE - 1)
                             .execute())
                     batch = resp.data or []
@@ -205,11 +208,46 @@ def build_matrix(records: list[dict], card_order: list[str], today: str) -> dict
     return {"updated_at": latest_recorded_at or today, "shops": shops, "rows": rows}
 
 
+def is_cached(card_names: list[str]) -> bool:
+    """この集まりの記録（または直近の失敗）を覚えているか。ルートが受付上限を消費するかの判断に使う"""
+    key = tuple(sorted({n for n in card_names if n}))
+    now = time.time()
+    with _cache_lock:
+        hit = _cache.get(key)
+    if not hit:
+        return False
+    ttl = _FAIL_TTL_SEC if "error" in hit else _CACHE_TTL_SEC
+    return now - hit["ts"] < ttl
+
+
+def _prepare_records(records: list[dict]) -> list[dict]:
+    """表に使う前の記録の整え（get_pack_matrix 専用。build_matrix は新弾の頃から共通なので触らない）。
+
+    1. 今日の記録がある店は、昨日の記録を使わない。「まだ取っていない」店だけ昨日で埋める
+       （今日売り切れて行が無い店に、昨日の値段が今日の値として残っていた。reviewer 中3）
+    2. 表に出す値段（min_price_any・状態を問わない最安）と型番の出品（min_price・通常品の最安）が
+       違う行は、型番を空（版不明）にする。別の出品の型番で版を判定しない（reviewer 高2。price_persist の code の意味）
+    """
+    if not records:
+        return records
+    latest = max(str(r.get("recorded_at") or "") for r in records)
+    shops_today = {r.get("shop") for r in records if str(r.get("recorded_at") or "") == latest}
+    out = []
+    for r in records:
+        if str(r.get("recorded_at") or "") != latest and r.get("shop") in shops_today:
+            continue
+        mp, mpa = r.get("min_price"), r.get("min_price_any")
+        if mp is not None and mpa is not None and mp != mpa:
+            r = dict(r, code="")
+        out.append(r)
+    return out
+
+
 def get_pack_matrix(sb, card_names: list[str]) -> dict:
     """card_names（パックの収録カード・正式名・並び順どおり）の店舗×レアリティ表を返す。
 
     Returns: {"updated_at": "YYYY-MM-DD", "shops": [...], "rows": [...]}（build_matrix の形）
-    例外: 価格データの取得失敗は送出する（ルートが503にする）。
+    例外: 価格データの取得失敗は送出する（ルートが503にする）。失敗は _FAIL_TTL_SEC 秒覚える。
     """
     seen: set[str] = set()
     order: list[str] = []
@@ -217,22 +255,30 @@ def get_pack_matrix(sb, card_names: list[str]) -> dict:
         if name and name not in seen:
             seen.add(name)
             order.append(name)
-    key = tuple(order)
+    key = tuple(sorted(order))
     now = time.time()
+    today_d = datetime.now(JST).date()
     with _cache_lock:
         hit = _cache.get(key)
-        if hit and now - hit["ts"] < _CACHE_TTL_SEC:
-            return hit["data"]
-    today_d = datetime.now(JST).date()
-    days = [(today_d - timedelta(days=k)).isoformat() for k in range(_LOOKBACK_DAYS)]
-    ids = _fetch_card_ids(sb, order) if order else {}
-    records = _fetch_price_rows(sb, sorted(ids), days) if ids else []
-    built = build_matrix(records, order, today_d.isoformat())
-    with _cache_lock:
-        if len(_cache) >= _CACHE_MAX_ENTRIES:
-            # 古いものから捨てる（件数の上限を守る）
-            for k, _v in sorted(_cache.items(), key=lambda kv: kv[1]["ts"])[:len(_cache) - _CACHE_MAX_ENTRIES + 1]:
-                _cache.pop(k, None)
-        _cache[key] = {"data": built, "ts": time.time()}
-    logger.info(f"[featured_matrix] 表を作成: {len(order)}種 {len(built['rows'])}行（{len(records)}件の記録）")
-    return built
+    if hit and "error" in hit and now - hit["ts"] < _FAIL_TTL_SEC:
+        raise RuntimeError(hit["error"])
+    if hit and "records" in hit and now - hit["ts"] < _CACHE_TTL_SEC:
+        records = hit["records"]
+    else:
+        days = [(today_d - timedelta(days=k)).isoformat() for k in range(_LOOKBACK_DAYS)]
+        try:
+            ids = _fetch_card_ids(sb, order) if order else {}
+            records = _prepare_records(_fetch_price_rows(sb, sorted(ids), days) if ids else [])
+        except Exception as e:
+            with _cache_lock:
+                _cache[key] = {"error": str(e), "ts": time.time()}
+            raise
+        with _cache_lock:
+            if len(_cache) >= _CACHE_MAX_ENTRIES:
+                # 古いものから捨てる（件数の上限を守る）
+                for k, _v in sorted(_cache.items(), key=lambda kv: kv[1]["ts"])[:len(_cache) - _CACHE_MAX_ENTRIES + 1]:
+                    _cache.pop(k, None)
+            _cache[key] = {"records": records, "ts": time.time()}
+        logger.info(f"[featured_matrix] 記録を読込: {len(order)}種 {len(records)}件")
+    # 並び順は呼び出しごとに当てる（組み立ては記録の件数ぶんだけなので軽い）
+    return build_matrix(records, order, today_d.isoformat())

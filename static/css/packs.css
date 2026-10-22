@@ -112,6 +112,7 @@
    他の商品の版だけのレアリティは畳み、「も見る」で開く（薄い色・版の札・+候補なし） */
 .pmx-ver { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 3px; background: var(--bg-hover); color: var(--text-m); font: 700 .62rem var(--mono); vertical-align: 1px; }
 .pmx td.is-other { color: var(--text-m); }
+.pmx-date { display: block; color: var(--text-m); font: .6rem var(--mono); font-weight: 400; }
 .pmx tr.pmx-other td, .pmx tr.pmx-other td.pmx-sc { color: #5e6a80; }
 .pmx tr.pmx-other[hidden] { display: none; }
 .pmx tr.pmx-more-row td { padding: 0 0 4px; border-top: 0; text-align: left; }

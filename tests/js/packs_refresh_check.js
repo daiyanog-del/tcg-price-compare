@@ -184,6 +184,23 @@ check('並び順: 高い順は表示中の価格で、価格の無いカード�
   assert.deepEqual(Array.from(run('_pkOrder(__s)')), [0, 1, 2]);
 });
 
+check('型番の頭: 略号だけの店はそれを頭に、前に文字が付く形（アジア版）はその文字ごと頭に（このパックの版にしない）', () => {
+  assert.equal(run("_pkPrefixOf('DBGV-JP001')"), 'DBGV');
+  assert.equal(run("_pkPrefixOf('TTP1')"), 'TTP1');
+  assert.equal(run("_pkPrefixOf('アジアTTP1-JP079')"), 'アジアTTP1');
+  assert.equal(run("_pkSameVersion('TTP1','アジアTTP1-JP079')"), false);
+  assert.equal(run("_pkPrefixOf('')"), '');
+});
+
+check('途中で失敗・中止したまとめて検索の結果では、店舗×レアの表を置き換えない', () => {
+  sb.__s = { run: null, results: { sale: { matrix: { shops: [], groups: [] }, stopped: false, error: '' } } };
+  assert.ok(run('_pkBulkMatrix(__s)'));
+  sb.__s.results.sale.error = '通信が途中で切れました';
+  assert.equal(run('_pkBulkMatrix(__s)'), null);
+  sb.__s.results.sale.error = ''; sb.__s.results.sale.stopped = true;
+  assert.equal(run('_pkBulkMatrix(__s)'), null);
+});
+
 check('型番の頭は完全一致（WPP と WPP5 は別の商品）', () => {
   assert.equal(run("_pkSameVersion('WPP','WPP5-JP001')"), false);
   assert.equal(run("_pkSameVersion('WPP','WPP-JP001')"), true);

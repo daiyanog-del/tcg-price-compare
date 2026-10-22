@@ -496,7 +496,8 @@ def _all_rate_limit_buckets() -> list[dict]:
     テスト側は _reset_rate_limits() を呼ぶだけにする。
     """
     return [_last_search, _last_import, _last_buyback, _last_deck, _last_packs,
-            _last_sync, _last_sync_link, _last_feedback, _last_mercari, _last_text_report]
+            _last_sync, _last_sync_link, _last_feedback, _last_mercari, _last_text_report,
+            _last_pack_matrix]
 
 
 def _reset_rate_limits() -> None:
@@ -3616,6 +3617,9 @@ def api_featured():
 
 # 新商品タブの「店舗×レア」で受け付けるカードの上限（収録100種の商品がある）
 MAX_PACK_MATRIX_CARDS = 150
+# 「店舗×レア」でデータベースを読むときの受付上限（IP ごと）
+PACK_MATRIX_RATE_LIMIT_SEC = 2  # TODO: calibrate from data
+_last_pack_matrix: dict[str, float] = {}
 
 
 @app.route("/api/packs/matrix", methods=["POST"])
@@ -3640,7 +3644,12 @@ def api_packs_matrix():
             cards.append(name)
     if not cards:
         return jsonify({"updated_at": "", "shops": [], "rows": []})
-    from featured_matrix import get_pack_matrix
+    from featured_matrix import get_pack_matrix, is_cached
+    # データベースを読むとき（覚えていない集まり）だけ受付上限を消費する。名前を変えて連打されても読み出しが積み上がらないように（reviewer 中4）
+    if not is_cached(cards):
+        rate_error = _consume_rate_limit(bucket=_last_pack_matrix, interval=PACK_MATRIX_RATE_LIMIT_SEC)
+        if rate_error:
+            return rate_error
     try:
         result = get_pack_matrix(_supabase_client, cards)
     except Exception as e:

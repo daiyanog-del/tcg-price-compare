@@ -390,5 +390,59 @@ class TestGetPackMatrix:
         assert out["updated_at"] == "2026-10-22"
         n = len(sb.calls)
         out2 = get_pack_matrix(sb, ["カードA", "カードB", "名簿に無いカード"])
-        assert out2 is out and len(sb.calls) == n, "1時間以内の同じパックはデータベースを読まない"
+        assert out2 == out and len(sb.calls) == n, "1時間以内の同じパックはデータベースを読まない"
 
+
+
+class TestPrepareRecordsAndCache:
+    """reviewer 指摘への対応（2026-10-22）"""
+
+    def setup_method(self):
+        featured_matrix._cache.clear()
+
+    def test_shop_with_today_rows_drops_yesterday(self):
+        """今日の記録がある店は昨日の記録を使わない（今日売り切れた品に昨日の値が残らない）。まだ取っていない店は昨日で埋める"""
+        recs = [
+            _row("A", "店1", "ウルトラ", 100, 100, "2026-10-22"),
+            _row("A", "店1", "シークレット", 500, 500, "2026-10-21"),  # 店1は今日取った → 昨日のシークレットは捨てる
+            _row("A", "店2", "ウルトラ", 120, 120, "2026-10-21"),      # 店2はまだ → 残す
+        ]
+        out = featured_matrix._prepare_records(recs)
+        keys = {(r["shop"], r["rarity"]) for r in out}
+        assert keys == {("店1", "ウルトラ"), ("店2", "ウルトラ")}
+
+    def test_code_cleared_when_shown_price_is_another_listing(self):
+        """表に出す値段（min_price_any）と型番の出品（min_price）が違う行は、型番を空（版不明）にする"""
+        recs = [
+            _row("A", "店1", "ノーマル", 30, 15, "2026-10-22", code="RC04-JP001"),
+            _row("A", "店2", "ノーマル", 20, 20, "2026-10-22", code="DBGV-JP012"),
+        ]
+        out = {r["shop"]: r for r in featured_matrix._prepare_records(recs)}
+        assert out["店1"]["code"] == ""
+        assert out["店2"]["code"] == "DBGV-JP012"
+
+    def test_cache_key_ignores_order_and_failure_is_remembered(self, monkeypatch):
+        class _D(featured_matrix.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return featured_matrix.datetime(2026, 10, 22, 9, 0, tzinfo=tz)
+        monkeypatch.setattr(featured_matrix, "datetime", _D)
+        rows = [dict(_row("カードA", "遊々亭", "ウルトラ", 280, 280, "2026-10-22"), card_id=1),
+                dict(_row("カードB", "遊々亭", "ノーマル", 20, 20, "2026-10-22"), card_id=2)]
+        sb = _RecSupabase({"カードA": 1, "カードB": 2}, rows)
+        out1 = get_pack_matrix(sb, ["カードA", "カードB"])
+        n = len(sb.calls)
+        out2 = get_pack_matrix(sb, ["カードB", "カードA"])
+        assert len(sb.calls) == n, "並びが違っても同じ集まりならデータベースを読まない"
+        assert [r["name"] for r in out2["rows"]] == ["カードB", "カードA"], "並び順は呼び出しごとに当てる"
+        assert featured_matrix.is_cached(["カードA", "カードB"])
+
+        class _Boom:
+            def table(self, name):
+                raise RuntimeError("db down")
+        with pytest.raises(RuntimeError):
+            get_pack_matrix(_Boom(), ["カードC"])
+        assert featured_matrix.is_cached(["カードC"]), "失敗も短い間は覚える"
+        with pytest.raises(RuntimeError):
+            get_pack_matrix(sb, ["カードC"])  # 覚えている間は読みに行かずに失敗を返す
+        assert not any(c[1].get("card_name") == ["カードC"] for c in sb.calls)
