@@ -47,6 +47,7 @@ from collect_prices import (
 from collection_run import attach_host_request_counts
 from scraper import compare_prices, SHOPS, get_host_request_counts
 from price_persist import build_min_price_rows, upsert_price_rows
+from db_write_guard import ConsecutiveDbFailureGuard, DbWriteAborted, report_db_abort
 from featured_pack import get_featured_pack, get_featured_cards
 
 # 403サーキットブレーカのホスト単位TTL（scraper.py _HOST_BLOCK_TTL_SEC=1800秒）を
@@ -153,7 +154,8 @@ def _group_pairs_by_card(pairs: list[tuple[str, str]]) -> dict[str, list[str]]:
 
 
 def collect_and_save_for_shops(sb, card_name: str, today: str, shop_names: list[str],
-                                shop_stats: dict | None = None) -> tuple[int, list[str]]:
+                                shop_stats: dict | None = None,
+                                db_guard: ConsecutiveDbFailureGuard | None = None) -> tuple[int, list[str]]:
     """1枚のカードについて、指定店舗のみ検索してSupabaseに保存する。
 
     collect_prices.collect_and_save と異なり、失敗した店舗名のリストも返す
@@ -161,6 +163,10 @@ def collect_and_save_for_shops(sb, card_name: str, today: str, shop_names: list[
     再試行呼び出し時は shop_stats に同じ店舗の集計が積み増しされる（再試行分を含む
     累積値になる。ラウンドごとの内訳が要る場合はログの「再試行 N/M」行を参照）。
     戻り値: (保存した行数, 失敗した店舗名のリスト)
+
+    db_guard を渡すと、保存が例外で失敗した回数を数え、続けて上限回数失敗したら
+    DbWriteAborted を送出する（collect_prices.collect_and_save と同じ。db_write_guard.py）。
+    DB保存の失敗は店舗の取得失敗ではないので、失敗店舗リスト（再試行の対象）には入れない。
     """
     status: dict = {}
     try:
@@ -196,7 +202,15 @@ def collect_and_save_for_shops(sb, card_name: str, today: str, shop_names: list[
         print(f"  有効な価格なし [{card_name}]")
         return 0, failed_shops
 
-    saved = upsert_price_rows(sb, rows)  # デフォルト ignore_duplicates=False（last-write-wins）
+    try:
+        # デフォルト ignore_duplicates=False（last-write-wins）
+        saved = upsert_price_rows(sb, rows, raise_on_error=db_guard is not None)
+    except Exception as e:
+        print(f"  DB保存失敗 [{card_name}]")
+        db_guard.record_failure(e)  # 上限に達したら DbWriteAborted が上がる
+        return 0, failed_shops
+    if db_guard is not None:
+        db_guard.record_success()
     if saved:
         print(f"  保存完了 [{card_name}]: {saved}件")
     else:
@@ -314,84 +328,101 @@ def main():
         for shop in available_shops
     }
 
-    for i, card_name in enumerate(card_names):
-        print(f"[{i + 1}/{len(card_names)}] {card_name}")
-        card_shops = [s for s in available_shops if card_name not in already_collected.get(s, ())]
-        if not card_shops:
-            print("  全店舗取得済みのためスキップ")
-            continue
-        saved, failed_shops = collect_and_save_for_shops(
-            sb, card_name, today, card_shops, shop_stats=shop_stats
-        )
-        total_saved += saved
-        for shop in failed_shops:
-            failed_pairs.append((card_name, shop))
-
-        if i < len(card_names) - 1:
-            time.sleep(WAIT_BETWEEN_CARDS)
-
-    # ── 失敗ペアの再試行 ──
-    # 店舗ごとに「対象カード数の BLOCKLIKE_FAIL_RATIO 以上が失敗」した店舗を
-    # 「ブロック様」（403連続などでホスト単位ブロックされている疑い）と判定し、
-    #   (b) ブロック様でない散発的な失敗ペアは待機なしで即時再試行
-    #   (c) ブロック様店舗の失敗ペアだけ、403サーキットブレーカTTL(1800秒)を超える
-    #       RETRY_WAIT_SEC秒（第1パス終了からの経過分を差し引いた残り）待って再試行
-    # を最大 MAX_RETRIES ラウンド行う（司令塔裁定: 全店舗一律1900秒待機は過剰なため）。
-    pass1_end = datetime.now(JST)
-
-    retry_round = 0
-    while failed_pairs and retry_round < MAX_RETRIES:
-        retry_round += 1
-        blocklike_shops = classify_blocklike_shops(failed_pairs, attempted_per_shop)
-        non_blocklike_pairs = [(c, s) for c, s in failed_pairs if s not in blocklike_shops]
-        blocklike_pairs = [(c, s) for c, s in failed_pairs if s in blocklike_shops]
-
-        print(f"\n--- 再試行 {retry_round}/{MAX_RETRIES}（失敗ペア{len(failed_pairs)}件）---")
-        if blocklike_shops:
-            print(
-                f"  ブロック様店舗: {'、'.join(sorted(blocklike_shops))}"
-                f"（対象カードの{BLOCKLIKE_FAIL_RATIO:.0%}以上が失敗）"
+    # DB保存の連続失敗で打ち切る（2026-10-22 DB停止。collect_prices.py と同じ見張り役）。
+    # 第1パスと再試行ラウンドで同じ見張り役を使う（どこで続けて失敗しても止める）
+    db_guard = ConsecutiveDbFailureGuard()
+    processed = 0     # 第1パスで処理したカード数（打ち切りの通知用）
+    saved_cards = 0   # 第1パスで保存できたカード数（同上）
+    try:
+        for i, card_name in enumerate(card_names):
+            print(f"[{i + 1}/{len(card_names)}] {card_name}")
+            processed = i + 1
+            card_shops = [s for s in available_shops if card_name not in already_collected.get(s, ())]
+            if not card_shops:
+                print("  全店舗取得済みのためスキップ")
+                continue
+            saved, failed_shops = collect_and_save_for_shops(
+                sb, card_name, today, card_shops, shop_stats=shop_stats, db_guard=db_guard
             )
+            total_saved += saved
+            if saved:
+                saved_cards += 1
+            for shop in failed_shops:
+                failed_pairs.append((card_name, shop))
 
-        next_failed_pairs: list[tuple[str, str]] = []
-
-        # (b) 散発的な失敗（ブロック様でない）は待機なしで即時再試行
-        if non_blocklike_pairs:
-            print(f"  即時再試行（待機なし）: {len(non_blocklike_pairs)}ペア")
-            by_card = _group_pairs_by_card(non_blocklike_pairs)
-            for j, (card_name, shops) in enumerate(by_card.items()):
-                print(f"    [{j + 1}/{len(by_card)}] {card_name} ({'、'.join(shops)})")
-                saved, still_failed = collect_and_save_for_shops(
-                    sb, card_name, today, shops, shop_stats=shop_stats
-                )
-                total_saved += saved
-                next_failed_pairs.extend((card_name, s) for s in still_failed)
+            if i < len(card_names) - 1:
                 time.sleep(WAIT_BETWEEN_CARDS)
 
-        # (c) ブロック様店舗があるときだけ、サーキットブレーカTTLを超える時間まで待つ。
-        # 第1パス終了からの経過秒を差し引く（上の即時再試行に費やした時間も含まれるため、
-        # ラウンド2以降ではほぼ待たずに再試行できることが多い）
-        if blocklike_pairs:
-            elapsed = (datetime.now(JST) - pass1_end).total_seconds()
-            wait_sec = max(0, RETRY_WAIT_SEC - elapsed)
-            print(f"  ブロック様店舗の再試行: {wait_sec:.0f}秒待機後に{len(blocklike_pairs)}ペア")
-            if wait_sec > 0:
-                time.sleep(wait_sec)
-            by_card = _group_pairs_by_card(blocklike_pairs)
-            for j, (card_name, shops) in enumerate(by_card.items()):
-                print(f"    [{j + 1}/{len(by_card)}] {card_name} ({'、'.join(shops)})")
-                saved, still_failed = collect_and_save_for_shops(
-                    sb, card_name, today, shops, shop_stats=shop_stats
-                )
-                total_saved += saved
-                next_failed_pairs.extend((card_name, s) for s in still_failed)
-                time.sleep(WAIT_BETWEEN_CARDS)
+        # ── 失敗ペアの再試行 ──
+        # 店舗ごとに「対象カード数の BLOCKLIKE_FAIL_RATIO 以上が失敗」した店舗を
+        # 「ブロック様」（403連続などでホスト単位ブロックされている疑い）と判定し、
+        #   (b) ブロック様でない散発的な失敗ペアは待機なしで即時再試行
+        #   (c) ブロック様店舗の失敗ペアだけ、403サーキットブレーカTTL(1800秒)を超える
+        #       RETRY_WAIT_SEC秒（第1パス終了からの経過分を差し引いた残り）待って再試行
+        # を最大 MAX_RETRIES ラウンド行う（司令塔裁定: 全店舗一律1900秒待機は過剰なため）。
+        pass1_end = datetime.now(JST)
 
-        failed_pairs = next_failed_pairs
-        # 次ラウンドのブロック様判定は、直前ラウンドで実際に再試行したペア数を基準にする
-        attempted_per_shop = {}
-        for _c, s in (non_blocklike_pairs + blocklike_pairs):
-            attempted_per_shop[s] = attempted_per_shop.get(s, 0) + 1
+        retry_round = 0
+        while failed_pairs and retry_round < MAX_RETRIES:
+            retry_round += 1
+            blocklike_shops = classify_blocklike_shops(failed_pairs, attempted_per_shop)
+            non_blocklike_pairs = [(c, s) for c, s in failed_pairs if s not in blocklike_shops]
+            blocklike_pairs = [(c, s) for c, s in failed_pairs if s in blocklike_shops]
+
+            print(f"\n--- 再試行 {retry_round}/{MAX_RETRIES}（失敗ペア{len(failed_pairs)}件）---")
+            if blocklike_shops:
+                print(
+                    f"  ブロック様店舗: {'、'.join(sorted(blocklike_shops))}"
+                    f"（対象カードの{BLOCKLIKE_FAIL_RATIO:.0%}以上が失敗）"
+                )
+
+            next_failed_pairs: list[tuple[str, str]] = []
+
+            # (b) 散発的な失敗（ブロック様でない）は待機なしで即時再試行
+            if non_blocklike_pairs:
+                print(f"  即時再試行（待機なし）: {len(non_blocklike_pairs)}ペア")
+                by_card = _group_pairs_by_card(non_blocklike_pairs)
+                for j, (card_name, shops) in enumerate(by_card.items()):
+                    print(f"    [{j + 1}/{len(by_card)}] {card_name} ({'、'.join(shops)})")
+                    saved, still_failed = collect_and_save_for_shops(
+                        sb, card_name, today, shops, shop_stats=shop_stats, db_guard=db_guard
+                    )
+                    total_saved += saved
+                    next_failed_pairs.extend((card_name, s) for s in still_failed)
+                    time.sleep(WAIT_BETWEEN_CARDS)
+
+            # (c) ブロック様店舗があるときだけ、サーキットブレーカTTLを超える時間まで待つ。
+            # 第1パス終了からの経過秒を差し引く（上の即時再試行に費やした時間も含まれるため、
+            # ラウンド2以降ではほぼ待たずに再試行できることが多い）
+            if blocklike_pairs:
+                elapsed = (datetime.now(JST) - pass1_end).total_seconds()
+                wait_sec = max(0, RETRY_WAIT_SEC - elapsed)
+                print(f"  ブロック様店舗の再試行: {wait_sec:.0f}秒待機後に{len(blocklike_pairs)}ペア")
+                if wait_sec > 0:
+                    time.sleep(wait_sec)
+                by_card = _group_pairs_by_card(blocklike_pairs)
+                for j, (card_name, shops) in enumerate(by_card.items()):
+                    print(f"    [{j + 1}/{len(by_card)}] {card_name} ({'、'.join(shops)})")
+                    saved, still_failed = collect_and_save_for_shops(
+                        sb, card_name, today, shops, shop_stats=shop_stats, db_guard=db_guard
+                    )
+                    total_saved += saved
+                    next_failed_pairs.extend((card_name, s) for s in still_failed)
+                    time.sleep(WAIT_BETWEEN_CARDS)
+
+            failed_pairs = next_failed_pairs
+            # 次ラウンドのブロック様判定は、直前ラウンドで実際に再試行したペア数を基準にする
+            attempted_per_shop = {}
+            for _c, s in (non_blocklike_pairs + blocklike_pairs):
+                attempted_per_shop[s] = attempted_per_shop.get(s, 0) + 1
+    except DbWriteAborted as e:
+        # collection_runs には記録しない（run_type の CHECK 制約に新弾収集が無い。モジュール冒頭の注記）
+        report_db_abort(
+            sb, e, label="新弾フィーチャー価格収集", table="price_history", started_at=started_at,
+            today=today, processed=processed, total=len(card_names), success_count=saved_cards,
+            run_type=None,
+        )
+        sys.exit(1)
 
     if failed_pairs:
         print(f"\n取得失敗（再試行後も失敗、在庫なしとは区別）: {len(failed_pairs)}ペア")
