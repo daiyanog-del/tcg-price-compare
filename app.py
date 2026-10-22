@@ -64,6 +64,9 @@ SHOP_QUEUE_TIMEOUT_SINGLE = 45  # 単品検索が1店の順番を待つ上限（
 # 30秒だと単品16件同時で1件5店が欠け、いちばん遅い検索の所要はほぼ同じ（43.9秒→45.1秒）だったので45秒に（2026-10-22 ユーザー判断）
 SHOP_QUEUE_TIMEOUT_BULK = 180  # 一括検索（デッキ・買取デッキ）が1件の順番を待つ上限（秒）
 SEARCH_STREAM_LIMIT = 12  # 店舗へ取りに行く検索（SSE）の同時処理数。gunicorn 16 本のうち4本はページ表示用に残す
+# うち一括検索（デッキ・買取デッキ・新商品タブ）が使えるのは8本まで。一括検索は1本で数十秒〜数分枠を握るので、
+# 一括が重なっても単品検索が残り4本で入れるようにする（2026-10-22 reviewer 中-1・ユーザー判断）
+SEARCH_STREAM_BULK_LIMIT = 8
 SEARCH_BUSY_RETRY_SEC = 4  # 混雑応答から画面が取り直すまでの秒数（レート制限 RATE_LIMIT_SEC=3 より長くする）
 SEARCH_HEARTBEAT_SEC = 5  # 順番待ちの間に画面へ送る合図の間隔（画面の60秒無応答タイムアウトを避け、切断も早く気づく）
 # 順番待ち＋実行中の取得の安全上限。SSE の同時数（12本）× 一括検索1本の最大（5カード×6店）で頭打ちになる
@@ -91,10 +94,18 @@ def _submit_shop_fetch(search_request, shop, fn, card_name):
 
 class _SearchStreamSlots:
     """店舗へ取りに行く検索（SSE）の同時処理数を数える。SSE は gunicorn のスレッドを
-    検索が終わるまで握るため、上限を超えた分はすぐ「混雑中」と返してページ表示の分を残す。"""
+    検索が終わるまで握るため、上限を超えた分はすぐ「混雑中」と返してページ表示の分を残す。
 
-    def __init__(self, limit: int, log_interval: float = 60.0):
-        self._semaphore = threading.BoundedSemaphore(limit)
+    全体の上限（limit）に加えて、一括検索（kind="bulk"）だけの上限（bulk_limit）を持つ。
+    単品検索（kind="single"）は全体の上限まで使えるので、limit - bulk_limit 本は単品検索だけの枠になる。"""
+
+    def __init__(self, limit: int, bulk_limit: int, log_interval: float = 60.0):
+        if not 1 <= bulk_limit <= limit:
+            raise ValueError("bulk_limit は1以上 limit 以下で指定してください")
+        self._limit = limit
+        self._bulk_limit = bulk_limit
+        self._lock = threading.Lock()
+        self._open = {"single": 0, "bulk": 0}
         # 混雑応答の件数。1件ずつログに出すと混雑のあいだ数秒おきに出続けるので、間隔をあけてまとめて出す
         self._busy_lock = threading.Lock()
         self._busy_count = 0
@@ -111,23 +122,33 @@ class _SearchStreamSlots:
             count, self._busy_count, self._busy_logged_at = self._busy_count, 0, now
             return count
 
-    def try_open(self):
-        """空きがあれば、1回だけ効く解放関数を返す。空きがなければ None。"""
-        if not self._semaphore.acquire(blocking=False):
-            return None
-        lock = threading.Lock()
+    def try_open(self, kind: str = "single"):
+        """空きがあれば、1回だけ効く解放関数を返す。空きがなければ None。kind は "single" か "bulk"。"""
+        if kind not in self._open:
+            raise ValueError(f"kind は {sorted(self._open)} のどちらかで指定してください")
+        with self._lock:
+            if sum(self._open.values()) >= self._limit:
+                return None
+            if kind == "bulk" and self._open["bulk"] >= self._bulk_limit:
+                return None
+            self._open[kind] += 1
         released = [False]
 
         def release():
-            with lock:
+            with self._lock:
                 if released[0]:
                     return
                 released[0] = True
-            self._semaphore.release()
+                self._open[kind] -= 1
         return release
 
+    def in_use(self) -> dict:
+        """いま開いている SSE の本数（{"single": n, "bulk": n}）。"""
+        with self._lock:
+            return dict(self._open)
 
-_search_stream_slots = _SearchStreamSlots(SEARCH_STREAM_LIMIT)
+
+_search_stream_slots = _SearchStreamSlots(SEARCH_STREAM_LIMIT, SEARCH_STREAM_BULK_LIMIT)
 
 
 def _search_busy_response():
@@ -135,8 +156,9 @@ def _search_busy_response():
     fetch で読む画面は X-Search-Busy ヘッダーで判別し、本文を読まずに取り直す。"""
     count = _search_stream_slots.note_busy()
     if count is not None:
-        logger.warning("検索の同時処理数の上限（%d）で混雑応答: 前回のログから %d 件（今回 %s）",
-                       SEARCH_STREAM_LIMIT, count, request.path)
+        logger.warning("検索の同時処理数の上限（全体%d・一括%d）で混雑応答: 前回のログから %d 件（今回 %s・使用中 %s）",
+                       SEARCH_STREAM_LIMIT, SEARCH_STREAM_BULK_LIMIT, count, request.path,
+                       _search_stream_slots.in_use())
     response = Response(_sse({"type": "busy", "retry_after": SEARCH_BUSY_RETRY_SEC,
                               "message": "混雑しています。数秒後に自動で再開します"}),
                         mimetype="text/event-stream")
@@ -1499,9 +1521,9 @@ def api_deck():
     if parse_error:
         return parse_error
 
-    # 店舗へ取りに行く検索の同時数の枠。混雑で断る分は、下の記録・自動登録より前に返す
+    # 店舗へ取りに行く検索の同時数の枠（一括検索の枠）。混雑で断る分は、下の記録・自動登録より前に返す
     # （画面が数秒後に取り直すので、記録が二重にならないようにする）
-    release = _search_stream_slots.try_open()
+    release = _search_stream_slots.try_open("bulk")
     if release is None:
         return _search_busy_response()
     try:
@@ -1712,8 +1734,8 @@ def api_deck_buy():
     if parse_error:
         return parse_error
 
-    # 店舗へ取りに行く検索の同時数の枠（/api/deck と同じ。記録より前に断る）
-    release = _search_stream_slots.try_open()
+    # 店舗へ取りに行く検索の同時数の枠（/api/deck と同じ一括検索の枠。記録より前に断る）
+    release = _search_stream_slots.try_open("bulk")
     if release is None:
         return _search_busy_response()
     try:

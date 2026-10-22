@@ -49,7 +49,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(app_module, "_supabase_client", None)
     monkeypatch.setattr(app_module, "_load_cardnames", lambda: None)
     monkeypatch.setattr(app_module, "_correct_cardname", lambda name: name)
-    monkeypatch.setattr(app_module, "_search_stream_slots", app_module._SearchStreamSlots(2))
+    monkeypatch.setattr(app_module, "_search_stream_slots", app_module._SearchStreamSlots(2, 2))
     app_module.app.config.update(TESTING=True)
     app_module._reset_rate_limits()
     return app_module.app.test_client()
@@ -192,14 +192,14 @@ def test_stream_limit_returns_busy_and_slots_come_back(env, monkeypatch):
         assert events[-1]["type"] == "done"
         streams[0].close()
         streams[1].close()
-        assert app_module._search_stream_slots._semaphore._value == 2
+        assert app_module._search_stream_slots.in_use() == {"single": 0, "bulk": 0}
         # 一度も読まれずに閉じられた応答でも枠は戻る
         app_module._reset_rate_limits()
         unread = env.get("/api/search", query_string={"q": "カード7", "confirmed": "true", "shops": "店A"},
                          buffered=False)
-        assert app_module._search_stream_slots._semaphore._value == 1
+        assert app_module._search_stream_slots.in_use() == {"single": 1, "bulk": 0}
         unread.close()
-        assert app_module._search_stream_slots._semaphore._value == 2
+        assert app_module._search_stream_slots.in_use() == {"single": 0, "bulk": 0}
     finally:
         gate.set()
         pool.shutdown(wait=True)
@@ -208,7 +208,7 @@ def test_stream_limit_returns_busy_and_slots_come_back(env, monkeypatch):
 def test_cached_search_does_not_use_stream_slot(env, monkeypatch):
     monkeypatch.setattr(app_module, "SHOPS", [("店A", lambda _: [])])
     scraper.cache_store_shops("テストカード", {"店A": [_row("店A")]})
-    monkeypatch.setattr(app_module, "_search_stream_slots", app_module._SearchStreamSlots(1))
+    monkeypatch.setattr(app_module, "_search_stream_slots", app_module._SearchStreamSlots(1, 1))
     assert app_module._search_stream_slots.try_open() is not None  # 枠を使い切る
     events = _parse_sse(env.get("/api/search", query_string={"q": "テストカード", "confirmed": "true",
                                                              "shops": "店A"}).get_data())
@@ -250,7 +250,7 @@ def test_deck_disconnect_cancels_fetches_not_started(env, monkeypatch):
         assert snapshot["queued"] == 0 and snapshot["running"] == 0
         assert snapshot["cancelled"] >= 1
         assert len(started) == 1  # 取り消した取得は実行されない
-        assert app_module._search_stream_slots._semaphore._value == 2
+        assert app_module._search_stream_slots.in_use() == {"single": 0, "bulk": 0}
     finally:
         gate.set()
         pool.shutdown(wait=True)
@@ -332,9 +332,57 @@ def test_single_search_disconnect_while_waiting_cancels_and_returns_slot(env, mo
         resp.close()
         snapshot = pool.snapshot()
         assert snapshot["queued"] == 0 and snapshot["cancelled"] == 1
-        assert app_module._search_stream_slots._semaphore._value == 2
+        assert app_module._search_stream_slots.in_use() == {"single": 0, "bulk": 0}
         gate.set()
         running.result(3)
+    finally:
+        gate.set()
+        pool.shutdown(wait=True)
+
+
+# ── 一括検索の枠（2026-10-22 reviewer 中-1） ──
+
+def test_bulk_streams_cannot_take_the_single_only_slots():
+    slots = app_module._SearchStreamSlots(3, 2)
+    bulk = [slots.try_open("bulk"), slots.try_open("bulk")]
+    assert all(bulk)
+    assert slots.try_open("bulk") is None  # 一括は2本まで
+    single = slots.try_open("single")
+    assert single is not None  # 残りの1本は単品検索が使える
+    assert slots.try_open("single") is None  # 全体の上限
+    single()
+    single()  # 2回呼んでも1回分しか戻らない
+    assert slots.in_use() == {"single": 0, "bulk": 2}
+    assert slots.try_open("bulk") is None
+    bulk[0]()
+    assert slots.try_open("bulk") is not None
+    with pytest.raises(ValueError):
+        slots.try_open("urgent")
+    with pytest.raises(ValueError):
+        app_module._SearchStreamSlots(2, 3)
+
+
+def test_deck_uses_bulk_slot_and_single_search_still_gets_in(env, monkeypatch):
+    """一括検索が一括の枠を使い切っていても、単品検索は入れる。一括の次の1本は混雑応答"""
+    monkeypatch.setattr(app_module, "_search_stream_slots", app_module._SearchStreamSlots(2, 1))
+    gate = threading.Event()
+    pool = _slow_pool_fetch(monkeypatch, gate)
+    try:
+        deck = env.post("/api/deck", data={"cards": "デッキ1", "shops": ["店A"]}, buffered=False)
+        assert deck.headers.get("X-Search-Busy") is None
+        assert app_module._search_stream_slots.in_use() == {"single": 0, "bulk": 1}
+        app_module._reset_rate_limits()
+        second_deck = env.post("/api/deck", data={"cards": "デッキ2", "shops": ["店A"]})
+        assert second_deck.headers.get("X-Search-Busy") == "1"
+        app_module._reset_rate_limits()
+        single = env.get("/api/search", query_string={"q": "カード", "confirmed": "true", "shops": "店A"},
+                         buffered=False)
+        assert single.headers.get("X-Search-Busy") is None
+        assert app_module._search_stream_slots.in_use() == {"single": 1, "bulk": 1}
+        gate.set()
+        single.close()
+        deck.close()
+        assert app_module._search_stream_slots.in_use() == {"single": 0, "bulk": 0}
     finally:
         gate.set()
         pool.shutdown(wait=True)
