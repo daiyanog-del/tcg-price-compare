@@ -175,11 +175,11 @@ def align_history(history, m):
 # ── 画像（P2案） ──
 
 W, H = 1200, 675
-BG = (16, 22, 38)          # --bg
-PANEL = (23, 31, 49)       # --bg-card
+BG = (25, 27, 33)          # --bg
+PANEL = (32, 35, 43)       # --bg-card
 TXT = (239, 243, 251)      # --text
 SUB = (168, 180, 201)      # --text-m
-GRID = (43, 53, 73)
+GRID = (53, 56, 67)
 LINE = (174, 197, 255)     # --accent-l
 UP_COLOR = (239, 68, 68)   # 販売の値上がり（サイトのランキングと同じ）
 DOWN_COLOR = (34, 197, 94) # 販売の値下がり
