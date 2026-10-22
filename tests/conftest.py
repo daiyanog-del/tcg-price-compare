@@ -40,3 +40,14 @@ def _no_x_post_quiet_hours(monkeypatch):
     """X 投稿の「投稿しない時間帯」（既定 JST 1〜7時）でテスト結果が実行時刻に左右されないよう無効にする。
     時間帯そのもののテストは各テストで環境変数を設定し直す。"""
     monkeypatch.setenv("UNRELEASED_X_POST_QUIET_HOURS", "off")
+
+
+@pytest.fixture(autouse=True)
+def _no_shop_cache_kv(monkeypatch):
+    """店舗検索キャッシュの Key Value（SHOP_CACHE_REDIS_URL）を、手元の環境変数に関係なくテスト中は使わない。
+    Key Value の経路のテストは各テストで設定し直す（tests/test_shop_cache_kv.py）。"""
+    import shop_cache_kv
+    monkeypatch.delenv("SHOP_CACHE_REDIS_URL", raising=False)
+    shop_cache_kv._reset_for_tests()
+    yield
+    shop_cache_kv._reset_for_tests()

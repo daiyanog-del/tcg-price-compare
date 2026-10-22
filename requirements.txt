@@ -13,6 +13,8 @@ cryptography>=42
 pdfplumber>=0.11,<1
 Pillow>=10.0,<12
 anthropic>=0.25,<1
+# 店舗検索キャッシュの置き場（Render Key Value。未設定ならファイル。shop_cache_kv.py）
+redis>=6.4,<7
 
 # 自動クロップの候補枠補正（画像の保存は利用者の確認後）
 opencv-python-headless>=4.10,<5
