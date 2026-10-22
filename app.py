@@ -1806,8 +1806,8 @@ def api_price_history():
         cutoff = (datetime.now(JST) - timedelta(days=PRICE_DAILY_RETENTION_DAYS)).strftime("%Y-%m-%d")
         # 店舗別の行（price_history）は直近30日だけ残り、それより前は日ごとの全店最安
         # （price_daily）に畳まれている（price_daily_rollup.sql）。両方を読んで合わせる。
-        # PostgRESTの返却上限1000行を超えるカードが335枚ある（90日×6店×複数レアリティ、
-        # 最大3,345行・2026-08 時点）。旧 .limit(2000) は上限で切られ、昇順のため新しい側＝グラフの
+        # PostgRESTの返却上限1000行を超えるカードがある（2026-08 時点は90日×6店×複数レアリティで
+        # 最大3,345行。30日保持の今は約1/3）。旧 .limit(2000) は上限で切られ、昇順のため新しい側＝グラフの
         # 直近数週間が欠落していた（監査F1: docs/audit-price-logic-2026-08-06.md）。
         # ページ間の順序を安定させるため複合キーで order する
         page_size = 1000

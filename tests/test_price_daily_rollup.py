@@ -20,7 +20,7 @@ class _Query:
 
     def __init__(self, store, name, log):
         self.store, self.name, self.log = store, name, log
-        self.conds, self.op, self.rng = [], "select", None
+        self.conds, self.op, self.rng, self.orders = [], "select", None, []
 
     def select(self, *_a, **_k):
         return self
@@ -46,7 +46,8 @@ class _Query:
         self.log.append((self.name, self.op, k, v))
         return self
 
-    def order(self, *_a, **_k):
+    def order(self, k, desc=False):
+        self.orders.append((k, desc))
         return self
 
     def range(self, a, b):
@@ -60,7 +61,10 @@ class _Query:
         hit = [r for r in rows if all(f(r.get(k)) for k, f in self.conds)]
         if self.op == "delete":
             self.store[self.name] = [r for r in rows if r not in hit]
-            return _Resp(hit)
+            self.log.append((self.name, "deleted", len(hit)))
+            return _Resp([])  # returning=minimal（消した行は返さない）
+        for k, desc in reversed(self.orders):
+            hit = sorted(hit, key=lambda r: r.get(k) or "", reverse=desc)
         if self.rng:
             hit = hit[self.rng[0]:self.rng[1] + 1]
         return _Resp(hit)
@@ -74,13 +78,17 @@ class _Rpc:
         self.sb.rpc_calls.append((self.name, self.params))
         if self.sb.rpc_error:
             raise RuntimeError(self.sb.rpc_error)
+        if self.name == "rollup_price_daily":
+            lo, hi = self.params["p_from"], self.params["p_before"]
+            self.sb.rolled_days.extend(sorted({r["recorded_at"] for r in self.sb.store["price_history_v2"]
+                                               if lo <= r["recorded_at"] < hi}))
         return _Resp([{"rolled_rows": 3}])
 
 
 class _Sb:
     def __init__(self, store, rpc_error=None):
         self.store, self.rpc_error = store, rpc_error
-        self.log, self.rpc_calls = [], []
+        self.log, self.rpc_calls, self.rolled_days = [], [], []
 
     def table(self, name):
         return _Query(self.store, name, self.log)
@@ -97,31 +105,63 @@ def _d(days_ago):
 # 夜間の掃除
 # ──────────────────────────────────────────────
 
-def _cleanup_store():
+def _cleanup_store(old_days=(PRICE_RETENTION_DAYS + 2, PRICE_RETENTION_DAYS + 1)):
+    v2 = []
+    for ago in list(old_days) + [PRICE_RETENTION_DAYS, 1]:
+        v2 += [{"recorded_at": _d(ago), "shop": "A"}, {"recorded_at": _d(ago), "shop": "B"}]
     return {
-        "price_history_v2": [{"recorded_at": _d(PRICE_RETENTION_DAYS + 1)}, {"recorded_at": _d(1)}],
+        "price_history_v2": v2,
         "price_daily_min": [{"recorded_at": _d(PRICE_DAILY_RETENTION_DAYS + 1)}, {"recorded_at": _d(40)}],
         "solitaire_replays": [],
     }
 
 
-def test_cleanup_rolls_up_then_deletes_with_separate_cutoffs():
+@pytest.fixture
+def discord(monkeypatch):
+    import collect_prices
+    sent = []
+    monkeypatch.setattr(collect_prices, "send_discord_message", lambda m: sent.append(m))
+    return sent
+
+
+def _left(sb):
+    return sorted({r["recorded_at"] for r in sb.store["price_history_v2"]})
+
+
+def test_cleanup_rolls_up_one_day_at_a_time_oldest_first(discord):
     import collect_prices
     sb = _Sb(_cleanup_store())
     collect_prices.cleanup_old_data(sb)
-    assert sb.rpc_calls == [("rollup_price_daily", {"p_before": _d(PRICE_RETENTION_DAYS)})]
-    assert [r["recorded_at"] for r in sb.store["price_history_v2"]] == [_d(1)]
+    d2, d1, d0 = _d(PRICE_RETENTION_DAYS + 2), _d(PRICE_RETENTION_DAYS + 1), _d(PRICE_RETENTION_DAYS)
+    assert sb.rpc_calls == [("rollup_price_daily", {"p_before": d1, "p_from": d2}),
+                            ("rollup_price_daily", {"p_before": d0, "p_from": d1})]
+    assert sb.rolled_days == [d2, d1]       # 畳んだ日と消した日が一致する
+    assert _left(sb) == sorted([d0, _d(1)])  # 30日目（cutoff 当日）は残す
     assert [r["recorded_at"] for r in sb.store["price_daily_min"]] == [_d(40)]
     # リプレイは従来どおり90日（価格の30日に引きずられない）
     assert ("solitaire_replays", "delete", "created_at", _d(REPLAY_RETENTION_DAYS)) in sb.log
+    assert discord == []
 
 
-def test_cleanup_keeps_store_rows_when_rollup_fails():
+def test_cleanup_keeps_store_rows_and_notifies_when_rollup_fails(discord):
     import collect_prices
     sb = _Sb(_cleanup_store(), rpc_error="function rollup_price_daily does not exist")
     collect_prices.cleanup_old_data(sb)
-    assert len(sb.store["price_history_v2"]) == 2  # 畳めなかった夜は消さない
-    assert [r["recorded_at"] for r in sb.store["price_daily_min"]] == [_d(40)]
+    assert len(sb.store["price_history_v2"]) == 8  # 畳めなかった日は消さない
+    assert len(discord) == 1 and "畳み込み" in discord[0]
+    assert [r["recorded_at"] for r in sb.store["price_daily_min"]] == [_d(40)]  # 100日超の掃除は別に進む
+
+
+def test_cleanup_caps_days_per_night_and_notifies_backlog(discord):
+    import collect_prices
+    n = collect_prices.MAX_ROLLUP_DAYS_PER_NIGHT
+    old = [PRICE_RETENTION_DAYS + k for k in range(n + 2, 0, -1)]  # 上限より2日多い
+    sb = _Sb(_cleanup_store(old_days=old))
+    collect_prices.cleanup_old_data(sb)
+    assert len(sb.rpc_calls) == n
+    assert sb.rolled_days == [_d(a) for a in old[:n]]
+    assert _left(sb)[0] == _d(old[n])
+    assert len(discord) == 1 and "上限" in discord[0]
 
 
 def test_retention_constants():
@@ -171,7 +211,7 @@ def test_price_history_merges_daily_rows_before_store_rows(app_client):
     data = app_client(store).get(f"/api/price-history?card={card}").get_json()["data"]
     assert [(r["date"], r["shop"], r["price"]) for r in data] == [
         (_d(60), "A", 800), (_d(60), "B", 800),        # 畳んだ分（同額の店は両方）
-        (_d(1), "A", 900), (_d(1), "B", 950), (_d(30), "A", 1000),  # 店舗別の行（重複日は1回だけ）
+        (_d(30), "A", 1000), (_d(1), "A", 900), (_d(1), "B", 950),  # 店舗別の行（重複日は1回だけ）
     ]
 
 

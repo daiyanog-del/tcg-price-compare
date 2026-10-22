@@ -118,6 +118,9 @@ def _fetch_daily_history(sb, name, rarity, start, date_to):
             if len(batch) < 1000:
                 break
             offset += 1000
+            if offset >= 10000:  # 暴走ガード（/api/price-history と同じ。1枚1レアリティなら100行程度）
+                logger.error(f"日ごとの最安取得: 10ページ超過で打ち切り [{name}]")
+                break
     except Exception as e:
         logger.warning(f"日ごとの最安取得失敗（店舗別の行だけで描く） [{name}]: {e}")
         return []
