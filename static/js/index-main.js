@@ -326,7 +326,8 @@ function _fetchCardInfo(cardName,onSettled=()=>{}){
       if(data.konami_id) _applyKonamiLink(data.konami_id);
       const det=document.getElementById('cardDetail');
       if(!det) return;
-      const printSpan=data.latest_print?`<span class="card-detail-print">${esc(data.latest_print)}</span>`:'';
+      // 最新の収録の型番（data.latest_print）は出さない。最安の行と一覧が「出品の型番」を出しており、
+      // 見出しなしで2種類の型番が並ぶと取り違える（2026-10-22 ユーザー指摘）
       const limitCls={'禁止':'lb-forbidden','制限':'lb-limited','準制限':'lb-semi'};
       const limitBadge=data.limit?`<span class="lb ${limitCls[data.limit]||''}">${esc(data.limit)}</span>`:'';
       let html='<div class="card-detail-meta">';
@@ -338,9 +339,9 @@ function _fetchCardInfo(cardName,onSettled=()=>{}){
         let statLine=`<span class="cdm-type">${esc(data.card_type||'')}</span>`;
         if(statParts.length) statLine+=` ${statParts.map(esc).join(' · ')}`;
         statLine+=` ATK ${data.atk??'-'}${def}`;
-        html+=`<div class="cdm-row cdm-sub"><span>${statLine}</span>${limitBadge}${printSpan}</div>`;
+        html+=`<div class="cdm-row cdm-sub"><span>${statLine}</span>${limitBadge}</div>`;
       } else {
-        html+=`<div class="cdm-row">${esc(data.card_type+(data.property?` [${data.property}]`:'')||'')}${limitBadge}${printSpan}</div>`;
+        html+=`<div class="cdm-row">${esc(data.card_type+(data.property?` [${data.property}]`:'')||'')}${limitBadge}</div>`;
       }
       html+='</div>';
       if(data.pendulum_effect) html+=`<div class="card-detail-effect"><span class="card-detail-pendulum-label">【ペンデュラム効果】</span>${esc(_normalizeBreaks(data.pendulum_effect))}</div>`;

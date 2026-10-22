@@ -34,6 +34,10 @@
 /* 開いたら次の行に回り、本文はその下に出す */
 #mode-search .cr-acts .card-info-details[open]{flex-basis:100%;order:10}
 #mode-search .cr-acts .card-info-details[open]>summary.cr-pill{background:var(--bg-hover);color:var(--text);box-shadow:inset 0 -2px 0 var(--accent-soft)}
+/* 効果テキストの1行目（種類・属性・ATK など＋制限の札）は左から詰めて並べる。
+   旧指定の左右いっぱいに散らす並び（space-between）だと「魔法」のように短いとき間が大きく空いて浮いた（2026-10-22） */
+#mode-search .card-detail .cdm-row{justify-content:flex-start;flex-wrap:wrap;gap:4px 8px}
+#mode-search .card-detail .cdm-row .lb{margin-left:0}
 #mode-search .cr-acts .card-detail{max-width:680px;margin-top:10px;padding:12px 14px;border:0;border-radius:8px;background:var(--bg-card)}
 /* PC は効果テキストを最初から開き、ボタンの下にそのまま出す（2026-10-22 案3）。高さの上限は _clampCardDetail */
 @media(min-width:641px){
