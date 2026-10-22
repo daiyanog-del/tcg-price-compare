@@ -3,6 +3,7 @@
 import json
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
+from threading import Event, Thread
 from types import SimpleNamespace
 
 import pytest
@@ -86,6 +87,24 @@ def test_atomic_cache_keeps_rows_and_metadata_together():
         assert cached["tiers"][0]["name"] == cached["metadata"]["from"]
     with ThreadPoolExecutor(max_workers=2) as executor:
         list(executor.map(write, range(12)))
+
+
+def test_cache_write_survives_concurrent_reads():
+    # Windows では鍵の外の存在確認（os.stat）が置換と重なると os.replace が拒否される。
+    meta._cache_write("tier_list", {"tiers": []})
+    stop = Event()
+    def read_loop():
+        while not stop.is_set():
+            meta._cache_read("tier_list", timedelta(days=1))
+    reader = Thread(target=read_loop)
+    reader.start()
+    try:
+        for index in range(300):
+            meta._cache_write("tier_list", {"tiers": [{"name": str(index)}]})
+    finally:
+        stop.set()
+        reader.join()
+    assert meta._cache_read("tier_list", timedelta(days=1))["tiers"][0]["name"] == "299"
 
 
 @pytest.mark.parametrize("cached", [False, True])

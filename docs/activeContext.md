@@ -5,7 +5,7 @@
 - ユーザー指摘「買取ページで右の箱が浮いている」→ モック _mocks/buy-layout-20261022 の案A＋「デフォルト折り畳み」。#buyInline を相場の箱から出して全幅・閉じた見出しに「〇〇の買取価格　最高 ¥X 店名」。/buy/ は着地時に取りに行くが開かない。箱は推移とメルカリだけ（PC は高さ 326px で画像にそろえる）。
 - 同じ PR で: 効果テキストの1行目を左から詰める・最新の収録の型番（latest_print）は出さない（出品の型番と2種類並んで取り違える）。
 - 確認: 本番そのもの（/buy/儀式の下準備・/card/灰流うらら）を Playwright（PC 1440・スマホ 390）で横はみ出し0・ページエラー0。CLS（推移・メルカリを9秒遅らせた差し込み計測）PC 0.0002・スマホ 0.0004。
-- 気づいたこと（未対応）: tests/test_meta_provenance.py::test_atomic_cache_keeps_rows_and_metadata_together が全体実行のときだけまれに落ちる（単独では5回とも通過）。今回の変更とは無関係。
+- 気づいたこと（未対応）: tests/test_meta_provenance.py::test_atomic_cache_keeps_rows_and_metadata_together が全体実行のときだけまれに落ちる（単独では5回とも通過）。今回の変更とは無関係。→ 原因特定・修正（fix/meta-cache-stat-race）: `_cache_read` の `exists()` が鍵の外にあり、Windows の os.stat がファイルを共有不可で一瞬開くため、別スレッドの os.replace が PermissionError になっていた。存在確認を鍵の内側へ移し、修正前は毎回落ちる回帰テストを追加。本番（Render＝Linux）では起きない種類の競合。
 
 ## 2026-10-22: 店舗×レアの表をどの発売済みパックでも出す（モック packs-dbmatrix-20261022 をユーザー承認・本番 #184 ce22afcf）
 
