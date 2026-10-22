@@ -457,8 +457,31 @@ function fetchCardImage(cardName){
 let _cardImgPrefetch=null; // {name, p: Promise<data>}
 function _prefetchCardImage(name){
   const p=fetch('/api/card-image?name='+encodeURIComponent(name)).then(r=>r.json());
-  p.then(data=>{const u=data&&data.url&&safeUrl(data.url);if(u){const im=new Image();im.src=u;}}).catch(()=>{});
-  _cardImgPrefetch={name,p};
+  const entry={name,p};
+  _cardImgPrefetch=entry;
+  _showSearchPreview(name);
+  p.then(data=>{
+    const u=data&&data.url&&safeUrl(data.url);
+    if(!u)return;
+    // 検索中の先出しの欄に画像を入れる（まだこの検索の先出しが出ているときだけ）
+    const wrap=document.getElementById('searchPreviewImg');
+    if(_cardImgPrefetch===entry&&wrap&&!document.getElementById('searchPreview')?.hidden&&!wrap.querySelector('img')){
+      wrap.innerHTML='<img src="'+escAttr(u)+'" alt="" loading="eager" fetchpriority="high">';
+    }else{const im=new Image();im.src=u;}
+  }).catch(()=>{});
+}
+// 検索中に先に出すカードの欄（画像と名前だけ）。最終のカードの欄と同じ位置・大きさで出し、
+// 検索が終わったら結果と同じフレームで隠す。カードのページの LCP（カード画像）を検索の終わりより前に出すため（2026-10-22）
+function _showSearchPreview(name){
+  const box=document.getElementById('searchPreview');
+  if(!box)return;
+  document.getElementById('searchPreviewImg').innerHTML='';
+  document.getElementById('searchPreviewName').textContent=name;
+  box.hidden=false;
+}
+function _hideSearchPreview(){
+  const box=document.getElementById('searchPreview');
+  if(box&&!box.hidden){box.hidden=true;document.getElementById('searchPreviewImg').innerHTML='';}
 }
 function _cardImageData(name){
   if(_cardImgPrefetch&&_cardImgPrefetch.name===name) return _cardImgPrefetch.p;
@@ -499,6 +522,7 @@ let _mercariPending=false; // 店舗検索が終わっていない間 true（メ
 
 function _newSearchGen(){ // 世代加算＝旧ストリーム破棄、を不可分にする（片方だけ進むと旧SSEが無限再接続する）
   if(_searchES){ try{_searchES.close();}catch(e){} _searchES=null; }
+  _hideSearchPreview(); // 前の検索の先出しの欄を残さない
   if(_searchTimeoutId){ clearTimeout(_searchTimeoutId); _searchTimeoutId=null; }
   return ++_searchGen;
 }
@@ -623,6 +647,7 @@ function doSearch(opts){
     _mercariPending=false;if(window.MercariRef) MercariRef.clear();
     es.close();_searchES=null;_searchTimeoutId=null;btn.disabled=false;btn.textContent='検索';
     prog.style.display='none';
+    _hideSearchPreview();
     document.getElementById('empty').classList.remove('hidden');
     // Q-10: #emptyのinnerHTML全置換をやめ、専用要素だけを書き換える（ランキングDOMを壊さない）
     const _errEl=document.getElementById('emptyError');
@@ -686,6 +711,7 @@ function doSearch(opts){
       btn.disabled=false;btn.textContent='検索';
       _setSearchLayout(d.total>0);
       prog.style.display='none'; // 結果と同じフレームで消す（遅らせて消すと表示済みの結果が上へずれる）
+      _hideSearchPreview(); // 先出しの欄も同じフレームで隠す（同じ位置に本物のカードの欄が出る）
     }
   };
   es.onerror=()=>{
@@ -694,6 +720,7 @@ function doSearch(opts){
     es.close();_searchES=null;btn.disabled=false;btn.textContent='検索';
     _mercariPending=false;if(window.MercariRef) MercariRef.clear();
     prog.style.display='none';
+    _hideSearchPreview();
     document.getElementById('empty').classList.remove('hidden');
     const _errEl2=document.getElementById('emptyError');
     _errEl2.textContent='エラーが発生しました。再度お試しください。';

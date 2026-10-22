@@ -59,3 +59,30 @@ def test_solitaire_page_preloads_every_statically_imported_module():
              ['variables', 'layout', 'components', 'controls', 'modal', 'solitaire-brand',
               'proxy-card', 'responsive', 'mobile', 'comments']]
     assert order == sorted(order)
+
+
+def test_follows_site_root_static_imports(tmp_path):
+    """'/static/...' から始まる指定もたどる（2026-10-22: シミュレーターで neuron の2ファイルが先読みから漏れていた）。"""
+    _write(tmp_path, 'app/main.js', "import { p } from '/static/shared/p.js';\nimport x from '/other/x.js';\n")
+    _write(tmp_path, 'shared/p.js', "import { q } from './q.js';\n")
+    _write(tmp_path, 'shared/q.js', '')
+    deps = module_graph.module_dependencies(str(tmp_path), 'app/main.js')
+    assert deps == ['shared/p.js', 'shared/q.js']
+
+
+def test_solitaire_preloads_neuron_modules():
+    import app as app_module
+    html = app_module.app.test_client().get('/solitaire').get_data(as_text=True)
+    preloads = re.findall(r'<link rel="modulepreload" href="([^"]+)">', html)
+    assert any('shared/neuron-pdf-parser.js' in u for u in preloads)
+    assert any('shared/neuron-preview-modal.js' in u for u in preloads)
+
+
+def test_follows_minified_imports(tmp_path):
+    """本番のイメージでは JS を縮小する（Dockerfile の assets 段）。空白の無い import / export も拾う（2026-10-22）。"""
+    _write(tmp_path, 'app/main.js',
+           'import{a as b}from"./a.js";import"./side.js";export{c}from"./c.js";const l=()=>import("./lazy.js");')
+    for rel in ['app/a.js', 'app/side.js', 'app/c.js', 'app/lazy.js']:
+        _write(tmp_path, rel, '')
+    deps = module_graph.module_dependencies(str(tmp_path), 'app/main.js')
+    assert deps == ['app/a.js', 'app/side.js', 'app/c.js']
