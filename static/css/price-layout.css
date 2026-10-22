@@ -104,11 +104,15 @@ body.price-redesign{background:#191b21;background-image:none;color:#eff3fb}
  .price-redesign .mode-tabs{flex-wrap:wrap;gap:0 8px;justify-content:space-between}
  .price-redesign .mode-tab,.price-redesign .header-solo-link{font-size:12px;min-height:44px;padding:10px 0;flex:0 0 auto}
  /* 購入候補をロゴの横に置き、5つの主導線を1行に収める。 */
- .price-redesign header h1{padding-right:90px}
- .price-redesign .mode-tabs .nav-wishlist{position:absolute;top:16px;right:0;min-height:40px;margin-left:0;padding:8px;border:1px solid #353843;border-radius:6px}
+ .price-redesign header h1{padding-right:90px;margin-bottom:8px}
+ .price-redesign .mode-tabs .nav-wishlist{position:absolute;top:10px;right:0;min-height:40px;margin-left:0;padding:8px;border:1px solid #353843;border-radius:6px}
  .price-redesign .mode-tabs .nav-wishlist.active{border-color:var(--accent-soft)}
- .price-redesign .brand-header-icon{height:64px}
- .price-redesign .brand-wordmark{width:125px;transform:translateY(8px)}
+ /* ロゴは小さく（2026-10-22 スマホの見直し。モック _mocks/mobile-pages-20261022）。どのページでも最初の画面に中身を多く入れる */
+ .price-redesign .brand-header-icon{height:46px}
+ .price-redesign .brand-wordmark{width:104px;transform:translateY(5px)}
+ /* 検索欄の上の「カード名で探す」は見た目だけ隠す（読み上げには残す。入力欄の中の例文で分かる） */
+ .price-search-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+ .price-search-area{padding:14px 0 10px}
  .price-redesign .brand-name{font-size:25px}
  #mode-search .search input{font-size:16px;padding:8px}
  #mode-search .search button{padding-inline:16px}

@@ -49,7 +49,6 @@ body {
 
 /* ── 見出し・説明 ── */
 .rp-title { margin: 0 0 4px; font-size: var(--title-font-size); }
-.rp-lead { margin: 0 0 24px; color: #a8b4c9; font-size: 0.88rem; }
 .rp-section { margin-bottom: 32px; }
 .rp-heading {
   margin: 0 0 4px;
