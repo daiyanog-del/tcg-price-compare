@@ -39,10 +39,14 @@ ENV MALLOC_ARENA_MAX=2
 
 EXPOSE 5000
 
+# スレッドは16本（2026-10-22 に8本から増やした）。店舗へ取りに行く検索（SSE）は終わるまでスレッドを
+# 握るので、その同時数を app.py の SEARCH_STREAM_LIMIT（12本）で抑え、残り4本をページ表示用に残す。
+# 店舗への同時取得は app.py の取得口（全体6件・1店2件）が決めるので、ここを増やしても店への負担は増えない。
+# TODO: calibrate from data — 本番のメモリ（Starter 512MB）とページの待ち時間を見て校正する
 CMD ["gunicorn", "app:app", \
      "--bind", "0.0.0.0:5000", \
      "--workers", "1", \
-     "--threads", "8", \
+     "--threads", "16", \
      "--timeout", "120", \
      "--worker-class", "gthread", \
      "--access-logfile", "-"]

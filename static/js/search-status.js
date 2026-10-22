@@ -3,9 +3,20 @@ const SearchStatus = {
   message(data){
     const failed=data.failed_shops||[];
     if(!failed.length)return '';
-    if(data.status==='failed')return '全店舗の取得に失敗しました。時間をおいて再試行してください。';
+    // 混雑で順番が回ってこなかった店（busy_shops）は店の障害ではないので、取得失敗と分けて書く。
+    // その店は手元に残っている前回の結果で埋めている（無ければ空）
+    const busy=(data.busy_shops||[]).filter(s=>failed.includes(s));
+    const broken=failed.filter(s=>!busy.includes(s));
+    if(data.status==='failed'){
+      return broken.length?'全店舗の取得に失敗しました。時間をおいて再試行してください。'
+        :'混雑のため店舗から取得できませんでした。少し時間をおいて再度お試しください。';
+    }
     const ok=(data.successful_shops||[]).length;
-    return `${data.shop_count}店舗中${ok}店舗取得・${failed.length}店舗で取得失敗。表示価格は取得できた範囲の参考値です（${failed.join('・')}）。`;
+    if(!busy.length) return `${data.shop_count}店舗中${ok}店舗取得・${failed.length}店舗で取得失敗。表示価格は取得できた範囲の参考値です（${failed.join('・')}）。`;
+    let text=`${data.shop_count}店舗中${ok}店舗取得`;
+    if(broken.length) text+=`・${broken.length}店舗で取得失敗（${broken.join('・')}）`;
+    text+=`・${busy.length}店舗は混雑で今回は取得できず、前回の結果があれば表示（${busy.join('・')}）`;
+    return text+'。表示価格は取得できた範囲の参考値です。';
   },
   annotate(row,data){
     const message=this.message(data);

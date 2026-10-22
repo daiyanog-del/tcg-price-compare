@@ -87,11 +87,13 @@ def test_per_shop_ttl_expiry():
 
 
 def test_store_prunes_expired_entries():
-    """store時に期限切れエントリはファイルから間引かれる"""
+    """store時に古すぎるエントリはファイルから間引かれる。
+    （2026-10-22 から、通常の期限 CACHE_TTL_MINUTES を過ぎても STALE_CACHE_MAX_MINUTES までは
+    混雑時の「前回の結果」として残す。境界の確認は tests/test_shop_queue_routes.py）"""
     scraper.cache_store_shops("カードA", {"遊々亭": [_row("遊々亭")]})
     fp = scraper.CACHE_DIR / f"{scraper._cache_key('カードA')}.json"
     data = json.loads(fp.read_text(encoding="utf-8"))
-    old = (datetime.now() - timedelta(minutes=scraper.CACHE_TTL_MINUTES + 1)).isoformat()
+    old = (datetime.now() - timedelta(minutes=scraper.STALE_CACHE_MAX_MINUTES + 1)).isoformat()
     data["shops"]["遊々亭"]["timestamp"] = old
     fp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 

@@ -19,6 +19,8 @@ const sb = {
 };
 sb.globalThis = sb;
 vm.createContext(sb);
+// 画面と同じく、店舗検索の混雑応答の共通部品（index.html で packs.js より先に読む）を先に読み込む
+vm.runInContext(fs.readFileSync(path.join(__dirname, '..', '..', 'static', 'js', 'shop-busy.js'), 'utf8'), sb);
 vm.runInContext(src, sb);
 const run = code => vm.runInContext(code, sb);
 
