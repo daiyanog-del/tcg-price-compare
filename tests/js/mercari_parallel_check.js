@@ -37,6 +37,7 @@ const sandbox = {
   _ga(name, p) { gaCalls.push([name, p]); }, _setSearchLayout() {}, _setPriceSectionsVisible() {}, _updateRarityBanner() {}, renderTable() {}, closeSuggest() {},
   renderAll() {}, SearchStatus: { show() {} }, TABLE_PAGE_SIZE: 20,
   _prefetchCardImage() {}, // カード画像の先読み（2026-10-22 LCP）。この検証の対象外なので何もしない
+  _hideSearchPreview() {}, // 検索中の先出しの欄（2026-10-22 LCP）。この検証の対象外
 };
 vm.createContext(sandbox);
 vm.runInContext('let D=[],rarityFilter="",tableShowCount=0,_currentCardName="";let _buyInlineGen=0,_buyInlineES=null,_buyInlineTimeoutId=null,_buyInlineD=null,_buyInlineFetched=false,_buyInlineFetchInFlight=false,_buyInlineFailedShops=[];', sandbox);

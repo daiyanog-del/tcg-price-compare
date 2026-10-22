@@ -297,6 +297,8 @@ header{padding:24px 0 8px;text-align:center;position:relative}
 .rarity-filter{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:12px;padding:10px 0}
 /* 購入候補の「デッキで絞り込む」は hidden で隠す。上の display:flex が hidden に勝ち、使わないときも約14px の空きが残って、見出しの行が出ると押し下げられていた（2026-10-22 スマホで CLS 0.0023）。deferred.css では遅いのでここに置く */
 .wish-deck-filter[hidden]{display:none}
+/* 検索中の先出しのカード欄（#searchPreview）。.card-hero の display（grid/flex）が hidden に勝つので明示する（2026-10-22） */
+#searchPreview[hidden]{display:none!important}
 .rf-label{font-size:.72rem;color:var(--text-d);margin-right:4px;white-space:nowrap}
 .rf-btn{padding:3px 10px;font:.72rem var(--font);font-weight:600;color:var(--text-d);background:var(--bg-card);border:1px solid var(--border);border-radius:14px;cursor:pointer;transition:all .15s;white-space:nowrap}
 .rf-btn:hover{border-color:var(--text-m);color:var(--text-m)}
@@ -764,6 +766,13 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     </div>
   </div>
 
+  <!-- 検索中に先に出すカードの欄（画像と名前だけ・2026-10-22 LCP）。最終のカードの欄（#cardHero）と同じ部品・同じ位置で出し、
+       検索が終わったら結果と同じフレームで隠す（index-main.js _showSearchPreview / _hideSearchPreview）。
+       検索中の進み具合（#prog）より上に置く。#cardHero を先に出すと、終わったときに #prog が消えて上へずれるため -->
+  <div class="card-hero search-preview" id="searchPreview" hidden aria-hidden="true">
+    <div class="card-hero-img" id="searchPreviewImg"></div>
+    <div class="card-hero-info"><div class="card-hero-name" id="searchPreviewName"></div></div>
+  </div>
   <div class="progress" id="prog"></div>
 
   <div id="searchCoverage" role="status" hidden><span></span>
