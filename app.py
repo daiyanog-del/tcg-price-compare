@@ -60,7 +60,8 @@ from weakref import WeakSet
 # TODO: calibrate from data — 本番の待ち時間・店ごとの取得時間・WAF の反応・メモリを見て校正する。
 SHOP_FETCH_MAX_WORKERS = len(DEFAULT_SHOPS)  # 全体の同時取得数（作り直し前と同じ6件）
 SHOP_FETCH_PER_SHOP = 2  # 1店あたりの同時取得数（店の WAF に同時に多く当てない）
-SHOP_QUEUE_TIMEOUT_SINGLE = 30  # 単品検索が1店の順番を待つ上限（秒）。過ぎた店は「混雑で取得できず」
+SHOP_QUEUE_TIMEOUT_SINGLE = 45  # 単品検索が1店の順番を待つ上限（秒）。過ぎた店は「混雑で取得できず」。
+# 30秒だと単品16件同時で1件5店が欠け、いちばん遅い検索の所要はほぼ同じ（43.9秒→45.1秒）だったので45秒に（2026-10-22 ユーザー判断）
 SHOP_QUEUE_TIMEOUT_BULK = 180  # 一括検索（デッキ・買取デッキ）が1件の順番を待つ上限（秒）
 SEARCH_STREAM_LIMIT = 12  # 店舗へ取りに行く検索（SSE）の同時処理数。gunicorn 16 本のうち4本はページ表示用に残す
 SEARCH_BUSY_RETRY_SEC = 4  # 混雑応答から画面が取り直すまでの秒数（レート制限 RATE_LIMIT_SEC=3 より長くする）
