@@ -2,7 +2,7 @@
 
 ## 2026-10-22: 有料プランへ上げる合図の通知（branch feat/upgrade-signal-alerts・PR 作成済み・本番はユーザー確認待ち）
 - upgrade_signals.py（見張り）・upgrade_signals.sql（1日の集計の表2つ）・取得口に wait_observer・_SearchStreamSlots.busy_total。DB の応答は Supabase クライアントの httpx の通信部分を包んで数える。
-- 反映の順番: SQL を先に実行 → PR をマージ。反映後は Render のログで「upgrade_signals」を見る（差し込めない・書けない警告が出ていないか）。
+- SQL は 10-23 08:40 JST に適用済み。残りは PR のマージ。反映後は Render のログで「upgrade_signals」を見る（差し込めない・書けない警告が出ていないか）。
 - 次: upgrade_signal_daily が数日溜まったらしきい値を校正（TASKS）。Supabase の IO の余力の項目名を Metrics API で確かめる（未確認）。
 
 ## 2026-10-22: 店舗検索の取得口を店ごとの列に作り直した（本番 PR #207 5cdf678・16:33 JST・決定は decisions.md 同日）
