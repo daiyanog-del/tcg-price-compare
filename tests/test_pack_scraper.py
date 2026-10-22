@@ -296,3 +296,41 @@ class TestOfficialProductCode:
         assert packs["COMPLETE FILE"]["code"] == "" and packs["COMPLETE FILE"]["product_url"] == ""
         assert packs["PREMIUM PACK"]["code"] == ""
 
+
+
+class TestCacheConcurrentIO:
+    """キャッシュの書き込み中に読んでも、途中の中身を「キャッシュ無し」と取り違えない。
+
+    以前は同じファイルを空にしてから書いていたため、書き込みと重なった読み込みの
+    約6割が None になり、/api/packs/cards が Wiki を取り直してレート制限を消費していた。
+    """
+
+    def test_reads_never_miss_while_writing(self):
+        from threading import Event, Thread
+        result = {"pack": "P", "cards": [f"カード{i}" for i in range(120)], "count": 120}
+        pack_scraper._cache_write("pack_P", result)
+        stop, misses, reads = Event(), [], [0]
+
+        def read_loop():
+            while not stop.is_set():
+                reads[0] += 1
+                if pack_scraper.pack_cards_cached("P") is None:
+                    misses.append(1)
+
+        reader = Thread(target=read_loop)
+        reader.start()
+        try:
+            for _ in range(300):
+                pack_scraper._cache_write("pack_P", result)
+        finally:
+            stop.set()
+            reader.join()
+        assert reads[0] > 0
+        assert misses == []
+        assert not list(pack_scraper._CACHE_DIR.glob("*.tmp"))
+
+    def test_write_does_not_mutate_caller_dict(self):
+        result = {"pack": "P", "cards": ["カードA"], "count": 1}
+        pack_scraper._cache_write("pack_P", result)
+        assert "_ts" not in result
+        assert pack_scraper.pack_cards_cached("P")["cards"] == ["カードA"]

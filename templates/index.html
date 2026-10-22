@@ -2,6 +2,12 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
+{% if page_mode == 'new_cards' and new_cards_initial and new_cards_initial.cards %}
+<!-- 未発売カード一覧（/new-cards）の最初の6枚の画像を、HTML を読んだ時点で取りに行く（LCP。2026-10-22）。
+     一覧そのものは #newCardsInitial に埋め込み、new-cards.js が API を待たずに描く。トップは最初の6枚を HTML で書くので不要 -->
+{% for c in new_cards_initial.cards[:6] %}{% set _u = c.thumb_url or c.image_url %}{% if _u %}<link rel="preload" as="image" href="{{ _u }}" fetchpriority="high">
+{% endif %}{% endfor %}
+{% endif %}
 {% if page_mode == 'search' and not card_name %}
 <!-- トップページ3本のランキングfetchはDOMContentLoaded後に起動するためdefer JSの到着を待つ。
      ブラウザにHTML解析と同時に先読みさせる（URLは各fetchの初期値と一致させる）。

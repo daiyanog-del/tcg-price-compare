@@ -440,9 +440,11 @@ def test_top_page_writes_first_cards_and_new_cards_page_preloads(database):
     assert '<img src="https://example.test/6.png"' in grid
     assert "09/08 追加" in grid and 'data-card-name="新カード7"' in grid
     assert 'rel="preload" as="image"' not in html  # トップは本物の img で足りる
-    # /new-cards は埋め込まない（一覧ページの印が付く前に描いて描き直しになり、LCP が悪化したため）
+    # /new-cards は全件を埋め込み、最初の6枚を先読みする
     html = client.get("/new-cards").get_data(as_text=True)
-    assert 'id="newCardsInitial"' not in html and 'rel="preload" as="image"' not in html
+    assert 'id="newCardsInitial"' in html
+    assert '<link rel="preload" as="image" href="https://example.test/thumbs/7.webp?v=a" fetchpriority="high">' in html
+    assert html.index('rel="preload" as="image"') < html.index('</head>')
 
 
 def test_first_cards_html_escapes_names(database):
