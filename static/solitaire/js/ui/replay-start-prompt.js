@@ -8,10 +8,12 @@
  * - 「▶ 再生する」は、スマホの再生モード中なら再生バーの再生ボタンを、それ以外は
  *   リプレイバーの #replayPlay を押したのと同じにする（再生の仕組みは既存のものを使う）。
  * - 文言・タイトルは textContent で入れる（共有リンクのタイトルは他人が書いたもの）。
+ * - このブラウザに保存したもの・自分が公開中のものは、題名の下に「名前を変える」を出す（replay-rename-ui.js・2026-10-22 案B）。
  */
 
 import { getLogLength } from '../services/replay-service.js';
 import { enterRecView } from './rec-view.js';
+import { renamableFromLoadDetail, openReplayRename } from './replay-rename-ui.js';
 
 const PROMPT_ID = 'solReplayStartPrompt';
 
@@ -22,6 +24,8 @@ function _close() {
 
 function _onKeydown(ev) {
   if (ev.key !== 'Escape') return;
+  // 名前を変える小窓（inline-ui.js）が開いている間は、その小窓だけを閉じる（小窓の側が受ける）
+  if (document.querySelector('.sol-inline-pop')) return;
   ev.stopPropagation(); // 他のシートまで閉じないように
   _close();
 }
@@ -40,7 +44,8 @@ function _startPlayback() {
 
 /**
  * 案内を出す。
- * @param {{source?:'shared'|'saved', title?:string}} info
+ * @param {{source?:'shared'|'saved', title?:string, renameTarget?:Object|null}} info
+ *   renameTarget: 名前を変えられる相手（replay-rename-ui.js renamableFromLoadDetail）。無ければ出さない
  */
 export function showReplayStartPrompt(info = {}) {
   _close();
@@ -93,7 +98,18 @@ export function showReplayStartPrompt(info = {}) {
   rec.textContent = '画面録画用に再生';
   rec.addEventListener('click', () => { _close(); enterRecView(); });
 
-  card.append(label, title, meta, play, later, rec);
+  card.append(label, title);
+  if (info.renameTarget) {
+    const rename = document.createElement('button');
+    rename.type = 'button';
+    rename.className = 'sol-replay-start-later sol-replay-start-rename';
+    rename.textContent = '名前を変える';
+    rename.addEventListener('click', () => {
+      openReplayRename(rename, info.renameTarget, (t) => { title.textContent = t || 'リプレイ'; });
+    });
+    card.appendChild(rename);
+  }
+  card.append(meta, play, later, rec);
   root.append(backdrop, card);
   document.body.appendChild(root);
   document.addEventListener('keydown', _onKeydown, true);
@@ -106,6 +122,6 @@ export function initReplayStartPrompt() {
   document.addEventListener('sol-recview-open', _close);
   document.addEventListener('sol-replay-loaded-from-url', (e) => {
     if (e.detail?.atEnd) return; // 続きから遊ぶときは出さない
-    showReplayStartPrompt({ source: e.detail?.source, title: e.detail?.title });
+    showReplayStartPrompt({ source: e.detail?.source, title: e.detail?.title, renameTarget: renamableFromLoadDetail(e.detail) });
   });
 }

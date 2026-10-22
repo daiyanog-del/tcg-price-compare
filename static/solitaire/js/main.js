@@ -38,6 +38,7 @@ import { receiveDeckHandoff } from '../../shared/deck-handoff.js';
 import { receiveNewCards } from '../../shared/newcards-entry.js';
 import { initDeckEditUI, setDeckLink, restoreLinkState } from './ui/deck-edit-ui.js';
 import { initDeckReplaysUI } from './ui/deck-replays-ui.js';
+import { initReplayRenameUI } from './ui/replay-rename-ui.js';
 import { captureSessionToResume, consumeStartupOffers, takeUndoRestored } from './ui/undo-point.js';
 
 /**
@@ -358,6 +359,9 @@ async function initializeApp() {
   // このデッキのリプレイ（左サイドバー・スマホのデッキシート・開いたリプレイの差の帯）。
   // 保存したリプレイを開いた知らせ（sol-replay-loaded-from-url）を受けるため、読み込みを始める initReplayUI より先に用意する
   initDeckReplaysUI();
+
+  // 開いているリプレイの名前を変える（再生バーの名前のボタン）。sol-replay-loaded-from-url を受けるため initReplayUI より先に用意する
+  initReplayRenameUI();
 
   // リプレイUI初期化（window.replayLog バインド含む）
   initReplayUI();

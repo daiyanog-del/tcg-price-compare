@@ -405,6 +405,10 @@ export function initRecView(opts = {}) {
   document.addEventListener('sol-replay-loaded-from-url', (e) => {
     _loadedTitle = typeof e.detail?.title === 'string' ? e.detail.title : '';
   });
+  // 開いたリプレイの名前を変えた（replay-rename-ui.js）
+  document.addEventListener('sol-replay-renamed', (e) => {
+    if (typeof e.detail?.title === 'string') _loadedTitle = e.detail.title;
+  });
   // 記録が消えた（リセット・別のデッキ読込）ら閉じる
   document.addEventListener('sol-replay-reset', exitRecView);
   document.addEventListener('sol-deck-load-start', exitRecView);
