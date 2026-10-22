@@ -84,9 +84,11 @@
 /* スマホ〜小型タブレット: 3段（名前と価格／デッキの札／レアリティ・枚数・⋯） */
 @media (max-width: 767px) {
   #wishList .wl-row {
-    /* 枚数と ⋯ の列は幅を決めて、行ごとに位置がずれないようにする（価格は2列ぶんの右寄せ） */
-    grid-template-columns: 40px minmax(0, 1fr) 92px 32px;
-    grid-template-areas: "img main price price" "img rar step more";
+    /* 枚数と ⋯ の列は幅を決めて、行ごとに位置がずれないようにする。
+       価格は「¥71,840」が入る幅に固定し、1行目の残り（枚数の列の上まで）をカード名に回す（2026-10-22 ユーザー指摘:
+       価格が2列ぶん取っていて名前が「…」で切れていた。折り返して行を高くするのは不可） */
+    grid-template-columns: 40px minmax(0, 1fr) 92px 64px;
+    grid-template-areas: "img main main price" "img rar step more";
     column-gap: 8px;
     row-gap: 8px;
     padding: 10px;
@@ -94,9 +96,11 @@
   #wishList .wl-img { grid-area: img; align-self: start; }
   #wishList .wl-main { grid-area: main; }
   #wishList .wl-rar { grid-area: rar; align-self: center; }
-  #wishList .wl-price { grid-area: price; align-self: start; white-space: nowrap; }
+  #wishList .wl-price { grid-area: price; align-self: start; justify-self: end; white-space: nowrap; text-align: right; }
+  /* 「相場をまだ集めていません」などの文は価格の幅の中で折り返す（名前の幅を食わない） */
+  #wishList .wl-price .wl-noprice { display: inline-block; max-width: 8em; white-space: normal; }
   #wishList .wl-step { grid-area: step; align-self: center; }
-  #wishList .wl-more { grid-area: more; align-self: center; }
+  #wishList .wl-more { grid-area: more; align-self: center; justify-self: end; }
   #wishActions .wl-title { flex: 1 1 100%; }
   #wishActions .wish-action-btn.primary { flex: 1 1 auto; }
 }

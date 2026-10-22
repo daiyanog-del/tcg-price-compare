@@ -50,4 +50,16 @@
 .new-cards-button[hidden]{display:none}
 .new-cards-button:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
 @media(max-width:900px){.new-cards-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:20px 14px}}
+/* トップのスマホは新着を横に流れる1列にし、値動きを最初の画面に入れる（2026-10-22 ユーザー承認）。
+   未発売カード一覧のページ（.new-cards-page・パックごとの .is-grouped）は今まで通りの格子 */
+@media(max-width:640px){
+  #mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped){display:flex;gap:10px;margin:0 -16px;padding:0 16px 4px;overflow-x:auto;scroll-snap-type:x proximity;scroll-padding-inline:16px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  #mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped)::-webkit-scrollbar{display:none}
+  #mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) .new-card{flex:0 0 112px;scroll-snap-align:start}
+  #mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) .new-card-meta{margin:6px 0 3px}
+  #mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) .new-card-link strong{line-height:1.45}
+  #mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) .new-card-add{min-height:30px}
+  #mode-search:not(.new-cards-page) #newCardsMore{display:none}
+  #mode-search:not(.new-cards-page) .new-cards{margin-bottom:18px}
+}
 @media(max-width:640px){.new-cards h2{font-size:17px}.new-cards-help{font-size:12px;margin-bottom:16px}.new-cards-grid{gap:16px 10px}.new-card-link strong{font-size:12px}.new-card-add{font-size:11px;min-height:36px;padding:4px 2px}.new-card-group-title{font-size:15px}.new-card-meta{font-size:10px}.new-card-badge{padding:1px 4px}}
