@@ -54,6 +54,7 @@ from shop_search_pool import (
 )
 from concurrent.futures import Future
 from weakref import WeakSet
+import upgrade_signals
 
 # 店舗検索の取得口（2026-10-22 作り直し）。全利用者で共有し、店ごとの列で順番に取る。
 # 数字は手元の負荷試験（ダミー店舗・gunicorn 1 worker）で決めた仮置き。
@@ -74,6 +75,7 @@ SHOP_FETCH_MAX_PENDING = SEARCH_STREAM_LIMIT * 5 * len(DEFAULT_SHOPS)
 _shop_search_pool = ShopSearchPool(
     max_workers=SHOP_FETCH_MAX_WORKERS, per_shop_limit=SHOP_FETCH_PER_SHOP,
     max_pending=SHOP_FETCH_MAX_PENDING,
+    wait_observer=upgrade_signals.monitor.record_wait,
 )
 _shop_health_lock = threading.Lock()
 _shop_health_recorded = WeakSet()
@@ -109,6 +111,7 @@ class _SearchStreamSlots:
         # 混雑応答の件数。1件ずつログに出すと混雑のあいだ数秒おきに出続けるので、間隔をあけてまとめて出す
         self._busy_lock = threading.Lock()
         self._busy_count = 0
+        self._busy_total = 0  # 起動からの混雑応答の累計（有料化の合図の見張りが差分を取る）
         self._busy_logged_at = None
         self._log_interval = log_interval
 
@@ -117,6 +120,7 @@ class _SearchStreamSlots:
         now = time.monotonic()
         with self._busy_lock:
             self._busy_count += 1
+            self._busy_total += 1
             if self._busy_logged_at is not None and now - self._busy_logged_at < self._log_interval:
                 return None
             count, self._busy_count, self._busy_logged_at = self._busy_count, 0, now
@@ -141,6 +145,11 @@ class _SearchStreamSlots:
                 released[0] = True
                 self._open[kind] -= 1
         return release
+
+    def busy_total(self) -> int:
+        """起動からの混雑応答の累計。"""
+        with self._busy_lock:
+            return self._busy_total
 
     def in_use(self) -> dict:
         """いま開いている SSE の本数（{"single": n, "bulk": n}）。"""
@@ -5545,6 +5554,20 @@ def _cache_warmer():
 
 if not _STARTUP_JOBS_DISABLED:
     threading.Thread(target=_cache_warmer, daemon=True).start()
+
+# 有料プランへ上げる合図の見張り（upgrade_signals.py）。プロセスごとに自分の取得口・DB 応答を数えるので、
+# cache_warmer のようなプロセス間のロックは取らない（worker は1本）
+if not _STARTUP_JOBS_DISABLED:
+    upgrade_signals.start(
+        get_pool_snapshot=_shop_search_pool.snapshot,
+        get_search_busy_total=_search_stream_slots.busy_total,
+        # 遅れて作られる接続は取り出す関数で渡し、作られたら次の周で差し込む（reread_trust は管理画面からだけ）
+        db_clients=[_supabase_client, _card_display._supabase_client,
+                    lambda: _ygores_repo._sb,
+                    lambda: getattr(sys.modules.get("admin_unreleased"), "_supabase", None),
+                    lambda: getattr(sys.modules.get("reread_trust"), "_client_cache", None)],
+        store=upgrade_signals.make_store_client(_SUPABASE_URL, _SUPABASE_KEY),
+    )
 
 if not _STARTUP_JOBS_DISABLED and _claim_startup_job("featured_prefetch"):
     threading.Thread(target=_load_featured_cache, daemon=True).start()
