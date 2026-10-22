@@ -6,13 +6,16 @@
 ・YGOPRODeck APIでTCGセット名から日本語カード名を取得（フォールバック）
 """
 
+import os
 import re
 import json
+import tempfile
 import time
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from threading import Lock
 from urllib.parse import quote
 
 HEADERS = {
@@ -35,12 +38,17 @@ def _cache_path(key: str) -> Path:
     safe = re.sub(r"[^\w\-]", "_", key)
     return _CACHE_DIR / f"{safe}.json"
 
+_CACHE_IO_LOCK = Lock()
+
 def _cache_read(key: str, ttl: timedelta) -> dict | None:
     fp = _cache_path(key)
-    if not fp.exists():
-        return None
     try:
-        data = json.loads(fp.read_text(encoding="utf-8"))
+        # 存在確認も鍵の内側で行う。Windows の os.stat はファイルを共有不可で一瞬開くため、
+        # 鍵の外で exists() すると別スレッドの os.replace が PermissionError で失敗する。
+        with _CACHE_IO_LOCK:
+            if not fp.exists():
+                return None
+            data = json.loads(fp.read_text(encoding="utf-8"))
         ts = datetime.fromisoformat(data["_ts"])
         if datetime.now() - ts > ttl:
             return None
@@ -50,8 +58,21 @@ def _cache_read(key: str, ttl: timedelta) -> dict | None:
 
 def _cache_write(key: str, data: dict):
     fp = _cache_path(key)
-    data["_ts"] = datetime.now().isoformat()
-    fp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    # 別ファイルに書いてから置き換える。同じファイルを空にしてから書くと、書き込み中に
+    # 読んだ側が途中までの中身を受け取り「キャッシュ無し」と判定していた。
+    # 呼び出し元の dict には _ts を書き足さない。
+    payload = {**data, "_ts": datetime.now().isoformat()}
+    tmp_name = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=fp.parent,
+                                         suffix=".tmp", delete=False) as tmp:
+            tmp_name = tmp.name
+            json.dump(payload, tmp, ensure_ascii=False)
+        with _CACHE_IO_LOCK:
+            os.replace(tmp_name, fp)
+    finally:
+        if tmp_name and os.path.exists(tmp_name):
+            os.remove(tmp_name)
 
 
 # ── 公式サイトから最新パック一覧を自動取得 ──
