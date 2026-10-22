@@ -75,14 +75,14 @@
 #metaDeckDetail .mt-total b { color: #f3ce46; font: 700 1.5rem var(--mono); white-space: nowrap; }
 #metaDeckDetail .mt-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 12px; }
 #metaDeckDetail .mt-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; padding: 0 16px; border: 0; border-radius: 6px; background: var(--bg-hover); color: var(--text); font: 700 .8rem var(--font); cursor: pointer; }
-#metaDeckDetail .mt-btn:hover { background: #2b3549; }
+#metaDeckDetail .mt-btn:hover { background: #353843; }
 #metaDeckDetail .mt-btn.is-primary { background: #f3ce46; color: #242013; }
 #metaDeckDetail .mt-btn.is-primary:hover { background: #ffe16d; }
 #metaDeckDetail .mt-btn.is-icon { width: 36px; padding: 0; }
 #metaDeckDetail .mt-btn.is-open { box-shadow: inset 0 0 0 1px var(--accent-l); }
 #metaDeckDetail .mt-recipes { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 #metaDeckDetail .mt-recipe { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 999px; background: var(--bg-hover); color: var(--accent-l); font-size: .74rem; font-weight: 700; text-decoration: none; }
-#metaDeckDetail .mt-recipe:hover { background: #2b3549; }
+#metaDeckDetail .mt-recipe:hover { background: #353843; }
 #metaDeckDetail .meta-note { margin: 0 0 10px; color: var(--text-m); font-size: .72rem; }
 
 /* 計算結果: 合計は見出しに写したので隠す。共有の欄は ⋯ から使うので隠す。進み具合は小さく残す */

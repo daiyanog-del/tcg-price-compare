@@ -17,7 +17,7 @@
   max-width: calc(100% - 8px);
   padding: 2px 6px;
   background: var(--main-color, #eff3fb);
-  color: #101626;
+  color: #191b21;
   border-radius: 8px;
   font-family: var(--font);
   font-size: clamp(8px, 12cqw, 11px);
@@ -423,7 +423,7 @@ body.sol-comment-picking .tier-item-wrapper .tier-item {
 /* ── 右パネル「コメント」区画 ── */
 .sol-comment-btn {
   padding: 5px 9px;
-  background: var(--bg-hover, #202c42);
+  background: var(--bg-hover, #2b2e38);
   border: 1px solid transparent;
   border-radius: 6px;
   color: var(--main-color);
@@ -542,7 +542,7 @@ body.sol-comment-picking .tier-item-wrapper .tier-item {
   margin: 0 0 10px;
   padding: 6px 10px;
   background: var(--main-color, #eff3fb);
-  color: #101626;
+  color: #191b21;
   border-radius: 8px;
 }
 .sol-mobile-cip-bubble[hidden] { display: none; }

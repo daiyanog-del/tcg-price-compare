@@ -25,7 +25,7 @@
 /* 操作はピルにそろえる（主操作だけ黄。マイデッキの見出しと同じ形） */
 #mode-search .cr-acts{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px;margin-top:12px}
 #mode-search .cr-pill{display:inline-flex;align-items:center;justify-content:center;min-height:32px;padding:0 14px;border:0;border-radius:18px;background:var(--bg-hover);color:var(--accent-l);font:700 12px var(--font);white-space:nowrap;cursor:pointer;list-style:none;user-select:none}
-#mode-search .cr-pill:hover{background:#2b3549;color:var(--text)}
+#mode-search .cr-pill:hover{background:#353843;color:var(--text)}
 #mode-search .cr-pill-pri{background:#f3ce46;color:#242013}
 #mode-search .cr-pill-pri:hover{background:#ffe16d;color:#242013}
 #mode-search .cr-acts .card-info-details{margin:0}
@@ -75,13 +75,13 @@
 #mode-search #mercariRef .scard .sprice{margin:0;font-size:16px}
 #mode-search #mercariRef .scard .sdetail{font-size:11px;white-space:normal}
 /* 「すべて」のときは全レアリティぶん並ぶので、高さに上限を付けて箱の中でスクロールする */
-#mode-search .cr-market #mercariRefBody:has(.mref-group+.mref-group){max-height:240px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2b3549 transparent}
+#mode-search .cr-market #mercariRefBody:has(.mref-group+.mref-group){max-height:240px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#353843 transparent}
 #mode-search .cr-market .buy-inline-note{margin-top:6px;font-size:11px}
 /* 買取: 閉じているときは1行のボタン。開くと店ごとの行 */
 #mode-search #buyInline:not([open])>summary{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border-radius:6px;background:var(--bg-hover);color:var(--text);font-size:13px}
 #mode-search #buyInline:not([open])>summary::before{content:none}
 #mode-search #buyInline:not([open])>summary::after{content:'›';color:var(--text-m)}
-#mode-search #buyInline:not([open])>summary:hover{background:#2b3549}
+#mode-search #buyInline:not([open])>summary:hover{background:#353843}
 #mode-search #buyInline .summary{gap:0}
 #mode-search #buyInline .scard{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:10px;padding:6px 0}
 #mode-search #buyInline .scard .slabel{grid-column:1;font-size:12px;font-weight:700;color:var(--text)}

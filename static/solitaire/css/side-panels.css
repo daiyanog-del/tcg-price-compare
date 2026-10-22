@@ -39,7 +39,7 @@
 .sol-ops-details[open] .sol-ops-summary::after { content: none; }
 .sol-ops-summary::before { content: '▸ '; }
 .sol-ops-details[open] .sol-ops-summary::before { content: '▾ '; }
-/* 中身: やりたいこと（白 12px）を先に、キーはその下に文字幅の札（マイデッキの札と同じ 地 #2b3549・白）。
+/* 中身: やりたいこと（白 12px）を先に、キーはその下に文字幅の札（マイデッキの札と同じ 地 #353843・白）。
    スマホの操作方法シートも同じ部品を使う */
 .sol-ops-list { gap: 10px; }
 .sol-ops-item { align-items: flex-start; gap: 3px; }
@@ -48,7 +48,7 @@
   font-family: inherit;
   font-size: 11px;
   color: var(--main-color);
-  background: #2b3549;
+  background: #353843;
   border: 0;
   border-radius: 4px;
   padding: 1px 6px;
@@ -121,11 +121,11 @@
 .sol-side-btn.is-active,
 .sol-side-btn.is-active:hover {
   background: var(--accent);
-  color: #101626;
+  color: #191b21;
 }
 .sol-side-btn.is-active .sol-side-btn-icon,
-.sol-side-btn.is-active .sol-side-btn-chev { color: #101626; }
-.sol-side-btn.is-active .sol-side-btn-count { background: rgba(16, 22, 38, 0.18); }
+.sol-side-btn.is-active .sol-side-btn-chev { color: #191b21; }
+.sol-side-btn.is-active .sol-side-btn-count { background: rgba(25, 27, 33, 0.18); }
 /* 控えめなボタン */
 .sol-side-btn.is-quiet { background: transparent; color: #a8b4c9; }
 .sol-side-btn.is-quiet:hover { background: var(--bg-hover); color: var(--main-color); }

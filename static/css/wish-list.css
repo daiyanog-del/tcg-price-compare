@@ -44,7 +44,7 @@
 }
 #wishList .wl-rar span { overflow: hidden; color: inherit; text-overflow: ellipsis; }
 #wishList .wl-rar svg { flex: none; color: var(--text-m); }
-#wishList .wl-rar:hover { background: #2b3549; }
+#wishList .wl-rar:hover { background: #353843; }
 #wishList .wl-rar.is-open { box-shadow: inset 0 0 0 1px var(--accent-l); }
 #wishList .wl-rar:focus-visible { outline: 2px solid #f3ce46; outline-offset: 2px; }
 #wishList .wl-price { justify-self: end; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; text-align: right; }
@@ -52,11 +52,11 @@
 /* 価格が無いとき（まだ集めていない・読み込めなかった）は小さな控えめの文字 */
 #wishList .wl-price .wl-noprice { font: .72rem var(--font); color: var(--text-m); white-space: normal; }
 /* 読み込み中の印（D。以前は「相場データ収集中」の文字） */
-#wishList .wl-skel { display: block; width: 64px; height: 14px; border-radius: 4px; background: linear-gradient(90deg, var(--bg-hover), #2b3549, var(--bg-hover)); background-size: 200% 100%; animation: wl-skel 1.2s linear infinite; }
+#wishList .wl-skel { display: block; width: 64px; height: 14px; border-radius: 4px; background: linear-gradient(90deg, var(--bg-hover), #353843, var(--bg-hover)); background-size: 200% 100%; animation: wl-skel 1.2s linear infinite; }
 @keyframes wl-skel { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 @media (prefers-reduced-motion: reduce) { #wishList .wl-skel { animation: none; } }
 /* 値下がり（D）: 緑の ↓ 札（判定は今までと同じ: 5%以上かつ50円以上） */
-#wishList .wl-drop { padding: 1px 6px; border-radius: 4px; background: var(--green); color: #101626; font: 700 .68rem var(--mono); white-space: nowrap; }
+#wishList .wl-drop { padding: 1px 6px; border-radius: 4px; background: var(--green); color: #191b21; font: 700 .68rem var(--mono); white-space: nowrap; }
 /* 枚数: 押しやすい大きさの − N ＋（溝の中） */
 #wishList .wl-step { justify-self: end; display: inline-flex; align-items: center; gap: 2px; padding: 2px; border-radius: 6px; background: var(--bg); }
 #wishList .wl-step button { width: 28px; height: 28px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--text); font: 700 1rem var(--font); line-height: 1; cursor: pointer; }
@@ -79,7 +79,7 @@
 #wishActions .wl-count b { color: var(--text); font: 700 .8rem var(--mono); }
 #wishActions .wish-action-btn.primary { height: 36px; padding: 0 16px; }
 #wishActions .wl-head-more { width: 36px; height: 36px; padding: 0; border: 0; border-radius: 6px; background: var(--bg-hover); color: var(--text); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
-#wishActions .wl-head-more:hover { background: #2b3549; }
+#wishActions .wl-head-more:hover { background: #353843; }
 
 /* スマホ〜小型タブレット: 3段（名前と価格／デッキの札／レアリティ・枚数・⋯） */
 @media (max-width: 767px) {

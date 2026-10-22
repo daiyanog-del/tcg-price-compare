@@ -1,10 +1,10 @@
 /* 未発売カードの「テキストの誤りを報告」ボタンとフォーム（カードページ・シミュレーター共通）
  * 配色はサイト共通の規則に合わせる: 面の濃淡で分け、通常操作には枠線を付けない。
- * 主操作 = 金 #f3ce46＋濃色文字 / 副操作 = 面 #202c42＋薄青文字 / 入力だけ枠線を残す / フォーカス = 金のアウトライン */
+ * 主操作 = 金 #f3ce46＋濃色文字 / 副操作 = 面 #2b2e38＋薄青文字 / 入力だけ枠線を残す / フォーカス = 金のアウトライン */
 .tr-open-wrap { margin-top: 10px; }
 
 .tr-open-btn {
-  background: #202c42;
+  background: #2b2e38;
   border: 0;
   border-radius: 6px;
   color: #aec5ff;
@@ -35,7 +35,7 @@
 
 .tr-dialog {
   position: relative;
-  background: #171f31;
+  background: #20232b;
   border-radius: 10px;
   box-sizing: border-box;
   color: #eff3fb;
@@ -67,7 +67,7 @@
 
 .tr-body { padding: 4px 16px 8px; }
 .tr-card-name {
-  background: #101626;
+  background: #191b21;
   color: #eff3fb; /* シミュレーター側に p 要素の既定色（暗い灰）があるため明示する */
   border-radius: 6px;
   font-size: 0.85rem;
@@ -80,7 +80,7 @@
 
 .tr-select,
 .tr-textarea {
-  background: #101626;
+  background: #191b21;
   border: 1px solid #3a4863;
   border-radius: 6px;
   box-sizing: border-box;
@@ -109,7 +109,7 @@
   padding: 9px 16px;
 }
 .tr-cancel[hidden] { display: none; }
-.tr-cancel { background: #202c42; color: #aec5ff; }
+.tr-cancel { background: #2b2e38; color: #aec5ff; }
 .tr-cancel:hover { background: #2a3956; }
 .tr-submit { background: #f3ce46; color: #242013; font-weight: 700; }
 .tr-submit:hover { background: #ffe16d; }

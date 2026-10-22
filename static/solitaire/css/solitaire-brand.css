@@ -227,7 +227,7 @@
   transition: background 0.15s, color 0.15s;
 }
 .sol-panel-rail[hidden] { display: none; }
-.sol-panel-rail:hover { background: #202c42; color: #f3ce46; }
+.sol-panel-rail:hover { background: #2b2e38; color: #f3ce46; }
 .sol-rail-arrow { font-size: 0.7rem; line-height: 1; }
 .sol-rail-label {
   writing-mode: vertical-rl;
@@ -241,7 +241,7 @@
 /* 色は今の配色（accent #aec5ff）。旧配色の青 #2d4a7a・#7aaff0 をやめた（2026-10-22） */
 @keyframes sol-toggle-pulse {
   0%, 100% { background: var(--bg-card); border-color: transparent; color: #a8b4c9; }
-  50%       { background: var(--accent);  border-color: transparent; color: #101626; }
+  50%       { background: var(--accent);  border-color: transparent; color: #191b21; }
 }
 .sol-panel-toggle-pulse {
   animation: sol-toggle-pulse 0.9s ease-in-out 3;
@@ -731,7 +731,7 @@ html, body {
 }
 .sol-sidebar-links a:hover {
   color: var(--main-color);
-  background: var(--bg-hover, #202c42);
+  background: var(--bg-hover, #2b2e38);
 }
 .sol-sidebar-links a.active {
   color: var(--main-color);
@@ -974,8 +974,8 @@ html, body {
 
 /* クリア: 取り返しのつかない操作なので危険色（.replay-btn-danger と同じ赤） */
 /* 危険な操作は赤い文字だけで示す（他ページの .danger と同じ。2026-10-22 赤い枠をやめた） */
-.clear-btn { background: var(--bg-hover, #202c42); border-color: transparent; color: var(--red); }
-.clear-btn:hover { background: #2b3549; border-color: transparent; color: var(--red); transform: translateY(-1px); }
+.clear-btn { background: var(--bg-hover, #2b2e38); border-color: transparent; color: var(--red); }
+.clear-btn:hover { background: #353843; border-color: transparent; color: var(--red); transform: translateY(-1px); }
 
 /* 即時表示の吹き出し（title属性は遅延＋二重表示になるため使わない）。
    右パネルは overflow-y:auto で横にはみ出すと切れるため、ボタン幅いっぱいの下向きに出す。 */
@@ -987,7 +987,7 @@ html, body {
   right: 0;
   z-index: 60;
   padding: 7px 9px;
-  background: #202c42;
+  background: #2b2e38;
   color: #eff3fb;
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
@@ -1095,14 +1095,14 @@ a.replay-btn { display: inline-block; text-decoration: none; }
 }
 .replay-share-btn:hover { background: #d4a800; }
 
-/* 2026-10-21 真っ黒をやめ、通常のボタン（#202c42）＋X のマーク（モック sim-refresh-20261021 の D） */
+/* 2026-10-21 真っ黒をやめ、通常のボタン（#2b2e38）＋X のマーク（モック sim-refresh-20261021 の D） */
 .replay-share-x-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   padding: 4px 10px;
-  background: #202c42;
+  background: #2b2e38;
   color: #eff3fb;
   border: 1px solid transparent;
   border-radius: 4px;
@@ -1113,7 +1113,7 @@ a.replay-btn { display: inline-block; text-decoration: none; }
   font-family: var(--font);
 }
 .replay-share-x-btn span { color: inherit; }
-.replay-share-x-btn:hover { background: #2b3549; }
+.replay-share-x-btn:hover { background: #353843; }
 .replay-share-x-btn:disabled { opacity: 0.35; cursor: default; }
 
 /* ── リプレイバーのまとまり（見る／戻す／残す。2026-10-15 整理③） ──
@@ -1622,7 +1622,7 @@ a.replay-btn { display: inline-block; text-decoration: none; }
   max-height: 88vh;
   overflow-y: auto;
   /* 2026-10-21 ほかの窓・右クリックメニューと同じ地と影に（案Y。以前は濃い紺 #0e1a36） */
-  background: #141c2c;
+  background: #1d1f26;
   border: 1px solid transparent;
   border-radius: 12px;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(174, 197, 255, 0.08);
@@ -1801,7 +1801,7 @@ a.replay-btn { display: inline-block; text-decoration: none; }
 /* ── オン・オフのスイッチ（2026-10-21 白いチェックボックスから置き換え。モック sim-refresh-20261021 の D） ──
    「みんなのリプレイに公開する」「未発売カードのイラストをぼかす」（PC・スマホ）。
    入力は checkbox のまま（role="switch"）なので、読み書きする JS は変えない。
-   色: オフ＝溝 #2b3549・丸 #a8b4c9、オン＝溝 accent（#aec5ff）・丸 #101626。黄は使わない（主操作の色のため） */
+   色: オフ＝溝 #353843・丸 #a8b4c9、オン＝溝 accent（#aec5ff）・丸 #191b21。黄は使わない（主操作の色のため） */
 .sol-public-check input[type="checkbox"],
 .sol-sample-blur-toggle input[type="checkbox"] {
   appearance: none;
@@ -1813,7 +1813,7 @@ a.replay-btn { display: inline-block; text-decoration: none; }
   margin: 0;
   border: 0;
   border-radius: 999px;
-  background: #2b3549;
+  background: #353843;
   cursor: pointer;
   transition: background 0.15s;
 }
@@ -1836,7 +1836,7 @@ a.replay-btn { display: inline-block; text-decoration: none; }
 .sol-public-check input[type="checkbox"]:checked::after,
 .sol-sample-blur-toggle input[type="checkbox"]:checked::after {
   left: 16px;
-  background: #101626;
+  background: #191b21;
 }
 .sol-public-check input[type="checkbox"]:focus-visible,
 .sol-sample-blur-toggle input[type="checkbox"]:focus-visible {
@@ -1859,7 +1859,7 @@ a.replay-btn { display: inline-block; text-decoration: none; }
 /* ── 共有リンク・保存したリプレイを開いた直後の「▶ 再生する」の案内（replay-start-prompt.js。2026-10-16） ──
    この案内の中では再生が主な操作なので、ボタンは主操作の黄。カードの面は既存のシートと同じ --bg-card。 */
 .sol-replay-start { position: fixed; inset: 0; z-index: 1200; display: flex; align-items: center; justify-content: center; padding: 16px; }
-.sol-replay-start-backdrop { position: absolute; inset: 0; background: rgba(16, 22, 38, 0.6); }
+.sol-replay-start-backdrop { position: absolute; inset: 0; background: rgba(25, 27, 33, 0.6); }
 .sol-replay-start-card {
   position: relative;
   width: min(340px, 100%);
@@ -1899,7 +1899,7 @@ a.replay-btn { display: inline-block; text-decoration: none; }
 
 
 /* ── 再生バーのボタンの形と記号をそろえる（2026-10-21 モック sim-refresh-20261021 の C・ユーザー承認） ──
-   まとまり（見る・戻す・残す）はそのまま。ボタンは同じ形（地 #202c42・角丸6・高さ32）、記号は線アイコン
+   まとまり（見る・戻す・残す）はそのまま。ボタンは同じ形（地 #2b2e38・角丸6・高さ32）、記号は線アイコン
    （.replay-ico。サイドバーと同じ線の太さ）。主操作の「保存」だけ黄。PC 幅だけ（狭い画面は responsive.css の並びのまま）。
    起点は .replay-bar（ID にしない）: 横向きスマホで範囲・共有を隠す responsive.css の ID 指定（display:none）より弱くするため。
    境目はスマホ扱い（responsive.css の max-width:767px）の次の 768px から（iPad 縦も含める） */
@@ -1913,7 +1913,7 @@ a.replay-btn { display: inline-block; text-decoration: none; }
     padding: 0 8px;
     border: 0;
     border-radius: 6px;
-    background: #202c42;
+    background: #2b2e38;
     color: #eff3fb;
     font-size: 0.78rem;
     font-weight: 700;
@@ -1921,7 +1921,7 @@ a.replay-btn { display: inline-block; text-decoration: none; }
     box-sizing: border-box;
   }
   /* ホバーは状態の地（再生中・選んでいる速さ・範囲あり）を持たないボタンだけ（持つものは地を消さない） */
-  .replay-bar .replay-btn:not(:disabled):not(.play-active):not(.active):not(.has-range):hover { background: #2b3549; }
+  .replay-bar .replay-btn:not(:disabled):not(.play-active):not(.active):not(.has-range):hover { background: #353843; }
   .replay-bar .replay-btn.play-active:not(:disabled):hover { background: var(--accent-hover); }
   .replay-bar .replay-btn:disabled,
   .replay-bar .replay-save-btn:disabled { opacity: 0.4; }
@@ -1930,16 +1930,16 @@ a.replay-btn { display: inline-block; text-decoration: none; }
   .replay-bar #replayBack,
   .replay-bar #replayFwd { background: none; padding: 0 8px; }
   .replay-bar #replayBack:not(:disabled):hover,
-  .replay-bar #replayFwd:not(:disabled):hover { background: #202c42; }
+  .replay-bar #replayFwd:not(:disabled):hover { background: #2b2e38; }
   /* 速さは溝の中で選ぶ（選んでいる速さは通常のボタンの地＋accent の文字） */
-  .replay-bar .replay-speed-group { gap: 2px; padding: 2px; border-radius: 6px; background: #101626; }
+  .replay-bar .replay-speed-group { gap: 2px; padding: 2px; border-radius: 6px; background: #191b21; }
   .replay-bar .replay-speed-btn { height: 28px; padding: 0 9px; background: none; color: #a8b4c9; }
-  .replay-bar .replay-speed-btn.active { background: #202c42; color: #eff3fb; }
+  .replay-bar .replay-speed-btn.active { background: #2b2e38; color: #eff3fb; }
   /* 再生: ほかのボタンと同じ形で、▶（accent）と大きめの文字で見つけやすく。再生中は accent の面（.play-active） */
   .replay-bar .replay-btn.replay-play-btn { padding: 0 14px 0 11px; font-size: 0.85rem; }
-  .replay-bar .replay-btn.replay-play-btn:not(.play-active) { background: #202c42; }
-  .replay-bar .replay-btn.replay-play-btn:not(.play-active):not(:disabled):hover { background: #2b3549; }
-  .replay-bar .replay-btn.play-active { background: var(--accent); color: #101626; }
+  .replay-bar .replay-btn.replay-play-btn:not(.play-active) { background: #2b2e38; }
+  .replay-bar .replay-btn.replay-play-btn:not(.play-active):not(:disabled):hover { background: #353843; }
+  .replay-bar .replay-btn.play-active { background: var(--accent); color: #191b21; }
   /* 保存: 主操作の黄 */
   .replay-bar .replay-save-btn { background: #f3ce46; color: #242013; }
   .replay-bar .replay-save-btn:not(:disabled):hover { background: #ffe16d; }
@@ -1967,7 +1967,7 @@ a.replay-btn { display: inline-block; text-decoration: none; }
    2026-10-21: 後から差し込まれ、読み込み後の文が2行に折り返して盤面全体を押し下げていた（スマホで CLS 0.19）。
    サーバーが空の欄を最初から置き、高さはここで固定する（文の長さでは変えない・はみ出しは「…」）。
    PC は1行（リンクの高さ＋上下8px）、スマホ縦は デッキ名／状態 の2行（枚数は出さない）。失敗の文だけは折り返して全文を見せる。
-   色は以前の JS の直書きと同じ（背景 --bg-card・文字 --main-color・リンクは .sol-ext-link と同じ #202c42／#aec5ff）。 */
+   色は以前の JS の直書きと同じ（背景 --bg-card・文字 --main-color・リンクは .sol-ext-link と同じ #2b2e38／#aec5ff）。 */
 .sol-handoff-status {
   box-sizing: border-box;
   display: flex;
@@ -1979,7 +1979,7 @@ a.replay-btn { display: inline-block; text-decoration: none; }
   font-family: var(--font);
   font-size: 13px;
   line-height: 1.6;
-  background: var(--bg-card, #171f31);
+  background: var(--bg-card, #20232b);
   color: var(--main-color, #eff3fb);
 }
 /* 一人回しの汎用 span 色（#333）を上書きする */
@@ -2002,7 +2002,7 @@ a.replay-btn { display: inline-block; text-decoration: none; }
   flex: none;
   display: inline-block;
   padding: 6px 12px;
-  background: #202c42;
+  background: #2b2e38;
   color: #aec5ff;
   border: 0;
   border-radius: 8px;

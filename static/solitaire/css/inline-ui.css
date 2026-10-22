@@ -17,7 +17,7 @@
   box-sizing: border-box;
   padding: 10px 12px 10px 16px;
   border-radius: 8px;
-  background: #202c42;
+  background: #2b2e38;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
   color: #eff3fb;
   font-size: 13px;
@@ -44,7 +44,7 @@
   position: fixed;
   z-index: 10040;
   box-sizing: border-box;
-  background: #141c2c;
+  background: #1d1f26;
   border-radius: 8px;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(174, 197, 255, 0.08);
   color: #eff3fb;
@@ -61,8 +61,8 @@
   box-sizing: border-box;
   margin-top: 6px;
   padding: 0 10px;
-  background: #101626;
-  border: 1px solid #2b3549;
+  background: #191b21;
+  border: 1px solid #353843;
   border-radius: 6px;
   color: #eff3fb;
   font: inherit;
@@ -78,7 +78,7 @@
   padding: 0 14px;
   border: 0;
   border-radius: 999px;
-  background: #202c42;
+  background: #2b2e38;
   color: #aec5ff;
   font: inherit;
   font-weight: 700;
@@ -86,10 +86,10 @@
   white-space: nowrap;
   cursor: pointer;
 }
-.sol-inline-pill:hover, .sol-inline-pill:focus-visible { background: #2b3549; }
+.sol-inline-pill:hover, .sol-inline-pill:focus-visible { background: #353843; }
 .sol-inline-pill.is-primary { background: #f3ce46; color: #242013; }
 .sol-inline-pill.is-primary:hover, .sol-inline-pill.is-primary:focus-visible { background: #ffe16d; }
-.sol-inline-pill.is-danger { background: #202c42; color: #ff8f94; }
+.sol-inline-pill.is-danger { background: #2b2e38; color: #ff8f94; }
 @media (max-width: 767px) {
   .sol-inline-pill { height: 36px; font-size: 13px; }
 }
