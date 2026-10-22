@@ -34,6 +34,10 @@
 /* 開いたら次の行に回り、本文はその下に出す */
 #mode-search .cr-acts .card-info-details[open]{flex-basis:100%;order:10}
 #mode-search .cr-acts .card-info-details[open]>summary.cr-pill{background:var(--bg-hover);color:var(--text);box-shadow:inset 0 -2px 0 var(--accent-soft)}
+/* 効果テキストの1行目（種類・属性・ATK など＋制限の札）は左から詰めて並べる。
+   旧指定の左右いっぱいに散らす並び（space-between）だと「魔法」のように短いとき間が大きく空いて浮いた（2026-10-22） */
+#mode-search .card-detail .cdm-row{justify-content:flex-start;flex-wrap:wrap;gap:4px 8px}
+#mode-search .card-detail .cdm-row .lb{margin-left:0}
 #mode-search .cr-acts .card-detail{max-width:680px;margin-top:10px;padding:12px 14px;border:0;border-radius:8px;background:var(--bg-card)}
 /* PC は効果テキストを最初から開き、ボタンの下にそのまま出す（2026-10-22 案3）。高さの上限は _clampCardDetail */
 @media(min-width:641px){
@@ -48,11 +52,11 @@
 /* ── 相場の箱（相場の動き・メルカリ・買取） ── */
 /* 相場の動き・メルカリは検索結果の後から届くことがある。届いて箱が伸びると下のレアリティ欄と一覧が押し下げられる
    （本番データで 65→331px・CLS 0.045 を実測）ので、全部そろったときの高さを最初から取っておく */
-#mode-search .cr-market{min-width:0;min-height:332px;padding:2px 16px;border-radius:8px;background:var(--bg-card)}
+#mode-search .cr-market{min-width:0;min-height:268px;padding:2px 16px;border-radius:8px;background:var(--bg-card)}
 #mode-search .cr-market:not(.hidden){display:flex;flex-direction:column}
+/* PC の3列のときは、箱の底を画像（224px 幅＝高さ 326px）の底にそろえる */
+@media(min-width:1024px){#mode-search .cr-market{min-height:326px}}
 #mode-search .cr-market>*{margin:0;padding:12px 0}
-/* 買取は箱の底に置く。上の相場の動き・メルカリが後から届いても動かない */
-#mode-search .cr-market>#buyInline{margin-top:auto}
 #mode-search .cr-market>:not(.hidden)~:not(.hidden){box-shadow:inset 0 1px 0 var(--border)}
 #mode-search .cr-market>.price-chart{border:0;border-radius:0;background:none;padding:12px 0}
 #mode-search .cr-market .chart-title{margin:0;font-size:12px;font-weight:700;color:var(--text-m)}
@@ -76,19 +80,29 @@
 #mode-search #mercariRef .scard .sdetail{font-size:11px;white-space:normal}
 /* 「すべて」のときは全レアリティぶん並ぶので、高さに上限を付けて箱の中でスクロールする */
 #mode-search .cr-market #mercariRefBody:has(.mref-group+.mref-group){max-height:240px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#353843 transparent}
-#mode-search .cr-market .buy-inline-note{margin-top:6px;font-size:11px}
-/* 買取: 閉じているときは1行のボタン。開くと店ごとの行 */
-#mode-search #buyInline:not([open])>summary{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border-radius:6px;background:var(--bg-hover);color:var(--text);font-size:13px}
-#mode-search #buyInline:not([open])>summary::before{content:none}
-#mode-search #buyInline:not([open])>summary::after{content:'›';color:var(--text-m)}
-#mode-search #buyInline:not([open])>summary:hover{background:#353843}
-#mode-search #buyInline .summary{gap:0}
-#mode-search #buyInline .scard{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:10px;padding:6px 0}
-#mode-search #buyInline .scard .slabel{grid-column:1;font-size:12px;font-weight:700;color:var(--text)}
-#mode-search #buyInline .scard .sdetail{grid-column:1;font-size:11px}
-#mode-search #buyInline .scard .sprice{grid-column:2;grid-row:1/3;align-self:center;margin:0;font-size:15px;text-align:right}
+
+/* ── 買取（名前の行の下・全幅・既定で閉じる。2026-10-22 案A） ── */
+#mode-search #buyInline.cr-buy{margin:0 0 24px;padding:0;border:0;border-radius:8px;background:var(--bg-card)}
+#mode-search #buyInline>summary{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 14px;margin:0;padding:14px 40px 14px 16px;position:relative;font-size:15px;font-weight:700;color:var(--text);list-style:none}
+#mode-search #buyInline>summary::before{content:none}
+#mode-search #buyInline>summary::after{content:'▸';position:absolute;right:16px;top:14px;color:var(--text-m);font-size:13px}
+#mode-search #buyInline[open]>summary::after{content:'▾'}
+#mode-search #buyInline>summary:hover{background:var(--bg-hover);border-radius:8px}
+#mode-search .cr-buy-max{font-size:13px;font-weight:400;color:var(--text-m)}
+#mode-search .cr-buy-max b{margin:0 2px;font:600 16px var(--mono);color:var(--green)}
+#mode-search #buyInlineBody{padding:0 0 10px}
+#mode-search #buyInline .buy-inline-note{margin:4px 16px 0;font-size:12px}
+#mode-search #buyInline .progress{margin:0 16px 8px}
+#mode-search #buyInline .empty{padding:4px 16px!important}
+#mode-search #buyInline .summary{display:block;margin:0}
+/* 行: 価格（右寄せ）・店名・レアリティと型番（出品一覧の行と同じ高さ・列） */
+#mode-search #buyInline .scard{display:grid;grid-template-columns:110px 170px minmax(0,1fr);align-items:center;column-gap:12px;min-height:44px;padding:0 16px;border:0;border-radius:0;background:none;overflow:visible;transform:none}
+#mode-search #buyInline .scard:hover{background:var(--bg-hover)}
+#mode-search #buyInline .scard .sprice{grid-column:1;grid-row:1;margin:0;font-size:16px;text-align:right;white-space:nowrap}
 #mode-search #buyInline .scard .sprice a{color:var(--green)}
-#mode-search #buyInline .scard .sdiff{font-size:11px}
+#mode-search #buyInline .scard .slabel{grid-column:2;grid-row:1;font-size:13px;font-weight:700;color:var(--text)}
+#mode-search #buyInline .scard .sdetail{grid-column:3;grid-row:1;font-size:12px;color:var(--text-m)}
+#mode-search #buyInline .scard .sdiff{display:inline;margin-left:6px;font-size:11px}
 #mode-search #buyInline .scard .sbest-badge{margin-left:6px;font-size:10px}
 
 /* ── レアリティ（安い順・在庫ありの最安） ── */
@@ -175,6 +189,11 @@
   #mode-search .cr-acts>.card-info-details>summary.cr-pill,#mode-search .cr-acts .share-menu-wrap>.cr-pill{display:flex;width:100%}
   #mode-search .cr-acts .share-menu-wrap{display:block}
   #mode-search .cr-market{margin-top:14px}
+  #mode-search #buyInline.cr-buy{margin-bottom:22px}
+  #mode-search #buyInline .scard{grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;padding:8px 16px}
+  #mode-search #buyInline .scard .sprice{grid-column:2;grid-row:1/3}
+  #mode-search #buyInline .scard .slabel{grid-column:1;grid-row:1}
+  #mode-search #buyInline .scard .sdetail{grid-column:1;grid-row:2}
   /* レアリティは1行で横に送る */
   #mode-search .cr-rtiles{display:flex;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
   #mode-search .cr-rtiles::-webkit-scrollbar{display:none}

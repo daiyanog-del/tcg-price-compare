@@ -46,6 +46,7 @@ vm.runInContext([
   block('function _buyInlineFilteredData(', '// S-1:'),
   block('function _looksLikeCardCode(', '// U-1: 販売テーブル'),
   block('function _renderBuyInline(', '// F-5/F-14'),
+  block('// 買取の欄の見出し。', '// #buyInline を開いた経路'),
   block('function _shownRarity(', 'function renderTable('),
   block('function renderTable(', '// B-4: 「もっと見る」'),
 ].join('\n'), sandbox);
@@ -131,6 +132,16 @@ run(`_affConfig={'カーナベル':{sell:'dummyA8',buy:'dummyA8'}}`);
 run(`_renderBuyInline()`);
 h = get('buyInlineBody').innerHTML;
 assert(h.includes('<div class="slabel">カーナベル' + PR + '</div>'));
+// 見出し（閉じていても最高額が分かる）。「すべて」のときは最高額と言い切らない（H-1）
+assert.equal(get('buyInlineHead').innerHTML, '<span class="cr-buy-t">買取価格</span><span class="cr-buy-max">レアリティを選ぶと最高額を表示します</span>');
+run(`rarityFilter='ウルトラ'; _renderBuyInline()`);
+assert.equal(get('buyInlineHead').innerHTML, '<span class="cr-buy-t">ウルトラの買取価格</span><span class="cr-buy-max">最高 <b>¥50</b> カーナベル</span>');
+run(`rarityFilter='ノーマル'; _renderBuyInline()`);
+assert.equal(get('buyInlineHead').innerHTML, '<span class="cr-buy-t">ノーマルの買取価格</span><span class="cr-buy-max">見つかりませんでした</span>');
+run(`_setBuyInlineHead(null)`);
+assert.equal(get('buyInlineHead').textContent, '買取価格を見る（いくらで売れるか）');
+run(`rarityFilter=''; _renderBuyInline()`);
+h = get('buyInlineBody').innerHTML;
 assert(h.includes('<div class="slabel">トレコロ</div>'));
 assert.equal(count(h, PR), 1);
 assert(h.includes('rel="sponsored noopener"') && h.includes('rel="noopener nofollow"'));

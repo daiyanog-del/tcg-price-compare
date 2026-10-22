@@ -19,7 +19,7 @@ body.price-redesign {
  .meta-deck-detail,.meta-deck-btn,.meta-card-chip,.pack-card-item,
  .deck-total,.deck-card-row,.deck-calc,
  .neuron-hint,.deck-share-area,.saved-deck-card-btn,.deck-added-row,
- .wish-card-row,.push-notify-box,.fmx-scroll,.legal-modal) {border:0;border-radius:8px}
+ .wish-card-row,.push-notify-box,.legal-modal) {border:0;border-radius:8px}
 .price-redesign :is(.suggest-item,.deck-suggest-item,.meta-deck-sep,
  .import-method,.neuron-hint-method-row,
  .cip-effect,.cip-price,.legal-modal-head,.legal-modal-body h3) {border:0}
@@ -43,18 +43,13 @@ body.price-redesign {
  .trending-item,.ritem):is(:hover,:focus-within) {background:var(--bg-hover);transform:none}
 .price-redesign #mode-search .movers-item:focus-within {background:var(--bg-hover)}
 .price-redesign :is(.wish-price-info,.deck-card-price,
- .meta-deck-price-now,.sprice,.rprice,.fmx-cell) {font-variant-numeric:tabular-nums}
+ .meta-deck-price-now,.sprice,.rprice) {font-variant-numeric:tabular-nums}
 .price-redesign :is(.wish-price-info,.deck-card-price) {text-align:right}
 .price-redesign :is(.wish-card-name,.deck-card-name,.pack-card-name) {color:var(--text)}
 .price-redesign .meta-tier-group {margin-bottom:24px}
 .price-redesign .meta-deck-sep {padding-top:16px}
 .price-redesign .import-method+.import-method {margin-top:8px}
 
-/* 表は整列と行の余白で追えるようにする。価格マトリクスの意味色は維持する。 */
-.price-redesign .fmx-table :is(th,td) {border:0}
-.price-redesign .fmx-table :is(th,td) {padding-block:12px}
-.price-redesign .fmx-table tbody tr:is(:hover,:focus-within) {background:var(--bg-hover)}
-.price-redesign .fmx-table tbody tr:is(:hover,:focus-within) .fmx-sticky-col {background:var(--bg-hover)}
 
 /* 通常操作は面、選択状態は黄色の印と明るい文字、主操作は黄色で統一。 */
 .price-redesign :is(.deck-btn-secondary,.deck-btn-outline,.deck-preset,.wish-action-btn,

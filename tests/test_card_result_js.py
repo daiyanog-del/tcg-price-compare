@@ -40,6 +40,11 @@ def test_テンプレートの並びと部品():
     for gone in ('sumCards', 'rfBanner', 'rgrid', 'p-all', 'p-rarity', 'tblBuyBtn'):
         assert soup.find(id=gone) is None, gone
     assert any('css/card-result.css' in (l.get('href') or '') for l in soup.find_all('link'))
+    # 買取は相場の箱の外・名前の行の下（全幅・既定で閉じる。2026-10-22 案A）
+    assert soup.select_one('#heroMarket #buyInline') is None
+    buy = soup.select_one('#buyInline')
+    assert buy is not None and not buy.has_attr('open')
+    assert html.index('id="heroMarket"') < html.index('id="buyInline"') < html.index('id="rarityFilter"')
 
 
 def test_PCの効果テキストの配線():
