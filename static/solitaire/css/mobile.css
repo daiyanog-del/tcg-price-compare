@@ -829,9 +829,14 @@
      他の .sol-right-section（盤面操作・カウンター等）は隠したままにする。 */
   /* M-6: .collapsed が付いていない端末（localStorage に right:false が残存）でも
      #solRightPanel が盤面幅を占有しないよう固定サイズで浮かせる。 */
+  /* position:fixed の #solRightPanel はそれ自体が重なりの単位になるため、子のシートの
+     z-index:910 は幕(.sol-mobile-help-scrim, body 直下の 905)と比べられない。
+     z-index の無いままだとパネルごと幕の下に描かれ、シートが暗く・触れなくなっていた
+     （2026-10-22 発見）。パネル自体を幕より上に置く。 */
   #solRightPanel.sol-mobile-help-active {
     display: block !important;
     position: fixed;
+    z-index: 910;
     width: 0;
     min-height: 0;
     border: none;
