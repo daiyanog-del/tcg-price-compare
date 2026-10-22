@@ -404,6 +404,86 @@ def test_unpublish_rate_limit(monkeypatch):
 
 
 # ──────────────────────────────────────────────
+# 名前を変える（公開中だけ・公開時の鍵で）
+# ──────────────────────────────────────────────
+
+def test_rename_with_correct_token(monkeypatch):
+    _, client, sb = _load_app(monkeypatch)
+    import replay_og_image
+    purged = []
+    monkeypatch.setattr(replay_og_image, "purge_cache", lambda rid: purged.append(rid))
+    rid, token = _publish(client)
+    resp = client.post(f"/api/solitaire/replay/{rid}/rename", json={"token": token, "title": "  新しい\n名前 "})
+    assert resp.status_code == 200
+    assert resp.get_json() == {"ok": True, "title": "新しい 名前"}   # 公開時と同じ整形
+    assert sb.rows[0]["title"] == "新しい 名前"
+    assert sb.rows[0]["is_public"] is True                          # 公開のまま・鍵も残る
+    assert sb.rows[0]["delete_token_hash"]
+    assert purged == [rid]                                          # 古い題名入りの画像を消す
+    # 続けて何度でも変えられる・変えた後も取り下げられる
+    assert client.post(f"/api/solitaire/replay/{rid}/rename", json={"token": token, "title": "三つ目"}).status_code == 200
+    assert client.post(f"/api/solitaire/replay/{rid}/unpublish", json={"token": token}).status_code == 200
+
+
+def test_rename_rejects_bad_title_and_changes_nothing(monkeypatch):
+    _, client, sb = _load_app(monkeypatch)
+    rid, token = _publish(client)
+    before = dict(sb.rows[0])
+    import solitaire_routes
+    cases = {
+        "": "名前を入れてください",
+        "　\t": "名前を入れてください",
+        "あ" * (solitaire_routes.PUBLIC_TITLE_MAX_LEN + 1): f"名前は{solitaire_routes.PUBLIC_TITLE_MAX_LEN}文字以内にしてください",
+        "Ｆｕｃｋ": "名前に使えない言葉が含まれています",
+    }
+    for title, msg in cases.items():
+        resp = client.post(f"/api/solitaire/replay/{rid}/rename", json={"token": token, "title": title})
+        assert resp.status_code == 400, title
+        assert resp.get_json()["error"] == msg
+    resp = client.post(f"/api/solitaire/replay/{rid}/rename", json={"token": token, "title": None})
+    assert resp.status_code == 400
+    assert sb.rows[0] == before
+    # 上限ちょうどは通る
+    ok = "あ" * solitaire_routes.PUBLIC_TITLE_MAX_LEN
+    assert client.post(f"/api/solitaire/replay/{rid}/rename", json={"token": token, "title": ok}).status_code == 200
+
+
+def test_rename_with_wrong_token_is_403_and_changes_nothing(monkeypatch):
+    _, client, sb = _load_app(monkeypatch)
+    rid, _ = _publish(client)
+    before = dict(sb.rows[0])
+    for bad in ({"token": "wrong", "title": "x"}, {"token": "", "title": "x"}, {"token": 1, "title": "x"},
+                {"title": "x"}, None):
+        resp = client.post(f"/api/solitaire/replay/{rid}/rename", json=bad)
+        assert resp.status_code == 403, bad
+        assert resp.get_json()["code"] == "not_renamable", bad
+    assert sb.rows[0] == before
+
+
+def test_rename_unknown_id_non_public_and_unpublished_are_403(monkeypatch):
+    _, client, sb = _load_app(monkeypatch, rows=[_row("p1", None, public=False)])
+    assert client.post("/api/solitaire/replay/nope/rename", json={"token": "x", "title": "y"}).status_code == 403
+    assert client.post("/api/solitaire/replay/p1/rename", json={"token": "x", "title": "y"}).status_code == 403
+    rid, token = _publish(client)
+    assert client.post(f"/api/solitaire/replay/{rid}/unpublish", json={"token": token}).status_code == 200
+    resp = client.post(f"/api/solitaire/replay/{rid}/rename", json={"token": token, "title": "y"})
+    assert resp.status_code == 403
+    assert next(r for r in sb.rows if r["id"] == rid)["title"] == "テスト"
+
+
+def test_rename_rate_limit_and_kill_switch(monkeypatch):
+    _, client, _ = _load_app(monkeypatch)
+    import solitaire_routes
+    for _ in range(solitaire_routes.RENAME_RATE_LIMIT_MAX_REQUESTS):
+        assert client.post("/api/solitaire/replay/x/rename", json={"token": "t", "title": "y"}).status_code == 403
+    assert client.post("/api/solitaire/replay/x/rename", json={"token": "t", "title": "y"}).status_code == 429
+    # 取り下げの枠は別
+    assert client.post("/api/solitaire/replay/x/unpublish", json={"token": "t"}).status_code == 403
+    _, client, _ = _load_app(monkeypatch, flag="0")
+    assert client.post("/api/solitaire/replay/x/rename", json={"token": "t", "title": "y"}).status_code == 404
+
+
+# ──────────────────────────────────────────────
 # 90 日削除
 # ──────────────────────────────────────────────
 
