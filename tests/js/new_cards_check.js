@@ -61,7 +61,7 @@ function click(link,flags={}){
   // 各カードは外枠 .new-card（<a>＋デッキ追加ボタン）。<a>の中にbuttonを入れない。
   const wraps=get('newCardsGrid').children;
   let links=wraps.map(w=>w.children[0]);
-  assert.equal(links.length,6);assert.equal(get('newCardsMore').hidden,false);
+  assert.equal(links.length,8);assert.equal(get('newCardsMore').hidden,false); // トップは最初に8枚（2026-10-22）
   assert.equal(wraps[0].className,'new-card');
   assert.equal(wraps[0].dataset.cardName,cards[0].name,'/?addToDeck= の受け口が探すための data-card-name が無い');
   assert.equal(links[0].tag,'a');
@@ -102,12 +102,10 @@ function click(link,flags={}){
   }
   assert.equal(searches.length,1);
 
-  get('newCardsMore').listeners.click();assert.equal(get('newCardsGrid').children.length,12);
-  // 最初から見える6枚（LCP の要素）だけ遅延読み込みにしない。7枚目以降は lazy のまま。
-  {const loadings=get('newCardsGrid').children.map(w=>w.children[0].children[0].children[1]?.loading);
-   assert.deepEqual(loadings,[undefined,undefined,undefined,'eager','eager','eager','lazy','lazy','lazy','lazy','lazy','lazy']);}
-  assert.equal(get('newCardsMore').hidden,false);
   get('newCardsMore').listeners.click();assert.equal(get('newCardsGrid').children.length,13);
+  // 最初から見える8枚（LCP の要素）だけ遅延読み込みにしない。9枚目以降は lazy のまま。
+  {const loadings=get('newCardsGrid').children.map(w=>w.children[0].children[0].children[1]?.loading);
+   assert.deepEqual(loadings,[undefined,undefined,undefined,'eager','eager','eager','eager','eager','lazy','lazy','lazy','lazy','lazy']);}
   assert.equal(get('newCardsMore').hidden,true);
   assert.equal(pending.length,1,'もっと見るで不要な再通信が発生した');
 
@@ -128,10 +126,10 @@ function click(link,flags={}){
   assert.equal(get('newCardsRetry').hidden,false);
   assert.equal(get('newCardsStatus').textContent,failureMessage);
   const restored=api.load();reply(pending.at(-1),{cards,has_more:false});await restored;
-  assert.equal(get('newCardsGrid').children.length,6,'再取得後に表示件数が初期化されていない');
+  assert.equal(get('newCardsGrid').children.length,8,'再取得後に表示件数が初期化されていない');
   assert.equal(get('newCardsStatus').textContent,'');assert.equal(get('newCardsRetry').hidden,true);
   // has_more が真で全件表示しきったときだけ一覧ページへのリンクを出す。
-  const more=api.load();reply(pending.at(-1),{cards:cards.slice(0,7),has_more:true});await more;
+  const more=api.load();reply(pending.at(-1),{cards:cards.slice(0,9),has_more:true});await more;
   assert.equal(get('newCardsAll').hidden,true);
   get('newCardsMore').listeners.click();
   assert.equal(get('newCardsAll').hidden,false);assert.equal(get('newCardsStatus').textContent,'');
@@ -155,5 +153,5 @@ function click(link,flags={}){
   assert.equal(groups[1].children[1].children.length,2);
   assert.equal(get('newCardsMore').hidden,true);assert.equal(get('newCardsAll').hidden,true);
   assert.equal(get('newCardsHeading').textContent,'未発売カード一覧');
-  console.log('新着カード: 6件追加・DOM安全性・JST日付・クリック・通信共有・失敗/空/再試行を確認');
+  console.log('新着カード: 8件追加・DOM安全性・JST日付・クリック・通信共有・失敗/空/再試行を確認');
 })().catch(error=>{console.error(error);process.exitCode=1;});
