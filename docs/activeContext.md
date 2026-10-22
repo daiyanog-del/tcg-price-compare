@@ -1,9 +1,9 @@
 # activeContext — 今どこ・次何
 
-## 2026-10-22: 起動直後の statement timeout を読み方から直す（branch perf/startup-rpc-timeout・本番反映はユーザー確認待ち）
+## 2026-10-22: 起動直後の statement timeout を読み方から直す（本番 PR #206 e2165e8・SQL 2本も適用済み）
 - 原因: VACUUM FULL 後の可視性マップ空（全行を本体まで読む）＋値動き RPC が4日分を名前つきで集計（10.4秒）＋起動時に重い集計が同時3本・相場は 57014 でもページング経路で追加3回。
 - 済み: VACUUM (ANALYZE)（本番で実行済み）。SQL 2本の書き換え（get_price_movers・get_card_best_prices）と app.py（値動きプリロード廃止・ページング経路は関数が無いときだけ）は PR 待ち。新旧を本番で照合済み。同じ時刻の実測で 相場 0.81〜1.06→0.33秒・値動き 0.93→0.05秒。
-- 反映の手順: SQL Editor か MCP で supabase_rpc_movers.sql の get_price_movers 部分と supabase_rpc_best_prices.sql の get_card_best_prices 部分を適用 → Render デプロイ → 起動ログで 57014 が出ないか確認。
+- 本番確認（15:38 JST デプロイ）: 起動ログに 57014 なし・相場キャッシュは開始から約3.7秒（前回 43秒）・/api/movers と見積もり API 正常。残り: X の値動き投稿（x_poster・staple_post）の次回実行ログ。
 
 ## 2026-10-22: まとめ買い・レアリティ候補も同じ読み方に・読み込みに締め切り（本番 PR #205 50dd653）
 - /api/wish-shop-totals・/api/card-rarities を fetch_daily_rows_by_card_names（7日窓）へ。締め切り30秒（仮置き）。VACUUM は autovacuum に任せる（ユーザー判断）。
