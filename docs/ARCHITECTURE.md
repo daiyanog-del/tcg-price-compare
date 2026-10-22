@@ -80,7 +80,8 @@ Flask app.py (3,200行規模) ＋ solitaire_routes.py (Blueprint)
 
 | テーブル | 用途 |
 |---|---|
-| price_history / buyback_history | 販売・買取価格履歴（日次、保持90日 = constants.RETENTION_DAYS） |
+| price_history / buyback_history | 販売・買取価格履歴（日次、店舗別。保持30日 = constants.PRICE_RETENTION_DAYS / BUYBACK_RETENTION_DAYS） |
+| price_daily（price_daily_min） | 販売価格の日×カード×レアリティの全店最安（31〜100日目。相場グラフ・汎用X投稿用。price_daily_rollup.sql） |
 | tracked_cards / pack_list | 収集対象カード・パック情報 |
 | search_logs / deck_search_logs | 検索ログ（ランキングの永続化。旧「メモリ内のみ」から移行済み） |
 | push_subscriptions | Web Push 購読 |
