@@ -7,6 +7,8 @@
  * 項目は {id, title, createdAt, steps}。新しい順で最大 MAX_SHARED_REPLAYS 件。
  * 「みんなのリプレイに公開」した項目には public:true と deleteToken（取り下げの鍵）も持つ。
  * 鍵はこのブラウザにしか無い（サーバーにはハッシュだけ）。取り下げたら unpublishSharedReplay で外す。
+ * 公開中の項目は鍵で名前を変えられる（POST /api/solitaire/replay/<id>/rename）。変えたら renameSharedReplay で
+ * 控えの title と renamedAt（一覧の絵をブラウザのキャッシュから取り直すための印）を書き換える。
  * 履歴の記録に失敗しても共有そのものは失敗させない（呼び出し側は戻り値を無視してよい）。
  */
 
@@ -107,4 +109,19 @@ export function deleteSharedReplay(id) {
   const list = sharedReplaysGet().filter(r => r.id !== id);
   sharedReplaysSet(list);
   return list;
+}
+
+/**
+ * サーバーで名前を変えた項目の控えを書き換える。
+ * @param {string} id
+ * @param {string} title サーバーが返した（整えた後の）名前
+ * @returns {{ok:boolean}}
+ */
+export function renameSharedReplay(id, title) {
+  const list = sharedReplaysGet();
+  const item = list.find(r => r.id === id);
+  if (!item) return { ok: false };
+  item.title = String(title || '');
+  item.renamedAt = Date.now();
+  return sharedReplaysSet(list);
 }

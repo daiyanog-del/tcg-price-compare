@@ -13,6 +13,7 @@ OFF 時の挙動:
   - GET  /api/solitaire/replay/<id>     → 404
   - GET  /api/solitaire/public          → 404（みんなのリプレイの一覧）
   - POST /api/solitaire/replay/<id>/unpublish → 404（公開の取り下げ）
+  - POST /api/solitaire/replay/<id>/rename    → 404（公開中のリプレイの名前を変える）
   - GET  /solitaire/og/<id>.png         → 404
   - GET  /solitaire/og/card/<id>.png    → 404（未発売カードのリンク画像）
 
@@ -100,6 +101,10 @@ _public_list_rate_lock = threading.Lock()
 _public_list_rate_log: dict[str, list[float]] = {}
 _unpublish_rate_lock = threading.Lock()
 _unpublish_rate_log: dict[str, list[float]] = {}
+RENAME_RATE_LIMIT_WINDOW_SEC = 60
+RENAME_RATE_LIMIT_MAX_REQUESTS = 10
+_rename_rate_lock = threading.Lock()
+_rename_rate_log: dict[str, list[float]] = {}
 
 
 def _consume_ip_rate_limit(lock, log, window_sec, max_requests, message):
@@ -135,6 +140,13 @@ def _consume_unpublish_rate_limit():
     return _consume_ip_rate_limit(
         _unpublish_rate_lock, _unpublish_rate_log,
         UNPUBLISH_RATE_LIMIT_WINDOW_SEC, UNPUBLISH_RATE_LIMIT_MAX_REQUESTS,
+        "しばらく待ってから再度お試しください")
+
+
+def _consume_rename_rate_limit():
+    return _consume_ip_rate_limit(
+        _rename_rate_lock, _rename_rate_log,
+        RENAME_RATE_LIMIT_WINDOW_SEC, RENAME_RATE_LIMIT_MAX_REQUESTS,
         "しばらく待ってから再度お試しください")
 
 
@@ -691,3 +703,67 @@ def solitaire_replay_unpublish(replay_id):
     except Exception as e:
         logger.error(f"公開の取り下げエラー {replay_id}: {e}")
         return {"error": "取り下げに失敗しました"}, 500
+
+
+# 名前を変えられない（鍵違い・id なし・公開でない）ときの応答。取り下げと同じく、code のあるときだけクライアントは鍵を捨てる
+_NOT_RENAMABLE = ({"error": "名前を変えられません", "code": "not_renamable"}, 403)
+
+
+@solitaire_bp.route("/api/solitaire/replay/<replay_id>/rename", methods=["POST"])
+def solitaire_replay_rename(replay_id):
+    """公開中のリプレイの名前を変える。本文 {token, title}（token は公開時に返した deleteToken）。
+    鍵のハッシュが一致したときだけ title を書き換える。タイトルの条件は公開するときと同じ
+    （整形・必須・PUBLIC_TITLE_MAX_LEN 文字以内・禁止語）。
+    題名はリンク画像にも描かれているので、画像のキャッシュを消して新しい題名で描き直す。"""
+    if not ENABLE_VISUAL_SOLO_PLAY:
+        abort(404)
+    rate_error = _consume_rename_rate_limit()
+    if rate_error:
+        return rate_error
+    data = request.get_json(silent=True)
+    token = data.get("token") if isinstance(data, dict) else None
+    raw_title = data.get("title") if isinstance(data, dict) else None
+    if not isinstance(token, str) or not token or len(token) > 200:
+        return _NOT_RENAMABLE
+    title = replay_moderation.sanitize_title(raw_title if isinstance(raw_title, str) else "")
+    if not title:
+        return {"error": "名前を入れてください"}, 400
+    if len(title) > PUBLIC_TITLE_MAX_LEN:
+        return {"error": f"名前は{PUBLIC_TITLE_MAX_LEN}文字以内にしてください"}, 400
+    try:
+        if replay_moderation.contains_ng_word(title):
+            return {"error": "名前に使えない言葉が含まれています"}, 400
+    except replay_moderation.NgListUnavailable:
+        logger.error("禁止語リストが使えないため、名前の変更を断りました（data/replay_ng_words.txt を確認）")
+        return {"error": "現在名前を変えられません"}, 503
+    sb = _get_supabase()
+    if not sb:
+        return {"error": "データベース未接続"}, 503
+    try:
+        resp = (sb.table("solitaire_replays")
+                .select("delete_token_hash, board")
+                .eq("id", replay_id)
+                .eq("is_public", True)
+                .limit(1)
+                .execute())
+        rows = resp.data if resp.data else []
+        stored = (rows[0].get("delete_token_hash") if rows else None) or ""
+        # id が無い・公開でない・鍵が違うは同じ応答にする（id の有無を推測させない）
+        if not stored or not hmac.compare_digest(_hash_delete_token(token), stored):
+            return _NOT_RENAMABLE
+        (sb.table("solitaire_replays")
+         .update({"title": title})
+         .eq("id", replay_id)
+         .execute())
+    except Exception as e:
+        logger.error(f"リプレイの名前変更エラー {replay_id}: {e}")
+        return {"error": "名前を変えられませんでした"}, 500
+    # 古い題名入りの画像（原寸のファイルと一覧用の縮小版）を消して描き直す。
+    # ブラウザが1日覚えている画像と、X などが取り込み済みの画像はこちらから消せない（一覧ページは ?v= で取り直す）
+    replay_og_image.purge_cache(replay_id)
+    with _og_thumb_lock:
+        _og_thumb_cache.pop(replay_id, None)
+    board = validate_board(rows[0].get("board"))
+    if board:
+        replay_og_image.warm_cache_async(replay_id, board, title)
+    return {"ok": True, "title": title}

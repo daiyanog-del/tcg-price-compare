@@ -192,3 +192,17 @@ export function deleteReplayEntry(id) {
   savedReplaysSet(list);
   return list;
 }
+
+/**
+ * 指定IDのリプレイの名前を変える（一覧に出す title だけ。圧縮した data の中の title は使っていないので触らない）。
+ * @param {string} id
+ * @param {string} title
+ * @returns {{ok:boolean}} 見つからない・保存に失敗したときは ok:false
+ */
+export function renameReplayEntry(id, title) {
+  const list = savedReplaysGet();
+  const item = list.find(r => r.id === id);
+  if (!item) return { ok: false };
+  item.title = String(title || '').trim().slice(0, 100) || '無題';
+  return savedReplaysSet(list);
+}

@@ -141,8 +141,10 @@ function _pill(label, primary, danger) {
 
 /**
  * 名前を入れる小窓。onOk(name) が文字列を返したら、その文を出して閉じない（重複など）。
+ * onOk は Promise を返してもよい（サーバーへ送るとき）。待つ間は決定ボタンを押せなくし、文字列で解決したら同じく出して閉じない。
  * @param {Element|null} anchor
- * @param {{title:string, okLabel:string, initial?:string, maxLength?:number, onOk:(name:string)=>(string|void)}} opts
+ * @param {{title:string, okLabel:string, initial?:string, maxLength?:number,
+ *          onOk:(name:string)=>(string|void|Promise<string|void>)}} opts
  */
 export function openNameDialog(anchor, opts) {
   const el = document.createElement('div');
@@ -180,8 +182,25 @@ export function openNameDialog(anchor, opts) {
     e.preventDefault();
     const n = input.value.trim().slice(0, input.maxLength);
     if (!n) { err.textContent = '名前を入れてください'; err.hidden = false; input.focus(); return; }
-    const msg = opts.onOk(n);
-    if (typeof msg === 'string') { err.textContent = msg; err.hidden = false; input.focus(); input.select(); return; }
+    const showMsg = (msg) => {
+      if (typeof msg === 'string') { err.textContent = msg; err.hidden = false; input.focus(); input.select(); return true; }
+      return false;
+    };
+    const res = opts.onOk(n);
+    if (res && typeof res.then === 'function') {
+      if (ok.disabled) return;
+      ok.disabled = true;
+      res.then((msg) => {
+        ok.disabled = false;
+        if (!el.isConnected) return;   // 待つ間に閉じられた
+        if (!showMsg(msg)) _closePop(true);
+      }, () => {
+        ok.disabled = false;
+        if (el.isConnected) showMsg('うまくいきませんでした。時間をおいて試してください');
+      });
+      return;
+    }
+    if (showMsg(res)) return;
     _closePop(true);
   });
   _openPop(el, anchor);

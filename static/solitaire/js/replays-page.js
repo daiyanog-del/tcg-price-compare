@@ -12,11 +12,16 @@
  * ユーザー由来の文字列（タイトル等）は必ず textContent で入れる（innerHTML には入れない）。
  */
 
-import { savedReplaysGet, savedReplaysSet, deleteReplayEntry, assertReplayPayload, saveReplayPayload } from './services/saved-replays.js';
+import { savedReplaysGet, savedReplaysSet, deleteReplayEntry, renameReplayEntry, assertReplayPayload, saveReplayPayload } from './services/saved-replays.js';
 import { migrateSlotsToReplays, getRemainingSlotKeys, exportRemainingSlotsJson } from './services/slot-migration.js';
-import { sharedReplaysGet, sharedReplaysSet, deleteSharedReplay, unpublishSharedReplay } from './services/shared-replays.js';
+import { sharedReplaysGet, sharedReplaysSet, deleteSharedReplay, unpublishSharedReplay, renameSharedReplay } from './services/shared-replays.js';
 import { shouldConfirmOpen, copyResumeToUndo, UNDO_OFFER_KEY, NOTICE_KEY } from './utils/session-resume-store.js';
-import { showActionToast, openConfirm } from './ui/inline-ui.js';
+import { showActionToast, openConfirm, openNameDialog } from './ui/inline-ui.js';
+
+// 名前の上限。端末保存はシミュレーターの保存と同じ100文字（replay-ui.js REPLAY_TITLE_MAX_LEN）、
+// 公開中はサーバーの公開の条件と同じ40文字（solitaire_routes.PUBLIC_TITLE_MAX_LEN）
+const SAVED_TITLE_MAX_LEN = 100;
+const PUBLIC_TITLE_MAX_LEN = 40;
 
 /**
  * 行リンクを開くと、シミュレーターに退避中の記録が置き換わる場合の準備。
@@ -203,6 +208,19 @@ function renderSaved() {
     const actions = el('div', 'rp-row-actions');
     actions.appendChild(openLinkButton('最初から再生', openHref));
     actions.appendChild(openLinkButton('最後の盤面から続ける', openHref + '&at=end'));
+    const renameBtn = actionButton('名前を変える', '', () => {
+      openNameDialog(renameBtn, {
+        title: 'リプレイの名前',
+        okLabel: '変える',
+        initial: item.title || '',
+        maxLength: SAVED_TITLE_MAX_LEN,
+        onOk: (name) => {
+          if (!renameReplayEntry(item.id, name).ok) return '変えられませんでした（ブラウザの保存容量を確認してください）';
+          renderSaved();
+        },
+      });
+    });
+    actions.appendChild(renameBtn);
     actions.appendChild(actionButton('削除', 'rp-btn-danger', () => {
       removeWithUndo(savedReplaysGet, savedReplaysSet, deleteReplayEntry, item, renderSaved, `「${item.title || '無題'}」を削除しました`);
     }));
@@ -212,6 +230,22 @@ function renderSaved() {
 }
 
 // ── 2. 共有リンクを作ったリプレイ ──
+
+/**
+ * 一覧の絵（縮小版）の URL。名前を変えたものは ?v= を付けて、ブラウザが覚えている古い題名の絵を使わせない
+ * （サーバーは ?v= を見ない。絵の題名は名前の変更で描き直している）。
+ */
+function thumbUrl(id, renamedAt) {
+  const base = '/solitaire/og/thumb/' + encodeURIComponent(id) + '.webp';
+  return renamedAt ? base + '?v=' + encodeURIComponent(String(renamedAt)) : base;
+}
+
+/** このブラウザで名前を変えた公開中リプレイの {id: renamedAt}（みんなのリプレイの絵にも ?v= を付けるため） */
+function renamedAtById() {
+  const out = new Map();
+  for (const r of sharedReplaysGet()) if (r.renamedAt) out.set(r.id, r.renamedAt);
+  return out;
+}
 
 function renderShared() {
   const listEl = document.getElementById('rpSharedList');
@@ -233,7 +267,7 @@ function renderShared() {
 
     const thumb = document.createElement('img');
     thumb.className = 'rp-thumb';
-    thumb.src = '/solitaire/og/thumb/' + idParam + '.webp'; // 一覧用の縮小版（2026-10-22 LCP・solitaire_routes.solitaire_og_thumb）
+    thumb.src = thumbUrl(item.id, item.renamedAt); // 一覧用の縮小版（2026-10-22 LCP・solitaire_routes.solitaire_og_thumb）
     thumb.alt = '';
     thumb.loading = 'lazy';
     thumb.width = 120;
@@ -262,6 +296,8 @@ function renderShared() {
     });
     actions.appendChild(copyBtn);
     if (item.public && item.deleteToken) {
+      const renameBtn = actionButton('名前を変える', '', () => { renamePublicItem(item, renameBtn); });
+      actions.appendChild(renameBtn);
       // 赤は文字色だけ（取り消せない操作ではないので枠・背景は付けない）
       const unpubBtn = actionButton('公開をやめる', 'rp-btn-unpublish', () => { unpublishItem(item, unpubBtn); });
       actions.appendChild(unpubBtn);
@@ -285,6 +321,48 @@ function renderShared() {
     li.appendChild(actions);
     listEl.appendChild(li);
   }
+}
+
+/**
+ * 公開中のリプレイの名前を変える。公開時にこのブラウザへ控えた鍵で名前変更 API を呼ぶ。
+ * サーバーの断り（空・長すぎ・使えない言葉）は小窓の中に出して閉じない。
+ * 403（code 付き）は「鍵が合わない・すでに公開されていない」なので、取り下げと同じく控えを外して状況を伝える。
+ */
+function renamePublicItem(item, anchor) {
+  showSharedError('');
+  openNameDialog(anchor, {
+    title: 'リプレイの名前（みんなのリプレイにも出ます）',
+    okLabel: '変える',
+    initial: item.title || '',
+    maxLength: PUBLIC_TITLE_MAX_LEN,
+    onOk: async (name) => {
+      let res, data;
+      try {
+        res = await fetch('/api/solitaire/replay/' + encodeURIComponent(item.id) + '/rename', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: item.deleteToken, title: name }),
+        });
+        data = await res.json().catch(() => ({}));
+      } catch {
+        return '通信に失敗しました。しばらくしてからもう一度お試しください';
+      }
+      if (res.ok) {
+        renameSharedReplay(item.id, typeof data.title === 'string' ? data.title : name);
+        renderShared();
+        loadPublic(true); // みんなのリプレイの一覧の名前も変わる
+        return undefined;
+      }
+      if (res.status === 403 && data.code === 'not_renamable') {
+        unpublishSharedReplay(item.id);
+        renderShared();
+        showSharedError('このリプレイはすでに公開されていないようです。表示を更新しました。');
+        return undefined;
+      }
+      if (res.status === 400 && data.error) return data.error;
+      return data.error || '名前を変えられませんでした。しばらくしてからもう一度お試しください';
+    },
+  });
 }
 
 /** 共有履歴の下のエラー表示（空文字で消す） */
@@ -349,7 +427,7 @@ let publicNext = null;      // 続きを読むときの before（無ければ nu
 let publicReqSeq = 0;       // 古い応答が新しい表示を上書きしないための通し番号
 
 /** 公開リプレイのカード1枚を作る。ユーザー由来の文字列（タイトル・カード名）は textContent だけで入れる */
-function buildPublicCard(item) {
+function buildPublicCard(item, renamed) {
   const li = el('li', 'rp-pcard');
   const idParam = encodeURIComponent(item.id);
   const openHref = '/solitaire?replay=' + idParam;
@@ -361,7 +439,7 @@ function buildPublicCard(item) {
 
   const thumb = document.createElement('img');
   thumb.className = 'rp-pcard-thumb';
-  thumb.src = '/solitaire/og/thumb/' + idParam + '.webp'; // 一覧用の縮小版（2026-10-22 LCP・solitaire_routes.solitaire_og_thumb）
+  thumb.src = thumbUrl(item.id, renamed && renamed.get(item.id)); // 一覧用の縮小版（2026-10-22 LCP・solitaire_routes.solitaire_og_thumb）
   thumb.alt = '';
   thumb.loading = 'lazy';
   thumb.width = 1200;
@@ -429,7 +507,8 @@ async function loadPublic(reset) {
     }
     const data = await res.json();
     if (reset) listEl.textContent = '';
-    for (const item of data.items || []) listEl.appendChild(buildPublicCard(item));
+    const renamed = renamedAtById();
+    for (const item of data.items || []) listEl.appendChild(buildPublicCard(item, renamed));
     if (reset && !publicCard) savePublicCount((data.items || []).length);
     publicNext = data.next || null;
     if (moreBtn) moreBtn.hidden = !publicNext;
