@@ -1,13 +1,13 @@
 /* 全モード共通。入力・選択・ドラッグの目印は残し、情報の枠と行罫線をなくす。 */
 body.price-redesign {
-  --bg:#101626; --bg-card:#171f31; --bg-hover:#202c42; --bg-input:#171f31;
-  --border:#2b3549; --border-hl:#f3ce46;
+  --bg:#191b21; --bg-card:#20232b; --bg-hover:#2b2e38; --bg-input:#20232b;
+  --border:#353843; --border-hl:#f3ce46;
   --text:#eff3fb; --text-m:#a8b4c9; --text-d:#a8b4c9;
   --accent:#f3ce46; --accent-l:#aec5ff; --gold:#f3ce46; --gold-d:#b69b3d;
   /* 落ち着いたクリーム（ロゴの #fffbed を抑えた色）。検索欄の枠・選択中の下線に使う（2026-10-21） */
   --accent-soft:#d9d1b9;
   --green:#63d3ae; --radius:8px;
-  --color-bg:#101626; --color-panel:#171f31;
+  --color-bg:#191b21; --color-panel:#20232b;
   --color-text-primary:#eff3fb; --color-text-secondary:#a8b4c9; --color-text-tertiary:#a8b4c9;
 }
 .price-redesign :focus-visible {outline:2px solid #f3ce46;outline-offset:3px}
@@ -68,9 +68,9 @@ body.price-redesign {
 .price-redesign #mode-search .movers-tab {border:0}
 .price-redesign #mode-search .movers-tab.active {background:var(--bg-hover);box-shadow:inset 0 -2px 0 var(--accent-soft)}
 .price-redesign #mode-search .rf-btn.active {background:var(--bg-hover)}
-.price-redesign :is(.deck-build-tab-badge,.import-method-no) {background:#2b3549;color:var(--text)}
+.price-redesign :is(.deck-build-tab-badge,.import-method-no) {background:#353843;color:var(--text)}
 .price-redesign .meta-card-chip.clickable:hover {background:var(--bg-hover);color:var(--text)}
-.price-redesign .wish-card-link:hover {background:#2b3549;color:var(--text)}
+.price-redesign .wish-card-link:hover {background:#353843;color:var(--text)}
 .price-redesign .deck-drop-zone:is(:hover,.drag-over) {background:var(--bg-hover)}
 .price-redesign #mode-search .share-btns>button {border:0!important;background:var(--bg-hover)}
 .price-redesign #mode-search :is(.scard,.scard.best,.price-chart,.tbl-wrap,.ritem) {border:0}

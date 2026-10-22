@@ -5,14 +5,14 @@ const REMOVED_PATHS = new Set(['/api/card-image-proxy']);
 // tools/build_icons.py が画像と同時に更新する。
 // BEGIN GENERATED ICON URLS
 const ICON_ASSETS = {
-  "favicon.svg": "/static/favicon.svg?v=e31661a2c075",
-  "favicon-16.png": "/static/favicon-16.png?v=f83ff81b0e82",
-  "favicon-32.png": "/static/favicon-32.png?v=554e8105ab2a",
-  "apple-touch-icon.png": "/static/apple-touch-icon.png?v=a064db54f456",
-  "icon-192.png": "/static/icon-192.png?v=7ffe2fa4c132",
-  "icon-512.png": "/static/icon-512.png?v=06bd59080707",
-  "icon-maskable-192.png": "/static/icon-maskable-192.png?v=5784872b50f2",
-  "icon-maskable-512.png": "/static/icon-maskable-512.png?v=7977a1c887e1"
+  "favicon.svg": "/static/favicon.svg?v=f6abcfbcf3f5",
+  "favicon-16.png": "/static/favicon-16.png?v=e21fb301ed20",
+  "favicon-32.png": "/static/favicon-32.png?v=9543c948ed66",
+  "apple-touch-icon.png": "/static/apple-touch-icon.png?v=ebd4f0568883",
+  "icon-192.png": "/static/icon-192.png?v=d8916e698b83",
+  "icon-512.png": "/static/icon-512.png?v=9726fb8bb7e2",
+  "icon-maskable-192.png": "/static/icon-maskable-192.png?v=edfb01343b18",
+  "icon-maskable-512.png": "/static/icon-maskable-512.png?v=15dbed0e9503"
 };
 // END GENERATED ICON URLS
 const PRECACHE = Object.values(ICON_ASSETS);

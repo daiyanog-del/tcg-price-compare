@@ -30,16 +30,16 @@ from deck_image import _get_font
 logger = logging.getLogger(__name__)
 
 W, H = 1200, 630
-DESIGN_VERSION = "v6"   # 見た目を変えたら上げる（古い画像を使わない）
+DESIGN_VERSION = "v7"   # 見た目を変えたら上げる（古い画像を使わない）
 SETTING_KEY = "OG_BLUR_NO_REPOST"
 
 # ── 配色（replay_og_image と og-solitaire.png に合わせる）──
-_BG = (0x0b, 0x12, 0x21)
+_BG = (0x13, 0x14, 0x19)
 _TEXT = (0xef, 0xf3, 0xfb)
 _SUB = (0xa8, 0xb3, 0xc7)
 _GOLD = (0xf3, 0xce, 0x46)
-_BTN_FG = (0x14, 0x18, 0x22)
-_GLOW = (0x2a, 0x3d, 0x68)
+_BTN_FG = (0x17, 0x18, 0x1d)
+_GLOW = (0x3f, 0x44, 0x53)
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _LOGO_PATH = os.path.join(_HERE, "static", "og-post-logo.png")

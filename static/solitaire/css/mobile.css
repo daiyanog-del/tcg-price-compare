@@ -663,7 +663,7 @@
     font-size: 0.8rem;
   }
   .sol-mobile-place-seg button[aria-pressed="true"] {
-    background: #202c42;
+    background: #2b2e38;
     color: #eff3fb;
     font-weight: 700;
   }
@@ -1258,7 +1258,7 @@
     cursor: pointer;
   }
   .sol-deck-mode-tabs button[aria-pressed="true"] {
-    background: #202c42;
+    background: #2b2e38;
     color: #eff3fb;
     font-weight: 700;
   }
@@ -1332,7 +1332,7 @@
     height: 36px;
     border: 0;
     border-radius: 8px;
-    background: #202c42;
+    background: #2b2e38;
     color: #eff3fb;
     font-size: 1.1rem;
     font-weight: 700;
@@ -1365,7 +1365,7 @@
     bottom: 3px;
     padding: 1px 6px;
     border-radius: 999px;
-    background: rgba(16, 22, 38, 0.88);
+    background: rgba(25, 27, 33, 0.88);
     color: #eff3fb;
     font-size: 0.68rem;
     font-weight: 700;
@@ -1374,7 +1374,7 @@
 
   /* ════════ ⋯メニューのまとまり（2026-10-21 モック sim-refresh-20261021 の E・ユーザー承認） ════════
      見る・残す／盤面に足す／道具／デッキ／消す。項目は詰めた行（左寄せ・説明は下に小さく）、
-     別の画面へ進む項目は右に ›、消す操作は赤い文字。地はシート #141c2c の上に一段明るい面 */
+     別の画面へ進む項目は右に ›、消す操作は赤い文字。地はシート #1d1f26 の上に一段明るい面 */
   .sol-mobile-menu-body { gap: 0; padding: 0 14px 20px; }
   .sol-mobile-menu-group { margin-top: 10px; }
   .sol-mobile-menu-group-h {
@@ -1384,7 +1384,7 @@
     font-size: 0.72rem;
     font-weight: 700;
   }
-  .sol-mobile-menu-list { border-radius: 10px; background: #171f31; overflow: hidden; }
+  .sol-mobile-menu-list { border-radius: 10px; background: #20232b; overflow: hidden; }
   .sol-mobile-menu-list .sol-mobile-menu-item {
     display: flex;
     align-items: center;
@@ -1402,8 +1402,8 @@
     font-size: 0.92rem;
     text-align: left;
   }
-  .sol-mobile-menu-list .sol-mobile-menu-item + .sol-mobile-menu-item { border-top: 1px solid #101626; }
-  .sol-mobile-menu-list .sol-mobile-menu-item:active { background: #202c42; }
+  .sol-mobile-menu-list .sol-mobile-menu-item + .sol-mobile-menu-item { border-top: 1px solid #191b21; }
+  .sol-mobile-menu-list .sol-mobile-menu-item:active { background: #2b2e38; }
   /* 項目名と説明は左の列に縦に並べる */
   .sol-mobile-menu-list .sol-mobile-menu-item:not(.sol-sample-blur-toggle) { flex-wrap: wrap; align-content: center; row-gap: 0; padding-right: 32px; position: relative; }
   .sol-mobile-menu-label { flex: 1 1 100%; color: inherit; }

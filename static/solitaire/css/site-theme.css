@@ -1,47 +1,47 @@
 /* 全ページ共通の配色。一人回しの配置・寸法・枠幅は変更しない。 */
 :root {
   --main-color:#eff3fb;
-  --bg-color:#101626;
-  --bg-card:#171f31;
-  --bg-surface:#141c2c;
-  --bg-hover:#202c42;     /* 押せる面のホバー・通常ボタンの地（コメントの区画で使用。他の画面の同名変数と同じ値） */
+  --bg-color:#191b21;
+  --bg-card:#20232b;
+  --bg-surface:#1d1f26;
+  --bg-hover:#2b2e38;     /* 押せる面のホバー・通常ボタンの地（コメントの区画で使用。他の画面の同名変数と同じ値） */
   --accent:#aec5ff;
   --accent-hover:#d0ddff;
   --gold:#f3ce46;
   --green:#63d3ae;
   --red:#ff8f94;
-  --border:#2b3549;
+  --border:#353843;
 }
-.sol-sidebar,.sol-right-panel{background:#141c2c;border-color:transparent}
+.sol-sidebar,.sol-right-panel{background:#1d1f26;border-color:transparent}
 .sol-sidebar-section,.sol-right-section,.sol-neuron-divider,
 .replay-bar,.deck-card-row{border-color:transparent}
 .sol-sidebar-links{background:transparent}
 .sol-sidebar-links a{color:#a8b4c9}
 .sol-sidebar-links a.active{color:#eff3fb;border-left-color:#d9d1b9}
 .sol-sidebar-links a:hover,.deck-card-row:hover,
-.deck-card-row:focus-visible{background:#202c42;color:#eff3fb}
+.deck-card-row:focus-visible{background:#2b2e38;color:#eff3fb}
 .sol-right-heading,.sol-sidebar-heading,.pool-label,.center-slot-label,
 .side-slot-label,.left-rectangle-label,.deck-card-date,.deck-card-hint,
 .sol-upload-note,.sol-sidebar-explain,.sol-sidebar-explain p,.sol-ops-desc,
 .replay-counter,.sol-cip-toggle,.sol-panel-toggle{color:#a8b4c9}
-.sol-panel-toggle{border-color:#2b3549}
+.sol-panel-toggle{border-color:#353843}
 /* 主操作だけを黄色で強調する。通常操作と危険操作の識別は維持する。 */
 .deck-load-btn,.draw-btn,.sol-mobile-deck-primary-btn,.replay-share-btn,.replay-save-btn,.sol-mobile-save-btn{
   background:#f3ce46;color:#242013;border-color:transparent;box-shadow:none;
 }
 .deck-load-btn:hover,.draw-btn:hover,.sol-mobile-deck-primary-btn:hover,
 .replay-share-btn:hover,.replay-save-btn:hover{background:#ffe16d;color:#242013}
-.reset-btn{background:#202c42;color:#eff3fb;border-color:transparent}
-.reset-btn:hover{background:#2b3549;color:#eff3fb;border-color:transparent}
+.reset-btn{background:#2b2e38;color:#eff3fb;border-color:transparent}
+.reset-btn:hover{background:#353843;color:#eff3fb;border-color:transparent}
 .sol-cip-toggle:hover{background:#f3ce46;color:#242013;border-color:transparent}
 /* 開閉ボタンは小さな通常操作なので、金（主操作の色）で塗らず面の変化だけ（2026-10-22） */
-.sol-panel-toggle:hover{background:#202c42;color:#eff3fb;border-color:transparent}
+.sol-panel-toggle:hover{background:#2b2e38;color:#eff3fb;border-color:transparent}
 /* 選択中・再生中の状態は accent（黄は主操作の「保存」だけにするため。2026-10-15 整理③） */
-.replay-btn.play-active,.replay-speed-btn.active{background:#aec5ff;color:#101626;border-color:transparent}
+.replay-btn.play-active,.replay-speed-btn.active{background:#aec5ff;color:#191b21;border-color:transparent}
 .sol-nav-title .nav-brand{color:#eff3fb}
 .sol-nav-title .nav-brand .nav-g{color:#f3ce46}
 /* 既存の明色背景＋白文字を避け、操作中の状態を明瞭にする。 */
-.sol-ext-link,.sol-ops-key{background:#202c42;border-color:transparent;color:#aec5ff}
+.sol-ext-link,.sol-ops-key{background:#2b2e38;border-color:transparent;color:#aec5ff}
 button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 select:focus-visible,.deck-card-row:focus-visible{outline:2px solid #f3ce46;outline-offset:2px}
 /* 枠は透明化だけにとどめるため、盤面の計測値やドラッグ領域は変わらない。 */
@@ -69,7 +69,7 @@ select:focus-visible,.deck-card-row:focus-visible{outline:2px solid #f3ce46;outl
 .sol-fb-dialog,.sol-fb-header,.sol-fb-footer,
 .sol-recommend-badge{border-color:transparent}
 /* ホバー時もマスを線で囲まず、面の変化で置き場所を示す。 */
-.custom-slot:hover{border-color:transparent;background-color:#202c42}
+.custom-slot:hover{border-color:transparent;background-color:#2b2e38}
 /* 通常操作の外枠を面へ置換。選択・危険操作・録画状態は対象外。 */
 .sol-cip-toggle,.sol-panel-toggle,.sol-sidebar-actions button,
 .replay-btn:not(.replay-btn-danger):not(.play-active):not(.active):not(#pcRecordBtn.recording),

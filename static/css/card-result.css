@@ -25,7 +25,7 @@
 /* 操作はピルにそろえる（主操作だけ黄。マイデッキの見出しと同じ形） */
 #mode-search .cr-acts{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px;margin-top:12px}
 #mode-search .cr-pill{display:inline-flex;align-items:center;justify-content:center;min-height:32px;padding:0 14px;border:0;border-radius:18px;background:var(--bg-hover);color:var(--accent-l);font:700 12px var(--font);white-space:nowrap;cursor:pointer;list-style:none;user-select:none}
-#mode-search .cr-pill:hover{background:#2b3549;color:var(--text)}
+#mode-search .cr-pill:hover{background:#353843;color:var(--text)}
 #mode-search .cr-pill-pri{background:#f3ce46;color:#242013}
 #mode-search .cr-pill-pri:hover{background:#ffe16d;color:#242013}
 #mode-search .cr-acts .card-info-details{margin:0}
@@ -79,7 +79,7 @@
 #mode-search #mercariRef .scard .sprice{margin:0;font-size:16px}
 #mode-search #mercariRef .scard .sdetail{font-size:11px;white-space:normal}
 /* 「すべて」のときは全レアリティぶん並ぶので、高さに上限を付けて箱の中でスクロールする */
-#mode-search .cr-market #mercariRefBody:has(.mref-group+.mref-group){max-height:240px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2b3549 transparent}
+#mode-search .cr-market #mercariRefBody:has(.mref-group+.mref-group){max-height:240px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#353843 transparent}
 
 /* ── 買取（名前の行の下・全幅・既定で閉じる。2026-10-22 案A） ── */
 #mode-search #buyInline.cr-buy{margin:0 0 24px;padding:0;border:0;border-radius:8px;background:var(--bg-card)}

@@ -34,10 +34,10 @@ from deck_image import _download_card_image, _get_font
 logger = logging.getLogger(__name__)
 
 # ── 配色（承認モックと同じ値） ──
-_BG = (0x0b, 0x12, 0x21)
+_BG = (0x13, 0x14, 0x19)
 # 本番（relief-theme.css）のマス・墓地・除外の面と、手札・デッキのトレイの色
-_FACE = (0x25, 0x31, 0x43)   # --relief-face
-_TRAY = (0x20, 0x2c, 0x3d)   # --relief-tray
+_FACE = (0x31, 0x34, 0x3e)   # --relief-face
+_TRAY = (0x2c, 0x2f, 0x38)   # --relief-tray
 # 本番は面に細かい粒子（feTurbulence・opacity .07）を重ねている。粒子の細かい凹凸は縮小すると消える（本番画面の実測で
 # 標準偏差 約1.5/255）ので省き、粒子による平均の明るさの上がり分だけを色に足す（実測: 面 +5・トレイ +5.5 前後）。
 _GRAIN_SHIFT = (5, 5, 4)
@@ -165,9 +165,9 @@ def _fetch_all(names: list) -> tuple:
 
 def _name_frame(name: str, w: int, h: int) -> Image.Image:
     """画像の無いカード（未発売プロキシ・取得失敗）の代用: カード名を書いた暗色の枠（RGB）。"""
-    im = Image.new("RGB", (w, h), (0x26, 0x30, 0x4a))
+    im = Image.new("RGB", (w, h), (0x30, 0x34, 0x40))
     d = ImageDraw.Draw(im)
-    d.rectangle([0, 0, w - 1, h - 1], outline=(0x5a, 0x68, 0x88), width=2)
+    d.rectangle([0, 0, w - 1, h - 1], outline=(0x61, 0x69, 0x81), width=2)
     size = max(9, h // 9)
     font = _get_font(size, True)
     lines, buf = [], ""
@@ -300,11 +300,11 @@ def _paste_panel(img: Image.Image, x0: float, y0: float, w: float, h: float, rad
     # 内側の縁: 面=上に光(169,189,213 α.15)・下に影(7,15,28 α.4)／トレイ=上に影(7,14,24 α.35・約2px)・下に光(169,189,213 α.12)
     off = lambda dy_: ImageChops.offset(mask, 0, dy_)
     if tray:
-        top = (7, 14, 24, 0.35, 2)
-        bot = (169, 189, 213, 0.12, 1)
+        top = (13, 14, 18, 0.35, 2)
+        bot = (182, 187, 200, 0.12, 1)
     else:
-        top = (169, 189, 213, 0.15, 1)
-        bot = (7, 15, 28, 0.4, 1)
+        top = (182, 187, 200, 0.15, 1)
+        bot = (15, 16, 20, 0.4, 1)
     for (r, g, b_, al, px), sign in ((top, 1), (bot, -1)):
         edge = ImageChops.subtract(mask, off(sign * px * ss)).resize((tw, th), Image.BOX)
         edge = edge.point(lambda v, al=al: round(v * al))
@@ -494,7 +494,7 @@ def render_replay_og(board: dict, title: str = "") -> tuple:
 # ── キャッシュ・生成の入口 ──
 
 _REPLAY_ID_RE = re.compile(r"[A-Za-z0-9_-]{6,16}")   # secrets.token_urlsafe(8) は11文字
-_OG_CACHE_DIR = os.path.join(tempfile.gettempdir(), "cardprice_replay_og_v7")   # 見た目を変えたらバージョンを上げる（古い画像を使わない）
+_OG_CACHE_DIR = os.path.join(tempfile.gettempdir(), "cardprice_replay_og_v8")   # 見た目を変えたらバージョンを上げる（古い画像を使わない）
 os.makedirs(_OG_CACHE_DIR, exist_ok=True)
 
 # 同時描画数の上限（メモリ保護。本番は gunicorn 1ワーカー・8スレッドで約330MB常用）。

@@ -1,6 +1,6 @@
 /* 価格比較画面と共通ヘッダー。全モードの配色・部品は site-theme.css で統一する。 */
-body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
-.price-redesign> .wrap>header{display:flex;align-items:center;flex-wrap:wrap;gap:0 28px;padding:20px 0 0;text-align:left;border-bottom:1px solid #2b3549;margin-bottom:0}
+body.price-redesign{background:#191b21;background-image:none;color:#eff3fb}
+.price-redesign> .wrap>header{display:flex;align-items:center;flex-wrap:wrap;gap:0 28px;padding:20px 0 0;text-align:left;border-bottom:1px solid #353843;margin-bottom:0}
 .price-redesign header h1{flex-shrink:0;margin-bottom:16px}
 .price-redesign .brand-header-inner{gap:8px}
 .price-redesign .brand-header-icon{height:80px;width:auto;mix-blend-mode:normal}
@@ -14,10 +14,10 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
 .price-redesign .mode-tab.active{color:#eff3fb;border-bottom-color:var(--accent-soft);background:none;box-shadow:none}
 .price-redesign .header-solo-link::after{display:none}
 .price-redesign .nav-wishlist{margin-left:auto}
-.price-redesign .wish-badge{background:#2b3549;color:#eff3fb}
+.price-redesign .wish-badge{background:#353843;color:#eff3fb}
 .price-redesign .price-breadcrumb{flex-basis:100%;padding-bottom:12px;overflow-wrap:anywhere}
 /* 価格画面固有の変数。共通の色は site-theme.css と揃える。 */
-.price-redesign #mode-search{--bg:#101626;--bg-card:#171f31;--bg-hover:#202c42;--bg-input:#171f31;--border:#2b3549;--text:#eff3fb;--text-m:#a8b4c9;--text-d:#a8b4c9;--gold:#f3ce46;--gold-d:#b69b3d;--accent-l:#aec5ff;--green:#63d3ae}
+.price-redesign #mode-search{--bg:#191b21;--bg-card:#20232b;--bg-hover:#2b2e38;--bg-input:#20232b;--border:#353843;--text:#eff3fb;--text-m:#a8b4c9;--text-d:#a8b4c9;--gold:#f3ce46;--gold-d:#b69b3d;--accent-l:#aec5ff;--green:#63d3ae}
 .price-search-area{padding:22px 0}
 .price-search-form{min-width:0;max-width:660px}
 .price-search-label{display:block;color:#a8b4c9;font-size:12px;margin-bottom:9px}
@@ -25,7 +25,7 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
 #mode-search .search input{min-width:0;width:0;border:0;background:none;box-shadow:none;padding:10px;font-size:14px;border-radius:3px}
 #mode-search .search button{width:auto;min-height:44px;padding:10px 20px;box-shadow:none;background:#f3ce46;color:#242013;border-radius:4px;font-size:14px}
 #mode-search .search button:hover{background:#ffe16d}
-#mode-search .search button:disabled{background:#2b3549;color:#a8b4c9}
+#mode-search .search button:disabled{background:#353843;color:#a8b4c9}
 /* 選択中の枠は外側の影で2px相当に太くする（border を太くすると中身が1pxずれる）。入力欄自身の縁取りは外枠と二重になるので出さない */
 #mode-search .search:focus-within{border-color:var(--accent-soft);box-shadow:0 0 0 1px var(--accent-soft)}
 #mode-search .search input:focus-visible{outline:none}
@@ -37,7 +37,7 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
 .market-panel-title{font-size:15px;font-weight:700;padding:18px 16px 12px}
 #mode-search .movers-tabs{justify-content:flex-start;margin:0 16px 10px;gap:0}
 #mode-search .movers-tab{min-height:36px;padding:7px 12px;font-size:12px;background:none;color:var(--text-m);border-color:var(--border)}
-#mode-search .movers-tab.active{color:var(--text);background:#2b3549;border-color:#46526a}
+#mode-search .movers-tab.active{color:var(--text);background:#353843;border-color:#46526a}
 #mode-search .movers-period{text-align:left;margin:0;padding:0 16px 14px;min-height:30px;font-size:11px;line-height:1.6}
 #mode-search .of-tabs-row{display:flex;flex-direction:column;align-items:flex-start;gap:0;margin:0}
 #mode-search .of-tabs-row .movers-tabs{margin-bottom:8px}
@@ -105,7 +105,7 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
  .price-redesign .mode-tab,.price-redesign .header-solo-link{font-size:12px;min-height:44px;padding:10px 0;flex:0 0 auto}
  /* 購入候補をロゴの横に置き、5つの主導線を1行に収める。 */
  .price-redesign header h1{padding-right:90px}
- .price-redesign .mode-tabs .nav-wishlist{position:absolute;top:16px;right:0;min-height:40px;margin-left:0;padding:8px;border:1px solid #2b3549;border-radius:6px}
+ .price-redesign .mode-tabs .nav-wishlist{position:absolute;top:16px;right:0;min-height:40px;margin-left:0;padding:8px;border:1px solid #353843;border-radius:6px}
  .price-redesign .mode-tabs .nav-wishlist.active{border-color:var(--accent-soft)}
  .price-redesign .brand-header-icon{height:64px}
  .price-redesign .brand-wordmark{width:125px;transform:translateY(8px)}

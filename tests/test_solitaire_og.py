@@ -721,7 +721,7 @@ def test_fetch_count_upper_bound_is_26(env, fake_fetch):
 def test_cache_dir_is_versioned():
     """見た目を変えたら古い画像を使わないよう、ディスクキャッシュのディレクトリ名にバージョンを入れている"""
     import replay_og_image
-    assert os.path.basename(replay_og_image._OG_CACHE_DIR) == "cardprice_replay_og_v7"
+    assert os.path.basename(replay_og_image._OG_CACHE_DIR) == "cardprice_replay_og_v8"
 
 
 def test_zone_icons_exist():
