@@ -1,8 +1,8 @@
 # activeContext — 今どこ・次何
 
-## 2026-10-22: 有料プランへ上げる合図の通知（branch feat/upgrade-signal-alerts・PR 作成済み・本番はユーザー確認待ち）
+## 2026-10-22: 有料プランへ上げる合図の通知（本番 PR #208 4e4c1db・17:55 JST）
 - upgrade_signals.py（見張り）・upgrade_signals.sql（1日の集計の表2つ）・取得口に wait_observer・_SearchStreamSlots.busy_total。DB の応答は Supabase クライアントの httpx の通信部分を包んで数える。
-- SQL は 10-22 17:40 JST に適用済み。残りは PR のマージ。反映後は Render のログで「upgrade_signals」を見る（差し込めない・書けない警告が出ていないか）。
+- SQL は 10-22 17:40 JST に適用済み。本番確認: 起動2分後に upgrade_signal_daily へ1行（メモリ 216.1MiB・cgroup v2＝Render の表示 226.3MB と一致）、10-21 のまとめの印も本番の鍵で書けた（合図0・送信なし）。起動直後の重い集計で db_slow 5件・db_failures 1件（相場キャッシュの 57014、2回目で成功）＝デプロイ1回で遅い応答が数件出るので、1日の合図（50件）の校正ではデプロイ回数を考える。反映後は Render のログで「upgrade_signals」を見る（差し込めない・書けない警告が出ていないか）。
 - 次: upgrade_signal_daily が数日溜まったらしきい値を校正（TASKS）。Supabase の IO の余力の項目名を Metrics API で確かめる（未確認）。
 
 ## 2026-10-22: 店舗検索の取得口を店ごとの列に作り直した（本番 PR #207 5cdf678・16:33 JST・決定は decisions.md 同日）
