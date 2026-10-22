@@ -396,3 +396,61 @@ def test_thread_start_failure_does_not_block_future_refresh(database, fresh_refr
             display._refresh_failed_at[name] -= display._CACHE_TTL + 1
     display.get_new_cards()
     assert "card_display_refresh_unreleased" in started
+
+
+# ── HTML への埋め込み（2026-10-22 LCP）──
+
+def test_cached_new_cards_never_waits_for_db(database):
+    """覚えている値が無いときは DB を引かずに None（ページの HTML を DB 待ちで止めない）。"""
+    database.rows["unreleased_cards"] = [card(i) for i in range(3)]
+    assert display.cached_new_cards() is None
+    assert database.calls == []
+    # 一度 API 経由で取れば、以後は覚えている値から返す（DB は引かない）
+    expected = display.get_new_cards()
+    calls = len(database.calls)
+    assert display.cached_new_cards() == expected
+    assert len(database.calls) == calls
+
+
+def test_cached_new_cards_is_none_when_too_old(database, monkeypatch):
+    database.rows["unreleased_cards"] = [card(0)]
+    display.get_new_cards()
+    base = display.time.monotonic()
+    monkeypatch.setattr(display.time, "monotonic", lambda: base + display._CACHE_STALE_MAX + 1)
+    calls = len(database.calls)
+    assert display.cached_new_cards() is None
+    assert len(database.calls) == calls
+
+
+def test_top_page_writes_first_cards_and_new_cards_page_preloads(database):
+    import app as app_module
+    database.rows["unreleased_cards"] = [card(i) for i in range(8)]
+    database.rows["official_card_images"] = [image(7, thumb_url="https://example.test/thumbs/7.webp?v=a"), image(6)]
+    client = app_module.app.test_client()
+    # 覚えている値が無いときは埋め込まず、仮の枠のまま（従来どおり API で取る）
+    html = client.get("/").get_data(as_text=True)
+    assert 'id="newCardsInitial"' not in html and "new-card-skel" in html
+    display.get_new_cards()
+    html = client.get("/").get_data(as_text=True)
+    assert 'id="newCardsInitial"' in html and "new-card-skel" not in html
+    grid = html[html.index('id="newCardsGrid"'):html.index('id="newCardsStatus"')]
+    assert grid.count('class="new-card"') == 6
+    # 最初の枠: 縮小版を優先・すぐ読む・日付は日本時間の「MM/DD 追加」・名前は文字として出す
+    assert '<img src="https://example.test/thumbs/7.webp?v=a" alt="" loading="eager" decoding="async">' in grid
+    assert '<img src="https://example.test/6.png"' in grid
+    assert "09/08 追加" in grid and 'data-card-name="新カード7"' in grid
+    assert 'rel="preload" as="image"' not in html  # トップは本物の img で足りる
+    # /new-cards は埋め込まない（一覧ページの印が付く前に描いて描き直しになり、LCP が悪化したため）
+    html = client.get("/new-cards").get_data(as_text=True)
+    assert 'id="newCardsInitial"' not in html and 'rel="preload" as="image"' not in html
+
+
+def test_first_cards_html_escapes_names(database):
+    import app as app_module
+    database.rows["unreleased_cards"] = [card(0, name='<b>"x"</b>')]
+    database.rows["official_card_images"] = [image(0, public_url="javascript:alert(1)")]
+    display.get_new_cards()
+    html = app_module.app.test_client().get("/").get_data(as_text=True)
+    grid = html[html.index('id="newCardsGrid"'):html.index('id="newCardsInitial"')]
+    assert "<b>" not in grid and "&lt;b&gt;" in grid
+    assert "javascript:" not in grid

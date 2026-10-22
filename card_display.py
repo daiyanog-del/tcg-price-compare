@@ -417,6 +417,26 @@ def _get_unreleased(*, strict: bool = False) -> dict[str, dict]:
     return _get_unreleased(strict=strict)
 
 
+def cached_new_cards(limit: int | None = 36) -> dict | None:
+    """覚えている値だけで新着の未発売カードを返す。DB を待つ必要があるときは None（ページの HTML に埋め込む用）。
+
+    トップと /new-cards の HTML に最初の一覧を埋め込み、画像を早く読み始めるために使う（2026-10-22 LCP）。
+    キャッシュが無い・古すぎる（_CACHE_STALE_MAX 超え）ときに DB を待つと、DB が遅いときにページの HTML ごと止まる
+    （2026-10-22 朝の Disk IO Budget 枯渇で実際に起きた）。その場合は None を返し、画面は従来どおり API で取る。
+    """
+    now = time.monotonic()
+    with _cache_lock:
+        if _settings_cache is None or _unreleased_cache is None:
+            return None
+        if now - _settings_cache_at >= _CACHE_STALE_MAX or now - _unreleased_cache_at >= _CACHE_STALE_MAX:
+            return None
+    try:
+        # 両方のキャッシュが期限内（古ければ裏で取り直す）なので、ここでは DB を待たない
+        return get_new_cards(limit=limit)
+    except Exception:
+        return None
+
+
 def get_new_cards(limit: int | None = 36) -> dict:
     """承認・表示許可済みの未発売カードを登録日時順に返す。
 

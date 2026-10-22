@@ -139,7 +139,15 @@ window.NewCards = (() => {
     // HTMLの仮枠（または前回の表示）が残っている間は文言を足さない（足すと枠の下が押し下げられる）
     if(!get('newCardsGrid').children.length)get('newCardsStatus').textContent='新着カードを読み込み中…';
     const list=isListPage();
-    pending=fetch(list?'/api/new-cards?all=1':'/api/new-cards').then(async response=>{
+    // サーバーが HTML に埋め込んだ最初の一覧（app.py index / new_cards_page）があれば、API を待たずに使う（一度だけ。
+    // 再試行などでは API から取り直す）。DB を待たないと決まらないときは埋め込まれない（card_display.cached_new_cards）
+    const initialEl=get('newCardsInitial');
+    let initial=null;
+    if(initialEl){try{initial=JSON.parse(initialEl.textContent);}catch{initial=null;}initialEl.remove();}
+    const source=initial&&Array.isArray(initial.cards)
+      ?Promise.resolve({ok:true,json:async()=>initial})
+      :fetch(list?'/api/new-cards?all=1':'/api/new-cards');
+    pending=source.then(async response=>{
       if(!response.ok)throw new Error('新着カード取得失敗');
       const data=await response.json();
       if(!Array.isArray(data.cards))throw new Error('新着カード形式不正');
