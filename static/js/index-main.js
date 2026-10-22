@@ -245,11 +245,86 @@ function showUnreleasedCard(name){
 // 「カード情報（効果テキスト）」の見出しだけ空で残る（情報DB未収録カード等）のを防ぐ
 function _showCardDetail(){
   document.getElementById('cardDetailDetails')?.removeAttribute('hidden');
+  document.getElementById('crFxBtn')?.removeAttribute('hidden');
 }
 // 発売済みカードの欄は最初から出している（renderAll）。カード情報が無い・取れなかったときに隠す
 function _hideCardDetail(){
   document.getElementById('cardDetailDetails')?.setAttribute('hidden','');
+  document.getElementById('crFxBtn')?.setAttribute('hidden','');
 }
+
+// ── スマホ: 効果テキストを下から出るシートで開く（2026-10-22 ユーザー指定「ポップアップのような形でいい感じに」）。
+// 履歴の扱いは環境デッキの全面の詳細（_openMetaSheet）と同じ: 開くときに履歴を1つ足し、ブラウザの「戻る」・Esc・✕・背景で閉じる
+let _fxSheetHistory=false,_fxSheetReady=false,_fxSheetPendingBack=false;
+// このページは「戻る・進む」のたびに検索をやり直す（_restoreLocation）。シートの開け閉めで足した・戻した履歴の
+// popstate はそちらに渡さない（渡すと閉じるたびに検索結果が作り直される）。下の共通の popstate から呼ぶ
+function _fxSheetConsumePop(e){
+  if(_fxSheetPendingBack){ _fxSheetPendingBack=false; return true; }        // ✕・背景・Esc で閉じて履歴を戻した分
+  if(_fxSheetHistory){ _fxSheetHistory=false; _closeFxSheet(true); return true; } // 開いたままブラウザの「戻る」
+  return !!(e&&e.state&&e.state.fxSheet);                                    // 閉じた後の「進む」（シートの履歴に戻っただけ）
+}
+function _fxSheetEl(){
+  let el=document.getElementById('crFxSheet');
+  if(el) return el;
+  el=document.createElement('div');
+  el.id='crFxSheet';el.className='cr-fx-sheet';el.hidden=true;
+  el.innerHTML='<div class="cr-fx-backdrop" id="crFxBackdrop"></div>'+
+    '<div class="cr-fx-panel" role="dialog" aria-modal="true" aria-labelledby="crFxTitle">'+
+    '<div class="cr-fx-head"><h2 id="crFxTitle"></h2><button type="button" class="cr-fx-close" id="crFxClose" aria-label="閉じる">✕</button></div>'+
+    '<div class="cr-fx-body card-detail" id="crFxBody"></div></div>';
+  document.body.appendChild(el);
+  document.getElementById('crFxClose').addEventListener('click',()=>_closeFxSheet());
+  document.getElementById('crFxBackdrop').addEventListener('click',()=>_closeFxSheet());
+  return el;
+}
+function _openFxSheet(){
+  const src=document.getElementById('cardDetail');
+  if(!src||!src.innerHTML.trim()) return;
+  const el=_fxSheetEl();
+  document.getElementById('crFxTitle').textContent=_currentCardName||document.getElementById('q').value.trim();
+  document.getElementById('crFxBody').innerHTML=src.innerHTML; // 中身は esc 済みの描画結果（_fetchCardInfo）をそのまま写す
+  if(!_fxSheetReady){
+    _fxSheetReady=true;
+    document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&!document.getElementById('crFxSheet')?.hidden) _closeFxSheet(); });
+  }
+  if(el.hidden&&history.pushState){ try{ history.pushState({fxSheet:1},''); _fxSheetHistory=true; }catch(_){} }
+  el.hidden=false;
+  document.getElementById('crFxBody').scrollTop=0;
+  document.documentElement.classList.add('cr-fx-open'); // 後ろのページがスクロールしないように
+  document.getElementById('crFxClose')?.focus();
+  _ga('card_info_open',{trigger:'sheet'});
+}
+// fromPop: ブラウザの「戻る」で閉じたとき（履歴はもう戻っているので戻さない）
+function _closeFxSheet(fromPop){
+  const el=document.getElementById('crFxSheet');
+  const wasOpen=!!(el&&el.hidden===false); // まだ作っていない・閉じている
+  if(el) el.hidden=true;
+  document.documentElement.classList.remove('cr-fx-open');
+  if(fromPop){ _fxSheetHistory=false; }
+  else if(wasOpen&&_fxSheetHistory){ _fxSheetHistory=false; _fxSheetPendingBack=true; try{ history.back(); }catch(_){ _fxSheetPendingBack=false; } }
+  if(wasOpen) document.getElementById('crFxBtn')?.focus();
+}
+
+// ── スマホ: 出品を上へ（2026-10-22 案M1）。相場の箱と買取を出品の一覧の下へ移す。PC の幅に戻れば元の位置へ。
+// CSS の並べ替えでは、相場の箱（名前の行の中）と一覧（その外）の順番を入れ替えられないため要素を動かす。ID は変えない
+const _CR_SP_MQ='(max-width:640px)';
+function _crPlaceForViewport(){
+  const hero=document.getElementById('cardHero'),mk=document.getElementById('heroMarket');
+  const buy=document.getElementById('buyInline'),list=document.getElementById('crList');
+  if(!hero||!mk||!buy||!list) return;
+  const sp=!!(window.matchMedia&&matchMedia(_CR_SP_MQ).matches);
+  if(sp){
+    if(mk.parentNode===hero){ list.after(mk); mk.after(buy); }
+  }else{
+    if(mk.parentNode!==hero){ hero.appendChild(mk); hero.after(buy); }
+    _closeFxSheet();
+  }
+}
+if(window.matchMedia){
+  const _crMq=matchMedia(_CR_SP_MQ);
+  if(_crMq.addEventListener) _crMq.addEventListener('change',_crPlaceForViewport); else if(_crMq.addListener) _crMq.addListener(_crPlaceForViewport);
+}
+_crPlaceForViewport();
 
 // PC の検索結果で最初から開いている効果テキストの高さを、右の相場の箱（1023px 以下は画像）の底までに抑える。
 // 超える分は「続きを読む」で開く。長い効果（ペンデュラム等）で名前の行だけが伸び、下のレアリティ欄と一覧が
@@ -747,6 +822,8 @@ function renderAll(d){
   // 在庫の件数・レアリティの種類数の行は、すぐ下のレアリティ欄（すべて N件・札の数）と重なるので出さない（2026-10-22）
   heroInfo.innerHTML=`<div class="card-hero-name">${esc(searchTerm)}</div>
     <div class="cr-best" id="heroBest">${best?'':'<span class="cr-best-none">在庫なし</span>'}</div>
+    <!-- スマホだけ: 効果テキストは名前と最安の下（画像の横の空き）のボタンから全画面で開く（2026-10-22 ユーザー指定） -->
+    <button type="button" class="cr-fx-btn" id="crFxBtn" onclick="_openFxSheet()">効果テキスト</button>
     <div class="cr-acts">
       <button type="button" id="heroWishAdd" class="cr-pill cr-pill-pri" onclick="wishAddFromBtn(this,'${escAttr(escJs(searchTerm))}',1,rarityFilter)">購入候補に追加</button>
       <button type="button" class="cr-pill" onclick="addToDeck('${escAttr(escJs(searchTerm))}',this)">デッキに追加</button>
@@ -800,6 +877,11 @@ function renderAll(d){
   let defaultRarity='';
   if(realRarities.length>1&&best&&best.rarity&&best.rarity!=='(不明)'){
     defaultRarity=best.rarity;
+  }else if(realRarities.length===1){
+    // 実体のあるレアリティが1種類だけのカードも、そのレアリティを選んだ状態にする（2026-10-22 ユーザー指摘）。
+    // レアリティ欄は出ない（選ぶものが無い）のに未指定のままだと、購入候補が「レアリティ未指定」になり、
+    // 相場の動きが「レアリティを選ぶと…」と選べないものを求めていた
+    defaultRarity=realRarities[0];
   }
   rarityFilter=defaultRarity;
   tableShowCount=TABLE_PAGE_SIZE;
@@ -1210,7 +1292,7 @@ function _updateHeroSummary(){
 // 旧・「絞り込み中」の帯（#rfBanner）は、レアリティ欄の選択の印と一覧の見出しで伝えるようにしたので廃止
 function _updateRarityBanner(){
   const wishButton=document.getElementById('heroWishAdd');
-  if(wishButton)wishButton.textContent=rarityFilter?`${rarityFilter}を購入候補に追加`:'レアリティ未指定で購入候補に追加';
+  if(wishButton)wishButton.textContent=rarityFilter?`${rarityFilter}を購入候補へ`:'レアリティ未指定で購入候補へ';
 }
 
 // レアリティの選択欄。各レアリティの在庫ありの最安を出し、安い順に並べる（押す前に値段の差が分かる）。
@@ -1965,7 +2047,7 @@ function _restoreLocation(trigger){
     document.title='強欲なラボ';
   }
 }
-window.addEventListener('popstate',()=>_restoreLocation('popstate'));
+window.addEventListener('popstate',e=>{ if(_fxSheetConsumePop(e)) return; _restoreLocation('popstate'); });
 
 // G-5: スクロール量計測（C-3c ボトムナビ判断材料）。
 // 現在のスクロール到達率（%）。スクロール不可（コンテンツが画面に収まる）なら0を返す

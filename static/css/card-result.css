@@ -172,10 +172,42 @@
   #mode-search .cr-market{grid-column:1/-1;margin-top:20px}
 }
 
+/* 効果テキストのボタン・全画面はスマホだけ */
+#mode-search .cr-fx-btn{display:none}
+.cr-fx-sheet{position:fixed;inset:0;z-index:1200;display:flex;flex-direction:column;justify-content:flex-end}
+.cr-fx-sheet[hidden]{display:none}
+.cr-fx-backdrop{position:absolute;inset:0;background:rgba(5,8,16,.62)}
+.cr-fx-panel{position:relative;display:flex;flex-direction:column;max-height:78vh;max-height:78dvh;border-radius:16px 16px 0 0;background:var(--bg-card);color:var(--text);box-shadow:0 -8px 30px rgba(0,0,0,.45);padding-bottom:env(safe-area-inset-bottom,0px);animation:cr-fx-up .2s ease-out}
+.cr-fx-panel::before{content:"";align-self:center;width:36px;height:4px;margin:8px 0 2px;border-radius:2px;background:#46526a}
+@keyframes cr-fx-up{from{transform:translateY(24px);opacity:.6}to{transform:none;opacity:1}}
+@media(prefers-reduced-motion:reduce){.cr-fx-panel{animation:none}}
+.cr-fx-head{display:flex;align-items:center;gap:8px;padding:4px max(8px,env(safe-area-inset-right,0px)) 8px max(16px,env(safe-area-inset-left,0px))}
+.cr-fx-head h2{flex:1;min-width:0;margin:0;overflow:hidden;font-size:16px;font-weight:700;white-space:nowrap;text-overflow:ellipsis}
+.cr-fx-close{flex:0 0 auto;width:40px;height:40px;border:0;border-radius:20px;background:var(--bg-hover);color:var(--text-m);font:700 15px var(--font);cursor:pointer}
+.cr-fx-body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;margin:0;padding:4px max(16px,env(safe-area-inset-right,0px)) 24px max(16px,env(safe-area-inset-left,0px));border:0;font-size:14px;line-height:1.85}
+.cr-fx-body .cdm-row{justify-content:flex-start;flex-wrap:wrap;gap:4px 8px}
+.cr-fx-body .cdm-row .lb{margin-left:0}
+.cr-fx-body .card-detail-effect{margin-top:10px;font-size:14px}
+html.cr-fx-open,html.cr-fx-open body{overflow:hidden}
+
 /* ── スマホ ── */
 @media(max-width:640px){
-  #mode-search .card-hero{grid-template-columns:76px minmax(0,1fr);grid-template-rows:auto 1fr;gap:0 14px;margin-bottom:22px}
-  #mode-search .card-hero-img{grid-column:1;grid-row:1/span 2;width:76px;border-radius:4px}
+  /* パンくずは隠す（検索欄とタブで現在地は分かる。ページの中には残す） */
+  .price-redesign .price-breadcrumb{display:none}
+  /* 効果テキストは名前と最安の下のボタン（画像の横の空き）。ボタンの列の「効果テキスト」は出さない */
+  #mode-search .cr-fx-btn{display:inline-flex;grid-column:2;grid-row:3;align-self:start;justify-self:start;align-items:center;min-height:30px;margin-top:6px;padding:0 12px;border:1px solid #46526a;border-radius:15px;background:none;color:var(--accent-l);font:700 12px var(--font);cursor:pointer}
+  #mode-search .cr-fx-btn[hidden]{display:none}
+  #mode-search .cr-acts>.card-info-details{display:none}
+  /* ボタンは1行（購入候補は伸び縮み・長いレアリティ名は「…」） */
+  #mode-search .cr-acts{flex-wrap:nowrap}
+  #mode-search .cr-acts>.cr-pill-pri{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+  #mode-search .cr-acts>:not(.cr-pill-pri){flex:0 0 auto}
+  #mode-search .cr-acts .share-menu-wrap>.cr-pill{width:auto}
+  /* 相場の箱・買取は出品の一覧の下（_crPlaceForViewport が移す） */
+  #mode-search #results>.cr-market{margin:0 0 14px}
+  #mode-search .cr-list{margin-bottom:14px}
+  #mode-search .card-hero{grid-template-columns:76px minmax(0,1fr);grid-template-rows:auto auto 1fr;gap:0 14px;margin-bottom:22px}
+  #mode-search .card-hero-img{grid-column:1;grid-row:1/span 3;width:76px;border-radius:4px}
   #mode-search #heroBest.cr-best{align-self:start}
   /* 名前・最安を画像の右、操作と相場の箱を全幅に置くため、情報欄の子を直接並べる */
   #mode-search .card-hero-info{display:contents}
