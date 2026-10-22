@@ -27,7 +27,9 @@ from pack_scraper import (
 from price_persist import build_min_price_rows, upsert_price_rows
 from clabo_catalog import collect_clabo_catalog
 from collection_run import record_collection_run, attach_host_request_counts
-from db_write_guard import ConsecutiveDbFailureGuard, DbWriteAborted, report_db_abort
+from db_write_guard import (
+    ConsecutiveDbFailureGuard, DbWriteAborted, GuardedSupabase, is_db_unavailable, report_db_abort,
+)
 from discord_notify import send_discord_message
 from meta_scraper import fetch_tier_list, fetch_deck_cards
 from name_normalize import load_cardnames_index, canonicalize_card_name
@@ -327,7 +329,10 @@ def collect_and_save(sb: Client, card_name: str, today: str, shop_names: list[st
         saved = upsert_price_rows(sb, rows, raise_on_error=db_guard is not None)
     except Exception as e:
         print(f"  DB保存失敗 [{card_name}]")
-        db_guard.record_failure(e)  # 上限に達したら DbWriteAborted が上がる
+        # 4xx など DB が応答しない系以外の失敗もここで数える（保存の仕組みが壊れたときも止めるため）。
+        # DB が応答しない系は、同じ見張り役の見張り付きクライアント（GuardedSupabase）が数え済みなので重ねて数えない
+        if not (is_db_unavailable(e) and getattr(sb, "guard", None) is db_guard):
+            db_guard.record_failure(e)  # 上限に達したら DbWriteAborted が上がる
         return 0
     if db_guard is not None:
         db_guard.record_success()
@@ -949,11 +954,35 @@ def cleanup_old_data(sb: Client):
 
 
 def main():
+    """_main をくるみ、DBへの要求が続けて失敗して打ち切ったとき（カード収集のループの外で止まったとき）に
+    Discord と記録に残して終了コード1で終える。ループの中で止まったときは _main 側で件数つきで知らせて終える。
+    state: _main が「今どの段階か（sync/post）」と、後処理に入った時点の件数・記録の中身を書き込む。
+    正常終了の行を記録し終えたあとに止まったとき（recorded）は、行を重ねないよう記録しない。
+    """
+    started_at = datetime.now(JST)
+    state: dict = {"phase": "sync"}
+    try:
+        _main(state)
+    except DbWriteAborted as e:
+        report_db_abort(
+            get_supabase(), e, label="価格収集", table="tracked_cards など", started_at=started_at,
+            today=datetime.now(JST).date().isoformat(), phase=state["phase"],
+            processed=state.get("processed"), total=state.get("total"),
+            success_count=state.get("success_count", 0),
+            run_type=None if state.get("recorded") else "prices",
+            record_kwargs=state.get("record_kwargs") or dict(attempted_shops=[], available_shops=[]),
+        )
+        sys.exit(1)
+
+
+def _main(state: dict):
     started_at = datetime.now(JST)
     print(f"=== 価格履歴収集 {datetime.now().strftime('%Y-%m-%d %H:%M')} ===")
     print(f"設定: 周辺予算={DAILY_COLD_BUDGET}枚 / 時間上限={TIME_BUDGET_SEC//60}分")
 
-    sb = get_supabase()
+    # DB が応答しない系の失敗はすべての DB 呼び出しで数えて待って再試行し、続けて失敗したら打ち切る
+    # （同期処理も含む。db_write_guard.GuardedSupabase）。カード単位の保存失敗も同じ見張り役で数える
+    sb = GuardedSupabase(get_supabase(), ConsecutiveDbFailureGuard())
 
     # ── 注目カードの sync ──
     hot: set[str] = set()
@@ -1053,8 +1082,9 @@ def main():
     loop_end_index = len(selected)
 
     # DB保存の連続失敗で打ち切る（2026-10-22 DB停止時に約2分ずつ失敗しながら要求を送り続けた）
-    db_guard = ConsecutiveDbFailureGuard()
+    db_guard = sb.guard
     db_abort: DbWriteAborted | None = None
+    abort_phase = "loop"  # カタログ保存（後処理）で止まったときは "post"
 
     # try/finally で囲む（reviewer低1）: カード単位ループ中に想定外の例外が起きても、
     # 既に巡回済みのカタログ結果（最大2万件）を失わずに保存する。例外自体は
@@ -1080,26 +1110,29 @@ def main():
                         break
 
                 print(f"[{i+1}/{len(selected)}] {card_name}")
+                saved = 0
                 try:
                     saved = collect_and_save(sb, card_name, today, loop_shops,
                                              shop_stats=shop_stats, db_guard=db_guard)
+                    if saved > 0:
+                        total_saved += saved
+                        success_count += 1
+                        # 収集完了を記録（途中タイムアウトでも進捗が保持されローテーションが正しく進む）
+                        try:
+                            sb.table("tracked_cards").update(
+                                {"last_collected_at": datetime.now(JST).isoformat()}
+                            ).eq("card_name", card_name).execute()
+                        except Exception:
+                            pass  # スキーマ未移行時は無視
+                    else:
+                        fail_count += 1
                 except DbWriteAborted as e:
-                    fail_count += 1
+                    # 保存でも tracked_cards の更新でも止まる（後者のときは保存は済んで成功に数え済み）
+                    if saved == 0:
+                        fail_count += 1
                     db_abort = e
                     loop_end_index = i + 1
                     break
-                if saved > 0:
-                    total_saved += saved
-                    success_count += 1
-                    # 収集完了を記録（途中タイムアウトでも進捗が保持されローテーションが正しく進む）
-                    try:
-                        sb.table("tracked_cards").update(
-                            {"last_collected_at": datetime.now(JST).isoformat()}
-                        ).eq("card_name", card_name).execute()
-                    except Exception:
-                        pass  # スキーマ未移行時は無視
-                else:
-                    fail_count += 1
 
                 if i < len(selected) - 1:
                     time.sleep(WAIT_BETWEEN_CARDS)
@@ -1110,16 +1143,21 @@ def main():
         # DB保存の連続失敗で打ち切ったときは保存しない（固まった DB へ大きな書き込みを重ねないため）
         if clabo_matched is not None and db_abort is None:
             processed = selected[:loop_end_index]
-            clabo_saved = _save_clabo_catalog_rows(
-                sb, processed, clabo_matched, today, shop_stats, clabo_catalog_stats
-            )
-            total_saved += clabo_saved
+            try:
+                clabo_saved = _save_clabo_catalog_rows(
+                    sb, processed, clabo_matched, today, shop_stats, clabo_catalog_stats
+                )
+                total_saved += clabo_saved
+            except DbWriteAborted as e:
+                # 件数つきの打ち切り処理へ合流させる（ループが別の例外で抜けた途中なら、その例外がそのまま上がる）
+                db_abort = e
+                abort_phase = "post"
 
     if db_abort is not None:
         # 古いデータの掃除・日次レポートは DB への問い合わせを重ねるので行わない
         report_db_abort(
             sb, db_abort, label="価格収集", table="price_history", started_at=started_at, today=today,
-            processed=loop_end_index, total=len(selected), success_count=success_count,
+            phase=abort_phase, processed=loop_end_index, total=len(selected), success_count=success_count,
             run_type="prices",
             record_kwargs=dict(
                 attempted_shops=ci_shops, available_shops=available_shops,
@@ -1130,12 +1168,22 @@ def main():
         )
         sys.exit(1)
 
+    # ここから後処理（掃除・記録・日次レポート）。DB で止まったら外側の main が件数つきで知らせる
+    state.update(
+        phase="post", processed=loop_end_index, total=len(selected), success_count=success_count,
+        record_kwargs=dict(
+            attempted_shops=ci_shops, available_shops=available_shops,
+            skipped_shops=skipped_shops, shop_stats=shop_stats,
+            success_count=success_count, fail_count=fail_count,
+            cutoff_count=cutoff_count, saved_rows=total_saved,
+        ),
+    )
     cleanup_old_data(sb)
 
     finished_at = datetime.now(JST)
     # ホスト別アクセス回数（店舗サイトへの負担の記録）。shop_stats に載せて collection_runs へ保存する
     host_count_lines = attach_host_request_counts(shop_stats, get_host_request_counts())
-    record_collection_run(
+    state["recorded"] = record_collection_run(
         sb, "prices", started_at, finished_at,
         attempted_shops=ci_shops, available_shops=available_shops,
         skipped_shops=skipped_shops, shop_stats=shop_stats,

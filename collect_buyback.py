@@ -19,7 +19,9 @@ from supabase import create_client, Client
 from scraper import compare_buyback, BUYBACK_SHOPS, get_host_request_counts
 from collection_run import record_collection_run, attach_host_request_counts
 from price_persist import upsert_buyback_rows
-from db_write_guard import ConsecutiveDbFailureGuard, DbWriteAborted, report_db_abort
+from db_write_guard import (
+    ConsecutiveDbFailureGuard, DbWriteAborted, GuardedSupabase, is_db_unavailable, report_db_abort,
+)
 from collect_prices import (
     get_supabase,
     normalize_card_name,
@@ -116,7 +118,10 @@ def collect_and_save_buyback(
         saved = upsert_buyback_rows(sb, rows, raise_on_error=db_guard is not None)
     except Exception as e:
         print(f"  DB保存失敗 [{card_name}]")
-        db_guard.record_failure(e)  # 上限に達したら DbWriteAborted が上がる
+        # 4xx など DB が応答しない系以外の失敗もここで数える（保存の仕組みが壊れたときも止めるため）。
+        # DB が応答しない系は、同じ見張り役の見張り付きクライアント（GuardedSupabase）が数え済みなので重ねて数えない
+        if not (is_db_unavailable(e) and getattr(sb, "guard", None) is db_guard):
+            db_guard.record_failure(e)  # 上限に達したら DbWriteAborted が上がる
         return 0
     if db_guard is not None:
         db_guard.record_success()
@@ -143,10 +148,34 @@ def cleanup_old_buyback_data(sb: Client):
 
 
 def main():
+    """_main をくるみ、DBへの要求が続けて失敗して打ち切ったとき（カード収集のループの外で止まったとき）に
+    Discord と記録に残して終了コード1で終える。ループの中で止まったときは _main 側で件数つきで知らせて終える。
+    state: _main が「今どの段階か（sync/post）」と、後処理に入った時点の件数・記録の中身を書き込む。
+    正常終了の行を記録し終えたあとに止まったとき（recorded）は、行を重ねないよう記録しない。
+    """
+    started_at = datetime.now(JST)
+    state: dict = {"phase": "sync"}
+    try:
+        _main(state)
+    except DbWriteAborted as e:
+        report_db_abort(
+            get_supabase(), e, label="買取価格収集", table="tracked_cards など", started_at=started_at,
+            today=datetime.now(JST).date().isoformat(), phase=state["phase"],
+            processed=state.get("processed"), total=state.get("total"),
+            success_count=state.get("success_count", 0),
+            run_type=None if state.get("recorded") else "buyback",
+            record_kwargs=state.get("record_kwargs") or dict(attempted_shops=[], available_shops=[]),
+        )
+        sys.exit(1)
+
+
+def _main(state: dict):
     started_at = datetime.now(JST)
     print(f"=== 買取価格履歴収集 {datetime.now().strftime('%Y-%m-%d %H:%M')} ===")
 
-    sb = get_supabase()
+    # DB が応答しない系の失敗はすべての DB 呼び出しで数えて待って再試行し、続けて失敗したら打ち切る
+    # （同期処理も含む。db_write_guard.GuardedSupabase）。カード単位の保存失敗も同じ見張り役で数える
+    sb = GuardedSupabase(get_supabase(), ConsecutiveDbFailureGuard())
 
     # ── 注目カードの同期（hot集合のみ。周辺カードは収集しない）──
     # hot同期は外部HTTPを伴うため、import時ではなくここで呼ぶ
@@ -210,7 +239,7 @@ def main():
     fail_count = 0
     shop_stats: dict = {}  # 店舗別の 取得成功/0件/エラー 集計
     # DB保存の連続失敗で打ち切る（2026-10-22 DB停止。collect_prices.py と同じ見張り役）
-    db_guard = ConsecutiveDbFailureGuard()
+    db_guard = sb.guard
 
     for i, card_data in enumerate(hot_cards):
         card_name = card_data["card_name"]
@@ -242,12 +271,21 @@ def main():
         if i < len(hot_cards) - 1:
             time.sleep(WAIT_BETWEEN_CARDS)
 
+    # ここから後処理（掃除・記録）。DB で止まったら外側の main が件数つきで知らせる
+    state.update(
+        phase="post", processed=len(hot_cards), total=len(hot_cards), success_count=success_count,
+        record_kwargs=dict(
+            attempted_shops=buyback_shop_names, available_shops=available_shops,
+            skipped_shops=skipped_shops, shop_stats=shop_stats,
+            success_count=success_count, fail_count=fail_count, saved_rows=total_saved,
+        ),
+    )
     cleanup_old_buyback_data(sb)
 
     finished_at = datetime.now(JST)
     # ホスト別アクセス回数（店舗サイトへの負担の記録）。shop_stats に載せて collection_runs へ保存する
     host_count_lines = attach_host_request_counts(shop_stats, get_host_request_counts())
-    record_collection_run(
+    state["recorded"] = record_collection_run(
         sb, "buyback", started_at, finished_at,
         attempted_shops=buyback_shop_names, available_shops=available_shops,
         skipped_shops=skipped_shops, shop_stats=shop_stats,
