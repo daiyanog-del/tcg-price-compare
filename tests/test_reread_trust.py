@@ -494,7 +494,7 @@ BIG_REREAD = ("①：「時の魔術師」のカード名が記されたモン�
 
 
 def _seq_read(monkeypatch, texts, calls=None):
-    """呼ばれるたびに texts を順に返す（Exception なら送出）。"""
+    """呼ばれるたびに texts を順に返す（Exception なら送出・dict ならそのまま応答の data）。"""
     import unreleased_quality as quality
     it = iter(texts)
 
@@ -504,7 +504,8 @@ def _seq_read(monkeypatch, texts, calls=None):
         t = next(it)
         if isinstance(t, Exception):
             raise t
-        return {"effect_text": t, "unreadable": False}, "{}", {"input_tokens": 10, "output_tokens": 5}
+        data = dict(t) if isinstance(t, dict) else {"effect_text": t, "unreadable": False}
+        return data, "{}", {"input_tokens": 10, "output_tokens": 5}
     monkeypatch.setattr(quality, "structured_request", fake)
 
 
@@ -523,7 +524,7 @@ def _run_seq(monkeypatch, row, texts, calls=None, trust=True):
 
 def test_big_disagreement_is_beyond_small_limits():
     assert rr.diff_within_trust_limits(rr.norm(BIG_FIRST), rr.norm(BIG_REREAD)) is False
-    assert rr.edge_truncated(rr.norm(BIG_FIRST), rr.norm(BIG_REREAD)) is False
+    assert rr.third_read_eligible(rr.norm(BIG_FIRST), rr.norm(BIG_REREAD)) is True
 
 
 def test_big_disagreement_trusted_when_third_read_agrees(monkeypatch, clean_check):
@@ -628,5 +629,148 @@ def test_precondition_check_passes_context(monkeypatch, clean_check):
     seen = []
     monkeypatch.setattr(aa, "compute_text_check",
                         lambda card, *a, **k: seen.append(a) or {"status": "checked", "strong": 0, "weak": 0})
-    _run(monkeypatch, _disagree_row())
-    assert seen and seen[0][0] is not None   # other_names を渡している
+    other = _row(effect="①：別のカード。")
+    other["name"] = "同じ取込の別カード"
+    _fake_read(monkeypatch, text=REREAD)
+    rr.reread_effect_texts([_disagree_row(), other], client=object(), encoded_images=_images(), trust_on_disagree=True)
+    assert seen and seen[0][0] == ["同じ取込の別カード"]   # 同じ取込の名前を other_names に渡している（DB は読めない）
+
+
+# ---- 3回目で確かめられない形（同じ切り出しで同じように起きる誤り）は人へ ----
+
+def _third_calls(monkeypatch, first, reread, third=None):
+    calls = []
+    row = _row(effect=first)
+    row["extraction_raw"]["model"] = "claude-opus-5-5"
+    raw = _run_seq(monkeypatch, row, [reread, third if third is not None else reread], calls)
+    return calls, raw
+
+
+def test_middle_paragraph_dropped_not_sent_to_third(monkeypatch, clean_check):
+    first = ("①：このカードが召喚に成功した場合に発動できる。デッキから1枚ドローする。"
+             "②：自分フィールドのモンスター1体を対象として発動できる。そのモンスターの攻撃力は500アップする。"
+             "③：このカードが墓地へ送られた場合に発動できる。")
+    reread = ("①：このカードが召喚に成功した場合に発動できる。デッキから1枚ドローする。"
+              "③：このカードが墓地へ送られた場合に発動できる。")
+    assert rr.third_read_eligible(rr.norm(first), rr.norm(reread)) is False
+    calls, raw = _third_calls(monkeypatch, first, reread)
+    assert len(calls) == 1 and "effect_text" in raw["uncertain_fields"]
+
+
+def test_line_skip_within_length_ratio_not_sent_to_third():
+    # 長さの比は範囲内でも、1か所で20字を超えて消えたら行の読み飛ばしとみなす
+    a = rr.norm(BIG_FIRST + "③：このカードが墓地へ送られた場合、自分の墓地のモンスター1体を対象として発動できる。そのモンスターを手札に加える。" * 3)
+    b = a.replace("自分の墓地のモンスター1体を対象として発動できる。そのモンスターを", "", 1)
+    assert 0.85 <= len(b) / len(a) <= 1.15
+    assert rr.third_read_eligible(a, b) is False
+
+
+def test_edge_replace_and_edge_insert_not_sent_to_third():
+    a = rr.norm(BIG_FIRST)
+    assert rr.third_read_eligible(a, "ン力" + a[4:]) is False            # 先頭行が半分切れて別の字になった
+    assert rr.third_read_eligible(a, a + "ATK2500DEF2000") is False     # 末尾に映り込みを足した
+    assert rr.third_read_eligible(a, "12345" + a) is False              # 先頭に番号を足した
+
+
+def test_pendulum_cross_field_disagreement_not_sent_to_third(monkeypatch, clean_check):
+    # 1回目 P1P2‖M1、読み直し P1‖P2M1（文が欄をまたいで移った）: 3回目も同じ割り振りになりやすいので人へ
+    from tests.test_effect_text_reread import _pend_row
+    p1 = "①：1ターンに1度、自分フィールドのモンスター1体を対象として発動できる。"
+    p2 = "その後、このカードを破壊する。"
+    m1 = "①：このカードが召喚に成功した場合に発動できる。デッキから1枚ドローする。"
+    a = rr.combined_text(m1, p1 + p2, True)
+    b = rr.combined_text(p2 + m1, p1, True)
+    assert rr.third_read_eligible(a, b) is False
+    calls = []
+    row = _pend_row(effect=m1, pend=p1 + p2)
+    resp = {"effect_text": p2 + m1, "pendulum_effect": p1, "pendulum_scale": 4, "unreadable": False}
+    raw = _run_seq(monkeypatch, row, [resp, resp], calls)
+    assert len(calls) == 1 and "pendulum_effect" in raw["uncertain_fields"] and "reread_trusted_on_disagree" not in raw
+
+
+def test_pendulum_third_read_agrees_and_differs(monkeypatch, clean_check):
+    from tests.test_effect_text_reread import _pend_row
+    pend_first = "①：1ターンに1度、「時の黒魔術師」を対象として発動できる。そのカード+地属性モンスターを破壊する。"
+    pend_reread = "①：1ターンに1度、「時の魔術師」を対象として発動できる。そのカード、地属性モンスターを破壊する。"
+
+    def run(third_pend):
+        row = _pend_row(effect=BIG_FIRST, pend=pend_first)
+        r1 = {"effect_text": BIG_REREAD, "pendulum_effect": pend_reread, "pendulum_scale": 4, "unreadable": False}
+        r3 = dict(r1, pendulum_effect=third_pend)
+        return _run_seq(monkeypatch, row, [r1, r3])
+
+    ok = run(pend_reread)
+    assert ok["reread_trusted_by_third_read"] is True and ok["effect_text_reread"]["third"]["pendulum_text"] == pend_reread
+    assert "pendulum_effect" not in ok["uncertain_fields"] and "effect_text" not in ok["uncertain_fields"]
+    ng = run(pend_reread.replace("破壊する", "除外する"))
+    assert "reread_trusted_on_disagree" not in ng and "pendulum_effect" in ng["uncertain_fields"]
+
+
+def test_third_read_unreadable_flag_goes_to_human(monkeypatch, clean_check):
+    raw = _run_seq(monkeypatch, _big_row(), [BIG_REREAD, {"effect_text": BIG_REREAD, "unreadable": True}])
+    assert "effect_text" in raw["uncertain_fields"] and "reread_trusted_on_disagree" not in raw
+
+
+def test_mixed_batch_keeps_rows_and_third_results_aligned(monkeypatch, clean_check):
+    # 一致・小さい食い違い（信じる）・大きい食い違い×2（3回目一致／不一致）が1回の取込に混ざる。
+    # 並列で呼ばれるので応答は呼ばれた順ではなく、名前のヒントと呼ばれた回数で決める
+    agree = _row(effect="①：このカードを特殊召喚できる。")
+    agree["name"] = "一致"
+    small = _disagree_row()
+    small["name"] = "小差"
+    big_ok = _big_row()
+    big_ok["name"] = "大差その一"
+    big_ng = _big_row()
+    big_ng["name"] = "大差その二"
+    import unreleased_quality as quality
+    count = {}
+
+    def fake(client, *, model, system, content, schema, max_tokens=16000, effort=None):
+        hint = content[1]["text"]
+        if "大差その二" in hint:
+            count["ng"] = count.get("ng", 0) + 1
+            text = BIG_REREAD if count["ng"] == 1 else BIG_REREAD.replace("1枚", "2枚")
+        elif "大差その一" in hint:
+            text = BIG_REREAD
+        elif "小差" in hint:
+            text = REREAD
+        else:
+            text = "①：このカードを特殊召喚できる。"
+        return {"effect_text": text, "unreadable": False}, "{}", {"input_tokens": 1, "output_tokens": 1}
+
+    monkeypatch.setattr(quality, "structured_request", fake)
+    rows = [agree, small, big_ok, big_ng]
+    rr.reread_effect_texts(rows, client=object(), encoded_images=_images(), trust_on_disagree=True)
+    assert agree["extraction_raw"]["effect_text_reread"]["agreed"] is True
+    assert small["extraction_raw"].get("reread_trusted_on_disagree") is True
+    assert "third" not in small["extraction_raw"]["effect_text_reread"]
+    assert big_ok["extraction_raw"].get("reread_trusted_by_third_read") is True
+    assert big_ng["extraction_raw"]["effect_text_reread"]["third"]["agreed"] is False
+    assert "effect_text" in big_ng["extraction_raw"]["uncertain_fields"]
+    assert "reread_trusted_on_disagree" not in big_ng["extraction_raw"]
+
+
+def test_context_loaded_once_per_import_even_when_db_fails(monkeypatch):
+    loads = []
+
+    def failing(sb, **k):
+        loads.append(1)
+        return None   # load_card_context は失敗時 None
+
+    monkeypatch.setattr(aa, "get_card_context_cached", failing)
+    monkeypatch.setattr(reread_trust, "_client_override", object())
+    monkeypatch.setattr(aa, "compute_text_check", lambda card, *a, **k: {"status": "checked", "strong": 0, "weak": 0})
+    rows = [_disagree_row() for _ in range(3)]
+    _fake_read(monkeypatch, text=REREAD)
+    rr.reread_effect_texts(rows, client=object(), encoded_images=_images(), trust_on_disagree=True)
+    assert len(loads) == 1
+    assert all(r["extraction_raw"].get("reread_trusted_on_disagree") for r in rows)
+
+
+def test_setting_off_does_not_load_context(monkeypatch):
+    loads = []
+    monkeypatch.setattr(aa, "get_card_context_cached", lambda sb, **k: loads.append(1))
+    monkeypatch.setattr(reread_trust, "_client_override", object())
+    _fake_read(monkeypatch, text=REREAD)
+    rr.reread_effect_texts([_disagree_row()], client=object(), encoded_images=_images(), trust_on_disagree=False)
+    assert loads == []

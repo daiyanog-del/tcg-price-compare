@@ -189,8 +189,14 @@ TRUST_MAX_EDGE_INDEL = 1          # 先頭・末尾にある削除/挿入がこ�
 # 上の上限を超える食い違いは、同じ切り出しをもう一度（3回目）読み、読み直しと完全に一致したら読み直し側を信じる（多数決）。
 # 根拠（2026-10-22）: 10-19〜21 の公式X由来で上限を超えた3枚（1回目が「時の黒魔術師」と作り話・文の書き換え）は
 # どれも読み直しが正しく人が無修正で承認した。過去の食い違い8枚で3回目を2回ずつ読むと16回すべて読み直しと一致。
-# ただし読み直しが1回目の先頭・末尾を落としている場合（切り出しの欠け）は3回目も同じく落とすので対象外（edge_truncated）
+# 3回目は同じ切り出し・同じモデルなので、切り出しや配置から毎回同じように起きる誤り（端の欠け・行の読み飛ばし・
+# ペンデュラムの欄の割り振り）は防げない。その型は3回目に回さず人へ（third_read_eligible）
 THIRD_READ_ON_LARGE_DISAGREE = os.environ.get("EFFECT_THIRD_READ", "1") != "0"
+# 3回目に回してよい食い違いの形。実測（10-15〜22 の公式X・公式サイト由来の食い違い9枚）: 長さの比 0.956〜1.045、
+# 1か所で消えた字（1回目の部分−読み直しの部分）は最大11、先頭・末尾はすべて一致。余裕を見て次の値にする
+# TODO: calibrate from data（3回目で通したカードが後で直された率と、上限で人へ回った事例を見て見直す）
+THIRD_LEN_RATIO = (0.85, 1.15)    # len(読み直し)/len(1回目)。段落の読み飛ばし（例: 比 0.55）を止める
+THIRD_MAX_OP_LOSS = 20            # 1か所で消えてよい字数。行の読み飛ばしを止める
 
 
 def diff_within_trust_limits(a: str, b: str) -> bool:
@@ -213,34 +219,47 @@ def diff_within_trust_limits(a: str, b: str) -> bool:
     return True
 
 
-def edge_truncated(a: str, b: str) -> bool:
-    """読み直し b が、1回目 a の先頭・末尾の文を TRUST_MAX_EDGE_INDEL 字より多く落としているか。
+def third_read_eligible(a: str, b: str) -> bool:
+    """上限を超えた食い違いを3回目で確かめてよい形か（a=1回目、b=読み直し。どちらも combined_text）。
 
-    切り出しが効果欄の端を切った疑い。3回目も同じ切り出しを読むので同じように落とし、多数決では見つけられない。
+    同じ切り出しを読む3回目でも同じように起きる誤りの型は除く: 先頭・末尾の変化（切り出しの欠け・番号や
+    ATK/DEF の映り込み。置換・追加も含む）、ペンデュラムの区切りをまたぐ差（欄の割り振り）、長さの大きな変化・
+    1か所で大きく消えた文（行の読み飛ばし）。
     """
-    if not a or not b:
-        return True
+    if not a or not b or not (THIRD_LEN_RATIO[0] <= len(b) / len(a) <= THIRD_LEN_RATIO[1]):
+        return False
     ops = diff_ops(a, b)
-    return any(ops[i][0] == "delete" and len(ops[i][1]) > TRUST_MAX_EDGE_INDEL for i in (0, len(ops) - 1))
+    changed = [(x, y) for tag, x, y in ops if tag != "equal"]
+    if any(PENDULUM_SEPARATOR in x + y for x, y in changed):
+        return False
+    if any(len(x) - len(y) > THIRD_MAX_OP_LOSS for x, y in changed):
+        return False
+    return not any(ops[i][0] != "equal" and max(len(ops[i][1]), len(ops[i][2])) > TRUST_MAX_EDGE_INDEL
+                   for i in (0, len(ops) - 1))
 
 
-def _text_check_context(row: dict, batch_names=()):
+def _text_check_context(row: dict, batch_names=(), cache: dict | None = None):
     """読み直し文の誤字検査に使う文脈（他カードの名前一覧, TextContext）。
 
     最終判定（annotate_row）と同じく登録済みの未発売カードの名前・「」内語を使い、同じ取込で入るカードの名前も足す。
     文脈が無いと、同じ弾の新カード名（例: 「不死なる太陽神」）が既存語に近いだけで強い疑いになり、
     読み直しを信じられなかった（2026-10-15 太陽神3枚）。DB に届かないときは同じ取込の名前だけ（安全側）。
+    cache: 取込1回ぶんの使い回し用（reread_effect_texts が渡す）。DB の読み込みは失敗も含めて1回だけにする
+    （DB が詰まっているときに食い違ったカードごとに全件を読み直さない）。
     """
+    cache = {} if cache is None else cache
+    if "ctx" not in cache:
+        try:
+            import reread_trust
+            from unreleased_auto_approve import get_card_context_cached
+            sb = reread_trust._get_client()
+            cache["ctx"] = get_card_context_cached(sb) if sb is not None else None
+        except Exception as e:  # noqa: BLE001 — 文脈なしで検査する（強い疑いが出やすい側）
+            logger.warning("読み直しの誤字検査用の文脈を取れません（文脈なしで検査）: %s", e)
+            cache["ctx"] = None
     own = row.get("name") or ""
     names = [n for n in batch_names if n and n != own]
-    try:
-        import reread_trust
-        from unreleased_auto_approve import get_card_context_cached
-        sb = reread_trust._get_client()
-        ctx = get_card_context_cached(sb) if sb is not None else None
-    except Exception as e:  # noqa: BLE001 — 文脈なしで検査する（強い疑いが出やすい側）
-        logger.warning("読み直しの誤字検査用の文脈を取れません（文脈なしで検査）: %s", e)
-        ctx = None
+    ctx = cache["ctx"]
     if ctx is None:
         return names, None
     others, tctx = ctx.excluding(row.get("id"))
@@ -249,12 +268,12 @@ def _text_check_context(row: dict, batch_names=()):
 
 def _trust_preconditions(row: dict, raw: dict, model: str, a: str, b: str, text: str,
                          has_unreadable: bool, trust_on_disagree: bool | None, pendulum_text: str | None = None,
-                         batch_names=()) -> bool:
+                         batch_names=(), context_cache: dict | None = None) -> bool:
     """食い違いの大きさ以外で、読み直し側を信じてよい条件をすべて満たすか（reread_trust.py 参照）。
 
     読み直しに〓が無い／両方に文がある／1回目と読み直しが同じモデル／1回目が name を不確かとしていない／
     読み直し文に誤字検査の強い疑いが無い（検査できないときも不可）／設定が有効（読めなければ無効）。
-    安い条件から順に見て、設定の読み取りは最後にする。
+    安い条件から順に見る。設定（1行）は誤字検査の文脈（全件の読み込み）より先に見る。
     a, b は combined_text（ペンデュラムは2欄をつないだ文字列なので、差の大きさは2欄の合計で見る）。
     pendulum_text はペンデュラムの読み直したペンデュラム効果（通常カードは None で、行の pendulum_effect を使う）。
     誤字検査は登録済みの未発売カードと同じ取込のカードの名前を文脈にする（_text_check_context）。
@@ -265,17 +284,17 @@ def _trust_preconditions(row: dict, raw: dict, model: str, a: str, b: str, text:
         return False
     if raw.get("model") != model or "name" in _uncertain_list(raw):
         return False
+    if trust_on_disagree is None:
+        import reread_trust
+        trust_on_disagree = reread_trust.is_enabled()
+    if not trust_on_disagree:
+        return False
     from unreleased_auto_approve import compute_text_check
-    others, tctx = _text_check_context(row, batch_names)
+    others, tctx = _text_check_context(row, batch_names, context_cache)
     check = compute_text_check({"name": row.get("name") or "", "effect_text": text,
                                 "pendulum_effect": pendulum_text if pendulum_text is not None
                                 else (row.get("pendulum_effect") or "")}, others, tctx)
-    if check.get("status") != "checked" or check.get("strong"):
-        return False
-    if trust_on_disagree is not None:
-        return trust_on_disagree
-    import reread_trust
-    return reread_trust.is_enabled()
+    return check.get("status") == "checked" and not check.get("strong")
 
 
 def _effect_fields(pendulum: bool) -> tuple:
@@ -342,6 +361,7 @@ def reread_effect_texts(rows: list[dict], *, client, encoded_images: list[dict],
         results = list(ex.map(work, jobs))
 
     batch_names = [r.get("name") or "" for r in rows]
+    context_cache: dict = {}
     third_jobs = []  # 食い違いが大きく、3回目で確かめるもの (row, crop, pendulum, b)
     for row, crop, pendulum, result, exc in results:
         if exc is not None:
@@ -390,14 +410,15 @@ def reread_effect_texts(rows: list[dict], *, client, encoded_images: list[dict],
                 raw["uncertain_fields"] = [f for f in uncertain if f not in fields]
                 raw["uncertain_cleared_by_reread"] = True
         elif not agreed and _trust_preconditions(row, raw, model, a, b, text, has_unreadable, trust_on_disagree,
-                                                 pendulum_text=ptext if pendulum else None, batch_names=batch_names):
+                                                 pendulum_text=ptext if pendulum else None, batch_names=batch_names,
+                                                 context_cache=context_cache):
             if diff_within_trust_limits(a, b):
                 _trust_reread(row, raw, fields)
-            elif THIRD_READ_ON_LARGE_DISAGREE and not edge_truncated(a, b):
+            elif THIRD_READ_ON_LARGE_DISAGREE and third_read_eligible(a, b):
                 third_jobs.append((row, crop, pendulum, b))
             else:
                 _mark_uncertain(raw, *fields)
-                logger.warning("効果テキストが1回目と大きく食い違い（端の欠け）: %s", row.get("name"))
+                logger.warning("効果テキストが1回目と大きく食い違い（3回目で確かめられない形）: %s", row.get("name"))
         elif not agreed:
             _mark_uncertain(raw, *fields)
             logger.warning("効果テキストが1回目と食い違い/〓あり/空: %s", row.get("name"))
