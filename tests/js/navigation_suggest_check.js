@@ -50,7 +50,7 @@ vm.runInContext([
   block('function _updateUrl(', '// G-5:'),
   block('function switchMode(', '// ── Deck Builder'),
   block('function rankingLinkClick(', 'function searchCard('),
-  block('function _resetBuyInline(', '// U-1:'),
+  block('function _resetBuyInline(', '// #buyInline を開いた経路を GA で区別するためのフラグ'),
 ].join('\n'),sandbox);
 
 // 警告と買取通信を持った状態から戻る。実際の reset 処理で通信・状態が全て解除される。

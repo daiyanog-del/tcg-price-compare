@@ -235,15 +235,8 @@ header{padding:24px 0 8px;text-align:center;position:relative}
 .scard .scard-link::after{content:"";position:absolute;inset:0;z-index:1}
 
 /* ── Controls row ── */
-.controls{display:flex;gap:16px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
-.tabs{display:flex;gap:3px}
-.tbtn{padding:8px 16px;font:.78rem var(--font);font-weight:700;color:var(--text-m);background:0;border:0;border-bottom:2px solid transparent;cursor:pointer;transition:all .15s}
-.tbtn:hover{color:var(--text)}.tbtn.active{color:var(--accent-l);border-bottom-color:var(--accent)}
-.toggle{display:flex;align-items:center;gap:6px;font-size:.78rem;color:var(--text-m);cursor:pointer;user-select:none;margin-left:auto}
 .toggle input{accent-color:var(--accent);width:15px;height:15px}
-.count-badge{font:.68rem var(--mono);padding:2px 7px;border-radius:4px;background:rgba(255,82,82,.12);color:var(--red)}
 .cache-badge{font:.68rem var(--mono);padding:2px 7px;border-radius:4px;background:rgba(108,92,231,.15);color:var(--accent-l)}
-.tpanel{display:none;padding-top:12px}.tpanel.active{display:block}
 
 /* ── Table ── */
 .tbl-wrap{border-radius:8px;border:1px solid var(--border)}
@@ -252,20 +245,6 @@ header{padding:24px 0 8px;text-align:center;position:relative}
 .tbl-more-info{font-size:.74rem;color:var(--text-d)}
 .tbl-more-btn{padding:9px 22px;font:.8rem var(--font);font-weight:700;color:var(--accent-l);background:var(--bg-card);border:1px solid var(--accent);border-radius:8px;cursor:pointer;transition:background .15s}
 .tbl-more-btn:hover{background:rgba(74,124,255,.08)}
-table.res{width:100%;border-collapse:collapse;font-size:.8rem}
-table.res th{text-align:left;padding:9px 10px;font:.68rem var(--font);font-weight:700;color:var(--text-m);text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);z-index:2;cursor:pointer;user-select:none;white-space:nowrap}
-table.res th:hover{color:var(--accent-l)}
-table.res th .arr{font-size:.58rem;margin-left:2px}
-table.res td{padding:8px 10px;border-bottom:1px solid rgba(37,37,64,.5);vertical-align:middle}
-table.res tr:hover td{background:var(--bg-hover)}
-table.res tr.row-clickable{cursor:pointer}
-table.res tr.sold-out td{opacity:.45}
-table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-color:var(--red)}
-.col-price{font:600 .82rem var(--mono);text-align:right;white-space:nowrap}
-.col-stock{text-align:right;font:.76rem var(--mono);color:var(--text-m)}
-.col-code{font:.73rem var(--mono);color:var(--text-d)}
-.col-name a{color:var(--text);transition:color .15s}
-.col-name a:hover{color:var(--accent-l)}
 
 /* Rarity badge */
 .rb{display:inline-block;padding:2px 7px;border-radius:4px;font-size:.7rem;font-weight:700;white-space:nowrap;background:rgba(74,124,255,.1);color:var(--accent-l)}
@@ -317,15 +296,6 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .rf-btn:hover{border-color:var(--text-m);color:var(--text-m)}
 .rf-btn.active{color:var(--text);border-color:var(--accent);background:rgba(74,124,255,.08)}
 /* C-1(iii): レアリティ既定フィルタの明示バナー */
-.rf-banner{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:.76rem;color:var(--text-m);margin-bottom:8px;padding:8px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px}
-.rf-banner strong{color:var(--text)}
-.rf-banner-clear{padding:3px 12px;font:.72rem var(--font);font-weight:700;color:var(--accent-l);background:none;border:1px solid var(--accent);border-radius:14px;cursor:pointer}
-.rf-banner-clear:hover{background:rgba(74,124,255,.08)}
-.rgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
-.ritem{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:12px;display:flex;gap:10px;align-items:center;transition:border-color .2s}
-.ritem:hover{border-color:var(--border-hl);background:var(--bg-hover)}
-.ritem .rshop{font-size:.68rem;color:var(--text-m);margin-top:3px}
-.ritem .rprice{font:600 .95rem var(--mono);color:var(--gold)}
 
 /* Empty */
 .empty{text-align:center;padding:12px 20px;color:var(--text-d);font-size:.88rem}
@@ -451,10 +421,6 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .card-detail-print{color:var(--text-d);font-size:.70rem;font-weight:400;flex-shrink:0}
 .card-detail-effect{margin-top:4px;color:var(--text-m);white-space:pre-wrap;word-break:break-all;text-align:left}
 .card-detail-pendulum-label{display:block;font-weight:600;color:var(--text-d)}
-.ritem-img{width:36px;height:52px;border-radius:3px;overflow:hidden;flex-shrink:0;background:var(--bg-card)}
-.ritem-img img{width:100%;height:100%;object-fit:cover}
-.tbl-img{width:52px;height:73px;border-radius:2px;overflow:hidden;vertical-align:middle}
-.tbl-img img{width:100%;height:100%;object-fit:cover}
 
 /* ── details（折りたたみ）の共通見た目（R-2: 旧・価格推移グラフ用のクラス名だが
    #buyInline（買取価格の折りたたみ）が現役で使用しているため名前はそのまま残す） ── */
@@ -465,8 +431,8 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 .pt-title{color:var(--text-m);font-weight:600}
 .pt-val{display:flex;gap:4px 10px;align-items:baseline;flex-wrap:wrap;font-family:var(--mono)}
 .pt-range{color:var(--text-m);font:.72rem var(--mono)}
-.pt-plot{position:relative;margin-top:6px;height:150px;touch-action:pan-y;cursor:crosshair}
-.pt-plot svg{display:block;width:100%;height:150px;overflow:visible}
+.pt-plot{position:relative;margin-top:6px;height:96px;touch-action:pan-y;cursor:crosshair}
+.pt-plot svg{display:block;width:100%;height:96px;overflow:visible}
 .pt-grid{stroke:rgba(148,163,184,.14);stroke-width:1}
 .pt-ax{font:10px var(--mono);fill:var(--text-d)}
 .pt-axr{font:10px var(--mono);fill:var(--text-m)}
@@ -565,7 +531,6 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
 /* Mobile — タブレット */
 @media(max-width:768px){
   .wrap{padding:0 12px}
-  .rgrid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
   .meta-deck-list{gap:5px}
   .meta-deck-btn{padding:4px 10px;font-size:.75rem}
 }
@@ -606,49 +571,18 @@ table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-co
   .scard .sprice{font-size:1.3rem}
 
   /* コントロール・タブ */
-  .controls{gap:6px;flex-direction:column;align-items:stretch}
-  .tabs{justify-content:center}
-  .tbtn{padding:10px 14px;font-size:.8rem;min-height:44px}
-  .toggle{justify-content:center;margin-left:0;min-height:44px}
 
   /* レアリティフィルター（14ボタン常時展開だと縦に嵩張るため横スクロール1行に収める） */
   .rarity-filter{gap:4px;padding:8px 0;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch}
   .rf-btn{padding:6px 10px;font-size:.72rem;min-height:36px;flex-shrink:0}
-  .rf-label{flex-shrink:0}
 
   /* テーブル → カード型レイアウト */
   .tbl-wrap{overflow-x:visible;border:0}
-  table.res{min-width:0}
-  table.res thead{display:none}
-  table.res tbody{display:flex;flex-direction:column;gap:8px}
-  table.res tr{display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;padding:12px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;position:relative}
-  table.res tr:hover td{background:transparent}
-  table.res td{display:flex;align-items:center;gap:6px;padding:3px 0;border:0;font-size:.82rem;position:relative;z-index:2}
-  /* stretched-link: row-linkのa::afterでカード全体をタップ領域に */
-  table.res .row-link::after{content:"";position:absolute;inset:0;z-index:1}
-  table.res .row-link{position:static}
-  table.res td::before{content:attr(data-label);font-size:.68rem;font-weight:700;color:var(--text-d);min-width:52px;flex-shrink:0}
-  /* カード名は横幅いっぱい使う */
-  table.res td.col-name{grid-column:1/-1;font-size:.9rem;font-weight:600}
-  table.res td.col-name::before{display:none}
-  /* 価格を目立たせる */
-  table.res td.col-price{font-size:.95rem}
-  table.res td.price{font-size:.95rem}
-  /* 画像・コード列は非表示 */
-  table.res td.col-img{display:none}
-  table.res td.col-code{display:none}
-  /* 売り切れ行 */
-  table.res tr.sold-out{opacity:.5}
-  table.res tr.sold-out .col-price{text-decoration:line-through;text-decoration-color:var(--red)}
 
   /* カードヒーロー */
   .card-hero{flex-direction:column;align-items:center;text-align:center;gap:12px}
   .card-hero-img{width:140px}
   .card-hero-name{font-size:1rem}
-
-  /* レアリティ別グリッド */
-  .rgrid{grid-template-columns:1fr}
-  .ritem{padding:10px}
 
   /* シェアボタン */
   .share-btns{flex-wrap:wrap;justify-content:center}
@@ -760,6 +694,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 <link rel="stylesheet" href="{{ static_url('css/packs.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/new-cards.css') }}">
 <link rel="stylesheet" href="{{ static_url('shared/text-report.css') }}">
+<link rel="stylesheet" href="{{ static_url('css/card-result.css') }}">
 <!-- import map: モジュールから相対importされるファイルを内容ハッシュ付きURLへ写像する
      （静的な相対specifierはstatic_url()を通せないため、ここでブラウザ解決を上書きする）。
      必ず最初のmodule scriptより前に置く -->
@@ -829,87 +764,68 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     <button type="button" onclick="doSearch({validated:true})">再試行</button>
   </div>
   <div id="results" class="hidden">
+    <!-- 検索結果（2026-10-21 案C）: 上から「いくらで買えるか（名前と最安）→ どのレアリティか → どの店か」。
+         メルカリ・買取・相場の動きは名前の右の箱（#heroMarket）にまとめる。見た目は static/css/card-result.css -->
     <div class="card-hero hidden" id="cardHero">
       <div class="card-hero-img" id="heroImgWrap"></div>
       <div class="card-hero-info" id="heroInfo"></div>
+      <div class="cr-market" id="heroMarket">
+        <!-- 価格推移の小さい常設グラフ。/api/price-history を別fetchで取得して price-trend.js が描画する -->
+        <div id="priceTrend" class="price-trend hidden">
+          <div id="priceTrendBody"></div>
+        </div>
+        <!-- メルカリ参考相場: 店舗の一覧とは別枠。/api/mercari を別fetchで取得して mercari-ref.js が描画する -->
+        <details id="mercariRef" class="price-chart hidden">
+          <summary class="chart-title" id="mercariRefHead">メルカリ</summary>
+          <div id="mercariRefBody"></div>
+        </details>
+        <!-- C-2: 買取価格。既定で閉じ、開いたときに初めて /api/buyback を叩く（第2弾B） -->
+        <details id="buyInline" class="price-chart">
+          <summary class="chart-title">買取価格を見る（いくらで売れるか）</summary>
+          <div id="buyInlineBody"></div>
+        </details>
+      </div>
     </div>
 
-    <!-- C-1(iii): 既定フィルタの明示バナー（rarityFilter未設定時は非表示） -->
-    <div class="rf-banner hidden" id="rfBanner"></div>
-    <div class="rarity-filter hidden" id="rarityFilter">
-      <span class="rf-label">レアリティ:</span>
-      <button class="rf-btn active" data-r="" onclick="setRarityFilter('')">すべて</button>
-      <!-- 動的に追加される -->
-    </div>
-
-    <div class="summary" id="sumCards"></div>
-    <!-- メルカリ参考相場: 店舗の表とは別枠。/api/mercari を別fetchで取得して mercari-ref.js が描画する -->
-    <details id="mercariRef" class="price-chart hidden">
-      <summary class="chart-title" id="mercariRefHead">メルカリ</summary>
-      <div id="mercariRefBody"></div>
-    </details>
-    <!-- C-2: 販売ページに買取価格を併置（eスターボックス型）。既定で閉じ、開いたときに初めて
-         /api/buyback を叩く（第2弾B）。S-1で買取タブ（旧#buyTbody等）自体は廃止済み。
-         2026-09-01: 一覧の下→店舗サマリーの直後へ移動。全件リストに「最高買取」列を足した結果、
-         列の値を見た人が「どの店か」を知るには一覧(実測3,550px)を越える必要があり、
-         「もっと見る」でさらに遠のいていた。閉じた状態の高さは66pxで、一覧はその分しか下がらない。
-         販売サマリー（どこで買うと安いか）と買取サマリー（どこに売ると高いか）は対になる情報なので隣接させる
-         2026-10-13: 並びを 店舗サマリー→メルカリ→買取→価格推移 に変更（買う→売る→相場の順。ユーザー判断） -->
-    <details id="buyInline" class="price-chart">
-      <summary class="chart-title">買取価格も見る（いくらで売れるか）</summary>
-      <div id="buyInlineBody"></div>
-    </details>
-    <!-- 価格推移の細い常設グラフ（折りたたまない）。/api/price-history を別fetchで取得して price-trend.js が描画する -->
-    <div id="priceTrend" class="price-trend hidden">
-      <div id="priceTrendBody"></div>
-    </div>
+    <!-- レアリティの選択欄。各レアリティの在庫ありの最安を出し、安い順に並べる（renderAll が描く） -->
+    <div class="cr-rarity hidden" id="rarityFilter"></div>
     <!-- F-2: A8トラッキングピクセルはrenderSummary()（レアリティ切替のたびに再実行）から外し、
          検索1回につき1回だけrenderAll()から挿入するための専用スロット -->
     <div id="affPixelSlot"></div>
 
-    <div class="controls">
-      <div class="tabs">
-        <button class="tbtn active" data-t="all" onclick="tab('all')">全件リスト</button>
-        <button class="tbtn" data-t="rarity" onclick="tab('rarity')">レアリティ別</button>
+    <!-- 出品の一覧。「店ごとの最安」（既定）と「すべて」を切り替える（listView）。旧・店舗カード（#sumCards）と全件表を1つにした -->
+    <section class="cr-list" id="crList" aria-labelledby="crListTitle">
+      <div class="cr-list-head">
+        <h2 class="cr-list-title" id="crListTitle">出品</h2>
+        <div class="cr-seg" role="group" aria-label="一覧の表示">
+          <button type="button" class="cr-seg-btn active" data-v="shop" aria-pressed="true" onclick="setListView('shop')">店ごとの最安 <span id="crCountShop"></span></button>
+          <button type="button" class="cr-seg-btn" data-v="all" aria-pressed="false" onclick="setListView('all')">すべて <span id="crCountAll"></span></button>
+        </div>
+        <label class="cr-so hidden" id="soToggle">
+          <input type="checkbox" id="soCheck" onchange="_resetTableAndRender()">
+          売り切れも表示
+          <span class="cr-so-count" id="soCount">0</span>
+        </label>
       </div>
-      <label class="toggle" id="soToggle">
-        <input type="checkbox" id="soCheck" onchange="_resetTableAndRender()">
-        売り切れを表示
-        <span class="count-badge" id="soCount">0</span>
-      </label>
-      <!-- U-1: 表側からも買取取得のきっかけを置く。取得処理は_fetchBuyInline()を再利用し、
-           二重には書かない（#buyInlineのtoggleを開くのと同じ経路を通す） -->
-      <button class="tbl-more-btn" id="tblBuyBtn" style="padding:6px 14px;font-size:.74rem" onclick="_openBuyInlineFromTableBtn()">買取価格も表示する</button>
-    </div>
-
-    <div class="tpanel active" id="p-all">
-      <div class="tbl-wrap">
-        <table class="res" id="tbl">
+      <div class="cr-tbl-wrap">
+        <table class="cr-table" id="tbl">
           <thead><tr>
-            <th style="width:32px"></th>
-            <th data-s="rarity">レアリティ<span class="arr"></span></th>
-            <th data-s="name">カード名<span class="arr"></span></th>
+            <th data-s="price" class="cr-num">価格<span class="arr">▲</span></th>
             <th data-s="shop">店舗<span class="arr"></span></th>
             <th data-s="condition">状態<span class="arr"></span></th>
-            <th data-s="price">価格<span class="arr">▲</span></th>
-            <th data-s="stock">在庫<span class="arr"></span></th>
-            <th data-s="code">コード<span class="arr"></span></th>
-            <!-- U-1: 買取データが未取得の間は列自体を出さない（145行ぶんの空欄を避ける）。
-                 #buyInlineを開く／下のボタンを押して取得できたらrenderTable()内でhiddenを外す -->
-            <th data-s="buyMax" id="thBuyMax" class="hidden">最高買取<span class="arr"></span></th>
-            <th style="width:32px"></th>
+            <th data-s="code">型番<span class="arr"></span></th>
+            <th data-s="stock" class="cr-num">在庫<span class="arr"></span></th>
+            <!-- U-1: 買取データが未取得の間は列自体を出さない。#buyInline を開いて取得できたら renderTable() で hidden を外す -->
+            <th data-s="buyMax" id="thBuyMax" class="cr-num hidden">最高買取<span class="arr"></span></th>
+            <th class="cr-act-col"><span class="cr-sr">操作</span></th>
           </tr></thead>
           <tbody id="tbody"></tbody>
         </table>
       </div>
+      <p class="cr-list-note" id="crListNote"></p>
       <!-- B-4: 既定20行+もっと見る -->
       <div class="tbl-more" id="tblMore"></div>
-    </div>
-
-    <div class="tpanel" id="p-rarity">
-      <div class="rgrid" id="rgrid"></div>
-    </div>
-
+    </section>
 
   </div>
 
@@ -1564,6 +1480,8 @@ if('serviceWorker' in navigator){navigator.serviceWorker.register('/static/sw.js
 // （'toggle'イベントはbubbleしないが、capture段階はDOM再生成後の要素にも常に届く）
 document.addEventListener('toggle',function(e){
   if(e.target&&e.target.classList&&e.target.classList.contains('card-info-details')&&e.target.open){
+    // PC の検索結果は最初から開いている（2026-10-22 案3）。その分は利用者が開いたのではないので数えない
+    if(e.target.dataset.autoOpen){ delete e.target.dataset.autoOpen; return; }
     _ga('card_info_open');
   }
 },true);

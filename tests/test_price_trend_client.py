@@ -23,8 +23,8 @@ def test_テンプレートの配線():
     soup = BeautifulSoup(html, 'html.parser')
     box = soup.select('#priceTrend')
     assert len(box) == 1 and 'hidden' in box[0].get('class', [])
-    # 買取(#buyInline)の後ろ・一覧(.controls)の前（2026-10-13 並び変更: 買う→売る→相場）
-    assert html.index('id="sumCards"') < html.index('id="buyInline"') < html.index('id="priceTrend"') < html.index('id="affPixelSlot"')
+    # 名前の右の相場の箱の先頭。レアリティ欄・出品の一覧より前（2026-10-21 案C）
+    assert html.index('id="heroMarket"') < html.index('id="priceTrend"') < html.index('id="buyInline"') < html.index('id="rarityFilter"') < html.index('id="crList"')
     srcs = [s.get('src', '') for s in soup.find_all('script')]
     assert any('js/price-trend.js' in s for s in srcs)
     # インラインscriptは追加していない（CSP）
@@ -33,7 +33,7 @@ def test_テンプレートの配線():
 
 def test_index_mainの連動配線():
     js = (ROOT / 'static/js/index-main.js').read_text(encoding='utf-8')
-    assert "'buyInline','priceTrend','sumCards'" in js  # 未発売カードで隠す対象
+    assert "'heroMarket','buyInline','priceTrend','rarityFilter','crList'" in js  # 未発売カードで隠す対象
     assert 'PriceTrend.load(_currentCardName)' in js
     assert 'PriceTrend.clear()' in js
     assert js.count('_syncPriceTrendView()') >= 3  # 定義 + setRarityFilter + done
@@ -46,5 +46,5 @@ def test_グラフのCSSが新仕様():
     css = src[a:src.index('.price-chart>summary', a)]
     for sel in ('.pt-plot{', '.pt-grid{', '.pt-axr{', '.pt-tip{', '.pt-cursor{', '.pt-dot{'):
         assert sel in css, sel
-    assert 'height:150px' in css and 'var(--gold)' not in css and '{#' not in css
+    assert 'height:96px' in css and 'var(--gold)' not in css and '{#' not in css
     assert '.pt-axis' not in css  # 下部の始点・終点日付は廃止

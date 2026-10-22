@@ -74,7 +74,6 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
 #mode-search .card-hero-img>div{max-width:100%}
 #mode-search .card-hero-name{font-size:24px;line-height:1.5;margin-bottom:10px;overflow-wrap:anywhere}
 #mode-search .card-hero-meta{font-size:12px;line-height:1.9}
-#mode-search #heroBest{display:inline-block;margin-bottom:5px}
 #mode-search .card-info-details>summary{color:var(--text-m);min-height:36px;padding:8px 0;font-size:12px}
 #mode-search .card-detail{font-size:12px;line-height:1.8}
 #mode-search .share-btns{justify-content:flex-start;margin-top:12px;gap:8px}
@@ -131,11 +130,6 @@ body.price-redesign{background:#101626;background-image:none;color:#eff3fb}
  #mode-search .scard .sprice{font-size:20px;overflow-wrap:anywhere}
  #mode-search .scard .sbest-badge{margin:4px 0 0;display:table}
  #mode-search .scard .sdetail{font-size:11px;overflow-wrap:anywhere}
- #mode-search .controls{align-items:flex-start;gap:8px}
- #mode-search .tabs{justify-content:flex-start}
- #mode-search table.res tbody{gap:10px;border:0;border-radius:8px;overflow:hidden}
- #mode-search table.res tr{border:0;border-radius:8px}
- #mode-search table.res tr:last-child{border-bottom:0}
 }
 @media(prefers-reduced-motion:reduce){
  .price-redesign header *,#mode-search *,#mode-search *::before,#mode-search *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}

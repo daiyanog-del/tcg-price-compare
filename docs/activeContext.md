@@ -1,5 +1,13 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-22: カードの検索結果ページを案Cに（branch feat/card-result-c・決定は decisions.md 同日）
+
+- 名前の右に相場の箱（推移・メルカリ・買取）・レアリティ欄に在庫ありの最安（安い順）・出品は「店ごとの最安」（既定）／「すべて」。見た目は static/css/card-result.css（最後に読み #mode-search で上書き）。旧部品だけの CSS は削除（購入候補の #wishDeckFilter が使う .rarity-filter は残す）。
+- reviewer 高1・中4・低7 → 対応（購入候補の札の巻き添え・型番の出し分け・未発売の列・レアリティ1種類・箱の伸びによる CLS・並べ替えと売り切れチェックの持ち越し・フォーカス等）。
+- 確認: pytest tests 2448 passed（新規 tests/test_card_result_js.py＝card_result_check.js・これまで pytest から呼ばれていなかった affiliate_label_check.js もつないだ）。本番に差し込んだ Playwright（PC 1440・スマホ 390）で、横はみ出し0・ページエラー0・すべて/別レアリティ/効果テキスト/買取を開く・「すべて」のレアリティ・未発売カードを確認。
+- 追加（ユーザー指摘「画像の下がスカスカ」）: PC は画像 224px・効果テキストを最初から開き右の箱の底まで（超える分は「続きを読む」 _clampCardDetail）・最安の行は［最安］・値段・枠線のレアリティ・店名。在庫の行は削除。
+- 未確認: 名前が長いカード・店舗0件のカードの実物、iPhone/Android 実機、Safari での :has()（メルカリの全レアリティ表示の高さ上限だけに使用。効かなくても伸びるだけ）。
+
 ## 2026-10-22: 新商品タブの作り直し（モック packs-refresh-20261021 の A〜E をユーザー承認・本番 #162 3ce9c48e／#169 637ac171）
 
 - A（サーバー）: 一覧を「発売前（60日以内）は全部＋発売済みは直近4件」に（以前は発売前4件で発売済みが消えていた）。各パックに code（型番の頭）・product_url・wiki_url・card_count。/api/packs/cards は収録カード名を正式名で返す。/api/deck の include_per_shop=version は型番の頭でも分けて返す。

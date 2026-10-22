@@ -5,7 +5,7 @@ const fs = require('fs'), path = require('path'), vm = require('vm'), assert = r
 const root = path.join(__dirname, '../..');
 const classes = new Set(['hidden']);
 const box = { classList: { add: (n) => classes.add(n), remove: (n) => classes.delete(n), contains: (n) => classes.has(n) } };
-let bodyWidth = 0;   // body の実幅（0=測れない→下限320で描く）
+let bodyWidth = 0;   // body の実幅（0=測れない→下限240で描く）
 const body = { innerHTML: '', getBoundingClientRect: () => ({ width: bodyWidth }) };
 const roInstances = [];
 const docHandlers = {};
@@ -63,16 +63,16 @@ const DATA = [
   // 2) 1本選択: 日別は全店舗の最安値（9/1=4800, 9/10=5500）、上昇は up。階段線・グラデ・目盛り・月ラベル
   api.setView({ rarity: 'シークレット' });
   h = body.innerHTML;
-  assert(h.includes('価格推移（シークレット・その日の最安値）'));
+  assert(h.includes('相場の動き（シークレット・日ごとの最安）'));
   assert(!h.includes('・最安値・') && !h.includes('pt-axis'), '旧タイトル・下部の始点終点日付は廃止');
   assert(h.includes('¥4,800 → ¥5,500 ▲14.6%') && h.includes('movers-diff up'));
   assert(h.includes('安 ¥4,800 / 高 ¥5,500'));
   assert(!h.includes('--gold') && !h.includes('pt-legend'));
-  // 階段線: 始点 M0 → 水平 H262(=320-58) → 縦 V。折れ線(L)は使わない
+  // 階段線: 始点 M0 → 水平 H182(=240-58) → 縦 V。折れ線(L)は使わない
   const stepM = /<path class="pt-line" d="(M[^"]*)"/.exec(h);
   assert(stepM, '線はクラス指定(色はCSSでアクセント色)');
   assert(!/(stroke|fill|stop-color)="var\(/.test(h), 'SVG属性にvar()で色を書かない');
-  assert.match(stepM[1], /^M0\.0 [\d.]+H262\.0V[\d.]+$/);
+  assert.match(stepM[1], /^M0\.0 [\d.]+H182\.0V[\d.]+$/);
   assert(!stepM[1].includes('L'));
   assert(h.includes('class="pt-area"') && h.includes('stop-opacity=".28"') && h.includes('stop-opacity="0"'));
   assert(h.includes('r="3.5"'), '最新日の点');
@@ -106,9 +106,9 @@ const DATA = [
   const plot = plotHolder.p;
   plot.h.pointermove({ clientX: 95 });
   assert.equal(els.ptCursor.attrs.visibility, 'visible');
-  assert.equal(els.ptCursor.attrs.x1, '262.0');
+  assert.equal(els.ptCursor.attrs.x1, '182.0');
   assert.equal(els.ptDot.attrs.visibility, 'visible');
-  assert.equal(els.ptDot.attrs.cx, '262.0');
+  assert.equal(els.ptDot.attrs.cx, '182.0');
   assert.equal(els.ptTip.style.display, 'block');
   assert(els.ptTip.innerHTML.includes('9/10') && els.ptTip.innerHTML.includes('<b>¥5,500</b>') && els.ptTip.innerHTML.includes('>A<'));
   assert.equal(body.innerHTML, summaryBefore, '見出し右の騰落表示はなぞり中も変えない');
@@ -133,12 +133,12 @@ const DATA = [
   assert(els.ptTip.innerHTML.includes('Z&lt;b&gt;') && !els.ptTip.innerHTML.includes('Z<b>'));
   assert.deepEqual(Array.from(gaCalls), ['price_trend_touch']);
 
-  // 5b) 吹き出しの縦位置: 最高値の点(y≈22)を隠さず点の下へ。低い点では上へ
+  // 5b) 吹き出しの縦位置: 最高値の点(y≈17)を隠さず点の下へ。低い点では上へ
   api.setView({ rarity: 'シークレット' });
   plot.h.pointermove({ clientX: 95 });
-  assert.equal(els.ptTip.style.top, '32px', '最高値＝最新日の点は上に入らないので下に出す');
+  assert.equal(els.ptTip.style.top, '27px', '最高値＝最新日の点は上に入らないので下に出す');
   plot.h.pointermove({ clientX: 2 });
-  assert.equal(els.ptTip.style.top, '88px', '低い点では点の上に出す');
+  assert.equal(els.ptTip.style.top, '39px', '低い点では点の上に出す');
   plot.h.pointerleave();
 
   // 5c) タッチ: pointerleave では消さず、グラフ外タップか pointercancel で消す。マウスは離れたら消す
@@ -162,12 +162,15 @@ const DATA = [
   reply(pending[1], { data: [row('2026-01-01', 'A', 'ウルトラ', 1)] }); await tick();
   reply(pending[2], { data: DATA }); await tick();
   assert(body.innerHTML.includes('<svg'), '古い応答(A)は捨てられ、Bの描画が残る');
-  api.load('C'); reply(pending[3], { data: [] }); await tick();
-  assert(classes.has('hidden') && body.innerHTML === '');
+  // 相場の箱の中で欄が出たり消えたりしないよう、読み込み中・0件・失敗も案内1行を出す（0件と失敗は文言を分ける）
+  api.load('C');
+  assert(!classes.has('hidden') && body.innerHTML.includes('価格推移を読み込み中'), '読み込み中も欄を出す');
+  reply(pending[3], { data: [] }); await tick();
+  assert(!classes.has('hidden') && body.innerHTML.includes('価格推移はまだありません'));
   api.load('D'); reply(pending[4], { error: 'x' }, 500); await tick();
-  assert(classes.has('hidden'));
+  assert(!classes.has('hidden') && body.innerHTML.includes('価格推移を取得できませんでした'));
   api.load('E'); pending[5].reject(new Error('net')); await tick();
-  assert(classes.has('hidden'));
+  assert(!classes.has('hidden') && body.innerHTML.includes('価格推移を取得できませんでした'));
   api.load('F'); api.clear(); reply(pending[6], { data: DATA }); await tick();
   assert(classes.has('hidden') && body.innerHTML === '', 'clear 後に届いた応答は捨てる');
   // 7) 月の区切りと年またぎ: 期間が月をまたぐと「N月」、年をまたぐと1月だけ「2027年1月」
@@ -204,15 +207,15 @@ const DATA = [
   h = body.innerHTML;
   const lab = Array.from(h.matchAll(/class="pt-axr" x="([\d.]+)"[^>]*>([^<]*)</g), (m) => ({ x: +m[1], t: m[2] }));
   assert(lab.length >= 2);
-  lab.forEach((l) => assert(l.x + l.t.length * 6.2 <= 320, '文字が右端(320)内に収まる: ' + l.t + ' x=' + l.x));
-  assert(+/H([\d.]+)V/.exec(h)[1] < 262, '長い目盛りのぶんグラフ本体の右端が内側に寄る');
+  lab.forEach((l) => assert(l.x + l.t.length * 6.2 <= 240, '文字が右端(240)内に収まる: ' + l.t + ' x=' + l.x));
+  assert(+/H([\d.]+)V/.exec(h)[1] < 182, '長い目盛りのぶんグラフ本体の右端が内側に寄る');
 
   // 10) ResizeObserver: 生成は1回だけ・同じ幅の通知では描き直さない・幅が変われば描き直す・実幅が座標に反映される
   assert.equal(roInstances.length, 1, 'render を何度呼んでも observe 用の ResizeObserver は1つ');
   assert.equal(roInstances[0].observed, 1);
   bodyWidth = 500;
   api.setView({ rarity: 'ウルトラ' });
-  assert(body.innerHTML.includes('viewBox="0 0 500 150"'), '実幅500で描く');
+  assert(body.innerHTML.includes('viewBox="0 0 500 96"'), '実幅500で描く');
   assert(/H426\.0V/.test(body.innerHTML), '右端 = 実幅 - 右余白(500-74。7桁価格の目盛り幅)');
   assert.equal(roInstances.length, 1);
   body.innerHTML += '<!--marker-->';
@@ -220,7 +223,7 @@ const DATA = [
   assert(body.innerHTML.includes('<!--marker-->'), '同じ幅の通知では描き直さない');
   bodyWidth = 700;
   roInstances[0].cb();
-  assert(!body.innerHTML.includes('<!--marker-->') && body.innerHTML.includes('viewBox="0 0 700 150"'), '幅が変われば描き直す');
+  assert(!body.innerHTML.includes('<!--marker-->') && body.innerHTML.includes('viewBox="0 0 700 96"'), '幅が変われば描き直す');
   bodyWidth = 0;
   body.innerHTML += '<!--marker2-->';
   roInstances[0].cb();

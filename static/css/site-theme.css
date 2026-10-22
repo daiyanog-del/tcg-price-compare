@@ -51,9 +51,7 @@ body.price-redesign {
 .price-redesign .import-method+.import-method {margin-top:8px}
 
 /* 表は整列と行の余白で追えるようにする。価格マトリクスの意味色は維持する。 */
-.price-redesign table.res :is(th,td),.price-redesign .fmx-table :is(th,td) {border:0}
-.price-redesign table.res td {padding-block:13px}
-.price-redesign table.res tr:focus-within td {background:var(--bg-hover)}
+.price-redesign .fmx-table :is(th,td) {border:0}
 .price-redesign .fmx-table :is(th,td) {padding-block:12px}
 .price-redesign .fmx-table tbody tr:is(:hover,:focus-within) {background:var(--bg-hover)}
 .price-redesign .fmx-table tbody tr:is(:hover,:focus-within) .fmx-sticky-col {background:var(--bg-hover)}
@@ -61,7 +59,7 @@ body.price-redesign {
 /* 通常操作は面、選択状態は黄色の印と明るい文字、主操作は黄色で統一。 */
 .price-redesign :is(.deck-btn-secondary,.deck-btn-outline,.deck-preset,.wish-action-btn,
  .wish-card-link,.tbl-more-btn,
- .rf-banner-clear,.share-btn,.cip-price-link,.wish-add) {border:0;background:var(--bg-hover);border-radius:6px}
+ .share-btn,.cip-price-link,.wish-add) {border:0;background:var(--bg-hover);border-radius:6px}
 .price-redesign :is(.deck-btn-primary,.neuron-url-btn,.pwa-banner-btn),
 .price-redesign .wish-action-btn.primary {background:#f3ce46;color:#242013;box-shadow:none}
 .price-redesign :is(.deck-btn-primary,.neuron-url-btn,.pwa-banner-btn):hover,
@@ -81,13 +79,10 @@ body.price-redesign {
 .price-redesign .deck-drop-zone:is(:hover,.drag-over) {background:var(--bg-hover)}
 .price-redesign #mode-search .share-btns>button {border:0!important;background:var(--bg-hover)}
 .price-redesign #mode-search :is(.scard,.scard.best,.price-chart,.tbl-wrap,.ritem) {border:0}
-.price-redesign #mode-search .rf-banner {border:0}
 .price-redesign .mode-tabs .nav-wishlist {background:transparent;border-radius:0;border:0;border-bottom:2px solid transparent}
 .price-redesign .mode-tabs .nav-wishlist.active {border-bottom-color:var(--accent-soft);box-shadow:none}
 
 @media(max-width:640px) {
- .price-redesign #mode-search table.res td {padding-block:3px}
- .price-redesign #mode-search table.res tr:is(:hover,:focus-within) {background:var(--bg-hover)}
 }
 
 /* マイデッキはカード一覧を中心に、管理操作・編集・計算の間隔をそろえる。 */
