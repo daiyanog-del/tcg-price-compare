@@ -27,8 +27,7 @@ from pack_scraper import (
 from price_persist import build_min_price_rows, upsert_price_rows
 from clabo_catalog import collect_clabo_catalog
 from collection_run import record_collection_run, attach_host_request_counts
-from db_write_guard import ConsecutiveDbFailureGuard, DbWriteAborted
-from discord_notify import send_discord_message
+from db_write_guard import ConsecutiveDbFailureGuard, DbWriteAborted, report_db_abort
 from meta_scraper import fetch_tier_list, fetch_deck_cards
 from name_normalize import load_cardnames_index, canonicalize_card_name
 
@@ -948,43 +947,6 @@ def cleanup_old_data(sb: Client):
         print(f"古いリプレイ削除失敗: {e}")
 
 
-def _abort_on_db_failure(sb: Client, err: DbWriteAborted, started_at: datetime, today: str, *,
-                         processed: int, total: int, attempted_shops: list[str],
-                         available_shops: list[str], skipped_shops: dict, shop_stats: dict,
-                         success_count: int, fail_count: int, saved_rows: int) -> None:
-    """DB保存の連続失敗で収集を打ち切ったことを、Discord と collection_runs に残す。
-
-    DB が固まっている前提なので、DB に頼らない Discord を先に送る。collection_runs への記録は
-    1回だけ試す（失敗しても record_collection_run が握りつぶす）。古いデータの掃除・日次レポートは
-    DB への問い合わせを重ねるので行わない。終了コードは呼び元が 1 にする（Render の失敗通知にも出る）。
-    """
-    elapsed_min = (datetime.now(JST) - started_at).total_seconds() / 60
-    print(f"\n=== 打ち切り（{elapsed_min:.0f}分）: {err} ===")
-    print(f"処理 {processed}/{total}件 / 成功: {success_count}件 / 失敗: {fail_count}件 / 保存行数: {saved_rows}")
-    send_discord_message(
-        f"⚠ **価格収集を打ち切りました {today}**\n"
-        f"DB保存（price_history）が {err.consecutive} 回続けて失敗したため、DB に要求を送り続けないよう止めました。\n"
-        f"処理 {processed}/{total}件・成功 {success_count}件・所要 {elapsed_min:.0f}分\n"
-        f"最後のエラー: {err.last_error[:300]}\n"
-        f"Supabase の状態（Disk IO budget・メモリ）を確認してください。残りのカードは今日分なしです。",
-        no_mentions=True,
-    )
-    record_collection_run(
-        sb, "prices", started_at, None,
-        attempted_shops=attempted_shops, available_shops=available_shops,
-        skipped_shops=skipped_shops, shop_stats=shop_stats,
-        success_count=success_count, fail_count=fail_count,
-        cutoff_count=total - processed, saved_rows=saved_rows,
-        aborted={
-            "reason": "db_write_failures",
-            "consecutive_failures": err.consecutive,
-            "last_error": err.last_error[:500],
-            "processed": processed,
-            "aborted_at": datetime.now(JST).isoformat(),
-        },
-    )
-
-
 def main():
     started_at = datetime.now(JST)
     print(f"=== 価格履歴収集 {datetime.now().strftime('%Y-%m-%d %H:%M')} ===")
@@ -1153,12 +1115,17 @@ def main():
             total_saved += clabo_saved
 
     if db_abort is not None:
-        _abort_on_db_failure(
-            sb, db_abort, started_at, today,
-            processed=loop_end_index, total=len(selected),
-            attempted_shops=ci_shops, available_shops=available_shops,
-            skipped_shops=skipped_shops, shop_stats=shop_stats,
-            success_count=success_count, fail_count=fail_count, saved_rows=total_saved,
+        # 古いデータの掃除・日次レポートは DB への問い合わせを重ねるので行わない
+        report_db_abort(
+            sb, db_abort, label="価格収集", table="price_history", started_at=started_at, today=today,
+            processed=loop_end_index, total=len(selected), success_count=success_count,
+            run_type="prices",
+            record_kwargs=dict(
+                attempted_shops=ci_shops, available_shops=available_shops,
+                skipped_shops=skipped_shops, shop_stats=shop_stats,
+                success_count=success_count, fail_count=fail_count,
+                cutoff_count=len(selected) - loop_end_index, saved_rows=total_saved,
+            ),
         )
         sys.exit(1)
 

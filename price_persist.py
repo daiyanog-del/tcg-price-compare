@@ -182,13 +182,14 @@ def upsert_price_rows(sb, rows: list[dict], ignore_duplicates: bool = False,
         return 0
 
 
-def upsert_buyback_rows(sb, rows: list[dict]) -> int:
+def upsert_buyback_rows(sb, rows: list[dict], raise_on_error: bool = False) -> int:
     """buyback_history に upsert する。
 
     UNIQUE(card_name, shop, rarity, recorded_at) 前提。同日の再実行は上書き
     （その日の最高買取額の最新値を採用）。
 
     成功した行数を返す。エラー時は 0 を返し、警告ログのみ出す（呼び元の処理は止めない）。
+    raise_on_error=True のときはログを出したうえで例外を送出する（upsert_price_rows と同じ）。
     """
     if not rows:
         return 0
@@ -200,4 +201,6 @@ def upsert_buyback_rows(sb, rows: list[dict]) -> int:
         return len(rows)
     except Exception as e:
         logger.error(f"[price_persist] buyback upsert 失敗 ({len(rows)}行): {e}")
+        if raise_on_error:
+            raise
         return 0

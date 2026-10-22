@@ -15,7 +15,12 @@ collect_prices.py は保存（RPC upsert_price_rows）が1件ごとに約2分の
 from __future__ import annotations
 
 import time
+from datetime import datetime
 from typing import Callable
+
+import collection_run
+import discord_notify
+from constants import JST
 
 # 実データ（Render のログ・2026-09-23〜10-22）:
 #   - 平常時: 停止前の約1か月（毎晩 約3,800件 × 約10回）で upsert 失敗は 0 件。応答は平均 0.2〜0.4 秒
@@ -68,3 +73,39 @@ class ConsecutiveDbFailureGuard:
             print(f"  ⚠ DB保存失敗 {self.consecutive}回連続（上限 {self.max_consecutive}回）。"
                   f"{wait:.0f}秒待ってから次へ進みます")
             (self._sleep or time.sleep)(wait)
+
+
+def report_db_abort(sb, err: DbWriteAborted, *, label: str, table: str, started_at, today: str,
+                    processed: int, total: int, success_count: int,
+                    run_type: str | None = None, record_kwargs: dict | None = None) -> None:
+    """DB保存の連続失敗で収集を打ち切ったことを、Discord と（run_type があれば）collection_runs に残す。
+
+    DB が固まっている前提なので、DB に頼らない Discord を先に送る。collection_runs への記録は
+    1回だけ試す（失敗しても record_collection_run が握りつぶす）。finished_at は NULL（異常終了）、
+    理由は shop_stats._aborted に入る。終了コードは呼び元が 1 にする（Render の失敗通知にも出る）。
+    run_type=None は collection_runs に記録しない収集（collect_featured.py。run_type の CHECK 制約に無い）。
+    """
+    elapsed_min = (datetime.now(JST) - started_at).total_seconds() / 60
+    print(f"\n=== 打ち切り（{elapsed_min:.0f}分）: {err} ===")
+    print(f"処理 {processed}/{total}件 / 成功: {success_count}件")
+    discord_notify.send_discord_message(
+        f"⚠ **{label}を打ち切りました {today}**\n"
+        f"DB保存（{table}）が {err.consecutive} 回続けて失敗したため、DB に要求を送り続けないよう止めました。\n"
+        f"処理 {processed}/{total}件・成功 {success_count}件・所要 {elapsed_min:.0f}分\n"
+        f"最後のエラー: {err.last_error[:300]}\n"
+        f"Supabase の状態（Disk IO budget・メモリ）を確認してください。残りのカードは今日分なしです。",
+        no_mentions=True,
+    )
+    if run_type is None:
+        return
+    collection_run.record_collection_run(
+        sb, run_type, started_at, None,
+        **(record_kwargs or {}),
+        aborted={
+            "reason": "db_write_failures",
+            "consecutive_failures": err.consecutive,
+            "last_error": err.last_error[:500],
+            "processed": processed,
+            "aborted_at": datetime.now(JST).isoformat(),
+        },
+    )
