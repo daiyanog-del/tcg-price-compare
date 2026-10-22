@@ -208,10 +208,11 @@ def test_buyback_stops_in_sync_like_2026_10_22(monkeypatch, harness):
     assert code == 1
     # 上限回数で止まり、次の同期へ進まない。最後は包む前のクライアントで記録を1回だけ
     assert sb.calls == ["tracked_cards"] * LIMIT + ["collection_runs"]
-    assert len(harness) == 1 and "ループの外" in harness[0]
+    assert len(harness) == 1 and "カード収集の前（同期処理）で止まりました" in harness[0]
     run = sb.inserted["collection_runs"][0]  # 包む前のクライアントで1回だけ記録
     assert run["run_type"] == "buyback" and run["finished_at"] is None
     assert run["shop_stats"]["_aborted"]["processed"] is None
+    assert run["shop_stats"]["_aborted"]["phase"] == "sync"
 
 
 def test_prices_does_not_continue_after_swallowing_site(monkeypatch, harness):
@@ -249,3 +250,229 @@ def test_transient_sync_failure_recovers(monkeypatch, harness):
     assert sb.calls[:LIMIT] == ["search_logs"] * LIMIT  # 失敗2回＋成功1回
     assert "deck_search_logs" in sb.calls  # 次へ進んだ
     assert harness == []
+
+
+# ──────────────────────────────────────────────
+# 判定の追加分・送り直さないもの（本物の postgrest）
+# ──────────────────────────────────────────────
+
+@pytest.mark.parametrize("code", ["53200", "53300", "08006", "57P01", "58030"])
+def test_postgres_resource_errors_are_unavailable(code):
+    """10-22 の原因はメモリ不足。PostgREST は 503＋JSON で返し APIError.code に SQLSTATE が入る"""
+    assert is_db_unavailable(APIError({"message": "x", "code": code}))
+
+
+def test_config_errors_are_not_unavailable():
+    """URL の書き間違いなど設定ミスの類は「DB 停止」と数えない"""
+    assert not is_db_unavailable(httpx.UnsupportedProtocol("bad url", request=_req()))
+
+
+class TestNoResend:
+    def _guarded(self, handler):
+        waits = []
+        return GuardedSupabase(_real_client(handler), ConsecutiveDbFailureGuard(sleep=waits.append)), waits
+
+    def test_statement_timeout_is_counted_but_not_resent(self):
+        calls = []
+
+        def handler(req):
+            calls.append(1)
+            return httpx.Response(500, json={"message": "canceling statement due to statement timeout",
+                                             "code": "57014", "hint": None, "details": None})
+
+        sb, waits = self._guarded(handler)
+        with pytest.raises(APIError):
+            sb.table("price_history_v2").delete().lt("recorded_at", "2026-07-01").execute()
+        assert len(calls) == 1  # 同じ重い要求を重ねない
+        assert sb.guard.consecutive == 1 and waits == [db_write_guard.BACKOFF_SEC[0]]
+
+    def test_insert_is_not_resent(self):
+        calls = []
+
+        def handler(req):
+            calls.append(req.method)
+            raise httpx.ReadTimeout("timed out", request=req)
+
+        sb, _ = self._guarded(handler)
+        with pytest.raises(httpx.ReadTimeout):
+            sb.table("collection_runs").insert({"run_type": "prices"}).execute()
+        assert calls == ["POST"]  # 書き込み済みかもしれない insert は送り直さない（行が重なるため）
+        assert sb.guard.consecutive == 1
+
+    def test_upsert_is_resent(self):
+        calls = []
+
+        def handler(req):
+            calls.append(req.method)
+            if len(calls) == 1:
+                raise httpx.ReadTimeout("timed out", request=req)
+            return httpx.Response(201, json=[])
+
+        sb, _ = self._guarded(handler)
+        sb.table("tracked_cards").upsert([{"card_name": "a"}], on_conflict="card_name",
+                                         ignore_duplicates=True).execute()
+        assert calls == ["POST", "POST"]
+
+    def test_not_property_and_from_are_guarded(self):
+        calls = []
+
+        def handler(req):
+            calls.append(str(req.url))
+            if len(calls) in (1, 3):
+                raise httpx.ReadTimeout("timed out", request=req)
+            return httpx.Response(200, json=[])
+
+        sb, _ = self._guarded(handler)
+        sb.table("t").select("a").not_.is_("b", "null").execute()
+        sb.from_("t").select("a").execute()
+        assert len(calls) == 4  # どちらも1回送り直した
+
+
+# ──────────────────────────────────────────────
+# 販売の main: ループ・後処理で止まる／一時的なら最後まで走る
+# ──────────────────────────────────────────────
+
+class _Q2:
+    def __init__(self, sb, name):
+        self.sb, self.name = sb, name
+
+    def __getattr__(self, _):
+        return lambda *a, **k: self
+
+    def insert(self, row):
+        self.sb.inserted.setdefault(self.name, []).append(row)
+        return self
+
+    def execute(self):
+        self.sb.calls.append(self.name)
+        left = self.sb.down.get(self.name, 0)
+        if left:
+            self.sb.down[self.name] = left - 1
+            raise httpx.ReadTimeout("The read operation timed out", request=_req())
+        if self.name == "rpc:upsert_price_rows":
+            return _Resp([{"saved_rows": 1}])
+        return _Resp()
+
+
+class _Sb2:
+    """down: {要求の名前: 失敗させる回数}（rpc は "rpc:名前"）。回数が尽きたら成功"""
+
+    def __init__(self, down):
+        self.down = dict(down)
+        self.calls: list[str] = []
+        self.inserted: dict[str, list] = {}
+
+    def table(self, name):
+        return _Q2(self, name)
+
+    def rpc(self, name, params):
+        return _Q2(self, f"rpc:{name}")
+
+
+FOREVER = 10 ** 6
+
+
+@pytest.fixture
+def run_prices(monkeypatch, harness):
+    def _go(down, n_cards=5, daily_report=False):
+        sb = _Sb2(down)
+        monkeypatch.setattr(cp, "get_supabase", lambda: sb)
+        monkeypatch.setattr(cp, "sync_latest_packs", lambda sb: ({f"c{i}" for i in range(n_cards)}, set()))
+        monkeypatch.setattr(cp, "sync_meta_decks", lambda sb: set())
+        monkeypatch.setattr(cp, "sync_regulation", lambda sb: set())
+        monkeypatch.setattr(cp, "sync_searched_cards", lambda sb, **k: set())
+        for name in ("sync_recipe_decks", "sync_theme_wiki_cards", "sync_trending_cards", "save_pack_list"):
+            monkeypatch.setattr(cp, name, lambda sb: None)
+        monkeypatch.setattr(cp, "sync_remake_themes", lambda sb, new: None)
+        monkeypatch.setattr(cp, "fetch_tracked_cards_with_meta",
+                            lambda sb: [{"card_name": f"c{i}", "last_collected_at": None} for i in range(n_cards)])
+        monkeypatch.setattr(cp, "SHOPS", [("カーナベル", None)])
+        monkeypatch.setattr(cp, "SKIP_SHOPS_IN_CI", set())
+        monkeypatch.setenv("KANABELL_CLOUD_ID", "x")
+        monkeypatch.setenv("KANABELL_API_KEY", "x")
+        monkeypatch.setattr(cp, "check_shop_availability", lambda shops: list(shops))
+
+        def fake_compare(card_name, shop_names=None, status_out=None):
+            if status_out is not None:
+                for s in shop_names or []:
+                    status_out[s] = {"count": 1}
+            return [{"shop": "カーナベル", "name": card_name, "rarity": "ウルトラ", "code": "X", "condition": "-",
+                     "price": 500, "stock": 1, "sold_out": False, "url": "", "image": ""}]
+
+        monkeypatch.setattr(cp, "compare_prices", fake_compare)
+        monkeypatch.setattr(cp.time, "sleep", lambda s: None)
+        monkeypatch.setattr(cp, "get_host_request_counts", lambda: {})
+        if daily_report:
+            import requests
+            monkeypatch.setenv("DISCORD_WEBHOOK_URL", "http://example.invalid/hook")
+            monkeypatch.setattr(requests, "post", lambda *a, **k: None)
+        else:
+            monkeypatch.setattr(cp, "send_daily_report", lambda *a, **k: None)
+        code = _run(cp.main)
+        return sb, code
+
+    return _go
+
+
+def test_prices_transient_upsert_timeout_resends_same_card(run_prices, harness):
+    sb, code = run_prices({"rpc:upsert_price_rows": LIMIT - 1})
+    assert code is None and harness == []
+    # 失敗した保存は同じカードで送り直す（カードを飛ばさない）→ 5枚とも保存
+    assert sb.calls.count("rpc:upsert_price_rows") == 5 + (LIMIT - 1)
+    run = sb.inserted["collection_runs"][0]
+    assert run["success_count"] == 5 and run["fail_count"] == 0 and run["finished_at"] is not None
+
+
+def test_prices_persistent_upsert_timeout_stops_in_loop(run_prices, harness):
+    sb, code = run_prices({"rpc:upsert_price_rows": FOREVER})
+    assert code == 1
+    assert sb.calls.count("rpc:upsert_price_rows") == LIMIT  # 1枚目を上限回数送って止まる
+    assert "price_history_v2" not in sb.calls  # 掃除へ進まない
+    run = sb.inserted["collection_runs"][0]
+    assert run["shop_stats"]["_aborted"]["phase"] == "loop"
+    assert run["success_count"] == 0 and run["fail_count"] == 1
+    assert "処理 1/5件" in harness[0]
+
+
+def test_prices_abort_on_tracked_cards_update_keeps_success(run_prices, harness):
+    sb, code = run_prices({"tracked_cards": FOREVER})
+    assert code == 1
+    assert sb.calls.count("rpc:upsert_price_rows") == 1
+    run = sb.inserted["collection_runs"][0]
+    assert run["success_count"] == 1 and run["fail_count"] == 0  # 保存は済んでいる
+    assert run["shop_stats"]["_aborted"]["phase"] == "loop"
+
+
+def test_prices_abort_in_cleanup_reports_post_phase_with_counts(run_prices, harness):
+    sb, code = run_prices({"price_history_v2": FOREVER})
+    assert code == 1
+    assert sb.calls.count("price_history_v2") == LIMIT
+    assert len(harness) == 1 and "カード収集は終わったあと" in harness[0] and "処理 5/5件・成功 5件" in harness[0]
+    runs = sb.inserted["collection_runs"]
+    assert len(runs) == 1  # 正常終了の行は書く前に止まった → 打ち切りの行だけ
+    assert runs[0]["finished_at"] is None
+    assert runs[0]["success_count"] == 5 and runs[0]["shop_stats"]["_aborted"]["phase"] == "post"
+
+
+def test_prices_abort_in_daily_report_does_not_add_second_row(run_prices, harness):
+    sb, code = run_prices({"search_logs": FOREVER}, daily_report=True)
+    assert code == 1
+    runs = sb.inserted["collection_runs"]
+    assert len(runs) == 1 and runs[0]["finished_at"] is not None  # 正常終了の行だけ（打ち切りの行を重ねない）
+    assert len(harness) == 1 and "カード収集は終わったあと" in harness[0]
+
+
+# ──────────────────────────────────────────────
+# 新弾の main: 同期処理（featured_pack の読み出し）で止まる
+# ──────────────────────────────────────────────
+
+def test_featured_stops_in_sync(monkeypatch, harness):
+    import collect_featured as cf
+    sb = _Sb2({"featured_pack": FOREVER})
+    monkeypatch.setattr(sys, "argv", ["collect_featured.py"])
+    monkeypatch.setattr(cf, "get_supabase", lambda: sb)
+    code = _run(cf.main)
+    assert code == 1
+    assert sb.calls == ["featured_pack"] * LIMIT
+    assert len(harness) == 1 and "新弾フィーチャー価格収集を打ち切りました" in harness[0]
+    assert "collection_runs" not in sb.inserted  # 新弾は collection_runs に記録しない
