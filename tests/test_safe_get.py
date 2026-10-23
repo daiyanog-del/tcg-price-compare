@@ -246,6 +246,17 @@ def test_torecolo_gets_own_user_agent_only(monkeypatch):
     assert fake.call_headers[-1] is None
 
 
+# 2026-10-23: カードラッシュ販売も Chrome 140 未満の UA を 403 にし始めた。買取（cardrush.media）は対象外
+def test_cardrush_sale_gets_own_user_agent(monkeypatch):
+    fake = _install(monkeypatch, [200, 200])
+    assert scraper.safe_get("https://www.cardrush.jp/product-list?keyword=test") is not None
+    assert fake.call_headers[-1] == {
+        "User-Agent": "TCGYM/1.0 (+https://tcg-price-compare.onrender.com)"
+    }
+    assert scraper.safe_get("https://cardrush.media/yugioh/buying_prices?name=test") is not None
+    assert fake.call_headers[-1] is None
+
+
 def test_waf_error403_redirect_is_failure(monkeypatch):
     fake = _install(monkeypatch, [200])
     fake.final_url = "https://www.torecolo.jp/CustomError/error403.html"
