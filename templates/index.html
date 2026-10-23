@@ -44,6 +44,12 @@ function _ga(name,params){ if(typeof gtag==='function') gtag('event',name,params
 <meta property="og:title" content="{{ card_name }} の買取価格比較 | 強欲なラボ">
 <meta property="og:description" content="{{ card_name }}の買取価格を5店舗で比較{% if best_price %}。最高¥{{ '{:,}'.format(best_price) }}{% endif %}">
 <link rel="canonical" href="{{ public_base_url }}/buy/{{ card_name | urlencode }}">
+{% elif page_mode == 'tcg_preview' %}
+<title>海外先行カード一覧 | 強欲なラボ</title>
+<meta name="description" content="英語版で先に出て日本ではまだ発売されていない遊戯王カードを収録商品ごとに一覧。効果は機械翻訳の非公式訳で、デッキに追加してテストプレイもできます。">
+<meta property="og:title" content="海外先行カード一覧 | 強欲なラボ">
+<meta property="og:description" content="英語版で先に出た日本未発売のカードを収録商品ごとに一覧。">
+<link rel="canonical" href="{{ public_base_url }}/tcg-preview">
 {% elif page_mode == 'new_cards' %}
 <title>未発売カード一覧 | 強欲なラボ</title>
 <meta name="description" content="発売前の遊戯王OCGカードを収録商品ごとに一覧。デッキに追加してテストプレイもできます。">
@@ -753,7 +759,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
   </header>
 
   <!-- ===== 検索モード ===== -->
-  <div id="mode-search"{% if card_name %} class="has-search-result"{% elif page_mode == 'new_cards' %} class="new-cards-page"{% endif %}>
+  <div id="mode-search"{% if card_name %} class="has-search-result"{% elif page_mode == 'new_cards' %} class="new-cards-page"{% elif page_mode == 'tcg_preview' %} class="new-cards-page tcg-preview-page"{% endif %}>
 
   <div class="price-search-area">
     <div class="price-search-form">
@@ -854,12 +860,18 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     <div id="emptyError" class="movers-fail hidden"></div>
 
     <section id="newCardsSection" class="new-cards" aria-labelledby="newCardsHeading">
-      <a class="new-cards-back" href="/">← トップへ戻る</a>
+      <!-- 海外先行カード一覧（/tcg-preview・2026-10-23）も同じ部品で new-cards.js が描く。同じ HTML のままトップ等と行き来するので、
+           文言は両方を常に置き、#mode-search の .tcg-preview-page で出し分ける（new-cards.css） -->
+      <a class="new-cards-back for-default" href="/">← トップへ戻る</a>
+      <a class="new-cards-back for-tcg" href="/new-cards">← 未発売カード一覧へ</a>
       <div class="new-cards-head">
-        <h2 id="newCardsHeading">新着の未発売カード</h2>
+        <h2 id="newCardsHeading">{% if page_mode == 'tcg_preview' %}海外先行カード一覧{% else %}新着の未発売カード{% endif %}</h2>
         <a class="new-cards-head-link" href="/new-cards">すべて見る →</a>
       </div>
-      <p class="new-cards-help">発売前のカードも、デッキに追加してテストプレイできます。</p>
+      <p class="new-cards-help for-default">発売前のカードも、デッキに追加してテストプレイできます。</p>
+      <p class="new-cards-help for-tcg">英語版で先に出て、日本ではまだ発売されていないカードです。効果は機械翻訳の非公式訳で、デッキに追加してテストプレイできます（価格はありません）。</p>
+      <!-- 海外先行カード一覧への入口。未発売カード一覧のページだけに見せる（トップには出さない。2026-10-23 ユーザー選択） -->
+      <a class="new-cards-tcg-link" href="/tcg-preview">海外先行カード（英語版で先に出たカード）を見る →</a>
       <!-- トップは覚えている新着があれば最初の6枚を本物の HTML で書く（画像を HTML の時点で取りに行き、JS を待たずに出す。
           2026-10-22 LCP）。中身は new-cards.js の cardElement と同じで、JS が後から同じ中身で描き直してクリック等を付ける。
           無いときは従来どおり仮の枠 -->
