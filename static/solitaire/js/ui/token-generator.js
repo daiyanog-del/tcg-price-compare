@@ -16,6 +16,7 @@
  */
 
 import { addCardToPool } from '../components/card-manager.js';
+import { applyCardState } from '../components/card-state.js';
 import { getDropZoneInfo, executeDrop } from '../components/drag-drop.js';
 import { registerCardImage, registerCardName } from '../services/replay-service.js';
 import { openContextMenuAt, closeContextMenu } from './context-menu.js';
@@ -42,6 +43,7 @@ const FALLBACK_BG = '#a9adb5';
 
 // 前回の名前（同じトークンを続けて出すときに打ち直さなくてよいように。ページ内だけ覚える）
 let _lastName = DEFAULT_TOKEN_NAME;
+let _lastDefense = false; // 前回の表示形式（true＝守備表示）
 
 let _basePromise = null;
 /** 土台の画像を1回だけ読む。読めなければ null（地の色だけで描く） */
@@ -90,12 +92,14 @@ async function generateTokenDataURL(name) {
 
 /**
  * トークンを作ってマスに出す（ドラッグで置いたときと同じく executeDrop で配置・記録する）。
- * 名前は次に出すときの既定として覚える。
+ * 名前・表示形式は次に出すときの既定として覚える。
  * @param {Element} slot - .custom-slot
  * @param {string} name - tokenNameOf で整えた名前
+ * @param {{defense?: boolean}} [opt] defense: 守備表示で出す（2026-10-23。既定は攻撃表示）
  */
-export async function placeToken(slot, name) {
+export async function placeToken(slot, name, { defense = false } = {}) {
   _lastName = name;
+  _lastDefense = defense;
   const src = await generateTokenDataURL(name);
   if (!slot.isConnected) return; // 画像を作っている間に盤面が作り直された
 
@@ -116,6 +120,8 @@ export async function placeToken(slot, name) {
     console.warn('[token-generator] マスの種別を判定できませんでした');
     return;
   }
+  // 形を先に当ててから置く（PC の「場に出す」と同じ。記録は形まで含めた1手になる）
+  if (defense) applyCardState(wrapper, { orientation: 'defense', face: '' });
   executeDrop({ type: 'card', element: wrapper }, dropZoneInfo, slot, {});
 }
 
@@ -129,13 +135,19 @@ export function getLastTokenName() {
   return _lastName;
 }
 
+/** 前回は守備表示で出したか（表示形式の初期値） */
+export function getLastTokenDefense() {
+  return _lastDefense;
+}
+
 /** 土台の画像を先に読んでおく（名前を打っている間に。スマホのシートを開いたときにも呼ぶ） */
 export function preloadTokenBase() {
   _loadBase();
 }
 
 /**
- * 空いたマスのメニューを開く: 見出し・名前欄・「出す」。名前欄で Enter を押しても出す。
+ * 空いたマスのメニューを開く: 見出し・名前欄・「攻撃表示で出す」「守備表示で出す」。
+ * 名前欄で Enter を押すと前回の表示形式で出す。
  */
 function openTokenMenu(slot, x, y) {
   const input = document.createElement('input');
@@ -146,12 +158,12 @@ function openTokenMenu(slot, x, y) {
   input.placeholder = 'トークン名';
   input.setAttribute('aria-label', 'トークン名');
 
-  const place = () => placeToken(slot, tokenNameOf(input.value));
+  const place = (defense) => placeToken(slot, tokenNameOf(input.value), { defense });
 
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      place();
+      place(_lastDefense);
       closeContextMenu();
     } else if (e.key === 'Escape') {
       closeContextMenu();
@@ -161,7 +173,8 @@ function openTokenMenu(slot, x, y) {
   openContextMenuAt([
     { heading: 'トークンを出す' },
     { element: input },
-    { label: '出す', sub: 'Enter', action: place },
+    { label: '攻撃表示で出す', sub: _lastDefense ? '' : 'Enter', action: () => place(false) },
+    { label: '守備表示で出す', sub: _lastDefense ? 'Enter' : '', action: () => place(true) },
   ], x, y);
 
   // すぐ名前を打ち直せるように（色を押すだけなら関係ない）

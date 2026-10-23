@@ -39,7 +39,7 @@ import {
 } from './context-menu.js';
 import { playActivateEffect, flipMoveClone } from '../components/card-effects.js';
 import { _renderCard, _showUnknown, _showLoading, showTokenInfo } from './card-info-panel.js';
-import { placeToken, tokenNameOf, getLastTokenName, preloadTokenBase, TOKEN_NAME_MAX, DEFAULT_TOKEN_NAME } from './token-generator.js';
+import { placeToken, tokenNameOf, getLastTokenName, getLastTokenDefense, preloadTokenBase, TOKEN_NAME_MAX, DEFAULT_TOKEN_NAME } from './token-generator.js';
 import { isMobilePortrait, watchMobilePortrait, isMobileLandscape, watchMobileLandscape } from '../utils/viewport.js';
 import { enterRecView, exitRecView } from './rec-view.js';
 import { showToast } from '../utils/toast.js';
@@ -597,7 +597,7 @@ function initActionSheet() {
 // 名前のシート →「出すマスを選ぶ」→ 空いたマス（置き場所の案内 .drop-hint）をタップ。
 // マスを選ぶ間は下部バーの代わりに帯（#solMobileTokenPanel）を出す。
 
-let _tokenPick = null; // { name, slots: Element[] } マスを選んでいる間だけ
+let _tokenPick = null; // { name, defense, slots: Element[] } マスを選んでいる間だけ
 let _tokenSheetSlot = null; // 長押しの「名前を変えて出す…」から開いたとき、出すマス（マスを選び直さない）
 
 /** @param {Element|null} [slot] 出すマスが決まっているとき（空いたマスの長押しから） */
@@ -606,6 +606,11 @@ function openTokenSheet(slot = null) {
   _tokenSheetSlot = slot;
   const input = document.getElementById('solMobileTokenInput');
   if (input) input.value = getLastTokenName();
+  // 表示形式は前回の形から
+  const lastDefense = getLastTokenDefense();
+  document.querySelectorAll('#solMobileTokenFormSeg [data-token-form]').forEach((b) => {
+    b.setAttribute('aria-pressed', String((b.dataset.tokenForm === 'defense') === lastDefense));
+  });
   const btn = document.getElementById('solMobileTokenPickBtn');
   if (btn) btn.textContent = slot ? '出す' : '出すマスを選ぶ';
   preloadTokenBase();
@@ -616,17 +621,22 @@ function closeTokenSheet() {
   setHidden('solMobileTokenSheet', true);
 }
 
+/** 名前のシートで守備表示を選んでいるか */
+function _tokenSheetDefense() {
+  return document.querySelector('#solMobileTokenFormSeg [data-token-form="defense"]')?.getAttribute('aria-pressed') === 'true';
+}
+
 /** 盤面の空いたマスに置き場所の案内を付け、帯を出す */
-function startTokenPick(name) {
+function startTokenPick(name, defense = false) {
   closeTokenPick();
   clearMobileSelection(); // 選択中のカードがあると、マスのタップでそのカードが動いてしまう
   const slots = [...document.querySelectorAll('.custom-layout .custom-slot')]
     .filter((s) => !s.querySelector('.tier-item-wrapper'));
   if (!slots.length) { showToast('空いているマスがありません'); return; }
   slots.forEach((s) => s.classList.add('drop-hint'));
-  _tokenPick = { name, slots };
+  _tokenPick = { name, defense, slots };
   const label = document.getElementById('solMobileTokenPanelLabel');
-  if (label) label.textContent = `「${name}」を出すマスをタップ`;
+  if (label) label.textContent = `「${name}」を${defense ? '守備' : '攻撃'}表示で出すマスをタップ`;
   document.body.classList.add('sol-token-pick');
   setHidden('solMobileTokenPanel', false);
 }
@@ -648,14 +658,20 @@ function initTokenSheet() {
   document.querySelectorAll('[data-sol-token-sheet-close]').forEach((el) => {
     el.addEventListener('click', closeTokenSheet);
   });
+  // 表示形式の切り替え（攻撃／守備）
+  const formBtns = [...document.querySelectorAll('#solMobileTokenFormSeg [data-token-form]')];
+  formBtns.forEach((btn) => btn.addEventListener('click', () => {
+    formBtns.forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+  }));
   const submit = () => {
     const name = tokenNameOf(input?.value);
+    const defense = _tokenSheetDefense();
     const slot = _tokenSheetSlot;
     input?.blur(); // キーボードを閉じて盤面を見えるように
     closeTokenSheet();
     // 長押ししたマスがまだ空いていればそこへ。埋まっていたら（盤面が作り直された等）マスを選ぶ画面へ
-    if (slot?.isConnected && !slot.querySelector('.tier-item-wrapper')) placeToken(slot, name);
-    else startTokenPick(name);
+    if (slot?.isConnected && !slot.querySelector('.tier-item-wrapper')) placeToken(slot, name, { defense });
+    else startTokenPick(name, defense);
   };
   document.getElementById('solMobileTokenPickBtn')?.addEventListener('click', submit);
   input?.addEventListener('keydown', (e) => {
@@ -672,9 +688,9 @@ function initTokenSheet() {
     if (!slot || !_tokenPick.slots.includes(slot)) return;
     e.preventDefault();
     e.stopPropagation();
-    const { name } = _tokenPick;
+    const { name, defense } = _tokenPick;
     closeTokenPick();
-    placeToken(slot, name);
+    placeToken(slot, name, { defense });
   }, true);
   initEmptySlotLongPress();
 }
@@ -735,8 +751,9 @@ function _openEmptySlotMenu(slot, x, y) {
 
   openContextMenuAt([
     { heading: '空いたマス' },
-    // 既定の名前で出す（前回の名前ではない。2026-10-23 ユーザー指示）
-    { label: 'ここにトークンを出す', action: () => placeToken(slot, DEFAULT_TOKEN_NAME) },
+    // 既定の名前で出す（前回の名前ではない。2026-10-23 ユーザー指示）。表示形式は2つから選ぶ
+    { label: '攻撃表示で出す', action: () => placeToken(slot, DEFAULT_TOKEN_NAME, { defense: false }) },
+    { label: '守備表示で出す', action: () => placeToken(slot, DEFAULT_TOKEN_NAME, { defense: true }) },
     { label: '名前を変えて出す…', action: () => openTokenSheet(slot) },
     { label: '盤面にメモ', action: () => openCommentSheet({ kind: 'board' }) },
     { label: 'カットイン', action: () => openCommentSheet({ kind: 'cutin' }) },
