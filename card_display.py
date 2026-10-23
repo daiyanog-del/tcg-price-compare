@@ -714,6 +714,31 @@ def get_tcg_preview_names() -> list[str]:
     return list(_get_tcg_preview().keys())
 
 
+def get_tcg_preview_cards() -> dict:
+    """海外先行カード一覧（/tcg-preview）用に、表示対象の TCG先行カードを返す。取得失敗は DisplayDataUnavailable。
+
+    並びは公式DBのカード番号（konami_id）順。商品ごとのまとめと商品の並び（英語版の発売日の新しい順）は画面（new-cards.js）が行う。
+    画像は未発売カードの公式SAMPLEと同じく OFFICIAL_IMAGE_DISPLAY に従う。
+    """
+    # 設定も取得失敗を例外にする（失敗した空の設定で「画像を出す」側に倒れない）。読む間に無効化されたら読み直す（get_new_cards と同じ）
+    while True:
+        with _cache_lock:
+            generation = _cache_generation
+        cards = _get_tcg_preview(strict=True)
+        settings = _get_settings(strict=True)
+        with _cache_lock:
+            if generation == _cache_generation:
+                break
+    image_enabled = bool(settings.get("OFFICIAL_IMAGE_DISPLAY", {}).get("enabled", True))
+    rows = sorted(cards.values(), key=lambda c: c.get("konami_id") or 0)
+    return {"cards": [{
+        "name": c["name_en"],
+        "product_name": c.get("product_name_en") or None,
+        "release_date": str(c.get("tcg_release_date") or "") or None,  # 英語版の発売日
+        "image_url": (c.get("image_url") or None) if image_enabled else None,
+    } for c in rows]}
+
+
 def get_tcg_preview_proxy(name: str) -> dict | None:
     """英語名から TCG先行カードのカード情報（proxy と同じ形＋tcg_preview 等）を返す。無ければ None。"""
     card = _find_tcg_preview_card(name)

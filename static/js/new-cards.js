@@ -4,6 +4,10 @@ window.NewCards = (() => {
   // （2026-10-22 トップの見直し: 小さめのカード8枚にして値動きを最初の画面に入れる）
   const PAGE_SIZE=isListPage()?6:8;
   let pending=null, cards=[], shown=PAGE_SIZE, truncated=false;
+  // どこから取った（取っている）一覧か。同じ HTML のままトップ・未発売一覧・海外先行一覧を行き来するので、
+  // 取得中に別のページへ移ったら古い応答は捨てる（捨てないと未発売カードに「TCG先行」の札が付く。2026-10-23 reviewer 指摘）
+  let pendingKey='', loadedKey='', loadGen=0;
+  function sourceKey(){return isTcgPage()?'/api/tcg-preview-cards':isListPage()?'/api/new-cards?all=1':'/api/new-cards';}
   // 埋め込みの一覧で描いた時刻。直後に別の処理（index-main.js の _loadTopPanels）が load() を呼んでも、
   // この間は取り直さない（取り直すと全部描き直し、一覧ページでは最初の絵が後回しになって LCP が遅れた。2026-10-22）
   const INITIAL_FRESH_MS=30000;
@@ -17,9 +21,13 @@ window.NewCards = (() => {
   }
   // 一覧ページ（/new-cards）かどうか。index-main.js が #mode-search のクラスで状態を持つ。
   function isListPage(){return !!document.getElementById('mode-search')?.classList.contains('new-cards-page');}
+  // 海外先行カード一覧（/tcg-preview・2026-10-23）。英語版で先に出て日本に無いカード（TCG先行）を同じ部品で並べる
+  function isTcgPage(){return !!document.getElementById('mode-search')?.classList.contains('tcg-preview-page');}
   function releaseLabel(value){
     const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(value||'');
     if(!m)return '';
+    // 英語版の発売日は過ぎた日のことが多いので、年を付けて「英語版」と明記する
+    if(isTcgPage())return '英語版 '+m[1]+'/'+m[2]+'/'+m[3]+' 発売';
     // 翌年以降の発売日は月日だけだと今年と誤読されるため年を付ける（JST基準の今年と比較）。
     const thisYear=new Intl.DateTimeFormat('en',{timeZone:'Asia/Tokyo',year:'numeric'}).format(new Date());
     return (m[1]!==thisYear?m[1]+'/':'')+m[2]+'/'+m[3]+' 発売';
@@ -56,6 +64,7 @@ window.NewCards = (() => {
     }
     const meta=document.createElement('span');meta.className='new-card-meta';
     const badge=document.createElement('span');badge.className='new-card-badge';badge.textContent='発売前';
+    if(isTcgPage()){badge.textContent='TCG先行';badge.classList.add('is-tcg');}
     const date=document.createElement('span');date.textContent=addedDate(card.added_at);
     meta.append(badge,date);
     const name=document.createElement('strong');name.textContent=card.name;
@@ -90,6 +99,8 @@ window.NewCards = (() => {
     });
     return [...map.values()].sort((a,b)=>{
       if(!a.product!==!b.product)return a.product?-1:1;
+      // 海外先行カードは取り込みが週1回でまとまるので、追加日時ではなく英語版の発売日の新しい順
+      if(isTcgPage())return (b.release||'').localeCompare(a.release||'');
       return b.latest-a.latest;
     });
   }
@@ -124,7 +135,7 @@ window.NewCards = (() => {
     grid.replaceChildren();
     grid.removeAttribute('aria-busy');
     grid.classList.toggle('is-grouped',list);
-    get('newCardsHeading').textContent=list?'未発売カード一覧':'新着の未発売カード';
+    get('newCardsHeading').textContent=isTcgPage()?'海外先行カード一覧':list?'未発売カード一覧':'新着の未発売カード';
     if(list){
       renderGrouped(grid);
     }else{
@@ -136,18 +147,18 @@ window.NewCards = (() => {
     get('newCardsAll').hidden=!showAll;
     get('newCardsStatus').textContent=cards.length
       ?''
-      :'現在、表示できる未発売カードはありません。';
+      :isTcgPage()?'現在、表示できる海外先行カードはありません。':'現在、表示できる未発売カードはありません。';
   }
   function load(){
-    if(pending)return pending;
-    if(cards.length&&Date.now()-initialUsedAt<INITIAL_FRESH_MS)return Promise.resolve();
+    const key=sourceKey();
+    if(pending&&pendingKey===key)return pending;
+    if(!pending&&cards.length&&loadedKey===key&&Date.now()-initialUsedAt<INITIAL_FRESH_MS)return Promise.resolve();
     const section=get('newCardsSection');
     if(!section)return Promise.resolve();
     section.hidden=false;
     get('newCardsRetry').hidden=true;
     // HTMLの仮枠（または前回の表示）が残っている間は文言を足さない（足すと枠の下が押し下げられる）
     if(!get('newCardsGrid').children.length)get('newCardsStatus').textContent='新着カードを読み込み中…';
-    const list=isListPage();
     // サーバーが HTML に埋め込んだ最初の一覧（app.py index / new_cards_page）があれば、API を待たずに使う（一度だけ。
     // 再試行などでは API から取り直す）。DB を待たないと決まらないときは埋め込まれない（card_display.cached_new_cards）
     const initialEl=get('newCardsInitial');
@@ -157,19 +168,25 @@ window.NewCards = (() => {
     if(useInitial)initialUsedAt=Date.now();
     const source=useInitial
       ?Promise.resolve({ok:true,json:async()=>initial})
-      :fetch(list?'/api/new-cards?all=1':'/api/new-cards');
-    pending=source.then(async response=>{
+      :fetch(key);
+    const gen=++loadGen;
+    pendingKey=key;
+    const request=source.then(async response=>{
+      if(gen!==loadGen)return; // 取得中に別のページへ移った（新しい取得が始まっている）
       if(!response.ok)throw new Error('新着カード取得失敗');
       const data=await response.json();
+      if(gen!==loadGen)return;
       if(!Array.isArray(data.cards))throw new Error('新着カード形式不正');
-      cards=data.cards;truncated=!!data.has_more;shown=PAGE_SIZE;render();
+      cards=data.cards;truncated=!!data.has_more;shown=PAGE_SIZE;loadedKey=key;render();
     }).catch(()=>{
+      if(gen!==loadGen)return;
       // 失敗前の画像を最新情報のように残さない。
       cards=[];get('newCardsGrid').replaceChildren();get('newCardsGrid').removeAttribute('aria-busy');get('newCardsMore').hidden=true;
       get('newCardsAll').hidden=true;
-      get('newCardsStatus').textContent='新着カードを取得できませんでした。';
+      get('newCardsStatus').textContent=isTcgPage()?'海外先行カードを取得できませんでした。':'新着カードを取得できませんでした。';
       get('newCardsRetry').hidden=false;
-    }).finally(()=>{pending=null;});
+    }).finally(()=>{if(pending===request)pending=null;});
+    pending=request;
     return pending;
   }
   document.addEventListener('DOMContentLoaded',()=>{
