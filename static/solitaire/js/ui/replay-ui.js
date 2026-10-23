@@ -743,7 +743,7 @@ async function _loadFromURL() {
       await _setReplayData(images, names || {}, logs, exCardIds || [], cardTypes || {});
     }
     console.log(`リプレイID ${replayId} を読み込みました`);
-    _finishLoadFromURL(atEnd, { source: 'shared', title });
+    _finishLoadFromURL(atEnd, { source: 'shared', title, replayId });
     // 続きから遊ぶ（at=end）場合は、再読込でサーバーのリプレイを最初から読み直さないよう replay も外す
     // （?saved= と同じ扱い。通常の共有リンクの ?replay= は従来どおり残す）
     if (atEnd) _removeParamsFromURL(['replay']);
@@ -760,15 +760,16 @@ async function _loadFromURL() {
  * 最後の手にカーソルがあるので、続けて1手打っても記録は切り捨てられない（logEvent は末尾でのみ追記）。
  * detail の source（'shared'＝共有リンク／'saved'＝このブラウザに保存したもの）と title は、
  * 読み込み直後に出す「▶ 再生する」の案内（replay-start-prompt.js）が使う。
+ * savedReplayId（端末保存の id）・replayId（共有リンクの id）は、名前を変える（replay-rename-ui.js）が持ち主かを調べるのに使う。
  * @param {boolean} atEnd
- * @param {{source?:'shared'|'saved', title?:string}} [info]
+ * @param {{source?:'shared'|'saved', title?:string, savedReplayId?:string, replayId?:string}} [info]
  */
 function _finishLoadFromURL(atEnd, info = {}) {
   _resetPcRecording(); // 重大4対応: JSON読込で古い録画範囲(_pcRecording)が残留するのを防ぐ
   if (atEnd) seekTo(getLogLength() - 1);
   document.dispatchEvent(new CustomEvent('sol-replay-loaded-from-url', {
     detail: { atEnd, source: info.source || 'shared', title: typeof info.title === 'string' ? info.title : '',
-      savedReplayId: info.savedReplayId || null },
+      savedReplayId: info.savedReplayId || null, replayId: info.replayId || null },
   }));
 }
 

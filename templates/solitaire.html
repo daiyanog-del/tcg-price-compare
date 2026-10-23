@@ -320,6 +320,9 @@
           <button class="replay-save-btn" id="pcSaveSheetOpen" type="button" disabled><span class="replay-ico"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 2.5h8l2 2v9H3z"/><path d="M5.5 2.5v3.5h5V2.5M5 13.5V9h6v4.5"/></svg></span>保存</button>
           <button class="replay-btn" id="pcShareSheetOpen" type="button" disabled><span class="replay-ico"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="4" cy="8" r="1.8"/><circle cx="12" cy="3.5" r="1.8"/><circle cx="12" cy="12.5" r="1.8"/><path d="M5.6 7.1 10.4 4.4M5.6 8.9l4.8 2.7"/></svg></span>共有</button>
           <a class="replay-btn pc-replay-list-link" id="pcReplayListLink" data-replay-list-link href="/solitaire/replays"><span class="replay-ico"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5.5 4h8M5.5 8h8M5.5 12h8"/><circle cx="2.8" cy="4" r=".6" fill="currentColor"/><circle cx="2.8" cy="8" r=".6" fill="currentColor"/><circle cx="2.8" cy="12" r=".6" fill="currentColor"/></svg></span>一覧</a>
+          <!-- 開いているリプレイの名前（js/ui/replay-rename-ui.js・2026-10-22 案A）。このブラウザに保存したもの・自分が公開中のものを開いたときだけ出す。
+               押すと名前を変える小窓。スマホ（768px 未満）は開いた直後の案内（replay-start-prompt.js）で変える -->
+          <button class="replay-btn pc-replay-rename-btn" id="pcReplayRenameBtn" type="button" hidden><span class="replay-ico"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M10.5 2.5l3 3-8 8H2.5v-3z"/></svg></span><span class="pc-replay-rename-label" id="pcReplayRenameLabel"></span></button>
         </div>
       </div>
 
