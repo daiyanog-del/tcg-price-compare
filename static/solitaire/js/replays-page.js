@@ -12,16 +12,13 @@
  * ユーザー由来の文字列（タイトル等）は必ず textContent で入れる（innerHTML には入れない）。
  */
 
-import { savedReplaysGet, savedReplaysSet, deleteReplayEntry, renameReplayEntry, assertReplayPayload, saveReplayPayload } from './services/saved-replays.js';
+import { savedReplaysGet, savedReplaysSet, deleteReplayEntry, assertReplayPayload, saveReplayPayload } from './services/saved-replays.js';
 import { migrateSlotsToReplays, getRemainingSlotKeys, exportRemainingSlotsJson } from './services/slot-migration.js';
-import { sharedReplaysGet, sharedReplaysSet, deleteSharedReplay, unpublishSharedReplay, renameSharedReplay } from './services/shared-replays.js';
+import { sharedReplaysGet, sharedReplaysSet, deleteSharedReplay, unpublishSharedReplay } from './services/shared-replays.js';
+import { renameReplay, renameMaxLength } from './services/replay-rename.js';
 import { shouldConfirmOpen, copyResumeToUndo, UNDO_OFFER_KEY, NOTICE_KEY } from './utils/session-resume-store.js';
 import { showActionToast, openConfirm, openNameDialog } from './ui/inline-ui.js';
 
-// 名前の上限。端末保存はシミュレーターの保存と同じ100文字（replay-ui.js REPLAY_TITLE_MAX_LEN）、
-// 公開中はサーバーの公開の条件と同じ40文字（solitaire_routes.PUBLIC_TITLE_MAX_LEN）
-const SAVED_TITLE_MAX_LEN = 100;
-const PUBLIC_TITLE_MAX_LEN = 40;
 
 /**
  * 行リンクを開くと、シミュレーターに退避中の記録が置き換わる場合の準備。
@@ -209,14 +206,17 @@ function renderSaved() {
     actions.appendChild(openLinkButton('最初から再生', openHref));
     actions.appendChild(openLinkButton('最後の盤面から続ける', openHref + '&at=end'));
     const renameBtn = actionButton('名前を変える', '', () => {
+      const target = { kind: 'saved', id: item.id };
       openNameDialog(renameBtn, {
         title: 'リプレイの名前',
         okLabel: '変える',
         initial: item.title || '',
-        maxLength: SAVED_TITLE_MAX_LEN,
-        onOk: (name) => {
-          if (!renameReplayEntry(item.id, name).ok) return '変えられませんでした（ブラウザの保存容量を確認してください）';
+        maxLength: renameMaxLength(target),
+        onOk: async (name) => {
+          const r = await renameReplay(target, name);
+          if (!r.ok) return r.message;
           renderSaved();
+          return undefined;
         },
       });
     });
@@ -330,37 +330,25 @@ function renderShared() {
  */
 function renamePublicItem(item, anchor) {
   showSharedError('');
+  const target = { kind: 'public', id: item.id, token: item.deleteToken };
   openNameDialog(anchor, {
     title: 'リプレイの名前（みんなのリプレイにも出ます）',
     okLabel: '変える',
     initial: item.title || '',
-    maxLength: PUBLIC_TITLE_MAX_LEN,
+    maxLength: renameMaxLength(target),
     onOk: async (name) => {
-      let res, data;
-      try {
-        res = await fetch('/api/solitaire/replay/' + encodeURIComponent(item.id) + '/rename', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: item.deleteToken, title: name }),
-        });
-        data = await res.json().catch(() => ({}));
-      } catch {
-        return '通信に失敗しました。しばらくしてからもう一度お試しください';
-      }
-      if (res.ok) {
-        renameSharedReplay(item.id, typeof data.title === 'string' ? data.title : name);
+      const r = await renameReplay(target, name);
+      if (r.ok) {
         renderShared();
         loadPublic(true); // みんなのリプレイの一覧の名前も変わる
         return undefined;
       }
-      if (res.status === 403 && data.code === 'not_renamable') {
-        unpublishSharedReplay(item.id);
+      if (r.gone) {
         renderShared();
-        showSharedError('このリプレイはすでに公開されていないようです。表示を更新しました。');
+        showSharedError(r.message + '。表示を更新しました。');
         return undefined;
       }
-      if (res.status === 400 && data.error) return data.error;
-      return data.error || '名前を変えられませんでした。しばらくしてからもう一度お試しください';
+      return r.message;
     },
   });
 }

@@ -1893,6 +1893,17 @@ a.replay-btn { display: inline-block; text-decoration: none; }
   font-family: var(--font); font-size: 0.85rem; cursor: pointer;
 }
 .sol-replay-start-later:hover { color: var(--main-color); }
+/* 題名の下の「名前を変える」（replay-rename-ui.js）。題名に寄せて、下の「再生する」とは間を空ける */
+.sol-replay-start-rename { margin-top: 0; padding: 2px 10px; font-size: 0.78rem; text-decoration: underline; text-underline-offset: 2px; }
+
+/* 再生バーの「開いているリプレイの名前」（#pcReplayRenameBtn。replay-rename-ui.js・2026-10-22 案A）。
+   長い名前は省略する（全文はボタンの title）。バーが2段に折り返すときは replay-rename-ui.js が幅を縮める・隠す。
+   components.css の span の一律の色（#333）を打ち消す。スマホ（768px 未満）は開いた直後の案内で変えるので出さない */
+.pc-replay-rename-label { color: inherit; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-replay-rename-label[hidden] { display: none; }
+@media (max-width: 767px) {
+  #pcReplayRenameBtn { display: none !important; }
+}
 
 /* 狭いサイドバーに合わせた共通ブランド素材。 */
 .sol-nav-title .nav-brand-image { width:88px; height:auto; display:block; transform:translateY(5px); }
@@ -1957,6 +1968,8 @@ a.replay-btn { display: inline-block; text-decoration: none; }
   .replay-bar .replay-group + .replay-group { padding-left: 6px; margin-left: 2px; }
   .replay-bar .replay-group:first-child { flex: 1 1 0; min-width: min-content; } /* 中身より縮めない（縮めるとボタンが重なる） */
   .replay-bar .replay-slider { width: 0; min-width: 100px; } /* 本来の幅（約130px）で中身の幅を数えないよう width:0。幅は flex で伸ばす */
+  /* 開いているリプレイの名前のボタン（鉛筆）で2段になるときだけ、バーの最低の長さを縮めて1段に収める（replay-rename-ui.js が付ける） */
+  .replay-bar.is-tight .replay-slider { min-width: 56px; }
 }
 /* 線アイコン（再生バー）。components.css の span の一律の色を打ち消し、文字の色に合わせる。
    768px 未満（横向きスマホなど、ボタンが flex でない幅）は margin で文字との間を空ける */
