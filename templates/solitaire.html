@@ -915,6 +915,8 @@
 <!-- 端末間同期（P2）。main.js（type=module・deferされる）より前に読み込まれる通常scriptなので、
      DOM解析完了後に実行されるmodule側からは常に window.SyncClient が使える（設計文書 §11） -->
 <script src="{{ static_url('shared/wish-deck.js') }}"></script>
+<!-- TCG先行カードの名前の一覧（購入候補に入れる操作を出さない判定。2026-10-23） -->
+<script src="{{ static_url('shared/tcg-preview.js') }}"></script>
 <script src="{{ static_url('shared/deck-replays.js') }}"></script>
 <script src="{{ static_url('shared/sync-client.js') }}"></script>
 <script src="{{ static_url('shared/text-report.js') }}"></script>

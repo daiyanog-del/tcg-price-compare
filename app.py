@@ -1232,9 +1232,34 @@ def api_suggest():
             rel = rel_map.get(n, "")
             still_unreleased = not (rel and rel <= today)
             objs.append({"name": n, "unreleased": still_unreleased})
+        # TCG先行カード（英語版で先に出て日本に無いカード）を英語名の前方一致 → 部分一致で最後に足す。
+        # 価格が無いので unreleased=true（選んでも価格検索へ進ませない）に tcg_preview=true の印を付ける
+        if len(objs) < 10:
+            taken = {o["name"] for o in objs}
+            tcg_prefix, tcg_contains = [], []
+            for n in _card_display.get_tcg_preview_names():
+                if n in taken:
+                    continue
+                n_lower = n.lower()
+                if n_lower.startswith(q_lower):
+                    tcg_prefix.append(n)
+                elif q_lower in n_lower:
+                    tcg_contains.append(n)
+            for n in tcg_prefix + tcg_contains:
+                objs.append({"name": n, "unreleased": True, "tcg_preview": True})
         return jsonify(objs[:10])
 
     return jsonify(results)
+
+
+@app.route("/api/tcg-preview-names")
+def api_tcg_preview_names():
+    """TCG先行カード（英語版で先に出て日本に無いカード）の英語名の一覧。
+    画面（static/shared/tcg-preview.js）が購入候補に入れる操作を出さないために使う。週1回しか増えないので5分キャッシュ。
+    """
+    resp = jsonify({"names": sorted(_card_display.get_tcg_preview_names())})
+    resp.headers["Cache-Control"] = "public, max-age=300"
+    return resp
 
 
 def _is_release_passed_unreleased(name: str) -> bool:
@@ -1279,6 +1304,10 @@ def api_validate():
         if rel and rel <= today:
             return jsonify({"valid": True, "name": q})
         return jsonify({"valid": True, "name": q, "unreleased": True})
+    # TCG先行カード（英語名）: 価格が無いので未発売と同じく価格検索をせず、カード情報だけを出させる
+    tcg_proxy = _card_display.get_tcg_preview_proxy(q)
+    if tcg_proxy:
+        return jsonify({"valid": True, "name": tcg_proxy["name"], "unreleased": True, "tcg_preview": True})
     # 補正できなかった（corrected == q のまま、かつDBに存在しない）
     # TODO: _correct_cardname()が部分一致候補を返せるようになったらsuggestionを活用
     return jsonify({"valid": False, "suggestion": None})
@@ -4709,7 +4738,8 @@ def api_card_info():
         and display.get("source") == "official_sample"
     )
     if display["kind"] == "proxy" or is_official_sample:
-        proxy = display.get("proxy") or _card_display.get_unreleased_proxy(name)
+        # get_display_proxy: 未発売カード → TCG先行カード（英語名）の順
+        proxy = display.get("proxy") or _card_display.get_display_proxy(name)
         if proxy:
             result = {
                 "found":      False,
@@ -4910,7 +4940,7 @@ def api_card_infos():
             disp["kind"] == "image" and disp.get("source") == "official_sample"
         )
         if disp["kind"] == "proxy" or is_official_sample:
-            proxy = disp.get("proxy") or _card_display.get_unreleased_proxy(name)
+            proxy = disp.get("proxy") or _card_display.get_display_proxy(name)
             if proxy:
                 infos[name] = {
                     "found":      False,

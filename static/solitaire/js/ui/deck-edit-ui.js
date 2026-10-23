@@ -374,7 +374,9 @@ function _wireCardSearch(input, list, { floating = false } = {}) {
       if (c.unreleased) {
         const b = document.createElement('span');
         b.className = 'sol-deck-suggest-badge';
-        b.textContent = '未発売';
+        // TCG先行（英語版で先に出て日本に無いカード）も unreleased=true で届く
+        b.textContent = c.tcg_preview ? 'TCG先行' : '未発売';
+        if (c.tcg_preview) window.TcgPreview?.note(c.name);
         li.appendChild(b);
       }
       const add = document.createElement('span');
@@ -564,6 +566,8 @@ function _renderMobileEdit() {
     wish.textContent = '候補へ';
     wish.setAttribute('aria-label', `${g.name}を購入候補に1枚入れる`);
     wish.addEventListener('click', () => { addOneToWish(g.name); });
+    // TCG先行カード（英語版で先に出て日本に無いカード）は価格が無いので購入候補の操作を出さない
+    wish.hidden = !!window.TcgPreview?.has(g.name);
     sel.append(_cellThumb(g.wrapper), nm, minus, cnt, plus, wish);
   }
 
@@ -623,9 +627,14 @@ function _menuItems(wrapper) {
   const name = wrapper.querySelector('.tier-item')?.dataset.cardName;
   if (!name) return [];
   const removable = !!_findRemovable(name, wrapper);
-  return [
+  const items = [
     { label: 'デッキに1枚足す', sub: `今 ${countInDeck(name)}枚`, action: () => { addOne(name); } },
     { label: 'デッキから1枚抜く', disabled: !removable, action: () => { removeOne(name, wrapper); } },
+  ];
+  // TCG先行カード（英語版で先に出て日本に無いカード）は価格が無いので購入候補の操作を出さない
+  if (window.TcgPreview?.has(name)) return items;
+  return [
+    ...items,
     { separator: true },
     { label: '購入候補に入れる', sub: `候補に ${wishCount(name)}枚`, action: () => { addOneToWish(name); } },
   ];

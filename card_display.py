@@ -10,11 +10,14 @@ card_display.py — 未発売カード表示解決の唯一の入口
         → {"kind": "image", "url": <Storage public_url>}
   (3) 未発売 approved/linked（画像なし or 設定無効）
         → {"kind": "proxy", "proxy": {カードデータ dict}}
-  (4) それ以外（pending/rejected/不明）
+  (4) TCG先行（tcg_preview_cards の英語名。status='active' かつ hidden=false）
+        画像あり + OFFICIAL_IMAGE_DISPLAY enabled → {"kind": "image", "url": ..., "tcg_preview": True}
+        それ以外                                   → {"kind": "proxy", "proxy": {..., "tcg_preview": True}}
+  (5) それ以外（pending/rejected/不明）
         → {"kind": "none"}
 
 Supabase 環境変数（SUPABASE_URL/SUPABASE_KEY）が未設定の場合は
-未発売機能を無効として (1)/(4) のみで動作する。
+未発売機能を無効として (1)/(5) のみで動作する。
 既存挙動は完全に保持される。
 
 循環 import 防止:
@@ -23,7 +26,7 @@ Supabase 環境変数（SUPABASE_URL/SUPABASE_KEY）が未設定の場合は
   card_display.py は app.py を import しない。
 
 キャッシュ:
-  app_settings と unreleased_cards の辞書はモジュール内メモリに TTL 30 秒で保持。
+  app_settings・unreleased_cards・tcg_preview_cards の辞書はモジュール内メモリに TTL 30 秒で保持。
   TTL を過ぎても _CACHE_STALE_MAX 秒以内なら古い値を即返し、裏スレッドで取り直す
   （stale-while-revalidate。取り直しは実測1.9秒かかり、/api/new-cards が待たされていたため）。
   invalidate_cache() を呼ぶと即時クリアされる（P2 管理画面トグルAPIから使用）。
@@ -148,6 +151,10 @@ _settings_cache_at: float = 0.0
 _unreleased_cache: dict[str, dict] | None = None
 _unreleased_cache_at: float = 0.0
 
+# tcg_preview_cards キャッシュ（英語名 name_en → レコード dict）。status='active' かつ hidden=false のみ
+_tcg_preview_cache: dict[str, dict] | None = None
+_tcg_preview_cache_at: float = 0.0
+
 
 def invalidate_cache() -> None:
     """
@@ -156,6 +163,7 @@ def invalidate_cache() -> None:
     """
     global _settings_cache, _settings_cache_at
     global _unreleased_cache, _unreleased_cache_at
+    global _tcg_preview_cache, _tcg_preview_cache_at
     global _cache_generation
     with _cache_lock:
         _cache_generation += 1
@@ -163,6 +171,8 @@ def invalidate_cache() -> None:
         _settings_cache_at = 0.0
         _unreleased_cache = None
         _unreleased_cache_at = 0.0
+        _tcg_preview_cache = None
+        _tcg_preview_cache_at = 0.0
     logger.info("[card_display] キャッシュをクリアしました")
 
 
@@ -189,12 +199,12 @@ def _fetch_app_settings(*, strict: bool = False) -> dict:
         return {}
 
 
-def _read_all_rows(query) -> list[dict]:
+def _read_all_rows(query, order_column: str = "id") -> list[dict]:
     """Supabaseの既定取得上限で、新着候補の並べ替え前に欠落しないようページ取得する。"""
     rows = []
     page_size = 500  # APIの既定上限1000件以内で取得する通信単位。
     while True:
-        page = query.order("id").range(len(rows), len(rows) + page_size - 1).execute().data or []
+        page = query.order(order_column).range(len(rows), len(rows) + page_size - 1).execute().data or []
         rows.extend(page)
         if len(page) < page_size:
             return rows
@@ -275,6 +285,43 @@ def _fetch_unreleased_cards(*, strict: bool = False) -> dict[str, dict]:
         return {}
 
 
+def _fetch_tcg_preview_cards(*, strict: bool = False) -> dict[str, dict]:
+    """
+    TCG先行カード（tcg_preview_cards の status='active' かつ hidden=false）を
+    英語名 name_en → レコード dict の辞書で返す。失敗時は空の dict（strict なら例外）。
+
+    日本に来たカード（status='ocg_linked'）は日本語の正式名で今の流れ（発売済み・未発売）に乗るので含めない。
+    """
+    if not _is_enabled():
+        if strict:
+            raise DisplayDataUnavailable("TCG先行カードの接続が利用できません")
+        return {}
+    try:
+        rows = _read_all_rows(
+            _supabase_client.table("tcg_preview_cards")
+            .select(
+                "konami_id, name_en, card_type, attribute, race, level, rank, link_val, atk, def, "
+                "pendulum_scale, effect_text_en, effect_text_ja, pendulum_effect_en, pendulum_effect_ja, "
+                "translation_status, product_name_en, set_code, tcg_release_date, image_url, image_page_url"
+            )
+            .eq("status", "active")
+            .eq("hidden", False),
+            order_column="konami_id",
+        )
+        result: dict[str, dict] = {}
+        for row in rows:
+            name = row.get("name_en") or ""
+            if name and name not in result:
+                result[name] = row
+        logger.debug(f"[card_display] TCG先行カード取得: {len(result)} 件")
+        return result
+    except Exception as e:
+        logger.warning(f"[card_display] tcg_preview_cards 取得失敗: {e}")
+        if strict:
+            raise DisplayDataUnavailable("TCG先行カードを取得できません") from e
+        return {}
+
+
 # ──────────────────────────────────────────────
 # 内部: キャッシュ付き取得
 # ──────────────────────────────────────────────
@@ -339,6 +386,18 @@ def _refresh_unreleased() -> None:
             _unreleased_cache_at = time.monotonic()
 
 
+def _refresh_tcg_preview() -> None:
+    """tcg_preview_cards を取り直してキャッシュへ入れる（取得中に無効化されたら捨てる）。"""
+    global _tcg_preview_cache, _tcg_preview_cache_at
+    with _cache_lock:
+        generation = _cache_generation
+    fresh = _fetch_tcg_preview_cards(strict=True)
+    with _cache_lock:
+        if generation == _cache_generation:
+            _tcg_preview_cache = fresh
+            _tcg_preview_cache_at = time.monotonic()
+
+
 def refresh_caches() -> None:
     """既にあるキャッシュを同期で取り直す（app の _cache_warmer から定期的に呼ぶ）。
 
@@ -348,9 +407,11 @@ def refresh_caches() -> None:
     with _cache_lock:
         has_settings = _settings_cache is not None
         has_unreleased = _unreleased_cache is not None
+        has_tcg_preview = _tcg_preview_cache is not None
     errors = []
-    # 片方の失敗でもう片方の取り直しを飛ばさない
-    for has, refresh in ((has_settings, _refresh_settings), (has_unreleased, _refresh_unreleased)):
+    # 1つの失敗でほかの取り直しを飛ばさない
+    for has, refresh in ((has_settings, _refresh_settings), (has_unreleased, _refresh_unreleased),
+                         (has_tcg_preview, _refresh_tcg_preview)):
         if not has:
             continue
         try:
@@ -415,6 +476,33 @@ def _get_unreleased(*, strict: bool = False) -> dict[str, dict]:
             _unreleased_cache_at = time.monotonic()
             return fresh
     return _get_unreleased(strict=strict)
+
+
+def _get_tcg_preview(*, strict: bool = False) -> dict[str, dict]:
+    """TTL 付きキャッシュから tcg_preview_cards 辞書を返す（TTL 切れは古い値＋裏更新。未発売カードと同じ方式）"""
+    global _tcg_preview_cache, _tcg_preview_cache_at
+    now = time.monotonic()
+    with _cache_lock:
+        if _tcg_preview_cache is not None:
+            age = now - _tcg_preview_cache_at
+            if age < _CACHE_TTL:
+                return _tcg_preview_cache
+            if age < _CACHE_STALE_MAX:
+                _start_background_refresh("tcg_preview", _refresh_tcg_preview)
+                return _tcg_preview_cache
+        generation = _cache_generation
+    try:
+        fresh = _fetch_tcg_preview_cards(strict=True)
+    except DisplayDataUnavailable:
+        if strict:
+            raise
+        return {}
+    with _cache_lock:
+        if generation == _cache_generation:
+            _tcg_preview_cache = fresh
+            _tcg_preview_cache_at = time.monotonic()
+            return fresh
+    return _get_tcg_preview(strict=strict)
 
 
 def cached_new_cards(limit: int | None = 36) -> dict | None:
@@ -507,14 +595,16 @@ def _build_proxy_data(card: dict) -> dict:
 
     # broad_type 判定（app.py 既存ロジックと同様の区分）
     ct_lower = card_type.lower()
-    if "モンスター" in ct_lower or any(k in ct_lower for k in ["通常", "効果", "儀式", "融合", "シンクロ", "エクシーズ", "リンク", "ペンデュラム", "トークン"]):
+    # 魔法・罠を先に見る。「通常魔法」「通常罠」「儀式魔法」は "通常"・"儀式" を含むため、
+    # モンスターの語を先に見るとモンスター扱いになっていた（2026-10-23 TCG先行カードの表示で発見）
+    if "モンスター" in ct_lower:
         broad_type = "monster"
     elif "魔法" in ct_lower:
         broad_type = "spell"
     elif "罠" in ct_lower:
         broad_type = "trap"
     else:
-        broad_type = "monster"  # 不明はモンスター扱い（EXフラグ判定に安全）
+        broad_type = "monster"  # 「チューナー」等の略記・不明はモンスター扱い（EXフラグ判定に安全）
 
     return {
         "name":         card.get("name", ""),
@@ -538,9 +628,96 @@ def _build_proxy_data(card: dict) -> dict:
     }
 
 
+def _build_tcg_preview_proxy(row: dict) -> dict:
+    """
+    tcg_preview_cards の行から、未発売カードの proxy と同じ形（_build_proxy_data 互換）の dict を作る。
+
+    足すキー:
+      tcg_preview           … True（TCG先行カードの印。画面は「TCG先行」の札・価格の操作を出さない）
+      unofficial_translation … effect_text が機械訳（非公式訳）なら True。訳が無い（未訳・失敗・通常モンスター）ときは
+                               effect_text は空で False（画面は英語の原文だけを出す）
+      effect_text_en / pendulum_effect_en … 英語の原文
+      product_name / tcg_release_date / set_code … 英語版の収録商品・発売日・型番
+    release_date は空にする（未発売カードの release_date は「発売日が来たら発売済み」の判定に使われるため、
+    TCG の発売日を入れると価格の流れに入ってしまう）。
+    """
+    translated = row.get("translation_status") == "done"
+    proxy = _build_proxy_data({
+        "name":            row.get("name_en") or "",
+        "reading":         "",
+        "card_type":       row.get("card_type") or "",
+        "attribute":       row.get("attribute") or "",
+        "race":            row.get("race") or "",
+        "level":           row.get("level"),
+        "rank":            row.get("rank"),
+        "link_val":        row.get("link_val"),
+        "atk":             row.get("atk"),
+        "def":             row.get("def") or "",
+        "pendulum_scale":  row.get("pendulum_scale"),
+        "pendulum_effect": (row.get("pendulum_effect_ja") or "") if translated else "",
+        "effect_text":     (row.get("effect_text_ja") or "") if translated else "",
+        "product_name":    row.get("product_name_en") or "",
+        "release_date":    "",
+    })
+    proxy.update({
+        "tcg_preview":            True,
+        "unofficial_translation": translated and bool(row.get("effect_text_ja") or row.get("pendulum_effect_ja")),
+        "effect_text_en":         row.get("effect_text_en") or "",
+        "pendulum_effect_en":     row.get("pendulum_effect_en") or "",
+        "tcg_release_date":       str(row.get("tcg_release_date") or ""),
+        "set_code":               row.get("set_code") or "",
+    })
+    return proxy
+
+
+def _find_tcg_preview_card(name: str, cards: dict[str, dict] | None = None) -> dict | None:
+    """英語名から TCG先行カードの行を引く。完全一致 → 大文字小文字・記号のゆれを吸収して再照合。無ければ None。"""
+    if not name or not _is_enabled():
+        return None
+    if cards is None:
+        cards = _get_tcg_preview()
+    card = cards.get(name)
+    if card is not None:
+        return card
+    fk = fuzzy_key(name).lower()
+    if not fk:
+        return None
+    for cand_name, cand in cards.items():
+        if fuzzy_key(cand_name).lower() == fk:
+            return cand
+    return None
+
+
+def _tcg_preview_display(card: dict, img_enabled: bool) -> dict:
+    """TCG先行カードの表示解決結果（画像は公式SAMPLEと同じ扱い＝透かしなし・contain 表示）。"""
+    img_url = card.get("image_url")
+    if img_url and img_enabled:
+        return {"kind": "image", "url": img_url, "source": "official_sample", "tcg_preview": True}
+    return {"kind": "proxy", "proxy": _build_tcg_preview_proxy(card)}
+
+
 # ──────────────────────────────────────────────
 # 公開 API
 # ──────────────────────────────────────────────
+
+def get_tcg_preview_names() -> list[str]:
+    """サジェスト用に、表示対象の TCG先行カードの英語名を返す。Supabase 未設定・取得失敗時は空配列。"""
+    return list(_get_tcg_preview().keys())
+
+
+def get_tcg_preview_proxy(name: str) -> dict | None:
+    """英語名から TCG先行カードのカード情報（proxy と同じ形＋tcg_preview 等）を返す。無ければ None。"""
+    card = _find_tcg_preview_card(name)
+    return _build_tcg_preview_proxy(card) if card is not None else None
+
+
+def get_display_proxy(name: str) -> dict | None:
+    """カード情報パネル用: 未発売カード → TCG先行カードの順に proxy を返す。どちらでもなければ None。
+
+    価格の関門（発売日の判定）には使わないこと。そちらは get_unreleased_proxy（未発売カードだけ）を使う。
+    """
+    return get_unreleased_proxy(name) or get_tcg_preview_proxy(name)
+
 
 def get_unreleased_names() -> list[str]:
     """
@@ -615,7 +792,7 @@ def resolve_card_display(name: str) -> dict:
     カード名から表示解決結果を返す唯一の入口。
 
     戻り値の種類:
-      {"kind": "image",  "url": str, "source": "released"|"official_sample"}
+      {"kind": "image",  "url": str, "source": "released"|"official_sample"[, "tcg_preview": True]}
       {"kind": "proxy",  "proxy": dict}
       {"kind": "none"}
 
@@ -642,7 +819,11 @@ def resolve_card_display(name: str) -> dict:
     card = unreleased.get(name)
 
     if card is None:
-        # (4) 未発売辞書にも無い（pending/rejected を含む）
+        # (4) TCG先行カード（英語名）
+        tcg_card = _find_tcg_preview_card(name)
+        if tcg_card is not None:
+            return _tcg_preview_display(tcg_card, _official_image_enabled())
+        # (5) どこにも無い（pending/rejected を含む）
         return {"kind": "none"}
 
     # (2) 画像あり + 設定有効
@@ -691,11 +872,15 @@ def resolve_card_displays(names: list[str]) -> dict[str, dict]:
     # 未発売辞書を1回だけ取得
     unreleased = _get_unreleased()
     img_enabled = _official_image_enabled()
+    tcg_preview = None  # TCG先行の辞書は、未発売に無い名前があったときだけ取る
 
     for name in needs_check:
         card = unreleased.get(name)
         if card is None:
-            result[name] = {"kind": "none"}
+            if tcg_preview is None:
+                tcg_preview = _get_tcg_preview()
+            tcg_card = _find_tcg_preview_card(name, tcg_preview)
+            result[name] = _tcg_preview_display(tcg_card, img_enabled) if tcg_card is not None else {"kind": "none"}
             continue
         img_url = card.get("_image_url")
         if img_url and img_enabled:

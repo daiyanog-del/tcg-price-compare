@@ -188,6 +188,10 @@
 .cr-fx-body .cdm-row{justify-content:flex-start;flex-wrap:wrap;gap:4px 8px}
 .cr-fx-body .cdm-row .lb{margin-left:0}
 .cr-fx-body .card-detail-effect{margin-top:10px;font-size:14px}
+/* TCG先行カード（英語版で先に出て日本に無いカード）: 機械訳の注記と英語の原文（2026-10-23） */
+.card-detail-unofficial{display:block;margin-bottom:2px;font-size:.70rem;color:var(--text-d);white-space:normal}
+.card-detail-original{margin-top:8px;border-top:1px solid var(--border);padding-top:6px}
+.card-detail-original>summary{cursor:pointer;color:var(--text-m)}
 html.cr-fx-open,html.cr-fx-open body{overflow:hidden}
 
 /* ── スマホ ── */

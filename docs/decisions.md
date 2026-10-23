@@ -1,5 +1,14 @@
 このファイルの目的: 重要な決定を「いつ・何を・なぜ」で記録する。新しい決定は上に追記
 
+## 2026-10-23: TCG先行カードをシミュレーター・マイデッキで英語名で使えるように（branch feat/tcg-preview-display・段2）
+- なぜ: 段1で取り込んだ TCG先行カード（tcg_preview_cards）を「どういう効果でどう使えるかを先に試す」ため。価格と日本語の正式名は日本に来たときに今の流れで取る（段3）。
+- 読み先: card_display に3つ目（発売済み → 未発売 → TCG先行）。英語名 name_en で引く（完全一致 → 大文字小文字・記号のゆれを吸収）。status='active' かつ hidden=false だけ。機械訳は translation_status='done' のときだけ使い、それ以外（通常モンスター・未訳・失敗）は英語の原文だけ。キャッシュは未発売カードと同じ（TTL 30秒・古い値＋裏更新・invalidate_cache/refresh_caches の対象）。
+- 形: 画像があれば {kind:'image', source:'official_sample', tcg_preview:true}（透かしなし・contain・「イラストをぼかす」の対象は未発売の公式SAMPLEと同じ）。情報は未発売の proxy と同じ形（_build_proxy_data）に tcg_preview・unofficial_translation・effect_text_en・pendulum_effect_en・tcg_release_date・set_code を足す。release_date は空（未発売の「発売日が来たら発売済み」の判定に入れない）。
+- 価格の流れに入れない: get_unreleased_proxy（/api/validate の発売済み扱い・_is_release_passed_unreleased）は未発売カードだけを見るまま。情報欄だけ get_display_proxy（未発売 → TCG先行）を使う。/api/validate は英語名に unreleased:true・tcg_preview:true を返し、トップは価格検索をせず情報だけを出す。/api/suggest は include_unreleased=1 のときだけ英語名の前方一致 → 部分一致を最後に足す（価格検索の候補には出さない）。
+- 購入候補に入れる操作を出さない: 盤面の保存・リプレイの復元などカードの作られ方が多いので、カードに印を付けず、名前の一覧 /api/tcg-preview-names を static/shared/tcg-preview.js が1回取り、入口ごとに確かめる（シミュレーターの右クリック・スマホの「候補へ」・足りない分の窓、マイデッキのカードメニュー・所持枚数からの追加、トップの未発売カード表示）。一覧が取れないうちは操作が出る（入れても価格が出ないだけ）。
+- 見た目（実画面モック _mocks/tcg-preview-display-20261023.png でユーザー選択）: 候補の札は青み（案B）で、シミュレーターの「未発売」の札も同じ青みにそろえる。情報欄は案1＝名前の下に「TCG先行・日本未発売」・効果文の上に「非公式訳（機械翻訳）」・その下に「英語の原文」を折りたたみ（訳が無いカードは開いた状態）・価格欄と「テキストの誤りを報告」の代わりに「日本で未発売のため価格はありません」。採らなかった案: 札を灰色のまま文字だけ変える（案A）、日本語/English の切り替え（案2・訳と原文を同時に見られない）。マイデッキ・トップの候補は各画面の今の札の形のまま文字だけ「TCG先行」。
+- 同時に直した不具合: _build_proxy_data が「通常魔法」「通常罠」「儀式魔法」を "通常"・"儀式" の語でモンスター扱いしていた（unreleased_cards の行で状態を問わず 16件が該当: 通常魔法6・通常罠9・儀式魔法1。情報欄に ATK ?/DEF — が出ていた）。「モンスター」→「魔法」→「罠」の順に見るように変えた。
+
 ## 2026-10-23: TCG先行カード（英語版で先に出て日本に無いカード）を取り込み、効果文を機械で和訳する（branch feat/tcg-preview-translate・段1＝取り込みだけ）
 - なぜ: ユーザーの狙いは「どういう効果でどう使えるかを先に知って試す」こと。価格と日本語の正式名は、日本に来た時（WPP の収録発表）に今の流れで取れればよい。
 - 取り込み元: YGOResources の公開ミラー（db-ygoresources-com/yugioh-card-history）で「英語にあって日本語に無い konami_id」を TCG先行とする（10-23 時点 37枚。英語名だけで日本語側に紛れたカードは無いことを確認）。商品名・発売日・画像は公式DB（db.yugioh-card.com・同じ cid）から。公式DB の cid は日本に来ても変わらない（BLAZING DOMINION 101枚を同じ cid で日本版に引くと全件に日本語名）ので、日本に来た時のつなぎ替えの鍵にする。

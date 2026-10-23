@@ -133,6 +133,10 @@ async function _fetchAndShow(name, imgSrc, isSample = false) {
  * @param {boolean} [isSample=false]  公式SAMPLE画像か（透かし・ぼかしの出し分け用）。
  * @param {boolean} [isUnreleased=false]  未発売カード（/api/card-info が kind:'proxy' を返したもの）か。
  *   true のときだけ「テキストの誤りを報告」ボタンを置く（発売済みカードには出さない）。
+ *
+ * TCG先行カード（data.tcg_preview。英語版で先に出て日本に無いカード）は、名前の下に「TCG先行・日本未発売」の札、
+ * 効果文に「非公式訳（機械翻訳）」の注記、その下に英語の原文（折りたたみ。訳が無いカードは開いた状態）を出す。
+ * 価格が無いので価格の欄・「テキストの誤りを報告」の代わりに「日本で未発売のため価格はありません」とだけ出す。
  */
 export function _renderCard(data, imgSrc, name, priceData, targetPanel, showPrice = true, isSample = false, isUnreleased = false) {
   const panel = targetPanel || document.getElementById('cardInfoPanel');
@@ -167,6 +171,7 @@ export function _renderCard(data, imgSrc, name, priceData, targetPanel, showPric
   const pendHtml = data.pendulum_effect
     ? `<div class="cip-effect cip-pendulum"><span class="cip-pendulum-label">【ペンデュラム効果】</span>${_esc(_normalizeBreaks(data.pendulum_effect)).replace(/\n/g, '<br>')}</div>`
     : '';
+  const isTcgPreview = !!data.tcg_preview;
 
   // ATK/DEF（モンスターのみ）
   const statsHtml = isMonster ? (() => {
@@ -183,17 +188,36 @@ export function _renderCard(data, imgSrc, name, priceData, targetPanel, showPric
       <img class="cip-img" src="${_esc(imgSrc)}" alt="${_esc(name || '')}"${_sampleAttr(isSample)}>
       <div class="cip-meta">
         <p class="cip-name">${_esc(name || '')}</p>
+        ${isTcgPreview ? '<p class="cip-tcg"><span class="cip-tcg-badge">TCG先行・日本未発売</span></p>' : ''}
         <p class="cip-type">${typeLine}</p>
         ${attrLine ? `<p class="cip-attr">${attrLine}</p>` : ''}
         ${statsHtml}
       </div>
     </div>
-    ${pendHtml}
+    ${isTcgPreview ? _buildTcgPreviewBody(data, pendHtml) : `${pendHtml}
     <div class="cip-effect">${_esc(_normalizeBreaks(data.effect_text || '')).replace(/\n/g, '<br>')}</div>
-    ${showPrice ? _buildPriceHtml(name, priceData) : ''}
+    ${showPrice ? _buildPriceHtml(name, priceData) : ''}`}
   `;
   // 未発売カード専用: 読み取り・転記ミスを利用者が知らせる窓口。ボタンは DOM 生成（innerHTML に名前を入れない）
-  if (isUnreleased && window.TextReport) window.TextReport.attach(panel, data.name || name);
+  // TCG先行カードの訳は機械訳で、報告の受け先（未発売カードの登録）とは別なので出さない
+  if (isUnreleased && !isTcgPreview && window.TextReport) window.TextReport.attach(panel, data.name || name);
+}
+
+/** TCG先行カードの効果欄: 非公式訳＋英語の原文（折りたたみ）＋価格が無い旨 */
+function _buildTcgPreviewBody(data, pendHtml) {
+  const text = s => _esc(_normalizeBreaks(s || '')).replace(/\n/g, '<br>');
+  const hasJa = !!data.unofficial_translation;
+  const enParts = [];
+  if (data.pendulum_effect_en) enParts.push(`<span class="cip-pendulum-label">[Pendulum Effect]</span>${text(data.pendulum_effect_en)}`);
+  if (data.effect_text_en) enParts.push(text(data.effect_text_en));
+  const enHtml = enParts.length
+    // 訳が無い（通常モンスターの説明文・未訳）ときは原文が唯一の本文なので開いておく
+    ? `<details class="cip-original"${hasJa ? '' : ' open'}><summary>英語の原文</summary><div class="cip-effect" lang="en">${enParts.join('<br>')}</div></details>`
+    : '';
+  const jaHtml = hasJa
+    ? `${pendHtml}<div class="cip-effect"><p class="cip-unofficial">非公式訳（機械翻訳）</p>${text(data.effect_text)}</div>`
+    : '';
+  return `${jaHtml}${enHtml}<p class="cip-noprice">日本で未発売のため価格はありません</p>`;
 }
 
 /**

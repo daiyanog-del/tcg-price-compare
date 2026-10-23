@@ -28,6 +28,8 @@
   // 「候補にある」は、このデッキ用＋デッキ指定なしの分（shared/wish-deck.js・2026-10-20 合計で数える）
   function plan(deck,values,wishlist,deckId){
     const clean=validateOwned(values), totals=requiredCards(deck);
+    // TCG先行カード（英語版で先に出て日本に無いカード）は価格が無いので購入候補に足さない
+    if(global.TcgPreview)[...totals.keys()].forEach(n=>{if(global.TcgPreview.has(n))totals.delete(n);});
     wishlist.forEach(c=>{
       if(!c||typeof c.name!=='string'||!Number.isInteger(c.qty)||c.qty<1||c.qty>99)throw Error('購入候補に不正な枚数があります。購入候補画面で確認してください。');
     });

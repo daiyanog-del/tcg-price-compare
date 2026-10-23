@@ -136,7 +136,10 @@
     item('デッキから1枚抜く', '', function(){ o.dec(name, sec); }, true);
     item('デッキから外す', '', function(){ o.remove(name, sec); }, true);
     sep();
-    item('購入候補に入れる', '候補に ' + _wishCount(name) + '枚', function(){ _addToWish(name); });
+    // TCG先行カード（英語版で先に出て日本に無いカード）は価格が無いので購入候補の操作を出さない
+    if(!(window.TcgPreview && window.TcgPreview.has(name))){
+      item('購入候補に入れる', '候補に ' + _wishCount(name) + '枚', function(){ _addToWish(name); });
+    }
     item('カードの詳細', '', info);
     item('価格を比べる', '', function(){ window.open('/card/' + encodeURIComponent(name), '_blank', 'noopener'); });
 
