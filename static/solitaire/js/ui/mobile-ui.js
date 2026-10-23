@@ -37,7 +37,7 @@ import {
   isCardInPool,
 } from './context-menu.js';
 import { playActivateEffect, flipMoveClone } from '../components/card-effects.js';
-import { _renderCard, _showUnknown, _showLoading } from './card-info-panel.js';
+import { _renderCard, _showUnknown, _showLoading, showTokenInfo } from './card-info-panel.js';
 import { isMobilePortrait, watchMobilePortrait, isMobileLandscape, watchMobileLandscape } from '../utils/viewport.js';
 import { enterRecView, exitRecView } from './rec-view.js';
 import { showToast } from '../utils/toast.js';
@@ -427,6 +427,11 @@ function openCardDetailOverlay() {
   if (bubbleTextEl) bubbleTextEl.textContent = bubbleText || ''; // 本文は textContent で入れる
   if (bubbleEl) bubbleEl.hidden = !bubbleText;
   setHidden('solMobileCip', false);
+  // トークンは情報を引かない（名前は利用者が付けたもの。card-info-panel.js と同じ扱い）
+  if (sel.element.dataset.token === '1') {
+    showTokenInfo(src, name, document.getElementById('solMobileCipBody'));
+    return;
+  }
   showMobileCardInfo(name, src);
 }
 /** 選択状態なしで名前と画像から詳細を開く（?newcards=1&focus= の自動表示用。同じ #solMobileCip を使う）。 */

@@ -16,7 +16,7 @@
 
 import { addCardToPool } from '../components/card-manager.js';
 import { getDropZoneInfo, executeDrop } from '../components/drag-drop.js';
-import { registerCardImage } from '../services/replay-service.js';
+import { registerCardImage, registerCardName } from '../services/replay-service.js';
 import { openContextMenuAt, closeContextMenu } from './context-menu.js';
 import { isMobilePortrait } from '../utils/viewport.js';
 
@@ -103,6 +103,10 @@ async function placeToken(slot, name) {
   const cardEl = wrapper?.querySelector('.tier-item');
   if (!cardEl?.id) return;
   registerCardImage(cardEl.id, src);
+  // 名前（カード詳細・右クリックの見出し・共有リプレイの names に出る。保存・リプレイの復元でも戻る）
+  cardEl.dataset.cardName = name;
+  cardEl.alt = name;
+  registerCardName(cardEl.id, name);
 
   const dropZoneInfo = getDropZoneInfo(slot);
   if (!dropZoneInfo) {

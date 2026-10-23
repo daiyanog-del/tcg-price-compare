@@ -54,7 +54,10 @@ export function initCardInfoPanel() {
     const isSample = !!cardEl.closest('.sample-art');
     // プロキシカードは src がないため空文字または undefined になる
     const imgSrc = cardEl.src || '';
-    if (name) {
+    if (cardEl.closest('.tier-item-wrapper')?.dataset.token === '1') {
+      // トークン: 名前は利用者が付けたもの。実在のカード名と同じでも、そのカードの情報は引かない
+      showTokenInfo(imgSrc, name);
+    } else if (name) {
       _fetchAndShow(name, imgSrc, isSample);
     } else {
       // 名前不明（ニューロン画像等）: サムネだけ表示
@@ -229,6 +232,26 @@ export function _showUnknown(imgSrc, name, priceData, targetPanel, showPrice = t
       </div>
     </div>
     ${(name && showPrice) ? _buildPriceHtml(name, priceData) : ''}
+  `;
+}
+
+/**
+ * トークンの描画（名前と「トークン」だけ。情報・相場は引かない）。targetPanel はスマホ詳細パネル用（_renderCard 参照）。
+ * @param {string} imgSrc
+ * @param {string} [name]  トークンに付けた名前（2026-10-23 より前に出したトークンは無い）
+ * @param {Element} [targetPanel]
+ */
+export function showTokenInfo(imgSrc, name, targetPanel) {
+  const panel = targetPanel || document.getElementById('cardInfoPanel');
+  if (!panel) return;
+  panel.innerHTML = `
+    <div class="cip-header">
+      <img class="cip-img" src="${_esc(imgSrc)}" alt="${_esc(name || 'トークン')}">
+      <div class="cip-meta">
+        <p class="cip-name">${_esc(name || 'トークン')}</p>
+        <p class="cip-type">トークン</p>
+      </div>
+    </div>
   `;
 }
 
