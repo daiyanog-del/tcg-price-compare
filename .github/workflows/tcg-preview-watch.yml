@@ -1,0 +1,49 @@
+# TCG先行カードの週次収集（英語版で先に出て日本のOCGにまだ無いカードを集め、効果文を機械訳して保存）
+# YGOResources の公開ミラーから候補を選び、公式データベースから商品名・発売日・画像を取る。
+# 今回は取り込みだけで、画面にはまだ出さない。
+
+name: TCG Preview Watch
+
+on:
+  schedule:
+    - cron: '0 1 * * 1'  # 毎週月曜 10:00 JST
+  workflow_dispatch:      # 手動実行ボタン
+
+# 同時に2つ走らせない（翻訳の二重課金・公式DBへの二重アクセスを避ける）。実行中のものは止めない
+concurrency:
+  group: tcg-preview-watch
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # ミラーは毎回、en/ ja/ だけを sparse clone する（DB には入れない）
+      - name: Fetch YGOResources mirror
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/db-ygoresources-com/yugioh-card-history.git mirror
+          git -C mirror sparse-checkout set en ja
+
+      - name: Collect and translate TCG preview cards
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python tools/tcg_preview_watch.py --mirror mirror
