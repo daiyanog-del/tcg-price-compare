@@ -125,7 +125,7 @@ function _showMenu(items, x, y) {
   menu.className = 'sol-context-menu';
   menu.setAttribute('role', 'menu');
 
-  items.forEach(({ label, action, separator, sub, disabled, heading, title, element, swatch }) => {
+  items.forEach(({ label, action, separator, sub, disabled, heading, title, element }) => {
     if (separator) {
       const hr = document.createElement('li');
       hr.className = 'sol-context-menu-sep';
@@ -153,13 +153,6 @@ function _showMenu(items, x, y) {
     li.className = 'sol-context-menu-item';
     li.textContent = label;
     li.setAttribute('role', 'menuitem');
-    // 色見本（トークンの色など）。項目名の前に置く
-    if (swatch) {
-      const sw = document.createElement('span');
-      sw.className = 'sol-context-menu-swatch';
-      sw.style.background = swatch;
-      li.prepend(sw);
-    }
     // 補足（「今 3枚」など）。textContent で入れる
     if (sub) {
       const s = document.createElement('span');

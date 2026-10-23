@@ -555,17 +555,6 @@
   border-color: var(--accent);
 }
 
-/* 項目名の前の色見本（トークンの色） */
-.sol-context-menu-swatch {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  margin-right: 8px;
-  border-radius: 3px;
-  vertical-align: -1px;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18);
-}
-
 /* 先頭のカード名（2026-10-21 マイデッキの右クリックと同じ形。長い名前は1行で省略） */
 .sol-context-menu-heading.is-title {
   max-width: 260px;

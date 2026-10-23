@@ -1,11 +1,14 @@
 /**
  * token-generator.js
- * 盤面の空いたマスを右クリック → メニューで名前と色を選ぶと、そのマスにトークンを出す
+ * 盤面の空いたマスを右クリック → メニューで名前を入れて「出す」と、そのマスにトークンを出す
  *
  * 2026-10-20 右パネルの「トークン」欄（プレビュー画像をドラッグして盤面へ）から置き換え。
+ * 2026-10-23 色つきの札（色4択）から、実物の羊トークンの画像を土台にした札へ。土台は
+ *  YGOPRODeck のレプリカ画像（id 73915052）から名前・属性・レベル・テキスト欄・権利表記を消したもの
+ *  （images/token-base.webp）。名前は帯の上にここで描く。
  *
  * 仕組み:
- *  色を選んだ時点で tokenDataURL から新しい .tier-item-wrapper を poolRow に作り、
+ *  「出す」を押した時点で tokenDataURL から新しい .tier-item-wrapper を poolRow に作り、
  *  executeDrop で右クリックしたマスへ移す（ドラッグで置いたときと同じ配置・リプレイ記録の経路）。
  *  対象は .custom-slot の地（カードの上の右クリックはカードのメニューになる）。
  *  スマホ縦向きは対象外（右パネルの欄もスマホでは出していなかった）。
@@ -17,93 +20,81 @@ import { registerCardImage } from '../services/replay-service.js';
 import { openContextMenuAt, closeContextMenu } from './context-menu.js';
 import { isMobilePortrait } from '../utils/viewport.js';
 
-const CARD_W = 106;
-const CARD_H = 154;
+// 出す画像の大きさ（盤面のカード 106×154 の1.5倍。トークンは1枚ずつ data: URL でリプレイに入るので、
+// 見た目と容量の釣り合いで決めた。2倍・画質0.85 だと1枚 約19KB、これで約10KB。保存の上限は1件300KB）
+const CARD_W = 159;
+const CARD_H = 231;
+const JPEG_QUALITY = 0.75;
 const NAME_MAX = 12;
 const DEFAULT_NAME = 'トークン';
 
-const TOKEN_COLORS = [
-  { label: '緑', value: '#2d6040' },
-  { label: '金', value: '#7a6020' },
-  { label: '青', value: '#1a3d6b' },
-  { label: '赤', value: '#6b1a2a' },
-];
+// 土台の画像（?v= は差し替えたときに上げる）
+const BASE_URL = new URL('../../images/token-base.webp?v=1', import.meta.url).href;
+// 名前の帯の中（土台の幅を 1 としたときの位置。元画像 813×1185 の帯の中 x 50〜700・y 48〜128 から）
+const NAME_X = 62 / 813;
+const NAME_Y = 90 / 1185;
+const NAME_MAX_W = 640 / 813;
+const NAME_SIZE = 62 / 813;
+const NAME_FONT = '"Noto Sans JP", "Hiragino Sans", "Yu Gothic", sans-serif';
+// 土台が読めなかったときの地の色（土台の枠の灰色）
+const FALLBACK_BG = '#a9adb5';
 
-// 前回の名前・色（同じトークンを続けて出すときに打ち直さなくてよいように。ページ内だけ覚える）
-let _lastName  = DEFAULT_NAME;
-let _lastColor = TOKEN_COLORS[0].value;
+// 前回の名前（同じトークンを続けて出すときに打ち直さなくてよいように。ページ内だけ覚える）
+let _lastName = DEFAULT_NAME;
 
-function generateTokenDataURL(name, color) {
+let _basePromise = null;
+/** 土台の画像を1回だけ読む。読めなければ null（地の色だけで描く） */
+function _loadBase() {
+  if (!_basePromise) {
+    _basePromise = new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => {
+        console.warn('[token-generator] トークンの土台画像を読めませんでした。地の色だけで描きます', BASE_URL);
+        _basePromise = null; // 次に出すときに読み直す
+        resolve(null);
+      };
+      img.src = BASE_URL;
+    });
+  }
+  return _basePromise;
+}
+
+async function generateTokenDataURL(name) {
   const canvas = document.createElement('canvas');
   canvas.width  = CARD_W;
   canvas.height = CARD_H;
   const ctx = canvas.getContext('2d');
 
-  // 背景
-  ctx.fillStyle = color;
-  _roundRect(ctx, 0, 0, CARD_W, CARD_H, 6, true, false);
-
-  // 内枠
-  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-  ctx.lineWidth = 1.5;
-  _roundRect(ctx, 3, 3, CARD_W - 6, CARD_H - 6, 5, false, true);
-
-  // 薄文字「TOKEN」
-  ctx.save();
-  ctx.globalAlpha = 0.12;
-  ctx.fillStyle = '#fff';
-  ctx.font = 'bold 24px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('TOKEN', CARD_W / 2, CARD_H / 2 - 8);
-  ctx.restore();
-
-  // カード名
-  ctx.fillStyle = '#fff';
-  ctx.font = 'bold 9px "Noto Sans JP", sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  const displayName = name.length > 10 ? name.slice(0, 9) + '…' : name;
-  ctx.fillText(displayName, CARD_W / 2, CARD_H / 2 + 14);
-
-  // ATK / DEF
-  ctx.fillStyle = 'rgba(255,255,255,0.6)';
-  ctx.font = '7px monospace';
-  ctx.fillText('ATK /    0', CARD_W / 2, CARD_H - 20);
-  ctx.fillText('DEF /    0', CARD_W / 2, CARD_H - 10);
-
-  return canvas.toDataURL();
-}
-
-function _roundRect(ctx, x, y, w, h, r, fill, stroke) {
-  ctx.beginPath();
-  if (ctx.roundRect) {
-    ctx.roundRect(x, y, w, h, r);
+  const base = await _loadBase();
+  if (base) {
+    ctx.drawImage(base, 0, 0, CARD_W, CARD_H);
   } else {
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.arcTo(x + w, y, x + w, y + r, r);
-    ctx.lineTo(x + w, y + h - r);
-    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
-    ctx.lineTo(x + r, y + h);
-    ctx.arcTo(x, y + h, x, y + h - r, r);
-    ctx.lineTo(x, y + r);
-    ctx.arcTo(x, y, x + r, y, r);
-    ctx.closePath();
+    ctx.fillStyle = FALLBACK_BG;
+    ctx.fillRect(0, 0, CARD_W, CARD_H);
   }
-  if (fill)   ctx.fill();
-  if (stroke) ctx.stroke();
+
+  // 名前（帯の左寄せ。長い名前は帯の幅に縮めて収める）
+  const font = `700 ${Math.round(NAME_SIZE * CARD_W)}px ${NAME_FONT}`;
+  try { await document.fonts.load(font, name); } catch { /* 読めなければ端末の字で描く */ }
+  ctx.fillStyle = '#111';
+  ctx.font = font;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(name, NAME_X * CARD_W, NAME_Y * CARD_H, NAME_MAX_W * CARD_W);
+
+  // 写真の土台なので JPEG（PNG だと1枚が数倍の大きさになり、リプレイの保存に響く）
+  return canvas.toDataURL('image/jpeg', JPEG_QUALITY);
 }
 
 /**
  * トークンを作ってマスに出す（ドラッグで置いたときと同じく executeDrop で配置・記録する）。
  * @param {Element} slot - .custom-slot
  * @param {string} name
- * @param {string} color
  */
-function placeToken(slot, name, color) {
-  if (!slot.isConnected) return; // メニューを開いている間に盤面が作り直された
-  const src = generateTokenDataURL(name, color);
+async function placeToken(slot, name) {
+  const src = await generateTokenDataURL(name);
+  if (!slot.isConnected) return; // 画像を作っている間に盤面が作り直された
 
   // poolRow に新カードを作り、その最後のカードを取る（従来のドラッグと同じ作り方）
   addCardToPool(src, false, false);
@@ -127,8 +118,7 @@ function _nameOf(input) {
 }
 
 /**
- * 空いたマスのメニューを開く: 見出し・名前欄・色4つ（押すとその色で出す）。
- * 名前欄で Enter を押すと前回の色で出す。
+ * 空いたマスのメニューを開く: 見出し・名前欄・「出す」。名前欄で Enter を押しても出す。
  */
 function openTokenMenu(slot, x, y) {
   const input = document.createElement('input');
@@ -139,16 +129,15 @@ function openTokenMenu(slot, x, y) {
   input.placeholder = 'トークン名';
   input.setAttribute('aria-label', 'トークン名');
 
-  const place = (color) => {
-    _lastName  = _nameOf(input);
-    _lastColor = color;
-    placeToken(slot, _lastName, color);
+  const place = () => {
+    _lastName = _nameOf(input);
+    placeToken(slot, _lastName);
   };
 
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      place(_lastColor);
+      place();
       closeContextMenu();
     } else if (e.key === 'Escape') {
       closeContextMenu();
@@ -158,12 +147,7 @@ function openTokenMenu(slot, x, y) {
   openContextMenuAt([
     { heading: 'トークンを出す' },
     { element: input },
-    ...TOKEN_COLORS.map(({ label, value }) => ({
-      label,
-      swatch: value,
-      sub: value === _lastColor ? '前回' : '',
-      action: () => place(value),
-    })),
+    { label: '出す', sub: 'Enter', action: place },
   ], x, y);
 
   // すぐ名前を打ち直せるように（色を押すだけなら関係ない）
@@ -182,6 +166,7 @@ export function initTokenGenerator() {
     if (!slot) return;                                  // マスの間の隙間はブラウザのメニューのまま
     if (isMobilePortrait()) return;
     e.preventDefault();
+    _loadBase(); // 名前を打っている間に土台を読んでおく
     openTokenMenu(slot, e.clientX, e.clientY);
   });
 }
