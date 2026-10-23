@@ -11,7 +11,8 @@
  *  「出す」を押した時点で tokenDataURL から新しい .tier-item-wrapper を poolRow に作り、
  *  executeDrop で右クリックしたマスへ移す（ドラッグで置いたときと同じ配置・リプレイ記録の経路）。
  *  対象は .custom-slot の地（カードの上の右クリックはカードのメニューになる）。
- *  スマホ縦向きは対象外（右パネルの欄もスマホでは出していなかった）。
+ *  スマホ縦向きは右クリックの代わりに ⋯メニュー「トークンを出す」→ 名前のシート → 出すマスをタップ
+ *  （2026-10-23。シートとマス選びは mobile-ui.js。トークンを作るのはここの placeToken）。
  */
 
 import { addCardToPool } from '../components/card-manager.js';
@@ -25,7 +26,7 @@ import { isMobilePortrait } from '../utils/viewport.js';
 const CARD_W = 159;
 const CARD_H = 231;
 const JPEG_QUALITY = 0.75;
-const NAME_MAX = 12;
+export const TOKEN_NAME_MAX = 12;
 const DEFAULT_NAME = 'トークン';
 
 // 土台の画像（?v= は差し替えたときに上げる）
@@ -89,10 +90,12 @@ async function generateTokenDataURL(name) {
 
 /**
  * トークンを作ってマスに出す（ドラッグで置いたときと同じく executeDrop で配置・記録する）。
+ * 名前は次に出すときの既定として覚える。
  * @param {Element} slot - .custom-slot
- * @param {string} name
+ * @param {string} name - tokenNameOf で整えた名前
  */
-async function placeToken(slot, name) {
+export async function placeToken(slot, name) {
+  _lastName = name;
   const src = await generateTokenDataURL(name);
   if (!slot.isConnected) return; // 画像を作っている間に盤面が作り直された
 
@@ -116,9 +119,19 @@ async function placeToken(slot, name) {
   executeDrop({ type: 'card', element: wrapper }, dropZoneInfo, slot, {});
 }
 
-/** メニューの名前欄の値（空なら既定の名前） */
-function _nameOf(input) {
-  return input.value.trim().slice(0, NAME_MAX) || DEFAULT_NAME;
+/** 名前欄の値を整える（空なら既定の名前） */
+export function tokenNameOf(raw) {
+  return String(raw ?? '').trim().slice(0, TOKEN_NAME_MAX) || DEFAULT_NAME;
+}
+
+/** 前回出したトークンの名前（名前欄の初期値） */
+export function getLastTokenName() {
+  return _lastName;
+}
+
+/** 土台の画像を先に読んでおく（名前を打っている間に。スマホのシートを開いたときにも呼ぶ） */
+export function preloadTokenBase() {
+  _loadBase();
 }
 
 /**
@@ -129,14 +142,11 @@ function openTokenMenu(slot, x, y) {
   input.type = 'text';
   input.className = 'sol-context-menu-input';
   input.value = _lastName;
-  input.maxLength = NAME_MAX;
+  input.maxLength = TOKEN_NAME_MAX;
   input.placeholder = 'トークン名';
   input.setAttribute('aria-label', 'トークン名');
 
-  const place = () => {
-    _lastName = _nameOf(input);
-    placeToken(slot, _lastName);
-  };
+  const place = () => placeToken(slot, tokenNameOf(input.value));
 
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {

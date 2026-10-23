@@ -38,6 +38,7 @@ import {
 } from './context-menu.js';
 import { playActivateEffect, flipMoveClone } from '../components/card-effects.js';
 import { _renderCard, _showUnknown, _showLoading, showTokenInfo } from './card-info-panel.js';
+import { placeToken, tokenNameOf, getLastTokenName, preloadTokenBase, TOKEN_NAME_MAX } from './token-generator.js';
 import { isMobilePortrait, watchMobilePortrait, isMobileLandscape, watchMobileLandscape } from '../utils/viewport.js';
 import { enterRecView, exitRecView } from './rec-view.js';
 import { showToast } from '../utils/toast.js';
@@ -102,6 +103,8 @@ function resetMobileUI() {
   closeDeckSheet();   // フェーズ2: デッキ一覧シート
   closeShareSheet();  // フェーズ3: 共有シート
   closeCommentSheet(); // 整理④: コメント入力シート
+  closeTokenSheet();   // トークンの名前のシート
+  closeTokenPick();    // トークンを出すマスを選ぶ途中ならやめる
   // タスクB: portrait を外れる際は再生モードも強制終了。第6次検収-1: 回転時は
   // origin（'share'等）に関係なく共有シートへ戻らせない（この直後に setHidden で強制的に閉じる）。
   exitPlaybackMode({ returnToOrigin: false });
@@ -257,6 +260,7 @@ const MENU_ACTIONS = {
   deckimage:() => { openDeckImage(); },          // デッキの一覧を画像にする（deck-edit-ui.js → shared/deck-image.js）
   boardmemo:() => { openCommentSheet({ kind: 'board' }); }, // 整理④: 盤面にメモ
   cutin:    () => { openCommentSheet({ kind: 'cutin' }); },  // カットイン: 言葉の札＋自由入力のシート
+  token:    () => { openTokenSheet(); },                     // トークン: 名前のシート → 出すマスをタップ
   help:     () => { openHelpSheet(); },
   feedback: () => { document.getElementById('feedbackOpenBtn')?.click(); },
 };
@@ -578,12 +582,90 @@ function initActionSheet() {
 
   // drag-drop.js の状態機械からの通知を受けて表示/非表示を切り替える
   document.addEventListener('sol-mobile-card-selected', (ev) => {
+    closeTokenPick({ keepHints: true }); // トークンのマス選びの途中でカードを選んだら、カードの操作を優先する
     updateActionSheetForSelection(ev.detail.wrapper);
   });
   document.addEventListener('sol-mobile-card-deselected', () => {
     setHidden('solMobileActionSheet', true);
     closeCardDetailOverlay(); // A-2: 選択解除にあわせて詳細オーバーレイも閉じる
   });
+}
+
+// ══════════════════ トークンを出す（2026-10-23） ══════════════════
+// PC は空いたマスの右クリック（token-generator.js）。縦向きスマホは ⋯メニュー「トークンを出す」→
+// 名前のシート →「出すマスを選ぶ」→ 空いたマス（置き場所の案内 .drop-hint）をタップ。
+// マスを選ぶ間は下部バーの代わりに帯（#solMobileTokenPanel）を出す。
+
+let _tokenPick = null; // { name, slots: Element[] } マスを選んでいる間だけ
+
+function openTokenSheet() {
+  clearMobileSelection();
+  const input = document.getElementById('solMobileTokenInput');
+  if (input) input.value = getLastTokenName();
+  preloadTokenBase();
+  setHidden('solMobileTokenSheet', false);
+}
+function closeTokenSheet() {
+  setHidden('solMobileTokenSheet', true);
+}
+
+/** 盤面の空いたマスに置き場所の案内を付け、帯を出す */
+function startTokenPick(name) {
+  closeTokenPick();
+  clearMobileSelection(); // 選択中のカードがあると、マスのタップでそのカードが動いてしまう
+  const slots = [...document.querySelectorAll('.custom-layout .custom-slot')]
+    .filter((s) => !s.querySelector('.tier-item-wrapper'));
+  if (!slots.length) { showToast('空いているマスがありません'); return; }
+  slots.forEach((s) => s.classList.add('drop-hint'));
+  _tokenPick = { name, slots };
+  const label = document.getElementById('solMobileTokenPanelLabel');
+  if (label) label.textContent = `「${name}」を出すマスをタップ`;
+  document.body.classList.add('sol-token-pick');
+  setHidden('solMobileTokenPanel', false);
+}
+/**
+ * @param {{keepHints?: boolean}} [opt] keepHints: カードを選んだのでやめるとき。そのカードの置き場所の案内が
+ *   同じ .drop-hint で先に付いているので外さない（外れるのは選択をやめたとき・drag-drop.js hideMobileDropHints）
+ */
+function closeTokenPick({ keepHints = false } = {}) {
+  if (!_tokenPick) return;
+  if (!keepHints) _tokenPick.slots.forEach((s) => s.classList.remove('drop-hint'));
+  _tokenPick = null;
+  document.body.classList.remove('sol-token-pick');
+  setHidden('solMobileTokenPanel', true);
+}
+
+function initTokenSheet() {
+  const input = document.getElementById('solMobileTokenInput');
+  if (input) input.maxLength = TOKEN_NAME_MAX;
+  document.querySelectorAll('[data-sol-token-sheet-close]').forEach((el) => {
+    el.addEventListener('click', closeTokenSheet);
+  });
+  const submit = () => {
+    const name = tokenNameOf(input?.value);
+    input?.blur(); // キーボードを閉じて盤面を見えるように
+    closeTokenSheet();
+    startTokenPick(name);
+  };
+  document.getElementById('solMobileTokenPickBtn')?.addEventListener('click', submit);
+  input?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { // 日本語入力の変換確定の Enter では進まない
+      e.preventDefault();
+      submit();
+    }
+  });
+  document.getElementById('solMobileTokenCancelBtn')?.addEventListener('click', closeTokenPick);
+  // 案内の付いたマスのタップで出す（カードの選択とは別。選択中はマス選びをやめているので重ならない）
+  document.querySelector('.custom-layout')?.addEventListener('click', (e) => {
+    if (!_tokenPick) return;
+    const slot = e.target.closest('.custom-slot');
+    if (!slot || !_tokenPick.slots.includes(slot)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const { name } = _tokenPick;
+    closeTokenPick();
+    placeToken(slot, name);
+  }, true);
 }
 
 // ══════════════════ C-2: 移動の演出（設計書 §C） ══════════════════
@@ -2089,6 +2171,7 @@ export function initMobileUI() {
   initDeckSheet();
   initShareSheet();
   initCommentSheet();
+  initTokenSheet();
   initEmptyCta();
   initClearEverything();
   initLandscapeHint(); // A-3: portrait 判定とは独立（横向きスマホでのみ表示するため）

@@ -120,7 +120,7 @@ card_dim/shop_dim/rarity_dim を辞書表として分離）。`price_history` �
 | 販売価格収集 (collect_prices.py) | Render Cron `tcg-collect-prices` | 毎日 JST 5:00 |
 | 新弾フィーチャー価格収集 (collect_featured.py) | Render Cron `tcg-collect-featured` | 毎日 JST 10:15（UTC 1:15）— 新弾（featured対象弾）収録カードの発売日朝価格を収集。対象弾が無い日は即終了 |
 | 買取価格収集 (collect_buyback.py) | Render Cron `tcg-collect-buyback` | 毎日 JST 7:00 |
-| X未発売監視 (watch_x_unreleased.py) | Render Cron `tcg-watch-x-unreleased` | 毎日 JST 23:00 |
+| X未発売監視 (watch_x_unreleased.py) | Render Cron `tcg-watch-x-unreleased` | 毎日 JST 12:05・21:05・23:05（2026-10-23〜） |
 | カード名DB更新＋発売済み照合 | GitHub Actions `update-cardnames.yml` | 毎週月曜 UTC 0:00（**cardnames_ja.json を自動コミット** → 編集前 git pull 必須の根拠） |
 | X値動き投稿 (x_poster.py) | GitHub Actions `post-x.yml` | 毎日 JST 20:07 |
 | 新弾フィーチャー投稿 | GitHub Actions `post-featured.yml` | 毎日 JST 21:07 |
@@ -130,7 +130,7 @@ card_dim/shop_dim/rarity_dim を辞書表として分離）。`price_history` �
 | yu-gi-oh.jp 未発売Watcher | ローカルPC（run_watcher_local.bat、タスクスケジューラ） | 日1回 |
 | （停止済・手動フォールバックのみ） | GitHub Actions collect-prices.yml / collect-buyback.yml | Render Cron へ移行済み（理由は各yml冒頭コメント） |
 
-※ Render Cron の3ジョブ名・時刻は 2026-07-10 に Render ダッシュボード実設定で確認（`tcg-collect-prices`=UTC20:00 / `tcg-collect-buyback`=UTC22:00 / `tcg-watch-x-unreleased`=UTC14:00）。リポジトリ内のコードには現れないため、Render側を変更したらこの表も更新すること。
+※ Render Cron の3ジョブ名・時刻は 2026-07-10 に Render ダッシュボード実設定で確認（`tcg-collect-prices`=UTC20:00 / `tcg-collect-buyback`=UTC22:00 / `tcg-watch-x-unreleased`=UTC14:00 → 2026-10-23 に `5 3,12,14 * * *`（UTC 3:05・12:05・14:05）へ変更）。リポジトリ内のコードには現れないため、Render側を変更したらこの表も更新すること。
 
 ## 環境変数（未発売カードのX自動投稿、2026-10-15〜）
 

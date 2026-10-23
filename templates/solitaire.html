@@ -488,6 +488,13 @@
         </div>
       </div>
 
+      <!-- トークンを出すマスを選ぶ間の帯（縦向きスマホ・2026-10-23）。表示中は body.sol-token-pick で下部バーの代わりに出す。
+           高さは下部バーと同じ 52px なので盤面の大きさは変わらない（mobile-ui.js startTokenPick） -->
+      <div id="solMobileTokenPanel" class="sol-mobile-token-panel" hidden>
+        <span id="solMobileTokenPanelLabel" class="sol-mobile-token-panel-label"></span>
+        <button type="button" id="solMobileTokenCancelBtn">やめる</button>
+      </div>
+
       <!-- ⋯メニュー シート -->
       <div id="solMobileMenuSheet" class="sol-mobile-sheet" hidden>
         <div class="sol-mobile-sheet-scrim" data-sol-sheet-close></div>
@@ -515,6 +522,7 @@
               <div class="sol-mobile-menu-list">
                 <button type="button" class="sol-mobile-menu-item" data-menu-action="boardmemo"><span class="sol-mobile-menu-label">盤面にメモ</span><span class="sol-mobile-menu-desc">空いた角に付箋で一言</span></button>
                 <button type="button" class="sol-mobile-menu-item" data-menu-action="cutin"><span class="sol-mobile-menu-label">カットイン</span><span class="sol-mobile-menu-desc">その手で一瞬ことばや妨害を出す</span></button>
+                <button type="button" class="sol-mobile-menu-item" data-menu-action="token"><span class="sol-mobile-menu-label">トークンを出す</span><span class="sol-mobile-menu-desc">名前を入れて、出すマスをタップ</span></button>
               </div>
             </div>
             <div class="sol-mobile-menu-group">
@@ -622,6 +630,25 @@
             <div id="solMobileCommentInputRow" class="sol-mobile-share-comment-row">
               <input type="text" id="solMobileCommentInput" class="sol-mobile-share-input" maxlength="60" placeholder="コメント" aria-label="コメント">
               <button type="button" id="solMobileCommentAddBtn" class="sol-mobile-menu-item">付ける</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- トークンの名前のシート（縦向きスマホ・2026-10-23）: ⋯メニュー「トークンを出す」から。
+           「出すマスを選ぶ」で #solMobileTokenPanel の画面へ進み、空いたマスをタップして出す（mobile-ui.js initTokenSheet） -->
+      <div id="solMobileTokenSheet" class="sol-mobile-sheet" hidden>
+        <div class="sol-mobile-sheet-scrim" data-sol-token-sheet-close></div>
+        <div class="sol-mobile-sheet-panel sol-mobile-comment-panel">
+          <div class="sol-mobile-sheet-header">
+            <span>トークンを出す</span>
+            <button type="button" class="sol-mobile-sheet-close-btn" data-sol-token-sheet-close aria-label="閉じる">&times;</button>
+          </div>
+          <div class="sol-mobile-sheet-body">
+            <p class="sol-mobile-share-note">名前を入れて「出すマスを選ぶ」を押し、盤面の空いたマスをタップします</p>
+            <div class="sol-mobile-share-comment-row">
+              <input type="text" id="solMobileTokenInput" class="sol-mobile-share-input" placeholder="トークン名" aria-label="トークン名">
+              <button type="button" id="solMobileTokenPickBtn" class="sol-mobile-menu-item">出すマスを選ぶ</button>
             </div>
           </div>
         </div>
@@ -838,7 +865,7 @@
               <span class="sol-ops-desc">操作メニュー</span>
             </div>
             <div class="sol-ops-item">
-              <span class="sol-ops-key">空いたマスを右クリック</span>
+              <span class="sol-ops-key">空いたマスを右クリック（スマホは ⋯メニュー）</span>
               <span class="sol-ops-desc">トークンを出す</span>
             </div>
             <div class="sol-ops-item">
