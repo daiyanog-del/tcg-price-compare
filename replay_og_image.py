@@ -100,7 +100,7 @@ def _resolve_urls(names: list) -> tuple:
     戻り値: ({名前: URL|None}, unavailable)
       - URL が None のカードは取りに行かず、名前入りの枠で描く（画像の無い未発売カード・見つからない名前。
         店舗サイトの名前検索へのフォールバックはしない）。
-      - unavailable=True は「名前が見つからない」ではなく「名前の索引・未発売カード辞書が使えない」ことを示す
+      - unavailable=True は「名前が見つからない」ではなく「名前の索引・未発売カード辞書・TCG先行カード辞書が使えない」ことを示す
         （この場合の枠だらけの描画は不完全として扱い、ディスクに固定しない）。
     まとめて解決することで、未発売カード辞書の期限切れ時に全件読み込みが同時に何本も走るのを避ける。
     """
@@ -115,7 +115,8 @@ def _resolve_urls(names: list) -> tuple:
     urls = {n: (disp.get(n, {}).get("url") if disp.get(n, {}).get("kind") == "image" else None) for n in names}
     unresolved = any(disp.get(n, {}).get("kind", "none") == "none" for n in names)
     unavailable = unresolved and not (card_display.released_index_available()
-                                      and card_display.unreleased_data_available())
+                                      and card_display.unreleased_data_available()
+                                      and card_display.tcg_preview_data_available())
     return urls, unavailable
 
 

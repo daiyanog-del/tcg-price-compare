@@ -262,6 +262,7 @@ def net(monkeypatch, env):
     monkeypatch.setattr(env.og, "_resolve_urls", env.real_resolve_urls)
     monkeypatch.setattr(card_display, "released_index_available", lambda: True)
     monkeypatch.setattr(card_display, "unreleased_data_available", lambda: True)
+    monkeypatch.setattr(card_display, "tcg_preview_data_available", lambda: True)
     batches, urls = [], []
 
     def fake_resolve_many(names):
@@ -607,7 +608,7 @@ def test_page_db_failure_points_to_og_route(env):
     assert _og(html, "og:title") == "一人回しシミュレーター | 強欲なラボ"
 
 
-def _patch_displays(monkeypatch, env, kinds, index_ok=True, unreleased_ok=True):
+def _patch_displays(monkeypatch, env, kinds, index_ok=True, unreleased_ok=True, tcg_ok=True):
     import card_display
     monkeypatch.setattr(env.og, "_resolve_urls", env.real_resolve_urls)
     monkeypatch.setattr(card_display, "resolve_card_displays",
@@ -615,6 +616,7 @@ def _patch_displays(monkeypatch, env, kinds, index_ok=True, unreleased_ok=True):
                                            else {"kind": "proxy", "proxy": {}}) for n in names})
     monkeypatch.setattr(card_display, "released_index_available", lambda: index_ok)
     monkeypatch.setattr(card_display, "unreleased_data_available", lambda: unreleased_ok)
+    monkeypatch.setattr(card_display, "tcg_preview_data_available", lambda: tcg_ok)
 
 
 def test_unresolved_names_do_not_hit_external_search(env, monkeypatch):
@@ -634,10 +636,11 @@ def test_unresolved_names_do_not_hit_external_search(env, monkeypatch):
     assert "max-age=86400" in r.headers["Cache-Control"]   # 索引・辞書が使えていて見つからないだけなら正常な描画
 
 
-@pytest.mark.parametrize("index_ok,unreleased_ok", [(False, True), (True, False), (False, False)])
-def test_unavailable_index_or_dictionary_is_degraded_not_cached_on_disk(env, monkeypatch, index_ok, unreleased_ok):
-    """名前の索引・未発売辞書が使えないとき、全カードが枠でも正常な描画としてディスクに固定しない。"""
-    _patch_displays(monkeypatch, env, {}, index_ok=index_ok, unreleased_ok=unreleased_ok)   # 全て none
+@pytest.mark.parametrize("index_ok,unreleased_ok,tcg_ok", [
+    (False, True, True), (True, False, True), (False, False, True), (True, True, False)])
+def test_unavailable_index_or_dictionary_is_degraded_not_cached_on_disk(env, monkeypatch, index_ok, unreleased_ok, tcg_ok):
+    """名前の索引・未発売辞書・TCG先行カード辞書が使えないとき、全カードが枠でも正常な描画としてディスクに固定しない。"""
+    _patch_displays(monkeypatch, env, {}, index_ok=index_ok, unreleased_ok=unreleased_ok, tcg_ok=tcg_ok)   # 全て none
     _seed(env, "unavail0001")
     r = env.client.get("/solitaire/og/unavail0001.png")
     assert r.status_code == 200 and _png_size(r.data) == (1200, 630)

@@ -1256,10 +1256,23 @@ def api_suggest():
 def api_tcg_preview_names():
     """TCG先行カード（英語版で先に出て日本に無いカード）の英語名の一覧。
     画面（static/shared/tcg-preview.js）が購入候補に入れる操作を出さないために使う。週1回しか増えないので5分キャッシュ。
+    取得に失敗したときは空の一覧をキャッシュさせない（その間ずっと購入候補の操作が出てしまうため）。
     """
+    if not _card_display.tcg_preview_data_available():
+        resp = jsonify({"names": [], "unavailable": True})
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
     resp = jsonify({"names": sorted(_card_display.get_tcg_preview_names())})
     resp.headers["Cache-Control"] = "public, max-age=300"
     return resp
+
+
+def _is_tcg_preview_name(name: str) -> bool:
+    """TCG先行カード（英語版で先に出て日本に無いカード）の英語名か。価格が無いので店舗検索・記録に入れない。
+    発売済みのカード辞書にある名前は発売済みを優先する（card_display の解決順と同じ）。"""
+    if _cardnames_set and name in _cardnames_set:
+        return False
+    return _card_display.get_tcg_preview_proxy(name) is not None
 
 
 def _is_release_passed_unreleased(name: str) -> bool:
@@ -1589,8 +1602,8 @@ def api_deck():
 def _api_deck_stream(card_entries, selected, active_shops, _FAST_OVERRIDES,
                      include_per_shop, per_shop_by_version):
     """/api/deck の本体（記録・自動登録と SSE の生成）。枠を取ったあとで呼ぶ。"""
-    # デッキ検索カードを収集対象候補として記録（人気ランキングには影響しない）
-    _record_deck_search([e["name"] for e in card_entries])
+    # デッキ検索カードを収集対象候補として記録（人気ランキングには影響しない）。TCG先行カードは価格が無いので記録しない
+    _record_deck_search([e["name"] for e in card_entries if not _is_tcg_preview_name(e["name"])])
     # デッキ内カードを tracked_cards に自動登録（次回 collect_prices で永続化）。
     # 検索自体は全カード名で実行するが、DBへの永続化だけは /api/track-batch と同じ
     # 辞書ゲート（カード辞書に存在 or 発売済み未発売カード）を通す（スパム・誤登録対策）。
@@ -1731,10 +1744,16 @@ def _deck_card_stream(card_entries, selected, search_one_card):
         for i, entry in enumerate(card_entries):
             yield _sse({"type": "card_start", "index": i, "name": entry["name"]})
 
+        # TCG先行カード（英語版で先に出て日本に無いカード）は価格が無いので店舗へ取りに行かず、印だけ返す
+        tcg_preview = {i for i, entry in enumerate(card_entries) if _is_tcg_preview_name(entry["name"])}
+        for i in sorted(tcg_preview):
+            yield _sse({"type": "card_done", "index": i, "name": card_entries[i]["name"],
+                        "best": None, "count": 0, "tcg_preview": True})
+
         # 並列でカードを検索
         futures = {
             card_executor.submit(search_one_card, i, entry["name"], search_request): i
-            for i, entry in enumerate(card_entries)
+            for i, entry in enumerate(card_entries) if i not in tcg_preview
         }
         for future in iter_with_heartbeat(futures, SEARCH_HEARTBEAT_SEC):
             if future is None:
@@ -1798,8 +1817,8 @@ def api_deck_buy():
 
 def _api_deck_buy_stream(card_entries, selected, active_shops):
     """/api/deck-buy の本体（記録と SSE の生成）。枠を取ったあとで呼ぶ。"""
-    # デッキ買取検索カードを収集対象候補として記録（人気ランキングには影響しない）
-    _record_deck_search([e["name"] for e in card_entries])
+    # デッキ買取検索カードを収集対象候補として記録（人気ランキングには影響しない）。TCG先行カードは記録しない
+    _record_deck_search([e["name"] for e in card_entries if not _is_tcg_preview_name(e["name"])])
 
     def _search_one_card_buy(i, card_name, search_request):
         """1枚のカードを全買取店舗で検索して最高値を返す"""
@@ -4850,6 +4869,8 @@ def api_card_images():
             if disp.get("source") == "official_sample":
                 # 未発売の公式 SAMPLE 画像: object で返す（フロントが contain 表示・透かし無しに分岐）
                 images[name] = {"url": disp["url"], "kind": "image", "source": "official_sample"}
+                if disp.get("tcg_preview"):
+                    images[name]["tcg_preview"] = True  # TCG先行カード（画面が購入候補の操作を出さない）
                 has_unreleased = True
             else:
                 # 発売済みクリーン画像: 値は従来どおり URL 文字列（後方互換 = released 扱い）

@@ -10,17 +10,25 @@
  */
 (function (global) {
   'use strict';
+  // 照合は大文字小文字・空白・記号のゆれを吸収する（サーバーの card_display も同じくゆれを吸収して表示するため。
+  // 貼り付けで取り込んだ "angelechy destrier" のような名前でも購入候補の操作を出さない）
+  const key = name => String(name).normalize('NFKC').toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '');
   const names = new Set();
+  let loaded = false;
+  const add = n => { if (typeof n === 'string' && n) names.add(key(n)); };
   const ready = fetch('/api/tcg-preview-names')
     .then(r => (r.ok ? r.json() : null))
-    .then(d => { if (d && Array.isArray(d.names)) d.names.forEach(n => { if (typeof n === 'string') names.add(n); }); })
-    .catch(() => {});
+    .then(d => { if (d && Array.isArray(d.names)) d.names.forEach(add); })
+    .catch(() => {})
+    .then(() => { loaded = true; });
 
   global.TcgPreview = {
     /** TCG先行カードの名前か */
-    has: name => names.has(name),
+    has: name => typeof name === 'string' && names.has(key(name)),
     /** TCG先行カードと分かった名前を足す */
-    note: name => { if (typeof name === 'string' && name) names.add(name); },
+    note: add,
+    /** 一覧を取り終えたか（失敗も終えた扱い） */
+    isReady: () => loaded,
     /** 一覧を取り終えたら解決する（失敗しても解決する） */
     ready,
   };

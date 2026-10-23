@@ -258,3 +258,115 @@ def test_card_infos_と_card_images(client):
 def test_名前の一覧(client):
     resp = client.get("/api/tcg-preview-names")
     assert resp.get_json()["names"] == ["Angelechy Destrier", "Anotherverse Gluttonia", "Distrust Paranoia", "Pending Card"]
+
+
+# ── レビュー指摘への対応（2026-10-23） ──
+
+def test_発売済みと同名なら発売済みを優先(database, monkeypatch):
+    monkeypatch.setattr(display, "_released_resolver", lambda name: "https://released/x.png")
+    assert display.resolve_card_display("Angelechy Destrier")["source"] == "released"
+    assert display.resolve_card_displays(["Angelechy Destrier"])["Angelechy Destrier"]["source"] == "released"
+
+
+def test_まとめて解決でもゆれを吸収する(database):
+    got = display.resolve_card_displays(["angelechy destrier"])
+    assert got["angelechy destrier"]["tcg_preview"] is True
+
+
+def test_期限切れは古い値を返して裏で取り直す(database, monkeypatch):
+    display.get_tcg_preview_names()
+    started = []
+    monkeypatch.setattr(display, "_start_background_refresh", lambda name, fn: started.append(name))
+    monkeypatch.setattr(display, "_tcg_preview_cache_at", display._tcg_preview_cache_at - display._CACHE_TTL - 1)
+    database.rows["tcg_preview_cards"].append(_tcg_row(23999, "New Card"))
+    assert "New Card" not in display.get_tcg_preview_names()  # 古い値をすぐ返す
+    assert started == ["tcg_preview"]
+
+
+def test_取り直し中に無効化されたら古い応答を捨てる(database, monkeypatch):
+    display.get_tcg_preview_names()
+    real_fetch = display._fetch_tcg_preview_cards
+
+    def fetch_then_invalidate(*, strict=False):
+        rows = real_fetch(strict=strict)
+        display.invalidate_cache()  # 取得中に管理操作で無効化された
+        return rows
+
+    monkeypatch.setattr(display, "_fetch_tcg_preview_cards", fetch_then_invalidate)
+    display._refresh_tcg_preview()
+    assert display._tcg_preview_cache is None
+
+
+def test_TCG先行の辞書が読めるか(database):
+    assert display.tcg_preview_data_available() is True
+    display.invalidate_cache()
+    database.fail.add("tcg_preview_cards")
+    assert display.tcg_preview_data_available() is False
+
+
+def test_名前の一覧は取得失敗をキャッシュさせない(client, database):
+    display.invalidate_cache()
+    database.fail.add("tcg_preview_cards")
+    resp = client.get("/api/tcg-preview-names")
+    assert resp.get_json()["names"] == [] and resp.headers["Cache-Control"] == "no-store"
+
+
+def test_候補が10件埋まったらTCG先行は足さない(client, monkeypatch):
+    import app as app_module
+    app_module._load_cardnames()
+    monkeypatch.setattr(app_module, "_cardnames", [f"Angelechy 和名{i}" for i in range(12)])
+    got = client.get("/api/suggest?include_unreleased=1&q=Angelechy").get_json()
+    assert len(got) == 10 and not any(g.get("tcg_preview") for g in got)
+
+
+def test_収集対象の登録は英語名を弾く(client, monkeypatch):
+    import app as app_module
+    app_module._reset_rate_limits()
+    app_module._load_cardnames()
+    monkeypatch.setattr(app_module, "_supabase_client", None, raising=False)
+    got = client.post("/api/track", json={"card": "Angelechy Destrier"}).get_json()
+    assert got == {"ok": False, "reason": "unknown_card"}
+
+
+class _SyncThread:
+    def __init__(self, target=None, args=(), kwargs=None, daemon=None):
+        self._target, self._args, self._kwargs = target, args, kwargs or {}
+
+    def start(self):
+        self._target(*self._args, **self._kwargs)
+
+
+def _deck_events(client, path, cards):
+    import json
+    import app as app_module
+    app_module._reset_rate_limits()
+    data = client.get(path, query_string={"cards": cards, "shops": ["遊々亭"]}).get_data(as_text=True)
+    return [json.loads(c[len("data: "):]) for c in data.split("\n\n") if c.startswith("data: ")]
+
+
+@pytest.mark.parametrize("path", ["/api/deck", "/api/deck-buy"])
+def test_デッキの一括検索はTCG先行を店舗へ取りに行かず記録もしない(client, monkeypatch, path):
+    import app as app_module
+    scraped, recorded = [], []
+
+    def fake_scrape(card_name):
+        scraped.append(card_name)
+        return [{"shop": "遊々亭", "name": card_name, "rarity": "ノーマル", "code": "", "condition": "-",
+                 "price": 100, "stock": 1, "sold_out": False, "url": "u", "image": ""}]
+
+    for name in ("SHOPS", "BUYBACK_SHOPS"):
+        monkeypatch.setattr(app_module, name, [("遊々亭", fake_scrape)], raising=False)
+    monkeypatch.setattr(app_module, "cache_get_shops", lambda name, shops, include_partial=False: ({}, list(shops)))
+    monkeypatch.setattr(app_module, "cache_store_shops", lambda *a, **k: None)
+    monkeypatch.setattr(app_module, "buyback_cache_get_shops", lambda name, shops: ({}, list(shops)))
+    monkeypatch.setattr(app_module, "buyback_cache_store_shops", lambda *a, **k: None)
+    monkeypatch.setattr(app_module, "Thread", _SyncThread, raising=False)
+    monkeypatch.setattr(app_module, "_supabase_client", None, raising=False)
+    monkeypatch.setattr(app_module, "_record_deck_search", lambda names: recorded.extend(names))
+    app_module._load_cardnames()
+    events = _deck_events(client, path, "Angelechy Destrier|灰流うらら")
+    done = {e["name"]: e for e in events if e["type"] == "card_done"}
+    assert done["Angelechy Destrier"]["tcg_preview"] is True and done["Angelechy Destrier"]["best"] is None
+    assert "Angelechy Destrier" not in scraped and "灰流うらら" in scraped
+    assert recorded == ["灰流うらら"]
+    assert events[-1]["type"] == "done"

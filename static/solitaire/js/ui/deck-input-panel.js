@@ -354,6 +354,8 @@ async function _resolveCards(cards, defaultIsEx) {
     }
 
     const info = infos[name] || {};
+    // TCG先行カード（英語版で先に出て日本に無いカード）の印を覚える（購入候補の操作を出さない判定。shared/tcg-preview.js）
+    if (imgVal?.tcg_preview || imgVal?.proxy?.tcg_preview || info.proxy?.tcg_preview) window.TcgPreview?.note(name);
     // broad_type: "monster" | "spell" | "trap"
     // 未発売カード（kind='proxy'）は proxy データから取得する
     let cardType = null;

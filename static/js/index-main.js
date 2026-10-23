@@ -3260,7 +3260,12 @@ async function calcDeckEstimate(ctx, opts){
           const row=document.getElementById(ctx.rowPrefix+uiIdx);
           if(!row)continue;
 
-          if(d.best){
+          if(d.tcg_preview){
+            // TCG先行カード（英語版で先に出て日本に無いカード）は価格が無い（サーバーは店舗へ取りに行かない）
+            sseNotFound++;
+            row.className='deck-grid-cell';
+            row.querySelector('.deck-card-status').textContent='TCG先行・価格なし';
+          }else if(d.best){
             const lineTotal=d.best.price*c.qty;
             total+=lineTotal;
             sseFound++;
@@ -3451,7 +3456,12 @@ async function calcDeck(buyMode){
           const row=document.getElementById('deck-row-'+d.index);
           if(!row)continue;
 
-          if(d.best){
+          if(d.tcg_preview){
+            // TCG先行カード（英語版で先に出て日本に無いカード）は価格が無い（サーバーは店舗へ取りに行かない）
+            notFound++;
+            row.className='deck-grid-cell';
+            row.querySelector('.deck-card-status').textContent='TCG先行・価格なし';
+          }else if(d.best){
             const unitPrice=d.best.price;
             const lineTotal=unitPrice*c.qty;
             total+=lineTotal;

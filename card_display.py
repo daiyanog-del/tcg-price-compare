@@ -79,6 +79,15 @@ def unreleased_data_available() -> bool:
         return False
 
 
+def tcg_preview_data_available() -> bool:
+    """TCG先行カード辞書を（キャッシュまたは再取得で）読めるか。読めない＝「TCG先行カードが無い」と区別すべき状態。"""
+    try:
+        _get_tcg_preview(strict=True)
+        return True
+    except DisplayDataUnavailable:
+        return False
+
+
 def register_released_resolver(fn: Callable[[str], str | None]) -> None:
     """
     発売済みカード URL 解決関数を登録する。

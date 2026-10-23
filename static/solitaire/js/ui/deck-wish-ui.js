@@ -162,6 +162,8 @@ function _savedDeck() {
  */
 export function openShortagePanel(opts = {}) {
   if (!WD()) return;
+  // TCG先行カードの名前の一覧が届くまで待つ（届く前に数えると英語名が購入候補に入る）
+  if (window.TcgPreview && !window.TcgPreview.isReady()) { window.TcgPreview.ready.then(() => openShortagePanel(opts)); return; }
   closeShortagePanel();
   const totals = _requiredCards();
   if (!totals.size) { showToast('デッキを読み込むと、足りない分を購入候補に入れられます'); return; }
