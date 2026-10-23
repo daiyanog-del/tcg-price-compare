@@ -395,6 +395,51 @@
   /* 主操作は黄（site-theme.css の主操作と同じ色） */
   .sol-mobile-range-btns button.is-primary { flex: 2; background: #f3ce46; color: #242013; border-color: transparent; font-weight: 700; }
 
+  /* ════════ トークンを出すマスを選ぶ間の帯（2026-10-23。mobile-ui.js startTokenPick） ════════
+     表示中は body.sol-token-pick。下部バーの代わりに同じ高さ（52px）で出すので、盤面の大きさは変わらない。
+     地・枠線・ボタンは範囲を選ぶ画面の帯と同じ。空いたマスの印は既存の置き場所の案内（.drop-hint） */
+  body.sol-token-pick #solMobileBar,
+  body.sol-token-pick #solMobileEmptyCta { display: none !important; } /* デッキが空のときの「デッキを読み込む」はマスの上に重なるので隠す */
+  .sol-mobile-token-panel[hidden] { display: none; }
+  .sol-mobile-token-panel {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 52px;
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 10px;
+    box-sizing: border-box;
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border);
+    font-family: var(--font);
+  }
+  .sol-mobile-token-panel-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--main-color); /* 別の規則で span に暗い色が当たるため明示 */
+    font-size: 0.85rem;
+    font-weight: 700;
+  }
+  .sol-mobile-token-panel button {
+    flex: none;
+    height: 38px;
+    padding: 0 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--main-color);
+    font-family: var(--font);
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+
   /* ════════ タスクB-2/C: 再生モードのスライダー帯・下部バー ════════ */
 
   .sol-mobile-replay-strip {
