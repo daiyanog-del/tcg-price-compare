@@ -32,8 +32,15 @@ HEADERS = {
 # 2026-10-14: トレコロ前段のWAFが Chrome/120 等の一般ブラウザUAを遮断し、
 # /CustomError/error403.html へ HTTP 200 でリダイレクトする（全カード0件になった）。
 # 遮断回避のための別ブラウザ偽装はせず、トレコロ宛てだけ正体を明かして名乗る。
+# 2026-10-23 13:44(JST)〜: カードラッシュ（販売 www.cardrush.jp）も Chrome 140 未満の UA を
+# 一律 403 にし始めた（自宅IPでも同じ。Chrome/140 以上・TCGYM の名乗りは 200）。
+# トレコロと同じ方針で、新しいブラウザ版への偽装ではなく名乗りで取る。
+# 買取の cardrush.media は Chrome/120 でも 200 のため対象外。
 HOST_HEADER_OVERRIDES = {
     "www.torecolo.jp": {
+        "User-Agent": "TCGYM/1.0 (+https://tcg-price-compare.onrender.com)",
+    },
+    "www.cardrush.jp": {
         "User-Agent": "TCGYM/1.0 (+https://tcg-price-compare.onrender.com)",
     },
 }
