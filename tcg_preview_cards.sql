@@ -12,7 +12,8 @@
 --
 -- status の遷移:
 --   active      → 日本のOCGにまだ無い（収集対象）
---   ocg_linked  → 日本に来たカード（ocg_name に日本語の正式名。今回は列を作るだけで、遷移の処理は後の段階）
+--   ocg_linked  → 日本に来たカード（ocg_name に日本語の正式名）。収集ツールが、ミラーの日本語側に同じ cid があり
+--                 その日本語名が data/cardnames_ja.json に載ったら切り替える（2026-10-23 段3）。画面は英語名を日本語名に読み替える
 --
 -- translation_status の遷移:
 --   pending → 未翻訳 / done → 翻訳済み / failed → 失敗（translation_error に理由。次回の実行で取り直す）
@@ -110,8 +111,8 @@ COMMENT ON COLUMN tcg_preview_cards.image_source_url     IS '取得元の画像U
 COMMENT ON COLUMN tcg_preview_cards.image_page_url       IS '画像が掲載されていた公式データベースのページURL（来歴）';
 COMMENT ON COLUMN tcg_preview_cards.status               IS 'active=日本に未発売/ocg_linked=日本に来た';
 COMMENT ON COLUMN tcg_preview_cards.hidden               IS 'TRUE=個別非表示';
-COMMENT ON COLUMN tcg_preview_cards.ocg_name             IS '日本に来た時の日本語の正式名（今回は列のみ）';
-COMMENT ON COLUMN tcg_preview_cards.ocg_linked_at        IS 'status=ocg_linked になった日時（今回は列のみ）';
+COMMENT ON COLUMN tcg_preview_cards.ocg_name             IS '日本に来た時の日本語の正式名（収集ツールが切り替え時に入れる）';
+COMMENT ON COLUMN tcg_preview_cards.ocg_linked_at        IS 'status=ocg_linked になった日時';
 COMMENT ON COLUMN tcg_preview_cards.first_seen_at        IS '初めて収集した日時（初回のみ。更新で書き換えない）';
 COMMENT ON COLUMN tcg_preview_cards.updated_at           IS '最終更新日時（収集のたびに更新）';
 

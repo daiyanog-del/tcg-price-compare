@@ -370,3 +370,191 @@ def test_デッキの一括検索はTCG先行を店舗へ取りに行かず記�
     assert "Angelechy Destrier" not in scraped and "灰流うらら" in scraped
     assert recorded == ["灰流うらら"]
     assert events[-1]["type"] == "done"
+
+
+# ── 日本に来たカードの読み替え（段3・ocg_linked の英語名 → 日本語の正式名） ──
+
+def _linked(database, en="Renamed Card", ja="改名カード", konami_id=24000, **kw):
+    """表に ocg_linked の行を足し、キャッシュを捨てる。"""
+    database.rows["tcg_preview_cards"].append(
+        _tcg_row(konami_id, en, status="ocg_linked", ocg_name=ja, **kw))
+    display.invalidate_cache()
+
+
+def _unreleased_row(name, release_date="2099-01-01"):
+    return {
+        "id": 7, "name": name, "reading": "", "card_type": "効果モンスター",
+        "attribute": "光", "race": "天使族", "level": 4, "rank": None, "link_val": None, "atk": 1, "def": "1",
+        "pendulum_scale": None, "pendulum_effect": "", "effect_text": "日本語の未発売の文", "product_name": "",
+        "release_date": release_date, "extracted_at": None, "status": "approved", "hidden": False,
+    }
+
+
+def test_読み替え_発売済みの日本語名へ(database, monkeypatch):
+    _linked(database)
+    monkeypatch.setattr(display, "_released_resolver",
+                        lambda name: "https://released/jp.png" if name == "改名カード" else None)
+    r = display.resolve_card_display("Renamed Card")
+    assert r == {"kind": "image", "url": "https://released/jp.png", "source": "released", "renamed_to": "改名カード"}
+    got = display.resolve_card_displays(["Renamed Card", "renamed card"])  # ゆれも吸収する
+    assert got["Renamed Card"] == r and got["renamed card"] == r
+
+
+def test_読み替え_未発売の日本語名へ(database):
+    _linked(database)
+    database.rows["unreleased_cards"] = [_unreleased_row("改名カード")]
+    database.rows["official_card_images"] = [{
+        "unreleased_card_id": 7, "public_url": "https://example/unreleased.png", "thumb_url": None,
+        "hidden": False, "deleted_at": None}]
+    display.invalidate_cache()
+    r = display.resolve_card_display("Renamed Card")
+    assert r["kind"] == "image" and r["source"] == "official_sample" and r["renamed_to"] == "改名カード"
+    assert r["url"] == "https://example/unreleased.png" and "tcg_preview" not in r
+    assert display.resolve_card_displays(["Renamed Card"])["Renamed Card"] == r
+    # 画像が無ければ未発売の proxy（日本語名）
+    database.rows["official_card_images"] = []
+    display.invalidate_cache()
+    r = display.resolve_card_display("Renamed Card")
+    assert r["kind"] == "proxy" and r["proxy"]["name"] == "改名カード" and r["renamed_to"] == "改名カード"
+    assert display.get_display_proxy("Renamed Card")["effect_text"] == "日本語の未発売の文"
+
+
+def test_読み替え_日本語名で解決できないうちはTCG先行の表示にとどまる(database):
+    _linked(database)
+    r = display.resolve_card_display("Renamed Card")
+    assert r["kind"] == "image" and r["tcg_preview"] is True and r["renamed_to"] == "改名カード"
+    assert r["url"].endswith("/tcg_preview/24000.png")
+    assert display.resolve_card_displays(["Renamed Card"])["Renamed Card"] == r
+    # 画像が無い行は TCG先行の proxy（英語名のまま）
+    database.rows["tcg_preview_cards"][-1]["image_url"] = None
+    display.invalidate_cache()
+    r = display.resolve_card_display("Renamed Card")
+    assert r["kind"] == "proxy" and r["proxy"]["tcg_preview"] is True and r["renamed_to"] == "改名カード"
+    assert display.get_display_proxy("Renamed Card")["tcg_preview"] is True
+
+
+def test_読み替え_価格の関門は変えない(database):
+    _linked(database)
+    database.rows["unreleased_cards"] = [_unreleased_row("改名カード")]
+    display.invalidate_cache()
+    assert display.get_unreleased_proxy("Renamed Card") is None  # 英語名のままでは未発売カードに当たらない
+    assert display.get_unreleased_proxy("改名カード")["name"] == "改名カード"
+
+
+def test_読み替えの公開関数(database):
+    _linked(database)
+    _linked(database, en="Another Renamed", ja="別の改名", konami_id=24001)
+    assert display.get_tcg_preview_renames() == {"Renamed Card": "改名カード", "Another Renamed": "別の改名"}
+    assert display.renamed_name("Renamed Card") == "改名カード"
+    assert display.renamed_name("RENAMED CARD") == "改名カード"
+    assert display.renamed_name("Angelechy Destrier") is None  # active は読み替えない
+    assert display.renamed_name("") is None
+
+
+def test_日本に来たカードは候補_一覧に出さない(database):
+    _linked(database)
+    _linked(database, en="Hidden Renamed", ja="隠し", konami_id=24002, hidden=True)
+    _linked(database, en="No Name", ja=None, konami_id=24003)
+    assert "Renamed Card" not in display.get_tcg_preview_names()
+    assert "Renamed Card" not in [c["name"] for c in display.get_tcg_preview_cards()["cards"]]
+    assert display.get_tcg_preview_proxy("Renamed Card") is None
+    # hidden・ocg_name 無しは読み替えない
+    assert display.get_tcg_preview_renames() == {"Renamed Card": "改名カード"}
+    assert display.resolve_card_display("Hidden Renamed") == {"kind": "none"}
+
+
+def test_読み替えの取得は1回のDB読みで済む(database):
+    _linked(database)
+    display.get_tcg_preview_names()
+    display.get_tcg_preview_renames()
+    display.resolve_card_display("Renamed Card")
+    assert database.calls.count("tcg_preview_cards") == 1
+
+
+def test_読み替えの取得失敗は例外(database):
+    display.invalidate_cache()
+    database.fail.add("tcg_preview_cards")
+    with pytest.raises(display.DisplayDataUnavailable):
+        display.get_tcg_preview_renames()
+    assert display.renamed_name("Renamed Card") is None  # 画面表示側は縮退（読み替えなし）
+
+
+def test_API_日本に来たカードの一覧(client, database):
+    _linked(database)
+    resp = client.get("/api/tcg-preview-renames")
+    assert resp.status_code == 200
+    assert resp.get_json() == {"renames": {"Renamed Card": "改名カード"}}
+    assert resp.headers["Cache-Control"] == "public, max-age=300"
+    # 候補・名前の一覧には出ない
+    assert "Renamed Card" not in client.get("/api/tcg-preview-names").get_json()["names"]
+    assert client.get("/api/suggest?include_unreleased=1&q=Renamed").get_json() == []
+
+
+def test_API_日本に来たカードの一覧_取得失敗は503(client, database):
+    display.invalidate_cache()
+    database.fail.add("tcg_preview_cards")
+    resp = client.get("/api/tcg-preview-renames")
+    assert resp.status_code == 503 and "error" in resp.get_json()
+    assert resp.headers["Cache-Control"] == "no-store"
+
+
+def test_API_card_infos_と_card_images_に読み替えを返す(client, database, monkeypatch):
+    import app as app_module
+    _linked(database)
+    monkeypatch.setattr(display, "_released_resolver",
+                        lambda name: "https://released/jp.png" if name == "改名カード" else None)
+    monkeypatch.setattr(app_module, "_get_ygores_name_index", lambda: {"改名カード": [4242]})
+    looked_up = []
+
+    def fake_fetch(card_id, name):
+        looked_up.append(name)
+        return {"found": True, "konami_id": card_id, "broad_type": "monster", "is_ex": False}
+
+    monkeypatch.setattr(app_module, "_fetch_card_info_by_id", fake_fetch)
+
+    infos = client.post("/api/card-infos", json={"names": ["Renamed Card", "Distrust Paranoia"]})
+    got = infos.get_json()["infos"]
+    assert got["Renamed Card"]["found"] is True and got["Renamed Card"]["renamed_to"] == "改名カード"
+    assert looked_up == ["改名カード"]  # 名前索引は日本語名で引く
+    assert "renamed_to" not in got["Distrust Paranoia"]
+    assert infos.headers["Cache-Control"] == "no-store"
+
+    imgs = client.post("/api/card-images", json={"names": ["Renamed Card", "Angelechy Destrier"]})
+    body = imgs.get_json()
+    assert body["images"]["Renamed Card"] == "https://released/jp.png"  # 文字列のまま（後方互換）
+    assert body["renames"] == {"Renamed Card": "改名カード"}
+    assert imgs.headers["Cache-Control"] == "no-store"
+    # 読み替えが無い応答には renames を付けない
+    assert "renames" not in client.post("/api/card-images", json={"names": ["Angelechy Destrier"]}).get_json()
+
+
+def test_API_card_info_と_card_image_に読み替えを返す(client, database):
+    _linked(database)  # 日本語名では解決できない → TCG先行の表示にとどまる
+    info = client.get("/api/card-info?name=Renamed%20Card").get_json()
+    assert info["kind"] == "proxy" and info["renamed_to"] == "改名カード" and info["proxy"]["tcg_preview"] is True
+    img = client.get("/api/card-image?name=Renamed%20Card").get_json()
+    assert img["kind"] == "image" and img["renamed_to"] == "改名カード"
+
+
+def test_API_card_info_は日本語名で名前索引を引く(client, database, monkeypatch):
+    import app as app_module
+    _linked(database)
+    monkeypatch.setattr(display, "_released_resolver",
+                        lambda name: "https://released/jp.png" if name == "改名カード" else None)
+    monkeypatch.setattr(app_module, "_get_ygores_name_index", lambda: {"改名カード": [4242]})
+    monkeypatch.setattr(app_module, "_fetch_card_info_by_id",
+                        lambda cid, name: {"found": True, "konami_id": cid, "name_used": name})
+    got = client.get("/api/card-info?name=Renamed%20Card").get_json()
+    assert got["found"] is True and got["name_used"] == "改名カード"
+    assert got["kind"] == "released" and got["renamed_to"] == "改名カード"
+
+
+def test_一括検索の入口で日本に来た英語名を日本語名に読み替える(database):
+    # 編集中の画面・まだ開いていない端末に英語名が残っていても、英語名で全店へ問い合わせない（2026-10-23 段3）
+    import app as app_module
+    _linked(database)
+    with app_module.app.test_request_context():
+        entries, err = app_module._parse_deck_entries("2 Renamed Card|1 Angelechy Destrier")
+    assert err is None
+    assert [e["name"] for e in entries] == ["改名カード", "Angelechy Destrier"]  # 日本に来ていない TCG先行カードはそのまま
+    assert [e["qty"] for e in entries] == [2, 1]

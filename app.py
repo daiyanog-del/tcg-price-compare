@@ -832,6 +832,10 @@ def _parse_deck_entries(names_raw: str):
         if len(name) > MAX_CARD_NAME_LEN:
             return None, (jsonify({"error": "カード名が長すぎます"}), 400)
         name = _correct_cardname(name)
+        # 日本に来たTCG先行カードの英語名は日本語の正式名で店舗検索する（2026-10-23 段3）。保存デッキは画面側で書き換えるが、
+        # 編集中の画面・まだ開いていない端末などに英語名が残る間に、英語名で全店へ問い合わせないため。
+        # 応答（card_start/card_done）は index で画面の行に当たるので、名前を変えても対応は崩れない
+        name = _card_display.renamed_name(name) or name
         entries.append({"qty": qty, "name": name})
 
     if not entries:
@@ -1264,6 +1268,23 @@ def api_tcg_preview_names():
         resp.headers["Cache-Control"] = "no-store"
         return resp
     resp = jsonify({"names": sorted(_card_display.get_tcg_preview_names())})
+    resp.headers["Cache-Control"] = "public, max-age=300"
+    return resp
+
+
+@app.route("/api/tcg-preview-renames")
+def api_tcg_preview_renames():
+    """日本に来た TCG先行カードの 英語名 → 日本語の正式名。画面（static/shared/tcg-rename.js）が保存済みデッキの名前を書き換えるために使う。
+    取得に失敗したときは 503（空の一覧を成功として返すと「書き換え対象なし」と区別できないため）。失敗はキャッシュさせない。
+    """
+    try:
+        renames = _card_display.get_tcg_preview_renames()
+    except _card_display.DisplayDataUnavailable:
+        resp = jsonify({"error": "日本に来たカードの一覧を取得できません"})
+        resp.status_code = 503
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+    resp = jsonify({"renames": renames})
     resp.headers["Cache-Control"] = "public, max-age=300"
     return resp
 
@@ -4788,27 +4809,36 @@ def api_card_info():
                 "is_ex":      proxy.get("is_ex", False),
                 "proxy":      proxy,
             }
+            if display.get("renamed_to"):
+                result["renamed_to"] = display["renamed_to"]  # 日本に来た TCG先行カード（日本語名での情報）
             resp = jsonify(result)
             # 未発売カードは表示設定変更で即時反映が必要なためキャッシュなし
             resp.headers["Cache-Control"] = "no-store"
             return resp
 
     # 発売済み or none → 従来どおりYGOResources参照
+    # 日本に来た TCG先行カードの英語名は、日本語名で名前索引を引く（応答のキーは頼まれた名前のまま）
+    renamed_to = display.get("renamed_to")
+    lookup = renamed_to or name
     idx = _get_ygores_name_index()
-    ids = idx.get(name)
+    ids = idx.get(lookup)
     if not ids and _ygores_fuzzy_index:
         # 完全一致しない場合は記号・全半角ハイフン等のゆれを無視して再照合
         # （画像取得 _ygores_image_url と同じフォールバック。card-info でもゆれを吸収する）
-        ids = _ygores_fuzzy_index.get(_fuzzy_key(name))
+        ids = _ygores_fuzzy_index.get(_fuzzy_key(lookup))
     if not ids:
         result = {"found": False, "kind": "none"}
+        if renamed_to:
+            result["renamed_to"] = renamed_to
         return jsonify(result), 200
     card_id = ids[0]
-    result = _fetch_card_info_by_id(card_id, name)
+    result = _fetch_card_info_by_id(card_id, lookup)
     # 発売済みカードには kind='released' を付与（後方互換: found 等の既存キーは維持）
     result["kind"] = "released"
+    if renamed_to:
+        result = {**result, "renamed_to": renamed_to}  # キャッシュ済み dict を書き換えないよう複製する
     resp = jsonify(result)
-    if result.get("found"):
+    if result.get("found") and not renamed_to:
         # カード情報はほぼ不変のため長期キャッシュ可（card-image と同様）
         resp.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
     return resp
@@ -4830,14 +4860,22 @@ def api_card_image():
 
     if display["kind"] == "image":
         # source（released|official_sample）を付与（フロントの透かし・object-fit 出し分け用）
-        resp = jsonify({"url": display["url"], "kind": "image",
-                        "source": display.get("source", "released")})
-        # 発売済みカードは従来どおり長期キャッシュ可
-        resp.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
+        body = {"url": display["url"], "kind": "image", "source": display.get("source", "released")}
+        if display.get("renamed_to"):
+            body["renamed_to"] = display["renamed_to"]
+        resp = jsonify(body)
+        if display.get("renamed_to"):
+            resp.headers["Cache-Control"] = "no-store"  # 読み替えの結果は変わりうるので長期キャッシュしない
+        else:
+            # 発売済みカードは従来どおり長期キャッシュ可
+            resp.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
         return resp
 
     if display["kind"] == "proxy":
-        resp = jsonify({"url": None, "kind": "proxy", "proxy": display["proxy"]})
+        body = {"url": None, "kind": "proxy", "proxy": display["proxy"]}
+        if display.get("renamed_to"):
+            body["renamed_to"] = display["renamed_to"]
+        resp = jsonify(body)
         # 未発売カードは表示設定変更で即時反映が必要なためキャッシュなし
         resp.headers["Cache-Control"] = "no-store"
         return resp
@@ -4880,12 +4918,16 @@ def api_card_images():
     display_results = _card_display.resolve_card_displays(names)
 
     images = {}
+    renames = {}  # 日本に来た TCG先行カードの 英語名 → 日本語名（値が文字列のカードにも付けられるよう別に返す）
     has_unreleased = False  # 未発売カードが1件でもあればキャッシュを短くする
     timed_out = False       # 並列取得がタイムアウトした場合、長期キャッシュを付けない
     needs_kanabell = []     # YGOResources・未発売どちらにも該当しない名前のカーナベル候補
 
     for name in names:
         disp = display_results.get(name, {"kind": "none"})
+        if disp.get("renamed_to"):
+            renames[name] = disp["renamed_to"]
+            has_unreleased = True  # 読み替えの結果は変わりうるので長期キャッシュしない
         if disp["kind"] == "image":
             if disp.get("source") == "official_sample":
                 # 未発売の公式 SAMPLE 画像: object で返す（フロントが contain 表示・透かし無しに分岐）
@@ -4936,7 +4978,10 @@ def api_card_images():
                     images[n] = None
             executor.shutdown(wait=False, cancel_futures=True)
 
-    resp = jsonify({"images": images})
+    body = {"images": images}
+    if renames:
+        body["renames"] = renames
+    resp = jsonify(body)
     if has_unreleased or timed_out:
         # 未発売カードが含まれる場合、またはタイムアウトで一部が未取得の場合は
         # 一過性の欠損を24時間固定しないようキャッシュしない
@@ -4969,11 +5014,15 @@ def api_card_infos():
     infos = {}
     has_unreleased = False
     timed_out = False  # 並列取得がタイムアウトした場合、長期キャッシュを付けない
+    renamed = {}  # 日本に来た TCG先行カード: 英語名 → 日本語名（応答のキーは頼まれた英語名のまま）
 
     # name → card_id を解決し、キャッシュ命中分は即格納、未命中分を並列取得
     need_fetch = []  # (name, card_id) のリスト
     for name in names:
         disp = display_results.get(name, {"kind": "none"})
+        if disp.get("renamed_to"):
+            renamed[name] = disp["renamed_to"]
+            has_unreleased = True  # 読み替えの結果は変わりうるので長期キャッシュしない
 
         # 未発売カードはプロキシデータを返す。公式画像表示
         # （kind=image, source=official_sample）の場合も情報パネルや
@@ -4991,22 +5040,27 @@ def api_card_infos():
                     "is_ex":      proxy.get("is_ex", False),
                     "proxy":      proxy,
                 }
+                if name in renamed:
+                    infos[name]["renamed_to"] = renamed[name]
                 has_unreleased = True
                 continue
 
-        # 発売済みは YGOResources から取得（従来どおり）
-        ids = idx.get(name)
+        # 発売済みは YGOResources から取得（従来どおり）。読み替えのあるカードは日本語名で引く
+        lookup = renamed.get(name, name)
+        ids = idx.get(lookup)
         if not ids and _ygores_fuzzy_index:
-            ids = _ygores_fuzzy_index.get(_fuzzy_key(name))
+            ids = _ygores_fuzzy_index.get(_fuzzy_key(lookup))
         if not ids:
             infos[name] = {"found": False, "kind": "none"}
+            if name in renamed:
+                infos[name]["renamed_to"] = renamed[name]
             continue
         card_id = ids[0]
         # キャッシュ参照（ロック内）
         with _card_info_lock:
             cached = _card_info_cache.get(card_id)
         if cached is not None:
-            infos[name] = cached
+            infos[name] = {**cached, "renamed_to": renamed[name]} if name in renamed else cached
         else:
             need_fetch.append((name, card_id))
 
@@ -5014,7 +5068,9 @@ def api_card_infos():
     if need_fetch:
         def _fetch_one(item):
             n, cid = item
-            result = _fetch_card_info_by_id(cid, n)  # キャッシュ格納も内部で行う
+            result = _fetch_card_info_by_id(cid, renamed.get(n, n))  # キャッシュ格納も内部で行う
+            if n in renamed:
+                result = {**result, "renamed_to": renamed[n]}  # キャッシュ済み dict を書き換えないよう複製する
             return n, result
 
         # Q-3と同形（app.py 3699行付近と同じ理由でwithを避け明示shutdownにする）

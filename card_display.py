@@ -13,6 +13,8 @@ card_display.py — 未発売カード表示解決の唯一の入口
   (4) TCG先行（tcg_preview_cards の英語名。status='active' かつ hidden=false）
         画像あり + OFFICIAL_IMAGE_DISPLAY enabled → {"kind": "image", "url": ..., "tcg_preview": True}
         それ以外                                   → {"kind": "proxy", "proxy": {..., "tcg_preview": True}}
+  (4') 日本に来た TCG先行（status='ocg_linked' の英語名）… (1) の後で日本語の正式名 ocg_name に読み替え、
+        (1)〜(3) の流れで解決して結果に "renamed_to": 日本語名 を足す。解決できなければ (4) の表示に renamed_to を足す
   (5) それ以外（pending/rejected/不明）
         → {"kind": "none"}
 
@@ -163,6 +165,9 @@ _unreleased_cache_at: float = 0.0
 # tcg_preview_cards キャッシュ（英語名 name_en → レコード dict）。status='active' かつ hidden=false のみ
 _tcg_preview_cache: dict[str, dict] | None = None
 _tcg_preview_cache_at: float = 0.0
+# 日本に来たカード（status='ocg_linked' かつ hidden=false）の英語名 → レコード dict（ocg_name 付き）。
+# active の辞書と同じ1回の取得で同時に入れ替える（表示用の辞書には混ぜない）
+_tcg_renames_cache: dict[str, dict] | None = None
 
 
 def invalidate_cache() -> None:
@@ -172,7 +177,7 @@ def invalidate_cache() -> None:
     """
     global _settings_cache, _settings_cache_at
     global _unreleased_cache, _unreleased_cache_at
-    global _tcg_preview_cache, _tcg_preview_cache_at
+    global _tcg_preview_cache, _tcg_preview_cache_at, _tcg_renames_cache
     global _cache_generation
     with _cache_lock:
         _cache_generation += 1
@@ -182,6 +187,7 @@ def invalidate_cache() -> None:
         _unreleased_cache_at = 0.0
         _tcg_preview_cache = None
         _tcg_preview_cache_at = 0.0
+        _tcg_renames_cache = None
     logger.info("[card_display] キャッシュをクリアしました")
 
 
@@ -294,41 +300,50 @@ def _fetch_unreleased_cards(*, strict: bool = False) -> dict[str, dict]:
         return {}
 
 
-def _fetch_tcg_preview_cards(*, strict: bool = False) -> dict[str, dict]:
+def _fetch_tcg_preview_cards(*, strict: bool = False) -> tuple[dict[str, dict], dict[str, dict]]:
     """
-    TCG先行カード（tcg_preview_cards の status='active' かつ hidden=false）を
-    英語名 name_en → レコード dict の辞書で返す。失敗時は空の dict（strict なら例外）。
+    tcg_preview_cards の status='active' / 'ocg_linked'（どちらも hidden=false）を1回で取得し、
+    (active の辞書, ocg_linked の辞書) を返す。キーは英語名 name_en。失敗時は ({}, {})（strict なら例外）。
 
-    日本に来たカード（status='ocg_linked'）は日本語の正式名で今の流れ（発売済み・未発売）に乗るので含めない。
+    日本に来たカード（ocg_linked）は日本語の正式名 ocg_name で今の流れ（発売済み・未発売）に乗るので、
+    表示用の辞書（active）には混ぜず、別の辞書（英語名 → 日本語名への読み替え用）に分ける。
+    ocg_name が空の行は読み替え先が無いので ocg_linked の辞書にも入れない。
     """
     if not _is_enabled():
         if strict:
             raise DisplayDataUnavailable("TCG先行カードの接続が利用できません")
-        return {}
+        return {}, {}
     try:
         rows = _read_all_rows(
             _supabase_client.table("tcg_preview_cards")
             .select(
                 "konami_id, name_en, card_type, attribute, race, level, rank, link_val, atk, def, "
                 "pendulum_scale, effect_text_en, effect_text_ja, pendulum_effect_en, pendulum_effect_ja, "
-                "translation_status, product_name_en, set_code, tcg_release_date, image_url, image_page_url"
+                "translation_status, product_name_en, set_code, tcg_release_date, image_url, image_page_url, "
+                "status, ocg_name"
             )
-            .eq("status", "active")
+            .in_("status", ["active", "ocg_linked"])
             .eq("hidden", False),
             order_column="konami_id",
         )
         result: dict[str, dict] = {}
+        linked: dict[str, dict] = {}
         for row in rows:
             name = row.get("name_en") or ""
-            if name and name not in result:
+            if not name:
+                continue
+            if row.get("status") == "ocg_linked":
+                if (row.get("ocg_name") or "").strip() and name not in linked:
+                    linked[name] = row
+            elif name not in result:
                 result[name] = row
-        logger.debug(f"[card_display] TCG先行カード取得: {len(result)} 件")
-        return result
+        logger.debug(f"[card_display] TCG先行カード取得: {len(result)} 件（日本に来た{len(linked)} 件）")
+        return result, linked
     except Exception as e:
         logger.warning(f"[card_display] tcg_preview_cards 取得失敗: {e}")
         if strict:
             raise DisplayDataUnavailable("TCG先行カードを取得できません") from e
-        return {}
+        return {}, {}
 
 
 # ──────────────────────────────────────────────
@@ -397,13 +412,14 @@ def _refresh_unreleased() -> None:
 
 def _refresh_tcg_preview() -> None:
     """tcg_preview_cards を取り直してキャッシュへ入れる（取得中に無効化されたら捨てる）。"""
-    global _tcg_preview_cache, _tcg_preview_cache_at
+    global _tcg_preview_cache, _tcg_preview_cache_at, _tcg_renames_cache
     with _cache_lock:
         generation = _cache_generation
-    fresh = _fetch_tcg_preview_cards(strict=True)
+    fresh, renames = _fetch_tcg_preview_cards(strict=True)
     with _cache_lock:
         if generation == _cache_generation:
             _tcg_preview_cache = fresh
+            _tcg_renames_cache = renames
             _tcg_preview_cache_at = time.monotonic()
 
 
@@ -487,31 +503,37 @@ def _get_unreleased(*, strict: bool = False) -> dict[str, dict]:
     return _get_unreleased(strict=strict)
 
 
-def _get_tcg_preview(*, strict: bool = False) -> dict[str, dict]:
-    """TTL 付きキャッシュから tcg_preview_cards 辞書を返す（TTL 切れは古い値＋裏更新。未発売カードと同じ方式）"""
-    global _tcg_preview_cache, _tcg_preview_cache_at
+def _get_tcg_preview_both(*, strict: bool = False) -> tuple[dict[str, dict], dict[str, dict]]:
+    """TTL 付きキャッシュから (active の辞書, 日本に来たカードの辞書) を返す（TTL 切れは古い値＋裏更新。未発売カードと同じ方式）"""
+    global _tcg_preview_cache, _tcg_preview_cache_at, _tcg_renames_cache
     now = time.monotonic()
     with _cache_lock:
         if _tcg_preview_cache is not None:
             age = now - _tcg_preview_cache_at
             if age < _CACHE_TTL:
-                return _tcg_preview_cache
+                return _tcg_preview_cache, _tcg_renames_cache or {}
             if age < _CACHE_STALE_MAX:
                 _start_background_refresh("tcg_preview", _refresh_tcg_preview)
-                return _tcg_preview_cache
+                return _tcg_preview_cache, _tcg_renames_cache or {}
         generation = _cache_generation
     try:
-        fresh = _fetch_tcg_preview_cards(strict=True)
+        fresh, renames = _fetch_tcg_preview_cards(strict=True)
     except DisplayDataUnavailable:
         if strict:
             raise
-        return {}
+        return {}, {}
     with _cache_lock:
         if generation == _cache_generation:
             _tcg_preview_cache = fresh
+            _tcg_renames_cache = renames
             _tcg_preview_cache_at = time.monotonic()
-            return fresh
-    return _get_tcg_preview(strict=strict)
+            return fresh, renames
+    return _get_tcg_preview_both(strict=strict)
+
+
+def _get_tcg_preview(*, strict: bool = False) -> dict[str, dict]:
+    """TTL 付きキャッシュから tcg_preview_cards（active）の辞書を返す。"""
+    return _get_tcg_preview_both(strict=strict)[0]
 
 
 def cached_new_cards(limit: int | None = 36) -> dict | None:
@@ -697,6 +719,26 @@ def _find_tcg_preview_card(name: str, cards: dict[str, dict] | None = None) -> d
     return None
 
 
+def _find_renamed_row(name: str, renames: dict[str, dict] | None = None) -> dict | None:
+    """英語名から、日本に来たカード（ocg_linked）の行を引く。完全一致 → ゆれを吸収して再照合。無ければ None。"""
+    if not name or not _is_enabled():
+        return None
+    if renames is None:
+        renames = _get_tcg_preview_both()[1]
+    if not renames:
+        return None
+    row = renames.get(name)
+    if row is not None:
+        return row
+    fk = fuzzy_key(name).lower()
+    if not fk:
+        return None
+    for cand_name, cand in renames.items():
+        if fuzzy_key(cand_name).lower() == fk:
+            return cand
+    return None
+
+
 def _tcg_preview_display(card: dict, img_enabled: bool) -> dict:
     """TCG先行カードの表示解決結果（画像は公式SAMPLEと同じ扱い＝透かしなし・contain 表示）。"""
     img_url = card.get("image_url")
@@ -712,6 +754,18 @@ def _tcg_preview_display(card: dict, img_enabled: bool) -> dict:
 def get_tcg_preview_names() -> list[str]:
     """サジェスト用に、表示対象の TCG先行カードの英語名を返す。Supabase 未設定・取得失敗時は空配列。"""
     return list(_get_tcg_preview().keys())
+
+
+def get_tcg_preview_renames() -> dict[str, str]:
+    """日本に来たカードの 英語名 → 日本語の正式名。取得失敗は DisplayDataUnavailable（空の成功にしない）。"""
+    renames = _get_tcg_preview_both(strict=True)[1]
+    return {en: row["ocg_name"] for en, row in renames.items()}
+
+
+def renamed_name(name: str) -> str | None:
+    """英語名が日本に来たカードなら日本語の正式名（ゆれ吸収）。そうでなければ None。"""
+    row = _find_renamed_row(name)
+    return row["ocg_name"] if row is not None else None
 
 
 def get_tcg_preview_cards() -> dict:
@@ -750,6 +804,10 @@ def get_display_proxy(name: str) -> dict | None:
 
     価格の関門（発売日の判定）には使わないこと。そちらは get_unreleased_proxy（未発売カードだけ）を使う。
     """
+    row = _find_renamed_row(name)
+    if row is not None:
+        # 日本に来たカード: 日本語名で未発売カードを引き、無ければ TCG先行の proxy（表示が消えないように）
+        return get_unreleased_proxy(row["ocg_name"]) or _build_tcg_preview_proxy(row)
     return get_unreleased_proxy(name) or get_tcg_preview_proxy(name)
 
 
@@ -821,7 +879,14 @@ def get_unreleased_proxy(name: str) -> dict | None:
     return _build_proxy_data(card)
 
 
-def resolve_card_display(name: str) -> dict:
+def _resolve_renamed(row: dict, resolved: dict) -> dict:
+    """日本語名での解決結果に renamed_to を足す。解決できない（none）ときは TCG先行の表示に renamed_to を足す。"""
+    if resolved.get("kind") == "none":
+        resolved = _tcg_preview_display(row, _official_image_enabled())
+    return {**resolved, "renamed_to": row["ocg_name"]}
+
+
+def resolve_card_display(name: str, _allow_rename: bool = True) -> dict:
     """
     カード名から表示解決結果を返す唯一の入口。
 
@@ -847,6 +912,12 @@ def resolve_card_display(name: str) -> dict:
     # Supabase 未設定なら (4) へ
     if not _is_enabled():
         return {"kind": "none"}
+
+    # 日本に来た TCG先行カードの英語名は、日本語名で今の流れ（発売済み → 未発売）を解決する
+    if _allow_rename:
+        row = _find_renamed_row(name)
+        if row is not None:
+            return _resolve_renamed(row, resolve_card_display(row["ocg_name"], _allow_rename=False))
 
     # 未発売カード辞書を取得
     unreleased = _get_unreleased()
@@ -907,8 +978,14 @@ def resolve_card_displays(names: list[str]) -> dict[str, dict]:
     unreleased = _get_unreleased()
     img_enabled = _official_image_enabled()
     tcg_preview = None  # TCG先行の辞書は、未発売に無い名前があったときだけ取る
+    renames = _get_tcg_preview_both()[1]  # 日本に来たカード（英語名 → 行）
 
     for name in needs_check:
+        renamed_row = _find_renamed_row(name, renames)
+        if renamed_row is not None:
+            result[name] = _resolve_renamed(
+                renamed_row, resolve_card_display(renamed_row["ocg_name"], _allow_rename=False))
+            continue
         card = unreleased.get(name)
         if card is None:
             if tcg_preview is None:

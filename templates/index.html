@@ -1533,6 +1533,8 @@ document.addEventListener('toggle',function(e){
 <script src="{{ static_url('wish-estimate.js') }}" defer></script>
 <script src="{{ static_url('wish-split.js') }}" defer></script>
 <script src="{{ static_url('shared/sync-client.js') }}" defer></script>
+<!-- 日本に来たTCG先行カードの英語名を、保存デッキ・下書き・購入候補で日本語名に書き換える（2026-10-23 段3） -->
+<script src="{{ static_url('shared/tcg-rename.js') }}" defer></script>
 <!-- 旧URLから運ばれたデッキ・購入候補の合流（2026-10-21）。呼ぶのは index-sync.js（pull の後） -->
 <script src="{{ static_url('shared/handoff-apply.js') }}" defer></script>
 <script>

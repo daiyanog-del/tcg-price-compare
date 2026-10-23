@@ -11,11 +11,17 @@ TCG先行カード＝英語版で先に出て、日本のOCGにまだ無いカ�
   4. 効果文を tcg_translate.translate で和訳する（通常モンスターの説明文は訳さない。訳したときの英文を
      translated_source_en に残し、今の英文と同じなら訳し直さない）
   5. tcg_preview_cards へ konami_id で upsert する（first_seen_at は payload に含めない＝最初の1回だけ）
+  6. 日本に来たカードの切り替え: 表で status='active' の行のうち、ミラーの日本語側に同じ konami_id があり、
+     かつ その日本語名が data/cardnames_ja.json（価格検索が使う日本語名の一覧）に載っているものを
+     status='ocg_linked'・ocg_name=日本語名・ocg_linked_at=今 に更新する（更新だけ。翻訳・公式DBへのアクセスはしない）。
+     一覧に載っていない間は切り替えない（日本語名で検索・表示できないうちに切り替えるとカードが表示されなくなるため）。
+     照合は完全一致 → name_normalize.fuzzy_key 同士。一覧側の正式名を ocg_name に入れる
 
 実行:
   python tools/tcg_preview_watch.py --mirror <ミラーのフォルダ>
   python tools/tcg_preview_watch.py --dry-run --no-translate   # DBに書かず・APIも呼ばず、置き換え結果を表示するだけ
   --limit N（先頭N枚。0は0件）/ --max-translate N（1回あたりの翻訳件数の上限）
+  （--dry-run は DB に接続しないので、手順6の「日本に来た」判定は行わない。判定の確認はテストで行う）
 
 認証: 環境変数 SUPABASE_URL / SUPABASE_KEY / ANTHROPIC_API_KEY（DISCORD_WEBHOOK_URL は任意）。
 未設定なら ~/.cardsouba/watcher.env から読む。モデルは TCG_TRANSLATE_MODEL（既定 claude-opus-5-5。採点で Sonnet より公式文に近く、年100枚程度なら費用差が小さいため）、
@@ -44,6 +50,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 import tcg_translate  # noqa: E402
+from name_normalize import fuzzy_key  # noqa: E402  記号・ハイフン種のゆれ吸収（app.py と同一）
 
 logger = logging.getLogger("tcg_preview_watch")
 
@@ -60,6 +67,8 @@ DEFAULT_MODEL = "claude-opus-5-5"
 # 候補（英語にあって日本語に無いカード）の上限。ミラーが一部欠けると「日本語に無い」候補が数千件に膨らみ、
 # 翻訳料金と公式DBへの負荷が跳ね上がるので、超えたら何もせず知らせて止める。通常は数十件。 TODO: calibrate from data
 MAX_CANDIDATES = 100
+# 価格検索が使う日本語名の一覧（JSON の配列。週1回月曜9時に更新）
+CARDNAMES_PATH = os.path.join(_ROOT, "data", "cardnames_ja.json")
 _MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 _SPELL_TRAP_WORD = {"spell": "魔法", "trap": "罠"}
@@ -557,6 +566,51 @@ def process(en: dict, ja: dict, ids: list[int], *, sb, client, model: str, effor
     return stats
 
 
+def load_cardnames(path: str = CARDNAMES_PATH) -> list[str]:
+    """価格検索が使う日本語名の一覧（JSON の配列）を読む。読めない・配列でないときは例外。"""
+    import json
+    with open(path, encoding="utf-8") as f:
+        names = json.load(f)
+    if not isinstance(names, list):
+        raise ValueError(f"{path} が配列ではありません")
+    return [n for n in names if isinstance(n, str)]
+
+
+def link_ocg_cards(ja: dict, cardnames: list[str], *, sb, dry_run: bool) -> dict:
+    """日本に来たカード（表で active・ミラーの ja に同じ konami_id・日本語名が一覧に載っている）を ocg_linked に更新する。
+
+    一覧に載っていない間は切り替えない。照合は完全一致 → fuzzy_key 同士（一覧側の正式名を ocg_name に入れる）。
+    dry_run のときは書かず表示だけ（sb は読むだけ）。戻り値: {"linked": 件数, "pairs": [(英語名, 日本語名)]}
+    """
+    exact = set(cardnames)
+    fuzzy = {}
+    for n in cardnames:
+        k = fuzzy_key(n)
+        # 記号だけが違う別のカードが一覧に2つあるキーは None にして使わない（先勝ちで別のカード名を入れないため）
+        fuzzy[k] = None if k in fuzzy and fuzzy[k] != n else n
+    rows = sb.table(TABLE).select("konami_id, name_en").eq("status", "active").execute().data or []
+    pairs = []
+    for r in sorted(rows, key=lambda r: r["konami_id"]):
+        j = ja.get(int(r["konami_id"]))
+        jname = (j or {}).get("name") or ""
+        if not jname:
+            continue
+        official = jname if jname in exact else fuzzy.get(fuzzy_key(jname))
+        if official is None:
+            logger.info(f"[{r['konami_id']}] 日本語版は出ているが日本語名が一覧(cardnames_ja.json)に未掲載"
+                        f"（またはゆれで2つ以上に当たる）なので切り替えない: {jname}")
+            continue
+        if dry_run:
+            print(f"{r['konami_id']} {r['name_en']} → {official}（日本に来た・dry-run のため更新しない）")
+        else:
+            now = _now()
+            (sb.table(TABLE)
+             .update({"status": "ocg_linked", "ocg_name": official, "ocg_linked_at": now, "updated_at": now})
+             .eq("konami_id", r["konami_id"]).eq("status", "active").execute())
+        pairs.append((r["name_en"], official))
+    return {"linked": len(pairs), "pairs": pairs}
+
+
 _warned_models = set()
 
 
@@ -585,7 +639,8 @@ def format_summary(stats: dict) -> str:
             f"・上限で見送り{stats.get('translate_deferred', 0)}）"
             f"・訳の失敗{stats.get('translate_failed', 0)}"
             f"・画像の失敗{stats.get('image_failed', 0)}・公式ページ取得失敗{stats.get('page_failed', 0)}"
-            f"（取得{stats.get('fetched', 0)}件）・商品0件{stats.get('pack_empty', 0)}")
+            f"（取得{stats.get('fetched', 0)}件）・商品0件{stats.get('pack_empty', 0)}"
+            f"・日本に来た{stats.get('ocg_linked', 0)}")
 
 
 def _notify(message: str) -> None:
@@ -643,6 +698,19 @@ def main(argv=None) -> int:
     stats = process(en, ja, ids, sb=sb, client=client, model=model, effort=effort,
                     translate=translate, dry_run=a.dry_run, max_translate=a.max_translate)
     fail_msg = official_failure_message(stats)
+    linked_pairs = []
+    link_failed = False
+    if a.dry_run:
+        logger.info("dry-run は DB に接続しないので、日本に来たカードの判定は行いません")
+    else:
+        # 候補の処理とは別の段階。一覧が読めない・DB 更新に失敗しても、ここまでの取り込みは済んでいる
+        try:
+            linked = link_ocg_cards(ja, load_cardnames(), sb=sb, dry_run=False)
+            stats["ocg_linked"] = linked["linked"]
+            linked_pairs = linked["pairs"]
+        except Exception as e:
+            link_failed = True
+            logger.error(f"日本に来たカードの切り替えに失敗: {type(e).__name__}: {e}")
     if a.dry_run:
         logger.info(f"dry-run 完了: {stats.get('seen', 0)}枚（公式ページ取得失敗{stats.get('page_failed', 0)}・商品0件{stats.get('pack_empty', 0)}）")
         return 1 if fail_msg else 0
@@ -651,11 +719,14 @@ def main(argv=None) -> int:
     if stats.get("new", 0) >= 1:
         names = "、".join(stats["_new_names"][:5]) + ("…" if len(stats["_new_names"]) > 5 else "")
         _notify(f"TCG先行カードを新たに{stats['new']}枚取り込みました（{names}）")
+    if linked_pairs:
+        shown = "、".join(f"{en}→{jp}" for en, jp in linked_pairs[:5]) + ("…" if len(linked_pairs) > 5 else "")
+        _notify(f"日本に来た{len(linked_pairs)}枚（{shown}）")
     if fail_msg:
         logger.error(fail_msg)
         _notify(fail_msg)
     # 訳の失敗は次回取り直すが、定期実行の失敗として気づけるよう終了コードに出す
-    return 1 if (stats.get("translate_failed", 0) or fail_msg) else 0
+    return 1 if (stats.get("translate_failed", 0) or fail_msg or link_failed) else 0
 
 
 if __name__ == "__main__":
