@@ -17,6 +17,10 @@ if not exist "%ENVFILE%" (
 )
 
 rem load KEY=VALUE pairs (lines starting with # are comments)
+rem watcher.env is UTF-8 with Japanese comments. Under the default code page
+rem (CP932) for /f mis-splits lines and drops some keys (2026-10-16..22 the
+rem crawl aborted daily with SUPABASE_URL unset), so read it as UTF-8.
+chcp 65001 >nul
 for /f "usebackq eol=# tokens=1,* delims==" %%a in ("%ENVFILE%") do set "%%a=%%b"
 
 rem whitelist guard tests - abort crawl if they fail
