@@ -136,9 +136,11 @@
     item('デッキから1枚抜く', '', function(){ o.dec(name, sec); }, true);
     item('デッキから外す', '', function(){ o.remove(name, sec); }, true);
     sep();
-    item('購入候補に入れる', '候補に ' + _wishCount(name) + '枚', function(){ _addToWish(name); });
+    // TCG先行カード（英語版で先に出て日本に無いカード）は価格が無いので購入候補・価格の操作を出さない
+    var tcgPreview = !!(window.TcgPreview && window.TcgPreview.has(name));
+    if(!tcgPreview) item('購入候補に入れる', '候補に ' + _wishCount(name) + '枚', function(){ _addToWish(name); });
     item('カードの詳細', '', info);
-    item('価格を比べる', '', function(){ window.open('/card/' + encodeURIComponent(name), '_blank', 'noopener'); });
+    if(!tcgPreview) item('価格を比べる', '', function(){ window.open('/card/' + encodeURIComponent(name), '_blank', 'noopener'); });
 
     document.body.appendChild(el);
     // マウスの位置に出す。画面からはみ出す向きなら反対側へ
@@ -356,7 +358,7 @@
   }
 
   window.DeckCardOps = { afterRender: afterRender, select: select, finePointer: _finePointer,
-    _addToWish: _addToWish }; // _ で始まるものはテスト用（tests/js/deck_card_ops_check.js）
+    _addToWish: _addToWish, _openMenu: _openMenu }; // _ で始まるものはテスト用（tests/js/deck_card_ops_check.js）
 
   // deck-edit.js・deck-head.js と同じく、index.html のインライン側の初期化より後に動かす
   if(document.readyState === 'complete') _init();

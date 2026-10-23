@@ -36,6 +36,13 @@ assert.throws(()=>own.plan(deck,{},[{name:'A',qty:-1}]));
 assert.throws(()=>own.supplement(Array.from({length:200},(_,i)=>({name:String(i),qty:1})),[{name:'new',add:1}]));
 assert.throws(()=>own.supplement([{name:'A',qty:99}], [{name:'A',add:1}]));
 
+// TCG先行カード（英語版で先に出て日本に無いカード）は購入候補に足す計算からだけ外す（所持枚数の行には残す。2026-10-23）
+sandbox.TcgPreview={has:n=>n==='B'};
+assert.equal(JSON.stringify(own.wishPlan(deck,values,wishlist).map(r=>r.name)),JSON.stringify(['A','__proto__']));
+assert.equal(JSON.stringify(own.plan(deck,values,wishlist).map(r=>r.name)),JSON.stringify(['A','B','__proto__']));
+delete sandbox.TcgPreview;
+assert.equal(JSON.stringify(own.wishPlan(deck,values,wishlist).map(r=>r.name)),JSON.stringify(['A','B','__proto__']),'一覧が無いときに外した');
+
 // deck-edit全体のラッパーを起動し、保存・読込・新規/取込・下書きを確認する。
 sandbox.loadSavedDeck=id=>{const d=sandbox.savedDecksGet().find(d=>d.id===id);if(d){ta.value=d.text;sandbox._currentMydeckText=d.text;sandbox._currentMydeckCards={main:d.main,ex:d.ex};}};
 sandbox.clearDeck=()=>{ta.value='';sandbox._currentMydeckText='';sandbox._currentMydeckCards={main:[],ex:[]};};

@@ -32,6 +32,7 @@ class El {
   }
   querySelectorAll(sel){ return sel.startsWith('.deck-grid-cell') ? cells.filter(c => !sel.includes('[data-sel]') || c.hasAttribute('data-sel')) : []; }
   contains(){ return false; }
+  focus(){}
   closest(){ return null; }
 }
 let cells = [];
@@ -130,5 +131,19 @@ press('touch'); ev = click(true);
 assert.equal(ev.prevented, false, '店舗リンクのタップを潰した'); assert.equal(bar().hidden, true);
 press('touch'); ev = click(false);
 assert.equal(ev.prevented, true); assert.equal(bar().hidden, false, '指のタップで選択にならない');
+
+// ── TCG先行カード（英語版で先に出て日本に無いカード）は「購入候補に入れる」「価格を比べる」を出さない（2026-10-23） ──
+const menuLabels = () => {
+  const m = sandbox.document.body.children[sandbox.document.body.children.length - 1];
+  return m.children.filter(b => b.className === 'deck-more-item').map(b => b.children[0].textContent);
+};
+deck = { main: [{ name: 'Angelechy Destrier', qty: 1 }, { name: '灰流うらら', qty: 1 }], ex: [] }; render(); ops.afterRender();
+sandbox.TcgPreview = { has: n => n === 'Angelechy Destrier' };
+ops._openMenu(cells[0], 10, 10);
+assert.ok(!menuLabels().includes('購入候補に入れる') && !menuLabels().includes('価格を比べる'), 'TCG先行カードに購入候補・価格の操作が出た');
+assert.ok(menuLabels().includes('カードの詳細'));
+ops._openMenu(cells[1], 10, 10);
+assert.ok(menuLabels().includes('購入候補に入れる') && menuLabels().includes('価格を比べる'), '普通のカードの操作が消えた');
+delete sandbox.TcgPreview;
 
 console.log('マイデッキのカード操作: ×N の札・選択の印と欄・0枚/空/入れ替えでの解除・購入候補・タップとマウスの振り分け・innerHTML の中身を確認');
