@@ -598,7 +598,7 @@ function initActionSheet() {
 // マスを選ぶ間は下部バーの代わりに帯（#solMobileTokenPanel）を出す。
 
 let _tokenPick = null; // { name, defense, slots: Element[] } マスを選んでいる間だけ
-let _tokenSheetSlot = null; // 長押しの「名前を変えて出す…」から開いたとき、出すマス（マスを選び直さない）
+let _tokenSheetSlot = null; // 長押しの「トークンに名前を付けて出す…」から開いたとき、出すマス（マスを選び直さない）
 
 /** @param {Element|null} [slot] 出すマスが決まっているとき（空いたマスの長押しから） */
 function openTokenSheet(slot = null) {
@@ -752,9 +752,10 @@ function _openEmptySlotMenu(slot, x, y) {
   openContextMenuAt([
     { heading: '空いたマス' },
     // 既定の名前で出す（前回の名前ではない。2026-10-23 ユーザー指示）。表示形式は2つから選ぶ
-    { label: '攻撃表示で出す', action: () => placeToken(slot, DEFAULT_TOKEN_NAME, { defense: false }) },
-    { label: '守備表示で出す', action: () => placeToken(slot, DEFAULT_TOKEN_NAME, { defense: true }) },
-    { label: '名前を変えて出す…', action: () => openTokenSheet(slot) },
+    // 見出しが「空いたマス」なので、何を出すかを項目名に書く（2026-10-23 ユーザー指摘）
+    { label: 'トークンを攻撃表示で出す', action: () => placeToken(slot, DEFAULT_TOKEN_NAME, { defense: false }) },
+    { label: 'トークンを守備表示で出す', action: () => placeToken(slot, DEFAULT_TOKEN_NAME, { defense: true }) },
+    { label: 'トークンに名前を付けて出す…', action: () => openTokenSheet(slot) },
     { label: '盤面にメモ', action: () => openCommentSheet({ kind: 'board' }) },
     { label: 'カットイン', action: () => openCommentSheet({ kind: 'cutin' }) },
   ], x, y);
