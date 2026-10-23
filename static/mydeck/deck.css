@@ -292,6 +292,14 @@ a.deck-grid-img-wrap:hover{opacity:.82;transition:opacity .15s}
 .cip-price-link:hover{background:rgba(74,124,255,.12);border-color:var(--accent)}
 .cip-buy-link{color:var(--green)}
 .cip-buy-link:hover{background:rgba(52,211,153,.1);border-color:var(--green)}
+/* TCG先行カード（英語版で先に出て日本に無いカード）: 札・非公式訳の注記・英語の原文・価格が無い旨（シミュレーターの solitaire-brand.css と同じ意味） */
+.cip-tcg{margin:1px 0 2px}
+.cip-tcg-badge{display:inline-block;font-size:.74rem;line-height:1.6;color:var(--text-m);border:1px solid var(--border);border-radius:999px;padding:0 7px}
+.cip-unofficial{margin:0 0 4px;font-size:.74rem;color:var(--text-d)}
+.cip-original{flex:0 1 auto;min-height:0;overflow-y:auto;border-top:1px solid var(--border);padding-top:8px}
+.cip-original>summary{cursor:pointer;font-size:.8rem;color:var(--text-m)}
+.cip-original>.cip-effect{border-top:0;overflow:visible}
+.cip-noprice{flex-shrink:0;margin:0;font-size:.8rem;color:var(--text-d)}
 
 /* 所持確認は通常のカード編集から折り畳みで分ける。 */
 .deck-ownership{margin:12px 0 20px;font-size:13px;color:var(--text)}

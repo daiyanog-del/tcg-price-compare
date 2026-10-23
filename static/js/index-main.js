@@ -178,7 +178,9 @@ function _setPriceSectionsVisible(visible){
 // ※トップレベルに置くこと（_renderProxyDetail と _fetchCardInfo の両方から参照する）
 function _normalizeBreaks(text){return String(text??'').replace(/<br\s*\/?>/gi,'\n');}
 
-function showUnreleasedCard(name){
+// tcgPreview: TCG先行カード（英語版で先に出て日本に無いカード）。札・説明を変え、購入候補のボタンを出さない（価格が無い）
+function showUnreleasedCard(name,tcgPreview){
+  if(!tcgPreview&&window.TcgPreview&&TcgPreview.has(name)) tcgPreview=true;
   SearchStatus.show({});
   _setSearchLayout(true);
   // 世代管理: selectSugの未発売分岐はdoSearchを通らず世代が進まないため、稼働中の
@@ -206,9 +208,11 @@ function showUnreleasedCard(name){
   hero.classList.add('cr-unreleased'); // 相場の箱を出さないので、その列を取らずに効果テキストを全幅で開く
   document.getElementById('heroImgWrap').innerHTML='<div class="cr-img-ph"></div>';
   const heroInfo=document.getElementById('heroInfo');
-  heroInfo.innerHTML=`<div class="card-hero-name">${esc(name)} <span class="pack-unreleased-badge">発売前</span></div>
+  heroInfo.innerHTML=`<div class="card-hero-name">${esc(name)} <span class="pack-unreleased-badge">${tcgPreview?'TCG先行':'発売前'}</span></div>
     <div class="card-hero-meta">
-      <span style="color:var(--text-m)">このカードはまだ発売前のため、販売価格情報はありません。</span>
+      <span style="color:var(--text-m)">${tcgPreview
+        ?'英語版で先に出たカードです。日本ではまだ発売されていないため、価格情報はありません。'
+        :'このカードはまだ発売前のため、販売価格情報はありません。'}</span>
     </div>
     <!-- 2026-09-04: 既定で開く（B-2 のスマホ縦長対策で畳んでいたが、PC でも隠れて読めないため全幅で開く裁定） -->
     <details class="card-info-details" id="cardDetailDetails" open hidden>
@@ -219,7 +223,7 @@ function showUnreleasedCard(name){
          約450px 押し下げられ、CLS が出ていた（2026-10-22 スマホ 0.019・PC 0.015）。下には他に見えるものが無い -->
     <div class="cr-acts" id="unrelShareBtns" style="display:none">
       <button type="button" class="cr-pill cr-pill-pri" onclick="addToDeck('${escAttr(escJs(name))}',this)">デッキに追加</button>
-      <button type="button" class="cr-pill" onclick="wishAddFromBtn(this,'${escAttr(escJs(name))}',1)">購入候補に追加</button>
+      ${tcgPreview?'':`<button type="button" class="cr-pill" onclick="wishAddFromBtn(this,'${escAttr(escJs(name))}',1)">購入候補に追加</button>`}
     </div>`;
   // カード情報の処理が終わったら（中身あり・無し・失敗のどれでも）出す。届かないときも5秒で出す
   const unrelBtns=document.getElementById('unrelShareBtns');
@@ -380,13 +384,23 @@ function _renderProxyDetail(p,name){
     html+=`<div class="cdm-row">${esc(p.card_type||'')}</div>`;
   }
   html+='</div>';
-  if(p.pendulum_effect) html+=`<div class="card-detail-effect"><span class="card-detail-pendulum-label">【ペンデュラム効果】</span>${esc(_normalizeBreaks(p.pendulum_effect))}</div>`;
-  if(p.effect_text) html+=`<div class="card-detail-effect">${esc(_normalizeBreaks(p.effect_text))}</div>`;
-  const meta=[p.product_name,p.release_date].filter(Boolean).join(' / ');
+  // TCG先行カード（英語版で先に出て日本に無いカード）: 効果文は機械訳なので「非公式訳」と示し、英語の原文を折りたたみで添える
+  const unofficial=p.tcg_preview&&p.unofficial_translation?'<span class="card-detail-unofficial">非公式訳（機械翻訳）</span>':'';
+  if(p.pendulum_effect) html+=`<div class="card-detail-effect">${unofficial}<span class="card-detail-pendulum-label">【ペンデュラム効果】</span>${esc(_normalizeBreaks(p.pendulum_effect))}</div>`;
+  if(p.effect_text) html+=`<div class="card-detail-effect">${p.pendulum_effect?'':unofficial}${esc(_normalizeBreaks(p.effect_text))}</div>`;
+  if(p.tcg_preview&&(p.effect_text_en||p.pendulum_effect_en)){
+    const en=[p.pendulum_effect_en?'[Pendulum Effect]\n'+_normalizeBreaks(p.pendulum_effect_en):'',_normalizeBreaks(p.effect_text_en||'')].filter(Boolean).join('\n');
+    // 訳が無い（通常モンスターの説明文・未訳）ときは原文が唯一の本文なので開いておく
+    html+=`<details class="card-detail-original"${p.unofficial_translation?'':' open'}><summary>英語の原文</summary><div class="card-detail-effect" lang="en">${esc(en)}</div></details>`;
+  }
+  const meta=p.tcg_preview
+    ?[p.product_name,p.tcg_release_date?'英語版 '+p.tcg_release_date:''].filter(Boolean).join(' / ')
+    :[p.product_name,p.release_date].filter(Boolean).join(' / ');
   if(meta) html+=`<div class="card-detail-print" style="margin-top:6px">${esc(meta)}</div>`;
   det.innerHTML=html;
-  // 未発売カード専用: 読み取り・転記ミスを利用者が知らせる窓口（発売済みカードには出さない）
-  if(window.TextReport) window.TextReport.attach(det,p.name||name);
+  // 未発売カード専用: 読み取り・転記ミスを利用者が知らせる窓口（発売済みカードには出さない）。
+  // TCG先行カードの訳は機械訳で、報告の受け先（未発売カードの登録）とは別なので出さない
+  if(window.TextReport&&!p.tcg_preview) window.TextReport.attach(det,p.name||name);
   _showCardDetail();
 }
 
@@ -563,7 +577,7 @@ function doSearch(opts){
           document.getElementById('q').value=d.name;
           // 未発売カードは価格検索せず、カード情報のみ表示する
           // G-2: 検索意図はあったが未発売のため検索に至らなかったケースも計上する（逆方向の欠測対策）
-          if(d.unreleased){_ga('search_submit',{mode:'sell',trigger:trigger,result:'unreleased'});showUnreleasedCard(d.name);return;}
+          if(d.unreleased){_ga('search_submit',{mode:'sell',trigger:trigger,result:'unreleased'});showUnreleasedCard(d.name,!!d.tcg_preview);return;}
           doSearch({validated:true,trigger:trigger,_gen:gen});
         }else if(d.suggestion){
           if(confirm('もしかして: '+d.suggestion+'\n\nこのカード名で検索しますか?')){
@@ -790,7 +804,7 @@ qInput.addEventListener('keydown',e=>{
   if(sugDrop.classList.contains('open')&&sugItems.length>0){
     if(e.key==='ArrowDown'){e.preventDefault();sugIdx=Math.min(sugIdx+1,sugItems.length-1);highlightSug();return;}
     if(e.key==='ArrowUp'){e.preventDefault();sugIdx=Math.max(sugIdx-1,-1);highlightSug();return;}
-    if(e.key==='Enter'&&sugIdx>=0){e.preventDefault();selectSug(sugItems[sugIdx].name,sugItems[sugIdx].unreleased);return;}
+    if(e.key==='Enter'&&sugIdx>=0){e.preventDefault();selectSug(sugItems[sugIdx].name,sugItems[sugIdx].unreleased,sugItems[sugIdx].tcg_preview);return;}
     if(e.key==='Escape'){closeSuggest();return;}
   }
   if(e.key==='Enter')doSearch();
@@ -811,8 +825,10 @@ function fetchSuggest(q,generation=sugGeneration){
       sugItems=items;sugIdx=-1;
       sugDrop.innerHTML=items.map((it,i)=>{
         const n=it.name;
-        const badge=it.unreleased?' <span class="pack-unreleased-badge">発売前</span>':'';
-        return `<div class="suggest-item" data-i="${i}" onmousedown="selectSug('${escAttr(escJs(n))}',${it.unreleased?'true':'false'})"><span class="suggest-thumb" data-thumb-name="${escAttr(n)}"></span><span class="suggest-name">${esc(n)}${badge}</span></div>`;
+        // TCG先行（英語版で先に出て日本に無いカード）も unreleased=true で届く
+        if(it.tcg_preview&&window.TcgPreview) TcgPreview.note(n);
+        const badge=it.unreleased?` <span class="pack-unreleased-badge">${it.tcg_preview?'TCG先行':'発売前'}</span>`:'';
+        return `<div class="suggest-item" data-i="${i}" onmousedown="selectSug('${escAttr(escJs(n))}',${it.unreleased?'true':'false'},${it.tcg_preview?'true':'false'})"><span class="suggest-thumb" data-thumb-name="${escAttr(n)}"></span><span class="suggest-name">${esc(n)}${badge}</span></div>`;
       }).join('');
       sugDrop.classList.add('open');
       loadSuggestThumbnails(sugDrop);
@@ -847,11 +863,11 @@ function highlightSug(){
   }
 }
 
-function selectSug(name,unreleased){
+function selectSug(name,unreleased,tcgPreview){
   qInput.value=name;
   closeSuggest();
-  // 未発売カードは価格検索せず、カード情報のみ表示する
-  if(unreleased){_ga('search_submit',{mode:'sell',trigger:'user',result:'unreleased'});showUnreleasedCard(name);return;}
+  // 未発売カード（TCG先行カードを含む）は価格検索せず、カード情報のみ表示する
+  if(unreleased){_ga('search_submit',{mode:'sell',trigger:'user',result:'unreleased'});showUnreleasedCard(name,!!tcgPreview);return;}
   doSearch({validated:true,trigger:'user'});
 }
 
@@ -3244,7 +3260,12 @@ async function calcDeckEstimate(ctx, opts){
           const row=document.getElementById(ctx.rowPrefix+uiIdx);
           if(!row)continue;
 
-          if(d.best){
+          if(d.tcg_preview){
+            // TCG先行カード（英語版で先に出て日本に無いカード）は価格が無い（サーバーは店舗へ取りに行かない）
+            sseNotFound++;
+            row.className='deck-grid-cell';
+            row.querySelector('.deck-card-status').textContent='TCG先行・価格なし';
+          }else if(d.best){
             const lineTotal=d.best.price*c.qty;
             total+=lineTotal;
             sseFound++;
@@ -3435,7 +3456,12 @@ async function calcDeck(buyMode){
           const row=document.getElementById('deck-row-'+d.index);
           if(!row)continue;
 
-          if(d.best){
+          if(d.tcg_preview){
+            // TCG先行カード（英語版で先に出て日本に無いカード）は価格が無い（サーバーは店舗へ取りに行かない）
+            notFound++;
+            row.className='deck-grid-cell';
+            row.querySelector('.deck-card-status').textContent='TCG先行・価格なし';
+          }else if(d.best){
             const unitPrice=d.best.price;
             const lineTotal=unitPrice*c.qty;
             total+=lineTotal;

@@ -132,11 +132,15 @@ export function offerRemoveFromWish(name, leftInDeck) {
 let _panel = null;
 let _closePanel = null;
 
-/** デッキに入っている枚数（メイン＋EX・盤面・手札・墓地なども含む。トップの requiredCards と同じく名前でまとめる） */
+/** デッキに入っている枚数（メイン＋EX・盤面・手札・墓地なども含む。トップの requiredCards と同じく名前でまとめる）
+ *  TCG先行カード（英語版で先に出て日本に無いカード）は価格が無いので数えない（購入候補に入れない） */
 function _requiredCards() {
   const deck = collectDeckFromDom(document);
   const totals = new Map();
-  for (const c of [...deck.main, ...deck.ex]) totals.set(c.name, (totals.get(c.name) || 0) + c.qty);
+  for (const c of [...deck.main, ...deck.ex]) {
+    if (window.TcgPreview?.has(c.name)) continue;
+    totals.set(c.name, (totals.get(c.name) || 0) + c.qty);
+  }
   return totals;
 }
 
@@ -158,6 +162,8 @@ function _savedDeck() {
  */
 export function openShortagePanel(opts = {}) {
   if (!WD()) return;
+  // TCG先行カードの名前の一覧が届くまで待つ（届く前に数えると英語名が購入候補に入る）
+  if (window.TcgPreview && !window.TcgPreview.isReady()) { window.TcgPreview.ready.then(() => openShortagePanel(opts)); return; }
   closeShortagePanel();
   const totals = _requiredCards();
   if (!totals.size) { showToast('デッキを読み込むと、足りない分を購入候補に入れられます'); return; }

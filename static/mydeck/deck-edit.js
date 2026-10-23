@@ -531,7 +531,9 @@
     }
     function render(){
       drop.innerHTML = items.map(function(it, i){
-        var badge = it.unreleased ? '<span class="deck-suggest-badge">未発売</span>' : '';
+        // TCG先行（英語版で先に出て日本に無いカード）も unreleased=true で届く
+        if(it.tcg_preview && window.TcgPreview) window.TcgPreview.note(it.name);
+        var badge = it.unreleased ? '<span class="deck-suggest-badge">' + (it.tcg_preview ? 'TCG先行' : '未発売') + '</span>' : '';
         // data-name は素の属性値なので escAttr() を使う（esc() は " をエスケープせず
         // 属性を脱出できるため。2026-08-20 XSS対策）
         return '<div class="deck-suggest-item" data-i="' + i + '">' +

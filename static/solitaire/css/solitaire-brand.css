@@ -129,6 +129,9 @@
 .sol-cip-col[data-overlay]:not(.is-expanded) .cip-pendulum,
 .sol-cip-col[data-overlay]:not(.is-expanded) .cip-effect,
 .sol-cip-col[data-overlay]:not(.is-expanded) .cip-price,
+.sol-cip-col[data-overlay]:not(.is-expanded) .cip-tcg,
+.sol-cip-col[data-overlay]:not(.is-expanded) .cip-original,
+.sol-cip-col[data-overlay]:not(.is-expanded) .cip-noprice,
 .sol-cip-col[data-overlay]:not(.is-expanded) .tr-open-wrap { display: none; }
 /* 小さい表示のときだけ、押せば読めることを一言で示す（カードを表示しているときだけ） */
 .sol-cip-col[data-overlay]:not(.is-expanded) .sol-card-info-panel:has(.cip-header)::after {
@@ -1271,6 +1274,30 @@ a.replay-btn { display: inline-block; text-decoration: none; }
   overflow-y: auto;
   flex: 1;
 }
+
+/* TCG先行カード（英語版で先に出て日本に無いカード）: 札・非公式訳の注記・英語の原文・価格が無い旨 */
+.cip-tcg { margin: 1px 0 2px; }
+.cip-tcg-badge {
+  display: inline-block;
+  font-size: 0.84em;
+  line-height: 1.6;
+  color: #a8b4c9;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 7px;
+}
+.cip-unofficial { margin: 0 0 4px; font-size: 0.88em; color: #7d8798; }
+.cip-original {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+.cip-original > summary { cursor: pointer; font-size: 0.91em; color: #a8b4c9; }
+.cip-original > .cip-effect { border-top: 0; }
+.cip-noprice { flex-shrink: 0; margin: 10px 0 0; font-size: 0.91em; color: #7d8798; }
 
 /* ペンデュラム効果ブロック（本体効果の直前に表示） */
 .cip-pendulum {
