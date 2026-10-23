@@ -501,3 +501,93 @@ def test_limit_zero_means_no_cards(mirror, monkeypatch):
 def test_default_model_is_opus():
     assert pw.DEFAULT_MODEL == "claude-opus-5-5"
     assert pw.DEFAULT_MODEL in pw.tcg_translate.PRICES
+
+
+# ── 日本に来たカードの切り替え（status: active → ocg_linked） ──
+
+def _link_sb(*rows):
+    return _SB({pw.TABLE: [{"konami_id": cid, "name_en": en, "status": st, **extra}
+                           for cid, en, st, extra in rows]})
+
+
+def _status(sb):
+    return {r["konami_id"]: r for r in sb.tables[pw.TABLE]}
+
+
+def test_link_switches_when_in_ja_and_in_cardnames():
+    sb = _link_sb((1, "Alpha", "active", {}))
+    out = pw.link_ocg_cards({1: {"name": "アルファ"}}, ["アルファ", "他"], sb=sb, dry_run=False)
+    r = _status(sb)[1]
+    assert r["status"] == "ocg_linked" and r["ocg_name"] == "アルファ" and r["ocg_linked_at"] and r["updated_at"]
+    assert out == {"linked": 1, "pairs": [("Alpha", "アルファ")]}
+
+
+def test_link_waits_while_name_is_not_in_cardnames():
+    # 日本語版は出ているが、価格検索の一覧に未掲載の間は切り替えない（表示できなくなるため）
+    sb = _link_sb((1, "Alpha", "active", {}))
+    out = pw.link_ocg_cards({1: {"name": "アルファ"}}, ["他のカード"], sb=sb, dry_run=False)
+    assert _status(sb)[1]["status"] == "active" and "ocg_name" not in _status(sb)[1]
+    assert out["linked"] == 0
+
+
+def test_link_skips_cards_not_in_ja():
+    sb = _link_sb((1, "Alpha", "active", {}))
+    assert pw.link_ocg_cards({}, ["アルファ"], sb=sb, dry_run=False)["linked"] == 0
+    assert _status(sb)[1]["status"] == "active"
+
+
+def test_link_matches_with_fuzzy_key_and_uses_cardnames_spelling():
+    # ミラーは半角ハイフン、一覧は全角ハイフン（NFKC で同じキーになる）。ocg_name には一覧側の表記を入れる
+    sb = _link_sb((1, "Alpha", "active", {}))
+    pw.link_ocg_cards({1: {"name": "ＥＭ-アルファ"}}, ["ＥＭ－アルファ"], sb=sb, dry_run=False)
+    r = _status(sb)[1]
+    assert r["status"] == "ocg_linked" and r["ocg_name"] == "ＥＭ－アルファ"
+
+
+def test_link_skips_when_fuzzy_key_matches_two_cards():
+    # 記号だけが違う別のカードが一覧に2つあるときは、どちらか分からないので切り替えない（先勝ちで別のカード名を入れない）
+    sb = _link_sb((1, "Alpha", "active", {}))
+    out = pw.link_ocg_cards({1: {"name": "ＥＭ-アルファ"}}, ["ＥＭ－アルファ", "ＥＭ―アルファ"], sb=sb, dry_run=False)
+    assert out["linked"] == 0
+    assert _status(sb)[1]["status"] == "active"
+
+
+def test_link_does_not_touch_already_linked_rows():
+    sb = _link_sb((1, "Alpha", "ocg_linked", {"ocg_name": "古い名前", "ocg_linked_at": "2026-01-01"}))
+    out = pw.link_ocg_cards({1: {"name": "アルファ"}}, ["アルファ"], sb=sb, dry_run=False)
+    r = _status(sb)[1]
+    assert out["linked"] == 0
+    assert r["ocg_name"] == "古い名前" and r["ocg_linked_at"] == "2026-01-01"
+
+
+def test_link_dry_run_does_not_write(capsys):
+    sb = _link_sb((1, "Alpha", "active", {}))
+    out = pw.link_ocg_cards({1: {"name": "アルファ"}}, ["アルファ"], sb=sb, dry_run=True)
+    assert out["linked"] == 1
+    assert _status(sb)[1]["status"] == "active" and "ocg_name" not in _status(sb)[1]
+    assert "Alpha → アルファ" in capsys.readouterr().out
+
+
+def test_main_notifies_linked_cards_and_counts_in_summary(mirror, monkeypatch, caplog):
+    # ミラーの日英が揃うカード「A→あ」が表で active のまま残っている場合
+    sb = _link_sb((1, "A", "active", {}))
+    sent = []
+    monkeypatch.setattr(pw, "_notify", sent.append)
+    monkeypatch.setattr(pw, "load_cardnames", lambda: ["あ"])
+    monkeypatch.setattr(pw, "process", lambda *a, **k: pw.Counter())
+    monkeypatch.setenv("SUPABASE_URL", "u")
+    monkeypatch.setenv("SUPABASE_KEY", "k")
+    monkeypatch.setattr("supabase.create_client", lambda url, key: sb)
+    with caplog.at_level(logging.INFO):
+        code = pw.main(["--mirror", str(mirror), "--no-translate"])
+    assert code == 0
+    assert _status(sb)[1]["status"] == "ocg_linked"
+    assert sent == ["日本に来た1枚（A→あ）"]
+    assert "日本に来た1" in caplog.text
+
+
+def test_main_dry_run_does_not_touch_db_for_linking(mirror, monkeypatch):
+    monkeypatch.setattr(pw, "fetch_official", lambda cid, name: {
+        "page_url": "", "ok": True, "status": "empty", "image_url": None, "pack": None, "error": ""})
+    monkeypatch.setattr(pw, "load_cardnames", lambda: pytest.fail("dry-run は一覧も DB も使わない"))
+    assert pw.main(["--mirror", str(mirror), "--dry-run"]) == 0
