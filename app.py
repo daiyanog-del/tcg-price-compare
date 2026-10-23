@@ -1063,6 +1063,7 @@ def sitemap():
     # 固定ページ
     xml += f'  <url><loc>{base_url}/solitaire</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>\n'
     xml += f'  <url><loc>{base_url}/new-cards</loc><changefreq>daily</changefreq><priority>0.6</priority></url>\n'
+    xml += f'  <url><loc>{base_url}/tcg-preview</loc><changefreq>weekly</changefreq><priority>0.5</priority></url>\n'
     # カード個別ページ
     for name in card_names:
         from urllib.parse import quote
@@ -3686,6 +3687,19 @@ def api_new_cards():
         return jsonify({"error": "新着の未発売カードを取得できませんでした"}), 503
 
 
+@app.route("/api/tcg-preview-cards")
+def api_tcg_preview_cards():
+    """海外先行カード一覧（/tcg-preview）の中身。正常0件と取得障害を区別する（/api/new-cards と同じ）。"""
+    try:
+        response = jsonify(_card_display.get_tcg_preview_cards())
+        # 表示制御（hidden・画像表示の設定）は共通30秒キャッシュで扱い、ブラウザには残さない
+        response.headers["Cache-Control"] = "no-store"
+        return response
+    except Exception:
+        logger.exception("海外先行カードの取得失敗")
+        return jsonify({"error": "海外先行カードを取得できませんでした"}), 503
+
+
 # ── 環境データ（TCG PORTAL） ──
 
 _meta_executor = ThreadPoolExecutor(max_workers=4)
@@ -3944,6 +3958,13 @@ def new_cards_page():
     # new-cards.js で「埋め込みを使った直後は取り直さない」「一覧ページも最初の6枚はすぐ読む」にしてから入れている
     return render_template("index.html", card_name="", page_mode="new_cards",
                            new_cards_initial=_card_display.cached_new_cards(limit=None))
+
+
+@app.route("/tcg-preview")
+def tcg_preview_page():
+    """海外先行カード一覧ページ: 英語版で先に出て日本に無いカード（tcg_preview_cards）を商品ごとに全件表示する。
+    中身は未発売カード一覧（/new-cards）と同じ部品で、new-cards.js が /api/tcg-preview-cards から描く。"""
+    return render_template("index.html", card_name="", page_mode="tcg_preview")
 
 
 # ── 新弾フィーチャーキャッシュ（メモリ） ──

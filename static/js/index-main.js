@@ -2088,9 +2088,10 @@ function _resetSearchView(searching){
   document.getElementById('prog').style.display='none';
   _setSearchLayout(!!searching);
 }
-// 未発売カード一覧ページ（/new-cards）の表示状態。ランキング等のトップ要素を隠し、一覧を主役にする。
-function _setNewCardsPage(on){
+// 未発売カード一覧ページ（/new-cards）・海外先行カード一覧（/tcg-preview）の表示状態。ランキング等のトップ要素を隠し、一覧を主役にする。
+function _setNewCardsPage(on,tcgPreview=false){
   document.getElementById('mode-search').classList.toggle('new-cards-page',on);
+  document.getElementById('mode-search').classList.toggle('tcg-preview-page',on&&tcgPreview);
 }
 // #mydeck:<デッキID> のデッキを開く。ページを開いたときはマイデッキの下書きの復元（deck-edit.js）より後に開くよう、
 // 読み込みの処理が一通り終わってから行う。開いたら URL は #mydeck に戻す（再読込で開き直さない）
@@ -2106,7 +2107,7 @@ function _openDeckFromHash(id){
   },0);
 }
 function _restoreLocation(trigger){
-  _setNewCardsPage(location.pathname==='/new-cards');
+  _setNewCardsPage(location.pathname==='/new-cards'||location.pathname==='/tcg-preview',location.pathname==='/tcg-preview');
   const hash=location.hash.slice(1);
   // #mydeck:<デッキID> … そのマイデッキを開く（シミュレーターの「記録の後にデッキが変わっています」の［今のデッキを見る］から）
   let openDeckId=null;
@@ -2132,9 +2133,9 @@ function _restoreLocation(trigger){
     document.title='強欲なラボ';
     return;
   }
-  if(location.pathname==='/new-cards'){
+  if(location.pathname==='/new-cards'||location.pathname==='/tcg-preview'){
     switchMode('search',trigger);
-    document.title='未発売カード一覧 | 強欲なラボ';
+    document.title=location.pathname==='/tcg-preview'?'海外先行カード一覧 | 強欲なラボ':'未発売カード一覧 | 強欲なラボ';
     return;
   }
   if(location.pathname==='/featured'){

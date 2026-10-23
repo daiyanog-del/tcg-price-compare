@@ -57,7 +57,7 @@ def test_before_switch_site_url_is_legacy(monkeypatch):
 
 # ── 切り替え後: 旧URL ──
 
-@pytest.mark.parametrize("path", ["/", "/new-cards", "/featured", "/solitaire", "/solitaire/replays", "/admin",
+@pytest.mark.parametrize("path", ["/", "/new-cards", "/tcg-preview", "/featured", "/solitaire", "/solitaire/replays", "/admin",
                                   "/share-target", "/card/by-cid/1",
                                   "/card/%E7%81%B0%E6%B5%81%E3%81%86%E3%82%89%E3%82%89", "/buy/x"])
 def test_legacy_pages_serve_handoff(client, switched, path):

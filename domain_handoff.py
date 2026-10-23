@@ -18,7 +18,7 @@ from flask import abort, g, render_template, request
 import site_urls
 
 # 引き継ぎの対象にする画面のパス（完全一致・前方一致）。ここに無いものは旧URLでもそのまま返す
-_PAGE_EXACT = {"/", "/featured", "/new-cards", "/solitaire", "/solitaire/replays", "/admin", "/share-target"}
+_PAGE_EXACT = {"/", "/featured", "/new-cards", "/tcg-preview", "/solitaire", "/solitaire/replays", "/admin", "/share-target"}
 _PAGE_PREFIXES = ("/card/", "/buy/")
 
 
