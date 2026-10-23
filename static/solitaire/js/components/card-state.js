@@ -63,6 +63,8 @@ export function isExCard(wrapper) {
 export function isMonsterCard(wrapper) {
   // EXデッキカードは常にモンスター
   if (isExCard(wrapper)) return true;
+  // トークンもモンスター（data-card-type を持たないので印で見る。以前に出したトークン・保存済みのリプレイにも効く）
+  if (isTokenCard(wrapper)) return true;
   // data-card-type による判定（deck-input-panel が付与）
   const t = wrapper.dataset.cardType || '';
   return t === 'monster';

@@ -646,6 +646,14 @@
           </div>
           <div class="sol-mobile-sheet-body">
             <p class="sol-mobile-share-note">名前を入れて「出すマスを選ぶ」を押し、盤面の空いたマスをタップします</p>
+            <!-- 表示形式（2026-10-23）。見た目は手札の「場に出すとき」と同じ切り替え（mobile-ui.js openTokenSheet） -->
+            <div class="sol-mobile-place-row sol-mobile-token-form-row">
+              <span class="sol-mobile-place-label">表示形式</span>
+              <div id="solMobileTokenFormSeg" class="sol-mobile-place-seg" role="group" aria-label="トークンの表示形式">
+                <button type="button" data-token-form="attack" aria-pressed="true">攻撃</button>
+                <button type="button" data-token-form="defense" aria-pressed="false">守備</button>
+              </div>
+            </div>
             <div class="sol-mobile-share-comment-row">
               <input type="text" id="solMobileTokenInput" class="sol-mobile-share-input" placeholder="トークン名" aria-label="トークン名">
               <button type="button" id="solMobileTokenPickBtn" class="sol-mobile-menu-item">出すマスを選ぶ</button>

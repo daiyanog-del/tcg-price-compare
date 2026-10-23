@@ -724,6 +724,8 @@
     color: #eff3fb;
     font-weight: 700;
   }
+  /* トークンの名前のシートの表示形式（同じ切り替えを使う。名前の欄との間をあける） */
+  .sol-mobile-token-form-row { margin-bottom: 10px; }
   /* 「場に出すとき」の行がある間は1段ぶん高くする（ボタンは手札では守備表示・セットを隠すので2段のまま） */
   .sol-mobile-action-sheet.has-place-row { max-height: 146px; }
   .sol-mobile-action-ops {
