@@ -11,8 +11,8 @@
  *  「出す」を押した時点で tokenDataURL から新しい .tier-item-wrapper を poolRow に作り、
  *  executeDrop で右クリックしたマスへ移す（ドラッグで置いたときと同じ配置・リプレイ記録の経路）。
  *  対象は .custom-slot の地（カードの上の右クリックはカードのメニューになる）。
- *  スマホ縦向きは右クリックの代わりに ⋯メニュー「トークンを出す」→ 名前のシート → 出すマスをタップ
- *  （2026-10-23。シートとマス選びは mobile-ui.js。トークンを作るのはここの placeToken）。
+ *  スマホ縦向きは右クリックの代わりに ⋯メニュー「トークンを出す」→ 名前のシート → 出すマスをタップ、
+ *  または空いたマスの長押し（2026-10-23。シート・マス選び・長押しは mobile-ui.js。トークンを作るのはここの placeToken）。
  */
 
 import { addCardToPool } from '../components/card-manager.js';
@@ -27,7 +27,7 @@ const CARD_W = 159;
 const CARD_H = 231;
 const JPEG_QUALITY = 0.75;
 export const TOKEN_NAME_MAX = 12;
-const DEFAULT_NAME = 'トークン';
+export const DEFAULT_TOKEN_NAME = 'トークン';
 
 // 土台の画像（?v= は差し替えたときに上げる）
 const BASE_URL = new URL('../../images/token-base.webp?v=1', import.meta.url).href;
@@ -41,7 +41,7 @@ const NAME_FONT = '"Noto Sans JP", "Hiragino Sans", "Yu Gothic", sans-serif';
 const FALLBACK_BG = '#a9adb5';
 
 // 前回の名前（同じトークンを続けて出すときに打ち直さなくてよいように。ページ内だけ覚える）
-let _lastName = DEFAULT_NAME;
+let _lastName = DEFAULT_TOKEN_NAME;
 
 let _basePromise = null;
 /** 土台の画像を1回だけ読む。読めなければ null（地の色だけで描く） */
@@ -121,7 +121,7 @@ export async function placeToken(slot, name) {
 
 /** 名前欄の値を整える（空なら既定の名前） */
 export function tokenNameOf(raw) {
-  return String(raw ?? '').trim().slice(0, TOKEN_NAME_MAX) || DEFAULT_NAME;
+  return String(raw ?? '').trim().slice(0, TOKEN_NAME_MAX) || DEFAULT_TOKEN_NAME;
 }
 
 /** 前回出したトークンの名前（名前欄の初期値） */
