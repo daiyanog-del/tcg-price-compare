@@ -190,6 +190,18 @@
     z-index: 400;
   }
 
+  /* 空いたマスを長押ししてメニューを開いている間（2026-10-23。触れている間＝アクセント色の実線。mobile-ui.js _openEmptySlotMenu） */
+  .custom-slot.sol-slot-pressed {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+  /* 長押しで iPhone の文字選択・長押しの吹き出しが出ないように */
+  .custom-layout .custom-slot {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
   .custom-slot.drop-hint,
   .center-slot.drop-hint,
   .side-slot.drop-hint,

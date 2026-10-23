@@ -35,10 +35,11 @@ import {
   toggleCardSet,
   returnCardToDeckMenu,
   isCardInPool,
+  openContextMenuAt,
 } from './context-menu.js';
 import { playActivateEffect, flipMoveClone } from '../components/card-effects.js';
 import { _renderCard, _showUnknown, _showLoading, showTokenInfo } from './card-info-panel.js';
-import { placeToken, tokenNameOf, getLastTokenName, preloadTokenBase, TOKEN_NAME_MAX } from './token-generator.js';
+import { placeToken, tokenNameOf, getLastTokenName, preloadTokenBase, TOKEN_NAME_MAX, DEFAULT_TOKEN_NAME } from './token-generator.js';
 import { isMobilePortrait, watchMobilePortrait, isMobileLandscape, watchMobileLandscape } from '../utils/viewport.js';
 import { enterRecView, exitRecView } from './rec-view.js';
 import { showToast } from '../utils/toast.js';
@@ -597,15 +598,21 @@ function initActionSheet() {
 // マスを選ぶ間は下部バーの代わりに帯（#solMobileTokenPanel）を出す。
 
 let _tokenPick = null; // { name, slots: Element[] } マスを選んでいる間だけ
+let _tokenSheetSlot = null; // 長押しの「名前を変えて出す…」から開いたとき、出すマス（マスを選び直さない）
 
-function openTokenSheet() {
+/** @param {Element|null} [slot] 出すマスが決まっているとき（空いたマスの長押しから） */
+function openTokenSheet(slot = null) {
   clearMobileSelection();
+  _tokenSheetSlot = slot;
   const input = document.getElementById('solMobileTokenInput');
   if (input) input.value = getLastTokenName();
+  const btn = document.getElementById('solMobileTokenPickBtn');
+  if (btn) btn.textContent = slot ? '出す' : '出すマスを選ぶ';
   preloadTokenBase();
   setHidden('solMobileTokenSheet', false);
 }
 function closeTokenSheet() {
+  _tokenSheetSlot = null;
   setHidden('solMobileTokenSheet', true);
 }
 
@@ -643,9 +650,12 @@ function initTokenSheet() {
   });
   const submit = () => {
     const name = tokenNameOf(input?.value);
+    const slot = _tokenSheetSlot;
     input?.blur(); // キーボードを閉じて盤面を見えるように
     closeTokenSheet();
-    startTokenPick(name);
+    // 長押ししたマスがまだ空いていればそこへ。埋まっていたら（盤面が作り直された等）マスを選ぶ画面へ
+    if (slot?.isConnected && !slot.querySelector('.tier-item-wrapper')) placeToken(slot, name);
+    else startTokenPick(name);
   };
   document.getElementById('solMobileTokenPickBtn')?.addEventListener('click', submit);
   input?.addEventListener('keydown', (e) => {
@@ -666,6 +676,71 @@ function initTokenSheet() {
     closeTokenPick();
     placeToken(slot, name);
   }, true);
+  initEmptySlotLongPress();
+}
+
+// ── 空いたマスの長押し（2026-10-23 案1。モック _mocks/token-longpress-20261023） ──
+// カードの長押し（drag-drop.js）と同じく 500ms 動かさずにいたらメニュー。カードの上はカードの長押し、
+// カードを選んでいる間（マスのタップ＝そのカードを置く）・マスを選んでいる間・再生モードでは何もしない。
+const SLOT_LONG_PRESS_MS = 500;
+const SLOT_LONG_PRESS_MOVE_PX = 8;
+
+function initEmptySlotLongPress() {
+  const layout = document.querySelector('.custom-layout');
+  if (!layout) return;
+  let timer = null;
+  let start = null; // { x, y, id }
+  const cancel = () => {
+    clearTimeout(timer);
+    timer = null;
+    start = null;
+  };
+  layout.addEventListener('touchstart', (e) => {
+    cancel();
+    if (!isMobilePortrait() || _playbackMode || _tokenPick || getMobileSelection()) return;
+    if (e.touches.length > 1 || e.target.closest('.tier-item-wrapper')) return;
+    const slot = e.target.closest('.custom-slot');
+    if (!slot || slot.querySelector('.tier-item-wrapper')) return;
+    const t = e.changedTouches[0];
+    start = { x: t.clientX, y: t.clientY, id: t.identifier };
+    timer = setTimeout(() => {
+      timer = null;
+      const { x, y } = start;
+      start = null;
+      _openEmptySlotMenu(slot, x, y);
+    }, SLOT_LONG_PRESS_MS);
+  }, { passive: true });
+  layout.addEventListener('touchmove', (e) => {
+    if (!start) return;
+    const t = [...e.touches].find((tt) => tt.identifier === start.id);
+    if (!t || Math.abs(t.clientX - start.x) > SLOT_LONG_PRESS_MOVE_PX || Math.abs(t.clientY - start.y) > SLOT_LONG_PRESS_MOVE_PX) cancel();
+  }, { passive: true });
+  layout.addEventListener('touchend', cancel, { passive: true });
+  layout.addEventListener('touchcancel', cancel, { passive: true });
+}
+
+function _openEmptySlotMenu(slot, x, y) {
+  // 触れている間の印（アクセント色の実線）。次にどこかへ触れたら外す（メニューの項目を押したときも含む）
+  slot.classList.add('sol-slot-pressed');
+  setTimeout(() => {
+    document.addEventListener('touchstart', () => slot.classList.remove('sol-slot-pressed'), { once: true, capture: true });
+  }, 0);
+  // メニューを開いた直後の指を離す操作で、メニューが閉じないように（drag-drop.js のカードの長押しと同じ）
+  const suppressNextTouchEnd = (e) => {
+    e.preventDefault();
+    document.removeEventListener('touchend', suppressNextTouchEnd);
+  };
+  document.addEventListener('touchend', suppressNextTouchEnd, { once: true, passive: false });
+  setTimeout(() => document.removeEventListener('touchend', suppressNextTouchEnd), 1000);
+
+  openContextMenuAt([
+    { heading: '空いたマス' },
+    // 既定の名前で出す（前回の名前ではない。2026-10-23 ユーザー指示）
+    { label: 'ここにトークンを出す', action: () => placeToken(slot, DEFAULT_TOKEN_NAME) },
+    { label: '名前を変えて出す…', action: () => openTokenSheet(slot) },
+    { label: '盤面にメモ', action: () => openCommentSheet({ kind: 'board' }) },
+    { label: 'カットイン', action: () => openCommentSheet({ kind: 'cutin' }) },
+  ], x, y);
 }
 
 // ══════════════════ C-2: 移動の演出（設計書 §C） ══════════════════
