@@ -18,7 +18,9 @@ let _current = null;
 
 // 再生バーは PC 幅で1段に収める作り（solitaire-brand.css「1段に収める」）。名前のボタンを足して2段に折り返すときは、
 // 1段に収まる幅まで名前を縮める（…で省略。全文はボタンの title）。LABEL_MIN_PX（約5文字）も入らなければ鉛筆だけにする。
-// 名前が無くても2段になる狭い幅では、名前で段が増えない範囲で出す。サイドバーの開閉でもバーの幅が変わるので、幅を測って決める
+// 鉛筆だけでも段が増えるとき（右パネルが出た直後の 1280〜1320px 前後）は、再生位置のバーの最低の長さを縮めて（.is-tight）
+// 1段に収める（2026-10-23 ユーザー選択の案1。もう一案「画面録画用」を記号だけにする、は録画の入口が分かりにくくなるので不採用）。
+// ボタンが無くても2段になる狭い幅では、ボタンで段が増えない範囲で名前を出す。サイドバーの開閉でもバーの幅が変わるので、幅を測って決める
 const LABEL_MAX_PX = 160;   // CSS の .pc-replay-rename-label の max-width と同じ
 const LABEL_MIN_PX = 64;
 const LABEL_STEP_PX = 16;
@@ -31,17 +33,24 @@ function _fitLabel() {
   const btn = document.getElementById('pcReplayRenameBtn');
   const label = document.getElementById('pcReplayRenameLabel');
   const bar = document.getElementById('replayBarContainer');
-  if (!btn || !label || !bar || btn.hidden || !btn.offsetParent) return;
+  if (!btn || !label || !bar) return;
+  bar.classList.remove('is-tight');
+  if (btn.hidden || !btn.offsetParent) return;
   label.style.maxWidth = '';
-  label.hidden = true;
-  const rowsWithout = _barRows(bar);   // 名前が無いときの段の数（狭い幅ではもとから2段以上）
   label.hidden = false;
+  btn.hidden = true;
+  const rowsWithout = _barRows(bar);   // ボタンが無いときの段の数（狭い幅ではもとから2段以上）
+  btn.hidden = false;
   if (_barRows(bar) <= rowsWithout) return;
   for (let w = LABEL_MAX_PX - LABEL_STEP_PX; w >= LABEL_MIN_PX; w -= LABEL_STEP_PX) {
     label.style.maxWidth = w + 'px';
     if (_barRows(bar) <= rowsWithout) return;
   }
   label.hidden = true;
+  if (_barRows(bar) <= rowsWithout) return;
+  bar.classList.add('is-tight');
+  // 縮めても収まらないなら、縮めずに段が増えるのを受け入れる（縮めた分だけ使いにくくなるので）
+  if (_barRows(bar) > rowsWithout) bar.classList.remove('is-tight');
 }
 
 function _renderPcButton() {
@@ -49,7 +58,7 @@ function _renderPcButton() {
   const label = document.getElementById('pcReplayRenameLabel');
   if (!btn || !label) return;
   btn.hidden = !_current;
-  if (!_current) return;
+  if (!_current) { document.getElementById('replayBarContainer')?.classList.remove('is-tight'); return; }
   const title = _current.title || '無題';
   label.textContent = title;
   btn.title = `名前を変える（${title}）`;
