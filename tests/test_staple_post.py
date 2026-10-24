@@ -194,6 +194,12 @@ class _FakeQuery:
     def order(self, *a):
         return self
 
+    def gte(self, *a):
+        return self
+
+    def lte(self, *a):
+        return self
+
     def range(self, *a):
         return self
 
@@ -238,6 +244,7 @@ def test_post_staple_movers_skips_down_when_recheck_fails(monkeypatch):
     monkeypatch.setattr(staple_post.staple_cards, "load_staple_names", lambda sb: {"聖王の粉砕", "増殖するG"})
     monkeypatch.setattr(staple_post, "_recently_posted", lambda sb, m: False)
     monkeypatch.setattr(staple_post, "cheapest_shops", lambda sb, m: ["カードラッシュ"])
+    monkeypatch.setattr(staple_post, "week_low", lambda sb, m: None)
     monkeypatch.setattr(staple_post, "recheck_price",
                         lambda m, shops: (None, None, "x") if m["name"] == "聖王の粉砕" else (690, "カードラッシュ", "x"))
     monkeypatch.setattr(staple_post.x_poster, "get_card_image_path", lambda name: posted.append(name) or None)
@@ -273,6 +280,7 @@ def test_post_staple_movers_does_not_recheck_up_and_stops_after_one(monkeypatch,
                         lambda sb: {"聖王の粉砕", "増殖するG", "ドロール＆ロックバード"})
     monkeypatch.setattr(staple_post, "_recently_posted", lambda sb, m: False)
     monkeypatch.setattr(staple_post, "cheapest_shops", lambda sb, m: ["カードラッシュ"])
+    monkeypatch.setattr(staple_post, "week_low", lambda sb, m: None)
     monkeypatch.setattr(staple_post, "recheck_price",
                         lambda m, shops: rechecked.append(m["name"]) or (m["today"], "カードラッシュ", "x"))
     monkeypatch.setattr(staple_post.x_poster, "get_card_image_path", card_path)
@@ -283,3 +291,43 @@ def test_post_staple_movers_does_not_recheck_up_and_stops_after_one(monkeypatch,
     staple_post.post_staple_movers(_Sb())
     assert rechecked == ["聖王の粉砕"]
     assert tweeted == ["【値下がり】聖王の粉砕（シークレット）", "【値上がり】ドロール＆ロックバード（シークレット）"]
+
+
+def test_week_low_takes_min_over_10_yen():
+    rows = [{"min_price": 400, "recorded_at": "2026-09-20", "shop": "遊々亭"},
+            {"min_price": 300, "recorded_at": "2026-09-22", "shop": "カードラッシュ"},
+            {"min_price": 10, "recorded_at": "2026-09-23", "shop": "トレコロCB"}]
+    assert staple_post.week_low(_FakeSb(rows), _down()) == 300
+    assert staple_post.week_low(_FakeSb([]), _down()) is None
+    with pytest.raises(RuntimeError):
+        staple_post.week_low(_FakeSb([], fail=True), _down())
+
+
+def test_post_staple_movers_skips_return_to_usual_price(monkeypatch):
+    """直近7日に今日以下の値段があった値下がりは採らない。照会失敗も見送り。取り直しまで進まない。"""
+    class _Rpc:
+        def execute(self):
+            return type("R", (), {"data": [
+                _row("聖王の粉砕", "シークレット", 660, 280),       # 直近に ¥280 があった → 戻っただけ
+                _row("増殖するG", "シークレット", 900, 700),         # 照会失敗 → 見送り
+                _row("灰流うらら", "シークレット", 1000, 800)]})()   # 直近の最安 ¥850 を下回る → 取り直しへ
+
+    class _Sb:
+        def rpc(self, name, args):
+            return _Rpc()
+
+    def low(sb, m):
+        if m["name"] == "増殖するG":
+            raise RuntimeError("boom")
+        return {"聖王の粉砕": 280, "灰流うらら": 850}[m["name"]]
+
+    rechecked = []
+    monkeypatch.setenv("X_POST_DRY_RUN", "1")
+    monkeypatch.setattr(staple_post.staple_cards, "load_staple_names", lambda sb: {"聖王の粉砕", "増殖するG", "灰流うらら"})
+    monkeypatch.setattr(staple_post, "_recently_posted", lambda sb, m: False)
+    monkeypatch.setattr(staple_post, "week_low", low)
+    monkeypatch.setattr(staple_post, "cheapest_shops", lambda sb, m: ["カードラッシュ"])
+    monkeypatch.setattr(staple_post, "recheck_price",
+                        lambda m, shops: rechecked.append(m["name"]) or (None, None, "x"))
+    staple_post.post_staple_movers(_Sb())
+    assert rechecked == ["灰流うらら"]

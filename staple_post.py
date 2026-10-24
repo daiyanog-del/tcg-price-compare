@@ -8,7 +8,8 @@
 「今その値段で買える」ことで、ほかの店が同じ向きに動いたかは関係ないため。その代わり、
 投稿の直前にその値段をつけていた店をもう一度調べ（recheck_price）、今もその値段（以下）で
 在庫があるときだけ投稿する。価格の収集は朝（JST 5〜10時）で投稿は20時なので、半日前の値段を
-「今」として出さないためでもある。値上がりは2店以上のまま（1店だけの値上がりは最安の在庫が
+「今」として出さないためでもある。また、判定日の前7日（前日を含む）のどの日の最安よりも安いときだけ値下がりとして採る
+（普段の値段に戻っただけを「値下がり」と呼ばない。WEEK_LOW_DAYS）。値上がりは2店以上のまま（1店だけの値上がりは最安の在庫が
 売れただけのことが多く、「上がった理由が知りたい」に合わない）。
 
 基準（2026-10-21 ユーザー決定。安くなったら買いたい・上がったら理由が知りたい、で非対称）:
@@ -49,6 +50,10 @@ COOLDOWN_DAYS = 7
 # 値下がりを採る、同じ向きに動いた店の最少数（RPC get_price_movers の min_down_shops）。
 # 1 にした代わりに投稿直前の取り直し（recheck_price）で確かめる。値上がりは RPC 内で2店固定
 MIN_DOWN_SHOPS = 1
+# 値下がりは、判定日の前のこの日数（前日を含む）のどの日の最安（全店）よりも安いときだけ採る。
+# 普段の値段に戻っただけ（前日だけ安い在庫が切れていた等）を「値下がり」と呼ばないため（2026-10-24
+# ユーザー決定。直近28日の1店だけの値下がり56件中20件がこれに当たった）
+WEEK_LOW_DAYS = 7  # TODO: calibrate from data
 # クールダウン・取り直し不合格時の次点繰り上げ用に向きごとに受け取る候補数。
 # 取り直しは1候補につき店1〜2回の検索なので、5件でも店への負荷は小さい
 CANDIDATES_PER_DIRECTION = 5  # TODO: calibrate from data（取り直しで落ちる割合を見て決める）
@@ -376,6 +381,28 @@ def _passes_threshold(direction, diff, pct):
     return diff <= DOWN_MAX_DIFF and pct <= DOWN_MAX_PCT
 
 
+def week_low(sb, m):
+    """判定日（date_new）の前 WEEK_LOW_DAYS 日（前日を含む）の、そのレアリティの最安値（全店・¥10以下は除く）。
+    記録が無ければ None。照会に失敗したら例外をそのまま上げる（呼び出し側で見送る）。"""
+    end = date.fromisoformat(m["date_new"])
+    start = (end - timedelta(days=WEEK_LOW_DAYS)).isoformat()
+    last = (end - timedelta(days=1)).isoformat()
+    low, offset = None, 0
+    while True:
+        resp = (sb.table("price_history").select("min_price, recorded_at, shop")
+                .eq("card_name", m["name"]).eq("rarity", m["rarity"])
+                .gte("recorded_at", start).lte("recorded_at", last)
+                .order("recorded_at").order("shop").range(offset, offset + 999).execute())
+        batch = resp.data or []
+        for r in batch:
+            p = r.get("min_price") or 0
+            if p > 10 and (low is None or p < low):
+                low = p
+        if len(batch) < 1000:
+            return low
+        offset += 1000
+
+
 def cheapest_shops(sb, m):
     """判定に使った日（date_new）に、その値段（today）をつけていた店の名前（並びは名前順）。
     照会に失敗したら空（取り直せないので投稿しない）。"""
@@ -496,6 +523,16 @@ def post_staple_movers(sb):
                 print(f"  [{direction}] {COOLDOWN_DAYS}日以内に投稿済み/照会失敗: {m['name']}（{m['rarity']}）— 次点へ")
                 continue
             if direction == "down":
+                # 直近の最安を下回っていなければ、普段の値段に戻っただけとみて採らない
+                try:
+                    low = week_low(sb, m)
+                except Exception as e:
+                    print(f"  [down] 直近{WEEK_LOW_DAYS}日の最安の照会失敗 — 見送り: {m['name']}（{m['rarity']}）: {e}")
+                    continue
+                if low is not None and m["today"] >= low:
+                    print(f"  [down] 直近{WEEK_LOW_DAYS}日に ¥{low:,} があった（今回 ¥{m['today']:,}）— 値下がりとみなさず次点へ:"
+                          f" {m['name']}（{m['rarity']}）")
+                    continue
                 # 投稿直前の取り直し。不合格は投稿していないので次点へ進んでよい
                 shops = cheapest_shops(sb, m)
                 price, shop, why = recheck_price(m, shops) if shops else (None, None, "最安の店が見つからない")
