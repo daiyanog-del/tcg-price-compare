@@ -19,6 +19,10 @@
 --   per_card    int   同一カード名・同方向で返す最大レアリティ数（デフォルト1件=
 --                      現行Web表示どおり代表レアリティのみ。X投稿等で全レアリティを
 --                      候補として受け取りたい場合は増やす。2026-07-10追加）
+--   min_down_shops int 値下がりを採る、同じ向きに動いた共通店舗の最少数（デフォルト2＝ガード②。
+--                      汎用カード投稿 staple_post.py だけが1を渡す。1店だけの値下がりも
+--                      その店で実際に買える値段なので、投稿直前の取り直しで確かめる方式に
+--                      置き換えた。値上がり側は常に2店以上のまま。2026-10-24追加）
 --
 -- 戻り値 (行ごと):
 --   card_name     text   カード名
@@ -37,17 +41,21 @@
 --     （共通店舗）だけで行う。片方の日にしか行が無い店舗は集計から除外する
 --   ガード②（複数店確認・販売のみ）: 集計値の変動方向と同方向に動いた共通店舗が
 --     2店以上ある系列のみ採用する。単一店舗のみの変動は偽陽性の疑いが強いため除外
+--     （値下がり側の店数は min_down_shops で下げられる。値上がり側は常に2店以上）
 --
 -- 引数構成が異なる関数はPostgreSQLがオーバーロードとして別関数扱いで共存させてしまい、
 -- PostgRESTのRPC呼び出しが「関数が一意に定まらない」エラーになる。per_card追加前の
--- 旧シグネチャ (text, int, int) を明示的にDROPしてから再作成する。
+-- 旧シグネチャ (text, int, int) と min_down_shops 追加前の (text, int, int, int) を
+-- 明示的にDROPしてから再作成する（本番では DROP と CREATE を1つのトランザクションで流す）。
 DROP FUNCTION IF EXISTS get_price_movers(text, int, int);
+DROP FUNCTION IF EXISTS get_price_movers(text, int, int, int);
 
 CREATE OR REPLACE FUNCTION get_price_movers(
-    cutoff_date text DEFAULT (CURRENT_DATE - INTERVAL '2 days')::text,
-    min_diff    int  DEFAULT 50,
-    top_n       int  DEFAULT 20,
-    per_card    int  DEFAULT 1
+    cutoff_date    text DEFAULT (CURRENT_DATE - INTERVAL '2 days')::text,
+    min_diff       int  DEFAULT 50,
+    top_n          int  DEFAULT 20,
+    per_card       int  DEFAULT 1,
+    min_down_shops int  DEFAULT 2
 )
 RETURNS TABLE (
     card_name   text,
@@ -153,7 +161,7 @@ movers AS (
       AND (
           (a.today_price > a.prev_price AND a.up_shops   >= 2)
           OR
-          (a.today_price < a.prev_price AND a.down_shops >= 2)
+          (a.today_price < a.prev_price AND a.down_shops >= min_down_shops)
       )
 ),
 -- 変動幅フィルタ + 同名カード内の代表レアリティを選出
