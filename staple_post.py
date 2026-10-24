@@ -4,6 +4,14 @@
 値動きの集計は大変動ポスト（x_poster.post_big_movers）と同じ RPC get_price_movers
 （共通店舗のみ・複数店が同じ向き）を使い、対象と基準だけを変える。
 
+値下がりだけは1店だけの値下げも採る（2026-10-24 ユーザー決定）。投稿が約束するのは
+「今その値段で買える」ことで、ほかの店が同じ向きに動いたかは関係ないため。その代わり、
+投稿の直前にその値段をつけていた店をもう一度調べ（recheck_price）、今もその値段（以下）で
+在庫があるときだけ投稿する。価格の収集は朝（JST 5〜10時）で投稿は20時なので、半日前の値段を
+「今」として出さないためでもある。また、判定日の前7日（前日を含む）のどの日の最安よりも安いときだけ値下がりとして採る
+（普段の値段に戻っただけを「値下がり」と呼ばない。WEEK_LOW_DAYS）。値上がりは2店以上のまま（1店だけの値上がりは最安の在庫が
+売れただけのことが多く、「上がった理由が知りたい」に合わない）。
+
 基準（2026-10-21 ユーザー決定。安くなったら買いたい・上がったら理由が知りたい、で非対称）:
   値下がり: -100円以下 かつ -15%以下
   値上がり: +200円以上 かつ +20%以上
@@ -39,8 +47,16 @@ DOWN_MAX_PCT = -15
 UP_MIN_DIFF = 200
 UP_MIN_PCT = 20
 COOLDOWN_DAYS = 7
-# クールダウン時の次点繰り上げ用に向きごとに受け取る候補数
-CANDIDATES_PER_DIRECTION = 3
+# 値下がりを採る、同じ向きに動いた店の最少数（RPC get_price_movers の min_down_shops）。
+# 1 にした代わりに投稿直前の取り直し（recheck_price）で確かめる。値上がりは RPC 内で2店固定
+MIN_DOWN_SHOPS = 1
+# 値下がりは、判定日の前のこの日数（前日を含む）のどの日の最安（全店）よりも安いときだけ採る。
+# 普段の値段に戻っただけ（前日だけ安い在庫が切れていた等）を「値下がり」と呼ばないため（2026-10-24
+# ユーザー決定。直近28日の1店だけの値下がり56件中20件がこれに当たった）
+WEEK_LOW_DAYS = 7  # TODO: calibrate from data
+# クールダウン・取り直し不合格時の次点繰り上げ用に向きごとに受け取る候補数。
+# 取り直しは1候補につき店1〜2回の検索なので、5件でも店への負荷は小さい
+CANDIDATES_PER_DIRECTION = 5  # TODO: calibrate from data（取り直しで落ちる割合を見て決める）
 # グラフに描く期間（日）。price_history のレアリティ別記録は 2026-07-22 から
 HISTORY_DAYS = 90
 
@@ -359,6 +375,108 @@ def render_post_image(card_image_path, m, history, out_path):
 
 # ── 投稿 ──
 
+def _passes_threshold(direction, diff, pct):
+    if direction == "up":
+        return diff >= UP_MIN_DIFF and pct >= UP_MIN_PCT
+    return diff <= DOWN_MAX_DIFF and pct <= DOWN_MAX_PCT
+
+
+def week_low(sb, m):
+    """判定日（date_new）の前 WEEK_LOW_DAYS 日（前日を含む）の、そのレアリティの最安値（全店・¥10以下は除く）。
+    記録が無ければ None。照会に失敗したら例外をそのまま上げる（呼び出し側で見送る）。"""
+    end = date.fromisoformat(m["date_new"])
+    start = (end - timedelta(days=WEEK_LOW_DAYS)).isoformat()
+    last = (end - timedelta(days=1)).isoformat()
+    low, offset = None, 0
+    while True:
+        resp = (sb.table("price_history").select("min_price, recorded_at, shop")
+                .eq("card_name", m["name"]).eq("rarity", m["rarity"])
+                .gte("recorded_at", start).lte("recorded_at", last)
+                .order("recorded_at").order("shop").range(offset, offset + 999).execute())
+        batch = resp.data or []
+        for r in batch:
+            p = r.get("min_price") or 0
+            if p > 10 and (low is None or p < low):
+                low = p
+        if len(batch) < 1000:
+            return low
+        offset += 1000
+
+
+def cheapest_shops(sb, m):
+    """判定に使った日（date_new）に、その値段（today）をつけていた店の名前（並びは名前順）。
+    照会に失敗したら空（取り直せないので投稿しない）。"""
+    try:
+        resp = (sb.table("price_history").select("shop, min_price")
+                .eq("card_name", m["name"]).eq("rarity", m["rarity"])
+                .eq("recorded_at", m["date_new"])
+                # 1カード×1レアリティ×1日は店の数（最大7行）なので1ページで足りる
+                .order("shop").range(0, 999).execute())
+    except Exception as e:
+        logger.warning(f"最安の店の照会失敗 [{m['name']}（{m['rarity']}）]: {e}")
+        return []
+    return sorted({r["shop"] for r in (resp.data or [])
+                   if r.get("shop") and (r.get("min_price") or 0) == m["today"]})
+
+
+def recheck_price(m, shops, fetch=None):
+    """投稿直前に、その値段をつけていた店をもう一度調べ、今の通常品の最安値を返す。
+
+    取り方は夜間の収集と同じ（scraper.compare_prices → price_persist.build_min_price_rows。
+    売り切れ・¥10以下を除く）。ただし通常品（状態難でない出品）だけで数える。収集は通常品が
+    無いと状態難の値段で代用するが、「今この値段で買える」の中身が状態難に変わるのを防ぐため。
+    戻り値: (値段, 店, 理由) — 店が複数なら安いほう。どの店でも取れなければ値段と店は None で、
+    理由に店ごとの結果（取得失敗／在庫なし など）を入れる（見送りの原因をログで切り分けるため）。
+    fetch はテスト用の差し替え口（既定は scraper.compare_prices）。
+    """
+    from price_persist import build_min_price_rows, _is_normal_condition
+    if fetch is None:
+        from scraper import compare_prices as fetch
+    today = datetime.now(JST).strftime("%Y-%m-%d")
+    best_price, best_shop, notes = None, None, []
+    for shop in shops:
+        status = {}
+        try:
+            results = fetch(m["name"], shop_names=[shop], status_out=status)
+        except Exception as e:
+            notes.append(f"{shop}:取得失敗({e})")
+            continue
+        st = status.get(shop)
+        if st is None:
+            # compare_prices は休止中・一覧に無い店を黙って飛ばす
+            notes.append(f"{shop}:取得対象外")
+            continue
+        if st.get("exception") or (st.get("fetch_errors", 0) > 0 and st.get("count", 0) == 0):
+            notes.append(f"{shop}:取得失敗（店側エラー — 在庫なしとは区別）")
+            continue
+        normal = [it for it in (results or [])
+                  if _is_normal_condition(it.get("shop", ""), it.get("condition", ""))]
+        price = None
+        for r in build_min_price_rows(m["name"], normal, today):
+            if r["shop"] == shop and r["rarity"] == m["rarity"]:
+                price = r["min_price"]
+        if price is None:
+            notes.append(f"{shop}:そのレアリティの通常品の在庫なし")
+            continue
+        notes.append(f"{shop}:¥{price:,}")
+        if best_price is None or price < best_price:
+            best_price, best_shop = price, shop
+    return best_price, best_shop, "・".join(notes) or "店なし"
+
+
+def apply_recheck(m, price):
+    """取り直した値段で候補を作り直す。次のどれかなら None:
+    取り直せない／判定時の値段より高い（ほかの店のほうが安いかもしれず「最安値」と言えない）／
+    基準を満たさない。比べる相手（前日の値段 yesterday）はそのまま。"""
+    if price is None or price > m["today"]:
+        return None
+    diff = price - m["yesterday"]
+    pct = round(diff / m["yesterday"] * 100, 1)
+    if not _passes_threshold(m["direction"], diff, pct):
+        return None
+    return {**m, "today": price, "diff": diff, "pct": pct}
+
+
 def _recently_posted(sb, m):
     try:
         cutoff = (datetime.now(JST) - timedelta(days=COOLDOWN_DAYS)).isoformat()
@@ -383,9 +501,13 @@ def post_staple_movers(sb):
     cutoff = (datetime.now(JST) - timedelta(days=3)).strftime("%Y-%m-%d")
     try:
         rows = sb.rpc("get_price_movers", {"cutoff_date": cutoff, "min_diff": 50,
-                                           "top_n": 1000, "per_card": 999}).execute().data or []
+                                           "top_n": 1000, "per_card": 999,
+                                           "min_down_shops": MIN_DOWN_SHOPS}).execute().data or []
     except Exception as e:
         logger.warning(f"RPC get_price_movers 呼び出し失敗 — スキップ: {e}")
+        # 無投稿の日と区別できるよう知らせる（関数の作り直しを本番に入れる前にコードが出た場合など）
+        from discord_notify import send_discord_message
+        send_discord_message(f"[汎用カード投稿] RPC get_price_movers 呼び出し失敗: {e}")
         return
     candidates = select_staple_movers(rows, names)
     if not candidates:
@@ -400,6 +522,27 @@ def post_staple_movers(sb):
             if _recently_posted(sb, m):
                 print(f"  [{direction}] {COOLDOWN_DAYS}日以内に投稿済み/照会失敗: {m['name']}（{m['rarity']}）— 次点へ")
                 continue
+            if direction == "down":
+                # 直近の最安を下回っていなければ、普段の値段に戻っただけとみて採らない
+                try:
+                    low = week_low(sb, m)
+                except Exception as e:
+                    print(f"  [down] 直近{WEEK_LOW_DAYS}日の最安の照会失敗 — 見送り: {m['name']}（{m['rarity']}）: {e}")
+                    continue
+                if low is not None and m["today"] >= low:
+                    print(f"  [down] 直近{WEEK_LOW_DAYS}日に ¥{low:,} があった（今回 ¥{m['today']:,}）— 値下がりとみなさず次点へ:"
+                          f" {m['name']}（{m['rarity']}）")
+                    continue
+                # 投稿直前の取り直し。不合格は投稿していないので次点へ進んでよい
+                shops = cheapest_shops(sb, m)
+                price, shop, why = recheck_price(m, shops) if shops else (None, None, "最安の店が見つからない")
+                checked = apply_recheck(m, price)
+                if checked is None:
+                    print(f"  [down] 取り直しで確かめられず: {m['name']}（{m['rarity']}）"
+                          f" 判定時¥{m['today']:,}・今 {why} — 次点へ")
+                    continue
+                print(f"  [down] 取り直し: {shop} ¥{price:,}（判定時 ¥{m['today']:,}）")
+                m = checked
             text = format_post_text(m)
             print(f"\n--- {direction}: {m['name']}（{m['rarity']}） ---\n{text}")
             card_path = x_poster.get_card_image_path(m["name"])
