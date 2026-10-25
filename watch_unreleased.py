@@ -433,34 +433,61 @@ def _upsert_cards(sb: Client, rows: list[dict]) -> int:
 
     from unreleased_approve import maybe_auto_approve
     from unreleased_auto_approve import annotate_row, load_active_names, load_text_context
+    from unreleased_quality import lacks_card_body
+    from name_normalize import fuzzy_key as _fk
+    from unreleased_rejected import load_active_keys, load_rejected, revive_rejected
     # 自動承認の判定用。rejected以外の既存カード名を1回読む
     active_names = load_active_names(sb)
     text_context = load_text_context(sb)  # 効果テキスト検証用（他カードの「」内語）
+    # 却下した行: このページで却下した名前は取り込まない。別の出どころで却下した同名は承認待ちに戻す（自動承認しない）。
+    # 却下以外に同名があれば戻さない（重複として却下した行を生き返らせない）
+    rejected = load_rejected(sb)
+    active_keys = load_active_keys(sb)
 
     inserted = 0
+    revived_n = 0
     inserted_rows: list[dict] = []   # 実際に新規挿入された行（既存と重複して無視された行は含まない）
     for row in rows:
+        name = row.get("name", "")
+        page_url = row.get("source_url") or ""
+        if rejected.blocks(name, page_url):
+            logger.info(f"[Watcher] このページで却下済みのためスキップ: {name!r} ({page_url})")
+            continue
+        revive_target = rejected.revivable(row, page_url, active_keys=active_keys)
+        if revive_target is not None and lacks_card_body(row):
+            # 一度人が却下した名前を、カード本体の読めない抽出で戻さない
+            logger.info(f"[Watcher] 却下済みの同名がありカード本体も読めないため見送り: {name!r} ({page_url})")
+            continue
         try:
             annotate_row(row, active_names, text_context)
-            resp = sb.table("unreleased_cards").upsert(
-                row,
-                on_conflict="name,product_name",
-                ignore_duplicates=True,
-            ).execute()
-            inserted += 1
-            if resp.data:
-                inserted_rows.extend(resp.data)
+            if revive_target is not None:
+                revived = revive_rejected(sb, revive_target, row)
+                rejected.take(name)
+                if revived:
+                    inserted_rows.append(revived)
+                    revived_n += 1
+            else:
+                resp = sb.table("unreleased_cards").upsert(
+                    row,
+                    on_conflict="name,product_name",
+                    ignore_duplicates=True,
+                ).execute()
+                inserted += 1
+                if resp.data:
+                    inserted_rows.extend(resp.data)
+            active_keys.add(_fk(name))
             if active_names is not None:
-                active_names.append(row.get("name", ""))
+                active_names.append(name)
         except Exception as e:
             logger.warning(f"[Watcher] upsert失敗 ({row.get('name', '?')}): {e}")
 
     # 自動承認（AUTO_APPROVE_ENABLED=1 のときだけ）。公式経由は画像を承認時に取り込む
-    # （この PC は住宅IPなので yu-gi-oh.jp の画像を取得できる）。失敗しても取込は止めない
+    # （この PC は住宅IPなので yu-gi-oh.jp の画像を取得できる）。失敗しても取込は止めない。
+    # 承認待ちに戻した却下行は precheck_auto_approve が見送る（理由を管理画面の札に残すために渡す）
     maybe_auto_approve(sb, inserted_rows)
 
-    logger.info(f"[Watcher] unreleased_cards upsert: {inserted}/{len(rows)}件")
-    return inserted
+    logger.info(f"[Watcher] unreleased_cards upsert: {inserted}/{len(rows)}件 承認待ちに戻した却下行: {revived_n}件")
+    return inserted + revived_n
 
 
 # ──────────────────────────────────────────────

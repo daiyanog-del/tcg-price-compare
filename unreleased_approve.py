@@ -525,10 +525,14 @@ def _record_ineligible(sb, card: dict, code: str) -> None:
 def precheck_auto_approve(sb, card: dict) -> str | None:
     """承認前の確認。自動承認してはいけないなら理由コード、よければ None。
 
+    - revived_from_rejected: 却下していた行を別の出どころの抽出で承認待ちに戻したもの（一度人が却下した名前なので人が見る）
     - same_source_name_seen: 同じ投稿元で同名のカードを以前取り込み済み（却下・削除の履歴の可能性）
     - no_visible_image: 公開用の画像が無い。X 経由は取込時に保存済み。公式経由は承認時取込だったが、
       自動承認は画像が揃っていることを前提にするため、ここで先に取り込みを試みて、無ければ pending のまま
     """
+    from unreleased_rejected import REVIVED_KEY
+    if (card.get("extraction_raw") or {}).get(REVIVED_KEY):
+        return "revived_from_rejected"
     if same_source_history(sb, card):
         return "same_source_name_seen"
     if not has_visible_image(sb, card["id"]):

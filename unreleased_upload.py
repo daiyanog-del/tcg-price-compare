@@ -199,6 +199,10 @@ def register_rows(sb, rows: list[dict], pngs: dict[str, bytes], *, store_image=N
     active_names = load_active_names(sb)
     text_context = load_text_context(sb)
     existing = _load_existing_by_key(sb)
+    # 却下した行: 同じ出どころ（同じ動画・ページ）で却下した名前は登録しない。別の出どころなら承認待ちに戻す
+    from unreleased_quality import lacks_card_body
+    from unreleased_rejected import bust_image_url, load_rejected, revive_rejected
+    rejected = load_rejected(sb)
     known = _known_released_keys() if known_keys is None else known_keys
 
     inserted, skipped, images = [], [], {}
@@ -238,19 +242,38 @@ def register_rows(sb, rows: list[dict], pngs: dict[str, bytes], *, store_image=N
                 # 同名を二重に登録しない（公式版が先に入っていれば、それを正とする）
                 skipped.append({"name": name, "reason": "同名のカードが登録済み"})
             continue
-        annotate_row(row, active_names, text_context)
-        resp = sb.table("unreleased_cards").upsert(
-            row, on_conflict="name,product_name", ignore_duplicates=True).execute()
-        if not resp.data:
-            skipped.append({"name": name, "reason": "同名のカードが登録済み"})
+        source_url = row.get("source_url") or ""
+        if rejected.blocks(name, source_url):
+            skipped.append({"name": name, "reason": "同じ出どころで却下済み"})
             continue
-        for card in resp.data:
+        revive_target = rejected.revivable(row, source_url, active_keys=set(existing))
+        if revive_target is not None and lacks_card_body(row):
+            # 一度人が却下した名前を、カード本体の読めない画像（イラストのみ等）で戻さない
+            skipped.append({"name": name, "reason": "却下済みの同名があり、カード本体が読めないため見送り"})
+            continue
+        annotate_row(row, active_names, text_context)
+        if revive_target is not None:
+            # 画像アップロードの行は自動承認しない（呼び出し側も maybe_auto_approve を呼ばない）ので、ここで戻すだけ
+            revived = revive_rejected(sb, revive_target, row)
+            rejected.take(name)
+            if not revived:
+                skipped.append({"name": name, "reason": "却下済みの同名を承認待ちに戻せませんでした"})
+                continue
+            new_rows = [revived]
+        else:
+            resp = sb.table("unreleased_cards").upsert(
+                row, on_conflict="name,product_name", ignore_duplicates=True).execute()
+            if not resp.data:
+                skipped.append({"name": name, "reason": "同名のカードが登録済み"})
+                continue
+            new_rows = resp.data
+        for card in new_rows:
             inserted.append(card)
             existing[fk] = card
             if active_names is not None:
                 active_names.append(name)
-            if card.get("id"):
-                store(card["id"], row)
+            if card.get("id") and store(card["id"], row):
+                bust_image_url(sb, card)  # 承認待ちに戻した行は同じ保存先に上書きするため
     return {"inserted": inserted, "skipped": skipped, "images": images}
 
 
@@ -351,7 +374,9 @@ def _data_url(data: bytes) -> str:
 
 
 def _load_existing_by_key(sb) -> dict[str, dict]:
-    resp = sb.table("unreleased_cards").select("id, name, status, extraction_raw").execute()
+    """却下以外の行（fuzzy_key → 行）。却下した行は unreleased_rejected で別に扱う。"""
+    resp = (sb.table("unreleased_cards").select("id, name, status, extraction_raw")
+            .neq("status", "rejected").execute())
     return {fuzzy_key(r["name"]): r for r in (resp.data or []) if r.get("name")}
 
 
@@ -597,6 +622,10 @@ def replace_with_official(sb, card: dict, row: dict, *, page_url: str, store=Non
                 else:
                     merged.pop(k, None)
             merged["upload"] = raw.get("upload")
+            # 却下から戻した行の記録（以前却下した出どころ）は、もう一度却下したときの判定に要るので引き継ぐ
+            from unreleased_rejected import REVIVED_KEY
+            if REVIVED_KEY in raw:
+                merged[REVIVED_KEY] = raw[REVIVED_KEY]
             merged["replaced_by_official"] = record
             updates.update({f: row.get(f) for f in REPLACE_FIELDS if f in row})
             if not card.get("release_date") and row.get("release_date"):

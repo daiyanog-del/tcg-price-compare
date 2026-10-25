@@ -1833,13 +1833,21 @@ def admin_fetch_x_post():
     from unreleased_upload import load_replaceable, split_replaceable
     replace_queue = load_replaceable(_supabase)
 
+    # 却下した行: この投稿で却下した名前は取り込まない。別の投稿で却下した同名は承認待ちに戻す（自動承認しない）。
+    # force=true のときは、この投稿で却下した行も承認待ちに戻す（管理者が明示的に取り込み直す指定のため）
+    from name_normalize import fuzzy_key
+    from unreleased_rejected import bust_image_url, load_active_keys, load_rejected, revive_rejected
+    try:
+        rejected = load_rejected(_supabase)
+        active_keys = load_active_keys(_supabase)
+    except Exception as e:
+        logger.error(f"[admin] fetch-x-post 既存カードの読み込み失敗: {e}")
+        return jsonify({"error": f"既存カードを読めませんでした: {e}"}), 503
+
     # 重複チェック（force=False のときのみ）
     if not force and names:
-        from name_normalize import fuzzy_key
-        existing_resp = _supabase.table("unreleased_cards").select("name").execute()
-        existing_keys = {fuzzy_key(r["name"]) for r in (existing_resp.data or []) if r.get("name")}
-        existing_keys -= replace_queue.keys()
-        if all(fuzzy_key(n) in existing_keys for n in names):
+        existing_keys = active_keys - replace_queue.keys()
+        if all(fuzzy_key(n) in existing_keys or rejected.blocks(n, tweet_url) for n in names):
             return jsonify({
                 "ok": False,
                 "skipped": True,
@@ -1876,18 +1884,37 @@ def admin_fetch_x_post():
     active_names = load_active_names(_supabase)
     text_context = load_text_context(_supabase)  # 効果テキスト検証用（他カードの「」内語）
     inserted_cards = []
+    revived_count = 0
+    from unreleased_quality import lacks_card_body
     for row in card_rows:
+        name = row.get("name", "")
+        if not force and rejected.blocks(name, tweet_url):
+            logger.info(f"[admin] fetch-x-post この投稿で却下済みのためスキップ: {name!r}")
+            continue
+        revive_target = rejected.revivable(row, tweet_url, active_keys=active_keys, force=force)
+        if revive_target is not None and lacks_card_body(row):
+            # 一度人が却下した名前を、カード本体の読めない投稿（イラストのみ等）で戻さない
+            logger.info(f"[admin] fetch-x-post 却下済みの同名がありカード本体も読めないため見送り: {name!r}")
+            continue
         try:
             annotate_row(row, active_names, text_context)
-            ins_resp = _supabase.table("unreleased_cards").upsert(
-                row,
-                on_conflict="name,product_name",
-                ignore_duplicates=True,
-            ).execute()
-            if ins_resp.data:
-                inserted_cards.extend(ins_resp.data)
+            if revive_target is not None:
+                revived = revive_rejected(_supabase, revive_target, row)
+                rejected.take(name)
+                new_rows = [revived] if revived else []
+                revived_count += len(new_rows)
+            else:
+                ins_resp = _supabase.table("unreleased_cards").upsert(
+                    row,
+                    on_conflict="name,product_name",
+                    ignore_duplicates=True,
+                ).execute()
+                new_rows = ins_resp.data or []
+            if new_rows:
+                inserted_cards.extend(new_rows)
+                active_keys.add(fuzzy_key(name))
                 if active_names is not None:
-                    active_names.append(row.get("name", ""))
+                    active_names.append(name)
         except Exception as e:
             logger.warning(f"[admin] fetch-x-post upsert失敗 ({row.get('name', '?')}): {e}")
 
@@ -1905,6 +1932,8 @@ def admin_fetch_x_post():
             if cid and img_url:
                 ok, reason = ingest_x_card_image(_supabase, cid, img_url, tweet_url)
                 logger.info(f"[admin] fetch-x-post 画像保存: card_id={cid}, ok={ok}, reason={reason!r}")
+                if ok:
+                    bust_image_url(_supabase, card)  # 承認待ちに戻した行は同じ保存先に上書きするため
 
     # 自動承認（AUTO_APPROVE_ENABLED=1 のときだけ）。画像の保存後に呼ぶ。失敗しても取込の結果は返す
     from unreleased_approve import maybe_auto_approve
@@ -1917,6 +1946,7 @@ def admin_fetch_x_post():
         "cards": inserted_cards,
         "auto_approved": auto.get("approved", 0),
         "replaced": replaced,
+        "revived": revived_count,
     }), 201
 
 

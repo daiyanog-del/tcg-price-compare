@@ -10,7 +10,8 @@ X API v2 を使って @YuGiOh_OCG_INFO のタイムラインを巡回し、
 フィルタリング方針:
   1. リポストを除外（X API の exclude=retweets）
   2. ◤〜◢ パターンを含まないポストをスキップ
-  3. ◤〜◢ から抽出したカード名が unreleased_cards に存在すればスキップ（Vision呼び出しなし）
+  3. ◤〜◢ から抽出したカード名が unreleased_cards（却下以外）に存在すればスキップ（Vision呼び出しなし）。
+     却下した行は同じ投稿で却下したものだけスキップし、別の投稿なら承認待ちに戻す（unreleased_rejected）
   4. ygoresources 既知カード（発売済み）もスキップ
 
 重複防止:
@@ -29,6 +30,7 @@ from name_normalize import fuzzy_key
 from unreleased_approve import maybe_auto_approve
 from unreleased_auto_approve import annotate_row, load_active_names, load_text_context
 from unreleased_quality import lacks_card_body
+from unreleased_rejected import RejectedIndex, bust_image_url, load_active_keys, load_rejected, revive_rejected
 from ygores_repository import repository as _ygores_repo
 
 logger = logging.getLogger(__name__)
@@ -133,9 +135,8 @@ def _save_since_id(sb: Client, since_id: str) -> None:
 # ──────────────────────────────────────────────
 
 def _load_existing_fuzzy_keys(sb: Client) -> set[str]:
-    """unreleased_cards の全カード名を fuzzy_key に変換した集合を返す"""
-    resp = sb.table("unreleased_cards").select("name").execute()
-    return {fuzzy_key(r["name"]) for r in (resp.data or []) if r.get("name")}
+    """unreleased_cards の却下以外のカード名を fuzzy_key に変換した集合を返す（却下行は load_rejected で別に扱う）"""
+    return load_active_keys(sb)
 
 
 def _is_duplicate(card_name: str, existing_keys: set[str]) -> bool:
@@ -213,18 +214,24 @@ def process_tweets(
     sb: Client,
     existing_keys: set[str],
     replace_queue=None,
+    rejected: RejectedIndex | None = None,
 ) -> int:
-    """ツイートリストを処理してDBに挿入する。戻り値: 挿入件数合計
+    """ツイートリストを処理してDBに挿入する。戻り値: 挿入件数合計（承認待ちに戻した却下行を含む）
 
     replace_queue: 画像アップロード由来で公式版を待っている行（unreleased_upload.ReplaceQueue）。
     同名のカードは新規登録せず、その行の画像（承認待ちなら内容も）を公式版に差し替える。
     existing_keys からは呼び出し側で除いておくこと（除かないと Vision 前にスキップされる）。
+    rejected: 却下した行（unreleased_rejected.RejectedIndex）。同じ投稿で却下した名前はスキップし、
+    別の投稿から来た同名は新規登録せず、その却下行を承認待ちに戻す（自動承認しない）。
+    existing_keys には却下行の名前を入れないこと（入れると Vision 前にスキップされる）。
     """
     from unreleased_extractor import extract_cards_from_tweet
     from unreleased_upload import ReplaceQueue, split_replaceable
 
     if replace_queue is None:
         replace_queue = ReplaceQueue()
+    if rejected is None:
+        rejected = RejectedIndex()
 
     from unreleased_image_store import ingest_x_card_image
 
@@ -238,14 +245,27 @@ def process_tweets(
     active = {"loaded": False, "names": None, "text": None}
 
     def _insert_row(row: dict, row_tweet_url: str) -> int:
-        """1行を挿入し、挿入できたら画像も同じ出所（row_tweet_url）で保存する。"""
+        """1行を挿入し、挿入できたら画像も同じ出所（row_tweet_url）で保存する。
+        同名の却下行が別の投稿のものなら、挿入せずその行を承認待ちに戻す。"""
+        name = row.get("name", "")
+        revive_target = rejected.revivable(row, row_tweet_url, active_keys=existing_keys)
+        if revive_target is not None and _lacks_card_body(row):
+            # 一度人が却下した名前を、カード本体の読めない投稿（イラストのみ等）で戻さない
+            logger.info(f"[X-Watcher] 却下済みの同名がありカード本体も読めないため見送り: {name!r} ({row_tweet_url})")
+            return 0
         if not active["loaded"]:
             active["names"] = load_active_names(sb)
             active["text"] = load_text_context(sb)  # 効果テキスト検証用（他カードの「」内語）
             active["loaded"] = True
         # 挿入前に自動承認の判定（シャドーモード: 記録のみ）と抽出時スナップショットを付ける
         annotate_row(row, active["names"], active["text"])
-        inserted_rows = _upsert_cards(sb, [row])
+        if revive_target is not None:
+            # DB の失敗は投げる（_upsert_cards と同じく、since_id を進めずに次回この投稿をやり直す）
+            revived = revive_rejected(sb, revive_target, row, raise_errors=True)
+            rejected.take(name)
+            inserted_rows = [revived] if revived else []
+        else:
+            inserted_rows = _upsert_cards(sb, [row])
         if inserted_rows and active["names"] is not None:
             active["names"].append(row.get("name", ""))
         # 新規取込分をキャッシュに追加（同一実行内の重複処理防止）
@@ -259,6 +279,8 @@ def process_tweets(
             if cid and img_url:
                 ok, reason = ingest_x_card_image(sb, cid, img_url, row_tweet_url)
                 logger.info(f"[X-Watcher] 画像保存: card_id={cid}, ok={ok}, reason={reason!r}")
+                if ok:
+                    bust_image_url(sb, card)  # 承認待ちに戻した行は同じ保存先に上書きするため
         # 自動承認（AUTO_APPROVE_ENABLED=1 のときだけ。画像の保存後に呼ぶ）。失敗しても取込・since_id は進める
         # （maybe_auto_approve は例外を投げず、失敗は警告ログと Discord に出す）
         maybe_auto_approve(sb, inserted_rows)
@@ -279,8 +301,8 @@ def process_tweets(
 
         logger.info(f"[X-Watcher] カード名候補: {names} ({tweet_url})")
 
-        # ②unreleased_cards 重複チェック（全名前が既存ならVisionスキップ）
-        if all(_is_duplicate(n, existing_keys) for n in names):
+        # ②unreleased_cards 重複チェック（全名前が既存、またはこの投稿で却下済みならVisionスキップ）
+        if all(_is_duplicate(n, existing_keys) or rejected.blocks(n, tweet_url) for n in names):
             logger.info(f"[X-Watcher] 全カードが取込済み: スキップ ({tweet_url})")
             continue
 
@@ -331,6 +353,9 @@ def process_tweets(
                     continue
                 split_replaceable(sb, [row], replace_queue, tweet_url)
                 existing_keys.add(key)
+                continue
+            if rejected.blocks(row.get("name", ""), tweet_url):
+                logger.info(f"[X-Watcher] この投稿で却下済みのためスキップ: {row.get('name', '?')!r} ({tweet_url})")
                 continue
             if _lacks_card_body(row):
                 # カード本体が読めない行は挿入せず、同名の別投稿を待つ（最初の1件だけ保留）
@@ -420,9 +445,11 @@ def main() -> None:
     from unreleased_upload import load_replaceable
     replace_queue = load_replaceable(sb)
     existing_keys -= replace_queue.keys()
+    # 却下した行（同じ投稿のものだけスキップ・別の投稿なら承認待ちに戻す）
+    rejected = load_rejected(sb)
 
     # 処理
-    total = process_tweets(tweets, media_map, sb, existing_keys, replace_queue)
+    total = process_tweets(tweets, media_map, sb, existing_keys, replace_queue, rejected=rejected)
 
     # since_id を最大値で更新（数値比較で最大値を取る）
     max_id = max(tweets, key=lambda t: int(t["id"]))["id"]
