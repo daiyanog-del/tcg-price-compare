@@ -925,10 +925,13 @@ def rollup_and_delete_old_prices(sb: Client, cutoff: str) -> None:
         if day is None or day >= cutoff:
             return
         next_day = (datetime.fromisoformat(day).date() + timedelta(days=1)).isoformat()
+        # 成功時の所要秒数を残す（関数の時間の上限 16秒 を見直す材料。price_daily_rollup.sql）。
+        # 失敗時は db_write_guard の待ち時間が混ざるので出さない
+        started = time.monotonic()
         try:
             resp = sb.rpc("rollup_price_daily", {"p_before": next_day, "p_from": day}).execute()
             n = (resp.data or [{}])[0].get("rolled_rows", 0) if isinstance(resp.data, list) else 0
-            print(f"価格履歴を日ごとの最安へ畳んだ: {day} {n}組")
+            print(f"価格履歴を日ごとの最安へ畳んだ: {day} {n}組 {time.monotonic() - started:.1f}秒")
         except Exception as e:
             problem = f"{day} の畳み込みに失敗（店舗別の行は消さずに残す）: {e}"
             break

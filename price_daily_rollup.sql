@@ -50,11 +50,15 @@ GRANT SELECT ON public.price_daily TO anon, authenticated, service_role;
 -- 同じ日を2回畳んでも上書きになるだけ（冪等）。返り値は入れた（上書きした）組の数。
 -- 夜間は collect_prices が1日ずつ（p_from=その日, p_before=翌日）呼ぶ。初回は9日ずつ区切って SQL Editor から呼ぶ。
 -- §1 は 2026-10-22 に本番適用済み（MCP。07-23 の1日分を試しに畳み 8,613組・0.43秒・照合0件）
+-- 時間の上限: API（PostgREST）経由の呼び出しは authenticator の 8秒で切られる。普段は1日分で約3〜4秒と余裕が
+-- 小さく、2026-10-24 は DB が重く 8秒を超えて失敗した。この関数だけ 16秒にする（2026-10-25 本番適用済み・MCP）。
+-- 長すぎると DB が詰まった日に負荷を足すので控えめに。夜間ログの所要秒数を見て見直す
 CREATE OR REPLACE FUNCTION public.rollup_price_daily(p_before date, p_from date DEFAULT NULL)
 RETURNS TABLE(rolled_rows bigint)
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
+SET statement_timeout = '16s'
 AS $$
 DECLARE
   n bigint;
