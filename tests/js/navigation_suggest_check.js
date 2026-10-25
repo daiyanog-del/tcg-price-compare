@@ -161,7 +161,7 @@ function runTimers(){const pending=[...timers.values()];timers.clear();pending.f
   failed.reject(Error('古い通信エラー'));await flush();assert(get('suggestDrop').classList.contains('open'));
 
   // URL復元から実際の検索入口まで実行し、未発売判定を飛ばさないことを確認する。
-  vm.runInContext(block('function doSearch(', '// ── Autocomplete'),sandbox);
+  vm.runInContext(block('function _showEmptyIfNoResults(', '// ── Autocomplete'),sandbox);
   const unreleased=[];
   sandbox.showUnreleasedCard=name=>unreleased.push(name);
   for(const [trigger,prefix] of [['pageload','/card/'],['popstate','/buy/']]){
@@ -177,6 +177,38 @@ function runTimers(){const pending=[...timers.values()];timers.clear();pending.f
     assert.equal(get('btn').disabled,false);
   }
   assert.equal(unreleased.length,2);
-  console.log('履歴・直リンク・候補競合・買取リセット・警告解除・未発売判定・ランキング標準操作を確認');
+
+  // 1文字の名前: 既知のカード名と完全一致したときだけ通す（秋・山 など実在する。2026-10-25）
+  const alerts=[];sandbox.alert=m=>alerts.push(m);
+  const realDoSearch=sandbox.doSearch,priced=[];
+  sandbox.doSearch=o=>{if(o&&o.validated){priced.push(get('q').value);return;}return realDoSearch(o);}; // 価格検索の手前で止める
+  async function oneChar({url,typed,trigger='pageload',reply}){
+    const requestCount=requests.length,genBefore=sandbox._searchGen;
+    if(url){setUrl(url);sandbox._restoreLocation(trigger);}else{get('q').value=typed;sandbox.doSearch({trigger});}
+    assert.equal(requests.length,requestCount+1);
+    const name=url?decodeURIComponent(url.split('/').pop()):typed;
+    assert.equal(requests.at(-1).url,'/api/validate?q='+encodeURIComponent(name));
+    const genAsked=sandbox._searchGen;
+    requests.at(-1).resolve(reply);await flush();
+    assert.equal(requests.length,requestCount+1,'1文字の確認で validate を2回呼んでいる');
+    return {genBefore,genAsked};
+  }
+  await oneChar({url:'/card/'+encodeURIComponent('秋'),reply:{valid:true,name:'秋',unreleased:true}});
+  assert.equal(unreleased.at(-1),'秋');
+  await oneChar({url:'/buy/'+encodeURIComponent('山'),trigger:'popstate',reply:{valid:true,name:'山'}});
+  assert.equal(priced.at(-1),'山');
+  // 手入力の打ちかけ: 警告を出し、進行中の検索の世代を進めない
+  const typed=await oneChar({typed:'あ',trigger:'user',reply:{valid:false,suggestion:null}});
+  assert.equal(typed.genAsked,typed.genBefore,'確かめる前に世代を進めている');
+  assert.equal(sandbox._searchGen,typed.genBefore,'無効な1文字で世代を進めている');
+  assert.deepEqual(alerts,['カード名を2文字以上入力してください']);
+  // 補正で別の名前になったものは完全一致ではない
+  await oneChar({typed:'海',trigger:'user',reply:{valid:true,name:'海竜'}});
+  assert.equal(alerts.length,2);assert(!priced.includes('海竜'));
+  // URL から開いた未知の1文字は警告せずトップへ戻す
+  await oneChar({url:'/card/'+encodeURIComponent('あ'),reply:{valid:false,suggestion:null}});
+  assert.equal(alerts.length,2);assert.equal(get('q').value,'');
+  assert.equal(get('empty').classList.contains('hidden'),false,'未知の1文字で白紙のまま');
+  console.log('履歴・直リンク・候補競合・買取リセット・警告解除・未発売判定・1文字の名前・ランキング標準操作を確認');
 })().catch(error=>{console.error(error);process.exitCode=1;});
 

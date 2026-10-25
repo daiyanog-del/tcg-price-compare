@@ -552,12 +552,29 @@ function doSearch(opts){
   // opts: {validated:true} サジェスト選択やvalidate済み, {confirmed:true} DB未登録を承認済み,
   //       {trigger:'user'|'pageload'|'popstate'|...} G-2: 計測用。省略時は'user'（検索窓からの手動検索）
   //       {_gen} /api/validateを挟む再帰呼び出しが、入口で採番した世代を引き継ぐための内部用引数
+  //       {_validation} 1文字の名前を確かめた /api/validate の応答（同じ問い合わせを2回しないよう引き継ぐ内部用引数）
   opts=opts||{};
   const trigger=opts.trigger||'user';
   const q=document.getElementById('q').value.trim();
   if(!q)return;
-  if(q.length<2){
-    alert('カード名を2文字以上入力してください');
+  // 1文字は既知のカード名と完全一致したときだけ通す（秋・山・闇 など1文字のカードが実在する）。
+  // 打ちかけの1文字では検索しない。確かめる間は世代を進めない（無効な入力で進行中の検索を止めない）
+  if(q.length<2&&!opts.validated&&!opts._validation){
+    const reject=()=>{
+      if(document.getElementById('q').value.trim()!==q) return; // 確かめる間に入力が変わった
+      // URL から開いたときは警告を出さずトップの表示に戻す（手入力のときだけ従来の警告）
+      if(trigger==='pageload'||trigger==='popstate') document.getElementById('q').value='';
+      else alert('カード名を2文字以上入力してください');
+      _showEmptyIfNoResults();
+    };
+    fetch('/api/validate?q='+encodeURIComponent(q))
+      .then(r=>r.json())
+      .then(d=>{
+        if(document.getElementById('q').value.trim()!==q) return;
+        if(d.valid&&d.name===q) doSearch({...opts,_validation:d});
+        else reject();
+      })
+      .catch(reject);
     return;
   }
   // 世代は「ユーザー起点の呼び出し」（入口）でのみ進める。/api/validateの応答を待つ再帰呼び出しは
@@ -568,8 +585,7 @@ function doSearch(opts){
   if(!opts.validated&&!opts.confirmed){
     const btn=document.getElementById('btn');
     btn.disabled=true;btn.textContent='確認中...';
-    fetch('/api/validate?q='+encodeURIComponent(q))
-      .then(r=>r.json())
+    (opts._validation?Promise.resolve(opts._validation):fetch('/api/validate?q='+encodeURIComponent(q)).then(r=>r.json()))
       .then(d=>{
         if(gen!==_searchGen) return; // 世代管理: 古い応答が#q/btnを触らないようにする
         btn.disabled=false;btn.textContent='検索';
@@ -2118,7 +2134,7 @@ function _restoreLocation(trigger){
   let cardName=null;
   if(cardPath&&!['mydeck','meta','packs','wishlist'].includes(mode)){
     try{cardName=decodeURIComponent(cardPath[2]);}catch{cardName=null;}
-    if(cardName!==null&&cardName.trim().length<2)cardName=null; // doSearch が受け付けない長さは検索中の配置にしない
+    if(cardName!==null&&!cardName.trim())cardName=null; // 1文字は doSearch が既知のカード名か確かめる
   }
   _resetSearchView(!!cardName);
   if(['mydeck','meta','packs','wishlist'].includes(mode)){
@@ -2152,7 +2168,7 @@ function _restoreLocation(trigger){
   }
   switchMode('search',trigger);
   if(cardPath){
-    // 復号できないURL・2文字未満の名前は検索せずトップの表示のまま（2文字未満は旧来 alert が出ていた）
+    // 復号できないURLは検索せずトップの表示のまま。1文字で既知のカード名でなければ doSearch がトップの表示に戻す
     if(cardName===null)return;
     const name=cardName;
     document.getElementById('q').value=name;
