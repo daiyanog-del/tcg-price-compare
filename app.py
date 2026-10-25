@@ -1338,7 +1338,9 @@ def api_validate():
         today = datetime.now(JST).strftime("%Y-%m-%d")
         if rel and rel <= today:
             return jsonify({"valid": True, "name": q})
-        return jsonify({"valid": True, "name": q, "unreleased": True})
+        # 名前は登録上の正式名で返す。q はダッシュを半角に統一済みで、全角ハイフン入りのカード
+        # （例: 太陽神の処刑人－マキュラ）を q のまま返すと、画面がその名前で画像・カード情報を引いて空になっていた
+        return jsonify({"valid": True, "name": proxy.get("name") or q, "unreleased": True})
     # TCG先行カード（英語名）: 価格が無いので未発売と同じく価格検索をせず、カード情報だけを出させる
     tcg_proxy = _card_display.get_tcg_preview_proxy(q)
     if tcg_proxy:

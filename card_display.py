@@ -919,9 +919,8 @@ def resolve_card_display(name: str, _allow_rename: bool = True) -> dict:
         if row is not None:
             return _resolve_renamed(row, resolve_card_display(row["ocg_name"], _allow_rename=False))
 
-    # 未発売カード辞書を取得
-    unreleased = _get_unreleased()
-    card = unreleased.get(name)
+    # 未発売カード（完全一致 → 全角/半角ハイフン等のゆれを吸収して再照合。get_unreleased_proxy と同じ引き方）
+    card = _find_unreleased_card(name)
 
     if card is None:
         # (4) TCG先行カード（英語名）
@@ -979,6 +978,7 @@ def resolve_card_displays(names: list[str]) -> dict[str, dict]:
     img_enabled = _official_image_enabled()
     tcg_preview = None  # TCG先行の辞書は、未発売に無い名前があったときだけ取る
     renames = _get_tcg_preview_both()[1]  # 日本に来たカード（英語名 → 行）
+    unreleased_fuzzy = None  # 完全一致しない名前があったときだけ作る（ゆれキー → 行。_find_unreleased_card と同じ照合）
 
     for name in needs_check:
         renamed_row = _find_renamed_row(name, renames)
@@ -987,6 +987,13 @@ def resolve_card_displays(names: list[str]) -> dict[str, dict]:
                 renamed_row, resolve_card_display(renamed_row["ocg_name"], _allow_rename=False))
             continue
         card = unreleased.get(name)
+        if card is None:
+            if unreleased_fuzzy is None:
+                unreleased_fuzzy = {}
+                for cand_name, cand in unreleased.items():
+                    unreleased_fuzzy.setdefault(fuzzy_key(cand_name), cand)  # 同じキーは先の行（単体の引き方と同じ）
+            fk = fuzzy_key(name)
+            card = unreleased_fuzzy.get(fk) if fk else None
         if card is None:
             if tcg_preview is None:
                 tcg_preview = _get_tcg_preview()
