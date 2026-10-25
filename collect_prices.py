@@ -925,12 +925,15 @@ def rollup_and_delete_old_prices(sb: Client, cutoff: str) -> None:
         if day is None or day >= cutoff:
             return
         next_day = (datetime.fromisoformat(day).date() + timedelta(days=1)).isoformat()
+        # 所要秒数を残す（関数の時間の上限 16秒 を見直す材料。price_daily_rollup.sql）
+        started = time.monotonic()
         try:
             resp = sb.rpc("rollup_price_daily", {"p_before": next_day, "p_from": day}).execute()
             n = (resp.data or [{}])[0].get("rolled_rows", 0) if isinstance(resp.data, list) else 0
-            print(f"価格履歴を日ごとの最安へ畳んだ: {day} {n}組")
+            print(f"価格履歴を日ごとの最安へ畳んだ: {day} {n}組 {time.monotonic() - started:.1f}秒")
         except Exception as e:
-            problem = f"{day} の畳み込みに失敗（店舗別の行は消さずに残す）: {e}"
+            problem = (f"{day} の畳み込みに失敗（{time.monotonic() - started:.1f}秒・"
+                       f"店舗別の行は消さずに残す）: {e}")
             break
         # ビューは delete 不可のため正本テーブル price_history_v2 を直接削除。
         # 消した行を返させない（1日約3.6万行の JSON を受け取らない）
