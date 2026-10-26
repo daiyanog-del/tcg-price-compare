@@ -180,7 +180,8 @@ export function _renderCard(data, imgSrc, name, priceData, targetPanel, showPric
     // 空文字は「未設定」とみなし、モンスターなら '—' を表示する。
     const hasDef = data.def != null && data.def !== '';
     const def = hasDef ? data.def : (data.broad_type === 'monster' ? '—' : null);
-    return `<p class="cip-stats">ATK <strong>${atk}</strong>${def !== null ? ` &nbsp;/&nbsp; DEF <strong>${def}</strong>` : ''}</p>`;
+    // atk/def は未発売プロキシで API 由来の文字列が入り得るため、他の値と同様に _esc を通す
+    return `<p class="cip-stats">ATK <strong>${_esc(atk)}</strong>${def !== null ? ` &nbsp;/&nbsp; DEF <strong>${_esc(def)}</strong>` : ''}</p>`;
   })() : '';
 
   panel.innerHTML = `
