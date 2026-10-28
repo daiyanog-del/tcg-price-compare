@@ -4,12 +4,16 @@ art_variant.py — 店の商品が「どの絵か」「どの言語版か」を�
 同じ型番・同じレアリティの中に絵が2種類ある（例: 灰流うらら PAC1-JP016 シークレットの元の絵 500円／イラスト違い 980円）。
 価格比較の画面でこれを混ぜて「最安」と言わないよう、検索の結果を画面に返す直前（app._build_done）で各行に印を付ける。
 
-  art     : "元のイラスト" / "イラスト違い" / "漫画カラー" / "漫画モノクロ" / "GREEN Ver." / ""（判別できない）
+  art     : "元のイラスト" / "イラスト違い" / "漫画カラー" / "漫画モノクロ" / "GREEN Ver." / "アジア版" など / ""（判別できない）
   edition : "アジア版" / "英語版" など。日本版は ""
+言語版は別の商品なので、絵より先に art を言語版の名前にする（画面の絵の切り替えで日本版と分ける）。
+レアリティの名前は変えない（購入候補・買取・メルカリ・価格推移はレアリティ名で引いているため。10-28 レビュー指摘）。
 
 店ごとの手がかり（2026-10-28 に人気カード30枚×5店で確認）:
   - 遊々亭・カードラボ・トレコロの一部: 決まった言葉（既存/通常/旧 ↔ イラスト違い/海外版/新）
-  - トレコロ: 同じ型番の中で、違う絵の商品番号だけ末尾のレアリティ略号に S が付く（SE→SSE・QSE→SQSE・PSE→SPSE・PGR→SPGR）。
+  - トレコロ: 同じ型番の中で、違う絵の商品番号だけ末尾のレアリティ略号の前に S が付く（SE→SSE・QSE→SQSE・
+    PSE→SPSE・PGR→SPGR・ウルトラの「なし」→S）。そのレアリティのいつもの略号（_TORECOLO_SUFFIX）と比べ、
+    どちらでもない・番号つき（SSE1 など＝絵が3種類以上のカードの何番目か）・商品名の言葉と食い違うものは判別しない。
     検索の API は型番を推定値に置き換えるので、商品番号は商品のリンク（/shop/g/g{番号}/）から読む
   - カードラッシュ: 「立ち／座り」のような絵の描写しか書かない → カードごとの表（_CARDRUSH_WORDS）
   - まんぞく屋: 絵を書き分けない → 判別できない（""）
@@ -54,7 +58,13 @@ _EDITION_RE = re.compile(r"☆(旧?アジア|英語版|韓国版|中国版|ス�
 _PACKAGE_RE = re.compile(r"\((?:[^()]*未開封|[^()]*付き)[^()]*\)")
 _TORECOLO_PID_RE = re.compile(r"/shop/g/g([^/]+?)(?:-[SK])?/?$")
 _TORECOLO_CODE_RE = re.compile(r"^[A-Z0-9]+-[A-Z]*\d+([A-Z]*)$")
-_TORECOLO_ALT_SUFFIX_RE = re.compile(r"^S(SE|QSE|PSE|PGR|UR|CR)$")
+# トレコロの商品番号の、レアリティごとのいつもの末尾（2026-10-28 に人気カード30枚の実データで確認したもの）。
+# 違う絵は先頭に S が付く。ここに無いレアリティは判別しない
+_TORECOLO_SUFFIX = {
+    "シークレット": "SE", "25thシークレット": "QSE", "プリシク": "PSE", "プレミアムゴールド": "PGR",
+    "ウルトラ": "", "スーパー": "SR", "レア": "R", "アルティメット": "AR", "コレクターズ": "CR",
+    "20thシークレット": "SE", "EXシークレット": "EXS", "ホログラフィック": "HR",
+}
 
 
 def _key(s: str) -> str:
@@ -78,15 +88,19 @@ def _label(card_name: str, product_name: str) -> str:
     return re.sub(r"[\[\]〔〕()（）]", "", name)
 
 
-def _torecolo_art(url: str) -> str | None:
-    """トレコロの商品番号の S の決まりで元／違うを返す。番号が読めなければ None"""
+def _torecolo_art(url: str, rarity: str) -> str:
+    """トレコロの商品番号の S の決まりで元／違うを返す。決まりに当たらなければ ""（判別しない）"""
+    base = _TORECOLO_SUFFIX.get(rarity)
     m = _TORECOLO_PID_RE.search(url or "")
-    if not m:
-        return None
-    code = _TORECOLO_CODE_RE.match(m.group(1))
-    if not code:
-        return None
-    return ART_ALT if _TORECOLO_ALT_SUFFIX_RE.match(code.group(1)) else ART_BASE
+    code = _TORECOLO_CODE_RE.match(m.group(1)) if m else None
+    if base is None or not code:
+        return ""
+    if code.group(1) == base:
+        return ART_BASE
+    # S＋いつもの末尾が、ほかのレアリティのいつもの末尾と同じ形（レアの S＋R＝スーパーの SR）は、どちらとも言えない
+    if code.group(1) == "S" + base and "S" + base not in _TORECOLO_SUFFIX.values():
+        return ART_ALT
+    return ""
 
 
 def classify(row: dict, card_name: str) -> tuple[str, str]:
@@ -100,6 +114,7 @@ def classify(row: dict, card_name: str) -> tuple[str, str]:
     if m:
         edition = m.group(1).replace("旧", "")
         edition = edition if edition.endswith("版") else edition + "版"
+        return edition, edition
 
     if re.search(r"GREEN\s*Ver", raw_name + raw_rarity, re.IGNORECASE):
         return ART_GREEN, edition
@@ -108,12 +123,18 @@ def classify(row: dict, card_name: str) -> tuple[str, str]:
 
     label = _label(card_name, raw_name)
     if re.search(r"漫画|MANGA", label, re.IGNORECASE):
-        return (ART_MANGA_COLOR if "カラー" in label else ART_MANGA_MONO), edition
+        if "カラー" in label:
+            return ART_MANGA_COLOR, edition
+        if re.search(r"モノクロ|白黒", label):
+            return ART_MANGA_MONO, edition
+        return "", edition
 
     if shop == "トレコロCB":
-        art = _torecolo_art(row.get("url") or "")
-        if art:
-            return art, edition
+        art = _torecolo_art(row.get("url") or "", raw_rarity)
+        # 商品名の決まった言葉と食い違うときは判別しない（[新イラスト] なのに S が無い等）
+        if art and ((art == ART_BASE and label in _ALT_WORDS) or (art == ART_ALT and label in _BASE_WORDS - {""})):
+            return "", edition
+        return art, edition
     if shop == "まんぞく屋":
         return "", edition  # 絵を書き分けない店
     if label in _BASE_WORDS:
@@ -128,14 +149,6 @@ def classify(row: dict, card_name: str) -> tuple[str, str]:
 
 
 def annotate(rows: list[dict], card_name: str) -> None:
-    """各行に art・edition を付ける（rows をその場で書き換える。レアリティは変えない）"""
+    """各行に art・edition を付ける（rows の各 dict をその場で書き換える。レアリティは変えない）"""
     for row in rows:
         row["art"], row["edition"] = classify(row, card_name)
-
-
-def with_edition(rarity: str, edition: str) -> str:
-    """言語版の行のレアリティ表示名（例: シークレット（アジア版））。日本版はそのまま。二重に付けない"""
-    if not edition or not rarity:
-        return rarity
-    suffix = f"（{edition}）"
-    return rarity if rarity.endswith(suffix) else rarity + suffix

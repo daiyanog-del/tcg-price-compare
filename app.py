@@ -5474,14 +5474,14 @@ def _build_buyback_done(results: list[dict]) -> dict:
 
 
 def _build_done(results: list[dict], corrected_name: str = "", card_name: str = "") -> dict:
-    # 絵（元のイラスト／イラスト違い…）と言語版の印を付ける。レアリティの正準化より前に見る
-    # （カードラッシュの「…GREEN Ver.」はレアリティ側にしか書かれていない）。art_variant.py 参照
+    # 行は複製してから書き換える（同じ dict を価格の記録の裏スレッド _persist_scrape_async にも渡しているため）
+    results = [dict(r) for r in results]
+    # 絵（元のイラスト／イラスト違い／アジア版…）の印。画面の「イラスト」の切り替えに使う（art_variant.py）
     art_variant.annotate(results, card_name)
     # API境界でレアリティを正準名に統合（過渡期の分裂値を吸収）
     for r in results:
         if r.get("rarity"):
-            # 言語版（アジア版など）は別の商品なので、レアリティの枠ごと分ける
-            r["rarity"] = art_variant.with_edition(normalize_rarity(r["rarity"]), r.get("edition", ""))
+            r["rarity"] = normalize_rarity(r["rarity"])
     in_stock = [r for r in results if not r.get("sold_out")]
     by_rarity = {}
     for r in in_stock:

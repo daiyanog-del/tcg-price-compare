@@ -1063,7 +1063,7 @@ function renderSummary(){
   if(note){
     let msg='';
     if(inStockCount===0){
-      msg=rarityFilter?'このレアリティは在庫切れです':'在庫のある出品はありません';
+      msg=artFilter?`この絵（${artFilter}）は在庫切れです`:(rarityFilter?'このレアリティは在庫切れです':'在庫のある出品はありません');
       if(soldCount>0) msg+=`（売切${soldCount}件）`+(listView==='shop'?'。「すべて」の「売り切れも表示」で見られます':(!showSO?'。「売り切れも表示」で見られます':''));
     }
     note.textContent=msg;
@@ -1429,8 +1429,10 @@ function _rarityTilesHtml(rarities,active){
   const inStock=D.filter(r=>!r.sold_out);
   const minOf=list=>list.length?list.reduce((m,r)=>r.price<m?r.price:m,Infinity):null;
   const tiles=rarities.map(r=>{
-    const rows=inStock.filter(x=>x.rarity===r);
-    return {r:r,min:minOf(rows),n:rows.length,sold:D.filter(x=>x.rarity===r&&x.sold_out).length};
+    // 絵の切り替えが出るレアリティは、選んだときに最初に見せる絵（元のイラスト）で数える（上の最安と値段をそろえる）
+    const art=_defaultArt(r);
+    const rows=inStock.filter(x=>x.rarity===r&&(!art||x.art===art));
+    return {r:r,min:minOf(rows),n:rows.length,sold:D.filter(x=>x.rarity===r&&x.sold_out&&(!art||x.art===art)).length};
   });
   tiles.sort((a,b)=>((a.min==null)-(b.min==null))||((a.min||0)-(b.min||0))||a.r.localeCompare(b.r,'ja'));
   const tile=(r,label,price,count,on)=>`<button type="button" class="cr-rtile${on?' active':''}" data-r="${escAttr(r)}" aria-pressed="${on}" onclick="setRarityFilter('${escAttr(escJs(r))}')"><span class="cr-rn">${esc(label)}</span><span class="cr-rp"><b>${price}</b><i>${count}</i></span></button>`;
@@ -1454,15 +1456,17 @@ function _shownRarity(){
 // 同じレアリティに絵が2種類以上ある（例: 灰流うらら シークレットの元の絵 500円／イラスト違い 980円）とき、
 // レアリティ欄の下に絵の切り替えを出し、最安・一覧・件数をその絵で比べる。r.art は検索の API（art_variant.py）が
 // 付ける印で、判別できない行は空（「すべての絵」にだけ出す）
+// 言語版（アジア版など）も絵の切り替えの選択肢として後ろに並ぶ（レアリティ名は日本版と同じ）
 const ART_ORDER=['元のイラスト','イラスト違い','漫画カラー','漫画モノクロ','GREEN Ver.','PINK Ver.'];
 function _artsOf(rarity){
   const kinds=new Set(D.filter(r=>r.rarity===rarity&&r.art).map(r=>r.art));
   return ART_ORDER.filter(a=>kinds.has(a)).concat([...kinds].filter(a=>!ART_ORDER.includes(a)));
 }
-// 既定は元のイラスト（多くの人が探す絵）。絵の違いが無い・元の絵の出品が無いときは絞らない
+// 既定は元のイラスト（多くの人が探す絵）。絵の違いが無い・元の絵に在庫が無いときは絞らない
 function _defaultArt(rarity){
   const arts=rarity?_artsOf(rarity):[];
-  return arts.length>1&&arts.includes('元のイラスト')?'元のイラスト':'';
+  if(arts.length<2||!arts.includes('元のイラスト')) return '';
+  return D.some(r=>r.rarity===rarity&&r.art==='元のイラスト'&&!r.sold_out)?'元のイラスト':'';
 }
 // 選んでいるレアリティと絵で絞った行（売り切れも含む）
 function _scopedRows(){

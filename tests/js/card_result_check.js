@@ -185,17 +185,23 @@ run(`D=${JSON.stringify([
   row('遊々亭', 980, 'シークレット', { art: 'イラスト違い', name: '灰流うらら(イラスト違い版)' }),
   row('カードラッシュ', 1120, 'シークレット', { art: 'イラスト違い', name: '灰流うらら(座り)' }),
   row('まんぞく屋', 300, 'シークレット', { art: '' }),
+  row('カードラッシュ', 280, 'シークレット', { art: 'アジア版', name: '☆アジア☆灰流うらら(立ち)' }),
   row('まんぞく屋', 180, 'ウルトラ', { art: '' }),
   row('遊々亭', 320, 'ウルトラ', { art: '元のイラスト' }),
 ])}`);
-assert.deepEqual(JSON.parse(run(`JSON.stringify(_artsOf('シークレット'))`)), ['元のイラスト', 'イラスト違い'], '判別できない行は絵の種類に数えない');
+assert.deepEqual(JSON.parse(run(`JSON.stringify(_artsOf('シークレット'))`)), ['元のイラスト', 'イラスト違い', 'アジア版'],
+  '判別できない行は絵の種類に数えない。言語版は後ろ');
+// レアリティ欄の値段は、選んだときに最初に見せる絵（元のイラスト）で数える（上の最安とそろえる）
+h = run(`_rarityTilesHtml(['シークレット','ウルトラ'],'シークレット')`);
+assert(h.includes('<span class="cr-rn">シークレット</span><span class="cr-rp"><b>¥420</b><i>2件</i>'), 'アジア版・判別できない行・イラスト違いを枠の最安に入れない');
+assert(h.includes('<span class="cr-rn">ウルトラ</span><span class="cr-rp"><b>¥180</b><i>2件</i>'), '絵の切り替えが出ないレアリティは今までどおり');
 assert.equal(run(`_defaultArt('シークレット')`), '元のイラスト');
 assert.equal(run(`_defaultArt('ウルトラ')`), '', '絵が1種類なら絞らない');
 assert.equal(run(`_defaultArt('')`), '');
 run(`rarityFilter='シークレット'; artFilter=_defaultArt('シークレット'); listView='shop'; _renderArtFilter(); renderSummary(); renderTable(); _updateHeroSummary()`);
 h = get('artFilter').innerHTML;
-assert.deepEqual([...h.matchAll(/<span class="cr-rn">([^<]+)<\/span>/g)].map(m => m[1]), ['すべての絵', '元のイラスト', 'イラスト違い']);
-assert(h.includes('<span class="cr-rn">すべての絵</span><span class="cr-rp"><b>¥300</b><i>5件</i>'), '「すべての絵」は判別できない行も含む');
+assert.deepEqual([...h.matchAll(/<span class="cr-rn">([^<]+)<\/span>/g)].map(m => m[1]), ['すべての絵', '元のイラスト', 'イラスト違い', 'アジア版']);
+assert(h.includes('<span class="cr-rn">すべての絵</span><span class="cr-rp"><b>¥280</b><i>6件</i>'), '「すべての絵」は判別できない行・言語版も含む');
 assert(h.includes('<span class="cr-rn">イラスト違い</span><span class="cr-rp"><b>¥980</b><i>2件</i>'));
 assert(h.includes(`data-art="元のイラスト" aria-pressed="true"`) && h.includes(`onclick="setArtFilter('イラスト違い')"`));
 assert.equal(get('artFilter').classList.contains('hidden'), false);
@@ -210,7 +216,12 @@ assert(get('heroBest').innerHTML.includes('<span class="cr-best-price">¥980</sp
 assert.equal(get('crCountShop').textContent, 2);
 run(`setArtFilter('')`);
 assert.equal(get('crListTitle').textContent, 'シークレットの出品');
-assert(get('heroBest').innerHTML.includes('<span class="cr-best-price">¥300</span>'), 'すべての絵は判別できない行も比べる');
+assert(get('heroBest').innerHTML.includes('<span class="cr-best-price">¥280</span>'), 'すべての絵は判別できない行・言語版も比べる');
+// 選んだ絵が在庫切れなら、その絵の在庫切れと書く（レアリティごと在庫切れとは言わない）
+run(`D.forEach(r=>{if(r.art==='元のイラスト'){r.sold_out=true;r.stock=0;}}); artFilter='元のイラスト'; listView='shop'; renderSummary()`);
+assert(get('crListNote').textContent.startsWith('この絵（元のイラスト）は在庫切れです'));
+// 元のイラストに在庫が無いときは、最初から絞らない
+assert.equal(run(`_defaultArt('シークレット')`), '');
 // 絵が1種類のレアリティでは欄を隠し、前の絵の絞り込みを持ち越さない
 run(`artFilter='イラスト違い'; rarityFilter='ウルトラ'; _renderArtFilter()`);
 assert.equal(get('artFilter').classList.contains('hidden'), true);
