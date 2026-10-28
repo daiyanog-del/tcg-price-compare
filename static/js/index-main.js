@@ -1,7 +1,7 @@
 // 元は templates/index.html のインライン <script>（2026-09-22 バッチCで外部化）。
 // Jinja 依存の値は index.html 側の小さなインライン script が定義する。
 // _ga()は<head>先頭で定義済み（GA4計測用の薄いラッパ。G-7: 早期クリック対策で<head>に移設）
-let D=[],sort={k:'price',a:true},rarityFilter='',cardImgUrl='',cardImgSmall='',_konamiDbUrl='';
+let D=[],sort={k:'price',a:true},rarityFilter='',artFilter='',cardImgUrl='',cardImgSmall='',_konamiDbUrl='';
 let listView='shop'; // 出品一覧の表示: 'shop'=店ごとの最安（既定・2026-10-21 ユーザー判断）/ 'all'=すべて
 const TABLE_PAGE_SIZE=20; // F-11: 一覧の既定表示件数（もっと見るの増分）。散在していたマジックナンバー20を集約
 let tableShowCount=TABLE_PAGE_SIZE; // B-4: 一覧の既定表示件数（20行+もっと見る）
@@ -195,7 +195,7 @@ function showUnreleasedCard(name,tcgPreview){
   _updateUrl(name,'search');
 
   // 前回の検索結果をクリア
-  cardImgUrl='';cardImgSmall='';D=[];rarityFilter='';tableShowCount=TABLE_PAGE_SIZE;
+  cardImgUrl='';cardImgSmall='';D=[];rarityFilter='';artFilter='';tableShowCount=TABLE_PAGE_SIZE;
   _resetBuyInline(); // C-2: 前回検索の買取価格が残ったまま未発売カード表示に切り替わるのを防ぐ
   _updateRarityBanner(); // F-4: 前回検索の絞り込みバナーが残ったまま未発売カード表示に切り替わるのを防ぐ
 
@@ -651,7 +651,7 @@ function doSearch(opts){
   }
 
   SearchStatus.show({});
-  D=[];rarityFilter='';tableShowCount=TABLE_PAGE_SIZE;
+  D=[];rarityFilter='';artFilter='';tableShowCount=TABLE_PAGE_SIZE;
   _resetBuyInline(); // C-2: 新しい検索をしたら買取セクションは閉じた未取得状態に戻す（前のカードの買取価格が残ると誤情報になるため）
   _updateRarityBanner(); // F-4: 前回検索の絞り込みバナーが残ったまま次の検索結果が出るのを防ぐ
   const params=new URLSearchParams({q});
@@ -918,7 +918,9 @@ function renderAll(d){
   hero.classList.remove('hidden');
   document.getElementById('heroImgWrap').innerHTML='<div class="cr-img-ph"></div>';
   const inStock=D.filter(r=>!r.sold_out);
-  const best=inStock.length>0?inStock.reduce((a,b)=>a.price<b.price?a:b):null;
+  // 既定のレアリティは日本版の最安から選ぶ（言語版しか無いときだけ言語版から）
+  const bestPool=inStock.some(r=>!r.edition)?inStock.filter(r=>!r.edition):inStock;
+  const best=bestPool.length>0?bestPool.reduce((a,b)=>a.price<b.price?a:b):null;
   // PC では効果テキストを最初から開き、名前の下の空きに出す（高さの上限と「続きを読む」は _clampCardDetail）。
   // スマホは今までどおり閉じたボタン（縦に長くなりすぎるため）
   const detailOpen=!!(window.matchMedia&&window.matchMedia('(min-width:641px)').matches);
@@ -988,6 +990,7 @@ function renderAll(d){
     defaultRarity=realRarities[0];
   }
   rarityFilter=defaultRarity;
+  artFilter=_defaultArt(defaultRarity);
   tableShowCount=TABLE_PAGE_SIZE;
   listView='shop'; // 新しいカードは「店ごとの最安」から見せる
   _syncListViewButtons();
@@ -1002,14 +1005,13 @@ function renderAll(d){
     _ga('rarity_filter_default',{rarity:defaultRarity||'__all__',rarity_count:rarities.length,real_rarity_count:realRarities.length});
   }
   const rfEl=document.getElementById('rarityFilter');
-  if(rarities.length>1){
-    rfEl.classList.remove('hidden');
-    rfEl.innerHTML='<div class="cr-sec"><h2>レアリティ</h2><span>安い順・在庫ありの最安</span></div>'+
-      `<div class="cr-rtiles">${_rarityTilesHtml(rarities,defaultRarity)}</div>`;
-  }else{
-    rfEl.classList.add('hidden');
-    rfEl.innerHTML='';
-  }
+  // レアリティが1種類でも絵が2種類以上あれば、絵の切り替えだけを出す
+  rfEl.innerHTML=(rarities.length>1
+    ?'<div class="cr-sec"><h2>レアリティ</h2><span>安い順・在庫ありの最安</span></div>'+
+      `<div class="cr-rtiles">${_rarityTilesHtml(rarities,defaultRarity)}</div>`
+    :'')+'<div id="artFilter" class="cr-art hidden"></div>';
+  const hasArtFilter=_renderArtFilter();
+  rfEl.classList.toggle('hidden',!(rarities.length>1||hasArtFilter));
   _updateRarityBanner();
   _updateHeroSummary(); // F-5: 既定の絞り込み確定後にヒーローの最安値/売切件数を合わせる
 
@@ -1032,8 +1034,7 @@ function renderAll(d){
 // 別々の計算式（reduceの巡回順 vs byShopグルーピング+ソート）だったため、同額タイのとき
 // ヒーローとサマリー先頭カードで採用される店舗が食い違うことがあった
 function _summaryShopItems(){
-  const inStock=D.filter(r=>!r.sold_out);
-  const filtered=rarityFilter?inStock.filter(r=>r.rarity===rarityFilter):inStock;
+  const filtered=_scopedRows().filter(r=>!r.sold_out);
   const byShop={};
   for(const r of filtered){
     if(!byShop[r.shop]||r.price<byShop[r.shop].price) byShop[r.shop]=r;
@@ -1047,12 +1048,12 @@ function renderSummary(){
   const shopItems=_summaryShopItems();
   const shownRarity=_shownRarity();
   const showSO=!!document.getElementById('soCheck')?.checked;
-  const scoped=rarityFilter?D.filter(r=>r.rarity===rarityFilter):D;
+  const scoped=_scopedRows();
   const inStockCount=scoped.filter(r=>!r.sold_out).length;
   const soldCount=scoped.length-inStockCount;
   const allCount=showSO?scoped.length:inStockCount;
   const title=document.getElementById('crListTitle');
-  if(title) title.textContent=shownRarity?`${shownRarity}の出品`:'すべてのレアリティの出品';
+  if(title) title.textContent=shownRarity?`${shownRarity}${_artSuffix()}の出品`:'すべてのレアリティの出品';
   const cs=document.getElementById('crCountShop');
   if(cs) cs.textContent=shopItems.length;
   const ca=document.getElementById('crCountAll');
@@ -1064,7 +1065,7 @@ function renderSummary(){
   if(note){
     let msg='';
     if(inStockCount===0){
-      msg=rarityFilter?'このレアリティは在庫切れです':'在庫のある出品はありません';
+      msg=artFilter?`この絵（${artFilter}）は在庫切れです`:(rarityFilter?'このレアリティは在庫切れです':'在庫のある出品はありません');
       if(soldCount>0) msg+=`（売切${soldCount}件）`+(listView==='shop'?'。「すべて」の「売り切れも表示」で見られます':(!showSO?'。「売り切れも表示」で見られます':''));
     }
     note.textContent=msg;
@@ -1400,7 +1401,7 @@ function _updateHeroSummary(){
   if(heroBest){
     // 最安の行: ［最安］の札（一覧の最安の印と同じ金）・値段・レアリティの枠線の札・店名と型番（2026-10-22 ユーザー選定）。
     // 「すべて」のときは全レアリティの中の最安なので、その出品のレアリティを札に出す（別レアリティだと分かるように J-5）
-    const rar=shownRarity||(best?best.rarity:'');
+    const rar=(shownRarity||(best?best.rarity:''))+(shownRarity?_artSuffix():'');
     const rarTag=rar?`<span class="cr-hb-rar">${esc(rar)}</span>`:'';
     if(best){
       const code=_looksLikeCardCode(best.code)?`・${esc(best.code)}`:'';
@@ -1413,8 +1414,7 @@ function _updateHeroSummary(){
   // 売切件数はサーバー集計値（d.sold_out_count）とは別経路でクライアント側のD（rarityFilter適用後）
   // から再集計している。サーバー側の集計ロジックと将来ズレる可能性があるため要注意
   if(soCountEl){
-    const scoped=rarityFilter?D.filter(r=>r.rarity===rarityFilter):D;
-    soCountEl.textContent=scoped.filter(r=>r.sold_out).length;
+    soCountEl.textContent=_scopedRows().filter(r=>r.sold_out).length;
   }
 }
 
@@ -1431,15 +1431,21 @@ function _rarityTilesHtml(rarities,active){
   const inStock=D.filter(r=>!r.sold_out);
   const minOf=list=>list.length?list.reduce((m,r)=>r.price<m?r.price:m,Infinity):null;
   const tiles=rarities.map(r=>{
-    const rows=inStock.filter(x=>x.rarity===r);
-    return {r:r,min:minOf(rows),n:rows.length,sold:D.filter(x=>x.rarity===r&&x.sold_out).length};
+    // 選んだときに最初に見せる絵（元のイラスト・日本版のすべて・言語版だけのレアリティはその言語版）で数える（上の最安と値段をそろえる）
+    const art=_defaultArt(r);
+    const rows=inStock.filter(x=>x.rarity===r&&_inArt(x,art));
+    // 言語版しか無いレアリティは、枠の名前にも言語版を添える（日本版の値段に見せない）
+    const label=_editionsOf(r).includes(art)?`${r}（${art}）`:r;
+    return {r:r,label:label,min:minOf(rows),n:rows.length,sold:D.filter(x=>x.rarity===r&&x.sold_out&&_inArt(x,art)).length};
   });
   tiles.sort((a,b)=>((a.min==null)-(b.min==null))||((a.min||0)-(b.min||0))||a.r.localeCompare(b.r,'ja'));
   const tile=(r,label,price,count,on)=>`<button type="button" class="cr-rtile${on?' active':''}" data-r="${escAttr(r)}" aria-pressed="${on}" onclick="setRarityFilter('${escAttr(escJs(r))}')"><span class="cr-rn">${esc(label)}</span><span class="cr-rp"><b>${price}</b><i>${count}</i></span></button>`;
-  const allMin=minOf(inStock);
-  let h=tile('','すべて',allMin!=null?`¥${allMin.toLocaleString()}〜`:'在庫なし',`${inStock.length}件`,active==='');
+  // 「すべて」は日本版の出品で数える（言語版の値段を最安に出さない）
+  const inStockJp=inStock.filter(_isJp);
+  const allMin=minOf(inStockJp);
+  let h=tile('','すべて',allMin!=null?`¥${allMin.toLocaleString()}〜`:'在庫なし',`${inStockJp.length}件`,active==='');
   for(const t of tiles){
-    h+=tile(t.r,t.r,t.min!=null?`¥${t.min.toLocaleString()}`:'在庫なし',t.min!=null?`${t.n}件`:`売切${t.sold}件`,t.r===active);
+    h+=tile(t.r,t.label,t.min!=null?`¥${t.min.toLocaleString()}`:'在庫なし',t.min!=null?`${t.n}件`:`売切${t.sold}件`,t.r===active);
   }
   return h;
 }
@@ -1450,6 +1456,87 @@ function _shownRarity(){
   if(rarityFilter) return rarityFilter;
   const kinds=[...new Set(D.map(r=>r.rarity||''))];
   return kinds.length===1&&kinds[0]&&kinds[0]!=='(不明)'?kinds[0]:'';
+}
+
+// ── イラストの切り替え（2026-10-28）──
+// 同じレアリティに絵が2種類以上ある（例: 灰流うらら シークレットの元の絵 500円／イラスト違い 980円）とき、
+// レアリティ欄の下に絵の切り替えを出し、最安・一覧・件数をその絵で比べる。r.art は検索の API（art_variant.py）が
+// 付ける印で、判別できない行は空（「すべての絵」にだけ出す）
+const ART_ORDER=['元のイラスト','イラスト違い','漫画カラー','漫画モノクロ','GREEN Ver.','PINK Ver.'];
+// 言語版（アジア版など。r.edition）は絵とは別の軸。言語版を選んだときだけ見せ、それ以外の最安・件数には混ぜない
+// （レアリティ名は日本版と同じなので、購入候補・買取・相場・価格推移はそのまま引ける）
+const _isJp=r=>!r.edition;
+// そのレアリティの日本版の絵の種類（判別できない行は数えない）
+function _artsOf(rarity){
+  const kinds=new Set(D.filter(r=>r.rarity===rarity&&_isJp(r)&&r.art).map(r=>r.art));
+  return ART_ORDER.filter(a=>kinds.has(a)).concat([...kinds].filter(a=>!ART_ORDER.includes(a)));
+}
+function _editionsOf(rarity){
+  return [...new Set(D.filter(r=>r.rarity===rarity&&r.edition).map(r=>r.edition))].sort();
+}
+// 既定の絵。日本版の絵が2種類以上で元のイラストに在庫があれば元のイラスト（多くの人が探す絵）。
+// 日本版の出品が無く言語版だけのレアリティはその言語版。それ以外は ''（日本版のすべての絵）。
+// 絵を書き分ける店の在庫ありの行に判別できないものがある（絵が3種類以上のカード・言葉の表に無いカード。
+// 10-28 に人気カード30枚で数えると該当はこの2種類だけ）ときも、元のイラストに絞ると見落とすので絞らない。
+// まんぞく屋は絵を書き分けない店なので数えない
+function _defaultArt(rarity){
+  if(!rarity) return '';
+  if(!D.some(r=>r.rarity===rarity&&_isJp(r))) return _editionsOf(rarity)[0]||'';
+  const arts=_artsOf(rarity);
+  if(arts.length<2||!arts.includes('元のイラスト')) return '';
+  if(D.some(r=>r.rarity===rarity&&_isJp(r)&&!r.art&&!r.sold_out&&r.shop!=='まんぞく屋')) return '';
+  return D.some(r=>r.rarity===rarity&&_isJp(r)&&r.art==='元のイラスト'&&!r.sold_out)?'元のイラスト':'';
+}
+// 見出し・最安の札に添える絵の名前。絞っていなくても絵が分かれるレアリティでは「すべての絵」と出す（違う絵が混ざると分かるように）
+function _artSuffix(){
+  if(artFilter) return '・'+artFilter;
+  return rarityFilter&&_artsOf(rarityFilter).length>1?'・すべての絵':'';
+}
+// その行が絵の絞り込み art に入るか。'' は日本版のすべて、言語版の名前はその言語版だけ、絵の名前は日本版のその絵
+function _inArt(r,art){
+  if(r.edition) return !!art&&r.edition===art;
+  return !art||r.art===art;
+}
+// 選んでいるレアリティと絵で絞った行（売り切れも含む）
+function _scopedRows(){
+  const rows=rarityFilter?D.filter(r=>r.rarity===rarityFilter):D;
+  return rows.filter(r=>_inArt(r,artFilter));
+}
+// 絵の切り替え欄を描く。日本版の絵が2種類以上あるか、言語版の出品があるときだけ。出さなければ隠して false
+function _renderArtFilter(){
+  const el=document.getElementById('artFilter');
+  if(!el) return false;
+  const arts=rarityFilter?_artsOf(rarityFilter):[];
+  const eds=rarityFilter?_editionsOf(rarityFilter):[];
+  if(arts.length<2&&!eds.length){
+    if(artFilter) artFilter='';
+    el.innerHTML='';
+    el.classList.add('hidden');
+    return false;
+  }
+  const rows=D.filter(r=>r.rarity===rarityFilter);
+  const tile=(a,label)=>{
+    const mine=rows.filter(r=>_inArt(r,a));
+    const inStock=mine.filter(r=>!r.sold_out);
+    const min=inStock.length?inStock.reduce((m,r)=>r.price<m?r.price:m,Infinity):null;
+    const on=artFilter===a;
+    return `<button type="button" class="cr-rtile${on?' active':''}" data-art="${escAttr(a)}" aria-pressed="${on}" onclick="setArtFilter('${escAttr(escJs(a))}')"><span class="cr-rn">${esc(label)}</span><span class="cr-rp"><b>${min!=null?'¥'+min.toLocaleString():'在庫なし'}</b><i>${min!=null?inStock.length+'件':'売切'+mine.length+'件'}</i></span></button>`;
+  };
+  const hasJp=rows.some(_isJp);
+  const jpTiles=hasJp?tile('',eds.length?'すべての絵（日本版）':'すべての絵')+(arts.length>1?arts.map(a=>tile(a,a)).join(''):''):'';
+  el.innerHTML=`<div class="cr-sec"><h2>イラスト</h2><span>${esc(rarityFilter)}の中の絵・言語版の違い</span></div>`+
+    `<div class="cr-rtiles">${jpTiles}${eds.map(e=>tile(e,e)).join('')}</div>`;
+  el.classList.remove('hidden');
+  return true;
+}
+function setArtFilter(a){
+  _ga('art_filter_change',{art:a||'__all__',from_art:artFilter||'__all__',rarity:rarityFilter||'__all__'});
+  artFilter=a;
+  tableShowCount=TABLE_PAGE_SIZE;
+  _renderArtFilter();
+  _updateHeroSummary();
+  renderSummary();
+  renderTable();
 }
 
 // 店舗の出品名がカード名と違うとき（「灰流うらら(既存イラスト)」など）だけ、違う部分を札にする
@@ -1467,8 +1554,8 @@ function renderTable(){
   if(listView==='shop'){
     data=_summaryShopItems(); // 各店の在庫ありの一番安い出品（ヒーローの最安と同じ算出 F-14）
   }else{
-    data=showSO?D:D.filter(r=>!r.sold_out);
-    if(rarityFilter) data=data.filter(r=>r.rarity===rarityFilter);
+    data=_scopedRows();
+    if(!showSO) data=data.filter(r=>!r.sold_out);
   }
   // J-5: 「最安」の印は同じレアリティ同士のときだけ（別レアリティ同士で最安と断言しない）
   const shownRarity=_shownRarity();
@@ -1606,12 +1693,14 @@ function setRarityFilter(r){
   // G-4: from_rarityで「自動絞り込みが的外れで、ユーザーがすぐ別のレアリティ／すべてに戻した」を追跡できるようにする
   _ga('rarity_filter_change',{rarity:r||'__all__',from_rarity:rarityFilter||'__all__'});
   rarityFilter=r;
+  artFilter=_defaultArt(r);
   tableShowCount=TABLE_PAGE_SIZE; // B-4: レアリティ切替のたびに表示件数をリセット
   document.querySelectorAll('.cr-rtile').forEach(b=>{
     const on=b.dataset.r===r;
     b.classList.toggle('active',on);
     b.setAttribute('aria-pressed',String(on));
   });
+  _renderArtFilter();
   _updateRarityBanner();
   _updateHeroSummary(); // F-5: ヒーローの最安値・売切件数を絞り込みに追従させる
   renderSummary();
