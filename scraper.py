@@ -988,6 +988,18 @@ def scrape_torecolo(card_name: str, max_pages: int = 5,
             cart_btn = item.select_one("a.block-products--product-sale-cart-button")
             sold_out = sold_btn is not None
             has_stock = cart_btn is not None and not sold_out
+            # 在庫数: 一覧の数量欄 data-stock-count（無ければ「在庫 N」の表示）から読む。
+            # 読めないときだけ在庫ありを1枚とみなす（以前はいつも1にしていた）
+            stock = 0
+            if has_stock:
+                stock = 1
+                qty_sel = item.select_one("select[data-stock-count]")
+                stock_text = (qty_sel.get("data-stock-count", "") if qty_sel else "").strip()
+                if not stock_text.isdigit():
+                    stock_el = item.select_one("p.block-products--product-stock span")
+                    stock_text = stock_el.get_text(strip=True) if stock_el else ""
+                if stock_text.isdigit() and int(stock_text) > 0:
+                    stock = int(stock_text)
 
             href = name_el.get("href", "")
             product_url = f"{TORECOLO_BASE}{href}" if href.startswith("/") else href
@@ -1053,7 +1065,7 @@ def scrape_torecolo(card_name: str, max_pages: int = 5,
                 "shop": "トレコロCB", "name": display_name,
                 "rarity": normalize_rarity(rarity), "code": code,
                 "condition": condition, "price": price,
-                "stock": 1 if has_stock else 0,
+                "stock": stock,
                 "sold_out": not has_stock, "url": product_url,
                 "image": image_url,
             })

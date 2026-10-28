@@ -257,61 +257,36 @@ def fetch_deck_cards(theme_name: str, force: bool = False) -> dict:
         share = float(share_m.group(1))
 
     # ── 主要カード ──
-    # 各カードは /yugioh/cards/XXX へのリンクを持ち、
-    # テキストに「採用率:XX.X%」「平均:X.X枚」が含まれる
+    # 2026-10 のサイト改修で、主要カードは data-quote-row="usage" の行になった
+    # （カード名はリンクではなくボタン内の span・採用率は最初の <b>「100%」・
+    # 平均枚数は行内の「平均X.X枚」）。旧構造（/yugioh/cards/ リンク＋「採用率:XX%」）は
+    # サイドデッキ採用傾向の欄にしか残っておらず、拾うと別の数字になるため使わない。
     cards = []
     seen = set()
 
-    for card_link in soup.select("a[href*='/yugioh/cards/']"):
-        # カード名: リンク内の見出し要素。
-        # 2026-07のサイト改修でカード名の要素が h3 → p に変わったため両対応で拾う
-        # （h3消滅により cards=0 → 収集対象激減の障害が起きた。TASKS.md 参照）
-        name_el = card_link.select_one("h3, p")
+    for row in soup.select('[data-quote-row="usage"]'):
+        name_el = row.select_one("button span")
         if not name_el:
-            continue  # 画像のみのリンク等はスキップ
+            continue
         card_name = name_el.get_text(strip=True)
         if not card_name or card_name in seen:
             continue
 
-        # カード画像: リンク内 → なければ近傍の祖先ブロック内を探す
-        # （改修後はカード名リンクと画像リンクが別要素に分離した）
-        image_url = ""
-        img_el = card_link.select_one("img[src]")
-        if not img_el:
-            anc = card_link.parent
-            for _ in range(3):
-                if anc is None:
-                    break
-                img_el = anc.select_one("img[src]")
-                if img_el:
-                    break
-                anc = anc.parent
-        if img_el:
-            image_url = img_el.get("src", "")
-
-        # 親ブロックのテキストから採用率・平均枚数を取得
-        # カードリンクの親要素を遡って数値を探す
-        parent = card_link.parent
-        if parent is None:
-            parent = card_link
-        # さらに上位を含むテキスト
-        context = parent.get_text() if parent else card_link.get_text()
-        # 隣接要素も探す (構造によってはsiblingに数値がある)
-        if parent and parent.parent:
-            context = parent.parent.get_text()
-
         adoption = 0.0
         avg = 0.0
-
-        adopt_m = re.search(r"採用率\s*[:：]?\s*(\d+(?:\.\d+)?)%", context)
+        row_text = row.get_text("", strip=True)
+        adopt_el = row.select_one("b")
+        adopt_text = adopt_el.get_text(strip=True) if adopt_el else ""
+        adopt_m = re.fullmatch(r"(\d+(?:\.\d+)?)%", adopt_text)
         if adopt_m:
             adoption = float(adopt_m.group(1))
-
-        avg_m = re.search(r"平均\s*[:：]?\s*(\d+(?:\.\d+)?)枚", context)
+        avg_m = re.search(r"平均\s*(\d+(?:\.\d+)?)\s*枚", row_text)
         if avg_m:
             avg = float(avg_m.group(1))
 
-        # 採用率がある場合のみ（= 主要カードセクション）
+        img_el = row.select_one("img[src]")
+        image_url = img_el.get("src", "") if img_el else ""
+
         if adoption > 0:
             seen.add(card_name)
             cards.append({
@@ -364,6 +339,10 @@ def fetch_deck_cards(theme_name: str, force: bool = False) -> dict:
     if recipes:
         full_deck = fetch_recipe_deck(recipes[0]["url"])
 
+    if not cards:
+        # ページは取れたのに主要カードが0件＝相手サイトの構造変更の疑い（07-10・10-28 と2回とも黙って空になった）
+        print(f"  meta_scraper 警告: 主要カードを読めませんでした（構造変更の疑い）: {url}")
+
     result = {
         "theme": theme_name,
         "tier": tier,
@@ -390,28 +369,35 @@ def fetch_recipe_deck(recipe_url: str) -> list[dict]:
     if not soup:
         return []
 
+    # 2026-10 のサイト改修で、見出しは「メインデッキ（40枚）」のように枚数つきになり、
+    # 表（table）は data-quote-row="deck" の行に変わった（枚数は data-deck-qty・
+    # カード名はボタン内の span）。サイドデッキは数えない。
     cards = []
     for h3 in soup.select("h3"):
         section = h3.get_text(strip=True)
-        if section not in ("メインデッキ", "EXデッキ"):
+        if section.startswith("メインデッキ"):
+            is_ex = False
+        elif section.startswith("EXデッキ"):
+            is_ex = True
+        else:
             continue
-        is_ex = (section == "EXデッキ")
-        table = h3.find_next("table")
-        if not table:
-            continue
-        for tr in table.select("tbody tr"):
-            tds = tr.select("td")
-            if len(tds) < 2:
+        for el in h3.find_all_next():
+            if el.name == "h3":
+                break  # 次の区分に入った
+            if el.get("data-quote-row") != "deck":
                 continue
-            qty_text = tds[0].get_text(strip=True)
-            card_link = tds[1].select_one("a[href*='/yugioh/cards/']")
-            if not card_link:
-                continue
-            name = card_link.get_text(strip=True)
+            name_el = el.select_one("button span")
+            name = name_el.get_text(strip=True) if name_el else ""
             if not name:
                 continue
+            qty_el = el.select_one("[data-deck-qty]")
+            qty_text = qty_el.get_text(strip=True) if qty_el else ""
             qty = int(qty_text) if qty_text.isdigit() else 1
             cards.append({"name": name, "qty": qty, "is_ex": is_ex})
+
+    if not cards:
+        # ページは取れたのに1枚も読めない＝相手サイトの構造変更の疑い（10-28 は黙って空になった）
+        print(f"  meta_scraper 警告: レシピからカードを読めませんでした（構造変更の疑い）: {recipe_url}")
 
     return cards
 
