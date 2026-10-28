@@ -211,15 +211,6 @@ header{padding:24px 0 8px;text-align:center;position:relative}
 .suggest-hint{padding:8px 16px;font-size:.72rem;color:var(--text-d);text-align:center}
 
 /* ── Progress ── */
-.progress{max-width:540px;margin:0 auto 28px;display:none;gap:8px}
-.progress.on{display:flex}
-.pstep{flex:1;padding:10px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;font-size:.78rem;text-align:center;transition:all .25s}
-.pstep .pname{font-weight:700;display:block}
-.pstep .pstat{font-size:.68rem;color:var(--text-d);margin-top:2px}
-.pstep.searching{border-color:var(--accent);box-shadow:0 0 8px rgba(74,124,255,.12)}
-.pstep.searching .pstat{color:var(--accent-l);animation:pulse 1.2s infinite}
-.pstep.done{border-color:var(--green)}.pstep.done .pstat{color:var(--green)}
-.pstep.error{border-color:var(--red)}.pstep.error .pstat{color:var(--red)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 .correct-notice{background:var(--bg-card);border:1px solid var(--accent);border-radius:8px;padding:10px 16px;margin-bottom:12px;font-size:.82rem;color:var(--accent-l);text-align:center;animation:fadeIn .3s}
 @keyframes fadeIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
@@ -573,11 +564,6 @@ header{padding:24px 0 8px;text-align:center;position:relative}
   .mode-tabs{flex-wrap:wrap;gap:6px;margin:0 auto 14px}
   .mode-tab{flex:1 1 28%;min-width:88px;padding:10px 4px;font-size:.76rem;min-height:44px;white-space:nowrap;text-align:center}
 
-  /* プログレス */
-  .progress{flex-wrap:wrap}
-  .pstep{min-width:0;padding:8px 6px;font-size:.72rem}
-  .pstep .pname{font-size:.68rem}
-
   /* サマリーカード */
   .summary{grid-template-columns:1fr}
   #mercariRef .mref-ghead{padding-left:11px} /* スマホの #mode-search .scard は padding11 */
@@ -774,12 +760,11 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 
   <!-- 検索中に先に出すカードの欄（画像と名前だけ・2026-10-22 LCP）。最終のカードの欄（#cardHero）と同じ部品・同じ位置で出し、
        検索が終わったら結果と同じフレームで隠す（index-main.js _showSearchPreview / _hideSearchPreview）。
-       検索中の進み具合（#prog）より上に置く。#cardHero を先に出すと、終わったときに #prog が消えて上へずれるため -->
+       検索中の進み具合のバー（search-progress.js）は名前の下に足すので、この欄と一緒に消える -->
   <div class="card-hero search-preview" id="searchPreview" hidden aria-hidden="true">
     <div class="card-hero-img" id="searchPreviewImg"></div>
     <div class="card-hero-info"><div class="card-hero-name" id="searchPreviewName"></div></div>
   </div>
-  <div class="progress" id="prog"></div>
 
   <div id="searchCoverage" role="status" hidden><span></span>
     <button type="button" onclick="doSearch({validated:true})">再試行</button>
@@ -1441,6 +1426,7 @@ const _pageCardName={{ card_name | tojson }};
 const _pageMode={{ page_mode | tojson }};
 </script>
 <script src="{{ static_url('js/search-status.js') }}" defer></script>
+<script src="{{ static_url('js/search-progress.js') }}" defer></script>
 <script src="{{ static_url('js/shop-busy.js') }}" defer></script>
 <script src="{{ static_url('shared/text-report.js') }}" defer></script>
 <script src="{{ static_url('js/index-main.js') }}" defer></script>

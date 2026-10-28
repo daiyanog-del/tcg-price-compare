@@ -87,7 +87,7 @@ const okRes = { headers: headers({}), body: {}, ok: true };
   const sandbox = {
     console, URL, Number, Promise, Object, Set, JSON, URLSearchParams, encodeURIComponent, Error,
     window: { MercariRef: { load: (q) => mercari.push(q), clear() {} } },
-    document: { getElementById: get, createElement: () => element('new'), querySelectorAll: () => [] },
+    document: { getElementById: get, createElement: () => element('new'), querySelector: () => get('previewInfo'), querySelectorAll: () => [] },
     EventSource: FakeES,
     fetch: () => new Promise(() => {}),
     setTimeout(fn, ms) { const id = ++timerSeq; timers.set(id, { fn, ms }); return id; },
@@ -98,6 +98,7 @@ const okRes = { headers: headers({}), body: {}, ok: true };
   };
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(path.join(root, 'static/js/shop-busy.js'), 'utf8') + ';this.ShopBusy=ShopBusy;', sandbox);
+  vm.runInContext(fs.readFileSync(path.join(root, 'static/js/search-progress.js'), 'utf8') + ';this.SearchProgress=SearchProgress;', sandbox);
   vm.runInContext('let D=[],rarityFilter="",tableShowCount=0,_currentCardName="";', sandbox);
   vm.runInContext(block('function esc(', 'function rankingLinkClick('), sandbox);
   vm.runInContext(block('let _searchES=null;', '// ── Autocomplete'), sandbox);
@@ -113,7 +114,10 @@ const okRes = { headers: headers({}), body: {}, ok: true };
   send(sources[0], { type: 'busy', retry_after: 4 });
   assert(sources[0].closed, '混雑応答で閉じる');
   assert.equal(mercari.length, 0, '混雑応答ではメルカリを取りに行かない');
-  assert.equal(get('searchBusyStep').querySelector('.pstat').textContent, sandbox.ShopBusy.WAIT_TEXT, '順番待ちを出す');
+  // 進み具合は先出しのカード欄に足したバー1本（2026-10-28 店ごとの札をやめた）
+  const bar = get('previewInfo').children[get('previewInfo').children.length - 1];
+  const barLabel = () => bar.querySelector('.sp-label').textContent;
+  assert.equal(barLabel(), sandbox.SearchProgress.BUSY_LABEL, '順番待ちを出す');
   const retry = timerList();
   assert.equal(retry.length, 1, '張り直しのタイマーだけが残る（60秒タイムアウトは止める）');
   assert.equal(retry[0].ms, 4000);
@@ -121,13 +125,18 @@ const okRes = { headers: headers({}), body: {}, ok: true };
   assert.equal(sources.length, 2, '数秒後に張り直す');
   assert.equal(sources[1].url, url0, '同じ検索を張り直す');
   assert.equal(gaCalls.filter(([n]) => n === 'search_submit').length, 1, '張り直しは検索回数に数えない');
-  // 張り直した検索は普段どおり進む（shops で順番待ちの札を消す）
-  get('searchBusyStep').removed = false;
-  send(sources[1], { type: 'shops', shops: ['A'] });
-  assert.equal(get('searchBusyStep').removed, true, '店の札が並んだら順番待ちの札を消す');
+  // 張り直した検索は普段どおり進む（shops で順番待ちの文言を戻す）
+  send(sources[1], { type: 'shops', shops: ['A', 'B'] });
+  assert.equal(barLabel(), '各店の価格を確認中', '店の一覧が届いたら順番待ちの文言を戻す');
   assert.equal(mercari.length, 1);
+  send(sources[1], { type: 'waiting', queued_shops: ['B'] });
+  assert.equal(barLabel(), sandbox.SearchProgress.BUSY_LABEL, '取得口の順番待ちの店があるあいだは順番待ち');
+  send(sources[1], { type: 'waiting', queued_shops: [] });
+  assert.equal(barLabel(), '各店の価格を確認中');
   send(sources[1], { type: 'shop_done', shop: 'A', status: 'busy', count: 2, results: [] });
-  assert.equal(get('s-A').querySelector('.pstat').textContent, '混雑・前回の2件');
+  assert.equal(bar.querySelector('.sp-fill').style.width, '50%', '混雑で取れなかった店も終わった店として進める');
+  send(sources[1], { type: 'shop_error', shop: 'B' });
+  assert.equal(bar.querySelector('.sp-fill').style.width, '100%');
 
   // 待っている間に別の検索を始めたら、前の検索は張り直さない
   get('q').value = '増殖するG';
