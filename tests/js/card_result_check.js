@@ -1,6 +1,6 @@
 // カードの検索結果（2026-10-21 案C）の実コード検証。index-main.js の実関数を vm で実行する。
 // レアリティ欄の並びと値段・出品一覧の「店ごとの最安／すべて」・見出しと件数・空の案内・最安の印（J-5）・
-// 型番の出し分け（K-1/L-1）・イラスト違いの札・レアリティが1種類のカード・一覧の切り替え。
+// 型番の出し分け（K-1/L-1）・イラスト違いの札・レアリティが1種類のカード・一覧の切り替え・イラストの切り替え（10-28）。
 'use strict';
 const fs = require('fs'), path = require('path'), vm = require('vm'), assert = require('assert/strict');
 const root = path.join(__dirname, '../..');
@@ -41,7 +41,7 @@ const sandbox = {
 };
 vm.createContext(sandbox);
 vm.runInContext(`
-let D=[],sort={k:'price',a:true},rarityFilter='',cardImgSmall='',tableShowCount=20,listView='shop',_currentCardName='灰流うらら';
+let D=[],sort={k:'price',a:true},rarityFilter='',artFilter='',cardImgSmall='',tableShowCount=20,listView='shop',_currentCardName='灰流うらら';
 let _buyInlineD=null,_buyInlineFetched=false,_buyInlineFailedShops=[];
 let _affConfig={};
 const TABLE_PAGE_SIZE=20;
@@ -177,6 +177,44 @@ run(`rarityFilter='ウルトラ'; _updateRarityBanner()`);
 assert.equal(get('heroWishAdd').textContent, 'ウルトラを購入候補へ');
 run(`rarityFilter=''; _updateRarityBanner()`);
 assert.equal(get('heroWishAdd').textContent, 'レアリティ未指定で購入候補へ');
+
+// 10) イラストの切り替え（2026-10-28）: 絵が2種類以上あるレアリティだけ。既定は元のイラスト。最安・一覧・件数をその絵で比べる
+run(`D=${JSON.stringify([
+  row('トレコロCB', 420, 'シークレット', { art: '元のイラスト', name: '灰流うらら[両腕開き]' }),
+  row('遊々亭', 500, 'シークレット', { art: '元のイラスト' }),
+  row('遊々亭', 980, 'シークレット', { art: 'イラスト違い', name: '灰流うらら(イラスト違い版)' }),
+  row('カードラッシュ', 1120, 'シークレット', { art: 'イラスト違い', name: '灰流うらら(座り)' }),
+  row('まんぞく屋', 300, 'シークレット', { art: '' }),
+  row('まんぞく屋', 180, 'ウルトラ', { art: '' }),
+  row('遊々亭', 320, 'ウルトラ', { art: '元のイラスト' }),
+])}`);
+assert.deepEqual(JSON.parse(run(`JSON.stringify(_artsOf('シークレット'))`)), ['元のイラスト', 'イラスト違い'], '判別できない行は絵の種類に数えない');
+assert.equal(run(`_defaultArt('シークレット')`), '元のイラスト');
+assert.equal(run(`_defaultArt('ウルトラ')`), '', '絵が1種類なら絞らない');
+assert.equal(run(`_defaultArt('')`), '');
+run(`rarityFilter='シークレット'; artFilter=_defaultArt('シークレット'); listView='shop'; _renderArtFilter(); renderSummary(); renderTable(); _updateHeroSummary()`);
+h = get('artFilter').innerHTML;
+assert.deepEqual([...h.matchAll(/<span class="cr-rn">([^<]+)<\/span>/g)].map(m => m[1]), ['すべての絵', '元のイラスト', 'イラスト違い']);
+assert(h.includes('<span class="cr-rn">すべての絵</span><span class="cr-rp"><b>¥300</b><i>5件</i>'), '「すべての絵」は判別できない行も含む');
+assert(h.includes('<span class="cr-rn">イラスト違い</span><span class="cr-rp"><b>¥980</b><i>2件</i>'));
+assert(h.includes(`data-art="元のイラスト" aria-pressed="true"`) && h.includes(`onclick="setArtFilter('イラスト違い')"`));
+assert.equal(get('artFilter').classList.contains('hidden'), false);
+assert.deepEqual([...get('tbody').innerHTML.matchAll(/<span class="cr-shop-name">([^<]+)<\/span>/g)].map(m => m[1]), ['トレコロCB', '遊々亭'],
+  '元のイラストだけ。判別できないまんぞく屋は出さない');
+assert.equal(get('crListTitle').textContent, 'シークレット・元のイラストの出品');
+assert.equal(get('crCountAll').textContent, 2);
+assert(get('heroBest').innerHTML.includes('<span class="cr-best-price">¥420</span><span class="cr-hb-rar">シークレット・元のイラスト</span>'));
+run(`setArtFilter('イラスト違い')`);
+assert.equal(JSON.stringify(ga[ga.length - 1]), JSON.stringify(['art_filter_change', { art: 'イラスト違い', from_art: '元のイラスト', rarity: 'シークレット' }]));
+assert(get('heroBest').innerHTML.includes('<span class="cr-best-price">¥980</span><span class="cr-hb-rar">シークレット・イラスト違い</span>'));
+assert.equal(get('crCountShop').textContent, 2);
+run(`setArtFilter('')`);
+assert.equal(get('crListTitle').textContent, 'シークレットの出品');
+assert(get('heroBest').innerHTML.includes('<span class="cr-best-price">¥300</span>'), 'すべての絵は判別できない行も比べる');
+// 絵が1種類のレアリティでは欄を隠し、前の絵の絞り込みを持ち越さない
+run(`artFilter='イラスト違い'; rarityFilter='ウルトラ'; _renderArtFilter()`);
+assert.equal(get('artFilter').classList.contains('hidden'), true);
+assert.equal(run('artFilter'), '');
 
 // 9) renderAll は新しいカードで「店ごとの最安」・価格順・売り切れを隠した状態に戻す（配線の静的確認）
 const ra = block('function renderAll(', 'function _summaryShopItems(');

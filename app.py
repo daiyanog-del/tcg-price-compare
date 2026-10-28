@@ -56,6 +56,7 @@ from shop_search_pool import (
 from concurrent.futures import Future
 from weakref import WeakSet
 import upgrade_signals
+import art_variant
 
 # 店舗検索の取得口（2026-10-22 作り直し）。全利用者で共有し、店ごとの列で順番に取る。
 # 数字は手元の負荷試験（ダミー店舗・gunicorn 1 worker）で決めた仮置き。
@@ -1433,7 +1434,7 @@ def api_search():
             for shop_name, _ in active_shops:
                 count = len(cached_map.get(shop_name, []))
                 yield _sse({"type": "shop_done", "shop": shop_name, "count": count, "cached": True})
-            yield _sse({**_build_done(cached_results, corrected),
+            yield _sse({**_build_done(cached_results, corrected, card_name),
                         **search_coverage(selected, cached_map, cached_results)})
         return Response(cached_stream(), mimetype="text/event-stream")
 
@@ -1550,7 +1551,7 @@ def api_search():
             search_request.close()
             # エラーが起きても必ず完了メッセージを送る（切断後は送れないので送らない）
             if not disconnected:
-                yield _sse({**_build_done(all_results, corrected),
+                yield _sse({**_build_done(all_results, corrected, card_name),
                             **search_coverage(selected, set(cached_map) | set(scraped_ok), all_results),
                             "busy_shops": busy_shops})
 
@@ -5472,11 +5473,15 @@ def _build_buyback_done(results: list[dict]) -> dict:
     }
 
 
-def _build_done(results: list[dict], corrected_name: str = "") -> dict:
+def _build_done(results: list[dict], corrected_name: str = "", card_name: str = "") -> dict:
+    # 絵（元のイラスト／イラスト違い…）と言語版の印を付ける。レアリティの正準化より前に見る
+    # （カードラッシュの「…GREEN Ver.」はレアリティ側にしか書かれていない）。art_variant.py 参照
+    art_variant.annotate(results, card_name)
     # API境界でレアリティを正準名に統合（過渡期の分裂値を吸収）
     for r in results:
         if r.get("rarity"):
-            r["rarity"] = normalize_rarity(r["rarity"])
+            # 言語版（アジア版など）は別の商品なので、レアリティの枠ごと分ける
+            r["rarity"] = art_variant.with_edition(normalize_rarity(r["rarity"]), r.get("edition", ""))
     in_stock = [r for r in results if not r.get("sold_out")]
     by_rarity = {}
     for r in in_stock:

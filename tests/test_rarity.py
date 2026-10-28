@@ -128,7 +128,7 @@ class TestPreprocessing:
 
     def test_preprocessing_does_not_mangle_unknown_values(self):
         # 未知表記は前処理前の文字列をそのまま返す（生表記を勝手に改変しない）
-        raw = "クォーターセンチュリーシークレットGREEN Ver."
+        raw = "ウルトラSPECIALILLUSTVer."
         assert normalize_rarity(raw) == raw
 
     def test_strip_still_applies(self):

@@ -107,6 +107,8 @@
 
 /* ── レアリティ（安い順・在庫ありの最安） ── */
 #mode-search .cr-rarity{margin:0 0 24px}
+/* イラストの切り替え（同じレアリティに絵が2種類以上あるときだけ。index-main.js _renderArtFilter） */
+#mode-search .cr-art{margin-top:14px}
 #mode-search .cr-sec{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px;margin:0 0 8px}
 #mode-search .cr-sec h2{margin:0;font-size:15px;font-weight:700}
 #mode-search .cr-sec span{font-size:12px;color:var(--text-m)}
