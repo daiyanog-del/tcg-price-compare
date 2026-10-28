@@ -904,6 +904,23 @@ def _parse_cardrush_items(card_name: str, items) -> list[dict]:
 
 TORECOLO_BASE = "https://www.torecolo.jp"
 
+
+def _torecolo_image_url(img_el) -> str:
+    """トレコロの商品画像のURL（販売・買取で共通）。
+
+    一覧は遅延読み込みで、src は読み込み待ちの仮画像（/img/usr/lazyloading.png）、
+    本物は data-src に入っている。src を先に読むと全商品が仮画像になっていた（2026-10-28）。
+    """
+    if not img_el:
+        return ""
+    image_url = img_el.get("data-src", "") or img_el.get("src", "")
+    if not image_url or "lazyloading" in image_url:
+        return ""
+    if not image_url.startswith("http"):
+        image_url = f"{TORECOLO_BASE}{image_url}"
+    return image_url
+
+
 # トレコロ検索語で全角ハイフンへ寄せるダッシュ類（長音 ー U+30FC はカード名の一部なので含めない）
 _TORECOLO_DASHES = "-‐‑‒–—―−"
 
@@ -1044,12 +1061,7 @@ def scrape_torecolo(card_name: str, max_pages: int = 5,
                 code = code_match.group(1)
 
             # 商品画像
-            img_el = item.select_one("img")
-            image_url = ""
-            if img_el:
-                image_url = img_el.get("src", "") or img_el.get("data-src", "")
-                if image_url and not image_url.startswith("http"):
-                    image_url = f"{TORECOLO_BASE}{image_url}"
+            image_url = _torecolo_image_url(item.select_one("img"))
 
             # ラッシュデュエルのカードを除外（元の商品名・URL・カードコードで判定）
             if _is_rush_duel(name) or _is_rush_duel(href) or _is_rush_duel(code):
@@ -2177,12 +2189,7 @@ def scrape_torecolo_buy(card_name: str, max_pages: int = 3,
             if code_match:
                 code = code_match.group(1)
 
-            img_el = item.select_one("img")
-            image_url = ""
-            if img_el:
-                image_url = img_el.get("src", "") or img_el.get("data-src", "")
-                if image_url and not image_url.startswith("http"):
-                    image_url = f"{TORECOLO_BASE}{image_url}"
+            image_url = _torecolo_image_url(item.select_one("img"))
 
             # ラッシュデュエル除外
             if _is_rush_duel(name) or _is_rush_duel(href) or _is_rush_duel(code):
