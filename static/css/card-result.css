@@ -25,9 +25,15 @@
    文言は控えめな色、バーは値段と主操作と同じ金（--accent）。店名・件数は出さない（2026-10-28） */
 #mode-search .search-prog{min-height:38px;max-width:260px;padding-top:4px;box-sizing:border-box}
 #mode-search .search-prog .sp-label{font-size:12px;line-height:1.5;color:var(--text-d)}
-#mode-search .search-prog .sp-track{height:4px;margin-top:8px;border-radius:2px;background:var(--border);overflow:hidden}
-#mode-search .search-prog .sp-fill{height:100%;border-radius:2px;background:var(--accent);transition:width .3s ease-out}
-@media(prefers-reduced-motion:reduce){#mode-search .search-prog .sp-fill{transition:none}}
+#mode-search .search-prog .sp-track{display:flex;height:4px;margin-top:8px;border-radius:2px;background:var(--border);overflow:hidden}
+#mode-search .search-prog .sp-fill{flex:none;height:100%;border-radius:2px;background:var(--accent);transition:width .3s ease-out}
+/* 探している間は空きの側（.sp-rest）に薄い金を流す（金のバーの上に白い光を重ねると明るさの差が小さく見えなかった。2026-10-28）。
+   空きの幅の中だけを通すので、終盤に空きが狭くなっても光が途切れない */
+#mode-search .search-prog .sp-rest{position:relative;flex:1;overflow:hidden}
+#mode-search .search-prog.sp-running .sp-rest::before{content:"";position:absolute;top:0;bottom:0;left:-40%;width:40%;
+  background:rgba(243,206,70,.45);background:color-mix(in srgb,var(--accent) 45%,transparent);animation:sp-sweep 1.3s linear infinite}
+@keyframes sp-sweep{to{left:100%}}
+@media(prefers-reduced-motion:reduce){#mode-search .search-prog .sp-fill{transition:none}#mode-search .search-prog.sp-running .sp-rest::before{animation:none;display:none}}
 
 /* 操作はピルにそろえる（主操作だけ黄。マイデッキの見出しと同じ形） */
 #mode-search .cr-acts{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px;margin-top:12px}
