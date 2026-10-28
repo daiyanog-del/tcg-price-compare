@@ -918,7 +918,9 @@ function renderAll(d){
   hero.classList.remove('hidden');
   document.getElementById('heroImgWrap').innerHTML='<div class="cr-img-ph"></div>';
   const inStock=D.filter(r=>!r.sold_out);
-  const best=inStock.length>0?inStock.reduce((a,b)=>a.price<b.price?a:b):null;
+  // 既定のレアリティは日本版の最安から選ぶ（言語版しか無いときだけ言語版から）
+  const bestPool=inStock.some(r=>!r.edition)?inStock.filter(r=>!r.edition):inStock;
+  const best=bestPool.length>0?bestPool.reduce((a,b)=>a.price<b.price?a:b):null;
   // PC では効果テキストを最初から開き、名前の下の空きに出す（高さの上限と「続きを読む」は _clampCardDetail）。
   // スマホは今までどおり閉じたボタン（縦に長くなりすぎるため）
   const detailOpen=!!(window.matchMedia&&window.matchMedia('(min-width:641px)').matches);
@@ -1429,15 +1431,17 @@ function _rarityTilesHtml(rarities,active){
   const inStock=D.filter(r=>!r.sold_out);
   const minOf=list=>list.length?list.reduce((m,r)=>r.price<m?r.price:m,Infinity):null;
   const tiles=rarities.map(r=>{
-    // 絵の切り替えが出るレアリティは、選んだときに最初に見せる絵（元のイラスト）で数える（上の最安と値段をそろえる）
+    // 選んだときに最初に見せる絵（元のイラスト・日本版のすべて・言語版だけのレアリティはその言語版）で数える（上の最安と値段をそろえる）
     const art=_defaultArt(r);
-    const rows=inStock.filter(x=>x.rarity===r&&(!art||x.art===art));
-    return {r:r,min:minOf(rows),n:rows.length,sold:D.filter(x=>x.rarity===r&&x.sold_out&&(!art||x.art===art)).length};
+    const rows=inStock.filter(x=>x.rarity===r&&_inArt(x,art));
+    return {r:r,min:minOf(rows),n:rows.length,sold:D.filter(x=>x.rarity===r&&x.sold_out&&_inArt(x,art)).length};
   });
   tiles.sort((a,b)=>((a.min==null)-(b.min==null))||((a.min||0)-(b.min||0))||a.r.localeCompare(b.r,'ja'));
   const tile=(r,label,price,count,on)=>`<button type="button" class="cr-rtile${on?' active':''}" data-r="${escAttr(r)}" aria-pressed="${on}" onclick="setRarityFilter('${escAttr(escJs(r))}')"><span class="cr-rn">${esc(label)}</span><span class="cr-rp"><b>${price}</b><i>${count}</i></span></button>`;
-  const allMin=minOf(inStock);
-  let h=tile('','すべて',allMin!=null?`¥${allMin.toLocaleString()}〜`:'在庫なし',`${inStock.length}件`,active==='');
+  // 「すべて」は日本版の出品で数える（言語版の値段を最安に出さない）
+  const inStockJp=inStock.filter(_isJp);
+  const allMin=minOf(inStockJp);
+  let h=tile('','すべて',allMin!=null?`¥${allMin.toLocaleString()}〜`:'在庫なし',`${inStockJp.length}件`,active==='');
   for(const t of tiles){
     h+=tile(t.r,t.r,t.min!=null?`¥${t.min.toLocaleString()}`:'在庫なし',t.min!=null?`${t.n}件`:`売切${t.sold}件`,t.r===active);
   }
@@ -1456,30 +1460,47 @@ function _shownRarity(){
 // 同じレアリティに絵が2種類以上ある（例: 灰流うらら シークレットの元の絵 500円／イラスト違い 980円）とき、
 // レアリティ欄の下に絵の切り替えを出し、最安・一覧・件数をその絵で比べる。r.art は検索の API（art_variant.py）が
 // 付ける印で、判別できない行は空（「すべての絵」にだけ出す）
-// 言語版（アジア版など）も絵の切り替えの選択肢として後ろに並ぶ（レアリティ名は日本版と同じ）
 const ART_ORDER=['元のイラスト','イラスト違い','漫画カラー','漫画モノクロ','GREEN Ver.','PINK Ver.'];
+// 言語版（アジア版など。r.edition）は絵とは別の軸。言語版を選んだときだけ見せ、それ以外の最安・件数には混ぜない
+// （レアリティ名は日本版と同じなので、購入候補・買取・相場・価格推移はそのまま引ける）
+const _isJp=r=>!r.edition;
+// そのレアリティの日本版の絵の種類（判別できない行は数えない）
 function _artsOf(rarity){
-  const kinds=new Set(D.filter(r=>r.rarity===rarity&&r.art).map(r=>r.art));
+  const kinds=new Set(D.filter(r=>r.rarity===rarity&&_isJp(r)&&r.art).map(r=>r.art));
   return ART_ORDER.filter(a=>kinds.has(a)).concat([...kinds].filter(a=>!ART_ORDER.includes(a)));
 }
-// 既定は元のイラスト（多くの人が探す絵）。絵の違いが無い・元の絵に在庫が無いときは絞らない
+function _editionsOf(rarity){
+  return [...new Set(D.filter(r=>r.rarity===rarity&&r.edition).map(r=>r.edition))].sort();
+}
+// 既定の絵。日本版の絵が2種類以上で元のイラストに在庫があれば元のイラスト（多くの人が探す絵）。
+// 日本版の出品が無く言語版だけのレアリティはその言語版。それ以外は ''（日本版のすべての絵）。
+// 絵を書き分ける店の行に判別できないものがある（絵が3種類以上のカード・言葉の表に無いカード）ときも、
+// 元のイラストに絞ると見落とすので絞らない（まんぞく屋は絵を書き分けない店なので数えない）
 function _defaultArt(rarity){
-  const arts=rarity?_artsOf(rarity):[];
+  if(!rarity) return '';
+  if(!D.some(r=>r.rarity===rarity&&_isJp(r))) return _editionsOf(rarity)[0]||'';
+  const arts=_artsOf(rarity);
   if(arts.length<2||!arts.includes('元のイラスト')) return '';
-  return D.some(r=>r.rarity===rarity&&r.art==='元のイラスト'&&!r.sold_out)?'元のイラスト':'';
+  if(D.some(r=>r.rarity===rarity&&_isJp(r)&&!r.art&&r.shop!=='まんぞく屋')) return '';
+  return D.some(r=>r.rarity===rarity&&_isJp(r)&&r.art==='元のイラスト'&&!r.sold_out)?'元のイラスト':'';
+}
+// その行が絵の絞り込み art に入るか。'' は日本版のすべて、言語版の名前はその言語版だけ、絵の名前は日本版のその絵
+function _inArt(r,art){
+  if(r.edition) return !!art&&r.edition===art;
+  return !art||r.art===art;
 }
 // 選んでいるレアリティと絵で絞った行（売り切れも含む）
 function _scopedRows(){
-  let rows=rarityFilter?D.filter(r=>r.rarity===rarityFilter):D;
-  if(artFilter) rows=rows.filter(r=>r.art===artFilter);
-  return rows;
+  const rows=rarityFilter?D.filter(r=>r.rarity===rarityFilter):D;
+  return rows.filter(r=>_inArt(r,artFilter));
 }
-// 絵の切り替え欄を描く。出すものが無ければ隠して false
+// 絵の切り替え欄を描く。日本版の絵が2種類以上あるか、言語版の出品があるときだけ。出さなければ隠して false
 function _renderArtFilter(){
   const el=document.getElementById('artFilter');
   if(!el) return false;
   const arts=rarityFilter?_artsOf(rarityFilter):[];
-  if(arts.length<2){
+  const eds=rarityFilter?_editionsOf(rarityFilter):[];
+  if(arts.length<2&&!eds.length){
     if(artFilter) artFilter='';
     el.innerHTML='';
     el.classList.add('hidden');
@@ -1487,14 +1508,16 @@ function _renderArtFilter(){
   }
   const rows=D.filter(r=>r.rarity===rarityFilter);
   const tile=(a,label)=>{
-    const mine=a?rows.filter(r=>r.art===a):rows;
+    const mine=rows.filter(r=>_inArt(r,a));
     const inStock=mine.filter(r=>!r.sold_out);
     const min=inStock.length?inStock.reduce((m,r)=>r.price<m?r.price:m,Infinity):null;
     const on=artFilter===a;
     return `<button type="button" class="cr-rtile${on?' active':''}" data-art="${escAttr(a)}" aria-pressed="${on}" onclick="setArtFilter('${escAttr(escJs(a))}')"><span class="cr-rn">${esc(label)}</span><span class="cr-rp"><b>${min!=null?'¥'+min.toLocaleString():'在庫なし'}</b><i>${min!=null?inStock.length+'件':'売切'+mine.length+'件'}</i></span></button>`;
   };
-  el.innerHTML=`<div class="cr-sec"><h2>イラスト</h2><span>${esc(rarityFilter)}の中の絵の違い</span></div>`+
-    `<div class="cr-rtiles">${tile('','すべての絵')}${arts.map(a=>tile(a,a)).join('')}</div>`;
+  const hasJp=rows.some(_isJp);
+  const jpTiles=hasJp?tile('',eds.length?'すべての絵（日本版）':'すべての絵')+(arts.length>1?arts.map(a=>tile(a,a)).join(''):''):'';
+  el.innerHTML=`<div class="cr-sec"><h2>イラスト</h2><span>${esc(rarityFilter)}の中の絵・言語版の違い</span></div>`+
+    `<div class="cr-rtiles">${jpTiles}${eds.map(e=>tile(e,e)).join('')}</div>`;
   el.classList.remove('hidden');
   return true;
 }

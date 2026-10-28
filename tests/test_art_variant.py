@@ -101,3 +101,20 @@ def test_build_done_annotates_without_renaming_or_mutating():
     ]
     # 渡した行は書き換えない（同じ dict を価格の記録の裏スレッドにも渡している）
     assert rows == before
+
+
+def test_build_done_folds_cardrush_green_into_25th_for_display():
+    # カードラッシュの GREEN Ver. は画面に送るときだけ 25thシークレット に寄せ、トレコロの [GREEN Ver] と同じ枠で比べる
+    import app as app_module
+
+    rows = [
+        {"shop": "カードラッシュ", "name": "ブラックマジシャン", "rarity": "クォーターセンチュリーシークレットGREEN Ver.",
+         "price": 19800, "sold_out": False, "url": ""},
+        {"shop": "トレコロCB", "name": "ブラック・マジシャン[GREEN Ver]", "rarity": "25thシークレット",
+         "price": 21800, "sold_out": False, "url": TC.format("TD01-JP001QSE")},
+    ]
+    done = app_module._build_done(rows, "", "ブラック・マジシャン")
+    assert [(r["rarity"], r["art"]) for r in done["results"]] == [
+        ("25thシークレット", av.ART_GREEN), ("25thシークレット", av.ART_GREEN)]
+    # 保存に使う元の行は書き換えない
+    assert rows[0]["rarity"] == "クォーターセンチュリーシークレットGREEN Ver."

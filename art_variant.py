@@ -152,3 +152,13 @@ def annotate(rows: list[dict], card_name: str) -> None:
     """各行に art・edition を付ける（rows の各 dict をその場で書き換える。レアリティは変えない）"""
     for row in rows:
         row["art"], row["edition"] = classify(row, card_name)
+
+
+def display_rarity(row: dict) -> str:
+    """画面に出すレアリティ名。カードラッシュはレアリティ側に「クォーターセンチュリーシークレットGREEN Ver.」と書く
+    （トレコロは 25thシークレット の名前側に [GREEN Ver]）ので、25thシークレット に寄せて絵の切り替えで GREEN Ver. を選べるようにする。
+    保存（price_history・買取の履歴）には使わない。取得時の正準化で寄せると GREEN が 25thシークレット の系列に混ざる（10-28 レビュー指摘）"""
+    rarity = row.get("rarity") or ""
+    if row.get("art") in (ART_GREEN, ART_PINK) and rarity.startswith("クォーターセンチュリーシークレット"):
+        return "25thシークレット"
+    return rarity

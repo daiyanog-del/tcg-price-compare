@@ -5481,8 +5481,9 @@ def _build_done(results: list[dict], corrected_name: str = "", card_name: str = 
     # API境界でレアリティを正準名に統合（過渡期の分裂値を吸収）
     for r in results:
         if r.get("rarity"):
-            r["rarity"] = normalize_rarity(r["rarity"])
+            r["rarity"] = art_variant.display_rarity({**r, "rarity": normalize_rarity(r["rarity"])})
     in_stock = [r for r in results if not r.get("sold_out")]
+    # by_rarity・by_shop は絵・言語版を混ぜた最安（画面は使っていない。使うときは art・edition で分けること）
     by_rarity = {}
     for r in in_stock:
         key = r.get("rarity") or "(不明)"
