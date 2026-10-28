@@ -1053,7 +1053,7 @@ function renderSummary(){
   const soldCount=scoped.length-inStockCount;
   const allCount=showSO?scoped.length:inStockCount;
   const title=document.getElementById('crListTitle');
-  if(title) title.textContent=shownRarity?`${shownRarity}${artFilter?'・'+artFilter:''}の出品`:'すべてのレアリティの出品';
+  if(title) title.textContent=shownRarity?`${shownRarity}${_artSuffix()}の出品`:'すべてのレアリティの出品';
   const cs=document.getElementById('crCountShop');
   if(cs) cs.textContent=shopItems.length;
   const ca=document.getElementById('crCountAll');
@@ -1401,7 +1401,7 @@ function _updateHeroSummary(){
   if(heroBest){
     // 最安の行: ［最安］の札（一覧の最安の印と同じ金）・値段・レアリティの枠線の札・店名と型番（2026-10-22 ユーザー選定）。
     // 「すべて」のときは全レアリティの中の最安なので、その出品のレアリティを札に出す（別レアリティだと分かるように J-5）
-    const rar=(shownRarity||(best?best.rarity:''))+(shownRarity&&artFilter?'・'+artFilter:'');
+    const rar=(shownRarity||(best?best.rarity:''))+(shownRarity?_artSuffix():'');
     const rarTag=rar?`<span class="cr-hb-rar">${esc(rar)}</span>`:'';
     if(best){
       const code=_looksLikeCardCode(best.code)?`・${esc(best.code)}`:'';
@@ -1434,7 +1434,9 @@ function _rarityTilesHtml(rarities,active){
     // 選んだときに最初に見せる絵（元のイラスト・日本版のすべて・言語版だけのレアリティはその言語版）で数える（上の最安と値段をそろえる）
     const art=_defaultArt(r);
     const rows=inStock.filter(x=>x.rarity===r&&_inArt(x,art));
-    return {r:r,min:minOf(rows),n:rows.length,sold:D.filter(x=>x.rarity===r&&x.sold_out&&_inArt(x,art)).length};
+    // 言語版しか無いレアリティは、枠の名前にも言語版を添える（日本版の値段に見せない）
+    const label=_editionsOf(r).includes(art)?`${r}（${art}）`:r;
+    return {r:r,label:label,min:minOf(rows),n:rows.length,sold:D.filter(x=>x.rarity===r&&x.sold_out&&_inArt(x,art)).length};
   });
   tiles.sort((a,b)=>((a.min==null)-(b.min==null))||((a.min||0)-(b.min||0))||a.r.localeCompare(b.r,'ja'));
   const tile=(r,label,price,count,on)=>`<button type="button" class="cr-rtile${on?' active':''}" data-r="${escAttr(r)}" aria-pressed="${on}" onclick="setRarityFilter('${escAttr(escJs(r))}')"><span class="cr-rn">${esc(label)}</span><span class="cr-rp"><b>${price}</b><i>${count}</i></span></button>`;
@@ -1443,7 +1445,7 @@ function _rarityTilesHtml(rarities,active){
   const allMin=minOf(inStockJp);
   let h=tile('','すべて',allMin!=null?`¥${allMin.toLocaleString()}〜`:'在庫なし',`${inStockJp.length}件`,active==='');
   for(const t of tiles){
-    h+=tile(t.r,t.r,t.min!=null?`¥${t.min.toLocaleString()}`:'在庫なし',t.min!=null?`${t.n}件`:`売切${t.sold}件`,t.r===active);
+    h+=tile(t.r,t.label,t.min!=null?`¥${t.min.toLocaleString()}`:'在庫なし',t.min!=null?`${t.n}件`:`売切${t.sold}件`,t.r===active);
   }
   return h;
 }
@@ -1474,15 +1476,21 @@ function _editionsOf(rarity){
 }
 // 既定の絵。日本版の絵が2種類以上で元のイラストに在庫があれば元のイラスト（多くの人が探す絵）。
 // 日本版の出品が無く言語版だけのレアリティはその言語版。それ以外は ''（日本版のすべての絵）。
-// 絵を書き分ける店の行に判別できないものがある（絵が3種類以上のカード・言葉の表に無いカード）ときも、
-// 元のイラストに絞ると見落とすので絞らない（まんぞく屋は絵を書き分けない店なので数えない）
+// 絵を書き分ける店の在庫ありの行に判別できないものがある（絵が3種類以上のカード・言葉の表に無いカード。
+// 10-28 に人気カード30枚で数えると該当はこの2種類だけ）ときも、元のイラストに絞ると見落とすので絞らない。
+// まんぞく屋は絵を書き分けない店なので数えない
 function _defaultArt(rarity){
   if(!rarity) return '';
   if(!D.some(r=>r.rarity===rarity&&_isJp(r))) return _editionsOf(rarity)[0]||'';
   const arts=_artsOf(rarity);
   if(arts.length<2||!arts.includes('元のイラスト')) return '';
-  if(D.some(r=>r.rarity===rarity&&_isJp(r)&&!r.art&&r.shop!=='まんぞく屋')) return '';
+  if(D.some(r=>r.rarity===rarity&&_isJp(r)&&!r.art&&!r.sold_out&&r.shop!=='まんぞく屋')) return '';
   return D.some(r=>r.rarity===rarity&&_isJp(r)&&r.art==='元のイラスト'&&!r.sold_out)?'元のイラスト':'';
+}
+// 見出し・最安の札に添える絵の名前。絞っていなくても絵が分かれるレアリティでは「すべての絵」と出す（違う絵が混ざると分かるように）
+function _artSuffix(){
+  if(artFilter) return '・'+artFilter;
+  return rarityFilter&&_artsOf(rarityFilter).length>1?'・すべての絵':'';
 }
 // その行が絵の絞り込み art に入るか。'' は日本版のすべて、言語版の名前はその言語版だけ、絵の名前は日本版のその絵
 function _inArt(r,art){

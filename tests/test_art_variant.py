@@ -33,6 +33,8 @@ def _row(shop, name, rarity="シークレット", url=""):
     ("灰流うらら", "カードラッシュ", "灰流うらら", "", av.ART_BASE),
     ("アクセスコード・トーカー", "カードラッシュ", "アクセスコードトーカー(接敵/赤大地)", "", ""),  # 表に無いカードの描写は判別しない
     ("ブラック・マジシャン", "カードラッシュ", "ブラックマジシャン(未開封)", "", av.ART_BASE),  # 状態の印は絵の言葉に含めない
+    ("青眼の白龍", "カードラッシュ", "青眼の白龍(カラー)", "", av.ART_MANGA_COLOR),  # カードラッシュは漫画風を (カラー)(モノクロ) とだけ書く
+    ("青眼の白龍", "カードラッシュ", "青眼の白龍(モノクロ)", "", av.ART_MANGA_MONO),
     # まんぞく屋は絵を書き分けない
     ("灰流うらら", "まんぞく屋", "灰流うらら", "", ""),
 ])
@@ -118,3 +120,10 @@ def test_build_done_folds_cardrush_green_into_25th_for_display():
         ("25thシークレット", av.ART_GREEN), ("25thシークレット", av.ART_GREEN)]
     # 保存に使う元の行は書き換えない
     assert rows[0]["rarity"] == "クォーターセンチュリーシークレットGREEN Ver."
+
+
+def test_display_rarity_folds_asian_green_too():
+    # アジア版の GREEN は art が「アジア版」になるが、レアリティは 25thシークレット に寄せる（日本版の GREEN と同じ枠に）
+    row = {"rarity": "クォーターセンチュリーシークレットGREEN Ver.", "art": "アジア版"}
+    assert av.display_rarity(row) == "25thシークレット"
+    assert av.display_rarity({"rarity": "シークレット", "art": av.ART_BASE}) == "シークレット"

@@ -217,7 +217,8 @@ assert.equal(JSON.stringify(ga[ga.length - 1]), JSON.stringify(['art_filter_chan
 assert(get('heroBest').innerHTML.includes('<span class="cr-best-price">¥980</span><span class="cr-hb-rar">シークレット・イラスト違い</span>'));
 assert.equal(get('crCountShop').textContent, 2);
 run(`setArtFilter('')`);
-assert.equal(get('crListTitle').textContent, 'シークレットの出品');
+assert.equal(get('crListTitle').textContent, 'シークレット・すべての絵の出品', '絞っていなくても絵が分かれるなら「すべての絵」と明示');
+assert(get('heroBest').innerHTML.includes('<span class="cr-hb-rar">シークレット・すべての絵</span>'));
 assert(get('heroBest').innerHTML.includes('<span class="cr-best-price">¥300</span>'), 'すべての絵は判別できない行も比べ、言語版は比べない');
 run(`setArtFilter('アジア版')`);
 assert(get('heroBest').innerHTML.includes('<span class="cr-best-price">¥280</span><span class="cr-hb-rar">シークレット・アジア版</span>'), '言語版は選んだときだけ');
@@ -251,12 +252,16 @@ run(`D=${JSON.stringify([
   row('トレコロCB', 700, '25thシークレット', { art: '', name: 'ブラック・マジシャン[腕組右手杖]' }),
 ])}`);
 assert.equal(run(`_defaultArt('25thシークレット')`), '');
+run(`D.forEach(r=>{if(r.shop==='トレコロCB'){r.sold_out=true;r.stock=0;}})`);
+assert.equal(run(`_defaultArt('25thシークレット')`), '元のイラスト', '判別できない行が売り切れなら絞る');
 run(`D=D.filter(r=>r.shop!=='トレコロCB').concat([${JSON.stringify(row('まんぞく屋', 300, '25thシークレット', { art: '' }))}])`);
 assert.equal(run(`_defaultArt('25thシークレット')`), '元のイラスト');
 
 // 日本版の出品が無く言語版だけのレアリティは、最初からその言語版を選んだ状態
 run(`D=${JSON.stringify([asia])}; rarityFilter='シークレット'; artFilter=_defaultArt('シークレット'); _renderArtFilter(); _updateHeroSummary()`);
 assert.equal(run('artFilter'), 'アジア版');
+assert(run(`_rarityTilesHtml(['シークレット'],'シークレット')`).includes('<span class="cr-rn">シークレット（アジア版）</span><span class="cr-rp"><b>¥100</b>'),
+  '言語版しか無いレアリティの枠には言語版を添える');
 assert(get('heroBest').innerHTML.includes('<span class="cr-best-price">¥100</span><span class="cr-hb-rar">シークレット・アジア版</span>'));
 
 // 絵が1種類のレアリティでは欄を隠し、前の絵の絞り込みを持ち越さない

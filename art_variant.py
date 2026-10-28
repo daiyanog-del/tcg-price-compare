@@ -122,6 +122,9 @@ def classify(row: dict, card_name: str) -> tuple[str, str]:
         return ART_PINK, edition
 
     label = _label(card_name, raw_name)
+    # カードラッシュは漫画風の絵を「(カラー)」「(モノクロ)」とだけ書く（10-28 青眼・ブラマジ・真紅眼などで確認）
+    if shop == "カードラッシュ" and label in ("カラー", "モノクロ"):
+        return (ART_MANGA_COLOR if label == "カラー" else ART_MANGA_MONO), edition
     if re.search(r"漫画|MANGA", label, re.IGNORECASE):
         if "カラー" in label:
             return ART_MANGA_COLOR, edition
@@ -159,6 +162,7 @@ def display_rarity(row: dict) -> str:
     （トレコロは 25thシークレット の名前側に [GREEN Ver]）ので、25thシークレット に寄せて絵の切り替えで GREEN Ver. を選べるようにする。
     保存（price_history・買取の履歴）には使わない。取得時の正準化で寄せると GREEN が 25thシークレット の系列に混ざる（10-28 レビュー指摘）"""
     rarity = row.get("rarity") or ""
-    if row.get("art") in (ART_GREEN, ART_PINK) and rarity.startswith("クォーターセンチュリーシークレット"):
+    # アジア版の GREEN は art が言語版になるので、レアリティ側の表記で見る
+    if rarity.startswith("クォーターセンチュリーシークレット") and re.search(r"GREEN\s*Ver|PINK\s*Ver", rarity, re.IGNORECASE):
         return "25thシークレット"
     return rarity
