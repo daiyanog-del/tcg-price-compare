@@ -2388,10 +2388,13 @@ def _fetch_buyback_movers_from_db() -> dict | None:
     if not _supabase_client:
         return None
     try:
+        today = datetime.now(JST).strftime("%Y-%m-%d")
         cutoff = (datetime.now(JST) - timedelta(days=3)).strftime("%Y-%m-%d")
-        # 未開封・付属品つきを最高額から外した最初の収集日より前とは比べない（外す前の記録は未開封込みの最高額で、
-        # 比べると嘘の値下がりが出る）。切り替えた日だけランキングが空になり、3日後からはこの行は効かなくなる
-        cutoff = max(cutoff, _BUYBACK_SEALED_EXCLUDED_FROM)
+        # 未開封・付属品つきを最高額から外した最初の収集日（以降）になったら、それより前とは比べない（外す前の記録は
+        # 未開封込みの最高額で、比べると嘘の値下がりが出る）。切り替えた日だけランキングが空になり、3日後からは効かない。
+        # 切り替え日より前の日は、新旧どちらも外す前の記録同士なので今までどおり比べる
+        if today >= _BUYBACK_SEALED_EXCLUDED_FROM:
+            cutoff = max(cutoff, _BUYBACK_SEALED_EXCLUDED_FROM)
         resp = (_supabase_client
                 .rpc("get_buyback_movers", {"cutoff_date": cutoff, "min_diff": 50, "top_n": 20})
                 .execute())
