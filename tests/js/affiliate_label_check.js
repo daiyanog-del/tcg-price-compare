@@ -46,6 +46,7 @@ vm.runInContext([
   block('function _buyInlineFilteredData(', '// S-1:'),
   block('function _looksLikeCardCode(', '// U-1: 販売テーブル'),
   block('function _renderBuyInline(', '// F-5/F-14'),
+  block('function _applyBuyMaxToD(', 'function _renderBuyInline('),
   block('// 買取の欄の見出し。', '// #buyInline を開いた経路'),
   block('function _shownRarity(', 'function renderTable('),
   block('function renderTable(', '// B-4: 「もっと見る」'),
@@ -164,6 +165,20 @@ assert(h.indexOf('カードラッシュ') < h.indexOf('遊々亭') && h.indexOf(
 assert(h.includes('・未開封・付属品つきは¥45,000'), '同じ店の未開封が高ければ添える');
 assert.equal(count(h, 'sbest-badge'), 1);
 assert(!/カードラボ[\s\S]*最高額/.test(h), '未開封しか無い店に最高額の印を付けない');
+// 別の型番の未開封は添えない。「すべて」のときも添えない（別レアリティの未開封になりうる）
+run(`_buyInlineD.push({shop:'遊々亭',name:'(未開封)ブラックマジシャン',price:99000,rarity:'ウルトラ',code:'ZZ-JP999',condition:'-',url:'',sealed:true}); _renderBuyInline()`);
+assert(!get('buyInlineBody').innerHTML.includes('未開封・付属品つきは¥99,000'), '別の型番の未開封を通常品に添えない');
+run(`rarityFilter=''; _renderBuyInline()`);
+assert(!get('buyInlineBody').innerHTML.includes('未開封・付属品つきは'), '「すべて」では添えない');
+run(`rarityFilter='ウルトラ'; _buyInlineD.pop()`);
+// 一覧の「この型番の最高買取」も通常品
+run(`D=[{shop:'遊々亭',name:'ブラックマジシャン',price:30000,rarity:'ウルトラ',code:'AB-JP001',condition:'-',url:'',sold_out:false,stock:1}]; _applyBuyMaxToD()`);
+assert.equal(run('D[0].buyMax'), 25000);
+assert.equal(run('D[0].buyMaxShop'), 'カードラッシュ');
+setData(); run(`_affConfig={}; rarityFilter='ウルトラ'; _buyInlineD=[
+  {shop:'カードラッシュ',name:'ブラックマジシャン',price:25000,rarity:'ウルトラ',code:'AB-JP001',condition:'-',url:'',sealed:false},
+  {shop:'カードラッシュ',name:'(未開封)ブラックマジシャン',price:45000,rarity:'ウルトラ',code:'AB-JP001',condition:'-',url:'',sealed:true},
+  {shop:'カードラボ',name:'(未開封)ブラックマジシャン',price:50000,rarity:'ウルトラ',code:'AB-JP001',condition:'-',url:'',sealed:true}]`);
 // 未開封しか無いレアリティは「最高額」と言い切らない
 run(`_buyInlineD=_buyInlineD.filter(r=>r.sealed); _renderBuyInline()`);
 assert.equal(get('buyInlineHead').innerHTML, '<span class="cr-buy-t">ウルトラの買取価格</span><span class="cr-buy-max">通常品の買取は見つかりませんでした</span>');

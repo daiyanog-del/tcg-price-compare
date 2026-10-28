@@ -17,6 +17,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from pathlib import Path
 from rarity import normalize_rarity  # 正規化は rarity.py に一元化
+from art_variant import is_sealed  # 買取の未開封・付属品つき（名前を加工する前に見る）
 from card_code import infer_codes  # 型番の店舗間補完（カーナベル/トレコロCB）
 from shop_status import SUSPENDED_SHOPS, is_suspended  # 店の一時休止
 
@@ -2208,6 +2209,8 @@ def scrape_torecolo_buy(card_name: str, max_pages: int = 3,
                 "rarity": normalize_rarity(rarity), "code": code,
                 "condition": "-", "price": price, "stock": 1,
                 "sold_out": False, "url": product_url, "image": image_url,
+                # 【…】（…）を消す前の商品名で、未開封・付属品つきかを見る（買取の最高額から外す。art_variant.is_sealed）
+                "sealed": is_sealed(name),
             })
 
         next_link = soup.select_one("a[href*='p=%d']" % (page + 1))
@@ -2293,6 +2296,8 @@ def scrape_clabo_buy(card_name: str, require_game_tag: bool = True) -> list[dict
             "rarity": normalize_rarity(rarity), "code": code,
             "condition": "-", "price": price, "stock": 1,
             "sold_out": sold_out, "url": product_url, "image": image_url,
+            # 【…】を消す前の商品名で、未開封・付属品つきかを見る（買取の最高額から外す。art_variant.is_sealed）
+            "sealed": is_sealed(raw_name),
         })
 
     return results

@@ -18,6 +18,8 @@ import scraper
     ("ブラックマジシャン", False),
     ("灰流うらら(イラスト違い版)", False),
     ("ブラックマジシャン(モノクロ)", False),
+    ("ブラックマジシャン(キズ付き)", False),  # 状態の印は付属品ではない
+    ("ブラックマジシャン(サイン付き)", False),
 ])
 def test_is_sealed(name, sealed):
     assert av.is_sealed(name) is sealed
@@ -90,3 +92,52 @@ def test_scrape_yuyu_reads_stock_when_marked_plenty(monkeypatch):
     rows = scraper.scrape_yuyu("灰流うらら")
     assert [(r["url"].rsplit("/", 1)[1], r["stock"], r["sold_out"]) for r in rows] == [
         ("10251", 17, False), ("10252", 2, False), ("10253", 0, True)]
+
+
+def test_row_is_sealed_uses_flag_set_before_name_cleanup():
+    # トレコロ・カードラボの買取は【…】（…）を消した名前を保存するので、取得時に付けた sealed を見る
+    assert av.row_is_sealed({"name": "青眼の白龍", "sealed": True})
+    assert not av.row_is_sealed({"name": "青眼の白龍", "sealed": False})
+    assert av.row_is_sealed({"name": "(未開封)ブラックマジシャン"})  # 印の無い行（カードラッシュ・古い保存）は名前で見る
+
+
+def test_scrape_clabo_buy_marks_sealed_before_cleanup(monkeypatch):
+    # 【…】を消すと【未開封】も消えるので、消す前の商品名で印を付ける
+    def item(name):
+        return (f'<li><div class="inner_item_data"><span class="goods_name">{name}</span>'
+                '<span class="figure">10,000円</span></div></li>')
+    html = ("<html><body><ul>" + item("【遊戯】【未開封】青眼の白龍【ウルトラ/☆8】QCCU-JP001")
+            + item("【遊戯】青眼の白龍【ウルトラ/☆8】QCCU-JP001") + "</ul></body></html>")
+    monkeypatch.setattr(scraper, "safe_get", lambda *a, **k: BeautifulSoup(html, "html.parser"))
+    rows = scraper.scrape_clabo_buy("青眼の白龍")
+    assert [(r["name"], r["sealed"]) for r in rows] == [("青眼の白龍", True), ("青眼の白龍", False)]
+
+
+def test_buy_page_best_price_ignores_sealed(monkeypatch):
+    import app as app_module
+
+    monkeypatch.setattr(app_module, "buyback_cache_get", lambda name: [
+        _buy("カードラッシュ", "ブラックマジシャン", 25000),
+        _buy("カードラッシュ", "(未開封)ブラックマジシャン(当選通知書付き、ダンボール付き)", 45000)])
+    html = app_module.app.test_client().get("/buy/ブラック・マジシャン").get_data(as_text=True)
+    assert "最高買取額¥25,000" in html and "45,000" not in html
+
+
+def test_buyback_movers_do_not_compare_before_sealed_switch(monkeypatch):
+    import app as app_module
+
+    called = {}
+
+    class _Rpc:
+        def execute(self):
+            return type("R", (), {"data": []})()
+
+    class _Sb:
+        def rpc(self, name, params):
+            called.update(params)
+            return _Rpc()
+
+    monkeypatch.setattr(app_module, "_supabase_client", _Sb())
+    app_module._fetch_buyback_movers_from_db()
+    assert called["cutoff_date"] >= app_module._BUYBACK_SEALED_EXCLUDED_FROM
+

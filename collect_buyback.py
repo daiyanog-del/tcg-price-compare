@@ -19,7 +19,7 @@ from supabase import create_client, Client
 from scraper import compare_buyback, BUYBACK_SHOPS, get_host_request_counts
 from collection_run import record_collection_run, attach_host_request_counts
 from price_persist import upsert_buyback_rows
-from art_variant import is_sealed
+from art_variant import row_is_sealed
 from db_write_guard import (
     ConsecutiveDbFailureGuard, DbWriteAborted, GuardedSupabase, is_db_unavailable, report_db_abort,
 )
@@ -98,8 +98,8 @@ def collect_and_save_buyback(
     for item in results:
         if item.get("sold_out"):
             continue
-        # 未開封・付属品つきは通常品と別の値段なので最高額に入れない（art_variant.is_sealed。2026-10-28）
-        if is_sealed(item.get("name", "")):
+        # 未開封・付属品つきは通常品と別の値段なので最高額に入れない（art_variant.row_is_sealed。2026-10-28）
+        if row_is_sealed(item):
             continue
         price = item.get("price", 0)
         if price <= 10:  # 10円以下は異常値として除外

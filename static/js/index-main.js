@@ -1352,10 +1352,12 @@ function _renderBuyInline(){
   // X-1: BESTバッジは「先頭行＝最高額」の印であって型番の一致は無関係（型番一致は差額表示のみの条件）
   // 未開封・付属品つき（r.sealed）は通常品と別に見る。店の最高額は通常品で比べ、未開封のほうが高ければ添える。
   // 未開封しか無い店は「未開封」の札を付けて後ろに並べ、最高額の印・差額は付けない（2026-10-28 ユーザー決定）
-  const byShop={},sealedByShop={};
+  const byShop={},sealedByShop={},sealedByShopCode={};
   for(const r of filtered){
     const m=r.sealed?sealedByShop:byShop;
     if(!m[r.shop]||r.price>m[r.shop].price) m[r.shop]=r;
+    const k=r.shop+'|'+r.code;
+    if(r.sealed&&(!sealedByShopCode[k]||r.price>sealedByShopCode[k].price)) sealedByShopCode[k]=r;
   }
   const sortedShops=Object.values(byShop).sort((a,b)=>b.price-a.price)
     .concat(Object.values(sealedByShop).filter(r=>!byShop[r.shop]).sort((a,b)=>b.price-a.price));
@@ -1384,9 +1386,10 @@ function _renderBuyInline(){
     const codeStr=_looksLikeCardCode(item.code)?`・${esc(item.code)}`:'';
     // カード名は同じ名前をくり返さず、イラスト違いなど名前が違うときだけ出す（一覧の札と同じ）
     const variant=_variantLabel(item.name,_currentCardName);
-    // 同じ店の未開封・付属品つきが通常品より高いときだけ、その値段を添える（未開封しか無い店はその行自体に札）
-    const sealed=sealedByShop[item.shop];
-    const sealedNote=item.sealed?'・未開封・付属品つき':(sealed&&sealed.price>item.price?`・未開封・付属品つきは¥${sealed.price.toLocaleString()}`:'');
+    // レアリティを選んでいて、同じ店・同じ型番の未開封・付属品つきが通常品より高いときだけ、その値段を添える
+    // （別の型番・レアリティの未開封を添えない。未開封しか無い店はその行自体に札）
+    const sealed=_looksLikeCardCode(item.code)?sealedByShopCode[item.shop+'|'+item.code]:null;
+    const sealedNote=item.sealed?'・未開封・付属品つき':(rarityActive&&sealed&&sealed.price>item.price?`・未開封・付属品つきは¥${sealed.price.toLocaleString()}`:'');
     cardsHtml+=`<div class="scard${isBest?' best':''} fin"><div class="slabel">${esc(item.shop)}${isAff?AFF_PR_BADGE:''}</div>
       <div class="sprice" style="color:var(--green)">${priceLink}${bestBadge}<span class="sdiff">${diff}</span></div>
       <div class="sdetail">${esc(item.rarity||'-')}${condStr}${codeStr}${variant?'・'+esc(variant):''}${sealedNote}</div></div>`;

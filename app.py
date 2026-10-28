@@ -1038,11 +1038,9 @@ def buy_page(card_name):
         return render_template("index.html", card_name="", page_mode="buyback"), 404
 
     cached = buyback_cache_get(card_name)
-    best_price = None
-    if cached:
-        prices = [r["price"] for r in cached if r.get("price")]
-        if prices:
-            best_price = max(prices)
+    # 検索結果の説明文・構造化データに出す最高買取額。未開封・付属品つきは入れない（_best_buy_item。2026-10-28）
+    best = _best_buy_item([r for r in (cached or []) if r.get("price")])
+    best_price = best["price"] if best else None
 
     return render_template("index.html",
                            card_name=card_name,
@@ -2376,6 +2374,8 @@ _buyback_movers_cache_time: float = 0
 _buyback_movers_cache_empty: bool = False  # 直近のキャッシュが0件だったか（TTL切り替え用）
 _buyback_movers_refresh_failed_at: float = 0  # 直近の裏更新失敗（例外/空）時刻。SWRバックオフ用
 _BUYBACK_MOVERS_CACHE_SEC = 3600  # 1時間キャッシュ
+# collect_buyback が未開封・付属品つきを最高額から外した最初の収集日（JST。PR マージ翌朝 5:00 の収集。2026-10-28 決定）
+_BUYBACK_SEALED_EXCLUDED_FROM = "2026-10-29"
 # 空データ（RPCが0件を返した場合）は元々「24時間空を返し続けるバグを防ぐ」ため一切
 # キャッシュしていなかった。ただしそのままだと失効直後は毎リクエストでRPCが走ってしまう
 # ため、意図（長時間空を固定しない）は保ちつつ短時間だけキャッシュする。
@@ -2389,6 +2389,9 @@ def _fetch_buyback_movers_from_db() -> dict | None:
         return None
     try:
         cutoff = (datetime.now(JST) - timedelta(days=3)).strftime("%Y-%m-%d")
+        # 未開封・付属品つきを最高額から外した最初の収集日より前とは比べない（外す前の記録は未開封込みの最高額で、
+        # 比べると嘘の値下がりが出る）。切り替えた日だけランキングが空になり、3日後からはこの行は効かなくなる
+        cutoff = max(cutoff, _BUYBACK_SEALED_EXCLUDED_FROM)
         resp = (_supabase_client
                 .rpc("get_buyback_movers", {"cutoff_date": cutoff, "min_diff": 50, "top_n": 20})
                 .execute())
@@ -5449,7 +5452,7 @@ def _sse(data: dict) -> str:
 
 def _best_buy_item(items: list[dict]) -> dict | None:
     """デッキ買取の1枚の最高値。未開封・付属品つきは通常品と別の値段なので入れない（売れる額を大きく見せない。2026-10-28）"""
-    regular = [r for r in items if not art_variant.is_sealed(r.get("name", ""))]
+    regular = [r for r in items if not art_variant.row_is_sealed(r)]
     return max(regular, key=lambda x: x["price"]) if regular else None
 
 
@@ -5462,7 +5465,7 @@ def _build_buyback_done(results: list[dict]) -> dict:
             # 販売と同じく、カードラッシュの「…GREEN Ver.」は画面では 25thシークレット に寄せる（複製した行だけ）
             r["rarity"] = art_variant.display_rarity({**r, "rarity": normalize_rarity(r["rarity"])})
         # 未開封・付属品つきの印。画面の最高額は通常品で比べる（art_variant.is_sealed）
-        r["sealed"] = art_variant.is_sealed(r.get("name", ""))
+        r["sealed"] = art_variant.row_is_sealed(r)
     # by_rarity・by_shop は未開封も含めた最高額（画面は使っていない）
     by_rarity = {}
     for r in results:
