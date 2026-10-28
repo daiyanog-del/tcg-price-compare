@@ -28,8 +28,11 @@ const sandbox = {
   document: {
     getElementById: get,
     createElement: () => ({ set textContent(v) { this._t = String(v == null ? '' : v); }, get innerHTML() { return this._t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }, className: '', remove() {} }),
+    querySelector: () => null,
     querySelectorAll: () => [],
   },
+  // 店舗検索の進み具合のバー（2026-10-28）。この検証の対象外なので何もしない（検証は shop_busy_check.js）
+  SearchProgress: { create: () => ({ setShops() {}, start() {}, finish() {}, setBusy() {} }) },
   EventSource: FakeES,
   fetch(url) { return new Promise((resolve, reject) => fetches.push({ url, resolve, reject })); },
   setTimeout(fn) { const id = ++timerSeq; timers.set(id, fn); return id; },

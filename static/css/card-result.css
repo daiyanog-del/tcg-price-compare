@@ -21,6 +21,13 @@
 #mode-search .cr-best-shop{font-size:12px;color:var(--text-m)}
 #mode-search .cr-best-none{font-size:15px;font-weight:700;color:var(--text-m)}
 #mode-search .card-hero-meta{margin-top:2px;font-size:12px;line-height:1.7;color:var(--text-m)}
+/* 検索中の進み具合（search-progress.js）。先出しのカード欄では最安の行と同じ位置・高さに置き、結果に入れ替わっても下がずれない。
+   文言は控えめな色、バーは値段と主操作と同じ金（--accent）。店名・件数は出さない（2026-10-28） */
+#mode-search .search-prog{min-height:38px;max-width:260px;padding-top:4px;box-sizing:border-box}
+#mode-search .search-prog .sp-label{font-size:12px;line-height:1.5;color:var(--text-d)}
+#mode-search .search-prog .sp-track{height:4px;margin-top:8px;border-radius:2px;background:var(--border);overflow:hidden}
+#mode-search .search-prog .sp-fill{height:100%;border-radius:2px;background:var(--accent);transition:width .3s ease-out}
+@media(prefers-reduced-motion:reduce){#mode-search .search-prog .sp-fill{transition:none}}
 
 /* 操作はピルにそろえる（主操作だけ黄。マイデッキの見出しと同じ形） */
 #mode-search .cr-acts{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px;margin-top:12px}
@@ -92,7 +99,7 @@
 #mode-search .cr-buy-max b{margin:0 2px;font:600 16px var(--mono);color:var(--green)}
 #mode-search #buyInlineBody{padding:0 0 10px}
 #mode-search #buyInline .buy-inline-note{margin:4px 16px 0;font-size:12px}
-#mode-search #buyInline .progress{margin:0 16px 8px}
+#mode-search #buyInline .search-prog{margin:0 16px 8px;min-height:0}
 #mode-search #buyInline .empty{padding:4px 16px!important}
 #mode-search #buyInline .summary{display:block;margin:0}
 /* 行: 価格（右寄せ）・店名・レアリティと型番（出品一覧の行と同じ高さ・列） */
@@ -220,6 +227,7 @@ html.cr-fx-open,html.cr-fx-open body{overflow:hidden}
   #mode-search :is(.card-hero-name,.cr-best,.card-hero-meta){grid-column:2}
   #mode-search .card-hero-name{margin-bottom:4px;font-size:20px}
   #mode-search .cr-best{min-height:32px;gap:4px 8px}
+  #mode-search #searchPreview .search-prog{grid-column:2;min-height:32px}
   #mode-search .cr-best-price{font-size:24px}
   #mode-search .card-hero-info>.card-info-details{grid-column:1/-1}
   #mode-search .cr-acts{grid-column:1/-1;margin-top:12px}

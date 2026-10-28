@@ -189,8 +189,6 @@ function showUnreleasedCard(name,tcgPreview){
   _newSearchGen();
   const btn=document.getElementById('btn');
   if(btn){btn.disabled=false;btn.textContent='検索';}
-  const prog=document.getElementById('prog');
-  if(prog) prog.style.display='none';
   document.getElementById('q').value=name;
   _updateUrl(name,'search');
 
@@ -489,6 +487,7 @@ function _prefetchCardImage(name){
 function _showSearchPreview(name){
   const box=document.getElementById('searchPreview');
   if(!box)return;
+  box.querySelectorAll('.search-prog').forEach(el=>el.remove()); // 前の検索の進み具合のバー
   document.getElementById('searchPreviewImg').innerHTML='';
   document.getElementById('searchPreviewName').textContent=name;
   box.hidden=false;
@@ -632,24 +631,6 @@ function doSearch(opts){
   const tbody=document.getElementById('tbody');
   if(tbody) tbody.innerHTML='';
 
-  // 検索対象店舗はサーバ側の既定（DEFAULT_SHOPS）が決める。フロントはトグルUIから
-  // 店舗集合を組み立てず、SSEで届くprogress/shop_doneイベントに合わせて進捗行を
-  // その場で作る（#buyInlineのstep()と同じ方式。1箇所＝サーバに一本化）。
-  const prog=document.getElementById('prog');
-  prog.innerHTML='';
-  prog.style.display='flex';
-  function _searchProgStep(shop){
-    let el=document.getElementById('s-'+shop);
-    if(!el){
-      el=document.createElement('div');
-      el.className='pstep';
-      el.id='s-'+shop;
-      el.innerHTML=`<span class="pname">${esc(shop)}</span><span class="pstat">待機中</span>`;
-      prog.appendChild(el);
-    }
-    return el;
-  }
-
   SearchStatus.show({});
   D=[];rarityFilter='';artFilter='';tableShowCount=TABLE_PAGE_SIZE;
   _resetBuyInline(); // C-2: 新しい検索をしたら買取セクションは閉じた未取得状態に戻す（前のカードの買取価格が残ると誤情報になるため）
@@ -662,6 +643,9 @@ function doSearch(opts){
   if(gen!==_searchGen) return;
 
   _prefetchCardImage(q); // カードの画像を検索と並行して読み始める（renderAll が使う）
+  // 進み具合は先出しのカード欄の名前の下にバー1本で出す（先出しの欄と一緒に消える）。
+  // 調べる店はサーバ側の既定（DEFAULT_SHOPS）が決め、SSE の shops で届く
+  const prog=SearchProgress.create(document.querySelector('#searchPreview .card-hero-info'),'各店の価格を確認中');
   // メルカリ参考相場は店舗検索と並行して取得し、店舗検索の途中でもパネルを出す（レアリティは店舗結果が揃うまで「確認中」）
   // 取得はこの検索SSEの最初のイベント受信時に1回だけ開始する（/api/search が429等で失敗した検索・即破棄された検索では呼ばない）。
   // 名前の補正は /api/mercari がサーバー側で /api/search と同じ補正をかけるので、補正イベントでの取り直しはしない
@@ -679,7 +663,6 @@ function doSearch(opts){
     if(gen!==_searchGen) return; // 世代管理: 別カードの検索で世代が進んでいたら無視
     _mercariPending=false;if(window.MercariRef) MercariRef.clear();
     es.close();_searchES=null;_searchTimeoutId=null;btn.disabled=false;btn.textContent='検索';
-    prog.style.display='none';
     _hideSearchPreview();
     document.getElementById('empty').classList.remove('hidden');
     // Q-10: #emptyのinnerHTML全置換をやめ、専用要素だけを書き換える（ランキングDOMを壊さない）
@@ -701,7 +684,7 @@ function doSearch(opts){
         document.getElementById('emptyError').textContent='店舗検索が混雑しています。時間をおいて再度お試しください。';
         return;
       }
-      _searchBusyStep(prog,true);
+      prog.setBusy(true);
       _searchTimeoutId=setTimeout(()=>{ if(gen===_searchGen) _openSearchStream(busyTries+1); },ShopBusy.retryMs(d.retry_after));
       return;
     }
@@ -712,38 +695,28 @@ function doSearch(opts){
       if(window.PriceTrend){ trendName=q; PriceTrend.load(q); }
     }
     if(d.type==='shops'){
-      // 調べる店の一覧（サーバーが最初に送る）。進み具合の札を全店ぶん「待機中」で先に並べる。
-      // 届くたびに1枚ずつ足すと、既存の札が細くなって店名が折り返し、画面がずれていた（2026-10-22）
-      _searchBusyStep(prog,false);
-      (d.shops||[]).forEach(s=>_searchProgStep(s));
+      // 調べる店の一覧（サーバーが最初に送る）。バーの分母にする
+      prog.setBusy(false);
+      prog.setShops(d.shops);
     }else if(d.type==='corrected'){
       // カード名が自動補正された場合、検索欄を更新して通知
       document.getElementById('q').value=d.corrected;
       const notice=document.createElement('div');
       notice.className='correct-notice';
       notice.textContent='「'+d.original+'」→「'+d.corrected+'」に補正して検索しました';
-      const prog=document.getElementById('prog');
-      prog.parentNode.insertBefore(notice,prog);
+      const preview=document.getElementById('searchPreview');
+      preview.parentNode.insertBefore(notice,preview.nextSibling);
       setTimeout(()=>notice.remove(),8000);
     }else if(d.type==='progress'){
-      const el=_searchProgStep(d.shop);
-      el.className='pstep searching';el.querySelector('.pstat').textContent='検索中...';
+      prog.start(d.shop);
     }else if(d.type==='waiting'){
-      // 店舗の取得口の順番待ち（数秒ごとに届く）。まだ順番が来ていない店だけ「順番待ち」にする
-      _searchMarkQueued(prog,d.queued_shops||[]);
-    }else if(d.type==='shop_done'){
-      const el=_searchProgStep(d.shop);
-      if(d.status==='busy'){
-        // 混雑で順番が回ってこなかった店。前回の結果があればそれを出している
-        el.className='pstep error';el.querySelector('.pstat').textContent=d.count?'混雑・前回の'+d.count+'件':'混雑で取得できず';
-      }else{
-      el.className=d.status==='partial'?'pstep error':'pstep done';el.querySelector('.pstat').textContent=d.status==='partial'?(d.count?d.count+'件・一部失敗':'取得失敗'):d.count+'件'+(d.cached?' (cache)':'');
-      }
+      // 店舗の取得口の順番待ち（数秒ごとに届く）。まだ順番が来ていない店があるあいだは文言を「順番待ち」にする
+      prog.setBusy((d.queued_shops||[]).length>0);
+    }else if(d.type==='shop_done'||d.type==='shop_error'){
+      // 取れなかった店（混雑・一部失敗・エラー）も完了後に SearchStatus がまとめて書くので、ここでは進みだけ数える。
       // 結果の表は全店そろった done で一度だけ描く（店舗ごとに描き直すと、並べ替えと後から入る
-      // カード画像・集計で表が上下に跳ねるため。2026-10-16 ユーザー裁定）。途中は上の進捗行で件数だけ見せる
-    }else if(d.type==='shop_error'){
-      const el=_searchProgStep(d.shop);
-      el.className='pstep error';el.querySelector('.pstat').textContent=d.busy?'混雑':'エラー';
+      // カード画像・集計で表が上下に跳ねるため。2026-10-16 ユーザー裁定）
+      prog.finish(d.shop);
     }else if(d.type==='done'){
       clearTimeout(_searchTimeoutId);_searchTimeoutId=null;
       es.close();_searchES=null;D=d.results;
@@ -763,8 +736,7 @@ function doSearch(opts){
       }
       btn.disabled=false;btn.textContent='検索';
       _setSearchLayout(d.total>0);
-      prog.style.display='none'; // 結果と同じフレームで消す（遅らせて消すと表示済みの結果が上へずれる）
-      _hideSearchPreview(); // 先出しの欄も同じフレームで隠す（同じ位置に本物のカードの欄が出る）
+      _hideSearchPreview(); // 先出しの欄（進み具合のバーを含む）は結果と同じフレームで隠す（同じ位置に本物のカードの欄が出る）
     }
   };
   es.onerror=()=>{
@@ -772,7 +744,6 @@ function doSearch(opts){
     clearTimeout(_searchTimeoutId);_searchTimeoutId=null;
     es.close();_searchES=null;btn.disabled=false;btn.textContent='検索';
     _mercariPending=false;if(window.MercariRef) MercariRef.clear();
-    prog.style.display='none';
     _hideSearchPreview();
     document.getElementById('empty').classList.remove('hidden');
     const _errEl2=document.getElementById('emptyError');
@@ -782,26 +753,6 @@ function doSearch(opts){
   };
   };
   _openSearchStream(0);
-}
-// 混雑応答のあいだ、進み具合の欄に「順番待ち」の札を1枚出す（show=false で消す。店の札が並んだら消える）
-function _searchBusyStep(prog,show){
-  let el=document.getElementById('searchBusyStep');
-  if(!show){ if(el) el.remove(); return; }
-  if(!el){
-    el=document.createElement('div');
-    el.id='searchBusyStep';
-    el.className='pstep searching';
-    el.innerHTML='<span class="pname">順番待ち</span><span class="pstat"></span>';
-    prog.appendChild(el);
-  }
-  el.querySelector('.pstat').textContent=ShopBusy.WAIT_TEXT;
-}
-// 取得中の店の札を「順番待ち」と「検索中...」に振り分ける（取得口の順番が来たら検索中に戻る）
-function _searchMarkQueued(prog,queued){
-  prog.querySelectorAll('.pstep.searching').forEach(el=>{
-    if(!el.id||el.id.indexOf('s-')!==0) return;
-    el.querySelector('.pstat').textContent=queued.includes(el.id.slice(2))?'順番待ち':'検索中...';
-  });
 }
 // ── Autocomplete ──
 const qInput=document.getElementById('q');
@@ -1172,8 +1123,9 @@ function _fetchBuyInline(trigger,busyTries){
   _buyInlineFetchInFlight=true;
   _buyInlineFailedShops=[];
   const body=document.getElementById('buyInlineBody');
-  body.innerHTML='<div class="progress on" id="buyInlineProg"></div>';
-  const prog=document.getElementById('buyInlineProg');
+  body.innerHTML='';
+  // 進み具合は販売の検索と同じバー1本（店ごとの札は出さない）。買取の SSE は店の一覧を送らないので progress で数える
+  const prog=SearchProgress.create(body,'各店の買取価格を確認中');
   // G-2: search_submitに合算計上（カード名は送らない）。U-1: 再試行ボタン経由（引数無し）は
   // 従来通り'inline'扱いのまま（既存の意味を壊さない）。混雑で取り直す分（busyTries>0）は数えない
   busyTries=busyTries||0;
@@ -1181,21 +1133,6 @@ function _fetchBuyInline(trigger,busyTries){
   // confirmed=true: 既にsell側の検索で存在確認済みのカード名のため/api/validateを再度挟まない
   const es=new EventSource('/api/buyback?q='+encodeURIComponent(name)+'&confirmed=true');
   _buyInlineES=es;
-  function step(shop){
-    let el=document.getElementById('bi-'+shop);
-    if(!el){
-      el=document.createElement('div');
-      el.className='pstep';
-      el.id='bi-'+shop;
-      const pname=document.createElement('span');
-      pname.className='pname';pname.textContent=shop;
-      const pstat=document.createElement('span');
-      pstat.className='pstat';pstat.textContent='待機中';
-      el.appendChild(pname);el.appendChild(pstat);
-      prog.appendChild(el);
-    }
-    return el;
-  }
   function fail(){
     if(gen!==_buyInlineGen) return; // J-1: resetや別カードのfetchで世代が進んでいたら無視
     es.close();_buyInlineFetchInFlight=false;_buyInlineES=null;_buyInlineTimeoutId=null;
@@ -1211,7 +1148,7 @@ function _fetchBuyInline(trigger,busyTries){
       // 待っている間も _buyInlineFetchInFlight は true のまま（欄を開き直しても二重に取りに行かない）
       clearTimeout(_buyInlineTimeoutId);_buyInlineTimeoutId=null;es.close();_buyInlineES=null;
       if(busyTries+1>=ShopBusy.MAX_TRIES){ _buyInlineFetchInFlight=false; _renderBuyInlineError('店舗検索が混雑しています。'); return; }
-      prog.textContent=ShopBusy.WAIT_TEXT;
+      prog.setBusy(true);
       _buyInlineTimeoutId=setTimeout(()=>{
         if(gen!==_buyInlineGen) return; // 別のカードに移った（_resetBuyInline が目印も戻している）
         _buyInlineFetchInFlight=false; _fetchBuyInline(trigger,busyTries+1);
@@ -1219,17 +1156,13 @@ function _fetchBuyInline(trigger,busyTries){
       return;
     }
     if(d.type==='progress'){
-      const el=step(d.shop);el.className='pstep searching';el.querySelector('.pstat').textContent='検索中...';
+      prog.start(d.shop);
     }else if(d.type==='waiting'){
-      prog.querySelectorAll('.pstep.searching').forEach(el=>{
-        el.querySelector('.pstat').textContent=(d.queued_shops||[]).includes(el.id.slice(3))?'順番待ち':'検索中...';
-      });
+      prog.setBusy((d.queued_shops||[]).length>0);
     }else if(d.type==='shop_done'){
-      const el=step(d.shop);
-      if(d.status==='busy'){ el.className='pstep error';el.querySelector('.pstat').textContent=d.count?'混雑・前回の'+d.count+'件':'混雑で取得できず'; }
-      else{ el.className=d.status==='partial'?'pstep error':'pstep done';el.querySelector('.pstat').textContent=d.status==='partial'?(d.count?d.count+'件・一部失敗':'取得失敗'):d.count+'件'+(d.cached?' (cache)':''); }
+      prog.finish(d.shop);
     }else if(d.type==='shop_error'){
-      const el=step(d.shop);el.className='pstep error';el.querySelector('.pstat').textContent=d.busy?'混雑':'エラー';
+      prog.finish(d.shop);
       _buyInlineFailedShops.push(d.shop);
     }else if(d.type==='done'){
       clearTimeout(_buyInlineTimeoutId);_buyInlineTimeoutId=null;es.close();_buyInlineFetchInFlight=false;_buyInlineES=null;
@@ -2205,7 +2138,6 @@ function _resetSearchView(searching){
   document.getElementById('results').classList.add('hidden');
   document.getElementById('empty').classList.toggle('hidden',!!searching);
   document.getElementById('emptyError').classList.add('hidden');
-  document.getElementById('prog').style.display='none';
   _setSearchLayout(!!searching);
 }
 // 未発売カード一覧ページ（/new-cards）・海外先行カード一覧（/tcg-preview）の表示状態。ランキング等のトップ要素を隠し、一覧を主役にする。
