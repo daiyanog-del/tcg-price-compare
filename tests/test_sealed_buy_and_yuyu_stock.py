@@ -123,7 +123,14 @@ def test_buy_page_best_price_ignores_sealed(monkeypatch):
     assert "最高買取額¥25,000" in html and "45,000" not in html
 
 
-def test_buyback_movers_do_not_compare_before_sealed_switch(monkeypatch):
+@pytest.mark.parametrize("today,cutoff", [
+    ("2026-10-28", "2026-10-25"),  # 切り替え日より前: 新旧どちらも外す前の記録同士なので今までどおり（3日前から）
+    ("2026-10-29", "2026-10-29"),  # 切り替え日: 前の日とは比べない（この日だけランキングが空）
+    ("2026-10-30", "2026-10-29"),
+    ("2026-11-05", "2026-11-02"),  # 3日たてば今までどおり
+])
+def test_buyback_movers_do_not_compare_across_sealed_switch(monkeypatch, today, cutoff):
+    import datetime as dt
     import app as app_module
 
     called = {}
@@ -137,7 +144,13 @@ def test_buyback_movers_do_not_compare_before_sealed_switch(monkeypatch):
             called.update(params)
             return _Rpc()
 
+    class _FixedDatetime(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return dt.datetime.fromisoformat(today + "T12:00:00").replace(tzinfo=tz)
+
+    assert app_module._BUYBACK_SEALED_EXCLUDED_FROM == "2026-10-29"
+    monkeypatch.setattr(app_module, "datetime", _FixedDatetime)
     monkeypatch.setattr(app_module, "_supabase_client", _Sb())
     app_module._fetch_buyback_movers_from_db()
-    assert called["cutoff_date"] >= app_module._BUYBACK_SEALED_EXCLUDED_FROM
-
+    assert called["cutoff_date"] == cutoff
