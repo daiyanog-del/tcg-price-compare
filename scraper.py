@@ -783,6 +783,12 @@ def scrape_yuyu(card_name: str) -> list[dict]:
         stock_text = stock_label.get_text(strip=True) if stock_label else ""
         stock_match = re.search(r"(\d+)\s*点", stock_text)
         stock = int(stock_match.group(1)) if stock_match else 0
+        if not stock and not sold_out:
+            # 在庫が多いと「在庫 : ◯」で数字を出さない。カートの上限（input.cart_limit）が在庫数と同じ
+            # （「N点」と出る商品で全件一致を確認。2026-10-28）
+            limit_el = card.select_one("input.cart_limit")
+            limit_text = (limit_el.get("value", "") if limit_el else "").strip()
+            stock = int(limit_text) if limit_text.isdigit() else 0
 
         is_sale = "sale" in classes
 

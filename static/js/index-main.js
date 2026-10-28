@@ -1307,7 +1307,8 @@ function _applyBuyMaxToD(){
     for(const r of D){ r.buyMax=null; r.buyMaxShop=null; }
     return;
   }
-  const validBuys=_buyInlineD.filter(b=>_looksLikeCardCode(b.code));
+  // 未開封・付属品つき（b.sealed）は通常品と別の値段なので、この型番の最高買取に入れない（2026-10-28）
+  const validBuys=_buyInlineD.filter(b=>_looksLikeCardCode(b.code)&&!b.sealed);
   for(const r of D){
     if(!_looksLikeCardCode(r.code)){ r.buyMax=null; r.buyMaxShop=null; continue; }
     const matches=validBuys.filter(b=>b.code===r.code&&b.rarity===r.rarity);
@@ -1349,15 +1350,21 @@ function _renderBuyInline(){
   // 「先頭行（最高額）と同じ型番」の行にだけ出す（型番が違えば別物のため、別型番同士の
   // 引き算を表示しない）。先頭行の型番が「型番らしい形」を通らないときは、どの行にも出さない
   // X-1: BESTバッジは「先頭行＝最高額」の印であって型番の一致は無関係（型番一致は差額表示のみの条件）
-  const byShop={};
-  for(const r of filtered){ if(!byShop[r.shop]||r.price>byShop[r.shop].price) byShop[r.shop]=r; }
-  const sortedShops=Object.values(byShop).sort((a,b)=>b.price-a.price);
+  // 未開封・付属品つき（r.sealed）は通常品と別に見る。店の最高額は通常品で比べ、未開封のほうが高ければ添える。
+  // 未開封しか無い店は「未開封」の札を付けて後ろに並べ、最高額の印・差額は付けない（2026-10-28 ユーザー決定）
+  const byShop={},sealedByShop={};
+  for(const r of filtered){
+    const m=r.sealed?sealedByShop:byShop;
+    if(!m[r.shop]||r.price>m[r.shop].price) m[r.shop]=r;
+  }
+  const sortedShops=Object.values(byShop).sort((a,b)=>b.price-a.price)
+    .concat(Object.values(sealedByShop).filter(r=>!byShop[r.shop]).sort((a,b)=>b.price-a.price));
   const maxPrice=sortedShops[0].price;
-  const topCode=_looksLikeCardCode(sortedShops[0].code)?sortedShops[0].code:null;
+  const topCode=_looksLikeCardCode(sortedShops[0].code)&&!sortedShops[0].sealed?sortedShops[0].code:null;
   let cardsHtml='';
   sortedShops.forEach((item,i)=>{
-    const sameCode=!!topCode&&item.code===topCode;
-    const isBest=rarityActive&&i===0;
+    const sameCode=!!topCode&&item.code===topCode&&!item.sealed;
+    const isBest=rarityActive&&i===0&&!item.sealed;
     // アフィリエイト: リンクはaffLink()を使うが、トラッキングピクセルaffPixel()はここでは発火させない
     // （レアリティ切替のたびにこの関数が再実行されるため。第1弾F-2で潰した重複発火の再発防止）
     const itemUrl=affLink(item.url,item.shop,'buy');
@@ -1377,14 +1384,19 @@ function _renderBuyInline(){
     const codeStr=_looksLikeCardCode(item.code)?`・${esc(item.code)}`:'';
     // カード名は同じ名前をくり返さず、イラスト違いなど名前が違うときだけ出す（一覧の札と同じ）
     const variant=_variantLabel(item.name,_currentCardName);
+    // 同じ店の未開封・付属品つきが通常品より高いときだけ、その値段を添える（未開封しか無い店はその行自体に札）
+    const sealed=sealedByShop[item.shop];
+    const sealedNote=item.sealed?'・未開封・付属品つき':(sealed&&sealed.price>item.price?`・未開封・付属品つきは¥${sealed.price.toLocaleString()}`:'');
     cardsHtml+=`<div class="scard${isBest?' best':''} fin"><div class="slabel">${esc(item.shop)}${isAff?AFF_PR_BADGE:''}</div>
       <div class="sprice" style="color:var(--green)">${priceLink}${bestBadge}<span class="sdiff">${diff}</span></div>
-      <div class="sdetail">${esc(item.rarity||'-')}${condStr}${codeStr}${variant?'・'+esc(variant):''}</div></div>`;
+      <div class="sdetail">${esc(item.rarity||'-')}${condStr}${codeStr}${variant?'・'+esc(variant):''}${sealedNote}</div></div>`;
   });
 
   body.innerHTML=`${conditionNote}<div class="summary">${cardsHtml}</div>${_buyInlineNotes()}`;
   // H-1 と同じ理由で、「すべて」のときは最高額と言い切らず見出しに出さない
-  _setBuyInlineHead(rarityActive?{rarity:rarityFilter,price:sortedShops[0].price,shop:sortedShops[0].shop}:{rarity:'',price:null,note:'レアリティを選ぶと最高額を表示します'});
+  const head=sortedShops[0].sealed?null:sortedShops[0]; // 未開封しか無いときは「最高額」と言い切らない
+  _setBuyInlineHead(rarityActive&&head?{rarity:rarityFilter,price:head.price,shop:head.shop}
+    :{rarity:rarityActive?rarityFilter:'',price:null,note:rarityActive?'通常品の買取は見つかりませんでした':'レアリティを選ぶと最高額を表示します'});
 }
 
 // F-5/F-14: ヒーローの最安値表示・売切件数バッジをrarityFilterに合わせて再計算する

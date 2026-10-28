@@ -151,6 +151,26 @@ run(`_renderBuyInline()`);
 h = get('buyInlineBody').innerHTML;
 assert(!h.includes('aff-note') && !h.includes('aff-pr') && !h.includes('sponsored'));
 
+// 4b) 未開封・付属品つき（sealed）は店の最高額・見出しの最高額に入れず、高ければ添える。未開封しか無い店は札を付けて後ろ（2026-10-28）
+run(`_affConfig={}; rarityFilter='ウルトラ'; _buyInlineD=[
+  {shop:'カードラッシュ',name:'ブラックマジシャン',price:25000,rarity:'ウルトラ',code:'AB-JP001',condition:'-',url:'',sealed:false},
+  {shop:'カードラッシュ',name:'(未開封)ブラックマジシャン',price:45000,rarity:'ウルトラ',code:'AB-JP001',condition:'-',url:'',sealed:true},
+  {shop:'遊々亭',name:'ブラックマジシャン',price:24000,rarity:'ウルトラ',code:'AB-JP001',condition:'-',url:'',sealed:false},
+  {shop:'カードラボ',name:'(未開封)ブラックマジシャン',price:50000,rarity:'ウルトラ',code:'AB-JP001',condition:'-',url:'',sealed:true}];
+  _renderBuyInline()`);
+h = get('buyInlineBody').innerHTML;
+assert.equal(get('buyInlineHead').innerHTML, '<span class="cr-buy-t">ウルトラの買取価格</span><span class="cr-buy-max">最高 <b>¥25,000</b> カードラッシュ</span>', '最高額は通常品');
+assert(h.indexOf('カードラッシュ') < h.indexOf('遊々亭') && h.indexOf('遊々亭') < h.indexOf('カードラボ'), '未開封しか無い店は後ろ');
+assert(h.includes('・未開封・付属品つきは¥45,000'), '同じ店の未開封が高ければ添える');
+assert.equal(count(h, 'sbest-badge'), 1);
+assert(!/カードラボ[\s\S]*最高額/.test(h), '未開封しか無い店に最高額の印を付けない');
+// 未開封しか無いレアリティは「最高額」と言い切らない
+run(`_buyInlineD=_buyInlineD.filter(r=>r.sealed); _renderBuyInline()`);
+assert.equal(get('buyInlineHead').innerHTML, '<span class="cr-buy-t">ウルトラの買取価格</span><span class="cr-buy-max">通常品の買取は見つかりませんでした</span>');
+assert.equal(count(get('buyInlineBody').innerHTML, 'sbest-badge'), 0);
+run(`rarityFilter=''; _buyInlineD=null`);
+setData();
+
 // 5) 出品一覧のすべて
 run(`_affConfig={'カーナベル':{sell:'dummyA8'},'駿河屋':{user_id:'9999'}}`);
 run(`listView='all'; renderTable()`);

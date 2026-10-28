@@ -166,3 +166,14 @@ def display_rarity(row: dict) -> str:
     if rarity.startswith("クォーターセンチュリーシークレット") and re.search(r"GREEN\s*Ver|PINK\s*Ver", rarity, re.IGNORECASE):
         return "25thシークレット"
     return rarity
+
+
+# 未開封・付属品つきの商品（(未開封)・(封筒付き未開封)・(当選通知書付き、ダンボール付き)・(台紙、封筒付き)・《未開封》 など）
+_SEALED_RE = re.compile(r"未開封|[(（][^()（）]*付き[^()（）]*[)）]")
+
+
+def is_sealed(product_name: str) -> bool:
+    """未開封・付属品つきの商品か。買取の最高額（記録・値動き・画面の最高額）は通常品で比べるため、これを外す（2026-10-28 ユーザー決定）。
+    例: カードラッシュの 25TH-JP001 は通常品 25,000円・付属品つき未開封 45,000円で、最高額が 45,000円として記録されていた"""
+    return bool(_SEALED_RE.search(product_name or ""))
+

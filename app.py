@@ -1853,7 +1853,7 @@ def _api_deck_buy_stream(card_entries, selected, active_shops):
         cached_map, missing = buyback_cache_get_shops(card_name, selected)
         cached_items = [r for rs in cached_map.values() for r in rs]
         if not missing:
-            best = max(cached_items, key=lambda x: x["price"]) if cached_items else None
+            best = _best_buy_item(cached_items)
             return {"type": "card_done", "index": i, "name": card_name,
                     "best": best, "count": len(cached_items), "cached": True,
                     **search_coverage(selected, cached_map, cached_items)}
@@ -1888,7 +1888,7 @@ def _api_deck_buy_stream(card_entries, selected, active_shops):
         for shop_name in busy_shops:
             stale_items.extend(_stale_shop_fallback(buyback_cache_get_shops_stale, card_name, shop_name)[0])
         all_items = cached_items + scraped_items + stale_items
-        best = max(all_items, key=lambda x: x["price"]) if all_items else None
+        best = _best_buy_item(all_items)
         return {"type": "card_done", "index": i, "name": card_name,
                 "best": best, "count": len(all_items),
                 **search_coverage(selected, set(cached_map) | set(scraped_ok), all_items),
@@ -5447,12 +5447,23 @@ def _sse(data: dict) -> str:
     return f"data: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
 
 
+def _best_buy_item(items: list[dict]) -> dict | None:
+    """デッキ買取の1枚の最高値。未開封・付属品つきは通常品と別の値段なので入れない（売れる額を大きく見せない。2026-10-28）"""
+    regular = [r for r in items if not art_variant.is_sealed(r.get("name", ""))]
+    return max(regular, key=lambda x: x["price"]) if regular else None
+
+
 def _build_buyback_done(results: list[dict]) -> dict:
     """買取価格比較用の完了メッセージ（高い順）"""
+    results = [dict(r) for r in results]
     # API境界でレアリティを正準名に統合（過渡期の分裂値を吸収）
     for r in results:
         if r.get("rarity"):
-            r["rarity"] = normalize_rarity(r["rarity"])
+            # 販売と同じく、カードラッシュの「…GREEN Ver.」は画面では 25thシークレット に寄せる（複製した行だけ）
+            r["rarity"] = art_variant.display_rarity({**r, "rarity": normalize_rarity(r["rarity"])})
+        # 未開封・付属品つきの印。画面の最高額は通常品で比べる（art_variant.is_sealed）
+        r["sealed"] = art_variant.is_sealed(r.get("name", ""))
+    # by_rarity・by_shop は未開封も含めた最高額（画面は使っていない）
     by_rarity = {}
     for r in results:
         key = r.get("rarity") or "(不明)"
