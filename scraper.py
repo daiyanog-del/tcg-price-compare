@@ -17,6 +17,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from pathlib import Path
 from rarity import normalize_rarity  # 正規化は rarity.py に一元化
+from art_variant import is_sealed  # 買取の未開封・付属品つき（名前を加工する前に見る）
 from card_code import infer_codes  # 型番の店舗間補完（カーナベル/トレコロCB）
 from shop_status import SUSPENDED_SHOPS, is_suspended  # 店の一時休止
 
@@ -783,6 +784,12 @@ def scrape_yuyu(card_name: str) -> list[dict]:
         stock_text = stock_label.get_text(strip=True) if stock_label else ""
         stock_match = re.search(r"(\d+)\s*点", stock_text)
         stock = int(stock_match.group(1)) if stock_match else 0
+        if not stock and not sold_out:
+            # 在庫が多いと「在庫 : ◯」で数字を出さない。カートの上限（input.cart_limit）が在庫数と同じ
+            # （「N点」と出る商品で全件一致を確認。2026-10-28）
+            limit_el = card.select_one("input.cart_limit")
+            limit_text = (limit_el.get("value", "") if limit_el else "").strip()
+            stock = int(limit_text) if limit_text.isdigit() else 0
 
         is_sale = "sale" in classes
 
@@ -2202,6 +2209,8 @@ def scrape_torecolo_buy(card_name: str, max_pages: int = 3,
                 "rarity": normalize_rarity(rarity), "code": code,
                 "condition": "-", "price": price, "stock": 1,
                 "sold_out": False, "url": product_url, "image": image_url,
+                # 【…】（…）を消す前の商品名で、未開封・付属品つきかを見る（買取の最高額から外す。art_variant.is_sealed）
+                "sealed": is_sealed(name),
             })
 
         next_link = soup.select_one("a[href*='p=%d']" % (page + 1))
@@ -2287,6 +2296,8 @@ def scrape_clabo_buy(card_name: str, require_game_tag: bool = True) -> list[dict
             "rarity": normalize_rarity(rarity), "code": code,
             "condition": "-", "price": price, "stock": 1,
             "sold_out": sold_out, "url": product_url, "image": image_url,
+            # 【…】を消す前の商品名で、未開封・付属品つきかを見る（買取の最高額から外す。art_variant.is_sealed）
+            "sealed": is_sealed(raw_name),
         })
 
     return results
