@@ -133,3 +133,17 @@ def test_scrape_torecolo_reads_stock_count(monkeypatch):
         ("RC04-JP009HR", 3, False),
         ("20TH-JPC8520SE", 0, True),
     ]
+    # 一覧の src は遅延読み込みの仮画像。本物の data-src を読む
+    assert [r["image"] for r in rows] == [
+        "https://www.torecolo.jp/img/goods/L/RC04-JP009HR.jpg",
+        "https://www.torecolo.jp/img/goods/L/20TH-JPC8520SE.jpg",
+    ]
+
+
+def test_torecolo_image_url_skips_placeholder():
+    def img(html):
+        return BeautifulSoup(html, "html.parser").img
+
+    assert scraper._torecolo_image_url(img('<img src="/img/usr/lazyloading.png"/>')) == ""
+    assert scraper._torecolo_image_url(img('<img src="/img/goods/L/A.jpg"/>')) == "https://www.torecolo.jp/img/goods/L/A.jpg"
+    assert scraper._torecolo_image_url(None) == ""
