@@ -18,16 +18,26 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import pytest
+
 import admin_unreleased as admin_module
 import reconcile_unreleased as target
+from frozen_clock import freeze_now
 
 # reconcile 側は JST 基準で「今日」を判定する。テストも同じ基準で相対日付を作る
-# （UTC 環境の UTC15〜24時に date.today() とずれて境界テストが落ちるのを防ぐ）
-_TODAY = datetime.now(target.JST).date()
+# （UTC 環境の UTC15〜24時に date.today() とずれて境界テストが落ちるのを防ぐ）。
+# 収集と実行のあいだに JST の0時をまたいでもずれないよう、本体の時計をこの時刻に固定する
+_NOW = datetime.now(target.JST)
+_TODAY = _NOW.date()
 FUTURE = (_TODAY + timedelta(days=30)).isoformat()
 PAST = (_TODAY - timedelta(days=30)).isoformat()
 DAYS_6_AGO = (_TODAY - timedelta(days=6)).isoformat()
 DAYS_7_AGO = (_TODAY - timedelta(days=7)).isoformat()
+
+
+@pytest.fixture(autouse=True)
+def _freeze_reconcile_clock(monkeypatch):
+    freeze_now(monkeypatch, target, _NOW)
 
 
 # ──────────────────────────────────────────────
