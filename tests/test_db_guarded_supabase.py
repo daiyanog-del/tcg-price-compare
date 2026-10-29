@@ -560,7 +560,7 @@ def test_buyback_abort_in_cleanup_reports_post(monkeypatch, harness):
                         lambda sb: [{"card_name": n, "last_collected_at": None} for n in names])
     monkeypatch.setattr(cb, "BUYBACK_SHOPS", [("カードラッシュ", None)])
     monkeypatch.setattr(cb, "SKIP_BUYBACK_SHOPS_IN_CI", set())
-    monkeypatch.setattr(cb, "check_shop_availability", lambda shops: list(shops))
+    monkeypatch.setattr(cb, "check_shop_availability", lambda shops, urls=None: list(shops))
 
     def fake_buyback(card_name, shop_names=None, status_out=None):
         if status_out is not None:

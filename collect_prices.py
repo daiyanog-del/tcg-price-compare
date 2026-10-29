@@ -69,19 +69,32 @@ SHOP_HEALTH_URLS = {
 }
 
 
-def check_shop_availability(shop_names: list[str]) -> list[str]:
-    """各店舗に接続確認し、応答した店舗名のリストを返す（失敗店舗は当日スキップ）"""
+def check_shop_availability(shop_names: list[str], health_urls: dict[str, str] | None = None) -> list[str]:
+    """各店舗に接続確認し、応答した店舗名のリストを返す（失敗店舗は当日スキップ）
+
+    health_urls は確認先の上書き。買取のようにスクレイパーが販売と別のドメインへ行く収集は、
+    そのドメインを渡す（SHOP_HEALTH_URLS の注意書きと同じ理由）。
+    """
     import requests as _req
     headers = {"User-Agent": "Mozilla/5.0 (compatible; TCGYMBot/1.0)"}
+    urls = health_urls if health_urls is not None else SHOP_HEALTH_URLS
     available = []
     for name in shop_names:
-        url = SHOP_HEALTH_URLS.get(name)
+        url = urls.get(name)
         if not url:
             available.append(name)
             continue
         try:
-            resp = _req.get(url, timeout=5, headers=headers, stream=True)
-            resp.close()
+            try:
+                resp = _req.get(url, timeout=5, headers=headers, stream=True)
+                resp.close()
+            except _req.RequestException:
+                # 一度のタイムアウト・接続失敗でその日の収集をまるごと落とさないよう、少し待って1回取り直す
+                # （2026-10 に買取のカードラッシュが9日、1回のタイムアウトで丸ごと飛ばされていた）。
+                # 取り直しは実際の取得と同じくらい待つ（safe_get の既定は15秒・買取のカードラッシュは20秒。トップが12秒かかる時がある）
+                time.sleep(5)
+                resp = _req.get(url, timeout=15, headers=headers, stream=True)
+                resp.close()
             if resp.status_code >= 500:
                 # 一瞬の 502/503 でその日の収集をまるごと落とさないよう、5xx だけ少し待って1回取り直す
                 time.sleep(5)
