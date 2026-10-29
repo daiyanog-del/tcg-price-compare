@@ -48,22 +48,6 @@ body.sol-recview .sol-field-area { padding-top: calc(var(--sol-rec-band-h) + 8px
   font-variant-numeric: tabular-nums;
 }
 
-.sol-rec-deck {
-  flex: none;
-  padding: 3px 12px; border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--bg-card); color: var(--main-color);
-  font-size: 0.9rem; font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-/* components.css の汎用 `p, span, li { color:#333 }` が当たるので、数字に直接色を付ける */
-.sol-rec-deck-count { color: var(--main-color); }
-/* 山札との演出の間だけ光らせる（replay-service.js _pulseDeckBtn。PC の録画用の表示の帯の札） */
-@keyframes solRecDeckPulse {
-  0%, 100% { box-shadow: none; }
-  50% { box-shadow: 0 0 0 3px var(--accent); background: var(--accent); color: #fff; }
-}
-.sol-rec-deck.sol-pulse { animation: solRecDeckPulse 0.4s ease-in-out; }
 
 .sol-rec-progress {
   position: fixed; left: 0; bottom: 0; z-index: 1100;
@@ -135,7 +119,6 @@ body.sol-recview .sol-field-area { padding-top: calc(var(--sol-rec-band-h) + 8px
   .sol-rec-logo { height: 24px; }
   .sol-rec-title { font-size: 0.95rem; }
   .sol-rec-count { padding: 3px 10px; font-size: 0.75rem; }
-  .sol-rec-deck { padding: 2px 8px; font-size: 0.72rem; }
   .sol-rec-controls { left: 12px; right: 12px; justify-content: center; }
 
   /* 高さが足りない縦向きスマホ（main.js fitFieldToViewport が sol-recview-corner を付ける）は帯を置かない（2026-10-29 ユーザー選択）:

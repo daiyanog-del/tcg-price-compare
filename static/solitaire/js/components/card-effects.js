@@ -312,7 +312,8 @@ export function flyBetweenRects(cardEl, fromRect, toRect, onComplete = null) {
   const card = toRect ? fromRect : lastRect;
   const deck = toRect ? toRect : fromRect;
   // 札の高さとカードの高さの比で縮める。下限は小さすぎて見えなくならないための値
-  // （実測: 録画用の帯の札 PC 26/136≈0.19。縦向きスマホの手札の右の山・横向きの枠の山はカードと同じ大きさなので 1）
+  // （山はどれもカードと同じ大きさ＝1: 縦向きスマホの手札の右の山・録画用の表示の EX デッキの右の枠の山。
+  //  以前の PC の録画用の表示の帯の札は 26/136≈0.19 だった。2026-10-29 に枠へ）
   const deckScale = Math.max(0.15, Math.min(1, deck.height / card.height));
   const at = (r) => ({ left: r.left + r.width / 2 - card.width / 2, top: r.top + r.height / 2 - card.height / 2 });
   const start = at(fromRect);

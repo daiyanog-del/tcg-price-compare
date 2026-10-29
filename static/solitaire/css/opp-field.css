@@ -41,6 +41,10 @@
   body.sol-opp-on .sol-opp-side .custom-slot { justify-self: center; }
   body.sol-opp-on .main-content > .custom-layout { grid-row: 2; grid-column: 1; }
   body.sol-opp-on .main-content > .side-slots-container { grid-row: 2; grid-column: 2; }
+  /* カード詳細パネル（solitaire-brand.css .sol-cip-col は盤面3段ぶんの高さ）を、相手の段から盤面の下まで4段ぶんに伸ばす
+     （2026-10-29 ユーザー選択の案A。モック _mocks/opp-field-20261029/cip-compare.jpg）。上端は cip-layout.js が
+     #mainContainer の上端（＝相手の段の上端）に合わせる */
+  body.sol-opp-on .sol-cip-col { height: calc(var(--slot-height) * 4 + var(--gap) * 4 - 6px); }
 }
 
 /* ── マスの見た目 ── */
