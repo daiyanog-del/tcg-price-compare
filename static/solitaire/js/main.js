@@ -115,7 +115,8 @@ function fitFieldToViewport() {
   // 完全に一致させる（司令塔決定A-1）。isPhone(短辺<500)基準のままだと500〜767px縦長で
   // CSSはモバイルレイアウトなのにJSはPC計算式を使う不整合が起きるため。
   const isPortraitMobile = isMobilePortrait();
-  // 画面録画用の表示（縦向きスマホは再生モードと同じ計算で、下部の予約量だけ rec-view.js が変える）
+  // 画面録画用の表示（縦向きスマホは再生モードと同じ計算で、下部の予約量だけ rec-view.js が変える）。
+  // 横向きスマホも PC と同じ並び（盤面3段＋手札/EX を全部収める）にする（2026-10-29 ユーザー要望）
   const isRecView = document.body.classList.contains('sol-recview') && !isPortraitMobile;
 
   // 高さ基準:
@@ -124,13 +125,10 @@ function fitFieldToViewport() {
   //   PC/タブレット  → 全体フィット (比例係数 7.25)
   let slotW_h;
   let mobileBottomReserve = 0; // タスクB-3: isPortraitMobile分岐でのみ実測値に更新される（それ以外は0のまま未使用）
-  if (isPhone && isLandscape) {
+  if (isPhone && isLandscape && !isRecView) {
     // mainContainer padding-top(4) + row-gaps(20) + sol-field-area padding-bottom(6)
     const BOARD_FIXED = 30;
-    // 画面録画用の表示では上の帯（＋余白8）の分も引く（rec-view.css の .sol-field-area の上余白）
-    const recBand = document.body.classList.contains('sol-recview')
-      ? (document.getElementById('solRecBand')?.offsetHeight || 56) + 8 : 0;
-    const availForBoard = window.innerHeight - navH - replayH - BOARD_FIXED - recBand;
+    const availForBoard = window.innerHeight - navH - replayH - BOARD_FIXED;
     slotW_h = Math.floor(availForBoard / 4.35);
   } else if (isPortraitMobile) {
     // 設計書 §A-2（2026-09-03 第2次実機検収対応）: 墓地｜除外の左右2分割をやめ、
@@ -152,7 +150,8 @@ function fitFieldToViewport() {
   } else if (isRecView) {
     // 画面録画用の表示（rec-view.js・rec-view.css）: デッキ（#imagePool）と再生バーを隠し、上に帯を置く。
     // 盤面3段＋手札/EXの1段 → 4×1.45=5.8。固定分は下の通常時から imagePool の行（mt4＋22）を除き、帯（＋余白8）を足したもの
-    const bandH = document.getElementById('solRecBand')?.offsetHeight || 56;
+    // 横長の横向きスマホは帯を置かない（高さ0。rec-view.css）ので、0 をそのまま使う
+    const bandH = document.getElementById('solRecBand')?.offsetHeight ?? 56;
     const FIXED_REC = 4 + 4 + 22 + 6 + bandH + 8;
     slotW_h = Math.floor((window.innerHeight - FIXED_REC) / 5.8);
   } else {
@@ -186,10 +185,10 @@ function fitFieldToViewport() {
   }
 
   // 実測補正: 推定で適用後、.sol-field-area の下端がビューポートを超えていれば縮小。
-  // 横向きスマホは「盤面3行のみフィット・手札/デッキはスクロール許容」が仕様のため除外。
+  // 横向きスマホは「盤面3行のみフィット・手札/デッキはスクロール許容」が仕様のため除外（画面録画用の表示は全部収めるので補正する）。
   // 縦向きスマホは下部固定バー(52px)の分だけ基準を上に詰める（設計書 §8.2）。
   // 2026-09-03 司令塔が 375/412/744 幅で実測: 縦横スクロールなし・カード幅 52/59/113px を確認。
-  if (!(isPhone && isLandscape)) {
+  if (!(isPhone && isLandscape) || isRecView) {
     const bottomReserve = isPortraitMobile ? mobileBottomReserve : 0;
     slotW = correctSlotWidthByMeasurement(slotW, minW, bottomReserve);
   }
