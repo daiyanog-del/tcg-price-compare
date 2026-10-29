@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS tcg_announce_sets (
     size             INTEGER,                                  -- 収録枚数（分かれば）
     tcg_release_date DATE,                                     -- 英語版の発売日（北米）
     box_image_url    TEXT        NOT NULL DEFAULT '',          -- 商品写真（Yugipedia の弾のページの画像）。OG 画像に使う。まだ無ければ空
+    cover_cards      JSONB       NOT NULL DEFAULT '[]'::jsonb, -- 表紙のカードの英語名（Yugipedia の cover_card）。カードごとの投稿で先に出す
     status           TEXT        NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'closed')),
     hidden           BOOLEAN     NOT NULL DEFAULT FALSE,
     first_seen_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),       -- payload に含めない（初回 INSERT だけ）

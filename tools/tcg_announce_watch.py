@@ -86,6 +86,7 @@ SUMMARY_SYSTEM = """遊戯王カードの英語の説明文を読み、そのカ
 - intro: 説明文が複数の効果に共通する使い方（いつ使えるか・効果の重なり方・コストの有無など）をはっきり書いているときだけ、1〜2文で書く。
   カードの性格の説明・まとめ・感想・おすすめの組み合わせは書かない。当てはまらなければ空にする。
 - effects: 効果1つにつき1項目。text は1文・40字以内で、動詞で言い切る。
+  数や回数に関わる条件（〜の数だけ・〜1つにつき・〜するたびに・1ターンに1度 など）は、短くするときも落とさない。
   説明文で効果そのものに名前が付いているときだけ、label にその名前のうち区別に使う英語の1語を大文字で入れる。名前が無ければ label は空。
 - short: 投稿に載せる1〜2文（80字以内）。いちばん特徴的な働きが伝わるように書く。カード名・カードの種類は別の欄に出るので書かない。
 - 文末はすべて「〜する」「〜できる」「〜される」のような常体にそろえる（です・ます調にしない）。
@@ -445,6 +446,8 @@ def collect(list_titles: list[str], known_sets: dict[str, dict], known_cards: di
             "size": info.get("size"),
             "tcg_release_date": info.get("release_date"),
             "box_image_url": box_url if rows else (prev or {}).get("box_image_url") or "",
+            # 表紙のカード（Yugipedia の弾のページ）。カードごとの投稿で先に出す
+            "cover_cards": info.get("cover_cards") or (prev or {}).get("cover_cards") or [],
         })
     return out
 

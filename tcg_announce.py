@@ -225,6 +225,7 @@ def parse_set_page(text: str) -> dict:
     return {"name_en": plain_text(p.get("en_name", "")), "prefix": p.get("prefix", "").strip(),
             "size": int(size.group(1)) if size else None,
             "release_date": parse_release_date(p.get("na_release_date", "")),
+            "cover_cards": list_param(p.get("cover_card", "")),
             "image": image if re.search(r"\.(png|jpe?g|webp)$", image, re.I) else ""}
 
 
