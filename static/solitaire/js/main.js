@@ -226,6 +226,11 @@ function fitFieldToViewport() {
     document.documentElement.style.setProperty('--field-height', `${fieldEl.offsetHeight}px`);
   }
 
+  // 墓地・除外の重なり（--stack-overlap は px＝カードの高さから求めた値）も、カードの大きさが決まるたびに求め直す。
+  // window の resize とカードの出入りでしか求め直していなかったため、左右のパネルの開閉・相手の場の出し入れ
+  // （sol-layout-resize）でカードが小さくなると、カードの高さより大きく重ねて2枚目以降が上へはみ出していた（2026-10-30 ユーザー報告）
+  document.querySelectorAll('.side-slots-container .side-slot').forEach(adjustSideStack);
+
   // パネル幅は最終 slotW 確定後に1回だけ再計算
   requestAnimationFrame(() => updateCipWidth());
 }
