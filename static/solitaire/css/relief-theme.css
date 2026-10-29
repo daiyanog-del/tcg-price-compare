@@ -45,6 +45,7 @@
 #imagePool,
 #imagePool2,
 .sol-rec-deck-slot,
+.sol-mobile-deck-slot,
 .sol-card-info-panel,
 .sol-mobile-cip-panel {
   background-color: var(--relief-face);
@@ -58,8 +59,8 @@
 /* トレイの刻印も背景として描き、カードの操作領域と枚数表示を維持する。 */
 .sol-hand-area { --relief-symbol: url('../icons/hand-relief.svg?v=10'); }
 #imagePool2 { --relief-symbol: url('../icons/ex-deck-relief.svg?v=5'); }
-#imagePool, .sol-rec-deck-slot { --relief-symbol: url('../icons/deck-relief.svg?v=2'); }
-.sol-hand-area, #imagePool, #imagePool2, .sol-rec-deck-slot {
+#imagePool, .sol-rec-deck-slot, .sol-mobile-deck-slot { --relief-symbol: url('../icons/deck-relief.svg?v=2'); }
+.sol-hand-area, #imagePool, #imagePool2, .sol-rec-deck-slot, .sol-mobile-deck-slot {
   background-image: var(--relief-symbol), var(--relief-grain), linear-gradient(145deg, #ffffff05, #0000000c);
   background-position: center, center, center;
   background-repeat: no-repeat, repeat, no-repeat;

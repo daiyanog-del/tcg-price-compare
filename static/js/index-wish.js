@@ -703,7 +703,7 @@ function _wishShopSearchUrl(shop, name){
     '遊々亭':`https://yuyu-tei.jp/sell/ygo/s/search?search_word=${q}`,
     'カードラッシュ':`https://www.cardrush.jp/product-list?keyword=${q}`,
     'トレコロCB':`https://www.torecolo.jp/shop/goods/search.aspx?search=x&keyword=${q}&category=&oshiire_code=`,
-    'カーナベル':`https://www.ka-nabell.com/?act=sell_search&genre=1&keyword=${q}`,
+    'カーナベル':`https://www.ka-nabell.com/ec/sell/yugioh/search?keyword=${q}`,
     'カードラボ':`https://www.c-labo-online.jp/product-list?keyword=${q}`,
     'まんぞく屋':`https://shopmanzokuya.com/products/list?category_id=1&name=${q}&orderby=price_l&disp_number=100`,
   };

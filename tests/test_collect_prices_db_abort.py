@@ -200,8 +200,8 @@ def run_main(monkeypatch):
                             lambda sb: [{"card_name": f"c{i}", "last_collected_at": None} for i in range(n_cards)])
         monkeypatch.setattr(cp, "SHOPS", [("カーナベル", None)])
         monkeypatch.setattr(cp, "SKIP_SHOPS_IN_CI", set())
-        monkeypatch.setenv("KANABELL_CLOUD_ID", "x")
-        monkeypatch.setenv("KANABELL_API_KEY", "x")
+        monkeypatch.setenv("KANABELL_ES_ENDPOINT", "x")
+        monkeypatch.setenv("KANABELL_ES_API_KEY", "x")
         monkeypatch.setattr(cp, "check_shop_availability", lambda shops: list(shops))
         monkeypatch.setattr(cp, "compare_prices", _fake_compare_prices)
         monkeypatch.setattr(cp.time, "sleep", lambda s: None)  # 見張り役の待ちもここを通る

@@ -122,11 +122,15 @@ export function isReplayAnimating() {
 // removed: removeEventAt で手を取り除いた直後（引数 = 取り除いた位置）
 // edited: 利用者の操作で記録が変わった直後（手の記録・コメント・取り除き・1手取り消し）。
 //         読み込み・再生・巻き戻しでは出ない（ui/undo-point.js が「元に戻す」を引っ込める合図に使う）
-const _listeners = { changed: [], commentAdded: [], removed: [], edited: [] };
+// navigated: 利用者の再生の操作（次へ・前へ・自動再生・スライダー・ホイール）で見ている手が変わった直後
+//         （引数 = 今のカーソル, 1手だけ進んだか）。stepForward / stepBack は常に、seekTo は { announce: true } を
+//         渡されたときだけ出す。手を打った・読み込んだ・画面の切り替えで手を動かした（続きから・再生モードの終了など）ときは出ない
+//         （ui/replay-caption.js が字幕を、ui/landing-mark.js が1手だけ進んだときに置いた先の印を出す合図に使う）
+const _listeners = { changed: [], commentAdded: [], removed: [], edited: [], navigated: [] };
 
 /**
  * リプレイの変更通知を購読する。
- * @param {'changed'|'commentAdded'|'removed'|'edited'} type
+ * @param {'changed'|'commentAdded'|'removed'|'edited'|'navigated'} type
  * @param {Function} fn
  */
 export function subscribeReplay(type, fn) {
@@ -336,6 +340,7 @@ export function stepForward() {
   _animateForward = false;
   _cursor = next;
   _updateUI(true); // 次へ・自動再生で手に進んだ（カットインはここで出る）
+  _emit('navigated', _cursor, true);
 }
 
 /** 1手戻る */
@@ -343,12 +348,18 @@ export function stepBack() {
   if (_cursor <= -1) return;
   const target = _cursor - 1;
   _replayTo(target);
+  _emit('navigated', _cursor, false);
 }
 
-/** 手番Nにジャンプ */
-export function seekTo(n) {
+/**
+ * 手番Nにジャンプ
+ * @param {number} n
+ * @param {{announce?: boolean}} [opts]  announce: 利用者がスライダー等で選んだ手（字幕を出す navigated を通知する）
+ */
+export function seekTo(n, { announce = false } = {}) {
   const target = Math.max(-1, Math.min(n, _logs.length - 1));
   if (target === _cursor) return;
+  const stepped = target === _cursor + 1; // 1手だけ進んだ（スライダーで飛んだときは置いた先の印を出さない）
   if (target > _cursor) {
     // 前進：差分だけ適用（最終手のみアニメ）
     for (let i = _cursor + 1; i < target; i++) {
@@ -363,6 +374,7 @@ export function seekTo(n) {
     _replayTo(target);
   }
   _updateUI();
+  if (announce) _emit('navigated', _cursor, stepped);
 }
 
 /**
@@ -991,7 +1003,7 @@ function _applyMoveCard(event) {
   const stateChanged  = faceChanged || orientChanged;
 
   // タスクB: 縦向きスマホでは #poolRow（デッキ列）が display:none のため、移動元/移動先が
-  // #poolRow だと矩形が0幅になり flipMoveClone の演出が成立しない。#solMobileDeckBtn の
+  // #poolRow だと矩形が0幅になり flipMoveClone の演出が成立しない。デッキ演出の錨（_getDeckAnchorEl）の
   // 矩形を代替の出発点/到着点にして飛ばす（PC・横向き・#poolRow が絡まない移動は従来どおり）。
   // 2026-10-20: 画面録画用の表示（PC でもデッキ列を隠す）も同じ扱いにする
   const deckHidden = _isDeckHidden();
@@ -1039,22 +1051,17 @@ function _applyMoveCard(event) {
 }
 
 /**
- * 第6次実機検収-2a: デッキ演出の錨（アンカー）要素を返す。
- * 通常モードでは #solMobileDeckBtn（下部バーのデッキボタン）が可視だが、再生モード中は
- * 下部バーが再生用の中身に切り替わり #solMobileDeckBtn が非表示（矩形0）になるため、
- * 演出の出発/到着点として機能しなくなる（司令塔の以前の確認は通常バーのままだったため見逃した
- * バグ）。#solMobileDeckBtn が可視（幅>0）ならそれを、そうでなければ再生モードの帯にある
- * #solMobilePlayDeckBadge を使う。パルス演出も同じ要素に当てる（_pulseDeckBtn）。
+ * デッキ演出の錨（アンカー）要素を返す。パルス演出も同じ要素に当てる（_pulseDeckBtn）。
+ * 画面録画用の表示（PC）は帯の「デッキ N」の札、横向きスマホはデッキの枠の中の山（rec-view.js）。
+ * 縦向きスマホは手札の右のデッキの枠の山（#solMobileDeckPile）。通常・再生モード・録画用の表示のどれでも
+ * 同じ場所に見えている（2026-10-29 に下部バーのボタン・再生の帯の札から一本化）。
  * @returns {Element|null}
  */
 function _getDeckAnchorEl() {
-  // 画面録画用の表示では帯の「デッキ N」の札（rec-view.js）を錨にする。横向きスマホのデッキの枠は中の山を錨にする
   const recSlot = document.getElementById('solRecDeck');
   const recDeck = recSlot?.querySelector?.('.sol-rec-deck-pile') || recSlot;
   if (recDeck && recDeck.getBoundingClientRect().width > 0) return recDeck;
-  const deckBtn = document.getElementById('solMobileDeckBtn');
-  if (deckBtn && deckBtn.getBoundingClientRect().width > 0) return deckBtn;
-  return document.getElementById('solMobilePlayDeckBadge');
+  return document.getElementById('solMobileDeckPile');
 }
 
 /** @returns {DOMRect|null} */

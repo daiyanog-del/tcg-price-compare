@@ -12,7 +12,7 @@ const b64 = (src) => 'data:text/javascript;base64,' + Buffer.from(src).toString(
 const strip = (src) => src.replace(/^import [\s\S]*?from '[^']+';\r?$/gm, '').replace(/^export /gm, '');
 
 const YGORES = 'https://artworks-jp-n.ygoresources.com/1/23/45_1.png';
-const KANABELL = 'https://www.ka-nabell.com/img/s/abc_123.jpg';
+const KANABELL = 'https://yg-card-images.ka-nabell.com/card/card100290576_1.jpg';
 
 (async () => {
   // ── ① 振り分け ──
@@ -32,6 +32,8 @@ const KANABELL = 'https://www.ka-nabell.com/img/s/abc_123.jpg';
     'https://artworks-jp-n.ygoresources.com@evil.example/1/23/45_1.png',
     'https://www.ka-nabell.com/redirect?url=https://evil',
     'https://www.ka-nabell.com/img/s/../../redirect',
+    'https://www.ka-nabell.com/img/s/abc_123.jpg',                       // 旧サイト（2026-10-21 停止）の画像
+    'https://yg-card-images.ka-nabell.com/card/../redirect',
     'blob:https://artworks-jp-n.ygoresources.com/x',
     'javascript:alert(1)',
     ' card://x',

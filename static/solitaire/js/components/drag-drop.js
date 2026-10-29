@@ -629,7 +629,7 @@ const MOBILE_SCROLL_ZONE_SELECTOR = '#imagePool, #imagePool2, .sol-hand-area, .s
  * （M-5: カード上のカウンターも追加／M-6: デッキ一覧シート・共有シートも追加）
  */
 const MOBILE_UI_IGNORE_SELECTOR =
-  '#solMobileActionSheet, #solMobileCip, #solMobileBar, ' +
+  '#solMobileActionSheet, #solMobileCip, #solMobileBar, #solMobileDeckSlot, ' +
   '#solMobileMenuSheet, .sol-context-menu, #solSidebar, #solSidebarScrim, ' +
   '.pool-label, #replayBarContainer, .sol-ops-details, .sol-mobile-help-scrim, .counter-container, ' +
   '#solMobileDeckSheet, #solMobileShareSheet, #pcShareSheet, #pcSaveSheet';
@@ -975,7 +975,11 @@ function _handleMobileCardTouchStart(ev, wrapper) {
 
     if (isDragging) {
       const touch = ev2.changedTouches[0];
-      const dropTarget = findNearestDropZone(touch.clientX, touch.clientY);
+      // 手札の右のデッキの枠（縦向きスマホ）に落としたらデッキへ戻す。枠はドロップ先の種類に入っていないので、
+      // そのままだと周りを探して手札や真上の盤面のマスに入ってしまう。戻す処理（EX は EX デッキへ）は
+      // メニューの「デッキへ」と同じものを mobile-ui.js が呼ぶ（ここから context-menu.js を読むと循環するため合図で渡す）
+      const toDeck = document.elementFromPoint(touch.clientX, touch.clientY)?.closest?.('#solMobileDeckSlot');
+      const dropTarget = toDeck ? null : findNearestDropZone(touch.clientX, touch.clientY);
       if (dropTarget) {
         const dropZoneInfo = getDropZoneInfo(dropTarget);
         if (dropZoneInfo) {
@@ -988,6 +992,7 @@ function _handleMobileCardTouchStart(ev, wrapper) {
       resetCardStyle(wrapper, shouldResetTop);
       hideTouchLabel();
       restorePendingSelection();
+      if (toDeck) document.dispatchEvent(new CustomEvent('sol-mobile-drop-to-deck', { detail: { wrapper } }));
     } else if (_mState === 'pressed') {
       unliftTouching(wrapper);
       hideTouchLabel();

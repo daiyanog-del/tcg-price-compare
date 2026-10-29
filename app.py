@@ -1913,7 +1913,7 @@ def _shop_search_url(shop: str, card_name: str) -> str:
         "遊々亭": f"https://yuyu-tei.jp/sell/ygo/s/search?search_word={q}",
         "カードラッシュ": f"https://www.cardrush.jp/product-list?keyword={q}",
         "トレコロCB": f"https://www.torecolo.jp/shop/goods/search.aspx?search=x&keyword={q}&category=&oshiire_code=",
-        "カーナベル": f"https://www.ka-nabell.com/?act=sell_search&genre=1&keyword={q}",
+        "カーナベル": f"https://www.ka-nabell.com/ec/sell/yugioh/search?keyword={q}",
         "カードラボ": f"https://www.c-labo-online.jp/product-list?keyword={q}",
         "まんぞく屋": f"https://shopmanzokuya.com/products/list?category_id=1&name={q}&orderby=price_l&disp_number=100",
         "駿河屋": f"https://www.suruga-ya.jp/search?category=501&search_word={q}",

@@ -59,6 +59,8 @@
 <link rel="stylesheet" href="{{ static_url('solitaire/css/side-panels.css') }}">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/relief-theme.css') }}">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/rec-view.css') }}">
+<link rel="stylesheet" href="{{ static_url('solitaire/css/replay-caption.css') }}">
+<link rel="stylesheet" href="{{ static_url('solitaire/css/landing-mark.css') }}">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/inline-ui.css') }}">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/start-choice.css') }}">
 <link rel="stylesheet" href="{{ static_url('shared/text-report.css') }}">
@@ -262,9 +264,20 @@
 
       <!-- 手札 + EXデッキ -->
       <div class="center-row">
-        <div class="sol-hand-area" ondrop="drop(event)" ondragover="allowDrop(event)">
-          <div class="pool-label">手札</div>
-          <div class="center-slot" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+        <!-- 手札の行: 縦向きスマホは手札パネルの右にデッキのパネルを並べる。PC・横向きでは display:contents で
+             中の手札パネルが .center-row の子として並ぶ（mobile.css .sol-hand-row） -->
+        <div class="sol-hand-row">
+          <div class="sol-hand-area" ondrop="drop(event)" ondragover="allowDrop(event)">
+            <div class="pool-label">手札</div>
+            <div class="center-slot" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+          </div>
+          <!-- 縦向きスマホだけ: 手札の右にデッキを1枚分の独立したパネルで置く（2026-10-29 ユーザー指示。録画用の表示の横向きの枠と同じ見た目）。
+               押すとデッキシート（mobile-ui.js openDeckSheet）。ドローなどの演出は中の山から飛ぶ（replay-service.js _getDeckAnchorEl）。
+               PC・横向きでは mobile.css で隠す -->
+          <div id="solMobileDeckSlot" class="sol-mobile-deck-slot" role="button" tabindex="0" aria-label="デッキを開く">
+            <div class="pool-label">デッキ<span id="solMobileDeckCount" class="zone-count">0</span></div>
+            <div id="solMobileDeckPile" class="sol-rec-deck-pile"></div>
+          </div>
         </div>
         <div id="imagePool2" class="pool" ondrop="drop(event)" ondragover="allowDrop(event)">
           <div class="pool-label">EXデッキ</div>
@@ -423,12 +436,6 @@
 
       <!-- タスクB-2: 再生モード専用のスライダー帯（下部バーの直上・#replaySlider と同期する） -->
       <div id="solMobileReplayStrip" class="sol-mobile-replay-strip" hidden>
-        <!-- 第6次実機検収-2a: 再生モード中は #solMobileDeckBtn が非表示（矩形0）になるため、
-             デッキ演出（ドロー等）の錨をこちらへ移す（replay-service.js _getDeckAnchorRect が参照）。
-             枚数は #poolRow に追従（mobile-ui.js updateDeckCountBadge）。 -->
-        <span id="solMobilePlayDeckBadge" class="sol-mobile-play-deck-badge">
-          デッキ <span id="solMobilePlayDeckCount">0</span>
-        </span>
         <!-- 第7次実機検収: 範囲再生中（「再生して確認」で停止済み録画があるとき）だけ表示 -->
         <span id="solMobilePlayRangeBadge" class="sol-mobile-play-range-badge" hidden></span>
         <input type="range" id="solMobileReplayStripSlider" class="sol-mobile-replay-strip-slider" min="0" max="0" value="0" disabled>
@@ -437,9 +444,6 @@
       <!-- 下部固定バー: 通常モード / 再生モードで中身を丸ごと差し替える（タスクA-2・タスクB-2） -->
       <div id="solMobileBar" class="sol-mobile-bar" hidden>
         <div id="solMobileBarNormal" class="sol-mobile-bar-row">
-          <button id="solMobileDeckBtn" type="button" class="sol-mobile-bar-btn">
-            デッキ <span id="solMobileDeckCount">0</span>
-          </button>
           <!-- 範囲（旧「録画」）の開始/確定。選んでいる間は「■ N手」、決まった後は「範囲 s〜e」（accent） -->
           <button id="solMobileRecordBtn" type="button" class="sol-mobile-bar-btn sol-mobile-record-btn">
             <!-- 線アイコンは文字（#solMobileRecordLabel。mobile-ui.js が書き換える）の外に置く。選んでいる間は隠す（「■ N手」） -->
