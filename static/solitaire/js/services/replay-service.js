@@ -46,6 +46,8 @@
 
 import { returnAllCardsToDeck, attachCardImageListeners, sortPoolCards, syncCardIdCounter } from '../components/card-manager.js';
 import { applyCardState, getCardState, isTokenSrc, isTokenCard, markTokenIfSrc } from '../components/card-state.js';
+import { classifyReplayImage } from '../utils/replay-image-policy.js';
+import { generateTokenDataURL, tokenNameOf } from '../utils/token-image.js';
 import { createCardCounter } from '../components/counter-manager.js';
 import { restackCustomSlot } from '../components/slot-stack.js';
 import { playActivateEffect, flipMoveClone, playSetFlip, flyBetweenRects, prefersReducedMotion } from '../components/card-effects.js';
@@ -772,6 +774,27 @@ async function _resolveReplaySentinels() {
 }
 
 /**
+ * 読み込んだ画像辞書（_images）を、画面に出してよい形に置き換える（replay-image-policy.js）。
+ * トークン（data:）は中身を捨て、名前から描き直す。発行元の分からない URL・形の分からない値は card://カード名 にする。
+ * 置き換えた辞書は、そのまま再共有・保存にも使われる。
+ */
+async function _sanitizeReplayImages() {
+  const out = {};
+  let replaced = 0;
+  for (const [cardId, src] of Object.entries(_images || {})) {
+    const c = classifyReplayImage(src, _names[cardId]);
+    if (c.kind === 'token') {
+      out[cardId] = await generateTokenDataURL(tokenNameOf(_names[cardId]));
+    } else {
+      if (c.src !== src) replaced++;
+      out[cardId] = c.src;
+    }
+  }
+  if (replaced > 0) console.warn(`[replay] 出せない画像の指定 ${replaced} 件をカード名からの表示に置き換えました`);
+  _images = out;
+}
+
+/**
  * _images の全カードをDOMに生成してプールに配置する
  * URL共有・ファイルインポート時、デッキが空の状態から再生できるようにする。
  * card:// センチネルは /api/card-images バッチで再解決してから描画する。
@@ -784,6 +807,9 @@ async function _createReplayCardElements() {
   if (!poolRow || !poolRow2) return;
   poolRow.querySelectorAll('.tier-item-wrapper').forEach(el => el.remove());
   poolRow2.querySelectorAll('.tier-item-wrapper').forEach(el => el.remove());
+
+  // 画像辞書は利用者が送った値なので、出してよい形に直してから使う（任意の外部画像・data: 画像を出さない）
+  await _sanitizeReplayImages();
 
   // card:// センチネルを一括解決
   const resolved = await _resolveReplaySentinels();

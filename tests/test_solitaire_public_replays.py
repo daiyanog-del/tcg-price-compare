@@ -594,17 +594,19 @@ def test_admin_toggle_hidden_and_list_effect(monkeypatch):
     assert next(r for r in sb.rows if r["id"] == "r1")["hidden"] is True
     resp = client.post("/api/admin/public-replays/r1/toggle-hidden", headers=ADMIN)
     assert resp.get_json()["hidden"] is False
-    # 非公開の行は対象外
-    assert client.post("/api/admin/public-replays/r4/toggle-hidden", headers=ADMIN).status_code == 404
+    # 2026-10-29 から公開していない共有リプレイも止められる（権利者からの削除依頼は共有リンクで届くことがある）
+    assert client.post("/api/admin/public-replays/r4/toggle-hidden", headers=ADMIN).get_json()["hidden"] is True
+    assert client.post("/api/admin/public-replays/none/toggle-hidden", headers=ADMIN).status_code == 404
 
 
-def test_admin_delete_removes_row_only_for_public(monkeypatch):
+def test_admin_delete_removes_row(monkeypatch):
     client, sb = _admin_client(monkeypatch, _sample_rows())
     assert client.delete("/api/admin/public-replays/r2", headers=ADMIN).status_code == 200
     assert "r2" not in [r["id"] for r in sb.rows]
     assert client.delete("/api/admin/public-replays/r2", headers=ADMIN).status_code == 404
-    assert client.delete("/api/admin/public-replays/r4", headers=ADMIN).status_code == 404   # 非公開は消さない
-    assert "r4" in [r["id"] for r in sb.rows]
+    # 2026-10-29 から公開していない共有リプレイも消せる
+    assert client.delete("/api/admin/public-replays/r4", headers=ADMIN).status_code == 200
+    assert "r4" not in [r["id"] for r in sb.rows]
 
 
 def test_admin_page_has_public_replays_tab():
