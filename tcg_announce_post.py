@@ -113,8 +113,7 @@ def _fits(lines: list[str]) -> bool:
 def text_card(s: dict, card: dict, cards: list[dict]) -> str:
     """カードごとの投稿。見出し（ゆかり・テーマ）とまとめページへ誘う一文はいちばんの引きなので残し、
     長すぎたら 種類の行 → 要約の末尾 の順に削る（2026-10-29 本番のデータで見出しから落ちていたのを直した）。"""
-    from unreleased_x_post import truncate_to_weight
-    found = "の効果が判明" if card.get("lore_kind") == "blurb" else "の英語のテキストが判明"
+    found ="の効果が判明" if card.get("lore_kind") == "blurb" else "の英語のテキストが判明"
     head = f"【海外先行】{card['name_en']} {found}"
     others = len(cards) - 1
     funnel = f"同じパックで判明した残り{others}枚も、まとめて紹介しています。" if others > 0 else ""
@@ -129,7 +128,23 @@ def text_card(s: dict, card: dict, cards: list[dict]) -> str:
     from unreleased_x_post import weighted_length
     fixed = [x for x in (head, related, funnel) if x]
     room = MAX_WEIGHT - 23 - 1 - weighted_length("\n".join(fixed)) - 1
-    return "\n".join(x for x in (head, related, truncate_to_weight(short, max(room, 20)), funnel, url) if x)
+    return "\n".join(x for x in (head, related, _cut_short(short, max(room, 20)), funnel, url) if x)
+
+
+def _cut_short(short: str, room: int) -> str:
+    """要約を入る長さにする。文の切れ目（。）で収まるなら、そこまでで切って「…」を付けない。
+    要約の指示は1文・45字以内なので、ここに来るのは長いカード名・見出しのときか、指示を守らなかった要約だけ。"""
+    from unreleased_x_post import truncate_to_weight, weighted_length
+    if weighted_length(short) <= room:
+        return short
+    head = ""
+    for sentence in short.split("。"):
+        if not sentence:
+            break
+        if weighted_length(head + sentence + "。") > room:
+            break
+        head += sentence + "。"
+    return head or truncate_to_weight(short, room)
 
 
 def text_card_official(s: dict, card: dict) -> str:
