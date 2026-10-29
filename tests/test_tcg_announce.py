@@ -687,3 +687,16 @@ def test_既にある弾は書き換えで送り_slugを外したupsertにしな
                today=date(2026, 10, 29), known_sets={})
     assert [(k, n) for k, n, _ in calls] == [("upsert", "tcg_announce_sets")]
     assert calls[0][2]["slug"] == "maze-of-machines"
+
+
+def test_投稿用の要約も文末を句点にそろえる(monkeypatch):
+    import json
+    from types import SimpleNamespace as NS
+    monkeypatch.setattr(tw.tcg_translate, "usage_dict", lambda u: {})
+    out = {"intro": "", "effects": [{"label": "", "text": "蘇生できる"}], "short": "毎ターン蘇生できる"}
+    msg = NS(stop_reason="end_turn", content=[NS(type="text", text=json.dumps(out))], usage=None)
+    client = NS(messages=NS(create=lambda **kw: msg))
+    corpus = NS(glossary_for=lambda t: {})
+    card = {"lore": {"kind": "blurb", "text_en": "revive every turn"}, "pendulum_lore": {"text_en": ""}}
+    got = tw.summarize(client, corpus, card, "X", model="m")
+    assert got["short"] == "毎ターン蘇生できる。"

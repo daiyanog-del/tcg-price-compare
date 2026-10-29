@@ -141,7 +141,7 @@ def summarize(client, corpus, card: dict, name_en: str, *, model: str) -> dict:
     intro = (out.get("intro") or "").strip()
     effects = [{"label": re.sub(r"[^A-Z0-9-]", "", (e.get("label") or "").upper())[:12], "text": _end(e["text"])}
                for e in out.get("effects") or [] if (e.get("text") or "").strip()]
-    short = (out.get("short") or "").strip()
+    short = _end(out.get("short") or "")
     if not effects or not short:
         raise ValueError("要約が空です")
     # 英文に無い数字を作っていないかを確かめる。あれば自動投稿しない（ページには出す）
