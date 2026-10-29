@@ -100,7 +100,9 @@ def test_一覧は新規カードだけを拾い_名前の空の行と再録は�
 
 def test_弾のページから接頭辞と収録枚数と発売日():
     assert ya.parse_set_page(SET_PAGE) == {"name_en": "Maze of Machines", "prefix": "MZMC", "size": 153,
-                                           "release_date": "2027-03-19"}
+                                           "release_date": "2027-03-19", "image": ""}
+    with_image = SET_PAGE.replace("{{Infobox set", "{{Infobox set\n| image = MZMC-BoosterEN.png")
+    assert ya.parse_set_page(with_image)["image"] == "MZMC-BoosterEN.png"
     assert ya.slugify("Maze of Machines") == "maze-of-machines"
 
 
@@ -236,7 +238,7 @@ def test_本文は上限に収まり_まとめへ誘う一文とリンクを残�
     text = tp.text_card(SET, long, CARDS)
     body = text.rsplit("\n", 1)[0]
     assert weighted_length(body) + 1 + 23 <= tp.MAX_WEIGHT
-    assert "他の3枚もまとめています" in text
+    assert "同じパックで判明した残り3枚も、まとめて紹介しています。" in text
     assert text.endswith("https://greedy-lab.com/tcg-preview/maze-of-machines?c=mzmc-en002#mzmc-en002")
     first = tp.text_set_first(SET, CARDS[:2])
     assert "Maze of Machines" in first and first.endswith("https://greedy-lab.com/tcg-preview/maze-of-machines")
@@ -269,7 +271,7 @@ def test_まとめページは中身をHTMLに書き_カード指定でOG画像�
     r = client.get("/tcg-preview/maze-of-machines")
     html = r.get_data(as_text=True)
     assert r.status_code == 200
-    assert "Pendulum Machine of Misery" in html and "概要・非公式" in html and "名前のみ" in html
+    assert "Pendulum Machine of Misery" in html and "非公式の要約" in html and "名前だけ判明" in html
     assert 'id="mzmc-en002"' in html
     assert "/tcg-preview/og/maze-of-machines.png" in html
     html = client.get("/tcg-preview/maze-of-machines?c=mzmc-en002").get_data(as_text=True)
@@ -475,3 +477,57 @@ def test_同じ名前のカードはページ番号が変わっても二度出�
                         "created_at": (NOW + timedelta(days=1)).isoformat()}]
     item = tp.decide([SET], {"MZMC": CARDS}, posts, nxt)
     assert item["card"]["name_en"] != "Slot Machine 777"
+
+
+# ── 要約の形・OG 画像（A+B の形・2026-10-29） ───────────
+
+def test_要約は新しい形も古い文の配列も読める():
+    import tcg_announce_og as og
+    new = {"summary_ja": {"intro": "共通", "effects": [{"label": "ALPHA", "text": "a"}, {"label": "", "text": ""}]}}
+    assert og.summary_of(new) == {"intro": "共通", "effects": [{"label": "ALPHA", "text": "a"}]}
+    assert og.summary_of({"summary_ja": ["x", "y"]})["effects"] == [{"label": "", "text": "x"}, {"label": "", "text": "y"}]
+
+
+def test_種類の言葉と日付の書き方():
+    import tcg_announce_og as og
+    c = {"card_type": "融合・効果モンスター", "attribute": "闇", "race": "機械族", "level": 8, "atk": "3000", "def": "2200"}
+    assert og.kind_label(c) == "闇属性・機械族・融合"
+    assert og.stats_line(c) == "闇属性・機械族・融合　★8　3000 / 2200"
+    assert og.kind_label({"card_type": "永続罠"}) == "永続罠"
+    assert og.format_release_ja("2027-03-19") == "2027年3月19日"
+
+
+def test_書体に無い字を見分ける():
+    import tcg_announce_og as og
+    f = og.jp(20)
+    assert og._has_glyph(f, "あ")
+    if os.path.isfile(og._JP_PATH):
+        assert not og._has_glyph(f, "★")  # M PLUS 2 には ★ が無い（予備の書体で描く）
+
+
+def _img(w, h, color):
+    from PIL import Image
+    return Image.new("RGB", (w, h), color)
+
+
+def test_OG画像は材料があってもなくても描ける():
+    import tcg_announce_og as og
+    card = dict(CARDS[1], summary_ja={"intro": "相手ターンでも使える。", "effects": [
+        {"label": "ALPHA", "text": "カード1枚を手札に加える。"}, {"label": "", "text": "相手のカードを破壊する。"}]})
+    box = _img(455, 426, (255, 255, 255))
+    box.paste((40, 40, 40), (60, 60, 400, 380))
+    rel = ("リボルバー・ドラゴン", _img(256, 372, (120, 60, 30)))
+    for png in (og.render_set_png(SET, CARDS, box=box, related=[rel] * 4), og.render_set_png(SET, CARDS),
+                og.render_card_png(SET, card, ["A", "B", "C", "D"], box=box, related=rel),
+                og.render_card_png(SET, card, [])):
+        assert png[:8] == bytes([0x89]) + b"PNG" + bytes([13, 10, 26, 10])
+
+
+def test_商品写真の白い背景を透明にして余白を切る():
+    import tcg_announce_og as og
+    box = _img(200, 100, (255, 255, 255))
+    box.paste((30, 30, 30), (50, 20, 150, 80))
+    out = og.cutout(box)
+    # 境目を1pxぼかすので、切り抜きは中身より数px広い
+    assert 100 <= out.width <= 108 and 60 <= out.height <= 68
+    assert out.getpixel((out.width // 2, out.height // 2))[3] == 255

@@ -221,9 +221,23 @@ def parse_set_page(text: str) -> dict:
     """弾のページ（{{Infobox set}}）から {name_en, prefix, size, release_date}。"""
     p = template_params(text, "Infobox set") or {}
     size = re.match(r"\s*(\d+)", p.get("size", ""))
+    image = plain_text(p.get("image", "")).strip()
     return {"name_en": plain_text(p.get("en_name", "")), "prefix": p.get("prefix", "").strip(),
             "size": int(size.group(1)) if size else None,
-            "release_date": parse_release_date(p.get("na_release_date", ""))}
+            "release_date": parse_release_date(p.get("na_release_date", "")),
+            "image": image if re.search(r"\.(png|jpe?g|webp)$", image, re.I) else ""}
+
+
+def file_url(filename: str) -> str:
+    """Yugipedia にアップロードされた画像の URL（まだ無ければ空文字）。弾の商品写真（MZMC-BoosterEN.png など）に使う。"""
+    if not filename:
+        return ""
+    data = _get({"action": "query", "titles": "File:" + filename, "prop": "imageinfo", "iiprop": "url"})
+    for p in data["query"].get("pages", []):
+        info = p.get("imageinfo") or []
+        if info and info[0].get("url", "").startswith("https://"):
+            return info[0]["url"]
+    return ""
 
 
 def slugify(name: str) -> str:

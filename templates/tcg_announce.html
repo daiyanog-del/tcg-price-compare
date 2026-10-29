@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 {% include '_ga.html' %}
 {% set title = s.name_en ~ "（遊戯王TCG 海外先行）の判明カード" %}
-{% set desc = "遊戯王TCGの英語版新弾「" ~ s.name_en ~ "」" ~ ("（" ~ format_release(s.tcg_release_date) ~ " 発売予定）" if s.tcg_release_date else "") ~ "で判明した" ~ known ~ "枚の効果の概要を日本語でまとめています。" %}
+{% set desc = "遊戯王TCG（英語版）の新しいパック「" ~ s.name_en ~ "」" ~ ("（" ~ format_release(s.tcg_release_date) ~ "発売予定）" if s.tcg_release_date else "") ~ "で判明した" ~ known ~ "枚の効果を、日本語で紹介しています。" %}
 <title>{{ title }} | 強欲なラボ</title>
 <meta name="description" content="{{ desc }}">
 <link rel="canonical" href="{{ public_base_url }}/tcg-preview/{{ s.slug }}">
@@ -43,13 +43,13 @@
     <section class="ta-hero">
       <div class="ta-badges"><span class="ta-badge is-tcg">TCG先行</span><span class="ta-badge is-announce">予告</span></div>
       <h1 class="ta-title">{{ s.name_en }}</h1>
-      <p class="ta-sub">遊戯王TCG 英語版の新弾</p>
+      <p class="ta-sub">遊戯王TCG（英語版）の新しいパック</p>
       <dl class="ta-facts">
         <div><dt>英語版の発売</dt><dd>{% if s.tcg_release_date %}{{ format_release(s.tcg_release_date) }}<small>予定</small>{% else %}未定{% endif %}</dd></div>
         {% if s.size %}<div><dt>収録</dt><dd>{{ s.size }}<small>枚</small></dd></div>{% endif %}
         <div><dt>判明</dt><dd>{{ known }}<small>枚</small></dd></div>
       </dl>
-      <p class="ta-lead">英語版で先に出るカードです。日本での発売はまだ発表されていません。判明したカードは1時間ごとに追加します。</p>
+      <p class="ta-lead">英語版で先に発売されるパックです。日本での発売はまだ発表されていません。新しく判明したカードは、1時間ごとに追加しています。</p>
     </section>
 
     <section aria-labelledby="taCardsHeading">
@@ -61,25 +61,27 @@
             <span class="ta-proxy-head">{{ [c.attribute, c.race]|select|join('・') or c.card_type or '種類は未公開' }}</span>
             {% if c.level %}<span class="ta-proxy-stars">{{ '★' * c.level }}</span>{% elif c.rank %}<span class="ta-proxy-stars">{{ '☆' * c.rank }}</span>{% endif %}
             <span class="ta-proxy-q">?</span>
-            <span class="ta-proxy-note">画像は未公開</span>
+            <span class="ta-proxy-note">イラスト未公開</span>
           </div>
           <div class="ta-body">
             <div class="ta-tags">
               <span class="ta-badge is-tcg">TCG先行</span>
-              {% if c.lore_kind == 'blurb' %}<span class="ta-badge is-unofficial">概要・非公式</span>
-              {% elif c.lore_kind == 'official' %}<span class="ta-badge is-official">英語テキスト判明</span>
-              {% else %}<span class="ta-badge is-name">名前のみ</span>{% endif %}
+              {% if c.lore_kind == 'blurb' %}<span class="ta-badge is-unofficial">非公式の要約</span>
+              {% elif c.lore_kind == 'official' %}<span class="ta-badge is-official">英語のテキストが判明</span>
+              {% else %}<span class="ta-badge is-name">名前だけ判明</span>{% endif %}
             </div>
             <h3 class="ta-name">{{ c.name_en }}{% if c.unofficial_name %}<small>（仮の名前）</small>{% endif %}</h3>
             <p class="ta-stats">{{ c.card_type }}{% if c.set_code and '?' not in c.set_code %}<span class="ta-code">{{ c.set_code }}</span>{% endif %}</p>
             {% if c.atk or c.def %}<p class="ta-atk">ATK <b>{{ c.atk or '?' }}</b>{% if not c.link_val %}　DEF <b>{{ c.def or '?' }}</b>{% endif %}</p>{% endif %}
-            {% if c.related_ja %}<p class="ta-related">関連：{% for r in c.related_ja %}《{{ r }}》{% endfor %}</p>{% endif %}
-            {% if c.summary_status == 'done' and c.summary_ja %}
-            <ul class="ta-summary">{% for line in c.summary_ja %}<li>{{ line }}</li>{% endfor %}</ul>
+            {% if c.related_ja %}<p class="ta-related">ゆかりのカード：{% for r in c.related_ja %}《{{ r }}》{% endfor %}</p>{% endif %}
+            {% set summ = summary_of(c) %}
+            {% if c.summary_status == 'done' and summ.effects %}
+            {% if summ.intro %}<p class="ta-intro">{{ summ.intro }}</p>{% endif %}
+            <ul class="ta-summary">{% for e in summ.effects %}<li{% if e.label %} class="has-label"{% endif %}>{% if e.label %}<span class="ta-label">{{ e.label }}</span>{% endif %}{{ e.text }}</li>{% endfor %}</ul>
             {% elif c.lore_kind == 'none' %}
-            <p class="ta-empty">効果は未公開です。判明したら更新します。</p>
+            <p class="ta-empty">効果はまだ公開されていません。判明したら追加します。</p>
             {% else %}
-            <p class="ta-empty">効果の概要を準備中です。</p>
+            <p class="ta-empty">効果の要約を準備しています。</p>
             {% endif %}
             {% if c.lore_kind == 'official' and c.effect_text_ja %}
             <details class="ta-full"><summary>効果の全文（機械訳）</summary><p>{{ c.effect_text_ja }}</p>{% if c.pendulum_effect_ja %}<p>【ペンデュラム効果】{{ c.pendulum_effect_ja }}</p>{% endif %}</details>
@@ -89,14 +91,14 @@
         {% endfor %}
       </ul>
       {% if s.size and s.size > known %}
-      <p class="ta-rest"><b>{{ s.size - known }}</b>枚はまだ判明していないか、既存カードの再録です。</p>
+      <p class="ta-rest">残りの<b>{{ s.size - known }}</b>枚は、まだ判明していないカードか、既存カードの再録です。</p>
       {% endif %}
     </section>
 
     <footer class="ta-foot">
-      <p>「概要・非公式」は、販売店の商品説明（英語）を強欲なラボが日本語にまとめたものです。正式なカードテキストとは異なる場合があります。「英語テキスト判明」の全文は機械訳です。</p>
+      <p>「非公式の要約」は、販売店の商品説明（英語）を強欲なラボが日本語にまとめたものです。正式なカードテキストとは違うことがあります。「英語のテキストが判明」のカードの全文は、英語のテキストの機械訳です。</p>
       <p>カード情報の出典：<a href="https://yugipedia.com/wiki/{{ s.set_title|replace(' ', '_')|urlencode }}" rel="noopener" target="_blank">Yugipedia</a>（CC BY-SA）{% for d in sources %}・{{ d }}{% endfor %}{% if updated %}｜最終更新 {{ updated }}{% endif %}</p>
-      <p><a href="/tcg-preview">海外先行カードの一覧へ</a></p>
+      <p><a href="/tcg-preview">海外先行カードの一覧に戻る</a></p>
     </footer>
   </main>
 </div>

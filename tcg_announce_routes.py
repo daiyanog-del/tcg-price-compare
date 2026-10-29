@@ -9,9 +9,14 @@
 中身は tcg_announce_view（Supabase の tcg_announce_*）から読む。
 """
 import logging
+import threading
+import time
+from collections import OrderedDict
 
 from flask import Blueprint, Response, abort, render_template, request
 
+import card_display
+import card_og_image
 import tcg_announce_og
 import tcg_announce_view as view
 
@@ -41,7 +46,8 @@ def set_page(slug: str):
     sources = sorted({_domain(c.get("lore_source_url")) for c in entry["cards"] if c.get("lore_source_url")})
     return render_template(
         "tcg_announce.html", s=s, cards=entry["cards"], focus_card=focus_card, og_path=og,
-        anchor=view.anchor, stats_line=tcg_announce_og.stats_line, format_release=tcg_announce_og.format_release,
+        anchor=view.anchor, stats_line=tcg_announce_og.stats_line, format_release=tcg_announce_og.format_release_ja,
+        summary_of=tcg_announce_og.summary_of,
         known=len(entry["cards"]), sources=[x for x in sources if x],
         updated=max((c.get("updated_at") or "" for c in entry["cards"]), default="")[:10].replace("-", "/"),
     )
@@ -69,6 +75,70 @@ def _entry_or_503(slug: str):
         return None, ("", 503)
 
 
+# ── OG 画像の材料（商品写真・ゆかりのカードの絵）。取れたものはしばらく持ち、失敗した URL はしばらく取り直さない ──
+_IMG_MAX = 32
+_FAIL_TTL = 600
+_img_cache: "OrderedDict[str, object]" = OrderedDict()
+_img_failed: dict[str, float] = {}
+_img_lock = threading.Lock()
+
+
+def _image(url: str | None):
+    """画像を PIL で返す。取れなければ None（その部分を外して描く）。"""
+    if not url:
+        return None
+    with _img_lock:
+        if url in _img_cache:
+            _img_cache.move_to_end(url)
+            return _img_cache[url]
+        if time.monotonic() - _img_failed.get(url, -1e9) < _FAIL_TTL:
+            return None
+    try:
+        img = card_og_image._download(url)
+    except Exception as e:
+        logger.warning(f"OG 画像の材料を取れません（外して描きます）: {url[:80]}: {e}")
+        with _img_lock:
+            _img_failed[url] = time.monotonic()
+        return None
+    with _img_lock:
+        _img_cache[url] = img
+        while len(_img_cache) > _IMG_MAX:
+            _img_cache.popitem(last=False)
+    return img
+
+
+def _related_images(names: list[str], limit: int) -> list[tuple[str, object, str]]:
+    """ゆかりのカード（日本語の正式名）の公式画像を (名前, 画像, URL) で最大 limit 枚。画像の無いカードは飛ばす。"""
+    if not names:
+        return []
+    try:
+        disp = card_display.resolve_card_displays(names)
+    except Exception:
+        logger.exception("ゆかりのカードの画像の解決に失敗（外して描きます）")
+        return []
+    out = []
+    for n in names:
+        d = disp.get(n) or {}
+        if d.get("kind") != "image" or d.get("source") == "official_sample":
+            continue  # 発売済みカードの画像だけ（未発売の公式 SAMPLE は使わない）
+        img = _image(d.get("url"))
+        if img is not None:
+            out.append((n, img, d["url"]))
+        if len(out) >= limit:
+            break
+    return out
+
+
+def set_related_names(cards: list[dict]) -> list[str]:
+    """弾のゆかりのカード（カードの並び順に、重ならないように）。"""
+    names: list[str] = []
+    for c in cards:
+        for r in c.get("related_ja") or []:
+            if r not in names:
+                names.append(r)
+    return names
+
+
 @tcg_announce_bp.route("/tcg-preview/og/<slug>.png")
 def set_og(slug: str):
     entry, err = _entry_or_503(slug)
@@ -76,7 +146,11 @@ def set_og(slug: str):
         return err
     if entry is None:
         abort(404)
-    return _png(tcg_announce_og.set_png(entry["set"], entry["cards"]))
+    s = entry["set"]
+    box = _image(s.get("box_image_url"))
+    rel = _related_images(set_related_names(entry["cards"]), 4)
+    return _png(tcg_announce_og.set_png(s, entry["cards"], box=box, box_key=s.get("box_image_url") or "" if box else "",
+                                        related=[(n, i) for n, i, _ in rel], related_keys=[u for _, _, u in rel]))
 
 
 @tcg_announce_bp.route("/tcg-preview/og/<slug>/<anchor>.png")
@@ -88,4 +162,9 @@ def card_og(slug: str, anchor: str):
     if card is None:
         abort(404)
     others = [c["name_en"] for c in entry["cards"] if c is not card]
-    return _png(tcg_announce_og.card_png(entry["set"], card, others))
+    s = entry["set"]
+    box = _image(s.get("box_image_url"))
+    rel = _related_images(card.get("related_ja") or [], 1)
+    return _png(tcg_announce_og.card_png(s, card, others, box=box, box_key=s.get("box_image_url") or "" if box else "",
+                                         related=(rel[0][0], rel[0][1]) if rel else None,
+                                         related_key=rel[0][2] if rel else ""))

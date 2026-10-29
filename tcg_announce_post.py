@@ -78,21 +78,30 @@ def _fit(lines: list[str], url: str) -> str:
     return url
 
 
+def _related_names(cards: list[dict], limit: int = 2) -> list[str]:
+    names: list[str] = []
+    for c in cards:
+        for r in c.get("related_ja") or []:
+            if r not in names:
+                names.append(r)
+    return names[:limit]
+
+
 def text_set_first(s: dict, cards: list[dict]) -> str:
-    rel = f"（英語版 {tcg_announce_og.format_release(s['tcg_release_date'])} 発売予定）" if s.get("tcg_release_date") else ""
-    names = [c["name_en"] for c in cards[:2]]
+    rel = f"{tcg_announce_og.format_release_ja(s['tcg_release_date'])}発売予定。" if s.get("tcg_release_date") else ""
+    related = _related_names(cards)
     return _fit([
-        f"【海外先行・予告】遊戯王TCGの新弾「{s['name_en']}」{rel}",
-        f"判明した{len(cards)}枚の効果の概要（非公式）を日本語でまとめました。",
-        ("「" + "」「".join(names) + "」" + ("ほか" if len(cards) > 2 else "")) if names else "",
+        f"【海外先行】遊戯王TCG（英語版）の新パック「{s['name_en']}」",
+        f"{rel}判明した{len(cards)}枚の効果を、日本語で紹介しています。",
+        ("".join(f"《{r}》" for r in related) + "ゆかりの新カードも登場します。") if related else "",
     ], set_url(s))
 
 
 def text_set_update(s: dict, cards: list[dict], new_cards: list[dict]) -> str:
     names = [c["name_en"] for c in new_cards[:2]]
     return _fit([
-        f"【海外先行・続報】「{s['name_en']}」の判明カードが{len(cards)}枚になりました。",
-        ("新たに「" + "」「".join(names) + "」" + ("など" if len(new_cards) > 2 else "")) if names else "",
+        f"【海外先行・続報】「{s['name_en']}」で判明したカードが{len(cards)}枚になりました。",
+        ("新しく判明：" + "、".join(names) + (" ほか" if len(new_cards) > 2 else "")) if names else "",
     ], set_url(s))
 
 
@@ -102,16 +111,17 @@ def _fits(lines: list[str]) -> bool:
 
 
 def text_card(s: dict, card: dict, cards: list[dict]) -> str:
-    """カードごとの投稿。まとめページへ誘う一文を残すため、長すぎたら 関連 → 種類の行 → 要約の末尾 の順に削る。"""
+    """カードごとの投稿。まとめページへ誘う一文を残すため、長すぎたら ゆかり → 種類の行 → 要約の末尾 の順に削る。"""
     from unreleased_x_post import truncate_to_weight
-    head = f"【海外先行・{'効果判明' if card.get('lore_kind') == 'blurb' else '英語テキスト判明'}】{card['name_en']}"
+    found = "の効果が判明" if card.get("lore_kind") == "blurb" else "の英語のテキストが判明"
+    head = f"【海外先行】{card['name_en']} {found}"
     others = len(cards) - 1
-    funnel = f"「{s['name_en']}」で判明した他の{others}枚もまとめています" if others > 0 else ""
+    funnel = f"同じパックで判明した残り{others}枚も、まとめて紹介しています。" if others > 0 else ""
     stats = tcg_announce_og.stats_line(card)
     short = card.get("summary_short_ja") or ""
-    related = ("関連：" + "".join(f"《{r}》" for r in card.get("related_ja") or [])) if card.get("related_ja") else ""
+    related = ("".join(f"《{r}》" for r in card.get("related_ja") or []) + "ゆかりの新カード") if card.get("related_ja") else ""
     url = card_url(s, card)
-    for lines in ([head, stats, short, related, funnel], [head, stats, short, funnel], [head, short, funnel]):
+    for lines in ([head, related, stats, short, funnel], [head, stats, short, funnel], [head, short, funnel]):
         if _fits(lines):
             return "\n".join([ln for ln in lines if ln] + [url])
     from unreleased_x_post import weighted_length
@@ -121,8 +131,8 @@ def text_card(s: dict, card: dict, cards: list[dict]) -> str:
 
 def text_card_official(s: dict, card: dict) -> str:
     return _fit([
-        f"【海外先行・全文判明】{card['name_en']} の英語のカードテキストが出ました。",
-        "日本語訳（機械訳）はこちら",
+        f"【海外先行】{card['name_en']} の英語のテキストが公開されました。",
+        "日本語訳（機械訳）を載せています。",
     ], card_url(s, card))
 
 

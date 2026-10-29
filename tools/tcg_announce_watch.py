@@ -75,24 +75,35 @@ MAX_ATTEMPTS = 3
 # 要約（宣伝文・英語テキスト → 日本語の概要）
 # ──────────────────────────────────────────────
 
-SUMMARY_SYSTEM = """遊戯王カードの英語の説明文を読み、そのカードが何をするかを日本語の短い箇条書きにまとめます。
+SUMMARY_SYSTEM = """遊戯王カードの英語の説明文を読み、そのカードが何をするかを、遊戯王を遊ぶ日本の人に伝わる自然な日本語でまとめます。
 
-- 説明文に書かれていることだけを書く。書かれていない効果・条件・数値を足さない。
-- 販売店の宣伝文のことがある。宣伝の言い回し（「最高の」「お見逃しなく」など）は落とし、カードの働きだけを残す。
-- 遊戯王OCGの日本語の用語で書く（Special Summon→特殊召喚、Graveyard/GY→墓地、Deck→デッキ、destroy→破壊、
-  banish→除外、Quick Effect→相手ターンにも使える効果、DARK→闇属性、Machine→機械族）。
+- 説明文に書かれていることだけを書く。書かれていない効果・条件・数値・出どころ（どこから手札に加えるか等）は足さない。
+  分からないことは書かずに省き、「書かれていない」という注記も書かない。
+- 販売店の宣伝文のことがある。宣伝の言い回しや冗談は落とす。ただし、コストやデメリットの有無のようにカードの強さに関わる点は残す。
+- 遊戯王OCGの日本語の用語で書く（Special Summon→特殊召喚、Graveyard/GY→墓地、Deck→デッキ、destroy→破壊、banish→除外、
+  Quick Effect→相手ターンでも使える効果、DARK→闇属性、Machine→機械族、enemy・opponent's→相手の）。
 - 英語の "…" で囲まれた名前は、名前の対応表にあれば日本語の正式名を「」に入れる。無ければ英語のまま「」に入れる（カタカナにしない）。
-- lines は効果1つにつき1行、1行40字前後まで。
-- 説明文に書かれていないことについての注記（「〜は記載なし」など）は書かない。分からない部分は書かずに省く。
-- short は投稿に載せる1〜2文（80字以内）。いちばん特徴的な働きが伝わるように書く。カード名・カードの種類（融合モンスターなど）は別の欄に出るので書かない。"""
+- intro: 説明文が複数の効果に共通する使い方（いつ使えるか・効果の重なり方・コストの有無など）をはっきり書いているときだけ、1〜2文で書く。
+  カードの性格の説明・まとめ・感想・おすすめの組み合わせは書かない。当てはまらなければ空にする。
+- effects: 効果1つにつき1項目。text は1文・40字以内で、動詞で言い切る。
+  説明文で効果そのものに名前が付いているときだけ、label にその名前のうち区別に使う英語の1語を大文字で入れる。名前が無ければ label は空。
+- short: 投稿に載せる1〜2文（80字以内）。いちばん特徴的な働きが伝わるように書く。カード名・カードの種類は別の欄に出るので書かない。
+- 文末はすべて「〜する」「〜できる」「〜される」のような常体にそろえる（です・ます調にしない）。
+- 名詞を並べた硬い言い方・体言止め・大げさな比喩を避け、声に出して読んで自然な文にする。"""
 
 SUMMARY_SCHEMA = {
     "type": "object",
     "properties": {
-        "lines": {"type": "array", "items": {"type": "string"}},
+        "intro": {"type": "string"},
+        "effects": {"type": "array", "items": {
+            "type": "object",
+            "properties": {"label": {"type": "string"}, "text": {"type": "string"}},
+            "required": ["label", "text"],
+            "additionalProperties": False,
+        }},
         "short": {"type": "string"},
     },
-    "required": ["lines", "short"],
+    "required": ["intro", "effects", "short"],
     "additionalProperties": False,
 }
 
@@ -102,6 +113,12 @@ def summary_message(corpus, name_en: str, kind_label: str, text_en: str) -> str:
     names = "\n".join(f"- {k} → {v}" for k, v in gl.items()) if gl else "（該当なし）"
     return (f"名前の対応表（英語 → 日本語の正式名）:\n{names}\n\n"
             f"カード: {name_en}（{kind_label}）\n説明文:\n{text_en}")
+
+
+def _end(text: str) -> str:
+    """効果の行の終わりを「。」にそろえる（モデルが付けたり付けなかったりするため）。"""
+    t = text.strip()
+    return t if not t or t[-1] in "。！？」）" else t + "。"
 
 
 def summarize(client, corpus, card: dict, name_en: str, *, model: str) -> dict:
@@ -120,13 +137,15 @@ def summarize(client, corpus, card: dict, name_en: str, *, model: str) -> dict:
         raise ValueError(f"要約の応答が未完了です: {message.stop_reason}")
     raw = "".join(b.text for b in message.content if getattr(b, "type", "") == "text")
     out = json.loads(raw)
-    lines = [s.strip() for s in out.get("lines") or [] if s.strip()]
+    intro = (out.get("intro") or "").strip()
+    effects = [{"label": re.sub(r"[^A-Z0-9-]", "", (e.get("label") or "").upper())[:12], "text": _end(e["text"])}
+               for e in out.get("effects") or [] if (e.get("text") or "").strip()]
     short = (out.get("short") or "").strip()
-    if not lines or not short:
+    if not effects or not short:
         raise ValueError("要約が空です")
     # 英文に無い数字を作っていないかを確かめる。あれば自動投稿しない（ページには出す）
-    warnings = invented_numbers(text_en, "\n".join(lines) + "\n" + short)
-    return {"lines": lines, "short": short, "warnings": warnings,
+    warnings = invented_numbers(text_en, "\n".join([intro, short] + [e["text"] for e in effects]))
+    return {"summary": {"intro": intro, "effects": effects}, "short": short, "warnings": warnings,
             "usage": tcg_translate.usage_dict(message.usage)}
 
 
@@ -306,6 +325,12 @@ def collect(list_titles: list[str], known_sets: dict[str, dict], known_cards: di
         set_title = lp["title"].removeprefix("Set Card Lists:").removesuffix(ya.SET_LIST_SUFFIX)
         sp = ya.fetch_pages(titles=[set_title]) if rows else {}
         info = ya.parse_set_page(next(iter(sp.values()))["text"]) if sp else {}
+        # 商品写真（弾のページの画像欄）。まだアップロードされていなければ空で、毎回確かめ直す
+        try:
+            box_url = ya.file_url(info.get("image", "")) if info.get("image") else ""
+        except Exception as e:
+            logger.warning(f"商品写真の URL を取れません: {e}")
+            box_url = (prev or {}).get("box_image_url") or ""
         prefix = info.get("prefix") or (rows[0]["code"].split("-")[0] if rows else (prev or {}).get("prefix", ""))
         aliases: dict[str, str] = {}
         cards = ya.fetch_pages(titles=[r["name"] for r in rows], aliases=aliases) if rows else {}
@@ -350,6 +375,7 @@ def collect(list_titles: list[str], known_sets: dict[str, dict], known_cards: di
             "set_title": set_title if sp else "",
             "size": info.get("size"),
             "tcg_release_date": info.get("release_date"),
+            "box_image_url": box_url if rows else (prev or {}).get("box_image_url") or "",
         })
     return out
 
@@ -423,7 +449,7 @@ def process(collected: dict, known_cards: dict[int, dict], *, sb, client, model:
                 row["summary_attempts"] += 1
                 try:
                     s = summarize(client, corpus, card, row["name_en"], model=model)
-                    row.update(summary_ja=s["lines"], summary_short_ja=s["short"], summary_warnings=s["warnings"],
+                    row.update(summary_ja=s["summary"], summary_short_ja=s["short"], summary_warnings=s["warnings"],
                                summary_status="done", summary_error=None, summary_model=model,
                                summarized_source=summary_source(row), summarized_at=_now())
                     stats["_cost_usd"] += tpw._cost(s["usage"], model)

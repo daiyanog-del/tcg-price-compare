@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS tcg_announce_sets (
     set_title        TEXT        NOT NULL DEFAULT '',          -- 弾のページ名
     size             INTEGER,                                  -- 収録枚数（分かれば）
     tcg_release_date DATE,                                     -- 英語版の発売日（北米）
+    box_image_url    TEXT        NOT NULL DEFAULT '',          -- 商品写真（Yugipedia の弾のページの画像）。OG 画像に使う。まだ無ければ空
     status           TEXT        NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'closed')),
     hidden           BOOLEAN     NOT NULL DEFAULT FALSE,
     first_seen_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),       -- payload に含めない（初回 INSERT だけ）
@@ -57,7 +58,7 @@ CREATE TABLE IF NOT EXISTS tcg_announce_cards (
     lore_source_url    TEXT        NOT NULL DEFAULT '',        -- 宣伝文の出どころ（southernhobby.com など）
     pendulum_lore_en   TEXT        NOT NULL DEFAULT '',
 
-    summary_ja         JSONB       NOT NULL DEFAULT '[]'::jsonb, -- 効果の概要（短い文の配列）
+    summary_ja         JSONB       NOT NULL DEFAULT '{}'::jsonb, -- 効果の要約 {intro: 共通の説明, effects: [{label: 効果の名前（ALPHA など・無ければ空）, text}]}
     summary_short_ja   TEXT        NOT NULL DEFAULT '',        -- 投稿用の1〜2文
     related_ja         JSONB       NOT NULL DEFAULT '[]'::jsonb, -- 宣伝文がリンクしている既存カードの日本語の正式名
     effect_text_ja     TEXT        NOT NULL DEFAULT '',        -- lore_kind=official のときの全文の機械訳
