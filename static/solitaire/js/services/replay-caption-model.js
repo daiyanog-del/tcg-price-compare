@@ -4,6 +4,8 @@
  * DOM を見ないので、次へ・巻き戻し・スライダーで飛んだときのどれでも同じ結果になる（node の単体テスト: tests/js/replay_caption_model_check.mjs）。
  *
  * 記録（moveCard など）には移動先しか入っていないので、移動元は「その手の前までの記録」を頭からたどって求める。
+ * たどり方は services/replay-board.js（OGP の盤面）と同じ規則（replay-service.js の _applyEvent 系と同じ意味）。
+ * replay-service.js の適用規則を変えたら、replay-board.js とここの両方を合わせること。
  * 召喚の種類（通常・特殊など）は記録から分からないので、場所の名前だけを出す（言い当てを書かない）。
  * 表示は ui/replay-caption.js。
  */
@@ -26,66 +28,66 @@ export function zoneLabel(zoneId) {
     if (n >= 4 && n <= 8) return 'モンスターゾーン';
     if (n >= 10 && n <= 14) return '魔法・罠ゾーン';
   }
-  // 9番のマス（PC でフィールドゾーンの下の空きマス）・free-space は名前の無い場所
+  // 9番のマス（PC でフィールドゾーンの下の空きマス）は名前の無い場所
   return '盤面';
 }
 
-const isFieldZone = (z) => /^custom-slot-\d+$/.test(z || '');
+const FIELD_SLOT_RE = /^custom-slot-(\d+)$/;
+const isFieldZone = (z) => {
+  const m = FIELD_SLOT_RE.exec(z || '');
+  return !!m && Number(m[1]) >= 1 && Number(m[1]) <= 14; // 実盤面は 1〜14 のみ（replay-board.js と同じ）
+};
+// _findZone が見つけられる場所（これ以外への moveCard は再生で何も起きない。replay-board.js と同じ）
+const KNOWN_ZONES = new Set(['poolRow', 'poolRow2', 'center-slot', 'side-slot-0', 'side-slot-1']);
+const isKnownZone = (z) => KNOWN_ZONES.has(z) || isFieldZone(z);
 
 /**
- * カードごとの「今いる場所・表示形式」をたどる。
- * @returns {Map<string, {zone:string, orientation:string, face:string}>}
+ * カードごとの「今いる場所・表示形式」と、トークンがまだ場に出ていないか（out）をたどる。
+ * 再生と同じく、全カード（トークンも）は最初デッキ列（EX は EX デッキ列）にいる。
  */
-function _initialState(dict) {
+function _track(setupLogs, logs, upto, dict) {
+  const images = dict.images || {};
+  const ids = Object.keys(images);
+  // EX の判定は replay-board.js と同じ（辞書が空なら returnToDeck の isEx から推定）
+  const exSet = (dict.exCardIds && dict.exCardIds.length > 0)
+    ? new Set(dict.exCardIds)
+    : new Set([...(setupLogs || []), ...(logs || [])].filter((e) => e && e.actionType === 'returnToDeck' && e.isEx).map((e) => e.cardId));
+  const poolOf = (id) => (exSet.has(id) ? 'poolRow2' : 'poolRow');
   const state = new Map();
-  const exIds = new Set(dict.exCardIds || []);
-  for (const id of Object.keys(dict.images || {})) {
-    // トークンは出すまでどこにもいない（記録上はデッキに足してから場へ動かす）
-    const zone = isTokenSrc(dict.images[id]) ? '' : (exIds.has(id) ? 'poolRow2' : 'poolRow');
-    state.set(id, { zone, orientation: '', face: '' });
-  }
+  for (const id of ids) state.set(id, { zone: poolOf(id), orientation: '', face: '', out: isTokenSrc(images[id]) });
+
+  const apply = (ev) => {
+    if (!ev || !ev.actionType) return;
+    const s = state.get(ev.cardId);
+    switch (ev.actionType) {
+      case 'moveCard':
+        if (!s || !isKnownZone(ev.zoneId)) return;
+        Object.assign(s, { zone: ev.zoneId, orientation: ev.orientation || '', face: ev.face || '', out: false });
+        return;
+      case 'draw':
+        if (s) Object.assign(s, { zone: 'center-slot', orientation: '', face: '', out: false });
+        return;
+      case 'returnToDeck':
+        if (s) Object.assign(s, { zone: ev.isEx ? 'poolRow2' : 'poolRow', orientation: '', face: '' });
+        return;
+      case 'removeCard':
+        // トークンだけ盤面から外れる（トークンでないカードは再生でも何も起きない）
+        if (s && isTokenSrc(images[ev.cardId])) Object.assign(s, { zone: '', orientation: '', face: '', out: true });
+        return;
+      case 'resetDeck':
+        for (const [id, c] of state) {
+          if (c.out && !c.zone) continue; // 取り除いたトークンは戻らない
+          Object.assign(c, { zone: poolOf(id), orientation: '', face: '', out: isTokenSrc(images[id]) });
+        }
+        for (const id of ev.drawnIds || []) {
+          const c = state.get(id);
+          if (c) Object.assign(c, { zone: 'center-slot', orientation: '', face: '', out: false });
+        }
+    }
+  };
+  for (const e of setupLogs || []) apply(e);
+  for (let i = 0; i < upto; i++) apply(logs[i]);
   return state;
-}
-
-function _get(state, id) {
-  if (!state.has(id)) state.set(id, { zone: '', orientation: '', face: '' });
-  return state.get(id);
-}
-
-function _apply(state, ev, exIds) {
-  if (!ev || !ev.actionType) return;
-  switch (ev.actionType) {
-    case 'moveCard': {
-      if (!ev.cardId) return;
-      const s = _get(state, ev.cardId);
-      s.zone = ev.zoneId || s.zone;
-      s.orientation = ev.orientation || '';
-      s.face = ev.face || '';
-      return;
-    }
-    case 'draw': {
-      if (!ev.cardId) return;
-      Object.assign(_get(state, ev.cardId), { zone: 'center-slot', orientation: '', face: '' });
-      return;
-    }
-    case 'returnToDeck': {
-      if (!ev.cardId) return;
-      Object.assign(_get(state, ev.cardId), { zone: ev.isEx ? 'poolRow2' : 'poolRow', orientation: '', face: '' });
-      return;
-    }
-    case 'resetDeck': {
-      for (const [id, s] of state) {
-        if (!s.zone) continue; // 出ていないトークンはそのまま
-        Object.assign(s, { zone: exIds.has(id) ? 'poolRow2' : 'poolRow', orientation: '', face: '' });
-      }
-      for (const id of ev.drawnIds || []) Object.assign(_get(state, id), { zone: 'center-slot', orientation: '', face: '' });
-      return;
-    }
-    case 'removeCard': {
-      if (!ev.cardId) return;
-      Object.assign(_get(state, ev.cardId), { zone: '', orientation: '', face: '' });
-    }
-  }
 }
 
 /** 同じマスに、そのカード以外のカードがいるか（重ねる手の判定） */
@@ -95,40 +97,39 @@ function _othersIn(state, zone, cardId) {
 }
 
 /**
- * index 番目の手の字幕。字幕にしない手（コメント・カード無しのカウンター・全戻し）と範囲外は null。
+ * index 番目の手の字幕。字幕にしない手（コメント・カード無しのカウンター・全戻し）、
+ * 再生で何も起きない手（辞書に無いカード・行き先の分からない移動・トークンでないカードの取り除き）と範囲外は null。
  * @param {Array} setupLogs  初期配置（setup:true。手数に数えない）
  * @param {Array} logs       手の記録
  * @param {number} index     見ている手（0 始まり）
  * @param {{images?:Object, names?:Object, exCardIds?:Array<string>}} dict
  * @returns {null|{cardId:string, name:string, tag:string, from:string, to:string}}
  *   tag は「効果発動」「ドロー」などの札（無ければ ''）。from／to は場所の名前（無ければ ''）。
- *   from と to が両方あるときは「from → to」、to だけなら今いる場所として出す。
+ *   from と to が両方あるときは「from → to」、片方だけなら今いる場所として出す。
  */
 export function describeStep(setupLogs, logs, index, dict = {}) {
   if (!Array.isArray(logs) || index < 0 || index >= logs.length) return null;
   const ev = logs[index];
   if (!ev || !ev.cardId) return null; // コメント・全戻し・カード無しのカウンター
 
-  const exIds = new Set(dict.exCardIds || []);
-  const state = _initialState(dict);
-  for (const e of setupLogs || []) _apply(state, e, exIds);
-  for (let i = 0; i < index; i++) _apply(state, logs[i], exIds);
-
-  const before = { ..._get(state, ev.cardId) };
-  const name = (dict.names && dict.names[ev.cardId]) || (isTokenSrc(dict.images?.[ev.cardId]) ? 'トークン' : 'カード');
+  const state = _track(setupLogs, logs, index, dict);
+  const cur = state.get(ev.cardId);
+  if (!cur) return null; // 辞書に無いカード（再生でも何も起きない）
+  const before = { ...cur };
+  const isToken = isTokenSrc((dict.images || {})[ev.cardId]);
+  const name = (dict.names && dict.names[ev.cardId]) || (isToken ? 'トークン' : 'カード');
   const out = { cardId: ev.cardId, name, tag: '', from: '', to: '' };
 
   switch (ev.actionType) {
     case 'moveCard': {
-      const toZone = ev.zoneId || before.zone;
+      const toZone = ev.zoneId;
+      if (!isKnownZone(toZone)) return null;
       const defense = ev.orientation === 'defense';
       const down = ev.face === 'down';
-      if (!before.zone) {
-        // 出ていなかったトークンを場に出した
-        out.tag = 'トークン';
+      if (isToken && before.out) {
+        // まだ場に出ていないトークンを出した（記録上はデッキに足してから場へ動かす）
         out.to = zoneLabel(toZone);
-        if (down) out.tag = 'トークン・セット';
-        else if (defense) out.tag = 'トークン・守備表示';
+        out.tag = down ? 'トークン・セット' : defense ? 'トークン・守備表示' : 'トークン';
         return out;
       }
       if (toZone === before.zone) {
@@ -157,6 +158,7 @@ export function describeStep(setupLogs, logs, index, dict = {}) {
     case 'counterChange':
       return { ...out, tag: ev.op === 'remove' ? 'カウンターを外す' : 'カウンター', to: zoneLabel(before.zone) };
     case 'removeCard':
+      if (!isToken) return null;
       return { ...out, tag: '取り除く', from: zoneLabel(before.zone) };
     default:
       return null;

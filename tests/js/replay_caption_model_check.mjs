@@ -82,7 +82,30 @@ assert.deepEqual(at(logs, 0), { cardId: 't', name: '羊', tag: 'トークン・�
 assert.equal(at(logs, 1).from, 'モンスターゾーン');
 assert.deepEqual(at(logs, 2), { cardId: 't', name: '羊', tag: '取り除く', from: '墓地', to: '' });
 
+// トークンでないカードの取り除きは再生で何も起きない（字幕にしない・居場所も変わらない）
+logs = [mv('a', 'custom-slot-5'), { actionType: 'removeCard', cardId: 'a', zoneId: 'custom-slot-5' }, mv('a', 'side-slot-0')];
+assert.equal(at(logs, 1), null);
+assert.deepEqual(at(logs, 2), { cardId: 'a', name: '召喚獣エリュシオン', tag: '', from: 'モンスターゾーン', to: '墓地' });
+
+// 全戻しの後のトークンは、また出すまで「トークン」
+logs = [mv('t', 'custom-slot-6'), { actionType: 'resetDeck' }, mv('t', 'custom-slot-7')];
+assert.equal(at(logs, 2).tag, 'トークン');
+// 取り除いたトークンは全戻しでも戻らない（出し直すと「トークン」）
+logs = [mv('t', 'custom-slot-6'), { actionType: 'removeCard', cardId: 't' }, { actionType: 'resetDeck' }, mv('t', 'custom-slot-7')];
+assert.equal(at(logs, 3).tag, 'トークン');
+
+// 辞書に無いカード・行き先の分からない移動は、再生で何も起きないので字幕にしない
+assert.equal(describeStep([], [mv('zz', 'center-slot')], 0, {}), null);
+assert.equal(at([mv('a', 'free-space')], 0), null);
+assert.equal(at([mv('a', 'custom-slot-15')], 0), null);
+assert.equal(at([mv('a', 'free-space'), mv('a', 'center-slot')], 1).from, 'デッキ', '分からない移動では居場所が変わらない');
+
 // 名前の無いカード
-assert.equal(describeStep([], [mv('zz', 'center-slot')], 0, {}).name, 'カード');
+assert.equal(describeStep([], [mv('a', 'center-slot')], 0, { images: { a: 'https://x/a.png' } }).name, 'カード');
+
+// 古い記録（exCardIds が無い）は、デッキに戻す記録の isEx から EX のカードを推定する（replay-board.js と同じ）
+const old = { images: dict.images, names: dict.names };
+logs = [mv('e', 'custom-slot-1'), { actionType: 'returnToDeck', cardId: 'e', isEx: true }];
+assert.equal(describeStep([], logs, 0, old).from, 'EXデッキ');
 
 console.log('リプレイの字幕: 場所の名前・移動元のたどり方・札・トークン・範囲外を確認');

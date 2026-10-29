@@ -42,6 +42,7 @@ import { _renderCard, _showUnknown, _showLoading, showTokenInfo } from './card-i
 import { placeToken, tokenNameOf, getLastTokenName, getLastTokenDefense, preloadTokenBase, TOKEN_NAME_MAX, DEFAULT_TOKEN_NAME } from './token-generator.js';
 import { isMobilePortrait, watchMobilePortrait, isMobileLandscape, watchMobileLandscape } from '../utils/viewport.js';
 import { enterRecView, exitRecView } from './rec-view.js';
+import { setReplayCaptionFloor } from './replay-caption.js';
 import { showToast } from '../utils/toast.js';
 import { guardUndoable, offerUndo, discardUndoPoint } from './undo-point.js';
 import { resetMobileDeckMode, openDeckImage } from './deck-edit-ui.js';
@@ -174,10 +175,21 @@ function initDeckCountBadge() {
 function initBarButtons() {
   // 手札の右のデッキの枠: デッキ一覧シートを開く（読込中は押せない。再生モード中は盤面ごと触れない＝mobile.css H-3）
   const deckSlot = document.getElementById('solMobileDeckSlot');
-  const openFromSlot = () => { if (!deckSlot.classList.contains('sol-loading')) openDeckSheet(); };
+  // 再生モード中はタップを盤面ごと止めているが、キー操作（Enter）は届くので、ここでも開かない
+  // （途中の手からカードを引くと先の記録が消えるため）
+  const openFromSlot = () => {
+    if (deckSlot.classList.contains('sol-loading') || _playbackMode) return;
+    openDeckSheet();
+  };
   deckSlot?.addEventListener('click', openFromSlot);
   deckSlot?.addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openFromSlot(); }
+  });
+  // カードをデッキの枠へドラッグして離した（drag-drop.js）: メニューの「デッキへ」と同じく戻す（EX は EX デッキへ・記録も同じ）
+  document.addEventListener('sol-mobile-drop-to-deck', (ev) => {
+    const wrapper = ev.detail?.wrapper;
+    if (!wrapper || _playbackMode || !wrapper.isConnected) return;
+    returnCardToDeckMenu(wrapper);
   });
 
   // 取消: 既存の取消ボタンをそのまま呼ぶ
@@ -767,7 +779,7 @@ function _openEmptySlotMenu(slot, x, y) {
 
 // ══════════════════ C-2: 移動の演出（設計書 §C） ══════════════════
 // デッキ一覧シート／1ドロー／B-1の移動時に、カードのサムネイル複製を
-// 出発点（シートのセル。取れなければ下部バーの「デッキ」ボタン）から行き先ゾーンへ
+// 出発点（シートのセル。取れなければ手札の右のデッキの山）から行き先ゾーンへ
 // 300ms で飛ばす（position:fixed の clone。到着後に自身を消す）。
 // 実際の移動は必ず executeDrop を先に完了させてから演出するため、演出の有無で
 // リプレイ記録・DOM の最終状態は変わらない（C-1調査の結果、既存のドラッグ操作・
@@ -866,7 +878,7 @@ function _moveWithFlyEffect(items, executeFn) {
  */
 function _flyNewlyAddedCards(targetContainer, beforeIds) {
   if (!targetContainer) return;
-  const originRect = _getFlyOriginRect(null); // 特定カードに紐付かないためデッキボタン基準
+  const originRect = _getFlyOriginRect(null); // 特定カードに紐付かないためデッキの山が基準
   const afterWrappers = Array.from(targetContainer.querySelectorAll('.tier-item-wrapper'));
   const newWrappers = afterWrappers.filter(w => !beforeIds.has(w.id));
   newWrappers.forEach((w, i) => _flyCardClone(originRect, w, i * FLY_STAGGER_MS));
@@ -1377,7 +1389,7 @@ function _renderRangePanel() {
 
 function initRangePicker() {
   const on = (id, fn) => document.getElementById(id)?.addEventListener('click', fn);
-  on('solMobileRangePrevBtn', () => { if (_rangePick) seekTo(getCursor() - 1); });
+  on('solMobileRangePrevBtn', () => { if (_rangePick) seekTo(getCursor() - 1, { announce: true }); });
   on('solMobileRangeNextBtn', () => { if (_rangePick) document.getElementById('replayFwd')?.click(); });
   on('solMobileRangeFromBtn', () => {
     if (!_rangePick || _rangeNow() === 0) return;
@@ -1396,7 +1408,7 @@ function initRangePicker() {
   on('solMobileRangeCancelBtn', () => closeRangePicker());
   on('solMobileRangeOkBtn', () => closeRangePicker({ confirm: true }));
   document.getElementById('solMobileRangeSlider')?.addEventListener('input', (e) => {
-    if (_rangePick) seekTo(parseInt(e.target.value, 10) - 1);
+    if (_rangePick) seekTo(parseInt(e.target.value, 10) - 1, { announce: true });
   });
   subscribeReplay('changed', _renderRangePanel);
 }
@@ -2089,8 +2101,10 @@ function enterPlaybackMode(origin = null, range = null) {
     // 第7次検収: 範囲開始手の直前（start=1 なら初期状態）へ移動してから同期する
     seekTo(range.start - 2);
   }
+  // 範囲より前の手（範囲開始の直前）では字幕を出さない（受け手は範囲の最初の手から見る）
+  setReplayCaptionFloor(range ? range.start - 1 : null);
   _syncPlaybackFromMain();
-  updateDeckCountBadge(); // 第6次検収-2a: 帯の「デッキ N」バッジを最新枚数にする
+  updateDeckCountBadge(); // 手札の右のデッキの枠を最新枚数にする
 
   // B-3: 盤面を覆わないよう下部予約量(52→88px)を増やし、既存の再フィット経路(resize)を発火する
   document.documentElement.style.setProperty('--sol-mobile-bottom-reserve', '88px');
@@ -2121,6 +2135,7 @@ function exitPlaybackMode({ forceOpenShare = false, returnToOrigin = true } = {}
   const origin = _playbackOrigin;
   _playbackOrigin = null;
   _playbackRange = null; // 第7次検収: 範囲状態を破棄
+  setReplayCaptionFloor(null);
   _updatePlaybackRangeBadge(null);
 
   _playbackMode = false;
@@ -2166,7 +2181,7 @@ function initPlaybackBar() {
     stripSlider.addEventListener('input', () => {
       if (_playbackRange) {
         const rel = parseInt(stripSlider.value, 10) || 0;
-        seekTo(_playbackRange.start - 2 + rel);
+        seekTo(_playbackRange.start - 2 + rel, { announce: true });
         return;
       }
       mainSlider.value = stripSlider.value;

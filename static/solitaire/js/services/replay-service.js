@@ -120,8 +120,10 @@ export function isReplayAnimating() {
 // removed: removeEventAt で手を取り除いた直後（引数 = 取り除いた位置）
 // edited: 利用者の操作で記録が変わった直後（手の記録・コメント・取り除き・1手取り消し）。
 //         読み込み・再生・巻き戻しでは出ない（ui/undo-point.js が「元に戻す」を引っ込める合図に使う）
-// navigated: 再生の操作（次へ・前へ・スライダー・自動再生）で見ている手が変わった直後（引数 = 今のカーソル）。
-//         手を打った・読み込んだときは出ない（ui/replay-caption.js が字幕を出す合図に使う）
+// navigated: 利用者の再生の操作（次へ・前へ・自動再生・スライダー・ホイール）で見ている手が変わった直後（引数 = 今のカーソル）。
+//         stepForward / stepBack は常に、seekTo は { announce: true } を渡されたときだけ出す。
+//         手を打った・読み込んだ・画面の切り替えで手を動かした（続きから・再生モードの終了など）ときは出ない
+//         （ui/replay-caption.js が字幕を出す合図に使う）
 const _listeners = { changed: [], commentAdded: [], removed: [], edited: [], navigated: [] };
 
 /**
@@ -347,8 +349,12 @@ export function stepBack() {
   _emit('navigated', _cursor);
 }
 
-/** 手番Nにジャンプ */
-export function seekTo(n) {
+/**
+ * 手番Nにジャンプ
+ * @param {number} n
+ * @param {{announce?: boolean}} [opts]  announce: 利用者がスライダー等で選んだ手（字幕を出す navigated を通知する）
+ */
+export function seekTo(n, { announce = false } = {}) {
   const target = Math.max(-1, Math.min(n, _logs.length - 1));
   if (target === _cursor) return;
   if (target > _cursor) {
@@ -365,7 +371,7 @@ export function seekTo(n) {
     _replayTo(target);
   }
   _updateUI();
-  _emit('navigated', _cursor);
+  if (announce) _emit('navigated', _cursor);
 }
 
 /**
