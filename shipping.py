@@ -63,17 +63,16 @@ SHIPPING_RULES: dict[str, ShippingRule] = {
     ),
     "カーナベル": ShippingRule(
         shop="カーナベル",
-        base_fee=100,
-        # TODO: calibrate from data — 送料無料条件は公式の送料ページ・FAQ のどちらにも
-        # 記載が無く、一次情報で確認できなかった（検索エンジン上には「4,000円以上で無料」
-        # という記述があるが裏が取れない）。確認できるまで「無料条件なし」として扱う。
-        free_threshold=None,
+        base_fee=150,
+        free_threshold=4000,
         min_order=2000,
-        method="日時指定なし（全国一律）",
-        source_url="https://www.ka-nabell.com/sendinfo.html",
-        note="「カート内金額が2,000円未満の場合：商品代金2,000円以上から注文可能です」"
-             "（販売よくある質問「注文が確定できない」）。日時指定ありは送料+600円、"
-             "代金引換+325円、コンビニ後払い+300円だが最安条件のみを採る",
+        method="ネコポス（全国一律）",
+        source_url="https://www.ka-nabell.com/ec/sell/guides#delivery",
+        checked_on="2026-10-29",
+        note="新サイト（2026-10-24〜）の販売ご利用ガイド。ネコポス150円「注文金額4,000円以上で無料」、"
+             "利用条件「商品金額の合計が2,000円以上より購入可能」。宅急便は600円"
+             "（北海道・沖縄1,200円）で日時指定・代金引換はこちらだけだが、最安条件のみを採る。"
+             "旧サイト（〜2026-10-21）は日時指定なし100円・無料条件の記載なしだった",
     ),
     "トレコロCB": ShippingRule(
         shop="トレコロCB",
