@@ -85,15 +85,21 @@ body.sol-recview .sol-field-area { padding-top: calc(var(--sol-rec-band-h) + 8px
 .sol-rec-guide-steps li { color: var(--main-color); }
 .sol-rec-guide-steps li + li { margin-top: 6px; }
 .sol-rec-guide .sol-replay-start-later { display: block; margin: 8px auto 0; }
-/* 縦向きスマホの案内だけに出す「横画面で撮る」（「始める」の次に置く控えめなボタン） */
-.sol-rec-landscape-btn {
-  display: block; width: 100%; margin-top: 10px;
-  padding: 10px 12px; border-radius: 10px;
-  border: 1px solid var(--border);
-  background: var(--bg-card); color: var(--main-color);
-  font-family: var(--font); font-size: 0.9rem; font-weight: 700; cursor: pointer;
+/* 縦向きスマホの案内だけに出す撮る向きの2択（2026-10-29 ユーザー選択の案A）。どちらも押せば始まるので、
+   「始める」（.sol-replay-start-play）と同じ金の地・濃い文字で同じ重さに並べる */
+.sol-rec-orient { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+.sol-rec-orient-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  min-height: 132px; padding: 14px 8px 12px;
+  border: none; border-radius: 12px;
+  background: var(--gold); color: #242013;
+  font-family: var(--font); cursor: pointer;
 }
-.sol-rec-landscape-btn:hover { background: var(--bg-hover); }
+.sol-rec-orient-btn:hover { background: #ffe16d; }
+/* components.css の汎用 `p, span, li { color:#333 }` が当たるので、中の文字に直接色を付ける */
+.sol-rec-orient-icon { display: flex; align-items: center; height: 48px; color: #242013; }
+.sol-rec-orient-label { font-size: 1rem; font-weight: 700; color: #242013; }
+.sol-rec-orient-note { font-size: 0.75rem; line-height: 1.35; color: #242013; opacity: 0.8; }
 .sol-rec-guide-note {
   margin: 12px 0 0;
   color: var(--main-color); font-size: 0.85rem; line-height: 1.6;
