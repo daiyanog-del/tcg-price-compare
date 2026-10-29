@@ -61,6 +61,7 @@
 <link rel="stylesheet" href="{{ static_url('solitaire/css/rec-view.css') }}">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/replay-caption.css') }}">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/landing-mark.css') }}">
+<link rel="stylesheet" href="{{ static_url('solitaire/css/opp-field.css') }}">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/inline-ui.css') }}">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/start-choice.css') }}">
 <link rel="stylesheet" href="{{ static_url('shared/text-report.css') }}">
@@ -223,6 +224,24 @@
       </div>
       <div id="mainContainer">
         <div class="main-content">
+          <!-- 相手の場（2026-10-29 ユーザー指示。普段は隠し、⋯メニュー・右パネルで出すか、相手の場を使った記録・カードがあると出る）。
+               マス番号: 15〜19＝相手のモンスターゾーン（自分から見て左→右）・20＝相手のフィールドゾーン・21＝相手の墓地。
+               PC・横向きは盤面の上に7マス（左端＝墓地・真ん中5列＝モンスター・自分の墓地パネルの上＝フィールド）、
+               縦向きスマホは5列（墓地・16〜18・フィールド。15・19 にカードがある間だけ7列）。並び・見た目は css/opp-field.css、
+               出し入れ・墓地の枚数と一覧は js/ui/opp-field.js -->
+          <div class="sol-opp-row" aria-label="相手の場">
+            <div class="sol-opp-board">
+              <div class="custom-slot sol-opp-slot" data-slot="21" aria-label="相手の墓地" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+              <div class="custom-slot sol-opp-slot" data-slot="15" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+              <div class="custom-slot sol-opp-slot" data-slot="16" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+              <div class="custom-slot sol-opp-slot" data-slot="17" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+              <div class="custom-slot sol-opp-slot" data-slot="18" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+              <div class="custom-slot sol-opp-slot" data-slot="19" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+            </div>
+            <div class="sol-opp-side">
+              <div class="custom-slot sol-opp-slot" data-slot="20" aria-label="相手のフィールドゾーン" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+            </div>
+          </div>
           <!-- フィールド -->
           <div class="custom-layout">
             <div class="row row-top">
@@ -530,6 +549,11 @@
                 <button type="button" class="sol-mobile-menu-item" data-menu-action="boardmemo"><span class="sol-mobile-menu-label">盤面にメモ</span><span class="sol-mobile-menu-desc">空いた角に付箋で一言</span></button>
                 <button type="button" class="sol-mobile-menu-item" data-menu-action="cutin"><span class="sol-mobile-menu-label">カットイン</span><span class="sol-mobile-menu-desc">その手で一瞬ことばや妨害を出す</span></button>
                 <button type="button" class="sol-mobile-menu-item" data-menu-action="token"><span class="sol-mobile-menu-label">トークンを出す</span><span class="sol-mobile-menu-desc">名前を入れて、出すマスをタップ</span></button>
+                <!-- 相手の場（2026-10-29）: 盤面の上に相手の墓地・モンスター・フィールドの段を出す（js/ui/opp-field.js） -->
+                <label class="sol-mobile-menu-item is-plain sol-sample-blur-toggle">
+                  <span class="sol-mobile-menu-label">相手の場を出す</span>
+                  <input type="checkbox" role="switch" id="solMobileOppToggle" data-opp-field-toggle>
+                </label>
               </div>
             </div>
             <div class="sol-mobile-menu-group">
@@ -828,6 +852,16 @@
             <ul class="sol-comment-list" data-comment-list="cutin" aria-label="追加済みのカットイン"></ul>
           </div>
         </div>
+      </div>
+
+      <div class="sol-right-section">
+        <!-- 相手の場（2026-10-29）: 盤面の上に相手の墓地・モンスター・フィールドの段を出す（js/ui/opp-field.js）。
+             スイッチの見た目は「イラストをぼかす」と同じ部品（.sol-sample-blur-toggle） -->
+        <p class="sol-right-heading">相手の場</p>
+        <label class="sol-sample-blur-toggle">
+          <input type="checkbox" role="switch" id="solOppToggle" data-opp-field-toggle aria-label="相手の場を出す">
+          <span>相手の場を出す</span>
+        </label>
       </div>
 
       <div class="sol-right-section">

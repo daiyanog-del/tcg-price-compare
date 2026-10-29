@@ -459,7 +459,8 @@ function _alignHandExLine() {
   if (!hand || !ex) return;
   hand.style.removeProperty('flex');
   if (!_active || isMobilePortrait()) return;
-  const cols = [...document.querySelectorAll('.custom-slot, .side-slots-container > .sol-side-area')]
+  // 相手の場の段（2026-10-29）は盤面と同じ列か墓地の列の真ん中なので、自分の盤面のマスだけで境目を探す
+  const cols = [...document.querySelectorAll('.custom-layout .custom-slot, .side-slots-container > .sol-side-area')]
     .map((e) => e.getBoundingClientRect()).filter((b) => b.width > 0);
   const rights = [...new Set(cols.map((b) => Math.round(b.right)))].sort((a, b) => a - b);
   const lefts = [...new Set(cols.map((b) => Math.round(b.left)))].sort((a, b) => a - b);

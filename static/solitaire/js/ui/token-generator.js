@@ -118,7 +118,7 @@ function openTokenMenu(slot, x, y) {
 }
 
 export function initTokenGenerator() {
-  const layout = document.querySelector('.custom-layout');
+  const layout = document.querySelector('.main-content'); // 盤面と相手の場（.sol-opp-row・2026-10-29）の両方
   if (!layout) return;
 
   layout.addEventListener('contextmenu', (e) => {
@@ -126,6 +126,7 @@ export function initTokenGenerator() {
     if (e.target.closest('.tier-item-wrapper')) return; // カードの上はカードのメニュー
     const slot = e.target.closest('.custom-slot');
     if (!slot) return;                                  // マスの間の隙間はブラウザのメニューのまま
+    if (slot.getAttribute('data-slot') === '21') return; // 相手の墓地にはトークンを出さない（2026-10-29）
     if (isMobilePortrait()) return;
     e.preventDefault();
     loadTokenBase(); // 名前を打っている間に土台を読んでおく

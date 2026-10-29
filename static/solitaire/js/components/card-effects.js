@@ -31,6 +31,11 @@ export function playActivateEffect(wrapper) {
   const clone = wrapper.cloneNode(true);
   _stripCommentBubble(clone);
   clone.classList.add('sol-activate-glow');
+  // 相手の場のカードは逆向きのまま光らせる（守備表示・自分の盤面は CSS のまま）
+  if (wrapper.parentElement?.classList.contains('sol-opp-slot')) {
+    const item = clone.querySelector('.tier-item');
+    if (item) item.style.transform = cardItemTransform(wrapper);
+  }
   // inline style を上書きして fixed 配置に固定。
   // position はクラス(.sol-activate-glow)側の定義に任せず、ここで明示的に指定する。
   // wrapper が self-watermark.css の .wm-released（position:relative）クラスを持つ場合、
@@ -106,6 +111,18 @@ function _isZeroRect(rect) {
  * @param {DOMRect}       firstRect  - 移動前の getBoundingClientRect() 値
  * @param {Function|null} onComplete - アニメ完了（またはスキップ）後に呼ぶコールバック
  */
+/**
+ * 演出の複製（body 直下に置くので、置き場所の CSS が当たらない）のカード画像に入れる向き。
+ * 守備表示は -90度。相手の場のマス（css/opp-field.css .sol-opp-slot・2026-10-29）にあるカードは逆向きなので
+ * さらに 180度（守備表示は 90度）。マスを移る演出は、本体が今いる（移動先の）マスの向きで飛ばす
+ * @param {Element} wrapper - .tier-item-wrapper（DOM 上の本体）
+ */
+function cardItemTransform(wrapper) {
+  const defense = wrapper.classList.contains('is-defense');
+  if (wrapper.parentElement?.classList.contains('sol-opp-slot')) return defense ? 'rotate(90deg)' : 'rotate(180deg)';
+  return defense ? 'rotate(-90deg)' : '';
+}
+
 export function flipMoveClone(wrapper, firstRect, onComplete = null) {
   // 移動なし・引数不正の場合はコールバックだけ呼んで終了
   if (!wrapper || !firstRect) {
@@ -152,11 +169,7 @@ export function flipMoveClone(wrapper, firstRect, onComplete = null) {
   const cloneTierItem = clone.querySelector('.tier-item');
   if (cloneTierItem) {
     cloneTierItem.style.transition = 'none';
-    if (clone.classList.contains('is-defense')) {
-      cloneTierItem.style.transform = 'rotate(-90deg)';
-    } else {
-      cloneTierItem.style.transform = '';
-    }
+    cloneTierItem.style.transform = cardItemTransform(wrapper);
   }
 
   // inline style を上書き: position:fixed で全スロットの overflow:hidden を突破
@@ -287,11 +300,7 @@ export function flyBetweenRects(cardEl, fromRect, toRect, onComplete = null) {
   const cloneTierItem = clone.querySelector('.tier-item');
   if (cloneTierItem) {
     cloneTierItem.style.transition = 'none';
-    if (clone.classList.contains('is-defense')) {
-      cloneTierItem.style.transform = 'rotate(-90deg)';
-    } else {
-      cloneTierItem.style.transform = '';
-    }
+    cloneTierItem.style.transform = cardItemTransform(cardEl);
   }
 
   // クローンは常にカードの大きさで作り、山札の札（横長の小さな札）の側は縮小（scale）で表す。

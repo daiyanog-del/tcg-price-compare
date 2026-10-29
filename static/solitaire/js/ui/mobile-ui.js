@@ -637,8 +637,9 @@ function _tokenSheetDefense() {
 function startTokenPick(name, defense = false) {
   closeTokenPick();
   clearMobileSelection(); // 選択中のカードがあると、マスのタップでそのカードが動いてしまう
-  const slots = [...document.querySelectorAll('.custom-layout .custom-slot')]
-    .filter((s) => !s.querySelector('.tier-item-wrapper'));
+  // 相手の場（2026-10-29）を出していれば相手のマスにも出せる（相手の墓地＝21番と、隠れているマスは除く）
+  const slots = [...document.querySelectorAll('.main-content .custom-slot')]
+    .filter((s) => !s.querySelector('.tier-item-wrapper') && s.dataset.slot !== '21' && s.offsetParent !== null);
   if (!slots.length) { showToast('空いているマスがありません'); return; }
   slots.forEach((s) => s.classList.add('drop-hint'));
   _tokenPick = { name, defense, slots };
@@ -688,8 +689,9 @@ function initTokenSheet() {
     }
   });
   document.getElementById('solMobileTokenCancelBtn')?.addEventListener('click', closeTokenPick);
-  // 案内の付いたマスのタップで出す（カードの選択とは別。選択中はマス選びをやめているので重ならない）
-  document.querySelector('.custom-layout')?.addEventListener('click', (e) => {
+  // 案内の付いたマスのタップで出す（カードの選択とは別。選択中はマス選びをやめているので重ならない）。
+  // 盤面と相手の場（.sol-opp-row）の両方を含む .main-content で受ける（縦向きでは display:contents だが、押した知らせは届く）
+  document.querySelector('.main-content')?.addEventListener('click', (e) => {
     if (!_tokenPick) return;
     const slot = e.target.closest('.custom-slot');
     if (!slot || !_tokenPick.slots.includes(slot)) return;
@@ -709,7 +711,7 @@ const SLOT_LONG_PRESS_MS = 500;
 const SLOT_LONG_PRESS_MOVE_PX = 8;
 
 function initEmptySlotLongPress() {
-  const layout = document.querySelector('.custom-layout');
+  const layout = document.querySelector('.main-content'); // 盤面と相手の場（.sol-opp-row）の両方
   if (!layout) return;
   let timer = null;
   let start = null; // { x, y, id }
@@ -724,6 +726,7 @@ function initEmptySlotLongPress() {
     if (e.touches.length > 1 || e.target.closest('.tier-item-wrapper')) return;
     const slot = e.target.closest('.custom-slot');
     if (!slot || slot.querySelector('.tier-item-wrapper')) return;
+    if (slot.getAttribute('data-slot') === '21') return; // 相手の墓地には空きマスのメニュー（トークン等）を出さない
     const t = e.changedTouches[0];
     start = { x: t.clientX, y: t.clientY, id: t.identifier };
     timer = setTimeout(() => {
