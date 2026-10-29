@@ -151,8 +151,10 @@ function fitFieldToViewport() {
     // 画面録画用の表示（rec-view.js・rec-view.css）: デッキ（#imagePool）と再生バーを隠し、上に帯を置く。
     // 盤面3段＋手札/EXの1段 → 4×1.45=5.8。固定分は下の通常時から imagePool の行（mt4＋22）を除き、帯（＋余白8）を足したもの
     // 横長の横向きスマホは帯を置かない（高さ0。rec-view.css）ので、0 をそのまま使う
+    // 横向きスマホは手札/EX の見出しを縦書きで枠の左に置くので、center-row 内の固定分は余白と枠（3+3+1+1）だけになる
     const bandH = document.getElementById('solRecBand')?.offsetHeight ?? 56;
-    const FIXED_REC = 4 + 4 + 22 + 6 + bandH + 8;
+    const rowFixed = document.body.classList.contains('sol-recview-landscape') ? 8 : 22;
+    const FIXED_REC = 4 + 4 + rowFixed + 6 + bandH + 8;
     slotW_h = Math.floor((window.innerHeight - FIXED_REC) / 5.8);
   } else {
     // slot-width に依存しない固定オーバーヘッド（実測ベースに引き直し）:
