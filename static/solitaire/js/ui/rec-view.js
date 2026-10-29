@@ -107,14 +107,16 @@ function _buildBand(compact) {
   const title = _el('div', 'sol-rec-title', _title());
   const count = _el('div', 'sol-rec-count');
   count.id = 'solRecCount';
-  if (compact) band.append(logo, title, count);
+  // 縦向きスマホは手札の右のデッキの枠（solitaire.html #solMobileDeckSlot）がそのまま見えているので、帯に札を出さない
+  if (compact || _enteredPortrait) band.append(logo, title, count);
   else band.append(logo, title, _buildDeck(false), count);
   return band;
 }
 
 /**
  * デッキの残り枚数。デッキ列を隠すので、ドローなどの演出はここから飛ぶ（replay-service.js _getDeckAnchorEl）。
- * PC・縦向きスマホは帯の札、横向きスマホは EX デッキの右に置く1枚分の枠（ラベルと裏向きの山）。
+ * PC は帯の札、横向きスマホは EX デッキの右に置く1枚分の枠（ラベルと裏向きの山）。
+ * 縦向きスマホは作らない（普段の画面の手札の右のデッキの枠を使う。2026-10-29）。
  */
 function _buildDeck(compact) {
   const deckCount = _el('span', compact ? 'zone-count' : 'sol-rec-deck-count');
@@ -497,7 +499,8 @@ export function exitRecView() {
   _rowObserver?.disconnect();
   _rowObserver = null;
   _releaseScreenOn();
-  document.body.classList.remove(ROOT_CLASS, LANDSCAPE_CLASS);
+  // sol-recview-corner は main.js fitFieldToViewport が縦向きで高さの足りないときに付ける（閉じたら外す）
+  document.body.classList.remove(ROOT_CLASS, LANDSCAPE_CLASS, 'sol-recview-corner');
   _alignHandExLine(); // 閉じたので手札の幅を元の割合に戻す（_active が false なので戻すだけ）
   _setMobileReserve(false);
   document.removeEventListener('keydown', _onKeydown, true);
