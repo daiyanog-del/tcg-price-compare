@@ -29,6 +29,7 @@ from constants import JST  # noqa: E402
 from fake_price_history import FakeClient as _FakeClient  # noqa: E402
 from fake_price_history import FakeQuery as _FakeQuery  # noqa: E402
 from fake_price_history import card_ids as _card_ids  # noqa: E402
+from frozen_clock import freeze_now  # noqa: E402
 
 
 def row(card, shop, price, date, rarity="ノーマル"):
@@ -59,8 +60,16 @@ def _by_name(payload):
     return {c["name"]: c for c in payload["cards"]}
 
 
-# 読み込みは「今日から N 日前まで」の日付ごとなので、テストの日付も今日を起点にする
-_TODAY = datetime.now(JST).date()
+# 読み込みは「今日から N 日前まで」の日付ごとなので、テストの日付も今日を起点にする。
+# 収集と実行のあいだに JST の0時をまたいでもずれないよう、窓を作る本体の時計をこの時刻に固定する
+_NOW = datetime.now(JST)
+_TODAY = _NOW.date()
+
+
+@pytest.fixture(autouse=True)
+def _freeze_window_clock(monkeypatch):
+    import price_history_reads
+    freeze_now(monkeypatch, price_history_reads, _NOW)
 OLD, NEW = (_TODAY - timedelta(days=7)).isoformat(), _TODAY.isoformat()
 
 

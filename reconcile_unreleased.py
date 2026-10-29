@@ -484,7 +484,7 @@ def _cleanup_stale_cards(sb) -> dict[str, int]:
     rejected_cards = _fetch_rejected_cards(sb)
     logger.info(f'rejected クリーンアップ候補: {len(rejected_cards)} 件')
 
-    today = date.today()
+    today = datetime.now(JST).date()
     for card in rejected_cards:
         card_id = card['id']
         name = card.get('name') or ''

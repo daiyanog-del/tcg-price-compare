@@ -127,10 +127,19 @@ class TestRulesForClient:
 # ---------------------------------------------------------------- API 結合
 
 from fake_price_history import FakeClient as _FakeClient  # noqa: E402
+from frozen_clock import freeze_now  # noqa: E402
 
 # 読み込みは「今日の7日前から今日まで」の日付ごと（2026-10-22 から）なので、テストの日付も今日から数える。
-# 以前の固定日付 08-06 / 08-05 / 08-01 は、それぞれ今日・1日前・5日前に置き換えた（日付の前後関係は同じ）
-_TODAY = datetime.now(JST).date()
+# 以前の固定日付 08-06 / 08-05 / 08-01 は、それぞれ今日・1日前・5日前に置き換えた（日付の前後関係は同じ）。
+# 収集と実行のあいだに JST の0時をまたいでもずれないよう、窓を作る本体の時計をこの時刻に固定する
+_NOW = datetime.now(JST)
+_TODAY = _NOW.date()
+
+
+@pytest.fixture(autouse=True)
+def _freeze_window_clock(monkeypatch):
+    import price_history_reads
+    freeze_now(monkeypatch, price_history_reads, _NOW)
 
 
 def _d(days_ago: int) -> str:

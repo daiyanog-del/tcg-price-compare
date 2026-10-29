@@ -23,6 +23,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import reconcile_unreleased as target
+from frozen_clock import freeze_now
 
 
 # ──────────────────────────────────────────────
@@ -243,6 +244,25 @@ def test_rejected_no_ygores_match_but_past_release_date_is_deleted(monkeypatch):
 
     assert summary["rejected_deleted"] == 1
     assert sb.unreleased_rows == []
+
+
+def test_rejected_past_release_date_uses_jst_today(monkeypatch):
+    # 2026-10-29 15:30 UTC = 10-30 00:30 JST。本番（UTC）のサーバーでも「今日」は JST の 10-30。
+    # 以前は date.today()（サーバーの日付＝10-29）で比べ、JST 0〜9時は前日の発売分を消し残していた
+    freeze_now(monkeypatch, target, datetime(2026, 10, 29, 15, 30, tzinfo=timezone.utc))
+    rows = [
+        {"id": 1, "name": "カードY", "status": "rejected", "linked_at": None,
+         "release_date": "2026-10-29"},  # JST の昨日 → 過去
+        {"id": 2, "name": "カードZ", "status": "rejected", "linked_at": None,
+         "release_date": "2026-10-30"},  # JST の今日 → まだ過去ではない
+    ]
+    sb = _FakeSupabase(rows)
+    _install_fake_ygores(monkeypatch, [])
+
+    summary = target._cleanup_stale_cards(sb)
+
+    assert summary["rejected_deleted"] == 1
+    assert [r["id"] for r in sb.unreleased_rows] == [2]
 
 
 def test_rejected_no_match_and_future_release_date_is_not_deleted(monkeypatch):
