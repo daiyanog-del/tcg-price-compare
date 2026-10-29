@@ -20,7 +20,7 @@ import { isTokenSrc } from './token-src.js';
 // [発行元, パスの形]。発行元だけで許すと、その発行元にある転送用の URL などを通してしまうため、出している形に絞る
 export const ALLOWED_IMAGE_SOURCES = [
   ['https://artworks-jp-n.ygoresources.com', String.raw`^/\d+/\d+/\d+_1\.png$`],   // app.py _ygores_image_url（発売済みカード）
-  ['https://www.ka-nabell.com', String.raw`^/img/s/[A-Za-z0-9_.-]+$`],            // scraper.py kanabell_card_image_url（予備）
+  ['https://yg-card-images.ka-nabell.com', String.raw`^/card/card\d+_\d+\.jpg$`],  // scraper.py kanabell_card_image_url（予備）
 ];
 const _SOURCES = ALLOWED_IMAGE_SOURCES.map(([origin, pat]) => [origin, new RegExp(pat)]);
 

@@ -74,8 +74,10 @@ class TestIsNormalCondition:
         assert _is_normal_condition("カードラボ", "-") is True
         assert _is_normal_condition("まんぞく屋", "") is True
 
-    def test_kanabell_sa_is_normal_bcd_are_not(self):
-        assert _is_normal_condition("カーナベル", "状態:SA") is True
+    def test_kanabell_s_and_a_are_normal_bcd_are_not(self):
+        # 新サイト（2026-10-24〜）は旧「状態:SA」を S と A に分けた
+        assert _is_normal_condition("カーナベル", "状態:S") is True
+        assert _is_normal_condition("カーナベル", "状態:A") is True
         assert _is_normal_condition("カーナベル", "状態:B") is False
         assert _is_normal_condition("カーナベル", "状態:C") is False
         assert _is_normal_condition("カーナベル", "状態:D") is False
@@ -104,7 +106,7 @@ class TestTwoValueAggregation:
         rows = build_min_price_rows(
             "テストカード",
             [
-                _item("カーナベル", "ウルトラ", 1000, code="C1", condition="状態:SA"),
+                _item("カーナベル", "ウルトラ", 1000, code="C1", condition="状態:A"),
                 _item("カーナベル", "ウルトラ", 700, code="C2", condition="状態:C"),
             ],
             TODAY,
@@ -189,7 +191,7 @@ class TestUrlField:
         rows = build_min_price_rows(
             "テストカード",
             [
-                _item("カーナベル", "ウルトラ", 1000, code="C1", condition="状態:SA",
+                _item("カーナベル", "ウルトラ", 1000, code="C1", condition="状態:A",
                       url="https://example.com/sa"),
                 _item("カーナベル", "ウルトラ", 700, code="C2", condition="状態:C",
                       url="https://example.com/c"),

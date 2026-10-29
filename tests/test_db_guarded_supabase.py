@@ -391,8 +391,8 @@ def run_prices(monkeypatch, harness):
                             lambda sb: [{"card_name": f"c{i}", "last_collected_at": None} for i in range(n_cards)])
         monkeypatch.setattr(cp, "SHOPS", [("カーナベル", None)])
         monkeypatch.setattr(cp, "SKIP_SHOPS_IN_CI", set())
-        monkeypatch.setenv("KANABELL_CLOUD_ID", "x")
-        monkeypatch.setenv("KANABELL_API_KEY", "x")
+        monkeypatch.setenv("KANABELL_ES_ENDPOINT", "x")
+        monkeypatch.setenv("KANABELL_ES_API_KEY", "x")
         monkeypatch.setattr(cp, "check_shop_availability", lambda shops: list(shops))
 
         def fake_compare(card_name, shop_names=None, status_out=None):

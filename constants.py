@@ -23,7 +23,7 @@ REPLAY_RETENTION_DAYS = 90
 # static/solitaire/js/utils/replay-image-policy.js の ALLOWED_IMAGE_SOURCES と同じ値にする（tests/test_replay_image_policy.py が確かめる）
 REPLAY_IMAGE_SOURCES = (
     ("https://artworks-jp-n.ygoresources.com", r"^/\d+/\d+/\d+_1\.png$"),   # app.py _ygores_image_url
-    ("https://www.ka-nabell.com", r"^/img/s/[A-Za-z0-9_.-]+$"),            # scraper.py kanabell_card_image_url（予備）
+    ("https://yg-card-images.ka-nabell.com", r"^/card/card\d+_\d+\.jpg$"),  # scraper.py kanabell_card_image_url（予備）
 )
 
 # Web Push 購読管理用 VAPID クレーム

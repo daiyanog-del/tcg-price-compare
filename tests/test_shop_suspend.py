@@ -22,7 +22,7 @@ def _run_with_env(code: str, suspended: str) -> dict:
     """SUSPENDED_SHOPS を設定した別プロセスで code を実行し、最後に print した JSON を返す。
     店の一覧は import 時に決まるので、同じプロセスの他のテストを汚さないように分ける。"""
     env = dict(os.environ, SUSPENDED_SHOPS=suspended, DISABLE_STARTUP_JOBS="1",
-               PYTHONIOENCODING="utf-8", KANABELL_CLOUD_ID="x:eA==", KANABELL_API_KEY="k")
+               PYTHONIOENCODING="utf-8", KANABELL_ES_ENDPOINT="https://example.invalid", KANABELL_ES_API_KEY="k")
     out = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env,
                          capture_output=True, text=True, encoding="utf-8", timeout=120)
     assert out.returncode == 0, out.stderr

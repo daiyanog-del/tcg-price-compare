@@ -9,8 +9,8 @@ tests/test_search_query.py — 店舗別の検索語生成の回帰テスト
 
   - トレコロCB: 商品名は全角登録が主流。検索エンジンは商品名側の全角/半角は
     吸収するが、検索語側は区別する → 検索語は全角へ寄せる
-  - カーナベル: ESの card_name に半角格納と全角格納が混在する
-    → wildcard を半角版・全角版の両方投げる
+  - カーナベル: 2026-10-24 の新サイトからはサイトと同じ照合（ngram つき）に任せるので、
+    検索語の加工は無い（tests/test_other_tcg_exclusion.py で検索条件を確かめる）
 
 テスト方針:
   - ネットワーク・認証情報は不要。純粋な文字列生成のみを検証する。
@@ -22,13 +22,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scraper import (
-    to_fullwidth_alnum,
     _squeeze_spaces,
     _torecolo_search_query,
     _cardrush_search_query,
     _normalize_search_query,
-    _kanabell_wildcard_value,
-    _kanabell_wildcard_values,
 )
 
 
@@ -118,32 +115,6 @@ class TestCardrushSearchQuery:
         assert ":" not in _cardrush_search_query("W：Pファンシーボール")
 
 
-class TestToFullwidthAlnum:
-    """英数字のみの全角化（カーナベルES用）"""
-
-    def test_alnum(self):
-        assert to_fullwidth_alnum("DHERO") == "ＤＨＥＲＯ"
-
-    def test_symbols_are_not_converted(self):
-        # 本丸: 記号まで全角化すると、ピリオドだけ半角の混在表記レコードに当たらなくなる
-        # （カーナベル実データ「Ｎｏ.１０４ 仮面魔踏士シャイニングＶ」）
-        assert to_fullwidth_alnum("No.104 仮面魔踏士シャイニングV") == "Ｎｏ.１０４ 仮面魔踏士シャイニングＶ"
-        assert to_fullwidth_alnum("W:Pファンシーボール") == "Ｗ:Ｐファンシーボール"
-
-    def test_hyphen_is_not_converted(self):
-        assert to_fullwidth_alnum("D-HERO") == "Ｄ-ＨＥＲＯ"
-
-    def test_wildcard_metachars_are_not_converted(self):
-        # 半角版と全角版で wildcard の意味を揃えるため、メタ文字は変換しない
-        assert to_fullwidth_alnum("*abc?*") == "*ａｂｃ?*"
-
-    def test_space_is_kept(self):
-        assert to_fullwidth_alnum("VS ラゼン") == "ＶＳ ラゼン"
-
-    def test_japanese_unchanged(self):
-        assert to_fullwidth_alnum("灰流うらら") == "灰流うらら"
-
-
 class TestTorecoloSearchQuery:
     """トレコロ検索語（販売・買取で共通）
 
@@ -184,38 +155,3 @@ class TestTorecoloSearchQuery:
 
     def test_ideographic_space_becomes_halfwidth(self):
         assert _torecolo_search_query("VS　ラゼン") == "VS ラゼン"
-
-
-class TestKanabellWildcardValues:
-    """カーナベル wildcard（半角版＋全角版）"""
-
-    def test_halfwidth_and_fullwidth_are_both_returned(self):
-        vals = _kanabell_wildcard_values("D-HERO デスドグマガイ")
-        assert "*D*HERO*デスドグマガイ*" in vals
-        assert "*Ｄ*ＨＥＲＯ*デスドグマガイ*" in vals
-        assert len(vals) == 2
-
-    def test_mixed_width_record_is_covered(self):
-        # カーナベル実データ「Ｎｏ.１０４ 仮面魔踏士シャイニングＶ」（ピリオドだけ半角）に
-        # 一致する値が含まれること。記号まで全角化すると当たらなくなる
-        vals = _kanabell_wildcard_values("No.104 仮面魔踏士シャイニングV")
-        assert "*Ｎｏ.１０４*仮面魔踏士シャイニングＶ*" in vals
-        for v in vals:
-            assert "．" not in v, "ピリオドを全角化すると混在表記レコードに当たらない"
-
-    def test_japanese_only_returns_single_value(self):
-        # 英数字を含まないカード名は半角版と全角版が同じなので1つだけ返す
-        vals = _kanabell_wildcard_values("灰流うらら")
-        assert vals == ["*灰流うらら*"]
-
-    def test_single_value_matches_legacy_behaviour(self):
-        # 従来の挙動（半角版）は必ず含まれ、既存のヒットが減らないこと
-        for name in ("D-HERO ディアボリックガイ", "灰流うらら", "閃刀姫-レイ"):
-            assert _kanabell_wildcard_value(name) in _kanabell_wildcard_values(name)
-
-    def test_fullwidth_value_has_no_fullwidth_asterisk(self):
-        # 区切りの '*' まで全角化してしまうとクエリが壊れる
-        vals = _kanabell_wildcard_values("W:Pファンシーボール")
-        for v in vals:
-            assert "＊" not in v
-            assert v.startswith("*") and v.endswith("*")
