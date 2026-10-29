@@ -214,3 +214,31 @@ def test_missing_table_falls_back_to_shop_words(monkeypatch, tmp_path):
         assert av._art_prints() == {}
     finally:
         av._art_prints.cache_clear()
+
+
+def test_table_code_folds_unreadable_label(monkeypatch):
+    # 表にある型番（絵が1種類）は、店の言葉で判別できない行も違う絵にする（カーナベルの「(パワプロコラボ)」。2026-10-29 本番の値）。
+    # 絵を書き分けない店・漫画風（色が書いていない）・言語版・表に無い型番は変えない
+    _with_table(monkeypatch, {"増援": ["PPC2-JP001"]})
+    rows = [
+        _coded("カーナベル", "増援(パワプロコラボ)", "PPC2-JP001", "ノーマル"),
+        _coded("カーナベル", "増援(PPC2-JP001)(パワプロコラボ)", "PPC2-JP001", "ノーマル"),
+        _coded("遊々亭", "増援", "PPC2-JP001", "ノーマル"),
+        _coded("まんぞく屋", "増援", "PPC2-JP001", "ノーマル"),
+        _coded("遊々亭", "増援(MANGA-STYLE)", "PPC2-JP001", "ノーマル"),
+        _coded("カードラッシュ", "☆アジア☆増援", "PPC2-JP001", "ノーマル"),
+        _coded("カーナベル", "増援(パワプロコラボ)", "SD99-JP001", "ノーマル"),
+    ]
+    av.annotate(rows, "増援")
+    assert [r["art"] for r in rows] == [av.ART_ALT, av.ART_ALT, av.ART_ALT, "", "", "アジア版", ""]
+
+
+def test_unreadable_label_is_kept_for_shop_inferred_code(monkeypatch):
+    # 表に無く、カーナベルの印だけで決めた型番では、判別できない行はそのまま（手がかりが弱い）
+    _with_table(monkeypatch, {})
+    rows = [
+        _coded("カーナベル", "三戦の号(イラスト違い)", "CH01-JP030"),
+        _coded("カードラボ", "三戦の号(なにか)", "CH01-JP030"),
+    ]
+    av.annotate(rows, "三戦の号")
+    assert [r["art"] for r in rows] == [av.ART_ALT, ""]

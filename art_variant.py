@@ -205,8 +205,17 @@ def annotate(rows: list[dict], card_name: str) -> None:
         row["art"], row["edition"] = classify(row, card_name)
     # 型番ごと違う絵の再録は、無印で書く店の行も違う絵に直す（その店の中では「元」に見えるだけ）
     alt_codes = _alt_only_codes(rows, card_name)
+    # Yugipedia の表にある型番は絵が1種類だけなので、店の言葉で判別できなかった行（カーナベルの「(パワプロコラボ)」など。
+    # 2026-10-29 増援 PPC2-JP001）も違う絵にする。絵を書き分けない店・漫画風（色が書いていない）は判別しないまま
+    table_codes = _art_prints().get(_key(card_name), frozenset()) & alt_codes
     for row in rows:
-        if row["art"] == ART_BASE and not row.get("edition") and (row.get("code") or "") in alt_codes:
+        code = row.get("code") or ""
+        if row.get("edition") or code not in alt_codes:
+            continue
+        if row["art"] == ART_BASE:
+            row["art"] = ART_ALT
+        elif (row["art"] == "" and code in table_codes and row.get("shop") != "まんぞく屋"
+              and not re.search(r"漫画|MANGA", _label(card_name, row.get("name") or ""), re.IGNORECASE)):
             row["art"] = ART_ALT
 
 
