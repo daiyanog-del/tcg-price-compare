@@ -4,6 +4,12 @@
 > 現在地の詳細は [docs/activeContext.md](docs/activeContext.md)、決定の経緯は [docs/decisions.md](docs/decisions.md)。
 
 ## 進行中
+
+- [ ] **海外先行の予告カード（10-29 branch feat/tcg-announce）**: 1時間ごとに Yugipedia から取り込み・まとめページ /tcg-preview/<slug>・X 投稿（初報→カードごと→続報）。経緯は docs/decisions.md 10-29。
+  - [ ] 本番 DB に tcg_announce_cards.sql を適用（司令塔・ユーザー確認後）
+  - [ ] 投稿の有効化: GitHub Variables `TCG_ANNOUNCE_X_POST_ENABLED=1`（ユーザー確認後。先に手動実行の dry_run で本文を確かめる）
+  - [ ] 校正: CARD_HOURS（19〜23時）・UPDATE_MIN_NEW（3）・UPDATE_MIN_HOURS（20）・CLOSE_AFTER_DAYS（30）・MAX_SUMMARIZE（40）を tweet_log の閲覧数と実際の弾の出方から見直す
+  - [ ] Maze of Machines の英語版発売（2027-03-19）後、公式DBに載ったカードが in_db になり /tcg-preview に引き継がれるかを本番で確かめる
 - [ ] **検索中のバーの光と終盤の文言（2026-10-28・本番 PR #238 6f7c0f4）** — 空きの側に光・終盤に「応答の遅い店を待っています」。**仮置き値の校正（TODO: calibrate from data）**: search-progress.js `SLOW_MS=2000`（店ごとの応答時間の分布を見て、普通の検索では出ず遅い店のときだけ出る値へ）。詳細 docs/decisions.md 同日
 - [x] **カード画像の透かしを文字からロゴ記号へ（2026-10-29 ユーザー選択・同日 本番 PR #239 a6e1e82）** — self-watermark.css を symbol-bubbles.svg（2色のまま・高さ18%・縦91.5%で効果テキスト欄内）に。濃さの既定 0.12→0.08（Render に SELF_WATERMARK_OPACITY の上書きは無く、本番の値は 0.08）。本番確認: 灰流うららの検索画面で計算後の値（画像・位置・大きさ・濃さ）を確認。一人回しは本番へ差し込んだ CSS で守備表示の回転を確認（盤面の小さいカードではほぼ見えない）。詳細 docs/decisions.md 同日
 - [x] **価格比較でイラスト違いを区別（2026-10-28 ユーザー決定 案2・同日 本番 PR #234 b569688）** — art_variant.py が検索結果に art（元のイラスト／イラスト違い／漫画／GREEN Ver.／言語版）を付け、絵が分かれるレアリティだけ「イラスト」の切り替え。本番確認（API）: 灰流うらら シークレット＝元 ¥420（18件）／違う ¥980（10件）／アジア版13件は別。詳細 docs/decisions.md 同日。**残り**: ①段2＝price_history・購入候補・価格推移・メルカリを絵ごとに ②カードラッシュの言葉の表を人気カードへ広げる（今は9枚。アクセスコード・トーカーは未掲載）③「違う絵だけを収めた型番」の確認（30枚では0件）

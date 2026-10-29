@@ -28,6 +28,13 @@
 .new-cards-page:not(.tcg-preview-page) .new-cards-tcg-link{display:inline-block}
 .new-cards-tcg-link:hover{text-decoration:underline;text-underline-offset:3px}
 .new-cards-tcg-link:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
+/* 予告中の新弾（/tcg-preview/<slug> のまとめページ）への入口（2026-10-29）。海外先行カード一覧だけに出る（for-tcg） */
+.new-cards-announce{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:-4px 0 20px}
+.new-cards-announce-label{font-size:12px;font-weight:700;color:var(--gold);background:#302d24;border-radius:6px;padding:2px 8px}
+.new-cards-announce a{display:inline-flex;align-items:baseline;gap:6px;padding:6px 12px;border-radius:var(--radius);background:var(--bg-card);color:var(--text);font-size:14px;font-weight:700;text-decoration:none}
+.new-cards-announce a:hover{background:var(--bg-hover)}
+.new-cards-announce a:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
+.new-cards-announce small{font-size:12px;font-weight:400;color:var(--text-m)}
 .new-card-link strong{display:block;font-size:13px;line-height:1.55;overflow-wrap:anywhere}
 /* 「もっと見る」など他の通常ボタンと同じ、枠なしの面（2026-10-21 金枠＋青文字から変更） */
 .new-card-add{margin-top:auto;width:100%;min-height:40px;padding:4px 6px;background:var(--bg-hover);color:var(--text);border:0;border-radius:6px;font:inherit;font-size:12px;font-weight:600;line-height:1.3;cursor:pointer;overflow-wrap:anywhere}

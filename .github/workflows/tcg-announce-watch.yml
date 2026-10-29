@@ -1,0 +1,59 @@
+# 海外先行の予告カードの取り込み（1時間ごと）と X 投稿の判断
+# Yugipedia で英語版の新弾とその新規カードを見つけ、宣伝文・英語テキストを日本語の概要にして保存する（tools/tcg_announce_watch.py）。
+# その後、初報・カードごと・続報の投稿を1件だけ判断して出す（tcg_announce_post.py。TCG_ANNOUNCE_X_POST_ENABLED が 1 でなければ出さない）。
+# 鮮度が大事なので週1回の tcg-preview-watch.yml とは別に1時間ごと（2026-10-29）。変化が無い回は Yugipedia への問い合わせ数回で終わる。
+
+name: TCG Announce Watch
+
+on:
+  schedule:
+    - cron: '17 * * * *'  # 毎時17分（毎時0分は混雑するのでずらす）
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '投稿を送らずに本文だけ出す'
+        type: boolean
+        default: true
+
+# 同時に2つ走らせない（要約の二重課金・二重投稿を避ける）。実行中のものは止めない
+concurrency:
+  group: tcg-announce-watch
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # ミラー（YGOResources）はカードが変わった回だけ、ツールが一時フォルダに取る
+      - name: Collect announced cards and post
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          # 投稿に載せるサイトのURL（独自ドメイン・2026-10-21）。未設定なら旧URL
+          CANONICAL_BASE_URL: ${{ vars.CANONICAL_BASE_URL }}
+          TCG_ANNOUNCE_X_POST_ENABLED: ${{ vars.TCG_ANNOUNCE_X_POST_ENABLED }}
+          UNRELEASED_X_POST_QUIET_HOURS: ${{ vars.UNRELEASED_X_POST_QUIET_HOURS }}
+          X_POST_DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+        run: python tools/tcg_announce_watch.py
