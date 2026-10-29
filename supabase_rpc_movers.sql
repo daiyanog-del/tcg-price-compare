@@ -4,7 +4,7 @@
 --   両者はパラメータ違いではなく**設計が別物**（統合しなかった理由は docs/decisions.md 2026-09-01）:
 --     比較する2日   : こちら=窓の中の直近2日（可変） / 向こう=N日前と当日（固定）
 --     レアリティ     : こちら=レアリティ別（per_card で制御） / 向こう=代表1つに畳む
---     異常値         : こちら=¥10以下を除外 / 向こう=除外なし
+--     異常値         : こちら=¥10未満を除外（2026-10-29 に「以下」から変更） / 向こう=除外なし
 --     偽陽性ガード   : こちら=共通店舗＋**複数店同方向** / 向こう=共通店舗＋**定着チェック**
 --   13日リプレイの実測偽陽性率: 複数店同方向 11.6% / 定着 15.3% / 両方 11.9%（どれも実用範囲）
 --   → 「サイトに出ているのにXが投稿しない」のは仕様。どちらかが壊れているわけではない。
@@ -80,7 +80,7 @@ AS $$
 -- (2) その2日だけを日付の等号で読み（各日 約2〜4万行）、(3) カード番号・店番号・
 -- レアリティ番号のまま突き合わせて集計し、(4) 名前は残った数十行にだけ付ける。
 -- 同じ時刻の実測で 10.4秒 → 1.15秒（可視性マップが空の状態）。
--- 2日の決め方は旧版と同じ条件（¥10以下と正体不明レアリティを除いた行がある日）。
+-- 2日の決め方は旧版と同じ条件（¥10未満と正体不明レアリティを除いた行がある日）。
 -- price_history_v2 は (card_id, shop_id, rarity_id, recorded_at) が主キーなので、旧版の
 -- 「店舗×カード×レアリティ×日付の MIN(min_price)」は1行そのものと同じ。名前は card_dim・
 -- shop_dim・rarity_dim でそれぞれ一意（UNIQUE 制約）なので、番号で束ねても名前で束ねても同じ。
@@ -96,7 +96,7 @@ d_new AS MATERIALIZED (
     SELECT p.recorded_at AS d
     FROM price_history_v2 p
     WHERE p.recorded_at >= cutoff_date::date
-      AND p.min_price > 10
+      AND p.min_price >= 10
       AND p.rarity_id NOT IN (SELECT rarity_id FROM unk)
     ORDER BY p.recorded_at DESC
     LIMIT 1
@@ -106,7 +106,7 @@ d_old AS MATERIALIZED (
     FROM price_history_v2 p
     WHERE p.recorded_at >= cutoff_date::date
       AND p.recorded_at < (SELECT d FROM d_new)
-      AND p.min_price > 10
+      AND p.min_price >= 10
       AND p.rarity_id NOT IN (SELECT rarity_id FROM unk)
     ORDER BY p.recorded_at DESC
     LIMIT 1
@@ -115,14 +115,14 @@ s_new AS MATERIALIZED (
     SELECT p.card_id, p.shop_id, p.rarity_id, p.min_price
     FROM price_history_v2 p
     WHERE p.recorded_at = (SELECT d FROM d_new)
-      AND p.min_price > 10
+      AND p.min_price >= 10
       AND p.rarity_id NOT IN (SELECT rarity_id FROM unk)
 ),
 s_old AS MATERIALIZED (
     SELECT p.card_id, p.shop_id, p.rarity_id, p.min_price
     FROM price_history_v2 p
     WHERE p.recorded_at = (SELECT d FROM d_old)
-      AND p.min_price > 10
+      AND p.min_price >= 10
       AND p.rarity_id NOT IN (SELECT rarity_id FROM unk)
 ),
 -- ガード①（共通店舗）: 比較2日の両方に記録がある店舗だけを突き合わせ、
@@ -223,7 +223,7 @@ LANGUAGE sql
 STABLE
 AS $$
 WITH
--- 店舗×カード×レアリティ×日付ごとの日次最高買取額を集計（10円以下の異常値を除外）
+-- 店舗×カード×レアリティ×日付ごとの日次最高買取額を集計（10円未満の異常値を除外）
 -- ガード③（正体不明レアリティの除外）: 販売版と同じ理由。買取側はガード②が無いぶん
 -- 単店の段差がそのまま通るため、正体不明系列を残す危険は販売より大きい。
 -- なお buyback_history の空文字 rarity は 2026-08-03 時点でも書き込みが続いている
@@ -237,7 +237,7 @@ shop_daily AS (
         MAX(max_price)          AS daily_price
     FROM buyback_history
     WHERE recorded_at >= cutoff_date::date
-      AND max_price > 10
+      AND max_price >= 10
       AND COALESCE(rarity, '') NOT IN ('(不明)', '')
     GROUP BY card_name, rarity, shop, recorded_at::date::text
 ),

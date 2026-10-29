@@ -179,7 +179,7 @@ class TestRepresentativeRarityMatchesAggregations:
                 continue
             d = r.get("recorded_at", "")[:10]
             p = r.get("min_price", 0)
-            if p <= 10:
+            if p < 10:  # constants.PRICE_FLOOR（本物の ¥10 は残す）
                 continue
             if d not in series or p < series[d]:
                 series[d] = p

@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 from rarity import UNKNOWN_RARITY_LABEL
+from constants import PRICE_FLOOR
 
 
 def pick_representative_rarity(price_by_rarity: dict) -> str | None:
@@ -41,7 +42,7 @@ def daily_min_by_lowest_rarity(rows: list) -> dict:
          ※ 全レアリティで最新日欠損の場合は期間最小値が最安のレアリティにフォールバック
       4. 代表レアリティの系列のみ返す
 
-    10円以下の異常値は除外する。
+    PRICE_FLOOR（10円）未満の異常値は除外する。
     """
     # ステップ1: (name, rarity, date) → min_price
     rarity_dates: dict = defaultdict(lambda: defaultdict(dict))
@@ -50,7 +51,7 @@ def daily_min_by_lowest_rarity(rows: list) -> dict:
         rarity = r.get("rarity", "") or ""
         date   = r.get("recorded_at", "")[:10]
         price  = r.get("min_price", 0)
-        if not name or not date or price <= 10:
+        if not name or not date or price < PRICE_FLOOR:
             continue
         if date not in rarity_dates[name][rarity] or price < rarity_dates[name][rarity][date]:
             rarity_dates[name][rarity][date] = price
@@ -141,7 +142,7 @@ def _common_shop_change_for_card(rows: list) -> dict:
         rarity = r.get("rarity", "") or ""
         date   = r.get("recorded_at", "")[:10]
         price  = r.get("min_price", 0)
-        if not date or price <= 10:
+        if not date or price < PRICE_FLOOR:
             continue
         if date not in rarity_dates[rarity] or price < rarity_dates[rarity][date]:
             rarity_dates[rarity][date] = price
@@ -178,7 +179,7 @@ def _common_shop_change_for_card(rows: list) -> dict:
         shop  = r.get("shop", "")
         date  = r.get("recorded_at", "")[:10]
         price = r.get("min_price", 0)
-        if not shop or not date or price <= 10:
+        if not shop or not date or price < PRICE_FLOOR:
             continue
         if date not in shop_dates[shop] or price < shop_dates[shop][date]:
             shop_dates[shop][date] = price

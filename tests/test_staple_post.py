@@ -293,11 +293,14 @@ def test_post_staple_movers_does_not_recheck_up_and_stops_after_one(monkeypatch,
     assert tweeted == ["【値下がり】聖王の粉砕（シークレット）", "【値上がり】ドロール＆ロックバード（シークレット）"]
 
 
-def test_week_low_takes_min_over_10_yen():
+def test_week_low_ignores_prices_below_10_yen():
+    # 10円未満は異常値として見ない。¥10 ちょうどは本物の値段として数える（2026-10-29〜）
     rows = [{"min_price": 400, "recorded_at": "2026-09-20", "shop": "遊々亭"},
             {"min_price": 300, "recorded_at": "2026-09-22", "shop": "カードラッシュ"},
-            {"min_price": 10, "recorded_at": "2026-09-23", "shop": "トレコロCB"}]
+            {"min_price": 9, "recorded_at": "2026-09-23", "shop": "トレコロCB"}]
     assert staple_post.week_low(_FakeSb(rows), _down()) == 300
+    rows.append({"min_price": 10, "recorded_at": "2026-09-24", "shop": "カーナベル"})
+    assert staple_post.week_low(_FakeSb(rows), _down()) == 10
     assert staple_post.week_low(_FakeSb([]), _down()) is None
     with pytest.raises(RuntimeError):
         staple_post.week_low(_FakeSb([], fail=True), _down())

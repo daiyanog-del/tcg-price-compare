@@ -5,6 +5,13 @@ GitHub Actions の各ワークフローから安全に import できる。
 """
 from datetime import timezone, timedelta
 
+# 値段の下限。これ未満は収集の異常値として捨てる（記録・グラフ・値動き・見積もりで共通）。
+# 2026-03 にカーナベルの1円などで騰落率が壊れたため入れた。当初は「10円以下」を捨てていたが、
+# 本物の ¥10 の出品（カーナベル新サイトの 墓穴の指名者 ノーマル 等）まで落とすので、
+# 2026-10-29 に「10円未満」へ変えた。SQL 側（supabase_rpc_*.sql・price_daily_rollup.sql）は
+# 同じ値を直書きしているので、変えるときは両方そろえる
+PRICE_FLOOR = 10
+
 # 日本標準時（JST = UTC+9）
 JST = timezone(timedelta(hours=9))
 

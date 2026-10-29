@@ -24,6 +24,7 @@ import matplotlib.ticker as mticker
 import matplotlib.dates as mdates
 import matplotlib.font_manager as fm
 from rarity import color_of, ordered_canonicals  # 色・順序は rarity.py に一元化
+from constants import PRICE_FLOOR
 
 # ── 日本語フォント登録（1プロセス1回） ──
 
@@ -106,7 +107,7 @@ def render_price_chart(card_name: str, history_rows: list, out_path: str = None)
         rarity = (row.get("rarity") or "ノーマル")
         d_str = (row.get("recorded_at") or "")[:10]
         price = row.get("min_price") or 0
-        if not d_str or price <= 10:
+        if not d_str or price < PRICE_FLOOR:
             continue
         if d_str not in rarity_dates[rarity] or price < rarity_dates[rarity][d_str]:
             rarity_dates[rarity][d_str] = price

@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 
 from rarity import UNKNOWN_RARITY_LABEL
+from constants import PRICE_FLOOR
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ def build_min_price_rows(card_name: str, scrape_results: list, today: str) -> li
     rarity 抽出失敗行（空文字）は "(不明)" ラベルへ明示し、正規レアリティ系列に
     混ぜない（フェーズ3 P3。除外は読み出し側の代表レアリティ選定で行う）。
 
-    sold_out や price <= 10 はノイズとして除外する。
+    sold_out や PRICE_FLOOR（10円）未満はノイズとして除外する。
     （畳みキー・除外条件は collect_prices.py:156-175 から切り出したロジックを踏襲）
     """
     # key(shop, rarity) -> {"any": (price, code, url), "normal": (price, code) | None}
@@ -81,7 +82,7 @@ def build_min_price_rows(card_name: str, scrape_results: list, today: str) -> li
         if item.get("sold_out"):
             continue
         price = item.get("price", 0)
-        if price <= 10:
+        if price < PRICE_FLOOR:
             continue
         shop = item.get("shop", "")
         if not shop:
