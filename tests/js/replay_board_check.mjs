@@ -63,9 +63,15 @@ assert.equal(b.field.find(f => f.slot === 'custom-slot-6').name, 'トークン')
 assert.equal(b.field.find(f => f.slot === 'custom-slot-5').token, undefined);
 assert.deepEqual(b.hand, [{ name: '名無し' }]);
 
-// 存在しないマス（15以上・0）は無視
-b = buildBoardFromLogs([mv('a', 'custom-slot-15'), mv('b', 'custom-slot-0')], dict);
+// 存在しないマス（22以上・0）は無視
+b = buildBoardFromLogs([mv('a', 'custom-slot-22'), mv('b', 'custom-slot-0')], dict);
 assert.equal(b.field.length, 0); assert.equal(b.deckCount, 5);
+
+// 相手の場（15〜21・2026-10-29）: モンスターゾーンと墓地。墓地は一番上の1枚と枚数
+b = buildBoardFromLogs([mv('a', 'custom-slot-15'), mv('b', 'custom-slot-21'), mv('c', 'custom-slot-21', { zIndex: '2' })], dict); // 重ねると「今の枚数＋1」が記録される（drag-drop.js）
+assert.equal(b.field.find(f => f.slot === 'custom-slot-15').name, 'A');
+assert.equal(b.field.find(f => f.slot === 'custom-slot-21').name, 'C');
+assert.equal(b.field.find(f => f.slot === 'custom-slot-21').n, 2);
 
 // 裏向きのまま墓地に置かれたカードが一番上なら face:'down'
 b = buildBoardFromLogs([mv('a', 'side-slot-0', { face: 'down' }), mv('c', 'side-slot-1')], dict);

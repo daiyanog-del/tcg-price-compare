@@ -21,7 +21,7 @@ import { isTokenSrc } from '../utils/token-src.js';
 const FIELD_SLOT_RE = /^custom-slot-(\d+)$/;
 const isFieldSlot = (z) => {
   const m = FIELD_SLOT_RE.exec(z || '');
-  return !!m && Number(m[1]) >= 1 && Number(m[1]) <= 14; // 実盤面は 1〜14 のみ（それ以外のマスは存在しない）
+  return !!m && Number(m[1]) >= 1 && Number(m[1]) <= 21; // 実盤面は 1〜14 と相手の場 15〜21（それ以外のマスは存在しない）
 };
 const HAND_MAX = 60; // サーバー側の上限と揃える
 const PILE_CARDS = 4; // 墓地・除外で送る枚数（サーバー replay_board.PILE_MAX_CARDS と揃える）

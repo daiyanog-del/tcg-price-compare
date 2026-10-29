@@ -35,7 +35,7 @@
  *
  * ゾーンID（Fugartaの要素に対応）:
  *   poolRow, poolRow2,
- *   custom-slot-N (N=1〜14),
+ *   custom-slot-N (N=1〜14。15〜19＝相手のモンスターゾーン・20＝相手のフィールドゾーン・21＝相手の墓地 — 2026-10-29 ui/opp-field.js),
  *   side-slot-0 (墓地), side-slot-1 (除外),
  *   center-slot,
  *   free-space

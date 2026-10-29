@@ -626,13 +626,13 @@ const MOBILE_SCROLL_ZONE_SELECTOR = '#imagePool, #imagePool2, .sol-hand-area, .s
 
 /**
  * 選択解除時に無視する（選択を保持したままにする）UI要素のセレクタ
- * （M-5: カード上のカウンターも追加／M-6: デッキ一覧シート・共有シートも追加）
+ * （M-5: カード上のカウンターも追加／M-6: デッキ一覧シート・共有シートも追加／2026-10-29 相手の墓地の枚数の札＝押すと中身を広げる）
  */
 const MOBILE_UI_IGNORE_SELECTOR =
   '#solMobileActionSheet, #solMobileCip, #solMobileBar, #solMobileDeckSlot, ' +
   '#solMobileMenuSheet, .sol-context-menu, #solSidebar, #solSidebarScrim, ' +
   '.pool-label, #replayBarContainer, .sol-ops-details, .sol-mobile-help-scrim, .counter-container, ' +
-  '#solMobileDeckSheet, #solMobileShareSheet, #pcShareSheet, #pcSaveSheet';
+  '#solMobileDeckSheet, #solMobileShareSheet, #pcShareSheet, #pcSaveSheet, .sol-opp-grave-badge';
 
 /**
  * カード名を取得する。

@@ -27,6 +27,10 @@ export function zoneLabel(zoneId) {
     if (n === 3) return 'フィールドゾーン';
     if (n >= 4 && n <= 8) return 'モンスターゾーン';
     if (n >= 10 && n <= 14) return '魔法・罠ゾーン';
+    // 相手の場（2026-10-29・ui/opp-field.js）
+    if (n >= 15 && n <= 19) return '相手のモンスターゾーン';
+    if (n === 20) return '相手のフィールドゾーン';
+    if (n === 21) return '相手の墓地';
   }
   // 9番のマス（PC でフィールドゾーンの下の空きマス）は名前の無い場所
   return '盤面';
@@ -35,7 +39,7 @@ export function zoneLabel(zoneId) {
 const FIELD_SLOT_RE = /^custom-slot-(\d+)$/;
 const isFieldZone = (z) => {
   const m = FIELD_SLOT_RE.exec(z || '');
-  return !!m && Number(m[1]) >= 1 && Number(m[1]) <= 14; // 実盤面は 1〜14 のみ（replay-board.js と同じ）
+  return !!m && Number(m[1]) >= 1 && Number(m[1]) <= 21; // 実盤面は 1〜14 と相手の場 15〜21（replay-board.js と同じ）
 };
 // _findZone が見つけられる場所（これ以外への moveCard は再生で何も起きない。replay-board.js と同じ）
 const KNOWN_ZONES = new Set(['poolRow', 'poolRow2', 'center-slot', 'side-slot-0', 'side-slot-1']);
@@ -144,7 +148,8 @@ export function describeStep(setupLogs, logs, index, dict = {}) {
       }
       out.from = zoneLabel(before.zone);
       out.to = zoneLabel(toZone);
-      if (isFieldZone(toZone) && _othersIn(state, toZone, ev.cardId)) out.tag = '重ねる';
+      // 相手の墓地（21）は重ねて置く場所なので「重ねる」にしない
+      if (isFieldZone(toZone) && toZone !== 'custom-slot-21' && _othersIn(state, toZone, ev.cardId)) out.tag = '重ねる';
       else if (down && isFieldZone(toZone)) out.tag = 'セット';
       else if (defense && isFieldZone(toZone)) out.tag = '守備表示';
       return out;

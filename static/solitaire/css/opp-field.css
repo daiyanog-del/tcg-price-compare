@@ -1,0 +1,158 @@
+/* 相手の場（js/ui/opp-field.js・templates/solitaire.html .sol-opp-row）。2026-10-29 ユーザー指示・モック _mocks/opp-field-20261029。
+   普段は出さない。body に sol-opp-on が付いている間だけ、盤面の上に相手の段を1段足す。
+   - マス番号: 15〜19＝相手のモンスターゾーン（自分から見て左→右）・20＝相手のフィールドゾーン・21＝相手の墓地
+   - PC・横向き: 7マス。左端（自分のフィールドゾーンの列）＝墓地、真ん中5列＝モンスター、自分の墓地パネルの上＝フィールド。
+     .main-content を2段のグリッドにして、相手の段の列幅を自分の盤面・墓地除外の列と同じにする
+   - 縦向きスマホ: 5列（墓地・16〜18・フィールド）。15・19 にカードがある記録のときだけ 7列に小さく並べる（sol-opp-wide）
+   - 相手のものだと分かるように、線や文字ではなく「マスの地を暗く」「カードと刻印を逆向き」にする（ユーザー選択）。
+     自分の盤面との間は広げない（同上） */
+
+/* 相手のマスの地（--relief-face #31343e より暗い。モックでユーザーが選んだ色） */
+:root { --relief-face-opp: #24262e; }
+
+.sol-opp-row { display: none; }
+
+/* ── PC・横向き（縦向きスマホ以外。縦向きは .main-content を display:contents にして並べ直すので、ここを効かせない）── */
+@media not all and (max-width: 767px) and (orientation: portrait) {
+  body.sol-opp-on .main-content {
+    display: grid;
+    grid-template-columns: auto auto;
+    column-gap: var(--gap);
+    row-gap: var(--gap);
+    justify-content: center;
+  }
+  body.sol-opp-on .sol-opp-row { display: contents; }
+  body.sol-opp-on .sol-opp-board {
+    grid-row: 1;
+    grid-column: 1;
+    display: grid;
+    grid-template-columns: repeat(6, var(--slot-width));
+    gap: var(--gap);
+    justify-content: center;
+  }
+  body.sol-opp-on .sol-opp-side {
+    grid-row: 1;
+    grid-column: 2;
+    /* 墓地・除外の2列（.side-slots-container）と同じ割り付けにして、フィールドを墓地の列の真ん中に置く */
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: var(--gap);
+  }
+  body.sol-opp-on .sol-opp-side .custom-slot { justify-self: center; }
+  body.sol-opp-on .main-content > .custom-layout { grid-row: 2; grid-column: 1; }
+  body.sol-opp-on .main-content > .side-slots-container { grid-row: 2; grid-column: 2; }
+}
+
+/* ── マスの見た目 ── */
+.custom-slot.sol-opp-slot { background-color: var(--relief-face-opp); }
+.custom-slot.sol-opp-slot:hover { background-color: #2e3039; }
+/* 空いたマスの刻印（墓地・フィールド）は逆向き。背景画像は回せないので疑似要素で描く（カードより後ろ） */
+.custom-slot.sol-opp-slot[data-slot="20"]::before,
+.custom-slot.sol-opp-slot[data-slot="21"]::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: no-repeat center / calc(var(--slot-width) * .76) auto;
+  transform: rotate(180deg);
+  pointer-events: none;
+}
+.custom-slot.sol-opp-slot[data-slot="20"]::before { background-image: url('../icons/field-relief.svg?v=2'); }
+.custom-slot.sol-opp-slot[data-slot="21"]::before { background-image: url('../icons/grave-relief.svg?v=2'); }
+
+/* ── カードは逆向き（守備表示は自分の盤面の -90度に 180度を足した 90度）── */
+.sol-opp-slot > .tier-item-wrapper > .tier-item { transform: rotate(180deg); }
+.sol-opp-slot > .tier-item-wrapper.is-defense > .tier-item { transform: rotate(90deg); }
+.sol-opp-slot > .tier-item-wrapper.is-defense.is-set::after { transform: rotate(90deg); }
+
+/* ── 相手の墓地: 1マスに重ねて、一番上のカードと「墓地の刻印＋枚数」の札。札を押すと中身を横に広げる ── */
+.sol-opp-grave-badge {
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 5px 1px 3px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(17, 18, 22, 0.88);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  color: #e6e9ef;
+  font: 700 11px/1 var(--font);
+  cursor: pointer;
+}
+.sol-opp-grave-badge[hidden] { display: none; }
+/* components.css の汎用 `p, span, li { color:#333 }` が当たるので、数字に直接色を付ける */
+.sol-opp-grave-badge > span { color: #e6e9ef; }
+.sol-opp-grave-badge::before {
+  content: '';
+  width: 13px;
+  height: 13px;
+  background: url('../icons/grave-relief.svg?v=2') center / contain no-repeat;
+  filter: brightness(2.2); /* 暗い札の上でも刻印が見えるように明るくする */
+}
+/* 中身を広げている間: マスの右へカードを並べ、後ろに暗い地を敷く（カードは同じマスの子のまま＝そのままドラッグ・タップできる） */
+.custom-slot.sol-opp-slot[data-slot="21"].is-open {
+  overflow: visible;
+  z-index: 70;
+}
+.custom-slot.sol-opp-slot[data-slot="21"].is-open::after {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: -4px;
+  bottom: -4px;
+  width: calc(var(--sol-opp-grave-span, var(--slot-width)) + 8px);
+  border-radius: 10px;
+  background: rgba(17, 18, 22, 0.94);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* ── 縦向きスマホ（mobile.css と同じ条件）── */
+@media (max-width: 767px) and (orientation: portrait) {
+  body.sol-opp-on .sol-opp-row {
+    order: 0; /* responsive.css: 盤面（.custom-layout）は order 1 */
+    display: grid;
+    grid-template-columns: repeat(5, var(--slot-width));
+    grid-auto-rows: var(--slot-height);
+    column-gap: 10px; /* 盤面の5列と同じ（mobile.css .custom-layout gap 8px 10px） */
+    justify-content: center;
+  }
+  body.sol-opp-on .sol-opp-board,
+  body.sol-opp-on .sol-opp-side { display: contents; }
+  body.sol-opp-on .sol-opp-slot[data-slot="21"] { grid-column: 1; }
+  body.sol-opp-on .sol-opp-slot[data-slot="16"] { grid-column: 2; }
+  body.sol-opp-on .sol-opp-slot[data-slot="17"] { grid-column: 3; }
+  body.sol-opp-on .sol-opp-slot[data-slot="18"] { grid-column: 4; }
+  body.sol-opp-on .sol-opp-slot[data-slot="20"] { grid-column: 5; }
+  body.sol-opp-on .sol-opp-slot[data-slot="15"],
+  body.sol-opp-on .sol-opp-slot[data-slot="19"] { display: none; }
+  .sol-opp-row .custom-slot {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  /* 15・19 にカードがあるとき（PC・横向きで作った記録）: 7マスを1段に小さく並べる（ユーザー選択の案b）。
+     マスとカードの大きさは --slot-width / --slot-height をこの段の中だけ上書きして小さくする（--sol-board-slot は main.js） */
+  body.sol-opp-on.sol-opp-wide .sol-opp-row {
+    --slot-width: calc((var(--sol-board-slot, 60px) * 5 + 4px) / 7);
+    --slot-height: calc(var(--slot-width) * 1.45);
+    grid-template-columns: repeat(7, var(--slot-width));
+    column-gap: 6px;
+  }
+  body.sol-opp-on.sol-opp-wide .sol-opp-slot[data-slot="21"] { grid-column: 1; }
+  body.sol-opp-on.sol-opp-wide .sol-opp-slot[data-slot="15"] { display: flex; grid-column: 2; }
+  body.sol-opp-on.sol-opp-wide .sol-opp-slot[data-slot="16"] { grid-column: 3; }
+  body.sol-opp-on.sol-opp-wide .sol-opp-slot[data-slot="17"] { grid-column: 4; }
+  body.sol-opp-on.sol-opp-wide .sol-opp-slot[data-slot="18"] { grid-column: 5; }
+  body.sol-opp-on.sol-opp-wide .sol-opp-slot[data-slot="19"] { display: flex; grid-column: 6; }
+  body.sol-opp-on.sol-opp-wide .sol-opp-slot[data-slot="20"] { grid-column: 7; }
+  /* 再生モード中は盤面に触れない（mobile.css H-3 と同じ） */
+  body.sol-playback .sol-opp-row { pointer-events: none; }
+}
+
+/* 録画用の表示（横向き）: 盤面の段の間（rec-view.css .custom-layout row-gap 5px）にそろえる */
+body.sol-recview-landscape.sol-opp-on .main-content { row-gap: 5px; }

@@ -330,7 +330,7 @@ function _initPcSheet(sheetId, openBtnId, closeIds) {
  * 必須。右パネルはモバイル版に存在しないため、モバイル版の body.sol-playback を参考にした
  * 棚卸しでは構造上見落とされていた。
  */
-const PC_PLAYBACK_LOCK_SELECTOR = '.custom-layout, .sol-hand-area, .side-slots-container, #imagePool, #imagePool2, #solRightPanel';
+const PC_PLAYBACK_LOCK_SELECTOR = '.custom-layout, .sol-opp-row, .sol-hand-area, .side-slots-container, #imagePool, #imagePool2, #solRightPanel';
 
 /**
  * #replayPlay の class="play-active" の有無を監視し、PC版の再生中フラグを連動させる。

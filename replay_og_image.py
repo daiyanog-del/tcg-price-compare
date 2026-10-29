@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 _BG = (0x13, 0x14, 0x19)
 # 本番（relief-theme.css）のマス・墓地・除外の面と、手札・デッキのトレイの色
 _FACE = (0x31, 0x34, 0x3e)   # --relief-face
+_FACE_OPP = (0x24, 0x26, 0x2e)   # --relief-face-opp（相手の場のマス。css/opp-field.css）
 _TRAY = (0x2c, 0x2f, 0x38)   # --relief-tray
 # 本番は面に細かい粒子（feTurbulence・opacity .07）を重ねている。粒子の細かい凹凸は縮小すると消える（本番画面の実測で
 # 標準偏差 約1.5/255）ので省き、粒子による平均の明るさの上がり分だけを色に足す（実測: 面 +5・トレイ +5.5 前後）。
@@ -75,6 +76,15 @@ _ICON_SIDE_RATIO = 0.72                        # 墓地・除外の刻印は sid
 _CARD_W, _CARD_H = 96, 139.19                  # .tier-item の実寸
 _GRAVE_RECT = (966.81, 33, 133.19, 443.56)     # 墓地 .sol-grave
 _BANISH_RECT = (1110, 33, 133.19, 443.56)      # 除外 .sol-banish
+# 相手の場（2026-10-29・css/opp-field.css）: 盤面の上に1段（段の間は盤面の行と同じ 10px）。
+# 21＝相手の墓地（1列目）・15〜19＝相手のモンスターゾーン（2〜6列目）・20＝相手のフィールド（自分の墓地パネルの真ん中の上）
+_OPP_ROW_Y = _ROWS[0] - (_ROWS[1] - _ROWS[0])
+_OPP_SLOTS = {
+    21: (_COLS[0], _OPP_ROW_Y),
+    **{15 + i: (_COLS[1 + i], _OPP_ROW_Y) for i in range(5)},
+    20: (_GRAVE_RECT[0] + (_GRAVE_RECT[2] - _SLOT_W) / 2, _OPP_ROW_Y),
+}
+_OPP_SLOT_ICONS = [(20, "field", 96 * 0.76), (21, "grave", 96 * 0.76)]   # 相手の場の刻印は逆向き（本番と同じ）
 _SIDE_TOP, _SIDE_W, _SIDE_H = 27, 115.19, 409.56  # 枠の中の .side-slot（カードを積む領域）
 _PILE_STEP = 23.92                             # 墓地・除外でカードを縦にずらす幅（本番で5枚置いて実測）
 PILE_DRAW_MAX = 4                              # 墓地・除外で描く枚数（最後の数枚）
@@ -263,15 +273,34 @@ def _load_zone_icon(name: str, size: int):
     return im.resize((size, size), Image.LANCZOS)
 
 
+class _Geo:
+    """盤面の切り出し範囲と拡大率。普段は自分の盤面だけ、相手の場があるときは上に1段足した範囲を同じ高さへ縮めて描く。"""
+
+    def __init__(self, opp: bool):
+        self.opp = opp
+        self.y0 = (_OPP_ROW_Y - 3) if opp else _SRC_Y0
+        self.scale = 492 / (_SRC_Y1 - self.y0)
+        self.bx = (W - (_SRC_X1 - _SRC_X0) * self.scale) / 2
+
+    def x(self, x):
+        return self.bx + (x - _SRC_X0) * self.scale
+
+    def y(self, y):
+        return _BY + (y - self.y0) * self.scale
+
+
+_GEO = {False: _Geo(False), True: _Geo(True)}
+
+
 def _X(x):
-    return _BX + (x - _SRC_X0) * _SCALE
+    return _GEO[False].x(x)
 
 
 def _Y(y):
-    return _BY + (y - _SRC_Y0) * _SCALE
+    return _GEO[False].y(y)
 
 
-def _paste_panel(img: Image.Image, x0: float, y0: float, w: float, h: float, radius: float, tray: bool = False):
+def _paste_panel(img: Image.Image, x0: float, y0: float, w: float, h: float, radius: float, tray: bool = False, face=None):
     """本番の面（relief-theme.css）を、その面ぶんだけ4倍の角丸マスクで縁をなめらかにして貼る。
     色＝面（トレイ）の色＋粒子の平均分・145度の白→黒の薄いグラデーション・内側の縁の光と影（各約1px）。
     盤面全体を高解像度で作らないので、メモリはほとんど増えない。下地を作る1回だけ呼ばれる。"""
@@ -283,7 +312,7 @@ def _paste_panel(img: Image.Image, x0: float, y0: float, w: float, h: float, rad
     mask = Image.new("L", (tw * ss, th * ss), 0)
     ImageDraw.Draw(mask).rounded_rectangle(box, radius=radius * ss, fill=255)
 
-    base = tuple(min(255, c + g) for c, g in zip(_TRAY if tray else _FACE, _GRAIN_SHIFT))
+    base = tuple(min(255, c + g) for c, g in zip(_TRAY if tray else (face or _FACE), _GRAIN_SHIFT))
     tile = Image.new("RGBA", (tw, th), base + (255,))
     # linear-gradient(145deg, #ffffff05, #0000000c): 白 α.02 → 黒 α.047（箱 w×h に対する 145度）
     dx, dy = math.sin(math.radians(145)), -math.cos(math.radians(145))
@@ -314,42 +343,50 @@ def _paste_panel(img: Image.Image, x0: float, y0: float, w: float, h: float, rad
 
 
 _base_lock = threading.Lock()
-_base_cache = None   # 盤面によらない下地（背景・マス・墓地・除外・帯・アイコン）。1200x630 の RGBA を1枚だけ持つ
+_base_cache = {}   # 盤面によらない下地（背景・マス・墓地・除外・帯・アイコン）。相手の場の有無ごとに 1200x630 の RGBA を1枚ずつ持つ
 
 
-def _build_base() -> tuple:
-    """下地を作る。戻り値: (画像, アイコンを全部読めたか)。"""
-    s = _SCALE
+def _build_base(opp: bool = False) -> tuple:
+    """下地を作る。戻り値: (画像, アイコンを全部読めたか)。opp=True は相手の場の段を足した並び。"""
+    g = _GEO[opp]
+    s = g.scale
     img = Image.new("RGBA", (W, H), _BG + (255,))
     for sx, sy in _SLOTS.values():
-        _paste_panel(img, _X(sx), _Y(sy), _SLOT_W * s, _SLOT_H * s, 8 * s)
+        _paste_panel(img, g.x(sx), g.y(sy), _SLOT_W * s, _SLOT_H * s, 8 * s)
+    if opp:
+        for sx, sy in _OPP_SLOTS.values():
+            _paste_panel(img, g.x(sx), g.y(sy), _SLOT_W * s, _SLOT_H * s, 8 * s, face=_FACE_OPP)
     for rect in (_GRAVE_RECT, _BANISH_RECT):
-        _paste_panel(img, _X(rect[0]), _Y(rect[1]), rect[2] * s, rect[3] * s, 8 * s)
-    _paste_panel(img, _X(_SRC_X0), _BAND_Y, (_SRC_X1 - _SRC_X0) * s, _BAND_H, 6, tray=True)   # 手札の帯は本番の手札トレイの色
+        _paste_panel(img, g.x(rect[0]), g.y(rect[1]), rect[2] * s, rect[3] * s, 8 * s)
+    _paste_panel(img, g.x(_SRC_X0), _BAND_Y, (_SRC_X1 - _SRC_X0) * s, _BAND_H, 6, tray=True)   # 手札の帯は本番の手札トレイの色
 
     ok = True
-    icons = [(name, _SLOTS[slot][0] + _SLOT_W / 2, _SLOTS[slot][1] + _SLOT_H / 2, size) for slot, name, size in _SLOT_ICONS]
-    icons += [(name, r[0] + r[2] / 2, r[1] + _SIDE_TOP + _SIDE_H / 2, _SIDE_W * _ICON_SIDE_RATIO)
+    icons = [(name, _SLOTS[slot][0] + _SLOT_W / 2, _SLOTS[slot][1] + _SLOT_H / 2, size, False) for slot, name, size in _SLOT_ICONS]
+    icons += [(name, r[0] + r[2] / 2, r[1] + _SIDE_TOP + _SIDE_H / 2, _SIDE_W * _ICON_SIDE_RATIO, False)
               for name, r in (("grave", _GRAVE_RECT), ("banish", _BANISH_RECT))]
-    for name, cx, cy, size in icons:   # 本番は背景画像なので、カードの下に描く
+    if opp:
+        icons += [(name, _OPP_SLOTS[slot][0] + _SLOT_W / 2, _OPP_SLOTS[slot][1] + _SLOT_H / 2, size, True)
+                  for slot, name, size in _OPP_SLOT_ICONS]
+    for name, cx, cy, size, flip in icons:   # 本番は背景画像なので、カードの下に描く
         im = _load_zone_icon(name, max(1, round(size * s)))
         if im is None:
             ok = False
             continue
-        img.alpha_composite(im, (round(_X(cx) - im.width / 2), round(_Y(cy) - im.height / 2)))
+        if flip:
+            im = im.rotate(180)
+        img.alpha_composite(im, (round(g.x(cx) - im.width / 2), round(g.y(cy) - im.height / 2)))
     return img, ok
 
 
-def _get_base() -> tuple:
-    """下地のコピーと「アイコンを全部読めたか」を返す。読めたときだけプロセス内に1枚キャッシュする。"""
-    global _base_cache
+def _get_base(opp: bool = False) -> tuple:
+    """下地のコピーと「アイコンを全部読めたか」を返す。読めたときだけプロセス内に1枚ずつキャッシュする。"""
     with _base_lock:
-        if _base_cache is None:
-            img, ok = _build_base()
+        if opp not in _base_cache:
+            img, ok = _build_base(opp)
             if not ok:
                 return img, False   # 読めなかった下地は覚えない（次の描画でまた読みに行く）
-            _base_cache = img
-        return _base_cache.copy(), True
+            _base_cache[opp] = img
+        return _base_cache[opp].copy(), True
 
 
 def _fit_text(draw, text: str, font, max_w: int) -> str:
@@ -393,16 +430,19 @@ def render_replay_og(board: dict, title: str = "") -> tuple:
             cands.append(cards[-1])
     imgs, degraded = _fetch_all([c["name"] for c in cands if _wants_image(c)])
 
-    canvas, base_ok = _get_base()
+    # 相手の場（15〜21）にカードがあるときだけ、盤面の上に相手の段を足した並びで描く
+    opp = any(int(e["slot"].rsplit("-", 1)[1]) in _OPP_SLOTS for e in board["field"])
+    g = _GEO[opp]
+    canvas, base_ok = _get_base(opp)
     degraded = degraded or not base_ok   # アイコンを読めなかった描画はディスクに固定しない
     d = ImageDraw.Draw(canvas)
-    s = _SCALE
-    X, Y = _X, _Y
+    s = g.scale
+    X, Y = g.x, g.y
     band_x0, band_x1 = X(_SRC_X0), X(_SRC_X1)
 
     cw, ch, rad = round(_CARD_W * s), round(_CARD_H * s), max(2, round(8 * s))
 
-    def put(card_dict, cx, cy, face_down=False, rotate=False, w=None, h=None, r=None, band=False):
+    def put(card_dict, cx, cy, face_down=False, rotate=False, w=None, h=None, r=None, band=False, flip=False):
         """カードを中心 (cx, cy)（キャンバス座標）に描く。"""
         w, h, r = w or cw, h or ch, r or rad
         if face_down:
@@ -412,18 +452,37 @@ def render_replay_og(board: dict, title: str = "") -> tuple:
         else:
             src = imgs.get(card_dict["name"]) if _wants_image(card_dict) else None
             im = _card_face(src, card_dict.get("name", ""), w, h, r)
-        if rotate:
+        if flip:
+            # 相手の場は逆向き（守備表示は自分の盤面の -90度に 180度を足した向き。css/opp-field.css と同じ）
+            im = im.rotate(270 if rotate else 180, expand=True)
+        elif rotate:
             im = im.rotate(90, expand=True)   # 守備表示は反時計回りに90度（CSS rotate(-90deg) と同じ向き）
         canvas.alpha_composite(im, (round(cx - im.width / 2), round(cy - im.height / 2)))
 
     # ── フィールドのカード（守備表示は隣のマスへはみ出すので、本番の z-index と同じく最後に描いて前面に出す）──
     for e in sorted(board["field"], key=lambda e: e["pos"] == "def"):
         no = int(e["slot"].rsplit("-", 1)[1])
-        if no not in _SLOTS:
+        is_opp = no in _OPP_SLOTS
+        if no not in _SLOTS and not is_opp:
             continue
-        sx, sy = _SLOTS[no]
-        put(e, X(sx + _SLOT_W / 2), Y(sy + _SLOT_H / 2), face_down=(e["face"] == "down"), rotate=(e["pos"] == "def"))
-        if e.get("n", 1) > 1:   # 重なり枚数（エクシーズ素材など）
+        sx, sy = _OPP_SLOTS[no] if is_opp else _SLOTS[no]
+        put(e, X(sx + _SLOT_W / 2), Y(sy + _SLOT_H / 2), face_down=(e["face"] == "down"), rotate=(e["pos"] == "def"), flip=is_opp)
+        if no == 21:   # 相手の墓地: 左上に「墓地の刻印＋枚数」の札（本番の .sol-opp-grave-badge と同じ）
+            n = e.get("n", 1)
+            bf = _get_font(max(10, round(13 * s)), True)
+            bx0, by0 = X(sx) + 3, Y(sy) + 3
+            icon = _load_zone_icon("grave", max(8, round(15 * s)))
+            if icon is not None:   # 暗い札の上でも見えるように明るくする（本番の filter: brightness(2.2) と同じ）
+                r_, g_, b_, a_ = icon.split()
+                icon = Image.merge("RGBA", [ch_.point(lambda v: min(255, round(v * 2.2))) for ch_ in (r_, g_, b_)] + [a_])
+            tw = d.textlength(str(n), font=bf)
+            bw = (icon.width if icon else 0) + tw + 12
+            bh = max(14, round(19 * s))
+            d.rounded_rectangle([bx0, by0, bx0 + bw, by0 + bh], radius=bh / 2, fill=(17, 18, 22))
+            if icon is not None:
+                canvas.alpha_composite(icon, (round(bx0 + 4), round(by0 + (bh - icon.height) / 2)))
+            d.text((bx0 + bw - 5, by0 + bh / 2), str(n), fill=(0xe6, 0xe9, 0xef), font=bf, anchor="rm")
+        elif e.get("n", 1) > 1:   # 重なり枚数（エクシーズ素材など）
             nx, ny = X(sx + _SLOT_W) - 18, Y(sy) + 16
             d.ellipse([nx - 13, ny - 13, nx + 13, ny + 13], fill=_YELLOW)
             d.text((nx, ny), str(e["n"]), fill=_BADGE_FG, font=_get_font(16, True), anchor="mm")

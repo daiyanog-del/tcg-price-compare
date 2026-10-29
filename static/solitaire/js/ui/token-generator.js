@@ -118,7 +118,7 @@ function openTokenMenu(slot, x, y) {
 }
 
 export function initTokenGenerator() {
-  const layout = document.querySelector('.custom-layout');
+  const layout = document.querySelector('.main-content'); // 盤面と相手の場（.sol-opp-row・2026-10-29）の両方
   if (!layout) return;
 
   layout.addEventListener('contextmenu', (e) => {

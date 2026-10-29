@@ -31,6 +31,7 @@ import { initMobileUI, setMobileRecordingState, resumePlaybackModeIfNeeded, open
 import { initRecView } from './ui/rec-view.js';
 import { initReplayCaption } from './ui/replay-caption.js';
 import { initLandingMark } from './ui/landing-mark.js';
+import { initOppField } from './ui/opp-field.js';
 import { setPcRecordingState } from './ui/pc-recording.js';
 import { isMobilePortrait } from './utils/viewport.js';
 import { showToast } from './utils/toast.js';
@@ -126,14 +127,19 @@ function fitFieldToViewport() {
   //   横向きスマホ   → 盤面3行のみをビューポートに収め、手札/デッキはスクロール
   //   縦向きスマホ   → 設計書 §8.2: 下部固定バー52px込みで縦スクロールなしに収める
   //   PC/タブレット  → 全体フィット (比例係数 7.25)
+  // 相手の場（ui/opp-field.js・2026-10-29）を出している間は、盤面の上に1段（マス1枚分の高さ＋段の間）が増える。
+  // 縦向きスマホで 7列に並べているとき（sol-opp-wide）はマスが 5/7 ほどの大きさ（css/opp-field.css）
+  const oppOn = document.body.classList.contains('sol-opp-on');
+  const oppRows = !oppOn ? 0 : (isPortraitMobile && document.body.classList.contains('sol-opp-wide') ? 1.45 * 5 / 7 : 1.45);
+  const oppGap = oppOn ? 10 : 0;
   let slotW_h;
   let mobileBottomReserve = 0; // タスクB-3: isPortraitMobile分岐でのみ実測値に更新される（それ以外は0のまま未使用）
   let recBandSlotW = Infinity;  // 縦向きスマホの録画用の表示で、上に帯を置いたときの高さで決まる幅（isPortraitMobile分岐で求める）
   if (isPhone && isLandscape && !isRecView) {
     // mainContainer padding-top(4) + row-gaps(20) + sol-field-area padding-bottom(6)
-    const BOARD_FIXED = 30;
+    const BOARD_FIXED = 30 + oppGap;
     const availForBoard = window.innerHeight - navH - replayH - BOARD_FIXED;
-    slotW_h = Math.floor(availForBoard / 4.35);
+    slotW_h = Math.floor(availForBoard / (4.35 + oppRows));
   } else if (isPortraitMobile) {
     // 設計書 §A-2（2026-09-03 第2次実機検収対応）: 墓地｜除外の左右2分割をやめ、
     // 盤面3段＋手札＋墓地＋除外＋EXの7段が縦に並ぶ → 7×1.45=10.15
@@ -149,12 +155,12 @@ function fitFieldToViewport() {
     // 再生モード時は mobile-ui.js がこの変数を88pxへ書き換えて再フィットさせる（既定52pxなら計算結果は不変）。
     const MOBILE_PORTRAIT_FIXED_BASE = 74; // 126 - 52（下部バー分を除いた固定分）
     mobileBottomReserve = getMobileBottomReserve();
-    const MOBILE_PORTRAIT_FIXED = MOBILE_PORTRAIT_FIXED_BASE + mobileBottomReserve;
-    slotW_h = Math.floor((window.innerHeight - MOBILE_PORTRAIT_FIXED) / 10.15);
+    const MOBILE_PORTRAIT_FIXED = MOBILE_PORTRAIT_FIXED_BASE + mobileBottomReserve + (oppOn ? 6 : 0); // 相手の段との間（.sol-field-area gap）
+    slotW_h = Math.floor((window.innerHeight - MOBILE_PORTRAIT_FIXED) / (10.15 + oppRows));
     // 帯の分は .sol-field-area の上の余白として増えるだけなので固定分に足す。帯の高さは rec-view.css の縦向きの
     // --sol-rec-band-h（:root。隅の形では body で 0 に上書きするので :root から読む）
     const recBandH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sol-rec-band-h')) || 0;
-    recBandSlotW = Math.floor((window.innerHeight - MOBILE_PORTRAIT_FIXED - recBandH) / 10.15);
+    recBandSlotW = Math.floor((window.innerHeight - MOBILE_PORTRAIT_FIXED - recBandH) / (10.15 + oppRows));
   } else if (isRecView) {
     // 画面録画用の表示（rec-view.js・rec-view.css）: デッキ（#imagePool）と再生バーを隠し、上に帯を置く。
     // 盤面3段＋手札/EXの1段 → 4×1.45=5.8。固定分は下の通常時から imagePool の行（mt4＋22）を除き、帯（＋余白8）を足したもの
@@ -162,8 +168,8 @@ function fitFieldToViewport() {
     // 横向きスマホは手札/EX の見出しを縦書きで枠の左に置くので、center-row 内の固定分は余白と枠（3+3+1+1）だけになる
     const bandH = document.getElementById('solRecBand')?.offsetHeight ?? 56;
     const rowFixed = document.body.classList.contains('sol-recview-landscape') ? 8 : 22;
-    const FIXED_REC = 4 + 4 + rowFixed + 6 + bandH + 8;
-    slotW_h = Math.floor((window.innerHeight - FIXED_REC) / 5.8);
+    const FIXED_REC = 4 + 4 + rowFixed + 6 + bandH + 8 + oppGap;
+    slotW_h = Math.floor((window.innerHeight - FIXED_REC) / (5.8 + oppRows));
   } else {
     // slot-width に依存しない固定オーバーヘッド（実測ベースに引き直し）:
     //   mainContainer padding-top              :  4px
@@ -173,9 +179,9 @@ function fitFieldToViewport() {
     //   sol-field-area padding-bottom          :  6px
     // ※やや大きめ(アンダーシュート寄り)に置き、実測補正の縮小ループを避ける
     const FIXED_MISC = 4 + 8 + 22 + 22 + 6; // 62px
-    const fixed      = navH + replayH + FIXED_MISC;
+    const fixed      = navH + replayH + FIXED_MISC + oppGap;
     const available  = window.innerHeight - fixed;
-    slotW_h = Math.floor(available / 7.25);
+    slotW_h = Math.floor(available / (7.25 + oppRows));
   }
 
   // 縦向きスマホは5列固定。PC/横向きは適用後の実寸から横幅を決める。
@@ -188,8 +194,9 @@ function fitFieldToViewport() {
   // 縦向きスマホの録画用の表示: 帯の分の高さでカードが小さくなる（高さで決まる）ときだけ、帯をやめてロゴ・題名・手数を
   // 盤面の一番上の段（3マス）の左右の空きに載せる（2026-10-29 ユーザー選択「高さが足りないときだけ」）。
   // 判定は帯がある前提の幅で行う（隅に載せた後の幅で判定すると、広がった分で帯に戻って揺れる）。
-  // 縦長の端末は横幅で決まり帯の損が無く、隅も1マス分しかなくロゴが入らないので帯のまま
-  const recCorner = isPortraitMobile && document.body.classList.contains('sol-recview')
+  // 縦長の端末は横幅で決まり帯の損が無く、隅も1マス分しかなくロゴが入らないので帯のまま。
+  // 相手の場を出している間は一番上が相手の段（5列が埋まり隅が無い）なので帯のまま
+  const recCorner = isPortraitMobile && document.body.classList.contains('sol-recview') && !oppOn
     && recBandSlotW < slotW_w;
   document.body.classList.toggle(REC_CORNER_CLASS, recCorner);
 
@@ -238,7 +245,8 @@ function fitBoardWidthByMeasurement(slotW, minW) {
     const fieldStyle = getComputedStyle(field);
     const boardStyle = getComputedStyle(board);
     const contentStyle = getComputedStyle(content);
-    const children = [...content.children].filter(el => getComputedStyle(el).display !== 'none');
+    // 相手の場の段（.sol-opp-row・display:contents）は盤面・墓地除外の上の段なので、横に並ぶ数に入れない
+    const children = [...content.children].filter(el => getComputedStyle(el).display !== 'none' && !el.classList.contains('sol-opp-row'));
     const padding = style => parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
     const available = field.clientWidth - padding(fieldStyle) - padding(boardStyle);
     // flex の中央揃えで左にもはみ出すため、scrollWidth だけでは超過を測れない。
@@ -311,6 +319,8 @@ function getMobileBottomReserve() {
  */
 function applySlotWidth(w) {
   document.documentElement.style.setProperty('--slot-width', `${w}px`);
+  // 相手の場を縦向きで7列に小さく並べるとき（css/opp-field.css）、段の中だけ --slot-width を上書きするので、元の幅を別に持つ
+  document.documentElement.style.setProperty('--sol-board-slot', `${w}px`);
 }
 
 /**
@@ -408,6 +418,8 @@ async function initializeApp() {
   initReplayCaption();
   // 置いた先の印（再生で1手進んだとき、動いたカードの四隅に白いかぎ括弧を一瞬出す）
   initLandingMark();
+  // 相手の場（スイッチ・相手のマスのカード・記録で盤面の上に相手の段を出す）。リプレイの読み込み（initReplayUI）より先に購読する
+  initOppField();
 
   // このデッキのリプレイ（左サイドバー・スマホのデッキシート・開いたリプレイの差の帯）。
   // 保存したリプレイを開いた知らせ（sol-replay-loaded-from-url）を受けるため、読み込みを始める initReplayUI より先に用意する

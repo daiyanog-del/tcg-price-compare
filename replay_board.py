@@ -9,6 +9,7 @@ replay_board.py — 共有リプレイの「最後の盤面（board）」の検�
 board の形（カードは名前と種類だけ。画像 URL は受け取らない）:
   {v:1, moves:int,
    field:[{slot:'custom-slot-N', name, token?:true, pos:'atk'|'def', face:'up'|'down', n?:int}],
+     （N=1〜14 は自分の盤面、15〜21 は相手の場。21＝相手の墓地は一番上の1枚と n＝枚数）
    hand:[{name, token?}],
    grave:{count, cards:[{name, token?, face?:'down'}, ...]}, banish:{count, cards},
    ex:{count}, deckCount:int}
@@ -24,7 +25,7 @@ token は data: 画像を持つトークン（名前入りの枠で描く）。
 import re
 
 # 上限値。TODO: calibrate from data（実リプレイの分布未収集のため仮置き）
-BOARD_MAX_FIELD = 20      # 実盤面は14マス。余裕を見て20
+BOARD_MAX_FIELD = 30      # 実盤面は14マス＋相手の場7マス（2026-10-29）＝21マス。余裕を見て30
 BOARD_MAX_HAND = 60
 BOARD_MAX_COUNT = 200     # 枚数系フィールドの上限（デッキ60+EX15 を十分に超える値）
 BOARD_MAX_MOVES = 2000    # logs 上限（solitaire_routes.REPLAY_MAX_LOG_ENTRIES）と同じ
@@ -32,7 +33,7 @@ BOARD_MAX_NAME_LEN = 100
 PILE_MAX_CARDS = 4        # 墓地・除外で描く枚数（最後の数枚）。画像1枚で取りに行く枚数の上限にもなる
 PILE_MAX_INPUT = 20       # 入力の cards の上限（これを超える配列は構造不正）
 
-_SLOT_RE = re.compile(r"custom-slot-(\d{1,2})")  # 実盤面は 1〜14 の14マス
+_SLOT_RE = re.compile(r"custom-slot-(\d{1,2})")  # 実盤面は 1〜14 の14マスと相手の場 15〜21（15〜19 モンスター・20 フィールド・21 墓地）
 
 
 class BoardInvalid(ValueError):
@@ -72,7 +73,7 @@ def _field_entry(e):
         return None
     slot = e.get("slot")
     m = _SLOT_RE.fullmatch(slot) if isinstance(slot, str) else None
-    if not m or not 1 <= int(m.group(1)) <= 14:
+    if not m or not 1 <= int(m.group(1)) <= 21:
         return None
     if e.get("pos") not in ("atk", "def") or e.get("face") not in ("up", "down"):
         return None

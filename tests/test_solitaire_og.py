@@ -143,7 +143,7 @@ class TestValidateBoard:
         out = validate_board(_board(grave={"count": 0, "cards": []}))
         assert out["grave"] == {"count": 0, "cards": []}
 
-    @pytest.mark.parametrize("slot", ["custom-slot-0", "custom-slot-15", "custom-slot-x", "side-slot-0", "poolRow", 5,
+    @pytest.mark.parametrize("slot", ["custom-slot-0", "custom-slot-22", "custom-slot-x", "side-slot-0", "poolRow", 5,
                                       "custom-slot-5\n"])
     def test_bad_slot_drops_only_that_card(self, slot):
         b = _board()
@@ -401,6 +401,21 @@ def test_token_board_renders_without_fetching_tokens(env, fake_fetch):
     resp = env.client.get("/solitaire/og/abcDEF123_-.png")
     assert resp.status_code == 200 and _png_size(resp.data) == (1200, 630)
     assert fake_fetch == []
+
+
+def test_opp_field_board_renders(env, fake_fetch):
+    """相手の場（15〜21・2026-10-29）にカードがある board も描ける（盤面の上に相手の段を足した並び）。"""
+    board = _board(field=[
+        {"slot": "custom-slot-5", "name": "自分", "pos": "atk", "face": "up"},
+        {"slot": "custom-slot-16", "name": "相手モンスター", "pos": "def", "face": "up"},
+        {"slot": "custom-slot-20", "name": "盆回し", "pos": "atk", "face": "up"},
+        {"slot": "custom-slot-21", "name": "相手の墓地", "pos": "atk", "face": "up", "n": 3},
+    ])
+    assert len(validate_board(board)["field"]) == 4   # 15〜21 は捨てない
+    _seed(env, board=board)
+    resp = env.client.get("/solitaire/og/abcDEF123_-.png")
+    assert resp.status_code == 200 and _png_size(resp.data) == (1200, 630)
+    assert sorted(fake_fetch) == sorted(["自分", "相手モンスター", "盆回し", "相手の墓地", "手札A", "手札B", "墓地の上"])
 
 
 def test_token_among_other_cards_keeps_whole_board(env, fake_fetch):
@@ -737,26 +752,28 @@ def test_zone_icons_exist():
 def test_missing_icons_make_render_degraded_and_are_not_remembered(env, fake_fetch, monkeypatch, tmp_path):
     """アイコンを読めない描画は degraded（ディスクに固定しない）。読めなかった下地は覚えず、読めたら通常に戻る"""
     og = env.og
-    monkeypatch.setattr(og, "_base_cache", None)
+    monkeypatch.setattr(og, "_base_cache", {})
     monkeypatch.setattr(og, "_ICON_DIR", str(tmp_path / "none"))
     board = _board(field=[], hand=[])
     _, degraded = og.render_replay_og(board, "t")
-    assert degraded is True and og._base_cache is None
+    assert degraded is True and False not in og._base_cache
     monkeypatch.setattr(og, "_ICON_DIR", os.path.join(os.path.dirname(og.__file__), "static", "og"))
     _, degraded = og.render_replay_og(board, "t")
-    assert degraded is False and og._base_cache is not None
+    assert degraded is False and False in og._base_cache
 
 
 def test_base_layer_is_built_once(env, fake_fetch, monkeypatch):
-    """盤面によらない下地は1回だけ作って使い回す（描画ごとに大きな画像を作らない）"""
+    """盤面によらない下地は並び（相手の場の有無）ごとに1回だけ作って使い回す（描画ごとに大きな画像を作らない）"""
     og = env.og
-    monkeypatch.setattr(og, "_base_cache", None)
+    monkeypatch.setattr(og, "_base_cache", {})
     calls = []
     real = og._build_base
-    monkeypatch.setattr(og, "_build_base", lambda: calls.append(1) or real())
+    monkeypatch.setattr(og, "_build_base", lambda opp=False: calls.append(opp) or real(opp))
+    opp_board = _board(field=[{"slot": "custom-slot-17", "name": "相手", "pos": "atk", "face": "up"}])
     for _ in range(3):
         og.render_replay_og(_board(), "t")
-    assert len(calls) == 1
+        og.render_replay_og(opp_board, "t")
+    assert calls == [False, True]
 
 
 # ── リプレイ一覧の絵の縮小版（2026-10-22 LCP）──

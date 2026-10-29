@@ -17,6 +17,12 @@ assert.equal(zoneLabel('custom-slot-8'), 'モンスターゾーン');
 assert.equal(zoneLabel('custom-slot-9'), '盤面', '9番は名前の無いマス');
 assert.equal(zoneLabel('custom-slot-10'), '魔法・罠ゾーン');
 assert.equal(zoneLabel('custom-slot-14'), '魔法・罠ゾーン');
+// 相手の場（2026-10-29）
+assert.equal(zoneLabel('custom-slot-15'), '相手のモンスターゾーン');
+assert.equal(zoneLabel('custom-slot-19'), '相手のモンスターゾーン');
+assert.equal(zoneLabel('custom-slot-20'), '相手のフィールドゾーン');
+assert.equal(zoneLabel('custom-slot-21'), '相手の墓地');
+assert.equal(zoneLabel('custom-slot-22'), '盤面', '22番以降のマスは無い');
 assert.equal(zoneLabel('free-space'), '盤面');
 assert.equal(zoneLabel(''), '');
 
@@ -71,6 +77,13 @@ logs = [mv('a', 'custom-slot-5'), mv('e', 'custom-slot-5', { zIndex: 2 })];
 assert.equal(at(logs, 1).tag, '重ねる');
 assert.equal(at([mv('a', 'custom-slot-5')], 0).tag, '', '空いたマスは重ねるではない');
 
+// 相手の場へ送る・相手の墓地に重ねる（相手の墓地は重ねる場所なので「重ねる」にしない）
+logs = [mv('a', 'custom-slot-16'), mv('b', 'custom-slot-21'), mv('a', 'custom-slot-21')];
+assert.deepEqual(at(logs, 0), { cardId: 'a', name: '召喚獣エリュシオン', tag: '', from: 'デッキ', to: '相手のモンスターゾーン' });
+assert.equal(at(logs, 2).tag, '', '相手の墓地へ2枚目');
+assert.equal(at(logs, 2).from, '相手のモンスターゾーン');
+assert.equal(at(logs, 2).to, '相手の墓地');
+
 // 全戻しの後はデッキ（EX は EX デッキ）から
 logs = [mv('a', 'side-slot-0'), mv('e', 'side-slot-0'), { actionType: 'resetDeck', drawnIds: ['a'] }, mv('a', 'custom-slot-4'), mv('e', 'custom-slot-1')];
 assert.equal(at(logs, 3).from, '手札', '全戻しで引いたカードは手札');
@@ -97,7 +110,7 @@ assert.equal(at(logs, 3).tag, 'トークン');
 // 辞書に無いカード・行き先の分からない移動は、再生で何も起きないので字幕にしない
 assert.equal(describeStep([], [mv('zz', 'center-slot')], 0, {}), null);
 assert.equal(at([mv('a', 'free-space')], 0), null);
-assert.equal(at([mv('a', 'custom-slot-15')], 0), null);
+assert.equal(at([mv('a', 'custom-slot-22')], 0), null);
 assert.equal(at([mv('a', 'free-space'), mv('a', 'center-slot')], 1).from, 'デッキ', '分からない移動では居場所が変わらない');
 
 // 名前の無いカード
