@@ -16,7 +16,7 @@ import time
 from datetime import datetime, timezone, timedelta
 
 from supabase import create_client, Client
-from scraper import compare_buyback, BUYBACK_SHOPS, get_host_request_counts
+from scraper import compare_buyback, BUYBACK_SHOPS, CARDRUSH_MEDIA_BASE, get_host_request_counts
 from collection_run import record_collection_run, attach_host_request_counts
 from price_persist import upsert_buyback_rows
 from art_variant import row_is_sealed
@@ -28,6 +28,7 @@ from collect_prices import (
     normalize_card_name,
     fetch_tracked_cards_with_meta,
     check_shop_availability,
+    SHOP_HEALTH_URLS,
     sync_latest_packs,
     sync_meta_decks,
     sync_regulation,
@@ -36,6 +37,11 @@ from collect_prices import (
 
 # ── 定数 ──
 from constants import JST, BUYBACK_RETENTION_DAYS, PRICE_FLOOR
+
+# 買取の店舗ヘルスチェックの確認先。カードラッシュの買取はラッシュメディア（cardrush.media）から取るので、
+# 販売の www.cardrush.jp ではなくこちらを確かめる（2026-10 に販売側のトップページの遅れで、
+# 買取は取れたはずの日が9日、丸ごと当日スキップされていた）
+BUYBACK_HEALTH_URLS = {**SHOP_HEALTH_URLS, "カードラッシュ": f"{CARDRUSH_MEDIA_BASE}/"}
 
 WAIT_BETWEEN_CARDS = 1.0  # 収集間隔（秒）。collect_prices.py に合わせる
 
@@ -212,7 +218,7 @@ def _main(state: dict):
     ]
     print(f"\n買取対象店舗: {buyback_shop_names}")
     print("\n--- 店舗ヘルスチェック ---")
-    available_shops = check_shop_availability(buyback_shop_names)
+    available_shops = check_shop_availability(buyback_shop_names, BUYBACK_HEALTH_URLS)
 
     # 観測店舗集合の記録用（P5）: ヘルスチェック落ち・APIキー未設定のスキップ理由を積む
     skipped_shops: dict[str, str] = {

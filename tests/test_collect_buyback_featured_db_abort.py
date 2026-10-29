@@ -140,7 +140,8 @@ def run_buyback(monkeypatch, notices):
                             lambda sb: [{"card_name": n, "last_collected_at": None} for n in names])
         monkeypatch.setattr(cb, "BUYBACK_SHOPS", [("カードラッシュ", None)])
         monkeypatch.setattr(cb, "SKIP_BUYBACK_SHOPS_IN_CI", set())
-        monkeypatch.setattr(cb, "check_shop_availability", lambda shops: list(shops))
+        monkeypatch.setattr(cb, "check_shop_availability",
+                            lambda shops, urls=None: _run.health_urls.append(urls) or list(shops))
         monkeypatch.setattr(cb, "compare_buyback", _fake_fetch("カードラッシュ"))
         monkeypatch.setattr(cb.time, "sleep", lambda s: None)  # 見張り役の待ちもここを通る
         monkeypatch.setattr(cb, "cleanup_old_buyback_data", lambda sb: cleanup_calls.append(1))
@@ -152,10 +153,17 @@ def run_buyback(monkeypatch, notices):
             code = e.code
         return sb, sb.inserted.get("collection_runs", []), cleanup_calls, code
 
+    _run.health_urls = []
     return _run
 
 
 class TestBuybackAbort:
+    def test_health_check_uses_buyback_urls(self, run_buyback, notices):
+        # 買取のカードラッシュは cardrush.media から取るので、確認先もそちらにする（2026-10-29）
+        run_buyback(["ok"], n_cards=1)
+        assert run_buyback.health_urls == [cb.BUYBACK_HEALTH_URLS]
+        assert cb.BUYBACK_HEALTH_URLS["カードラッシュ"] == "https://cardrush.media/"
+
     def test_stops_after_consecutive_failures(self, run_buyback, notices):
         sb, runs, cleanup_calls, code = run_buyback(["ok", "ok"] + ["fail"] * 50)
         assert code == 1
