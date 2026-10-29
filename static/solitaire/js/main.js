@@ -33,6 +33,7 @@ import { setPcRecordingState } from './ui/pc-recording.js';
 import { isMobilePortrait } from './utils/viewport.js';
 import { showToast } from './utils/toast.js';
 import { hasReplayInUrl as isReplayInUrl, isReplayAtEnd } from './utils/replay-url.js';
+import { initStartChoice } from './ui/start-choice.js';
 import { loadDeckFromNeuron, clearEverything } from './ui/deck-input-panel.js';
 import { receiveDeckHandoff } from '../../shared/deck-handoff.js';
 import { receiveNewCards } from '../../shared/newcards-entry.js';
@@ -333,6 +334,8 @@ async function initializeApp() {
   // スマホ縦で開いたリプレイは読み込み後に再生モードへ入る。盤面を後から縮め直さないよう、再生バーの分を先に取る
   // （読み込みを始める initReplayUI と、最初の盤面合わせ fitFieldToViewport より前に呼ぶ）
   if (hasReplayInUrl && !isReplayAtEnd()) reservePlaybackSpaceForUrlReplay();
+  // 起動時の2択（盤面が空のときだけ出す）。リプレイを開くときは出さない
+  initStartChoice({ hasReplayInUrl });
 
   // 端末間同期（P2）: 一人回しページを開いたときも pull する（設計文書 §11）。
   // 保存デッキは savedDecksSet/renderSavedDecks 経由で適用されデッキ一覧に反映される。
@@ -479,8 +482,8 @@ async function initializeApp() {
     }
     if (replaySnap) resumePlaybackModeIfNeeded(!!replaySnap.mobilePlayback);
   }
-  // M-3: 復元の有無に関わらず、盤面確定後に mobile-ui.js の初見導線CTA判定を確定させる
-  // （restored=false でも updateEmptyCta() は呼ぶ必要があるため if の外に出す）。
+  // 復元の有無に関わらず、盤面確定後に起動時の2択（start-choice.js）を出すかを確定させる
+  // （restored=false でも判定は要るため if の外に出す）。
   document.dispatchEvent(new CustomEvent('sol-session-restored'));
 
   // 廃止した盤面セーブ（スロット1〜5）を、0手のリプレイとしてリプレイ一覧へ移す（失敗したスロットは残して次回再試行）。

@@ -411,7 +411,7 @@
      表示中は body.sol-token-pick。下部バーの代わりに同じ高さ（52px）で出すので、盤面の大きさは変わらない。
      地・枠線・ボタンは範囲を選ぶ画面の帯と同じ。空いたマスの印は既存の置き場所の案内（.drop-hint） */
   body.sol-token-pick #solMobileBar,
-  body.sol-token-pick #solMobileEmptyCta { display: none !important; } /* デッキが空のときの「デッキを読み込む」はマスの上に重なるので隠す */
+  body.sol-token-pick #solStartChoice { display: none !important; } /* 盤面が空のときの起動時の2択（start-choice.js）はマスの上に重なるので隠す */
   .sol-mobile-token-panel[hidden] { display: none; }
   .sol-mobile-token-panel {
     position: fixed;
@@ -1247,31 +1247,7 @@
   }
   .sol-mobile-share-error[hidden] { display: none; }
 
-  /* ════════ 初見導線（設計書 §3.5） ════════
-     M-3: pointer-events はCTAボタン自身にしか与えない設計。ラッパ要素を持たず、
-     ボタン自体を position:absolute で配置しているため、ボタンの矩形の外側
-     （.custom-layout の他の部分）は最初から pointer-events の対象外＝盤面タップを
-     奪わない（表示中はカードが無いため実害はないが、念のため明記）。 */
-
-  #solMobileEmptyCta {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    z-index: 100;
-    padding: 16px 28px;
-    background: var(--accent);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    font-family: var(--font);
-    font-size: 1rem;
-    font-weight: 700;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-    white-space: nowrap;
-  }
-  #solMobileEmptyCta[hidden] { display: none; }
-  /* CTAの絶対配置の基準（PC/横向きに影響しないようportait内でのみ指定） */
+  /* 盤面の中に重ねる要素の配置の基準（PC/横向きに影響しないようportait内でのみ指定） */
   .custom-layout {
     position: relative;
   }
@@ -1502,7 +1478,6 @@
   .sol-mobile-cip,
   .sol-mobile-sheet,
   .sol-mobile-deck-sheet,
-  #solMobileEmptyCta,
   #solTouchLabel,
   .sol-fly-clone {
     display: none !important;
