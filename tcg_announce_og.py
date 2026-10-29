@@ -27,7 +27,7 @@ import card_og_image as cog
 from deck_image import _get_font
 
 W, H = cog.W, cog.H
-DESIGN_VERSION = "b7"   # 見た目を変えたら上げる
+DESIGN_VERSION = "b8"   # 見た目を変えたら上げる
 
 _TEXT, _SUB, _GOLD = cog._TEXT, cog._SUB, cog._GOLD
 _PANEL = (0x20, 0x23, 0x2b)       # --bg-card
@@ -390,6 +390,8 @@ def render_set_png(s: dict, cards: list[dict], *, box: Image.Image | None = None
                    related: list[tuple[str, Image.Image]] | None = None) -> bytes:
     """弾のまとめの画像。box は商品写真、related は（ゆかりのカード名, 絵）を最大4枚。"""
     related = (related or [])[:4]
+    if box is None and related:
+        return _render_set_fan(s, cards, related)
     canvas = _background()
     if box is not None:
         _glow(canvas, 300, 330, 330, 300, 0.22)
@@ -438,6 +440,51 @@ def render_set_png(s: dict, cards: list[dict], *, box: Image.Image | None = None
     n = len([c for c in cards if summary_of(c)["effects"]])
     if n:
         draw_text(d, (x0, y_note), f"判明した{n}枚の効果を日本語で紹介しています", _TEXT, size=23)
+    _logo(canvas, W - 200, 572, 34)
+    return _png(canvas)
+
+
+def _render_set_fan(s: dict, cards: list[dict], related: list[tuple[str, Image.Image]]) -> bytes:
+    """商品写真がまだ無い弾の画像: 左に文字、右にゆかりのカードを大きく少しずつ重ねて並べる。
+    （写真の形のまま左寄せにすると右半分が空いた。2026-10-29 本番で確認）"""
+    canvas = _background()
+    _glow(canvas, 880, 320, 380, 300, 0.20)
+    d = ImageDraw.Draw(canvas)
+    x0, text_w = _LEFT, 500
+    _badges(d, x0, 56, [("TCG先行", _TCG), ("予告", _GOLD)])
+    name = s.get("name_en") or ""
+    lines = wrap_words(d, name, text_w, 2, size=54)
+    y = 140
+    for ln in lines:
+        draw_text(d, (x0, y), ln, _TEXT, size=54, bold=True, kind="latin")
+        y += 60
+    y += 4
+    draw_text(d, (x0, y), "遊戯王TCG（英語版）", _SUB, size=24)
+    if s.get("tcg_release_date"):
+        draw_text(d, (x0, y + 36), f"{format_release_ja(s['tcg_release_date'])}発売予定", _SUB, size=24)
+    y += 108
+    head = set_headline(cards)
+    hs = next((sz for sz in (34, 32, 30) if text_width(d, head, jp(sz, True), sz, True) <= text_w), 30)
+    for ln in wrap(d, head, text_w, 2, size=hs, bold=True):   # 「が判明」だけが次の行に残らないよう、まず字を小さくして1行に
+        draw_text(d, (x0, y), ln, _GOLD, size=hs, bold=True)
+        y += hs + 12
+    n = len([c for c in cards if summary_of(c)["effects"]])
+    if n:
+        for ln in wrap(d, f"判明した{n}枚の効果を日本語で紹介しています", text_w, 2, size=22):
+            draw_text(d, (x0, y + 14), ln, _TEXT, size=22)
+            y += 32
+
+    # 右: カードを重ねて並べる（後のカードを上に。互い違いに少し上下させる）
+    ch = 300 if len(related) >= 4 else 330   # 4枚は重なりが深くなるので少し小さく
+    imgs = [_fit_h(img, ch) for _, img in related]
+    left, right_edge = 600, W - 48
+    cw = imgs[0].width
+    step = (right_edge - left - cw) / max(len(imgs) - 1, 1) if len(imgs) > 1 else 0
+    step = min(step, cw + 16)
+    total = cw + step * (len(imgs) - 1)
+    start = left + (right_edge - left - total) / 2
+    for i, im in enumerate(imgs):
+        _shadowed(canvas, im, (round(start + step * i), 120 + (24 if i % 2 else 0)), blur=12, off=8, alpha=170)
     _logo(canvas, W - 200, 572, 34)
     return _png(canvas)
 

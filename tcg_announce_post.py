@@ -111,7 +111,8 @@ def _fits(lines: list[str]) -> bool:
 
 
 def text_card(s: dict, card: dict, cards: list[dict]) -> str:
-    """カードごとの投稿。まとめページへ誘う一文を残すため、長すぎたら ゆかり → 種類の行 → 要約の末尾 の順に削る。"""
+    """カードごとの投稿。見出し（ゆかり・テーマ）とまとめページへ誘う一文はいちばんの引きなので残し、
+    長すぎたら 種類の行 → 要約の末尾 の順に削る（2026-10-29 本番のデータで見出しから落ちていたのを直した）。"""
     from unreleased_x_post import truncate_to_weight
     found = "の効果が判明" if card.get("lore_kind") == "blurb" else "の英語のテキストが判明"
     head = f"【海外先行】{card['name_en']} {found}"
@@ -122,12 +123,13 @@ def text_card(s: dict, card: dict, cards: list[dict]) -> str:
     # 見出し（ゆかりのカード・テーマ）。どれにも当たらないカードは出さない（弾の名前は下の行にある）
     related = tcg_announce_og.headline(card, s["name_en"]) if (card.get("related_ja") or card.get("theme_kind")) else ""
     url = card_url(s, card)
-    for lines in ([head, related, stats, short, funnel], [head, stats, short, funnel], [head, short, funnel]):
+    for lines in ([head, related, stats, short, funnel], [head, related, short, funnel]):
         if _fits(lines):
             return "\n".join([ln for ln in lines if ln] + [url])
     from unreleased_x_post import weighted_length
-    room = MAX_WEIGHT - 23 - 1 - weighted_length("\n".join(x for x in (head, funnel) if x)) - 1
-    return "\n".join(x for x in (head, truncate_to_weight(short, max(room, 20)), funnel, url) if x)
+    fixed = [x for x in (head, related, funnel) if x]
+    room = MAX_WEIGHT - 23 - 1 - weighted_length("\n".join(fixed)) - 1
+    return "\n".join(x for x in (head, related, truncate_to_weight(short, max(room, 20)), funnel, url) if x)
 
 
 def text_card_official(s: dict, card: dict) -> str:
@@ -147,9 +149,12 @@ def _jst_date(iso: str | None):
     return datetime.fromisoformat(str(iso).replace("Z", "+00:00")).astimezone(JST).date()
 
 
-def card_order_key(card: dict):
-    """カードごとの投稿の順: 関連カードが分かるもの（「あのカードの」と伝わる）を先に、あとは一覧の並び。"""
-    return (not card.get("related_ja"), card.get("list_order") or 0)
+def card_order_key(card: dict, covers=()):
+    """カードごとの投稿の順: 表紙のカード（弾の目玉）→ 画像に既存カードの絵が出るカード（「あのカードの」と伝わる）
+    → それ以外。同じ中では一覧の並び。"""
+    covers = list(covers)
+    cover_rank = covers.index(card.get("name_en")) if card.get("name_en") in covers else len(covers)
+    return (cover_rank, not tcg_announce_og.picture_card(card), card.get("list_order") or 0)
 
 
 def decide(sets: list[dict], cards_by_set: dict[str, list[dict]], posts: list[dict], now: datetime) -> dict | None:
@@ -196,7 +201,7 @@ def decide(sets: list[dict], cards_by_set: dict[str, list[dict]], posts: list[di
         if (_jst_date(first.get("created_at")) < today and CARD_HOURS[0] <= now_jst.hour < CARD_HOURS[1]
                 and not any(p["kind"] == "card" and _jst_date(p.get("created_at")) == today for p in posts)):
             rest = sorted((c for c in cards if c["page_id"] not in posted_cards and c["name_en"] not in posted_names),
-                          key=card_order_key)
+                          key=lambda c: card_order_key(c, s.get("cover_cards") or []))
             if rest:
                 candidates.append((3, {"kind": "card", "set": s, "card": rest[0], "cards": cards}))
     if not candidates:
