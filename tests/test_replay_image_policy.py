@@ -23,11 +23,12 @@ YGORES = "https://artworks-jp-n.ygoresources.com/1/23/45_1.png"
 TOKEN = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD="
 
 
-def test_js_and_python_allow_the_same_origins():
-    from constants import REPLAY_IMAGE_ORIGINS
+def test_js_and_python_allow_the_same_sources():
+    from constants import REPLAY_IMAGE_SOURCES
     js = (ROOT / "static/solitaire/js/utils/replay-image-policy.js").read_text(encoding="utf-8")
-    block = re.search(r"ALLOWED_IMAGE_ORIGINS = \[(.*?)\];", js, re.S).group(1)
-    assert re.findall(r"'([^']+)'", block) == list(REPLAY_IMAGE_ORIGINS)
+    block = re.search(r"ALLOWED_IMAGE_SOURCES = \[(.*?)\];", js, re.S).group(1)
+    pairs = re.findall(r"\['([^']+)', String\.raw`([^`]+)`\]", block)
+    assert pairs == [tuple(p) for p in REPLAY_IMAGE_SOURCES]
 
 
 def test_clean_images_keeps_known_values_and_replaces_the_rest():
@@ -44,17 +45,24 @@ def test_clean_images_keeps_known_values_and_replaces_the_rest():
         "9": "http://artworks-jp-n.ygoresources.com/1/2/3_1.png",
         "10": "data:image/png;base64," + "A" * sr.REPLAY_TOKEN_IMAGE_MAX_CHARS,
         "11": "javascript:alert(1)",
+        "12": "https://www.ka-nabell.com/redirect?url=https://evil.example",
+        "13": "https://www.ka-nabell.com/img/s/abc_123.jpg",
+        "14": YGORES + "?x=1",
+        "15": "https://artworks-jp-n.ygoresources.com/redirect",
     }
     names = {"4": "増殖するG", "5": "トークン"}
     out, replaced = sr._clean_images(images, names)
     assert out["1"] == "card://灰流うらら"
     assert out["2"] == TOKEN
     assert out["3"] == YGORES
+    assert out["13"] == "https://www.ka-nabell.com/img/s/abc_123.jpg"
     assert out["4"] == "card://増殖するG"
-    assert out["5"] == "card://トークン"
-    for k in ("6", "7", "8", "9", "10", "11"):
+    # 形の違う data: はトークンのまま（中身の無い印）にする。card:// にするとトークンの削除の手が効かなくなる
+    for k in ("5", "6", "10"):
+        assert out[k] == sr._TOKEN_PLACEHOLDER, k
+    for k in ("7", "8", "9", "11", "12", "14", "15"):
         assert out[k] == "card://", k
-    assert replaced == 8
+    assert replaced == 11
 
 
 def test_save_stores_cleaned_images(monkeypatch):
@@ -119,3 +127,51 @@ def test_thumb_memory_cache_is_dropped_when_replay_is_hidden(monkeypatch, tmp_pa
     resp = client.get("/solitaire/og/thumb/hide0001.webp")
     assert resp.get_data() != b"THUMB"
     assert "hide0001" not in solitaire_routes._og_thumb_cache
+
+
+def test_og_alive_check_does_not_wait_on_db_again_while_db_is_down(monkeypatch, tmp_path):
+    """DB に聞けないときはキャッシュの絵を返し、しばらく聞き直さない（一覧の24枚が DB 待ちで固まらない）"""
+    import replay_og_image as og
+    monkeypatch.setattr(og, "_OG_CACHE_DIR", str(tmp_path))
+    _, client, sb = _load_app(monkeypatch, rows=[_row("down0001", "2026-10-01T00:00:00+00:00")])
+    import solitaire_routes
+    (tmp_path / "down0001.png").write_bytes(b"CACHED")
+    calls = []
+
+    class _Down:
+        def table(self, name):
+            calls.append(name)
+            raise RuntimeError("db down")
+    monkeypatch.setattr(solitaire_routes, "_get_supabase", lambda: _Down())
+    for _ in range(3):
+        assert client.get("/solitaire/og/down0001.png").get_data() == b"CACHED"
+    assert len(calls) == 1
+
+
+def test_public_list_and_page_remember_alive_so_thumbs_need_no_query(monkeypatch, tmp_path):
+    import replay_og_image as og
+    monkeypatch.setattr(og, "_OG_CACHE_DIR", str(tmp_path))
+    rows = [_row("list0001", "2026-10-01T00:00:00+00:00"), _row("list0002", "2026-10-02T00:00:00+00:00")]
+    _, client, sb = _load_app(monkeypatch, rows=rows)
+    import solitaire_routes
+    assert client.get("/api/solitaire/public").status_code == 200
+    calls = []
+    monkeypatch.setattr(solitaire_routes, "_lookup_replay_alive", lambda rid: calls.append(rid) or True)
+    for rid in ("list0001", "list0002"):
+        solitaire_routes._og_thumb_cache[rid] = b"THUMB"
+        assert client.get(f"/solitaire/og/thumb/{rid}.webp").get_data() == b"THUMB"
+    assert calls == []
+
+
+def test_admin_hide_drops_thumb_and_alive_memory(monkeypatch, tmp_path):
+    import replay_og_image as og
+    monkeypatch.setattr(og, "_OG_CACHE_DIR", str(tmp_path))
+    import admin_unreleased as admin_module
+    # 管理画面が呼ぶ forget_replay_og が持つキャッシュ（テストでは solitaire_routes が読み直されていることがある）
+    g = admin_module._forget_replay_og.__globals__
+    client, _ = _admin_client(monkeypatch, [_row("admhide1", None, public=False)])
+    g["_og_thumb_cache"]["admhide1"] = b"THUMB"
+    g["_remember_og_alive"]("admhide1", True)
+    assert client.post("/api/admin/public-replays/admhide1/toggle-hidden", headers=ADMIN).status_code == 200
+    assert "admhide1" not in g["_og_thumb_cache"]
+    assert "admhide1" not in g["_og_alive_cache"]

@@ -784,7 +784,13 @@ async function _sanitizeReplayImages() {
   for (const [cardId, src] of Object.entries(_images || {})) {
     const c = classifyReplayImage(src, _names[cardId]);
     if (c.kind === 'token') {
-      out[cardId] = await generateTokenDataURL(tokenNameOf(_names[cardId]));
+      try {
+        out[cardId] = await generateTokenDataURL(tokenNameOf(_names[cardId]));
+      } catch (e) {
+        // 描けなくてもリプレイ全体は開く。トークンの印（data:）は残し、削除の手などはトークンとして効かせる
+        console.warn('[replay] トークンの札を描けませんでした（中身の無い札で出します）', cardId, e);
+        out[cardId] = 'data:image/png;base64,';
+      }
     } else {
       if (c.src !== src) replaced++;
       out[cardId] = c.src;
@@ -800,6 +806,10 @@ async function _sanitizeReplayImages() {
  * card:// センチネルは /api/card-images バッチで再解決してから描画する。
  */
 async function _createReplayCardElements() {
+  // 画像辞書は利用者が送った値なので、出してよい形に直してから使う（任意の外部画像・data: 画像を出さない）。
+  // 盤面が無いときに抜ける前に行い、辞書が直っていない状態を残さない
+  await _sanitizeReplayImages();
+
   // 既存カードを全てプールに回収してからクリア
   returnAllCardsToDeck();
   const poolRow  = document.getElementById('poolRow');
@@ -807,9 +817,6 @@ async function _createReplayCardElements() {
   if (!poolRow || !poolRow2) return;
   poolRow.querySelectorAll('.tier-item-wrapper').forEach(el => el.remove());
   poolRow2.querySelectorAll('.tier-item-wrapper').forEach(el => el.remove());
-
-  // 画像辞書は利用者が送った値なので、出してよい形に直してから使う（任意の外部画像・data: 画像を出さない）
-  await _sanitizeReplayImages();
 
   // card:// センチネルを一括解決
   const resolved = await _resolveReplaySentinels();

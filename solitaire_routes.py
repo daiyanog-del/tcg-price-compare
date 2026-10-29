@@ -39,7 +39,7 @@ from urllib.parse import urlsplit
 from flask import Blueprint, render_template, request, abort, Response, send_file
 
 from client_ip import _client_ip
-from constants import REPLAY_IMAGE_ORIGINS
+from constants import REPLAY_IMAGE_SOURCES
 from replay_board import validate_board
 import card_display
 import card_og_image
@@ -218,6 +218,7 @@ def solitaire_page():
     if replay_og_image.is_valid_replay_id(replay_id):
         og_url_path = f"/solitaire?replay={replay_id}"
         meta = _lookup_replay_og_meta(replay_id)
+        _remember_og_meta(replay_id, meta[0])   # 直後に X のクローラーが読む絵のために、聞き直さずに済むよう覚える
         if meta[0] == "found":
             og_title = meta[1] or REPLAY_DEFAULT_TITLE
             if validate_board(meta[2]):
@@ -314,7 +315,7 @@ def solitaire_og_image(replay_id):
         return _og_png_response(png, 60 if degraded else 86400)
 
     meta = _lookup_replay_og_meta(replay_id)
-    _remember_og_alive(replay_id, meta[0])
+    _remember_og_meta(replay_id, meta[0])
     board = validate_board(meta[2]) if meta[0] == "found" else None
     if board is None:
         # 旧リプレイ（board 無し）・存在しない id・DB 失敗: 汎用画像。一過性の失敗を長く固定しないため短い期限にする
@@ -343,32 +344,58 @@ _og_thumb_lock = threading.Lock()
 # キャッシュした絵を返す前に、そのリプレイが今もあるか（非表示・削除・90日の自動削除）を確かめた結果を覚える。
 # 削除は管理画面（別の worker のこともある）と collect_prices.py（別のプロセス）で起きるので、キャッシュを消す合図が
 # 届かない worker でも、この期限が切れれば汎用画像に変わる。一覧は1回で24枚読むため、毎回 DB には聞かない
-_OG_ALIVE_TTL_SEC = 300        # TODO: calibrate from data（削除してから絵が消えるまでの最長の待ち）
-_OG_ALIVE_MAX_ENTRIES = 1024   # TODO: calibrate from data
-_og_alive_cache: "OrderedDict[str, tuple]" = OrderedDict()   # id -> (確かめた時刻, あるか)
+# （みんなのリプレイの一覧・リプレイのページで引いた結果も覚えるので、普段は一覧の絵のための問い合わせは起きない）
+_OG_ALIVE_TTL_SEC = 300          # TODO: calibrate from data（削除してから絵が消えるまでの最長の待ち）
+_OG_ALIVE_UNKNOWN_TTL_SEC = 60   # DB に聞けなかったとき「ある」とみなして聞き直さない時間。TODO: calibrate from data
+_OG_ALIVE_MAX_ENTRIES = 1024     # TODO: calibrate from data
+_og_alive_cache: "OrderedDict[str, tuple]" = OrderedDict()   # id -> (期限の時刻, あるか)
 _og_alive_lock = threading.Lock()
 
 
-def _remember_og_alive(replay_id, status):
-    """_lookup_replay_og_meta の結果（found / missing / unknown）を覚える。unknown（DB 失敗）は覚えない。"""
-    if status not in ("found", "missing"):
-        return
+def _remember_og_alive(replay_id, alive, ttl=_OG_ALIVE_TTL_SEC):
     with _og_alive_lock:
-        _og_alive_cache[replay_id] = (time.monotonic(), status == "found")
+        _og_alive_cache[replay_id] = (time.monotonic() + ttl, alive)
         _og_alive_cache.move_to_end(replay_id)
         while len(_og_alive_cache) > _OG_ALIVE_MAX_ENTRIES:
             _og_alive_cache.popitem(last=False)
 
 
+def _remember_og_meta(replay_id, status):
+    """_lookup_replay_og_meta の結果（found / missing / unknown）を覚える。unknown は覚えない（すぐ聞き直してよい）。"""
+    if status in ("found", "missing"):
+        _remember_og_alive(replay_id, status == "found")
+
+
+def _lookup_replay_alive(replay_id):
+    """行があって非表示でないか（True / False）。DB に聞けなければ None。board は読まない（重い列のため）。"""
+    sb = _get_supabase()
+    if not sb:
+        return None
+    try:
+        rows = (sb.table("solitaire_replays")
+                .select("id, hidden")
+                .eq("id", replay_id)
+                .limit(1)
+                .execute()).data or []
+    except Exception as e:
+        logger.warning(f"リプレイの有無の確認エラー: {e}")
+        return None
+    return bool(rows) and not rows[0].get("hidden")
+
+
 def _replay_og_alive(replay_id):
-    """そのリプレイが今もあるか。True=ある / False=無い（非表示を含む） / None=DB に聞けなかった。"""
+    """そのリプレイが今もあるか。True=ある / False=無い（非表示を含む） / None=DB に聞けなかった。
+    聞けなかったときは「ある」とみなして短い間覚え、DB が遅い・止まっている間にキャッシュ済みの絵まで DB 待ちにしない。"""
     with _og_alive_lock:
         hit = _og_alive_cache.get(replay_id)
-    if hit is not None and time.monotonic() - hit[0] < _OG_ALIVE_TTL_SEC:
+    if hit is not None and time.monotonic() < hit[0]:
         return hit[1]
-    status = _lookup_replay_og_meta(replay_id)[0]
-    _remember_og_alive(replay_id, status)
-    return {"found": True, "missing": False}.get(status)
+    alive = _lookup_replay_alive(replay_id)
+    if alive is None:
+        _remember_og_alive(replay_id, True, _OG_ALIVE_UNKNOWN_TTL_SEC)
+        return None
+    _remember_og_alive(replay_id, alive)
+    return alive
 
 
 def forget_replay_og(replay_id):
@@ -513,13 +540,15 @@ def _build_card_names(names, images):
 # トークンの画像（data:）1件の上限。今のトークンは約10KB（token-image.js）。TODO: calibrate from data
 REPLAY_TOKEN_IMAGE_MAX_CHARS = 64 * 1024
 _TOKEN_IMAGE_RE = re.compile(r"data:image/(?:jpeg|png);base64,[A-Za-z0-9+/]+={0,2}")
+_TOKEN_PLACEHOLDER = "data:image/png;base64,"   # 中身の無いトークンの印（isTokenSrc は data: で始まるかだけを見る）
 _CARD_SENTINEL_MAX_LEN = 8 + PUBLIC_CARD_NAME_MAX_LEN * 2   # "card://" ＋ カード名
 
 
 def _clean_images(images, names):
     """画像辞書（{cardId: src}）を、保存してよい値だけにする。
-    通すのは card://カード名・トークンの data: 画像（形と大きさを確かめる）・REPLAY_IMAGE_ORIGINS の https URL。
-    それ以外（任意の外部URL・形の違う data:・文字列でない値）は card://カード名 に置き換える。
+    通すのは card://カード名・トークンの data: 画像（形と大きさを確かめる）・REPLAY_IMAGE_SOURCES の https URL。
+    形の違う data: は中身の無いトークンの印（_TOKEN_PLACEHOLDER）に置き換える（トークンのまま扱われ、画面が名前から描き直す）。
+    それ以外（任意の外部URL・文字列でない値）は card://カード名 に置き換える。
     画面側（replay-image-policy.js）も同じ規則で読み直すが、DB に任意の値を溜めないためにここでも絞る。
     戻り値: (直した辞書, 置き換えた件数)"""
     out, replaced = {}, 0
@@ -534,7 +563,11 @@ def _clean_images(images, names):
             if src.startswith("data:"):
                 if len(src) <= REPLAY_TOKEN_IMAGE_MAX_CHARS and _TOKEN_IMAGE_RE.fullmatch(src):
                     out[card_id] = src
-                    continue
+                else:
+                    # card:// にするとトークンでなくなり、トークンの削除の手が効かず再生の盤面がずれる
+                    out[card_id] = _TOKEN_PLACEHOLDER
+                    replaced += 1
+                continue
             elif _is_allowed_image_url(src):
                 out[card_id] = src
                 continue
@@ -545,12 +578,19 @@ def _clean_images(images, names):
     return out, replaced
 
 
+_REPLAY_IMAGE_SOURCES = tuple((origin, re.compile(pat)) for origin, pat in REPLAY_IMAGE_SOURCES)
+
+
 def _is_allowed_image_url(src: str) -> bool:
+    """REPLAY_IMAGE_SOURCES の発行元で、パスが出している形の https URL か（クエリ・#・認証情報つきは通さない）。"""
     try:
         u = urlsplit(src)
     except ValueError:
         return False
-    return f"{u.scheme}://{u.netloc}" in REPLAY_IMAGE_ORIGINS and not u.username and not u.password
+    if u.query or u.fragment or "@" in u.netloc:
+        return False
+    origin = f"{u.scheme}://{u.netloc}"
+    return any(origin == o and pat.fullmatch(u.path) for o, pat in _REPLAY_IMAGE_SOURCES)
 
 
 def _count_steps(logs):
@@ -746,6 +786,7 @@ def solitaire_public_list():
     has_more = len(rows) > limit
     items = []
     for r in rows[:limit]:
+        _remember_og_alive(r.get("id"), True)   # 公開かつ非表示でない行。一覧の絵（縮小版）が聞き直さずに済む
         names = r.get("card_names") or []
         items.append({
             "id": r.get("id"),

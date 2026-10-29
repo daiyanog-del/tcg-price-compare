@@ -18,11 +18,12 @@ BUYBACK_RETENTION_DAYS = 30
 # 一人回しリプレイ（非公開分）
 REPLAY_RETENTION_DAYS = 90
 
-# 共有リプレイの画像辞書に実URLのまま残してよい発行元（発売済みカードの画像。それ以外の URL は card://カード名 に直す）。
-# static/solitaire/js/utils/replay-image-policy.js の ALLOWED_IMAGE_ORIGINS と同じ値にする（tests/test_replay_image_policy.py が確かめる）
-REPLAY_IMAGE_ORIGINS = (
-    "https://artworks-jp-n.ygoresources.com",   # app.py _ygores_image_url
-    "https://www.ka-nabell.com",                # scraper.py kanabell_card_image_url（予備）
+# 共有リプレイの画像辞書に実URLのまま残してよい画像（発売済みカードの画像。それ以外の URL は card://カード名 に直す）。
+# (発行元, パスの形の正規表現)。発行元だけで許すと、その発行元にある転送用の URL などを通してしまうため、出している形に絞る。
+# static/solitaire/js/utils/replay-image-policy.js の ALLOWED_IMAGE_SOURCES と同じ値にする（tests/test_replay_image_policy.py が確かめる）
+REPLAY_IMAGE_SOURCES = (
+    ("https://artworks-jp-n.ygoresources.com", r"^/\d+/\d+/\d+_1\.png$"),   # app.py _ygores_image_url
+    ("https://www.ka-nabell.com", r"^/img/s/[A-Za-z0-9_.-]+$"),            # scraper.py kanabell_card_image_url（予備）
 )
 
 # Web Push 購読管理用 VAPID クレーム
