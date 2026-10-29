@@ -74,6 +74,20 @@ def test_format_post_text_floor():
     assert staple_post.post_kind({**m, "direction": "up"}) == "up"
 
 
+def test_floor_control_day_uses_usual_text_but_own_kind():
+    """底値に当たっても比べる相手の日（奇数日）は今までの文面で出し、型は floorctl として記録する。"""
+    m = {"name": "聖王の粉砕", "rarity": "シークレット", "today": 280, "yesterday": 660, "floor_days": 90,
+         "floor_show": False, "diff": -380, "pct": -57.6, "direction": "down",
+         "date_old": "2026-09-25", "date_new": "2026-09-26"}
+    lines = staple_post.format_post_text(m).split("\n")
+    assert lines[1] == "¥280（9/25 ¥660から -380円）"
+    assert lines[2].endswith("utm_content=floorctl")
+    assert staple_post.content_type(m).startswith("staple_floorctl|")
+    # 偶数日と奇数日が1日おきに入れ替わる
+    days = [staple_post.is_floor_day(f"2026-10-{d:02d}") for d in range(25, 31)]
+    assert days == [days[0], not days[0]] * 3
+
+
 def _hist(start, days, price):
     from datetime import date, timedelta
     d0 = date.fromisoformat(start)
@@ -409,6 +423,6 @@ def test_recently_posted_counts_other_kind_of_same_direction():
     m = {"name": "聖王の粉砕", "rarity": "シークレット", "direction": "down", "floor_days": 90}
     assert staple_post._recently_posted(_Sb(), m) is False
     key = staple_post.fuzzy_key("聖王の粉砕") + "|シークレット"
-    assert seen["types"] == ["staple_floor|" + key, "staple_down|" + key]
+    assert seen["types"] == ["staple_floor|" + key, "staple_floorctl|" + key, "staple_down|" + key]
     staple_post._recently_posted(_Sb(), {**m, "direction": "up"})
     assert seen["types"] == ["staple_up|" + key]

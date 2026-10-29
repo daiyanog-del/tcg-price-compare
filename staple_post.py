@@ -23,7 +23,8 @@
   https://.../card/聖王の粉砕?utm_...&utm_content=down
 投稿の型（2026-10-29〜。型ごとの効果を比べる試み）: 値下がりのうち過去90日・30日でいちばん安いものは
 底値の型（staple_floor）にして、2行目を「¥280　過去90日でいちばん安い値段です」、3行目に前日比を出し、画像に札を付ける。
-それ以外の値下がりは今までの形（staple_down）、値上がりは staple_up。型は tweet_log.content_type の頭と
+底値に当たっても奇数日は今までの形で出し staple_floorctl として比べる相手にする（is_floor_day）。
+当たらない値下がりは今までの形（staple_down）、値上がりは staple_up。型は tweet_log.content_type の頭と
 リンクの utm_content に残し、24時間の閲覧（collect_x_metrics）と GA4 の流入・店へのクリックで比べる。
 画像は render_post_image（カード画像＋最安値の枠＋過去の値動きのグラフ。P2案・和文は M PLUS 2・数字は Outfit）。
 
@@ -113,13 +114,21 @@ def select_staple_movers(rows, staple_names, top_n=CANDIDATES_PER_DIRECTION):
 
 
 # 向きごとの投稿の型（tweet_log.content_type の頭・リンクの utm_content）。値下がりは底値（floor）と今までの形（down）の2つ
-KINDS_OF = {"down": ("floor", "down"), "up": ("up",)}
+# floorctl は「底値に当たるが今までの形で出した」比べる相手。値下がりは前7日の最安を下回るものだけ採るので
+# ほとんどが底値に当たり、当たらないもの（down）だけでは比べる相手がほぼ出ない（10-25〜29 の実投稿4件はすべて当たった）
+KINDS_OF = {"down": ("floor", "floorctl", "down"), "up": ("up",)}
+
+
+def is_floor_day(date_str):
+    """底値に当たる値下がりを底値の形で出す日か。偶数日（日付の通し番号）は底値の形、奇数日は今までの形で出して比べる。"""
+    return date.fromisoformat(date_str).toordinal() % 2 == 0
 
 
 def post_kind(m):
-    """投稿の型。値下がりで floor_days（過去N日で最安）があれば floor、なければ down。値上がりは up。"""
+    """投稿の型。値下がりで floor_days（過去N日で最安）があれば、floor_show（既定 True）で floor／floorctl、
+    なければ down。値上がりは up。"""
     if m["direction"] == "down" and m.get("floor_days"):
-        return "floor"
+        return "floor" if m.get("floor_show", True) else "floorctl"
     return m["direction"]
 
 
@@ -611,7 +620,10 @@ def post_staple_movers(sb):
                 logger.warning(f"価格推移の取得に失敗 — この候補は見送り: {e}")
                 continue
             if direction == "down":
-                m = {**m, "floor_days": floor_days(raw_history, m)}
+                m = {**m, "floor_days": floor_days(raw_history, m), "floor_show": is_floor_day(m["date_new"])}
+                if m["floor_days"]:
+                    shown = "底値の形" if m["floor_show"] else "今までの形（比べる相手の日）"
+                    print(f"  [down] 過去{m['floor_days']}日で最安 — {shown}で出す")
             text = format_post_text(m)
             print(f"\n--- {direction}: {m['name']}（{m['rarity']}） ---\n{text}")
             card_path = x_poster.get_card_image_path(m["name"])
