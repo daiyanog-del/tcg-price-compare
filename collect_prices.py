@@ -1091,9 +1091,9 @@ def _main(state: dict):
     # カーナベルはAPIキー必須。未設定のまま収集すると全カードが0件になり、
     # 「カーナベルに在庫なし」という誤ったデータがDBに蓄積されるため当日除外する
     if "カーナベル" in available_shops and not (
-        os.environ.get("KANABELL_CLOUD_ID") and os.environ.get("KANABELL_API_KEY")
+        os.environ.get("KANABELL_ES_ENDPOINT") and os.environ.get("KANABELL_ES_API_KEY")
     ):
-        print("  NG: カーナベル — KANABELL_CLOUD_ID / KANABELL_API_KEY 未設定のため当日スキップ")
+        print("  NG: カーナベル — KANABELL_ES_ENDPOINT / KANABELL_ES_API_KEY 未設定のため当日スキップ")
         available_shops.remove("カーナベル")
         skipped_shops["カーナベル"] = "api_key_missing"
     # 休止中の店は SHOPS に無いので収集しない。後から追えるように理由だけ残す

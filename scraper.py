@@ -16,7 +16,7 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from pathlib import Path
-from rarity import normalize_rarity  # 正規化は rarity.py に一元化
+from rarity import RARITIES, UNKNOWN_RARITY_LABEL, normalize_rarity  # 正規化は rarity.py に一元化
 from art_variant import is_sealed  # 買取の未開封・付属品つき（名前を加工する前に見る）
 from card_code import infer_codes  # 型番の店舗間補完（カーナベル/トレコロCB）
 from shop_status import SUSPENDED_SHOPS, is_suspended  # 店の一時休止
@@ -167,24 +167,6 @@ def normalize_width(text: str) -> str:
     """全角英数字・互換文字（ローマ数字等）を半角に統一"""
     text = unicodedata.normalize('NFKC', text)  # ローマ数字(Ⅹ→X等)・全角ハイフン等を一括変換
     return text.translate(_ZEN2HAN)
-
-def to_fullwidth_alnum(text: str) -> str:
-    """英数字だけを全角に変換する（記号・空白は変換しない）。
-
-    カーナベルESの card_name には全角で登録されたレコードが混在するため、
-    半角の検索語だけでは一致しない。その対策で全角版の検索値を作るのに使う。
-
-    記号まで全角化してはいけない。2026-08-03 実測: カーナベルには
-    「Ｎｏ.１０４ 仮面魔踏士シャイニングＶ」のように英数字だけ全角でピリオドは
-    半角という混在表記があり、ピリオドも全角化すると0件になる（英数字のみなら3件）。
-    ワイルドカードのメタ文字（* ?）を変換しない点でも、半角版と意味を揃えられる。
-    """
-    return "".join(
-        chr(ord(ch) + 0xFEE0)
-        if ("0" <= ch <= "9" or "A" <= ch <= "Z" or "a" <= ch <= "z")
-        else ch
-        for ch in text
-    )
 
 def parse_price(text: str) -> int | None:
     digits = re.sub(r"[^\d]", "", text)
@@ -1099,329 +1081,236 @@ def scrape_torecolo(card_name: str, max_pages: int = 5,
 
 
 # ── カーナベル (Elasticsearch API) ──
+# 2026-10-24 にカーナベルは遊戯王サイトを作り直した（PHP の旧サイトは 10-21 に停止）。
+# 新サイト（www.ka-nabell.com/ec/sell/yugioh・Nuxt）も、ブラウザから店の Elasticsearch を
+# 直接引いて商品を探す。接続先と閲覧用の鍵はサイトの公開設定（TCG_PLATFORM_ES_ENDPOINT /
+# TCG_PLATFORM_ES_API_KEY）にあるものを環境変数で渡す。旧サイトの ES（ec-cards）は
+# 店が止まっても在庫つきの結果を返し続けていたので使わない（2026-10-29 確認）。
 
 KANABELL_BASE = "https://www.ka-nabell.com"
+KANABELL_SELL_BASE = f"{KANABELL_BASE}/ec/sell/yugioh"
+KANABELL_BUY_BASE = f"{KANABELL_BASE}/ec/buy/yugioh"
 
-import base64 as _b64
 import os as _os
 
 # カーナベル接続情報（環境変数から取得）
-_KANABELL_CLOUD_ID = _os.environ.get("KANABELL_CLOUD_ID", "")
-_KANABELL_API_KEY = _os.environ.get("KANABELL_API_KEY", "")
-_KANABELL_INDEX = _os.environ.get("KANABELL_INDEX", "ec-cards")
+_KANABELL_ES_ENDPOINT = _os.environ.get("KANABELL_ES_ENDPOINT", "").rstrip("/")
+_KANABELL_ES_API_KEY = _os.environ.get("KANABELL_ES_API_KEY", "")
+# 遊戯王のシングル商品の索引（実体は yugioh-single-products-v15 などの版つき。名前は別名）
+_KANABELL_INDEX = "yugioh-single-products"
 
-def _kanabell_es_host():
-    """Cloud IDからElasticsearchホストURLを構築"""
-    try:
-        parts_colon = _KANABELL_CLOUD_ID.split(":")
-        if len(parts_colon) < 2:
-            print("  [KANABELL] CLOUD_ID形式エラー: コロンがありません")
-            return None
-        encoded = parts_colon[1]
-        decoded = _b64.b64decode(encoded).decode()
-        parts = decoded.split("$")
-        if len(parts) < 2:
-            print(f"  [KANABELL] CLOUD_IDデコード結果が不正: parts数={len(parts)}")
-            return None
-        url = f"https://{parts[1]}.{parts[0]}"
-        print("  [KANABELL] ESホストURL構築成功")
-        return url
-    except Exception as e:
-        print(f"  [KANABELL] ESホストURL構築失敗: {type(e).__name__}")
-        return None
 
-_KANABELL_ES_URL = None  # lazy init
+def kanabell_configured() -> bool:
+    """カーナベルの ES 接続情報が揃っているか（取得関数で使う。収集の事前確認
+    collect_prices / collect_buyback / collect_featured は同じ2つの環境変数を直に見る）。"""
+    return bool(_KANABELL_ES_ENDPOINT and _KANABELL_ES_API_KEY)
 
-# カーナベルは遊戯王ジャンル（category1_id=1）の中に、OCGの紙カードではないものを
-# 混ぜて持っている。商品名にはその印が出ず rarity_abbreviation にだけ現れるため、
-# _is_rush_duel（商品名・型番ベース）をすり抜ける。レアリティ欄で弾く。
-#   ラッシュ   : 遊戯王ラッシュデュエル（別ゲーム）。型番は RD/ が落ちた形で入り、
-#                category3_abbr は EXT01・KP04・「ラッシュ本付属　ら」「プロモ は行」
-#   ステンレス : 20th ANNIVERSARY 等のステンレス製記念カード。金属製で紙のOCGとは別物
-#                （SUPPLY_KEYWORDS の「ステンレス製」は商品名にしか効かない）
-#   Oラッシュ : ラッシュデュエルのオーバーラッシュ（青眼の白龍 100283847で確認）
+
+# 遊戯王のジャンルの中に、OCGの紙カードではないものが混ざることがある。
+# 商品名にはその印が出ずレアリティにだけ現れるため、_is_rush_duel（商品名・型番ベース）を
+# すり抜ける。レアリティ欄で弾く。
+#   ラッシュ / Oラッシュ : 遊戯王ラッシュデュエル（別ゲーム）。旧サイトの ES で確認
+#                          （新サイトのレアリティ一覧には無いが、戻ってきた時のために残す）
+#   ステンレス / ステンレス仕様 : 20th ANNIVERSARY 等のステンレス製記念カード。金属製で
+#                          紙のOCGとは別物（新サイトは略号「ステンレス」・正式名「ステンレス仕様」）
 # 遊戯王OCGにこれらのレアリティは存在しない（rarity.py の canonical にも無く、
 # normalize_rarity は「未知の表記」として生のまま返す）。
-_KANABELL_EXCLUDED_RARITIES = frozenset({"ラッシュ", "Oラッシュ", "ステンレス"})
+_KANABELL_EXCLUDED_RARITIES = frozenset({"ラッシュ", "Oラッシュ", "ステンレス", "ステンレス仕様"})
 
 
 def _is_kanabell_excluded(product: dict) -> bool:
-    """販売・買取のES商品と保存済み結果から、別ゲーム・非紙カードを判定する。"""
-    # category2_id の意味は未確認なので、番号からの推測では除外しない。
-    # 分類名・商品名・型番の明示的なラッシュ識別子は既存の判定を共有する。
+    """販売・買取の商品（_kanabell_fields の形）から、別ゲーム・非紙カードを判定する。"""
     text = " ".join(v for v in product.values() if isinstance(v, str))
-    rarity = product.get("rarity_abbreviation", product.get("rarity", "")) or ""
+    rarities = (product.get("rarity_abbreviation", product.get("rarity", "")), product.get("rarity_name"))
     return (_is_rush_duel(text)
-            or unicodedata.normalize("NFKC", rarity).strip() in _KANABELL_EXCLUDED_RARITIES)
+            or any(unicodedata.normalize("NFKC", r or "").strip() in _KANABELL_EXCLUDED_RARITIES
+                   for r in rarities))
 
-# 状態ランク: ESフィールド名 → 表示名
+
+# 状態ランク: ES の在庫欄 → 表示名（サイトの表示と同じ「状態S」〜「状態D」）
+# 未査定（rank_unassessed_inventory）は販売の対象外（サイトの最安値・在庫の計算にも入らない）
 _KANABELL_CONDITIONS = [
-    ("sa", "状態:SA"),
-    ("b",  "状態:B"),
-    ("c",  "状態:C"),
-    ("d",  "状態:D"),
+    ("s", "状態:S"),
+    ("a", "状態:A"),
+    ("b", "状態:B"),
+    ("c", "状態:C"),
+    ("d", "状態:D"),
 ]
 
-# ── カーナベルES 検索クエリ用ヘルパー ──
-# カーナベルの card_name は text型（.keyword サブフィールド付き）で、ダッシュの表記が
-# カードごとに不統一（長音「ー」/全角ダッシュ「―」/ハイフン「-」等）。検索語と格納値で
-# 区切り表記が食い違うと wildcard も match_phrase_prefix も外れてヒット0件になるため、
-# 区切りを正規化して吸収する。（2026-06-17 ES実機検証で確定）
+# is_target_card で店の表記揺れを吸収する。カーナベルはダッシュの表記が
+# カードごとに不統一（長音「ー」/全角ダッシュ「―」/ハイフン「-」等。新サイトでも
+# 「閃刀姫ーレイ」「召喚魔術−「杯」」のように残っている）。
 _KANABELL_DASH = "－―‐‑‒–—−ーｰ-"  # ダッシュ・長音の各種表記
 _KANABELL_DASH_RE = re.compile(f"[{re.escape(_KANABELL_DASH)}]")
-_KANABELL_SEP_RE = re.compile(f"[・\\s　:：{re.escape(_KANABELL_DASH)}]+")
+# サイトの検索欄と同じ区切り（カンマ・読点・空白）。語ごとに AND で探す
+_KANABELL_KEYWORD_SPLIT_RE = re.compile(r"[,、\s　]+")
+
 
 def _kanabell_canon_dash(text: str) -> str:
     """ダッシュ・長音の各種表記を半角ハイフンに統一（is_target_card の表記揺れ吸収用）"""
     return _KANABELL_DASH_RE.sub("-", text)
 
-def _kanabell_wildcard_value(card_name: str) -> str:
-    """card_name.keyword 用の wildcard 値を作る。区切り（中黒・ダッシュ・空白・コロン）を
-    '*' に置換し、格納側の区切り表記揺れに依存せずマッチさせる。
-    例: 「閃刀姫－レイ」→ *閃刀姫*レイ* （格納値「閃刀姫ーレイ」にもヒット）"""
-    parts = [p for p in _KANABELL_SEP_RE.split(card_name) if p]
-    return "*" + "*".join(parts) + "*" if parts else f"*{card_name}*"
 
-def _kanabell_wildcard_values(card_name: str) -> list[str]:
-    """半角版と全角版の wildcard 値を返す（同じ値になる場合は1つだけ）。
+def _kanabell_published() -> dict:
+    """公開期間内の商品だけに絞る条件（サイトの検索と同じ）。"""
+    return {"bool": {
+        "must": [{"range": {"publish_from": {"lte": "now"}}}],
+        "should": [{"range": {"publish_to": {"gt": "now"}}},
+                   {"bool": {"must_not": {"exists": {"field": "publish_to"}}}}],
+        "minimum_should_match": 1,
+    }}
 
-    カーナベルのESは card_name を半角で持つレコードと全角で持つレコードが混在する。
-    半角の検索語だけでは全角側に一致せず、対象カードが丸ごと取得できなくなる。
 
-    2026-08-02〜03 実測（ESへ直接問い合わせて確認）:
-      - 旧カード「D-HERO ディアボリックガイ」は card_name も半角
-      - 新カード「Ｄ−ＨＥＲＯ デスドグマガイ」は card_name が全角 → 半角検索では0件
-      - 全角英数を含む card_name は全39,994件中32件（14種類）。うち12種類が追跡対象
-      - 14種類のうち2種類は「Ｎｏ.１０４ …」のようにピリオドだけ半角の混在表記。
-        このため全角版は英数字だけを変換する（記号も変換すると当該2種類が0件になる）
-      - 全角版を should に足しても既存のヒット件数は変わらない（灰流うらら37件等で確認）
-    """
-    half = _kanabell_wildcard_value(card_name)
-    full = _kanabell_wildcard_value(to_fullwidth_alnum(card_name))
-    return [half] if half == full else [half, full]
+def _kanabell_keyword_query(card_name: str) -> dict:
+    """サイトの検索欄と同じ照合（販売・買取で共通。2026-10-29 新サイトの JS から写した）。
+
+    商品名・カード名・読み・店の検索用キーワード（ngram つき）をまとめて引く。ngram が
+    ダッシュ表記の違い（閃刀姫－レイ／閃刀姫ーレイ）や全角英数（Ｄ−ＨＥＲＯ）も拾うので、
+    旧サイトで必要だった wildcard の併投は要らない（灰流うらら・D-HERO デスドグマガイ・
+    Evil★Twin’s トラブル・サニー・No.39 希望皇ホープ・召喚魔術で確認）。"""
+    words = [w for w in _KANABELL_KEYWORD_SPLIT_RE.split(card_name) if w] or [card_name]
+    must = [{"bool": {"should": [
+        {"multi_match": {"query": w, "type": "phrase", "fields": [
+            "product_name^50", "product_name_kana^50", "yg_card.name^50", "yg_card.name_kana^50"]}},
+        {"match_phrase_prefix": {"product_name": {"query": w, "slop": 2}}},
+        {"match_phrase_prefix": {"yg_card.name": {"query": w, "slop": 2}}},
+        {"match_phrase_prefix": {"yg_card.name_kana": {"query": w, "slop": 2}}},
+        {"match": {"yg_card.keyword": {"query": w, "boost": 50}}},
+        {"match_phrase": {"yg_card.keyword.ngram": {"query": w, "boost": 50}}},
+        {"match_phrase_prefix": {"keyword": {"query": w, "boost": 50}}},
+        {"match_phrase": {"keyword.ngram": {"query": w, "boost": 50}}},
+    ]}} for w in words]
+    return {"bool": {"must": must, "filter": [_kanabell_published()]}}
+
+
+def _kanabell_search(query: dict, size: int, source: list[str], timeout: int) -> list[dict]:
+    """ES に問い合わせて _source の一覧を返す。失敗は requests.RequestException で上げる。"""
+    res = requests.post(
+        f"{_KANABELL_ES_ENDPOINT}/{_KANABELL_INDEX}/_search",
+        json={"size": size, "_source": source, "query": query},
+        headers={"Content-Type": "application/json",
+                 "Authorization": f"ApiKey {_KANABELL_ES_API_KEY}"},
+        timeout=timeout,
+    )
+    res.raise_for_status()
+    return [h.get("_source", {}) for h in res.json().get("hits", {}).get("hits", [])]
+
+
+_CANONICAL_RARITIES = frozenset(e["canonical"] for e in RARITIES)
+
+
+def _kanabell_rarity(card: dict) -> str:
+    """略号を正規化する。略号が正規名にならないとき（ダッシュだけの「－」＝ノーマルレア、
+    rarity.py に無い略号）は正式名でも引き、正規名になればそちらを使う。
+
+    どちらも正規名にならなければ略号の正規化結果（未知なら生の略号）を返す。旧サイトの
+    記録（MANGAシク 等）と系列を揃えるため、未知のときは略号の側に寄せる。"""
+    rarity = card.get("rarity") or {}
+    canon = normalize_rarity(rarity.get("yg_rarity_abbreviation") or "")
+    if canon not in _CANONICAL_RARITIES and rarity.get("yg_rarity_name"):
+        by_name = normalize_rarity(rarity["yg_rarity_name"])
+        if by_name in _CANONICAL_RARITIES:
+            return by_name
+    return canon
+
+
+def _kanabell_fields(src: dict) -> dict:
+    """ES の商品から、販売・買取で使う値を平らに取り出す。"""
+    card = src.get("yg_card") or {}
+    rarity = card.get("rarity") or {}
+    pack = card.get("pack") or {}
+    return {
+        "id": src.get("inventory_product_id") or "",
+        "name": src.get("product_name") or "",
+        "rarity_abbreviation": rarity.get("yg_rarity_abbreviation") or "",
+        "rarity_name": rarity.get("yg_rarity_name") or "",
+        # 型番は商品ごとの本物（例 RC04-JP009）。無ければ旧サイトと同じ弾の略号
+        "code": card.get("serial_number") or pack.get("yg_pack_abbreviation") or "",
+        "image": card.get("image1_url") or src.get("product_image1_url") or "",
+    }
+
+
+_KANABELL_SELL_SOURCE = [
+    "inventory_product_id", "product_name", "product_image1_url", "selling_num_limit",
+    "yg_card.serial_number", "yg_card.image1_url", "yg_card.rarity", "yg_card.pack.yg_pack_abbreviation",
+] + [f"rank_{rank}_inventory" for rank, _ in _KANABELL_CONDITIONS]
+
 
 def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
     """カーナベル — Elasticsearch API経由で検索（状態別価格対応）"""
-    if not _KANABELL_CLOUD_ID or not _KANABELL_API_KEY:
-        print("  ⚠️  カーナベル: KANABELL_CLOUD_ID / KANABELL_API_KEY が未設定です")
+    if not kanabell_configured():
+        print("  ⚠️  カーナベル: KANABELL_ES_ENDPOINT / KANABELL_ES_API_KEY が未設定です")
         _note_fetch_error()  # 設定不足は「在庫なし」ではなく取得失敗として扱う
         return []
 
-    # 検索語は半角に正規化したうえで、全角格納レコード用の wildcard も併せて投げる
     card_name = _normalize_fullwidth(card_name)
-    wildcard_values = _kanabell_wildcard_values(card_name)
-
-    global _KANABELL_ES_URL
-    if _KANABELL_ES_URL is None:
-        _KANABELL_ES_URL = _kanabell_es_host()
-    if _KANABELL_ES_URL is None:
-        print("  [KANABELL] ESホストURLの構築に失敗したため検索をスキップします")
-        _note_fetch_error()
-        return []
-
-    search_url = f"{_KANABELL_ES_URL}/{_KANABELL_INDEX}/_search"
-
-    # ページあたり件数 (ESの1リクエストで取得)
-    page_size = 30 * max_pages  # max_pages=1なら30件、5なら150件
-
-    # Elasticsearch クエリ (build.js の postProcessRequestBodyFn を再現)
-    query_body = {
-        "size": page_size,
-        "_source": [
-            "name", "id", "category1_id", "category2_id",
-            "sa_selling_price", "b_selling_price", "c_selling_price", "d_selling_price",
-            "sa_stock", "b_stock", "c_stock", "d_stock",
-            "rarity_abbreviation", "category2_abbr", "category3_abbr",
-            "card_image_name1",
-        ],
-        "query": {
-            "bool": {
-                "must": [
-                    {"bool": {"should": [
-                        {"match_phrase_prefix": {"card_name": {"query": card_name, "slop": 2}}},
-                        {"match_phrase_prefix": {"replace_card_name": {"query": card_name, "slop": 2}}},
-                    ] + [
-                        {"wildcard": {field: {"value": v}}}
-                        for v in wildcard_values
-                        for field in ("card_name.keyword", "replace_card_name.keyword")
-                    ], "minimum_should_match": 1}}
-                ],
-                "filter": [
-                    {"term": {"category1_id": 1}},   # 遊戯王
-                    {"term": {"public_status": 1}},
-                    {"term": {"del_flag": False}},
-                ]
-            }
-        },
-        "sort": [
-            {"category2_sort": "asc"},
-            {"category3_sort": "asc"},
-            {"rarity_sort": "asc"},
-            {"sort": "asc"},
-        ]
-    }
+    query = _kanabell_keyword_query(card_name)
+    # 販売を止めている商品（購入上限0）はサイトの検索にも出ない
+    query["bool"]["must_not"] = [{"term": {"selling_num_limit": 0}}]
 
     try:
-        res = requests.post(
-            search_url,
-            json=query_body,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"ApiKey {_KANABELL_API_KEY}",
-            },
-            timeout=15,
-        )
-        print(f"  [KANABELL] 価格検索レスポンス: HTTP {res.status_code} [{card_name}]")
-        res.raise_for_status()
-        data = res.json()
-    except requests.RequestException as e:
+        # 1件ごとに状態5段を持つので、旧サイト（30件×ページ）と同じ件数で足りる。
+        # 並びは関連度順（完全一致に高い重み）。「融合」289件でも先頭30件は全て本物
+        sources = _kanabell_search(query, 30 * max_pages, _KANABELL_SELL_SOURCE, timeout=15)
+    except (requests.RequestException, ValueError) as e:
         print(f"  ❌ カーナベルES検索失敗: {e}")
         _note_fetch_error()
         return []
 
-    hits = data.get("hits", {}).get("hits", [])
     all_results = []
-
-    for hit in hits:
-        src = hit.get("_source", {})
-        name_text = src.get("name", "")
-        card_id = src.get("id") or hit.get("_id", "")
-
-        # ゲーム分類・型番・レアリティを販売と買取で共通判定する。
-        cat3 = src.get("category3_abbr", "")
-        if _is_kanabell_excluded(src):
+    for src in sources:
+        f = _kanabell_fields(src)
+        name_text = f["name"]
+        if not f["id"] or _is_kanabell_excluded(f):
             continue
-
         if not name_text or not is_target_card(_kanabell_canon_dash(card_name), _kanabell_canon_dash(name_text)):
             continue
 
-        # レアリティ
-        rarity = src.get("rarity_abbreviation", "")
+        rarity = _kanabell_rarity(src.get("yg_card") or {})
+        product_url = f"{KANABELL_SELL_BASE}/single/{f['id']}"
+        base = {"shop": "カーナベル", "name": name_text, "rarity": rarity, "code": f["code"],
+                "url": product_url, "image": f["image"]}
 
-        # カードコード (カテゴリ略称から組み立て)
-        code = ""
-        if cat3:
-            code = cat3
-
-        # 商品URL
-        product_url = f"{KANABELL_BASE}/?act=sell_detail&genre=1&id={card_id}"
-
-        # 画像URL
-        img_name = src.get("card_image_name1", "")
-        image_url = ""
-        if img_name:
-            image_url = f"{KANABELL_BASE}/img/s/{img_name}"
-
-        # 各状態の価格・在庫を展開
-        has_any = False
+        # 各状態の価格・在庫を展開（価格のある状態はすべて。在庫0は売切の行。旧サイトと同じ出し方）
         for rank_key, cond_label in _KANABELL_CONDITIONS:
-            price = src.get(f"{rank_key}_selling_price", 0)
-            stock = src.get(f"{rank_key}_stock", 0)
-
-            if not price and not stock:
+            inv = src.get(f"rank_{rank_key}_inventory") or {}
+            price = inv.get("selling_price") or 0
+            stock = inv.get("inventory_num") or 0
+            if price <= 0:
                 continue
+            all_results.append({**base, "condition": cond_label, "price": int(price),
+                                "stock": max(int(stock), 0), "sold_out": stock <= 0})
 
-            sold_out = stock <= 0
-            if not sold_out:
-                has_any = True
-
-            if price and price > 0:
-                all_results.append({
-                    "shop": "カーナベル", "name": name_text,
-                    "rarity": normalize_rarity(rarity), "code": code,
-                    "condition": cond_label, "price": int(price),
-                    "stock": int(stock), "sold_out": sold_out,
-                    "url": product_url,
-                    "image": image_url,
-                })
-
-        # どの状態にも在庫/価格がない場合
-        if not has_any and not any(r["url"] == product_url for r in all_results):
-            # SA価格があれば売切として記録
-            sa_price = src.get("sa_selling_price", 0)
-            if sa_price and sa_price > 0:
-                all_results.append({
-                    "shop": "カーナベル", "name": name_text,
-                    "rarity": normalize_rarity(rarity), "code": code,
-                    "condition": "状態:SA", "price": int(sa_price),
-                    "stock": 0, "sold_out": True,
-                    "url": product_url,
-                    "image": image_url,
-                })
-
+    print(f"  [KANABELL] 価格検索 {len(sources)}商品→{len(all_results)}行 [{card_name}]")
     return all_results
 
 
 def kanabell_card_image_url(card_name: str) -> str:
     """カーナベルESから最初にヒットしたカードの画像URLを返す。失敗時は空文字"""
-    if not _KANABELL_CLOUD_ID or not _KANABELL_API_KEY:
+    if not kanabell_configured():
         return ""
-    # 休止中はカーナベルの画像配信も止まっている（2026-10-21〜 ka-nabell.com は 503）。
+    # 休止中は画像の配信も止まっていることがある（2026-10-21〜24 は ka-nabell.com が 503）。
     # 返すと画面に壊れた画像が出るので、予備に使わない
     if is_suspended("カーナベル"):
         return ""
 
     card_name = _normalize_fullwidth(card_name)
-    wildcard_values = _kanabell_wildcard_values(card_name)
-
-    global _KANABELL_ES_URL
-    if _KANABELL_ES_URL is None:
-        _KANABELL_ES_URL = _kanabell_es_host()
-    if _KANABELL_ES_URL is None:
-        print(f"  [KANABELL] ESホストURLの構築に失敗したため画像取得をスキップします [{card_name}]")
-        return ""
-
-    search_url = f"{_KANABELL_ES_URL}/{_KANABELL_INDEX}/_search"
-    query_body = {
-        "size": 20,
-        "_source": ["card_image_name1"],
-        "query": {
-            "bool": {
-                "must": [
-                    {"bool": {"should": [
-                        {"match_phrase_prefix": {"card_name": {"query": card_name, "slop": 2}}},
-                        {"match_phrase_prefix": {"replace_card_name": {"query": card_name, "slop": 2}}},
-                    ] + [
-                        {"wildcard": {field: {"value": v}}}
-                        for v in wildcard_values
-                        for field in ("card_name.keyword", "replace_card_name.keyword")
-                    ], "minimum_should_match": 1}}
-                ],
-                "filter": [
-                    {"term": {"category1_id": 1}},
-                    {"term": {"public_status": 1}},
-                    {"term": {"del_flag": False}},
-                    {"exists": {"field": "card_image_name1"}},
-                ]
-            }
-        },
-    }
-
+    query = _kanabell_keyword_query(card_name)
+    query["bool"]["filter"].append({"exists": {"field": "yg_card.image1_url"}})
     try:
-        res = requests.post(
-            search_url,
-            json=query_body,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"ApiKey {_KANABELL_API_KEY}",
-            },
-            timeout=8,
-        )
-        print(f"  [KANABELL] 画像検索レスポンス: HTTP {res.status_code} [{card_name}]")
-        res.raise_for_status()
-        hits = res.json().get("hits", {}).get("hits", [])
-        if not hits:
-            return ""
-        # card_image_name1 が設定されている最初のドキュメントを使用
-        # （レアリティによっては画像未登録のドキュメントが先頭に来ることがあるため）
-        for hit in hits:
-            img_name = hit.get("_source", {}).get("card_image_name1") or ""
-            if img_name:
-                return f"{KANABELL_BASE}/img/s/{img_name}"
-        return ""
+        sources = _kanabell_search(query, 20, ["product_name", "product_image1_url", "yg_card.image1_url"],
+                                   timeout=8)
+        print(f"  [KANABELL] 画像検索 {len(sources)}件 [{card_name}]")
     except Exception as e:
         print(f"  カーナベル画像取得失敗 [{card_name}]: {e}")
         return ""
+    # 検索は名前の一部（ngram）でも当たるので、カード名が一致する商品だけを使う。
+    # 「(イラスト違い)」などの注記つきは別の絵のことがあるので、注記の無い商品を先に見る
+    matched = [f for f in map(_kanabell_fields, sources)
+               if f["image"] and f["name"]
+               and is_target_card(_kanabell_canon_dash(card_name), _kanabell_canon_dash(f["name"]))]
+    plain = [f for f in matched if _kanabell_canon_dash(f["name"]) == _kanabell_canon_dash(card_name)]
+    return (plain or matched or [{"image": ""}])[0]["image"]
 
 
 # ── カードラボ ──
@@ -1953,109 +1842,78 @@ def _parse_cardrush_buy_items(card_name: str, buying_prices: list, page_url: str
 
 # ── カーナベル買取 ──
 
+def _kanabell_buy_slots(src: dict) -> int:
+    """買取枠の残り（上限 − 店頭棚の在庫（入庫前を含む）− 仮在庫）。
+
+    新サイトの買取画面の判定と同じ式（2026-10-29 新サイトの JS から写した）。
+    0 以下は「買取終了」で、古い買取価格が残っているので使わない
+    （旧サイトの sa_limit_flag=False に当たる）。"""
+    limit = src.get("acquisition_num_limit") or 0
+    shelf = src.get("shop_shelf_inventory_plus_before_storing_shop_shelf_inventory_num") or 0
+    temp = src.get("shop_shelf_temporary_inventory_num") or 0
+    return limit - shelf - temp
+
+
 def scrape_kanabell_buy(card_name: str) -> list[dict]:
-    """カーナベル買取 — ES APIから直接買取価格(sa_buying_price)を取得する。
+    """カーナベル買取 — ES APIから買取価格(rank_s_purchase_price)を取得する。
 
-    買取価格は ES index の `sa_buying_price` に入っており、`sa_limit_flag`(買取枠フラグ)が
-    True のものが現在買取中（=HTMLの「買取終了」非表示と一致）。買取枠切れ(終了)は
-    sa_limit_flag=False で、古い価格が残っているため必ず除外する。
-    買取詳細HTML(?act=buy_detail)はデータセンターIP(Render/GitHub Actions)から403で
-    ブロックされるため、ES方式に統一してどの環境でも取得できるようにした。
-    （2026-06-16 実データ検証: ES sa_buying_price はHTML買取価格と完全一致、
-      sa_limit_flag で有効/終了が150件中100%分離することを確認）
+    買取価格は状態を問わず1つ（rank_s_purchase_price＝買取画面の表示額）。
+    買取枠が残っている商品だけを買取中として扱う（_kanabell_buy_slots）。
     """
-    if not _KANABELL_CLOUD_ID or not _KANABELL_API_KEY:
-        print("  ⚠️  カーナベル買取: KANABELL_CLOUD_ID / KANABELL_API_KEY が未設定です")
+    if not kanabell_configured():
+        print("  ⚠️  カーナベル買取: KANABELL_ES_ENDPOINT / KANABELL_ES_API_KEY が未設定です")
         _note_fetch_error()
         return []
 
-    # 検索語は半角に正規化したうえで、全角格納レコード用の wildcard も併せて投げる
     card_name = _normalize_fullwidth(card_name)
-    wildcard_values = _kanabell_wildcard_values(card_name)
-
-    global _KANABELL_ES_URL
-    if _KANABELL_ES_URL is None:
-        _KANABELL_ES_URL = _kanabell_es_host()
-    if _KANABELL_ES_URL is None:
-        print("  [KANABELL] ESホストURLの構築に失敗したため買取検索をスキップします")
-        _note_fetch_error()
-        return []
-
-    # ES APIでカード名を検索（買取価格・買取枠フラグ・レアリティを直接取得）
-    search_url = f"{_KANABELL_ES_URL}/{_KANABELL_INDEX}/_search"
-    query_body = {
-        "size": 100,
-        "_source": ["name", "id", "rarity_abbreviation", "category2_abbr", "category3_abbr",
-                    "card_image_name1", "sa_buying_price", "sa_limit_flag"],
-        "query": {
-            "bool": {
-                "must": [
-                    {"bool": {"should": [
-                        {"match_phrase_prefix": {"card_name": {"query": card_name, "slop": 2}}},
-                    ] + [
-                        {"wildcard": {field: {"value": v}}}
-                        for v in wildcard_values
-                        for field in ("card_name.keyword", "replace_card_name.keyword")
-                    ], "minimum_should_match": 1}}
-                ],
-                "filter": [
-                    {"term": {"category1_id": 1}},
-                    {"term": {"public_status": 1}},
-                    {"term": {"del_flag": False}},
-                ]
-            }
-        }
-    }
-
     try:
-        res = requests.post(
-            search_url, json=query_body,
-            headers={"Content-Type": "application/json", "Authorization": f"ApiKey {_KANABELL_API_KEY}"},
+        # 販売の既定（30件×5）と同じ件数。青眼の白龍は商品が101件あり、旧の100件では落ちる
+        sources = _kanabell_search(
+            _kanabell_keyword_query(card_name), 150,
+            ["inventory_product_id", "product_name", "product_image1_url", "rank_s_purchase_price",
+             "acquisition_num_limit", "shop_shelf_inventory_plus_before_storing_shop_shelf_inventory_num",
+             "shop_shelf_temporary_inventory_num", "yg_card.serial_number", "yg_card.image1_url",
+             "yg_card.rarity", "yg_card.pack.yg_pack_abbreviation"],
             timeout=15,
         )
-        res.raise_for_status()
-        hits = res.json().get("hits", {}).get("hits", [])
-    except requests.RequestException as e:
+    except (requests.RequestException, ValueError) as e:
         print(f"  ❌ カーナベル買取ES検索失敗: {e}")
         _note_fetch_error()
         return []
 
     results = []
     seen_ids = set()
-    for hit in hits:
-        src = hit.get("_source", {})
-        name_text = src.get("name", "")
-        card_id = src.get("id") or hit.get("_id", "")
+    for src in sources:
+        f = _kanabell_fields(src)
+        name_text, card_id = f["name"], f["id"]
         if not name_text or not card_id or card_id in seen_ids:
             continue
         # ゲーム分類・型番・レアリティを販売と買取で共通判定する。
-        if _is_kanabell_excluded(src):
+        if _is_kanabell_excluded(f):
             continue
         if not is_target_card(_kanabell_canon_dash(card_name), _kanabell_canon_dash(name_text)):
             continue
         seen_ids.add(card_id)
 
-        # 買取中（買取枠フラグTrue）かつ有効価格のみ採用。枠切れ(終了)は sa_limit_flag=False。
-        if not src.get("sa_limit_flag"):
+        if _kanabell_buy_slots(src) <= 0:
             continue
-        price = src.get("sa_buying_price") or 0
+        price = src.get("rank_s_purchase_price") or 0
         if price <= 0:
             continue
 
-        img_name = src.get("card_image_name1", "")
-        image_url = f"{KANABELL_BASE}/img/s/{img_name}" if img_name else ""
         results.append({
             "shop": "カーナベル",
             "name": name_text,
-            "rarity": normalize_rarity(src.get("rarity_abbreviation", "")),
-            "code": src.get("category3_abbr", ""),
+            "rarity": _kanabell_rarity(src.get("yg_card") or {}),
+            "code": f["code"],
             "condition": "-",
             "price": int(price),
             "stock": 1,
             "sold_out": False,
-            "url": f"{KANABELL_BASE}/?act=buy_detail&id={card_id}&genre=1",
-            "image": image_url,
+            "url": f"{KANABELL_BUY_BASE}/single/{card_id}",
+            "image": f["image"],
         })
+    print(f"  [KANABELL] 買取検索 {len(sources)}商品→{len(results)}行 [{card_name}]")
     return results
 
 

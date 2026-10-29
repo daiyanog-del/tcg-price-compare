@@ -46,7 +46,8 @@ def test_clean_images_keeps_known_values_and_replaces_the_rest():
         "10": "data:image/png;base64," + "A" * sr.REPLAY_TOKEN_IMAGE_MAX_CHARS,
         "11": "javascript:alert(1)",
         "12": "https://www.ka-nabell.com/redirect?url=https://evil.example",
-        "13": "https://www.ka-nabell.com/img/s/abc_123.jpg",
+        "13": "https://yg-card-images.ka-nabell.com/card/card100290576_1.jpg",
+        "16": "https://www.ka-nabell.com/img/s/abc_123.jpg",  # 旧サイト（2026-10-21 停止）の画像
         "14": YGORES + "?x=1",
         "15": "https://artworks-jp-n.ygoresources.com/redirect",
     }
@@ -55,14 +56,14 @@ def test_clean_images_keeps_known_values_and_replaces_the_rest():
     assert out["1"] == "card://灰流うらら"
     assert out["2"] == TOKEN
     assert out["3"] == YGORES
-    assert out["13"] == "https://www.ka-nabell.com/img/s/abc_123.jpg"
+    assert out["13"] == "https://yg-card-images.ka-nabell.com/card/card100290576_1.jpg"
     assert out["4"] == "card://増殖するG"
     # 形の違う data: はトークンのまま（中身の無い印）にする。card:// にするとトークンの削除の手が効かなくなる
     for k in ("5", "6", "10"):
         assert out[k] == sr._TOKEN_PLACEHOLDER, k
-    for k in ("7", "8", "9", "11", "12", "14", "15"):
+    for k in ("7", "8", "9", "11", "12", "14", "15", "16"):
         assert out[k] == "card://", k
-    assert replaced == 11
+    assert replaced == 12
 
 
 def test_save_stores_cleaned_images(monkeypatch):
