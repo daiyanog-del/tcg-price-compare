@@ -179,7 +179,7 @@ export function initReplayUI() {
   document.getElementById('replaySlider')
     ?.addEventListener('input', (e) => {
       const n = parseInt(e.target.value, 10);
-      seekTo(n);
+      seekTo(n, { announce: true }); // 利用者が選んだ手なので字幕を出す（replay-caption.js）
     });
 
   // リプレイバーの上でマウスホイールを回すと1手ずつ進む（下）・戻る（上）（2026-10-20 ユーザー要望）。

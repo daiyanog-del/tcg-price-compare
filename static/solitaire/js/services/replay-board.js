@@ -6,6 +6,7 @@
  * DOM を使わずカードの居場所だけを追う。保存APIへ送る logs と同じ配列を入力にするため、
  * 「共有範囲の最後の時点」と必ず一致し、seekTo による一時移動（演出・トースト・再生状態への干渉）が不要。
  * replay-service.js の適用規則を変えたらここも合わせること（tests/ にDOMとの突き合わせ手順あり）。
+ * リプレイの字幕（replay-caption-model.js）も同じ規則でカードの居場所をたどっている。
  *
  * 出力 board の形（サーバー replay_board.py が検証する）:
  *   { v:1, moves, field:[{slot:'custom-slot-N', name, token?, pos:'atk'|'def', face:'up'|'down', n?}],
