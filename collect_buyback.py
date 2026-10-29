@@ -41,8 +41,8 @@ WAIT_BETWEEN_CARDS = 1.0  # 収集間隔（秒）。collect_prices.py に合わ�
 
 # 買取収集から除外する店舗。実行環境ごとに環境変数 BUYBACK_SKIP_SHOPS（カンマ区切り）で上書きできる。
 #   - 未設定（GitHub Actions 等の従来環境）: 遊々亭はデータセンターIPからブロックされるため従来どおり除外
-#   - Render など店舗に到達できる環境: 例 BUYBACK_SKIP_SHOPS="カーナベル"
-#     （カーナベル買取は buy_detail HTML が bot 検知で 403 のため Render でも取得不可。無駄打ちを避けて除外）
+#   - Render など店舗に到達できる環境: 例 BUYBACK_SKIP_SHOPS=""（除外なし）
+#     （カーナベル買取は ES から取るので Render でも取れる。店の休止中は SUSPENDED_SHOPS で外す）
 _DEFAULT_BUYBACK_SKIP_SHOPS = {"遊々亭"}
 _buyback_skip_env = os.environ.get("BUYBACK_SKIP_SHOPS")
 if _buyback_skip_env is None:
@@ -221,9 +221,9 @@ def _main(state: dict):
 
     # カーナベルはAPIキー必須。未設定だと全カード0件＝誤データになるため当日除外
     if "カーナベル" in available_shops and not (
-        os.environ.get("KANABELL_CLOUD_ID") and os.environ.get("KANABELL_API_KEY")
+        os.environ.get("KANABELL_ES_ENDPOINT") and os.environ.get("KANABELL_ES_API_KEY")
     ):
-        print("  NG: カーナベル — KANABELL_CLOUD_ID / KANABELL_API_KEY 未設定のため当日スキップ")
+        print("  NG: カーナベル — KANABELL_ES_ENDPOINT / KANABELL_ES_API_KEY 未設定のため当日スキップ")
         available_shops.remove("カーナベル")
         skipped_shops["カーナベル"] = "api_key_missing"
 

@@ -1,0 +1,40 @@
+/* 置いた先の印（js/ui/landing-mark.js）: 再生で1手進んだとき、動いたカードの四隅に白いかぎ括弧を一瞬出す
+   （2026-10-29 ユーザー選択の案A。モック _mocks/landing-mark-20261029）。
+   白・角だけにして、金の実線（選択中）・アクセント色の実線（触れている間）・破線（置き場所の案内）と色も形も重ねない。
+   位置と大きさは JS がカードに合わせて入れる */
+.sol-landing-mark {
+  --len: 13px;
+  --thick: 2.5px;
+  --c: #fff;
+  position: fixed;
+  z-index: 55; /* 盤面のカード・吹き出し・盤面メモ（comments.css 〜50）より前、字幕（replay-caption.css 60）より後ろ */
+  box-sizing: border-box;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--c), var(--c)) left top / var(--len) var(--thick) no-repeat,
+    linear-gradient(var(--c), var(--c)) left top / var(--thick) var(--len) no-repeat,
+    linear-gradient(var(--c), var(--c)) right top / var(--len) var(--thick) no-repeat,
+    linear-gradient(var(--c), var(--c)) right top / var(--thick) var(--len) no-repeat,
+    linear-gradient(var(--c), var(--c)) left bottom / var(--len) var(--thick) no-repeat,
+    linear-gradient(var(--c), var(--c)) left bottom / var(--thick) var(--len) no-repeat,
+    linear-gradient(var(--c), var(--c)) right bottom / var(--len) var(--thick) no-repeat,
+    linear-gradient(var(--c), var(--c)) right bottom / var(--thick) var(--len) no-repeat;
+  /* 明るいカードの上でも角が見えるように、黒く縁取る */
+  filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.7));
+  /* 外側から縮んで現れ、少し止まって消える（0.7s は landing-mark.js の SHOW_MS と同じ） */
+  animation: solLandingMark 0.7s ease-out forwards;
+}
+@keyframes solLandingMark {
+  0% { opacity: 0; transform: scale(1.18); }
+  20% { opacity: 1; transform: scale(1); }
+  70% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1); }
+}
+/* 動きを減らす設定: 縮む動きをやめ、出して消すだけ */
+@media (prefers-reduced-motion: reduce) {
+  .sol-landing-mark { animation: solLandingMarkFade 0.7s linear forwards; }
+}
+@keyframes solLandingMarkFade {
+  0%, 70% { opacity: 1; }
+  100% { opacity: 0; }
+}

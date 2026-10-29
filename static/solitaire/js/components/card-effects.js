@@ -228,7 +228,7 @@ export function prefersReducedMotion() {
  * flipMoveClone は到着点を常に wrapper の実際の位置（getBoundingClientRect）から取るが、
  * こちらは呼び出し側が渡した矩形をそのまま使う。縦向きスマホでは #poolRow（デッキ列）が
  * display:none のため実際の位置が0矩形になり演出が成立しない移動（replay-service.js の
- * moveCard 前進適用）で、デッキ演出の錨（#solMobileDeckBtn or #solMobilePlayDeckBadge）の
+ * moveCard 前進適用）で、デッキ演出の錨（縦向きスマホは手札の右のデッキの山 #solMobileDeckPile）の
  * 矩形を代替の出発点/到着点として渡すために使う（現状の呼び出し元はこの用途のみ）。
  * クローン生成方法・sol-flip-clone クラスは flipMoveClone と同じ。
  * 第6次実機検収-2c: 所要時間を 300→450ms に延長し、影を付けて出発点が目に留まるようにする。
@@ -253,7 +253,7 @@ export function flyBetweenRects(cardEl, fromRect, toRect, onComplete = null) {
 
   const lastRect = toRect || cardEl.getBoundingClientRect();
 
-  // flipMoveClone と同じ理由のガード: デッキ演出の錨（#solMobileDeckBtn / #solMobilePlayDeckBadge）
+  // flipMoveClone と同じ理由のガード: デッキ演出の錨（#solMobileDeckPile）
   // は常にDOM上に存在するため呼び出し元の null チェック（_getDeckAnchorRect）をすり抜けるが、
   // 両方とも非表示（display:none の hidden 属性下）の場合はゼロ矩形が渡ってくる。
   // そのまま使うと画面左上(0,0)へ飛ぶ見た目になるため、ここでも即座に完了扱いにする。
@@ -303,7 +303,7 @@ export function flyBetweenRects(cardEl, fromRect, toRect, onComplete = null) {
   const card = toRect ? fromRect : lastRect;
   const deck = toRect ? toRect : fromRect;
   // 札の高さとカードの高さの比で縮める。下限は小さすぎて見えなくならないための値
-  // （実測: スマホのデッキボタン 31/89≈0.35・録画用の帯の札 PC 26/136≈0.19・スマホ 22/91≈0.24）
+  // （実測: 録画用の帯の札 PC 26/136≈0.19。縦向きスマホの手札の右の山・横向きの枠の山はカードと同じ大きさなので 1）
   const deckScale = Math.max(0.15, Math.min(1, deck.height / card.height));
   const at = (r) => ({ left: r.left + r.width / 2 - card.width / 2, top: r.top + r.height / 2 - card.height / 2 });
   const start = at(fromRect);

@@ -99,6 +99,51 @@
     min-width: 0;
     margin-left: 0;
   }
+
+  /* ════════ 手札の右のデッキのパネル（2026-10-29 ユーザー指示「録画用みたいな感じで」「白線で区切りじゃなくて、ブロックとして独立して」） ════════
+     録画用の表示の横向きの枠（rec-view.css .sol-rec-deck-slot）と同じ「縦書きの見出し＋裏向きの山」。
+     手札パネルとは別のパネルにし、手札の行（.sol-hand-row）に並べる。パネルどうしの間は盤面の段の間（.sol-field-area の gap）と同じ。
+     面と刻印は手札・EX と同じ（relief-theme.css）。刻印は墓地・除外と同じく見出しを含むパネル全体の真ん中で、0枚で山が消えると見える。
+     山の見た目・演出の光り方は rec-view.css の .sol-rec-deck-pile を使う */
+  .sol-hand-row {
+    order: 2;
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+    width: 100%;
+  }
+  /* order は responsive.css の .sol-field-area 内の並び（手札＝2）を行の箱へ移したので、行の中では DOM の順（手札→デッキ）に戻す */
+  .sol-hand-row .sol-hand-area { order: 0; flex: 1 1 0; width: auto; min-width: 0; }
+  .sol-mobile-deck-slot {
+    position: relative;
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 4px;
+    box-sizing: border-box;
+    /* 箱の寸法は手札パネルと同じ（余白 2px 8px・縁は透明の1px・角 --radius。solitaire-brand.css / site-theme.css） */
+    padding: 2px 8px;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .sol-mobile-deck-slot .pool-label { align-self: stretch; cursor: pointer; }
+  .sol-mobile-deck-slot .sol-rec-deck-pile { flex: none; }
+  .sol-mobile-deck-slot.is-empty .sol-rec-deck-pile { visibility: hidden; }
+  .sol-mobile-deck-slot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* デッキの読込中（mobile-ui.js setDeckBtnLoading）: 山を薄くして文字を重ねる */
+  .sol-mobile-deck-slot.sol-loading { cursor: default; }
+  .sol-mobile-deck-slot.sol-loading .sol-rec-deck-pile { opacity: 0.35; }
+  .sol-mobile-deck-slot.sol-loading::after {
+    content: '読込中…';
+    position: absolute;
+    right: 8px; top: 0; bottom: 0;
+    width: var(--slot-width);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--main-color);
+    font-size: 0.7rem; font-weight: 700;
+  }
   #imagePool2 .tier-row {
     flex: 1;
     min-width: 0;
@@ -321,24 +366,12 @@
     font-size: 0.82rem;
     font-weight: 600;
   }
-  /* タスクB: 演出の間だけデッキボタンを光らせる（400ms・.sol-loading とは別クラス） */
-  @keyframes solDeckBtnPulse {
-    0%, 100% { box-shadow: none; }
-    50% { box-shadow: 0 0 0 3px var(--accent); background: var(--accent); color: #fff; }
-  }
-  /* 第6次実機検収-2a: 再生モード中は #solMobilePlayDeckBadge がデッキ演出の錨になるため
-     同じパルス演出を適用する（.sol-mobile-bar-btn 以外にも当たるようセレクタを追加）。 */
-  .sol-mobile-bar-btn.sol-pulse,
-  .sol-mobile-play-deck-badge.sol-pulse {
-    animation: solDeckBtnPulse 0.4s ease-in-out;
-  }
   /* 再生（2026-10-16 案A）: 明るい面＋accent の ▶。1手戻す は印だけの細いボタン */
   .sol-mobile-bar-play { font-weight: 700; background: var(--border); }
   .sol-mobile-bar-play::before { content: '▶'; color: var(--accent); font-size: 0.72em; }
   .sol-mobile-bar-icon { flex: 0 0 40px; font-size: 1.15rem; }
-  /* 6つ並ぶので、⋯ も少し細くし、デッキの「デッキ N」が途中で折り返さないようにする */
+  /* ⋯ は印だけなので細く */
   #solMobileBarNormal .sol-mobile-bar-menu { flex-basis: 40px; }
-  #solMobileDeckBtn { white-space: nowrap; flex-grow: 1.3; } /* 「デッキ N」は他より文字が多いので少し広く */
   /* 範囲を選んでいる間・決まった後は「■ N手」「✂ N手」になるので、範囲ボタンも少し広く */
   .sol-mobile-record-btn.recording, .sol-mobile-record-btn.has-range { flex-grow: 1.25; }
   .sol-mobile-bar-menu {
@@ -475,7 +508,7 @@
     height: 24px;
   }
   /* 第7次実機検収: 範囲再生中の「録画範囲を再生中（s〜e手目）」表示。
-     デッキバッジ・スライダーと1行に収める小さな表示（375px幅では省略記号で収める）。 */
+     スライダーと1行に収める小さな表示（375px幅では省略記号で収める。2026-10-29 に左のデッキの札は手札の右の枠へ移した）。 */
   .sol-mobile-play-range-badge {
     flex: 0 1 auto;
     min-width: 0;
@@ -507,25 +540,6 @@
   .sol-mobile-play-share-btn {
     flex: 0 0 auto;
     padding: 0 10px;
-  }
-  /* 第6次実機検収-2a: 再生モードの帯の左端「デッキ N」バッジ。
-     #solMobileDeckBtn が非表示（矩形0）になる再生モード中のデッキ演出の錨として使う
-     （replay-service.js _getDeckAnchorRect が参照）。ボタンと似た見た目にして違和感を減らす。 */
-  .sol-mobile-play-deck-badge {
-    flex: 0 0 auto;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 10px;
-    margin-right: 8px;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--main-color);
-    font-family: var(--font);
-    font-size: 0.78rem;
-    font-weight: 600;
-    white-space: nowrap;
   }
   /* 第6次実機検収-2c: デッキ演出クローンに影を付けて出発点を目立たせる（大きさは card-effects.js flyBetweenRects が札の大きさから縮小で出す）。
      .sol-flip-clone 自体（PC の flipMoveClone とも共有）は変更せず、追加クラスのみで対応する。 */
@@ -1458,12 +1472,16 @@
   /* ぼかすのスイッチは右端 */
   .sol-mobile-menu-list .sol-sample-blur-toggle .sol-mobile-menu-label { flex: 1 1 auto; min-width: 0; }
 
-  /* 下部バー: 「デッキ 40」の数字が components.css の span の一律の色（#333）で読めなかったのを直す */
+  /* デッキの枠の枚数: components.css の span の一律の色（#333）で読めなくならないよう、見出しの色を受け継ぐ */
   #solMobileDeckCount { color: inherit; font-weight: 700; }
   .sol-mobile-record-ico { margin-right: 0; vertical-align: 0; } /* ボタンの gap で間を取る */
   .sol-mobile-record-btn.recording .sol-mobile-record-ico { display: none; }
 }
 
+/* 手札の行（縦向きスマホで手札とデッキのパネルを並べる箱）は、PC・横向きでは箱を作らない（手札パネルが .center-row の子として並ぶ） */
+@media not all and (max-width: 767px) and (orientation: portrait) {
+  .sol-hand-row { display: contents; }
+}
 /* ════════ H-1: portrait を外れた瞬間の二重防御（致命的バグ対策） ════════
    mobile.css 全体が @media (max-width:767px) and (orientation:portrait) 内なので、
    回転やウィンドウ幅変更で portrait を外れると中身が一切適用されなくなり、JS が hidden を
@@ -1478,6 +1496,7 @@
   .sol-mobile-cip,
   .sol-mobile-sheet,
   .sol-mobile-deck-sheet,
+  .sol-mobile-deck-slot,
   #solTouchLabel,
   .sol-fly-clone {
     display: none !important;
@@ -1486,10 +1505,10 @@
 
 /* 幅340px以下（320px級のスマホ）: 下部バーに5つ並べると1つ約57pxになり、
    「デッキ N」が「デッ／キ」と単語の途中で折れていたため、字と間隔を詰めて1行に収める
-   （2026-10-15 整理③で「保存」を足して5つになった。320/360/375px で実測） */
+   （2026-10-15 整理③で「保存」を足して5つになった。320/360/375px で実測）。
+   2026-10-29 にデッキのボタンを手札の右の枠へ移し、今は 範囲・保存・再生・↶・⋯ の5つ（詰める指定はそのまま残す） */
 @media (max-width: 340px) {
   .sol-mobile-bar-btn { font-size: 0.76rem; gap: 2px; }
-  #solMobileDeckBtn { white-space: nowrap; }
   /* 2026-10-16: 再生を足して6つになったため、印だけのボタン（↶・⋯）を細くし、間隔と余白を詰める */
   #solMobileBarNormal { gap: 4px; }
   /* 上の 0.76rem と、縦向きブロックの #solMobileBarNormal .sol-mobile-bar-menu（ID付き）に負けないよう、ID付きで指定する */

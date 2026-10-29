@@ -1,0 +1,83 @@
+/* リプレイの字幕（js/ui/replay-caption.js）。下の操作の帯の真上に、下から背景色へ暗くなるグラデーションで出す
+   （2026-10-29 ユーザー選択。モック _mocks/replay-caption-20261029 の A3）。
+   枠で囲まず下を透かすので、後ろの手札・EX・デッキのカードは絵の部分が見えたままになる。
+   位置（bottom・left・width）は JS が帯に合わせて入れる */
+.sol-replay-caption {
+  position: fixed;
+  z-index: 60; /* 盤面のカード・吹き出し・盤面メモ（comments.css 〜50）より前、スマホのシート（mobile.css 200〜）・窓（modal.css 1000）・カットインより後ろ */
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 14px 8px;
+  pointer-events: none;
+  /* 地はサイトの背景色（site-theme.css --bg-color #191b21）を下から透かしていく */
+  background: linear-gradient(to top, rgba(25, 27, 33, 0.9), rgba(25, 27, 33, 0.6) 70%, rgba(25, 27, 33, 0));
+  font-family: var(--font);
+}
+.sol-replay-caption[hidden] { display: none; }
+/* 縦向きスマホは再生モード（mobile-ui.js が body に sol-playback）と録画用の表示の間だけ出す。
+   再生モードを終えると最後の手まで進むので、そのまま操作の画面に字幕が残らないように */
+@media (max-width: 767px) and (orientation: portrait) {
+  body:not(.sol-playback):not(.sol-recview) .sol-replay-caption { display: none; }
+}
+.sol-replay-caption.is-new { animation: solReplayCaptionIn 0.25s ease-out; }
+@keyframes solReplayCaptionIn {
+  from { opacity: 0.35; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sol-replay-caption.is-new { animation: none; }
+}
+
+.sol-replay-caption-thumb {
+  flex: none;
+  width: 28px; height: 41px;
+  object-fit: cover;
+  border-radius: 3px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+.sol-replay-caption-body { min-width: 0; }
+/* components.css の汎用 `p, span, li { color:#333 }` が当たるので、span には直接色を付ける */
+.sol-replay-caption-name {
+  display: block;
+  color: var(--main-color);
+  font-size: 15px; font-weight: 700; line-height: 1.3;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+.sol-replay-caption-move {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12.5px; line-height: 1.4;
+  white-space: nowrap;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+.sol-replay-caption-from,
+.sol-replay-caption-arrow { color: #a8b4c9; }
+.sol-replay-caption-to { color: var(--main-color); font-weight: 600; }
+/* 札は録画用の帯の手数（rec-view.css .sol-rec-count）と同じ金の地 */
+.sol-replay-caption-tag {
+  flex: none;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--gold); color: #242013;
+  font-size: 11.5px; font-weight: 700;
+  text-shadow: none;
+}
+
+/* PC: 文字を少し大きく（帯の幅が広いので） */
+@media (min-width: 768px) {
+  .sol-replay-caption { padding: 22px 18px 10px; }
+  .sol-replay-caption-thumb { width: 32px; height: 47px; }
+  .sol-replay-caption-name { font-size: 17px; }
+  .sol-replay-caption-move { font-size: 14px; }
+}
+/* 横向きスマホ（高さが低い。条件は responsive.css の横向きと同じ）: 手札・EX・デッキの段が低く、2行だと段の大半を
+   覆うので、名前と移動を1行に並べて高さを詰める（844×390 で 2行 約65px → 1行 約34px） */
+@media (orientation: landscape) and (max-height: 499px) {
+  .sol-replay-caption { padding: 10px 14px 4px; gap: 8px; }
+  .sol-replay-caption-thumb { width: 18px; height: 26px; }
+  .sol-replay-caption-body { display: flex; align-items: baseline; gap: 10px; }
+  .sol-replay-caption-name { font-size: 14px; }
+  .sol-replay-caption-move { font-size: 12px; }
+}

@@ -6,15 +6,18 @@ APIキーをソースコードから環境変数に移行したことに伴う�
 
 ## 1. 環境変数の値を確認
 
-以下の3つの環境変数を登録します。
+以下の2つの環境変数を登録します。
 
 | 環境変数名 | 説明 |
 |---|---|
-| `KANABELL_CLOUD_ID` | カーナベル Elasticsearch の接続先識別子 |
-| `KANABELL_API_KEY` | カーナベル Elasticsearch の認証キー |
-| `KANABELL_INDEX` | カーナベル Elasticsearch のインデックス名（通常は `ec-cards`） |
+| `KANABELL_ES_ENDPOINT` | カーナベル Elasticsearch の接続先 URL（`https://…cloud.es.io`） |
+| `KANABELL_ES_API_KEY` | カーナベル Elasticsearch の閲覧用キー |
 
-値は `.env` ファイルまたはチーム内の秘密情報管理ツールから取得してください。
+値はカーナベルの販売サイト（`https://www.ka-nabell.com/ec/sell/yugioh`）がブラウザに配っている公開設定の
+`TCG_PLATFORM_ES_ENDPOINT` / `TCG_PLATFORM_ES_API_KEY` と同じものです。サイトの作り直しで変わることがあります。
+索引名（`yugioh-single-products`）はコードに固定しています。
+
+> 2026-10-24 の新サイト移行までは `KANABELL_CLOUD_ID` / `KANABELL_API_KEY` / `KANABELL_INDEX`（旧サイトの `ec-cards`）を使っていました。今は読みません。
 
 ---
 
@@ -26,14 +29,11 @@ APIキーをソースコードから環境変数に移行したことに伴う�
 4. **「Add Environment Variable」** ボタンで以下を1つずつ追加:
 
 ```
-Key:   KANABELL_CLOUD_ID
+Key:   KANABELL_ES_ENDPOINT
 Value: （実際の値を貼り付け）
 
-Key:   KANABELL_API_KEY
+Key:   KANABELL_ES_API_KEY
 Value: （実際の値を貼り付け）
-
-Key:   KANABELL_INDEX
-Value: ec-cards
 ```
 
 5. **「Save Changes」** をクリック
@@ -65,7 +65,7 @@ https://あなたのドメイン/api/health?key=あなたのHEALTH_CHECK_KEY
 
 エラーが出る場合:
 - 環境変数の値が正しくコピーされているか確認
-- Render.com のログ画面で `⚠️ カーナベル: KANABELL_CLOUD_ID / KANABELL_API_KEY が未設定です` というメッセージが出ていないか確認
+- Render.com のログ画面で `⚠️ カーナベル: KANABELL_ES_ENDPOINT / KANABELL_ES_API_KEY が未設定です` というメッセージが出ていないか確認
 
 ---
 
