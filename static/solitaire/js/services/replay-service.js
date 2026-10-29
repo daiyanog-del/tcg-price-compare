@@ -1016,7 +1016,8 @@ function _applyMoveCard(event) {
  */
 function _getDeckAnchorEl() {
   // 画面録画用の表示では帯の「デッキ N」の札（rec-view.js）を錨にする。横向きスマホのデッキの枠は中の山を錨にする
-  const recDeck = document.querySelector('#solRecDeck .sol-rec-deck-pile') || document.getElementById('solRecDeck');
+  const recSlot = document.getElementById('solRecDeck');
+  const recDeck = recSlot?.querySelector?.('.sol-rec-deck-pile') || recSlot;
   if (recDeck && recDeck.getBoundingClientRect().width > 0) return recDeck;
   const deckBtn = document.getElementById('solMobileDeckBtn');
   if (deckBtn && deckBtn.getBoundingClientRect().width > 0) return deckBtn;
