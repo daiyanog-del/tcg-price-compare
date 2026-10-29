@@ -148,22 +148,27 @@ function _buildGuide() {
   const steps = _el('ol', 'sol-rec-guide-steps');
   [
     '先に端末の画面録画を始めます（iPhone: コントロールセンターの画面収録／Android: クイック設定のスクリーンレコード／Windows: Win+Alt+R／Mac: Shift+⌘+5）',
-    '「始める」を押すと、3秒数えてから最初の手から再生します',
+    _enteredPortrait
+      ? '撮る向きを選ぶと、3秒数えてから最初の手から再生します（横画面はスマホを横に回すと始まります）'
+      : '「始める」を押すと、3秒数えてから最初の手から再生します',
     '画面に触れる（マウスを動かす）と「もう一度」「終わる」が出ます。録画中は触らずにおくときれいに撮れます',
     // 画面を消さない機能（_keepScreenOn）が使えない端末では、自動ロックで画面が消えて録画が止まることがある
     ...('wakeLock' in navigator ? [] : ['この端末では途中で画面が消えることがあります。端末の自動ロックを長め（または「なし」）にしてから撮ってください']),
   ].forEach((t) => steps.append(_el('li', '', t)));
   card.append(steps);
-  const start = _el('button', 'sol-replay-start-play', '始める');
-  start.type = 'button';
-  start.addEventListener('click', _start);
-  card.append(start);
-  // 縦向きスマホだけ: 横画面で PC と同じ並びにして撮る道も出す
   if (_enteredPortrait) {
-    const land = _el('button', 'sol-rec-landscape-btn', '横画面で撮る（PCと同じ並び）');
-    land.type = 'button';
-    land.addEventListener('click', _waitLandscape);
-    card.append(land);
+    // 縦向きスマホは撮る向きを選ぶ: 縦（このまま始める）と横（PC と同じ並び）を同じ重さで並べる（2026-10-29 ユーザー選択の案A）
+    const choices = _el('div', 'sol-rec-orient');
+    choices.append(
+      _buildOrientChoice(false, '縦画面で撮る', ['スマホ向けの縦長の並び', 'すぐ始まります'], _start),
+      _buildOrientChoice(true, '横画面で撮る', ['PC と同じ並び', '横に回すと始まります'], _waitLandscape),
+    );
+    card.append(choices);
+  } else {
+    const start = _el('button', 'sol-replay-start-play', '始める');
+    start.type = 'button';
+    start.addEventListener('click', _start);
+    card.append(start);
   }
   const cancel = _el('button', 'sol-replay-start-later', 'やめる');
   cancel.type = 'button';
@@ -171,6 +176,29 @@ function _buildGuide() {
   card.append(cancel);
   wrap.append(backdrop, card);
   return wrap;
+}
+
+/** 縦向き・横向きのスマホの絵（中の四角はその向きの並び: 縦は盤面＋3段、横は盤面＋手札/EX＋右の墓地） */
+const ORIENT_ICON = {
+  portrait: '<svg width="28" height="46" viewBox="0 0 28 46" aria-hidden="true"><rect x="1" y="1" width="26" height="44" rx="5" fill="none" stroke="currentColor" stroke-width="2"/>'
+    + '<g fill="currentColor" opacity=".35"><rect x="5" y="7" width="18" height="15" rx="1.5"/><rect x="5" y="24" width="18" height="3.5" rx="1"/>'
+    + '<rect x="5" y="29.5" width="18" height="3.5" rx="1"/><rect x="5" y="35" width="18" height="3.5" rx="1"/></g></svg>',
+  landscape: '<svg width="46" height="28" viewBox="0 0 46 28" aria-hidden="true"><rect x="1" y="1" width="44" height="26" rx="5" fill="none" stroke="currentColor" stroke-width="2"/>'
+    + '<g fill="currentColor" opacity=".35"><rect x="9" y="5" width="22" height="13" rx="1.5"/><rect x="9" y="19.5" width="10" height="3" rx="1"/>'
+    + '<rect x="20.5" y="19.5" width="11" height="3" rx="1"/><rect x="33" y="5" width="4" height="17.5" rx="1"/></g></svg>',
+};
+
+/** 撮る向きの選択肢（絵・名前・説明2行） */
+function _buildOrientChoice(landscape, label, notes, onClick) {
+  const btn = _el('button', 'sol-rec-orient-btn');
+  btn.type = 'button';
+  const icon = _el('span', 'sol-rec-orient-icon');
+  icon.innerHTML = landscape ? ORIENT_ICON.landscape : ORIENT_ICON.portrait;
+  const note = _el('span', 'sol-rec-orient-note');
+  notes.forEach((t, i) => { if (i) note.append(document.createElement('br')); note.append(t); });
+  btn.append(icon, _el('span', 'sol-rec-orient-label', label), note);
+  btn.addEventListener('click', onClick);
+  return btn;
 }
 
 /** 「横向きにしてください」の案内 */
