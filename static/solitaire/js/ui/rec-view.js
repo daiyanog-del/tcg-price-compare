@@ -444,8 +444,7 @@ export function exitRecView() {
   document.removeEventListener('keydown', _onKeydown, true);
   document.removeEventListener('pointerdown', _onPointer, true);
   document.removeEventListener('mousemove', _onPointer, true);
-  // 「横画面で撮る」へ移るときは全画面・向きの固定をこの後で入れるので、ここで外すのは待っていないときだけ
-  if (!_landscapeWait) _releaseOrientation();
+  _releaseOrientation(); // 自分が入った全画面・横向きの固定を外す
   window.dispatchEvent(new Event('resize'));
 }
 
