@@ -8,8 +8,8 @@
 - [ ] **利用規約の適用日の後片付け（2026-11-12）**: 規約の先頭の適用日のお知らせ（.legal-notice）と末尾の旧版の欄（.legal-prev）を外し、日付の行を直す。予約済み（scheduled task greedy-lab-terms-cleanup-1112・11-12 9:00。PR を作って止まり、取り込みはユーザー確認後）。経緯は docs/decisions.md 10-29「利用規約の改定」
 - [ ] **海外先行の予告カード（10-29 branch feat/tcg-announce）**: 1時間ごとに Yugipedia から取り込み・まとめページ /tcg-preview/<slug>・X 投稿（初報→カードごと→続報）。経緯は docs/decisions.md 10-29。
   - [x] 本番 DB に tcg_announce_cards.sql を適用（10-29 済）・PR #247 本番（b891e94）・手動の初回取り込みで Maze of Machines 8枚（要約6・$0.13）
-  - [ ] 投稿を有効にする前に直す: ①カードごとの本文で、上限に収めるために見出し（ゆかり・テーマ）から削っている → 見出しを残し要約を短くする ②商品写真が無い弾の初報の画像は右半分が空く → カードを大きく横いっぱいに ③連載の順番で目玉（Rampant Barrel Dragon）が3日目になる
-  - [ ] 要約の質: 本番の作り直しで BETA が「相手のカードを破壊する。」になり「表の数だけ」が抜けた（AI の出力のゆれ。数字の点検では拾えない）
+  - [x] 投稿を有効にする前の直し（10-29 本番 PR #252・#254）: 本文の見出しを残す・写真が無い弾の初報の画像・連載は表紙のカードから・要約の「数・回数の条件」。#254 は2回目の取り込みで弾の行の upsert が slug の NOT NULL で落ちたのを update に直した。Maze of Machines の要約は作り直し済み
+  - [ ] 投稿用の要約（summary_short_ja）が長く、見出しを残すと末尾が「…」で切れるカードがある（Pendulum・Slot Machine 777）→ 指示の「80字以内」を短くして作り直す
   - [ ] 投稿の有効化: GitHub Variables `TCG_ANNOUNCE_X_POST_ENABLED=1`（ユーザー確認後。先に手動実行の dry_run で本文を確かめる）
   - [ ] 校正: CARD_HOURS（19〜23時）・UPDATE_MIN_NEW（3）・UPDATE_MIN_HOURS（20）・CLOSE_AFTER_DAYS（30）・MAX_SUMMARIZE（40）を tweet_log の閲覧数と実際の弾の出方から見直す
   - [ ] Maze of Machines の英語版発売（2027-03-19）後、公式DBに載ったカードが in_db になり /tcg-preview に引き継がれるかを本番で確かめる
