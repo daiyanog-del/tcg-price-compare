@@ -13,6 +13,7 @@ tests/test_shipping.py — 送料・最低注文金額ルールのテスト
   fake Supabase クライアント経由の API レスポンスで検証する。
 """
 
+import re
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -41,9 +42,15 @@ class TestCalcShipping:
         assert shipping.calc_shipping("トレコロCB", 2999) == 150
         assert shipping.calc_shipping("トレコロCB", 3000) == 0
 
+    def test_カーナベルは4000円で無料になる(self):
+        # 新サイトの販売ご利用ガイド（2026-10-29 確認）: ネコポス150円・注文金額4,000円以上で無料
+        assert shipping.calc_shipping("カーナベル", 3999) == 150
+        assert shipping.calc_shipping("カーナベル", 4000) == 0
+        assert shipping.amount_to_free_shipping("カーナベル", 3000) == 1000
+
     def test_無料条件が無い店舗は金額によらず定額(self):
-        # カードラボ・まんぞく屋・カーナベルは無料条件の記載が無い
-        for shop, fee in (("カードラボ", 290), ("まんぞく屋", 245), ("カーナベル", 100)):
+        # カードラボ・まんぞく屋は無料条件の記載が無い
+        for shop, fee in (("カードラボ", 290), ("まんぞく屋", 245)):
             assert shipping.calc_shipping(shop, 100) == fee
             assert shipping.calc_shipping(shop, 1000000) == fee
 
@@ -108,7 +115,8 @@ class TestRulesForClient:
             assert r["free_threshold"] is None or isinstance(r["free_threshold"], int)
             assert r["min_order"] is None or isinstance(r["min_order"], int)
             assert r["source_url"].startswith("https://")
-            assert r["checked_on"] == shipping.SHIPPING_CHECKED_ON
+            # 店ごとに確かめた日（既定は SHIPPING_CHECKED_ON。カーナベルは新サイトで 2026-10-29）
+            assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", r["checked_on"])
 
     def test_ルールの店舗名はスクレイパーの店舗名と一致する(self):
         # 表記がズレるとキー突合に失敗し、全店「送料不明」になる
