@@ -29,6 +29,7 @@ import { initSidebarToggle } from './ui/sidebar-toggle.js';
 import { initSideTips } from './ui/side-tips.js';
 import { initMobileUI, setMobileRecordingState, resumePlaybackModeIfNeeded, openCardDetailByName, enterPlaybackModeForRecView, reservePlaybackSpaceForUrlReplay } from './ui/mobile-ui.js';
 import { initRecView } from './ui/rec-view.js';
+import { initReplayCaption } from './ui/replay-caption.js';
 import { setPcRecordingState } from './ui/pc-recording.js';
 import { isMobilePortrait } from './utils/viewport.js';
 import { showToast } from './utils/toast.js';
@@ -356,6 +357,8 @@ async function initializeApp() {
 
   // 画面録画用の表示。共有リンクの題名（sol-replay-loaded-from-url）を受け取るため、読み込みを始める initReplayUI より先に用意する
   initRecView({ enterMobilePlayback: enterPlaybackModeForRecView });
+  // リプレイの字幕（再生の操作で見た手の「何をどこへ」を画面の下に出す）
+  initReplayCaption();
 
   // このデッキのリプレイ（左サイドバー・スマホのデッキシート・開いたリプレイの差の帯）。
   // 保存したリプレイを開いた知らせ（sol-replay-loaded-from-url）を受けるため、読み込みを始める initReplayUI より先に用意する

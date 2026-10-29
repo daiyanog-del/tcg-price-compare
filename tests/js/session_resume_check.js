@@ -189,7 +189,7 @@ const playPauseMs=(ev,base,f)=>base;
   const poolEl = { appendChild() {} };
   const cardEl = { style: {}, parentElement: {}, querySelector: () => null, getBoundingClientRect: () => ({ width: 10, left: 0, top: 0, height: 10 }) };
   cardEl.closest = () => cardEl;
-  els['item-9'] = cardEl; els['poolRow'] = poolEl; els['solMobileDeckBtn'] = { getBoundingClientRect: () => ({ width: 10 }), classList: { add() {}, remove() {} } };
+  els['item-9'] = cardEl; els['poolRow'] = poolEl; els['solMobileDeckPile'] = { getBoundingClientRect: () => ({ width: 10 }), classList: { add() {}, remove() {} } };
   svc.initReplay();
   assert.equal(svc.isReplayAnimating(), false);
   globalThis.__mobile = true;

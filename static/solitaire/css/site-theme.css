@@ -54,10 +54,6 @@ select:focus-visible,.deck-card-row:focus-visible{outline:2px solid #f3ce46;outl
 .cip-empty{color:#a8b4c9}
 .sol-fb-submit,#solMobileEmptyCta{background:#f3ce46;color:#242013}
 .sol-fb-submit:hover,#solMobileEmptyCta:hover{background:#ffe16d;color:#242013}
-@keyframes solDeckBtnPulse {
-  0%,100%{box-shadow:none}
-  50%{box-shadow:0 0 0 3px #f3ce46;background:#f3ce46;color:#242013}
-}
 /* 横向き案内も明色背景と濃色文字の組み合わせにそろえる。 */
 .sol-landscape-hint{background:#f3ce46;color:#242013}
 .sol-landscape-hint span,.sol-landscape-hint-close{color:#242013}
@@ -80,6 +76,6 @@ select:focus-visible,.deck-card-row:focus-visible{outline:2px solid #f3ce46;outl
   .sol-mobile-deck-sheet-panel,.sol-mobile-share-section,
   .sol-ops-details.sol-mobile-help-open,
   #solSidebar.sol-sheet-open{border-color:transparent}
-  .sol-mobile-bar-btn:not(.sol-mobile-record-btn.recording),.sol-mobile-play-deck-badge,
+  .sol-mobile-bar-btn:not(.sol-mobile-record-btn.recording),
   .sol-mobile-action-detail-btn,.sol-mobile-action-btn,.sol-mobile-menu-item{border-color:transparent}
 }

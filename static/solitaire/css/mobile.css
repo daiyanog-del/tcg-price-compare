@@ -99,6 +99,42 @@
     min-width: 0;
     margin-left: 0;
   }
+
+  /* ════════ 手札の右のデッキの枠（2026-10-29 ユーザー指示「録画用みたいな感じで」） ════════
+     録画用の表示の横向きの枠（rec-view.css .sol-rec-deck-slot）と同じ「縦書きの見出し＋裏向きの山」。
+     手札パネルの中に置き、区切りは盤面の凹凸と同じ色の溝（relief-theme.css の inset の影の色）で表す。
+     山の見た目・0枚・演出の光り方は rec-view.css の .sol-rec-deck-pile を使う */
+  .sol-mobile-deck-slot {
+    position: relative;
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 4px;
+    padding-left: 6px;
+    box-shadow: inset 1px 0 0 #0f101466, inset 2px 0 0 #b6bbc826;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .sol-mobile-deck-slot .pool-label { align-self: stretch; cursor: pointer; }
+  .sol-mobile-deck-slot .sol-rec-deck-pile { flex: none; }
+  .sol-mobile-deck-slot.is-empty .sol-rec-deck-pile { visibility: hidden; }
+  .sol-mobile-deck-slot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* デッキの読込中（mobile-ui.js setDeckBtnLoading）: 山を薄くして文字を重ねる */
+  .sol-mobile-deck-slot.sol-loading { cursor: default; }
+  .sol-mobile-deck-slot.sol-loading .sol-rec-deck-pile { opacity: 0.35; }
+  .sol-mobile-deck-slot.sol-loading::after {
+    content: '読込中…';
+    position: absolute;
+    right: 0; top: 0; bottom: 0;
+    width: var(--slot-width);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--main-color);
+    font-size: 0.7rem; font-weight: 700;
+  }
+  /* 手札の刻印は、デッキの枠を除いた手札の欄の真ん中に寄せる（枠の幅＝山＋見出し16px＋隙間4px＋左の余白6px） */
+  .sol-field-area .sol-hand-area {
+    background-position: calc(50% - (var(--slot-width) + 26px) / 2) center, center, center;
+  }
   #imagePool2 .tier-row {
     flex: 1;
     min-width: 0;
@@ -321,24 +357,12 @@
     font-size: 0.82rem;
     font-weight: 600;
   }
-  /* タスクB: 演出の間だけデッキボタンを光らせる（400ms・.sol-loading とは別クラス） */
-  @keyframes solDeckBtnPulse {
-    0%, 100% { box-shadow: none; }
-    50% { box-shadow: 0 0 0 3px var(--accent); background: var(--accent); color: #fff; }
-  }
-  /* 第6次実機検収-2a: 再生モード中は #solMobilePlayDeckBadge がデッキ演出の錨になるため
-     同じパルス演出を適用する（.sol-mobile-bar-btn 以外にも当たるようセレクタを追加）。 */
-  .sol-mobile-bar-btn.sol-pulse,
-  .sol-mobile-play-deck-badge.sol-pulse {
-    animation: solDeckBtnPulse 0.4s ease-in-out;
-  }
   /* 再生（2026-10-16 案A）: 明るい面＋accent の ▶。1手戻す は印だけの細いボタン */
   .sol-mobile-bar-play { font-weight: 700; background: var(--border); }
   .sol-mobile-bar-play::before { content: '▶'; color: var(--accent); font-size: 0.72em; }
   .sol-mobile-bar-icon { flex: 0 0 40px; font-size: 1.15rem; }
-  /* 6つ並ぶので、⋯ も少し細くし、デッキの「デッキ N」が途中で折り返さないようにする */
+  /* ⋯ は印だけなので細く */
   #solMobileBarNormal .sol-mobile-bar-menu { flex-basis: 40px; }
-  #solMobileDeckBtn { white-space: nowrap; flex-grow: 1.3; } /* 「デッキ N」は他より文字が多いので少し広く */
   /* 範囲を選んでいる間・決まった後は「■ N手」「✂ N手」になるので、範囲ボタンも少し広く */
   .sol-mobile-record-btn.recording, .sol-mobile-record-btn.has-range { flex-grow: 1.25; }
   .sol-mobile-bar-menu {
@@ -507,25 +531,6 @@
   .sol-mobile-play-share-btn {
     flex: 0 0 auto;
     padding: 0 10px;
-  }
-  /* 第6次実機検収-2a: 再生モードの帯の左端「デッキ N」バッジ。
-     #solMobileDeckBtn が非表示（矩形0）になる再生モード中のデッキ演出の錨として使う
-     （replay-service.js _getDeckAnchorRect が参照）。ボタンと似た見た目にして違和感を減らす。 */
-  .sol-mobile-play-deck-badge {
-    flex: 0 0 auto;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 10px;
-    margin-right: 8px;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--main-color);
-    font-family: var(--font);
-    font-size: 0.78rem;
-    font-weight: 600;
-    white-space: nowrap;
   }
   /* 第6次実機検収-2c: デッキ演出クローンに影を付けて出発点を目立たせる（大きさは card-effects.js flyBetweenRects が札の大きさから縮小で出す）。
      .sol-flip-clone 自体（PC の flipMoveClone とも共有）は変更せず、追加クラスのみで対応する。 */
@@ -1482,7 +1487,7 @@
   /* ぼかすのスイッチは右端 */
   .sol-mobile-menu-list .sol-sample-blur-toggle .sol-mobile-menu-label { flex: 1 1 auto; min-width: 0; }
 
-  /* 下部バー: 「デッキ 40」の数字が components.css の span の一律の色（#333）で読めなかったのを直す */
+  /* デッキの枠の枚数: components.css の span の一律の色（#333）で読めなくならないよう、見出しの色を受け継ぐ */
   #solMobileDeckCount { color: inherit; font-weight: 700; }
   .sol-mobile-record-ico { margin-right: 0; vertical-align: 0; } /* ボタンの gap で間を取る */
   .sol-mobile-record-btn.recording .sol-mobile-record-ico { display: none; }
@@ -1502,6 +1507,7 @@
   .sol-mobile-cip,
   .sol-mobile-sheet,
   .sol-mobile-deck-sheet,
+  .sol-mobile-deck-slot,
   #solMobileEmptyCta,
   #solTouchLabel,
   .sol-fly-clone {
@@ -1514,7 +1520,6 @@
    （2026-10-15 整理③で「保存」を足して5つになった。320/360/375px で実測） */
 @media (max-width: 340px) {
   .sol-mobile-bar-btn { font-size: 0.76rem; gap: 2px; }
-  #solMobileDeckBtn { white-space: nowrap; }
   /* 2026-10-16: 再生を足して6つになったため、印だけのボタン（↶・⋯）を細くし、間隔と余白を詰める */
   #solMobileBarNormal { gap: 4px; }
   /* 上の 0.76rem と、縦向きブロックの #solMobileBarNormal .sol-mobile-bar-menu（ID付き）に負けないよう、ID付きで指定する */

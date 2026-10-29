@@ -148,18 +148,18 @@ function handlePortraitChange(matches) {
 // ══════════════════ デッキ枚数バッジ・下部バーの基本ボタン ══════════════════
 
 /**
- * デッキ枚数バッジ（#solMobileDeckCount）を #poolRow の実枚数で更新する。
- * 第6次検収-2a: 再生モードの帯にある #solMobilePlayDeckCount も同じ枚数に追従させる
- * （デッキ演出の錨バッジが古い枚数のまま表示され続けないように）。
+ * 手札の右のデッキの枠（#solMobileDeckSlot）の枚数（#solMobileDeckCount）を #poolRow の実枚数で更新する。
+ * 0枚なら山を消して刻印だけにする（演出の錨として位置は残す。録画用の表示の横向きの枠と同じ）。
+ * （2026-10-29: 下部バーの「デッキ N」ボタンと再生モードの帯の「デッキ N」札をこの枠に一本化した）
  */
 function updateDeckCountBadge() {
   const poolRow = document.getElementById('poolRow');
   const countEl = document.getElementById('solMobileDeckCount');
-  const playCountEl = document.getElementById('solMobilePlayDeckCount');
   if (!poolRow) return;
-  const n = String(poolRow.querySelectorAll('.tier-item-wrapper').length);
+  const count = poolRow.querySelectorAll('.tier-item-wrapper').length;
+  const n = String(count);
   if (countEl) countEl.textContent = n;
-  if (playCountEl) playCountEl.textContent = n;
+  document.getElementById('solMobileDeckSlot')?.classList.toggle('is-empty', count === 0);
   // §3.5 初見導線: 既存のデッキ枚数バッジ用オブザーバーを流用し、CTAの表示も更新する
   updateEmptyCta();
 }
@@ -172,9 +172,13 @@ function initDeckCountBadge() {
 }
 
 function initBarButtons() {
-  // デッキ N: フェーズ2でデッキ一覧シートを開く（1ドロー仮動作はシート内の副ボタンへ移動）
-  document.getElementById('solMobileDeckBtn')
-    ?.addEventListener('click', () => { openDeckSheet(); });
+  // 手札の右のデッキの枠: デッキ一覧シートを開く（読込中は押せない。再生モード中は盤面ごと触れない＝mobile.css H-3）
+  const deckSlot = document.getElementById('solMobileDeckSlot');
+  const openFromSlot = () => { if (!deckSlot.classList.contains('sol-loading')) openDeckSheet(); };
+  deckSlot?.addEventListener('click', openFromSlot);
+  deckSlot?.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openFromSlot(); }
+  });
 
   // 取消: 既存の取消ボタンをそのまま呼ぶ
   document.getElementById('solMobileUndoBtn')
@@ -304,14 +308,14 @@ function initSidebarSheet() {
 
 // ══════════════════ デッキ読込の多重防止・進捗表示（バグ修正） ══════════════════
 // deck-input-panel.js が dispatch する sol-deck-load-start / sol-deck-load-end を受けて、
-// デッキ読込シートを閉じ、下部バーの「デッキ」ボタンを読込中表示に切り替える。
+// デッキ読込シートを閉じ、手札の右のデッキの枠を読込中表示に切り替える。
 
-/** #solMobileDeckBtn の読込中表示を切り替える（見た目は mobile.css の .sol-loading が担う） */
+/** デッキの枠（#solMobileDeckSlot）の読込中表示を切り替える（見た目は mobile.css の .sol-loading が担う） */
 function setDeckBtnLoading(loading) {
-  const btn = document.getElementById('solMobileDeckBtn');
-  if (!btn) return;
-  btn.disabled = loading;
-  btn.classList.toggle('sol-loading', loading);
+  const slot = document.getElementById('solMobileDeckSlot');
+  if (!slot) return;
+  slot.setAttribute('aria-disabled', loading ? 'true' : 'false');
+  slot.classList.toggle('sol-loading', loading);
 }
 
 function initDeckLoadProgress() {
@@ -778,7 +782,7 @@ function _prefersReducedMotion() {
 
 /**
  * 出発点の矩形を返す（cardId に対応するデッキシートのセルがあればそれ、
- * 無ければ＝シートが閉じている場合は下部バーの「デッキ」ボタン）。
+ * 無ければ＝シートが閉じている場合は手札の右のデッキの山）。
  * @param {string|null} cardId
  * @returns {DOMRect|null}
  */
@@ -789,8 +793,8 @@ function _getFlyOriginRect(cardId) {
     const cell = document.querySelector(`#solMobileDeckGrid .sol-mobile-deck-cell[data-card-id="${CSS.escape(cardId)}"]`);
     if (cell) return cell.getBoundingClientRect();
   }
-  const deckBtn = document.getElementById('solMobileDeckBtn');
-  return deckBtn ? deckBtn.getBoundingClientRect() : null;
+  const deckPile = document.getElementById('solMobileDeckPile');
+  return deckPile ? deckPile.getBoundingClientRect() : null;
 }
 
 /**

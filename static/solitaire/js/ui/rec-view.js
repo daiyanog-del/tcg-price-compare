@@ -107,14 +107,16 @@ function _buildBand(compact) {
   const title = _el('div', 'sol-rec-title', _title());
   const count = _el('div', 'sol-rec-count');
   count.id = 'solRecCount';
-  if (compact) band.append(logo, title, count);
+  // 縦向きスマホは手札の右のデッキの枠（solitaire.html #solMobileDeckSlot）がそのまま見えているので、帯に札を出さない
+  if (compact || _enteredPortrait) band.append(logo, title, count);
   else band.append(logo, title, _buildDeck(false), count);
   return band;
 }
 
 /**
  * デッキの残り枚数。デッキ列を隠すので、ドローなどの演出はここから飛ぶ（replay-service.js _getDeckAnchorEl）。
- * PC・縦向きスマホは帯の札、横向きスマホは EX デッキの右に置く1枚分の枠（ラベルと裏向きの山）。
+ * PC は帯の札、横向きスマホは EX デッキの右に置く1枚分の枠（ラベルと裏向きの山）。
+ * 縦向きスマホは作らない（普段の画面の手札の右のデッキの枠を使う。2026-10-29）。
  */
 function _buildDeck(compact) {
   const deckCount = _el('span', compact ? 'zone-count' : 'sol-rec-deck-count');

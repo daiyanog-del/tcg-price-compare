@@ -629,7 +629,7 @@ const MOBILE_SCROLL_ZONE_SELECTOR = '#imagePool, #imagePool2, .sol-hand-area, .s
  * （M-5: カード上のカウンターも追加／M-6: デッキ一覧シート・共有シートも追加）
  */
 const MOBILE_UI_IGNORE_SELECTOR =
-  '#solMobileActionSheet, #solMobileCip, #solMobileBar, ' +
+  '#solMobileActionSheet, #solMobileCip, #solMobileBar, #solMobileDeckSlot, ' +
   '#solMobileMenuSheet, .sol-context-menu, #solSidebar, #solSidebarScrim, ' +
   '.pool-label, #replayBarContainer, .sol-ops-details, .sol-mobile-help-scrim, .counter-container, ' +
   '#solMobileDeckSheet, #solMobileShareSheet, #pcShareSheet, #pcSaveSheet';
