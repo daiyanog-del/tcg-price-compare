@@ -160,6 +160,31 @@ body.sol-recview-landscape .sol-rec-count { padding: 3px 10px; font-size: 0.8rem
   body.sol-recview-landscape .sol-rec-count { position: fixed; right: 12px; top: 12px; }
 }
 
+/* 横向きスマホの詰め（2026-10-29 ユーザー指摘「カードが小さく、墓地・除外・手札・EX の枠に余裕がある」）:
+   手札・EX・デッキの見出しを枠の左に縦書きで置いて段の高さを詰め、墓地・除外の余白と盤面の行間も削る。
+   浮いた高さの分だけカードが大きくなる（844×390 で 53px→60px。main.js fitFieldToViewport の見出しの分もこれに合わせている） */
+body.sol-recview-landscape #mainContainer { padding-top: 2px; }
+body.sol-recview-landscape .sol-field-area { padding-top: calc(var(--sol-rec-band-h) + 4px); padding-bottom: 3px; }
+body.sol-recview-landscape .custom-layout { row-gap: 5px; }
+/* 横向きスマホは盤面のカードを少し縮めて置く（responsive.css）が、録画ではマスいっぱいに出す */
+body.sol-recview-landscape .custom-slot .tier-item-wrapper { scale: 1; translate: 0 0; }
+body.sol-recview-landscape .center-row > .sol-hand-area,
+body.sol-recview-landscape .center-row > #imagePool2,
+body.sol-recview-landscape .center-row > .sol-rec-deck-slot {
+  display: flex; flex-direction: row; align-items: center;
+  gap: 4px; padding: 3px 6px 3px 2px;
+}
+body.sol-recview-landscape .center-row .pool-label {
+  display: flex; align-items: center; justify-content: center; align-self: stretch;
+  flex: none; width: 14px; margin: 0;
+  writing-mode: vertical-rl; letter-spacing: 0.15em; text-align: center;
+}
+body.sol-recview-landscape .center-row .zone-count { margin: 4px 0 0; text-combine-upright: all; }
+body.sol-recview-landscape .side-slots-container > .sol-side-area { min-width: 0; padding: 5px; }
+body.sol-recview-landscape .sol-side-area .side-slot { width: var(--slot-width); }
+body.sol-recview-landscape .sol-rec-deck-slot { width: auto; }
+body.sol-recview-landscape .sol-rec-deck-pile { flex: none; }
+
 /* デッキの枠: 面と刻印は手札・EX と同じ（relief-theme.css）。山はカードの裏面（components.css の .is-set::after と同じ色）を
    少しずらして重ね、枚数の多さを見せる */
 .sol-rec-deck-slot {

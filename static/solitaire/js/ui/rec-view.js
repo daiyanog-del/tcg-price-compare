@@ -336,7 +336,7 @@ function _releaseScreenOn() {
 }
 
 async function _requestFullscreen() {
-  if (isMobilePortrait()) return; // 縦向きスマホはページの全画面に対応しない端末が多い（iPhone の Safari 等）
+  // 縦向きスマホも試す（Android の Chrome は対応し、ブラウザのバーが消える。iPhone の Safari は requestFullscreen が無く下で抜ける）
   const el = document.documentElement;
   if (document.fullscreenElement || typeof el.requestFullscreen !== 'function') return;
   try {
@@ -440,7 +440,11 @@ function _alignHandExLine() {
   const eb = ex.getBoundingClientRect();
   if (!gaps.length || !hb.width || !eb.width) return;
   const line = (hb.right + eb.left) / 2;
-  const target = gaps.reduce((a, g) => (Math.abs(g - line) < Math.abs(a - line) ? g : a), gaps[0]);
+  // 横向きスマホは EX の右にデッキの枠が入り、一番近い境目だと手札が広く EX が狭くなる。盤面の真ん中の境目にそろえて
+  // EX を広く取る（2026-10-29 ユーザー選択の案1）
+  const board = document.querySelector('.custom-layout')?.getBoundingClientRect();
+  const ref = document.body.classList.contains(LANDSCAPE_CLASS) && board?.width ? board.left + board.width / 2 : line;
+  const target = gaps.reduce((a, g) => (Math.abs(g - ref) < Math.abs(a - ref) ? g : a), gaps[0]);
   // flex-basis は内側の幅で効く（content-box）ので、余白・枠の分を引いて指定する
   const cs = getComputedStyle(hand);
   const extra = cs.boxSizing === 'border-box' ? 0
