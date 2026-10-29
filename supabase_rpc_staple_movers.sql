@@ -54,7 +54,7 @@ begin
     join s on s.cn = ph.card_name
     where ph.recorded_at in (v_new, v_old, v_prev)
       and ph.min_price is not null
-      and ph.min_price > 10
+      and ph.min_price >= 10
     group by 1, 2, 3
   ),
   rep as (

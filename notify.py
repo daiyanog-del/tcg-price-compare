@@ -26,7 +26,7 @@ from supabase import create_client, Client
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-from constants import JST, VAPID_CLAIMS
+from constants import JST, VAPID_CLAIMS, PRICE_FLOOR
 from rarity import UNKNOWN_RARITY_LABEL, normalize_rarity
 
 # ── 環境変数 ──
@@ -59,7 +59,7 @@ def _representative_rarity(rows: list) -> str | None:
         rarity = r.get("rarity", "") or ""
         date   = r.get("recorded_at", "")[:10]
         price  = r.get("min_price", 0)
-        if not date or price <= 10:
+        if not date or price < PRICE_FLOOR:
             continue
         if date not in rarity_dates[rarity] or price < rarity_dates[rarity][date]:
             rarity_dates[rarity][date] = price
@@ -119,7 +119,7 @@ def compute_drop(rows: list) -> dict | None:
         shop  = r.get("shop", "")
         date  = r.get("recorded_at", "")[:10]
         price = r.get("min_price", 0)
-        if not shop or not date or price <= 10:
+        if not shop or not date or price < PRICE_FLOOR:
             continue
         if date not in shop_dates[shop] or price < shop_dates[shop][date]:
             shop_dates[shop][date] = price

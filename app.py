@@ -238,7 +238,7 @@ from meta_scraper import fetch_tier_list, fetch_deck_cards, build_deck_text, bui
 import top_page as _top_page
 from pack_scraper import get_pack_list, fetch_pack_cards, pack_cards_cached
 from monitor import tracker, run_health_check
-from constants import JST, VAPID_CLAIMS, PRICE_DAILY_RETENTION_DAYS
+from constants import JST, VAPID_CLAIMS, PRICE_DAILY_RETENTION_DAYS, PRICE_FLOOR
 from ygores_repository import repository as _ygores_repo
 import card_display as _card_display
 import module_graph as _module_graph
@@ -3373,9 +3373,9 @@ def api_wish_shop_totals():
                 continue
             if not name or not shop or price is None:
                 continue
-            # 10円以下は収集異常値として除外（他の集計経路(daily_min_by_lowest_rarity等)と
+            # PRICE_FLOOR 未満は収集異常値として除外（他の集計経路(daily_min_by_lowest_rarity等)と
             # 2026-08-07 監査で統一。監査M5）
-            if price <= 10:
+            if price < PRICE_FLOOR:
                 continue
             rarity_db = normalize_rarity(row.get("rarity", "") or "")
             date = recorded_at[:10]

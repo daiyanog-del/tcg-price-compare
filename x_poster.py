@@ -9,7 +9,7 @@ from collections import defaultdict
 
 import requests as _requests
 
-from constants import JST
+from constants import JST, PRICE_FLOOR
 from name_normalize import fuzzy_key
 import site_urls
 
@@ -73,7 +73,7 @@ def get_price_movers(sb, direction="up", limit=5, allowed_names=None,
     if not all_rows:
         return [], None, None
 
-    # 日付ごと・カードごとの最安値（10円以下は除外）
+    # 日付ごと・カードごとの最安値（PRICE_FLOOR 未満は除外）
     # allowed_names が指定された場合はそのカード集合に絞る
     card_dates = defaultdict(dict)
     for r in all_rows:
@@ -82,7 +82,7 @@ def get_price_movers(sb, direction="up", limit=5, allowed_names=None,
             continue
         d = r["recorded_at"][:10]
         price = r["min_price"]
-        if price <= 10:
+        if price < PRICE_FLOOR:
             continue
         if d not in card_dates[name] or price < card_dates[name][d]:
             card_dates[name][d] = price
