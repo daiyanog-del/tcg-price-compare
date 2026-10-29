@@ -1111,6 +1111,12 @@ document.getElementById('mercariRefBody')?.addEventListener('click',function(e){
   if(!a||!this.contains(a)) return;
   _ga('mercari_link_click',{affiliate:(' '+(a.getAttribute('rel')||'')+' ').indexOf(' sponsored ')>=0});
 });
+// 販売価格の表の「店で見る」のクリック計測（買う手前まで行ったか。Xの汎用カード投稿の型ごとの効果を utm と合わせて見る。2026-10-29）
+document.getElementById('tbody')?.addEventListener('click',function(e){
+  const a=e.target&&e.target.closest?e.target.closest('a.cr-go'):null;
+  if(!a||!this.contains(a)) return;
+  _ga('card_shop_click',{shop:a.dataset.shop||''});
+});
 
 function _fetchBuyInline(trigger,busyTries){
   // J-3: ガードは呼び出し元（トグルハンドラ・再試行ボタン）に依存せず、この関数の先頭で必ず効かせる
@@ -1571,7 +1577,7 @@ function renderTable(){
     const linkUrl=affLink(r.url, r.shop, 'sell');
     const isAff=!!r.url&&_isAffUrl(r.url,linkUrl);
     const go=r.url
-      ?`<a class="row-link cr-go" href="${escAttr(linkUrl)}" target="_blank" rel="${_affRel(isAff)}">店で見る</a>`
+      ?`<a class="row-link cr-go" href="${escAttr(linkUrl)}" target="_blank" rel="${_affRel(isAff)}" data-shop="${escAttr(r.shop)}">店で見る</a>`
       :'';
     // J-4: 状態が「-」以外（状態C・中古キズあり・セールなど）だけ出す。セールは目印の色
     const cond=r.condition==='セール'?'<span class="cr-sale">セール</span>':(r.condition&&r.condition!=='-'?esc(r.condition):'');

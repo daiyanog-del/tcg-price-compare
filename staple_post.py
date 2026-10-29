@@ -20,7 +20,11 @@
 投稿文（ユーザー確認済みの形）:
   【値下がり】聖王の粉砕（シークレット）
   ¥280（9/25 ¥660から -380円）
-  https://.../card/聖王の粉砕
+  https://.../card/聖王の粉砕?utm_...&utm_content=down
+投稿の型（2026-10-29〜。型ごとの効果を比べる試み）: 値下がりのうち過去90日・30日でいちばん安いものは
+底値の型（staple_floor）にして、2行目を「¥280　過去90日でいちばん安い値段です」、3行目に前日比を出し、画像に札を付ける。
+それ以外の値下がりは今までの形（staple_down）、値上がりは staple_up。型は tweet_log.content_type の頭と
+リンクの utm_content に残し、24時間の閲覧（collect_x_metrics）と GA4 の流入・店へのクリックで比べる。
 画像は render_post_image（カード画像＋最安値の枠＋過去の値動きのグラフ。P2案・和文は M PLUS 2・数字は Outfit）。
 
 python staple_post.py            … 投稿（X_POST_DRY_RUN=1 なら投稿せず画像を staple_post_preview/ に残す）
@@ -59,6 +63,11 @@ WEEK_LOW_DAYS = 7  # TODO: calibrate from data
 CANDIDATES_PER_DIRECTION = 5  # TODO: calibrate from data（取り直しで落ちる割合を見て決める）
 # グラフに描く期間（日）。price_history のレアリティ別記録は 2026-07-22 から
 HISTORY_DAYS = 90
+# 底値の型（staple_floor）にする期間（日）。長いほうから試し、その期間でいちばん安ければ「過去N日で最安」と書く
+# （2026-10-29 ユーザー決定。投稿の型を比べる試み。どれにも当たらない値下がりは今までの形 staple_down で出し、比べる相手にする）
+FLOOR_DAYS = (90, 30)
+# 期間の頭にこの日数以内の記録があれば「その期間の記録がある」とみなす（記録の始まりが期間の途中なら名乗らない）
+FLOOR_COVER_SLACK_DAYS = 3
 
 PREVIEW_DIR = "staple_post_preview"
 
@@ -103,21 +112,63 @@ def select_staple_movers(rows, staple_names, top_n=CANDIDATES_PER_DIRECTION):
     return result
 
 
+# 向きごとの投稿の型（tweet_log.content_type の頭・リンクの utm_content）。値下がりは底値（floor）と今までの形（down）の2つ
+KINDS_OF = {"down": ("floor", "down"), "up": ("up",)}
+
+
+def post_kind(m):
+    """投稿の型。値下がりで floor_days（過去N日で最安）があれば floor、なければ down。値上がりは up。"""
+    if m["direction"] == "down" and m.get("floor_days"):
+        return "floor"
+    return m["direction"]
+
+
+def _card_key(m):
+    return f"{fuzzy_key(m['name'])}|{m['rarity']}"
+
+
 def content_type(m):
-    """tweet_log.content_type（クールダウン照会のキー）。大変動ポストの bigmove_ と分ける。"""
-    return f"staple_{m['direction']}|{fuzzy_key(m['name'])}|{m['rarity']}"
+    """tweet_log.content_type（クールダウン照会のキー・型ごとの集計のキー）。大変動ポストの bigmove_ と分ける。"""
+    return f"staple_{post_kind(m)}|{_card_key(m)}"
+
+
+def card_url(m):
+    """投稿に載せるカードのページ。どの型の投稿から来たかを GA4 で見分けられるよう utm を付ける。"""
+    return (f"{x_poster.SITE_URL}/card/{urllib.parse.quote(m['name'])}"
+            f"?utm_source=x&utm_medium=social&utm_campaign=staple&utm_content={post_kind(m)}")
 
 
 def format_post_text(m):
     label = "値上がり" if m["direction"] == "up" else "値下がり"
     rarity = f"（{m['rarity']}）" if m["rarity"] else ""
     sign = "+" if m["diff"] > 0 else "-"
-    url = f"{x_poster.SITE_URL}/card/{urllib.parse.quote(m['name'])}"
-    return "\n".join([
-        f"【{label}】{m['name']}{rarity}",
-        f"¥{m['today']:,}（{x_poster._format_date(m['date_old'])} ¥{m['yesterday']:,}から {sign}{abs(m['diff']):,}円）",
-        url,
-    ])
+    change = f"{x_poster._format_date(m['date_old'])} ¥{m['yesterday']:,}から {sign}{abs(m['diff']):,}円"
+    if post_kind(m) == "floor":
+        lines = [f"¥{m['today']:,}　過去{m['floor_days']}日でいちばん安い値段です", f"（{change}）"]
+    else:
+        lines = [f"¥{m['today']:,}（{change}）"]
+    return "\n".join([f"【{label}】{m['name']}{rarity}", *lines, card_url(m)])
+
+
+def floor_days(history, m):
+    """判定日（date_new）の値段 today が、その前の何日でいちばん安いか（FLOOR_DAYS の長いほうから）。当たらなければ None。
+
+    history は fetch_history の日ごとの全店最安（align_history の前）。判定日とそれ以降の日は比べる相手に含めない。
+    同じ値段が前にあっても「いちばん安い」と言えるので含む（<=）。期間の頭に記録が無いとき（記録の始まりが
+    期間の途中）は、その期間を名乗らない。"""
+    end = date.fromisoformat(m["date_new"])
+    prior = [(date.fromisoformat(d), p) for d, p in history if date.fromisoformat(d) < end]
+    if not prior:
+        return None
+    first = prior[0][0]
+    for days in FLOOR_DAYS:
+        start = end - timedelta(days=days)
+        if first > start + timedelta(days=FLOOR_COVER_SLACK_DAYS):
+            continue
+        window = [p for d, p in prior if d >= start]
+        if window and m["today"] <= min(window):
+            return days
+    return None
 
 
 def _fetch_daily_history(sb, name, rarity, start, date_to):
@@ -328,13 +379,22 @@ def render_post_image(card_image_path, m, history, out_path):
     change = (f"{x_poster._format_date(m['date_old'])} ¥{m['yesterday']:,} → "
               f"{sign}¥{abs(m['diff']):,} ({sign}{abs(m['pct'])}%)")
     d.text((x + 24, 304), change, font=_font(num, 22, 500), fill=col)
+    if post_kind(m) == "floor":
+        # 底値の型だけ、最安値の枠の右上に「過去N日で最安」の札（値下がりの色の塗り・墨色の字）
+        chip = f"過去{m['floor_days']}日で最安"
+        cf = _font(jp, 22, 700)
+        cw_ = d.textlength(chip, font=cf)
+        d.rounded_rectangle((xr - 20 - cw_ - 28, 188, xr - 20, 224), 6, fill=col)
+        d.text((xr - 20 - 14, 206), chip, font=cf, fill=BG, anchor="rm")
 
     if len(history) >= 2:
         values = [p for _, p in history]
         lo, hi = min(values), max(values)
         span_days = (date.fromisoformat(history[-1][0]) - date.fromisoformat(history[0][0])).days + 1
         now = m["today"]
-        if now == lo and lo != hi:
+        if post_kind(m) == "floor":
+            verdict = ""  # 枠の札と同じことを二度書かない
+        elif now == lo and lo != hi:
             verdict = f"　過去{span_days}日で最安"
         elif now == hi and lo != hi:
             verdict = f"　過去{span_days}日で最高"
@@ -478,9 +538,11 @@ def apply_recheck(m, price):
 
 
 def _recently_posted(sb, m):
+    """同じカード・レアリティ・向きを COOLDOWN_DAYS 日以内に出したか。型が違っても同じ向きなら数える（底値と今までの形の値下がりなど）。"""
     try:
         cutoff = (datetime.now(JST) - timedelta(days=COOLDOWN_DAYS)).isoformat()
-        resp = (sb.table("tweet_log").select("tweet_id").eq("content_type", content_type(m))
+        types = [f"staple_{k}|{_card_key(m)}" for k in KINDS_OF[m["direction"]]]
+        resp = (sb.table("tweet_log").select("tweet_id").in_("content_type", types)
                 .gte("posted_at", cutoff).limit(1).execute())
         return bool(resp.data)
     except Exception as e:
@@ -515,7 +577,7 @@ def post_staple_movers(sb):
         return
 
     for direction in ("down", "up"):
-        if not dry_run and x_poster._already_posted_today(sb, f"staple_{direction}|"):
+        if not dry_run and any(x_poster._already_posted_today(sb, f"staple_{k}|") for k in KINDS_OF[direction]):
             print(f"  [{direction}] 本日分は投稿済み — スキップ")
             continue
         for m in (c for c in candidates if c["direction"] == direction):
@@ -543,6 +605,13 @@ def post_staple_movers(sb):
                     continue
                 print(f"  [down] 取り直し: {shop} ¥{price:,}（判定時 ¥{m['today']:,}）")
                 m = checked
+            try:
+                raw_history = fetch_history(sb, m["name"], m["rarity"], m["date_new"])
+            except Exception as e:
+                logger.warning(f"価格推移の取得に失敗 — この候補は見送り: {e}")
+                continue
+            if direction == "down":
+                m = {**m, "floor_days": floor_days(raw_history, m)}
             text = format_post_text(m)
             print(f"\n--- {direction}: {m['name']}（{m['rarity']}） ---\n{text}")
             card_path = x_poster.get_card_image_path(m["name"])
@@ -552,7 +621,7 @@ def post_staple_movers(sb):
             fd, out = tempfile.mkstemp(suffix=".png")
             os.close(fd)
             try:
-                history = align_history(fetch_history(sb, m["name"], m["rarity"], m["date_new"]), m)
+                history = align_history(raw_history, m)
                 render_post_image(card_path, m, history, out)
             except Exception as e:
                 logger.warning(f"投稿画像の作成に失敗 — この候補は見送り: {e}")
@@ -564,7 +633,7 @@ def post_staple_movers(sb):
                 continue
             if dry_run:
                 os.makedirs(PREVIEW_DIR, exist_ok=True)
-                keep = os.path.join(PREVIEW_DIR, f"{direction}_{fuzzy_key(m['name'])}_{m['rarity']}.png")
+                keep = os.path.join(PREVIEW_DIR, f"{post_kind(m)}_{fuzzy_key(m['name'])}_{m['rarity']}.png")
                 shutil.copy(out, keep)
                 print(f"  画像（試し実行）: {keep}")
             tweet_id = x_poster.post_tweet(text, image_paths=[out], require_media=True)
