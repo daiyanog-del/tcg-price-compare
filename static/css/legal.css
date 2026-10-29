@@ -1,0 +1,24 @@
+/* legal.css
+ * 利用規約・プライバシーポリシーの本文（templates/_legal_*_body.html）のうち、deferred.css の .legal-modal-body に無い部品。
+ * トップのモーダル（index.html）と /terms・/privacy のページ（legal_page.html）の両方が読む（2026-10-29）。
+ * 色はサイト共通の変数（site-theme.css）を使う。
+ */
+.legal-modal-body ol{margin:6px 0 6px 20px}
+.legal-modal-body ol li{margin:3px 0}
+.legal-modal-body ol ul{margin:4px 0 4px 18px}
+.legal-modal-body h4{color:var(--text);font-size:.9rem;font-weight:700;margin:16px 0 6px}
+/* 適用日のお知らせ。強調は面の濃淡と左の線で（入力・選択の目印の金と重ねない） */
+.legal-notice{margin:0 0 16px;padding:8px 12px;background:var(--bg-hover);border-left:3px solid var(--accent-soft, #d9d1b9);border-radius:4px;color:var(--text)}
+.legal-date{margin-top:16px;font-size:.8rem;color:var(--text-d)}
+.legal-prev{margin-top:20px;padding-top:12px;border-top:1px solid var(--border)}
+.legal-prev summary{cursor:pointer;color:var(--accent-l)}
+
+/* /terms・/privacy のページ */
+.legal-page{max-width:720px;margin:0 auto;padding:24px 16px 48px}
+.legal-page-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
+.legal-page-head h1{margin:0;font-size:1.2rem;color:var(--text)}
+.legal-page-head a{color:var(--accent-l);font-size:.85rem;text-decoration:none}
+.legal-page-head a:hover{text-decoration:underline}
+.legal-page .legal-modal-body{padding:0;overflow:visible;background:transparent}
+.legal-page-links{margin-top:32px;font-size:.85rem;color:var(--text-d)}
+.legal-page-links a{color:var(--accent-l)}

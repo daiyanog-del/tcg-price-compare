@@ -751,6 +751,8 @@ if _SUPABASE_URL and _SUPABASE_KEY:
 from solitaire_routes import solitaire_bp, init_solitaire
 init_solitaire(lambda: _supabase_client)
 app.register_blueprint(solitaire_bp)
+from legal_routes import legal_bp  # /terms・/privacy（規約の単独ページ）
+app.register_blueprint(legal_bp)
 
 # 海外先行の予告カードのまとめページ（/tcg-preview/<slug>）と OG 画像（2026-10-29）
 from tcg_announce_routes import tcg_announce_bp
