@@ -1,0 +1,47 @@
+# 店舗・CS の大会結果ポストを集める（2026-10-30〜・collect_tournament_posts.py）
+# X の検索（直近7日・読んだポスト数で課金）で店のアカウントと CS 主催者の結果を読み、tournament_posts に保存する。
+# 集めるだけで投稿には使わない。料金の目安は約 $0.55/日（1回の上限は MAX_READS_PER_RUN=600件＝$3）。
+# 前日の夜の大会の結果が出そろう朝に1回走らせる。
+
+name: Collect Tournament Posts
+
+on:
+  schedule:
+    - cron: '0 22 * * *'  # 毎日 UTC 22:00 = JST 7:00
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '保存せず表示だけ（X の料金はかかる）'
+        type: boolean
+        default: false
+      max_reads:
+        description: '読むポストの上限'
+        type: string
+        default: '600'
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests supabase
+
+      - name: Collect
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+        run: >-
+          python collect_tournament_posts.py
+          --max-reads ${{ inputs.max_reads || '600' }}
+          ${{ inputs.dry_run && '--dry-run' || '' }}

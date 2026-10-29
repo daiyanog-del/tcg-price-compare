@@ -4,6 +4,7 @@
 > 現在地の詳細は [docs/activeContext.md](docs/activeContext.md)、決定の経緯は [docs/decisions.md](docs/decisions.md)。
 
 ## 進行中
+- [ ] **店舗・CS の大会結果を X から集める（2026-10-30・branch claude/adoption-source-9b55ee）** — 採用急増の型・使用率分布の速報の材料（テーマ単位・まだ投稿しない）。tournament_posts に毎日 JST 7:00 に集める（約 $0.55/日）。**残り**: ①本番 DB に tournament_posts.sql（ユーザー確認後）②マージ ③初回の実行ログで件数・料金・since_id ④1〜2週後に --candidates で CS 主催者を足す・テーマの別名表（「光と闇」「光と闇の儀式」など）・週ごとの分布の集計。校正: MAX_READS_PER_RUN=600・INITIAL_LOOKBACK_HOURS=36（TODO: calibrate from data）。経緯は docs/decisions.md 10-30
 - [ ] **買取のカードラッシュが1回の遅れで丸ごと飛ばされていた（2026-10-29・本番 PR #259 854b3d5）** — 10月に9日、開始時の確認で販売の www.cardrush.jp を5秒1回だけ見てタイムアウト→その日のカードラッシュを全部取らなかった。買取は取得先の cardrush.media を確かめ、例外は1回取り直す（15秒）。あわせて環境デッキで「カード使用頻度データがありません」のデッキ（Tier 4 など8件）に構造変更の警告を出さない。**残り: 10-30 以降の collection_runs で skipped_shops にカードラッシュが出ないか・buyback_history のカードラッシュ行数が 1400 前後に戻るかを数日見る**。トレコロCB のタイムアウト（10-15・10-29、ブレーカーが働いて残りを飛ばす）は今回は触っていない
 - [ ] **値段の下限を「10円未満を捨てる」に（2026-10-29・本番 PR #253 3fc9290・DB 関数5つ同日入れ替え）** — 本物の ¥10 を記録に残す。**残り: 10-30 朝の収集で price_history・buyback_history に ¥10 の行が入ることを確かめる**（例: 墓穴の指名者 カーナベル ノーマル）
 

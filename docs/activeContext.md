@@ -1,5 +1,11 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-30: 店舗・CS の大会結果を X から集める仕組み（branch claude/adoption-source-9b55ee・PR 作成まで）
+- 採用急増の型の材料。情報元を実データで比べ、テーマ単位で「店のX（198）＋CS 主催者のX（10）＋CS の語の検索」に決めた（経緯は decisions.md 同日）
+- 作ったもの: tournament_posts.sql・adoption_parse.py（抜き出し）・collect_tournament_posts.py（集める・--reparse・--candidates）・tournament_accounts.json・collect-tournament-posts.yml（毎日 JST 7:00）・テスト35件
+- 試し実行（dry-run・X 169件・約 $0.85）: 結果の投稿 84件中 76件でテーマが取れた（残りはデッキ名を書いていない投稿）
+- 残り: ①本番 DB に tournament_posts.sql を適用（ユーザー確認後）②マージ ③初回の実行で保存の件数・料金を確かめる ④1〜2週たまったら --candidates で CS 主催者を足す・テーマの別名表・週ごとの分布の集計を作る
+
 ## 2026-10-30: 再生の字幕を PC はカード詳細パネルへ・録画用は盤面の左へ・墓地除外の見切れ（本番 PR #268 d18e29e）
 - PC のリプレイ: 下の帯をやめ、動いたカードをカード詳細パネルに出し「効果発動 モンスターゾーン」の行を添える（パネルを畳んだときだけ下の帯）。取得結果は名前ごとに使い回し・古い応答は捨てる
 - PC の録画用の表示: 盤面の左の空きが150px以上なら左に大きく（ユーザー選択 R1）、狭いときは上の帯の右寄りに1行
