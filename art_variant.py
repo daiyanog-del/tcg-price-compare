@@ -19,13 +19,20 @@ art_variant.py — 店の商品が「どの絵か」「どの言語版か」を�
   - まんぞく屋: 絵を書き分けない → 判別できない（""）
 判別できない行は「すべての絵」にだけ出す（無理に振り分けない）。
 型番ごと違う絵で刷られた再録（三戦の号 CH01-JP030 など）は、カーナベルだけが (イラスト違い) と書くので、
-全店の行を見て型番ごとそろえる（_alt_only_codes。2026-10-29）。
+全店の行を見て型番ごとそろえる（_alt_only_codes。2026-10-29）。カーナベルが取れない日にも効くよう、
+Yugipedia から週1回作る表（data/art_prints.json・tools/build_art_prints.py）の型番も同じ扱いにする。
 """
 
 from __future__ import annotations
 
+import json
+import logging
 import re
 import unicodedata
+from functools import lru_cache
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 ART_BASE = "元のイラスト"
 ART_ALT = "イラスト違い"
@@ -153,11 +160,26 @@ def classify(row: dict, card_name: str) -> tuple[str, str]:
     return "", edition
 
 
+_ART_PRINTS_PATH = Path(__file__).resolve().parent / "data" / "art_prints.json"
+
+
+@lru_cache(maxsize=1)
+def _art_prints() -> dict[str, frozenset[str]]:
+    """型番ごと違う絵の日本の型番の表（カード名の比べる形 → 型番）。無い・壊れているときは空（店の手がかりだけで判定する）"""
+    try:
+        raw = json.loads(_ART_PRINTS_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        logger.warning("art_prints.json を読めない（型番ごと違う絵は店の手がかりだけで判定する）: %s", e)
+        return {}
+    return {k: frozenset(v) for k, v in raw.items()}
+
+
 def _alt_only_codes(rows: list[dict], card_name: str) -> set[str]:
     """型番ごと違う絵で刷られた再録の型番。例: 三戦の号 CH01-JP030 は QCAC-JP096 と違う絵だが、その型番の中に絵は1種類なので
     カーナベル以外の店は「三戦の号」とだけ書き、元のイラストに見えてしまう（2026-10-29 ユーザー指摘）。
     どこかの店がその型番を決まった言葉でイラスト違いと書き、その型番で元と違うを両方持つ店も、決まった言葉で元と書く店も無いとき、
-    型番ごと違う絵とみなす（灰流うらら PAC1-JP016 のように1つの型番に絵が2種類ある型番は、同じ店に両方並ぶので当たらない）"""
+    型番ごと違う絵とみなす（灰流うらら PAC1-JP016 のように1つの型番に絵が2種類ある型番は、同じ店に両方並ぶので当たらない）。
+    Yugipedia の表（_art_prints）にある型番も、店の言葉が無くても同じ扱い（同じ店に両方並ぶ・元と書く店があれば外す）"""
     alt_by_explicit: set[str] = set()
     blocked: set[str] = set()
     arts_by_shop: dict[tuple[str, str], set[str]] = {}
@@ -174,7 +196,7 @@ def _alt_only_codes(rows: list[dict], card_name: str) -> set[str]:
     for (_, code), arts in arts_by_shop.items():
         if ART_BASE in arts and ART_ALT in arts:
             blocked.add(code)
-    return alt_by_explicit - blocked
+    return (alt_by_explicit | _art_prints().get(_key(card_name), frozenset())) - blocked
 
 
 def annotate(rows: list[dict], card_name: str) -> None:
