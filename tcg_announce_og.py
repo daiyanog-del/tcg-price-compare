@@ -27,7 +27,7 @@ import card_og_image as cog
 from deck_image import _get_font
 
 W, H = cog.W, cog.H
-DESIGN_VERSION = "b8"   # 見た目を変えたら上げる
+DESIGN_VERSION = "b9"   # 見た目を変えたら上げる
 
 _TEXT, _SUB, _GOLD = cog._TEXT, cog._SUB, cog._GOLD
 _PANEL = (0x20, 0x23, 0x2b)       # --bg-card
@@ -285,6 +285,28 @@ def picture_card(card: dict) -> str:
     return ""
 
 
+def source_sites(cards: list[dict]) -> list[str]:
+    """宣伝文の出どころ（販売店のサイト名）を、使っているカードの多い順に。"""
+    count: dict[str, int] = {}
+    for c in cards:
+        url = c.get("lore_source_url") or ""
+        if c.get("lore_kind") != "blurb" or not url:
+            continue
+        host = url.split("//", 1)[-1].split("/", 1)[0].removeprefix("www.")
+        count[host] = count.get(host, 0) + 1
+    return sorted(count, key=lambda h: -count[h])
+
+
+def source_line(cards: list[dict]) -> str:
+    """商品写真が無い画像に添える出どころの一行（写真が無いと本当に出る商品かが伝わりにくい。2026-10-29 ユーザー指摘）。"""
+    sites = source_sites(cards)
+    if sites:
+        return f"出どころ：販売店の商品案内（{'・'.join(sites[:2])}）"
+    if any(c.get("lore_kind") == "official" for c in cards):
+        return "出どころ：公開された英語版のカードテキスト"
+    return ""
+
+
 def summary_of(card: dict) -> dict:
     """要約を {intro, effects: [{label, text}]} で返す（2026-10-29 の作り直し前の「文の配列」も読む）。"""
     s = card.get("summary_ja") or {}
@@ -322,7 +344,19 @@ def cutout(img: Image.Image) -> Image.Image:
     """商品写真の白い背景を透明にして、余白を切る（商品写真は白地のことが多い）。"""
     im = img.convert("RGBA")
     a = np.array(im)
-    white = a[..., :3].min(axis=2) > 235
+    rgb = a[..., :3].astype(np.int16)
+    # 背景＝明るく色の薄い部分のうち、画像の端からつながっているところ。白地に落ちた薄い影も背景に入れる
+    # （白だけを抜くと影がまだらに残り、箱の下に白い粉が散った。卸の写真 MZMC-Display01-US.png・2026-10-29）。
+    # 端からつながっていない白（箱に印刷された文字など）は残す
+    light = (rgb.min(axis=2) > 170) & ((rgb.max(axis=2) - rgb.min(axis=2)) < 24)
+    # copy() で書き込める画像にする（fromarray のままだと floodfill の書き込みが黙って捨てられた。Pillow 12）
+    mask = Image.fromarray(np.where(light, 255, 0).astype(np.uint8)).copy()
+    h, w = light.shape
+    for x, y in [(x, 0) for x in range(0, w, 8)] + [(x, h - 1) for x in range(0, w, 8)] + \
+                [(0, y) for y in range(0, h, 8)] + [(w - 1, y) for y in range(0, h, 8)]:
+        if mask.getpixel((x, y)) == 255:
+            ImageDraw.floodfill(mask, (x, y), 128)
+    white = np.array(mask) == 128
     alpha = np.where(white, 0, a[..., 3]).astype(np.uint8)
     im.putalpha(Image.fromarray(alpha).filter(ImageFilter.GaussianBlur(1)))
     box = im.getbbox()
@@ -440,6 +474,9 @@ def render_set_png(s: dict, cards: list[dict], *, box: Image.Image | None = None
     n = len([c for c in cards if summary_of(c)["effects"]])
     if n:
         draw_text(d, (x0, y_note), f"判明した{n}枚の効果を日本語で紹介しています", _TEXT, size=23)
+    src = source_line(cards) if box is None else ""
+    if src:
+        draw_text(d, (x0, 560), wrap(d, src, W - 260 - x0, 1, size=18)[0], _SUB, size=18)
     _logo(canvas, W - 200, 572, 34)
     return _png(canvas)
 
@@ -473,6 +510,10 @@ def _render_set_fan(s: dict, cards: list[dict], related: list[tuple[str, Image.I
         for ln in wrap(d, f"判明した{n}枚の効果を日本語で紹介しています", text_w, 2, size=22):
             draw_text(d, (x0, y + 14), ln, _TEXT, size=22)
             y += 32
+    src = source_line(cards)
+    if src:
+        for ln in wrap(d, src, text_w, 1, size=18):
+            draw_text(d, (x0, min(max(y + 52, 556), 596)), ln, _SUB, size=18)
 
     # 右: カードを重ねて並べる（後のカードを上に。互い違いに少し上下させる）
     ch = 300 if len(related) >= 4 else 330   # 4枚は重なりが深くなるので少し小さく
@@ -565,6 +606,10 @@ def render_card_png(s: dict, card: dict, others: list[str], *, box: Image.Image 
         y += 4
     note = {"blurb": "販売店の商品説明をもとにした非公式の要約です",
             "official": "英語のカードテキストをもとにした要約です"}.get(card.get("lore_kind"), "")
+    sites = source_sites([card])
+    if box is None and sites:
+        # 商品写真が無いときは、どの販売店の案内かを名指しする（本当に出る商品かが伝わるように）
+        note = f"販売店（{sites[0]}）の商品説明をもとにした非公式の要約です"
     if note:
         draw_text(d, (x0, 562), note, _SUB, size=16)
 
@@ -625,7 +670,8 @@ def _cached(key: str, render):
 
 
 _CARD_KEYS = ("name_en", "attribute", "race", "card_type", "level", "rank", "link_val", "atk", "def",
-              "summary_ja", "lore_kind", "related_ja", "theme_kind", "theme_en", "theme_ja", "theme_card_ja")
+              "summary_ja", "lore_kind", "lore_source_url", "related_ja", "theme_kind", "theme_en", "theme_ja",
+              "theme_card_ja")
 
 
 def set_png(s: dict, cards: list[dict], *, box=None, box_key: str = "", related=None, related_keys=()) -> bytes:
