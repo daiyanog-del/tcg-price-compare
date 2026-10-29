@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+{% with ga_preload=false %}{% include '_ga.html' %}{% endwith %}
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ title }} | 強欲なラボ</title>
+<link rel="canonical" href="{{ public_base_url.rstrip('/') }}{{ request.path }}">
+<link rel="icon" type="image/svg+xml" href="{{ static_url('favicon.svg') }}">
+<meta name="theme-color" content="#191b21">
+<link rel="stylesheet" href="{{ static_url('css/site-theme.css') }}">
+<link rel="stylesheet" href="{{ static_url('css/deferred.css') }}">
+<link rel="stylesheet" href="{{ static_url('css/legal.css') }}">
+<style>body{margin:0;background:var(--bg);color:var(--text-m);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Sans","Yu Gothic",sans-serif}</style>
+</head>
+<body class="price-redesign">
+{#- 利用規約・プライバシーポリシーの単独ページ（シミュレーターなど、トップのモーダルが無いページから開く。2026-10-29） -#}
+<main class="legal-page">
+  <div class="legal-page-head">
+    <h1>{{ title }}</h1>
+    <a href="/">強欲なラボのトップへ</a>
+  </div>
+  <div class="legal-modal-body">
+    {% include body_template %}
+  </div>
+  <p class="legal-page-links">
+    {% if body_template == '_legal_terms_body.html' %}<a href="/privacy">プライバシーポリシー</a>{% else %}<a href="/terms">利用規約</a>{% endif %}
+    ｜<a href="mailto:tcg.price.compare@gmail.com">お問い合わせ</a>
+  </p>
+  <p class="legal-page-links">遊戯王OCGカードの著作権は&copy;スタジオ・ダイス／集英社・テレビ東京・KONAMIに帰属します。当サイトはKONAMI社とは無関係の非公認ファンサイトです。</p>
+</main>
+</body>
+</html>
