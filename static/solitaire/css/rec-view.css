@@ -173,7 +173,7 @@ body.sol-recview-landscape .sol-field-area { padding-top: calc(var(--sol-rec-ban
 body.sol-recview-landscape .custom-layout { row-gap: 5px; }
 /* 横向きスマホは盤面のカードを少し縮めて置く（responsive.css）が、録画ではマスいっぱいに出す */
 body.sol-recview-landscape .custom-slot .tier-item-wrapper { scale: 1; translate: 0 0; }
-body.sol-recview-landscape .center-row > .sol-hand-area,
+body.sol-recview-landscape .center-row .sol-hand-area, /* 手札の行（.sol-hand-row）は横向きでは display:contents */
 body.sol-recview-landscape .center-row > #imagePool2,
 body.sol-recview-landscape .center-row > .sol-rec-deck-slot {
   display: flex; flex-direction: row; align-items: center;

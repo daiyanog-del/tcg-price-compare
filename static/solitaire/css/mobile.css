@@ -100,28 +100,37 @@
     margin-left: 0;
   }
 
-  /* ════════ 手札の右のデッキの枠（2026-10-29 ユーザー指示「録画用みたいな感じで」） ════════
+  /* ════════ 手札の右のデッキのパネル（2026-10-29 ユーザー指示「録画用みたいな感じで」「白線で区切りじゃなくて、ブロックとして独立して」） ════════
      録画用の表示の横向きの枠（rec-view.css .sol-rec-deck-slot）と同じ「縦書きの見出し＋裏向きの山」。
-     手札パネルの中に置き、区切りは盤面の凹凸と同じ色の溝（relief-theme.css の inset の影の色）で表す。
-     山の見た目・0枚・演出の光り方は rec-view.css の .sol-rec-deck-pile を使う */
+     手札パネルとは別のパネルにし、手札の行（.sol-hand-row）に並べる。パネルどうしの間は盤面の段の間（.sol-field-area の gap）と同じ。
+     面と刻印は手札・EX と同じ（relief-theme.css）。刻印は墓地・除外と同じく見出しを含むパネル全体の真ん中で、0枚で山が消えると見える。
+     山の見た目・演出の光り方は rec-view.css の .sol-rec-deck-pile を使う */
+  .sol-hand-row {
+    order: 2;
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+    width: 100%;
+  }
+  /* order は responsive.css の .sol-field-area 内の並び（手札＝2）を行の箱へ移したので、行の中では DOM の順（手札→デッキ）に戻す */
+  .sol-hand-row .sol-hand-area { order: 0; flex: 1 1 0; width: auto; min-width: 0; }
   .sol-mobile-deck-slot {
     position: relative;
     display: flex;
     flex: none;
     align-items: center;
     gap: 4px;
-    padding-left: 6px;
-    box-shadow: inset 1px 0 0 #0f101466, inset 2px 0 0 #b6bbc826;
+    box-sizing: border-box;
+    /* 箱の寸法は手札パネルと同じ（余白 2px 8px・縁は透明の1px・角 --radius。solitaire-brand.css / site-theme.css） */
+    padding: 2px 8px;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
   }
   .sol-mobile-deck-slot .pool-label { align-self: stretch; cursor: pointer; }
   .sol-mobile-deck-slot .sol-rec-deck-pile { flex: none; }
   .sol-mobile-deck-slot.is-empty .sol-rec-deck-pile { visibility: hidden; }
-  /* 0枚: 山の場所にデッキの刻印だけ残す（録画用の表示の横向きの枠と同じ。刻印の画像・大きさは relief-theme.css の #imagePool と同じ） */
-  .sol-mobile-deck-slot.is-empty {
-    background: url('../icons/deck-relief.svg?v=2') no-repeat right calc(var(--slot-width) * .12) center / calc(var(--slot-width) * .76) auto;
-  }
   .sol-mobile-deck-slot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   /* デッキの読込中（mobile-ui.js setDeckBtnLoading）: 山を薄くして文字を重ねる */
   .sol-mobile-deck-slot.sol-loading { cursor: default; }
@@ -129,15 +138,11 @@
   .sol-mobile-deck-slot.sol-loading::after {
     content: '読込中…';
     position: absolute;
-    right: 0; top: 0; bottom: 0;
+    right: 8px; top: 0; bottom: 0;
     width: var(--slot-width);
     display: flex; align-items: center; justify-content: center;
     color: var(--main-color);
     font-size: 0.7rem; font-weight: 700;
-  }
-  /* 手札の刻印は、デッキの枠を除いた手札の欄の真ん中に寄せる（枠の幅＝山＋見出し16px＋隙間4px＋左の余白6px） */
-  .sol-field-area .sol-hand-area {
-    background-position: calc(50% - (var(--slot-width) + 26px) / 2) center, center, center;
   }
   #imagePool2 .tier-row {
     flex: 1;
@@ -1473,6 +1478,10 @@
   .sol-mobile-record-btn.recording .sol-mobile-record-ico { display: none; }
 }
 
+/* 手札の行（縦向きスマホで手札とデッキのパネルを並べる箱）は、PC・横向きでは箱を作らない（手札パネルが .center-row の子として並ぶ） */
+@media not all and (max-width: 767px) and (orientation: portrait) {
+  .sol-hand-row { display: contents; }
+}
 /* ════════ H-1: portrait を外れた瞬間の二重防御（致命的バグ対策） ════════
    mobile.css 全体が @media (max-width:767px) and (orientation:portrait) 内なので、
    回転やウィンドウ幅変更で portrait を外れると中身が一切適用されなくなり、JS が hidden を

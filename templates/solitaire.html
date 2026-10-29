@@ -263,10 +263,14 @@
 
       <!-- 手札 + EXデッキ -->
       <div class="center-row">
-        <div class="sol-hand-area" ondrop="drop(event)" ondragover="allowDrop(event)">
-          <div class="pool-label">手札</div>
-          <div class="center-slot" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
-          <!-- 縦向きスマホだけ: 手札の右にデッキを1枚分の枠で置く（2026-10-29 ユーザー指示。録画用の表示の横向きの枠と同じ見た目）。
+        <!-- 手札の行: 縦向きスマホは手札パネルの右にデッキのパネルを並べる。PC・横向きでは display:contents で
+             中の手札パネルが .center-row の子として並ぶ（mobile.css .sol-hand-row） -->
+        <div class="sol-hand-row">
+          <div class="sol-hand-area" ondrop="drop(event)" ondragover="allowDrop(event)">
+            <div class="pool-label">手札</div>
+            <div class="center-slot" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+          </div>
+          <!-- 縦向きスマホだけ: 手札の右にデッキを1枚分の独立したパネルで置く（2026-10-29 ユーザー指示。録画用の表示の横向きの枠と同じ見た目）。
                押すとデッキシート（mobile-ui.js openDeckSheet）。ドローなどの演出は中の山から飛ぶ（replay-service.js _getDeckAnchorEl）。
                PC・横向きでは mobile.css で隠す -->
           <div id="solMobileDeckSlot" class="sol-mobile-deck-slot" role="button" tabindex="0" aria-label="デッキを開く">
