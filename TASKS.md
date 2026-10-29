@@ -12,6 +12,8 @@
   - [x] 本番 DB に tcg_announce_cards.sql を適用（10-29 済）・PR #247 本番（b891e94）・手動の初回取り込みで Maze of Machines 8枚（要約6・$0.13）
   - [x] 投稿を有効にする前の直し（10-29 本番 PR #252・#254）: 本文の見出しを残す・写真が無い弾の初報の画像・連載は表紙のカードから・要約の「数・回数の条件」。#254 は2回目の取り込みで弾の行の upsert が slug の NOT NULL で落ちたのを update に直した。Maze of Machines の要約は作り直し済み
   - [x] 投稿用の要約が長く末尾が「…」で切れる → 1文・45字以内に・入らないときは文の切れ目で切る・文末の「。」をそろえる（10-29 PR #257/#258 本番・6枚作り直し済み、本文は 233〜279/280）
+  - [x] 商品写真は Yugipedia に無ければ米国の卸 Prince Distribution（Shopify の search/suggest.json）から取る・写真が無い画像に出どころの一行・白地の影が粉になる切り抜きを直す（10-30 本番 PR #264）。効果の名前（ALPHA など）は札にせず「・」で並べる（同 PR #266）。Maze of Machines は写真入りになった
+  - [ ] 卸の写真が毎回 Yugipedia より早く載るかは1弾でしか見ていない。次の弾で取り込みのログと box_image_url の出どころを確かめる
   - [ ] 投稿の有効化: GitHub Variables `TCG_ANNOUNCE_X_POST_ENABLED=1`（ユーザー確認後。先に手動実行の dry_run で本文を確かめる）
   - [ ] 校正: CARD_HOURS（19〜23時）・UPDATE_MIN_NEW（3）・UPDATE_MIN_HOURS（20）・CLOSE_AFTER_DAYS（30）・MAX_SUMMARIZE（40）を tweet_log の閲覧数と実際の弾の出方から見直す
   - [ ] Maze of Machines の英語版発売（2027-03-19）後、公式DBに載ったカードが in_db になり /tcg-preview に引き継がれるかを本番で確かめる
