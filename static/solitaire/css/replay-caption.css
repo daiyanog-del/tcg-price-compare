@@ -21,14 +21,8 @@
 @media (max-width: 767px) and (orientation: portrait) {
   body:not(.sol-playback):not(.sol-recview) .sol-replay-caption { display: none; }
 }
-.sol-replay-caption.is-new { animation: solReplayCaptionIn 0.25s ease-out; }
-@keyframes solReplayCaptionIn {
-  from { opacity: 0.35; transform: translateY(4px); }
-  to { opacity: 1; transform: none; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .sol-replay-caption.is-new { animation: none; }
-}
+/* 手が変わるたびに浮かび上がらせる演出は 2026-10-30 にやめた（自動再生で点滅して見づらい・ユーザー指摘）。
+   どの手か分かる合図は、置いた先の印（landing-mark.css）が受け持つ */
 
 .sol-replay-caption-thumb {
   flex: none;
@@ -64,6 +58,45 @@
   font-size: 11.5px; font-weight: 700;
   text-shadow: none;
 }
+
+/* 録画用の表示（PC の並び）: 盤面の左の空きに、カードを大きく（2026-10-30 ユーザー選択の R1。モック _mocks/replay-caption-pc-20261030）。
+   幅は JS（replay-caption.js）が空きに合わせて --sol-caption-side-w と left・top で入れる */
+.sol-replay-caption.is-side {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 0;
+  background: none;
+}
+.sol-replay-caption.is-side .sol-replay-caption-thumb {
+  width: min(var(--sol-caption-side-w, 200px), 260px);
+  height: calc(min(var(--sol-caption-side-w, 200px), 260px) * 1.45);
+  border-radius: 8px;
+}
+.sol-replay-caption.is-side .sol-replay-caption-name { font-size: 24px; white-space: normal; }
+.sol-replay-caption.is-side .sol-replay-caption-move { font-size: 18px; flex-wrap: wrap; white-space: normal; row-gap: 4px; }
+/* 録画用の表示（PC の並び）で盤面の左が狭い画面: 上の帯（rec-view.css .sol-rec-band・z-index 1100）の右寄り、手数の札の左に1行。
+   題名はロゴの横へ寄せる（rec-view.css body.sol-rec-caption-top。題名 30vw・字幕 45vw までにして重ならないように） */
+.sol-replay-caption.is-top {
+  top: 0;
+  left: auto;
+  right: 120px; /* 手数の札（rec-view.css .sol-rec-count）の幅と余白 */
+  max-width: 45vw;
+  height: var(--sol-rec-band-h);
+  padding: 0;
+  z-index: 1101;
+  background: none;
+}
+.sol-replay-caption.is-top .sol-replay-caption-thumb { width: 28px; height: 41px; }
+.sol-replay-caption.is-top .sol-replay-caption-body { display: flex; align-items: baseline; gap: 12px; }
+
+/* PC のリプレイ画面: カード詳細パネル（.sol-cip-col）の上に添える「元の場所 → 行き先」の行（replay-caption.js _showInCip） */
+.sol-cip-replay-move {
+  padding: 8px 10px 6px;
+  font-family: var(--font);
+}
+.sol-cip-replay-move[hidden] { display: none; }
+.sol-cip-replay-move .sol-replay-caption-move { flex-wrap: wrap; white-space: normal; row-gap: 3px; font-size: 13px; text-shadow: none; }
 
 /* PC: 文字を少し大きく（帯の幅が広いので） */
 @media (min-width: 768px) {

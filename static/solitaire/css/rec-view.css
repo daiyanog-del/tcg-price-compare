@@ -112,6 +112,13 @@ body.sol-recview .sol-field-area { padding-top: calc(var(--sol-rec-band-h) + 8px
 }
 .sol-rec-ctl:hover { background: var(--bg-hover); }
 
+/* 字幕を帯の真ん中に出しているとき（盤面の左が狭い PC の並び。replay-caption.js）: 題名はロゴの横へ寄せて小さく */
+body.sol-rec-caption-top .sol-rec-title {
+  flex: 0 1 auto; max-width: 30vw;
+  text-align: left; font-size: 1rem; color: #a8b4c9;
+}
+body.sol-rec-caption-top .sol-rec-count { margin-left: auto; } /* 題名が縮むので、手数の札は右端に置き直す */
+
 /* 縦向きスマホ（mobile.css と同じ条件） */
 @media (max-width: 767px) and (orientation: portrait) {
   :root { --sol-rec-band-h: 46px; }

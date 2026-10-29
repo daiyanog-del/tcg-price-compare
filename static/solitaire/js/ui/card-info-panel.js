@@ -50,19 +50,8 @@ export function initCardInfoPanel() {
   document.addEventListener('click', (e) => {
     const cardEl = e.target.closest('.tier-item');
     if (!cardEl) return;
-    const name = cardEl.dataset.cardName;
-    const isSample = !!cardEl.closest('.sample-art');
-    // プロキシカードは src がないため空文字または undefined になる
-    const imgSrc = cardEl.src || '';
-    if (cardEl.closest('.tier-item-wrapper')?.dataset.token === '1') {
-      // トークン: 名前は利用者が付けたもの。実在のカード名と同じでも、そのカードの情報は引かない
-      showTokenInfo(imgSrc, name);
-    } else if (name) {
-      _fetchAndShow(name, imgSrc, isSample);
-    } else {
-      // 名前不明（ニューロン画像等）: サムネだけ表示
-      _showUnknown(imgSrc, undefined, undefined, undefined, true, isSample);
-    }
+    showCardForElement(cardEl);
+    document.dispatchEvent(new CustomEvent('sol-cip-card-clicked')); // ui/replay-caption.js が再生の字幕の行を下げる
     // 狭い画面では盤面の上へ広げて読めるようにする（広い画面では何もしない）
     setCipExpanded(true);
   });
@@ -87,7 +76,38 @@ export function initCardInfoPanel() {
   _showEmpty();
 }
 
+/**
+ * 盤面のカード（.tier-item）の詳細をパネルに出す。カードを押したときと、リプレイで手を進めたとき
+ * （ui/replay-caption.js。PC のリプレイ画面は動いたカードをこのパネルに出す・2026-10-30 ユーザー指示）に使う。
+ * @param {Element} cardEl - img.tier-item（発売済み）または div.tier-item（プロキシ）
+ */
+export function showCardForElement(cardEl) {
+  if (!cardEl) return;
+  const name = cardEl.dataset.cardName;
+  const isSample = !!cardEl.closest('.sample-art');
+  // プロキシカードは src がないため空文字または undefined になる
+  const imgSrc = cardEl.src || '';
+  if (cardEl.closest('.tier-item-wrapper')?.dataset.token === '1') {
+    // トークン: 名前は利用者が付けたもの。実在のカード名と同じでも、そのカードの情報は引かない
+    _reqSeq++;
+    showTokenInfo(imgSrc, name);
+  } else if (name) {
+    _fetchAndShow(name, imgSrc, isSample);
+  } else {
+    // 名前不明（ニューロン画像等）: サムネだけ表示
+    _reqSeq++;
+    _showUnknown(imgSrc, undefined, undefined, undefined, true, isSample);
+  }
+}
+
 // ── 内部処理 ──────────────────────────────────────
+
+// 取得の順番待ち: 後から頼んだカードの結果が先に描かれた後で、前の結果が届いても描かない
+// （リプレイの自動再生で手が速く進むと、届く順が入れ替わって前の手のカードが残っていた）
+let _reqSeq = 0;
+// 同じカードの詳細・価格は1ページの間使い回す（リプレイで同じカードを何度も出すたびに取りに行かない）。
+// 失敗したものは覚えない
+const _fetchCache = new Map(); // name -> Promise<{data, priceData}>
 
 /**
  * SAMPLEフラグは各描画関数の引数で受け取り、描画した img 自体に data-sample を付ける。
@@ -97,15 +117,31 @@ function _sampleAttr(isSample) {
   return isSample ? ' data-sample="1"' : '';
 }
 
+function _fetchCardData(name) {
+  let p = _fetchCache.get(name);
+  if (!p) {
+    p = (async () => {
+      const [infoRes, priceRes] = await Promise.all([
+        fetch(`${API_CARD_INFO}?name=${encodeURIComponent(name)}`),
+        fetch(`${API_PRICE_HISTORY}?card=${encodeURIComponent(name)}`).catch(() => null),
+      ]);
+      const data = await infoRes.json();
+      const priceData = priceRes ? await priceRes.json().catch(() => null) : null;
+      return { data, priceData };
+    })();
+    _fetchCache.set(name, p);
+    p.catch(() => _fetchCache.delete(name));
+  }
+  return p;
+}
+
 async function _fetchAndShow(name, imgSrc, isSample = false) {
-  _showLoading(name, imgSrc, undefined, isSample);
+  const seq = ++_reqSeq;
+  // 一度取ったカードは「読み込み中」を挟まない（リプレイで手を進めるたびにパネルがちらつかないように）
+  if (!_fetchCache.has(name)) _showLoading(name, imgSrc, undefined, isSample);
   try {
-    const [infoRes, priceRes] = await Promise.all([
-      fetch(`${API_CARD_INFO}?name=${encodeURIComponent(name)}`),
-      fetch(`${API_PRICE_HISTORY}?card=${encodeURIComponent(name)}`).catch(() => null),
-    ]);
-    const data = await infoRes.json();
-    const priceData = priceRes ? await priceRes.json().catch(() => null) : null;
+    const { data, priceData } = await _fetchCardData(name);
+    if (seq !== _reqSeq) return; // もっと新しいカードを頼んである
     if (data.found) {
       // 発売済みカード: 情報は data 直下にある
       _renderCard(data, imgSrc, name, priceData, undefined, true, isSample);
@@ -116,6 +152,7 @@ async function _fetchAndShow(name, imgSrc, isSample = false) {
       _showUnknown(imgSrc, name, priceData, undefined, true, isSample);
     }
   } catch {
+    if (seq !== _reqSeq) return;
     _showUnknown(imgSrc, name, null, undefined, true, isSample);
   }
 }
