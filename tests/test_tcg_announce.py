@@ -749,3 +749,13 @@ def test_写真が無い画像には出どころの一行():
     for kw in ({"related": rel}, {"related": []}, {"box": _img(400, 300, (200, 200, 200)), "related": rel}):
         assert og.render_set_png(SET, cards, **kw)[:4] == bytes([0x89]) + b"PNG"
     assert og.render_card_png(SET, cards[0], ["B"])[:4] == bytes([0x89]) + b"PNG"
+
+
+def test_宣伝文の効果の名前は札にせず点で並べる(client, monkeypatch):
+    import tcg_announce_view as view
+    entry = view._fetch()["maze-of-machines"]
+    entry["cards"][0]["summary_ja"] = {"intro": "", "effects": [{"label": "ALPHA", "text": "カードを手札に加える。"}]}
+    monkeypatch.setattr(view, "_fetch", lambda: {"maze-of-machines": entry})
+    view._cache.update(at=0.0, data=None)
+    html = client.get("/tcg-preview/maze-of-machines").get_data(as_text=True)
+    assert "<li>カードを手札に加える。</li>" in html and "ALPHA" not in html
