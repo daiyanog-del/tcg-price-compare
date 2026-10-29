@@ -638,3 +638,43 @@ def test_商品写真が無い弾の画像はカードを右に並べる():
     for r in (rel, rel[:1]):
         png = og.render_set_png(SET, CARDS, related=r)
         assert png[:4] == bytes([0x89]) + b"PNG"
+
+
+def test_既にある弾は書き換えで送り_slugを外したupsertにしない():
+    calls = []
+
+    class T:
+        def __init__(self, name):
+            self.name = name
+
+        def upsert(self, payload, on_conflict=None):
+            calls.append(("upsert", self.name, payload))
+            return self
+
+        def update(self, payload):
+            calls.append(("update", self.name, payload))
+            return self
+
+        def eq(self, *a):
+            return self
+
+        def execute(self):
+            return type("R", (), {"data": []})()
+
+    class SB:
+        def table(self, name):
+            return T(name)
+
+    s = {"prefix": "MZMC", "slug": "maze-of-machines", "name_en": "Maze of Machines", "list_title": "x",
+         "tcg_release_date": "2027-03-19"}
+    collected = {"sets": [s], "changed": [], "seen_ids": {}, "retire": [], "drop": [], "skipped_known": 0}
+    from datetime import date
+    tw.process(collected, {}, sb=SB(), client=None, model="m", mirror=None, summarize_on=False, dry_run=False,
+               today=date(2026, 10, 29), known_sets={"MZMC": {"prefix": "MZMC", "slug": "maze-of-machines"}})
+    assert [(k, n) for k, n, _ in calls] == [("update", "tcg_announce_sets")]
+    assert "slug" not in calls[0][2]
+    calls.clear()
+    tw.process(collected, {}, sb=SB(), client=None, model="m", mirror=None, summarize_on=False, dry_run=False,
+               today=date(2026, 10, 29), known_sets={})
+    assert [(k, n) for k, n, _ in calls] == [("upsert", "tcg_announce_sets")]
+    assert calls[0][2]["slug"] == "maze-of-machines"

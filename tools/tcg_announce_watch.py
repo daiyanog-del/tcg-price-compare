@@ -490,7 +490,12 @@ def process(collected: dict, known_cards: dict[int, dict], *, sb, client, model:
         if dry_run:
             logger.info(f"[dry-run] 弾 {s['prefix']} {s['name_en']}（発売 {rd}・収録 {s.get('size')}）")
         else:
-            sb.table(SETS).upsert(payload, on_conflict="prefix").execute()
+            if s["prefix"] in (known_sets or {}):
+                # 既にある弾は書き換え（update）。slug を外した行を upsert で送ると、DB が INSERT の形で先に
+                # NOT NULL を確かめて弾く（2026-10-29 本番の2回目の取り込みで失敗した）
+                sb.table(SETS).update(payload).eq("prefix", s["prefix"]).execute()
+            else:
+                sb.table(SETS).upsert(payload, on_conflict="prefix").execute()
 
     # 変わったカードが属する・サポートするテーマの日本語名（テーマのページを1回でまとめて読む）
     arch_ja: dict[str, str] = {}
