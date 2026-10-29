@@ -28,6 +28,13 @@ function element(extra) {
 }
 const els = new Map();
 const get = id => { if (!els.has(id)) els.set(id, element()); return els.get(id); };
+// 見出しの画像の置き場は、中の <img> の src を読めるようにする
+els.set('heroImgWrap', element({
+  querySelector(sel) {
+    const m = sel === 'img' && /<img src="([^"]*)"/.exec(this.innerHTML);
+    return m ? { getAttribute: () => m[1].replace(/&amp;/g, '&') } : null;
+  },
+}));
 const segBtns = [element({ dataset: { v: 'shop' } }), element({ dataset: { v: 'all' } })];
 const ga = [];
 const sandbox = {
@@ -41,7 +48,7 @@ const sandbox = {
 };
 vm.createContext(sandbox);
 vm.runInContext(`
-let D=[],sort={k:'price',a:true},rarityFilter='',artFilter='',cardImgSmall='',tableShowCount=20,listView='shop',_currentCardName='灰流うらら';
+let D=[],sort={k:'price',a:true},rarityFilter='',artFilter='',cardImgUrl='',cardImgSmall='',tableShowCount=20,listView='shop',_currentCardName='灰流うらら';
 let _buyInlineD=null,_buyInlineFetched=false,_buyInlineFailedShops=[];
 let _affConfig={};
 const TABLE_PAGE_SIZE=20;
@@ -268,6 +275,32 @@ assert(get('heroBest').innerHTML.includes('<span class="cr-best-price">¥100</sp
 run(`D=${JSON.stringify([row('まんぞく屋', 180, 'ウルトラ', { art: '' }), row('遊々亭', 320, 'ウルトラ', { art: '元のイラスト' })])}; artFilter='イラスト違い'; rarityFilter='ウルトラ'; _renderArtFilter()`);
 assert.equal(get('artFilter').classList.contains('hidden'), true);
 assert.equal(run('artFilter'), '');
+
+// 11) 型番ごと違う絵の再録（2026-10-29 三戦の号のスーパー＝CH01 の違う絵だけ）: 無印の店の行にも絵の札を出し、
+// 見出しの画像を違う絵の店の画像に替える。元の絵・絵が混ざるときはカード名の画像に戻す
+const IMG = 'https://example.test/card.jpg';
+run(`cardImgUrl='${IMG}'; _currentCardName='三戦の号'`);
+get('heroImgWrap').innerHTML = `<img src="${IMG}" alt="">`;
+run(`D=${JSON.stringify([
+  row('まんぞく屋', 80, 'スーパー', { art: '', name: '三戦の号', image: 'https://example.test/manzoku.jpg' }),
+  row('カーナベル', 85, 'スーパー', { art: 'イラスト違い', name: '三戦の号(イラスト違い)', image: 'https://example.test/kanabell.jpg' }),
+  row('カードラボ', 100, 'スーパー', { art: 'イラスト違い', name: '三戦の号', image: 'https://example.test/labo.jpg' }),
+  row('トレコロCB', 180, 'スーパー', { art: 'イラスト違い', name: '三戦の号', image: 'https://example.test/torecolo.jpg' }),
+  row('遊々亭', 200, 'シークレット', { art: '元のイラスト', name: '三戦の号', image: 'https://example.test/yuyu-base.jpg' }),
+  row('遊々亭', 220, 'シークレット', { art: 'イラスト違い', name: '三戦の号', image: 'https://example.test/yuyu-alt.jpg' }),
+])}; rarityFilter='スーパー'; artFilter=_defaultArt('スーパー'); listView='all'; _renderArtFilter(); renderTable(); _updateHeroSummary()`);
+assert.equal(get('artFilter').classList.contains('hidden'), true, '絵が1種類なので切り替えは出さない');
+h = get('tbody').innerHTML;
+assert.equal(count(h, '<span class="cr-tag">イラスト違い</span>'), 3, '無印のカードラボ・トレコロにも札。カーナベルは名前どおり1つだけ');
+assert(get('heroImgWrap').innerHTML.includes('https://example.test/torecolo.jpg'), '在庫ありのトレコロの画像を先に使う');
+run(`rarityFilter='シークレット'; artFilter=_defaultArt('シークレット'); _updateHeroSummary()`);
+assert.equal(run('artFilter'), '元のイラスト');
+assert(get('heroImgWrap').innerHTML.includes(IMG), '元の絵を選んだらカード名の画像に戻す');
+run(`setArtFilter('イラスト違い')`);
+assert(get('heroImgWrap').innerHTML.includes('https://example.test/yuyu-alt.jpg'), '違う絵を選べばその絵の画像');
+run(`setArtFilter('')`);
+assert(get('heroImgWrap').innerHTML.includes(IMG), '絵が混ざる「すべての絵」はカード名の画像');
+run(`rarityFilter=''; artFilter=''; _currentCardName='灰流うらら'`);
 
 // 9) renderAll は新しいカードで「店ごとの最安」・価格順・売り切れを隠した状態に戻す（配線の静的確認）
 const ra = block('function renderAll(', 'function _summaryShopItems(');

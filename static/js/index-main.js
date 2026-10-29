@@ -1318,7 +1318,7 @@ function _renderBuyInline(){
     // 理由を画面から分かるようにしつつ、弾の略号や壊れた値をそのまま型番として見せない）
     const codeStr=_looksLikeCardCode(item.code)?`・${esc(item.code)}`:'';
     // カード名は同じ名前をくり返さず、イラスト違いなど名前が違うときだけ出す（一覧の札と同じ）
-    const variant=_variantLabel(item.name,_currentCardName);
+    const variant=_rowVariant(item,_currentCardName);
     // レアリティを選んでいて、同じ店・同じ型番の未開封・付属品つきが通常品より高いときだけ、その値段を添える
     // （別の型番・レアリティの未開封を添えない。未開封しか無い店はその行自体に札）
     const sealed=_looksLikeCardCode(item.code)?sealedByShopCode[item.shop+'|'+item.code]:null;
@@ -1364,6 +1364,7 @@ function _updateHeroSummary(){
   if(soCountEl){
     soCountEl.textContent=_scopedRows().filter(r=>r.sold_out).length;
   }
+  _syncHeroArtImage(); // 見出しの画像も選んだ絵に合わせる
 }
 
 // 購入候補に追加ボタンの文言を選択中のレアリティに合わせる。
@@ -1487,6 +1488,42 @@ function setArtFilter(a){
   renderTable();
 }
 
+// 見出しの画像。選んだレアリティ・絵が元の絵でないとき（例: 三戦の号のスーパーは CH01 の違う絵しか無い）は、
+// その絵の店の商品画像に替える。カード名で引く画像（cardImgUrl）は元の絵なので、違う絵の値段に元の絵を添えない（2026-10-29 ユーザー指摘）。
+// 絵が混ざる・元の絵・判別できない行だけのときはカード名の画像。店は商品ごとに画像を持つトレコロ・カーナベルを先に、在庫ありを先に
+const HERO_ART_SHOPS=['トレコロCB','カーナベル','遊々亭','カードラボ','カードラッシュ'];
+function _heroArtImage(){
+  if(!rarityFilter) return '';
+  const rows=D.filter(r=>r.rarity===rarityFilter&&_isJp(r)&&r.art&&_inArt(r,artFilter));
+  const arts=new Set(rows.map(r=>r.art));
+  if(arts.size!==1||arts.has('元のイラスト')) return '';
+  const rank=r=>(r.sold_out?10:0)+(HERO_ART_SHOPS.indexOf(r.shop)+1||9);
+  const withImg=rows.filter(r=>safeUrl(r.image||'')).sort((a,b)=>rank(a)-rank(b));
+  return withImg.length?safeUrl(withImg[0].image):'';
+}
+function _syncHeroArtImage(){
+  const wrap=document.getElementById('heroImgWrap');
+  if(!wrap) return;
+  const src=_heroArtImage();
+  const cur=wrap.querySelector('img');
+  if(src){
+    if(!cur||cur.getAttribute('src')!==src) wrap.innerHTML='<img src="'+escAttr(src)+'" alt="" loading="eager">';
+    wrap.dataset.artImg='1';
+  }else if(wrap.dataset.artImg==='1'){
+    // 店の画像からカード名の画像へ戻す（まだ届いていなければ置き場。届いたら _applyCardImages が入れる）
+    delete wrap.dataset.artImg;
+    wrap.innerHTML=cardImgUrl?'<img src="'+escAttr(cardImgUrl)+'" alt="" loading="eager">':'<div class="cr-img-ph"></div>';
+  }
+}
+
+// 一覧の札。商品名がカード名と違えばその違う部分。無印の商品名でも、判定で元と違う絵になった行（型番ごと違う絵の再録・
+// トレコロの S の商品番号）は絵の名前を出す（10-29 三戦の号: カーナベルにだけ「イラスト違い」が付いていた）
+function _rowVariant(r,cardName){
+  const v=_variantLabel(r.name,cardName);
+  if(v||r.edition||!r.art||r.art==='元のイラスト') return v;
+  return r.art;
+}
+
 // 店舗の出品名がカード名と違うとき（「灰流うらら(既存イラスト)」など）だけ、違う部分を札にする
 function _variantLabel(name,cardName){
   if(!name||!cardName||name===cardName) return '';
@@ -1538,7 +1575,7 @@ function renderTable(){
       :'';
     // J-4: 状態が「-」以外（状態C・中古キズあり・セールなど）だけ出す。セールは目印の色
     const cond=r.condition==='セール'?'<span class="cr-sale">セール</span>':(r.condition&&r.condition!=='-'?esc(r.condition):'');
-    const variant=_variantLabel(r.name,cardName);
+    const variant=_rowVariant(r,cardName);
     const tags=(isBest?'<span class="cr-best-tag">最安</span>':'')+
       (shownRarity?'':`<span class="cr-tag">${esc(r.rarity||'-')}</span>`)+
       (variant?`<span class="cr-tag">${esc(variant)}</span>`:'');
