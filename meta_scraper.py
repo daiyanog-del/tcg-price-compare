@@ -339,7 +339,10 @@ def fetch_deck_cards(theme_name: str, force: bool = False) -> dict:
     if recipes:
         full_deck = fetch_recipe_deck(recipes[0]["url"])
 
-    if not cards:
+    if not cards and "カード使用頻度データがありません" in page_text:
+        # 使用率の低いデッキはサイト側に主要カードのデータが無い（2026-10-29 Tier 4 の7件）。構造変更ではない
+        print(f"  meta_scraper: 主要カードのデータがサイトに無いデッキです: {url}")
+    elif not cards:
         # ページは取れたのに主要カードが0件＝相手サイトの構造変更の疑い（07-10・10-28 と2回とも黙って空になった）
         print(f"  meta_scraper 警告: 主要カードを読めませんでした（構造変更の疑い）: {url}")
 
