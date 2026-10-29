@@ -47,7 +47,7 @@ def set_page(slug: str):
     return render_template(
         "tcg_announce.html", s=s, cards=entry["cards"], focus_card=focus_card, og_path=og,
         anchor=view.anchor, stats_line=tcg_announce_og.stats_line, format_release=tcg_announce_og.format_release_ja,
-        summary_of=tcg_announce_og.summary_of,
+        summary_of=tcg_announce_og.summary_of, headline=tcg_announce_og.headline,
         known=len(entry["cards"]), sources=[x for x in sources if x],
         updated=max((c.get("updated_at") or "" for c in entry["cards"]), default="")[:10].replace("-", "/"),
     )
@@ -130,12 +130,16 @@ def _related_images(names: list[str], limit: int) -> list[tuple[str, object, str
 
 
 def set_related_names(cards: list[dict]) -> list[str]:
-    """弾のゆかりのカード（カードの並び順に、重ならないように）。"""
+    """弾の画像に並べる既存カード: ゆかりのカード（カードの並び順）→ テーマの代表カード。重ならないように。"""
     names: list[str] = []
     for c in cards:
         for r in c.get("related_ja") or []:
             if r not in names:
                 names.append(r)
+    for c in cards:
+        t = c.get("theme_card_ja") if c.get("theme_kind") in ("member", "support", "new_theme") else ""
+        if t and t not in names:
+            names.append(t)
     return names
 
 
@@ -164,7 +168,8 @@ def card_og(slug: str, anchor: str):
     others = [c["name_en"] for c in entry["cards"] if c is not card]
     s = entry["set"]
     box = _image(s.get("box_image_url"))
-    rel = _related_images(card.get("related_ja") or [], 1)
+    pic = tcg_announce_og.picture_card(card)  # ゆかりのカード → テーマの代表カード
+    rel = _related_images([pic] if pic else [], 1)
     return _png(tcg_announce_og.card_png(s, card, others, box=box, box_key=s.get("box_image_url") or "" if box else "",
                                          related=(rel[0][0], rel[0][1]) if rel else None,
                                          related_key=rel[0][2] if rel else ""))

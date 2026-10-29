@@ -27,7 +27,7 @@ import card_og_image as cog
 from deck_image import _get_font
 
 W, H = cog.W, cog.H
-DESIGN_VERSION = "b4"   # 見た目を変えたら上げる
+DESIGN_VERSION = "b7"   # 見た目を変えたら上げる
 
 _TEXT, _SUB, _GOLD = cog._TEXT, cog._SUB, cog._GOLD
 _PANEL = (0x20, 0x23, 0x2b)       # --bg-card
@@ -246,6 +246,45 @@ def stats_line(card: dict) -> str:
     return "　".join(p for p in parts if p)
 
 
+def headline(card: dict, set_name: str = "") -> str:
+    """カードの見出し（画像・ページ・投稿で共通）。2026-10-29 ユーザー合意の4つの出し分け:
+    ゆかりのカード（宣伝文が名指しする既存カード）→ 既存テーマの一員・サポート → 英語版が先に作った新テーマ → 弾の名前。"""
+    if card.get("related_ja"):
+        return f"《{card['related_ja'][0]}》ゆかりの新カード"
+    kind = card.get("theme_kind") or ""
+    theme = card.get("theme_ja") or (f"「{card['theme_en']}」" if card.get("theme_en") else "")
+    if kind == "member" and theme:
+        return f"【{card['theme_ja']}】の新規カード" if card.get("theme_ja") else f"{theme}の新規カード"
+    if kind == "support" and theme:
+        return f"【{card['theme_ja']}】をサポートする新カード" if card.get("theme_ja") else f"{theme}をサポートする新カード"
+    if kind == "new_theme" and card.get("theme_en"):
+        return f"新テーマ「{card['theme_en']}」の新カード"
+    return f"「{set_name}」の新カード" if set_name else "英語版の新カード"
+
+
+def set_headline(cards: list[dict]) -> str:
+    """弾の画像の見出し（既存カードの絵を並べるとき）。ゆかりのカードがあれば「あのカード」、テーマだけならテーマ名。"""
+    if any(c.get("related_ja") for c in cards):
+        return "あのカードゆかりの新カードが判明"
+    themes = [c["theme_ja"] for c in cards if c.get("theme_kind") in ("member", "support") and c.get("theme_ja")]
+    if themes:
+        first = themes[0]
+        return f"【{first}】の新規カードが判明" if len(set(themes)) == 1 else f"【{first}】などの新規カードが判明"
+    new = [c["theme_en"] for c in cards if c.get("theme_kind") == "new_theme" and c.get("theme_en")]
+    if new:
+        return f"新テーマ「{new[0]}」の新カードが判明"
+    return "新カードの効果が判明"
+
+
+def picture_card(card: dict) -> str:
+    """画像に出す既存カード（ゆかりのカード → テーマの代表カード）。無ければ空文字。"""
+    if card.get("related_ja"):
+        return card["related_ja"][0]
+    if card.get("theme_kind") in ("member", "support", "new_theme"):
+        return card.get("theme_card_ja") or ""   # 新テーマでも一員の既存カードがあれば（Heavy Metal → 鋼鉄の襲撃者）
+    return ""
+
+
 def summary_of(card: dict) -> dict:
     """要約を {intro, effects: [{label, text}]} で返す（2026-10-29 の作り直し前の「文の配列」も読む）。"""
     s = card.get("summary_ja") or {}
@@ -374,8 +413,8 @@ def render_set_png(s: dict, cards: list[dict], *, box: Image.Image | None = None
     draw_text(d, (x0, 186), sub, _SUB, size=24)
 
     if related:
-        draw_text(d, (x0, 242), "あのカードゆかりの新カードが判明", _GOLD, size=36, bold=True)
-        ch = 196
+        draw_text(d, (x0, 242), set_headline(cards), _GOLD, size=36, bold=True)
+        ch = 190   # 4枚が右の余白に収まる高さ（196 だと4枚目が数px はみ出して落ちた）
         x = x0
         for _, img in related:
             im = _fit_h(img, ch)
@@ -419,21 +458,16 @@ def render_card_png(s: dict, card: dict, others: list[str], *, box: Image.Image 
     _badges(d, x0, 44, [("TCG先行", _TCG), (head, _GOLD)])
 
     y = 112
-    if related:
-        one = f"《{related[0]}》ゆかりの新カード"
-        fit = next((sz for sz in (28, 26, 24) if text_width(d, one, jp(sz, True), sz, True) <= text_w), None)
-        if fit:
-            draw_text(d, (x0, y), one, _GOLD, size=fit, bold=True)   # 1行に収まるなら1行（効果の場所を空ける）
-            y += 54
-        else:
-            for ln in wrap(d, f"《{related[0]}》", text_w, 2, size=28, bold=True):
-                draw_text(d, (x0, y), ln, _GOLD, size=28, bold=True)
-                y += 36
-            draw_text(d, (x0, y), "ゆかりの新カード", _GOLD, size=28, bold=True)
-            y += 54
+    head = headline(card, s.get("name_en") or "")
+    fit = next((sz for sz in (28, 26, 24) if text_width(d, head, jp(sz, True), sz, True) <= text_w), None)
+    if fit:
+        draw_text(d, (x0, y), head, _GOLD, size=fit, bold=True)   # 1行に収まるなら1行（効果の場所を空ける）
+        y += 54
     else:
-        draw_text(d, (x0, y), f"「{s.get('name_en') or ''}」の新カード", _GOLD, size=28, bold=True)
-        y += 56
+        for ln in wrap(d, head, text_w, 2, size=26, bold=True):
+            draw_text(d, (x0, y), ln, _GOLD, size=26, bold=True)
+            y += 34
+        y += 20
     for ln in wrap_words(d, card.get("name_en") or "", text_w, 2, size=50):
         draw_text(d, (x0, y), ln, _TEXT, size=50, bold=True, kind="latin")
         y += 52
@@ -544,7 +578,7 @@ def _cached(key: str, render):
 
 
 _CARD_KEYS = ("name_en", "attribute", "race", "card_type", "level", "rank", "link_val", "atk", "def",
-              "summary_ja", "lore_kind")
+              "summary_ja", "lore_kind", "related_ja", "theme_kind", "theme_en", "theme_ja", "theme_card_ja")
 
 
 def set_png(s: dict, cards: list[dict], *, box=None, box_key: str = "", related=None, related_keys=()) -> bytes:

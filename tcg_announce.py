@@ -309,7 +309,32 @@ def parse_card(page_text: str) -> dict | None:
         "database_id": plain_text(p.get("database_id", "")),
         "has_jp_sets": bool(plain_text(p.get("jp_sets", ""))),
         "en_set_codes": re.findall(r"([A-Z0-9]+-EN[0-9?]+)\s*;", en_sets),
+        # テーマとの関係（Yugipedia の欄）: archseries＝一員 / supports_archetypes＝サポート / related_to_archseries＝関わり
+        "archseries": list_param(p.get("archseries", "")),
+        "supports_archetypes": list_param(p.get("supports_archetypes", "")),
+        "related_archseries": list_param(p.get("related_to_archseries", "")),
     }
+
+
+def list_param(value: str) -> list[str]:
+    """「* A」の箇条書き（複数行）や「A, B」のような欄を、名前の並びにする（重なりなし）。"""
+    out: list[str] = []
+    for part in re.split(r"[\n,]", plain_text(value or "")):
+        name = part.strip().lstrip("*").strip()
+        if name and "?" not in name and name not in out:
+            out.append(name)
+    return out
+
+
+def _unruby(s: str) -> str:
+    """{{Ruby|Ｅ・ＨＥＲＯ|エレメンタルヒーロー}} → Ｅ・ＨＥＲＯ（ふりがなを外す）。"""
+    return re.sub(r"\{\{\s*Ruby\s*\|([^|}]*)\|[^}]*\}\}", r"\1", s or "")
+
+
+def parse_archetype_ja(page_text: str) -> str:
+    """テーマのページ（{{Infobox archseries}}）の日本語名。日本に無いテーマは空文字。"""
+    p = template_params(page_text, "Infobox archseries") or {}
+    return plain_text(_unruby(p.get("ja_name", ""))).strip()
 
 
 def exists_in_konami_db(card: dict) -> bool:

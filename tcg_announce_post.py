@@ -119,7 +119,8 @@ def text_card(s: dict, card: dict, cards: list[dict]) -> str:
     funnel = f"同じパックで判明した残り{others}枚も、まとめて紹介しています。" if others > 0 else ""
     stats = tcg_announce_og.stats_line(card)
     short = card.get("summary_short_ja") or ""
-    related = ("".join(f"《{r}》" for r in card.get("related_ja") or []) + "ゆかりの新カード") if card.get("related_ja") else ""
+    # 見出し（ゆかりのカード・テーマ）。どれにも当たらないカードは出さない（弾の名前は下の行にある）
+    related = tcg_announce_og.headline(card, s["name_en"]) if (card.get("related_ja") or card.get("theme_kind")) else ""
     url = card_url(s, card)
     for lines in ([head, related, stats, short, funnel], [head, stats, short, funnel], [head, short, funnel]):
         if _fits(lines):

@@ -73,7 +73,7 @@
             <h3 class="ta-name">{{ c.name_en }}{% if c.unofficial_name %}<small>（仮の名前）</small>{% endif %}</h3>
             <p class="ta-stats">{{ c.card_type }}{% if c.set_code and '?' not in c.set_code %}<span class="ta-code">{{ c.set_code }}</span>{% endif %}</p>
             {% if c.atk or c.def %}<p class="ta-atk">ATK <b>{{ c.atk or '?' }}</b>{% if not c.link_val %}　DEF <b>{{ c.def or '?' }}</b>{% endif %}</p>{% endif %}
-            {% if c.related_ja %}<p class="ta-related">ゆかりのカード：{% for r in c.related_ja %}《{{ r }}》{% endfor %}</p>{% endif %}
+            {% if c.related_ja or c.theme_kind %}<p class="ta-related">{{ headline(c, s.name_en) }}</p>{% endif %}
             {% set summ = summary_of(c) %}
             {% if c.summary_status == 'done' and summ.effects %}
             {% if summ.intro %}<p class="ta-intro">{{ summ.intro }}</p>{% endif %}

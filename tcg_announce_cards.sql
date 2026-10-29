@@ -60,7 +60,12 @@ CREATE TABLE IF NOT EXISTS tcg_announce_cards (
 
     summary_ja         JSONB       NOT NULL DEFAULT '{}'::jsonb, -- 効果の要約 {intro: 共通の説明, effects: [{label: 効果の名前（ALPHA など・無ければ空）, text}]}
     summary_short_ja   TEXT        NOT NULL DEFAULT '',        -- 投稿用の1〜2文
-    related_ja         JSONB       NOT NULL DEFAULT '[]'::jsonb, -- 宣伝文がリンクしている既存カードの日本語の正式名
+    related_ja         JSONB       NOT NULL DEFAULT '[]'::jsonb, -- 宣伝文がリンクしている既存カードの日本語の正式名（ゆかりのカード）
+    -- 見出しの出し分け（tcg_announce_og.headline）: ゆかりのカード → 既存テーマ → 新テーマ → 弾の名前 の順
+    theme_kind         TEXT        NOT NULL DEFAULT '',        -- member＝既存テーマの一員 / support＝サポート / new_theme＝英語版が先に作ったテーマ / ''＝無し
+    theme_en           TEXT        NOT NULL DEFAULT '',        -- テーマの英語名（Yugipedia の archseries / supports_archetypes）
+    theme_ja           TEXT        NOT NULL DEFAULT '',        -- テーマの日本語名（Ｅ・ＨＥＲＯ など）。分からなければ空
+    theme_card_ja      TEXT        NOT NULL DEFAULT '',        -- テーマの代表カード（サイトのデッキ検索でよく検索されたカード）。OG 画像の絵に使う
     effect_text_ja     TEXT        NOT NULL DEFAULT '',        -- lore_kind=official のときの全文の機械訳
     pendulum_effect_ja TEXT        NOT NULL DEFAULT '',
     summary_status     TEXT        NOT NULL DEFAULT 'pending' CHECK (summary_status IN ('pending', 'done', 'failed', 'skipped')),

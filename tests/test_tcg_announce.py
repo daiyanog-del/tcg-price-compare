@@ -531,3 +531,71 @@ def test_商品写真の白い背景を透明にして余白を切る():
     # 境目を1pxぼかすので、切り抜きは中身より数px広い
     assert 100 <= out.width <= 108 and 60 <= out.height <= 68
     assert out.getpixel((out.width // 2, out.height // 2))[3] == 255
+
+
+# ── テーマによる見出しの出し分け（2026-10-29） ─────────
+
+def test_見出しはゆかり_既存テーマ_新テーマ_弾の名前の順():
+    import tcg_announce_og as og
+    base = {"related_ja": [], "theme_kind": "", "theme_en": "", "theme_ja": ""}
+    assert og.headline(dict(base, related_ja=["リボルバー・ドラゴン"], theme_kind="new_theme", theme_en="Heavy Metal"),
+                       "Maze of Machines") == "《リボルバー・ドラゴン》ゆかりの新カード"
+    assert og.headline(dict(base, theme_kind="member", theme_en="Elemental HERO", theme_ja="Ｅ・ＨＥＲＯ"), "X") \
+        == "【Ｅ・ＨＥＲＯ】の新規カード"
+    assert og.headline(dict(base, theme_kind="support", theme_en="Elemental HERO", theme_ja="Ｅ・ＨＥＲＯ"), "X") \
+        == "【Ｅ・ＨＥＲＯ】をサポートする新カード"
+    assert og.headline(dict(base, theme_kind="member", theme_en="Gun Dragon"), "X") == "「Gun Dragon」の新規カード"
+    assert og.headline(dict(base, theme_kind="new_theme", theme_en="Heavy Metal"), "X") == "新テーマ「Heavy Metal」の新カード"
+    assert og.headline(base, "Maze of Machines") == "「Maze of Machines」の新カード"
+
+
+def test_画像に出すカードはゆかり_テーマの代表の順():
+    import tcg_announce_og as og
+    assert og.picture_card({"related_ja": ["リボルバー・ドラゴン"], "theme_kind": "member", "theme_card_ja": "X"}) == "リボルバー・ドラゴン"
+    assert og.picture_card({"related_ja": [], "theme_kind": "member", "theme_card_ja": "Ｅ・ＨＥＲＯ ネオス"}) == "Ｅ・ＨＥＲＯ ネオス"
+    assert og.picture_card({"related_ja": [], "theme_kind": "new_theme", "theme_card_ja": ""}) == ""
+    assert og.set_headline([{"theme_kind": "member", "theme_ja": "Ｅ・ＨＥＲＯ"}]) == "【Ｅ・ＨＥＲＯ】の新規カードが判明"
+
+
+class _Corpus:
+    card_names = {"Elemental HERO Neos": "Ｅ・ＨＥＲＯ ネオス", "Elemental HERO Avian": "Ｅ・ＨＥＲＯ フェザーマン",
+                  "Heavy Metal Raiders": "ヘビーメタル・レイダーズ", "Barrel Dragon": "リボルバー・ドラゴン"}
+
+    def _theme_from_card_names(self, q):
+        return "Ｅ・ＨＥＲＯ" if q == "Elemental HERO" else None
+
+
+def test_テーマの判定は既存カードの有無で新テーマと見分ける():
+    c = _Corpus()
+    got = tw.decide_theme({"archseries": ["Elemental HERO"], "supports_archetypes": []}, "Elemental HERO Clay Guardsman",
+                          {"Elemental HERO": "Ｅ・ＨＥＲＯ"}, c)
+    assert (got["theme_kind"], got["theme_ja"]) == ("member", "Ｅ・ＨＥＲＯ")
+    assert set(got["members"]) == {"Ｅ・ＨＥＲＯ ネオス", "Ｅ・ＨＥＲＯ フェザーマン"}
+    # サポートだけ
+    got = tw.decide_theme({"archseries": [], "supports_archetypes": ["Elemental HERO"]}, "Some Spell", {}, c)
+    assert (got["theme_kind"], got["theme_ja"]) == ("support", "Ｅ・ＨＥＲＯ")
+    # 既存カードはあるが日本語のテーマ名が無い → 見出しは新テーマ、絵には一員の既存カード（Heavy Metal → 鋼鉄の襲撃者）
+    got = tw.decide_theme({"archseries": ["Heavy Metal"], "supports_archetypes": []}, "Heavy Metal Bandit", {}, c)
+    assert got["theme_kind"] == "new_theme" and got["members"] == ["ヘビーメタル・レイダーズ"]
+    # 既存カードが無く、カード自身の名前にテーマ名がある → 新テーマ
+    got = tw.decide_theme({"archseries": ["Brand New"], "supports_archetypes": []}, "Brand New Dragon", {}, c)
+    assert got["theme_kind"] == "new_theme"
+    # 系列（Gun Dragon）は既存カードの英語名にも自分の名前にも無い → 無し
+    got = tw.decide_theme({"archseries": ["Gun Dragon"], "supports_archetypes": []}, "Rampant Barrel Dragon", {}, c)
+    assert got["theme_kind"] == ""
+
+
+def test_代表カードは検索の多いカード_記録が無ければ名前の短いカード():
+    assert tw.pick_theme_card(None, ["Ｅ・ＨＥＲＯ フェザーマン", "Ｅ・ＨＥＲＯ ネオス"]) == "Ｅ・ＨＥＲＯ ネオス"
+    db = _DB({"deck_search_logs": [{"card_name": "Ｅ・ＨＥＲＯ フェザーマン", "searched_at": "2026-10-28T00:00:00+00:00"}]})
+    _Q.in_ = lambda self, k, v: self
+    _Q.gte = lambda self, k, v: self
+    _Q.limit = lambda self, n: self
+    assert tw.pick_theme_card(db, ["Ｅ・ＨＥＲＯ フェザーマン", "Ｅ・ＨＥＲＯ ネオス"]) == "Ｅ・ＨＥＲＯ フェザーマン"
+
+
+def test_テーマの欄とふりがなの読み取り():
+    assert ya.list_param("* Elemental HERO\n* HERO") == ["Elemental HERO", "HERO"]
+    assert ya.list_param("Heavy Metal") == ["Heavy Metal"]
+    page = "{{Infobox archseries\n| ja_name = {{Ruby|Ｅ・ＨＥＲＯ|エレメンタルヒーロー}}\n}}"
+    assert ya.parse_archetype_ja(page) == "Ｅ・ＨＥＲＯ"

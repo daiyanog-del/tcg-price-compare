@@ -170,6 +170,75 @@ def invented_numbers(text_en: str, text_ja: str) -> list[str]:
     return out
 
 
+# ──────────────────────────────────────────────
+# テーマ（見出しの出し分けと、テーマの代表カード）
+# ──────────────────────────────────────────────
+
+# 代表カードを選ぶときに見る検索の記録の日数
+THEME_SEARCH_DAYS = 90
+
+
+def theme_members(corpus, theme_en: str) -> list[str]:
+    """英語名にテーマ名を含む既存カードの日本語の正式名（「Elemental HERO」→ Ｅ・ＨＥＲＯ の各カード）。"""
+    pat = re.compile(r"(?<![A-Za-z])" + re.escape(theme_en) + r"(?![A-Za-z])")
+    return sorted({ja for en, ja in corpus.card_names.items() if pat.search(en)})
+
+
+def decide_theme(card: dict, name_en: str, arch_ja: dict[str, str], corpus) -> dict:
+    """見出しに使うテーマを決める。戻り値: {theme_kind, theme_en, theme_ja, members}。
+
+    theme_kind: member＝既存テーマの一員 / support＝既存テーマのサポート / new_theme＝英語版が先に作った新しいテーマ / ""＝無し
+    - 一員（archseries）を先に、無ければサポート（supports_archetypes）。既存カードにそのテーマ名を含むものがあれば既存テーマ
+    - 日本語名は Yugipedia のテーマのページの欄。空なら、既存カードの日本語名に共通する部分（tcg_translate の仕組み）
+    - new_theme は、カード自身の名前にテーマ名が入っていて、既存カードに1枚も無いときだけ（「Gun Dragon」のような
+      系列は日本語名の欄が空でも既存カードがあり、名前にも入らないので新テーマにしない）
+    """
+    for kind, names in (("member", card.get("archseries") or []), ("support", card.get("supports_archetypes") or [])):
+        for en in names:
+            members = theme_members(corpus, en)
+            if members:
+                ja = arch_ja.get(en) or corpus._theme_from_card_names(en) or ""
+                if not ja:
+                    # 既存カードはあるが日本ではテーマ名として知られていない（Heavy Metal ⊃ 鋼鉄の襲撃者）。
+                    # 見出しは新テーマとして出し、絵には一員の既存カードを使う
+                    return {"theme_kind": "new_theme", "theme_en": en, "theme_ja": "", "members": members}
+                if ja:
+                    return {"theme_kind": kind, "theme_en": en, "theme_ja": ja, "members": members}
+    for en in card.get("archseries") or []:
+        if re.search(r"(?<![A-Za-z])" + re.escape(en) + r"(?![A-Za-z])", name_en):
+            return {"theme_kind": "new_theme", "theme_en": en, "theme_ja": "", "members": []}
+    return {"theme_kind": "", "theme_en": "", "theme_ja": "", "members": []}
+
+
+def fetch_archetype_ja(titles: list[str]) -> dict[str, str]:
+    """テーマのページを読んで {英語名: 日本語名}（日本に無いテーマは空文字）。"""
+    if not titles:
+        return {}
+    aliases: dict[str, str] = {}
+    pages = ya.fetch_pages(titles=titles, aliases=aliases)
+    by_title = {p["title"]: ya.parse_archetype_ja(p["text"]) for p in pages.values()}
+    return {t: by_title.get(ya.resolve_title(t, aliases), "") for t in titles}
+
+
+def pick_theme_card(sb, members: list[str]) -> str:
+    """テーマの代表カード: サイトのデッキ検索で直近 THEME_SEARCH_DAYS 日によく検索されたカード。
+    記録が無ければ名前のいちばん短いカード（テーマの元祖のことが多い）。"""
+    if not members:
+        return ""
+    counts: dict[str, int] = {}
+    if sb is not None:
+        since = (datetime.now(timezone.utc) - timedelta(days=THEME_SEARCH_DAYS)).isoformat()
+        try:
+            for i in range(0, len(members), 100):
+                rows = (sb.table("deck_search_logs").select("card_name").in_("card_name", members[i:i + 100])
+                        .gte("searched_at", since).limit(10000).execute().data or [])
+                for r in rows:
+                    counts[r["card_name"]] = counts.get(r["card_name"], 0) + 1
+        except Exception as e:
+            logger.warning(f"検索の記録を読めません（名前の短いカードを使います）: {e}")
+    return min(members, key=lambda n: (-counts.get(n, 0), len(n), n))
+
+
 def related_cards(corpus, raw_lore: str, own_name: str) -> list[str]:
     """宣伝文がリンクしている既存カードの日本語の正式名（対応表に完全一致するものだけ・自分自身は除く）。"""
     out = []
@@ -420,9 +489,22 @@ def process(collected: dict, known_cards: dict[int, dict], *, sb, client, model:
         else:
             sb.table(SETS).upsert(payload, on_conflict="prefix").execute()
 
+    # 変わったカードが属する・サポートするテーマの日本語名（テーマのページを1回でまとめて読む）
+    arch_ja: dict[str, str] = {}
+    themes = sorted({t for _, _, card, _, _ in collected["changed"]
+                     for t in (card.get("archseries") or []) + (card.get("supports_archetypes") or [])})
+    if themes:
+        try:
+            arch_ja = fetch_archetype_ja(themes)
+        except Exception as e:
+            logger.warning(f"テーマの日本語名を読めません（既存カードの名前から作ります）: {e}")
+
     summarized = 0
     for pid, page, card, list_row, prefix in collected["changed"]:
         row = build_row(pid, page, card, list_row, prefix, vocab)
+        th = decide_theme(card, row["name_en"], arch_ja, corpus)
+        row.update(theme_kind=th["theme_kind"], theme_en=th["theme_en"], theme_ja=th["theme_ja"],
+                   theme_card_ja=pick_theme_card(sb, th["members"]) if th["members"] else "")
         existing = known_cards.get(pid)
         if existing is None:
             stats["new"] += 1
