@@ -686,9 +686,9 @@ ENABLE_VISUAL_SOLO_PLAY = os.environ.get("ENABLE_VISUAL_SOLO_PLAY", "1") == "1"
 # orthogonal な mitigation。落としても他機能は無傷（env で on/off・強度を制御）。
 SELF_WATERMARK_ENABLED = os.environ.get("SELF_WATERMARK_ENABLED", "1") == "1"
 try:
-    SELF_WATERMARK_OPACITY = float(os.environ.get("SELF_WATERMARK_OPACITY", "0.12"))
+    SELF_WATERMARK_OPACITY = float(os.environ.get("SELF_WATERMARK_OPACITY", "0.08"))
 except ValueError:
-    SELF_WATERMARK_OPACITY = 0.12
+    SELF_WATERMARK_OPACITY = 0.08
 SELF_WATERMARK_OPACITY = max(0.0, min(1.0, SELF_WATERMARK_OPACITY))
 
 # アフィリエイト設定（環境変数から取得）
