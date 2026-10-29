@@ -98,7 +98,7 @@ function _syncProgress() {
   document.getElementById('solRecDeck')?.classList.toggle('is-empty', deckCount === 0);
 }
 
-function _buildBand(compact) {
+function _buildBand() {
   const band = _el('div', 'sol-rec-band');
   band.id = 'solRecBand';
   const logo = _el('img', 'sol-rec-logo');
@@ -107,30 +107,24 @@ function _buildBand(compact) {
   const title = _el('div', 'sol-rec-title', _title());
   const count = _el('div', 'sol-rec-count');
   count.id = 'solRecCount';
-  // 縦向きスマホは手札の右のデッキの枠（solitaire.html #solMobileDeckSlot）がそのまま見えているので、帯に札を出さない
-  if (compact || _enteredPortrait) band.append(logo, title, count);
-  else band.append(logo, title, _buildDeck(false), count);
+  // デッキは帯に出さない: PC・横向きは EX デッキの右の1枚分の枠（_buildDeck）、縦向きスマホは手札の右のデッキの枠
+  // （solitaire.html #solMobileDeckSlot）がそのまま見えている（2026-10-29 PC も帯の札から枠へ。ユーザー指摘「ピル表示のまま」）
+  band.append(logo, title, count);
   return band;
 }
 
 /**
  * デッキの残り枚数。デッキ列を隠すので、ドローなどの演出はここから飛ぶ（replay-service.js _getDeckAnchorEl）。
- * PC は帯の札、横向きスマホは EX デッキの右に置く1枚分の枠（ラベルと裏向きの山）。
+ * PC・横向きスマホは EX デッキの右に置く1枚分の枠（ラベルと裏向きの山）。
  * 縦向きスマホは作らない（普段の画面の手札の右のデッキの枠を使う。2026-10-29）。
  */
-function _buildDeck(compact) {
-  const deckCount = _el('span', compact ? 'zone-count' : 'sol-rec-deck-count');
+function _buildDeck() {
+  const deckCount = _el('span', 'zone-count');
   deckCount.id = 'solRecDeckCount';
-  let deck;
-  if (compact) {
-    deck = _el('div', 'sol-rec-deck-slot');
-    const label = _el('div', 'pool-label', 'デッキ');
-    label.append(deckCount);
-    deck.append(label, _el('div', 'sol-rec-deck-pile'));
-  } else {
-    deck = _el('div', 'sol-rec-deck', 'デッキ ');
-    deck.append(deckCount);
-  }
+  const deck = _el('div', 'sol-rec-deck-slot');
+  const label = _el('div', 'pool-label', 'デッキ');
+  label.append(deckCount);
+  deck.append(label, _el('div', 'sol-rec-deck-pile'));
   deck.id = 'solRecDeck';
   return deck;
 }
@@ -423,8 +417,8 @@ export function enterRecView() {
   if (_enteredPortrait) _setMobileReserve(true);
   const compact = !_enteredPortrait && window.matchMedia(LANDSCAPE_QUERY).matches;
   document.body.classList.toggle(LANDSCAPE_CLASS, compact);
-  if (compact) document.querySelector('.center-row')?.append(_buildDeck(true));
-  document.body.append(_buildBand(compact), _el('div', 'sol-rec-progress'), _buildControls(), _buildGuide());
+  if (!_enteredPortrait) document.querySelector('.center-row')?.append(_buildDeck());
+  document.body.append(_buildBand(), _el('div', 'sol-rec-progress'), _buildControls(), _buildGuide());
   document.querySelector('.sol-rec-progress').id = 'solRecProgress';
   _syncProgress();
   // 山札へ戻す手は飛び終えてからデッキ列に入るので、手の切り替わり（changed）だけでは数え遅れる
