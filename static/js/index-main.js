@@ -2639,7 +2639,9 @@ function _metaRowHtml(d,rank){
   const img=d.image?safeUrl(d.image):'';
   const max=Math.max.apply(null,_metaTiers.map(t=>Number(t.share)||0))||1;
   const w=Math.max(3,Math.round(34*(Number(d.share)||0)/max));
-  return `<button class="meta-deck-btn mt-row${d.name===_currentMetaTheme?' selected':''}" onclick="loadMetaDeck('${escAttr(escJs(d.name))}',${rank})" id="meta-btn-${escAttr(d.name)}">
+  // rank は表示順の数（GA 用）。onclick の JS に直に入るので、+rank||0 で数値に揃えてから埋め込む
+  // （名前だけで宣言をたどる静的チェックは、別の関数の const rank=r=>… を拾って違反と誤判定していた）
+  return `<button class="meta-deck-btn mt-row${d.name===_currentMetaTheme?' selected':''}" onclick="loadMetaDeck('${escAttr(escJs(d.name))}',${+rank||0})" id="meta-btn-${escAttr(d.name)}">
         ${img?`<img src="${escAttr(img)}" alt="" loading="lazy">`:'<span class="mt-noimg"></span>'}
         <span class="mt-name">${esc(d.name)}</span>
         <span class="mt-share"><i style="width:${w}px"></i>${esc(d.share)}%</span>
