@@ -405,6 +405,14 @@
   transform-origin: center center;
 }
 
+/* 端の列の守備表示は画面の外へ出る分だけ内側へずらす（量は main.js updateDefenseEdgeShift がマスごとに置く）。
+   translate は回転（transform）と別に効くので、相手の場の逆向きの回転にもそのまま使える。
+   ::after は裏面・未発売のぼかし・透かしで、どれもカードと一緒に回るので一緒にずらす */
+.custom-slot > .tier-item-wrapper.is-defense > .tier-item,
+.custom-slot > .tier-item-wrapper.is-defense::after {
+  translate: var(--sol-def-shift, 0px) 0;
+}
+
 /* セット（裏側表示）: CSS で遊戯王カードバック風の裏面を描画
    img.src は変更せず、::after オーバーレイで隠す。
    pointer-events:none でクリック・ドラッグが img に届くようにする */
