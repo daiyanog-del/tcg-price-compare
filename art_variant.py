@@ -18,6 +18,8 @@ art_variant.py — 店の商品が「どの絵か」「どの言語版か」を�
   - カードラッシュ: 「立ち／座り」のような絵の描写しか書かない → カードごとの表（_CARDRUSH_WORDS）
   - まんぞく屋: 絵を書き分けない → 判別できない（""）
 判別できない行は「すべての絵」にだけ出す（無理に振り分けない）。
+型番ごと違う絵で刷られた再録（三戦の号 CH01-JP030 など）は、カーナベルだけが (イラスト違い) と書くので、
+全店の行を見て型番ごとそろえる（_alt_only_codes。2026-10-29）。
 """
 
 from __future__ import annotations
@@ -151,10 +153,39 @@ def classify(row: dict, card_name: str) -> tuple[str, str]:
     return "", edition
 
 
+def _alt_only_codes(rows: list[dict], card_name: str) -> set[str]:
+    """型番ごと違う絵で刷られた再録の型番。例: 三戦の号 CH01-JP030 は QCAC-JP096 と違う絵だが、その型番の中に絵は1種類なので
+    カーナベル以外の店は「三戦の号」とだけ書き、元のイラストに見えてしまう（2026-10-29 ユーザー指摘）。
+    どこかの店がその型番を決まった言葉でイラスト違いと書き、その型番で元と違うを両方持つ店も、決まった言葉で元と書く店も無いとき、
+    型番ごと違う絵とみなす（灰流うらら PAC1-JP016 のように1つの型番に絵が2種類ある型番は、同じ店に両方並ぶので当たらない）"""
+    alt_by_explicit: set[str] = set()
+    blocked: set[str] = set()
+    arts_by_shop: dict[tuple[str, str], set[str]] = {}
+    for row in rows:
+        code = row.get("code") or ""
+        if not code or row.get("edition"):
+            continue
+        label = _label(card_name, row.get("name") or "")
+        if row["art"] == ART_ALT and label in _ALT_WORDS:
+            alt_by_explicit.add(code)
+        if row["art"] == ART_BASE and label in _BASE_WORDS - {""}:
+            blocked.add(code)
+        arts_by_shop.setdefault((row.get("shop") or "", code), set()).add(row["art"])
+    for (_, code), arts in arts_by_shop.items():
+        if ART_BASE in arts and ART_ALT in arts:
+            blocked.add(code)
+    return alt_by_explicit - blocked
+
+
 def annotate(rows: list[dict], card_name: str) -> None:
     """各行に art・edition を付ける（rows の各 dict をその場で書き換える。レアリティは変えない）"""
     for row in rows:
         row["art"], row["edition"] = classify(row, card_name)
+    # 型番ごと違う絵の再録は、無印で書く店の行も違う絵に直す（その店の中では「元」に見えるだけ）
+    alt_codes = _alt_only_codes(rows, card_name)
+    for row in rows:
+        if row["art"] == ART_BASE and not row.get("edition") and (row.get("code") or "") in alt_codes:
+            row["art"] = ART_ALT
 
 
 def display_rarity(row: dict) -> str:
