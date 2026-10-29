@@ -46,6 +46,8 @@
 
 import { returnAllCardsToDeck, attachCardImageListeners, sortPoolCards, syncCardIdCounter } from '../components/card-manager.js';
 import { applyCardState, getCardState, isTokenSrc, isTokenCard, markTokenIfSrc } from '../components/card-state.js';
+import { classifyReplayImage } from '../utils/replay-image-policy.js';
+import { generateTokenDataURL, tokenNameOf } from '../utils/token-image.js';
 import { createCardCounter } from '../components/counter-manager.js';
 import { restackCustomSlot } from '../components/slot-stack.js';
 import { playActivateEffect, flipMoveClone, playSetFlip, flyBetweenRects, prefersReducedMotion } from '../components/card-effects.js';
@@ -772,11 +774,42 @@ async function _resolveReplaySentinels() {
 }
 
 /**
+ * 読み込んだ画像辞書（_images）を、画面に出してよい形に置き換える（replay-image-policy.js）。
+ * トークン（data:）は中身を捨て、名前から描き直す。発行元の分からない URL・形の分からない値は card://カード名 にする。
+ * 置き換えた辞書は、そのまま再共有・保存にも使われる。
+ */
+async function _sanitizeReplayImages() {
+  const out = {};
+  let replaced = 0;
+  for (const [cardId, src] of Object.entries(_images || {})) {
+    const c = classifyReplayImage(src, _names[cardId]);
+    if (c.kind === 'token') {
+      try {
+        out[cardId] = await generateTokenDataURL(tokenNameOf(_names[cardId]));
+      } catch (e) {
+        // 描けなくてもリプレイ全体は開く。トークンの印（data:）は残し、削除の手などはトークンとして効かせる
+        console.warn('[replay] トークンの札を描けませんでした（中身の無い札で出します）', cardId, e);
+        out[cardId] = 'data:image/png;base64,';
+      }
+    } else {
+      if (c.src !== src) replaced++;
+      out[cardId] = c.src;
+    }
+  }
+  if (replaced > 0) console.warn(`[replay] 出せない画像の指定 ${replaced} 件をカード名からの表示に置き換えました`);
+  _images = out;
+}
+
+/**
  * _images の全カードをDOMに生成してプールに配置する
  * URL共有・ファイルインポート時、デッキが空の状態から再生できるようにする。
  * card:// センチネルは /api/card-images バッチで再解決してから描画する。
  */
 async function _createReplayCardElements() {
+  // 画像辞書は利用者が送った値なので、出してよい形に直してから使う（任意の外部画像・data: 画像を出さない）。
+  // 盤面が無いときに抜ける前に行い、辞書が直っていない状態を残さない
+  await _sanitizeReplayImages();
+
   // 既存カードを全てプールに回収してからクリア
   returnAllCardsToDeck();
   const poolRow  = document.getElementById('poolRow');

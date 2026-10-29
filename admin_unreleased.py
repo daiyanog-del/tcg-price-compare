@@ -2053,7 +2053,7 @@ def admin_suggest_crop(card_id: int):
 
 _PUBLIC_REPLAY_ADMIN_LIMIT = 100  # 1回に返す件数（仮置き。TODO: calibrate from data）。続きは before で読む
 from solitaire_routes import _BEFORE_RE as _PUBLIC_BEFORE_RE  # published_at の続き読み位置の形式（公開一覧と同じ）
-import replay_og_image as _replay_og_image
+from solitaire_routes import forget_replay_og as _forget_replay_og  # 絵のキャッシュ（縮小版・ある/無いの記憶を含む）を消す
 
 
 @admin_bp.route("/api/admin/public-replays", methods=["GET"])
@@ -2071,14 +2071,22 @@ def admin_list_public_replays():
         return jsonify({"error": "before が不正です"}), 400
     replay_id = request.args.get("id", "").strip()
     try:
+        if replay_id:
+            # id で探すときは公開していない共有リプレイも返す（権利者からの削除依頼は、共有リンクで届くことがある）
+            rows = (
+                _supabase.table("solitaire_replays")
+                .select("id, title, card_names, steps, published_at, created_at, hidden, is_public")
+                .eq("id", replay_id)
+                .limit(1)
+                .execute()
+                .data
+            ) or []
+            return jsonify({"items": rows, "next": None})
         q = (
             _supabase.table("solitaire_replays")
             .select("id, title, card_names, steps, published_at, hidden")
             .eq("is_public", True)
         )
-        if replay_id:
-            rows = q.eq("id", replay_id).limit(1).execute().data or []
-            return jsonify({"items": rows, "next": None})
         if before:
             q = q.lt("published_at", before)
         # 続きの有無を知るため1件多く読む
@@ -2093,8 +2101,9 @@ def admin_list_public_replays():
 
 @admin_bp.route("/api/admin/public-replays/<replay_id>/toggle-hidden", methods=["POST"])
 def admin_toggle_public_replay_hidden(replay_id: str):
-    """公開リプレイの hidden を反転する。非表示にすると一覧・直リンク（API・OGメタ情報・共有画像）とも
-    「無いもの」として扱われる。戻すと元どおり。行は残る。"""
+    """リプレイの hidden を反転する。非表示にすると一覧・直リンク（API・OGメタ情報・共有画像）とも
+    「無いもの」として扱われる。戻すと元どおり。行は残る。
+    2026-10-29 から公開していない共有リプレイも対象（以前は公開中だけで、共有リンクだけのものは止められなかった）。"""
     err = _require_admin_key()
     if err:
         return err
@@ -2105,7 +2114,6 @@ def admin_toggle_public_replay_hidden(replay_id: str):
             _supabase.table("solitaire_replays")
             .select("id, hidden")
             .eq("id", replay_id)
-            .eq("is_public", True)
             .execute()
         )
         if not cur.data:
@@ -2117,9 +2125,8 @@ def admin_toggle_public_replay_hidden(replay_id: str):
             .eq("id", replay_id)
             .execute()
         )
-        if new_hidden:
-            # タイトル入りの共有画像が残って見え続けないよう、キャッシュを消す
-            _replay_og_image.purge_cache(replay_id)
+        # タイトル入りの共有画像が残って見え続けないよう、キャッシュを消す（戻したときも、無いと覚えた記憶を消す）
+        _forget_replay_og(replay_id)
         return jsonify({"ok": True, "hidden": new_hidden})
     except Exception as e:
         logger.error(f"[admin] 公開リプレイ非表示切替エラー id={replay_id}: {e}")
@@ -2128,7 +2135,7 @@ def admin_toggle_public_replay_hidden(replay_id: str):
 
 @admin_bp.route("/api/admin/public-replays/<replay_id>", methods=["DELETE"])
 def admin_delete_public_replay(replay_id: str):
-    """公開リプレイの行を消す（元に戻せない）。公開中の行だけが対象。"""
+    """リプレイの行を消す（元に戻せない）。2026-10-29 から公開していない共有リプレイも対象。"""
     err = _require_admin_key()
     if err:
         return err
@@ -2139,12 +2146,11 @@ def admin_delete_public_replay(replay_id: str):
             _supabase.table("solitaire_replays")
             .delete()
             .eq("id", replay_id)
-            .eq("is_public", True)
             .execute()
         )
         if not resp.data:
             return jsonify({"error": "対象レコードが見つかりません"}), 404
-        _replay_og_image.purge_cache(replay_id)
+        _forget_replay_og(replay_id)
         return jsonify({"ok": True, "deleted_id": replay_id})
     except Exception as e:
         logger.error(f"[admin] 公開リプレイ削除エラー id={replay_id}: {e}")
