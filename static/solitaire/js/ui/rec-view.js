@@ -13,7 +13,9 @@
  * - 題名は共有リンク・保存したリプレイの題名か、保存・共有シートに入力した題名。無ければ出さない。
  *   他人が書いた題名なので textContent で入れる。
  * - 計測: GA4 に recview_open（表示を開いた）／recview_start（再生を始めた）を送る。
- * - 横向きスマホは PC と同じ並び（盤面3段＋手札/EX）で出す（2026-10-29 ユーザー要望）。縦向きで開いた案内の
+ * - 横向きスマホは PC と同じ並び（盤面3段＋手札/EX）で出し、デッキは EX デッキの右に1枚分の枠として置く（2026-10-29 ユーザー要望）。
+ *   横:縦が2:1以上の画面は帯を置かず、ロゴ・題名・手数を盤面の左右の空きに載せる（同日ユーザー選択の案A。どちらが
+ *   カードが大きくなるかで分ける。並びの切り替えは rec-view.css）。縦向きで開いた案内の
  *   「横画面で撮る」を押すと、横向きになるのを待ってから横向きの表示を開き直す（_waitLandscape）。
  */
 
@@ -36,6 +38,9 @@ const COUNTDOWN_STEP_MS = 700;
 const CONTROLS_HIDE_MS = 2500;
 /** 縦向きスマホで下部バーの代わりに残す余白（進み具合の線の分） */
 const MOBILE_BOTTOM_RESERVE_PX = 4;
+/** 横向きスマホ（responsive.css・rec-view.css の横向きの条件と同じ）。デッキを枠で置き、帯を細く（または無く）する */
+const LANDSCAPE_QUERY = '(orientation: landscape) and (max-height: 499px)';
+const LANDSCAPE_CLASS = 'sol-recview-landscape';
 
 let _active = false;
 let _enterMobilePlayback = null; // mobile-ui.js から受け取る（import の循環を作らないため）
@@ -87,10 +92,13 @@ function _syncProgress() {
   const bar = document.getElementById('solRecProgress');
   if (bar) bar.style.width = total > 0 ? `${(done / total) * 100}%` : '0%';
   const deck = document.getElementById('solRecDeckCount');
-  if (deck) deck.textContent = String(document.querySelectorAll('#poolRow .tier-item-wrapper').length);
+  const deckCount = document.querySelectorAll('#poolRow .tier-item-wrapper').length;
+  if (deck) deck.textContent = String(deckCount);
+  // 横向きスマホのデッキの枠: 0枚なら山を消して刻印だけにする
+  document.getElementById('solRecDeck')?.classList.toggle('is-empty', deckCount === 0);
 }
 
-function _buildBand() {
+function _buildBand(compact) {
   const band = _el('div', 'sol-rec-band');
   band.id = 'solRecBand';
   const logo = _el('img', 'sol-rec-logo');
@@ -99,14 +107,30 @@ function _buildBand() {
   const title = _el('div', 'sol-rec-title', _title());
   const count = _el('div', 'sol-rec-count');
   count.id = 'solRecCount';
-  // デッキの残り枚数。デッキ列を隠すので、ドローなどの演出はこの札から飛ぶ（replay-service.js _getDeckAnchorEl）
-  const deck = _el('div', 'sol-rec-deck', 'デッキ ');
-  deck.id = 'solRecDeck';
-  const deckCount = _el('span', 'sol-rec-deck-count');
-  deckCount.id = 'solRecDeckCount';
-  deck.append(deckCount);
-  band.append(logo, title, deck, count);
+  if (compact) band.append(logo, title, count);
+  else band.append(logo, title, _buildDeck(false), count);
   return band;
+}
+
+/**
+ * デッキの残り枚数。デッキ列を隠すので、ドローなどの演出はここから飛ぶ（replay-service.js _getDeckAnchorEl）。
+ * PC・縦向きスマホは帯の札、横向きスマホは EX デッキの右に置く1枚分の枠（ラベルと裏向きの山）。
+ */
+function _buildDeck(compact) {
+  const deckCount = _el('span', compact ? 'zone-count' : 'sol-rec-deck-count');
+  deckCount.id = 'solRecDeckCount';
+  let deck;
+  if (compact) {
+    deck = _el('div', 'sol-rec-deck-slot');
+    const label = _el('div', 'pool-label', 'デッキ');
+    label.append(deckCount);
+    deck.append(label, _el('div', 'sol-rec-deck-pile'));
+  } else {
+    deck = _el('div', 'sol-rec-deck', 'デッキ ');
+    deck.append(deckCount);
+  }
+  deck.id = 'solRecDeck';
+  return deck;
 }
 
 /** 開いた直後の案内（録画のやり方と「始める」） */
@@ -367,7 +391,10 @@ export function enterRecView() {
   document.body.classList.add(ROOT_CLASS);
   _rewind();
   if (_enteredPortrait) _setMobileReserve(true);
-  document.body.append(_buildBand(), _el('div', 'sol-rec-progress'), _buildControls(), _buildGuide());
+  const compact = !_enteredPortrait && window.matchMedia(LANDSCAPE_QUERY).matches;
+  document.body.classList.toggle(LANDSCAPE_CLASS, compact);
+  if (compact) document.querySelector('.center-row')?.append(_buildDeck(true));
+  document.body.append(_buildBand(compact), _el('div', 'sol-rec-progress'), _buildControls(), _buildGuide());
   document.querySelector('.sol-rec-progress').id = 'solRecProgress';
   _syncProgress();
   // 山札へ戻す手は飛び終えてからデッキ列に入るので、手の切り替わり（changed）だけでは数え遅れる
@@ -432,13 +459,13 @@ export function exitRecView() {
   // PC は開く前の手へ戻す（途中の手のまま通常の画面に戻ると、次の操作で先の記録が消える）
   if (!_enteredPortrait && _cursorBeforeEnter !== null) seekTo(_cursorBeforeEnter);
   _cursorBeforeEnter = null;
-  ['solRecBand', 'solRecProgress', 'solRecControls', 'solRecGuide'].forEach((id) => document.getElementById(id)?.remove());
+  ['solRecBand', 'solRecDeck', 'solRecProgress', 'solRecControls', 'solRecGuide'].forEach((id) => document.getElementById(id)?.remove());
   _deckObserver?.disconnect();
   _deckObserver = null;
   _rowObserver?.disconnect();
   _rowObserver = null;
   _releaseScreenOn();
-  document.body.classList.remove(ROOT_CLASS);
+  document.body.classList.remove(ROOT_CLASS, LANDSCAPE_CLASS);
   _alignHandExLine(); // 閉じたので手札の幅を元の割合に戻す（_active が false なので戻すだけ）
   _setMobileReserve(false);
   document.removeEventListener('keydown', _onKeydown, true);
