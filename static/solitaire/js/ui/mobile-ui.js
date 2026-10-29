@@ -83,9 +83,6 @@ function updateMobileVisibility() {
 
   if (show) {
     updateReplayBarMobile();
-    updateEmptyCta();
-  } else {
-    setHidden('solMobileEmptyCta', true);
   }
 }
 
@@ -126,7 +123,6 @@ function resetMobileUI() {
   setHidden('solMobileShareSheet', true);
   setHidden('solMobileCommentSheet', true);
   setHidden('solMobileMemoSheet', true);
-  setHidden('solMobileEmptyCta', true);
   setDeckBtnLoading(false); // 読込中表示のまま portrait を外れた場合の保険
 }
 
@@ -161,8 +157,6 @@ function updateDeckCountBadge() {
   const n = String(count);
   if (countEl) countEl.textContent = n;
   document.getElementById('solMobileDeckSlot')?.classList.toggle('is-empty', count === 0);
-  // §3.5 初見導線: 既存のデッキ枚数バッジ用オブザーバーを流用し、CTAの表示も更新する
-  updateEmptyCta();
 }
 
 function initDeckCountBadge() {
@@ -302,7 +296,7 @@ function initMenuSheet() {
 
 // ══════════════════ デッキ読込ボトムシート（#solSidebar 再利用） ══════════════════
 
-function openSidebarSheet() {
+export function openSidebarSheet() {
   document.getElementById('solSidebar')?.classList.add('sol-sheet-open');
   setHidden('solSidebarScrim', false);
 }
@@ -335,8 +329,6 @@ function initDeckLoadProgress() {
     if (!isMobilePortrait()) return;
     closeSidebarSheet();
     setDeckBtnLoading(true);
-    // M-3: clearAllCards 中は一瞬盤面が空になり得るため、CTAが誤って一瞬出るのを防ぐ
-    setHidden('solMobileEmptyCta', true);
     closeRangePicker({ silent: true });
     _resetRecording(); // タスクA-1: デッキ再読込で録画状態を破棄する
   });
@@ -349,7 +341,6 @@ function initDeckLoadProgress() {
     } else {
       showToast('読み込みに失敗しました');
     }
-    updateEmptyCta();
   });
 }
 
@@ -1073,7 +1064,7 @@ function _moveSelectedDeckCardToField() {
   selectMobileCard(wrapper);
 }
 
-function openDeckSheet() {
+export function openDeckSheet() {
   const search = document.getElementById('solMobileDeckSearch');
   if (search) search.value = '';
   resetMobileDeckMode(); // 開くたびに「回す」から（編集は deck-edit-ui.js）
@@ -1891,27 +1882,9 @@ function _saveReplayToDevice() {
   _updateShareOpenSavedButton(); // 保存直後に件数を反映
 }
 
-// ══════════════════ 初見導線（設計書 §3.5） ══════════════════
-// M-3: 盤面・手札・墓地・除外・デッキ・EX の .tier-item-wrapper 総数が0のときだけ
-// 盤面中央にCTAを出す（カウンター・トークンプレビュー等の他要素は .tier-item-wrapper を
-// 使わないため、document 全体をカウントしても他エリアを誤検出しない）。
-// 監視は §3.3 で使う既存のデッキ枚数バッジ用オブザーバー（initDeckCountBadge）を流用する。
-
-function updateEmptyCta() {
-  if (!isMobilePortrait()) { setHidden('solMobileEmptyCta', true); return; }
-  const totalCount = document.querySelectorAll('.tier-item-wrapper').length;
-  setHidden('solMobileEmptyCta', totalCount !== 0);
-}
-
-function initEmptyCta() {
-  document.getElementById('solMobileEmptyCta')?.addEventListener('click', () => { openSidebarSheet(); });
-  // M-3: セッション復元（main.js loadSessionResume）完了後に判定を確定させる
-  document.addEventListener('sol-session-restored', () => { updateEmptyCta(); });
-}
-
 /**
  * 「すべて消去」（deck-input-panel.js clearEverything）完了後の通知を受けて、
- * デッキ枚数バッジ・CTA・下部バーの取消/共有ボタンの表示を確実に更新する。
+ * デッキ枚数バッジ・下部バーの取消/共有ボタンの表示を確実に更新する。
  * poolRow の MutationObserver や #replayUndo の disabled 監視でも追従するはずだが、
  * 非同期処理をまたぐため念のためここでも明示的に更新する。
  */
@@ -2284,7 +2257,6 @@ export function initMobileUI() {
   initShareSheet();
   initCommentSheet();
   initTokenSheet();
-  initEmptyCta();
   initClearEverything();
   initLandscapeHint(); // A-3: portrait 判定とは独立（横向きスマホでのみ表示するため）
 

@@ -52,8 +52,8 @@ select:focus-visible,.deck-card-row:focus-visible{outline:2px solid #f3ce46;outl
 
 .sol-card-info-panel{border-color:transparent}
 .cip-empty{color:#a8b4c9}
-.sol-fb-submit,#solMobileEmptyCta{background:#f3ce46;color:#242013}
-.sol-fb-submit:hover,#solMobileEmptyCta:hover{background:#ffe16d;color:#242013}
+.sol-fb-submit{background:#f3ce46;color:#242013}
+.sol-fb-submit:hover{background:#ffe16d;color:#242013}
 /* 横向き案内も明色背景と濃色文字の組み合わせにそろえる。 */
 .sol-landscape-hint{background:#f3ce46;color:#242013}
 .sol-landscape-hint span,.sol-landscape-hint-close{color:#242013}
