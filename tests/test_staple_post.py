@@ -55,7 +55,65 @@ def test_format_post_text():
     lines = staple_post.format_post_text(m).split("\n")
     assert lines[0] == "【値下がり】聖王の粉砕（シークレット）"
     assert lines[1] == "¥280（9/25 ¥660から -380円）"
-    assert lines[2].endswith("/card/%E8%81%96%E7%8E%8B%E3%81%AE%E7%B2%89%E7%A0%95")
+    assert "/card/%E8%81%96%E7%8E%8B%E3%81%AE%E7%B2%89%E7%A0%95?" in lines[2]
+    assert lines[2].endswith("utm_source=x&utm_medium=social&utm_campaign=staple&utm_content=down")
+    assert staple_post.content_type(m) == "staple_down|" + staple_post.fuzzy_key("聖王の粉砕") + "|シークレット"
+
+
+def test_format_post_text_floor():
+    """底値の型は「過去N日でいちばん安い」を2行目に出し、前日比は3行目に回す。記録と utm も floor。"""
+    m = {"name": "聖王の粉砕", "rarity": "シークレット", "today": 280, "yesterday": 660, "floor_days": 90,
+         "diff": -380, "pct": -57.6, "direction": "down", "date_old": "2026-09-25", "date_new": "2026-09-26"}
+    lines = staple_post.format_post_text(m).split("\n")
+    assert lines[0] == "【値下がり】聖王の粉砕（シークレット）"
+    assert lines[1] == "¥280　過去90日でいちばん安い値段です"
+    assert lines[2] == "（9/25 ¥660から -380円）"
+    assert lines[3].endswith("utm_content=floor")
+    assert staple_post.content_type(m).startswith("staple_floor|")
+    # 値上がりは floor_days があっても底値の型にしない
+    assert staple_post.post_kind({**m, "direction": "up"}) == "up"
+
+
+def test_floor_control_day_uses_usual_text_but_own_kind():
+    """底値に当たっても比べる相手の日（奇数日）は今までの文面で出し、型は floorctl として記録する。"""
+    m = {"name": "聖王の粉砕", "rarity": "シークレット", "today": 280, "yesterday": 660, "floor_days": 90,
+         "floor_show": False, "diff": -380, "pct": -57.6, "direction": "down",
+         "date_old": "2026-09-25", "date_new": "2026-09-26"}
+    lines = staple_post.format_post_text(m).split("\n")
+    assert lines[1] == "¥280（9/25 ¥660から -380円）"
+    assert lines[2].endswith("utm_content=floorctl")
+    assert staple_post.content_type(m).startswith("staple_floorctl|")
+    # 偶数日と奇数日が1日おきに入れ替わる
+    days = [staple_post.is_floor_day(f"2026-10-{d:02d}") for d in range(25, 31)]
+    assert days == [days[0], not days[0]] * 3
+
+
+def _hist(start, days, price):
+    from datetime import date, timedelta
+    d0 = date.fromisoformat(start)
+    return [((d0 + timedelta(days=i)).isoformat(), price) for i in range(days)]
+
+
+def test_floor_days_picks_longest_window_and_needs_records_from_its_start():
+    m = {"today": 480, "date_new": "2026-10-29"}
+    # 7/31〜10/28 ずっと ¥600 … 90日でいちばん安い
+    assert staple_post.floor_days(_hist("2026-07-31", 90, 600), m) == 90
+    # 同じ値段が前にあっても「いちばん安い」と言える
+    assert staple_post.floor_days(_hist("2026-07-31", 90, 480), m) == 90
+    # 8/20 に ¥450 があった … 90日では負け、9/29〜の30日なら最安
+    h = _hist("2026-07-31", 90, 600)
+    h[20] = ("2026-08-20", 450)
+    assert staple_post.floor_days(h, m) == 30
+    # 30日の中に安い日がある … どちらでもない
+    h[80] = ("2026-10-19", 470)
+    assert staple_post.floor_days(h, m) is None
+    # 記録が9/15から … 90日は名乗らず30日
+    assert staple_post.floor_days(_hist("2026-09-15", 44, 600), m) == 30
+    # 記録が10/10から … どちらも名乗らない
+    assert staple_post.floor_days(_hist("2026-10-10", 19, 600), m) is None
+    # 判定日とその後の値段は比べる相手に入れない
+    assert staple_post.floor_days(_hist("2026-07-31", 90, 600) + [("2026-10-29", 300)], m) == 90
+    assert staple_post.floor_days([], m) is None
 
 
 def test_align_history_uses_judged_prices_for_last_two_days():
@@ -247,6 +305,7 @@ def test_post_staple_movers_skips_down_when_recheck_fails(monkeypatch):
     monkeypatch.setattr(staple_post, "week_low", lambda sb, m: None)
     monkeypatch.setattr(staple_post, "recheck_price",
                         lambda m, shops: (None, None, "x") if m["name"] == "聖王の粉砕" else (690, "カードラッシュ", "x"))
+    monkeypatch.setattr(staple_post, "fetch_history", lambda sb, name, rarity, d: [])
     monkeypatch.setattr(staple_post.x_poster, "get_card_image_path", lambda name: posted.append(name) or None)
     staple_post.post_staple_movers(_Sb())
     assert rpc_args["min_down_shops"] == 1
@@ -334,3 +393,36 @@ def test_post_staple_movers_skips_return_to_usual_price(monkeypatch):
                         lambda m, shops: rechecked.append(m["name"]) or (None, None, "x"))
     staple_post.post_staple_movers(_Sb())
     assert rechecked == ["灰流うらら"]
+
+
+def test_recently_posted_counts_other_kind_of_same_direction():
+    """底値（floor）と今までの形（down）は同じ向きなので、どちらを出していても7日は同じカードを出さない。"""
+    seen = {}
+
+    class _Q:
+        def select(self, *a):
+            return self
+
+        def in_(self, col, vals):
+            seen["types"] = vals
+            return self
+
+        def gte(self, *a):
+            return self
+
+        def limit(self, *a):
+            return self
+
+        def execute(self):
+            return type("R", (), {"data": []})()
+
+    class _Sb:
+        def table(self, name):
+            return _Q()
+
+    m = {"name": "聖王の粉砕", "rarity": "シークレット", "direction": "down", "floor_days": 90}
+    assert staple_post._recently_posted(_Sb(), m) is False
+    key = staple_post.fuzzy_key("聖王の粉砕") + "|シークレット"
+    assert seen["types"] == ["staple_floor|" + key, "staple_floorctl|" + key, "staple_down|" + key]
+    staple_post._recently_posted(_Sb(), {**m, "direction": "up"})
+    assert seen["types"] == ["staple_up|" + key]
