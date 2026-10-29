@@ -137,6 +137,22 @@ body.sol-recview .sol-field-area { padding-top: calc(var(--sol-rec-band-h) + 8px
   .sol-rec-count { padding: 3px 10px; font-size: 0.75rem; }
   .sol-rec-deck { padding: 2px 8px; font-size: 0.72rem; }
   .sol-rec-controls { left: 12px; right: 12px; justify-content: center; }
+
+  /* 高さが足りない縦向きスマホ（main.js fitFieldToViewport が sol-recview-corner を付ける）は帯を置かない（2026-10-29 ユーザー選択）:
+     ロゴ・題名を盤面の一番上の段の左の空き、手数を右の空きに載せ、帯の分だけカードを大きくする（390×664 で 52px→56px）。
+     マスに当たらない幅は main.js が実測して決める */
+  body.sol-recview-corner { --sol-rec-band-h: 0px; }
+  body.sol-recview-corner .sol-rec-band { height: 0; padding: 0; border: 0; background: none; }
+  body.sol-recview-corner .sol-rec-logo { position: fixed; left: 10px; top: 16px; height: 18px; }
+  body.sol-recview-corner .sol-rec-title {
+    position: fixed; left: 10px; top: 40px;
+    width: 84px;
+    text-align: left; font-size: 0.72rem; line-height: 1.35;
+    white-space: normal;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+  }
+  body.sol-recview-corner .sol-rec-title:empty { display: none; }
+  body.sol-recview-corner .sol-rec-count { position: fixed; right: 10px; top: 16px; }
 }
 
 /* 横向きスマホ（js/ui/rec-view.js が sol-recview-landscape を付ける。条件は responsive.css の横向きと同じ）。

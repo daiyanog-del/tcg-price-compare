@@ -127,6 +127,7 @@ function fitFieldToViewport() {
   //   PC/タブレット  → 全体フィット (比例係数 7.25)
   let slotW_h;
   let mobileBottomReserve = 0; // タスクB-3: isPortraitMobile分岐でのみ実測値に更新される（それ以外は0のまま未使用）
+  let recBandSlotW = Infinity;  // 縦向きスマホの録画用の表示で、上に帯を置いたときの高さで決まる幅（isPortraitMobile分岐で求める）
   if (isPhone && isLandscape && !isRecView) {
     // mainContainer padding-top(4) + row-gaps(20) + sol-field-area padding-bottom(6)
     const BOARD_FIXED = 30;
@@ -149,6 +150,10 @@ function fitFieldToViewport() {
     mobileBottomReserve = getMobileBottomReserve();
     const MOBILE_PORTRAIT_FIXED = MOBILE_PORTRAIT_FIXED_BASE + mobileBottomReserve;
     slotW_h = Math.floor((window.innerHeight - MOBILE_PORTRAIT_FIXED) / 10.15);
+    // 帯の分は .sol-field-area の上の余白として増えるだけなので固定分に足す。帯の高さは rec-view.css の縦向きの
+    // --sol-rec-band-h（:root。隅の形では body で 0 に上書きするので :root から読む）
+    const recBandH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sol-rec-band-h')) || 0;
+    recBandSlotW = Math.floor((window.innerHeight - MOBILE_PORTRAIT_FIXED - recBandH) / 10.15);
   } else if (isRecView) {
     // 画面録画用の表示（rec-view.js・rec-view.css）: デッキ（#imagePool）と再生バーを隠し、上に帯を置く。
     // 盤面3段＋手札/EXの1段 → 4×1.45=5.8。固定分は下の通常時から imagePool の行（mt4＋22）を除き、帯（＋余白8）を足したもの
@@ -179,6 +184,14 @@ function fitFieldToViewport() {
     ? Math.floor((availW - 8 - 40) / 5)
     : Infinity;
 
+  // 縦向きスマホの録画用の表示: 帯の分の高さでカードが小さくなる（高さで決まる）ときだけ、帯をやめてロゴ・題名・手数を
+  // 盤面の一番上の段（3マス）の左右の空きに載せる（2026-10-29 ユーザー選択「高さが足りないときだけ」）。
+  // 判定は帯がある前提の幅で行う（隅に載せた後の幅で判定すると、広がった分で帯に戻って揺れる）。
+  // 縦長の端末は横幅で決まり帯の損が無く、隅も1マス分しかなくロゴが入らないので帯のまま
+  const recCorner = isPortraitMobile && document.body.classList.contains('sol-recview')
+    && recBandSlotW < slotW_w;
+  document.body.classList.toggle(REC_CORNER_CLASS, recCorner);
+
   const minW = isPhone ? 26 : 60;
   // 録画用の表示は左右のパネルが無い分、PC でも通常（124px）より大きく出す
   const maxW = isPhone ? 200 : (isRecView ? 200 : 124);
@@ -196,6 +209,7 @@ function fitFieldToViewport() {
     const bottomReserve = isPortraitMobile ? mobileBottomReserve : 0;
     slotW = correctSlotWidthByMeasurement(slotW, minW, bottomReserve);
   }
+  if (recCorner) slotW = fitRecCornerByMeasurement(slotW, recBandSlotW, mobileBottomReserve);
 
   // 盤面の実測高さを CSS 変数へ反映 → 墓地・除外の下端を盤面と一致させる
   // correctSlotWidthByMeasurement が同期 reflow 済みのため offsetHeight は最終値を返す。
@@ -246,6 +260,35 @@ function fitBoardWidthByMeasurement(slotW, minW) {
   }
   applySlotWidth(low);
   return low;
+}
+
+const REC_CORNER_CLASS = 'sol-recview-corner';
+
+/**
+ * 隅に載せたロゴ・題名と手数が、盤面の一番上の段の左右のマス（1番・2番）に当たらないところまでカードを縮める。
+ * 帯のときの幅（bandSlotW）より大きくならないなら隅に載せる意味が無いので、帯に戻して縮め直す。
+ */
+function fitRecCornerByMeasurement(slotW, bandSlotW, bottomReserve) {
+  const GAP = 6;
+  const logo = document.querySelector('#solRecBand .sol-rec-logo');
+  const title = document.querySelector('#solRecBand .sol-rec-title');
+  const count = document.getElementById('solRecCount');
+  const left = document.querySelector('.custom-slot[data-slot="1"]');
+  const right = document.querySelector('.custom-slot[data-slot="2"]');
+  if (!logo || !count || !left || !right) return slotW;
+  const fits = () => {
+    const l = left.getBoundingClientRect();
+    const r = right.getBoundingClientRect();
+    const leftEdge = Math.max(logo.getBoundingClientRect().right, title?.textContent ? title.getBoundingClientRect().right : 0);
+    return leftEdge + GAP <= l.left && count.getBoundingClientRect().left - GAP >= r.right;
+  };
+  while (slotW > bandSlotW && !fits()) {
+    slotW -= 1;
+    applySlotWidth(slotW);
+  }
+  if (slotW > bandSlotW) return slotW;
+  document.body.classList.remove(REC_CORNER_CLASS);
+  return correctSlotWidthByMeasurement(slotW, 26, bottomReserve);
 }
 
 /**

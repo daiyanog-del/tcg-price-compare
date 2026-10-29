@@ -499,7 +499,8 @@ export function exitRecView() {
   _rowObserver?.disconnect();
   _rowObserver = null;
   _releaseScreenOn();
-  document.body.classList.remove(ROOT_CLASS, LANDSCAPE_CLASS);
+  // sol-recview-corner は main.js fitFieldToViewport が縦向きで高さの足りないときに付ける（閉じたら外す）
+  document.body.classList.remove(ROOT_CLASS, LANDSCAPE_CLASS, 'sol-recview-corner');
   _alignHandExLine(); // 閉じたので手札の幅を元の割合に戻す（_active が false なので戻すだけ）
   _setMobileReserve(false);
   document.removeEventListener('keydown', _onKeydown, true);
