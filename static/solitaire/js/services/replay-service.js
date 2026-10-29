@@ -122,10 +122,10 @@ export function isReplayAnimating() {
 // removed: removeEventAt で手を取り除いた直後（引数 = 取り除いた位置）
 // edited: 利用者の操作で記録が変わった直後（手の記録・コメント・取り除き・1手取り消し）。
 //         読み込み・再生・巻き戻しでは出ない（ui/undo-point.js が「元に戻す」を引っ込める合図に使う）
-// navigated: 利用者の再生の操作（次へ・前へ・自動再生・スライダー・ホイール）で見ている手が変わった直後（引数 = 今のカーソル）。
-//         stepForward / stepBack は常に、seekTo は { announce: true } を渡されたときだけ出す。
-//         手を打った・読み込んだ・画面の切り替えで手を動かした（続きから・再生モードの終了など）ときは出ない
-//         （ui/replay-caption.js が字幕を出す合図に使う）
+// navigated: 利用者の再生の操作（次へ・前へ・自動再生・スライダー・ホイール）で見ている手が変わった直後
+//         （引数 = 今のカーソル, 1手だけ進んだか）。stepForward / stepBack は常に、seekTo は { announce: true } を
+//         渡されたときだけ出す。手を打った・読み込んだ・画面の切り替えで手を動かした（続きから・再生モードの終了など）ときは出ない
+//         （ui/replay-caption.js が字幕を、ui/landing-mark.js が1手だけ進んだときに置いた先の印を出す合図に使う）
 const _listeners = { changed: [], commentAdded: [], removed: [], edited: [], navigated: [] };
 
 /**
@@ -340,7 +340,7 @@ export function stepForward() {
   _animateForward = false;
   _cursor = next;
   _updateUI(true); // 次へ・自動再生で手に進んだ（カットインはここで出る）
-  _emit('navigated', _cursor);
+  _emit('navigated', _cursor, true);
 }
 
 /** 1手戻る */
@@ -348,7 +348,7 @@ export function stepBack() {
   if (_cursor <= -1) return;
   const target = _cursor - 1;
   _replayTo(target);
-  _emit('navigated', _cursor);
+  _emit('navigated', _cursor, false);
 }
 
 /**
@@ -359,6 +359,7 @@ export function stepBack() {
 export function seekTo(n, { announce = false } = {}) {
   const target = Math.max(-1, Math.min(n, _logs.length - 1));
   if (target === _cursor) return;
+  const stepped = target === _cursor + 1; // 1手だけ進んだ（スライダーで飛んだときは置いた先の印を出さない）
   if (target > _cursor) {
     // 前進：差分だけ適用（最終手のみアニメ）
     for (let i = _cursor + 1; i < target; i++) {
@@ -373,7 +374,7 @@ export function seekTo(n, { announce = false } = {}) {
     _replayTo(target);
   }
   _updateUI();
-  if (announce) _emit('navigated', _cursor);
+  if (announce) _emit('navigated', _cursor, stepped);
 }
 
 /**
