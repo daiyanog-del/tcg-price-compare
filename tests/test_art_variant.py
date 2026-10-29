@@ -127,3 +127,52 @@ def test_display_rarity_folds_asian_green_too():
     row = {"rarity": "クォーターセンチュリーシークレットGREEN Ver.", "art": "アジア版"}
     assert av.display_rarity(row) == "25thシークレット"
     assert av.display_rarity({"rarity": "シークレット", "art": av.ART_BASE}) == "シークレット"
+
+
+def _coded(shop, name, code, rarity="スーパー", url=""):
+    return {"shop": shop, "name": name, "rarity": rarity, "code": code, "url": url}
+
+
+def test_reprint_code_with_new_art_is_alt_for_every_shop():
+    # 三戦の号 CH01-JP030 は QCAC-JP096 と違う絵の再録。カーナベルだけが (イラスト違い) と書き、ほかの店は無印（2026-10-29 本番の値）。
+    # 無印の店の行も違う絵にそろえ、スーパー（CH01 にしか無い）に「元のイラスト」の候補を出さない
+    rows = [
+        _coded("カーナベル", "三戦の号(イラスト違い)", "CH01-JP030"),
+        _coded("カーナベル", "三戦の号(イラスト違い)", "CH01-JP030", "シークレット"),
+        _coded("遊々亭", "三戦の号", "CH01-JP030"),
+        _coded("カードラッシュ", "三戦の号", "CH01-JP030"),
+        _coded("トレコロCB", "三戦の号", "CH01-JP030", url=TC.format("CH01-JP030SR")),
+        _coded("まんぞく屋", "三戦の号", "CH01-JP030"),
+        _coded("遊々亭", "三戦の号", "QCAC-JP096", "シークレット"),
+        _coded("カーナベル", "三戦の号", "QCAC-JP096", "シークレット"),
+        {**_coded("カードラッシュ", "☆アジア☆三戦の号", "", "シークレット")},
+    ]
+    av.annotate(rows, "三戦の号")
+    assert [r["art"] for r in rows] == [
+        av.ART_ALT, av.ART_ALT, av.ART_ALT, av.ART_ALT, av.ART_ALT,
+        "",  # 絵を書き分けない店は判別しないまま
+        av.ART_BASE, av.ART_BASE,  # 別の型番の元の絵は変えない
+        "アジア版",
+    ]
+
+
+def test_code_with_both_arts_keeps_plain_rows_as_base():
+    # 灰流うらら PAC1-JP016 のように1つの型番に絵が2種類あるときは、同じ店に無印と (イラスト違い) が並ぶので無印は元のまま
+    rows = [
+        _coded("遊々亭", "灰流うらら", "PAC1-JP016", "シークレット"),
+        _coded("遊々亭", "灰流うらら(イラスト違い版)", "PAC1-JP016", "シークレット"),
+        _coded("カードラッシュ", "灰流うらら", "PAC1-JP016", "シークレット"),
+    ]
+    av.annotate(rows, "灰流うらら")
+    assert [r["art"] for r in rows] == [av.ART_BASE, av.ART_ALT, av.ART_BASE]
+
+
+def test_code_with_explicit_base_word_is_not_folded():
+    # ある店が「既存イラスト」と書いた型番は、別の店が無印でも違う絵に寄せない
+    rows = [
+        _coded("カードラボ", "灰流うらら(新イラスト)", "PAC1-JP016", "シークレット"),
+        _coded("遊々亭", "灰流うらら(既存イラスト)", "PAC1-JP016", "シークレット"),
+        _coded("カードラッシュ", "灰流うらら", "PAC1-JP016", "シークレット"),
+    ]
+    av.annotate(rows, "灰流うらら")
+    assert [r["art"] for r in rows] == [av.ART_ALT, av.ART_BASE, av.ART_BASE]
