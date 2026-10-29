@@ -10,6 +10,7 @@
 -- 新定義: 各(店舗,レアリティ)系列の「窓内で最新の観測日」の値だけを現在価格の候補にし、
 -- その最安を返す。窓(cutoff)は欠測補完（今日収集が無かった店舗の直近値を使う）のためだけに使う。
 -- 併せて ¥10以下の異常値ガードを他経路（RPC movers / aggregations / notify / x_poster）と統一。
+-- 2026-10-29: 本物の ¥10 の出品を残すため「¥10未満」に変更（constants.PRICE_FLOOR）。
 -- 事前計測(2026-08-07): 2,690枚中194枚(7.2%)が上昇・中央値+20%・カバレッジ喪失0枚。
 -- 注: rarity="(不明)" は除外しない（購入可能な実在出品であり「最安で買う」目的には有効なため）。
 --
@@ -58,7 +59,7 @@ AS $function$
     SELECT p.card_id, p.shop_id, p.rarity_id, p.min_price, p.recorded_at
     FROM price_history_v2 p
     WHERE p.recorded_at >= cutoff_date::date
-      AND p.min_price IS NOT NULL AND p.min_price > 10
+      AND p.min_price IS NOT NULL AND p.min_price >= 10
   ),
   latest AS (
     SELECT DISTINCT ON (w.card_id, w.shop_id, w.rarity_id)

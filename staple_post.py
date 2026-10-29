@@ -33,7 +33,7 @@ import logging
 import urllib.parse
 from datetime import datetime, timedelta, date
 
-from constants import JST
+from constants import JST, PRICE_FLOOR
 from name_normalize import fuzzy_key
 import staple_cards
 import x_poster
@@ -161,17 +161,17 @@ def fetch_history(sb, name, rarity, date_to):
     daily = {}
     for r in rows:
         p = r.get("min_price") or 0
-        if p <= 10:
+        if p < PRICE_FLOOR:
             continue
         d = r["recorded_at"][:10]
         daily[d] = min(daily.get(d, p), p)
     # 31日目以前は店舗別の行が消え、日ごとの全店最安（price_daily）に畳まれている。
-    # 10円以下を除いた最安（min_price_over10）を使い、上と同じ値になるようにする
+    # PRICE_FLOOR 未満を除いた最安（min_price_over10。名前は「10円超」だった頃のまま）を使い、上と同じ値になるようにする
     full_dates = {r["recorded_at"][:10] for r in rows}
     for r in _fetch_daily_history(sb, name, rarity, start, date_to):
         d = r["recorded_at"][:10]
         p = r.get("min_price_over10") or 0
-        if d in full_dates or p <= 10:
+        if d in full_dates or p < PRICE_FLOOR:
             continue
         daily[d] = min(daily.get(d, p), p)
     return sorted(daily.items())
@@ -382,7 +382,7 @@ def _passes_threshold(direction, diff, pct):
 
 
 def week_low(sb, m):
-    """判定日（date_new）の前 WEEK_LOW_DAYS 日（前日を含む）の、そのレアリティの最安値（全店・¥10以下は除く）。
+    """判定日（date_new）の前 WEEK_LOW_DAYS 日（前日を含む）の、そのレアリティの最安値（全店・PRICE_FLOOR 未満は除く）。
     記録が無ければ None。照会に失敗したら例外をそのまま上げる（呼び出し側で見送る）。"""
     end = date.fromisoformat(m["date_new"])
     start = (end - timedelta(days=WEEK_LOW_DAYS)).isoformat()
@@ -396,7 +396,7 @@ def week_low(sb, m):
         batch = resp.data or []
         for r in batch:
             p = r.get("min_price") or 0
-            if p > 10 and (low is None or p < low):
+            if p >= PRICE_FLOOR and (low is None or p < low):
                 low = p
         if len(batch) < 1000:
             return low
@@ -423,7 +423,7 @@ def recheck_price(m, shops, fetch=None):
     """投稿直前に、その値段をつけていた店をもう一度調べ、今の通常品の最安値を返す。
 
     取り方は夜間の収集と同じ（scraper.compare_prices → price_persist.build_min_price_rows。
-    売り切れ・¥10以下を除く）。ただし通常品（状態難でない出品）だけで数える。収集は通常品が
+    売り切れ・PRICE_FLOOR 未満を除く）。ただし通常品（状態難でない出品）だけで数える。収集は通常品が
     無いと状態難の値段で代用するが、「今この値段で買える」の中身が状態難に変わるのを防ぐため。
     戻り値: (値段, 店, 理由) — 店が複数なら安いほう。どの店でも取れなければ値段と店は None で、
     理由に店ごとの結果（取得失敗／在庫なし など）を入れる（見送りの原因をログで切り分けるため）。

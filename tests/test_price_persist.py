@@ -100,6 +100,20 @@ class TestIsNormalCondition:
 # P4: build_min_price_rows の2値計算
 # ──────────────────────────────────────────────
 
+class TestPriceFloor:
+    def test_ten_yen_is_kept_and_below_is_dropped(self):
+        # 2026-10-29: 「10円以下を捨てる」から「10円未満を捨てる」へ。本物の ¥10 の出品
+        # （カーナベル 墓穴の指名者 ノーマル 等）を記録に残し、1〜9円の異常値だけを捨てる
+        rows = build_min_price_rows(
+            "テストカード",
+            [_item("カーナベル", "ノーマル", 10, condition="状態:A"),
+             _item("カードラボ", "ノーマル", 9),
+             _item("遊々亭", "ノーマル", 1)],
+            TODAY,
+        )
+        assert [(r["shop"], r["min_price"]) for r in rows] == [("カーナベル", 10)]
+
+
 class TestTwoValueAggregation:
     def test_kanabell_sa_and_c_split_normal_from_any(self):
         # SA=1000円(通常)・C=700円(通常外) → min_price=1000(通常のみ), min_price_any=700(全体)
@@ -155,11 +169,11 @@ class TestTwoValueAggregation:
         assert row["code"] == "S1"
 
     def test_sold_out_and_low_price_still_excluded(self):
-        # 既存挙動（sold_out除外・10円以下除外）が2値集計後も保たれること
+        # 既存挙動（sold_out除外・10円未満除外）が2値集計後も保たれること
         rows = build_min_price_rows(
             "テストカード",
             [
-                _item("店舗A", "レア", 10, condition="-"),
+                _item("店舗A", "レア", 9, condition="-"),
                 _item("店舗A", "レア", 5000, condition="-", sold_out=True),
                 _item("店舗A", "レア", 1500, condition="-"),
             ],

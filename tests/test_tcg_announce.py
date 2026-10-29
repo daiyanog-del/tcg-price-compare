@@ -100,7 +100,8 @@ def test_一覧は新規カードだけを拾い_名前の空の行と再録は�
 
 def test_弾のページから接頭辞と収録枚数と発売日():
     assert ya.parse_set_page(SET_PAGE) == {"name_en": "Maze of Machines", "prefix": "MZMC", "size": 153,
-                                           "release_date": "2027-03-19", "image": ""}
+                                           "release_date": "2027-03-19", "image": "",
+                                           "cover_cards": ["Rampant Barrel Dragon"]}
     with_image = SET_PAGE.replace("{{Infobox set", "{{Infobox set\n| image = MZMC-BoosterEN.png")
     assert ya.parse_set_page(with_image)["image"] == "MZMC-BoosterEN.png"
     assert ya.slugify("Maze of Machines") == "maze-of-machines"
@@ -599,3 +600,81 @@ def test_テーマの欄とふりがなの読み取り():
     assert ya.list_param("Heavy Metal") == ["Heavy Metal"]
     page = "{{Infobox archseries\n| ja_name = {{Ruby|Ｅ・ＨＥＲＯ|エレメンタルヒーロー}}\n}}"
     assert ya.parse_archetype_ja(page) == "Ｅ・ＨＥＲＯ"
+
+
+# ── 投稿を有効にする前の直し（2026-10-29 本番のデータで見つけたもの） ─────────
+
+def test_本文が長くても見出しとまとめへの一文を残す(monkeypatch):
+    import x_poster
+    from unreleased_x_post import weighted_length
+    monkeypatch.setattr(x_poster, "SITE_URL", "https://greedy-lab.com")
+    long = dict(CARDS[1], summary_short_ja="長い概要。" * 40, related_ja=["スロットマシーンAM－７"])
+    text = tp.text_card(SET, long, CARDS)
+    assert "《スロットマシーンAM－７》ゆかりの新カード" in text
+    assert "同じパックで判明した残り3枚も、まとめて紹介しています。" in text
+    assert weighted_length(text.rsplit("\n", 1)[0]) + 1 + 23 <= tp.MAX_WEIGHT
+    assert "\n\n" not in text
+
+
+def test_連載は表紙のカードを表紙の並びで先に出す():
+    cards = [_card(1, "Pendulum Machine of Misery", 1), _card(2, "Slot Machine 777", 2, related=["スロットマシーンAM－７"]),
+             _card(5, "Rampant Barrel Dragon", 5)]
+    covers = ["Rampant Barrel Dragon", "Pendulum Machine of Misery"]
+    got = sorted(cards, key=lambda c: tp.card_order_key(c, covers))
+    assert [c["name_en"] for c in got] == ["Rampant Barrel Dragon", "Pendulum Machine of Misery", "Slot Machine 777"]
+    s = dict(SET, cover_cards=covers)
+    item = tp.decide([s], {"MZMC": cards}, [_first()], NOW + timedelta(days=1))
+    assert item["card"]["name_en"] == "Rampant Barrel Dragon"
+
+
+def test_弾のページから表紙のカード():
+    page = SET_PAGE.replace("* Rampant Barrel Dragon", "* Rampant Barrel Dragon\n* Pendulum Machine of Misery")
+    assert ya.parse_set_page(page)["cover_cards"] == ["Rampant Barrel Dragon", "Pendulum Machine of Misery"]
+
+
+def test_商品写真が無い弾の画像はカードを右に並べる():
+    import tcg_announce_og as og
+    rel = [("A", _img(256, 372, (120, 60, 30)))] * 4
+    for r in (rel, rel[:1]):
+        png = og.render_set_png(SET, CARDS, related=r)
+        assert png[:4] == bytes([0x89]) + b"PNG"
+
+
+def test_既にある弾は書き換えで送り_slugを外したupsertにしない():
+    calls = []
+
+    class T:
+        def __init__(self, name):
+            self.name = name
+
+        def upsert(self, payload, on_conflict=None):
+            calls.append(("upsert", self.name, payload))
+            return self
+
+        def update(self, payload):
+            calls.append(("update", self.name, payload))
+            return self
+
+        def eq(self, *a):
+            return self
+
+        def execute(self):
+            return type("R", (), {"data": []})()
+
+    class SB:
+        def table(self, name):
+            return T(name)
+
+    s = {"prefix": "MZMC", "slug": "maze-of-machines", "name_en": "Maze of Machines", "list_title": "x",
+         "tcg_release_date": "2027-03-19"}
+    collected = {"sets": [s], "changed": [], "seen_ids": {}, "retire": [], "drop": [], "skipped_known": 0}
+    from datetime import date
+    tw.process(collected, {}, sb=SB(), client=None, model="m", mirror=None, summarize_on=False, dry_run=False,
+               today=date(2026, 10, 29), known_sets={"MZMC": {"prefix": "MZMC", "slug": "maze-of-machines"}})
+    assert [(k, n) for k, n, _ in calls] == [("update", "tcg_announce_sets")]
+    assert "slug" not in calls[0][2]
+    calls.clear()
+    tw.process(collected, {}, sb=SB(), client=None, model="m", mirror=None, summarize_on=False, dry_run=False,
+               today=date(2026, 10, 29), known_sets={})
+    assert [(k, n) for k, n, _ in calls] == [("upsert", "tcg_announce_sets")]
+    assert calls[0][2]["slug"] == "maze-of-machines"

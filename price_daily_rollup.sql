@@ -12,7 +12,8 @@
 --   履歴が失われるため）。失敗や追いつけないときは Discord に知らせる。
 -- 読み手: price_daily ビュー（card_name/rarity/shop の文字列で price_history と同じ形）。
 --   min_shop_ids を unnest するので、同額の店が複数あれば同じ日に複数行になる（グラフの吹き出しの店名用）。
--- 2つの最安を持つ理由: グラフは 0円超を、汎用X投稿は 10円以下を捨てた値を使う（既存の慣例）。
+-- 2つの最安を持つ理由: グラフは 0円超を、汎用X投稿は 10円未満を捨てた値を使う（既存の慣例）。
+-- 2026-10-29 に「10円以下」から「10円未満」へ変えた。列名の min_price_over10 はそのまま（名前を変えると表とビューの作り直しが要るため）。
 --   片方だけだと、もう片方の結果が畳む前と変わる。
 --
 -- 適用順:
@@ -29,7 +30,7 @@ CREATE TABLE IF NOT EXISTS public.price_daily_min (
     recorded_at      date     NOT NULL,           -- JST日付（price_history_v2 と同じ）
     min_price        integer  NOT NULL,           -- 全店最安（0円以下の行は除いて計算）
     min_shop_ids     smallint[] NOT NULL,         -- min_price を付けた店（同額なら複数・shop_id 昇順）
-    min_price_over10 integer,                     -- 10円以下の行を除いた全店最安（汎用X投稿用。無ければ NULL）
+    min_price_over10 integer,                     -- 10円未満の行を除いた全店最安（汎用X投稿用。無ければ NULL。名前は旧「10円超」のまま）
     PRIMARY KEY (card_id, rarity_id, recorded_at)
 );
 ALTER TABLE public.price_daily_min ENABLE ROW LEVEL SECURITY;  -- ポリシーなし＝anon からは表を直接読めない
@@ -68,7 +69,7 @@ BEGIN
   SELECT card_id, rarity_id, recorded_at,
          min(day_min),
          array_agg(DISTINCT shop_id ORDER BY shop_id) FILTER (WHERE min_price = day_min),
-         min(min_price) FILTER (WHERE min_price > 10)
+         min(min_price) FILTER (WHERE min_price >= 10)
   FROM (
     SELECT card_id, rarity_id, recorded_at, shop_id, min_price,
            min(min_price) OVER (PARTITION BY card_id, rarity_id, recorded_at) AS day_min
@@ -104,7 +105,7 @@ GRANT EXECUTE ON FUNCTION public.rollup_price_daily(date, date) TO service_role;
 --            WHERE recorded_at >= '2026-08-01' AND recorded_at < '2026-08-10' AND min_price > 0),
 --      e AS (SELECT card_id, rarity_id, recorded_at, min(m) AS min_price,
 --                   array_agg(DISTINCT shop_id ORDER BY shop_id) FILTER (WHERE min_price = m) AS min_shop_ids,
---                   min(min_price) FILTER (WHERE min_price > 10) AS min_price_over10
+--                   min(min_price) FILTER (WHERE min_price >= 10) AS min_price_over10
 --            FROM s GROUP BY 1, 2, 3)
 -- (SELECT * FROM e EXCEPT SELECT card_id, rarity_id, recorded_at, min_price, min_shop_ids, min_price_over10
 --   FROM public.price_daily_min WHERE recorded_at >= '2026-08-01' AND recorded_at < '2026-08-10')

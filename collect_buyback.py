@@ -35,7 +35,7 @@ from collect_prices import (
 )
 
 # ── 定数 ──
-from constants import JST, BUYBACK_RETENTION_DAYS
+from constants import JST, BUYBACK_RETENTION_DAYS, PRICE_FLOOR
 
 WAIT_BETWEEN_CARDS = 1.0  # 収集間隔（秒）。collect_prices.py に合わせる
 
@@ -102,7 +102,7 @@ def collect_and_save_buyback(
         if row_is_sealed(item):
             continue
         price = item.get("price", 0)
-        if price <= 10:  # 10円以下は異常値として除外
+        if price < PRICE_FLOOR:  # 10円未満は異常値として除外
             continue
         key = (item.get("shop", ""), item.get("rarity", ""))
         if key not in max_prices or price > max_prices[key]:

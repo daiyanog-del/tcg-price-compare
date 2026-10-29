@@ -17,7 +17,7 @@
 
 import time
 from datetime import date, datetime
-from constants import JST
+from constants import JST, PRICE_FLOOR
 from rarity import normalize_rarity
 
 
@@ -256,7 +256,7 @@ def get_initial_prices(sb, card_names) -> list:
         for row in all_rows:
             name = row["card_name"]
             price = row.get("min_price", 0)
-            if name not in name_set or price <= 10:
+            if name not in name_set or price < PRICE_FLOOR:
                 continue
             if name not in best or price < best[name]:
                 best[name] = price
