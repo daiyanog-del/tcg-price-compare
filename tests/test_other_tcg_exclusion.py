@@ -193,26 +193,93 @@ def test_kanabell_game_and_rarity_filter(fields, excluded):
     assert scraper._is_kanabell_excluded(fields) is excluded
 
 
+def _kanabell_source(product_id, rarity, *, name="青眼の白龍", stock=1, slots=1, rarity_name=""):
+    """新サイト（2026-10-24〜）の ES の商品の形。"""
+    source = {
+        "inventory_product_id": product_id, "product_name": name,
+        "rank_s_purchase_price": 100, "acquisition_num_limit": slots,
+        "shop_shelf_inventory_plus_before_storing_shop_shelf_inventory_num": 0,
+        "shop_shelf_temporary_inventory_num": 0,
+        "yg_card": {"serial_number": "LB-01", "image1_url": "https://yg-card-images.ka-nabell.com/card/card1_1.jpg",
+                    "rarity": {"yg_rarity_abbreviation": rarity, "yg_rarity_name": rarity_name}},
+    }
+    for rank, _ in scraper._KANABELL_CONDITIONS:
+        source[f"rank_{rank}_inventory"] = {"selling_price": 200, "inventory_num": stock}
+    return source
+
+
+def _patch_kanabell_es(monkeypatch, sources):
+    monkeypatch.setattr(scraper, "_KANABELL_ES_ENDPOINT", "https://example.invalid")
+    monkeypatch.setattr(scraper, "_KANABELL_ES_API_KEY", "test")
+    sent = []
+    response = SimpleNamespace(status_code=200, raise_for_status=lambda: None,
+                               json=lambda: {"hits": {"hits": [{"_source": s} for s in sources]}})
+    monkeypatch.setattr(scraper.requests, "post", lambda *args, **kwargs: sent.append(kwargs) or response)
+    return sent
+
+
 @pytest.mark.parametrize("scrape", [scraper.scrape_kanabell, scraper.scrape_kanabell_buy])
 def test_kanabell_sale_and_buy_drop_overrush(monkeypatch, scrape):
     """問題の商品は全状態で除外し、同名のOCGは販売・買取とも残す。"""
-    hits = []
-    for card_id, rarity in [("100283847", "Oラッシュ"), ("ocg", "ウルトラ")]:
-        source = {"id": card_id, "name": "青眼の白龍", "rarity_abbreviation": rarity,
-                  "sa_buying_price": 100, "sa_limit_flag": True}
-        for rank, _ in scraper._KANABELL_CONDITIONS:
-            source[f"{rank}_selling_price"] = 200
-            source[f"{rank}_stock"] = 1
-        hits.append({"_source": source})
-    monkeypatch.setattr(scraper, "_KANABELL_CLOUD_ID", "test")
-    monkeypatch.setattr(scraper, "_KANABELL_API_KEY", "test")
-    monkeypatch.setattr(scraper, "_KANABELL_ES_URL", "https://example.invalid")
-    response = SimpleNamespace(status_code=200, raise_for_status=lambda: None,
-                               json=lambda: {"hits": {"hits": hits}})
-    monkeypatch.setattr(scraper.requests, "post", lambda *args, **kwargs: response)
+    _patch_kanabell_es(monkeypatch, [_kanabell_source("rush", "Oラッシュ"),
+                                     _kanabell_source("tin", "ステンレス"),
+                                     _kanabell_source("ocg", "ウルトラ")])
     rows = scrape("青眼の白龍")
-    assert len(rows) == (4 if scrape is scraper.scrape_kanabell else 1)
-    assert all("id=ocg" in row["url"] for row in rows)
+    assert len(rows) == (5 if scrape is scraper.scrape_kanabell else 1)
+    assert all(row["url"].endswith("/single/ocg") for row in rows)
+    assert all(row["rarity"] == "ウルトラ" and row["code"] == "LB-01" for row in rows)
+
+
+def test_kanabell_sale_conditions_and_sold_out(monkeypatch):
+    """状態S〜Dを展開し、在庫が無い商品は最上位の状態の価格を売切として1行だけ残す。"""
+    _patch_kanabell_es(monkeypatch, [_kanabell_source("a", "ウルトラ"),
+                                     _kanabell_source("b", "ウルトラ", stock=0)])
+    rows = scraper.scrape_kanabell("青眼の白龍")
+    in_stock = [r for r in rows if r["url"].endswith("/single/a")]
+    assert [r["condition"] for r in in_stock] == ["状態:S", "状態:A", "状態:B", "状態:C", "状態:D"]
+    assert all(r["url"] == "https://www.ka-nabell.com/ec/sell/yugioh/single/a" for r in in_stock)
+    sold = [r for r in rows if r["url"].endswith("/single/b")]
+    assert [(r["condition"], r["sold_out"], r["stock"]) for r in sold] == [("状態:S", True, 0)]
+
+
+def test_kanabell_buy_needs_open_slots(monkeypatch):
+    """買取枠の残りが0の商品（買取終了）は古い買取価格が残っていても使わない。"""
+    full = _kanabell_source("full", "ウルトラ", slots=2)
+    full["shop_shelf_inventory_plus_before_storing_shop_shelf_inventory_num"] = 1
+    full["shop_shelf_temporary_inventory_num"] = 1
+    _patch_kanabell_es(monkeypatch, [full, _kanabell_source("open", "ウルトラ", slots=3)])
+    rows = scraper.scrape_kanabell_buy("青眼の白龍")
+    assert [r["url"] for r in rows] == ["https://www.ka-nabell.com/ec/buy/yugioh/single/open"]
+    assert rows[0]["price"] == 100
+
+
+def test_kanabell_rarity_dash_falls_back_to_full_name(monkeypatch):
+    """略号がダッシュだけ（「－」＝ノーマルレア）の商品は正式名で正規化する。"""
+    _patch_kanabell_es(monkeypatch, [_kanabell_source("nr", "－", rarity_name="ノーマルレア")])
+    rows = scraper.scrape_kanabell_buy("青眼の白龍")
+    assert rows[0]["rarity"] == "ノーマルレア"
+
+
+def test_kanabell_query_limits_to_published_and_sellable(monkeypatch):
+    """販売は公開期間内・購入上限0でない商品だけを、語ごとに AND で探す。"""
+    sent = _patch_kanabell_es(monkeypatch, [])
+    assert scraper.scrape_kanabell("No.39 希望皇ホープ") == []
+    query = sent[0]["json"]["query"]["bool"]
+    assert len(query["must"]) == 2  # 「No.39」と「希望皇ホープ」
+    assert query["must_not"] == [{"term": {"selling_num_limit": 0}}]
+    published = query["filter"][0]["bool"]
+    assert published["must"] == [{"range": {"publish_from": {"lte": "now"}}}]
+    assert sent[0]["headers"]["Authorization"] == "ApiKey test"
+
+
+def test_kanabell_missing_config_is_fetch_error(monkeypatch):
+    """接続情報が無いときは「在庫なし」ではなく取得失敗として扱う。"""
+    monkeypatch.setattr(scraper, "_KANABELL_ES_ENDPOINT", "")
+    errors = []
+    monkeypatch.setattr(scraper, "_note_fetch_error", lambda: errors.append(1))
+    assert scraper.scrape_kanabell("青眼の白龍") == []
+    assert scraper.scrape_kanabell_buy("青眼の白龍") == []
+    assert len(errors) == 2
 
 
 @pytest.mark.parametrize("buyback", [False, True])
