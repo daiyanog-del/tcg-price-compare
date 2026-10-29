@@ -91,7 +91,14 @@ function placeCardInCustomSlot(slot, card, { under = false } = {}) {
   } else {
     slot.appendChild(card);
   }
+  // 相手の墓地（21番・2026-10-29 ui/opp-field.js）は自分の墓地（placeCardInNormalSlot）と同じく表向き・攻撃表示に戻す
+  if (isOppGraveSlot(slot)) applyCardState(card, {});
   restackCustomSlot(slot);
+}
+
+/** 相手の墓地（21番のマス）か。墓地なので守備・セット・下重ねの形を持たせない */
+export function isOppGraveSlot(slot) {
+  return slot?.getAttribute?.('data-slot') === '21';
 }
 
 /**
@@ -222,13 +229,16 @@ export function executeDrop(draggedInfo, dropZoneInfo, dropTarget, modifiers = {
       case 'CUSTOM_SLOT': {
         const before = dropZone.querySelectorAll('.tier-item-wrapper').length;
         // Ctrl単独=下重ね / Shift+Ctrl=セット（下重ねではない）
-        const under = modifiers.ctrl && !modifiers.shift;
+        const grave = isOppGraveSlot(dropZone); // 相手の墓地は修飾キーの形（下重ね・セット・守備）を使わない
+        const under = !grave && modifiers.ctrl && !modifiers.shift;
         placeCardInCustomSlot(dropZone, draggedElement, { under });
         zIndex = under ? '1' : String(before + 1);
 
         // 修飾キーによる状態変更（優先順位: Shift+Ctrl=セット > Shift=守備）
         // 初期配置なので状態は即時適用（アニメはリプレイ再生側が担う）
-        if (modifiers.shift && modifiers.ctrl) {
+        if (grave) {
+          // 何もしない（placeCardInCustomSlot が表向き・攻撃表示に戻している）
+        } else if (modifiers.shift && modifiers.ctrl) {
           applySet(draggedElement, true);
         } else if (modifiers.shift) {
           toggleDefense(draggedElement);
@@ -771,7 +781,7 @@ export function setMobilePlaceState(state) {
  * 同じく、状態を先に確定してから executeDrop に渡すので、記録は形まで含めた1手になる。
  */
 function _applyMobilePlaceState(wrapper, dropZoneInfo, state = _mPlaceState) {
-  if (!state || dropZoneInfo?.type !== 'CUSTOM_SLOT') return;
+  if (!state || dropZoneInfo?.type !== 'CUSTOM_SLOT' || isOppGraveSlot(dropZoneInfo.element)) return;
   if (!wrapper?.parentElement?.classList.contains('center-slot')) return;
   applyCardState(wrapper, state);
 }

@@ -349,7 +349,8 @@ function _buildMenuItems(wrapper, img, parent, isInPool, isInitial, isTouch = fa
 
   const isDefense = wrapper.dataset.orientation === 'defense';
   const isSet     = wrapper.dataset.face === 'down';
-  const isCustom  = parent?.classList.contains('custom-slot');
+  // 相手の墓地（21番・2026-10-29）は場ではなく墓地なので、守備・セット・下重ねは出さない
+  const isCustom  = parent?.classList.contains('custom-slot') && parent.getAttribute('data-slot') !== '21';
   // 置き場所に合わない形の切り替えは出さない（2026-10-21 モック B。スマホのアクションシートは手札で既に隠している）。
   //   守備表示: 場だけ。セット: 場と除外（裏側で除外することがあるため）。
   //   今その形になっているカードは、戻せるように場所を問わず出す
@@ -527,7 +528,9 @@ function _startFieldPlacement(wrapper, state) {
   // リプレイに記録されるのを防ぐ。墓地送り/除外/手札に戻す3項目と同じ方針）。
   // 状態だけ変えたい場合は既存の守備/セット切替メニュー項目を使ってもらう想定。
   const currentSlot = wrapper.parentElement;
-  const slots = Array.from(document.querySelectorAll('.custom-slot')).filter((s) => s !== currentSlot);
+  // 相手の墓地（21番）と、相手の場を出していないときの相手のマス（隠れている）は置き場所にしない
+  const slots = Array.from(document.querySelectorAll('.custom-slot'))
+    .filter((s) => s !== currentSlot && s.getAttribute('data-slot') !== '21' && s.offsetParent !== null);
   slots.forEach((slot) => slot.classList.add('pc-placement-target'));
   _pcPlacement = { wrapper, state, slots };
 

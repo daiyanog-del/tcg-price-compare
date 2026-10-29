@@ -19,7 +19,7 @@
     grid-template-columns: auto auto;
     column-gap: var(--gap);
     row-gap: var(--gap);
-    justify-content: center;
+    justify-content: safe center; /* relief-theme.css の .main-content と同じ（狭い幅で左端までスクロールできるように） */
   }
   body.sol-opp-on .sol-opp-row { display: contents; }
   body.sol-opp-on .sol-opp-board {
@@ -156,3 +156,7 @@
 
 /* 録画用の表示（横向き）: 盤面の段の間（rec-view.css .custom-layout row-gap 5px）にそろえる */
 body.sol-recview-landscape.sol-opp-on .main-content { row-gap: 5px; }
+
+/* 未発売カードのイラストのぼかし（sample-blur.css）は上下で範囲が違うので、相手のカードの向きに合わせて回す */
+[data-sample-blur] .sol-opp-slot > .tier-item-wrapper.sample-art:not(.is-set)::after { transform: rotate(180deg); transform-origin: center center; }
+[data-sample-blur] .sol-opp-slot > .tier-item-wrapper.is-defense.sample-art:not(.is-set)::after { transform: rotate(90deg); }

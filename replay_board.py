@@ -26,6 +26,7 @@ import re
 
 # 上限値。TODO: calibrate from data（実リプレイの分布未収集のため仮置き）
 BOARD_MAX_FIELD = 30      # 実盤面は14マス＋相手の場7マス（2026-10-29）＝21マス。余裕を見て30
+BOARD_MAX_STACK = 200     # 1マスの重なり枚数 n の上限（相手の墓地 21 もここ。デッキ60+EX15 を十分に超える値。以前の 20×10 と同じ）
 BOARD_MAX_HAND = 60
 BOARD_MAX_COUNT = 200     # 枚数系フィールドの上限（デッキ60+EX15 を十分に超える値）
 BOARD_MAX_MOVES = 2000    # logs 上限（solitaire_routes.REPLAY_MAX_LOG_ENTRIES）と同じ
@@ -80,7 +81,7 @@ def _field_entry(e):
     item = {"slot": slot, **card, "pos": e["pos"], "face": e["face"]}
     if "n" in e:
         n = e["n"]
-        if not _is_int(n) or not 1 <= n <= BOARD_MAX_FIELD * 10:
+        if not _is_int(n) or not 1 <= n <= BOARD_MAX_STACK:
             return None
         item["n"] = n
     return item

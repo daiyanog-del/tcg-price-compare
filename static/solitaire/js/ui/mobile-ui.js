@@ -726,6 +726,7 @@ function initEmptySlotLongPress() {
     if (e.touches.length > 1 || e.target.closest('.tier-item-wrapper')) return;
     const slot = e.target.closest('.custom-slot');
     if (!slot || slot.querySelector('.tier-item-wrapper')) return;
+    if (slot.getAttribute('data-slot') === '21') return; // 相手の墓地には空きマスのメニュー（トークン等）を出さない
     const t = e.changedTouches[0];
     start = { x: t.clientX, y: t.clientY, id: t.identifier };
     timer = setTimeout(() => {

@@ -8,13 +8,16 @@ const source = fs.readFileSync(path.join(__dirname, '../../static/solitaire/js/m
 const start = source.indexOf('function fitBoardWidthByMeasurement(');
 const end = source.indexOf('\n/**', start);
 assert(start >= 0 && end > start);
-function fixture(fieldWidth, initial, minimum, sides = true) {
+function fixture(fieldWidth, initial, minimum, sides = true, opp = false) {
   let width = initial;
   let probes = 0;
   const style = {display:'block', marginLeft:'0px', marginRight:'0px', paddingLeft:'0px', paddingRight:'0px', columnGap:'10px'};
-  const grid = {getBoundingClientRect:()=>({width:6*width+50}), get scrollWidth(){return 6*width+52;}};
-  const side = {getBoundingClientRect:()=>({width:2.4*width+46}), get scrollWidth(){return Math.round(2.4*width+46);}, hidden:!sides};
-  const content = {children:[grid,side]};
+  const cls = (name) => ({contains:(c)=>c===name});
+  const grid = {classList:cls('custom-layout'), getBoundingClientRect:()=>({width:6*width+50}), get scrollWidth(){return 6*width+52;}};
+  const side = {classList:cls('side-slots-container'), getBoundingClientRect:()=>({width:2.4*width+46}), get scrollWidth(){return Math.round(2.4*width+46);}, hidden:!sides};
+  // 相手の場の段（.sol-opp-row・display:contents）。盤面・墓地除外の上の段なので横の数には入れない（2026-10-29）
+  const oppRow = {classList:cls('sol-opp-row'), getBoundingClientRect:()=>({width:0}), get scrollWidth(){return 0;}};
+  const content = {children: opp ? [oppRow,grid,side] : [grid,side]};
   const field = {clientWidth:fieldWidth};
   const board = {querySelector:()=>content};
   const sandbox = {
@@ -41,4 +44,7 @@ assert.equal(fixture(500,90,60),60);
 assert.equal(fixture(500,60,60),60);
 // 非表示領域の幅と間隔は計上しない。
 assert.equal(fixture(920,83,60,false),83);
-console.log('盤面幅: 実測寸法・境界値・非表示領域の5ケース成功');
+// 相手の場の段があっても、横に並ぶ数（間隔）に入れない（入れると間隔1つ分だけ小さくなる）。
+assert.equal(fixture(920,83,60,true,true),79);
+assert.equal(fixture(1560,110,60,true,true),110);
+console.log('盤面幅: 実測寸法・境界値・非表示領域・相手の場の段の7ケース成功');

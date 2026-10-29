@@ -54,7 +54,9 @@ function _update() {
   body.toggle(WIDE_CLASS, wide);
   _syncSwitches(on);
   if (!on) _closeGrave();
-  if (changed) window.dispatchEvent(new Event('resize')); // main.js fitFieldToViewport が段の分を入れて測り直す
+  // main.js fitFieldToViewport が段の分を入れてすぐ測り直す（resize だと 150ms 待つ間に古い大きさで崩れ、
+  // 出ているカットインも消える＝comment-ui.js。左右のパネルの開閉と同じ合図を使う）
+  if (changed) window.dispatchEvent(new Event('sol-layout-resize'));
 }
 
 function _onSwitch(ev) {
@@ -85,11 +87,18 @@ function _layoutGrave() {
   if (cards.length === 0) _closeGrave();
   const open = _grave.classList.contains('is-open');
   const w = _grave.clientWidth || 0;
+  // 枚数が多いと画面の外へはみ出して触れなくなるので、盤面の列（.sol-field-area）の右端までに収まるよう詰める
+  let step = w * GRAVE_STEP;
+  if (open && cards.length > 1) {
+    const area = document.querySelector('.sol-field-area')?.getBoundingClientRect();
+    const avail = area ? area.right - _grave.getBoundingClientRect().left - 8 : Infinity;
+    step = Math.max(4, Math.min(step, (avail - w) / (cards.length - 1)));
+  }
   cards.forEach((c, i) => {
     c.style.top = '0';
-    c.style.left = open ? `${Math.round(i * w * GRAVE_STEP)}px` : '';
+    c.style.left = open ? `${Math.round(i * step)}px` : '';
   });
-  _grave.style.setProperty('--sol-opp-grave-span', `${Math.round((cards.length - 1) * w * GRAVE_STEP + w)}px`);
+  _grave.style.setProperty('--sol-opp-grave-span', `${Math.round((cards.length - 1) * step + w)}px`);
 }
 
 function _openGrave() {
