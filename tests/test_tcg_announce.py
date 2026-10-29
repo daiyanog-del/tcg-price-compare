@@ -616,6 +616,15 @@ def test_本文が長くても見出しとまとめへの一文を残す(monkeyp
     assert "\n\n" not in text
 
 
+def test_要約が入りきらないときは文の切れ目で切る():
+    first = "闇属性・機械族がカードを破壊すると手札から特殊召喚できる。"
+    short = first + "破壊されてもデッキから闇属性・機械族を呼べる。"
+    assert tp._cut_short(short, 70) == first
+    assert tp._cut_short(short, 400) == short
+    # 1文目も入らないときだけ「…」で切る
+    assert tp._cut_short(short, 30).endswith("…")
+
+
 def test_連載は表紙のカードを表紙の並びで先に出す():
     cards = [_card(1, "Pendulum Machine of Misery", 1), _card(2, "Slot Machine 777", 2, related=["スロットマシーンAM－７"]),
              _card(5, "Rampant Barrel Dragon", 5)]
