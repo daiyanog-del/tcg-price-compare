@@ -60,6 +60,7 @@
 <link rel="stylesheet" href="{{ static_url('solitaire/css/relief-theme.css') }}">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/rec-view.css') }}">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/inline-ui.css') }}">
+<link rel="stylesheet" href="{{ static_url('solitaire/css/start-choice.css') }}">
 <link rel="stylesheet" href="{{ static_url('shared/text-report.css') }}">
 <!-- import map: solitaire/js・shared 配下の相対importを内容ハッシュ付きURLへ写像する
      （静的な相対specifierはstatic_url()を通せないため、ここでブラウザ解決を上書きする）。
@@ -243,8 +244,6 @@
                  押すと全文が開閉する（配線は comment-ui.js・表示は services/comment-view.js） -->
             <div id="solBoardMemo" class="sol-board-memo" role="button" tabindex="0" aria-expanded="false" hidden><div class="sol-board-memo-body"><span class="sol-board-memo-icon" aria-hidden="true">&#128221;</span><span id="solBoardMemoText" class="sol-board-memo-text"></span></div></div>
 
-            <!-- スマホ縦向き専用: 初見導線（フェーズ3・§3.5）。デッキ0枚かつ手札0枚のときだけ表示 -->
-            <button type="button" id="solMobileEmptyCta" class="sol-mobile-empty-cta" hidden>デッキを読み込む</button>
           </div>
 
           <!-- 右サイド: 墓地・除外 -->

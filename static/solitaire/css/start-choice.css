@@ -1,0 +1,119 @@
+/* 起動時の2択（js/ui/start-choice.js・2026-10-29 案A）。盤面が空のときだけ盤面の上に出す。
+   位置は start-choice.js が盤面列（.sol-field-area）の真ん中に合わせて left（中心）・top（上端）・max-height を入れる。
+   重なり順は盤面より上・スマホのシートや下部バー（200〜）・デッキの窓（1500）より下。
+   色はこの画面の配色（site-theme.css）に合わせる: 主操作=金・通常の操作=押せる面の地・案内の文字=淡い青灰 */
+
+/* この画面は box-sizing が既定（content-box）なので、幅に余白・枠を含める */
+.sol-start-choice,
+.sol-start-choice * { box-sizing: border-box; }
+
+.sol-start-choice {
+  position: fixed;
+  z-index: 150;
+  transform: translateX(-50%);
+  width: min(540px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  padding: 14px;
+  background: rgba(25, 27, 33, 0.97);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  color: var(--main-color);
+  font-size: 13px;
+}
+
+.sol-start-body { display: flex; gap: 10px; min-height: 0; overflow-y: auto; }
+
+.sol-start-opt {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.sol-start-title { margin: 0; font-size: 14px; font-weight: 700; color: var(--main-color); }
+.sol-start-desc { margin: 0; font-size: 11.5px; line-height: 1.5; color: #a8b4c9; }
+.sol-start-sub { margin: 2px 0 0; font-size: 11px; color: #a8b4c9; }
+.sol-start-public { display: flex; flex-direction: column; gap: 8px; }
+.sol-start-public:empty { display: none; }
+
+.sol-start-btn {
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--bg-hover);
+  color: var(--main-color);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.sol-start-btn:hover { background: #353843; }
+.sol-start-btn.is-primary { background: #f3ce46; color: #242013; font-weight: 700; }
+.sol-start-btn.is-primary:hover { background: #ffe16d; }
+
+/* 文字だけの案内（カードを選んで組む・ニューロン・一覧） */
+.sol-start-link {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.sol-start-link:hover { color: var(--accent-hover); text-decoration: underline; }
+
+.sol-start-replay {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--main-color);
+  font-size: 12.5px;
+  text-decoration: none;
+}
+.sol-start-replay:hover { background: var(--bg-hover); }
+/* 文字色は span ごとに付ける（components.css の汎用 `p, span, li { color:#333 }` が当たって暗い地に暗い文字になるため） */
+.sol-start-replay-title { color: var(--main-color); min-width: 0;overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sol-start-replay-meta { flex: none; font-size: 11px; color: #a8b4c9; white-space: nowrap; }
+
+.sol-start-close {
+  position: absolute;
+  top: -12px;
+  right: -12px;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg-card);
+  color: #a8b4c9;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.sol-start-close:hover { color: var(--main-color); background: var(--bg-hover); }
+
+.sol-start-btn:focus-visible,
+.sol-start-link:focus-visible,
+.sol-start-replay:focus-visible,
+.sol-start-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* スマホ縦: 2つを縦に積む。✕は指で押せる大きさにし、画面の端で切れない分だけ外へ出す（左右の空きは12px以上） */
+@media (max-width: 767px) and (orientation: portrait) {
+  .sol-start-choice { width: min(340px, calc(100vw - 24px)); padding: 12px; }
+  .sol-start-body { flex-direction: column; }
+  .sol-start-close { top: -14px; right: -10px; width: 32px; height: 32px; }
+  .sol-start-replay { padding: 10px 8px; font-size: 13px; }
+  .sol-start-btn { padding: 11px 10px; }
+}

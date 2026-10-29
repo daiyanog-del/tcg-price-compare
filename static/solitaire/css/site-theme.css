@@ -52,8 +52,8 @@ select:focus-visible,.deck-card-row:focus-visible{outline:2px solid #f3ce46;outl
 
 .sol-card-info-panel{border-color:transparent}
 .cip-empty{color:#a8b4c9}
-.sol-fb-submit,#solMobileEmptyCta{background:#f3ce46;color:#242013}
-.sol-fb-submit:hover,#solMobileEmptyCta:hover{background:#ffe16d;color:#242013}
+.sol-fb-submit{background:#f3ce46;color:#242013}
+.sol-fb-submit:hover{background:#ffe16d;color:#242013}
 @keyframes solDeckBtnPulse {
   0%,100%{box-shadow:none}
   50%{box-shadow:0 0 0 3px #f3ce46;background:#f3ce46;color:#242013}

@@ -760,6 +760,11 @@ function _openDeckPicker(paneId) {
   if (!isMobilePortrait()) pane.querySelector('.deck-pick-pop-close')?.focus({ preventScroll: true });
 }
 
+/** デッキの窓を開く（起動時の2択 start-choice.js から。開いている窓があれば閉じてから開く） */
+export function openDeckPicker(paneId) {
+  _openDeckPicker(paneId);
+}
+
 /** デッキの窓を閉じる（デッキを読み込んだ後にも呼ぶ） */
 export function closeDeckPicker() {
   if (!_openPaneId) return;
