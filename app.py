@@ -754,6 +754,11 @@ app.register_blueprint(solitaire_bp)
 from legal_routes import legal_bp  # /terms・/privacy（規約の単独ページ）
 app.register_blueprint(legal_bp)
 
+# 海外先行の予告カードのまとめページ（/tcg-preview/<slug>）と OG 画像（2026-10-29）
+from tcg_announce_routes import tcg_announce_bp
+import tcg_announce_view as _tcg_announce_view
+app.register_blueprint(tcg_announce_bp)
+
 
 def _is_debug_mode() -> bool:
     # フェイルクローズ化（2026-08-20）: FLASK_DEBUG未設定時は「本番」扱いにする。
@@ -1069,6 +1074,12 @@ def sitemap():
     xml += f'  <url><loc>{base_url}/solitaire</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>\n'
     xml += f'  <url><loc>{base_url}/new-cards</loc><changefreq>daily</changefreq><priority>0.6</priority></url>\n'
     xml += f'  <url><loc>{base_url}/tcg-preview</loc><changefreq>weekly</changefreq><priority>0.5</priority></url>\n'
+    # 予告中の英語版の新弾のまとめページ（2026-10-29。取得に失敗しても他のページは出す）
+    try:
+        for a in _tcg_announce_view.list_sets():
+            xml += f'  <url><loc>{base_url}/tcg-preview/{a["set"]["slug"]}</loc><changefreq>daily</changefreq><priority>0.6</priority></url>\n'
+    except Exception:
+        logger.exception("サイトマップ: 予告中の新弾の取得失敗（省いて続ける）")
     # カード個別ページ
     for name in card_names:
         from urllib.parse import quote
@@ -3995,8 +4006,14 @@ def new_cards_page():
 @app.route("/tcg-preview")
 def tcg_preview_page():
     """海外先行カード一覧ページ: 英語版で先に出て日本に無いカード（tcg_preview_cards）を商品ごとに全件表示する。
-    中身は未発売カード一覧（/new-cards）と同じ部品で、new-cards.js が /api/tcg-preview-cards から描く。"""
-    return render_template("index.html", card_name="", page_mode="tcg_preview")
+    中身は未発売カード一覧（/new-cards）と同じ部品で、new-cards.js が /api/tcg-preview-cards から描く。
+    予告中の新弾（tcg_announce_*）があれば、まとめページ（/tcg-preview/<slug>）への入口を上に出す。"""
+    try:
+        announce_sets = _tcg_announce_view.list_sets()
+    except Exception:
+        logger.exception("予告中の新弾の取得失敗（入口を出さずに続ける）")
+        announce_sets = []
+    return render_template("index.html", card_name="", page_mode="tcg_preview", announce_sets=announce_sets)
 
 
 # ── 新弾フィーチャーキャッシュ（メモリ） ──

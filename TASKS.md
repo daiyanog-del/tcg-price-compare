@@ -4,6 +4,12 @@
 > 現在地の詳細は [docs/activeContext.md](docs/activeContext.md)、決定の経緯は [docs/decisions.md](docs/decisions.md)。
 
 ## 進行中
+
+- [ ] **海外先行の予告カード（10-29 branch feat/tcg-announce）**: 1時間ごとに Yugipedia から取り込み・まとめページ /tcg-preview/<slug>・X 投稿（初報→カードごと→続報）。経緯は docs/decisions.md 10-29。
+  - [ ] 本番 DB に tcg_announce_cards.sql を適用（司令塔・ユーザー確認後）
+  - [ ] 投稿の有効化: GitHub Variables `TCG_ANNOUNCE_X_POST_ENABLED=1`（ユーザー確認後。先に手動実行の dry_run で本文を確かめる）
+  - [ ] 校正: CARD_HOURS（19〜23時）・UPDATE_MIN_NEW（3）・UPDATE_MIN_HOURS（20）・CLOSE_AFTER_DAYS（30）・MAX_SUMMARIZE（40）を tweet_log の閲覧数と実際の弾の出方から見直す
+  - [ ] Maze of Machines の英語版発売（2027-03-19）後、公式DBに載ったカードが in_db になり /tcg-preview に引き継がれるかを本番で確かめる
 - [ ] **置いた先の印・相手の場（2026-10-29）** — 置いた先の印（再生で1手進んだとき四隅に白いかぎ括弧・ユーザー選択の案A）は同日 本番 PR #249 a5f2b7c。**残り**: ①実機での見え方 ②相手の場を1段足す並び（ユーザー判断「天下独歩の大義賊で相手の場に置く意義が出た・1段追加でいい」。ユーザーの条件（同日）: 相手のモンスター最大2枚（暗黒界）・相手のフィールド魔法（盆回し）・相手の墓地（召喚獣などが相手の墓地のカードを融合素材にする）を、自然な見た目で1段に。記録の形式・再生・OGP・字幕の場所名・古いリプレイとの互換に関わる）。詳細 docs/decisions.md 同日
 - [ ] **カーナベルの新サイト対応（2026-10-29・本番 PR #248 e6c93dd・20:06 JST に休止を解除）** — 取得を新サイトの ES に作り直した（販売・買取・画像・リンク・レアリティの別名）。本番の設定: web・prices・buyback・featured・post-staple-movers の5つに KANABELL_ES_ENDPOINT / KANABELL_ES_API_KEY（販売サイトの公開キー）・SUSPENDED_SHOPS は空・prices と featured は COLLECT_SKIP_SHOPS=駿河屋・buyback は BUYBACK_SKIP_SHOPS 空。post-staple-movers は自動デプロイがオフなので手動でデプロイした（コードを変えたら手動デプロイが要る）。本番画面で召喚魔術にカーナベル（¥45 状態:C PAC1-JP043・リンクは新サイトの商品ページ）を確認。解除直後に店のサイトが4分ほど 502 を返した（その後回復）。**残り: 10-30 朝の収集でカーナベルの行数と値（price_history・buyback_history）を確かめる。10-31 からカーナベルが値動きの比較に入る**。GitHub Actions の予備の収集（手動のみ）は secrets の KANABELL_ES_* が未登録。旧の KANABELL_CLOUD_ID / KANABELL_API_KEY / KANABELL_INDEX は消してよい
 - [ ] **カーナベルの商品名の「(アジア版)」「(開封済み)」（2026-10-29 レビューで発見・旧サイトから）** — art_variant の言語版の判定は「☆アジア☆」形式だけで、カーナベルの「(アジア版)」は日本版の最安に混ざりうる。「(開封済み)」は絵の判定を外し、既定の絞り込みが効かなくなる
