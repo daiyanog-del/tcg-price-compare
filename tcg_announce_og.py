@@ -27,13 +27,12 @@ import card_og_image as cog
 from deck_image import _get_font
 
 W, H = cog.W, cog.H
-DESIGN_VERSION = "b9"   # 見た目を変えたら上げる
+DESIGN_VERSION = "b10"   # 見た目を変えたら上げる
 
 _TEXT, _SUB, _GOLD = cog._TEXT, cog._SUB, cog._GOLD
 _PANEL = (0x20, 0x23, 0x2b)       # --bg-card
 _PANEL_LINE = (0x35, 0x38, 0x43)  # --border
 _TCG = (0xae, 0xc5, 0xff)         # TCG先行の札（new-cards.css の .is-tcg と同じ色）
-_TAG_BG = (0x30, 0x2d, 0x24)      # 予告の札の地（new-cards.css の未発売の札と同じ）
 _STRIP = (0x1d, 0x1f, 0x26)
 _LEFT = 64
 
@@ -576,7 +575,7 @@ def render_card_png(s: dict, card: dict, others: list[str], *, box: Image.Image 
         draw_text(d, (x + 20, y + 4), nums, _SUB, size=24, kind="latin")
     y += 50
 
-    # 効果: 共通の説明 → 効果ごとの行（名前があれば札）。入らない分は「…」
+    # 効果: 共通の説明 → 効果ごとの行（行頭は点）。入らない分は「…」
     summ = summary_of(card)
     fs, lh = 20, 29          # 効果の字の大きさと行の間隔
     bottom = 546             # 効果の文字を置ける下の端（その下に注記）
@@ -588,16 +587,9 @@ def render_card_png(s: dict, card: dict, others: list[str], *, box: Image.Image 
     for e in summ["effects"]:
         if y + lh / 2 > bottom:
             break
-        label = (e.get("label") or "").strip()
-        tx = x0
-        if label:
-            lw = max(text_width(d, label, latin(16, True), 16, True) + 20, 40)
-            d.rounded_rectangle([x0, y - 14, x0 + lw, y + 14], radius=6, fill=_TAG_BG)
-            draw_text(d, (x0 + lw / 2, y), label, _GOLD, size=16, bold=True, kind="latin", anchor="mm")
-            tx = x0 + lw + 12
-        else:
-            d.ellipse([x0 + 4, y - 4, x0 + 12, y + 4], fill=_GOLD)
-            tx = x0 + 22
+        # 宣伝文が効果に付けた名前（ALPHA など）は札にしない。正式なテキストの番号に見えて紛らわしいため（2026-10-30 ユーザー判断）
+        d.ellipse([x0 + 4, y - 4, x0 + 12, y + 4], fill=_GOLD)
+        tx = x0 + 22
         # この行の後に置ける行数（1行目の中心から下の端まで）。入らない分は「…」
         room = max(1, min(2, int((bottom - (y + lh / 2)) // lh) + 1))
         for ln in wrap(d, e["text"], text_w - (tx - x0), room, size=fs):

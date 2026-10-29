@@ -77,7 +77,7 @@
             {% set summ = summary_of(c) %}
             {% if c.summary_status == 'done' and summ.effects %}
             {% if summ.intro %}<p class="ta-intro">{{ summ.intro }}</p>{% endif %}
-            <ul class="ta-summary">{% for e in summ.effects %}<li{% if e.label %} class="has-label"{% endif %}>{% if e.label %}<span class="ta-label">{{ e.label }}</span>{% endif %}{{ e.text }}</li>{% endfor %}</ul>
+            <ul class="ta-summary">{% for e in summ.effects %}<li>{{ e.text }}</li>{% endfor %}</ul>
             {% elif c.lore_kind == 'none' %}
             <p class="ta-empty">効果はまだ公開されていません。判明したら追加します。</p>
             {% else %}
