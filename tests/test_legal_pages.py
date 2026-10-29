@@ -27,7 +27,8 @@ def test_terms_page_shows_new_terms_with_effective_date_and_previous_version(mon
     html = _client(monkeypatch).get("/terms").get_data(as_text=True)
     assert "<title>利用規約 | 強欲なラボ</title>" in html
     assert "2026年11月12日" in html and "第9条（免責・責任の範囲）" in html
-    assert "直接かつ通常の損害に限り" in html
+    assert "直接かつ通常の損害の範囲でのみ責任を負います" in html
+    assert "外部から取得し" not in html and "運営者からは止められません" not in html
     assert "いかなる損害についても、運営者は一切の責任を負いません" in html   # 旧版（11-11まで適用）も読める
     assert 'href="/privacy"' in html
     import re
