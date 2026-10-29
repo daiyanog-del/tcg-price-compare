@@ -176,3 +176,41 @@ def test_code_with_explicit_base_word_is_not_folded():
     ]
     av.annotate(rows, "灰流うらら")
     assert [r["art"] for r in rows] == [av.ART_ALT, av.ART_BASE, av.ART_BASE]
+
+
+def _with_table(monkeypatch, table):
+    monkeypatch.setattr(av, "_art_prints", lambda: {av._key(k): frozenset(v) for k, v in table.items()})
+
+
+def test_table_folds_code_without_carnaval(monkeypatch):
+    # カーナベルが取れない日（ほかの店は無印だけ）でも、Yugipedia の表にある型番は違う絵にそろえる
+    _with_table(monkeypatch, {"三戦の号": ["CH01-JP030"]})
+    rows = [
+        _coded("遊々亭", "三戦の号", "CH01-JP030"),
+        _coded("トレコロCB", "三戦の号", "CH01-JP030", url=TC.format("CH01-JP030SR")),
+        _coded("まんぞく屋", "三戦の号", "CH01-JP030"),
+        _coded("遊々亭", "三戦の号", "QCAC-JP096", "シークレット"),
+    ]
+    av.annotate(rows, "三戦の号")
+    assert [r["art"] for r in rows] == [av.ART_ALT, av.ART_ALT, "", av.ART_BASE]
+
+
+def test_table_yields_to_shop_with_both_arts(monkeypatch):
+    # 表にあっても、同じ店に元と違うが並ぶ型番（型番の中に絵が2つ）は無印を元のままにする
+    _with_table(monkeypatch, {"灰流うらら": ["PAC1-JP016"]})
+    rows = [
+        _coded("遊々亭", "灰流うらら", "PAC1-JP016", "シークレット"),
+        _coded("遊々亭", "灰流うらら(イラスト違い版)", "PAC1-JP016", "シークレット"),
+    ]
+    av.annotate(rows, "灰流うらら")
+    assert [r["art"] for r in rows] == [av.ART_BASE, av.ART_ALT]
+
+
+def test_missing_table_falls_back_to_shop_words(monkeypatch, tmp_path):
+    # 表が無いときは警告を出し、店の手がかりだけで判定する
+    monkeypatch.setattr(av, "_ART_PRINTS_PATH", tmp_path / "none.json")
+    av._art_prints.cache_clear()
+    try:
+        assert av._art_prints() == {}
+    finally:
+        av._art_prints.cache_clear()

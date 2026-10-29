@@ -1,0 +1,49 @@
+# 型番ごと違う絵の表（data/art_prints.json）を Yugipedia から作り直す（tools/build_art_prints.py）
+# 毎週月曜 午前1時 (UTC) = 日本時間 午前10時 に実行（カード名の更新 update-cardnames.yml の1時間後）
+# 手動実行も可能 (Actions タブ → Run workflow)
+
+name: Update Art Prints
+
+on:
+  schedule:
+    - cron: '0 1 * * 1'  # 毎週月曜 UTC 1:00
+  workflow_dispatch:       # 手動実行ボタン
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Build art prints
+        run: python tools/build_art_prints.py
+
+      # 更新後の表で全テストを回してから自動コミットする（update-cardnames.yml と同じ）
+      - name: Run pytest
+        run: python -m pytest tests -q
+
+      - name: Check for changes
+        id: diff
+        run: |
+          git diff --quiet -- data/art_prints.json && echo "changed=false" >> $GITHUB_OUTPUT || echo "changed=true" >> $GITHUB_OUTPUT
+
+      - name: Commit and push
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/art_prints.json
+          git commit -m "型番ごと違う絵の表を自動更新 $(date '+%Y-%m-%d')"
+          git push
