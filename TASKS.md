@@ -4,6 +4,7 @@
 > 現在地の詳細は [docs/activeContext.md](docs/activeContext.md)、決定の経緯は [docs/decisions.md](docs/decisions.md)。
 
 ## 進行中
+- [ ] **値段の下限を「10円未満を捨てる」に（2026-10-29・本番 PR #253 3fc9290・DB 関数5つ同日入れ替え）** — 本物の ¥10 を記録に残す。**残り: 10-30 朝の収集で price_history・buyback_history に ¥10 の行が入ることを確かめる**（例: 墓穴の指名者 カーナベル ノーマル）
 
 - [ ] **利用規約の適用日の後片付け（2026-11-12）**: 規約の先頭の適用日のお知らせ（.legal-notice）と末尾の旧版の欄（.legal-prev）を外し、日付の行を直す。予約済み（scheduled task greedy-lab-terms-cleanup-1112・11-12 9:00。PR を作って止まり、取り込みはユーザー確認後）。経緯は docs/decisions.md 10-29「利用規約の改定」
 - [ ] **海外先行の予告カード（10-29 branch feat/tcg-announce）**: 1時間ごとに Yugipedia から取り込み・まとめページ /tcg-preview/<slug>・X 投稿（初報→カードごと→続報）。経緯は docs/decisions.md 10-29。
