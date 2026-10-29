@@ -13,7 +13,12 @@ body.sol-recview #imagePool,
 body.sol-recview #replayBarContainer,
 body.sol-recview #solMobileBar,
 body.sol-recview #solMobileReplayStrip,
-body.sol-recview .sol-toast {
+body.sol-recview .sol-toast,
+/* 畳んだパネルを開く左右の縦帯（横向きスマホは既定で畳むので出る）と、横向きスマホの「縦向き推奨」帯 */
+body.sol-recview .sol-panel-rail,
+body.sol-recview #sidebarToggleLeft,
+body.sol-recview #sidebarToggleRight,
+body.sol-recview #solLandscapeHint {
   display: none !important;
 }
 
@@ -80,6 +85,19 @@ body.sol-recview .sol-field-area { padding-top: calc(var(--sol-rec-band-h) + 8px
 .sol-rec-guide-steps li { color: var(--main-color); }
 .sol-rec-guide-steps li + li { margin-top: 6px; }
 .sol-rec-guide .sol-replay-start-later { display: block; margin: 8px auto 0; }
+/* 縦向きスマホの案内だけに出す「横画面で撮る」（「始める」の次に置く控えめなボタン） */
+.sol-rec-landscape-btn {
+  display: block; width: 100%; margin-top: 10px;
+  padding: 10px 12px; border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-card); color: var(--main-color);
+  font-family: var(--font); font-size: 0.9rem; font-weight: 700; cursor: pointer;
+}
+.sol-rec-landscape-btn:hover { background: var(--bg-hover); }
+.sol-rec-guide-note {
+  margin: 12px 0 0;
+  color: var(--main-color); font-size: 0.85rem; line-height: 1.6;
+}
 
 .sol-rec-countdown {
   position: fixed; inset: 0; z-index: 1150;
@@ -114,6 +132,18 @@ body.sol-recview .sol-field-area { padding-top: calc(var(--sol-rec-band-h) + 8px
   .sol-rec-count { padding: 3px 10px; font-size: 0.75rem; }
   .sol-rec-deck { padding: 2px 8px; font-size: 0.72rem; }
   .sol-rec-controls { left: 12px; right: 12px; justify-content: center; }
+}
+
+/* 横向きスマホ（responsive.css の横向きの条件）: 高さが無いので帯を細くし、案内は縦にはみ出したら中で動かす */
+@media (orientation: landscape) and (max-height: 499px) {
+  :root { --sol-rec-band-h: 40px; }
+  .sol-rec-band { gap: 10px; padding: 0 12px; }
+  .sol-rec-logo { height: 24px; }
+  .sol-rec-title { font-size: 1rem; }
+  .sol-rec-count { padding: 3px 10px; font-size: 0.8rem; }
+  .sol-rec-deck { padding: 2px 9px; font-size: 0.78rem; }
+  .sol-rec-countdown { font-size: 5rem; }
+  .sol-rec-guide .sol-replay-start-card { max-height: calc(100dvh - 24px); overflow-y: auto; }
 }
 
 /* 記録したときのデッキとの差の帯（deck-replays-ui.js）も録画に映さない */

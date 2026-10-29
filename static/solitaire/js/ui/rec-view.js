@@ -13,6 +13,8 @@
  * - 題名は共有リンク・保存したリプレイの題名か、保存・共有シートに入力した題名。無ければ出さない。
  *   他人が書いた題名なので textContent で入れる。
  * - 計測: GA4 に recview_open（表示を開いた）／recview_start（再生を始めた）を送る。
+ * - 横向きスマホは PC と同じ並び（盤面3段＋手札/EX）で出す（2026-10-29 ユーザー要望）。縦向きで開いた案内の
+ *   「横画面で撮る」を押すと、横向きになるのを待ってから横向きの表示を開き直す（_waitLandscape）。
  */
 
 import {
@@ -24,7 +26,7 @@ import {
   isPlaying,
   subscribeReplay,
 } from '../services/replay-service.js';
-import { isMobilePortrait } from '../utils/viewport.js';
+import { isMobilePortrait, watchMobilePortrait } from '../utils/viewport.js';
 import { showToast } from '../utils/toast.js';
 
 const ROOT_CLASS = 'sol-recview';
@@ -47,6 +49,8 @@ let _deckObserver = null;      // デッキ列（#poolRow）の中身の変化�
 let _rowObserver = null;
 let _wakeLock = null;          // 画面を消さない（Screen Wake Lock）。表示の間だけ持ち、閉じたら手放す       // 盤面・手札/EX の行の大きさの変化を見て、手札/EX の境目を合わせ直す
 let _enteredPortrait = false;  // 縦向きスマホで開いたか（スマホは再生モードのまま戻るので手は戻さない）
+let _landscapeWait = false;    // 「横画面で撮る」を押して、横向きになるのを待っている
+let _orientationLocked = false; // 横向きに固定した（Android の全画面で効く。閉じたら外す）
 
 function _ga(name, params) {
   try {
@@ -129,12 +133,80 @@ function _buildGuide() {
   const start = _el('button', 'sol-replay-start-play', '始める');
   start.type = 'button';
   start.addEventListener('click', _start);
+  card.append(start);
+  // 縦向きスマホだけ: 横画面で PC と同じ並びにして撮る道も出す
+  if (_enteredPortrait) {
+    const land = _el('button', 'sol-rec-landscape-btn', '横画面で撮る（PCと同じ並び）');
+    land.type = 'button';
+    land.addEventListener('click', _waitLandscape);
+    card.append(land);
+  }
   const cancel = _el('button', 'sol-replay-start-later', 'やめる');
   cancel.type = 'button';
   cancel.addEventListener('click', exitRecView);
-  card.append(start, cancel);
+  card.append(cancel);
   wrap.append(backdrop, card);
   return wrap;
+}
+
+/** 「横向きにしてください」の案内 */
+function _buildLandscapeWait() {
+  const wrap = _el('div', 'sol-replay-start sol-rec-guide');
+  wrap.id = 'solRecLandscapeWait';
+  const card = _el('div', 'sol-replay-start-card');
+  card.setAttribute('role', 'dialog');
+  card.setAttribute('aria-modal', 'true');
+  card.append(
+    _el('p', 'sol-replay-start-label', '画面録画用の表示'),
+    _el('p', 'sol-replay-start-title', 'スマホを横向きにしてください'),
+    _el('p', 'sol-rec-guide-note', '横向きになると PC と同じ並びの録画用の表示が開きます。回らないときは、端末の「画面の向きのロック（縦向きロック）」を外してください'),
+  );
+  const cancel = _el('button', 'sol-replay-start-later', 'やめる');
+  cancel.type = 'button';
+  cancel.addEventListener('click', _cancelLandscapeWait);
+  card.append(cancel);
+  wrap.append(_el('div', 'sol-replay-start-backdrop'), card);
+  return wrap;
+}
+
+/**
+ * 縦向きの表示を閉じ、横向きになるのを待つ（横になったら watchMobilePortrait の知らせで横向きの表示を開く。initRecView）。
+ * Android の Chrome などは全画面にすると向きを横に固定できるので、押した操作の中で頼んでみる
+ * （iPhone の Safari は全画面・向きの固定とも無いので、利用者が回す）。
+ */
+async function _waitLandscape() {
+  exitRecView();
+  _landscapeWait = true;
+  document.body.append(_buildLandscapeWait());
+  const el = document.documentElement;
+  if (typeof el.requestFullscreen !== 'function' || typeof screen.orientation?.lock !== 'function') return;
+  try {
+    if (!document.fullscreenElement) {
+      await el.requestFullscreen();
+      _enteredFullscreen = true;
+    }
+    await screen.orientation.lock('landscape');
+    _orientationLocked = true;
+  } catch (_) {
+    // 固定できない端末は利用者が回す（全画面だけ入っていれば、横向きの表示を閉じるときに一緒に抜ける）
+  }
+}
+
+function _cancelLandscapeWait() {
+  _landscapeWait = false;
+  document.getElementById('solRecLandscapeWait')?.remove();
+  _releaseOrientation();
+}
+
+function _releaseOrientation() {
+  if (_orientationLocked) {
+    try { screen.orientation.unlock(); } catch (_) { /* 外せなくても続ける */ }
+    _orientationLocked = false;
+  }
+  if (_enteredFullscreen && document.fullscreenElement) {
+    document.exitFullscreen?.().catch(() => {});
+  }
+  _enteredFullscreen = false;
 }
 
 function _buildControls() {
@@ -372,10 +444,8 @@ export function exitRecView() {
   document.removeEventListener('keydown', _onKeydown, true);
   document.removeEventListener('pointerdown', _onPointer, true);
   document.removeEventListener('mousemove', _onPointer, true);
-  if (_enteredFullscreen && document.fullscreenElement) {
-    document.exitFullscreen?.().catch(() => {});
-  }
-  _enteredFullscreen = false;
+  // 「横画面で撮る」へ移るときは全画面・向きの固定をこの後で入れるので、ここで外すのは待っていないときだけ
+  if (!_landscapeWait) _releaseOrientation();
   window.dispatchEvent(new Event('resize'));
 }
 
@@ -410,6 +480,14 @@ export function initRecView(opts = {}) {
     if (typeof e.detail?.title === 'string') _loadedTitle = e.detail.title;
   });
   // 記録が消えた（リセット・別のデッキ読込）ら閉じる
-  document.addEventListener('sol-replay-reset', exitRecView);
-  document.addEventListener('sol-deck-load-start', exitRecView);
+  document.addEventListener('sol-replay-reset', () => { _cancelLandscapeWait(); exitRecView(); });
+  document.addEventListener('sol-deck-load-start', () => { _cancelLandscapeWait(); exitRecView(); });
+  // 「横画面で撮る」で待っている間に横向きになったら、横向きの表示を開く。
+  // 向きの切り替えで mobile-ui.js が再生モードを抜け、盤面の並びが横向きに直ってから開く（2フレーム待つ）
+  watchMobilePortrait((portrait) => {
+    if (portrait || !_landscapeWait) return;
+    _landscapeWait = false;
+    document.getElementById('solRecLandscapeWait')?.remove();
+    requestAnimationFrame(() => requestAnimationFrame(enterRecView));
+  });
 }
