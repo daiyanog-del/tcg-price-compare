@@ -2751,7 +2751,7 @@ function _renderPublicReplays(listEl, items, append = false) {
   if (!append && (!items || items.length === 0)) {
     const p = document.createElement('p');
     p.className = 'loading-text';
-    p.textContent = _publicReplaysFindId ? 'その id の公開リプレイはありません。' : '公開されているリプレイはありません。';
+    p.textContent = _publicReplaysFindId ? 'その id のリプレイはありません。' : '公開されているリプレイはありません。';
     listEl.appendChild(p);
     return;
   }
@@ -2773,7 +2773,11 @@ function _renderPublicReplays(listEl, items, append = false) {
     info.appendChild(mk('span', 'card-row__product', shown));
     info.appendChild(mk('span', `status-badge ${r.hidden ? 'status-badge--rejected' : 'status-badge--approved'}`,
       r.hidden ? '非表示' : '表示中'));
-    info.appendChild(mk('span', 'card-row__extracted-at', `${_formatDate(r.published_at)}・${r.steps ?? 0}手`));
+    // id で探したときは、公開していない共有リプレイ（共有リンクだけのもの）も出る
+    if (r.is_public === false) info.appendChild(mk('span', 'status-badge', '共有リンクだけ'));
+    const steps = r.steps ?? null;
+    info.appendChild(mk('span', 'card-row__extracted-at',
+      `${_formatDate(r.published_at || r.created_at)}${steps === null ? '' : `・${steps}手`}`));
     summary.appendChild(info);
 
     const meta = mk('div', 'card-row__meta');
