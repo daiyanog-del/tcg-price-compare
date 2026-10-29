@@ -700,3 +700,52 @@ def test_投稿用の要約も文末を句点にそろえる(monkeypatch):
     card = {"lore": {"kind": "blurb", "text_en": "revive every turn"}, "pendulum_lore": {"text_en": ""}}
     got = tw.summarize(client, corpus, card, "X", model="m")
     assert got["short"] == "毎ターン蘇生できる。"
+
+
+# ── 商品写真を卸から取る・写真が無い画像の出どころの一行（2026-10-29 ユーザー指摘） ─────────
+
+@pytest.fixture(autouse=True)
+def _no_distributor(monkeypatch):
+    """テストでは卸の検索を呼ばない（呼ぶテストは自分で差し替える）。"""
+    monkeypatch.setattr(ya, "distributor_box_url", lambda name: "")
+
+
+def test_卸の検索結果から弾の箱の写真だけを選ぶ():
+    products = [
+        {"title": "YGO Organized Play (OP) Pack (200ct) Box: Maze of Machines", "image": "https://cdn/x/op.png"},
+        {"title": "YGO Maze of Machines Blister Pack", "image": "https://cdn/x/blister.png"},
+        {"title": "YGO Maze of Machinesque Booster Box", "image": "https://cdn/x/other.png"},
+        {"title": "YGO Maze of Machines Booster Box (PRE-ORDER)", "image": "//cdn/x/MZMC-Display01-US.png?v=1"},
+    ]
+    assert ya.pick_distributor_box(products, "Maze of Machines") == "https://cdn/x/MZMC-Display01-US.png?v=1"
+    assert ya.pick_distributor_box(products[:3], "Maze of Machines") == ""
+    assert ya.pick_distributor_box(products, "") == ""
+
+
+def test_Yugipediaに写真が無ければ卸の写真_取れなければ前回の写真(monkeypatch):
+    _fake_pages(monkeypatch, _pages())
+    monkeypatch.setattr(ya, "distributor_box_url", lambda name: "https://cdn/MZMC-Display01-US.png" if name == "Maze of Machines" else "")
+    got = tw.collect([LIST_TITLE], KNOWN_SET, {}, set())
+    assert got["sets"][0]["box_image_url"] == "https://cdn/MZMC-Display01-US.png"
+
+    def boom(name):
+        raise OSError("down")
+    monkeypatch.setattr(ya, "distributor_box_url", boom)
+    prev = {"MZMC": dict(KNOWN_SET["MZMC"], box_image_url="https://cdn/old.png")}
+    assert tw.collect([LIST_TITLE], prev, {}, set())["sets"][0]["box_image_url"] == "https://cdn/old.png"
+    # 予約ページが消えても、一度取れた写真を使い続ける
+    monkeypatch.setattr(ya, "distributor_box_url", lambda name: "")
+    assert tw.collect([LIST_TITLE], prev, {}, set())["sets"][0]["box_image_url"] == "https://cdn/old.png"
+
+
+def test_写真が無い画像には出どころの一行():
+    import tcg_announce_og as og
+    cards = [dict(CARDS[0], lore_kind="blurb", lore_source_url="https://www.southernhobby.com/x/p1/"),
+             dict(CARDS[1], lore_kind="blurb", lore_source_url="https://www.southernhobby.com/x/p2/")]
+    assert og.source_line(cards) == "出どころ：販売店の商品案内（southernhobby.com）"
+    assert og.source_line([dict(CARDS[0], lore_kind="official", lore_source_url="")]) == "出どころ：公開された英語版のカードテキスト"
+    assert og.source_line([dict(CARDS[0], lore_kind="none", lore_source_url="")]) == ""
+    rel = [("A", _img(256, 372, (120, 60, 30)))] * 4
+    for kw in ({"related": rel}, {"related": []}, {"box": _img(400, 300, (200, 200, 200)), "related": rel}):
+        assert og.render_set_png(SET, cards, **kw)[:4] == bytes([0x89]) + b"PNG"
+    assert og.render_card_png(SET, cards[0], ["B"])[:4] == bytes([0x89]) + b"PNG"

@@ -241,6 +241,39 @@ def file_url(filename: str) -> str:
     return ""
 
 
+# 米国の卸 Prince Distribution（Shopify）。予約の受付と同時に KONAMI の商品写真（MZMC-Display01-US.png など）を載せ、
+# Yugipedia に写真が上がるより早いことがある（Maze of Machines は約9時間早かった。2026-10-29）
+DISTRIBUTOR_SEARCH_URL = "https://www.princedist.com/search/suggest.json"
+DISTRIBUTOR_UA = "GreedyLabBot/1.0 (+https://greedy-lab.com)"
+# 箱の写真ではない商品（大会用パック・ブリスター）
+_NOT_BOX = ("organized play", "op pack", "blister")
+
+
+def pick_distributor_box(products: list[dict], name_en: str) -> str:
+    """卸の検索結果から、その弾のブースターボックスの写真の URL を選ぶ。弾の名前が語として丸ごと入る商品だけ。"""
+    pat = re.compile(r"(?<![a-z0-9])" + re.escape((name_en or "").lower()) + r"(?![a-z0-9])")
+    for p in products:
+        title = (p.get("title") or "").lower()
+        if not name_en or not pat.search(title) or "booster box" not in title or any(x in title for x in _NOT_BOX):
+            continue
+        img = p.get("image") or ""
+        if img.startswith("//"):
+            img = "https:" + img
+        if img.startswith("https://"):
+            return img
+    return ""
+
+
+def distributor_box_url(name_en: str) -> str:
+    """卸の商品検索で弾の箱の写真を探す（無ければ空文字。失敗は例外）。"""
+    q = urllib.parse.urlencode({"q": name_en, "resources[type]": "product", "resources[limit]": "10"})
+    req = urllib.request.Request(f"{DISTRIBUTOR_SEARCH_URL}?{q}", headers={"User-Agent": DISTRIBUTOR_UA})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        data = json.load(r)
+    products = ((data.get("resources") or {}).get("results") or {}).get("products") or []
+    return pick_distributor_box(products, name_en)
+
+
 def slugify(name: str) -> str:
     """URL 用の名前「Maze of Machines」→「maze-of-machines」。"""
     s = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")

@@ -401,6 +401,14 @@ def collect(list_titles: list[str], known_sets: dict[str, dict], known_cards: di
         except Exception as e:
             logger.warning(f"商品写真の URL を取れません: {e}")
             box_url = (prev or {}).get("box_image_url") or ""
+        # Yugipedia にまだ無ければ卸の予約ページの写真（KONAMI の素材）。取れなければ前回のものを使う
+        if not box_url and rows:
+            try:
+                # 予約ページが消えた（受付の終了など）ときは、一度取れた写真を使い続ける
+                box_url = ya.distributor_box_url(info.get("name_en") or set_title) or (prev or {}).get("box_image_url") or ""
+            except Exception as e:
+                logger.warning(f"卸の商品写真を取れません: {e}")
+                box_url = (prev or {}).get("box_image_url") or ""
         prefix = info.get("prefix") or (rows[0]["code"].split("-")[0] if rows else (prev or {}).get("prefix", ""))
         aliases: dict[str, str] = {}
         cards = ya.fetch_pages(titles=[r["name"] for r in rows], aliases=aliases) if rows else {}
