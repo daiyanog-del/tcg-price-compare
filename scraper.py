@@ -16,7 +16,7 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from pathlib import Path
-from rarity import UNKNOWN_RARITY_LABEL, normalize_rarity  # 正規化は rarity.py に一元化
+from rarity import RARITIES, UNKNOWN_RARITY_LABEL, normalize_rarity  # 正規化は rarity.py に一元化
 from art_variant import is_sealed  # 買取の未開封・付属品つき（名前を加工する前に見る）
 from card_code import infer_codes  # 型番の店舗間補完（カーナベル/トレコロCB）
 from shop_status import SUSPENDED_SHOPS, is_suspended  # 店の一時休止
@@ -1101,7 +1101,8 @@ _KANABELL_INDEX = "yugioh-single-products"
 
 
 def kanabell_configured() -> bool:
-    """カーナベルの ES 接続情報が揃っているか（収集前の確認と取得関数で共通）。"""
+    """カーナベルの ES 接続情報が揃っているか（取得関数で使う。収集の事前確認
+    collect_prices / collect_buyback / collect_featured は同じ2つの環境変数を直に見る）。"""
     return bool(_KANABELL_ES_ENDPOINT and _KANABELL_ES_API_KEY)
 
 
@@ -1120,9 +1121,10 @@ _KANABELL_EXCLUDED_RARITIES = frozenset({"ラッシュ", "Oラッシュ", "ス�
 def _is_kanabell_excluded(product: dict) -> bool:
     """販売・買取の商品（_kanabell_fields の形）から、別ゲーム・非紙カードを判定する。"""
     text = " ".join(v for v in product.values() if isinstance(v, str))
-    rarity = product.get("rarity_abbreviation", product.get("rarity", "")) or ""
+    rarities = (product.get("rarity_abbreviation", product.get("rarity", "")), product.get("rarity_name"))
     return (_is_rush_duel(text)
-            or unicodedata.normalize("NFKC", rarity).strip() in _KANABELL_EXCLUDED_RARITIES)
+            or any(unicodedata.normalize("NFKC", r or "").strip() in _KANABELL_EXCLUDED_RARITIES
+                   for r in rarities))
 
 
 # 状態ランク: ES の在庫欄 → 表示名（サイトの表示と同じ「状態S」〜「状態D」）
@@ -1194,13 +1196,21 @@ def _kanabell_search(query: dict, size: int, source: list[str], timeout: int) ->
     return [h.get("_source", {}) for h in res.json().get("hits", {}).get("hits", [])]
 
 
+_CANONICAL_RARITIES = frozenset(e["canonical"] for e in RARITIES)
+
+
 def _kanabell_rarity(card: dict) -> str:
-    """略号を正規化する。略号がダッシュだけ（「－」＝ノーマルレア）のときは正式名で読む。"""
+    """略号を正規化する。略号が正規名にならないとき（ダッシュだけの「－」＝ノーマルレア、
+    rarity.py に無い略号）は正式名でも引き、正規名になればそちらを使う。
+
+    どちらも正規名にならなければ略号の正規化結果（未知なら生の略号）を返す。旧サイトの
+    記録（MANGAシク 等）と系列を揃えるため、未知のときは略号の側に寄せる。"""
     rarity = card.get("rarity") or {}
-    abbr = rarity.get("yg_rarity_abbreviation") or ""
-    canon = normalize_rarity(abbr)
-    if canon == UNKNOWN_RARITY_LABEL and rarity.get("yg_rarity_name"):
-        canon = normalize_rarity(rarity["yg_rarity_name"])
+    canon = normalize_rarity(rarity.get("yg_rarity_abbreviation") or "")
+    if canon not in _CANONICAL_RARITIES and rarity.get("yg_rarity_name"):
+        by_name = normalize_rarity(rarity["yg_rarity_name"])
+        if by_name in _CANONICAL_RARITIES:
+            return by_name
     return canon
 
 
@@ -1261,27 +1271,17 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
         base = {"shop": "カーナベル", "name": name_text, "rarity": rarity, "code": f["code"],
                 "url": product_url, "image": f["image"]}
 
-        # 各状態の価格・在庫を展開
-        has_any = False
+        # 各状態の価格・在庫を展開（価格のある状態はすべて。在庫0は売切の行。旧サイトと同じ出し方）
         for rank_key, cond_label in _KANABELL_CONDITIONS:
             inv = src.get(f"rank_{rank_key}_inventory") or {}
             price = inv.get("selling_price") or 0
             stock = inv.get("inventory_num") or 0
-            if stock <= 0 or price <= 0:
+            if price <= 0:
                 continue
-            has_any = True
             all_results.append({**base, "condition": cond_label, "price": int(price),
-                                "stock": int(stock), "sold_out": False})
+                                "stock": max(int(stock), 0), "sold_out": stock <= 0})
 
-        # どの状態にも在庫がない場合は、最上位の状態の価格を売切として記録
-        if not has_any:
-            for rank_key, cond_label in _KANABELL_CONDITIONS:
-                price = (src.get(f"rank_{rank_key}_inventory") or {}).get("selling_price") or 0
-                if price > 0:
-                    all_results.append({**base, "condition": cond_label, "price": int(price),
-                                        "stock": 0, "sold_out": True})
-                    break
-
+    print(f"  [KANABELL] 価格検索 {len(sources)}商品→{len(all_results)}行 [{card_name}]")
     return all_results
 
 
@@ -1298,17 +1298,19 @@ def kanabell_card_image_url(card_name: str) -> str:
     query = _kanabell_keyword_query(card_name)
     query["bool"]["filter"].append({"exists": {"field": "yg_card.image1_url"}})
     try:
-        sources = _kanabell_search(query, 20, ["product_image1_url", "yg_card.image1_url"], timeout=8)
+        sources = _kanabell_search(query, 20, ["product_name", "product_image1_url", "yg_card.image1_url"],
+                                   timeout=8)
         print(f"  [KANABELL] 画像検索 {len(sources)}件 [{card_name}]")
     except Exception as e:
         print(f"  カーナベル画像取得失敗 [{card_name}]: {e}")
         return ""
-    # 画像が登録されている最初の商品を使う
-    for src in sources:
-        url = _kanabell_fields(src)["image"]
-        if url:
-            return url
-    return ""
+    # 検索は名前の一部（ngram）でも当たるので、カード名が一致する商品だけを使う。
+    # 「(イラスト違い)」などの注記つきは別の絵のことがあるので、注記の無い商品を先に見る
+    matched = [f for f in map(_kanabell_fields, sources)
+               if f["image"] and f["name"]
+               and is_target_card(_kanabell_canon_dash(card_name), _kanabell_canon_dash(f["name"]))]
+    plain = [f for f in matched if _kanabell_canon_dash(f["name"]) == _kanabell_canon_dash(card_name)]
+    return (plain or matched or [{"image": ""}])[0]["image"]
 
 
 # ── カードラボ ──
@@ -1865,8 +1867,9 @@ def scrape_kanabell_buy(card_name: str) -> list[dict]:
 
     card_name = _normalize_fullwidth(card_name)
     try:
+        # 販売の既定（30件×5）と同じ件数。青眼の白龍は商品が101件あり、旧の100件では落ちる
         sources = _kanabell_search(
-            _kanabell_keyword_query(card_name), 100,
+            _kanabell_keyword_query(card_name), 150,
             ["inventory_product_id", "product_name", "product_image1_url", "rank_s_purchase_price",
              "acquisition_num_limit", "shop_shelf_inventory_plus_before_storing_shop_shelf_inventory_num",
              "shop_shelf_temporary_inventory_num", "yg_card.serial_number", "yg_card.image1_url",
@@ -1910,6 +1913,7 @@ def scrape_kanabell_buy(card_name: str) -> list[dict]:
             "url": f"{KANABELL_BUY_BASE}/single/{card_id}",
             "image": f["image"],
         })
+    print(f"  [KANABELL] 買取検索 {len(sources)}商品→{len(results)}行 [{card_name}]")
     return results
 
 
