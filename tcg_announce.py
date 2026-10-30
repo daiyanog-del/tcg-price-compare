@@ -291,8 +291,11 @@ def _name_key(name: str) -> str:
 
 def parse_official_arts(page_html: str, base_url: str) -> dict[str, str]:
     """商品ページの紹介の枠（<table>）ごとに、太字の名前1つと絵1枚を対応づけて {名前の照合用: 絵の URL} で返す。
-    名前か絵が1つでない枠（複数のカードをまとめた絵など）は、どのカードの絵か決められないので使わない。"""
+    名前か絵が1つでない枠（複数のカードをまとめた絵など）は、どのカードの絵か決められないので使わない。
+    照合用の名前が同じ枠が2つ以上あるときも、どちらの絵か決められないので使わない。
+    限界: 1つの枠の中で、名前と絵が別のカードを指していても見分けられない（公式ページの作りを信じている）。"""
     out: dict[str, str] = {}
+    dup: set[str] = set()
     for block in re.findall(r"(?is)<table\b.*?</table>", page_html or ""):
         names = re.findall(r"(?is)<strong[^>]*>(.*?)</strong>", block)
         imgs = re.findall(r'(?is)<img\b[^>]*?\bsrc="([^"]+)"', block)
@@ -301,8 +304,10 @@ def parse_official_arts(page_html: str, base_url: str) -> dict[str, str]:
         key = _name_key(html.unescape(re.sub(r"<[^>]+>", "", names[0])))
         url = urllib.parse.urljoin(base_url, html.unescape(imgs[0]))
         if key and url.startswith("https://"):
+            if key in out:
+                dup.add(key)
             out[key] = url
-    return out
+    return {k: v for k, v in out.items() if k not in dup}
 
 
 def official_arts(url: str) -> dict[str, str]:

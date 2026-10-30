@@ -150,13 +150,18 @@ def set_arts(s: dict, cards: list[dict]) -> tuple[list, list, list[str]]:
     order = sorted(cards, key=lambda c: tcg_announce_post.card_order_key(c, s.get("cover_cards") or []))
     arts, pairs, keys, used = [], [], [], set()
     for c in order:
-        art = _image(c.get("art_url"))
+        if len(arts) >= 4 and len(pairs) >= 2:
+            break   # 並べる分がそろったら、残りのカードの絵は読みに行かない
+        if not c.get("art_url"):
+            continue
+        art = _image(c["art_url"])
         if art is None:
             continue
         if len(arts) < 4:
             arts.append(art)
             keys.append(c["art_url"])
-        rel = [r for r in c.get("related_ja") or [] if r not in used][:1]
+        # まだ使っていないゆかりのカードのうち、画像のある最初の1枚（画像の無いカードは _related_images が飛ばす）
+        rel = [r for r in c.get("related_ja") or [] if r not in used]
         old = _related_images(rel, 1) if rel and len(pairs) < 2 else []
         if old:
             used.add(old[0][0])
@@ -175,7 +180,8 @@ def set_og(slug: str):
     s = entry["set"]
     box = _image(s.get("box_image_url"))
     rel = _related_images(set_related_names(entry["cards"]), 4)
-    arts, pairs, art_keys = set_arts(s, entry["cards"])
+    # 新カードの絵は商品写真があるときだけ描く（無いときは読みに行かない）
+    arts, pairs, art_keys = set_arts(s, entry["cards"]) if box is not None else ([], [], [])
     return _png(tcg_announce_og.set_png(s, entry["cards"], box=box, box_key=s.get("box_image_url") or "" if box else "",
                                         related=[(n, i) for n, i, _ in rel], related_keys=[u for _, _, u in rel],
                                         arts=arts, pairs=pairs, art_keys=art_keys))

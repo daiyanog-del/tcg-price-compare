@@ -304,9 +304,10 @@ def source_sites(cards: list[dict]) -> list[str]:
 
 def source_line(cards: list[dict]) -> str:
     """商品写真が無い画像に添える出どころの一行（写真が無いと本当に出る商品かが伝わりにくい。2026-10-29 ユーザー指摘）。"""
-    if any(from_official_page(c) for c in cards):
-        return "出どころ：KONAMI 公式の商品紹介"
     sites = source_sites(cards)
+    if any(from_official_page(c) for c in cards):
+        # 販売店の説明のカードも混ざっていれば、店の名前も残す
+        return "出どころ：KONAMI 公式の商品紹介" + (f"・販売店の商品案内（{sites[0]}）" if sites else "")
     if sites:
         return f"出どころ：販売店の商品案内（{'・'.join(sites[:2])}）"
     if any(c.get("lore_kind") == "official" for c in cards):

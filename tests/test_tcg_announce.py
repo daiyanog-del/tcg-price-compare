@@ -851,3 +851,66 @@ def test_まとめページに公式の絵を出す(client, monkeypatch):
     html = client.get("/tcg-preview/maze-of-machines").get_data(as_text=True)
     assert 'class="ta-proxy-art" src="https://www.yugioh-card.com/en/wp-content/uploads/2026/10/mzmc_art02.png"' in html
     assert "カードのイラストは KONAMI 公式の商品ページのものです" in html
+
+
+def test_同じ名前の枠が2つあればどちらの絵も使わない():
+    page = OFFICIAL_HTML + """<table><tr><td><strong>Rampant Barrel-Dragon</strong><img src="/en/z.png" /></td></tr></table>"""
+    assert ya.art_for("Rampant Barrel Dragon", ya.parse_official_arts(page, OFFICIAL_URL)) == ""
+
+
+def test_公式と販売店が混ざった弾は両方を書く():
+    import tcg_announce_og as og
+    cards = [dict(CARDS[0], lore_kind="blurb", lore_source_url=OFFICIAL_URL),
+             dict(CARDS[1], lore_kind="blurb", lore_source_url="https://www.southernhobby.com/p/")]
+    assert og.source_line(cards) == "出どころ：KONAMI 公式の商品紹介・販売店の商品案内（southernhobby.com）"
+
+
+def test_弾の画像の絵と組の選び方(monkeypatch):
+    import tcg_announce_routes as routes
+    loaded = []
+
+    def fake_image(url):
+        loaded.append(url)
+        return None if url and "broken" in url else _img(10, 10, (1, 2, 3))
+    olds = {"リボルバー・ドラゴン": "u/rev", "振り子刃の拷問機械": "u/furi"}   # 画像のあるゆかりのカード
+    monkeypatch.setattr(routes, "_image", fake_image)
+    monkeypatch.setattr(routes, "_related_images",
+                        lambda names, limit: [(n, _img(7, 10, (0, 0, 0)), olds[n]) for n in names if n in olds][:limit])
+    cards = [
+        dict(CARDS[0], name_en="Pendulum", list_order=1, art_url="a/pend", related_ja=["名前だけ", "振り子刃の拷問機械"]),
+        dict(CARDS[1], name_en="Rampant", list_order=2, art_url="a/ramp", related_ja=["リボルバー・ドラゴン"]),
+        dict(CARDS[1], name_en="Slot", list_order=3, art_url="a/slot", related_ja=["リボルバー・ドラゴン"]),
+        dict(CARDS[0], name_en="Broken", list_order=4, art_url="a/broken", related_ja=[]),
+        dict(CARDS[0], name_en="NoArt", list_order=5, art_url="", related_ja=[]),
+        dict(CARDS[0], name_en="Sphere", list_order=6, art_url="a/sphere", related_ja=[]),
+        dict(CARDS[0], name_en="Bandit", list_order=7, art_url="a/bandit", related_ja=[]),
+        dict(CARDS[0], name_en="Late", list_order=8, art_url="a/late", related_ja=[]),
+    ]
+    arts, pairs, keys = routes.set_arts(dict(SET, cover_cards=["Rampant"]), cards)
+    assert len(arts) == 4 and len(pairs) == 2
+    # 表紙のカードが先・1件目のゆかりに画像が無くても次を試す・同じゆかりは2組に使わない・読めない絵は飛ばす
+    assert keys == ["a/ramp", "u/rev", "a/ramp", "a/pend", "u/furi", "a/pend", "a/slot", "a/sphere"]
+    assert "a/late" not in loaded and "" not in loaded   # そろったら残りは読まない
+
+
+def test_弾の画像は並べ方ごとに描き分ける():
+    import tcg_announce_og as og
+    art, old, box = _img(225, 225, (200, 40, 40)), _img(256, 372, (40, 160, 60)), _img(400, 300, (200, 200, 200))
+    card = dict(CARDS[1], lore_kind="blurb", lore_source_url=OFFICIAL_URL)
+    got = {og.render_set_png(SET, [card], box=box, pairs=[(old, art), (old, art)], arts=[art] * 4),
+           og.render_set_png(SET, [card], box=box, pairs=[(old, art)], arts=[art] * 4),
+           og.render_set_png(SET, [card], box=box, related=[("A", old)] * 4)}
+    assert len(got) == 3
+
+
+def test_絵の有無と差し替えでキャッシュの鍵が変わる(monkeypatch):
+    import tcg_announce_og as og
+    seen = []
+    monkeypatch.setattr(og, "_cached", lambda key, render: seen.append(key) or b"")
+    card = dict(CARDS[1], art_url="a/1")
+    og.card_png(SET, card, [], art=None)
+    og.card_png(SET, card, [], art=_img(5, 5, (0, 0, 0)))
+    og.card_png(SET, dict(card, art_url="a/2"), [], art=_img(5, 5, (0, 0, 0)))
+    og.set_png(SET, [card], art_keys=["a/1"])
+    og.set_png(SET, [card], art_keys=["a/2"])
+    assert len(set(seen)) == 5
