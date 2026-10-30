@@ -27,6 +27,11 @@ _STORAGE_BUCKET = "official-card-images"
 _EXT_MAP = {"image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png",
             "image/gif": "gif", "image/webp": "webp"}
 
+# 公開中のカードに届いた公式版の画像（表示には使わない。管理画面で見比べてから差し替える）
+CANDIDATE_DIR = "unreleased/candidates"
+# 公式版に差し替える前のキャプチャ（表示中の画像と切り抜く前の画像）。「キャプチャに戻す」で使う
+CAPTURE_DIR = "unreleased/captures"
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -229,6 +234,14 @@ def collect_original_paths(sb: Client, card_ids: list[int]) -> list[str]:
         else:
             paths.extend(f"unreleased/originals/{cid}.{ext}" for ext in ("jpg", "png", "gif", "webp"))
         paths.append(thumb_path(cid))  # 縮小版も公開バケットに残さない
+        # 公式版の候補と、差し替え前に退避したキャプチャも残さない（記録にあるパスだけ）
+        cand = raw.get("official_candidate")
+        backup = raw.get("capture_backup")
+        for rec in ((cand or {}).get("image") if isinstance(cand, dict) else None,
+                    (backup or {}).get("image") if isinstance(backup, dict) else None,
+                    (backup or {}).get("original") if isinstance(backup, dict) else None):
+            if isinstance(rec, dict) and rec.get("storage_path"):
+                paths.append(rec["storage_path"])
     return paths
 
 
@@ -348,30 +361,44 @@ def store_replacement_image(
     official_site=True（公式サイトの画像）は承認時と同じく fetch_guard の許可リストで取得する。
     ここでは切り抜かない。X の画像は、呼び出し側が古い行を消した後に apply_auto_crop で切り抜く。
     """
+    data, mime, err = fetch_replacement_image(image_url, official_site=official_site)
+    if data is None:
+        return False, err
+    return store_replacement_bytes(sb, card_id, data, mime, image_url, page_url)
+
+
+def fetch_replacement_image(image_url: str, *, official_site: bool) -> tuple[bytes | None, str, str]:
+    """公式版の画像を取得して検証する。Returns: (bytes or None, mime, エラー文言)"""
     if official_site:
         import fetch_guard
         if not fetch_guard.is_whitelisted(image_url):
-            return False, f"ホワイトリスト外のURL: {image_url!r}"
+            return None, "", f"ホワイトリスト外のURL: {image_url!r}"
         try:
             resp = fetch_guard.fetch_whitelisted(image_url)
         except Exception as e:
-            return False, f"画像取得失敗: {e}"
+            return None, "", f"画像取得失敗: {e}"
     else:
         try:
             resp = requests.get(image_url, timeout=30)
             resp.raise_for_status()
         except Exception as e:
-            return False, f"画像取得失敗: {e}"
+            return None, "", f"画像取得失敗: {e}"
     if getattr(resp, "status_code", 200) != 200:
-        return False, f"画像取得失敗: HTTP {resp.status_code}"
+        return None, "", f"画像取得失敗: HTTP {resp.status_code}"
     mime = resp.headers.get("Content-Type", "").split(";")[0].strip().lower()
     if not mime.startswith("image/"):
-        return False, f"Content-Type が image/* でない: {mime!r}"
+        return None, "", f"Content-Type が image/* でない: {mime!r}"
     data = resp.content
     if len(data) > _MAX_IMAGE_BYTES:
-        return False, f"画像サイズ超過: {len(data):,}バイト（上限5MB）"
+        return None, "", f"画像サイズ超過: {len(data):,}バイト（上限5MB）"
+    return data, mime, ""
+
+
+def store_replacement_bytes(sb: Client, card_id: int, data: bytes, mime: str, image_url: str,
+                            page_url: str) -> tuple[bool, str]:
+    """取得済みの画像で差し替え用の画像行を作る（切り抜かない・既存の画像行があっても保存する）。"""
     # 切り抜きはここではしない。古い画像行が見えている間に切り抜くと、古い行のファイルを相手にしてしまう
-    # （呼び出し側が古い行を論理削除してから apply_auto_crop を呼ぶ）
+    # （呼び出し側が古い行を論理削除してから切り抜く）
     return _store_card_image(sb, card_id, data, mime, image_url, page_url, urlparse(image_url).netloc,
                              auto_crop=False)
 
@@ -656,3 +683,50 @@ def restore_original_image(sb: Client, card_id: int) -> tuple[bool, str]:
 
     logger.info(f"[image_store] 元画像へ復元完了: card_id={card_id}, path={storage_path!r}")
     return True, new_url
+
+
+# ──────────────────────────────────────────────
+# 公式版の候補・差し替え前のキャプチャの保管（unreleased_upload から使う）
+# ──────────────────────────────────────────────
+
+def ext_for(mime: str) -> str:
+    return _EXT_MAP.get(mime, "jpg")
+
+
+def mime_for_path(path: str) -> str:
+    ext = (path or "").rsplit(".", 1)[-1].lower()
+    for mime, e in _EXT_MAP.items():
+        if e == ext and mime != "image/jpg":
+            return mime
+    return "image/jpeg"
+
+
+def put_file(sb: Client, path: str, data: bytes, mime: str) -> str:
+    """Storage に上書き保存して、時刻つきの公開URLを返す（URL が作れなければ空文字）。例外はそのまま投げる。"""
+    sb.storage.from_(_STORAGE_BUCKET).upload(
+        path=path, file=data, file_options={"content-type": mime, "upsert": "true"},
+    )
+    return _bust_url(sb, path, "")
+
+
+def get_file(sb: Client, path: str) -> bytes | None:
+    """Storage のファイルを読む。無い・読めないときは None。"""
+    if not path:
+        return None
+    try:
+        data = sb.storage.from_(_STORAGE_BUCKET).download(path)
+    except Exception as e:
+        logger.warning(f"[image_store] Storage から読めません: {path!r}: {e}")
+        return None
+    return bytes(data) if data else None
+
+
+def remove_files(sb: Client, paths) -> None:
+    """Storage のファイルを消す（失敗しても続行）。"""
+    paths = sorted({p for p in paths if p})
+    if not paths:
+        return
+    try:
+        sb.storage.from_(_STORAGE_BUCKET).remove(paths)
+    except Exception as e:
+        logger.warning(f"[image_store] Storage のファイルを消せません（残っても表示には影響なし）: {paths}: {e}")

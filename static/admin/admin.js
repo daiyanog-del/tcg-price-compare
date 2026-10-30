@@ -915,6 +915,7 @@ function _renderPendingList(listEl, cards) {
       row.querySelector('.reread-trusted-badge').hidden = false;
     }
     _renderUploadBadge(row.querySelector('.upload-badge'), card);
+    _renderUploadActions(row, card, _loadPending);
 
     // 抽出元リンク
     const link = row.querySelector('.card-row__source-link');
@@ -1411,6 +1412,7 @@ function _renderApprovedList(listEl, cards) {
       row.querySelector('.reread-trusted-badge').hidden = false;
     }
     _renderUploadBadge(row.querySelector('.upload-badge'), card);
+    _renderUploadActions(row, card, _loadApproved);
 
     // 画像ありバッジ / 画像なし警告バッジ
     if (card.has_image) {
@@ -1858,6 +1860,8 @@ const _cropModal = {
   _suggesting: false,
   _busy: false,   // クロップ確定・元画像に戻す の処理中
   _imgSrc: '',
+  // 公式版の候補を見比べているとき { currentUrl, onDone }。普段のクロップでは null
+  _candidate: null,
 
   init() {
     this.el         = document.getElementById('crop-modal');
@@ -1871,6 +1875,10 @@ const _cropModal = {
     this.restoreBtn = this.el.querySelector('.crop-modal__restore');
     this.restoreBtn.addEventListener('click', () => this._submit('restore'));
     this.suggestBtn.addEventListener('click', () => this._suggest());
+    this.compareEl  = this.el.querySelector('.crop-modal__compare');
+    this.currentImg = this.el.querySelector('.crop-modal__current');
+    this.previewEl  = this.el.querySelector('.crop-modal__preview');
+    this.img.addEventListener('load', () => this._drawPreview());
 
     this.cancelBtn.addEventListener('click', () => this.close());
     this.el.querySelector('.crop-modal__backdrop').addEventListener('click', () => this.close());
@@ -1882,9 +1890,21 @@ const _cropModal = {
     this.confirmBtn.addEventListener('click', () => this._submit('crop'));
   },
 
-  open(cardId, editForm, imgSrc, suggestion = null) {
+  /**
+   * compare を渡すと、公式版の候補の見比べとして開く（確定＝その枠で差し替え・元画像に戻す＝切り抜かずに差し替え）。
+   * @param {{currentUrl: string, onDone: Function}|null} compare
+   */
+  open(cardId, editForm, imgSrc, suggestion = null, compare = null) {
     this._revision++;
     this._imgSrc = imgSrc;
+    this._candidate = compare;
+    this.compareEl.hidden = !compare;
+    this.el.classList.toggle('crop-modal--compare', !!compare);
+    this.currentImg.src = compare?.currentUrl || '';
+    this.currentImg.hidden = !compare?.currentUrl;
+    this.suggestBtn.hidden = !!compare;
+    this.confirmBtn.textContent = this._label('crop');
+    this.restoreBtn.textContent = this._label('restore');
     this._cardId   = cardId;
     this._editForm = editForm;
     this._sel      = null;
@@ -1896,14 +1916,48 @@ const _cropModal = {
     document.body.style.overflow = 'hidden';
     const candidate = _validatedCropSuggestion(suggestion, imgSrc);
     const hint = this.el.querySelector('.crop-modal__hint');
-    hint.textContent = candidate
-      ? '自動検出した候補枠です。欠け・余白を確認し、必要ならドラッグで選び直して確定してください'
-      : 'ドラッグしてカード範囲を選択してください';
+    if (this._candidate) {
+      hint.textContent = candidate
+        ? '公式版の画像と切り抜き案です。差し替え後の形を今の画像と見比べ、ずれていればドラッグで選び直してから差し替えてください'
+        : '公式版の画像です。切り抜く範囲をドラッグで選ぶか、切り抜かずに差し替えてください';
+    } else {
+      hint.textContent = candidate
+        ? '自動検出した候補枠です。欠け・余白を確認し、必要ならドラッグで選び直して確定してください'
+        : 'ドラッグしてカード範囲を選択してください';
+    }
     if (candidate) {
       this._sel = candidate;
       this._updateSel();
     }
+    this._drawPreview();
     this._refreshButtons();
+  },
+
+  // ボタンの文言（候補の見比べでは差し替えの言葉にする）
+  _label(kind) {
+    if (this._candidate) return kind === 'crop' ? 'この枠で差し替え' : '切り抜かずに差し替え';
+    return kind === 'crop' ? '確定' : '元画像に戻す';
+  },
+
+  // 差し替え後の仕上がり（選んだ枠で切り抜いた形。枠が無ければ画像全体）を描く
+  _drawPreview() {
+    if (!this._candidate) return;
+    const img = this.img;
+    const canvas = this.previewEl;
+    const W = img.naturalWidth;
+    const H = img.naturalHeight;
+    if (!img.complete || !W || !H) {
+      canvas.width = 0;
+      canvas.height = 0;
+      return;
+    }
+    const s = this._sel || {left: 0, top: 0, right: 1, bottom: 1};
+    const sw = Math.max(1, (s.right - s.left) * W);
+    const sh = Math.max(1, (s.bottom - s.top) * H);
+    // 表示は CSS の高さにそろうので、描く解像度は高さ 360px を基準にする
+    canvas.height = 360;
+    canvas.width = Math.max(1, Math.round(360 * sw / sh));
+    canvas.getContext('2d').drawImage(img, s.left * W, s.top * H, sw, sh, 0, 0, canvas.width, canvas.height);
   },
 
   // 確定・元画像に戻す・自動で枠を提案 の有効/無効を状態から一括で決める
@@ -1939,6 +1993,7 @@ const _cropModal = {
     this.selEl.style.width  = `${(s.right  - s.left)   * 100}%`;
     this.selEl.style.height = `${(s.bottom - s.top) * 100}%`;
     this.selEl.hidden = false;
+    this._drawPreview();
   },
 
   _onDown(e) {
@@ -1998,10 +2053,16 @@ const _cropModal = {
     const editForm = this._editForm;
     const cardId = this._cardId;
     const btn = isCrop ? this.confirmBtn : this.restoreBtn;
-    const idleLabel = isCrop ? '確定' : '元画像に戻す';
-    const failMsg = isCrop ? 'クロップに失敗しました' : '元画像に戻せませんでした';
-    const path = isCrop ? 'crop-image' : 'restore-original-image';
-    const body = isCrop ? { ...this._sel } : {};
+    const idleLabel = this._label(kind);
+    const candidate = this._candidate;
+    let failMsg = isCrop ? 'クロップに失敗しました' : '元画像に戻せませんでした';
+    let path = isCrop ? 'crop-image' : 'restore-original-image';
+    let body = isCrop ? { ...this._sel } : {};
+    if (candidate) {
+      failMsg = '公式版に差し替えられませんでした';
+      path = 'official-candidate/apply';
+      body = { box: isCrop ? { ...this._sel } : null };
+    }
     this._busy = true;
     this._refreshButtons();
     btn.textContent = '処理中...';
@@ -2013,6 +2074,12 @@ const _cropModal = {
       const data = await resp.json().catch(() => ({}));
       const current = !this.el.hidden && this._revision === revision && this._cardId === cardId;
       if (resp.ok && data.ok) {
+        if (candidate) {
+          if (data.warning) alert(data.warning);
+          if (current) this.close();
+          candidate.onDone?.();
+          return;
+        }
         this._applyNewImage(editForm, data.new_url || '');
         if (current) this.close();
       } else if (current) {
@@ -2401,6 +2468,15 @@ function _renderUploadBadge(el, card) {
   if (!el || !v) return;
   el.hidden = false;
   el.classList.remove('upload-badge--attention');
+  if (v.state === 'candidate') {
+    const diff = v.diff_fields || [];
+    el.textContent = '公式版あり・未反映';
+    el.classList.add('upload-badge--attention');
+    el.title = '画像取込のカードに、公式Xや公式サイトから同じカードが届きました。表示は今の画像のままです。'
+      + '「公式版を見比べる」で切り抜きを確かめてから差し替えてください'
+      + (diff.length ? `。公開中の内容と公式版の読み取りに違いがある欄: ${diff.join('・')}` : '');
+    return;
+  }
   if (v.state === 'replaced') {
     const diff = v.diff_fields || [];
     if (diff.length) {
@@ -2419,7 +2495,62 @@ function _renderUploadBadge(el, card) {
   if (v.error) el.classList.add('upload-badge--attention');
   el.title = v.error
     ? `画像取込のカードです。公式版への差し替えに失敗しました（${v.error}）。画像は取込時のままです。公式版: ${v.official_page || '不明'}`
-    : '画像取込のカードです。同じ名前のカードが公式Xや公式サイトに出たら、画像を公式版に差し替えます';
+    : '画像取込のカードです。同じ名前のカードが公式Xや公式サイトに出たら、公式版を候補として知らせます（公開中は見比べてから差し替え）';
+}
+
+/**
+ * 画像取込由来のカードの操作ボタン（公式版を見比べる・見送る／キャプチャに戻す）を行の操作欄の先頭に足す。
+ * @param {HTMLElement} row
+ * @param {object} card
+ * @param {Function} reload 操作のあとに一覧を読み直す関数
+ */
+function _renderUploadActions(row, card, reload) {
+  const v = card.upload_view;
+  const actions = row.querySelector('.card-row__actions');
+  if (!v || !actions) return;
+  const buttons = [];
+  const make = (label, cls, onClick) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = `btn btn-sm ${cls}`;
+    b.textContent = label;
+    b.addEventListener('click', () => onClick(b));
+    buttons.push(b);
+  };
+  const post = async (b, path, confirmMsg, failMsg) => {
+    if (confirmMsg && !confirm(confirmMsg)) return;
+    b.disabled = true;
+    try {
+      const resp = await apiFetch(`/api/admin/unreleased/${card.id}/${path}`, { method: 'POST', body: '{}' });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || !data.ok) {
+        alert(data.error || failMsg);
+        return;
+      }
+      reload();
+    } catch (e) {
+      if (e.message !== '認証エラー') alert('通信エラーが発生しました');
+    } finally {
+      b.disabled = false;
+    }
+  };
+  if (v.state === 'candidate' && v.image_url) {
+    make('公式版を見比べる', 'btn-primary', () => {
+      const box = v.crop_box ? { ...v.crop_box, source_image_url: v.image_url } : null;
+      _cropModal.open(card.id, null, v.image_url, box, { currentUrl: card.card_image_url || '', onDone: reload });
+    });
+    make('公式版を見送る', 'btn-ghost', (b) => post(
+      b, 'official-candidate/dismiss',
+      `「${card.name}」の公式版を見送りますか？ 今の画像のまま公開を続けます（同じカードの公式版がまた届けば、もう一度知らせます）`,
+      '見送れませんでした'));
+  }
+  if (v.state === 'replaced' && v.can_revert) {
+    make('キャプチャに戻す', 'btn-ghost', (b) => post(
+      b, 'revert-to-capture',
+      `「${card.name}」の画像を差し替え前のキャプチャに戻しますか？ 公式版は候補に戻り、あとで差し替え直せます`,
+      'キャプチャに戻せませんでした'));
+  }
+  actions.prepend(...buttons);
 }
 
 // ──────────────────────────────────────────────
