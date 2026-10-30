@@ -105,9 +105,16 @@ def _related_names(cards: list[dict], limit: int = 2) -> list[str]:
 def text_set_first(s: dict, cards: list[dict]) -> str:
     rel = f"{tcg_announce_og.format_release_ja(s['tcg_release_date'])}発売予定。" if s.get("tcg_release_date") else ""
     related = _related_names(cards)
+    # 公式の絵が入っていれば書く（公式の段の初報では絵がいちばんの知らせ。速報の初報の「発表待ち」と対になる）
+    arts = sum(1 for c in cards if c.get("art_url"))
+    art_line = ""
+    if arts:
+        art_line = ("KONAMI 公式サイトでイラストも判明しました。" if arts == len(cards)
+                    else f"KONAMI 公式サイトで{arts}枚のイラストも判明しました。")
     return _fit([
         f"【海外先行】遊戯王TCG（英語版）の新パック「{s['name_en']}」",
         f"{rel}判明した{len(cards)}枚の効果を、日本語で紹介しています。",
+        art_line,
         ("".join(f"《{r}》" for r in related) + "ゆかりの新カードも登場します。") if related else "",
     ], set_url(s))
 
