@@ -20,7 +20,7 @@
   - [ ] 校正: CARD_HOURS（19〜23時）・UPDATE_MIN_NEW（3）・UPDATE_MIN_HOURS（20）・CLOSE_AFTER_DAYS（30）・MAX_SUMMARIZE（40）を tweet_log の閲覧数と実際の弾の出方から見直す
   - [x] 公式の絵・速報と公式の分岐（10-30 本番 PR #271 2788f63・SQL も本番に適用済み）: 公式の商品ページの絵を取り込み、カード・弾の画像とまとめページに出す（本番で6枚確認）。弾は「公式の段／速報の段」に分け、速報の初報は効果の文が出てから LEAK_MAX_HOURS 以内だけ・公式の絵が入ったら公式の続報を1回・速報の弾のカードごとは絵を待つ。経緯は docs/decisions.md 10-30
   - [x] 2026-10-30 ⚠ 毎時の定期実行（tcg-announce-watch.yml の cron 17 * * * *）がほとんど動いていない: 10-29 12:00〜10-30 05:48 UTC の約18時間で定期実行は2回だけ（18:28・23:18 UTC）。→ **Render cron tcg-announce-dispatch（JST 6:30・12:30・19:30）から workflow_dispatch を叩く形にした**（10-30 16:53 JST の手動実行で起動・成功・dry_run=false が渡ることを確認）。GitHub の cron は予備として残す。詳細 docs/decisions.md 10-30
-  - [ ] Render の古い cron **tcg-announce-trigger**（既製イメージ型・Docker Command が画面で保存できず空のまま）をユーザーが削除する。残すと月 $1 ほど
+  - [x] 2026-10-30 Render の古い cron **tcg-announce-trigger**（既製イメージ型・Docker Command が画面で保存できず空のまま）をユーザーが削除（Render の一覧から消えたのを確認）
   - [ ] 1日3回で取りこぼしが無いかの見直し（TODO: calibrate from data）: 公式ページは過去の弾ではどれも JST 1〜4時。速報の段の12時間判定と1日3回の間隔（最大11時間）の兼ね合いを、次の弾の実績で確かめる
   - [ ] Heavy Metalmorph（紹介文が「別カードの商品説明で存在に触れられている」だけ）の要約が空で失敗し、取り込みの実行全体が failure になる。3回目（次の回）で試すのをやめる見込み。要約できる中身の無い文を失敗扱いにしない（終了コードを 1 にしない）かは別途
   - [ ] 校正: LEAK_MAX_HOURS（12）・OFFICIAL_WAIT_DAYS（3）を次の弾からの販売店→公式の時間差で見直す（TODO: calibrate from data。10-30 の調べでは販売店が先だったのは5弾中 MZMC だけ・差は約17時間）
