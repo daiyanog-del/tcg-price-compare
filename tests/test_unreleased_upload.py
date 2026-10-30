@@ -34,10 +34,34 @@ class _Query(Query):
         return super().execute()
 
 
+class _Bucket:
+    """Storage の代わり（パス → バイト）。公開URLは cdn.example の固定形。"""
+
+    def __init__(self, files):
+        self.files = files
+
+    def upload(self, path, file, file_options=None):
+        self.files[path] = bytes(file)
+
+    def download(self, path):
+        if path not in self.files:
+            raise FileNotFoundError(path)
+        return self.files[path]
+
+    def remove(self, paths):
+        for p in paths:
+            self.files.pop(p, None)
+
+    def get_public_url(self, path):
+        return f"https://cdn.example/{path}"
+
+
 class _SB(FakeSB):
     def __init__(self, *a, **k):
         super().__init__(*a, **k)
         self._n = 1000
+        self.files = {}
+        self.storage = SimpleNamespace(from_=lambda bucket: _Bucket(self.files))
 
     def next_id(self):
         self._n += 1
@@ -308,13 +332,81 @@ def test_pending_card_is_replaced_with_official_content(no_context):
     notify.assert_called_once()
 
 
-def test_approved_card_keeps_content_and_records_diff():
+def _fetch_ok(url, official_site):
+    return _png(80, 60), "image/png", ""
+
+
+def _candidate_db(name="誘惑の鏡壁"):
+    """公開中の画像取込カードに公式版の候補が届いた状態（キャプチャの画像・元画像は Storage にある）。"""
+    sb = _db(_upload_card(1, name, "approved"))
+    sb.files.update({"unreleased/1.png": b"capture-shown", "unreleased/originals/1.png": b"capture-original"})
+    up.split_replaceable(sb, [_official_row(name)], up.load_replaceable(sb), OFFICIAL,
+                         store=_store_ok, notify=MagicMock(), fetch=_fetch_ok)
+    return sb
+
+
+def test_approved_card_gets_candidate_and_keeps_image():
     sb = _db(_upload_card(1, "誘惑の鏡壁", "approved"))
     q = up.load_replaceable(sb)
     notify = MagicMock()
+    store = MagicMock()
 
-    up.split_replaceable(sb, [_official_row("誘惑の鏡壁")], q, OFFICIAL, store=_store_ok, notify=notify)
+    remaining = up.split_replaceable(sb, [_official_row("誘惑の鏡壁")], q, OFFICIAL,
+                                     store=store, notify=notify, fetch=_fetch_ok)
 
+    assert remaining == [] and store.call_count == 0          # 新しい行も作らず、表示中の画像にも触らない
+    assert [i["deleted_at"] for i in sb.tables["official_card_images"]] == [None]
+    card = sb.tables["unreleased_cards"][0]
+    assert card["effect_text"] == "動画の効果文" and card["source_url"] == SRC
+    raw = card["extraction_raw"]
+    assert "replaced_by_official" not in raw
+    cand = raw["official_candidate"]
+    assert cand["page_url"] == OFFICIAL and cand["image_url"] == "https://pbs.twimg.com/a.jpg"
+    assert cand["image"]["storage_path"] == "unreleased/candidates/1.png"
+    assert sb.files["unreleased/candidates/1.png"] == _png(80, 60)
+    assert cand["diff"] == {"effect_text": {"current": "動画の効果文", "official": "公式の効果文"}}
+    view = up.admin_view(raw)
+    assert view["state"] == "candidate" and view["diff_fields"] == ["effect_text"]
+    assert view["image_url"].startswith("https://cdn.example/unreleased/candidates/1.png?t=")
+    assert view["crop_box"] == {"left": 0.1, "top": 0.1, "right": 0.5, "bottom": 0.9}
+    assert "見比べて" in notify.call_args.args[0]
+    assert fuzzy_key("誘惑の鏡壁") in q.done
+
+
+def test_candidate_fetch_failure_records_error_and_keeps_waiting():
+    sb = _db(_upload_card(1, "誘惑の鏡壁", "approved"))
+    q = up.load_replaceable(sb)
+    up.split_replaceable(sb, [_official_row("誘惑の鏡壁")], q, OFFICIAL, notify=MagicMock(),
+                         fetch=lambda url, official_site: (None, "", "画像取得失敗"))
+    raw = sb.tables["unreleased_cards"][0]["extraction_raw"]
+    assert "official_candidate" not in raw and raw["replace_error"]["reason"] == "画像取得失敗"
+    assert up.load_replaceable(sb).keys() == {fuzzy_key("誘惑の鏡壁")}
+
+
+def test_newer_official_replaces_candidate():
+    sb = _candidate_db()
+    newer = _official_row("誘惑の鏡壁")
+    newer["extraction_raw"]["card_image_url"] = "https://pbs.twimg.com/b.jpg"
+    notify = MagicMock()
+    up.split_replaceable(sb, [newer], up.load_replaceable(sb), OFFICIAL + "2",
+                         notify=notify, fetch=lambda url, official_site: (b"jpeg", "image/jpeg", ""))
+    notify.assert_called_once()
+    cand = sb.tables["unreleased_cards"][0]["extraction_raw"]["official_candidate"]
+    assert cand["page_url"] == OFFICIAL + "2" and cand["image"]["storage_path"] == "unreleased/candidates/1.jpg"
+    assert "unreleased/candidates/1.png" not in sb.files       # 古い候補の画像は消す
+
+
+def test_apply_candidate_keeps_content_and_records_diff(monkeypatch):
+    import unreleased_image_store as store
+    sb = _candidate_db()
+    crops = []
+    monkeypatch.setattr(store, "crop_and_save_image",
+                        lambda sb, cid, *box, mode="manual", **k: (crops.append((cid, box, mode)), (True, "u"))[1])
+
+    ok, msg = up.apply_official_candidate(sb, 1, {"left": 0.1, "top": 0.2, "right": 0.6, "bottom": 0.9})
+
+    assert ok and msg == ""
+    assert crops == [(1, (0.1, 0.2, 0.6, 0.9), "manual")]
     card = sb.tables["unreleased_cards"][0]
     assert card["effect_text"] == "動画の効果文"   # 人が確認した内容は変えない
     raw = card["extraction_raw"]
@@ -323,13 +415,74 @@ def test_approved_card_keeps_content_and_records_diff():
     assert rep["mode"] == "image_only"
     assert rep["diff"] == {"effect_text": {"current": "動画の効果文", "official": "公式の効果文"}}
     assert up.admin_view(raw)["diff_fields"] == ["effect_text"]
-    assert "要確認" in notify.call_args.args[0]
+    assert up.admin_view(raw)["can_revert"] is True
+    assert "official_candidate" not in raw and "unreleased/candidates/1.png" not in sb.files
+    # 見えるのは公式版の画像だけ。キャプチャは退避してある
+    imgs = sb.tables["official_card_images"]
+    assert [i.get("deleted_at") is None for i in imgs] == [False, True]
+    assert sb.files["unreleased/1.png"] == _png(80, 60)
+    assert raw["capture_backup"]["image"]["storage_path"] == "unreleased/captures/1.png"
+    assert sb.files["unreleased/captures/1.png"] == b"capture-shown"
+    assert sb.files["unreleased/captures/originals/1.png"] == b"capture-original"
     # 2回目は差し替え待ちに無い
     assert up.load_replaceable(sb).keys() == set()
 
 
+def test_apply_candidate_without_box_does_not_crop(monkeypatch):
+    import unreleased_image_store as store
+    sb = _candidate_db()
+    crop = MagicMock()
+    monkeypatch.setattr(store, "crop_and_save_image", crop)
+    assert up.apply_official_candidate(sb, 1, None) == (True, "")
+    crop.assert_not_called()
+
+
+def test_apply_without_candidate_fails():
+    sb = _db(_upload_card(1, "誘惑の鏡壁", "approved"))
+    assert up.apply_official_candidate(sb, 1) == (False, "公式版の候補がありません")
+    assert up.revert_to_capture(sb, 1) == (False, "戻せるキャプチャがありません")
+
+
+def test_dismiss_candidate_removes_file_and_keeps_waiting():
+    sb = _candidate_db()
+    assert up.dismiss_official_candidate(sb, 1) == (True, "")
+    raw = sb.tables["unreleased_cards"][0]["extraction_raw"]
+    assert "official_candidate" not in raw and raw["official_candidate_dismissed"]["page_url"] == OFFICIAL
+    assert "unreleased/candidates/1.png" not in sb.files
+    assert up.admin_view(raw)["state"] == "waiting"
+    assert up.load_replaceable(sb).keys() == {fuzzy_key("誘惑の鏡壁")}   # また届けば候補になる
+
+
+def test_revert_to_capture_restores_image_and_keeps_official_as_candidate(monkeypatch):
+    import unreleased_image_store as store
+    monkeypatch.setattr(store, "crop_and_save_image", lambda *a, **k: (True, "u"))
+    sb = _candidate_db()
+    assert up.apply_official_candidate(sb, 1, None)[0]
+    # 差し替えで公式版の切り抜く前の画像が originals に入っている
+    assert sb.files["unreleased/originals/1.png"] == _png(80, 60)
+
+    ok, msg = up.revert_to_capture(sb, 1)
+
+    assert ok, msg
+    card = sb.tables["unreleased_cards"][0]
+    raw = card["extraction_raw"]
+    visible = [i for i in sb.tables["official_card_images"] if i.get("deleted_at") is None]
+    assert len(visible) == 1
+    assert sb.files[visible[0]["storage_path"]] == b"capture-shown"
+    assert sb.files["unreleased/originals/1.png"] == b"capture-original"
+    assert raw["original_image"] == {"storage_path": "unreleased/originals/1.png", "mime": "image/png"}
+    assert "replaced_by_official" not in raw and "capture_backup" not in raw
+    assert raw["reverted_to_capture"]["official"]["page_url"] == OFFICIAL
+    assert card["source_url"] == SRC
+    # 公式版は候補に戻り、もう一度差し替えられる
+    assert up.admin_view(raw)["state"] == "candidate"
+    assert sb.files[raw["official_candidate"]["image"]["storage_path"]] == _png(80, 60)
+    assert "unreleased/captures/1.png" not in sb.files
+    assert up.apply_official_candidate(sb, 1, None)[0]
+
+
 def test_store_failure_keeps_old_image_and_waiting():
-    sb = _db(_upload_card(1, "六花氷月", "approved"))
+    sb = _db(_upload_card(1, "六花氷月", "pending"))
     q = up.load_replaceable(sb)
     notify = MagicMock()
 
@@ -347,7 +500,7 @@ def test_store_failure_keeps_old_image_and_waiting():
 
 
 def test_exception_before_store_keeps_old_image_and_record():
-    sb = _db(_upload_card(1, "六花氷月", "approved"))
+    sb = _db(_upload_card(1, "六花氷月", "pending"))
     q = up.load_replaceable(sb)
 
     def boom(*a):
@@ -361,13 +514,13 @@ def test_exception_before_store_keeps_old_image_and_record():
 
 
 def test_exception_after_store_keeps_new_image_visible(monkeypatch):
-    sb = _db(_upload_card(1, "六花氷月", "approved"))
+    sb = _db(_upload_card(1, "六花氷月", "pending"))
     q = up.load_replaceable(sb)
 
     def broken_diff(*a):
         raise RuntimeError("記録の更新失敗")
 
-    monkeypatch.setattr(up, "field_diff", broken_diff)
+    monkeypatch.setattr(up, "_annotate_official", broken_diff)
     notify = MagicMock()
 
     up.split_replaceable(sb, [_official_row("六花氷月")], q, OFFICIAL, store=_store_ok, notify=notify)
@@ -377,9 +530,9 @@ def test_exception_after_store_keeps_new_image_visible(monkeypatch):
     assert "保存済み" in notify.call_args.args[0]
 
 
-def test_store_without_raw_updates_does_not_keep_capture_records():
+def test_store_without_raw_updates_does_not_keep_capture_records(no_context):
     # 公式サイト経由の保存が記録を書かない場合でも、キャプチャの元画像・クロップ状態を引き継がない
-    card = _upload_card(1, "誘惑の鏡壁", "approved")
+    card = _upload_card(1, "誘惑の鏡壁", "pending")
     card["extraction_raw"]["crop_state"] = {"mode": "auto", "box": {"left": 0.2}}
     sb = _db(card)
     q = up.load_replaceable(sb)
@@ -511,7 +664,7 @@ def test_store_replacement_image_official_site_does_not_crop(monkeypatch):
     crop.assert_not_called()
 
 
-def test_x_replacement_crops_the_new_image_only(monkeypatch):
+def test_x_replacement_crops_the_new_image_only(monkeypatch, no_context):
     """本物の保存・切り抜き処理で、PNG のキャプチャを JPEG の公式画像に差し替える（再レビューの高-A）。"""
     import requests
     import unreleased_image_store as store
@@ -523,7 +676,7 @@ def test_x_replacement_crops_the_new_image_only(monkeypatch):
 
     monkeypatch.setattr(up, "_default_crop", _REAL_CROP)
     official = "https://pbs.twimg.com/a.jpg"
-    card = _upload_card(1, "誘惑の鏡壁", "approved")
+    card = _upload_card(1, "誘惑の鏡壁", "pending")
     card["extraction_raw"]["original_image"] = {"storage_path": "unreleased/originals/1.png", "mime": "image/png"}
     sb = _SB({"unreleased_cards": [card],
               "official_card_images": [{"id": 1, "unreleased_card_id": 1, "deleted_at": None,
@@ -562,7 +715,7 @@ def test_x_replacement_crops_the_new_image_only(monkeypatch):
 def test_watch_unreleased_replaces_instead_of_inserting(monkeypatch, no_context):
     import unreleased_approve
     import watch_unreleased
-    queue = up.ReplaceQueue({fuzzy_key("誘惑の鏡壁"): {"id": 7, "name": "誘惑の鏡壁"}})
+    queue = up.ReplaceQueue({fuzzy_key("誘惑の鏡壁"): {"id": 7, "name": "誘惑の鏡壁", "status": "pending"}})
     monkeypatch.setattr(up, "load_replaceable", lambda sb: queue)
     replaced = []
 
@@ -603,7 +756,7 @@ def test_watch_x_replaces_instead_of_inserting(monkeypatch):
     insert = MagicMock()
     monkeypatch.setattr(watcher, "_upsert_cards", insert)
 
-    q = up.ReplaceQueue({fuzzy_key("六花のくろひめ"): {"id": 7, "name": "六花のくろひめ"}})
+    q = up.ReplaceQueue({fuzzy_key("六花のくろひめ"): {"id": 7, "name": "六花のくろひめ", "status": "pending"}})
     tweets = [{"id": "1", "text": "◤六花のくろひめ◢", "attachments": {"media_keys": ["m"]}},
               {"id": "2", "text": "◤六花のくろひめ◢", "attachments": {"media_keys": ["m"]}}]
     n = watcher.process_tweets(tweets, {"m": "https://example.test/x.jpg"}, MagicMock(), set(), q)
@@ -623,6 +776,10 @@ def _admin_client(monkeypatch, sb):
     import app as app_module
     monkeypatch.setattr(admin_module, "_supabase", sb, raising=False)
     monkeypatch.setattr(admin_module, "_ADMIN_KEY", "test-key", raising=False)
+    # 鍵なしのテストが続くと認証失敗の回数制限（429）にかかるので、記録を毎回空にする
+    monkeypatch.setattr(admin_module, "_auth_fail_log", {})
+    monkeypatch.setattr(admin_module, "_auth_fail_global_log", [])
+    monkeypatch.setattr(admin_module, "_auth_fail_global_blocked_until", 0.0)
     app_module.app.config.update(TESTING=True)
     return app_module.app.test_client()
 
@@ -659,6 +816,194 @@ def test_import_image_api_success(monkeypatch):
     assert called == {"data_url": "data:image/png;base64,AA", "source_url": SRC, "note": "n", "filename": "f.png"}
 
 
+@pytest.mark.parametrize("path", ["official-candidate/apply", "official-candidate/dismiss", "revert-to-capture"])
+def test_candidate_apis_require_admin_key(monkeypatch, path):
+    client = _admin_client(monkeypatch, _SB())
+    assert client.post(f"/api/admin/unreleased/1/{path}", json={}).status_code == 401
+
+
+def test_apply_candidate_api_rejects_bad_box(monkeypatch):
+    client = _admin_client(monkeypatch, _candidate_db())
+    resp = client.post("/api/admin/unreleased/1/official-candidate/apply", headers={"X-Admin-Key": "test-key"},
+                       json={"box": {"left": 0.6, "top": 0.1, "right": 0.5, "bottom": 0.9}})
+    assert resp.status_code == 400
+
+
+def test_apply_and_revert_apis(monkeypatch):
+    import unreleased_image_store as store
+    monkeypatch.setattr(store, "crop_and_save_image", lambda *a, **k: (True, "u"))
+    sb = _candidate_db()
+    client = _admin_client(monkeypatch, sb)
+    h = {"X-Admin-Key": "test-key"}
+    resp = client.post("/api/admin/unreleased/1/official-candidate/apply", headers=h,
+                       json={"box": {"left": 0.1, "top": 0.1, "right": 0.5, "bottom": 0.9}})
+    assert resp.status_code == 200 and resp.get_json() == {"ok": True, "warning": None}
+    resp = client.post("/api/admin/unreleased/1/revert-to-capture", headers=h, json={})
+    assert resp.status_code == 200
+    resp = client.post("/api/admin/unreleased/1/official-candidate/dismiss", headers=h, json={})
+    assert resp.status_code == 200
+    resp = client.post("/api/admin/unreleased/1/official-candidate/dismiss", headers=h, json={})
+    assert resp.status_code == 422
+
+
+# ──────────────────────────────────────────────
+# レビューで見つかった筋書き（2026-10-30）
+# ──────────────────────────────────────────────
+
+def test_revert_retry_after_midway_failure_keeps_official_as_candidate(monkeypatch):
+    import unreleased_image_store as store
+    monkeypatch.setattr(store, "crop_and_save_image", lambda *a, **k: (True, "u"))
+    sb = _candidate_db()
+    assert up.apply_official_candidate(sb, 1, None)[0]
+    official_original = sb.files["unreleased/originals/1.png"]
+
+    # 1回目: キャプチャの保存まで進んだあと、記録の書き込みで落ちる
+    real_write = up._write_raw
+    calls = {"n": 0}
+
+    def flaky_write(sb_, cid, raw, extra=None):
+        calls["n"] += 1
+        if calls["n"] == 2:          # 1回目＝候補の確定、2回目＝戻した記録
+            raise RuntimeError("一時的な失敗")
+        return real_write(sb_, cid, raw, extra)
+
+    monkeypatch.setattr(up, "_write_raw", flaky_write)
+    ok, msg = up.revert_to_capture(sb, 1)
+    assert not ok and "もう一度" in msg
+    monkeypatch.setattr(up, "_write_raw", real_write)
+
+    # 押し直すと続きから戻り、候補は公式版のまま（キャプチャにすり替わらない）
+    ok, msg = up.revert_to_capture(sb, 1)
+    assert ok, msg
+    raw = sb.tables["unreleased_cards"][0]["extraction_raw"]
+    assert sb.files[raw["official_candidate"]["image"]["storage_path"]] == official_original
+    assert "from_replaced_at" not in raw["official_candidate"]
+    assert sb.files["unreleased/originals/1.png"] == b"capture-original"
+
+
+def test_apply_stops_when_capture_cannot_be_backed_up():
+    sb = _candidate_db()
+    del sb.files["unreleased/1.png"]          # 表示中のキャプチャが読めない
+    ok, msg = up.apply_official_candidate(sb, 1, None)
+    assert not ok and "退避できない" in msg
+    raw = sb.tables["unreleased_cards"][0]["extraction_raw"]
+    assert "replaced_by_official" not in raw and "official_candidate" in raw
+    assert [i.get("deleted_at") for i in sb.tables["official_card_images"]] == [None]
+    assert sb.files["unreleased/originals/1.png"] == b"capture-original"
+
+
+def test_auto_replacement_reports_missing_backup(no_context):
+    sb = _db(_upload_card(1, "六花のくろひめ", "pending"))   # Storage にキャプチャが無い
+    notify = MagicMock()
+    up.split_replaceable(sb, [_official_row("六花のくろひめ")], up.load_replaceable(sb), OFFICIAL,
+                         store=_store_ok, notify=notify)
+    assert "退避できなかった" in notify.call_args.args[0]
+
+
+def test_content_replaced_row_cannot_be_reverted(no_context):
+    sb = _db(_upload_card(1, "六花のくろひめ", "pending"))
+    sb.files.update({"unreleased/1.png": b"capture-shown", "unreleased/originals/1.png": b"capture-original"})
+    up.split_replaceable(sb, [_official_row("六花のくろひめ")], up.load_replaceable(sb), OFFICIAL,
+                         store=_store_ok, notify=MagicMock())
+    raw = sb.tables["unreleased_cards"][0]["extraction_raw"]
+    assert raw["capture_backup"]                       # 退避はしてある
+    assert up.admin_view(raw)["can_revert"] is False   # でもボタンは出さない
+    ok, msg = up.revert_to_capture(sb, 1)
+    assert not ok and "内容ごと" in msg
+
+
+def test_status_is_reread_before_deciding():
+    # 実行の最初は承認待ちだったが、抽出の間に承認された
+    sb = _db(_upload_card(1, "誘惑の鏡壁", "pending"))
+    q = up.load_replaceable(sb)
+    sb.tables["unreleased_cards"][0]["status"] = "approved"
+    store = MagicMock()
+    up.split_replaceable(sb, [_official_row("誘惑の鏡壁")], q, OFFICIAL, store=store, notify=MagicMock(),
+                         fetch=_fetch_ok)
+    store.assert_not_called()
+    card = sb.tables["unreleased_cards"][0]
+    assert card["effect_text"] == "動画の効果文" and "official_candidate" in card["extraction_raw"]
+
+
+def test_same_official_again_does_not_renotify_or_undo_dismiss():
+    sb = _candidate_db()
+    assert up.dismiss_official_candidate(sb, 1)[0]
+    notify, fetch = MagicMock(), MagicMock()
+    up.split_replaceable(sb, [_official_row("誘惑の鏡壁")], up.load_replaceable(sb), OFFICIAL,
+                         notify=notify, fetch=fetch)
+    notify.assert_not_called()
+    fetch.assert_not_called()
+    raw = sb.tables["unreleased_cards"][0]["extraction_raw"]
+    assert "official_candidate" not in raw and raw["official_candidate_dismissed"]
+
+
+def test_apply_refuses_when_candidate_changed(monkeypatch):
+    sb = _candidate_db()
+    with pytest.raises(up.CandidateChanged):
+        up.apply_official_candidate(sb, 1, None, expected_at="古い時刻")
+    assert "replaced_by_official" not in sb.tables["unreleased_cards"][0]["extraction_raw"]
+    client = _admin_client(monkeypatch, sb)
+    resp = client.post("/api/admin/unreleased/1/official-candidate/apply", headers={"X-Admin-Key": "test-key"},
+                       json={"box": None, "candidate_at": "古い時刻"})
+    assert resp.status_code == 409
+
+
+def test_store_failure_puts_capture_back_on_same_path(monkeypatch):
+    sb = _candidate_db()
+
+    def store_overwrites_then_fails(sb_, cid, data, mime, image_url, page_url):
+        sb_.files["unreleased/1.png"] = b"official-overwrote"   # 同じ保存先に上書きしてから落ちた
+        return False, "DB 登録失敗"
+
+    import unreleased_image_store as store
+    monkeypatch.setattr(store, "store_replacement_bytes", store_overwrites_then_fails)
+    ok, _ = up.apply_official_candidate(sb, 1, None)
+    assert not ok
+    assert sb.files["unreleased/1.png"] == b"capture-shown"
+
+
+def test_apply_stops_when_original_capture_cannot_be_read():
+    sb = _candidate_db()
+    del sb.files["unreleased/originals/1.png"]     # 表示中は読めるが、切り抜く前の画像だけ読めない
+    ok, msg = up.apply_official_candidate(sb, 1, None)
+    assert not ok and "退避できない" in msg
+    assert "replaced_by_official" not in sb.tables["unreleased_cards"][0]["extraction_raw"]
+
+
+def test_apply_without_visible_image_proceeds():
+    sb = _candidate_db()
+    sb.tables["official_card_images"][0]["deleted_at"] = "2026-10-01"   # 見える画像が無い
+    ok, msg = up.apply_official_candidate(sb, 1, None)
+    assert ok, msg
+    raw = sb.tables["unreleased_cards"][0]["extraction_raw"]
+    assert "capture_backup" not in raw and up.admin_view(raw)["can_revert"] is False
+
+
+def test_rejected_during_run_is_skipped():
+    sb = _db(_upload_card(1, "誘惑の鏡壁", "approved"))
+    q = up.load_replaceable(sb)
+    sb.tables["unreleased_cards"][0]["status"] = "rejected"
+    notify, fetch = MagicMock(), MagicMock()
+    remaining = up.split_replaceable(sb, [_official_row("誘惑の鏡壁")], q, OFFICIAL, notify=notify, fetch=fetch)
+    assert remaining == []
+    fetch.assert_not_called()
+    notify.assert_not_called()
+
+
+def test_reload_failure_skips_only_that_card(monkeypatch):
+    sb = _db(_upload_card(1, "誘惑の鏡壁", "approved"))
+    q = up.load_replaceable(sb)
+
+    def boom(*a):
+        raise RuntimeError("接続が切れた")
+
+    monkeypatch.setattr(up, "_load_card", boom)
+    rows = [_official_row("誘惑の鏡壁"), _official_row("新しいカード")]
+    remaining = up.split_replaceable(sb, rows, q, OFFICIAL, notify=MagicMock(), fetch=MagicMock())
+    assert [r["name"] for r in remaining] == ["新しいカード"]
+    assert q.keys() == {fuzzy_key("誘惑の鏡壁")}   # 次回また試す
+
+
 # ── 型番（card_number・2026-10-30）: 公式版の確かな型番を捨てない ──
 
 def _official_url_row(name, number="IMPH-JP016"):
@@ -678,25 +1023,36 @@ def test_pending_replacement_takes_official_card_number(no_context):
     assert card["extraction_raw"]["replaced_by_official"]["previous"]["card_number"] is None
 
 
-def test_approved_replacement_fills_empty_card_number_only():
-    sb = _db(_upload_card(1, "誘惑の鏡壁", "approved", card_number=None),
-             _upload_card(2, "六花水月", "approved", card_number="IMPH-JP064"))
-    q = up.load_replaceable(sb)
-    notify = MagicMock()
-    up.split_replaceable(sb, [_official_url_row("誘惑の鏡壁", "IMPH-JP074"), _official_url_row("六花水月", "IMPH-JP066")],
-                         q, OFFICIAL, store=_store_ok, notify=notify)
-    filled, kept = sb.tables["unreleased_cards"]
-    assert filled["card_number"] == "IMPH-JP074"       # 空は埋める
-    assert kept["card_number"] == "IMPH-JP064"         # 値がある行は変えず、違いとして知らせる
-    assert kept["extraction_raw"]["replaced_by_official"]["diff"]["card_number"] == {
-        "current": "IMPH-JP064", "official": "IMPH-JP066"}
+def _apply_with_card_number(monkeypatch, current, number, source):
+    """公開中のカードに公式版が届き（候補として保存）、見比べて適用するまで。型番が候補に持ち越されるかも見る。"""
+    import unreleased_image_store as store
+    monkeypatch.setattr(store, "crop_and_save_image", MagicMock())
+    sb = _db(_upload_card(1, "誘惑の鏡壁", "approved", card_number=current))
+    sb.files.update({"unreleased/1.png": b"capture-shown", "unreleased/originals/1.png": b"capture-original"})
+    row = _official_url_row("誘惑の鏡壁", number)
+    row["extraction_raw"]["card_number_source"] = source
+    up.split_replaceable(sb, [row], up.load_replaceable(sb), OFFICIAL, store=_store_ok, notify=MagicMock(),
+                         fetch=_fetch_ok)
+    cand = sb.tables["unreleased_cards"][0]["extraction_raw"]["official_candidate"]
+    assert cand["row"]["card_number"] == number                                  # 候補に持ち越す
+    assert cand["row"]["extraction_raw"]["card_number_source"] == source
+    assert sb.tables["unreleased_cards"][0]["card_number"] == current            # 見比べる前は変えない
+    assert up.apply_official_candidate(sb, 1, None) == (True, "")
+    return sb.tables["unreleased_cards"][0]
 
 
-def test_approved_replacement_does_not_use_ai_card_number():
-    sb = _db(_upload_card(1, "誘惑の鏡壁", "approved", card_number=None))
-    q = up.load_replaceable(sb)
-    row = _official_row("誘惑の鏡壁")
-    row["card_number"] = "IMPH-JP074"
-    row["extraction_raw"]["card_number_source"] = "ai"   # X の画像を AI が読んだだけ
-    up.split_replaceable(sb, [row], q, OFFICIAL, store=_store_ok, notify=MagicMock())
-    assert sb.tables["unreleased_cards"][0].get("card_number") is None
+def test_applied_candidate_fills_empty_card_number(monkeypatch):
+    card = _apply_with_card_number(monkeypatch, None, "IMPH-JP075", "image_url")
+    assert card["card_number"] == "IMPH-JP075"
+
+
+def test_applied_candidate_keeps_existing_card_number_and_records_diff(monkeypatch):
+    card = _apply_with_card_number(monkeypatch, "IMPH-JP074", "IMPH-JP075", "image_url")
+    assert card["card_number"] == "IMPH-JP074"         # 値がある行は変えず、違いとして知らせる
+    assert card["extraction_raw"]["replaced_by_official"]["diff"]["card_number"] == {
+        "current": "IMPH-JP074", "official": "IMPH-JP075"}
+
+
+def test_applied_candidate_does_not_use_ai_card_number(monkeypatch):
+    card = _apply_with_card_number(monkeypatch, None, "IMPH-JP075", "ai")   # X の画像を AI が読んだだけ
+    assert card["card_number"] is None

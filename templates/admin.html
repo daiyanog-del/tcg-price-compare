@@ -741,6 +741,17 @@
   <div class="crop-modal__backdrop"></div>
   <div class="crop-modal__inner">
     <p class="crop-modal__hint">ドラッグしてカード範囲を選択してください</p>
+    <!-- 公式版の候補を見比べるときだけ出す: 今表示している画像と、選んだ枠で切り抜いた仕上がり -->
+    <div class="crop-modal__compare" hidden>
+      <figure class="crop-modal__figure">
+        <img class="crop-modal__current" src="" alt="今の画像">
+        <figcaption>今の画像</figcaption>
+      </figure>
+      <figure class="crop-modal__figure">
+        <canvas class="crop-modal__preview"></canvas>
+        <figcaption>差し替え後（この枠で切り抜いた形）</figcaption>
+      </figure>
+    </div>
     <div class="crop-modal__img-wrap">
       <img class="crop-modal__img" src="" alt="" draggable="false">
       <div class="crop-modal__overlay"></div>

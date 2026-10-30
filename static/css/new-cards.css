@@ -20,10 +20,10 @@
 .new-card-picture img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:var(--bg-card)}
 .new-card-placeholder{display:flex;align-items:center;justify-content:center;width:100%;height:100%;padding:12px;text-align:center;font-size:13px;color:var(--text-m)}
 .new-card-link:hover strong{text-decoration:underline;text-underline-offset:3px}
-.new-card-meta{display:flex;justify-content:space-between;align-items:center;gap:4px;margin:10px 0 5px;font-size:11px;color:var(--text-m);flex-wrap:wrap}
-.new-card-badge{background:#302d24;color:#f3ce46;padding:2px 6px;border-radius:3px}
-/* 海外先行カード（TCG先行）の札。シミュレーターの候補の「TCG先行」と同じ青み（2026-10-23 ユーザー選択 案B） */
-.new-card-badge.is-tcg{background:rgba(174,197,255,.10);color:#aec5ff}
+/* 追加日は画像の右下に重ねる（2026-10-30 ユーザー選択。右下は効果テキストのあたりで、この大きさでは読めないので覆ってよい）。
+   背景はページの地の色（--bg #191b21）を少し透かしたもの。「発売前」の札は全カード同じなので出さない */
+.new-card-added{position:absolute;right:4px;bottom:4px;z-index:1;padding:1px 5px;border-radius:4px;background:rgba(25,27,33,.82);color:var(--text);font-size:11px;line-height:1.5;pointer-events:none}
+.new-card-link strong{margin-top:8px}
 /* 海外先行カード一覧（.tcg-preview-page）とそれ以外で、戻るリンク・説明文を出し分ける（templates/index.html の for-default / for-tcg） */
 #mode-search:not(.tcg-preview-page) .new-cards .for-tcg,#mode-search.tcg-preview-page .new-cards .for-default{display:none}
 /* 海外先行カード一覧への入口（未発売カード一覧のページだけ。トップと海外先行の一覧自身では出さない）。色は .new-cards-all と同じ */
@@ -40,12 +40,17 @@
 .new-cards-announce small{font-size:12px;font-weight:400;color:var(--text-m)}
 .new-card-link strong{display:block;font-size:13px;line-height:1.55;overflow-wrap:anywhere}
 /* 「もっと見る」など他の通常ボタンと同じ、枠なしの面（2026-10-21 金枠＋青文字から変更） */
-.new-card-add{margin-top:auto;width:100%;min-height:40px;padding:4px 6px;background:var(--bg-hover);color:var(--text);border:0;border-radius:6px;font:inherit;font-size:12px;font-weight:600;line-height:1.3;cursor:pointer;overflow-wrap:anywhere}
+.new-card-add,.new-card-wish{margin-top:auto;width:100%;min-height:40px;padding:4px 6px;background:var(--bg-hover);color:var(--text);border:0;border-radius:6px;font:inherit;font-size:12px;font-weight:600;line-height:1.3;cursor:pointer;overflow-wrap:anywhere}
 .new-card-link{margin-bottom:8px}
-.new-card-add:hover{background:#353843}
-.new-card-add:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
+.new-card-add:hover,.new-card-wish:hover{background:#353843}
+.new-card-add:focus-visible,.new-card-wish:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
+/* デッキと購入候補を横に半分ずつ（2026-10-30 ユーザー選択）。候補は詳細画面の副ボタンと同じ青文字 */
+.new-card-acts{display:flex;gap:4px;margin-top:auto}
+.new-card-acts>button{flex:1 1 0;min-width:0;margin-top:0}
+.new-card-wish{color:var(--accent-l)}
+.new-card-wish.added{color:var(--green);pointer-events:none}
 /* 読込前の仮枠（実カードと同じ骨組み）。名前は2行分を確保する */
-.new-card-skel .new-card-meta,.new-card-skel .new-card-add{visibility:hidden}
+.new-card-skel .new-card-add{visibility:hidden}
 .new-card-skel .new-card-add{display:block}
 /* 「もっと見る」は場所だけ取って読込完了まで見せない（押せない） */
 #newCardsGrid[aria-busy="true"]~#newCardsMore{visibility:hidden}
@@ -73,8 +78,8 @@
    値動きを最初の画面に入れる（2026-10-22 ユーザー承認・モック _mocks/pc-pages-20261022） */
 #mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped){grid-template-columns:repeat(8,minmax(0,1fr));gap:14px}
 #mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) .new-card-link strong{font-size:12px}
-#mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) .new-card-meta{font-size:10px}
-#mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) .new-card-add{min-height:30px;font-size:11px}
+#mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) .new-card-added{font-size:10px}
+#mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) :is(.new-card-add,.new-card-wish){min-height:30px;font-size:11px}
 #mode-search:not(.new-cards-page) #newCardsMore{display:none}
 #mode-search:not(.new-cards-page) .new-cards{margin-bottom:22px}
 @media(max-width:900px){#mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped){grid-template-columns:repeat(4,minmax(0,1fr))}}
@@ -84,10 +89,10 @@
   #mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped){display:flex;gap:10px;margin:0 -16px;padding:0 16px 4px;overflow-x:auto;scroll-snap-type:x proximity;scroll-padding-inline:16px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
   #mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped)::-webkit-scrollbar{display:none}
   #mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) .new-card{flex:0 0 112px;scroll-snap-align:start}
-  #mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) .new-card-meta{margin:6px 0 3px}
+  #mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) .new-card-link strong{margin-top:6px}
   #mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) .new-card-link strong{line-height:1.45}
-  #mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) .new-card-add{min-height:30px}
+  #mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) :is(.new-card-add,.new-card-wish){min-height:30px}
   #mode-search:not(.new-cards-page) #newCardsMore{display:none}
   #mode-search:not(.new-cards-page) .new-cards{margin-bottom:18px}
 }
-@media(max-width:640px){.new-cards h2{font-size:17px}.new-cards-help{font-size:12px;margin-bottom:16px}.new-cards-grid{gap:16px 10px}.new-card-link strong{font-size:12px}.new-card-add{font-size:11px;min-height:36px;padding:4px 2px}.new-card-group-title{font-size:15px}.new-card-meta{font-size:10px}.new-card-badge{padding:1px 4px}}
+@media(max-width:640px){.new-cards h2{font-size:17px}.new-cards-help{font-size:12px;margin-bottom:16px}.new-cards-grid{gap:16px 10px}.new-card-link strong{font-size:12px}.new-card-add,.new-card-wish{font-size:11px;min-height:36px;padding:4px 2px}.new-card-group-title{font-size:15px}.new-card-added{font-size:10px;padding:1px 4px}}
