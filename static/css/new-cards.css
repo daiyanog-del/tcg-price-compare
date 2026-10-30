@@ -26,11 +26,6 @@
 .new-card-link strong{margin-top:8px}
 /* 海外先行カード一覧（.tcg-preview-page）とそれ以外で、戻るリンク・説明文を出し分ける（templates/index.html の for-default / for-tcg） */
 #mode-search:not(.tcg-preview-page) .new-cards .for-tcg,#mode-search.tcg-preview-page .new-cards .for-default{display:none}
-/* 海外先行カード一覧への入口（未発売カード一覧のページだけ。トップと海外先行の一覧自身では出さない）。色は .new-cards-all と同じ */
-.new-cards-tcg-link{display:none;margin:-8px 0 20px;font-size:14px;color:var(--accent-l);text-decoration:none}
-.new-cards-page:not(.tcg-preview-page) .new-cards-tcg-link{display:inline-block}
-.new-cards-tcg-link:hover{text-decoration:underline;text-underline-offset:3px}
-.new-cards-tcg-link:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
 /* 予告中の新弾（/tcg-preview/<slug> のまとめページ）への入口（2026-10-29）。海外先行カード一覧だけに出る（for-tcg） */
 .new-cards-announce{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:-4px 0 20px}
 .new-cards-announce-label{font-size:12px;font-weight:700;color:var(--gold);background:#302d24;border-radius:6px;padding:2px 8px}
@@ -60,10 +55,10 @@
 .new-cards-all:hover{text-decoration:underline;text-underline-offset:3px}
 .new-cards-all:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
 /* 一覧ページ（/new-cards）: 商品ごとのグループ表示。トップ用のランキングは隠す */
-.new-cards-back{display:none;margin:0 0 14px;font-size:13px;color:var(--text-m);text-decoration:none}
-.new-cards-back:hover{text-decoration:underline;text-underline-offset:3px}
-.new-cards-page .new-cards-back{display:inline-block}
 .new-cards-page .movers-row{display:none}
+/* 一覧ページは「新弾情報」の中のページなので、価格比較の検索欄は出さない（2026-10-30。価格比較のタブで戻ると出る） */
+.new-cards-page .price-search-area{display:none}
+.new-cards-page .new-cards{padding-top:22px}
 .new-cards-grid.is-grouped{display:block}
 .new-card-group+.new-card-group{margin-top:32px}
 .new-card-group-title{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;margin:0 0 12px;font-size:16px;line-height:1.5}

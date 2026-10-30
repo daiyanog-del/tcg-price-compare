@@ -696,6 +696,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 <link rel="stylesheet" href="{{ static_url('css/meta-deck.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/packs.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/new-cards.css') }}">
+<link rel="stylesheet" href="{{ static_url('css/newset-subnav.css') }}">
 <link rel="stylesheet" href="{{ static_url('shared/text-report.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/card-result.css') }}">
 <!-- import map: モジュールから相対importされるファイルを内容ハッシュ付きURLへ写像する
@@ -727,12 +728,14 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
         </div>
       </a>
     </h1>
+    <!-- 未発売カード一覧・海外先行カード一覧は「新弾情報」の中のページなので、そのタブを光らせる（index-main.js _syncModeTabs と同じ。JS を待たずに出す） -->
+    {% set newset_page = page_mode in ('new_cards', 'tcg_preview') %}
     <nav class="mode-tabs" aria-label="メインナビゲーション">
-      <button class="mode-tab active" data-mode="search" aria-current="page" onclick="switchMode('search','tab')">価格比較</button>
+      <button class="mode-tab{% if not newset_page %} active{% endif %}" data-mode="search"{% if not newset_page %} aria-current="page"{% endif %} onclick="switchMode('search','tab')">価格比較</button>
       {% if enable_solo_play %}<a class="header-solo-link" id="headerSoloLink" href="/solitaire" aria-label="シミュレーターを開く">シミュレーター</a>{% endif %}
       <button class="mode-tab" data-mode="mydeck" onclick="switchMode('mydeck','tab')">マイデッキ</button>
       <button class="mode-tab" data-mode="meta" onclick="switchMode('meta','tab')">環境デッキ</button>
-      <button class="mode-tab" data-mode="packs" onclick="switchMode('packs','tab')">新商品</button>
+      <button class="mode-tab{% if newset_page %} active{% endif %}" data-mode="packs"{% if newset_page %} aria-current="page"{% endif %} onclick="switchMode('packs','tab')">新弾情報</button>
       <button class="mode-tab nav-wishlist" data-mode="wishlist" onclick="switchMode('wishlist','tab')">購入候補<span class="wish-badge" id="wishTabBadge" style="display:none">0</span></button>
     </nav>
     {% if card_name %}
@@ -850,8 +853,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     <section id="newCardsSection" class="new-cards" aria-labelledby="newCardsHeading">
       <!-- 海外先行カード一覧（/tcg-preview・2026-10-23）も同じ部品で new-cards.js が描く。同じ HTML のままトップ等と行き来するので、
            文言は両方を常に置き、#mode-search の .tcg-preview-page で出し分ける（new-cards.css） -->
-      <a class="new-cards-back for-default" href="/">← トップへ戻る</a>
-      <a class="new-cards-back for-tcg" href="/new-cards">← 未発売カード一覧へ</a>
+      {% if page_mode in ('new_cards', 'tcg_preview') %}{% from "_newset_subnav.html" import newset_subnav %}{{ newset_subnav('tcg' if page_mode == 'tcg_preview' else 'new') }}{% endif %}
       <div class="new-cards-head">
         <h2 id="newCardsHeading">{% if page_mode == 'tcg_preview' %}海外先行カード一覧{% else %}新着の未発売カード{% endif %}</h2>
         <a class="new-cards-head-link" href="/new-cards">すべて見る →</a>
@@ -865,8 +867,6 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
       <p class="new-cards-help for-tcg">英語版で先に出て、日本ではまだ発売されていないカードです。効果は機械翻訳の非公式訳で、デッキに追加してテストプレイできます（価格はありません）。</p>
       <!-- 予告中の英語版の新弾（公式DBに載る前のカードのまとめ /tcg-preview/<slug>・2026-10-29）。海外先行カード一覧だけに見せる -->
       {% if announce_sets %}<div class="new-cards-announce for-tcg"><span class="new-cards-announce-label">予告中の新弾</span>{% for a in announce_sets %}<a href="/tcg-preview/{{ a.set.slug }}">{{ a.set.name_en }}<small>判明 {{ a.cards|length }} 枚</small></a>{% endfor %}</div>{% endif %}
-      <!-- 海外先行カード一覧への入口。未発売カード一覧のページだけに見せる（トップには出さない。2026-10-23 ユーザー選択） -->
-      <a class="new-cards-tcg-link" href="/tcg-preview">海外先行カード（英語版で先に出たカード）を見る →</a>
       <!-- トップは覚えている新着があれば最初の6枚を本物の HTML で書く（画像を HTML の時点で取りに行き、JS を待たずに出す。
           2026-10-22 LCP）。中身は new-cards.js の cardElement と同じで、JS が後から同じ中身で描き直してクリック等を付ける。
           無いときは従来どおり仮の枠 -->
@@ -1161,6 +1161,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 
   <!-- ===== 最新弾モード ===== -->
   <div id="mode-packs" class="hidden">
+    {% from "_newset_subnav.html" import newset_subnav %}{{ newset_subnav('packs') }}
     <!-- 新商品（2026-10-21 モック _mocks/packs-refresh-20261021 の A〜E）。PC は左に一覧・右に詳細、
          900px 以下は詳細を全面で開く（#packPane.is-open。packs.js _openPackSheet）。見た目は css/packs.css -->
     <div class="deck-builder">

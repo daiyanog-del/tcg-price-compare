@@ -1,0 +1,15 @@
+/* 「新弾情報」タブの中の切り替え（templates/_newset_subnav.html・2026-10-30）。
+   色は site-theme.css の変数。枠の中で選んでいるものだけ地を明るくするのは、新弾情報の詳細の切り替え（packs.css の .pk-seg）と同じ */
+/* box-sizing はまとめページ（tcg_announce.html）に全体の指定が無いので、ここで決める（無いとスマホで高さが 56px になる） */
+.newset-subnav,.newset-subnav a{box-sizing:border-box}
+.newset-subnav{display:inline-flex;gap:2px;margin:0 0 18px;padding:3px;border:1px solid var(--border);border-radius:9px;background:var(--bg-card)}
+.newset-subnav a{display:inline-flex;align-items:center;justify-content:center;padding:7px 14px;border-radius:7px;color:var(--text-m);font-family:inherit;font-size:13px;font-weight:700;white-space:nowrap;text-decoration:none}
+.newset-subnav a:hover{color:var(--text)}
+.newset-subnav a.is-on{background:var(--bg-hover);color:var(--text)}
+.newset-subnav a:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+/* 未発売カードの欄はトップの「新着の未発売カード」と同じ部品なので、一覧のページのときだけ出す（index.html #newCardsSection） */
+#mode-search:not(.new-cards-page) .newset-subnav{display:none}
+@media(max-width:640px){
+  .newset-subnav{display:flex;width:100%;margin-bottom:14px}
+  .newset-subnav a{flex:1 1 0;min-width:0;min-height:40px;padding:8px 4px;font-size:12px}
+}

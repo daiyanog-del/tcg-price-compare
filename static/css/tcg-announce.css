@@ -20,8 +20,12 @@ body.price-redesign {
 .ta-nav { display: flex; align-items: center; flex: 1; gap: 18px; align-self: stretch; }
 .ta-nav a { display: inline-flex; align-items: center; min-height: 50px; padding-top: 8px; color: var(--text-m); font-size: 12px; font-weight: 700; white-space: nowrap; text-decoration: none; }
 .ta-nav a:hover { color: var(--text); }
+/* このページは「新弾情報」の中なのでそのタブを光らせる（index.html の .mode-tab.active と同じ色の下線。2026-10-30） */
+.ta-nav a.is-current { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent-soft); }
 .ta-nav .ta-nav-wish { margin-left: auto; }
 
+/* 「新弾情報」の切り替え（newset-subnav.css）。ヘッダーに下線が無いので間を空ける */
+.ta-page .newset-subnav { margin: 14px 0 12px; }
 .ta-crumbs { font-size: 13px; color: var(--text-m); display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 18px; }
 .ta-crumbs a { color: var(--text-m); text-decoration: none; }
 .ta-crumbs a:hover { color: var(--text); }

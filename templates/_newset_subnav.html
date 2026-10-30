@@ -1,0 +1,10 @@
+{# 「新弾情報」タブの中の切り替え（パック一覧／未発売カード／海外先行カード・2026-10-30 モック _mocks/newset-nav-20261030）。
+   新弾情報のタブ（#mode-packs）・未発売カード一覧・海外先行カード一覧・予告中の新弾のまとめページで同じものを出す。見た目は css/newset-subnav.css
+   current: 'packs' | 'new' | 'tcg'。within=True はその下の階層のページ（まとめページ）で、現在地を「page」でなく「location」で示す #}
+{% macro newset_subnav(current, within=False) %}
+<nav class="newset-subnav" aria-label="新弾情報の切り替え">
+  {%- for key, href, label in [('packs', '/#packs', 'パック一覧'), ('new', '/new-cards', '未発売カード'), ('tcg', '/tcg-preview', '海外先行カード')] %}
+  <a href="{{ href }}"{% if key == current %} class="is-on" aria-current="{{ 'location' if within else 'page' }}"{% endif %}>{{ label }}</a>
+  {%- endfor %}
+</nav>
+{% endmacro %}
