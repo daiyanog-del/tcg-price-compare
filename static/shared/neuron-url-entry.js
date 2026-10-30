@@ -23,6 +23,7 @@ function _setBusy(busy) {
   if (btn) {
     btn.disabled = busy;
     btn.textContent = busy ? '取得中…' : '取り込む';
+    btn.classList.toggle('ld-spin', busy);
   }
 }
 

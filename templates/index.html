@@ -691,6 +691,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 <link rel="stylesheet" href="{{ static_url('mydeck/deck.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/price-layout.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/site-theme.css') }}">
+<link rel="stylesheet" href="{{ static_url('css/loading.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/wish-list.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/meta-deck.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/packs.css') }}">
@@ -1135,7 +1136,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
             <button class="movers-tab active" onclick="switchMetaSort('tier')">入賞傾向</button>
             <button class="movers-tab" onclick="switchMetaSort('price')">安い順</button>
           </div>
-          <div id="metaTierList" class="meta-loading">環境データを読込中...</div>
+          <div id="metaTierList" class="meta-loading"><span class="ld-ring" aria-hidden="true"></span>環境データを読込中...</div>
         </div>
 
         <div class="meta-pane-detail" id="metaPane">
@@ -1165,7 +1166,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     <div class="deck-builder">
       <div class="deck-input-area">
         <div class="pk-panes">
-          <div class="pk-pane-list"><div id="packList" class="meta-loading">パック情報を読込中...</div></div>
+          <div class="pk-pane-list"><div id="packList" class="meta-loading"><span class="ld-ring" aria-hidden="true"></span>パック情報を読込中...</div></div>
           {% if packs_initial %}<script type="application/json" id="packsInitial">{{ packs_initial|tojson }}</script>{% endif %}
           <div class="pk-pane-detail" id="packPane">
             <div class="pk-sheet-bar"><button type="button" class="meta-back" onclick="closePackSheet()"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>一覧へ</button></div>

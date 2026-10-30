@@ -44,7 +44,7 @@
         if (mySeq !== seq) return;
         if (data.error) {
           if (retry < 3) {
-            _setMoversHtml(list, '<div class="movers-fail">集計中です。少しお待ちください…</div>');
+            _setMoversHtml(list, '<div class="movers-fail"><span class="ld-ring" aria-hidden="true"></span>集計中です。少しお待ちください…</div>');
             setTimeout(() => { if (mySeq === seq) load(retry + 1); }, 2000);
             return;
           }

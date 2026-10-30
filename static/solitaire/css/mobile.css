@@ -135,7 +135,22 @@
   /* デッキの読込中（mobile-ui.js setDeckBtnLoading）: 山を薄くして文字を重ねる */
   .sol-mobile-deck-slot.sol-loading { cursor: default; }
   .sol-mobile-deck-slot.sol-loading .sol-rec-deck-pile { opacity: 0.35; }
+  /* 輪（loading.css の .ld-ring と同じ形）を文字の上に出す。疑似要素なので形はここに書く */
+  .sol-mobile-deck-slot.sol-loading::before {
+    content: '';
+    position: absolute;
+    right: calc(8px + var(--slot-width) / 2 - 7px);
+    top: calc(50% - 20px);
+    box-sizing: border-box;
+    width: 14px; height: 14px;
+    border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: ld-spin .8s linear infinite;
+    z-index: 1;
+  }
   .sol-mobile-deck-slot.sol-loading::after {
+    padding-top: 22px;
     content: '読込中…';
     position: absolute;
     right: 8px; top: 0; bottom: 0;
