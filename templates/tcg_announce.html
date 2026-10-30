@@ -52,13 +52,13 @@
     <section class="ta-hero">
       <div class="ta-badges"><span class="ta-badge is-tcg">TCG先行</span><span class="ta-badge is-announce">予告</span></div>
       <h1 class="ta-title">{{ s.name_en }}</h1>
-      <p class="ta-sub">遊戯王TCG（英語版）の新しいパック</p>
       <dl class="ta-facts">
         <div><dt>英語版の発売</dt><dd>{% if s.tcg_release_date %}{{ format_release(s.tcg_release_date) }}<small>予定</small>{% else %}未定{% endif %}</dd></div>
         {% if s.size %}<div><dt>収録</dt><dd>{{ s.size }}<small>枚</small></dd></div>{% endif %}
         <div><dt>判明</dt><dd>{{ known }}<small>枚</small></dd></div>
       </dl>
-      <p class="ta-lead">英語版で先に発売されるパックです。日本での発売はまだ発表されていません。新しく判明したカードは、1日に数回追加しています。</p>
+      {# 見出しの下の「遊戯王TCG（英語版）の新しいパック」と内容が重なっていたので1文にまとめた（2026-10-30 ユーザー「前置きが大きい」） #}
+      <p class="ta-lead">遊戯王TCG（英語版）で先に発売されるパックです。日本での発売は未発表で、判明したカードは1日に数回追加します。</p>
     </section>
 
     <section aria-labelledby="taCardsHeading">
