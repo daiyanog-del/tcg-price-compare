@@ -323,6 +323,22 @@ def summarize(rows: list[dict]) -> str:
             f" / 分布あり {sum(1 for r in ocg if r['distribution'])}件")
 
 
+def run_alerts(read: int, incomplete: list[str], max_reads: int) -> list[str]:
+    """運営に知らせる異常（無ければ空）。毎日の結果は知らせない。"""
+    alerts = []
+    if incomplete:
+        alerts.append(f"読む上限 {max_reads} 件に達し、{', '.join(incomplete)} を読み残しました（次回に続きから読み直します）。"
+                      "毎日続くなら MAX_READS_PER_RUN を見直してください。")
+    if read == 0:
+        alerts.append("1件も読めませんでした。検索の書き方か X API の変更を疑ってください。")
+    return alerts
+
+
+def _notify(lines: list[str]) -> None:
+    from discord_notify import send_discord_message
+    send_discord_message("【大会結果の収集】\n" + "\n".join(lines), no_mentions=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", help="保存せず表示だけ")
@@ -348,6 +364,15 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {n:>3}件 @{name}")
         return 0
 
+    try:
+        return _collect_and_save(sb, args)
+    except Exception as e:
+        if not args.dry_run:
+            _notify([f"途中で止まりました: {type(e).__name__}: {str(e)[:300]}"])
+        raise
+
+
+def _collect_and_save(sb, args) -> int:
     since_ids = load_since_ids(sb) if sb else {}
     rows, new_since, budget, incomplete = collect(
         get_bearer_token(), load_accounts(), since_ids,
@@ -367,6 +392,9 @@ def main(argv: list[str] | None = None) -> int:
         save_since_ids(sb, {**since_ids, **new_since})
     print(f"保存 {len(row_list)}件 / since_id を進めた種類 {sorted(new_since)}"
           + (f" / 読み切れなかった種類 {incomplete}" if incomplete else ""))
+    alerts = run_alerts(budget.used, incomplete, args.max_reads)
+    if alerts:
+        _notify(alerts)
     return 0
 
 

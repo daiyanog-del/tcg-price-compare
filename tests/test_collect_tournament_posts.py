@@ -167,3 +167,53 @@ def test_reparse_updates_old_rows_only(monkeypatch):
     assert by_id["1"]["placements"][0]["theme"] == "烙印"
     assert by_id["1"]["parser_version"] == ctp.PARSER_VERSION
     assert by_id["2"]["placements"] == "そのまま"
+
+
+def test_run_alerts_only_on_trouble():
+    assert ctp.run_alerts(80, [], 600) == []
+    assert "shop" in ctp.run_alerts(600, ["shop"], 600)[0]
+    assert len(ctp.run_alerts(0, [], 600)) == 1
+
+
+def _run_main(monkeypatch, collect_result=None, error=None, argv=()):
+    sent = []
+    monkeypatch.setattr(ctp, "_notify", lambda lines: sent.append(lines))
+    monkeypatch.setattr(ctp, "get_bearer_token", lambda: "tok")
+    monkeypatch.setattr(ctp, "load_since_ids", lambda sb: {})
+    monkeypatch.setattr(ctp, "save_rows", lambda sb, rows: None)
+    monkeypatch.setattr(ctp, "save_since_ids", lambda sb, s: None)
+    import supabase
+    monkeypatch.setattr(supabase, "create_client", lambda url, key: object())
+    monkeypatch.setenv("SUPABASE_URL", "u")
+    monkeypatch.setenv("SUPABASE_KEY", "k")
+
+    def fake_collect(*a, **k):
+        if error:
+            raise error
+        return collect_result
+    monkeypatch.setattr(ctp, "collect", fake_collect)
+    return sent
+
+
+def test_main_notifies_when_budget_runs_out(monkeypatch):
+    budget = ctp.ReadBudget(600)
+    budget.used = 600
+    sent = _run_main(monkeypatch, ({}, {}, budget, ["shop"]))
+    assert ctp.main([]) == 0
+    assert len(sent) == 1 and "shop" in sent[0][0]
+
+
+def test_main_quiet_on_normal_day(monkeypatch):
+    budget = ctp.ReadBudget(600)
+    budget.used = 80
+    sent = _run_main(monkeypatch, ({}, {"shop": "1"}, budget, []))
+    assert ctp.main([]) == 0
+    assert sent == []
+
+
+def test_main_notifies_and_fails_on_error(monkeypatch):
+    import pytest
+    sent = _run_main(monkeypatch, error=RuntimeError("X API 503"))
+    with pytest.raises(RuntimeError):
+        ctp.main([])
+    assert "X API 503" in sent[0][0]

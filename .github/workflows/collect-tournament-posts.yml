@@ -2,6 +2,7 @@
 # X の検索（直近7日・読んだポスト数で課金）で店のアカウントと CS 主催者の結果を読み、tournament_posts に保存する。
 # 集めるだけで投稿には使わない。料金の目安は約 $0.55/日（1回の上限は MAX_READS_PER_RUN=600件＝$3）。
 # 前日の夜の大会の結果が出そろう朝に1回走らせる。
+# 上限に達して読み残した・1件も読めなかった・途中で止まったときだけ Discord に知らせる（毎日の結果は送らない）。
 
 name: Collect Tournament Posts
 
@@ -41,6 +42,7 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           X_API_KEY: ${{ secrets.X_API_KEY }}
           X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: >-
           python collect_tournament_posts.py
           --max-reads ${{ inputs.max_reads || '600' }}
