@@ -14,6 +14,10 @@ on:
         description: '投稿を送らずに本文だけ出す'
         type: boolean
         default: true
+      preview_summaries:
+        description: 'この弾（例 MZMC）の要約を今の指示で作り直して表示するだけ（DB に書かない・取り込みも投稿もしない）。空なら通常どおり'
+        type: string
+        default: ''
 
 # 同時に2つ走らせない（要約の二重課金・二重投稿を避ける）。実行中のものは止めない
 concurrency:
@@ -56,4 +60,5 @@ jobs:
           TCG_ANNOUNCE_X_POST_ENABLED: ${{ vars.TCG_ANNOUNCE_X_POST_ENABLED }}
           UNRELEASED_X_POST_QUIET_HOURS: ${{ vars.UNRELEASED_X_POST_QUIET_HOURS }}
           X_POST_DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
-        run: python tools/tcg_announce_watch.py
+          PREVIEW_SUMMARIES: ${{ inputs.preview_summaries }}
+        run: python tools/tcg_announce_watch.py ${PREVIEW_SUMMARIES:+--preview-summaries "$PREVIEW_SUMMARIES"}
