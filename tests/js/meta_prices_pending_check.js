@@ -9,44 +9,57 @@ const failed={decks:[],error:'環境データを取得できませんでした',
 const ok={decks:[{name:'検証テーマ',total:1000,priced_count:3,missing_count:0}],error:null,pending:false};
 function ctx(responses){
   // 待ち時間は実時間を使わず、setTimeout を即時に進め、Date.now を進めた分だけ足す
-  let now=0,calls=0;const el={innerHTML:''};
+  let now=0,calls=0;const el={innerHTML:''},seen=[];
   const tabs=['入賞傾向','安い順'].map(textContent=>({textContent,classList:{toggle(){}}}));
   const context={console,Date:{now:()=>now},
     setTimeout:(fn,ms)=>{now+=ms;Promise.resolve().then(fn);},
     document:{getElementById:()=>el,querySelectorAll:()=>tabs},
-    fetch:async()=>{const r=responses[Math.min(calls,responses.length-1)];calls++;return {json:async()=>r};},
+    fetch:async()=>{seen.push(el.innerHTML);const r=responses[Math.min(calls,responses.length-1)];calls++;return {json:async()=>r};},
     esc:String,escAttr:String,escJs:String,safeUrl:String};
   vm.createContext(context);
   vm.runInContext(block(source,'let _metaLoaded=false;','async function loadMetaDeck('),context);
   vm.runInContext("_metaTiers=[{name:'検証テーマ',tier:1,share:10}];_metaSort='price';",context);
-  return {context,el,get calls(){return calls;}};
+  return {context,el,seen,get calls(){return calls;}};
 }
 (async()=>{
   // pending が数回続いた後に揃う → 価格が出る（以前は3回目で失敗に固定）
   const a=ctx([pending,pending,pending,pending,ok]);
+  a.context.renderMetaTiers(); // 実画面と同じく、取得の前に一覧（読込中）を描く
   await a.context.loadMetaDeckPrices();
   assert.equal(a.calls,5);
   assert.equal(vm.runInContext('_metaPricesError',a.context),false);
   assert.match(a.el.innerHTML,/検証テーマ/);
   assert.doesNotMatch(a.el.innerHTML,/取得に失敗/);
+  // 待っている間（各取得の時点）の表示は読込中のままで、失敗の文言を出さない
+  assert.ok(a.seen.every(h=>/読込中/.test(h)&&!/取得に失敗/.test(h)),'pending の間に読込中以外を出した');
 
   // 待っている間の2回目の呼び出しは同じ取得に相乗りする（並走しない）
   const b=ctx([pending,ok]);
   const p1=b.context.loadMetaDeckPrices(),p2=b.context.loadMetaDeckPrices();
   assert.equal(p1,p2);await p1;assert.equal(b.calls,2);
 
-  // pending でも上限（90秒）を過ぎたら失敗を出す
+  // pending でも上限（120秒）を過ぎたら失敗を出す
   const c=ctx([pending]);
   await c.context.loadMetaDeckPrices();
   assert.equal(vm.runInContext('_metaPricesError',c.context),true);
   assert.match(c.el.innerHTML,/取得に失敗/);
-  assert.ok(c.calls>=25&&c.calls<=40,`pending の再試行回数が想定外: ${c.calls}`);
+  assert.ok(c.calls>=35&&c.calls<=45,`pending の再試行回数が想定外: ${c.calls}`);
 
   // pending でない失敗は従来どおり2回まで再試行して諦める
   const d=ctx([failed]);
   await d.context.loadMetaDeckPrices();
   assert.equal(d.calls,3);
   assert.match(d.el.innerHTML,/取得に失敗/);
+
+  // 失敗の後にタブを開き直す（switchMode('meta') が loadMetaDeckPrices を呼ぶ）と取り直す
+  const e=ctx([failed]);
+  await e.context.loadMetaDeckPrices();
+  assert.match(e.el.innerHTML,/取得に失敗/);
+  vm.runInContext('fetch=async()=>({json:async()=>('+JSON.stringify(ok)+')});',e.context);
+  const again=e.context.loadMetaDeckPrices();
+  assert.match(e.el.innerHTML,/読込中/,'取り直しの間は失敗のままにせず読込中に戻す');
+  await again;
+  assert.match(e.el.innerHTML,/検証テーマ/);
 
   // 失敗の後に「安い順」を押し直すと取り直す（以前は再読込まで失敗のまま）
   vm.runInContext('fetch=async()=>({json:async()=>('+JSON.stringify(ok)+')});',d.context);
