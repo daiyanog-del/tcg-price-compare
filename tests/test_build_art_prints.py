@@ -48,13 +48,13 @@ LPST-JP009; Limited Pack: Stamp Edition ::OP
 
 def test_reprint_pack_of_second_art_is_candidate():
     info = bp.card_info(TTT)
-    assert info == {"ja_name": "三戦の号", "alt_candidates": ["CH01-JP030"]}
+    assert info == {"ja_name": "三戦の号", "arts": 2, "alt_candidates": {"CH01-JP030": 2}}
 
 
 def test_ruby_name_and_later_art_number():
     # 1.1 は1番の絵の小さな違い。2・3 は英語版だけのパックなので日本の型番に届かず、4 の LOCH だけが残る
     info = bp.card_info(MASQ)
-    assert info == {"ja_name": "Ｉ：Ｐマスカレーナ", "alt_candidates": ["LOCH-JP027"]}
+    assert info == {"ja_name": "Ｉ：Ｐマスカレーナ", "arts": 4, "alt_candidates": {"LOCH-JP027": 4}}
 
 
 def test_single_art_card_is_skipped():
@@ -63,7 +63,7 @@ def test_single_art_card_is_skipped():
 
 def test_pack_shared_with_first_art_is_not_candidate():
     text = TTT.replace("1; TripleTacticsThrust-LAVD-EN-C-1E.png;", "1; TripleTacticsThrust-CH01-JP-SR.png;")
-    assert bp.card_info(text)["alt_candidates"] == []
+    assert bp.card_info(text)["alt_candidates"] == {}
 
 
 def test_gallery_aa_codes_only_from_jp_section():
@@ -71,15 +71,16 @@ def test_gallery_aa_codes_only_from_jp_section():
 
 
 def test_aa_code_is_removed_from_table():
-    info = {"ja_name": "x", "alt_candidates": ["PAC1-JP016", "LOCH-JP027"]}
-    assert bp.alt_codes(info, {"PAC1-JP016"}) == ["LOCH-JP027"]
+    info = {"ja_name": "x", "arts": 3, "alt_candidates": {"PAC1-JP016": 2, "LOCH-JP027": 3}}
+    assert bp.alt_codes(info, {"PAC1-JP016"}) == {"LOCH-JP027": 3}
 
 
 def test_build_keys_by_comparable_name(monkeypatch):
     monkeypatch.setattr(bp, "_galleries", lambda titles: {})
     table, n = bp.build([("Triple Tactics Thrust", TTT), ("I:P Masquerena", MASQ)])
     assert n == 2
-    assert table == {"三戦の号": ["CH01-JP030"], "IPマスカレーナ": ["LOCH-JP027"]}
+    assert table == {"三戦の号": {"arts": 2, "codes": {"CH01-JP030": 2}},
+                     "IPマスカレーナ": {"arts": 4, "codes": {"LOCH-JP027": 4}}}
 
 
 def test_lowercase_ruby_is_removed():

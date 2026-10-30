@@ -186,14 +186,35 @@ _ART_PRINTS_PATH = Path(__file__).resolve().parent / "data" / "art_prints.json"
 
 
 @lru_cache(maxsize=1)
-def _art_prints() -> dict[str, frozenset[str]]:
-    """型番ごと違う絵の日本の型番の表（カード名の比べる形 → 型番）。無い・壊れているときは空（店の手がかりだけで判定する）"""
+def _art_table() -> dict[str, tuple[int, dict[str, int]]]:
+    """art_prints.json（カード名の比べる形 → (絵の数, {型番: 何番目の絵か})）。無い・壊れているときは空。
+    2026-10-30 から {"arts": 絵の数, "codes": {型番: 番号}} の形。それより前の形（型番の並び）は番号 0（不明）で読む"""
     try:
         raw = json.loads(_ART_PRINTS_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         logger.warning("art_prints.json を読めない（型番ごと違う絵は店の手がかりだけで判定する）: %s", e)
         return {}
-    return {k: frozenset(v) for k, v in raw.items()}
+    out: dict[str, tuple[int, dict[str, int]]] = {}
+    for k, v in raw.items():
+        # 1件の形が崩れていても、検索の画面（annotate）まで落とさない。そのカードだけ飛ばす
+        try:
+            if isinstance(v, dict):
+                out[k] = (int(v.get("arts") or 0), {str(c): int(n) for c, n in (v.get("codes") or {}).items()})
+            else:
+                out[k] = (0, {str(c): 0 for c in v})
+        except (TypeError, ValueError, AttributeError) as e:
+            logger.warning("art_prints.json の %s を読めない（このカードは店の手がかりだけで判定する）: %s", k, e)
+    return out
+
+
+def _art_prints() -> dict[str, frozenset[str]]:
+    """型番ごと違う絵の日本の型番の表（カード名の比べる形 → 型番）。無い・壊れているときは空（店の手がかりだけで判定する）"""
+    return {k: frozenset(codes) for k, (_, codes) in _art_table().items()}
+
+
+def _art_numbers(card_name: str) -> tuple[int, dict[str, int]]:
+    """そのカードの (絵の数, {型番ごと違う絵の型番: 何番目の絵か})。表に無いカードは (0, {})"""
+    return _art_table().get(_key(card_name), (0, {}))
 
 
 def _alt_only_codes(rows: list[dict], card_name: str) -> set[str]:
@@ -221,12 +242,14 @@ def _alt_only_codes(rows: list[dict], card_name: str) -> set[str]:
     return (alt_by_explicit | _art_prints().get(_key(card_name), frozenset())) - blocked
 
 
-def annotate(rows: list[dict], card_name: str) -> None:
-    """各行に art・edition を付ける（rows の各 dict をその場で書き換える。レアリティは変えない）"""
+def annotate(rows: list[dict], card_name: str, extra_alt_codes: set[str] | None = None) -> None:
+    """各行に art・edition を付ける（rows の各 dict をその場で書き換える。レアリティは変えない）。
+    extra_alt_codes は、ほかの行（同じカードのほかの店）で型番ごと違う絵と分かった型番。1店だけの行を
+    あとから判定するとき（夜の収集のカードラボのカタログ巡回）に渡す"""
     for row in rows:
         row["art"], row["edition"] = classify(row, card_name)
     # 型番ごと違う絵の再録は、無印で書く店の行も違う絵に直す（その店の中では「元」に見えるだけ）
-    alt_codes = _alt_only_codes(rows, card_name)
+    alt_codes = _alt_only_codes(rows, card_name) | (extra_alt_codes or set())
     # Yugipedia の表にある型番は絵が1種類だけなので、店の言葉で判別できなかった行（カーナベルの「(パワプロコラボ)」など。
     # 2026-10-29 増援 PPC2-JP001）も違う絵にする。絵を書き分けない店・漫画風（色が書いていない）は判別しないまま
     table_codes = _art_prints().get(_key(card_name), frozenset()) & alt_codes
@@ -251,6 +274,37 @@ def display_rarity(row: dict) -> str:
     if rarity.startswith("クォーターセンチュリーシークレット") and re.search(r"GREEN\s*Ver|PINK\s*Ver", rarity, re.IGNORECASE):
         return "25thシークレット"
     return rarity
+
+
+# ── 記録（price_history_art・buyback_art）の絵の分け方（2026-10-30 イラスト違いの段2・案B） ──
+# 判別できない行の記録上の名前（レアリティの "(不明)" と同じ書き方）
+ART_UNKNOWN = "(判別できない)"
+# 絵の内訳を別表に書かなくてよい絵（元のイラストと判別できない行だけなら、本表の値と同じ）
+_PLAIN_RECORD_ARTS = frozenset({ART_BASE, ART_UNKNOWN})
+
+
+def record_art(row: dict, card_name: str) -> str:
+    """annotate 済みの行を、記録の表のどの絵に入れるか。言語版はその名前、判別できない行は ART_UNKNOWN。
+    日本の型番から届く違う絵が2種類以上あるカードで、型番から何番目の絵か分かる違う絵は「イラスト違い#4」のように番号を付ける
+    （青眼の白龍 KC01-JP004＝4番・YAP1-JP001＝5番を同じ「イラスト違い」にまとめないため）。Yugipedia の絵の数（arts）は
+    英語版・ゲームだけの絵も数えるので条件に使わない（日本の違う絵が1種類なら番号を付けず、店の言葉だけの行と同じ名前にする。
+    10-30 reviewer 指摘）。画面の呼び方は段2b で決める"""
+    if row.get("edition"):
+        return row["edition"]
+    art = row.get("art") or ""
+    if not art:
+        return ART_UNKNOWN
+    if art == ART_ALT:
+        _, numbers = _art_numbers(card_name)
+        n = numbers.get(row.get("code") or "", 0)
+        if n >= 2 and len({m for m in numbers.values() if m >= 2}) >= 2:
+            return f"{ART_ALT}#{n}"
+    return art
+
+
+def needs_art_rows(arts: set[str]) -> bool:
+    """そのカード×レアリティの絵の内訳を別表に書くか（元のイラスト・判別できない行のほかに何かあるとき）"""
+    return not arts <= _PLAIN_RECORD_ARTS
 
 
 # 未開封・付属品つきの商品（(未開封)・(封筒付き未開封)・(当選通知書付き、ダンボール付き)・(台紙、封筒付き)・《未開封》 など）。

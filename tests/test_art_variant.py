@@ -258,11 +258,11 @@ def test_table_yields_to_shop_with_both_arts(monkeypatch):
 def test_missing_table_falls_back_to_shop_words(monkeypatch, tmp_path):
     # 表が無いときは警告を出し、店の手がかりだけで判定する
     monkeypatch.setattr(av, "_ART_PRINTS_PATH", tmp_path / "none.json")
-    av._art_prints.cache_clear()
+    av._art_table.cache_clear()
     try:
         assert av._art_prints() == {}
     finally:
-        av._art_prints.cache_clear()
+        av._art_table.cache_clear()
 
 
 def test_table_code_folds_unreadable_label(monkeypatch):
