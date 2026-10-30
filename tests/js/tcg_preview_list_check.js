@@ -1,5 +1,5 @@
 // 海外先行カード一覧（/tcg-preview・2026-10-23）を new-cards.js の実コードで確かめる。
-// 読み先・商品の並び（英語版の発売日の新しい順）・札「TCG先行」・日付の書き方・見出し・取得失敗の文言。
+// 読み先・商品の並び（英語版の発売日の新しい順）・ボタン（購入候補は出さない）・日付の書き方・見出し・取得失敗の文言。
 'use strict';
 const fs=require('fs'),path=require('path'),vm=require('vm'),assert=require('assert/strict');
 const root=path.join(__dirname,'../..');
@@ -55,8 +55,12 @@ const cards=[
   assert.equal(groups[0].children[0].children[1].textContent,'英語版 2026/10/09 発売');
   assert.equal(groups[2].children[0].children[1].textContent,'英語版 2023/09/02 発売','過去の年が付いていない');
   const card=groups[0].children[1].children[0];
-  const link=card.children[0],badge=link.children[1].children[0];
-  assert.equal(badge.textContent,'TCG先行');assert.ok(badge.classList.contains('is-tcg'));
+  const link=card.children[0];
+  // 「TCG先行」の札は出さない（全カード同じで見出しと同じことしか言わない。2026-10-30）。追加日も無いので画像に何も重ねない
+  assert.equal(link.children.length,2);assert.equal(link.children[1].tag,'strong');
+  assert.ok(!link.children[0].children.some(c=>c.className==='new-card-added'));
+  // 価格が無いので購入候補ボタンは出さず、デッキ追加だけ（詳細画面と同じ）
+  assert.deepEqual(card.children[1].children.map(b=>b.className+':'+b.textContent),['new-card-add:+ デッキに追加']);
   assert.equal(link.href,'/card/'+encodeURIComponent('Kerolia the Frolicsome'));
   assert.equal(get('newCardsMore').hidden,true);
   assert.equal(get('newCardsStatus').textContent,'');
@@ -79,13 +83,14 @@ const cards=[
   assert.ok(!JSON.stringify(get('newCardsGrid').children.map(g=>g.children[0].children[0].textContent)).includes('日本の商品'),'古い応答で描いた');
   pending[3].resolve({ok:true,json:async()=>({cards})});await tcgLoad;
   assert.equal(get('newCardsGrid').children.length,3);
-  // トップ（海外先行でない）では札は「発売前」・日付は従来の書き方のまま
+  // トップ（海外先行でない）では追加日を画像に重ね、デッキと購入候補の2つのボタンを出す
   ms.classList.remove('tcg-preview-page');ms.classList.remove('new-cards-page');
   const topAgain=api.load();
   assert.equal(pending[4].url,'/api/new-cards');
   pending[4].resolve({ok:true,json:async()=>({cards:[{name:'未発売カード',added_at:'2026-10-01T00:00:00Z'}],has_more:false})});await topAgain;
-  const topCard=get('newCardsGrid').children[0],topBadge=topCard.children[0].children[1].children[0];
-  assert.equal(topBadge.textContent,'発売前');assert.ok(!topBadge.classList.contains('is-tcg'));
+  const topCard=get('newCardsGrid').children[0];
+  assert.equal(topCard.children[0].children[0].children.find(c=>c.className==='new-card-added').textContent,'10/01 追加');
+  assert.deepEqual(topCard.children[1].children.map(b=>b.className),['new-card-add','new-card-wish']);
   assert.equal(get('newCardsHeading').textContent,'新着の未発売カード');
-  console.log('海外先行カード一覧: 読み先・商品の並び・札・日付・見出し・取得失敗の文言・ページの行き来・トップの札を確認');
+  console.log('海外先行カード一覧: 読み先・商品の並び・ボタン・日付・見出し・取得失敗の文言・ページの行き来・トップの表示を確認');
 })().catch(e=>{console.error(e);process.exit(1);});

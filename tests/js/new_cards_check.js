@@ -25,7 +25,7 @@ function element(tag='div'){
 const ids=['newCardsSection','newCardsGrid','newCardsMore','newCardsStatus','newCardsRetry','newCardsHeading','newCardsAll','mode-search','empty','q'];
 const elements=new Map(ids.map(id=>[id,element()]));
 const get=id=>elements.get(id)||null;
-const pending=[],searches=[],added=[],events={};
+const pending=[],searches=[],added=[],wished=[],events={};
 const gaEvents=[];
 const sandbox={console,URL,Intl,Date,Number,Promise,encodeURIComponent,
   location:{origin:'https://example.test'},window:{},
@@ -33,6 +33,7 @@ const sandbox={console,URL,Intl,Date,Number,Promise,encodeURIComponent,
   fetch(url){return new Promise((resolve,reject)=>pending.push({url,resolve,reject}));},
   doSearch(opts){searches.push({name:get('q').value,opts});},
   addToDeck(name,button){added.push({name,button});},
+  wishAddFromBtn(button,name,qty){wished.push({button,name,qty});},
   _ga(name,params){gaEvents.push({name,params});},
 };
 vm.createContext(sandbox);
@@ -65,31 +66,46 @@ function click(link,flags={}){
   assert.equal(wraps[0].className,'new-card');
   assert.equal(wraps[0].dataset.cardName,cards[0].name,'/?addToDeck= の受け口が探すための data-card-name が無い');
   assert.equal(links[0].tag,'a');
-  assert.equal(wraps[0].children[1].tag,'button');
-  assert.equal(wraps[0].children[1].textContent,'+ デッキに追加');
+  // ボタンは「+ デッキ」「+ 候補」を横に並べる枠に入れる（2026-10-30）
+  const acts=wraps[0].children[1];
+  assert.equal(acts.className,'new-card-acts');
+  assert.deepEqual(acts.children.map(b=>[b.tag,b.className,b.textContent]),
+    [['button','new-card-add','+ デッキ'],['button','new-card-wish','+ 候補']]);
+  assert.equal(acts.children[1].attributes['aria-label'],'購入候補に追加','短い文言に読み上げ用の名前が無い');
   assert.equal(links[0].children.some(c=>c.tag==='button'),false,'<a>内にbuttonがある');
   assert.equal(links[0].href,'/card/'+encodeURIComponent(cards[0].name));
-  assert.equal(links[0].children[2].tag,'strong');
-  assert.equal(links[0].children[2].textContent,cards[0].name);
+  // 「発売前」の札の行は無く、画像の次がカード名（2026-10-30）
+  assert.equal(links[0].children.length,2);
+  assert.equal(links[0].children[1].tag,'strong');
+  assert.equal(links[0].children[1].textContent,cards[0].name);
   assert.equal(sandbox.injected,undefined);
-  for(const link of links.slice(0,3))assert.equal(link.children[0].children.length,1,'不正・空URLからimgが作成された');
+  const hasImg=picture=>picture.children.some(c=>c.tag==='img');
+  for(const link of links.slice(0,3))assert.equal(hasImg(link.children[0]),false,'不正・空URLからimgが作成された');
   const picture=links[4].children[0],image=picture.children[1];
   assert.equal(image.tag,'img');assert.equal(image.src,cards[4].image_url);
   // 縮小版があればそちらを使い、無ければ原寸（cards[4]）
   assert.equal(links[5].children[0].children[1].src,cards[5].thumb_url,'縮小版が使われていない');
   {const img5=links[5].children[0].children[1];
    img5.listeners.error();assert.equal(img5.src,cards[5].image_url,'縮小版が読めないとき原寸に切り替わらない');
-   assert.equal(links[5].children[0].children.length,2);
-   img5.listeners.error();assert.equal(links[5].children[0].children.length,1,'原寸も読めないときカード名の札に戻らない');}
-  image.listeners.error();assert.equal(picture.children.length,1);
+   assert.equal(hasImg(links[5].children[0]),true);
+   img5.listeners.error();assert.equal(hasImg(links[5].children[0]),false,'原寸も読めないときカード名の札に戻らない');}
+  image.listeners.error();assert.equal(hasImg(picture),false);
   assert.equal(picture.children[0].textContent,cards[4].name,'画像失敗時の代替カード名が消えた');
-  assert.equal(links[0].children[1].children[1].textContent,'10/02 追加','JSTの日付境界が反映されていない');
-  assert.equal(links[3].children[1].children[1].textContent,'');
+  // 追加日は画像の中に重ねる。日付が読めないカードには何も重ねない
+  const addedOf=link=>link.children[0].children.find(c=>c.className==='new-card-added');
+  assert.equal(addedOf(links[0]).textContent,'10/02 追加','JSTの日付境界が反映されていない');
+  assert.equal(addedOf(links[3]),undefined);
 
   // デッキ追加ボタンは既存の addToDeck を呼ぶだけ。
-  wraps[1].children[1].listeners.click();
-  assert.equal(added.length,1);assert.equal(added[0].name,cards[1].name);assert.equal(added[0].button,wraps[1].children[1]);
+  const deckBtn=wraps[1].children[1].children[0],wishBtn=wraps[1].children[1].children[1];
+  deckBtn.listeners.click();
+  assert.equal(added.length,1);assert.equal(added[0].name,cards[1].name);assert.equal(added[0].button,deckBtn);
   assert.deepEqual(gaEvents.map(e=>e.name),['new_card_add_deck'],'新着からのデッキ追加が計測されていない');
+  // 購入候補ボタンは既存の wishAddFromBtn（詳細画面の「購入候補に追加」と同じ）を1枚で呼ぶだけ
+  wishBtn.listeners.click();
+  assert.deepEqual(wished,[{button:wishBtn,name:cards[1].name,qty:1}]);
+  assert.deepEqual(gaEvents.map(e=>e.name),['new_card_add_deck','new_card_add_wish'],'新着からの購入候補追加が計測されていない');
+  gaEvents.length=0;
   assert.equal(get('newCardsAll').hidden,true,'has_moreが偽なのに全件リンクが出ている');
 
   // 通常クリックだけ既存検索へ渡し、別タブ・別ウィンドウ操作は妨げない。

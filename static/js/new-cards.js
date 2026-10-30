@@ -62,13 +62,15 @@ window.NewCards = (() => {
       });
       picture.appendChild(img);
     }
-    const meta=document.createElement('span');meta.className='new-card-meta';
-    const badge=document.createElement('span');badge.className='new-card-badge';badge.textContent='発売前';
-    if(isTcgPage()){badge.textContent='TCG先行';badge.classList.add('is-tcg');}
-    const date=document.createElement('span');date.textContent=addedDate(card.added_at);
-    meta.append(badge,date);
+    // 追加日は画像の右下に重ねる。「発売前」「TCG先行」の札は全カード同じ文字で、見出しと同じことしか言わないので出さない
+    // （2026-10-30 ユーザー選択・カード1枚が約20px 低くなる）。海外先行カードは追加日が無いので何も重ねない
+    const added=addedDate(card.added_at);
+    if(added){
+      const date=document.createElement('span');date.className='new-card-added';date.textContent=added;
+      picture.appendChild(date);
+    }
     const name=document.createElement('strong');name.textContent=card.name;
-    link.append(picture,meta,name);
+    link.append(picture,name);
     link.addEventListener('click',event=>{
       if(!rankingLinkClick(event))return;
       document.getElementById('q').value=card.name;
