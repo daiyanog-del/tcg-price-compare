@@ -27,6 +27,7 @@ from supabase import create_client, Client
 
 from fetch_guard import fetch_whitelisted, is_whitelisted
 from name_normalize import fuzzy_key
+from unreleased_card_number import fill_missing_card_number
 from ygores_repository import repository as _ygores_repo
 
 logging.basicConfig(
@@ -475,6 +476,9 @@ def _upsert_cards(sb: Client, rows: list[dict]) -> int:
                 inserted += 1
                 if resp.data:
                     inserted_rows.extend(resp.data)
+                else:
+                    # 既に同じカードがある（先に X・YouTube で入った等）。型番が空なら公式画像のURLの型番で埋める
+                    fill_missing_card_number(sb, row)
             active_keys.add(_fk(name))
             if active_names is not None:
                 active_names.append(name)

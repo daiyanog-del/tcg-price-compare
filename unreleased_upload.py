@@ -39,6 +39,7 @@ from urllib.parse import urlparse
 from PIL import Image
 
 from name_normalize import fuzzy_key
+from unreleased_card_number import is_from_official_url
 
 logger = logging.getLogger(__name__)
 
@@ -417,7 +418,7 @@ def _merge_raw(sb, card_id: int, updates: dict) -> None:
 # 公式版が届いたときの差し替え
 # ──────────────────────────────────────────────
 
-_CARD_COLUMNS = ("id, name, status, product_name, source_url, extraction_raw, "
+_CARD_COLUMNS = ("id, name, status, product_name, source_url, extraction_raw, card_number, "
                  + ", ".join(REPLACE_FIELDS))
 
 
@@ -674,11 +675,22 @@ def replace_with_official(sb, card: dict, row: dict, *, page_url: str, store=Non
             if not card.get("release_date") and row.get("release_date"):
                 # 発売日は変えない方針だが、未確定なら公式版で確かめた値を採る（根拠の記録と揃う）
                 updates["release_date"] = row["release_date"]
+            if row.get("card_number"):
+                # 型番も公式版の値にする（キャプチャの型番は AI の読みで、空や読み違いがある）。元の値は記録に残す
+                record["previous"]["card_number"] = card.get("card_number")
+                updates["card_number"] = row["card_number"]
             updates["extraction_raw"] = merged
             message = f"[未発売] 画像取込のカードを公式版で置き換えました（承認待ち・内容も更新）: {name}"
         else:
             # 公開中: 人が確認した内容は変えない。違いだけ記録して知らせる
             diff = field_diff(card, row)
+            if is_from_official_url(row) and row["card_number"] != card.get("card_number"):
+                if card.get("card_number"):
+                    # 人が入れた・確かめた値かもしれないので変えない。違いとして知らせる
+                    diff["card_number"] = {"current": card.get("card_number"), "official": row["card_number"]}
+                else:
+                    # 空の型番は公式画像のURLの確かな値で埋める（内容の確認とは関係しない並び順の情報）
+                    updates["card_number"] = row["card_number"]
             record["mode"] = "image_only"
             record["diff"] = diff
             stored_raw.pop("replace_error", None)
@@ -748,13 +760,15 @@ def _bust_new_image_url(sb, card_id: int) -> None:
 # ──────────────────────────────────────────────
 
 # 候補・差し替え記録に残す公式版の抽出結果の記録の欄（切り抜き枠・画像URL）
-_ROW_RAW_KEYS = ("source", "crop_suggestion", "card_bbox", "source_image_url", "card_image_url", "card_image_urls")
+# card_number_source は型番の出どころ（公式画像のURL由来なら公開中の空の型番を埋める。unreleased_card_number.is_from_official_url）
+_ROW_RAW_KEYS = ("source", "crop_suggestion", "card_bbox", "source_image_url", "card_image_url", "card_image_urls",
+                 "card_number_source")
 
 
 def compact_row(row: dict) -> dict:
     """公式版の抽出結果のうち、後で差し替えに使う分だけを抜き出す（記録に保存できる大きさにする）。"""
     out = {f: row.get(f) for f in REPLACE_FIELDS if f in row}
-    for k in ("name", "release_date"):
+    for k in ("name", "release_date", "card_number"):
         if row.get(k) is not None:
             out[k] = row[k]
     raw = row.get("extraction_raw") or {}

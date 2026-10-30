@@ -32,6 +32,7 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
 from name_normalize import fuzzy_key
+from unreleased_card_number import normalize_card_number
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ REVEAL_SYSTEM = """\
 - card_type などの数値・種別は左のカード画像から読む。モンスター以外は level/rank/link_val/atk/def/pendulum_scale を null、attribute/race を空文字。
   card_type は「効果モンスター」「融合モンスター」「エクシーズモンスター」「シンクロモンスター」「リンクモンスター」「儀式モンスター」「通常モンスター」「ペンデュラム・効果モンスター」「通常魔法」「速攻魔法」「永続魔法」「装備魔法」「フィールド魔法」「儀式魔法」「通常罠」「永続罠」「カウンター罠」など（魔法・罠はアイコンで種類を決める。アイコンが無い魔法・罠は通常）。
   レベル・ランクは星を1個ずつ数える。
+- card_number: 左のカード画像の絵の右下に印刷された型番（例 IMPH-JP012）。小さくて読み切れない字があれば推測せず空文字。
 - card_bbox: 左のカード画像の最外縁（元画像のピクセル座標 [left, top, right, bottom]）。名前の札や背景の枠は含めない。カードが映っていなければ null。
 - 読めない字は推測せず〓にする。画面に字幕が無ければ has_panel=false。左にカードが映っていない画面は name を空文字にする。"""
 
@@ -70,6 +72,7 @@ REVEAL_SCHEMA = {"type": "object", "properties": {
     "link_val": {"type": ["integer", "null"]}, "atk": {"type": ["integer", "null"]},
     "def": {"type": ["string", "null"]}, "pendulum_scale": {"type": ["integer", "null"]},
     "pendulum_effect": {"type": "string"}, "effect_text": {"type": "string"},
+    "card_number": {"type": "string"},
     "card_bbox": {"type": ["array", "null"], "items": {"type": "number"}}}}
 
 LIST_SYSTEM = """\
@@ -186,6 +189,18 @@ def match_list_card(key: str, list_cards: list[dict]) -> dict | None:
         return exact[0]
     near = [c for c in list_cards if near_name(key, fuzzy_key(c["name"]))]
     return near[0] if near else None
+
+
+def decide_card_number_from_reads(reads: list[dict]) -> str:
+    """場面ごとに読んだ型番から1つに決める（2026-10-30・未発売カード一覧の型番順に使う）。
+
+    形の合わない読みは捨てる。残りの最多が1つに決まればそれ、同数で割れたら空（読み違いを並び順に持ち込まない）。
+    型番は「不確か」の判定（VALUE_FIELDS）には入れない。読めなくてもカードの登録・自動承認には関係しない。
+    """
+    counted = Counter(v for v in (normalize_card_number(r.get("card_number")) for r in reads) if v).most_common()
+    if not counted or (len(counted) > 1 and counted[0][1] == counted[1][1]):
+        return ""
+    return counted[0][0]
 
 
 def decide_values(reads: list[dict], list_card: dict | None) -> tuple[dict, dict]:
@@ -437,6 +452,8 @@ def extract_reveal(reveal_frames: list[dict], list_frames: list[dict] | None = N
             "effect_text": effect["effect_text"],
             "product_name": (product_name or "").strip(),
             "release_date": None,
+            # 同じカードとしてまとめた場面すべての読みで決める（名前の1字の読み揺れは型番に関係しない）
+            "card_number": decide_card_number_from_reads(g["reads"]) or None,
             "confidence": "high" if not uncertain else "medium",
             "source_url": _video_url(video_url, t),
             "extraction_raw": {
@@ -446,9 +463,13 @@ def extract_reveal(reveal_frames: list[dict], list_frames: list[dict] | None = N
                 "card_bbox": frame.get("card_bbox") if frame else None,
                 **({"crop_suggestion": suggestion} if suggestion else {}),
                 "uncertain_fields": uncertain,
+                # 型番の出どころ（ai=場面ごとの読みの多数決・空=読めない／割れた）。unreleased_extractor と同じ欄
+                "card_number_source": "ai" if decide_card_number_from_reads(g["reads"]) else "",
                 "reveal": {
                     "frames": [{"t": r.get("t"), "name": r.get("name"), "has_panel": r.get("has_panel"),
                                 "effect_complete": r.get("effect_complete"),
+                                # 型番の読みも残す（割れて空になった理由を後から確かめられるように）
+                                "card_number": r.get("card_number"),
                                 **{k: r.get(k) for k in VALUE_FIELDS}} for r in g["reads"]],
                     "saved_frame_t": t,
                     "effect": effect,

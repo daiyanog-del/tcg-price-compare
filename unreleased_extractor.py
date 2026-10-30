@@ -36,6 +36,7 @@ from urllib.parse import urlparse, urljoin
 
 from bs4 import BeautifulSoup
 
+from unreleased_card_number import decide_card_number, normalize_card_number
 from unreleased_quality import UNCERTAIN_FIELDS
 
 logger = logging.getLogger(__name__)
@@ -396,6 +397,8 @@ def _get_pydantic_models():
         effect_text: str = ""
         product_name: str = ""
         release_date: str = ""
+        # カードの絵の右下に印刷された型番（例 IMPH-JP012）。読めなければ空（unreleased_card_number で形を確かめる）
+        card_number: str = ""
         image_urls: list[str] = []
         # このカードのメイン画像1枚のURL（渡された画像URLのいずれかを正確にコピーする）
         image_url: str = ""
@@ -508,6 +511,8 @@ def _validate_and_fix(card: Any, page_url: str) -> dict | None:
         "effect_text": effect_text,
         "product_name": (card.product_name or "").strip(),
         "release_date": (card.release_date or "").strip() or None,
+        # 公式画像のURLに型番があればそれを、無ければ AI の読みを使う（形の合わない値は捨てる）
+        "card_number": decide_card_number((card.image_url or "").strip(), card.card_number)[0] or None,
         "confidence": confidence,
         "source_url": page_url,
         "source_domain": source_domain,
@@ -666,6 +671,7 @@ def _build_vision_message(processed_text: str, encoded_images: list[dict]) -> li
         '      "effect_text": "効果テキスト",\n'
         '      "product_name": "収録パック名",\n'
         '      "release_date": "YYYY-MM-DD または空文字",\n'
+        '      "card_number": "カード画像の絵の右下に印刷された型番（例 IMPH-JP012）。小さくて読み切れない字があれば推測せず空文字",\n'
         '      "image_urls": ["読み取り元画像のURL"],\n'
         '      "image_url": "このカードの絵柄・カード名が写っている画像のURL（渡されたURLを正確にコピー。1枚のみ）",\n'
         '      "is_rush": false,\n'
@@ -713,6 +719,7 @@ def _build_text_message(processed_text: str) -> list[dict]:
         '      "effect_text": "効果テキスト",\n'
         '      "product_name": "収録パック名",\n'
         '      "release_date": "YYYY-MM-DD または空文字",\n'
+        '      "card_number": "ページに書かれた型番（例 IMPH-JP012）。書かれていなければ空文字",\n'
         '      "image_urls": [],\n'
         '      "is_rush": false,\n'
         '      "confidence": "high|medium|low",\n'
@@ -798,7 +805,19 @@ def _extract_cards(processed_text: str, encoded_images: list[dict], source_url: 
             if key in seen:
                 continue
             seen.add(key)
+            # 型番は渡した画像の URL（上で照合済み）からだけ取る。画像なしの抽出では AI が本文から写した URL を
+            # 確かめられないので AI の読みだけにする
+            number, number_source = decide_card_number(image_url if images else '', card.card_number)
+            row['card_number'] = number or None
+            ai_number = normalize_card_number(card.card_number)
+            if number_source == 'image_url' and ai_number and ai_number != number:
+                logger.warning('[Extractor] 型番が画像URL(%s)と AI の読み(%s)で食い違い: %s（画像の取り違えの疑い）',
+                               number, ai_number, row['name'])
             row['extraction_raw'] = {
+                # 型番の出どころ（image_url=公式画像のURL・ai=抽出AIの読み・空=不明）と AI の読みそのもの。
+                # URL と AI の読みが食い違うときは、AI が別カードの画像を選んだ取り違えの手がかりになる
+                'card_number_source': number_source,
+                'card_number_ai': (card.card_number or '').strip(),
                 'raw_response': text, 'image_urls': card.image_urls,
                 'card_image_urls': urls, 'card_image_url': image_url,
                 'source_image_url': image_url, 'card_bbox': card.card_bbox,

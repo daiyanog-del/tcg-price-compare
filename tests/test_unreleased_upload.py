@@ -1002,3 +1002,57 @@ def test_reload_failure_skips_only_that_card(monkeypatch):
     remaining = up.split_replaceable(sb, rows, q, OFFICIAL, notify=MagicMock(), fetch=MagicMock())
     assert [r["name"] for r in remaining] == ["新しいカード"]
     assert q.keys() == {fuzzy_key("誘惑の鏡壁")}   # 次回また試す
+
+
+# ── 型番（card_number・2026-10-30）: 公式版の確かな型番を捨てない ──
+
+def _official_url_row(name, number="IMPH-JP016"):
+    """公式画像のURLから型番が取れた抽出結果（extraction_raw.card_number_source=image_url）。"""
+    row = _official_row(name)
+    row["card_number"] = number
+    row["extraction_raw"]["card_number_source"] = "image_url"
+    return row
+
+
+def test_pending_replacement_takes_official_card_number(no_context):
+    sb = _db(_upload_card(1, "六花のくろひめ", "pending", card_number=None))
+    q = up.load_replaceable(sb)
+    up.split_replaceable(sb, [_official_url_row("六花のくろひめ")], q, OFFICIAL, store=_store_ok, notify=MagicMock())
+    card = sb.tables["unreleased_cards"][0]
+    assert card["card_number"] == "IMPH-JP016"
+    assert card["extraction_raw"]["replaced_by_official"]["previous"]["card_number"] is None
+
+
+def _apply_with_card_number(monkeypatch, current, number, source):
+    """公開中のカードに公式版が届き（候補として保存）、見比べて適用するまで。型番が候補に持ち越されるかも見る。"""
+    import unreleased_image_store as store
+    monkeypatch.setattr(store, "crop_and_save_image", MagicMock())
+    sb = _db(_upload_card(1, "誘惑の鏡壁", "approved", card_number=current))
+    sb.files.update({"unreleased/1.png": b"capture-shown", "unreleased/originals/1.png": b"capture-original"})
+    row = _official_url_row("誘惑の鏡壁", number)
+    row["extraction_raw"]["card_number_source"] = source
+    up.split_replaceable(sb, [row], up.load_replaceable(sb), OFFICIAL, store=_store_ok, notify=MagicMock(),
+                         fetch=_fetch_ok)
+    cand = sb.tables["unreleased_cards"][0]["extraction_raw"]["official_candidate"]
+    assert cand["row"]["card_number"] == number                                  # 候補に持ち越す
+    assert cand["row"]["extraction_raw"]["card_number_source"] == source
+    assert sb.tables["unreleased_cards"][0]["card_number"] == current            # 見比べる前は変えない
+    assert up.apply_official_candidate(sb, 1, None) == (True, "")
+    return sb.tables["unreleased_cards"][0]
+
+
+def test_applied_candidate_fills_empty_card_number(monkeypatch):
+    card = _apply_with_card_number(monkeypatch, None, "IMPH-JP075", "image_url")
+    assert card["card_number"] == "IMPH-JP075"
+
+
+def test_applied_candidate_keeps_existing_card_number_and_records_diff(monkeypatch):
+    card = _apply_with_card_number(monkeypatch, "IMPH-JP074", "IMPH-JP075", "image_url")
+    assert card["card_number"] == "IMPH-JP074"         # 値がある行は変えず、違いとして知らせる
+    assert card["extraction_raw"]["replaced_by_official"]["diff"]["card_number"] == {
+        "current": "IMPH-JP074", "official": "IMPH-JP075"}
+
+
+def test_applied_candidate_does_not_use_ai_card_number(monkeypatch):
+    card = _apply_with_card_number(monkeypatch, None, "IMPH-JP075", "ai")   # X の画像を AI が読んだだけ
+    assert card["card_number"] is None

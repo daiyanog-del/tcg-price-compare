@@ -35,6 +35,16 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python tools/refetch_missing_images.py
 
+      # 型番（card_number）が空の未発売カードを、遊戯王Wikiのパックのページ（カード名 → 型番）で埋める（2026-10-30）。
+      # 取り込み時に公式画像のURL・AI の読みで決まらなかったカードを、Wiki に載った時点で拾う。AI は使わない（費用なし）。
+      # 空の行がある商品のページだけ読む。値がある行は変えない
+      - name: Backfill card numbers from wiki
+        if: ${{ !cancelled() }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python tools/backfill_card_number.py --wiki
+
       # 画像回収の後段: 承認済み・未投稿の未発売カードを X に投稿する（取りこぼしの回収）。
       # UNRELEASED_X_POST_ENABLED が 1 でなければ何もしない（既定は無効）。
       - name: Post unreleased cards to X

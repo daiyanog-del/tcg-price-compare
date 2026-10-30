@@ -139,6 +139,11 @@ COMMENT ON COLUMN unreleased_cards.linked_at     IS 'status=linkedになった�
 ALTER TABLE unreleased_cards ADD COLUMN IF NOT EXISTS review_candidates JSONB;
 COMMENT ON COLUMN unreleased_cards.review_candidates IS '要確認の理由と紐付け候補（JSON）。statusは変えず印だけ付ける。dismissed_at=確認済み日時。linked時はNULL';
 
+-- 2026-10-30 追加: 型番（例 IMPH-JP012）。未発売カード一覧の「型番順」に使う（unreleased_card_number.py）。
+-- 公式サイト由来は画像URLから、X・YouTube・画像アップロード由来は抽出AIがカード画像から読む。読めなければ NULL
+ALTER TABLE unreleased_cards ADD COLUMN IF NOT EXISTS card_number TEXT;
+COMMENT ON COLUMN unreleased_cards.card_number IS '型番（例 IMPH-JP012）。NULL=不明。管理画面で手直しできる';
+
 -- インデックス（表示解決クエリの高速化）
 CREATE INDEX IF NOT EXISTS idx_unreleased_cards_status_hidden
     ON unreleased_cards (status, hidden)

@@ -8,6 +8,9 @@
 .new-cards-head-link:hover{text-decoration:underline;text-underline-offset:3px}
 .new-cards-head-link:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
 .new-cards-page .new-cards-head-link{display:none}
+/* 並び順の切り替え（追加順／型番順）。未発売カード一覧のページだけ（トップ・海外先行の一覧では出さない。2026-10-30） */
+.new-cards-sort{flex-shrink:0}
+#mode-search:not(.new-cards-page) .new-cards-sort,#mode-search.tcg-preview-page .new-cards-sort{display:none}
 .new-cards-help{margin:6px 0 20px;font-size:13px;color:var(--text-m)}
 .new-cards-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:18px}
 .new-card{display:flex;flex-direction:column;min-width:0}

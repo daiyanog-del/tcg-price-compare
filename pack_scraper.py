@@ -336,6 +336,38 @@ def _fetch_from_wiki(pack_name: str, wiki_page: str, quiet_404: bool = False) ->
     return cards
 
 
+def fetch_pack_card_numbers(pack_name: str) -> dict[str, str]:
+    """遊戯王Wikiのパックのページから {カード名: 型番} を返す（2026-10-30・未発売カードの型番の補い）。
+
+    ページの「IMPH-JP015 《六花双精プリムローズ》」の行から、カード名（_fetch_from_wiki と同じ切り出し・正規化）と、
+    その行の最初の型番を組にする。ページが見つからない・取得できないときは空。
+    未発売カードの型番は公式画像のURL → 抽出AIの読みで決め、それでも空のものだけをこれで埋める
+    （Wiki は有志の更新で載るまで遅れがあり、商品名によってはページが見つからないため。tools/backfill_card_number.py）。
+    """
+    page, found = _resolve_wiki_page(pack_name)
+    if not found:
+        return {}
+    try:
+        res = requests.get(f"{WIKI_BASE}?{quote(page, encoding='euc-jp')}", headers=HEADERS, timeout=20)
+        res.raise_for_status()
+    except (requests.RequestException, UnicodeEncodeError) as e:
+        print(f"  pack_scraper Wiki取得失敗（型番）: {page} — {e}")
+        return {}
+    res.encoding = res.apparent_encoding or 'euc-jp'
+    numbers: dict[str, str] = {}
+    for li in BeautifulSoup(res.text, "html.parser").select("li"):
+        code = re.search(r'[A-Z0-9]{2,5}-JP[A-Z]?\d{2,3}', li.get_text())
+        if not code:
+            continue
+        for a in li.select("a"):
+            m = re.match(r'[《「『〈](.+)[》」』〉]', a.get_text(strip=True))
+            if m:
+                name = m.group(1).replace('−', '-').replace('―', '-').replace('—', '-').replace('–', '-')
+                numbers.setdefault(name, code.group(0))
+                break
+    return numbers
+
+
 # ── 方法2: YGOPRODeck APIからカードリスト取得 ──
 
 def _fetch_from_ygoprodeck(tcg_set_name: str) -> list[str]:
