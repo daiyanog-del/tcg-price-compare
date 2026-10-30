@@ -125,15 +125,6 @@
       </nav>
     </div>
 
-    <!-- X のフォロー案内（?newcards=1 で来たときだけ。x-follow-ui.js・x-follow.css。スマホはカード詳細の下に出す） -->
-    <div class="sol-sidebar-section sol-x-follow-section">
-      <div class="sol-x-follow" role="note">
-        <button type="button" class="sol-x-follow-close" data-x-follow-close aria-label="フォローの案内を閉じる">&times;</button>
-        <p class="sol-x-follow-text">新カードと値下がりを X の <b>@GreeedyLab</b> でお知らせしています</p>
-        <a class="sol-x-follow-link" href="https://x.com/GreeedyLab" target="_blank" rel="noopener" data-x-follow="newcards_side">フォローする</a>
-      </div>
-    </div>
-
     <!-- カードを追加（デッキ編集・deck-edit-ui.js。保存はデッキ欄の見出しで行う） -->
     <div class="sol-sidebar-section sol-deck-add-section">
       <p class="sol-sidebar-heading">カードを追加</p>
@@ -187,7 +178,7 @@
     <!-- フィードバック -->
     <div class="sol-sidebar-section">
       <button type="button" id="feedbackOpenBtn" class="sol-side-btn is-quiet"><span class="sol-side-btn-label">不具合・要望を送る</span></button>
-      <a href="https://x.com/GreeedyLab" target="_blank" rel="noopener" class="sol-side-btn is-quiet" data-x-follow="sidebar"><span class="sol-side-btn-label">𝕏 X のお知らせ</span></a>
+      <a href="https://x.com/GreeedyLab" target="_blank" rel="noopener" class="sol-side-btn is-quiet" data-x-follow="sidebar"><svg class="sol-side-btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg><span class="sol-side-btn-label">X のお知らせ</span></a>
     </div>
 
     <!-- クレジット -->
@@ -441,12 +432,11 @@
               <p id="solMobileCipBubbleText" class="sol-mobile-cip-bubble-text"></p>
             </div>
             <div id="solMobileCipBody" class="sol-mobile-cip-body"></div>
-            <!-- X のフォロー案内（?newcards=1 で来たときだけ。PC はサイドバー側） -->
-            <div class="sol-x-follow" role="note">
-              <button type="button" class="sol-x-follow-close" data-x-follow-close aria-label="フォローの案内を閉じる">&times;</button>
-              <p class="sol-x-follow-text">新カードと値下がりを X の <b>@GreeedyLab</b> でお知らせしています</p>
-              <a class="sol-x-follow-link" href="https://x.com/GreeedyLab" target="_blank" rel="noopener" data-x-follow="newcards_detail">フォローする</a>
-            </div>
+            <!-- X のフォロー案内（?newcards=1 で来たとき、1端末1回だけ。1行で控えめに。x-follow-ui.js・x-follow.css） -->
+            <p class="sol-x-follow">
+              <span class="sol-x-follow-text">新カードの速報と汎用カードの底値をお知らせ</span>
+              <a class="sol-x-follow-link" href="https://x.com/GreeedyLab" target="_blank" rel="noopener" data-x-follow="newcards_detail"><svg class="sol-x-logo" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>フォロー</a>
+            </p>
           </div>
         </div>
       </div>
