@@ -142,6 +142,9 @@ document.addEventListener('click',e=>{
   }
 });
 
+// 名前の横の外部リンク（公式DB・Wiki）の「別のサイトが開く」印
+const _EXT_LINK_ICON='<svg class="cr-ext-icon" width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4.5 2H10v5.5M10 2 3 9"/></svg>';
+
 // ── カード情報取得（YGOResources優先、YGOProDeckフォールバック）──
 function _applyKonamiLink(kid){
   _konamiDbUrl='https://www.db.yugioh-card.com/yugiohdb/card_search.action?ope=2&cid='+kid+'&request_locale=ja';
@@ -149,7 +152,7 @@ function _applyKonamiLink(kid){
   const links=document.querySelector('#heroInfo .cr-ext-links');
   if(links&&!links.querySelector('.cr-db-link-official')){
     const a=document.createElement('a');
-    a.className='cr-db-link cr-db-link-official';a.href=_konamiDbUrl;a.target='_blank';a.rel='noopener';a.textContent='公式DB';
+    a.className='cr-db-link cr-db-link-official';a.href=_konamiDbUrl;a.target='_blank';a.rel='noopener';a.innerHTML='公式DB'+_EXT_LINK_ICON;
     links.prepend(a);
     // Wiki にも cid を渡す（読みの名前（テックジーナス　…）のページでも、サーバーが正式名（TG …）で wiki を引く）
     const wiki=links.querySelector('.cr-db-link-wiki');
@@ -883,7 +886,7 @@ function renderAll(d){
   // 在庫の件数・レアリティの種類数の行は、すぐ下のレアリティ欄（すべて N件・札の数）と重なるので出さない（2026-10-22）
   // 名前の横の外部リンク: Wiki はここで出し、公式DB は konami_id が分かったら _applyKonamiLink が前に足す。
   // Wiki は /card-wiki がページの有無を確かめ、無ければ wiki のタイトル検索へ送る（wiki_link.py）
-  heroInfo.innerHTML=`<div class="card-hero-name">${esc(searchTerm)}<span class="cr-ext-links"><a class="cr-db-link cr-db-link-wiki" href="/card-wiki?name=${encodeURIComponent(searchTerm)}" target="_blank" rel="noopener nofollow">Wiki</a></span></div>
+  heroInfo.innerHTML=`<div class="card-hero-name">${esc(searchTerm)}<span class="cr-ext-links"><a class="cr-db-link cr-db-link-wiki" href="/card-wiki?name=${encodeURIComponent(searchTerm)}" target="_blank" rel="noopener nofollow">Wiki${_EXT_LINK_ICON}</a></span></div>
     <div class="cr-best" id="heroBest">${best?'':'<span class="cr-best-none">在庫なし</span>'}</div>
     <!-- スマホだけ: 効果テキストは名前と最安の下（画像の横の空き）のボタンから全画面で開く（2026-10-22 ユーザー指定） -->
     <button type="button" class="cr-fx-btn" id="crFxBtn" onclick="_openFxSheet()">効果テキスト</button>
