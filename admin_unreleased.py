@@ -31,6 +31,7 @@ import card_display as _card_display
 import unreleased_x_post as _x_post
 import unreleased_text_report as _text_report
 import unreleased_approve as _approve
+from unreleased_card_number import normalize_card_number
 from unreleased_auto_approve import reason_label as _auto_approve_label
 from unreleased_auto_approve import uncertain_field_labels as _uncertain_field_labels
 from unreleased_auto_approve import verdict_reason_labels as _verdict_reason_labels
@@ -239,7 +240,7 @@ def admin_list_unreleased():
         q = _supabase.table("unreleased_cards").select(
             "id, name, reading, card_type, attribute, race, "
             "level, rank, link_val, atk, def, pendulum_scale, pendulum_effect, effect_text, "
-            "product_name, release_date, confidence, source_url, "
+            "product_name, release_date, card_number, confidence, source_url, "
             "source_domain, extracted_at, status, hidden, konami_id, "
             "extraction_raw, review_candidates"
         ).order("extracted_at", desc=True)
@@ -344,6 +345,9 @@ def admin_create_unreleased():
     name = (body.get("name") or "").strip()
     if not name:
         return jsonify({"error": "name は必須です"}), 400
+    card_number, number_error = _clean_card_number(body)
+    if number_error:
+        return jsonify({"error": number_error}), 400
 
     # 許可フィールド（手動登録時）
     row = {
@@ -362,6 +366,7 @@ def admin_create_unreleased():
         "effect_text":   (body.get("effect_text") or ""),
         "product_name":  (body.get("product_name") or ""),
         "release_date":  body.get("release_date") or None,
+        "card_number":   card_number,
         # 手動登録固定値
         "status":        "pending",
         "confidence":    "high",
@@ -393,8 +398,19 @@ _ALLOWED_UPDATE_FIELDS = frozenset([
     "name", "reading", "card_type", "attribute", "race",
     "level", "rank", "link_val", "atk", "def",
     "pendulum_scale", "pendulum_effect", "effect_text",
-    "product_name", "release_date",
+    "product_name", "release_date", "card_number",
 ])
+
+
+def _clean_card_number(body: dict) -> tuple[str | None, str | None]:
+    """管理画面から来た型番を揃える。戻り値は (保存する値, エラー文)。空欄は NULL（型番不明）にする。"""
+    raw = str(body.get("card_number") or "").strip()
+    if not raw:
+        return None, None
+    value = normalize_card_number(raw)
+    if not value:
+        return None, f"型番の形が正しくありません: {raw}（例 IMPH-JP012）"
+    return value, None
 
 
 @admin_bp.route("/api/admin/unreleased/<int:card_id>", methods=["PUT"])
@@ -416,6 +432,10 @@ def admin_update_unreleased(card_id: int):
 
     if not updates:
         return jsonify({"error": "更新するフィールドがありません（許可フィールド外のキーは無視されます）"}), 400
+    if "card_number" in updates:
+        updates["card_number"], number_error = _clean_card_number(updates)
+        if number_error:
+            return jsonify({"error": number_error}), 400
 
     try:
         # 名前か発売日が変わったら、照合が付けた「要確認」の印は前提が崩れるので消す

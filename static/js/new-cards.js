@@ -12,6 +12,24 @@ window.NewCards = (() => {
   // この間は取り直さない（取り直すと全部描き直し、一覧ページでは最初の絵が後回しになって LCP が遅れた。2026-10-22）
   const INITIAL_FRESH_MS=30000;
   let initialUsedAt=-Infinity;
+  // 一覧ページの、商品ごとのまとまりの中の並び（'added'=追加の新しい順・'number'=型番順。2026-10-30）。
+  // 選んだ並びはこのブラウザに覚える（読めない・書けないときは追加順のまま）
+  const SORT_KEY='newCardsSort';
+  let sortMode='added';
+  try{if(localStorage.getItem(SORT_KEY)==='number')sortMode='number';}catch{}
+  function byNumberMode(){return sortMode==='number'&&isListPage()&&!isTcgPage();}
+  // 型番（IMPH-JP012・IMPH-JPS13・CH03-JPP01）を [弾の略号, 番号の前の英字, 番号] に分ける。形が違えば null
+  function numberParts(value){
+    const m=/^([A-Z0-9]+)-JP([A-Z]?)(\d+)$/.exec(value||'');
+    return m?[m[1],m[2],Number(m[3])]:null;
+  }
+  // 型番順。番号だけの枠（JP001…）を先、英字付きの枠（JPS13 等）を後にする。型番の無いカードは末尾に元の順（追加順）のまま
+  function sortByNumber(list){
+    return list.map((card,i)=>({card,i,p:numberParts(card.card_number)})).sort((a,b)=>{
+      if(!a.p||!b.p)return a.p?-1:b.p?1:a.i-b.i;
+      return a.p[0].localeCompare(b.p[0])||a.p[1].localeCompare(b.p[1])||a.p[2]-b.p[2]||a.i-b.i;
+    }).map(x=>x.card);
+  }
   const get=id=>document.getElementById(id);
   function addedDate(value){
     if(!value)return '';
@@ -65,7 +83,9 @@ window.NewCards = (() => {
     const meta=document.createElement('span');meta.className='new-card-meta';
     const badge=document.createElement('span');badge.className='new-card-badge';badge.textContent='発売前';
     if(isTcgPage()){badge.textContent='TCG先行';badge.classList.add('is-tcg');}
-    const date=document.createElement('span');date.textContent=addedDate(card.added_at);
+    // 型番順のときは追加日の代わりに型番を出す（並びの根拠が見えるように）。型番の無いカードは追加日のまま
+    const date=document.createElement('span');
+    date.textContent=byNumberMode()&&card.card_number?card.card_number:addedDate(card.added_at);
     meta.append(badge,date);
     const name=document.createElement('strong');name.textContent=card.name;
     link.append(picture,meta,name);
@@ -124,7 +144,7 @@ window.NewCards = (() => {
       const inner=document.createElement('div');
       inner.className='new-cards-grid';
       // 一覧ページでも最初に見える枚数（PAGE_SIZE）はすぐ読む（LCP の要素。2026-10-22）
-      g.cards.forEach(card=>inner.appendChild(cardElement(card,eagerLeft-->0)));
+      (byNumberMode()?sortByNumber(g.cards):g.cards).forEach(card=>inner.appendChild(cardElement(card,eagerLeft-->0)));
       section.append(heading,inner);
       grid.appendChild(section);
     });
@@ -193,6 +213,21 @@ window.NewCards = (() => {
     // 読込前（仮枠の間）に押されても空の一覧で描き直さない
     get('newCardsMore')?.addEventListener('click',()=>{if(!cards.length)return;shown+=PAGE_SIZE;render();});
     get('newCardsRetry')?.addEventListener('click',load);
+    const sortGroup=get('newCardsSort');
+    const syncSortButtons=()=>sortGroup?.querySelectorAll('[data-sort]').forEach(btn=>{
+      const on=btn.dataset.sort===sortMode;
+      btn.classList.toggle('active',on);btn.setAttribute('aria-pressed',String(on));
+    });
+    syncSortButtons();
+    sortGroup?.addEventListener('click',event=>{
+      const btn=event.target.closest('[data-sort]');
+      if(!btn||btn.dataset.sort===sortMode)return;
+      sortMode=btn.dataset.sort;
+      try{localStorage.setItem(SORT_KEY,sortMode);}catch{}
+      syncSortButtons();
+      // 読込前（仮枠の間）は描き直さない（読み込み後の描画で今の並びが使われる）
+      if(cards.length)render();
+    });
     if(!document.getElementById('empty')?.classList.contains('hidden'))load();
   });
   return {load};

@@ -96,10 +96,20 @@ def test_order_limit_and_public_fields(database):
     assert len(result["cards"]) == 36
     assert result["has_more"] is True
     assert [row["name"] for row in result["cards"]] == [f"新カード{i}" for i in range(39, 3, -1)]
-    assert set(result["cards"][0]) == {"name", "added_at", "release_date", "product_name", "image_url", "thumb_url"}
+    assert set(result["cards"][0]) == {"name", "added_at", "release_date", "product_name", "card_number",
+                                       "image_url", "thumb_url"}
     assert result["cards"][0]["added_at"] == card(39)["extracted_at"]
     assert result["cards"][0]["image_url"] is None
     assert any("extracted_at" in fields for table, fields in database.selections if table == "unreleased_cards")
+
+
+def test_card_number_is_returned_for_number_sort(database):
+    # 一覧ページの「型番順」に使う。DB の列を読み、空は None で返す（2026-10-30）
+    database.rows["unreleased_cards"] = [card(1, card_number="IMPH-JP012"), card(2)]
+    rows = {row["name"]: row for row in display.get_new_cards()["cards"]}
+    assert rows["新カード1"]["card_number"] == "IMPH-JP012"
+    assert rows["新カード2"]["card_number"] is None
+    assert any("card_number" in fields for table, fields in database.selections if table == "unreleased_cards")
 
 
 def test_release_and_approval_filters_at_jst_midnight(database):

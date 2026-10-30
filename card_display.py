@@ -245,7 +245,7 @@ def _fetch_unreleased_cards(*, strict: bool = False) -> dict[str, dict]:
             .select(
                 "id, name, reading, card_type, attribute, race, "
                 "level, rank, link_val, atk, def, pendulum_scale, pendulum_effect, effect_text, "
-                "product_name, release_date, extracted_at, status, hidden"
+                "product_name, release_date, card_number, extracted_at, status, hidden"
             )
             .in_("status", ["approved", "linked"])
             .eq("hidden", False)
@@ -588,6 +588,8 @@ def get_new_cards(limit: int | None = 36) -> dict:
             "name": card["name"], "added_at": added.isoformat() if added else None,
             "release_date": release_date or None,
             "product_name": card.get("product_name") or None,
+            # 型番（例 IMPH-JP012）。一覧ページの「型番順」に使う。不明なら None（2026-10-30）
+            "card_number": card.get("card_number") or None,
             "image_url": (card.get("_image_url") or None) if image_enabled else None,
             # 縮小版（幅300px の WebP）。原寸が無ければ出さない
             "thumb_url": (card.get("_thumb_url") or None) if image_enabled and card.get("_image_url") else None,

@@ -1,5 +1,11 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-30: 未発売カード一覧の型番順（PR 作成・本番反映待ち）
+- ユーザーが案A を選択: unreleased_cards に card_number 列（本番 DB に適用済み）。公式サイト由来は画像URLの base64 から、X・YouTube・画像アップロード由来は抽出AIがカード画像から読む（unreleased_card_number.py）。管理画面の3つのフォームで手直しできる
+- 一覧ページ（/new-cards）だけに「追加順／型番順」の切り替え（.cr-seg と同じ見た目）。商品のまとまりの順は変えず、中の並びだけ型番順。型番の無いカードは末尾に追加順。型番順のときは追加日の代わりに型番を出す。選んだ並びは localStorage に覚える
+- 既存分の埋め戻し（tools/backfill_card_number.py・本番 DB に書き込み済み）: 101件中92件（URL 63・AI 29）。AI の読みは URL の番号とも互いにも重複なし・2回読んで同じ値。空のまま9件（六花水月・アマゾネスの剣聖・ラーの翼神竜 など。YouTube 由来の小さい字）→ 管理画面で手で入れられる
+- 次: 本番反映後に /new-cards で型番順を確認・次の X/YouTube 取り込みで card_number が入るか（extraction_raw.card_number_source）を見る
+
 ## 2026-10-30: イラスト違いの段2a-1（本番 PR #278 23c43df・SQL 適用済み）
 - ユーザーが案B を選択。段2a を「2a-1 別表を書き始めるだけ」「2a-2 本表を代表の絵に切り替え（別表のある日を書き直す）」に分けた（いきなり切り替えると値動き・X 投稿に偽の値上がり）
 - 作ったもの: price_history_art.sql（表3つ・art_dim・RPC 3つ・upsert_price_rows の差し替え＝上書きで同じキーの別表を消す）・price_persist.build_art_price_rows／build_art_buyback_rows／art_price_context・夜の収集／カードラボのカタログ巡回／検索の即時記録／買取の配線・30日の畳み込みと削除・art_prints.json に絵の番号（98枚中43枚が絵3種類以上）
