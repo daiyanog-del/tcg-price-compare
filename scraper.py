@@ -1210,8 +1210,8 @@ def _kanabell_rarity(card: dict) -> str:
     """略号を正規化する。略号が正規名にならないとき（ダッシュだけの「－」＝ノーマルレア、
     rarity.py に無い略号）は正式名でも引き、正規名になればそちらを使う。
 
-    どちらも正規名にならなければ略号の正規化結果（未知なら生の略号）を返す。旧サイトの
-    記録（MANGAシク 等）と系列を揃えるため、未知のときは略号の側に寄せる。"""
+    どちらも正規名にならなければ略号の正規化結果（未知なら生の略号）を返す。
+    MANGAシク などは正規化で「シークレット」などになる（漫画風の印は _kanabell_is_manga）。"""
     rarity = card.get("rarity") or {}
     canon = normalize_rarity(rarity.get("yg_rarity_abbreviation") or "")
     if canon not in _CANONICAL_RARITIES and rarity.get("yg_rarity_name"):
@@ -1219,6 +1219,14 @@ def _kanabell_rarity(card: dict) -> str:
         if by_name in _CANONICAL_RARITIES:
             return by_name
     return canon
+
+
+def _kanabell_is_manga(card: dict) -> bool:
+    """漫画風（MANGA-STYLE）の商品か。レアリティは正規化で「ウルトラ」「シークレット」などに寄せる（ほかの店と同じ形）ので、
+    漫画風の印は行の manga 欄に残し、絵の判別（art_variant.classify）で漫画カラー／モノクロにする（2026-10-30）"""
+    rarity = card.get("rarity") or {}
+    return any((rarity.get(k) or "").upper().startswith("MANGA")
+               for k in ("yg_rarity_abbreviation", "yg_rarity_name"))
 
 
 def _kanabell_fields(src: dict) -> dict:
@@ -1277,6 +1285,8 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
         product_url = f"{KANABELL_SELL_BASE}/single/{f['id']}"
         base = {"shop": "カーナベル", "name": name_text, "rarity": rarity, "code": f["code"],
                 "url": product_url, "image": f["image"]}
+        if _kanabell_is_manga(src.get("yg_card") or {}):
+            base["manga"] = True
 
         # 各状態の価格・在庫を展開（価格のある状態はすべて。在庫0は売切の行。旧サイトと同じ出し方）
         for rank_key, cond_label in _KANABELL_CONDITIONS:
@@ -1908,7 +1918,7 @@ def scrape_kanabell_buy(card_name: str) -> list[dict]:
         if price <= 0:
             continue
 
-        results.append({
+        row = {
             "shop": "カーナベル",
             "name": name_text,
             "rarity": _kanabell_rarity(src.get("yg_card") or {}),
@@ -1919,7 +1929,10 @@ def scrape_kanabell_buy(card_name: str) -> list[dict]:
             "sold_out": False,
             "url": f"{KANABELL_BUY_BASE}/single/{card_id}",
             "image": f["image"],
-        })
+        }
+        if _kanabell_is_manga(src.get("yg_card") or {}):
+            row["manga"] = True
+        results.append(row)
     print(f"  [KANABELL] 買取検索 {len(sources)}商品→{len(results)}行 [{card_name}]")
     return results
 

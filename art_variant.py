@@ -67,9 +67,6 @@ _EDITION_RE = re.compile(r"☆(旧?アジア|英語版|韓国版|中国版|ス�
 _PACKAGE_RE = re.compile(r"\((?:[^()]*未開封|[^()]*付き)[^()]*\)")
 _TORECOLO_PID_RE = re.compile(r"/shop/g/g([^/]+?)(?:-[SK])?/?$")
 _TORECOLO_CODE_RE = re.compile(r"^[A-Z0-9]+-[A-Z]*\d+([A-Z]*)$")
-# カーナベルの漫画風のレアリティ（略号のまま保存される。scraper._kanabell_rarity）→ ほかの店がそろえて書くレアリティ。
-# ほかの店は「ウルトラ」「シークレット」の中に漫画カラー／漫画モノクロとして並べるので、画面ではそちらに寄せる
-_MANGA_RARITIES = {"MANGAウル": "ウルトラ", "MANGAシク": "シークレット", "MANGAアル": "アルティメット"}
 # トレコロの商品番号の、レアリティごとのいつもの末尾（2026-10-28 に人気カード30枚の実データで確認したもの）。
 # 違う絵は先頭に S が付く。ここに無いレアリティは判別しない
 _TORECOLO_SUFFIX = {
@@ -115,6 +112,11 @@ def _torecolo_art(url: str, rarity: str) -> str:
     return ""
 
 
+def _is_manga_row(row: dict) -> bool:
+    """カーナベルの漫画風（MANGA-STYLE）の行か。取得時に付く manga 欄か、それより前のキャッシュの行の略号で見る"""
+    return bool(row.get("manga")) or (row.get("rarity") or "").upper().startswith("MANGA")
+
+
 def classify(row: dict, card_name: str) -> tuple[str, str]:
     """1行の (art, edition) を返す。row は店の結果の1行（shop・name・rarity・url を見る）"""
     raw_name = row.get("name") or ""
@@ -138,8 +140,9 @@ def classify(row: dict, card_name: str) -> tuple[str, str]:
     if shop == "カードラッシュ" and label in ("カラー", "モノクロ"):
         return (ART_MANGA_COLOR if label == "カラー" else ART_MANGA_MONO), edition
     # カーナベルは漫画風をレアリティ側に「MANGAウル」「MANGAシク」と書き、商品名には「(カラー版)」「(モノクロ版)」とだけ書く
-    # （2026-10-30 ベビードラゴン YAC1-JP075 で確認）。レアリティの名前は画面に送るときに display_rarity で寄せる
-    if raw_rarity in _MANGA_RARITIES:
+    # （2026-10-30 ベビードラゴン YAC1-JP075 で確認）。レアリティは取得時に「ウルトラ」などへ寄せ、印は manga 欄に残す
+    # （scraper._kanabell_is_manga）。それより前に取った検索のキャッシュの行はレアリティが略号のまま
+    if _is_manga_row(row):
         label = "MANGA" + label
     if re.search(r"漫画|MANGA", label, re.IGNORECASE):
         if "カラー" in label:
@@ -222,6 +225,7 @@ def annotate(rows: list[dict], card_name: str) -> None:
         if row["art"] == ART_BASE:
             row["art"] = ART_ALT
         elif (row["art"] == "" and code in table_codes and row.get("shop") != "まんぞく屋"
+              and not _is_manga_row(row)
               and not re.search(r"漫画|MANGA", _label(card_name, row.get("name") or ""), re.IGNORECASE)):
             row["art"] = ART_ALT
 
@@ -234,14 +238,7 @@ def display_rarity(row: dict) -> str:
     # アジア版の GREEN は art が言語版になるので、レアリティ側の表記で見る
     if rarity.startswith("クォーターセンチュリーシークレット") and re.search(r"GREEN\s*Ver|PINK\s*Ver", rarity, re.IGNORECASE):
         return "25thシークレット"
-    return fold_manga_rarity(rarity)
-
-
-def fold_manga_rarity(rarity: str) -> str:
-    """カーナベルの「MANGAウル」などを、ほかの店と同じ「ウルトラ」などに寄せる（2026-10-30）。
-    ほかの店の漫画風はもともと「ウルトラ」「シークレット」として記録されているので、記録を読む画面（価格推移・購入候補）でも
-    これで寄せる。記録そのものは略号のまま（絵ごとの記録＝段2で分けられるように）。GREEN Ver. は寄せない（display_rarity だけ）"""
-    return _MANGA_RARITIES.get(rarity, rarity)
+    return rarity
 
 
 # 未開封・付属品つきの商品（(未開封)・(封筒付き未開封)・(当選通知書付き、ダンボール付き)・(台紙、封筒付き)・《未開封》 など）。
