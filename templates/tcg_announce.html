@@ -48,25 +48,16 @@
   {# 「新弾情報」の中の切り替え。このページは海外先行カードの下の階層（2026-10-30） #}
   {% from "_newset_subnav.html" import newset_subnav %}{{ newset_subnav('tcg', within=True) }}
 
-  <nav class="ta-crumbs" aria-label="現在地">
-    <a href="/">トップ</a><span aria-hidden="true">›</span><a href="/tcg-preview">海外先行カード</a><span aria-hidden="true">›</span><span>{{ s.name_en }}</span>
-  </nav>
-
   <main class="ta-main">
+    {# 見出しは未発売カード一覧・海外先行カード一覧と同じ形（見出し・説明の1行・商品ごとの見出し）にそろえた（2026-10-30 ユーザー「平仄が揃っていない」）。
+       前の大きな箱・TCG先行と予告の札・3つの大きな数字はやめ、数字は下の見出しの横に一覧の発売日と同じ書き方で出す #}
     <section class="ta-hero">
-      <div class="ta-badges"><span class="ta-badge is-tcg">TCG先行</span><span class="ta-badge is-announce">予告</span></div>
       <h1 class="ta-title">{{ s.name_en }}</h1>
-      <dl class="ta-facts">
-        <div><dt>英語版の発売</dt><dd>{% if s.tcg_release_date %}{{ format_release(s.tcg_release_date) }}<small>予定</small>{% else %}未定{% endif %}</dd></div>
-        {% if s.size %}<div><dt>収録</dt><dd>{{ s.size }}<small>枚</small></dd></div>{% endif %}
-        <div><dt>判明</dt><dd>{{ known }}<small>枚</small></dd></div>
-      </dl>
-      {# 見出しの下の「遊戯王TCG（英語版）の新しいパック」と内容が重なっていたので1文にまとめた（2026-10-30 ユーザー「前置きが大きい」） #}
       <p class="ta-lead">遊戯王TCG（英語版）で先に発売されるパックです。日本での発売は未発表で、判明したカードは1日に数回追加します。</p>
     </section>
 
     <section aria-labelledby="taCardsHeading">
-      <h2 class="ta-heading" id="taCardsHeading">判明したカード</h2>
+      <h2 class="ta-heading" id="taCardsHeading">判明したカード（{{ known }}枚）<span class="ta-heading-sub">英語版 {% if s.tcg_release_date %}{{ (s.tcg_release_date|string)[:10]|replace('-', '/') }} 発売予定{% else %}発売日未定{% endif %}{% if s.size %}・収録 {{ s.size }}枚{% endif %}</span></h2>
       <ul class="ta-grid">
         {% for c in cards %}
         <li class="ta-card{% if focus_card is not none and c.page_id == focus_card.page_id %} is-focus{% endif %}" id="{{ anchor(c) }}">
@@ -115,8 +106,8 @@
     <section class="ta-next" aria-labelledby="taNextHeading">
       <h2 class="ta-heading" id="taNextHeading">あわせて見る</h2>
       <div class="ta-next-grid">
-        <a href="/new-cards"><b>日本の未発売カード</b><span>OCG で発表された新カードを、商品ごとにまとめています</span></a>
-        <a href="/solitaire?newcards=1"><b>新カードを一人回しで試す</b><span>発表済みの新カードを入れて、シミュレーターで回せます</span></a>
+        <a href="/new-cards"><b>未発売カード</b><span>日本（OCG）で発表された新カードを、商品ごとにまとめています</span></a>
+        <a href="/solitaire?newcards=1"><b>新カードをシミュレーターで試す</b><span>発表済みの新カードを入れて、シミュレーターで回せます</span></a>
         <a href="/"><b>カードの値段を比べる</b><span>主要店の販売価格と買取価格を、まとめて比べられます</span></a>
       </div>
     </section>
@@ -124,7 +115,6 @@
     <footer class="ta-foot">
       <p>「非公式の要約」は、KONAMI 公式や販売店の商品紹介など（英語）を強欲なラボが日本語にまとめたものです。正式なカードテキストとは違うことがあります。「英語のテキストが判明」のカードの全文は、英語のテキストの機械訳です。{% if cards|selectattr('art_url')|list %}カードのイラストは KONAMI 公式の商品ページのものです。{% endif %}</p>
       <p>カード情報の出典：<a href="https://yugipedia.com/wiki/{{ s.set_title|replace(' ', '_')|urlencode }}" rel="noopener" target="_blank">Yugipedia</a>（CC BY-SA）{% for d in sources %}・{{ d }}{% endfor %}{% if updated %}｜最終更新 {{ updated }}{% endif %}</p>
-      <p><a href="/tcg-preview">海外先行カードの一覧に戻る</a></p>
       <p>新しく判明したカードは X（<a href="https://x.com/GreeedyLab" rel="noopener" target="_blank">@GreeedyLab</a>）でもお知らせしています</p>
     </footer>
   </main>

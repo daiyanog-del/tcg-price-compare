@@ -339,6 +339,17 @@ def test_まとめページは中身をHTMLに書き_カード指定でOG画像�
     assert client.get("/tcg-preview/no-such-set").status_code == 404
 
 
+def test_まとめページは一覧ページと同じ導線と書き方(client):
+    # 2026-10-30 ユーザー「導線も平仄も揃っていない」: パンくず・一番下の戻るリンクをやめ「新弾情報」の切り替えで行き来する。
+    # 発売日は一覧と同じ「YYYY/MM/DD 発売」の形、枚数は「枚」。サイトの機能名は「シミュレーター」
+    html = client.get("/tcg-preview/maze-of-machines").get_data(as_text=True)
+    assert 'class="ta-crumbs"' not in html and "海外先行カードの一覧に戻る" not in html
+    assert '<a href="/tcg-preview" class="is-on" aria-current="location">海外先行カード</a>' in html
+    assert '<a href="/#packs" class="is-current">新弾情報</a>' in html
+    assert "判明したカード（" in html and "発売予定" in html and "年" not in html.split('id="taCardsHeading"')[1].split("</h2>")[0]
+    assert "一人回し" not in html and "日本の未発売カード" not in html
+
+
 def test_OG画像はPNGで返る(client):
     for path in ("/tcg-preview/og/maze-of-machines.png", "/tcg-preview/og/maze-of-machines/mzmc-en001.png"):
         r = client.get(path)

@@ -162,7 +162,7 @@ function click(link,flags={}){
   assert.equal(pending.at(-1).url,'/api/new-cards?all=1');
   reply(pending.at(-1),{cards:listCards,has_more:false});await listLoad;
   const groups=get('newCardsGrid').children;
-  assert.deepEqual(groups.map(g=>g.children[0].children[0].textContent),['商品Y（1件）','商品X（2件）','収録商品未定（1件）']);
+  assert.deepEqual(groups.map(g=>g.children[0].children[0].textContent),['商品Y（1枚）','商品X（2枚）','収録商品未定（1枚）']);
   assert.equal(groups[1].children[0].children[1].textContent,'12/01 発売');
   assert.equal(groups[1].children[1].children.find(w=>w.dataset.cardName==='A1').children[0].children[0].children[1].loading,'eager','一覧ページでも最初に見える6枚まではすぐ読む（2026-10-22 LCP）');
   assert.equal(groups[2].children[0].children.length,1,'発売日が無いのに表示された');

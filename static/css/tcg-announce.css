@@ -9,46 +9,36 @@ body.price-redesign {
   font-family: 'Noto Sans JP', system-ui, sans-serif;
   font-variant-numeric: tabular-nums;
 }
-.ta-page { max-width: 1040px; margin: 0 auto; padding: 16px 16px 48px; }
-.ta-header { display: flex; align-items: center; padding-bottom: 8px; }
-.ta-brand { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; color: var(--text); }
-.ta-brand-icon { height: 52px; width: auto; display: block; }
-.ta-brand-name-image { width: 110px; height: auto; display: block; transform: translateY(6px); }
-
-/* 上部の切り替え。ほかのページの mode-tabs（price-layout.css）と同じ見た目・並び（購入候補は右端、スマホではロゴの横） */
-.ta-header { position: relative; gap: 0 28px; }
+/* 幅・ヘッダーは index.html（.wrap・price-layout.css の header／.mode-tabs）と同じ値。ページを移ってもロゴとタブが動かないように（2026-10-30 ユーザー「導線も平仄も揃っていない」） */
+.ta-page { box-sizing: border-box; max-width: 1140px; margin: 0 auto; padding: 0 20px 48px; }
+.ta-header { position: relative; display: flex; align-items: center; flex-wrap: wrap; gap: 0 28px; padding-top: 20px; }
+/* 高さは index.html の h1（画像の下に行の隙間9px）と同じにしてロゴとタブの位置をそろえる */
+.ta-brand { box-sizing: border-box; display: inline-flex; align-items: center; flex-shrink: 0; gap: 8px; padding-bottom: 9px; margin-bottom: 16px; text-decoration: none; color: var(--text); }
+.ta-brand-icon { height: 80px; width: auto; display: block; }
+.ta-brand-name-image { width: 170px; height: auto; display: block; transform: translateY(10px); }
 .ta-nav { display: flex; align-items: center; flex: 1; gap: 18px; align-self: stretch; }
-.ta-nav a { display: inline-flex; align-items: center; min-height: 50px; padding-top: 8px; color: var(--text-m); font-size: 12px; font-weight: 700; white-space: nowrap; text-decoration: none; }
+.ta-nav a { box-sizing: border-box; display: inline-flex; align-items: center; min-height: 50px; padding: 8px 0 18px; border-bottom: 2px solid transparent; color: var(--text-m); font-size: 12px; font-weight: 700; white-space: nowrap; text-decoration: none; }
 .ta-nav a:hover { color: var(--text); }
-/* このページは「新弾情報」の中なのでそのタブを光らせる（index.html の .mode-tab.active と同じ色の下線。2026-10-30） */
-.ta-nav a.is-current { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent-soft); }
+/* このページは「新弾情報」の中なのでそのタブを光らせる（index.html の .mode-tab.active と同じ下線） */
+.ta-nav a.is-current { color: var(--text); border-bottom-color: var(--accent-soft); }
 .ta-nav .ta-nav-wish { margin-left: auto; }
-
-/* 「新弾情報」の切り替え（newset-subnav.css）。ヘッダーに下線が無いので間を空ける */
-.ta-page .newset-subnav { margin: 14px 0 12px; }
-.ta-crumbs { font-size: 13px; color: var(--text-m); display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 18px; }
-.ta-crumbs a { color: var(--text-m); text-decoration: none; }
-.ta-crumbs a:hover { color: var(--text); }
+/* 「新弾情報」の切り替え（newset-subnav.css）。一覧ページと同じくヘッダーの下 22px に */
+.ta-page .newset-subnav { margin-top: 22px; }
 
 .ta-badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 700; line-height: 1.5; }
 .ta-badge.is-tcg { background: rgba(174, 197, 255, .10); color: var(--accent-l); }
-.ta-badge.is-announce { background: #302d24; color: var(--gold); }
 .ta-badge.is-unofficial { border: 1px solid var(--border); color: var(--text-m); }
 /* 緑（--green）は買取の値上がりの意味で使っているので、ここは面の明るさだけで「概要より確か」を示す */
 .ta-badge.is-official { background: var(--bg-hover); color: var(--text); }
 .ta-badge.is-name { border: 1px solid var(--border); color: var(--text-m); }
 
-.ta-hero { padding: 20px; border-radius: var(--radius); background: var(--bg-card); margin-bottom: 28px; }
-.ta-badges { display: flex; gap: 6px; }
-.ta-title { font-size: 30px; line-height: 1.25; margin: 10px 0 12px; overflow-wrap: anywhere; }
-.ta-facts { display: flex; flex-wrap: wrap; gap: 10px 28px; margin: 0 0 12px; }
-.ta-facts div { min-width: 0; }
-.ta-facts dt { font-size: 12px; color: var(--text-m); }
-.ta-facts dd { margin: 2px 0 0; font-size: 22px; font-weight: 700; }
-.ta-facts small { font-size: 13px; font-weight: 400; color: var(--text-m); margin-left: 3px; }
-.ta-lead { margin: 0; font-size: 14px; line-height: 1.7; color: var(--text-m); }
+/* 見出し・説明・商品ごとの見出しは new-cards.css（.new-cards h2・.new-cards-help・.new-card-group-title）と同じ大きさ */
+.ta-hero { margin-bottom: 20px; }
+.ta-title { font-size: 19px; line-height: 1.5; margin: 0; overflow-wrap: anywhere; }
+.ta-lead { margin: 6px 0 0; font-size: 13px; color: var(--text-m); }
 
-.ta-heading { font-size: 18px; margin: 0 0 12px; }
+.ta-heading { font-size: 16px; line-height: 1.5; margin: 0 0 12px; }
+.ta-heading-sub { margin-left: 12px; font-size: 12px; font-weight: 400; color: var(--text-m); }
 .ta-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr)); gap: 14px; }
 .ta-card { display: grid; grid-template-columns: 112px 1fr; gap: 14px; padding: 14px; border-radius: var(--radius); background: var(--bg-card); scroll-margin-top: 16px; }
 /* カードごとの投稿から来たとき（?c=…）のカード。背景で区別し、状態の目印の枠線とは重ねない */
@@ -96,25 +86,28 @@ body.price-redesign {
 .ta-foot p { margin: 0 0 6px; }
 .ta-foot a { color: var(--accent-l); }
 
+/* 1023px 以下・640px 以下も price-layout.css のヘッダーと同じ値（ロゴを1段目に・スマホは購入候補をロゴの横の枠に） */
+@media (max-width: 1023px) {
+  .ta-header { gap: 0 18px; }
+  .ta-brand { flex-basis: 100%; margin-bottom: 2px; }
+  .ta-nav { gap: 22px; }
+  .ta-nav a { min-height: 48px; padding-bottom: 10px; }
+}
 @media (max-width: 640px) {
-  .ta-header { flex-wrap: wrap; }
-  .ta-nav { flex-basis: 100%; gap: 0 8px; justify-content: space-between; }
-  .ta-nav a { min-height: 44px; padding-top: 0; }
-  .ta-nav .ta-nav-wish { position: absolute; top: 10px; right: 0; margin-left: 0; min-height: 36px; }
+  .ta-page { padding-inline: 16px; }
+  .ta-header { padding-top: 15px; }
+  .ta-brand { padding-right: 90px; margin-bottom: 8px; }
+  .ta-brand-icon { height: 46px; }
+  .ta-brand-name-image { width: 104px; transform: translateY(5px); }
+  .ta-nav { flex-wrap: wrap; gap: 0 8px; justify-content: space-between; }
+  .ta-nav a { min-height: 44px; padding: 10px 0; }
+  .ta-nav .ta-nav-wish { position: absolute; top: 10px; right: 0; min-height: 36px; margin-left: 0; padding: 8px 0; }
+  .ta-heading-sub { display: block; margin-left: 0; }
   .ta-next-grid { grid-template-columns: 1fr; }
 }
 /* スマホ（2026-10-30 ユーザー「見づらい」）: 2列のままだと右の文の幅が約220pxしかなく、要約が細かく折り返して縦に伸びていた。
    上の段に「小さい絵＋名前・種類・見出し」、要約は下の段で横幅いっぱいに。弾の紹介は3つの数字を1行に詰める */
 @media (max-width: 560px) {
-  .ta-brand-icon { height: 46px; }
-  .ta-brand-name-image { width: 104px; transform: translateY(5px); }
-  .ta-hero { padding: 14px 16px; margin-bottom: 20px; }
-  .ta-title { font-size: 24px; margin: 8px 0 10px; }
-  .ta-facts { flex-wrap: nowrap; gap: 0 18px; margin-bottom: 8px; }
-  .ta-facts dt { font-size: 11px; }
-  .ta-facts dd { margin-top: 0; font-size: 17px; white-space: nowrap; }
-  .ta-facts small { font-size: 12px; margin-left: 2px; }
-  .ta-lead { font-size: 13px; line-height: 1.65; }
   .ta-card { grid-template-columns: 72px 1fr; column-gap: 12px; row-gap: 0; padding: 12px; }
   .ta-body { display: contents; }
   .ta-proxy { grid-column: 1; grid-row: 1 / span 5; align-self: start; padding: 6px 3px; }

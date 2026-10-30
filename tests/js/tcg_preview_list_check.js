@@ -51,7 +51,7 @@ const cards=[
   assert.equal(get('newCardsHeading').textContent,'海外先行カード一覧');
   const groups=get('newCardsGrid').children;
   const titles=groups.map(g=>g.children[0].children[0].textContent);
-  assert.deepEqual(titles,['BEYOND THE BRAVE（2件）','CHAOS ORIGINS（1件）','Prize 2023（1件）'],'英語版の発売日の新しい順になっていない');
+  assert.deepEqual(titles,['BEYOND THE BRAVE（2枚）','CHAOS ORIGINS（1枚）','Prize 2023（1枚）'],'英語版の発売日の新しい順になっていない');
   assert.equal(groups[0].children[0].children[1].textContent,'英語版 2026/10/09 発売');
   assert.equal(groups[2].children[0].children[1].textContent,'英語版 2023/09/02 発売','過去の年が付いていない');
   const card=groups[0].children[1].children[0];
