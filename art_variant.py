@@ -69,6 +69,9 @@ _TORECOLO_PID_RE = re.compile(r"/shop/g/g([^/]+?)(?:-[SK])?/?$")
 _TORECOLO_CODE_RE = re.compile(r"^[A-Z0-9]+-[A-Z]*\d+([A-Z]*)$")
 # トレコロの商品番号の、レアリティごとのいつもの末尾（2026-10-28 に人気カード30枚の実データで確認したもの）。
 # 違う絵は先頭に S が付く。ここに無いレアリティは判別しない
+# カーナベルの漫画風のレアリティ（略号のまま保存される。scraper._kanabell_rarity）→ ほかの店がそろえて書くレアリティ。
+# ほかの店は「ウルトラ」「シークレット」の中に漫画カラー／漫画モノクロとして並べるので、画面ではそちらに寄せる
+_MANGA_RARITIES = {"MANGAウル": "ウルトラ", "MANGAシク": "シークレット", "MANGAアル": "アルティメット"}
 _TORECOLO_SUFFIX = {
     "シークレット": "SE", "25thシークレット": "QSE", "プリシク": "PSE", "プレミアムゴールド": "PGR",
     "ウルトラ": "", "スーパー": "SR", "レア": "R", "アルティメット": "AR", "コレクターズ": "CR",
@@ -134,6 +137,10 @@ def classify(row: dict, card_name: str) -> tuple[str, str]:
     # カードラッシュは漫画風の絵を「(カラー)」「(モノクロ)」とだけ書く（10-28 青眼・ブラマジ・真紅眼などで確認）
     if shop == "カードラッシュ" and label in ("カラー", "モノクロ"):
         return (ART_MANGA_COLOR if label == "カラー" else ART_MANGA_MONO), edition
+    # カーナベルは漫画風をレアリティ側に「MANGAウル」「MANGAシク」と書き、商品名には「(カラー版)」「(モノクロ版)」とだけ書く
+    # （2026-10-30 ベビードラゴン YAC1-JP075 で確認）。レアリティの名前は画面に送るときに display_rarity で寄せる
+    if raw_rarity in _MANGA_RARITIES:
+        label = "MANGA" + label
     if re.search(r"漫画|MANGA", label, re.IGNORECASE):
         if "カラー" in label:
             return ART_MANGA_COLOR, edition
@@ -227,7 +234,8 @@ def display_rarity(row: dict) -> str:
     # アジア版の GREEN は art が言語版になるので、レアリティ側の表記で見る
     if rarity.startswith("クォーターセンチュリーシークレット") and re.search(r"GREEN\s*Ver|PINK\s*Ver", rarity, re.IGNORECASE):
         return "25thシークレット"
-    return rarity
+    # カーナベルの「MANGAウル」などは、ほかの店と同じ「ウルトラ」などの中の漫画カラー／モノクロとして比べる（2026-10-30）
+    return _MANGA_RARITIES.get(rarity, rarity)
 
 
 # 未開封・付属品つきの商品（(未開封)・(封筒付き未開封)・(当選通知書付き、ダンボール付き)・(台紙、封筒付き)・《未開封》 など）。

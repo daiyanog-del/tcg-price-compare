@@ -129,6 +129,36 @@ def test_display_rarity_folds_asian_green_too():
     assert av.display_rarity({"rarity": "シークレット", "art": av.ART_BASE}) == "シークレット"
 
 
+@pytest.mark.parametrize("name,rarity,art,shown", [
+    # カーナベルは漫画風をレアリティ側に書き、色は商品名の (カラー版)(モノクロ版) だけ（2026-10-30 ベビードラゴン YAC1-JP075）
+    ("ベビードラゴン（カラー版）", "MANGAウル", av.ART_MANGA_COLOR, "ウルトラ"),
+    ("ベビードラゴン(モノクロ版)", "MANGAウル", av.ART_MANGA_MONO, "ウルトラ"),
+    ("ベビードラゴン（カラー版）", "MANGAシク", av.ART_MANGA_COLOR, "シークレット"),
+    ("ベビードラゴン（モノクロ版）", "MANGAシク", av.ART_MANGA_MONO, "シークレット"),
+    ("ベビードラゴン", "MANGAアル", "", "アルティメット"),  # 色が書いていない漫画風は判別しない
+])
+def test_kanabell_manga_rarity_folds_into_ultra_secret(name, rarity, art, shown):
+    row = _row("カーナベル", name, rarity=normalize_rarity(rarity))
+    assert av.classify(row, "ベビードラゴン")[0] == art
+    assert av.display_rarity(row) == shown
+
+
+def test_build_done_puts_kanabell_manga_beside_other_shops():
+    # カーナベルの MANGAシク は、遊々亭の「シークレット」の中の漫画カラーと同じ枠で比べる。保存に使う元の行は略号のまま
+    import app as app_module
+
+    rows = [
+        {"shop": "カーナベル", "name": "ベビードラゴン（カラー版）", "rarity": "MANGAシク",
+         "price": 1180, "sold_out": False, "url": ""},
+        {"shop": "遊々亭", "name": "ベビードラゴン(カラー/MANGA-STYLE)", "rarity": "シークレット",
+         "price": 980, "sold_out": False, "url": ""},
+    ]
+    done = app_module._build_done(rows, "", "ベビードラゴン")
+    assert [(r["rarity"], r["art"]) for r in done["results"]] == [
+        ("シークレット", av.ART_MANGA_COLOR), ("シークレット", av.ART_MANGA_COLOR)]
+    assert rows[0]["rarity"] == "MANGAシク"
+
+
 def _coded(shop, name, code, rarity="スーパー", url=""):
     return {"shop": shop, "name": name, "rarity": rarity, "code": code, "url": url}
 
