@@ -1274,7 +1274,7 @@ def _main(state: dict):
             processed = selected[:loop_end_index]
             try:
                 clabo_saved = _save_clabo_catalog_rows(
-                    sb, processed, clabo_matched, today, shop_stats, clabo_catalog_stats, art_contexts
+                    sb, processed, clabo_matched, today, shop_stats, clabo_catalog_stats, art_contexts=art_contexts
                 )
                 total_saved += clabo_saved
             except DbWriteAborted as e:

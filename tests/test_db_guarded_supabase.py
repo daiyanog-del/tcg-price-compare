@@ -495,7 +495,7 @@ def test_prices_abort_in_catalog_save_joins_counted_report(monkeypatch, run_pric
     def fake_prepare(selected, available_shops, shop_stats):
         return list(available_shops), {}, {"products": 0, "categories_failed": []}
 
-    def fake_save(sb, processed, matched, today, shop_stats, stats):
+    def fake_save(sb, processed, matched, today, shop_stats, stats, art_contexts=None):
         sb.rpc("upsert_price_rows_catalog", {}).execute()
         return 0
 
