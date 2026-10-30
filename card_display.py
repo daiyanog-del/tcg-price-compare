@@ -881,6 +881,23 @@ def get_unreleased_proxy(name: str) -> dict | None:
     return _build_proxy_data(card)
 
 
+def get_still_unreleased_release_date(name: str) -> str | None:
+    """
+    まだ発売されていない未発売カードなら発売日（"YYYY-MM-DD"、未定は ""）を、そうでなければ None を返す。
+
+    判定は未発売カード一覧（list_new_unreleased_cards）と同じ: status が approved・hidden=false で、
+    発売日が未定か今日(JST)より後。linked は照合ジョブで発売確認済みなので発売済みとして扱う。
+    購入候補の「どこで買うと安いか」が、店に並ばないカードを探しに行かないために使う（2026-10-30）。
+    """
+    card = _find_unreleased_card(name)
+    if card is None or card.get("status") != "approved" or card.get("hidden"):
+        return None
+    release_date = str(card.get("release_date") or "")
+    if release_date and date.fromisoformat(release_date) <= datetime.now(JST).date():
+        return None
+    return release_date
+
+
 def _resolve_renamed(row: dict, resolved: dict) -> dict:
     """日本語名での解決結果に renamed_to を足す。解決できない（none）ときは TCG先行の表示に renamed_to を足す。"""
     if resolved.get("kind") == "none":

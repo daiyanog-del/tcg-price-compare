@@ -1310,6 +1310,23 @@ def _is_tcg_preview_name(name: str) -> bool:
     return _card_display.get_tcg_preview_proxy(name) is not None
 
 
+def _wish_unreleased_mark(name: str) -> dict | None:
+    """購入候補のカードがまだ店に並ばないカードなら印 {"release_date", "tcg_preview"} を返す。無ければ None。
+
+    未発売カード（発売日が未定か未来）と TCG先行カード（日本に無い英語名）が対象。発売済みの
+    カード辞書にある名前は発売済みを優先する（_is_tcg_preview_name・/api/validate と同じ順）。
+    「どこで買うと安いか」が店へ探しに行って「見つからなかった」と出していたのを分ける（2026-10-30）。
+    """
+    if _cardnames_set and name in _cardnames_set:
+        return None
+    release_date = _card_display.get_still_unreleased_release_date(name)
+    if release_date is not None:
+        return {"release_date": release_date, "tcg_preview": False}
+    if _is_tcg_preview_name(name):
+        return {"release_date": "", "tcg_preview": True}
+    return None
+
+
 def _is_release_passed_unreleased(name: str) -> bool:
     """週次インデックス（_cardnames_set / cardnames_ja.json）未反映だが、
     未発売テーブルに登録済みで release_date が到来済みのカードか。
@@ -3166,6 +3183,7 @@ def api_wish_prices():
     入力: {"cards": ["カード名", ...]}  最大50件
     返却: {"cards": [{name, latest, base_7d, diff, pct, status}, ...]}
       status: "ready" = データあり, "pending" = まだ収集されていない,
+              "unreleased" = まだ店に並ばないカード（release_date・tcg_preview を添える）,
               "error" = DB の読み込みに失敗（値段なしとは別。画面は「価格を読み込めませんでした」）
     """
     global _estimate_cache_time
@@ -3256,9 +3274,14 @@ def api_wish_prices():
                             "image": _ygores_image_url(name)})
             continue
         if name in pending_set:
-            results.append({"name": name, "latest": None, "base_7d": None,
-                            "diff": None, "pct": None, "status": "pending",
-                            "image": _ygores_image_url(name)})
+            # 値が無いのが未発売のためなら「まだ集めていない」と分ける（2026-10-30）
+            mark = _wish_unreleased_mark(name)
+            item = {"name": name, "latest": None, "base_7d": None,
+                    "diff": None, "pct": None, "status": "unreleased" if mark else "pending",
+                    "image": _ygores_image_url(name)}
+            if mark:
+                item.update(mark)
+            results.append(item)
             continue
 
         dates = card_dates.get(name, {})
@@ -3312,6 +3335,7 @@ def api_wish_shop_totals():
         ...
       ],
       "db_missing": [{"name": str, "rarity": str}, ...],
+      "unreleased": [{"name": str, "rarity": str, "release_date": "YYYY-MM-DD"|"", "tcg_preview": bool}, ...],
       "entries": [{"name": 補正後name, "qty": int, "rarity": 正規化後rarity(""=未指定)}, ...],
       "shipping_rules": {店舗名: {base_fee, free_threshold, min_order, ...}},
       "shipping_checked_on": "YYYY-MM-DD"
@@ -3354,7 +3378,7 @@ def api_wish_shop_totals():
         entries.append({"name": corrected, "qty": qty, "rarity": rarity})
 
     if not entries:
-        return jsonify({"shops": [], "db_missing": [], "entries": []})
+        return jsonify({"shops": [], "db_missing": [], "unreleased": [], "entries": []})
 
     names = sorted({e["name"] for e in entries})
     total_qty = sum(e["qty"] for e in entries)
@@ -3497,16 +3521,27 @@ def api_wish_shop_totals():
             return any(by_shop.values())
         return any(rarity_pref in by_rarity for by_rarity in by_shop.values())
 
-    db_missing = [
-        {"name": e["name"], "rarity": e["rarity"]}
-        for e in entries if not _entry_has_any_data(e)
-    ]
+    # DB に値が無いエントリのうち、まだ店に並ばないカード（未発売・TCG先行）は店のリアルタイム検索に
+    # 回さず unreleased で返す（探しても無いのが分かっていて、画面が「見つからなかった」と出していた）。
+    # DB に値があるもの（予約の出品を集めた等）は通常どおり集計に入れる
+    db_missing = []
+    unreleased = []
+    for e in entries:
+        if _entry_has_any_data(e):
+            continue
+        mark = _wish_unreleased_mark(e["name"])
+        if mark:
+            unreleased.append({"name": e["name"], "rarity": e["rarity"], **mark})
+        else:
+            db_missing.append({"name": e["name"], "rarity": e["rarity"]})
 
     # 送料ルールも一緒に返す。リアルタイム検索で合計が後から増えたとき、
     # フロント側で送料と注文可否を計算し直すのに使う（shipping.py の docstring 参照）。
     return jsonify({
         "shops": shop_summaries,
         "db_missing": db_missing,
+        # まだ店に並ばないカード（未発売・TCG先行）。どの店の集計にも入らず、店の検索もしない
+        "unreleased": unreleased,
         # フロントの照合キーをサーバ正本に統一するため、正規化後の entries を返す
         # （name補正・rarity正規化・重複統合済み。フロントはこれをキー突合に使う）
         "entries": entries,

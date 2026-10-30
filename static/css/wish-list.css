@@ -51,6 +51,8 @@
 #wishList .wl-price .wish-price-info { font: 700 .92rem var(--mono); color: var(--text); }
 /* 価格が無いとき（まだ集めていない・読み込めなかった）は小さな控えめの文字 */
 #wishList .wl-price .wl-noprice { font: .72rem var(--font); color: var(--text-m); white-space: normal; }
+/* 未発売の「未発売」「11月1日発売」は語の途中で折り返さない（折り返すのはまとまりの間だけ） */
+#wishList .wl-price .wl-nowrap { display: inline-block; white-space: nowrap; }
 /* 読み込み中の印（D。以前は「相場データ収集中」の文字） */
 #wishList .wl-skel { display: block; width: 64px; height: 14px; border-radius: 4px; background: linear-gradient(90deg, var(--bg-hover), #353843, var(--bg-hover)); background-size: 200% 100%; animation: wl-skel 1.2s linear infinite; }
 @keyframes wl-skel { from { background-position: 100% 0; } to { background-position: -100% 0; } }
