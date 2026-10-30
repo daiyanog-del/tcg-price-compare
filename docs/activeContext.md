@@ -4,6 +4,7 @@
 - 採用急増の型の材料。情報元を実データで比べ、テーマ単位で「店のX（198）＋CS 主催者のX（10）＋CS の語の検索」に決めた（経緯は decisions.md 同日）
 - 作ったもの: tournament_posts.sql・adoption_parse.py（抜き出し）・collect_tournament_posts.py（集める・--reparse・--candidates）・tournament_accounts.json・collect-tournament-posts.yml（毎日 JST 7:00）・テスト35件
 - 試し実行（dry-run・X 169件・約 $0.85）: 結果の投稿 84件中 76件でテーマが取れた（残りはデッキ名を書いていない投稿）
+- 異常のときだけ Discord に知らせる（上限に達して読み残した・1件も読めなかった・途中で止まった。毎日の結果は送らない。10-30 追加）
 - 本番 DB に tournament_posts.sql を適用済み（10-30・ユーザー承認。試しの1行の書き込みと削除まで確認）
 - 初回の手動実行（09:27 JST）: 59件を保存（約 $0.31）。OCG 51件（店48・CS 3）・テーマが取れた42件・分布2件
 - 残り: ③翌朝 7:00 の定期実行で続きから読めるか・1日の件数（見込みの約90件より少ない） ④1〜2週たまったら --candidates で CS 主催者を足す・テーマの別名表・週ごとの分布の集計を作る
