@@ -163,6 +163,12 @@ def plain_text(text: str) -> str:
     return s.strip()
 
 
+# Yugipedia が効果の文の欄に書く仮置きの断り書き（例「This card's existence is mentioned in the product description of
+# "Ticking Blast Sphere". Further details, … to be added once the card is revealed.」）。効果の文ではないので未公開と同じに扱う
+# （2026-10-30 Heavy Metalmorph が「要約が空」の失敗を3回くり返した）
+_PLACEHOLDER_LORE = re.compile(r"\bto be added once\b|\bexistence (?:is|was|has been) (?:mentioned|confirmed|teased)\b", re.I)
+
+
 def parse_lore(text_param: str, page_text: str) -> dict:
     """効果文の欄を {kind, text_en, source_url, raw} にする。
 
@@ -170,7 +176,7 @@ def parse_lore(text_param: str, page_text: str) -> dict:
     raw は [[…]] を残した元の文（関連カードのリンク先を拾うのに使う）。
     """
     raw = (text_param or "").strip()
-    if not raw or plain_text(raw).strip("' ") in ("", "N/A"):
+    if not raw or plain_text(raw).strip("' ") in ("", "N/A") or _PLACEHOLDER_LORE.search(plain_text(raw)):
         return {"kind": "none", "text_en": "", "source_url": "", "raw": ""}
     q = template_params(raw, "quote")
     if q is not None and q.get("text"):

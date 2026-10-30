@@ -266,6 +266,17 @@ def test_公式の段の初報は絵が入っていればイラストも判明�
     assert "イラスト" not in tp.text_set_first(SET, none)
 
 
+def test_Yugipediaの仮置きの断り書きは効果の文として扱わない():
+    import tcg_announce as ta
+    raw = ("''This card's existence is mentioned in the product description of \"[[Ticking Blast Sphere]]\". "
+           "Further details, including official name and description, to be added once the card is revealed.''")
+    lore = ta.parse_lore(raw, "{{Unofficial lore|English}}\n")
+    assert lore["kind"] == "none" and lore["text_en"] == ""
+    # 本物の宣伝文はそのまま
+    real = ta.parse_lore("A Trap that destroys monsters.", "{{Unofficial lore|English}}\n")
+    assert real["kind"] == "blurb"
+
+
 def test_無効なら何もしない(monkeypatch):
     monkeypatch.delenv(tp.ENABLED_ENV, raising=False)
     assert tp.run(object()).startswith("無効")
