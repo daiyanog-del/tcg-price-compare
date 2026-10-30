@@ -75,22 +75,28 @@ MAX_ATTEMPTS = 3
 # 要約（宣伝文・英語テキスト → 日本語の概要）
 # ──────────────────────────────────────────────
 
-SUMMARY_SYSTEM = """遊戯王カードの英語の説明文を読み、そのカードが何をするかを、遊戯王を遊ぶ日本の人に伝わる自然な日本語でまとめます。
+SUMMARY_SYSTEM = """遊戯王カードの英語の説明文を読み、そのカードが何をするかを、遊戯王OCGを遊ぶ日本の人が読み慣れた
+カードテキストの言い回しでまとめます（2026-10-30 ユーザー「遊戯王の効果っぽくなくて、どういう効果か分かりづらい」）。
 
 - 説明文に書かれていることだけを書く。書かれていない効果・条件・数値・出どころ（どこから手札に加えるか等）は足さない。
   分からないことは書かずに省き、「書かれていない」という注記も書かない。
 - 販売店の宣伝文のことがある。宣伝の言い回しや冗談は落とす。ただし、コストやデメリットの有無のようにカードの強さに関わる点は残す。
-- 遊戯王OCGの日本語の用語で書く（Special Summon→特殊召喚、Graveyard/GY→墓地、Deck→デッキ、destroy→破壊、banish→除外、
-  Quick Effect→相手ターンでも使える効果、DARK→闇属性、Machine→機械族、enemy・opponent's→相手の）。
+- 遊戯王OCGのカードテキストの言い回しと語順で書く:
+  - 主語や場所を省かない（「このカード」「自分フィールドの」「相手フィールドの」「自分の墓地の」）。
+  - 条件 → 処理の順に、「〜場合、〜できる。」「〜場合、〜する。」の形で書く。任意の効果は「できる」、必ず起きる効果は「する」。
+  - 数と対象を落とさない。英語の a / an / one は「1体」「1枚」、for each / each time は「〜につき」「〜するたびに」と書く。
+  - 用語はOCGの日本語でそろえる（Special Summon→特殊召喚、Graveyard/GY→墓地、Deck→デッキ、destroy→破壊、banish→除外、
+    Set→セット、equip→装備、flip a coin→コイントス、by battle→戦闘で、Quick Effect→相手ターンでも発動できる効果、
+    DARK→闇属性、Machine→機械族、enemy・opponent's→相手の）。属性と種族は「闇属性・機械族モンスター」のように中黒でつなぐ。
+- ただし、説明文に無い決まりは言い回しのために足さない: 「1ターンに1度」「対象として」「チェーン」「発動できる／発動する」の区別、
+  「時」と「場合」の使い分け、①②③の番号。本物のカードテキストと見間違えられないよう、これらは書かない（「場合」に統一する）。
 - 英語の "…" で囲まれた名前は、名前の対応表にあれば日本語の正式名を「」に入れる。無ければ英語のまま「」に入れる（カタカナにしない）。
-- intro: 説明文が複数の効果に共通する使い方（いつ使えるか・効果の重なり方・コストの有無など）をはっきり書いているときだけ、1〜2文で書く。
-  カードの性格の説明・まとめ・感想・おすすめの組み合わせは書かない。当てはまらなければ空にする。
-- effects: 効果1つにつき1項目。text は1文・40字以内で、動詞で言い切る。
-  数や回数に関わる条件（〜の数だけ・〜1つにつき・〜するたびに・1ターンに1度 など）は、短くするときも落とさない。
+- intro: 複数の効果に共通すること（相手ターンでも使える・コイントスの回数と結果の使い方・コストやデメリットの有無など）を
+  説明文がはっきり書いているときだけ、1〜2文で書く。カードの性格の説明・まとめ・感想・おすすめの組み合わせは書かない。当てはまらなければ空にする。
+- effects: 効果1つにつき1項目。text は1〜2文（目安60字以内）。読みやすさのために短くするより、条件・数・対象を落とさないことを優先する。
   説明文で効果そのものに名前が付いているときだけ、label にその名前のうち区別に使う英語の1語を大文字で入れる。名前が無ければ label は空。
 - short: 投稿に載せる1文（45字以内）。いちばん特徴的な働きを1つに絞って書き、ほかの効果は入れない。カード名・カードの種類は別の欄に出るので書かない。
-- 文末はすべて「〜する」「〜できる」「〜される」のような常体にそろえる（です・ます調にしない）。
-- 名詞を並べた硬い言い方・体言止め・大げさな比喩を避け、声に出して読んで自然な文にする。"""
+- 文末はすべて常体にそろえる（です・ます調にしない）。大げさな比喩を避ける。"""
 
 SUMMARY_SCHEMA = {
     "type": "object",
@@ -645,6 +651,32 @@ def format_summary(stats: dict) -> str:
             f"・追いかけ終了{stats['closed']}")
 
 
+def preview_summaries(sb, client, prefix: str, *, model: str, mirror: str | None) -> int:
+    """その弾のカードを今の指示で要約し直して、今の要約と並べてログに出すだけ（DB には書かない）。
+
+    指示（SUMMARY_SYSTEM）を変えたときに、本番の要約を書き換える前に中身を確かめる用（2026-10-30）。
+    """
+    rows = sb.table(CARDS).select("page_id,name_en,lore_kind,lore_en,pendulum_lore_en,summary_ja,summary_short_ja")         .eq("set_prefix", prefix).eq("status", "announced").order("list_order").execute().data
+    rows = [r for r in rows if r.get("lore_kind") != "none" and r.get("lore_en")]
+    if not rows:
+        logger.info(f"要約し直すカードがありません: {prefix}")
+        return 0
+    en, ja = tcg_translate.load_mirror(ensure_mirror(mirror))
+    corpus = tcg_translate.Corpus(en, ja)
+    cost = 0.0
+    for r in rows:
+        card = {"lore": {"kind": r["lore_kind"], "text_en": r["lore_en"]},
+                "pendulum_lore": {"text_en": r.get("pendulum_lore_en") or ""}}
+        out = summarize(client, corpus, card, r["name_en"], model=model)
+        cost += tpw._cost(out["usage"], model)
+        print(json.dumps({"name_en": r["name_en"], "lore_en": r["lore_en"],
+                          "old": {"summary": r.get("summary_ja"), "short": r.get("summary_short_ja")},
+                          "new": {"summary": out["summary"], "short": out["short"], "warnings": out["warnings"]}},
+                         ensure_ascii=False), flush=True)
+    logger.info(f"要約の試し: {len(rows)}枚・費用の目安 ${cost:.3f}（DB には書いていない）")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--mirror", help="YGOResources ミラー（en/ ja/）のフォルダ。無ければ一時フォルダに取る")
@@ -653,6 +685,8 @@ def main(argv=None) -> int:
     ap.add_argument("--days", type=int, default=DEFAULT_DAYS, help="新しい弾を探す日数")
     ap.add_argument("--list-title", action="append", help="この「Set Card Lists:… (TCG-EN)」だけを見る（複数可）")
     ap.add_argument("--dump", help="作った行（弾・カード）を JSON に書き出す（手元で画面を確かめる用）")
+    ap.add_argument("--preview-summaries", metavar="PREFIX",
+                    help="この弾のカードを今の指示で要約し直して表示するだけ（DB に書かない・取り込みも投稿もしない）")
     a = ap.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
@@ -676,6 +710,11 @@ def main(argv=None) -> int:
             return 1
         import anthropic
         client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"], timeout=300.0, max_retries=2)
+    if a.preview_summaries:
+        if sb is None or client is None:
+            logger.error("要約の試しには DB と AI の鍵が要ります（--dry-run・--no-summarize とは一緒に使えない）")
+            return 1
+        return preview_summaries(sb, client, a.preview_summaries, model=model, mirror=a.mirror)
 
     if a.list_title:
         titles = a.list_title
