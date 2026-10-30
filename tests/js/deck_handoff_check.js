@@ -33,8 +33,11 @@ function fixture(){
   assert.equal(f.storage.getItem(HANDOFF_KEY),null);
   assert.equal(f.loc.href,'https://example.test/solitaire');
   assert(f.body.children[0].children[0].children[0].textContent.includes(deck.name));
-  assert.equal(f.body.children[0].children[0].children[1].textContent,'読み込みました');
-  assert.equal(f.body.children[0].children[0].children[2].textContent,'（メイン2枚・EX1枚）');
+  // 並び: 名前・状態の印・状態・枚数（印は読み込み中＝輪、完了＝✓。2026-10-30）
+  assert.equal(f.body.children[0].children[0].children[1].textContent,'✓');
+  assert.equal(f.body.children[0].children[0].children[1].className,'sol-handoff-mark');
+  assert.equal(f.body.children[0].children[0].children[2].textContent,'読み込みました');
+  assert.equal(f.body.children[0].children[0].children[3].textContent,'（メイン2枚・EX1枚）');
   assert.equal(f.storage.getItem('cardprice_saved_decks'),'保存デッキは変更禁止');
   assert.equal(await receiveDeckHandoff(f),false,'消費したURLで再び取り込んだ');
   // 環境デッキの「シミュレーターで回す」（?from=meta。2026-10-21）も受け取り、戻り先は環境デッキ
@@ -75,11 +78,11 @@ function fixture(){
     const mid=fixture();mid.storage.setItem(HANDOFF_KEY,snapshot);let seen=null;
     const load=mid.loadDeck;
     mid.loadDeck=async(...args)=>{const t=mid.body.children[0].children[0];
-      seen={state:t.children[1].textContent,reserve:t.children[1].attributes['data-reserve'],counts:t.children[2].textContent,cls:t.children[2].className};
+      seen={mark:t.children[1].className,state:t.children[2].textContent,reserve:t.children[2].attributes['data-reserve'],counts:t.children[3].textContent,cls:t.children[3].className};
       return load(...args);};
     await receiveDeckHandoff(mid);
-    assert.deepEqual(seen,{state:'読み込み中…',reserve:'読み込みました',counts:'（メイン2枚・EX1枚）',cls:'sol-handoff-counts is-pending'});
-    assert.equal(mid.body.children[0].children[0].children[2].className,'sol-handoff-counts');
+    assert.deepEqual(seen,{mark:'sol-handoff-mark ld-ring',state:'読み込み中…',reserve:'読み込みました',counts:'（メイン2枚・EX1枚）',cls:'sol-handoff-counts is-pending'});
+    assert.equal(mid.body.children[0].children[0].children[3].className,'sol-handoff-counts');
   }
 
   // 境界値と不正値。巨大入力はJSON解析前に拒否し、盤面に触らない。
@@ -108,7 +111,8 @@ function fixture(){
   assert.equal(partial.storage.getItem(HANDOFF_KEY),snapshot);
   assert(partial.loc.href.endsWith('?from=mydeck'));
   const panel=partial.body.children[0];
-  assert.match(panel.children[0].children[1].textContent,/一部のカード/);
+  assert.match(panel.children[0].children[2].textContent,/一部のカード/);
+  assert.equal(panel.children[0].children[1].hidden,true,'失敗の文の前に印が残っている');
   assert.equal(panel.children[1].hidden,false);
   await panel.children[1].listeners.click();
   assert.equal(tries,2);assert.equal(partial.calls.filter(c=>c[0]==='clear').length,2);

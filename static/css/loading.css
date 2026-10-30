@@ -1,0 +1,46 @@
+/* 読込中の印（2026-10-30）。文字だけの「読込中…」だと止まって見えて不安になるので、動くものを添える。
+   色はページの --accent（価格比較＝金・シミュレーター＝明るい青）。輪の溝は同じ色を薄くしたもの。
+   - 回転する輪: 文の左に付ける。HTML の文字列には <span class="ld-ring" aria-hidden="true"></span> を文の前に入れ、
+     textContent で文言を差し替える要素（ボタン・進み具合の文）には class="ld-spin" を付け外しする（::before に輪が出る）
+   - 光る帯: 金額など数字が入る場所。<span class="ld-skel" role="status" aria-label="計算中"></span>
+   動きを減らす設定の人には動きを止める（購入候補の価格の札 wl-skel と同じ扱い） */
+.ld-ring,
+.ld-spin::before {
+  display: inline-block;
+  box-sizing: border-box;
+  width: 1em;
+  height: 1em;
+  margin-right: .5em;
+  vertical-align: -.15em;
+  border: 2px solid rgba(255, 255, 255, .15);
+  border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: ld-spin .8s linear infinite;
+}
+.ld-spin::before { content: ''; }
+@keyframes ld-spin { to { transform: rotate(360deg); } }
+
+.ld-skel {
+  display: inline-block;
+  width: 5.5em;
+  height: .9em;
+  vertical-align: middle;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--bg-hover), var(--border), var(--bg-hover));
+  background-size: 200% 100%;
+  animation: ld-skel 1.2s ease-in-out infinite;
+}
+@keyframes ld-skel { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+
+/* 価格比較の検索ボタン（#btn）は確認中・検索中の間だけ disabled になる（index-main.js doSearch）ので、その間に輪を出す */
+#btn:disabled::before { content: ''; display: inline-block; box-sizing: border-box; width: 1em; height: 1em; margin-right: .4em; vertical-align: -.15em;
+  border: 2px solid rgba(168, 180, 201, .3); border: 2px solid color-mix(in srgb, currentColor 30%, transparent); border-top-color: currentColor; border-radius: 50%; animation: ld-spin .8s linear infinite; }
+
+/* リプレイ一覧の仮の枠（templates/solitaire_replays.html。中身が届く前に置く灰色の四角）を明滅させ、待っていると分かるようにする */
+.rp-pcard-skel { animation: ld-pulse 1.4s ease-in-out infinite; }
+@keyframes ld-pulse { 50% { opacity: .5; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .ld-ring, .ld-spin::before, .ld-skel, #btn:disabled::before, .rp-pcard-skel { animation: none; }
+}

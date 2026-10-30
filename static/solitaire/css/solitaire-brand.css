@@ -2037,6 +2037,8 @@ a.replay-btn { display: inline-block; text-decoration: none; }
 .sol-handoff-state { display: inline-flex; flex-direction: column; vertical-align: top; }
 .sol-handoff-state::after { content: attr(data-reserve); height: 0; overflow: hidden; visibility: hidden; }
 .sol-handoff-counts.is-pending { visibility: hidden; }
+/* 状態の印（deck-handoff.js）。読み込み中の輪（.ld-ring）と完了の ✓ を同じ幅で入れ替える */
+.sol-handoff-mark { display: inline-block; width: 1em; margin-right: .5em; text-align: center; }
 .sol-handoff-status.is-error .sol-handoff-state { display: inline; }
 .sol-handoff-back {
   flex: none;

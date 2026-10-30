@@ -9,6 +9,7 @@
      検索エンジンにも見せない（robots.txt の Disallow: /sync と二重に防御する）。-->
 <meta name="robots" content="noindex, nofollow">
 <title>他の端末と同期 | 強欲なラボ</title>
+<link rel="stylesheet" href="{{ static_url('css/loading.css') }}">
 <style>
 :root{
   --bg:#0a1024;--bg-card:#1a2547;--border:#2a3460;--text:#ffffff;
@@ -64,7 +65,7 @@ button{
 <div class="card">
   <div class="brand">強欲なラボ &mdash; 端末間同期</div>
 
-  <div id="stateLoading" class="loading">確認しています…</div>
+  <div id="stateLoading" class="loading"><span class="ld-ring" aria-hidden="true"></span>確認しています…</div>
 
   <!-- 確認画面（有効なトークン） -->
   <div id="stateConfirm" class="hidden">

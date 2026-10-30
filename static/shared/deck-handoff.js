@@ -64,7 +64,9 @@ export async function receiveDeckHandoff({loadDeck,clearDeck,getCounts,onLoaded=
   const nameEl=doc.createElement('span');nameEl.className='sol-handoff-name';
   const stateEl=doc.createElement('span');stateEl.className='sol-handoff-state';
   const countsEl=doc.createElement('span');countsEl.className='sol-handoff-counts';
-  message.append(nameEl,stateEl,countsEl);
+  // 状態の印: 読み込み中は回転する輪（loading.css）、読み込めたら ✓。同じ幅の枠で切り替え、文の幅を変えない（2026-10-30）
+  const markEl=doc.createElement('span');markEl.className='sol-handoff-mark';markEl.setAttribute('aria-hidden','true');
+  message.append(nameEl,markEl,stateEl,countsEl);
   const retry=doc.createElement('button');retry.type='button';retry.textContent='再試行';retry.hidden=true;retry.className='sol-handoff-retry';
   const back=doc.createElement('a');back.href=from==='meta'?'/#meta':'/#mydeck';back.textContent=from==='meta'?'環境デッキに戻る':'マイデッキに戻る';back.className='sol-handoff-back';
   panel.append(message,retry,back);
@@ -74,6 +76,7 @@ export async function receiveDeckHandoff({loadDeck,clearDeck,getCounts,onLoaded=
   const show=(name,state,{reserve='',counts='',pending=false,failed=false}={})=>{
     nameEl.textContent=name;stateEl.textContent=state;stateEl.setAttribute('data-reserve',reserve);
     countsEl.textContent=counts;countsEl.className='sol-handoff-counts'+(pending?' is-pending':'');
+    markEl.className='sol-handoff-mark'+(pending?' ld-ring':'');markEl.textContent=pending||failed?'':'✓';markEl.hidden=failed;
     panel.classList?.toggle('is-error',failed);
   };
   let running=false;

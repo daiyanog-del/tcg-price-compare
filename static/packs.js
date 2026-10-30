@@ -51,7 +51,7 @@ async function loadPacks(){
       renderPacks();return;
     }
   }
-  el.innerHTML='<div class="meta-loading">パック情報を読込中...</div>';
+  el.innerHTML='<div class="meta-loading"><span class="ld-ring" aria-hidden="true"></span>パック情報を読込中...</div>';
   try{
     const res=await fetch('/api/packs');
     // 失敗レスポンスをキャッシュしない。res.ok を見ずに保存していたため、サーバーの
@@ -222,7 +222,7 @@ function _pkRender(){
   const meta=`${i.date?`<b>${esc(i.date.replace(/-/g,'/'))}</b> ${st.unreleased?'発売・あと'+st.days+'日':'発売'}`:''}${st.cards.length?` ・ 収録 <b>${st.cards.length}</b>種`:''}`;
   // 一覧と表は両方の入れ物を置き、切り替えは表示だけにする（作り直すとカード画像を読み直すので）
   let body;
-  if(st.loading) body='<div class="meta-loading">カードリストを読込中...</div>';
+  if(st.loading) body='<div class="meta-loading"><span class="ld-ring" aria-hidden="true"></span>カードリストを読込中...</div>';
   else if(st.error) body=`<div class="meta-empty">${esc(st.error)}</div>`;
   else body=`<div class="pk-cards" id="packDetailGrid"${st.view==='matrix'?' hidden':''}>${_pkOrder(st).map(k=>_pkRowHtml(st,k)).join('')}</div>`
     +`<div class="pk-matrix" id="packMatrix"${st.view==='matrix'?'':' hidden'}></div>`;
@@ -415,7 +415,7 @@ async function _pkRenderMatrix(){
   if(r){ model=r.matrix; src='bulk:'+r.at; }
   else{
     if(st.dbmx===null||st.dbmx===undefined){
-      el.innerHTML='<div class="meta-loading">店舗×レアの表を読込中...</div>';
+      el.innerHTML='<div class="meta-loading"><span class="ld-ring" aria-hidden="true"></span>店舗×レアの表を読込中...</div>';
       st.mxKey='';
       await _pkLoadDbMatrix(st);
       if(st!==_pk) return;

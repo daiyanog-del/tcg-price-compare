@@ -272,7 +272,7 @@
     if(!box()||!name) return;
     const my=++gen;
     series=null;
-    show(`<p class="pt-note">${esc(MSG_LOADING)}</p>`);
+    show(`<p class="pt-note"><span class="ld-ring" aria-hidden="true"></span>${esc(MSG_LOADING)}</p>`);
     fetch('/api/price-history?card='+encodeURIComponent(name)).then(async res=>{
       if(my!==gen) return;
       let d=null;
