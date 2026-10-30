@@ -78,10 +78,29 @@ window.NewCards = (() => {
     const add=document.createElement('button');
     add.type='button';
     add.className='new-card-add';
-    add.textContent='+ デッキに追加';
     // 保存処理は既存の addToDeck（追加先ピッカー）に任せる。
     add.addEventListener('click',()=>{_ga('new_card_add_deck');addToDeck(card.name,add,{notOwned:true});});
-    wrap.append(link,add);
+    const acts=document.createElement('div');
+    acts.className='new-card-acts';
+    if(isTcgPage()){
+      // 海外先行カードは価格が無いので購入候補は出さない（詳細画面と同じ）
+      add.textContent='+ デッキに追加';
+      acts.append(add);
+    }else{
+      // 1枚の幅が狭い（スマホで約108px）ので短い文言で横に2つ並べる（2026-10-30 ユーザー選択・モック _mocks/new-card-wish-20261030 の A）
+      add.textContent='+ デッキ';
+      add.setAttribute('aria-label','デッキに追加');
+      const wish=document.createElement('button');
+      wish.type='button';
+      wish.className='new-card-wish';
+      wish.textContent='+ 候補';
+      wish.setAttribute('aria-label','購入候補に追加');
+      wish.title='購入候補に追加';
+      // 保存処理は既存の wishAddFromBtn（詳細画面の「購入候補に追加」と同じ）に任せる。
+      wish.addEventListener('click',()=>{_ga('new_card_add_wish');wishAddFromBtn(wish,card.name,1);});
+      acts.append(add,wish);
+    }
+    wrap.append(link,acts);
     return wrap;
   }
   // 商品名ごとに分ける。並びは「グループ内で最も新しい追加日時」の新しい順、商品未定は最後。

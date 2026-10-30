@@ -37,10 +37,15 @@
 .new-cards-announce small{font-size:12px;font-weight:400;color:var(--text-m)}
 .new-card-link strong{display:block;font-size:13px;line-height:1.55;overflow-wrap:anywhere}
 /* 「もっと見る」など他の通常ボタンと同じ、枠なしの面（2026-10-21 金枠＋青文字から変更） */
-.new-card-add{margin-top:auto;width:100%;min-height:40px;padding:4px 6px;background:var(--bg-hover);color:var(--text);border:0;border-radius:6px;font:inherit;font-size:12px;font-weight:600;line-height:1.3;cursor:pointer;overflow-wrap:anywhere}
+.new-card-add,.new-card-wish{margin-top:auto;width:100%;min-height:40px;padding:4px 6px;background:var(--bg-hover);color:var(--text);border:0;border-radius:6px;font:inherit;font-size:12px;font-weight:600;line-height:1.3;cursor:pointer;overflow-wrap:anywhere}
 .new-card-link{margin-bottom:8px}
-.new-card-add:hover{background:#353843}
-.new-card-add:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
+.new-card-add:hover,.new-card-wish:hover{background:#353843}
+.new-card-add:focus-visible,.new-card-wish:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
+/* デッキと購入候補を横に半分ずつ（2026-10-30 ユーザー選択）。候補は詳細画面の副ボタンと同じ青文字 */
+.new-card-acts{display:flex;gap:4px;margin-top:auto}
+.new-card-acts>button{flex:1 1 0;min-width:0;margin-top:0}
+.new-card-wish{color:var(--accent-l)}
+.new-card-wish.added{color:var(--green);pointer-events:none}
 /* 読込前の仮枠（実カードと同じ骨組み）。名前は2行分を確保する */
 .new-card-skel .new-card-meta,.new-card-skel .new-card-add{visibility:hidden}
 .new-card-skel .new-card-add{display:block}
@@ -71,7 +76,7 @@
 #mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped){grid-template-columns:repeat(8,minmax(0,1fr));gap:14px}
 #mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) .new-card-link strong{font-size:12px}
 #mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) .new-card-meta{font-size:10px}
-#mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) .new-card-add{min-height:30px;font-size:11px}
+#mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) :is(.new-card-add,.new-card-wish){min-height:30px;font-size:11px}
 #mode-search:not(.new-cards-page) #newCardsMore{display:none}
 #mode-search:not(.new-cards-page) .new-cards{margin-bottom:22px}
 @media(max-width:900px){#mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped){grid-template-columns:repeat(4,minmax(0,1fr))}}
@@ -83,8 +88,8 @@
   #mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) .new-card{flex:0 0 112px;scroll-snap-align:start}
   #mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) .new-card-meta{margin:6px 0 3px}
   #mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) .new-card-link strong{line-height:1.45}
-  #mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) .new-card-add{min-height:30px}
+  #mode-search:not(.new-cards-page) #newCardsGrid:not(.is-grouped) :is(.new-card-add,.new-card-wish){min-height:30px}
   #mode-search:not(.new-cards-page) #newCardsMore{display:none}
   #mode-search:not(.new-cards-page) .new-cards{margin-bottom:18px}
 }
-@media(max-width:640px){.new-cards h2{font-size:17px}.new-cards-help{font-size:12px;margin-bottom:16px}.new-cards-grid{gap:16px 10px}.new-card-link strong{font-size:12px}.new-card-add{font-size:11px;min-height:36px;padding:4px 2px}.new-card-group-title{font-size:15px}.new-card-meta{font-size:10px}.new-card-badge{padding:1px 4px}}
+@media(max-width:640px){.new-cards h2{font-size:17px}.new-cards-help{font-size:12px;margin-bottom:16px}.new-cards-grid{gap:16px 10px}.new-card-link strong{font-size:12px}.new-card-add,.new-card-wish{font-size:11px;min-height:36px;padding:4px 2px}.new-card-group-title{font-size:15px}.new-card-meta{font-size:10px}.new-card-badge{padding:1px 4px}}
