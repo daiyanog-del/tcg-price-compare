@@ -418,7 +418,7 @@ def _merge_raw(sb, card_id: int, updates: dict) -> None:
 # 公式版が届いたときの差し替え
 # ──────────────────────────────────────────────
 
-_CARD_COLUMNS = ("id, name, status, product_name, source_url, extraction_raw, card_number, "
+_CARD_COLUMNS = ("id, name, status, product_name, source_url, extraction_raw, card_number, release_date, "
                  + ", ".join(REPLACE_FIELDS))
 
 

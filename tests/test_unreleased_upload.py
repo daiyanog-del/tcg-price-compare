@@ -20,6 +20,11 @@ from name_normalize import fuzzy_key
 # ──────────────────────────────────────────────
 
 class _Query(Query):
+    def select(self, cols="*", **_k):
+        # 本物と同じく、指定した列だけを返す（列の指定漏れをテストで見つけるため）
+        self._cols = None if cols.strip() == "*" else [c.strip() for c in cols.split(",")]
+        return self
+
     def eq(self, col, val):
         if "->>" in col:
             base, key = col.split("->>", 1)
@@ -31,7 +36,11 @@ class _Query(Query):
         if self.op in ("upsert", "insert") and isinstance(self.payload, dict) and "id" not in self.payload \
                 and self.name in ("unreleased_cards", "official_card_images"):
             self.payload = dict(self.payload, id=self.db.next_id())
-        return super().execute()
+        res = super().execute()
+        cols = getattr(self, "_cols", None)
+        if self.op == "select" and cols:
+            res.data = [{c: r.get(c) for c in cols} for r in res.data]
+        return res
 
 
 class _Bucket:
@@ -569,6 +578,17 @@ def test_pending_replacement_records_auto_approve_verdict(no_context):
     assert "auto_approve_verdict" in card["extraction_raw"]
     assert "upload_source" in card["extraction_raw"]["auto_approve_verdict"]["reasons"]   # 画像取込由来は残る
     assert card["release_date"] == "2026-10-31"     # 未確定だった発売日は公式版の値を採る
+
+
+def test_pending_replacement_keeps_decided_release_date(no_context):
+    # 決まっていた発売日は公式版の値で上書きしない（2026-10-30 reviewer 発見: 読む列に release_date が無く常に上書きしていた）
+    sb = _db(_upload_card(1, "華麗なる三面鏡", "pending", release_date="2026-11-07"))
+    q = up.load_replaceable(sb)
+    row = _official_row("華麗なる三面鏡", release_date="2026-10-31")
+    up.split_replaceable(sb, [row], q, OFFICIAL, store=_store_ok, notify=MagicMock())
+    card = sb.tables["unreleased_cards"][0]
+    assert card["effect_text"] == "公式の効果文"       # 内容は公式版に置き換わる
+    assert card["release_date"] == "2026-11-07"     # 発売日はそのまま
 
 
 def test_same_name_twice_in_one_run_is_discarded_after_replacement(no_context):
