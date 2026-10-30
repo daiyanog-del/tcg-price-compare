@@ -326,12 +326,18 @@ def needs_summary(existing: dict | None, row: dict) -> bool:
     return attempts_so_far(existing, row) < MAX_ATTEMPTS
 
 
-def lore_first_seen(existing: dict | None, row: dict) -> bool:
-    """この回で効果の文が初めて出たか（lore_at を入れるか）。名前だけで先に行ができるカードがあるので、行ができた
-    時刻とは別に持つ。速報の初報を出せるかの古さはこれで測る（tcg_announce_post）。"""
-    # 前の行に lore_at が無いだけのカード（列を足す前からあるカード）には入れない。今の時刻が入ると古い速報が
-    # 新しく見えるので、既存の行は SQL で行ができた時刻から埋める（tcg_announce_cards.sql）
-    return row["lore_kind"] != "none" and (existing is None or (existing.get("lore_kind") or "none") == "none")
+def lore_at_for(existing: dict | None, row: dict, now: str) -> str | None:
+    """この回に入れる lore_at（効果の文が初めて出た時刻）。入れないなら None。名前だけで先に行ができるカードが
+    あるので、行ができた時刻とは別に持つ。速報の初報を出せるかの古さはこれで測る（tcg_announce_post）。"""
+    if row["lore_kind"] == "none":
+        return None
+    if existing is None or (existing.get("lore_kind") or "none") == "none":
+        return now   # この回で初めて効果の文が出た
+    if not existing.get("lore_at"):
+        # 前から効果の文があるのに時刻が空（列を足した後、新しいコードに替わる前に取り込んだカード）。
+        # 今の時刻を入れると古い速報が新しく見えるので、SQL の埋め直しと同じく行ができた時刻にする
+        return existing.get("first_seen_at")
+    return None
 
 
 def settled(existing: dict) -> bool:
@@ -535,8 +541,9 @@ def process(collected: dict, known_cards: dict[int, dict], *, sb, client, model:
             stats["_new_names"].append(row["name_en"])
         else:
             stats["updated"] += 1
-        if lore_first_seen(existing, row):
-            row["lore_at"] = _now()
+        lore_at = lore_at_for(existing, row, _now())
+        if lore_at:
+            row["lore_at"] = lore_at
         if row["lore_kind"] == "official" and (existing is None or existing.get("lore_kind") != "official"):
             row["official_at"] = _now()
             stats["official_new"] += 1

@@ -5,7 +5,7 @@
 速報の段＝投稿できるカードはあるが、出どころが販売店だけ（販売店の商品案内が公式より先に出た弾。MZMC は約17時間先。
 過去に時刻を比べられた5弾では、販売店が先だったのは MZMC だけ）。
   1. 初報 set_first   … 弾を見つけて概要のあるカードが1枚以上できたら、すぐ（静かな時間帯は明けてから）。
-                         速報の段では、効果の文が最初に出てから（lore_at）LEAK_MAX_HOURS 以内に出せるときだけ「速報」として出す
+                         速報の段では、効果の文が出てから（カードの lore_at の真ん中の値）LEAK_MAX_HOURS 以内に出せるときだけ「速報」として出す
                          （遅れたら速報の価値が薄いので出さずに公式を待つ）。出した段を phase に残す
   2. 公式の続報 set_official … 速報の初報を出した（posted）弾に公式の絵が1枚でも入ったら1回だけ（イラストが判明したことを
                          知らせる。英語のテキストだけ・出どころが公式でも絵がまだ無いうちは出さない）
@@ -252,9 +252,12 @@ def decide(sets: list[dict], cards_by_set: dict[str, list[dict]], posts: list[di
             if official:
                 candidates.append((0, {"kind": "set_first", "phase": "official", "set": s, "cards": cards}))
             else:
-                # 速報の古さは、効果の文が最初に出た時刻（lore_at）から数える。弾やカードの名前だけ何週間も前から
-                # 出ていることがあるので、弾を見つけた時刻やカードの行ができた時刻からは数えない
-                found = min((t for t in (_ts(c.get("lore_at")) for c in cards) if t), default=None)
+                # 速報の古さは、効果の文が出た時刻（lore_at）から数える。弾やカードの名前だけ何週間も前から
+                # 出ていることがあるので、弾を見つけた時刻やカードの行ができた時刻からは数えない。
+                # カードの時刻の真ん中の値で測る（前から1枚だけあった古い文や、あとから1枚だけ足された文に
+                # 引きずられないように）
+                times = sorted(t for t in (_ts(c.get("lore_at")) for c in cards) if t)
+                found = times[(len(times) - 1) // 2] if times else None
                 # 時刻の分からない速報は、古いかもしれないので出さない（公式を待つ）
                 if found is not None and now - found <= timedelta(hours=LEAK_MAX_HOURS):
                     candidates.append((0, {"kind": "set_first", "phase": "leak", "set": s, "cards": cards}))

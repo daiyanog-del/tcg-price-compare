@@ -1015,15 +1015,28 @@ def test_速報の古さは効果の文が出た時刻から数える():
     assert tp.decide([SET], {"MZMC": [dict(c, lore_at=None) for c in _leak(CARDS)]}, [], noon) is None
     # ちょうど12時間は出す
     assert tp.decide([SET], {"MZMC": _leak(CARDS)}, [], datetime(2026, 10, 29, 13, 0, tzinfo=timezone.utc))
+    # 前から1枚だけ古い文があっても、残りが新しければ速報を出す（真ん中の値で測る）
+    burst = [dict(c, page_id=50 + i, name_en=f"Leak {i}", lore_at="2026-10-29T10:00:00+00:00")
+             for i, c in enumerate(_leak([CARDS[0]] * 3))]
+    one_old = [dict(_leak(CARDS)[0], lore_at="2026-10-15T00:00:00+00:00")] + burst
+    item = tp.decide([SET], {"MZMC": one_old}, [], noon)
+    assert (item["kind"], item["phase"]) == ("set_first", "leak")
+    # 古い速報にあとから1枚だけ新しいカードが足されても、出さない
+    one_new = [dict(c, lore_at="2026-10-28T00:00:00+00:00") for c in burst] + [
+        dict(_leak(CARDS)[0], lore_at="2026-10-29T11:00:00+00:00")]
+    assert tp.decide([SET], {"MZMC": one_new}, [], noon) is None
 
 
 def test_効果の文が初めて出た回だけ時刻を入れる():
-    assert tw.lore_first_seen(None, {"lore_kind": "blurb"})
-    assert tw.lore_first_seen({"lore_kind": "none"}, {"lore_kind": "blurb"})
-    assert not tw.lore_first_seen(None, {"lore_kind": "none"})
-    assert not tw.lore_first_seen({"lore_kind": "blurb", "lore_at": "x"}, {"lore_kind": "official"})
-    # 列を足す前からあるカードには入れない（今の時刻が入ると古い速報が新しく見える）
-    assert not tw.lore_first_seen({"lore_kind": "blurb"}, {"lore_kind": "blurb"})
+    now = "2026-10-30T12:00:00+00:00"
+    assert tw.lore_at_for(None, {"lore_kind": "blurb"}, now) == now
+    assert tw.lore_at_for({"lore_kind": "none"}, {"lore_kind": "blurb"}, now) == now
+    assert tw.lore_at_for(None, {"lore_kind": "none"}, now) is None
+    assert tw.lore_at_for({"lore_kind": "blurb", "lore_at": "x"}, {"lore_kind": "official"}, now) is None
+    # 前から効果の文があるのに時刻が空のカード（SQL の後・新しいコードの前に取り込んだ）は、行ができた時刻にする
+    # （今の時刻が入ると古い速報が新しく見える）
+    old = {"lore_kind": "blurb", "lore_at": None, "first_seen_at": "2026-10-01T00:00:00+00:00"}
+    assert tw.lore_at_for(old, {"lore_kind": "blurb"}, now) == "2026-10-01T00:00:00+00:00"
 
 
 def test_公式の続報は速報で初報を出した弾に絵が入ったら1回だけ():
