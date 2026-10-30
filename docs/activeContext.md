@@ -1,5 +1,12 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-30: 店舗・CS の大会結果を X から集める仕組み（branch claude/adoption-source-9b55ee・PR 作成まで）
+- 採用急増の型の材料。情報元を実データで比べ、テーマ単位で「店のX（198）＋CS 主催者のX（10）＋CS の語の検索」に決めた（経緯は decisions.md 同日）
+- 作ったもの: tournament_posts.sql・adoption_parse.py（抜き出し）・collect_tournament_posts.py（集める・--reparse・--candidates）・tournament_accounts.json・collect-tournament-posts.yml（毎日 JST 7:00）・テスト35件
+- 試し実行（dry-run・X 169件・約 $0.85）: 結果の投稿 84件中 76件でテーマが取れた（残りはデッキ名を書いていない投稿）
+- 本番 DB に tournament_posts.sql を適用済み（10-30・ユーザー承認。試しの1行の書き込みと削除まで確認）
+- 残り: ②マージ ③初回の実行で保存の件数・料金を確かめる ④1〜2週たまったら --candidates で CS 主催者を足す・テーマの別名表・週ごとの分布の集計を作る
+
 ## 2026-10-30: 端の列の守備表示のカードを画面の内へ（本番 PR #269 787aed8）
 - 縦向きスマホのマス8（右端）・マス4（左端）の守備表示が画面の外へ出ていた → 出る分だけ内側へずらす（main.js updateDefenseEdgeShift）。本番の 375×812 でマス8 281〜370px・マス4 5〜94px を確認。相手の場の7列・PC・横向きはずらし無し
 - 同日、#268 の録画用の表示（PC 1920×1080）も本番で確認（字幕は盤面の左・幅278px）
