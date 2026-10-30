@@ -2053,7 +2053,6 @@ const _cropModal = {
     const editForm = this._editForm;
     const cardId = this._cardId;
     const btn = isCrop ? this.confirmBtn : this.restoreBtn;
-    const idleLabel = this._label(kind);
     const candidate = this._candidate;
     let failMsg = isCrop ? 'クロップに失敗しました' : '元画像に戻せませんでした';
     let path = isCrop ? 'crop-image' : 'restore-original-image';
@@ -2061,7 +2060,8 @@ const _cropModal = {
     if (candidate) {
       failMsg = '公式版に差し替えられませんでした';
       path = 'official-candidate/apply';
-      body = { box: isCrop ? { ...this._sel } : null };
+      // 見比べた候補の時刻を送り、その間に別の公式版へ置き換わっていたらサーバーが 409 で止める
+      body = { box: isCrop ? { ...this._sel } : null, candidate_at: candidate.at || null };
     }
     this._busy = true;
     this._refreshButtons();
@@ -2092,7 +2092,7 @@ const _cropModal = {
       }
     } finally {
       this._busy = false;
-      btn.textContent = idleLabel;
+      btn.textContent = this._label(kind);   // 処理中に別の使い方で開き直されていても、今の使い方の文言にする
       this._refreshButtons();
     }
   },
@@ -2537,7 +2537,8 @@ function _renderUploadActions(row, card, reload) {
   if (v.state === 'candidate' && v.image_url) {
     make('公式版を見比べる', 'btn-primary', () => {
       const box = v.crop_box ? { ...v.crop_box, source_image_url: v.image_url } : null;
-      _cropModal.open(card.id, null, v.image_url, box, { currentUrl: card.card_image_url || '', onDone: reload });
+      _cropModal.open(card.id, null, v.image_url, box,
+        { currentUrl: card.card_image_url || '', at: v.at || null, onDone: reload });
     });
     make('公式版を見送る', 'btn-ghost', (b) => post(
       b, 'official-candidate/dismiss',

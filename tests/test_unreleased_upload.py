@@ -385,8 +385,12 @@ def test_candidate_fetch_failure_records_error_and_keeps_waiting():
 
 def test_newer_official_replaces_candidate():
     sb = _candidate_db()
-    up.split_replaceable(sb, [_official_row("誘惑の鏡壁")], up.load_replaceable(sb), OFFICIAL + "2",
-                         notify=MagicMock(), fetch=lambda url, official_site: (b"jpeg", "image/jpeg", ""))
+    newer = _official_row("誘惑の鏡壁")
+    newer["extraction_raw"]["card_image_url"] = "https://pbs.twimg.com/b.jpg"
+    notify = MagicMock()
+    up.split_replaceable(sb, [newer], up.load_replaceable(sb), OFFICIAL + "2",
+                         notify=notify, fetch=lambda url, official_site: (b"jpeg", "image/jpeg", ""))
+    notify.assert_called_once()
     cand = sb.tables["unreleased_cards"][0]["extraction_raw"]["official_candidate"]
     assert cand["page_url"] == OFFICIAL + "2" and cand["image"]["storage_path"] == "unreleased/candidates/1.jpg"
     assert "unreleased/candidates/1.png" not in sb.files       # 古い候補の画像は消す
@@ -840,3 +844,119 @@ def test_apply_and_revert_apis(monkeypatch):
     assert resp.status_code == 200
     resp = client.post("/api/admin/unreleased/1/official-candidate/dismiss", headers=h, json={})
     assert resp.status_code == 422
+
+
+# ──────────────────────────────────────────────
+# レビューで見つかった筋書き（2026-10-30）
+# ──────────────────────────────────────────────
+
+def test_revert_retry_after_midway_failure_keeps_official_as_candidate(monkeypatch):
+    import unreleased_image_store as store
+    monkeypatch.setattr(store, "crop_and_save_image", lambda *a, **k: (True, "u"))
+    sb = _candidate_db()
+    assert up.apply_official_candidate(sb, 1, None)[0]
+    official_original = sb.files["unreleased/originals/1.png"]
+
+    # 1回目: キャプチャの保存まで進んだあと、記録の書き込みで落ちる
+    real_write = up._write_raw
+    calls = {"n": 0}
+
+    def flaky_write(sb_, cid, raw, extra=None):
+        calls["n"] += 1
+        if calls["n"] == 2:          # 1回目＝候補の確定、2回目＝戻した記録
+            raise RuntimeError("一時的な失敗")
+        return real_write(sb_, cid, raw, extra)
+
+    monkeypatch.setattr(up, "_write_raw", flaky_write)
+    ok, msg = up.revert_to_capture(sb, 1)
+    assert not ok and "もう一度" in msg
+    monkeypatch.setattr(up, "_write_raw", real_write)
+
+    # 押し直すと続きから戻り、候補は公式版のまま（キャプチャにすり替わらない）
+    ok, msg = up.revert_to_capture(sb, 1)
+    assert ok, msg
+    raw = sb.tables["unreleased_cards"][0]["extraction_raw"]
+    assert sb.files[raw["official_candidate"]["image"]["storage_path"]] == official_original
+    assert "from_replaced_at" not in raw["official_candidate"]
+    assert sb.files["unreleased/originals/1.png"] == b"capture-original"
+
+
+def test_apply_stops_when_capture_cannot_be_backed_up():
+    sb = _candidate_db()
+    del sb.files["unreleased/1.png"]          # 表示中のキャプチャが読めない
+    ok, msg = up.apply_official_candidate(sb, 1, None)
+    assert not ok and "退避できない" in msg
+    raw = sb.tables["unreleased_cards"][0]["extraction_raw"]
+    assert "replaced_by_official" not in raw and "official_candidate" in raw
+    assert [i.get("deleted_at") for i in sb.tables["official_card_images"]] == [None]
+    assert sb.files["unreleased/originals/1.png"] == b"capture-original"
+
+
+def test_auto_replacement_reports_missing_backup(no_context):
+    sb = _db(_upload_card(1, "六花のくろひめ", "pending"))   # Storage にキャプチャが無い
+    notify = MagicMock()
+    up.split_replaceable(sb, [_official_row("六花のくろひめ")], up.load_replaceable(sb), OFFICIAL,
+                         store=_store_ok, notify=notify)
+    assert "退避できなかった" in notify.call_args.args[0]
+
+
+def test_content_replaced_row_cannot_be_reverted(no_context):
+    sb = _db(_upload_card(1, "六花のくろひめ", "pending"))
+    sb.files.update({"unreleased/1.png": b"capture-shown"})
+    up.split_replaceable(sb, [_official_row("六花のくろひめ")], up.load_replaceable(sb), OFFICIAL,
+                         store=_store_ok, notify=MagicMock())
+    raw = sb.tables["unreleased_cards"][0]["extraction_raw"]
+    assert raw["capture_backup"]                       # 退避はしてある
+    assert up.admin_view(raw)["can_revert"] is False   # でもボタンは出さない
+    ok, msg = up.revert_to_capture(sb, 1)
+    assert not ok and "内容ごと" in msg
+
+
+def test_status_is_reread_before_deciding():
+    # 実行の最初は承認待ちだったが、抽出の間に承認された
+    sb = _db(_upload_card(1, "誘惑の鏡壁", "pending"))
+    q = up.load_replaceable(sb)
+    sb.tables["unreleased_cards"][0]["status"] = "approved"
+    store = MagicMock()
+    up.split_replaceable(sb, [_official_row("誘惑の鏡壁")], q, OFFICIAL, store=store, notify=MagicMock(),
+                         fetch=_fetch_ok)
+    store.assert_not_called()
+    card = sb.tables["unreleased_cards"][0]
+    assert card["effect_text"] == "動画の効果文" and "official_candidate" in card["extraction_raw"]
+
+
+def test_same_official_again_does_not_renotify_or_undo_dismiss():
+    sb = _candidate_db()
+    assert up.dismiss_official_candidate(sb, 1)[0]
+    notify, fetch = MagicMock(), MagicMock()
+    up.split_replaceable(sb, [_official_row("誘惑の鏡壁")], up.load_replaceable(sb), OFFICIAL,
+                         notify=notify, fetch=fetch)
+    notify.assert_not_called()
+    fetch.assert_not_called()
+    raw = sb.tables["unreleased_cards"][0]["extraction_raw"]
+    assert "official_candidate" not in raw and raw["official_candidate_dismissed"]
+
+
+def test_apply_refuses_when_candidate_changed(monkeypatch):
+    sb = _candidate_db()
+    with pytest.raises(up.CandidateChanged):
+        up.apply_official_candidate(sb, 1, None, expected_at="古い時刻")
+    assert "replaced_by_official" not in sb.tables["unreleased_cards"][0]["extraction_raw"]
+    client = _admin_client(monkeypatch, sb)
+    resp = client.post("/api/admin/unreleased/1/official-candidate/apply", headers={"X-Admin-Key": "test-key"},
+                       json={"box": None, "candidate_at": "古い時刻"})
+    assert resp.status_code == 409
+
+
+def test_store_failure_puts_capture_back_on_same_path(monkeypatch):
+    sb = _candidate_db()
+
+    def store_overwrites_then_fails(sb_, cid, data, mime, image_url, page_url):
+        sb_.files["unreleased/1.png"] = b"official-overwrote"   # 同じ保存先に上書きしてから落ちた
+        return False, "DB 登録失敗"
+
+    import unreleased_image_store as store
+    monkeypatch.setattr(store, "store_replacement_bytes", store_overwrites_then_fails)
+    ok, _ = up.apply_official_candidate(sb, 1, None)
+    assert not ok
+    assert sb.files["unreleased/1.png"] == b"capture-shown"

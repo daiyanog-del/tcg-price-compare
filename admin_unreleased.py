@@ -1776,8 +1776,13 @@ def admin_apply_official_candidate(card_id: int):
         if not (0 <= box["left"] < box["right"] <= 1 and 0 <= box["top"] < box["bottom"] <= 1):
             return jsonify({"error": "切り抜き範囲が不正です"}), 400
 
-    from unreleased_upload import apply_official_candidate
-    ok, message = apply_official_candidate(_supabase, card_id, box)
+    from unreleased_upload import CandidateChanged, apply_official_candidate
+    expected_at = body.get("candidate_at")
+    try:
+        ok, message = apply_official_candidate(_supabase, card_id, box,
+                                               expected_at=expected_at if isinstance(expected_at, str) else None)
+    except CandidateChanged as e:
+        return jsonify({"ok": False, "error": str(e)}), 409
     if not ok:
         return jsonify({"ok": False, "error": message}), 422
     _card_display.invalidate_cache()
