@@ -9,7 +9,7 @@
 --   - 型番の無い表（price_daily_min・buyback_history）: A のカードのうち、A 以外の型番で プリシク が1行も無いカードだけ
 --     （同じカードに普通のプリシクの別の版があると、型番の無い行は見分けられないので触らない）
 -- 書き換えの決まり（10-30 の漫画風と同じ）: 同じキーにほかの行があれば1行に。日ごとの最安は安い方の店・同額なら両方、
--- 買取は高い方。元の行は _bak_of_20261030_* に退避（RLS 有効）。
+-- 買取は高い方。元の行は _bak_of_20261030_* に退避（RLS 有効。v2_of はまとめる相手の OFプリシク の行）。
 -- 番号: rarity_dim 21=OFプリシク / 46=プリシク、shop_dim 1=遊々亭 / 2=カードラボ（名前で引いて確かめる）。
 -- price_history_art・price_daily_art・buyback_art は該当0件（10-30 確認）なので触らない。
 --
@@ -59,15 +59,27 @@ alter table _bak_of_20261030_v2 enable row level security;
 alter table _bak_of_20261030_daily enable row level security;
 alter table _bak_of_20261030_buyback enable row level security;
 
--- 1) price_history_v2: 同じ (card, shop, OFプリシク, 日) の行は無いことを確かめてから番号だけ変える
-do $$
-begin
-  if exists (
-    select 1 from _bak_of_20261030_v2 p join price_history_v2 q
-      on q.card_id = p.card_id and q.shop_id = p.shop_id and q.recorded_at = p.recorded_at and q.rarity_id = 21) then
-    raise exception 'price_history_v2 に同じキーの OFプリシク の行がある（まとめ方を決めてから流す）';
-  end if;
-end $$;
+-- 1) price_history_v2: 同じ (card, shop, OFプリシク, 日) の行があれば1行にまとめ、無ければ番号だけ変える。
+--    取り込みの直し（PR #288）の反映後は、検索の即時記録がその日の OFプリシク の行を書くので、反映した日に
+--    同じキーの行ができる。まとめ方は price_persist と同じ: min_price は安い方・code は min_price を決めた行、
+--    min_price_any は安い方・url は min_price_any を決めた行（同額なら OFプリシク の行のまま）
+create table _bak_of_20261030_v2_of as
+select q.* from price_history_v2 q join _bak_of_20261030_v2 p
+  on q.card_id = p.card_id and q.shop_id = p.shop_id and q.recorded_at = p.recorded_at
+where q.rarity_id = 21;
+alter table _bak_of_20261030_v2_of enable row level security;
+
+update price_history_v2 o set
+  min_price = least(o.min_price, p.min_price),
+  code = case when p.min_price < o.min_price then p.code else o.code end,
+  min_price_any = least(o.min_price_any, p.min_price_any),
+  url = case when p.min_price_any < o.min_price_any then p.url else o.url end
+from _bak_of_20261030_v2 p
+where o.rarity_id = 21 and o.card_id = p.card_id and o.shop_id = p.shop_id and o.recorded_at = p.recorded_at;
+
+delete from price_history_v2 d
+using _bak_of_20261030_v2_of o
+where d.rarity_id = 46 and d.card_id = o.card_id and d.shop_id = o.shop_id and d.recorded_at = o.recorded_at;
 
 update price_history_v2 p set rarity_id = 21
 from _bak_of_20261030_v2 b
