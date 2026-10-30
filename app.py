@@ -246,6 +246,7 @@ import module_graph as _module_graph
 from admin_unreleased import admin_bp as _admin_bp
 from neuron_deck_parser import import_neuron as _import_neuron
 from neuron_link import resolve_card_name
+from wiki_link import resolve_wiki_url
 import sync as _sync
 from client_ip import _client_ip
 import site_urls
@@ -1036,6 +1037,16 @@ def card_by_cid(cid):
     if not name:
         return render_template("index.html", card_name="", page_mode="search"), 404
     return redirect(url_for("card_page", card_name=name), code=302)
+
+
+@app.route("/card-wiki")
+def card_wiki():
+    """カードのページの「Wiki」リンク — 遊戯王カードWiki のカードのページへ転送する。
+    ページ名の表記ゆれで見つからなければ wiki のタイトル検索へ。ロジックは wiki_link 参照。"""
+    url = resolve_wiki_url(request.args.get("name", ""))
+    if not url:
+        return "name required", 400
+    return redirect(url, code=302)
 
 
 @app.route("/buy/<path:card_name>")
