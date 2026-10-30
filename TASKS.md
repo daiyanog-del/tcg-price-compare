@@ -24,7 +24,7 @@
   - [x] 2026-10-30 ⚠ 毎時の定期実行（tcg-announce-watch.yml の cron 17 * * * *）がほとんど動いていない: 10-29 12:00〜10-30 05:48 UTC の約18時間で定期実行は2回だけ（18:28・23:18 UTC）。→ **Render cron tcg-announce-dispatch（JST 6:30・12:30・19:30）から workflow_dispatch を叩く形にした**（10-30 16:53 JST の手動実行で起動・成功・dry_run=false が渡ることを確認）。GitHub の cron は予備として残す。詳細 docs/decisions.md 10-30
   - [x] 2026-10-30 Render の古い cron **tcg-announce-trigger**（既製イメージ型・Docker Command が画面で保存できず空のまま）をユーザーが削除（Render の一覧から消えたのを確認）
   - [ ] 1日3回で取りこぼしが無いかの見直し（TODO: calibrate from data）: 公式ページは過去の弾ではどれも JST 1〜4時。速報の段の12時間判定と1日3回の間隔（最大11時間）の兼ね合いを、次の弾の実績で確かめる
-  - [ ] Heavy Metalmorph（紹介文が「別カードの商品説明で存在に触れられている」だけ）の要約が空で失敗し、取り込みの実行全体が failure になる。3回目（次の回）で試すのをやめる見込み。要約できる中身の無い文を失敗扱いにしない（終了コードを 1 にしない）かは別途
+  - [x] 2026-10-30 Heavy Metalmorph（紹介文が「別カードの商品説明で存在に触れられている」だけ）の要約が空で失敗し、取り込みの実行全体が failure になる。3回目（次の回）で試すのをやめる見込み。要約できる中身の無い文を失敗扱いにしない（終了コードを 1 にしない）かは別途 → **直した（PR #279 be26d96）**: Yugipedia の仮置きの断り書き（to be added once … / existence is mentioned …）は未公開（none）として扱う。本番の行は読み直して none・skipped に（Space Megatron と同じ名前だけの扱い。本物の文が載れば版が変わって取り込まれる）
   - [ ] 校正: LEAK_MAX_HOURS（12）・OFFICIAL_WAIT_DAYS（3）を次の弾からの販売店→公式の時間差で見直す（TODO: calibrate from data。10-30 の調べでは販売店が先だったのは5弾中 MZMC だけ・差は約17時間）
   - [ ] Maze of Machines の英語版発売（2027-03-19）後、公式DBに載ったカードが in_db になり /tcg-preview に引き継がれるかを本番で確かめる
 - [ ] **置いた先の印・相手の場（2026-10-29）** — 置いた先の印は本番 PR #249 a5f2b7c。相手の場（盤面の上に相手の墓地・モンスター・フィールドの段。普段は出さず、スイッチ・相手のマスのカード・相手の場を使う記録で出す）は同日 本番 PR #256 0765208。**残り**: iPhone/Android 実機（指でのドラッグ・墓地の札のタップ・縦向き7列）。詳細 docs/decisions.md 同日
