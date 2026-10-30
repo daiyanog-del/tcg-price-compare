@@ -1809,7 +1809,7 @@ function _setMoversHtml(list,html){
 // 読込開始。既に行（仮枠を含む）があれば高さを保ったまま薄くするだけにし、空の時だけ文言を出す
 function _setMoversLoading(list){
   if(list.querySelector('.movers-item'))list.classList.add('is-loading');
-  else list.innerHTML='<div class="movers-fail">読込中...</div>';
+  else list.innerHTML='<div class="movers-fail"><span class="ld-ring" aria-hidden="true"></span>読込中...</div>';
 }
 function loadTopMovers(dir,retry){
   retry=retry||0;
@@ -1828,7 +1828,7 @@ function loadTopMovers(dir,retry){
         // キャッシュ後0.2秒になったため、応急で8回×3秒に延ばしていた再試行を戻す。
         // 待っている間であることが分かる文言は残す（キャッシュ失効直後は数百ms待つため）。
         if(retry<3){
-          _setMoversHtml(list,'<div class="movers-fail">集計中です。少しお待ちください…</div>');
+          _setMoversHtml(list,'<div class="movers-fail"><span class="ld-ring" aria-hidden="true"></span>集計中です。少しお待ちください…</div>');
           setTimeout(()=>{ if(seq!==_moversSeq) return; loadTopMovers(dir,retry+1); },2000);
           return;
         }
@@ -1889,7 +1889,7 @@ function loadOfMovers(dir,retry){
       if(seq!==_moversSeq) return;  // 切替済み・この応答は捨てる
       if(data.error){
         if(retry<3){
-          _setMoversHtml(list,'<div class="movers-fail">集計中です。少しお待ちください…</div>');
+          _setMoversHtml(list,'<div class="movers-fail"><span class="ld-ring" aria-hidden="true"></span>集計中です。少しお待ちください…</div>');
           setTimeout(()=>{ if(seq!==_moversSeq) return; loadOfMovers(dir,retry+1); },2000);
           return;
         }
@@ -1942,7 +1942,7 @@ function loadGmrPriced(retry){
       if(seq!==_moversSeq) return;  // 切替済み・この応答は捨てる
       if(data.error){
         if(retry<3){
-          _setMoversHtml(list,'<div class="movers-fail">集計中です。少しお待ちください…</div>');
+          _setMoversHtml(list,'<div class="movers-fail"><span class="ld-ring" aria-hidden="true"></span>集計中です。少しお待ちください…</div>');
           setTimeout(()=>{ if(seq!==_moversSeq) return; loadGmrPriced(retry+1); },2000);
           return;
         }
@@ -2674,7 +2674,7 @@ async function _loadMetaTiersInner(){
       }
     }
   }catch{}
-  el.innerHTML='<div class="meta-loading">環境データを読込中...</div>';
+  el.innerHTML='<div class="meta-loading"><span class="ld-ring" aria-hidden="true"></span>環境データを読込中...</div>';
   try{
     const res=await fetch('/api/meta?include_metadata=1');
     if(!res.ok) throw new Error('環境データ取得失敗');
@@ -2728,7 +2728,7 @@ function renderMetaTiers(){
     if(!priced.length){
       el.innerHTML=_metaPricesError
         ?'<div class="meta-loading">環境デッキの価格情報の取得に失敗しました</div>'
-        :'<div class="meta-loading">価格データを読込中...</div>';
+        :'<div class="meta-loading"><span class="ld-ring" aria-hidden="true"></span>価格データを読込中...</div>';
       el.innerHTML+=`<div class="meta-note">${_metaProvenanceHtml()}</div>`;
       return;
     }
@@ -2862,7 +2862,8 @@ let _metaTotalObserver=null;
 function _metaWatchTotal(){
   const src=document.getElementById('metaDeckTotalPrice');
   if(!src) return;
-  const copy=()=>{ const head=document.getElementById('metaHeadTotal'); if(head) head.textContent=src.textContent&&src.textContent!=='-'?src.textContent:'計算中…'; };
+  // 計算中は光る帯（loading.css の .ld-skel）
+  const copy=()=>{ const head=document.getElementById('metaHeadTotal'); if(!head) return; if(src.textContent&&src.textContent!=='-') head.textContent=src.textContent; else if(!head.querySelector('.ld-skel')) head.innerHTML='<span class="ld-skel" role="status" aria-label="計算中"></span>'; };
   copy();
   if(_metaTotalObserver) return;
   _metaTotalObserver=new MutationObserver(copy);
@@ -2884,7 +2885,7 @@ async function loadMetaDeck(theme,rank){
 
   document.getElementById('metaDeckEmpty')?.setAttribute('hidden','');
   detailEl.classList.remove('hidden');
-  detailEl.innerHTML='<div class="meta-loading">デッキを読込中...</div>';
+  detailEl.innerHTML='<div class="meta-loading"><span class="ld-ring" aria-hidden="true"></span>デッキを読込中...</div>';
   // 前のデッキの計算結果・共有の材料を片付ける（読込中・データなし・失敗のときに前のカードが残らないように）
   _lastMetaDeckText='';
   DECK_CTX.meta._runId=(DECK_CTX.meta._runId||0)+1; // 計算中だった前のデッキの価格計算を止める
@@ -2925,7 +2926,7 @@ async function loadMetaDeck(theme,rank){
       <div class="mt-head">
         ${img?`<img src="${escAttr(img)}" alt="">`:'<span></span>'}
         <div class="mt-head-text"><h3 class="mt-title">${esc(theme)}</h3><div class="mt-meta">${meta}</div></div>
-        <div class="mt-total"><small>デッキ相場</small><b id="metaHeadTotal">計算中…</b></div>
+        <div class="mt-total"><small>デッキ相場</small><b id="metaHeadTotal"><span class="ld-skel" role="status" aria-label="計算中"></span></b></div>
       </div>
       <div class="mt-actions">
         ${hasFullDeck?`<button type="button" class="mt-btn is-primary" onclick="openMetaDeckInSolitaire()">${_META_PLAY_SVG}シミュレーターで回す</button>
@@ -3229,8 +3230,9 @@ async function calcDeckEstimate(ctx, opts){
     totalEl.textContent='-';
     totalLabel.textContent='デッキ合計（未計算）';
   }else{
-    totalEl.textContent='取得中...';
+    totalEl.innerHTML='<span class="ld-skel" role="status" aria-label="取得中"></span>';
     totalLabel.textContent='デッキ相場（直近データ）';
+    progEl.textContent='相場を取得中…';
   }
 
   // メインデッキを種別ソート（モンスター→魔法→罠）してグリッド描画
@@ -3248,6 +3250,7 @@ async function calcDeckEstimate(ctx, opts){
   // プレビューのみ（デッキ選択・PDF取込・購入候補変換時）：価格計算は走らせず、カード一覧だけ表示する
   if(opts.previewOnly){
     listEl.querySelectorAll('.deck-grid-cell.loading').forEach(el=>el.classList.remove('loading'));
+    progEl.classList.remove('ld-spin');
     progEl.textContent=ctx===DECK_CTX.mydeck
       ?'「相場で計算」または「店舗から取得」で価格を表示します'
       :'「簡易計算（DB相場）」または「リアルタイム計算」を押すと価格を取得します';
@@ -3260,6 +3263,8 @@ async function calcDeckEstimate(ctx, opts){
   const cardsParam=cards.map(c=>c.qty>1?`${c.qty} ${c.name}`:c.name).join('|');
   let total=0,found=0;
   const missing=[];// DBにデータがなかったカードのインデックス
+  // 読込中の輪（loading.css）。完了・失敗の文を出すところで外す
+  progEl.classList.add('ld-spin');
 
   try{
     // Phase 1: DBから一括取得（POST でカード名を送り URL 長制限を回避）
@@ -3270,7 +3275,7 @@ async function calcDeckEstimate(ctx, opts){
     });
     const data=await res.json();
     if(stale()) return;
-    if(data.error){progEl.textContent=data.error;return;}
+    if(data.error){progEl.classList.remove('ld-spin');progEl.textContent=data.error;return;}
 
     data.results.forEach((r,i)=>{
       const c=cards[i];
@@ -3295,6 +3300,7 @@ async function calcDeckEstimate(ctx, opts){
     totalEl.textContent=`¥${dbTotal.toLocaleString()}`;
 
     if(!missing.length){
+      progEl.classList.remove('ld-spin');
       progEl.textContent=`完了 — ${found}/${cards.length}枚の相場を取得`;
       renderDeckShareUI(ctx,ctx.getName(),total,cards,{mainCount,missingKinds:0});
       return;
@@ -3310,6 +3316,7 @@ async function calcDeckEstimate(ctx, opts){
         const priceEl=row.querySelector('.deck-card-price');
         if(priceEl) priceEl.textContent='データなし';
       });
+      progEl.classList.remove('ld-spin');
       progEl.textContent=`完了 — ${found}/${cards.length}枚の相場を取得（${missing.length}枚はDB未収録）`;
       renderDeckShareUI(ctx,ctx.getName(),total,cards,{mainCount,missingKinds:missing.length});
       return;
@@ -3391,12 +3398,14 @@ async function calcDeckEstimate(ctx, opts){
           totalEl.textContent=`¥${total.toLocaleString()}`;
           const totalFound=found+sseFound;
           const totalMissing=sseNotFound;
+          progEl.classList.remove('ld-spin');
           progEl.textContent=`完了 — ${totalFound}/${cards.length}枚の価格を取得${totalMissing>0?` (${totalMissing}枚未取得)`:''}`;
           renderDeckShareUI(ctx,ctx.getName(),total,cards,{mainCount,missingKinds:sseNotFound});
         }
       }
     }
   }catch(e){
+    progEl.classList.remove('ld-spin');
     progEl.textContent='エラーが発生しました。再度お試しください。';
   }
 }
@@ -3504,7 +3513,9 @@ async function calcDeck(buyMode){
   const progEl=document.getElementById('deckProgress');
   const totalLabel=document.querySelector('#deckResults .deck-total-label');
   resultsEl.classList.remove('hidden');
-  totalEl.textContent='計算中...';
+  totalEl.innerHTML='<span class="ld-skel" role="status" aria-label="計算中"></span>';
+  progEl.textContent=isBuy?'各店の買取価格を確認中…':'各店の価格を確認中…';
+  progEl.classList.add('ld-spin'); // 読込中の輪（loading.css）。完了・失敗の文を出すところで外す
   totalLabel.textContent=isBuy?'買取合計（推定）':'デッキ合計最安値（推定）';
 
   // メインデッキを種別ソート（モンスター→魔法→罠）してグリッド描画
@@ -3583,6 +3594,7 @@ async function calcDeck(buyMode){
         }
         else if(d.type==='done'){
           const modeLabel=isBuy?'買取価格':'販売価格';
+          progEl.classList.remove('ld-spin');
           progEl.textContent=`完了 — ${found}/${cards.length}枚の${modeLabel}を取得${notFound>0?` (${notFound}枚未取得)`:''}`;
           _updateSectionSubtotals(ctx); // セクション小計を最新化（リアルタイム計算の確定時）
           const deckShareText=isBuy
@@ -3598,6 +3610,7 @@ async function calcDeck(buyMode){
       }
     }
   }catch(e){
+    progEl.classList.remove('ld-spin');
     progEl.textContent='エラーが発生しました。再度お試しください。';
   }
 }

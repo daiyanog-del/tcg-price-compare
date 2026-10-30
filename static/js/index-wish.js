@@ -832,7 +832,7 @@ async function wishCheapestStores(){
 
   const rankEl=document.getElementById('wishShopRanking');
   rankEl.classList.remove('hidden');
-  rankEl.innerHTML='<div class="wb-loading">調べています…</div>';
+  rankEl.innerHTML='<div class="wb-loading"><span class="ld-ring" aria-hidden="true"></span>調べています…</div>';
   rankEl.scrollIntoView({block:'start'});
 
   // Step 1: DB相場で各店舗の合計を即時集計

@@ -272,7 +272,7 @@ export function _showLoading(name, imgSrc, targetPanel, isSample = false) {
       <img class="cip-img" src="${_esc(imgSrc)}" alt=""${_sampleAttr(isSample)}>
       <div class="cip-meta">
         <p class="cip-name">${_esc(name)}</p>
-        <p class="cip-type" style="color:#4a6490">読み込み中...</p>
+        <p class="cip-type" style="color:#4a6490"><span class="ld-ring" aria-hidden="true"></span>読み込み中...</p>
       </div>
     </div>
   `;

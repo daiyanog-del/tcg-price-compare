@@ -39,8 +39,10 @@ function _setDeckRowsLoading(triggerBtn, loading) {
   if (loading) {
     hint.dataset.origText = hint.textContent;
     hint.textContent = '読込中…';
+    hint.classList.add('ld-spin');
   } else if (hint.dataset.origText !== undefined) {
     hint.textContent = hint.dataset.origText;
+    hint.classList.remove('ld-spin');
     delete hint.dataset.origText;
   }
 }
@@ -843,7 +845,7 @@ async function loadMetaTierList() {
   if (!listEl) return;
   if (listEl.dataset.loaded === 'true') return;
 
-  listEl.innerHTML = '<span class="deck-loading-msg">読み込み中...</span>';
+  listEl.innerHTML = '<span class="deck-loading-msg"><span class="ld-ring" aria-hidden="true"></span>読み込み中...</span>';
   let rendered = false;
   try {
     const res = await fetch(API_META);

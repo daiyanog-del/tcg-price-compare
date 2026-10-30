@@ -423,9 +423,10 @@ export function openDeckImageDialog(opts) {
   let currentFile = null;
   let runId = 0;
   let closed = false;
-  const setMsg = (text, isError = false) => {
+  const setMsg = (text, isError = false, busy = false) => {
     const m = _el('div', 'dki-msg', text);
     if (isError) m.setAttribute('role', 'alert');
+    if (busy) m.classList.add('ld-spin'); // 読込中の輪（loading.css）
     preview.replaceChildren(m);
   };
   const finish = () => {
@@ -472,7 +473,7 @@ export function openDeckImageDialog(opts) {
     save.removeAttribute('href');
     shareBtn.hidden = true;
     currentFile = null;
-    setMsg('画像を作成中…');
+    setMsg('画像を作成中…', false, true);
     try {
       const values = await prepare();
       let price = null;

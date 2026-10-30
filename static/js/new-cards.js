@@ -186,6 +186,7 @@ window.NewCards = (() => {
     // 36件を超える分がある時だけ、全件の一覧ページへ案内する。
     const showAll=!list&&cards.length>0&&truncated&&shown>=cards.length;
     get('newCardsAll').hidden=!showAll;
+    get('newCardsStatus').classList.remove('ld-spin');
     get('newCardsStatus').textContent=cards.length
       ?''
       :isTcgPage()?'現在、表示できる海外先行カードはありません。':'現在、表示できる未発売カードはありません。';
@@ -199,7 +200,7 @@ window.NewCards = (() => {
     section.hidden=false;
     get('newCardsRetry').hidden=true;
     // HTMLの仮枠（または前回の表示）が残っている間は文言を足さない（足すと枠の下が押し下げられる）
-    if(!get('newCardsGrid').children.length)get('newCardsStatus').textContent='新着カードを読み込み中…';
+    if(!get('newCardsGrid').children.length){get('newCardsStatus').textContent='新着カードを読み込み中…';get('newCardsStatus').classList.add('ld-spin');} // 読込中の輪（loading.css）。結果・失敗の文で外す
     // サーバーが HTML に埋め込んだ最初の一覧（app.py index / new_cards_page）があれば、API を待たずに使う（一度だけ。
     // 再試行などでは API から取り直す）。DB を待たないと決まらないときは埋め込まれない（card_display.cached_new_cards）
     const initialEl=get('newCardsInitial');
@@ -224,6 +225,7 @@ window.NewCards = (() => {
       // 失敗前の画像を最新情報のように残さない。
       cards=[];get('newCardsGrid').replaceChildren();get('newCardsGrid').removeAttribute('aria-busy');get('newCardsMore').hidden=true;
       get('newCardsAll').hidden=true;
+      get('newCardsStatus').classList.remove('ld-spin');
       get('newCardsStatus').textContent=isTcgPage()?'海外先行カードを取得できませんでした。':'新着カードを取得できませんでした。';
       get('newCardsRetry').hidden=false;
     }).finally(()=>{if(pending===request)pending=null;});

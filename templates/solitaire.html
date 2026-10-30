@@ -55,6 +55,7 @@
 <link rel="stylesheet" href="{{ static_url('css/self-watermark.css') }}">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/sample-blur.css') }}">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/site-theme.css') }}">
+<link rel="stylesheet" href="{{ static_url('css/loading.css') }}">
 <!-- 左右サイドバーのボタン・コメントの区画・デッキの窓（2026-10-20 サイドバー整理） -->
 <link rel="stylesheet" href="{{ static_url('solitaire/css/side-panels.css') }}">
 <link rel="stylesheet" href="{{ static_url('solitaire/css/relief-theme.css') }}">
@@ -147,7 +148,7 @@
           <div class="deck-pick-pop" id="deckPaneMyDeck" role="dialog" aria-label="マイデッキ" hidden>
             <div class="deck-pick-pop-head"><span class="deck-pick-pop-title">マイデッキ</span><button type="button" class="deck-pick-pop-close" aria-label="閉じる">&times;</button></div>
             <div class="my-deck-list deck-pick-pop-body" id="myDeckList">
-              <span class="deck-loading-msg">読み込み中…</span>
+              <span class="deck-loading-msg"><span class="ld-ring" aria-hidden="true"></span>読み込み中…</span>
             </div>
             <div class="deck-pick-pop-foot" id="myDeckImportFoot"></div>
           </div>
