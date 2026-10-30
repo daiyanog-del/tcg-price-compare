@@ -145,11 +145,15 @@ document.addEventListener('click',e=>{
 // ── カード情報取得（YGOResources優先、YGOProDeckフォールバック）──
 function _applyKonamiLink(kid){
   _konamiDbUrl='https://www.db.yugioh-card.com/yugiohdb/card_search.action?ope=2&cid='+kid+'&request_locale=ja';
-  const nameEl=document.querySelector('.card-hero-name');
-  if(nameEl&&!nameEl.querySelector('a')){
+  // 結果の欄（#heroInfo）の名前に付ける。'.card-hero-name' だけだと、上にある検索中の欄（#searchPreviewName・隠れている）に付いて見えなくなる
+  const links=document.querySelector('#heroInfo .cr-ext-links');
+  if(links&&!links.querySelector('.cr-db-link-official')){
     const a=document.createElement('a');
-    a.className='cr-db-link';a.href=_konamiDbUrl;a.target='_blank';a.rel='noopener';a.textContent='公式DB';
-    nameEl.appendChild(a);
+    a.className='cr-db-link cr-db-link-official';a.href=_konamiDbUrl;a.target='_blank';a.rel='noopener';a.textContent='公式DB';
+    links.prepend(a);
+    // Wiki にも cid を渡す（読みの名前（テックジーナス　…）のページでも、サーバーが正式名（TG …）で wiki を引く）
+    const wiki=links.querySelector('.cr-db-link-wiki');
+    if(wiki&&!wiki.href.includes('&cid=')) wiki.href+='&cid='+encodeURIComponent(kid);
   }
   const wrap=document.getElementById('heroImgWrap');
   if(wrap){
@@ -623,7 +627,7 @@ function doSearch(opts){
   _setPriceSectionsVisible(true);
 
   // 前回の検索結果をクリア
-  cardImgUrl='';cardImgSmall='';
+  cardImgUrl='';cardImgSmall='';_konamiDbUrl=''; // 前のカードの公式DBのURLが残ると、次のカードで公式DBリンクを付けない
   const heroWrap=document.getElementById('heroImgWrap');
   if(heroWrap) heroWrap.innerHTML='';
   const cardHero=document.getElementById('cardHero');
@@ -877,7 +881,9 @@ function renderAll(d){
   const detailOpen=!!(window.matchMedia&&window.matchMedia('(min-width:641px)').matches);
   // 最安の行（#heroBest）は既定のレアリティが決まった後に _updateHeroSummary() が埋める。
   // 在庫の件数・レアリティの種類数の行は、すぐ下のレアリティ欄（すべて N件・札の数）と重なるので出さない（2026-10-22）
-  heroInfo.innerHTML=`<div class="card-hero-name">${esc(searchTerm)}</div>
+  // 名前の横の外部リンク: Wiki はここで出し、公式DB は konami_id が分かったら _applyKonamiLink が前に足す。
+  // Wiki は /card-wiki がページの有無を確かめ、無ければ wiki のタイトル検索へ送る（wiki_link.py）
+  heroInfo.innerHTML=`<div class="card-hero-name">${esc(searchTerm)}<span class="cr-ext-links"><a class="cr-db-link cr-db-link-wiki" href="/card-wiki?name=${encodeURIComponent(searchTerm)}" target="_blank" rel="noopener nofollow">Wiki</a></span></div>
     <div class="cr-best" id="heroBest">${best?'':'<span class="cr-best-none">在庫なし</span>'}</div>
     <!-- スマホだけ: 効果テキストは名前と最安の下（画像の横の空き）のボタンから全画面で開く（2026-10-22 ユーザー指定） -->
     <button type="button" class="cr-fx-btn" id="crFxBtn" onclick="_openFxSheet()">効果テキスト</button>
