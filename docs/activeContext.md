@@ -1,5 +1,12 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-30: 購入候補の「どこで買うと安いか」で未発売カードを店の検索に回さない（本番 PR #290 96e71b4）
+- 経緯: ユーザー指摘（未発売カードも探しに行って「見つからなかったカード」扱い）。サーバーにも画面にも未発売の判定が無く、TCG先行の印（tcg_preview）も画面が読んでいなかった。推奨案をユーザーが承認（「進めて」）
+- 作ったもの: card_display.get_still_unreleased_release_date（未発売カード一覧と同じ規則）・app._wish_unreleased_mark。/api/wish-shop-totals に unreleased、/api/wish-prices に status "unreleased"。画面は「未発売のカード：〇〇（11月1日発売）」の1行（--text-m）と一覧行の「未発売 11月1日発売」
+- 確認: テスト 3322 passed。ローカルで応答を差し替えて PC・スマホ幅を確認（スマホで語の途中の折り返しを見つけて直した）。本番 API で、10-31 発売のカードが unreleased・TCG先行が tcg_preview・db_missing 0件を確認
+- 片付け: worktree .claude/worktrees/wish-unreleased・ローカルと origin の fix/wish-unreleased を削除
+- 次: 10-31 0時以降に同じカードが unreleased から外れて店を探すこと（発売日当日0時の切り替え）
+
 ## 2026-10-30: 遊々亭・カードラボの OF のレアリティをそろえる（branch fix/of-prismatic-rarity）
 - 経緯: ユーザー指摘（真紅眼の超越黒竜のプリシクと OFプリシクは同じもの）。調べると2店の書き方の違いで約87型番が分かれていた。ユーザーが「取り込みで寄せ、過去の記録も書き換え」を承認（「進めて」）
 - 作ったもの: overframe.py（mark_overframe・overframe_context・apply_overframe・infer_overframe）。遊々亭・カードラボの販売／買取のスクレイパー、compare_prices／compare_buyback、app.py の検索・一括検索（全件命中・混雑時の前回結果も）、夜の収集のカードラボのカタログ巡回（ループ側の文脈を残す。早く return するカードも）、X 投稿の取り直し（カードラボの OF は遊々亭も一緒に取る）
