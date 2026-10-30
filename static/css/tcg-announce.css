@@ -50,6 +50,8 @@ body.price-redesign {
 .ta-proxy-stars { font-size: 9px; color: var(--gold); letter-spacing: -1px; overflow-wrap: anywhere; }
 .ta-proxy-q { font-size: 40px; font-weight: 700; color: var(--border); line-height: 1; }
 .ta-proxy-note { font-size: 10px; color: var(--text-m); }
+/* 公式の商品ページのイラスト（正方形）。札の幅いっぱいに */
+.ta-proxy-art { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 3px; }
 
 .ta-body { min-width: 0; }
 .ta-tags { display: flex; flex-wrap: wrap; gap: 6px; }

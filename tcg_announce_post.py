@@ -1,13 +1,23 @@
 """海外先行の予告カードの X 投稿（tools/tcg_announce_watch.py が1時間ごとの取り込みの後に呼ぶ）。
 
-出す時機（2026-10-29 ユーザー合意「段階ごとに出す」）:
-  1. 初報 set_first   … 弾を見つけて概要のあるカードが1枚以上できたら、すぐ（静かな時間帯は明けてから）
-  2. カードごと card  … 初報の翌日から、全体で1日1枚を CARD_HOURS の間に（弾が重なっても1日1枚）。関連カード（既存カードとのつながり）が
-                         分かるものを先に、あとは一覧の並び。数字の点検で警告が出たカードは出さない（ページには出る）
-  3. 続報 set_update  … 判明（概要のあるカード）が前回の弾の投稿から UPDATE_MIN_NEW 枚以上増え、前回から
+出す時機（2026-10-29 ユーザー合意「段階ごとに出す」・10-30「公式を基本に、販売店の速報は例外の分岐」）:
+弾の段は2つ。公式の段＝KONAMI 公式の商品ページを出どころにしたカードか、公式の絵の入ったカードが1枚でもある /
+速報の段＝投稿できるカードはあるが、出どころが販売店だけ（販売店の商品案内が公式より先に出た弾。MZMC は約17時間先。
+過去に時刻を比べられた5弾では、販売店が先だったのは MZMC だけ）。
+  1. 初報 set_first   … 弾を見つけて概要のあるカードが1枚以上できたら、すぐ（静かな時間帯は明けてから）。
+                         速報の段では、効果の文が出てから（カードの lore_at の真ん中の値）LEAK_MAX_HOURS 以内に出せるときだけ「速報」として出す
+                         （遅れたら速報の価値が薄いので出さずに公式を待つ）。出した段を phase に残す
+  2. 公式の続報 set_official … 速報の初報を出した（posted）弾に公式の絵が1枚でも入ったら1回だけ（イラストが判明したことを
+                         知らせる。英語のテキストだけ・出どころが公式でも絵がまだ無いうちは出さない）
+  3. カードごと card  … 初報の翌日から、全体で1日1枚を CARD_HOURS の間に（弾が重なっても1日1枚）。公式の絵のある
+                         カード → 表紙のカード → 関連カード（既存カードとのつながり）が分かるもの → 一覧の並び。
+                         速報で初報を出した弾は、絵の無いうちに出すと X のプレビューが「?」の札のまま残りうるので絵を待つ。
+                         ただし初報から OFFICIAL_WAIT_DAYS 日たっても公式が出なければ、絵なしで出し始める。
+                         数字の点検で警告が出たカードは出さない（ページには出る）
+  4. 続報 set_update  … 判明（概要のあるカード）が前回の弾の投稿から UPDATE_MIN_NEW 枚以上増え、前回から
                          UPDATE_MIN_HOURS 時間以上たったら
-  4. 全文判明 card_official … カードごとの投稿で出したカードに、英語のカードテキストが出たら
-1回の実行で出すのは1件まで（一度に何件も流さない）。優先は 初報 → 全文判明 → 続報 → カードごと。
+  5. 全文判明 card_official … カードごとの投稿で出したカードに、英語のカードテキストが出たら
+1回の実行で出すのは1件まで（一度に何件も流さない）。優先は 初報 → 公式の続報 → 全文判明 → 続報 → カードごと。
 
 投稿は画像を添付せず、まとめページのリンクのプレビュー（OG 画像。tcg_announce_og）で見せる（未発売カードの投稿と同じ方式）。
 リンクは本文に1本だけ（X は先頭の URL のプレビューを出す）。
@@ -32,6 +42,11 @@ CARD_HOURS = (19, 23)
 # 続報の条件。TODO: calibrate from data
 UPDATE_MIN_NEW = 3
 UPDATE_MIN_HOURS = 20
+# 速報（販売店の商品案内）で初報を出すのは、弾を見つけてからこの時間以内に出せるときだけ。
+# MZMC では公式が速報の約17時間後に出た。12時間を過ぎると、速報で先に出せる時間は残り数時間になる。TODO: calibrate from data
+LEAK_MAX_HOURS = 12
+# 速報の段の弾で、カードごとの投稿を公式の絵が出るまで待つ日数（初報から）。TODO: calibrate from data
+OFFICIAL_WAIT_DAYS = 3
 MAX_WEIGHT = 280
 TWEET_LOG_PREFIX = "tcg_announce_"
 
@@ -97,6 +112,32 @@ def text_set_first(s: dict, cards: list[dict]) -> str:
     ], set_url(s))
 
 
+def text_set_first_leak(s: dict, cards: list[dict]) -> str:
+    """速報（公式より先に出た非公式の情報で判明した段）の初報。イラストはまだ無いことも書く（公式の続報への前振り）。
+    出どころが販売店と分かるときだけ「販売店の商品案内」と書く（Yugipedia が出どころを書かない文もある）。"""
+    rel = f"{tcg_announce_og.format_release_ja(s['tcg_release_date'])}発売予定。" if s.get("tcg_release_date") else ""
+    related = _related_names(cards)
+    where = "販売店の商品案内" if tcg_announce_og.source_sites(cards) else "非公式の情報"
+    return _fit([
+        f"【海外先行・速報】遊戯王TCG（英語版）の新パック「{s['name_en']}」",
+        f"{rel}{where}で、{len(cards)}枚の効果が判明しました。",
+        ("".join(f"《{r}》" for r in related) + "ゆかりの新カードも登場します。") if related else "",
+        "イラストは KONAMI 公式の発表待ちです。",
+    ], set_url(s))
+
+
+def text_set_official(s: dict, cards: list[dict]) -> str:
+    """公式の続報（速報で初報を出した弾に、公式の絵が出た）。先頭に挙げるのは連載で最初に出すカード（絵のあるカードが先）。
+    枚数は絵の入ったカードだけ数える。"""
+    arts = [c for c in cards if c.get("art_url")]
+    head = sorted(arts, key=lambda c: card_order_key(c, s.get("cover_cards") or []))[0]["name_en"]
+    return _fit([
+        f"【海外先行・続報】「{s['name_en']}」の公式サイトが公開。",
+        "収録カードのイラストが判明しました。",
+        f"{head} など{len(arts)}枚を、イラストつきで紹介しています。",
+    ], set_url(s))
+
+
 def text_set_update(s: dict, cards: list[dict], new_cards: list[dict]) -> str:
     names = [c["name_en"] for c in new_cards[:2]]
     return _fit([
@@ -113,7 +154,11 @@ def _fits(lines: list[str]) -> bool:
 def text_card(s: dict, card: dict, cards: list[dict]) -> str:
     """カードごとの投稿。見出し（ゆかり・テーマ）とまとめページへ誘う一文はいちばんの引きなので残し、
     長すぎたら 種類の行 → 要約の末尾 の順に削る（2026-10-29 本番のデータで見出しから落ちていたのを直した）。"""
-    found ="の効果が判明" if card.get("lore_kind") == "blurb" else "の英語のテキストが判明"
+    # 画像の札と同じ言い方（公式の絵があれば「イラストと効果」）
+    if card.get("lore_kind") != "blurb":
+        found = "の英語のテキストが判明"
+    else:
+        found = "のイラストと効果が判明" if card.get("art_url") else "の効果が判明"
     head = f"【海外先行】{card['name_en']} {found}"
     others = len(cards) - 1
     funnel = f"同じパックで判明した残り{others}枚も、まとめて紹介しています。" if others > 0 else ""
@@ -165,11 +210,24 @@ def _jst_date(iso: str | None):
 
 
 def card_order_key(card: dict, covers=()):
-    """カードごとの投稿の順: 表紙のカード（弾の目玉）→ 画像に既存カードの絵が出るカード（「あのカードの」と伝わる）
-    → それ以外。同じ中では一覧の並び。"""
+    """カードごとの投稿の順: 公式の絵のあるカード → 表紙のカード（弾の目玉）→ 画像に既存カードの絵が出るカード
+    （「あのカードの」と伝わる）→ それ以外。同じ中では一覧の並び。
+    絵を先にするのは、X がリンクのプレビュー画像を最初に読んだもので持ち続けることがあり、絵の無いうちに出すと
+    あとで絵が入っても「?」の札のまま残りうるため（2026-10-30）。"""
     covers = list(covers)
     cover_rank = covers.index(card.get("name_en")) if card.get("name_en") in covers else len(covers)
-    return (cover_rank, not tcg_announce_og.picture_card(card), card.get("list_order") or 0)
+    return (not card.get("art_url"), cover_rank, not tcg_announce_og.picture_card(card), card.get("list_order") or 0)
+
+
+def is_official_phase(cards: list[dict]) -> bool:
+    """弾が公式の段か（公式の商品ページを出どころにしたカード・公式の絵の入ったカード・英語の正式なテキストが
+    出たカードが1枚でもある）。"""
+    return any(tcg_announce_og.from_official_page(c) or c.get("art_url") or c.get("lore_kind") == "official"
+               for c in cards)
+
+
+def _ts(iso) -> datetime | None:
+    return datetime.fromisoformat(str(iso).replace("Z", "+00:00")) if iso else None
 
 
 def decide(sets: list[dict], cards_by_set: dict[str, list[dict]], posts: list[dict], now: datetime) -> dict | None:
@@ -188,10 +246,29 @@ def decide(sets: list[dict], cards_by_set: dict[str, list[dict]], posts: list[di
         if not cards:
             continue
         ps = by_set.get(s["prefix"], [])
+        official = is_official_phase(cards)
         first = next((p for p in ps if p["kind"] == "set_first"), None)
         if first is None:
-            candidates.append((0, {"kind": "set_first", "set": s, "cards": cards}))
+            if official:
+                candidates.append((0, {"kind": "set_first", "phase": "official", "set": s, "cards": cards}))
+            else:
+                # 速報の古さは、効果の文が出た時刻（lore_at）から数える。弾やカードの名前だけ何週間も前から
+                # 出ていることがあるので、弾を見つけた時刻やカードの行ができた時刻からは数えない。
+                # カードの時刻の真ん中の値で測る（前から1枚だけあった古い文や、あとから1枚だけ足された文に
+                # 引きずられないように）
+                times = sorted(t for t in (_ts(c.get("lore_at")) for c in cards) if t)
+                found = times[(len(times) - 1) // 2] if times else None
+                # 時刻の分からない速報は、古いかもしれないので出さない（公式を待つ）
+                if found is not None and now - found <= timedelta(hours=LEAK_MAX_HOURS):
+                    candidates.append((0, {"kind": "set_first", "phase": "leak", "set": s, "cards": cards}))
+                # 速報が遅れた弾は初報を出さずに公式を待つ（公式の段に入れば上の分岐で出る）
             continue
+        # 公式の続報は、速報の初報が出ていて（失敗・結果不明の弾には前振りが無いので出さない）、公式の絵が
+        # 1枚でも入ったとき。英語のテキストだけ・出どころが公式でも絵がまだ無いうちは「イラストが判明」と言えない
+        arts = [c for c in cards if c.get("art_url")]
+        if (arts and first.get("phase") == "leak" and first.get("status") == "posted"
+                and not any(p["kind"] == "set_official" for p in ps)):
+            candidates.append((1, {"kind": "set_official", "set": s, "cards": cards}))
         posted_cards = {p["page_id"] for p in ps if p["kind"] == "card"}
         # ページの作り直しで番号が変わった同じカードを二度出さない
         posted_names = {p.get("name_en") for p in ps if p["kind"] == "card" and p.get("name_en")}
@@ -200,9 +277,9 @@ def decide(sets: list[dict], cards_by_set: dict[str, list[dict]], posts: list[di
             if (c["page_id"] in posted_cards and c["page_id"] not in official_done
                     and c.get("lore_kind") == "official" and c.get("official_at")):
                 # 連載で出した後に英語テキストが出たカード
-                candidates.append((1, {"kind": "card_official", "set": s, "card": c, "cards": cards}))
+                candidates.append((2, {"kind": "card_official", "set": s, "card": c, "cards": cards}))
                 break
-        set_posts = [p for p in ps if p["kind"] in ("set_first", "set_update")]
+        set_posts = [p for p in ps if p["kind"] in ("set_first", "set_update", "set_official")]
         last = max(set_posts, key=lambda p: p.get("created_at") or "")
         last_count = max((p.get("known_count") or 0) for p in set_posts)
         last_at = datetime.fromisoformat(str(last["created_at"]).replace("Z", "+00:00"))
@@ -210,15 +287,18 @@ def decide(sets: list[dict], cards_by_set: dict[str, list[dict]], posts: list[di
             known_before = {p["page_id"] for p in ps if p["kind"] == "card"}
             new_cards = sorted(cards, key=lambda c: c.get("first_seen_at") or "", reverse=True)[: len(cards) - last_count]
             new_cards = [c for c in new_cards if c["page_id"] not in known_before] or new_cards
-            candidates.append((2, {"kind": "set_update", "set": s, "cards": cards, "new_cards": new_cards}))
-        # カードごと: 初報の翌日から、時間帯の中で、その日まだ（どの弾でも）出していなければ
+            candidates.append((3, {"kind": "set_update", "set": s, "cards": cards, "new_cards": new_cards}))
+        # カードごと: 初報の翌日から、時間帯の中で、その日まだ（どの弾でも）出していなければ。
+        # 速報で初報を出した弾は、公式の絵が出るまで待つ（初報から OFFICIAL_WAIT_DAYS 日たっても出なければ絵なしで出す）
         today = now_jst.date()
-        if (_jst_date(first.get("created_at")) < today and CARD_HOURS[0] <= now_jst.hour < CARD_HOURS[1]
+        waiting = (first.get("phase") == "leak" and not arts
+                   and now - _ts(first.get("created_at")) < timedelta(days=OFFICIAL_WAIT_DAYS))
+        if (not waiting and _jst_date(first.get("created_at")) < today and CARD_HOURS[0] <= now_jst.hour < CARD_HOURS[1]
                 and not any(p["kind"] == "card" and _jst_date(p.get("created_at")) == today for p in posts)):
             rest = sorted((c for c in cards if c["page_id"] not in posted_cards and c["name_en"] not in posted_names),
                           key=lambda c: card_order_key(c, s.get("cover_cards") or []))
             if rest:
-                candidates.append((3, {"kind": "card", "set": s, "card": rest[0], "cards": cards}))
+                candidates.append((4, {"kind": "card", "set": s, "card": rest[0], "cards": cards}))
     if not candidates:
         return None
     return min(candidates, key=lambda x: x[0])[1]
@@ -227,7 +307,11 @@ def decide(sets: list[dict], cards_by_set: dict[str, list[dict]], posts: list[di
 def build_text(item: dict) -> str:
     k = item["kind"]
     if k == "set_first":
+        if item.get("phase") == "leak":
+            return text_set_first_leak(item["set"], item["cards"])
         return text_set_first(item["set"], item["cards"])
+    if k == "set_official":
+        return text_set_official(item["set"], item["cards"])
     if k == "set_update":
         return text_set_update(item["set"], item["cards"], item["new_cards"])
     if k == "card":
@@ -304,8 +388,8 @@ def run(sb, *, now: datetime | None = None, post_fn=None) -> str:
     # 予約（一意の索引で二重投稿を止める）
     row = {"kind": item["kind"], "set_prefix": s["prefix"], "page_id": card["page_id"] if card else None,
            "name_en": card["name_en"] if card else None,
-           "known_count": len(item["cards"]) if item["kind"] in ("set_first", "set_update") else None,
-           "text": text, "status": "reserved"}
+           "known_count": len(item["cards"]) if item["kind"] in ("set_first", "set_update", "set_official") else None,
+           "phase": item.get("phase", ""), "text": text, "status": "reserved"}
     try:
         res = sb.table(POSTS).insert(row).execute()
     except Exception as e:

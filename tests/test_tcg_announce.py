@@ -183,7 +183,7 @@ def _card(pid, name, order, related=(), kind="blurb", warnings=(), status="done"
             "lore_kind": kind, "summary_status": status, "summary_short_ja": f"{name}の概要。",
             "summary_ja": ["一行目"], "summary_warnings": list(warnings), "related_ja": list(related),
             "attribute": "闇", "race": "機械族", "card_type": "効果モンスター", "level": 6, "atk": "1750", "def": "2000",
-            "first_seen_at": seen}
+            "first_seen_at": seen, "lore_at": seen if kind != "none" else None}
 
 
 CARDS = [_card(1, "Pendulum Machine of Misery", 1), _card(2, "Slot Machine 777", 2, related=["スロットマシーンAM－７"]),
@@ -191,8 +191,19 @@ CARDS = [_card(1, "Pendulum Machine of Misery", 1), _card(2, "Slot Machine 777",
 NOW = datetime(2026, 10, 29, 11, 0, tzinfo=timezone.utc)  # JST 20:00
 
 
-def _first(at="2026-10-29T02:00:00+00:00", count=2):
-    return {"kind": "set_first", "set_prefix": "MZMC", "page_id": None, "known_count": count, "created_at": at}
+def _first(at="2026-10-29T02:00:00+00:00", count=2, phase="official", status="posted"):
+    return {"kind": "set_first", "set_prefix": "MZMC", "page_id": None, "known_count": count, "created_at": at,
+            "phase": phase, "status": status}
+
+
+def _official(cards):
+    """公式の段のカード（紹介文の出どころが KONAMI 公式の商品ページ）にする。"""
+    return [dict(c, lore_source_url=OFFICIAL_URL) for c in cards]
+
+
+def _leak(cards):
+    """速報の段のカード（紹介文の出どころが販売店）にする。"""
+    return [dict(c, lore_source_url=SHOP_URL) for c in cards]
 
 
 def test_最初は初報_数えるのは点検を通った概要のあるカードだけ():
@@ -202,6 +213,7 @@ def test_最初は初報_数えるのは点検を通った概要のあるカー�
 
 
 def test_カードごとは初報の翌日から_時間帯の中で1日1枚_関連の分かるカードを先に():
+    CARDS = _official(globals()["CARDS"])
     posts = [_first()]
     assert tp.decide([SET], {"MZMC": CARDS}, posts, NOW) is None  # 初報と同じ日
     nxt = NOW + timedelta(days=1)
@@ -463,8 +475,12 @@ def test_成功したら投稿済みにして閲覧数の記録に入れる(enab
 
 
 def test_カードごとの投稿は弾が重なっても全体で1日1枚():
+    CARDS = _official(globals()["CARDS"])
     other = dict(SET, prefix="ABCD", slug="other", name_en="Other Set")
     other_cards = [dict(c, page_id=c["page_id"] + 100) for c in CARDS]
+    # 2つ目の弾だけなら出る（下の None が、公式待ちではなく1日1枚の決まりによることを確かめる）
+    assert tp.decide([other], {"ABCD": other_cards}, [dict(_first(), set_prefix="ABCD")],
+                     NOW + timedelta(days=1, hours=1))["kind"] == "card"
     nxt = NOW + timedelta(days=1)
     posts = [_first(), dict(_first(), set_prefix="ABCD"),
              {"kind": "card", "set_prefix": "MZMC", "page_id": 2, "name_en": "Slot Machine 777",
@@ -476,7 +492,7 @@ def test_同じ名前のカードはページ番号が変わっても二度出�
     nxt = NOW + timedelta(days=2)
     posts = [_first(), {"kind": "card", "set_prefix": "MZMC", "page_id": 99, "name_en": "Slot Machine 777",
                         "created_at": (NOW + timedelta(days=1)).isoformat()}]
-    item = tp.decide([SET], {"MZMC": CARDS}, posts, nxt)
+    item = tp.decide([SET], {"MZMC": _official(CARDS)}, posts, nxt)
     assert item["card"]["name_en"] != "Slot Machine 777"
 
 
@@ -632,7 +648,7 @@ def test_連載は表紙のカードを表紙の並びで先に出す():
     got = sorted(cards, key=lambda c: tp.card_order_key(c, covers))
     assert [c["name_en"] for c in got] == ["Rampant Barrel Dragon", "Pendulum Machine of Misery", "Slot Machine 777"]
     s = dict(SET, cover_cards=covers)
-    item = tp.decide([s], {"MZMC": cards}, [_first()], NOW + timedelta(days=1))
+    item = tp.decide([s], {"MZMC": _official(cards)}, [_first()], NOW + timedelta(days=1))
     assert item["card"]["name_en"] == "Rampant Barrel Dragon"
 
 
@@ -759,3 +775,364 @@ def test_宣伝文の効果の名前は札にせず点で並べる(client, monke
     view._cache.update(at=0.0, data=None)
     html = client.get("/tcg-preview/maze-of-machines").get_data(as_text=True)
     assert "<li>カードを手札に加える。</li>" in html and "ALPHA" not in html
+
+
+# ── 公式の商品ページのイラスト（2026-10-30。紹介文と絵は同じページに一緒に出る） ─────────
+
+OFFICIAL_URL = "https://www.yugioh-card.com/en/products/mzmc/"
+SHOP_URL = "https://www.southernhobby.com/yu-gi-oh-maze-of-machines-booster-box/p84133/"
+OFFICIAL_HTML = """
+<table class="listtable"><tbody><tr><td><strong>RAMPANT BARREL DRAGON</strong></p>
+<p>Our latest top-of-the-line Fusion Monster…</p>
+<p align="center"><img loading="lazy" src="/en/wp-content/uploads/2026/10/mzmc_art01.png" alt="" /></p></td></tr></tbody></table>
+<table class="listtable"><tbody><tr><td><strong>SLOT MACHINE 777</strong></p>
+<p>Put Lady Luck on your side…</p></td></tr></tbody></table>
+<table class="listtable"><tbody><tr><td><strong>HEAVY METAL REVENGE</strong>
+<img src="/en/a.png" /><img src="/en/b.png" /></td></tr></tbody></table>
+<p><strong><u>New Cards for Cubic</u></strong></p><p><img src="/en/wp-content/uploads/2026/10/mzmc_art07.png" /></p>
+"""
+
+
+def test_公式の商品ページの紹介の枠ごとに名前と絵を対応づける():
+    arts = ya.parse_official_arts(OFFICIAL_HTML, OFFICIAL_URL)
+    assert ya.art_for("Rampant Barrel Dragon", arts) == "https://www.yugioh-card.com/en/wp-content/uploads/2026/10/mzmc_art01.png"
+    assert ya.art_for("Slot Machine 777", arts) == ""      # 絵の無い枠
+    assert ya.art_for("Heavy Metal Revenge", arts) == ""   # 絵が2枚あってどれか決められない枠
+    assert len(arts) == 1                                    # 枠の外のまとめた絵は使わない
+    assert ya.is_official_page(OFFICIAL_URL) and not ya.is_official_page("https://www.southernhobby.com/p/")
+
+
+def test_絵の無い予告カードに公式ページの絵を入れる(monkeypatch):
+    shop = "https://www.southernhobby.com/p/"
+    rows = {"tcg_announce_cards": [
+        {"page_id": 1, "name_en": "Rampant Barrel Dragon", "set_prefix": "MZMC", "lore_source_url": OFFICIAL_URL,
+         "status": "announced", "art_url": ""},
+        {"page_id": 2, "name_en": "Slot Machine 777", "set_prefix": "MZMC", "lore_source_url": OFFICIAL_URL,
+         "status": "announced", "art_url": ""},
+        {"page_id": 3, "name_en": "Other", "set_prefix": "MZMC", "lore_source_url": shop, "status": "announced", "art_url": ""},
+        {"page_id": 4, "name_en": "Done", "set_prefix": "MZMC", "lore_source_url": OFFICIAL_URL,
+         "status": "announced", "art_url": "https://x/old.png"},
+        # 販売店の文が先に載り、Yugipedia の出どころが販売店のままのカードも、同じ弾の公式ページで探す
+        {"page_id": 5, "name_en": "Ticking Blast Rider", "set_prefix": "MZMC", "lore_source_url": shop,
+         "status": "announced", "art_url": ""},
+        # 別の弾のカードは、この弾の公式ページで探さない
+        {"page_id": 6, "name_en": "Ticking Blast Rider", "set_prefix": "XXXX", "lore_source_url": shop,
+         "status": "announced", "art_url": ""},
+    ]}
+    calls = []
+
+    rider = ('<table class="listtable"><tbody><tr><td><strong>TICKING BLAST RIDER</strong>'
+             '<img src="/en/wp-content/uploads/2026/10/mzmc_art05.png" /></td></tr></tbody></table>')
+
+    def fake(url):
+        calls.append(url)
+        return ya.parse_official_arts(OFFICIAL_HTML + rider, url)
+    monkeypatch.setattr(ya, "official_arts", fake)
+    db = _DB(rows)
+    assert tw.fill_art(db) == 2
+    got = {r["page_id"]: r["art_url"] for r in rows["tcg_announce_cards"]}
+    assert got[1].endswith("mzmc_art01.png") and got[2] == "" and got[3] == "" and got[4] == "https://x/old.png"
+    assert got[5].endswith("mzmc_art05.png") and got[6] == ""
+    assert calls == [OFFICIAL_URL]   # 同じページは1回だけ読む・販売店のページは読まない
+
+    calls.clear()
+    for r in rows["tcg_announce_cards"]:
+        if r["set_prefix"] == "MZMC":
+            r["art_url"] = r["art_url"] or "https://x/filled.png"
+    assert tw.fill_art(db) == 0 and calls == []   # 絵の無いカードが残っていない弾のページは読まない
+    for r in rows["tcg_announce_cards"]:
+        if r["page_id"] == 1:
+            r["art_url"] = ""
+
+    def boom(url):
+        raise OSError("down")
+    monkeypatch.setattr(ya, "official_arts", boom)
+    assert tw.fill_art(db) == 0   # 読めなければ次の回に取り直す（例外にしない）
+
+
+def test_出どころが公式の商品ページなら販売店と書かない():
+    import tcg_announce_og as og
+    cards = [dict(CARDS[0], lore_kind="blurb", lore_source_url=OFFICIAL_URL)]
+    assert og.source_line(cards) == "出どころ：KONAMI 公式の商品紹介"
+    assert og.source_sites(cards) == []
+    assert og.from_official_page(cards[0])
+
+
+def test_公式の絵が入った画像を描ける():
+    import tcg_announce_og as og
+    art = _img(225, 225, (200, 40, 40))
+    card = dict(CARDS[1], lore_kind="blurb", lore_source_url=OFFICIAL_URL)
+    old = _img(256, 372, (120, 60, 30))
+    plain = og.render_card_png(SET, card, ["B"], related=("スロットマシーンAM－７", old))
+    with_art = og.render_card_png(SET, card, ["B"], related=("スロットマシーンAM－７", old), art=art)
+    assert with_art[:4] == bytes([0x89]) + b"PNG" and with_art != plain
+    assert og.render_card_png(SET, card, ["B"], art=art)[:4] == bytes([0x89]) + b"PNG"
+    box = _img(400, 300, (200, 200, 200))
+    for kw in ({"pairs": [(old, art), (old, art)]}, {"pairs": [(old, art)], "arts": [art] * 4}, {"arts": [art]}):
+        assert og.render_set_png(SET, [card], box=box, **kw)[:4] == bytes([0x89]) + b"PNG"
+
+
+def test_テーマの代表カードには矢印を付けない():
+    import tcg_announce_og as og
+    old = _img(256, 372, (120, 60, 30))
+    theme = dict(CARDS[0], related_ja=[], theme_kind="new_theme", theme_en="Heavy Metal", theme_card_ja="鋼鉄の襲撃者")
+    yukari = dict(theme, related_ja=["鋼鉄の襲撃者"])
+    # 同じ絵・同じ名前でも、ゆかり（宣伝文が名指し）のときだけ矢印と下の書き方が変わる
+    assert og.render_card_png(SET, theme, [], related=("鋼鉄の襲撃者", old)) != \
+        og.render_card_png(SET, yukari, [], related=("鋼鉄の襲撃者", old))
+
+
+def test_まとめページに公式の絵を出す(client, monkeypatch):
+    import tcg_announce_view as view
+    entry = view._fetch()["maze-of-machines"]
+    entry["cards"][0]["art_url"] = "https://www.yugioh-card.com/en/wp-content/uploads/2026/10/mzmc_art02.png"
+    monkeypatch.setattr(view, "_fetch", lambda: {"maze-of-machines": entry})
+    view._cache.update(at=0.0, data=None)
+    html = client.get("/tcg-preview/maze-of-machines").get_data(as_text=True)
+    assert 'class="ta-proxy-art" src="https://www.yugioh-card.com/en/wp-content/uploads/2026/10/mzmc_art02.png"' in html
+    assert "カードのイラストは KONAMI 公式の商品ページのものです" in html
+
+
+def test_同じ名前の枠が2つあればどちらの絵も使わない():
+    page = OFFICIAL_HTML + """<table><tr><td><strong>Rampant Barrel-Dragon</strong><img src="/en/z.png" /></td></tr></table>"""
+    assert ya.art_for("Rampant Barrel Dragon", ya.parse_official_arts(page, OFFICIAL_URL)) == ""
+
+
+def test_公式と販売店が混ざった弾は両方を書く():
+    import tcg_announce_og as og
+    cards = [dict(CARDS[0], lore_kind="blurb", lore_source_url=OFFICIAL_URL),
+             dict(CARDS[1], lore_kind="blurb", lore_source_url="https://www.southernhobby.com/p/")]
+    assert og.source_line(cards) == "出どころ：KONAMI 公式の商品紹介・販売店の商品案内（southernhobby.com）"
+
+
+def test_弾の画像の絵と組の選び方(monkeypatch):
+    import tcg_announce_routes as routes
+    loaded = []
+
+    def fake_image(url):
+        loaded.append(url)
+        return None if url and "broken" in url else _img(10, 10, (1, 2, 3))
+    olds = {"リボルバー・ドラゴン": "u/rev", "振り子刃の拷問機械": "u/furi"}   # 画像のあるゆかりのカード
+    monkeypatch.setattr(routes, "_image", fake_image)
+    monkeypatch.setattr(routes, "_related_images",
+                        lambda names, limit: [(n, _img(7, 10, (0, 0, 0)), olds[n]) for n in names if n in olds][:limit])
+    cards = [
+        dict(CARDS[0], name_en="Pendulum", list_order=1, art_url="a/pend", related_ja=["名前だけ", "振り子刃の拷問機械"]),
+        dict(CARDS[1], name_en="Rampant", list_order=2, art_url="a/ramp", related_ja=["リボルバー・ドラゴン"]),
+        dict(CARDS[1], name_en="Slot", list_order=3, art_url="a/slot", related_ja=["リボルバー・ドラゴン"]),
+        dict(CARDS[0], name_en="Broken", list_order=4, art_url="a/broken", related_ja=[]),
+        dict(CARDS[0], name_en="NoArt", list_order=5, art_url="", related_ja=[]),
+        dict(CARDS[0], name_en="Sphere", list_order=6, art_url="a/sphere", related_ja=[]),
+        dict(CARDS[0], name_en="Bandit", list_order=7, art_url="a/bandit", related_ja=[]),
+        dict(CARDS[0], name_en="Late", list_order=8, art_url="a/late", related_ja=[]),
+    ]
+    arts, pairs, keys = routes.set_arts(dict(SET, cover_cards=["Rampant"]), cards)
+    assert len(arts) == 4 and len(pairs) == 2
+    # 表紙のカードが先・1件目のゆかりに画像が無くても次を試す・同じゆかりは2組に使わない・読めない絵は飛ばす
+    assert keys == ["a/ramp", "u/rev", "a/ramp", "a/pend", "u/furi", "a/pend", "a/slot", "a/sphere"]
+    assert "a/late" not in loaded and "" not in loaded   # そろったら残りは読まない
+
+
+def test_弾の画像は並べ方ごとに描き分ける():
+    import tcg_announce_og as og
+    art, old, box = _img(225, 225, (200, 40, 40)), _img(256, 372, (40, 160, 60)), _img(400, 300, (200, 200, 200))
+    card = dict(CARDS[1], lore_kind="blurb", lore_source_url=OFFICIAL_URL)
+    got = {og.render_set_png(SET, [card], box=box, pairs=[(old, art), (old, art)], arts=[art] * 4),
+           og.render_set_png(SET, [card], box=box, pairs=[(old, art)], arts=[art] * 4),
+           og.render_set_png(SET, [card], box=box, related=[("A", old)] * 4)}
+    assert len(got) == 3
+
+
+def test_絵の有無と差し替えでキャッシュの鍵が変わる(monkeypatch):
+    import tcg_announce_og as og
+    seen = []
+    monkeypatch.setattr(og, "_cached", lambda key, render: seen.append(key) or b"")
+    card = dict(CARDS[1], art_url="a/1")
+    og.card_png(SET, card, [], art=None)
+    og.card_png(SET, card, [], art=_img(5, 5, (0, 0, 0)))
+    og.card_png(SET, dict(card, art_url="a/2"), [], art=_img(5, 5, (0, 0, 0)))
+    og.set_png(SET, [card], art_keys=["a/1"])
+    og.set_png(SET, [card], art_keys=["a/2"])
+    assert len(set(seen)) == 5
+
+
+def test_出どころの書かれていない非公式の文は販売店と書かない(monkeypatch):
+    import tcg_announce_og as og
+    drawn = []
+    real = og.draw_text
+    monkeypatch.setattr(og, "draw_text", lambda d, xy, text, *a, **k: drawn.append(text) or real(d, xy, text, *a, **k))
+    card = dict(CARDS[0], lore_kind="blurb", lore_source_url="", summary_status="done")
+    og.render_card_png(SET, card, [])
+    assert "非公式の情報をもとにした要約です" in drawn and not any("販売店" in t for t in drawn)
+    assert og.source_sites([card]) == [] and og.source_line([card]) == ""
+    drawn.clear()
+    og.render_card_png(SET, dict(card, lore_source_url="https://www.southernhobby.com/p/"), [])
+    assert any("販売店" in t for t in drawn)
+
+
+def test_連載は公式の絵のあるカードを先に出す():
+    covers = ["Rampant Barrel Dragon"]
+    cards = [_card(1, "Rampant Barrel Dragon", 1), dict(_card(2, "Slot Machine 777", 2), art_url="https://x/a.png")]
+    got = sorted(cards, key=lambda c: tp.card_order_key(c, covers))
+    assert [c["name_en"] for c in got] == ["Slot Machine 777", "Rampant Barrel Dragon"]
+
+
+# ── 公式を基本に、販売店の速報は例外の分岐（2026-10-30 ユーザー合意） ───────────
+
+def test_弾の段の見分け方():
+    assert not tp.is_official_phase(_leak(CARDS))
+    assert not tp.is_official_phase(CARDS)   # 出どころの書かれていない非公式の文は公式に数えない
+    assert tp.is_official_phase(_leak(CARDS[:1]) + _official(CARDS[1:2]))
+    assert tp.is_official_phase([dict(CARDS[0], art_url="https://x/a.png")])
+    assert tp.is_official_phase([dict(CARDS[0], lore_kind="official")])   # 英語の正式なテキスト
+
+
+def test_速報の初報は取り込みから12時間以内だけ_過ぎたら公式を待つ():
+    leak = _leak(CARDS)   # 取り込みは 2026-10-29 01:00 UTC
+    item = tp.decide([SET], {"MZMC": leak}, [], datetime(2026, 10, 29, 12, 0, tzinfo=timezone.utc))
+    assert (item["kind"], item["phase"]) == ("set_first", "leak")
+    text = tp.build_text(item)
+    assert "【海外先行・速報】" in text and "販売店の商品案内" in text and "公式の発表待ち" in text
+    late = datetime(2026, 10, 29, 14, 0, tzinfo=timezone.utc)   # 13時間後
+    assert tp.decide([SET], {"MZMC": leak}, [], late) is None
+    # 待っている間に公式が出れば、公式の初報として出る
+    item = tp.decide([SET], {"MZMC": _official(CARDS)}, [], late)
+    assert (item["kind"], item["phase"]) == ("set_first", "official")
+    assert "速報" not in tp.build_text(item)
+
+
+def test_速報の古さは効果の文が出た時刻から数える():
+    noon = datetime(2026, 10, 29, 12, 0, tzinfo=timezone.utc)
+    # カードの行は名前だけで何週間も前からあっても、効果の文が新しければ速報を出す
+    fresh = [dict(c, first_seen_at="2026-10-01T00:00:00+00:00", lore_at="2026-10-29T10:00:00+00:00") for c in _leak(CARDS)]
+    item = tp.decide([SET], {"MZMC": fresh}, [], noon)
+    assert (item["kind"], item["phase"]) == ("set_first", "leak")
+    # 効果の文が古ければ出さない（行ができた時刻が新しくても）
+    stale = [dict(c, first_seen_at="2026-10-29T11:00:00+00:00", lore_at="2026-10-28T20:00:00+00:00")
+             for c in _leak(CARDS)]
+    assert tp.decide([SET], {"MZMC": stale}, [], noon) is None
+    # 時刻の分からない速報は出さない
+    assert tp.decide([SET], {"MZMC": [dict(c, lore_at=None) for c in _leak(CARDS)]}, [], noon) is None
+    # ちょうど12時間は出す
+    assert tp.decide([SET], {"MZMC": _leak(CARDS)}, [], datetime(2026, 10, 29, 13, 0, tzinfo=timezone.utc))
+    # 前から1枚だけ古い文があっても、残りが新しければ速報を出す（真ん中の値で測る）
+    burst = [dict(c, page_id=50 + i, name_en=f"Leak {i}", lore_at="2026-10-29T10:00:00+00:00")
+             for i, c in enumerate(_leak([CARDS[0]] * 3))]
+    one_old = [dict(_leak(CARDS)[0], lore_at="2026-10-15T00:00:00+00:00")] + burst
+    item = tp.decide([SET], {"MZMC": one_old}, [], noon)
+    assert (item["kind"], item["phase"]) == ("set_first", "leak")
+    # 古い速報にあとから1枚だけ新しいカードが足されても、出さない
+    one_new = [dict(c, lore_at="2026-10-28T00:00:00+00:00") for c in burst] + [
+        dict(_leak(CARDS)[0], lore_at="2026-10-29T11:00:00+00:00")]
+    assert tp.decide([SET], {"MZMC": one_new}, [], noon) is None
+
+
+def test_効果の文が初めて出た回だけ時刻を入れる():
+    now = "2026-10-30T12:00:00+00:00"
+    assert tw.lore_at_for(None, {"lore_kind": "blurb"}, now) == now
+    assert tw.lore_at_for({"lore_kind": "none"}, {"lore_kind": "blurb"}, now) == now
+    assert tw.lore_at_for(None, {"lore_kind": "none"}, now) is None
+    assert tw.lore_at_for({"lore_kind": "blurb", "lore_at": "x"}, {"lore_kind": "official"}, now) is None
+    # 前から効果の文があるのに時刻が空のカード（SQL の後・新しいコードの前に取り込んだ）は、行ができた時刻にする
+    # （今の時刻が入ると古い速報が新しく見える）
+    old = {"lore_kind": "blurb", "lore_at": None, "first_seen_at": "2026-10-01T00:00:00+00:00"}
+    assert tw.lore_at_for(old, {"lore_kind": "blurb"}, now) == "2026-10-01T00:00:00+00:00"
+
+
+def test_公式の続報は速報で初報を出した弾に絵が入ったら1回だけ():
+    now = NOW + timedelta(hours=20)
+    with_art = [dict(c, art_url=f"https://x/{c['page_id']}.png") for c in _official(CARDS)]
+    item = tp.decide([SET], {"MZMC": with_art}, [_first(phase="leak")], now)
+    assert item["kind"] == "set_official"
+    text = tp.build_text(item)
+    assert "公式サイトが公開" in text and "イラストが判明" in text and "など2枚" in text
+    # 枚数は絵のあるカードだけ数える
+    one_art = [with_art[0]] + _official(CARDS)[1:]
+    assert "など1枚" in tp.build_text(tp.decide([SET], {"MZMC": one_art}, [_first(phase="leak")], now))
+    done = [_first(phase="leak"), {"kind": "set_official", "set_prefix": "MZMC", "known_count": 2,
+                                   "created_at": now.isoformat()}]
+    item = tp.decide([SET], {"MZMC": with_art}, done, now)
+    assert item is None or item["kind"] != "set_official"
+    # 公式の情報で初報を出した弾には出さない
+    item = tp.decide([SET], {"MZMC": with_art}, [_first(phase="official")], now)
+    assert item is None or item["kind"] != "set_official"
+    # 速報の初報が失敗・結果不明の弾には前振りが無いので出さない
+    for st in ("failed", "unknown"):
+        item = tp.decide([SET], {"MZMC": with_art}, [_first(phase="leak", status=st)], now)
+        assert item is None or item["kind"] != "set_official"
+    # 絵がまだ無いうちは出さない（出どころが公式でも・英語のテキストだけでも）
+    assert tp.decide([SET], {"MZMC": _official(CARDS)}, [_first(phase="leak")], now) is None
+    text_only = [dict(CARDS[0], lore_kind="official")] + _leak(CARDS[1:])
+    assert tp.decide([SET], {"MZMC": text_only}, [_first(phase="leak")], now) is None
+    assert tp.decide([SET], {"MZMC": _leak(CARDS)}, [_first(phase="leak")], now) is None
+
+
+def test_速報の段のカードごとは公式の絵を待つ_3日たったら絵なしで出す():
+    leak = _leak(CARDS)
+    posts = [_first(phase="leak")]   # 初報は 2026-10-29 02:00 UTC
+    assert tp.decide([SET], {"MZMC": leak}, posts, NOW + timedelta(days=1)) is None
+    assert tp.decide([SET], {"MZMC": leak}, posts, NOW + timedelta(days=2)) is None
+    # ちょうど3日（初報から72時間）で出し始める。JST 20時台に合わせる
+    at3 = datetime(2026, 11, 1, 11, 0, tzinfo=timezone.utc)
+    posts3 = [_first(phase="leak", at="2026-10-29T11:00:00+00:00")]
+    assert tp.decide([SET], {"MZMC": leak}, posts3, at3 - timedelta(minutes=1)) is None
+    item = tp.decide([SET], {"MZMC": leak}, posts3, at3)
+    assert item["kind"] == "card"
+    assert "のイラストと効果が判明" not in tp.build_text(item)
+    # 公式の絵が入って公式の続報を出したら、3日たつ前でもカードごとを始める
+    with_art = [dict(c, art_url=f"https://x/{c['page_id']}.png") for c in _official(CARDS)]
+    done = posts + [{"kind": "set_official", "set_prefix": "MZMC", "known_count": 2,
+                     "created_at": (NOW + timedelta(hours=10)).isoformat()}]
+    item = tp.decide([SET], {"MZMC": with_art}, done, NOW + timedelta(days=1))
+    assert item["kind"] == "card" and "のイラストと効果が判明" in tp.build_text(item)
+
+
+def test_続報の基準には公式の続報の枚数も使う():
+    with_art = [dict(c, art_url=f"https://x/{c['page_id']}.png") for c in _official(CARDS)]
+    many = with_art + [_official([_card(10 + i, f"New {i}", 10 + i)])[0] for i in range(3)]
+    t = NOW + timedelta(days=2)
+    posts = [_first(phase="leak", count=2), {"kind": "set_official", "set_prefix": "MZMC", "known_count": 4,
+                                             "created_at": (t - timedelta(hours=21)).isoformat()}]
+    # 初報の2枚からは3枚増えたが、公式の続報の4枚からは1枚しか増えていない → 続報は出さない
+    item = tp.decide([SET], {"MZMC": many}, posts, t)
+    assert item is None or item["kind"] != "set_update"
+    posts[1]["known_count"] = 2
+    assert tp.decide([SET], {"MZMC": many}, posts, t)["kind"] == "set_update"
+
+
+def test_公式の続報も二重に予約しない(enabled, monkeypatch):
+    db = _db_for_first_post()
+    for c in db.rows["tcg_announce_cards"]:
+        c["lore_source_url"], c["art_url"] = OFFICIAL_URL, "https://x/a.png"
+    db.rows["tcg_announce_posts"] = [dict(_first(phase="leak"), id=1)]
+    real = _Q.execute
+
+    def dup(self):
+        if self.op == "insert" and self.payload.get("kind") == "set_official":
+            raise Exception('duplicate key value violates unique constraint "uq_tcg_announce_posts_set_official" (23505)')
+        return real(self)
+    monkeypatch.setattr(_Q, "execute", dup)
+    assert tp.run(db, now=NOW + timedelta(hours=20), post_fn=lambda t: ("1", None)).startswith("予約できず")
+
+
+def test_公式の絵のあるカードは本文もイラストと効果が判明():
+    card = dict(_official(CARDS)[1], art_url="https://x/a.png")
+    assert f"{card['name_en']} のイラストと効果が判明" in tp.text_card(SET, card, CARDS)
+    assert f"{CARDS[1]['name_en']} の効果が判明" in tp.text_card(SET, CARDS[1], CARDS)
+
+
+def test_初報の段を投稿の行に残す(enabled):
+    db = _db_for_first_post()
+    for c in db.rows["tcg_announce_cards"]:
+        c["lore_source_url"] = SHOP_URL
+    assert "tweet_id=1" in tp.run(db, now=NOW, post_fn=lambda t: ("1", None))
+    row = db.rows["tcg_announce_posts"][0]
+    assert (row["kind"], row["phase"]) == ("set_first", "leak") and "速報" in row["text"]
+
+
+def test_出どころの分からない速報は販売店と書かない():
+    noon = datetime(2026, 10, 29, 12, 0, tzinfo=timezone.utc)
+    item = tp.decide([SET], {"MZMC": CARDS}, [], noon)   # 出どころの書かれていない非公式の文だけ
+    assert (item["kind"], item["phase"]) == ("set_first", "leak")
+    text = tp.build_text(item)
+    assert "非公式の情報で" in text and "販売店" not in text

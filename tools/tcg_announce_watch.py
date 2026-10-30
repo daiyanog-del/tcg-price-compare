@@ -326,6 +326,20 @@ def needs_summary(existing: dict | None, row: dict) -> bool:
     return attempts_so_far(existing, row) < MAX_ATTEMPTS
 
 
+def lore_at_for(existing: dict | None, row: dict, now: str) -> str | None:
+    """この回に入れる lore_at（効果の文が初めて出た時刻）。入れないなら None。名前だけで先に行ができるカードが
+    あるので、行ができた時刻とは別に持つ。速報の初報を出せるかの古さはこれで測る（tcg_announce_post）。"""
+    if row["lore_kind"] == "none":
+        return None
+    if existing is None or (existing.get("lore_kind") or "none") == "none":
+        return now   # この回で初めて効果の文が出た
+    if not existing.get("lore_at"):
+        # 前から効果の文があるのに時刻が空（列を足した後、新しいコードに替わる前に取り込んだカード）。
+        # 今の時刻を入れると古い速報が新しく見えるので、SQL の埋め直しと同じく行ができた時刻にする
+        return existing.get("first_seen_at")
+    return None
+
+
 def settled(existing: dict) -> bool:
     """前回の行が、ページが変わらない限り読み直さなくてよい状態か。"""
     if existing.get("status") != "announced":
@@ -527,6 +541,9 @@ def process(collected: dict, known_cards: dict[int, dict], *, sb, client, model:
             stats["_new_names"].append(row["name_en"])
         else:
             stats["updated"] += 1
+        lore_at = lore_at_for(existing, row, _now())
+        if lore_at:
+            row["lore_at"] = lore_at
         if row["lore_kind"] == "official" and (existing is None or existing.get("lore_kind") != "official"):
             row["official_at"] = _now()
             stats["official_new"] += 1
@@ -589,6 +606,38 @@ def process(collected: dict, known_cards: dict[int, dict], *, sb, client, model:
     return stats
 
 
+def fill_art(sb) -> int:
+    """絵がまだ無い予告カードに、同じ弾の公式の商品ページの絵を入れる。入れた枚数を返す。
+    弾の公式ページは、その弾のどれかのカードの紹介文の出どころから知る（販売店の文が先に載ったカードは、
+    Yugipedia の出どころが販売店のまま変わらないことがあるので、カード自身の出どころだけでは探さない）。
+    カードの行は Yugipedia のページが変わらないと読み直さないが、公式ページには絵があとから載ることもあるので、
+    要約とは別に毎回確かめる（読むのは、絵の無いカードがある弾の公式ページだけ。1ページ1回）。"""
+    rows = (sb.table(CARDS).select("page_id,name_en,set_prefix,lore_source_url,art_url")
+            .eq("status", "announced").execute().data or [])
+    pages: dict[str, set[str]] = {}
+    for r in rows:
+        if ya.is_official_page(r.get("lore_source_url") or ""):
+            pages.setdefault(r["set_prefix"], set()).add(r["lore_source_url"])
+    filled = 0
+    for prefix, urls in pages.items():
+        cards = [r for r in rows if r["set_prefix"] == prefix and not r.get("art_url")]
+        for url in sorted(urls):
+            if not cards:
+                break
+            try:
+                arts = ya.official_arts(url)
+            except Exception as e:
+                logger.warning(f"公式の商品ページを読めません（次の回に取り直します）: {url}: {e}")
+                continue
+            for c in list(cards):
+                art = ya.art_for(c["name_en"], arts)
+                if art:
+                    sb.table(CARDS).update({"art_url": art, "updated_at": _now()}).eq("page_id", c["page_id"]).execute()
+                    cards.remove(c)
+                    filled += 1
+    return filled
+
+
 def format_summary(stats: dict) -> str:
     return (f"弾{stats['sets']}・新規{stats['new']}・更新{stats['updated']}（変わらず{stats['skipped_known']}）"
             f"・要約{stats['summarized']}（失敗{stats['summary_failed']}・上限で見送り{stats['summary_deferred']}）"
@@ -647,6 +696,10 @@ def main(argv=None) -> int:
             json.dump(stats["_rows"], f, ensure_ascii=False, indent=1, default=str)
     logger.info("まとめ: " + format_summary(stats) + f"・費用の目安 ${stats['_cost_usd']:.3f}")
     if not a.dry_run:
+        try:
+            logger.info(f"公式の絵を入れたカード: {fill_art(sb)}枚")
+        except Exception as e:
+            logger.warning(f"公式の絵の取り込みに失敗（次の回に取り直します）: {type(e).__name__}: {e}")
         if new_prefixes:
             tpw._notify("海外先行の新しい弾を見つけました: " + "、".join(f"{s['name_en']}（{s['prefix']}）" for s in new_prefixes))
         if stats["new"]:
