@@ -16,7 +16,11 @@ unreleased_upload.py — 画像アップロードからの未発売カード取�
   動画のキャプチャは公式画像より小さく、効果文も読み直し頼みになる。そこで、公式X監視・公式サイト巡回・
   管理画面のX取込で同名（fuzzy_key 一致）のカードが届いたら、新しい行を作らずに既存行の画像を公式版に差し替える。
   - 承認待ちの行: カードの内容（効果文・数値など）も公式版の抽出結果で置き換える（元の値は記録に残す）。
-  - 公開中の行: 人が確認済みの内容は変えず、公式版との差分を記録して「要確認」の札と Discord で知らせる。
+  - 公開中の行: 自動では差し替えない（2026-10-30。自動クロップが外れて、公開中の画像が崩れたため）。
+    公式版の画像を「候補」として表示に使わない場所に保存し、管理画面の札と Discord で知らせる。
+    管理画面で今の画像と見比べ、切り抜き枠を確かめてから差し替える（apply_official_candidate）。
+    差し替えるときは人が確認済みの内容は変えず、公式版との差分を記録して「要確認」の札で知らせる。
+  - 差し替える前に、見えているキャプチャと切り抜く前の画像を退避し、「キャプチャに戻す」で戻せる（revert_to_capture）。
   - 公式版の画像を保存してから古い画像を論理削除する（途中で失敗しても画像が消えない）。
   - 画像の保存に失敗したら記録を戻し、差し替え済みの印を付けない。同名の公式版がまた届けば再試行されるが、
     公式Xは同じカードを普通1回しか投稿しないので、多くは画像取込のまま残る（管理画面の札と Discord で知らせる）。
@@ -51,6 +55,8 @@ REPLACE_FIELDS = (
     "reading", "card_type", "attribute", "race", "level", "rank", "link_val",
     "atk", "def", "effect_text", "pendulum_scale", "pendulum_effect", "confidence",
 )
+# 承認待ちの状態（公式版が届いたら内容ごと置き換える）。これ以外（公開中）は候補として保存するだけ
+REVIEW_STATUSES = ("pending", "needs_review")
 # 公開中の行で差分を知らせる欄（confidence は内容ではないので比べない）
 DIFF_FIELDS = tuple(f for f in REPLACE_FIELDS if f not in ("reading", "confidence"))
 
@@ -459,9 +465,10 @@ def load_replaceable(sb) -> ReplaceQueue:
 
 
 def split_replaceable(sb, rows: list[dict], queue: ReplaceQueue, page_url: str,
-                      *, store=None, notify=None) -> list[dict]:
+                      *, store=None, notify=None, fetch=None) -> list[dict]:
     """抽出した行のうち差し替え待ちと同名のものは差し替えに回し、残り（新規登録してよい行）を返す。
 
+    - 承認待ちの行は差し替える。公開中の行は公式版を候補として保存するだけ（save_official_candidate）。
     - カード本体（効果・数値）が読めていない行（イラストのみの投稿など）では差し替えない。新規登録もしない。
     - 同じ実行内で同名が2回来ても差し替えは1回だけ。差し替え済みの名前の2回目以降は捨てる
       （新しい行を作ると同名が2行になるため）。差し替えに失敗した行も新規登録はしない。
@@ -481,8 +488,26 @@ def split_replaceable(sb, rows: list[dict], queue: ReplaceQueue, page_url: str,
         if lacks_card_body(row):
             logger.info(f"[upload] 画像取込カードの公式版だがカード本体が読めないため見送り: {name!r} ({page_url})")
             continue
-        ok, reason = replace_with_official(sb, card, row, page_url=page_url, store=store, notify=notify)
-        logger.info(f"[upload] 公式版で差し替え: card_id={card.get('id')} ok={ok} {reason} ({page_url})")
+        # 実行の最初に読んだ状態は古いことがある（抽出の間に承認されうる）。判断の直前に読み直す
+        try:
+            fresh_card = _load_card(sb, card["id"]) if card.get("id") is not None else None
+        except Exception as e:  # noqa: BLE001 — 監視の本体を止めない。このカードだけ次回に回す
+            logger.warning(f"[upload] 差し替え待ちのカードを読み直せないため見送り: card_id={card.get('id')}: {e}")
+            continue
+        if isinstance(fresh_card, dict) and fresh_card.get("id") == card.get("id"):
+            card = fresh_card
+            if not is_replaceable(card):
+                # 実行中に却下・差し替え済みになった
+                logger.info(f"[upload] もう差し替え待ちでないため見送り: card_id={card.get('id')} ({page_url})")
+                queue.cards.pop(key, None)
+                queue.done.add(key)
+                continue
+        if card.get("status") in REVIEW_STATUSES:
+            ok, reason = replace_with_official(sb, card, row, page_url=page_url, store=store, notify=notify)
+            logger.info(f"[upload] 公式版で差し替え: card_id={card.get('id')} ok={ok} {reason} ({page_url})")
+        else:
+            ok, reason = save_official_candidate(sb, card, row, page_url=page_url, fetch=fetch, notify=notify)
+            logger.info(f"[upload] 公式版を候補として保存: card_id={card.get('id')} ok={ok} {reason} ({page_url})")
         if ok:
             queue.cards.pop(key, None)
             queue.done.add(key)
@@ -556,7 +581,7 @@ def _annotate_official(sb, row: dict, own_name: str, upload) -> None:
 
 
 def replace_with_official(sb, card: dict, row: dict, *, page_url: str, store=None, notify=None,
-                          crop=None) -> tuple[bool, str]:
+                          crop=None, backup=None, require_backup: bool = False) -> tuple[bool, str]:
     """差し替え待ちの行 card を、公式版の抽出結果 row で差し替える。例外は投げない。
 
     順番: ①公式版の枠候補を記録に入れる ②公式版の画像を保存（新しい画像行が増える）
@@ -568,6 +593,7 @@ def replace_with_official(sb, card: dict, row: dict, *, page_url: str, store=Non
     store = store or _default_store
     crop = crop or _default_crop
     notify = notify or _default_notify
+    backup = backup or _default_backup_capture
     cid = card.get("id")
     name = card.get("name", "?")
     now = _now_iso()
@@ -578,6 +604,19 @@ def replace_with_official(sb, card: dict, row: dict, *, page_url: str, store=Non
     old = []
     try:
         old = _visible_images(sb, cid)
+        # 差し替える前に、見えているキャプチャと切り抜く前の画像を退避する（「キャプチャに戻す」で使う）
+        backup_failed = False
+        if not raw.get("capture_backup"):
+            saved = backup(sb, cid, old, raw)
+            if saved:
+                raw["capture_backup"] = saved
+            elif saved == {}:
+                pass   # 見える画像が無い（失うものが無い）ので、退避なしで進める
+            elif require_backup:
+                # 人が操作して差し替えるときは、退避できなければ何も変えずに止める（上書きでキャプチャを失うため）
+                return False, "今の画像を退避できないため、差し替えを止めました（もう一度試してください）"
+            else:
+                backup_failed = True
         # X の自動クロップは extraction_raw.crop_suggestion を見るので、保存より先に公式版の候補を入れる。
         # キャプチャ側の元画像・クロップ状態・表示用URLは引き継がない（保存処理が公式版の値を書く）
         raw_for_store = {k: v for k, v in raw.items() if k not in ("original_image", "crop_state", "card_image_url")}
@@ -588,6 +627,7 @@ def replace_with_official(sb, card: dict, row: dict, *, page_url: str, store=Non
 
         ok, reason = store(sb, cid, row, page_url)
         if not ok:
+            _put_back_capture(sb, cid, old, raw.get("capture_backup"))
             raw["replace_error"] = {"at": now, "page_url": page_url, "image_url": official_image, "reason": reason}
             sb.table("unreleased_cards").update({"extraction_raw": raw}).eq("id", cid).execute()
             notify(f"[未発売] 画像取込のカードを公式版に差し替えられませんでした（画像取込のまま）: {name}（{reason}）"
@@ -608,15 +648,18 @@ def replace_with_official(sb, card: dict, row: dict, *, page_url: str, store=Non
         fresh = (sb.table("unreleased_cards").select("extraction_raw").eq("id", cid).execute().data or [{}])[0]
         stored_raw = dict(fresh.get("extraction_raw") or raw_for_store)
         record = {"at": now, "page_url": page_url, "image_url": official_image,
-                  "previous_source_url": card.get("source_url")}
+                  "previous_source_url": card.get("source_url"),
+                  # キャプチャに戻したとき、公式版を候補に戻すのに使う
+                  "official_row": compact_row(row),
+                  "official_original": stored_raw.get("original_image")}
         updates = {"source_url": page_url, "source_domain": (urlparse(page_url).hostname or "").lower()}
-        if card.get("status") in ("pending", "needs_review"):
+        if card.get("status") in REVIEW_STATUSES:
             # 承認待ち: 内容も公式版にする。元の値は記録に残す
             _annotate_official(sb, row, name, raw.get("upload"))
             record["mode"] = "content_replaced"
             record["previous"] = {f: card.get(f) for f in REPLACE_FIELDS}
             merged = dict(row.get("extraction_raw") or {})
-            for k in ("original_image", "crop_state", "card_image_url"):
+            for k in ("original_image", "crop_state", "card_image_url", "capture_backup"):
                 if k in stored_raw:
                     merged[k] = stored_raw[k]
                 else:
@@ -648,6 +691,8 @@ def replace_with_official(sb, card: dict, row: dict, *, page_url: str, store=Non
                 message = f"[未発売] 画像取込のカードの画像を公式版に差し替えました（内容の違いなし）: {name}"
         sb.table("unreleased_cards").update(updates).eq("id", cid).execute()
         _remove_old_files(sb, [r.get("storage_path") for r in old], new_paths, raw, stored_raw)
+        if backup_failed:
+            message += "（⚠ 今の画像を退避できなかったため、キャプチャには戻せません）"
         notify(message)
         return True, record["mode"]
     except Exception as e:  # noqa: BLE001 — 監視の本体を止めない
@@ -698,6 +743,334 @@ def _bust_new_image_url(sb, card_id: int) -> None:
         logger.warning(f"[upload] 差し替え画像のURL更新に失敗（古い画像が残って見える場合あり）: {e}")
 
 
+# ──────────────────────────────────────────────
+# 公開中の行: 公式版を候補として保存し、人が見比べてから差し替える（2026-10-30）
+# ──────────────────────────────────────────────
+
+# 候補・差し替え記録に残す公式版の抽出結果の記録の欄（切り抜き枠・画像URL）
+_ROW_RAW_KEYS = ("source", "crop_suggestion", "card_bbox", "source_image_url", "card_image_url", "card_image_urls")
+
+
+def compact_row(row: dict) -> dict:
+    """公式版の抽出結果のうち、後で差し替えに使う分だけを抜き出す（記録に保存できる大きさにする）。"""
+    out = {f: row.get(f) for f in REPLACE_FIELDS if f in row}
+    for k in ("name", "release_date"):
+        if row.get(k) is not None:
+            out[k] = row[k]
+    raw = row.get("extraction_raw") or {}
+    out["extraction_raw"] = {k: raw[k] for k in _ROW_RAW_KEYS if k in raw}
+    return out
+
+
+def _load_card(sb, card_id: int) -> dict | None:
+    rows = (sb.table("unreleased_cards").select(_CARD_COLUMNS).eq("id", card_id).execute().data or [])
+    return rows[0] if rows else None
+
+
+def _read_raw(sb, card_id: int) -> dict:
+    rows = (sb.table("unreleased_cards").select("extraction_raw").eq("id", card_id).execute().data or [{}])
+    return dict(rows[0].get("extraction_raw") or {})
+
+
+def _write_raw(sb, card_id: int, raw: dict, extra: dict | None = None) -> None:
+    sb.table("unreleased_cards").update(dict(extra or {}, extraction_raw=raw)).eq("id", card_id).execute()
+
+
+def _default_backup_capture(sb, card_id: int, old_rows: list[dict], raw: dict) -> dict | None:
+    """見えているキャプチャと切り抜く前の画像を captures/ に写す。
+
+    Returns: 退避の記録（dict）／退避するものが無い（{}。見える画像が無い）／読めない・写せない（None）。
+    切り抜く前の画像が記録にあるのに読めないときも None（片方だけ残すと、戻したとき二重に切り抜かれる）。
+    """
+    from unreleased_image_store import CAPTURE_DIR, ext_for, get_file, mime_for_path, put_file
+    shown = next((r.get("storage_path") for r in old_rows if r.get("storage_path")), "")
+    if not shown:
+        return {}
+    data = get_file(sb, shown)
+    if data is None:
+        logger.warning(f"[upload] キャプチャを退避できません（キャプチャに戻せなくなる）: card_id={card_id} {shown!r}")
+        return None
+    try:
+        mime = mime_for_path(shown)
+        image_path = f"{CAPTURE_DIR}/{card_id}.{ext_for(mime)}"
+        put_file(sb, image_path, data, mime)
+        saved = {"at": _now_iso(), "image": {"storage_path": image_path, "mime": mime},
+                 "crop_state": raw.get("crop_state"), "original": None}
+        orig = raw.get("original_image")
+        orig_path = orig.get("storage_path") if isinstance(orig, dict) else None
+        orig_data = get_file(sb, orig_path)
+        if orig_path and orig_data is None:
+            logger.warning(f"[upload] 切り抜く前の画像を退避できません（キャプチャに戻せなくなる）: card_id={card_id} {orig_path!r}")
+            return None
+        if orig_data is not None:
+            orig_mime = orig.get("mime") or mime_for_path(orig_path)
+            path = f"{CAPTURE_DIR}/originals/{card_id}.{ext_for(orig_mime)}"
+            put_file(sb, path, orig_data, orig_mime)
+            saved["original"] = {"storage_path": path, "mime": orig_mime}
+        return saved
+    except Exception as e:  # noqa: BLE001 — 退避できなくても差し替えは止めない
+        logger.warning(f"[upload] キャプチャの退避に失敗（キャプチャに戻せなくなる）: card_id={card_id}: {e}")
+        return None
+
+
+def _put_candidate(sb, card_id: int, data: bytes, mime: str, *, page_url: str, image_url: str,
+                   row: dict, diff: dict, official_site: bool) -> dict:
+    """公式版の画像を candidates/ に置き、候補の記録を返す。例外はそのまま投げる。"""
+    from unreleased_image_store import CANDIDATE_DIR, ext_for, put_file
+    path = f"{CANDIDATE_DIR}/{card_id}.{ext_for(mime)}"
+    url = put_file(sb, path, data, mime)
+    return {"at": _now_iso(), "page_url": page_url, "image_url": image_url, "official_site": official_site,
+            "image": {"storage_path": path, "mime": mime, "public_url": url}, "row": row, "diff": diff}
+
+
+def _candidate_path(cand) -> str:
+    img = cand.get("image") if isinstance(cand, dict) else None
+    return (img.get("storage_path") or "") if isinstance(img, dict) else ""
+
+
+def save_official_candidate(sb, card: dict, row: dict, *, page_url: str, fetch=None,
+                            notify=None) -> tuple[bool, str]:
+    """公開中の行に届いた公式版を候補として保存する。表示中の画像・内容は変えない。例外は投げない。
+
+    同じカードに公式版がまた届いたら（公式X → 公式サイトなど）、候補を新しい方に置き換える。
+    """
+    notify = notify or _default_notify
+    if fetch is None:
+        from unreleased_image_store import fetch_replacement_image as fetch
+    cid = card.get("id")
+    name = card.get("name", "?")
+    image_url = _official_image_url(row)
+    official_site = (row.get("extraction_raw") or {}).get("source") == "official_html"
+    cur = card.get("extraction_raw") or {}
+    # 同じ公式版（記事の読み直しなど）が届き直したときは、候補・見送りの記録を変えず知らせもしない
+    for prev in (cur.get("official_candidate"), cur.get("official_candidate_dismissed")):
+        if isinstance(prev, dict) and image_url and prev.get("image_url") == image_url:
+            return True, "候補・見送り済みと同じ公式版"
+    diff = {}
+    try:
+        if not image_url:
+            data, mime, err = None, "", "公式版の画像URLがありません"
+        else:
+            data, mime, err = fetch(image_url, official_site=official_site)
+        if data is None:
+            raw = _read_raw(sb, cid)
+            raw["replace_error"] = {"at": _now_iso(), "page_url": page_url, "image_url": image_url, "reason": err}
+            _write_raw(sb, cid, raw)
+            notify(f"[未発売] 画像取込のカードに公式版が届きましたが、画像を取得できませんでした（表示は今のまま）: "
+                   f"{name}（{err}） 公式版: {page_url}")
+            return False, f"画像取得失敗: {err}"
+        diff = field_diff(card, row)
+        cand = _put_candidate(sb, cid, data, mime, page_url=page_url, image_url=image_url,
+                              row=compact_row(row), diff=diff, official_site=official_site)
+        # 書く直前に最新の記録を読み直して、候補の欄だけを差し替える
+        raw = _read_raw(sb, cid)
+        old_path = _candidate_path(raw.get("official_candidate"))
+        raw.pop("replace_error", None)
+        raw.pop("official_candidate_dismissed", None)
+        raw["official_candidate"] = cand
+        _write_raw(sb, cid, raw)
+        if old_path and old_path != cand["image"]["storage_path"]:
+            from unreleased_image_store import remove_files
+            remove_files(sb, [old_path])
+    except Exception as e:  # noqa: BLE001 — 監視の本体を止めない
+        logger.warning(f"[upload] 公式版の候補を保存できません: card_id={cid}: {e}")
+        notify(f"[未発売] 画像取込のカードに公式版が届きましたが、候補として保存できませんでした（表示は今のまま）: {name}（{e}）")
+        return False, f"エラー: {e}"
+    extra = f"。内容にも違いがあります（{'・'.join(diff)}）" if diff else ""
+    notify(f"[未発売] 画像取込のカードに公式版が届きました。表示は今の画像のままです。"
+           f"管理画面の公開中一覧で見比べて差し替えてください: {name}{extra}")
+    return True, "candidate_saved"
+
+
+class CandidateChanged(Exception):
+    """見比べていた候補が、別の公式版に置き換わっていた。"""
+
+
+def apply_official_candidate(sb, card_id: int, box: dict | None = None, *, expected_at: str | None = None,
+                             notify=None) -> tuple[bool, str]:
+    """候補の公式版で画像を差し替える。box（画像全体を 1.0 とした割合）があればその枠で切り抜く。
+
+    expected_at は見比べた候補の at。今の候補と違えば CandidateChanged を投げる（別の画像に枠を当てない）。
+    Returns: (成功フラグ, 失敗理由 or 補足)。差し替えは済んで切り抜きだけ失敗したときは (True, 補足)。
+    """
+    from unreleased_image_store import crop_and_save_image, get_file, remove_files, store_replacement_bytes
+    card = _load_card(sb, card_id)
+    if not card:
+        return False, "カードが見つかりません"
+    cand = (card.get("extraction_raw") or {}).get("official_candidate")
+    if not isinstance(cand, dict):
+        return False, "公式版の候補がありません"
+    if expected_at is not None and cand.get("at") != expected_at:
+        raise CandidateChanged("公式版の候補が新しいものに変わりました。見比べ直してください")
+    img = cand.get("image") or {}
+    data = get_file(sb, img.get("storage_path"))
+    if data is None:
+        return False, "公式版の候補の画像を読めません"
+    mime = img.get("mime") or "image/jpeg"
+    image_url = cand.get("image_url") or ""
+    row = dict(cand.get("row") or {})
+    row["extraction_raw"] = dict(row.get("extraction_raw") or {})
+
+    def store(sb_, cid, _row, page_url):
+        return store_replacement_bytes(sb_, cid, data, mime, image_url, page_url)
+
+    # 人が操作して差し替えるので Discord には流さない（ログだけ）
+    ok, reason = replace_with_official(sb, card, row, page_url=cand.get("page_url") or "", store=store,
+                                       crop=lambda *a: None, notify=notify or logger.info, require_backup=True)
+    if not ok:
+        return False, reason
+    raw = _read_raw(sb, card_id)
+    raw.pop("official_candidate", None)
+    _write_raw(sb, card_id, raw)
+    remove_files(sb, [img.get("storage_path")])
+    if box:
+        c_ok, c_res = crop_and_save_image(sb, card_id, box["left"], box["top"], box["right"], box["bottom"],
+                                          mode="manual")
+        if not c_ok:
+            return True, f"差し替えましたが、切り抜きに失敗しました（{c_res}）。クロップ画面で切り直してください"
+    return True, ""
+
+
+def dismiss_official_candidate(sb, card_id: int) -> tuple[bool, str]:
+    """候補を見送る（画像を消し、見送った記録を残す）。同じカードに公式版がまた届けば、また候補になる。"""
+    from unreleased_image_store import remove_files
+    card = _load_card(sb, card_id)
+    if not card:
+        return False, "カードが見つかりません"
+    raw = dict(card.get("extraction_raw") or {})
+    cand = raw.pop("official_candidate", None)
+    if not isinstance(cand, dict):
+        return False, "公式版の候補がありません"
+    raw["official_candidate_dismissed"] = {"at": _now_iso(), "page_url": cand.get("page_url"),
+                                           "image_url": cand.get("image_url")}
+    _write_raw(sb, card_id, raw)
+    remove_files(sb, [_candidate_path(cand)])
+    return True, ""
+
+
+def _put_back_capture(sb, card_id: int, old_rows: list[dict], saved) -> None:
+    """保存が途中で失敗したとき、同じ保存先に上書きされたかもしれない表示中の画像をキャプチャに書き戻す。"""
+    if not isinstance(saved, dict):
+        return
+    from unreleased_image_store import get_file, put_file, store_thumbnail
+    img = saved.get("image") or {}
+    data = get_file(sb, img.get("storage_path"))
+    shown = next((r.get("storage_path") for r in old_rows if r.get("storage_path")), "")
+    if data is None or not shown:
+        logger.warning(f"[upload] 表示中の画像を書き戻せません（公式版が見えている場合あり）: card_id={card_id}")
+        return
+    try:
+        put_file(sb, shown, data, img.get("mime") or "image/jpeg")
+        store_thumbnail(sb, card_id, data)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[upload] 表示中の画像の書き戻しに失敗（公式版が見えている場合あり）: card_id={card_id}: {e}")
+
+
+def revert_to_capture(sb, card_id: int) -> tuple[bool, str]:
+    """公式版に差し替えたカード（公開中・画像だけ差し替えたもの）を、退避してあるキャプチャに戻す。
+
+    順番: ①要るファイルを全部読む（1つでも読めなければ何も変えない）
+          ②公式版を候補として置き、記録に確定させる（途中で失敗して押し直しても、公式版がキャプチャにすり替わらない）
+          ③キャプチャを保存し、古い画像行を消し、記録を戻す ④使われなくなったファイルを消す（最後）
+    """
+    from unreleased_image_store import (ext_for, get_file, mime_for_path, put_file, remove_files,
+                                        store_replacement_bytes)
+    card = _load_card(sb, card_id)
+    if not card:
+        return False, "カードが見つかりません"
+    raw = dict(card.get("extraction_raw") or {})
+    rep, bk = raw.get("replaced_by_official"), raw.get("capture_backup")
+    if not isinstance(rep, dict) or not isinstance(bk, dict):
+        return False, "戻せるキャプチャがありません"
+    if rep.get("mode") != "image_only":
+        return False, "内容ごと公式版にしたカードは、画像だけキャプチャに戻せません"
+
+    # ① 読む
+    img = bk.get("image") or {}
+    data = get_file(sb, img.get("storage_path"))
+    if data is None:
+        return False, "退避したキャプチャを読めません（何も変えていません）"
+    mime = img.get("mime") or mime_for_path(img.get("storage_path"))
+    b_orig = bk.get("original") if isinstance(bk.get("original"), dict) else None
+    b_orig_data = None
+    if b_orig:
+        b_orig_data = get_file(sb, b_orig.get("storage_path"))
+        if b_orig_data is None:
+            return False, "退避した切り抜く前のキャプチャを読めません（何も変えていません）"
+    cand = raw.get("official_candidate")
+    # 前回の途中で公式版を候補に置き済みなら、置き直さない（その後 originals はキャプチャに書き換わっている）
+    pending_cand = cand if isinstance(cand, dict) and cand.get("from_replaced_at") == rep.get("at") else None
+    official_row = rep.get("official_row") if isinstance(rep.get("official_row"), dict) else None
+    official_bytes, o_mime, official_path = None, "", None
+    if pending_cand is None and official_row is not None:
+        o_rec = rep.get("official_original")
+        if not isinstance(o_rec, dict):
+            o_rec = raw.get("original_image") if isinstance(raw.get("original_image"), dict) else {}
+        official_path = o_rec.get("storage_path")
+        official_bytes = get_file(sb, official_path)
+        if official_bytes is None:
+            return False, "公式版の切り抜く前の画像を読めません（何も変えていません）"
+        o_mime = o_rec.get("mime") or mime_for_path(official_path)
+
+    old = _visible_images(sb, card_id)
+    try:
+        # ② 公式版を候補に置いて確定させる
+        if official_bytes is not None:
+            pending_cand = _put_candidate(
+                sb, card_id, official_bytes, o_mime, page_url=rep.get("page_url") or "",
+                image_url=rep.get("image_url") or "", row=official_row, diff=field_diff(card, official_row),
+                official_site=(official_row.get("extraction_raw") or {}).get("source") == "official_html")
+            pending_cand["from_replaced_at"] = rep.get("at")
+            cur = _read_raw(sb, card_id)
+            cur["official_candidate"] = pending_cand
+            _write_raw(sb, card_id, cur)
+
+        # ③ キャプチャを保存して記録を戻す
+        previous_url = rep.get("previous_source_url") or card.get("source_url") or ""
+        ok, reason = store_replacement_bytes(sb, card_id, data, mime, previous_url, previous_url)
+        if not ok:
+            return False, f"キャプチャを保存できません: {reason}"
+        new_rows = _visible_images(sb, card_id)
+        old_ids = {r["id"] for r in old}
+        if old_ids:
+            sb.table("official_card_images").update({"deleted_at": _now_iso()}).in_("id", sorted(old_ids)).execute()
+        new_paths = {r.get("storage_path") for r in new_rows if r["id"] not in old_ids}
+
+        new_raw = _read_raw(sb, card_id) or raw
+        if b_orig_data is not None:
+            o_path = f"unreleased/originals/{card_id}.{ext_for(b_orig.get('mime') or 'image/jpeg')}"
+            put_file(sb, o_path, b_orig_data, b_orig.get("mime") or "image/jpeg")
+            new_raw["original_image"] = {"storage_path": o_path, "mime": b_orig.get("mime") or "image/jpeg"}
+        if bk.get("crop_state") is not None:
+            new_raw["crop_state"] = bk["crop_state"]
+        else:
+            new_raw.pop("crop_state", None)
+        for k in ("replaced_by_official", "capture_backup", "replace_error"):
+            new_raw.pop(k, None)
+        new_raw["reverted_to_capture"] = {"at": _now_iso(),
+                                          "official": {k: v for k, v in rep.items() if k != "official_row"}}
+        if pending_cand:
+            pending_cand = dict(pending_cand)
+            pending_cand.pop("from_replaced_at", None)
+            new_raw["official_candidate"] = pending_cand
+        updates = {}
+        if rep.get("previous_source_url"):
+            updates = {"source_url": previous_url, "source_domain": (urlparse(previous_url).hostname or "").lower()}
+        _write_raw(sb, card_id, new_raw, updates)
+        _bust_new_image_url(sb, card_id)
+    except Exception as e:  # noqa: BLE001 — 退避は消していないので、押し直せば続きから戻せる
+        logger.warning(f"[upload] キャプチャに戻す途中でエラー: card_id={card_id}: {e}")
+        return False, f"エラー: {e}（もう一度押すと続きから戻します）"
+
+    # ④ 使われなくなったファイル（拡張子が違う公式版の画像・切り抜く前の公式版・退避したキャプチャ）を消す
+    now_orig = (new_raw.get("original_image") or {}).get("storage_path")
+    keep = {now_orig, _candidate_path(new_raw.get("official_candidate"))} | new_paths
+    stale = {r.get("storage_path") for r in old} | {official_path, img.get("storage_path"),
+                                                     (b_orig or {}).get("storage_path")}
+    remove_files(sb, stale - keep)
+    return True, ""
+
+
 def admin_view(raw: dict, card: dict | None = None) -> dict | None:
     """管理画面の札用。画像取込でなければ None。
 
@@ -715,7 +1088,31 @@ def admin_view(raw: dict, card: dict | None = None) -> dict | None:
             diff = {f: v for f, v in diff.items()
                     if isinstance(v, dict) and _norm(card.get(f)) != _norm(v.get("official"))}
         return {"state": "replaced", "mode": rep.get("mode"), "at": rep.get("at"),
-                "page_url": rep.get("page_url"), "diff_fields": sorted(diff)}
+                "page_url": rep.get("page_url"), "diff_fields": sorted(diff),
+                "can_revert": (isinstance(raw.get("capture_backup"), dict) and rep.get("mode") == "image_only"
+                               and isinstance(rep.get("official_original"), dict))}
+    cand = raw.get("official_candidate")
+    if isinstance(cand, dict):
+        img = cand.get("image") or {}
+        return {"state": "candidate", "at": cand.get("at"), "page_url": cand.get("page_url"),
+                "image_url": img.get("public_url") or "", "crop_box": _candidate_box(cand),
+                "diff_fields": sorted(cand.get("diff") or {})}
     err = raw.get("replace_error")
     return {"state": "waiting", "error": err.get("reason") if isinstance(err, dict) else None,
             "official_page": err.get("page_url") if isinstance(err, dict) else None}
+
+
+def _candidate_box(cand: dict) -> dict | None:
+    """候補の切り抜き案（抽出時の枠）。画像全体・不正な値なら None（切り抜かない）。"""
+    sug = ((cand.get("row") or {}).get("extraction_raw") or {}).get("crop_suggestion")
+    if not isinstance(sug, dict) or sug.get("source_image_url") != cand.get("image_url"):
+        return None
+    try:
+        box = {k: float(sug[k]) for k in ("left", "top", "right", "bottom")}
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not (0 <= box["left"] < box["right"] <= 1 and 0 <= box["top"] < box["bottom"] <= 1):
+        return None
+    if box == {"left": 0.0, "top": 0.0, "right": 1.0, "bottom": 1.0}:
+        return None
+    return box

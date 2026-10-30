@@ -1750,6 +1750,74 @@ def admin_restore_original_image(card_id: int):
     return jsonify({"ok": False, "error": result}), 422
 
 
+# ──────────────────────────────────────────────
+# 画像取込のカードに届いた公式版の候補（unreleased_upload.py）
+#   POST /api/admin/unreleased/<id>/official-candidate/apply   — 候補で差し替える（枠を付ければ切り抜く）
+#   POST /api/admin/unreleased/<id>/official-candidate/dismiss — 候補を見送る
+#   POST /api/admin/unreleased/<id>/revert-to-capture          — 差し替えたカードをキャプチャに戻す
+# ──────────────────────────────────────────────
+
+@admin_bp.route("/api/admin/unreleased/<int:card_id>/official-candidate/apply", methods=["POST"])
+def admin_apply_official_candidate(card_id: int):
+    """リクエストボディ: {"box": {"left", "top", "right", "bottom"}}（割合）。box が null なら切り抜かない。"""
+    err = _require_admin_key()
+    if err:
+        return err
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+
+    body = request.get_json(silent=True) or {}
+    box = body.get("box")
+    if box is not None:
+        try:
+            box = {k: float(box[k]) for k in ("left", "top", "right", "bottom")}
+        except (KeyError, TypeError, ValueError):
+            return jsonify({"error": "box は left/top/right/bottom を 0.0〜1.0 の数値で指定してください"}), 400
+        if not (0 <= box["left"] < box["right"] <= 1 and 0 <= box["top"] < box["bottom"] <= 1):
+            return jsonify({"error": "切り抜き範囲が不正です"}), 400
+
+    from unreleased_upload import CandidateChanged, apply_official_candidate
+    expected_at = body.get("candidate_at")
+    try:
+        ok, message = apply_official_candidate(_supabase, card_id, box,
+                                               expected_at=expected_at if isinstance(expected_at, str) else None)
+    except CandidateChanged as e:
+        return jsonify({"ok": False, "error": str(e)}), 409
+    if not ok:
+        return jsonify({"ok": False, "error": message}), 422
+    _card_display.invalidate_cache()
+    return jsonify({"ok": True, "warning": message or None})
+
+
+@admin_bp.route("/api/admin/unreleased/<int:card_id>/official-candidate/dismiss", methods=["POST"])
+def admin_dismiss_official_candidate(card_id: int):
+    err = _require_admin_key()
+    if err:
+        return err
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+    from unreleased_upload import dismiss_official_candidate
+    ok, message = dismiss_official_candidate(_supabase, card_id)
+    if not ok:
+        return jsonify({"ok": False, "error": message}), 422
+    return jsonify({"ok": True})
+
+
+@admin_bp.route("/api/admin/unreleased/<int:card_id>/revert-to-capture", methods=["POST"])
+def admin_revert_to_capture(card_id: int):
+    err = _require_admin_key()
+    if err:
+        return err
+    if not _supabase:
+        return jsonify({"error": "Supabase 未接続"}), 503
+    from unreleased_upload import revert_to_capture
+    ok, message = revert_to_capture(_supabase, card_id)
+    if not ok:
+        return jsonify({"ok": False, "error": message}), 422
+    _card_display.invalidate_cache()
+    return jsonify({"ok": True})
+
+
 @admin_bp.route("/api/admin/unreleased/fetch-x-post", methods=["POST"])
 def admin_fetch_x_post():
     """

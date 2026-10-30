@@ -1,5 +1,12 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-30: 公開中の画像取込カードを、公式版を見比べてから差し替える形に（branch feat/official-candidate-review・PR 前）
+- 経緯: 公式版への自動差し替えで公開中の4件の切り抜きが外れ、キャプチャも上書きで消えた。ユーザー選択「確認制に変える」。決定は docs/decisions.md 10-30
+- 作ったもの: unreleased_upload.save_official_candidate／apply_official_candidate／dismiss_official_candidate／revert_to_capture・差し替え前の退避（capture_backup）・管理API 3つ（official-candidate/apply・dismiss・revert-to-capture）・管理画面の見比べ（クロップ画面の compare モード）と行のボタン
+- 確認: テスト 3262 passed。偽DB・偽Storage の手元サーバーで、見比べ→枠を直して差し替え→キャプチャに戻す→候補に戻る を画面で確認（スマホ幅も）
+- reviewer 2回: 1回目の致命2・高2（戻す途中の失敗で公式版がすり替わる／退避に失敗しても差し替わる／承認待ちの行を戻すと見えなくなる／古い状態で判断）と中・低、2回目の高1・中2・低1を反映。テスト 3274 passed
+- 次: ②PR・本番反映（ユーザー確認のうえ） ③外れた4件を管理画面で切り直す ④次に公式版が届いたとき、候補の札と Discord の知らせが出るかを本番で見る
+
 ## 2026-10-30: イラスト違いの段2a-1（本番 PR #278 23c43df・SQL 適用済み）
 - ユーザーが案B を選択。段2a を「2a-1 別表を書き始めるだけ」「2a-2 本表を代表の絵に切り替え（別表のある日を書き直す）」に分けた（いきなり切り替えると値動き・X 投稿に偽の値上がり）
 - 作ったもの: price_history_art.sql（表3つ・art_dim・RPC 3つ・upsert_price_rows の差し替え＝上書きで同じキーの別表を消す）・price_persist.build_art_price_rows／build_art_buyback_rows／art_price_context・夜の収集／カードラボのカタログ巡回／検索の即時記録／買取の配線・30日の畳み込みと削除・art_prints.json に絵の番号（98枚中43枚が絵3種類以上）

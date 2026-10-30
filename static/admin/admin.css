@@ -1339,6 +1339,37 @@ a:hover {
   align-self: flex-end;
 }
 
+/* 公式版の候補の見比べ（今の画像と差し替え後の仕上がりを同じ高さで並べる） */
+.crop-modal__compare {
+  display: flex;
+  gap: 16px;
+  align-self: flex-start;
+}
+
+.crop-modal__figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: color-mix(in srgb, var(--main-color) 60%, var(--border) 40%);
+}
+
+/* 見比べの段（約210px）を足した分、公式版の画像を低くしてボタンまで1画面に収める */
+.crop-modal--compare .crop-modal__img {
+  max-height: calc(70vh - 210px);
+}
+
+.crop-modal__current,
+.crop-modal__preview {
+  display: block;
+  height: 180px;
+  width: auto;
+  max-width: 40vw;
+  border: 1px solid var(--border);
+}
+
 /* スマホ幅: クロップのボタンは折り返し、右寄せにそろえる（共通定義より後ろに置く必要がある） */
 @media (max-width: 600px) {
   .crop-modal__actions {
