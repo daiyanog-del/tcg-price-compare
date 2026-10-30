@@ -2154,7 +2154,8 @@ def _fetch_price_daily_rows(card_name: str, cutoff: str, skip_dates: set) -> lis
                 if d in skip_dates:
                     continue
                 out.append({"date": d, "shop": r.get("shop", ""),
-                            "rarity": normalize_rarity(r.get("rarity", "")),
+                            # カーナベルの MANGAシク などは画面の札と同じ「シークレット」などに寄せる（art_variant）
+                            "rarity": art_variant.fold_manga_rarity(normalize_rarity(r.get("rarity", ""))),
                             "price": r.get("min_price", 0)})
             if len(batch) < page_size:
                 break
@@ -2215,7 +2216,8 @@ def api_price_history():
                 break
         data = [
             {"date": r.get("recorded_at", "")[:10], "shop": r.get("shop", ""),
-             "rarity": normalize_rarity(r.get("rarity", "")),  # 過渡期の分裂値を正準名に統合
+             # 過渡期の分裂値を正準名に統合。カーナベルの MANGAシク などは画面の札と同じ「シークレット」などに寄せる（art_variant）
+             "rarity": art_variant.fold_manga_rarity(normalize_rarity(r.get("rarity", ""))),
              "price": r.get("min_price", 0)}
             for r in rows
         ]
@@ -3203,7 +3205,7 @@ def api_wish_prices():
         # 代表レアリティ選定は rarity 文字列でグループ化するため、DB読み出し境界で
         # 正準名に統合する（過渡期の分裂値を吸収。/api/price-history と同じ方針）
         for r in all_rows:
-            r["rarity"] = normalize_rarity(r.get("rarity", "") or "")
+            r["rarity"] = art_variant.fold_manga_rarity(normalize_rarity(r.get("rarity", "") or ""))
         card_dates = _aggregate_daily_min_lowest_rarity(all_rows)
 
         # 共通店舗比較（変動判定用, 監査F5）は独立した try/except に分離する。
@@ -3327,7 +3329,8 @@ def api_wish_shop_totals():
             qty = MAX_DECK_QTY
         rarity_raw = str(raw.get("rarity", "") or "").strip()
         # フロントから受けた rarity も正準名へ統合（古いキャッシュ・表記揺れ対策）
-        rarity = normalize_rarity(rarity_raw) if rarity_raw else ""
+        # 2026-10-30 より前に「MANGAシク」などで入れた購入候補も、記録の読み出しと同じく寄せる
+        rarity = art_variant.fold_manga_rarity(normalize_rarity(rarity_raw)) if rarity_raw else ""
         corrected = _correct_cardname(name)
         key = (corrected, rarity)
         if key in seen:
@@ -3377,7 +3380,8 @@ def api_wish_shop_totals():
             # 2026-08-07 監査で統一。監査M5）
             if price < PRICE_FLOOR:
                 continue
-            rarity_db = normalize_rarity(row.get("rarity", "") or "")
+            # カーナベルの MANGAシク などは、画面の札・ほかの店の記録と同じ「シークレット」などに寄せる（art_variant）
+            rarity_db = art_variant.fold_manga_rarity(normalize_rarity(row.get("rarity", "") or ""))
             date = recorded_at[:10]
             key = (name, shop, rarity_db)
             prev_date = latest_date_by_key.get(key)

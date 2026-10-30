@@ -234,7 +234,13 @@ def display_rarity(row: dict) -> str:
     # アジア版の GREEN は art が言語版になるので、レアリティ側の表記で見る
     if rarity.startswith("クォーターセンチュリーシークレット") and re.search(r"GREEN\s*Ver|PINK\s*Ver", rarity, re.IGNORECASE):
         return "25thシークレット"
-    # カーナベルの「MANGAウル」などは、ほかの店と同じ「ウルトラ」などの中の漫画カラー／モノクロとして比べる（2026-10-30）
+    return fold_manga_rarity(rarity)
+
+
+def fold_manga_rarity(rarity: str) -> str:
+    """カーナベルの「MANGAウル」などを、ほかの店と同じ「ウルトラ」などに寄せる（2026-10-30）。
+    ほかの店の漫画風はもともと「ウルトラ」「シークレット」として記録されているので、記録を読む画面（価格推移・購入候補）でも
+    これで寄せる。記録そのものは略号のまま（絵ごとの記録＝段2で分けられるように）。GREEN Ver. は寄せない（display_rarity だけ）"""
     return _MANGA_RARITIES.get(rarity, rarity)
 
 
