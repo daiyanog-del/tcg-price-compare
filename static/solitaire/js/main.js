@@ -231,6 +231,8 @@ function fitFieldToViewport() {
   // （sol-layout-resize）でカードが小さくなると、カードの高さより大きく重ねて2枚目以降が上へはみ出していた（2026-10-30 ユーザー報告）
   document.querySelectorAll('.side-slots-container .side-slot').forEach(adjustSideStack);
 
+  updateDefenseEdgeShift();
+
   // パネル幅は最終 slotW 確定後に1回だけ再計算
   requestAnimationFrame(() => updateCipWidth());
 }
@@ -346,6 +348,30 @@ function applySlotWidth(w) {
  * @param {number} [bottomReserve=0]  下部に確保する固定領域(px)。縦向きスマホの下部固定バー(52px)分（設計書 §8.2）
  * @returns {number}      補正後の slot-width(px)
  */
+/**
+ * 守備表示のカードは横にするとマスの左右へ（高さ−幅）/2 ずつ出る。真ん中の列は隣のマスに少し重なるだけだが、
+ * 端の列は画面の外まで出る（縦向きスマホのモンスターゾーン8で右へ約4px・2026-10-30）。
+ * 出る分だけ内側へずらす量を各マスの --sol-def-shift に置く（css/components.css）。
+ * 盤面全体を小さくすると守備表示が無い普段もカードが小さくなるので、端のマスの守備表示だけをずらす。
+ */
+const DEF_EDGE_SAFE = 2; // 影の分
+function updateDefenseEdgeShift() {
+  const vw = document.documentElement.clientWidth;
+  document.querySelectorAll('.custom-slot[data-slot]').forEach(slot => {
+    const r = slot.getBoundingClientRect();
+    const out = (r.height - r.width) / 2;
+    let shift = 0;
+    if (r.width > 0 && out > 0) {
+      const overL = out + DEF_EDGE_SAFE - r.left;
+      const overR = r.right + out + DEF_EDGE_SAFE - vw;
+      if (overL > 0) shift = Math.ceil(overL);
+      else if (overR > 0) shift = -Math.ceil(overR);
+    }
+    if (shift) slot.style.setProperty('--sol-def-shift', `${shift}px`);
+    else slot.style.removeProperty('--sol-def-shift');
+  });
+}
+
 function correctSlotWidthByMeasurement(slotW, minW, bottomReserve = 0) {
   const field = document.querySelector('.sol-field-area');
   if (!field) return slotW;
