@@ -1,5 +1,11 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-30: ロゴの「強欲なラボ」を隷書（試作フォント PR12）に（branch feat/brand-reisho-subtitle・本番未反映）
+- ユーザー希望。PR12＝yugioh-shorts で作ったカード名ふうの試作フォント（カタカナ・ひらがな・強・欲）。権利の見立て（未検証）を説明のうえ「PR12 で作る」
+- tools/build_brand_subtitle.py で wordmark-lockup / logo-lockup の SVG の日本語部分（22部品）を外し、同じ左端・高さに PR12 の輪郭を置いて PNG を cairosvg で描き直し（元の PNG も cairosvg 描画と画素一致を確認済み）→ build_icons.py --og で OGP 3枚。変わったのは日本語の行だけ（画素の差で確認）
+- 確認: ロゴ・アイコン・OGP・デッキ画像のテスト 180 passed（2 skipped）。ブラウザで SVG がヘッダー幅（220px）でも読めることを確認。本番の画面は未確認
+- 次: ユーザー確認のうえ取り込み（static/brand/** は定期実行4つも組み立てる）→ 本番のヘッダー・OGP を確認 → worktree とブランチを消す
+
 ## 2026-10-30: カードのページの名前の横に「公式DB」「Wiki」リンク（本番 PR #291 53fb1f9）
 - 経緯: ユーザー依頼（カード検索画面から wiki・ニューロンの該当ページへの導線）。公式DBリンクは前からあったが、10-22 の LCP 改修で上に足された検索中の欄（#searchPreviewName・隠れている）に付いて見えていなかった。結果の欄（#heroInfo）の名前に付けるよう修正。前のカードの公式DBのURLが残る不具合も直した
 - Wiki: /card-wiki?name=&cid=（wiki_link.py）。cid から正式名に直し、英数字を全角にした《名前》のページの有無を確かめ、無ければ wiki のタイトル検索へ302。結果は起動中メモリに覚える。無作為100件で100件がカードのページに直接当たる（名前そのままだと90件。外れは cardnames_ja.json に入っている英字カードの読みの名前）
