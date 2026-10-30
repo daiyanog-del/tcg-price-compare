@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS tcg_announce_cards (
     lore_en            TEXT        NOT NULL DEFAULT '',
     lore_source_url    TEXT        NOT NULL DEFAULT '',        -- 宣伝文の出どころ（southernhobby.com など）
     pendulum_lore_en   TEXT        NOT NULL DEFAULT '',
+    art_url            TEXT        NOT NULL DEFAULT '',        -- 公式の商品ページに載った、このカードのイラスト。まだ無ければ空
 
     summary_ja         JSONB       NOT NULL DEFAULT '{}'::jsonb, -- 効果の要約 {intro: 共通の説明, effects: [{label: 効果の名前（ALPHA など・無ければ空）, text}]}
     summary_short_ja   TEXT        NOT NULL DEFAULT '',        -- 投稿用の1〜2文
@@ -87,6 +88,9 @@ CREATE TABLE IF NOT EXISTS tcg_announce_cards (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tcg_announce_cards_set ON tcg_announce_cards (set_prefix, status, hidden);
+
+-- 2026-10-30 追加（作成済みの表に足す）。公式の商品ページは紹介文とイラストを一緒に載せる（Maze of Machines）
+ALTER TABLE tcg_announce_cards ADD COLUMN IF NOT EXISTS art_url TEXT NOT NULL DEFAULT '';
 
 -- RLS 有効・ポリシーなし＝anon からは直接読めない（サーバー側の service key だけが読み書きする）
 ALTER TABLE tcg_announce_sets  ENABLE ROW LEVEL SECURITY;

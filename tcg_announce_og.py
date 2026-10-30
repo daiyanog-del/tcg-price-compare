@@ -24,10 +24,11 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 import card_og_image as cog
+import tcg_announce
 from deck_image import _get_font
 
 W, H = cog.W, cog.H
-DESIGN_VERSION = "b10"   # 見た目を変えたら上げる
+DESIGN_VERSION = "b11"   # 見た目を変えたら上げる
 
 _TEXT, _SUB, _GOLD = cog._TEXT, cog._SUB, cog._GOLD
 _PANEL = (0x20, 0x23, 0x2b)       # --bg-card
@@ -284,12 +285,17 @@ def picture_card(card: dict) -> str:
     return ""
 
 
+def from_official_page(card: dict) -> bool:
+    """紹介文が KONAMI 公式の商品ページのものか（販売店の商品説明と書き分ける）。"""
+    return card.get("lore_kind") == "blurb" and tcg_announce.is_official_page(card.get("lore_source_url") or "")
+
+
 def source_sites(cards: list[dict]) -> list[str]:
-    """宣伝文の出どころ（販売店のサイト名）を、使っているカードの多い順に。"""
+    """宣伝文の出どころ（販売店のサイト名）を、使っているカードの多い順に。公式の商品ページは入れない。"""
     count: dict[str, int] = {}
     for c in cards:
         url = c.get("lore_source_url") or ""
-        if c.get("lore_kind") != "blurb" or not url:
+        if c.get("lore_kind") != "blurb" or not url or from_official_page(c):
             continue
         host = url.split("//", 1)[-1].split("/", 1)[0].removeprefix("www.")
         count[host] = count.get(host, 0) + 1
@@ -298,6 +304,8 @@ def source_sites(cards: list[dict]) -> list[str]:
 
 def source_line(cards: list[dict]) -> str:
     """商品写真が無い画像に添える出どころの一行（写真が無いと本当に出る商品かが伝わりにくい。2026-10-29 ユーザー指摘）。"""
+    if any(from_official_page(c) for c in cards):
+        return "出どころ：KONAMI 公式の商品紹介"
     sites = source_sites(cards)
     if sites:
         return f"出どころ：販売店の商品案内（{'・'.join(sites[:2])}）"
@@ -370,6 +378,21 @@ def _fit_h(img: Image.Image, h: int) -> Image.Image:
     return img.convert("RGBA").resize((max(1, round(img.width * h / img.height)), h), Image.LANCZOS)
 
 
+def _square(img: Image.Image, side: int) -> Image.Image:
+    """イラストを正方形に（公式の絵は正方形。違う形なら中央を切り出す）。"""
+    im = img.convert("RGBA")
+    s = min(im.width, im.height)
+    im = im.crop(((im.width - s) // 2, (im.height - s) // 2, (im.width - s) // 2 + s, (im.height - s) // 2 + s))
+    return im.resize((side, side), Image.LANCZOS)
+
+
+def _framed_art(img: Image.Image, side: int) -> Image.Image:
+    """弾の画像に並べる新カードの絵（金の細い枠つき）。"""
+    im = _square(img, side)
+    ImageDraw.Draw(im).rectangle([0, 0, side - 1, side - 1], outline=_GOLD, width=2)
+    return im
+
+
 def _logo(canvas: Image.Image, x: int, y: int, h: int) -> None:
     try:
         logo = Image.open(cog._LOGO_PATH).convert("RGBA")
@@ -388,8 +411,8 @@ def _badges(d, x: int, y: int, labels: list[tuple[str, tuple]], size: int = 21) 
     return x
 
 
-def _proxy(w: int, h: int, card: dict) -> Image.Image:
-    """新カードの札（絵の代わり）。金の枠・属性種族・レベルの星・?・攻守。"""
+def _proxy(w: int, h: int, card: dict, art: Image.Image | None = None) -> Image.Image:
+    """新カードの札。金の枠・属性種族・レベルの星・攻守と、公式のイラスト（まだ無ければ ? と「イラスト未公開」）。"""
     im = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
     d.rounded_rectangle([0, 0, w - 1, h - 1], radius=12, fill=_PANEL, outline=_GOLD, width=3)
@@ -401,8 +424,13 @@ def _proxy(w: int, h: int, card: dict) -> Image.Image:
         step = min(22, (w - 40) / max(n, 1))
         for i in range(n):
             star(d, w / 2 + (i - (n - 1) / 2) * step, 68, min(9, step * 0.42), _GOLD)
-    d.text((w / 2, h / 2 + 4), "?", fill=_GOLD, font=latin(130, True), anchor="mm")
-    draw_text(d, (w / 2, h / 2 + 92), "イラスト未公開", _SUB, size=17, anchor="mm")
+    if art is not None:
+        top, bottom = 88, h - 62   # 星の下から攻守の上まで
+        side = min(w - 28, bottom - top)
+        im.paste(_square(art, side), (round((w - side) / 2), top + round((bottom - top - side) / 2)))
+    else:
+        d.text((w / 2, h / 2 + 4), "?", fill=_GOLD, font=latin(130, True), anchor="mm")
+        draw_text(d, (w / 2, h / 2 + 92), "イラスト未公開", _SUB, size=17, anchor="mm")
     nums = atk_def(card)
     if nums:
         draw_text(d, (w / 2, h - 34), nums, _TEXT, size=30, bold=True, kind="latin", anchor="mm")
@@ -420,9 +448,15 @@ def _png(canvas: Image.Image) -> bytes:
 # ──────────────────────────────────────────────
 
 def render_set_png(s: dict, cards: list[dict], *, box: Image.Image | None = None,
-                   related: list[tuple[str, Image.Image]] | None = None) -> bytes:
-    """弾のまとめの画像。box は商品写真、related は（ゆかりのカード名, 絵）を最大4枚。"""
+                   related: list[tuple[str, Image.Image]] | None = None,
+                   arts: list[Image.Image] | None = None,
+                   pairs: list[tuple[Image.Image, Image.Image]] | None = None) -> bytes:
+    """弾のまとめの画像。box は商品写真、related は（ゆかりのカード名, 絵）を最大4枚、
+    arts は新カードの公式イラスト、pairs は（ゆかりのカードの絵, そのゆかりの新カードのイラスト）の組。
+    商品写真があるときの右の並び: 組が2つ以上 → 「ゆかりのカード ▶ 新カードの絵」を2組（リメイクが一目で伝わる）
+    → 新カードの絵を4枚 → ゆかりのカードを4枚 → 判明したカード名（2026-10-30 ユーザー選択）"""
     related = (related or [])[:4]
+    arts, pairs = (arts or [])[:4], (pairs or [])[:2]
     if box is None and related:
         return _render_set_fan(s, cards, related)
     canvas = _background()
@@ -447,7 +481,25 @@ def render_set_png(s: dict, cards: list[dict], *, box: Image.Image | None = None
         sub += f"　{format_release_ja(s['tcg_release_date'])}発売予定"
     draw_text(d, (x0, 186), sub, _SUB, size=24)
 
-    if related:
+    if box is not None and len(pairs) >= 2:
+        draw_text(d, (x0, 242), set_headline(cards), _GOLD, size=36, bold=True)
+        side, x = 142, x0   # 2組が右の余白（572px）に収まる大きさ
+        for old_img, art_img in pairs:
+            o = _fit_h(old_img, side)
+            _shadowed(canvas, o, (x, 296), blur=8, off=6, alpha=150)
+            x += o.width + 26
+            d.polygon([(x - 18, 355), (x - 2, 367), (x - 18, 379)], fill=_GOLD)
+            _shadowed(canvas, _framed_art(art_img, side), (x + 4, 296), blur=8, off=6, alpha=150)
+            x += side + 26
+        y_note = 516
+    elif box is not None and arts:
+        draw_text(d, (x0, 242), "新カードのイラストと効果が判明", _GOLD, size=36, bold=True)
+        side, x = 134, x0   # 4枚が右の余白に収まる大きさ
+        for art_img in arts:
+            _shadowed(canvas, _framed_art(art_img, side), (x, 300), blur=8, off=6, alpha=150)
+            x += side + 12
+        y_note = 516
+    elif related:
         draw_text(d, (x0, 242), set_headline(cards), _GOLD, size=36, bold=True)
         ch = 190   # 4枚が右の余白に収まる高さ（196 だと4枚目が数px はみ出して落ちた）
         x = x0
@@ -534,14 +586,17 @@ def _render_set_fan(s: dict, cards: list[dict], related: list[tuple[str, Image.I
 # ──────────────────────────────────────────────
 
 def render_card_png(s: dict, card: dict, others: list[str], *, box: Image.Image | None = None,
-                    related: tuple[str, Image.Image] | None = None) -> bytes:
-    """カードごとの画像。others は同じ弾で判明した他のカード名、related は（ゆかりのカード名, 絵）。"""
+                    related: tuple[str, Image.Image] | None = None, art: Image.Image | None = None) -> bytes:
+    """カードごとの画像。others は同じ弾で判明した他のカード名、related は（既存カードの名前, 絵）、
+    art は公式の商品ページに載ったこのカードのイラスト（無ければ ? の札）。"""
     canvas = _background()
     _glow(canvas, 860, 300, 360, 300, 0.18)
     d = ImageDraw.Draw(canvas)
     # ゆかりのカードの絵があるときは右に絵と札が並ぶので狭く、無いときは札だけなので広く使う
     x0, text_w = _LEFT, (528 if related else 690)
     head = "効果が判明" if card.get("lore_kind") == "blurb" else "英語のテキストが判明"
+    if art is not None and card.get("lore_kind") == "blurb":
+        head = "イラストと効果が判明"
     _badges(d, x0, 44, [("TCG先行", _TCG), (head, _GOLD)])
 
     y = 112
@@ -599,25 +654,34 @@ def render_card_png(s: dict, card: dict, others: list[str], *, box: Image.Image 
     note = {"blurb": "販売店の商品説明をもとにした非公式の要約です",
             "official": "英語のカードテキストをもとにした要約です"}.get(card.get("lore_kind"), "")
     sites = source_sites([card])
-    if box is None and sites:
+    if from_official_page(card):
+        note = "KONAMI 公式の商品紹介をもとにした要約です"
+    elif box is None and sites:
         # 商品写真が無いときは、どの販売店の案内かを名指しする（本当に出る商品かが伝わるように）
         note = f"販売店（{sites[0]}）の商品説明をもとにした非公式の要約です"
     if note:
         draw_text(d, (x0, 562), note, _SUB, size=16)
 
-    # 右: ゆかりのカードの絵 ▶ ? の新カード（無ければ ? の札だけを大きく）
+    # 右: ゆかりのカードの絵 ▶ 新カードの札（既存カードが無ければ札だけを大きく）
     if related:
         old = _fit_h(related[1], 350)
         _shadowed(canvas, old, (610, 48))
-        draw_text(d, (610 + old.width / 2, 422), f"《{related[0]}》", _SUB, size=19, anchor="mm")
         ax = 610 + old.width + 30
-        d.polygon([(ax - 12, 205), (ax + 14, 223), (ax - 12, 241)], fill=_GOLD)
+        if related[0] in (card.get("related_ja") or []):
+            # ゆかりのカード（宣伝文が名指し）だけ矢印でつなぐ。テーマの代表カードに矢印を付けるとリメイク元に見える
+            draw_text(d, (610 + old.width / 2, 422), f"《{related[0]}》", _SUB, size=19, anchor="mm")
+            d.polygon([(ax - 12, 205), (ax + 14, 223), (ax - 12, 241)], fill=_GOLD)
+        else:
+            theme = card.get("theme_ja") or card.get("theme_en") or ""
+            group = f"【{theme}】" if card.get("theme_kind") in ("member", "support") and card.get("theme_ja") else f"「{theme}」"
+            draw_text(d, (610 + old.width / 2, 418), f"《{related[0]}》", _SUB, size=19, anchor="mm")
+            draw_text(d, (610 + old.width / 2, 446), f"{group}の既存カード", _SUB, size=17, anchor="mm")
         px = 610 + old.width + 62
-        p = _proxy(min(241, W - 40 - px), 350, card)
+        p = _proxy(min(241, W - 40 - px), 350, card, art)
         _shadowed(canvas, p, (px, 48))
         draw_text(d, (px + p.width / 2, 422), "英語版の新カード", _GOLD, size=19, bold=True, anchor="mm")
     else:
-        p = _proxy(270, 370, card)
+        p = _proxy(270, 370, card, art)
         _shadowed(canvas, p, (790, 40))
         draw_text(d, (790 + 135, 436), "英語版の新カード", _GOLD, size=19, bold=True, anchor="mm")
     # 右下: 収録商品（写真があれば小さく添える）
@@ -663,17 +727,21 @@ def _cached(key: str, render):
 
 _CARD_KEYS = ("name_en", "attribute", "race", "card_type", "level", "rank", "link_val", "atk", "def",
               "summary_ja", "lore_kind", "lore_source_url", "related_ja", "theme_kind", "theme_en", "theme_ja",
-              "theme_card_ja")
+              "theme_card_ja", "art_url")
 
 
-def set_png(s: dict, cards: list[dict], *, box=None, box_key: str = "", related=None, related_keys=()) -> bytes:
-    """box_key・related_keys は材料の画像の URL（キャッシュの鍵に入れて、差し替えで作り直す）。"""
-    payload = [s, [{k: c.get(k) for k in _CARD_KEYS} for c in cards], box_key, list(related_keys)]
-    return _cached(_key("set", payload), lambda: render_set_png(s, cards, box=box, related=related))
+def set_png(s: dict, cards: list[dict], *, box=None, box_key: str = "", related=None, related_keys=(),
+            arts=None, pairs=None, art_keys=()) -> bytes:
+    """box_key・related_keys・art_keys は材料の画像の URL（キャッシュの鍵に入れて、差し替えで作り直す）。"""
+    payload = [s, [{k: c.get(k) for k in _CARD_KEYS} for c in cards], box_key, list(related_keys), list(art_keys)]
+    return _cached(_key("set", payload),
+                   lambda: render_set_png(s, cards, box=box, related=related, arts=arts, pairs=pairs))
 
 
 def card_png(s: dict, card: dict, others: list[str], *, box=None, box_key: str = "", related=None,
-             related_key: str = "") -> bytes:
+             related_key: str = "", art=None) -> bytes:
+    # 絵の URL は _CARD_KEYS の art_url。取れなかったときは None を描くので、取れたかも鍵に入れる
     payload = [s.get("name_en"), s.get("tcg_release_date"), {k: card.get(k) for k in _CARD_KEYS}, others,
-               box_key, related_key]
-    return _cached(_key("card", payload), lambda: render_card_png(s, card, others, box=box, related=related))
+               box_key, related_key, art is not None]
+    return _cached(_key("card", payload),
+                   lambda: render_card_png(s, card, others, box=box, related=related, art=art))

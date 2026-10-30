@@ -589,6 +589,31 @@ def process(collected: dict, known_cards: dict[int, dict], *, sb, client, model:
     return stats
 
 
+def fill_art(sb) -> int:
+    """紹介文の出どころが公式の商品ページで、絵がまだ無い予告カードに、同じページの絵を入れる。入れた枚数を返す。
+    カードの行は Yugipedia のページが変わらないと読み直さないが、公式ページには絵があとから載ることもあるので、
+    要約とは別に毎回確かめる（絵のあるカードは見ない。読むのは絵の無いカードの出どころのページだけ）。"""
+    rows = (sb.table(CARDS).select("page_id,name_en,lore_source_url").eq("status", "announced")
+            .eq("art_url", "").execute().data or [])
+    by_url: dict[str, list[dict]] = {}
+    for r in rows:
+        if ya.is_official_page(r.get("lore_source_url") or ""):
+            by_url.setdefault(r["lore_source_url"], []).append(r)
+    filled = 0
+    for url, cards in by_url.items():
+        try:
+            arts = ya.official_arts(url)
+        except Exception as e:
+            logger.warning(f"公式の商品ページを読めません（次の回に取り直します）: {url}: {e}")
+            continue
+        for c in cards:
+            art = ya.art_for(c["name_en"], arts)
+            if art:
+                sb.table(CARDS).update({"art_url": art, "updated_at": _now()}).eq("page_id", c["page_id"]).execute()
+                filled += 1
+    return filled
+
+
 def format_summary(stats: dict) -> str:
     return (f"弾{stats['sets']}・新規{stats['new']}・更新{stats['updated']}（変わらず{stats['skipped_known']}）"
             f"・要約{stats['summarized']}（失敗{stats['summary_failed']}・上限で見送り{stats['summary_deferred']}）"
@@ -647,6 +672,10 @@ def main(argv=None) -> int:
             json.dump(stats["_rows"], f, ensure_ascii=False, indent=1, default=str)
     logger.info("まとめ: " + format_summary(stats) + f"・費用の目安 ${stats['_cost_usd']:.3f}")
     if not a.dry_run:
+        try:
+            logger.info(f"公式の絵を入れたカード: {fill_art(sb)}枚")
+        except Exception as e:
+            logger.warning(f"公式の絵の取り込みに失敗（次の回に取り直します）: {type(e).__name__}: {e}")
         if new_prefixes:
             tpw._notify("海外先行の新しい弾を見つけました: " + "、".join(f"{s['name_en']}（{s['prefix']}）" for s in new_prefixes))
         if stats["new"]:

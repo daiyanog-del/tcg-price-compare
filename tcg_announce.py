@@ -18,6 +18,7 @@ Yugipedia の書き方のくせ（2026-10-29 Maze of Machines で確認）:
   - 分からない欄は「???」、効果が未公開だと text = ''N/A''
 """
 
+import html
 import json
 import re
 import time
@@ -272,6 +273,47 @@ def distributor_box_url(name_en: str) -> str:
         data = json.load(r)
     products = ((data.get("resources") or {}).get("results") or {}).get("products") or []
     return pick_distributor_box(products, name_en)
+
+
+# KONAMI 英語版公式の商品ページ（/en/products/<略号>/）。目玉カードの紹介文と、そのカードのイラストを一緒に載せる
+# （Maze of Machines は紹介文1つにつき絵1枚。Yugipedia は紹介文だけを写していた。2026-10-30）
+OFFICIAL_HOSTS = ("www.yugioh-card.com", "yugioh-card.com")
+
+
+def is_official_page(url: str) -> bool:
+    return urllib.parse.urlsplit(url or "").hostname in OFFICIAL_HOSTS
+
+
+def _name_key(name: str) -> str:
+    """名前の照合用（大文字小文字・記号・曲がった引用符の違いを無くす）。"""
+    return re.sub(r"[^a-z0-9]+", "", (name or "").lower())
+
+
+def parse_official_arts(page_html: str, base_url: str) -> dict[str, str]:
+    """商品ページの紹介の枠（<table>）ごとに、太字の名前1つと絵1枚を対応づけて {名前の照合用: 絵の URL} で返す。
+    名前か絵が1つでない枠（複数のカードをまとめた絵など）は、どのカードの絵か決められないので使わない。"""
+    out: dict[str, str] = {}
+    for block in re.findall(r"(?is)<table\b.*?</table>", page_html or ""):
+        names = re.findall(r"(?is)<strong[^>]*>(.*?)</strong>", block)
+        imgs = re.findall(r'(?is)<img\b[^>]*?\bsrc="([^"]+)"', block)
+        if len(names) != 1 or len(imgs) != 1:
+            continue
+        key = _name_key(html.unescape(re.sub(r"<[^>]+>", "", names[0])))
+        url = urllib.parse.urljoin(base_url, html.unescape(imgs[0]))
+        if key and url.startswith("https://"):
+            out[key] = url
+    return out
+
+
+def official_arts(url: str) -> dict[str, str]:
+    """公式の商品ページを読んで、カードの名前ごとの絵を返す（失敗は例外）。"""
+    req = urllib.request.Request(url, headers={"User-Agent": DISTRIBUTOR_UA})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return parse_official_arts(r.read().decode("utf-8", "replace"), url)
+
+
+def art_for(name_en: str, arts: dict[str, str]) -> str:
+    return arts.get(_name_key(name_en), "")
 
 
 def slugify(name: str) -> str:

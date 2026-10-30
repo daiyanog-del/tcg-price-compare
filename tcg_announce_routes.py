@@ -143,6 +143,28 @@ def set_related_names(cards: list[dict]) -> list[str]:
     return names
 
 
+def set_arts(s: dict, cards: list[dict]) -> tuple[list, list, list[str]]:
+    """弾の画像に並べる新カードの絵 (arts) と、（ゆかりのカードの絵, 新カードの絵）の組 (pairs)、鍵にする URL。
+    並びはカードごとの投稿と同じ（表紙のカード → 既存カードの絵が出るカード → 一覧の順）。取れない絵は飛ばす。"""
+    import tcg_announce_post
+    order = sorted(cards, key=lambda c: tcg_announce_post.card_order_key(c, s.get("cover_cards") or []))
+    arts, pairs, keys, used = [], [], [], set()
+    for c in order:
+        art = _image(c.get("art_url"))
+        if art is None:
+            continue
+        if len(arts) < 4:
+            arts.append(art)
+            keys.append(c["art_url"])
+        rel = [r for r in c.get("related_ja") or [] if r not in used][:1]
+        old = _related_images(rel, 1) if rel and len(pairs) < 2 else []
+        if old:
+            used.add(old[0][0])
+            pairs.append((old[0][1], art))
+            keys += [old[0][2], c["art_url"]]
+    return arts, pairs, keys
+
+
 @tcg_announce_bp.route("/tcg-preview/og/<slug>.png")
 def set_og(slug: str):
     entry, err = _entry_or_503(slug)
@@ -153,8 +175,10 @@ def set_og(slug: str):
     s = entry["set"]
     box = _image(s.get("box_image_url"))
     rel = _related_images(set_related_names(entry["cards"]), 4)
+    arts, pairs, art_keys = set_arts(s, entry["cards"])
     return _png(tcg_announce_og.set_png(s, entry["cards"], box=box, box_key=s.get("box_image_url") or "" if box else "",
-                                        related=[(n, i) for n, i, _ in rel], related_keys=[u for _, _, u in rel]))
+                                        related=[(n, i) for n, i, _ in rel], related_keys=[u for _, _, u in rel],
+                                        arts=arts, pairs=pairs, art_keys=art_keys))
 
 
 @tcg_announce_bp.route("/tcg-preview/og/<slug>/<anchor>.png")
@@ -172,4 +196,4 @@ def card_og(slug: str, anchor: str):
     rel = _related_images([pic] if pic else [], 1)
     return _png(tcg_announce_og.card_png(s, card, others, box=box, box_key=s.get("box_image_url") or "" if box else "",
                                          related=(rel[0][0], rel[0][1]) if rel else None,
-                                         related_key=rel[0][2] if rel else ""))
+                                         related_key=rel[0][2] if rel else "", art=_image(card.get("art_url"))))

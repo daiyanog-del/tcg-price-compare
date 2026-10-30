@@ -759,3 +759,95 @@ def test_宣伝文の効果の名前は札にせず点で並べる(client, monke
     view._cache.update(at=0.0, data=None)
     html = client.get("/tcg-preview/maze-of-machines").get_data(as_text=True)
     assert "<li>カードを手札に加える。</li>" in html and "ALPHA" not in html
+
+
+# ── 公式の商品ページのイラスト（2026-10-30。紹介文と絵は同じページに一緒に出る） ─────────
+
+OFFICIAL_URL = "https://www.yugioh-card.com/en/products/mzmc/"
+OFFICIAL_HTML = """
+<table class="listtable"><tbody><tr><td><strong>RAMPANT BARREL DRAGON</strong></p>
+<p>Our latest top-of-the-line Fusion Monster…</p>
+<p align="center"><img loading="lazy" src="/en/wp-content/uploads/2026/10/mzmc_art01.png" alt="" /></p></td></tr></tbody></table>
+<table class="listtable"><tbody><tr><td><strong>SLOT MACHINE 777</strong></p>
+<p>Put Lady Luck on your side…</p></td></tr></tbody></table>
+<table class="listtable"><tbody><tr><td><strong>HEAVY METAL REVENGE</strong>
+<img src="/en/a.png" /><img src="/en/b.png" /></td></tr></tbody></table>
+<p><strong><u>New Cards for Cubic</u></strong></p><p><img src="/en/wp-content/uploads/2026/10/mzmc_art07.png" /></p>
+"""
+
+
+def test_公式の商品ページの紹介の枠ごとに名前と絵を対応づける():
+    arts = ya.parse_official_arts(OFFICIAL_HTML, OFFICIAL_URL)
+    assert ya.art_for("Rampant Barrel Dragon", arts) == "https://www.yugioh-card.com/en/wp-content/uploads/2026/10/mzmc_art01.png"
+    assert ya.art_for("Slot Machine 777", arts) == ""      # 絵の無い枠
+    assert ya.art_for("Heavy Metal Revenge", arts) == ""   # 絵が2枚あってどれか決められない枠
+    assert len(arts) == 1                                    # 枠の外のまとめた絵は使わない
+    assert ya.is_official_page(OFFICIAL_URL) and not ya.is_official_page("https://www.southernhobby.com/p/")
+
+
+def test_絵の無い予告カードに公式ページの絵を入れる(monkeypatch):
+    rows = {"tcg_announce_cards": [
+        {"page_id": 1, "name_en": "Rampant Barrel Dragon", "lore_source_url": OFFICIAL_URL, "status": "announced", "art_url": ""},
+        {"page_id": 2, "name_en": "Slot Machine 777", "lore_source_url": OFFICIAL_URL, "status": "announced", "art_url": ""},
+        {"page_id": 3, "name_en": "Other", "lore_source_url": "https://www.southernhobby.com/p/", "status": "announced", "art_url": ""},
+        {"page_id": 4, "name_en": "Done", "lore_source_url": OFFICIAL_URL, "status": "announced", "art_url": "https://x/old.png"},
+    ]}
+    calls = []
+
+    def fake(url):
+        calls.append(url)
+        return ya.parse_official_arts(OFFICIAL_HTML, url)
+    monkeypatch.setattr(ya, "official_arts", fake)
+    db = _DB(rows)
+    assert tw.fill_art(db) == 1
+    got = {r["page_id"]: r["art_url"] for r in rows["tcg_announce_cards"]}
+    assert got[1].endswith("mzmc_art01.png") and got[2] == "" and got[3] == "" and got[4] == "https://x/old.png"
+    assert calls == [OFFICIAL_URL]   # 同じページは1回だけ読む・販売店のページは読まない
+
+    def boom(url):
+        raise OSError("down")
+    monkeypatch.setattr(ya, "official_arts", boom)
+    assert tw.fill_art(db) == 0   # 読めなければ次の回に取り直す（例外にしない）
+
+
+def test_出どころが公式の商品ページなら販売店と書かない():
+    import tcg_announce_og as og
+    cards = [dict(CARDS[0], lore_kind="blurb", lore_source_url=OFFICIAL_URL)]
+    assert og.source_line(cards) == "出どころ：KONAMI 公式の商品紹介"
+    assert og.source_sites(cards) == []
+    assert og.from_official_page(cards[0])
+
+
+def test_公式の絵が入った画像を描ける():
+    import tcg_announce_og as og
+    art = _img(225, 225, (200, 40, 40))
+    card = dict(CARDS[1], lore_kind="blurb", lore_source_url=OFFICIAL_URL)
+    old = _img(256, 372, (120, 60, 30))
+    plain = og.render_card_png(SET, card, ["B"], related=("スロットマシーンAM－７", old))
+    with_art = og.render_card_png(SET, card, ["B"], related=("スロットマシーンAM－７", old), art=art)
+    assert with_art[:4] == bytes([0x89]) + b"PNG" and with_art != plain
+    assert og.render_card_png(SET, card, ["B"], art=art)[:4] == bytes([0x89]) + b"PNG"
+    box = _img(400, 300, (200, 200, 200))
+    for kw in ({"pairs": [(old, art), (old, art)]}, {"pairs": [(old, art)], "arts": [art] * 4}, {"arts": [art]}):
+        assert og.render_set_png(SET, [card], box=box, **kw)[:4] == bytes([0x89]) + b"PNG"
+
+
+def test_テーマの代表カードには矢印を付けない():
+    import tcg_announce_og as og
+    old = _img(256, 372, (120, 60, 30))
+    theme = dict(CARDS[0], related_ja=[], theme_kind="new_theme", theme_en="Heavy Metal", theme_card_ja="鋼鉄の襲撃者")
+    yukari = dict(theme, related_ja=["鋼鉄の襲撃者"])
+    # 同じ絵・同じ名前でも、ゆかり（宣伝文が名指し）のときだけ矢印と下の書き方が変わる
+    assert og.render_card_png(SET, theme, [], related=("鋼鉄の襲撃者", old)) != \
+        og.render_card_png(SET, yukari, [], related=("鋼鉄の襲撃者", old))
+
+
+def test_まとめページに公式の絵を出す(client, monkeypatch):
+    import tcg_announce_view as view
+    entry = view._fetch()["maze-of-machines"]
+    entry["cards"][0]["art_url"] = "https://www.yugioh-card.com/en/wp-content/uploads/2026/10/mzmc_art02.png"
+    monkeypatch.setattr(view, "_fetch", lambda: {"maze-of-machines": entry})
+    view._cache.update(at=0.0, data=None)
+    html = client.get("/tcg-preview/maze-of-machines").get_data(as_text=True)
+    assert 'class="ta-proxy-art" src="https://www.yugioh-card.com/en/wp-content/uploads/2026/10/mzmc_art02.png"' in html
+    assert "カードのイラストは KONAMI 公式の商品ページのものです" in html
