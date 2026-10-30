@@ -326,6 +326,14 @@ def needs_summary(existing: dict | None, row: dict) -> bool:
     return attempts_so_far(existing, row) < MAX_ATTEMPTS
 
 
+def lore_first_seen(existing: dict | None, row: dict) -> bool:
+    """この回で効果の文が初めて出たか（lore_at を入れるか）。名前だけで先に行ができるカードがあるので、行ができた
+    時刻とは別に持つ。速報の初報を出せるかの古さはこれで測る（tcg_announce_post）。"""
+    # 前の行に lore_at が無いだけのカード（列を足す前からあるカード）には入れない。今の時刻が入ると古い速報が
+    # 新しく見えるので、既存の行は SQL で行ができた時刻から埋める（tcg_announce_cards.sql）
+    return row["lore_kind"] != "none" and (existing is None or (existing.get("lore_kind") or "none") == "none")
+
+
 def settled(existing: dict) -> bool:
     """前回の行が、ページが変わらない限り読み直さなくてよい状態か。"""
     if existing.get("status") != "announced":
@@ -527,6 +535,8 @@ def process(collected: dict, known_cards: dict[int, dict], *, sb, client, model:
             stats["_new_names"].append(row["name_en"])
         else:
             stats["updated"] += 1
+        if lore_first_seen(existing, row):
+            row["lore_at"] = _now()
         if row["lore_kind"] == "official" and (existing is None or existing.get("lore_kind") != "official"):
             row["official_at"] = _now()
             stats["official_new"] += 1

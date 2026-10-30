@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS tcg_announce_cards (
     summarized_source  TEXT        NOT NULL DEFAULT '',        -- 要約したときの英文（変われば作り直す）
     summarized_at      TIMESTAMPTZ,
     official_at        TIMESTAMPTZ,                            -- lore_kind が official になった日時（「全文判明」の続報に使う）
+    lore_at            TIMESTAMPTZ,                            -- 効果の文（lore_kind が none 以外）が初めて出た日時（速報の古さを測る。行ができた日時とは別）
 
     status             TEXT        NOT NULL DEFAULT 'announced' CHECK (status IN ('announced', 'in_db', 'dropped')),
     hidden             BOOLEAN     NOT NULL DEFAULT FALSE,
@@ -127,6 +128,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_tcg_announce_posts_set_official ON tcg_anno
 CREATE UNIQUE INDEX IF NOT EXISTS uq_tcg_announce_posts_set_update ON tcg_announce_posts (set_prefix, known_count) WHERE kind = 'set_update';
 CREATE UNIQUE INDEX IF NOT EXISTS uq_tcg_announce_posts_card ON tcg_announce_posts (kind, page_id) WHERE kind IN ('card', 'card_official');
 ALTER TABLE tcg_announce_posts ENABLE ROW LEVEL SECURITY;
+
+-- 2026-10-30 効果の文が初めて出た日時（既にある行は、効果の文があれば行ができた日時で埋める）
+ALTER TABLE tcg_announce_cards ADD COLUMN IF NOT EXISTS lore_at TIMESTAMPTZ;
+UPDATE tcg_announce_cards SET lore_at = first_seen_at WHERE lore_at IS NULL AND lore_kind <> 'none';
 
 -- 2026-10-30 公式の続報と初報の段を足した（既にある表への追加。行が0件のうちに適用）
 ALTER TABLE tcg_announce_posts ADD COLUMN IF NOT EXISTS phase TEXT NOT NULL DEFAULT '';
