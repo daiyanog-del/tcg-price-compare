@@ -191,7 +191,7 @@ def match_list_card(key: str, list_cards: list[dict]) -> dict | None:
     return near[0] if near else None
 
 
-def decide_card_number(reads: list[dict]) -> str:
+def decide_card_number_from_reads(reads: list[dict]) -> str:
     """場面ごとに読んだ型番から1つに決める（2026-10-30・未発売カード一覧の型番順に使う）。
 
     形の合わない読みは捨てる。残りの最多が1つに決まればそれ、同数で割れたら空（読み違いを並び順に持ち込まない）。
@@ -453,7 +453,7 @@ def extract_reveal(reveal_frames: list[dict], list_frames: list[dict] | None = N
             "product_name": (product_name or "").strip(),
             "release_date": None,
             # 同じカードとしてまとめた場面すべての読みで決める（名前の1字の読み揺れは型番に関係しない）
-            "card_number": decide_card_number(g["reads"]) or None,
+            "card_number": decide_card_number_from_reads(g["reads"]) or None,
             "confidence": "high" if not uncertain else "medium",
             "source_url": _video_url(video_url, t),
             "extraction_raw": {
@@ -463,9 +463,13 @@ def extract_reveal(reveal_frames: list[dict], list_frames: list[dict] | None = N
                 "card_bbox": frame.get("card_bbox") if frame else None,
                 **({"crop_suggestion": suggestion} if suggestion else {}),
                 "uncertain_fields": uncertain,
+                # 型番の出どころ（ai=場面ごとの読みの多数決・空=読めない／割れた）。unreleased_extractor と同じ欄
+                "card_number_source": "ai" if decide_card_number_from_reads(g["reads"]) else "",
                 "reveal": {
                     "frames": [{"t": r.get("t"), "name": r.get("name"), "has_panel": r.get("has_panel"),
                                 "effect_complete": r.get("effect_complete"),
+                                # 型番の読みも残す（割れて空になった理由を後から確かめられるように）
+                                "card_number": r.get("card_number"),
                                 **{k: r.get(k) for k in VALUE_FIELDS}} for r in g["reads"]],
                     "saved_frame_t": t,
                     "effect": effect,

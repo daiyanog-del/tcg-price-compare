@@ -657,3 +657,46 @@ def test_import_image_api_success(monkeypatch):
     assert body["inserted"] == 1 and body["cards"] == [{"id": 9, "name": "六花のくろひめ", "image": "取込成功"}]
     assert body["skipped"] == ["六花氷月"]
     assert called == {"data_url": "data:image/png;base64,AA", "source_url": SRC, "note": "n", "filename": "f.png"}
+
+
+# ── 型番（card_number・2026-10-30）: 公式版の確かな型番を捨てない ──
+
+def _official_url_row(name, number="IMPH-JP016"):
+    """公式画像のURLから型番が取れた抽出結果（extraction_raw.card_number_source=image_url）。"""
+    row = _official_row(name)
+    row["card_number"] = number
+    row["extraction_raw"]["card_number_source"] = "image_url"
+    return row
+
+
+def test_pending_replacement_takes_official_card_number(no_context):
+    sb = _db(_upload_card(1, "六花のくろひめ", "pending", card_number=None))
+    q = up.load_replaceable(sb)
+    up.split_replaceable(sb, [_official_url_row("六花のくろひめ")], q, OFFICIAL, store=_store_ok, notify=MagicMock())
+    card = sb.tables["unreleased_cards"][0]
+    assert card["card_number"] == "IMPH-JP016"
+    assert card["extraction_raw"]["replaced_by_official"]["previous"]["card_number"] is None
+
+
+def test_approved_replacement_fills_empty_card_number_only():
+    sb = _db(_upload_card(1, "誘惑の鏡壁", "approved", card_number=None),
+             _upload_card(2, "六花水月", "approved", card_number="IMPH-JP064"))
+    q = up.load_replaceable(sb)
+    notify = MagicMock()
+    up.split_replaceable(sb, [_official_url_row("誘惑の鏡壁", "IMPH-JP074"), _official_url_row("六花水月", "IMPH-JP066")],
+                         q, OFFICIAL, store=_store_ok, notify=notify)
+    filled, kept = sb.tables["unreleased_cards"]
+    assert filled["card_number"] == "IMPH-JP074"       # 空は埋める
+    assert kept["card_number"] == "IMPH-JP064"         # 値がある行は変えず、違いとして知らせる
+    assert kept["extraction_raw"]["replaced_by_official"]["diff"]["card_number"] == {
+        "current": "IMPH-JP064", "official": "IMPH-JP066"}
+
+
+def test_approved_replacement_does_not_use_ai_card_number():
+    sb = _db(_upload_card(1, "誘惑の鏡壁", "approved", card_number=None))
+    q = up.load_replaceable(sb)
+    row = _official_row("誘惑の鏡壁")
+    row["card_number"] = "IMPH-JP074"
+    row["extraction_raw"]["card_number_source"] = "ai"   # X の画像を AI が読んだだけ
+    up.split_replaceable(sb, [row], q, OFFICIAL, store=_store_ok, notify=MagicMock())
+    assert sb.tables["unreleased_cards"][0].get("card_number") is None

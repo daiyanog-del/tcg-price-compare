@@ -92,11 +92,11 @@ def test_extractor_schema_and_prompt_ask_for_card_number():
 
 
 def test_reveal_card_number_majority_and_tie():
-    assert rv.decide_card_number([{"card_number": "IMPH-JP015"}, {"card_number": "imph-jp015"},
+    assert rv.decide_card_number_from_reads([{"card_number": "IMPH-JP015"}, {"card_number": "imph-jp015"},
                                   {"card_number": "IMPH-JP016"}]) == "IMPH-JP015"
-    assert rv.decide_card_number([{"card_number": "IMPH-JP015"}, {"card_number": "IMPH-JP016"}]) == ""
-    assert rv.decide_card_number([{"card_number": ""}, {}]) == ""
-    assert rv.decide_card_number([{"card_number": "読めない"}, {"card_number": "IMPH-JP015"}]) == "IMPH-JP015"
+    assert rv.decide_card_number_from_reads([{"card_number": "IMPH-JP015"}, {"card_number": "IMPH-JP016"}]) == ""
+    assert rv.decide_card_number_from_reads([{"card_number": ""}, {}]) == ""
+    assert rv.decide_card_number_from_reads([{"card_number": "読めない"}, {"card_number": "IMPH-JP015"}]) == "IMPH-JP015"
     assert "card_number" in rv.REVEAL_SCHEMA["properties"]
     # 型番は「不確か」の判定（値の多数決）には入れない
     assert "card_number" not in rv.VALUE_FIELDS
@@ -109,3 +109,79 @@ def test_admin_card_number_input():
     value, error = admin_module._clean_card_number({"card_number": "IMPH012"})
     assert value is None and "型番の形" in error
     assert "card_number" in admin_module._ALLOWED_UPDATE_FIELDS
+
+
+# ── 抽出（_extract_cards）での型番の決め方・既存行の空欄埋め（reviewer 指摘 2026-10-30） ──
+
+def _run_extract(monkeypatch, cards, images):
+    import anthropic
+    import unreleased_extractor as ex
+    import unreleased_quality as quality
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    monkeypatch.setattr(anthropic, "Anthropic", lambda **kw: object())
+    monkeypatch.setattr(quality, "structured_request", lambda client, **kw: ({"cards": cards}, "{}", {}))
+    monkeypatch.setattr(quality, "enrich_rows", lambda rows, **kw: rows)
+    return ex._extract_cards("記事", images, "https://yu-gi-oh.jp/news/abc/")
+
+
+def _card(name, image_url, number):
+    return {"name": name, "card_type": "通常魔法", "effect_text": "効果", "image_url": image_url,
+            "card_number": number, "confidence": "high"}
+
+
+def test_extract_uses_own_image_url_and_records_ai_reading(monkeypatch):
+    a, b = _cms_url("/assets/a/b/IMPH-JP001.jpg"), _cms_url("/assets/a/b/IMPH-JP002.jpg")
+    images = [{"url": a, "media_type": "image/jpeg", "data": ""}, {"url": b, "media_type": "image/jpeg", "data": ""}]
+    rows = _run_extract(monkeypatch, [_card("一", a, "IMPH-JP001"), _card("二", b, "IMPH-JP009")], images)
+    one, two = rows
+    assert one["card_number"] == "IMPH-JP001" and one["extraction_raw"]["card_number_source"] == "image_url"
+    # AI の読みが食い違っても URL を採り、読みは記録に残す（画像の取り違えの手がかり）
+    assert two["card_number"] == "IMPH-JP002" and two["extraction_raw"]["card_number_ai"] == "IMPH-JP009"
+
+
+def test_text_only_extract_does_not_trust_copied_url(monkeypatch):
+    # 画像なしの抽出では AI が本文から写した URL を確かめられないので、AI の読みだけを使う
+    url = _cms_url("/assets/a/b/IMPH-JP001.jpg")
+    rows = _run_extract(monkeypatch, [_card("一", url, "IMPH-JP005"), _card("二", url, "")], [])
+    assert rows[0]["card_number"] == "IMPH-JP005" and rows[0]["extraction_raw"]["card_number_source"] == "ai"
+    assert rows[1]["card_number"] is None and rows[1]["extraction_raw"]["card_number_source"] == ""
+
+
+class _UpdateRecorder:
+    def __init__(self):
+        self.calls = []
+
+    def table(self, name):
+        self.calls.append(["table", name])
+        return self
+
+    def update(self, values):
+        self.calls.append(["update", values])
+        return self
+
+    def eq(self, field, value):
+        self.calls.append(["eq", field, value])
+        return self
+
+    def is_(self, field, value):
+        self.calls.append(["is_", field, value])
+        return self
+
+    def execute(self):
+        return SimpleNamespace(data=[])
+
+
+def test_fill_missing_card_number_only_with_official_url_value():
+    from unreleased_card_number import fill_missing_card_number
+    sb = _UpdateRecorder()
+    row = {"name": "秋", "product_name": "IMMORTAL PHOENIX", "card_number": "IMPH-JP071",
+           "extraction_raw": {"card_number_source": "image_url"}}
+    assert fill_missing_card_number(sb, row) is True
+    assert ["update", {"card_number": "IMPH-JP071"}] in sb.calls
+    assert ["is_", "card_number", "null"] in sb.calls          # 値がある行は変えない
+    assert ["eq", "product_name", "IMMORTAL PHOENIX"] in sb.calls
+    # AI の読み・型番なしでは書かない
+    sb = _UpdateRecorder()
+    assert fill_missing_card_number(sb, dict(row, extraction_raw={"card_number_source": "ai"})) is False
+    assert fill_missing_card_number(sb, dict(row, card_number=None)) is False
+    assert sb.calls == []

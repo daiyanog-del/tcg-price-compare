@@ -53,3 +53,23 @@ def decide_card_number(image_url: str, ai_value) -> tuple[str, str]:
     if from_ai:
         return from_ai, "ai"
     return "", ""
+
+
+def is_from_official_url(row: dict) -> bool:
+    """抽出結果の行の型番が、公式画像のURLから取れた確かな値か（extraction_raw.card_number_source）。"""
+    return bool(row.get("card_number")) and (row.get("extraction_raw") or {}).get("card_number_source") == "image_url"
+
+
+def fill_missing_card_number(sb, row: dict) -> bool:
+    """同じカード（name・product_name）の既存行の型番が空なら、公式画像のURLから取れた型番で埋める。
+
+    取り込みは既存行を上書きしない（upsert の ignore_duplicates）ので、先に X・YouTube で入って型番を読めなかった
+    カードは、後から公式記事が届いても空のままになる。確かな値（URL 由来）のときだけ、空の欄を埋める（AI の読みでは埋めない。
+    既に値がある行は変えない）。戻り値は書き込みを投げたかどうか。
+    """
+    if not is_from_official_url(row):
+        return False
+    (sb.table("unreleased_cards").update({"card_number": row["card_number"]})
+     .eq("name", row.get("name")).eq("product_name", row.get("product_name"))
+     .is_("card_number", "null").execute())
+    return True

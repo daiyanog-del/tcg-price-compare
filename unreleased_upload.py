@@ -35,6 +35,7 @@ from urllib.parse import urlparse
 from PIL import Image
 
 from name_normalize import fuzzy_key
+from unreleased_card_number import is_from_official_url
 
 logger = logging.getLogger(__name__)
 
@@ -411,7 +412,7 @@ def _merge_raw(sb, card_id: int, updates: dict) -> None:
 # 公式版が届いたときの差し替え
 # ──────────────────────────────────────────────
 
-_CARD_COLUMNS = ("id, name, status, product_name, source_url, extraction_raw, "
+_CARD_COLUMNS = ("id, name, status, product_name, source_url, extraction_raw, card_number, "
                  + ", ".join(REPLACE_FIELDS))
 
 
@@ -631,11 +632,22 @@ def replace_with_official(sb, card: dict, row: dict, *, page_url: str, store=Non
             if not card.get("release_date") and row.get("release_date"):
                 # 発売日は変えない方針だが、未確定なら公式版で確かめた値を採る（根拠の記録と揃う）
                 updates["release_date"] = row["release_date"]
+            if row.get("card_number"):
+                # 型番も公式版の値にする（キャプチャの型番は AI の読みで、空や読み違いがある）。元の値は記録に残す
+                record["previous"]["card_number"] = card.get("card_number")
+                updates["card_number"] = row["card_number"]
             updates["extraction_raw"] = merged
             message = f"[未発売] 画像取込のカードを公式版で置き換えました（承認待ち・内容も更新）: {name}"
         else:
             # 公開中: 人が確認した内容は変えない。違いだけ記録して知らせる
             diff = field_diff(card, row)
+            if is_from_official_url(row) and row["card_number"] != card.get("card_number"):
+                if card.get("card_number"):
+                    # 人が入れた・確かめた値かもしれないので変えない。違いとして知らせる
+                    diff["card_number"] = {"current": card.get("card_number"), "official": row["card_number"]}
+                else:
+                    # 空の型番は公式画像のURLの確かな値で埋める（内容の確認とは関係しない並び順の情報）
+                    updates["card_number"] = row["card_number"]
             record["mode"] = "image_only"
             record["diff"] = diff
             stored_raw.pop("replace_error", None)
