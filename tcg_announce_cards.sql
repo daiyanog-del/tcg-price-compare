@@ -99,18 +99,21 @@ ALTER TABLE tcg_announce_cards ENABLE ROW LEVEL SECURITY;
 -- ── X 投稿の記録 ────────────────────────────
 -- tcg_announce_post.py が投稿の前に予約の行を入れ（重複は一意の索引で止まる）、結果で更新する。
 -- kind: set_first＝初報（弾を見つけて最初の概要ができたとき）/ set_update＝続報（判明が増えたとき）/
+--       set_official＝公式の続報（販売店の速報で初報を出した弾に、KONAMI 公式の商品ページが出たとき。1回だけ）/
 --       card＝カードごとの連載（1日1枚）/ card_official＝連載で出したカードの英語テキストが出たとき
+-- phase: 初報の段。official＝公式の情報で出した / leak＝販売店の速報で出した（あとで set_official を出す）
 -- status: reserved＝送信中 / posted＝投稿済み / unknown＝結果不明（投稿されたかもしれない。自動で出し直さない）/
 --         failed＝X に明確に拒否された（同じ本文の重複など。自動で出し直さない）
 -- unknown・failed・30分以上 reserved の行は Discord に1回知らせる。X で確かめたら、出ていれば status='posted'、
 -- 出ていなければ行を消す（次の回に出し直す）
 CREATE TABLE IF NOT EXISTS tcg_announce_posts (
     id           BIGSERIAL   PRIMARY KEY,
-    kind         TEXT        NOT NULL CHECK (kind IN ('set_first', 'set_update', 'card', 'card_official')),
+    kind         TEXT        NOT NULL CHECK (kind IN ('set_first', 'set_update', 'set_official', 'card', 'card_official')),
     set_prefix   TEXT        NOT NULL REFERENCES tcg_announce_sets(prefix),
     page_id      INTEGER,                                      -- カードの投稿のとき
     name_en      TEXT,                                         -- カードの投稿のときのカード名（ページの作り直しで番号が変わっても同じカードを二度出さない）
     known_count  INTEGER,                                      -- 弾の投稿のときの判明枚数（概要のあるカード）
+    phase        TEXT        NOT NULL DEFAULT '',              -- 初報のとき: official / leak（それ以外は空）
     status       TEXT        NOT NULL DEFAULT 'reserved' CHECK (status IN ('reserved', 'posted', 'unknown', 'failed')),
     tweet_id     TEXT,
     text         TEXT        NOT NULL DEFAULT '',
@@ -120,6 +123,14 @@ CREATE TABLE IF NOT EXISTS tcg_announce_posts (
     posted_at    TIMESTAMPTZ
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_tcg_announce_posts_set_first ON tcg_announce_posts (set_prefix) WHERE kind = 'set_first';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_tcg_announce_posts_set_official ON tcg_announce_posts (set_prefix) WHERE kind = 'set_official';
 CREATE UNIQUE INDEX IF NOT EXISTS uq_tcg_announce_posts_set_update ON tcg_announce_posts (set_prefix, known_count) WHERE kind = 'set_update';
 CREATE UNIQUE INDEX IF NOT EXISTS uq_tcg_announce_posts_card ON tcg_announce_posts (kind, page_id) WHERE kind IN ('card', 'card_official');
 ALTER TABLE tcg_announce_posts ENABLE ROW LEVEL SECURITY;
+
+-- 2026-10-30 公式の続報と初報の段を足した（既にある表への追加。行が0件のうちに適用）
+ALTER TABLE tcg_announce_posts ADD COLUMN IF NOT EXISTS phase TEXT NOT NULL DEFAULT '';
+ALTER TABLE tcg_announce_posts DROP CONSTRAINT IF EXISTS tcg_announce_posts_kind_check;
+ALTER TABLE tcg_announce_posts ADD CONSTRAINT tcg_announce_posts_kind_check
+    CHECK (kind IN ('set_first', 'set_update', 'set_official', 'card', 'card_official'));
+CREATE UNIQUE INDEX IF NOT EXISTS uq_tcg_announce_posts_set_official ON tcg_announce_posts (set_prefix) WHERE kind = 'set_official';

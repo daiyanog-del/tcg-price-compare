@@ -17,6 +17,8 @@
   - [ ] 卸の写真が毎回 Yugipedia より早く載るかは1弾でしか見ていない。次の弾で取り込みのログと box_image_url の出どころを確かめる
   - [ ] 投稿の有効化: GitHub Variables `TCG_ANNOUNCE_X_POST_ENABLED=1`（ユーザー確認後。先に手動実行の dry_run で本文を確かめる）
   - [ ] 校正: CARD_HOURS（19〜23時）・UPDATE_MIN_NEW（3）・UPDATE_MIN_HOURS（20）・CLOSE_AFTER_DAYS（30）・MAX_SUMMARIZE（40）を tweet_log の閲覧数と実際の弾の出方から見直す
+  - [ ] 公式の絵・速報と公式の分岐（10-30 PR #271・本番は未反映）: 公式の商品ページの絵を取り込み、カード・弾の画像とまとめページに出す。弾は「公式の段／速報の段」に分け、速報（販売店の商品案内）の初報は取り込みから LEAK_MAX_HOURS 以内だけ・公式が出たら公式の続報（set_official）を1回・速報の段のカードごとは公式を待つ（初報から OFFICIAL_WAIT_DAYS 日で絵なし）。本番の DB に tcg_announce_cards.sql の末尾（art_url・posts の phase と kind）を適用してから取り込む
+  - [ ] 校正: LEAK_MAX_HOURS（12）・OFFICIAL_WAIT_DAYS（3）を次の弾からの販売店→公式の時間差で見直す（TODO: calibrate from data。10-30 の調べでは販売店が先だったのは5弾中 MZMC だけ・差は約17時間）
   - [ ] Maze of Machines の英語版発売（2027-03-19）後、公式DBに載ったカードが in_db になり /tcg-preview に引き継がれるかを本番で確かめる
 - [ ] **置いた先の印・相手の場（2026-10-29）** — 置いた先の印は本番 PR #249 a5f2b7c。相手の場（盤面の上に相手の墓地・モンスター・フィールドの段。普段は出さず、スイッチ・相手のマスのカード・相手の場を使う記録で出す）は同日 本番 PR #256 0765208。**残り**: iPhone/Android 実機（指でのドラッグ・墓地の札のタップ・縦向き7列）。詳細 docs/decisions.md 同日
 - [ ] **カーナベルの新サイト対応（2026-10-29・本番 PR #248 e6c93dd・20:06 JST に休止を解除）** — 取得を新サイトの ES に作り直した（販売・買取・画像・リンク・レアリティの別名）。本番の設定: web・prices・buyback・featured・post-staple-movers の5つに KANABELL_ES_ENDPOINT / KANABELL_ES_API_KEY（販売サイトの公開キー）・SUSPENDED_SHOPS は空・prices と featured は COLLECT_SKIP_SHOPS=駿河屋・buyback は BUYBACK_SKIP_SHOPS 空。post-staple-movers は自動デプロイがオフなので手動でデプロイした（コードを変えたら手動デプロイが要る）。本番画面で召喚魔術にカーナベル（¥45 状態:C PAC1-JP043・リンクは新サイトの商品ページ）を確認。解除直後に店のサイトが4分ほど 502 を返した（その後回復）。**残り: 10-30 朝の収集でカーナベルの行数と値（price_history・buyback_history）を確かめる。10-31 からカーナベルが値動きの比較に入る**。GitHub Actions の予備の収集（手動のみ）は secrets の KANABELL_ES_* が未登録。旧の KANABELL_CLOUD_ID / KANABELL_API_KEY / KANABELL_INDEX は消してよい

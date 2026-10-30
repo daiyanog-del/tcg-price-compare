@@ -191,8 +191,19 @@ CARDS = [_card(1, "Pendulum Machine of Misery", 1), _card(2, "Slot Machine 777",
 NOW = datetime(2026, 10, 29, 11, 0, tzinfo=timezone.utc)  # JST 20:00
 
 
-def _first(at="2026-10-29T02:00:00+00:00", count=2):
-    return {"kind": "set_first", "set_prefix": "MZMC", "page_id": None, "known_count": count, "created_at": at}
+def _first(at="2026-10-29T02:00:00+00:00", count=2, phase="official"):
+    return {"kind": "set_first", "set_prefix": "MZMC", "page_id": None, "known_count": count, "created_at": at,
+            "phase": phase}
+
+
+def _official(cards):
+    """公式の段のカード（紹介文の出どころが KONAMI 公式の商品ページ）にする。"""
+    return [dict(c, lore_source_url=OFFICIAL_URL) for c in cards]
+
+
+def _leak(cards):
+    """速報の段のカード（紹介文の出どころが販売店）にする。"""
+    return [dict(c, lore_source_url=SHOP_URL) for c in cards]
 
 
 def test_最初は初報_数えるのは点検を通った概要のあるカードだけ():
@@ -202,6 +213,7 @@ def test_最初は初報_数えるのは点検を通った概要のあるカー�
 
 
 def test_カードごとは初報の翌日から_時間帯の中で1日1枚_関連の分かるカードを先に():
+    CARDS = _official(globals()["CARDS"])
     posts = [_first()]
     assert tp.decide([SET], {"MZMC": CARDS}, posts, NOW) is None  # 初報と同じ日
     nxt = NOW + timedelta(days=1)
@@ -463,8 +475,12 @@ def test_成功したら投稿済みにして閲覧数の記録に入れる(enab
 
 
 def test_カードごとの投稿は弾が重なっても全体で1日1枚():
+    CARDS = _official(globals()["CARDS"])
     other = dict(SET, prefix="ABCD", slug="other", name_en="Other Set")
     other_cards = [dict(c, page_id=c["page_id"] + 100) for c in CARDS]
+    # 2つ目の弾だけなら出る（下の None が、公式待ちではなく1日1枚の決まりによることを確かめる）
+    assert tp.decide([other], {"ABCD": other_cards}, [dict(_first(), set_prefix="ABCD")],
+                     NOW + timedelta(days=1, hours=1))["kind"] == "card"
     nxt = NOW + timedelta(days=1)
     posts = [_first(), dict(_first(), set_prefix="ABCD"),
              {"kind": "card", "set_prefix": "MZMC", "page_id": 2, "name_en": "Slot Machine 777",
@@ -476,7 +492,7 @@ def test_同じ名前のカードはページ番号が変わっても二度出�
     nxt = NOW + timedelta(days=2)
     posts = [_first(), {"kind": "card", "set_prefix": "MZMC", "page_id": 99, "name_en": "Slot Machine 777",
                         "created_at": (NOW + timedelta(days=1)).isoformat()}]
-    item = tp.decide([SET], {"MZMC": CARDS}, posts, nxt)
+    item = tp.decide([SET], {"MZMC": _official(CARDS)}, posts, nxt)
     assert item["card"]["name_en"] != "Slot Machine 777"
 
 
@@ -632,7 +648,7 @@ def test_連載は表紙のカードを表紙の並びで先に出す():
     got = sorted(cards, key=lambda c: tp.card_order_key(c, covers))
     assert [c["name_en"] for c in got] == ["Rampant Barrel Dragon", "Pendulum Machine of Misery", "Slot Machine 777"]
     s = dict(SET, cover_cards=covers)
-    item = tp.decide([s], {"MZMC": cards}, [_first()], NOW + timedelta(days=1))
+    item = tp.decide([s], {"MZMC": _official(cards)}, [_first()], NOW + timedelta(days=1))
     assert item["card"]["name_en"] == "Rampant Barrel Dragon"
 
 
@@ -764,6 +780,7 @@ def test_宣伝文の効果の名前は札にせず点で並べる(client, monke
 # ── 公式の商品ページのイラスト（2026-10-30。紹介文と絵は同じページに一緒に出る） ─────────
 
 OFFICIAL_URL = "https://www.yugioh-card.com/en/products/mzmc/"
+SHOP_URL = "https://www.southernhobby.com/yu-gi-oh-maze-of-machines-booster-box/p84133/"
 OFFICIAL_HTML = """
 <table class="listtable"><tbody><tr><td><strong>RAMPANT BARREL DRAGON</strong></p>
 <p>Our latest top-of-the-line Fusion Monster…</p>
@@ -958,3 +975,78 @@ def test_連載は公式の絵のあるカードを先に出す():
     cards = [_card(1, "Rampant Barrel Dragon", 1), dict(_card(2, "Slot Machine 777", 2), art_url="https://x/a.png")]
     got = sorted(cards, key=lambda c: tp.card_order_key(c, covers))
     assert [c["name_en"] for c in got] == ["Slot Machine 777", "Rampant Barrel Dragon"]
+
+
+# ── 公式を基本に、販売店の速報は例外の分岐（2026-10-30 ユーザー合意） ───────────
+
+def test_弾の段の見分け方():
+    assert not tp.is_official_phase(_leak(CARDS))
+    assert not tp.is_official_phase(CARDS)   # 出どころの書かれていない非公式の文は公式に数えない
+    assert tp.is_official_phase(_leak(CARDS[:1]) + _official(CARDS[1:2]))
+    assert tp.is_official_phase([dict(CARDS[0], art_url="https://x/a.png")])
+    assert tp.is_official_phase([dict(CARDS[0], lore_kind="official")])   # 英語の正式なテキスト
+
+
+def test_速報の初報は取り込みから12時間以内だけ_過ぎたら公式を待つ():
+    leak = _leak(CARDS)   # 取り込みは 2026-10-29 01:00 UTC
+    item = tp.decide([SET], {"MZMC": leak}, [], datetime(2026, 10, 29, 12, 0, tzinfo=timezone.utc))
+    assert (item["kind"], item["phase"]) == ("set_first", "leak")
+    text = tp.build_text(item)
+    assert "【海外先行・速報】" in text and "販売店の商品案内" in text and "公式の発表待ち" in text
+    late = datetime(2026, 10, 29, 14, 0, tzinfo=timezone.utc)   # 13時間後
+    assert tp.decide([SET], {"MZMC": leak}, [], late) is None
+    # 待っている間に公式が出れば、公式の初報として出る
+    item = tp.decide([SET], {"MZMC": _official(CARDS)}, [], late)
+    assert (item["kind"], item["phase"]) == ("set_first", "official")
+    assert "速報" not in tp.build_text(item)
+
+
+def test_速報の古さは効果の分かるカードの取り込みから数える():
+    # 弾の名前だけ何週間も前から出ていても、効果の分かるカードが新しければ速報を出す
+    s = dict(SET, first_seen_at="2026-10-01T00:00:00+00:00")
+    leak = [dict(c, first_seen_at="2026-10-29T10:00:00+00:00") for c in _leak(CARDS)]
+    item = tp.decide([s], {"MZMC": leak}, [], datetime(2026, 10, 29, 12, 0, tzinfo=timezone.utc))
+    assert (item["kind"], item["phase"]) == ("set_first", "leak")
+
+
+def test_公式の続報は速報で初報を出した弾に1回だけ():
+    now = NOW + timedelta(hours=20)
+    official = [dict(c, art_url=f"https://x/{c['page_id']}.png") for c in _official(CARDS)]
+    item = tp.decide([SET], {"MZMC": official}, [_first(phase="leak")], now)
+    assert item["kind"] == "set_official"
+    text = tp.build_text(item)
+    assert "公式サイトが公開" in text and "イラストが判明" in text
+    done = [_first(phase="leak"), {"kind": "set_official", "set_prefix": "MZMC", "known_count": 2,
+                                   "created_at": now.isoformat()}]
+    item = tp.decide([SET], {"MZMC": official}, done, now)
+    assert item is None or item["kind"] != "set_official"
+    # 公式の情報で初報を出した弾には出さない
+    item = tp.decide([SET], {"MZMC": official}, [_first(phase="official")], now)
+    assert item is None or item["kind"] != "set_official"
+    # まだ速報の段なら出さない
+    assert tp.decide([SET], {"MZMC": _leak(CARDS)}, [_first(phase="leak")], now) is None
+
+
+def test_速報の段のカードごとは公式を待つ_3日たったら絵なしで出す():
+    leak = _leak(CARDS)
+    posts = [_first(phase="leak")]   # 初報は 2026-10-29 02:00 UTC
+    assert tp.decide([SET], {"MZMC": leak}, posts, NOW + timedelta(days=1)) is None
+    assert tp.decide([SET], {"MZMC": leak}, posts, NOW + timedelta(days=2)) is None
+    item = tp.decide([SET], {"MZMC": leak}, posts, NOW + timedelta(days=3))
+    assert item["kind"] == "card"
+    assert "のイラストと効果が判明" not in tp.build_text(item)
+
+
+def test_公式の絵のあるカードは本文もイラストと効果が判明():
+    card = dict(_official(CARDS)[1], art_url="https://x/a.png")
+    assert f"{card['name_en']} のイラストと効果が判明" in tp.text_card(SET, card, CARDS)
+    assert f"{CARDS[1]['name_en']} の効果が判明" in tp.text_card(SET, CARDS[1], CARDS)
+
+
+def test_初報の段を投稿の行に残す(enabled):
+    db = _db_for_first_post()
+    for c in db.rows["tcg_announce_cards"]:
+        c["lore_source_url"] = SHOP_URL
+    assert "tweet_id=1" in tp.run(db, now=NOW, post_fn=lambda t: ("1", None))
+    row = db.rows["tcg_announce_posts"][0]
+    assert (row["kind"], row["phase"]) == ("set_first", "leak") and "速報" in row["text"]
