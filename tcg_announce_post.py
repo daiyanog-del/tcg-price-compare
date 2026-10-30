@@ -371,6 +371,34 @@ def notify_stuck(sb, posts: list[dict], now: datetime) -> int:
     return n
 
 
+# OG 画像を作り終えるまで待つ上限（秒）。材料の絵を外のサイトから取るので、サーバーの入れ替え直後は1分ほどかかる。
+# TODO: calibrate from data（ログの「OG 画像の下ごしらえ」の秒数で見直す）
+WARM_TIMEOUT_SEC = 120
+
+
+def warm_preview(url: str) -> None:
+    """リンク先のページの og:image を一度取りに行き、本番のサーバーに画像を作らせておく。
+
+    OG 画像は頼まれたときにその場で作り、サーバーのメモリに置く。サーバーが入れ替わった直後は作るのに時間がかかり、
+    投稿直後に取りに来た X が待ちきれず、画像なしの小さいリンクの形で確定してしまう（2026-10-30 初報で発生）。
+    失敗しても投稿は止めない（警告だけ残す）。
+    """
+    import re
+    import time
+    import requests
+    t0 = time.monotonic()
+    try:
+        page = requests.get(url, timeout=30)
+        m = re.search(r'<meta property="og:image" content="([^"]+)"', page.text)
+        if not m:
+            logger.warning(f"OG 画像の下ごしらえ: og:image が見つかりません: {url}")
+            return
+        img = requests.get(m.group(1), timeout=WARM_TIMEOUT_SEC)
+        logger.info(f"OG 画像の下ごしらえ: {img.status_code} {len(img.content)}バイト {time.monotonic() - t0:.1f}秒 {m.group(1)}")
+    except Exception as e:
+        logger.warning(f"OG 画像の下ごしらえに失敗（投稿は続けます）: {url}: {e}")
+
+
 def run(sb, *, now: datetime | None = None, post_fn=None) -> str:
     """1件だけ判断して出す。戻り値は結果の短い説明（ログ用）。"""
     from unreleased_x_post import in_quiet_hours
@@ -389,6 +417,9 @@ def run(sb, *, now: datetime | None = None, post_fn=None) -> str:
         return "出すものなし"
     text = build_text(item)
     s, card = item["set"], item.get("card")
+    if post_fn is None:
+        # 本物の投稿の前に、リンク先の OG 画像を作らせておく（テストは post_fn を渡すので外へ取りに行かない）
+        warm_preview(card_url(s, card) if card else set_url(s))
     if os.environ.get("X_POST_DRY_RUN", "") == "1":
         logger.info(f"[DRY_RUN] {item['kind']}:\n{text}")
         return f"[DRY_RUN] {item['kind']}"
