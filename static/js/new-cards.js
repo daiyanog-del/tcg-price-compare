@@ -13,10 +13,11 @@ window.NewCards = (() => {
   const INITIAL_FRESH_MS=30000;
   let initialUsedAt=-Infinity;
   // 一覧ページの、商品ごとのまとまりの中の並び（'added'=追加の新しい順・'number'=型番順。2026-10-30）。
-  // 選んだ並びはこのブラウザに覚える（読めない・書けないときは追加順のまま）
+  // 選んだ並びはこのブラウザに覚える（読めない・書けないときは既定の型番順）
   const SORT_KEY='newCardsSort';
-  let sortMode='added';
-  try{if(localStorage.getItem(SORT_KEY)==='number')sortMode='number';}catch{}
+  // 既定は型番順（2026-10-30 ユーザー指示）。追加順を選んだ人の選択は覚えておく
+  let sortMode='number';
+  try{if(localStorage.getItem(SORT_KEY)==='added')sortMode='added';}catch{}
   function byNumberMode(){return sortMode==='number'&&isListPage()&&!isTcgPage();}
   // 型番（IMPH-JP012・IMPH-JPS13・CH03-JPP01）を [弾の略号, 番号の前の英字, 番号] に分ける。形が違えば null
   function numberParts(value){
