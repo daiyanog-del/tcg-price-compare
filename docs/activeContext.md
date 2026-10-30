@@ -4,7 +4,9 @@
 - ユーザーが案A を選択: unreleased_cards に card_number 列（本番 DB に適用済み）。公式サイト由来は画像URLの base64 から、X・YouTube・画像アップロード由来は抽出AIがカード画像から読む（unreleased_card_number.py）。管理画面の3つのフォームで手直しできる
 - 一覧ページ（/new-cards）だけに「追加順／型番順」の切り替え（.cr-seg と同じ見た目）。商品のまとまりの順は変えず、中の並びだけ型番順。型番の無いカードは末尾に追加順。型番順のときは追加日の代わりに型番を出す。選んだ並びは localStorage に覚える
 - 既存分の埋め戻し（tools/backfill_card_number.py・本番 DB に書き込み済み）: 101件中92件（URL 63・AI 29）。AI の読みは URL の番号とも互いにも重複なし・2回読んで同じ値。空のまま9件（六花水月・アマゾネスの剣聖・ラーの翼神竜 など。YouTube 由来の小さい字）→ 管理画面で手で入れられる
-- 次: 本番反映後に /new-cards で型番順を確認・次の X/YouTube 取り込みで card_number が入るか（extraction_raw.card_number_source）を見る
+- 追加（同日・ユーザー提案「カード名から型番拾えないの？」→ 推奨案）: 遊戯王Wiki のパックのページ（カード名 → 型番）を3つ目の出どころに。pack_scraper.fetch_pack_card_numbers・backfill_card_number.py --wiki・backfill-images.yml（3時間ごと・AI なし）で空の行だけ埋める。突き合わせで URL・AI の78枚と Wiki は全件一致。空の9枚のうち8枚を埋め、一覧の97枚が全部埋まった
+- id=637 海晶乙女の礁湖（承認待ち・X 由来）は公開中の id=557 と同じカードで、商品名の空白だけ違う重複。Wiki の型番は 557 と重なるので採っていない。却下するかは管理画面で判断
+- 次: 本番反映後に /new-cards で型番順を確認・次の X/YouTube 取り込みで card_number が入るか（extraction_raw.card_number_source）・回収ジョブの Wiki の段が動くかを見る
 
 ## 2026-10-30: イラスト違いの段2a-1（本番 PR #278 23c43df・SQL 適用済み）
 - ユーザーが案B を選択。段2a を「2a-1 別表を書き始めるだけ」「2a-2 本表を代表の絵に切り替え（別表のある日を書き直す）」に分けた（いきなり切り替えると値動き・X 投稿に偽の値上がり）

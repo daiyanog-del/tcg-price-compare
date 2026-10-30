@@ -9,6 +9,9 @@ backfill_card_number.py — 型番（card_number）が空の未発売カード�
   1. 公式サイト由来: extraction_raw の画像URL（card_image_url / source_image_url）から型番を復号する（AI 不要・確実）
   2. それ以外（X・YouTube・画像アップロード）: --ai のときだけ、保存済みのカード画像（official_card_images の
      切り抜き後の画像）を AI（QUALITY_MODEL）に見せて型番を読ませる。形の合わない読み・空は埋めない
+  3. まだ空の行: --wiki のときだけ、遊戯王Wikiのパックのページから カード名 → 型番 を引く（pack_scraper.fetch_pack_card_numbers）。
+     2026-10-30 の突き合わせで、URL・AI で埋めた78枚と Wiki は全件一致した。Wiki は載るまで遅れがあるので、
+     定期実行（.github/workflows/backfill-images.yml・3時間ごと・--wiki のみ）で、載った時点で埋まるようにしている
 
 対象:
   status IN ('pending','approved') かつ card_number IS NULL（linked は一覧から外れるので対象外）
@@ -21,6 +24,7 @@ backfill_card_number.py — 型番（card_number）が空の未発売カード�
   python tools/backfill_card_number.py                  # URL から取れる分だけ書き込む
   python tools/backfill_card_number.py --ai             # URL の分＋AI で読んだ分を書き込む
   python tools/backfill_card_number.py --ai --dry-run   # AI で読むが書き込まない（読みの確認）
+  python tools/backfill_card_number.py --wiki           # URL の分＋Wiki で引けた分を書き込む（定期実行はこれ）
 
 認証:
   SUPABASE_URL / SUPABASE_KEY / ANTHROPIC_API_KEY。未設定時は ~/.cardsouba/watcher.env から補完する。
@@ -31,11 +35,6 @@ import io
 import os
 import sys
 import logging
-
-try:
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
-except Exception:
-    pass
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_THIS_DIR)
@@ -84,6 +83,13 @@ def _targets(sb) -> list[dict]:
     return resp.data or []
 
 
+def _taken_numbers(sb) -> set[str]:
+    """承認待ち・公開中のカードが既に使っている型番。"""
+    resp = (sb.table("unreleased_cards").select("card_number")
+            .in_("status", ["pending", "approved"]).not_.is_("card_number", "null").execute())
+    return {r["card_number"] for r in (resp.data or []) if r.get("card_number")}
+
+
 def _stored_images(sb, ids: list[int]) -> dict[int, str]:
     """カードID → 保存済みの表示用画像（切り抜き後）の URL。"""
     if not ids:
@@ -115,9 +121,46 @@ def _read_by_ai(client, model: str, url: str) -> str:
     return normalize_card_number(data.get("card_number"))
 
 
+def _fill_from_wiki(rows: list[dict], decided: list, fetch=None, taken: set[str] | None = None) -> list[dict]:
+    """まだ空の行を遊戯王Wikiのパックのページ（カード名 → 型番）で埋める。埋まった行は decided に足し、残りを返す。
+
+    Wiki を読むのは空の行がある商品だけ・1商品につき1回。名前は記号・全角半角の揺れを吸収して比べる（fuzzy_key）。
+    taken（ほかのカードが既に使っている型番）と重なる値は採らない（Wiki の書き間違いで型番が2枚に付くのを防ぐ）。
+    """
+    taken = set(taken or ()) | {number for _, number, _ in decided}
+    from name_normalize import fuzzy_key
+    if fetch is None:
+        from pack_scraper import fetch_pack_card_numbers as fetch
+    by_product: dict[str, list[dict]] = {}
+    for row in rows:
+        by_product.setdefault(row.get("product_name") or "", []).append(row)
+    left: list[dict] = []
+    for product, product_rows in by_product.items():
+        if not product:
+            left.extend(product_rows)
+            continue
+        try:
+            table = {fuzzy_key(name): code for name, code in fetch(product).items()}
+        except Exception as e:  # Wiki の不調で他の商品まで止めない（次回の実行で読み直せる）
+            logger.warning("Wiki を読めませんでした: %s (%s)", product, e)
+            table = {}
+        for row in product_rows:
+            number = normalize_card_number(table.get(fuzzy_key(row["name"])))
+            if number and number in taken:
+                logger.warning("Wiki の型番がほかのカードと重なるので採りません: id=%s %s %s", row["id"], row["name"], number)
+                number = ""
+            if number:
+                decided.append((row, number, "wiki"))
+                taken.add(number)
+            else:
+                left.append(row)
+    return left
+
+
 def main() -> int:
     dry_run = "--dry-run" in sys.argv
     use_ai = "--ai" in sys.argv
+    use_wiki = "--wiki" in sys.argv
     _load_env_fallback()
     from supabase import create_client
     sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
@@ -161,6 +204,9 @@ def main() -> int:
     else:
         unread = rest
 
+    if use_wiki and unread:
+        unread = _fill_from_wiki(unread, decided, taken=_taken_numbers(sb))
+
     for row, number, source in decided:
         print(f"{row['id']}\t{number}\t{source}\t{row.get('product_name') or ''}\t{row['name']}")
     for row in unread:
@@ -179,4 +225,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    # Windows コンソールで日本語を出すため。import したとき（テスト）は標準出力に触らない
+    try:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+    except Exception:
+        pass
     sys.exit(main())

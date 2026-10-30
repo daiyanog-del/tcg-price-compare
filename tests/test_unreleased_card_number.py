@@ -185,3 +185,44 @@ def test_fill_missing_card_number_only_with_official_url_value():
     assert fill_missing_card_number(sb, dict(row, extraction_raw={"card_number_source": "ai"})) is False
     assert fill_missing_card_number(sb, dict(row, card_number=None)) is False
     assert sb.calls == []
+
+
+# ── 遊戯王Wiki で カード名 → 型番 を補う（2026-10-30 ユーザー提案） ──
+
+def test_fetch_pack_card_numbers_parses_wiki_list(monkeypatch):
+    import pack_scraper as ps
+    html = """<ul>
+      <li>IMPH-JP015 《<a href="#">《六花双精プリムローズ》</a>》 Super</li>
+      <li>IMPH-JP030 <a href="#">《暗黒の太陽神−ラーの翼神竜》</a> Ultra</li>
+      <li>メモ: 型番の無い行 <a href="#">《関係ないカード》</a></li>
+      <li>IMPH-JP032 <a href="#">《アマゾネスの剣聖》</a></li>
+    </ul>"""
+    monkeypatch.setattr(ps, "_resolve_wiki_page", lambda name: (name, True))
+    monkeypatch.setattr(ps.requests, "get", lambda *a, **k: SimpleNamespace(
+        text=html, apparent_encoding="utf-8", encoding=None, raise_for_status=lambda: None))
+    numbers = ps.fetch_pack_card_numbers("IMMORTAL PHOENIX")
+    assert numbers == {"六花双精プリムローズ": "IMPH-JP015", "暗黒の太陽神-ラーの翼神竜": "IMPH-JP030",
+                       "アマゾネスの剣聖": "IMPH-JP032"}
+    # ページが見つからなければ空（取得しに行かない）
+    monkeypatch.setattr(ps, "_resolve_wiki_page", lambda name: (name, False))
+    assert ps.fetch_pack_card_numbers("無い商品") == {}
+
+
+def test_fill_from_wiki_matches_by_name_and_skips_taken_numbers():
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+    from backfill_card_number import _fill_from_wiki
+    rows = [{"id": 1, "name": "暗黒の太陽神－ラーの翼神竜", "product_name": "IMMORTAL PHOENIX"},
+            {"id": 2, "name": "アマゾネスの剣聖", "product_name": "IMMORTAL PHOENIX"},
+            {"id": 3, "name": "載っていないカード", "product_name": "IMMORTAL PHOENIX"},
+            {"id": 4, "name": "商品なし", "product_name": None}]
+    calls = []
+
+    def fetch(product):
+        calls.append(product)
+        return {"暗黒の太陽神-ラーの翼神竜": "IMPH-JP030", "アマゾネスの剣聖": "IMPH-JP001"}
+
+    decided = []
+    left = _fill_from_wiki(rows, decided, fetch=fetch, taken={"IMPH-JP001"})
+    assert [(r["id"], n, s) for r, n, s in decided] == [(1, "IMPH-JP030", "wiki")]   # 全角ハイフンの揺れも引ける
+    assert [r["id"] for r in left] == [2, 3, 4]       # 2 はほかのカードの型番と重なるので採らない
+    assert calls == ["IMMORTAL PHOENIX"]              # 商品ごとに1回だけ読む・商品なしは読まない
