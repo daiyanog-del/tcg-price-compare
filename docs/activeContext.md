@@ -1,11 +1,12 @@
 # activeContext — 今どこ・次何
 
-## 2026-10-31: ロゴの「強欲なラボ」を1.5倍・少し太く・間を詰める（branch feat/brand-subtitle-larger）
+## 2026-10-31: ロゴの「強欲なラボ」を1.5倍・少し太く・間を詰める（本番 PR #301 d02acea）
 - 10-30 の隷書（PR #296）がヘッダーでかすれるとのユーザー指摘。本番のページでロゴだけ差し替えたモックで比べ、ユーザーが B（1.5倍・少し太く・間を詰める）を選択。ユーザーは就寝前に「本番反映まで自走」と指示
-- tools/build_brand_subtitle.py を、描き直したロゴからも作れるように（日本語は id="brand-subtitle" の path）・--scale/--gap-ratio/--stroke。2回流して同じ結果。ロゴ 1000:218→235（PNG 2000x470）、logo-lockup は中のロゴの箱を伸ばし中心を保つ、OGP 3枚を作り直し。_brand_wordmark の height 235・テストも更新。deck-image.js はロゴの幅を固定
-- 縦位置の CSS は一度「伸びた分の半分だけ上げる」を入れたが、枠が中央ぞろえで二重になっていた（中心が約1.5px上にずれた）ので戻した。ローカルで今の本番と中心が0.05px以内
-- 確認: テスト tests＋test_ygores_sync で 3366 passed（GitHub と同じ範囲）。ローカルで価格比較・シミュレーター・リプレイ一覧を PC（2倍）・スマホで撮影。海外先行カードのページはローカルで開けない（DB が要る）ので本番で確認する
-
+- tools/build_brand_subtitle.py を、描き直したロゴからも作れるように（日本語は id="brand-subtitle" の path）・--scale/--gap-ratio/--stroke（既定値がこの案）。2回流して同じ結果。ロゴ 1000:218→235（PNG 2000x470）、logo-lockup は中のロゴの箱を伸ばし中心を保つ、OGP 3枚を作り直し。_brand_wordmark の height 235・テストも更新。deck-image.js はロゴの幅を固定（147px）
+- 縦位置の CSS は一度「伸びた分の半分だけ上げる」を入れたが、枠が中央ぞろえで二重になっていた（中心が約1.5px上にずれた）ので戻した
+- 確認: テスト 3368 passed（GitHub と同じ範囲）。PR の pytest が success になってから取り込み、main の pytest も success。本番の静的ファイル（ロゴ・OGP）が新しいものと一致、deck-image.js は esbuild で圧縮されて配信される（中に logo.height*147/logo.width）。本番の4画面（価格比較・シミュレーター・リプレイ一覧・海外先行カード）を PC（2倍）・スマホで撮影し、ロゴの中心が変更前と同じ（例 価格比較 PC 70.0）
+- X 投稿の定期実行 tcg-post-staple-movers（autoDeploy=no）は手動でデプロイした（live）
+- 片付け: worktree .claude/worktrees/brand-subtitle-larger・ローカルと origin の feat/brand-subtitle-larger を削除済み
 ## 2026-10-31: 海外先行の予告カードのまとめページを一覧ページにそろえる（branch fix/announce-align・未 push・ユーザー確認待ち）
 - 経緯: ユーザー「海外先行未発売カードのページだけ、導線も平仄も揃ってない」。違い: ロゴ 52px・幅 1040px でタブの位置がずれる／このページだけパンくず／大きな箱の見出し 30px／日付「2027年3月19日 予定」・単位の違い
 - 作業ブランチ（worktree .claude/worktrees/announce-align・コミット 5b631ef）: ヘッダーを index.html と同じ値に（PC・1023px 以下・スマホでロゴ・タブ・切り替えの列の位置が一覧と一致を実測）・パンくずと一番下の戻るリンクをやめる・見出しを一覧と同じ形（判明したカード（N枚） 英語版 YYYY/MM/DD 発売予定・収録 N枚）・一覧の「件」を「枚」・「あわせて見る」をタブ名に。テスト 3367 passed
