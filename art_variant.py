@@ -59,7 +59,17 @@ _CARDRUSH_WORDS: dict[str, dict[str, str]] = {
     "墓穴の指名者": {"老人": ART_BASE, "LiveTwin": ART_ALT},
     "原始生命態ニビル": {"隕石": ART_BASE, "悪魔": ART_ALT},
     "強欲で金満な壺": {"二面相": ART_BASE, "エルドリッチ": ART_ALT},
+    # 2026-10-30: QCAC-JP002 の元は全身・違う絵は両手を広げた上半身（トレコロの S 付きと見比べ）
+    "エフェクト・ヴェーラー": {"オーブ無": ART_BASE, "オーブ有": ART_ALT},
+    # 2026-10-30: 日本版＝アンク・海外版＝装飾の付いた像・浮世絵はアンクを描き直した別の絵（画像で確認）
+    "死者蘇生": {"日本版": ART_BASE, "海外版": ART_ALT, "浮世絵/ロゴ": ART_ALT},
 }
+
+# カードラッシュが、絵はそのままで印や刷りの違いだけを書く言葉（どのカードでも元の絵）。
+# 2026-10-30 に エフェクト・ヴェーラー（ロゴ・YCSJロゴ）・青眼の究極竜（ロゴ・復刻版）・大嵐（復刻版）・
+# 烙印竜アルビオン（ロゴ）・死者蘇生（復刻版・初期）の商品画像を元の商品と見比べて確認。
+# YOTロゴは画像を取れなかったが、YCSJロゴと同じ景品の英語版
+_CARDRUSH_BASE_WORDS = frozenset({"ロゴ", "YCSJロゴ", "YOTロゴ", "復刻版", "初期"})
 
 # ☆アジア☆ など商品名の先頭に付く言語版の印（カードラッシュ）。☆バンダイ☆ のような版でない印は拾わない
 _EDITION_RE = re.compile(r"☆(旧?アジア|英語版|韓国版|中国版|スペイン版|フランス版|ドイツ版|イタリア版|ポルトガル版)☆")
@@ -157,6 +167,8 @@ def classify(row: dict, card_name: str) -> tuple[str, str]:
         art = _CARDRUSH_WORDS_BY_KEY.get(_key(card_name), {}).get(label)
         if art:
             return art, edition
+        if label in _CARDRUSH_BASE_WORDS:
+            return ART_BASE, edition
     return "", edition
 
 
