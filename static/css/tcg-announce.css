@@ -15,6 +15,13 @@ body.price-redesign {
 .ta-brand-icon { height: 52px; width: auto; display: block; }
 .ta-brand-name-image { width: 110px; height: auto; display: block; transform: translateY(6px); }
 
+/* 上部の切り替え。ほかのページの mode-tabs（price-layout.css）と同じ見た目・並び（購入候補は右端、スマホではロゴの横） */
+.ta-header { position: relative; gap: 0 28px; }
+.ta-nav { display: flex; align-items: center; flex: 1; gap: 18px; align-self: stretch; }
+.ta-nav a { display: inline-flex; align-items: center; min-height: 50px; padding-top: 8px; color: var(--text-m); font-size: 12px; font-weight: 700; white-space: nowrap; text-decoration: none; }
+.ta-nav a:hover { color: var(--text); }
+.ta-nav .ta-nav-wish { margin-left: auto; }
+
 .ta-crumbs { font-size: 13px; color: var(--text-m); display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 18px; }
 .ta-crumbs a { color: var(--text-m); text-decoration: none; }
 .ta-crumbs a:hover { color: var(--text); }
@@ -62,6 +69,8 @@ body.price-redesign {
 .ta-atk { margin: 2px 0 0; font-size: 13px; color: var(--text-m); }
 .ta-atk b { color: var(--text); font-family: 'Outfit', 'Noto Sans JP', sans-serif; }
 .ta-related { margin: 6px 0 0; font-size: 13px; color: var(--text); }
+.ta-related a { color: var(--accent-l); text-decoration: none; }
+.ta-related a:hover { text-decoration: underline; }
 .ta-intro { margin: 8px 0 0; font-size: 14px; line-height: 1.65; }
 .ta-summary { margin: 6px 0 0; padding-left: 1.1em; font-size: 14px; line-height: 1.65; }
 .ta-summary li + li { margin-top: 3px; }
@@ -72,10 +81,25 @@ body.price-redesign {
 
 .ta-rest { margin: 16px 0 0; font-size: 14px; color: var(--text-m); }
 .ta-rest b { color: var(--text); font-size: 18px; margin-right: 2px; }
+/* あわせて見る。領域は枠でなく背景で分ける（カードの枠と同じ面の色） */
+.ta-next { margin-top: 32px; }
+.ta-next-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.ta-next-grid a { display: block; padding: 14px 16px; border-radius: var(--radius); background: var(--bg-card); color: var(--text); text-decoration: none; }
+.ta-next-grid a:hover { background: var(--bg-hover); }
+.ta-next-grid b { display: block; font-size: 14px; margin-bottom: 4px; }
+.ta-next-grid span { display: block; font-size: 12px; line-height: 1.6; color: var(--text-m); }
+
 .ta-foot { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 12px; line-height: 1.7; color: var(--text-m); }
 .ta-foot p { margin: 0 0 6px; }
 .ta-foot a { color: var(--accent-l); }
 
+@media (max-width: 640px) {
+  .ta-header { flex-wrap: wrap; }
+  .ta-nav { flex-basis: 100%; gap: 0 8px; justify-content: space-between; }
+  .ta-nav a { min-height: 44px; padding-top: 0; }
+  .ta-nav .ta-nav-wish { position: absolute; top: 10px; right: 0; margin-left: 0; min-height: 36px; }
+  .ta-next-grid { grid-template-columns: 1fr; }
+}
 @media (max-width: 480px) {
   .ta-title { font-size: 24px; }
   .ta-card { grid-template-columns: 84px 1fr; gap: 12px; padding: 12px; }
