@@ -46,7 +46,7 @@ from shipping import (
 from aggregations import daily_min_by_lowest_rarity, common_shop_price_change
 from price_history_reads import fetch_daily_rows_by_card_names, jst_days_back
 from shop_status import SUSPENDED_SHOPS
-from price_persist import build_min_price_rows, upsert_price_rows
+from price_persist import build_art_price_rows, build_min_price_rows, upsert_price_art_rows, upsert_price_rows
 from card_code import infer_codes
 from search_status import search_coverage
 from shop_search_pool import (
@@ -1389,6 +1389,13 @@ def _persist_scrape_async(card_name: str, scrape_results: list, ignore_duplicate
         if clabo_results:
             clabo_rows = build_min_price_rows(card_name, clabo_results, today)
             upsert_price_rows(_supabase_client, clabo_rows, ignore_duplicates=True)
+        # 絵ごとの内訳（別表）。絵の判定は全店の行をまとめて見る（型番ごとの絵をそろえるため）。
+        # 上書きの決まりは本表と同じ（カードラボは同じ日の夜の収集を上書きしない）
+        art_rows = build_art_price_rows(card_name, scrape_results, today)
+        upsert_price_art_rows(_supabase_client, [r for r in art_rows if r["shop"] != "カードラボ"],
+                              ignore_duplicates=ignore_duplicates)
+        upsert_price_art_rows(_supabase_client, [r for r in art_rows if r["shop"] == "カードラボ"],
+                              ignore_duplicates=True)
     except Exception as e:
         logger.warning(f"[persist] {card_name} の即時 upsert 失敗: {e}")
 

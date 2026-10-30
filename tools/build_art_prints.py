@@ -12,7 +12,9 @@ Yugipedia の書き方（2026-10-29 三戦の号・I：Pマスカレーナ・灰
   - jp_sets 欄に日本の版が「CH01-JP030; パック名; レアリティ, …」と1行ずつ並ぶ
   - 画像一覧（Card Gallery:<カード名>）で「; AA」が付くのは、同じ型番の中に絵が2つある版だけ（灰流うらら PAC1-JP016）。
     型番ごと違う絵の版（三戦の号 CH01）には何も付かない
-判定: 2番目以降の絵の代表と同じパックの日本の型番を「型番ごと違う絵」とする。ただし、1番の絵の代表にも同じパックがあるもの、
+出力（2026-10-30 から）: {カード名の比べる形: {"arts": 絵の数, "codes": {型番: 何番目の絵か}}}。番号は image 欄の番号で、
+絵が3種類以上のカードの違う絵を記録で分けるのに使う（art_variant.record_art・イラスト違いの段2）。
+判定: 2番目以降の絵の代表と同じパックの日本の型番を「型番ごと違う絵」とする（番号はそのパックを代表に持つ一番小さい番号）。ただし、1番の絵の代表にも同じパックがあるもの、
 画像一覧でその型番に AA があるもの（型番の中に絵が2つ＝店の言葉で見分ける側）は入れない。
 代表が英語版だけのパック（RA04 など）の絵は、日本の型番に届かない（拾えないだけで、誤って入れることはない）。
 
@@ -84,7 +86,8 @@ def gallery_aa_codes(gallery_text: str) -> set[str]:
 
 
 def card_info(page_text: str) -> dict | None:
-    """カードのページ → {ja_name, alt_candidates}。絵が1種類か、日本の版が無ければ None"""
+    """カードのページ → {ja_name, arts, alt_candidates}。絵が1種類か、日本の版が無ければ None。
+    alt_candidates は型番 → 何番目の絵か（その型番のパックを代表に持つ一番小さい番号。2 以上）"""
     p = yp.template_params(page_text, "CardTable2")
     if not p:
         return None
@@ -93,14 +96,19 @@ def card_info(page_text: str) -> dict | None:
     if not ja_name or len(arts) < 2:
         return None
     base_sets = arts.get(1, set())
-    alt_sets = set().union(*(s for n, s in arts.items() if n >= 2)) - base_sets
-    cands = sorted(code for code, pack in jp_codes(p.get("jp_sets", "")) if pack in alt_sets)
-    return {"ja_name": ja_name, "alt_candidates": cands}
+    cands: dict[str, int] = {}
+    for code, pack in jp_codes(p.get("jp_sets", "")):
+        if pack in base_sets:
+            continue
+        nos = [n for n, sets in arts.items() if n >= 2 and pack in sets]
+        if nos:
+            cands[code] = min(nos)
+    return {"ja_name": ja_name, "arts": len(arts), "alt_candidates": dict(sorted(cands.items()))}
 
 
-def alt_codes(info: dict, aa_codes: set[str]) -> list[str]:
-    """候補から、型番の中に絵が2つある版（画像一覧の AA）を除いたもの"""
-    return [c for c in info["alt_candidates"] if c not in aa_codes]
+def alt_codes(info: dict, aa_codes: set[str]) -> dict[str, int]:
+    """候補から、型番の中に絵が2つある版（画像一覧の AA）を除いたもの（型番 → 何番目の絵か）"""
+    return {c: n for c, n in info["alt_candidates"].items() if c not in aa_codes}
 
 
 def _iter_category_pages():
@@ -124,8 +132,10 @@ def _galleries(titles: list[str]) -> dict[str, str]:
     return {p["title"].removeprefix("Card Gallery:"): p["text"] for p in pages.values()}
 
 
-def build(pages) -> tuple[dict[str, list[str]], int]:
-    """(カード名の比べる形 → 型番ごと違う絵の日本の型番, 読んだページ数)"""
+def build(pages) -> tuple[dict[str, dict], int]:
+    """(カード名の比べる形 → {"arts": 絵の数, "codes": {型番ごと違う絵の日本の型番: 何番目の絵か}}, 読んだページ数)。
+    絵の番号は Yugipedia の image 欄の番号（1＝元の絵）。2026-10-30 から型番の並びに番号を足した
+    （絵が3種類以上のカードで、違う絵を番号で分けて記録するため。イラスト違いの段2）"""
     infos: dict[str, dict] = {}
     n = 0
     for title, text in pages:
@@ -134,12 +144,14 @@ def build(pages) -> tuple[dict[str, list[str]], int]:
         if info and info["alt_candidates"]:
             infos[title] = info
     galleries = _galleries(list(infos))
-    table: dict[str, list[str]] = {}
+    table: dict[str, dict] = {}
     for title, info in infos.items():
         codes = alt_codes(info, gallery_aa_codes(galleries.get(title, "")))
         if codes:
             key = _key(info["ja_name"])
-            table[key] = sorted(set(table.get(key, [])) | set(codes))
+            cur = table.setdefault(key, {"arts": 0, "codes": {}})
+            cur["arts"] = max(cur["arts"], info["arts"])
+            cur["codes"] = dict(sorted({**cur["codes"], **codes}.items()))
     return table, n
 
 

@@ -16,9 +16,10 @@ import time
 from datetime import datetime, timezone, timedelta
 
 from supabase import create_client, Client
+from postgrest.types import ReturnMethod
 from scraper import compare_buyback, BUYBACK_SHOPS, CARDRUSH_MEDIA_BASE, get_host_request_counts
 from collection_run import record_collection_run, attach_host_request_counts
-from price_persist import upsert_buyback_rows
+from price_persist import build_art_buyback_rows, upsert_buyback_art_rows, upsert_buyback_rows
 from art_variant import row_is_sealed
 from db_write_guard import (
     ConsecutiveDbFailureGuard, DbWriteAborted, GuardedSupabase, is_db_unavailable, report_db_abort,
@@ -135,6 +136,8 @@ def collect_and_save_buyback(
         return 0
     if db_guard is not None:
         db_guard.record_success()
+    # 絵が分かれるカード×レアリティだけ、絵ごとの最高額も別表へ（失敗しても本表の記録は止めない）
+    upsert_buyback_art_rows(sb, build_art_buyback_rows(card_name, results, today))
     if saved > 0:
         print(f"  保存完了 [{card_name}]: {saved}件")
     else:
@@ -155,6 +158,12 @@ def cleanup_old_buyback_data(sb: Client):
             print(f"古い買取データを削除: {deleted}件（{cutoff}より前）")
     except Exception as e:
         print(f"古い買取データ削除失敗: {e}")
+    # 絵ごとの最高額（buyback_art）も同じ保持期間。表がまだ無い（price_history_art.sql 未適用）ときは黙って飛ばす
+    try:
+        sb.table("buyback_art").delete(returning=ReturnMethod.minimal).lt("recorded_at", cutoff).execute()
+    except Exception as e:
+        if not ("PGRST205" in str(e) or "Could not find the table" in str(e)):
+            print(f"古い絵ごとの買取データ削除失敗: {e}")
 
 
 def main():

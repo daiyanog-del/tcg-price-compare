@@ -18,6 +18,8 @@ collect_prices.py（定期収集）と app.py（検索・見積もりの即時�
 from __future__ import annotations
 import logging
 
+import art_variant
+from db_write_guard import is_db_unavailable
 from rarity import UNKNOWN_RARITY_LABEL
 from constants import PRICE_FLOOR
 
@@ -207,3 +209,129 @@ def upsert_buyback_rows(sb, rows: list[dict], raise_on_error: bool = False) -> i
         if raise_on_error:
             raise
         return 0
+
+
+# ── 絵ごとの内訳（price_history_art・buyback_art。2026-10-30 イラスト違いの段2・案B の段2a-1） ──
+# 本表（price_history_v2・buyback_history）は今までどおり絵を混ぜた値のまま書き、絵が分かれるカード×レアリティだけ、
+# 絵ごとの値をここで別表に書く。本表を「代表の絵」に切り替えるのは段2a-2（別表がたまってから過去の行も書き直す）。
+# 書けなくても本表の記録は止めない（ログだけ）。別表の SQL（price_history_art.sql）がまだ無い環境では、
+# 1回目の失敗でそのプロセスの書き込みを止める（夜の収集で毎カード同じエラーを出さない）
+_art_write_disabled: set[str] = set()
+
+
+def _annotated_copies(card_name: str, scrape_results: list, context: dict | None = None) -> list[dict]:
+    """絵の印を付けた複製（呼び元の行は書き換えない。検索の画面に返す行と同じ dict を共有していることがあるため）。
+    annotate は全店の行を見て型番ごとの絵をそろえるので、そのカードの行をまとめて渡す。
+    context（art_price_context）は、同じカードのほかの店の行で分かったこと（1店だけの行をあとから判定するとき）"""
+    rows = [dict(r) for r in scrape_results]
+    art_variant.annotate(rows, card_name, extra_alt_codes=(context or {}).get("alt_codes"))
+    return rows
+
+
+def _split_rarities(rows: list[dict], card_name: str,
+                    force_rarities: set[str] | None = None) -> dict[tuple[str, int], str]:
+    """(レアリティ, 行の位置) → 記録の絵。絵が分かれるレアリティ（art_variant.needs_art_rows）の行だけ。
+    force_rarities のレアリティは、この行だけでは分かれなくても書く（ほかの店の行で分かれると分かっている）"""
+    arts_by_rarity: dict[str, set[str]] = {}
+    marked: list[tuple[str, int, str]] = []
+    for i, row in enumerate(rows):
+        rarity = row.get("rarity", "") or UNKNOWN_RARITY_LABEL
+        art = art_variant.record_art(row, card_name)
+        arts_by_rarity.setdefault(rarity, set()).add(art)
+        marked.append((rarity, i, art))
+    force = force_rarities or set()
+    return {(rarity, i): art for rarity, i, art in marked
+            if rarity in force or art_variant.needs_art_rows(arts_by_rarity[rarity])}
+
+
+def _valid_price_rows(card_name: str, scrape_results: list, context: dict | None = None) -> list[dict]:
+    return [r for r in _annotated_copies(card_name, scrape_results, context)
+            if not r.get("sold_out") and r.get("price", 0) >= PRICE_FLOOR and r.get("shop")]
+
+
+def art_price_context(card_name: str, scrape_results: list) -> dict:
+    """そのカードの全店の行で分かったこと（絵が分かれるレアリティ・型番ごと違う絵の型番）。夜の収集は
+    カードラボだけを別の経路（カタログ巡回）で後から保存するので、カードラボの行の判定をこれでほかの店にそろえる（10-30 reviewer 指摘）"""
+    rows = _valid_price_rows(card_name, scrape_results)
+    split = _split_rarities(rows, card_name)
+    alt_codes = {rows[i].get("code") for (_, i), art in split.items()
+                 if art.startswith(art_variant.ART_ALT) and rows[i].get("code")}
+    return {"rarities": {rarity for rarity, _ in split}, "alt_codes": alt_codes}
+
+
+def build_art_price_rows(card_name: str, scrape_results: list, today: str, context: dict | None = None) -> list[dict]:
+    """絵が分かれるカード×レアリティについて、店×レアリティ×絵ごとの最安の行（price_history_art 用）。
+    最安・code・url の決め方は build_min_price_rows と同じ（絵の欄 art が足されるだけ）。
+    絵が分かれるかは売り切れ・下限未満を除いた行で決める（本表に入る行と同じ範囲）"""
+    rows = _valid_price_rows(card_name, scrape_results, context)
+    split = _split_rarities(rows, card_name, (context or {}).get("rarities"))
+    if not split:
+        return []
+    by_art: dict[str, list[dict]] = {}
+    for (_, i), art in split.items():
+        by_art.setdefault(art, []).append(rows[i])
+    out = []
+    for art, items in by_art.items():
+        for row in build_min_price_rows(card_name, items, today):
+            out.append({**row, "art": art})
+    return out
+
+
+def build_art_buyback_rows(card_name: str, results: list, today: str) -> list[dict]:
+    """絵が分かれるカード×レアリティについて、店×レアリティ×絵ごとの最高買取額（buyback_art 用）。
+    除外の条件は collect_buyback と同じ（売り切れ・未開封・付属品つき・下限未満）。レアリティは本表と同じく取得時の値のまま
+    （空だけ "(不明)"）。同じ日の再実行で、もう出ない絵の行は消さない（買取の記録は夜の1回だけなので受け入れる）"""
+    rows = [r for r in _annotated_copies(card_name, results)
+            if not r.get("sold_out") and not art_variant.row_is_sealed(r) and r.get("price", 0) >= PRICE_FLOOR]
+    split = _split_rarities(rows, card_name)
+    best: dict[tuple[str, str, str], int] = {}
+    for (_, i), art in split.items():
+        row = rows[i]
+        # 空のレアリティは販売と同じ "(不明)" に寄せる（辞書 rarity_dim に空の名前を作らない。本表の buyback_history は "" のまま）
+        key = (row.get("shop", ""), row.get("rarity", "") or UNKNOWN_RARITY_LABEL, art)
+        if key not in best or row["price"] > best[key]:
+            best[key] = row["price"]
+    return [{"card_name": card_name, "shop": shop, "rarity": rarity, "art": art,
+             "max_price": price, "recorded_at": today}
+            for (shop, rarity, art), price in best.items()]
+
+
+def _upsert_art(sb, fn: str, params: dict, n_rows: int) -> int:
+    """別表の RPC を呼ぶ。失敗しても例外を出さない（本表の記録を止めない）。RPC が無い・DB が応答しないときは
+    そのプロセスでは以後呼ばない。夜の収集の見張り付きクライアント（db_write_guard.GuardedSupabase）は通さない
+    （別表の失敗を数えて収集ごと打ち切ったり、1枚ごとに待ったりしないため。10-30 reviewer 指摘）"""
+    if fn in _art_write_disabled:
+        return 0
+    sb = getattr(sb, "raw", sb)
+    try:
+        resp = sb.rpc(fn, params).execute()
+        data = resp.data
+        if isinstance(data, list) and data and isinstance(data[0], dict) and isinstance(data[0].get("saved_rows"), int):
+            return data[0]["saved_rows"]
+        return n_rows
+    except Exception as e:
+        text = str(e)
+        if "PGRST202" in text or "Could not find the function" in text:
+            _art_write_disabled.add(fn)
+            logger.warning(f"[price_persist] {fn} が DB に無い（price_history_art.sql 未適用）。このプロセスでは絵ごとの記録を止める")
+        elif is_db_unavailable(e):
+            # DB が重い・止まっているときに小さい別表の書き込みを重ねない（本表の記録を優先する）
+            _art_write_disabled.add(fn)
+            logger.warning(f"[price_persist] {fn}: DB が応答しない（{e}）。このプロセスでは絵ごとの記録を止める")
+        else:
+            logger.warning(f"[price_persist] {fn} 失敗 ({n_rows}行・本表の記録は続ける): {e}")
+        return 0
+
+
+def upsert_price_art_rows(sb, rows: list[dict], ignore_duplicates: bool = False) -> int:
+    """price_history_art に RPC upsert_price_art_rows で書く。ignore_duplicates の意味は upsert_price_rows と同じ"""
+    if not rows:
+        return 0
+    return _upsert_art(sb, "upsert_price_art_rows", {"p_rows": rows, "p_ignore_duplicates": ignore_duplicates}, len(rows))
+
+
+def upsert_buyback_art_rows(sb, rows: list[dict]) -> int:
+    """buyback_art に RPC upsert_buyback_art_rows で書く（同じ日の再実行は上書き）"""
+    if not rows:
+        return 0
+    return _upsert_art(sb, "upsert_buyback_art_rows", {"p_rows": rows}, len(rows))

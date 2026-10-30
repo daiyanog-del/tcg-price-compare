@@ -24,7 +24,8 @@ from pack_scraper import (
     get_pack_list, fetch_pack_cards, _try_wiki_page_variants,
     fetch_theme_cards, fetch_card_themes,
 )
-from price_persist import build_min_price_rows, upsert_price_rows
+from price_persist import (art_price_context, build_art_price_rows, build_min_price_rows, upsert_price_art_rows,
+                           upsert_price_rows)
 from clabo_catalog import collect_clabo_catalog
 from collection_run import record_collection_run, attach_host_request_counts
 from db_write_guard import (
@@ -280,7 +281,8 @@ def _prepare_clabo_catalog(selected: list[dict], available_shops: list[str],
 
 
 def _save_clabo_catalog_rows(sb: Client, processed: list[dict], matched: dict[str, list[dict]],
-                             today: str, shop_stats: dict, catalog_stats: dict) -> int:
+                             today: str, shop_stats: dict, catalog_stats: dict,
+                             art_contexts: dict[str, dict] | None = None) -> int:
     """カタログ巡回の結果を、実際にカード単位ループで処理されたカードだけ保存する。
 
     processed は selected のうち、時間予算打ち切りの break が起きる前にループが
@@ -293,12 +295,16 @@ def _save_clabo_catalog_rows(sb: Client, processed: list[dict], matched: dict[st
     clabo_ok = 0
     clabo_empty = 0
     all_rows: list[dict] = []
+    art_rows: list[dict] = []
     for card_data in processed:
         card_name = card_data["card_name"]
         products = matched.get(card_name, [])
         if products:
             clabo_ok += 1
             all_rows.extend(build_min_price_rows(card_name, products, today))
+            # 絵ごとの内訳。ループ側（ほかの店の行）で分かった「絵が分かれるレアリティ」「型番ごと違う絵の型番」に
+            # そろえて判定する（カードラボの行だけだと、分かれるレアリティのカードラボの行が抜ける。10-30 reviewer 指摘）
+            art_rows.extend(build_art_price_rows(card_name, products, today, (art_contexts or {}).get(card_name)))
         else:
             clabo_empty += 1
 
@@ -316,6 +322,8 @@ def _save_clabo_catalog_rows(sb: Client, processed: list[dict], matched: dict[st
     for i in range(0, len(all_rows), _UPSERT_CHUNK_SIZE):
         chunk = all_rows[i:i + _UPSERT_CHUNK_SIZE]
         saved += upsert_price_rows(sb, chunk)
+    for i in range(0, len(art_rows), _UPSERT_CHUNK_SIZE):
+        upsert_price_art_rows(sb, art_rows[i:i + _UPSERT_CHUNK_SIZE])
 
     shop_stats["カードラボ"] = {
         "ok": clabo_ok, "empty": clabo_empty, "error": 0,
@@ -331,7 +339,8 @@ def _save_clabo_catalog_rows(sb: Client, processed: list[dict], matched: dict[st
 
 def collect_and_save(sb: Client, card_name: str, today: str, shop_names: list[str],
                      shop_stats: dict | None = None,
-                     db_guard: ConsecutiveDbFailureGuard | None = None) -> int:
+                     db_guard: ConsecutiveDbFailureGuard | None = None,
+                     art_contexts: dict[str, dict] | None = None) -> int:
     """1枚のカードの価格を取得してSupabaseに保存。保存した行数を返す。
 
     shop_stats に dict を渡すと、店舗ごとの 取得成功/0件/取得エラー を集計する。
@@ -387,6 +396,13 @@ def collect_and_save(sb: Client, card_name: str, today: str, shop_names: list[st
         return 0
     if db_guard is not None:
         db_guard.record_success()
+    # 絵が分かれるカード×レアリティだけ、絵ごとの内訳も別表へ（失敗しても本表の記録は数えない・止めない）
+    upsert_price_art_rows(sb, build_art_price_rows(card_name, results, today))
+    # カードラボのカタログ巡回（後で別に保存する）の判定をそろえるために、分かったことを残す
+    if art_contexts is not None:
+        ctx = art_price_context(card_name, results)
+        if ctx["rarities"] or ctx["alt_codes"]:
+            art_contexts[card_name] = ctx
     if saved:
         print(f"  保存完了 [{card_name}]: {saved}件")
         return saved
@@ -975,12 +991,62 @@ def rollup_and_delete_old_prices(sb: Client, cutoff: str) -> None:
         )
 
 
+def rollup_and_delete_old_art_prices(sb: Client, cutoff: str) -> None:
+    """絵ごとの内訳（price_history_art）も、cutoff より前の日を1日ずつ price_daily_art へ畳んでから消す。
+    本表の rollup_and_delete_old_prices と同じ手順。表がまだ無い（price_history_art.sql 未適用）ときは何もしない。
+    止まったときは Discord に知らせる（別表は小さいので1晩の上限は本表と同じでよい）"""
+    problem = ""
+    for _ in range(MAX_ROLLUP_DAYS_PER_NIGHT):
+        try:
+            rows = (sb.table("price_history_art").select("recorded_at")
+                    .order("recorded_at", desc=False).range(0, 0).execute()).data or []
+        except Exception as e:
+            if "PGRST205" in str(e) or "Could not find the table" in str(e):
+                return
+            problem = f"最古の日の取得に失敗: {e}"
+            break
+        day = rows[0]["recorded_at"][:10] if rows else None
+        if day is None or day >= cutoff:
+            return
+        next_day = (datetime.fromisoformat(day).date() + timedelta(days=1)).isoformat()
+        try:
+            resp = sb.rpc("rollup_price_daily_art", {"p_before": next_day, "p_from": day}).execute()
+            n = (resp.data or [{}])[0].get("rolled_rows", 0) if isinstance(resp.data, list) else 0
+            print(f"絵ごとの内訳を日ごとの最安へ畳んだ: {day} {n}組")
+        except Exception as e:
+            problem = f"{day} の畳み込みに失敗（店舗別の行は消さずに残す）: {e}"
+            break
+        try:
+            (sb.table("price_history_art")
+             .delete(count=CountMethod.exact, returning=ReturnMethod.minimal)
+             .eq("recorded_at", day)
+             .execute())
+        except Exception as e:
+            problem = f"{day} の店舗別の行の削除に失敗: {e}"
+            break
+    if problem:
+        print(f"絵ごとの内訳の畳み込み: {problem}")
+        send_discord_message(
+            f"⚠ **絵ごとの内訳（price_history_art）の畳み込みが止まっています**\n{problem}\n"
+            f"price_history_art.sql を確認してください。"
+        )
+
+
 def cleanup_old_data(sb: Client):
     """保持期間を超えた古いデータを削除"""
     today = datetime.now(JST).date()
     cutoff = (today - timedelta(days=PRICE_RETENTION_DAYS)).isoformat()
     rollup_and_delete_old_prices(sb, cutoff)
+    rollup_and_delete_old_art_prices(sb, cutoff)
     daily_cutoff = (today - timedelta(days=PRICE_DAILY_RETENTION_DAYS)).isoformat()
+    try:
+        (sb.table("price_daily_art")
+         .delete(count=CountMethod.exact, returning=ReturnMethod.minimal)
+         .lt("recorded_at", daily_cutoff)
+         .execute())
+    except Exception as e:
+        if not ("PGRST205" in str(e) or "Could not find the table" in str(e)):
+            print(f"古い絵ごとの日ごとの最安の削除失敗: {e}")
     try:
         resp = (sb.table("price_daily_min")
                 .delete(count=CountMethod.exact, returning=ReturnMethod.minimal)
@@ -1136,6 +1202,8 @@ def _main(state: dict):
     loop_shops, clabo_matched, clabo_catalog_stats = _prepare_clabo_catalog(
         selected, available_shops, shop_stats
     )
+    # カタログ巡回が成立したときだけ、ループ側の絵の判定をカードごとに残してカードラボの保存へ渡す
+    art_contexts: dict[str, dict] | None = {} if clabo_matched is not None else None
 
     # 打ち切り時点のインデックス（打ち切りが起きなければ全件処理）。
     # カタログの保存対象を「実際にループで処理されたカード」に絞るために使う（reviewer中3）
@@ -1173,7 +1241,8 @@ def _main(state: dict):
                 saved = 0
                 try:
                     saved = collect_and_save(sb, card_name, today, loop_shops,
-                                             shop_stats=shop_stats, db_guard=db_guard)
+                                             shop_stats=shop_stats, db_guard=db_guard,
+                                             art_contexts=art_contexts)
                     if saved > 0:
                         total_saved += saved
                         success_count += 1
@@ -1205,7 +1274,7 @@ def _main(state: dict):
             processed = selected[:loop_end_index]
             try:
                 clabo_saved = _save_clabo_catalog_rows(
-                    sb, processed, clabo_matched, today, shop_stats, clabo_catalog_stats
+                    sb, processed, clabo_matched, today, shop_stats, clabo_catalog_stats, art_contexts=art_contexts
                 )
                 total_saved += clabo_saved
             except DbWriteAborted as e:

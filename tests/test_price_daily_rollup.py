@@ -113,6 +113,9 @@ def _cleanup_store(old_days=(PRICE_RETENTION_DAYS + 2, PRICE_RETENTION_DAYS + 1)
         "price_history_v2": v2,
         "price_daily_min": [{"recorded_at": _d(PRICE_DAILY_RETENTION_DAYS + 1)}, {"recorded_at": _d(40)}],
         "solitaire_replays": [],
+        # 絵ごとの内訳（price_history_art.sql 適用後の形。2026-10-30）
+        "price_history_art": [],
+        "price_daily_art": [],
     }
 
 
@@ -285,3 +288,42 @@ def test_ygores_raw_keeps_only_japanese_card_data():
     assert CardDataRepository._card_row(1, no_ja, "now")["raw"] is no_ja
     mirror = {"name": "ミラー形式", "type": "monster"}
     assert CardDataRepository._card_row(2, mirror, "now")["raw"] is mirror
+
+
+# ──────────────────────────────────────────────
+# 絵ごとの内訳（price_history_art・2026-10-30 イラスト違いの段2）
+# ──────────────────────────────────────────────
+
+def test_cleanup_rolls_up_art_rows_like_main_table(discord):
+    import collect_prices
+    store = _cleanup_store()
+    d2, d1 = _d(PRICE_RETENTION_DAYS + 2), _d(PRICE_RETENTION_DAYS + 1)
+    store["price_history_art"] = [{"recorded_at": d2}, {"recorded_at": _d(1)}]
+    store["price_daily_art"] = [{"recorded_at": _d(PRICE_DAILY_RETENTION_DAYS + 1)}, {"recorded_at": _d(40)}]
+    sb = _Sb(store)
+    collect_prices.cleanup_old_data(sb)
+    assert ("rollup_price_daily_art", {"p_before": d1, "p_from": d2}) in sb.rpc_calls
+    assert [r["recorded_at"] for r in sb.store["price_history_art"]] == [_d(1)]
+    assert [r["recorded_at"] for r in sb.store["price_daily_art"]] == [_d(40)]
+    assert discord == []
+
+
+class _NoArtSb(_Sb):
+    """price_history_art.sql を適用する前の DB（PostgREST は表が無いと PGRST205 を返す）"""
+
+    def table(self, name):
+        if name in ("price_history_art", "price_daily_art"):
+            raise RuntimeError("{'code': 'PGRST205', 'message': \"Could not find the table 'public.%s' in the schema cache\"}" % name)
+        return super().table(name)
+
+
+def test_cleanup_without_art_tables_is_silent(discord):
+    import collect_prices
+    store = _cleanup_store()
+    del store["price_history_art"], store["price_daily_art"]
+    sb = _NoArtSb(store)
+    collect_prices.cleanup_old_data(sb)
+    assert not any(name == "rollup_price_daily_art" for name, _ in sb.rpc_calls)
+    assert _left(sb) == sorted([_d(PRICE_RETENTION_DAYS), _d(1)])  # 本表の畳み込みはいつもどおり
+    assert discord == []
+
