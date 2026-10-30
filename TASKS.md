@@ -18,7 +18,9 @@
   - [ ] 卸の写真が毎回 Yugipedia より早く載るかは1弾でしか見ていない。次の弾で取り込みのログと box_image_url の出どころを確かめる
   - [ ] 投稿の有効化: GitHub Variables `TCG_ANNOUNCE_X_POST_ENABLED=1`（ユーザー確認後。先に手動実行の dry_run で本文を確かめる）
   - [ ] 校正: CARD_HOURS（19〜23時）・UPDATE_MIN_NEW（3）・UPDATE_MIN_HOURS（20）・CLOSE_AFTER_DAYS（30）・MAX_SUMMARIZE（40）を tweet_log の閲覧数と実際の弾の出方から見直す
-  - [ ] 公式の絵・速報と公式の分岐（10-30 PR #271・本番は未反映）: 公式の商品ページの絵を取り込み、カード・弾の画像とまとめページに出す。弾は「公式の段／速報の段」に分け、速報（販売店の商品案内）の初報は取り込みから LEAK_MAX_HOURS 以内だけ・公式が出たら公式の続報（set_official）を1回・速報の段のカードごとは公式を待つ（初報から OFFICIAL_WAIT_DAYS 日で絵なし）。本番の DB に tcg_announce_cards.sql の末尾（cards の art_url・lore_at と埋め直し、posts の phase・kind・set_official の索引）を**先に**適用してから main に取り込む（逆だと lore_at を含む upsert が列なしで落ち、毎時の取り込みが止まる）。速報の古さは lore_at の真ん中の値で測る
+  - [x] 公式の絵・速報と公式の分岐（10-30 本番 PR #271 2788f63・SQL も本番に適用済み）: 公式の商品ページの絵を取り込み、カード・弾の画像とまとめページに出す（本番で6枚確認）。弾は「公式の段／速報の段」に分け、速報の初報は効果の文が出てから LEAK_MAX_HOURS 以内だけ・公式の絵が入ったら公式の続報を1回・速報の弾のカードごとは絵を待つ。経緯は docs/decisions.md 10-30
+  - [ ] ⚠ 毎時の定期実行（tcg-announce-watch.yml の cron 17 * * * *）がほとんど動いていない: 10-29 12:00〜10-30 05:48 UTC の約18時間で定期実行は2回だけ（18:28・23:18 UTC）。速報の「12時間以内」は毎時動く前提なので、GitHub の cron に頼らない起動（Render の cron から workflow_dispatch を叩く等）を検討する
+  - [ ] Heavy Metalmorph（紹介文が「別カードの商品説明で存在に触れられている」だけ）の要約が空で失敗し、取り込みの実行全体が failure になる。3回目（次の回）で試すのをやめる見込み。要約できる中身の無い文を失敗扱いにしない（終了コードを 1 にしない）かは別途
   - [ ] 校正: LEAK_MAX_HOURS（12）・OFFICIAL_WAIT_DAYS（3）を次の弾からの販売店→公式の時間差で見直す（TODO: calibrate from data。10-30 の調べでは販売店が先だったのは5弾中 MZMC だけ・差は約17時間）
   - [ ] Maze of Machines の英語版発売（2027-03-19）後、公式DBに載ったカードが in_db になり /tcg-preview に引き継がれるかを本番で確かめる
 - [ ] **置いた先の印・相手の場（2026-10-29）** — 置いた先の印は本番 PR #249 a5f2b7c。相手の場（盤面の上に相手の墓地・モンスター・フィールドの段。普段は出さず、スイッチ・相手のマスのカード・相手の場を使う記録で出す）は同日 本番 PR #256 0765208。**残り**: iPhone/Android 実機（指でのドラッグ・墓地の札のタップ・縦向き7列）。詳細 docs/decisions.md 同日
