@@ -710,7 +710,8 @@ function _wishInitRowMenu(box){
 // ── どこで買うと安いか（まとめ買い比較） ──
 // 2026-10-19 作り直し: 旧「このリストで見積もり」（送料抜きでカードごとの最安店を足した額）と
 // 「まとめ買いの最安店舗を調査」を1つに統合。先頭に「一番安くそろう買い方」（送料込みの最安。
-// 複数店に分かれるなら最初から店ごとに並べる）、その下に店ごとの支払いを出す。
+// 複数店に分かれるなら最初から店ごとに並べる）、その下に1店でまとめて買うといくらかを店ごとに出す
+// （見出しは 2026-10-30 に「店ごとの支払い」から変更。分けて買うときの内訳と読めて意味が伝わらなかった）。
 // 販売店舗ごとのカード検索URLを生成する。バックエンドの _shop_search_url と同じURLパターンを再現する。
 function _wishShopSearchUrl(shop, name){
   const q=encodeURIComponent((name||'').normalize('NFKC'));
@@ -1059,8 +1060,8 @@ async function wishCheapestStores(){
       ${recoHtml||(pendingKeys.size?'':(entries.length?'<div class="wb-error">どの店にも見つかりませんでした。</div>':''))}
       ${recoHtml?'':unreleasedHtml}
       ${warnHtml}
-      ${orderable.length?`<div class="wb-sec">店ごとの支払い（送料込み）</div><div class="wb-shops">${orderable.map((s,i)=>rowHtml(s,i+1)).join('')}</div>`:''}
-      ${unorderable.length?`<div class="wb-sec">このままでは注文できない店</div><div class="wb-shops">${unorderable.map(s=>rowHtml(s,0)).join('')}</div>`:''}
+      ${orderable.length?`<div class="wb-sec">1店でまとめて買うと（送料込み）</div><div class="wb-shops">${orderable.map((s,i)=>rowHtml(s,i+1)).join('')}</div>`:''}
+      ${unorderable.length?`<div class="wb-sec">1店でまとめて買うと最低注文金額に届かない店</div><div class="wb-shops">${unorderable.map(s=>rowHtml(s,0)).join('')}</div>`:''}
       <div class="wb-foot">価格・送料は変わることがあります。購入前に各店で確かめてください。${typeof SearchStatus!=='undefined'?esc(SearchStatus.suspendedNote(['駿河屋'])):''}</div>
     `;
     rankEl.querySelectorAll('details[data-k]').forEach(d=>{if(openKeys.has(d.dataset.k))d.open=true;});
