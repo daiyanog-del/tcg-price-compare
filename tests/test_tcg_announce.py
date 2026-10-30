@@ -257,6 +257,15 @@ def test_本文は上限に収まり_まとめへ誘う一文とリンクを残�
     assert "Maze of Machines" in first and first.endswith("https://greedy-lab.com/tcg-preview/maze-of-machines")
 
 
+def test_公式の段の初報は絵が入っていればイラストも判明と書く():
+    two = [dict(CARDS[0], art_url="https://example.com/a.png"), dict(CARDS[1], art_url="https://example.com/b.png")]
+    assert "KONAMI 公式サイトでイラストも判明しました。" in tp.text_set_first(SET, two)
+    part = [two[0], dict(CARDS[1], art_url="")]
+    assert "KONAMI 公式サイトで1枚のイラストも判明しました。" in tp.text_set_first(SET, part)
+    none = [dict(c, art_url="") for c in CARDS[:2]]
+    assert "イラスト" not in tp.text_set_first(SET, none)
+
+
 def test_無効なら何もしない(monkeypatch):
     monkeypatch.delenv(tp.ENABLED_ENV, raising=False)
     assert tp.run(object()).startswith("無効")
