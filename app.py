@@ -48,6 +48,7 @@ from price_history_reads import fetch_daily_rows_by_card_names, jst_days_back
 from shop_status import SUSPENDED_SHOPS
 from price_persist import build_art_price_rows, build_min_price_rows, upsert_price_art_rows, upsert_price_rows
 from card_code import infer_codes
+from overframe import infer_overframe
 from search_status import search_coverage
 from shop_search_pool import (
     ShopSearchPool, PoolCapacityError, SearchAbandonedError,
@@ -1444,7 +1445,7 @@ def api_search():
         # キャッシュTTL(15分)の間ずっと補完前の値（カーナベルの弾略号・トレコロの
         # 接尾辞つき）が返り、補完を入れた意味がほぼ無くなる（大半の検索がこの経路）。
         # 補完は純粋なメモリ処理なので、キャッシュ命中の速さは損なわない。
-        cached_results = infer_codes(cached_results)
+        cached_results = infer_overframe(infer_codes(cached_results))
         def cached_stream():
             # 最初に調べる店の一覧を送る（画面は進み具合の札を全店ぶん先に並べる。1枚ずつ足すと既存の札が
             # 細くなって店名が折り返し、検索中の画面がずれていた。2026-10-22 スマホで CLS 0.019）
@@ -1537,7 +1538,7 @@ def api_search():
             # 完全な型番で補う。infer_codes は新しい dict のリストを返す（元のリストは
             # 変更しない）ため、店舗別の内訳（scraped_ok・scraped_items）も
             # 補完後の値で作り直す。
-            all_results = infer_codes(all_results)
+            all_results = infer_overframe(infer_codes(all_results))
             corrected_by_shop: dict = {}
             for r in all_results:
                 corrected_by_shop.setdefault(r.get("shop"), []).append(r)
@@ -1558,7 +1559,8 @@ def api_search():
                     if scraped_items:
                         Thread(target=_persist_scrape_async, args=(card_name, list(scraped_items)), daemon=True).start()
             # 混雑した店の前回の結果は、保存・記録が終わってから表示用に足す
-            all_results = all_results + stale_rows
+            # （反映前のキャッシュの行もあるので、足したあと OF のレアリティのそろえをもう一度通す）
+            all_results = infer_overframe(all_results + stale_rows)
         except GeneratorExit:
             # 利用者が画面を閉じた。まだ始まっていない取得は finally で取り消す
             disconnected = True
@@ -1695,6 +1697,8 @@ def _api_deck_stream(card_entries, selected, active_shops, _FAST_OVERRIDES,
         cached_map, missing = cache_get_shops(card_name, selected, include_partial=True)
         cached_items = [r for rs in cached_map.values() for r in rs]
         if not missing:
+            # /api/search の全件命中と同じく、型番の補完と OF のレアリティのそろえを通す
+            cached_items = infer_overframe(infer_codes(cached_items))
             items = [r for r in cached_items if not r.get("sold_out")]
             best = min(items, key=lambda x: x["price"]) if items else None
             payload = {"type": "card_done", "index": i, "name": card_name,
@@ -1742,8 +1746,9 @@ def _api_deck_stream(card_entries, selected, active_shops, _FAST_OVERRIDES,
         # 補完できる型番を取りこぼす。cached_items も候補集合に加えて補完し、
         # 保存・キャッシュ更新の対象は今回スクレイプぶんだけに絞る
         # （infer_codes は入力と同じ順序で返すため、後半のスライスが scraped 分になる）。
-        _merged = infer_codes(cached_items + scraped_items)
-        scraped_items = _merged[len(cached_items):]
+        _merged = infer_overframe(infer_codes(cached_items + scraped_items))
+        # 表示にも補完後の値を使う（前半＝キャッシュ分。順序と件数は入力のまま）
+        cached_items, scraped_items = _merged[:len(cached_items)], _merged[len(cached_items):]
         corrected_by_shop: dict = {}
         for r in scraped_items:
             corrected_by_shop.setdefault(r.get("shop"), []).append(r)
@@ -1759,7 +1764,8 @@ def _api_deck_stream(card_entries, selected, active_shops, _FAST_OVERRIDES,
         if _supabase_client and scraped_items:
             Thread(target=_persist_scrape_async, args=(card_name, list(scraped_items)),
                    kwargs={"ignore_duplicates": True}, daemon=True).start()
-        all_items = cached_items + scraped_items + stale_items
+        # 混雑時の前回の結果（stale_items）も表示前に OF の印の判定を通す（反映前のキャッシュの行のため）
+        all_items = infer_overframe(cached_items + scraped_items + stale_items)
         in_stock = [r for r in all_items if not r.get("sold_out")]
         best = min(in_stock, key=lambda x: x["price"]) if in_stock else None
         payload = {"type": "card_done", "index": i, "name": card_name,
@@ -1871,6 +1877,7 @@ def _api_deck_buy_stream(card_entries, selected, active_shops):
         cached_map, missing = buyback_cache_get_shops(card_name, selected)
         cached_items = [r for rs in cached_map.values() for r in rs]
         if not missing:
+            cached_items = infer_overframe(infer_codes(cached_items))  # 買取検索の全件命中と同じ
             best = _best_buy_item(cached_items)
             return {"type": "card_done", "index": i, "name": card_name,
                     "best": best, "count": len(cached_items), "cached": True,
@@ -1905,7 +1912,8 @@ def _api_deck_buy_stream(card_entries, selected, active_shops):
         stale_items = []
         for shop_name in busy_shops:
             stale_items.extend(_stale_shop_fallback(buyback_cache_get_shops_stale, card_name, shop_name)[0])
-        all_items = cached_items + scraped_items + stale_items
+        # 表示は全店ぶんで型番の補完と OF のレアリティのそろえを通す（混雑時の前回の結果も含む）
+        all_items = infer_overframe(infer_codes(cached_items + scraped_items + stale_items))
         best = _best_buy_item(all_items)
         return {"type": "card_done", "index": i, "name": card_name,
                 "best": best, "count": len(all_items),
@@ -3601,7 +3609,7 @@ def api_buyback():
         if cached_results:
             _record_search(card_name)
         # 販売側と同じく、全店キャッシュ命中の経路でも型番補完を通す
-        cached_results = infer_codes(cached_results)
+        cached_results = infer_overframe(infer_codes(cached_results))
         def cached_stream():
             for shop_name, _ in active_shops:
                 count = len(cached_map.get(shop_name, []))
@@ -3671,7 +3679,7 @@ def api_buyback():
                         scraped_ok[shop_name] = results
 
             # 販売側と同様、全店ぶんが揃った直後に型番を補完する（保存前）
-            all_results = infer_codes(all_results)
+            all_results = infer_overframe(infer_codes(all_results))
             corrected_by_shop: dict = {}
             for r in all_results:
                 corrected_by_shop.setdefault(r.get("shop"), []).append(r)
@@ -3681,7 +3689,8 @@ def api_buyback():
             if all_results:
                 _record_search(card_name)
             # 混雑した店の前回の結果は、保存・記録が終わってから表示用に足す
-            all_results = all_results + stale_rows
+            # （反映前のキャッシュの行もあるので、足したあと OF のレアリティのそろえをもう一度通す）
+            all_results = infer_overframe(all_results + stale_rows)
         except GeneratorExit:
             disconnected = True  # 利用者が画面を閉じた。始まっていない取得は finally で取り消す
             raise

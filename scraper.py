@@ -19,6 +19,7 @@ from pathlib import Path
 from rarity import RARITIES, UNKNOWN_RARITY_LABEL, normalize_rarity  # 正規化は rarity.py に一元化
 from art_variant import is_sealed  # 買取の未開封・付属品つき（名前を加工する前に見る）
 from card_code import infer_codes  # 型番の店舗間補完（カーナベル/トレコロCB）
+from overframe import infer_overframe, mark_overframe  # OF のレアリティの店舗間そろえ（遊々亭/カードラボ）
 from shop_status import SUSPENDED_SHOPS, is_suspended  # 店の一時休止
 
 # ── 共通設定 ──
@@ -787,7 +788,8 @@ def scrape_yuyu(card_name: str) -> list[dict]:
 
         results.append({
             "shop": "遊々亭", "name": name,
-            "rarity": normalize_rarity(rarity), "code": code,
+            # OF はレアリティ欄に書かず商品名の「(オーバーフレーム)」だけで分かる（overframe.py）
+            "rarity": mark_overframe(normalize_rarity(rarity), name), "code": code,
             "condition": "セール" if is_sale else "-",
             "price": price, "stock": stock,
             "sold_out": sold_out, "url": product_url,
@@ -1515,7 +1517,8 @@ def _extract_clabo_item(container) -> dict | None:
 
     return {
         "shop": "カードラボ", "name": display_name,
-        "rarity": normalize_rarity(rarity), "code": code,
+        # 「〔オーバーフレーム〕」の印があるときだけ OF に。印の無い OF は infer_overframe でほかの店の行から判定する
+        "rarity": mark_overframe(normalize_rarity(rarity), display_name), "code": code,
         "condition": "-", "price": price, "stock": stock,
         "sold_out": sold_out, "url": product_url,
         "image": image_url,
@@ -1986,7 +1989,7 @@ def scrape_yuyu_buy(card_name: str) -> list[dict]:
         results.append({
             "shop": "遊々亭",
             "name": name,
-            "rarity": normalize_rarity(rarity),
+            "rarity": mark_overframe(normalize_rarity(rarity), name),  # 販売と同じく商品名の印で OF に
             "code": code,
             "condition": "-",
             "price": price,
@@ -2171,7 +2174,7 @@ def scrape_clabo_buy(card_name: str, require_game_tag: bool = True) -> list[dict
 
         results.append({
             "shop": "カードラボ", "name": display_name,
-            "rarity": normalize_rarity(rarity), "code": code,
+            "rarity": mark_overframe(normalize_rarity(rarity), display_name), "code": code,  # 販売と同じ
             "condition": "-", "price": price, "stock": 1,
             "sold_out": sold_out, "url": product_url, "image": image_url,
             # 【…】を消す前の商品名で、未開封・付属品つきかを見る（買取の最高額から外す。art_variant.is_sealed）
@@ -2299,8 +2302,9 @@ def compare_prices(card_name: str, shop_names: list[str] | None = None,
                     status_out[shop_name] = {"count": 0, "fetch_errors": 1, "exception": str(e)}
 
     # 同じカードの全店ぶんが揃った直後に型番を補完する（保存前）。
-    # カーナベルの弾略号・トレコロCBの接尾辞つき値を、他店の完全な型番で補う
-    return infer_codes(all_results)
+    # カーナベルの弾略号・トレコロCBの接尾辞つき値を、他店の完全な型番で補う。
+    # OF のレアリティも型番がそろってからほかの店の行でそろえる（overframe.py）
+    return infer_overframe(infer_codes(all_results))
 
 
 def compare_buyback(card_name: str, shop_names: list[str] | None = None,
@@ -2333,4 +2337,4 @@ def compare_buyback(card_name: str, shop_names: list[str] | None = None,
                     status_out[shop_name] = {"count": 0, "fetch_errors": 1, "exception": str(e)}
 
     # compare_prices と同様、全店ぶんが揃った直後に型番を補完する（保存前）
-    return infer_codes(all_results)
+    return infer_overframe(infer_codes(all_results))
