@@ -230,6 +230,16 @@ def test_kanabell_sale_and_buy_drop_overrush(monkeypatch, scrape):
     assert all(row["rarity"] == "ウルトラ" and row["code"] == "LB-01" for row in rows)
 
 
+@pytest.mark.parametrize("scrape", [scraper.scrape_kanabell, scraper.scrape_kanabell_buy])
+def test_kanabell_manga_rows_carry_marker(monkeypatch, scrape):
+    """漫画風は販売・買取ともレアリティをほかの店と同じ「シークレット」にし、manga 欄に印を残す。通常品には付けない。"""
+    _patch_kanabell_es(monkeypatch, [_kanabell_source("m", "MANGAシク", name="青眼の白龍（カラー版）"),
+                                     _kanabell_source("n", "シク")])
+    rows = scrape("青眼の白龍")
+    assert {(r["url"][-1], r["rarity"], r.get("manga", False)) for r in rows} == {
+        ("m", "シークレット", True), ("n", "シークレット", False)}
+
+
 def test_kanabell_sale_conditions_and_sold_out(monkeypatch):
     """価格のある状態はすべて行にし、在庫0の状態は売切の行にする（旧サイトと同じ出し方）。"""
     partial = _kanabell_source("p", "ウルトラ", stock=0)
@@ -246,7 +256,8 @@ def test_kanabell_sale_conditions_and_sold_out(monkeypatch):
 
 
 # 新サイトのレアリティ一覧（/ec/sell/api/yugioh/rarities・2026-10-29 取得）の全組と、取得時の正規化結果。
-# 正規名の無いもの（ウルシク・レアパラ・MANGA系）は旧サイトと同じく生の略号のまま。ステンレスは除外対象
+# 正規名の無いもの（ウルシク・レアパラ）は旧サイトと同じく生の略号のまま。MANGA系はほかの店と同じレアリティに寄せる
+# （漫画風の印は行の manga 欄。2026-10-30）。ステンレスは除外対象
 _KANABELL_RARITY_TABLE = [
     ('オバフレプリシク', 'オーバーフレームプリズマティックシークレットレア', 'OFプリシク'),
     ('オバフレシク', 'オーバーフレームシークレットレア', 'OFシークレット'),
@@ -285,9 +296,9 @@ _KANABELL_RARITY_TABLE = [
     ('－', 'ノーマルレア', 'ノーマルレア'),
     ('ノーマル', 'ノーマル', 'ノーマル'),
     ('グラマス', 'グランドマスターレア', 'グランドマスター'),
-    ('MANGAシク', 'MANGA-STYLEシークレットレア', 'MANGAシク'),
-    ('MANGAアル', 'MANGA-STYLEアルティメットレア', 'MANGAアル'),
-    ('MANGAウル', 'MANGA-STYLEウルトラレア', 'MANGAウル'),
+    ('MANGAシク', 'MANGA-STYLEシークレットレア', 'シークレット'),
+    ('MANGAアル', 'MANGA-STYLEアルティメットレア', 'アルティメット'),
+    ('MANGAウル', 'MANGA-STYLEウルトラレア', 'ウルトラ'),
     ('ステンレス', 'ステンレス仕様', 'ステンレス'),
 ]
 
@@ -295,6 +306,16 @@ _KANABELL_RARITY_TABLE = [
 @pytest.mark.parametrize("abbr, name, expected", _KANABELL_RARITY_TABLE)
 def test_kanabell_rarity_table(abbr, name, expected):
     assert scraper._kanabell_rarity({"rarity": {"yg_rarity_abbreviation": abbr, "yg_rarity_name": name}}) == expected
+
+
+@pytest.mark.parametrize("abbr, name, manga", [
+    ('MANGAシク', 'MANGA-STYLEシークレットレア', True),
+    ('', 'MANGA-STYLEウルトラレア', True),
+    ('シク', 'シークレットレア', False),
+])
+def test_kanabell_is_manga(abbr, name, manga):
+    # 漫画風はレアリティを寄せるので、印を行の manga 欄に残す（art_variant.classify が漫画カラー／モノクロにする）
+    assert scraper._kanabell_is_manga({"rarity": {"yg_rarity_abbreviation": abbr, "yg_rarity_name": name}}) is manga
 
 
 def test_kanabell_unknown_abbr_falls_back_to_known_full_name():

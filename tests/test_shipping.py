@@ -409,6 +409,21 @@ class TestWishShopTotalsEntries:
         labo = _by_shop(payload)["カードラボ"]
         assert labo["items"][0]["rarity_pref"] == "ウルトラ"
 
+    def test_カーナベルのMANGAシクはシークレットとして集計される(self, client):
+        # 記録は略号のまま（MANGAシク）。画面の札と同じ「シークレット」で引けること。
+        # 2026-10-30 より前に「MANGAシク」で入れた購入候補も同じ「シークレット」に寄せる
+        c = client([
+            _row("テストカードA", "カーナベル", 1180, rarity="MANGAシク"),
+            _row("テストカードA", "遊々亭", 980, rarity="シークレット"),
+        ])
+        for pref in ("シークレット", "MANGAシク"):
+            payload = c.post("/api/wish-shop-totals",
+                             json={"cards": [{"name": "テストカードA", "qty": 1, "rarity": pref}]}).get_json()
+            assert payload["entries"] == [{"name": "テストカードA", "qty": 1, "rarity": "シークレット"}]
+            shops = _by_shop(payload)
+            assert shops["カーナベル"]["total"] == 1180
+            assert shops["カーナベル"]["items"][0]["rarity"] == "シークレット"
+
     def test_該当カードが無ければentriesは空配列(self, client):
         c = client([])
         res = c.post("/api/wish-shop-totals", json={"cards": []})

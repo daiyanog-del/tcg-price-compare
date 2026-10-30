@@ -139,6 +139,45 @@ def test_display_rarity_folds_asian_green_too():
     assert av.display_rarity({"rarity": "シークレット", "art": av.ART_BASE}) == "シークレット"
 
 
+@pytest.mark.parametrize("name,abbr,art,shown", [
+    # カーナベルは漫画風をレアリティ側に書き、色は商品名の (カラー版)(モノクロ版) だけ（2026-10-30 ベビードラゴン YAC1-JP075）。
+    # 取得時にレアリティは「ウルトラ」などへ寄せ、漫画風の印は manga 欄に残す
+    ("ベビードラゴン（カラー版）", "MANGAウル", av.ART_MANGA_COLOR, "ウルトラ"),
+    ("ベビードラゴン(モノクロ版)", "MANGAウル", av.ART_MANGA_MONO, "ウルトラ"),
+    ("ベビードラゴン（カラー版）", "MANGAシク", av.ART_MANGA_COLOR, "シークレット"),
+    ("ベビードラゴン（モノクロ版）", "MANGAシク", av.ART_MANGA_MONO, "シークレット"),
+    ("ベビードラゴン", "MANGAアル", "", "アルティメット"),  # 色が書いていない漫画風は判別しない
+])
+def test_kanabell_manga_rows(name, abbr, art, shown):
+    rarity = normalize_rarity(abbr)
+    assert rarity == shown
+    assert av.classify({**_row("カーナベル", name, rarity=rarity), "manga": True}, "ベビードラゴン")[0] == art
+    # 寄せる前に取った検索のキャッシュの行（レアリティが略号のまま・manga 欄なし）も同じ絵になる
+    assert av.classify(_row("カーナベル", name, rarity=abbr), "ベビードラゴン")[0] == art
+
+
+def test_kanabell_plain_color_word_without_manga_is_not_manga():
+    # manga の印が無い行の「(カラー版)」は漫画風と決めつけない
+    assert av.classify(_row("カーナベル", "ベビードラゴン（カラー版）", rarity="シークレット"), "ベビードラゴン")[0] == ""
+
+
+def test_build_done_puts_kanabell_manga_beside_other_shops():
+    # カーナベルの漫画風は、遊々亭の「シークレット」の中の漫画カラーと同じ枠で比べる（キャッシュに残る略号の行も）
+    import app as app_module
+
+    rows = [
+        {"shop": "カーナベル", "name": "ベビードラゴン（カラー版）", "rarity": "シークレット", "manga": True,
+         "price": 1180, "sold_out": False, "url": ""},
+        {"shop": "カーナベル", "name": "ベビードラゴン（モノクロ版）", "rarity": "MANGAシク",
+         "price": 580, "sold_out": False, "url": ""},
+        {"shop": "遊々亭", "name": "ベビードラゴン(カラー/MANGA-STYLE)", "rarity": "シークレット",
+         "price": 980, "sold_out": False, "url": ""},
+    ]
+    done = app_module._build_done(rows, "", "ベビードラゴン")
+    assert [(r["rarity"], r["art"]) for r in done["results"]] == [
+        ("シークレット", av.ART_MANGA_COLOR), ("シークレット", av.ART_MANGA_MONO), ("シークレット", av.ART_MANGA_COLOR)]
+
+
 def _coded(shop, name, code, rarity="スーパー", url=""):
     return {"shop": shop, "name": name, "rarity": rarity, "code": code, "url": url}
 

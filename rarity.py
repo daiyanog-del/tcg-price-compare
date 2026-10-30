@@ -89,6 +89,7 @@ RARITIES: list[dict] = [
             "SE",                                               # 略号
             "シク",                                             # 短縮
             "シークレットレア",                                 # 〜レア形式
+            "MANGAシク", "MANGA-STYLEシークレットレア",  # カーナベルの MANGA-STYLE（2026-10-30。ほかの店は漫画風をこのレアリティの中の絵の違いとして書く。漫画風の印は取得時に行の manga 欄へ残す＝scraper._kanabell_rarity）
         ],
     },
     {
@@ -268,6 +269,7 @@ RARITIES: list[dict] = [
             "アル", "レリ",                                     # 短縮（レリーフ）
             "レリーフ",                                         # 旧名
             "アルティメットレア",                               # 〜レア形式
+            "MANGAアル", "MANGA-STYLEアルティメットレア",  # カーナベルの MANGA-STYLE（2026-10-30。ほかの店は漫画風をこのレアリティの中の絵の違いとして書く。漫画風の印は取得時に行の manga 欄へ残す＝scraper._kanabell_rarity）
         ],
     },
     {
@@ -354,6 +356,7 @@ RARITIES: list[dict] = [
             "UR",                                               # 略号
             "ウル",                                             # 短縮
             "ウルトラレア",                                     # 〜レア形式
+            "MANGAウル", "MANGA-STYLEウルトラレア",  # カーナベルの MANGA-STYLE（2026-10-30。ほかの店は漫画風をこのレアリティの中の絵の違いとして書く。漫画風の印は取得時に行の manga 欄へ残す＝scraper._kanabell_rarity）
         ],
     },
     {

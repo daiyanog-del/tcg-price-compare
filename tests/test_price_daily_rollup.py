@@ -223,6 +223,23 @@ def test_price_history_falls_back_to_store_rows_without_daily_view(app_client):
     assert [(r["date"], r["price"]) for r in data] == [(_d(1), 900)]
 
 
+def test_price_history_folds_kanabell_manga_rarity(app_client):
+    # カーナベルの MANGAシク は画面の札と同じ「シークレット」の系列で返す（畳んだ分も）。2026-10-30
+    card = "ベビードラゴン"
+    store = {
+        "price_history": [
+            {"card_name": card, "shop": "カーナベル", "rarity": "MANGAシク", "min_price": 1180, "recorded_at": _d(1)},
+            {"card_name": card, "shop": "遊々亭", "rarity": "シークレット", "min_price": 980, "recorded_at": _d(1)},
+        ],
+        "price_daily": [
+            {"card_name": card, "shop": "カーナベル", "rarity": "MANGAウル", "min_price": 480, "recorded_at": _d(60)},
+        ],
+    }
+    data = app_client(store).get(f"/api/price-history?card={card}").get_json()["data"]
+    assert [(r["shop"], r["rarity"]) for r in data] == [
+        ("カーナベル", "ウルトラ"), ("カーナベル", "シークレット"), ("遊々亭", "シークレット")]
+
+
 # ──────────────────────────────────────────────
 # 汎用カードX投稿のグラフ
 # ──────────────────────────────────────────────

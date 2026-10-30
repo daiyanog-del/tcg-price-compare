@@ -122,6 +122,11 @@ def _torecolo_art(url: str, rarity: str) -> str:
     return ""
 
 
+def _is_manga_row(row: dict) -> bool:
+    """カーナベルの漫画風（MANGA-STYLE）の行か。取得時に付く manga 欄か、それより前のキャッシュの行の略号で見る"""
+    return bool(row.get("manga")) or (row.get("rarity") or "").upper().startswith("MANGA")
+
+
 def classify(row: dict, card_name: str) -> tuple[str, str]:
     """1行の (art, edition) を返す。row は店の結果の1行（shop・name・rarity・url を見る）"""
     raw_name = row.get("name") or ""
@@ -144,6 +149,11 @@ def classify(row: dict, card_name: str) -> tuple[str, str]:
     # カードラッシュは漫画風の絵を「(カラー)」「(モノクロ)」とだけ書く（10-28 青眼・ブラマジ・真紅眼などで確認）
     if shop == "カードラッシュ" and label in ("カラー", "モノクロ"):
         return (ART_MANGA_COLOR if label == "カラー" else ART_MANGA_MONO), edition
+    # カーナベルは漫画風をレアリティ側に「MANGAウル」「MANGAシク」と書き、商品名には「(カラー版)」「(モノクロ版)」とだけ書く
+    # （2026-10-30 ベビードラゴン YAC1-JP075 で確認）。レアリティは取得時に「ウルトラ」などへ寄せ、印は manga 欄に残す
+    # （scraper._kanabell_is_manga）。それより前に取った検索のキャッシュの行はレアリティが略号のまま
+    if _is_manga_row(row):
+        label = "MANGA" + label
     if re.search(r"漫画|MANGA", label, re.IGNORECASE):
         if "カラー" in label:
             return ART_MANGA_COLOR, edition
@@ -227,6 +237,7 @@ def annotate(rows: list[dict], card_name: str) -> None:
         if row["art"] == ART_BASE:
             row["art"] = ART_ALT
         elif (row["art"] == "" and code in table_codes and row.get("shop") != "まんぞく屋"
+              and not _is_manga_row(row)
               and not re.search(r"漫画|MANGA", _label(card_name, row.get("name") or ""), re.IGNORECASE)):
             row["art"] = ART_ALT
 
