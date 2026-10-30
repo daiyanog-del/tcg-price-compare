@@ -1,5 +1,12 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-30: 遊々亭・カードラボの OF のレアリティをそろえる（branch fix/of-prismatic-rarity）
+- 経緯: ユーザー指摘（真紅眼の超越黒竜のプリシクと OFプリシクは同じもの）。調べると2店の書き方の違いで約87型番が分かれていた。ユーザーが「取り込みで寄せ、過去の記録も書き換え」を承認（「進めて」）
+- 作ったもの: overframe.py（mark_overframe・overframe_context・apply_overframe・infer_overframe）。遊々亭・カードラボの販売／買取のスクレイパー、compare_prices／compare_buyback、app.py の検索・一括検索（全件命中・混雑時の前回結果も）、夜の収集のカードラボのカタログ巡回（ループ側の文脈を残す。早く return するカードも）、X 投稿の取り直し（カードラボの OF は遊々亭も一緒に取る）
+- 確認: テスト 3292 passed＋追加。本番の店から取って、真紅眼・古の秘儀の OFプリシク／OFウルトラが1つの札にまとまることを確認（カーナベルは手元に設定が無く未確認）
+- reviewer: 高1（店を絞った回にカードラボの普通の枠を OF にする→根拠に遊々亭を必須）・中3（deck の表示と全件命中・X 投稿の取り直し・売り切れの夜の文脈）・低2 を反映。印の位置（中・未検証）は本番の店の商品名で確認済み
+- 次: 過去の記録の書き換え（docs/sql/backfill_overframe_20261030.sql）をユーザーに確認してから流す
+
 ## 2026-10-30: 公開中の画像取込カードを、公式版を見比べてから差し替える形に（本番 PR #287 0157c15）
 - 経緯: 公式版への自動差し替えで公開中の4件の切り抜きが外れ、キャプチャも上書きで消えた。ユーザー選択「確認制に変える」。決定は docs/decisions.md 10-30
 - 作ったもの: unreleased_upload.save_official_candidate／apply_official_candidate／dismiss_official_candidate／revert_to_capture・差し替え前の退避（capture_backup）・管理API 3つ（official-candidate/apply・dismiss・revert-to-capture）・管理画面の見比べ（クロップ画面の compare モード）と行のボタン

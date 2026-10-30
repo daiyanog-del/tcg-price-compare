@@ -27,6 +27,7 @@ from pack_scraper import (
 from price_persist import (art_price_context, build_art_price_rows, build_min_price_rows, upsert_price_art_rows,
                            upsert_price_rows)
 from clabo_catalog import collect_clabo_catalog
+from overframe import apply_overframe, overframe_context
 from collection_run import record_collection_run, attach_host_request_counts
 from db_write_guard import (
     ConsecutiveDbFailureGuard, DbWriteAborted, GuardedSupabase, is_db_unavailable, report_db_abort,
@@ -299,6 +300,8 @@ def _save_clabo_catalog_rows(sb: Client, processed: list[dict], matched: dict[st
     for card_data in processed:
         card_name = card_data["card_name"]
         products = matched.get(card_name, [])
+        # 印の無い OF の行を、ループ側（ほかの店の行）で分かった型番ごとの OF の書き方にそろえる（overframe.py）
+        products = apply_overframe(products, ((art_contexts or {}).get(card_name) or {}).get("overframe"))
         if products:
             clabo_ok += 1
             all_rows.extend(build_min_price_rows(card_name, products, today))
@@ -356,6 +359,12 @@ def collect_and_save(sb: Client, card_name: str, today: str, shop_names: list[st
         print(f"  スクレイピング失敗 [{card_name}]: {e}")
         return 0
 
+    # カードラボのカタログ巡回（後で別に保存する）の OF の判定に使う。保存できなかった（ほかの店が全部売り切れ等）
+    # カードでも残す。早く return すると、その夜だけカードラボの行が寄らず札が揺れる（10-30 reviewer 指摘）
+    of_ctx = overframe_context(results or [])
+    if art_contexts is not None and of_ctx:
+        art_contexts[card_name] = {"rarities": set(), "alt_codes": set(), "overframe": of_ctx}
+
     had_error = False
     for shop, st in status.items():
         failed = bool(st.get("exception")) or (st.get("fetch_errors", 0) > 0 and st.get("count", 0) == 0)
@@ -401,7 +410,8 @@ def collect_and_save(sb: Client, card_name: str, today: str, shop_names: list[st
     # カードラボのカタログ巡回（後で別に保存する）の判定をそろえるために、分かったことを残す
     if art_contexts is not None:
         ctx = art_price_context(card_name, results)
-        if ctx["rarities"] or ctx["alt_codes"]:
+        ctx["overframe"] = of_ctx
+        if ctx["rarities"] or ctx["alt_codes"] or ctx["overframe"]:
             art_contexts[card_name] = ctx
     if saved:
         print(f"  保存完了 [{card_name}]: {saved}件")
