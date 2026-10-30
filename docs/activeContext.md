@@ -1,10 +1,12 @@
 # activeContext — 今どこ・次何
 
-## 2026-10-30: イラスト違いの段2a-1（branch feat/art-stage2a・本番反映前）
+## 2026-10-30: イラスト違いの段2a-1（本番 PR #278 23c43df・SQL 適用済み）
 - ユーザーが案B を選択。段2a を「2a-1 別表を書き始めるだけ」「2a-2 本表を代表の絵に切り替え（別表のある日を書き直す）」に分けた（いきなり切り替えると値動き・X 投稿に偽の値上がり）
 - 作ったもの: price_history_art.sql（表3つ・art_dim・RPC 3つ・upsert_price_rows の差し替え＝上書きで同じキーの別表を消す）・price_persist.build_art_price_rows／build_art_buyback_rows／art_price_context・夜の収集／カードラボのカタログ巡回／検索の即時記録／買取の配線・30日の畳み込みと削除・art_prints.json に絵の番号（98枚中43枚が絵3種類以上）
 - テスト 3248 passed。reviewer 指摘（夜の見張りに別表の失敗が数えられ収集ごと止まる 等）は反映済み
-- 次: ①本番 DB に price_history_art.sql を適用（ユーザー確認） ②main へマージ・デプロイ ③翌朝の収集で別表の行数・容量を確かめる
+- 本番反映（10-30 18:38 JST・ユーザー承認）: price_history_art.sql を MCP で適用（表・関数→upsert_price_rows の差し替えの2回）。死者蘇生の本番の値で「別表に書く→本表の上書きで同じキーの別表が消える→書き直す」を確認。デプロイ後の本番検索で灰流うららの絵ごとの行（シークレット 元 ¥420・違う ¥780 など）が入った
+- 次: ①10-31 朝の収集後に別表の行数・DB 容量・Discord の警告を見る ②1〜4週たまったら段2a-2（本表を代表の絵に書き直して切り替え） ③段2b 価格推移（絵が3種類以上の呼び方をユーザーに確認）
+- 片付け: worktree .claude/worktrees/art-stage2a・ローカルと origin の feat/art-stage2a を削除済み
 
 ## 2026-10-30: イラスト違いの段2の設計案（選択待ち・実装なし）
 - 設計案: docs/design-art-variant-stage2-2026-10-30.md。推奨は案B（本表 price_history_v2・buyback_history は「代表の絵」の値にし、絵が2種類以上ある店×レアリティだけ別表 price_history_art／price_daily_art／buyback_art に絵ごとの値を書く）
