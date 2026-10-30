@@ -68,6 +68,7 @@ const shopRow = (items, missing) => ({
     assert.ok(!html.includes('そろいません'), '未発売を店の欠けに数えない');
     assert.ok(!html.includes('この店に無いカード'), '店ごとの内訳でも「この店に無い」に入れない');
     assert.ok(html.includes('¥680'), '金額は発売済みの分＋送料だけ');
+    assert.ok(html.includes('1店でまとめて買うと（送料込み）'), '店ごとの表の見出し（分けて買う内訳と読まれない言い方）');
   }
 
   // 2. 未発売（TCG先行・発売日未定）だけのリスト: 「どの店にも見つかりませんでした」ではなく未発売の行だけ
