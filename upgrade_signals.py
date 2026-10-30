@@ -57,7 +57,7 @@ TICK_FAIL_ALERT = 10  # 見張りの1周が続けてこの回数失敗したら�
 # ── すぐ知らせる通知のしきい値 ──
 # 平常時の DB 応答は平均 0.2〜0.4 秒（db_write_guard.py の実測メモ）。起動直後の重い集計は 2〜7 秒かかることがある。
 DB_SLOW_SEC = 5.0  # これ以上かかった応答を「遅い」と数える  # TODO: calibrate from data
-DB_FAIL_STREAK_ALERT = 3  # DB が応答しない失敗がこの回数続いたら知らせる（間に成功があれば数え直す）  # TODO: calibrate from data
+DB_FAIL_STREAK_ALERT = 3  # DB が応答しない失敗がこの回数続いたら知らせる（間に成功があれば数え直す。同時に落ちたものは1回）  # TODO: calibrate from data
 WINDOW_MINUTES = 5  # 「続く」を見る幅（直近の分数）
 DB_SLOW_MINUTES_ALERT = 3  # 直近 WINDOW_MINUTES 分のうち遅い応答があった分がこの数以上  # TODO: calibrate from data
 POOL_BUSY_MINUTES_ALERT = 3  # 直近 WINDOW_MINUTES 分のうち取得口の断り・待ち切れがあった分がこの数以上  # TODO: calibrate from data
@@ -160,7 +160,7 @@ class _TimedTransport(httpx.BaseTransport):
     （statement timeout 57014 は 500、PGRST002 は 503、Cloudflare の 504/522）。4xx は DB の異常ではないので数えない。
     """
 
-    def __init__(self, inner: httpx.BaseTransport, on_response: Callable[[float, bool], None]):
+    def __init__(self, inner: httpx.BaseTransport, on_response: Callable[..., None]):
         self._inner = inner
         self._on_response = on_response
 
@@ -169,14 +169,15 @@ class _TimedTransport(httpx.BaseTransport):
         try:
             response = self._inner.handle_request(request)
         except _HTTPX_UNAVAILABLE:  # db_write_guard と同じ系統（http2 の切断 RemoteProtocolError を含む）
-            self._notify(time.monotonic() - start, True)
+            self._notify(start, True)
             raise
-        self._notify(time.monotonic() - start, response.status_code >= 500)
+        self._notify(start, response.status_code >= 500)
         return response
 
-    def _notify(self, elapsed, failed):
+    def _notify(self, start, failed):
         try:
-            self._on_response(elapsed, failed)
+            # 始めた時刻も渡す（同じ接続の切断で同時に落ちた要求を1回と数えるため。record_db_response）
+            self._on_response(time.monotonic() - start, failed, started_at=start)
         except Exception:  # 見張りの不具合で DB の要求を失敗させない
             logger.exception("upgrade_signals: DB 応答の記録に失敗")
 
@@ -343,6 +344,7 @@ class SignalMonitor:
         # DB
         self._db_fail_streak = 0
         self._db_fail_streak_alert = False
+        self._db_last_fail_mono = None  # 続けて数えた最後の失敗の時刻（time.monotonic）
         self._minute_slow = 0
         # 取得口（累積値の前回分。instance_id が変わったら取り直す）
         self._pool_prev = None
@@ -358,12 +360,23 @@ class SignalMonitor:
         self._tick_failures = 0
 
     # 数える口
-    def record_db_response(self, elapsed: float, failed: bool):
+    def record_db_response(self, elapsed: float, failed: bool, started_at: float | None = None):
+        """DB の1回の応答を数える。started_at は要求を始めた time.monotonic()（通信の見張りが渡す）。
+
+        直前に数えた失敗より前に始めていた要求の失敗は、「続いた」に数えない。1本の接続が切られると、
+        相乗りしていた要求がそろって同じ瞬間に落ち、DB は動いているのに「3回続いた」と鳴っていた
+        （2026-10-26・10-30 の Connection reset by peer・h2 の KeyError）。本当に止まったときは、
+        失敗のあとに始めた要求も落ち続けるので数え上がる。件数（db_failures）はすべて数える。
+        """
         with self._lock:
             self._stats.db_requests += 1
             if failed:
                 self._stats.db_failures += 1
-                self._db_fail_streak += 1
+                in_flight = (started_at is not None and self._db_last_fail_mono is not None
+                             and started_at < self._db_last_fail_mono)
+                if not in_flight:
+                    self._db_fail_streak += 1
+                    self._db_last_fail_mono = time.monotonic()
                 if self._db_fail_streak >= DB_FAIL_STREAK_ALERT:
                     self._db_fail_streak_alert = True
             else:

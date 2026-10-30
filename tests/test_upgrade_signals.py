@@ -75,6 +75,47 @@ def test_success_between_failures_resets_streak():
     assert mon.snapshot()["db_failures"] == 10
 
 
+def test_requests_failing_together_on_one_broken_connection_count_once(monkeypatch):
+    """1本の接続が切られて、相乗りしていた要求が同じ瞬間に落ちても「続いた」は1回（2026-10-30 誤報）。"""
+    mono = {"t": 1000.0}
+    monkeypatch.setattr(us.time, "monotonic", lambda: mono["t"])
+    mon, _clock, sent = make()
+    # 3つとも 999 秒台に始めて、1000 秒の切断でそろって落ちる
+    for started in (999.0, 999.5, 999.9):
+        mon.record_db_response(1000.0 - started, True, started_at=started)
+    mon.tick()
+    assert sent == []
+    assert mon.snapshot()["db_failures"] == 3  # 件数はすべて数える
+    assert mon.snapshot()["db_fail_streak"] == 1
+
+
+def test_failures_of_requests_started_after_a_failure_still_alert(monkeypatch):
+    """本当に止まったときは、失敗のあとに始めた要求も落ち続けるので鳴る（10-22 朝の形）。"""
+    mono = {"t": 1000.0}
+    monkeypatch.setattr(us.time, "monotonic", lambda: mono["t"])
+    mon, _clock, sent = make()
+    for _ in range(3):
+        started = mono["t"]
+        mono["t"] += 10  # 10秒待って時間切れ
+        mon.record_db_response(10, True, started_at=started)
+        mon.record_db_response(10, True, started_at=started - 5)  # 同じ回に落ちた相乗りの要求
+    mon.tick()
+    assert len(sent) == 1 and "DB が応答しません" in sent[0]
+
+
+def test_timed_transport_passes_start_time():
+    seen = []
+
+    class Boom(httpx.BaseTransport):
+        def handle_request(self, request):
+            raise httpx.WriteError("Connection reset by peer")
+
+    t = us._TimedTransport(Boom(), lambda elapsed, failed, started_at=None: seen.append((failed, started_at)))
+    with pytest.raises(httpx.WriteError):
+        t.handle_request(httpx.Request("GET", "https://example.invalid/"))
+    assert seen and seen[0][0] is True and isinstance(seen[0][1], float)
+
+
 def test_slow_db_must_continue_for_several_minutes():
     mon, clock, sent = make()
     for minute in range(5):
@@ -241,7 +282,7 @@ def test_timed_transport_classifies():
         return httpx.Response(status["code"], json={})
 
     client = _client_with(handler)
-    client._transport = us._TimedTransport(client._transport, lambda e, f: seen.append(f))
+    client._transport = us._TimedTransport(client._transport, lambda e, f, started_at=None: seen.append(f))
     for code in (200, 404, 500, 503):
         status["code"] = code
         client.get("/t")
@@ -255,10 +296,10 @@ def test_install_db_watch_on_real_supabase_client():
     from supabase import create_client
     client = create_client("https://example.supabase.co", "x" * 40)
     seen = []
-    assert us.install_db_watch(client, lambda e, f: seen.append(f))
+    assert us.install_db_watch(client, lambda e, f, started_at=None: seen.append(f))
     first = client.postgrest.session._transport
     assert isinstance(first, us._TimedTransport)
-    assert us.install_db_watch(client, lambda e, f: seen.append(f))  # 二度目は包み直さない
+    assert us.install_db_watch(client, lambda e, f, started_at=None: seen.append(f))  # 二度目は包み直さない
     assert client.postgrest.session._transport is first
     assert us.install_db_watch(None, lambda e, f: None) is False
 
@@ -438,7 +479,7 @@ def test_remote_protocol_error_counts_as_failure():
     def handler(request):
         raise httpx.RemoteProtocolError("Server disconnected", request=request)
     client = _client_with(handler)
-    client._transport = us._TimedTransport(client._transport, lambda e, f: seen.append(f))
+    client._transport = us._TimedTransport(client._transport, lambda e, f, started_at=None: seen.append(f))
     with pytest.raises(httpx.RemoteProtocolError):
         client.get("/t")
     assert seen == [True]
