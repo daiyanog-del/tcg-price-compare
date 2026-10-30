@@ -1,10 +1,18 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-30: 読込中の表示に回転する輪（本番 PR #297 46bcbf7）
+- ユーザー依頼（文字だけの「読込中…」は止まって見えて不安）。洗い出した利用者向けの箇所すべてに付けた（管理画面は対象外）
+- 部品: static/css/loading.css。輪＝.ld-ring（HTML 文字列）／.ld-spin（文言を差し替える要素に付け外し。::before）、数字の場所＝光る帯 .ld-skel。色はページの --accent（価格比較＝金・シミュレーター＝#aec5ff）。動きを減らす設定で止める。検索ボタンは #btn:disabled（確認中・検索中の間だけ disabled）
+- 引き継ぎ欄は読込中＝輪→完了＝✓ を同じ幅で入れ替え（「マイデッキに戻る」を動かさない）。tests/js/deck_handoff_check.js の子要素の位置を直した
+- 新しく読込表示を足すときは、文字だけにせずこの部品を使う
+- 確認: テスト 3325 passed。ローカルで見本を目視。本番で環境デッキの「デッキを読込中...」に輪・完了で進み具合の輪が外れることを確認
+- 片付け: worktree .claude/worktrees/loading-spinner・ローカルと origin の feat/loading-spinner を削除
 ## 2026-10-30: ロゴの「強欲なラボ」を隷書（試作フォント PR12）に（branch feat/brand-reisho-subtitle・本番未反映）
 - ユーザー希望。PR12＝yugioh-shorts で作ったカード名ふうの試作フォント（カタカナ・ひらがな・強・欲）。権利の見立て（未検証）を説明のうえ「PR12 で作る」
 - tools/build_brand_subtitle.py で wordmark-lockup / logo-lockup の SVG の日本語部分（22部品）を外し、同じ左端・高さに PR12 の輪郭を置いて PNG を cairosvg で描き直し（元の PNG も cairosvg 描画と画素一致を確認済み）→ build_icons.py --og で OGP 3枚。変わったのは日本語の行だけ（画素の差で確認）
 - 確認: ロゴ・アイコン・OGP・デッキ画像のテスト 180 passed（2 skipped）。ブラウザで SVG がヘッダー幅（220px）でも読めることを確認。本番の画面は未確認
 - 次: ユーザー確認のうえ取り込み（static/brand/** は定期実行4つも組み立てる）→ 本番のヘッダー・OGP を確認 → worktree とブランチを消す
+
 
 ## 2026-10-30: カードのページの名前の横に「公式DB」「Wiki」リンク（本番 PR #291 53fb1f9）
 - 経緯: ユーザー依頼（カード検索画面から wiki・ニューロンの該当ページへの導線）。公式DBリンクは前からあったが、10-22 の LCP 改修で上に足された検索中の欄（#searchPreviewName・隠れている）に付いて見えていなかった。結果の欄（#heroInfo）の名前に付けるよう修正。前のカードの公式DBのURLが残る不具合も直した
