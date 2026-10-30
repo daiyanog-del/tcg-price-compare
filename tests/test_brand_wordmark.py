@@ -20,6 +20,6 @@ def test_brand_wordmark_is_fixed():
     assert image.attrib['src'] == '/static/brand/wordmark-lockup.svg?v=test'
     assert image.attrib['alt'] == 'GREEDY LAB — 強欲なラボ'
     assert image.attrib['class'] == 'brand-wordmark'
-    assert (image.attrib['width'], image.attrib['height']) == ('1000', '218')
+    assert (image.attrib['width'], image.attrib['height']) == ('1000', '235')
     asset = ET.parse(ROOT / 'static/brand/wordmark-lockup.svg').getroot()
-    assert asset.attrib['viewBox'] == '0 0 1000 218'
+    assert asset.attrib['viewBox'] == '0 0 1000 235'

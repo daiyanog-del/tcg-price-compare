@@ -286,7 +286,8 @@ export async function renderDeckImage(deck, imageValues) {
   ctx.fillStyle = COLORS.line;
   ctx.fillRect(L.pad, fy + 14, cv.width - L.pad * 2, 1);
   if (logo) {
-    const lh = 32, lw = logo.width * lh / logo.height;
+    // 幅を固定して高さは比率から出す（2026-10-30 に日本語を大きくしてロゴが縦に伸びた。GREEDY LAB の大きさを変えないため）
+    const lw = 147, lh = logo.height * lw / logo.width;
     ctx.globalAlpha = 0.9;
     ctx.drawImage(logo, L.pad, fy + 26, lw, lh);
     ctx.globalAlpha = 1;
