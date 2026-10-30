@@ -118,6 +118,20 @@ function _wishEnsurePrices(){
   loadWishPrices().then(()=>{ _wishRerenderPending=false; wishUpdateBadge(); renderWishlist(); });
 }
 
+// まだ店に並ばないカードの言い方（サーバーの印 {release_date, tcg_preview}。/api/wish-prices・/api/wish-shop-totals 共通）
+// 発売日の当日0時（JST）からはサーバーが印を付けなくなり、普通のカードとして価格を探す（2026-10-30）
+// いつ買えるか（「11月1日発売」「発売日未定」「日本では未発売」）
+function _wishUnreleasedWhen(m){
+  if(m.tcg_preview) return '日本では未発売';
+  const d=/^(\d{4})-(\d{2})-(\d{2})/.exec(m.release_date||'');
+  return d?`${+d[2]}月${+d[3]}日発売`:'発売日未定';
+}
+// 一覧の行の言い方（「未発売」「11月1日発売」／「日本では未発売」）。欄が狭いスマホでは語の途中で
+// 折り返さないよう、まとまりごとに分けて返す（折り返すのはまとまりの間だけ）
+function _wishUnreleasedParts(m){
+  return m.tcg_preview?[_wishUnreleasedWhen(m)]:['未発売',_wishUnreleasedWhen(m)];
+}
+
 // 価格情報の表示 HTML を生成する
 // 2026-10-21 モック wish-refresh-20261021 の D:
 //   読み込み中は読み込み中の印（以前は「相場データ収集中」と同じ文で、まだ集めていないカードと区別できなかった）
@@ -132,6 +146,7 @@ function _wishPriceHtml(info){
   }
   if(info.status==='error') return '<span class="wish-price-info wl-noprice">価格を読み込めませんでした</span>';
   if(info.status==='pending') return '<span class="wish-price-info wl-noprice">相場をまだ集めていません</span>';
+  if(info.status==='unreleased') return `<span class="wish-price-info wl-noprice">${_wishUnreleasedParts(info).map(t=>`<span class="wl-nowrap">${esc(t)}</span>`).join(' ')}</span>`;
   if(info.latest==null) return '<span class="wish-price-info wl-noprice">価格が見つかりませんでした</span>';
   const priceStr='¥'+info.latest.toLocaleString();
   const isDrop=info.pct!=null&&info.diff!=null&&info.pct<=-5&&info.diff<=-50;
@@ -866,6 +881,10 @@ async function wishCheapestStores(){
     return{fee,total:subtotal+fee,freeAt,shortBy,orderable:shortBy===null};
   };
 
+  // まだ店に並ばないカード（未発売・TCG先行）。サーバーが店の検索の対象（db_missing）から外して返す。
+  // 一番安い買い方の計算・「そろいません」・店ごとの「この店に無いカード」に数えず、別の1行で知らせる（2026-10-30）
+  const unreleasedByKey=new Map((dbData.unreleased||[]).map(m=>[_wishEntryKey(m.name,m.rarity||""),m]));
+
   // 店舗別の集計状態。items_map / missing_set のキーは (name,rarity) の合成キーで、同名別レアリティを別エントリ扱い
   const shopState={};
   for(const s of dbData.shops){
@@ -878,7 +897,7 @@ async function wishCheapestStores(){
         name:it.name, qty:it.qty, price:it.price, rarity:it.rarity||""
       });
     }
-    const missing_set=new Set((s.missing_cards||[]).map(mc=>_wishEntryKey(mc.name,mc.rarity||"")));
+    const missing_set=new Set((s.missing_cards||[]).map(mc=>_wishEntryKey(mc.name,mc.rarity||"")).filter(k=>!unreleasedByKey.has(k)));
     shopState[s.shop]={
       total:s.total||0,
       covered_qty:s.covered_qty||0,
@@ -911,7 +930,7 @@ async function wishCheapestStores(){
     const openKeys=new Set([...rankEl.querySelectorAll('details[data-k]')].filter(d=>d.open).map(d=>d.dataset.k));
 
     // entries/priceTable のキーはサーバ正本（srvEntries）から作る（2026-08-19 修正の本体）
-    const entries=srvEntries.map(c=>({key:_wishEntryKey(c.name,c.rarity||""),qty:c.qty}));
+    const entries=srvEntries.map(c=>({key:_wishEntryKey(c.name,c.rarity||""),qty:c.qty})).filter(e=>!unreleasedByKey.has(e.key));
     const shopNames=Object.keys(shopState);
     const priceTable={};
     for(const e of entries){
@@ -943,6 +962,9 @@ async function wishCheapestStores(){
     const unorderable=shops.filter(s=>!s.ship.orderable).sort(byCost);
     const top=orderable[0];
 
+    // 未発売のカードの1行（一番安い買い方があればその枠の中に、無ければ単独で出す）
+    const unreleasedHtml=unreleasedByKey.size
+      ?`<div class="wb-reco-unrel">未発売のカード：${[...unreleasedByKey].map(([k,m])=>`${esc(_missingLabel(k))}（${esc(_wishUnreleasedWhen(m))}）`).join('、')}（この金額に含みません）</div>`:'';
     let recoHtml='';
     if(best){
       const parts=best.used.map(u=>{
@@ -986,13 +1008,14 @@ async function wishCheapestStores(){
           <div class="wb-reco-price"><span class="wb-num">${_wishYen(best.total)}</span><span class="wb-reco-bd">送料込み</span></div>
         </div>
         ${notFoundKeys.size?`<div class="wb-reco-miss">見つからなかったカード：${[...notFoundKeys].map(k=>esc(_missingLabel(k))).join('、')}（この金額に含みません）</div>`:''}
+        ${unreleasedHtml}
         <div class="wb-buy-shops">${blocks}</div>
         ${compare?`<div class="wb-reco-alt">${compare}</div>`:''}
       </div>`;
     }
 
-    // どの店にも無いカード（見つからなかった・まだ調べ中）は全店共通なので、店ごとの欠けには数えない
-    const nowhere=new Set([...notFoundKeys,...pendingKeys]);
+    // どの店にも無いカード（見つからなかった・まだ調べ中・未発売）は全店共通なので、店ごとの欠けには数えない
+    const nowhere=new Set([...notFoundKeys,...pendingKeys,...unreleasedByKey.keys()]);
     const reachableQty=totalQty-[...nowhere].reduce((n,k)=>n+((entryByKey.get(k)||{}).qty||0),0);
     const rowHtml=(s,rank)=>{
       const full=s.covered_qty>=reachableQty;
@@ -1034,7 +1057,8 @@ async function wishCheapestStores(){
         <button class="wb-close" onclick="document.getElementById('wishShopRanking').classList.add('hidden')" aria-label="閉じる">&times;</button>
       </div>
       ${status}
-      ${recoHtml||(pendingKeys.size?'':'<div class="wb-error">どの店にも見つかりませんでした。</div>')}
+      ${recoHtml||(pendingKeys.size?'':(entries.length?'<div class="wb-error">どの店にも見つかりませんでした。</div>':''))}
+      ${recoHtml?'':unreleasedHtml}
       ${warnHtml}
       ${orderable.length?`<div class="wb-sec">店ごとの支払い（送料込み）</div><div class="wb-shops">${orderable.map((s,i)=>rowHtml(s,i+1)).join('')}</div>`:''}
       ${unorderable.length?`<div class="wb-sec">このままでは注文できない店</div><div class="wb-shops">${unorderable.map(s=>rowHtml(s,0)).join('')}</div>`:''}
