@@ -277,6 +277,33 @@ def test_Yugipediaの仮置きの断り書きは効果の文として扱わな�
     assert real["kind"] == "blurb"
 
 
+def test_投稿の前にOG画像を作らせておく_失敗しても止めない(monkeypatch):
+    import requests
+
+    class R:
+        def __init__(self, text="", content=b"", status_code=200):
+            self.text, self.content, self.status_code = text, content, status_code
+
+    got = []
+
+    def fake_get(url, timeout):
+        got.append((url, timeout))
+        if url.endswith(".png"):
+            return R(content=b"png")
+        return R(text='<meta property="og:image" content="https://example.com/tcg-preview/og/x.png">')
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    tp.warm_preview("https://example.com/tcg-preview/x")
+    assert got == [("https://example.com/tcg-preview/x", 30),
+                   ("https://example.com/tcg-preview/og/x.png", tp.WARM_TIMEOUT_SEC)]
+
+    def boom(url, timeout):
+        raise requests.Timeout("slow")
+
+    monkeypatch.setattr(requests, "get", boom)
+    tp.warm_preview("https://example.com/tcg-preview/x")  # 例外を外へ出さない
+
+
 def test_無効なら何もしない(monkeypatch):
     monkeypatch.delenv(tp.ENABLED_ENV, raising=False)
     assert tp.run(object()).startswith("無効")
