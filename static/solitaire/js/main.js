@@ -40,6 +40,7 @@ import { initStartChoice } from './ui/start-choice.js';
 import { loadDeckFromNeuron, clearEverything } from './ui/deck-input-panel.js';
 import { receiveDeckHandoff } from '../../shared/deck-handoff.js';
 import { receiveNewCards } from '../../shared/newcards-entry.js';
+import { initXFollow, showXFollowPrompt } from './ui/x-follow-ui.js';
 import { initDeckEditUI, setDeckLink, restoreLinkState } from './ui/deck-edit-ui.js';
 import { initDeckReplaysUI } from './ui/deck-replays-ui.js';
 import { initReplayRenameUI } from './ui/replay-rename-ui.js';
@@ -470,6 +471,7 @@ async function initializeApp() {
 
   // カード詳細パネル初期化
   initCardInfoPanel();
+  initXFollow();
 
   // 未発売SAMPLE画像のぼかし設定（localStorage復元・トグル配線）
   initSampleBlur();
@@ -526,7 +528,8 @@ async function initializeApp() {
     notify: (msg, opt) => { if (!(opt?.afterLoad && isMobilePortrait())) showToast(msg); },
     // 新着を読み込めたときだけ「自分のデッキで回す」案内を出す（PC は見出し行・スマホは詳細シート）
     // 新着カードはマイデッキに無いデッキなので、未登録として始める（見出しに「マイデッキに登録」が出る）
-    onLoaded: () => setDeckLink({ name: '新着カード' }),
+    // X から来た人向けに @GreeedyLab のフォロー案内も出す（x-follow-ui.js）
+    onLoaded: () => { setDeckLink({ name: '新着カード' }); showXFollowPrompt(); },
     // スマホ縦は既存のスマホ用詳細UI、それ以外は左パネル（カードをタップ/クリックした時と同じ表示）
     showCard: el => isMobilePortrait()
       ? openCardDetailByName(el.dataset.cardName, el.src || '')
