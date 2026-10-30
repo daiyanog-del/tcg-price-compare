@@ -100,8 +100,27 @@ body.price-redesign {
   .ta-nav .ta-nav-wish { position: absolute; top: 10px; right: 0; margin-left: 0; min-height: 36px; }
   .ta-next-grid { grid-template-columns: 1fr; }
 }
-@media (max-width: 480px) {
-  .ta-title { font-size: 24px; }
-  .ta-card { grid-template-columns: 84px 1fr; gap: 12px; padding: 12px; }
-  .ta-proxy-q { font-size: 30px; }
+/* スマホ（2026-10-30 ユーザー「見づらい」）: 2列のままだと右の文の幅が約220pxしかなく、要約が細かく折り返して縦に伸びていた。
+   上の段に「小さい絵＋名前・種類・見出し」、要約は下の段で横幅いっぱいに。弾の紹介は3つの数字を1行に詰める */
+@media (max-width: 560px) {
+  .ta-brand-icon { height: 46px; }
+  .ta-brand-name-image { width: 104px; transform: translateY(5px); }
+  .ta-hero { padding: 16px; margin-bottom: 22px; }
+  .ta-title { font-size: 24px; margin-top: 8px; }
+  .ta-sub { margin-bottom: 10px; font-size: 13px; }
+  .ta-facts { flex-wrap: nowrap; gap: 0 18px; margin-bottom: 10px; }
+  .ta-facts dd { font-size: 18px; white-space: nowrap; }
+  .ta-facts small { font-size: 12px; margin-left: 2px; }
+  .ta-lead { font-size: 13px; line-height: 1.65; }
+  .ta-card { grid-template-columns: 72px 1fr; column-gap: 12px; row-gap: 0; padding: 12px; }
+  .ta-body { display: contents; }
+  .ta-proxy { grid-column: 1; grid-row: 1 / span 5; align-self: start; padding: 6px 3px; }
+  .ta-proxy-head { font-size: 10px; }
+  .ta-proxy-q { font-size: 26px; }
+  .ta-proxy-note { font-size: 9px; }
+  .ta-tags, .ta-name, .ta-stats, .ta-atk, .ta-related { grid-column: 2; }
+  .ta-name { font-size: 17px; }
+  .ta-intro, .ta-summary, .ta-empty, .ta-full { grid-column: 1 / -1; }
+  .ta-intro { margin-top: 10px; }
+  .ta-summary { margin-top: 10px; padding-left: 1.1em; }
 }
