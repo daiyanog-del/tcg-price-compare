@@ -1,5 +1,11 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-30: MANGA-STYLE（漫画風）をほかの店と同じレアリティに（本番 PR #275 6c259b3）
+- カーナベルの MANGAシク／MANGAウル／MANGAアル を、取り込みの段でシークレット／ウルトラ／アルティメットに寄せる（rarity.py の別名）。漫画カラー／モノクロの区別は行の manga 欄 → art_variant.classify
+- 過去の記録は本番 DB で書き換え済み（10-30 16:57 JST・ユーザー承認）。退避表 _bak_manga_20261030_v2／_daily／_buyback（2136／454／1973行）
+- 本番確認: 検索・価格推移・パックの表で MANGA の行0件。カーナベルの漫画風4種がほかの店と同じ札に並ぶ
+- 残り: 退避表を消す（1〜2週後・ユーザー確認）・check_collection.py の KNOWN_ODD_RARITIES の MANGA 3つは古い（次に触るときに外す）
+
 ## 2026-10-30: 店舗・CS の大会結果を X から集める仕組み（本番 PR #270 0867500）
 - 採用急増の型の材料。情報元を実データで比べ、テーマ単位で「店のX（198）＋CS 主催者のX（10）＋CS の語の検索」に決めた（経緯は decisions.md 同日）
 - 作ったもの: tournament_posts.sql・adoption_parse.py（抜き出し）・collect_tournament_posts.py（集める・--reparse・--candidates）・tournament_accounts.json・collect-tournament-posts.yml（毎日 JST 7:00）・テスト35件
