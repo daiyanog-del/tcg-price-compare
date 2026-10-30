@@ -1,5 +1,12 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-30: DB 応答なしの誤報を止める（本番 PR #293 e1feccf）・未発売の注記をたたむ（本番 PR #292 ac21750）
+- 経緯: 22:50 に Discord へ「🔴 DB が応答しません」。Render のログで、22:50:36 に Connection reset by peer で相場キャッシュの定期読み込み・wish-prices・card-rarities が同じ瞬間に失敗→「3回続いた」と数えて鳴っていた。Supabase 側は正常（その時刻のエラーなし・直後から1秒前後）。10-26 19:05 も同じ形（h2 の KeyError: 21）
+- #293: _TimedTransport が要求を始めた時刻を渡し、直前に数えた失敗より前に始めていた要求の失敗は「続いた」に数えない（件数はすべて数える）。本当に止まれば失敗のあとに始めた要求も落ちるので鳴る。テスト 3325 passed。本番の新しいサーバーで警告なし・wish-prices 1〜2秒
+- #292: ユーザー指摘（未発売27種の名前の羅列で一番安い買い方が埋もれる）。3種以上は「未発売の27種（10月31日発売 25種・日本では未発売 2種）はこの金額に含みません」＋「カード名を見る」（wb-buy-list）で発売日ごとに。2種までは名前を並べる。ローカルで27種の PC・スマホ幅を確認。本番の画面は未確認（本番 JS への反映は確認）
+- 片付け: worktree .claude/worktrees/db-streak・wish-unrel-note と、ローカル・origin の fix/db-down-streak・fix/wish-unreleased-note を削除
+- 次: 接続が切られた瞬間の読み込みは「価格を読み込めませんでした」になる（画面が30秒後に取り直す）。続くようなら接続の切断に1回だけ取り直しを入れるか検討
+
 ## 2026-10-30: 購入候補の「どこで買うと安いか」で未発売カードを店の検索に回さない（本番 PR #290 96e71b4）
 - 経緯: ユーザー指摘（未発売カードも探しに行って「見つからなかったカード」扱い）。サーバーにも画面にも未発売の判定が無く、TCG先行の印（tcg_preview）も画面が読んでいなかった。推奨案をユーザーが承認（「進めて」）
 - 作ったもの: card_display.get_still_unreleased_release_date（未発売カード一覧と同じ規則）・app._wish_unreleased_mark。/api/wish-shop-totals に unreleased、/api/wish-prices に status "unreleased"。画面は「未発売のカード：〇〇（11月1日発売）」の1行（--text-m）と一覧行の「未発売 11月1日発売」
