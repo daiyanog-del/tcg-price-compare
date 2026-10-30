@@ -19,6 +19,7 @@
 - main（PR #285・#287）を取り込み済み: 公開中のカードは公式版を候補にして見比べてから差し替える形になったので、型番も候補（compact_row）に持ち越し、適用したときに空なら埋める
 - 本番反映（10-30 21:53 JST・ユーザー承認「取り込む」）: 本番 /new-cards で型番順を確認（API 97枚すべて型番あり・IMPH-JP001〜079 の順）。tcg-watch-x-unreleased も同じ版で作り直し
 - 片付け: worktree .claude/worktrees/card-number・ローカルと origin の feat/new-cards-card-number を削除済み
+- 既定の並びを型番順に（10-30 本番 PR #289 0a4673c・ユーザー指示）。追加順を選んだ人の選択は localStorage に残る。本番で選択なしの状態から型番順を確認。worktree・ブランチは削除済み
 - 次: 次の X/YouTube 取り込みで card_number が入るか（extraction_raw.card_number_source）・回収ジョブの Wiki の段が動くかを見る
 
 ## 2026-10-30: 公開中の画像取込カードを、公式版を見比べてから差し替える形に（本番 PR #287 0157c15）
