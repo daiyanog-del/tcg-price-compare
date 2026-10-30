@@ -2628,7 +2628,8 @@ def _get_top_decks_cached(force: bool = False) -> dict:
 
     if not _top_decks_lock.acquire(blocking=False):
         # 別スレッドが計算中（Q-11）。旧キャッシュがあればそれを返し、無ければ「計算中」を返す
-        return _top_decks_cache or {"decks": [], "updated": None, "error": "計算中です。しばらくしてから再度お試しください"}
+        # pending: 時間が経てば解消する一時状態（起動直後のプリロード中など）。画面はこれを見て失敗扱いにせず待ち続ける
+        return _top_decks_cache or {"decks": [], "updated": None, "error": "計算中です。しばらくしてから再度お試しください", "pending": True}
 
     try:
         # Q-5: 相場キャッシュが一度もロードされていないワーカー（gunicorn複数ワーカーの
@@ -2639,7 +2640,7 @@ def _get_top_decks_cached(force: bool = False) -> dict:
             if time.time() - _estimate_cache_time > _ESTIMATE_CACHE_SEC:
                 Thread(target=_load_estimate_cache, daemon=True).start()
             logger.warning("top-decks: 相場キャッシュ未ロードのため今回の計算をスキップ")
-            return _top_decks_cache or {"decks": [], "updated": None, "error": "価格データを準備中です"}
+            return _top_decks_cache or {"decks": [], "updated": None, "error": "価格データを準備中です", "pending": True}
 
         # Q-4: fetch_tier_list は最悪126秒かかりうる（窓2つ×3リトライ×timeout20秒）ため、
         # 既存 /api/meta と同じく executor 経由・タイムアウト付きで呼ぶ
@@ -2727,7 +2728,8 @@ def api_top_decks():
     decks = _top_page.rank_decks(data.get("decks", []), sort=sort)
     if data.get("error"):
         g.no_cache = True
-    return jsonify({"decks": decks, "updated": data.get("updated"), "error": data.get("error")})
+    return jsonify({"decks": decks, "updated": data.get("updated"), "error": data.get("error"),
+                    "pending": bool(data.get("pending"))})
 
 
 _top_movers_cache: dict = {}
