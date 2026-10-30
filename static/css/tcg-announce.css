@@ -34,6 +34,7 @@ body.price-redesign {
 
 /* 見出し・説明・商品ごとの見出しは new-cards.css（.new-cards h2・.new-cards-help・.new-card-group-title）と同じ大きさ */
 .ta-hero { margin-bottom: 20px; }
+.ta-back { margin-bottom: 14px; }
 .ta-title { font-size: 19px; line-height: 1.5; margin: 0; overflow-wrap: anywhere; }
 .ta-lead { margin: 6px 0 0; font-size: 13px; color: var(--text-m); }
 
@@ -101,7 +102,8 @@ body.price-redesign {
   .ta-brand-name-image { width: 104px; transform: translateY(5px); }
   .ta-nav { flex-wrap: wrap; gap: 0 8px; justify-content: space-between; }
   .ta-nav a { min-height: 44px; padding: 10px 0; }
-  .ta-nav .ta-nav-wish { position: absolute; top: 10px; right: 0; min-height: 36px; margin-left: 0; padding: 8px 0; }
+  /* 上からの位置はロゴの縦の中心に合わせる（price-layout.css の .nav-wishlist と同じ。2026-10-31） */
+  .ta-nav .ta-nav-wish { position: absolute; top: 20px; right: 0; min-height: 36px; margin-left: 0; padding: 8px 0; }
   .ta-heading-sub { display: block; margin-left: 0; }
   .ta-next-grid { grid-template-columns: 1fr; }
 }

@@ -350,6 +350,26 @@ def test_まとめページは一覧ページと同じ導線と書き方(client)
     assert "一人回し" not in html and "日本の未発売カード" not in html
 
 
+def test_海外先行カード一覧に予告中の弾を商品のまとまりとして出す(client):
+    # 2026-10-31 案A: 前の「予告中の新弾」の札をやめ、ほかの商品と同じ見出し・カードの並びで一番上に。押すとまとめページのそのカードへ
+    import tcg_announce_view as view
+    html = client.get("/tcg-preview").get_data(as_text=True)
+    assert 'class="new-cards-announce for-tcg"' not in html
+    assert '<div class="new-cards-announce-groups">' in html
+    assert '<span class="new-card-announce-label">予告中</span>Maze of Machines（判明 ' in html
+    assert '<a class="nav-pill new-card-group-more" href="/tcg-preview/maze-of-machines">まとめを見る →</a>' in html
+    first = view.order_cards(CARDS)[0]
+    assert f'href="/tcg-preview/maze-of-machines#{view.anchor(first)}"' in html
+    assert "+ デッキに追加" not in html.split('<div class="new-cards-announce-groups">')[1].split("</section>")[0]
+    # 未発売カード一覧・トップには出さない（同じ HTML でトップの表示に移ったときは CSS で隠す）
+    assert "new-cards-announce-groups" not in client.get("/new-cards").get_data(as_text=True)
+
+
+def test_まとめページの戻るリンクはボタン(client):
+    html = client.get("/tcg-preview/maze-of-machines").get_data(as_text=True)
+    assert '<a class="nav-pill ta-back" href="/tcg-preview">← 海外先行カード一覧へ</a>' in html
+
+
 def test_OG画像はPNGで返る(client):
     for path in ("/tcg-preview/og/maze-of-machines.png", "/tcg-preview/og/maze-of-machines/mzmc-en001.png"):
         r = client.get(path)

@@ -105,7 +105,9 @@ body.price-redesign{background:#191b21;background-image:none;color:#eff3fb}
  .price-redesign .mode-tab,.price-redesign .header-solo-link{font-size:12px;min-height:44px;padding:10px 0;flex:0 0 auto}
  /* 購入候補をロゴの横に置き、5つの主導線を1行に収める。 */
  .price-redesign header h1{padding-right:90px;margin-bottom:8px}
- .price-redesign .mode-tabs .nav-wishlist{position:absolute;top:10px;right:0;min-height:40px;margin-left:0;padding:8px;border:1px solid #353843;border-radius:6px}
+ /* 上からの位置はロゴ（上の余白15px・高さ46px）の縦の中心に合わせる。枠つきのボタンだった頃の 10px のままで、
+    site-theme.css が枠を外して高さ 36px にしてから 10px 上にずれていた（2026-10-31 ユーザー「上ずってる」） */
+ .price-redesign .mode-tabs .nav-wishlist{position:absolute;top:20px;right:0;min-height:40px;margin-left:0;padding:8px;border:1px solid #353843;border-radius:6px}
  .price-redesign .mode-tabs .nav-wishlist.active{border-color:var(--accent-soft)}
  /* ロゴは小さく（2026-10-22 スマホの見直し。モック _mocks/mobile-pages-20261022）。どのページでも最初の画面に中身を多く入れる */
  .price-redesign .brand-header-icon{height:46px}
