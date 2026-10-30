@@ -902,7 +902,7 @@ def test_auto_replacement_reports_missing_backup(no_context):
 
 def test_content_replaced_row_cannot_be_reverted(no_context):
     sb = _db(_upload_card(1, "六花のくろひめ", "pending"))
-    sb.files.update({"unreleased/1.png": b"capture-shown"})
+    sb.files.update({"unreleased/1.png": b"capture-shown", "unreleased/originals/1.png": b"capture-original"})
     up.split_replaceable(sb, [_official_row("六花のくろひめ")], up.load_replaceable(sb), OFFICIAL,
                          store=_store_ok, notify=MagicMock())
     raw = sb.tables["unreleased_cards"][0]["extraction_raw"]
@@ -960,3 +960,45 @@ def test_store_failure_puts_capture_back_on_same_path(monkeypatch):
     ok, _ = up.apply_official_candidate(sb, 1, None)
     assert not ok
     assert sb.files["unreleased/1.png"] == b"capture-shown"
+
+
+def test_apply_stops_when_original_capture_cannot_be_read():
+    sb = _candidate_db()
+    del sb.files["unreleased/originals/1.png"]     # 表示中は読めるが、切り抜く前の画像だけ読めない
+    ok, msg = up.apply_official_candidate(sb, 1, None)
+    assert not ok and "退避できない" in msg
+    assert "replaced_by_official" not in sb.tables["unreleased_cards"][0]["extraction_raw"]
+
+
+def test_apply_without_visible_image_proceeds():
+    sb = _candidate_db()
+    sb.tables["official_card_images"][0]["deleted_at"] = "2026-10-01"   # 見える画像が無い
+    ok, msg = up.apply_official_candidate(sb, 1, None)
+    assert ok, msg
+    raw = sb.tables["unreleased_cards"][0]["extraction_raw"]
+    assert "capture_backup" not in raw and up.admin_view(raw)["can_revert"] is False
+
+
+def test_rejected_during_run_is_skipped():
+    sb = _db(_upload_card(1, "誘惑の鏡壁", "approved"))
+    q = up.load_replaceable(sb)
+    sb.tables["unreleased_cards"][0]["status"] = "rejected"
+    notify, fetch = MagicMock(), MagicMock()
+    remaining = up.split_replaceable(sb, [_official_row("誘惑の鏡壁")], q, OFFICIAL, notify=notify, fetch=fetch)
+    assert remaining == []
+    fetch.assert_not_called()
+    notify.assert_not_called()
+
+
+def test_reload_failure_skips_only_that_card(monkeypatch):
+    sb = _db(_upload_card(1, "誘惑の鏡壁", "approved"))
+    q = up.load_replaceable(sb)
+
+    def boom(*a):
+        raise RuntimeError("接続が切れた")
+
+    monkeypatch.setattr(up, "_load_card", boom)
+    rows = [_official_row("誘惑の鏡壁"), _official_row("新しいカード")]
+    remaining = up.split_replaceable(sb, rows, q, OFFICIAL, notify=MagicMock(), fetch=MagicMock())
+    assert [r["name"] for r in remaining] == ["新しいカード"]
+    assert q.keys() == {fuzzy_key("誘惑の鏡壁")}   # 次回また試す

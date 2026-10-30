@@ -489,9 +489,19 @@ def split_replaceable(sb, rows: list[dict], queue: ReplaceQueue, page_url: str,
             logger.info(f"[upload] 画像取込カードの公式版だがカード本体が読めないため見送り: {name!r} ({page_url})")
             continue
         # 実行の最初に読んだ状態は古いことがある（抽出の間に承認されうる）。判断の直前に読み直す
-        fresh_card = _load_card(sb, card["id"]) if card.get("id") is not None else None
+        try:
+            fresh_card = _load_card(sb, card["id"]) if card.get("id") is not None else None
+        except Exception as e:  # noqa: BLE001 — 監視の本体を止めない。このカードだけ次回に回す
+            logger.warning(f"[upload] 差し替え待ちのカードを読み直せないため見送り: card_id={card.get('id')}: {e}")
+            continue
         if isinstance(fresh_card, dict) and fresh_card.get("id") == card.get("id"):
             card = fresh_card
+            if not is_replaceable(card):
+                # 実行中に却下・差し替え済みになった
+                logger.info(f"[upload] もう差し替え待ちでないため見送り: card_id={card.get('id')} ({page_url})")
+                queue.cards.pop(key, None)
+                queue.done.add(key)
+                continue
         if card.get("status") in REVIEW_STATUSES:
             ok, reason = replace_with_official(sb, card, row, page_url=page_url, store=store, notify=notify)
             logger.info(f"[upload] 公式版で差し替え: card_id={card.get('id')} ok={ok} {reason} ({page_url})")
@@ -600,6 +610,8 @@ def replace_with_official(sb, card: dict, row: dict, *, page_url: str, store=Non
             saved = backup(sb, cid, old, raw)
             if saved:
                 raw["capture_backup"] = saved
+            elif saved == {}:
+                pass   # 見える画像が無い（失うものが無い）ので、退避なしで進める
             elif require_backup:
                 # 人が操作して差し替えるときは、退避できなければ何も変えずに止める（上書きでキャプチャを失うため）
                 return False, "今の画像を退避できないため、差し替えを止めました（もう一度試してください）"
@@ -765,9 +777,15 @@ def _write_raw(sb, card_id: int, raw: dict, extra: dict | None = None) -> None:
 
 
 def _default_backup_capture(sb, card_id: int, old_rows: list[dict], raw: dict) -> dict | None:
-    """見えているキャプチャと切り抜く前の画像を captures/ に写す。写せなければ None（差し替えは進める）。"""
+    """見えているキャプチャと切り抜く前の画像を captures/ に写す。
+
+    Returns: 退避の記録（dict）／退避するものが無い（{}。見える画像が無い）／読めない・写せない（None）。
+    切り抜く前の画像が記録にあるのに読めないときも None（片方だけ残すと、戻したとき二重に切り抜かれる）。
+    """
     from unreleased_image_store import CAPTURE_DIR, ext_for, get_file, mime_for_path, put_file
     shown = next((r.get("storage_path") for r in old_rows if r.get("storage_path")), "")
+    if not shown:
+        return {}
     data = get_file(sb, shown)
     if data is None:
         logger.warning(f"[upload] キャプチャを退避できません（キャプチャに戻せなくなる）: card_id={card_id} {shown!r}")
@@ -781,6 +799,9 @@ def _default_backup_capture(sb, card_id: int, old_rows: list[dict], raw: dict) -
         orig = raw.get("original_image")
         orig_path = orig.get("storage_path") if isinstance(orig, dict) else None
         orig_data = get_file(sb, orig_path)
+        if orig_path and orig_data is None:
+            logger.warning(f"[upload] 切り抜く前の画像を退避できません（キャプチャに戻せなくなる）: card_id={card_id} {orig_path!r}")
+            return None
         if orig_data is not None:
             orig_mime = orig.get("mime") or mime_for_path(orig_path)
             path = f"{CAPTURE_DIR}/originals/{card_id}.{ext_for(orig_mime)}"
@@ -1068,7 +1089,8 @@ def admin_view(raw: dict, card: dict | None = None) -> dict | None:
                     if isinstance(v, dict) and _norm(card.get(f)) != _norm(v.get("official"))}
         return {"state": "replaced", "mode": rep.get("mode"), "at": rep.get("at"),
                 "page_url": rep.get("page_url"), "diff_fields": sorted(diff),
-                "can_revert": isinstance(raw.get("capture_backup"), dict) and rep.get("mode") == "image_only"}
+                "can_revert": (isinstance(raw.get("capture_backup"), dict) and rep.get("mode") == "image_only"
+                               and isinstance(rep.get("official_original"), dict))}
     cand = raw.get("official_candidate")
     if isinstance(cand, dict):
         img = cand.get("image") or {}
