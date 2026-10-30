@@ -518,6 +518,13 @@ SUPPLY_KEYWORDS = [
     "PSA", "BGS", "CGC", "ステンレス製",
 ]
 
+def _is_supply_rarity(rarity: str) -> bool:
+    """レアリティの欄にサプライ・非紙カードの印があるか（is_target_card は商品名しか見ない）。
+    トレコロは「ステンレス製」を商品名ではなくレアリティの欄に書く（2026-10-30 ブラック・マジシャン・ガール
+    OCG-252 が販売・買取の記録に入っていた）。"""
+    return EXCLUDE_SUPPLY and any(kw in rarity for kw in SUPPLY_KEYWORDS)
+
+
 # ラッシュデュエル除外用キーワード（遊戯王OCG専用サービスのため）
 RUSH_DUEL_KEYWORDS = [
     "ラッシュデュエル", "RUSH DUEL",
@@ -1056,7 +1063,7 @@ def scrape_torecolo(card_name: str, max_pages: int = 5,
             if _is_rush_duel(name) or _is_rush_duel(href) or _is_rush_duel(code):
                 continue
 
-            if not price or not is_target_card(card_name, match_name):
+            if not price or not is_target_card(card_name, match_name) or _is_supply_rarity(rarity):
                 continue
 
             # 表示名: match_name が空でなければそちらを使用
@@ -2059,7 +2066,7 @@ def scrape_torecolo_buy(card_name: str, max_pages: int = 3,
             # ラッシュデュエル除外
             if _is_rush_duel(name) or _is_rush_duel(href) or _is_rush_duel(code):
                 continue
-            if not is_target_card(card_name, match_name):
+            if not is_target_card(card_name, match_name) or _is_supply_rarity(rarity):
                 continue
 
             results.append({
