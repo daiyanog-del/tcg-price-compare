@@ -13,7 +13,10 @@
 #mode-search .card-hero-info{min-width:0}
 #mode-search .card-hero-name{font-size:22px;font-weight:700;line-height:1.35;margin:0 0 6px;overflow-wrap:anywhere}
 #mode-search .cr-ext-links{white-space:nowrap}
-#mode-search .cr-db-link{margin-left:10px;font-size:12px;font-weight:400;color:var(--accent-l);white-space:nowrap}
+/* 公式DB・Wiki: 外部サイトへのリンクは店の一覧の「店で見る」（.cr-go）と同じ太字の文字リンク。枠は付けない（2026-10-30 ユーザー判断）。
+   押せる範囲だけ上下に広げる（見た目の位置は変えない） */
+#mode-search .cr-db-link{display:inline-flex;align-items:center;gap:3px;margin:-6px 0 -6px 12px;padding:6px 0;font-size:12px;font-weight:700;color:var(--accent-l);white-space:nowrap;vertical-align:middle}
+#mode-search .cr-db-link:hover{text-decoration:underline}
 /* 最安の行: ［最安］（金の札・一覧の最安の印と同じ）・値段・レアリティ（枠線の札。効果テキストの「準制限」など塗りの札と区別する）・店名と型番 */
 #mode-search #heroBest.cr-best{display:flex;margin:0;align-items:center;flex-wrap:wrap;gap:4px 10px;min-height:38px}
 #mode-search .cr-hb-best{padding:2px 8px;border-radius:4px;background:#f3ce46;color:#242013;font-size:12px;font-weight:700;line-height:1.5}
