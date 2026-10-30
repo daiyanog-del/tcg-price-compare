@@ -82,3 +82,35 @@ def test_result_is_cached():
 @pytest.mark.parametrize("name", ["", "   ", "あ" * 51])
 def test_invalid_name(name):
     assert resolve_wiki_url(name, get=_fake_get(set())) is None
+
+
+# ---- ルート（/card-wiki）: cid があれば正式名で引く ----
+
+@pytest.fixture
+def client():
+    import app as app_module
+    return app_module.app.test_client(), app_module
+
+
+def test_route_uses_official_name_from_cid(client, monkeypatch):
+    c, app_module = client
+    monkeypatch.setattr(app_module._ygores_repo, "get_card_summary",
+                        lambda cid: {"name": "TG ブースター・ラプトル"})
+    seen = []
+    monkeypatch.setattr(app_module, "resolve_wiki_url", lambda n: seen.append(n) or page_url(n))
+    res = c.get("/card-wiki?name=" + quote("テックジーナス　ブースター・ラプトル") + "&cid=14087")
+    assert res.status_code == 302
+    assert seen == ["TG ブースター・ラプトル"]
+
+
+def test_route_without_cid_uses_name(client, monkeypatch):
+    c, app_module = client
+    seen = []
+    monkeypatch.setattr(app_module, "resolve_wiki_url", lambda n: seen.append(n) or page_url(n))
+    assert c.get("/card-wiki?name=" + quote("灰流うらら")).status_code == 302
+    assert seen == ["灰流うらら"]
+
+
+def test_route_requires_name(client):
+    c, _ = client
+    assert c.get("/card-wiki").status_code == 400

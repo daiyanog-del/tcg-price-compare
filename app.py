@@ -1042,8 +1042,13 @@ def card_by_cid(cid):
 @app.route("/card-wiki")
 def card_wiki():
     """カードのページの「Wiki」リンク — 遊戯王カードWiki のカードのページへ転送する。
-    ページ名の表記ゆれで見つからなければ wiki のタイトル検索へ。ロジックは wiki_link 参照。"""
-    url = resolve_wiki_url(request.args.get("name", ""))
+    ページ名の表記ゆれで見つからなければ wiki のタイトル検索へ。ロジックは wiki_link 参照。
+    ?cid=（konami_id）があれば正式名に直してから引く（読みの名前のページ対策・wiki_link の説明参照）。"""
+    name = request.args.get("name", "")
+    cid = request.args.get("cid", type=int)
+    if cid:
+        name = resolve_card_name(cid, name, _ygores_repo.get_card_summary) or name
+    url = resolve_wiki_url(name)
     if not url:
         return "name required", 400
     return redirect(url, code=302)
