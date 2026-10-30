@@ -2572,6 +2572,13 @@ rarity_pref 基準に統一。`items_map` のキーも rarity_pref で作る。
 - **見送ったこと**: 絵が1枚入ると絵の無い残りのカードも3日を待たずに出始める（公式ページに載らないカードはずっと絵が入らない）。効果の文が一度消えて戻ると lore_at が新しくなる（まれ）。予約の想定外の失敗で毎時の投稿が止まる（制約名は本番で確認済み）。
 - **本番の確認**: 手動の取り込み（dry_run）で公式の絵6枚が入った。弾の画像（ゆかり ▶ 絵 の2組）・カードの画像（札に絵・注記「KONAMI 公式の商品紹介をもとにした要約です」）・まとめページ（絵6枚）を本番で確認。
 
+## 2026-10-30 海外先行の予告カードの取り込みを Render の cron から1日3回起動する（ユーザー了承「その形で進める」）
+- **何を**: Render cron **tcg-announce-dispatch**（repo から作る python 型・build は `echo no-build`・自動デプロイ Off・Starter・Oregon・`30 21,3,10 * * *`＝JST 6:30／12:30／19:30）が curl で GitHub の workflow_dispatch（tcg-announce-watch.yml・ref main・inputs dry_run=false）を叩く。送る中身は環境変数 GH_DISPATCH_BODY、鍵は GH_DISPATCH_TOKEN（ユーザーが作った fine-grained PAT・この repo だけ・Actions 読み書き。値はユーザーが Render の画面にだけ入れた）。GitHub の cron（17 * * * *）は予備として残す。
+- **なぜ**: この repo の GitHub の schedule は大きく遅れたり飛んだりする（毎時のはずが約18時間で2回・15分おきの X 計測が実際は約5時間おき・毎日 04:00 UTC が5〜6時間遅れ）。公式ページの公開は過去の弾でどれも JST 1〜4時（米国の朝）なので毎時は要らず、朝・昼・夜の3回で足りると判断した。
+- **鍵を置く欠点（ユーザーに説明済み）**: 漏れると workflow_dispatch のある全 workflow（本当に投稿する post-x・post-featured を含む）を起動・止める・無効にする・ログを消すことができる。secrets の読み取り・コードや Variables の変更はできない。Render には既に X・Supabase・Anthropic の鍵があるので、増える危険は主に「workflow を止められる」こと。
+- **作り方の経緯**: 先に既製イメージ（curlimages/curl）型の cron tcg-announce-trigger を作ったが、Docker Command が画面で保存できず（赤い注意も出ない）空のまま → Render MCP で repo 型を作り直した。ビルドは作ったときの1回だけ（自動デプロイ Off）。
+- **確認**: 10-30 07:53 UTC（16:53 JST）の Trigger Run で GitHub に workflow_dispatch が起動・成功。ログの X_POST_DRY_RUN は空（dry_run=false が渡った）。投稿は TCG_ANNOUNCE_X_POST_ENABLED が無いので無効のまま。
+
 ## 2026-10-30 毎日の見張りは店ごとに「割合」で見る（PR #274）
 - **何を**: check_collection.py に、店ごとの当日スキップ・エラーの割合（3%以上かブレーカー）・取れた割合（普段の半分未満）・集めに行ったカード数（普段の7割未満）・途中の打ち切り・見慣れないレアリティの見張りを足した。
 - **なぜ**: 合計の行数だけでは、1店が丸ごと抜けても他の店で埋まって見えなかった（10月にカードラッシュの買取が9日抜けた）。取れたカードの数そのものは注目カードの数とともに日々動くので、店ごとは割合で見る。
