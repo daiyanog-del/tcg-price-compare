@@ -590,27 +590,34 @@ def process(collected: dict, known_cards: dict[int, dict], *, sb, client, model:
 
 
 def fill_art(sb) -> int:
-    """紹介文の出どころが公式の商品ページで、絵がまだ無い予告カードに、同じページの絵を入れる。入れた枚数を返す。
+    """絵がまだ無い予告カードに、同じ弾の公式の商品ページの絵を入れる。入れた枚数を返す。
+    弾の公式ページは、その弾のどれかのカードの紹介文の出どころから知る（販売店の文が先に載ったカードは、
+    Yugipedia の出どころが販売店のまま変わらないことがあるので、カード自身の出どころだけでは探さない）。
     カードの行は Yugipedia のページが変わらないと読み直さないが、公式ページには絵があとから載ることもあるので、
-    要約とは別に毎回確かめる（絵のあるカードは見ない。読むのは絵の無いカードの出どころのページだけ）。"""
-    rows = (sb.table(CARDS).select("page_id,name_en,lore_source_url").eq("status", "announced")
-            .eq("art_url", "").execute().data or [])
-    by_url: dict[str, list[dict]] = {}
+    要約とは別に毎回確かめる（読むのは、絵の無いカードがある弾の公式ページだけ。1ページ1回）。"""
+    rows = (sb.table(CARDS).select("page_id,name_en,set_prefix,lore_source_url,art_url")
+            .eq("status", "announced").execute().data or [])
+    pages: dict[str, set[str]] = {}
     for r in rows:
         if ya.is_official_page(r.get("lore_source_url") or ""):
-            by_url.setdefault(r["lore_source_url"], []).append(r)
+            pages.setdefault(r["set_prefix"], set()).add(r["lore_source_url"])
     filled = 0
-    for url, cards in by_url.items():
-        try:
-            arts = ya.official_arts(url)
-        except Exception as e:
-            logger.warning(f"公式の商品ページを読めません（次の回に取り直します）: {url}: {e}")
-            continue
-        for c in cards:
-            art = ya.art_for(c["name_en"], arts)
-            if art:
-                sb.table(CARDS).update({"art_url": art, "updated_at": _now()}).eq("page_id", c["page_id"]).execute()
-                filled += 1
+    for prefix, urls in pages.items():
+        cards = [r for r in rows if r["set_prefix"] == prefix and not r.get("art_url")]
+        for url in sorted(urls):
+            if not cards:
+                break
+            try:
+                arts = ya.official_arts(url)
+            except Exception as e:
+                logger.warning(f"公式の商品ページを読めません（次の回に取り直します）: {url}: {e}")
+                continue
+            for c in list(cards):
+                art = ya.art_for(c["name_en"], arts)
+                if art:
+                    sb.table(CARDS).update({"art_url": art, "updated_at": _now()}).eq("page_id", c["page_id"]).execute()
+                    cards.remove(c)
+                    filled += 1
     return filled
 
 

@@ -165,11 +165,13 @@ def _jst_date(iso: str | None):
 
 
 def card_order_key(card: dict, covers=()):
-    """カードごとの投稿の順: 表紙のカード（弾の目玉）→ 画像に既存カードの絵が出るカード（「あのカードの」と伝わる）
-    → それ以外。同じ中では一覧の並び。"""
+    """カードごとの投稿の順: 公式の絵のあるカード → 表紙のカード（弾の目玉）→ 画像に既存カードの絵が出るカード
+    （「あのカードの」と伝わる）→ それ以外。同じ中では一覧の並び。
+    絵を先にするのは、X がリンクのプレビュー画像を最初に読んだもので持ち続けることがあり、絵の無いうちに出すと
+    あとで絵が入っても「?」の札のまま残りうるため（2026-10-30）。"""
     covers = list(covers)
     cover_rank = covers.index(card.get("name_en")) if card.get("name_en") in covers else len(covers)
-    return (cover_rank, not tcg_announce_og.picture_card(card), card.get("list_order") or 0)
+    return (not card.get("art_url"), cover_rank, not tcg_announce_og.picture_card(card), card.get("list_order") or 0)
 
 
 def decide(sets: list[dict], cards_by_set: dict[str, list[dict]], posts: list[dict], now: datetime) -> dict | None:

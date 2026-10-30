@@ -28,7 +28,7 @@ import tcg_announce
 from deck_image import _get_font
 
 W, H = cog.W, cog.H
-DESIGN_VERSION = "b11"   # 見た目を変えたら上げる
+DESIGN_VERSION = "b12"   # 見た目を変えたら上げる
 
 _TEXT, _SUB, _GOLD = cog._TEXT, cog._SUB, cog._GOLD
 _PANEL = (0x20, 0x23, 0x2b)       # --bg-card
@@ -654,6 +654,9 @@ def render_card_png(s: dict, card: dict, others: list[str], *, box: Image.Image 
         y += 4
     note = {"blurb": "販売店の商品説明をもとにした非公式の要約です",
             "official": "英語のカードテキストをもとにした要約です"}.get(card.get("lore_kind"), "")
+    if card.get("lore_kind") == "blurb" and not card.get("lore_source_url"):
+        # Yugipedia が出どころを書いていない非公式の文（雑誌・SNS などのこともある）は販売店と決めつけない
+        note = "非公式の情報をもとにした要約です"
     sites = source_sites([card])
     if from_official_page(card):
         note = "KONAMI 公式の商品紹介をもとにした要約です"

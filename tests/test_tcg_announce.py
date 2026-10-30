@@ -786,23 +786,46 @@ def test_公式の商品ページの紹介の枠ごとに名前と絵を対応�
 
 
 def test_絵の無い予告カードに公式ページの絵を入れる(monkeypatch):
+    shop = "https://www.southernhobby.com/p/"
     rows = {"tcg_announce_cards": [
-        {"page_id": 1, "name_en": "Rampant Barrel Dragon", "lore_source_url": OFFICIAL_URL, "status": "announced", "art_url": ""},
-        {"page_id": 2, "name_en": "Slot Machine 777", "lore_source_url": OFFICIAL_URL, "status": "announced", "art_url": ""},
-        {"page_id": 3, "name_en": "Other", "lore_source_url": "https://www.southernhobby.com/p/", "status": "announced", "art_url": ""},
-        {"page_id": 4, "name_en": "Done", "lore_source_url": OFFICIAL_URL, "status": "announced", "art_url": "https://x/old.png"},
+        {"page_id": 1, "name_en": "Rampant Barrel Dragon", "set_prefix": "MZMC", "lore_source_url": OFFICIAL_URL,
+         "status": "announced", "art_url": ""},
+        {"page_id": 2, "name_en": "Slot Machine 777", "set_prefix": "MZMC", "lore_source_url": OFFICIAL_URL,
+         "status": "announced", "art_url": ""},
+        {"page_id": 3, "name_en": "Other", "set_prefix": "MZMC", "lore_source_url": shop, "status": "announced", "art_url": ""},
+        {"page_id": 4, "name_en": "Done", "set_prefix": "MZMC", "lore_source_url": OFFICIAL_URL,
+         "status": "announced", "art_url": "https://x/old.png"},
+        # 販売店の文が先に載り、Yugipedia の出どころが販売店のままのカードも、同じ弾の公式ページで探す
+        {"page_id": 5, "name_en": "Ticking Blast Rider", "set_prefix": "MZMC", "lore_source_url": shop,
+         "status": "announced", "art_url": ""},
+        # 別の弾のカードは、この弾の公式ページで探さない
+        {"page_id": 6, "name_en": "Ticking Blast Rider", "set_prefix": "XXXX", "lore_source_url": shop,
+         "status": "announced", "art_url": ""},
     ]}
     calls = []
 
+    rider = ('<table class="listtable"><tbody><tr><td><strong>TICKING BLAST RIDER</strong>'
+             '<img src="/en/wp-content/uploads/2026/10/mzmc_art05.png" /></td></tr></tbody></table>')
+
     def fake(url):
         calls.append(url)
-        return ya.parse_official_arts(OFFICIAL_HTML, url)
+        return ya.parse_official_arts(OFFICIAL_HTML + rider, url)
     monkeypatch.setattr(ya, "official_arts", fake)
     db = _DB(rows)
-    assert tw.fill_art(db) == 1
+    assert tw.fill_art(db) == 2
     got = {r["page_id"]: r["art_url"] for r in rows["tcg_announce_cards"]}
     assert got[1].endswith("mzmc_art01.png") and got[2] == "" and got[3] == "" and got[4] == "https://x/old.png"
+    assert got[5].endswith("mzmc_art05.png") and got[6] == ""
     assert calls == [OFFICIAL_URL]   # 同じページは1回だけ読む・販売店のページは読まない
+
+    calls.clear()
+    for r in rows["tcg_announce_cards"]:
+        if r["set_prefix"] == "MZMC":
+            r["art_url"] = r["art_url"] or "https://x/filled.png"
+    assert tw.fill_art(db) == 0 and calls == []   # 絵の無いカードが残っていない弾のページは読まない
+    for r in rows["tcg_announce_cards"]:
+        if r["page_id"] == 1:
+            r["art_url"] = ""
 
     def boom(url):
         raise OSError("down")
@@ -914,3 +937,24 @@ def test_絵の有無と差し替えでキャッシュの鍵が変わる(monkeyp
     og.set_png(SET, [card], art_keys=["a/1"])
     og.set_png(SET, [card], art_keys=["a/2"])
     assert len(set(seen)) == 5
+
+
+def test_出どころの書かれていない非公式の文は販売店と書かない(monkeypatch):
+    import tcg_announce_og as og
+    drawn = []
+    real = og.draw_text
+    monkeypatch.setattr(og, "draw_text", lambda d, xy, text, *a, **k: drawn.append(text) or real(d, xy, text, *a, **k))
+    card = dict(CARDS[0], lore_kind="blurb", lore_source_url="", summary_status="done")
+    og.render_card_png(SET, card, [])
+    assert "非公式の情報をもとにした要約です" in drawn and not any("販売店" in t for t in drawn)
+    assert og.source_sites([card]) == [] and og.source_line([card]) == ""
+    drawn.clear()
+    og.render_card_png(SET, dict(card, lore_source_url="https://www.southernhobby.com/p/"), [])
+    assert any("販売店" in t for t in drawn)
+
+
+def test_連載は公式の絵のあるカードを先に出す():
+    covers = ["Rampant Barrel Dragon"]
+    cards = [_card(1, "Rampant Barrel Dragon", 1), dict(_card(2, "Slot Machine 777", 2), art_url="https://x/a.png")]
+    got = sorted(cards, key=lambda c: tp.card_order_key(c, covers))
+    assert [c["name_en"] for c in got] == ["Slot Machine 777", "Rampant Barrel Dragon"]
