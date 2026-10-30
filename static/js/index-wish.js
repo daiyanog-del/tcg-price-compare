@@ -963,8 +963,7 @@ async function wishCheapestStores(){
     const top=orderable[0];
 
     // 未発売のカードの1行（一番安い買い方があればその枠の中に、無ければ単独で出す）
-    const unreleasedHtml=unreleasedByKey.size
-      ?`<div class="wb-reco-unrel">未発売のカード：${[...unreleasedByKey].map(([k,m])=>`${esc(_missingLabel(k))}（${esc(_wishUnreleasedWhen(m))}）`).join('、')}（この金額に含みません）</div>`:'';
+    const unreleasedHtml=_wishUnreleasedNoteHtml(unreleasedByKey,_missingLabel);
     let recoHtml='';
     if(best){
       const parts=best.used.map(u=>{
@@ -1129,6 +1128,30 @@ async function wishCheapestStores(){
   for(const k of pendingKeys)notFoundKeys.add(k);
   pendingKeys.clear();
   render();
+}
+
+// 未発売のカードの知らせ。2種までは名前をそのまま並べ、それより多いときは数と発売日だけの1行にして
+// 名前は開いたときに発売日ごとに出す（新弾の発売前は数十種になり、名前の羅列で一番安い買い方が埋もれた。2026-10-30）
+const _WISH_UNREL_INLINE_MAX=2;
+function _wishUnreleasedNoteHtml(byKey, label){
+  if(!byKey.size) return '';
+  const groups=new Map();   // いつ買えるか → 名前の並び（届いた順）
+  for(const [k,m] of byKey){
+    const when=_wishUnreleasedWhen(m);
+    if(!groups.has(when)) groups.set(when,[]);
+    groups.get(when).push(label(k));
+  }
+  if(byKey.size<=_WISH_UNREL_INLINE_MAX){
+    const items=[...groups].flatMap(([when,names])=>names.map(n=>`${esc(n)}（${esc(when)}）`));
+    return `<div class="wb-reco-unrel">未発売のカード：${items.join('、')}（この金額に含みません）</div>`;
+  }
+  const whenTxt=groups.size===1?[...groups.keys()][0]:[...groups].map(([when,names])=>`${when} ${names.length}種`).join('・');
+  const lists=[...groups].map(([when,names])=>
+    `<div class="wb-unrel-group">${groups.size>1?`<span class="wb-unrel-when">${esc(when)}</span>`:''}${names.map(esc).join('、')}</div>`).join('');
+  // 開閉は「この店で買うカードを見る」と同じ部品（wb-buy-list）。data-k で描き直しても開いたまま
+  return `<div class="wb-reco-unrel">未発売の${byKey.size}種（${esc(whenTxt)}）はこの金額に含みません
+    <details class="wb-buy-list" data-k="unreleased"><summary>カード名を見る</summary>${lists}</details>
+  </div>`;
 }
 
 // 明細の行（名前とレアリティを1つのセルに入れ、金額の列が次の行へ落ちないようにする）

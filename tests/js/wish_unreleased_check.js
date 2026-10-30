@@ -90,6 +90,26 @@ const shopRow = (items, missing) => ({
     assert.ok(html.includes('日付未定のカード（発売日未定）'), '発売日が未定なら「発売日未定」');
   }
 
+  // 2b. 3種以上: 名前を並べず、数と発売日の1行＋開いたら発売日ごとの名前（10-30 ユーザー指摘「ごちゃつく」）
+  {
+    const names = Array.from({ length: 27 }, (_, i) => `新カード${i + 1}`);
+    const un = names.map((n, i) => ({ name: n, rarity: '', release_date: i < 25 ? '2026-10-31' : '', tcg_preview: i >= 25 }));
+    const { html, fetched } = await run(
+      [{ name: '発売済みカード', qty: 1 }, ...names.map(n => ({ name: n, qty: 1 }))],
+      {
+        shops: [shopRow([{ name: '発売済みカード', qty: 1, price: 500, rarity: 'ノーマル', rarity_pref: '' }],
+          names.map(n => ({ name: n, rarity: '' })))],
+        db_missing: [], unreleased: un,
+        entries: [{ name: '発売済みカード', qty: 1, rarity: '' }, ...names.map(n => ({ name: n, qty: 1, rarity: '' }))],
+        shipping_rules: RULES,
+      });
+    assert.deepEqual(fetched, ['/api/wish-shop-totals']);
+    assert.ok(html.includes('未発売の27種（10月31日発売 25種・日本では未発売 2種）はこの金額に含みません'), '数と発売日の1行');
+    assert.ok(html.includes('<summary>カード名を見る</summary>'), '名前は畳む');
+    assert.ok(!html.includes('未発売のカード：'), '名前の羅列の1行は出さない');
+    assert.ok(html.includes('新カード27'), '開けば名前がある');
+  }
+
   // 3. 一覧の行の言い方
   {
     const sb = { console };

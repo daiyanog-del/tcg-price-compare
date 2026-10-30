@@ -76,6 +76,9 @@
 .wb-reco-miss{margin-top:8px;font-size:.78rem;color:#d4a017}
 /* まだ買えない（未発売）カード。欠けの注意（黄）ではなくお知らせなので、補足文と同じ色 */
 .wb-reco-unrel{margin-top:8px;font-size:.78rem;color:var(--text-m)}
+/* 3種以上は名前を畳む（開閉は .wb-buy-list）。開いたときの名前の並び */
+.wb-unrel-group{margin-top:6px;line-height:1.6}
+.wb-unrel-when{display:block;font-weight:600;color:var(--text)}
 .wb-reco-alt{margin-top:12px;font-size:.8rem;color:var(--text-m)}
 .wb-reco-alt b{font-family:var(--mono);color:var(--text)}
 /* 店ごとの支払い */
