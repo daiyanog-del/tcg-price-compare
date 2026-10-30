@@ -326,3 +326,27 @@ class TestPrepareClaboCatalogSkipped:
         assert matched is None
         assert catalog_stats is None
         assert shop_stats == {}
+
+
+class TestOverframeContext:
+    """カタログ巡回のカードラボの行の OF のそろえ（overframe.py・2026-10-30）"""
+
+    def test_ほかの店が全部売り切れの夜も文脈を残してカタログの行を寄せる(self, monkeypatch):
+        # 遊々亭の OF の行が売り切れだけ＝ループ側は「有効な価格なし」で早く return する
+        def fake_compare_prices(card_name, shop_names=None, status_out=None):
+            status_out["遊々亭"] = {"count": 1, "fetch_errors": 0}
+            return [{"shop": "遊々亭", "name": "真紅眼の超越黒竜(オーバーフレーム)", "rarity": "OFプリシク",
+                     "code": "BETB-JP036", "condition": "-", "price": 69800, "stock": 0, "sold_out": True,
+                     "url": "", "image": ""}]
+        monkeypatch.setattr(cp, "compare_prices", fake_compare_prices)
+        state = {}
+        sb = _FakeSupabase(state)
+        art_contexts = {}
+        saved = cp.collect_and_save(sb, "真紅眼の超越黒竜", "2026-10-30", ["遊々亭"], art_contexts=art_contexts)
+        assert saved == 0
+        assert art_contexts["真紅眼の超越黒竜"]["overframe"]["BETB-JP036"]["of"] == {"プリシク"}
+
+        product = {**_product("真紅眼の超越黒竜", 59800), "rarity": "プリシク", "code": "BETB-JP036"}
+        cp._save_clabo_catalog_rows(sb, _selected(["真紅眼の超越黒竜"]), {"真紅眼の超越黒竜": [product]},
+                                    "2026-10-30", {}, _catalog_stats(), art_contexts=art_contexts)
+        assert [r["rarity"] for r in state["price_history"]["upserted"]] == ["OFプリシク"]

@@ -505,8 +505,11 @@ def recheck_price(m, shops, fetch=None):
     best_price, best_shop, notes = None, None, []
     for shop in shops:
         status = {}
+        # カードラボは OF をレアリティ欄に書かず、印の無い行は遊々亭の行と突き合わせて OF と判定する
+        # （overframe.py）。カードラボだけで取り直すと OF の行が見つからず見送りになるので遊々亭も取る
+        fetch_shops = [shop, "遊々亭"] if shop == "カードラボ" and m["rarity"].startswith("OF") else [shop]
         try:
-            results = fetch(m["name"], shop_names=[shop], status_out=status)
+            results = fetch(m["name"], shop_names=fetch_shops, status_out=status)
         except Exception as e:
             notes.append(f"{shop}:取得失敗({e})")
             continue

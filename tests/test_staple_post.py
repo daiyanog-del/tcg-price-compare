@@ -426,3 +426,23 @@ def test_recently_posted_counts_other_kind_of_same_direction():
     assert seen["types"] == ["staple_floor|" + key, "staple_floorctl|" + key, "staple_down|" + key]
     staple_post._recently_posted(_Sb(), {**m, "direction": "up"})
     assert seen["types"] == ["staple_up|" + key]
+
+
+def test_recheck_price_clabo_of_rarity_fetches_yuyu_too():
+    # カードラボの印の無い OF の行は遊々亭の行と突き合わせて OF と判定する（overframe.py）。
+    # カードラボだけで取り直すと OF の行が無く見送りになるので、遊々亭も一緒に取る（10-30）
+    seen = []
+
+    def fetch(name, shop_names=None, status_out=None):
+        seen.append(list(shop_names))
+        for s in shop_names:
+            status_out[s] = {"count": 1, "fetch_errors": 0}
+        return [_item("カードラボ", 59800, rarity="OFプリシク"), _item("遊々亭", 69800, rarity="OFプリシク")]
+
+    m = {**_down(), "rarity": "OFプリシク"}
+    price, shop, _ = staple_post.recheck_price(m, ["カードラボ"], fetch=fetch)
+    assert seen == [["カードラボ", "遊々亭"]]
+    assert (price, shop) == (59800, "カードラボ")
+    # OF でないレアリティ・カードラボ以外は今までどおり1店だけ
+    staple_post.recheck_price(_down(), ["カードラボ"], fetch=fetch)
+    assert seen[-1] == ["カードラボ"]
