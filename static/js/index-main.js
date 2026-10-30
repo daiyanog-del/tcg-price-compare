@@ -2610,32 +2610,47 @@ function switchMetaSort(sort){
 }
 
 let _metaPricesError=false; // 価格データの取得を試みて失敗した（=取得を試みていないデッキとは区別する）
-function loadMetaDeckPrices(retry){
-  retry=retry||0;
+// サーバーが pending（起動直後のプリロード中など、待てば解消する状態）を返す間は読込中のまま待つ。
+// 2026-10-30 デプロイ直後に開くと、2秒おき2回の再試行で諦めて「取得に失敗しました」に固定されていた。
+// 待つ上限: 同日の本番再起動8回では起動からプリロード完了まで16〜35秒。最悪は相場キャッシュの起動時の
+// 読み込み待ち（cache_warmer が最大30秒）＋計算（Tier表25秒＋デッキ40秒）で約95秒なので、余裕を見て120秒
+const _META_PRICES_PENDING_WAIT_MS=120000;
+const _META_PRICES_PENDING_INTERVAL_MS=3000;
+const _META_PRICES_ERROR_RETRIES=2; // pending でない失敗は旧loadTopDecksと同じく2回まで再試行
+function loadMetaDeckPrices(){
+  // 前回の取得が失敗で終わっていたら、呼ばれるたびに取り直す（並び替え・タブの開き直しの両方。
+  // 以前は一度失敗すると再読込まで失敗のままだった）。読込中の表示に戻してから取りに行く
+  if(_metaPricesError&&!_metaPricesLoadPromise){
+    _metaPricesLoaded=false;_metaPricesError=false;
+    if(_metaTiers.length) renderMetaTiers();
+  }
   if(_metaPricesLoaded) return Promise.resolve();
   if(_metaPricesLoadPromise) return _metaPricesLoadPromise;
-  _metaPricesLoadPromise=fetch('/api/top-decks?sort=tier')
-    .then(r=>r.json())
-    .then(data=>{
-      if(data.error&&!(data.decks&&data.decks.length)){
-        // 旧loadTopDecksと同じ方針: 2回まで再試行してから諦める
-        if(retry<2){setTimeout(()=>loadMetaDeckPrices(retry+1),2000);return;}
-        _metaPricesLoaded=true;
-        _metaPricesError=true;
-        if(_metaTiers.length) renderMetaTiers();
-        return;
+  const wait=ms=>new Promise(res=>setTimeout(res,ms));
+  const startedAt=Date.now();
+  const run=async()=>{
+    let errors=0;
+    for(;;){
+      let data=null;
+      try{data=await fetch('/api/top-decks?sort=tier').then(r=>r.json());}catch{}
+      if(data&&!(data.error&&!(data.decks&&data.decks.length))){
+        for(const d of (data.decks||[])) _metaPriceMap[d.name]=d;
+        return true;
       }
-      for(const d of (data.decks||[])) _metaPriceMap[d.name]=d;
-      _metaPricesLoaded=true;
-      if(_metaTiers.length) renderMetaTiers(); // 一覧が既に表示済みなら価格を反映して再描画
-    })
-    .catch(()=>{
-      if(retry<2){setTimeout(()=>loadMetaDeckPrices(retry+1),2000);return;}
-      _metaPricesLoaded=true;
-      _metaPricesError=true;
-      if(_metaTiers.length) renderMetaTiers();
-    })
-    .finally(()=>{_metaPricesLoadPromise=null;});
+      if(data&&data.pending){
+        if(Date.now()-startedAt>=_META_PRICES_PENDING_WAIT_MS) return false;
+        await wait(_META_PRICES_PENDING_INTERVAL_MS);
+        continue;
+      }
+      if(++errors>_META_PRICES_ERROR_RETRIES) return false;
+      await wait(2000);
+    }
+  };
+  _metaPricesLoadPromise=run().then(ok=>{
+    _metaPricesLoaded=true;
+    _metaPricesError=!ok;
+    if(_metaTiers.length) renderMetaTiers(); // 一覧が既に表示済みなら価格を反映して再描画
+  }).finally(()=>{_metaPricesLoadPromise=null;});
   return _metaPricesLoadPromise;
 }
 

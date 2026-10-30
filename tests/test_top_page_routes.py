@@ -180,6 +180,27 @@ class TestApiTopDecks:
         assert data["error"], "相場キャッシュ未ロード時は計算せずerrorを返すこと"
         assert fetch_calls["n"] == 0, "相場が無いと分かっている時点でTier表の取得すら行わないこと"
         assert app_module._top_decks_cache_time == 0, "この結果をキャッシュしないこと"
+        assert data["pending"] is True, "相場の準備中は待てば解消するので、画面が待ち続けられるようpendingを付けること"
+
+    def test_in_flight_computation_reports_pending(self, monkeypatch, _top_decks_isolated):
+        # 起動直後のプリロードが計算ロックを持っている間の要求（2026-10-30 デプロイ直後に画面が失敗表示で固定）
+        app_module.app.config.update(TESTING=True)
+        client = app_module.app.test_client()
+        assert app_module._top_decks_lock.acquire(blocking=False)
+        try:
+            data = client.get("/api/top-decks?sort=tier").get_json()
+        finally:
+            app_module._top_decks_lock.release()
+        assert data["decks"] == []
+        assert data["error"]
+        assert data["pending"] is True
+
+    def test_real_failure_is_not_pending(self, monkeypatch, _top_decks_isolated):
+        monkeypatch.setattr(app_module, "fetch_tier_list", lambda: [])
+        app_module.app.config.update(TESTING=True)
+        data = app_module.app.test_client().get("/api/top-decks").get_json()
+        assert data["error"]
+        assert data["pending"] is False, "待っても解消しない失敗にpendingを付けない（画面が90秒待ち続けてしまう）"
 
     def test_all_priced_count_zero_not_cached(self, monkeypatch, _top_decks_isolated):
         # 相場キャッシュはロード済み(_estimate_cache_time!=0)だが中身が空、という
