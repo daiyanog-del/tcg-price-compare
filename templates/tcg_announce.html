@@ -33,6 +33,15 @@
       {% from "_brand_wordmark.html" import brand_wordmark with context %}
       {{ brand_wordmark('ta-brand-name-image') }}
     </a>
+    {# ほかのページの上部の切り替え（index.html の mode-tabs）と同じ並び。ここは単独のページなので、各画面を直接開くリンクにする #}
+    <nav class="ta-nav" aria-label="メインナビゲーション">
+      <a href="/">価格比較</a>
+      <a href="/solitaire">シミュレーター</a>
+      <a href="/#mydeck">マイデッキ</a>
+      <a href="/#meta">環境デッキ</a>
+      <a href="/#packs">新商品</a>
+      <a href="/#wishlist" class="ta-nav-wish">購入候補</a>
+    </nav>
   </header>
 
   <nav class="ta-crumbs" aria-label="現在地">
@@ -49,7 +58,7 @@
         {% if s.size %}<div><dt>収録</dt><dd>{{ s.size }}<small>枚</small></dd></div>{% endif %}
         <div><dt>判明</dt><dd>{{ known }}<small>枚</small></dd></div>
       </dl>
-      <p class="ta-lead">英語版で先に発売されるパックです。日本での発売はまだ発表されていません。新しく判明したカードは、1時間ごとに追加しています。</p>
+      <p class="ta-lead">英語版で先に発売されるパックです。日本での発売はまだ発表されていません。新しく判明したカードは、1日に数回追加しています。</p>
     </section>
 
     <section aria-labelledby="taCardsHeading">
@@ -74,7 +83,9 @@
             <h3 class="ta-name">{{ c.name_en }}{% if c.unofficial_name %}<small>（仮の名前）</small>{% endif %}</h3>
             <p class="ta-stats">{{ c.card_type }}{% if c.set_code and '?' not in c.set_code %}<span class="ta-code">{{ c.set_code }}</span>{% endif %}</p>
             {% if c.atk or c.def %}<p class="ta-atk">ATK <b>{{ c.atk or '?' }}</b>{% if not c.link_val %}　DEF <b>{{ c.def or '?' }}</b>{% endif %}</p>{% endif %}
-            {% if c.related_ja or c.theme_kind %}<p class="ta-related">{{ headline(c, s.name_en) }}</p>{% endif %}
+            {# ゆかりのカードは名前からそのカードのページへ（効果の文や絵を確かめたい人向け） #}
+            {% if c.related_ja %}<p class="ta-related">《<a href="/card/{{ c.related_ja[0]|urlencode }}">{{ c.related_ja[0] }}</a>》ゆかりの新カード</p>
+            {% elif c.theme_kind %}<p class="ta-related">{{ headline(c, s.name_en) }}</p>{% endif %}
             {% set summ = summary_of(c) %}
             {% if c.summary_status == 'done' and summ.effects %}
             {% if summ.intro %}<p class="ta-intro">{{ summ.intro }}</p>{% endif %}
@@ -94,6 +105,16 @@
       {% if s.size and s.size > known %}
       <p class="ta-rest">残りの<b>{{ s.size - known }}</b>枚は、まだ判明していないカードか、既存カードの再録です。</p>
       {% endif %}
+    </section>
+
+    {# 読み終えた人の行き先。新しいカードに関心がある人なので、日本の新カード → 試す → 値段の順 #}
+    <section class="ta-next" aria-labelledby="taNextHeading">
+      <h2 class="ta-heading" id="taNextHeading">あわせて見る</h2>
+      <div class="ta-next-grid">
+        <a href="/new-cards"><b>日本の未発売カード</b><span>OCG で発表された新カードを、商品ごとにまとめています</span></a>
+        <a href="/solitaire?newcards=1"><b>新カードを一人回しで試す</b><span>発表済みの新カードを入れて、シミュレーターで回せます</span></a>
+        <a href="/"><b>カードの値段を比べる</b><span>主要店の販売価格と買取価格を、まとめて比べられます</span></a>
+      </div>
     </section>
 
     <footer class="ta-foot">
