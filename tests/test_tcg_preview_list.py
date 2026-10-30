@@ -60,10 +60,13 @@ def test_ページと入口(client):
     html = client.get("/tcg-preview").get_data(as_text=True)
     assert "<title>海外先行カード一覧 | 強欲なラボ</title>" in html
     assert 'class="new-cards-page tcg-preview-page"' in html
-    assert '<a class="new-cards-back for-tcg" href="/new-cards">' in html
     assert '<h2 id="newCardsHeading">海外先行カード一覧</h2>' in html  # JS を待たない見出し（検索エンジン向け）
-    # 入口は未発売カード一覧のページだけに見せる（要素はどのページにもあり CSS で出し分ける・下のテスト）
-    assert 'href="/tcg-preview"' in client.get("/new-cards").get_data(as_text=True)
+    # 未発売カード一覧との行き来は「新弾情報」の切り替えの列で（2026-10-30。前の「← 未発売カード一覧へ」「海外先行カードを見る →」は廃止）
+    assert '<a href="/tcg-preview" class="is-on" aria-current="page">海外先行カード</a>' in html
+    assert '<a href="/new-cards">未発売カード</a>' in html
+    nc = client.get("/new-cards").get_data(as_text=True)
+    assert '<a href="/new-cards" class="is-on" aria-current="page">未発売カード</a>' in nc
+    assert '<a href="/tcg-preview">海外先行カード</a>' in nc
 
 
 def test_サイトマップに載せる(client):
@@ -77,15 +80,28 @@ def test_設定の取得失敗も例外にする(database):
         display.get_tcg_preview_cards()
 
 
-def test_戻るリンクと説明文は両方置いてCSSで出し分ける(client):
+def test_説明文は両方置いてCSSで出し分ける(client):
     from pathlib import Path
     # 同じ HTML のままトップ等と行き来するので、どのページの HTML にも両方の文言がある（2026-10-23 reviewer 指摘）
     for path in ("/", "/new-cards", "/tcg-preview"):
         html = client.get(path).get_data(as_text=True)
-        assert 'class="new-cards-back for-default"' in html and 'class="new-cards-back for-tcg"' in html, path
         assert 'class="new-cards-help for-default"' in html and 'class="new-cards-help for-tcg"' in html, path
     css = (Path(__file__).resolve().parent.parent / "static/css/new-cards.css").read_text(encoding="utf-8")
     assert "#mode-search:not(.tcg-preview-page) .new-cards .for-tcg,#mode-search.tcg-preview-page .new-cards .for-default{display:none}" in css
-    # 入口は基本は隠し、未発売カード一覧のページだけで出す（トップ・海外先行の一覧自身には見せない）
-    assert ".new-cards-tcg-link{display:none;" in css
-    assert ".new-cards-page:not(.tcg-preview-page) .new-cards-tcg-link{display:inline-block}" in css
+
+
+def test_一覧ページは新弾情報のタブを光らせる(client):
+    # 未発売カード一覧・海外先行カード一覧は「新弾情報」の中のページ（2026-10-30）。JS を待たずに HTML の時点で光らせる
+    from pathlib import Path
+    for path in ("/new-cards", "/tcg-preview"):
+        html = client.get(path).get_data(as_text=True)
+        assert 'class="mode-tab active" data-mode="packs" aria-current="page"' in html, path
+        assert 'class="mode-tab" data-mode="search" onclick' in html, path
+    top = client.get("/").get_data(as_text=True)
+    assert 'class="mode-tab active" data-mode="search" aria-current="page"' in top
+    assert '新商品</button>' not in top and '>新弾情報</button>' in top
+    # トップの「新着の未発売カード」の欄には切り替えの列を出さない（新弾情報のタブの中の列はある）
+    assert top.count('class="newset-subnav"') == 1
+    assert '<a href="/#packs" class="is-on" aria-current="page">パック一覧</a>' in top
+    css = (Path(__file__).resolve().parent.parent / "static/css/newset-subnav.css").read_text(encoding="utf-8")
+    assert "#mode-search:not(.new-cards-page) .newset-subnav{display:none}" in css

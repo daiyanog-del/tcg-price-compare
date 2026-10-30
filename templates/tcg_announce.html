@@ -24,6 +24,7 @@
 <meta name="theme-color" content="#191b21">
 <link rel="stylesheet" href="{{ static_url('css/site-theme.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/tcg-announce.css') }}">
+<link rel="stylesheet" href="{{ static_url('css/newset-subnav.css') }}">
 </head>
 <body class="price-redesign">
 <div class="ta-page">
@@ -39,10 +40,13 @@
       <a href="/solitaire">シミュレーター</a>
       <a href="/#mydeck">マイデッキ</a>
       <a href="/#meta">環境デッキ</a>
-      <a href="/#packs">新商品</a>
+      <a href="/#packs" class="is-current">新弾情報</a>
       <a href="/#wishlist" class="ta-nav-wish">購入候補</a>
     </nav>
   </header>
+
+  {# 「新弾情報」の中の切り替え。このページは海外先行カードの下の階層（2026-10-30） #}
+  {% from "_newset_subnav.html" import newset_subnav %}{{ newset_subnav('tcg', within=True) }}
 
   <nav class="ta-crumbs" aria-label="現在地">
     <a href="/">トップ</a><span aria-hidden="true">›</span><a href="/tcg-preview">海外先行カード</a><span aria-hidden="true">›</span><span>{{ s.name_en }}</span>

@@ -2309,13 +2309,6 @@ function switchMode(mode, trigger){
     _ga('mode_switch',{mode:mode,from_mode:_currentMode,trigger:trigger,scroll_pct:_scrollPct()});
   }
   _currentMode=mode;
-  document.querySelectorAll('.mode-tab').forEach(b=>{
-    // 文言変更や購入候補の件数バッジに依存せず、遷移先をキーに選択状態を同期する。
-    const active=b.dataset.mode===mode;
-    b.classList.toggle('active',active);
-    if(active) b.setAttribute('aria-current','page');
-    else b.removeAttribute('aria-current');
-  });
   ['search','mydeck','meta','packs','wishlist'].forEach(m=>{
     document.getElementById('mode-'+m).classList.toggle('hidden',m!==mode);
   });
@@ -2362,6 +2355,19 @@ function switchMode(mode, trigger){
       document.title='強欲なラボ';
     }
   }
+  _syncModeTabs(mode);
+}
+// 上のタブの選択状態。文言変更や購入候補の件数バッジに依存せず、遷移先をキーに同期する。
+// 未発売カード一覧・海外先行カード一覧は価格比較の画面（#mode-search）に描くが、「新弾情報」の中のページなのでそのタブを光らせる（2026-10-30）。
+// 一覧ページからタブでトップ等へ移ったときは上で一覧の状態を外してから決める
+function _syncModeTabs(mode){
+  const tab=(mode==='search'&&document.getElementById('mode-search').classList.contains('new-cards-page'))?'packs':mode;
+  document.querySelectorAll('.mode-tab').forEach(b=>{
+    const active=b.dataset.mode===tab;
+    b.classList.toggle('active',active);
+    if(active) b.setAttribute('aria-current','page');
+    else b.removeAttribute('aria-current');
+  });
 }
 
 // ── Deck Builder ──
