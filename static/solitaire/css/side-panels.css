@@ -54,8 +54,11 @@
   padding: 1px 6px;
 }
 
-/* ── 元にしたソフトの表記: フッターと同じ薄い文字・下線なし ── */
-.sol-credit { font-size: 11px; line-height: 1.5; margin: 0; color: #a8b4c9; }
+/* ── 規約とクレジット: フッターと同じ薄い文字・下線なし ── */
+.sol-credit { font-size: 11px; line-height: 1.6; margin: 0; color: #a8b4c9; }
+.sol-credit + .sol-credit { margin-top: 6px; }
+/* 名前と「を基に改変」をそれぞれひとかたまりで折り返す。components.css の span { color:#333 } を打ち消す */
+.sol-credit-nb { display: inline-block; white-space: nowrap; color: inherit; }
 .sol-credit a { color: inherit; text-decoration: none; }
 .sol-credit a:hover { color: var(--accent); text-decoration: underline; }
 
@@ -274,3 +277,13 @@
   /* 横に窓は出ず下に開くので、矢印も下向きに */
   .sol-side-btn[data-pane] .sol-side-btn-chev { transform: rotate(90deg); }
 }
+
+/* ── 文字の左端を2本の線にそろえる（2026-10-31 モック _mocks/sim-sidebar-tidy-20261031）──
+ *   線A 20px … 区画の見出し・ナビの文字・ボタンのアイコン・規約とクレジット
+ *   線B 42px … アイコンの横の文字・検索欄の文字（どちらも今のまま）
+ *   背景のある箱（検索欄・ボタン）の外枠は区画の余白 10px のまま。
+ *   ナビはボタンと同じ 13px（太字・色はヘッダーと同じ文法のまま） */
+.sol-sidebar-heading { padding-left: 10px; }
+.sol-sidebar-links a { padding-left: 8px; font-size: 13px; }   /* 左線 2px ＋ 8px ＝ 線A */
+.sol-credit { padding-left: 10px; }
+.sol-panel-toggle { font-family: inherit; }

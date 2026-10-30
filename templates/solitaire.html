@@ -175,20 +175,22 @@
       <div id="solDeckReplaysBody" class="sol-drp-list"></div>
     </div>
 
-    <!-- フィードバック -->
-    <div class="sol-sidebar-section">
-      <button type="button" id="feedbackOpenBtn" class="sol-side-btn is-quiet"><span class="sol-side-btn-label">不具合・要望を送る</span></button>
+    <!-- フィードバック・X（控えめなボタン。アイコンを付けて文字の左端を上のボタンとそろえる） -->
+    <div class="sol-sidebar-section sol-side-stack">
+      <button type="button" id="feedbackOpenBtn" class="sol-side-btn is-quiet"><svg class="sol-side-btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span class="sol-side-btn-label">不具合・要望を送る</span></button>
       <a href="https://x.com/GreeedyLab" target="_blank" rel="noopener" class="sol-side-btn is-quiet" data-x-follow="sidebar"><svg class="sol-side-btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg><span class="sol-side-btn-label">X のお知らせ</span></a>
     </div>
 
-    <!-- クレジット -->
+    <!-- 規約・ポリシーとクレジット。言葉の途中で折り返さないよう、規約は1行ずつ・クレジットは名前のあとで折り返す（2026-10-31） -->
     <div class="sol-sidebar-section">
-      <p class="sol-credit">
-        <a href="https://github.com/Fugarta/solo-mode" target="_blank" rel="noopener noreferrer">Solo Mode (Fugarta, MIT)</a> を基に改変
-      </p>
       <!-- 規約・ポリシー（トップのモーダルは無いので単独ページを別タブで開く。盤面を残すため。2026-10-29） -->
       <p class="sol-credit">
-        <a href="/terms" target="_blank" rel="noopener">利用規約</a>・<a href="/privacy" target="_blank" rel="noopener">プライバシーポリシー</a>
+        <a href="/terms" target="_blank" rel="noopener">利用規約</a><br>
+        <a href="/privacy" target="_blank" rel="noopener">プライバシーポリシー</a>
+      </p>
+      <p class="sol-credit">
+        <span class="sol-credit-nb"><a href="https://github.com/Fugarta/solo-mode" target="_blank" rel="noopener noreferrer">Solo Mode (Fugarta, MIT)</a></span>
+        <span class="sol-credit-nb">を基に改変</span>
       </p>
     </div>
 
