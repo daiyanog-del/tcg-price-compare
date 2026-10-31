@@ -187,9 +187,12 @@ window.NewCards = (() => {
     const showAll=!list&&cards.length>0&&truncated&&shown>=cards.length;
     get('newCardsAll').hidden=!showAll;
     get('newCardsStatus').classList.remove('ld-spin');
+    // 海外先行の一覧で予告中の弾のまとまり（index.html #newCardsAnnounce）が上に出ているときは、「ありません」と言うと上のカードと食い違うので、
+    // 発売済みのカードが無いことだけを言う（2026-10-31）
     get('newCardsStatus').textContent=cards.length
       ?''
-      :isTcgPage()?'現在、表示できる海外先行カードはありません。':'現在、表示できる未発売カードはありません。';
+      :!isTcgPage()?'現在、表示できる未発売カードはありません。'
+      :get('newCardsAnnounce')?'英語版で発売済みのカードは、今はありません。':'現在、表示できる海外先行カードはありません。';
   }
   function load(){
     const key=sourceKey();
