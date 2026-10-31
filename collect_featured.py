@@ -704,7 +704,10 @@ def watch_pack_matrix(pack: dict, now: datetime) -> None:
             return
     except ValueError:
         pass
-    check_pack_matrix(pack)
+    try:
+        check_pack_matrix(pack)
+    except Exception as e:  # 見張りは付け足し。収集の成否（終了コード）に影響させない（reviewer 低5）
+        print(f"[表の見張り] 見張りの途中で失敗: {type(e).__name__}: {e}")
 
 
 if __name__ == "__main__":

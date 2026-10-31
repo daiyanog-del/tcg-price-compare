@@ -51,3 +51,47 @@ def test_daily_rows_find_full_width_name():
         _RecSupabase({HW: 7}, rows), [FW], "card_id, card_name, shop, min_price", ["2026-11-01"], "t")
     assert failed == set()
     assert [(r["card_name"], r["min_price"]) for r in got] == [(FW, 300)], "行の名前は呼び出し元の名前に戻す"
+
+
+class _FailSb(_RecSupabase):
+    """card_dim の問い合わせで、指定の名前を含む束だけ失敗させる"""
+
+    def __init__(self, names, rows, fail_name):
+        super().__init__(names, rows)
+        self.fail_name = fail_name
+
+    def table(self, name):
+        q = super().table(name)
+        if name != "card_dim":
+            return q
+        orig_execute, sb = q.execute, self
+
+        def execute():
+            if sb.fail_name in q.f.get("card_name", []):
+                raise RuntimeError("読めない")
+            return orig_execute()
+        q.execute = execute
+        return q
+
+
+def _split_chunks(monkeypatch):
+    monkeypatch.setattr(phr, "_chunk_card_names_by_bytes", lambda names: [[n] for n in names])
+
+
+def test_exact_chunk_failed_does_not_use_loose_card(monkeypatch):
+    """呼び出し元の名前そのものの束が読めなければ、そろえた名前の別カードの値段を混ぜず失敗にする（reviewer 中1）"""
+    _split_chunks(monkeypatch)
+    rows = [dict(_row(FW, "遊々亭", "ウルトラ", 100, 100, "2026-11-01"), card_id=1, shop_id=1),
+            dict(_row(HW, "遊々亭", "ウルトラ", 50, 50, "2026-11-01"), card_id=2, shop_id=1)]
+    got, failed = phr.fetch_daily_rows_by_card_names(
+        _FailSb({FW: 1, HW: 2}, rows, FW), [FW], "card_id, card_name, shop, min_price", ["2026-11-01"], "t")
+    assert got == [] and failed == {FW}
+
+
+def test_loose_chunk_failed_keeps_exact_card(monkeypatch):
+    """そろえた名前の束だけ読めなくても、完全一致で読めたカードは失敗にしない（reviewer 低1）"""
+    _split_chunks(monkeypatch)
+    rows = [dict(_row(FW, "遊々亭", "ウルトラ", 100, 100, "2026-11-01"), card_id=1, shop_id=1)]
+    got, failed = phr.fetch_daily_rows_by_card_names(
+        _FailSb({FW: 1}, rows, HW), [FW], "card_id, card_name, shop, min_price", ["2026-11-01"], "t")
+    assert failed == set() and [r["min_price"] for r in got] == [100]

@@ -23,6 +23,7 @@ from site_urls import site_url
 MISSING_RATIO_ALERT = 0.10  # TODO: calibrate from data
 WATCH_HOUR_JST = 10
 _TIMEOUT_SEC = 60
+MAX_PACK_MATRIX_CARDS = 150  # app.MAX_PACK_MATRIX_CARDS と同じ（app を読み込まずに使う）
 
 
 def missing_cards(cards: list[str], matrix: dict) -> list[str]:
@@ -48,12 +49,15 @@ def check_pack_matrix(pack: dict, *, base_url: str | None = None, session=reques
                         params={"name": name, "wiki": pack.get("wiki_page") or name, "tcg": pack.get("tcg_name") or ""},
                         timeout=_TIMEOUT_SEC)
         r.raise_for_status()
-        cards = [str(c) for c in (r.json().get("cards") or [])]
+        # 表の API は先頭 MAX_PACK_MATRIX_CARDS 枚だけ受け取る（画面も同じ）。分母もそこまでにする（reviewer 低6）
+        cards = [str(c) for c in (r.json().get("cards") or [])][:MAX_PACK_MATRIX_CARDS]
         if not cards:
             raise RuntimeError("収録カードが0枚")
         m = session.post(f"{base}/api/packs/matrix", json={"cards": cards}, timeout=_TIMEOUT_SEC)
         m.raise_for_status()
         matrix = m.json()
+        if not isinstance(matrix, dict):
+            raise RuntimeError(f"表の形が違う: {type(matrix).__name__}")
     except Exception as e:
         msg = f"⚠️ 新弾の店舗×レア表を確かめられませんでした（{name}）: {type(e).__name__}: {e}"
         print(f"[表の見張り] {msg}")

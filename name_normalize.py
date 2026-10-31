@@ -68,6 +68,8 @@ def db_lookup_names(names: list[str]) -> dict[str, str]:
     読み手が名前の完全一致だけで引いていたため、呼び出し元がそろえ忘れると黙って「記録なし」になった
     （2026-11-01 パックの表で全角の「Ｎｏ.９６」が半角の「No.96」と一致しなかった）。
     そろえた名前が別の呼び出し元の名前と同じなら、そちらを優先する（同じ名前を2つの名前に割り振らない）。
+    そろえ方は normalize_card_name だけ。収集はこのあと正式名への補正（canonicalize_card_name）も通すので、
+    補正で名前が変わるカードはここでは救えない（呼び出し元が正式名に直して渡す前提）。
     """
     out: dict[str, str] = {}
     for name in names:
@@ -80,11 +82,14 @@ def db_lookup_names(names: list[str]) -> dict[str, str]:
     return out
 
 
-def pick_card_ids(rows: list[dict], lookup: dict[str, str]) -> dict[int, str]:
+def pick_card_ids(rows: list[dict], lookup: dict[str, str], failed_keys=frozenset()) -> dict[int, str]:
     """card_dim の行（card_id, card_name）→ カード番号 → 呼び出し元の名前。
 
     呼び出し元の名前で完全に一致したカードがあれば、そろえた名前でだけ一致したカードは使わない
-    （表記ゆれで2行に分かれたカードの記録を混ぜない。今までの挙動を変えない）。
+    （表記ゆれで2行に分かれたカードの記録を混ぜない。今までの挙動を変えない。本番の card_dim には
+    全角と半角で2行に分かれたカードが51組ある・2026-11-01）。
+    failed_keys: card_dim を読めなかった問い合わせの名前。呼び出し元の名前そのものが読めなかったときは、
+    そろえた名前でだけ一致したカードも使わない（完全一致があったかどうか分からないので混ぜない。reviewer 中1）。
     """
     exact: dict[str, list[int]] = {}
     loose: dict[str, list[int]] = {}
@@ -99,7 +104,7 @@ def pick_card_ids(rows: list[dict], lookup: dict[str, str]) -> dict[int, str]:
         for cid in cids:
             ids[cid] = orig
     for orig, cids in loose.items():
-        if orig not in exact:
+        if orig not in exact and orig not in failed_keys:
             for cid in cids:
                 ids[cid] = orig
     return ids

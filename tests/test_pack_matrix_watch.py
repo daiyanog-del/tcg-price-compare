@@ -73,3 +73,19 @@ def test_watch_runs_only_at_10_and_after_release_day(monkeypatch):
     collect_featured.watch_pack_matrix(PACK, datetime(2026, 10, 31, 10, 1, tzinfo=JST))
     collect_featured.watch_pack_matrix({**PACK, "start_date": ""}, datetime(2026, 11, 1, 10, 1, tzinfo=JST))
     assert calls == ["テストパック", "テストパック"]
+
+
+def test_watch_failure_does_not_raise(monkeypatch):
+    """見張りが落ちても収集（終了コード）に響かせない"""
+    def boom(pack):
+        raise KeyError("pack_name")
+    monkeypatch.setattr(pmw, "check_pack_matrix", boom)
+    collect_featured.watch_pack_matrix(PACK, datetime(2026, 10, 31, 10, 1, tzinfo=JST))
+
+
+def test_denominator_capped_like_matrix_api(monkeypatch):
+    monkeypatch.setattr(pmw, "send_discord_message", lambda msg, **k: None)
+    cards = [f"カード{i}" for i in range(200)]
+    s = _session(cards, _rows(cards[:150], []))
+    out = pmw.check_pack_matrix(PACK, base_url="https://example.test", session=s)
+    assert out["cards"] == 150 and out["missing"] == [] and len(s.calls[1][2]["cards"]) == 150
