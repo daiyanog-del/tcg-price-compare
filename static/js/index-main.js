@@ -1651,27 +1651,37 @@ function _rowVariant(r,cardName){
   return r.art;
 }
 
-// 名前の表記ゆれ（全角半角・中黒・空白）を除いた比較用の1文字。消える文字は ''
-function _variantNormChar(ch){
-  return ch.normalize('NFKC').replace(/[・･\s]/g,'');
+// 店が商品名から落とすことがある記号。あってもなくても同じ名前とみなす（NFKC 後の形）。
+// サーバーの照合（scraper.py の _FLEX_SEP_ALL）と同じ集合に「·」（U+00B7）を足したもの
+const _VARIANT_SEP=/[\s・·\-:「」『』【】《》〈〉〔〕☆★“”’'〜~×@&!?./<>=]/g;
+// カード名のあとで読み飛ばす「つなぎ」。注記の括弧（『』【】など）は札の中身なので飛ばさない
+const _VARIANT_JOIN=/^[\s・·\-:]+$/;
+
+// 文字と直後の濁点・半濁点（半角カナ・結合文字）をひとまとまりにする。1文字ずつ NFKC にかけると
+// 「ﾊﾟ」が「ハ」＋結合用の半濁点の2文字になり、「パ」と一致しないため
+function _variantClusters(s){
+  return s.match(/.[゙゚ﾞﾟ\p{M}]*/gsu)||[];
+}
+function _variantNorm(s){
+  return s.normalize('NFKC').replace(_VARIANT_SEP,'');
 }
 
 // 店舗の出品名がカード名と違うとき（「灰流うらら(既存イラスト)」など）だけ、違う部分を札にする。
-// 中黒・空白・全角半角の違いは同じ名前とみなす（10-31 カードラッシュの「パワーオブザデュエリスト」が札になっていた）
+// 表記ゆれ（全角半角・中黒・空白・店が落とす記号）だけの違いは同じ名前とみなす
+// （10-31 カードラッシュの「パワーオブザデュエリスト」が札になっていた）
 function _variantLabel(name,cardName){
   if(!name||!cardName||name===cardName) return '';
-  const card=[...cardName].map(_variantNormChar).join('');
+  const card=_variantNorm(cardName);
   // 出品名の頭から、正規化した文字がカード名と一致する所まで進める
+  const parts=_variantClusters(name);
   let i=0,acc='';
-  const chars=[...name];
-  while(i<chars.length&&acc.length<card.length){
-    acc+=_variantNormChar(chars[i]);
+  while(i<parts.length&&acc.length<card.length){
+    acc+=_variantNorm(parts[i]);
     i++;
   }
   if(acc===card){
-    // カード名のあとに続く消える文字（空白・中黒）も飛ばす
-    while(i<chars.length&&_variantNormChar(chars[i])==='') i++;
-    return chars.slice(i).join('').trim().replace(/^[（(]/,'').replace(/[)）]$/,'').trim();
+    while(i<parts.length&&_VARIANT_JOIN.test(parts[i].normalize('NFKC'))) i++;
+    return parts.slice(i).join('').trim().replace(/^[（(]/,'').replace(/[)）]$/,'').trim();
   }
   return name;
 }
