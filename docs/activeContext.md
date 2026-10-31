@@ -1,5 +1,11 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-31: カードのページの公式DB・Wiki をボタンの列のピルに（本番 PR #314 841f19b）
+- 経緯: ユーザー「カード名が長いと公式DB・Wiki が1段下に落ちる。デッキに追加・シェアの右に平仄も併せて揃えたい」→スマホの1行足しは「へん」→文字＋矢印は違和感→↗ も外す
+- 直したこと: index-main.js renderAll でリンクを .cr-acts の末尾へ・_crPlaceForViewport でスマホは #crFxBtn の隣へ移す。card-result.css の .cr-db-link をピルに（PC 塗り・スマホ枠線）。360px 未満は効果テキストの下の行。site-theme.css の .nav-pill の説明も直した。経緯は decisions.md 同日
+- 確認: 本番ページに手元の JS/CSS を差し込んで Playwright で 1920・1100・375・360・320px を撮影。CI pytest pass。本番反映後に差し込みなしで同じ5つの幅を確認（同じ配置）
+- 片付け: worktree .claude/worktrees/hero-links・ローカルと origin の fix/hero-links-row を削除
+
 ## 2026-10-31: 未発売カードの効果テキストの開閉をやめた（本番 PR #313 90c8811）
 - 経緯: ユーザー「未発売カードのページの効果テキストの開閉は必要？」。開閉の見出しが画面に出るのは未発売カードだけだった（発売済みは PC で見出しを消して常に開く・スマホは別のボタンでシート）。価格表が無く畳む理由も無い
 - 直したこと: index-main.js showUnreleasedCard の <details>/<summary> を普通の div に。id cardDetailDetails と class card-info-details は残す（class が無いとスマホで欄が全幅にならず、画像の横の幅約200pxに押し込まれた）
