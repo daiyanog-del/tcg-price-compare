@@ -1,5 +1,14 @@
 # activeContext — 今どこ・次何
 
+## 2026-11-01: パックの表の残り3枚（本番 PR #327 9506628）と再発防止（本番 PR #328 f111fdb）
+- 経緯: #326 のあとも IMMORTAL PHOENIX で3枚が空→「直して」→「再発防止の仕組みはすでにある？」→ 読み手は名前の完全一致・監視なしと報告 →「両方進めて」
+- #327: /api/packs/cards（app._canonical_pack_cards）で normalize_card_name を先に通す（正式名一覧に未登録の新カードが Wiki の全角のままだった）。normalize_card_name は name_normalize.py へ移動。本番で空の行 0 を確認
+- #328 A: featured_matrix・price_history_reads はそろえた名前でも card_dim を引き、行の名前は呼び出し元に戻す（db_lookup_names / pick_card_ids）。完全一致を優先
+- #328 B: pack_matrix_watch.py。collect_featured の10時台（発売日除く）で公開サイトの表を取り、記録なしが10%超で Discord。基準は仮置き（TASKS で校正）
+- 確認: tests 3412 passed・CI pass・reviewer 1回（中1・低5件を直し、低2・低4は受け入れ/TASKS）
+- 残り: 見張りの初回は次の10時台の回のログ `[表の見張り]` で確かめる。card_dim の全角/半角の2行（51組）は TASKS
+- 片付け: worktree pack-cards-width・name-guard と、ローカル・origin の fix/pack-cards-width・feat/name-guard を削除
+
 ## 2026-11-01: パックの店舗×レア表の「記録がありません」を直す（本番 PR #326 593cfaa）
 - 経緯: ユーザーが IMMORTAL PHOENIX のパックのページのスクショで「これは予定通り？」→ほぼ全カードが「記録がありません」と判明→「Ok、進めて。」
 - 原因: featured_matrix の前日の行の読み込みと捨てる判定が、店単位でパック全体を見ていた（1枚に今日の行ができると、その店の前日の行がパック全体で使われなくなる）
