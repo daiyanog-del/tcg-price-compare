@@ -1,6 +1,7 @@
 """有料化の合図の見張り（upgrade_signals.py）。Discord には送らない（送信関数を差し替えて中身を確かめる）。"""
 from datetime import datetime
 import threading
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -548,3 +549,67 @@ def test_store_client_has_short_timeout_and_is_separate():
     c = us.make_store_client("https://example.supabase.co", "x" * 40)
     assert c.postgrest.session.timeout.read == us.STORE_TIMEOUT_SEC
     assert us.make_store_client(None, "k") is None
+
+
+# ── DB の大きさの合図（2026-10-31） ──
+
+class SizedStore:
+    """FakeSB に db_size_bytes の呼び出しを足したもの。size_bytes が None なら関数が無いときと同じく失敗する。"""
+
+    def __init__(self, size_bytes):
+        self.db = FakeSB(pks={})
+        self.tables = self.db.tables
+        self.size_bytes = size_bytes
+        self.rpc_calls = []
+
+    def table(self, name):
+        return self.db.table(name)
+
+    def rpc(self, name, params=None):
+        self.rpc_calls.append(name)
+        if self.size_bytes is None:
+            raise RuntimeError("Could not find the function public.db_size_bytes")
+        return SimpleNamespace(execute=lambda: SimpleNamespace(data=self.size_bytes))
+
+
+MB = 1024 * 1024
+
+
+def test_db_size_signal_threshold():
+    stats = us.DailyStats("d")
+    assert us.evaluate_signals(stats, 450.0) == []  # ちょうど合図は超えていない
+    hits = us.evaluate_signals(stats, 460.4)
+    assert len(hits) == 1 and "460MB" in hits[0] and "500MB" in hits[0] and "url/code" in hits[0]
+    assert us.evaluate_signals(stats, None) == []
+
+
+def test_summary_sends_db_size_once_a_day():
+    store = SizedStore(470 * MB)
+    mon, clock, sent = make(ts(2026, 10, 22, 23, 0))
+    clock.t = ts(2026, 10, 23, 0, 20)
+    mon.tick(store=store)
+    assert len(sent) == 1 and "DB の大きさが合図" in sent[0] and "DB の大きさ 470MB" in sent[0]
+    clock.t += 60
+    mon.tick(store=store)
+    assert store.rpc_calls == ["db_size_bytes"]  # まとめを決めた周の1回だけ
+
+
+def test_summary_without_size_function_still_reports_other_signals():
+    store = SizedStore(None)
+    mon, clock, sent = make(ts(2026, 10, 22, 23, 50))
+    for _ in range(20):
+        mon.record_db_response(0.1, True)
+    clock.t = ts(2026, 10, 23, 0, 0)
+    mon.tick(store=store)
+    clock.t = ts(2026, 10, 23, 0, 11)
+    mon.tick(store=store)
+    summary = [m for m in sent if m.startswith("💰")]  # すぐ知らせる「DB が応答しません」も別に届く
+    assert len(summary) == 1 and "応答なしが 20件" in summary[0] and "DB の大きさ 測れず" in summary[0]
+
+
+def test_small_db_is_quiet():
+    store = SizedStore(385 * MB)
+    mon, clock, sent = make(ts(2026, 10, 22, 23, 0))
+    clock.t = ts(2026, 10, 23, 0, 20)
+    mon.tick(store=store)
+    assert sent == []
