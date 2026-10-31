@@ -179,11 +179,11 @@ assert.equal(run(`_variantLabel('灰流うらら(既存イラスト)','灰流う
 assert.equal(run(`_variantLabel('【新】灰流うらら(座り)','灰流うらら')`), '【新】灰流うらら(座り)');
 assert.equal(run(`_variantLabel('x','')`), '');
 
-// 8) 購入候補ボタンの文言はレアリティに追従
+// 8) 購入候補ボタンの文言はレアリティによらず固定（2026-10-31。レアリティと枚数は押したときの窓で選ぶ）
 run(`rarityFilter='ウルトラ'; _updateRarityBanner()`);
-assert.equal(get('heroWishAdd').textContent, 'ウルトラを購入候補へ');
+assert.equal(get('heroWishAdd').textContent, '購入候補に追加');
 run(`rarityFilter=''; _updateRarityBanner()`);
-assert.equal(get('heroWishAdd').textContent, 'レアリティ未指定で購入候補へ');
+assert.equal(get('heroWishAdd').textContent, '購入候補に追加');
 
 // 10) イラストの切り替え（2026-10-28）: 絵が2種類以上あるレアリティだけ。既定は元のイラスト。最安・一覧・件数をその絵で比べる
 run(`D=${JSON.stringify([

@@ -911,12 +911,13 @@ function renderAll(d){
   // 外部リンク（公式DB・Wiki）: ボタンの列の右端（シェアの右）。Wiki はここで出し、公式DB は konami_id が分かったら _applyKonamiLink が前に足す。
   // 名前の横に置くと、長い名前でリンクだけ次の行に落ちていた（2026-10-31 ユーザー指定でボタンの列へ）。
   // Wiki は /card-wiki がページの有無を確かめ、無ければ wiki のタイトル検索へ送る（wiki_link.py）
+  _closeWishAddPicker(); // 前のカードの購入候補に追加の窓を残さない
   heroInfo.innerHTML=`<div class="card-hero-name">${esc(searchTerm)}</div>
     <div class="cr-best" id="heroBest">${best?'':'<span class="cr-best-none">在庫なし</span>'}</div>
     <!-- スマホだけ: 効果テキストは名前と最安の下（画像の横の空き）のボタンから全画面で開く（2026-10-22 ユーザー指定） -->
     <button type="button" class="cr-fx-btn" id="crFxBtn" onclick="_openFxSheet()">効果テキスト</button>
     <div class="cr-acts">
-      <button type="button" id="heroWishAdd" class="cr-pill cr-pill-pri" onclick="wishAddFromBtn(this,'${escAttr(escJs(searchTerm))}',1,rarityFilter)">購入候補に追加</button>
+      <button type="button" id="heroWishAdd" class="cr-pill cr-pill-pri" aria-haspopup="dialog" onclick="_openWishAddPicker(this,'${escAttr(escJs(searchTerm))}')">購入候補に追加</button>
       <button type="button" class="cr-pill" onclick="addToDeck('${escAttr(escJs(searchTerm))}',this)">デッキに追加</button>
       <!-- 価格比較を先に見せ、効果テキストは必要なときに開く。
            閉じた見出しは最初から出しておき、カード情報が無かったときだけ _hideCardDetail で隠す。
@@ -1409,16 +1410,94 @@ function _updateHeroSummary(){
   _syncHeroArtImage(); // 見出しの画像も選んだ絵に合わせる
 }
 
-// 購入候補に追加ボタンの文言を選択中のレアリティに合わせる。
+// 購入候補に追加ボタンの文言を戻す（「✓ 追加」の後など）。
+// 文言は「購入候補に追加」で固定（2026-10-31 ユーザー選択）。以前の「〇〇を購入候補へ」はレアリティ名の長さでボタンの幅が変わり、
+// 公式DB・Wiki が次の行へ押し出された。レアリティと枚数は押したときの窓（_openWishAddPicker）で選ぶ。
 // 旧・「絞り込み中」の帯（#rfBanner）は、レアリティ欄の選択の印と一覧の見出しで伝えるようにしたので廃止
 function _updateRarityBanner(){
   const wishButton=document.getElementById('heroWishAdd');
-  if(wishButton)wishButton.textContent=rarityFilter?`${rarityFilter}を購入候補へ`:'レアリティ未指定で購入候補へ';
+  if(wishButton)wishButton.textContent='購入候補に追加';
+}
+
+// ── 購入候補に追加の窓（2026-10-31）──
+// レアリティ（値段つき・既定は選んでいるレアリティ）と枚数（1〜3）を選んで足す。
+// 見た目と閉じ方は「デッキに追加」の追加先の窓（mydeck/deck-edit.js deckOpenAddPicker）にそろえる
+let _wishPickEl=null,_wishPickCleanup=null;
+function _closeWishAddPicker(restoreFocus){
+  const anchor=_wishPickEl&&_wishPickEl._anchor;
+  if(_wishPickCleanup){_wishPickCleanup();_wishPickCleanup=null;}
+  if(_wishPickEl)_wishPickEl.remove();
+  _wishPickEl=null;
+  if(anchor)anchor.setAttribute('aria-expanded','false');
+  if(restoreFocus&&anchor&&document.body.contains(anchor)){try{anchor.focus({preventScroll:true});}catch(_){}}
+}
+// 起点ボタンの下（入らなければ上）に、画面の端から 8px 内側で置く
+function _placeWishAddPicker(el,anchor){
+  const r=anchor.getBoundingClientRect(),vw=document.documentElement.clientWidth,vh=window.innerHeight;
+  const w=el.offsetWidth,h=el.offsetHeight;
+  const left=Math.max(8,Math.min(r.left,vw-w-8));
+  let top=r.bottom+6;
+  if(top+h>vh-8&&r.top-6-h>=8)top=r.top-6-h;
+  el.style.left=left+'px';el.style.top=Math.max(8,top)+'px';
+  el.style.maxHeight=(vh-16)+'px';
+}
+function _openWishAddPicker(anchor,name){
+  // 同じボタンの再押下は閉じるだけ
+  if(_wishPickEl&&_wishPickEl._anchor===anchor){_closeWishAddPicker();return;}
+  _closeWishAddPicker();
+  const rarities=[...new Set(D.map(r=>r.rarity).filter(Boolean))].filter(r=>r!=='(不明)');
+  const choices=_rarityChoices(rarities);
+  const inStockJp=D.filter(r=>!r.sold_out&&_isJp(r));
+  const allMin=inStockJp.length?inStockJp.reduce((m,r)=>r.price<m?r.price:m,Infinity):null;
+  let pickR=rarities.includes(rarityFilter)?rarityFilter:'',pickQ=1;
+  const el=document.createElement('div');
+  el.className='wish-pick';el.setAttribute('role','dialog');el.setAttribute('aria-label','購入候補に追加');
+  el._anchor=anchor;
+  // 「指定しない」は購入候補でどのレアリティでもいちばん安い店を探す（wishAdd の rarity=""）
+  const row=(r,label,price)=>`<button type="button" class="wish-pick-r" data-r="${escAttr(r)}" aria-pressed="${r===pickR}"><span class="wish-pick-rn">${esc(label)}</span><span class="wish-pick-rp">${price}</span></button>`;
+  let h='<div class="wish-pick-title">レアリティ</div><div class="wish-pick-rs">';
+  h+=row('','指定しない',allMin!=null?`¥${allMin.toLocaleString()}〜`:'在庫なし');
+  for(const c of choices)h+=row(c.r,c.label,c.min!=null?`¥${c.min.toLocaleString()}`:'在庫なし');
+  h+='</div><div class="wish-pick-title">枚数</div><div class="wish-pick-qs" role="group" aria-label="枚数">';
+  for(const q of [1,2,3])h+=`<button type="button" class="wish-pick-q" data-q="${q}" aria-pressed="${q===pickQ}">${q}枚</button>`;
+  h+='</div><button type="button" class="wish-pick-ok">追加する</button>';
+  el.innerHTML=h;
+  el.addEventListener('click',e=>{
+    const rb=e.target.closest('.wish-pick-r'),qb=e.target.closest('.wish-pick-q');
+    if(rb){pickR=rb.dataset.r;el.querySelectorAll('.wish-pick-r').forEach(b=>b.setAttribute('aria-pressed',String(b===rb)));}
+    else if(qb){pickQ=+qb.dataset.q;el.querySelectorAll('.wish-pick-q').forEach(b=>b.setAttribute('aria-pressed',String(b===qb)));}
+    else if(e.target.closest('.wish-pick-ok')){_closeWishAddPicker(true);wishAddFromBtn(anchor,name,pickQ,pickR);}
+  });
+  document.body.appendChild(el);
+  _wishPickEl=el;anchor.setAttribute('aria-expanded','true');
+  _placeWishAddPicker(el,anchor);
+  // 外側を押す・Esc で閉じる。スクロール・大きさの変更では起点ボタンについていき、ボタンが画面から外れたら閉じる
+  const onDown=e=>{if(!el.contains(e.target)&&!anchor.contains(e.target))_closeWishAddPicker();};
+  const onKey=e=>{if(e.key==='Escape')_closeWishAddPicker(true);};
+  const onMove=e=>{
+    if(e&&e.type==='scroll'&&el.contains(e.target))return;
+    if(!document.body.contains(anchor)){_closeWishAddPicker();return;}
+    const r=anchor.getBoundingClientRect();
+    if(r.bottom<0||r.top>window.innerHeight){_closeWishAddPicker();return;}
+    _placeWishAddPicker(el,anchor);
+  };
+  document.addEventListener('pointerdown',onDown,true);
+  document.addEventListener('keydown',onKey);
+  window.addEventListener('scroll',onMove,true);
+  window.addEventListener('resize',onMove);
+  _wishPickCleanup=()=>{
+    document.removeEventListener('pointerdown',onDown,true);
+    document.removeEventListener('keydown',onKey);
+    window.removeEventListener('scroll',onMove,true);
+    window.removeEventListener('resize',onMove);
+  };
+  (el.querySelector('.wish-pick-r[aria-pressed="true"]')||el.querySelector('.wish-pick-r')).focus({preventScroll:true});
 }
 
 // レアリティの選択欄。各レアリティの在庫ありの最安を出し、安い順に並べる（押す前に値段の差が分かる）。
 // 在庫が無いレアリティは後ろに名前順。先頭は「すべて」
-function _rarityTilesHtml(rarities,active){
+// レアリティごとの在庫ありの最安・件数（安い順。在庫が無いものは後ろに名前順）。レアリティ欄と購入候補に追加の窓で使う
+function _rarityChoices(rarities){
   const inStock=D.filter(r=>!r.sold_out);
   const minOf=list=>list.length?list.reduce((m,r)=>r.price<m?r.price:m,Infinity):null;
   const tiles=rarities.map(r=>{
@@ -1430,6 +1509,12 @@ function _rarityTilesHtml(rarities,active){
     return {r:r,label:label,min:minOf(rows),n:rows.length,sold:D.filter(x=>x.rarity===r&&x.sold_out&&_inArt(x,art)).length};
   });
   tiles.sort((a,b)=>((a.min==null)-(b.min==null))||((a.min||0)-(b.min||0))||a.r.localeCompare(b.r,'ja'));
+  return tiles;
+}
+function _rarityTilesHtml(rarities,active){
+  const inStock=D.filter(r=>!r.sold_out);
+  const minOf=list=>list.length?list.reduce((m,r)=>r.price<m?r.price:m,Infinity):null;
+  const tiles=_rarityChoices(rarities);
   const tile=(r,label,price,count,on)=>`<button type="button" class="cr-rtile${on?' active':''}" data-r="${escAttr(r)}" aria-pressed="${on}" onclick="setRarityFilter('${escAttr(escJs(r))}')"><span class="cr-rn">${esc(label)}</span><span class="cr-rp"><b>${price}</b><i>${count}</i></span></button>`;
   // 「すべて」は日本版の出品で数える（言語版の値段を最安に出さない）
   const inStockJp=inStock.filter(_isJp);
