@@ -15,6 +15,7 @@ function slice(from, to) {
   return src.slice(s, e);
 }
 const code = [
+  slice('// 購入候補の API が1回に受け取るカードの数', '// ページロード時に localStorage から即時復元'),
   slice('// まだ店に並ばないカードの言い方', '// 価格情報の表示 HTML を生成する'),
   slice('// 販売店舗ごとのカード検索URLを生成する', '// ── どのデッキ用か'),
   slice('// 「どこで買うと安いか調べる」ボタンのハンドラ', '// 追加ボタンのHTMLを生成するヘルパー'),
