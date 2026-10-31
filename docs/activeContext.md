@@ -1,5 +1,11 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-31: 購入候補が50種を超えると後から入れたカードの価格が出ない（本番 PR #309 2391795）
+- 経緯: ユーザー「購入候補に後から入れたカードは『価格が見つかりませんでした』」。/api/wish-prices・/api/wish-shop-totals・/api/card-rarities が先頭50件だけ受け取り、新しいカードは末尾に足されるので51種目以降が切り捨てられていた（どこで買うと安いかからも黙って外れ、レアリティ候補も出ない）。同期データに55種・本日利用のアカウントあり
+- 直したこと: app.py MAX_WISH_CARDS = 200（3つ共通・price_history_reads の1束 _ID_CHUNK=200 に収まる）。index-wish.js は _WISH_API_MAX 件ずつ分けて価格を取る。どこで買うと安いかは200種超えで「先頭の200種だけで調べました」と注記。/api/push/subscribe の50は配信停止中なので触っていない
+- 確認: tests/test_wish_prices.py（55種・上限超え）・tests/js/wish_prices_many_check.js（405種を3回に分ける）追加、全件 passed。本番に55種を送って55件返ることを確認
+- 片付け: worktree .claude/worktrees/wish-over-50・ローカルと origin の fix/wish-over-50 を削除
+
 ## 2026-10-31: イラスト違いの段2a-1 の初回の夜間収集を確認（読むだけ）
 - 別表への書き込みは正常（price_history_art 4,611行・372枚／buyback_art 1,701行・99枚・別表の警告なし）。ただし行数が見積もりの約2.3倍・5.7倍で、別表は最終的に約+60MB（見積もり23MB）になりうる → 段2a-2 の前に見積もりと行の持ち方を見直す（TASKS.md の該当項）
 
