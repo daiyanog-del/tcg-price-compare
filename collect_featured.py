@@ -1,8 +1,9 @@
 """
 新弾フィーチャー価格収集スクリプト
 ====================================
-Renderの Cron（JST 10:15、新弾発売日の朝に各店舗の新カード価格が出そろうタイミング）
-から実行し、運用対象の新弾（featured_pack）に収録されたカードだけを収集する。
+Renderの Cron から実行し、運用対象の新弾（featured_pack）に収録されたカードだけを収集する。
+2026-10-31 から、発売日〜3日目は JST 7:01・10:01・13:01・16:01・19:01・21:01、4日目以降は 10:01・15:01・20:01
+（Render は和集合で毎時1分に起動し、動くかは should_run_now が決める。以前は 10:15 の1日1回）。
 
 collect_prices.py（毎日5時の全件収集）とは別経路。新弾週以外は featured 対象が
 無いため即座に終了する（cronは毎日走る前提）。
@@ -245,6 +246,44 @@ def collect_and_save_for_shops(sb, card_name: str, today: str, shop_names: list[
 REPRINT_LOOKBACK_DAYS = 7  # TODO: calibrate from data（再録を含む弾で、再録カードがここで拾えるかを見る）
 
 
+# ── いつ動くか（2026-10-31 ユーザー指定） ──
+# トレコロは発売日の朝7時、ほかの店は朝10時に商品ページを出し、その後は店どうしが互いの値段を見ながら
+# 値段を直していく。発売日〜3日目は細かく、その後は1日3回取る。
+# Render の定期実行は1つの時刻設定しか持てないので、下の時刻の和集合で毎時1分に起動し（JST 7・10・13・15・16・19・20・21時
+# ＝ UTC `1 1,4,6,7,10,11,12,22 * * *`）、その回に動くかは新弾の何日目かでここで決める
+EARLY_DAYS = 3                           # 発売日を0日目として 0〜2日目（＝発売日〜3日目）
+EARLY_HOURS_JST = (7, 10, 13, 16, 19, 21)
+LATER_HOURS_JST = (10, 15, 20)
+PRE_RELEASE_HOURS_JST = (10,)            # 発売前（手動で先に登録した弾）はこれまでどおり1日1回（reviewer 中1）
+SHOP_OPEN_HOUR_JST = {"トレコロCB": 7}  # 発売日に商品ページを出す時刻。載っていない店は10時
+DEFAULT_SHOP_OPEN_HOUR_JST = 10
+
+
+def should_run_now(pack: dict, now: datetime) -> bool:
+    """この回（now・JST）に新弾の収集を動かすか。発売日が分からなければ動かす（従来どおり）。"""
+    try:
+        start = date.fromisoformat((pack.get("start_date") or "")[:10])
+    except ValueError:
+        return True
+    elapsed = (now.date() - start).days
+    if elapsed < 0:
+        hours = PRE_RELEASE_HOURS_JST
+    else:
+        hours = EARLY_HOURS_JST if elapsed < EARLY_DAYS else LATER_HOURS_JST
+    return now.hour in hours
+
+
+def shops_open_now(pack: dict, shops: list[str], now: datetime) -> list[str]:
+    """発売日は、まだ商品ページを出していない店（トレコロ7時・ほかは10時）を外す。2日目以降はそのまま。"""
+    try:
+        start = date.fromisoformat((pack.get("start_date") or "")[:10])
+    except ValueError:
+        return shops
+    if now.date() != start:
+        return shops
+    return [s for s in shops if now.hour >= SHOP_OPEN_HOUR_JST.get(s, DEFAULT_SHOP_OPEN_HOUR_JST)]
+
+
 def find_reprints(sb, card_names: list[str], start_date: str) -> set[str] | None:
     """発売日の前の REPRINT_LOOKBACK_DAYS 日に price_history の行があるカード名（＝再録）を返す。
     読み込みに失敗した名前があれば None（型番での検索をやめ、全カードをカード名で探す側に倒す）。"""
@@ -266,7 +305,8 @@ def find_reprints(sb, card_names: list[str], start_date: str) -> set[str] | None
     return {r["card_name"] for r in rows if r.get("card_name")}
 
 
-def drop_higher_than_today(sb, plan: dict[str, dict[str, list[dict]]], today: str) -> dict[str, dict[str, list[dict]]] | None:
+def drop_higher_than_today(sb, plan: dict[str, dict[str, list[dict]]], today: str,
+                           dropped_out: set | None = None) -> dict[str, dict[str, list[dict]]] | None:
     """型番で取った値を今日の行（朝の収集・前の回）で確かめ、確かめられた (カード, 店) だけ残す（外した組はカード名で探す）。
 
     型番で探すと、再録の昔の版・ページの打ち切り・型番の読めない出品を取りこぼし、本当より高い最安値になりうる
@@ -315,13 +355,15 @@ def drop_higher_than_today(sb, plan: dict[str, dict[str, list[dict]]], today: st
                 kept.setdefault(card, {})[shop] = items
             else:
                 dropped += 1
+                if dropped_out is not None:
+                    dropped_out.add((card, shop))
     if dropped:
         print(f"  [型番検索] 今日の行で確かめられない・今日の行より高い {dropped}組はカード名で探します")
     return kept
 
 
 def plan_pack_search(sb, pack: dict, card_names: list[str], available_shops: list[str],
-                     today: str | None = None) -> dict[str, dict[str, list[dict]]]:
+                     today: str | None = None, dropped_out: set | None = None) -> dict[str, dict[str, list[dict]]]:
     """型番の頭で店ごとにまとめて取り、{カード名: {店: 商品}} を返す（pack_search.py）。
 
     ここで取れた (カード, 店) は、カードごとの検索をしない。取れなかった組（店の失敗・見つからない・再録・
@@ -360,7 +402,7 @@ def plan_pack_search(sb, pack: dict, card_names: list[str], available_shops: lis
         for card, items in res.by_card.items():
             if card not in reprints:
                 plan.setdefault(card, {})[shop] = items
-    guarded = drop_higher_than_today(sb, plan, today or datetime.now(JST).date().isoformat())
+    guarded = drop_higher_than_today(sb, plan, today or datetime.now(JST).date().isoformat(), dropped_out)
     if guarded is None:
         print("  [型番検索] 今日の行と比べられないため、全カードをカード名で探します")
         return {}
@@ -411,6 +453,8 @@ def _main(state: dict):
                          help="書き込みを行わず、収集対象カード数とサンプルのみ表示する")
     parser.add_argument("--limit", type=int, default=None,
                          help="先頭N枚のみ収集する")
+    parser.add_argument("--any-time", action="store_true",
+                        help="新弾の何日目かで決まる時刻（should_run_now）に関係なく動かす（手動実行用）")
     parser.add_argument("--pack", type=str, default=None,
                          help="featured自動選択を上書きする弾名（手動テスト用）")
     parser.add_argument("--wiki", type=str, default=None,
@@ -430,6 +474,11 @@ def _main(state: dict):
         sys.exit(0)
 
     print(f"対象弾: {pack['pack_name']}")
+    now_jst = datetime.now(JST)
+    # 手動実行（--pack・--any-time）は時刻に関係なく動かす
+    if not (args.pack or args.any_time) and not should_run_now(pack, now_jst):
+        print(f"[featured] この時刻（{now_jst:%H:%M}）は収集しない回です（発売日 {pack.get('start_date')}）。終了します。")
+        sys.exit(0)
 
     raw_cards = get_featured_cards(sb, pack)
     # 重複除去・順序維持
@@ -451,6 +500,10 @@ def _main(state: dict):
 
     # ── 店舗選定・ヘルスチェック（collect_prices.py と同じ仕組みを再利用） ──
     ci_shops = [name for name, _ in SHOPS if name not in SKIP_SHOPS_IN_CI]
+    open_shops = shops_open_now(pack, ci_shops, now_jst)
+    if len(open_shops) < len(ci_shops):
+        print(f"発売日でまだ商品ページの無い店は取りません: {'、'.join(s for s in ci_shops if s not in open_shops)}")
+    ci_shops = open_shops
     print("\n--- 店舗ヘルスチェック ---")
     available_shops = check_shop_availability(ci_shops)
 
@@ -495,7 +548,10 @@ def _main(state: dict):
             )
             print(f"{skip_shop}: 当日取得済み {len(already_collected[skip_shop])}/{len(card_names)}枚は取り直しません")
     # 型番の頭でまとめて取れる店は、新規カードをここで取る（取れた (カード, 店) はカードごとの検索をしない）
-    pack_plan = plan_pack_search(sb, pack, card_names, available_shops, today)
+    # 型番で取れたが今日の行で確かめられなかった (カード, 店)。トレコロでも、朝に取れていてもカード名で確かめる
+    # （取り直さない決まりのままだと、1日の途中で値下がりだけが入り値上がりは翌朝まで入らない。reviewer 中2）
+    pack_dropped: set = set()
+    pack_plan = plan_pack_search(sb, pack, card_names, available_shops, today, pack_dropped)
     for card_shops_items in pack_plan.values():
         for shop in card_shops_items:
             shop_stats.setdefault(shop, {"ok": 0, "empty": 0, "error": 0})["ok"] += 1
@@ -504,7 +560,8 @@ def _main(state: dict):
         """このカードをカード名で探す店（朝に取れたトレコロ・型番でまとめて取れた店を除く）"""
         covered = pack_plan.get(card_name, {})
         return [s for s in available_shops
-                if card_name not in already_collected.get(s, ()) and s not in covered]
+                if s not in covered
+                and (card_name not in already_collected.get(s, ()) or (card_name, s) in pack_dropped)]
 
     # ブロック様判定の分母は「実際に試行したカード数」にする
     attempted_per_shop = {
