@@ -323,10 +323,18 @@ function _closeFxSheet(fromPop){
 // CSS の並べ替えでは、相場の箱（名前の行の中）と一覧（その外）の順番を入れ替えられないため要素を動かす。ID は変えない
 const _CR_SP_MQ='(max-width:640px)';
 function _crPlaceForViewport(){
+  const sp=!!(window.matchMedia&&matchMedia(_CR_SP_MQ).matches);
+  // 公式DB・Wiki: PC はボタンの列の右端（シェアの右）、スマホは画像の右の「効果テキスト」の隣
+  // （ボタンの列に入れると購入候補が「…」に縮み、下の行に回すとリンクだけの行が浮いた。2026-10-31）
+  const ext=document.querySelector('#heroInfo .cr-ext-links');
+  if(ext){
+    const fx=document.getElementById('crFxBtn'),acts=document.querySelector('#heroInfo .cr-acts');
+    if(sp){ if(fx&&ext.previousElementSibling!==fx) fx.after(ext); }
+    else if(acts&&ext.parentNode!==acts) acts.appendChild(ext);
+  }
   const hero=document.getElementById('cardHero'),mk=document.getElementById('heroMarket');
   const buy=document.getElementById('buyInline'),list=document.getElementById('crList');
   if(!hero||!mk||!buy||!list) return;
-  const sp=!!(window.matchMedia&&matchMedia(_CR_SP_MQ).matches);
   if(sp){
     if(mk.parentNode===hero){ list.after(mk); mk.after(buy); }
   }else{
@@ -925,6 +933,7 @@ function renderAll(d){
       </div>
       <span class="cr-ext-links"><a class="cr-db-link cr-db-link-wiki" href="/card-wiki?name=${encodeURIComponent(searchTerm)}" target="_blank" rel="noopener nofollow">Wiki${_EXT_LINK_ICON}</a></span>
     </div>`;
+  _crPlaceForViewport(); // スマホなら公式DB・Wiki を効果テキストの隣へ（描く前に移すので位置は跳ねない）
   // シェアメニュー構築
   const shareOpts=_buildShareOptions(searchTerm,d,D);
   const smEl=document.getElementById('shareMenuSell');
