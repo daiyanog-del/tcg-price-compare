@@ -930,7 +930,7 @@ function renderAll(d){
         <button type="button" class="cr-pill share-btn-x" onclick="toggleShareMenu('shareMenuSell')">シェア</button>
         <div class="share-menu" id="shareMenuSell"></div>
       </div>
-      <span class="cr-ext-links"><a class="cr-db-link cr-db-link-wiki" href="/card-wiki?name=${encodeURIComponent(searchTerm)}" target="_blank" rel="noopener nofollow">Wiki</a></span>
+      <span class="cr-ext-links"><a class="cr-db-link cr-db-link-wiki" href="/card-wiki?name=${encodeURIComponent(searchTerm)}" rel="nofollow">Wiki</a></span>
     </div>`;
   _crPlaceForViewport(); // スマホなら公式DB・Wiki を効果テキストの隣へ（描く前に移すので位置は跳ねない）
   // シェアメニュー構築
@@ -2654,7 +2654,7 @@ function renderDeckGrid(cards, ctx, mainCount){
     const badge=c.qty>1?`<span class="deck-grid-badge">${c.qty}</span>`:'';
     const cardUrl=`/card/${encodeURIComponent(c.name)}`;
     return `<div class="deck-grid-cell loading" id="${rowPrefix}${i}" data-card="${escAttr(c.name)}" title="">
-      <a class="deck-grid-img-wrap" href="${cardUrl}" target="_blank" rel="noopener" title="${escAttr(c.name)}の価格を確認">
+      <a class="deck-grid-img-wrap" href="${cardUrl}" title="${escAttr(c.name)}の価格を確認">
         <div class="deck-grid-placeholder"></div>
         ${badge}
       </a>
@@ -3217,7 +3217,7 @@ function _metaOpenCardInfo(name,src){
   if(drawer&&drawer.parentElement!==document.body) document.body.appendChild(drawer);
   // 押したクリックが引き出しの「外を押したら閉じる」に届いて、開いた直後に閉じないよう次の瞬間に開く（マイデッキの deck-card-ops.js と同じ）
   if(typeof window.openDeckCardInfo==='function') setTimeout(()=>window.openDeckCardInfo(name,src||''),0);
-  else window.open('/card/'+encodeURIComponent(name),'_blank','noopener');
+  else location.href='/card/'+encodeURIComponent(name);
 }
 
 // C: カードの並び（#metaDeckCardList。行は描き直されるので箱で受ける）。PC は右クリック、指はタップでメニュー
@@ -3240,7 +3240,7 @@ function _metaInitCardMenu(){
         _metaToast('「'+name+'」を購入候補に入れました');
       }},
       {label:'カードの詳細',fn:()=>_metaOpenCardInfo(name,img?img.src:'')},
-      {label:'店ごとの価格を見る',fn:()=>window.open('/card/'+encodeURIComponent(name),'_blank','noopener')},
+      {label:'店ごとの価格を見る',fn:()=>location.href='/card/'+encodeURIComponent(name)},
     ]});
   };
   list.addEventListener('contextmenu',e=>{

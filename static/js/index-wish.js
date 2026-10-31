@@ -647,7 +647,7 @@ function renderWishlist(){
     <div class="${rowClass}" data-name="${escAttr(c.name)}" data-rarity="${escAttr(c.rarity||"")}">
       ${imgHtml}
       <div class="wl-main">
-        <a class="wl-name" href="/card/${encodeURIComponent(c.name)}" target="_blank" rel="noopener" title="店ごとの価格を見る">${esc(c.name)}</a>
+        <a class="wl-name" href="/card/${encodeURIComponent(c.name)}" title="店ごとの価格を見る">${esc(c.name)}</a>
         ${tags?`<span class="wl-tags">${tags}</span>`:''}
       </div>
       ${_wishRarityChipHtml(c)}
@@ -755,7 +755,7 @@ function _wishOpenRowMenu(row,x,y,fromBtn){
   const name=row.dataset.name, rarity=row.dataset.rarity||'';
   _wishOpenMenu({title:name,fromBtn,x,y,ownerEl:row,ownerClass:'is-menu',
     items:[
-      {label:'カードの価格ページを開く',fn:()=>window.open('/card/'+encodeURIComponent(name),'_blank','noopener')},
+      {label:'カードの価格ページを開く',fn:()=>location.href='/card/'+encodeURIComponent(name)},
       'sep',
       {label:'購入候補から外す',danger:true,fn:()=>wishRemoveWithUndo(name,rarity)},
     ],
