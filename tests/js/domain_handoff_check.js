@@ -36,23 +36,47 @@ function el() {
   };
 }
 
-async function run({ mode, origin, pathname = '/', search = '', hash = '', referrer = '', storage = {}, dataset = {}, ls: givenLs, wait = 50 }) {
+// 引き継ぎの処理が待つもの（圧縮・展開の読み出しとタイマー）を数え、どちらも無くなるまで待つ。
+// 2026-10-31 まで決め打ちの 50ms（大きいときは 4.5秒）で待っていて、CI の遅いマシンでは圧縮が終わる前に結果を見て落ちていた
+const SETTLE_LIMIT_MS = 20000;
+function makeTracker() {
+  let pending = 0;
+  const track = p => { pending++; return p.finally(() => { pending--; }); };
+  class TrackedResponse extends Response {
+    arrayBuffer() { return track(super.arrayBuffer()); }
+  }
+  const trackedSetTimeout = (fn, ms) => { pending++; return setTimeout(() => { pending--; fn(); }, ms); };
+  async function settle() {
+    const started = Date.now();
+    for (;;) {
+      // 終わった読み出しの続き（then）が次の読み出しやタイマーを始めるので、マクロタスクを1つ挟んでから数える
+      await new Promise(r => setImmediate(r));
+      if (pending === 0) return;
+      if (Date.now() - started > SETTLE_LIMIT_MS) throw new Error(`引き継ぎの処理が ${SETTLE_LIMIT_MS}ms で終わらなかった（残り ${pending}）`);
+      await new Promise(r => setTimeout(r, 10));
+    }
+  }
+  return { Response: TrackedResponse, setTimeout: trackedSetTimeout, settle };
+}
+
+async function run({ mode, origin, pathname = '/', search = '', hash = '', referrer = '', storage = {}, dataset = {}, ls: givenLs }) {
   const ls = givenLs || makeStorage(storage);
   const els = { handoffStatus: el(), handoffFallback: el(), handoffConfirm: el(), handoffNote: el() };
   els.handoffConfig = { dataset: Object.assign({ mode }, dataset) };
   const replaced = [];
+  const tracker = makeTracker();
   const location = { origin, pathname, search, hash, replace: u => replaced.push(u) };
   const sandbox = {
     document: { getElementById: id => els[id] || null, querySelector: () => null, createElement: () => el(), referrer },
     location, localStorage: ls,
     history: { replaceState: (s, t, u) => { location.hash = ''; location._replacedUrl = u; } },
-    URL, URLSearchParams, TextEncoder, TextDecoder, Response, Blob, CompressionStream, DecompressionStream,
-    btoa, atob, setTimeout, Promise, JSON, Date, Uint8Array, String, Number, Array, Object, Error,
+    URL, URLSearchParams, TextEncoder, TextDecoder, Response: tracker.Response, Blob, CompressionStream, DecompressionStream,
+    btoa, atob, setTimeout: tracker.setTimeout, Promise, JSON, Date, Uint8Array, String, Number, Array, Object, Error,
   };
   vm.createContext(sandbox);
   vm.runInContext(src, sandbox);
-  await new Promise(r => setTimeout(r, wait));
-  return { ls, els, replaced, location };
+  await tracker.settle();
+  return { ls, els, replaced, location, settle: tracker.settle };
 }
 
 async function sendAndGetFragment(storage) {
@@ -123,7 +147,7 @@ const recvData = { legacyOrigins: OLD };
   assert.equal(r.ls.length, 0);
   assert.ok(r.els.handoffConfirm.visible);
   r.els.handoffConfirm.click();
-  await new Promise(res => setTimeout(res, 50));
+  await r.settle();
   assert.equal(r.ls.getItem('cardprice_sync_state'), null);
   assert.ok(r.ls.getItem('cardprice_saved_decks'));
   assert.deepEqual(r.replaced, ['/']);
@@ -133,7 +157,7 @@ const recvData = { legacyOrigins: OLD };
   const evilPayload = Buffer.from(JSON.stringify({ v: 2, items: { cardprice_saved_decks: '[]', admin_key: 'x', evil_html: '<img>' } })).toString('base64url');
   r = await run({ mode: 'receive', origin: NEW, pathname: '/handoff', search: '?next=/', hash: '#j.' + evilPayload, referrer: '', dataset: recvData });
   r.els.handoffConfirm.click();
-  await new Promise(res => setTimeout(res, 50));
+  await r.settle();
   assert.equal(r.ls.getItem('admin_key'), null);
   assert.equal(r.ls.getItem('evil_html'), null);
   void evil;
@@ -168,7 +192,7 @@ const recvData = { legacyOrigins: OLD };
   // ── 大きすぎるとき: 新しいリプレイから入る分だけ・デッキと同期の状態は必ず ──
   const crypto = require('crypto');
   const replays = Array.from({ length: 20 }, (_, i) => ({ id: 'r' + i, savedAt: i, data: crypto.randomBytes(60000).toString('base64') }));
-  const big = await run({ mode: 'send', origin: OLD, dataset: { canonicalBase: NEW, targetPath: '/' }, wait: 4500,
+  const big = await run({ mode: 'send', origin: OLD, dataset: { canonicalBase: NEW, targetPath: '/' },
     storage: { cardprice_saved_decks: deck('d1', 1), cardprice_sync_state: '{"sync_id":"s"}', 'sol-saved-replays': JSON.stringify(replays), 'card-sim-save-slot-1': crypto.randomBytes(300000).toString('base64') } });
   assert.equal(big.replaced.length, 1);
   assert.ok(big.replaced[0].length < 1000100);
