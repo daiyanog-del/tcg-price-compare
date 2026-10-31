@@ -18,6 +18,23 @@
 #mode-search .cr-acts>.cr-ext-links{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 #mode-search .cr-db-link{display:inline-flex;align-items:center;justify-content:center;min-height:32px;padding:0 14px;border-radius:18px;background:var(--bg-hover);color:var(--accent-l);font:700 12px var(--font);white-space:nowrap;box-sizing:border-box}
 #mode-search .cr-db-link:hover{background:#353843;color:var(--text);text-decoration:none}
+/* 購入候補に追加の窓（index-main.js _openWishAddPicker）。枠・影は「デッキに追加」の追加先の窓（mydeck/deck.css .deck-add-picker）、
+   選んでいる印はレアリティ欄（.cr-rtile.active＝明るい背景＋クリームの下線 --accent-soft・値段は金）にそろえる。body 直下に置くので #mode-search は付けない */
+.wish-pick{position:fixed;z-index:1100;display:flex;flex-direction:column;gap:6px;width:min(300px,calc(100vw - 16px));overflow-y:auto;box-sizing:border-box;padding:8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);box-shadow:0 6px 20px rgba(0,0,0,.5)}
+.wish-pick-title{padding:2px 4px 0;font-size:11px;font-weight:700;color:var(--text-m)}
+.wish-pick-rs{display:flex;flex-direction:column;gap:2px}
+.wish-pick-r{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:34px;padding:0 10px;border:0;border-radius:6px;background:none;color:var(--text-m);font:700 12px var(--font);text-align:left;cursor:pointer}
+.wish-pick-r:hover,.wish-pick-r:focus-visible{background:var(--bg-hover);outline:none}
+.wish-pick-r[aria-pressed="true"]{background:var(--bg-hover);color:var(--text);box-shadow:inset 0 -2px 0 var(--accent-soft)}
+.wish-pick-rn{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wish-pick-rp{flex:none;font:600 12px var(--mono)}
+.wish-pick-r[aria-pressed="true"] .wish-pick-rp{color:var(--gold)}
+.wish-pick-qs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.wish-pick-q{min-height:32px;border:0;border-radius:6px;background:none;color:var(--text-m);font:700 12px var(--font);cursor:pointer}
+.wish-pick-q:hover,.wish-pick-q:focus-visible{background:var(--bg-hover);outline:none}
+.wish-pick-q[aria-pressed="true"]{background:var(--bg-hover);color:var(--text);box-shadow:inset 0 -2px 0 var(--accent-soft)}
+.wish-pick .wish-pick-ok{display:flex;align-items:center;justify-content:center;min-height:36px;margin-top:4px;border:0;border-radius:18px;background:#f3ce46;color:#242013;font:700 12px var(--font);cursor:pointer}
+.wish-pick .wish-pick-ok:hover{background:#ffe16d}
 /* 最安の行: ［最安］（金の札・一覧の最安の印と同じ）・値段・レアリティ（枠線の札。効果テキストの「準制限」など塗りの札と区別する）・店名と型番 */
 #mode-search #heroBest.cr-best{display:flex;margin:0;align-items:center;flex-wrap:wrap;gap:4px 10px;min-height:38px}
 #mode-search .cr-hb-best{padding:2px 8px;border-radius:4px;background:#f3ce46;color:#242013;font-size:12px;font-weight:700;line-height:1.5}
