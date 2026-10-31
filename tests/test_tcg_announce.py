@@ -936,7 +936,9 @@ def test_まとめページに公式の絵を出す(client, monkeypatch):
     monkeypatch.setattr(view, "_fetch", lambda: {"maze-of-machines": entry})
     view._cache.update(at=0.0, data=None)
     html = client.get("/tcg-preview/maze-of-machines").get_data(as_text=True)
-    assert 'class="ta-proxy-art" src="https://www.yugioh-card.com/en/wp-content/uploads/2026/10/mzmc_art02.png"' in html
+    assert 'class="ta-proxy-art card-zoomable" src="https://www.yugioh-card.com/en/wp-content/uploads/2026/10/mzmc_art02.png"' in html
+    # 押すと拡大できる（static/shared/card-zoom.js）
+    assert 'data-card-zoom="' in html and "shared/card-zoom.js" in html
     assert "カードのイラストは KONAMI 公式の商品ページのものです" in html
 
 

@@ -25,6 +25,8 @@
 <link rel="stylesheet" href="{{ static_url('css/site-theme.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/tcg-announce.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/newset-subnav.css') }}">
+<link rel="stylesheet" href="{{ static_url('shared/card-zoom.css') }}">
+<script src="{{ static_url('shared/card-zoom.js') }}" defer data-listen></script>
 </head>
 <body class="price-redesign">
 <div class="ta-page">
@@ -73,7 +75,7 @@
           <div class="ta-proxy" aria-hidden="true">
             <span class="ta-proxy-head">{{ [c.attribute, c.race]|select|join('・') or c.card_type or '種類は未公開' }}</span>
             {% if c.level %}<span class="ta-proxy-stars">{{ '★' * c.level }}</span>{% elif c.rank %}<span class="ta-proxy-stars">{{ '☆' * c.rank }}</span>{% endif %}
-            {% if c.art_url %}<img class="ta-proxy-art" src="{{ c.art_url }}" alt="" loading="lazy" referrerpolicy="no-referrer">
+            {% if c.art_url %}<img class="ta-proxy-art card-zoomable" src="{{ c.art_url }}" alt="" loading="lazy" referrerpolicy="no-referrer" data-card-zoom="{{ c.name_en }}のイラストの拡大">
             {% else %}<span class="ta-proxy-q">?</span>
             <span class="ta-proxy-note">イラスト未公開</span>{% endif %}
           </div>

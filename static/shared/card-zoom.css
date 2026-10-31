@@ -1,0 +1,23 @@
+/* card-zoom.css — カード画像の拡大表示（static/shared/card-zoom.js）
+ * 背景の色・✕ボタンは効果テキストのシート（card-result.css の .cr-fx-backdrop / .cr-fx-close）とそろえる */
+.card-zoom{position:fixed;inset:0;z-index:1300;display:flex;align-items:center;justify-content:center;
+  padding:max(16px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) max(16px,env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));
+  background:rgba(5,8,16,.86);cursor:zoom-out;animation:card-zoom-in .15s ease-out}
+.card-zoom[hidden]{display:none}
+@keyframes card-zoom-in{from{opacity:0}to{opacity:1}}
+@media(prefers-reduced-motion:reduce){.card-zoom{animation:none}}
+/* 文字を読むための拡大なので、元の画像が小さくても画面の幅まで広げる（公式の画像は幅256pxのものがあり、
+   引き伸ばさないとスマホで画面の7割にしかならない）。広げすぎるとぼやけるので480pxまで。
+   画面が横長のときは高さで決まる（縦横比は object-fit で保つ） */
+.card-zoom-img{max-width:100%;max-height:100%;border-radius:8px;overflow:hidden;line-height:0}
+/* 透かし（self-watermark.css の .wm-released）は文字サイズ用に container-type:inline-size を宣言するが、
+   それだと箱の幅が中の画像から決まらず0になる。拡大の箱では外す（透かしの記号は背景の%指定なので影響しない） */
+.card-zoom-img.wm-released{container-type:normal}
+/* 幅は「画面の幅」「480px」「画面の高さ×カードの縦横比（59:86）」の小さいほう。高さで切られて余白の帯が出ると、
+   透かし（箱全体に敷く）がカードの効果欄からずれるため */
+.card-zoom-img img{display:block;width:min(calc(100vw - 32px),480px,calc((100vh - 32px) * 59 / 86));width:min(calc(100vw - 32px),480px,calc((100dvh - 32px) * 59 / 86));height:auto;object-fit:contain}
+.card-zoom-close{position:absolute;top:max(10px,env(safe-area-inset-top,0px));right:max(10px,env(safe-area-inset-right,0px));
+  width:40px;height:40px;border:0;border-radius:20px;background:var(--bg-hover);color:var(--text-m);font:700 15px var(--font,sans-serif);cursor:pointer}
+html.card-zoom-open,html.card-zoom-open body{overflow:hidden}
+/* 押すと拡大できる画像（カードページの上の画像・まとめページのイラスト） */
+.card-zoomable img,img.card-zoomable{cursor:zoom-in}

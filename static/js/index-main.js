@@ -158,16 +158,7 @@ function _applyKonamiLink(kid){
     const wiki=links.querySelector('.cr-db-link-wiki');
     if(wiki&&!wiki.href.includes('&cid=')) wiki.href+='&cid='+encodeURIComponent(kid);
   }
-  const wrap=document.getElementById('heroImgWrap');
-  if(wrap){
-    const img=wrap.querySelector('img');
-    if(img&&!wrap.querySelector('a')){
-      const a=document.createElement('a');
-      a.href=_konamiDbUrl;a.target='_blank';a.rel='noopener';
-      wrap.insertBefore(a,img);
-      a.appendChild(img);
-    }
-  }
+  // 画像を押したときは公式DBではなく拡大にした（2026-10-31 ユーザー指定「全カード拡大」）。公式DBへは上のボタンから
 }
 
 // 価格関連セクションの表示/非表示を切り替える（未発売カードは価格テーブル等を隠す）
@@ -313,6 +304,20 @@ function _closeFxSheet(fromPop){
   else if(wasOpen&&_fxSheetHistory){ _fxSheetHistory=false; _fxSheetPendingBack=true; try{ history.back(); }catch(_){ _fxSheetPendingBack=false; } }
   if(wasOpen) document.getElementById('crFxBtn')?.focus();
 }
+
+// ── カードの画像を押すと画面いっぱいに拡大（2026-10-31 ユーザー指定「全カード拡大」・static/shared/card-zoom.js）。
+// 中の画像は検索のたびに差し替わるので、箱で受ける。スマホでは幅76pxしかなく、未発売カードの文字が読めなかった
+(function _initHeroZoom(){
+  const wrap=document.getElementById('heroImgWrap');
+  if(!wrap||!window.CardZoom) return;
+  wrap.classList.add('card-zoomable');
+  wrap.addEventListener('click',()=>{
+    const img=wrap.querySelector('img');
+    if(!img) return; // 画像がまだ届いていない・置き場だけのとき
+    CardZoom.open(img.currentSrc||img.src,{watermark:wrap.classList.contains('wm-released'),label:(_currentCardName||'カード')+'の画像の拡大'});
+    _ga('card_image_zoom');
+  });
+})();
 
 // ── スマホ: 出品を上へ（2026-10-22 案M1）。相場の箱と買取を出品の一覧の下へ移す。PC の幅に戻れば元の位置へ。
 // CSS の並べ替えでは、相場の箱（名前の行の中）と一覧（その外）の順番を入れ替えられないため要素を動かす。ID は変えない
@@ -2266,7 +2271,7 @@ function _restoreLocation(trigger){
     document.title='強欲なラボ';
   }
 }
-window.addEventListener('popstate',e=>{ if(_fxSheetConsumePop(e)) return; _restoreLocation('popstate'); });
+window.addEventListener('popstate',e=>{ if(_fxSheetConsumePop(e)) return; if(window.CardZoom&&CardZoom.consumePop(e)) return; _restoreLocation('popstate'); });
 
 // G-5: スクロール量計測（C-3c ボトムナビ判断材料）。
 // 現在のスクロール到達率（%）。スクロール不可（コンテンツが画面に収まる）なら0を返す
