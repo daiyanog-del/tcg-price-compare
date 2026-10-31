@@ -39,6 +39,28 @@ def fuzzy_key(s: str) -> str:
     return _FUZZY_STRIP.sub('', s).lower()
 
 
+def normalize_card_name(name: str) -> str:
+    """Wikiから取得したカード名を正規化（全角英数字を半角に・ダッシュ類を半角ハイフンに）。
+
+    価格の収集（collect_prices）が保存する名前はこれを通している。パックの一覧（app._canonical_pack_cards）も
+    同じものを通さないと、正式名の一覧に未登録の新しいカードで名前が一致しない（2026-11-01 パックの表）。
+    collect_prices から移した（中身は変えていない）。
+    """
+    name = name.replace('−', '-').replace('―', '-').replace('—', '-').replace('–', '-')
+    result = []
+    for ch in name:
+        cp = ord(ch)
+        if 0xFF21 <= cp <= 0xFF3A or 0xFF41 <= cp <= 0xFF5A or 0xFF10 <= cp <= 0xFF19:
+            result.append(chr(cp - 0xFEE0))
+        elif cp == 0xFF0E:
+            result.append('.')
+        elif cp == 0xFF01:
+            result.append('!')
+        else:
+            result.append(ch)
+    return ''.join(result)
+
+
 def load_cardnames_index(base_dir: Optional[str] = None) -> tuple[list[str], set[str], dict[str, list[str]]]:
     """data/cardnames_ja.json を読み込み、(名前一覧, 存在チェック用set, fuzzy_key→[正式名]) を返す。
 

@@ -36,7 +36,7 @@ from db_write_guard import (
 from discord_notify import send_discord_message
 from shop_status import SUSPENDED_SHOPS
 from meta_scraper import fetch_tier_list, fetch_deck_cards
-from name_normalize import load_cardnames_index, canonicalize_card_name
+from name_normalize import load_cardnames_index, canonicalize_card_name, normalize_card_name
 
 # ── Supabase接続 ──
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -564,23 +564,6 @@ def collect_and_save(sb: Client, card_name: str, today: str, shop_names: list[st
         return saved
     print(f"  DB保存失敗 [{card_name}]")
     return 0
-
-
-def normalize_card_name(name: str) -> str:
-    """Wikiから取得したカード名を正規化"""
-    name = name.replace('−', '-').replace('―', '-').replace('—', '-').replace('–', '-')
-    result = []
-    for ch in name:
-        cp = ord(ch)
-        if 0xFF21 <= cp <= 0xFF3A or 0xFF41 <= cp <= 0xFF5A or 0xFF10 <= cp <= 0xFF19:
-            result.append(chr(cp - 0xFEE0))
-        elif cp == 0xFF0E:
-            result.append('.')
-        elif cp == 0xFF01:
-            result.append('!')
-        else:
-            result.append(ch)
-    return ''.join(result)
 
 
 # ── カード名の名寄せ（フェーズ3 P1）──────────────────────────────────
