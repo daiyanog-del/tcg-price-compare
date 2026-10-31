@@ -1587,7 +1587,9 @@ function renderTable(){
   tbody.innerHTML=visible.map(r=>{
     const isBest=r===bestRow;
     const so=r.sold_out?'sold-out':'';
-    const stockStr=r.sold_out?'<span class="sob">売切</span>':(r.stock>0?r.stock:'');
+    // stock_plus: 店が数を伏せている（まんぞく屋の「◯」）。stock はその下限なので「4+」と出す
+    const stockNum=r.stock>0?(r.stock+(r.stock_plus?'+':'')):'';
+    const stockStr=r.sold_out?'<span class="sob">売切</span>':stockNum;
     const linkUrl=affLink(r.url, r.shop, 'sell');
     const isAff=!!r.url&&_isAffUrl(r.url,linkUrl);
     const go=r.url
@@ -1602,7 +1604,7 @@ function renderTable(){
     // K-1/L-1: 型番は「型番らしい形」の値だけ出す（カーナベルの弾の略号・壊れた値を型番として見せない）
     const code=_looksLikeCardCode(r.code)?esc(r.code):'';
     // スマホでは状態・型番・在庫の列を隠し、店名の下の1行（.cr-sub）にまとめて出す
-    const sub=[code,cond,r.sold_out?'':(r.stock>0?'在庫'+r.stock:'')].filter(Boolean).join('・');
+    const sub=[code,cond,r.sold_out?'':(stockNum?'在庫'+stockNum:'')].filter(Boolean).join('・');
     const rowClass=[so,isBest?'cr-best-row':'',linkUrl?'row-clickable':''].filter(Boolean).join(' ');
     const rowHref=linkUrl?`data-href="${escAttr(linkUrl)}"`:'';
     // U-1: 買取が未取得のうちは列自体を出さない（thのhidden切り替えと対にする）。

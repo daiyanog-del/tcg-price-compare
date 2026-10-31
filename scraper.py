@@ -1575,6 +1575,9 @@ def _parse_manzoku_rarity(text: str) -> str:
         return normalize_rarity(m2.group(1))
     return ""
 
+MANZOKU_STOCK_PLUS_MIN = 4
+
+
 def scrape_manzoku(card_name: str) -> list[dict]:
     """まんぞく屋 — EC-CUBEベースの遊戯王カード通販"""
     search_name = _normalize_search_query(card_name)
@@ -1630,8 +1633,11 @@ def scrape_manzoku(card_name: str) -> list[dict]:
             code = code_match.group(1)
 
         # 在庫（リンクの外にあるテキストを確認）
+        # まんぞく屋は1〜3枚だけ数を出し、それ以上は「在庫: ◯」で数を伏せる（一覧・商品ページとも）。
+        # ◯は「4枚以上」として stock=4・stock_plus=True にし、画面は「4+」と出す（2026-10-31 751件の分布から判断）
         sold_out = False
         stock = 0
+        stock_plus = False
         li_text = li.get_text()
         if '品切れ' in li_text or '売り切れ' in li_text:
             sold_out = True
@@ -1640,7 +1646,8 @@ def scrape_manzoku(card_name: str) -> list[dict]:
             if stock_match:
                 stock = int(stock_match.group(1))
             elif '在庫' in li_text and '◯' in li_text:
-                stock = 1
+                stock = MANZOKU_STOCK_PLUS_MIN
+                stock_plus = True
 
         # 商品URL
         product_url = link.get("href", "")
@@ -1655,13 +1662,16 @@ def scrape_manzoku(card_name: str) -> list[dict]:
             if image_url and not image_url.startswith("http"):
                 image_url = "https://shopmanzokuya.com" + image_url
 
-        results.append({
+        row = {
             "shop": "まんぞく屋", "name": display_name,
             "rarity": normalize_rarity(rarity), "code": code,
             "condition": "-", "price": price, "stock": stock,
             "sold_out": sold_out, "url": product_url,
             "image": image_url,
-        })
+        }
+        if stock_plus:
+            row["stock_plus"] = True
+        results.append(row)
 
     return results
 
