@@ -5,6 +5,9 @@ let D=[],sort={k:'price',a:true},rarityFilter='',artFilter='',cardImgUrl='',card
 let listView='shop'; // 出品一覧の表示: 'shop'=店ごとの最安（既定・2026-10-21 ユーザー判断）/ 'all'=すべて
 const TABLE_PAGE_SIZE=20; // F-11: 一覧の既定表示件数（もっと見るの増分）。散在していたマジックナンバー20を集約
 let tableShowCount=TABLE_PAGE_SIZE; // B-4: 一覧の既定表示件数（20行+もっと見る）
+// 検索の前回の結果からの先出し（2026-11-01 案A）。_clearSearchFloat が片付ける
+let _shareStaleNote=''; // 前回の結果を出している間（最新が取れなかった後も）シェアの文面に添える「（1時間前の価格）」
+let _previewDefaults=null; // 先出しを描いた直後のレアリティ・絵（利用者が触ったかを見分ける）
 
 // 検索中・詳細表示中は紹介文を畳み、結果に画面を使う。
 // DOMの置換や監視ではなく、検索の状態遷移から明示的に切り替える。
@@ -564,8 +567,16 @@ let _mercariPending=false; // 店舗検索が終わっていない間 true（メ
 function _newSearchGen(){ // 世代加算＝旧ストリーム破棄、を不可分にする（片方だけ進むと旧SSEが無限再接続する）
   if(_searchES){ try{_searchES.close();}catch(e){} _searchES=null; }
   _hideSearchPreview(); // 前の検索の先出しの欄を残さない
+  _clearSearchFloat(); // 前回の結果の進み具合の帯・浮かべたお知らせも、検索以外の入口（未発売カード・戻る・確認のキャンセル）で残さない
   if(_searchTimeoutId){ clearTimeout(_searchTimeoutId); _searchTimeoutId=null; }
   return ++_searchGen;
+}
+function _clearSearchFloat(){
+  document.querySelectorAll('#mode-search .search-float').forEach(el=>el.remove());
+  const cov=document.getElementById('searchCoverage');
+  if(cov&&cov.classList.contains('cov-float')){ cov.classList.remove('cov-float'); cov.hidden=true; }
+  _shareStaleNote='';
+  _previewDefaults=null;
 }
 
 // 検索を始めずに終わった時、結果も初期表示も無い白紙を残さない（/card/ 直アクセスは #empty を隠して始めるため）
@@ -662,9 +673,7 @@ function doSearch(opts){
   if(tbody) tbody.innerHTML='';
 
   SearchStatus.show({});
-  // 前の検索の浮かぶ帯（前回の結果の進み具合・お知らせ）を片付ける
-  document.getElementById('searchCoverage').classList.remove('cov-float');
-  document.querySelectorAll('#mode-search .search-float').forEach(el=>el.remove());
+  _clearSearchFloat(); // 前の検索の浮かぶ帯（前回の結果の進み具合・お知らせ）を片付ける
   D=[];rarityFilter='';artFilter='';tableShowCount=TABLE_PAGE_SIZE;
   _resetBuyInline(); // C-2: 新しい検索をしたら買取セクションは閉じた未取得状態に戻す（前のカードの買取価格が残ると誤情報になるため）
   _updateRarityBanner(); // F-4: 前回検索の絞り込みバナーが残ったまま次の検索結果が出るのを防ぐ
@@ -774,6 +783,7 @@ function doSearch(opts){
       // 進み具合のバーは先出しの欄から画面の下に浮かぶ帯へ移し、「○分前の価格」と書く
       if(!d.total) return;
       D=d.results;
+      _shareStaleNote='（'+_previewAgeText(d.age_minutes||0)+'の価格）';
       if(d.corrected_name) document.getElementById('q').value=d.corrected_name;
       _currentCardName=document.getElementById('q').value.trim();
       renderAll(d);
@@ -791,6 +801,9 @@ function doSearch(opts){
     }else if(d.type==='done'){
       clearTimeout(_searchTimeoutId);_searchTimeoutId=null;
       es.close();_searchES=null;
+      // 先出しの後に最新が0件で、取れなかった店がある（店の障害）なら、前回の結果を消さずに最新が取れなかったと書く。
+      // 全店が取れて0件（本当に在庫が無くなった）は今までどおり「見つかりませんでした」
+      if(previewShown&&!d.total&&(d.failed_shops||[]).length){ _previewFailed(); return; }
       // 補正後のカード名で検索欄を更新
       if(d.corrected_name) document.getElementById('q').value=d.corrected_name;
       // J-2: 買取セクションの取得キーは「入力欄の現在値」ではなく、ここで確定した表示カード名にする
@@ -805,7 +818,7 @@ function doSearch(opts){
         renderAll(d);
       }
       if(previewShown) document.querySelectorAll('#mode-search .search-float').forEach(el=>el.remove());
-      _previewDefaults=null;
+      _previewDefaults=null;_shareStaleNote='';
       _mercariPending=false;
       if(d.total>0) _syncMercariView(); // メルカリ参考相場は最初のイベント受信時に取得済み。最終の店舗レアリティで絞り直す
       else if(window.MercariRef) MercariRef.clear(); // 全店0件ならメルカリも出さない
@@ -1010,7 +1023,7 @@ function renderAll(d){
 
 // シェアメニュー（D の価格から文面を作る）。前回の結果から最新へ差し替えたときも作り直す
 function _buildShareMenu(searchTerm,d){
-  const shareOpts=_buildShareOptions(searchTerm,d,D);
+  const shareOpts=_buildShareOptions(searchTerm,d,D).map(o=>_shareStaleNote?{...o,text:o.text+_shareStaleNote}:o);
   const smEl=document.getElementById('shareMenuSell');
   if(smEl&&shareOpts.length>0){
     let sm='<div class="share-menu-label">シェアする内容を選択</div>';
@@ -1031,6 +1044,10 @@ function _buildShareMenu(searchTerm,d){
 // 先出しの間に利用者が選んだレアリティ・絵・表示・並べ替え・件数は、最新の結果にも在れば残す
 function _refreshResults(d){
   D=d.results;
+  _shareStaleNote='';
+  _closeWishAddPicker(); // 窓の値段は前回の結果のまま残るので閉じる（保存されるのは名前・枚数・レアリティだけ）
+  // 先出しの間に買取が届いていたら、最高買取の列を新しい行に付け直す（買取は1カード1回しか取らない）
+  if(_buyInlineFetched) _applyBuyMaxToD();
   const searchTerm=document.getElementById('q').value.trim();
   _buildShareMenu(searchTerm,d);
   const inStock=D.filter(r=>!r.sold_out);
@@ -1042,8 +1059,8 @@ function _refreshResults(d){
   const touched=!_previewDefaults||rarityFilter!==_previewDefaults.rarityFilter||artFilter!==_previewDefaults.artFilter;
   _renderPriceParts(best,{rarityFilter:touched?rarityFilter:undefined,artFilter,listView,sort,tableShowCount,
     soChecked:!!document.getElementById('soCheck')?.checked});
+  if(_buyInlineFetched) _renderBuyInline(); // 既定のレアリティを選び直したときに買取の欄も合わせる
 }
-let _previewDefaults=null; // 先出しを描いた直後のレアリティ・絵（利用者が触ったかを見分ける）
 // 前回の結果の古さ（サーバーの age_minutes）。60分からは時間で言う
 function _previewAgeText(min){
   return min<60?(min<1?'1分以内':min+'分前'):Math.floor(min/60)+'時間前';
@@ -1094,7 +1111,7 @@ function _renderPriceParts(best,keep){
   // レアリティが1種類でも絵が2種類以上あれば、絵の切り替えだけを出す
   rfEl.innerHTML=(rarities.length>1
     ?'<div class="cr-sec"><h2>レアリティ</h2><span>安い順・在庫ありの最安</span></div>'+
-      `<div class="cr-rtiles">${_rarityTilesHtml(rarities,defaultRarity)}</div>`
+      `<div class="cr-rtiles">${_rarityTilesHtml(rarities,rarityFilter)}</div>`
     :'')+'<div id="artFilter" class="cr-art hidden"></div>';
   const hasArtFilter=_renderArtFilter();
   rfEl.classList.toggle('hidden',!(rarities.length>1||hasArtFilter));

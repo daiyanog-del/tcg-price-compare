@@ -1542,11 +1542,20 @@ def api_search():
         # 待たされる検索が4〜18秒かかり、その間なにも出なかった）。
         # 型番の補完（infer_codes）は通さない: キャッシュの行は保存の前に補完済みで、前回の結果は補完の材料にしない
         # （混雑時の代わりの表示と同じ。2026-10-22 reviewer 低2）。OF のレアリティのそろえだけ通す
-        preview_rows, preview_age = _stale_preview_rows(
-            cache_get_shops_stale, card_name, [name for name, _ in shops_to_scrape])
-        if preview_rows is not None:
-            preview = _build_done(infer_overframe(list(cached_results) + preview_rows), corrected, card_name)
-            yield _sse({**preview, "type": "preview", "age_minutes": preview_age})
+        # 組み立ての失敗（古い形のキャッシュの行など）で検索そのものを落とさない。先出しを飛ばして続ける（reviewer 低1）
+        try:
+            preview_rows, preview_age = _stale_preview_rows(
+                cache_get_shops_stale, card_name, [name for name, _ in shops_to_scrape])
+            preview_event = None
+            if preview_rows is not None:
+                preview = _build_done(infer_overframe(list(cached_results) + preview_rows), corrected, card_name)
+                preview_event = _sse({**preview, "type": "preview", "age_minutes": preview_age})
+        except Exception:
+            logger.warning("前回の結果の先出しを組み立てられませんでした（飛ばします）: %s", card_name, exc_info=True)
+            preview_event = None
+        if preview_event is not None:
+            logger.info("[先出し] %s・%d分前・%d行", card_name, preview_age, len(preview_rows))
+            yield preview_event
 
         all_results = list(cached_results)
         scraped_items = []  # 今回スクレイプで得た行（persist用。キャッシュ命中分を含まない）

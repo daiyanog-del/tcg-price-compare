@@ -57,8 +57,9 @@
 @keyframes sp-sweep{to{left:100%}}
 @media(prefers-reduced-motion:reduce){#mode-search .search-prog .sp-fill{transition:none}#mode-search .search-prog.sp-running .sp-rest::before{animation:none;display:none}}
 /* 前回の結果を先に出している間の進み具合と、そのあとの取得失敗のお知らせ（2026-11-01 案A）は画面の下に浮かべる。
-   カードの欄に差し込むと、出すときも消すときも下の段が上下した（スマホで CLS 0.11）。枠・影は購入候補の窓（.wish-pick）と同じ */
-#mode-search .search-float,#mode-search #searchCoverage.cov-float{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:1000;
+   カードの欄に差し込むと、出すときも消すときも下の段が上下した（スマホで CLS 0.11）。枠・影は購入候補の窓（.wish-pick）と同じ。
+   重なり順はスマホのシェアの窓（.share-menu 100）より下（お知らせは × まで残るので、窓の選択肢を覆わない） */
+#mode-search .search-float,#mode-search #searchCoverage.cov-float{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:90;
   transform:translateX(-50%);width:min(380px,calc(100vw - 32px));margin:0;padding:10px 14px;box-sizing:border-box;
   border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);box-shadow:0 6px 20px rgba(0,0,0,.5)}
 #mode-search .search-float .search-prog{max-width:none;min-height:0;padding-top:0}

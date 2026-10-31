@@ -3,6 +3,7 @@
 取りに行く店すべてに前回の結果（24時間以内・partial でない）があるときだけ送る。
 preview は表示用で、キャッシュにも DB にも書かない。done は今までどおり最新の結果。
 """
+import time
 from concurrent.futures import Future
 from datetime import datetime, timedelta
 
@@ -115,15 +116,66 @@ def test_reading_previous_result_failure_does_not_break_search(env, monkeypatch)
     assert events[-1]["type"] == "done" and events[-1]["total"] == 2
 
 
+def _watch_db_writes(monkeypatch):
+    """DB への書き込みの経路を有効にして（偽のクライアント）、呼ばれた分を記録する"""
+    monkeypatch.setattr(app_module, "_supabase_client", object())
+    calls = []
+    monkeypatch.setattr(app_module, "_persist_scrape_async", lambda name, rows: calls.append(("persist", name, rows)))
+    monkeypatch.setattr(app_module, "_track_card_async", lambda name: calls.append(("track", name)))
+    monkeypatch.setattr(app_module, "_save_search_to_supabase", lambda name: calls.append(("search_log", name)))
+    return calls
+
+
 def test_preview_is_not_written_back(env, monkeypatch):
     """最新が取れなかった店の前回の結果は、先に見せても新しい取得として書き戻さない・DB にも送らない"""
     _store_old({"店A": [_row("店A", 300)], "店B": [_row("店B", 250)]}, 60)
     monkeypatch.setattr(app_module, "_submit_shop_fetch", _fetch({}, errors_by_shop={"店A": 1, "店B": 1}))
-    written = []
-    monkeypatch.setattr(app_module, "_persist_scrape_async", lambda *a, **k: written.append(a))
+    calls = _watch_db_writes(monkeypatch)
     events = _search(env)
     assert any(e["type"] == "preview" for e in events)
     stale = scraper.cache_get_shops_stale("テストカード", ["店A", "店B"])
     for shop in ("店A", "店B"):
         assert datetime.now() - datetime.fromisoformat(stale[shop]["timestamp"]) > timedelta(minutes=50)
-    assert written == []
+    time.sleep(0.2)  # 書き込みは裏のスレッドで始まる
+    assert calls == []
+    # 全店が取れずに0件で終わる（画面は先出しの価格を残し「最新が取れなかった」と出す・index-main.js）
+    done = events[-1]
+    assert done["type"] == "done" and done["total"] == 0 and set(done["failed_shops"]) == {"店A", "店B"}
+
+
+def test_only_fresh_rows_are_written_when_preview_was_sent(env, monkeypatch):
+    """先出しのあとに取れた最新の行だけが DB へ送られ、前回の結果（stale）は混ざらない"""
+    _store_old({"店A": [_row("店A", 300)], "店B": [_row("店B", 250)]}, 60)
+    monkeypatch.setattr(app_module, "_submit_shop_fetch",
+                        _fetch({"店A": [_row("店A", 280)]}, errors_by_shop={"店B": 1}))
+    calls = _watch_db_writes(monkeypatch)
+    events = _search(env)
+    assert any(e["type"] == "preview" for e in events)
+    time.sleep(0.2)
+    persisted = [rows for kind, *rest in calls if kind == "persist" for rows in [rest[1]]]
+    assert len(persisted) == 1
+    assert [r["price"] for r in persisted[0]] == [280] and not any(r.get("stale") for r in persisted[0])
+
+
+def test_no_preview_when_all_shops_hit_cache(env, monkeypatch):
+    """全店がキャッシュに命中する検索は今までどおり（先出しは送らない・店へも取りに行かない）"""
+    scraper.cache_store_shops("テストカード", {"店A": [_row("店A", 300)], "店B": [_row("店B", 250)]})
+    monkeypatch.setattr(app_module, "_submit_shop_fetch", lambda *a: pytest.fail("店へ取りに行った"))
+    events = _search(env)
+    assert not any(e["type"] == "preview" for e in events)
+    assert events[-1]["type"] == "done" and events[-1]["total"] == 2
+
+
+def test_broken_preview_rows_are_skipped_and_search_continues(env, monkeypatch):
+    """先出しの組み立てが失敗しても（古い形の行など）検索は最後まで進み done を返す"""
+    _store_old({"店A": [_row("店A", 300)], "店B": [_row("店B", 250)]}, 60)
+    real_build = app_module._build_done
+    def build(results, *a, **k):
+        if any(r.get("stale") for r in results):
+            raise KeyError("price")
+        return real_build(results, *a, **k)
+    monkeypatch.setattr(app_module, "_build_done", build)
+    monkeypatch.setattr(app_module, "_submit_shop_fetch", _fetch({"店A": [_row("店A", 280)], "店B": [_row("店B", 260)]}))
+    events = _search(env)
+    assert not any(e["type"] == "preview" for e in events)
+    assert events[-1]["type"] == "done" and events[-1]["total"] == 2
