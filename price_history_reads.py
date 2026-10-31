@@ -21,6 +21,7 @@ from concurrent.futures import FIRST_COMPLETED, wait
 import httpx
 
 from featured_matrix import _chunk_card_names_by_bytes
+from name_normalize import db_lookup_names, pick_card_ids
 from featured_matrix import _FETCH_WORKERS
 from featured_matrix import _executor as _db_executor
 
@@ -107,10 +108,10 @@ def fetch_daily_rows_by_card_names(sb, names: list[str], columns: str, days: lis
       - card_dim に無い名前は行が0件になる（price_history ビューは card_dim との内部結合なので、名前で読んでも同じ）
       - _READ_DEADLINE_SEC を過ぎたら、まだ読み終えていない束は failed にして返す（動いている読み込みは捨てるだけ）
     """
-    unique = list(dict.fromkeys(names))
+    lookup = db_lookup_names(names)  # 収集と同じそろえ方の名前でも引き、行の名前は呼び出し元の名前に戻す
     failed: set[str] = set()
-    id_to_name: dict[int, str] = {}
-    for chunk in _chunk_card_names_by_bytes(unique):
+    dim_rows: list[dict] = []
+    for chunk in _chunk_card_names_by_bytes(list(lookup)):
         try:
             for attempt in (1, 2):
                 try:
@@ -122,10 +123,10 @@ def fetch_daily_rows_by_card_names(sb, names: list[str], columns: str, days: lis
                     logger.info(f"[{log_tag}] カード番号の読み込みを再試行: {type(e).__name__}: {e}")
         except Exception as e:
             logger.warning(f"[{log_tag}] カード番号の取得失敗（{len(chunk)}枚）: {type(e).__name__}: {e}")
-            failed.update(chunk)
+            failed.update(lookup[n] for n in chunk)
             continue
-        for r in resp.data or []:
-            id_to_name[int(r["card_id"])] = r["card_name"]
+        dim_rows.extend(resp.data or [])
+    id_to_name = pick_card_ids(dim_rows, lookup)
 
     ids = sorted(id_to_name)
     id_chunks = [ids[i:i + _ID_CHUNK] for i in range(0, len(ids), _ID_CHUNK)]
@@ -168,6 +169,9 @@ def fetch_daily_rows_by_card_names(sb, names: list[str], columns: str, days: lis
             failed.update(id_to_name[c] for c in id_chunk)
         else:
             out.extend(chunk_rows[ci])
+    for r in out:
+        if r.get("card_id") is not None and int(r["card_id"]) in id_to_name:
+            r["card_name"] = id_to_name[int(r["card_id"])]
     # 休止中の店の行は、休止前の観測でも「いま買える値段」として出さない（shop_status.py。
     # 店名で判定するので columns に shop を含めること）
     return drop_suspended_rows(out), failed

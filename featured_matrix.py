@@ -25,6 +25,7 @@ from datetime import datetime, timedelta
 import httpx
 
 from constants import JST
+from name_normalize import db_lookup_names, pick_card_ids
 from rarity import UNKNOWN_RARITY_LABEL, normalize_rarity
 from scraper import DEFAULT_SHOPS
 from shop_status import is_suspended
@@ -105,15 +106,15 @@ def _execute(build):
 
 
 def _fetch_card_ids(sb, card_names: list[str]) -> dict[int, str]:
-    """カード名 → card_dim のカード番号（名簿に無い名前は返らない）。名前の束は同時に引く。"""
+    """カード名 → card_dim のカード番号（名簿に無い名前は返らない）。名前の束は同時に引く。
+    値は呼び出し元の名前。収集と同じそろえ方の名前でも引く（name_normalize.db_lookup_names）。"""
+    lookup = db_lookup_names(card_names)
+
     def one(chunk):
         return _execute(lambda: sb.table("card_dim").select("card_id, card_name").in_("card_name", chunk)).data or []
 
-    ids: dict[int, str] = {}
-    for data in _executor.map(one, _chunk_card_names_by_bytes(card_names)):
-        for r in data:
-            ids[int(r["card_id"])] = r["card_name"]
-    return ids
+    rows = [r for data in _executor.map(one, _chunk_card_names_by_bytes(list(lookup))) for r in data]
+    return pick_card_ids(rows, lookup)
 
 
 def _fetch_day_rows(sb, chunk: list[int], day: str) -> list[dict]:
@@ -322,7 +323,11 @@ def get_pack_matrix(sb, card_names: list[str]) -> dict:
         days = [(today_d - timedelta(days=k)).isoformat() for k in range(_LOOKBACK_DAYS)]
         try:
             ids = _fetch_card_ids(sb, order) if order else {}
-            records = _prepare_records(_fetch_price_rows(sb, sorted(ids), days) if ids else [])
+            rows = _fetch_price_rows(sb, sorted(ids), days) if ids else []
+            for r in rows:  # 行のカード名は呼び出し元の名前にそろえる（build_matrix は名前で並べる）
+                if r.get("card_id") is not None and int(r["card_id"]) in ids:
+                    r["card_name"] = ids[int(r["card_id"])]
+            records = _prepare_records(rows)
         except Exception as e:
             with _cache_lock:
                 _cache[key] = {"error": str(e), "ts": time.time()}

@@ -690,6 +690,21 @@ def _main(state: dict):
         print("ホスト別アクセス回数:")
         for line in host_count_lines:
             print(line)
+    watch_pack_matrix(pack, now_jst)
+
+
+def watch_pack_matrix(pack: dict, now: datetime) -> None:
+    """10時台の回だけ、利用者が見るのと同じ道で新弾の表の欠けを確かめる（pack_matrix_watch.py）。
+    発売日（0日目）は店の商品ページが順に開くので見ない。発売日が分からなければ見る。"""
+    from pack_matrix_watch import WATCH_HOUR_JST, check_pack_matrix
+    if now.hour != WATCH_HOUR_JST:
+        return
+    try:
+        if (now.date() - date.fromisoformat((pack.get("start_date") or "")[:10])).days < 1:
+            return
+    except ValueError:
+        pass
+    check_pack_matrix(pack)
 
 
 if __name__ == "__main__":
