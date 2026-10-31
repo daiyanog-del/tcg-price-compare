@@ -155,6 +155,102 @@ function _wishEnsurePrices(){
   loadWishPrices().then(()=>{ _wishRerenderPending=false; wishUpdateBadge(); renderWishlist(); });
 }
 
+// ── 「価格を更新」: 店の今の価格で全カードを調べ直す（2026-10-31） ──
+// 購入候補の価格は朝の収集の値（DB）。新弾の直後など値動きが激しいときのために、/api/deck の fresh（全ページを見て
+// その日の行に上書き）で調べ直し、終わったら DB を読み直す。一覧も「どこで買うと安いか」も同じ DB の値にそろう
+const _WISH_REFRESH_KEY='cardprice_wish_refreshed_v1'; // 最後に更新した時刻（見出しの「14:05に更新」）
+const _WISH_REFRESH_CHUNK=80;    // 一括検索が1回に受け取る数（app.py の MAX_DECK_CARDS）
+const _WISH_REFRESH_GAP=3500;    // 分けて送るときの間隔（app.py の RATE_LIMIT_SEC=3 より長く）
+let _wishRefreshing=false;
+function _wishRefreshedAt(){
+  try{ const t=Number(JSON.parse(localStorage.getItem(_WISH_REFRESH_KEY)||'{}').time); return t>0?t:0; }catch{ return 0; }
+}
+// 見出しの数の横に出す「14:05に更新」。DB の日付と同じ JST で、朝の収集（5時）より後に押したものだけ出す
+// （日付が変わったり、0〜5時に押したあと朝の収集が走ったりすれば、収集の値のほうが新しい。reviewer 低6）
+const _WISH_MORNING_COLLECT_HOUR=5; // collect_prices の起動。Render の管理画面の設定 tcg-collect-prices の 0 20 * * * UTC = 5:00 JST（2026-10-31 に確認）
+function _wishRefreshedHtml(){
+  const t=_wishRefreshedAt();
+  if(!t) return '';
+  const jst=ms=>new Date(ms+9*3600*1000); // getUTC* で JST の時刻を読む
+  const d=jst(t), now=jst(Date.now());
+  if(d.toISOString().slice(0,10)!==now.toISOString().slice(0,10)) return '';
+  if(d.getUTCHours()<_WISH_MORNING_COLLECT_HOUR&&now.getUTCHours()>=_WISH_MORNING_COLLECT_HOUR) return '';
+  return ` <span class="wl-refreshed">${d.getUTCHours()}:${String(d.getUTCMinutes()).padStart(2,'0')}に更新</span>`;
+}
+// 1回分（最大 _WISH_REFRESH_CHUNK 種）を調べ直す。届いた card_done ごとに onDone(失敗した店) を呼ぶ
+async function _wishRefreshChunk(names,onDone){
+  const body=new URLSearchParams();
+  body.set('cards',names.join('|'));
+  body.set('fresh','1');
+  const init={method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body};
+  let res=await ShopBusy.fetch('/api/deck',init);
+  if(res.status===429){ await ShopBusy.sleep(_WISH_REFRESH_GAP); res=await ShopBusy.fetch('/api/deck',init); }
+  if(!res.ok||!res.body) throw new Error('HTTP '+res.status);
+  const reader=res.body.getReader(), decoder=new TextDecoder();
+  let buffer='', finished=false;
+  for(;;){
+    const {done,value}=await reader.read();
+    if(done) break;
+    buffer+=decoder.decode(value,{stream:true});
+    const chunks=buffer.split('\n\n');
+    buffer=chunks.pop()||'';
+    for(const chunk of chunks){
+      if(!chunk.startsWith('data: ')) continue;
+      const d=JSON.parse(chunk.slice(6));
+      if(d.type==='card_done') onDone(d.failed_shops||[]);
+      else if(d.type==='done') finished=true;
+    }
+  }
+  // 最後の合図（done）が届かずに閉じたら途中で切れている（例外にならずに閉じることがある。reviewer 中4）
+  if(!finished) throw new Error('途中で切れました');
+}
+async function wishRefreshPrices(btn){
+  if(_wishRefreshing) return;
+  _wishRefreshing=true;
+  const label=btn?btn.textContent:'';
+  if(btn){ btn.disabled=true; btn.setAttribute('aria-busy','true'); }
+  let names=[], done=0, broke=false;
+  const failedShops=new Set();
+  const show=()=>{ if(btn) btn.textContent=`更新中 ${done}/${names.length}`; };
+  try{
+    // まだ店に並ばないカード（未発売・TCG先行）は店で探しても無いので送らない。見分けは価格の応答の印なので、
+    // まだ読んでいなければ先に読む（reviewer 低7）
+    if(_wishPrices===null||_wishPricesLoading) await loadWishPrices();
+    names=[...new Set(wishGet().map(c=>c.name))]
+      .filter(n=>!(_wishPrices&&_wishPrices[n]&&_wishPrices[n].status==='unreleased'));
+    if(!names.length){ if(window.DeckHead) DeckHead.toast('店で探せるカードがありません'); return; }
+    _ga('wish_refresh_prices',{kinds:names.length});
+    show();
+    for(let i=0;i<names.length;i+=_WISH_REFRESH_CHUNK){
+      if(i>0) await ShopBusy.sleep(_WISH_REFRESH_GAP);
+      await _wishRefreshChunk(names.slice(i,i+_WISH_REFRESH_CHUNK),fs=>{
+        done++; fs.forEach(s=>failedShops.add(s)); show();
+      });
+    }
+  }catch(e){
+    broke=true;
+  }finally{
+    _wishRefreshing=false;
+    if(btn){ btn.disabled=false; btn.removeAttribute('aria-busy'); btn.textContent=label; }
+  }
+  // 1件でも調べ直せたら DB を読み直す（途中で切れても、そこまでの分は書き戻してある）
+  if(done>0){
+    // 見出しの「14:05に更新」は、止まらずに全部調べ直せたときだけ（reviewer 低6）
+    if(!broke) try{ localStorage.setItem(_WISH_REFRESH_KEY,JSON.stringify({time:Date.now()})); }catch{}
+    _wishPrices=null; _wishPricesNames=new Set(); _clearWishPricesCache();
+    renderWishlist();
+    // 「どこで買うと安いか」を開いていれば、新しい値で調べ直す。その中の一括検索が直前の調べ直しと
+    // 3秒の間隔の制限に当たらないよう、少し待つ（reviewer 低5）
+    const wsr=document.getElementById('wishShopRanking');
+    if(wsr&&!wsr.classList.contains('hidden')){ await ShopBusy.sleep(_WISH_REFRESH_GAP); wishCheapestStores(); }
+  }
+  if(window.DeckHead){
+    if(broke&&done<names.length) DeckHead.toast(done?`${done}/${names.length}種まで更新しました（途中で止まりました）`:'更新できませんでした。時間をおいてお試しください');
+    else if(failedShops.size) DeckHead.toast(`価格を更新しました（${[...failedShops].join('・')}は取得できず、前の値のままです）`);
+    else DeckHead.toast('価格を更新しました');
+  }
+}
+
 // まだ店に並ばないカードの言い方（サーバーの印 {release_date, tcg_preview}。/api/wish-prices・/api/wish-shop-totals 共通）
 // 発売日の当日0時（JST）からはサーバーが印を付けなくなり、普通のカードとして価格を探す（2026-10-30）
 // いつ買えるか（「11月1日発売」「発売日未定」「日本では未発売」）
@@ -524,7 +620,7 @@ function renderWishlist(){
   actions.style.display='flex';
   // 見出しの数（絞り込みに関係なく全体）
   const cnt=document.getElementById('wishCount');
-  if(cnt)cnt.innerHTML=`<b>${list.length}</b>種 <b>${list.reduce((n,c)=>n+(c.qty||0),0)}</b>枚`;
+  if(cnt)cnt.innerHTML=`<b>${list.length}</b>種 <b>${list.reduce((n,c)=>n+(c.qty||0),0)}</b>枚${_wishRefreshedHtml()}`;
   // 未ロード・TTL切れ・取得中（起動時の取得など）なら、届いたあとに描き直す
   _wishEnsurePrices();
   // レアリティ候補を先に読んでおく（札を押したときにすぐ出せるように。カード名の集合が変わったときだけ取りに行く）

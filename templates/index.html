@@ -1193,6 +1193,8 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
         <!-- 見出し: 数と主操作だけ。「他の端末でも見る」「すべて削除」は ⋯（index-wish.js _wishOpenHeadMenu。2026-10-21 モック wish-refresh-20261021 の C） -->
         <div class="wish-actions wl-head" id="wishActions" style="display:none">
           <div class="wl-title"><h2>購入候補</h2><span class="wl-count" id="wishCount"></span></div>
+          <!-- 店の今の価格で全カードを調べ直す（index-wish.js wishRefreshPrices。2026-10-31） -->
+          <button type="button" class="wish-action-btn wl-refresh" onclick="wishRefreshPrices(this)" title="店の今の価格で全カードを調べ直します（朝の収集の値を上書き）">価格を更新</button>
           <button class="wish-action-btn primary" onclick="wishCheapestStores()">どこで買うと安いか調べる</button>
           <button type="button" class="wl-head-more" id="wishHeadMore" aria-label="その他の操作" aria-haspopup="menu"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="12.5" cy="8" r="1.4"/></svg></button>
         </div>
