@@ -4076,13 +4076,14 @@ def new_cards_page():
 def tcg_preview_page():
     """海外先行カード一覧ページ: 英語版で先に出て日本に無いカード（tcg_preview_cards）を商品ごとに全件表示する。
     中身は未発売カード一覧（/new-cards）と同じ部品で、new-cards.js が /api/tcg-preview-cards から描く。
-    予告中の新弾（tcg_announce_*）があれば、まとめページ（/tcg-preview/<slug>）への入口を上に出す。"""
+    予告中の新弾（tcg_announce_*）があれば、一番上に商品ごとのまとまりとして出し、まとめページ（/tcg-preview/<slug>）へつなぐ。"""
     try:
         announce_sets = _tcg_announce_view.list_sets()
     except Exception:
         logger.exception("予告中の新弾の取得失敗（入口を出さずに続ける）")
         announce_sets = []
-    return render_template("index.html", card_name="", page_mode="tcg_preview", announce_sets=announce_sets)
+    return render_template("index.html", card_name="", page_mode="tcg_preview", announce_sets=announce_sets,
+                           announce_anchor=_tcg_announce_view.anchor)
 
 
 # ── 新弾フィーチャーキャッシュ（メモリ） ──

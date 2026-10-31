@@ -153,7 +153,7 @@ window.NewCards = (() => {
       const heading=document.createElement('h3');
       heading.className='new-card-group-title';
       const title=document.createElement('span');
-      title.textContent=(g.product||'収録商品未定')+'（'+g.cards.length+'件）';
+      title.textContent=(g.product||'収録商品未定')+'（'+g.cards.length+'枚）';
       heading.appendChild(title);
       const rel=releaseLabel(g.release);
       if(rel){

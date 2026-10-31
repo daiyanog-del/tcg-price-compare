@@ -105,3 +105,17 @@ def test_一覧ページは新弾情報のタブを光らせる(client):
     assert '<a href="/#packs" class="is-on" aria-current="page">パック一覧</a>' in top
     css = (Path(__file__).resolve().parent.parent / "static/css/newset-subnav.css").read_text(encoding="utf-8")
     assert "#mode-search:not(.new-cards-page) .newset-subnav{display:none}" in css
+
+
+def test_単独の移動リンクは共通のボタン(client):
+    # 2026-10-31 ユーザー「少数派の文字リンクをまとめて統一」: トップの「すべて見る →」・環境デッキ／パックの全面の詳細の「一覧へ」は .nav-pill
+    from pathlib import Path
+    html = client.get("/").get_data(as_text=True)
+    assert 'class="nav-pill new-cards-head-link"' in html and 'class="nav-pill new-cards-all"' in html
+    assert html.count('class="nav-pill meta-back"') == 2
+    root = Path(__file__).resolve().parent.parent
+    theme = (root / "static/css/site-theme.css").read_text(encoding="utf-8")
+    assert ".nav-pill{" in theme and ".nav-pill[hidden]{display:none}" in theme
+    # スマホの購入候補はロゴの縦の中心（上の余白15px＋高さ46pxの中心 38px − 高さ36pxの半分）
+    layout = (root / "static/css/price-layout.css").read_text(encoding="utf-8")
+    assert ".nav-wishlist{position:absolute;top:20px;" in layout

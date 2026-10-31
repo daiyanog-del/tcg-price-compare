@@ -109,7 +109,8 @@
     background: var(--bg);
   }
   .meta-pane-detail.is-open .meta-sheet-bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; height: 52px; margin: 0 -12px 8px; padding: 0 8px; background: var(--bg); }
-  .meta-back { display: inline-flex; align-items: center; gap: 4px; height: 36px; padding: 0 10px; border: 0; border-radius: 6px; background: none; color: var(--accent-l); font: 700 .85rem var(--font); cursor: pointer; }
+  /* 見た目は共通のボタン（site-theme.css .nav-pill・2026-10-31）。新弾情報のパックの全面の詳細（packs.css .pk-sheet-bar）も同じ部品 */
+  .meta-back { padding-left: 10px; }
   .meta-pane-detail.is-open #metaDeckDetail, .meta-pane-detail.is-open #metaDeckResults { padding: 0 2px; }
   #metaDeckDetail .mt-head { grid-template-columns: 44px minmax(0, 1fr); }
   #metaDeckDetail .mt-head img { width: 44px; height: 63px; }

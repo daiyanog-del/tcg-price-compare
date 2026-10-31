@@ -2,11 +2,9 @@
 .new-cards{margin:0 0 32px;text-align:left;color:var(--text)}
 .new-cards[hidden]{display:none}
 .new-cards h2{margin:0;font-size:19px;line-height:1.5}
-/* 見出し右端の一覧ページ導線（トップのみ。一覧ページ自身では隠す）。色は .new-cards-all と同じ accent-l */
-.new-cards-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
-.new-cards-head-link{flex-shrink:0;font-size:13px;color:var(--accent-l);text-decoration:none;white-space:nowrap}
-.new-cards-head-link:hover{text-decoration:underline;text-underline-offset:3px}
-.new-cards-head-link:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
+/* 見出し右端の一覧ページ導線（トップのみ。一覧ページ自身では隠す）。見た目は共通のボタン（site-theme.css .nav-pill・2026-10-31） */
+.new-cards-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.new-cards-head-link{flex-shrink:0}
 .new-cards-page .new-cards-head-link{display:none}
 /* 並び順の切り替え（追加順／型番順）。未発売カード一覧のページだけ（トップ・海外先行の一覧では出さない。2026-10-30） */
 .new-cards-sort{flex-shrink:0}
@@ -26,13 +24,26 @@
 .new-card-link strong{margin-top:8px}
 /* 海外先行カード一覧（.tcg-preview-page）とそれ以外で、戻るリンク・説明文を出し分ける（templates/index.html の for-default / for-tcg） */
 #mode-search:not(.tcg-preview-page) .new-cards .for-tcg,#mode-search.tcg-preview-page .new-cards .for-default{display:none}
-/* 予告中の新弾（/tcg-preview/<slug> のまとめページ）への入口（2026-10-29）。海外先行カード一覧だけに出る（for-tcg） */
-.new-cards-announce{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:-4px 0 20px}
-.new-cards-announce-label{font-size:12px;font-weight:700;color:var(--gold);background:#302d24;border-radius:6px;padding:2px 8px}
-.new-cards-announce a{display:inline-flex;align-items:baseline;gap:6px;padding:6px 12px;border-radius:var(--radius);background:var(--bg-card);color:var(--text);font-size:14px;font-weight:700;text-decoration:none}
-.new-cards-announce a:hover{background:var(--bg-hover)}
-.new-cards-announce a:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
-.new-cards-announce small{font-size:12px;font-weight:400;color:var(--text-m)}
+/* 予告中の新弾のまとまり（海外先行カード一覧の一番上・2026-10-31 案A）。同じ HTML のまま価格比較のタブでトップの表示に移っても出さない。
+   「予告中」の札の色は前の入口の札（金・#302d24）のまま。発売済みのまとまりと見分けるため */
+#mode-search:not(.tcg-preview-page) .new-cards-announce-groups{display:none}
+.new-cards-announce-groups{margin-bottom:32px}
+.new-card-announce-label{margin-right:6px;padding:1px 8px;border-radius:6px;background:#302d24;color:var(--gold);font-size:12px;font-weight:700;vertical-align:2px}
+.new-card-group-title .new-card-group-more{margin-left:auto;align-self:center}
+/* 仮の札。まとめページ（tcg-announce.css .ta-proxy）と同じ中身。.new-card-picture img（全面に広げる）を打ち消す */
+.new-card-proxy{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 8px;box-sizing:border-box;border:1px solid var(--border);border-radius:3px;background:var(--bg-card);text-align:center}
+.new-card-proxy-head{font-size:11px;line-height:1.3;color:var(--text-m)}
+.new-card-proxy-stars{font-size:9px;letter-spacing:-1px;color:var(--gold);overflow-wrap:anywhere}
+.new-card-picture .new-card-proxy-art{position:static;inset:auto;width:100%;height:auto;aspect-ratio:1;object-fit:cover;border-radius:2px;background:none}
+.new-card-proxy-q{margin:auto 0;font-size:40px;font-weight:700;line-height:1;color:var(--border)}
+.new-card-proxy-note{margin-top:auto;font-size:10px;color:var(--text-m)}
+@media(max-width:640px){
+  .new-card-group-title .new-card-group-more{flex:0 0 auto}
+  .new-card-proxy{gap:3px;padding:6px 4px}
+  .new-card-proxy-head{font-size:9px}
+  .new-card-proxy-q{font-size:26px}
+  .new-card-proxy-note{font-size:9px}
+}
 .new-card-link strong{display:block;font-size:13px;line-height:1.55;overflow-wrap:anywhere}
 /* 「もっと見る」など他の通常ボタンと同じ、枠なしの面（2026-10-21 金枠＋青文字から変更） */
 .new-card-add,.new-card-wish{margin-top:auto;width:100%;min-height:40px;padding:4px 6px;background:var(--bg-hover);color:var(--text);border:0;border-radius:6px;font:inherit;font-size:12px;font-weight:600;line-height:1.3;cursor:pointer;overflow-wrap:anywhere}
@@ -50,10 +61,9 @@
 /* 「もっと見る」は場所だけ取って読込完了まで見せない（押せない） */
 #newCardsGrid[aria-busy="true"]~#newCardsMore{visibility:hidden}
 .new-card-skel strong{min-height:3.1em;background:linear-gradient(var(--bg-hover),var(--bg-hover)) 0 .2em/80% 1.1em no-repeat}
-.new-cards-all{display:inline-block;margin-top:16px;font-size:14px;color:var(--accent-l);text-decoration:none}
+/* 見た目は共通のボタン（site-theme.css .nav-pill・2026-10-31） */
+.new-cards-all{margin-top:16px}
 .new-cards-all[hidden]{display:none}
-.new-cards-all:hover{text-decoration:underline;text-underline-offset:3px}
-.new-cards-all:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
 /* 一覧ページ（/new-cards）: 商品ごとのグループ表示。トップ用のランキングは隠す */
 .new-cards-page .movers-row{display:none}
 /* 一覧ページは「新弾情報」の中のページなので、価格比較の検索欄は出さない（2026-10-30。価格比較のタブで戻ると出る） */
