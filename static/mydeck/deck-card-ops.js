@@ -138,7 +138,7 @@
     var tcgPreview = !!(window.TcgPreview && window.TcgPreview.has(name));
     if(!tcgPreview) item('購入候補に入れる', '候補に ' + _wishCount(name) + '枚', function(){ _addToWish(name); });
     item('カードの詳細', '', info);
-    if(!tcgPreview) item('店ごとの価格を見る', '', function(){ window.open('/card/' + encodeURIComponent(name), '_blank', 'noopener'); });
+    if(!tcgPreview) item('店ごとの価格を見る', '', function(){ location.href = '/card/' + encodeURIComponent(name); });
 
     document.body.appendChild(el);
     // マウスの位置に出す。画面からはみ出す向きなら反対側へ

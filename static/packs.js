@@ -891,9 +891,9 @@ function _pkOpenCardMenu(row,x,y,fromBtn){
     }},
     {label:'カードの詳細',fn:()=>{
       if(typeof _metaOpenCardInfo==='function') _metaOpenCardInfo(name,img?img.src:'');
-      else window.open('/card/'+encodeURIComponent(name),'_blank','noopener');
+      else location.href='/card/'+encodeURIComponent(name);
     }},
-    {label:'店ごとの価格を見る',fn:()=>window.open('/card/'+encodeURIComponent(name),'_blank','noopener')},
+    {label:'店ごとの価格を見る',fn:()=>location.href='/card/'+encodeURIComponent(name)},
   ]});
 }
 
