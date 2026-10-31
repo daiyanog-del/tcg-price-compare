@@ -411,15 +411,27 @@ class TestPrepareRecordsAndCache:
         featured_matrix._cache.clear()
 
     def test_shop_with_today_rows_drops_yesterday(self):
-        """今日の記録がある店は昨日の記録を使わない（今日売り切れた品に昨日の値が残らない）。まだ取っていない店は昨日で埋める"""
+        """同じカード×店に今日の記録があれば昨日の記録を使わない（今日売り切れた品に昨日の値が残らない）。まだ取っていないカード×店は昨日で埋める"""
         recs = [
             _row("A", "店1", "ウルトラ", 100, 100, "2026-10-22"),
-            _row("A", "店1", "シークレット", 500, 500, "2026-10-21"),  # 店1は今日取った → 昨日のシークレットは捨てる
-            _row("A", "店2", "ウルトラ", 120, 120, "2026-10-21"),      # 店2はまだ → 残す
+            _row("A", "店1", "シークレット", 500, 500, "2026-10-21"),  # A×店1は今日取った → 昨日のシークレットは捨てる
+            _row("A", "店2", "ウルトラ", 120, 120, "2026-10-21"),      # A×店2はまだ → 残す
         ]
         out = featured_matrix._prepare_records(recs)
         keys = {(r["shop"], r["rarity"]) for r in out}
         assert keys == {("店1", "ウルトラ"), ("店2", "ウルトラ")}
+
+    def test_one_card_searched_today_keeps_other_cards_yesterday(self):
+        """深夜に1枚だけ検索されて今日の記録ができても、ほかのカードのその店の昨日の記録は残す（2026-11-01 IMMORTAL PHOENIX）"""
+        recs = [
+            _row("A", "店1", "ウルトラ", 100, 100, "2026-11-01"),
+            _row("A", "店1", "ウルトラ", 110, 110, "2026-10-31"),
+            _row("B", "店1", "シークレット", 900, 900, "2026-10-31"),
+            _row("C", "店2", "ノーマル", 30, 30, "2026-10-31"),
+        ]
+        out = featured_matrix._prepare_records(recs)
+        assert sorted((r["card_name"], r["shop"], r["recorded_at"]) for r in out) == [
+            ("A", "店1", "2026-11-01"), ("B", "店1", "2026-10-31"), ("C", "店2", "2026-10-31")]
 
     def test_code_cleared_when_shown_price_is_another_listing(self):
         """表に出す値段（min_price_any）と型番の出品（min_price）が違う行は、型番を空（版不明）にする"""
@@ -477,18 +489,20 @@ class TestFetchFewerRoundTrips:
         assert {c[1]["recorded_at"] for c in sb.calls} == {"2026-10-22"}, "全部の店が今日揃ったら昨日は読まない"
         assert len(out) == len(featured_matrix.DEFAULT_SHOPS)
 
-    def test_yesterday_reads_only_shops_missing_today(self):
-        rows = [self._r(1, "遊々亭", "2026-10-22"), self._r(2, "カーナベル", "2026-10-22"),
-                self._r(1, "遊々亭", "2026-10-21"), self._r(1, "カードラボ", "2026-10-21")]
+    def test_yesterday_reads_only_cards_missing_shops_today(self):
+        """昨日は、今日の記録で全部の店がそろっていないカードだけ読む。店はパック全体で除かない（2026-11-01）"""
+        full = [self._r(1, s, "2026-10-22") for s in featured_matrix.DEFAULT_SHOPS]
+        rows = full + [self._r(1, "遊々亭", "2026-10-21"),
+                       self._r(2, "遊々亭", "2026-10-22"), self._r(2, "カードラボ", "2026-10-21"),
+                       self._r(3, "遊々亭", "2026-10-21"), self._r(3, "カーナベル", "2026-10-21")]
         sb = _RecSupabase({}, rows)
-        out = _fetch_price_rows(sb, [1, 2], ["2026-10-22", "2026-10-21"])
+        out = _fetch_price_rows(sb, [1, 2, 3], ["2026-10-22", "2026-10-21"])
         y = [c[1] for c in sb.calls if c[1]["recorded_at"] == "2026-10-21"]
-        assert y and all(sorted(c["not_shop_id"]) == [1, 4] for c in y), "今日の記録がある店（遊々亭・カーナベル）は昨日を読まない"
-        assert sorted((r["shop"], r["recorded_at"]) for r in out) == [
-            ("カードラボ", "2026-10-21"), ("カーナベル", "2026-10-22"), ("遊々亭", "2026-10-22")]
-        # 表の結果は全部読んだときと同じ（_prepare_records が捨てる行だけを読まない）
-        assert featured_matrix._prepare_records(out) == featured_matrix._prepare_records(
-            [r for r in rows if not (r["shop"] == "遊々亭" and r["recorded_at"] == "2026-10-21")])
+        assert y and sorted(i for c in y for i in c["card_id"]) == [2, 3], "全店そろったカード1は昨日を読まない"
+        assert all("not_shop_id" not in c for c in y), "店をパック全体で除かない"
+        got = {(r["card_id"], r["shop"]) for r in featured_matrix._prepare_records(out)}
+        assert (3, "遊々亭") in got and (3, "カーナベル") in got, "カード1・2で今日の記録がある店でも、カード3は昨日で埋める"
+        assert (2, "カードラボ") in got
 
     def test_card_ids_are_split_into_chunks(self):
         ids = list(range(1, featured_matrix._ID_CHUNK * 2 + 2))

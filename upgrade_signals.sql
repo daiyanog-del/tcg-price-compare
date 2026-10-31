@@ -28,3 +28,16 @@ CREATE TABLE IF NOT EXISTS upgrade_signal_summaries (
 -- 公開キー（anon）からは読めない・書けないようにする（service role は RLS を通らない）
 ALTER TABLE upgrade_signal_daily ENABLE ROW LEVEL SECURITY;
 ALTER TABLE upgrade_signal_summaries ENABLE ROW LEVEL SECURITY;
+
+-- DB 全体の大きさ（バイト）。見張りの1日のまとめで1回だけ呼ぶ（2026-10-31・無料枠 500MB の合図）。
+-- pg_database_size はファイルの大きさを見るだけで、表を読まない（朝の収集中でも重くない）。
+-- 呼べるのは service role だけ（公開キーから DB の大きさを見せない）。
+CREATE OR REPLACE FUNCTION public.db_size_bytes()
+RETURNS bigint
+LANGUAGE sql
+STABLE
+SET search_path = ''
+AS $$ SELECT pg_catalog.pg_database_size(pg_catalog.current_database()) $$;
+
+REVOKE ALL ON FUNCTION public.db_size_bytes() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.db_size_bytes() TO service_role;

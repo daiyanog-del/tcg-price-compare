@@ -975,12 +975,21 @@ _TORECOLO_YGO_CT2 = "1010"
 # 販売用の 1010 を買取に使うと結果が丸ごと0件になる（2026-08-03 実測: 303件→0件）。
 _TORECOLO_YGO_CT2_BUY = "2010"
 
+# 検索結果が0件のページの文言（総件数の表示「N 件あります」の代わりに出る）
+TORECOLO_NO_RESULTS_TEXT = "ご指定の条件に一致する商品が見つかりませんでした"
+
+
 def scrape_torecolo(card_name: str, max_pages: int = 5,
-                    ct2: str = _TORECOLO_YGO_CT2) -> list[dict]:
+                    ct2: str = _TORECOLO_YGO_CT2, extra_query: str = "",
+                    page_wait: float = 0.5, meta_out: dict | None = None) -> list[dict]:
     """トレコロCB — 複数ページ対応、レアリティ取得
 
     ct2: TCG別カテゴリの絞り込み。既定は遊戯王（_TORECOLO_YGO_CT2）。
          空文字を渡すと全TCG横断になる（旧挙動。新旧比較の検証用）。
+    extra_query: URL に足す絞り込み（"&ct3=…&filtercode13=1&seq=g" など。在庫一覧の巡回 torecolo_catalog.py 用）
+    page_wait: 次のページを読む前の待ち秒数（巡回は店への負担を考えて長めにする）
+    meta_out: dict を渡すと、1ページ目の総件数の表示（「N 件あります」→ total）・読んだページ数（pages）・
+              絞り込み前に一覧に並んでいた商品の数（listed）を書き込む（巡回が読み切れたかの突き合わせ用）
     """
     search_name = _torecolo_search_query(card_name)
     base_url = (
@@ -989,7 +998,10 @@ def scrape_torecolo(card_name: str, max_pages: int = 5,
     )
     if ct2:
         base_url += f"&ct2={ct2}"
+    base_url += extra_query
     all_results = []
+    if meta_out is not None:
+        meta_out.update({"total": None, "pages": 0, "listed": 0})
 
     for page in range(1, max_pages + 1):
         page_url = base_url if page == 1 else f"{base_url}&p={page}"
@@ -998,8 +1010,20 @@ def scrape_torecolo(card_name: str, max_pages: int = 5,
             break
         if page == 1:
             dump_html("torecolo", soup)
+            if meta_out is not None:
+                total_el = soup.select_one(".pager-total")
+                digits = re.sub(r"\D", "", total_el.get_text()) if total_el else ""
+                if digits:
+                    meta_out["total"] = int(digits)
+                elif TORECOLO_NO_RESULTS_TEXT in soup.get_text():
+                    # 0件のページには総件数の表示が無く、この文言だけが出る（2026-10-31 実店「ノーマルカード」1010EU で確認）。
+                    # 文言も表示も無いページ（WAF の空ページなど）は None のまま＝読み切れていない扱い
+                    meta_out["total"] = 0
 
         items = soup.select("dl.block-thumbnail-t--goods")
+        if meta_out is not None:
+            meta_out["pages"] = page
+            meta_out["listed"] += len(items)
         if not items:
             break
 
@@ -1104,7 +1128,7 @@ def scrape_torecolo(card_name: str, max_pages: int = 5,
         next_link = soup.select_one("a[href*='p=%d']" % (page + 1))
         if not next_link:
             break
-        time.sleep(0.5)
+        time.sleep(page_wait)
 
     return all_results
 

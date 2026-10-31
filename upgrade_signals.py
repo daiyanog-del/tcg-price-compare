@@ -12,6 +12,8 @@
    - 単品検索の順番待ちの p95（合図 10秒超 → 同時数の調整）
    - メモリの山（合図 400MB 超 → Render Standard）
    - DB のタイムアウト・遅い応答の件数（→ Supabase Pro）
+   - DB の大きさ（合図 450MB 超。無料枠は 500MB）。まとめを出すとき（JST 0:10 以降）に1回だけ測る。
+     測れなかった日（関数 db_size_bytes が無い・DB 停止）は、ログに残して大きさの合図だけ飛ばす
    - Key Value があふれた件数は、Key Value がまだ無いので省いている。入ったら INFO の evicted_keys を
      SignalMonitor.tick で読み、DailyStats に足す
    集計はサーバーの中だけに持つと再起動で消えるので、プロセスごとに1日1行を Supabase に書く
@@ -68,6 +70,9 @@ SIGNAL_MEMORY_MB = 400.0  # メモリの山（ユーザーと決めた合図。S
 SIGNAL_DB_FAILURES = 10  # 1日の DB の応答なし（タイムアウト・5xx・通信断）  # TODO: calibrate from data
 SIGNAL_DB_SLOW = 50  # 1日の DB の遅い応答  # TODO: calibrate from data
 SIGNAL_WAIT_MIN_COUNT = 100  # p95 を判定する最低件数（少ない日は1件の遅れで合図になるため）  # TODO: calibrate from data
+# DB の大きさ（無料枠 500MB）。10-31 の見積もりでは 12月初めに約450MB、2027年2月ごろ約470〜480MB で頭打ち。
+# 減らす手（url/code の別表化など）に1か月ほどかかる前提で、上限の 50MB 手前に置いた仮の値
+SIGNAL_DB_SIZE_MB = 450.0  # TODO: calibrate from data
 
 # 単品検索の待ち時間の区切り（秒）。p95 は区切りの単位でしか出ないので、合図の 10 秒は必ず区切りに入れる。
 # 最後の区切り（45秒）は単品の順番待ちの上限（app.py SHOP_QUEUE_TIMEOUT_SINGLE）。待ち切れは上限超えの箱に入れる
@@ -89,6 +94,7 @@ ACTIONS = {
     "wait_p95": "取得口の同時数の調整（0円。店の WAF の反応を見ながら少しずつ）",
     "memory": "Render Standard へ（1 CPU・2GB。月 +$18 程度）",
     "db": "Supabase Pro へ（月 $25）",
+    "db_size": "店舗別の価格の url/code を直近7日の別表へ移す（0円・約 -60MB）か、Supabase Pro へ（月 $25・8GB）",
 }
 
 
@@ -293,7 +299,17 @@ class DailyStats:
         return float(WAIT_BUCKETS[-1]), None
 
 
-def evaluate_signals(stats: DailyStats) -> list[str]:
+def read_db_size_mb(store) -> float | None:
+    """DB 全体の大きさ（MB）。関数 db_size_bytes（upgrade_signals.sql）で測る。測れなければ None。"""
+    try:
+        size = store.rpc("db_size_bytes").execute().data
+        return int(size) / (1024 * 1024)
+    except Exception as e:
+        logger.warning("upgrade_signals: DB の大きさを測れませんでした（大きさの合図は今日は見ません）: %s", e)
+        return None
+
+
+def evaluate_signals(stats: DailyStats, db_size_mb: float | None = None) -> list[str]:
     """合図を超えた項目の文。超えていなければ空。"""
     hits = []
     p95 = stats.wait_p95_bucket()
@@ -308,10 +324,13 @@ def evaluate_signals(stats: DailyStats) -> list[str]:
         hits.append(f"DB のタイムアウト・応答なしが {stats.db_failures}件（合図 {SIGNAL_DB_FAILURES}件）、"
                     f"遅い応答（{DB_SLOW_SEC:g}秒以上）が {stats.db_slow}件（合図 {SIGNAL_DB_SLOW}件）"
                     f"→ {ACTIONS['db']}")
+    if db_size_mb is not None and db_size_mb > SIGNAL_DB_SIZE_MB:
+        hits.append(f"DB の大きさが合図（{SIGNAL_DB_SIZE_MB:g}MB）を超えました"
+                    f"（{db_size_mb:.0f}MB・無料枠は 500MB）→ {ACTIONS['db_size']}")
     return hits
 
 
-def format_summary(stats: DailyStats, hits: list[str]) -> str:
+def format_summary(stats: DailyStats, hits: list[str], db_size_mb: float | None = None) -> str:
     p95 = stats.wait_p95_bucket()
     p95_text = "なし" if p95 is None else (f"{p95[0]:g}秒超" if p95[1] is None else f"{p95[0]:g}〜{p95[1]:g}秒")
     lines = [f"💰 **有料化を考える時期です**（{stats.day}）"]
@@ -321,7 +340,8 @@ def format_summary(stats: DailyStats, hits: list[str]) -> str:
         f"その日の数字: 単品の順番待ち p95 {p95_text}（{stats.wait_count()}件・待ち切れ "
         f"{stats.pool_single_busy_expired}件）／メモリの山 {stats.memory_peak_mb:.0f}MB／"
         f"DB 応答なし {stats.db_failures}件・遅い {stats.db_slow}件（全{stats.db_requests}件）／"
-        f"取得口の受付上限 {stats.pool_capacity_rejected}件・検索の混雑応答 {stats.search_busy}件"
+        f"取得口の受付上限 {stats.pool_capacity_rejected}件・検索の混雑応答 {stats.search_busy}件／"
+        f"DB の大きさ {'測れず' if db_size_mb is None else f'{db_size_mb:.0f}MB'}"
     )
     return "\n".join(lines)
 
@@ -563,7 +583,9 @@ class SignalMonitor:
             if mine_pending is not None:
                 stats_rows.append(mine_pending.to_json())
             stats = DailyStats.merge(yesterday, stats_rows)
-            hits = evaluate_signals(stats)
+            # 大きさはその日の集計ではなく今の値。まとめを決める周で1回だけ測る（測れなくても他の合図は出す）
+            db_size_mb = read_db_size_mb(store)
+            hits = evaluate_signals(stats, db_size_mb)
             # 先に「この日は見た」を書いてから送る（複数プロセス・再起動で二重に送らない）。
             # 既にあれば ignore_duplicates で何も返らない＝ほかが済ませた
             claimed = store.table(SUMMARY_TABLE).upsert(
@@ -573,9 +595,10 @@ class SignalMonitor:
             ).execute().data
             self._summary_done_for = yesterday
             if claimed and hits:
-                self._send(format_summary(stats, hits))
-            logger.info("upgrade_signals: %s のまとめ（合図 %d件・行 %d・送信 %s）",
-                        yesterday, len(hits), len(stats_rows), bool(claimed and hits))
+                self._send(format_summary(stats, hits, db_size_mb))
+            logger.info("upgrade_signals: %s のまとめ（合図 %d件・行 %d・送信 %s・DB %s）",
+                        yesterday, len(hits), len(stats_rows), bool(claimed and hits),
+                        "測れず" if db_size_mb is None else f"{db_size_mb:.0f}MB")
             cutoff = (jst - timedelta(days=KEEP_DAYS)).strftime("%Y-%m-%d")
             store.table(DAILY_TABLE).delete().lt("day", cutoff).execute()
             store.table(SUMMARY_TABLE).delete().lt("day", cutoff).execute()

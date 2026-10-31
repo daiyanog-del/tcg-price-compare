@@ -254,7 +254,7 @@ import domain_handoff
 
 import re as _re
 from urllib.parse import quote as _url_quote
-from name_normalize import fuzzy_key as _fuzzy_key, _FUZZY_STRIP, canonicalize_card_name
+from name_normalize import fuzzy_key as _fuzzy_key, _FUZZY_STRIP, canonicalize_card_name, normalize_card_name
 
 # 検索クエリの表記ゆれ正規化
 _DASH_CHARS = _re.compile(r'[\u2012\u2013\u2014\u2015\u2212\uFF0D\uFF70]')  # 各種ダッシュ・ハイフン
@@ -4043,14 +4043,17 @@ def _canonical_pack_cards(data: dict) -> dict:
     """収録カード名を正式名に直して返す（キャッシュそのものは書き換えない）。
     遊戯王Wikiの表記（例: 「BF-」の半角ハイフン）のままだと、価格のデータベース・まとめて検索・購入候補が
     正式名（「BF－」）で返す名前と一致せず、新商品タブで価格が入らなかった（2026-10-21 reviewer 指摘）。
-    直した結果が重なったら1つにする。"""
+    直した結果が重なったら1つにする。
+    正式名の一覧（data/cardnames_ja.json・毎週更新）に未登録の新しいカードは補正されず Wiki の全角表記（例:「Ｎｏ.９６」）のまま
+    残り、収集が normalize_card_name で半角にして保存した名前と一致せず、店舗×レアの表で「記録がありません」になった
+    （2026-11-01）。収集と同じく normalize_card_name を先に通す。"""
     cards = data.get("cards") or []
     if not cards:
         return data
     _load_cardnames()
     seen, out = set(), []
     for name in cards:
-        fixed = _correct_cardname(str(name).strip())
+        fixed = _correct_cardname(normalize_card_name(str(name).strip()))
         if fixed and fixed not in seen:
             seen.add(fixed)
             out.append(fixed)

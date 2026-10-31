@@ -197,3 +197,19 @@ def test_pack_cards_returns_canonical_names(monkeypatch):
     data = resp.get_json()
     assert data["cards"] == ["A BF－五月雨のソハヤ", "未登録のカード"]
     assert data["count"] == 2
+
+
+def test_pack_cards_unlisted_names_match_collected_names(monkeypatch):
+    """正式名の一覧に未登録の新しいカードは、収集が保存する名前（normalize_card_name）にそろえて返す。
+    Wiki の全角表記のままだと価格のデータベースの名前と一致せず、店舗×レアの表が空になった（2026-11-01）。"""
+    from name_normalize import normalize_card_name
+    app_module._load_cardnames()
+    raw = ["Ｎｏ.９６ ブラック・マリオネッター", "ハーピィ・レディ三姉妹・ＴＸ", "バニリン：モカＭＯＤ"]
+    monkeypatch.setattr(app_module, "pack_cards_cached",
+                        lambda name: {"pack": name, "cards": raw, "count": 3})
+    app_module.app.config.update(TESTING=True)
+    client = app_module.app.test_client()
+    resp = client.get("/api/packs/cards", query_string={"name": "テストパック", "wiki": "テストパック"})
+    data = resp.get_json()
+    assert data["cards"] == ["No.96 ブラック・マリオネッター", "ハーピィ・レディ三姉妹・TX", "バニリン：モカMOD"]
+    assert data["cards"] == [normalize_card_name(n) for n in raw]
