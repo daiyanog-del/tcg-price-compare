@@ -144,6 +144,24 @@ def _cardrush_search_query(card_name: str) -> str:
 STRICT_NAME_FILTER = True
 EXCLUDE_SUPPLY = True
 
+# 型番の頭（例: "IMPH"）で1パック分をまとめて検索するとき（pack_search.py）は、検索語がカード名ではないので
+# カード名での絞り込みだけを外す（サプライ品・ラッシュデュエルの除外は残す）。振り分けは呼び出し側が
+# 収録カード名ごとに is_target_card で行う。スレッドごとに独立（contextvars）なので、同じプロセスの
+# ほかの検索には効かない
+import contextvars as _contextvars
+from contextlib import contextmanager as _contextmanager
+_NAME_FILTER_OFF = _contextvars.ContextVar("scraper_name_filter_off", default=False)
+
+
+@_contextmanager
+def name_filter_off():
+    """この中で呼んだ店舗スクレイパーは、商品名とカード名の一致を見ない（型番の頭で探すとき用）。"""
+    token = _NAME_FILTER_OFF.set(True)
+    try:
+        yield
+    finally:
+        _NAME_FILTER_OFF.reset(token)
+
 # ── キャッシュ設定 ──
 CACHE_ENABLED = True
 CACHE_TTL_MINUTES = 15
@@ -677,6 +695,8 @@ def is_target_card(card_name: str, product_name: str) -> bool:
     # ラッシュデュエル（別ゲーム）のカードを除外
     if _is_rush_duel(product_name):
         return False
+    if _NAME_FILTER_OFF.get():
+        return True
     # 全角英数を半角に統一してからマッチング
     norm_card = normalize_width(card_name)
     norm_product = normalize_width(product_name)
@@ -1578,100 +1598,112 @@ def _parse_manzoku_rarity(text: str) -> str:
 MANZOKU_STOCK_PLUS_MIN = 4
 
 
-def scrape_manzoku(card_name: str) -> list[dict]:
-    """まんぞく屋 — EC-CUBEベースの遊戯王カード通販"""
+def scrape_manzoku(card_name: str, max_pages: int = 1) -> list[dict]:
+    """まんぞく屋 — EC-CUBEベースの遊戯王カード通販
+
+    1ページ100件（安い順）。カード名の検索はふだん1ページで足りるので既定は1ページ。
+    型番の頭で1パック分を探すとき（pack_search.py）だけ max_pages で次のページ（pageno=N）も読む
+    （2026-10-31 実測: IMPH-JP は1ページ目73種・2ページ目20種・3ページ目は空）。"""
     search_name = _normalize_search_query(card_name)
-    page_url = (
+    base_url = (
         f"https://shopmanzokuya.com/products/list"
         f"?category_id=1&name={requests.utils.quote(search_name)}"
         f"&orderby=price_l&disp_number=100"
     )
-    soup = safe_get(page_url)
-    if not soup:
-        return []
-    dump_html("manzoku", soup)
-
     results = []
-    for li in soup.select("li"):
-        # 商品リンクを探す
-        link = li.select_one("a[href*='/products/detail/']")
-        if not link:
-            continue
+    for page in range(1, max_pages + 1):
+        page_url = base_url if page == 1 else f"{base_url}&pageno={page}"
+        soup = safe_get(page_url)
+        if not soup:
+            break
+        if page == 1:
+            dump_html("manzoku", soup)
 
-        text = link.get_text(separator=" ", strip=True)
-        if not text:
-            continue
+        for li in soup.select("li"):
+            # 商品リンクを探す
+            link = li.select_one("a[href*='/products/detail/']")
+            if not link:
+                continue
 
-        # 価格を抽出（￥1,234 形式）
-        price_match = re.search(r'￥([\d,]+)', text)
-        if not price_match:
-            continue
-        price = parse_price(price_match.group(0))
-        if not price:
-            continue
+            text = link.get_text(separator=" ", strip=True)
+            if not text:
+                continue
 
-        # カード番号とカード名を抽出（《カード名》形式）
-        name_match = re.search(r'《(.+?)》', text)
-        if not name_match:
-            continue
-        display_name = name_match.group(1).strip()
+            # 価格を抽出（￥1,234 形式）
+            price_match = re.search(r'￥([\d,]+)', text)
+            if not price_match:
+                continue
+            price = parse_price(price_match.group(0))
+            if not price:
+                continue
 
-        # ラッシュデュエルのカードを除外（テキスト全体で判定）
-        if _is_rush_duel(text):
-            continue
+            # カード番号とカード名を抽出（《カード名》形式）
+            name_match = re.search(r'《(.+?)》', text)
+            if not name_match:
+                continue
+            display_name = name_match.group(1).strip()
 
-        if not is_target_card(card_name, display_name):
-            continue
+            # ラッシュデュエルのカードを除外（テキスト全体で判定）
+            if _is_rush_duel(text):
+                continue
 
-        # レアリティ
-        rarity = _parse_manzoku_rarity(text)
+            if not is_target_card(card_name, display_name):
+                continue
 
-        # カード番号
-        code = ""
-        code_match = re.search(r'([A-Z0-9]+-JP[A-Z]?\d+)', text)
-        if code_match:
-            code = code_match.group(1)
+            # レアリティ
+            rarity = _parse_manzoku_rarity(text)
 
-        # 在庫（リンクの外にあるテキストを確認）
-        # まんぞく屋は1〜3枚だけ数を出し、それ以上は「在庫: ◯」で数を伏せる（一覧・商品ページとも）。
-        # ◯は「4枚以上」として stock=4・stock_plus=True にし、画面は「4+」と出す（2026-10-31 751件の分布から判断）
-        sold_out = False
-        stock = 0
-        stock_plus = False
-        li_text = li.get_text()
-        if '品切れ' in li_text or '売り切れ' in li_text:
-            sold_out = True
-        else:
-            stock_match = re.search(r'在庫[:\s]*(\d+)', li_text)
-            if stock_match:
-                stock = int(stock_match.group(1))
-            elif '在庫' in li_text and '◯' in li_text:
-                stock = MANZOKU_STOCK_PLUS_MIN
-                stock_plus = True
+            # カード番号
+            code = ""
+            code_match = re.search(r'([A-Z0-9]+-JP[A-Z]?\d+)', text)
+            if code_match:
+                code = code_match.group(1)
 
-        # 商品URL
-        product_url = link.get("href", "")
-        if product_url and not product_url.startswith("http"):
-            product_url = "https://shopmanzokuya.com" + product_url
+            # 在庫（リンクの外にあるテキストを確認）
+            # まんぞく屋は1〜3枚だけ数を出し、それ以上は「在庫: ◯」で数を伏せる（一覧・商品ページとも）。
+            # ◯は「4枚以上」として stock=4・stock_plus=True にし、画面は「4+」と出す（2026-10-31 751件の分布から判断）
+            sold_out = False
+            stock = 0
+            stock_plus = False
+            li_text = li.get_text()
+            if '品切れ' in li_text or '売り切れ' in li_text:
+                sold_out = True
+            else:
+                stock_match = re.search(r'在庫[:\s]*(\d+)', li_text)
+                if stock_match:
+                    stock = int(stock_match.group(1))
+                elif '在庫' in li_text and '◯' in li_text:
+                    stock = MANZOKU_STOCK_PLUS_MIN
+                    stock_plus = True
 
-        # 画像
-        image_url = ""
-        img = link.select_one("img")
-        if img:
-            image_url = img.get("src", "") or img.get("data-src", "")
-            if image_url and not image_url.startswith("http"):
-                image_url = "https://shopmanzokuya.com" + image_url
+            # 商品URL
+            product_url = link.get("href", "")
+            if product_url and not product_url.startswith("http"):
+                product_url = "https://shopmanzokuya.com" + product_url
 
-        row = {
-            "shop": "まんぞく屋", "name": display_name,
-            "rarity": normalize_rarity(rarity), "code": code,
-            "condition": "-", "price": price, "stock": stock,
-            "sold_out": sold_out, "url": product_url,
-            "image": image_url,
-        }
-        if stock_plus:
-            row["stock_plus"] = True
-        results.append(row)
+            # 画像
+            image_url = ""
+            img = link.select_one("img")
+            if img:
+                image_url = img.get("src", "") or img.get("data-src", "")
+                if image_url and not image_url.startswith("http"):
+                    image_url = "https://shopmanzokuya.com" + image_url
+
+            row = {
+                "shop": "まんぞく屋", "name": display_name,
+                "rarity": normalize_rarity(rarity), "code": code,
+                "condition": "-", "price": price, "stock": stock,
+                "sold_out": sold_out, "url": product_url,
+                "image": image_url,
+            }
+            if stock_plus:
+                row["stock_plus"] = True
+            results.append(row)
+
+        # 次のページ（ページャの pageno=N+1）が無ければ終わり
+        if page >= max_pages or not soup.select_one(f"a[href*='pageno={page + 1}']"):
+            break
+        time.sleep(0.5)
 
     return results
 

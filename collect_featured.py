@@ -13,6 +13,13 @@ collect_prices.py（毎日5時の全件収集）とは別経路。新弾週以�
   - price_persist.build_min_price_rows + upsert_price_rows（デフォルトの
     last-write-wins。ignore_duplicates は使わない＝10時の値で朝5時の行を上書きする）
 
+型番の頭でまとめて取る店（2026-10-31・pack_search.py）:
+  遊々亭・カードラッシュ・まんぞく屋は、検索欄にパックの型番の頭（例 IMPH）を入れて1パック分を数回で取り、
+  収録カードごとに振り分ける（plan_pack_search）。取れた (カード, 店) はカードごとの検索をしない。
+  再録（発売前の7日間に price_history の行がある）・取得に失敗した店・見つからなかったカードは、
+  これまでどおりカード名で探す。型番で取った値は今日の行で確かめられたもの（無いレアリティが無く、高くない）だけ使う
+  （drop_higher_than_today）。IMMORTAL PHOENIX（80種）で3店10秒・全240組で236組がカード名の検索と一致（残りは店に無い）。
+
 collect_prices.collect_and_save は「保存行数」のみを返し (card, shop) 単位の
 失敗を返さないため、再試行に (card, shop) ペアの失敗集合が要る本スクリプトでは
 collect_and_save_for_shops として最小限のロジックを複製している
@@ -38,19 +45,20 @@ import argparse
 import os
 import sys
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from constants import JST
 from collect_prices import (
     get_supabase, check_shop_availability, SKIP_SHOPS_IN_CI, WAIT_BETWEEN_CARDS,
 )
 from collection_run import attach_host_request_counts
-from scraper import compare_prices, SHOPS, get_host_request_counts
+from scraper import compare_prices, SHOPS, get_host_request_counts, infer_codes, infer_overframe
 from price_persist import build_min_price_rows, upsert_price_rows
 from db_write_guard import (
     ConsecutiveDbFailureGuard, DbWriteAborted, GuardedSupabase, is_db_unavailable, report_db_abort,
 )
 from featured_pack import get_featured_pack, get_featured_cards
+from pack_search import PACK_SEARCH_SHOPS, pack_code_head, search_pack_shop
 
 # 403サーキットブレーカのホスト単位TTL（scraper.py _HOST_BLOCK_TTL_SEC=1800秒）を
 # 超えて待たないと、再試行時もブロックされたままになる。
@@ -157,7 +165,8 @@ def _group_pairs_by_card(pairs: list[tuple[str, str]]) -> dict[str, list[str]]:
 
 def collect_and_save_for_shops(sb, card_name: str, today: str, shop_names: list[str],
                                 shop_stats: dict | None = None,
-                                db_guard: ConsecutiveDbFailureGuard | None = None) -> tuple[int, list[str]]:
+                                db_guard: ConsecutiveDbFailureGuard | None = None,
+                                pack_items: list[dict] | None = None) -> tuple[int, list[str]]:
     """1枚のカードについて、指定店舗のみ検索してSupabaseに保存する。
 
     collect_prices.collect_and_save と異なり、失敗した店舗名のリストも返す
@@ -169,13 +178,20 @@ def collect_and_save_for_shops(sb, card_name: str, today: str, shop_names: list[
     db_guard を渡すと、保存が例外で失敗した回数を数え、続けて上限回数失敗したら
     DbWriteAborted を送出する（collect_prices.collect_and_save と同じ。db_write_guard.py）。
     DB保存の失敗は店舗の取得失敗ではないので、失敗店舗リスト（再試行の対象）には入れない。
+
+    pack_items: 型番の頭でまとめて取った店（pack_search.py）のこのカードの商品。shop_names の結果と合わせて
+    型番の補完・OF のそろえを通し、1回で保存する（ほかの店の行を手がかりに使うため）。
     """
     status: dict = {}
     try:
         results = compare_prices(card_name, shop_names=shop_names, status_out=status)
     except Exception as e:
         print(f"  スクレイピング失敗 [{card_name}]: {e}")
-        return 0, list(shop_names)
+        if not pack_items:
+            return 0, list(shop_names)
+        results, status = [], {shop: None for shop in shop_names}
+    if pack_items:
+        results = infer_overframe(infer_codes(results + list(pack_items)))
 
     failed_shops = []
     for shop in shop_names:
@@ -221,6 +237,134 @@ def collect_and_save_for_shops(sb, card_name: str, today: str, shop_names: list[
     else:
         print(f"  DB保存失敗 [{card_name}]")
     return saved, failed_shops
+
+
+# 再録の見分けに見る、発売日の前の日数。この間に price_history の行があるカードは、ほかのパックの版が
+# すでに売られている（＝再録）とみなす。2026-10-31 時点の直近4つの新弾（IMMORTAL PHOENIX など計246種）では
+# この間に行のある収録カードは0枚（予約の値も入っていない）で、新規カードを再録と取り違えないことを確認した
+REPRINT_LOOKBACK_DAYS = 7  # TODO: calibrate from data（再録を含む弾で、再録カードがここで拾えるかを見る）
+
+
+def find_reprints(sb, card_names: list[str], start_date: str) -> set[str] | None:
+    """発売日の前の REPRINT_LOOKBACK_DAYS 日に price_history の行があるカード名（＝再録）を返す。
+    読み込みに失敗した名前があれば None（型番での検索をやめ、全カードをカード名で探す側に倒す）。"""
+    from price_history_reads import fetch_daily_rows_by_card_names
+    try:
+        start = date.fromisoformat(start_date[:10])
+    except ValueError:
+        return None
+    days = [(start - timedelta(days=d)).isoformat() for d in range(REPRINT_LOOKBACK_DAYS, 0, -1)]
+    try:
+        rows, failed = fetch_daily_rows_by_card_names(
+            sb, card_names, "card_id, shop_id, rarity_id, card_name", days, "featured-reprint")
+    except Exception as e:
+        print(f"  [型番検索] 再録の見分けの読み込みに失敗: {e}")
+        return None
+    if failed:
+        print(f"  [型番検索] 再録の見分けの読み込みに失敗: {len(failed)}枚")
+        return None
+    return {r["card_name"] for r in rows if r.get("card_name")}
+
+
+def drop_higher_than_today(sb, plan: dict[str, dict[str, list[dict]]], today: str) -> dict[str, dict[str, list[dict]]] | None:
+    """型番で取った値を今日の行（朝の収集・前の回）で確かめ、確かめられた (カード, 店) だけ残す（外した組はカード名で探す）。
+
+    型番で探すと、再録の昔の版・ページの打ち切り・型番の読めない出品を取りこぼし、本当より高い最安値になりうる
+    （2026-10-31 reviewer 高1・中2・中3）。高い値で上書きするのはカード名の検索で確かめたときだけにする。
+    残すのは、型番で出たレアリティがすべて今日の行にあり、min_price_any・min_price（グラフ・値動き用）の
+    どちらも今日の行より高くない組だけ。今日の行が無い・無いレアリティを含む組は確かめられないのでカード名で探す。
+    値上がりが本物でもカード名で探し直すだけで、壊れる向きには倒れない。今日の行が読めなければ None（全部カード名で探す）。
+
+    比べる前に、そのカードの型番の結果（全店分）をまとめて型番の補完・OF のそろえに通し、保存する値と同じレアリティで比べる
+    （残した商品もそろえた後のものを返す）。"""
+    from price_history_reads import fetch_daily_rows_by_card_names
+    if not plan:
+        return plan
+    try:
+        rows, failed = fetch_daily_rows_by_card_names(
+            sb, list(plan), "card_id, shop_id, rarity_id, card_name, shop, rarity, min_price, min_price_any",
+            [today], "featured-pack-guard")
+    except Exception as e:
+        print(f"  [型番検索] 今日の行の読み込みに失敗: {e}")
+        return None
+    if failed:
+        print(f"  [型番検索] 今日の行の読み込みに失敗: {len(failed)}枚")
+        return None
+    current = {(r["card_name"], r["shop"], r["rarity"]): r for r in rows}
+
+    def _confirmed(card: str, shop: str, items: list[dict]) -> bool:
+        new_rows = build_min_price_rows(card, items, today)
+        if not new_rows:
+            return False
+        for r in new_rows:
+            cur = current.get((card, shop, r["rarity"]))
+            if cur is None:
+                return False  # 今日の行が無い・無いレアリティ → 確かめられない
+            for col in ("min_price_any", "min_price"):
+                if cur.get(col) is not None and r[col] > cur[col]:
+                    return False
+        return True
+
+    kept: dict[str, dict[str, list[dict]]] = {}
+    dropped = 0
+    for card, by_shop in plan.items():
+        aligned = infer_overframe(infer_codes([it for items in by_shop.values() for it in items]))
+        for shop in by_shop:
+            items = [it for it in aligned if it.get("shop") == shop]
+            if _confirmed(card, shop, items):
+                kept.setdefault(card, {})[shop] = items
+            else:
+                dropped += 1
+    if dropped:
+        print(f"  [型番検索] 今日の行で確かめられない・今日の行より高い {dropped}組はカード名で探します")
+    return kept
+
+
+def plan_pack_search(sb, pack: dict, card_names: list[str], available_shops: list[str],
+                     today: str | None = None) -> dict[str, dict[str, list[dict]]]:
+    """型番の頭で店ごとにまとめて取り、{カード名: {店: 商品}} を返す（pack_search.py）。
+
+    ここで取れた (カード, 店) は、カードごとの検索をしない。取れなかった組（店の失敗・見つからない・再録・
+    今日の行より高い）はこれまでどおりカード名で探す。型番が決まらない・再録や今日の行が読めないときは空（全部カード名で探す）。"""
+    shops = [s for s in PACK_SEARCH_SHOPS if s in available_shops]
+    if not shops or not pack.get("start_date"):
+        return {}
+    try:
+        from pack_scraper import fetch_pack_card_numbers
+        numbers = fetch_pack_card_numbers(pack["pack_name"])
+    except Exception as e:
+        print(f"  [型番検索] 収録カードの型番を取れませんでした: {e}")
+        numbers = {}
+    head = pack_code_head(numbers)
+    if not head:
+        print("  [型番検索] パックの型番の頭が決まらないため、全カードをカード名で探します")
+        return {}
+    reprints = find_reprints(sb, card_names, pack["start_date"])
+    if reprints is None:
+        print("  [型番検索] 再録を見分けられないため、全カードをカード名で探します")
+        return {}
+    new_cards = [c for c in card_names if c not in reprints]
+    if not new_cards:
+        return {}
+    print(f"\n--- 型番の頭（{head}-JP）でまとめて取得: {'、'.join(shops)} ---")
+    if reprints:
+        print(f"  再録 {len(reprints)}枚はカード名で探します")
+    plan: dict[str, dict[str, list[dict]]] = {}
+    for i, shop in enumerate(shops):
+        if i:
+            time.sleep(WAIT_BETWEEN_CARDS)
+        # 振り分けの候補には再録の名前も入れ、再録に当たった商品は後で捨てる（新規カードの名前へ流れないように。reviewer 低5）
+        res = search_pack_shop(shop, head, card_names)
+        if res.failed:
+            continue
+        for card, items in res.by_card.items():
+            if card not in reprints:
+                plan.setdefault(card, {})[shop] = items
+    guarded = drop_higher_than_today(sb, plan, today or datetime.now(JST).date().isoformat())
+    if guarded is None:
+        print("  [型番検索] 今日の行と比べられないため、全カードをカード名で探します")
+        return {}
+    return guarded
 
 
 def _resolve_pack(sb, args) -> dict | None:
@@ -350,9 +494,21 @@ def _main(state: dict):
                 sb, card_names, today, skip_shop
             )
             print(f"{skip_shop}: 当日取得済み {len(already_collected[skip_shop])}/{len(card_names)}枚は取り直しません")
+    # 型番の頭でまとめて取れる店は、新規カードをここで取る（取れた (カード, 店) はカードごとの検索をしない）
+    pack_plan = plan_pack_search(sb, pack, card_names, available_shops, today)
+    for card_shops_items in pack_plan.values():
+        for shop in card_shops_items:
+            shop_stats.setdefault(shop, {"ok": 0, "empty": 0, "error": 0})["ok"] += 1
+
+    def _card_shops(card_name: str) -> list[str]:
+        """このカードをカード名で探す店（朝に取れたトレコロ・型番でまとめて取れた店を除く）"""
+        covered = pack_plan.get(card_name, {})
+        return [s for s in available_shops
+                if card_name not in already_collected.get(s, ()) and s not in covered]
+
     # ブロック様判定の分母は「実際に試行したカード数」にする
     attempted_per_shop = {
-        shop: sum(1 for c in card_names if c not in already_collected.get(shop, ()))
+        shop: sum(1 for c in card_names if shop in _card_shops(c))
         for shop in available_shops
     }
 
@@ -365,12 +521,14 @@ def _main(state: dict):
         for i, card_name in enumerate(card_names):
             print(f"[{i + 1}/{len(card_names)}] {card_name}")
             processed = i + 1
-            card_shops = [s for s in available_shops if card_name not in already_collected.get(s, ())]
-            if not card_shops:
+            card_shops = _card_shops(card_name)
+            pack_items = [it for items in pack_plan.get(card_name, {}).values() for it in items]
+            if not card_shops and not pack_items:
                 print("  全店舗取得済みのためスキップ")
                 continue
             saved, failed_shops = collect_and_save_for_shops(
-                sb, card_name, today, card_shops, shop_stats=shop_stats, db_guard=db_guard
+                sb, card_name, today, card_shops, shop_stats=shop_stats, db_guard=db_guard,
+                **({"pack_items": pack_items} if pack_items else {}),
             )
             total_saved += saved
             if saved:
