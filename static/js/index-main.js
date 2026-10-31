@@ -2289,6 +2289,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }finally{
     document.getElementById('fouc-prevent')?.remove();
   }
+  _restoreScroll(); // 戻ったときはスクロール位置も戻す（_restoreLocation で開き直す中身を待つ）
 
   // 管理者のブラウザ（localStorage に admin_key がある）だけフッターに「管理」リンクを出す。
   // キー名は static/admin/admin.js の STORAGE_KEY と同じ。
@@ -2306,6 +2307,44 @@ document.addEventListener('DOMContentLoaded', () => {
 // 戻ったときはページが読み直されるので、これを見て開き直す（renderMetaTiers・packs.js renderPacks）
 function _saveViewState(patch){
   try{ history.replaceState(Object.assign({},history.state||{},patch),''); }catch(_){}
+}
+// スクロール位置も書き添えて、戻ったときに戻す。ブラウザが自動で戻すのはページ全体だけで、一覧や詳細を後から描くと
+// 間に合わずずれる。新商品の右の欄・スマホの全面の詳細は欄の中のスクロールなので、ブラウザは戻さない
+const _SCROLL_PANES={
+  metaPane:()=>!!_currentMetaTheme&&!document.querySelector('#metaDeckDetail .meta-loading'), // 読込中の表示が消えたら（レシピが無いデッキはカードを並べない）
+  packPane:()=>typeof _pk!=='undefined'&&!!_pk&&!_pk.loading,
+};
+window.addEventListener('pagehide',()=>{
+  const sc={y:Math.round(window.scrollY)};
+  for(const id in _SCROLL_PANES){ const el=document.getElementById(id); if(el&&el.scrollTop>0) sc[id]=Math.round(el.scrollTop); }
+  _saveViewState({scroll:sc});
+});
+function _restoreScroll(){
+  const st=history.state||{}, sc=st.scroll;
+  if(!sc) return;
+  const nav=performance.getEntriesByType&&performance.getEntriesByType('navigation')[0];
+  if(!nav||(nav.type!=='back_forward'&&nav.type!=='reload')) return;
+  // 開き直すデッキ・パックがあるときは、それを描き終えてからページ全体も戻す（描く前は高さが足りない）
+  const paneReady=id=>!document.getElementById(id)||_SCROLL_PANES[id]();
+  const winReady=()=>(!st.metaTheme||paneReady('metaPane'))&&(!st.pack||paneReady('packPane'));
+  const jobs=[{el:document.scrollingElement,top:sc.y||0,ready:winReady}];
+  for(const id in _SCROLL_PANES){ if(sc[id]) jobs.push({el:document.getElementById(id),top:sc[id],ready:()=>paneReady(id)}); }
+  let stopped=false;
+  const stop=()=>{ stopped=true; ['wheel','touchstart','keydown','mousedown'].forEach(t=>window.removeEventListener(t,stop,true)); };
+  ['wheel','touchstart','keydown','mousedown'].forEach(t=>window.addEventListener(t,stop,true)); // 自分で動かし始めたら戻さない
+  const until=Date.now()+8000; // TODO: calibrate from data（遅い回線で一覧・詳細が描き終わるまでの時間）
+  const tick=()=>{
+    if(stopped) return;
+    let left=0;
+    for(const j of jobs){
+      if(j.done||!j.el) continue;
+      // 中身が描けて、その位置まで動けるだけの高さがそろってから戻す
+      if(j.ready()&&j.el.scrollHeight-j.el.clientHeight>=j.top-2){ j.el.scrollTop=j.top; j.done=true; }
+      else left++;
+    }
+    if(left&&Date.now()<until) setTimeout(tick,100); else stop(); // 描画の合図（requestAnimationFrame）は裏のタブで止まるので使わない
+  };
+  tick();
 }
 // SEO: 検索完了時にURLをpushStateで書き換え（ブラウザ履歴対応）
 function _updateUrl(cardName, mode){
