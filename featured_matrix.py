@@ -8,7 +8,7 @@
 読み方: カード名 → card_dim のカード番号 → price_history をカード番号＋日付（今日・昨日）で引く。
 price_history_v2 の索引 (recorded_at, card_id, ...) が両方の条件で効く形にしてある
 （2026-10-22 朝、索引の効かない問い合わせで Disk IO の持ち分を使い切りかけたため）。
-昨日の記録は、今日の記録がまだ無い店のぶんだけ読む。カード番号の束は同時に読む（下の _fetch_price_rows）。
+昨日の記録は、今日の記録で全店がそろっていないカードのぶんだけ読み、カード×店ごとに今日が無いところを埋める。カード番号の束は同時に読む（下の _fetch_price_rows）。
 結果はカード名の並びごとに1時間覚える。
 
 集計の中核 build_matrix() は Supabase の生行 (records) を受ける純関数として
@@ -116,7 +116,7 @@ def _fetch_card_ids(sb, card_names: list[str]) -> dict[int, str]:
     return ids
 
 
-def _fetch_day_rows(sb, chunk: list[int], day: str, skip_shop_ids: list[int]) -> list[dict]:
+def _fetch_day_rows(sb, chunk: list[int], day: str) -> list[dict]:
     """カード番号の1束・1日ぶん。1000行を超えたら range で次のページを読む。"""
     rows: list[dict] = []
     offset = 0
@@ -126,8 +126,6 @@ def _fetch_day_rows(sb, chunk: list[int], day: str, skip_shop_ids: list[int]) ->
                  .select("card_id, shop_id, rarity_id, card_name, shop, rarity, min_price, min_price_any, code, url, recorded_at")
                  .in_("card_id", chunk)
                  .eq("recorded_at", day))
-            if skip_shop_ids:
-                q = q.not_.in_("shop_id", skip_shop_ids)
             # 索引 (recorded_at, card_id, shop_id, rarity_id) の順に並べる（名前で並べると並べ替えが入る。reviewer 低6）
             return (q.order("card_id", desc=False)
                     .order("shop_id", desc=False)
@@ -145,9 +143,10 @@ def _fetch_price_rows(sb, card_ids: list[int], days: list[str]) -> list[dict]:
 
     日付の範囲（gte）ではなく等号にするのは、索引 (recorded_at, card_id, ...) の2列とも条件に
     使わせるため（範囲だと日付の範囲をなめてからカード番号で絞る計画になりうる）。
-    古い日は、それより新しい日に記録が1行でもある店を除いて読む（_prepare_records がどのみち捨てる行。
-    朝の収集が済んでいれば昨日はほとんど読まない。shop_id の除外は索引の上の絞り込みで済む＝EXPLAIN 確認済み）。
-    全部の店（scraper.DEFAULT_SHOPS）が揃ったら、古い日は読みに行かない。
+    古い日は、それより新しい日の記録で全部の店（scraper.DEFAULT_SHOPS）がそろっていないカードだけ読む。
+    以前は「新しい日に1行でもある店」をパック全体で除いていたため、深夜に1枚だけ検索されると、その店の
+    昨日の記録がパックの全カードぶん読まれず「このパックの版の記録がありません」になった（2026-11-01）。
+    どの行を使うかはカード×店ごとに _prepare_records が決める。
     カード番号の束は同時に読み（上限 _FETCH_WORKERS）、PostgRESTの1000行上限に対して range 分割する。
 
     例外はログしてから再送出する（呼び出し元のルートが503を返す。価格データの取得失敗を
@@ -155,19 +154,19 @@ def _fetch_price_rows(sb, card_ids: list[int], days: list[str]) -> list[dict]:
     """
     try:
         all_rows: list[dict] = []
-        seen_shop_ids: set[int] = set()
-        seen_shops: set[str] = set()
-        chunks = [card_ids[i:i + _ID_CHUNK] for i in range(0, len(card_ids), _ID_CHUNK)]
+        all_shops = set(DEFAULT_SHOPS)
+        shops_by_card: dict[int, set[str]] = {}
+        pending = list(card_ids)
         for day in days:
-            if seen_shops >= set(DEFAULT_SHOPS):
+            if not pending:
                 break
-            skip = sorted(seen_shop_ids)
-            day_rows = [r for rows in _executor.map(lambda c: _fetch_day_rows(sb, c, day, skip), chunks) for r in rows]
+            chunks = [pending[i:i + _ID_CHUNK] for i in range(0, len(pending), _ID_CHUNK)]
+            day_rows = [r for rows in _executor.map(lambda c: _fetch_day_rows(sb, c, day), chunks) for r in rows]
             for r in day_rows:
-                if r.get("shop_id") is not None:
-                    seen_shop_ids.add(int(r["shop_id"]))
-                seen_shops.add(r.get("shop"))
+                if r.get("card_id") is not None:
+                    shops_by_card.setdefault(int(r["card_id"]), set()).add(r.get("shop"))
             all_rows.extend(day_rows)
+            pending = [cid for cid in pending if not shops_by_card.get(cid, set()) >= all_shops]
         return all_rows
     except Exception as e:
         logger.warning(f"[featured_matrix] price_history 取得失敗: {e}")
@@ -272,18 +271,24 @@ def is_cached(card_names: list[str]) -> bool:
 def _prepare_records(records: list[dict]) -> list[dict]:
     """表に使う前の記録の整え（get_pack_matrix 専用。build_matrix は新弾の頃から共通なので触らない）。
 
-    1. 今日の記録がある店は、昨日の記録を使わない。「まだ取っていない」店だけ昨日で埋める
-       （今日売り切れて行が無い店に、昨日の値段が今日の値として残っていた。reviewer 中3）
+    1. 同じカード×店に今日の記録があれば、そのカード×店の昨日の記録は使わない（今日売り切れたレアリティに
+       昨日の値段が残らないように。reviewer 中3）。今日の記録が無いカード×店は昨日で埋める（画面は日付を添える）。
+       以前は店単位でパック全体に当てていたため、1枚だけ今日の記録があると、その店の昨日の記録が全カードぶん
+       消えた（2026-11-01 IMMORTAL PHOENIX）
     2. 表に出す値段（min_price_any・状態を問わない最安）と型番の出品（min_price・通常品の最安）が
        違う行は、型番を空（版不明）にする。別の出品の型番で版を判定しない（reviewer 高2。price_persist の code の意味）
     """
     if not records:
         return records
-    latest = max(str(r.get("recorded_at") or "") for r in records)
-    shops_today = {r.get("shop") for r in records if str(r.get("recorded_at") or "") == latest}
+    newest: dict[tuple, str] = {}
+    for r in records:
+        key = (r.get("card_name"), r.get("shop"))
+        day = str(r.get("recorded_at") or "")
+        if day > newest.get(key, ""):
+            newest[key] = day
     out = []
     for r in records:
-        if str(r.get("recorded_at") or "") != latest and r.get("shop") in shops_today:
+        if str(r.get("recorded_at") or "") != newest.get((r.get("card_name"), r.get("shop")), ""):
             continue
         mp, mpa = r.get("min_price"), r.get("min_price_any")
         if mp is not None and mpa is not None and mp != mpa:
