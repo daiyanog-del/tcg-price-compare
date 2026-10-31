@@ -21,6 +21,7 @@ from concurrent.futures import FIRST_COMPLETED, wait
 import httpx
 
 from featured_matrix import _chunk_card_names_by_bytes
+from name_normalize import db_lookup_names, pick_card_ids
 from featured_matrix import _FETCH_WORKERS
 from featured_matrix import _executor as _db_executor
 
@@ -105,12 +106,15 @@ def fetch_daily_rows_by_card_names(sb, names: list[str], columns: str, days: lis
       - カード番号の束のどこか1日でも読めなければ、その束の名前を全部 failed にし、
         読めていた他の日の行も捨てる（半端な日付で最安・値動きを出さない）。その束の残りの日は読みに行かない
       - card_dim に無い名前は行が0件になる（price_history ビューは card_dim との内部結合なので、名前で読んでも同じ）
+      - 名前は収集と同じ normalize_card_name を通した形でも引き、行の card_name は呼び出し元の名前に戻す
+        （name_normalize.db_lookup_names）。戻すのにカード番号を使うので columns に card_id を含めること
       - _READ_DEADLINE_SEC を過ぎたら、まだ読み終えていない束は failed にして返す（動いている読み込みは捨てるだけ）
     """
-    unique = list(dict.fromkeys(names))
+    lookup = db_lookup_names(names)  # 収集と同じそろえ方の名前でも引き、行の名前は呼び出し元の名前に戻す
     failed: set[str] = set()
-    id_to_name: dict[int, str] = {}
-    for chunk in _chunk_card_names_by_bytes(unique):
+    failed_keys: set[str] = set()
+    dim_rows: list[dict] = []
+    for chunk in _chunk_card_names_by_bytes(list(lookup)):
         try:
             for attempt in (1, 2):
                 try:
@@ -122,10 +126,14 @@ def fetch_daily_rows_by_card_names(sb, names: list[str], columns: str, days: lis
                     logger.info(f"[{log_tag}] カード番号の読み込みを再試行: {type(e).__name__}: {e}")
         except Exception as e:
             logger.warning(f"[{log_tag}] カード番号の取得失敗（{len(chunk)}枚）: {type(e).__name__}: {e}")
-            failed.update(chunk)
+            failed_keys.update(chunk)
             continue
-        for r in resp.data or []:
-            id_to_name[int(r["card_id"])] = r["card_name"]
+        dim_rows.extend(resp.data or [])
+    id_to_name = pick_card_ids(dim_rows, lookup, failed_keys)
+    # 読めなかった名前の束に関わる呼び出し元の名前は、カード番号が決まらなければ失敗にする
+    # （完全一致で読めたカードは、そろえた名前の束が読めなくても失敗にしない。reviewer 低1）
+    found = set(id_to_name.values())
+    failed.update(lookup[k] for k in failed_keys if lookup[k] not in found)
 
     ids = sorted(id_to_name)
     id_chunks = [ids[i:i + _ID_CHUNK] for i in range(0, len(ids), _ID_CHUNK)]
@@ -168,6 +176,9 @@ def fetch_daily_rows_by_card_names(sb, names: list[str], columns: str, days: lis
             failed.update(id_to_name[c] for c in id_chunk)
         else:
             out.extend(chunk_rows[ci])
+    for r in out:
+        if r.get("card_id") is not None and int(r["card_id"]) in id_to_name:
+            r["card_name"] = id_to_name[int(r["card_id"])]
     # 休止中の店の行は、休止前の観測でも「いま買える値段」として出さない（shop_status.py。
     # 店名で判定するので columns に shop を含めること）
     return drop_suspended_rows(out), failed
