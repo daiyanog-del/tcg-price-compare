@@ -107,7 +107,7 @@ ops._addToWish('灰流うらら');
 assert.equal(wish[0].qty, 2); assert.equal(JSON.stringify(wish[0].decks), '{"d_1":1}', '開いているデッキ用になっていない');
 assert.ok(sandbox._wishPrices, '既にあるカードで価格の控えを捨てた'); assert.equal(cacheCleared, 0); assert.deepEqual(fetched, []);
 ops._addToWish('増殖するG');
-assert.equal(sandbox._wishPrices, null, '新しいカードで価格の控えを捨てていない'); assert.equal(cacheCleared, 1); assert.deepEqual(fetched, ['増殖するG']);
+assert.ok(sandbox._wishPrices && sandbox._wishPrices['灰流うらら'], '新しいカードで他のカードの価格の控えを捨てた（足したカードだけ購入候補を描くときに取りに行く。2026-10-31）'); assert.equal(cacheCleared, 0); assert.deepEqual(fetched, ['増殖するG']);
 assert.match(toasts[toasts.length - 1], /候補に1枚/);
 // 書き込めた後にバッジ更新などで例外が出ても失敗と出さない（reviewer 2回目 低2）
 sandbox.wishSave = list => { wish = list; throw Error('バッジ更新の失敗'); };

@@ -67,11 +67,53 @@ function loadWishPrices(){
   p.then(()=>{ if(_wishPricesLoading===p) _wishPricesLoading=null; });
   return p;
 }
+// names の価格を /api/wish-prices から取って got に入れ、届いたカードを返す（通信・応答の失敗は投げる）
+async function _wishFetchPrices(names,got){
+  const chunks=[];
+  for(let i=0;i<names.length;i+=_WISH_API_MAX) chunks.push(names.slice(i,i+_WISH_API_MAX));
+  const replies=await Promise.all(chunks.map(async part=>{
+    const res=await fetch('/api/wish-prices',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({cards:part})});
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    const data=await res.json();
+    return data.cards||[];
+  }));
+  const cards=[];
+  replies.forEach((part,ci)=>{
+    const sent=chunks[ci];
+    part.forEach(c=>{got[c.name]=c;cards.push(c);});
+    // サーバーは表記ゆれを直した名前で返す。送った順に返るので、数がそろっていれば送った名前でも引けるようにする
+    if(part.length===sent.length) part.forEach((c,i)=>{ if(!got[sent[i]]) got[sent[i]]=c; });
+  });
+  return cards;
+}
 async function _loadWishPricesNow(){
   const list=wishGet();
+  const names=[...new Set(list.map(c=>c.name))];
+  // 取っておきが新しく失敗も無ければ、まだ取りに行っていない名前だけ取りに行き、他の行は今の価格を出したままにする
+  // （2026-10-31: カードを1枚足すたびに全部の価格を捨てて取り直し、一覧のすべての行が2〜3秒読み込み中になっていた）
+  const base=_wishPrices;
+  const fresh=base!==null && !_wishPricesFailed && Date.now()-_wishPricesTime<=_wishPricesTtl;
+  const missing=fresh?names.filter(n=>!_wishPricesNames.has(n)):[];
+  if(missing.length && missing.length<names.length){
+    // 取りに行った時刻は変えない（足した分に合わせて古い価格の期限を延ばさない）
+    missing.forEach(n=>_wishPricesNames.add(n));
+    const got={};
+    try{
+      const cards=await _wishFetchPrices(missing,got);
+      // 取得中に価格が捨てられた（すべて削除など）ときは、届いた分を残さない
+      if(_wishPrices!==base) return;
+      Object.assign(base,got);
+      _saveWishPricesCache();
+      if(cards.some(c=>c.status==='error')) _wishScheduleRetry();
+    }catch(e){
+      if(_wishPrices===base){ _wishPricesFailed=true; _wishScheduleRetry(); }
+    }
+    return;
+  }
   // ロード試行済みとしてマーク（null → {} で「試行済み」になる）
   const got={};
-  const names=[...new Set(list.map(c=>c.name))];
   _wishPrices=got;
   _wishPricesTime=Date.now();
   _wishPricesNames=new Set(names);
@@ -79,23 +121,7 @@ async function _loadWishPricesNow(){
   _wishPricesTtl=_WISH_PRICES_TTL;
   if(!list.length){ _saveWishPricesCache(); return; }
   try{
-    const chunks=[];
-    for(let i=0;i<names.length;i+=_WISH_API_MAX) chunks.push(names.slice(i,i+_WISH_API_MAX));
-    const replies=await Promise.all(chunks.map(async part=>{
-      const res=await fetch('/api/wish-prices',{method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({cards:part})});
-      if(!res.ok)throw new Error('HTTP '+res.status);
-      const data=await res.json();
-      return data.cards||[];
-    }));
-    const cards=[];
-    replies.forEach((part,ci)=>{
-      const sent=chunks[ci];
-      part.forEach(c=>{got[c.name]=c;cards.push(c);});
-      // サーバーは表記ゆれを直した名前で返す。送った順に返るので、数がそろっていれば送った名前でも引けるようにする
-      if(part.length===sent.length) part.forEach((c,i)=>{ if(!got[sent[i]]) got[sent[i]]=c; });
-    });
+    const cards=await _wishFetchPrices(names,got);
     // 取得中にカードが足されて価格が捨てられた（null に戻った）ときは、古い一覧の結果を残さない
     if(_wishPrices===got){
       _saveWishPricesCache();
@@ -336,7 +362,7 @@ function wishAdd(name,qty,rarity){
   const list=wishGet();
   const existing=list.find(c=>_wishMatchKey(c,name,rarity));
   if(existing){existing.qty+=qty||1;}
-  else{list.push({name:name,qty:qty||1,rarity:rarity});_wishPrices=null;} // 新カードは価格キャッシュをリセット
+  else{list.push({name:name,qty:qty||1,rarity:rarity});} // 新カードの価格は一覧を描くときにそのカードだけ取りに行く（_loadWishPricesNow）
   wishSave(list);
   // 価格収集対象に登録（fire-and-forget。失敗しても UI に影響しない）
   fetch('/api/track',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -368,8 +394,8 @@ function _wishRemoveAt(before,idx){
     const cur=wishGet();
     if(cur.some(c=>_wishMatchKey(c,name,rarity))){window.DeckHead.toast('すでに購入候補に入っています');return;}
     cur.splice(Math.min(idx,cur.length),0,item);
-    // 外している間に価格を取り直していたら、そのカードの価格が無い。wishAdd と同じく取り直させる
-    if(!(_wishPrices&&_wishPrices[name]))_wishPrices=null;
+    // 外している間に価格を取り直していたら、そのカードの価格が無い。まだ取りに行っていない名前に戻し、描くときにそのカードだけ取りに行かせる
+    if(!(_wishPrices&&_wishPrices[name]))_wishPricesNames.delete(name);
     wishSave(cur);
     renderWishlist();
   });
@@ -1338,10 +1364,9 @@ loadWishPrices().then(wishUpdateBadge);
 // 通知UIの初期状態を反映
 updatePushUI(!!localStorage.getItem(PUSH_SUB_KEY));
 
-// 所持確認からの追加は不足数を計算済み。一括保存後に価格キャッシュだけ更新する。
+// 所持確認からの追加は不足数を計算済み。一括保存後の記録と価格を集めるカードへの登録だけをする。
 function wishOwnershipAdded(rows){
   _ga('wish_add',{source:'deck_shortage',count:rows.reduce((n,r)=>n+(r.add||0),0)});
-  _wishPrices=null;
-  _clearWishPricesCache();
+  // 足したカードの価格は一覧を描くときにそのカードだけ取りに行く（_loadWishPricesNow。他の行の価格は捨てない）
   trackDeckCards(rows);
 }
