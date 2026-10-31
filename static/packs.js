@@ -930,7 +930,7 @@ function _pkAllToWish(){
     else{ list.push({name:n,qty:1,rarity:''}); added++; }
   }
   wishSave(list);
-  if(typeof _wishPrices!=='undefined') _wishPrices=null;
+  // 足したカードの価格は購入候補を描くときにそのカードだけ取りに行く（index-wish.js の _loadWishPricesNow）
   if(typeof trackDeckCards==='function') trackDeckCards(names.map(n=>({name:n,qty:1}))); // 価格を集めるカードに登録（環境デッキと同じ。reviewer 低7）
   _ga('wish_add',{source:'pack_all',count:added});
   _pkToast(added?'「'+st.name+'」の'+added+'枚を購入候補に入れました':'すでに購入候補に入っています（1行99枚まで）');

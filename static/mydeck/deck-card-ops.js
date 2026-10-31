@@ -66,9 +66,7 @@
       if(saved <= was){ _toast('購入候補を保存できませんでした（ブラウザの保存容量を確認してください）'); return; }
     }
     if(isNew){
-      // 新しいカードは価格の控えを捨てて取り直す（wishAdd と同じ。残すと最大10分価格が空欄になる）
-      try{ if(typeof _wishPrices !== 'undefined') _wishPrices = null; }catch(_){}
-      try{ if(typeof _clearWishPricesCache === 'function') _clearWishPricesCache(); }catch(_){}
+      // 新しいカードの価格は購入候補を描くときにそのカードだけ取りに行く（index-wish.js の _loadWishPricesNow。他の行の価格は捨てない）
       // 価格の収集対象に登録（新しいカードだけ。失敗しても画面には影響させない）
       try{
         fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ card: name }) }).catch(function(){});

@@ -3045,7 +3045,7 @@ function metaDeckAllToWish(){
     else{ const q=Math.min(99,c.qty); list.push({name:c.name,qty:q,rarity:''}); added+=q; }
   }
   wishSave(list);
-  _wishPrices=null;
+  // 足したカードの価格は購入候補を描くときにそのカードだけ取りに行く（index-wish.js の _loadWishPricesNow）
   trackDeckCards(all);
   _ga('wish_add',{source:'meta_deck',count:added});
   _metaToast(added?'「'+(_currentDeckName||'環境デッキ')+'」の'+added+'枚を購入候補に入れました':'すでに購入候補に入っています（1行99枚まで）');
