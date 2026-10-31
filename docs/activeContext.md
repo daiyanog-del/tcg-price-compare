@@ -1,5 +1,14 @@
 # activeContext — 今どこ・次何
 
+## 2026-11-01: パックの店舗×レア表の「記録がありません」を直す（本番 PR #326 593cfaa）
+- 経緯: ユーザーが IMMORTAL PHOENIX のパックのページのスクショで「これは予定通り？」→ほぼ全カードが「記録がありません」と判明→「Ok、進めて。」
+- 原因: featured_matrix の前日の行の読み込みと捨てる判定が、店単位でパック全体を見ていた（1枚に今日の行ができると、その店の前日の行がパック全体で使われなくなる）
+- 直したこと: 前日は今日の行で全店そろっていないカードだけ読む・捨てるのは同じカード×店に今日の行があるときだけ。経緯は decisions.md 同日
+- 確認: 本番の行で表に出るカード 1/96→96/96・tests 3397 passed・CI pass
+- 受け入れたこと: 読み込みは最大約2倍・店で丸ごと売り切れた日は前日の値が日付つきで残る。¥27,800 はカードラッシュの min_price_any で仕様どおり
+- 残り: 深夜の浅い検索がその日の行になる件（TASKS の先頭）
+- 片付け: worktree .claude/worktrees/pack-matrix-fallback・ローカルと origin の fix/pack-matrix-fallback を削除
+
 ## 2026-10-31: トレコロの毎晩の収集を在庫ありの一覧の巡回へ（まず shadow・本番 PR #325 84200c4）／新弾の収集の時刻（本番 PR #319 6af567a）
 - 経緯: ユーザー「トレコロへのアクセス負荷は改善できない？」「妥協案ではなく技術的な解決策は？」→ 白紙のエージェントの監査（型番の頭の案はトレコロのノーマルが欠けるので不採用）→「OK、進めて」
 - 作ったもの: torecolo_catalog.py（41系列×在庫あり×商品コード順を最後のページまで・総件数と読んだ件数の突き合わせ・新しい系列で不成立・1系列失敗で打ち切り）・scrape_torecolo の meta_out・collect_prices の TORECOLO_CATALOG_MODE（既定 shadow。TORECOLO_CATALOG_ON_READY=False の間は on でも shadow）と _compare_torecolo_shadow
