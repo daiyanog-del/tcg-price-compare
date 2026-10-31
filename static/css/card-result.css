@@ -12,12 +12,11 @@
 #mode-search .cr-img-ph{width:100%;aspect-ratio:140/204;background:var(--bg-card)}
 #mode-search .card-hero-info{min-width:0}
 #mode-search .card-hero-name{font-size:22px;font-weight:700;line-height:1.35;margin:0 0 6px;overflow-wrap:anywhere}
-/* 公式DB・Wiki: 外部サイトへのリンクは店の一覧の「店で見る」（.cr-go）と同じ太字の文字リンク。枠は付けない（2026-10-30 ユーザー判断）。
-   ボタンの列の右端（シェアの右）に、ピルと同じ高さ・文字の大きさで並べる。名前の横だと長い名前でリンクだけ次の行に落ちた（2026-10-31）。
-   押せる範囲はピルと同じ高さまで上下に広げる */
-#mode-search .cr-acts>.cr-ext-links{display:inline-flex;align-items:center;gap:14px;min-height:32px;margin-left:8px;white-space:nowrap}
-#mode-search .cr-db-link{display:inline-flex;align-items:center;gap:3px;padding:8px 0;font-size:12px;font-weight:700;line-height:16px;color:var(--accent-l);white-space:nowrap}
-#mode-search .cr-db-link:hover{text-decoration:underline}
+/* 公式DB・Wiki: ボタンの列の右端（シェアの右）。名前の横だと長い名前でリンクだけ次の行に落ちた（2026-10-31）。
+   ボタンと並ぶので、10-30 の文字リンク（枠なし）をやめ、シェアなどと同じピルにする（2026-10-31 ユーザー指摘）。↗ は別のサイトが開く印として残す */
+#mode-search .cr-acts>.cr-ext-links{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+#mode-search .cr-db-link{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-height:32px;padding:0 14px;border-radius:18px;background:var(--bg-hover);color:var(--accent-l);font:700 12px var(--font);white-space:nowrap;box-sizing:border-box}
+#mode-search .cr-db-link:hover{background:#353843;color:var(--text);text-decoration:none}
 /* 最安の行: ［最安］（金の札・一覧の最安の印と同じ）・値段・レアリティ（枠線の札。効果テキストの「準制限」など塗りの札と区別する）・店名と型番 */
 #mode-search #heroBest.cr-best{display:flex;margin:0;align-items:center;flex-wrap:wrap;gap:4px 10px;min-height:38px}
 #mode-search .cr-hb-best{padding:2px 8px;border-radius:4px;background:#f3ce46;color:#242013;font-size:12px;font-weight:700;line-height:1.5}
@@ -247,7 +246,9 @@ html.cr-fx-open,html.cr-fx-open body{overflow:hidden}
   #mode-search .cr-acts .share-menu-wrap{display:block}
   /* 公式DB・Wiki は画像の右の「効果テキスト」と同じ行の右寄せ（_crPlaceForViewport が効果テキストの隣へ移す）。
      効果テキストが無いカードは左から */
-  #mode-search .card-hero-info>.cr-ext-links{display:inline-flex;grid-column:2;grid-row:3;align-self:start;justify-self:end;align-items:center;gap:14px;min-height:30px;margin-top:6px;white-space:nowrap}
+  #mode-search .card-hero-info>.cr-ext-links{display:inline-flex;grid-column:2;grid-row:3;align-self:start;justify-self:end;align-items:center;gap:6px;margin-top:6px;white-space:nowrap}
+  /* 隣の「効果テキスト」（.cr-fx-btn）と同じ枠線のピル */
+  #mode-search .card-hero-info>.cr-ext-links .cr-db-link{min-height:30px;padding:0 10px;border:1px solid #46526a;border-radius:15px;background:none}
   #mode-search .cr-fx-btn[hidden]+.cr-ext-links{justify-self:start}
   #mode-search .cr-market{margin-top:14px}
   #mode-search #buyInline.cr-buy{margin-bottom:22px}
@@ -282,7 +283,7 @@ html.cr-fx-open,html.cr-fx-open body{overflow:hidden}
   #mode-search .cr-act .wish-add{position:relative;z-index:2}
   #mode-search .cr-shop .aff-pr{position:relative;z-index:2}
 }
-/* 350px 以下（初代 SE など）は公式DB・Wiki が効果テキストと並ぶと重なるので、その下の行に左から */
-@media(max-width:350px){
-  #mode-search .card-hero-info>.cr-ext-links{grid-row:4;justify-self:start;margin-top:2px}
+/* 狭い画面（375px 未満）は公式DB・Wiki が効果テキストと並ぶと重なるので、その下の行に左から */
+@media(max-width:374px){
+  #mode-search .card-hero-info>.cr-ext-links{grid-row:4;justify-self:start}
 }
