@@ -1,5 +1,12 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-31: カードの画像を押すと画面いっぱいに拡大（本番 PR #305 6e9a7d2）
+- 経緯: ユーザー「スマホ版＆未発売カード、海外先行カードで拡大画像を確認したい」。どの画面にも拡大が無かった（一覧は押すと詳細へ・詳細の画像は発売済みだけ公式DBへ・まとめページのイラストは何も起きない）。スマホの詳細の画像は幅76px。ユーザーが「全カード拡大」を選択
+- 作ったもの: static/shared/card-zoom.js/.css（CardZoom.open／consumePop／listen・data-card-zoom の画像は自動で拡大）。index-main.js は #heroImgWrap の箱で受ける・公式DBへのリンクで画像を包む処理を外した・popstate で CardZoom.consumePop を先に呼ぶ。まとめページは script に data-listen。大きさは 画面の幅・480px・画面の高さ×59/86 の小さいほう（透かしの位置がずれないよう余白の帯を作らない）。透かしの .wm-released の container-type は拡大の箱では外す（幅0になるため）
+- 確認: ローカルのスマホ・PC 幅（まとめページは本番の HTML に差し替えて）・tests 3341 passed・本番のスマホ幅で 未発売／海外先行の詳細／まとめページ・戻るで閉じて検索のやり直し無し
+- 残り: 海外先行の画像は元が200〜225pxで、拡大するとややぼやける（高解像度の取得は未検討）。実機での指のピンチ操作は未確認
+- 片付け: worktree ../wt-card-zoom の登録・ローカルと origin の feat/card-zoom を削除。~/.claude/launch.json の tcgym-card-zoom を外した
+
 ## 2026-10-31: ロゴの「強欲なラボ」を1.5倍・少し太く・間を詰める（本番 PR #301 d02acea）
 - 10-30 の隷書（PR #296）がヘッダーでかすれるとのユーザー指摘。本番のページでロゴだけ差し替えたモックで比べ、ユーザーが B（1.5倍・少し太く・間を詰める）を選択。ユーザーは就寝前に「本番反映まで自走」と指示
 - tools/build_brand_subtitle.py を、描き直したロゴからも作れるように（日本語は id="brand-subtitle" の path）・--scale/--gap-ratio/--stroke（既定値がこの案）。2回流して同じ結果。ロゴ 1000:218→235（PNG 2000x470）、logo-lockup は中のロゴの箱を伸ばし中心を保つ、OGP 3枚を作り直し。_brand_wordmark の height 235・テストも更新。deck-image.js はロゴの幅を固定（147px）
