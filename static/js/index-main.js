@@ -2302,6 +2302,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
 });
 
+// 開いているデッキ・パックを今の履歴の項目に書き添える（URL は変えない）。カードのページへ同じタブで移って
+// 戻ったときはページが読み直されるので、これを見て開き直す（renderMetaTiers・packs.js renderPacks）
+function _saveViewState(patch){
+  try{ history.replaceState(Object.assign({},history.state||{},patch),''); }catch(_){}
+}
 // SEO: 検索完了時にURLをpushStateで書き換え（ブラウザ履歴対応）
 function _updateUrl(cardName, mode){
   if(!cardName)return;
@@ -2405,6 +2410,7 @@ function _restoreLocation(trigger){
       // すでにパックを選んでいるとき（ブラウザの戻る・進むで来たとき）は選び直さない。スマホの全面の詳細を閉じるたびに
       // 新弾を開き直して履歴を足し、戻るで /featured から出られなくなっていた（2026-10-21 reviewer 指摘）
       if(typeof _pk!=='undefined'&&_pk)return;
+      if(history.state&&history.state.pack)return; // カードのページから戻ったときは開いていたパックを開き直す（packs.js renderPacks）
       const f=_packData.find(p=>p.featured);
       if(f)loadPackCards(f.name,f.wiki_page||f.name,f.tcg_name||'',true);
     });
@@ -2904,6 +2910,9 @@ function _metaProvenanceHtml(){
 function renderMetaTiers(){
   const el=document.getElementById('metaTierList');
   if(!_metaTiers.length){el.innerHTML=`<div class="meta-loading">${_metaMetadata.refresh_error?'環境データの取得に失敗しました':'データがありません'}</div><div class="meta-note">${_metaProvenanceHtml()}</div>`;return;}
+  // カードのページから戻って読み直したときは、開いていたデッキを開き直す（_saveViewState。計測の順位は送らない）
+  const wantTheme=history.state&&history.state.metaTheme;
+  if(!_currentMetaTheme&&wantTheme&&_metaTiers.some(t=>t.name===wantTheme)) setTimeout(()=>{ if(!_currentMetaTheme) loadMetaDeck(wantTheme,0); },0);
 
   let rank=0; // GA用の表示順（クリック計測。カード名/デッキ名は送らない）
 
@@ -3016,7 +3025,9 @@ function _openMetaSheet(){
   _metaWatchSheetMq();
   if(!_metaPopReady){ _metaPopReady=true; window.addEventListener('popstate',_metaOnPop); } // 最初に開いたときに1回だけ登録
   if(!pane.classList.contains('is-open')&&history.pushState){
-    try{ history.pushState({metaSheet:1},''); _metaSheetHistory=true; }catch(_){}
+    // カードのページから戻って読み直したときは、今の項目がすでに全面の詳細の項目なので足さない（足すと「戻る」を2回押させる）
+    if(history.state&&history.state.metaSheet) _metaSheetHistory=true;
+    else{ try{ history.pushState({metaSheet:1},''); _metaSheetHistory=true; }catch(_){} }
   }
   pane.classList.add('is-open');
   if(!_metaSheetKeyReady){ _metaSheetKeyReady=true; document.addEventListener('keydown',_metaSheetKey,true); } // 引き出しの Esc（deck-card-info.js）より先に見る
@@ -3081,6 +3092,7 @@ async function loadMetaDeck(theme,rank){
   delete _deckShareData[DECK_CTX.meta.shareArea];
   {const sh=document.getElementById(DECK_CTX.meta.shareArea); if(sh) sh.innerHTML='';}
   _openMetaSheet();
+  _saveViewState({metaTheme:theme});
 
   try{
     const res=await fetch('/api/meta/deck?theme='+encodeURIComponent(theme));
