@@ -92,5 +92,16 @@ const cards=[
   assert.equal(topCard.children[0].children[0].children.find(c=>c.className==='new-card-added').textContent,'10/01 追加');
   assert.deepEqual(topCard.children[1].children.map(b=>b.className),['new-card-add','new-card-wish']);
   assert.equal(get('newCardsHeading').textContent,'新着の未発売カード');
-  console.log('海外先行カード一覧: 読み先・商品の並び・ボタン・日付・見出し・取得失敗の文言・ページの行き来・トップの表示を確認');
+  // 発売済みが0件のときの文言。予告中の弾のまとまり（#newCardsAnnounce）が上にあれば「ありません」と言わない（2026-10-31）
+  ms.classList.add('new-cards-page');ms.classList.add('tcg-preview-page');
+  const emptyLoad=api.load();
+  assert.equal(pending[5].url,'/api/tcg-preview-cards');
+  pending[5].resolve({ok:true,json:async()=>({cards:[]})});await emptyLoad;
+  assert.equal(get('newCardsStatus').textContent,'現在、表示できる海外先行カードはありません。');
+  elements.set('newCardsAnnounce',element());
+  const emptyWithAnnounce=api.load();
+  assert.equal(pending[6].url,'/api/tcg-preview-cards');
+  pending[6].resolve({ok:true,json:async()=>({cards:[]})});await emptyWithAnnounce;
+  assert.equal(get('newCardsStatus').textContent,'英語版で発売済みのカードは、今はありません。');
+  console.log('海外先行カード一覧: 読み先・商品の並び・ボタン・日付・見出し・取得失敗の文言・ページの行き来・トップの表示・0件の文言を確認');
 })().catch(e=>{console.error(e);process.exit(1);});

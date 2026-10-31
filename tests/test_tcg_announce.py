@@ -355,12 +355,12 @@ def test_海外先行カード一覧に予告中の弾を商品のまとまり�
     import tcg_announce_view as view
     html = client.get("/tcg-preview").get_data(as_text=True)
     assert 'class="new-cards-announce for-tcg"' not in html
-    assert '<div class="new-cards-announce-groups">' in html
+    assert '<div id="newCardsAnnounce" class="new-cards-announce-groups">' in html
     assert '<span class="new-card-announce-label">予告中</span>Maze of Machines（判明 ' in html
     assert '<a class="nav-pill new-card-group-more" href="/tcg-preview/maze-of-machines">まとめを見る →</a>' in html
     first = view.order_cards(CARDS)[0]
     assert f'href="/tcg-preview/maze-of-machines#{view.anchor(first)}"' in html
-    assert "+ デッキに追加" not in html.split('<div class="new-cards-announce-groups">')[1].split("</section>")[0]
+    assert "+ デッキに追加" not in html.split('<div id="newCardsAnnounce" class="new-cards-announce-groups">')[1].split("</section>")[0]
     # 未発売カード一覧・トップには出さない（同じ HTML でトップの表示に移ったときは CSS で隠す）
     assert "new-cards-announce-groups" not in client.get("/new-cards").get_data(as_text=True)
 
