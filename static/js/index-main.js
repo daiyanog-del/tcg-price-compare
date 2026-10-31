@@ -416,8 +416,7 @@ function _renderProxyDetail(p,name){
 
 // onSettled: 欄の中身を書いた（または隠した）直後に呼ぶ（未発売カードのボタンを出す。showUnreleasedCard）
 function _fetchCardInfo(cardName,onSettled=()=>{}){
-  fetch('/api/card-info?name='+encodeURIComponent(cardName))
-    .then(r=>r.json())
+  _cardInfoData(cardName)
     .then(data=>{
       // 未発売カード（proxy）は専用描画。found:false でもカード情報を表示する
       if(data.kind==='proxy'&&data.proxy){_renderProxyDetail(data.proxy,cardName);return;}
@@ -493,6 +492,17 @@ function _prefetchCardImage(name){
       wrap.innerHTML='<img src="'+escAttr(u)+'" alt="" loading="eager" fetchpriority="high">';
     }else{const im=new Image();im.src=u;}
   }).catch(()=>{});
+}
+// カード情報（効果テキスト等）も検索を始めた時点で問い合わせておく（2026-10-31）。
+// 以前は全店の検索が終わってから問い合わせていたので、効果テキストが検索の時間（数秒）ぶん遅れて出ていた。
+// renderAll は同じ名前ならこの結果を使う（名前が補正されたときは取り直す）
+let _cardInfoPrefetch=null; // {name, p: Promise<data>}
+function _prefetchCardInfo(name){
+  _cardInfoPrefetch={name,p:fetch('/api/card-info?name='+encodeURIComponent(name)).then(r=>r.json())};
+}
+function _cardInfoData(name){
+  if(_cardInfoPrefetch&&_cardInfoPrefetch.name===name) return _cardInfoPrefetch.p;
+  return fetch('/api/card-info?name='+encodeURIComponent(name)).then(r=>r.json());
 }
 // 検索中に先に出すカードの欄（画像と名前だけ）。最終のカードの欄と同じ位置・大きさで出し、
 // 検索が終わったら結果と同じフレームで隠す。カードのページの LCP（カード画像）を検索の終わりより前に出すため（2026-10-22）
@@ -655,6 +665,7 @@ function doSearch(opts){
   if(gen!==_searchGen) return;
 
   _prefetchCardImage(q); // カードの画像を検索と並行して読み始める（renderAll が使う）
+  _prefetchCardInfo(q); // カード情報（効果テキスト）も検索と並行して読み始める（renderAll が使う）
   // 進み具合は先出しのカード欄の名前の下にバー1本で出す（先出しの欄と一緒に消える）。
   // 調べる店はサーバ側の既定（DEFAULT_SHOPS）が決め、SSE の shops で届く
   const prog=SearchProgress.create(document.querySelector('#searchPreview .card-hero-info'),'各店の価格を確認中');

@@ -94,7 +94,7 @@ const okRes = { headers: headers({}), body: {}, ok: true };
     clearTimeout(id) { timers.delete(id); },
     _ga(name, p) { gaCalls.push([name, p]); }, _setSearchLayout() {}, _setPriceSectionsVisible() {}, _updateRarityBanner() {},
     renderAll() {}, renderTable() {}, SearchStatus: { show() {} }, TABLE_PAGE_SIZE: 20,
-    _prefetchCardImage() {}, _hideSearchPreview() {}, _syncMercariView() {}, _resetBuyInline() {}, _syncPriceTrendView() {}, closeSuggest() {},
+    _prefetchCardImage() {}, _prefetchCardInfo() {}, _hideSearchPreview() {}, _syncMercariView() {}, _resetBuyInline() {}, _syncPriceTrendView() {}, closeSuggest() {},
   };
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(path.join(root, 'static/js/shop-busy.js'), 'utf8') + ';this.ShopBusy=ShopBusy;', sandbox);
