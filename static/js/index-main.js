@@ -210,11 +210,12 @@ function showUnreleasedCard(name,tcgPreview){
         ?'英語版で先に出たカードです。日本ではまだ発売されていないため、価格情報はありません。'
         :'このカードはまだ発売前のため、販売価格情報はありません。'}</span>
     </div>
-    <!-- 2026-09-04: 既定で開く（B-2 のスマホ縦長対策で畳んでいたが、PC でも隠れて読めないため全幅で開く裁定） -->
-    <details class="card-info-details" id="cardDetailDetails" open hidden>
-      <summary>カード情報（効果テキスト）</summary>
+    <!-- 効果テキストは開閉せず常に出す（2026-10-31 ユーザー判断）。価格表が無く、このページで読むものは効果テキストなので
+         畳む理由が無い。発売済みカードの PC 表示も見出しを出さず常に開いている。欄の出し入れは _showCardDetail/_hideCardDetail。
+         class はスマホで全幅に広げる指定（card-result.css の .card-hero-info>.card-info-details）のために残す -->
+    <div class="card-info-details" id="cardDetailDetails" hidden>
       <div id="cardDetail" class="card-detail"></div>
-    </details>
+    </div>
     <!-- ボタンは効果テキストの欄（開いた状態で後から中身が入る）が決まってから出す。先に出すと欄が入ったときに
          約450px 押し下げられ、CLS が出ていた（2026-10-22 スマホ 0.019・PC 0.015）。下には他に見えるものが無い -->
     <div class="cr-acts" id="unrelShareBtns" style="display:none">
@@ -241,8 +242,8 @@ function showUnreleasedCard(name,tcgPreview){
 }
 
 // 未発売カードの proxy データからカード情報パネルを描画する
-// F-6: <details id="cardDetailDetails">は既定hiddenにしてある。中身を書いた側でここを呼び、
-// 「カード情報（効果テキスト）」の見出しだけ空で残る（情報DB未収録カード等）のを防ぐ
+// F-6: 欄 #cardDetailDetails は既定hiddenにしてある。中身を書いた側でここを呼び、
+// 空の欄だけ残る（情報DB未収録カード等）のを防ぐ
 function _showCardDetail(){
   document.getElementById('cardDetailDetails')?.removeAttribute('hidden');
   document.getElementById('crFxBtn')?.removeAttribute('hidden');
