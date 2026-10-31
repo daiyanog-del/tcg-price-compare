@@ -2985,7 +2985,7 @@ function renderMetaTiers(){
 // A: PC は右の欄に出す（一覧の下へ飛ばない）。900px 以下は全面で開き、「一覧へ」で閉じる（一覧の位置はそのまま）
 // B: 見出しにデッキ名・Tier・使用率・枚数・相場、主操作「シミュレーターで回す」（CLAUDE.md の入口設計「環境デッキは価格感の確認から一人回しへ」）、
 //    ほかは「マイデッキに保存」と ⋯（デッキ全部を購入候補へ・デッキ画像・共有）
-// C: カードの並びの右クリック（指はタップ）で「購入候補に入れる・カードの詳細・価格を比べる」
+// C: カードの並びの右クリック（指はタップ）で「購入候補に入れる・カードの詳細・店ごとの価格を見る」
 const _META_SHEET_MQ='(max-width: 900px)';
 const _META_EXT_SVG='<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M9 3h4v4M13 3 7 9M11 9v4H3V5h4"/></svg>';
 const _META_PLAY_SVG='<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg>';
@@ -3240,7 +3240,7 @@ function _metaInitCardMenu(){
         _metaToast('「'+name+'」を購入候補に入れました');
       }},
       {label:'カードの詳細',fn:()=>_metaOpenCardInfo(name,img?img.src:'')},
-      {label:'価格を比べる',fn:()=>window.open('/card/'+encodeURIComponent(name),'_blank','noopener')},
+      {label:'店ごとの価格を見る',fn:()=>window.open('/card/'+encodeURIComponent(name),'_blank','noopener')},
     ]});
   };
   list.addEventListener('contextmenu',e=>{

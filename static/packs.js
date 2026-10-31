@@ -893,7 +893,7 @@ function _pkOpenCardMenu(row,x,y,fromBtn){
       if(typeof _metaOpenCardInfo==='function') _metaOpenCardInfo(name,img?img.src:'');
       else window.open('/card/'+encodeURIComponent(name),'_blank','noopener');
     }},
-    {label:'価格を比べる',fn:()=>window.open('/card/'+encodeURIComponent(name),'_blank','noopener')},
+    {label:'店ごとの価格を見る',fn:()=>window.open('/card/'+encodeURIComponent(name),'_blank','noopener')},
   ]});
 }
 
