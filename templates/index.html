@@ -699,6 +699,7 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
 <link rel="stylesheet" href="{{ static_url('css/newset-subnav.css') }}">
 <link rel="stylesheet" href="{{ static_url('shared/text-report.css') }}">
 <link rel="stylesheet" href="{{ static_url('css/card-result.css') }}">
+<link rel="stylesheet" href="{{ static_url('shared/card-zoom.css') }}">
 <!-- import map: モジュールから相対importされるファイルを内容ハッシュ付きURLへ写像する
      （静的な相対specifierはstatic_url()を通せないため、ここでブラウザ解決を上書きする）。
      必ず最初のmodule scriptより前に置く -->
@@ -1369,6 +1370,7 @@ const _pageMode={{ page_mode | tojson }};
 <script src="{{ static_url('js/search-progress.js') }}" defer></script>
 <script src="{{ static_url('js/shop-busy.js') }}" defer></script>
 <script src="{{ static_url('shared/text-report.js') }}" defer></script>
+<script src="{{ static_url('shared/card-zoom.js') }}" defer></script>
 <script src="{{ static_url('js/index-main.js') }}" defer></script>
 <script src="{{ static_url('js/staple-ranking.js') }}" defer></script>
 <script src="{{ static_url('js/mercari-ref.js') }}" defer></script>
