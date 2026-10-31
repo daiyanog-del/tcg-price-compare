@@ -170,6 +170,9 @@ def _build_request_body(keyword: str) -> dict:
         "defaultDatasets": ["DATASET_TYPE_MERCARI", "DATASET_TYPE_BEYOND"],
         "serviceFrom": "suruga", "withItemBrand": True, "withItemSize": False,
         "withItemPromotions": True, "withItemSizes": True, "withShopname": False,
+        # これが無いとオークション出品でも auction が null で返り、evaluate_listing の
+        # オークション除外が効かず途中の入札額が相場に混ざる（2026-10-31 実応答で確認）
+        "withAuction": True,
     }
 
 

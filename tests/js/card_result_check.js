@@ -178,6 +178,20 @@ assert.equal(run(`_variantLabel('灰流うらら（立ち）','灰流うらら')
 assert.equal(run(`_variantLabel('灰流うらら(既存イラスト)','灰流うらら')`), '既存イラスト');
 assert.equal(run(`_variantLabel('【新】灰流うらら(座り)','灰流うらら')`), '【新】灰流うらら(座り)');
 assert.equal(run(`_variantLabel('x','')`), '');
+// 中黒・空白・全角半角だけの違いは札にしない（10-31 カードラッシュ）
+assert.equal(run(`_variantLabel('パワーオブザデュエリスト','パワー・オブ・ザ・デュエリスト')`), '');
+assert.equal(run(`_variantLabel('パワー オブ ザ デュエリスト','パワー・オブ・ザ・デュエリスト')`), '');
+assert.equal(run(`_variantLabel('Ｉ：Ｐマスカレーナ','I:Pマスカレーナ')`), '');
+assert.equal(run(`_variantLabel('パワーオブザデュエリスト(イラスト違い)','パワー・オブ・ザ・デュエリスト')`), 'イラスト違い');
+assert.equal(run(`_variantLabel('灰流うらら 立ち','灰流うらら')`), '立ち');
+assert.equal(run(`_variantLabel('灰流','灰流うらら')`), '灰流');
+assert.equal(run(`_variantLabel('ﾊﾟﾜｰ･ｵﾌﾞ･ｻﾞ･ﾃﾞｭｴﾘｽﾄ','パワー・オブ・ザ・デュエリスト')`), '', '半角カナの濁点');
+assert.equal(run(`_variantLabel('召喚魔術剣','召喚魔術－「剣」')`), '', '店が落とす記号はサーバーの照合とそろえる');
+assert.equal(run(`_variantLabel('カード·プロモ','カード・プロモ')`), '');
+assert.equal(run(`_variantLabel('青眼の白龍『25thANNIVERSARY』','青眼の白龍')`), '『25thANNIVERSARY』', '注記の括弧は札に残す');
+assert.equal(run(`_variantLabel('磁石の戦士β','磁石の戦士α')`), '磁石の戦士β', '識別子のギリシャ文字は別カード');
+assert.equal(run(`_variantLabel('カードⅡ','カードII')`), '');
+assert.equal(run(`_variantLabel('𠮷野(x)','𠮷野')`), 'x');
 
 // 8) 購入候補ボタンの文言はレアリティによらず固定（2026-10-31。レアリティと枚数は押したときの窓で選ぶ）
 run(`rarityFilter='ウルトラ'; _updateRarityBanner()`);

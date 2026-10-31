@@ -346,6 +346,19 @@ def test_リクエストボディは出品中のみ_遊戯王シングル_1ペ�
     assert cond["keyword"] == "灰流うらら" and body["pageSize"] == 120 and body["pageToken"] == ""
 
 
+def test_リクエストボディはオークション情報を要求する():
+    # withAuction が無いとオークション出品の auction が null になり除外できない
+    assert mercari._build_request_body("灰流うらら")["withAuction"] is True
+
+
+def test_実応答形のオークション出品は除外():
+    # 2026-10-31 の実応答（withAuction あり）の形。途中の入札額が price に入っている
+    item = _item("灰流うらら レリーフ", price=1272)
+    item["auction"] = {"id": "", "bidDeadline": "2026-11-01T11:07:00Z", "totalBid": "3",
+                       "highestBid": "1272", "initialPrice": "300"}
+    assert mercari.exclusion_reason("灰流うらら", item) == "auction"
+
+
 # ── 通信エラーの区別 ──
 
 class _Resp:
