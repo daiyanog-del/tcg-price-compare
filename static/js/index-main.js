@@ -1651,11 +1651,27 @@ function _rowVariant(r,cardName){
   return r.art;
 }
 
-// 店舗の出品名がカード名と違うとき（「灰流うらら(既存イラスト)」など）だけ、違う部分を札にする
+// 名前の表記ゆれ（全角半角・中黒・空白）を除いた比較用の1文字。消える文字は ''
+function _variantNormChar(ch){
+  return ch.normalize('NFKC').replace(/[・･\s]/g,'');
+}
+
+// 店舗の出品名がカード名と違うとき（「灰流うらら(既存イラスト)」など）だけ、違う部分を札にする。
+// 中黒・空白・全角半角の違いは同じ名前とみなす（10-31 カードラッシュの「パワーオブザデュエリスト」が札になっていた）
 function _variantLabel(name,cardName){
   if(!name||!cardName||name===cardName) return '';
-  if(name.startsWith(cardName)){
-    return name.slice(cardName.length).trim().replace(/^[（(]/,'').replace(/[)）]$/,'').trim();
+  const card=[...cardName].map(_variantNormChar).join('');
+  // 出品名の頭から、正規化した文字がカード名と一致する所まで進める
+  let i=0,acc='';
+  const chars=[...name];
+  while(i<chars.length&&acc.length<card.length){
+    acc+=_variantNormChar(chars[i]);
+    i++;
+  }
+  if(acc===card){
+    // カード名のあとに続く消える文字（空白・中黒）も飛ばす
+    while(i<chars.length&&_variantNormChar(chars[i])==='') i++;
+    return chars.slice(i).join('').trim().replace(/^[（(]/,'').replace(/[)）]$/,'').trim();
   }
   return name;
 }

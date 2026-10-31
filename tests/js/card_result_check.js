@@ -178,6 +178,13 @@ assert.equal(run(`_variantLabel('灰流うらら（立ち）','灰流うらら')
 assert.equal(run(`_variantLabel('灰流うらら(既存イラスト)','灰流うらら')`), '既存イラスト');
 assert.equal(run(`_variantLabel('【新】灰流うらら(座り)','灰流うらら')`), '【新】灰流うらら(座り)');
 assert.equal(run(`_variantLabel('x','')`), '');
+// 中黒・空白・全角半角だけの違いは札にしない（10-31 カードラッシュ）
+assert.equal(run(`_variantLabel('パワーオブザデュエリスト','パワー・オブ・ザ・デュエリスト')`), '');
+assert.equal(run(`_variantLabel('パワー オブ ザ デュエリスト','パワー・オブ・ザ・デュエリスト')`), '');
+assert.equal(run(`_variantLabel('Ｉ：Ｐマスカレーナ','I:Pマスカレーナ')`), '');
+assert.equal(run(`_variantLabel('パワーオブザデュエリスト(イラスト違い)','パワー・オブ・ザ・デュエリスト')`), 'イラスト違い');
+assert.equal(run(`_variantLabel('灰流うらら 立ち','灰流うらら')`), '立ち');
+assert.equal(run(`_variantLabel('灰流','灰流うらら')`), '灰流');
 
 // 8) 購入候補ボタンの文言はレアリティによらず固定（2026-10-31。レアリティと枚数は押したときの窓で選ぶ）
 run(`rarityFilter='ウルトラ'; _updateRarityBanner()`);
