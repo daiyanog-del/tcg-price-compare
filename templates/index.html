@@ -776,8 +776,10 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     <div class="card-hero-info"><div class="card-hero-name" id="searchPreviewName"></div></div>
   </div>
 
+  <!-- 前回の結果から差し替えたあとは、表の上に差し込まず画面の下に浮かべる（.cov-float・閉じるボタンはそのときだけ出る） -->
   <div id="searchCoverage" role="status" hidden><span></span>
     <button type="button" onclick="doSearch({validated:true})">再試行</button>
+    <button type="button" class="cov-close" aria-label="閉じる" onclick="this.parentNode.hidden=true">×</button>
   </div>
   <div id="results" class="hidden">
     <!-- 検索結果（2026-10-21 案C）: 上から「いくらで買えるか（名前と最安）→ どのレアリティか → どの店か」。
