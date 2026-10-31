@@ -1,51 +1,32 @@
 /* x-follow.css — X（@GreeedyLab）のフォロー案内（x-follow-ui.js。2026-10-31）
- * ?newcards=1 で来たときだけ body に .sol-x-follow-on が付き、PC はサイドバー・スマホ縦はカード詳細の下に出す。
- * 色: 文字は控えめなボタンと同じ #a8b4c9、リンクは補助リンクの accent（黄は主な操作だけ）。地は通常のボタンと同じ --bg-card。
+ * ?newcards=1 で来たときだけ body に .sol-x-follow-on が付き、スマホ縦のカード詳細のいちばん下に1行で出す。
+ * シミュレーターは情報が多いので、箱や×は付けず小さな文字1行にとどめる（ユーザー判断）。
+ * 色: 文字は控えめなボタンと同じ #a8b4c9、リンクは補助リンクの accent（黄は主な操作だけ）。
  */
-.sol-x-follow-section,
 .sol-x-follow { display: none; }
-body.sol-x-follow-on .sol-x-follow-section { display: block; }
-body.sol-x-follow-on .sol-x-follow { display: block; }
-
-.sol-x-follow {
-  position: relative;
-  padding: 10px 28px 10px 10px;
-  background: var(--bg-card);
-  border-radius: 6px;
+body.sol-x-follow-on .sol-mobile-cip .sol-x-follow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
 }
 .sol-x-follow-text {
-  margin: 0 0 6px;
-  font-size: 12px;
-  line-height: 1.5;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: #a8b4c9;
 }
-.sol-x-follow-text b { font-weight: 600; color: var(--main-color); white-space: nowrap; }
 .sol-x-follow-link {
-  font-size: 13px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   font-weight: 600;
   color: var(--accent);
   text-decoration: none;
 }
 .sol-x-follow-link:hover { color: var(--accent-hover); text-decoration: underline; }
-.sol-x-follow-close {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: #a8b4c9;
-  font-size: 16px;
-  line-height: 22px;
-  cursor: pointer;
-}
-.sol-x-follow-close:hover { background: var(--bg-hover); color: var(--main-color); }
-
-/* スマホ縦: サイドバーはボトムシートなので出さず、カード詳細の下に出す */
-@media (max-width: 767px) and (orientation: portrait) {
-  body.sol-x-follow-on .sol-x-follow-section { display: none; }
-  .sol-mobile-cip .sol-x-follow { margin-top: 12px; }
-}
