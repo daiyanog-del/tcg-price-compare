@@ -142,17 +142,14 @@ document.addEventListener('click',e=>{
   }
 });
 
-// 名前の横の外部リンク（公式DB・Wiki）の「別のサイトが開く」印
-const _EXT_LINK_ICON='<svg class="cr-ext-icon" width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4.5 2H10v5.5M10 2 3 9"/></svg>';
-
 // ── カード情報取得（YGOResources優先、YGOProDeckフォールバック）──
 function _applyKonamiLink(kid){
   _konamiDbUrl='https://www.db.yugioh-card.com/yugiohdb/card_search.action?ope=2&cid='+kid+'&request_locale=ja';
-  // 結果の欄（#heroInfo）の名前に付ける。'.card-hero-name' だけだと、上にある検索中の欄（#searchPreviewName・隠れている）に付いて見えなくなる
+  // 結果の欄（#heroInfo）のボタンの列に付ける。'.card-hero-name' だけだと、上にある検索中の欄（#searchPreviewName・隠れている）に付いて見えなくなる
   const links=document.querySelector('#heroInfo .cr-ext-links');
   if(links&&!links.querySelector('.cr-db-link-official')){
     const a=document.createElement('a');
-    a.className='cr-db-link cr-db-link-official';a.href=_konamiDbUrl;a.target='_blank';a.rel='noopener';a.innerHTML='公式DB'+_EXT_LINK_ICON;
+    a.className='cr-db-link cr-db-link-official';a.href=_konamiDbUrl;a.target='_blank';a.rel='noopener';a.textContent='公式DB';
     links.prepend(a);
     // Wiki にも cid を渡す（読みの名前（テックジーナス　…）のページでも、サーバーが正式名（TG …）で wiki を引く）
     const wiki=links.querySelector('.cr-db-link-wiki');
@@ -324,10 +321,18 @@ function _closeFxSheet(fromPop){
 // CSS の並べ替えでは、相場の箱（名前の行の中）と一覧（その外）の順番を入れ替えられないため要素を動かす。ID は変えない
 const _CR_SP_MQ='(max-width:640px)';
 function _crPlaceForViewport(){
+  const sp=!!(window.matchMedia&&matchMedia(_CR_SP_MQ).matches);
+  // 公式DB・Wiki: PC はボタンの列の右端（シェアの右）、スマホは画像の右の「効果テキスト」の隣
+  // （ボタンの列に入れると購入候補が「…」に縮み、下の行に回すとリンクだけの行が浮いた。2026-10-31）
+  const ext=document.querySelector('#heroInfo .cr-ext-links');
+  if(ext){
+    const fx=document.getElementById('crFxBtn'),acts=document.querySelector('#heroInfo .cr-acts');
+    if(sp){ if(fx&&ext.previousElementSibling!==fx) fx.after(ext); }
+    else if(acts&&ext.parentNode!==acts) acts.appendChild(ext);
+  }
   const hero=document.getElementById('cardHero'),mk=document.getElementById('heroMarket');
   const buy=document.getElementById('buyInline'),list=document.getElementById('crList');
   if(!hero||!mk||!buy||!list) return;
-  const sp=!!(window.matchMedia&&matchMedia(_CR_SP_MQ).matches);
   if(sp){
     if(mk.parentNode===hero){ list.after(mk); mk.after(buy); }
   }else{
@@ -903,9 +908,10 @@ function renderAll(d){
   const detailOpen=!!(window.matchMedia&&window.matchMedia('(min-width:641px)').matches);
   // 最安の行（#heroBest）は既定のレアリティが決まった後に _updateHeroSummary() が埋める。
   // 在庫の件数・レアリティの種類数の行は、すぐ下のレアリティ欄（すべて N件・札の数）と重なるので出さない（2026-10-22）
-  // 名前の横の外部リンク: Wiki はここで出し、公式DB は konami_id が分かったら _applyKonamiLink が前に足す。
+  // 外部リンク（公式DB・Wiki）: ボタンの列の右端（シェアの右）。Wiki はここで出し、公式DB は konami_id が分かったら _applyKonamiLink が前に足す。
+  // 名前の横に置くと、長い名前でリンクだけ次の行に落ちていた（2026-10-31 ユーザー指定でボタンの列へ）。
   // Wiki は /card-wiki がページの有無を確かめ、無ければ wiki のタイトル検索へ送る（wiki_link.py）
-  heroInfo.innerHTML=`<div class="card-hero-name">${esc(searchTerm)}<span class="cr-ext-links"><a class="cr-db-link cr-db-link-wiki" href="/card-wiki?name=${encodeURIComponent(searchTerm)}" target="_blank" rel="noopener nofollow">Wiki${_EXT_LINK_ICON}</a></span></div>
+  heroInfo.innerHTML=`<div class="card-hero-name">${esc(searchTerm)}</div>
     <div class="cr-best" id="heroBest">${best?'':'<span class="cr-best-none">在庫なし</span>'}</div>
     <!-- スマホだけ: 効果テキストは名前と最安の下（画像の横の空き）のボタンから全画面で開く（2026-10-22 ユーザー指定） -->
     <button type="button" class="cr-fx-btn" id="crFxBtn" onclick="_openFxSheet()">効果テキスト</button>
@@ -923,7 +929,9 @@ function renderAll(d){
         <button type="button" class="cr-pill share-btn-x" onclick="toggleShareMenu('shareMenuSell')">シェア</button>
         <div class="share-menu" id="shareMenuSell"></div>
       </div>
+      <span class="cr-ext-links"><a class="cr-db-link cr-db-link-wiki" href="/card-wiki?name=${encodeURIComponent(searchTerm)}" target="_blank" rel="noopener nofollow">Wiki</a></span>
     </div>`;
+  _crPlaceForViewport(); // スマホなら公式DB・Wiki を効果テキストの隣へ（描く前に移すので位置は跳ねない）
   // シェアメニュー構築
   const shareOpts=_buildShareOptions(searchTerm,d,D);
   const smEl=document.getElementById('shareMenuSell');
