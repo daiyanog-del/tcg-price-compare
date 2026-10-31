@@ -129,11 +129,10 @@ def test_plan_pack_search_skips_reprints_and_failed_shops(monkeypatch):
     plan = collect_featured.plan_pack_search(
         None, {"pack_name": "P", "start_date": "2026-10-31"}, ["新A", "新B", "再録C"],
         ["遊々亭", "カードラッシュ", "トレコロCB"], "2026-10-31")
-    assert [a[0] for a in asked] == ["遊々亭", "カードラッシュ", "トレコロCB"], "型番で探す店だけ・使える店だけ"
+    assert [a[0] for a in asked] == ["遊々亭", "カードラッシュ"], "型番で探す店だけ・使える店だけ（トレコロは対象外）"
     # 振り分けの候補には再録の名前も入れ（新規の名前へ流れないように）、再録に当たった商品は捨てる
     assert all(a[1] == "IMPH" and a[2] == ["新A", "新B", "再録C"] for a in asked)
-    assert plan == {"新A": {"遊々亭": [_item("新A", "IMPH-JP001", shop="遊々亭")],
-                            "トレコロCB": [_item("新A", "IMPH-JP001", shop="トレコロCB")]}}
+    assert plan == {"新A": {"遊々亭": [_item("新A", "IMPH-JP001", shop="遊々亭")]}}
 
 
 def test_plan_pack_search_off_when_head_or_reprints_unknown(monkeypatch):

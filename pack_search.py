@@ -11,8 +11,9 @@
   遊々亭      1ページ・166件で79種（1.4秒）
   カードラッシュ 273件・95の型番（4.9秒。ページ送りは今のスクレイパーのまま）
   まんぞく屋   1ページ目73種＋2ページ目20種（100件/ページ・安い順）
-  トレコロ    型番の頭だけ（"IMPH"）なら 50件/ページで130件・44種（4.7秒）。残りは URL から読める型番が商品番号になる
-              商品で、このパックの型番と見分けられないのでカード名で探す
+  トレコロ    対象外。ノーマルは版ごとではなくカードパスワードごとの共通の商品（URL が /g/g{8桁}/）で、型番の頭で探しても
+              ほとんど出ない（2026-10-31 監査で確認・10/30 のトレコロのノーマル1,433行中1,432行は型番が空）。型番で取れたカードの
+              ノーマルの行が日中に更新されなくなるので入れない
   カードラボ   型番では当たらない → 対象外（夜の収集はカタログ巡回）
   カーナベル   ES の型番の項目で引ける見込みだが未確認 → 対象外
 
@@ -40,14 +41,13 @@ PACK_SEARCH_SHOPS = {
     "遊々亭": scraper.scrape_yuyu,
     "カードラッシュ": partial(scraper.scrape_cardrush, max_pages=PACK_MAX_PAGES),
     "まんぞく屋": partial(scraper.scrape_manzoku, max_pages=PACK_MAX_PAGES),
-    "トレコロCB": partial(scraper.scrape_torecolo, max_pages=PACK_MAX_PAGES),
 }
 
 # ページ送りのある店の1ページの件数。読んだ件数が「(上限ページ−1)×この数」を超えたら、最後のページまで読んで
 # 打ち切られたかもしれないので、その店は失敗扱い（全カードをカード名で探す）にする（2026-10-31 reviewer 中2。
 # 件数はスクレイパーが BOX・サプライ・価格なしを除いた後なので、上限ページ×件数ちょうどには届かない。
 # 打ち切りで高くなった値は collect_featured.drop_higher_than_today でも外れる）
-PACK_PAGE_SIZES = {"カードラッシュ": scraper.CARDRUSH_PAGE_SIZE, "まんぞく屋": 100, "トレコロCB": 50}
+PACK_PAGE_SIZES = {"カードラッシュ": scraper.CARDRUSH_PAGE_SIZE, "まんぞく屋": 100}
 
 _CODE_HEAD_RE = re.compile(r"^([A-Z0-9]{2,5})-JP", re.IGNORECASE)
 
