@@ -1,5 +1,11 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-31: 「購入候補に追加」で選ぶ窓（本番 PR #317 14ee924）
+- 経緯: ユーザー「アルティメットを購入候補へ に変わるとボタンが押し出される。+デッキ なら入る？」→本番で測って24種類が溢れ、+デッキでも12種類残ると報告→A（文言固定）をベースにレアリティと枚数を選べるように
+- 直したこと: index-main.js の文言を固定・_openWishAddPicker（窓）・_rarityChoices（レアリティ欄と共用に切り出し）。card-result.css に .wish-pick。tests/js/card_result_check.js を固定の文言に。経緯は decisions.md 同日
+- 確認: 本番ページに差し込みで撮影→ユーザー承認。CI pytest pass。本番反映後に差し込みなしで PC 1440px・スマホ 375px：シークレット・2枚を選ぶと {qty:2,rarity:"シークレット"} で入り、ボタンが元の文言に戻る
+- 片付け: worktree .claude/worktrees/wish-pick・ローカルと origin の feat/wish-add-picker を削除
+
 ## 2026-10-31: カードのページの公式DB・Wiki をボタンの列のピルに（本番 PR #314 841f19b）
 - 経緯: ユーザー「カード名が長いと公式DB・Wiki が1段下に落ちる。デッキに追加・シェアの右に平仄も併せて揃えたい」→スマホの1行足しは「へん」→文字＋矢印は違和感→↗ も外す
 - 直したこと: index-main.js renderAll でリンクを .cr-acts の末尾へ・_crPlaceForViewport でスマホは #crFxBtn の隣へ移す。card-result.css の .cr-db-link をピルに（PC 塗り・スマホ枠線）。360px 未満は効果テキストの下の行。site-theme.css の .nav-pill の説明も直した。経緯は decisions.md 同日
