@@ -92,7 +92,13 @@ function renderPacks(){
   el.innerHTML=html;
   // PC（左右2列）では、まだ何も選んでいなければ最新の発売済みパックを開いておく（右の欄を空で始めない。2026-10-22 ユーザー承認）。
   // 発売前のパックは値段が無いので選ばない。スマホは一覧から始める（全面で開くと一覧が見えなくなる）
-  if(!_pk&&rel.length&&window.matchMedia&&!matchMedia(_PK_SHEET_MQ).matches){
+  // カードのページから戻って読み直したときは、開いていたパックを開き直す（index-main.js _saveViewState）
+  const wantPack=history.state&&history.state.pack;
+  const wantIdx=wantPack?_packData.findIndex(p=>p.name===wantPack):-1;
+  if(!_pk&&wantIdx>=0){
+    const p=_packData[wantIdx];
+    setTimeout(()=>{ if(!_pk) loadPackCards(p.name,p.wiki_page||p.name,p.tcg_name||'',!!p.featured); },0);
+  }else if(!_pk&&rel.length&&window.matchMedia&&!matchMedia(_PK_SHEET_MQ).matches){
     const p=_packData[rel[0]];
     if(p) setTimeout(()=>{ if(!_pk) loadPackCards(p.name,p.wiki_page||p.name,p.tcg_name||'',!!p.featured); },0);
   }
@@ -134,6 +140,7 @@ async function loadPackCards(packName, wikiPage, tcgName, isFeatured){
   });
   _pkRender();
   _openPackSheet();
+  if(typeof _saveViewState==='function') _saveViewState({pack:packName});
 
   try{
     if(isFeatured) await _pkLoadFeatured(st);
@@ -960,7 +967,9 @@ function _openPackSheet(){
   if(!_pkPopReady){ _pkPopReady=true; window.addEventListener('popstate',_pkOnPop); }
   // ブラウザの「戻る」で全面の詳細だけを閉じる（開くときに履歴を1つ足す）
   if(!pane.classList.contains('is-open')&&history.pushState){
-    try{ history.pushState({packSheet:1},''); _pkSheetHistory=true; }catch(_){}
+    // カードのページから戻って読み直したときは、今の項目がすでに全面の詳細の項目なので足さない
+    if(history.state&&history.state.packSheet) _pkSheetHistory=true;
+    else{ try{ history.pushState({packSheet:1},''); _pkSheetHistory=true; }catch(_){} }
   }
   pane.classList.add('is-open');
   if(!_pkSheetKeyReady){ _pkSheetKeyReady=true; document.addEventListener('keydown',_pkSheetKey,true); } // 引き出しの Esc より先に見る
