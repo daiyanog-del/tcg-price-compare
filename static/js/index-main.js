@@ -142,9 +142,6 @@ document.addEventListener('click',e=>{
   }
 });
 
-// 外部リンク（公式DB・Wiki）の「別のサイトが開く」印
-const _EXT_LINK_ICON='<svg class="cr-ext-icon" width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4.5 2H10v5.5M10 2 3 9"/></svg>';
-
 // ── カード情報取得（YGOResources優先、YGOProDeckフォールバック）──
 function _applyKonamiLink(kid){
   _konamiDbUrl='https://www.db.yugioh-card.com/yugiohdb/card_search.action?ope=2&cid='+kid+'&request_locale=ja';
@@ -152,7 +149,7 @@ function _applyKonamiLink(kid){
   const links=document.querySelector('#heroInfo .cr-ext-links');
   if(links&&!links.querySelector('.cr-db-link-official')){
     const a=document.createElement('a');
-    a.className='cr-db-link cr-db-link-official';a.href=_konamiDbUrl;a.target='_blank';a.rel='noopener';a.innerHTML='公式DB'+_EXT_LINK_ICON;
+    a.className='cr-db-link cr-db-link-official';a.href=_konamiDbUrl;a.target='_blank';a.rel='noopener';a.textContent='公式DB';
     links.prepend(a);
     // Wiki にも cid を渡す（読みの名前（テックジーナス　…）のページでも、サーバーが正式名（TG …）で wiki を引く）
     const wiki=links.querySelector('.cr-db-link-wiki');
@@ -931,7 +928,7 @@ function renderAll(d){
         <button type="button" class="cr-pill share-btn-x" onclick="toggleShareMenu('shareMenuSell')">シェア</button>
         <div class="share-menu" id="shareMenuSell"></div>
       </div>
-      <span class="cr-ext-links"><a class="cr-db-link cr-db-link-wiki" href="/card-wiki?name=${encodeURIComponent(searchTerm)}" target="_blank" rel="noopener nofollow">Wiki${_EXT_LINK_ICON}</a></span>
+      <span class="cr-ext-links"><a class="cr-db-link cr-db-link-wiki" href="/card-wiki?name=${encodeURIComponent(searchTerm)}" target="_blank" rel="noopener nofollow">Wiki</a></span>
     </div>`;
   _crPlaceForViewport(); // スマホなら公式DB・Wiki を効果テキストの隣へ（描く前に移すので位置は跳ねない）
   // シェアメニュー構築

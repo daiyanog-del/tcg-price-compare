@@ -13,9 +13,10 @@
 #mode-search .card-hero-info{min-width:0}
 #mode-search .card-hero-name{font-size:22px;font-weight:700;line-height:1.35;margin:0 0 6px;overflow-wrap:anywhere}
 /* 公式DB・Wiki: ボタンの列の右端（シェアの右）。名前の横だと長い名前でリンクだけ次の行に落ちた（2026-10-31）。
-   ボタンと並ぶので、10-30 の文字リンク（枠なし）をやめ、シェアなどと同じピルにする（2026-10-31 ユーザー指摘）。↗ は別のサイトが開く印として残す */
+   ボタンと並ぶので、10-30 の文字リンク（枠なし）をやめ、シェアなどと同じピルにする（2026-10-31 ユーザー指摘）。
+   ↗ の印は付けない（ラベルで別のサイトと分かる・「店で見る」も印なし・スマホで効果テキストの隣に収まる。2026-10-31） */
 #mode-search .cr-acts>.cr-ext-links{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
-#mode-search .cr-db-link{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-height:32px;padding:0 14px;border-radius:18px;background:var(--bg-hover);color:var(--accent-l);font:700 12px var(--font);white-space:nowrap;box-sizing:border-box}
+#mode-search .cr-db-link{display:inline-flex;align-items:center;justify-content:center;min-height:32px;padding:0 14px;border-radius:18px;background:var(--bg-hover);color:var(--accent-l);font:700 12px var(--font);white-space:nowrap;box-sizing:border-box}
 #mode-search .cr-db-link:hover{background:#353843;color:var(--text);text-decoration:none}
 /* 最安の行: ［最安］（金の札・一覧の最安の印と同じ）・値段・レアリティ（枠線の札。効果テキストの「準制限」など塗りの札と区別する）・店名と型番 */
 #mode-search #heroBest.cr-best{display:flex;margin:0;align-items:center;flex-wrap:wrap;gap:4px 10px;min-height:38px}
@@ -283,7 +284,7 @@ html.cr-fx-open,html.cr-fx-open body{overflow:hidden}
   #mode-search .cr-act .wish-add{position:relative;z-index:2}
   #mode-search .cr-shop .aff-pr{position:relative;z-index:2}
 }
-/* 狭い画面（375px 未満）は公式DB・Wiki が効果テキストと並ぶと重なるので、その下の行に左から */
-@media(max-width:374px){
+/* 狭い画面（360px 未満）は公式DB・Wiki が効果テキストと並ぶと重なるので、その下の行に左から */
+@media(max-width:359px){
   #mode-search .card-hero-info>.cr-ext-links{grid-row:4;justify-self:start}
 }
