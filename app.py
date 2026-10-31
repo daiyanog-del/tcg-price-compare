@@ -1641,6 +1641,9 @@ def api_deck():
     per_shop_mode = request.values.get("include_per_shop", "").lower()
     include_per_shop = per_shop_mode in ("1", "true", "yes", "version")
     per_shop_by_version = per_shop_mode == "version"
+    # 購入候補の「店の今の価格で調べ直す」用（2026-10-31）。どの店も全ページを見て、結果をその日の行に上書きする
+    # （/api/search と同じ扱い）。ふだんの一括検索は1ページ目だけの浅い結果なので、朝の収集の値を上書きしない
+    fresh = request.values.get("fresh", "").lower() in ("1", "true", "yes")
     if not names_raw:
         return jsonify({"error": "カード名がありません"}), 400
     rate_error = _consume_rate_limit(bucket=_last_deck)
@@ -1657,6 +1660,8 @@ def api_deck():
         "トレコロCB": partial(scrape_torecolo, max_pages=1),
         "カーナベル": partial(scrape_kanabell, max_pages=1),
     }
+    if fresh:
+        _FAST_OVERRIDES = {}
     active_shops = [
         (name, _FAST_OVERRIDES.get(name, fn))
         for name, fn in SHOPS if name in selected
@@ -1669,22 +1674,64 @@ def api_deck():
 
     # 店舗へ取りに行く検索の同時数の枠（一括検索の枠）。混雑で断る分は、下の記録・自動登録より前に返す
     # （画面が数秒後に取り直すので、記録が二重にならないようにする）
+    # 調べ直し（fresh）は全ページを見て DB に上書きするので、1つの接続元から同時に流せるのは1本まで
+    # （画面は80種ごとに順に送るので困らない。2026-10-31 reviewer 中3）
+    fresh_release = None
+    if fresh:
+        fresh_release = _fresh_deck_open(_client_ip())
+        if fresh_release is None:
+            return jsonify({"error": "価格の更新はひとつずつ行います。終わってからもう一度お試しください"}), 429
     release = _search_stream_slots.try_open("bulk")
     if release is None:
+        if fresh_release:
+            fresh_release()
         return _search_busy_response()
+    if fresh_release:
+        release = _chain_release(release, fresh_release)
     try:
         return _search_stream_response(
             _api_deck_stream(card_entries, selected, active_shops, _FAST_OVERRIDES,
-                             include_per_shop, per_shop_by_version),
+                             include_per_shop, per_shop_by_version, fresh),
             release)
     except BaseException:
         release()
         raise
 
 
+_fresh_deck_lock = Lock()
+_fresh_deck_active: set[str] = set()
+
+
+def _fresh_deck_open(ip: str):
+    """調べ直し（fresh）の接続元ごとの枠を取る。取れたら返す関数（1回だけ効く）を、取れなければ None を返す。"""
+    with _fresh_deck_lock:
+        if ip in _fresh_deck_active:
+            return None
+        _fresh_deck_active.add(ip)
+    done = []
+
+    def release():
+        if done:
+            return
+        done.append(True)
+        with _fresh_deck_lock:
+            _fresh_deck_active.discard(ip)
+    return release
+
+
+def _chain_release(*releases):
+    """複数の後始末を1つにまとめる（_search_stream_response は最後と切断時の2回呼びうる。各後始末は1回だけ効く前提）。"""
+    def release():
+        for r in releases:
+            r()
+    return release
+
+
 def _api_deck_stream(card_entries, selected, active_shops, _FAST_OVERRIDES,
-                     include_per_shop, per_shop_by_version):
-    """/api/deck の本体（記録・自動登録と SSE の生成）。枠を取ったあとで呼ぶ。"""
+                     include_per_shop, per_shop_by_version, fresh=False):
+    """/api/deck の本体（記録・自動登録と SSE の生成）。枠を取ったあとで呼ぶ。
+    fresh: 全ページを見た結果だけを使い（1ページ目だけのキャッシュは命中にしない）、その日の行に上書きする。
+    上書きは card_done を送る前に終える（画面は終わったら DB を読み直すため）。"""
     # デッキ検索カードを収集対象候補として記録（人気ランキングには影響しない）。TCG先行カードは価格が無いので記録しない
     _record_deck_search([e["name"] for e in card_entries if not _is_tcg_preview_name(e["name"])])
     # デッキ内カードを tracked_cards に自動登録（次回 collect_prices で永続化）。
@@ -1698,6 +1745,14 @@ def _api_deck_stream(card_entries, selected, active_shops, _FAST_OVERRIDES,
     ]
     if _supabase_client and trackable:
         Thread(target=_track_cards_async, args=(trackable,), daemon=True).start()
+    trackable_set = set(trackable)
+
+    def _persist_fresh(card_name, items):
+        """調べ直しの結果をその日の行に上書きする（/api/search と同じ扱い）。画面が終わったら DB を読み直すので、
+        Thread に回さず書き終えてから返す。カード辞書に無い名前は書かない（自動登録と同じ関門）。
+        items は全ページを見た店の結果だけを渡す（キャッシュの命中分も含める・取得に失敗した店は渡さない）"""
+        if fresh and _supabase_client and items and card_name in trackable_set:
+            _persist_scrape_async(card_name, list(items))
 
     def _aggregate_per_shop(items: list) -> dict:
         """店舗別・レアリティ別の最安値を {店舗名: {レアリティ: {price, url, rarity, ...}}} に
@@ -1732,11 +1787,14 @@ def _api_deck_stream(card_entries, selected, active_shops, _FAST_OVERRIDES,
         """1枚のカードを全店舗で検索して結果を返す"""
         # キャッシュチェック（店舗束）。デッキ検索は自身が partial な結果しか作らないため
         # partial エントリも命中扱いにする（完全版キャッシュがあればそちらが使われる）
-        cached_map, missing = cache_get_shops(card_name, selected, include_partial=True)
+        # 調べ直し（fresh）は全ページを見た結果だけを命中にする
+        cached_map, missing = cache_get_shops(card_name, selected, include_partial=not fresh)
         cached_items = [r for rs in cached_map.values() for r in rs]
         if not missing:
             # /api/search の全件命中と同じく、型番の補完と OF のレアリティのそろえを通す
             cached_items = infer_overframe(infer_codes(cached_items))
+            # 調べ直しでは、15分以内に誰かが全ページを調べた結果も朝の値より新しいので書き戻す（2026-10-31 reviewer 高1）
+            _persist_fresh(card_name, cached_items)
             items = [r for r in cached_items if not r.get("sold_out")]
             best = min(items, key=lambda x: x["price"]) if items else None
             payload = {"type": "card_done", "index": i, "name": card_name,
@@ -1799,7 +1857,11 @@ def _api_deck_stream(card_entries, selected, active_shops, _FAST_OVERRIDES,
         # scrape 結果を price_history に即時 upsert（購入候補の rarity 候補を即時化）。
         # /api/deck は店舗1ページ目のみの網羅性が低いスクレイプのため、既存行があれば
         # 書き込まない（フェーズ3 P6b、夜間収集の網羅的な最安値を上書きしないため）
-        if _supabase_client and scraped_items:
+        if fresh:
+            # 調べ直しは、キャッシュの命中分（全ページ）と今回取り切れた店だけを上書きする。取得に一部失敗した店は
+            # 取れた分だけの値で朝の網羅的な値を壊さないよう書かない（画面は「前の値のまま」と出す。reviewer 高1・中2）
+            _persist_fresh(card_name, cached_items + [r for rs in scraped_ok.values() for r in rs])
+        elif _supabase_client and scraped_items:
             Thread(target=_persist_scrape_async, args=(card_name, list(scraped_items)),
                    kwargs={"ignore_duplicates": True}, daemon=True).start()
         # 混雑時の前回の結果（stale_items）も表示前に OF の印の判定を通す（反映前のキャッシュの行のため）
