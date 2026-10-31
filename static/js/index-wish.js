@@ -647,7 +647,7 @@ function renderWishlist(){
     <div class="${rowClass}" data-name="${escAttr(c.name)}" data-rarity="${escAttr(c.rarity||"")}">
       ${imgHtml}
       <div class="wl-main">
-        <a class="wl-name" href="/card/${encodeURIComponent(c.name)}" target="_blank" rel="noopener" title="価格を比べる">${esc(c.name)}</a>
+        <a class="wl-name" href="/card/${encodeURIComponent(c.name)}" target="_blank" rel="noopener" title="店ごとの価格を見る">${esc(c.name)}</a>
         ${tags?`<span class="wl-tags">${tags}</span>`:''}
       </div>
       ${_wishRarityChipHtml(c)}

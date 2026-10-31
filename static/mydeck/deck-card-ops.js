@@ -4,7 +4,7 @@
  *   以前は全カードの上に「− N + ×」が並び、スマホでは 63px のボタン列が 55px のカードからはみ出して × が切れていた。
  *   シミュレーターのデッキ編集（deck-edit-ui.js）と同じく、カードの上は「×N」の札だけにする。
  *   - PC: カードの右クリックメニューで「デッキに1枚足す（今 N枚）・デッキから1枚抜く・デッキから外す」
- *         ＋「購入候補に入れる・カードの詳細・価格を比べる」。押したときの詳細ドロワーとドラッグの並べ替えは今のまま。
+ *         ＋「購入候補に入れる・カードの詳細・店ごとの価格を見る」。押したときの詳細ドロワーとドラッグの並べ替えは今のまま。
  *   - タッチ端末: カードをタップすると選択（金の枠＝選択中）、上の欄に［−］N［＋］・詳細・✕。
  *         以前はタップで詳細が開いたので、詳細は欄のボタンへ移す。もう一度タップ・✕・カード以外を押すと選択をやめる。
  *
@@ -138,7 +138,7 @@
     var tcgPreview = !!(window.TcgPreview && window.TcgPreview.has(name));
     if(!tcgPreview) item('購入候補に入れる', '候補に ' + _wishCount(name) + '枚', function(){ _addToWish(name); });
     item('カードの詳細', '', info);
-    if(!tcgPreview) item('価格を比べる', '', function(){ window.open('/card/' + encodeURIComponent(name), '_blank', 'noopener'); });
+    if(!tcgPreview) item('店ごとの価格を見る', '', function(){ window.open('/card/' + encodeURIComponent(name), '_blank', 'noopener'); });
 
     document.body.appendChild(el);
     // マウスの位置に出す。画面からはみ出す向きなら反対側へ
