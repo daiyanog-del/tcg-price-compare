@@ -10,7 +10,7 @@
 - 経緯: ユーザー「購入候補のページの情報更新が遅い」。本番で測ると /api/wish-prices は1枚でも0.6〜1秒・起動直後や遅いときは3〜10秒（17種の全件で10.3秒の回あり）。加えて、1枚足すたびに価格の控えを捨てて全カードを取り直し、一覧のすべての行が読み込み中になっていた
 - 直したこと: index-wish.js _loadWishPricesNow は、控えが期限内・前回の失敗なしなら、まだ取りに行っていない名前だけ取りに行き控えに足す（取りに行った時刻は変えない・取得中に控えが捨てられたら使わない）。期限切れ・失敗のあとは今までどおり全件。追加の入り口6か所（wishAdd・取り消し・環境デッキ・新商品 packs.js・所持確認・マイデッキ deck-card-ops.js）で控えを捨てるのをやめた
 - 確認: tests/js/wish_prices_partial_check.js 追加・deck_card_ops_check.js を新しい動きに合わせた・tests 3350 passed。本番（差し込みなしの新コード）で20種に1枚足すと、読み込み中は1行だけ・取りに行ったのは1枚分・1.8秒でそろった
-- ⚠ PR の CI は tests/test_domain_handoff.py の失敗のまま取り込んでしまった（gh pr merge は必須チェックが無いと止まらない）。失敗は domain_handoff_check.js の決め打ちの待ち（wait=50ms）が CI の遅さで間に合わないもので、今回の変更とは無関係（手元5回とも通過・domain-handoff.js は未変更）。TASKS.md に宿題として記録
+- ⚠ PR の CI は tests/test_domain_handoff.py の失敗のまま取り込んでしまった（gh pr merge は必須チェックが無いと止まらない）。失敗は domain_handoff_check.js の決め打ちの待ち（wait=50ms）が CI の遅さで間に合わないもので、今回の変更とは無関係（手元5回とも通過・domain-handoff.js は未変更）。同日 PR #312 cde635f でテストの待ち方を「処理が終わるまで」に直した（CI pass を確かめてから取り込み・worktree とブランチ test/handoff-wait は削除）
 - 残り: サーバー側の遅さ（日ごとの読み込みで米国オレゴン↔東京を何往復もする）は未着手（2027-01 シンガポール移設で縮む見込み）。10分ごとの全件取り直しと起動直後は今も全行が読み込み中になる（前の価格を出したまま裏で取り直す案はユーザー未承認）
 - 片付け: worktree .claude/worktrees/wish-add-keep-prices・ローカルと origin の fix/wish-add-keep-prices を削除
 
