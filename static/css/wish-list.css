@@ -80,9 +80,7 @@
 #wishActions .wl-count { color: var(--text-m); font-size: .8rem; }
 #wishActions .wl-count b { color: var(--text); font: 700 .8rem var(--mono); }
 #wishActions .wish-action-btn.primary { height: 36px; padding: 0 16px; }
-/* 価格を更新（2026-10-31）。主操作の隣の控えめなボタン。更新中は押せない */
-#wishActions .wl-refresh { height: 36px; padding: 0 12px; color: var(--text); white-space: nowrap; }
-#wishActions .wl-refresh:disabled { color: var(--text-m); cursor: default; }
+/* 見出しの数の横の「14:05に更新」「更新中 12/30」（価格を更新は ⋯ の中。2026-10-31） */
 #wishActions .wl-refreshed { color: var(--text-m); font-size: .74rem; white-space: nowrap; }
 #wishActions .wl-head-more { width: 36px; height: 36px; padding: 0; border: 0; border-radius: 6px; background: var(--bg-hover); color: var(--text); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 #wishActions .wl-head-more:hover { background: #353843; }

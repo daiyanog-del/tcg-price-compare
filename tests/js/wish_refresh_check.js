@@ -30,7 +30,8 @@ function sseBody(names, failed, noDone) {
 function run(list, opts = {}) {
   const posts = [], toasts = [], store = new Map();
   let rendered = 0, cheapest = 0, loads = 0;
-  const btn = { textContent: '価格を更新', disabled: false, setAttribute() {}, removeAttribute() {} };
+  // 見出しの数（更新中は「更新中 N/M」が出る。届いた文字を順に覚える）
+  const countEl = { _html: '', seen: [], set innerHTML(v) { this._html = v; this.seen.push(v); }, get innerHTML() { return this._html; } };
   const wsr = { classList: { contains: c => c === 'hidden' ? !opts.rankingOpen : false } };
   const sb = {
     window: {}, console, Map, Set, Object, JSON, Promise, Date, Number, String, URLSearchParams, TextDecoder,
@@ -44,7 +45,7 @@ function run(list, opts = {}) {
     renderWishlist: () => { rendered++; },
     wishCheapestStores: () => { cheapest++; },
     localStorage: { getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) },
-    document: { getElementById: id => (id === 'wishShopRanking' ? wsr : null) },
+    document: { getElementById: id => (id === 'wishShopRanking' ? wsr : id === 'wishCount' ? countEl : null) },
     DeckHead: { toast: m => toasts.push(m) },
     ShopBusy: {
       sleep: async () => {},
@@ -60,8 +61,8 @@ function run(list, opts = {}) {
   sb.window.DeckHead = sb.DeckHead;
   vm.createContext(sb);
   vm.runInContext(code, sb);
-  return vm.runInContext('wishRefreshPrices(btnArg)', Object.assign(sb, { btnArg: btn }))
-    .then(() => ({ posts, toasts, rendered, cheapest, btn, sb, store, loads }));
+  return vm.runInContext('wishRefreshPrices()', sb)
+    .then(() => ({ posts, toasts, rendered, cheapest, countEl, sb, store, loads }));
 }
 
 (async () => {
@@ -77,8 +78,8 @@ function run(list, opts = {}) {
     assert.equal(r.sb._wishPrices, null, '端末の価格を捨てて取り直す');
     assert.ok(r.store.get('cleared'));
     assert.ok(r.store.get('cardprice_wish_refreshed_v1'), '更新した時刻を覚える');
-    assert.equal(r.btn.textContent, '価格を更新', 'ボタンの文字を戻す');
-    assert.equal(r.btn.disabled, false);
+    assert.ok(r.countEl.seen.some(h => /更新中 80\/170/.test(h)), '見出しの数の横に進み具合を出す');
+    assert.ok(!/更新中/.test(r.countEl.innerHTML), '終わったら進み具合を消す');
     assert.deepEqual(r.toasts, ['価格を更新しました']);
     assert.equal(r.cheapest, 0, '「どこで買うと安いか」を開いていなければ調べない');
   }

@@ -162,6 +162,7 @@ const _WISH_REFRESH_KEY='cardprice_wish_refreshed_v1'; // 最後に更新した�
 const _WISH_REFRESH_CHUNK=80;    // 一括検索が1回に受け取る数（app.py の MAX_DECK_CARDS）
 const _WISH_REFRESH_GAP=3500;    // 分けて送るときの間隔（app.py の RATE_LIMIT_SEC=3 より長く）
 let _wishRefreshing=false;
+let _wishRefreshProgress=''; // 更新中は見出しの数の横に「更新中 12/30」（2026-10-31 ⋯メニューへ移した。ボタンの文字で見せられないため）
 function _wishRefreshedAt(){
   try{ const t=Number(JSON.parse(localStorage.getItem(_WISH_REFRESH_KEY)||'{}').time); return t>0?t:0; }catch{ return 0; }
 }
@@ -169,6 +170,7 @@ function _wishRefreshedAt(){
 // （日付が変わったり、0〜5時に押したあと朝の収集が走ったりすれば、収集の値のほうが新しい。reviewer 低6）
 const _WISH_MORNING_COLLECT_HOUR=5; // collect_prices の起動。Render の管理画面の設定 tcg-collect-prices の 0 20 * * * UTC = 5:00 JST（2026-10-31 に確認）
 function _wishRefreshedHtml(){
+  if(_wishRefreshProgress) return ` <span class="wl-refreshed">${_wishRefreshProgress}</span>`;
   const t=_wishRefreshedAt();
   if(!t) return '';
   const jst=ms=>new Date(ms+9*3600*1000); // getUTC* で JST の時刻を読む
@@ -204,14 +206,18 @@ async function _wishRefreshChunk(names,onDone){
   // 最後の合図（done）が届かずに閉じたら途中で切れている（例外にならずに閉じることがある。reviewer 中4）
   if(!finished) throw new Error('途中で切れました');
 }
-async function wishRefreshPrices(btn){
+// 見出しの数（全体の種類・枚数と、更新中／最後に更新した時刻）
+function _wishRenderCount(list){
+  const cnt=document.getElementById('wishCount');
+  if(cnt)cnt.innerHTML=`<b>${list.length}</b>種 <b>${list.reduce((n,c)=>n+(c.qty||0),0)}</b>枚${_wishRefreshedHtml()}`;
+}
+// 見出しの ⋯ の「価格を更新」から呼ぶ（2026-10-31 ユーザー「気軽に回されるのも困るので ⋯ の中に」）
+async function wishRefreshPrices(){
   if(_wishRefreshing) return;
   _wishRefreshing=true;
-  const label=btn?btn.textContent:'';
-  if(btn){ btn.disabled=true; btn.setAttribute('aria-busy','true'); }
   let names=[], done=0, broke=false;
   const failedShops=new Set();
-  const show=()=>{ if(btn) btn.textContent=`更新中 ${done}/${names.length}`; };
+  const show=()=>{ _wishRefreshProgress=`更新中 ${done}/${names.length}`; _wishRenderCount(wishGet()); };
   try{
     // まだ店に並ばないカード（未発売・TCG先行）は店で探しても無いので送らない。見分けは価格の応答の印なので、
     // まだ読んでいなければ先に読む（reviewer 低7）
@@ -231,7 +237,7 @@ async function wishRefreshPrices(btn){
     broke=true;
   }finally{
     _wishRefreshing=false;
-    if(btn){ btn.disabled=false; btn.removeAttribute('aria-busy'); btn.textContent=label; }
+    _wishRefreshProgress=''; _wishRenderCount(wishGet());
   }
   // 1件でも調べ直せたら DB を読み直す（途中で切れても、そこまでの分は書き戻してある）
   if(done>0){
@@ -619,8 +625,7 @@ function renderWishlist(){
   }
   actions.style.display='flex';
   // 見出しの数（絞り込みに関係なく全体）
-  const cnt=document.getElementById('wishCount');
-  if(cnt)cnt.innerHTML=`<b>${list.length}</b>種 <b>${list.reduce((n,c)=>n+(c.qty||0),0)}</b>枚${_wishRefreshedHtml()}`;
+  _wishRenderCount(list);
   // 未ロード・TTL切れ・取得中（起動時の取得など）なら、届いたあとに描き直す
   _wishEnsurePrices();
   // レアリティ候補を先に読んでおく（札を押したときにすぐ出せるように。カード名の集合が変わったときだけ取りに行く）
@@ -800,6 +805,7 @@ function _wishOpenRarityMenu(chip0){
 function _wishOpenHeadMenu(btn){
   _wishOpenMenu({fromBtn:btn,
     items:[
+      {label:'価格を更新',sub:_wishRefreshing?'更新中…':'店の今の価格で調べ直す',fn:()=>wishRefreshPrices()},
       {label:'他の端末でも見る',fn:()=>{if(typeof openSyncShareDialog==='function')openSyncShareDialog();}},
       'sep',
       {label:'すべて削除',danger:true,fn:()=>wishClearAll()},
