@@ -37,7 +37,7 @@ const sandbox = {
   fetch(url) { return new Promise((resolve, reject) => fetches.push({ url, resolve, reject })); },
   setTimeout(fn) { const id = ++timerSeq; timers.set(id, fn); return id; },
   clearTimeout(id) { timers.delete(id); },
-  _ga(name, p) { gaCalls.push([name, p]); }, _setSearchLayout() {}, _setPriceSectionsVisible() {}, _updateRarityBanner() {}, renderTable() {}, closeSuggest() {},
+  _ga(name, p) { gaCalls.push([name, p]); }, _setSearchLayout() {}, _setPriceSectionsVisible() {}, _syncBreadcrumb() {}, _updateRarityBanner() {}, renderTable() {}, closeSuggest() {},
   renderAll() {}, SearchStatus: { show() {} }, TABLE_PAGE_SIZE: 20,
   _prefetchCardImage() {}, // カード画像の先読み（2026-10-22 LCP）。この検証の対象外なので何もしない
   _prefetchCardInfo() {}, // カード情報の先読み（2026-10-31）。同じく対象外

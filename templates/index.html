@@ -739,16 +739,19 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
       <button class="mode-tab{% if newset_page %} active{% endif %}" data-mode="packs"{% if newset_page %} aria-current="page"{% endif %} onclick="switchMode('packs','tab')">新弾情報</button>
       <button class="mode-tab nav-wishlist" data-mode="wishlist" onclick="switchMode('wishlist','tab')">購入候補<span class="wish-badge" id="wishTabBadge" style="display:none">0</span></button>
     </nav>
-    {% if card_name %}
-    <nav class="price-breadcrumb" aria-label="パンくず" style="font-size:.75rem;color:var(--text-d);margin-top:6px">
+    <!-- パンくずは表示中のカードに合わせて index-main.js の _syncBreadcrumb が出し直す・隠す（タブ切替・別カード検索で前のカード名が残らないように） -->
+    <nav class="price-breadcrumb" id="priceBreadcrumb" aria-label="パンくず" style="font-size:.75rem;color:var(--text-d);margin-top:6px"{% if not card_name %} hidden{% endif %}>
       <a href="/" style="color:var(--text-m)">トップ</a> &gt;
+      {% if card_name %}
       {% if page_mode == 'buyback' %}
-      <a href="/buy/{{ card_name | urlencode }}" style="color:var(--text-m)">{{ card_name }} の買取価格比較</a>
+      <a id="priceBreadcrumbCard" href="/buy/{{ card_name | urlencode }}" style="color:var(--text-m)">{{ card_name }} の買取価格比較</a>
       {% else %}
-      <a href="/card/{{ card_name | urlencode }}" style="color:var(--text-m)">{{ card_name }} の価格比較</a>
+      <a id="priceBreadcrumbCard" href="/card/{{ card_name | urlencode }}" style="color:var(--text-m)">{{ card_name }} の価格比較</a>
+      {% endif %}
+      {% else %}
+      <a id="priceBreadcrumbCard" href="/" style="color:var(--text-m)"></a>
       {% endif %}
     </nav>
-    {% endif %}
   </header>
 
   <!-- ===== 検索モード ===== -->

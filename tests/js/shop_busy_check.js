@@ -92,7 +92,7 @@ const okRes = { headers: headers({}), body: {}, ok: true };
     fetch: () => new Promise(() => {}),
     setTimeout(fn, ms) { const id = ++timerSeq; timers.set(id, { fn, ms }); return id; },
     clearTimeout(id) { timers.delete(id); },
-    _ga(name, p) { gaCalls.push([name, p]); }, _setSearchLayout() {}, _setPriceSectionsVisible() {}, _updateRarityBanner() {},
+    _ga(name, p) { gaCalls.push([name, p]); }, _setSearchLayout() {}, _setPriceSectionsVisible() {}, _syncBreadcrumb() {}, _updateRarityBanner() {},
     renderAll() {}, renderTable() {}, SearchStatus: { show() {} }, TABLE_PAGE_SIZE: 20,
     _prefetchCardImage() {}, _prefetchCardInfo() {}, _hideSearchPreview() {}, _syncMercariView() {}, _resetBuyInline() {}, _syncPriceTrendView() {}, closeSuggest() {},
   };

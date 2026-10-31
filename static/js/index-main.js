@@ -641,6 +641,8 @@ function doSearch(opts){
   document.getElementById('results').classList.add('hidden');
   document.getElementById('empty').classList.add('hidden');
   document.getElementById('emptyError').classList.add('hidden');  // Q-10: 前回のエラー表示を消す
+  // 別のカードを検索し始めたら前のカードのパンくずは隠す（見つかれば _updateUrl が出し直す。見つからなければ隠したまま）
+  if(document.getElementById('priceBreadcrumb')?.dataset.card!==q) _syncBreadcrumb(null);
   // 直前が未発売カード表示だった場合に隠した価格セクションを復元する
   _setPriceSectionsVisible(true);
 
@@ -2191,6 +2193,20 @@ function _updateUrl(cardName, mode){
   // ページタイトルも更新
   const suffix=mode==='buyback'?' の買取価格比較':' の価格比較';
   document.title=cardName+suffix+' | 強欲なラボ';
+  _syncBreadcrumb(cardName,mode==='buyback');
+}
+// パンくず（「トップ > ○○ の価格比較」）を表示中のカードに合わせる。cardName が null なら隠す。
+// サーバーは /card/・/buy/ を開いたときに1回描くだけなので、タブの切り替え・別のカードの検索・トップへ戻る操作の
+// たびにここで出し直す（2026-10-31 購入候補タブに前のカードのパンくずが残っていた）
+function _syncBreadcrumb(cardName,buyback){
+  const nav=document.getElementById('priceBreadcrumb');
+  const link=document.getElementById('priceBreadcrumbCard');
+  if(!nav||!link)return;
+  if(!cardName){nav.hidden=true;nav.dataset.card='';return;}
+  link.href=(buyback?'/buy/':'/card/')+encodeURIComponent(cardName);
+  link.textContent=cardName+(buyback?' の買取価格比較':' の価格比較');
+  nav.dataset.card=cardName;
+  nav.hidden=false;
 }
 
 // URLを正本にして、初期表示と戻る・進むを同じ処理で復元する。
@@ -2243,6 +2259,8 @@ function _restoreLocation(trigger){
     if(cardName!==null&&!cardName.trim())cardName=null; // 1文字は doSearch が既知のカード名か確かめる
   }
   _resetSearchView(!!cardName);
+  // カードのURLならそのカードのパンくずをすぐ出す（ページを開いた直後に一度隠して検索後に出し直すと表示がずれる）。それ以外は隠す
+  _syncBreadcrumb(cardName,!!cardPath&&cardPath[1]==='buy');
   if(['mydeck','meta','packs','wishlist'].includes(mode)){
     switchMode(mode,trigger);
     if(hash==='mydeck-import'){
@@ -2370,6 +2388,7 @@ function switchMode(mode, trigger){
     const url=mode==='search'?'/':'/#'+mode;
     if(location.pathname+location.search+location.hash!==url){
       _resetSearchView();
+      _syncBreadcrumb(null);
       history.pushState(null,'',url);
       // 一覧ページからタブ操作でトップ等へ移った場合は、一覧専用の表示状態を解除する。
       _setNewCardsPage(false);
