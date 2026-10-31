@@ -674,6 +674,11 @@ MAX_CARD_NAME_LEN = 50
 MAX_DECK_CARDS = 80
 MAX_DECK_PARAM_CHARS = 6000
 MAX_DECK_QTY = 99
+# 購入候補の API（/api/wish-prices・/api/wish-shop-totals・/api/card-rarities）が1回に受け取るカードの数。
+# 購入候補そのものに上限は無い。以前は50で、51種目より後に入れたカードの価格が「見つかりませんでした」になっていた
+# （2026-10-31。新しいカードは一覧の末尾に足されるので、後から入れたものだけが切り捨てられた）。
+# 200種でも price_history_reads の1束（_ID_CHUNK=200）に収まる。画面側は index-wish.js の _WISH_API_MAX と同じ値にする
+MAX_WISH_CARDS = 200
 MAX_PACK_PARAM_LEN = 120
 
 # ヘルスチェック用シークレットキー
@@ -3198,7 +3203,7 @@ _WISH_DROP_ABS = -50    # かつ 50円以上安い
 @app.route("/api/wish-prices", methods=["POST"])
 def api_wish_prices():
     """購入候補カードの最新価格と7日前比を返す。
-    入力: {"cards": ["カード名", ...]}  最大50件
+    入力: {"cards": ["カード名", ...]}  最大 MAX_WISH_CARDS 件
     返却: {"cards": [{name, latest, base_7d, diff, pct, status}, ...]}
       status: "ready" = データあり, "pending" = まだ収集されていない,
               "unreleased" = まだ店に並ばないカード（release_date・tcg_preview を添える）,
@@ -3211,10 +3216,10 @@ def api_wish_prices():
     if not isinstance(cards_raw, list):
         return jsonify({"error": "cards は配列で指定してください"}), 400
 
-    # 最大50件・名前補正
+    # 最大 MAX_WISH_CARDS 件・名前補正
     _load_cardnames()
     card_names = []
-    for name in cards_raw[:50]:
+    for name in cards_raw[:MAX_WISH_CARDS]:
         name = str(name).strip()
         if name and len(name) <= MAX_CARD_NAME_LEN:
             card_names.append(_correct_cardname(name))
@@ -3333,7 +3338,7 @@ def api_wish_prices():
 @app.route("/api/wish-shop-totals", methods=["POST"])
 def api_wish_shop_totals():
     """購入候補リストを「1店舗でまとめ買いするといくらか」を全店舗で集計する。
-    入力: {"cards": [{"name": str, "qty": int, "rarity": str?}, ...]} 最大50件
+    入力: {"cards": [{"name": str, "qty": int, "rarity": str?}, ...]} 最大 MAX_WISH_CARDS 件
        rarity 省略 or 空文字 = 全レアリティから最安（=「最安レアリティ」採用）
        rarity 指定あり = 該当レアリティのみ集計（同名カードを別行として扱う）
     返却: {
@@ -3368,7 +3373,7 @@ def api_wish_shop_totals():
     entries: list[dict] = []
     # 重複統合キー: (corrected_name, normalized_rarity_or_empty)
     seen: dict[tuple, int] = {}
-    for raw in cards_raw[:50]:
+    for raw in cards_raw[:MAX_WISH_CARDS]:
         if not isinstance(raw, dict):
             continue
         name = str(raw.get("name", "")).strip()
@@ -3571,7 +3576,7 @@ def api_wish_shop_totals():
 @app.route("/api/card-rarities", methods=["POST"])
 def api_card_rarities():
     """指定カード名の直近7日に出現したレアリティ候補を返す。
-    入力: {"cards": ["カード名", ...]} 最大50件
+    入力: {"cards": ["カード名", ...]} 最大 MAX_WISH_CARDS 件
     返却: {"rarities": {"カード名": ["シークレット", "ノーマル", ...]}}
        順序は出現件数の降順（UI のドロップダウンに頻出順で並べるため）。
        DB が未設定 or 取得失敗の場合は空辞書で返す（UI 側で「候補なし」扱い）。
@@ -3584,7 +3589,7 @@ def api_card_rarities():
     _load_cardnames()
     names: list[str] = []
     seen = set()
-    for raw in cards_raw[:50]:
+    for raw in cards_raw[:MAX_WISH_CARDS]:
         name = str(raw).strip()
         if not name or len(name) > MAX_CARD_NAME_LEN:
             continue

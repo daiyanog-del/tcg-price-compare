@@ -428,3 +428,23 @@ class TestFailedChunkStopsAndOthersSurvive:
         assert len(days) == 8
         assert days[0] == (_TODAY - timedelta(days=7)).isoformat()
         assert days[-1] == _TODAY.isoformat()
+
+
+class TestManyCards:
+    """2026-10-31: 上限50で、51種目より後に入れたカードが返らず「価格が見つかりませんでした」になっていた。"""
+
+    def test_cards_after_the_50th_are_returned(self, client):
+        names = [f"テストカード{i:03d}" for i in range(55)]
+        rows = [row(n, "店舗A", 100 + i, NEW) for i, n in enumerate(names)]
+        c = client(rows, names)
+        res = c.post("/api/wish-prices", json={"cards": names})
+        got = _by_name(res.get_json())
+        assert len(got) == 55
+        assert got["テストカード054"]["latest"] == 154
+
+    def test_cards_over_the_limit_are_cut(self, client):
+        import app as app_module
+        names = [f"テストカード{i:03d}" for i in range(app_module.MAX_WISH_CARDS + 1)]
+        c = client([], names)
+        res = c.post("/api/wish-prices", json={"cards": names})
+        assert len(res.get_json()["cards"]) == app_module.MAX_WISH_CARDS

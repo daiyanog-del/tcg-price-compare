@@ -20,6 +20,9 @@ let _wishPricesTtl = _WISH_PRICES_TTL; // 最後の取得の結果に応じた�
 let _wishRetryTimer = null;
 let _wishRetryCount = 0; // 続けて失敗した回数（失敗の無い取得で 0 に戻す）
 const _WISH_PRICES_CACHE_KEY = 'cardprice_wish_prices_v1';
+// 購入候補の API が1回に受け取るカードの数（app.py の MAX_WISH_CARDS と同じ値）。購入候補そのものに上限は無いので、
+// 価格はこの数ごとに分けて取りに行く（2026-10-31: 上限50を超えた分＝後から入れたカードが「価格が見つかりませんでした」になっていた）
+const _WISH_API_MAX = 200;
 
 // ページロード時に localStorage から即時復元
 (function(){
@@ -76,15 +79,23 @@ async function _loadWishPricesNow(){
   _wishPricesTtl=_WISH_PRICES_TTL;
   if(!list.length){ _saveWishPricesCache(); return; }
   try{
-    const res=await fetch('/api/wish-prices',{method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({cards:names})});
-    if(!res.ok)throw new Error('HTTP '+res.status);
-    const data=await res.json();
-    const cards=data.cards||[];
-    cards.forEach(c=>{got[c.name]=c;});
-    // サーバーは表記ゆれを直した名前で返す。送った順に返るので、数がそろっていれば送った名前でも引けるようにする
-    if(cards.length===names.length) cards.forEach((c,i)=>{ if(!got[names[i]]) got[names[i]]=c; });
+    const chunks=[];
+    for(let i=0;i<names.length;i+=_WISH_API_MAX) chunks.push(names.slice(i,i+_WISH_API_MAX));
+    const replies=await Promise.all(chunks.map(async part=>{
+      const res=await fetch('/api/wish-prices',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({cards:part})});
+      if(!res.ok)throw new Error('HTTP '+res.status);
+      const data=await res.json();
+      return data.cards||[];
+    }));
+    const cards=[];
+    replies.forEach((part,ci)=>{
+      const sent=chunks[ci];
+      part.forEach(c=>{got[c.name]=c;cards.push(c);});
+      // サーバーは表記ゆれを直した名前で返す。送った順に返るので、数がそろっていれば送った名前でも引けるようにする
+      if(part.length===sent.length) part.forEach((c,i)=>{ if(!got[sent[i]]) got[sent[i]]=c; });
+    });
     // 取得中にカードが足されて価格が捨てられた（null に戻った）ときは、古い一覧の結果を残さない
     if(_wishPrices===got){
       _saveWishPricesCache();
@@ -1049,6 +1060,8 @@ async function wishCheapestStores(){
     const warns=[];
     if(notFoundKeys.size&&!best)warns.push(`見つからなかったカード：${[...notFoundKeys].map(k=>esc(_missingLabel(k))).join('、')}`);
     if(shopFailed&&!pendingKeys.size)warns.push('一部の店で価格を取れませんでした');
+    // サーバーは1回に _WISH_API_MAX 行までしか受け取らない。黙って落とさず、調べた範囲を言う
+    if(list.length>_WISH_API_MAX)warns.push(`カードが${_WISH_API_MAX}種を超えているため、先頭の${_WISH_API_MAX}種だけで調べました`);
     const warnHtml=warns.map(w=>`<div class="wb-warn">${w}</div>`).join('');
 
     rankEl.innerHTML=`
