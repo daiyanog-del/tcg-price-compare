@@ -1,5 +1,12 @@
 # activeContext — 今どこ・次何
 
+## 2026-10-31: 新弾の収集を型番の頭でまとめて取る（本番 PR #318 1fbe77a）
+- 経緯: ユーザー「パック一覧ページから1回でまとめて取る案は現実的に可能？」→ 店の検索欄に型番の頭（IMPH）を入れれば4店が数ページで1パック分取れると実測 →「進めて」
+- 作ったもの: pack_search.py（型番の頭の多数決・振り分け・ページ上限に近ければ失敗）・scraper.name_filter_off（contextvars）・scrape_manzoku の max_pages（既定1）・collect_featured.plan_pack_search / find_reprints / drop_higher_than_today。対象は遊々亭・カードラッシュ・まんぞく屋。再録・失敗した店・見つからないカードはカード名で探す。型番の値は今日の行で確かめられた組（無いレアリティが無く min_price_any・min_price とも高くない）だけ使う
+- 確認: IMMORTAL PHOENIX 80種で3店10秒・全240組で236組がカード名の検索と一致（残り4組は店に無い）・tests 3372 passed・reviewer 3回（残りの低1件＝保存直前の OF のそろえのやり直しでレアリティ名が変わりうる、は受け入れ）
+- 残り: 本番 DB での実行は未確認 → 11-01 10:15 の新弾の収集のログで `[型番検索]` の行・カード名で探した数・失敗を見る。再録を含む弾で再録が見分けられるかは未確認。定時収集の1日3回化はユーザーの Render 管理画面待ち（10-31 夜の時点で 15 1 * * * のまま）
+- 片付け: worktree .claude/worktrees/featured-pack-search・ローカルと origin の feat/featured-pack-search を削除
+
 ## 2026-10-31: 「購入候補に追加」で選ぶ窓（本番 PR #317 14ee924）
 - 経緯: ユーザー「アルティメットを購入候補へ に変わるとボタンが押し出される。+デッキ なら入る？」→本番で測って24種類が溢れ、+デッキでも12種類残ると報告→A（文言固定）をベースにレアリティと枚数を選べるように
 - 直したこと: index-main.js の文言を固定・_openWishAddPicker（窓）・_rarityChoices（レアリティ欄と共用に切り出し）。card-result.css に .wish-pick。tests/js/card_result_check.js を固定の文言に。経緯は decisions.md 同日
