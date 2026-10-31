@@ -316,7 +316,10 @@ run(`setArtFilter('')`);
 assert(get('heroImgWrap').innerHTML.includes(IMG), '絵が混ざる「すべての絵」はカード名の画像');
 run(`rarityFilter=''; artFilter=''; _currentCardName='灰流うらら'`);
 
-// 9) renderAll は新しいカードで「店ごとの最安」・価格順・売り切れを隠した状態に戻す（配線の静的確認）
+// 9) renderAll は新しいカードで「店ごとの最安」・価格順・売り切れを隠した状態に戻す（配線の静的確認）。
+// 価格の部分は _renderPriceParts に分けた（2026-11-01 前回の結果からの差し替え）。新しいカードは keep=null で既定に戻す
 const ra = block('function renderAll(', 'function _summaryShopItems(');
-assert(/listView='shop'/.test(ra) && /sort=\{k:'price',a:true\}/.test(ra) && /soCheck\.checked=false/.test(ra));
+assert(/_renderPriceParts\(best,null\)/.test(ra), 'renderAll は新しいカードとして価格の部分を描く');
+assert(/listView=keep\?keep\.listView:'shop'/.test(ra) && /sort=keep\?keep\.sort:\{k:'price',a:true\}/.test(ra)
+  && /soCheck\.checked=keep\?keep\.soChecked:false/.test(ra));
 console.log('card_result_check: OK');

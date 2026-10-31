@@ -56,6 +56,17 @@
   background:rgba(243,206,70,.45);background:color-mix(in srgb,var(--accent) 45%,transparent);animation:sp-sweep 1.3s linear infinite}
 @keyframes sp-sweep{to{left:100%}}
 @media(prefers-reduced-motion:reduce){#mode-search .search-prog .sp-fill{transition:none}#mode-search .search-prog.sp-running .sp-rest::before{animation:none;display:none}}
+/* 前回の結果を先に出している間の進み具合と、そのあとの取得失敗のお知らせ（2026-11-01 案A）は画面の下に浮かべる。
+   カードの欄に差し込むと、出すときも消すときも下の段が上下した（スマホで CLS 0.11）。枠・影は購入候補の窓（.wish-pick）と同じ */
+#mode-search .search-float,#mode-search #searchCoverage.cov-float{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:1000;
+  transform:translateX(-50%);width:min(380px,calc(100vw - 32px));margin:0;padding:10px 14px;box-sizing:border-box;
+  border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);box-shadow:0 6px 20px rgba(0,0,0,.5)}
+#mode-search .search-float .search-prog{max-width:none;min-height:0;padding-top:0}
+#mode-search #searchCoverage.cov-float{display:flex;align-items:center;gap:8px;font-size:13px}
+#mode-search #searchCoverage.cov-float[hidden]{display:none}
+#mode-search #searchCoverage.cov-float button{flex:none;margin-left:0}
+#mode-search #searchCoverage .cov-close{display:none}
+#mode-search #searchCoverage.cov-float .cov-close{display:inline-block;padding:6px 8px;background:none;border:0;color:var(--text-m)}
 
 /* 操作はピルにそろえる（主操作だけ黄。マイデッキの見出しと同じ形） */
 #mode-search .cr-acts{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px;margin-top:12px}

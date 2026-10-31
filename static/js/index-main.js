@@ -662,6 +662,9 @@ function doSearch(opts){
   if(tbody) tbody.innerHTML='';
 
   SearchStatus.show({});
+  // 前の検索の浮かぶ帯（前回の結果の進み具合・お知らせ）を片付ける
+  document.getElementById('searchCoverage').classList.remove('cov-float');
+  document.querySelectorAll('#mode-search .search-float').forEach(el=>el.remove());
   D=[];rarityFilter='';artFilter='';tableShowCount=TABLE_PAGE_SIZE;
   _resetBuyInline(); // C-2: 新しい検索をしたら買取セクションは閉じた未取得状態に戻す（前のカードの買取価格が残ると誤情報になるため）
   _updateRarityBanner(); // F-4: 前回検索の絞り込みバナーが残ったまま次の検索結果が出るのを防ぐ
@@ -684,6 +687,23 @@ function doSearch(opts){
   _syncMercariView();
   let mercariStarted=false;
   let trendName='';
+  let previewShown=false; // 前回の結果（preview）で表を描いたか。done では価格の部分だけ差し替える
+  let previewAge=0;
+  // 先出しの後に最新が取れなかった（タイムアウト・切断）。前回の結果は消さず、最新ではないと書いて止める
+  const _previewFailed=()=>{
+    if(!previewShown) return false;
+    clearTimeout(_searchTimeoutId);_searchTimeoutId=null;
+    if(_searchES){_searchES.close();_searchES=null;}
+    btn.disabled=false;btn.textContent='検索';
+    _mercariPending=false;_syncMercariView();
+    document.querySelectorAll('#mode-search .search-float').forEach(el=>el.remove());
+    const cov=document.getElementById('searchCoverage');
+    cov.classList.add('cov-float');
+    cov.querySelector('span').textContent='最新の価格を取得できませんでした（'+_previewAgeText(previewAge)+'の価格です）。';
+    cov.hidden=false;
+    _previewDefaults=null;
+    return true;
+  };
   // 店舗検索が混雑していると、サーバーは {"type":"busy"} の1件だけを返す（app.py _search_busy_response）。
   // そのときは失敗にせず「順番待ち」を出し、数秒後に同じ検索を張り直す（世代が進んだら張り直さない）
   const _openSearchStream=busyTries=>{
@@ -692,6 +712,7 @@ function doSearch(opts){
   // 60秒で応答がなければタイムアウト
   function _searchTimeoutFail(){
     if(gen!==_searchGen) return; // 世代管理: 別カードの検索で世代が進んでいたら無視
+    if(_previewFailed()) return;
     _mercariPending=false;if(window.MercariRef) MercariRef.clear();
     es.close();_searchES=null;_searchTimeoutId=null;btn.disabled=false;btn.textContent='検索';
     _hideSearchPreview();
@@ -748,15 +769,43 @@ function doSearch(opts){
       // 結果の表は全店そろった done で一度だけ描く（店舗ごとに描き直すと、並べ替えと後から入る
       // カード画像・集計で表が上下に跳ねるため。2026-10-16 ユーザー裁定）
       prog.finish(d.shop);
+    }else if(d.type==='preview'){
+      // 店へ取りに行く前に届く前回の結果（2026-11-01 案A）。いつもの表で先に描き、done で価格の部分だけ差し替える。
+      // 進み具合のバーは先出しの欄から画面の下に浮かぶ帯へ移し、「○分前の価格」と書く
+      if(!d.total) return;
+      D=d.results;
+      if(d.corrected_name) document.getElementById('q').value=d.corrected_name;
+      _currentCardName=document.getElementById('q').value.trim();
+      renderAll(d);
+      _previewDefaults={rarityFilter,artFilter};
+      previewShown=true;previewAge=d.age_minutes||0;
+      // 進み具合は画面の下に浮かべる（カードの欄に差し込むと、出し入れで下の段が上下する）
+      const float=document.createElement('div');
+      float.className='search-float';
+      float.appendChild(prog.el);
+      document.getElementById('mode-search').appendChild(float);
+      prog.setLabel(_previewAgeText(previewAge)+'の価格を表示中・最新を確認中');
+      _hideSearchPreview();
+      _syncMercariView();
+      if(window.PriceTrend) _syncPriceTrendView();
     }else if(d.type==='done'){
       clearTimeout(_searchTimeoutId);_searchTimeoutId=null;
-      es.close();_searchES=null;D=d.results;
+      es.close();_searchES=null;
       // 補正後のカード名で検索欄を更新
       if(d.corrected_name) document.getElementById('q').value=d.corrected_name;
       // J-2: 買取セクションの取得キーは「入力欄の現在値」ではなく、ここで確定した表示カード名にする
       _currentCardName=document.getElementById('q').value.trim();
       SearchStatus.show(d);
-      renderAll(d);
+      // 前回の結果を出していたら、取れなかった店のお知らせも表の上に差し込まず下に浮かべる（表が下がらないように）
+      document.getElementById('searchCoverage').classList.toggle('cov-float',previewShown);
+      if(previewShown&&d.total>0){
+        _refreshResults(d);
+      }else{
+        D=d.results;
+        renderAll(d);
+      }
+      if(previewShown) document.querySelectorAll('#mode-search .search-float').forEach(el=>el.remove());
+      _previewDefaults=null;
       _mercariPending=false;
       if(d.total>0) _syncMercariView(); // メルカリ参考相場は最初のイベント受信時に取得済み。最終の店舗レアリティで絞り直す
       else if(window.MercariRef) MercariRef.clear(); // 全店0件ならメルカリも出さない
@@ -772,6 +821,7 @@ function doSearch(opts){
   };
   es.onerror=()=>{
     if(gen!==_searchGen) return; // 世代管理
+    if(_previewFailed()) return;
     clearTimeout(_searchTimeoutId);_searchTimeoutId=null;
     es.close();_searchES=null;btn.disabled=false;btn.textContent='検索';
     _mercariPending=false;if(window.MercariRef) MercariRef.clear();
@@ -933,20 +983,7 @@ function renderAll(d){
       <span class="cr-ext-links"><a class="cr-db-link cr-db-link-wiki" href="/card-wiki?name=${encodeURIComponent(searchTerm)}" rel="nofollow">Wiki</a></span>
     </div>`;
   _crPlaceForViewport(); // スマホなら公式DB・Wiki を効果テキストの隣へ（描く前に移すので位置は跳ねない）
-  // シェアメニュー構築
-  const shareOpts=_buildShareOptions(searchTerm,d,D);
-  const smEl=document.getElementById('shareMenuSell');
-  if(smEl&&shareOpts.length>0){
-    let sm='<div class="share-menu-label">シェアする内容を選択</div>';
-    shareOpts.forEach((o,i)=>{
-      const t=escAttr(escJs(o.text));
-      sm+=`<div class="share-menu-label" style="padding-top:${i?8:4}px">${esc(o.label)}</div>`;
-      sm+=`<button class="share-menu-item" onclick="_shareToX('${t}')">𝕏 でポスト</button>`;
-      sm+=`<button class="share-menu-item" onclick="_shareToLine('${t}')">LINE で送る</button>`;
-      sm+=`<button class="share-menu-item" onclick="_shareCopy('${t}',this)">テキストをコピー</button>`;
-    });
-    smEl.innerHTML=sm;
-  }
+  _buildShareMenu(searchTerm,d);
 
   // 画像: YGOResources優先（カーナベルはサーバー側フォールバック）。検索の開始時に読み始めた結果があれば使う
   _cardImageData(searchTerm)
@@ -961,6 +998,60 @@ function renderAll(d){
   // カード情報: YGOResources（ATK/DEF/効果テキスト等）、未発見時はYGOProDeckフォールバック
   _fetchCardInfo(searchTerm);
 
+  _renderPriceParts(best,null);
+  // F-2: A8トラッキングピクセルは検索1回につき1回だけ（レアリティ切替では再発火させない）
+  const pixelSlot=document.getElementById('affPixelSlot');
+  if(pixelSlot) pixelSlot.innerHTML=affPixel('カーナベル','sell');
+
+  // S-2: 買取セクションを開く合図がある場合はここで消費する（_currentCardNameが確定済みの
+  // タイミング＝データ到着側から開く。固定タイマーでの先行オープンは行わない）
+  _maybeOpenBuyInlineOnLoad();
+}
+
+// シェアメニュー（D の価格から文面を作る）。前回の結果から最新へ差し替えたときも作り直す
+function _buildShareMenu(searchTerm,d){
+  const shareOpts=_buildShareOptions(searchTerm,d,D);
+  const smEl=document.getElementById('shareMenuSell');
+  if(smEl&&shareOpts.length>0){
+    let sm='<div class="share-menu-label">シェアする内容を選択</div>';
+    shareOpts.forEach((o,i)=>{
+      const t=escAttr(escJs(o.text));
+      sm+=`<div class="share-menu-label" style="padding-top:${i?8:4}px">${esc(o.label)}</div>`;
+      sm+=`<button class="share-menu-item" onclick="_shareToX('${t}')">𝕏 でポスト</button>`;
+      sm+=`<button class="share-menu-item" onclick="_shareToLine('${t}')">LINE で送る</button>`;
+      sm+=`<button class="share-menu-item" onclick="_shareCopy('${t}',this)">テキストをコピー</button>`;
+    });
+    smEl.innerHTML=sm;
+  }
+}
+
+// 検索の前回の結果（preview）を最新の結果（done）へ差し替える（2026-11-01 案A）。
+// カードの欄（名前・画像・効果テキスト・ボタン）は描き直さない（画像と効果テキストが一度消えて画面がずれるため）。
+// 描き直すのは価格の部分（最安・レアリティ・絵・出品一覧・シェアの文面）だけ。
+// 先出しの間に利用者が選んだレアリティ・絵・表示・並べ替え・件数は、最新の結果にも在れば残す
+function _refreshResults(d){
+  D=d.results;
+  const searchTerm=document.getElementById('q').value.trim();
+  _buildShareMenu(searchTerm,d);
+  const inStock=D.filter(r=>!r.sold_out);
+  const bestPool=inStock.some(r=>!r.edition)?inStock.filter(r=>!r.edition):inStock;
+  const best=bestPool.length>0?bestPool.reduce((a,b)=>a.price<b.price?a:b):null;
+  const heroBest=document.getElementById('heroBest');
+  if(heroBest&&!best) heroBest.innerHTML='<span class="cr-best-none">在庫なし</span>';
+  // レアリティ・絵を先出しの既定のまま触っていなければ、最新の最安から選び直す（undefined＝既定を選ぶ）
+  const touched=!_previewDefaults||rarityFilter!==_previewDefaults.rarityFilter||artFilter!==_previewDefaults.artFilter;
+  _renderPriceParts(best,{rarityFilter:touched?rarityFilter:undefined,artFilter,listView,sort,tableShowCount,
+    soChecked:!!document.getElementById('soCheck')?.checked});
+}
+let _previewDefaults=null; // 先出しを描いた直後のレアリティ・絵（利用者が触ったかを見分ける）
+// 前回の結果の古さ（サーバーの age_minutes）。60分からは時間で言う
+function _previewAgeText(min){
+  return min<60?(min<1?'1分以内':min+'分前'):Math.floor(min/60)+'時間前';
+}
+
+// 価格の部分（レアリティ・絵の切り替え・最安・出品一覧）を D から描く。
+// keep=null は新しいカード（既定の絞り込みを選ぶ）。keep を渡すと、その選択が最新の D にも在れば引き継ぐ
+function _renderPriceParts(best,keep){
   // Build rarity filter buttons
   // C-1(iii): 既定で「全体最安の在庫あり行が属するレアリティ」に絞り込む。
   // レアリティが1種類以下／最安行にレアリティが無い・不明な場合は従来どおり絞り込みなし
@@ -977,19 +1068,26 @@ function renderAll(d){
     // 相場の動きが「レアリティを選ぶと…」と選べないものを求めていた
     defaultRarity=realRarities[0];
   }
-  rarityFilter=defaultRarity;
-  artFilter=_defaultArt(defaultRarity);
-  tableShowCount=TABLE_PAGE_SIZE;
-  listView='shop'; // 新しいカードは「店ごとの最安」から見せる
+  if(keep&&keep.rarityFilter!==undefined&&(keep.rarityFilter===''||rarities.includes(keep.rarityFilter))){
+    // 差し替え: 先出しの間に選んでいたレアリティを残す（最新に無くなったときだけ既定へ）
+    rarityFilter=keep.rarityFilter;
+    artFilter=keep.artFilter&&D.some(r=>r.rarity===rarityFilter&&_inArt(r,keep.artFilter))?keep.artFilter:_defaultArt(rarityFilter);
+  }else{
+    rarityFilter=defaultRarity;
+    artFilter=_defaultArt(defaultRarity);
+  }
+  tableShowCount=keep?keep.tableShowCount:TABLE_PAGE_SIZE;
+  listView=keep?keep.listView:'shop'; // 新しいカードは「店ごとの最安」から見せる
   _syncListViewButtons();
-  sort={k:'price',a:true}; // 一覧の先頭がヒーローの最安と同じ行になるよう、並べ替えも価格順に戻す（F-14）
+  sort=keep?keep.sort:{k:'price',a:true}; // 一覧の先頭がヒーローの最安と同じ行になるよう、並べ替えも価格順に戻す（F-14）
   const soCheck=document.getElementById('soCheck');
-  if(soCheck) soCheck.checked=false; // 「すべて」でしか見えないチェックを前のカードから持ち越さない
+  if(soCheck) soCheck.checked=keep?keep.soChecked:false; // 「すべて」でしか見えないチェックを前のカードから持ち越さない
   // G-4: 「変更していないのにchange」で集計が濁らないようイベント名を分ける（自動設定=rarity_filter_default）。
   // 発火はレアリティUIが実際に出るケース（realRarities.length>1）だけに限定し、
   // 単一レアリティのカードで毎回発火して分母が壊れるのを防ぐ。C-1(i)判断のため
-  // rarity_count（"(不明)"含む）・real_rarity_count（実体のあるレアリティ数）を同梱する
-  if(realRarities.length>1){
+  // rarity_count（"(不明)"含む）・real_rarity_count（実体のあるレアリティ数）を同梱する。
+  // 最新への差し替え（keep あり）では送らない（検索1回につき1回）
+  if(!keep&&realRarities.length>1){
     _ga('rarity_filter_default',{rarity:defaultRarity||'__all__',rarity_count:rarities.length,real_rarity_count:realRarities.length});
   }
   const rfEl=document.getElementById('rarityFilter');
@@ -1005,13 +1103,6 @@ function renderAll(d){
 
   renderSummary();
   renderTable();
-  // F-2: A8トラッキングピクセルは検索1回につき1回だけ（レアリティ切替では再発火させない）
-  const pixelSlot=document.getElementById('affPixelSlot');
-  if(pixelSlot) pixelSlot.innerHTML=affPixel('カーナベル','sell');
-
-  // S-2: 買取セクションを開く合図がある場合はここで消費する（_currentCardNameが確定済みの
-  // タイミング＝データ到着側から開く。固定タイマーでの先行オープンは行わない）
-  _maybeOpenBuyInlineOnLoad();
 }
 
 // B-1: 店舗サマリー。d.by_shop（全レアリティ横断のサーバー最安）は使わず、

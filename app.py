@@ -207,6 +207,27 @@ def _stale_shop_fallback(stale_getter, card_name, shop_name):
     return [dict(item, stale=True, stale_at=entry["timestamp"]) for item in entry["results"]], entry["timestamp"]
 
 
+def _stale_preview_rows(stale_getter, card_name, missing_shops, now=None):
+    """店へ取りに行く前に先に見せる「前回の結果」。(行, 何分前か) か、出せないときは (None, None)。
+
+    取りに行く店のすべてに前回の結果（通常の期限切れ・24時間以内）があるときだけ出す。
+    一部の店しか無いと、最新が揃ったときに店が増えて表が大きく変わるので出さない。
+    デッキ検索の1ページ目だけの結果（partial）は浅いので使わない。分は一番古い店で数える。
+    キャッシュへ書き戻さないこと（行には stale の印が付いている）。"""
+    try:
+        kept = stale_getter(card_name, list(missing_shops))
+    except Exception:
+        logger.warning("前回の結果の読み出しに失敗（先出しは出しません）: %s", card_name, exc_info=True)
+        return None, None
+    if any(shop not in kept or kept[shop].get("partial") for shop in missing_shops):
+        return None, None
+    rows = [dict(item, stale=True, stale_at=kept[shop]["timestamp"])
+            for shop in missing_shops for item in kept[shop]["results"]]
+    oldest = min(datetime.fromisoformat(kept[shop]["timestamp"]) for shop in missing_shops)
+    age_minutes = max(0, int(((now or datetime.now()) - oldest).total_seconds() // 60))
+    return rows, age_minutes
+
+
 def _is_shop_busy(exc):
     """自サーバーの混雑で取れなかった（待ち時間の上限・受付件数の上限）。利用者の取り消しは含めない。"""
     return isinstance(exc, PoolCapacityError) and not isinstance(exc, SearchAbandonedError)
@@ -1515,6 +1536,17 @@ def api_search():
         # 不足店舗を「検索中」に
         for shop_name, _ in shops_to_scrape:
             yield _sse({"type": "progress", "shop": shop_name})
+
+        # 取りに行く店すべてに前回の結果があれば、店へ取りに行く前にそれで表を先に描かせる
+        # （画面は「○分前の価格」と添えて出し、done で最新に差し替える。2026-11-01 ユーザー判断 案A。
+        # 待たされる検索が4〜18秒かかり、その間なにも出なかった）。
+        # 型番の補完（infer_codes）は通さない: キャッシュの行は保存の前に補完済みで、前回の結果は補完の材料にしない
+        # （混雑時の代わりの表示と同じ。2026-10-22 reviewer 低2）。OF のレアリティのそろえだけ通す
+        preview_rows, preview_age = _stale_preview_rows(
+            cache_get_shops_stale, card_name, [name for name, _ in shops_to_scrape])
+        if preview_rows is not None:
+            preview = _build_done(infer_overframe(list(cached_results) + preview_rows), corrected, card_name)
+            yield _sse({**preview, "type": "preview", "age_minutes": preview_age})
 
         all_results = list(cached_results)
         scraped_items = []  # 今回スクレイプで得た行（persist用。キャッシュ命中分を含まない）

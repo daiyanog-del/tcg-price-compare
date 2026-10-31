@@ -43,6 +43,8 @@ const SearchProgress={
       /** 取れた・取れなかったに関わらず、その店の検索が終わった */
       finish(shop){ known.add(shop); done.add(shop); armSlow(); paint(); },
       setBusy(b){ busy=!!b; paint(); },
+      /** 通常時の文言を変える（前回の結果を先に出している間の「○分前の価格を表示中」など） */
+      setLabel(text){ label=text; paint(); },
     };
   },
 };
