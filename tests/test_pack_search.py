@@ -125,14 +125,15 @@ def test_plan_pack_search_skips_reprints_and_failed_shops(monkeypatch):
                                                          "再録C": [_item("再録C", "IMPH-JP003", shop=shop)]})
 
     monkeypatch.setattr(collect_featured, "search_pack_shop", fake_search)
-    monkeypatch.setattr(collect_featured, "drop_higher_than_today", lambda sb, plan, today: plan)
+    monkeypatch.setattr(collect_featured, "drop_higher_than_today", lambda sb, plan, today, dropped=None: plan)
     plan = collect_featured.plan_pack_search(
         None, {"pack_name": "P", "start_date": "2026-10-31"}, ["新A", "新B", "再録C"],
         ["遊々亭", "カードラッシュ", "トレコロCB"], "2026-10-31")
-    assert [a[0] for a in asked] == ["遊々亭", "カードラッシュ"], "型番で探す店だけ・使える店だけ"
+    assert [a[0] for a in asked] == ["遊々亭", "カードラッシュ", "トレコロCB"], "型番で探す店だけ・使える店だけ"
     # 振り分けの候補には再録の名前も入れ（新規の名前へ流れないように）、再録に当たった商品は捨てる
     assert all(a[1] == "IMPH" and a[2] == ["新A", "新B", "再録C"] for a in asked)
-    assert plan == {"新A": {"遊々亭": [_item("新A", "IMPH-JP001", shop="遊々亭")]}}
+    assert plan == {"新A": {"遊々亭": [_item("新A", "IMPH-JP001", shop="遊々亭")],
+                            "トレコロCB": [_item("新A", "IMPH-JP001", shop="トレコロCB")]}}
 
 
 def test_plan_pack_search_off_when_head_or_reprints_unknown(monkeypatch):
@@ -149,7 +150,7 @@ def test_plan_pack_search_off_when_head_or_reprints_unknown(monkeypatch):
     monkeypatch.setattr(collect_featured, "find_reprints", lambda sb, names, start: set())
     monkeypatch.setattr(collect_featured, "search_pack_shop", lambda shop, head, cards:
                         pack_search.PackShopResult(shop, by_card={"新A": [_item("新A", "IMPH-JP001")]}))
-    monkeypatch.setattr(collect_featured, "drop_higher_than_today", lambda sb, plan, today: None)
+    monkeypatch.setattr(collect_featured, "drop_higher_than_today", lambda sb, plan, today, dropped=None: None)
     assert collect_featured.plan_pack_search(None, pack, ["新A"], ["遊々亭"], "2026-10-31") == {}
     # 手動指定などで発売日が無ければ使わない
     assert collect_featured.plan_pack_search(None, {"pack_name": "P"}, ["新A"], ["遊々亭"]) == {}
@@ -170,9 +171,11 @@ def test_main_uses_pack_items_and_searches_the_rest_by_name(monkeypatch):
     monkeypatch.setattr(collect_featured, "check_shop_availability", lambda shops: ["遊々亭", "カードラボ"])
     monkeypatch.setattr(collect_featured, "fetch_cards_collected_today", lambda *a: set())
     monkeypatch.setattr(collect_featured, "plan_pack_search",
-                        lambda sb, pack, cards, shops, today=None: {"新A": {"遊々亭": [_item("新A", "IMPH-JP001")]}})
+                        lambda sb, pack, cards, shops, today=None, dropped=None: {"新A": {"遊々亭": [_item("新A", "IMPH-JP001")]}})
     monkeypatch.setattr(collect_featured, "collect_and_save_for_shops", fake_collect)
     monkeypatch.setattr(collect_featured.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(collect_featured, "should_run_now", lambda pack, now: True)
+    monkeypatch.setattr(collect_featured, "shops_open_now", lambda pack, shops, now: shops)
 
     collect_featured.main()
 
@@ -222,8 +225,10 @@ def test_drop_higher_than_today(monkeypatch):
                           _item("新D", "IMPH-JP004", price=900, rarity="シークレット")]},  # 今日の行に無いレアリティ
         "新E": {"遊々亭": [_item("新E", "IMPH-JP005", price=95)]},            # min_price だけ高い（95>90）→ 外す
     }
-    kept = collect_featured.drop_higher_than_today(None, plan, "2026-10-31")
+    dropped = set()
+    kept = collect_featured.drop_higher_than_today(None, plan, "2026-10-31", dropped)
     assert set(kept) == {"新B"}
+    assert dropped == {("新A", "遊々亭"), ("新C", "遊々亭"), ("新D", "遊々亭"), ("新E", "遊々亭")}
 
 
 def test_drop_higher_than_today_read_failure(monkeypatch):
@@ -241,3 +246,82 @@ def test_search_pack_shop_truncated_is_failed(monkeypatch):
     items = [_item("白鴉の騎士アン", "IMPH-JP011", shop="カードラッシュ")]
     res = pack_search.search_pack_shop("カードラッシュ", "IMPH", ["白鴉の騎士アン"], fn=lambda q: items)
     assert res.failed
+
+
+# ── いつ動くか（2026-10-31 ユーザー指定） ──
+
+def _jst(y, mo, d, h, mi=1):
+    from datetime import datetime
+    from constants import JST
+    return datetime(y, mo, d, h, mi, tzinfo=JST)
+
+
+def test_should_run_now_early_and_later_days():
+    pack = {"start_date": "2026-10-31"}
+    run = lambda *a: collect_featured.should_run_now(pack, _jst(*a))
+    # 発売日〜3日目（0〜2日目）: 7・10・13・16・19・21時
+    assert [h for h in range(24) if run(2026, 10, 31, h)] == [7, 10, 13, 16, 19, 21]
+    assert [h for h in range(24) if run(2026, 11, 2, h)] == [7, 10, 13, 16, 19, 21]
+    # 4日目以降: 10・15・20時
+    assert [h for h in range(24) if run(2026, 11, 3, h)] == [10, 15, 20]
+    assert [h for h in range(24) if run(2026, 11, 7, h)] == [10, 15, 20]
+    # 発売前（手動で先に登録した弾）は10時の1日1回
+    assert [h for h in range(24) if run(2026, 10, 29, h)] == [10]
+    # 発売日が分からなければ従来どおり動かす
+    assert collect_featured.should_run_now({"pack_name": "P"}, _jst(2026, 10, 31, 3))
+
+
+def test_shops_open_now_on_release_day():
+    pack = {"start_date": "2026-10-31"}
+    shops = ["カードラッシュ", "トレコロCB", "遊々亭"]
+    assert collect_featured.shops_open_now(pack, shops, _jst(2026, 10, 31, 7)) == ["トレコロCB"], "発売日の7時はトレコロだけ"
+    assert collect_featured.shops_open_now(pack, shops, _jst(2026, 10, 31, 10)) == shops
+    assert collect_featured.shops_open_now(pack, shops, _jst(2026, 11, 1, 7)) == shops, "2日目からは全店"
+
+
+def test_main_exits_outside_the_hours(monkeypatch):
+    """動かない回は店にも DB にも行かずに終わる。手動（--any-time）は動く"""
+    import pytest
+    monkeypatch.setattr(collect_featured, "get_supabase", lambda: object())
+    monkeypatch.setattr(collect_featured, "_resolve_pack",
+                        lambda sb, a: {"pack_name": "P", "start_date": "2026-10-31"})
+    monkeypatch.setattr(collect_featured, "should_run_now", lambda pack, now: False)
+    monkeypatch.setattr(collect_featured, "get_featured_cards",
+                        lambda sb, p: (_ for _ in ()).throw(AssertionError("収録カードを読まない")))
+    monkeypatch.setattr(sys, "argv", ["collect_featured.py"])
+    with pytest.raises(SystemExit) as e:
+        collect_featured.main()
+    assert e.value.code == 0
+    monkeypatch.setattr(sys, "argv", ["collect_featured.py", "--any-time"])
+    with pytest.raises(AssertionError, match="収録カードを読まない"):
+        collect_featured.main()
+
+
+def test_main_rechecks_dropped_torecolo_even_if_collected(monkeypatch):
+    """今日の行で確かめられなかったトレコロの組は、朝に取れていてもカード名で探す（値上がりも入るように）"""
+    calls = {}
+
+    def fake_collect(sb, card, today, shops, shop_stats=None, db_guard=None, pack_items=None):
+        calls[card] = list(shops)
+        return 0, []
+
+    def fake_plan(sb, pack, cards, shops, today=None, dropped=None):
+        dropped.add(("新A", "トレコロCB"))   # 型番の値が今日の行より高かった
+        return {}
+
+    monkeypatch.setattr(sys, "argv", ["collect_featured.py"])
+    monkeypatch.setattr(collect_featured, "get_supabase", lambda: object())
+    monkeypatch.setattr(collect_featured, "_resolve_pack",
+                        lambda sb, a: {"pack_name": "P", "start_date": "2026-10-31"})
+    monkeypatch.setattr(collect_featured, "get_featured_cards", lambda sb, p: ["新A", "新B"])
+    monkeypatch.setattr(collect_featured, "check_shop_availability", lambda shops: ["トレコロCB"])
+    monkeypatch.setattr(collect_featured, "fetch_cards_collected_today", lambda *a: {"新A", "新B"})
+    monkeypatch.setattr(collect_featured, "plan_pack_search", fake_plan)
+    monkeypatch.setattr(collect_featured, "collect_and_save_for_shops", fake_collect)
+    monkeypatch.setattr(collect_featured.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(collect_featured, "should_run_now", lambda pack, now: True)
+    monkeypatch.setattr(collect_featured, "shops_open_now", lambda pack, shops, now: shops)
+
+    collect_featured.main()
+
+    assert calls == {"新A": ["トレコロCB"]}, "確かめられなかった新Aだけトレコロで探し、新Bは朝の値のまま"
