@@ -12,10 +12,11 @@
 #mode-search .cr-img-ph{width:100%;aspect-ratio:140/204;background:var(--bg-card)}
 #mode-search .card-hero-info{min-width:0}
 #mode-search .card-hero-name{font-size:22px;font-weight:700;line-height:1.35;margin:0 0 6px;overflow-wrap:anywhere}
-#mode-search .cr-ext-links{white-space:nowrap}
 /* 公式DB・Wiki: 外部サイトへのリンクは店の一覧の「店で見る」（.cr-go）と同じ太字の文字リンク。枠は付けない（2026-10-30 ユーザー判断）。
-   押せる範囲だけ上下に広げる（見た目の位置は変えない） */
-#mode-search .cr-db-link{display:inline-flex;align-items:center;gap:3px;margin:-6px 0 -6px 12px;padding:6px 0;font-size:12px;font-weight:700;color:var(--accent-l);white-space:nowrap;vertical-align:middle}
+   ボタンの列の右端（シェアの右）に、ピルと同じ高さ・文字の大きさで並べる。名前の横だと長い名前でリンクだけ次の行に落ちた（2026-10-31）。
+   押せる範囲はピルと同じ高さまで上下に広げる */
+#mode-search .cr-acts>.cr-ext-links{display:inline-flex;align-items:center;gap:14px;min-height:32px;margin-left:8px;white-space:nowrap}
+#mode-search .cr-db-link{display:inline-flex;align-items:center;gap:3px;padding:8px 0;font-size:12px;font-weight:700;line-height:16px;color:var(--accent-l);white-space:nowrap}
 #mode-search .cr-db-link:hover{text-decoration:underline}
 /* 最安の行: ［最安］（金の札・一覧の最安の印と同じ）・値段・レアリティ（枠線の札。効果テキストの「準制限」など塗りの札と区別する）・店名と型番 */
 #mode-search #heroBest.cr-best{display:flex;margin:0;align-items:center;flex-wrap:wrap;gap:4px 10px;min-height:38px}
@@ -244,6 +245,11 @@ html.cr-fx-open,html.cr-fx-open body{overflow:hidden}
   #mode-search .cr-acts>*{flex:1 1 auto}
   #mode-search .cr-acts>.card-info-details>summary.cr-pill,#mode-search .cr-acts .share-menu-wrap>.cr-pill{display:flex;width:100%}
   #mode-search .cr-acts .share-menu-wrap{display:block}
+  /* 公式DB・Wiki はボタンの1行に入れると購入候補が「…」に縮むので、ボタンの下の行に左から置く。
+     購入候補は幅0から伸ばし、ボタン3つは今までどおり1行に収める */
+  #mode-search .cr-acts{flex-wrap:wrap}
+  #mode-search .cr-acts>.cr-pill-pri{flex:1 1 0}
+  #mode-search .cr-acts>.cr-ext-links{flex:0 0 100%;min-height:28px;margin-left:0}
   #mode-search .cr-market{margin-top:14px}
   #mode-search #buyInline.cr-buy{margin-bottom:22px}
   #mode-search #buyInline .scard{grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;padding:8px 16px}
