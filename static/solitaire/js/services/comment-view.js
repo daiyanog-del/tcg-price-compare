@@ -88,14 +88,42 @@ function _clearTitles(host) {
 // 吹き出しはカードの中ではなく、body 直下の層（#solBubbleLayer・position:fixed）に置いてカードの上に重ねる。
 // カードの中に置くとカードの幅（PC で約60px）で数文字ごとに折り返して読みにくく、
 // 墓地・除外・手札の枠は overflow で切るのでカードの外へ広げられないため。
-// 位置はカードの実際の矩形から毎フレーム合わせる（移動・演出・盤面の伸縮・手札のスクロールのどれにも追いつく）。
-// 吹き出しが1つも無いときはフレームの処理を止める。
+// 位置はカードの実際の矩形からフレームごとに合わせる（移動・演出・盤面の伸縮・手札のスクロールのどれにも追いつく）。
+// 置き場所が TRACK_IDLE_FRAMES 続けて変わらなければ止め、描き直し・画面の大きさ・スクロール・演出の終わり・
+// 指やキーを離したときに再開する（吹き出しを出したまま盤面を眺めている間、ページを休ませるため）。吹き出しが無いときも止める。
 
 /** 吹き出しの層。初めて使うときに作る */
 let _layerEl = null;
 /** 出している吹き出し: カード（wrapper）→ { el, cardId, text, clips, clipsParent, clipsW, size } */
 const _placed = new Map();
 let _trackRaf = 0;
+/** 置き場所が変わらなかったフレームの数と、前のフレームの置き場所 */
+let _idleFrames = 0;
+let _lastSig = '';
+/** これだけ続けて変わらなければ止める（約1.5秒。飛ぶ演出 450ms＋着地の確定より十分長く） */
+const TRACK_IDLE_FRAMES = 90;
+let _kickListening = false;
+
+/** 位置合わせを（止まっていれば）再開する */
+function _kickTracking() {
+  _idleFrames = 0;
+  if (!_trackRaf && _placed.size > 0) _trackRaf = requestAnimationFrame(_trackFrame);
+}
+
+function _listenKicks() {
+  if (_kickListening) return;
+  _kickListening = true;
+  const opts = { capture: true, passive: true };
+  window.addEventListener('resize', _kickTracking, opts);
+  for (const type of ['scroll', 'transitionend', 'animationend', 'pointerup', 'touchend', 'keyup']) {
+    document.addEventListener(type, _kickTracking, opts);
+  }
+  // 文字の形が読み込まれると吹き出しの大きさが変わるので測り直す
+  document.fonts?.ready?.then(() => {
+    for (const p of _placed.values()) p.size = null;
+    _kickTracking();
+  });
+}
 
 function _layer() {
   if (_layerEl?.isConnected) return _layerEl;
@@ -131,15 +159,19 @@ function _renderBubbles(bubbles) {
   }
 
   if (_placed.size > 0) {
-    _placeBubbles();
-    if (!_trackRaf) _trackRaf = requestAnimationFrame(_trackFrame);
+    _listenKicks();
+    _lastSig = _placeBubbles();
+    _kickTracking();
   }
 }
 
 function _trackFrame() {
   _trackRaf = 0;
   if (_placed.size === 0) return;
-  _placeBubbles();
+  const sig = _placeBubbles();
+  _idleFrames = sig === _lastSig ? _idleFrames + 1 : 0;
+  _lastSig = sig;
+  if (_idleFrames >= TRACK_IDLE_FRAMES) return;
   _trackRaf = requestAnimationFrame(_trackFrame);
 }
 
@@ -164,14 +196,25 @@ function _isHostShown(host, r) {
   return !(cardEl && getComputedStyle(cardEl).visibility === 'hidden');
 }
 
-/** 吹き出しを広げてよい範囲（盤面の入れ物。無ければ画面） */
+/** 幅のある（表示中の）要素の矩形。無ければ null */
+function _shownRect(sel) {
+  const r = document.querySelector(sel)?.getBoundingClientRect();
+  return r && r.width > 0 && r.height > 0 ? r : null;
+}
+
+/**
+ * 吹き出しを広げてよい範囲。盤面の入れ物（.sol-main）のうち、PC のカード詳細欄（.sol-cip-col・z10）の右から
+ * 右パネル（.sol-right-panel）の左まで（どちらも層より下に描かれるので、かぶると文字を隠すため）。無ければ画面。
+ */
 function _bounds() {
-  const main = document.querySelector('.sol-main');
-  const r = main?.getBoundingClientRect();
-  if (r && r.width > 0 && r.height > 0) {
-    return { left: Math.max(0, r.left), right: Math.min(window.innerWidth, r.right), top: Math.max(0, r.top) };
-  }
-  return { left: 0, right: window.innerWidth, top: 0 };
+  const main = _shownRect('.sol-main');
+  let left = Math.max(0, main ? main.left : 0);
+  let right = Math.min(window.innerWidth, main ? main.right : window.innerWidth);
+  const cip = _shownRect('.sol-cip-col');
+  if (cip && cip.right < right) left = Math.max(left, cip.right);
+  const panel = _shownRect('.sol-right-panel');
+  if (panel && panel.left > left) right = Math.min(right, panel.left);
+  return { left, right, top: Math.max(0, main ? main.top : 0) };
 }
 
 function _setStyle(el, prop, value) {
@@ -185,15 +228,19 @@ const BUBBLE_TIP_PX = 6;
  * 吹き出しをカードの上に置く。カードの横の中心に合わせ、三角の先をカードの上端に少し重ねる。
  * 上に場所が無ければカードの上端に重ねる（三角なし）。盤面の左右からははみ出させない。
  * 先に置いた吹き出しと重なるときは、その上へずらす（隣り合うカードの吹き出しが互いに隠れないように）。
+ * @returns {string} 置き場所の要約（前のフレームと同じなら、位置合わせを止めてよい）
  */
 function _placeBubbles() {
   const bounds = _bounds();
   const items = [];
   for (const [host, p] of _placed) {
-    const r = host.getBoundingClientRect();
-    let shown = _isHostShown(host, r);
+    const hostRect = host.getBoundingClientRect();
+    let shown = _isHostShown(host, hostRect);
+    // 置き場所は見えているカードの矩形で決める（守備表示はカード画像だけが横に回り、wrapper は縦長のまま）
+    const r = shown ? (host.querySelector('.tier-item')?.getBoundingClientRect() ?? hostRect) : hostRect;
     if (shown) {
-      if (p.clipsParent !== host.parentElement || p.clipsW !== window.innerWidth) { // 別のゾーンへ移った・画面の幅や向きが変わった
+      if (p.clipsParent !== host.parentElement || p.clipsW !== window.innerWidth
+        || p.clips.some((c) => !c.isConnected)) { // 別のゾーンへ移った・画面の幅や向きが変わった・枠が作り直された
         p.clips = _clipAncestors(host);
         p.clipsParent = host.parentElement;
         p.clipsW = window.innerWidth;
@@ -243,6 +290,7 @@ function _placeBubbles() {
     _setStyle(el, '--sol-bubble-tail-x', `${Math.round(tailX)}px`);
     _setStyle(el, 'transform', `translate(${Math.round(left)}px, ${Math.round(top)}px)`);
   }
+  return [..._placed.values()].map((p) => (p.el.hidden ? '-' : p.el.style.transform)).join('|');
 }
 
 /**

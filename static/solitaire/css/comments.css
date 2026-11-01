@@ -559,7 +559,7 @@ body.sol-comment-picking .tier-item-wrapper .tier-item {
 .sol-mobile-comment-panel .sol-mobile-share-note { margin: 0 0 8px; }
 
 /* components.css の `p, span, li { color:#333 }` が中の span に直接効き、親の color より優先されて暗いグレーになるため、
-   コメントの span は親の色を継承させる（吹き出しは暗色の文字、メモ・一覧は明色の文字） */
+   コメントの span は親の色を継承させる（吹き出し・メモ・一覧とも明色の文字） */
 .sol-bubble-text,
 .sol-board-memo-icon,
 .sol-board-memo-text,
@@ -567,13 +567,15 @@ body.sol-comment-picking .tier-item-wrapper .tier-item {
   color: inherit;
 }
 
-/* ── スマホのカード詳細に出す、そのカードの今の吹き出し（全文） ── */
+/* ── スマホのカード詳細に出す、そのカードの今の吹き出し（全文） ──
+   面は盤面の吹き出し（.sol-bubble）と同じ暗い面＋明るい文字（2026-11-01） */
 .sol-mobile-cip-bubble {
   margin: 0 0 10px;
   padding: 6px 10px;
-  background: var(--main-color, #eff3fb);
-  color: #191b21;
+  background: var(--bg-hover);
+  color: var(--main-color);
   border-radius: 8px;
+  box-shadow: 0 0 0 1px rgba(174, 197, 255, 0.08);
 }
 .sol-mobile-cip-bubble[hidden] { display: none; }
 .sol-mobile-cip-bubble-label,
