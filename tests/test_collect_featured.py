@@ -155,7 +155,7 @@ class TestMainSkipsCollectedTorecolo:
     def test_first_pass_excludes_torecolo_only_for_collected_cards(self, monkeypatch):
         calls = []  # (card, shops)
 
-        def fake_collect(sb, card, today, shops, shop_stats=None, db_guard=None):
+        def fake_collect(sb, card, today, shops, shop_stats=None, db_guard=None, pack_code=""):
             calls.append((card, list(shops)))
             return 0, []
 
@@ -167,6 +167,7 @@ class TestMainSkipsCollectedTorecolo:
         monkeypatch.setattr(collect_featured, "fetch_cards_collected_today",
                             lambda sb, names, today, shop: {"A", "B"})
         monkeypatch.setattr(collect_featured, "collect_and_save_for_shops", fake_collect)
+        monkeypatch.setattr(collect_featured, "resolve_pack_head", lambda pack: "IMPH")
         monkeypatch.setattr(collect_featured.time, "sleep", lambda *_: None)
 
         collect_featured.main()
@@ -198,7 +199,7 @@ class TestAttemptedDenominatorExcludesSkipped:
         sleeps = []
         retried = []
 
-        def fake_collect(sb, card, today, shops, shop_stats=None, db_guard=None):
+        def fake_collect(sb, card, today, shops, shop_stats=None, db_guard=None, pack_code=""):
             if "トレコロCB" in shops and card not in done:
                 retried.append((card, list(shops)))
                 return 0, ["トレコロCB"]
@@ -211,6 +212,7 @@ class TestAttemptedDenominatorExcludesSkipped:
         monkeypatch.setattr(collect_featured, "check_shop_availability", lambda shops: ["トレコロCB"])
         monkeypatch.setattr(collect_featured, "fetch_cards_collected_today", lambda *a: done)
         monkeypatch.setattr(collect_featured, "collect_and_save_for_shops", fake_collect)
+        monkeypatch.setattr(collect_featured, "resolve_pack_head", lambda pack: "IMPH")
         monkeypatch.setattr(collect_featured.time, "sleep", lambda s: sleeps.append(s))
 
         collect_featured.main()

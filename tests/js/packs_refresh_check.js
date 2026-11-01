@@ -236,6 +236,13 @@ check('表: 取得に失敗した店は列に残して「取得失敗」、レ�
   assert.ok(html.includes('このパックの版は見つかりませんでした'), '版なしの理由が出ていない');
 });
 
+// 毎朝の収集の表の品に、このパックの版の価格（pack_rows）も入る
+{
+  const items = run('_pkItemsFromDb({rows:[{name:"R",rarity:"ウルトラ",cells:{店1:{price:300,code:"MB01-JPS03",recorded_at:"2026-11-01"}}}],pack_rows:[{name:"R",rarity:"ウルトラ",shop:"店1",price:980,code:"IMPH-JPS01",recorded_at:"2026-11-01"}]})');
+  assert.equal(JSON.stringify(items.map(i => [i.code, i.price])), JSON.stringify([['MB01-JPS03', 300], ['IMPH-JPS01', 980]]));
+  passed++; console.log('ok - 表の品にこのパックの版の価格（pack_rows）も入る');
+}
+
 // まとめて検索を、作り物の通信で最後まで動かす（画面の描き直しは空にする）
 async function bulk(cards, respond) {
   const reqs = [];
@@ -244,7 +251,7 @@ async function bulk(cards, respond) {
   sb.fetch = async (url, init) => {
     const body = new URLSearchParams(init.body);
     const names = body.get('cards').split('|');
-    reqs.push({ url, names, perShop: body.get('include_per_shop'), fresh: body.get('fresh') });
+    reqs.push({ url, names, perShop: body.get('include_per_shop'), fresh: body.get('fresh'), packCode: body.get('pack_code') });
     const bytes = Buffer.from(respond(names, reqs.length), 'utf8');
     let sent = false;
     return { ok: true, status: 200, body: { getReader: () => ({ read: async () => (sent ? { done: true } : (sent = true, { done: false, value: bytes })) }) } };
@@ -268,6 +275,7 @@ const sse = evs => evs.map(e => 'data: ' + JSON.stringify(e) + '\n\n').join('');
     ]));
     assert.equal(reqs[0].perShop, 'version', '型番の頭ごとの価格を頼んでいない');
     assert.equal(reqs[0].fresh, '1', '販売は全ページを読んで記録に上書きする（fresh=1）を頼んでいない');
+    assert.equal(reqs[0].packCode, 'DBGV', 'パックの型番の頭（pack_code）を送っていない（版ごとの価格を残すため）');
     assert.equal(st.results.sale.items['A BF-五月雨のソハヤ'].price, 100);
     assert.equal(st.results.sale.found, 1);
     assert.equal(st.run, null);

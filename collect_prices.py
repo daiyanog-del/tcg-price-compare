@@ -1177,6 +1177,15 @@ def cleanup_old_data(sb: Client):
     cutoff = (today - timedelta(days=PRICE_RETENTION_DAYS)).isoformat()
     rollup_and_delete_old_prices(sb, cutoff)
     rollup_and_delete_old_art_prices(sb, cutoff)
+    # パックの版ごとの価格（新弾用の小さな表）は畳まずに消す（新弾情報ページの表が直近2日だけ読む。price_history_pack.sql）
+    try:
+        (sb.table("price_history_pack")
+         .delete(count=CountMethod.exact, returning=ReturnMethod.minimal)
+         .lt("recorded_at", cutoff)
+         .execute())
+    except Exception as e:
+        if not ("PGRST205" in str(e) or "Could not find the table" in str(e)):
+            print(f"古い版ごとの価格の削除失敗: {e}")
     daily_cutoff = (today - timedelta(days=PRICE_DAILY_RETENTION_DAYS)).isoformat()
     try:
         (sb.table("price_daily_art")

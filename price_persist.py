@@ -17,6 +17,7 @@ collect_prices.py（定期収集）と app.py（検索・見積もりの即時�
 """
 from __future__ import annotations
 import logging
+import re
 
 import art_variant
 from db_write_guard import is_db_unavailable
@@ -313,7 +314,7 @@ def _upsert_art(sb, fn: str, params: dict, n_rows: int) -> int:
         text = str(e)
         if "PGRST202" in text or "Could not find the function" in text:
             _art_write_disabled.add(fn)
-            logger.warning(f"[price_persist] {fn} が DB に無い（price_history_art.sql 未適用）。このプロセスでは絵ごとの記録を止める")
+            logger.warning(f"[price_persist] {fn} が DB に無い（price_history_art.sql / price_history_pack.sql 未適用）。このプロセスでは止める")
         elif is_db_unavailable(e):
             # DB が重い・止まっているときに小さい別表の書き込みを重ねない（本表の記録を優先する）
             _art_write_disabled.add(fn)
@@ -335,3 +336,34 @@ def upsert_buyback_art_rows(sb, rows: list[dict]) -> int:
     if not rows:
         return 0
     return _upsert_art(sb, "upsert_buyback_art_rows", {"p_rows": rows}, len(rows))
+
+
+# ── パックの版ごとの価格（新弾用の小さな表 price_history_pack。2026-11-01） ──
+
+_PACK_CODE_RE = re.compile(r"^[A-Z0-9]{2,6}$")
+
+
+def valid_pack_code(pack_code: str | None) -> str:
+    """パックの型番の頭（例 "IMPH"）を大文字にして返す。形が違えば空文字（画面から届く値も通すため）"""
+    code = (pack_code or "").strip().upper()
+    return code if _PACK_CODE_RE.match(code) else ""
+
+
+def build_pack_price_rows(card_name: str, scrape_results: list, today: str, pack_code: str) -> list[dict]:
+    """そのパックの版（型番が「頭-JP…」または「頭JP…」）の出品だけで、店×レアリティごとの最安の行を作る（price_history_pack 用）。
+    最安・code・url の決め方は build_min_price_rows と同じ（pack_code の欄が足されるだけ）。
+    型番の読めない出品は、どの版か分からないので入れない"""
+    head = valid_pack_code(pack_code)
+    if not head:
+        return []
+    pat = re.compile(rf"^{re.escape(head)}-?JP", re.IGNORECASE)
+    mine = [r for r in scrape_results if pat.match(str(r.get("code") or "").strip())]
+    return [{**row, "pack_code": head} for row in build_min_price_rows(card_name, mine, today)]
+
+
+def upsert_price_pack_rows(sb, rows: list[dict]) -> int:
+    """price_history_pack に RPC upsert_price_pack_rows で書く（同じ日の書き直しは上書き）。失敗しても例外を出さない
+    （本表の記録を止めない。RPC が無い・DB が応答しないときはそのプロセスでは以後呼ばない＝絵ごとの別表と同じ扱い）"""
+    if not rows:
+        return 0
+    return _upsert_art(sb, "upsert_price_pack_rows", {"p_rows": rows}, len(rows))

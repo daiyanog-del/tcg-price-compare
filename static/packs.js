@@ -411,7 +411,8 @@ function _pkApplyOrder(){
 async function _pkLoadDbMatrix(st){
   st.dbmx='loading';
   try{
-    const res=await fetch('/api/packs/matrix',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cards:st.cards.map(c=>c.name)})});
+    // code（パックの型番の頭）を送ると、新弾用の小さな表のこのパックの版の価格（pack_rows）も返る（2026-11-01）
+    const res=await fetch('/api/packs/matrix',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cards:st.cards.map(c=>c.name),code:String(st.info.code||'')})});
     const data=res.ok?await res.json():null;
     st.dbmx=(data&&!data.error&&Array.isArray(data.rows))?data:'error';
   }catch(_){ st.dbmx='error'; }
@@ -461,6 +462,10 @@ function _pkItemsFromDb(m){
     for(const [shop,c] of Object.entries(r.cells||{})){
       if(c&&c.price!=null) items.push({name:r.name,rarity:r.rarity||'',shop,price:Number(c.price),url:c.url||'',code:c.code||'',date:c.recorded_at||''});
     }
+  }
+  // このパックの版の価格（新弾用の小さな表）。本表は同じレアリティで一番安い版しか残らないので、再録カードはこちらで補う
+  for(const p of (m.pack_rows||[])){
+    if(p&&p.price!=null) items.push({name:p.name,rarity:p.rarity||'',shop:p.shop,price:Number(p.price),url:p.url||'',code:p.code||'',date:p.recorded_at||''});
   }
   return items;
 }
@@ -737,6 +742,8 @@ async function bulkSearchPackPrices(){
         body.set('include_per_shop','version');
         // 全ページを読み、ほかの人にも残るようその日の記録に上書きする（ファイル冒頭の注記。接続元ごとに同時1本なので順に送る今の形のまま）
         body.set('fresh','1');
+        // このパックの版の出品だけの行も新弾用の小さな表に残す（再録カードのこのパックの版を表に出すため）
+        if(st.info.code) body.set('pack_code',String(st.info.code));
       }
       let r=null;
       for(let tries=0;tries<4;tries++){

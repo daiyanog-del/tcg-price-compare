@@ -158,7 +158,7 @@ def test_plan_pack_search_off_when_head_or_reprints_unknown(monkeypatch):
 def test_main_uses_pack_items_and_searches_the_rest_by_name(monkeypatch):
     calls = {}
 
-    def fake_collect(sb, card, today, shops, shop_stats=None, db_guard=None, pack_items=None):
+    def fake_collect(sb, card, today, shops, shop_stats=None, db_guard=None, pack_items=None, pack_code=""):
         calls[card] = (list(shops), [it["shop"] for it in pack_items or []])
         return 0, []
 
@@ -170,8 +170,9 @@ def test_main_uses_pack_items_and_searches_the_rest_by_name(monkeypatch):
     monkeypatch.setattr(collect_featured, "check_shop_availability", lambda shops: ["遊々亭", "カードラボ"])
     monkeypatch.setattr(collect_featured, "fetch_cards_collected_today", lambda *a: set())
     monkeypatch.setattr(collect_featured, "plan_pack_search",
-                        lambda sb, pack, cards, shops, today=None, dropped=None: {"新A": {"遊々亭": [_item("新A", "IMPH-JP001")]}})
+                        lambda sb, pack, cards, shops, today=None, dropped=None, head=None: {"新A": {"遊々亭": [_item("新A", "IMPH-JP001")]}})
     monkeypatch.setattr(collect_featured, "collect_and_save_for_shops", fake_collect)
+    monkeypatch.setattr(collect_featured, "resolve_pack_head", lambda pack: "IMPH")
     monkeypatch.setattr(collect_featured.time, "sleep", lambda *_: None)
     monkeypatch.setattr(collect_featured, "should_run_now", lambda pack, now: True)
     monkeypatch.setattr(collect_featured, "shops_open_now", lambda pack, shops, now: shops)
@@ -205,6 +206,21 @@ def test_collect_and_save_with_only_pack_items(monkeypatch):
     saved, failed = collect_featured.collect_and_save_for_shops(
         None, "新A", "2026-10-31", [], pack_items=[_item("新A", "IMPH-JP001", price=200)])
     assert failed == [] and [(r["shop"], r["min_price"]) for r in saved_rows] == [("遊々亭", 200)]
+
+
+def test_collect_and_save_writes_pack_version_rows(monkeypatch):
+    """pack_code を渡すと、このパックの版の出品だけの行も新弾用の小さな表に書く（2026-11-01）"""
+    pack_rows = []
+    monkeypatch.setattr(collect_featured, "compare_prices",
+                        lambda name, shop_names=None, status_out=None:
+                        (status_out.update({s: {"count": 2, "fetch_errors": 0} for s in shop_names})
+                         or [_item(name, "MB01-JP003", price=300, shop="カードラボ"),
+                             _item(name, "IMPH-JPS01", price=980, shop="カードラボ")]))
+    monkeypatch.setattr(collect_featured, "upsert_price_rows",
+                        lambda sb, rows, raise_on_error=False: len(rows))
+    monkeypatch.setattr(collect_featured, "upsert_price_pack_rows", lambda sb, rows: pack_rows.extend(rows) or len(rows))
+    collect_featured.collect_and_save_for_shops(None, "再録A", "2026-11-01", ["カードラボ"], pack_code="IMPH")
+    assert [(r["pack_code"], r["shop"], r["min_price"]) for r in pack_rows] == [("IMPH", "カードラボ", 980)]
 
 
 def test_drop_higher_than_today(monkeypatch):
@@ -300,11 +316,11 @@ def test_main_rechecks_dropped_torecolo_even_if_collected(monkeypatch):
     """今日の行で確かめられなかったトレコロの組は、朝に取れていてもカード名で探す（値上がりも入るように）"""
     calls = {}
 
-    def fake_collect(sb, card, today, shops, shop_stats=None, db_guard=None, pack_items=None):
+    def fake_collect(sb, card, today, shops, shop_stats=None, db_guard=None, pack_items=None, pack_code=""):
         calls[card] = list(shops)
         return 0, []
 
-    def fake_plan(sb, pack, cards, shops, today=None, dropped=None):
+    def fake_plan(sb, pack, cards, shops, today=None, dropped=None, head=None):
         dropped.add(("新A", "トレコロCB"))   # 型番の値が今日の行より高かった
         return {}
 
@@ -317,6 +333,7 @@ def test_main_rechecks_dropped_torecolo_even_if_collected(monkeypatch):
     monkeypatch.setattr(collect_featured, "fetch_cards_collected_today", lambda *a: {"新A", "新B"})
     monkeypatch.setattr(collect_featured, "plan_pack_search", fake_plan)
     monkeypatch.setattr(collect_featured, "collect_and_save_for_shops", fake_collect)
+    monkeypatch.setattr(collect_featured, "resolve_pack_head", lambda pack: "IMPH")
     monkeypatch.setattr(collect_featured.time, "sleep", lambda *_: None)
     monkeypatch.setattr(collect_featured, "should_run_now", lambda pack, now: True)
     monkeypatch.setattr(collect_featured, "shops_open_now", lambda pack, shops, now: shops)

@@ -54,7 +54,7 @@ from collect_prices import (
 )
 from collection_run import attach_host_request_counts
 from scraper import compare_prices, SHOPS, get_host_request_counts, infer_codes, infer_overframe
-from price_persist import build_min_price_rows, upsert_price_rows
+from price_persist import build_min_price_rows, build_pack_price_rows, upsert_price_pack_rows, upsert_price_rows
 from db_write_guard import (
     ConsecutiveDbFailureGuard, DbWriteAborted, GuardedSupabase, is_db_unavailable, report_db_abort,
 )
@@ -167,7 +167,8 @@ def _group_pairs_by_card(pairs: list[tuple[str, str]]) -> dict[str, list[str]]:
 def collect_and_save_for_shops(sb, card_name: str, today: str, shop_names: list[str],
                                 shop_stats: dict | None = None,
                                 db_guard: ConsecutiveDbFailureGuard | None = None,
-                                pack_items: list[dict] | None = None) -> tuple[int, list[str]]:
+                                pack_items: list[dict] | None = None,
+                                pack_code: str = "") -> tuple[int, list[str]]:
     """1枚のカードについて、指定店舗のみ検索してSupabaseに保存する。
 
     collect_prices.collect_and_save と異なり、失敗した店舗名のリストも返す
@@ -182,6 +183,8 @@ def collect_and_save_for_shops(sb, card_name: str, today: str, shop_names: list[
 
     pack_items: 型番の頭でまとめて取った店（pack_search.py）のこのカードの商品。shop_names の結果と合わせて
     型番の補完・OF のそろえを通し、1回で保存する（ほかの店の行を手がかりに使うため）。
+    pack_code: パックの型番の頭（例 "IMPH"）。渡すと、このパックの版の出品だけの行も price_history_pack に書く
+    （本表は同じレアリティで一番安い版しか残らず、再録カードのこのパックの版が表から消えるため。2026-11-01）
     """
     status: dict = {}
     try:
@@ -233,6 +236,8 @@ def collect_and_save_for_shops(sb, card_name: str, today: str, shop_names: list[
         return 0, failed_shops
     if db_guard is not None:
         db_guard.record_success()
+    if pack_code:
+        upsert_price_pack_rows(sb, build_pack_price_rows(card_name, results, today, pack_code))
     if saved:
         print(f"  保存完了 [{card_name}]: {saved}件")
     else:
@@ -362,8 +367,20 @@ def drop_higher_than_today(sb, plan: dict[str, dict[str, list[dict]]], today: st
     return kept
 
 
+def resolve_pack_head(pack: dict) -> str | None:
+    """パックの型番の頭（例 "IMPH"）。Wiki の収録カードの型番の多数決（pack_search.pack_code_head）。決まらなければ None"""
+    try:
+        from pack_scraper import fetch_pack_card_numbers
+        numbers = fetch_pack_card_numbers(pack["pack_name"])
+    except Exception as e:
+        print(f"  [型番検索] 収録カードの型番を取れませんでした: {e}")
+        numbers = {}
+    return pack_code_head(numbers)
+
+
 def plan_pack_search(sb, pack: dict, card_names: list[str], available_shops: list[str],
-                     today: str | None = None, dropped_out: set | None = None) -> dict[str, dict[str, list[dict]]]:
+                     today: str | None = None, dropped_out: set | None = None,
+                     head: str | None = None) -> dict[str, dict[str, list[dict]]]:
     """型番の頭で店ごとにまとめて取り、{カード名: {店: 商品}} を返す（pack_search.py）。
 
     ここで取れた (カード, 店) は、カードごとの検索をしない。取れなかった組（店の失敗・見つからない・再録・
@@ -371,13 +388,8 @@ def plan_pack_search(sb, pack: dict, card_names: list[str], available_shops: lis
     shops = [s for s in PACK_SEARCH_SHOPS if s in available_shops]
     if not shops or not pack.get("start_date"):
         return {}
-    try:
-        from pack_scraper import fetch_pack_card_numbers
-        numbers = fetch_pack_card_numbers(pack["pack_name"])
-    except Exception as e:
-        print(f"  [型番検索] 収録カードの型番を取れませんでした: {e}")
-        numbers = {}
-    head = pack_code_head(numbers)
+    if head is None:
+        head = resolve_pack_head(pack)
     if not head:
         print("  [型番検索] パックの型番の頭が決まらないため、全カードをカード名で探します")
         return {}
@@ -551,7 +563,9 @@ def _main(state: dict):
     # 型番で取れたが今日の行で確かめられなかった (カード, 店)。トレコロでも、朝に取れていてもカード名で確かめる
     # （取り直さない決まりのままだと、1日の途中で値下がりだけが入り値上がりは翌朝まで入らない。reviewer 中2）
     pack_dropped: set = set()
-    pack_plan = plan_pack_search(sb, pack, card_names, available_shops, today, pack_dropped)
+    # パックの型番の頭は1回だけ決め、型番でまとめて取る検索と、版ごとの価格の記録（price_history_pack）の両方に使う
+    pack_head = resolve_pack_head(pack) or ""
+    pack_plan = plan_pack_search(sb, pack, card_names, available_shops, today, pack_dropped, head=pack_head)
     for card_shops_items in pack_plan.values():
         for shop in card_shops_items:
             shop_stats.setdefault(shop, {"ok": 0, "empty": 0, "error": 0})["ok"] += 1
@@ -584,7 +598,7 @@ def _main(state: dict):
                 print("  全店舗取得済みのためスキップ")
                 continue
             saved, failed_shops = collect_and_save_for_shops(
-                sb, card_name, today, card_shops, shop_stats=shop_stats, db_guard=db_guard,
+                sb, card_name, today, card_shops, shop_stats=shop_stats, db_guard=db_guard, pack_code=pack_head,
                 **({"pack_items": pack_items} if pack_items else {}),
             )
             total_saved += saved
@@ -628,7 +642,7 @@ def _main(state: dict):
                 for j, (card_name, shops) in enumerate(by_card.items()):
                     print(f"    [{j + 1}/{len(by_card)}] {card_name} ({'、'.join(shops)})")
                     saved, still_failed = collect_and_save_for_shops(
-                        sb, card_name, today, shops, shop_stats=shop_stats, db_guard=db_guard
+                        sb, card_name, today, shops, shop_stats=shop_stats, db_guard=db_guard, pack_code=pack_head
                     )
                     total_saved += saved
                     next_failed_pairs.extend((card_name, s) for s in still_failed)
@@ -647,7 +661,7 @@ def _main(state: dict):
                 for j, (card_name, shops) in enumerate(by_card.items()):
                     print(f"    [{j + 1}/{len(by_card)}] {card_name} ({'、'.join(shops)})")
                     saved, still_failed = collect_and_save_for_shops(
-                        sb, card_name, today, shops, shop_stats=shop_stats, db_guard=db_guard
+                        sb, card_name, today, shops, shop_stats=shop_stats, db_guard=db_guard, pack_code=pack_head
                     )
                     total_saved += saved
                     next_failed_pairs.extend((card_name, s) for s in still_failed)
