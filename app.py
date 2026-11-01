@@ -316,6 +316,7 @@ import sync as _sync
 from client_ip import _client_ip
 import site_urls
 import domain_handoff
+import card_page_ssr
 
 import re as _re
 from urllib.parse import quote as _url_quote
@@ -1075,6 +1076,17 @@ def index():
                            new_cards_initial=initial, new_cards_first=_new_cards_first_html(initial))
 
 
+def _is_display_proxy_card(name: str) -> bool:
+    """未発売カード・海外先行カードとして表示できる名前か（カードのページの noindex の判定用）。
+    例外のときは True（検索に出す側）。ただし card_display は DB の読み込み失敗を空の一覧として返すので、
+    再起動直後に DB が読めないと False になりうる（その間の未発売カードは noindex。reviewer 低D・受け入れ）"""
+    try:
+        return _card_display.get_display_proxy(name) is not None
+    except Exception:
+        logger.warning("カードのページ: 未発売カードの判定に失敗（検索に出す側に倒す）: %s", name)
+        return True
+
+
 @app.route("/card/<path:card_name>")
 def card_page(card_name):
     """カード個別ページ — SEO用"""
@@ -1082,22 +1094,33 @@ def card_page(card_name):
     if not card_name or len(card_name) > 50:
         return render_template("index.html", card_name="", page_mode="search"), 404
 
-    # キャッシュに価格データがあれば meta 用に渡す
-    cached = cache_get(card_name)
-    best_price = None
-    shop_count = 0
-    if cached:
-        in_stock = [r for r in cached if not r.get("sold_out")]
-        if in_stock:
-            best = min(in_stock, key=lambda x: x["price"])
-            best_price = best["price"]
-        shop_count = len(set(r["shop"] for r in cached))
+    # 正式名の一覧にも価格の記録にも未発売・海外先行カードにも無い名前（打ち間違いの URL など）は検索に出さない
+    # （正式名の一覧を読めていないときは判断できないので、検索に出す側に倒す）。
+    # 未発売・海外先行カードは新着欄・/new-cards が /card/<名前> でリンクしていて、一番検索される時期のページ（reviewer 高1）。
+    # 安い判定（メモリ）を先にし、知らない名前では DB を読まない（打ち間違いの URL で DB と取っておきを汚さない。reviewer 中A）
+    known_card = (not _cardnames_set or card_name in _cardnames_set
+                  or card_name in _estimate_cache or _is_display_proxy_card(card_name))
+    # HTML に最初から書く価格（card_page_ssr.py。検索エンジンが読めるように・2026-11-01）。
+    # 本文・説明文・構造化データの数字は同じ出どころ（毎日集めた価格の直近の日）にそろえる
+    ssr = card_page_ssr.get_snapshot(_supabase_client, card_name) if known_card else None
+    best_price = ssr["low"] if ssr else None
+    shop_count = len(ssr["shops"]) if ssr else 0
+    # 相場キャッシュ（直近7日の最安）は売り切れた店の古い値段を含みうるので、「現在の最安値」には使わない（reviewer 低）
+    if best_price is None:
+        # 読み終わらなかった・記録が無いときは、今までどおり店舗検索のキャッシュ（今日の検索結果）
+        cached = cache_get(card_name)
+        if cached:
+            in_stock = [r for r in cached if not r.get("sold_out")]
+            if in_stock:
+                best_price = min(in_stock, key=lambda x: x["price"])["price"]
 
     return render_template("index.html",
                            card_name=card_name,
                            page_mode="search",
                            best_price=best_price,
-                           shop_count=shop_count)
+                           shop_count=shop_count,
+                           ssr=ssr,
+                           noindex=not known_card)
 
 
 @app.route("/card/by-cid/<int:cid>")

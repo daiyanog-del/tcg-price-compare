@@ -186,6 +186,7 @@ function showUnreleasedCard(name,tcgPreview){
   // 世代管理: selectSugの未発売分岐はdoSearchを通らず世代が進まないため、稼働中の
   // 販売検索ストリームがあればここで明示的に破棄する（そのままだと後から届くdoneが
   // この未発売カードの見出しの下に前のカードの価格表を描いてしまう）
+  _ssrHold=null; // 開いた直後のサーバーの欄を待たせていても、別のカードを出すので隠す（reviewer 低C）
   _newSearchGen();
   const btn=document.getElementById('btn');
   if(btn){btn.disabled=false;btn.textContent='検索';}
@@ -520,14 +521,21 @@ function _cardInfoData(name){
 function _showSearchPreview(name){
   const box=document.getElementById('searchPreview');
   if(!box)return;
+  _ssrHold=null;
   box.querySelectorAll('.search-prog').forEach(el=>el.remove()); // 前の検索の進み具合のバー
+  // サーバーが描いた直近の日の価格（.ssr-snap・カードのページだけ）は、そのカードの検索中だけ残す。別のカードを検索したら消す
+  if(box.dataset.ssrName!==name){box.querySelectorAll('.ssr-snap').forEach(el=>el.remove());delete box.dataset.ssrName;}
   document.getElementById('searchPreviewImg').innerHTML='';
   document.getElementById('searchPreviewName').textContent=name;
   box.hidden=false;
 }
 function _hideSearchPreview(){
   const box=document.getElementById('searchPreview');
-  if(box&&!box.hidden){box.hidden=true;document.getElementById('searchPreviewImg').innerHTML='';}
+  if(!box||box.hidden)return;
+  if(_ssrHoldActive(box))return; // 開いた直後のサーバーの欄は、名前の確認の応答まで残す
+  box.hidden=true;document.getElementById('searchPreviewImg').innerHTML='';
+  // サーバーが描いた直近の日の価格は、結果に入れ替わったら役目を終える（同じカードをもう一度検索したとき古い値段を出さない）
+  if(box.dataset.ssrName){box.querySelectorAll('.ssr-snap').forEach(el=>el.remove());delete box.dataset.ssrName;}
 }
 function _cardImageData(name){
   if(_cardImgPrefetch&&_cardImgPrefetch.name===name) return _cardImgPrefetch.p;
@@ -590,6 +598,22 @@ function _showEmptyIfNoResults(){
   document.getElementById('empty').classList.remove('hidden');
   _setSearchLayout(false);
 }
+// サーバーが描いた先出しの欄（/card/ を開いた直後）を、名前の確認（/api/validate）の応答まで出したままにする印。
+// 起動時の _resetSearchView・doSearch の _newSearchGen が欄を隠し、確認の往復のあいだ空白になってから出し直すとチラつくため（2026-11-01 reviewer 中5）。
+// 値はそのカード名。確認の応答・_showSearchPreview・別のページへの移動で外れる
+let _ssrHold=null;
+function _releaseSsrHold(hide){
+  if(_ssrHold===null)return;
+  _ssrHold=null;
+  if(hide)_hideSearchPreview();
+}
+function _ssrHoldActive(box){
+  if(!_ssrHold||!box.dataset||box.dataset.ssrName!==_ssrHold)return false;
+  const m=location.pathname.match(/^\/card\/(.+)$/);
+  let cur=null;
+  try{cur=m?decodeURIComponent(m[1]):null;}catch{cur=null;}
+  return cur===_ssrHold;
+}
 function doSearch(opts){
   closeSuggest();
   // opts: {validated:true} サジェスト選択やvalidate済み, {confirmed:true} DB未登録を承認済み,
@@ -604,6 +628,7 @@ function doSearch(opts){
   // 打ちかけの1文字では検索しない。確かめる間は世代を進めない（無効な入力で進行中の検索を止めない）
   if(q.length<2&&!opts.validated&&!opts._validation){
     const reject=()=>{
+      _releaseSsrHold(true); // 開いた直後のサーバーの欄（/card/あ など）を、検索しないなら残さない（reviewer 低〜中B）
       if(document.getElementById('q').value.trim()!==q) return; // 確かめる間に入力が変わった
       // URL から開いたときは警告を出さずトップの表示に戻す（手入力のときだけ従来の警告）
       if(trigger==='pageload'||trigger==='popstate') document.getElementById('q').value='';
@@ -631,6 +656,8 @@ function doSearch(opts){
     (opts._validation?Promise.resolve(opts._validation):fetch('/api/validate?q='+encodeURIComponent(q)).then(r=>r.json()))
       .then(d=>{
         if(gen!==_searchGen) return; // 世代管理: 古い応答が#q/btnを触らないようにする
+        // 開いた直後のサーバーの欄: 価格を検索するならそのまま（_showSearchPreview が引き継ぐ）、それ以外は隠す
+        _releaseSsrHold(!(d.valid&&!d.unreleased));
         btn.disabled=false;btn.textContent='検索';
         if(d.valid){
           document.getElementById('q').value=d.name;
@@ -650,7 +677,7 @@ function doSearch(opts){
           }else{ _mercariPending=false; if(window.MercariRef) MercariRef.clear(); _showEmptyIfNoResults(); }
         }
       })
-      .catch(()=>{if(gen!==_searchGen)return;btn.disabled=false;btn.textContent='検索';_showEmptyIfNoResults();});
+      .catch(()=>{if(gen!==_searchGen)return;_releaseSsrHold(true);btn.disabled=false;btn.textContent='検索';_showEmptyIfNoResults();});
     return;
   }
   // 世代管理: 古い検索の /api/validate の戻りが後から来た場合は、画面状態（ボタン無効化・
@@ -2495,8 +2522,8 @@ function _updateUrl(cardName, mode){
   if(window.location.pathname+window.location.search+window.location.hash!==newUrl){
     history.pushState({card:cardName,mode:mode},'',newUrl);
   }
-  // ページタイトルも更新
-  const suffix=mode==='buyback'?' の買取価格比較':' の価格比較';
+  // ページタイトルも更新（販売はサーバーの題 templates/index.html と同じ言い回し。2026-11-01）
+  const suffix=mode==='buyback'?' の買取価格比較':' の値段・最安値比較';
   document.title=cardName+suffix+' | 強欲なラボ';
   _syncBreadcrumb(cardName,mode==='buyback');
 }
@@ -2563,6 +2590,9 @@ function _restoreLocation(trigger){
     try{cardName=decodeURIComponent(cardPath[2]);}catch{cardName=null;}
     if(cardName!==null&&!cardName.trim())cardName=null; // 1文字は doSearch が既知のカード名か確かめる
   }
+  // /card/ を開いた直後で、サーバーがそのカードの欄を描いていれば、名前の確認の応答まで隠さない（_ssrHold）
+  const ssrBox=document.getElementById('searchPreview');
+  _ssrHold=(cardPath&&cardPath[1]==='card'&&cardName&&ssrBox&&ssrBox.dataset&&ssrBox.dataset.ssrName===cardName)?cardName:null;
   _resetSearchView(!!cardName);
   // カードのURLならそのカードのパンくずをすぐ出す（ページを開いた直後に一度隠して検索後に出し直すと表示がずれる）。それ以外は隠す
   _syncBreadcrumb(cardName,!!cardPath&&cardPath[1]==='buy');

@@ -43,6 +43,17 @@
 #mode-search .cr-best-shop{font-size:12px;color:var(--text-m)}
 #mode-search .cr-best-none{font-size:15px;font-weight:700;color:var(--text-m)}
 #mode-search .card-hero-meta{margin-top:2px;font-size:12px;line-height:1.7;color:var(--text-m)}
+/* カードのページの先出しの欄にサーバーが書く直近の日の価格（card_page_ssr.py・2026-11-01）。検索エンジンが読む本文で、
+   人には前回の結果・最新の結果が出るまでの間だけ見える。値段は最安の行と同じ金（--gold）・数字の書体、他は .card-hero-meta と同じ控えめな色と大きさ */
+#mode-search .ssr-line{margin:0 0 6px;font-size:12px;line-height:1.7;color:var(--text-m)}
+#mode-search .ssr-line b{font:600 20px/1.3 var(--mono);color:var(--gold)}
+#mode-search .ssr-line .ssr-date{display:block;color:var(--text-d)}
+#mode-search .ssr-shops{list-style:none;margin:0;padding:0;max-width:340px;font-size:12px;line-height:1.8;color:var(--text-m)}
+/* 店名は切らない（最長「カードラッシュ」7文字に合わせた幅で、行ごとに列をそろえる）。狭い幅ではレアリティの方を省略する */
+#mode-search .ssr-shops li{display:grid;grid-template-columns:7.5em minmax(0,1fr) auto;gap:0 10px}
+#mode-search .ssr-shops .ssr-shop{white-space:nowrap}
+#mode-search .ssr-shops .ssr-rarity{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#mode-search .ssr-shops .ssr-price{font-family:var(--mono);color:var(--text);text-align:right;min-width:64px}
 /* 検索中の進み具合（search-progress.js）。先出しのカード欄では最安の行と同じ位置・高さに置き、結果に入れ替わっても下がずれない。
    文言は控えめな色、バーは値段と主操作と同じ金（--accent）。店名・件数は出さない（2026-10-28） */
 #mode-search .search-prog{min-height:38px;max-width:260px;padding-top:4px;box-sizing:border-box}
@@ -278,6 +289,9 @@ html.cr-fx-open,html.cr-fx-open body{overflow:hidden}
   #mode-search .card-hero-name{margin-bottom:4px;font-size:20px}
   #mode-search .cr-best{min-height:32px;gap:4px 8px}
   #mode-search #searchPreview .search-prog{grid-column:2;min-height:32px}
+  #mode-search #searchPreview .ssr-snap{grid-column:2}
+  /* 店ごとの表は名前の横だと狭くレアリティが読めないので、操作の列と同じく全幅に置く */
+  #mode-search #searchPreview .ssr-shops{grid-column:1/-1;max-width:none;margin-top:10px}
   #mode-search .cr-best-price{font-size:24px}
   #mode-search .card-hero-info>.card-info-details{grid-column:1/-1}
   #mode-search .cr-acts{grid-column:1/-1;margin-top:12px}
