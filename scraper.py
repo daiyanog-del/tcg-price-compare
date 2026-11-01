@@ -1302,6 +1302,38 @@ _KANABELL_SELL_SOURCE = [
 ] + [f"rank_{rank}_inventory" for rank, _ in _KANABELL_CONDITIONS]
 
 
+def kanabell_rows_from_source(src: dict, name_ok=None) -> list[dict]:
+    """ES の商品1件から、状態ごとの価格行（販売）を作る。検索（scrape_kanabell）と
+    全件巡回（kanabell_catalog.py）で同じ行を作るための共通部分。
+
+    name_ok は商品名を受けて通すか返す関数（検索はカード名の一致を見る。巡回は None＝全件）。"""
+    f = _kanabell_fields(src)
+    name_text = f["name"]
+    if not f["id"] or _is_kanabell_excluded(f):
+        return []
+    if not name_text or (name_ok is not None and not name_ok(name_text)):
+        return []
+
+    rarity = _kanabell_rarity(src.get("yg_card") or {})
+    product_url = f"{KANABELL_SELL_BASE}/single/{f['id']}"
+    base = {"shop": "カーナベル", "name": name_text, "rarity": rarity, "code": f["code"],
+            "url": product_url, "image": f["image"]}
+    if _kanabell_is_manga(src.get("yg_card") or {}):
+        base["manga"] = True
+
+    # 各状態の価格・在庫を展開（価格のある状態はすべて。在庫0は売切の行。旧サイトと同じ出し方）
+    rows = []
+    for rank_key, cond_label in _KANABELL_CONDITIONS:
+        inv = src.get(f"rank_{rank_key}_inventory") or {}
+        price = inv.get("selling_price") or 0
+        stock = inv.get("inventory_num") or 0
+        if price <= 0:
+            continue
+        rows.append({**base, "condition": cond_label, "price": int(price),
+                     "stock": max(int(stock), 0), "sold_out": stock <= 0})
+    return rows
+
+
 def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
     """カーナベル — Elasticsearch API経由で検索（状態別価格対応）"""
     if not kanabell_configured():
@@ -1325,29 +1357,8 @@ def scrape_kanabell(card_name: str, max_pages: int = 5) -> list[dict]:
 
     all_results = []
     for src in sources:
-        f = _kanabell_fields(src)
-        name_text = f["name"]
-        if not f["id"] or _is_kanabell_excluded(f):
-            continue
-        if not name_text or not is_target_card(_kanabell_canon_dash(card_name), _kanabell_canon_dash(name_text)):
-            continue
-
-        rarity = _kanabell_rarity(src.get("yg_card") or {})
-        product_url = f"{KANABELL_SELL_BASE}/single/{f['id']}"
-        base = {"shop": "カーナベル", "name": name_text, "rarity": rarity, "code": f["code"],
-                "url": product_url, "image": f["image"]}
-        if _kanabell_is_manga(src.get("yg_card") or {}):
-            base["manga"] = True
-
-        # 各状態の価格・在庫を展開（価格のある状態はすべて。在庫0は売切の行。旧サイトと同じ出し方）
-        for rank_key, cond_label in _KANABELL_CONDITIONS:
-            inv = src.get(f"rank_{rank_key}_inventory") or {}
-            price = inv.get("selling_price") or 0
-            stock = inv.get("inventory_num") or 0
-            if price <= 0:
-                continue
-            all_results.append({**base, "condition": cond_label, "price": int(price),
-                                "stock": max(int(stock), 0), "sold_out": stock <= 0})
+        all_results.extend(kanabell_rows_from_source(
+            src, lambda name_text: is_target_card(_kanabell_canon_dash(card_name), _kanabell_canon_dash(name_text))))
 
     print(f"  [KANABELL] 価格検索 {len(sources)}商品→{len(all_results)}行 [{card_name}]")
     return all_results
