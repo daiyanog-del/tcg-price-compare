@@ -211,17 +211,29 @@ export function openCardCommentInput(wrapper) {
   popup.className = 'sol-comment-popup';
   popup.setAttribute('role', 'dialog');
   popup.setAttribute('aria-label', '吹き出しを付ける');
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.className = 'sol-comment-input';
+  // 長めの文も見渡せるよう複数行の欄にする（改行は入れない。Enter で付ける）。下に残りの字数
+  const input = document.createElement('textarea');
+  input.className = 'sol-comment-input sol-comment-popup-input';
+  input.rows = 3;
   input.maxLength = COMMENT_MAX_LEN;
   input.placeholder = 'コメント';
   input.setAttribute('aria-label', '吹き出しのコメント');
+  const foot = document.createElement('div');
+  foot.className = 'sol-comment-popup-foot';
+  const count = document.createElement('span');
+  count.className = 'sol-comment-count';
   const btn = document.createElement('button');
   btn.type = 'submit';
   btn.className = 'sol-comment-btn sol-comment-submit';
   btn.textContent = '付ける';
-  popup.append(input, btn);
+  foot.append(count, btn);
+  popup.append(input, foot);
+  const updateCount = () => {
+    if (/[\r\n]/.test(input.value)) input.value = input.value.replace(/[\r\n]+/g, ' '); // 貼り付けた改行は空白に
+    count.textContent = `${input.value.length} / ${COMMENT_MAX_LEN}`;
+  };
+  input.addEventListener('input', updateCount);
+  updateCount();
 
   const submit = () => {
     if (!addComment({ kind: 'card', cardId, text: input.value })) { input.focus(); return; }

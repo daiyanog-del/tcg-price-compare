@@ -363,13 +363,11 @@ export function flyBetweenRects(cardEl, fromRect, toRect, onComplete = null) {
 }
 
 /**
- * 演出用のクローンから、コメントの吹き出しを除く（吹き出しは盤面のカードにだけ出し、飛ぶ・光るクローンには写さない）。
- * title も外す（クローンの上にツールチップを出さない）。
+ * 演出用のクローンから、コメントの吹き出しの全文（title）を外す（クローンの上にツールチップを出さない）。
+ * 吹き出しそのものはカードの外の層（comment-view.js の #solBubbleLayer）にあるので、クローンには写らない。
  * @param {Element} clone  .tier-item-wrapper の cloneNode
  */
 function _stripCommentBubble(clone) {
-  clone.querySelectorAll('.sol-bubble').forEach((el) => el.remove());
-  clone.classList.remove('has-sol-bubble');
   clone.removeAttribute('title');
   clone.querySelectorAll('[title]').forEach((el) => el.removeAttribute('title'));
 }

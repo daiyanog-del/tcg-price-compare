@@ -5,43 +5,56 @@
  * 黄色（--gold）・色の付いた実線は状態の目印（選択中・触れている間）なので、コメントの表示には使わない。赤は使わない。
  */
 
-/* ── 吹き出し（カードの右上に重ねる。.tier-item-wrapper の中に置かれる） ──
-   カードの内側に収めるので、wrapper の overflow:hidden や各ゾーンの切り取りに隠れない。
-   文字の大きさはカード幅（wrapper は container-type:inline-size）に比例させる。 */
-.tier-item-wrapper > .sol-bubble {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  z-index: 12;              /* 画像(1)・セットの裏面(3)・カウンター(10)より前 */
-  box-sizing: border-box;
-  max-width: calc(100% - 8px);
-  padding: 2px 6px;
-  background: var(--main-color, #eff3fb);
-  color: #191b21;
-  border-radius: 8px;
-  font-family: var(--font);
-  font-size: clamp(8px, 12cqw, 11px);
-  font-weight: 500;
-  line-height: 1.3;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+/* ── 吹き出し（2026-11-01 作り直し。カードの上に重ねる） ──
+   body 直下の層（#solBubbleLayer）に置き、位置は comment-view.js がカードの矩形から毎フレーム合わせる。
+   カードの中に置いていた頃は幅がカード幅に縛られ数文字ごとに折り返していたので、幅は文に合わせて最大 240px まで広げる。
+   面は盤面メモの付箋と同じ（暗い面＋明るい文字＋影）。輪郭は右クリックメニューと同じ薄い縁取り（色の付いた実線は使わない）。
+   重なり: カード（スロット z5）より前、盤面メモ(15)・カード詳細を広げた欄(40)・メニュー類より後ろ。 */
+.sol-bubble-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 14;
   pointer-events: none;     /* カードの移動・右クリック・ダブルクリックを妨げない（全文はカードの title） */
 }
-/* カードを指す小さな三角 */
-.tier-item-wrapper > .sol-bubble::after {
+.sol-bubble {
+  position: absolute;
+  top: 0;
+  left: 0;                  /* 位置は transform で置く */
+  box-sizing: border-box;
+  width: max-content;
+  max-width: var(--sol-bubble-max-w, 200px);
+  padding: 5px 9px;
+  background: var(--bg-hover);
+  color: var(--main-color);
+  border-radius: 8px;
+  font-family: var(--font);
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(174, 197, 255, 0.08);
+}
+.sol-bubble[hidden] { display: none; }
+/* カードを指す三角（高さ 6px＝comment-view.js の BUBBLE_TIP_PX）。上に場所が無くカードに重ねるときは出さない */
+.sol-bubble::after {
   content: "";
   position: absolute;
-  right: 10px;
-  bottom: -5px;
-  border: 5px solid transparent;
-  border-top-color: var(--main-color, #eff3fb);
+  left: var(--sol-bubble-tail-x, 50%);
+  bottom: -6px;
+  margin-left: -6px;
+  border: 6px solid transparent;
+  border-top-color: var(--bg-hover);
   border-bottom: 0;
 }
+.sol-bubble.is-inside::after { display: none; }
 .sol-bubble-text {
   display: -webkit-box;
-  -webkit-line-clamp: 2;    /* 最大2行。あふれた分は … で省略 */
+  -webkit-line-clamp: 4;    /* 最大4行。あふれた分は … で省略（全文はカードの title・カード詳細） */
   -webkit-box-orient: vertical;
   overflow: hidden;
   overflow-wrap: anywhere;
+}
+@media (max-width: 767px) {
+  .sol-bubble { padding: 4px 7px; font-size: 11px; line-height: 1.4; }
+  .sol-bubble-text { -webkit-line-clamp: 3; }
 }
 
 /* ── 盤面メモの付箋（2026-10-15。見本: mocks/sim-memo-cutin-20261015.html の 1章 案A）──
@@ -507,22 +520,39 @@ body.sol-comment-picking .tier-item-wrapper .tier-item {
 }
 
 /* ── カードの近くに出す入力欄（body 直下の fixed） ── */
+/* 右クリックメニュー（components.css .sol-context-menu）から開くので、面・縁取り・影はメニューと同じにする
+   （金の実線は「選択中」の目印なので枠には使わない）。欄は複数行・下に字数と「付ける」 */
 .sol-comment-popup {
   position: fixed;
   z-index: 9500;
   display: flex;
-  gap: 5px;
-  align-items: center;
+  flex-direction: column;
+  gap: 6px;
+  width: 280px;
   max-width: calc(100vw - 12px);
-  padding: 6px;
-  background: var(--bg-card);
-  border: 1px solid var(--accent);
+  box-sizing: border-box;
+  padding: 8px;
+  background: #1d1f26;
   border-radius: 8px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(174, 197, 255, 0.08);
 }
-.sol-comment-popup .sol-comment-input {
-  flex: 1 1 auto;
-  width: 190px;
+.sol-comment-popup .sol-comment-popup-input {
+  flex: none;
+  width: 100%;
+  resize: none;
+  line-height: 1.5;
+}
+.sol-comment-popup-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sol-comment-count {
+  color: #a8b4c9;
+  font-family: var(--font);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── スマホの入力シート ── */
