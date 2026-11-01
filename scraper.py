@@ -243,6 +243,11 @@ def _count_host(host: str, key: str):
         c[key] += 1
 
 
+def count_request(url: str):
+    """safe_get を通らずに店へ送る取得（接続確認・ES への POST など）を、送る直前に数える。"""
+    _count_host(_host_of(url), "requests")
+
+
 def get_host_request_counts() -> dict:
     """ホスト別のアクセス回数のスナップショット {host: {"requests": n, "skipped": m}} を返す"""
     with _host_counts_lock:
@@ -1258,6 +1263,7 @@ def _kanabell_keyword_query(card_name: str) -> dict:
 
 def _kanabell_search(query: dict, size: int, source: list[str], timeout: int) -> list[dict]:
     """ES に問い合わせて _source の一覧を返す。失敗は requests.RequestException で上げる。"""
+    count_request(_KANABELL_ES_ENDPOINT)  # safe_get を通らないのでここで数える
     res = requests.post(
         f"{_KANABELL_ES_ENDPOINT}/{_KANABELL_INDEX}/_search",
         json={"size": size, "_source": source, "query": query},
@@ -1800,10 +1806,12 @@ def scrape_surugaya(card_name: str) -> list[dict]:
         session = requests.Session()
         session.headers.update(surugaya_headers)
         # まずトップページにアクセスしてCookieを取得
+        count_request(SURUGAYA_BASE)  # safe_get を通らないのでここで数える
         session.get(SURUGAYA_BASE, timeout=10)
         # 検索リクエスト（Referer付き）
         session.headers["Referer"] = SURUGAYA_BASE + "/"
         session.headers["Sec-Fetch-Site"] = "same-origin"
+        count_request(page_url)
         res = session.get(page_url, timeout=20)
         res.raise_for_status()
         html_text = res.text

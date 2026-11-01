@@ -20,7 +20,7 @@ from datetime import datetime, timezone, timedelta
 
 from supabase import create_client, Client
 from postgrest.types import CountMethod, ReturnMethod
-from scraper import compare_prices, SHOPS, get_host_request_counts
+from scraper import compare_prices, SHOPS, count_request, get_host_request_counts
 from pack_scraper import (
     get_pack_list, fetch_pack_cards, _try_wiki_page_variants,
     fetch_theme_cards, fetch_card_themes,
@@ -32,6 +32,7 @@ from torecolo_catalog import collect_torecolo_catalog
 from kanabell_catalog import collect_kanabell_catalog
 from cardrush_catalog import collect_cardrush_catalog
 from overframe import apply_overframe, overframe_context
+import shop_request_log
 from collection_run import record_collection_run, attach_host_request_counts
 from db_write_guard import (
     ConsecutiveDbFailureGuard, DbWriteAborted, GuardedSupabase, is_db_unavailable, report_db_abort,
@@ -126,6 +127,7 @@ def check_shop_availability(shop_names: list[str], health_urls: dict[str, str] |
             continue
         try:
             try:
+                count_request(url)  # 接続確認も店への取得として数える
                 resp = _req.get(url, timeout=5, headers=headers, stream=True)
                 resp.close()
             except _req.RequestException:
@@ -133,11 +135,13 @@ def check_shop_availability(shop_names: list[str], health_urls: dict[str, str] |
                 # （2026-10 に買取のカードラッシュが9日、1回のタイムアウトで丸ごと飛ばされていた）。
                 # 取り直しは実際の取得と同じくらい待つ（safe_get の既定は15秒・買取のカードラッシュは20秒。トップが12秒かかる時がある）
                 time.sleep(5)
+                count_request(url)  # 接続確認も店への取得として数える
                 resp = _req.get(url, timeout=15, headers=headers, stream=True)
                 resp.close()
             if resp.status_code >= 500:
                 # 一瞬の 502/503 でその日の収集をまるごと落とさないよう、5xx だけ少し待って1回取り直す
                 time.sleep(5)
+                count_request(url)  # 接続確認も店への取得として数える
                 resp = _req.get(url, timeout=5, headers=headers, stream=True)
                 resp.close()
         except Exception as e:
@@ -165,6 +169,7 @@ def watch_suspended_shops() -> None:
             print(f"  休止中: {name}（確認先URLなし）")
             continue
         try:
+            count_request(url)  # 接続確認も店への取得として数える
             resp = _req.get(url, timeout=10, headers=headers, stream=True)
             resp.close()
         except Exception as e:
@@ -1759,6 +1764,8 @@ def _main(state: dict):
     # DB が応答しない系の失敗はすべての DB 呼び出しで数えて待って再試行し、続けて失敗したら打ち切る
     # （同期処理も含む。db_write_guard.GuardedSupabase）。カード単位の保存失敗も同じ見張り役で数える
     sb = GuardedSupabase(get_supabase(), ConsecutiveDbFailureGuard())
+    # お店ごとの取得回数を終了時に shop_request_daily へ書く（見張りを通さない短いタイムアウトの接続で。書けなくても収集は止めない）
+    shop_request_log.install_job("prices", shop_request_log.make_store(), prune=True)
 
     # ── 注目カードの sync ──
     hot: set[str] = set()

@@ -18,6 +18,7 @@ from datetime import datetime, timezone, timedelta
 from supabase import create_client, Client
 from postgrest.types import ReturnMethod
 from scraper import compare_buyback, BUYBACK_SHOPS, CARDRUSH_MEDIA_BASE, get_host_request_counts
+import shop_request_log
 from collection_run import record_collection_run, attach_host_request_counts
 from price_persist import build_art_buyback_rows, upsert_buyback_art_rows, upsert_buyback_rows
 from art_variant import row_is_sealed
@@ -195,6 +196,8 @@ def _main(state: dict):
     # DB が応答しない系の失敗はすべての DB 呼び出しで数えて待って再試行し、続けて失敗したら打ち切る
     # （同期処理も含む。db_write_guard.GuardedSupabase）。カード単位の保存失敗も同じ見張り役で数える
     sb = GuardedSupabase(get_supabase(), ConsecutiveDbFailureGuard())
+    # お店ごとの取得回数を終了時に shop_request_daily へ書く（見張りを通さない短いタイムアウトの接続で。書けなくても収集は止めない）
+    shop_request_log.install_job("buyback", shop_request_log.make_store())
 
     # ── 注目カードの同期（hot集合のみ。周辺カードは収集しない）──
     # hot同期は外部HTTPを伴うため、import時ではなくここで呼ぶ

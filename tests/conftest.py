@@ -74,3 +74,14 @@ def _no_live_pack_matrix_watch(request, monkeypatch):
         return
     import collect_featured
     monkeypatch.setattr(collect_featured, "watch_pack_matrix", lambda pack, now: None)
+
+
+@pytest.fixture(autouse=True)
+def _no_shop_request_log_at_exit(monkeypatch, request):
+    """収集の main() を走らせるテストが、終了時に取得回数を書く atexit を積まないようにする（reviewer 中3）。
+    shop_request_log 自身のテストでは差し替えない。"""
+    if request.module.__name__.endswith("test_shop_request_log"):
+        return
+    import shop_request_log
+    monkeypatch.setattr(shop_request_log, "install_job", lambda *a, **k: None)
+    monkeypatch.setattr(shop_request_log, "start_web", lambda *a, **k: None)

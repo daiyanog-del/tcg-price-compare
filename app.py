@@ -60,6 +60,7 @@ from shop_search_pool import (
 from concurrent.futures import Future
 from weakref import WeakSet
 import upgrade_signals
+import shop_request_log
 import site_summary
 import art_variant
 
@@ -6130,6 +6131,8 @@ if not _STARTUP_JOBS_DISABLED:
                     lambda: getattr(sys.modules.get("reread_trust"), "_client_cache", None)],
         store=upgrade_signals.make_store_client(_SUPABASE_URL, _SUPABASE_KEY),
     )
+    # お店ごとの1日の取得回数（サイトの検索の分）を shop_request_daily へ（shop_request_log.py）
+    shop_request_log.start_web(shop_request_log.make_store())
 
 if not _STARTUP_JOBS_DISABLED and _claim_startup_job("featured_prefetch"):
     threading.Thread(target=_load_featured_cache, daemon=True).start()
