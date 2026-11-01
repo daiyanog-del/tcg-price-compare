@@ -55,8 +55,8 @@ from collect_prices import (
 import shop_request_log
 from collection_run import attach_host_request_counts
 from scraper import compare_prices, SHOPS, get_host_request_counts, infer_codes, infer_overframe
-from price_persist import (build_min_price_rows, build_pack_price_rows, upsert_price_pack_rows, upsert_price_rows,
-                           write_counts_line)
+from price_persist import (art_price_context, build_art_price_rows, build_min_price_rows, build_pack_price_rows,
+                           upsert_price_art_rows, upsert_price_pack_rows, upsert_price_rows, write_counts_line)
 from db_write_guard import (
     ConsecutiveDbFailureGuard, DbWriteAborted, GuardedSupabase, is_db_unavailable, report_db_abort,
 )
@@ -170,7 +170,8 @@ def collect_and_save_for_shops(sb, card_name: str, today: str, shop_names: list[
                                 shop_stats: dict | None = None,
                                 db_guard: ConsecutiveDbFailureGuard | None = None,
                                 pack_items: list[dict] | None = None,
-                                pack_code: str = "") -> tuple[int, list[str]]:
+                                pack_code: str = "",
+                                art_contexts: dict[str, dict] | None = None) -> tuple[int, list[str]]:
     """1枚のカードについて、指定店舗のみ検索してSupabaseに保存する。
 
     collect_prices.collect_and_save と異なり、失敗した店舗名のリストも返す
@@ -187,6 +188,8 @@ def collect_and_save_for_shops(sb, card_name: str, today: str, shop_names: list[
     型番の補完・OF のそろえを通し、1回で保存する（ほかの店の行を手がかりに使うため）。
     pack_code: パックの型番の頭（例 "IMPH"）。渡すと、このパックの版の出品だけの行も price_history_pack に書く
     （本表は同じレアリティで一番安い版しか残らず、再録カードのこのパックの版が表から消えるため。2026-11-01）
+    art_contexts: カード名 → art_price_context。第1パスで分かった「絵が分かれるレアリティ」「型番ごと違う絵の型番」を
+    ここに残し、再試行（1店だけ取り直す）の絵の判定をほかの店の行にそろえる（collect_prices の art_contexts と同じ考え方）
     """
     status: dict = {}
     try:
@@ -238,6 +241,17 @@ def collect_and_save_for_shops(sb, card_name: str, today: str, shop_names: list[
         return 0, failed_shops
     if db_guard is not None:
         db_guard.record_success()
+    # 本表の上書き（upsert_price_rows）は同じ (カード, 店, レアリティ, 日) の絵ごとの内訳（price_history_art）を消すので、
+    # 夜の収集と同じく本表→別表の順で入れ直す（入れ直さないと夜の収集が書いた新弾カードの内訳が翌朝まで消える。2026-11-01）。
+    # 失敗しても本表の記録は数えない・止めない
+    ctx = (art_contexts or {}).get(card_name)
+    upsert_price_art_rows(sb, build_art_price_rows(card_name, results, today, ctx))
+    if art_contexts is not None:
+        found = art_price_context(card_name, results)
+        rarities = found["rarities"] | (ctx or {}).get("rarities", set())
+        alt_codes = found["alt_codes"] | (ctx or {}).get("alt_codes", set())
+        if rarities or alt_codes:
+            art_contexts[card_name] = {"rarities": rarities, "alt_codes": alt_codes}
     if pack_code:
         upsert_price_pack_rows(sb, build_pack_price_rows(card_name, results, today, pack_code))
     if saved:
@@ -597,6 +611,12 @@ def _main(state: dict):
     # DB保存の連続失敗で打ち切る（2026-10-22 DB停止。collect_prices.py と同じ見張り役）。
     # 第1パスと再試行ラウンドで同じ見張り役を使う（どこで続けて失敗しても止める）
     db_guard = sb.guard
+    # 絵ごとの内訳の判定に使う、カードごとの全店の行で分かったこと。当日の内訳（夜の収集が全店で判定したもの）を初めに読み、
+    # 第1パスで分かったことを足していく（その回に取らない店にしか違う絵が無いカード・再試行で1店だけ取り直すときにそろえる）
+    from price_history_reads import fetch_art_contexts_today
+    # 無くても動く補助の読み出しなので、見張り（DB が応答しない回数で収集を打ち切る）を通さない（別表の書き込みと同じ）
+    art_contexts: dict[str, dict] = fetch_art_contexts_today(getattr(sb, "raw", sb), card_names, today, "featured")
+    print(f"絵ごとの内訳が当日あるカード: {len(art_contexts)}/{len(card_names)}枚")
     processed = 0     # 第1パスで処理したカード数（打ち切りの通知用）
     saved_cards = 0   # 第1パスで保存できたカード数（同上）
     try:
@@ -610,6 +630,7 @@ def _main(state: dict):
                 continue
             saved, failed_shops = collect_and_save_for_shops(
                 sb, card_name, today, card_shops, shop_stats=shop_stats, db_guard=db_guard, pack_code=pack_head,
+                art_contexts=art_contexts,
                 **({"pack_items": pack_items} if pack_items else {}),
             )
             total_saved += saved
@@ -653,7 +674,8 @@ def _main(state: dict):
                 for j, (card_name, shops) in enumerate(by_card.items()):
                     print(f"    [{j + 1}/{len(by_card)}] {card_name} ({'、'.join(shops)})")
                     saved, still_failed = collect_and_save_for_shops(
-                        sb, card_name, today, shops, shop_stats=shop_stats, db_guard=db_guard, pack_code=pack_head
+                        sb, card_name, today, shops, shop_stats=shop_stats, db_guard=db_guard, pack_code=pack_head,
+                        art_contexts=art_contexts
                     )
                     total_saved += saved
                     next_failed_pairs.extend((card_name, s) for s in still_failed)
@@ -672,7 +694,8 @@ def _main(state: dict):
                 for j, (card_name, shops) in enumerate(by_card.items()):
                     print(f"    [{j + 1}/{len(by_card)}] {card_name} ({'、'.join(shops)})")
                     saved, still_failed = collect_and_save_for_shops(
-                        sb, card_name, today, shops, shop_stats=shop_stats, db_guard=db_guard, pack_code=pack_head
+                        sb, card_name, today, shops, shop_stats=shop_stats, db_guard=db_guard, pack_code=pack_head,
+                        art_contexts=art_contexts
                     )
                     total_saved += saved
                     next_failed_pairs.extend((card_name, s) for s in still_failed)

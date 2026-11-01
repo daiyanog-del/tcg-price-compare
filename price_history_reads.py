@@ -414,3 +414,49 @@ def fetch_daily_min_by_card_names(sb, names: list[str], since: str, log_tag: str
                         "min_price": price,
                         "recorded_at": day})
     return out, failed
+
+
+def fetch_art_contexts_today(sb, names: list[str], today: str, log_tag: str) -> dict[str, dict]:
+    """names の当日の絵ごとの内訳（price_history_art）から、カードごとの「絵が分かれるレアリティ」を作る
+    （price_persist.art_price_context と同じ形。alt_codes は常に空）。新弾の収集は一部の店だけ取り直すので、その回に取らない店にしか
+    違う絵が無いカードでも、取り直した店の内訳を夜の収集（全店で判定）と同じレアリティで入れ直すために使う（2026-11-01）。
+    違う絵の型番は渡さない: 当日の内訳には店×レアリティ×絵の最安の型番しか残らず商品名も無いので、1つの型番に元と違う絵が
+    並ぶ型番を見分けられず、取り直した元の絵の行まで違う絵にしてしまう（reviewer 指摘）。
+    読めなかったカードは含めない（警告だけ。その回は取り直した店の行だけで判定する）"""
+    id_to_name, failed = _resolve_card_ids(sb, names, log_tag)
+    if failed:
+        logger.warning(f"[{log_tag}] 絵ごとの内訳の文脈: カード番号が読めない {len(failed)}枚は取り直した店の行だけで判定する")
+    if not id_to_name:
+        return {}
+    try:
+        rows: list[dict] = []
+        ids = sorted(id_to_name)
+        for i in range(0, len(ids), _ID_CHUNK):
+            id_chunk = ids[i:i + _ID_CHUNK]
+            offset = 0
+            while True:
+                batch = (sb.table("price_history_art").select("card_id, rarity_id")
+                         .in_("card_id", id_chunk).eq("recorded_at", today)
+                         .order("card_id").order("rarity_id").order("art_id").order("shop_id")
+                         .range(offset, offset + _PAGE_SIZE - 1).execute().data or [])
+                rows.extend(batch)
+                if len(batch) < _PAGE_SIZE:
+                    break
+                offset += _PAGE_SIZE
+        if not rows:
+            return {}
+        rarity_name = {r["rarity_id"]: r["rarity"] for r in
+                       sb.table("rarity_dim").select("rarity_id, rarity")
+                       .in_("rarity_id", sorted({r["rarity_id"] for r in rows})).execute().data or []}
+    except Exception as e:
+        logger.warning(f"[{log_tag}] 絵ごとの内訳の文脈の取得失敗（{len(id_to_name)}枚・取り直した店の行だけで判定する）: "
+                       f"{type(e).__name__}: {e}")
+        return {}
+    out: dict[str, dict] = {}
+    for r in rows:
+        rarity = rarity_name.get(r["rarity_id"])
+        if rarity is None:
+            logger.warning(f"[{log_tag}] 絵ごとの内訳の文脈: rarity_id={r['rarity_id']} の名前が読めない（その行は使わない）")
+            continue
+        out.setdefault(id_to_name[r["card_id"]], {"rarities": set(), "alt_codes": set()})["rarities"].add(rarity)
+    return out

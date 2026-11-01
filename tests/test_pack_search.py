@@ -158,7 +158,7 @@ def test_plan_pack_search_off_when_head_or_reprints_unknown(monkeypatch):
 def test_main_uses_pack_items_and_searches_the_rest_by_name(monkeypatch):
     calls = {}
 
-    def fake_collect(sb, card, today, shops, shop_stats=None, db_guard=None, pack_items=None, pack_code=""):
+    def fake_collect(sb, card, today, shops, shop_stats=None, db_guard=None, pack_items=None, pack_code="", art_contexts=None):
         calls[card] = (list(shops), [it["shop"] for it in pack_items or []])
         return 0, []
 
@@ -316,7 +316,7 @@ def test_main_rechecks_dropped_torecolo_even_if_collected(monkeypatch):
     """今日の行で確かめられなかったトレコロの組は、朝に取れていてもカード名で探す（値上がりも入るように）"""
     calls = {}
 
-    def fake_collect(sb, card, today, shops, shop_stats=None, db_guard=None, pack_items=None, pack_code=""):
+    def fake_collect(sb, card, today, shops, shop_stats=None, db_guard=None, pack_items=None, pack_code="", art_contexts=None):
         calls[card] = list(shops)
         return 0, []
 

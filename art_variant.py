@@ -226,6 +226,13 @@ def _alt_only_codes(rows: list[dict], card_name: str) -> set[str]:
     どこかの店がその型番を決まった言葉でイラスト違いと書き、その型番で元と違うを両方持つ店も、決まった言葉で元と書く店も無いとき、
     型番ごと違う絵とみなす（灰流うらら PAC1-JP016 のように1つの型番に絵が2種類ある型番は、同じ店に両方並ぶので当たらない）。
     Yugipedia の表（_art_prints）にある型番も、店の言葉が無くても同じ扱い（同じ店に両方並ぶ・元と書く店があれば外す）"""
+    alt_by_explicit, blocked = _code_evidence(rows, card_name)
+    return (alt_by_explicit | _art_prints().get(_key(card_name), frozenset())) - blocked
+
+
+def _code_evidence(rows: list[dict], card_name: str) -> tuple[set[str], set[str]]:
+    """(決まった言葉でイラスト違いと書かれた型番, 型番ごと違う絵とみなさない型番)。後者は、同じ店にその型番で元と違うが
+    両方ある型番と、決まった言葉で元と書く店がある型番。rows は classify 済み（art・edition がある）"""
     alt_by_explicit: set[str] = set()
     blocked: set[str] = set()
     arts_by_shop: dict[tuple[str, str], set[str]] = {}
@@ -242,7 +249,17 @@ def _alt_only_codes(rows: list[dict], card_name: str) -> set[str]:
     for (_, code), arts in arts_by_shop.items():
         if ART_BASE in arts and ART_ALT in arts:
             blocked.add(code)
-    return (alt_by_explicit | _art_prints().get(_key(card_name), frozenset())) - blocked
+    return alt_by_explicit, blocked
+
+
+def alt_only_codes(rows: list[dict], card_name: str) -> set[str]:
+    """rows（そのカードの全店の行）から分かる、型番ごと違う絵の型番。annotate の extra_alt_codes に渡す文脈を作る用
+    （違う絵の行の型番をそのまま渡すと、1つの型番に元と違うがある型番で、元の絵の行まで違う絵になる。2026-11-01 reviewer 指摘）。
+    Yugipedia の表の型番は、rows に無くても含む（_alt_only_codes と同じ）。呼び元の行は書き換えない"""
+    tmp = [dict(r) for r in rows]
+    for row in tmp:
+        row["art"], row["edition"] = classify(row, card_name)
+    return _alt_only_codes(tmp, card_name)
 
 
 # ── 絵の台帳（2026-11-01）──
@@ -399,7 +416,8 @@ def annotate(rows: list[dict], card_name: str, extra_alt_codes: set[str] | None 
     for row in rows:
         row["art"], row["edition"] = classify(row, card_name)
     # 型番ごと違う絵の再録は、無印で書く店の行も違う絵に直す（その店の中では「元」に見えるだけ）
-    alt_codes = _alt_only_codes(rows, card_name) | (extra_alt_codes or set())
+    # 外から渡した型番も、この行の中で「型番ごと違う絵ではない」と分かるもの（同じ店に元と違うが並ぶ・元と書く店がある）は外す
+    alt_codes = _alt_only_codes(rows, card_name) | ((extra_alt_codes or set()) - _code_evidence(rows, card_name)[1])
     # Yugipedia の表にある型番は絵が1種類だけなので、店の言葉で判別できなかった行（カーナベルの「(パワプロコラボ)」など。
     # 2026-10-29 増援 PPC2-JP001）も違う絵にする。絵を書き分けない店・漫画風（色が書いていない）は判別しないまま
     table_codes = _art_prints().get(_key(card_name), frozenset()) & alt_codes
