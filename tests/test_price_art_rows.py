@@ -269,3 +269,30 @@ def test_buyback_empty_rarity_is_unknown_label():
         _row("遊々亭", "灰流うらら(イラスト違い版)", "", 500),
     ]
     assert {r["rarity"] for r in pp.build_art_buyback_rows("灰流うらら", rows, TODAY)} == {"(不明)"}
+
+
+def test_context_alt_codes_exclude_code_with_both_arts():
+    """1つの型番に元と違う絵が並ぶ型番は、文脈の「型番ごと違う絵」に入れない。渡されても、取り直した行の中で
+    同じ店に元と違うが並ぶ・元と書く店があれば外す（入れると元の絵の行まで違う絵になる。2026-11-01 reviewer 指摘）"""
+    rows = [
+        _row("遊々亭", "灰流うらら", "シークレット", 420, "PAC1-JP016"),
+        _row("遊々亭", "灰流うらら(イラスト違い版)", "シークレット", 980, "PAC1-JP016"),
+        _row("カードラッシュ", "灰流うらら", "シークレット", 400, "PAC1-JP016"),
+    ]
+    ctx = pp.art_price_context("灰流うらら", rows)
+    assert ctx["alt_codes"] == set() and ctx["rarities"] == {"シークレット"}
+    # 外から型番を渡しても、同じ店に元と違うが並ぶ型番は元の絵のまま
+    out = pp.build_art_price_rows("灰流うらら", rows[:2], TODAY, {"rarities": {"シークレット"}, "alt_codes": {"PAC1-JP016"}})
+    assert _keyed(out) == {("遊々亭", "シークレット", av.ART_BASE): 420, ("遊々亭", "シークレット", av.ART_ALT): 980}
+
+
+def test_context_alt_codes_keep_code_only_alt():
+    """型番ごと違う絵（ある店がイラスト違いと書き、ほかの店は無印）は文脈に入り、1店だけの行も違う絵になる"""
+    rows = [
+        _row("カーナベル", "三戦の号(イラスト違い)", "ノーマル", 100, "CH01-JP030"),
+        _row("遊々亭", "三戦の号", "ノーマル", 80, "QCAC-JP096"),
+    ]
+    ctx = pp.art_price_context("三戦の号", rows)
+    assert ctx["alt_codes"] == {"CH01-JP030"}
+    out = pp.build_art_price_rows("三戦の号", [_row("遊々亭", "三戦の号", "ノーマル", 90, "CH01-JP030")], TODAY, ctx)
+    assert _keyed(out) == {("遊々亭", "ノーマル", av.ART_ALT): 90}

@@ -326,8 +326,8 @@ def art_price_context(card_name: str, scrape_results: list) -> dict:
     カードラボだけを別の経路（カタログ巡回）で後から保存するので、カードラボの行の判定をこれでほかの店にそろえる（10-30 reviewer 指摘）"""
     rows = _valid_price_rows(card_name, scrape_results)
     split = _split_rarities(rows, card_name)
-    alt_codes = {rows[i].get("code") for (_, i), art in split.items()
-                 if art.startswith(art_variant.ART_ALT) and rows[i].get("code")}
+    # 型番ごと違う絵の型番だけ（違う絵の行の型番をそのまま渡すと、1つの型番に元と違うがある型番で元の絵の行まで違う絵になる）
+    alt_codes = art_variant.alt_only_codes(rows, card_name)
     return {"rarities": {rarity for rarity, _ in split}, "alt_codes": alt_codes}
 
 
