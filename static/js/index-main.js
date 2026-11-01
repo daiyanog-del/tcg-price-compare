@@ -1676,6 +1676,19 @@ function _artSuffix(){
   if(artFilter) return '・'+artFilter;
   return rarityFilter&&_artsOf(rarityFilter).length>1?'・すべての絵':'';
 }
+// 一覧の行に店の商品画像を小さく出すか（2026-11-01）。絵の切り替え欄と同じく、選んだレアリティに日本版の絵が2種類以上あるときだけ。
+// 青眼の白龍・ブラック・マジシャンは1つの型番（QCAC-JP018 など）に絵が5種類以上あり、店ごとに「背景緑」「1正面/石板背景」「[赤服]」と
+// 書き方がばらばらで「元／イラスト違い」に分けきれない。絵の見分けは商品画像で利用者に任せる（画像は商品ごとに店が持つもの。
+// 11-01 に QCAC-JP018 で絵ごとに別の画像だと確認）
+function _showRowThumbs(){
+  return !!rarityFilter&&_artsOf(rarityFilter).length>1;
+}
+// 行の小さな商品画像。押すと拡大（card-zoom.js）。画像の無い行は同じ幅の空きにして、店名の頭をそろえる
+function _rowThumbHtml(r){
+  const img=safeUrl(r.image||'');
+  if(!img) return '<span class="cr-thumb cr-thumb-none" aria-hidden="true"></span>';
+  return `<button type="button" class="cr-thumb" data-zoom="${escAttr(img)}" data-shop="${escAttr(r.shop)}" aria-label="${escAttr(r.shop+'の商品画像を拡大')}"><img src="${escAttr(img)}" alt="" loading="lazy" width="30" height="44"></button>`;
+}
 // その行が絵の絞り込み art に入るか。'' は日本版のすべて、言語版の名前はその言語版だけ、絵の名前は日本版のその絵
 function _inArt(r,art){
   if(r.edition) return !!art&&r.edition===art;
@@ -1825,6 +1838,7 @@ function renderTable(){
   const total=sorted.length;
   const visible=sorted.slice(0,tableShowCount);
   const tbody=document.getElementById('tbody');
+  const thumbs=_showRowThumbs();
   tbody.innerHTML=visible.map(r=>{
     const isBest=r===bestRow;
     const so=r.sold_out?'sold-out':'';
@@ -1855,7 +1869,7 @@ function renderTable(){
       :'';
     return`<tr class="${rowClass}" ${rowHref}>
       <td class="cr-num cr-price">¥${r.price.toLocaleString()}</td>
-      <td class="cr-shop"><span class="cr-shop-name">${esc(r.shop)}${isAff?AFF_PR_BADGE:''}</span>${tags}${sub?`<span class="cr-sub">${sub}</span>`:''}</td>
+      <td class="cr-shop">${thumbs?_rowThumbHtml(r)+'<span class="cr-shop-body">':''}<span class="cr-shop-name">${esc(r.shop)}${isAff?AFF_PR_BADGE:''}</span>${tags}${sub?`<span class="cr-sub">${sub}</span>`:''}${thumbs?'</span>':''}</td>
       <td class="cr-cond">${cond}</td>
       <td class="cr-code">${code}</td>
       <td class="cr-num cr-stock">${stockStr}</td>${buyMaxCell}
@@ -1922,6 +1936,13 @@ function _syncListViewButtons(){
 // 検索結果テーブルの行クリックで商品ページへ（a・button クリックは除外）
 // renderTable() の外で一度だけ登録し、再描画ごとに重複追加されないようにする
 document.getElementById('tbl')?.addEventListener('click',e=>{
+  // 行の小さな商品画像は、店のページへ行かずに拡大する（_rowThumbHtml）
+  const thumb=e.target.closest('.cr-thumb[data-zoom]');
+  if(thumb&&window.CardZoom){
+    CardZoom.open(thumb.dataset.zoom,{label:thumb.getAttribute('aria-label')||''});
+    _ga('row_thumb_zoom',{shop:thumb.dataset.shop||'',rarity:rarityFilter||''});
+    return;
+  }
   if(e.target.closest('a,button')) return;
   const tr=e.target.closest('tr.row-clickable');
   if(tr?.dataset.href) window.open(tr.dataset.href,'_blank','noopener');
