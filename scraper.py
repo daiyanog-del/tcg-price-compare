@@ -2336,12 +2336,15 @@ def run_shop_with_status(fn, card_name: str) -> tuple[list[dict], int]:
 
 
 def compare_prices(card_name: str, shop_names: list[str] | None = None,
-                   status_out: dict | None = None) -> list[dict]:
+                   status_out: dict | None = None, extra_results: list[dict] | None = None) -> list[dict]:
     """指定された店舗を並列にスクレイピング
 
     status_out に dict を渡すと、店舗ごとの取得状況を書き込む:
       {店舗名: {"count": 件数, "fetch_errors": 取得エラー数, "exception": エラー文字列(任意)}}
     「0件かつ fetch_errors > 0」は在庫なしではなく取得失敗を意味する。
+
+    extra_results: 検索せずに別の経路で得た同じカードの商品（夜の収集のトレコロの在庫一覧の巡回）。
+    取得した行と合わせてから型番の補完・OF のそろえをかける（status_out には書かない）。
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -2351,26 +2354,27 @@ def compare_prices(card_name: str, shop_names: list[str] | None = None,
     # 渡した晩に、全カードが未フィルタのDEFAULT_SHOPS 6店舗へ飛ぶ事故を防ぐ）
     target = DEFAULT_SHOPS if shop_names is None else shop_names
     active = [(name, fn) for name, fn in SHOPS if name in target]
-    if not active:
+    if not active and not extra_results:
         return []
 
-    all_results = []
-    with ThreadPoolExecutor(max_workers=len(active)) as executor:
-        futures = {
-            executor.submit(run_shop_with_status, fn, card_name): name
-            for name, fn in active
-        }
-        for future in as_completed(futures):
-            shop_name = futures[future]
-            try:
-                results, fetch_errors = future.result()
-                all_results.extend(results)
-                if status_out is not None:
-                    status_out[shop_name] = {"count": len(results), "fetch_errors": fetch_errors}
-            except Exception as e:
-                print(f"  ❌ {shop_name}: {e}")
-                if status_out is not None:
-                    status_out[shop_name] = {"count": 0, "fetch_errors": 1, "exception": str(e)}
+    all_results = list(extra_results or [])
+    if active:
+        with ThreadPoolExecutor(max_workers=len(active)) as executor:
+            futures = {
+                executor.submit(run_shop_with_status, fn, card_name): name
+                for name, fn in active
+            }
+            for future in as_completed(futures):
+                shop_name = futures[future]
+                try:
+                    results, fetch_errors = future.result()
+                    all_results.extend(results)
+                    if status_out is not None:
+                        status_out[shop_name] = {"count": len(results), "fetch_errors": fetch_errors}
+                except Exception as e:
+                    print(f"  ❌ {shop_name}: {e}")
+                    if status_out is not None:
+                        status_out[shop_name] = {"count": 0, "fetch_errors": 1, "exception": str(e)}
 
     # 同じカードの全店ぶんが揃った直後に型番を補完する（保存前）。
     # カーナベルの弾略号・トレコロCBの接尾辞つき値を、他店の完全な型番で補う。

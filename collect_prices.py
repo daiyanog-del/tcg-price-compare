@@ -52,11 +52,9 @@ DAILY_COLD_BUDGET = int(os.environ.get("DAILY_COLD_BUDGET", "800"))
 TIME_BUDGET_SEC = int(os.environ.get("TIME_BUDGET_SEC", str(300 * 60)))
 # トレコロの在庫一覧の巡回（torecolo_catalog.py・2026-10-31）の使い方。Render の環境変数で切り替える
 #   shadow: 巡回はするが保存はしない。トレコロは従来どおりカード名で探して保存し、巡回の値との食い違いを記録する（既定）
-#   on:     巡回の値で保存し、トレコロのカード名の検索をやめる（1晩約3,900回 → 約530ページ）
+#   on:     巡回の値で保存し、トレコロのカード名の検索をやめる（1晩約3,900回 → 約530ページ＋検索し直し数十回）
 #   off:    巡回しない（従来どおり）
 TORECOLO_CATALOG_MODE = os.environ.get("TORECOLO_CATALOG_MODE", "shadow").strip().lower()
-# on（巡回の値で保存）を使ってよいか。型番の補完などが入るまでは False で、on でも shadow として動く
-TORECOLO_CATALOG_ON_READY = False
 
 # 収集から除外する店舗。実行環境ごとに環境変数 COLLECT_SKIP_SHOPS（カンマ区切り）で上書きできる。
 #   - 未設定（GitHub Actions 等の従来環境）: データセンターIPから遅い/到達不能な店舗を従来どおり除外
@@ -364,7 +362,8 @@ def _prepare_torecolo_catalog(selected: list[dict], loop_shops: list[str], avail
     """トレコロの在庫一覧の巡回（torecolo_catalog.py）を、カード単位ループの前に実行する。
 
     戻り値は (loop_shops, matched, catalog_stats)。カードラボの _prepare_clabo_catalog と同じ形。
-      - mode "on" で成立: loop_shops からトレコロを外す（保存は _save_torecolo_catalog_rows）
+      - mode "on" で成立: loop_shops からトレコロを外す。カードごとの巡回の商品は、ループで collect_and_save に
+        torecolo_products として渡し、ほかの店の行と合わせて保存する（_torecolo_card_plan）
       - mode "shadow" で成立: loop_shops はそのまま（トレコロはカード名で探して保存し、後で食い違いを比べる）
       - 不成立・例外・"off"・トレコロが使えない晩: matched は None（従来どおり）
     """
@@ -373,11 +372,6 @@ def _prepare_torecolo_catalog(selected: list[dict], loop_shops: list[str], avail
     if mode not in ("on", "shadow", "off"):
         print(f"  ⚠ TORECOLO_CATALOG_MODE={mode!r} は分からない値です（shadow / on / off）。巡回しません")
         return loop_shops, None, None
-    if mode == "on" and not TORECOLO_CATALOG_ON_READY:
-        # 巡回の値で保存するには、型番の補完・取りこぼしたカードのカード名での検索し直し・カードラボの判定材料・
-        # 処理位置の記録が要る（2026-10-31 reviewer 高1・高3・中2・中5）。直すまでは shadow として動かす
-        print("  ⚠ TORECOLO_CATALOG_MODE=on はまだ準備中です。shadow（保存はカード名の検索のまま）として動かします")
-        mode = "shadow"
     if mode == "off" or TORECOLO not in available_shops:
         return loop_shops, None, None
     print(f"\n--- トレコロ 在庫一覧の巡回（{mode}） ---")
@@ -396,22 +390,55 @@ def _prepare_torecolo_catalog(selected: list[dict], loop_shops: list[str], avail
         # ループがトレコロの ok/empty/error を足していく（印だけ先に置く）
         shop_stats[TORECOLO] = {"ok": 0, "empty": 0, "error": 0, "mode": "shadow", "catalog": catalog_stats}
         return loop_shops, matched, catalog_stats
+    # on: ループがトレコロの ok/empty/error（巡回の商品のあった・無かったカード、検索し直しの結果）を足していく
+    shop_stats[TORECOLO] = {"ok": 0, "empty": 0, "error": 0, "mode": "catalog", "catalog": catalog_stats,
+                            "recheck": {"cards": 0, "prev_read_failed": False}}
     return [s for s in loop_shops if s != TORECOLO], matched, catalog_stats
 
 
-def _save_torecolo_catalog_rows(sb: Client, processed: list[dict], matched: dict[str, list[dict]],
-                                today: str, shop_stats: dict, catalog_stats: dict,
-                                art_contexts: dict[str, dict] | None = None) -> int:
-    """巡回の結果を、実際にループで処理されたカードだけ保存する（mode "on"。カードラボと同じ決まり）。"""
-    ok, empty, all_rows, art_rows = _build_catalog_rows(processed, matched, today, art_contexts)
-    saved = 0
-    for i in range(0, len(all_rows), _UPSERT_CHUNK_SIZE):
-        saved += upsert_price_rows(sb, all_rows[i:i + _UPSERT_CHUNK_SIZE])
-    for i in range(0, len(art_rows), _UPSERT_CHUNK_SIZE):
-        upsert_price_art_rows(sb, art_rows[i:i + _UPSERT_CHUNK_SIZE])
-    shop_stats[TORECOLO] = {"ok": ok, "empty": empty, "error": 0, "mode": "catalog", "catalog": catalog_stats}
-    print(f"  トレコロ 在庫一覧の巡回で保存: 対象{ok}枚 / 0件{empty}枚 / 保存{saved}行")
-    return saved
+def _fetch_torecolo_prev_rarities(sb: Client, day: str) -> dict[str, set[str]] | None:
+    """day（JST の日付）にトレコロの行があった (カード名 → レアリティの集合)。読めなければ None。
+
+    mode "on" で、巡回で前日のレアリティが消えたカードをカード名で検索し直すかの判定に使う（_torecolo_card_plan）。
+    price_history（ビュー）を店と日付の等号で読む。並びは card_id, rarity_id（1日・1店の中では一意なので
+    range の境目で行が落ちない・重ならない）。2026-11-01 本番の実測: 10-31 のトレコロは7,902行・1ページ約0.7秒。"""
+    prev: dict[str, set[str]] = {}
+    offset = 0
+    try:
+        while True:
+            resp = (sb.table("price_history").select("card_name, rarity")
+                    .eq("shop", TORECOLO).eq("recorded_at", day)
+                    .order("card_id").order("rarity_id")
+                    .range(offset, offset + _PAGE_SIZE - 1).execute())
+            batch = resp.data or []
+            for r in batch:
+                prev.setdefault(r["card_name"], set()).add(r["rarity"])
+            if len(batch) < _PAGE_SIZE:
+                return prev
+            offset += _PAGE_SIZE
+    except Exception as e:
+        print(f"  ⚠ トレコロ 前日（{day}）の行を読めませんでした: {type(e).__name__}: {e}。今夜は検索し直しをしません")
+        return None
+
+
+def _torecolo_card_plan(card_name: str, loop_shops: list[str], matched: dict[str, list[dict]],
+                        prev_rarities: dict[str, set[str]] | None, today: str
+                        ) -> tuple[list[str], list[dict] | None, bool]:
+    """mode "on" のとき、1枚のカードでトレコロをどう扱うかを決める。戻り値は (この回の店, 巡回の商品, 検索し直すか)。
+
+    巡回は1系列を最大約3分かけて読むので、読んでいる途中に前のページの商品が売れると、後ろの商品が1つ前のページへ
+    ずれて読まれないことがある（shadow の 11-01 の晩で「検索だけにある」組が2）。前日にトレコロの行があった
+    レアリティが巡回の商品に無いカードは、本当に売り切れたのか読み落としたのか分からないので、トレコロも
+    カード名で検索し、巡回の商品は使わない（そのカードは従来と同じ取り方になる）。
+    トレコロのレアリティはほかの店の行では変わらない（OF のそろえはカードラボの行だけ）ので、取得の前に決められる。
+    前日の行が読めなかった晩（prev_rarities が None）・前日の行が無いカードは検索し直さない。"""
+    products = matched.get(card_name, [])
+    prev = (prev_rarities or {}).get(card_name)
+    if prev:
+        found = {r["rarity"] for r in build_min_price_rows(card_name, products, today) if r["shop"] == TORECOLO}
+        if prev - found:
+            return [*loop_shops, TORECOLO], None, True
+    return loop_shops, products, False
 
 
 _SHADOW_EXAMPLES_PER_KIND = 5
@@ -480,11 +507,17 @@ def collect_and_save(sb: Client, card_name: str, today: str, shop_names: list[st
                      shop_stats: dict | None = None,
                      db_guard: ConsecutiveDbFailureGuard | None = None,
                      art_contexts: dict[str, dict] | None = None,
-                     torecolo_sink: dict | None = None) -> int:
+                     torecolo_sink: dict | None = None,
+                     torecolo_products: list[dict] | None = None) -> int:
     """1枚のカードの価格を取得してSupabaseに保存。保存した行数を返す。
 
     torecolo_sink に dict を渡すと、このカードのトレコロの検索結果（取得に失敗したら None）を残す
     （トレコロの在庫一覧の巡回の shadow で、巡回の値と比べるため。_compare_torecolo_shadow）。
+
+    torecolo_products に list を渡すと（トレコロの在庫一覧の巡回の on）、トレコロは検索せずにこの商品を使う。
+    ほかの店の行と合わせてから型番の補完（infer_codes）・OF のそろえをかけ、同じ行として保存する。
+    カードラボの巡回の保存に渡す判定材料（art_contexts）にもトレコロの行が入る。shop_stats では
+    商品が1件以上なら取得、0件なら0件に数える（巡回は全系列を読み切った晩だけ使うので取得失敗は無い）。
 
     shop_stats に dict を渡すと、店舗ごとの 取得成功/0件/取得エラー を集計する。
     「0件＝在庫なし」と「取得失敗（接続エラー・セレクタ破損等）」を区別するため。
@@ -494,10 +527,13 @@ def collect_and_save(sb: Client, card_name: str, today: str, shop_names: list[st
     """
     status: dict = {}
     try:
-        results = compare_prices(card_name, shop_names=shop_names, status_out=status)
+        results = compare_prices(card_name, shop_names=shop_names, status_out=status,
+                                 **({"extra_results": torecolo_products} if torecolo_products is not None else {}))
     except Exception as e:
         print(f"  スクレイピング失敗 [{card_name}]: {e}")
         return 0
+    if torecolo_products is not None:
+        status[TORECOLO] = {"count": len(torecolo_products), "fetch_errors": 0}
 
     # カードラボのカタログ巡回（後で別に保存する）の OF の判定に使う。保存できなかった（ほかの店が全部売り切れ等）
     # カードでも残す。早く return すると、その夜だけカードラボの行が寄らず札が揺れる（10-30 reviewer 指摘）
@@ -1351,7 +1387,7 @@ def _main(state: dict):
         selected, available_shops, shop_stats
     )
     # トレコロ: 在庫一覧の巡回（torecolo_catalog.py）。"on" で成立すれば loop_shops からトレコロを外す
-    loop_shops, torecolo_matched, torecolo_catalog_stats = _prepare_torecolo_catalog(
+    loop_shops, torecolo_matched, _ = _prepare_torecolo_catalog(
         selected, loop_shops, available_shops, shop_stats
     )
     # カタログ巡回が成立したときだけ、ループ側の絵の判定をカードごとに残してカタログの保存へ渡す
@@ -1359,8 +1395,15 @@ def _main(state: dict):
         {} if (clabo_matched is not None or torecolo_matched is not None) else None)
     # shadow のとき、ループでカード名の検索から得たトレコロの結果を残す（巡回の値と比べる）
     torecolo_sink: dict | None = {} if (torecolo_matched is not None and TORECOLO in loop_shops) else None
+    # on のとき、トレコロはカードごとに巡回の商品を渡して、ほかの店の行と一緒に保存する（_torecolo_card_plan）
+    torecolo_on = torecolo_matched is not None and TORECOLO not in loop_shops
+    torecolo_prev: dict[str, set[str]] | None = None
+    if torecolo_on:
+        prev_day = (datetime.fromisoformat(today).date() - timedelta(days=1)).isoformat()
+        torecolo_prev = _fetch_torecolo_prev_rarities(sb, prev_day)
+        shop_stats[TORECOLO]["recheck"]["prev_read_failed"] = torecolo_prev is None
 
-    # 打ち切り時点のインデックス（打ち切りが起きなければ全件処理）。
+    # ループが処理し終えたカードの数（打ち切り・想定外の例外で抜けたときはそこまで。ループを回さない晩は全件）。
     # カタログの保存対象を「実際にループで処理されたカード」に絞るために使う（reviewer中3）
     loop_end_index = len(selected)
 
@@ -1373,13 +1416,16 @@ def _main(state: dict):
     # 既に巡回済みのカタログ結果（最大2万件）を失わずに保存する。例外自体は
     # finally 実行後に再送出される（catch はしない）
     try:
-        if not loop_shops:
+        if not loop_shops and not torecolo_on:
             # loop_shops が空＝カタログ巡回でカードラボが外れ、かつ他店が全滅した晩。
             # scraper.compare_prices 側でも空リストはDEFAULT_SHOPSへフォールバックしない
             # よう塞いだが（reviewer中1）、2,700枚ぶんの空スクレイプ＋待機を毎回
             # 走らせるのは無駄なので、ここでループ自体をスキップする
             print("  ⚠ カード単位ループの対象店舗が空のためスキップします（カタログ巡回の保存のみ実施）")
         else:
+            # カードごとに処理し終えたら進める。想定外の例外で抜けたときに、処理していないカードへカタログの行を
+            # 書かないため（以前は len(selected) のままで、例外の後ろのカードにもカードラボの行を書いていた）
+            loop_end_index = 0
             for i, card_data in enumerate(selected):
                 card_name = card_data["card_name"]
 
@@ -1393,12 +1439,22 @@ def _main(state: dict):
                         break
 
                 print(f"[{i+1}/{len(selected)}] {card_name}")
+                card_shops, extra = loop_shops, {}
+                if torecolo_on:
+                    card_shops, torecolo_products, recheck = _torecolo_card_plan(
+                        card_name, loop_shops, torecolo_matched, torecolo_prev, today)
+                    if recheck:
+                        print("  トレコロ: 前日のレアリティが巡回に無いため、カード名で検索し直します")
+                        shop_stats[TORECOLO]["recheck"]["cards"] += 1
+                    else:
+                        extra["torecolo_products"] = torecolo_products
+                if torecolo_sink is not None:
+                    extra["torecolo_sink"] = torecolo_sink
                 saved = 0
                 try:
-                    saved = collect_and_save(sb, card_name, today, loop_shops,
+                    saved = collect_and_save(sb, card_name, today, card_shops,
                                              shop_stats=shop_stats, db_guard=db_guard,
-                                             art_contexts=art_contexts,
-                                             **({"torecolo_sink": torecolo_sink} if torecolo_sink is not None else {}))
+                                             art_contexts=art_contexts, **extra)
                     if saved > 0:
                         total_saved += saved
                         success_count += 1
@@ -1419,11 +1475,13 @@ def _main(state: dict):
                     loop_end_index = i + 1
                     break
 
-                if i < len(selected) - 1:
+                loop_end_index = i + 1
+                # 店に取りに行かなかったカード（ほかの店が全滅した晩に巡回の商品だけで保存した）は待たない
+                if i < len(selected) - 1 and card_shops:
                     time.sleep(WAIT_BETWEEN_CARDS)
     finally:
         # カタログ巡回が成立していれば、実際に処理されたカードだけを対象にここで保存する。
-        # loop_shops が空でスキップした場合は loop_end_index が len(selected) のままなので、
+        # ループを回さずスキップした場合は loop_end_index が len(selected) のままなので、
         # selected 全件が保存対象になる（正しい）。
         # DB保存の連続失敗で打ち切ったときは保存しない（固まった DB へ大きな書き込みを重ねないため）
         if clabo_matched is not None and db_abort is None:
@@ -1437,23 +1495,14 @@ def _main(state: dict):
                 # 件数つきの打ち切り処理へ合流させる（ループが別の例外で抜けた途中なら、その例外がそのまま上がる）
                 db_abort = e
                 abort_phase = "post"
-        if torecolo_matched is not None and db_abort is None:
-            processed = selected[:loop_end_index]
+        if torecolo_sink is not None and db_abort is None:
+            # shadow: 保存はカード名の検索の側。巡回の値との食い違いだけ記録する（比べに失敗しても収集は続ける）。
+            # on のときはループで保存し終えているので、ここでは何もしない
             try:
-                if torecolo_sink is not None:
-                    # shadow: 保存はカード名の検索の側。巡回の値との食い違いだけ記録する（比べに失敗しても収集は続ける）
-                    try:
-                        shop_stats.setdefault(TORECOLO, {})["shadow"] = _compare_torecolo_shadow(
-                            processed, torecolo_matched, torecolo_sink, today, art_contexts)
-                    except Exception as e:
-                        print(f"  トレコロ 巡回とカード名の検索の比べに失敗: {e}")
-                else:
-                    total_saved += _save_torecolo_catalog_rows(
-                        sb, processed, torecolo_matched, today, shop_stats, torecolo_catalog_stats,
-                        art_contexts=art_contexts)
-            except DbWriteAborted as e:
-                db_abort = e
-                abort_phase = "post"
+                shop_stats.setdefault(TORECOLO, {})["shadow"] = _compare_torecolo_shadow(
+                    selected[:loop_end_index], torecolo_matched, torecolo_sink, today, art_contexts)
+            except Exception as e:
+                print(f"  トレコロ 巡回とカード名の検索の比べに失敗: {e}")
 
     if db_abort is not None:
         # 古いデータの掃除・日次レポートは DB への問い合わせを重ねるので行わない
