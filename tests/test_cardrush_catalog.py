@@ -371,6 +371,12 @@ def test_cardrush_rests_rules():
         "昨日集めていない（打ち切り・保存0件）→ 休まない"
     assert cp._cardrush_rests({**card, "last_collected_at": None}, set(), today, 3) is False, "初めてのカードは休まない"
     assert cp._cardrush_rests(card, set(), today, 1) is False, "1以下は間引かない"
+    # DB は UTC で返す。JST 11-01 05:30 の収集は UTC では 10-31 20:30（先頭10文字で読むと前の日になる）
+    assert cp._cardrush_rests({**card, "last_collected_at": "2026-10-31T20:30:00.123456+00:00"},
+                              set(), today, 3) is True, "UTC の時刻は JST の日付に直して比べる"
+    assert cp._cardrush_rests({**card, "last_collected_at": "2026-10-31T14:30:00+00:00"},
+                              set(), today, 3) is False, "JST 10-31 23:30 は一昨日"
+    assert cp._cardrush_rests({**card, "last_collected_at": "壊れた値"}, set(), today, 3) is False
     assert cp._cardrush_rests({"card_name": searching[0], "last_collected_at": yesterday_collected},
                               set(), today, 3) is False, "3日に1回は検索する"
     # 3日続けて見ると、どのカードもちょうど1回は検索する

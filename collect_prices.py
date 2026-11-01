@@ -548,12 +548,22 @@ def _cardrush_rests(card: dict, with_rows: set[str], today: str, rest_days: int)
     昨日も一昨日も無かったカード（在庫なし・売り切れだけ。保存は売り切れの行を捨てるので、検索しても行は増えない）。
     そういうカードも rest_days 日に1回は検索する（カード名の crc32 で日をずらして、毎晩の検索の数をならす）。
     入荷に気づくのは最大 rest_days−1 日遅れる。
-    昨日の収集で処理されなかった（打ち切り）・保存0件だったカードは last_collected_at が古いので休まない。"""
+    昨日の収集で処理されなかった（打ち切り）・保存0件だったカードは last_collected_at が古いので休まない。
+    last_collected_at は DB から UTC（"2026-11-01T01:01:17.345629+00:00"）で返るので、JST の日付に直して比べる
+    （先頭10文字だと、朝5〜9時に集めたカードが前の日になる）。読めない値なら休まない。"""
     if rest_days <= 1 or card["card_name"] in with_rows:
         return False
     last = card.get("last_collected_at")
-    yesterday = (datetime.fromisoformat(today).date() - timedelta(days=1)).isoformat()
-    if not last or str(last)[:10] < yesterday:
+    if not last:
+        return False
+    try:
+        last_dt = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if last_dt.tzinfo is None:
+        last_dt = last_dt.replace(tzinfo=JST)
+    yesterday = datetime.fromisoformat(today).date() - timedelta(days=1)
+    if last_dt.astimezone(JST).date() < yesterday:
         return False
     day_no = datetime.fromisoformat(today).date().toordinal()
     return zlib.crc32(card["card_name"].encode("utf-8")) % rest_days != day_no % rest_days
