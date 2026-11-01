@@ -26,7 +26,7 @@ from pack_scraper import (
     fetch_theme_cards, fetch_card_themes,
 )
 from price_persist import (art_price_context, build_art_price_rows, build_min_price_rows, upsert_price_art_rows,
-                           upsert_price_rows)
+                           upsert_price_rows, write_counts_line)
 from clabo_catalog import collect_clabo_catalog
 from torecolo_catalog import collect_torecolo_catalog
 from kanabell_catalog import collect_kanabell_catalog
@@ -2075,6 +2075,9 @@ def _main(state: dict):
 
     print(f"\n=== 完了（{elapsed_min:.0f}分）===")
     print(f"成功: {success_count}件 / 失敗: {fail_count}件 / 打ち切り: {cutoff_count}件 / 保存行数: {total_saved}")
+    counts_line = write_counts_line()
+    if counts_line:
+        print(counts_line)
     if shop_stats:
         print("店舗別取得状況:")
         for shop, s in sorted(shop_stats.items()):
