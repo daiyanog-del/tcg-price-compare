@@ -126,8 +126,9 @@ def test_build_done_folds_cardrush_green_into_25th_for_display():
          "price": 21800, "sold_out": False, "url": TC.format("TD01-JP001QSE")},
     ]
     done = app_module._build_done(rows, "", "ブラック・マジシャン")
+    # ブラック・マジシャンは絵の台帳のカードなので、GREEN Ver. は台帳の「東京ドーム」（TD01）にまとまる（2026-11-01）
     assert [(r["rarity"], r["art"]) for r in done["results"]] == [
-        ("25thシークレット", av.ART_GREEN), ("25thシークレット", av.ART_GREEN)]
+        ("25thシークレット", "東京ドーム"), ("25thシークレット", "東京ドーム")]
     # 保存に使う元の行は書き換えない
     assert rows[0]["rarity"] == "クォーターセンチュリーシークレットGREEN Ver."
 
@@ -291,3 +292,109 @@ def test_unreadable_label_is_kept_for_shop_inferred_code(monkeypatch):
     ]
     av.annotate(rows, "三戦の号")
     assert [r["art"] for r in rows] == [av.ART_ALT, ""]
+
+
+# ── 絵の台帳（data/art_ledger.json・2026-11-01）── 商品名・リンクは 2026-11-01 に本番の検索で取れた値
+
+def test_ledger_names_art_by_code():
+    # 型番の中に絵が1つの版は、店の書き方に関係なく型番で絵が決まる。QCDB の 25thシークは「元のイラスト」ではなく劇場版の絵
+    rows = [
+        _coded("遊々亭", "ブラック・マジシャン", "QCDB-JP007", "25thシークレット"),
+        _coded("カーナベル", "ブラック・マジシャン", "QCCU-JP001", "25thシークレット"),
+        _coded("まんぞく屋", "ブラック・マジシャン", "QCDB-JP007", "25thシークレット"),  # 絵を書き分けない店も型番で決まる
+    ]
+    av.annotate(rows, "ブラック・マジシャン")
+    assert [(r["art"], r["art_no"]) for r in rows] == [("劇場版（DSOD）", 7), ("オリジナル", 1), ("劇場版（DSOD）", 7)]
+
+
+@pytest.mark.parametrize("shop,name,url,art", [
+    # 1つの型番に絵が7種類ある QCAC-JP018 は、店ごとの言葉で決める
+    ("カーナベル", "ブラック・マジシャン(パンドラ)", "", "パンドラ"),
+    ("カードラボ", "ブラック・マジシャン(イラスト違い(5)/SJMP版)", "", "緑"),
+    ("カードラッシュ", "ブラックマジシャン(7右向杖構え/虹背景)", "", "宇宙"),
+    ("トレコロCB", "ブラック・マジシャン[目隠れ]", TC.format("QCAC-JP018SQSE4"), "原作絵"),
+    ("遊々亭", "ブラック・マジシャン", "", "石板"),  # 無印＝その型番のふつうの絵
+    ("遊々亭", "ブラック・マジシャン(イラスト違い版)", "", ""),  # 違う絵が6種類あるので決まらない
+])
+def test_ledger_words_split_multi_art_code(shop, name, url, art):
+    rows = [_coded(shop, name, "QCAC-JP018", "25thシークレット", url)]
+    av.annotate(rows, "ブラック・マジシャン")
+    assert rows[0]["art"] == art
+
+
+def test_ledger_reads_torecolo_code_from_link():
+    # トレコロは検索の結果に型番が入らないことが多い。商品番号（型番＋レアリティの略号）の頭で台帳を引く
+    rows = [_coded("トレコロCB", "真紅眼の黒竜[口上向き]", "", "シークレット", TC.format("QCAC-JP022SSE1")),
+            _coded("トレコロCB", "青眼の白龍", "", "25thシークレット", TC.format("QCDB-JP009QSE"))]
+    av.annotate(rows[:1], "真紅眼の黒竜")
+    av.annotate(rows[1:], "青眼の白龍")
+    assert [r["art"] for r in rows] == ["赤", "劇場版（DSOD）"]
+
+
+def test_ledger_code_prefix_needs_boundary():
+    # 商品番号の頭が型番と一致しても、続きが数字なら別の型番（LB-05 と LB-050 のような取り違えをしない）
+    led = {"codes": {"LB-05": (1, [])}}
+    assert av._ledger_code({"shop": "トレコロCB", "url": TC.format("LB-050UR")}, led) == ""
+    assert av._ledger_code({"shop": "トレコロCB", "url": TC.format("LB-05UR")}, led) == "LB-05"
+
+
+def test_ledger_codeless_rows_use_star_words_only():
+    # 型番の無い古い版は「*」の言葉だけで決める。言葉も無ければ判別できない（元のイラストにしない）
+    rows = [_coded("カーナベル", "ブラック・マジシャン(初期イラスト版)", "", "ウルトラ"),
+            _coded("カーナベル", "ブラック・マジシャン", "", "ウルトラ")]
+    av.annotate(rows, "ブラック・マジシャン")
+    assert [r["art"] for r in rows] == ["オリジナル", ""]
+
+
+def test_ledger_keeps_editions_and_manga_and_folds_green():
+    rows = [_coded("カードラッシュ", "☆アジア☆青眼の白龍(2右向)", "", "シークレット"),
+            _coded("カードラッシュ", "青眼の白龍(カラー)", "", "シークレット"),
+            _coded("カーナベル", "青眼の白龍(TOKYO DOME GREEN Ver.)(未開封)", "TD02-JP001", "25thシークレット"),
+            _coded("遊々亭", "青眼の白龍", "TD02-JP001", "25thシークレット")]
+    av.annotate(rows, "青眼の白龍")
+    assert [r["art"] for r in rows] == ["アジア版", av.ART_MANGA_COLOR, "東京ドーム", "東京ドーム"]
+
+
+def test_cards_outside_ledger_keep_two_way_split():
+    rows = [_coded("遊々亭", "灰流うらら(イラスト違い版)", "PAC1-JP016", "シークレット")]
+    av.annotate(rows, "灰流うらら")
+    assert rows[0]["art"] == av.ART_ALT and "art_no" not in rows[0]
+
+
+def test_missing_ledger_falls_back_to_two_way(monkeypatch, tmp_path):
+    monkeypatch.setattr(av, "_ART_LEDGER_PATH", tmp_path / "none.json")
+    av._art_ledger.cache_clear()
+    try:
+        rows = [_coded("遊々亭", "ブラック・マジシャン", "QCDB-JP007", "25thシークレット")]
+        av.annotate(rows, "ブラック・マジシャン")
+        assert rows[0]["art"] == av.ART_BASE
+    finally:
+        av._art_ledger.cache_clear()
+
+
+def test_ledger_file_is_consistent():
+    # 台帳の型番・言葉・色の番号は、どれもその台帳の絵の番号の中にある（名前の付け忘れ・番号の打ち間違いを止める）
+    import json
+    raw = json.loads(av._ART_LEDGER_PATH.read_text(encoding="utf-8"))
+    for name, v in raw.items():
+        if name.startswith("_"):
+            continue
+        nums = {int(n) for n in v["arts"]}
+        assert int(v["default"]) in nums, name
+        for code, e in v["codes"].items():
+            assert {n for n in [e.get("base"), *e.get("alts", [])] if n is not None} <= nums, (name, code)
+        for code, ws in v.get("words", {}).items():
+            allowed = nums if code == "*" else {n for n in [v["codes"][code].get("base"), *v["codes"][code].get("alts", [])] if n is not None}
+            assert {w["art"] for w in ws} <= allowed, (name, code)
+        assert set(v.get("colors", {}).values()) <= nums, name
+    assert av.ledger_info("ブラック・マジシャン") == {"order": [raw["ブラック・マジシャン"]["arts"][n] for n in sorted(raw["ブラック・マジシャン"]["arts"], key=int)], "default": "石板"}
+
+
+def test_ledger_rows_record_by_number():
+    # 台帳のカードは記録の表に番号で書く（名前を直しても記録の系列が切れない）。決まらない行・言語版は今までどおり
+    rows = [_coded("遊々亭", "ブラック・マジシャン", "QCDB-JP007", "25thシークレット"),
+            _coded("遊々亭", "ブラック・マジシャン(イラスト違い版)", "QCAC-JP018", "25thシークレット"),
+            _coded("カードラッシュ", "☆アジア☆ブラックマジシャン", "", "25thシークレット")]
+    av.annotate(rows, "ブラック・マジシャン")
+    assert [av.record_art(r, "ブラック・マジシャン") for r in rows] == ["絵#7", av.ART_UNKNOWN, "アジア版"]
+    assert av.needs_art_rows({"絵#7", av.ART_UNKNOWN})
