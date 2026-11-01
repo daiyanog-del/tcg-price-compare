@@ -1,20 +1,15 @@
 """
-tests/test_deck_ignore_duplicates.py — /api/deck 経路の即時upsertがignore_duplicates=Trueで
-呼ばれることの検証（フェーズ3 P6b、docs/design-phase3-generation-side.md 「P6b: 即時upsertと
-夜間収集のlast-write-wins競合」推奨案B）。
+tests/test_deck_ignore_duplicates.py — /api/deck（fresh なし）の記録への書き方。
 
-背景:
-  /api/deck はトレコロ・カーナベルを1ページ目に制限したスクレイプのため、網羅性の低い
-  高めの min を作ることがある。夜間収集の網羅的な min を同日上書きしないよう、
-  /api/deck 経由の即時upsertのみ ignore_duplicates=True にする。/api/search は
-  全ページ取得のため対象外（既定の False のまま last-write-wins を維持）。
+2026-11-01 に決まりを変えた（以前は全店を ignore_duplicates=True＝その日の行が無いときだけ書いていた）:
+  - 全ページを読む店（遊々亭・カードラッシュ・まんぞく屋・カーナベル）: その日の記録に上書き（/api/search と同じ）
+  - 浅い店（トレコロの1ページ目・カードラボ）: 新しいカード・当日の値下がり・当日に無いレアリティだけ書き、
+    前日の記録だけある深夜は書かない（price_persist.shallow_rows_to_write）
+  深夜0時以降の浅い結果がその日の最初の行になり、深い収集の前日の行を押しのけていたため（TASKS の深夜の件）。
 
 テスト方針:
-  Flask test_client で /api/deck を叩き、SHOPS をスタブ1店舗に差し替え、
-  Thread を同期実行に差し替えて fire-and-forget を即時観測可能にする。
-  fake Supabase client の rpc("upsert_price_rows", ...) 呼び出しに渡された
-  p_ignore_duplicates 引数を検証する（ネットワーク・実Supabase不使用、
-  2026-09-02 整数キー化で upsert() から rpc() 経由に変更。price_history_v2.sql）。
+  Flask test_client で /api/deck を叩き、SHOPS をスタブに差し替え、Thread を同期実行にして書き込みを観測する。
+  記録の読み出し（fetch_daily_rows_by_card_names）は差し替える。
 """
 
 import sys
@@ -87,34 +82,95 @@ class _SyncThread:
         self._target(*self._args, **self._kwargs)
 
 
+def _fake_scrape_for(shop: str, price: int = 1000, rarity: str = "レア"):
+    def fn(card_name: str, max_pages: int = 5) -> list:
+        return [{
+            "shop": shop, "name": card_name, "rarity": rarity, "code": "",
+            "condition": "-", "price": price, "stock": 1, "sold_out": False,
+            "url": "", "image": "",
+        }]
+    return fn
+
+
+def _run_deck(monkeypatch, shops, existing=None, failed=frozenset()):
+    """shops: [(店名, スクレイパー)]。existing: 記録の読み出しが返す行（当日・前日）"""
+    monkeypatch.setattr(app_module, "SHOPS", shops, raising=False)
+    # トレコロは /api/deck が scrape_torecolo を1ページ目だけで呼び直すので、それも差し替える
+    for n, fn in shops:
+        if n == "トレコロCB":
+            import scraper
+            monkeypatch.setattr(scraper, "scrape_torecolo", fn)
+    monkeypatch.setattr(app_module, "cache_get_shops",
+                        lambda name, shops_, include_partial=False: ({}, list(shops_)))
+    monkeypatch.setattr(app_module, "cache_store_shops",
+                        lambda name, shop_results, partial_shops=frozenset(): None)
+    monkeypatch.setattr(app_module, "Thread", _SyncThread, raising=False)
+    monkeypatch.setattr(app_module, "_last_deck", {}, raising=False)  # 同じテストで続けて叩いても受付上限に当てない
+    monkeypatch.setattr(app_module, "fetch_daily_rows_by_card_names",
+                        lambda sb, names, columns, days, tag: (list(existing or []), set(failed)))
+    sink: list = []
+    monkeypatch.setattr(app_module, "_supabase_client", _FakeSupabase(sink), raising=False)
+    app_module._load_cardnames()
+    app_module.app.config.update(TESTING=True)
+    client = app_module.app.test_client()
+    resp = client.post("/api/deck", data={"cards": "テストカード", "shops": [n for n, _ in shops]})
+    assert resp.status_code == 200
+    resp.get_data()
+    return sink
+
+
+def _today():
+    return app_module.datetime.now(app_module.JST).strftime("%Y-%m-%d")
+
+
+def _yesterday():
+    return (app_module.datetime.now(app_module.JST) - app_module.timedelta(days=1)).strftime("%Y-%m-%d")
+
+
+def test_deep_shop_overwrites(monkeypatch):
+    sink = _run_deck(monkeypatch, [("遊々亭", _fake_scrape_for("遊々亭"))])
+    assert [c["p_ignore_duplicates"] for c in sink] == [False]
+    assert sink[0]["p_rows"][0]["min_price"] == 1000
+
+
+def test_kanabell_is_no_longer_first_page_only(monkeypatch):
+    """カーナベルは全件を読む店になり、上書きする"""
+    sink = _run_deck(monkeypatch, [("カーナベル", _fake_scrape_for("カーナベル"))])
+    assert [c["p_ignore_duplicates"] for c in sink] == [False]
+
+
+def test_shallow_shop_writes_new_card(monkeypatch):
+    """当日も前日も記録が無い（新しいカード）なら浅い店でも書く"""
+    sink = _run_deck(monkeypatch, [("トレコロCB", _fake_scrape_for("トレコロCB"))], existing=[])
+    assert len(sink) == 1 and sink[0]["p_rows"][0]["shop"] == "トレコロCB"
+
+
+def test_shallow_shop_skips_when_only_yesterday(monkeypatch):
+    """深夜（前日の記録だけ）は浅い結果を書かない"""
+    old = {"card_name": "テストカード", "shop": "トレコロCB", "rarity": "レア", "min_price": 800, "min_price_any": 800,
+           "code": "", "url": None, "recorded_at": _yesterday()}
+    sink = _run_deck(monkeypatch, [("トレコロCB", _fake_scrape_for("トレコロCB", price=500))], existing=[old])
+    assert sink == []
+
+
+def test_shallow_shop_lowers_today(monkeypatch):
+    """当日の記録より安ければそのレアリティだけ下げる。高ければ書かない"""
+    old = {"card_name": "テストカード", "shop": "カードラボ", "rarity": "レア", "min_price": 800, "min_price_any": 800,
+           "code": "", "url": None, "recorded_at": _today()}
+    sink = _run_deck(monkeypatch, [("カードラボ", _fake_scrape_for("カードラボ", price=500))], existing=[old])
+    assert len(sink) == 1 and sink[0]["p_rows"][0]["min_price_any"] == 500
+    sink = _run_deck(monkeypatch, [("カードラボ", _fake_scrape_for("カードラボ", price=900))], existing=[old])
+    assert sink == []
+
+
+def test_shallow_shop_skips_when_records_unreadable(monkeypatch):
+    sink = _run_deck(monkeypatch, [("トレコロCB", _fake_scrape_for("トレコロCB"))], failed={"テストカード"})
+    assert sink == []
+
+
 def _fake_scrape(card_name: str) -> list:
     return [{
         "shop": "テスト店", "name": card_name, "rarity": "レア", "code": "",
         "condition": "-", "price": 1000, "stock": 1, "sold_out": False,
         "url": "", "image": "",
     }]
-
-
-def test_deck_route_persists_with_ignore_duplicates_true(monkeypatch):
-    monkeypatch.setattr(app_module, "SHOPS", [("テスト店", _fake_scrape)], raising=False)
-    monkeypatch.setattr(app_module, "cache_get_shops",
-                        lambda name, shops, include_partial=False: ({}, list(shops)))
-    monkeypatch.setattr(app_module, "cache_store_shops",
-                        lambda name, shop_results, partial_shops=frozenset(): None)
-    monkeypatch.setattr(app_module, "Thread", _SyncThread, raising=False)
-
-    sink: list = []
-    monkeypatch.setattr(app_module, "_supabase_client", _FakeSupabase(sink), raising=False)
-
-    app_module._load_cardnames()
-    app_module.app.config.update(TESTING=True)
-    client = app_module.app.test_client()
-
-    resp = client.post("/api/deck", data={"cards": "テストカード", "shops": ["テスト店"]})
-    assert resp.status_code == 200
-    resp.get_data()  # SSEジェネレータを最後まで消費する
-
-    assert sink, "rpc('upsert_price_rows', ...) が呼ばれていない"
-    call = sink[-1]
-    assert call["p_ignore_duplicates"] is True
-    assert call["p_rows"][0]["min_price"] == 1000

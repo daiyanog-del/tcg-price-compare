@@ -187,6 +187,50 @@ def upsert_price_rows(sb, rows: list[dict], ignore_duplicates: bool = False,
         return 0
 
 
+def shallow_rows_to_write(new_rows: list[dict], existing: list[dict], today: str) -> list[dict]:
+    """浅い取り方（トレコロの1ページ目・カードラボのカード名の検索）の結果のうち、記録に書いてよい行（2026-11-01）。
+
+    浅い結果で確かなのは「この値段で売っている出品がある」ことだけで、「このレアリティの最安」「このレアリティは無い」は
+    見落としかもしれない。そこで店ごとに次のとおり書く。
+      - その店に当日も前日も記録が無い（発売直後の新しいカードなど）: 全部書く
+      - 当日の記録がある: 当日に無いレアリティは足し、あるレアリティは安くなった値だけ下げる（下げない欄は当日の値のまま）
+      - 前日の記録だけある（深夜0時〜朝の収集まで）: 書かない。1つでも当日の行を作ると、画面は前日の行を使わなくなり
+        （featured_matrix はカード×店で当日を優先）、深い収集でしか見つからないレアリティが朝まで消えるため
+    new_rows / existing は build_min_price_rows の形（existing は当日と前日の記録。recorded_at で見分ける）。
+    """
+    by_shop: dict[str, dict] = {}
+    for r in existing:
+        ent = by_shop.setdefault(r.get("shop"), {"today": {}, "older": False})
+        if str(r.get("recorded_at") or "")[:10] == today:
+            ent["today"][r.get("rarity")] = r
+        else:
+            ent["older"] = True
+    out: list[dict] = []
+    for row in new_rows:
+        ent = by_shop.get(row.get("shop"))
+        if ent is None:
+            out.append(row)
+            continue
+        if not ent["today"]:
+            continue  # 前日だけ（深夜）
+        old = ent["today"].get(row.get("rarity"))
+        if old is None:
+            out.append(row)
+            continue
+        merged = dict(old)
+        merged.update({"card_name": row["card_name"], "shop": row["shop"], "rarity": row["rarity"], "recorded_at": today})
+        lower = False
+        if old.get("min_price") is None or row["min_price"] < old["min_price"]:
+            merged["min_price"], merged["code"] = row["min_price"], row.get("code")
+            lower = True
+        if old.get("min_price_any") is None or row["min_price_any"] < old["min_price_any"]:
+            merged["min_price_any"], merged["url"] = row["min_price_any"], row.get("url")
+            lower = True
+        if lower:
+            out.append({k: merged.get(k) for k in row})
+    return out
+
+
 def upsert_buyback_rows(sb, rows: list[dict], raise_on_error: bool = False) -> int:
     """buyback_history に upsert する。
 
