@@ -20,7 +20,7 @@
     控えが1晩もたないと、毎朝約670回の重い検索になり、お店の処理の時間はかえって増える
 
 そこで、まずは試し読み（probe）:
-  毎晩、同じ PROBE_HEADS 種の頭だけを読み、ページごとの応答時間を collection_runs.shop_stats["カードラッシュ"]
+  毎晩、同じ PROBE_HEADS 種の頭だけを PROBE_TIME_BUDGET 秒まで読み、ページごとの応答時間を collection_runs.shop_stats["カードラッシュ"]
   ["catalog"] に残す。2晩目以降に速くなる（控えが1晩もつ）と分かったら、全頭に広げ（CARDRUSH_CATALOG_HEADS=all）、
   shadow の比べ（collect_prices._compare_catalog_shadow）で取りこぼしを見てから on にする。
   試し読みの晩は名寄せ・保存・比べをしない（全頭を読んでいないので、カードの最安が決まらない）。
@@ -49,12 +49,18 @@ from clabo_catalog import build_match_index, match_products
 CARDRUSH_SEARCH_URL = "https://www.cardrush.jp/product-list"
 HEADS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "cardrush_code_heads.json")
 
-# 試し読みで毎晩読む頭の数（毎晩同じ頭。2晩目以降に速くなるかを見る）
-PROBE_HEADS = 100              # TODO: calibrate from data（試し読みの晩の page_sec を見て広げる）
+# 試し読みで毎晩読む頭の数（毎晩同じ頭。2晩目以降に速くなるかを見る）。巡回はカード単位のループの前に走り、
+# 使った時間はそのまま収集の5時間の予算から引かれる（11-01 は予算切れで537枚が未取得）ので少なくする（reviewer 中1）
+PROBE_HEADS = 30               # TODO: calibrate from data（試し読みの晩の page_sec を見て広げる）
 CATALOG_PAGE_WAIT = 1.5        # ページの間の最低の待ち（秒）
 PAGE_TIMEOUT = 30              # 1ページの待ち（秒）
 HEAD_MAX_PAGES = 20            # 1つの頭で読むページの上限。QCCU（在庫あり697件）で7ページ。届いたら読み切れていない
-CATALOG_TIME_BUDGET = 1500     # 巡回全体の上限（秒）。TODO: calibrate from data（試し読みの晩の所要時間を見る）
+# 巡回全体の上限（秒）。試し読みは短く（1晩目は初めての頭が6〜24秒＋同じだけの待ちで、30種でも届きうる。
+# 届いても2晩目は同じ頭の先頭から読むので、先頭の数種は2晩分の秒を比べられる）
+PROBE_TIME_BUDGET = 300        # TODO: calibrate from data（試し読みの晩の elapsed_sec を見る）
+# 全頭（約670種・約850ページ）は待ちだけで約21分。応答が平均2秒なら約57分になる（reviewer 中2）。
+# 全頭にする前に、試し読みの1ページの秒から決め直す
+FULL_TIME_BUDGET = 3600        # TODO: calibrate from data（全頭に広げる前に試し読みの page_sec から決め直す）
 SLOW_PAGE_SEC = 10             # これより遅いページを slow_pages に数える（控えの無い重い検索の目安）
 # 全頭を読んだ晩に成立とする在庫ありの商品の下限（2026-11-01 の推定で在庫ありは約2.8万件）
 MIN_IN_STOCK = 20000           # TODO: calibrate from data（全頭を読んだ晩の listed を見る）
@@ -80,11 +86,15 @@ def _search_url(head: str, page: int) -> str:
 
 
 def _fetch_page(head: str, page: int):
-    """1ページ読む。読めなければ None（scraper.safe_get が 403 などを数えてホストを一時停止する）。"""
-    return scraper.safe_get(_search_url(head, page), timeout=PAGE_TIMEOUT)
+    """1ページ読む。読めなければ None（scraper.safe_get が 403 などを数えてホストを一時停止する）。
+
+    再試行しない。初めて出す頭の検索は時間切れになることがあり、お店の側ではまだ処理が続いているかもしれないので、
+    同じ重い検索を重ねない（reviewer 中3）。失敗したらその晩の巡回をやめる。"""
+    return scraper.safe_get(_search_url(head, page), timeout=PAGE_TIMEOUT, retries=0)
 
 
-def crawl_heads(heads: list[str], page_wait: float = CATALOG_PAGE_WAIT) -> tuple[dict[str, list[dict]], dict]:
+def crawl_heads(heads: list[str], page_wait: float = CATALOG_PAGE_WAIT,
+                time_budget: float = FULL_TIME_BUDGET) -> tuple[dict[str, list[dict]], dict]:
     """型番の頭ごとに在庫ありの範囲を読み、元の商品名 → 行（在庫ありだけ）を返す（商品の URL で重複を除く）。
 
     元の商品名ごとにまとめるのは、名寄せ（is_target_card）を元の商品名で商品名ごとに1回だけ行うため。
@@ -93,12 +103,15 @@ def crawl_heads(heads: list[str], page_wait: float = CATALOG_PAGE_WAIT) -> tuple
     seen_urls: set[str] = set()
     stats = {"heads": len(heads), "heads_read": 0, "pages": 0, "listed": 0, "duplicates": 0, "order_breaks": 0,
              "skipped_items": 0, "slow_pages": 0, "page_sec_sum": 0.0, "page_sec_max": 0.0,
-             "failed": False, "time_truncated": False, "truncated_heads": [], "per_head": []}
+             "failed": False, "time_truncated": False, "truncated_heads": [], "per_head": [], "elapsed_sec": 0.0}
     started = _now()
     for head in heads:
         head_stat = {"head": head, "pages": 0, "in_stock": 0, "first_sec": None}
+        # この頭の検索で見た商品。存在しないページ（1ページ目が返る）の判定に使う。全体の seen_urls で判定すると、
+        # 短い頭（SD1 は SD10〜SD19 も当たる）の後ろのページが既読の商品だけのときに途中で止まる（reviewer 低1）
+        head_urls: set[str] = set()
         for page in range(1, HEAD_MAX_PAGES + 2):
-            if _now() - started > CATALOG_TIME_BUDGET:
+            if _now() - started > time_budget:
                 stats["time_truncated"] = True
                 break
             if page > HEAD_MAX_PAGES:
@@ -124,6 +137,11 @@ def crawl_heads(heads: list[str], page_wait: float = CATALOG_PAGE_WAIT) -> tuple
             seen_sold_out = False
             new_on_page = 0
             for item in items:
+                link = item.select_one("a.item_data_link")
+                href = link.get("href", "") if link else ""
+                if href and href not in head_urls:
+                    head_urls.add(href)
+                    new_on_page += 1
                 parsed = scraper.cardrush_row_from_item(item)
                 if parsed is None:
                     # 【-】の封入商品・グッズ・値段の無い商品
@@ -146,7 +164,6 @@ def crawl_heads(heads: list[str], page_wait: float = CATALOG_PAGE_WAIT) -> tuple
                     continue
                 if url:
                     seen_urls.add(url)
-                new_on_page += 1
                 head_stat["in_stock"] += 1
                 rows_by_name.setdefault(raw_name, []).append(row)
             # 遅い応答のあとは、その分だけ余計に待つ（お店が混んでいるときに続けて重い検索を送らない）
@@ -164,6 +181,7 @@ def crawl_heads(heads: list[str], page_wait: float = CATALOG_PAGE_WAIT) -> tuple
         print(f"  カードラッシュ 型番の頭の巡回: {stats['heads_read']}/{len(heads)}種で時間の上限に届いた")
     stats["listed"] = len(seen_urls)
     stats["rows"] = sum(len(v) for v in rows_by_name.values())
+    stats["elapsed_sec"] = round(_now() - started, 1)
     return rows_by_name, stats
 
 
@@ -196,8 +214,8 @@ def collect_cardrush_catalog(card_names: list[str], heads_limit: int | None = PR
     heads = load_heads()
     probe = heads_limit is not None and heads_limit < len(heads)
     if probe:
-        heads = probe_heads(heads, heads_limit)
-    rows_by_name, stats = crawl_heads(heads)
+        heads = probe_heads(heads, max(0, heads_limit))  # 負の数は0種（[:-5] でほぼ全頭を読まない。reviewer 低3）
+    rows_by_name, stats = crawl_heads(heads, time_budget=PROBE_TIME_BUDGET if probe else FULL_TIME_BUDGET)
     stats["probe"] = probe
     if probe:
         return None, stats

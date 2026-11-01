@@ -94,7 +94,7 @@ def test_crawl_stops_each_head_at_sold_out_page(monkeypatch):
     assert st["listed"] == 5 and st["rows"] == 5 and st["heads_read"] == 2 and st["pages"] == 3
     assert all(not r["sold_out"] for rows in rows_by_name.values() for r in rows)
     assert [h["in_stock"] for h in st["per_head"]] == [4, 1]
-    monkeypatch.setattr(rc, "crawl_heads", lambda heads: (rows_by_name, dict(st)))
+    monkeypatch.setattr(rc, "crawl_heads", lambda heads, time_budget=None: (rows_by_name, dict(st)))
     monkeypatch.setattr(rc, "load_heads", lambda: ["AB01", "CD02"])
     matched, mst = rc.collect_cardrush_catalog(["A", "C", "Z"], heads_limit=None)
     assert {r["url"][-1] for r in matched["A"]} == {"1", "3"} and len(matched["C"]) == 1
@@ -130,6 +130,25 @@ def test_crawl_out_of_range_page_returns_first_page(monkeypatch):
     assert len(calls) == 2 and st["listed"] == 3 and not st["truncated_heads"]
 
 
+def test_short_head_reads_pages_of_already_seen_items(monkeypatch):
+    """SD1 の検索は SD10〜19 も当たる。SD10 で読んだ商品だけのページが続いても、SD1 の後ろのページまで読む（reviewer 低1）"""
+    p1 = _page([_li(1, _name("A", code="SD10-JP001")), _li(2, _name("B", code="SD10-JP002")),
+                _li(3, _name("C", code="SD10-JP003"))])
+    p2 = _page([_li(4, _name("D", code="SD1-JP001")), _li(5, _name("E"), stock=0), _li(6, _name("F"), stock=0)])
+    end10 = _page([_li(7, _name("G", code="SD10-JP004"), stock=0)])
+    calls, _ = _patch_pages(monkeypatch, {"SD10": [p1, end10], "SD1": [p1, p2]})
+    rows_by_name, st = rc.crawl_heads(["SD10", "SD1"], page_wait=0)
+    assert ("SD1", 2) in calls and _name("D", code="SD1-JP001") in rows_by_name
+    assert st["duplicates"] == 3
+
+
+def test_fetch_page_does_not_retry(monkeypatch):
+    got = {}
+    monkeypatch.setattr(scraper, "safe_get", lambda url, timeout=15, retries=1: got.update(url=url, retries=retries))
+    rc._fetch_page("IMPH", 2)
+    assert got == {"url": "https://www.cardrush.jp/product-list?keyword=IMPH&page=2", "retries": 0},         "時間切れの重い検索を出し直さない（reviewer 中3）"
+
+
 def test_crawl_failure_stops_night(monkeypatch):
     pages = {"AB01": [_page([_li(i, _name(f"A{i}")) for i in (1, 2, 3)])]}  # 2ページ目は None（失敗）
     calls, _ = _patch_pages(monkeypatch, pages)
@@ -147,10 +166,9 @@ def test_crawl_truncated_by_pages_and_time(monkeypatch):
     _, st = rc.crawl_heads(["AB01"], page_wait=0)
     assert st["truncated_heads"] == ["AB01"] and st["pages"] == 2
     monkeypatch.setattr(rc, "HEAD_MAX_PAGES", 20)
-    monkeypatch.setattr(rc, "CATALOG_TIME_BUDGET", 5)
     one = _page([_li(1, _name("A"))])
     _patch_pages(monkeypatch, {"AB01": [one], "CD02": [one]}, secs={("AB01", 1): 6})
-    _, st = rc.crawl_heads(["AB01", "CD02"], page_wait=0)
+    _, st = rc.crawl_heads(["AB01", "CD02"], page_wait=0, time_budget=5)
     assert st["time_truncated"] and st["heads_read"] == 1, "時間の上限に届いたら残りの頭を読まない"
 
 
@@ -179,13 +197,21 @@ def test_collect_short_on_order_break_and_min(monkeypatch):
 def test_collect_probe_reads_fixed_subset_and_never_matches(monkeypatch):
     heads = [f"H{i:03d}" for i in range(20)]
     monkeypatch.setattr(rc, "load_heads", lambda: heads)
-    read = []
-    monkeypatch.setattr(rc, "crawl_heads", lambda hs: (read.append(list(hs)) or ({}, {"rows": 0, "per_head": []})))
+    read, budgets = [], []
+    monkeypatch.setattr(rc, "crawl_heads", lambda hs, time_budget=None: (
+        read.append(list(hs)) or budgets.append(time_budget) or (
+            {}, {"rows": 0, "per_head": [], "listed": 0, "order_breaks": 0, "failed": False,
+                 "time_truncated": False, "truncated_heads": []})))
     matched, st = rc.collect_cardrush_catalog(["A"], heads_limit=5)
     matched2, _ = rc.collect_cardrush_catalog(["A"], heads_limit=5)
     assert matched is None and matched2 is None and st["probe"] is True
     assert read[0] == read[1] and len(read[0]) == 5, "試し読みは毎晩同じ頭（2晩目に速くなるかを見る）"
     assert read[0] == rc.probe_heads(heads, 5)
+    assert budgets[0] == rc.PROBE_TIME_BUDGET, "試し読みは短い時間の上限"
+    rc.collect_cardrush_catalog(["A"], heads_limit=-5)
+    assert read[-1] == [], "負の数は0種（ほぼ全頭を読まない）"
+    rc.collect_cardrush_catalog(["A"], heads_limit=None)
+    assert len(read[-1]) == 20 and budgets[-1] == rc.FULL_TIME_BUDGET
 
 
 def test_heads_file_is_loadable():
@@ -305,21 +331,28 @@ def test_collect_and_save_with_cardrush_products_and_sink(monkeypatch):
 # ── 直近2晩に行の無かったカードの検索の間引き（B1） ──
 
 class _RowsQuery:
-    def __init__(self, sb):
-        self.sb = sb
+    def __init__(self, sb, name):
+        self.sb, self.name = sb, name
 
     def select(self, cols):
         return self
 
     def eq(self, k, v):
-        self.sb.filters[k] = v
+        self.sb.filters.setdefault(self.name, {})[k] = v
         return self
 
     def in_(self, k, v):
-        self.sb.filters[k] = list(v)
+        self.sb.filters.setdefault(self.name, {})[k] = list(v)
+        return self
+
+    def gte(self, k, v):
+        self.sb.filters.setdefault(self.name, {})[k] = (">=", v)
         return self
 
     def order(self, *a, **k):
+        return self
+
+    def limit(self, n):
         return self
 
     def range(self, a, b):
@@ -327,17 +360,54 @@ class _RowsQuery:
         return self
 
     def execute(self):
-        if self.sb.fail:
+        if self.name in self.sb.fail:
             raise TimeoutError("timed out")
+        if self.name == "collection_runs":
+            return type("R", (), {"data": list(self.sb.runs)})()
         return type("R", (), {"data": self.sb.pages.pop(0) if self.sb.pages else []})()
 
 
 class _RowsSb:
-    def __init__(self, pages=(), fail=False):
-        self.pages, self.fail, self.ranges, self.filters = list(pages), fail, [], {}
+    """price_history は pages を1ページずつ、collection_runs は runs を返す。fail に表の名前を入れると例外。"""
+
+    def __init__(self, pages=(), runs=None, fail=()):
+        self.pages, self.fail, self.ranges, self.filters = list(pages), set(fail), [], {}
+        self.runs = _normal_runs() if runs is None else runs
 
     def table(self, name):
-        return _RowsQuery(self)
+        return _RowsQuery(self, name)
+
+
+def _run(started_at, ok=2800, empty=500, error=5, **extra):
+    st = {"ok": ok, "empty": empty, "error": error, **extra.pop("cardrush", {})}
+    return {"started_at": started_at, "skipped_shops": extra.pop("skipped_shops", {}),
+            "shop_stats": {"カードラッシュ": st, **extra.pop("shop_stats", {})}}
+
+
+def _normal_runs():
+    # 11-01・10-31 の朝 05:01 JST（UTC では前の日の 20:01）の収集
+    return [_run("2026-10-31T20:01:18.2231+00:00"), _run("2026-10-30T20:01:22.979824+00:00")]
+
+
+def test_parse_timestamp():
+    assert cp._parse_timestamp("2026-10-31T20:01:18.2231+00:00").astimezone(cp.JST).date().isoformat() == "2026-11-01", \
+        "Postgres は小数の末尾の0を落とす（Python 3.10 の fromisoformat はそのままでは読めない）"
+    assert cp._parse_timestamp("2026-11-01T01:01:17Z").hour == 1
+    assert cp._parse_timestamp("2026-11-01T06:00:00").tzinfo is not None, "タイムゾーンが無ければ JST"
+    assert cp._parse_timestamp("壊れた値") is None and cp._parse_timestamp(None) is None
+
+
+def test_cardrush_run_normal():
+    assert cp._cardrush_run_normal(_run("x")) is None
+    assert cp._cardrush_run_normal(None)
+    assert cp._cardrush_run_normal(_run("x", skipped_shops={"カードラッシュ": "health_check_failed"})), "飛ばした晩"
+    assert cp._cardrush_run_normal(_run("x", cardrush={"skipped": 120})), "連続失敗で問い合わせを止めた晩"
+    assert cp._cardrush_run_normal(_run("x", error=200)), "エラーが多い晩"
+    assert cp._cardrush_run_normal(_run("x", ok=0, empty=3300)), "全件0件の晩（作りの変化で読めない）"
+    assert cp._cardrush_run_normal(_run("x", cardrush={"mode": "catalog"})), "巡回の行で保存した晩"
+    assert cp._cardrush_run_normal(_run("x", shop_stats={"_aborted": {"phase": "loop"}})), "打ち切りの晩"
+    assert cp._cardrush_run_normal(_run("x", ok=0, empty=0, error=0)), "検索していない晩"
+    assert cp._cardrush_run_normal(_run("x", cardrush={"mode": "probe"})) is None, "試し読みの晩は検索で保存している"
 
 
 def test_fetch_cardrush_cards_with_rows(monkeypatch):
@@ -345,8 +415,8 @@ def test_fetch_cardrush_cards_with_rows(monkeypatch):
     sb = _RowsSb([[{"card_name": "A"}, {"card_name": "A"}], [{"card_name": "B"}]])
     assert cp._fetch_cardrush_cards_with_rows(sb, ["2026-11-01", "2026-10-31"]) == {"A", "B"}
     assert sb.ranges == [(0, 1), (2, 3)], "1000行ずつ最後まで読む"
-    assert sb.filters == {"shop": "カードラッシュ", "recorded_at": ["2026-11-01", "2026-10-31"]}
-    assert cp._fetch_cardrush_cards_with_rows(_RowsSb(fail=True), ["2026-11-01"]) is None
+    assert sb.filters["price_history"] == {"shop": "カードラッシュ", "recorded_at": ["2026-11-01", "2026-10-31"]}
+    assert cp._fetch_cardrush_cards_with_rows(_RowsSb(fail={"price_history"}), ["2026-11-01"]) is None
 
 
 def _rest_day_for(name, rest_days, today):
@@ -372,7 +442,7 @@ def test_cardrush_rests_rules():
     assert cp._cardrush_rests({**card, "last_collected_at": None}, set(), today, 3) is False, "初めてのカードは休まない"
     assert cp._cardrush_rests(card, set(), today, 1) is False, "1以下は間引かない"
     # DB は UTC で返す。JST 11-01 05:30 の収集は UTC では 10-31 20:30（先頭10文字で読むと前の日になる）
-    assert cp._cardrush_rests({**card, "last_collected_at": "2026-10-31T20:30:00.123456+00:00"},
+    assert cp._cardrush_rests({**card, "last_collected_at": "2026-10-31T20:30:00.1234+00:00"},
                               set(), today, 3) is True, "UTC の時刻は JST の日付に直して比べる"
     assert cp._cardrush_rests({**card, "last_collected_at": "2026-10-31T14:30:00+00:00"},
                               set(), today, 3) is False, "JST 10-31 23:30 は一昨日"
@@ -381,10 +451,8 @@ def test_cardrush_rests_rules():
                               set(), today, 3) is False, "3日に1回は検索する"
     # 3日続けて見ると、どのカードもちょうど1回は検索する
     for name in names[:10]:
-        c = {"card_name": name, "last_collected_at": "2026-11-05T06:00:00+09:00"}
-        days = [f"2026-11-0{d}" for d in (6, 7, 8)]
-        flags = [cp._cardrush_rests({**c, "last_collected_at": f"{(d[:8])}{int(d[8:]) - 1:02d}T06:00:00+09:00"},
-                                    set(), d, 3) for d in days]
+        flags = [cp._cardrush_rests({"card_name": name, "last_collected_at": f"2026-11-0{d - 1}T06:00:00+09:00"},
+                                    set(), f"2026-11-0{d}", 3) for d in (6, 7, 8)]
         assert flags.count(False) == 1
 
 
@@ -393,12 +461,33 @@ def test_cardrush_rest_set(monkeypatch):
     sel = [{"card_name": f"カード{i}", "last_collected_at": "2026-11-01T06:00:00+09:00"} for i in range(30)]
     sb = _RowsSb([[{"card_name": "カード0"}]])
     rest, st = cp._cardrush_rest_set(sb, sel, today, rest_days=3)
-    assert "カード0" not in rest and st["cards"] == len(rest) > 0 and not st["read_failed"]
-    assert sb.filters["recorded_at"] == ["2026-11-01", "2026-10-31"], "昨日と一昨日を読む"
-    rest, st = cp._cardrush_rest_set(_RowsSb(fail=True), sel, today, rest_days=3)
-    assert rest == set() and st["read_failed"], "読めない晩は間引かない"
+    assert "カード0" not in rest and st["cards"] == len(rest) > 0 and not st["read_failed"] and st["not_normal"] is None
+    assert sb.filters["price_history"]["recorded_at"] == ["2026-11-01", "2026-10-31"], "昨日と一昨日を読む"
+    some = next(iter(rest))
+    rest2, _ = cp._cardrush_rest_set(_RowsSb([[{"card_name": "カード0"}]]), sel, today, rest_days=3, never_rest={some})
+    assert some not in rest2 and len(rest2) == len(rest) - 1, "新弾の収録カードは休ませない"
+    rest, st = cp._cardrush_rest_set(_RowsSb(fail={"price_history"}), sel, today, rest_days=3)
+    assert rest == set() and st["read_failed"], "行を読めない晩は間引かない"
+    rest, st = cp._cardrush_rest_set(_RowsSb(fail={"collection_runs"}), sel, today, rest_days=3)
+    assert rest == set() and st["read_failed"], "収集の記録を読めない晩は間引かない"
     rest, st = cp._cardrush_rest_set(_RowsSb(), sel, today, rest_days=1)
     assert rest == set() and st["cards"] == 0
+
+
+def test_cardrush_rest_set_needs_two_normal_nights():
+    """カードラッシュが取れなかった晩の後は、行が無いのが在庫なしとは限らないので間引かない（reviewer 高1）"""
+    today = "2026-11-02"
+    sel = [{"card_name": f"カード{i}", "last_collected_at": "2026-11-01T06:00:00+09:00"} for i in range(30)]
+    bad_yesterday = [_run("2026-10-31T20:01:18+00:00", skipped_shops={"カードラッシュ": "health_check_failed"}),
+                     _run("2026-10-30T20:01:22+00:00")]
+    rest, st = cp._cardrush_rest_set(_RowsSb(runs=bad_yesterday), sel, today, rest_days=3)
+    assert rest == set() and st["not_normal"].startswith("2026-11-01")
+    only_yesterday = [_run("2026-10-31T20:01:18+00:00")]
+    rest, st = cp._cardrush_rest_set(_RowsSb(runs=only_yesterday), sel, today, rest_days=3)
+    assert rest == set() and st["not_normal"].startswith("2026-10-31"), "一昨日の記録が無ければ間引かない"
+    low_ok = [_run("2026-10-31T20:01:18+00:00"), _run("2026-10-30T20:01:22+00:00", ok=10, empty=3300)]
+    rest, st = cp._cardrush_rest_set(_RowsSb(runs=low_ok), sel, today, rest_days=3)
+    assert rest == set() and "取れた割合" in st["not_normal"]
 
 
 # ── main の配線 ──
@@ -425,7 +514,7 @@ def _run_main(monkeypatch, mode, catalog_ok=True, rest=(), probe=False):
     monkeypatch.setattr(cp, "KANABELL_CATALOG_MODE", "off")
     monkeypatch.setattr(cp, "CARDRUSH_CATALOG_MODE", mode)
     monkeypatch.setattr(cp, "_cardrush_rest_set",
-                        lambda sb, selected, today: (set(rest), {"days": 3, "cards": len(rest), "read_failed": False}))
+                        lambda sb, selected, today, **k: (set(rest), {"days": 3, "cards": len(rest), "read_failed": False}))
 
     def fake_catalog(ns, heads_limit=None):
         if probe:
@@ -490,3 +579,23 @@ def test_main_cardrush_probe_and_rest(monkeypatch):
     st = stats["カードラッシュ"]
     assert st["mode"] == "probe" and st["rest"]["cards"] == 1
     assert "skipped" not in st, "間引いた数を check_collection の skipped（連続失敗）に入れない"
+
+
+def test_daily_report_warns_cardrush_catalog(monkeypatch):
+    """不成立・例外は警告。試し読みは取得に失敗した晩だけ警告（お店に止められ始めた兆し。reviewer 中6）"""
+    sent = []
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://example.invalid/hook")
+    import requests
+    monkeypatch.setattr(requests, "post", lambda url, json=None, timeout=None: sent.append(json["content"]))
+    base = {"ok": 3, "empty": 0, "error": 0}
+    for st, expect in (({"mode": "fallback"}, "巡回が不成立"),
+                       ({"mode": "error"}, "巡回が例外"),
+                       ({"mode": "probe", "catalog": {"failed": True}}, "試し読みで取得に失敗"),
+                       ({"mode": "probe", "catalog": {"failed": False}}, None)):
+        sent.clear()
+        cp.send_daily_report(_PrevSb(), "2026-11-02", 3, 0, 0, 10.0, {"カードラッシュ": {**base, **st}})
+        assert sent
+        if expect:
+            assert expect in sent[0]
+        else:
+            assert "警告: カードラッシュ" not in sent[0]

@@ -83,7 +83,7 @@ def _int_env(name: str, default: int, allow_all: bool = False) -> int | None:
         return default
 
 
-CARDRUSH_CATALOG_HEADS = _int_env("CARDRUSH_CATALOG_HEADS", 100, allow_all=True)
+CARDRUSH_CATALOG_HEADS = _int_env("CARDRUSH_CATALOG_HEADS", 30, allow_all=True)
 # カードラッシュで直近2晩とも行が無かったカード（在庫なし・売り切れだけ）を何日に1回検索するか（_cardrush_rests・2026-11-01）。
 # 1以下で間引かない。11-01 の朝はカードラッシュの3,387枚のうち530枚が0件
 CARDRUSH_EMPTY_REST_DAYS = _int_env("CARDRUSH_EMPTY_REST_DAYS", 3)  # TODO: calibrate from data
@@ -541,11 +541,81 @@ def _fetch_cardrush_cards_with_rows(sb: Client, days: list[str]) -> set[str] | N
         return None
 
 
+# 前の晩のカードラッシュが「平常に取れていた」とみなす基準（_cardrush_run_normal）。check_collection の見張りと同じ値
+_CARDRUSH_NORMAL_MAX_ERROR = 0.03   # エラーの割合がこれ未満（check_collection.ERROR_RATIO）
+_CARDRUSH_NORMAL_MIN_OK = 0.5       # 取れたカードの割合がこれ以上（11-01 は 2,851/3,387＝84%）。TODO: calibrate from data
+
+
+def _cardrush_run_normal(run: dict | None) -> str | None:
+    """1晩分の collection_runs の行で、カードラッシュをカード名で検索して平常に取れていたか。平常なら None、
+    そうでなければ理由。行が無い晩・カードラッシュを飛ばした晩・連続失敗で問い合わせを止めた晩・エラーが多い晩・
+    取れた割合が低い晩（作りの変化で全件0件など）・打ち切りの晩・巡回の行で保存した晩（on）は平常でない
+    （行が無いのが「在庫なし」とは限らない。reviewer 高1）。"""
+    if not run:
+        return "記録が無い"
+    if CARDRUSH in (run.get("skipped_shops") or {}):
+        return "カードラッシュを飛ばした"
+    stats = run.get("shop_stats") or {}
+    if not isinstance(stats, dict) or stats.get("_aborted"):
+        return "打ち切り"
+    st = stats.get(CARDRUSH)
+    if not isinstance(st, dict):
+        return "カードラッシュの記録が無い"
+    if st.get("mode") == "catalog":
+        return "巡回の行で保存した"
+    ok, empty, error = (int(st.get(k) or 0) for k in ("ok", "empty", "error"))
+    attempted = ok + empty + error
+    if attempted == 0:
+        return "検索していない"
+    if int(st.get("skipped") or 0) > 0:
+        return "連続失敗で問い合わせを止めた"
+    if error / attempted >= _CARDRUSH_NORMAL_MAX_ERROR:
+        return f"エラーが多い（{error}/{attempted}）"
+    if ok / attempted < _CARDRUSH_NORMAL_MIN_OK:
+        return f"取れた割合が低い（{ok}/{attempted}）"
+    return None
+
+
+def _fetch_recent_price_runs(sb: Client, days: list[str]) -> dict[str, dict] | None:
+    """days（JST の日付）の毎朝の収集の collection_runs の行（日付 → その日の最後の行）。読めなければ None。"""
+    try:
+        since = (datetime.fromisoformat(min(days)) - timedelta(days=1)).date().isoformat()
+        resp = (sb.table("collection_runs").select("started_at, skipped_shops, shop_stats")
+                .eq("run_type", "prices").gte("started_at", since)
+                .order("started_at", desc=True).limit(10).execute())
+    except Exception as e:
+        print(f"  ⚠ カードラッシュ 直近の収集の記録を読めませんでした: {type(e).__name__}: {e}。今夜は検索を間引きません")
+        return None
+    out: dict[str, dict] = {}
+    for run in resp.data or []:
+        started = _parse_timestamp(run.get("started_at"))
+        day = started.astimezone(JST).date().isoformat() if started else None
+        if day in days and day not in out:
+            out[day] = run
+    return out
+
+
+def _parse_timestamp(value) -> datetime | None:
+    """DB の timestamptz の文字列（"2026-11-01T01:01:17.3456+00:00" など）を読む。読めなければ None。
+    Postgres は秒の小数の末尾の0を落とし、Python 3.10 の fromisoformat は3桁・6桁以外を読めないので、6桁にそろえる
+    （reviewer 低2）。タイムゾーンが無ければ JST とみなす。"""
+    if not value:
+        return None
+    text = str(value).strip().replace("Z", "+00:00").replace(" ", "T", 1)
+    text = re.sub(r"\.(\d+)", lambda m: "." + (m.group(1) + "000000")[:6], text, count=1)
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=JST)
+
+
 def _cardrush_rests(card: dict, with_rows: set[str], today: str, rest_days: int) -> bool:
     """このカードのカードラッシュの検索を今夜は休むか（B1・2026-11-01）。
 
-    休むのは、昨日たしかに集めた（last_collected_at が昨日以降＝昨日の収集で行を保存した）のに、カードラッシュの行が
-    昨日も一昨日も無かったカード（在庫なし・売り切れだけ。保存は売り切れの行を捨てるので、検索しても行は増えない）。
+    休むのは、昨日たしかに集めた（last_collected_at が JST の昨日以降＝昨日の収集で行を保存した）のに、カードラッシュの
+    行が昨日も一昨日も無かったカード（在庫なし・売り切れだけ。保存は売り切れの行を捨てるので、検索しても行は増えない）。
+    昨日と一昨日のカードラッシュが平常に取れていたかは呼び出し側（_cardrush_rest_set）が確かめる。
     そういうカードも rest_days 日に1回は検索する（カード名の crc32 で日をずらして、毎晩の検索の数をならす）。
     入荷に気づくのは最大 rest_days−1 日遅れる。
     昨日の収集で処理されなかった（打ち切り）・保存0件だったカードは last_collected_at が古いので休まない。
@@ -553,15 +623,9 @@ def _cardrush_rests(card: dict, with_rows: set[str], today: str, rest_days: int)
     （先頭10文字だと、朝5〜9時に集めたカードが前の日になる）。読めない値なら休まない。"""
     if rest_days <= 1 or card["card_name"] in with_rows:
         return False
-    last = card.get("last_collected_at")
-    if not last:
+    last_dt = _parse_timestamp(card.get("last_collected_at"))
+    if last_dt is None:
         return False
-    try:
-        last_dt = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
-    except ValueError:
-        return False
-    if last_dt.tzinfo is None:
-        last_dt = last_dt.replace(tzinfo=JST)
     yesterday = datetime.fromisoformat(today).date() - timedelta(days=1)
     if last_dt.astimezone(JST).date() < yesterday:
         return False
@@ -569,19 +633,35 @@ def _cardrush_rests(card: dict, with_rows: set[str], today: str, rest_days: int)
     return zlib.crc32(card["card_name"].encode("utf-8")) % rest_days != day_no % rest_days
 
 
-def _cardrush_rest_set(sb: Client, selected: list[dict], today: str,
-                       rest_days: int | None = None) -> tuple[set[str], dict]:
-    """今夜カードラッシュの検索を休むカード名と統計（shop_stats["カードラッシュ"]["rest"]）。"""
+def _cardrush_rest_set(sb: Client, selected: list[dict], today: str, rest_days: int | None = None,
+                       never_rest: set[str] | None = None) -> tuple[set[str], dict]:
+    """今夜カードラッシュの検索を休むカード名と統計（shop_stats["カードラッシュ"]["rest"]）。
+
+    昨日・一昨日のどちらかでカードラッシュが平常に取れていなければ、今夜は間引かない（_cardrush_run_normal）。
+    never_rest（新弾の収録カード）は休ませない（入荷直後の値を一番見たいカード。reviewer 中5）。"""
     rest_days = CARDRUSH_EMPTY_REST_DAYS if rest_days is None else rest_days
-    stats = {"days": rest_days, "cards": 0, "read_failed": False}
+    stats = {"days": rest_days, "cards": 0, "read_failed": False, "not_normal": None}
     if rest_days <= 1:
         return set(), stats
     d = datetime.fromisoformat(today).date()
-    with_rows = _fetch_cardrush_cards_with_rows(sb, [(d - timedelta(days=k)).isoformat() for k in (1, 2)])
+    days = [(d - timedelta(days=k)).isoformat() for k in (1, 2)]
+    runs = _fetch_recent_price_runs(sb, days)
+    if runs is None:
+        stats["read_failed"] = True
+        return set(), stats
+    for day in days:
+        reason = _cardrush_run_normal(runs.get(day))
+        if reason:
+            stats["not_normal"] = f"{day}: {reason}"
+            print(f"  カードラッシュ: {day} の収集が平常でない（{reason}）ため、今夜は検索を間引きません")
+            return set(), stats
+    with_rows = _fetch_cardrush_cards_with_rows(sb, days)
     if with_rows is None:
         stats["read_failed"] = True
         return set(), stats
-    rest = {c["card_name"] for c in selected if _cardrush_rests(c, with_rows, today, rest_days)}
+    never_rest = never_rest or set()
+    rest = {c["card_name"] for c in selected
+            if c["card_name"] not in never_rest and _cardrush_rests(c, with_rows, today, rest_days)}
     stats["cards"] = len(rest)
     print(f"  カードラッシュ: 直近2晩に行の無かった {len(rest)}枚は今夜の検索を休みます（{rest_days}日に1回だけ検索）")
     return rest, stats
@@ -1429,11 +1509,14 @@ def send_daily_report(
         if kana_stat.get("mode") in ("fallback", "error"):
             shop_block += (f"警告: カーナベル 全件巡回が{'不成立' if kana_stat['mode'] == 'fallback' else '例外'}"
                            "のため、カード名の検索に戻しました\n")
-        # カードラッシュの型番の頭の巡回も同じ（試し読みの晩は "probe" で知らせない）
+        # カードラッシュの型番の頭の巡回も同じ（試し読みの晩は "probe" で、取得に失敗したときだけ知らせる）
         rush_stat = shop_stats.get(CARDRUSH, {})
         if rush_stat.get("mode") in ("fallback", "error"):
             shop_block += (f"警告: カードラッシュ 型番の頭の巡回が{'不成立' if rush_stat['mode'] == 'fallback' else '例外'}"
                            "のため、カード名の検索に戻しました\n")
+        elif rush_stat.get("mode") == "probe" and (rush_stat.get("catalog") or {}).get("failed"):
+            # 試し読みは保存に使わないが、取得の失敗はお店に止められ始めた兆しになりうる（reviewer 中6）
+            shop_block += "警告: カードラッシュ 型番の頭の試し読みで取得に失敗しました（お店の遅れ・遮断が無いか確認）\n"
 
         # トレコロの在庫一覧の巡回（on）で、読み落としの検索し直しが効いていない晩を知らせる
         tore_stat = shop_stats.get(TORECOLO, {})
@@ -1771,7 +1854,7 @@ def _main(state: dict):
     # カードラッシュの検索をする晩だけ、直近2晩に行の無かったカードの検索を間引く（店への取得を減らす）
     cardrush_rest: set[str] = set()
     if CARDRUSH in loop_shops:
-        cardrush_rest, rest_stats = _cardrush_rest_set(sb, selected, today)
+        cardrush_rest, rest_stats = _cardrush_rest_set(sb, selected, today, never_rest=pack_all)
         # 間引いた数は "skipped" に入れない（check_collection が「連続失敗で問い合わせを止めた」と読む鍵）
         shop_stats.setdefault(CARDRUSH, {"ok": 0, "empty": 0, "error": 0})["rest"] = rest_stats
     # shadow のとき、ループでカード名の検索から得たカーナベルの行を残す（ループの後で巡回の行と比べる）
