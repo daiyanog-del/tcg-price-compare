@@ -19,7 +19,7 @@ assert.equal(dummyKindOfSrc(undefined), null);
 const disp = dummyDisplayOf('monster');
 assert.equal(disp.kind, 'image');
 assert.equal(disp.source, 'dummy');
-assert.ok(disp.url.endsWith('images/dummy-monster.svg?v=1'));
+assert.ok(disp.url.endsWith('images/dummy-monster.webp?v=1'));
 
 // 共有リンク・保存の画像の方針はそのまま通る（card:// のまま）
 assert.deepEqual(classifyReplayImage('card://ダミー（魔法）', 'ダミー（魔法）'), { kind: 'card', src: 'card://ダミー（魔法）' });

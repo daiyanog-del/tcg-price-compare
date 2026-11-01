@@ -8,14 +8,16 @@
  * 記録・保存・共有では card://ダミー（モンスター） のような予約した名前のセンチネルで持つ。
  * card:// はリプレイの画像の方針（replay-image-policy.js）とサーバーの検査をそのまま通り、
  * この部品を知らない表示（サーバーが描く盤面画像など）でも名前だけの札で出るため。
- * 画面に出すときは /api/card-images に問い合わせず、ここで枠の画像（images/dummy-*.svg）に置き換える。
+ * 画面に出すときは /api/card-images に問い合わせず、ここで枠の画像（images/dummy-*.webp）に置き換える。
+ * 枠の画像は YGOPRODeck のレプリカ（効果モンスター 38033121・魔法 55144522・罠 44095762）から、名前・属性・星／種別の表記・
+ * 絵・テキスト・権利表記を消したもの（トークンの token-base.webp と同じ作り方。生成スクリプトはリポジトリに入れていない）。
  */
 
 // 種別ごとの名前と枠の画像（?v= は差し替えたときに上げる）
 export const DUMMY_KINDS = {
-  monster: { name: 'ダミー（モンスター）', label: 'モンスター', url: new URL('../../images/dummy-monster.svg?v=1', import.meta.url).href },
-  spell:   { name: 'ダミー（魔法）',       label: '魔法',       url: new URL('../../images/dummy-spell.svg?v=1', import.meta.url).href },
-  trap:    { name: 'ダミー（罠）',         label: '罠',         url: new URL('../../images/dummy-trap.svg?v=1', import.meta.url).href },
+  monster: { name: 'ダミー（モンスター）', label: 'モンスター', url: new URL('../../images/dummy-monster.webp?v=1', import.meta.url).href },
+  spell:   { name: 'ダミー（魔法）',       label: '魔法',       url: new URL('../../images/dummy-spell.webp?v=1', import.meta.url).href },
+  trap:    { name: 'ダミー（罠）',         label: '罠',         url: new URL('../../images/dummy-trap.webp?v=1', import.meta.url).href },
 };
 
 const _KIND_BY_NAME = new Map(Object.entries(DUMMY_KINDS).map(([kind, d]) => [d.name, kind]));
