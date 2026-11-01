@@ -521,6 +521,8 @@ function _showSearchPreview(name){
   const box=document.getElementById('searchPreview');
   if(!box)return;
   box.querySelectorAll('.search-prog').forEach(el=>el.remove()); // 前の検索の進み具合のバー
+  // サーバーが描いた直近の日の価格（.ssr-snap・カードのページだけ）は、そのカードの検索中だけ残す。別のカードを検索したら消す
+  if(box.dataset.ssrName!==name){box.querySelectorAll('.ssr-snap').forEach(el=>el.remove());delete box.dataset.ssrName;}
   document.getElementById('searchPreviewImg').innerHTML='';
   document.getElementById('searchPreviewName').textContent=name;
   box.hidden=false;
@@ -2497,8 +2499,8 @@ function _updateUrl(cardName, mode){
   if(window.location.pathname+window.location.search+window.location.hash!==newUrl){
     history.pushState({card:cardName,mode:mode},'',newUrl);
   }
-  // ページタイトルも更新
-  const suffix=mode==='buyback'?' の買取価格比較':' の価格比較';
+  // ページタイトルも更新（販売はサーバーの題 templates/index.html と同じ言い回し。2026-11-01）
+  const suffix=mode==='buyback'?' の買取価格比較':' の値段・最安値比較';
   document.title=cardName+suffix+' | 強欲なラボ';
   _syncBreadcrumb(cardName,mode==='buyback');
 }

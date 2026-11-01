@@ -33,9 +33,14 @@ function _ga(name,params){ if(typeof gtag==='function') gtag('event',name,params
 </script>
 {% include '_ga.html' %}
 {% if card_name and page_mode == 'search' %}
-<title>{{ card_name }} の価格比較 | 強欲なラボ</title>
+<!-- 題と説明文は実際の検索語（「カード名 値段」）に合わせる。価格は本文の先出しの欄（ssr）と同じ出どころ・日付（2026-11-01） -->
+<title>{{ card_name }} の値段・最安値比較 | 強欲なラボ</title>
+{% if ssr %}
+<meta name="description" content="{{ card_name }}の値段（最安値）は¥{{ '{:,}'.format(ssr.low) }}（{{ ssr.best.shop }}・{{ ssr.best.rarity }}・{{ ssr.date_label }}時点）。遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボ・まんぞく屋の6店舗の価格を一括比較。開くと最新の価格を確認します。">
+{% else %}
 <meta name="description" content="{{ card_name }}の最安値を遊々亭・カードラッシュ・トレコロCB・カーナベル・カードラボ・まんぞく屋の6店舗から一括比較。{% if best_price %}現在の最安値は¥{{ '{:,}'.format(best_price) }}。{% endif %}リアルタイム価格検索。">
-<meta property="og:title" content="{{ card_name }} の価格比較 | 強欲なラボ">
+{% endif %}
+<meta property="og:title" content="{{ card_name }} の値段・最安値比較 | 強欲なラボ">
 <meta property="og:description" content="{{ card_name }}の最安値を6店舗で比較{% if best_price %}。最安¥{{ '{:,}'.format(best_price) }}{% endif %}">
 <link rel="canonical" href="{{ public_base_url }}/card/{{ card_name | urlencode }}">
 {% elif card_name and page_mode == 'buyback' %}
@@ -74,7 +79,7 @@ function _ga(name,params){ if(typeof gtag==='function') gtag('event',name,params
 <meta property="og:url" content="{{ public_base_url }}/">
 <meta property="og:locale" content="ja_JP">
 <meta property="og:site_name" content="強欲なラボ">
-<meta name="robots" content="index, follow">
+<meta name="robots" content="{% if noindex %}noindex, follow{% else %}index, follow{% endif %}">
 <link rel="icon" type="image/svg+xml" href="{{ static_url('favicon.svg') }}">
 <link rel="icon" type="image/png" sizes="32x32" href="{{ static_url('favicon-32.png') }}">
 <link rel="icon" type="image/png" sizes="16x16" href="{{ static_url('favicon-16.png') }}">
@@ -116,7 +121,15 @@ function _ga(name,params){ if(typeof gtag==='function') gtag('event',name,params
     "@type": "Product",
     "name": "{{ card_name }}",
     "category": "遊戯王OCG トレーディングカード"
-    {% if best_price %}
+    {% if ssr and page_mode == 'search' %}
+    ,"offers": {
+      "@type": "AggregateOffer",
+      "priceCurrency": "JPY",
+      "lowPrice": {{ ssr.low }},
+      "highPrice": {{ ssr.high }},
+      "offerCount": {{ ssr.shops | length }}
+    }
+    {% elif best_price %}
     ,"offers": {
       "@type": "AggregateOffer",
       "priceCurrency": "JPY",
@@ -771,9 +784,25 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
   <!-- 検索中に先に出すカードの欄（画像と名前だけ・2026-10-22 LCP）。最終のカードの欄（#cardHero）と同じ部品・同じ位置で出し、
        検索が終わったら結果と同じフレームで隠す（index-main.js _showSearchPreview / _hideSearchPreview）。
        検索中の進み具合のバー（search-progress.js）は名前の下に足すので、この欄と一緒に消える -->
-  <div class="card-hero search-preview" id="searchPreview" hidden aria-hidden="true">
+  <!-- カードのページ（/card/）では、この欄をサーバーで描いて最初から出す（2026-11-01 card_page_ssr.py）。
+       カード名を h1 にし、毎日集めた価格の直近の日の店ごとの最安（.ssr-snap）を添える。検索エンジンは最初の HTML を読むため。
+       画面の JS が前回の結果・最新の結果を出したら、いつもどおりこの欄ごと隠す（.ssr-snap は _hideSearchPreview が消す） -->
+  {% set ssr_page = card_name and page_mode == 'search' %}
+  <div class="card-hero search-preview" id="searchPreview"{% if ssr_page %} data-ssr-name="{{ card_name }}"{% else %} hidden aria-hidden="true"{% endif %}>
     <div class="card-hero-img" id="searchPreviewImg"></div>
-    <div class="card-hero-info"><div class="card-hero-name" id="searchPreviewName"></div></div>
+    <div class="card-hero-info">
+      {% if ssr_page %}
+      <h1 class="card-hero-name" id="searchPreviewName">{{ card_name }}</h1>
+      {% if ssr %}
+      <p class="ssr-snap ssr-line">最安 <b>¥{{ '{:,}'.format(ssr.low) }}</b>（{{ ssr.best.shop }}・{{ ssr.best.rarity }}）<span class="ssr-date">{{ ssr.date_label }} 時点・最新の価格を確認中</span></p>
+      <ul class="ssr-snap ssr-shops" aria-label="店ごとの最安（{{ ssr.date_label }} 時点）">
+        {% for s in ssr.shops %}<li><span class="ssr-shop">{{ s.shop }}</span><span class="ssr-rarity">{{ s.rarity }}</span><span class="ssr-price">¥{{ '{:,}'.format(s.price) }}</span></li>{% endfor %}
+      </ul>
+      {% endif %}
+      {% else %}
+      <div class="card-hero-name" id="searchPreviewName"></div>
+      {% endif %}
+    </div>
   </div>
 
   <!-- 前回の結果から差し替えたあとは、表の上に差し込まず画面の下に浮かべる（.cov-float・閉じるボタンはそのときだけ出る） -->

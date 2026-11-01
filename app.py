@@ -316,6 +316,7 @@ import sync as _sync
 from client_ip import _client_ip
 import site_urls
 import domain_handoff
+import card_page_ssr
 
 import re as _re
 from urllib.parse import quote as _url_quote
@@ -1082,22 +1083,35 @@ def card_page(card_name):
     if not card_name or len(card_name) > 50:
         return render_template("index.html", card_name="", page_mode="search"), 404
 
-    # キャッシュに価格データがあれば meta 用に渡す
-    cached = cache_get(card_name)
-    best_price = None
-    shop_count = 0
-    if cached:
-        in_stock = [r for r in cached if not r.get("sold_out")]
-        if in_stock:
-            best = min(in_stock, key=lambda x: x["price"])
-            best_price = best["price"]
-        shop_count = len(set(r["shop"] for r in cached))
+    # HTML に最初から書く価格（card_page_ssr.py。検索エンジンが読めるように・2026-11-01）。
+    # 本文・説明文・構造化データの数字は同じ出どころ（毎日集めた価格の直近の日）にそろえる
+    ssr = card_page_ssr.get_snapshot(_supabase_client, card_name)
+    best_price = ssr["low"] if ssr else None
+    shop_count = len(ssr["shops"]) if ssr else 0
+    if best_price is None:
+        # 読み終わらなかった・記録が無いときは、相場キャッシュ（直近7日の全カード最安・メモリ）の値を説明文に使う
+        est = _estimate_cache.get(card_name)
+        if est and est.get("price"):
+            best_price = est["price"]
+    if best_price is None:
+        # それも無ければ、今までどおり店舗検索のキャッシュ
+        cached = cache_get(card_name)
+        if cached:
+            in_stock = [r for r in cached if not r.get("sold_out")]
+            if in_stock:
+                best_price = min(in_stock, key=lambda x: x["price"])["price"]
+    # 正式名の一覧にも価格の記録にも無い名前（打ち間違いの URL など）は検索に出さない
+    # （正式名の一覧を読めていないときは判断できないので、検索に出す側に倒す）
+    known_card = (not _cardnames_set or card_name in _cardnames_set or ssr is not None
+                  or card_name in _estimate_cache)
 
     return render_template("index.html",
                            card_name=card_name,
                            page_mode="search",
                            best_price=best_price,
-                           shop_count=shop_count)
+                           shop_count=shop_count,
+                           ssr=ssr,
+                           noindex=not known_card)
 
 
 @app.route("/card/by-cid/<int:cid>")
