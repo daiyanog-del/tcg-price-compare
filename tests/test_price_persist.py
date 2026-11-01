@@ -14,6 +14,7 @@ tests/test_price_persist.py — price_persist.build_min_price_rows / upsert_pric
 ネットワーク・実Supabaseは一切使わない。
 """
 
+import pytest
 import sys
 from pathlib import Path
 
@@ -270,6 +271,37 @@ class _FakeSupabase:
 
     def rpc(self, name, params):
         return self._rpc(name, params)
+
+
+class TestChangedRowsCount:
+    """2026-11-01 DB 側で値が同じ行を書き直さなくなった（price_upsert_skip_same.sql）。
+    saved_rows の意味は変えず、changed_rows を数えて収集の最後に1行出す"""
+
+    _ROW = {"card_name": "テストカード", "shop": "店舗A", "rarity": "レア",
+            "min_price": 1000, "min_price_any": 1000, "code": "", "recorded_at": TODAY}
+
+    @pytest.fixture(autouse=True)
+    def _reset(self, monkeypatch):
+        import price_persist
+        monkeypatch.setattr(price_persist, "_write_counts", {"saved": 0, "changed": 0})
+
+    def test_changed_rows_counted_and_saved_unchanged(self):
+        from price_persist import write_counts_line
+        sb = _FakeSupabase(return_value=[{"saved_rows": 3, "changed_rows": 1}])
+        assert upsert_price_rows(sb, [self._ROW] * 3) == 3, "収集は saved_rows で成功を数えるので意味を変えない"
+        assert write_counts_line() == "価格の書き込み: 受け付け3行のうち書き換え1行（同じ値で書き直さなかった2行）"
+
+    def test_old_function_without_changed_rows_is_not_counted(self):
+        from price_persist import write_counts_line
+        sb = _FakeSupabase(return_value=[{"saved_rows": 1}])
+        assert upsert_price_rows(sb, [self._ROW]) == 1
+        assert write_counts_line() == ""
+
+    def test_ignore_duplicates_path_is_not_counted(self):
+        from price_persist import write_counts_line
+        sb = _FakeSupabase(return_value=[{"saved_rows": 0, "changed_rows": 0}])
+        upsert_price_rows(sb, [self._ROW], ignore_duplicates=True)
+        assert write_counts_line() == ""
 
 
 class TestUpsertIgnoreDuplicates:

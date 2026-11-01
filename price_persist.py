@@ -18,6 +18,7 @@ collect_prices.py（定期収集）と app.py（検索・見積もりの即時�
 from __future__ import annotations
 import logging
 import re
+import threading
 
 import art_variant
 from db_write_guard import is_db_unavailable
@@ -122,6 +123,21 @@ def build_min_price_rows(card_name: str, scrape_results: list, today: str) -> li
     return rows
 
 
+# このプロセスで上書き経路（ignore_duplicates=False）が受け付けた行と、実際に挿入・書き換えた行の合計。
+# 収集の定期実行は INFO ログを出さないので、最後に write_counts_line() を1行表示して効き目を測る（2026-11-01）
+_write_counts = {"saved": 0, "changed": 0}
+_write_counts_lock = threading.Lock()
+
+
+def write_counts_line() -> str:
+    """「受け付けN行のうち書き換えM行（同じ値K行）」の1行。数えた行が無ければ空文字"""
+    with _write_counts_lock:
+        saved, changed = _write_counts["saved"], _write_counts["changed"]
+    if not saved:
+        return ""
+    return f"価格の書き込み: 受け付け{saved}行のうち書き換え{changed}行（同じ値で書き直さなかった{saved - changed}行）"
+
+
 def upsert_price_rows(sb, rows: list[dict], ignore_duplicates: bool = False,
                       raise_on_error: bool = False) -> int:
     """price_history_v2 に RPC upsert_price_rows 経由で upsert する。
@@ -178,6 +194,14 @@ def upsert_price_rows(sb, rows: list[dict], ignore_duplicates: bool = False,
                 f"[price_persist] upsert_price_rows: {len(rows)}行中 {saved}行のみ保存"
                 "（RPC側で必須列NULL等により除外された可能性）"
             )
+        # 実際に挿入・書き換えた行（値が同じ行は DB が書き直さない。price_upsert_skip_same.sql）。
+        # 書き直しをやめた効き目を測るためのログ。関数が古い（列が無い）ときは出さない
+        changed = data[0].get("changed_rows")
+        if isinstance(changed, int) and not ignore_duplicates:
+            logger.info(f"[price_persist] upsert_price_rows: {saved}行中 書き換え{changed}行・同じ値{saved - changed}行")
+            with _write_counts_lock:
+                _write_counts["saved"] += saved
+                _write_counts["changed"] += changed
         return saved
     except Exception as e:
         # ERRORレベル: ここが無言で失敗し続けると価格履歴が丸ごと止まる

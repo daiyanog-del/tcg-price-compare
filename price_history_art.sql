@@ -251,6 +251,7 @@ REVOKE ALL ON FUNCTION public.rollup_price_daily_art(date, date) FROM PUBLIC, an
 GRANT EXECUTE ON FUNCTION public.rollup_price_daily_art(date, date) TO service_role;
 
 -- ============ 本表の書き込み関数の差し替え（同じ日の上書きで、もう出ない絵の行を別表に残さない） ============
+-- ⚠ 2026-11-01 から本番の定義は price_upsert_skip_same.sql（値が同じ行は書き直さない・戻り値に changed_rows）。下は戻し方の元
 -- 10-30 reviewer 指摘: 夜に「イラスト違い 1,500円」と「元のイラスト 800円」を書いたあと、昼の検索で違う絵が売り切れていると、
 --   別表の「元のイラスト」だけが上書きされ、夜の違う絵の行がその日の値として残る（検索にカーナベルが無く「分かれない」と
 --   判定されたときは別表に1行も書かれず、夜の行が全部残る）。
@@ -345,5 +346,5 @@ BEGIN
   RETURN QUERY SELECT n;
 END;
 $function$;
-REVOKE ALL ON FUNCTION public.upsert_price_rows(jsonb, boolean) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.upsert_price_rows(jsonb, boolean) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.upsert_price_rows(jsonb, boolean) TO service_role;

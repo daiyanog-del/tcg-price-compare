@@ -55,7 +55,8 @@ from collect_prices import (
 import shop_request_log
 from collection_run import attach_host_request_counts
 from scraper import compare_prices, SHOPS, get_host_request_counts, infer_codes, infer_overframe
-from price_persist import build_min_price_rows, build_pack_price_rows, upsert_price_pack_rows, upsert_price_rows
+from price_persist import (build_min_price_rows, build_pack_price_rows, upsert_price_pack_rows, upsert_price_rows,
+                           write_counts_line)
 from db_write_guard import (
     ConsecutiveDbFailureGuard, DbWriteAborted, GuardedSupabase, is_db_unavailable, report_db_abort,
 )
@@ -705,6 +706,9 @@ def _main(state: dict):
         f"対象カード数: {len(card_names)} / 保存行数: {total_saved} / "
         f"再試行ラウンド: {retry_round} / 最終失敗ペア: {len(failed_pairs)}"
     )
+    counts_line = write_counts_line()
+    if counts_line:
+        print(counts_line)
     if shop_stats:
         print("店舗別取得状況:")
         for shop, s in sorted(shop_stats.items()):
