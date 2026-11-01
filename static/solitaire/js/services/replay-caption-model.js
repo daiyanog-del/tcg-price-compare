@@ -145,7 +145,7 @@ export function describeStep(setupLogs, logs, index, dict = {}) {
       if (isDummy && before.out) {
         // まだ出していないダミーカードを出した（トークンと同じく、記録上はデッキに足してから動かす）
         out.to = zoneLabel(toZone);
-        out.tag = 'ダミー';
+        out.tag = down ? 'ダミー・セット' : defense ? 'ダミー・守備表示' : 'ダミー';
         return out;
       }
       if (toZone === before.zone) {

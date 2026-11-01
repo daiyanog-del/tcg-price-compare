@@ -56,7 +56,7 @@ import { getDropZoneInfo, executeDrop, getZoneId } from '../components/drag-drop
 import { restackCustomSlot } from '../components/slot-stack.js';
 import { openCardCommentInput } from './comment-ui.js';
 import { addCounterToCard } from '../components/counter-manager.js';
-import { showCardByName } from './card-info-panel.js';
+import { showCardByName, showCardForElement } from './card-info-panel.js';
 import { setCipExpanded } from './cip-layout.js';
 
 // ── 単一インスタンス ──────────────────────────────────────────────
@@ -645,7 +645,9 @@ function _cardDetailItem(cardEl) {
     label: 'カードの詳細',
     action: () => {
       if (col.classList.contains('hidden')) document.getElementById('cipToggle')?.click();
-      showCardByName(name, cardEl.src || '', cardEl.closest('.sample-art') ? 'official_sample' : undefined);
+      // ダミーカード（2026-11-01）は予約名で情報・相場を引かない（左クリックと同じ表示にする）
+      if (isDummyCard(cardEl.closest('.tier-item-wrapper'))) showCardForElement(cardEl);
+      else showCardByName(name, cardEl.src || '', cardEl.closest('.sample-art') ? 'official_sample' : undefined);
       // 左クリックと同じく、盤面左の隙間が狭い画面では盤面の上へ広げて効果文まで見せる（card-info-panel.js と同じ）
       setCipExpanded(true);
     },

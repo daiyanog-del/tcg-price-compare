@@ -97,8 +97,11 @@ export async function handleNeuronPdfSelect(event) {
  * 5枚は引かない。確認ダイアログは出さない（2026-10-15 ユーザー指定）。
  * 読み込んだデッキ（カード・画像辞書・名前辞書・EX判定）は残す。
  * 全ログが空＝全カードがデッキの状態が初期状態になるため、setup ログ(resetDeck)は残さない。
+ * ダミーカード（2026-11-01）はデッキに戻さず盤面から取り除く（戻すと1ドローで引けてしまう。
+ * デッキの中身ではない札なので、やり直すときは出し直す）。辞書の項目は clearReplayLog が消す。
  */
 export function handleReset() {
+  document.querySelectorAll('.tier-item-wrapper[data-dummy="1"]').forEach(w => w.remove());
   returnAllCardsToDeck();
   // 場を離れたカードのカウンターは無くなる（ルール上）。記録は0件になるため、残すと巻き戻しで戻せない
   document.querySelectorAll('.tier-item-wrapper > .counter-container').forEach(el => el.remove());
