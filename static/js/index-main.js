@@ -1939,7 +1939,7 @@ document.getElementById('tbl')?.addEventListener('click',e=>{
   // 行の小さな商品画像は、店のページへ行かずに拡大する（_rowThumbHtml）
   const thumb=e.target.closest('.cr-thumb[data-zoom]');
   if(thumb&&window.CardZoom){
-    CardZoom.open(thumb.dataset.zoom,{label:thumb.getAttribute('aria-label')||''});
+    CardZoom.open(thumb.dataset.zoom,{label:(thumb.dataset.shop||'店')+'の商品画像の拡大'});
     _ga('row_thumb_zoom',{shop:thumb.dataset.shop||'',rarity:rarityFilter||''});
     return;
   }

@@ -206,7 +206,7 @@
    カードの縦横比の枠に cover で収める（カードラッシュの正方形の画像は左右の白い余白が切れてカードだけになる） */
 #mode-search .cr-thumb{float:left;width:30px;height:44px;margin:-4px 10px -4px 0;padding:0;border:0;border-radius:3px;overflow:hidden;background:var(--bg-hover);cursor:zoom-in}
 #mode-search .cr-thumb img{display:block;width:100%;height:100%;object-fit:cover}
-#mode-search .cr-thumb-none{cursor:default}
+#mode-search span.cr-thumb{cursor:inherit}
 /* 店名・札・型番の行は画像の右にまとめ、札が折り返しても画像の下へ回り込ませない（スマホで左端がそろわなかった） */
 #mode-search .cr-shop-body{display:flow-root}
 #mode-search .cr-cond{font-size:12px;color:var(--text-m)}
@@ -319,7 +319,12 @@ html.cr-fx-open,html.cr-fx-open body{overflow:hidden}
   #mode-search .cr-go::after{content:"";position:absolute;inset:0;z-index:1}
   #mode-search .cr-act .wish-add{position:relative;z-index:2}
   #mode-search .cr-shop .aff-pr{position:relative;z-index:2}
-  #mode-search .cr-thumb{position:relative;z-index:2}
+  #mode-search .cr-thumb{margin-bottom:0}
+  #mode-search button.cr-thumb{position:relative;z-index:2}
+  /* 売り切れの行はセルごとに opacity がかかり、セルが別々の重なりの層になるので、画像の z-index が .cr-go::after（店の欄の層）に負ける。
+     画像のあるセルだけ層を上げ、セルの文字は押しても下の ::after（店のページへ）に通す */
+  #mode-search .cr-table tr.sold-out td.cr-shop:has(button.cr-thumb){position:relative;z-index:2;pointer-events:none}
+  #mode-search .cr-table tr.sold-out td.cr-shop button.cr-thumb{pointer-events:auto}
 }
 /* 狭い画面（360px 未満）は公式DB・Wiki が効果テキストと並ぶと重なるので、その下の行に左から */
 @media(max-width:359px){
