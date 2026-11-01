@@ -2904,3 +2904,12 @@ rarity_pref 基準に統一。`items_map` のキーも rarity_pref で作る。
 - 採らなかった案: レアリティを価格の API の返事に入れて1本にする（画面の取っておき方が2つで違い、30日窓とも合わない）
 - 受け入れたこと: 過去の日は最大30分古い（0時をまたぐ収集が前日の日付で書くなら取りこぼす。未検証の前提）。待ち行列で30秒待っただけの読み込みも詰まり扱いで読み直す（変更前より悪くはならない）
 
+
+## 2026-11-01 お店ごとの1日の取得回数を shop_request_daily に残す（branch feat/shop-request-counts）
+- 何を: shop_request_log.py。scraper.get_host_request_counts()（safe_get がホストごとに数える累積）を、出どころ（prices/buyback/featured/web）×プロセス（instance_id）×ホストで JST の日ごとの累計にして upsert。収集の3ジョブは終了時（atexit。打ち切りの sys.exit も含む）、app.py は60秒ごとに差を積み30分ごとに書く（05〜10時は書かない・終了時は時刻にかかわらず書く）。カーナベルの ES への requests.post は safe_get を通らないので scraper._kanabell_search・kanabell_catalog で数える
+- なぜ: 11-01 のまんぞく屋の遮断は、機能ごとには正しい取得の合計を誰も見ていなかったのが根。サイトの検索の回数はどこにも残っておらず、収集の回数もトレコロ以外はログで消えていた。新弾の収集は collection_runs に記録しない（run_type の CHECK 制約）ので、collection_runs.shop_stats への相乗りでは全部を覆えない
+- 採らなかった案: web は upgrade_signal_daily の stats に、収集は collection_runs.shop_stats に足す（表を足さずに済むが、新弾の収集が抜け、合計が2か所に分かれる）
+- 表: shop_request_daily.sql（RLS 有効・service role だけ。400日より古い行は毎朝の収集が消す）。知らせの基準は1〜2週の数字を見てから決める
+- 朝の収集中（05〜10時）の書き込み: upgrade_signals はこの時間に書かないが、こちらは web が1時間ごと・収集は終了時に書く。1回は十数行の upsert で IO の影響は小さく、書かないとメモリ不足で落ちたときに最大5時間ぶんが消える（reviewer 中2・低3）
+- 店への接続確認（check_shop_availability・watch_suspended_shops）と駿河屋・カーナベルの ES は safe_get を通らないので、送る直前に scraper.count_request で数える（reviewer 中1・低4）
+- 受け入れたこと: web は最後に書いてから最大10分（朝は1時間）の分を、強制終了で失いうる。正常終了の atexit も、検索の接続が残って gunicorn に強制終了されると届かない

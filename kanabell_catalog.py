@@ -67,6 +67,7 @@ def _fetch_page(search_after: list | None, timeout: int = PAGE_TIMEOUT) -> tuple
     }
     if search_after:
         body["search_after"] = search_after
+    scraper.count_request(scraper._KANABELL_ES_ENDPOINT)  # safe_get を通らないのでここで数える
     res = requests.post(
         f"{scraper._KANABELL_ES_ENDPOINT}/{scraper._KANABELL_INDEX}/_search",
         json=body,
