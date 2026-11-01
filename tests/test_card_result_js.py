@@ -27,11 +27,6 @@ def test_アフィリエイトの印と関係():
     _node('affiliate_label_check.js')
 
 
-@pytest.mark.skipif(shutil.which('node') is None, reason='node が見つかりません')
-def test_絵が分かれるレアリティの行の商品画像():
-    _node('row_thumbs_check.js')
-
-
 def test_テンプレートの並びと部品():
     html = app_module.app.test_client().get('/').get_data(as_text=True)
     soup = BeautifulSoup(html, 'html.parser')

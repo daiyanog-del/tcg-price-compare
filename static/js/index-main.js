@@ -2,6 +2,8 @@
 // Jinja 依存の値は index.html 側の小さなインライン script が定義する。
 // _ga()は<head>先頭で定義済み（GA4計測用の薄いラッパ。G-7: 早期クリック対策で<head>に移設）
 let D=[],sort={k:'price',a:true},rarityFilter='',artFilter='',cardImgUrl='',cardImgSmall='',_konamiDbUrl='';
+// 絵の台帳のカード（青眼の白龍など）の絵の並びと既定の絵（検索の API の art_ledger。台帳に無いカードは null。2026-11-01）
+let _artLedger=null;
 let listView='shop'; // 出品一覧の表示: 'shop'=店ごとの最安（既定・2026-10-21 ユーザー判断）/ 'all'=すべて
 const TABLE_PAGE_SIZE=20; // F-11: 一覧の既定表示件数（もっと見るの増分）。散在していたマジックナンバー20を集約
 let tableShowCount=TABLE_PAGE_SIZE; // B-4: 一覧の既定表示件数（20行+もっと見る）
@@ -191,7 +193,7 @@ function showUnreleasedCard(name,tcgPreview){
   _updateUrl(name,'search');
 
   // 前回の検索結果をクリア
-  cardImgUrl='';cardImgSmall='';D=[];rarityFilter='';artFilter='';tableShowCount=TABLE_PAGE_SIZE;
+  cardImgUrl='';cardImgSmall='';D=[];_artLedger=null;rarityFilter='';artFilter='';tableShowCount=TABLE_PAGE_SIZE;
   _resetBuyInline(); // C-2: 前回検索の買取価格が残ったまま未発売カード表示に切り替わるのを防ぐ
   _updateRarityBanner(); // F-4: 前回検索の絞り込みバナーが残ったまま未発売カード表示に切り替わるのを防ぐ
 
@@ -543,6 +545,9 @@ function _applyCardImages(heroSrc,thumbSrc,source){
     else { wrap.classList.remove('wm-released'); }
   }
   // 一覧の各行の小さい画像はやめた（同じ絵を全行にくり返さない・2026-10-21 案C）ので、thumbSrc は使わない
+  // レアリティ欄の「すべて」の小窓はカード名の画像。価格より画像が後に届くことがあるので、届いたら入れる
+  const allThumb=document.querySelector('#rarityFilter .cr-rtile[data-r=""] .cr-tthumb-none');
+  if(allThumb&&safeHero) allThumb.outerHTML=_tileThumbHtml(safeHero,'カードの画像',source!=='official_sample');
 }
 
 // /api/card-images バッチの値から表示用URLを取り出す。
@@ -664,7 +669,7 @@ function doSearch(opts){
   _setPriceSectionsVisible(true);
 
   // 前回の検索結果をクリア
-  cardImgUrl='';cardImgSmall='';_konamiDbUrl=''; // 前のカードの公式DBのURLが残ると、次のカードで公式DBリンクを付けない
+  cardImgUrl='';cardImgSmall='';_konamiDbUrl='';_artLedger=null; // 前のカードの公式DBのURLが残ると、次のカードで公式DBリンクを付けない
   const heroWrap=document.getElementById('heroImgWrap');
   if(heroWrap) heroWrap.innerHTML='';
   const cardHero=document.getElementById('cardHero');
@@ -782,7 +787,7 @@ function doSearch(opts){
       // 店へ取りに行く前に届く前回の結果（2026-11-01 案A）。いつもの表で先に描き、done で価格の部分だけ差し替える。
       // 進み具合のバーは先出しの欄から画面の下に浮かぶ帯へ移し、「○分前の価格」と書く
       if(!d.total) return;
-      D=d.results;
+      D=d.results;_artLedger=d.art_ledger||null;
       _shareStaleNote='（'+_previewAgeText(d.age_minutes||0)+'の価格）';
       if(d.corrected_name) document.getElementById('q').value=d.corrected_name;
       _currentCardName=document.getElementById('q').value.trim();
@@ -814,7 +819,7 @@ function doSearch(opts){
       if(previewShown&&d.total>0){
         _refreshResults(d);
       }else{
-        D=d.results;
+        D=d.results;_artLedger=d.art_ledger||null;
         renderAll(d);
       }
       if(previewShown) document.querySelectorAll('#mode-search .search-float').forEach(el=>el.remove());
@@ -1043,7 +1048,7 @@ function _buildShareMenu(searchTerm,d){
 // 描き直すのは価格の部分（最安・レアリティ・絵・出品一覧・シェアの文面）だけ。
 // 先出しの間に利用者が選んだレアリティ・絵・表示・並べ替え・件数は、最新の結果にも在れば残す
 function _refreshResults(d){
-  D=d.results;
+  D=d.results;_artLedger=d.art_ledger||null;
   _shareStaleNote='';
   _closeWishAddPicker(); // 窓の値段は前回の結果のまま残るので閉じる（保存されるのは名前・枚数・レアリティだけ）
   // 先出しの間に買取が届いていたら、最高買取の列を新しい行に付け直す（買取は1カード1回しか取らない）
@@ -1515,7 +1520,6 @@ function _updateHeroSummary(){
   if(soCountEl){
     soCountEl.textContent=_scopedRows().filter(r=>r.sold_out).length;
   }
-  _syncHeroArtImage(); // 見出しの画像も選んだ絵に合わせる
 }
 
 // 購入候補に追加ボタンの文言を戻す（「✓ 追加」の後など）。
@@ -1623,7 +1627,16 @@ function _rarityTilesHtml(rarities,active){
   const inStock=D.filter(r=>!r.sold_out);
   const minOf=list=>list.length?list.reduce((m,r)=>r.price<m?r.price:m,Infinity):null;
   const tiles=_rarityChoices(rarities);
-  const tile=(r,label,price,count,on)=>`<button type="button" class="cr-rtile${on?' active':''}" data-r="${escAttr(r)}" aria-pressed="${on}" onclick="setRarityFilter('${escAttr(escJs(r))}')"><span class="cr-rn">${esc(label)}</span><span class="cr-rp"><b>${price}</b><i>${count}</i></span></button>`;
+  // 小窓はそのレアリティを選んだときに最初に出る絵（既定の絵）の画像。「すべて」はカード名の画像
+  const img=r=>{
+    if(!r) return safeUrl(cardImgUrl||'');
+    const art=_defaultArt(r);
+    // 既定の絵の行に画像が無ければそのレアリティの日本版から（言語版の商品画像を日本版の札に出さない）
+    return _tileImage(D.filter(x=>x.rarity===r&&_inArt(x,art)))||_tileImage(D.filter(x=>x.rarity===r&&(_isJp(x)||x.edition===art)));
+  };
+  // 「すべて」の小窓はカード名の画像。上の大きな画像と同じく、発売済みの画像は拡大に自サイトの透かしを付ける
+  const wm=!!document.getElementById('heroImgWrap')?.classList.contains('wm-released');
+  const tile=(r,label,price,count,on)=>`<button type="button" class="cr-rtile${on?' active':''}" data-r="${escAttr(r)}" aria-pressed="${on}" onclick="setRarityFilter('${escAttr(escJs(r))}')">${_tileThumbHtml(img(r),(r||'カード')+'の画像',!r&&wm)}<span class="cr-itxt"><span class="cr-rn">${esc(label)}</span><span class="cr-rp"><b>${price}</b><i>${count}</i></span></span></button>`;
   // 「すべて」は日本版の出品で数える（言語版の値段を最安に出さない）
   const inStockJp=inStock.filter(_isJp);
   const allMin=minOf(inStockJp);
@@ -1651,9 +1664,12 @@ const ART_ORDER=['元のイラスト','イラスト違い','漫画カラー','�
 // （レアリティ名は日本版と同じなので、購入候補・買取・相場・価格推移はそのまま引ける）
 const _isJp=r=>!r.edition;
 // そのレアリティの日本版の絵の種類（判別できない行は数えない）
+// 絵の台帳のカードは台帳の番号の順（オリジナル→…）。それ以外は ART_ORDER の順
 function _artsOf(rarity){
   const kinds=new Set(D.filter(r=>r.rarity===rarity&&_isJp(r)&&r.art).map(r=>r.art));
-  return ART_ORDER.filter(a=>kinds.has(a)).concat([...kinds].filter(a=>!ART_ORDER.includes(a)));
+  // 台帳の名前と ART_ORDER の両方にある名前（漫画カラーなど）は1回だけ
+  const order=_artLedger?.order?[...new Set(_artLedger.order.concat(ART_ORDER))]:ART_ORDER;
+  return order.filter(a=>kinds.has(a)).concat([...kinds].filter(a=>!order.includes(a)));
 }
 function _editionsOf(rarity){
   return [...new Set(D.filter(r=>r.rarity===rarity&&r.edition).map(r=>r.edition))].sort();
@@ -1663,10 +1679,14 @@ function _editionsOf(rarity){
 // 絵を書き分ける店の在庫ありの行に判別できないものがある（絵が3種類以上のカード・言葉の表に無いカード。
 // 10-28 に人気カード30枚で数えると該当はこの2種類だけ）ときも、元のイラストに絞ると見落とすので絞らない。
 // まんぞく屋は絵を書き分けない店なので数えない
+// 絵の台帳のカードは台帳の既定の絵（青眼の白龍・ブラック・マジシャンは石板＝何度も再録された標準の絵）に在庫があればそれ。
+// 判別できない出品があっても絞る（台帳のカードは判別できる行が大半で、既定の絵の値段を見せる方が分かりやすい。2026-11-01 ユーザー確認）
 function _defaultArt(rarity){
   if(!rarity) return '';
   if(!D.some(r=>r.rarity===rarity&&_isJp(r))) return _editionsOf(rarity)[0]||'';
   const arts=_artsOf(rarity);
+  const ledgerDefault=_artLedger?.default||'';
+  if(ledgerDefault&&arts.length>1&&D.some(r=>r.rarity===rarity&&_isJp(r)&&r.art===ledgerDefault&&!r.sold_out)) return ledgerDefault;
   if(arts.length<2||!arts.includes('元のイラスト')) return '';
   if(D.some(r=>r.rarity===rarity&&_isJp(r)&&!r.art&&!r.sold_out&&r.shop!=='まんぞく屋')) return '';
   return D.some(r=>r.rarity===rarity&&_isJp(r)&&r.art==='元のイラスト'&&!r.sold_out)?'元のイラスト':'';
@@ -1676,18 +1696,19 @@ function _artSuffix(){
   if(artFilter) return '・'+artFilter;
   return rarityFilter&&_artsOf(rarityFilter).length>1?'・すべての絵':'';
 }
-// 一覧の行に店の商品画像を小さく出すか（2026-11-01）。絵の切り替え欄と同じく、選んだレアリティに日本版の絵が2種類以上あるときだけ。
-// 青眼の白龍・ブラック・マジシャンは1つの型番（QCAC-JP018 など）に絵が5種類以上あり、店ごとに「背景緑」「1正面/石板背景」「[赤服]」と
-// 書き方がばらばらで「元／イラスト違い」に分けきれない。絵の見分けは商品画像で利用者に任せる（画像は商品ごとに店が持つもの。
-// 11-01 に QCAC-JP018 で絵ごとに別の画像だと確認）
-function _showRowThumbs(){
-  return !!rarityFilter&&_artsOf(rarityFilter).length>1;
+// 札の小窓の画像（2026-11-01）。そのレアリティ・絵の出品から、商品ごとに画像を持つ店を先に、在庫ありを先に選ぶ。
+// カードラボの売り切れは画像に SOLD OUT の印が載るので一番後ろ。小窓を押すと拡大（card-zoom.js）し、札の選択はしない。
+// 上の大きな画像は切り替えない（絵の違いは小窓で見せる。中途半端に切り替わると分かりにくい。2026-11-01 ユーザー指摘）
+const TILE_IMG_SHOPS=['カーナベル','トレコロCB','遊々亭','カードラッシュ','カードラボ'];
+function _tileImage(rows){
+  const rank=r=>(TILE_IMG_SHOPS.indexOf(r.shop)+1||9)+(r.sold_out?(r.shop==='カードラボ'?40:10):0);
+  const withImg=rows.filter(r=>safeUrl(r.image||'')).sort((x,y)=>rank(x)-rank(y));
+  return withImg.length?safeUrl(withImg[0].image):'';
 }
-// 行の小さな商品画像。押すと拡大（card-zoom.js）。画像の無い行は同じ幅の空きにして、店名の頭をそろえる
-function _rowThumbHtml(r){
-  const img=safeUrl(r.image||'');
-  if(!img) return '<span class="cr-thumb cr-thumb-none" aria-hidden="true"></span>';
-  return `<button type="button" class="cr-thumb" data-zoom="${escAttr(img)}" data-shop="${escAttr(r.shop)}" aria-label="${escAttr(r.shop+'の商品画像を拡大')}"><img src="${escAttr(img)}" alt="" loading="lazy" width="30" height="44"></button>`;
+// 小窓は札の button の中なので span（button の中に button は置けない）。キーボードでは札の選択だけで、拡大はマウス・タップのみ
+function _tileThumbHtml(src,label,wm){
+  if(!src) return '<span class="cr-tthumb cr-tthumb-none" aria-hidden="true"></span>';
+  return `<span class="cr-tthumb" data-zoom="${escAttr(src)}" data-zlabel="${escAttr(label)}"${wm?' data-wm="1"':''} title="押すと拡大"><img src="${escAttr(src)}" alt="" loading="lazy" width="30" height="44"></span>`;
 }
 // その行が絵の絞り込み art に入るか。'' は日本版のすべて、言語版の名前はその言語版だけ、絵の名前は日本版のその絵
 function _inArt(r,art){
@@ -1709,6 +1730,7 @@ function _renderArtFilter(){
     if(artFilter) artFilter='';
     el.innerHTML='';
     el.classList.add('hidden');
+    _revealActiveTilesSoon();
     return false;
   }
   const rows=D.filter(r=>r.rarity===rarityFilter);
@@ -1717,14 +1739,30 @@ function _renderArtFilter(){
     const inStock=mine.filter(r=>!r.sold_out);
     const min=inStock.length?inStock.reduce((m,r)=>r.price<m?r.price:m,Infinity):null;
     const on=artFilter===a;
-    return `<button type="button" class="cr-rtile${on?' active':''}" data-art="${escAttr(a)}" aria-pressed="${on}" onclick="setArtFilter('${escAttr(escJs(a))}')"><span class="cr-rn">${esc(label)}</span><span class="cr-rp"><b>${min!=null?'¥'+min.toLocaleString():'在庫なし'}</b><i>${min!=null?inStock.length+'件':'売切'+mine.length+'件'}</i></span></button>`;
+    const thumb=a?_tileThumbHtml(_tileImage(mine),rarityFilter+'・'+label):'<span class="cr-tthumb cr-tthumb-all" aria-hidden="true">全</span>';
+    return `<button type="button" class="cr-rtile${on?' active':''}" data-art="${escAttr(a)}" aria-pressed="${on}" onclick="setArtFilter('${escAttr(escJs(a))}')">${thumb}<span class="cr-itxt"><span class="cr-rn">${esc(label)}</span><span class="cr-rp"><b>${min!=null?'¥'+min.toLocaleString():'在庫なし'}</b><i>${min!=null?inStock.length+'件':'売切'+mine.length+'件'}</i></span></span></button>`;
   };
   const hasJp=rows.some(_isJp);
   const jpTiles=hasJp?tile('',eds.length?'すべての絵（日本版）':'すべての絵')+(arts.length>1?arts.map(a=>tile(a,a)).join(''):''):'';
   el.innerHTML=`<div class="cr-sec"><h2>イラスト</h2><span>${esc(rarityFilter)}の中の絵・言語版の違い</span></div>`+
     `<div class="cr-rtiles">${jpTiles}${eds.map(e=>tile(e,e)).join('')}</div>`;
   el.classList.remove('hidden');
+  _revealActiveTilesSoon();
   return true;
+}
+// 最初の検索ではこの時点で欄がまだ隠れていて寸法が取れない（_renderPriceParts が後で見せる）。次の描画で寄せる（reviewer 指摘）
+function _revealActiveTilesSoon(){
+  if(typeof requestAnimationFrame==='function') requestAnimationFrame(_revealActiveTiles);
+  else _revealActiveTiles();
+}
+// スマホでは札の並びが横に流れる。選んでいる札が見えていなければ、その並びだけ横に寄せる（画面の縦の位置は動かさない）
+function _revealActiveTiles(){
+  document.querySelectorAll('#rarityFilter .cr-rtiles').forEach(box=>{
+    const a=box.querySelector('.cr-rtile.active');
+    if(!a||box.scrollWidth<=box.clientWidth) return;
+    const br=box.getBoundingClientRect(),ar=a.getBoundingClientRect();
+    if(ar.left<br.left||ar.right>br.right) box.scrollLeft+=ar.left-br.left-16;
+  });
 }
 function setArtFilter(a){
   _ga('art_filter_change',{art:a||'__all__',from_art:artFilter||'__all__',rarity:rarityFilter||'__all__'});
@@ -1734,34 +1772,6 @@ function setArtFilter(a){
   _updateHeroSummary();
   renderSummary();
   renderTable();
-}
-
-// 見出しの画像。選んだレアリティ・絵が元の絵でないとき（例: 三戦の号のスーパーは CH01 の違う絵しか無い）は、
-// その絵の店の商品画像に替える。カード名で引く画像（cardImgUrl）は元の絵なので、違う絵の値段に元の絵を添えない（2026-10-29 ユーザー指摘）。
-// 絵が混ざる・元の絵・判別できない行だけのときはカード名の画像。店は商品ごとに画像を持つトレコロ・カーナベルを先に、在庫ありを先に
-const HERO_ART_SHOPS=['トレコロCB','カーナベル','遊々亭','カードラボ','カードラッシュ'];
-function _heroArtImage(){
-  if(!rarityFilter) return '';
-  const rows=D.filter(r=>r.rarity===rarityFilter&&_isJp(r)&&r.art&&_inArt(r,artFilter));
-  const arts=new Set(rows.map(r=>r.art));
-  if(arts.size!==1||arts.has('元のイラスト')) return '';
-  const rank=r=>(r.sold_out?10:0)+(HERO_ART_SHOPS.indexOf(r.shop)+1||9);
-  const withImg=rows.filter(r=>safeUrl(r.image||'')).sort((a,b)=>rank(a)-rank(b));
-  return withImg.length?safeUrl(withImg[0].image):'';
-}
-function _syncHeroArtImage(){
-  const wrap=document.getElementById('heroImgWrap');
-  if(!wrap) return;
-  const src=_heroArtImage();
-  const cur=wrap.querySelector('img');
-  if(src){
-    if(!cur||cur.getAttribute('src')!==src) wrap.innerHTML='<img src="'+escAttr(src)+'" alt="" loading="eager">';
-    wrap.dataset.artImg='1';
-  }else if(wrap.dataset.artImg==='1'){
-    // 店の画像からカード名の画像へ戻す（まだ届いていなければ置き場。届いたら _applyCardImages が入れる）
-    delete wrap.dataset.artImg;
-    wrap.innerHTML=cardImgUrl?'<img src="'+escAttr(cardImgUrl)+'" alt="" loading="eager">':'<div class="cr-img-ph"></div>';
-  }
 }
 
 // 一覧の札。商品名がカード名と違えばその違う部分。無印の商品名でも、判定で元と違う絵になった行（型番ごと違う絵の再録・
@@ -1838,7 +1848,6 @@ function renderTable(){
   const total=sorted.length;
   const visible=sorted.slice(0,tableShowCount);
   const tbody=document.getElementById('tbody');
-  const thumbs=_showRowThumbs();
   tbody.innerHTML=visible.map(r=>{
     const isBest=r===bestRow;
     const so=r.sold_out?'sold-out':'';
@@ -1869,7 +1878,7 @@ function renderTable(){
       :'';
     return`<tr class="${rowClass}" ${rowHref}>
       <td class="cr-num cr-price">¥${r.price.toLocaleString()}</td>
-      <td class="cr-shop">${thumbs?_rowThumbHtml(r)+'<span class="cr-shop-body">':''}<span class="cr-shop-name">${esc(r.shop)}${isAff?AFF_PR_BADGE:''}</span>${tags}${sub?`<span class="cr-sub">${sub}</span>`:''}${thumbs?'</span>':''}</td>
+      <td class="cr-shop"><span class="cr-shop-name">${esc(r.shop)}${isAff?AFF_PR_BADGE:''}</span>${tags}${sub?`<span class="cr-sub">${sub}</span>`:''}</td>
       <td class="cr-cond">${cond}</td>
       <td class="cr-code">${code}</td>
       <td class="cr-num cr-stock">${stockStr}</td>${buyMaxCell}
@@ -1936,17 +1945,18 @@ function _syncListViewButtons(){
 // 検索結果テーブルの行クリックで商品ページへ（a・button クリックは除外）
 // renderTable() の外で一度だけ登録し、再描画ごとに重複追加されないようにする
 document.getElementById('tbl')?.addEventListener('click',e=>{
-  // 行の小さな商品画像は、店のページへ行かずに拡大する（_rowThumbHtml）
-  const thumb=e.target.closest('.cr-thumb[data-zoom]');
-  if(thumb&&window.CardZoom){
-    CardZoom.open(thumb.dataset.zoom,{label:(thumb.dataset.shop||'店')+'の商品画像の拡大'});
-    _ga('row_thumb_zoom',{shop:thumb.dataset.shop||'',rarity:rarityFilter||''});
-    return;
-  }
   if(e.target.closest('a,button')) return;
   const tr=e.target.closest('tr.row-clickable');
   if(tr?.dataset.href) window.open(tr.dataset.href,'_blank','noopener');
 },{capture:false});
+// レアリティ・イラストの札の小窓は、札を選ばずに拡大する（_tileThumbHtml）。札の button の onclick より先に止める
+document.getElementById('rarityFilter')?.addEventListener('click',e=>{
+  const t=e.target.closest('.cr-tthumb[data-zoom]');
+  if(!t||!window.CardZoom) return;
+  e.preventDefault(); e.stopPropagation();
+  CardZoom.open(t.dataset.zoom,{watermark:t.dataset.wm==='1',label:t.dataset.zlabel+'の拡大'});
+  _ga('tile_thumb_zoom',{rarity:rarityFilter||'',label:t.dataset.zlabel||''});
+},true);
 
 document.querySelectorAll('#tbl th[data-s]').forEach(th=>{
   th.addEventListener('click',()=>{

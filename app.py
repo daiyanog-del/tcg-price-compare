@@ -5911,6 +5911,10 @@ def _build_done(results: list[dict], corrected_name: str = "", card_name: str = 
     }
     if corrected_name:
         d["corrected_name"] = corrected_name
+    # 絵の台帳のカード（青眼の白龍など）は、画面の絵の並びと既定の絵を渡す（art_variant.ledger_info。2026-11-01）
+    ledger = art_variant.ledger_info(card_name)
+    if ledger:
+        d["art_ledger"] = ledger
     return d
 
 

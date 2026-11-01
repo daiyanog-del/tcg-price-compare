@@ -97,6 +97,8 @@ def test_normal_condition_and_any_price_per_art():
 def test_many_arts_are_numbered_by_code(monkeypatch):
     # 絵が3種類以上のカードは、表の型番から何番目の絵か分かる違う絵に番号を付ける（青眼の白龍 KC01＝4・YAP1＝5）
     monkeypatch.setattr(av, "_art_table", lambda: {av._key("青眼の白龍"): (19, {"KC01-JP004": 4, "YAP1-JP001": 5})})
+    # 青眼の白龍は 11-01 から絵の台帳のカード（記録は「絵#3」の形）。ここは台帳に無いカードの番号の付け方を見るので台帳を外す
+    monkeypatch.setattr(av, "_art_ledger", lambda: {})
     rows = [
         _row("遊々亭", "青眼の白龍", "ウルトラ", 500, "LDS2-JP001"),
         _row("遊々亭", "青眼の白龍", "ウルトラ", 900, "KC01-JP004"),

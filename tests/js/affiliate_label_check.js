@@ -35,7 +35,7 @@ const sandbox = {
 };
 vm.createContext(sandbox);
 vm.runInContext(`
-let D=[],sort={k:'price',a:true},rarityFilter='',artFilter='',cardImgSmall='',tableShowCount=20,listView='shop',_currentCardName='灰流うらら';
+let _artLedger=null,D=[],sort={k:'price',a:true},rarityFilter='',artFilter='',cardImgSmall='',tableShowCount=20,listView='shop',_currentCardName='灰流うらら';
 let _buyInlineD=null,_buyInlineFetched=false,_buyInlineFailedShops=[];
 let _affConfig={};
 `, sandbox);

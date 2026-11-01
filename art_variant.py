@@ -242,10 +242,134 @@ def _alt_only_codes(rows: list[dict], card_name: str) -> set[str]:
     return (alt_by_explicit | _art_prints().get(_key(card_name), frozenset())) - blocked
 
 
+# ── 絵の台帳（2026-11-01）──
+# 青眼の白龍・ブラック・マジシャンのように絵が10種類以上あるカードは、「元のイラスト／イラスト違い」の2択では分けきれない
+# （QCDB・QCCU の 25thシークが元のイラストに混ざっていた。ユーザー指摘）。台帳（data/art_ledger.json・tools/build_art_ledger.py）に
+# 載せたカードだけ、型番と店の言葉から「石板」「原作絵」のような絵の名前を付ける。台帳に無いカードは今までどおり2択
+_ART_LEDGER_PATH = Path(__file__).resolve().parent / "data" / "art_ledger.json"
+
+
+@lru_cache(maxsize=1)
+def _art_ledger() -> dict[str, dict]:
+    """art_ledger.json（カード名の比べる形 → 台帳）。無い・壊れているときは空（台帳のカードも2択で判定する）"""
+    try:
+        raw = json.loads(_ART_LEDGER_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        logger.warning("art_ledger.json を読めない（絵の台帳を使わずに2択で判定する）: %s", e)
+        return {}
+    out: dict[str, dict] = {}
+    for name, v in raw.items():
+        if name.startswith("_"):
+            continue
+        try:
+            arts = {int(n): str(a) for n, a in v["arts"].items()}
+            codes = {}
+            for code, e in v.get("codes", {}).items():
+                base = e.get("base")
+                codes[code.upper()] = (int(base) if base is not None else None, [int(n) for n in e.get("alts") or []])
+            words = {code.upper(): [(w["shop"], _key(w["word"]), int(w["art"])) for w in ws]
+                     for code, ws in (v.get("words") or {}).items()}
+            colors = {str(c): int(n) for c, n in (v.get("colors") or {}).items()}
+            out[_key(name)] = {"arts": arts, "default": int(v["default"]) if v.get("default") else None,
+                               "codes": codes, "words": words, "colors": colors}
+        except (KeyError, TypeError, ValueError, AttributeError) as e:
+            # 1枚の形が崩れていても検索の画面（annotate）まで落とさない。そのカードは2択で判定する
+            logger.warning("art_ledger.json の %s を読めない（このカードは2択で判定する）: %s", name, e)
+    return out
+
+
+def ledger_info(card_name: str) -> dict | None:
+    """画面に渡す台帳の情報（絵の名前の並び・既定の絵）。台帳に無いカードは None"""
+    led = _art_ledger().get(_key(card_name))
+    if not led:
+        return None
+    return {"order": [led["arts"][n] for n in sorted(led["arts"])],
+            "default": led["arts"].get(led["default"] or 0, "")}
+
+
+_TORECOLO_RARITY_TAIL = re.compile(r"^(?:20)?S?[A-Z]*\d?$")
+_warned_codes: set[tuple[str, str]] = set()
+
+
+def _ledger_code(row: dict, led: dict) -> str:
+    """台帳を引く型番。トレコロは検索の結果に型番が入らないことが多い（補完が一意に決まらない）ので、
+    商品のリンクの商品番号（QCAC-JP018SQSE など＝型番＋レアリティの略号）の頭が台帳の型番と一致すればそれを使う"""
+    code = (row.get("code") or "").upper()
+    if code or row.get("shop") != "トレコロCB":
+        return code
+    m = _TORECOLO_PID_RE.search(row.get("url") or "")
+    pid = m.group(1).upper() if m else ""
+    # 型番の後ろはレアリティの略号（QSE・SQSE4・20SE など）の形だけ。LB-05 と LB-050UR のような取り違えを避ける
+    # （20thシークレットの略号は 20SE で数字から始まる。reviewer 指摘で 20TH-JPBS1・2018-JPP01 の取りこぼしを直した）
+    hits = [c for c in led["codes"] if pid.startswith(c) and _TORECOLO_RARITY_TAIL.match(pid[len(c):])]
+    return max(hits, key=len) if hits else ""
+
+
+def ledger_art(row: dict, card_name: str) -> int | None:
+    """annotate 済み（2択の印が付いた）行の、台帳の絵の番号。決まらなければ None。
+    型番の中に絵が1つ → その絵。絵が複数 → 店の言葉、なければ2択の印（元＝その型番のふつうの絵・違う＝違う絵が1つだけのとき）"""
+    led = _art_ledger().get(_key(card_name))
+    if not led:
+        return None
+    code = _ledger_code(row, led)
+    label = _key(row.get("name") or "")
+    if code and code not in led["codes"]:
+        # 台帳に無い型番（新しい再録など）。判別できないに落ちるので、型番ごとに1回だけ知らせる（台帳は手で足す。reviewer 指摘）
+        if (_key(card_name), code) not in _warned_codes:
+            _warned_codes.add((_key(card_name), code))
+            logger.warning("絵の台帳に無い型番（判別できないにする。data/art_ledger.json に足す）: %s %s", card_name, code)
+        return None
+    if code not in led["codes"]:
+        # 型番の無い行（カーナベルの古い版は型番も弾の略号も無い）は、台帳の「*」の言葉（「(初期イラスト版)」など）だけで決める
+        if not code:
+            for shop, word, n in led["words"].get("*", []):
+                if shop == row.get("shop") and word in label:
+                    return n
+        return None
+    base, alts = led["codes"][code]
+    if not alts:
+        return base
+    for shop, word, n in led["words"].get(code, []):
+        if shop == row.get("shop") and word in label:
+            return n
+    if row.get("art") == ART_BASE:
+        return base
+    if row.get("art") == ART_ALT and len(alts) == 1:
+        return alts[0]
+    return None
+
+
+def _apply_ledger(rows: list[dict], card_name: str) -> None:
+    """台帳のカードの行の art を絵の名前にする（art_no に番号）。言語版はそのまま。
+    漫画風は台帳の「漫画カラー／漫画モノクロ」と同じ名前なのでそのまま。決まらない行は判別できない（""）。
+    GREEN/PINK Ver. は台帳の colors の絵に寄せる（東京ドームの配布カード TD01・TD02 は、カーナベル・トレコロ・カードラッシュは
+    「GREEN Ver.」と書き、遊々亭は無印で書く同じ商品。型番の無い行もあるので型番でなく色で寄せる。2026-11-01 本番の行で確認）。
+    colors に無い色はそのまま"""
+    led = _art_ledger().get(_key(card_name))
+    if not led:
+        return
+    for row in rows:
+        if row.get("edition"):
+            continue
+        if row.get("art") in (ART_MANGA_COLOR, ART_MANGA_MONO):
+            # 漫画風は台帳の同じ名前の番号を付ける（記録を番号にそろえる）。台帳に無ければ名前のまま
+            row["art_no"] = next((n for n, a in led["arts"].items() if a == row["art"]), None)
+            continue
+        if row.get("art") in (ART_GREEN, ART_PINK):
+            n = led["colors"].get(row["art"])
+            if n is None:
+                continue
+        else:
+            n = ledger_art(row, card_name)
+        row["art"] = led["arts"].get(n, "") if n is not None else ""
+        row["art_no"] = n
+
+
 def annotate(rows: list[dict], card_name: str, extra_alt_codes: set[str] | None = None) -> None:
     """各行に art・edition を付ける（rows の各 dict をその場で書き換える。レアリティは変えない）。
     extra_alt_codes は、ほかの行（同じカードのほかの店）で型番ごと違う絵と分かった型番。1店だけの行を
-    あとから判定するとき（夜の収集のカードラボのカタログ巡回）に渡す"""
+    あとから判定するとき（夜の収集のカードラボのカタログ巡回）に渡す。
+    絵の台帳に載せたカードは、2択の印を手がかりに最後に絵の名前へ置き換える（_apply_ledger）"""
     for row in rows:
         row["art"], row["edition"] = classify(row, card_name)
     # 型番ごと違う絵の再録は、無印で書く店の行も違う絵に直す（その店の中では「元」に見えるだけ）
@@ -263,6 +387,7 @@ def annotate(rows: list[dict], card_name: str, extra_alt_codes: set[str] | None 
               and not _is_manga_row(row)
               and not re.search(r"漫画|MANGA", _label(card_name, row.get("name") or ""), re.IGNORECASE)):
             row["art"] = ART_ALT
+    _apply_ledger(rows, card_name)
 
 
 def display_rarity(row: dict) -> str:
@@ -288,9 +413,12 @@ def record_art(row: dict, card_name: str) -> str:
     日本の型番から届く違う絵が2種類以上あるカードで、型番から何番目の絵か分かる違う絵は「イラスト違い#4」のように番号を付ける
     （青眼の白龍 KC01-JP004＝4番・YAP1-JP001＝5番を同じ「イラスト違い」にまとめないため）。Yugipedia の絵の数（arts）は
     英語版・ゲームだけの絵も数えるので条件に使わない（日本の違う絵が1種類なら番号を付けず、店の言葉だけの行と同じ名前にする。
-    10-30 reviewer 指摘）。画面の呼び方は段2b で決める"""
+    10-30 reviewer 指摘）。画面の呼び方は段2b で決める。
+    絵の台帳のカードの行は「絵#4」のように台帳の番号で記録する（名前は後から直すことがあるので記録には使わない。2026-11-01）"""
     if row.get("edition"):
         return row["edition"]
+    if row.get("art_no") is not None:
+        return f"絵#{row['art_no']}"
     art = row.get("art") or ""
     if not art:
         return ART_UNKNOWN
@@ -303,7 +431,10 @@ def record_art(row: dict, card_name: str) -> str:
 
 
 def needs_art_rows(arts: set[str]) -> bool:
-    """そのカード×レアリティの絵の内訳を別表に書くか（元のイラスト・判別できない行のほかに何かあるとき）"""
+    """そのカード×レアリティの絵の内訳を別表に書くか（元のイラスト・判別できない行のほかに何かあるとき）。
+    絵の台帳のカード（記録が「絵#N」）は、判別できた絵が2種類以上のときだけ（1種類なら本表の値と同じ。reviewer 指摘）"""
+    if any(a.startswith("絵#") for a in arts):
+        return len(arts - {ART_UNKNOWN}) >= 2
     return not arts <= _PLAIN_RECORD_ARTS
 
 
