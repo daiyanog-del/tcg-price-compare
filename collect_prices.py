@@ -518,21 +518,22 @@ def _prepare_cardrush_catalog(selected: list[dict], loop_shops: list[str], avail
     return [s for s in loop_shops if s != CARDRUSH], matched
 
 
-def _fetch_cardrush_cards_with_rows(sb: Client, days: list[str]) -> set[str] | None:
-    """days（JST の日付）のどれかにカードラッシュの行があったカード名。読めなければ None。
+def _fetch_cardrush_cards_with_rows(sb: Client, days: list[str]) -> dict[str, set[str]] | None:
+    """days（JST の日付）ごとに、カードラッシュの行があったカード名（日付 → カード名の集合）。読めなければ None。
 
     _cardrush_rest_set の材料。price_history（ビュー）を店と日付で読む。並びは card_id, rarity_id, recorded_at
-    （店を固定すれば一意なので range の境目で行が落ちない・重ならない）。11-01 のカードラッシュは5,170行。"""
-    names: set[str] = set()
+    （店を固定すれば一意なので range の境目で行が落ちない・重ならない）。11-01 のカードラッシュは5,170行・2,307枚。"""
+    names: dict[str, set[str]] = {d: set() for d in days}
     offset = 0
     try:
         while True:
-            resp = (sb.table("price_history").select("card_name")
+            resp = (sb.table("price_history").select("card_name, recorded_at")
                     .eq("shop", CARDRUSH).in_("recorded_at", days)
                     .order("card_id").order("rarity_id").order("recorded_at")
                     .range(offset, offset + _PAGE_SIZE - 1).execute())
             batch = resp.data or []
-            names.update(r["card_name"] for r in batch)
+            for r in batch:
+                names.setdefault(str(r.get("recorded_at"))[:10], set()).add(r["card_name"])
             if len(batch) < _PAGE_SIZE:
                 return names
             offset += _PAGE_SIZE
@@ -544,6 +545,10 @@ def _fetch_cardrush_cards_with_rows(sb: Client, days: list[str]) -> set[str] | N
 # 前の晩のカードラッシュが「平常に取れていた」とみなす基準（_cardrush_run_normal）。check_collection の見張りと同じ値
 _CARDRUSH_NORMAL_MAX_ERROR = 0.03   # エラーの割合がこれ未満（check_collection.ERROR_RATIO）
 _CARDRUSH_NORMAL_MIN_OK = 0.5       # 取れたカードの割合がこれ以上（11-01 は 2,851/3,387＝84%）。TODO: calibrate from data
+# 行が保存されたカードの数が「取れた」カードの数のこれ以上（10-31 は 2,934/3,389＝87%・11-01 は 2,307/2,851＝81%）。
+# 取れた（ok）は売り切れだけのカードも数えるので、在庫の欄の作りが変わって全部が在庫0と読まれた晩も ok は普段どおりになる。
+# その晩は保存された行が減るので、ここで見分ける（reviewer 2回目 中1）
+_CARDRUSH_NORMAL_MIN_SAVED = 0.5    # TODO: calibrate from data
 
 
 def _cardrush_run_normal(run: dict | None) -> str | None:
@@ -576,8 +581,24 @@ def _cardrush_run_normal(run: dict | None) -> str | None:
     return None
 
 
-def _fetch_recent_price_runs(sb: Client, days: list[str]) -> dict[str, dict] | None:
-    """days（JST の日付）の毎朝の収集の collection_runs の行（日付 → その日の最後の行）。読めなければ None。"""
+def _cardrush_day_normal(runs: list[dict], saved_cards: int) -> str | None:
+    """1日分（同じ JST の日に始まった毎朝の収集の行すべて）でカードラッシュが平常だったか。平常なら None、
+    そうでなければ理由。行が1つでも平常でなければ平常でない（朝の収集が異常で、あとで手で回した2回目が平常な日を
+    平常と読まない。reviewer 2回目 中2）。保存されたカードの数が取れたカードの数に比べて少なすぎる日も平常でない。"""
+    if not runs:
+        return "記録が無い"
+    for run in runs:
+        reason = _cardrush_run_normal(run)
+        if reason:
+            return reason
+    ok = sum(int(((r.get("shop_stats") or {}).get(CARDRUSH) or {}).get("ok") or 0) for r in runs)
+    if ok and saved_cards < ok * _CARDRUSH_NORMAL_MIN_SAVED:
+        return f"保存された行が少ない（{saved_cards}枚／取れた {ok}枚）"
+    return None
+
+
+def _fetch_recent_price_runs(sb: Client, days: list[str]) -> dict[str, list[dict]] | None:
+    """days（JST の日付）の毎朝の収集の collection_runs の行（日付 → その日に始まった行すべて）。読めなければ None。"""
     try:
         since = (datetime.fromisoformat(min(days)) - timedelta(days=1)).date().isoformat()
         resp = (sb.table("collection_runs").select("started_at, skipped_shops, shop_stats")
@@ -586,12 +607,12 @@ def _fetch_recent_price_runs(sb: Client, days: list[str]) -> dict[str, dict] | N
     except Exception as e:
         print(f"  ⚠ カードラッシュ 直近の収集の記録を読めませんでした: {type(e).__name__}: {e}。今夜は検索を間引きません")
         return None
-    out: dict[str, dict] = {}
+    out: dict[str, list[dict]] = {}
     for run in resp.data or []:
         started = _parse_timestamp(run.get("started_at"))
         day = started.astimezone(JST).date().isoformat() if started else None
-        if day in days and day not in out:
-            out[day] = run
+        if day in days:
+            out.setdefault(day, []).append(run)
     return out
 
 
@@ -649,16 +670,17 @@ def _cardrush_rest_set(sb: Client, selected: list[dict], today: str, rest_days: 
     if runs is None:
         stats["read_failed"] = True
         return set(), stats
+    rows_by_day = _fetch_cardrush_cards_with_rows(sb, days)
+    if rows_by_day is None:
+        stats["read_failed"] = True
+        return set(), stats
     for day in days:
-        reason = _cardrush_run_normal(runs.get(day))
+        reason = _cardrush_day_normal(runs.get(day) or [], len(rows_by_day.get(day) or ()))
         if reason:
             stats["not_normal"] = f"{day}: {reason}"
             print(f"  カードラッシュ: {day} の収集が平常でない（{reason}）ため、今夜は検索を間引きません")
             return set(), stats
-    with_rows = _fetch_cardrush_cards_with_rows(sb, days)
-    if with_rows is None:
-        stats["read_failed"] = True
-        return set(), stats
+    with_rows = set().union(*rows_by_day.values())
     never_rest = never_rest or set()
     rest = {c["card_name"] for c in selected
             if c["card_name"] not in never_rest and _cardrush_rests(c, with_rows, today, rest_days)}

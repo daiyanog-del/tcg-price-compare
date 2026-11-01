@@ -378,7 +378,7 @@ class _RowsSb:
         return _RowsQuery(self, name)
 
 
-def _run(started_at, ok=2800, empty=500, error=5, **extra):
+def _run(started_at, ok=20, empty=5, error=0, **extra):
     st = {"ok": ok, "empty": empty, "error": error, **extra.pop("cardrush", {})}
     return {"started_at": started_at, "skipped_shops": extra.pop("skipped_shops", {}),
             "shop_stats": {"カードラッシュ": st, **extra.pop("shop_stats", {})}}
@@ -397,12 +397,18 @@ def test_parse_timestamp():
     assert cp._parse_timestamp("壊れた値") is None and cp._parse_timestamp(None) is None
 
 
+def _saved_rows(day, n=20, extra=()):
+    """その日にカードラッシュの行が保存されたカード（既定は監視中の別のカード X0〜X19）。"""
+    return [{"card_name": f"X{i}", "recorded_at": day} for i in range(n)] + [
+        {"card_name": c, "recorded_at": day} for c in extra]
+
+
 def test_cardrush_run_normal():
     assert cp._cardrush_run_normal(_run("x")) is None
     assert cp._cardrush_run_normal(None)
     assert cp._cardrush_run_normal(_run("x", skipped_shops={"カードラッシュ": "health_check_failed"})), "飛ばした晩"
     assert cp._cardrush_run_normal(_run("x", cardrush={"skipped": 120})), "連続失敗で問い合わせを止めた晩"
-    assert cp._cardrush_run_normal(_run("x", error=200)), "エラーが多い晩"
+    assert cp._cardrush_run_normal(_run("x", error=2)), "エラーが多い晩"
     assert cp._cardrush_run_normal(_run("x", ok=0, empty=3300)), "全件0件の晩（作りの変化で読めない）"
     assert cp._cardrush_run_normal(_run("x", cardrush={"mode": "catalog"})), "巡回の行で保存した晩"
     assert cp._cardrush_run_normal(_run("x", shop_stats={"_aborted": {"phase": "loop"}})), "打ち切りの晩"
@@ -412,8 +418,10 @@ def test_cardrush_run_normal():
 
 def test_fetch_cardrush_cards_with_rows(monkeypatch):
     monkeypatch.setattr(cp, "_PAGE_SIZE", 2)
-    sb = _RowsSb([[{"card_name": "A"}, {"card_name": "A"}], [{"card_name": "B"}]])
-    assert cp._fetch_cardrush_cards_with_rows(sb, ["2026-11-01", "2026-10-31"]) == {"A", "B"}
+    sb = _RowsSb([[{"card_name": "A", "recorded_at": "2026-11-01"}, {"card_name": "A", "recorded_at": "2026-10-31"}],
+                  [{"card_name": "B", "recorded_at": "2026-11-01"}]])
+    assert cp._fetch_cardrush_cards_with_rows(sb, ["2026-11-01", "2026-10-31"]) == {
+        "2026-11-01": {"A", "B"}, "2026-10-31": {"A"}}
     assert sb.ranges == [(0, 1), (2, 3)], "1000行ずつ最後まで読む"
     assert sb.filters["price_history"] == {"shop": "カードラッシュ", "recorded_at": ["2026-11-01", "2026-10-31"]}
     assert cp._fetch_cardrush_cards_with_rows(_RowsSb(fail={"price_history"}), ["2026-11-01"]) is None
@@ -459,12 +467,13 @@ def test_cardrush_rests_rules():
 def test_cardrush_rest_set(monkeypatch):
     today = "2026-11-02"
     sel = [{"card_name": f"カード{i}", "last_collected_at": "2026-11-01T06:00:00+09:00"} for i in range(30)]
-    sb = _RowsSb([[{"card_name": "カード0"}]])
+    rows = [_saved_rows("2026-11-01", extra=["カード0"]) + _saved_rows("2026-10-31")]
+    sb = _RowsSb([list(rows[0])])
     rest, st = cp._cardrush_rest_set(sb, sel, today, rest_days=3)
     assert "カード0" not in rest and st["cards"] == len(rest) > 0 and not st["read_failed"] and st["not_normal"] is None
     assert sb.filters["price_history"]["recorded_at"] == ["2026-11-01", "2026-10-31"], "昨日と一昨日を読む"
     some = next(iter(rest))
-    rest2, _ = cp._cardrush_rest_set(_RowsSb([[{"card_name": "カード0"}]]), sel, today, rest_days=3, never_rest={some})
+    rest2, _ = cp._cardrush_rest_set(_RowsSb([list(rows[0])]), sel, today, rest_days=3, never_rest={some})
     assert some not in rest2 and len(rest2) == len(rest) - 1, "新弾の収録カードは休ませない"
     rest, st = cp._cardrush_rest_set(_RowsSb(fail={"price_history"}), sel, today, rest_days=3)
     assert rest == set() and st["read_failed"], "行を読めない晩は間引かない"
@@ -480,14 +489,25 @@ def test_cardrush_rest_set_needs_two_normal_nights():
     sel = [{"card_name": f"カード{i}", "last_collected_at": "2026-11-01T06:00:00+09:00"} for i in range(30)]
     bad_yesterday = [_run("2026-10-31T20:01:18+00:00", skipped_shops={"カードラッシュ": "health_check_failed"}),
                      _run("2026-10-30T20:01:22+00:00")]
-    rest, st = cp._cardrush_rest_set(_RowsSb(runs=bad_yesterday), sel, today, rest_days=3)
+    rows = [_saved_rows("2026-11-01") + _saved_rows("2026-10-31")]
+    rest, st = cp._cardrush_rest_set(_RowsSb([list(rows[0])], runs=bad_yesterday), sel, today, rest_days=3)
     assert rest == set() and st["not_normal"].startswith("2026-11-01")
     only_yesterday = [_run("2026-10-31T20:01:18+00:00")]
-    rest, st = cp._cardrush_rest_set(_RowsSb(runs=only_yesterday), sel, today, rest_days=3)
+    rest, st = cp._cardrush_rest_set(_RowsSb([list(rows[0])], runs=only_yesterday), sel, today, rest_days=3)
     assert rest == set() and st["not_normal"].startswith("2026-10-31"), "一昨日の記録が無ければ間引かない"
     low_ok = [_run("2026-10-31T20:01:18+00:00"), _run("2026-10-30T20:01:22+00:00", ok=10, empty=3300)]
-    rest, st = cp._cardrush_rest_set(_RowsSb(runs=low_ok), sel, today, rest_days=3)
+    rest, st = cp._cardrush_rest_set(_RowsSb([list(rows[0])], runs=low_ok), sel, today, rest_days=3)
     assert rest == set() and "取れた割合" in st["not_normal"]
+    # 同じ日に2行: 朝の収集が異常で、あとで手で回した2回目が平常 → その日は平常でない（reviewer 2回目 中2）
+    two = [_run("2026-11-01T03:00:00+00:00"),
+           _run("2026-10-31T20:01:18+00:00", skipped_shops={"カードラッシュ": "health_check_failed"}),
+           _run("2026-10-30T20:01:22+00:00")]
+    rest, st = cp._cardrush_rest_set(_RowsSb([list(rows[0])], runs=two), sel, today, rest_days=3)
+    assert rest == set() and st["not_normal"].startswith("2026-11-01")
+    # 取れた（ok）は普段どおりでも、保存された行が少ない日（在庫の欄が読めず全部在庫0など）は平常でない（reviewer 2回目 中1）
+    few = [_saved_rows("2026-11-01", n=3) + _saved_rows("2026-10-31")]
+    rest, st = cp._cardrush_rest_set(_RowsSb([list(few[0])]), sel, today, rest_days=3)
+    assert rest == set() and "保存された行が少ない" in st["not_normal"]
 
 
 # ── main の配線 ──
