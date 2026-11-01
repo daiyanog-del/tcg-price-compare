@@ -99,7 +99,7 @@ const okRes = { headers: headers({}), body: {}, ok: true };
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(path.join(root, 'static/js/shop-busy.js'), 'utf8') + ';this.ShopBusy=ShopBusy;', sandbox);
   vm.runInContext(fs.readFileSync(path.join(root, 'static/js/search-progress.js'), 'utf8') + ';this.SearchProgress=SearchProgress;', sandbox);
-  vm.runInContext('let D=[],rarityFilter="",tableShowCount=0,_currentCardName="";', sandbox);
+  vm.runInContext('let _artLedger=null,D=[],rarityFilter="",tableShowCount=0,_currentCardName="";', sandbox);
   vm.runInContext(block('function esc(', 'function rankingLinkClick('), sandbox);
   vm.runInContext(block('let _searchES=null;', '// ── Autocomplete'), sandbox);
   sandbox.MercariRef = sandbox.window.MercariRef;

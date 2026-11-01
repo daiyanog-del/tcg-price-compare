@@ -44,7 +44,7 @@ const sandbox = {
   _hideSearchPreview() {}, // 検索中の先出しの欄（2026-10-22 LCP）。この検証の対象外
 };
 vm.createContext(sandbox);
-vm.runInContext('let D=[],rarityFilter="",tableShowCount=0,_currentCardName="";let _buyInlineGen=0,_buyInlineES=null,_buyInlineTimeoutId=null,_buyInlineD=null,_buyInlineFetched=false,_buyInlineFetchInFlight=false,_buyInlineFailedShops=[];', sandbox);
+vm.runInContext('let _artLedger=null,D=[],rarityFilter="",tableShowCount=0,_currentCardName="";let _buyInlineGen=0,_buyInlineES=null,_buyInlineTimeoutId=null,_buyInlineD=null,_buyInlineFetched=false,_buyInlineFetchInFlight=false,_buyInlineFailedShops=[];', sandbox);
 vm.runInContext(block('function esc(', 'function rankingLinkClick('), sandbox);
 vm.runInContext(block('const AFF_PR_BADGE=', 'function affPixel('), sandbox);
 vm.runInContext(fs.readFileSync(path.join(root, 'static/js/mercari-ref.js'), 'utf8'), sandbox);

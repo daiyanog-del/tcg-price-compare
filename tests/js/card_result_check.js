@@ -50,7 +50,7 @@ vm.createContext(sandbox);
 vm.runInContext(`
 let D=[],sort={k:'price',a:true},rarityFilter='',artFilter='',cardImgUrl='',cardImgSmall='',tableShowCount=20,listView='shop',_currentCardName='灰流うらら';
 let _buyInlineD=null,_buyInlineFetched=false,_buyInlineFailedShops=[];
-let _affConfig={};
+let _affConfig={},_artLedger=null;
 const TABLE_PAGE_SIZE=20;
 `, sandbox);
 vm.runInContext([
@@ -306,15 +306,38 @@ run(`D=${JSON.stringify([
 assert.equal(get('artFilter').classList.contains('hidden'), true, '絵が1種類なので切り替えは出さない');
 h = get('tbody').innerHTML;
 assert.equal(count(h, '<span class="cr-tag">イラスト違い</span>'), 3, '無印のカードラボ・トレコロにも札。カーナベルは名前どおり1つだけ');
-assert(get('heroImgWrap').innerHTML.includes('https://example.test/torecolo.jpg'), '在庫ありのトレコロの画像を先に使う');
+// 上の大きな画像は選んだ絵で切り替えない（絵の違いは札の小窓で見せる。2026-11-01 ユーザー指摘）
+assert(get('heroImgWrap').innerHTML.includes(IMG), '違う絵しか無いレアリティでもカード名の画像のまま');
 run(`rarityFilter='シークレット'; artFilter=_defaultArt('シークレット'); _updateHeroSummary()`);
 assert.equal(run('artFilter'), '元のイラスト');
-assert(get('heroImgWrap').innerHTML.includes(IMG), '元の絵を選んだらカード名の画像に戻す');
 run(`setArtFilter('イラスト違い')`);
-assert(get('heroImgWrap').innerHTML.includes('https://example.test/yuyu-alt.jpg'), '違う絵を選べばその絵の画像');
-run(`setArtFilter('')`);
-assert(get('heroImgWrap').innerHTML.includes(IMG), '絵が混ざる「すべての絵」はカード名の画像');
+assert(get('heroImgWrap').innerHTML.includes(IMG), '違う絵を選んでもカード名の画像のまま');
+// 札の小窓: イラストの札はその絵の出品の画像（押すと拡大する data-zoom つき）
+h = get('artFilter').innerHTML;
+assert(h.includes('data-zoom="https://example.test/yuyu-alt.jpg"') && h.includes('data-zoom="https://example.test/yuyu-base.jpg"'), 'イラストの札に絵ごとの画像');
+assert(h.includes('<span class="cr-tthumb cr-tthumb-all" aria-hidden="true">全</span>'), '「すべての絵」は画像でなく「全」');
+// レアリティの札: そのレアリティの既定の絵の画像。在庫ありのカーナベルを先に（トレコロより前）
+h = run(`_rarityTilesHtml(['スーパー','シークレット'],'スーパー')`);
+assert(h.includes('data-zoom="https://example.test/kanabell.jpg"'), 'スーパーの札はカーナベルの画像');
+assert(h.includes('data-zoom="https://example.test/yuyu-base.jpg"'), 'シークレットの札は既定の絵（元のイラスト）の画像');
+assert(h.includes(`data-zoom="${IMG}"`), '「すべて」の札はカード名の画像');
 run(`rarityFilter=''; artFilter=''; _currentCardName='灰流うらら'`);
+
+// 絵の台帳のカード（2026-11-01）: 絵は台帳の番号の順。既定は台帳の既定の絵（判別できない在庫があっても絞る）。
+// 既定の絵が売り切れなら今までのルール（元のイラストが無いので絞らない）
+run(`_artLedger={order:['オリジナル','EX版','石板','劇場版（DSOD）','漫画カラー'],default:'石板'}; D=${JSON.stringify([
+  row('カードラッシュ', 900, '25thシークレット', { art: '漫画カラー' }),
+  row('遊々亭', 1480, '25thシークレット', { art: '劇場版（DSOD）' }),
+  row('カーナベル', 820, '25thシークレット', { art: '石板' }),
+  row('カードラッシュ', 8980, '25thシークレット', { art: 'オリジナル' }),
+  row('遊々亭', 980, '25thシークレット', { art: '' }),
+  row('カードラボ', 980, '25thシークレット', { art: 'EX版' }),
+])}`);
+assert.deepEqual(JSON.parse(run(`JSON.stringify(_artsOf('25thシークレット'))`)), ['オリジナル', 'EX版', '石板', '劇場版（DSOD）', '漫画カラー'], '台帳と ART_ORDER の両方にある名前も1回だけ');
+assert.equal(run(`_defaultArt('25thシークレット')`), '石板');
+run(`D.find(r=>r.art==='石板').sold_out=true`);
+assert.equal(run(`_defaultArt('25thシークレット')`), '', '既定の絵が売り切れなら絞らない');
+run(`_artLedger=null; D=[]; rarityFilter=''; artFilter=''`);
 
 // 9) renderAll は新しいカードで「店ごとの最安」・価格順・売り切れを隠した状態に戻す（配線の静的確認）。
 // 価格の部分は _renderPriceParts に分けた（2026-11-01 前回の結果からの差し替え）。新しいカードは keep=null で既定に戻す
