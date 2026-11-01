@@ -51,6 +51,7 @@ import {
   isTokenCard,
 } from '../components/card-state.js';
 import { playSetFlip, flipMoveClone } from '../components/card-effects.js';
+import { isDummyCard } from '../utils/dummy-card.js';
 import { getDropZoneInfo, executeDrop, getZoneId } from '../components/drag-drop.js';
 import { restackCustomSlot } from '../components/slot-stack.js';
 import { openCardCommentInput } from './comment-ui.js';
@@ -268,11 +269,11 @@ export function returnCardToDeckMenu(wrapper) {
 /**
  * トークンを盤面から消す。消す前にいたゾーンと一緒に removeCard として記録する。
  * 画像・名前の辞書（リプレイ側）にはカードが残るため、巻き戻したときは辞書から作り直せる。
- * 普通のカードは消せない（呼ばれても何もしない）。
+ * ダミーカード（2026-11-01）もトークンと同じく消せる。普通のカードは消せない（呼ばれても何もしない）。
  * @param {Element} wrapper - .tier-item-wrapper
  */
 export function deleteTokenCard(wrapper) {
-  if (!isTokenCard(wrapper)) return;
+  if (!_isRemovable(wrapper)) return;
   const cardEl = wrapper.querySelector('.tier-item');
   const sourceSlot = wrapper.parentElement;
   if (cardEl?.id && typeof window.replayLog === 'function') {
@@ -284,6 +285,11 @@ export function deleteTokenCard(wrapper) {
   }
   wrapper.remove();
   restackCustomSlot(sourceSlot); // フィールドの重ねを詰め直す（.custom-slot 以外は何もしない）
+}
+
+/** 盤面から消せるカードか（トークン・ダミーカード。どちらもデッキの中身ではない） */
+function _isRemovable(wrapper) {
+  return isTokenCard(wrapper) || isDummyCard(wrapper);
 }
 
 /**
@@ -340,7 +346,7 @@ function _buildMenuItems(wrapper, img, parent, isInPool, isInitial, isTouch = fa
       items.push(..._fieldPlacementItems(wrapper));
     }
 
-    if (isTokenCard(wrapper)) {
+    if (_isRemovable(wrapper)) {
       items.push({ separator: true });
       items.push({ label: '削除', action: () => { deleteTokenCard(wrapper); } });
     }
@@ -473,8 +479,8 @@ function _buildMenuItems(wrapper, img, parent, isInPool, isInitial, isTouch = fa
     action: () => { _returnToDeck(wrapper, img); },
   });
 
-  // 削除（トークンのみ。普通のカードは盤面から消せない）
-  if (isTokenCard(wrapper)) {
+  // 削除（トークン・ダミーカードのみ。普通のカードは盤面から消せない）
+  if (_isRemovable(wrapper)) {
     items.push({
       label: '削除',
       action: () => { deleteTokenCard(wrapper); },

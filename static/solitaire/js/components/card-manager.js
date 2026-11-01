@@ -3,6 +3,7 @@ import { applyCardState, markTokenIfSrc } from './card-state.js';
 import { openCardContextMenu } from '../ui/context-menu.js';
 import { playActivateEffect } from './card-effects.js';
 import { createProxyCardElement } from './proxy-card.js';
+import { markDummy } from '../utils/dummy-card.js';
 
 /**
  * カード管理モジュール
@@ -122,8 +123,10 @@ function createCardElement(srcOrDisplay, isEx = false) {
     img.classList.add('tier-item');
     img.setAttribute('draggable', 'true');
     cardEl = img;
-    isReleasedImage = srcOrDisplay.source !== 'official_sample';
-    isSampleImage = !isReleasedImage;
+    isReleasedImage = srcOrDisplay.source !== 'official_sample' && srcOrDisplay.source !== 'dummy';
+    isSampleImage = srcOrDisplay.source === 'official_sample';
+    // ダミーカード（2026-11-01・utils/dummy-card.js）: 枠だけの画像。透かし・ぼかしは付けない
+    if (srcOrDisplay.source === 'dummy') markDummy(wrapper, srcOrDisplay.dummyKind);
   } else if (srcOrDisplay && srcOrDisplay.kind === 'proxy') {
     // {kind:'proxy', proxy: {...}} オブジェクト → プロキシ要素を生成
     const proxyEl = createProxyCardElement(srcOrDisplay.proxy || {});

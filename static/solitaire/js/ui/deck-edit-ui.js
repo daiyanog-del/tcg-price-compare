@@ -18,7 +18,7 @@
 import {
   onDeckLinkChange, getDeckLink, setDeckLink, clearDeckLink, recordDelta, getDeltas,
   markSaved, restoreLinkState, captureLinkState,
-  serializeDeck, deckContents, applyDeltas, collectDeckFromDom, pickRemovable, BOARD_WRAPPERS,
+  serializeDeck, deckContents, applyDeltas, collectDeckFromDom, pickRemovable, BOARD_WRAPPERS, isNotDeckCard,
 } from '../services/deck-link.js';
 import { addCardsToDeck, savedDecksGet, savedDecksSet, isDeckLoading } from './deck-input-panel.js';
 import { forgetCard, getLoggedCardIds } from '../services/replay-service.js';
@@ -37,7 +37,7 @@ const UNDO_TOAST_MS = 6000;      // 「取り消し」を押せる時間
 
 function _wrappersByName(name) {
   return [...document.querySelectorAll(BOARD_WRAPPERS)].filter(w =>
-    w.dataset.token !== '1' && w.querySelector('.tier-item')?.dataset.cardName === name);
+    !isNotDeckCard(w) && w.querySelector('.tier-item')?.dataset.cardName === name);
 }
 
 /** デッキ全体（場・手札・墓地・除外も含む）でのその名前の枚数 */
@@ -46,7 +46,7 @@ export function countInDeck(name) {
 }
 
 function _hasDeckCards() {
-  return [...document.querySelectorAll(BOARD_WRAPPERS)].some(w => w.dataset.token !== '1');
+  return [...document.querySelectorAll(BOARD_WRAPPERS)].some(w => !isNotDeckCard(w));
 }
 
 /** 抜けるカード（無ければ null）。prefer を先に見る（右クリックしたそのカード） */
@@ -493,7 +493,7 @@ function _groupedDeck() {
   const seen = new Set();
   for (const sel of order) {
     for (const w of document.querySelectorAll(`${sel} .tier-item-wrapper`)) {
-      if (seen.has(w) || w.dataset.token === '1') continue;
+      if (seen.has(w) || isNotDeckCard(w)) continue;
       seen.add(w);
       const cardEl = w.querySelector('.tier-item');
       const name = cardEl?.dataset.cardName;
@@ -623,7 +623,7 @@ function _renderMobileEdit() {
 
 /** 右クリック／長押しメニューに足す項目 */
 function _menuItems(wrapper) {
-  if (wrapper.dataset.token === '1') return [];
+  if (isNotDeckCard(wrapper)) return [];
   const name = wrapper.querySelector('.tier-item')?.dataset.cardName;
   if (!name) return [];
   const removable = !!_findRemovable(name, wrapper);
@@ -657,7 +657,7 @@ export function initDeckEditUI() {
     const before = appendBefore;
     appendBefore = null;
     for (const w of document.querySelectorAll(BOARD_WRAPPERS)) {
-      if (before.has(w) || w.dataset.token === '1') continue;
+      if (before.has(w) || isNotDeckCard(w)) continue;
       const name = w.querySelector('.tier-item')?.dataset.cardName;
       if (name) recordDelta(name, / ex$/.test(w.id) ? 'ex' : 'main', +1);
     }

@@ -87,10 +87,15 @@ export function showCardForElement(cardEl) {
   const isSample = !!cardEl.closest('.sample-art');
   // プロキシカードは src がないため空文字または undefined になる
   const imgSrc = cardEl.src || '';
-  if (cardEl.closest('.tier-item-wrapper')?.dataset.token === '1') {
+  const wrapper = cardEl.closest('.tier-item-wrapper');
+  if (wrapper?.dataset.token === '1') {
     // トークン: 名前は利用者が付けたもの。実在のカード名と同じでも、そのカードの情報は引かない
     _reqSeq++;
     showTokenInfo(imgSrc, name);
+  } else if (wrapper?.dataset.dummy === '1') {
+    // ダミーカード（2026-11-01）: 実在のカードではないので情報・相場は引かない
+    _reqSeq++;
+    showTokenInfo(imgSrc, name, undefined, DUMMY_TYPE_LABEL);
   } else if (name) {
     _fetchAndShow(name, imgSrc, isSample);
   } else {
@@ -297,13 +302,17 @@ export function _showUnknown(imgSrc, name, priceData, targetPanel, showPrice = t
   `;
 }
 
+/** ダミーカードの詳細に出す種別（名前は「ダミー（魔法）」など。utils/dummy-card.js） */
+export const DUMMY_TYPE_LABEL = 'ダミーカード（どのカードでもよい1枚）';
+
 /**
  * トークンの描画（名前と「トークン」だけ。情報・相場は引かない）。targetPanel はスマホ詳細パネル用（_renderCard 参照）。
  * @param {string} imgSrc
  * @param {string} [name]  トークンに付けた名前（2026-10-23 より前に出したトークンは無い）
  * @param {Element} [targetPanel]
+ * @param {string} [typeLabel]  名前の下の種別（ダミーカードは DUMMY_TYPE_LABEL・2026-11-01）
  */
-export function showTokenInfo(imgSrc, name, targetPanel) {
+export function showTokenInfo(imgSrc, name, targetPanel, typeLabel = 'トークン') {
   const panel = targetPanel || document.getElementById('cardInfoPanel');
   if (!panel) return;
   panel.innerHTML = `
@@ -311,7 +320,7 @@ export function showTokenInfo(imgSrc, name, targetPanel) {
       <img class="cip-img" src="${_esc(imgSrc)}" alt="${_esc(name || 'トークン')}">
       <div class="cip-meta">
         <p class="cip-name">${_esc(name || 'トークン')}</p>
-        <p class="cip-type">トークン</p>
+        <p class="cip-type">${_esc(typeLabel)}</p>
       </div>
     </div>
   `;

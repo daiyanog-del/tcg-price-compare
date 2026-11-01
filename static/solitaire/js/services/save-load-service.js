@@ -7,6 +7,7 @@
 import { getCardState, applyCardState, markTokenIfSrc } from '../components/card-state.js';
 import { attachCardImageListeners, syncCardIdCounter } from '../components/card-manager.js';
 import { createProxyCardElement } from '../components/proxy-card.js';
+import { dummyKindOfName, dummyDisplayOf, markDummy } from '../utils/dummy-card.js';
 import { addCounterDeleteButton, initializeCounter } from '../components/counter-manager.js';
 import { showToast } from '../utils/toast.js';
 import { restackCustomSlot } from '../components/slot-stack.js';
@@ -41,7 +42,9 @@ function getCardsFromSlot(slot) {
       const isSample = wrapper.classList.contains('sample-art');
       let src;
       if (cardEl.tagName === 'IMG') {
-        src = (isSample && cardName) ? `card://${cardName}` : (cardEl.src || '');
+        // ダミーカード（2026-11-01）は card://予約名（開くときに枠の画像へ戻す・utils/dummy-card.js）
+        const isDummy = wrapper.dataset.dummy === '1';
+        src = ((isSample || isDummy) && cardName) ? `card://${cardName}` : (cardEl.src || '');
       } else {
         // div.tier-item（プロキシカード）: カード名があれば card:// センチネルで保存
         src = cardName ? `card://${cardName}` : '';
@@ -109,16 +112,19 @@ function getCounterStates() {
  */
 async function _resolveCardSentinels(cards) {
   const sentinelNames = [];
+  const local = new Map(); // ダミーカードは問い合わせずに枠の画像へ（2026-11-01）
   for (const c of (cards || [])) {
     if (c.src && c.src.startsWith('card://')) {
       const name = c.src.slice('card://'.length);
+      const dummyKind = dummyKindOfName(name);
+      if (dummyKind) { local.set(name, dummyDisplayOf(dummyKind)); continue; }
       if (name && !sentinelNames.includes(name)) {
         sentinelNames.push(name);
       }
     }
   }
 
-  if (sentinelNames.length === 0) return new Map();
+  if (sentinelNames.length === 0) return local;
 
   try {
     const res = await fetch(API_CARD_IMAGES, {
@@ -130,7 +136,7 @@ async function _resolveCardSentinels(cards) {
     const data = await res.json();
     const images = data.images || {};
 
-    const result = new Map();
+    const result = new Map(local);
     for (const name of sentinelNames) {
       // images[name] は文字列URL / {kind, url?, proxy?} / null
       const val = images[name] ?? null;
@@ -147,7 +153,7 @@ async function _resolveCardSentinels(cards) {
     console.warn('[restoreCardsToSlot] card:// 解決失敗（プロキシ風表示にフォールバック）:', e);
     // 失敗時は kind='none' 扱い（名前のみ表示）。resolveFailed は「再解決できなかった」印
     // （SAMPLE は保存済みの実URLで復元するため、解決成功で none が返った場合と区別する）
-    const fallback = new Map();
+    const fallback = new Map(local);
     for (const name of sentinelNames) {
       fallback.set(name, { kind: 'none', resolveFailed: true });
     }
@@ -204,8 +210,9 @@ async function restoreCardsToSlot(slot, cards) {
         img.id = cardData.id.split(' ')[0];
         if (cardData.cardName) img.dataset.cardName = cardData.cardName;
         cardEl = img;
-        // 発売済みクリーン画像にのみ透かし（SAMPLE画像は除外）
-        if (displayResult.source !== 'official_sample') wrapper.classList.add('wm-released');
+        // 発売済みクリーン画像にのみ透かし（SAMPLE画像・ダミーカードは除外）
+        if (displayResult.source === 'dummy') markDummy(wrapper, displayResult.dummyKind);
+        else if (displayResult.source !== 'official_sample') wrapper.classList.add('wm-released');
         else wrapper.classList.add('sample-art'); // 未発売SAMPLE（イラストぼかし設定の対象）
       } else if (displayResult.kind === 'proxy' && displayResult.proxy) {
         // 未発売プロキシ（まだ発売されていない）

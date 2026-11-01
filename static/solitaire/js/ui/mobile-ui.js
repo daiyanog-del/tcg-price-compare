@@ -38,7 +38,8 @@ import {
   openContextMenuAt,
 } from './context-menu.js';
 import { playActivateEffect, flipMoveClone } from '../components/card-effects.js';
-import { _renderCard, _showUnknown, _showLoading, showTokenInfo } from './card-info-panel.js';
+import { openDummyMenu, handTarget } from './dummy-card-ui.js';
+import { _renderCard, _showUnknown, _showLoading, showTokenInfo, DUMMY_TYPE_LABEL } from './card-info-panel.js';
 import { placeToken, tokenNameOf, getLastTokenName, getLastTokenDefense, preloadTokenBase, TOKEN_NAME_MAX, DEFAULT_TOKEN_NAME } from './token-generator.js';
 import { isMobilePortrait, watchMobilePortrait, isMobileLandscape, watchMobileLandscape } from '../utils/viewport.js';
 import { enterRecView, exitRecView } from './rec-view.js';
@@ -272,6 +273,7 @@ const MENU_ACTIONS = {
   boardmemo:() => { openCommentSheet({ kind: 'board' }); }, // 整理④: 盤面にメモ
   cutin:    () => { openCommentSheet({ kind: 'cutin' }); },  // カットイン: 言葉の札＋自由入力のシート
   token:    () => { openTokenSheet(); },                     // トークン: 名前のシート → 出すマスをタップ
+  dummy:    () => { _openDummyToHand(); },                   // ダミーカード（2026-11-01）: 3色から選んで手札へ
   help:     () => { openHelpSheet(); },
   feedback: () => { document.getElementById('feedbackOpenBtn')?.click(); },
 };
@@ -442,6 +444,10 @@ function openCardDetailOverlay() {
   // トークンは情報を引かない（名前は利用者が付けたもの。card-info-panel.js と同じ扱い）
   if (sel.element.dataset.token === '1') {
     showTokenInfo(src, name, document.getElementById('solMobileCipBody'));
+    return;
+  }
+  if (sel.element.dataset.dummy === '1') { // ダミーカード（2026-11-01）も情報を引かない
+    showTokenInfo(src, name, document.getElementById('solMobileCipBody'), DUMMY_TYPE_LABEL);
     return;
   }
   showMobileCardInfo(name, src);
@@ -766,9 +772,19 @@ function _openEmptySlotMenu(slot, x, y) {
     { label: 'トークンを攻撃表示で出す', action: () => placeToken(slot, DEFAULT_TOKEN_NAME, { defense: false }) },
     { label: 'トークンを守備表示で出す', action: () => placeToken(slot, DEFAULT_TOKEN_NAME, { defense: true }) },
     { label: 'トークンに名前を付けて出す…', action: () => openTokenSheet(slot) },
+    // 続けて3色を選ぶメニューを開く（このメニューの項目を押して閉じた後に開く）
+    { label: 'ダミーカードを出す…', action: () => setTimeout(() => openDummyMenu(slot, x, y), 0) },
     { label: '盤面にメモ', action: () => openCommentSheet({ kind: 'board' }) },
     { label: 'カットイン', action: () => openCommentSheet({ kind: 'cutin' }) },
   ], x, y);
+}
+
+/** ⋯メニュー「ダミーカードを出す」: メニューを閉じてから、画面の中ほどに3色を出す（選ぶと手札へ） */
+function _openDummyToHand() {
+  closeMenuSheet();
+  const target = handTarget();
+  if (!target) return;
+  setTimeout(() => openDummyMenu(target, window.innerWidth / 2, window.innerHeight / 3, 'ダミーカードを手札に加える'), 0);
 }
 
 // ══════════════════ C-2: 移動の演出（設計書 §C） ══════════════════
