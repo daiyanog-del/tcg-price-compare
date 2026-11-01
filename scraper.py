@@ -2345,6 +2345,7 @@ def compare_prices(card_name: str, shop_names: list[str] | None = None,
 
     extra_results: 検索せずに別の経路で得た同じカードの商品（夜の収集のトレコロの在庫一覧の巡回）。
     取得した行と合わせてから型番の補完・OF のそろえをかける（status_out には書かない）。
+    取得した行と同じ URL の商品は、取得した行（新しい値）を使い、extra_results の側を捨てる。
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -2357,7 +2358,7 @@ def compare_prices(card_name: str, shop_names: list[str] | None = None,
     if not active and not extra_results:
         return []
 
-    all_results = list(extra_results or [])
+    all_results = []
     if active:
         with ThreadPoolExecutor(max_workers=len(active)) as executor:
             futures = {
@@ -2375,6 +2376,9 @@ def compare_prices(card_name: str, shop_names: list[str] | None = None,
                     print(f"  ❌ {shop_name}: {e}")
                     if status_out is not None:
                         status_out[shop_name] = {"count": 0, "fetch_errors": 1, "exception": str(e)}
+
+    fetched_urls = {r.get("url") for r in all_results if r.get("url")}
+    all_results += [r for r in (extra_results or []) if not (r.get("url") and r.get("url") in fetched_urls)]
 
     # 同じカードの全店ぶんが揃った直後に型番を補完する（保存前）。
     # カーナベルの弾略号・トレコロCBの接尾辞つき値を、他店の完全な型番で補う。

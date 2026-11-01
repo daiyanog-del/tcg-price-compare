@@ -311,11 +311,12 @@ def test_torecolo_card_plan():
     # 前日にあったレアリティが巡回に無い（読み落としか売り切れか分からない）→ トレコロもカード名で検索する
     prev = {"灰流うらら": {"ノーマル": (100, 100), "ウルトラ": (300, 300)}}
     shops, products, recheck = cp._torecolo_card_plan("灰流うらら", loop, matched, prev, "2026-11-02")
-    assert (shops, products, recheck) == (["遊々亭", "トレコロCB"], None, True)
+    assert (shops, products, recheck) == (["遊々亭", "トレコロCB"], matched["灰流うらら"], True), \
+        "巡回の商品も渡す（検索に出ないキズあり品を落とさない）"
     assert loop == ["遊々亭"], "ループの店の一覧は書き換えない"
     shops, products, recheck = cp._torecolo_card_plan(
         "増殖するG", loop, matched, {"増殖するG": {"ノーマル": (80, 80)}}, "2026-11-02")
-    assert recheck and products is None, "巡回に1件も無く、前日はあったカードも検索し直す"
+    assert recheck and products == [], "巡回に1件も無く、前日はあったカードも検索し直す"
     # 前日の行が無いカード・前日を読めなかった晩は検索し直さない
     assert cp._torecolo_card_plan("増殖するG", loop, matched, {}, "2026-11-02") == (loop, [], False)
     assert cp._torecolo_card_plan("灰流うらら", loop, matched, None, "2026-11-02")[2] is False
@@ -458,10 +459,11 @@ def test_main_on_passes_catalog_products_per_card(monkeypatch):
     by_card = {c: (shops, kw) for c, shops, kw in calls}
     assert by_card["c0"][0] == ["遊々亭"] and [p["url"] for p in by_card["c0"][1]["torecolo_products"]] == ["t-c0"]
     assert "torecolo_sink" not in by_card["c0"][1], "on では比べない"
-    assert by_card["c1"][0] == ["遊々亭", "トレコロCB"] and "torecolo_products" not in by_card["c1"][1], \
-        "前日のレアリティが巡回に無いカードはカード名で検索し直す"
+    assert by_card["c1"][0] == ["遊々亭", "トレコロCB"] and by_card["c1"][1]["torecolo_products"], \
+        "前日のレアリティが巡回に無いカードはカード名でも検索する"
     st = runs[-1]["shop_stats"]["トレコロCB"]
-    assert st["mode"] == "catalog" and st["recheck"] == {"cards": 1, "prev_cards": 1, "prev_read_failed": False}
+    assert st["mode"] == "catalog"
+    assert st["recheck"] == {"cards": 1, "prev_cards": 1, "prev_read_failed": False, "names": ["c1"]}
 
 
 def test_main_on_prev_read_failed_is_recorded(monkeypatch):
@@ -547,3 +549,38 @@ def test_daily_report_warns_torecolo_recheck(monkeypatch):
         cp.send_daily_report(_PrevSb(), "2026-11-02", 3, 0, 0, 10.0, {"トレコロCB": {**base, "recheck": recheck}})
         assert sent and expect in sent[0]
     assert "警告: トレコロ" not in sent[0]
+
+
+def test_compare_prices_prefers_fetched_row_for_same_url(monkeypatch):
+    """検索し直したカード: 同じ URL の商品は検索の値（新しい値）を使い、検索に出ない巡回の商品は残す（reviewer 2回目 低2）"""
+    monkeypatch.setattr(scraper, "SHOPS", [("トレコロCB", lambda name: [_item(name, "u1", price=800)])])
+    extra = [_item("灰流うらら", "u1", price=300), _item("灰流うらら", "u2-K", price=240, condition="中古キズあり")]
+    rows = scraper.compare_prices("灰流うらら", shop_names=["トレコロCB"], extra_results=extra)
+    assert sorted((r["url"], r["price"]) for r in rows) == [("u1", 800), ("u2-K", 240)]
+
+
+def test_collect_and_save_recheck_search_failure_keeps_catalog_rows(monkeypatch):
+    """検索し直しでトレコロの取得に失敗しても、巡回の商品で保存する（1回目 低5）。数え方は検索の取得状況（エラー）"""
+    def tore(name):
+        scraper._note_fetch_error()
+        return []
+
+    monkeypatch.setattr(scraper, "SHOPS", [("トレコロCB", tore)])
+    monkeypatch.setattr(cp, "compare_prices", scraper.compare_prices)
+    saved = []
+    monkeypatch.setattr(cp, "upsert_price_rows", lambda sb, rows, **k: saved.extend(rows) or len(rows))
+    monkeypatch.setattr(cp, "upsert_price_art_rows", lambda sb, rows, **k: None)
+    stats = {}
+    n = cp.collect_and_save(None, "灰流うらら", "2026-11-02", ["トレコロCB"], shop_stats=stats,
+                            torecolo_products=[_item("灰流うらら", "u1", price=300)])
+    assert n == 1 and saved[0]["min_price"] == 300
+    assert stats["トレコロCB"]["error"] == 1
+
+
+def test_torecolo_card_plan_normal_gone_with_conditions():
+    """巡回の商品の状態（通常品・キズあり）から行を作って判定する: 通常品だけ消えたら検索し直す"""
+    prev = {"灰流うらら": {"ウルトラ": (500, 400)}}
+    kizu = _item("灰流うらら", "u2-K", price=400, rarity="ウルトラ", condition="中古キズあり")
+    normal = _item("灰流うらら", "u1", price=500, rarity="ウルトラ")
+    assert not cp._torecolo_card_plan("灰流うらら", [], {"灰流うらら": [normal, kizu]}, prev, "2026-11-02")[2]
+    assert cp._torecolo_card_plan("灰流うらら", [], {"灰流うらら": [kizu]}, prev, "2026-11-02")[2]
