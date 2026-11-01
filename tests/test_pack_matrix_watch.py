@@ -89,3 +89,8 @@ def test_denominator_capped_like_matrix_api(monkeypatch):
     s = _session(cards, _rows(cards[:150], []))
     out = pmw.check_pack_matrix(PACK, base_url="https://example.test", session=s)
     assert out["cards"] == 150 and out["missing"] == [] and len(s.calls[1][2]["cards"]) == 150
+
+
+def test_conftest_blocks_live_watch_elsewhere():
+    """ほかのテストでは collect_featured.watch_pack_matrix が止めてある（conftest）。ここは見張りのテストなので本物"""
+    assert collect_featured.watch_pack_matrix.__name__ == "watch_pack_matrix"
