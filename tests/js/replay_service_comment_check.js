@@ -57,8 +57,8 @@ globalThis.__cut={shown:[],cards:[],hidden:0}; const showCutin=(t)=>{globalThis.
   fresh();
   assert.equal(svc.addComment({ kind: 'board', text: '   ' }), false);
   assert.equal(svc.addComment({ kind: 'card', text: 'x' }), false, 'cardId 無しの吹き出しは付けない');
-  svc.addComment({ kind: 'board', text: 'あ'.repeat(100) });
-  assert.equal(Array.from(svc.getLogs()[3].text).length, 60);
+  svc.addComment({ kind: 'board', text: 'あ'.repeat(150) });
+  assert.equal(Array.from(svc.getLogs()[3].text).length, 120);
   assert.equal(svc.getLogLength(), 4);
 
   // ── removeEventAt ──

@@ -26,8 +26,7 @@ function _findWrapper(cardId) {
 }
 
 /**
- * 吹き出しの要素を作る。カードの中（右上）に置くので、カードと一緒に動き、ゾーンの overflow に切られない。
- * 外側が吹き出しの形（三角つき）、内側の span が最大2行の省略表示。
+ * 吹き出しの要素を作る。外側が吹き出しの形（下向きの三角つき）、内側の span が数行までの省略表示。
  * 全文はカード（.tier-item-wrapper とその画像）の title に入れる。吹き出し自体は pointer-events:none にして、
  * カードの移動・右クリック・ダブルクリックの邪魔をしない（そのためカードをポイントすると全文が出る）。
  */
@@ -85,30 +84,213 @@ function _clearTitles(host) {
   if (cardEl) cardEl.title = host.dataset.face === 'down' ? (cardEl.dataset.cardName || '？') : '';
 }
 
+// ── 吹き出しの置き場所（2026-11-01）──
+// 吹き出しはカードの中ではなく、body 直下の層（#solBubbleLayer・position:fixed）に置いてカードの上に重ねる。
+// カードの中に置くとカードの幅（PC で約60px）で数文字ごとに折り返して読みにくく、
+// 墓地・除外・手札の枠は overflow で切るのでカードの外へ広げられないため。
+// 位置はカードの実際の矩形からフレームごとに合わせる（移動・演出・盤面の伸縮・手札のスクロールのどれにも追いつく）。
+// 置き場所が TRACK_IDLE_FRAMES 続けて変わらなければ止め、描き直し・画面の大きさ・スクロール・演出の終わり・
+// 指やキーを離したときに再開する（吹き出しを出したまま盤面を眺めている間、ページを休ませるため）。吹き出しが無いときも止める。
+
+/** 吹き出しの層。初めて使うときに作る */
+let _layerEl = null;
+/** 出している吹き出し: カード（wrapper）→ { el, cardId, text, clips, clipsParent, clipsW, size } */
+const _placed = new Map();
+let _trackRaf = 0;
+/** 置き場所が変わらなかったフレームの数と、前のフレームの置き場所 */
+let _idleFrames = 0;
+let _lastSig = '';
+/** これだけ続けて変わらなければ止める（約1.5秒。飛ぶ演出 450ms＋着地の確定より十分長く） */
+const TRACK_IDLE_FRAMES = 90;
+let _kickListening = false;
+
+/** 位置合わせを（止まっていれば）再開する */
+function _kickTracking() {
+  _idleFrames = 0;
+  if (!_trackRaf && _placed.size > 0) _trackRaf = requestAnimationFrame(_trackFrame);
+}
+
+function _listenKicks() {
+  if (_kickListening) return;
+  _kickListening = true;
+  const opts = { capture: true, passive: true };
+  window.addEventListener('resize', _kickTracking, opts);
+  for (const type of ['scroll', 'transitionend', 'animationend', 'pointerup', 'touchend', 'keyup']) {
+    document.addEventListener(type, _kickTracking, opts);
+  }
+  // 文字の形が読み込まれると吹き出しの大きさが変わるので測り直す
+  document.fonts?.ready?.then(() => {
+    for (const p of _placed.values()) p.size = null;
+    _kickTracking();
+  });
+}
+
+function _layer() {
+  if (_layerEl?.isConnected) return _layerEl;
+  _layerEl = document.createElement('div');
+  _layerEl.id = 'solBubbleLayer';
+  _layerEl.className = 'sol-bubble-layer';
+  _layerEl.setAttribute('aria-hidden', 'true'); // 全文はカードの title・カード詳細で読める
+  document.body.appendChild(_layerEl);
+  return _layerEl;
+}
+
 /** 吹き出しを描き直す（変わらないものは触らない） */
 function _renderBubbles(bubbles) {
   const plan = _planBubbles(bubbles);
 
   // 要らなくなった・本文や出す先が変わった吹き出しを外す。カードごと消えた吹き出しも、ここで拾う
-  document.querySelectorAll('.sol-bubble').forEach((el) => {
-    const host = el.parentElement;
-    const want = host ? plan.get(host) : null;
-    const same = want && want.cardId === el.dataset.cardId && want.text === el.dataset.text;
-    if (same) return;
-    el.remove();
-    if (host) {
-      host.classList.remove('has-sol-bubble');
-      _clearTitles(host);
-    }
-  });
+  for (const [host, p] of _placed) {
+    const want = plan.get(host);
+    if (want && want.cardId === p.cardId && want.text === p.text) continue;
+    p.el.remove();
+    _placed.delete(host);
+    if (host.isConnected) _clearTitles(host);
+  }
 
   for (const [host, b] of plan) {
-    if (!host.querySelector(':scope > .sol-bubble')) {
-      host.appendChild(_buildBubble(b.cardId, b.text));
-      host.classList.add('has-sol-bubble');
+    if (!_placed.has(host)) {
+      const el = _buildBubble(b.cardId, b.text);
+      el.hidden = true; // 最初の位置合わせまで出さない
+      _layer().appendChild(el);
+      _placed.set(host, { el, cardId: b.cardId, text: b.text, clips: null, clipsParent: null, clipsW: 0, size: null });
     }
     _setTitles(host, b.text); // 裏向きの切り替えなどで title が書き換わっても、描くたびに合わせ直す
   }
+
+  if (_placed.size > 0) {
+    _listenKicks();
+    _lastSig = _placeBubbles();
+    _kickTracking();
+  }
+}
+
+function _trackFrame() {
+  _trackRaf = 0;
+  if (_placed.size === 0) return;
+  const sig = _placeBubbles();
+  _idleFrames = sig === _lastSig ? _idleFrames + 1 : 0;
+  _lastSig = sig;
+  if (_idleFrames >= TRACK_IDLE_FRAMES) return;
+  _trackRaf = requestAnimationFrame(_trackFrame);
+}
+
+/**
+ * カードを切り取る祖先（overflow が visible でないもの）。カードが別のゾーンへ移ったときだけ調べ直す。
+ * display:contents の要素は箱が無く切り取らない（縦向きスマホの #mainContainer。矩形が 0×0 になる）ので除く。
+ */
+function _clipAncestors(host) {
+  const out = [];
+  for (let e = host.parentElement; e && e !== document.body; e = e.parentElement) {
+    const cs = getComputedStyle(e);
+    if (cs.overflow !== 'visible' && cs.display !== 'contents') out.push(e);
+  }
+  return out;
+}
+
+/** カードが見えているか（演出で飛んでいる間は本体が visibility:hidden。外れたカード・畳まれたゾーンも隠す） */
+function _isHostShown(host, r) {
+  if (!host.isConnected || r.width < 2 || r.height < 2) return false;
+  if (getComputedStyle(host).visibility === 'hidden') return false;
+  const cardEl = host.querySelector('.tier-item');
+  return !(cardEl && getComputedStyle(cardEl).visibility === 'hidden');
+}
+
+/** 幅のある（表示中の）要素の矩形。無ければ null */
+function _shownRect(sel) {
+  const r = document.querySelector(sel)?.getBoundingClientRect();
+  return r && r.width > 0 && r.height > 0 ? r : null;
+}
+
+/**
+ * 吹き出しを広げてよい範囲。盤面の入れ物（.sol-main）のうち、PC のカード詳細欄（.sol-cip-col・z10）の右から
+ * 右パネル（.sol-right-panel）の左まで（どちらも層より下に描かれるので、かぶると文字を隠すため）。無ければ画面。
+ */
+function _bounds() {
+  const main = _shownRect('.sol-main');
+  let left = Math.max(0, main ? main.left : 0);
+  let right = Math.min(window.innerWidth, main ? main.right : window.innerWidth);
+  const cip = _shownRect('.sol-cip-col');
+  if (cip && cip.right < right) left = Math.max(left, cip.right);
+  const panel = _shownRect('.sol-right-panel');
+  if (panel && panel.left > left) right = Math.min(right, panel.left);
+  return { left, right, top: Math.max(0, main ? main.top : 0) };
+}
+
+function _setStyle(el, prop, value) {
+  if (el.style.getPropertyValue(prop) !== value) el.style.setProperty(prop, value);
+}
+
+/** 三角の高さ（css/comments.css の .sol-bubble::after と同じ値） */
+const BUBBLE_TIP_PX = 6;
+
+/**
+ * 吹き出しをカードの上に置く。カードの横の中心に合わせ、三角の先をカードの上端に少し重ねる。
+ * 上に場所が無ければカードの上端に重ねる（三角なし）。盤面の左右からははみ出させない。
+ * 先に置いた吹き出しと重なるときは、その上へずらす（隣り合うカードの吹き出しが互いに隠れないように）。
+ * @returns {string} 置き場所の要約（前のフレームと同じなら、位置合わせを止めてよい）
+ */
+function _placeBubbles() {
+  const bounds = _bounds();
+  const items = [];
+  for (const [host, p] of _placed) {
+    const hostRect = host.getBoundingClientRect();
+    let shown = _isHostShown(host, hostRect);
+    // 置き場所は見えているカードの矩形で決める（守備表示はカード画像だけが横に回り、wrapper は縦長のまま）
+    const r = shown ? (host.querySelector('.tier-item')?.getBoundingClientRect() ?? hostRect) : hostRect;
+    if (shown) {
+      if (p.clipsParent !== host.parentElement || p.clipsW !== window.innerWidth
+        || p.clips.some((c) => !c.isConnected)) { // 別のゾーンへ移った・画面の幅や向きが変わった・枠が作り直された
+        p.clips = _clipAncestors(host);
+        p.clipsParent = host.parentElement;
+        p.clipsW = window.innerWidth;
+      }
+      // スクロールの外・畳まれた枠の中にあるカードには出さない（カードの上端の中央が見えているかで判断）
+      const cx = r.left + r.width / 2;
+      const cy = r.top + Math.min(8, r.height / 2);
+      shown = p.clips.every((c) => {
+        const cr = c.getBoundingClientRect();
+        return cx >= cr.left && cx <= cr.right && cy >= cr.top && cy <= cr.bottom;
+      });
+    }
+    if (!shown) { p.el.hidden = true; continue; }
+    items.push({ p, r });
+  }
+  // 上の段・左のカードから順に置く
+  items.sort((a, b) => (a.r.top - b.r.top) || (a.r.left - b.r.left));
+
+  const done = [];
+  for (const { p, r } of items) {
+    const el = p.el;
+    // 幅の上限はカード幅に比例（小さい盤面では狭く）。文字の大きさは CSS（画面の幅で決まる）
+    const maxW = Math.round(Math.min(240, Math.max(132, r.width * 2.4)));
+    _setStyle(el, '--sol-bubble-max-w', `${maxW}px`);
+    el.hidden = false;
+    const key = `${maxW}|${window.innerWidth}`;
+    if (!p.size || p.size.key !== key) p.size = { key, w: el.offsetWidth, h: el.offsetHeight };
+    const { w, h } = p.size;
+
+    const overlap = Math.min(10, r.height * 0.15); // 三角の先をカードに重ねる量
+    const cardCx = r.left + r.width / 2;
+    const left = Math.min(Math.max(bounds.left + 4, cardCx - w / 2), bounds.right - w - 4);
+    let top = r.top + overlap - BUBBLE_TIP_PX - h;
+    let inside = false;
+    if (top < bounds.top + 2) { top = r.top + 4; inside = true; }
+    for (let guard = 0; guard < 6; guard++) {
+      const hit = done.find((d) => left < d.right && left + w > d.left && top < d.bottom && top + h > d.top);
+      if (!hit) break;
+      const up = hit.top - h - BUBBLE_TIP_PX - 2;
+      if (up < bounds.top + 2) break; // 上に逃げられなければ重ねたままにする
+      top = up;
+    }
+    done.push({ left, right: left + w, top, bottom: top + h + (inside ? 0 : BUBBLE_TIP_PX) });
+
+    el.classList.toggle('is-inside', inside);
+    const tailX = Math.min(Math.max(12, cardCx - left), w - 12);
+    _setStyle(el, '--sol-bubble-tail-x', `${Math.round(tailX)}px`);
+    _setStyle(el, 'transform', `translate(${Math.round(left)}px, ${Math.round(top)}px)`);
+  }
+  return [..._placed.values()].map((p) => (p.el.hidden ? '-' : p.el.style.transform)).join('|');
 }
 
 /**
