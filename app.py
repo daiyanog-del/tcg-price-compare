@@ -45,7 +45,7 @@ from shipping import (
     amount_to_min_order, is_orderable, rules_for_client as _shipping_rules_for_client,
 )
 from aggregations import daily_min_by_lowest_rarity, common_shop_price_change
-from price_history_reads import fetch_daily_rows_by_card_names, jst_days_back
+from price_history_reads import fetch_daily_min_by_card_names, fetch_daily_rows_by_card_names, jst_days_back
 from name_normalize import db_lookup_names, pick_card_ids
 from shop_status import SUSPENDED_SHOPS
 from price_persist import (build_art_price_rows, build_min_price_rows, build_pack_price_rows, shallow_rows_to_write,
@@ -304,7 +304,7 @@ from featured_pack import (
     get_featured_pack, is_within_window, featured_card_key, get_featured_card_keys_cached,
 )
 from monitor import tracker, run_health_check
-from constants import JST, VAPID_CLAIMS, PRICE_DAILY_RETENTION_DAYS, PRICE_FLOOR
+from constants import JST, VAPID_CLAIMS, PRICE_RETENTION_DAYS, PRICE_DAILY_RETENTION_DAYS, PRICE_FLOOR
 from ygores_repository import repository as _ygores_repo
 import card_display as _card_display
 import module_graph as _module_graph
@@ -744,6 +744,9 @@ MAX_DECK_QTY = 99
 # （2026-10-31。新しいカードは一覧の末尾に足されるので、後から入れたものだけが切り捨てられた）。
 # 200種でも price_history_reads の1束（_ID_CHUNK=200）に収まる。画面側は index-wish.js の _WISH_API_MAX と同じ値にする
 MAX_WISH_CARDS = 200
+# 購入候補で、直近の相場キャッシュに無いカードの値段を探しにさかのぼる日数。店舗別の行が残る
+# PRICE_RETENTION_DAYS 日より前は日ごとの全店最安（price_daily_min）から読む（2026-11-01 店舗別の保持を14日に縮めたとき）
+WISH_FALLBACK_DAYS = 30
 MAX_PACK_PARAM_LEN = 120
 
 # ヘルスチェック用シークレットキー
@@ -2424,7 +2427,7 @@ def api_deck_estimate():
     return jsonify({"results": results, "total": total})
 
 def _fetch_price_daily_rows(card_name: str, cutoff: str, skip_dates: set) -> list:
-    """price_daily（31日目以前の日ごとの全店最安）を /api/price-history の行の形で返す。
+    """price_daily（15日目以前の日ごとの全店最安）を /api/price-history の行の形で返す。
 
     店舗別の行がある日（skip_dates）は除く（畳み込みと削除の間に両方ある日を二重にしない）。
     ビュー未作成・取得失敗のときは空で返し、店舗別の行だけのグラフにする（ログは残す）。
@@ -2464,6 +2467,22 @@ def _fetch_price_daily_rows(card_name: str, cutoff: str, skip_dates: set) -> lis
     return out
 
 
+def _fetch_wish_daily_fallback(names: list) -> tuple[dict, set]:
+    """購入候補の予備: names の日ごとの全店最安（price_daily_min）を WISH_FALLBACK_DAYS 日前から読み、
+    代表レアリティの {card_name: {date: min_price}} にする。店舗別の行より古い日だけが入っている表。
+    読めなかった名前は failed に入れて返す（「値段なし」と区別する。購入候補の status "error"）。
+    戻り値: (card_dates, failed)"""
+    if not names:
+        return {}, set()
+    if not _supabase_client:
+        return {}, set(names)
+    since = (datetime.now(JST) - timedelta(days=WISH_FALLBACK_DAYS)).strftime("%Y-%m-%d")
+    rows, failed = fetch_daily_min_by_card_names(_supabase_client, names, since, "wish-prices")
+    for r in rows:
+        r["rarity"] = normalize_rarity(r.get("rarity", "") or "")
+    return _aggregate_daily_min_lowest_rarity(rows), failed
+
+
 # 価格推移の読み込み（ページと日ごとの最安）を同時に投げる実行枠。1回の表示で2本使う
 _price_history_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="price-history")  # TODO: calibrate from data
 _PRICE_HISTORY_PAGE_SIZE = 1000  # PostgREST の返却上限
@@ -2487,10 +2506,10 @@ def api_price_history():
 
     try:
         cutoff = (datetime.now(JST) - timedelta(days=PRICE_DAILY_RETENTION_DAYS)).strftime("%Y-%m-%d")
-        # 店舗別の行（price_history）は直近30日だけ残り、それより前は日ごとの全店最安
+        # 店舗別の行（price_history）は直近 PRICE_RETENTION_DAYS 日（14日）だけ残り、それより前は日ごとの全店最安
         # （price_daily）に畳まれている（price_daily_rollup.sql）。両方を読んで合わせる。
         # PostgRESTの返却上限1000行を超えるカードがある（2026-08 時点は90日×6店×複数レアリティで
-        # 最大3,345行。30日保持の今は約1/3）。旧 .limit(2000) は上限で切られ、昇順のため新しい側＝グラフの
+        # 最大3,345行。店舗別14日保持の今はさらに少ない）。旧 .limit(2000) は上限で切られ、昇順のため新しい側＝グラフの
         # 直近数週間が欠落していた（監査F1: docs/audit-price-logic-2026-08-06.md）。
         # ページ間の順序を安定させるため複合キーで order する
         page_size = _PRICE_HISTORY_PAGE_SIZE
@@ -2511,7 +2530,7 @@ def api_price_history():
 
         # 先頭の数ページと日ごとの最安（price_daily）を同時に読む（2026-11-01: 順に読んでいて、DB は数ミリ秒なのに
         # オレゴン↔東京の往復が2〜3回重なり、カードのページのグラフが毎回1〜2秒かかっていた）。
-        # 直近30日の店舗別の行は 2026-11-01 時点で最大1,553行（1,000行を超えるカードは6,646枚中27枚）なので
+        # 店舗別の行は 2026-11-01 時点（30日保持）で最大1,553行（1,000行を超えるカードは6,646枚中27枚。14日保持でさらに減る）なので
         # 先頭のページだけ同時に読み、足りないときだけ続きを順に読む（2ページ目を先読みすると、ほぼ全カードで
         # 空の問い合わせが1本増える。reviewer 中1）
         daily_future = _price_history_executor.submit(_fetch_price_daily_rows, card_name, cutoff, set())
@@ -3564,9 +3583,11 @@ def api_wish_prices():
     # 主クエリ: estimate_cacheにあるカードを8日分で取得
     card_dates, card_common, failed_set = _fetch_price_history(have_data, days=8)
 
-    # フォールバック: estimateキャッシュ未収録のカードを30日分で再検索
+    # フォールバック: estimateキャッシュ未収録のカードを、店舗別の行が残る期間（PRICE_RETENTION_DAYS 日）で再検索
     if pending_set:
-        fallback_dates, fallback_common, fallback_failed = _fetch_price_history(list(pending_set), days=30)
+        # +1日: 毎朝の畳み込み（収集の後）までは PRICE_RETENTION_DAYS+1 日前の日も店舗別にしか無い（reviewer 中2）
+        fallback_dates, fallback_common, fallback_failed = _fetch_price_history(
+            list(pending_set), days=PRICE_RETENTION_DAYS + 1)
         for name, dates in fallback_dates.items():
             if dates:
                 card_dates[name] = dates
@@ -3576,6 +3597,19 @@ def api_wish_prices():
         # 読めなかったカードは「まだ集めていない」とも言えないので失敗として返す
         pending_set -= fallback_failed
         failed_set |= fallback_failed
+
+    # それでも無いカードは、それより前（WISH_FALLBACK_DAYS 日まで）の日ごとの全店最安から探す。
+    # 古い値なので値動き（base_7d/diff/pct）は出さない
+    if pending_set:
+        daily_dates, daily_failed = _fetch_wish_daily_fallback(list(pending_set))
+        for name, dates in daily_dates.items():
+            if dates:
+                card_dates[name] = dates
+                card_common[name] = {}
+                pending_set.discard(name)
+                have_data.append(name)
+        pending_set -= daily_failed
+        failed_set |= daily_failed
 
     results = []
     for name in card_names:

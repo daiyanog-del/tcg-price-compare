@@ -168,7 +168,7 @@ def test_cleanup_caps_days_per_night_and_notifies_backlog(discord):
 
 
 def test_retention_constants():
-    assert (PRICE_RETENTION_DAYS, PRICE_DAILY_RETENTION_DAYS, REPLAY_RETENTION_DAYS) == (30, 100, 90)
+    assert (PRICE_RETENTION_DAYS, PRICE_DAILY_RETENTION_DAYS, REPLAY_RETENTION_DAYS) == (14, 100, 90)
     import collect_buyback
     from constants import BUYBACK_RETENTION_DAYS
     sb = _Sb({"buyback_history": [{"recorded_at": _d(31)}, {"recorded_at": _d(29)}]})

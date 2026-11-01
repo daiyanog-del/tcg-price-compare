@@ -33,8 +33,8 @@ from name_normalize import db_lookup_names, pick_card_ids
 from featured_matrix import _FETCH_WORKERS
 from featured_matrix import _executor as _db_executor
 
-from constants import JST
-from shop_status import drop_suspended_rows
+from constants import JST, PRICE_FLOOR
+from shop_status import drop_suspended_rows, is_suspended
 
 # カード番号の in_ の1回あたりの件数。購入候補は最大50枚で、1日ぶん（2026-10-22 実測 長い名前50枚で約400〜600行）が
 # 1ページに収まる。featured_matrix の _ID_CHUNK（25）は同時に読む束を増やすための値なので借りない
@@ -49,7 +49,7 @@ _MAX_IN_FLIGHT = _FETCH_WORKERS
 _RETRY_ERRORS = (httpx.RemoteProtocolError, httpx.ConnectError)
 
 # 1回の読み込み（fetch_daily_rows_by_card_names の呼び出し1回）の締め切り。過ぎたら、まだ読めていない束は failed にして返す
-# （DB が重いときに要求を gunicorn の120秒まで引っぱらない。購入候補は8日窓と30日窓で2回呼ぶので合わせて60秒。reviewer 中1）。
+# （DB が重いときに要求を gunicorn の120秒まで引っぱらない。購入候補は8日窓と15日窓で2回呼ぶので合わせて60秒。予備の3段目の日ごとの最安は締め切りなし・DB 側の8秒で切られる。reviewer 中1）。
 # 2026-10-22 本番実測: 32枚 2.7秒・反映直後の冷えた状態で 17.8秒
 _READ_DEADLINE_SEC = 30  # TODO: calibrate from data
 
@@ -88,7 +88,7 @@ def _reset_shared_for_tests() -> None:
 
 
 def _cost(rows: list[dict]) -> int:
-    """上限の数え方。行の無いカードも1行と数える（30日窓で読む行の無いカードが上限の外に積もらないように）"""
+    """上限の数え方。行の無いカードも1行と数える（予備の窓で読む行の無いカードが上限の外に積もらないように）"""
     return max(1, len(rows))
 
 
@@ -192,42 +192,10 @@ def _read_day(sb, columns: str, id_chunk: list[int], day: str, log_tag: str) -> 
         offset += _PAGE_SIZE
 
 
-def fetch_daily_rows_by_card_names(sb, names: list[str], columns: str, days: list[str],
-                                   log_tag: str, *, shared: bool = False,
-                                   partial_days: bool = False) -> tuple[list[dict], set[str]]:
-    """names の price_history を、days の日付（JST の 'YYYY-MM-DD'）ごとに等号で読む。
-
-    featured_matrix と同じ読み方: card_dim で名前をカード番号にしてから、price_history を
-    「日付の等号＋カード番号の in_」で引く。索引 (recorded_at, card_id, shop_id, rarity_id) INCLUDE (min_price)
-    の2列とも条件に使わせ、並びも索引と同じ card_id, shop_id, rarity_id にする（1日の中では一意なので
-    range の境目で行が落ちない・重ならない）。2026-10-22 本番の実測（長い名前50枚）: 名前の in_＋日付の範囲は
-    1ページ 4.8秒×約14ページ、こちらは1日 0.11秒（616行で1ページに収まる）×日数。
-    日付どうしは featured_matrix と共有の実行枠で同時に読む（本番 Render オレゴン→DB 東京は1往復0.4〜1秒。
-    30日窓を順に待つと31往復になる。同時の問い合わせ数はプロセス全体で featured_matrix._FETCH_WORKERS まで）。
-    1回の要求が積むのは _MAX_IN_FLIGHT 本まで（1本終わるたびに次を積む）。
-    実行枠のスレッドの中から呼ばないこと（枠の4本が互いの終わりを待って止まる）。
-
-    戻り値: (rows, failed_names)
-      rows: 読めた分の行
-      failed_names: 読めなかった名前（呼び出し元はこれを「値段なし」ではなく失敗として扱う）
-      - 接続切れ・接続失敗（_RETRY_ERRORS）だけ1回再試行。それ以外の失敗は再試行しない
-      - カード番号の束のどこか1日でも読めなければ、その束の名前を全部 failed にし、
-        読めていた他の日の行も捨てる（半端な日付で最安・値動きを出さない）。その束の残りの日は読みに行かない
-      - card_dim に無い名前は行が0件になる（price_history ビューは card_dim との内部結合なので、名前で読んでも同じ）
-      - 名前は収集と同じ normalize_card_name を通した形でも引き、行の card_name は呼び出し元の名前に戻す
-        （name_normalize.db_lookup_names）。戻すのにカード番号を使うので columns に card_id を含めること
-      - _READ_DEADLINE_SEC を過ぎたら、まだ読み終えていない束は failed にして返す（動いている読み込みは捨てるだけ）
-    shared=True: 過去の日の行を「カード番号×日付」で _SHARED_TTL_SEC 取っておき、shared=True の他の呼び出しと
-      使い回す（読んでいる途中なら終わりを待つ）。今日（と先の日）は毎回読む。列は _SHARED_COLUMNS で読む。
-      過去の日を書き換える処理の直後に読み直す呼び出しには使わないこと
-    partial_days=True: 束の一部の日が読めなくても（締め切りを過ぎても）、読めた日の行を返す。
-      1日も読めなかった束だけ failed にする。最安・値動きのように半端な日付で値が変わるものには使わない
-    """
-    if shared:
-        extra = {c.strip() for c in columns.split(",")} - {c.strip() for c in _SHARED_COLUMNS.split(",")}
-        if extra:
-            raise ValueError(f"shared=True で読めない列: {sorted(extra)}")
-    lookup = db_lookup_names(names)  # 収集と同じそろえ方の名前でも引き、行の名前は呼び出し元の名前に戻す
+def _resolve_card_ids(sb, names: list[str], log_tag: str) -> tuple[dict[int, str], set[str]]:
+    """card_dim で names をカード番号にする。戻り値: (カード番号 -> 呼び出し元の名前, 読めなかった名前)。
+    収集と同じそろえ方の名前でも引き（name_normalize.db_lookup_names）、名前は呼び出し元の名前に戻す"""
+    lookup = db_lookup_names(names)
     failed: set[str] = set()
     failed_keys: set[str] = set()
     dim_rows: list[dict] = []
@@ -251,6 +219,45 @@ def fetch_daily_rows_by_card_names(sb, names: list[str], columns: str, days: lis
     # （完全一致で読めたカードは、そろえた名前の束が読めなくても失敗にしない。reviewer 低1）
     found = set(id_to_name.values())
     failed.update(lookup[k] for k in failed_keys if lookup[k] not in found)
+    return id_to_name, failed
+
+
+def fetch_daily_rows_by_card_names(sb, names: list[str], columns: str, days: list[str],
+                                   log_tag: str, *, shared: bool = False,
+                                   partial_days: bool = False) -> tuple[list[dict], set[str]]:
+    """names の price_history を、days の日付（JST の 'YYYY-MM-DD'）ごとに等号で読む。
+
+    featured_matrix と同じ読み方: card_dim で名前をカード番号にしてから、price_history を
+    「日付の等号＋カード番号の in_」で引く。索引 (recorded_at, card_id, shop_id, rarity_id) INCLUDE (min_price)
+    の2列とも条件に使わせ、並びも索引と同じ card_id, shop_id, rarity_id にする（1日の中では一意なので
+    range の境目で行が落ちない・重ならない）。2026-10-22 本番の実測（長い名前50枚）: 名前の in_＋日付の範囲は
+    1ページ 4.8秒×約14ページ、こちらは1日 0.11秒（616行で1ページに収まる）×日数。
+    日付どうしは featured_matrix と共有の実行枠で同時に読む（本番 Render オレゴン→DB 東京は1往復0.4〜1秒。
+    15日窓を順に待つと16往復になる。同時の問い合わせ数はプロセス全体で featured_matrix._FETCH_WORKERS まで）。
+    1回の要求が積むのは _MAX_IN_FLIGHT 本まで（1本終わるたびに次を積む）。
+    実行枠のスレッドの中から呼ばないこと（枠の4本が互いの終わりを待って止まる）。
+
+    戻り値: (rows, failed_names)
+      rows: 読めた分の行
+      failed_names: 読めなかった名前（呼び出し元はこれを「値段なし」ではなく失敗として扱う）
+      - 接続切れ・接続失敗（_RETRY_ERRORS）だけ1回再試行。それ以外の失敗は再試行しない
+      - カード番号の束のどこか1日でも読めなければ、その束の名前を全部 failed にし、
+        読めていた他の日の行も捨てる（半端な日付で最安・値動きを出さない）。その束の残りの日は読みに行かない
+      - card_dim に無い名前は行が0件になる（price_history ビューは card_dim との内部結合なので、名前で読んでも同じ）
+      - 名前は収集と同じ normalize_card_name を通した形でも引き、行の card_name は呼び出し元の名前に戻す
+        （name_normalize.db_lookup_names）。戻すのにカード番号を使うので columns に card_id を含めること
+      - _READ_DEADLINE_SEC を過ぎたら、まだ読み終えていない束は failed にして返す（動いている読み込みは捨てるだけ）
+    shared=True: 過去の日の行を「カード番号×日付」で _SHARED_TTL_SEC 取っておき、shared=True の他の呼び出しと
+      使い回す（読んでいる途中なら終わりを待つ）。今日（と先の日）は毎回読む。列は _SHARED_COLUMNS で読む。
+      過去の日を書き換える処理の直後に読み直す呼び出しには使わないこと
+    partial_days=True: 束の一部の日が読めなくても（締め切りを過ぎても）、読めた日の行を返す。
+      1日も読めなかった束だけ failed にする。最安・値動きのように半端な日付で値が変わるものには使わない
+    """
+    if shared:
+        extra = {c.strip() for c in columns.split(",")} - {c.strip() for c in _SHARED_COLUMNS.split(",")}
+        if extra:
+            raise ValueError(f"shared=True で読めない列: {sorted(extra)}")
+    id_to_name, failed = _resolve_card_ids(sb, names, log_tag)
 
     ids = sorted(id_to_name)
     id_chunks = [ids[i:i + _ID_CHUNK] for i in range(0, len(ids), _ID_CHUNK)]
@@ -327,3 +334,83 @@ def fetch_daily_rows_by_card_names(sb, names: list[str], columns: str, days: lis
     # 休止中の店の行は、休止前の観測でも「いま買える値段」として出さない（shop_status.py。
     # 店名で判定するので columns に shop を含めること）
     return drop_suspended_rows(out), failed
+
+
+def fetch_daily_min_by_card_names(sb, names: list[str], since: str, log_tag: str) -> tuple[list[dict], set[str]]:
+    """names の日ごとの全店最安（price_daily_min・店舗別の行を畳んだ表）のうち since（JST の 'YYYY-MM-DD'）以降の日を返す。
+
+    カード番号だけで主キー (card_id, rarity_id, recorded_at) を引き、日付は読んだ後に絞る。日付の下限を DB に渡すと、
+    範囲内の行が少ない（と統計が見る）ときに DB が日付の BRIN 索引で範囲をまるごと読んでから絞る
+    （2026-11-01 本番の実行計画で、名前でも番号でも3枚・30日で約9MB 読んだ。番号だけなら人気の5枚・100日ぶん
+    約3,800行で 0.2秒）。この読み出しに来るのは最近の値段が無いカードなので行は少ない。
+    表は RLS 有効・ポリシーなし（price_daily_rollup.sql）。service_role の鍵（本番の SUPABASE_KEY）でだけ読める
+    （anon の鍵だとエラーにならず0件になる）。
+    値は PRICE_FLOOR 未満を除いた最安（min_price_over10）。店舗別の読み出しが10円未満の店の行を捨てるのと同じ値になる。
+    最安の店（min_shop_ids）は10円未満も含めた最安の店なので、全店最安が10円未満の日は店が分からない（shop を空にする）。
+    最安の店がすべて休止中の日は除く（いま買える値段として出さない。次に安い店は畳んだ表に無い）。
+    接続切れ・接続失敗（_RETRY_ERRORS）だけ1回再試行する。
+    戻り値: (rows, failed_names)。rows は card_name・rarity・shop・min_price・recorded_at（店舗別の行と同じ列）
+    """
+    id_to_name, failed = _resolve_card_ids(sb, names, log_tag)
+    if not id_to_name:
+        return [], failed
+
+    def _run(query):
+        for attempt in (1, 2):
+            try:
+                return query().execute().data or []
+            except _RETRY_ERRORS as e:
+                if attempt == 2:
+                    raise
+                logger.info(f"[{log_tag}] 日ごとの最安の読み込みを再試行: {type(e).__name__}: {e}")
+
+    try:
+        # 名簿は小さい（2026-11-01 本番 rarity_dim 85行・shop_dim 6行）
+        rarity_name = {r["rarity_id"]: r["rarity"] for r in
+                       _run(lambda: sb.table("rarity_dim").select("rarity_id, rarity").order("rarity_id").range(0, 999))}
+        shop_name = {r["shop_id"]: r["shop"] for r in
+                     _run(lambda: sb.table("shop_dim").select("shop_id, shop").order("shop_id").range(0, 999))}
+    except Exception as e:
+        logger.warning(f"[{log_tag}] レアリティ・店の名簿の取得失敗（{len(id_to_name)}枚）: {type(e).__name__}: {e}")
+        return [], failed | set(id_to_name.values())
+    ids = sorted(id_to_name)
+    out: list[dict] = []
+    for i in range(0, len(ids), _ID_CHUNK):
+        id_chunk = ids[i:i + _ID_CHUNK]
+        got: list[dict] = []
+        try:
+            offset = 0
+            while True:
+                batch = _run(lambda: (sb.table("price_daily_min")
+                                      .select("card_id, rarity_id, min_price, min_price_over10, min_shop_ids, recorded_at")
+                                      .in_("card_id", id_chunk)
+                                      .order("card_id", desc=False)
+                                      .order("rarity_id", desc=False)
+                                      .order("recorded_at", desc=False)
+                                      .range(offset, offset + _PAGE_SIZE - 1)))
+                got.extend(batch)
+                if len(batch) < _PAGE_SIZE:
+                    break
+                offset += _PAGE_SIZE
+        except Exception as e:
+            logger.warning(f"[{log_tag}] 日ごとの最安の取得失敗（{len(id_chunk)}枚）: {type(e).__name__}: {e}")
+            failed.update(id_to_name[c] for c in id_chunk)
+            continue
+        for r in got:
+            day = (r.get("recorded_at") or "")[:10]
+            price = r.get("min_price_over10")
+            if day < since or price is None:
+                continue
+            shop = ""
+            if (r.get("min_price") or 0) >= PRICE_FLOOR:
+                open_shops = [n for n in (shop_name.get(s) for s in (r.get("min_shop_ids") or []))
+                              if n and not is_suspended(n)]
+                if not open_shops:
+                    continue
+                shop = open_shops[0]
+            out.append({"card_name": id_to_name[int(r["card_id"])],
+                        "rarity": rarity_name.get(r.get("rarity_id"), ""),
+                        "shop": shop,
+                        "min_price": price,
+                        "recorded_at": day})
+    return out, failed

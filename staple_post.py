@@ -225,7 +225,7 @@ def fetch_history(sb, name, rarity, date_to):
             continue
         d = r["recorded_at"][:10]
         daily[d] = min(daily.get(d, p), p)
-    # 31日目以前は店舗別の行が消え、日ごとの全店最安（price_daily）に畳まれている。
+    # 15日目以前は店舗別の行が消え（constants.PRICE_RETENTION_DAYS）、日ごとの全店最安（price_daily）に畳まれている。
     # PRICE_FLOOR 未満を除いた最安（min_price_over10。名前は「10円超」だった頃のまま）を使い、上と同じ値になるようにする
     full_dates = {r["recorded_at"][:10] for r in rows}
     for r in _fetch_daily_history(sb, name, rarity, start, date_to):

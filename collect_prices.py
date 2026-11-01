@@ -1593,7 +1593,7 @@ def _oldest_store_date(sb: Client) -> str | None:
 def rollup_and_delete_old_prices(sb: Client, cutoff: str) -> None:
     """cutoff より前の店舗別の行を、古い日から1日ずつ「日ごとの全店最安」へ畳んでから消す。
 
-    畳めなかった日は消さない（消すと相場グラフの31日目以降が欠けるため）。失敗や
+    畳めなかった日は消さない（消すと相場グラフの15日目以降が欠けるため）。失敗や
     追いつけていない状態は Discord に知らせる（黙って price_history_v2 が増え続けないように）。
     """
     problem = ""
