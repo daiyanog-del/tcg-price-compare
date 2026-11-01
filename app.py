@@ -3,6 +3,7 @@ TCG 価格比較 Web サーバー
 """
 
 import json
+import zlib
 import sys
 import time
 import os
@@ -181,6 +182,42 @@ def _search_busy_response():
     return response
 
 
+def _gzip_sse(stream):
+    """SSE の生成器を gzip にする。イベントごとに Z_SYNC_FLUSH で区切り、届いたぶんをすぐ読めるようにする。
+
+    flask-compress の流れる応答の圧縮はイベントごとに区切らず、進み具合や順番待ちの合図が最後まで届かないので使わない。
+    検索の応答は結果の行が多く（灰流うららで約590KB）、圧縮しないとスマホの回線で数秒かかっていた（2026-11-01）。
+    途中で閉じられたら元の生成器も閉じる（切断の検知と後始末を元の生成器に任せる）。"""
+    compressor = zlib.compressobj(6, zlib.DEFLATED, zlib.MAX_WBITS | 16)
+    try:
+        for chunk in stream:
+            data = chunk.encode("utf-8") if isinstance(chunk, str) else chunk
+            yield compressor.compress(data) + compressor.flush(zlib.Z_SYNC_FLUSH)
+        yield compressor.flush()
+    finally:
+        close = getattr(stream, "close", None)
+        if close:
+            close()
+
+
+# SSE の gzip を止める切り替え（本番の中継で溜められて進み具合が届かないなどのときに、ビルドし直さずに戻すため）
+_SSE_GZIP_ENABLED = os.environ.get("SSE_GZIP", "1") != "0"
+
+
+def _sse_response(stream):
+    """SSE の応答。ブラウザが gzip を受け取れれば _gzip_sse で圧縮する（EventSource・fetch とも自動で戻す）。
+
+    no-transform は途中の中継に圧縮のし直し（溜めてから圧縮する）をさせないため"""
+    if _SSE_GZIP_ENABLED and request.accept_encodings["gzip"] > 0:
+        response = Response(_gzip_sse(stream), mimetype="text/event-stream")
+        response.headers["Content-Encoding"] = "gzip"
+    else:
+        response = Response(stream, mimetype="text/event-stream")
+    response.headers["Vary"] = "Accept-Encoding"
+    response.headers["Cache-Control"] = "no-cache, no-transform"
+    return response
+
+
 def _search_stream_response(stream, release):
     """検索の SSE を返し、終わったら（途中で切断されても）枠を必ず返す。
 
@@ -191,7 +228,7 @@ def _search_stream_response(stream, release):
             yield from stream
         finally:
             release()
-    response = Response(wrapped(), mimetype="text/event-stream")
+    response = _sse_response(wrapped())
     response.call_on_close(release)
     return response
 
@@ -1604,7 +1641,7 @@ def api_search():
                 yield _sse({"type": "shop_done", "shop": shop_name, "count": count, "cached": True})
             yield _sse({**_build_done(cached_results, corrected, card_name),
                         **search_coverage(selected, cached_map, cached_results)})
-        return Response(cached_stream(), mimetype="text/event-stream")
+        return _sse_response(cached_stream())
 
     shops_to_scrape = [(name, fn) for name, fn in active_shops if name in missing_shops]
 
@@ -1616,12 +1653,11 @@ def api_search():
         if corrected:
             yield _sse({"type": "corrected", "original": original_name, "corrected": corrected})
 
-        # キャッシュ命中店舗は即時に確定表示（逐次表示用に結果も送る）
+        # キャッシュ命中店舗は即時に確定（画面は進み具合を数えるだけ。結果の行は done でまとめて送る）
         for shop_name, _ in active_shops:
             if shop_name in cached_map:
                 yield _sse({"type": "shop_done", "shop": shop_name,
-                            "count": len(cached_map[shop_name]),
-                            "results": cached_map[shop_name], "cached": True})
+                            "count": len(cached_map[shop_name]), "cached": True})
 
         # 不足店舗を「検索中」に
         for shop_name, _ in shops_to_scrape:
@@ -1679,8 +1715,7 @@ def api_search():
                         yield _sse({"type": "shop_error", "shop": shop_name,
                                     "error": SHOP_BUSY_MESSAGE, "busy": True})
                         yield _sse({"type": "shop_done", "shop": shop_name, "count": len(stale_results),
-                                    "results": stale_results, "status": "busy",
-                                    "stale": stale_at is not None, "stale_at": stale_at})
+                                    "status": "busy", "stale": stale_at is not None, "stale_at": stale_at})
                         continue
                     error = None
                     try:
@@ -1692,8 +1727,9 @@ def api_search():
                     if error or fetch_errors:
                         yield _sse({"type": "shop_error", "shop": shop_name,
                                     "error": "店舗からの取得に失敗しました"})
-                    # 店舗完了時に結果データも送信（逐次表示用）
-                    yield _sse({"type": "shop_done", "shop": shop_name, "count": len(results), "results": results,
+                    # 店舗の完了（画面は進み具合を数えるだけ。結果の行は done でまとめて送る。2026-11-01: 店ごとにも
+                    # 行を送っていて、検索1回の通信が done・先出しと合わせて約590KBになっていた）
+                    yield _sse({"type": "shop_done", "shop": shop_name, "count": len(results),
                                 "status": "partial" if (error or fetch_errors) else "ok"})
                     all_results.extend(results)
                     scraped_items.extend(results)
@@ -2426,6 +2462,12 @@ def _fetch_price_daily_rows(card_name: str, cutoff: str, skip_dates: set) -> lis
     return out
 
 
+# 価格推移の読み込み（ページと日ごとの最安）を同時に投げる実行枠。1回の表示で2本使う
+_price_history_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="price-history")  # TODO: calibrate from data
+_PRICE_HISTORY_PAGE_SIZE = 1000  # PostgREST の返却上限
+_PRICE_HISTORY_FIRST_PAGES = 1  # 日ごとの最安と同時に読む先頭のページ数（1,000行を超えるカードは0.4%なので先読みしない）
+
+
 @app.route("/api/price-history")
 def api_price_history():
     """カードの価格推移データを返す"""
@@ -2449,11 +2491,11 @@ def api_price_history():
         # 最大3,345行。30日保持の今は約1/3）。旧 .limit(2000) は上限で切られ、昇順のため新しい側＝グラフの
         # 直近数週間が欠落していた（監査F1: docs/audit-price-logic-2026-08-06.md）。
         # ページ間の順序を安定させるため複合キーで order する
-        page_size = 1000
+        page_size = _PRICE_HISTORY_PAGE_SIZE
         max_pages = 10  # 暴走ガード（現在の最大は約3,345行=4ページ）
-        offset = 0
-        rows: list = []
-        while True:
+
+        def read_page(page):
+            offset = page * page_size
             resp = (_supabase_client.table("price_history")
                     .select("shop, rarity, min_price, recorded_at")
                     .eq("card_name", card_name)
@@ -2463,14 +2505,33 @@ def api_price_history():
                     .order("rarity", desc=False)
                     .range(offset, offset + page_size - 1)
                     .execute())
-            batch = resp.data or []
+            return resp.data or []
+
+        # 先頭の数ページと日ごとの最安（price_daily）を同時に読む（2026-11-01: 順に読んでいて、DB は数ミリ秒なのに
+        # オレゴン↔東京の往復が2〜3回重なり、カードのページのグラフが毎回1〜2秒かかっていた）。
+        # 直近30日の店舗別の行は 2026-11-01 時点で最大1,553行（1,000行を超えるカードは6,646枚中27枚）なので
+        # 先頭のページだけ同時に読み、足りないときだけ続きを順に読む（2ページ目を先読みすると、ほぼ全カードで
+        # 空の問い合わせが1本増える。reviewer 中1）
+        daily_future = _price_history_executor.submit(_fetch_price_daily_rows, card_name, cutoff, set())
+        page_futures = [_price_history_executor.submit(read_page, p) for p in range(_PRICE_HISTORY_FIRST_PAGES)]
+        rows: list = []
+        page = 0
+        for future in page_futures:
+            batch = future.result()
             rows.extend(batch)
+            page += 1
             if len(batch) < page_size:
                 break
-            offset += page_size
-            if offset >= max_pages * page_size:
-                logger.error(f"価格推移取得: {max_pages}ページ超過で打ち切り [{card_name}]")
-                break
+        else:
+            while True:
+                if page >= max_pages:
+                    logger.error(f"価格推移取得: {max_pages}ページ超過で打ち切り [{card_name}]")
+                    break
+                batch = read_page(page)
+                rows.extend(batch)
+                page += 1
+                if len(batch) < page_size:
+                    break
         data = [
             {"date": r.get("recorded_at", "")[:10], "shop": r.get("shop", ""),
              "rarity": normalize_rarity(r.get("rarity", "")),  # 過渡期の分裂値を正準名に統合
@@ -2478,7 +2539,8 @@ def api_price_history():
             for r in rows
         ]
         # 畳んだ分は店舗別の行より古いので前に置く（日付の昇順を保つ）
-        data = _fetch_price_daily_rows(card_name, cutoff, {d["date"] for d in data}) + data
+        shop_dates = {d["date"] for d in data}
+        data = [d for d in daily_future.result() if d["date"] not in shop_dates] + data
         # グラフは過去の記録なので休止中の店の行も残す。「いまの最安」を選ぶ画面（シミュレーターの
         # カード情報）が休止中の店を外せるように、店名を添える（shop_status.py）
         return jsonify({"card_name": card_name, "data": data,
@@ -3897,7 +3959,7 @@ def api_buyback():
                 yield _sse({"type": "shop_done", "shop": shop_name, "count": count, "cached": True})
             yield _sse({**_build_buyback_done(cached_results),
                         **search_coverage(selected, cached_map, cached_results)})
-        return Response(cached_stream(), mimetype="text/event-stream")
+        return _sse_response(cached_stream())
 
     shops_to_scrape = [(name, fn) for name, fn in active_shops if name in missing_shops]
 

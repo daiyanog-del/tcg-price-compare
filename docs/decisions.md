@@ -1,5 +1,11 @@
 このファイルの目的: 重要な決定を「いつ・何を・なぜ」で記録する。新しい決定は上に追記
 
+## 2026-11-01: 検索の SSE をイベントごとの gzip に・店ごとの通知から行を外す・価格推移を同時読み込みに（branch perf/lighter-search・ユーザー選択「小さな2つから」）
+- なぜ: 表示と速度の洗い出し（同日）で、検索1回の通信が約590KB（灰流うらら）と分かった。text/event-stream は flask-compress の対象外で無圧縮、しかも shop_done にも結果の行を載せ、先出し（preview）と完了（done）でも送っていた。価格推移（/api/price-history）は DB 自体は約6ms なのに、店舗別の2ページと日ごとの最安を順に読み、オレゴン↔東京の往復が重なって毎回1〜2秒
+- 何を: app._gzip_sse・_sse_response（Accept-Encoding に gzip があれば、イベントごとに Z_SYNC_FLUSH で区切った gzip。EventSource・fetch とも自動で戻す）。_search_stream_response（search・deck・deck-buy・buyback）とキャッシュ命中の経路に適用。/api/search の shop_done から results を外す（画面は進み具合を数えるだけで使っていなかった）。/api/price-history は1ページ目と price_daily を _price_history_executor で同時に読み、足りなければ続きを順に読む（直近30日の店舗別の行は最大1,553行・1,000行超は6,646枚中27枚。2ページ目の先読みは空の問い合わせが増えるのでしない）。SSE には Cache-Control: no-cache, no-transform、環境変数 SSE_GZIP=0 で圧縮を止められる
+- 採らなかった案: flask-compress の COMPRESS_STREAMS（イベントごとに区切らず、進み具合・順番待ちの合図が最後まで届かない）／先出しと完了の重複をやめる（中身が違う＝前回と最新。圧縮で十分小さくなる）／価格推移をサーバーで数分とっておく（初回が速くならない）
+- 手元の確認: 本番の現行コードと価格推移の行・並び順が5枚で一致。werkzeug の実サーバーで gzip のイベントが1件ずつ届く（店の完了 0.4・0.6秒…、順番待ちの合図5秒ごと）
+
 ## 2026-11-01: Web の Supabase クライアントを HTTP/2 の1本から HTTP/1.1 の接続プールに（branch fix/db-http1・ユーザー指摘「スマホで購入候補の画像と価格が遅い・価格情報なしになる」）
 - なぜ: supabase-py（postgrest）の既定は HTTP/2 の接続1本。1つのクライアントを gunicorn の16スレッドと共有の実行枠（featured_matrix._executor 4本）が同時に使い、接続ごと切られていた（本番ログ: RemoteProtocolError ConnectionTerminated PROTOCOL_ERROR／Server disconnected・RuntimeError deque mutated during iteration）。price_history_reads は1日でも読めないと束の全カードを失敗にするので、購入候補（約58枚×8日＋30日窓）が30秒の締め切りにかかり全件「価格を読み込めませんでした」に。画像の URL も同じ /api/wish-prices の応答に入っているので画像も遅れた。10-30〜11-01 に締め切り切れ6回（Android からの57〜58枚が中心）
 - 裏取り（手元→本番 DB・読み取りのみ・anon 鍵）: 58枚×31日を4スレッドで同時に読む×5回×2 で HTTP/2 は620件中14件失敗・HTTP/1.1 は0件、1件 0.07→0.05秒。本物の fetch_daily_rows_by_card_names を2本同時×8回で、HTTP/2 は16回中1回が58枚すべて失敗・HTTP/1.1 は0回
