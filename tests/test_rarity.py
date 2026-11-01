@@ -253,3 +253,99 @@ class TestTableIntegrity:
                 key = raw.translate(str.maketrans("", "", " 　\t()（）"))
                 assert key not in seen, f"{key}: {seen.get(key)} と {e['canonical']} で重複"
                 seen[key] = e["canonical"]
+
+
+class TestSeparateRaritiesAndUnknownWarnings:
+    """2026-11-01 本番ログの未知表記（10-25〜11-01 の99件）の棚卸し。
+    わざと別扱いにしている表記は WARN を出さずに代表の書き方で返し、正規名には寄せない。"""
+
+    @pytest.fixture(autouse=True)
+    def _fresh_warned(self):
+        import rarity
+        rarity._WARNED_UNKNOWN_RARITIES.clear()
+        yield
+        rarity._WARNED_UNKNOWN_RARITIES.clear()
+
+    @pytest.mark.parametrize("raw,expected", [
+        # GREEN/PINK は 25thシークレット に寄せない（寄せると絵の判別の前に印が消える）
+        ("クォーターセンチュリーシークレットGREEN Ver.", "クォーターセンチュリーシークレットGREEN Ver."),
+        ("クォーターセンチュリーシークレットGREENVer.", "クォーターセンチュリーシークレットGREEN Ver."),
+        ("クォーターセンチュリーシークレット(SPECIAL PINK ver.)", "クォーターセンチュリーシークレット(SPECIAL PINK ver.)"),
+        # カードラボの販売は「シークレット」を省く。買取の書き方にそろえる
+        ("クォーターセンチュリー(SPECIAL PINK ver.)", "クォーターセンチュリーシークレット(SPECIAL PINK ver.)"),
+        ("ファラオズシークレット", "ファラオズシークレット"),
+    ])
+    def test_separate_rarities_kept_without_warning(self, raw, expected, caplog):
+        with caplog.at_level("WARNING", logger="rarity"):
+            assert normalize_rarity(raw) == expected
+        assert "未知のレアリティ" not in caplog.text
+
+    def test_pink_short_form_now_folds_to_25th_on_screen(self):
+        # 画面に出す行は display_rarity で 25thシークレット に寄せ、絵の切り替えで PINK Ver. を選ぶ
+        # （display_rarity は「クォーターセンチュリーシークレット」で始まる表記だけ寄せるので、省略形はこれまで生のまま画面に出ていた）
+        import art_variant
+        row = {"shop": "カードラボ", "rarity": normalize_rarity("クォーターセンチュリー(SPECIAL PINK ver.)"),
+               "name": "ブラック・マジシャン・ガール(イラスト違い(2)/LE5版)"}
+        assert art_variant.display_rarity(row) == "25thシークレット"
+
+    def test_unknown_label_is_not_warned(self, caplog):
+        # 記録から読み直した "(不明)" を正準化し直しても WARN を出さない
+        with caplog.at_level("WARNING", logger="rarity"):
+            assert normalize_rarity(UNKNOWN_RARITY_LABEL) == UNKNOWN_RARITY_LABEL
+        assert "未知のレアリティ" not in caplog.text
+
+    def test_warn_unknown_false_returns_raw_silently(self, caplog):
+        with caplog.at_level("WARNING", logger="rarity"):
+            assert normalize_rarity("フルオーバーラッシュレア", warn_unknown=False) == "フルオーバーラッシュレア"
+        assert "未知のレアリティ" not in caplog.text
+
+    def test_truly_unknown_still_warned(self, caplog):
+        with caplog.at_level("WARNING", logger="rarity"):
+            assert normalize_rarity("テスト用の架空レア") == "テスト用の架空レア"
+        assert "未知のレアリティ" in caplog.text
+
+    def test_separate_rarities_do_not_collide_with_canonical_aliases(self):
+        import rarity
+        for raw in rarity._SEPARATE_RARITIES:
+            assert rarity._preprocess(raw) not in rarity._ALIAS_TO_CANON, raw
+
+    def test_green_lower_ver_also_kept(self, caplog):
+        with caplog.at_level("WARNING", logger="rarity"):
+            assert normalize_rarity("クォーターセンチュリーシークレットGREEN ver.") == "クォーターセンチュリーシークレットGREEN Ver."
+        assert "未知のレアリティ" not in caplog.text
+
+    def test_green_without_space_still_classified_as_green(self):
+        # 正準化したあとも絵の判定（art_variant.classify）が GREEN Ver. と読めること
+        import art_variant
+        row = {"shop": "カードラッシュ", "name": "ブラックマジシャン", "url": "",
+               "rarity": normalize_rarity("クォーターセンチュリーシークレットGREENVer.")}
+        assert art_variant.classify(row, "ブラック・マジシャン")[0] == art_variant.ART_GREEN
+        assert art_variant.display_rarity(row) == "25thシークレット"
+
+
+class TestNcf1ColoredUltraAndSpecialVersions:
+    """2026-11-01 ユーザー判断: NCF1 の赤・青のウルトラはウルトラへ寄せ、SPECIAL ILLUST・PURPLE は別扱い。"""
+
+    @pytest.mark.parametrize("raw", ["ウルトラレッド", "ウルトラブルー"])
+    def test_ncf1_colored_ultra_folds_to_ultra(self, raw):
+        assert normalize_rarity(raw) == "ウルトラ"
+
+    @pytest.mark.parametrize("raw,expected", [
+        ("ウルトラSPECIALILLUSTVer.", "ウルトラSPECIALILLUSTVer."),
+        ("ウルトラSPECIAL ILLUST Ver.", "ウルトラSPECIALILLUSTVer."),
+        ("ウルトラSPECIALPURPLEVer.", "ウルトラSPECIALPURPLEVer."),
+        ("ウルトラ(SPECIAL PURPLE Ver.)", "ウルトラSPECIALPURPLEVer."),
+        ("ウルトラSPECIALPURPLEver.", "ウルトラSPECIALPURPLEVer."),
+    ])
+    def test_special_versions_stay_separate(self, raw, expected, caplog):
+        import rarity
+        rarity._WARNED_UNKNOWN_RARITIES.clear()
+        with caplog.at_level("WARNING", logger="rarity"):
+            assert normalize_rarity(raw) == expected
+        assert "未知のレアリティ" not in caplog.text
+
+    def test_text_extraction_unaffected_by_colored_ultra_aliases(self):
+        # 出品名の「ウルトラ レッドアイズ…」はウルトラのまま。レッド・ブルーで始まる別名を足すと変わるので見張る
+        from rarity import extract_rarity_from_text
+        assert extract_rarity_from_text("ウルトラ レッドアイズ・ブラック・ドラゴン") == "ウルトラ"
+        assert extract_rarity_from_text("ウルトラ ブルー シークレットブルー") is None

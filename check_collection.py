@@ -64,15 +64,16 @@ SKIP_REASONS = {
 
 # rarity.py の正規名ではないが、記録に残っている既知の表記（2026-10-30 の price_history の rarity_dim と
 # buyback_history から）。MANGA 系・GREEN/PINK・SPECIAL 系は絵が違うので、意図して別のレアリティとして残している。
-# 旧い略号（KC-N・M-UR など）は過去の記録の rarity_dim に残っているもの。「ステンレス製」は入れない（紙のカードではない）
+# 旧い略号（KC-N・M-UR など）は過去の記録の rarity_dim に残っているもの。rarity._SEPARATE_RARITIES（WARN を止める別扱いの表記）は
+# ここにも入れる（tests/test_check_collection.py で一致を確かめる）。「ステンレス製」は入れない（紙のカードではない）
 KNOWN_ODD_RARITIES = frozenset({
     "", "(不明)", "-", "BSE", "ES", "KC-N", "KC-R", "KC-UR", "KCウルトラレア", "M-GR", "M-SE", "M-SR", "M-UR",
     "MANGAアル", "MANGAウル", "MANGAシク", "N-P", "NR", "Oラッシュ", "P-EXSE", "PN", "QCシク", "RE", "SR-P", "UR-P",
     "WPP7", "イベント品", "ウルトラSPECIALILLUSTVer.", "ウルトラSPECIALPURPLEVer.", "ウルトラシークレット",
-    "ウルトラブルー", "ウルトラレッド", "エクストラシークレットパラレルレア", "オバフレウル", "オバフレシク",
+    "エクストラシークレットパラレルレア", "オバフレウル", "オバフレシク",
     "オバフレプリシク", "クォーターセンチュリーシークレット(SPECIAL PINK ver.)",
     "クォーターセンチュリーシークレットGREEN Ver.", "ゴル", "シークレットBLUEVer.", "シークレットSPECIAL RED Ver.",
-    "シークレットSPECIALREDVer.", "ノーマル(パラレル仕様)", "ミレニアムウルトラレア", "ミレニアムゴールドレア",
+    "シークレットSPECIALREDVer.", "ノーマル(パラレル仕様)", "ファラオズシークレット", "ミレニアムウルトラレア", "ミレニアムゴールドレア",
     "ミレニアムシークレットレア", "ミレニアムスーパーレア", "レアパラ",
 })
 

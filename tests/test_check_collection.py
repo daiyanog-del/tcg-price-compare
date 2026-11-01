@@ -294,3 +294,9 @@ def test_main_still_sends_row_alert_when_rarity_check_fails(monkeypatch):
     assert cc.main() == 1
     assert "買取の価格収集が今日（JST）まだ1件もありません" in sent[0]
     assert "販売: 見慣れないレアリティの確認を読めませんでした（RuntimeError: timeout）" in sent[0]
+
+
+def test_separate_rarities_are_known_odd():
+    """rarity.py で WARN を止めた別扱いの表記は、毎日の検査でも見慣れた表記として扱う（2つの一覧がずれたら落ちる）"""
+    import rarity
+    assert set(rarity._SEPARATE_RARITIES.values()) <= cc.KNOWN_ODD_RARITIES

@@ -357,6 +357,10 @@ RARITIES: list[dict] = [
             "ウル",                                             # 短縮
             "ウルトラレア",                                     # 〜レア形式
             "MANGAウル", "MANGA-STYLEウルトラレア",  # カーナベルの MANGA-STYLE（2026-10-30。ほかの店は漫画風をこのレアリティの中の絵の違いとして書く。漫画風の印は取得時に行の manga 欄へ残す＝scraper._kanabell_rarity）
+            # NCF1（Number Complete File -Piece of Memories-）の100番台の No. は赤、FNo. は青で刷ったウルトラ。
+            # カードラッシュ・カードラボだけが色を書き足す（ほかの店は同じ型番を「ウルトラ」）。同じ型番に普通の色の版は無い
+            # （Yugipedia の弾のページ・カードの収録欄「Ultra Rare」で 2026-11-01 確認。記録にあるのも NCF1 の15型番だけ）
+            "ウルトラレッド", "ウルトラブルー",
         ],
     },
     {
@@ -580,6 +584,29 @@ _STRIP_CHARS = str.maketrans("", "", " 　\t()（）")
 # なっていたのを発見して追加）。
 _DASH_ONLY = {"-", "‐", "‑", "–", "—", "ー", "－", "―"}
 
+# 正規名に寄せず、わざと別のレアリティとして残す表記（2026-11-01 本番ログの未知表記99件の棚卸し）。
+# 未知表記の WARN は「足し忘れ」に気づくためのものなので、意図して残す表記では出さない。
+# 値は記録（price_history・買取の履歴）に残す代表の書き方。キーの表記はどれも代表に寄せる。
+#   GREEN/PINK Ver. : 25thシークレットの中の絵の違い。取得時に 25thシークレット へ寄せると判別前に印が消え、
+#                     値が 25thシークレット の系列に混ざる（10-28 reviewer 指摘）。画面に出す行だけ
+#                     art_variant.display_rarity で寄せる。カードラボは販売で「シークレット」を省く
+#                     （QCAC-JP019 ブラック・マジシャン・ガールで販売「クォーターセンチュリー(SPECIAL PINK ver.)」・
+#                     買取「クォーターセンチュリーシークレット(SPECIAL PINK ver.)」）ので、買取の書き方にそろえる
+#   ファラオズシークレット : 英語版だけのレアリティ（Pharaoh's Rare。カードラッシュの ☆英語版☆ MAMA-EN107）。
+#                     OCG に同じものが無い
+#   ウルトラSPECIALILLUSTVer. : カードラッシュの 25TH-JP001 ブラック・マジシャンだけ（¥39,800）。ほかの店に同じ型番が無く、
+#                     ウルトラへ寄せると同じカードの別の型番のウルトラの値に混ざるだけ
+#   ウルトラSPECIALPURPLEVer. : カードラッシュ（AW01-JP003 など）。同じ店の買取が同じカードで「ウルトラ」と別の行に出す＝物が違う
+# 値は check_collection.KNOWN_ODD_RARITIES にも入れる（毎日の検査が「見慣れないレアリティ」と知らせないように）
+_SEPARATE_RARITIES: dict[str, str] = {
+    "クォーターセンチュリーシークレットGREEN Ver.": "クォーターセンチュリーシークレットGREEN Ver.",
+    "クォーターセンチュリーシークレット(SPECIAL PINK ver.)": "クォーターセンチュリーシークレット(SPECIAL PINK ver.)",
+    "クォーターセンチュリー(SPECIAL PINK ver.)": "クォーターセンチュリーシークレット(SPECIAL PINK ver.)",
+    "ファラオズシークレット": "ファラオズシークレット",
+    "ウルトラSPECIALILLUSTVer.": "ウルトラSPECIALILLUSTVer.",
+    "ウルトラSPECIALPURPLEVer.": "ウルトラSPECIALPURPLEVer.",
+}
+
 
 def _preprocess(s: str) -> str:
     """照合キーを作る。空白（半角/全角/タブ）と丸括弧を除去する。"""
@@ -603,12 +630,30 @@ def _build_lookup() -> None:
                 )
             _ALIAS_TO_CANON[key] = canon
 
+
+_SEPARATE_LOOKUP: dict[str, str] = {}  # 前処理済み・大文字の表記 → 記録に残す代表の書き方（店で Ver./ver. が揺れるので大文字で照らす）
+
+
+def _build_separate_lookup() -> None:
+    """_SEPARATE_RARITIES の逆引きを作る。正規名の別名と重なったらプログラムのバグなので起動時に警告する。"""
+    for raw_key, keep in _SEPARATE_RARITIES.items():
+        key = _preprocess(raw_key)
+        if key in _ALIAS_TO_CANON:
+            warnings.warn(
+                f"[rarity] 別扱いの表記 '{raw_key}' が正規名 '{_ALIAS_TO_CANON[key]}' の別名と重なっています。"
+                f"正規名を優先します。",
+                stacklevel=2,
+            )
+            continue
+        _SEPARATE_LOOKUP[key.upper()] = keep
+
 _build_lookup()
+_build_separate_lookup()
 
 
 # ── 公開 API ─────────────────────────────────────────────────────
 
-def normalize_rarity(raw: str, shop: str | None = None) -> str:  # noqa: ARG001
+def normalize_rarity(raw: str, shop: str | None = None, warn_unknown: bool = True) -> str:  # noqa: ARG001
     """レアリティ文字列を正規名に変換する。
 
     未知の表記はそのまま返す（誤縮約しない）。
@@ -618,22 +663,27 @@ def normalize_rarity(raw: str, shop: str | None = None) -> str:  # noqa: ARG001
     Args:
         raw:  生のレアリティ文字列（店舗HTMLから抽出したもの）
         shop: 将来の店舗別分岐用（現在は未使用・全店共通）
+        warn_unknown: False なら未知表記でも WARN を出さない（このあと捨てる行＝他TCG・ラッシュデュエルの行で使う）
 
     Returns:
-        正規名。未知の場合は raw をそのまま返す。
+        正規名。_SEPARATE_RARITIES の表記はその代表の書き方。未知の場合は raw をそのまま返す。
     """
     if not raw:
         return ""
     s = raw.strip()
-    if s in _DASH_ONLY:
+    if s in _DASH_ONLY or s == UNKNOWN_RARITY_LABEL:
         # ダッシュのみ＝店舗が「レアリティ無し」を表した印。未知表記ではないので
-        # WARN も出さず "(不明)" へ隔離する
+        # WARN も出さず "(不明)" へ隔離する。記録から読み直した "(不明)" も同じ
+        # （2026-11-01: 読み出しで正準化し直すたびに未知表記の WARN が出ていた）
         return UNKNOWN_RARITY_LABEL
     # 照合は前処理済みキーで行うが、未知表記は前処理前の文字列をそのまま返す
     # （生表記を勝手に改変しない。ログにも実際の表記が出る）
-    result = _ALIAS_TO_CANON.get(_preprocess(s))
+    key = _preprocess(s)
+    result = _ALIAS_TO_CANON.get(key) or _SEPARATE_LOOKUP.get(key.upper())
     if result is not None:
         return result
+    if not warn_unknown:
+        return s
     # 未知表記は生のまま返す（誤縮約させない）。WARNはプロセス内で表記ごとに初回のみ
     with _WARNED_UNKNOWN_RARITIES_LOCK:
         if len(_WARNED_UNKNOWN_RARITIES) >= _WARNED_UNKNOWN_RARITIES_MAX:

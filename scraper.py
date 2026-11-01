@@ -1578,7 +1578,11 @@ def _extract_clabo_item(container) -> dict | None:
     return {
         "shop": "カードラボ", "name": display_name,
         # 「〔オーバーフレーム〕」の印があるときだけ OF に。印の無い OF は infer_overframe でほかの店の行から判定する
-        "rarity": mark_overframe(normalize_rarity(rarity), display_name), "code": code,
+        # 他TCG（「C」など）・ラッシュデュエル（「フルオーバーラッシュレア」など）の行は呼び出し側で捨てるので、
+        # 未知のレアリティの WARN を出さない（2026-11-01 本番ログの未知表記の棚卸し）
+        "rarity": mark_overframe(normalize_rarity(
+            rarity, warn_unknown=_is_clabo_ygo(raw_name) and not _is_rush_duel(raw_name) and not _is_rush_duel(code),
+        ), display_name), "code": code,
         "condition": "-", "price": price, "stock": stock,
         "sold_out": sold_out, "url": product_url,
         "image": image_url,
