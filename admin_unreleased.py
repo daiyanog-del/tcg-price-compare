@@ -60,8 +60,8 @@ _supabase = None
 
 if _SUPABASE_URL and _SUPABASE_KEY:
     try:
-        from supabase import create_client
-        _supabase = create_client(_SUPABASE_URL, _SUPABASE_KEY)
+        from supabase_conn import create_shared_client
+        _supabase = create_shared_client(_SUPABASE_URL, _SUPABASE_KEY)
         logger.info("[admin] Supabase 接続成功")
     except Exception as _e:
         logger.warning(f"[admin] Supabase 接続失敗: {_e}")

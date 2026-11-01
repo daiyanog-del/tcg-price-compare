@@ -771,8 +771,8 @@ _SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 if _SUPABASE_URL and _SUPABASE_KEY:
     try:
-        from supabase import create_client
-        _supabase_client = create_client(_SUPABASE_URL, _SUPABASE_KEY)
+        from supabase_conn import create_shared_client
+        _supabase_client = create_shared_client(_SUPABASE_URL, _SUPABASE_KEY)
         logger.info("Supabase接続成功 — 検索ランキングを永続化します")
     except Exception as e:
         logger.warning(f"Supabase接続失敗（メモリモードで動作）: {e}")
