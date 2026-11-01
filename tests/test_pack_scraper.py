@@ -255,6 +255,23 @@ class TestGreedyBracketMatch:
         cards = pack_scraper._fetch_from_wiki("ダミーパック", "ダミーパック")
         assert cards == ["道化の一座『開演』"]
 
+    def test_fetch_from_wiki_includes_special_numbers(self, monkeypatch):
+        """_fetch_from_wiki(): 特別収録の型番（IMPH-JPS01 のように JP のあとに英字）の行も拾い、トークン（JPT）は拾わない（2026-11-01）"""
+        html = """
+        <html><body>
+        <ul>
+            <li>IMPH-JP001 <a href="?a">《ゴキポール》</a> Super</li>
+            <li>IMPH-JPS01 <a href="?b">《ラーの翼神竜》</a> Ultra , Secret</li>
+            <li>IMPH-JPS13 <a href="?c">《篝火》</a> Ultra , Secret , Prismatic Secret</li>
+            <li>IMPH-JPT01 <a href="?e">《トークン》</a>（太陽神の支配）</li>
+            <li>関連リンク <a href="?d">《型番の無い行》</a></li>
+        </ul>
+        </body></html>
+        """
+        monkeypatch.setattr(pack_scraper.requests, "get", lambda url, headers=None, timeout=None: _FakeResponse(html))
+        cards = pack_scraper._fetch_from_wiki("ダミーパック", "ダミーパック")
+        assert cards == ["ゴキポール", "ラーの翼神竜", "篝火"], "特別収録は拾い、トークン（JPT）と型番の無い行は拾わない"
+
     def test_fetch_theme_cards_extracts_full_name_with_inner_bracket(self, monkeypatch):
         """fetch_theme_cards(): <a> テキストに内側の閉じ括弧が含まれていても、
         末尾の閉じ括弧まで含めて名前を抽出できること"""
