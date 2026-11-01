@@ -1078,7 +1078,8 @@ def index():
 
 def _is_display_proxy_card(name: str) -> bool:
     """未発売カード・海外先行カードとして表示できる名前か（カードのページの noindex の判定用）。
-    読めないときは判断できないので True（検索に出す側に倒す）"""
+    例外のときは True（検索に出す側）。ただし card_display は DB の読み込み失敗を空の一覧として返すので、
+    再起動直後に DB が読めないと False になりうる（その間の未発売カードは noindex。reviewer 低D・受け入れ）"""
     try:
         return _card_display.get_display_proxy(name) is not None
     except Exception:
@@ -1093,9 +1094,15 @@ def card_page(card_name):
     if not card_name or len(card_name) > 50:
         return render_template("index.html", card_name="", page_mode="search"), 404
 
+    # 正式名の一覧にも価格の記録にも未発売・海外先行カードにも無い名前（打ち間違いの URL など）は検索に出さない
+    # （正式名の一覧を読めていないときは判断できないので、検索に出す側に倒す）。
+    # 未発売・海外先行カードは新着欄・/new-cards が /card/<名前> でリンクしていて、一番検索される時期のページ（reviewer 高1）。
+    # 安い判定（メモリ）を先にし、知らない名前では DB を読まない（打ち間違いの URL で DB と取っておきを汚さない。reviewer 中A）
+    known_card = (not _cardnames_set or card_name in _cardnames_set
+                  or card_name in _estimate_cache or _is_display_proxy_card(card_name))
     # HTML に最初から書く価格（card_page_ssr.py。検索エンジンが読めるように・2026-11-01）。
     # 本文・説明文・構造化データの数字は同じ出どころ（毎日集めた価格の直近の日）にそろえる
-    ssr = card_page_ssr.get_snapshot(_supabase_client, card_name)
+    ssr = card_page_ssr.get_snapshot(_supabase_client, card_name) if known_card else None
     best_price = ssr["low"] if ssr else None
     shop_count = len(ssr["shops"]) if ssr else 0
     # 相場キャッシュ（直近7日の最安）は売り切れた店の古い値段を含みうるので、「現在の最安値」には使わない（reviewer 低）
@@ -1106,11 +1113,6 @@ def card_page(card_name):
             in_stock = [r for r in cached if not r.get("sold_out")]
             if in_stock:
                 best_price = min(in_stock, key=lambda x: x["price"])["price"]
-    # 正式名の一覧にも価格の記録にも未発売・海外先行カードにも無い名前（打ち間違いの URL など）は検索に出さない
-    # （正式名の一覧を読めていないときは判断できないので、検索に出す側に倒す）。
-    # 未発売・海外先行カードは新着欄・/new-cards が /card/<名前> でリンクしていて、一番検索される時期のページ（reviewer 高1）
-    known_card = (not _cardnames_set or card_name in _cardnames_set or ssr is not None
-                  or card_name in _estimate_cache or _is_display_proxy_card(card_name))
 
     return render_template("index.html",
                            card_name=card_name,

@@ -243,7 +243,10 @@ def test_unreleased_card_is_index(client, monkeypatch):
 
 
 def test_unknown_card_name_is_noindex(client, monkeypatch):
-    monkeypatch.setattr(card_page_ssr, "get_snapshot", lambda sb, name: None)
+    # 知らない名前では DB を読まない（打ち間違いの URL で DB と取っておきを汚さない。reviewer 中A）
+    def _no_read(sb, name):
+        raise AssertionError("知らない名前で価格を読んだ")
+    monkeypatch.setattr(card_page_ssr, "get_snapshot", _no_read)
     monkeypatch.setattr(app_module, "_cardnames_set", {"灰流うらら"})
     monkeypatch.setattr(app_module, "_estimate_cache", {})
     monkeypatch.setattr(app_module._card_display, "get_display_proxy", lambda name: None)

@@ -186,6 +186,7 @@ function showUnreleasedCard(name,tcgPreview){
   // 世代管理: selectSugの未発売分岐はdoSearchを通らず世代が進まないため、稼働中の
   // 販売検索ストリームがあればここで明示的に破棄する（そのままだと後から届くdoneが
   // この未発売カードの見出しの下に前のカードの価格表を描いてしまう）
+  _ssrHold=null; // 開いた直後のサーバーの欄を待たせていても、別のカードを出すので隠す（reviewer 低C）
   _newSearchGen();
   const btn=document.getElementById('btn');
   if(btn){btn.disabled=false;btn.textContent='検索';}
@@ -627,6 +628,7 @@ function doSearch(opts){
   // 打ちかけの1文字では検索しない。確かめる間は世代を進めない（無効な入力で進行中の検索を止めない）
   if(q.length<2&&!opts.validated&&!opts._validation){
     const reject=()=>{
+      _releaseSsrHold(true); // 開いた直後のサーバーの欄（/card/あ など）を、検索しないなら残さない（reviewer 低〜中B）
       if(document.getElementById('q').value.trim()!==q) return; // 確かめる間に入力が変わった
       // URL から開いたときは警告を出さずトップの表示に戻す（手入力のときだけ従来の警告）
       if(trigger==='pageload'||trigger==='popstate') document.getElementById('q').value='';

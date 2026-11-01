@@ -176,7 +176,11 @@ def _read_and_store(sb, name: str) -> dict | None:
     except Exception:
         logger.exception("カードのページの価格の読み込み失敗: %s", name)
         with _lock:
-            _failed[name] = time.time()
+            now = time.time()
+            if len(_failed) >= _CACHE_MAX:  # 期限の過ぎた記録を掃除する（DB 障害の間に増え続けないように）
+                for k in [k for k, at in _failed.items() if now - at >= _FAIL_TTL_SEC]:
+                    del _failed[k]
+            _failed[name] = now
         raise
     finally:
         with _lock:
