@@ -3542,7 +3542,7 @@ def api_wish_prices():
         # 並べ替えに使う番号の列も select に入れる（featured_matrix と同じ形。本番で通っている形にそろえる）
         all_rows, failed = fetch_daily_rows_by_card_names(
             _supabase_client, names, "card_id, shop_id, rarity_id, card_name, rarity, shop, min_price, recorded_at",
-            jst_days_back(days), "wish-prices")
+            jst_days_back(days), "wish-prices", shared=True)
         # 代表レアリティ選定は rarity 文字列でグループ化するため、DB読み出し境界で
         # 正準名に統合する（過渡期の分裂値を吸収。/api/price-history と同じ方針）
         for r in all_rows:
@@ -3706,9 +3706,10 @@ def api_wish_shop_totals():
         # 購入候補と同じく、カード番号＋日付の等号で今日の7日前から今日まで読む（price_history_reads。
         # 名前＋日付の範囲は長い名前で statement timeout になった。2026-10-22）。
         # 読めなかったカードは行が無いので db_missing に入り、画面は店のリアルタイム検索で補う
+        # 読み込みは購入候補の価格・レアリティ候補と使い回す（shared。開いた直後なら過去の日は読み直さない）
         rows_7d, _failed = fetch_daily_rows_by_card_names(
             _supabase_client, names, "card_id, shop_id, rarity_id, card_name, shop, rarity, min_price, recorded_at",
-            jst_days_back(7), "wish-shop-totals")
+            jst_days_back(7), "wish-shop-totals", shared=True)
         # recorded_at 欠落行の件数。存在すべきでない欠損だが、
         # サイレントに握りつぶさず警告する（監査 2026-08-07 追加, L10）
         missing_recorded_at = 0
@@ -3892,10 +3893,12 @@ def api_card_rarities():
     rarity_counts: dict[str, dict[str, int]] = {}
     if _supabase_client:
         # 購入候補と同じく、カード番号＋日付の等号で今日の7日前から今日まで読む（price_history_reads）。
-        # 読めなかったカードは候補なし扱い（従来どおり）
+        # 購入候補を開くと /api/wish-prices と同時に同じカードを読むので、読み込みを使い回す（shared）。
+        # 一部の日しか読めなくても、読めた日に出たレアリティを候補にする（partial_days。2026-11-01
+        # DB が重いときに58枚まとめて候補なしになっていた）。1日も読めなかったカードは候補なし扱い（従来どおり）
         rows, _failed = fetch_daily_rows_by_card_names(
             _supabase_client, names, "card_id, shop_id, rarity_id, card_name, rarity, shop",
-            jst_days_back(7), "card-rarities")
+            jst_days_back(7), "card-rarities", shared=True, partial_days=True)
         for row in rows:
             nm = row.get("card_name")
             r = normalize_rarity(row.get("rarity", "") or "")

@@ -10,13 +10,21 @@
 「値段なし」と区別して扱わせる（CLAUDE.md「0件と取得失敗は区別」）。
 (3) の根本は読み方の重さで、名前＋日付の範囲（gte）で読んでいたのをやめ、3か所とも
 fetch_daily_rows_by_card_names（カード番号＋日付の等号）に移した（購入候補 PR #204、まとめ買い・レアリティ候補はその次）。
+
+2026-11-01 購入候補を開くと価格とレアリティの2つの API が同じカードの同じ日を同時に読み、共有の実行枠を
+取り合って締め切り（30秒）を過ぎ、レアリティの欄（58枚）・まとめ買い（19枚）が丸ごと失敗になっていた。
+shared=True の呼び出しどうしは「カード番号×日付」の単位で読んだ行を短い間取っておき、同じものを読んでいる
+途中ならその読み込みの終わりを待って使う（新しく読みに行かない）。レアリティ候補は partial_days=True で、
+一部の日しか読めなくても読めた日の行を返す（まとめ買い・価格は従来どおり、全部の日が読めたカードだけ）。
 """
 
 import logging
+import threading
 import time
 from collections import deque
 from datetime import datetime, timedelta
 from concurrent.futures import FIRST_COMPLETED, wait
+from functools import partial
 
 import httpx
 
@@ -45,9 +53,108 @@ _RETRY_ERRORS = (httpx.RemoteProtocolError, httpx.ConnectError)
 # 2026-10-22 本番実測: 32枚 2.7秒・反映直後の冷えた状態で 17.8秒
 _READ_DEADLINE_SEC = 30  # TODO: calibrate from data
 
+# shared=True の読み込みが取っておく行の期限。対象は過去の日だけ（今日は「価格を更新」・検索が書いた直後に画面が
+# 読み直すので、取っておきも読み込みの使い回しもしない。2026-11-01 reviewer 高1）。過去の日は収集で書き足されない
+# （0時をまたぐ収集の書き込みも30分あれば終わる。未検証の前提）
+_SHARED_TTL_SEC = 30 * 60  # TODO: calibrate from data
+# 取っておく行の数の上限（1行は約0.8KB。3万行で約24MB。2026-11-01 reviewer 中2）。購入候補200枚×8日で約1.6万行
+_SHARED_MAX_ROWS = 30000  # TODO: calibrate from data
+# shared=True は呼び出し元の columns によらずこの列で読む（取っておいた行を3つの API で使い回すため）。
+# 呼び出し元の columns はこの中に収まっていること
+_SHARED_COLUMNS = "card_id, shop_id, rarity_id, card_name, rarity, shop, min_price, recorded_at"
+
+# (カード番号, 日付) -> (期限 monotonic, 行)。行は呼び出し元へ渡すたびに写す（呼び出し元が書き換えるため）
+_shared_rows: dict[tuple[int, str], tuple[float, list[dict]]] = {}
+_shared_row_total = 0
+# (カード番号, 日付) -> (読んでいる途中の Future, 始めた時刻)（同じものを2回読みに行かない）
+_shared_inflight: dict = {}
+# 取っておきを捨てるたびに進める。捨てる前に始まった読み込みの行は取っておかない
+_shared_gen = 0
+# 登録中に終わった Future の後始末が同じスレッドで走るので再入可能にする
+_shared_lock = threading.RLock()
+
 logger = logging.getLogger(__name__)
 
 _PAGE_SIZE = 1000
+
+
+def _reset_shared_for_tests() -> None:
+    global _shared_row_total, _shared_gen
+    with _shared_lock:
+        _shared_rows.clear()
+        _shared_inflight.clear()
+        _shared_row_total = 0
+        _shared_gen += 1
+
+
+def _cost(rows: list[dict]) -> int:
+    """上限の数え方。行の無いカードも1行と数える（30日窓で読む行の無いカードが上限の外に積もらないように）"""
+    return max(1, len(rows))
+
+
+def _store_shared(ids: list[int], day: str, gen: int, fut) -> None:
+    """shared の読み込みが終わったら、途中の印を外し、読めていれば行をカード番号ごとに取っておく。"""
+    global _shared_row_total
+    with _shared_lock:
+        for cid in ids:
+            mark = _shared_inflight.get((cid, day))
+            if mark is not None and mark[0] is fut:
+                del _shared_inflight[(cid, day)]
+        if fut.cancelled() or fut.exception() is not None or gen != _shared_gen:
+            return  # 失敗は取っておかない（次の呼び出しが読み直す）
+        now = time.monotonic()
+        by_id: dict[int, list[dict]] = {cid: [] for cid in ids}
+        for r in fut.result():
+            cid = r.get("card_id")
+            if cid is not None and int(cid) in by_id:
+                by_id[int(cid)].append(r)
+        # 期限切れは格納のたびに捨てる（上限を超えたときだけにすると、上限近くで張り付く）
+        for k in [k for k, (exp, _r) in _shared_rows.items() if exp <= now]:
+            _shared_row_total -= _cost(_shared_rows.pop(k)[1])
+        for cid, rows in by_id.items():
+            old = _shared_rows.get((cid, day))
+            if old is not None:
+                _shared_row_total -= _cost(old[1])
+            _shared_rows[(cid, day)] = (now + _SHARED_TTL_SEC, rows)
+            _shared_row_total += _cost(rows)
+        # 上限を超えたら期限の近いものから捨てる
+        if _shared_row_total > _SHARED_MAX_ROWS:
+            for k in sorted(_shared_rows, key=lambda k: _shared_rows[k][0]):
+                _shared_row_total -= _cost(_shared_rows.pop(k)[1])
+                if _shared_row_total <= _SHARED_MAX_ROWS:
+                    break
+
+
+def _start_read(sb, columns: str, id_chunk: list[int], day: str, log_tag: str, shared: bool):
+    """1束・1日の読み込みを始める。
+    戻り値: (取っておきから取れた行, [(Future, 使うカード番号の集合 or None=全部)], 自分で読みに行ったか)。
+    shared=False はいつも自分で読む。shared=True は 取っておき → 読んでいる途中の Future → 残りだけ新しく読む。"""
+    if not shared:
+        return [], [(_db_executor.submit(_read_day, sb, columns, id_chunk, day, log_tag), None)], True
+    rows: list[dict] = []
+    deps: dict = {}  # Future -> 使うカード番号の集合
+    need: list[int] = []
+    now = time.monotonic()
+    with _shared_lock:
+        for cid in id_chunk:
+            hit = _shared_rows.get((cid, day))
+            if hit and hit[0] > now:
+                rows.extend(dict(r) for r in hit[1])
+                continue
+            mark = _shared_inflight.get((cid, day))
+            # 締め切りより長く掛かっている読み込みは詰まっているとみて借りず、自分で読み直す（reviewer 中3）
+            if mark is not None and now - mark[1] < _READ_DEADLINE_SEC:
+                deps.setdefault(mark[0], set()).add(cid)
+                continue
+            need.append(cid)
+        if need:
+            # 登録を終えるまで鍵を持つ（終わった Future の後始末が登録より先に走り、印が取り残されないように）
+            fut = _db_executor.submit(_read_day, sb, _SHARED_COLUMNS, need, day, log_tag)
+            for cid in need:
+                _shared_inflight[(cid, day)] = (fut, now)
+            deps.setdefault(fut, set()).update(need)
+            fut.add_done_callback(partial(_store_shared, need, day, _shared_gen))
+    return rows, list(deps.items()), bool(need)
 
 
 def jst_days_back(days: int) -> list[str]:
@@ -86,7 +193,8 @@ def _read_day(sb, columns: str, id_chunk: list[int], day: str, log_tag: str) -> 
 
 
 def fetch_daily_rows_by_card_names(sb, names: list[str], columns: str, days: list[str],
-                                   log_tag: str) -> tuple[list[dict], set[str]]:
+                                   log_tag: str, *, shared: bool = False,
+                                   partial_days: bool = False) -> tuple[list[dict], set[str]]:
     """names の price_history を、days の日付（JST の 'YYYY-MM-DD'）ごとに等号で読む。
 
     featured_matrix と同じ読み方: card_dim で名前をカード番号にしてから、price_history を
@@ -109,7 +217,16 @@ def fetch_daily_rows_by_card_names(sb, names: list[str], columns: str, days: lis
       - 名前は収集と同じ normalize_card_name を通した形でも引き、行の card_name は呼び出し元の名前に戻す
         （name_normalize.db_lookup_names）。戻すのにカード番号を使うので columns に card_id を含めること
       - _READ_DEADLINE_SEC を過ぎたら、まだ読み終えていない束は failed にして返す（動いている読み込みは捨てるだけ）
+    shared=True: 過去の日の行を「カード番号×日付」で _SHARED_TTL_SEC 取っておき、shared=True の他の呼び出しと
+      使い回す（読んでいる途中なら終わりを待つ）。今日（と先の日）は毎回読む。列は _SHARED_COLUMNS で読む。
+      過去の日を書き換える処理の直後に読み直す呼び出しには使わないこと
+    partial_days=True: 束の一部の日が読めなくても（締め切りを過ぎても）、読めた日の行を返す。
+      1日も読めなかった束だけ failed にする。最安・値動きのように半端な日付で値が変わるものには使わない
     """
+    if shared:
+        extra = {c.strip() for c in columns.split(",")} - {c.strip() for c in _SHARED_COLUMNS.split(",")}
+        if extra:
+            raise ValueError(f"shared=True で読めない列: {sorted(extra)}")
     lookup = db_lookup_names(names)  # 収集と同じそろえ方の名前でも引き、行の名前は呼び出し元の名前に戻す
     failed: set[str] = set()
     failed_keys: set[str] = set()
@@ -138,37 +255,65 @@ def fetch_daily_rows_by_card_names(sb, names: list[str], columns: str, days: lis
     ids = sorted(id_to_name)
     id_chunks = [ids[i:i + _ID_CHUNK] for i in range(0, len(ids), _ID_CHUNK)]
     todo = deque((ci, day) for ci in range(len(id_chunks)) for day in days)
-    in_flight = {}  # Future -> (束の番号, 日付)
+    # (束の番号, 日付) -> (取っておきから取れた行, [(Future, 使うカード番号)], 自分で読みに行ったか)
+    pending: dict[tuple[int, str], tuple[list[dict], list, bool]] = {}
     chunk_rows: dict[int, list[dict]] = {ci: [] for ci in range(len(id_chunks))}
+    chunk_ok_days: dict[int, int] = {ci: 0 for ci in range(len(id_chunks))}
     failed_chunks: set[int] = set()
     deadline = time.monotonic() + _READ_DEADLINE_SEC
-    while todo or in_flight:
+    today = datetime.now(JST).date().isoformat()  # 今日（と先の日）は shared でも毎回読む
+    while todo or pending:
         left = deadline - time.monotonic()
         if left <= 0:
-            late = ({ci for ci, _d in todo} | {ci for ci, _d in in_flight.values()}) - failed_chunks
-            if late:
+            late = ({ci for ci, _d in todo} | {ci for ci, _d in pending}) - failed_chunks
+            if late and partial_days:
+                logger.warning(f"[{log_tag}] 価格履歴の読み込みが締め切り（{_READ_DEADLINE_SEC}秒）を過ぎた")
+            elif late:
                 logger.warning(f"[{log_tag}] 価格履歴の読み込みが締め切り（{_READ_DEADLINE_SEC}秒）を過ぎた: "
                                f"{sum(len(id_chunks[ci]) for ci in late)}枚を失敗として返す")
-            failed_chunks |= late
+                failed_chunks |= late
             break
-        while todo and len(in_flight) < _MAX_IN_FLIGHT:
+        # 実行枠に積む本数は自分で読みに行く分だけ数える（他の呼び出しの読み込みを待つだけの分は枠を使わない）
+        while todo and sum(1 for v in pending.values() if v[2]) < _MAX_IN_FLIGHT:
             ci, day = todo.popleft()
             if ci in failed_chunks:
                 continue  # 失敗した束の残りの日は読まない（重いときに負荷を積まない）
-            in_flight[_db_executor.submit(_read_day, sb, columns, id_chunks[ci], day, log_tag)] = (ci, day)
-        if not in_flight:
-            break
-        done, _ = wait(in_flight, timeout=left, return_when=FIRST_COMPLETED)
-        for fut in done:
-            ci, day = in_flight.pop(fut)
+            got, deps, own = _start_read(sb, columns, id_chunks[ci], day, log_tag, shared and day < today)
+            if deps:
+                pending[(ci, day)] = (got, deps, own)
+            else:
+                chunk_rows[ci].extend(got)  # 全部取っておきから取れた
+                chunk_ok_days[ci] += 1
+        if not pending:
+            continue
+        waiting = {f for _g, deps, _o in pending.values() for f, _ids in deps if not f.done()}
+        if waiting:
+            wait(waiting, timeout=left, return_when=FIRST_COMPLETED)
+        for task in [t for t, (_g, deps, _o) in pending.items() if all(f.done() for f, _ids in deps)]:
+            got, deps, _own = pending.pop(task)
+            ci, day = task
             try:
-                rows = fut.result()
+                for f, want in deps:
+                    res = f.result()
+                    got.extend(res if want is None else
+                               [dict(r) for r in res if r.get("card_id") is not None and int(r["card_id"]) in want])
             except Exception as e:
                 if ci not in failed_chunks:
                     logger.warning(f"[{log_tag}] 価格履歴取得失敗（{len(id_chunks[ci])}枚・{day}）: {type(e).__name__}: {e}")
-                    failed_chunks.add(ci)
+                    if not partial_days:
+                        failed_chunks.add(ci)
                 continue
-            chunk_rows[ci].extend(rows)
+            chunk_rows[ci].extend(got)
+            chunk_ok_days[ci] += 1
+
+    if partial_days and days:
+        # 1日も読めなかった束だけ失敗にする（読めた日があれば、その日の行で返す）
+        none = {ci for ci, n in chunk_ok_days.items() if n == 0}
+        failed_chunks |= none
+        short = [ci for ci, n in chunk_ok_days.items() if 0 < n < len(days)]
+        if none or short:
+            logger.warning(f"[{log_tag}] 一部の日が読めなかった: {sum(len(id_chunks[ci]) for ci in none)}枚は失敗・"
+                           f"{sum(len(id_chunks[ci]) for ci in short)}枚は読めた日だけで返す")
 
     out: list[dict] = []
     for ci, id_chunk in enumerate(id_chunks):

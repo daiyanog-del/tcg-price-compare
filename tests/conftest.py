@@ -39,6 +39,16 @@ def _isolate_reread_trust(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_shared_price_rows():
+    """購入候補の価格・まとめ買い・レアリティ候補が使い回す読み込み（price_history_reads の shared）を、テストごとに空にする。
+    残すと前のテストの偽 DB の行が次のテストに出る"""
+    import price_history_reads
+    price_history_reads._reset_shared_for_tests()
+    yield
+    price_history_reads._reset_shared_for_tests()
+
+
+@pytest.fixture(autouse=True)
 def _no_x_post_quiet_hours(monkeypatch):
     """X 投稿の「投稿しない時間帯」（既定 JST 1〜7時）でテスト結果が実行時刻に左右されないよう無効にする。
     時間帯そのもののテストは各テストで環境変数を設定し直す。"""
