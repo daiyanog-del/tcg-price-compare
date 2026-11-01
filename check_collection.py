@@ -70,7 +70,7 @@ KNOWN_ODD_RARITIES = frozenset({
     "", "(不明)", "-", "BSE", "ES", "KC-N", "KC-R", "KC-UR", "KCウルトラレア", "M-GR", "M-SE", "M-SR", "M-UR",
     "MANGAアル", "MANGAウル", "MANGAシク", "N-P", "NR", "Oラッシュ", "P-EXSE", "PN", "QCシク", "RE", "SR-P", "UR-P",
     "WPP7", "イベント品", "ウルトラSPECIALILLUSTVer.", "ウルトラSPECIALPURPLEVer.", "ウルトラシークレット",
-    "ウルトラブルー", "ウルトラレッド", "エクストラシークレットパラレルレア", "オバフレウル", "オバフレシク",
+    "エクストラシークレットパラレルレア", "オバフレウル", "オバフレシク",
     "オバフレプリシク", "クォーターセンチュリーシークレット(SPECIAL PINK ver.)",
     "クォーターセンチュリーシークレットGREEN Ver.", "ゴル", "シークレットBLUEVer.", "シークレットSPECIAL RED Ver.",
     "シークレットSPECIALREDVer.", "ノーマル(パラレル仕様)", "ファラオズシークレット", "ミレニアムウルトラレア", "ミレニアムゴールドレア",

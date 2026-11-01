@@ -330,12 +330,22 @@ class TestNcf1ColoredUltraAndSpecialVersions:
     def test_ncf1_colored_ultra_folds_to_ultra(self, raw):
         assert normalize_rarity(raw) == "ウルトラ"
 
-    @pytest.mark.parametrize("raw", ["ウルトラSPECIALILLUSTVer.", "ウルトラSPECIAL ILLUST Ver.",
-                                     "ウルトラSPECIALPURPLEVer.", "ウルトラ(SPECIAL PURPLE Ver.)"])
-    def test_special_versions_stay_separate(self, raw, caplog):
+    @pytest.mark.parametrize("raw,expected", [
+        ("ウルトラSPECIALILLUSTVer.", "ウルトラSPECIALILLUSTVer."),
+        ("ウルトラSPECIAL ILLUST Ver.", "ウルトラSPECIALILLUSTVer."),
+        ("ウルトラSPECIALPURPLEVer.", "ウルトラSPECIALPURPLEVer."),
+        ("ウルトラ(SPECIAL PURPLE Ver.)", "ウルトラSPECIALPURPLEVer."),
+        ("ウルトラSPECIALPURPLEver.", "ウルトラSPECIALPURPLEVer."),
+    ])
+    def test_special_versions_stay_separate(self, raw, expected, caplog):
         import rarity
         rarity._WARNED_UNKNOWN_RARITIES.clear()
         with caplog.at_level("WARNING", logger="rarity"):
-            got = normalize_rarity(raw)
-        assert got != "ウルトラ" and got.startswith("ウルトラSPECIAL")
+            assert normalize_rarity(raw) == expected
         assert "未知のレアリティ" not in caplog.text
+
+    def test_text_extraction_unaffected_by_colored_ultra_aliases(self):
+        # 出品名の「ウルトラ レッドアイズ…」はウルトラのまま。レッド・ブルーで始まる別名を足すと変わるので見張る
+        from rarity import extract_rarity_from_text
+        assert extract_rarity_from_text("ウルトラ レッドアイズ・ブラック・ドラゴン") == "ウルトラ"
+        assert extract_rarity_from_text("ウルトラ ブルー シークレットブルー") is None

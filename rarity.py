@@ -356,11 +356,11 @@ RARITIES: list[dict] = [
             "UR",                                               # 略号
             "ウル",                                             # 短縮
             "ウルトラレア",                                     # 〜レア形式
-            "MANGAウル", "MANGA-STYLEウルトラレア",
+            "MANGAウル", "MANGA-STYLEウルトラレア",  # カーナベルの MANGA-STYLE（2026-10-30。ほかの店は漫画風をこのレアリティの中の絵の違いとして書く。漫画風の印は取得時に行の manga 欄へ残す＝scraper._kanabell_rarity）
             # NCF1（Number Complete File -Piece of Memories-）の100番台の No. は赤、FNo. は青で刷ったウルトラ。
             # カードラッシュ・カードラボだけが色を書き足す（ほかの店は同じ型番を「ウルトラ」）。同じ型番に普通の色の版は無い
             # （Yugipedia の弾のページ・カードの収録欄「Ultra Rare」で 2026-11-01 確認。記録にあるのも NCF1 の15型番だけ）
-            "ウルトラレッド", "ウルトラブルー",  # カーナベルの MANGA-STYLE（2026-10-30。ほかの店は漫画風をこのレアリティの中の絵の違いとして書く。漫画風の印は取得時に行の manga 欄へ残す＝scraper._kanabell_rarity）
+            "ウルトラレッド", "ウルトラブルー",
         ],
     },
     {
