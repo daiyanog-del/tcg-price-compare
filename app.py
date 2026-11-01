@@ -259,6 +259,9 @@ def _record_shop_health_once(future, shop_name, results, fetch_errors):
 from meta_scraper import fetch_tier_list, fetch_deck_cards, build_deck_text, build_recipe_text, _cache_read, _DECK_CACHE_TTL, _TIER_CACHE_TTL
 import top_page as _top_page
 from pack_scraper import get_pack_list, fetch_pack_cards, pack_cards_cached
+from featured_pack import (
+    get_featured_pack, is_within_window, featured_card_key, get_featured_card_keys_cached,
+)
 from monitor import tracker, run_health_check
 from constants import JST, VAPID_CLAIMS, PRICE_DAILY_RETENTION_DAYS, PRICE_FLOOR
 from ygores_repository import repository as _ygores_repo
@@ -2552,6 +2555,18 @@ _BUYBACK_MOVERS_EMPTY_CACHE_SEC = 300  # 0件時は5分だけキャッシュ
 _buyback_movers_lock = threading.Lock()  # in-flightロック（同時アクセスでRPCが重複しないようにする）
 
 
+def _buyback_new_release_keys() -> set:
+    """発売から7日以内（featured_pack の運用期間）の新弾の収録カードの鍵の集合。無ければ空集合。"""
+    try:
+        pack = get_featured_pack(_supabase_client)
+        if not (pack and is_within_window(pack)):
+            return set()
+        return get_featured_card_keys_cached(_supabase_client, pack)
+    except Exception as e:
+        logger.warning(f"買取値動きの新弾判定に失敗（印なしで出す）: {e}")
+        return set()
+
+
 def _fetch_buyback_movers_from_db() -> dict | None:
     """RPCから買取movers生データを取得してup/downに振り分ける。取得失敗時はNoneを返す。"""
     if not _supabase_client:
@@ -2569,6 +2584,7 @@ def _fetch_buyback_movers_from_db() -> dict | None:
                 .execute())
         rows = resp.data or []
         logger.info(f"買取値動きランキング: {len(rows)}行取得（RPC集計）")
+        new_release_keys = _buyback_new_release_keys()
 
         # RPC が direction 別に返すので振り分けるだけ
         up, down = [], []
@@ -2582,6 +2598,11 @@ def _fetch_buyback_movers_from_db() -> dict | None:
                 "diff":      row.get("diff", 0),
                 "pct":       float(row.get("pct", 0)),
             }
+            # 発売から7日以内の新弾の収録カード。発売日は買取を出す店が少なく、比べる元が1店の初値に
+            # なりやすいので、大きく動いて見える理由が分かるように画面で「発売直後」と添える
+            # （2026-11-01 IMMORTAL PHOENIX でカーナベルの初値 300円→2,000円が +566.7% と出た）
+            if featured_card_key(entry["name"]) in new_release_keys:
+                entry["new_release"] = True
             if row.get("direction") == "up":
                 up.append(entry)
             else:

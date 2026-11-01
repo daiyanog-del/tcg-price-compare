@@ -2284,10 +2284,14 @@ function loadBuybackMovers(dir,retry){
         // 買取は値上がり=緑(お得)、値下がり=赤 と色反転するため buyback-diff クラスを使用
         const cls=isUp?'up':'down';
         const rarityBadge=item.rarity?`<span class="rb rb-${cssClass(item.rarity)}">${esc(item.rarity)}</span>`:'';
+        // 発売から7日以内の新弾。比べる元が発売日の1店の初値になりやすく、大きく動いて見える理由を添える
+        // （見た目は汎用カードの「Nテーマで採用」と同じ補足の文字）
+        const newRelease=item.new_release?'<span class="movers-sub">発売直後</span>':'';
+        const rarityLine=(rarityBadge||newRelease)?`<span class="movers-rarity">${rarityBadge}${rarityBadge&&newRelease?' ':''}${newRelease}</span>`:'';
         return `<a class="movers-item" href="/buy/${escAttr(encodeURIComponent(item.name))}" onclick="if(!rankingLinkClick(event))return true;doBuySearchCard('${escAttr(escJs(item.name))}')" data-card="${escAttr(item.name)}">
           <span class="movers-rank">${i+1}</span>
           <span class="movers-thumb"></span>
-          <span class="movers-name"><span class="movers-name-text">${esc(item.name)}</span>${rarityBadge?`<span class="movers-rarity">${rarityBadge}</span>`:''}</span>
+          <span class="movers-name"><span class="movers-name-text">${esc(item.name)}</span>${rarityLine}</span>
           <span class="movers-price">
             <span class="movers-price-now">&yen;${item.today.toLocaleString()}</span>
             <span class="movers-diff buyback-diff ${cls}">${sign}${item.diff.toLocaleString()} (${sign}${item.pct}%)</span>
