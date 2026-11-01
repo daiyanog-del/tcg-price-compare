@@ -434,7 +434,7 @@ def test_clabo_ygo_row_still_warns_unknown_rarity(caplog):
     rarity._WARNED_UNKNOWN_RARITIES.clear()
     with caplog.at_level("WARNING", logger="rarity"):
         rows = _parse_clabo_items("No.104 仮面魔踏士シャイニング",
-                                  _clabo_container("【遊戯】No.104 仮面魔踏士シャイニング【ウルトラレッド/エクシーズ】NCF1-JP104"))
-    assert [r["rarity"] for r in rows] == ["ウルトラレッド"]
+                                  _clabo_container("【遊戯】No.104 仮面魔踏士シャイニング【テスト用の架空レア/エクシーズ】NCF1-JP104"))
+    assert [r["rarity"] for r in rows] == ["テスト用の架空レア"]
     assert "未知のレアリティ" in caplog.text
     rarity._WARNED_UNKNOWN_RARITIES.clear()

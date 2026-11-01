@@ -280,8 +280,9 @@ class TestSeparateRaritiesAndUnknownWarnings:
             assert normalize_rarity(raw) == expected
         assert "未知のレアリティ" not in caplog.text
 
-    def test_pink_short_form_still_folds_to_25th_on_screen(self):
+    def test_pink_short_form_now_folds_to_25th_on_screen(self):
         # 画面に出す行は display_rarity で 25thシークレット に寄せ、絵の切り替えで PINK Ver. を選ぶ
+        # （display_rarity は「クォーターセンチュリーシークレット」で始まる表記だけ寄せるので、省略形はこれまで生のまま画面に出ていた）
         import art_variant
         row = {"shop": "カードラボ", "rarity": normalize_rarity("クォーターセンチュリー(SPECIAL PINK ver.)"),
                "name": "ブラック・マジシャン・ガール(イラスト違い(2)/LE5版)"}
@@ -300,10 +301,23 @@ class TestSeparateRaritiesAndUnknownWarnings:
 
     def test_truly_unknown_still_warned(self, caplog):
         with caplog.at_level("WARNING", logger="rarity"):
-            assert normalize_rarity("ウルトラレッド") == "ウルトラレッド"
+            assert normalize_rarity("テスト用の架空レア") == "テスト用の架空レア"
         assert "未知のレアリティ" in caplog.text
 
     def test_separate_rarities_do_not_collide_with_canonical_aliases(self):
         import rarity
         for raw in rarity._SEPARATE_RARITIES:
             assert rarity._preprocess(raw) not in rarity._ALIAS_TO_CANON, raw
+
+    def test_green_lower_ver_also_kept(self, caplog):
+        with caplog.at_level("WARNING", logger="rarity"):
+            assert normalize_rarity("クォーターセンチュリーシークレットGREEN ver.") == "クォーターセンチュリーシークレットGREEN Ver."
+        assert "未知のレアリティ" not in caplog.text
+
+    def test_green_without_space_still_classified_as_green(self):
+        # 正準化したあとも絵の判定（art_variant.classify）が GREEN Ver. と読めること
+        import art_variant
+        row = {"shop": "カードラッシュ", "name": "ブラックマジシャン", "url": "",
+               "rarity": normalize_rarity("クォーターセンチュリーシークレットGREENVer.")}
+        assert art_variant.classify(row, "ブラック・マジシャン")[0] == art_variant.ART_GREEN
+        assert art_variant.display_rarity(row) == "25thシークレット"

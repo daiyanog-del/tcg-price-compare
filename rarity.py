@@ -590,6 +590,7 @@ _DASH_ONLY = {"-", "‐", "‑", "–", "—", "ー", "－", "―"}
 #                     買取「クォーターセンチュリーシークレット(SPECIAL PINK ver.)」）ので、買取の書き方にそろえる
 #   ファラオズシークレット : 英語版だけのレアリティ（Pharaoh's Rare。カードラッシュの ☆英語版☆ MAMA-EN107）。
 #                     OCG に同じものが無い
+# 値は check_collection.KNOWN_ODD_RARITIES にも入れる（毎日の検査が「見慣れないレアリティ」と知らせないように）
 _SEPARATE_RARITIES: dict[str, str] = {
     "クォーターセンチュリーシークレットGREEN Ver.": "クォーターセンチュリーシークレットGREEN Ver.",
     "クォーターセンチュリーシークレット(SPECIAL PINK ver.)": "クォーターセンチュリーシークレット(SPECIAL PINK ver.)",
@@ -621,7 +622,7 @@ def _build_lookup() -> None:
             _ALIAS_TO_CANON[key] = canon
 
 
-_SEPARATE_LOOKUP: dict[str, str] = {}  # 前処理済みの表記 → 記録に残す代表の書き方
+_SEPARATE_LOOKUP: dict[str, str] = {}  # 前処理済み・大文字の表記 → 記録に残す代表の書き方（店で Ver./ver. が揺れるので大文字で照らす）
 
 
 def _build_separate_lookup() -> None:
@@ -635,7 +636,7 @@ def _build_separate_lookup() -> None:
                 stacklevel=2,
             )
             continue
-        _SEPARATE_LOOKUP[key] = keep
+        _SEPARATE_LOOKUP[key.upper()] = keep
 
 _build_lookup()
 _build_separate_lookup()
@@ -669,7 +670,7 @@ def normalize_rarity(raw: str, shop: str | None = None, warn_unknown: bool = Tru
     # 照合は前処理済みキーで行うが、未知表記は前処理前の文字列をそのまま返す
     # （生表記を勝手に改変しない。ログにも実際の表記が出る）
     key = _preprocess(s)
-    result = _ALIAS_TO_CANON.get(key) or _SEPARATE_LOOKUP.get(key)
+    result = _ALIAS_TO_CANON.get(key) or _SEPARATE_LOOKUP.get(key.upper())
     if result is not None:
         return result
     if not warn_unknown:
