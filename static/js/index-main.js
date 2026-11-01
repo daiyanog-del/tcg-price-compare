@@ -517,22 +517,6 @@ function _cardInfoData(name){
 }
 // 検索中に先に出すカードの欄（画像と名前だけ）。最終のカードの欄と同じ位置・大きさで出し、
 // 検索が終わったら結果と同じフレームで隠す。カードのページの LCP（カード画像）を検索の終わりより前に出すため（2026-10-22）
-// サーバーが描いた先出しの欄（/card/ を開いた直後）を、名前の確認（/api/validate）の応答まで出したままにする印。
-// 起動時の _resetSearchView・doSearch の _newSearchGen が欄を隠し、確認の往復のあいだ空白になってから出し直すとチラつくため（2026-11-01 reviewer 中5）。
-// 値はそのカード名。確認の応答・_showSearchPreview・別のページへの移動で外れる
-let _ssrHold=null;
-function _releaseSsrHold(hide){
-  if(_ssrHold===null)return;
-  _ssrHold=null;
-  if(hide)_hideSearchPreview();
-}
-function _ssrHoldActive(box){
-  if(!_ssrHold||box.dataset.ssrName!==_ssrHold)return false;
-  const m=location.pathname.match(/^\/card\/(.+)$/);
-  let cur=null;
-  try{cur=m?decodeURIComponent(m[1]):null;}catch{cur=null;}
-  return cur===_ssrHold;
-}
 function _showSearchPreview(name){
   const box=document.getElementById('searchPreview');
   if(!box)return;
@@ -612,6 +596,22 @@ function _showEmptyIfNoResults(){
   if(!document.getElementById('results').classList.contains('hidden'))return;
   document.getElementById('empty').classList.remove('hidden');
   _setSearchLayout(false);
+}
+// サーバーが描いた先出しの欄（/card/ を開いた直後）を、名前の確認（/api/validate）の応答まで出したままにする印。
+// 起動時の _resetSearchView・doSearch の _newSearchGen が欄を隠し、確認の往復のあいだ空白になってから出し直すとチラつくため（2026-11-01 reviewer 中5）。
+// 値はそのカード名。確認の応答・_showSearchPreview・別のページへの移動で外れる
+let _ssrHold=null;
+function _releaseSsrHold(hide){
+  if(_ssrHold===null)return;
+  _ssrHold=null;
+  if(hide)_hideSearchPreview();
+}
+function _ssrHoldActive(box){
+  if(!_ssrHold||!box.dataset||box.dataset.ssrName!==_ssrHold)return false;
+  const m=location.pathname.match(/^\/card\/(.+)$/);
+  let cur=null;
+  try{cur=m?decodeURIComponent(m[1]):null;}catch{cur=null;}
+  return cur===_ssrHold;
 }
 function doSearch(opts){
   closeSuggest();
@@ -2592,7 +2592,7 @@ function _restoreLocation(trigger){
   }
   // /card/ を開いた直後で、サーバーがそのカードの欄を描いていれば、名前の確認の応答まで隠さない（_ssrHold）
   const ssrBox=document.getElementById('searchPreview');
-  _ssrHold=(cardPath&&cardPath[1]==='card'&&cardName&&ssrBox&&ssrBox.dataset.ssrName===cardName)?cardName:null;
+  _ssrHold=(cardPath&&cardPath[1]==='card'&&cardName&&ssrBox&&ssrBox.dataset&&ssrBox.dataset.ssrName===cardName)?cardName:null;
   _resetSearchView(!!cardName);
   // カードのURLならそのカードのパンくずをすぐ出す（ページを開いた直後に一度隠して検索後に出し直すと表示がずれる）。それ以外は隠す
   _syncBreadcrumb(cardName,!!cardPath&&cardPath[1]==='buy');
