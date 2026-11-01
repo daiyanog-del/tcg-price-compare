@@ -397,4 +397,34 @@ def test_ledger_rows_record_by_number():
             _coded("カードラッシュ", "☆アジア☆ブラックマジシャン", "", "25thシークレット")]
     av.annotate(rows, "ブラック・マジシャン")
     assert [av.record_art(r, "ブラック・マジシャン") for r in rows] == ["絵#7", av.ART_UNKNOWN, "アジア版"]
-    assert av.needs_art_rows({"絵#7", av.ART_UNKNOWN})
+    assert av.needs_art_rows({"絵#7", "絵#4", av.ART_UNKNOWN})
+
+
+def test_ledger_reads_torecolo_20th_secret_code():
+    # 20thシークレットの商品番号は末尾が 20SE（数字から始まる）。型番の後ろが略号の形なら引ける（reviewer 指摘）
+    led = {"codes": {"20TH-JPBS1": (8, []), "2018-JPP01": (1, [])}}
+    assert av._ledger_code({"shop": "トレコロCB", "url": TC.format("20TH-JPBS120SE")}, led) == "20TH-JPBS1"
+    assert av._ledger_code({"shop": "トレコロCB", "url": TC.format("2018-JPP0120SE")}, led) == "2018-JPP01"
+
+
+def test_ledger_unknown_code_is_unknown_and_warned(caplog):
+    av._warned_codes.clear()
+    rows = [_coded("カーナベル", "ブラック・マジシャン", "ZZZZ-JP001", "ウルトラ"),
+            _coded("遊々亭", "ブラック・マジシャン", "ZZZZ-JP001", "ウルトラ")]
+    with caplog.at_level("WARNING"):
+        av.annotate(rows, "ブラック・マジシャン")
+    assert [r["art"] for r in rows] == ["", ""]
+    assert sum("ZZZZ-JP001" in m for m in caplog.messages) == 1  # 型番ごとに1回だけ
+
+
+def test_ledger_single_art_rarity_is_not_split():
+    # 台帳のカードでも、判別できた絵が1種類のレアリティは別表に書かない（本表の値と同じ）
+    assert not av.needs_art_rows({"絵#1"})
+    assert not av.needs_art_rows({"絵#1", av.ART_UNKNOWN})
+    assert av.needs_art_rows({"絵#1", "絵#4"})
+
+
+def test_ledger_manga_rows_get_number():
+    rows = [_coded("カードラッシュ", "青眼の白龍(カラー)", "", "シークレット")]
+    av.annotate(rows, "青眼の白龍")
+    assert rows[0]["art"] == av.ART_MANGA_COLOR and av.record_art(rows[0], "青眼の白龍") == "絵#19"

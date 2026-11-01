@@ -143,6 +143,8 @@ def draft(title: str, cache: Path) -> dict:
             return None
 
     rep_feats = {n: v for n, f in reps.items() if f in urls and (v := feat(f)) is not None}
+    if not rep_feats:
+        raise SystemExit(f"{title}: 代表の画像を1枚も読めない（image 欄か Yugipedia の画像を確かめる）")
     rows = []
     for f in jp:
         m = _FILE_RE.search(f)

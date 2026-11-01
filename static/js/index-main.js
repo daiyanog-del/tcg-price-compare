@@ -193,7 +193,7 @@ function showUnreleasedCard(name,tcgPreview){
   _updateUrl(name,'search');
 
   // 前回の検索結果をクリア
-  cardImgUrl='';cardImgSmall='';D=[];rarityFilter='';artFilter='';tableShowCount=TABLE_PAGE_SIZE;
+  cardImgUrl='';cardImgSmall='';D=[];_artLedger=null;rarityFilter='';artFilter='';tableShowCount=TABLE_PAGE_SIZE;
   _resetBuyInline(); // C-2: 前回検索の買取価格が残ったまま未発売カード表示に切り替わるのを防ぐ
   _updateRarityBanner(); // F-4: 前回検索の絞り込みバナーが残ったまま未発売カード表示に切り替わるのを防ぐ
 
@@ -547,7 +547,7 @@ function _applyCardImages(heroSrc,thumbSrc,source){
   // 一覧の各行の小さい画像はやめた（同じ絵を全行にくり返さない・2026-10-21 案C）ので、thumbSrc は使わない
   // レアリティ欄の「すべて」の小窓はカード名の画像。価格より画像が後に届くことがあるので、届いたら入れる
   const allThumb=document.querySelector('#rarityFilter .cr-rtile[data-r=""] .cr-tthumb-none');
-  if(allThumb&&safeHero) allThumb.outerHTML=_tileThumbHtml(safeHero,'カードの画像');
+  if(allThumb&&safeHero) allThumb.outerHTML=_tileThumbHtml(safeHero,'カードの画像',source!=='official_sample');
 }
 
 // /api/card-images バッチの値から表示用URLを取り出す。
@@ -669,7 +669,7 @@ function doSearch(opts){
   _setPriceSectionsVisible(true);
 
   // 前回の検索結果をクリア
-  cardImgUrl='';cardImgSmall='';_konamiDbUrl=''; // 前のカードの公式DBのURLが残ると、次のカードで公式DBリンクを付けない
+  cardImgUrl='';cardImgSmall='';_konamiDbUrl='';_artLedger=null; // 前のカードの公式DBのURLが残ると、次のカードで公式DBリンクを付けない
   const heroWrap=document.getElementById('heroImgWrap');
   if(heroWrap) heroWrap.innerHTML='';
   const cardHero=document.getElementById('cardHero');
@@ -1631,9 +1631,12 @@ function _rarityTilesHtml(rarities,active){
   const img=r=>{
     if(!r) return safeUrl(cardImgUrl||'');
     const art=_defaultArt(r);
-    return _tileImage(D.filter(x=>x.rarity===r&&_inArt(x,art)))||_tileImage(D.filter(x=>x.rarity===r));
+    // 既定の絵の行に画像が無ければそのレアリティの日本版から（言語版の商品画像を日本版の札に出さない）
+    return _tileImage(D.filter(x=>x.rarity===r&&_inArt(x,art)))||_tileImage(D.filter(x=>x.rarity===r&&(_isJp(x)||x.edition===art)));
   };
-  const tile=(r,label,price,count,on)=>`<button type="button" class="cr-rtile${on?' active':''}" data-r="${escAttr(r)}" aria-pressed="${on}" onclick="setRarityFilter('${escAttr(escJs(r))}')">${_tileThumbHtml(img(r),(r||'カード')+'の画像')}<span class="cr-itxt"><span class="cr-rn">${esc(label)}</span><span class="cr-rp"><b>${price}</b><i>${count}</i></span></span></button>`;
+  // 「すべて」の小窓はカード名の画像。上の大きな画像と同じく、発売済みの画像は拡大に自サイトの透かしを付ける
+  const wm=!!document.getElementById('heroImgWrap')?.classList.contains('wm-released');
+  const tile=(r,label,price,count,on)=>`<button type="button" class="cr-rtile${on?' active':''}" data-r="${escAttr(r)}" aria-pressed="${on}" onclick="setRarityFilter('${escAttr(escJs(r))}')">${_tileThumbHtml(img(r),(r||'カード')+'の画像',!r&&wm)}<span class="cr-itxt"><span class="cr-rn">${esc(label)}</span><span class="cr-rp"><b>${price}</b><i>${count}</i></span></span></button>`;
   // 「すべて」は日本版の出品で数える（言語版の値段を最安に出さない）
   const inStockJp=inStock.filter(_isJp);
   const allMin=minOf(inStockJp);
@@ -1702,9 +1705,10 @@ function _tileImage(rows){
   const withImg=rows.filter(r=>safeUrl(r.image||'')).sort((x,y)=>rank(x)-rank(y));
   return withImg.length?safeUrl(withImg[0].image):'';
 }
-function _tileThumbHtml(src,label){
+// 小窓は札の button の中なので span（button の中に button は置けない）。キーボードでは札の選択だけで、拡大はマウス・タップのみ
+function _tileThumbHtml(src,label,wm){
   if(!src) return '<span class="cr-tthumb cr-tthumb-none" aria-hidden="true"></span>';
-  return `<span class="cr-tthumb" data-zoom="${escAttr(src)}" data-zlabel="${escAttr(label)}" title="押すと拡大"><img src="${escAttr(src)}" alt="" loading="lazy" width="30" height="44"></span>`;
+  return `<span class="cr-tthumb" data-zoom="${escAttr(src)}" data-zlabel="${escAttr(label)}"${wm?' data-wm="1"':''} title="押すと拡大"><img src="${escAttr(src)}" alt="" loading="lazy" width="30" height="44"></span>`;
 }
 // その行が絵の絞り込み art に入るか。'' は日本版のすべて、言語版の名前はその言語版だけ、絵の名前は日本版のその絵
 function _inArt(r,art){
@@ -1726,7 +1730,7 @@ function _renderArtFilter(){
     if(artFilter) artFilter='';
     el.innerHTML='';
     el.classList.add('hidden');
-    _revealActiveTiles();
+    _revealActiveTilesSoon();
     return false;
   }
   const rows=D.filter(r=>r.rarity===rarityFilter);
@@ -1743,8 +1747,13 @@ function _renderArtFilter(){
   el.innerHTML=`<div class="cr-sec"><h2>イラスト</h2><span>${esc(rarityFilter)}の中の絵・言語版の違い</span></div>`+
     `<div class="cr-rtiles">${jpTiles}${eds.map(e=>tile(e,e)).join('')}</div>`;
   el.classList.remove('hidden');
-  _revealActiveTiles();
+  _revealActiveTilesSoon();
   return true;
+}
+// 最初の検索ではこの時点で欄がまだ隠れていて寸法が取れない（_renderPriceParts が後で見せる）。次の描画で寄せる（reviewer 指摘）
+function _revealActiveTilesSoon(){
+  if(typeof requestAnimationFrame==='function') requestAnimationFrame(_revealActiveTiles);
+  else _revealActiveTiles();
 }
 // スマホでは札の並びが横に流れる。選んでいる札が見えていなければ、その並びだけ横に寄せる（画面の縦の位置は動かさない）
 function _revealActiveTiles(){
@@ -1945,7 +1954,7 @@ document.getElementById('rarityFilter')?.addEventListener('click',e=>{
   const t=e.target.closest('.cr-tthumb[data-zoom]');
   if(!t||!window.CardZoom) return;
   e.preventDefault(); e.stopPropagation();
-  CardZoom.open(t.dataset.zoom,{label:t.dataset.zlabel+'の拡大'});
+  CardZoom.open(t.dataset.zoom,{watermark:t.dataset.wm==='1',label:t.dataset.zlabel+'の拡大'});
   _ga('tile_thumb_zoom',{rarity:rarityFilter||'',label:t.dataset.zlabel||''});
 },true);
 

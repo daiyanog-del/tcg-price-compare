@@ -321,6 +321,11 @@ h = run(`_rarityTilesHtml(['スーパー','シークレット'],'スーパー')`
 assert(h.includes('data-zoom="https://example.test/kanabell.jpg"'), 'スーパーの札はカーナベルの画像');
 assert(h.includes('data-zoom="https://example.test/yuyu-base.jpg"'), 'シークレットの札は既定の絵（元のイラスト）の画像');
 assert(h.includes(`data-zoom="${IMG}"`), '「すべて」の札はカード名の画像');
+assert(!h.includes('data-wm="1"'), '透かしの無い画像の札は拡大でも透かしを付けない');
+get('heroImgWrap').classList.add('wm-released');
+h = run(`_rarityTilesHtml(['スーパー','シークレット'],'スーパー')`);
+assert.equal(count(h, 'data-wm="1"'), 1, '発売済みのカード名の画像（「すべて」）だけ拡大に透かし');
+get('heroImgWrap').classList.remove('wm-released');
 run(`rarityFilter=''; artFilter=''; _currentCardName='灰流うらら'`);
 
 // 絵の台帳のカード（2026-11-01）: 絵は台帳の番号の順。既定は台帳の既定の絵（判別できない在庫があっても絞る）。
