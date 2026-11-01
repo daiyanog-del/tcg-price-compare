@@ -187,6 +187,53 @@ def upsert_price_rows(sb, rows: list[dict], ignore_duplicates: bool = False,
         return 0
 
 
+def shallow_rows_to_write(new_rows: list[dict], existing: list[dict], today: str) -> tuple[list[dict], list[dict]]:
+    """浅い取り方（トレコロの1ページ目・カードラボのカード名の検索）の結果のうち、記録に書いてよい行（2026-11-01）。
+
+    浅い結果で確かなのは「この値段で売っている出品がある」ことだけで、「このレアリティの最安」「このレアリティは無い」は
+    見落としかもしれない。そこで店ごとに次のとおり書く。
+      - その店に当日も前日も記録が無い（発売直後の新しいカードなど）: 全部書く
+      - 当日の記録がある: 当日に無いレアリティは足し、あるレアリティは安くなった値だけ下げる（下げない欄は当日の値のまま）
+      - 前日の記録だけある（深夜0時〜朝の収集まで）: 書かない。1つでも当日の行を作ると、画面は前日の行を使わなくなり
+        （featured_matrix はカード×店で当日を優先）、深い収集でしか見つからないレアリティが朝まで消えるため
+    new_rows / existing は build_min_price_rows の形（existing は当日と前日の記録。recorded_at で見分ける）。
+    戻り値: (足す行, 下げる行)。足す行は既存の行を上書きしない書き方（ignore_duplicates）で書くこと
+    （読んでから書くまでの間に朝の収集が同じ組を書いたら、そちらを残すため。reviewer 中3）
+    """
+    today_by_shop: dict[str, dict] = {}
+    known_shops: set = set()
+    for r in existing:
+        known_shops.add(r.get("shop"))
+        if str(r.get("recorded_at") or "")[:10] == today:
+            today_by_shop.setdefault(r.get("shop"), {})[r.get("rarity")] = r
+    adds: list[dict] = []
+    lowers: list[dict] = []
+    for row in new_rows:
+        shop = row.get("shop")
+        if shop not in known_shops:
+            adds.append(row)
+            continue
+        today_rows = today_by_shop.get(shop)
+        if not today_rows:
+            continue  # 前日だけ（深夜）
+        old = today_rows.get(row.get("rarity"))
+        if old is None:
+            adds.append(row)
+            continue
+        merged = {k: old.get(k) for k in row}
+        merged.update({"card_name": row["card_name"], "shop": shop, "rarity": row["rarity"], "recorded_at": today})
+        lower = False
+        if old.get("min_price") is None or row["min_price"] < old["min_price"]:
+            merged["min_price"], merged["code"] = row["min_price"], row.get("code")
+            lower = True
+        if old.get("min_price_any") is None or row["min_price_any"] < old["min_price_any"]:
+            merged["min_price_any"], merged["url"] = row["min_price_any"], row.get("url")
+            lower = True
+        if lower:
+            lowers.append(merged)
+    return adds, lowers
+
+
 def upsert_buyback_rows(sb, rows: list[dict], raise_on_error: bool = False) -> int:
     """buyback_history に upsert する。
 

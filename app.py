@@ -45,8 +45,10 @@ from shipping import (
 )
 from aggregations import daily_min_by_lowest_rarity, common_shop_price_change
 from price_history_reads import fetch_daily_rows_by_card_names, jst_days_back
+from name_normalize import db_lookup_names, pick_card_ids
 from shop_status import SUSPENDED_SHOPS
-from price_persist import build_art_price_rows, build_min_price_rows, upsert_price_art_rows, upsert_price_rows
+from price_persist import (build_art_price_rows, build_min_price_rows, shallow_rows_to_write, upsert_price_art_rows,
+                           upsert_price_rows)
 from card_code import infer_codes
 from overframe import infer_overframe
 from search_status import search_coverage
@@ -1425,6 +1427,93 @@ def api_validate():
     return jsonify({"valid": False, "suggestion": None})
 
 
+def _persist_card_name(card_name: str) -> str:
+    """価格の記録に書くカード名。収集（collect_prices の canonicalize_tracked_name(normalize_card_name(...))）と同じく、
+    全角の英数字を半角にしてから正式名に直す。正式名の一覧に無い新しいカードを全角のまま書くと、収集が半角で書いた行と
+    別のカードとして名簿（card_dim）に分かれる（2026-11-01。名簿には初期の作成時の全角・半角の2行が51組あった）。
+    正式名そのものはそのまま使う（一覧に全角・半角だけ違う重複が22件あり、そろえると正式名から外れるため。reviewer 中1）"""
+    name = card_name or ""
+    if name in _cardnames_set:
+        return name
+    return _correct_cardname(normalize_card_name(name))
+
+
+def _read_recent_rows(name: str, days: list[str]):
+    """name の price_history を days の日付で読む（浅い結果の書き込みの判断用）。戻り値: (行, カード番号) / 読めなければ None。
+    共有の実行枠（featured_matrix._executor）は使わず、このスレッドで2回だけ読む（パックの表・購入候補の読みを待たせない。reviewer 中2）"""
+    try:
+        lookup = db_lookup_names([name])
+        dims = _supabase_client.table("card_dim").select("card_id, card_name").in_("card_name", list(lookup)).execute().data or []
+        ids = sorted(pick_card_ids(dims, lookup))
+        if not ids:
+            return [], []
+        # 1枚×2日なので1ページに収まる（店6×レアリティ×日2で数十行）。読み出しの決まり（range＋order）に合わせて書く
+        rows = (_supabase_client.table("price_history")
+                .select("card_id, shop, rarity, min_price, min_price_any, code, url, recorded_at")
+                .in_("recorded_at", days).in_("card_id", ids)
+                .order("recorded_at").order("card_id").order("shop_id").order("rarity_id")
+                .range(0, 999).execute().data) or []
+        return rows, ids
+    except Exception as e:
+        logger.warning(f"[persist] {name} の当日・前日の記録を読めないので浅い結果は書かない: {e}")
+        return None
+
+
+def _has_art_rows_today(ids: list[int], today: str) -> bool:
+    """このカードに当日の絵ごとの内訳（price_history_art）があるか。読めなければ「ある」とみなす（内訳を消さない側）"""
+    if not ids:
+        return False
+    try:
+        return bool(_supabase_client.table("price_history_art").select("card_id")
+                    .in_("card_id", ids).eq("recorded_at", today).limit(1).execute().data)
+    except Exception:
+        return True
+
+
+def _persist_shallow(card_name: str, results: list):
+    """浅い取り方の店（トレコロの1ページ目・カードラボのカード名の検索）の結果を記録に書く（2026-11-01）。
+    price_persist.shallow_rows_to_write の決まりで、新しいカード・当日に無いレアリティは足し、当日の値下がりは下げ、
+    前日の記録だけある深夜は書かない。カードラボは /api/search・fresh・まとめて検索のどこから来てもここを通す
+    （以前は「その日の行が無いときだけ」書いていて、深夜の検索がその日の最初の行になり前日の巡回の行を押しのけていた）。
+    下げる行の上書きは、本表の RPC が同じ組の絵ごとの内訳を消すので、当日の内訳があるカードでは下げない（reviewer 高2）。"""
+    if not _supabase_client or not results:
+        return
+    name = _persist_card_name(card_name)
+    today = datetime.now(JST).strftime("%Y-%m-%d")
+    yesterday = (datetime.now(JST) - timedelta(days=1)).strftime("%Y-%m-%d")
+    got = _read_recent_rows(name, [today, yesterday])
+    if got is None:
+        return
+    existing, ids = got
+    try:
+        adds, lowers = shallow_rows_to_write(build_min_price_rows(name, results, today), existing, today)
+        if adds:
+            upsert_price_rows(_supabase_client, adds, ignore_duplicates=True)
+        if lowers:
+            if _has_art_rows_today(ids, today):
+                logger.info(f"[persist] {name}: 当日の絵ごとの内訳があるので浅い結果の値下げは書かない（{len(lowers)}行）")
+            else:
+                upsert_price_rows(_supabase_client, lowers)
+        # 絵ごとの内訳は、その店にまだ記録が無いとき（新しいカード）だけ足す
+        known_shops = {r.get("shop") for r in existing}
+        art_rows = [r for r in build_art_price_rows(name, results, today) if r["shop"] not in known_shops]
+        upsert_price_art_rows(_supabase_client, art_rows, ignore_duplicates=True)
+    except Exception as e:
+        logger.warning(f"[persist] {name} の浅い結果の書き込み失敗: {e}")
+
+
+def _persist_deck_async(card_name: str, deep_results: list, shallow_results: list):
+    """ふだんのまとめて検索（/api/deck・fresh なし）の結果を記録に書く（2026-11-01）。
+    deep_results: 全ページを読んだ店（遊々亭・カードラッシュ・まんぞく屋・カーナベル）。その日の記録に上書きする（/api/search と同じ）
+    shallow_results: トレコロ（1ページ目だけ）・カードラボ。_persist_shallow の決まりで書く。
+    以前はどちらも「その日の行が無いときだけ」書いていたため、深夜0時以降の浅い結果がその日の最初の行になり、
+    深い収集の前日の行を押しのけていた（TASKS の深夜の件）。"""
+    if deep_results:
+        _persist_scrape_async(card_name, deep_results)
+    if shallow_results:
+        _persist_shallow(card_name, shallow_results)
+
+
 def _persist_scrape_async(card_name: str, scrape_results: list, ignore_duplicates: bool = False):
     """scrape 結果を price_history に即時 upsert する。fire-and-forget。
     /api/search や /api/deck で取得した最新価格を DB に流し、
@@ -1435,32 +1524,30 @@ def _persist_scrape_async(card_name: str, scrape_results: list, ignore_duplicate
     ため、夜間収集の網羅的な最安値を同日上書きしないようにする。/api/search は
     全ページ取得のため既定の False のまま last-write-wins を維持する）。
 
-    カードラボだけは呼び出し元の指定に関わらず ignore_duplicates=True に固定する
-    （docs/audit-403-plan-2026-08-08.md M1）。夜間収集がカタログ巡回（全数網羅）に
-    切り替わったため、ライブ検索由来の行（取りこぼしあり）が同日の網羅的な最安値を
-    上書きすると系列がギザギザになる。
+    カードラボだけは呼び出し元の指定に関わらず _persist_shallow の決まりで書く
+    （docs/audit-403-plan-2026-08-08.md M1。夜間収集がカタログ巡回（全数網羅）に
+    切り替わったため、ライブ検索由来の行（取りこぼしあり）で同日の網羅的な最安値を
+    上書きしない。2026-11-01 から、当日の値下がりと当日に無いレアリティは反映し、前日だけの深夜は書かない）。
     """
     if not _supabase_client or not scrape_results:
         return
+    card_name = _persist_card_name(card_name)
+    clabo_results = [r for r in scrape_results if r.get("shop") == "カードラボ"]
     try:
         today = datetime.now(JST).strftime("%Y-%m-%d")
-        clabo_results = [r for r in scrape_results if r.get("shop") == "カードラボ"]
         other_results = [r for r in scrape_results if r.get("shop") != "カードラボ"]
         if other_results:
             rows = build_min_price_rows(card_name, other_results, today)
             upsert_price_rows(_supabase_client, rows, ignore_duplicates=ignore_duplicates)
-        if clabo_results:
-            clabo_rows = build_min_price_rows(card_name, clabo_results, today)
-            upsert_price_rows(_supabase_client, clabo_rows, ignore_duplicates=True)
         # 絵ごとの内訳（別表）。絵の判定は全店の行をまとめて見る（型番ごとの絵をそろえるため）。
-        # 上書きの決まりは本表と同じ（カードラボは同じ日の夜の収集を上書きしない）
+        # 上書きの決まりは本表と同じ。カードラボの内訳は _persist_shallow が書く
         art_rows = build_art_price_rows(card_name, scrape_results, today)
         upsert_price_art_rows(_supabase_client, [r for r in art_rows if r["shop"] != "カードラボ"],
                               ignore_duplicates=ignore_duplicates)
-        upsert_price_art_rows(_supabase_client, [r for r in art_rows if r["shop"] == "カードラボ"],
-                              ignore_duplicates=True)
     except Exception as e:
         logger.warning(f"[persist] {card_name} の即時 upsert 失敗: {e}")
+    if clabo_results:
+        _persist_shallow(card_name, clabo_results)
 
 
 @app.route("/api/search")
@@ -1674,7 +1761,7 @@ def api_deck():
     URL長制限（gunicorn limit_request_line）を超えるケース向け）。
     """
     from functools import partial
-    from scraper import scrape_torecolo, scrape_kanabell
+    from scraper import scrape_torecolo
 
     # GET=クエリ / POST=フォームボディ の双方を request.values で吸収（GET挙動は不変）
     names_raw = request.values.get("cards", "")
@@ -1699,10 +1786,11 @@ def api_deck():
     if not selected:
         return jsonify({"error": "有効な店舗を選択してください"}), 400
 
-    # デッキ検索用: 複数ページ巡回する店舗は1ページ目のみに制限
+    # デッキ検索用: 複数ページ巡回する店舗は1ページ目のみに制限（トレコロはページごとに店へ取りに行き、負荷で応答しなくなった
+    # 経緯がある）。カーナベルは1回の問い合わせで件数を指定する方式で、30件でも150件でも0.04〜0.1秒と差が無いので
+    # 制限を外した（2026-11-01 実測）
     _FAST_OVERRIDES = {
         "トレコロCB": partial(scrape_torecolo, max_pages=1),
-        "カーナベル": partial(scrape_kanabell, max_pages=1),
     }
     if fresh:
         _FAST_OVERRIDES = {}
@@ -1899,15 +1987,17 @@ def _api_deck_stream(card_entries, selected, active_shops, _FAST_OVERRIDES,
         cache_store_shops(card_name, scraped_ok,
                           partial_shops={n for n in scraped_ok if n in _FAST_OVERRIDES})
         # scrape 結果を price_history に即時 upsert（購入候補の rarity 候補を即時化）。
-        # /api/deck は店舗1ページ目のみの網羅性が低いスクレイプのため、既存行があれば
-        # 書き込まない（フェーズ3 P6b、夜間収集の網羅的な最安値を上書きしないため）
+        # 全ページを読む店は上書き、浅い店は新しいカード・当日の値下がりだけ（_persist_deck_async。2026-11-01）
         if fresh:
             # 調べ直しは、キャッシュの命中分（全ページ）と今回取り切れた店だけを上書きする。取得に一部失敗した店は
             # 取れた分だけの値で朝の網羅的な値を壊さないよう書かない（画面は「前の値のまま」と出す。reviewer 高1・中2）
             _persist_fresh(card_name, cached_items + [r for rs in scraped_ok.values() for r in rs])
-        elif _supabase_client and scraped_items:
-            Thread(target=_persist_scrape_async, args=(card_name, list(scraped_items)),
-                   kwargs={"ignore_duplicates": True}, daemon=True).start()
+        elif _supabase_client and scraped_ok:
+            # 取り切れた店だけ書く。全ページを読む店は上書き、浅い店（トレコロ・カードラボ）は条件つき（_persist_deck_async）
+            shallow_shops = set(_FAST_OVERRIDES) | {"カードラボ"}
+            deep = [r for n, rs in scraped_ok.items() if n not in shallow_shops for r in rs]
+            shallow = [r for n, rs in scraped_ok.items() if n in shallow_shops for r in rs]
+            Thread(target=_persist_deck_async, args=(card_name, deep, shallow), daemon=True).start()
         # 混雑時の前回の結果（stale_items）も表示前に OF の印の判定を通す（反映前のキャッシュの行のため）
         all_items = infer_overframe(cached_items + scraped_items + stale_items)
         in_stock = [r for r in all_items if not r.get("sold_out")]
