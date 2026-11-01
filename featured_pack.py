@@ -221,6 +221,34 @@ def get_featured_cards(sb, pack) -> list:
         return []
 
 
+def featured_card_key(name: str) -> str:
+    """新弾の収録カードと他の表のカード名を突き合わせるための鍵。
+    収録一覧（Wiki）は全角ダッシュ「－」や全角英字（ＴＸ）のまま、買取の記録は同じカードが
+    半角「-」と全角「－」の2つの名前で入っていることがある（2026-11-01 魅惑の舞い）。
+    normalize_card_name は全角ダッシュ「－」をそろえないので、ここで「-」に寄せる。"""
+    from name_normalize import normalize_card_name
+    return normalize_card_name(name or "").replace("－", "-")
+
+
+def get_featured_card_keys_cached(sb, pack) -> set:
+    """pack の収録カードの鍵（featured_card_key）の集合を、Supabase の保存済み一覧だけから返す。
+    get_featured_cards と違い Wiki を読みに行かない（画面の応答を待たせる場所から呼ぶため）。
+    発売済みの弾の収録は変わらないので、保存から24時間を過ぎた一覧も使う。
+    一覧が無い・読めないときは空集合（印が付かないだけで、ランキング自体は出す）。"""
+    if not sb or not pack:
+        return set()
+    import re
+    safe_key = "pack_" + re.sub(r"[^\w]", "_", pack["pack_name"])[:80]
+    try:
+        resp = sb.table("pack_cards_cache").select("cards").eq("pack_key", safe_key).execute()
+    except Exception as e:
+        print(f"  [featured] 収録カードの保存済み一覧の読み込み失敗: {e}")
+        return set()
+    if not resp.data:
+        return set()
+    return {featured_card_key(c) for c in (resp.data[0].get("cards") or []) if c}
+
+
 def get_initial_prices(sb, card_names) -> list:
     """
     発売当日用: 当日の最安値降順でカードリストを返す。
