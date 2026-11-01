@@ -313,7 +313,10 @@ def _fetch_from_wiki(pack_name: str, wiki_page: str, quiet_404: bool = False) ->
 
     for li in soup.select("li"):
         text = li.get_text()
-        if not re.search(r'[A-Z0-9]+-JP\d{3}', text):
+        # 型番は「IMPH-JP015」に加えて、特別収録の「IMPH-JPS01」（JP のあとに英字1字）も拾う。
+        # 以前は数字3桁だけで、特別収録の15種がパックの一覧から抜けていた（2026-11-01 IMMORTAL PHOENIX）。
+        # 「IMPH-JPT01 《トークン》」のように JP のあとが T の行はトークン（売り物のカードではない）なので拾わない
+        if not re.search(r'[A-Z0-9]+-JP(?:(?!T)[A-Z])?\d{2,3}', text):
             continue
 
         links = li.select("a")
