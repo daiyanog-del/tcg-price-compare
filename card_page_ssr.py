@@ -34,6 +34,14 @@ _WAIT_SEC = 0.8  # TODO: calibrate from data
 _PAGE = 1000
 _MAX_PAGES = 3
 _CACHE_TTL_SEC = 60 * 60  # TODO: calibrate from data
+# 読めなかったカードを読み直さない間。DB が落ちている間に同じカードを何度も積まない（2026-11-01 reviewer 中1）
+_FAIL_TTL_SEC = 60  # TODO: calibrate from data
+# 裏で読んでいる（列に積んだ）カードの上限。超えたら新しく積まずに価格なしで返す。
+# 検索エンジンがまとめて来た・DB が遅いときに、もう誰も待っていない読み込みを積み上げない（reviewer 中1）
+_MAX_PENDING = 8  # TODO: calibrate from data
+# 店の最新の日が、全体の一番新しい日からこの日数より古い店は使わない。売り切れると収集はその店の行を書かないので、
+# 古い行を残すと買えない値段が「最安」になる（reviewer 高2）。今日の行が収集の途中で無い店（昨日まで）は残す
+_SHOP_STALE_DAYS = 1  # TODO: calibrate from data
 # 1枚ぶんは店の数（6）までの小さな dict なので、1000枚でも数 MB に収まる
 _CACHE_MAX = 1000  # TODO: calibrate from data
 
@@ -44,26 +52,27 @@ _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="card-ssr")
 _lock = threading.Lock()
 _cache: "OrderedDict[str, tuple[float, dict | None]]" = OrderedDict()
 _inflight: dict[str, object] = {}
+_failed: dict[str, float] = {}
 
 
 def _reset_for_tests() -> None:
     with _lock:
         _cache.clear()
         _inflight.clear()
+        _failed.clear()
 
 
-def _cache_get(name: str):
-    """(あるか, 値)。期限切れは捨てる"""
-    with _lock:
-        hit = _cache.get(name)
-        if not hit:
-            return False, None
-        at, value = hit
-        if time.time() - at > _CACHE_TTL_SEC:
-            del _cache[name]
-            return False, None
-        _cache.move_to_end(name)
-        return True, value
+def _cache_get_locked(name: str):
+    """(あるか, 値)。期限切れは捨てる。_lock を持って呼ぶ"""
+    hit = _cache.get(name)
+    if not hit:
+        return False, None
+    at, value = hit
+    if time.time() - at > _CACHE_TTL_SEC:
+        del _cache[name]
+        return False, None
+    _cache.move_to_end(name)
+    return True, value
 
 
 def _cache_put(name: str, value: dict | None) -> None:
@@ -79,6 +88,16 @@ def _md(day: str) -> str:
     return f"{d.month}/{d.day}"
 
 
+def _price_of(r: dict) -> int | None:
+    """表示に使う値段。状態を問わない最安（min_price_any・表示用）を優先し、無い古い行は min_price
+    （price_persist.build_min_price_rows。画面の検索結果の最安も状態を問わない）。10円未満は使わない"""
+    for key in ("min_price_any", "min_price"):
+        v = r.get(key)
+        if isinstance(v, int) and v >= PRICE_FLOOR:
+            return v
+    return None
+
+
 def summarize(rows: list[dict], name: str) -> dict | None:
     """price_history の行 → 店ごとの最安（その店の一番新しい日の行から）。記録が無ければ None。
 
@@ -87,29 +106,35 @@ def summarize(rows: list[dict], name: str) -> dict | None:
     日付が店で違うときは date_label を「10/31〜11/1」と範囲で書く（いつの価格か分かるように）。
     名前は呼び出し元の名前で完全一致した行を優先し、無いときだけ表記をそろえた名前の行を使う
     （name_normalize.pick_card_ids と同じ考え方。全角と半角で2行に分かれたカードの記録を混ぜない）。
-    休止中の店・PRICE_FLOOR 未満は除く。
+    休止中の店・PRICE_FLOOR 未満は除く（除いてから名前の完全一致を選ぶ）。
+    店の最新の日が全体の一番新しい日から _SHOP_STALE_DAYS 日より古い店は使わない（売り切れで記録が止まった店）。
+    レアリティ「(不明)」は空にする（説明文に「(不明)」と出さない）。
     """
-    exact = [r for r in rows if r.get("card_name") == name]
-    use = exact or rows
-    use = [r for r in drop_suspended_rows(use)
-           if r.get("shop") and isinstance(r.get("min_price"), int) and r["min_price"] >= PRICE_FLOOR
-           and r.get("recorded_at")]
+    usable = [dict(r, _price=_price_of(r)) for r in drop_suspended_rows(rows)
+              if r.get("shop") and r.get("recorded_at")]
+    usable = [r for r in usable if r["_price"] is not None]
+    exact = [r for r in usable if r.get("card_name") == name]
+    use = exact or usable
     if not use:
         return None
     shop_day: dict[str, str] = {}
     for r in use:
         if r["recorded_at"] > shop_day.get(r["shop"], ""):
             shop_day[r["shop"]] = r["recorded_at"]
+    newest = max(shop_day.values())
+    cutoff = (datetime.strptime(newest, "%Y-%m-%d") - timedelta(days=_SHOP_STALE_DAYS)).strftime("%Y-%m-%d")
+    shop_day = {shop: day for shop, day in shop_day.items() if day >= cutoff}
     best_by_shop: dict[str, dict] = {}
     for r in use:
-        if r["recorded_at"] != shop_day[r["shop"]]:
+        if r["recorded_at"] != shop_day.get(r["shop"]):
             continue
         cur = best_by_shop.get(r["shop"])
-        if cur is None or r["min_price"] < cur["price"]:
-            best_by_shop[r["shop"]] = {"shop": r["shop"], "rarity": r.get("rarity") or "",
-                                       "price": r["min_price"], "date": r["recorded_at"]}
+        if cur is None or r["_price"] < cur["price"]:
+            rarity = r.get("rarity") or ""
+            best_by_shop[r["shop"]] = {"shop": r["shop"], "rarity": "" if rarity == "(不明)" else rarity,
+                                       "price": r["_price"], "date": r["recorded_at"]}
     shops = sorted(best_by_shop.values(), key=lambda s: (s["price"], s["shop"]))
-    newest, oldest = max(shop_day.values()), min(shop_day.values())
+    oldest = min(shop_day.values())
     return {
         "date": newest,
         "date_label": _md(newest) if newest == oldest else f"{_md(oldest)}〜{_md(newest)}",
@@ -129,7 +154,7 @@ def _read(sb, name: str) -> dict | None:
     rows: list[dict] = []
     for page in range(_MAX_PAGES):
         resp = (sb.table("price_history")
-                .select("card_name,shop,rarity,min_price,recorded_at")
+                .select("card_name,shop,rarity,min_price,min_price_any,recorded_at")
                 .in_("card_name", names)
                 .gte("recorded_at", since)
                 .order("recorded_at", desc=True).order("card_name").order("shop").order("rarity")
@@ -150,6 +175,8 @@ def _read_and_store(sb, name: str) -> dict | None:
         return value
     except Exception:
         logger.exception("カードのページの価格の読み込み失敗: %s", name)
+        with _lock:
+            _failed[name] = time.time()
         raise
     finally:
         with _lock:
@@ -164,12 +191,20 @@ def get_snapshot(sb, name: str) -> dict | None:
     """
     if not sb or not name:
         return None
-    found, value = _cache_get(name)
-    if found:
-        return value
     with _lock:
+        found, value = _cache_get_locked(name)
+        if found:
+            return value
+        failed_at = _failed.get(name)
+        if failed_at is not None:
+            if time.time() - failed_at < _FAIL_TTL_SEC:
+                return None
+            del _failed[name]
         fut = _inflight.get(name)
         if fut is None:
+            if len(_inflight) >= _MAX_PENDING:
+                logger.info("カードのページの価格: 読み込み中が%d件あるので積まずに価格なしで返す: %s", _MAX_PENDING, name)
+                return None
             fut = _executor.submit(_read_and_store, sb, name)
             _inflight[name] = fut
     try:

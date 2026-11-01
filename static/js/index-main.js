@@ -517,9 +517,26 @@ function _cardInfoData(name){
 }
 // 検索中に先に出すカードの欄（画像と名前だけ）。最終のカードの欄と同じ位置・大きさで出し、
 // 検索が終わったら結果と同じフレームで隠す。カードのページの LCP（カード画像）を検索の終わりより前に出すため（2026-10-22）
+// サーバーが描いた先出しの欄（/card/ を開いた直後）を、名前の確認（/api/validate）の応答まで出したままにする印。
+// 起動時の _resetSearchView・doSearch の _newSearchGen が欄を隠し、確認の往復のあいだ空白になってから出し直すとチラつくため（2026-11-01 reviewer 中5）。
+// 値はそのカード名。確認の応答・_showSearchPreview・別のページへの移動で外れる
+let _ssrHold=null;
+function _releaseSsrHold(hide){
+  if(_ssrHold===null)return;
+  _ssrHold=null;
+  if(hide)_hideSearchPreview();
+}
+function _ssrHoldActive(box){
+  if(!_ssrHold||box.dataset.ssrName!==_ssrHold)return false;
+  const m=location.pathname.match(/^\/card\/(.+)$/);
+  let cur=null;
+  try{cur=m?decodeURIComponent(m[1]):null;}catch{cur=null;}
+  return cur===_ssrHold;
+}
 function _showSearchPreview(name){
   const box=document.getElementById('searchPreview');
   if(!box)return;
+  _ssrHold=null;
   box.querySelectorAll('.search-prog').forEach(el=>el.remove()); // 前の検索の進み具合のバー
   // サーバーが描いた直近の日の価格（.ssr-snap・カードのページだけ）は、そのカードの検索中だけ残す。別のカードを検索したら消す
   if(box.dataset.ssrName!==name){box.querySelectorAll('.ssr-snap').forEach(el=>el.remove());delete box.dataset.ssrName;}
@@ -529,7 +546,11 @@ function _showSearchPreview(name){
 }
 function _hideSearchPreview(){
   const box=document.getElementById('searchPreview');
-  if(box&&!box.hidden){box.hidden=true;document.getElementById('searchPreviewImg').innerHTML='';}
+  if(!box||box.hidden)return;
+  if(_ssrHoldActive(box))return; // 開いた直後のサーバーの欄は、名前の確認の応答まで残す
+  box.hidden=true;document.getElementById('searchPreviewImg').innerHTML='';
+  // サーバーが描いた直近の日の価格は、結果に入れ替わったら役目を終える（同じカードをもう一度検索したとき古い値段を出さない）
+  if(box.dataset.ssrName){box.querySelectorAll('.ssr-snap').forEach(el=>el.remove());delete box.dataset.ssrName;}
 }
 function _cardImageData(name){
   if(_cardImgPrefetch&&_cardImgPrefetch.name===name) return _cardImgPrefetch.p;
@@ -633,6 +654,8 @@ function doSearch(opts){
     (opts._validation?Promise.resolve(opts._validation):fetch('/api/validate?q='+encodeURIComponent(q)).then(r=>r.json()))
       .then(d=>{
         if(gen!==_searchGen) return; // 世代管理: 古い応答が#q/btnを触らないようにする
+        // 開いた直後のサーバーの欄: 価格を検索するならそのまま（_showSearchPreview が引き継ぐ）、それ以外は隠す
+        _releaseSsrHold(!(d.valid&&!d.unreleased));
         btn.disabled=false;btn.textContent='検索';
         if(d.valid){
           document.getElementById('q').value=d.name;
@@ -652,7 +675,7 @@ function doSearch(opts){
           }else{ _mercariPending=false; if(window.MercariRef) MercariRef.clear(); _showEmptyIfNoResults(); }
         }
       })
-      .catch(()=>{if(gen!==_searchGen)return;btn.disabled=false;btn.textContent='検索';_showEmptyIfNoResults();});
+      .catch(()=>{if(gen!==_searchGen)return;_releaseSsrHold(true);btn.disabled=false;btn.textContent='検索';_showEmptyIfNoResults();});
     return;
   }
   // 世代管理: 古い検索の /api/validate の戻りが後から来た場合は、画面状態（ボタン無効化・
@@ -2567,6 +2590,9 @@ function _restoreLocation(trigger){
     try{cardName=decodeURIComponent(cardPath[2]);}catch{cardName=null;}
     if(cardName!==null&&!cardName.trim())cardName=null; // 1文字は doSearch が既知のカード名か確かめる
   }
+  // /card/ を開いた直後で、サーバーがそのカードの欄を描いていれば、名前の確認の応答まで隠さない（_ssrHold）
+  const ssrBox=document.getElementById('searchPreview');
+  _ssrHold=(cardPath&&cardPath[1]==='card'&&cardName&&ssrBox&&ssrBox.dataset.ssrName===cardName)?cardName:null;
   _resetSearchView(!!cardName);
   // カードのURLならそのカードのパンくずをすぐ出す（ページを開いた直後に一度隠して検索後に出し直すと表示がずれる）。それ以外は隠す
   _syncBreadcrumb(cardName,!!cardPath&&cardPath[1]==='buy');

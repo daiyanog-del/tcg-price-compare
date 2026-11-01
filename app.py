@@ -1076,6 +1076,16 @@ def index():
                            new_cards_initial=initial, new_cards_first=_new_cards_first_html(initial))
 
 
+def _is_display_proxy_card(name: str) -> bool:
+    """未発売カード・海外先行カードとして表示できる名前か（カードのページの noindex の判定用）。
+    読めないときは判断できないので True（検索に出す側に倒す）"""
+    try:
+        return _card_display.get_display_proxy(name) is not None
+    except Exception:
+        logger.warning("カードのページ: 未発売カードの判定に失敗（検索に出す側に倒す）: %s", name)
+        return True
+
+
 @app.route("/card/<path:card_name>")
 def card_page(card_name):
     """カード個別ページ — SEO用"""
@@ -1088,22 +1098,19 @@ def card_page(card_name):
     ssr = card_page_ssr.get_snapshot(_supabase_client, card_name)
     best_price = ssr["low"] if ssr else None
     shop_count = len(ssr["shops"]) if ssr else 0
+    # 相場キャッシュ（直近7日の最安）は売り切れた店の古い値段を含みうるので、「現在の最安値」には使わない（reviewer 低）
     if best_price is None:
-        # 読み終わらなかった・記録が無いときは、相場キャッシュ（直近7日の全カード最安・メモリ）の値を説明文に使う
-        est = _estimate_cache.get(card_name)
-        if est and est.get("price"):
-            best_price = est["price"]
-    if best_price is None:
-        # それも無ければ、今までどおり店舗検索のキャッシュ
+        # 読み終わらなかった・記録が無いときは、今までどおり店舗検索のキャッシュ（今日の検索結果）
         cached = cache_get(card_name)
         if cached:
             in_stock = [r for r in cached if not r.get("sold_out")]
             if in_stock:
                 best_price = min(in_stock, key=lambda x: x["price"])["price"]
-    # 正式名の一覧にも価格の記録にも無い名前（打ち間違いの URL など）は検索に出さない
-    # （正式名の一覧を読めていないときは判断できないので、検索に出す側に倒す）
+    # 正式名の一覧にも価格の記録にも未発売・海外先行カードにも無い名前（打ち間違いの URL など）は検索に出さない
+    # （正式名の一覧を読めていないときは判断できないので、検索に出す側に倒す）。
+    # 未発売・海外先行カードは新着欄・/new-cards が /card/<名前> でリンクしていて、一番検索される時期のページ（reviewer 高1）
     known_card = (not _cardnames_set or card_name in _cardnames_set or ssr is not None
-                  or card_name in _estimate_cache)
+                  or card_name in _estimate_cache or _is_display_proxy_card(card_name))
 
     return render_template("index.html",
                            card_name=card_name,

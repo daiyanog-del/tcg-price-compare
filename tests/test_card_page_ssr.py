@@ -55,6 +55,21 @@ def test_summarize_keeps_shop_missing_today_and_labels_range():
     assert s["date"] == "2026-11-01" and s["date_label"] == "10/31〜11/1"
 
 
+def test_summarize_drops_shop_whose_record_stopped():
+    # 売り切れると収集はその店の行を書かないので、記録が止まった店の古い値段は「最安」にしない（reviewer 高2）
+    rows = [_row("遊々亭", 100, day="2026-10-25"), _row("カードラボ", 300, day="2026-11-01")]
+    s = card_page_ssr.summarize(rows, "灰流うらら")
+    assert [x["shop"] for x in s["shops"]] == ["カードラボ"]
+    assert s["low"] == 300 and s["date_label"] == "11/1"
+
+
+def test_summarize_prefers_display_price_and_hides_unknown_rarity():
+    rows = [dict(_row("遊々亭", 500, rarity="(不明)"), min_price_any=420),
+            dict(_row("カードラボ", 600), min_price_any=None)]
+    s = card_page_ssr.summarize(rows, "灰流うらら")
+    assert [(x["shop"], x["price"], x["rarity"]) for x in s["shops"]] == [("遊々亭", 420, ""), ("カードラボ", 600, "ノーマル")]
+
+
 def test_summarize_drops_suspended_shops_and_floor(monkeypatch):
     monkeypatch.setattr(shop_status, "SUSPENDED_SHOPS", frozenset({"まんぞく屋"}))
     rows = [_row("まんぞく屋", 50), _row("遊々亭", 5), _row("カードラボ", 120)]
@@ -69,6 +84,9 @@ def test_summarize_prefers_exact_name_rows():
     # 完全一致が無ければ、表記をそろえた名前の行を使う
     s2 = card_page_ssr.summarize([_row("遊々亭", 100, name="Ｎｏ.９６")], "No.96")
     assert s2["low"] == 100
+    # 完全一致の行が全部使えない（10円未満）なら、表記をそろえた名前の行を使う
+    s3 = card_page_ssr.summarize([_row("遊々亭", 5, name="No.96"), _row("カードラボ", 700, name="Ｎｏ.９６")], "No.96")
+    assert s3["low"] == 700
 
 
 def test_summarize_none_when_no_rows():
@@ -131,11 +149,28 @@ def test_snapshot_cached_including_no_record():
     assert empty.calls == 1
 
 
-def test_snapshot_failure_not_cached():
+def test_snapshot_failure_retried_after_fail_ttl(monkeypatch):
     bad = _FakeSb([], fail=True)
     assert card_page_ssr.get_snapshot(bad, "灰流うらら") is None
+    # 失敗の直後は読み直さない（DB が落ちている間に積み上げない）
     assert card_page_ssr.get_snapshot(bad, "灰流うらら") is None
+    assert bad.calls == 1
+    # 期限を過ぎたら読み直す。成功の結果だけ取っておく
+    monkeypatch.setattr(card_page_ssr, "_FAIL_TTL_SEC", 0)
+    bad.fail, bad.rows = False, [_row("遊々亭", 180)]
+    assert card_page_ssr.get_snapshot(bad, "灰流うらら")["low"] == 180
     assert bad.calls == 2
+
+
+def test_snapshot_does_not_queue_beyond_pending_limit(monkeypatch):
+    monkeypatch.setattr(card_page_ssr, "_WAIT_SEC", 0.01)
+    monkeypatch.setattr(card_page_ssr, "_MAX_PENDING", 2)
+    sb = _FakeSb([_row("遊々亭", 180)], delay=0.3)
+    for i in range(5):
+        assert card_page_ssr.get_snapshot(sb, f"カード{i}") is None
+    assert len(card_page_ssr._inflight) == 2
+    time.sleep(0.8)
+    assert sb.calls == 2
 
 
 def test_snapshot_slow_read_returns_none_then_cached(monkeypatch):
@@ -196,10 +231,22 @@ def test_card_page_without_snapshot_keeps_name_h1(client, monkeypatch):
     assert '<meta name="robots" content="index, follow">' in body
 
 
+def test_unreleased_card_is_index(client, monkeypatch):
+    # 未発売カードは正式名の一覧にも価格の記録にも無いが、新着欄が /card/ でリンクしている（reviewer 高1）
+    monkeypatch.setattr(card_page_ssr, "get_snapshot", lambda sb, name: None)
+    monkeypatch.setattr(app_module, "_cardnames_set", {"灰流うらら"})
+    monkeypatch.setattr(app_module, "_estimate_cache", {})
+    monkeypatch.setattr(app_module._card_display, "get_display_proxy",
+                        lambda name: {"name": name} if name == "あいうえお" else None)
+    body = client.get("/card/%E3%81%82%E3%81%84%E3%81%86%E3%81%88%E3%81%8A").get_data(as_text=True)
+    assert '<meta name="robots" content="index, follow">' in body
+
+
 def test_unknown_card_name_is_noindex(client, monkeypatch):
     monkeypatch.setattr(card_page_ssr, "get_snapshot", lambda sb, name: None)
     monkeypatch.setattr(app_module, "_cardnames_set", {"灰流うらら"})
     monkeypatch.setattr(app_module, "_estimate_cache", {})
+    monkeypatch.setattr(app_module._card_display, "get_display_proxy", lambda name: None)
     body = client.get("/card/%E3%81%82%E3%81%84%E3%81%86%E3%81%88%E3%81%8A").get_data(as_text=True)
     assert '<meta name="robots" content="noindex, follow">' in body
 
