@@ -22,6 +22,15 @@ const SEP = '\u0000';
 /** デッキに数えるカードの置き場所（デッキ欄・EXデッキ欄・盤面（墓地・除外を含む）・手札）。
  *  body 直下に一時的に出る演出用の複製（card-effects.js）を数えないよう、置き場所で絞る */
 export const BOARD_WRAPPERS = '#poolRow .tier-item-wrapper, #poolRow2 .tier-item-wrapper, .main-content .tier-item-wrapper, .center-slot .tier-item-wrapper';
+
+/**
+ * デッキの中身に数えないカードか: トークン（data-token）とダミーカード（data-dummy・2026-11-01 utils/dummy-card.js）。
+ * どちらも盤面で出したもので、マイデッキの保存・枚数の増減・デッキ画像には入れない。
+ * @param {Element} w - .tier-item-wrapper
+ */
+export function isNotDeckCard(w) {
+  return w?.dataset?.token === '1' || w?.dataset?.dummy === '1';
+}
 let _link = null;
 let _deltas = new Map();
 const _listeners = new Set();
@@ -200,7 +209,7 @@ export function deckContents(deck) {
 export function collectDeckFromDom(root) {
   const out = { main: [], ex: [] };
   for (const w of root.querySelectorAll(BOARD_WRAPPERS)) {
-    if (w.dataset.token === '1') continue;
+    if (isNotDeckCard(w)) continue;
     const name = w.querySelector('.tier-item')?.dataset.cardName;
     if (!name) continue;
     const sec = / ex$/.test(w.id || '') ? 'ex' : 'main';
@@ -221,7 +230,7 @@ export function pickRemovable(candidates, loggedIds) {
   for (const w of candidates) {
     const pid = w.parentElement?.id;
     if (pid !== 'poolRow' && pid !== 'poolRow2') continue;
-    if (w.dataset.token === '1') continue;
+    if (isNotDeckCard(w)) continue;
     const id = w.querySelector('.tier-item')?.id;
     if (!id || loggedIds.has(id)) continue;
     return w;

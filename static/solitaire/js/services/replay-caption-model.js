@@ -11,6 +11,11 @@
  */
 
 import { isTokenSrc } from '../utils/token-src.js';
+import { dummyKindOfSrc } from '../utils/dummy-card.js';
+
+// 盤面で出したカード（トークン・ダミーカード）か。どちらも記録上はデッキに足してから動かすが、
+// デッキにあったカードではないので、出す前は「まだ出ていない」（out）として扱う
+const _isConjured = (src) => isTokenSrc(src) || !!dummyKindOfSrc(src);
 
 /** ゾーンID → 場所の名前（盤面のマス番号は templates/solitaire.html・mobile.css の並びに対応） */
 export function zoneLabel(zoneId) {
@@ -58,7 +63,7 @@ function _track(setupLogs, logs, upto, dict) {
     : new Set([...(setupLogs || []), ...(logs || [])].filter((e) => e && e.actionType === 'returnToDeck' && e.isEx).map((e) => e.cardId));
   const poolOf = (id) => (exSet.has(id) ? 'poolRow2' : 'poolRow');
   const state = new Map();
-  for (const id of ids) state.set(id, { zone: poolOf(id), orientation: '', face: '', out: isTokenSrc(images[id]) });
+  for (const id of ids) state.set(id, { zone: poolOf(id), orientation: '', face: '', out: _isConjured(images[id]) });
 
   const apply = (ev) => {
     if (!ev || !ev.actionType) return;
@@ -75,13 +80,13 @@ function _track(setupLogs, logs, upto, dict) {
         if (s) Object.assign(s, { zone: ev.isEx ? 'poolRow2' : 'poolRow', orientation: '', face: '' });
         return;
       case 'removeCard':
-        // トークンだけ盤面から外れる（トークンでないカードは再生でも何も起きない）
-        if (s && isTokenSrc(images[ev.cardId])) Object.assign(s, { zone: '', orientation: '', face: '', out: true });
+        // トークン・ダミーカードだけ盤面から外れる（それ以外のカードは再生でも何も起きない）
+        if (s && _isConjured(images[ev.cardId])) Object.assign(s, { zone: '', orientation: '', face: '', out: true });
         return;
       case 'resetDeck':
         for (const [id, c] of state) {
-          if (c.out && !c.zone) continue; // 取り除いたトークンは戻らない
-          Object.assign(c, { zone: poolOf(id), orientation: '', face: '', out: isTokenSrc(images[id]) });
+          if (c.out && !c.zone) continue; // 取り除いたトークン・ダミーは戻らない
+          Object.assign(c, { zone: poolOf(id), orientation: '', face: '', out: _isConjured(images[id]) });
         }
         for (const id of ev.drawnIds || []) {
           const c = state.get(id);
@@ -121,6 +126,7 @@ export function describeStep(setupLogs, logs, index, dict = {}) {
   if (!cur) return null; // 辞書に無いカード（再生でも何も起きない）
   const before = { ...cur };
   const isToken = isTokenSrc((dict.images || {})[ev.cardId]);
+  const isDummy = !!dummyKindOfSrc((dict.images || {})[ev.cardId]); // ダミーカード（2026-11-01）
   const name = (dict.names && dict.names[ev.cardId]) || (isToken ? 'トークン' : 'カード');
   const out = { cardId: ev.cardId, name, tag: '', from: '', to: '' };
 
@@ -134,6 +140,12 @@ export function describeStep(setupLogs, logs, index, dict = {}) {
         // まだ場に出ていないトークンを出した（記録上はデッキに足してから場へ動かす）
         out.to = zoneLabel(toZone);
         out.tag = down ? 'トークン・セット' : defense ? 'トークン・守備表示' : 'トークン';
+        return out;
+      }
+      if (isDummy && before.out) {
+        // まだ出していないダミーカードを出した（トークンと同じく、記録上はデッキに足してから動かす）
+        out.to = zoneLabel(toZone);
+        out.tag = down ? 'ダミー・セット' : defense ? 'ダミー・守備表示' : 'ダミー';
         return out;
       }
       if (toZone === before.zone) {
@@ -163,7 +175,7 @@ export function describeStep(setupLogs, logs, index, dict = {}) {
     case 'counterChange':
       return { ...out, tag: ev.op === 'remove' ? 'カウンターを外す' : 'カウンター', to: zoneLabel(before.zone) };
     case 'removeCard':
-      if (!isToken) return null;
+      if (!isToken && !isDummy) return null;
       return { ...out, tag: '取り除く', from: zoneLabel(before.zone) };
     default:
       return null;

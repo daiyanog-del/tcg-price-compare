@@ -21,6 +21,7 @@ import { getDropZoneInfo, executeDrop } from '../components/drag-drop.js';
 import { registerCardImage, registerCardName } from '../services/replay-service.js';
 import { openContextMenuAt, closeContextMenu } from './context-menu.js';
 import { isMobilePortrait } from '../utils/viewport.js';
+import { dummyMenuItems } from './dummy-card-ui.js';
 import { generateTokenDataURL, loadTokenBase, tokenNameOf, TOKEN_NAME_MAX, DEFAULT_TOKEN_NAME } from '../utils/token-image.js';
 
 // 名前の整え方・上限・既定の名前は token-image.js に置き、ここからも出す（mobile-ui.js が import する）
@@ -110,6 +111,10 @@ function openTokenMenu(slot, x, y) {
     { element: input },
     { label: '攻撃表示で出す', sub: _lastDefense ? '' : 'Enter', action: () => place(false) },
     { label: '守備表示で出す', sub: _lastDefense ? 'Enter' : '', action: () => place(true) },
+    // ダミーカード（2026-11-01・dummy-card-ui.js）: 素材など中身を問わない1枚
+    { separator: true },
+    { heading: 'ダミーカードを出す' },
+    ...dummyMenuItems(slot),
   ], x, y);
 
   // すぐ名前を打ち直せるように（色を押すだけなら関係ない）

@@ -17,6 +17,7 @@
  */
 
 import { isTokenSrc } from '../utils/token-src.js';
+import { dummyKindOfSrc } from '../utils/dummy-card.js';
 
 const FIELD_SLOT_RE = /^custom-slot-(\d+)$/;
 const isFieldSlot = (z) => {
@@ -97,8 +98,8 @@ export function buildBoardFromLogs(logs, dict) {
         if (where.has(id)) place(id, ev.isEx ? 'poolRow2' : 'poolRow');
         break;
       case 'removeCard': {
-        // トークンの削除。盤面から外す（辞書には残る）。居ない・トークンでないカードは何もしない（replay-service と同じ）
-        if (!where.has(id) || !isTokenSrc(images[id])) break;
+        // トークン・ダミーカードの削除。盤面から外す（辞書には残る）。居ない・どちらでもないカードは何もしない（replay-service と同じ）
+        if (!where.has(id) || !(isTokenSrc(images[id]) || dummyKindOfSrc(images[id]))) break;
         const arr = zoneList(where.get(id));
         const i = arr.indexOf(id);
         if (i >= 0) arr.splice(i, 1);

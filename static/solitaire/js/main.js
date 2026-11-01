@@ -18,6 +18,7 @@ import { initializeEventListeners } from './ui/event-handlers.js';
 import { initReplayUI } from './ui/replay-ui.js';
 import { registerCardImage, registerCardIsEx, registerCardName, registerCardType, restoreReplaySession, rebuildAtCursor } from './services/replay-service.js';
 import { initTokenGenerator } from './ui/token-generator.js';
+import { initDummyCardUI } from './ui/dummy-card-ui.js';
 import { initRandomTools } from './ui/random-tools.js';
 import { initCardInfoPanel, showCardByName } from './ui/card-info-panel.js';
 import { initSampleBlur } from './ui/sample-blur.js';
@@ -55,6 +56,8 @@ function registrySrcOf(cardEl) {
   const wrapper = cardEl.closest?.('.tier-item-wrapper');
   const name = cardEl.dataset?.cardName;
   if (wrapper?.classList.contains('sample-art') && name) return `card://${name}`;
+  // ダミーカード（2026-11-01）: 枠の画像の URL ではなく card://予約名 で残す（開くときに枠へ戻す・utils/dummy-card.js）
+  if (wrapper?.dataset.dummy === '1' && name) return `card://${name}`;
   return cardEl.src || cardEl.dataset?.proxySrc || '';
 }
 
@@ -465,6 +468,7 @@ async function initializeApp() {
 
   // トークン生成（空いたマスの右クリックメニュー）初期化
   initTokenGenerator();
+  initDummyCardUI();
 
   // コイントス・ダイスロール初期化
   initRandomTools();

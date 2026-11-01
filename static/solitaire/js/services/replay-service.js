@@ -52,6 +52,7 @@ import { createCardCounter } from '../components/counter-manager.js';
 import { restackCustomSlot } from '../components/slot-stack.js';
 import { playActivateEffect, flipMoveClone, playSetFlip, flyBetweenRects, prefersReducedMotion } from '../components/card-effects.js';
 import { createProxyCardElement } from '../components/proxy-card.js';
+import { dummyKindOfName, dummyKindOfSrc, dummyDisplayOf, markDummy, isDummyCard } from '../utils/dummy-card.js';
 import { isMobilePortrait } from '../utils/viewport.js';
 import { renderCommentView, showCutin, hideCutin } from './comment-view.js';
 import { clampCommentText, buildCutinEvent, cutinToShow, playPauseMs, cursorAfterRemove, isSameComment } from './comment-model.js';
@@ -647,10 +648,10 @@ export function clearReplayLog() {
   _logs = [];
   _setupLogs = [];
   _cursor = -1;
-  // 盤面に無いトークン（記録を始める前に削除したもの）を辞書から消す。残すと、リセット後の
+  // 盤面に無いトークン・ダミーカード（記録を始める前に削除したもの）を辞書から消す。残すと、リセット後の
   // 巻き戻しで _restoreRemovedTokens が削除済みのトークンをデッキへ作り直してしまう
   for (const [cardId, src] of Object.entries(_images)) {
-    if (isTokenSrc(src) && !document.getElementById(cardId)) {
+    if ((isTokenSrc(src) || dummyKindOfSrc(src)) && !document.getElementById(cardId)) {
       delete _images[cardId];
       delete _names[cardId];
       delete _cardTypes[cardId];
@@ -714,7 +715,7 @@ function _replayTo(target) {
  * - Fugartaの returnAllCardsToDeck を流用
  * - カードの上のカウンターは再適用で作り直すため、先に全部片付ける
  *   （returnAllCardsToDeck は片付けない。残すと巻き戻しのたびに増える・値が残る）
- * - 削除されたトークンは辞書（画像・名前）から作り直す。再適用の途中で
+ * - 削除されたトークン・ダミーカードは辞書（画像・名前）から作り直す。再適用の途中で
  *   removeCard が来た時点で改めて消える
  */
 function _rebuildDeck() {
@@ -724,15 +725,16 @@ function _rebuildDeck() {
 }
 
 /**
- * 盤面に無いトークンを画像辞書から作り直してデッキ列（#poolRow）へ置く。
+ * 盤面に無いトークン・ダミーカードを画像辞書から作り直してデッキ列（#poolRow）へ置く。
  * 削除したトークンまで巻き戻したとき、削除より前の手を正しく再現するための処理。
  * 普通のカードは削除できないため対象外（card:// の再解決は非同期で、ここは同期処理のため）。
+ * ダミーカード（card://予約名）は問い合わせずに枠の画像で作れるので含める（2026-11-01）。
  */
 function _restoreRemovedTokens() {
   const poolRow = document.getElementById('poolRow');
   if (!poolRow) return;
   for (const [cardId, src] of Object.entries(_images)) {
-    if (!isTokenSrc(src) || document.getElementById(cardId)) continue;
+    if (!(isTokenSrc(src) || dummyKindOfSrc(src)) || document.getElementById(cardId)) continue;
     poolRow.appendChild(_buildReplayCard(cardId, src, false, new Map()));
   }
 }
@@ -748,6 +750,7 @@ async function _resolveReplaySentinels() {
   for (const src of Object.values(_images)) {
     if (src && src.startsWith('card://')) {
       const name = src.slice('card://'.length);
+      if (dummyKindOfName(name)) continue; // ダミーカードは _buildReplayCard が枠の画像で作る
       if (name && !sentinelNames.includes(name)) sentinelNames.push(name);
     }
   }
@@ -873,7 +876,9 @@ function _buildReplayCard(cardId, src, isEx, resolved) {
   if (src && src.startsWith('card://')) {
     // card:// センチネル: 再解決結果に基づいてカード要素を生成
     const name = src.slice('card://'.length);
-    const displayResult = resolved.get(name) || { kind: 'none' };
+    // ダミーカード（2026-11-01）は問い合わせずに枠の画像（同期で作れるので、削除したダミーの作り直しにも使える）
+    const dummyKind = dummyKindOfName(name);
+    const displayResult = dummyKind ? dummyDisplayOf(dummyKind) : (resolved.get(name) || { kind: 'none' });
 
     if (displayResult.kind === 'image' && displayResult.url) {
       // 発売済み or linked 後の正規画像
@@ -884,8 +889,9 @@ function _buildReplayCard(cardId, src, isEx, resolved) {
       img.id = cardId;
       if (_names[cardId]) img.dataset.cardName = _names[cardId];
       cardEl = img;
-      // 発売済みクリーン画像にのみ透かし（SAMPLE画像は除外）
-      if (displayResult.source !== 'official_sample') wrapper.classList.add('wm-released');
+      // 発売済みクリーン画像にのみ透かし（SAMPLE画像・ダミーカードは除外）
+      if (displayResult.source === 'dummy') markDummy(wrapper, displayResult.dummyKind);
+      else if (displayResult.source !== 'official_sample') wrapper.classList.add('wm-released');
       else wrapper.classList.add('sample-art'); // 未発売SAMPLE（イラストぼかし設定の対象）
     } else if (displayResult.kind === 'proxy' && displayResult.proxy) {
       // 未発売プロキシ
@@ -1315,7 +1321,7 @@ function _applyCounterChange(event) {
 /** removeCard: トークンを盤面から消す（辞書にはカードが残るので、巻き戻しでは作り直される） */
 function _applyRemoveCard(event) {
   const card = _findCardWrapper(event.cardId);
-  if (!card || !isTokenCard(card)) return; // トークン以外は消さない（手で作った記録などで普通のカードが消えないように）
+  if (!card || !(isTokenCard(card) || isDummyCard(card))) return; // トークン・ダミー以外は消さない（手で作った記録などで普通のカードが消えないように）
   const sourceSlot = card.parentElement;
   card.remove();
   restackCustomSlot(sourceSlot); // フィールドの重ねを詰め直す（.custom-slot 以外は何もしない）
