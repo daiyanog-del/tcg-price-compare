@@ -533,6 +533,15 @@
    },
    "YAP1-JP001": {
     "base": 5
+   },
+   "YAS3-JP003": {
+    "base": 2
+   },
+   "YAS3-JP004": {
+    "base": 1
+   },
+   "YAS3-JP005": {
+    "base": 1
    }
   },
   "words": {
