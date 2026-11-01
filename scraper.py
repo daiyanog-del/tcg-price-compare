@@ -45,6 +45,11 @@ HOST_HEADER_OVERRIDES = {
     "www.cardrush.jp": {
         "User-Agent": "TCGYM/1.0 (+https://tcg-price-compare.onrender.com)",
     },
+    # 2026-11-01 09:50(JST)〜: まんぞく屋が本番（Render）からの取得を 403 にし始めた（自宅の回線からは Chrome/120 でも 200）。
+    # 接続元そのものか、「データセンターからの古いブラウザの名乗り」かを切り分けるため、ほかの店と同じく名乗りで取る
+    "shopmanzokuya.com": {
+        "User-Agent": "TCGYM/1.0 (+https://tcg-price-compare.onrender.com)",
+    },
 }
 # 混雑時に再試行せず、連続タイムアウトでホストを一時停止する対象ホスト。
 # 2026-10-11 トレコロが負荷で応答しなくなり（Read timed out 427件）、その最中も

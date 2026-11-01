@@ -257,6 +257,15 @@ def test_cardrush_sale_gets_own_user_agent(monkeypatch):
     assert fake.call_headers[-1] is None
 
 
+# 2026-11-01: まんぞく屋が本番（Render）からの取得を 403 にし始めた。ほかの店と同じく名乗りで取る
+def test_manzoku_gets_own_user_agent(monkeypatch):
+    fake = _install(monkeypatch, [200])
+    assert scraper.safe_get("https://shopmanzokuya.com/products/list?category_id=1&name=test") is not None
+    assert fake.call_headers[-1] == {
+        "User-Agent": "TCGYM/1.0 (+https://tcg-price-compare.onrender.com)"
+    }
+
+
 def test_waf_error403_redirect_is_failure(monkeypatch):
     fake = _install(monkeypatch, [200])
     fake.final_url = "https://www.torecolo.jp/CustomError/error403.html"
