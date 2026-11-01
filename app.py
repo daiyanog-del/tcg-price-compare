@@ -47,8 +47,8 @@ from aggregations import daily_min_by_lowest_rarity, common_shop_price_change
 from price_history_reads import fetch_daily_rows_by_card_names, jst_days_back
 from name_normalize import db_lookup_names, pick_card_ids
 from shop_status import SUSPENDED_SHOPS
-from price_persist import (build_art_price_rows, build_min_price_rows, shallow_rows_to_write, upsert_price_art_rows,
-                           upsert_price_rows)
+from price_persist import (build_art_price_rows, build_min_price_rows, build_pack_price_rows, shallow_rows_to_write,
+                           upsert_price_art_rows, upsert_price_pack_rows, upsert_price_rows, valid_pack_code)
 from card_code import infer_codes
 from overframe import infer_overframe
 from search_status import search_coverage
@@ -1775,6 +1775,9 @@ def api_deck():
     # 購入候補の「店の今の価格で調べ直す」用（2026-10-31）。どの店も全ページを見て、結果をその日の行に上書きする
     # （/api/search と同じ扱い）。ふだんの一括検索は1ページ目だけの浅い結果なので、朝の収集の値を上書きしない
     fresh = request.values.get("fresh", "").lower() in ("1", "true", "yes")
+    # 新弾情報ページの「価格を調べる」（fresh）は、パックの型番の頭も送る。このパックの版の出品だけの行も
+    # price_history_pack に書く（本表は同じレアリティで一番安い版しか残らないため。2026-11-01）
+    pack_code = valid_pack_code(request.values.get("pack_code")) if fresh else ""
     if not names_raw:
         return jsonify({"error": "カード名がありません"}), 400
     rate_error = _consume_rate_limit(bucket=_last_deck)
@@ -1823,7 +1826,7 @@ def api_deck():
     try:
         return _search_stream_response(
             _api_deck_stream(card_entries, selected, active_shops, _FAST_OVERRIDES,
-                             include_per_shop, per_shop_by_version, fresh),
+                             include_per_shop, per_shop_by_version, fresh, pack_code),
             release)
     except BaseException:
         release()
@@ -1860,7 +1863,7 @@ def _chain_release(*releases):
 
 
 def _api_deck_stream(card_entries, selected, active_shops, _FAST_OVERRIDES,
-                     include_per_shop, per_shop_by_version, fresh=False):
+                     include_per_shop, per_shop_by_version, fresh=False, pack_code=""):
     """/api/deck の本体（記録・自動登録と SSE の生成）。枠を取ったあとで呼ぶ。
     fresh: 全ページを見た結果だけを使い（1ページ目だけのキャッシュは命中にしない）、その日の行に上書きする。
     上書きは card_done を送る前に終える（画面は終わったら DB を読み直すため）。"""
@@ -1885,6 +1888,12 @@ def _api_deck_stream(card_entries, selected, active_shops, _FAST_OVERRIDES,
         items は全ページを見た店の結果だけを渡す（キャッシュの命中分も含める・取得に失敗した店は渡さない）"""
         if fresh and _supabase_client and items and card_name in trackable_set:
             _persist_scrape_async(card_name, list(items))
+            if pack_code:
+                # 画面はこの表を読み直さない（まとめて検索の結果をそのまま使う）ので、待たずに裏で書く（reviewer 低3）
+                today = datetime.now(JST).strftime("%Y-%m-%d")
+                Thread(target=upsert_price_pack_rows,
+                       args=(_supabase_client, build_pack_price_rows(_persist_card_name(card_name), list(items), today, pack_code)),
+                       daemon=True).start()
 
     def _aggregate_per_shop(items: list) -> dict:
         """店舗別・レアリティ別の最安値を {店舗名: {レアリティ: {price, url, rarity, ...}}} に
@@ -4392,7 +4401,7 @@ _last_pack_matrix: dict[str, float] = {}
 def api_packs_matrix():
     """パックの収録カードの店舗×レアリティ表を、毎朝の収集（price_history）から返す（featured_matrix.py、DB読みのみ）。
     入力: {"cards": ["カード名", ...]}（正式名・収録順。/api/packs/cards が返す名前）
-    返却: {"updated_at": "YYYY-MM-DD", "shops": [店舗名, ...],
+    返却: {"updated_at": "YYYY-MM-DD", "shops": [店舗名, ...], "pack_rows": [版ごとの価格（pack_code つき）],
            "rows": [{"name", "rarity", "cells": {店舗名: {"price", "url", "code", "recorded_at"}}}]}
     2026-10-22 に新弾専用の /api/featured/matrix から寄せた（新弾もこれを使う）。
     同じカードの並びは1時間覚えるので、データベースを読むのはパックごとに1時間に1回まで。
@@ -4409,7 +4418,7 @@ def api_packs_matrix():
         if name and len(name) <= MAX_CARD_NAME_LEN:
             cards.append(name)
     if not cards:
-        return jsonify({"updated_at": "", "shops": [], "rows": []})
+        return jsonify({"updated_at": "", "shops": [], "rows": [], "pack_rows": []})
     from featured_matrix import get_pack_matrix, is_cached
     # データベースを読むとき（覚えていない集まり）だけ受付上限を消費する。名前を変えて連打されても読み出しが積み上がらないように（reviewer 中4）
     if not is_cached(cards):

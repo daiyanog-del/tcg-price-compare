@@ -438,6 +438,8 @@ async function _pkRenderMatrix(){
     if(!st.dbModel){
       const items=_pkItemsFromDb(st.dbmx);
       st.dbCode=_pkPackCode(st,items);
+      // このパックの版の価格（新弾用の小さな表）は、決まった型番の頭の行だけ足す（2026-11-01）
+      for(const it of _pkPackItemsFromDb(st.dbmx,st.dbCode)) items.push(it);
       st.dbModel=_pkMatrixModel(st,items,st.dbCode,st.dbmx.shops||[],{});
       st.dbModel.updatedAt=st.dbmx.updated_at||'';
       const tools=document.getElementById('packTools'); // 型番の頭が決まったので説明の一行を描き直す
@@ -461,6 +463,18 @@ function _pkItemsFromDb(m){
     for(const [shop,c] of Object.entries(r.cells||{})){
       if(c&&c.price!=null) items.push({name:r.name,rarity:r.rarity||'',shop,price:Number(c.price),url:c.url||'',code:c.code||'',date:c.recorded_at||''});
     }
+  }
+  return items;
+}
+
+// 新弾用の小さな表の、このパックの版（型番の頭 code）の価格を品にする。本表は同じレアリティで一番安い版しか残らないので、
+// 再録カードのこのパックの版はこちらで補う。サーバーは本表により新しい同じ版の行があれば古い行を落として返す
+function _pkPackItemsFromDb(m,code){
+  const items=[];
+  if(!code) return items;
+  for(const p of (m.pack_rows||[])){
+    if(p&&p.price!=null&&String(p.pack_code||'').toUpperCase()===code)
+      items.push({name:p.name,rarity:p.rarity||'',shop:p.shop,price:Number(p.price),url:p.url||'',code:p.code||'',date:p.recorded_at||''});
   }
   return items;
 }
@@ -737,6 +751,10 @@ async function bulkSearchPackPrices(){
         body.set('include_per_shop','version');
         // 全ページを読み、ほかの人にも残るようその日の記録に上書きする（ファイル冒頭の注記。接続元ごとに同時1本なので順に送る今の形のまま）
         body.set('fresh','1');
+        // このパックの版の出品だけの行も新弾用の小さな表に残す（再録カードのこのパックの版を表に出すため）
+        // 型番の頭は表で決めたもの（品の型番から）を優先し、まだ無ければ公式の略号（書き手と読み手で同じ頭を使う）
+        const pc=st.dbCode||st.info.code||'';
+        if(pc) body.set('pack_code',String(pc));
       }
       let r=null;
       for(let tries=0;tries<4;tries++){
