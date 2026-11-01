@@ -54,3 +54,13 @@ def _no_shop_cache_kv(monkeypatch):
     shop_cache_kv._reset_for_tests()
     yield
     shop_cache_kv._reset_for_tests()
+
+
+@pytest.fixture(autouse=True)
+def _no_live_pack_matrix_watch(request, monkeypatch):
+    """新弾の収集（collect_featured.main）を動かすテストが、10時台に流すと表の見張りから本番サイトへ問い合わせていた
+    （2026-11-01 本番のログに /api/packs/cards?name=P の 429 が並んだ）。見張りのテスト自身（test_pack_matrix_watch）以外は止める"""
+    if request.module.__name__.endswith("test_pack_matrix_watch"):
+        return
+    import collect_featured
+    monkeypatch.setattr(collect_featured, "watch_pack_matrix", lambda pack, now: None)
