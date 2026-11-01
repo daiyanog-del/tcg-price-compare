@@ -71,6 +71,7 @@ def _freeze_window_clock(monkeypatch):
     import price_history_reads
     freeze_now(monkeypatch, price_history_reads, _NOW)
 OLD, NEW = (_TODAY - timedelta(days=7)).isoformat(), _TODAY.isoformat()
+_YESTERDAY = (_TODAY - timedelta(days=1)).isoformat()
 
 
 class TestCommonShopComparisonUsedForDiff:
@@ -448,3 +449,205 @@ class TestManyCards:
         c = client([], names)
         res = c.post("/api/wish-prices", json={"cards": names})
         assert len(res.get_json()["cards"]) == app_module.MAX_WISH_CARDS
+
+
+class TestSharedReads:
+    """2026-11-01: 購入候補を開くと価格とレアリティの API が同じカードの同じ日を同時に読み、共有の実行枠を取り合って
+    締め切りを過ぎ、レアリティ候補（58枚）・まとめ買い（19枚）が丸ごと失敗になっていた。"""
+
+    _COLS = "card_id, shop_id, rarity_id, card_name, rarity, shop, min_price, recorded_at"
+
+    def test_second_caller_uses_rows_already_read(self):
+        # 同じカード・同じ日は2回読みに行かない（価格→レアリティ候補→まとめ買い）
+        import price_history_reads as phr
+        days = phr.jst_days_back(7)
+        fake = _FailingClient([row("カードA", "店舗A", 500, days[-1])], {}, ["カードA"])
+        rows1, f1 = phr.fetch_daily_rows_by_card_names(fake, ["カードA"], self._COLS, days, "a", shared=True)
+        rows2, f2 = phr.fetch_daily_rows_by_card_names(fake, ["カードA"], "card_id, card_name, rarity, shop",
+                                                       days, "b", shared=True)
+        assert f1 == f2 == set()
+        assert [r["min_price"] for r in rows1] == [500]
+        assert [r["card_name"] for r in rows2] == ["カードA"]
+        assert len(fake.calls["price_history"]) == len(days) + 1, "2回目は今日だけ読みに行く"
+        assert fake.calls["price_history"][-1] == ({"カードA"}, NEW)
+
+    def test_rows_handed_out_are_copies(self):
+        # 呼び出し元は行を書き換える（rarity の正規化・card_name の戻し）。取っておいた行は汚さない
+        import price_history_reads as phr
+        days = [_YESTERDAY]
+        fake = _FailingClient([row("カードA", "店舗A", 500, days[0])], {}, ["カードA"])
+        rows1, _ = phr.fetch_daily_rows_by_card_names(fake, ["カードA"], self._COLS, days, "a", shared=True)
+        rows1[0]["min_price"] = -1
+        rows2, _ = phr.fetch_daily_rows_by_card_names(fake, ["カードA"], self._COLS, days, "b", shared=True)
+        assert rows2[0]["min_price"] == 500
+
+    def test_concurrent_callers_wait_for_the_same_read(self, monkeypatch):
+        # 読んでいる途中のカード・日付は、新しく読みに行かずその読み込みの終わりを待つ
+        import price_history_reads as phr
+        orig = phr._read_day
+
+        def slow(*a):
+            time.sleep(0.05)
+            return orig(*a)
+
+        monkeypatch.setattr(phr, "_read_day", slow)
+        days = phr.jst_days_back(7)[:-1]  # 過去の日だけ（今日は毎回読む）
+        fake = _FailingClient([row("カードA", "店舗A", 500, d) for d in days], {}, ["カードA"])
+        out = {}
+
+        def run(tag):
+            out[tag] = phr.fetch_daily_rows_by_card_names(fake, ["カードA"], self._COLS, days, tag, shared=True)
+
+        ts = [threading.Thread(target=run, args=(t,)) for t in ("a", "b")]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join()
+        assert len(fake.calls["price_history"]) == len(days)
+        for tag in ("a", "b"):
+            rows, failed = out[tag]
+            assert failed == set()
+            assert len(rows) == len(days)
+
+    def test_only_unread_cards_are_read(self):
+        # 取っておきにあるカードは読まず、無いカードだけ読む
+        import price_history_reads as phr
+        days = [_YESTERDAY]
+        fake = _FailingClient([row("カードA", "店舗A", 500, days[0]), row("カードB", "店舗A", 700, days[0])],
+                              {}, ["カードA", "カードB"])
+        phr.fetch_daily_rows_by_card_names(fake, ["カードA"], self._COLS, days, "a", shared=True)
+        rows, failed = phr.fetch_daily_rows_by_card_names(fake, ["カードA", "カードB"], self._COLS, days, "b",
+                                                          shared=True)
+        assert failed == set()
+        assert sorted(r["card_name"] for r in rows) == ["カードA", "カードB"]
+        assert fake.calls["price_history"][-1] == ({"カードB"}, days[0])
+
+    def test_today_is_read_fresh_after_a_write(self):
+        # 今日は「価格を更新」・検索が書いた直後に画面が読み直すので、取っておかない（2026-11-01 reviewer 高1）
+        import price_history_reads as phr
+        days = phr.jst_days_back(2)
+        rows_in = [row("カードA", "店舗A", 500, NEW)]
+        fake = _FailingClient(rows_in, {}, ["カードA"])
+        phr.fetch_daily_rows_by_card_names(fake, ["カードA"], self._COLS, days, "a", shared=True)
+        rows_in[0]["min_price"] = 600
+        rows, _ = phr.fetch_daily_rows_by_card_names(fake, ["カードA"], self._COLS, days, "b", shared=True)
+        assert [r["min_price"] for r in rows] == [600]
+        assert [d for _n, d in fake.calls["price_history"]].count(NEW) == 2
+        assert len(fake.calls["price_history"]) == len(days) + 1, "過去の日は読み直さない"
+
+    def test_stuck_read_is_not_borrowed(self, monkeypatch):
+        # 締め切りより長く掛かっている読み込みは借りず、自分で読み直す（1本の詰まりに後の要求を巻き込まない）
+        import price_history_reads as phr
+        from concurrent.futures import Future
+        days = [_YESTERDAY]
+        fake = _FailingClient([row("カードA", "店舗A", 500, days[0])], {}, ["カードA"])
+        cid = fake._ids["カードA"]
+        phr._shared_inflight[(cid, days[0])] = (Future(), time.monotonic() - phr._READ_DEADLINE_SEC - 1)
+        rows, failed = phr.fetch_daily_rows_by_card_names(fake, ["カードA"], self._COLS, days, "a", shared=True)
+        assert failed == set()
+        assert [r["min_price"] for r in rows] == [500]
+
+    def test_rows_over_the_limit_are_dropped(self, monkeypatch):
+        # 取っておく行の数に上限（メモリを張り付かせない）
+        import price_history_reads as phr
+        monkeypatch.setattr(phr, "_SHARED_MAX_ROWS", 2)
+        days = phr.jst_days_back(4)[:-1]
+        fake = _FailingClient([row("カードA", "店舗A", 500, d) for d in days], {}, ["カードA"])
+        phr.fetch_daily_rows_by_card_names(fake, ["カードA"], self._COLS, days, "a", shared=True)
+        assert phr._shared_row_total <= 2
+        assert sum(max(1, len(r)) for _e, r in phr._shared_rows.values()) == phr._shared_row_total
+
+    def test_read_started_before_reset_is_not_kept(self):
+        # 取っておきを捨てる前に始まった読み込みの行は、終わっても取っておかない
+        import price_history_reads as phr
+        from concurrent.futures import Future
+        fut = Future()
+        old_gen = phr._shared_gen
+        phr._reset_shared_for_tests()
+        fut.set_result([{"card_id": 1, "card_name": "カードA"}])
+        phr._store_shared([1], _YESTERDAY, old_gen, fut)
+        assert phr._shared_rows == {}
+
+    def test_failed_read_is_not_kept(self):
+        # 読めなかった日は取っておかず、次の呼び出しが読み直す
+        import price_history_reads as phr
+        days = [_YESTERDAY]
+        fake = _FailingClient([row("カードA", "店舗A", 500, days[0])],
+                              _ph([RuntimeError("timeout")], day=days[0]), ["カードA"])
+        _rows, failed = phr.fetch_daily_rows_by_card_names(fake, ["カードA"], self._COLS, days, "a", shared=True)
+        assert failed == {"カードA"}
+        rows, failed = phr.fetch_daily_rows_by_card_names(fake, ["カードA"], self._COLS, days, "b", shared=True)
+        assert failed == set()
+        assert [r["min_price"] for r in rows] == [500]
+
+    def test_columns_outside_shared_set_are_refused(self):
+        import price_history_reads as phr
+        fake = _FailingClient([], {}, ["カードA"])
+        with pytest.raises(ValueError):
+            phr.fetch_daily_rows_by_card_names(fake, ["カードA"], "card_id, min_price_any", [NEW], "a", shared=True)
+
+    def test_partial_days_keeps_days_that_were_read(self):
+        # partial_days: 1日読めなくても、読めた日の行で返す（レアリティ候補）
+        import price_history_reads as phr
+        days = phr.jst_days_back(7)
+        fake = _FailingClient([row("カードA", "店舗A", 500, days[0], "シークレット"),
+                               row("カードA", "店舗A", 300, days[-1])],
+                              _ph([RuntimeError("timeout")]), ["カードA"])
+        rows, failed = phr.fetch_daily_rows_by_card_names(fake, ["カードA"], self._COLS, days, "a",
+                                                          partial_days=True)
+        assert failed == set()
+        assert [r["rarity"] for r in rows] == ["シークレット"]
+
+    def test_partial_days_fails_card_with_no_day_read(self):
+        import price_history_reads as phr
+        days = [_TODAY.isoformat()]
+        fake = _FailingClient([row("カードA", "店舗A", 500, days[0])],
+                              _ph([RuntimeError("timeout")]), ["カードA"])
+        rows, failed = phr.fetch_daily_rows_by_card_names(fake, ["カードA"], self._COLS, days, "a",
+                                                          partial_days=True)
+        assert failed == {"カードA"}
+        assert rows == []
+
+    def test_partial_days_deadline_returns_days_read_so_far(self, monkeypatch):
+        # 締め切りを過ぎても、読み終えた日の行は返す
+        import price_history_reads as phr
+        monkeypatch.setattr(phr, "_READ_DEADLINE_SEC", 0.2)
+        monkeypatch.setattr(phr, "_MAX_IN_FLIGHT", 1)
+        orig = phr._read_day
+
+        def slow_on_old_days(sb, cols, ids, day, tag):
+            if day != NEW:
+                time.sleep(0.5)
+            return orig(sb, cols, ids, day, tag)
+
+        monkeypatch.setattr(phr, "_read_day", slow_on_old_days)
+        days = list(reversed(phr.jst_days_back(3)))  # 今日を先に読む
+        fake = _FailingClient([row("カードA", "店舗A", 500, d) for d in days], {}, ["カードA"])
+        rows, failed = phr.fetch_daily_rows_by_card_names(fake, ["カードA"], self._COLS, days, "a",
+                                                          partial_days=True)
+        assert failed == set()
+        assert [r["recorded_at"] for r in rows] == [NEW]
+
+    def test_rarities_survive_a_failed_day_but_shop_totals_do_not(self, failing_client):
+        # レアリティ候補は読めた日だけで出す。まとめ買いは全部の日が読めたカードだけ DB の値を使い、
+        # 読めなかったカードは店のリアルタイム検索に回す（db_missing）
+        days = [(_TODAY - timedelta(days=d)).isoformat() for d in range(7, -1, -1)]
+        rows = [row("カードA", "店舗A", 500, days[0], "シークレット"), row("カードA", "店舗A", 300, NEW)]
+        c, fake = failing_client(rows, _ph([RuntimeError("timeout")], day=days[3]), ["カードA"])
+        got = c.post("/api/card-rarities", json={"cards": ["カードA"]}).get_json()
+        assert set(got["rarities"]["カードA"]) == {"シークレット", "ノーマル"}
+        fake.errors["price_history"][days[4]] = [RuntimeError("timeout")]
+        import price_history_reads as phr
+        phr._reset_shared_for_tests()  # 取っておきを捨て、まとめ買いにも DB を読ませる
+        tot = c.post("/api/wish-shop-totals", json={"cards": [{"name": "カードA", "qty": 1}]}).get_json()
+        assert tot["db_missing"] == [{"name": "カードA", "rarity": ""}]
+
+    def test_wish_prices_then_rarities_reads_db_once(self, failing_client):
+        # 購入候補を開いたときの流れ: 価格（9日）の後のレアリティ候補（8日）は今日だけ読む
+        rows = [row("カードA", "店舗A", 500, NEW, "シークレット")]
+        c, fake = failing_client(rows, {}, ["カードA"])
+        assert _by_name(c.post("/api/wish-prices", json={"cards": ["カードA"]}).get_json())["カードA"]["latest"] == 500
+        n = len(fake.calls["price_history"])
+        got = c.post("/api/card-rarities", json={"cards": ["カードA"]}).get_json()
+        assert got["rarities"] == {"カードA": ["シークレット"]}
+        assert fake.calls["price_history"][n:] == [({"カードA"}, NEW)]

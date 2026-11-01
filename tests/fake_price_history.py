@@ -48,7 +48,9 @@ class FakeQuery:
             return [{"card_id": cid, "card_name": n} for n, cid in self._ids.items() if n in names]
         ids = self._filters.get("card_id", set())
         days = self._filters.get("recorded_at", set())
-        return [r for r in self._rows if self._ids[r["card_name"]] in ids and r["recorded_at"] in days]
+        # 本物と同じく行にカード番号を入れて返す（購入候補の読み込みはカード番号で行を振り分ける）
+        return [{**r, "card_id": self._ids[r["card_name"]]} for r in self._rows
+                if self._ids[r["card_name"]] in ids and r["recorded_at"] in days]
 
     def execute(self):
         if self._log is not None:
