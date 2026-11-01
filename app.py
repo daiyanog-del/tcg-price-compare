@@ -60,6 +60,7 @@ from shop_search_pool import (
 from concurrent.futures import Future
 from weakref import WeakSet
 import upgrade_signals
+import site_summary
 import art_variant
 
 # 店舗検索の取得口（2026-10-22 作り直し）。全利用者で共有し、店ごとの列で順番に取る。
@@ -2301,15 +2302,15 @@ def _load_estimate_cache_inner(startup: bool):
             if SUSPENDED_SHOPS:
                 rpc_params["excluded_shops"] = sorted(SUSPENDED_SHOPS)
             try:
-                json_resp = _supabase_client.rpc(
-                    "get_card_best_prices_json", rpc_params
-                ).execute()
-                if isinstance(json_resp.data, list):
-                    rows = json_resp.data
+                # 作り置き（site_summaries。30分ごとに DB が作り直す）があればそれを使う（2026-11-01）
+                json_data = site_summary.fetch(_supabase_client, "best_prices",
+                                               "get_card_best_prices_json", rpc_params)
+                if isinstance(json_data, list):
+                    rows = json_data
                     route = "json"
                     pages = 1
                 else:
-                    raise _UnexpectedJsonRouteResponse(f"想定外のレスポンス型: {type(json_resp.data)}")
+                    raise _UnexpectedJsonRouteResponse(f"想定外のレスポンス型: {type(json_data)}")
             except Exception as e:
                 if not (isinstance(e, _UnexpectedJsonRouteResponse) or _is_function_unavailable_error(e)):
                     raise
@@ -2595,6 +2596,7 @@ def api_trending():
 # ── 値上がり/値下がりランキング（キャッシュ付き） ──
 _movers_cache: dict[str, list] = {}
 _movers_cache_time: float = 0
+_movers_data_time: float = 0  # 集計を作った時刻（作り置きならその時刻。画面の「HH:MM収集」に出す）
 _MOVERS_CACHE_SEC = 3600  # 1時間キャッシュ（収集完了後にサイト表示を当日データへ早く追従させる）
 
 def _aggregate_daily_min_lowest_rarity(rows: list) -> dict:
@@ -2607,7 +2609,7 @@ def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
     get_price_movers RPC が全件集計を DB 側で処理し、上位 top_n 行だけ返す。
     アプリ側の全件メモリ展開を廃止し、データ増加に対してメモリが増えない構造に変更。
     """
-    global _movers_cache, _movers_cache_time
+    global _movers_cache, _movers_cache_time, _movers_data_time
 
     now = time.time()
     if _movers_cache and now - _movers_cache_time < _MOVERS_CACHE_SEC:
@@ -2618,10 +2620,9 @@ def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
 
     try:
         cutoff = (datetime.now(JST) - timedelta(days=3)).strftime("%Y-%m-%d")
-        resp = (_supabase_client
-                .rpc("get_price_movers", {"cutoff_date": cutoff, "min_diff": 50, "top_n": 20})
-                .execute())
-        rows = resp.data or []
+        rows, data_time = site_summary.fetch_with_time(_supabase_client, "price_movers", "get_price_movers",
+                                                       {"cutoff_date": cutoff, "min_diff": 50, "top_n": 20})
+        rows = rows or []
         logger.info(f"値動きランキング: {len(rows)}行取得（RPC集計）")
 
         if not rows:
@@ -2651,6 +2652,7 @@ def _get_price_movers(direction: str, limit: int = 10) -> list[dict]:
         if up or down:
             _movers_cache = {"up": up, "down": down, "date_old": date_old, "date_new": date_new}
             _movers_cache_time = now
+            _movers_data_time = data_time
         return (up if direction == "up" else down)[:limit]
     except Exception as e:
         logger.warning(f"価格変動ランキング取得失敗: {e}")
@@ -2668,8 +2670,8 @@ def api_movers():
     items = _get_price_movers(direction, limit)
     date_old = _movers_cache.get("date_old") if _movers_cache else None
     date_new = _movers_cache.get("date_new") if _movers_cache else None
-    if _movers_cache_time:
-        updated_dt = datetime.fromtimestamp(_movers_cache_time, JST)
+    if _movers_data_time or _movers_cache_time:
+        updated_dt = datetime.fromtimestamp(_movers_data_time or _movers_cache_time, JST)
         updated_at = f"{updated_dt.hour}:{updated_dt.minute:02d}"
     else:
         updated_at = None
@@ -2704,6 +2706,7 @@ def _run_swr_refresh(fn, on_failed=None, fn_kwargs=None):
 # ── 買取値上がり/値下がりランキング（buyback_history テーブル、最高買取額ベース）──
 _buyback_movers_cache: dict[str, list] = {}
 _buyback_movers_cache_time: float = 0
+_buyback_movers_data_time: float = 0  # 集計を作った時刻（作り置きならその時刻。画面の「HH:MM収集」に出す）
 _buyback_movers_cache_empty: bool = False  # 直近のキャッシュが0件だったか（TTL切り替え用）
 _buyback_movers_refresh_failed_at: float = 0  # 直近の裏更新失敗（例外/空）時刻。SWRバックオフ用
 _BUYBACK_MOVERS_CACHE_SEC = 3600  # 1時間キャッシュ
@@ -2740,10 +2743,9 @@ def _fetch_buyback_movers_from_db() -> dict | None:
         # 切り替え日より前の日は、新旧どちらも外す前の記録同士なので今までどおり比べる
         if today >= _BUYBACK_SEALED_EXCLUDED_FROM:
             cutoff = max(cutoff, _BUYBACK_SEALED_EXCLUDED_FROM)
-        resp = (_supabase_client
-                .rpc("get_buyback_movers", {"cutoff_date": cutoff, "min_diff": 50, "top_n": 20})
-                .execute())
-        rows = resp.data or []
+        rows, data_time = site_summary.fetch_with_time(_supabase_client, "buyback_movers", "get_buyback_movers",
+                                                       {"cutoff_date": cutoff, "min_diff": 50, "top_n": 20})
+        rows = rows or []
         logger.info(f"買取値動きランキング: {len(rows)}行取得（RPC集計）")
         new_release_keys = _buyback_new_release_keys()
 
@@ -2771,7 +2773,7 @@ def _fetch_buyback_movers_from_db() -> dict | None:
             if date_new is None:
                 date_new = row.get("date_new")
                 date_old = row.get("date_old")
-        return {"up": up, "down": down, "date_old": date_old, "date_new": date_new}
+        return {"up": up, "down": down, "date_old": date_old, "date_new": date_new, "data_time": data_time}
     except Exception as e:
         logger.warning(f"買取価格変動ランキング取得失敗: {e}")
         return None
@@ -2787,7 +2789,7 @@ def _refresh_buyback_movers_cache(blocking: bool = False) -> None:
     埋めていればRPCを重複発行しない（ダブルチェック）。
     取得失敗時・空データ時は既存キャッシュを維持しつつ失敗時刻を記録する（SWRバックオフ用）。
     """
-    global _buyback_movers_cache, _buyback_movers_cache_time, _buyback_movers_cache_empty
+    global _buyback_movers_cache, _buyback_movers_cache_time, _buyback_movers_cache_empty, _buyback_movers_data_time
     global _buyback_movers_refresh_failed_at
 
     acquired = (
@@ -2806,6 +2808,7 @@ def _refresh_buyback_movers_cache(blocking: bool = False) -> None:
             return
         _buyback_movers_cache = data
         _buyback_movers_cache_time = time.time()
+        _buyback_movers_data_time = data.get("data_time") or 0
         _buyback_movers_cache_empty = not (data["up"] or data["down"])
         if _buyback_movers_cache_empty:
             _buyback_movers_refresh_failed_at = time.time()
@@ -2870,8 +2873,8 @@ def api_buyback_movers():
     if not items:
         # 空応答をCDN等に公開キャッシュさせない（レビュー指摘Critical）
         g.no_cache = True
-    if _buyback_movers_cache_time:
-        updated_dt = datetime.fromtimestamp(_buyback_movers_cache_time, JST)
+    if _buyback_movers_data_time or _buyback_movers_cache_time:
+        updated_dt = datetime.fromtimestamp(_buyback_movers_data_time or _buyback_movers_cache_time, JST)
         updated_at = f"{updated_dt.hour}:{updated_dt.minute:02d}"
     else:
         updated_at = None
@@ -3108,8 +3111,7 @@ def _get_top_movers_cached(group: str | None = None, force: bool = False) -> dic
         if group is not None:
             params["p_rarities"] = list(_top_page.RARITY_GROUPS[group])
         try:
-            resp = _supabase_client.rpc("get_top_movers", params).execute()
-            rows = resp.data or []
+            rows = site_summary.fetch(_supabase_client, f"top_movers:{group or 'all'}", "get_top_movers", params) or []
         except Exception as e:
             logger.warning(f"価格推移ランキング(RPC)取得失敗(group={group}): {e}")
             if cached:

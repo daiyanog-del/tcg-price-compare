@@ -17,6 +17,7 @@ import logging
 import threading
 import time
 
+import site_summary
 import top_page
 
 logger = logging.getLogger(__name__)
@@ -67,7 +68,8 @@ def get_cached(sb, force=False):
     if not _lock.acquire(blocking=False):
         return _cache or {"drop": [], "themes": [], "error": "計算中です。しばらくしてから再度お試しください"}
     try:
-        rows = sb.rpc("get_staple_movers", {}).execute().data or []
+        # 作り置き（site_summaries。30分ごとに DB が作り直す）があればそれを使う（2026-11-01）
+        rows = site_summary.fetch(sb, "staple_movers", "get_staple_movers", {}) or []
         if not rows:
             return _cache or {"drop": [], "themes": [], "error": "データがまだありません"}
         result = {**build_lists(rows), "error": None}
