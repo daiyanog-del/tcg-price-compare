@@ -28,9 +28,12 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 import unicodedata
 from functools import lru_cache
 from pathlib import Path
+
+from card_code import looks_like_card_code
 
 logger = logging.getLogger(__name__)
 
@@ -291,6 +294,27 @@ _TORECOLO_RARITY_TAIL = re.compile(r"^(?:20)?S?[A-Z]*\d?$")
 _warned_codes: set[tuple[str, str]] = set()
 
 
+def _notify_unknown_code(card_name: str, code: str, row: dict) -> None:
+    """台帳に無い型番を Discord に知らせる（2026-11-01 ユーザー依頼）。台帳は手で足すデータで、新しい再録が出ても
+    誰も気づかないと、その出品が既定の絵の札・最安から黙って外れ続ける（reviewer 指摘）。
+    検索（web）でも夜の収集でも、型番ごとに初めて見たときに1回。送信は裏の糸で行い、検索・収集を待たせない。
+    覚えているのはプロセスの中だけなので、web の再起動・ワーカーごと・夜の収集ごとに同じ型番をもう一度知らせることがある
+    （台帳に足せば止まる）。DISCORD_WEBHOOK_URL が無ければ何もしない（テスト・手元）"""
+    message = (f"[ラボ] 絵の台帳に無い型番: {card_name} {code}"
+               f"（{row.get('shop') or '?'}「{(row.get('name') or '')[:40]}」{row.get('rarity') or ''}）。"
+               "この出品は「判別できない」になり、既定の絵の札・最安に入りません。"
+               "どの絵か確かめて data/art_ledger.json の codes に足してください。")
+
+    def _send():
+        try:
+            from discord_notify import send_discord_message
+            send_discord_message(message, no_mentions=True)  # 商品名は店の文字列なのでメンションを飛ばさない
+        except Exception as e:  # noqa: BLE001 — 知らせの失敗で判別を止めない
+            logger.warning("台帳に無い型番の知らせを送れなかった: %s", e)
+
+    threading.Thread(target=_send, daemon=True).start()
+
+
 def _ledger_code(row: dict, led: dict) -> str:
     """台帳を引く型番。トレコロは検索の結果に型番が入らないことが多い（補完が一意に決まらない）ので、
     商品のリンクの商品番号（QCAC-JP018SQSE など＝型番＋レアリティの略号）の頭が台帳の型番と一致すればそれを使う"""
@@ -315,9 +339,11 @@ def ledger_art(row: dict, card_name: str) -> int | None:
     label = _key(row.get("name") or "")
     if code and code not in led["codes"]:
         # 台帳に無い型番（新しい再録など）。判別できないに落ちるので、型番ごとに1回だけ知らせる（台帳は手で足す。reviewer 指摘）
-        if (_key(card_name), code) not in _warned_codes:
+        # 知らせるのは型番らしい形のものだけ（カーナベルは型番が取れない商品に弾の略号「TTP1」などを入れる。card_code.py）
+        if looks_like_card_code(code) and (_key(card_name), code) not in _warned_codes:
             _warned_codes.add((_key(card_name), code))
             logger.warning("絵の台帳に無い型番（判別できないにする。data/art_ledger.json に足す）: %s %s", card_name, code)
+            _notify_unknown_code(card_name, code, row)
         return None
     if code not in led["codes"]:
         # 型番の無い行（カーナベルの古い版は型番も弾の略号も無い）は、台帳の「*」の言葉（「(初期イラスト版)」など）だけで決める
