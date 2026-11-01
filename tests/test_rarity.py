@@ -321,3 +321,21 @@ class TestSeparateRaritiesAndUnknownWarnings:
                "rarity": normalize_rarity("クォーターセンチュリーシークレットGREENVer.")}
         assert art_variant.classify(row, "ブラック・マジシャン")[0] == art_variant.ART_GREEN
         assert art_variant.display_rarity(row) == "25thシークレット"
+
+
+class TestNcf1ColoredUltraAndSpecialVersions:
+    """2026-11-01 ユーザー判断: NCF1 の赤・青のウルトラはウルトラへ寄せ、SPECIAL ILLUST・PURPLE は別扱い。"""
+
+    @pytest.mark.parametrize("raw", ["ウルトラレッド", "ウルトラブルー"])
+    def test_ncf1_colored_ultra_folds_to_ultra(self, raw):
+        assert normalize_rarity(raw) == "ウルトラ"
+
+    @pytest.mark.parametrize("raw", ["ウルトラSPECIALILLUSTVer.", "ウルトラSPECIAL ILLUST Ver.",
+                                     "ウルトラSPECIALPURPLEVer.", "ウルトラ(SPECIAL PURPLE Ver.)"])
+    def test_special_versions_stay_separate(self, raw, caplog):
+        import rarity
+        rarity._WARNED_UNKNOWN_RARITIES.clear()
+        with caplog.at_level("WARNING", logger="rarity"):
+            got = normalize_rarity(raw)
+        assert got != "ウルトラ" and got.startswith("ウルトラSPECIAL")
+        assert "未知のレアリティ" not in caplog.text

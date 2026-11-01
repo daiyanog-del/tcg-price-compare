@@ -356,7 +356,11 @@ RARITIES: list[dict] = [
             "UR",                                               # 略号
             "ウル",                                             # 短縮
             "ウルトラレア",                                     # 〜レア形式
-            "MANGAウル", "MANGA-STYLEウルトラレア",  # カーナベルの MANGA-STYLE（2026-10-30。ほかの店は漫画風をこのレアリティの中の絵の違いとして書く。漫画風の印は取得時に行の manga 欄へ残す＝scraper._kanabell_rarity）
+            "MANGAウル", "MANGA-STYLEウルトラレア",
+            # NCF1（Number Complete File -Piece of Memories-）の100番台の No. は赤、FNo. は青で刷ったウルトラ。
+            # カードラッシュ・カードラボだけが色を書き足す（ほかの店は同じ型番を「ウルトラ」）。同じ型番に普通の色の版は無い
+            # （Yugipedia の弾のページ・カードの収録欄「Ultra Rare」で 2026-11-01 確認。記録にあるのも NCF1 の15型番だけ）
+            "ウルトラレッド", "ウルトラブルー",  # カーナベルの MANGA-STYLE（2026-10-30。ほかの店は漫画風をこのレアリティの中の絵の違いとして書く。漫画風の印は取得時に行の manga 欄へ残す＝scraper._kanabell_rarity）
         ],
     },
     {
@@ -590,12 +594,17 @@ _DASH_ONLY = {"-", "‐", "‑", "–", "—", "ー", "－", "―"}
 #                     買取「クォーターセンチュリーシークレット(SPECIAL PINK ver.)」）ので、買取の書き方にそろえる
 #   ファラオズシークレット : 英語版だけのレアリティ（Pharaoh's Rare。カードラッシュの ☆英語版☆ MAMA-EN107）。
 #                     OCG に同じものが無い
+#   ウルトラSPECIALILLUSTVer. : カードラッシュの 25TH-JP001 ブラック・マジシャンだけ（¥39,800）。ほかの店に同じ型番が無く、
+#                     ウルトラへ寄せると同じカードの別の型番のウルトラの値に混ざるだけ
+#   ウルトラSPECIALPURPLEVer. : カードラッシュ（AW01-JP003 など）。同じ店の買取が同じカードで「ウルトラ」と別の行に出す＝物が違う
 # 値は check_collection.KNOWN_ODD_RARITIES にも入れる（毎日の検査が「見慣れないレアリティ」と知らせないように）
 _SEPARATE_RARITIES: dict[str, str] = {
     "クォーターセンチュリーシークレットGREEN Ver.": "クォーターセンチュリーシークレットGREEN Ver.",
     "クォーターセンチュリーシークレット(SPECIAL PINK ver.)": "クォーターセンチュリーシークレット(SPECIAL PINK ver.)",
     "クォーターセンチュリー(SPECIAL PINK ver.)": "クォーターセンチュリーシークレット(SPECIAL PINK ver.)",
     "ファラオズシークレット": "ファラオズシークレット",
+    "ウルトラSPECIALILLUSTVer.": "ウルトラSPECIALILLUSTVer.",
+    "ウルトラSPECIALPURPLEVer.": "ウルトラSPECIALPURPLEVer.",
 }
 
 
