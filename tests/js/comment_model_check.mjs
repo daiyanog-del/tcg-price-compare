@@ -14,10 +14,10 @@ const memo = (text) => ({ actionType: 'comment', kind: 'board', text });
 const view = (logs, cursor = logs.length - 1, setup = []) => computeCommentView(setup, logs, cursor);
 
 // ── 文字数 ──
-assert.equal(COMMENT_MAX_LEN, 60);
+assert.equal(COMMENT_MAX_LEN, 120);
 assert.equal(clampCommentText('  あ  '), 'あ');
-assert.equal(clampCommentText('あ'.repeat(61)).length, 60);
-assert.equal(Array.from(clampCommentText('😀'.repeat(70))).length, 60, '絵文字を途中で割らない');
+assert.equal(clampCommentText('あ'.repeat(121)).length, 120);
+assert.equal(Array.from(clampCommentText('😀'.repeat(130))).length, 120, '絵文字を途中で割らない');
 assert.equal(clampCommentText(undefined), '');
 assert.equal(clampCommentText(123), '');
 
@@ -75,7 +75,7 @@ assert.equal(v.memo, '二つ目');
 assert.equal(view([memo('一つ目'), mv('a'), memo('二つ目')], 1).memo, '一つ目', 'カーソルまでで決まる');
 assert.equal(view([mv('a'), memo('一つ目')], 0).memo, null);
 // 本文は上限で切って表示
-assert.equal(Array.from(view([memo('あ'.repeat(100))]).memo).length, 60);
+assert.equal(Array.from(view([memo('あ'.repeat(150))]).memo).length, 120);
 
 // ── setup（範囲共有で開始前に回された記録）も同じ計算に入る ──
 const setup = [{ ...bub('a', '前から'), setup: true }, { ...memo('前のメモ'), setup: true }, { ...mv('b'), setup: true }];
@@ -168,7 +168,7 @@ assert.equal(Array.from(clampCutinText('😀'.repeat(30))).length, 20, '絵文�
 assert.equal(clampCutinText('  ターン終了  '), 'ターン終了');
 assert.equal(clampCutinText(undefined), '');
 assert.equal(commentText(cut('あ'.repeat(50))).length, 20, '記録に長い本文があっても表示は20字');
-assert.equal(commentText(memo('あ'.repeat(50))).length, 50, '盤面メモは60字まで（20字に切らない）');
+assert.equal(commentText(memo('あ'.repeat(50))).length, 50, '盤面メモは120字まで（20字に切らない）');
 // 盤面に残らない: 吹き出し・盤面メモの表示に影響しない（盤面メモを置き換えない）
 v = view([mv('a'), memo('メモ'), bub('a', 'G受け'), cut('ターン終了')]);
 assert.equal(v.memo, 'メモ', 'カットインが盤面メモを置き換えない');

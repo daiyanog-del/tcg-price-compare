@@ -805,7 +805,8 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
     </div>
   </div>
 
-  <!-- 前回の結果から差し替えたあとは、表の上に差し込まず画面の下に浮かべる（.cov-float・閉じるボタンはそのときだけ出る） -->
+  <!-- 取得失敗のお知らせ。一覧が出るときは一覧の下の #crFailNote に書くので、ここに出るのは一覧が無いとき（全店失敗・0件）だけ。
+       前回の結果を先に出した後に最新が取れなかったときは、画面の下に浮かべる（.cov-float・閉じるボタンはそのときだけ出る） -->
   <div id="searchCoverage" role="status" hidden><span></span>
     <button type="button" onclick="doSearch({validated:true})">再試行</button>
     <button type="button" class="cov-close" aria-label="閉じる" onclick="this.parentNode.hidden=true">×</button>
@@ -873,6 +874,8 @@ window.RARITY_CONFIG = {{ rarity_config_json | safe }};
         </table>
       </div>
       <p class="cr-list-note" id="crListNote"></p>
+      <!-- 一部の店が取れなかったときの注記（search-status.js SearchStatus.show）。一覧の下なので、出しても上の段は動かない -->
+      <p class="cr-list-note" id="crFailNote" role="status" hidden><span></span><button type="button" class="cr-retry" onclick="doSearch({validated:true})">再試行</button></p>
       <p class="cr-list-note" id="crSuspendNote" hidden></p>
       <!-- B-4: 既定20行+もっと見る -->
       <div class="tbl-more" id="tblMore"></div>

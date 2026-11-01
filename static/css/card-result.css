@@ -230,6 +230,8 @@
 #mode-search .cr-go{margin-right:12px;font-size:12px;font-weight:700;color:var(--accent-l)}
 #mode-search .cr-act .wish-add{padding:6px 10px;border:0;border-radius:6px;background:var(--bg-hover);color:var(--accent-l)}
 #mode-search .cr-list-note{margin:4px 16px 8px;font-size:12px;color:var(--text-m)}
+/* 取れなかった店の注記の再試行。文字のボタン（「続きを読む」.cr-more と同じ色・太さ） */
+#mode-search .cr-list-note .cr-retry{margin-left:6px;padding:0;border:0;background:none;color:var(--accent-l);font:700 12px var(--font);white-space:nowrap;cursor:pointer}
 #mode-search .cr-list .tbl-more{padding:8px 0 4px}
 #mode-search .cr-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 

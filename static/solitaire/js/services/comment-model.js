@@ -14,8 +14,10 @@
  *   kind が無い古いコメント・未知の kind は盤面メモとして扱う。
  */
 
-/** コメント本文の文字数の上限（入力欄の制限・記録時・表示時のすべてで同じ値を使う） */
-export const COMMENT_MAX_LEN = 60;
+/** コメント本文（吹き出し・盤面メモ）の文字数の上限（入力欄の制限・記録時・表示時のすべてで同じ値を使う）。
+ *  2026-11-01 60→120（吹き出しに書ける量が足りないとユーザー指摘）。上げるのは安全（古い記録はそのまま読める）、
+ *  下げると既存の記録が表示時に切られる */
+export const COMMENT_MAX_LEN = 120;
 
 /**
  * 本文を整える（前後の空白を除き、上限で切る）。サロゲートペア（絵文字など）を途中で割らない。
@@ -27,6 +29,9 @@ export function clampCommentText(text, max = COMMENT_MAX_LEN) {
   const chars = Array.from(s);
   return chars.length > max ? chars.slice(0, max).join('') : s;
 }
+
+/** 相手の妨害のカットインのカード名の上限（本文の上限とは別。カード名は60字あれば足りる） */
+export const CUTIN_CARD_MAX_LEN = 60;
 
 /** カットインの本文の文字数の上限（入力欄・記録時・表示時のすべてで同じ値を使う） */
 export const CUTIN_MAX_LEN = 20;
@@ -53,7 +58,7 @@ export const CUTIN_DISRUPTION_VERB = '発動';
  */
 export function cutinCard(ev) {
   if (!ev || ev.kind !== 'cutin') return null;
-  return clampCommentText(ev.card) || null;
+  return clampCommentText(ev.card, CUTIN_CARD_MAX_LEN) || null;
 }
 
 /**
@@ -63,7 +68,7 @@ export function cutinCard(ev) {
  * @returns {Object|null}
  */
 export function buildCutinEvent({ text, card } = {}) {
-  const name = clampCommentText(card);
+  const name = clampCommentText(card, CUTIN_CARD_MAX_LEN);
   if (name) return { actionType: 'comment', kind: 'cutin', card: name, text: clampCutinText(name) };
   const t = clampCutinText(text);
   return t ? { actionType: 'comment', kind: 'cutin', text: t } : null;
@@ -80,7 +85,7 @@ export function commentKind(ev) {
   return ev && ev.kind === 'card' && typeof ev.cardId === 'string' && ev.cardId ? 'card' : 'board';
 }
 
-/** コメントの手の本文を、種類ごとの上限で整えて返す（カットインは20字、ほかは60字。相手の妨害のカットインはカード名） */
+/** コメントの手の本文を、種類ごとの上限で整えて返す（カットインは20字、ほかは COMMENT_MAX_LEN。相手の妨害のカットインはカード名） */
 export function commentText(ev) {
   if (commentKind(ev) !== 'cutin') return clampCommentText(ev?.text);
   return cutinCard(ev) || clampCutinText(ev?.text);

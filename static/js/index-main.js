@@ -840,9 +840,7 @@ function doSearch(opts){
       if(d.corrected_name) document.getElementById('q').value=d.corrected_name;
       // J-2: 買取セクションの取得キーは「入力欄の現在値」ではなく、ここで確定した表示カード名にする
       _currentCardName=document.getElementById('q').value.trim();
-      SearchStatus.show(d);
-      // 前回の結果を出していたら、取れなかった店のお知らせも表の上に差し込まず下に浮かべる（表が下がらないように）
-      document.getElementById('searchCoverage').classList.toggle('cov-float',previewShown);
+      SearchStatus.show(d); // 一覧があれば取れなかった店は一覧の下に書く（表の上には差し込まない）
       if(previewShown&&d.total>0){
         _refreshResults(d);
       }else{
