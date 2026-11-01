@@ -253,3 +253,57 @@ class TestTableIntegrity:
                 key = raw.translate(str.maketrans("", "", " 　\t()（）"))
                 assert key not in seen, f"{key}: {seen.get(key)} と {e['canonical']} で重複"
                 seen[key] = e["canonical"]
+
+
+class TestSeparateRaritiesAndUnknownWarnings:
+    """2026-11-01 本番ログの未知表記（10-25〜11-01 の99件）の棚卸し。
+    わざと別扱いにしている表記は WARN を出さずに代表の書き方で返し、正規名には寄せない。"""
+
+    @pytest.fixture(autouse=True)
+    def _fresh_warned(self):
+        import rarity
+        rarity._WARNED_UNKNOWN_RARITIES.clear()
+        yield
+        rarity._WARNED_UNKNOWN_RARITIES.clear()
+
+    @pytest.mark.parametrize("raw,expected", [
+        # GREEN/PINK は 25thシークレット に寄せない（寄せると絵の判別の前に印が消える）
+        ("クォーターセンチュリーシークレットGREEN Ver.", "クォーターセンチュリーシークレットGREEN Ver."),
+        ("クォーターセンチュリーシークレットGREENVer.", "クォーターセンチュリーシークレットGREEN Ver."),
+        ("クォーターセンチュリーシークレット(SPECIAL PINK ver.)", "クォーターセンチュリーシークレット(SPECIAL PINK ver.)"),
+        # カードラボの販売は「シークレット」を省く。買取の書き方にそろえる
+        ("クォーターセンチュリー(SPECIAL PINK ver.)", "クォーターセンチュリーシークレット(SPECIAL PINK ver.)"),
+        ("ファラオズシークレット", "ファラオズシークレット"),
+    ])
+    def test_separate_rarities_kept_without_warning(self, raw, expected, caplog):
+        with caplog.at_level("WARNING", logger="rarity"):
+            assert normalize_rarity(raw) == expected
+        assert "未知のレアリティ" not in caplog.text
+
+    def test_pink_short_form_still_folds_to_25th_on_screen(self):
+        # 画面に出す行は display_rarity で 25thシークレット に寄せ、絵の切り替えで PINK Ver. を選ぶ
+        import art_variant
+        row = {"shop": "カードラボ", "rarity": normalize_rarity("クォーターセンチュリー(SPECIAL PINK ver.)"),
+               "name": "ブラック・マジシャン・ガール(イラスト違い(2)/LE5版)"}
+        assert art_variant.display_rarity(row) == "25thシークレット"
+
+    def test_unknown_label_is_not_warned(self, caplog):
+        # 記録から読み直した "(不明)" を正準化し直しても WARN を出さない
+        with caplog.at_level("WARNING", logger="rarity"):
+            assert normalize_rarity(UNKNOWN_RARITY_LABEL) == UNKNOWN_RARITY_LABEL
+        assert "未知のレアリティ" not in caplog.text
+
+    def test_warn_unknown_false_returns_raw_silently(self, caplog):
+        with caplog.at_level("WARNING", logger="rarity"):
+            assert normalize_rarity("フルオーバーラッシュレア", warn_unknown=False) == "フルオーバーラッシュレア"
+        assert "未知のレアリティ" not in caplog.text
+
+    def test_truly_unknown_still_warned(self, caplog):
+        with caplog.at_level("WARNING", logger="rarity"):
+            assert normalize_rarity("ウルトラレッド") == "ウルトラレッド"
+        assert "未知のレアリティ" in caplog.text
+
+    def test_separate_rarities_do_not_collide_with_canonical_aliases(self):
+        import rarity
+        for raw in rarity._SEPARATE_RARITIES:
+            assert rarity._preprocess(raw) not in rarity._ALIAS_TO_CANON, raw
