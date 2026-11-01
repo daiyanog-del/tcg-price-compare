@@ -392,27 +392,27 @@ def _prepare_torecolo_catalog(selected: list[dict], loop_shops: list[str], avail
         return loop_shops, matched, catalog_stats
     # on: ループがトレコロの ok/empty/error（巡回の商品のあった・無かったカード、検索し直しの結果）を足していく
     shop_stats[TORECOLO] = {"ok": 0, "empty": 0, "error": 0, "mode": "catalog", "catalog": catalog_stats,
-                            "recheck": {"cards": 0, "prev_read_failed": False}}
+                            "recheck": {"cards": 0, "prev_cards": None, "prev_read_failed": False}}
     return [s for s in loop_shops if s != TORECOLO], matched, catalog_stats
 
 
-def _fetch_torecolo_prev_rarities(sb: Client, day: str) -> dict[str, set[str]] | None:
-    """day（JST の日付）にトレコロの行があった (カード名 → レアリティの集合)。読めなければ None。
+def _fetch_torecolo_prev_rows(sb: Client, day: str) -> dict[str, dict[str, tuple]] | None:
+    """day（JST の日付）のトレコロの行を (カード名 → レアリティ → (min_price, min_price_any)) で返す。読めなければ None。
 
-    mode "on" で、巡回で前日のレアリティが消えたカードをカード名で検索し直すかの判定に使う（_torecolo_card_plan）。
+    mode "on" で、巡回の読み落としが疑われるカードをカード名で検索し直すかの判定に使う（_torecolo_card_plan）。
     price_history（ビュー）を店と日付の等号で読む。並びは card_id, rarity_id（1日・1店の中では一意なので
     range の境目で行が落ちない・重ならない）。2026-11-01 本番の実測: 10-31 のトレコロは7,902行・1ページ約0.7秒。"""
-    prev: dict[str, set[str]] = {}
+    prev: dict[str, dict[str, tuple]] = {}
     offset = 0
     try:
         while True:
-            resp = (sb.table("price_history").select("card_name, rarity")
+            resp = (sb.table("price_history").select("card_name, rarity, min_price, min_price_any")
                     .eq("shop", TORECOLO).eq("recorded_at", day)
                     .order("card_id").order("rarity_id")
                     .range(offset, offset + _PAGE_SIZE - 1).execute())
             batch = resp.data or []
             for r in batch:
-                prev.setdefault(r["card_name"], set()).add(r["rarity"])
+                prev.setdefault(r["card_name"], {})[r["rarity"]] = (r.get("min_price"), r.get("min_price_any"))
             if len(batch) < _PAGE_SIZE:
                 return prev
             offset += _PAGE_SIZE
@@ -421,22 +421,48 @@ def _fetch_torecolo_prev_rarities(sb: Client, day: str) -> dict[str, set[str]] |
         return None
 
 
+def _torecolo_looks_missed(prev: dict[str, tuple], rows: list[dict]) -> bool:
+    """前日のトレコロの行（レアリティ → (min_price, min_price_any)）と巡回から作った今日の行を比べ、読み落としが疑われるか。
+
+    巡回は1系列を最大約3分かけて読むので、読んでいる途中に前のページの商品が売れると、後ろの商品が1つ前のページへ
+    ずれて読まれないことがある（どの商品が落ちたかは一覧からは分からない）。落ちたのが
+      - そのレアリティの唯一の商品 → 前日にあったレアリティが今日は無い
+      - 最安の商品 → min_price か min_price_any が前日より上がる（偽の値上がり）
+      - 通常品だけ（キズありが残る） → 前日は通常品がキズありより高く並んでいたのに、今日は通常品が無い
+        （min_price は通常品が無いと min_price_any になる。build_min_price_rows）
+    のどれかに見える。本当に売れた・値上がりしたカードも含むが、それはカード名の検索で同じ値が取れるだけ。
+    2026-11-01 本番の 10-31→11-01 のトレコロの行で数えると、前日に行のあった3,285枚のうち76枚。
+    残る穴: 前日が通常品だけで今日がキズありだけ（値下がりに見える）は分からない。"""
+    cur = {r["rarity"]: (r["min_price"], r["min_price_any"]) for r in rows}
+    for rarity, (pm, pa) in prev.items():
+        if rarity not in cur:
+            return True
+        cm, ca = cur[rarity]
+        if None in (pm, pa, cm, ca):
+            continue
+        if cm > pm or ca > pa or (pm > pa and cm == ca):
+            return True
+    return False
+
+
 def _torecolo_card_plan(card_name: str, loop_shops: list[str], matched: dict[str, list[dict]],
-                        prev_rarities: dict[str, set[str]] | None, today: str
+                        prev_rows: dict[str, dict[str, tuple]] | None, today: str
                         ) -> tuple[list[str], list[dict] | None, bool]:
     """mode "on" のとき、1枚のカードでトレコロをどう扱うかを決める。戻り値は (この回の店, 巡回の商品, 検索し直すか)。
 
-    巡回は1系列を最大約3分かけて読むので、読んでいる途中に前のページの商品が売れると、後ろの商品が1つ前のページへ
-    ずれて読まれないことがある（shadow の 11-01 の晩で「検索だけにある」組が2）。前日にトレコロの行があった
-    レアリティが巡回の商品に無いカードは、本当に売り切れたのか読み落としたのか分からないので、トレコロも
-    カード名で検索し、巡回の商品は使わない（そのカードは従来と同じ取り方になる）。
-    トレコロのレアリティはほかの店の行では変わらない（OF のそろえはカードラボの行だけ）ので、取得の前に決められる。
-    前日の行が読めなかった晩（prev_rarities が None）・前日の行が無いカードは検索し直さない。"""
+    巡回の行が前日の行と比べて読み落としに見えるカード（_torecolo_looks_missed）は、トレコロもカード名で検索し、
+    巡回の商品は使わない（そのカードは従来と同じ取り方になる）。トレコロの行のレアリティ・値はほかの店の行では
+    変わらない（OF のそろえで変わるのはカードラボの行だけ。トレコロの行は商品名の印だけで決まるので apply_overframe を
+    文脈なしで通して保存時とそろえる）ので、取得の前に決められる。
+    前日の行が読めなかった晩（prev_rows が None）・前日の行が無いカードは検索し直さない。
+    巡回だけにある（前日に無い）レアリティでは検索し直さない（カード名の検索に出ないキズあり品があるため。
+    2026-11-01 自宅で NCF1-JP015-K・在庫ありが検索の結果に無いことを確認）。"""
     products = matched.get(card_name, [])
-    prev = (prev_rarities or {}).get(card_name)
+    prev = (prev_rows or {}).get(card_name)
     if prev:
-        found = {r["rarity"] for r in build_min_price_rows(card_name, products, today) if r["shop"] == TORECOLO}
-        if prev - found:
+        rows = [r for r in build_min_price_rows(card_name, apply_overframe(products, None), today)
+                if r["shop"] == TORECOLO]
+        if _torecolo_looks_missed(prev, rows):
             return [*loop_shops, TORECOLO], None, True
     return loop_shops, products, False
 
@@ -1078,6 +1104,16 @@ def send_daily_report(
                 f"（item_count読取不能・自然終端のため成立扱い） — {', '.join(cat_unverified)}\n"
             )
 
+        # トレコロの在庫一覧の巡回（on）で、読み落としの検索し直しが効いていない晩を知らせる
+        tore_stat = shop_stats.get(TORECOLO, {})
+        recheck = tore_stat.get("recheck") or {}
+        if tore_stat.get("mode") == "catalog":
+            if recheck.get("prev_read_failed"):
+                shop_block += "警告: トレコロ 前日の行を読めず、巡回の読み落としの検索し直しをしていません\n"
+            elif recheck.get("prev_cards") == 0:
+                shop_block += "警告: トレコロ 前日の行が0枚で、巡回の読み落としの検索し直しが効いていません\n"
+            shop_block += f"トレコロ 巡回の読み落としの疑いでカード名の検索し直し: {recheck.get('cards', 0)}枚\n"
+
     message = (
         f"**TCGYM 日次レポート {today}**\n"
         f"\n"
@@ -1397,11 +1433,12 @@ def _main(state: dict):
     torecolo_sink: dict | None = {} if (torecolo_matched is not None and TORECOLO in loop_shops) else None
     # on のとき、トレコロはカードごとに巡回の商品を渡して、ほかの店の行と一緒に保存する（_torecolo_card_plan）
     torecolo_on = torecolo_matched is not None and TORECOLO not in loop_shops
-    torecolo_prev: dict[str, set[str]] | None = None
+    torecolo_prev: dict[str, dict[str, tuple]] | None = None
     if torecolo_on:
         prev_day = (datetime.fromisoformat(today).date() - timedelta(days=1)).isoformat()
-        torecolo_prev = _fetch_torecolo_prev_rarities(sb, prev_day)
+        torecolo_prev = _fetch_torecolo_prev_rows(sb, prev_day)
         shop_stats[TORECOLO]["recheck"]["prev_read_failed"] = torecolo_prev is None
+        shop_stats[TORECOLO]["recheck"]["prev_cards"] = None if torecolo_prev is None else len(torecolo_prev)
 
     # ループが処理し終えたカードの数（打ち切り・想定外の例外で抜けたときはそこまで。ループを回さない晩は全件）。
     # カタログの保存対象を「実際にループで処理されたカード」に絞るために使う（reviewer中3）
@@ -1444,7 +1481,7 @@ def _main(state: dict):
                     card_shops, torecolo_products, recheck = _torecolo_card_plan(
                         card_name, loop_shops, torecolo_matched, torecolo_prev, today)
                     if recheck:
-                        print("  トレコロ: 前日のレアリティが巡回に無いため、カード名で検索し直します")
+                        print("  トレコロ: 巡回の行が前日と比べて読み落としに見えるため、カード名で検索し直します")
                         shop_stats[TORECOLO]["recheck"]["cards"] += 1
                     else:
                         extra["torecolo_products"] = torecolo_products

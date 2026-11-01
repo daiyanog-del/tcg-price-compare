@@ -175,7 +175,7 @@ def test_prepare_modes(monkeypatch):
     loop, matched, _ = cp._prepare_torecolo_catalog(SELECTED, SHOPS, SHOPS, stats, mode="on")
     assert loop == ["遊々亭"] and matched, "on はトレコロをループから外す"
     assert stats["トレコロCB"]["mode"] == "catalog" and stats["トレコロCB"]["ok"] == 0
-    assert stats["トレコロCB"]["recheck"] == {"cards": 0, "prev_read_failed": False}
+    assert stats["トレコロCB"]["recheck"] == {"cards": 0, "prev_cards": None, "prev_read_failed": False}
     loop, matched, _ = cp._prepare_torecolo_catalog(SELECTED, SHOPS, SHOPS, {}, mode="true")
     assert loop == SHOPS and matched is None, "分からない値は巡回しない（警告を出す）"
     loop, matched, _ = cp._prepare_torecolo_catalog(SELECTED, SHOPS, SHOPS, {}, mode="off")
@@ -301,24 +301,55 @@ def test_collect_and_save_with_catalog_products(monkeypatch):
 
 
 def test_torecolo_card_plan():
-    matched = {"灰流うらら": [_item("灰流うらら", "u1", rarity="ノーマル"), _item("灰流うらら", "u2", rarity="シークレット")]}
+    matched = {"灰流うらら": [_item("灰流うらら", "u1", price=100, rarity="ノーマル"),
+                         _item("灰流うらら", "u2", price=900, rarity="シークレット")]}
     loop = ["遊々亭"]
-    # 前日のレアリティが全部巡回にある → 巡回の商品を使う
-    shops, products, recheck = cp._torecolo_card_plan("灰流うらら", loop, matched, {"灰流うらら": {"ノーマル"}}, "2026-11-02")
+    # 前日のレアリティが全部巡回にあり、値も上がっていない → 巡回の商品を使う
+    prev = {"灰流うらら": {"ノーマル": (100, 100), "シークレット": (950, 950)}}
+    shops, products, recheck = cp._torecolo_card_plan("灰流うらら", loop, matched, prev, "2026-11-02")
     assert (shops, recheck) == (loop, False) and products == matched["灰流うらら"]
     # 前日にあったレアリティが巡回に無い（読み落としか売り切れか分からない）→ トレコロもカード名で検索する
-    shops, products, recheck = cp._torecolo_card_plan(
-        "灰流うらら", loop, matched, {"灰流うらら": {"ノーマル", "ウルトラ"}}, "2026-11-02")
+    prev = {"灰流うらら": {"ノーマル": (100, 100), "ウルトラ": (300, 300)}}
+    shops, products, recheck = cp._torecolo_card_plan("灰流うらら", loop, matched, prev, "2026-11-02")
     assert (shops, products, recheck) == (["遊々亭", "トレコロCB"], None, True)
     assert loop == ["遊々亭"], "ループの店の一覧は書き換えない"
-    shops, products, recheck = cp._torecolo_card_plan("増殖するG", loop, matched, {"増殖するG": {"ノーマル"}}, "2026-11-02")
+    shops, products, recheck = cp._torecolo_card_plan(
+        "増殖するG", loop, matched, {"増殖するG": {"ノーマル": (80, 80)}}, "2026-11-02")
     assert recheck and products is None, "巡回に1件も無く、前日はあったカードも検索し直す"
     # 前日の行が無いカード・前日を読めなかった晩は検索し直さない
     assert cp._torecolo_card_plan("増殖するG", loop, matched, {}, "2026-11-02") == (loop, [], False)
     assert cp._torecolo_card_plan("灰流うらら", loop, matched, None, "2026-11-02")[2] is False
     # 売り切れの商品しか無いレアリティは、巡回に無いのと同じ（保存の行にならない）
     sold = {"灰流うらら": [{**_item("灰流うらら", "u3", rarity="ウルトラ"), "stock": 0, "sold_out": True}]}
-    assert cp._torecolo_card_plan("灰流うらら", loop, sold, {"灰流うらら": {"ウルトラ"}}, "2026-11-02")[2] is True
+    assert cp._torecolo_card_plan("灰流うらら", loop, sold, {"灰流うらら": {"ウルトラ": (300, 300)}}, "2026-11-02")[2]
+    # 巡回だけにある（前日に無い）レアリティでは検索し直さない（カード名の検索に出ないキズあり品があるため）
+    assert not cp._torecolo_card_plan("灰流うらら", loop, matched, {"灰流うらら": {"ノーマル": (100, 100)}}, "2026-11-02")[2]
+
+
+def test_torecolo_looks_missed_same_rarity():
+    """同じレアリティの中で最安の商品・通常品だけが落ちても、検索し直しにする（reviewer 高1）"""
+    def rows(m, a, rarity="ウルトラ"):
+        return [{"rarity": rarity, "min_price": m, "min_price_any": a}]
+    # 300円が落ちて800円だけ残った（偽の値上がり）
+    assert cp._torecolo_looks_missed({"ウルトラ": (300, 300)}, rows(800, 800))
+    # 状態を問わない最安だけ上がった（安いキズありが落ちた）
+    assert cp._torecolo_looks_missed({"ウルトラ": (500, 400)}, rows(500, 450))
+    # 前日は通常品500・キズあり400 → 今日は通常品が無くキズありだけ（min_price が min_price_any に落ちる）
+    assert cp._torecolo_looks_missed({"ウルトラ": (500, 400)}, rows(400, 400))
+    # 値下がり・同じ値は巡回の値を使う
+    assert not cp._torecolo_looks_missed({"ウルトラ": (500, 400)}, rows(480, 380))
+    assert not cp._torecolo_looks_missed({"ウルトラ": (500, 500)}, rows(500, 500))
+    # 前日が通常品だけ・今日がキズありだけは分からない（値下がりに見える。受け入れた穴）
+    assert not cp._torecolo_looks_missed({"ウルトラ": (500, 500)}, rows(400, 400))
+    # 値が欠けた前日の行では値を比べない（レアリティの有無だけ見る）
+    assert not cp._torecolo_looks_missed({"ウルトラ": (None, 300)}, rows(800, 800))
+
+
+def test_torecolo_card_plan_overframe_mark_matches_saved_rarity():
+    """商品名に OF の印があれば保存の行は OF のレアリティになるので、判定もそろえる（毎晩の検索し直しにしない。reviewer 低4）"""
+    matched = {"真紅眼の超越黒竜": [_item("真紅眼の超越黒竜(オーバーフレーム)", "u1", price=59800, rarity="プリシク")]}
+    prev = {"真紅眼の超越黒竜": {"OFプリシク": (59800, 59800)}}
+    assert cp._torecolo_card_plan("真紅眼の超越黒竜", ["遊々亭"], matched, prev, "2026-11-02")[2] is False
 
 
 class _PrevQuery:
@@ -355,22 +386,25 @@ class _PrevSb:
         return _PrevQuery(self)
 
 
-def test_fetch_torecolo_prev_rarities(monkeypatch):
+def test_fetch_torecolo_prev_rows(monkeypatch):
     monkeypatch.setattr(cp, "_PAGE_SIZE", 2)
-    sb = _PrevSb([[{"card_name": "A", "rarity": "ノーマル"}, {"card_name": "A", "rarity": "ウルトラ"}],
-                  [{"card_name": "B", "rarity": "ノーマル"}]])
-    assert cp._fetch_torecolo_prev_rarities(sb, "2026-11-01") == {"A": {"ノーマル", "ウルトラ"}, "B": {"ノーマル"}}
+    sb = _PrevSb([[{"card_name": "A", "rarity": "ノーマル", "min_price": 100, "min_price_any": 80},
+                   {"card_name": "A", "rarity": "ウルトラ", "min_price": 300, "min_price_any": 300}],
+                  [{"card_name": "B", "rarity": "ノーマル", "min_price": 10, "min_price_any": 10}]])
+    assert cp._fetch_torecolo_prev_rows(sb, "2026-11-01") == {
+        "A": {"ノーマル": (100, 80), "ウルトラ": (300, 300)}, "B": {"ノーマル": (10, 10)}}
     assert sb.ranges == [(0, 1), (2, 3)], "1000行ずつ最後まで読む"
     assert sb.filters[0] == {"shop": "トレコロCB", "recorded_at": "2026-11-01"}
-    assert cp._fetch_torecolo_prev_rarities(_PrevSb(fail=True), "2026-11-01") is None, "読めなければ None"
+    assert cp._fetch_torecolo_prev_rows(_PrevSb(fail=True), "2026-11-01") is None, "読めなければ None"
 
 
 # ── main の通し（on の配線・例外で抜けたときの処理位置） ──
 
-def _run_main(monkeypatch, n_cards, collect=None, mode="on", prev=None, clabo=False, avail=None):
+def _run_main(monkeypatch, n_cards, collect=None, mode="on", prev=None, clabo=False, avail=None,
+              catalog_ok=True, real_collect=False, cold=()):
     names = [f"c{i}" for i in range(n_cards)]
     monkeypatch.setattr(cp, "get_supabase", lambda: _PrevSb())
-    monkeypatch.setattr(cp, "sync_latest_packs", lambda sb: (set(names), set()))
+    monkeypatch.setattr(cp, "sync_latest_packs", lambda sb: ({n for n in names if n not in cold}, set()))
     for fn in ("sync_meta_decks", "sync_regulation"):
         monkeypatch.setattr(cp, fn, lambda sb: set())
     monkeypatch.setattr(cp, "sync_searched_cards", lambda sb, **k: set())
@@ -385,17 +419,21 @@ def _run_main(monkeypatch, n_cards, collect=None, mode="on", prev=None, clabo=Fa
     monkeypatch.setattr(cp, "check_shop_availability", lambda s: list(avail if avail is not None else s))
     monkeypatch.setattr(cp, "TORECOLO_CATALOG_MODE", mode)
     monkeypatch.setattr(cp, "collect_torecolo_catalog", lambda ns: (
-        {n: [_item(n, f"t-{n}")] for n in ns}, {"products": len(ns), "matched_products": len(ns)}))
+        {n: [_item(n, f"t-{n}")] for n in ns} if catalog_ok else None,
+        {"products": len(ns), "matched_products": len(ns)}))
     clabo_saved = []
     if clabo:
         monkeypatch.setattr(cp, "collect_clabo_catalog", lambda ns: ({n: [] for n in ns}, {"products": 1}))
         monkeypatch.setattr(cp, "_save_clabo_catalog_rows",
                             lambda sb, processed, *a, **k: clabo_saved.extend(c["card_name"] for c in processed) or 0)
-    monkeypatch.setattr(cp, "_fetch_torecolo_prev_rarities", lambda sb, day: prev)
+    monkeypatch.setattr(cp, "_fetch_torecolo_prev_rows", lambda sb, day: prev)
     calls = []
+    real = cp.collect_and_save
 
     def fake_collect(sb, card_name, today, shop_names, **kw):
         calls.append((card_name, list(shop_names), kw))
+        if real_collect:
+            return real(sb, card_name, today, shop_names, **kw)
         return collect(card_name) if collect else 1
 
     monkeypatch.setattr(cp, "collect_and_save", fake_collect)
@@ -415,7 +453,7 @@ def _run_main(monkeypatch, n_cards, collect=None, mode="on", prev=None, clabo=Fa
 
 
 def test_main_on_passes_catalog_products_per_card(monkeypatch):
-    calls, runs, _, err = _run_main(monkeypatch, 3, prev={"c1": {"ウルトラ"}})
+    calls, runs, _, err = _run_main(monkeypatch, 3, prev={"c1": {"ウルトラ": (300, 300)}})
     assert err is None
     by_card = {c: (shops, kw) for c, shops, kw in calls}
     assert by_card["c0"][0] == ["遊々亭"] and [p["url"] for p in by_card["c0"][1]["torecolo_products"]] == ["t-c0"]
@@ -423,7 +461,7 @@ def test_main_on_passes_catalog_products_per_card(monkeypatch):
     assert by_card["c1"][0] == ["遊々亭", "トレコロCB"] and "torecolo_products" not in by_card["c1"][1], \
         "前日のレアリティが巡回に無いカードはカード名で検索し直す"
     st = runs[-1]["shop_stats"]["トレコロCB"]
-    assert st["mode"] == "catalog" and st["recheck"] == {"cards": 1, "prev_read_failed": False}
+    assert st["mode"] == "catalog" and st["recheck"] == {"cards": 1, "prev_cards": 1, "prev_read_failed": False}
 
 
 def test_main_on_prev_read_failed_is_recorded(monkeypatch):
@@ -457,3 +495,55 @@ def test_main_unexpected_exception_saves_catalog_only_for_processed(monkeypatch)
     calls, _, clabo_saved, err = _run_main(monkeypatch, 5, collect=collect, clabo=True)
     assert isinstance(err, ValueError), "例外はそのまま上がる"
     assert sorted(clabo_saved) == ["c0", "c1"], "例外の出たカードと後ろのカードにはカタログの行を書かない"
+
+
+def test_main_on_counts_shop_stats_with_real_collect(monkeypatch):
+    """on で実際の collect_and_save・compare_prices を通す: ほかの店が無い晩もトレコロの行を保存し、ok／empty を数える"""
+    saved = []
+    monkeypatch.setattr(cp, "upsert_price_rows", lambda sb, rows, **k: saved.extend(rows) or len(rows))
+    monkeypatch.setattr(cp, "upsert_price_art_rows", lambda sb, rows, **k: None)
+    monkeypatch.setattr(cp, "compare_prices", scraper.compare_prices)
+    monkeypatch.setattr(scraper, "SHOPS", [])
+    calls, runs, _, err = _run_main(monkeypatch, 2, real_collect=True, avail=["トレコロCB"])
+    assert err is None
+    assert sorted(r["card_name"] for r in saved if r["shop"] == "トレコロCB") == ["c0", "c1"]
+    st = runs[-1]["shop_stats"]["トレコロCB"]
+    assert (st["ok"], st["empty"], st["error"], st["mode"]) == (2, 0, 0, "catalog")
+
+
+def test_main_on_catalog_not_ok_falls_back_to_search(monkeypatch):
+    calls, runs, _, err = _run_main(monkeypatch, 2, catalog_ok=False)
+    assert err is None
+    assert all(shops == ["遊々亭", "トレコロCB"] and "torecolo_products" not in kw and "torecolo_sink" not in kw
+               for _, shops, kw in calls), "不成立の晩はカード名で探す"
+    assert runs[-1]["shop_stats"]["トレコロCB"]["mode"] == "fallback"
+
+
+def test_main_on_time_budget_cutoff(monkeypatch):
+    """時間予算で周辺カードを打ち切った晩は、打ち切ったカードにトレコロもカードラボも書かない"""
+    monkeypatch.setattr(cp, "TIME_BUDGET_SEC", -1)
+    calls, runs, clabo_saved, err = _run_main(monkeypatch, 3, clabo=True, cold=("c1", "c2"))
+    assert err is None
+    assert [c for c, _, _ in calls] == ["c0"] and clabo_saved == ["c0"]
+    assert runs[-1]["cutoff_count"] == 2
+
+
+def test_daily_report_warns_torecolo_recheck(monkeypatch):
+    sent = []
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://example.invalid/hook")
+
+    class _Req:
+        @staticmethod
+        def post(url, json=None, timeout=None):
+            sent.append(json["content"])
+
+    import requests
+    monkeypatch.setattr(requests, "post", _Req.post)
+    base = {"ok": 3, "empty": 0, "error": 0, "mode": "catalog"}
+    for recheck, expect in (({"cards": 2, "prev_cards": None, "prev_read_failed": True}, "前日の行を読めず"),
+                            ({"cards": 0, "prev_cards": 0, "prev_read_failed": False}, "前日の行が0枚"),
+                            ({"cards": 5, "prev_cards": 300, "prev_read_failed": False}, "検索し直し: 5枚")):
+        sent.clear()
+        cp.send_daily_report(_PrevSb(), "2026-11-02", 3, 0, 0, 10.0, {"トレコロCB": {**base, "recheck": recheck}})
+        assert sent and expect in sent[0]
+    assert "警告: トレコロ" not in sent[0]
