@@ -60,6 +60,22 @@ const partial={status:'partial',shop_count:2,successful_shops:['店舗A'],failed
 status.show(partial);
 assert.equal(get('searchCoverage').hidden,false);
 assert.match(get('searchCoverage').querySelector('span').textContent,/取得失敗/);
+// 一覧が出るときは検索窓の下の箱を出さず、一覧の下に取れなかった店だけを書く（2026-11-01 スマホで箱がカードを押し下げていた）
+status.show({...partial,total:3});
+assert.equal(get('searchCoverage').hidden,true);
+assert.equal(get('crFailNote').hidden,false);
+assert.equal(get('crFailNote').querySelector('span').textContent,'店舗Bは今回取得できなかったため、この一覧に入っていません。');
+status.show({...partial,total:3,failed_shops:['店舗B','店舗C'],busy_shops:['店舗C']});
+assert.match(get('crFailNote').querySelector('span').textContent,/^店舗Bは今回取得できなかったため.*店舗Cは混雑で今回は取得できず、前回の結果があれば表示しています。$/);
+// 全店失敗は一覧が無いので箱で知らせ、一覧の下の注記は消す
+status.show({status:'failed',total:0,shop_count:2,successful_shops:[],failed_shops:['店舗A','店舗B']});
+assert.equal(get('searchCoverage').hidden,false);
+assert.equal(get('crFailNote').hidden,true);
+status.show({...partial,total:3});
+status.show({});
+assert.equal(get('crFailNote').hidden,true);
+assert.equal(get('crFailNote').querySelector('span').textContent,'');
+status.show(partial);
 let buyClosed=0;
 sandbox._buyInlineES={close(){buyClosed++;}};
 sandbox._buyInlineTimeoutId=sandbox.setTimeout(()=>{throw Error('買取タイマーが残っている');});

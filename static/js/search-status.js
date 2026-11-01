@@ -34,11 +34,33 @@ const SearchStatus = {
     const shops=v.split(',').filter(s=>s&&!exclude.includes(s));
     return shops.length?`${shops.join('・')}はサイトを休止中のため対象外です。`:'';
   },
+  // 一覧の下に添える短い注記（一部の店が取れなかったとき）。どの店が一覧に入っていないかだけを書く
+  listNote(data){
+    const failed=data.failed_shops||[];
+    if(!failed.length||data.status==='failed')return '';
+    const busy=(data.busy_shops||[]).filter(s=>failed.includes(s));
+    const broken=failed.filter(s=>!busy.includes(s));
+    let text='';
+    if(broken.length) text+=`${broken.join('・')}は今回取得できなかったため、この一覧に入っていません。`;
+    if(busy.length) text+=`${busy.join('・')}は混雑で今回は取得できず、前回の結果があれば表示しています。`;
+    return text;
+  },
+  // 一覧があるときは一覧の下（#crFailNote）に1行で添え、検索窓の下の箱（#searchCoverage）は使わない。
+  // 箱はカードの欄を押し下げ、浮かべると一覧を覆ったため（2026-11-01 スマホで見たい情報を下へ追いやっていた）。
+  // 一覧が無いとき（全店失敗・0件）は添える先が無いので、今までどおり箱で知らせる
   show(data){
+    const hasList=data.status!=='failed'&&data.total>0;
     const box=document.getElementById('searchCoverage');
-    if(!box)return;
-    const message=this.message(data);
-    box.hidden=!message;
-    box.querySelector('span').textContent=message;
+    if(box){
+      const message=hasList?'':this.message(data);
+      box.hidden=!message;
+      box.querySelector('span').textContent=message;
+    }
+    const note=document.getElementById('crFailNote');
+    if(note){
+      const text=hasList?this.listNote(data):'';
+      note.hidden=!text;
+      note.querySelector('span').textContent=text;
+    }
   }
 };
