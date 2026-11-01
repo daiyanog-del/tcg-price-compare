@@ -218,6 +218,21 @@ def test_price_history_merges_daily_rows_before_store_rows(app_client):
     ]
 
 
+@pytest.mark.parametrize("n", [0, 999, 1000, 1001, 2001])
+def test_price_history_reads_every_page(app_client, n):
+    """1ページ目と日ごとの最安を同時に読み、足りなければ続きを順に読む（2026-11-01）。ページの境目で行を落とさない"""
+    card = "灰流うらら"
+    store = {
+        "price_history": [{"card_name": card, "shop": f"店{i:05d}", "rarity": "ウルトラ", "min_price": i,
+                           "recorded_at": _d(1 + i % 20)} for i in range(n)],
+        "price_daily": [{"card_name": card, "shop": "A", "rarity": "ウルトラ", "min_price": 1, "recorded_at": _d(60)}],
+    }
+    data = app_client(store).get(f"/api/price-history?card={card}").get_json()["data"]
+    assert len(data) == n + 1
+    assert sorted(r["price"] for r in data[1:]) == list(range(n))
+    assert [r["date"] for r in data] == sorted(r["date"] for r in data)
+
+
 def test_price_history_falls_back_to_store_rows_without_daily_view(app_client):
     card = "灰流うらら"
     store = {"price_history": [

@@ -115,12 +115,12 @@ def test_mixed_stream_union_without_duplicates(client, monkeypatch):
     _search(client, ["店A"])
     assert set(_cache_shops()) == {"店A"}
 
-    # 両店指定 → 店Aは cached:true（results付き）、店Bは新規取得
+    # 両店指定 → 店Aは cached:true、店Bは新規取得（店ごとの通知に行は載せない。行は done でまとめて送る）
     events = _search(client, ["店A", "店B"])
     shop_done = {e["shop"]: e for e in events if e["type"] == "shop_done"}
     assert shop_done["店A"]["cached"] is True
     assert shop_done["店A"]["count"] == 1
-    assert [r["shop"] for r in shop_done["店A"]["results"]] == ["店A"]
+    assert all("results" not in e for e in shop_done.values())
     assert shop_done["店B"].get("cached", False) is False
 
     done = [e for e in events if e["type"] == "done"][0]
