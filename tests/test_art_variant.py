@@ -407,14 +407,17 @@ def test_ledger_reads_torecolo_20th_secret_code():
     assert av._ledger_code({"shop": "トレコロCB", "url": TC.format("2018-JPP0120SE")}, led) == "2018-JPP01"
 
 
-def test_ledger_unknown_code_is_unknown_and_warned(caplog):
+def test_ledger_unknown_code_is_unknown_and_warned(caplog, monkeypatch):
     av._warned_codes.clear()
+    sent = []
+    monkeypatch.setattr(av, "_notify_unknown_code", lambda card, code, row: sent.append((card, code, row["shop"])))
     rows = [_coded("カーナベル", "ブラック・マジシャン", "ZZZZ-JP001", "ウルトラ"),
             _coded("遊々亭", "ブラック・マジシャン", "ZZZZ-JP001", "ウルトラ")]
     with caplog.at_level("WARNING"):
         av.annotate(rows, "ブラック・マジシャン")
     assert [r["art"] for r in rows] == ["", ""]
     assert sum("ZZZZ-JP001" in m for m in caplog.messages) == 1  # 型番ごとに1回だけ
+    assert sent == [("ブラック・マジシャン", "ZZZZ-JP001", "カーナベル")]  # Discord にも型番ごとに1回だけ
 
 
 def test_ledger_single_art_rarity_is_not_split():
@@ -428,3 +431,28 @@ def test_ledger_manga_rows_get_number():
     rows = [_coded("カードラッシュ", "青眼の白龍(カラー)", "", "シークレット")]
     av.annotate(rows, "青眼の白龍")
     assert rows[0]["art"] == av.ART_MANGA_COLOR and av.record_art(rows[0], "青眼の白龍") == "絵#19"
+
+
+def test_unknown_code_notice_goes_to_discord_without_blocking(monkeypatch):
+    # 知らせは裏の糸で送り、メンションを飛ばさない。送信が失敗しても例外を出さない
+    import threading
+    import discord_notify
+    got, done = [], threading.Event()
+
+    def fake(message, *, no_mentions=False):
+        got.append((message, no_mentions)); done.set()
+        raise RuntimeError("送信失敗")
+    monkeypatch.setattr(discord_notify, "send_discord_message", fake)
+    av._notify_unknown_code("青眼の白龍", "ZZZZ-JP002", {"shop": "遊々亭", "name": "青眼の白龍", "rarity": "ウルトラ"})
+    assert done.wait(5)
+    assert got[0][1] is True and "ZZZZ-JP002" in got[0][0] and "data/art_ledger.json" in got[0][0]
+
+
+def test_unknown_pack_abbreviation_is_not_notified(monkeypatch):
+    # カーナベルの弾の略号（型番の形でない）は台帳に無くても知らせない（毎晩の雑音になる）
+    av._warned_codes.clear()
+    sent = []
+    monkeypatch.setattr(av, "_notify_unknown_code", lambda card, code, row: sent.append(code))
+    rows = [_coded("カーナベル", "ブラック・マジシャン", "TTP1", "レア")]
+    av.annotate(rows, "ブラック・マジシャン")
+    assert rows[0]["art"] == "" and sent == []
