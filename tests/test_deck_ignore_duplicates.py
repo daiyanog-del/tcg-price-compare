@@ -92,7 +92,7 @@ def _fake_scrape_for(shop: str, price: int = 1000, rarity: str = "レア"):
     return fn
 
 
-def _run_deck(monkeypatch, shops, existing=None, failed=frozenset()):
+def _run_deck(monkeypatch, shops, existing=None, failed=False, art_today=False):
     """shops: [(店名, スクレイパー)]。existing: 記録の読み出しが返す行（当日・前日）"""
     monkeypatch.setattr(app_module, "SHOPS", shops, raising=False)
     # トレコロは /api/deck が scrape_torecolo を1ページ目だけで呼び直すので、それも差し替える
@@ -106,8 +106,9 @@ def _run_deck(monkeypatch, shops, existing=None, failed=frozenset()):
                         lambda name, shop_results, partial_shops=frozenset(): None)
     monkeypatch.setattr(app_module, "Thread", _SyncThread, raising=False)
     monkeypatch.setattr(app_module, "_last_deck", {}, raising=False)  # 同じテストで続けて叩いても受付上限に当てない
-    monkeypatch.setattr(app_module, "fetch_daily_rows_by_card_names",
-                        lambda sb, names, columns, days, tag: (list(existing or []), set(failed)))
+    monkeypatch.setattr(app_module, "_read_recent_rows",
+                        lambda name, days: None if failed else (list(existing or []), [1]))
+    monkeypatch.setattr(app_module, "_has_art_rows_today", lambda ids, today: art_today)
     sink: list = []
     monkeypatch.setattr(app_module, "_supabase_client", _FakeSupabase(sink), raising=False)
     app_module._load_cardnames()
@@ -140,9 +141,9 @@ def test_kanabell_is_no_longer_first_page_only(monkeypatch):
 
 
 def test_shallow_shop_writes_new_card(monkeypatch):
-    """当日も前日も記録が無い（新しいカード）なら浅い店でも書く"""
+    """当日も前日も記録が無い（新しいカード）なら浅い店でも書く（上書きしない書き方）"""
     sink = _run_deck(monkeypatch, [("トレコロCB", _fake_scrape_for("トレコロCB"))], existing=[])
-    assert len(sink) == 1 and sink[0]["p_rows"][0]["shop"] == "トレコロCB"
+    assert len(sink) == 1 and sink[0]["p_rows"][0]["shop"] == "トレコロCB" and sink[0]["p_ignore_duplicates"] is True
 
 
 def test_shallow_shop_skips_when_only_yesterday(monkeypatch):
@@ -158,19 +159,43 @@ def test_shallow_shop_lowers_today(monkeypatch):
     old = {"card_name": "テストカード", "shop": "カードラボ", "rarity": "レア", "min_price": 800, "min_price_any": 800,
            "code": "", "url": None, "recorded_at": _today()}
     sink = _run_deck(monkeypatch, [("カードラボ", _fake_scrape_for("カードラボ", price=500))], existing=[old])
-    assert len(sink) == 1 and sink[0]["p_rows"][0]["min_price_any"] == 500
+    assert len(sink) == 1 and sink[0]["p_rows"][0]["min_price_any"] == 500 and sink[0]["p_ignore_duplicates"] is False
     sink = _run_deck(monkeypatch, [("カードラボ", _fake_scrape_for("カードラボ", price=900))], existing=[old])
     assert sink == []
 
 
 def test_shallow_shop_skips_when_records_unreadable(monkeypatch):
-    sink = _run_deck(monkeypatch, [("トレコロCB", _fake_scrape_for("トレコロCB"))], failed={"テストカード"})
+    sink = _run_deck(monkeypatch, [("トレコロCB", _fake_scrape_for("トレコロCB"))], failed=True)
     assert sink == []
 
 
-def _fake_scrape(card_name: str) -> list:
-    return [{
-        "shop": "テスト店", "name": card_name, "rarity": "レア", "code": "",
-        "condition": "-", "price": 1000, "stock": 1, "sold_out": False,
-        "url": "", "image": "",
-    }]
+def test_shallow_lower_skipped_when_art_rows_exist(monkeypatch):
+    """当日の絵ごとの内訳があるカードは値下げを書かない（本表の上書きが内訳を消すため。reviewer 高2）"""
+    old = {"card_name": "テストカード", "shop": "カードラボ", "rarity": "レア", "min_price": 800, "min_price_any": 800,
+           "code": "", "url": None, "recorded_at": _today()}
+    sink = _run_deck(monkeypatch, [("カードラボ", _fake_scrape_for("カードラボ", price=500))], existing=[old], art_today=True)
+    assert sink == []
+
+
+def test_deep_and_shallow_mixed(monkeypatch):
+    """全ページの店は上書き、浅い店は深夜（前日だけ）なら書かない"""
+    old = {"card_name": "テストカード", "shop": "トレコロCB", "rarity": "レア", "min_price": 800, "min_price_any": 800,
+           "code": "", "url": None, "recorded_at": _yesterday()}
+    sink = _run_deck(monkeypatch, [("遊々亭", _fake_scrape_for("遊々亭")), ("トレコロCB", _fake_scrape_for("トレコロCB"))],
+                     existing=[old])
+    assert [({r["shop"] for r in c["p_rows"]}, c["p_ignore_duplicates"]) for c in sink] == [({"遊々亭"}, False)]
+
+
+def test_search_route_clabo_follows_shallow_rule(monkeypatch):
+    """カードのページの検索（_persist_scrape_async）でも、カードラボは深夜（前日だけ）なら書かない（reviewer 高1）"""
+    old = {"card_name": "テストカード", "shop": "カードラボ", "rarity": "レア", "min_price": 800, "min_price_any": 800,
+           "code": "", "url": None, "recorded_at": _yesterday()}
+    sink: list = []
+    monkeypatch.setattr(app_module, "_supabase_client", _FakeSupabase(sink), raising=False)
+    monkeypatch.setattr(app_module, "_read_recent_rows", lambda name, days: ([old], [1]))
+    monkeypatch.setattr(app_module, "_has_art_rows_today", lambda ids, today: False)
+    app_module._persist_scrape_async("テストカード", _fake_scrape_for("カードラボ", price=500)("テストカード")
+                                     + _fake_scrape_for("遊々亭")("テストカード"))
+    assert [({r["shop"] for r in c["p_rows"]}, c["p_ignore_duplicates"]) for c in sink] == [({"遊々亭"}, False)]
+
+

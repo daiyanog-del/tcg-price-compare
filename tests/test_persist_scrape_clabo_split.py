@@ -59,6 +59,16 @@ class _FakeRpc:
         return SimpleNamespace(data=[{"saved_rows": len(self._params["p_rows"])}])
 
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _new_card(monkeypatch):
+    """カードラボは _persist_shallow を通る（2026-11-01）。ここでは「当日も前日も記録が無い新しいカード」として、
+    上書きしない書き方（ignore_duplicates=True）で書かれることを見る"""
+    monkeypatch.setattr(app_module, "_read_recent_rows", lambda name, days: ([], []))
+
+
 def _item(shop, price=1000):
     return {
         "shop": shop, "name": "青眼の白龍", "rarity": "ウルトラ", "code": "",

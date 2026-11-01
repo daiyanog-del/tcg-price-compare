@@ -187,7 +187,7 @@ def upsert_price_rows(sb, rows: list[dict], ignore_duplicates: bool = False,
         return 0
 
 
-def shallow_rows_to_write(new_rows: list[dict], existing: list[dict], today: str) -> list[dict]:
+def shallow_rows_to_write(new_rows: list[dict], existing: list[dict], today: str) -> tuple[list[dict], list[dict]]:
     """浅い取り方（トレコロの1ページ目・カードラボのカード名の検索）の結果のうち、記録に書いてよい行（2026-11-01）。
 
     浅い結果で確かなのは「この値段で売っている出品がある」ことだけで、「このレアリティの最安」「このレアリティは無い」は
@@ -197,28 +197,31 @@ def shallow_rows_to_write(new_rows: list[dict], existing: list[dict], today: str
       - 前日の記録だけある（深夜0時〜朝の収集まで）: 書かない。1つでも当日の行を作ると、画面は前日の行を使わなくなり
         （featured_matrix はカード×店で当日を優先）、深い収集でしか見つからないレアリティが朝まで消えるため
     new_rows / existing は build_min_price_rows の形（existing は当日と前日の記録。recorded_at で見分ける）。
+    戻り値: (足す行, 下げる行)。足す行は既存の行を上書きしない書き方（ignore_duplicates）で書くこと
+    （読んでから書くまでの間に朝の収集が同じ組を書いたら、そちらを残すため。reviewer 中3）
     """
-    by_shop: dict[str, dict] = {}
+    today_by_shop: dict[str, dict] = {}
+    known_shops: set = set()
     for r in existing:
-        ent = by_shop.setdefault(r.get("shop"), {"today": {}, "older": False})
+        known_shops.add(r.get("shop"))
         if str(r.get("recorded_at") or "")[:10] == today:
-            ent["today"][r.get("rarity")] = r
-        else:
-            ent["older"] = True
-    out: list[dict] = []
+            today_by_shop.setdefault(r.get("shop"), {})[r.get("rarity")] = r
+    adds: list[dict] = []
+    lowers: list[dict] = []
     for row in new_rows:
-        ent = by_shop.get(row.get("shop"))
-        if ent is None:
-            out.append(row)
+        shop = row.get("shop")
+        if shop not in known_shops:
+            adds.append(row)
             continue
-        if not ent["today"]:
+        today_rows = today_by_shop.get(shop)
+        if not today_rows:
             continue  # 前日だけ（深夜）
-        old = ent["today"].get(row.get("rarity"))
+        old = today_rows.get(row.get("rarity"))
         if old is None:
-            out.append(row)
+            adds.append(row)
             continue
-        merged = dict(old)
-        merged.update({"card_name": row["card_name"], "shop": row["shop"], "rarity": row["rarity"], "recorded_at": today})
+        merged = {k: old.get(k) for k in row}
+        merged.update({"card_name": row["card_name"], "shop": shop, "rarity": row["rarity"], "recorded_at": today})
         lower = False
         if old.get("min_price") is None or row["min_price"] < old["min_price"]:
             merged["min_price"], merged["code"] = row["min_price"], row.get("code")
@@ -227,8 +230,8 @@ def shallow_rows_to_write(new_rows: list[dict], existing: list[dict], today: str
             merged["min_price_any"], merged["url"] = row["min_price_any"], row.get("url")
             lower = True
         if lower:
-            out.append({k: merged.get(k) for k in row})
-    return out
+            lowers.append(merged)
+    return adds, lowers
 
 
 def upsert_buyback_rows(sb, rows: list[dict], raise_on_error: bool = False) -> int:
