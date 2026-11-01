@@ -43,8 +43,8 @@ def _get_client():
     url, key = os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_KEY")
     if not (url and key):
         return None
-    from supabase import create_client
-    _client_cache = create_client(url, key)
+    from supabase_conn import create_shared_client
+    _client_cache = create_shared_client(url, key)
     return _client_cache
 
 

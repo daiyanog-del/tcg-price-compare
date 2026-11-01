@@ -1,5 +1,14 @@
 このファイルの目的: 重要な決定を「いつ・何を・なぜ」で記録する。新しい決定は上に追記
 
+## 2026-11-01: Web の Supabase クライアントを HTTP/2 の1本から HTTP/1.1 の接続プールに（branch fix/db-http1・ユーザー指摘「スマホで購入候補の画像と価格が遅い・価格情報なしになる」）
+- なぜ: supabase-py（postgrest）の既定は HTTP/2 の接続1本。1つのクライアントを gunicorn の16スレッドと共有の実行枠（featured_matrix._executor 4本）が同時に使い、接続ごと切られていた（本番ログ: RemoteProtocolError ConnectionTerminated PROTOCOL_ERROR／Server disconnected・RuntimeError deque mutated during iteration）。price_history_reads は1日でも読めないと束の全カードを失敗にするので、購入候補（約58枚×8日＋30日窓）が30秒の締め切りにかかり全件「価格を読み込めませんでした」に。画像の URL も同じ /api/wish-prices の応答に入っているので画像も遅れた。10-30〜11-01 に締め切り切れ6回（Android からの57〜58枚が中心）
+- 裏取り（手元→本番 DB・読み取りのみ・anon 鍵）: 58枚×31日を4スレッドで同時に読む×5回×2 で HTTP/2 は620件中14件失敗・HTTP/1.1 は0件、1件 0.07→0.05秒。本物の fetch_daily_rows_by_card_names を2本同時×8回で、HTTP/2 は16回中1回が58枚すべて失敗・HTTP/1.1 は0回
+- 何を: supabase_conn.create_shared_client（SyncClientOptions(httpx_client=httpx.Client(http2=False, timeout=120))）。Web で共有する作成箇所 app.py・card_display.py・admin_unreleased.py・ygores_repository.py・reread_trust.py を置き換え。postgrest・storage・auth・functions がこの1つを共用する（どれも要求ごとに完全な URL とヘッダーを付ける。reviewer がダミー送信で既定と一致を確認）。upgrade_signals の DB の見張りは /rest/v1/ の要求だけ数える（storage の時間・5xx を DB に数えない）。requirements を supabase>=2.28・httpx を明記（2.28.3 で確かめた形）
+- 既定から変わること: storage の待ち時間 20→120秒（管理画面の画像操作だけ）。接続は同時要求数ぶん張り、5秒あくと閉じる（HTTP/2 のときと同じ keepalive）
+- 対象外: cron の別プロセス（collect_prices など）は各自のクライアントで、同時利用の有無は見ていない
+- 採らなかった案: スレッドごとにクライアントを持つ（同じ効果で変更が大きい）／締め切りを延ばす（待つ時間が延びるだけ）
+- 残り: 価格（/api/wish-prices）とレアリティ（/api/card-rarities）が同じカードを同時に読む重複はそのまま（別件）
+
 ## 2026-11-01: 価格の検索は、前回の結果があれば先に出して最新に差し替える（branch feat/search-stale-preview・ユーザー選択「案A」。10-16「結果の表は一度だけ描く」を改める）
 - なぜ: 15分のキャッシュに無い検索は6店をその場で調べ、全店がそろうまで何も出なかった。本番で 4〜5秒（種類の多いブラック・マジシャンは18秒）、直近7日の検索 363回のうち約6割（231回）がこの待ち。サーバーは CPU 数%で、遅さは店の応答待ち。利用者が少ないほどキャッシュに当たらない
 - 何を: 取りに行く店すべてに24時間以内の前回の結果（混雑時の代わりの表示に使っていた scraper.cache_get_shops_stale）があれば、店へ取りに行く前に SSE の preview で送る（app._stale_preview_rows）。画面はいつもの表で描き、done では価格の部分だけ描き直す（index-main.js _refreshResults。カードの欄は触らない。先出しの間に選んだレアリティ・絵・表示・並べ替えは最新にあれば残し、触っていなければ最新の最安から選び直す）

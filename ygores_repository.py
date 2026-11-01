@@ -139,8 +139,8 @@ class CardDataRepository:
             key = os.environ.get("SUPABASE_KEY")
             if url and key:
                 try:
-                    from supabase import create_client
-                    self._sb = create_client(url, key)
+                    from supabase_conn import create_shared_client
+                    self._sb = create_shared_client(url, key)
                 except Exception as e:
                     logger.warning(f"[ygores] Supabase接続失敗（キャッシュなしで動作）: {e}")
             return self._sb

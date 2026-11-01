@@ -118,8 +118,8 @@ _supabase_client = None
 
 if _SUPABASE_URL and _SUPABASE_KEY:
     try:
-        from supabase import create_client
-        _supabase_client = create_client(_SUPABASE_URL, _SUPABASE_KEY)
+        from supabase_conn import create_shared_client
+        _supabase_client = create_shared_client(_SUPABASE_URL, _SUPABASE_KEY)
         logger.info("[card_display] Supabase 接続成功 — 未発売カード機能が有効です")
     except Exception as _e:
         logger.warning(f"[card_display] Supabase 接続失敗（未発売機能無効）: {_e}")

@@ -171,6 +171,10 @@ class _TimedTransport(httpx.BaseTransport):
         self._on_response = on_response
 
     def handle_request(self, request):
+        # 数えるのは DB（PostgREST）への要求だけ。2026-11-01 から postgrest と storage が同じ httpx の
+        # クライアントを共用する（supabase_conn）ので、画像の保存・削除の時間や 5xx を DB に数えない
+        if not request.url.path.startswith("/rest/v1/"):
+            return self._inner.handle_request(request)
         start = time.monotonic()
         try:
             response = self._inner.handle_request(request)

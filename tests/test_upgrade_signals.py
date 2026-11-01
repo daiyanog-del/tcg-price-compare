@@ -113,7 +113,7 @@ def test_timed_transport_passes_start_time():
 
     t = us._TimedTransport(Boom(), lambda elapsed, failed, started_at=None: seen.append((failed, started_at)))
     with pytest.raises(httpx.WriteError):
-        t.handle_request(httpx.Request("GET", "https://example.invalid/"))
+        t.handle_request(httpx.Request("GET", "https://example.invalid/rest/v1/t"))
     assert seen and seen[0][0] is True and isinstance(seen[0][1], float)
 
 
@@ -303,6 +303,25 @@ def test_install_db_watch_on_real_supabase_client():
     assert us.install_db_watch(client, lambda e, f, started_at=None: seen.append(f))  # 二度目は包み直さない
     assert client.postgrest.session._transport is first
     assert us.install_db_watch(None, lambda e, f: None) is False
+
+
+def test_timed_transport_counts_only_rest_requests():
+    """storage など DB 以外の要求は数えない（2026-11-01 supabase_conn で postgrest と storage が同じクライアントを共用）。"""
+    seen = []
+    client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(503, json={})),
+                          base_url="https://x.supabase.co")
+    client._transport = us._TimedTransport(client._transport, lambda e, f, started_at=None: seen.append(f))
+    client.post("/storage/v1/object/official-card-images/a.png")
+    assert seen == []
+    client.get("/rest/v1/t")
+    assert seen == [True]
+
+
+def test_install_db_watch_on_shared_client():
+    from supabase_conn import create_shared_client
+    client = create_shared_client("https://example.supabase.co", "x" * 40)
+    assert us.install_db_watch(client, lambda e, f, started_at=None: None)
+    assert isinstance(client.postgrest.session._transport, us._TimedTransport)
 
 
 def test_broken_recorder_does_not_fail_request():
