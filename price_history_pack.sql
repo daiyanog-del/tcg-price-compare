@@ -8,8 +8,9 @@
 --   そのパックの型番の頭（例 IMPH）の出品だけを、カード×店×レアリティ×パックの版×日ごとにこの表へ書く。
 --   表（/api/packs/matrix）は本表の行にこの表の行を重ねて出す。30日を過ぎた行は毎晩の収集が消す（畳まない）。
 -- 見積もり: 新弾100種×6店×レアリティ3×1日数回の上書き＝1日2,000行以下×30日＝6万行・10MB 程度（多めに置いた値）
--- 書き手: price_persist.upsert_price_pack_rows（RPC）。読み手: featured_matrix.get_pack_matrix（price_history_pack_v）
--- 適用順: このファイルを先に適用 → コードをデプロイ（コードが先でも、RPC・ビューが無いとプロセスごとに1回警告して書かない／重ねないだけ）
+-- 書き手: price_persist.upsert_price_pack_rows（RPC）。読み手: featured_matrix.get_pack_matrix（price_history_pack_v・日付×カード番号で引く）
+-- 適用順: このファイルを先に適用 → コードをデプロイ（コードが先だと、RPC・ビューが無いとプロセスごとに1回警告して止まり、
+--   SQL を後から適用してもそのプロセスは再起動まで書かない／重ねない）
 -- 戻し方: コードを戻す → DROP FUNCTION upsert_price_pack_rows → DROP VIEW price_history_pack_v → DROP TABLE price_history_pack
 
 CREATE TABLE IF NOT EXISTS public.price_history_pack (
@@ -25,8 +26,9 @@ CREATE TABLE IF NOT EXISTS public.price_history_pack (
     PRIMARY KEY (pack_code, recorded_at, card_id, shop_id, rarity_id)  -- 読み手はパック×日付×カードで引く
 );
 ALTER TABLE public.price_history_pack ENABLE ROW LEVEL SECURITY;
--- 毎晩の30日超の削除用（主キーは pack_code 先頭）。日付順に入るので BRIN で足りる
-CREATE INDEX IF NOT EXISTS idx_price_history_pack_date ON public.price_history_pack USING brin (recorded_at);
+-- 読み手（featured_matrix）は日付×カード番号で引き、どの版かは返す pack_code で画面が選ぶ（書き手と画面で型番の頭の出どころが
+-- 違っても黙って出なくならないように）。30日超の削除もこの索引の日付で引く
+CREATE INDEX IF NOT EXISTS idx_price_history_pack_date_card ON public.price_history_pack (recorded_at, card_id);
 
 -- 読み出し用（price_history と同じく名前つき。security_invoker 無し＝公開読み取りデータとして意図的）
 CREATE OR REPLACE VIEW public.price_history_pack_v AS
@@ -54,7 +56,7 @@ BEGIN
     RAISE EXCEPTION 'upsert_price_pack_rows: p_rows must be a JSON array';
   END IF;
 
-  DROP TABLE IF EXISTS _upsert_pack_rows;
+  DROP TABLE IF EXISTS pg_temp._upsert_pack_rows;
   CREATE TEMP TABLE _upsert_pack_rows ON COMMIT DROP AS
     SELECT DISTINCT ON (pack_code, recorded_at, card_name, shop, rarity) *
     FROM (

@@ -350,15 +350,17 @@ def valid_pack_code(pack_code: str | None) -> str:
 
 
 def build_pack_price_rows(card_name: str, scrape_results: list, today: str, pack_code: str) -> list[dict]:
-    """そのパックの版（型番が「頭-JP…」または「頭JP…」）の出品だけで、店×レアリティごとの最安の行を作る（price_history_pack 用）。
+    """そのパックの版（型番が「頭-JP…」）の出品だけで、店×レアリティごとの最安の行を作る（price_history_pack 用）。
     最安・code・url の決め方は build_min_price_rows と同じ（pack_code の欄が足されるだけ）。
-    型番の読めない出品は、どの版か分からないので入れない"""
+    型番の読めない出品は、どの版か分からないので入れない。型番の読み方は画面（packs.js の _pkPrefixOf）と同じくハイフンまで。
+    レアリティの読めない行（(不明)）は表に出ないので書かない"""
     head = valid_pack_code(pack_code)
     if not head:
         return []
-    pat = re.compile(rf"^{re.escape(head)}-?JP", re.IGNORECASE)
+    pat = re.compile(rf"^{re.escape(head)}-JP", re.IGNORECASE)
     mine = [r for r in scrape_results if pat.match(str(r.get("code") or "").strip())]
-    return [{**row, "pack_code": head} for row in build_min_price_rows(card_name, mine, today)]
+    return [{**row, "pack_code": head} for row in build_min_price_rows(card_name, mine, today)
+            if row["rarity"] != UNKNOWN_RARITY_LABEL]
 
 
 def upsert_price_pack_rows(sb, rows: list[dict]) -> int:

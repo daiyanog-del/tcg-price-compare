@@ -1802,8 +1802,11 @@ def _api_deck_stream(card_entries, selected, active_shops, _FAST_OVERRIDES,
         if fresh and _supabase_client and items and card_name in trackable_set:
             _persist_scrape_async(card_name, list(items))
             if pack_code:
+                # 画面はこの表を読み直さない（まとめて検索の結果をそのまま使う）ので、待たずに裏で書く（reviewer 低3）
                 today = datetime.now(JST).strftime("%Y-%m-%d")
-                upsert_price_pack_rows(_supabase_client, build_pack_price_rows(card_name, list(items), today, pack_code))
+                Thread(target=upsert_price_pack_rows,
+                       args=(_supabase_client, build_pack_price_rows(card_name, list(items), today, pack_code)),
+                       daemon=True).start()
 
     def _aggregate_per_shop(items: list) -> dict:
         """店舗別・レアリティ別の最安値を {店舗名: {レアリティ: {price, url, rarity, ...}}} に
@@ -4308,8 +4311,8 @@ _last_pack_matrix: dict[str, float] = {}
 @app.route("/api/packs/matrix", methods=["POST"])
 def api_packs_matrix():
     """パックの収録カードの店舗×レアリティ表を、毎朝の収集（price_history）から返す（featured_matrix.py、DB読みのみ）。
-    入力: {"cards": ["カード名", ...], "code": "IMPH"}（正式名・収録順。/api/packs/cards が返す名前。code は任意）
-    返却: {"updated_at": "YYYY-MM-DD", "shops": [店舗名, ...],
+    入力: {"cards": ["カード名", ...]}（正式名・収録順。/api/packs/cards が返す名前）
+    返却: {"updated_at": "YYYY-MM-DD", "shops": [店舗名, ...], "pack_rows": [版ごとの価格（pack_code つき）],
            "rows": [{"name", "rarity", "cells": {店舗名: {"price", "url", "code", "recorded_at"}}}]}
     2026-10-22 に新弾専用の /api/featured/matrix から寄せた（新弾もこれを使う）。
     同じカードの並びは1時間覚えるので、データベースを読むのはパックごとに1時間に1回まで。
@@ -4327,16 +4330,14 @@ def api_packs_matrix():
             cards.append(name)
     if not cards:
         return jsonify({"updated_at": "", "shops": [], "rows": [], "pack_rows": []})
-    # パックの型番の頭（例 IMPH）。渡されたら新弾用の小さな表からこのパックの版の価格も返す（2026-11-01）
-    pack_code = valid_pack_code(data.get("code"))
     from featured_matrix import get_pack_matrix, is_cached
     # データベースを読むとき（覚えていない集まり）だけ受付上限を消費する。名前を変えて連打されても読み出しが積み上がらないように（reviewer 中4）
-    if not is_cached(cards, pack_code):
+    if not is_cached(cards):
         rate_error = _consume_rate_limit(bucket=_last_pack_matrix, interval=PACK_MATRIX_RATE_LIMIT_SEC)
         if rate_error:
             return rate_error
     try:
-        result = get_pack_matrix(_supabase_client, cards, pack_code)
+        result = get_pack_matrix(_supabase_client, cards)
     except Exception as e:
         logger.warning(f"店舗×レアの表の取得に失敗: {e}")
         return jsonify({"error": "価格データの取得に失敗しました"}), 503

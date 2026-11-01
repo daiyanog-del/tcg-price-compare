@@ -236,11 +236,13 @@ check('表: 取得に失敗した店は列に残して「取得失敗」、レ�
   assert.ok(html.includes('このパックの版は見つかりませんでした'), '版なしの理由が出ていない');
 });
 
-// 毎朝の収集の表の品に、このパックの版の価格（pack_rows）も入る
+// 新弾用の小さな表の価格は、決まった型番の頭の行だけ品にする
 {
-  const items = run('_pkItemsFromDb({rows:[{name:"R",rarity:"ウルトラ",cells:{店1:{price:300,code:"MB01-JPS03",recorded_at:"2026-11-01"}}}],pack_rows:[{name:"R",rarity:"ウルトラ",shop:"店1",price:980,code:"IMPH-JPS01",recorded_at:"2026-11-01"}]})');
-  assert.equal(JSON.stringify(items.map(i => [i.code, i.price])), JSON.stringify([['MB01-JPS03', 300], ['IMPH-JPS01', 980]]));
-  passed++; console.log('ok - 表の品にこのパックの版の価格（pack_rows）も入る');
+  const m = '{rows:[],pack_rows:[{name:"R",rarity:"ウルトラ",shop:"店1",price:980,code:"IMPH-JPS01",recorded_at:"2026-11-01",pack_code:"IMPH"},{name:"R",rarity:"ウルトラ",shop:"店1",price:500,code:"YAC1-JP001",recorded_at:"2026-11-01",pack_code:"YAC1"}]}';
+  const items = run('_pkPackItemsFromDb(' + m + ',"IMPH")');
+  assert.equal(JSON.stringify(items.map(i => [i.code, i.price])), JSON.stringify([['IMPH-JPS01', 980]]));
+  assert.equal(run('_pkPackItemsFromDb(' + m + ',"")').length, 0, '型番の頭が決まらなければ足さない');
+  passed++; console.log('ok - 版ごとの価格は決まった型番の頭の行だけ品にする');
 }
 
 // まとめて検索を、作り物の通信で最後まで動かす（画面の描き直しは空にする）

@@ -380,7 +380,7 @@ def resolve_pack_head(pack: dict) -> str | None:
 
 def plan_pack_search(sb, pack: dict, card_names: list[str], available_shops: list[str],
                      today: str | None = None, dropped_out: set | None = None,
-                     head: str | None = None) -> dict[str, dict[str, list[dict]]]:
+                     head: str | None = None, reprints_out: set | None = None) -> dict[str, dict[str, list[dict]]]:
     """型番の頭で店ごとにまとめて取り、{カード名: {店: 商品}} を返す（pack_search.py）。
 
     ここで取れた (カード, 店) は、カードごとの検索をしない。取れなかった組（店の失敗・見つからない・再録・
@@ -394,6 +394,8 @@ def plan_pack_search(sb, pack: dict, card_names: list[str], available_shops: lis
         print("  [型番検索] パックの型番の頭が決まらないため、全カードをカード名で探します")
         return {}
     reprints = find_reprints(sb, card_names, pack["start_date"])
+    if reprints and reprints_out is not None:
+        reprints_out.update(reprints)
     if reprints is None:
         print("  [型番検索] 再録を見分けられないため、全カードをカード名で探します")
         return {}
@@ -565,7 +567,9 @@ def _main(state: dict):
     pack_dropped: set = set()
     # パックの型番の頭は1回だけ決め、型番でまとめて取る検索と、版ごとの価格の記録（price_history_pack）の両方に使う
     pack_head = resolve_pack_head(pack) or ""
-    pack_plan = plan_pack_search(sb, pack, card_names, available_shops, today, pack_dropped, head=pack_head)
+    reprints: set = set()
+    pack_plan = plan_pack_search(sb, pack, card_names, available_shops, today, pack_dropped, head=pack_head,
+                                 reprints_out=reprints)
     for card_shops_items in pack_plan.values():
         for shop in card_shops_items:
             shop_stats.setdefault(shop, {"ok": 0, "empty": 0, "error": 0})["ok"] += 1
@@ -573,9 +577,12 @@ def _main(state: dict):
     def _card_shops(card_name: str) -> list[str]:
         """このカードをカード名で探す店（朝に取れたトレコロ・型番でまとめて取れた店を除く）"""
         covered = pack_plan.get(card_name, {})
+        # 再録カードは、朝に取れたトレコロも取り直す（朝の収集は版ごとの価格を書かないので、このパックの版の行が
+        # 新弾用の小さな表に入らないため。reviewer 中1。再録はふつう収録の一部なので、取得の増え方は小さい）
         return [s for s in available_shops
                 if s not in covered
-                and (card_name not in already_collected.get(s, ()) or (card_name, s) in pack_dropped)]
+                and (card_name not in already_collected.get(s, ()) or (card_name, s) in pack_dropped
+                     or (pack_head and card_name in reprints))]
 
     # ブロック様判定の分母は「実際に試行したカード数」にする
     attempted_per_shop = {

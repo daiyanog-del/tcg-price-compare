@@ -170,7 +170,7 @@ def test_main_uses_pack_items_and_searches_the_rest_by_name(monkeypatch):
     monkeypatch.setattr(collect_featured, "check_shop_availability", lambda shops: ["遊々亭", "カードラボ"])
     monkeypatch.setattr(collect_featured, "fetch_cards_collected_today", lambda *a: set())
     monkeypatch.setattr(collect_featured, "plan_pack_search",
-                        lambda sb, pack, cards, shops, today=None, dropped=None, head=None: {"新A": {"遊々亭": [_item("新A", "IMPH-JP001")]}})
+                        lambda sb, pack, cards, shops, today=None, dropped=None, head=None, reprints_out=None: {"新A": {"遊々亭": [_item("新A", "IMPH-JP001")]}})
     monkeypatch.setattr(collect_featured, "collect_and_save_for_shops", fake_collect)
     monkeypatch.setattr(collect_featured, "resolve_pack_head", lambda pack: "IMPH")
     monkeypatch.setattr(collect_featured.time, "sleep", lambda *_: None)
@@ -320,7 +320,7 @@ def test_main_rechecks_dropped_torecolo_even_if_collected(monkeypatch):
         calls[card] = list(shops)
         return 0, []
 
-    def fake_plan(sb, pack, cards, shops, today=None, dropped=None, head=None):
+    def fake_plan(sb, pack, cards, shops, today=None, dropped=None, head=None, reprints_out=None):
         dropped.add(("新A", "トレコロCB"))   # 型番の値が今日の行より高かった
         return {}
 

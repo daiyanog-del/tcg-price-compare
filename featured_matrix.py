@@ -257,14 +257,13 @@ def build_matrix(records: list[dict], card_order: list[str], today: str) -> dict
     return {"updated_at": latest_recorded_at or today, "shops": shops, "rows": rows}
 
 
-def _cache_key(card_names, pack_code: str = "") -> tuple:
-    """覚えておく鍵。パックの型番の頭を渡したときは版ごとの価格も読むので別の鍵にする"""
-    return (pack_code or "",) + tuple(sorted({n for n in card_names if n}))
+def _cache_key(card_names) -> tuple:
+    return tuple(sorted({n for n in card_names if n}))
 
 
-def is_cached(card_names: list[str], pack_code: str = "") -> bool:
+def is_cached(card_names: list[str]) -> bool:
     """この集まりの記録（または直近の失敗）を覚えているか。ルートが受付上限を消費するかの判断に使う"""
-    key = _cache_key(card_names, pack_code)
+    key = _cache_key(card_names)
     now = time.time()
     with _cache_lock:
         hit = _cache.get(key)
@@ -303,31 +302,34 @@ def _prepare_records(records: list[dict]) -> list[dict]:
     return out
 
 
-_pack_table_missing = False  # price_history_pack.sql 未適用なら、そのプロセスでは版ごとの価格を読まない
+_pack_table_missing = False  # price_history_pack.sql 未適用なら、そのプロセスでは版ごとの価格を読まない（適用後は再起動で戻る）
+_PACK_ID_CHUNK = 200  # 版ごとの表は小さいので、カード番号はまとめて引く（URL 長は数字200個で2KB 弱）
 
 
-def _fetch_pack_rows(sb, pack_code: str, ids: list[int], days: list[str]) -> list[dict]:
-    """パックの版ごとの価格（price_history_pack_v）を days の日付で読む。読めなければ空（表は本表の行だけで出す）"""
+def _fetch_pack_rows(sb, ids: list[int], days: list[str]) -> list[dict]:
+    """パックの版ごとの価格（price_history_pack_v）を days の日付でまとめて読む。どのパックの版かは pack_code で返し、
+    画面が自分で決めたパックの型番の頭（_pkPackCode）に合う行だけを使う（書き手の型番の頭は Wiki の多数決、画面は公式の略号と
+    品の型番から決めるので、ここで絞ると食い違ったときに黙って出なくなる。reviewer 高1）。
+    読めなければ空（表は本表の行だけで出す）"""
     global _pack_table_missing
     if _pack_table_missing or not ids:
         return []
     rows: list[dict] = []
     try:
-        for day in days:
-            for i in range(0, len(ids), _ID_CHUNK):
-                chunk = ids[i:i + _ID_CHUNK]
-                offset = 0
-                while True:
-                    batch = _execute(lambda offset=offset, chunk=chunk, day=day: (
-                        sb.table("price_history_pack_v")
-                        .select("card_id, card_name, shop, rarity, min_price, min_price_any, code, url, recorded_at")
-                        .eq("pack_code", pack_code).eq("recorded_at", day).in_("card_id", chunk)
-                        .order("card_id").order("shop_id").order("rarity_id")
-                        .range(offset, offset + _PAGE_SIZE - 1))).data or []
-                    rows.extend(batch)
-                    if len(batch) < _PAGE_SIZE:
-                        break
-                    offset += _PAGE_SIZE
+        for i in range(0, len(ids), _PACK_ID_CHUNK):
+            chunk = ids[i:i + _PACK_ID_CHUNK]
+            offset = 0
+            while True:
+                batch = _execute(lambda offset=offset, chunk=chunk: (
+                    sb.table("price_history_pack_v")
+                    .select("pack_code, card_id, card_name, shop, rarity, min_price, min_price_any, code, url, recorded_at")
+                    .in_("recorded_at", days).in_("card_id", chunk)
+                    .order("recorded_at").order("card_id").order("shop_id").order("rarity_id").order("pack_code")
+                    .range(offset, offset + _PAGE_SIZE - 1))).data or []
+                rows.extend(batch)
+                if len(batch) < _PAGE_SIZE:
+                    break
+                offset += _PAGE_SIZE
     except Exception as e:
         text = str(e)
         if "PGRST205" in text or ("price_history_pack_v" in text and "does not exist" in text):
@@ -339,9 +341,26 @@ def _fetch_pack_rows(sb, pack_code: str, ids: list[int], days: list[str]) -> lis
     return rows
 
 
-def pack_cells(pack_records: list[dict]) -> list[dict]:
-    """版ごとの価格の行を、画面が品として読む形にする（カード×店×レアリティごとに新しい日の1行）。
-    レアリティの正規化・休止中の店・(不明) の除外は build_matrix と同じ。型番はこのパックの版の行なので空にしない"""
+def _code_head(code) -> str:
+    """型番の頭（"IMPH-JPS01" → "IMPH"）。ハイフンが無ければ空（画面の _pkPrefixOf と同じ読み方）"""
+    c = str(code or "").strip().upper()
+    return c.split("-", 1)[0] if "-" in c else ""
+
+
+def pack_cells(pack_records: list[dict], records: list[dict] | None = None) -> list[dict]:
+    """版ごとの価格の行を、画面が品として読む形にする（カード×店×レアリティ×パックの版ごとに新しい日の1行）。
+    レアリティの正規化・休止中の店・(不明) の除外は build_matrix と同じ。型番はこのパックの版の行なので空にしない。
+    records（本表の行）に同じカード×店×レアリティで、より新しい日の同じ版の行があれば、版ごとの古い行は使わない
+    （毎朝の収集は版ごとの表に書かないので、昨日の版ごとの値が今日の本表の値より安いと古い値が最安に出る。reviewer 高2）"""
+    newer_main: dict[tuple, str] = {}
+    for r in records or []:
+        head = _code_head(r.get("code"))
+        if not head:
+            continue
+        key = (r.get("card_name", ""), r.get("shop", ""), normalize_rarity(r.get("rarity", "") or ""), head)
+        day = str(r.get("recorded_at") or "")
+        if day > newer_main.get(key, ""):
+            newer_main[key] = day
     latest: dict[tuple, dict] = {}
     for r in pack_records:
         card, shop = r.get("card_name", ""), r.get("shop", "")
@@ -355,20 +374,24 @@ def pack_cells(pack_records: list[dict]) -> list[dict]:
             price = r.get("min_price")
         if price is None:
             continue
-        key = (card, shop, rarity)
+        pack_code = str(r.get("pack_code") or "").upper()
+        day = str(r.get("recorded_at") or "")
+        if newer_main.get((card, shop, rarity, pack_code), "") > day:
+            continue
+        key = (card, shop, rarity, pack_code)
         cur = latest.get(key)
-        if cur is None or (r.get("recorded_at") or "") >= cur["recorded_at"]:
+        if cur is None or day >= cur["recorded_at"]:
             latest[key] = {"name": card, "rarity": rarity, "shop": shop, "price": price, "url": r.get("url"),
-                           "code": r.get("code"), "recorded_at": r.get("recorded_at") or ""}
+                           "code": r.get("code"), "recorded_at": day, "pack_code": pack_code}
     return list(latest.values())
 
 
-def get_pack_matrix(sb, card_names: list[str], pack_code: str = "") -> dict:
+def get_pack_matrix(sb, card_names: list[str]) -> dict:
     """card_names（パックの収録カード・正式名・並び順どおり）の店舗×レアリティ表を返す。
 
-    pack_code（パックの型番の頭）を渡すと、新弾用の小さな表（price_history_pack）からこのパックの版の価格も読み、
-    "pack_rows" に入れて返す（2026-11-01）。本表は同じレアリティで一番安い版しか残らず、再録カードのこのパックの版が
-    表から消えるため。画面（static/packs.js）は本表の行と合わせて品の並びにし、版ごとに分けて出す。
+    新弾用の小さな表（price_history_pack）にある版ごとの価格も読み、"pack_rows"（pack_code つき）に入れて返す
+    （2026-11-01）。本表は同じレアリティで一番安い版しか残らず、再録カードのこのパックの版が表から消えるため。
+    画面（static/packs.js）は自分で決めたパックの型番の頭に合う行だけを本表の行と合わせて品にし、版ごとに分けて出す。
     Returns: {"updated_at": "YYYY-MM-DD", "shops": [...], "rows": [...], "pack_rows": [...]}（rows は build_matrix の形）
     例外: 価格データの取得失敗は送出する（ルートが503にする）。失敗は _FAIL_TTL_SEC 秒覚える。版ごとの価格の失敗は送出しない。
     """
@@ -378,7 +401,7 @@ def get_pack_matrix(sb, card_names: list[str], pack_code: str = "") -> dict:
         if name and name not in seen:
             seen.add(name)
             order.append(name)
-    key = _cache_key(order, pack_code)
+    key = _cache_key(order)
     now = time.time()
     today_d = datetime.now(JST).date()
     with _cache_lock:
@@ -398,9 +421,8 @@ def get_pack_matrix(sb, card_names: list[str], pack_code: str = "") -> dict:
                 if r.get("card_id") is not None and int(r["card_id"]) in ids:
                     r["card_name"] = ids[int(r["card_id"])]
             records = _prepare_records(rows)
-            if pack_code:
-                pack_records = _fetch_pack_rows(sb, pack_code, sorted(ids), days)
-                for r in pack_records:
+            pack_records = _fetch_pack_rows(sb, sorted(ids), days)
+            for r in pack_records:
                     if r.get("card_id") is not None and int(r["card_id"]) in ids:
                         r["card_name"] = ids[int(r["card_id"])]
         except Exception as e:
@@ -416,5 +438,5 @@ def get_pack_matrix(sb, card_names: list[str], pack_code: str = "") -> dict:
         logger.info(f"[featured_matrix] 記録を読込: {len(order)}種 {len(records)}件・版ごと {len(pack_records)}件")
     # 並び順は呼び出しごとに当てる（組み立ては記録の件数ぶんだけなので軽い）
     out = build_matrix(records, order, today_d.isoformat())
-    out["pack_rows"] = pack_cells(pack_records)
+    out["pack_rows"] = pack_cells(pack_records, records)
     return out

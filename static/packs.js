@@ -411,8 +411,7 @@ function _pkApplyOrder(){
 async function _pkLoadDbMatrix(st){
   st.dbmx='loading';
   try{
-    // code（パックの型番の頭）を送ると、新弾用の小さな表のこのパックの版の価格（pack_rows）も返る（2026-11-01）
-    const res=await fetch('/api/packs/matrix',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cards:st.cards.map(c=>c.name),code:String(st.info.code||'')})});
+    const res=await fetch('/api/packs/matrix',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cards:st.cards.map(c=>c.name)})});
     const data=res.ok?await res.json():null;
     st.dbmx=(data&&!data.error&&Array.isArray(data.rows))?data:'error';
   }catch(_){ st.dbmx='error'; }
@@ -439,6 +438,8 @@ async function _pkRenderMatrix(){
     if(!st.dbModel){
       const items=_pkItemsFromDb(st.dbmx);
       st.dbCode=_pkPackCode(st,items);
+      // このパックの版の価格（新弾用の小さな表）は、決まった型番の頭の行だけ足す（2026-11-01）
+      for(const it of _pkPackItemsFromDb(st.dbmx,st.dbCode)) items.push(it);
       st.dbModel=_pkMatrixModel(st,items,st.dbCode,st.dbmx.shops||[],{});
       st.dbModel.updatedAt=st.dbmx.updated_at||'';
       const tools=document.getElementById('packTools'); // 型番の頭が決まったので説明の一行を描き直す
@@ -463,9 +464,17 @@ function _pkItemsFromDb(m){
       if(c&&c.price!=null) items.push({name:r.name,rarity:r.rarity||'',shop,price:Number(c.price),url:c.url||'',code:c.code||'',date:c.recorded_at||''});
     }
   }
-  // このパックの版の価格（新弾用の小さな表）。本表は同じレアリティで一番安い版しか残らないので、再録カードはこちらで補う
+  return items;
+}
+
+// 新弾用の小さな表の、このパックの版（型番の頭 code）の価格を品にする。本表は同じレアリティで一番安い版しか残らないので、
+// 再録カードのこのパックの版はこちらで補う。サーバーは本表により新しい同じ版の行があれば古い行を落として返す
+function _pkPackItemsFromDb(m,code){
+  const items=[];
+  if(!code) return items;
   for(const p of (m.pack_rows||[])){
-    if(p&&p.price!=null) items.push({name:p.name,rarity:p.rarity||'',shop:p.shop,price:Number(p.price),url:p.url||'',code:p.code||'',date:p.recorded_at||''});
+    if(p&&p.price!=null&&String(p.pack_code||'').toUpperCase()===code)
+      items.push({name:p.name,rarity:p.rarity||'',shop:p.shop,price:Number(p.price),url:p.url||'',code:p.code||'',date:p.recorded_at||''});
   }
   return items;
 }
@@ -743,7 +752,9 @@ async function bulkSearchPackPrices(){
         // 全ページを読み、ほかの人にも残るようその日の記録に上書きする（ファイル冒頭の注記。接続元ごとに同時1本なので順に送る今の形のまま）
         body.set('fresh','1');
         // このパックの版の出品だけの行も新弾用の小さな表に残す（再録カードのこのパックの版を表に出すため）
-        if(st.info.code) body.set('pack_code',String(st.info.code));
+        // 型番の頭は表で決めたもの（品の型番から）を優先し、まだ無ければ公式の略号（書き手と読み手で同じ頭を使う）
+        const pc=st.dbCode||st.info.code||'';
+        if(pc) body.set('pack_code',String(pc));
       }
       let r=null;
       for(let tries=0;tries<4;tries++){
