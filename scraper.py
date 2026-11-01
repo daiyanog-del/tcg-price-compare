@@ -869,57 +869,72 @@ def scrape_cardrush(card_name: str, max_pages: int = 5) -> list[dict]:
     return results
 
 
+def cardrush_row_from_item(item) -> tuple[str, dict] | None:
+    """カードラッシュの商品要素1つを (元の商品名, 行) にする。カードの行にならない商品は None。
+
+    カード名の検索（_parse_cardrush_items）と商品一覧の巡回（cardrush_catalog.py）で共有する。
+    カード名との照合（is_target_card）はここでは行わない。照合は元の商品名（【レアリティ】{型番}《種類》[読み]
+    つき）で行うので、それも返す。"""
+    name_el = item.select_one("p.item_name")
+    price_el = item.select_one("div.price")
+    stock_el = item.select_one("p.stock")
+    link_el = item.select_one("a.item_data_link")
+
+    if not name_el or not price_el:
+        return None
+
+    raw_name = name_el.get_text(strip=True)
+    price = parse_price(price_el.get_text())
+    product_url = link_el.get("href", "") if link_el else ""
+
+    stock_text = stock_el.get_text(strip=True) if stock_el else ""
+    stock_match = re.search(r"(\d+)", stock_text)
+    stock = int(stock_match.group(1)) if stock_match else 0
+    sold_out = stock == 0
+
+    rarity = _extract_rarity_bracket(raw_name)
+    code = _extract_code_brace(raw_name)
+    condition = _extract_condition(raw_name)
+    display_name = _clean_display_name(raw_name)
+
+    # カードラッシュは単品カードに必ず【レアリティ】を付ける。【-】は「単品カードでは
+    # ない」の印で、実体は封入商品・グッズ（ストラクチャーデッキ／ストレージ／未開封
+    # サイコロ／アクリルスタンド／金属製カード等）。カード価格として記録すると
+    # デッキ1個分の値段がそのカードの価格系列に混ざるため、ここで捨てる。
+    # 実測（2026-08-03・カードラッシュ58カードで照合通過2,467件）: 【-】は14件で
+    # 全てが封入商品・グッズ、型番も {-}。単品カードの巻き込みは0件。
+    # 併せてカテゴリも《未開封BOX》《その他》《アクリルスタンド》のみで、これらの
+    # カテゴリにレアリティ付きの出品は存在しなかった。
+    if rarity.strip() == "-":
+        return None
+
+    # 商品画像
+    img_el = item.select_one("img")
+    image_url = img_el.get("src", "") if img_el else ""
+
+    if not price:
+        return None
+
+    return raw_name, {
+        "shop": "カードラッシュ", "name": display_name,
+        "rarity": normalize_rarity(rarity), "code": code,
+        "condition": condition, "price": price, "stock": stock,
+        "sold_out": sold_out, "url": product_url,
+        "image": image_url,
+    }
+
+
 def _parse_cardrush_items(card_name: str, items) -> list[dict]:
     """カードラッシュの商品要素リストを解析する（ページ送りで共通利用）"""
     results = []
     for item in items:
-        name_el = item.select_one("p.item_name")
-        price_el = item.select_one("div.price")
-        stock_el = item.select_one("p.stock")
-        link_el = item.select_one("a.item_data_link")
-
-        if not name_el or not price_el:
+        parsed = cardrush_row_from_item(item)
+        if parsed is None:
             continue
-
-        raw_name = name_el.get_text(strip=True)
-        price = parse_price(price_el.get_text())
-        product_url = link_el.get("href", "") if link_el else ""
-
-        stock_text = stock_el.get_text(strip=True) if stock_el else ""
-        stock_match = re.search(r"(\d+)", stock_text)
-        stock = int(stock_match.group(1)) if stock_match else 0
-        sold_out = stock == 0
-
-        rarity = _extract_rarity_bracket(raw_name)
-        code = _extract_code_brace(raw_name)
-        condition = _extract_condition(raw_name)
-        display_name = _clean_display_name(raw_name)
-
-        # カードラッシュは単品カードに必ず【レアリティ】を付ける。【-】は「単品カードでは
-        # ない」の印で、実体は封入商品・グッズ（ストラクチャーデッキ／ストレージ／未開封
-        # サイコロ／アクリルスタンド／金属製カード等）。カード価格として記録すると
-        # デッキ1個分の値段がそのカードの価格系列に混ざるため、ここで捨てる。
-        # 実測（2026-08-03・カードラッシュ58カードで照合通過2,467件）: 【-】は14件で
-        # 全てが封入商品・グッズ、型番も {-}。単品カードの巻き込みは0件。
-        # 併せてカテゴリも《未開封BOX》《その他》《アクリルスタンド》のみで、これらの
-        # カテゴリにレアリティ付きの出品は存在しなかった。
-        if rarity.strip() == "-":
+        raw_name, row = parsed
+        if not is_target_card(card_name, raw_name):
             continue
-
-        # 商品画像
-        img_el = item.select_one("img")
-        image_url = img_el.get("src", "") if img_el else ""
-
-        if not price or not is_target_card(card_name, raw_name):
-            continue
-
-        results.append({
-            "shop": "カードラッシュ", "name": display_name,
-            "rarity": normalize_rarity(rarity), "code": code,
-            "condition": condition, "price": price, "stock": stock,
-            "sold_out": sold_out, "url": product_url,
-            "image": image_url,
-        })
+        results.append(row)
     return results
 
 
