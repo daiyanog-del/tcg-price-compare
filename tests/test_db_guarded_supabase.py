@@ -392,6 +392,8 @@ def run_prices(monkeypatch, harness):
         monkeypatch.setattr(cp, "SHOPS", [("カーナベル", None)])
         # カーナベルの全件巡回（既定 shadow）は回さない。本物の鍵がある環境で ES へ出ないように
         monkeypatch.setattr(cp, "KANABELL_CATALOG_MODE", "off")
+        # カードラッシュの一覧の巡回（既定 shadow）も回さない。テストから店へ出ないように
+        monkeypatch.setattr(cp, "CARDRUSH_CATALOG_MODE", "off")
         monkeypatch.setattr(cp, "SKIP_SHOPS_IN_CI", set())
         monkeypatch.setenv("KANABELL_ES_ENDPOINT", "x")
         monkeypatch.setenv("KANABELL_ES_API_KEY", "x")

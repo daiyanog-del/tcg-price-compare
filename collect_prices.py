@@ -14,6 +14,7 @@ import os
 import re
 import sys
 import time
+import zlib
 from collections import Counter
 from datetime import datetime, timezone, timedelta
 
@@ -29,6 +30,7 @@ from price_persist import (art_price_context, build_art_price_rows, build_min_pr
 from clabo_catalog import collect_clabo_catalog
 from torecolo_catalog import collect_torecolo_catalog
 from kanabell_catalog import collect_kanabell_catalog
+from cardrush_catalog import collect_cardrush_catalog
 from overframe import apply_overframe, overframe_context
 from collection_run import record_collection_run, attach_host_request_counts
 from db_write_guard import (
@@ -61,6 +63,30 @@ TORECOLO_CATALOG_MODE = os.environ.get("TORECOLO_CATALOG_MODE", "shadow").strip(
 #   on:     巡回の行で保存し、カーナベルのカード名の検索をやめる（1日約3,400回 → 約38ページ）
 #   off:    巡回しない（従来どおり）
 KANABELL_CATALOG_MODE = os.environ.get("KANABELL_CATALOG_MODE", "shadow").strip().lower()
+# カードラッシュの型番の頭の検索でまとめて読む巡回（cardrush_catalog.py・2026-11-01）の使い方。切り替えはカーナベルと同じ
+#   shadow: 巡回はするが保存はしない。カードラッシュは従来どおりカード名で探して保存し、巡回の行との食い違いを記録する（既定）
+#   on:     巡回の行で保存し、カードラッシュのカード名の検索をやめる（1日約3,400回 → 約800〜900回の見込み）
+#   off:    巡回しない（従来どおり）
+CARDRUSH_CATALOG_MODE = os.environ.get("CARDRUSH_CATALOG_MODE", "shadow").strip().lower()
+# 巡回で読む型番の頭の数。全頭（約670種）より少ないと試し読み（毎晩同じ頭を読んで応答時間だけ記録し、比べ・保存はしない）。
+# "all" で全頭。初めて出す型番の頭の検索はお店の側で重い（6〜24秒）ので、2晩目以降に速くなるかを試し読みで見てから広げる
+def _int_env(name: str, default: int, allow_all: bool = False) -> int | None:
+    """整数の環境変数。allow_all なら "all" を None（上限なし）にする。読めない値は警告して既定値
+    （収集全体を起動時に落とさない）。"""
+    raw = os.environ.get(name, str(default)).strip().lower()
+    if allow_all and raw == "all":
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        print(f"  ⚠ {name}={raw!r} は数として読めません。既定の {default} を使います")
+        return default
+
+
+CARDRUSH_CATALOG_HEADS = _int_env("CARDRUSH_CATALOG_HEADS", 100, allow_all=True)
+# カードラッシュで直近2晩とも行が無かったカード（在庫なし・売り切れだけ）を何日に1回検索するか（_cardrush_rests・2026-11-01）。
+# 1以下で間引かない。11-01 の朝はカードラッシュの3,387枚のうち530枚が0件
+CARDRUSH_EMPTY_REST_DAYS = _int_env("CARDRUSH_EMPTY_REST_DAYS", 3)  # TODO: calibrate from data
 
 # 収集から除外する店舗。実行環境ごとに環境変数 COLLECT_SKIP_SHOPS（カンマ区切り）で上書きできる。
 #   - 未設定（GitHub Actions 等の従来環境）: データセンターIPから遅い/到達不能な店舗を従来どおり除外
@@ -446,9 +472,124 @@ def _prepare_kanabell_catalog(selected: list[dict], loop_shops: list[str], avail
     return [s for s in loop_shops if s != KANABELL], matched
 
 
+CARDRUSH = "カードラッシュ"
+
+
+def _prepare_cardrush_catalog(selected: list[dict], loop_shops: list[str], available_shops: list[str],
+                              shop_stats: dict, mode: str | None = None
+                              ) -> tuple[list[str], dict[str, list[dict]] | None]:
+    """カードラッシュの型番の頭の巡回（cardrush_catalog.py）を、カード単位ループの前に実行する。
+
+    戻り値・モードの扱いは _prepare_kanabell_catalog と同じ（on で成立すれば loop_shops からカードラッシュを外し、
+    shadow ならループの後で _compare_catalog_shadow が検索の行と比べる）。
+    CARDRUSH_CATALOG_HEADS が全頭より少ない晩は試し読み: 巡回の統計だけ mode "probe" で残し、matched は None
+    （カードラッシュは従来どおりカード名で探して保存する。on でも同じ）。
+    """
+    mode = mode or CARDRUSH_CATALOG_MODE
+    loop_shops = list(loop_shops)
+    if mode not in ("on", "shadow", "off"):
+        print(f"  ⚠ CARDRUSH_CATALOG_MODE={mode!r} は分からない値です（shadow / on / off）。巡回しません")
+        return loop_shops, None
+    if mode == "off" or CARDRUSH not in available_shops:
+        return loop_shops, None
+    print(f"\n--- カードラッシュ 型番の頭の巡回（{mode}） ---")
+    try:
+        matched, catalog_stats = collect_cardrush_catalog([c["card_name"] for c in selected],
+                                                          heads_limit=CARDRUSH_CATALOG_HEADS)
+    except Exception as e:
+        print(f"  ⚠⚠ カードラッシュ 型番の頭の巡回で予期しない例外: {e}。カードラッシュはカード名で探します")
+        shop_stats[CARDRUSH] = {"ok": 0, "empty": 0, "error": 0, "mode": "error", "exception": str(e)}
+        return loop_shops, None
+    if matched is None and catalog_stats.get("probe"):
+        print(f"  カードラッシュ 型番の頭の試し読み: {catalog_stats['heads_read']}/{catalog_stats['heads']}種・"
+              f"{catalog_stats['pages']}ページ・合計{catalog_stats['page_sec_sum']}秒（遅いページ{catalog_stats['slow_pages']}）")
+        shop_stats[CARDRUSH] = {"ok": 0, "empty": 0, "error": 0, "mode": "probe", "catalog": catalog_stats}
+        return loop_shops, None
+    if matched is None:
+        print("  カードラッシュ 型番の頭の巡回が不成立（取得失敗・読み切れず）。カードラッシュはカード名で探します")
+        shop_stats[CARDRUSH] = {"ok": 0, "empty": 0, "error": 0, "mode": "fallback", "catalog": catalog_stats}
+        return loop_shops, None
+    print(f"  カードラッシュ 型番の頭の巡回: 在庫あり{catalog_stats['listed']}商品・{catalog_stats['pages']}ページ・"
+          f"重複{catalog_stats['duplicates']}・名寄せ{catalog_stats['matched_products']}商品")
+    if mode == "shadow":
+        shop_stats[CARDRUSH] = {"ok": 0, "empty": 0, "error": 0, "mode": "shadow", "catalog": catalog_stats}
+        return loop_shops, matched
+    shop_stats[CARDRUSH] = {"ok": 0, "empty": 0, "error": 0, "mode": "catalog", "catalog": catalog_stats}
+    return [s for s in loop_shops if s != CARDRUSH], matched
+
+
+def _fetch_cardrush_cards_with_rows(sb: Client, days: list[str]) -> set[str] | None:
+    """days（JST の日付）のどれかにカードラッシュの行があったカード名。読めなければ None。
+
+    _cardrush_rest_set の材料。price_history（ビュー）を店と日付で読む。並びは card_id, rarity_id, recorded_at
+    （店を固定すれば一意なので range の境目で行が落ちない・重ならない）。11-01 のカードラッシュは5,170行。"""
+    names: set[str] = set()
+    offset = 0
+    try:
+        while True:
+            resp = (sb.table("price_history").select("card_name")
+                    .eq("shop", CARDRUSH).in_("recorded_at", days)
+                    .order("card_id").order("rarity_id").order("recorded_at")
+                    .range(offset, offset + _PAGE_SIZE - 1).execute())
+            batch = resp.data or []
+            names.update(r["card_name"] for r in batch)
+            if len(batch) < _PAGE_SIZE:
+                return names
+            offset += _PAGE_SIZE
+    except Exception as e:
+        print(f"  ⚠ カードラッシュ 直近の行を読めませんでした: {type(e).__name__}: {e}。今夜は検索を間引きません")
+        return None
+
+
+def _cardrush_rests(card: dict, with_rows: set[str], today: str, rest_days: int) -> bool:
+    """このカードのカードラッシュの検索を今夜は休むか（B1・2026-11-01）。
+
+    休むのは、昨日たしかに集めた（last_collected_at が昨日以降＝昨日の収集で行を保存した）のに、カードラッシュの行が
+    昨日も一昨日も無かったカード（在庫なし・売り切れだけ。保存は売り切れの行を捨てるので、検索しても行は増えない）。
+    そういうカードも rest_days 日に1回は検索する（カード名の crc32 で日をずらして、毎晩の検索の数をならす）。
+    入荷に気づくのは最大 rest_days−1 日遅れる。
+    昨日の収集で処理されなかった（打ち切り）・保存0件だったカードは last_collected_at が古いので休まない。"""
+    if rest_days <= 1 or card["card_name"] in with_rows:
+        return False
+    last = card.get("last_collected_at")
+    yesterday = (datetime.fromisoformat(today).date() - timedelta(days=1)).isoformat()
+    if not last or str(last)[:10] < yesterday:
+        return False
+    day_no = datetime.fromisoformat(today).date().toordinal()
+    return zlib.crc32(card["card_name"].encode("utf-8")) % rest_days != day_no % rest_days
+
+
+def _cardrush_rest_set(sb: Client, selected: list[dict], today: str,
+                       rest_days: int | None = None) -> tuple[set[str], dict]:
+    """今夜カードラッシュの検索を休むカード名と統計（shop_stats["カードラッシュ"]["rest"]）。"""
+    rest_days = CARDRUSH_EMPTY_REST_DAYS if rest_days is None else rest_days
+    stats = {"days": rest_days, "cards": 0, "read_failed": False}
+    if rest_days <= 1:
+        return set(), stats
+    d = datetime.fromisoformat(today).date()
+    with_rows = _fetch_cardrush_cards_with_rows(sb, [(d - timedelta(days=k)).isoformat() for k in (1, 2)])
+    if with_rows is None:
+        stats["read_failed"] = True
+        return set(), stats
+    rest = {c["card_name"] for c in selected if _cardrush_rests(c, with_rows, today, rest_days)}
+    stats["cards"] = len(rest)
+    print(f"  カードラッシュ: 直近2晩に行の無かった {len(rest)}枚は今夜の検索を休みます（{rest_days}日に1回だけ検索）")
+    return rest, stats
+
+
 def _compare_kanabell_shadow(processed: list[dict], matched: dict[str, list[dict]], sink: dict,
                              today: str) -> dict:
-    """mode "shadow": 巡回の行と、同じ晩のループでカード名の検索から得たカーナベルの行を比べる（DB は読まない）。
+    """mode "shadow": カーナベルの巡回の行と検索の行を比べる（_compare_catalog_shadow）。"""
+    return _compare_catalog_shadow(KANABELL, processed, matched, sink, today)
+
+
+def _compare_catalog_shadow(shop: str, processed: list[dict], matched: dict[str, list[dict]], sink: dict,
+                            today: str, in_stock_only: bool = False) -> dict:
+    """mode "shadow": 巡回の行と、同じ晩のループでカード名の検索から得たその店の行を比べる（DB は読まない）。
+    カーナベル・カードラッシュで共有する。in_stock_only=True（カードラッシュ。巡回は在庫ありの範囲だけ読む）の
+    ときは、検索の行も在庫ありだけにして比べる（売り切れの行は保存されないので、比べても意味が無い）。
+
+    以下はカーナベルで書いた説明（カードラッシュも同じ形）。
 
     sink は collect_and_save の kanabell_sink（カード → カーナベルの行、取得に失敗したら None）。取得に失敗した
     カード・ループで処理されなかったカードは比べず数えるだけ。巡回は収集の始め・検索は最大5時間後の値なので、
@@ -482,6 +623,8 @@ def _compare_kanabell_shadow(processed: list[dict], matched: dict[str, list[dict
         # 検索の行は compare_prices の中で OF の印のそろえを通っている。巡回の行も同じに通してから比べる
         # （通さないと OF の商品が「巡回だけ」と「検索だけ」の偽の組になる。11-01 の巡回で79商品名。reviewer 2回目 低1）
         search_rows, cat_rows = sink[name], apply_overframe(matched.get(name, []), None)
+        if in_stock_only:
+            search_rows = [r for r in search_rows if not r.get("sold_out")]
 
         def by_url(rows):
             out: dict[str, dict] = {}
@@ -504,8 +647,8 @@ def _compare_kanabell_shadow(processed: list[dict], matched: dict[str, list[dict
                 stats["products_only_search"] += 1
                 _example("product_only_search", card=name, url=url, name=b["name"], rarity=b["rarity"])
 
-        cat = {r["rarity"]: r for r in build_min_price_rows(name, cat_rows, today) if r["shop"] == KANABELL}
-        srch = {r["rarity"]: r for r in build_min_price_rows(name, search_rows, today) if r["shop"] == KANABELL}
+        cat = {r["rarity"]: r for r in build_min_price_rows(name, cat_rows, today) if r["shop"] == shop}
+        srch = {r["rarity"]: r for r in build_min_price_rows(name, search_rows, today) if r["shop"] == shop}
         for rarity in sorted(set(cat) | set(srch)):
             a, b = cat.get(rarity), srch.get(rarity)
             if a and not b:
@@ -523,7 +666,7 @@ def _compare_kanabell_shadow(processed: list[dict], matched: dict[str, list[dict
             _example(kind, card=name, rarity=rarity,
                      catalog=[a["min_price"], a["min_price_any"]] if a else None,
                      search=[b["min_price"], b["min_price_any"]] if b else None)
-    print(f"  カーナベル 巡回とカード名の検索の比べ: 商品 両方{stats['products_both']}（値の違い"
+    print(f"  {shop} 巡回とカード名の検索の比べ: 商品 両方{stats['products_both']}（値の違い"
           f"{stats['products_value_differ']}）/ 巡回だけ{stats['products_only_catalog']} / 検索だけ"
           f"{stats['products_only_search']}。最安の行 同じ{stats['same']} / 巡回が高い{stats['catalog_higher']} / "
           f"巡回が安い{stats['catalog_lower']} / 上下混在{stats['mixed']} / 巡回だけ{stats['only_catalog']} / "
@@ -674,7 +817,9 @@ def collect_and_save(sb: Client, card_name: str, today: str, shop_names: list[st
                      torecolo_sink: dict | None = None,
                      torecolo_products: list[dict] | None = None,
                      kanabell_products: list[dict] | None = None,
-                     kanabell_sink: dict | None = None) -> int:
+                     kanabell_sink: dict | None = None,
+                     cardrush_products: list[dict] | None = None,
+                     cardrush_sink: dict | None = None) -> int:
     """1枚のカードの価格を取得してSupabaseに保存。保存した行数を返す。
 
     torecolo_sink に dict を渡すと、このカードのトレコロの検索結果（取得に失敗したら None）を残す
@@ -688,6 +833,7 @@ def collect_and_save(sb: Client, card_name: str, today: str, shop_names: list[st
     kanabell_products に list を渡すと（カーナベルの全件巡回の on）、カーナベルは検索せずにこの行を使う
     （torecolo_products と同じ。両方あれば合わせて渡す）。kanabell_sink に dict を渡すと（shadow）、このカードの
     カーナベルの検索の行（取得に失敗したら None）を残す（ループの後で _compare_kanabell_shadow が巡回の行と比べる）。
+    cardrush_products / cardrush_sink はカードラッシュの型番の頭の巡回の on / shadow で、カーナベルと同じ。
 
     shop_stats に dict を渡すと、店舗ごとの 取得成功/0件/取得エラー を集計する。
     「0件＝在庫なし」と「取得失敗（接続エラー・セレクタ破損等）」を区別するため。
@@ -698,8 +844,8 @@ def collect_and_save(sb: Client, card_name: str, today: str, shop_names: list[st
     status: dict = {}
     try:
         extra_results = None
-        if torecolo_products is not None or kanabell_products is not None:
-            extra_results = [*(torecolo_products or []), *(kanabell_products or [])]
+        if torecolo_products is not None or kanabell_products is not None or cardrush_products is not None:
+            extra_results = [*(torecolo_products or []), *(kanabell_products or []), *(cardrush_products or [])]
         results = compare_prices(card_name, shop_names=shop_names, status_out=status,
                                  **({"extra_results": extra_results} if extra_results is not None else {}))
     except Exception as e:
@@ -710,6 +856,8 @@ def collect_and_save(sb: Client, card_name: str, today: str, shop_names: list[st
         status[TORECOLO] = {"count": len(torecolo_products), "fetch_errors": 0}
     if kanabell_products is not None and KANABELL not in status:
         status[KANABELL] = {"count": len(kanabell_products), "fetch_errors": 0}
+    if cardrush_products is not None and CARDRUSH not in status:
+        status[CARDRUSH] = {"count": len(cardrush_products), "fetch_errors": 0}
 
     # カードラボのカタログ巡回（後で別に保存する）の OF の判定に使う。保存できなかった（ほかの店が全部売り切れ等）
     # カードでも残す。早く return すると、その夜だけカードラボの行が寄らず札が揺れる（10-30 reviewer 指摘）
@@ -736,6 +884,12 @@ def collect_and_save(sb: Client, card_name: str, today: str, shop_names: list[st
         kanabell_failed = (not st) or bool(st.get("exception")) or st.get("fetch_errors", 0) > 0
         kanabell_sink[card_name] = None if kanabell_failed else [
             r for r in (results or []) if r.get("shop") == KANABELL]
+
+    if cardrush_sink is not None and CARDRUSH in shop_names:
+        st = status.get(CARDRUSH) or {}
+        cardrush_failed = (not st) or bool(st.get("exception")) or st.get("fetch_errors", 0) > 0
+        cardrush_sink[card_name] = None if cardrush_failed else [
+            r for r in (results or []) if r.get("shop") == CARDRUSH]
 
     if torecolo_sink is not None and TORECOLO in shop_names:
         st = status.get(TORECOLO) or {}
@@ -1265,6 +1419,11 @@ def send_daily_report(
         if kana_stat.get("mode") in ("fallback", "error"):
             shop_block += (f"警告: カーナベル 全件巡回が{'不成立' if kana_stat['mode'] == 'fallback' else '例外'}"
                            "のため、カード名の検索に戻しました\n")
+        # カードラッシュの型番の頭の巡回も同じ（試し読みの晩は "probe" で知らせない）
+        rush_stat = shop_stats.get(CARDRUSH, {})
+        if rush_stat.get("mode") in ("fallback", "error"):
+            shop_block += (f"警告: カードラッシュ 型番の頭の巡回が{'不成立' if rush_stat['mode'] == 'fallback' else '例外'}"
+                           "のため、カード名の検索に戻しました\n")
 
         # トレコロの在庫一覧の巡回（on）で、読み落としの検索し直しが効いていない晩を知らせる
         tore_stat = shop_stats.get(TORECOLO, {})
@@ -1593,6 +1752,18 @@ def _main(state: dict):
         selected, loop_shops, available_shops, shop_stats
     )
     kanabell_on = kanabell_matched is not None and KANABELL not in loop_shops
+    # カードラッシュ: 型番の頭の巡回（cardrush_catalog.py）。"on" で成立すれば loop_shops からカードラッシュを外す
+    loop_shops, cardrush_matched = _prepare_cardrush_catalog(
+        selected, loop_shops, available_shops, shop_stats
+    )
+    cardrush_on = cardrush_matched is not None and CARDRUSH not in loop_shops
+    cardrush_sink: dict | None = {} if (cardrush_matched is not None and CARDRUSH in loop_shops) else None
+    # カードラッシュの検索をする晩だけ、直近2晩に行の無かったカードの検索を間引く（店への取得を減らす）
+    cardrush_rest: set[str] = set()
+    if CARDRUSH in loop_shops:
+        cardrush_rest, rest_stats = _cardrush_rest_set(sb, selected, today)
+        # 間引いた数は "skipped" に入れない（check_collection が「連続失敗で問い合わせを止めた」と読む鍵）
+        shop_stats.setdefault(CARDRUSH, {"ok": 0, "empty": 0, "error": 0})["rest"] = rest_stats
     # shadow のとき、ループでカード名の検索から得たカーナベルの行を残す（ループの後で巡回の行と比べる）
     kanabell_sink: dict | None = {} if (kanabell_matched is not None and KANABELL in loop_shops) else None
     # カタログ巡回が成立したときだけ、ループ側の絵の判定をカードごとに残してカタログの保存へ渡す
@@ -1624,7 +1795,7 @@ def _main(state: dict):
     # 既に巡回済みのカタログ結果（最大2万件）を失わずに保存する。例外自体は
     # finally 実行後に再送出される（catch はしない）
     try:
-        if not loop_shops and not torecolo_on and not kanabell_on:
+        if not loop_shops and not torecolo_on and not kanabell_on and not cardrush_on:
             # loop_shops が空＝カタログ巡回でカードラボが外れ、かつ他店が全滅した晩。
             # scraper.compare_prices 側でも空リストはDEFAULT_SHOPSへフォールバックしない
             # よう塞いだが（reviewer中1）、2,700枚ぶんの空スクレイプ＋待機を毎回
@@ -1665,6 +1836,12 @@ def _main(state: dict):
                     extra["kanabell_products"] = kanabell_matched.get(card_name, [])
                 if kanabell_sink is not None:
                     extra["kanabell_sink"] = kanabell_sink
+                if card_name in cardrush_rest:
+                    card_shops = [s for s in card_shops if s != CARDRUSH]
+                if cardrush_on:
+                    extra["cardrush_products"] = cardrush_matched.get(card_name, [])
+                if cardrush_sink is not None:
+                    extra["cardrush_sink"] = cardrush_sink
                 saved = 0
                 try:
                     saved = collect_and_save(sb, card_name, today, card_shops,
@@ -1725,6 +1902,13 @@ def _main(state: dict):
                     selected[:loop_end_index], kanabell_matched, kanabell_sink, today)
             except Exception as e:
                 print(f"  カーナベル 巡回とカード名の検索の比べに失敗: {e}")
+        if cardrush_sink is not None and db_abort is None:
+            # shadow: カードラッシュも同じ。保存はカード名の検索の側で、比べに失敗しても収集は続ける
+            try:
+                shop_stats.setdefault(CARDRUSH, {})["shadow"] = _compare_catalog_shadow(
+                    CARDRUSH, selected[:loop_end_index], cardrush_matched, cardrush_sink, today, in_stock_only=True)
+            except Exception as e:
+                print(f"  カードラッシュ 巡回とカード名の検索の比べに失敗: {e}")
 
     if db_abort is not None:
         # 古いデータの掃除・日次レポートは DB への問い合わせを重ねるので行わない
