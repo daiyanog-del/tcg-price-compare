@@ -4,10 +4,11 @@
 -- 背景: Supabase 無料枠（500MB）に対し DB 846MB。price_history_v2 だけで 608MB（90日・約317万行）。
 --   90日分を読むのは相場グラフ（/api/price-history → price-trend.js）と汎用カードX投稿
 --   （staple_post.fetch_history）だけで、どちらも「日×レアリティごとの全店最安」しか使わない。
---   店舗別の値を読む機能（値動き・購入候補・新弾マトリクス等）は最長30日。
+--   店舗別の値を読む機能（値動き・購入候補・新弾マトリクス等）は最長30日（2026-11-01 から最長15日）。
 -- 方針: 店舗別の行（price_history_v2）は30日、31〜100日は「日×カード×レアリティの最安」だけを
 --   price_daily_min に畳んで残す（実測 10-20: 店舗別 35,974行 → 9,730組＝約1/3.7）。
---   毎晩 collect_prices.rollup_and_delete_old_prices が、30日より前に残っている日を古い順に1日ずつ
+--   2026-11-01 に店舗別の保持を14日に縮めた（constants.PRICE_RETENTION_DAYS。15〜100日を畳む。docs/decisions.md 同日）。
+--   毎晩 collect_prices.rollup_and_delete_old_prices が、保持日数より前に残っている日を古い順に1日ずつ
 --   rollup_price_daily で畳み、成功した日だけ price_history_v2 から消す（1晩3日まで。畳む前に消すと
 --   履歴が失われるため）。失敗や追いつけないときは Discord に知らせる。
 -- 読み手: price_daily ビュー（card_name/rarity/shop の文字列で price_history と同じ形）。

@@ -16,8 +16,10 @@ PRICE_FLOOR = 10
 JST = timezone(timedelta(hours=9))
 
 # 保持期間（日数）。2026-10-22 DB容量（無料枠500MB）対策で表ごとに分けた（docs/decisions.md 同日）
-# 販売価格の店舗別の行（price_history_v2）。値動き・購入候補など店舗別の値を読む機能は最長30日
-PRICE_RETENTION_DAYS = 30
+# 販売価格の店舗別の行（price_history_v2）。値動き・購入候補など店舗別の値を読む機能は最長8日。
+# 2026-11-01 に30日→14日（DB のメモリに収まらず Disk IO を使い切って止まったため。docs/decisions.md 同日）。
+# 15日目以前を読む相場グラフ・汎用カードX投稿・購入候補の予備は日ごとの全店最安（price_daily）から読む
+PRICE_RETENTION_DAYS = 14
 # 販売価格の「日×カード×レアリティの全店最安」（price_daily_min）。相場グラフと汎用カードX投稿が読む
 PRICE_DAILY_RETENTION_DAYS = 100
 # 買取価格（buyback_history）。読むのは買取の値動き（3日）と収集の見張り（15日）だけ

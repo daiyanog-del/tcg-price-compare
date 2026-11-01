@@ -41,8 +41,8 @@ def row(card, shop, price, date, rarity="ノーマル"):
 def client(monkeypatch):
     import app as app_module
 
-    def _make(rows, card_names):
-        monkeypatch.setattr(app_module, "_supabase_client", _FakeClient(rows))
+    def _make(rows, card_names, daily_rows=None):
+        monkeypatch.setattr(app_module, "_supabase_client", _FakeClient(rows, daily_rows))
         monkeypatch.setattr(app_module, "_load_cardnames", lambda: None)
         monkeypatch.setattr(app_module, "_correct_cardname", lambda n: n)
         monkeypatch.setattr(app_module, "_ygores_image_url", lambda n: None)
@@ -147,6 +147,10 @@ class _FailingQuery(_FakeQuery):
         if self._table == "card_dim":
             self._calls.append(sorted(self._filters["card_name"]))
             key = None
+        elif self._table != "price_history":
+            id_to_name = {v: k for k, v in self._ids.items()}
+            self._calls.append(sorted(id_to_name[i] for i in self._filters.get("card_id", set())))
+            key = None
         else:
             id_to_name = {v: k for k, v in self._ids.items()}
             key = next(iter(self._filters["recorded_at"]))
@@ -245,6 +249,26 @@ class TestReadFailureIsNotNoPrice:
         info = _by_name(c.post("/api/wish-prices", json={"cards": ["新カード"]}).get_json())["新カード"]
         assert info["status"] == "error"
 
+    def test_failed_daily_min_read_is_error_not_pending(self, failing_client):
+        # 日ごとの最安の読み込みに失敗したら、そのカードは「まだ集めていない」ではなく失敗
+        c, fake = failing_client([], {"price_daily_min": [RuntimeError("boom")]}, ["新カード"], cached=[])
+        info = _by_name(c.post("/api/wish-prices", json={"cards": ["新カード"]}).get_json())["新カード"]
+        assert info["status"] == "error"
+        assert fake.calls["price_daily_min"] == [["新カード"]]
+
+    def test_failed_rarity_names_read_is_error_not_pending(self, failing_client):
+        # レアリティの名簿が読めなければ、日ごとの最安を読むカードは失敗（「まだ集めていない」にしない）
+        c, _ = failing_client([], {"rarity_dim": [RuntimeError("boom")]}, ["新カード"], cached=[])
+        info = _by_name(c.post("/api/wish-prices", json={"cards": ["新カード"]}).get_json())["新カード"]
+        assert info["status"] == "error"
+
+    def test_daily_min_connection_terminated_is_retried_once(self, failing_client):
+        import httpx
+        c, fake = failing_client([], {"price_daily_min": [httpx.RemoteProtocolError("x")]}, ["新カード"], cached=[])
+        info = _by_name(c.post("/api/wish-prices", json={"cards": ["新カード"]}).get_json())["新カード"]
+        assert info["status"] == "pending", "再試行で読めた（行は無い）"
+        assert len(fake.calls["price_daily_min"]) == 2
+
     def test_later_day_failure_discards_the_days_already_read(self, failing_client):
         # どれか1日で失敗したら、他の日に読めた行も捨てて error（半端な日付で最安・値動きを出さない）
         rows = [row("カードA", "店舗A", 1000, OLD), row("カードA", "店舗A", 900, NEW)]
@@ -295,15 +319,56 @@ class TestReadsByCardIdAndDayEquality:
             assert f["card_id"] == {1}
             assert orders == ["card_id", "shop_id", "rarity_id"]
 
-    def test_fallback_window_is_thirty_days(self, client):
+    def test_fallback_window_is_store_retention_days(self, client):
+        # estimate_cache に無いカードは、店舗別の行が残る期間（PRICE_RETENTION_DAYS 日）を1日ずつ読み直す
         import app as app_module
-        rows = [row("新カード", "店舗A", 700, (_TODAY - timedelta(days=20)).isoformat())]
-        c = client(rows, [])  # estimate_cache に無い → 30日窓
+        from constants import PRICE_RETENTION_DAYS
+        rows = [row("新カード", "店舗A", 700, (_TODAY - timedelta(days=PRICE_RETENTION_DAYS + 1)).isoformat())]
+        c = client(rows, [])
         info = _by_name(c.post("/api/wish-prices", json={"cards": ["新カード"]}).get_json())["新カード"]
         assert info["status"] == "ready"
-        assert info["latest"] == 700
+        assert info["latest"] == 700, "毎朝の畳み込みまで店舗別にしか無い PRICE_RETENTION_DAYS+1 日前の日も読む"
         ph = [x for x in app_module._supabase_client.log if x[0] == "price_history"]
-        assert len(ph) == 31
+        assert len(ph) == PRICE_RETENTION_DAYS + 2
+        assert not [x for x in app_module._supabase_client.log if x[0] == "price_daily_min"], "店舗別で見つかれば日ごとの表は読まない"
+
+    def test_older_price_comes_from_daily_min_without_change(self, client):
+        # 店舗別の行が消えた古い日（15〜30日前）の値段は、日ごとの全店最安（price_daily）から出す。値動きは出さない
+        d20 = (_TODAY - timedelta(days=20)).isoformat()
+        d18 = (_TODAY - timedelta(days=18)).isoformat()
+        daily = [row("新カード", "店舗A", 800, d20), row("新カード", "店舗B", 650, d18),
+                 row("新カード", "店舗C", 9000, d18, rarity="シークレット")]
+        c = client([], [], daily_rows=daily)
+        info = _by_name(c.post("/api/wish-prices", json={"cards": ["新カード"]}).get_json())["新カード"]
+        assert info["status"] == "ready"
+        assert info["latest"] == 650, "最新日の代表レアリティ（最安）の全店最安"
+        assert info["diff"] is None and info["pct"] is None and info["base_7d"] is None
+
+    def test_daily_min_day_only_at_suspended_shop_is_skipped(self, client, monkeypatch):
+        # 最安の店が休止中だけの日は使わない（店舗別の読み出しが休止中の店を外すのと同じ。次に安い店は畳んだ表に無い）
+        import price_history_reads
+        monkeypatch.setattr(price_history_reads, "is_suspended", lambda s: s == "休止店")
+        d20 = (_TODAY - timedelta(days=20)).isoformat()
+        d18 = (_TODAY - timedelta(days=18)).isoformat()
+        daily = [row("新カード", "店舗A", 800, d20), row("新カード", "休止店", 500, d18), row("新カード", "店舗A", 900, d18)]
+        c = client([], [], daily_rows=daily)
+        info = _by_name(c.post("/api/wish-prices", json={"cards": ["新カード"]}).get_json())["新カード"]
+        assert info["latest"] == 800, "休止店だけが最安の 18日前は捨て、20日前の値を出す"
+
+    def test_daily_min_uses_price_floor_like_store_rows(self, client):
+        # 10円未満の店がある日も、店舗別の読み出しと同じく10円以上の最安を出す（日を丸ごと捨てない）
+        d18 = (_TODAY - timedelta(days=18)).isoformat()
+        c = client([], [], daily_rows=[row("新カード", "店舗A", 5, d18), row("新カード", "店舗B", 300, d18)])
+        info = _by_name(c.post("/api/wish-prices", json={"cards": ["新カード"]}).get_json())["新カード"]
+        assert info["status"] == "ready"
+        assert info["latest"] == 300
+
+    def test_daily_min_beyond_fallback_window_is_ignored(self, client):
+        # WISH_FALLBACK_DAYS（30日）より前の日ごとの最安は使わない（今までの30日窓と同じ）
+        old = (_TODAY - timedelta(days=45)).isoformat()
+        c = client([], [], daily_rows=[row("新カード", "店舗A", 800, old)])
+        info = _by_name(c.post("/api/wish-prices", json={"cards": ["新カード"]}).get_json())["新カード"]
+        assert info["status"] == "pending"
 
     def test_day_over_1000_rows_is_paged_without_gaps(self, client):
         # 1日で1000行を超えたら range で次のページを読む（境目で行が落ちない）。最安の1行を最後に置く
